@@ -163,7 +163,7 @@ func objectFilter(r *http.Request) (domain.ObjectFilter, error) {
 	f.Statuses = p.csv("status")
 	f.Priorities = p.csv("priority")
 	f.Tags = p.multi("tag")
-	f.Owner = p.str("owner")
+	f.OwnerID = p.str("owner_id")
 	f.ProjectID = p.str("project")
 	f.Query = p.str("q")
 

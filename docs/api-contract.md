@@ -145,6 +145,42 @@
 | GET | `/api/dict-items/{id}/usage` | 引用计数，删除前的确认依据 |
 | POST | `/api/dictionaries/{id}/items/reorder` | `{type_id?, ids: string[]}` |
 
+## 干系人名册 stakeholders
+
+负责人与参与人都指向这里。0010 之前 `objects.owner` 是自由文本，库里出现过
+「宋一杰、李钊、振华」三个人挤在一个字段的值——没法筛选、没法统计、改名要全表替换。
+
+一个对象**一个负责人 + 若干参与人**：一件事必须有唯一一个人对结果负责，
+否则「这事该找谁」没有答案；参与人表达「还有谁在这件事里」，信息不丢但不承担「找谁」的语义。
+
+| 方法 | 路径 | body / 说明 |
+|---|---|---|
+| GET | `/api/stakeholders?archived=true` | 默认只回在岗的；`archived=true` 才带上已归档的（名册管理页用）。每条带 `owned_count` / `participating_count` |
+| POST | `/api/stakeholders` | `{name,role?,email?,note?,color?,sort_order?}`，`name` 必填且**全局唯一** |
+| PATCH | `/api/stakeholders/{id}` | `StakeholderPatch`，含 `archived`（归档/复岗） |
+| DELETE | `/api/stakeholders/{id}` | 仅在零引用时允许；有引用返回 409，改走归档 |
+
+**两个计数口径是不同的，不要合并：**
+
+- `owned_count` / `participating_count` 是「他手上有多少事」，**排除回收站**里的软删对象。
+- `DELETE` 的引用检查**算上**软删对象。`owner_id` 是 `ON DELETE SET NULL`——人删掉之后，
+  那条对象从回收站恢复回来负责人就没了，**而这个丢失不报错**。
+
+**MCP（`cmd/pmw-mcp`）这一层收的是人名，不是 id**，内部再换成 `owner_id`。调用方是模型，
+它手上有「李钊」没有 `stk_xxx`，强行要 id 只会逼出「先查一次再调一次」，而中间那步经常被省掉。
+
+这里有一个必须守住的点，任何「名字解析失败就回退成空串」的实现都会踩：
+**`owner_id` 传空串的语义是「清空负责人」。**把一个打错的名字变成空串，
+结果是把别人的负责人抹掉，而调用方以为改成功了。名字查不到必须**报错**，
+错误里列出现有名字（`pmw_list_stakeholders` 也能查）。
+
+`objects.owner` 这一列**保留但只读**：迁移是单向的，留着原文本是兜底；
+`owner_id` 为空而 `owner` 非空时，界面回退显示这段文本。新写入一律只写 `owner_id`。
+
+工作对象上的相关字段：`GET` 回 `owner_id` / `owner_name` / `participants[]`；
+`PATCH` 收 `owner_id`（空串 = 清空）与 `participant_ids`（**全量替换**：省略 = 不改，`[]` = 清空）。
+列表 query 用 `owner_id` 筛负责人——原来的 `owner` 文本匹配已移除，一个语义只留一个定义。
+
 ## Agent 供应商 agent-providers
 
 | 方法 | 路径 | body / 说明 |
@@ -167,7 +203,25 @@
 | GET | `/api/agent/sessions/{id}/messages` | `AgentMessage[]`，**按时间正序**（最旧在前） |
 | GET | `/api/agent/sessions/{id}/artifacts` | `AgentArtifact[]` |
 | POST | `/api/agent/workdir/check` | `{path}`，校验产物目录是否存在且可写 |
-| POST | `/api/agent/chat` | `{session_id?,provider_id?,model?,workdir?,message}`，**SSE 流式响应**，见下 |
+| POST | `/api/agent/chat` | `{session_id?,provider_id?,model?,workdir?,object_id?,message}`，**SSE 流式响应**，见下 |
+
+`/api/agent/chat` 的 SSE 事件在 `delta` / `tool_call` / `tool_result` / `artifact` / `done` / `error`
+之外多一种 **`question`**——Agent 遇到拿不准的地方时反问用户，而不是自己猜一个答案继续做：
+
+```json
+{"type":"question","id":"q_...","question":"这个需求要不要拆成独立任务？",
+ "options":[{"label":"拆成三个任务","detail":"按前端/后端/联调拆"},{"label":"先不拆","detail":"作为一个整体推进"}],
+ "multi":false}
+```
+
+`object_id` 是「用户此刻打开的是哪个工作对象」。它不是给模型省一次查询——
+没有它，用户说「这个需求怎么推进」时模型只能猜或者反问，而「任务详情里的助手」
+这个场景下用户几乎不会报编号。后端把它注入系统提示词（「用户当前打开的是 REQ-0012」），
+模型仍然通过 `get_object` 工具去取正文，指代和取数是两件事。
+
+发出 `question` 后**本轮就结束**（后面跟 `done`），流不会挂在那里等。
+用户的回答走下一条普通 `POST /api/agent/chat` 消息，没有单独的应答接口——
+这样即使前端没渲染成按钮，问题也仍然是一段看得懂的文字，回答仍然是一句普通的话。
 
 `/api/agent/chat` 与 `/api/objects/{id}/run` 都是 SSE，而 `EventSource` 只能发 GET、带不了 body，
 前端一律用 `fetch` + `ReadableStream` 自己按空行切块。

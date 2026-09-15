@@ -11,8 +11,9 @@ import (
 	"time"
 )
 
-// dist 由 web/ 的 vite build 产出（outDir 指向这里）。仓库里只留一个占位 index.html，
-// 因为 //go:embed 找不到目录会直接编译失败。
+// dist 由 web/ 的 vite build 产出（outDir 指向这里）。仓库里只留一个空的 .gitkeep，
+// 因为 //go:embed 找不到目录会直接编译失败。构建产物本身不入库——
+// 没构建过的克隆跑起来会走 serveIndex 的那条「前端尚未构建」分支。
 //
 //go:embed all:dist
 var dist embed.FS

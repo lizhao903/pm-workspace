@@ -930,6 +930,70 @@
   font-size: var(--fs-xs);
 }
 
+/* ------------------------------------------------------ 干系人选择器 */
+
+/* 头像的颜色是名册数据而非主题 token，底色与描边在组件里用 color-mix 从同一个值推导 */
+.sh-avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid transparent;
+  border-radius: 50%;
+  font-weight: 600;
+  line-height: 1;
+  flex: none;
+  user-select: none;
+}
+
+.sh-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 160px;
+  padding: 1px 4px 1px 2px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--panel-soft);
+  font-size: var(--fs-xs);
+}
+
+.sh-chip-x {
+  border: 0;
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+  padding: 0 2px;
+  line-height: 1;
+  font-size: var(--fs-sm);
+  flex: none;
+}
+
+.sh-chip-x:hover {
+  color: var(--danger);
+}
+
+.sh-pick {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.sh-pick-list {
+  max-height: 200px;
+  overflow: auto;
+}
+
+/* 打勾的位置恒定占一格，否则勾选时整行的名字会横跳 */
+.sh-tick {
+  width: 10px;
+  flex: none;
+  color: var(--accent);
+}
+
+.sh-pick-clear {
+  align-self: flex-start;
+}
+
 /* ------------------------------------------------------------ 响应式 */
 
 @media (max-width: 1100px) {
@@ -940,4 +1004,96 @@
   .v-cell-links {
     display: none;
   }
+}
+
+/* -------------------------------------------------- 行内联编辑（单元格） */
+
+/* 触发器要长得像「值」，不像按钮：平时看不出控件感，悬停才露出可点的提示。
+   三列都描成按钮的话，一屏 200 个框，列表就没法读了。 */
+.v-inline-wrap {
+  display: flex;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.v-inline-wrap .v-pop-wrap {
+  flex: 1;
+  min-width: 0;
+}
+
+.v-inline {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+  min-width: 0;
+  min-height: 20px;
+  border: 1px solid transparent;
+  border-radius: var(--r-sm);
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  /* 负外边距抵消 padding：加上可点区域之后，值本身仍停在原来的位置上，
+     不然开启内联编辑会让整个列表的三列集体位移 2px */
+  padding: 2px 4px;
+  margin: -2px -4px;
+  cursor: pointer;
+}
+
+.v-inline:hover,
+.v-inline[aria-expanded='true'] {
+  background: var(--panel-soft);
+  border-color: var(--line);
+}
+
+.v-inline[aria-expanded='true'] {
+  border-color: var(--accent);
+}
+
+.v-inline:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* 提交中：压暗表示「还没落地」，同时 disabled 挡住连点 */
+.v-inline-busy {
+  opacity: 0.5;
+  cursor: progress;
+}
+
+/* 回收站这类不可改的场合：退回纯展示，不留可点的假象 */
+.v-inline-static {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.v-inline-hint {
+  font-size: var(--fs-xs);
+  margin-left: auto;
+  flex: none;
+}
+
+.v-inline-owner {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+/* 名册可能有几十人，列表自己滚，搜索框始终留在上面 */
+.v-inline-owner-list {
+  max-height: 220px;
+  overflow: auto;
+}
+
+.v-inline-owner-name {
+  min-width: 0;
+}
+
+/* 表格的列宽由内容撑开，而内联触发器的 min-width:0 等于告诉浏览器「这列压到 0 也行」，
+   结果是「负责人」被压成一个字。列表视图是固定网格，没有这个问题。 */
+.v-table .v-inline-wrap {
+  min-width: 80px;
 }

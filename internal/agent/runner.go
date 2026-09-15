@@ -25,6 +25,52 @@ type StreamEvent struct {
 	SessionID string `json:"session_id,omitempty"`
 	MessageID string `json:"message_id,omitempty"`
 	Message   string `json:"message,omitempty"`
+
+	// 以下三个只有 question 事件会填。
+	ID       string           `json:"id,omitempty"`
+	Question string           `json:"question,omitempty"`
+	Options  []QuestionOption `json:"options,omitempty"`
+	// Multi 用指针的理由和 Size 一样，但更要命：multi=false 是「单选」这条实打实的信息，
+	// 用值加 omitempty 会把它整个丢掉，前端读到 undefined——而契约里 multi 是必填的。
+	Multi *bool `json:"multi,omitempty"`
+}
+
+// QuestionOption 是一个备选答案。Detail 不是可选的摆设：
+// 只有 label 的选项等于让用户猜「选这个会怎样」，校验在 parseOptions 里卡死。
+type QuestionOption struct {
+	Label  string `json:"label"`
+	Detail string `json:"detail"`
+}
+
+// Question 是 ask_user 解析后的一次提问，一对一映射成一条 question 事件。
+type Question struct {
+	ID       string
+	Question string
+	Options  []QuestionOption
+	Multi    bool
+}
+
+// toolAskUser 单独起个常量：Runner 要按名字把它和普通工具区别对待
+// （不发 tool_call、不落 tool 消息、发完就收工），字面量散在两处容易改漏一处。
+const toolAskUser = "ask_user"
+
+// renderQuestion 把一次提问转成人读得懂的一段话。
+//
+// 它有两个去处，缺一不可：落库的 assistant 消息（历史回放时前端只有纯文本，
+// question 事件早就不在了），以及模型自己的上下文（下一轮它得知道自己问过什么）。
+// 顺带还兜住了「前端没把它渲染成按钮」——那时用户看到的仍然是一段看得懂的问题。
+func renderQuestion(q *Question) string {
+	var b strings.Builder
+	b.WriteString("【需要你确认】")
+	b.WriteString(q.Question)
+	if q.Multi {
+		b.WriteString("（可多选）")
+	}
+	b.WriteString("\n")
+	for _, o := range q.Options {
+		fmt.Fprintf(&b, "- %s：%s\n", o.Label, o.Detail)
+	}
+	return b.String()
 }
 
 // maxTurns 限制「模型说话 → 调工具 → 再说话」的往返轮数。
@@ -110,10 +156,33 @@ func (r *Runner) Run(ctx context.Context, userText string, emit func(StreamEvent
 			finalText.WriteString("\n")
 		}
 
+		asked := false
 		for _, call := range calls {
-			emit(StreamEvent{Type: "tool_call", Name: call.Name, Args: call.Args})
+			// ask_user 不走 tool_call：它不是一次数据操作，界面上该出现的是一张问题卡，
+			// 不是「正在 ask_user…」那一行转圈后面再跟一张写着「已提问」的工具卡。
+			if call.Name != toolAskUser {
+				emit(StreamEvent{Type: "tool_call", Name: call.Name, Args: call.Args})
+			}
 
 			res := tb.Invoke(ctx, call)
+
+			if q := res.Question; q != nil {
+				asked = true
+				emit(StreamEvent{
+					Type: "question", ID: q.ID, Question: q.Question,
+					Options: q.Options, Multi: &q.Multi,
+				})
+				// 问题文本并进最终回复，但**不**落 tool 消息：两边都记的话，
+				// 历史回放时同一个问题会出现两遍。
+				finalText.WriteString(renderQuestion(q))
+				msgs = append(msgs, Message{
+					Role:       domain.RoleTool,
+					Content:    res.Content,
+					ToolCallID: call.ID,
+					ToolName:   call.Name,
+				})
+				continue
+			}
 
 			// 工具调用连同参数一起落库，界面据此回放「Agent 当时做了什么」。
 			if _, err := r.Store.AppendAgentMessage(ctx, &domain.AgentMessage{
@@ -141,6 +210,12 @@ func (r *Runner) Run(ctx context.Context, userText string, emit func(StreamEvent
 				ToolCallID: call.ID,
 				ToolName:   call.Name,
 			})
+		}
+
+		// 问出口了就收工。不在这里等回答是有意的：答案走用户的下一条普通消息，
+		// 流挂着等的话，用户切个页面或者关掉抽屉，这个连接就永远悬在那里了。
+		if asked {
+			break
 		}
 
 		// 轮数用尽仍在调工具：告诉模型别再调了，让它用已有结果收个尾。

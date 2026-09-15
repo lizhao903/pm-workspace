@@ -5,9 +5,14 @@
 /bin/
 /web/node_modules/
 # 前端构建产物不入库，但 //go:embed all:dist 要求目录至少有一个文件，
-# 所以保留占位 index.html，否则新克隆直接 go build 会编译失败。
+# 所以留一个 .gitkeep（all: 前缀会把点开头的文件也嵌进去），否则新克隆 go build 编译失败。
+#
+# 不留 index.html：vite 每次构建都会重写它，里面引用的是带 hash 的 assets 文件名，
+# 而那些文件本身不入库。提交它等于在仓库里放一个指向不存在资源的页面——
+# 新克隆 go build 会成功，跑起来却是白屏，而「构建通过」看上去一切正常。
+# 现在没有 index.html 时 webui 会回一句「前端尚未构建，执行 make web」，是句实话。
 /internal/webui/dist/*
-!/internal/webui/dist/index.html
+!/internal/webui/dist/.gitkeep
 .DS_Store
 /logs/
 # TLS 证书与私钥（scripts/setup-tls.sh 生成）。私钥绝不入库，

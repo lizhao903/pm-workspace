@@ -67,14 +67,18 @@ type CategoryPatch struct {
 
 // Object 是统一的工作对象（单表多态），type_id 决定它是需求还是待办。
 type Object struct {
-	ID         string         `json:"id"`
-	TypeID     string         `json:"type_id"`
-	Ref        string         `json:"ref"`
-	Title      string         `json:"title"`
-	Body       string         `json:"body"`
-	Status     string         `json:"status"`
-	Priority   string         `json:"priority"`
+	ID       string `json:"id"`
+	TypeID   string `json:"type_id"`
+	Ref      string `json:"ref"`
+	Title    string `json:"title"`
+	Body     string `json:"body"`
+	Status   string `json:"status"`
+	Priority string `json:"priority"`
+	// Owner 是 0010 之前的自由文本负责人，**只读**。新写入一律走 OwnerID。
+	// 留着它有两个用处：迁移判断错了还能对着原始值改；OwnerID 为空而它非空时，
+	// 界面仍显示得出个人名来，不会因为漏迁某条就变成一片空白。
 	Owner      string         `json:"owner"`
+	OwnerID    *string        `json:"owner_id"`
 	CategoryID *string        `json:"category_id"`
 	ProjectID  *string        `json:"project_id"`
 	Source     string         `json:"source"`
@@ -98,18 +102,69 @@ type Object struct {
 	CategoryColor string   `json:"category_color,omitempty"`
 	ProjectTitle  string   `json:"project_title,omitempty"`
 	LinkCount     int      `json:"link_count"`
+	// OwnerName 是 OwnerID 指向的干系人名字；OwnerID 为空时回退到 Owner 文本。
+	// 列表要显示人名，而按 id 逐行回查是 N+1——这个字段由 store 一次 JOIN 填好。
+	OwnerName string `json:"owner_name,omitempty"`
+	// Participants 只带渲染需要的三个字段。列表里一行可能有好几个参与人，
+	// 每个都带上 email/note/时间戳的话，一次 50 行的查询会凭空多搬几十 KB。
+	Participants []StakeholderRef `json:"participants"`
+}
+
+// StakeholderRef 是干系人的展示投影：够画一个头像加一个名字，仅此而已。
+type StakeholderRef struct {
+	ID    string `json:"id"`
+	Name  string `json:"name"`
+	Color string `json:"color"`
+}
+
+// Stakeholder 是干系人名册里的一个人。
+//
+// 没有软删列，只有 ArchivedAt——和 DictItem 同一个道理：人一旦被历史对象引用过，
+// 删掉就会在列表里留下一个查不出来源的空位。离职的人归档即可。
+type Stakeholder struct {
+	ID         string     `json:"id"`
+	Name       string     `json:"name"`
+	Role       string     `json:"role"`
+	Email      string     `json:"email"`
+	Note       string     `json:"note"`
+	Color      string     `json:"color"`
+	SortOrder  int        `json:"sort_order"`
+	ArchivedAt *time.Time `json:"archived_at"`
+	CreatedAt  time.Time  `json:"created_at"`
+	UpdatedAt  time.Time  `json:"updated_at"`
+
+	// 以下为查询时填充的展示字段，不落 stakeholders 表。
+	// OwnedCount / ParticipatingCount 是删除前的确认依据，也是名册页上的「他手上有多少事」。
+	OwnedCount         int `json:"owned_count"`
+	ParticipatingCount int `json:"participating_count"`
+}
+
+type StakeholderPatch struct {
+	Name      *string `json:"name"`
+	Role      *string `json:"role"`
+	Email     *string `json:"email"`
+	Note      *string `json:"note"`
+	Color     *string `json:"color"`
+	SortOrder *int    `json:"sort_order"`
+	Archived  *bool   `json:"archived"`
 }
 
 type ObjectPatch struct {
-	Title      *string         `json:"title"`
-	Body       *string         `json:"body"`
-	Status     *string         `json:"status"`
-	Priority   *string         `json:"priority"`
-	Owner      *string         `json:"owner"`
-	CategoryID **string        `json:"category_id"` // 双指针：区分「不改」与「置空」
-	ProjectID  **string        `json:"project_id"`
-	Source     *string         `json:"source"`
-	Props      *map[string]any `json:"props"`
+	Title    *string `json:"title"`
+	Body     *string `json:"body"`
+	Status   *string `json:"status"`
+	Priority *string `json:"priority"`
+	// OwnerID 单指针即可：空串就是「没有负责人」的合法取值，store 落库时写 NULL。
+	// 不用双指针是因为 owner_id 没有「空串」和「未设置」的语义差别——
+	// 和 CategoryID 不同，那边的 "" 是个非法 id，必须靠 null 才能表达「清空」。
+	OwnerID *string `json:"owner_id"`
+	// ParticipantIDs 是全量替换，不是增量：nil = 不改，空切片 = 清空。
+	// 增量语义（add/remove）在 PATCH 上表达不了「删到一个不剩」和「没提这个字段」的差别。
+	ParticipantIDs *[]string       `json:"participant_ids"`
+	CategoryID     **string        `json:"category_id"` // 双指针：区分「不改」与「置空」
+	ProjectID      **string        `json:"project_id"`
+	Source         *string         `json:"source"`
+	Props          *map[string]any `json:"props"`
 	// Workdir 单指针即可：空串本身就是「没有工作区」的合法取值，不需要区分 null 和 ""。
 	Workdir  *string     `json:"workdir"`
 	DueAt    **time.Time `json:"due_at"`
@@ -126,9 +181,12 @@ type ObjectFilter struct {
 	Statuses        []string
 	Priorities      []string
 	Tags            []string
-	Owner           string
-	ProjectID       string
-	Query           string // 标题/正文 LIKE，M3 换 FTS5
+	// OwnerID 取代了 0010 之前的 Owner 文本匹配。一个语义只留一个定义——
+	// 两种筛法并存的话，「宋一杰、李钊、振华」这条按文本能搜到、按 id 搜不到，
+	// 同一个筛选器给出两种结果。
+	OwnerID   string
+	ProjectID string
+	Query     string // 标题/正文 LIKE，M3 换 FTS5
 	// DueAfter / DueBefore 成对使用才能表达「同一天到期」这种窗口。
 	// 只有上界的话，「今日」会把所有逾期的也扫进来，和 Counts.Today 的口径对不上。
 	DueAfter  *time.Time

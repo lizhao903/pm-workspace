@@ -62,7 +62,10 @@ a { color: var(--accent); text-decoration: none; }
   min-height: 0;
   transition: grid-template-columns .16s ease;
 }
+/* 显式定位，不靠自动排布：手机断点把侧栏 display:none 掉之后，自动排布会把主区往前
+   挪一格，落进宽度为 0 的第一列，整块内容就没了。 */
 .app-sidebar {
+  grid-column: 1;
   display: flex;
   flex-direction: column;
   min-height: 0;
@@ -72,6 +75,7 @@ a { color: var(--accent); text-decoration: none; }
   padding: 6px 0;
 }
 .app-main {
+  grid-column: 2;
   display: flex;
   flex-direction: column;
   min-width: 0;
@@ -861,8 +865,13 @@ a { color: var(--accent); text-decoration: none; }
 }
 .sc-recent-item:hover { border-color: var(--accent); color: var(--accent); }
 
-.sc-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px; }
-.sc-grid-dense { grid-template-columns: repeat(auto-fill, minmax(168px, 1fr)); gap: 6px; }
+/* 卡片墙用 flex 而不是 grid：auto-fill 会按最小列宽把整行切成固定份数，分组里卡片不够多时
+   右边那几份是空的，看起来就像内容没撑满。flex 让现有卡片把整行分完，再用 max-width 封顶，
+   免得一个分组只有一张卡时它横跨整屏。 */
+.sc-grid { display: flex; flex-wrap: wrap; gap: 10px; }
+.sc-grid > * { flex: 1 1 200px; min-width: 0; max-width: 420px; }
+.sc-grid-dense { gap: 6px; }
+.sc-grid-dense > * { flex: 1 1 168px; max-width: 320px; }
 .sc-drop-empty {
   grid-column: 1 / -1;
   border: 1px dashed var(--line-strong);

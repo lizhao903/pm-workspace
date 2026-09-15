@@ -2,7 +2,20 @@
 // 所以走 fetch + ReadableStream，自己按空行切事件块。
 import type { AgentStreamEvent } from '../../lib/types'
 
-const KNOWN = new Set(['delta', 'tool_call', 'tool_result', 'artifact', 'done', 'error'])
+// 事件名单从类型派生，而不是手写一个字符串数组。
+// 手写的话漏掉一种事件不违反任何类型——TypeScript 一个字都不会说，
+// 那种事件会在 parseBlock 里被静默丢掉，界面上表现为「后端明明发了，前端什么都没有」。
+// 写成 Record<AgentStreamEvent['type'], true> 之后，后端加一种而这里没跟上，编译就红。
+const KNOWN_TYPES: Record<AgentStreamEvent['type'], true> = {
+  delta: true,
+  tool_call: true,
+  tool_result: true,
+  artifact: true,
+  question: true,
+  done: true,
+  error: true,
+}
+const KNOWN = new Set<string>(Object.keys(KNOWN_TYPES))
 
 /**
  * 解析一个事件块（多行 field: value）。

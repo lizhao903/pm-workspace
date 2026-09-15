@@ -10,12 +10,24 @@ import (
 	"time"
 
 	"github.com/lizhao903/pm-workspace/internal/domain"
+	"github.com/lizhao903/pm-workspace/internal/idgen"
 	"github.com/lizhao903/pm-workspace/internal/store"
 )
 
 // agentActor 标记这次写入来自 Agent。revisions 里据此区分是人改的还是 Agent 改的，
 // 事后追查「这条状态怎么变的」时，这一个字段就是全部线索。
 var agentActor = store.Actor{Name: "agent", Source: "agent"}
+
+// get_object 的几个截断上限。本地小模型的上下文只有几千 token，
+// 一条正文几万字的需求全量灌进去，挤掉的是系统提示词——
+// 模型会连「该用英文 key」这条都忘了。截断比撑爆好，而且截断是看得见的（会写一行提示）。
+const (
+	maxBodyRunes     = 4000
+	maxRevisions     = 10
+	maxRevValueRunes = 60
+	// maxOptions 是 ask_user 的选项数上限。超过五个的选择题，用户读完就已经忘了第一个。
+	maxOptions = 5
+)
 
 // ToolResult 是一次工具调用的结果。三个去向各不相同，不能混：
 //   - Content 回给模型，要结构化、信息密度高；
@@ -27,6 +39,9 @@ type ToolResult struct {
 	ObjectID string
 	Content  string
 	Artifact *domain.AgentArtifact
+	// Question 只有 ask_user 会填。Runner 见到它就发一条 question 事件并结束本轮——
+	// 答案走用户的下一条消息，流不挂在这里等。
+	Question *Question
 }
 
 // Toolbox 持有一次会话的工具执行上下文。工具直接调 store，不绕回 HTTP：
@@ -34,6 +49,10 @@ type ToolResult struct {
 type Toolbox struct {
 	st      store.Store
 	session *domain.AgentSession
+	// asked 是本次 Run 里已经发出的提问数。计数放在这里而不是 Runner：
+	// 「还能不能再问」是 ask_user 自己的前置条件，拒绝的话要以工具结果的形式
+	// 回给模型，让它改用「在方案里标成待确认」的方式收场。
+	asked int
 }
 
 func NewToolbox(st store.Store, session *domain.AgentSession) *Toolbox {
@@ -90,6 +109,27 @@ func (tb *Toolbox) Defs() []ToolDef {
 			}, []string{"ref"}),
 		},
 		{
+			Name: "get_object",
+			Description: "读取一个对象的完整内容：正文全文、关联的其它对象、最近的修改记录。" +
+				"要为某条需求/待办出处理方案、写分析文档之前，先用它把这条读全——" +
+				"search_objects 只给标题，照着标题写出来的方案放在哪条需求上都成立，等于没写。",
+			Parameters: obj(props{
+				"ref": str("对象编号，如 REQ-0012；也接受对象 id"),
+			}, []string{"ref"}),
+		},
+		{
+			Name: "ask_user",
+			Description: "把一个你拿不准的问题抛回给用户，让他在你给的选项里选。" +
+				"只在答案取决于用户意图或库里根本没有的外部信息时才用；" +
+				"优先级、状态、负责人、关联了哪些任务这类库里查得到的，自己去查，不要问。" +
+				"调用之后本轮对话就结束了，用户的回答会作为下一条消息发给你。",
+			Parameters: obj(props{
+				"question": str("一句话问题，问到点子上；不要问「你觉得呢」这种没有信息量的问题"),
+				"options":  optArr("备选答案，2 到 5 个。每项 label 是选项名，detail 说明选它意味着什么"),
+				"multi":    boolean("用户能不能多选，默认 false"),
+			}, []string{"question", "options"}),
+		},
+		{
 			Name: "write_file",
 			Description: "把内容写入本次会话的产物目录。用户要一份文档、表格、清单时用它，" +
 				"不要把长内容直接铺在回复里。路径必须是相对当前目录的写法。",
@@ -121,6 +161,10 @@ func (tb *Toolbox) Invoke(ctx context.Context, call ToolCall) ToolResult {
 		return tb.createObject(ctx, args)
 	case "update_object":
 		return tb.updateObject(ctx, args)
+	case "get_object":
+		return tb.getObject(ctx, args)
+	case "ask_user":
+		return tb.askUser(args)
 	case "write_file":
 		return tb.writeFile(ctx, args)
 	default:
@@ -307,6 +351,184 @@ func (tb *Toolbox) resolveRef(ctx context.Context, ref string) (*domain.Object, 
 	return nil, fmt.Errorf("object not found")
 }
 
+// maxQuestions 是一次 Run 里最多能问的问题数。
+//
+// 不设上限的话失败模式很具体：模型问一个、用户答一个、它接着又冒出一个，
+// 一件事问到第五轮用户已经自己做完了。三个是「真的有几处拿不准」的上限，
+// 再多说明它没在查库，只是在拿提问代替工作。
+const maxQuestions = 3
+
+// getObject 把一条对象读全：正文、关联对象、最近修订。
+//
+// 三样一次给齐而不是拆成三个工具：本地小模型每多一次工具往返就多一次跑偏的机会，
+// 而「写一份需求分析」这件事本来就要这三样凑齐才动得了笔。
+func (tb *Toolbox) getObject(ctx context.Context, args map[string]any) ToolResult {
+	ref := argStr(args, "ref")
+	if ref == "" {
+		return failed("get_object", "ref 是必填的，先用 search_objects 找到对象编号")
+	}
+	o, err := tb.resolveRef(ctx, ref)
+	if err != nil {
+		return failed("get_object", fmt.Sprintf("找不到编号为 %s 的对象", ref))
+	}
+
+	var b strings.Builder
+	fmt.Fprintf(&b, "%s 「%s」\n", o.Ref, o.Title)
+	fmt.Fprintf(&b, "type=%s status=%s priority=%s\n", o.TypeID, o.Status, dash(o.Priority))
+	fmt.Fprintf(&b, "负责人=%s 到期=%s\n", dash(ownerName(o)), dash(fmtTime(o.DueAt)))
+	if o.ProjectTitle != "" {
+		fmt.Fprintf(&b, "所属项目=%s\n", o.ProjectTitle)
+	}
+	if o.CategoryPath != "" {
+		fmt.Fprintf(&b, "分类=%s\n", o.CategoryPath)
+	}
+	if len(o.Tags) > 0 {
+		fmt.Fprintf(&b, "标签=%s\n", strings.Join(o.Tags, "、"))
+	}
+	if len(o.Participants) > 0 {
+		names := make([]string, 0, len(o.Participants))
+		for _, p := range o.Participants {
+			names = append(names, p.Name)
+		}
+		fmt.Fprintf(&b, "参与人=%s\n", strings.Join(names, "、"))
+	}
+
+	b.WriteString("\n## 正文\n")
+	if strings.TrimSpace(o.Body) == "" {
+		b.WriteString("（这条对象没有正文。这本身就是一条信息：需求只有一个标题，" +
+			"说明细节还在用户脑子里，方案里要么问清楚要么把假设写明。）\n")
+	} else {
+		b.WriteString(clip(o.Body, maxBodyRunes))
+		b.WriteString("\n")
+	}
+
+	b.WriteString("\n## 关联对象\n")
+	links, err := tb.st.ListLinks(ctx, o.ID)
+	switch {
+	case err != nil:
+		b.WriteString("（读取关联失败）\n")
+	case len(links) == 0:
+		b.WriteString("（没有关联对象）\n")
+	default:
+		for _, l := range links {
+			peer := l.Peer
+			if peer == nil {
+				continue
+			}
+			// 方向要写出来：A blocks B 和 B blocks A 是两件相反的事，
+			// 只给关系名会让模型把「我在等别人」写成「别人在等我」。
+			arrow := "→"
+			if l.Direction == "in" {
+				arrow = "←"
+			}
+			fmt.Fprintf(&b, "- %s %s %s [%s/%s] %s\n",
+				l.Relation, arrow, peer.Ref, peer.TypeID, peer.Status, peer.Title)
+		}
+	}
+
+	b.WriteString("\n## 最近修订\n")
+	revs, err := tb.st.ListRevisions(ctx, o.ID, maxRevisions)
+	switch {
+	case err != nil:
+		b.WriteString("（读取修订失败）\n")
+	case len(revs) == 0:
+		b.WriteString("（还没有改动记录）\n")
+	default:
+		for _, r := range revs {
+			fmt.Fprintf(&b, "- %s %s(%s) %s：%s → %s\n",
+				r.CreatedAt.Local().Format("2006-01-02 15:04"),
+				dash(r.Actor), dash(r.Source), r.Field,
+				clip(oneLine(r.OldValue), maxRevValueRunes),
+				clip(oneLine(r.NewValue), maxRevValueRunes))
+		}
+	}
+
+	return ToolResult{
+		Summary:  fmt.Sprintf("读取了 %s %s", o.Ref, o.Title),
+		ObjectID: o.ID,
+		Content:  b.String(),
+	}
+}
+
+// askUser 把模型的一次提问整理成 Question。
+//
+// 校验故意严格：选项少于两个的「提问」其实是通知，只有 label 没有 detail 的选项
+// 等于在逼用户猜「选这个会怎样」。不合格一律以工具结果的形式退回，模型下一轮能自己改对；
+// 放行的话，代价要用户来付。
+func (tb *Toolbox) askUser(args map[string]any) ToolResult {
+	if tb.asked >= maxQuestions {
+		return failed("ask_user", fmt.Sprintf(
+			"本轮已经问了 %d 个问题，不能再问了。用现在手上的信息把方案写完，"+
+				"仍然拿不准的地方在方案里写成「待确认：…」，不要再调 ask_user", maxQuestions))
+	}
+
+	q := strings.TrimSpace(argStr(args, "question"))
+	if q == "" {
+		return failed("ask_user", "question 是必填的")
+	}
+	opts, err := parseOptions(args["options"])
+	if err != nil {
+		return failed("ask_user", err.Error())
+	}
+
+	tb.asked++
+	out := &Question{
+		ID:       idgen.Prefixed("q"),
+		Question: q,
+		Options:  opts,
+		Multi:    argBool(args, "multi"),
+	}
+	return ToolResult{
+		Summary:  "向用户提了一个问题：" + q,
+		Question: out,
+		// 回给模型的内容要说清「本轮到此为止」，否则它会接着往下写，
+		// 把刚问出口的问题当成已经有答案了。
+		Content: "问题已经抛给用户了。本轮到此为止，不要再调用任何工具，" +
+			"也不要替用户回答或者往下推进——用户的选择会作为下一条消息发给你。",
+	}
+}
+
+// parseOptions 解析 ask_user 的 options。除了标准的对象数组，还认
+// "选项名|说明" 这种字符串写法：4B 级别的模型时不时会把嵌套对象拍平成字符串，
+// 为此白白浪费一轮重试不值得。
+func parseOptions(raw any) ([]QuestionOption, error) {
+	list, ok := raw.([]any)
+	if !ok || len(list) == 0 {
+		return nil, fmt.Errorf("options 必须是数组，给 2 到 5 个备选答案")
+	}
+	if len(list) < 2 {
+		return nil, fmt.Errorf("只给一个选项不算提问。要么给至少两个真正不同的选项，要么别问")
+	}
+	if len(list) > maxOptions {
+		return nil, fmt.Errorf("选项最多 %d 个，超过这个数用户读都读不完，先合并再问", maxOptions)
+	}
+
+	out := make([]QuestionOption, 0, len(list))
+	for i, it := range list {
+		var label, detail string
+		switch v := it.(type) {
+		case map[string]any:
+			label = strings.TrimSpace(argStr(v, "label"))
+			detail = strings.TrimSpace(argStr(v, "detail"))
+		case string:
+			label, detail, _ = strings.Cut(v, "|")
+			label, detail = strings.TrimSpace(label), strings.TrimSpace(detail)
+		default:
+			return nil, fmt.Errorf("第 %d 个选项既不是对象也不是字符串", i+1)
+		}
+		if label == "" {
+			return nil, fmt.Errorf("第 %d 个选项没有 label", i+1)
+		}
+		if detail == "" {
+			return nil, fmt.Errorf(
+				"第 %d 个选项「%s」没有写 detail。detail 要说清选它意味着什么、"+
+					"有什么代价；写不出来说明这个选项你自己也没想清楚，那就别给它", i+1, label)
+		}
+		out = append(out, QuestionOption{Label: label, Detail: detail})
+	}
+	return out, nil
+}
+
 // writeFile 是 Agent 唯一的写盘出口，路径安全全靠 ResolveInWorkdir 把关。
 func (tb *Toolbox) writeFile(ctx context.Context, args map[string]any) ToolResult {
 	rel := argStr(args, "path")
@@ -400,6 +622,24 @@ func argInt(args map[string]any, key string, def int) int {
 	return def
 }
 
+// argBool 接受 true/false，也接受模型偶尔给出的 "true" / 1 这类写法。
+func argBool(args map[string]any, key string) bool {
+	raw, ok := args[key]
+	if !ok || raw == nil {
+		return false
+	}
+	switch v := raw.(type) {
+	case bool:
+		return v
+	case string:
+		s := strings.ToLower(strings.TrimSpace(v))
+		return s == "true" || s == "yes" || s == "1"
+	case float64:
+		return v != 0
+	}
+	return false
+}
+
 // argStrs 额外接受单个字符串：模型常把只有一个标签的情况写成裸字符串而不是数组。
 func argStrs(args map[string]any, key string) []string {
 	raw, ok := args[key]
@@ -469,6 +709,45 @@ func failed(tool, reason string) ToolResult {
 	}
 }
 
+// --- 展示辅助 ---
+
+// dash 把空字符串显示成一个短横。给模型看的文本里，"负责人=" 后面留白会被它读成
+// 「这里有个东西但我没看清」，然后编一个出来；一个明确的「未设置」不会。
+func dash(s string) string {
+	if strings.TrimSpace(s) == "" {
+		return "未设置"
+	}
+	return s
+}
+
+func ownerName(o *domain.Object) string {
+	if o.OwnerName != "" {
+		return o.OwnerName
+	}
+	return o.Owner
+}
+
+func fmtTime(t *time.Time) string {
+	if t == nil {
+		return ""
+	}
+	return t.Local().Format("2006-01-02 15:04")
+}
+
+func oneLine(s string) string {
+	return strings.Join(strings.Fields(s), " ")
+}
+
+// clip 按 rune 截断并显式标注截掉了多少。不标注的话模型会把半句话当成全文，
+// 在方案里引用一个根本不存在的结论。
+func clip(s string, max int) string {
+	r := []rune(s)
+	if len(r) <= max {
+		return s
+	}
+	return string(r[:max]) + fmt.Sprintf("\n…（正文过长，此处截断，还剩约 %d 字未显示）", len(r)-max)
+}
+
 // --- JSON Schema 构造 ---
 
 type props = map[string]any
@@ -489,6 +768,23 @@ func str(desc string) map[string]any {
 
 func num(desc string) map[string]any {
 	return map[string]any{"type": "integer", "description": desc}
+}
+
+func boolean(desc string) map[string]any {
+	return map[string]any{"type": "boolean", "description": desc}
+}
+
+// optArr 是 ask_user 的 options：一个对象数组，每项要 label 和 detail。
+// detail 列进 required 是有意的——只给 label 的选项等于让用户猜选它会怎样。
+func optArr(desc string) map[string]any {
+	return map[string]any{
+		"type":        "array",
+		"description": desc,
+		"items": obj(props{
+			"label":  str("选项名，一句短话"),
+			"detail": str("选这个意味着什么、有什么代价。必填"),
+		}, []string{"label", "detail"}),
+	}
 }
 
 func arr(desc string) map[string]any {

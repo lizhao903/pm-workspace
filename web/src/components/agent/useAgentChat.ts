@@ -2,7 +2,7 @@
 // 组件只负责渲染，异步都收在这里。
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { api } from '../../lib/api'
-import type { AgentMessage, AgentProvider, AgentSession, WorkdirCheck } from '../../lib/types'
+import type { AgentMessage, AgentProvider, AgentSession, QuestionOption, WorkdirCheck } from '../../lib/types'
 import { streamSSE } from './sse'
 import { setAgentStatus } from './status'
 
@@ -17,12 +17,12 @@ const WRITE_TOOL = /(create|update|delete|patch|add|set|move|archive|restore|lin
 let seq = 0
 const nextId = () => `ag${++seq}`
 
-export type ChatItemKind = 'user' | 'assistant' | 'tool_call' | 'tool_result' | 'artifact' | 'error'
+export type ChatItemKind = 'user' | 'assistant' | 'tool_call' | 'tool_result' | 'artifact' | 'question' | 'error'
 
 export interface ChatItem {
   id: string
   kind: ChatItemKind
-  /** user/assistant 的正文，tool_result 的 summary，error 的错误文案 */
+  /** user/assistant 的正文，tool_result 的 summary，question 的问题，error 的错误文案 */
   text: string
   toolName?: string
   /** tool_result 带的对象内部 id，渲染成可点链接直接 select 跳转 */
@@ -36,6 +36,14 @@ export interface ChatItem {
   streaming?: boolean
   /** error 可重试 */
   retryable?: boolean
+
+  /* ── question 专用 ── */
+  options?: QuestionOption[]
+  multi?: boolean
+  /** 用户当前选中的 label。单选时至多一个 */
+  picked?: string[]
+  /** 已经答过的问题不再可点：答案已经作为一条普通消息发出去了，再点一次只会重复发 */
+  answered?: boolean
 }
 
 export interface UseAgentChat {
@@ -61,6 +69,11 @@ export interface UseAgentChat {
   send: (text: string) => Promise<void>
   stop: () => void
   retry: () => void
+
+  /** 点一个选项。单选且只有这一个问题待答时直接发出去，否则先攒着 */
+  pickOption: (id: string, label: string) => void
+  /** 把所有待答问题的选择一次发出去 */
+  submitAnswers: () => void
 }
 
 function readRecent(): string[] {
@@ -68,6 +81,15 @@ function readRecent(): string[] {
     const raw = JSON.parse(localStorage.getItem(LS_RECENT) ?? '[]')
     return Array.isArray(raw) ? raw.filter((s): s is string => typeof s === 'string').slice(0, RECENT_MAX) : []
   } catch { return [] }
+}
+
+/** 把选择拼成一句普通的话发回去。
+ *  只有一个问题时就只发选项本身——用户自己打字也是这么写的，
+ *  而且后端的 assistant 消息里已经留着问题原文，对得上号。
+ *  一次问了好几个才需要把问题带上，否则答案和问题会错位。 */
+function answerText(qs: ChatItem[]): string {
+  if (qs.length === 1) return (qs[0].picked ?? []).join('、')
+  return qs.map((q) => `${q.text} → ${(q.picked ?? []).join('、')}`).join('\n')
 }
 
 /** 历史消息回放：role=tool 的按 tool_result 样式渲染 */
@@ -326,6 +348,12 @@ export function useAgentChat(onDataChanged: () => void): UseAgentChat {
             sealAssistant()
             push({ id: nextId(), kind: 'artifact', text: '', path: ev.path, size: ev.size })
             break
+          case 'question':
+            sealAssistant()
+            // 用后端给的 q_… 当 item id：回答时要按它把这一张标成已答，
+            // 而本地的 ag1/ag2 序号跟后端对不上。
+            push({ id: ev.id, kind: 'question', text: ev.question, options: ev.options ?? [], multi: ev.multi })
+            break
           case 'done':
             sawTerminal = true
             sealAssistant()
@@ -368,6 +396,49 @@ export function useAgentChat(onDataChanged: () => void): UseAgentChat {
     providers.length, backfillProviders,
   ])
 
+  /* ───────── 回答提问 ───────── */
+
+  const submit = useCallback(async (qs: ChatItem[]) => {
+    const text = answerText(qs)
+    if (!text) return
+    const ids = new Set(qs.map((q) => q.id))
+    // 先标成已答再发：发出去之后这几张卡就不该还能点，
+    // 点第二下等于把同一个答案再发一遍。
+    setItems((prev) => prev.map((x) => (ids.has(x.id) ? { ...x, answered: true, picked: x.picked } : x)))
+    await send(text)
+  }, [send])
+
+  const pickOption = useCallback((id: string, label: string) => {
+    if (streaming) return
+    const q = items.find((x) => x.id === id)
+    if (!q || q.kind !== 'question' || q.answered) return
+
+    const cur = q.picked ?? []
+    const picked = q.multi
+      ? (cur.includes(label) ? cur.filter((l) => l !== label) : [...cur, label])
+      : [label]
+
+    const otherPending = items.some(
+      (x) => x.kind === 'question' && !x.answered && x.id !== id,
+    )
+    // 一问一答是绝大多数情况，单选时点一下就发。让用户再点一次「回答」，
+    // 等于为了迁就「模型一次问三个」这种少数情况，给多数情况加一次点击。
+    if (!q.multi && !otherPending) {
+      void submit([{ ...q, picked }])
+      return
+    }
+    setItems((prev) => prev.map((x) => (x.id === id ? { ...x, picked } : x)))
+  }, [items, streaming, submit])
+
+  const submitAnswers = useCallback(() => {
+    if (streaming) return
+    const pending = items.filter((x) => x.kind === 'question' && !x.answered)
+    // 一次问了好几个就要一起答：只答一半发回去，模型下一轮会为剩下的再问一遍，
+    // 正是「答完一个又冒出一个」那种车轱辘。
+    if (!pending.length || pending.some((q) => !q.picked?.length)) return
+    void submit(pending)
+  }, [items, streaming, submit])
+
   const stop = useCallback(() => { abortRef.current?.abort() }, [])
   const retry = useCallback(() => {
     if (!lastSent.current || streaming) return
@@ -385,5 +456,6 @@ export function useAgentChat(onDataChanged: () => void): UseAgentChat {
     sessions, sessionId, openSession, removeSession,
     workdir, setWorkdir, workdirCheck, checkingWorkdir, checkWorkdir, recentDirs,
     items, streaming, send, stop, retry,
+    pickOption, submitAnswers,
   }
 }

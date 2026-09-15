@@ -4,6 +4,7 @@ import { useWorkspace, type SettingsSection } from '../hooks/workspace'
 import TypesSection from './settings/TypesSection'
 import CategoriesSection from './settings/CategoriesSection'
 import TagsSection from './settings/TagsSection'
+import StakeholdersSection from './settings/StakeholdersSection'
 import DictSection from './settings/DictSection'
 import DataSection from './settings/DataSection'
 import ProvidersSection from './settings/ProvidersSection'
@@ -19,6 +20,7 @@ const SECTIONS: NavEntry[] = [
   { id: 'types', label: '工作对象类型', hint: '类型与每个类型的状态集' },
   { id: 'categories', label: '分类', hint: '按类型的分类树' },
   { id: 'tags', label: '标签', hint: '重命名 / 合并 / 删除' },
+  { id: 'stakeholders', label: '干系人', hint: '负责人与参与人的名册' },
   { id: 'priority', label: '优先级', hint: '字典' },
   { id: 'link-relation', label: '关联关系', hint: '字典' },
   { id: 'data', label: '数据与备份', hint: '导出 / 快照 / 迁移版本' },
@@ -66,6 +68,8 @@ function renderSection(section: SettingsSection) {
       return <CategoriesSection />
     case 'tags':
       return <TagsSection />
+    case 'stakeholders':
+      return <StakeholdersSection />
     case 'priority':
       return (
         <DictSection

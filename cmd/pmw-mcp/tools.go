@@ -48,6 +48,7 @@ func registerTools(s *mcp.Server, c *client) {
 	addCreateObject(s, c)
 	addUpdateObject(s, c)
 	addListTypes(s, c)
+	addListStakeholders(s, c)
 	addListCategories(s, c)
 	addLinkObjects(s, c)
 	addRecentChanges(s, c)
@@ -62,7 +63,7 @@ type searchArgs struct {
 	Status          []string `json:"status,omitempty" jsonschema:"状态 key，如 [\"doing\",\"blocked\"]。状态按类型隔离，跨类型筛选时不要混用；合法值用 pmw_list_types 查"`
 	Priority        []string `json:"priority,omitempty" jsonschema:"优先级 key，如 [\"P0\",\"P1\"]"`
 	Tag             []string `json:"tag,omitempty" jsonschema:"标签名，多个标签是「同时具备」不是「任一」"`
-	Owner           string   `json:"owner,omitempty" jsonschema:"负责人，精确匹配"`
+	Owner           string   `json:"owner,omitempty" jsonschema:"负责人姓名，完全匹配（不模糊）。合法值用 pmw_list_stakeholders 查"`
 	Category        string   `json:"category,omitempty" jsonschema:"分类 id，用 pmw_list_categories 查。默认只匹配挂在该分类下的对象"`
 	Subtree         bool     `json:"subtree,omitempty" jsonschema:"配合 category 使用：连同子分类下的对象一起返回"`
 	Uncategorized   bool     `json:"uncategorized,omitempty" jsonschema:"只要还没归到任何分类的对象，与 category 互斥"`
@@ -107,7 +108,13 @@ func addSearch(s *mcp.Server, c *client) {
 				q.Add("tag", t)
 			}
 		}
-		setStr(q, "owner", in.Owner)
+		if in.Owner != "" {
+			ownerID, err := c.resolveStakeholder(ctx, in.Owner)
+			if err != nil {
+				return nil, nil, err
+			}
+			setStr(q, "owner_id", ownerID)
+		}
 		setStr(q, "category", in.Category)
 		setStr(q, "due_after", in.DueAfter)
 		setStr(q, "due_before", in.DueBefore)
@@ -215,7 +222,7 @@ type createObjectArgs struct {
 	Body       string   `json:"body,omitempty" jsonschema:"正文，支持 Markdown。需求的背景、方案、验收标准都写这里"`
 	Status     string   `json:"status,omitempty" jsonschema:"状态 key，必须属于该类型的状态集。不传则由工作台取该类型的默认首状态"`
 	Priority   string   `json:"priority,omitempty" jsonschema:"优先级 key，如 P0、P1"`
-	Owner      string   `json:"owner,omitempty" jsonschema:"负责人"`
+	Owner      string   `json:"owner,omitempty" jsonschema:"负责人姓名，必须是名册里已有的人。合法值用 pmw_list_stakeholders 查"`
 	CategoryID string   `json:"category_id,omitempty" jsonschema:"分类 id，必须属于同一个 type_id，用 pmw_list_categories 查"`
 	ProjectID  string   `json:"project_id,omitempty" jsonschema:"所属项目对象的 id"`
 	DueAt      string   `json:"due_at,omitempty" jsonschema:"到期时间，YYYY-MM-DD 或 RFC3339"`
@@ -255,7 +262,13 @@ func addCreateObject(s *mcp.Server, c *client) {
 		putStr(body, "body", in.Body)
 		putStr(body, "status", in.Status)
 		putStr(body, "priority", in.Priority)
-		putStr(body, "owner", in.Owner)
+		if in.Owner != "" {
+			ownerID, err := c.resolveStakeholder(ctx, in.Owner)
+			if err != nil {
+				return nil, nil, err
+			}
+			putStr(body, "owner_id", ownerID)
+		}
 		putStr(body, "source", in.Source)
 		putStr(body, "due_at", in.DueAt)
 		if v := strings.TrimSpace(in.CategoryID); v != "" {
@@ -286,7 +299,7 @@ type updateObjectArgs struct {
 	Body       *string  `json:"body,omitempty" jsonschema:"新正文，整体替换而不是追加。要在原文上补充，先用 pmw_get_object 读回来再拼好传完整内容"`
 	Status     *string  `json:"status,omitempty" jsonschema:"新状态，必须是该对象所属类型状态集里的 key（不是中文标签）。先用 pmw_list_types 查清楚该类型有哪些状态"`
 	Priority   *string  `json:"priority,omitempty" jsonschema:"新优先级 key，如 P0"`
-	Owner      *string  `json:"owner,omitempty" jsonschema:"新负责人，传空串表示清空"`
+	Owner      *string  `json:"owner,omitempty" jsonschema:"新负责人姓名，必须是名册里已有的人（用 pmw_list_stakeholders 查）；传空串表示清空负责人"`
 	CategoryID *string  `json:"category_id,omitempty" jsonschema:"新分类 id，必须与该对象同类型；传空串表示移出分类变成未分类"`
 	ProjectID  *string  `json:"project_id,omitempty" jsonschema:"新的所属项目 id，传空串表示解除归属"`
 	DueAt      *string  `json:"due_at,omitempty" jsonschema:"新到期时间，YYYY-MM-DD 或 RFC3339；传空串表示去掉到期日"`
@@ -326,7 +339,13 @@ func addUpdateObject(s *mcp.Server, c *client) {
 		putPtr(patch, "body", in.Body)
 		putPtr(patch, "status", in.Status)
 		putPtr(patch, "priority", in.Priority)
-		putPtr(patch, "owner", in.Owner)
+		if in.Owner != nil {
+			ownerID, err := c.resolveStakeholder(ctx, *in.Owner)
+			if err != nil {
+				return nil, nil, err
+			}
+			patch["owner_id"] = ownerID // 空串即清空，resolveStakeholder 对空串返回空串
+		}
 		// 这三个字段库里可为 NULL：空串映射成 JSON null，工作台才认得是「置空」。
 		putNullable(patch, "category_id", in.CategoryID)
 		putNullable(patch, "project_id", in.ProjectID)
@@ -388,6 +407,54 @@ func addListTypes(s *mcp.Server, c *client) {
 			dicts = nil
 		}
 		return textResult(renderTypes(types, dicts)), nil, nil
+	})
+}
+
+// --- pmw_list_stakeholders ---
+
+type listStakeholdersArgs struct {
+	IncludeArchived bool `json:"include_archived,omitempty" jsonschema:"把已归档（离职/不再参与）的人也带上，默认不带。派活时不要带"`
+}
+
+const listStakeholdersDesc = `【只读】列出干系人名册（可以被指派为负责人或参与人的那些人）。
+
+什么时候用：在 pmw_search 按负责人筛选之前、或者建/改对象要指定负责人之前，先确认这个人在不在名册里、名字怎么写。
+
+要点：负责人是对名册的引用，不是自由文本。传的姓名必须与名册**完全一致**，不做模糊匹配——匹配错人意味着任务派给了别人。名册里没有的人要先在工作台的「设置 → 干系人」里建出来。
+
+返回：一行一人，格式为「姓名 | 角色 | 负责 N 件 / 参与 M 件」，已归档的标注「已归档」。`
+
+func addListStakeholders(s *mcp.Server, c *client) {
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "pmw_list_stakeholders",
+		Description: listStakeholdersDesc,
+		Annotations: readOnly("列出干系人名册"),
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, in listStakeholdersArgs) (*mcp.CallToolResult, any, error) {
+		people, err := c.listStakeholders(ctx)
+		if err != nil {
+			return nil, nil, err
+		}
+		var b strings.Builder
+		n := 0
+		for _, p := range people {
+			if p.ArchivedAt != nil && !in.IncludeArchived {
+				continue
+			}
+			n++
+			b.WriteString(p.Name)
+			if p.Role != "" {
+				b.WriteString(" | " + p.Role)
+			}
+			fmt.Fprintf(&b, " | 负责 %d 件 / 参与 %d 件", p.OwnedCount, p.ParticipatingCount)
+			if p.ArchivedAt != nil {
+				b.WriteString(" | 已归档")
+			}
+			b.WriteString("\n")
+		}
+		if n == 0 {
+			return textResult("干系人名册是空的。要指派负责人，先在工作台的「设置 → 干系人」里把人建出来。"), nil, nil
+		}
+		return textResult(b.String()), nil, nil
 	})
 }
 

@@ -149,6 +149,12 @@ func (s *Server) routes(m routeRegistrar) {
 	m.HandleFunc("DELETE /api/dict-items/{id}", s.handleDeleteDictItem)
 	m.HandleFunc("GET /api/dict-items/{id}/usage", s.handleDictItemUsage)
 
+	// 干系人名册。负责人与参与人都指向这里。
+	m.HandleFunc("GET /api/stakeholders", s.handleListStakeholders)
+	m.HandleFunc("POST /api/stakeholders", s.handleCreateStakeholder)
+	m.HandleFunc("PATCH /api/stakeholders/{id}", s.handleUpdateStakeholder)
+	m.HandleFunc("DELETE /api/stakeholders/{id}", s.handleDeleteStakeholder)
+
 	// Agent 供应商。{id}/default 和 {id}/test 比 {id} 多一段，
 	// ServeMux 按最具体的模式匹配，不会被 {id} 吃掉；仍按从具体到宽泛的顺序写，便于目视核对。
 	m.HandleFunc("GET /api/agent-providers", s.handleListProviders)

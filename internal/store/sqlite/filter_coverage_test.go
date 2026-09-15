@@ -121,12 +121,16 @@ func filterCases() []filterCase {
 			},
 		},
 		{
-			field: "Owner",
+			// 0010 起按 owner_id 筛，不再按 owner 文本匹配。这条用例就是那次替换的守门人：
+			// 解析了 owner_id 而 buildWhere 仍在比 owner 文本时，两个人的对象都会被漏掉或全放过。
+			field: "OwnerID",
 			want:  []string{"命中"},
 			build: func(t *testing.T, s *Store, ctx context.Context) domain.ObjectFilter {
-				mustCreate(t, s, ctx, &domain.Object{TypeID: "task", Title: "命中", Owner: "me"})
-				mustCreate(t, s, ctx, &domain.Object{TypeID: "task", Title: "排除", Owner: "someone-else"})
-				return domain.ObjectFilter{Owner: "me"}
+				me := mustStakeholder(t, s, ctx, "李钊")
+				other := mustStakeholder(t, s, ctx, "王闯")
+				mustCreate(t, s, ctx, &domain.Object{TypeID: "task", Title: "命中", OwnerID: &me.ID})
+				mustCreate(t, s, ctx, &domain.Object{TypeID: "task", Title: "排除", OwnerID: &other.ID})
+				return domain.ObjectFilter{OwnerID: me.ID}
 			},
 		},
 		{

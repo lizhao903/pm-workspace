@@ -5,6 +5,7 @@ import type { DrawerTab } from '../hooks/workspace'
 import { api } from '../lib/api'
 import type { LinkView, ObjectPatch, Revision, WorkObject } from '../lib/types'
 import TaskRunPanel, { WorkdirField } from './TaskRunPanel'
+import { OwnerPicker, ParticipantPicker, useStakeholders } from './StakeholderPicker'
 import {
   Button, CategoryPicker, ConfirmDialog, PRIORITIES, RELATIONS, RelativeTime, Select,
   StatusPill, TagChip, TextArea, TextInput, endOfDayIso, formatDate, formatDateTime,
@@ -27,6 +28,7 @@ const TABS: Array<{ key: LocalTab; label: string }> = [
 // 活动流里 revisions.field 的中文名映射
 const FIELD_LABELS: Record<string, string> = {
   title: '标题', body: '正文', status: '状态', priority: '优先级', owner: '负责人',
+  owner_id: '负责人', participants: '参与人', participant_ids: '参与人',
   category_id: '分类', project_id: '项目', due_at: '到期', tags: '标签', source: '来源',
   archived_at: '归档时间', deleted_at: '删除时间', started_at: '开始时间',
   completed_at: '完成时间', props: '扩展属性', created: '创建',
@@ -101,10 +103,10 @@ function DetailTab({ object }: { object: WorkObject }) {
   const { types, typeById, updateObject, deleteObject, select } = useWorkspace()
   const type = typeById[object.type_id]
   const categories = useCategoryTree(object.type_id)
+  const roster = useStakeholders()
 
   const [title, setTitle] = useState(object.title)
   const [body, setBody] = useState(object.body)
-  const [owner, setOwner] = useState(object.owner)
   const [tagInput, setTagInput] = useState('')
   const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved'>('idle')
   const [error, setError] = useState<string | null>(null)
@@ -114,7 +116,6 @@ function DetailTab({ object }: { object: WorkObject }) {
   // 外部（乐观更新 / 其他入口）改了字段时同步回本地草稿
   useEffect(() => { setTitle(object.title) }, [object.title])
   useEffect(() => { setBody(object.body) }, [object.body])
-  useEffect(() => { setOwner(object.owner) }, [object.owner])
 
   const projectTypeId = useMemo(() => types.find((t) => t.id === 'project')?.id ?? null, [types])
   useEffect(() => {
@@ -187,11 +188,31 @@ function DetailTab({ object }: { object: WorkObject }) {
             />
 
             <b>负责人</b>
-            <TextInput
-              value={owner}
-              placeholder="未分配"
-              onValueChange={setOwner}
-              onBlur={() => { if (owner !== object.owner) void patch({ owner }) }}
+            <span className="v-kv-row">
+              <OwnerPicker
+                value={object.owner_id}
+                valueName={object.owner_name}
+                onChange={(id) => void patch({ owner_id: id })}
+              />
+              {/* 0010 之前的自由文本负责人只读：owner_id 空而 owner 非空时把原文摆出来，
+                  否则这条对象看起来像是从来没人负责过 */}
+              {!object.owner_id && object.owner ? (
+                <span className="faint" title="迁移前的自由文本负责人，只读。在上面选一个干系人即可接管">
+                  原文「{object.owner}」
+                </span>
+              ) : null}
+              {roster.empty ? (
+                <span className="faint" title="去「设置 → 干系人」建人">名册为空</span>
+              ) : null}
+            </span>
+
+            <b>参与人</b>
+            {/* participants 兜一层空：名册接口上线前后端还不回这个字段，
+                读不到参与人是可以接受的，整个抽屉白屏不是 */}
+            <ParticipantPicker
+              value={object.participants ?? []}
+              excludeId={object.owner_id}
+              onChange={(ids) => void patch({ participant_ids: ids })}
             />
 
             <b>到期</b>

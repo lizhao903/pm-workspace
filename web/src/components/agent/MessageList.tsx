@@ -1,4 +1,5 @@
-// 消息区：四种流事件长四个样，用户右对齐、assistant 左对齐。
+// 消息区：每种流事件长一个样，用户右对齐、assistant 左对齐。
+// question 是唯一可交互的一种——它的选项要能点，点完就作为一条普通消息发回去。
 import { useEffect, useRef } from 'react'
 import { useWorkspace } from '../../hooks/workspace'
 import type { ChatItem } from './useAgentChat'
@@ -27,9 +28,13 @@ export interface MessageListProps {
   streaming: boolean
   workdir: string
   onRetry: () => void
+  onPick: (id: string, label: string) => void
+  onSubmitAnswers: () => void
 }
 
-export default function MessageList({ items, streaming, workdir, onRetry }: MessageListProps) {
+export default function MessageList({
+  items, streaming, workdir, onRetry, onPick, onSubmitAnswers,
+}: MessageListProps) {
   const { select, setDrawerTab } = useWorkspace()
   const boxRef = useRef<HTMLDivElement | null>(null)
   const pinned = useRef(true) // 用户往上翻过就别再抢滚动条
@@ -39,6 +44,11 @@ export default function MessageList({ items, streaming, workdir, onRetry }: Mess
     if (!el || !pinned.current) return
     el.scrollTop = el.scrollHeight
   }, [items])
+
+  // 待答的问题。模型一次问了好几个时，要等全都选完才能一起发——
+  // 只答一半，剩下的下一轮会被重新问一遍。
+  const pending = items.filter((x) => x.kind === 'question' && !x.answered)
+  const canSubmit = pending.length > 0 && pending.every((q) => q.picked?.length)
 
   const onScroll = () => {
     const el = boxRef.current
@@ -127,6 +137,53 @@ export default function MessageList({ items, streaming, workdir, onRetry }: Mess
                 </div>
               </div>
             )
+
+          case 'question': {
+            const picked = it.picked ?? []
+            const locked = it.answered || streaming
+            // 单选且只有这一个问题时点一下就发，不需要再来个提交按钮
+            const needsSubmit = !it.answered && (it.multi || pending.length > 1)
+            return (
+              <div key={it.id} className={`ag-card ag-ask${it.answered ? ' is-answered' : ''}`}>
+                <div className="ag-card-head">
+                  <span className="ag-card-kind">待确认</span>
+                  {it.multi ? <span className="ag-card-size">可多选</span> : null}
+                </div>
+                <div className="ag-card-body ag-ask-q">{it.text}</div>
+                <div className="ag-ask-opts">
+                  {(it.options ?? []).map((o) => (
+                    <button
+                      key={o.label}
+                      type="button"
+                      className={`ag-opt${picked.includes(o.label) ? ' is-picked' : ''}`}
+                      disabled={locked}
+                      aria-pressed={picked.includes(o.label)}
+                      onClick={() => onPick(it.id, o.label)}
+                    >
+                      <span className="ag-opt-label">{o.label}</span>
+                      {/* detail 一定要渲染出来。只显示选项名等于让用户猜「选这个会怎样」，
+                          那正是这个功能要避免的事。 */}
+                      <span className="ag-opt-detail">{o.detail}</span>
+                    </button>
+                  ))}
+                </div>
+                <div className="ag-card-foot">
+                  {it.answered ? <span>已回答：{picked.join('、')}</span> : null}
+                  {needsSubmit ? (
+                    <button
+                      type="button"
+                      className="btn btn-sm"
+                      disabled={!canSubmit || streaming}
+                      onClick={onSubmitAnswers}
+                    >
+                      {pending.length > 1 ? `一起回答（${pending.length} 个问题）` : '回答'}
+                    </button>
+                  ) : null}
+                  {!it.answered && !needsSubmit ? <span>选一个就发出去</span> : null}
+                </div>
+              </div>
+            )
+          }
 
           case 'error':
             return (

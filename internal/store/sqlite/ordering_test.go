@@ -22,15 +22,19 @@ import (
 func TestRevisionOrderWithinOneUpdate(t *testing.T) {
 	s, ctx := newStore(t)
 	o := mustCreate(t, s, ctx, &domain.Object{
-		TypeID: "task", Title: "原标题", Status: "todo", Priority: "P2", Owner: "me",
+		TypeID: "task", Title: "原标题", Status: "todo", Priority: "P2",
 	})
+	sh, err := s.CreateStakeholder(ctx, &domain.Stakeholder{Name: "李钊"})
+	if err != nil {
+		t.Fatalf("create stakeholder: %v", err)
+	}
 
 	due := time.Now().Add(72 * time.Hour)
 	if _, err := s.UpdateObject(ctx, o.ID, domain.ObjectPatch{
 		Title:    pstr("新标题"),
 		Body:     pstr("新正文"),
 		Priority: pstr("P0"),
-		Owner:    pstr("someone"),
+		OwnerID:  pstr(sh.ID),
 		Source:   pstr("ui"),
 		Status:   pstr("doing"),
 		DueAt:    ppTime(&due),
@@ -49,7 +53,7 @@ func TestRevisionOrderWithinOneUpdate(t *testing.T) {
 	}
 
 	// 这次更新写入的字段顺序（见 UpdateObject 里 revs 的收集顺序）。
-	writeOrder := []string{"title", "body", "priority", "owner", "source", "status", "due_at", "props"}
+	writeOrder := []string{"title", "body", "priority", "owner_id", "source", "status", "due_at", "props"}
 	// 读回来是倒序，所以期望是写入顺序的反转，最后再跟上 created。
 	want := make([]string, 0, len(revs))
 	for i := len(writeOrder) - 1; i >= 0; i-- {

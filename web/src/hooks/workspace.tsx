@@ -14,7 +14,7 @@ export type FocusKind = 'inbox' | 'today' | 'week' | 'overdue' | 'stalled' | 'tr
 export type PageKind = 'shortcuts' | 'settings'
 // 设置的二级页面；nav.section 指定打开哪一个
 export type SettingsSection =
-  | 'types' | 'categories' | 'tags' | 'priority' | 'link-relation' | 'data' | 'agent'
+  | 'types' | 'categories' | 'tags' | 'stakeholders' | 'priority' | 'link-relation' | 'data' | 'agent'
 export type DrawerTab = 'detail' | 'ai' | 'activity' | 'links'
 // 'type' 只在「全部类型」作用域下有意义：跨类型时分类树会把不同类型的同名分类混成一组
 export type GroupBy = 'none' | 'category' | 'status' | 'priority' | 'type'
@@ -36,6 +36,7 @@ export interface Filters {
   priority: string[]
   tags: string[]
   q: string
+  /** 干系人 id，不是名字。0010 起负责人是引用不是文本 */
   owner: string
 }
 
@@ -196,7 +197,7 @@ function navToQuery(nav: NavSelection, filters: Filters, sort: string): ObjectQu
   if (filters.priority.length) q.priority = filters.priority
   if (filters.tags.length) q.tag = filters.tags
   if (filters.q.trim()) q.q = filters.q.trim()
-  if (filters.owner) q.owner = filters.owner
+  if (filters.owner) q.owner_id = filters.owner
 
   switch (filters.focus) {
     case 'inbox': q.inbox = true; break
@@ -356,12 +357,30 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     return o
   }, [afterWrite])
 
+  // 乐观更新必须配回滚。没有回滚的话，请求失败时界面停在乐观值上、库里没改，
+  // 而这个分歧不会有任何提示——用户以为改成功了，下次刷新才发现没有。
+  // 内联编辑、看板拖拽、批量操作全都走这条路径，一处漏掉就是三处静默失效。
   const updateObject = useCallback(async (id: string, patch: ObjectPatch) => {
-    setObjects((prev) => prev.map((o) => (o.id === id ? { ...o, ...patch } as WorkObject : o))) // 乐观更新
-    const o = await api.updateObject(id, patch)
-    setObjects((prev) => prev.map((x) => (x.id === id ? o : x)))
-    void reloadCounts()
-    return o
+    // 先留底。注意存的是整个对象而不是 patch 的反值：
+    // 服务端可能顺带改了别的字段（改成终态会带上 completed_at），
+    // 只回滚 patch 里那几个键会把那些顺带的改动留在界面上。
+    let before: WorkObject | undefined
+    setObjects((prev) => {
+      before = prev.find((o) => o.id === id)
+      return prev.map((o) => (o.id === id ? { ...o, ...patch } as WorkObject : o))
+    })
+    try {
+      const o = await api.updateObject(id, patch)
+      setObjects((prev) => prev.map((x) => (x.id === id ? o : x)))
+      void reloadCounts()
+      return o
+    } catch (e) {
+      if (before) {
+        const snapshot = before
+        setObjects((prev) => prev.map((x) => (x.id === id ? snapshot : x)))
+      }
+      throw e // 调用方照旧能 catch 到去弹提示
+    }
   }, [reloadCounts])
 
   const deleteObject = useCallback(async (id: string, hard = false) => {
