@@ -94,6 +94,13 @@ const SystemPrompt = `你是「产品工作台」里的助理，在主工作区�
 
 - **一次问完。** 真有好几处拿不准，就在同一轮里把 ask_user 连着调完（最多三个），
   不要答完一个又冒出一个。
+- **选项是这个问题的备选答案，不是话题清单。** 如果你发现自己往 options 里塞的是
+  「目标用户和数据来源」「验收标准」「部署方式」这种并列的话题，说明你其实有三个问题，
+  却让用户只能挑一个——把它们拆成三次 ask_user，每次的 options 填那一个问题的具体答案。
+  一个合格的选项，用户点下去就等于替你把这件事定了。
+- **question 要是一个问句，不是开场白。** 「这条需求需要先厘清两个问题：」不是问题，
+  是引子——后面挂着的选项必然分属好几个问题，用户挑了一个，剩下的就没人答了。
+  自检的办法：把 question 和其中任意一个选项拼起来读一遍，读得通才算合格。
 - **每个选项都要写 detail**，说清选它意味着什么、有什么代价。只给个选项名，
   等于在逼用户猜「选这个会怎样」；写不出 detail，说明这个选项你自己也没想清楚，
   那就别给它。
@@ -105,9 +112,13 @@ const SystemPrompt = `你是「产品工作台」里的助理，在主工作区�
 //
 // 每轮对话都重新生成：用户随时可能在设置页加一个自定义类型，
 // 把清单缓存起来会让模型拿着一份过期的枚举去填参数。
-func BuildSystemPrompt(types []*domain.ObjectType, now time.Time) string {
+//
+// current 是用户此刻打开的对象，可以为 nil（全局对话框里没选中任何东西时）。
+// 它只解决「这个/这条/它」指谁，**不带正文**——理由见 currentObjectSection。
+func BuildSystemPrompt(types []*domain.ObjectType, now time.Time, current *domain.Object) string {
 	var b strings.Builder
 	b.WriteString(SystemPrompt)
+	b.WriteString(currentObjectSection(current))
 
 	b.WriteString("\n\n## 当前日期\n\n")
 	b.WriteString(fmt.Sprintf("今天是 %s（%s）。\n",
@@ -127,6 +138,28 @@ func BuildSystemPrompt(types []*domain.ObjectType, now time.Time) string {
 			t.ID, t.Name, t.RefPrefix, strings.Join(keys, "、")))
 	}
 	b.WriteString("\n优先级用 P0/P1/P2/P3，留空表示未定。\n")
+	return b.String()
+}
+
+// currentObjectSection 告诉模型「用户此刻打开的是哪一条」。
+//
+// 这里**只给编号、标题、类型和状态，不给正文**。两个理由，都吃过亏才看得出来：
+//   - 正文每一轮都要重发一遍，本地小模型那点上下文经不起这么占；
+//   - 更要命的是它会过期——用户在抽屉里把正文改了，系统提示词里还是打开页面那一刻的旧版本，
+//     模型照着旧正文出方案，而它自己完全不知道手里的东西是旧的。
+//
+// 指代和取数是两件事：这段解决「这个」指谁，正文一律走 get_object 现取现用。
+func currentObjectSection(o *domain.Object) string {
+	if o == nil {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("\n\n## 用户当前打开的对象\n\n")
+	fmt.Fprintf(&b, "用户此刻打开的是 %s「%s」（%s / %s）。\n", o.Ref, o.Title, o.TypeID, o.Status)
+	b.WriteString("他说「这个需求」「这条」「它」而没有报编号时，指的就是这一条。\n\n")
+	fmt.Fprintf(&b, "**这里只告诉你「这个」是谁，没有给你内容。** 要正文、关联对象、修订记录，"+
+		"调 get_object 现取（ref 填 %s）——正文可能刚被用户改过，"+
+		"照着这段话里的东西写方案会写出一份过期的。\n", o.Ref)
 	return b.String()
 }
 

@@ -125,8 +125,10 @@ func (tb *Toolbox) Defs() []ToolDef {
 				"调用之后本轮对话就结束了，用户的回答会作为下一条消息发给你。",
 			Parameters: obj(props{
 				"question": str("一句话问题，问到点子上；不要问「你觉得呢」这种没有信息量的问题"),
-				"options":  optArr("备选答案，2 到 5 个。每项 label 是选项名，detail 说明选它意味着什么"),
-				"multi":    boolean("用户能不能多选，默认 false"),
+				"options": optArr("这个问题的备选答案，2 到 5 个。每项 label 是一个具体答案，" +
+					"detail 说明选它意味着什么。不要往这里塞并列的话题——" +
+					"那说明你有好几个问题，该分开多次调用"),
+				"multi": boolean("用户能不能多选，默认 false"),
 			}, []string{"question", "options"}),
 		},
 		{
@@ -465,6 +467,14 @@ func (tb *Toolbox) askUser(args map[string]any) ToolResult {
 	q := strings.TrimSpace(argStr(args, "question"))
 	if q == "" {
 		return failed("ask_user", "question 是必填的")
+	}
+	// 以冒号收尾的不是问题，是开场白——真机上见过「这条需求的推进方案需要先厘清两个问题：」
+	// 后面跟着一组分属两个不同问题的选项，用户只能挑一个，另一个就永远没人答。
+	// 这一条卡得住那个形状，而且几乎不会误伤：没有哪个真问题是以冒号结尾的。
+	if strings.HasSuffix(q, "：") || strings.HasSuffix(q, ":") {
+		return failed("ask_user", fmt.Sprintf(
+			"「%s」以冒号结尾，这是开场白不是问题。question 要写成一个能被一个选项答掉的问句；"+
+				"你要是有好几个问题，就分几次调用 ask_user，每次问一个", q))
 	}
 	opts, err := parseOptions(args["options"])
 	if err != nil {

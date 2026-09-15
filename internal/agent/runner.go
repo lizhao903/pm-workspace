@@ -73,6 +73,15 @@ func renderQuestion(q *Question) string {
 	return b.String()
 }
 
+// nudgePrompt 是模型查完资料却交白卷时推它的那一把。
+//
+// 写得很具体是有原因的：泛泛地说「请回答用户」，小模型往往回一句「好的，我明白了」了事。
+// 把「不要再查了」和「按哪四块写」一起点明，它才落得下笔。
+const nudgePrompt = "你已经把需要的资料读到了，但这一轮什么都没说。现在直接给用户答复：" +
+	"不要再调 get_object 或 search_objects 去查了，你已经读过了。" +
+	"按「拆成哪几步 / 每步的产出 / 前置依赖 / 风险在哪」把方案写出来。" +
+	"如果有真正拿不准、库里也查不到的地方，就调一次 ask_user 问清楚。"
+
 // maxTurns 限制「模型说话 → 调工具 → 再说话」的往返轮数。
 // 没有上限的话，一个反复调同一个工具的模型能把会话拖到天荒地老，
 // 每一轮都是真实的 token 和真实的写库。
@@ -88,6 +97,9 @@ type Runner struct {
 	Chat    Chat
 	Model   string
 	Session *domain.AgentSession
+	// Object 是用户此刻打开的工作对象，可以为 nil。只用来告诉模型「这个/这条」指谁；
+	// 正文一律由它自己调 get_object 现取，理由见 currentObjectSection。
+	Object *domain.Object
 }
 
 // Run 处理一条用户消息，返回最终落库的 assistant 消息 id。
@@ -118,6 +130,11 @@ func (r *Runner) Run(ctx context.Context, userText string, emit func(StreamEvent
 	}
 
 	var finalText strings.Builder
+	// usedTools / nudged 支撑下面那次「推一把」。真机上 qwen3.5:4b 有大约一半的概率
+	// 读完 get_object 之后交白卷——一轮只有 thinking、没有正文也没有工具调用。
+	// 用户问的是「这个需求怎么推进」，收场却是一句「好的，已经处理完了」。
+	usedTools, nudged := false, false
+
 	for turn := 0; turn < maxTurns; turn++ {
 		var text strings.Builder
 		var calls []ToolCall
@@ -142,8 +159,16 @@ func (r *Runner) Run(ctx context.Context, userText string, emit func(StreamEvent
 		// 没有工具调用，这一轮就是最终回答。
 		if len(calls) == 0 {
 			finalText.WriteString(text.String())
+			// 除非它查完资料一个字都没说——那不是回答，是交白卷。推它一把再给一轮。
+			// 只推一次：推不动就认了，否则一个一直沉默的模型能把轮数全耗在这上面。
+			if usedTools && !nudged && strings.TrimSpace(finalText.String()) == "" {
+				nudged = true
+				msgs = append(msgs, Message{Role: RoleSystem, Content: nudgePrompt})
+				continue
+			}
 			break
 		}
+		usedTools = true
 
 		// 把模型这一轮的发言（含它要调的工具）记进上下文，否则下一轮它看不到自己说过什么。
 		msgs = append(msgs, Message{
@@ -258,7 +283,7 @@ func (r *Runner) buildHistory(ctx context.Context, types []*domain.ObjectType) (
 
 	out := []Message{{
 		Role:    RoleSystem,
-		Content: BuildSystemPrompt(types, time.Now()),
+		Content: BuildSystemPrompt(types, time.Now(), r.Object),
 	}}
 	for _, m := range past {
 		switch m.Role {

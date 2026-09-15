@@ -31,7 +31,7 @@ function clampHeight(h: number): number {
 }
 
 export default function AgentDock() {
-  const { reloadObjects, reloadCounts } = useWorkspace()
+  const { reloadObjects, reloadCounts, selectedId } = useWorkspace()
 
   // Agent 建完对象后刷新工作台。防抖收在 useAgentChat 里，这里只给回调。
   const onDataChanged = useCallback(() => {
@@ -39,7 +39,9 @@ export default function AgentDock() {
     void reloadCounts()
   }, [reloadObjects, reloadCounts])
 
-  const chat = useAgentChat(onDataChanged)
+  // 把当前选中的对象带给后端：用户在列表里点开一条再问「这个需求怎么推进」，
+  // 「这个」才有确定的指向。没选中就是 null，后端按没传处理。
+  const chat = useAgentChat(onDataChanged, selectedId)
   const [open, setOpen] = useState(readOpen)
   const [height, setHeight] = useState(readHeight)
   const [draft, setDraft] = useState('')

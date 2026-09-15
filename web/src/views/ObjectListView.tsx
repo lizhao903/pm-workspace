@@ -229,19 +229,19 @@ export default function ObjectListView() {
   const priorityOptions = usePriorityOptions()
   const roster = useStakeholders()
 
-  // filters.owner 存的是干系人 id（0010 起负责人是引用不是文本），筛选条上要显示成名字。
+  // filters.ownerId 存的是干系人 id（0010 起负责人是引用不是文本），筛选条上要显示成名字。
   // 名册只有在岗的人，所以先查名册、再查当前结果里的 owner_name 兜住已归档的。
   const ownerFilterName = useMemo(() => {
-    if (!filters.owner) return ''
-    return roster.list.find((s) => s.id === filters.owner)?.name
-      ?? objects.find((o) => o.owner_id === filters.owner)?.owner_name
+    if (!filters.ownerId) return ''
+    return roster.list.find((s) => s.id === filters.ownerId)?.name
+      ?? objects.find((o) => o.owner_id === filters.ownerId)?.owner_name
       ?? '已归档的干系人'
-  }, [filters.owner, roster.list, objects])
+  }, [filters.ownerId, roster.list, objects])
 
   // 条件类筛选（不含聚焦）：空态文案要靠它区分「回收站本来就空」和「回收站里筛没了」
   const hasConditions =
     filters.status.length > 0 || filters.priority.length > 0 || filters.tags.length > 0
-    || filters.owner !== '' || filters.q.trim() !== ''
+    || filters.ownerId !== '' || filters.q.trim() !== ''
   const hasFilters = hasConditions || filters.focus !== null
 
   /* ------------------------------------------------------------ 批量选择 */
@@ -265,7 +265,7 @@ export default function ObjectListView() {
   // 切换作用域或筛选条件后，原选中项多半已不在结果里，继续持有会造成误操作。
   const scopeKey = JSON.stringify([
     nav.typeId, nav.categoryId, nav.subtree, nav.uncategorized,
-    filters.focus, filters.status, filters.priority, filters.tags, filters.owner, filters.q,
+    filters.focus, filters.status, filters.priority, filters.tags, filters.ownerId, filters.q,
   ])
   useEffect(() => {
     setChecked(new Set())
@@ -502,7 +502,6 @@ export default function ObjectListView() {
     <OwnerCell
       value={o.owner_id}
       display={ownerText(o)}
-      legacy={!o.owner_id && !(o.id in ownerPreview)}
       busy={editing[o.id] === 'owner'}
       readOnly={inTrash}
       onPick={(id) => {
@@ -1022,20 +1021,21 @@ export default function ObjectListView() {
             )}
           </Popover>
 
-          {/* filters.owner 是干系人 id（后端按 owner_id 筛），显示给人看的是名字。
+          {/* filters.ownerId 是干系人 id（后端按 owner_id 筛），显示给人看的是名字。
               选项来自名册而不是「当前结果里出现过的负责人」——后者筛完一次就只剩一个人可选了。 */}
           <Popover
-            triggerClassName={`chip ${filters.owner ? 'chip-active' : ''}`.trim()}
-            trigger={filters.owner ? `负责人 · ${ownerFilterName}` : '负责人'}
+            triggerClassName={`chip ${filters.ownerId ? 'chip-active' : ''}`.trim()}
+            trigger={filters.ownerId ? `负责人 · ${ownerFilterName}` : '负责人'}
             width={230}
           >
             {(close) => (
               <OwnerMenu
-                value={filters.owner || null}
+                value={filters.ownerId || null}
                 valueName={ownerFilterName}
                 emptyLabel="全部"
                 hideEmptyHint
-                onPick={(id) => { close(); setFilters({ owner: id }) }}
+                showCounts
+                onPick={(id) => { close(); setFilters({ ownerId: id }) }}
               />
             )}
           </Popover>

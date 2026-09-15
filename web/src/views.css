@@ -731,45 +731,9 @@
   margin-bottom: 2px;
 }
 
-/* AI 助手占位 */
-.v-msg {
-  border: 1px solid var(--line);
-  border-radius: var(--r);
-  padding: 9px 11px;
-  font-size: var(--fs-sm);
-  background: var(--panel);
-}
-
-.v-msg-ai {
-  background: var(--accent-soft);
-  border-color: var(--accent-line);
-}
-
-.v-draft {
-  border: 1px solid var(--warn-line);
-  background: var(--warn-soft);
-  border-radius: var(--r);
-  padding: 9px 11px;
-  font-size: var(--fs-sm);
-}
-
-.v-draft-line {
-  margin-top: 4px;
-}
-
-.v-draft-acts {
-  display: flex;
-  gap: 6px;
-  margin-top: 8px;
-}
-
-.v-composer {
-  gap: 8px;
-}
-
-.v-composer .input {
-  flex: 1;
-}
+/* AI 助手页签原来那套挡板样式（.v-msg / .v-draft / .v-composer）已随挡板一起删掉。
+   现在那个页签用的是 agent.css 里的 .ag-* ——和底部全局对话框同一套，
+   两处长得不一样才是真正要解释的事。 */
 
 /* ------------------------------------------------------------ 分类管理 */
 
@@ -932,17 +896,29 @@
 
 /* ------------------------------------------------------ 干系人选择器 */
 
-/* 头像的颜色是名册数据而非主题 token，底色与描边在组件里用 color-mix 从同一个值推导 */
+/* 头像色由组件递一个 --sh-c 进来（名册数据或按名字哈希），底色与描边从它推导 */
 .sh-avatar {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  border: 1px solid transparent;
+  border: 1px solid color-mix(in srgb, var(--sh-c) 45%, transparent);
   border-radius: 50%;
   font-weight: 600;
   line-height: 1;
   flex: none;
   user-select: none;
+  /* 色板里最浅的那两个（#5c7cfa / #e8590c）直接放在白底上只有 3.4 的对比度，
+     往文字色掺两成压一下；深的几个几乎不受影响。深色主题走下面反过来提亮的那条。 */
+  color: color-mix(in srgb, var(--sh-c) 80%, var(--text));
+  background: color-mix(in srgb, var(--sh-c) 16%, transparent);
+}
+
+/* 名册色板是照浅底挑的，直接放到深色面板上会糊成一团：
+   往文字色掺一截提亮，底色和描边同步加重，两个主题下都读得出是哪个字。 */
+:root[data-theme='dark'] .sh-avatar {
+  color: color-mix(in srgb, var(--sh-c) 55%, var(--text));
+  background: color-mix(in srgb, var(--sh-c) 28%, transparent);
+  border-color: color-mix(in srgb, var(--sh-c) 55%, transparent);
 }
 
 .sh-chip {
@@ -1096,4 +1072,10 @@
    结果是「负责人」被压成一个字。列表视图是固定网格，没有这个问题。 */
 .v-table .v-inline-wrap {
   min-width: 80px;
+}
+
+/* 名册里的「名下多少项」：参考量，不能抢名字的视觉位置 */
+.v-owner-count {
+  margin-left: auto;
+  flex: none;
 }

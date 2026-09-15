@@ -521,9 +521,9 @@ func TestGetObjectReturnsBodyLinksAndRevisions(t *testing.T) {
 	res := call(t, tb, ctx, "get_object", map[string]any{"ref": req.Ref})
 	for _, want := range []string{
 		"财务每月要一份带口径说明的对账单", // 正文全文
-		task.Ref,                 // 关联对象带编号
-		domain.RelBlocks,         // 关联的关系名
-		"status",                 // 修订记录里的字段名
+		task.Ref,         // 关联对象带编号
+		domain.RelBlocks, // 关联的关系名
+		"status",         // 修订记录里的字段名
 	} {
 		if !strings.Contains(res.Content, want) {
 			t.Errorf("get_object 的内容里缺少 %q\n实际内容：\n%s", want, res.Content)
@@ -664,5 +664,42 @@ func TestAskUserCapsQuestionCount(t *testing.T) {
 	}
 	if !strings.Contains(res.Content, "待确认") {
 		t.Errorf("没给出收场方式，模型会卡住：%s", res.Content)
+	}
+}
+
+// TestAskUserRejectsPreamble 挡的是真机上见过的一种形状：question 写成
+// 「这条需求需要先厘清两个问题：」，后面的选项分属两个不同问题，
+// 用户挑了一个，另一个就永远没人答。
+func TestAskUserRejectsPreamble(t *testing.T) {
+	tb, _, ctx, _ := newToolbox(t)
+	res := call(t, tb, ctx, "ask_user", map[string]any{
+		"question": "这条需求的推进方案需要先厘清两个问题：",
+		"options": []any{
+			map[string]any{"label": "按业务线拆分要做", "detail": "范围扩大，要加拆分维度"},
+			map[string]any{"label": "退款口径优先级要调", "detail": "先确认它是不是阻塞项"},
+		},
+	})
+	if res.Question != nil {
+		t.Fatalf("开场白被当成问题放行了")
+	}
+	if !strings.Contains(res.Content, "分几次调用") {
+		t.Errorf("没告诉模型该怎么改：%s", res.Content)
+	}
+}
+
+// TestAskUserAcceptsQuestionWithoutQuestionMark 是上一条的边界：
+// 只卡冒号结尾，不要求必须有问号——「请确认是否需要按业务线拆分」是个合格的问题，
+// 卡它只会白白浪费一轮重试。
+func TestAskUserAcceptsQuestionWithoutQuestionMark(t *testing.T) {
+	tb, _, ctx, _ := newToolbox(t)
+	res := call(t, tb, ctx, "ask_user", map[string]any{
+		"question": "请确认是否需要按业务线拆分",
+		"options": []any{
+			map[string]any{"label": "需要", "detail": "加一个业务线维度，工期多一周"},
+			map[string]any{"label": "不需要", "detail": "保持现在的范围"},
+		},
+	})
+	if res.Question == nil {
+		t.Fatalf("没有问号的合格问题被误伤了：%s", res.Content)
 	}
 }

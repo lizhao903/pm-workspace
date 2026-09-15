@@ -499,6 +499,14 @@ export interface TaskRunRequest {
 export interface StakeholderRef {
   id: string
   name: string
+  /**
+   * 头像底色。**空串是常态不是异常**——0010 迁移建出来的人 color 全空，
+   * 而那就是名册的初始全部内容。
+   *
+   * 空时由前端按名字哈希取色（`stakeholderColor()`），不要就地兜底成一个定值：
+   * 头像在一列名字里的作用就是先靠颜色认人，全同色比没有头像更糟，
+   * 因为它看起来像在传达信息。哈希只吃名字，排序/刷新/跨会话都得到同一个颜色。
+   */
   color: string
 }
 
@@ -508,6 +516,7 @@ export interface Stakeholder {
   role: string
   email: string
   note: string
+  /** 见 StakeholderRef.color：空串走按名字哈希，不是兜底成定值 */
   color: string
   sort_order: number
   /** null = 在岗 */

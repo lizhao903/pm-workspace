@@ -8,7 +8,28 @@ import { api } from '../lib/api'
 import type { Stakeholder, StakeholderRef } from '../lib/types'
 import { Popover, TextInput } from './ui'
 
-const FALLBACK_COLOR = '#5c7cfa'
+// 名册里 color 为空是常态而不是边缘情况：0010 迁移建出来的人一个都没有颜色，
+// 而那就是用户名册的全部。按名字哈希取一个，不取的话一列人全是同一个底色——
+// 头像本来就是靠颜色先认出人的，全同色比没有头像更糟，因为它看起来像在传达信息。
+//
+// 用的是「颜色」色板那一套（见 views/settings/common.tsx 的 PRESET_COLORS，
+// CategoryManager 与 ShortcutsPage 各自也有一份同样的字面量）：哈希出来的颜色
+// 因此和用户自己能挑的颜色长得一样，而不是另造一套。
+const AVATAR_COLORS = [
+  '#3b5bdb', '#2b8a3e', '#b35309', '#c92a2a',
+  '#7048e8', '#0c8599', '#e8590c', '#5c7cfa',
+]
+
+/**
+ * djb2。同一个名字必须永远得到同一个颜色——跨刷新、跨会话、跨排序都一样，
+ * 所以只能哈希名字，不能用数组下标：名册一排序颜色就全变，用户刚认熟的颜色就废了。
+ */
+export function stakeholderColor(name: string, color?: string): string {
+  if (color) return color
+  let h = 5381
+  for (let i = 0; i < name.length; i++) h = ((h << 5) + h + name.charCodeAt(i)) >>> 0
+  return AVATAR_COLORS[h % AVATAR_COLORS.length]
+}
 
 /* ------------------------------------------------------------ 名册缓存 */
 
@@ -63,13 +84,18 @@ export function useStakeholders(): StakeholderRoster {
 
 /* -------------------------------------------------------------- 展示件 */
 
-/** 名字首字的圆形头像。名册里颜色是后端数据而非主题 token，只能走内联 style。 */
+/**
+ * 名字首字的圆形头像。
+ *
+ * 颜色是后端数据而非主题 token，只能从内联 style 进来；但只递一个 `--sh-c`，
+ * 底色/描边/深色下的提亮全交给 CSS——同一个色值在浅底和深底要读得清，
+ * 需要两套推导，写在样式表里才有 data-theme 可用。
+ */
 export function StakeholderAvatar({ name, color, size = 18 }: {
   name: string
   color?: string
   size?: number
 }) {
-  const c = color || FALLBACK_COLOR
   return (
     <span
       className="sh-avatar"
@@ -78,9 +104,7 @@ export function StakeholderAvatar({ name, color, size = 18 }: {
         width: size,
         height: size,
         fontSize: Math.round(size * 0.55),
-        color: c,
-        background: `color-mix(in srgb, ${c} 16%, transparent)`,
-        borderColor: `color-mix(in srgb, ${c} 45%, transparent)`,
+        ['--sh-c' as string]: stakeholderColor(name, color),
       }}
     >
       {name.trim().slice(0, 1) || '?'}

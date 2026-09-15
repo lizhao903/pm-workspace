@@ -172,7 +172,9 @@ type chatReq struct {
 	ProviderID string `json:"provider_id"`
 	Model      string `json:"model"`
 	Workdir    string `json:"workdir"`
-	Message    string `json:"message"`
+	// ObjectID 是用户此刻打开的工作对象。可以不传（全局对话框里没选中任何东西时）。
+	ObjectID string `json:"object_id"`
+	Message  string `json:"message"`
 }
 
 // handleAgentChat 是唯一的流式接口。
@@ -246,7 +248,10 @@ func (s *Server) handleAgentChat(w http.ResponseWriter, r *http.Request) {
 		flusher.Flush()
 	}
 
-	runner := &agent.Runner{Store: s.st, Chat: chat, Model: model, Session: session}
+	runner := &agent.Runner{
+		Store: s.st, Chat: chat, Model: model, Session: session,
+		Object: s.currentObject(ctx, req.ObjectID),
+	}
 	msgID, err := runner.Run(ctx, req.Message, emit)
 	if err != nil {
 		// 客户端主动断开不算错误，也没人还在听，不用再写了。
@@ -259,6 +264,24 @@ func (s *Server) handleAgentChat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	emit(agent.StreamEvent{Type: "done", SessionID: session.ID, MessageID: msgID})
+}
+
+// currentObject 取出「用户此刻打开的那一条」。
+//
+// 查不到一律当没传，绝不让这次对话失败：前端的选中态可能指向一个刚被删掉的对象，
+// 为此把整条流打断，用户看到的是「我明明在打字，它报了个错」，而代价只是模型少知道
+// 一句「这个」指谁——它还可以反问，或者用户自己报编号。
+func (s *Server) currentObject(ctx context.Context, id string) *domain.Object {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return nil
+	}
+	o, err := s.st.GetObject(ctx, id)
+	if err != nil {
+		s.log.Debug("agent chat: object_id not found, ignoring", "object_id", id)
+		return nil
+	}
+	return o
 }
 
 // sessionForChat 取出这次对话的会话：给了 session_id 就用它（顺带按需更新

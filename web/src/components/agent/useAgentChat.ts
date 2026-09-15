@@ -100,7 +100,12 @@ function toItem(m: AgentMessage): ChatItem {
   return { id: m.id, kind: m.role === 'user' ? 'user' : 'assistant', text: m.content }
 }
 
-export function useAgentChat(onDataChanged: () => void): UseAgentChat {
+/**
+ * @param objectId 用户此刻打开的工作对象。传给后端只为解决「这个需求怎么推进」里的
+ *   「这个」指谁——正文由模型自己调 get_object 现取，这里不承担取数。
+ *   没选中任何东西时传空，后端按没传处理。
+ */
+export function useAgentChat(onDataChanged: () => void, objectId?: string | null): UseAgentChat {
   const [providers, setProviders] = useState<AgentProvider[]>([])
   const [providerId, setProviderId] = useState('')
   const [sessions, setSessions] = useState<AgentSession[]>([])
@@ -301,7 +306,8 @@ export function useAgentChat(onDataChanged: () => void): UseAgentChat {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-Actor-Source': 'ui' },
         body: JSON.stringify({
-          session_id: sid ?? '', provider_id: providerId, model, workdir: dir, message: msg,
+          session_id: sid ?? '', provider_id: providerId, model, workdir: dir,
+          object_id: objectId ?? '', message: msg,
         }),
         signal: ac.signal,
       })
@@ -391,7 +397,7 @@ export function useAgentChat(onDataChanged: () => void): UseAgentChat {
       if (!providers.length) void backfillProviders()
     }
   }, [
-    streaming, workdir, workdirCheck, checkWorkdir, sessionId, providerId, model,
+    streaming, workdir, workdirCheck, checkWorkdir, sessionId, providerId, model, objectId,
     push, sealAssistant, scheduleReload, rememberDir, refreshSessions,
     providers.length, backfillProviders,
   ])

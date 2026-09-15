@@ -30,10 +30,15 @@ export interface MessageListProps {
   onRetry: () => void
   onPick: (id: string, label: string) => void
   onSubmitAnswers: () => void
+  /** 空态文案。底部全局对话框和对象内对话框的开场白不一样，其余渲染完全共用 */
+  emptyTitle?: string
+  emptyHint?: string
 }
 
 export default function MessageList({
   items, streaming, workdir, onRetry, onPick, onSubmitAnswers,
+  emptyTitle = '和 Agent 说点什么',
+  emptyHint = '它能帮你记任务、记待办，把整理好的文件写进你指定的输出目录。',
 }: MessageListProps) {
   const { select, setDrawerTab } = useWorkspace()
   const boxRef = useRef<HTMLDivElement | null>(null)
@@ -59,10 +64,8 @@ export default function MessageList({
   if (!items.length) {
     return (
       <div className="ag-msgs ag-empty" ref={boxRef}>
-        <div className="ag-empty-title">和 Agent 说点什么</div>
-        <div className="ag-empty-hint">
-          它能帮你记任务、记待办，把整理好的文件写进你指定的输出目录。
-        </div>
+        <div className="ag-empty-title">{emptyTitle}</div>
+        <div className="ag-empty-hint">{emptyHint}</div>
       </div>
     )
   }
