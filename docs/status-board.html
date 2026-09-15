@@ -80,16 +80,16 @@
 <body>
 <div class="wrap">
   <h1>产品工作台 · 项目看板</h1>
-  <p class="sub">SQLite + Go + React 的本地化产品管理工作台，规划接入 eino Agent 做工作总结与辅助分析</p>
-  <p class="stamp">更新于 2026-09-15 18:15 · 数据来自实跑统计，非估算 · 工作台运行于 http://bro.vip，库中已有 81 个真实工作对象</p>
+  <p class="sub">SQLite + Go + React 的本地化产品管理工作台，Agent 做任务分析与文档编写，可调用本机 Claude Code 执行任务</p>
+  <p class="stamp">更新于 2026-09-15 21:55 · 数据来自实跑统计，非估算 · 工作台运行于 http://bro.vip，库中已有 81 个真实工作对象</p>
 
   <div class="metrics">
-    <div class="m"><b>26,311</b><span>Go 代码行</span></div>
-    <div class="m"><b>9,968</b><span>TypeScript 行</span></div>
-    <div class="m"><b>3,242</b><span>CSS 行</span></div>
-    <div class="m"><b>70</b><span>API 路由</span></div>
-    <div class="m"><b>9</b><span>数据库迁移</span></div>
-    <div class="m ok"><b>356</b><span>测试用例</span></div>
+    <div class="m"><b>28,733</b><span>Go 代码行</span></div>
+    <div class="m"><b>11,282</b><span>TypeScript 行</span></div>
+    <div class="m"><b>3,490</b><span>CSS 行</span></div>
+    <div class="m"><b>74</b><span>API 路由</span></div>
+    <div class="m"><b>10</b><span>数据库迁移</span></div>
+    <div class="m ok"><b>383</b><span>测试用例</span></div>
     <div class="m ok"><b>0</b><span>失败</span></div>
   </div>
 
@@ -178,7 +178,7 @@
     </div>
   </div>
 
-  <h2>二、本轮新增 <em>四件并行交付，均已实跑验证</em></h2>
+  <h2>二、设置模块与 Agent 配置 <em>四件并行交付，均已实跑验证</em></h2>
   <div class="board">
 
     <div class="col done">
@@ -248,7 +248,7 @@
     </div>
   </div>
 
-  <h2>三、最新一轮 <em>本机文件系统接入 + Claude Code 执行 · 真实验证通过</em></h2>
+  <h2>三、本机文件系统与 Claude Code 执行 <em>真实验证通过</em></h2>
   <div class="board">
 
     <div class="col done">
@@ -369,7 +369,71 @@
     </div>
   </div>
 
-  <h2>五、待完成 <em>按优先级</em></h2>
+  <h2>五、干系人名册与列表内联编辑 <em>负责人从自由文本改成引用</em></h2>
+  <div class="board">
+    <div class="col">
+      <div class="col-h"><span>0010 · 负责人改成引用</span><span class="n">已上线</span></div>
+      <div class="card"><div class="t">起因是真实数据里的一条值</div>
+        <div class="d">库里出现过 <code>宋一杰、李钊、振华</code> 三个人挤在一个 owner 文本字段——按 <code>owner='李钊'</code> 查不到它，没法统计，改个名字要全表替换</div></div>
+      <div class="card"><div class="t">一个负责人 + 若干参与人</div>
+        <div class="d">不做「负责人可多选」：一件事必须有唯一一个人对结果负责，否则「这事该找谁」没有答案。参与人表达「还有谁在这件事里」，信息不丢但不承担「找谁」的语义</div></div>
+      <div class="card"><div class="t">拆分用递归 CTE，不写死段数</div>
+        <div class="d">库里现在最多三个人，但那是当前数据的巧合。写死段数的话，将来手工塞一条四个人的进去，<strong>第四个人会被静默丢掉</strong></div></div>
+      <div class="card"><div class="t">迁移第一次跑，冒出一个叫 <code>me</code> 的人</div>
+        <div class="d">那是 <code>DefaultActor.Name</code> 漏进 owner 字段，全在回收站的早期演示数据上。<strong>不拿真库副本跑一遍，这个「人」会出现在名册第一行</strong></div>
+        <div class="meta"><span class="tag p0">已排除</span></div></div>
+      <div class="card"><div class="t"><code>objects.owner</code> 列保留不删</div>
+        <div class="d">迁移是单向的，而数据本身仍无自动备份。留着原文本：拆分判断错了还能对着改，同时作展示回退</div></div>
+    </div>
+
+    <div class="col">
+      <div class="col-h"><span>三列点击即改</span><span class="n">已完成</span></div>
+      <div class="card"><div class="t">状态按行的类型取，不是一套</div>
+        <div class="d">跨类型列表里 REQ 那行给需求的状态、TSK 那行给待办的。优先级取字典不取常量——写死会在用户去设置里加了一个值之后当场过时</div></div>
+      <div class="card"><div class="t">行悬停动作条正好盖住两个单元格</div>
+        <div class="d">不修的话整个功能是假的：三列摆在那儿，点下去点不到。<strong>这是真的去点才发现的，看代码看不出来</strong></div></div>
+      <div class="card"><div class="t">看板拖拽原来是没人接的 promise</div>
+        <div class="d"><code>void updateObject(...)</code>——失败时卡片停在新列、库里是旧状态，控制台都不一定看得见。和乐观更新回滚是同一个洞的另一半</div>
+        <div class="meta"><span class="tag p0">一并修掉</span></div></div>
+      <div class="card"><div class="t">表格视图补齐同样三列</div>
+        <div class="d">同样三列摆在眼前，一个能点改一个不能，用户只会以为坏了</div></div>
+    </div>
+
+    <div class="col">
+      <div class="col-h"><span>顺着改名挖出的静默失效</span><span class="n">已修</span></div>
+      <div class="card"><div class="t">筛选 chip 把人名当 id 发</div>
+        <div class="d"><code>ownerOptions</code> 从列表文本聚合，而 hook 已把它当 <code>owner_id</code> 发出去 —— 筛出来永远是空的，<strong>而用户会以为「这个人真的没负责任何东西」</strong></div></div>
+      <div class="card"><div class="t">快捷链接的 <code>{owner}</code> 变量</div>
+        <div class="d">取的是作废的自由文本字段，0010 之后新对象上恒为空。链接照样能点，只是少了一段——不报错</div></div>
+      <div class="card"><div class="t">头像五个人同色</div>
+        <div class="d">契约两处都写「空则按名字哈希」，实现是一个定值。而迁移建的人 color 全空——<strong>这是常态不是边角</strong>。假数据自测时人人有颜色，这条分支一次都走不到</div></div>
+      <div class="card"><div class="t"><code>Filters.owner</code> 改名 <code>ownerId</code></div>
+        <div class="d">它存 id，而 <code>WorkObject.owner</code> 是那个作废的文本字段。同一个词在同一个代码库里指两个东西，注释挡不住手快的人</div></div>
+    </div>
+
+    <div class="col">
+      <div class="col-h"><span>Agent 引导式确认</span><span class="n">已完成</span></div>
+      <div class="card"><div class="t">新增 <code>question</code> 事件 + <code>ask_user</code> 工具</div>
+        <div class="d">发完本轮就结束，流不挂着等。回答走下一条普通消息——<strong>降级路径不是补丁，是设计自带的</strong>：前端没渲染成按钮时，问题仍是看得懂的文字</div></div>
+      <div class="card"><div class="t">分寸比协议难</div>
+        <div class="d">判据：库里查得到的自己查，取决于用户意图的才问。实测「优先级是多少」不问直接答，「按业务线拆分是必须还是可选」会问</div></div>
+      <div class="card"><div class="t">真跑逮到一个挡板造不出的输入</div>
+        <div class="d">模型把三个话题塞进一个问题的 options（「目标用户和数据来源」/「验收标准」/「部署方式」），用户只能挑一个话题。补了一条约束：options 是<strong>这一个问题的备选答案</strong>，不是话题清单</div>
+        <div class="meta"><span class="tag p0">已修</span></div></div>
+      <div class="card"><div class="t">抽屉里那个 Tab 原来是个挡板</div>
+        <div class="d">「M4 接入 eino 前的静态插槽，交互全部禁用」——写死的假对话、按钮全 <code>disabled</code>。
+        而 <code>doc.go</code> 里记着实测后<strong>决定不引入 eino</strong>，这个条件永远不会到来。
+        一句永远不成立的 TODO 比没有 TODO 更糟，它让人以为有人在等某个东西</div>
+        <div class="meta"><span class="tag p0">已做成真的</span></div></div>
+      <div class="card"><div class="t">模型读完资料交白卷</div>
+        <div class="d">连着两次 get_object 之后那一轮只有 thinking，收在兜底那句「已经处理完了」。
+        加了一次「推一把」——<strong>只推一次</strong>，否则一个沉默的模型能把 8 轮全耗光</div></div>
+      <div class="card"><div class="t">4B 会无视自己刚读到的数据</div>
+        <div class="d">方案里写「当前无明确优先级」，而 <code>priority=P1</code> 就在喂进去的原文第二行。<strong>没有再加提示词补丁</strong>——再加就是在教它读自己刚读过的东西</div></div>
+    </div>
+  </div>
+
+  <h2>六、待完成 <em>按优先级</em></h2>
   <div class="board">
     <div class="col plan">
       <div class="col-h"><span>M4 · AI Agent（核心诉求）</span><span class="n">P0</span></div>
@@ -426,7 +490,7 @@
     </div>
   </div>
 
-  <h2>六、关键设计决定 <em>为什么这么做</em></h2>
+  <h2>七、关键设计决定 <em>为什么这么做</em></h2>
   <table>
     <tr><th style="width:23%">决定</th><th style="width:38%">理由</th><th>代价 / 边界</th></tr>
     <tr><td>单表多态工作对象</td>
@@ -452,7 +516,7 @@
         <td>需要一次 sudo；pf 规则要 LaunchDaemon 保持</td></tr>
   </table>
 
-  <h2>七、风险与欠账</h2>
+  <h2>八、风险与欠账</h2>
   <div class="note">
     <b>版本控制已建立（本地）</b>
     <p>首次提交 <code>78536d4</code>，172 个文件，分支 <code>main</code>，无远端。
@@ -488,9 +552,19 @@
     <b>本轮反复出现的失效模式</b>
     <p>「数字错了不会崩溃，只会让人用错的数字做判断」——徽标与列表口径不一致出现三次、筛选参数被静默丢弃出现三次。
     现在三步链条各有反射测试把关，且都用反证验过自己真会红。这是本轮比修好的 bug 更值钱的产出。</p>
-    <p>后续又长出三种同类：<strong>文档跟代码脱节</strong>（不参与编译，烂掉只表现为有人照着它写调用）、
+    <p>今晚又添四种，全部已堵：<strong>MCP 发着一个已经不存在的参数</strong>（API 只认 <code>owner_id</code>，
+    MCP 还在发 <code>owner</code>，未知 key 被静默忽略——按人名筛返回全量、改负责人无声失败，
+    而这个 MCP 已经配进用户的 Claude Code 了）；<strong><code>.gitignore</code> 逐条列举漏掉了子目录</strong>
+    （<code>/data/*.db</code> 盖不住 <code>data/backups/</code>，那里是含明文 api_key 的全量副本，
+    一次 <code>git add -A</code> 就进 git 历史）；<strong>新克隆 build 通过但跑起来白屏</strong>
+    （提交的 <code>dist/index.html</code> 引用着不入库的 assets——「构建通过」看上去一切正常）；
+    <strong>契约写哈希、实现是定值</strong>（头像五个人同色，而假数据自测时人人有颜色，这条分支走不到）。</p>
+    <p>再往前三种：<strong>文档跟代码脱节</strong>（不参与编译，烂掉只表现为有人照着它写调用）、
     <strong>替身比真实现宽松</strong>（测试永远绿，问题只在生产出现）、
     <strong>反证本身假绿</strong>（删代码导致编译失败，那是编译错误不是断言失败）。前两种已加守卫，第三种只能靠人记着。</p>
+    <p><b>协作上踩的两条：</b>多 agent 同时改一个仓库时跑 <code>git add -A</code>，等于替别人提交他写到一半的代码；
+    <code>pkill -f vite</code> 这类模式匹配杀进程会带走别人正在验证的服务器，而对方只会看到「它莫名其妙没了」。
+    两条都已发生，按路径 add、按端口 kill。</p>
   </div>
 </div>
 </body>

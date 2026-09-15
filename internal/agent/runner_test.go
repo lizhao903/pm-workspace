@@ -143,3 +143,58 @@ func kinds(evs []StreamEvent) []string {
 	}
 	return out
 }
+
+// TestRunnerNudgesSilentModel 盯的是真机上一半概率会踩到的坑：
+// 模型查完资料那一轮交白卷（只有 thinking，没正文也没工具调用），
+// 用户问「这个需求怎么推进」，收场却是一句「好的，已经处理完了」。
+// 推一把之后它该接着说人话。
+func TestRunnerNudgesSilentModel(t *testing.T) {
+	chat := &scriptedChat{script: []func(func(Event)){
+		func(on func(Event)) {
+			on(Event{Kind: EventToolCall, Call: ToolCall{ID: "c1", Name: "list_types", Args: "{}"}})
+		},
+		func(func(Event)) {}, // 交白卷
+		func(on func(Event)) { on(Event{Kind: EventDelta, Text: "方案如下：第一步…"}) },
+	}}
+	r, st, ctx := newRunner(t, chat)
+	msgID, err := r.Run(ctx, "这个需求怎么推进？", func(StreamEvent) {})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if chat.turns != 3 {
+		t.Errorf("跑了 %d 轮，应该是 3 轮（查 → 白卷 → 推一把之后的回答）", chat.turns)
+	}
+
+	msgs, err := st.ListAgentMessages(ctx, r.Session.ID, 0)
+	if err != nil {
+		t.Fatalf("读历史: %v", err)
+	}
+	for _, m := range msgs {
+		if m.ID != msgID {
+			continue
+		}
+		if strings.Contains(m.Content, "已经处理完了") {
+			t.Errorf("还是收在那句没用的兜底上：%s", m.Content)
+		}
+		if !strings.Contains(m.Content, "方案如下") {
+			t.Errorf("推完那一轮的正文没落库：%s", m.Content)
+		}
+	}
+}
+
+// TestRunnerNudgesOnlyOnce 是上一条的刹车：一直沉默的模型不能把轮数全耗在推它上面。
+func TestRunnerNudgesOnlyOnce(t *testing.T) {
+	chat := &scriptedChat{script: []func(func(Event)){
+		func(on func(Event)) {
+			on(Event{Kind: EventToolCall, Call: ToolCall{ID: "c1", Name: "list_types", Args: "{}"}})
+		},
+		func(func(Event)) {}, func(func(Event)) {}, func(func(Event)) {},
+	}}
+	r, _, ctx := newRunner(t, chat)
+	if _, err := r.Run(ctx, "问题", func(StreamEvent) {}); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if chat.turns != 3 {
+		t.Errorf("跑了 %d 轮，只该推一次（查 → 白卷 → 推 → 还是白卷就收）", chat.turns)
+	}
+}

@@ -36,11 +36,13 @@ export interface Filters {
   priority: string[]
   tags: string[]
   q: string
-  /** 干系人 id，不是名字。0010 起负责人是引用不是文本 */
-  owner: string
+  /** 干系人 id，不是名字。
+   *  不叫 owner 是因为 WorkObject.owner 是那个已经作废的自由文本字段——
+   *  同一个词在同一个代码库里指两个东西，注释挡不住手快的人。 */
+  ownerId: string
 }
 
-const emptyFilters: Filters = { focus: null, status: [], priority: [], tags: [], q: '', owner: '' }
+const emptyFilters: Filters = { focus: null, status: [], priority: [], tags: [], q: '', ownerId: '' }
 
 export interface WorkspaceValue {
   // 元数据
@@ -117,7 +119,10 @@ export interface ViewDescriptor {
   status?: string[]
   priority?: string[]
   tags?: string[]
-  owner?: string
+  /** 干系人 id。0010 之前这里存的是 owner 名字，键名也叫 owner——
+   *  parseView 会把那个旧键直接丢掉，不做转换：把名字当 id 用会筛出 0 条，
+   *  而用户看到的是「这个人名下什么都没有」，比筛选条整个消失更难查。 */
+  owner_id?: string
   q?: string
 }
 
@@ -131,7 +136,7 @@ export function toView(nav: NavSelection, filters: Filters): ViewDescriptor {
   if (filters.status.length) v.status = filters.status
   if (filters.priority.length) v.priority = filters.priority
   if (filters.tags.length) v.tags = filters.tags
-  if (filters.owner) v.owner = filters.owner
+  if (filters.ownerId) v.owner_id = filters.ownerId
   if (filters.q.trim()) v.q = filters.q.trim()
   return v
 }
@@ -167,7 +172,7 @@ export function parseView(json: string): ViewDescriptor | null {
   if (typeof o.focus === 'string' && FOCUS_KEYS.includes(o.focus as FocusKind)) v.focus = o.focus as FocusKind
   const arr = (x: unknown) => (Array.isArray(x) ? x.filter((i): i is string => typeof i === 'string') : undefined)
   v.status = arr(o.status); v.priority = arr(o.priority); v.tags = arr(o.tags)
-  if (typeof o.owner === 'string') v.owner = o.owner
+  if (typeof o.owner_id === 'string') v.owner_id = o.owner_id
   if (typeof o.q === 'string') v.q = o.q
   return Object.keys(v).some((k) => v[k as keyof ViewDescriptor] !== undefined) ? v : null
 }
@@ -197,7 +202,7 @@ function navToQuery(nav: NavSelection, filters: Filters, sort: string): ObjectQu
   if (filters.priority.length) q.priority = filters.priority
   if (filters.tags.length) q.tag = filters.tags
   if (filters.q.trim()) q.q = filters.q.trim()
-  if (filters.owner) q.owner_id = filters.owner
+  if (filters.ownerId) q.owner_id = filters.ownerId
 
   switch (filters.focus) {
     case 'inbox': q.inbox = true; break
@@ -335,7 +340,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       status: v.status ?? [],
       priority: v.priority ?? [],
       tags: v.tags ?? [],
-      owner: v.owner ?? '',
+      ownerId: v.owner_id ?? '',
       q: v.q ?? '',
     })
     setSelectedId(null)

@@ -274,13 +274,17 @@ export interface OwnerMenuProps {
   emptyLabel?: string
   /** 名册为空时的引导语尾巴，筛选场景不需要「去建一个」 */
   hideEmptyHint?: boolean
+  /** 每个人后面带上他名下的对象数。派活时是「谁手上满了」，筛选时是「点下去大概有多少」 */
+  showCounts?: boolean
 }
 
 /**
  * 干系人单选菜单。行内编辑、批量改、工具条筛选三处共用同一个——
  * 各写一份的话，「已归档的人要不要列出来」这种判断迟早会在某一处写反。
  */
-export function OwnerMenu({ value, valueName, onPick, emptyLabel = '未分配', hideEmptyHint }: OwnerMenuProps) {
+export function OwnerMenu({
+  value, valueName, onPick, emptyLabel = '未分配', hideEmptyHint, showCounts,
+}: OwnerMenuProps) {
   const { list, loading, empty } = useStakeholders()
   const [q, setQ] = useState('')
 
@@ -347,6 +351,15 @@ export function OwnerMenu({ value, valueName, onPick, emptyLabel = '未分配', 
             <StakeholderAvatar name={s.name} color={s.color} size={16} />
             <span className="truncate">{s.name}</span>
             {s.role ? <span className="faint truncate">{s.role}</span> : null}
+            {/* 这个数来自名册，是**全局**的「他名下有多少对象」，不随当前作用域和筛选条件变。
+                所以只敢当参考量摆在这儿，不敢说成「点下去会出几条」——
+                在需求池里点一个名下 6 项的人，出来 3 条是正常的，那 6 里有 3 条是待办。
+                这个项目已经在徽标口径上栽过一次，宁可把话说小。 */}
+            {showCounts ? (
+              <span className="badge v-owner-count" title={`名册里记的：名下共 ${s.owned_count} 个工作对象（不随当前筛选变化）`}>
+                {s.owned_count}
+              </span>
+            ) : null}
           </button>
         ))}
       </Menu>
@@ -358,27 +371,18 @@ export interface OwnerCellProps {
   value: string | null
   /** 展示名：owner_id 指向的干系人名字，没有则回退到 0010 之前的自由文本 */
   display: string
-  /** 名字来自旧的自由文本、还没指到名册里的人。淡显是为了说实话：
-      这个名字不是一条引用，按它筛不出东西，点「未分配」也不会有任何变化 */
-  legacy?: boolean
   busy?: boolean
   readOnly?: boolean
   onPick: (id: string) => void
 }
 
-export function OwnerCell({ value, display, legacy, busy, readOnly, onPick }: OwnerCellProps) {
-  // 没名字可显示时无所谓新旧，「未分配」就是「未分配」
-  const stale = Boolean(legacy && display)
+export function OwnerCell({ value, display, busy, readOnly, onPick }: OwnerCellProps) {
   return (
     <InlineCell
       label={display
-        ? <span className={`v-inline-owner-name truncate ${stale ? 'faint' : ''}`.trim()}>{display}</span>
+        ? <span className="v-inline-owner-name truncate">{display}</span>
         : <span className="faint">未分配</span>}
-      title={readOnly
-        ? display
-        : stale
-          ? `「${display}」是迁移前的自由文本负责人，还没指到名册里的人。选一个人即可归位`
-          : '点击改负责人'}
+      title={readOnly ? display : '点击改负责人'}
       width={230}
       busy={busy}
       readOnly={readOnly}

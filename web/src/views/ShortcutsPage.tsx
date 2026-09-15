@@ -81,7 +81,9 @@ export function resolveUrl(url: string, o: WorkObject | null): string {
     if (!o) return ''
     const map: Record<string, string> = {
       ref: o.ref, title: o.title, id: o.id,
-      owner: o.owner, status: o.status, category: o.category_name ?? '',
+      // 取 owner_name 不取 owner：后者是 0010 之前的自由文本，新对象上恒为空。
+      // 用它的话，带 {owner} 的快捷链接会静默变成空值——链接照样能点，只是少了一段。
+      owner: o.owner_name ?? '', status: o.status, category: o.category_name ?? '',
     }
     return encodeURIComponent(map[key] ?? '')
   })
@@ -122,7 +124,9 @@ export function describeView(v: ViewDescriptor, typeById: Record<string, ObjectT
   if (v.tags?.length) cond.push(v.tags.length === 1 ? `#${v.tags[0]}` : `${v.tags.length} 个标签`)
   if (v.status?.length) cond.push(v.status.length === 1 ? v.status[0] : `${v.status.length} 个状态`)
   if (v.priority?.length) cond.push(v.priority.length === 1 ? v.priority[0] : `${v.priority.length} 个优先级`)
-  if (v.owner) cond.push(`@${v.owner}`)
+  // 存的是干系人 id，直接显示就是 @stk_6838aa9fa564da40。名字要查名册，
+  // 和上面 categoryId 一样：预览场景不值得为它发请求。
+  if (v.owner_id) cond.push('@某负责人')
   if (v.q) cond.push(`“${v.q}”`)
 
   if (!scope.length && !cond.length) return '未设置'

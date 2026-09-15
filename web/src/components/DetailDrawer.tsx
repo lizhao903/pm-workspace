@@ -5,6 +5,7 @@ import type { DrawerTab } from '../hooks/workspace'
 import { api } from '../lib/api'
 import type { LinkView, ObjectPatch, Revision, WorkObject } from '../lib/types'
 import TaskRunPanel, { WorkdirField } from './TaskRunPanel'
+import ObjectAgentPanel from './agent/ObjectAgentPanel'
 import { OwnerPicker, ParticipantPicker, useStakeholders } from './StakeholderPicker'
 import {
   Button, CategoryPicker, ConfirmDialog, PRIORITIES, RELATIONS, RelativeTime, Select,
@@ -504,29 +505,12 @@ function ActivityTab({ objectId }: { objectId: string }) {
 
 /* --------------------------------------------------------------- AI 助手 */
 
-// M4 接入 eino 前的静态插槽：结构与线框稿一致，交互全部禁用。
+// 对象内的对话：和底部那个全局对话框各聊各的，自己一条会话。
+//
+// 不共用一条的理由很具体：用户在 Dock 里问着一件无关的事，点开一个需求想让它分析，
+// 共用的话历史上下文里就带着刚才那段不相干的对话——而模型会真的把它当上下文用。
+//
+// key 挂 object.id：换对象要换一条对话，而不是把上一个对象的消息留在这儿。
 function AiTab({ object }: { object: WorkObject }) {
-  return (
-    <>
-      <div className="drawer-body">
-        <div className="v-msg">这条{object.ref ? ` ${object.ref} ` : ''}这周的进展怎么样，有风险吗？</div>
-        <div className="v-msg v-msg-ai">
-          本周 2 个子任务完成，权限矩阵任务已停滞 9 天且是后续 3 项的前置。建议本周内启动。
-        </div>
-        <div className="v-draft">
-          <b>Agent 建议（草稿，需确认）</b>
-          <div className="muted v-draft-line">新建任务：角色权限矩阵评审会 · 到期 09-18 · 关联 {object.ref}</div>
-          <div className="v-draft-acts">
-            <Button small variant="primary" disabled title="M4 接入 eino 后启用">采纳</Button>
-            <Button small disabled title="M4 接入 eino 后启用">编辑后采纳</Button>
-            <Button small disabled title="M4 接入 eino 后启用">忽略</Button>
-          </div>
-        </div>
-      </div>
-      <div className="drawer-footer v-composer">
-        <TextInput disabled placeholder="问 AI，或 / 调用场景：日报、周报、需求结构化…" title="M4 接入 eino 后启用" />
-        <Button variant="primary" disabled title="M4 接入 eino 后启用">发送</Button>
-      </div>
-    </>
-  )
+  return <ObjectAgentPanel key={object.id} object={object} />
 }
