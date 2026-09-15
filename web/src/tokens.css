@@ -1,0 +1,73 @@
+/* 设计 token 单一来源。index.css 与 views.css 都只能用这里的变量，不得硬编码色值。 */
+:root {
+  --bg: #f7f7f8;
+  --panel: #ffffff;
+  --panel-soft: #fbfbfc;
+  --line: #e3e3e6;
+  --line-strong: #c9c9cf;
+
+  --text: #1b1b1f;
+  --muted: #6c6c78;
+  --faint: #9a9aa5;
+
+  --accent: #3b5bdb;
+  --accent-soft: #edf0fd;
+  --accent-line: #dbe2fa;
+
+  --ok: #2b8a3e;
+  --ok-soft: #ebfbee;
+  --warn: #b35309;
+  --warn-soft: #fff4e6;
+  --warn-line: #ffd8a8;
+  --danger: #c92a2a;
+  --danger-soft: #fff5f5;
+
+  --topbar-h: 48px;
+  --statusbar-h: 26px;
+  --side-w: 224px;
+  --side-w-collapsed: 56px;
+  --drawer-w: 400px;
+
+  --r-sm: 5px;
+  --r: 8px;
+  --r-lg: 12px;
+
+  --fs-xs: 11px;
+  --fs-sm: 12px;
+  --fs: 13px;
+  --fs-md: 14px;
+  --fs-lg: 16px;
+
+  --mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+  --sans: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", "Segoe UI", sans-serif;
+
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05);
+  --shadow: 0 4px 16px rgba(0, 0, 0, 0.1);
+  --shadow-lg: 0 12px 40px rgba(0, 0, 0, 0.16);
+
+  --z-drawer: 40;
+  --z-modal: 60;
+  --z-palette: 80;
+  --z-toast: 100;
+}
+
+:root[data-theme='dark'] {
+  --bg: #16161a;
+  --panel: #1d1d22;
+  --panel-soft: #202027;
+  --line: #2e2e36;
+  --line-strong: #3d3d47;
+  --text: #e9e9ee;
+  --muted: #a0a0ad;
+  --faint: #70707d;
+  --accent: #748ffc;
+  --accent-soft: #232842;
+  --accent-line: #34406b;
+  --ok-soft: #1b2a1f;
+  --warn-soft: #2b2015;
+  --warn-line: #4d3a1c;
+  --danger-soft: #2b1a1a;
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
+  --shadow-lg: 0 12px 40px rgba(0, 0, 0, 0.6);
+}

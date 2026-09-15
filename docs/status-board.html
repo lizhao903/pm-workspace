@@ -1,0 +1,490 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>产品工作台 · 项目看板</title>
+<style>
+  :root{
+    --bg:#f6f7f9; --panel:#fff; --line:#e4e6ea; --line-2:#cdd0d6;
+    --text:#1a1d21; --muted:#666c76; --faint:#9aa0aa;
+    --done:#2b8a3e; --done-bg:#ebfbee; --done-line:#b2f2bb;
+    --doing:#e8590c; --doing-bg:#fff4e6; --doing-line:#ffd8a8;
+    --todo:#495057; --todo-bg:#f1f3f5;
+    --risk:#c92a2a; --risk-bg:#fff5f5; --risk-line:#ffc9c9;
+    --plan:#3b5bdb; --plan-bg:#edf0fd; --plan-line:#dbe4ff;
+    --mono:ui-monospace,SFMono-Regular,Menlo,monospace;
+    --sans:-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);font:14px/1.6 var(--sans)}
+  .wrap{max-width:1500px;margin:0 auto;padding:28px 24px 60px}
+  h1{font-size:23px;margin:0 0 6px;letter-spacing:-.2px}
+  .sub{color:var(--muted);margin:0 0 4px;font-size:13px}
+  .stamp{color:var(--faint);font:11.5px var(--mono);margin-bottom:22px}
+
+  .metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(132px,1fr));gap:10px;margin-bottom:26px}
+  .m{background:var(--panel);border:1px solid var(--line);border-radius:9px;padding:12px 14px}
+  .m b{display:block;font-size:21px;font-weight:600;letter-spacing:-.3px}
+  .m span{color:var(--muted);font-size:11.5px}
+  .m.ok b{color:var(--done)} .m.bad b{color:var(--risk)}
+
+  h2{font-size:15px;margin:30px 0 12px;padding-bottom:7px;border-bottom:1px solid var(--line-2);
+     display:flex;align-items:baseline;gap:9px}
+  h2 em{font-style:normal;font-weight:400;color:var(--faint);font-size:12px}
+
+  .board{display:grid;grid-template-columns:repeat(auto-fit,minmax(310px,1fr));gap:13px;align-items:start}
+  .col{background:var(--panel);border:1px solid var(--line);border-radius:10px;overflow:hidden}
+  .col-h{padding:9px 13px;font-size:12.5px;font-weight:600;display:flex;justify-content:space-between;
+         align-items:center;border-bottom:1px solid var(--line)}
+  .col-h .n{font:11px var(--mono);background:rgba(0,0,0,.06);border-radius:9px;padding:1px 7px;font-weight:400}
+  .col.done .col-h{background:var(--done-bg);color:var(--done);border-bottom-color:var(--done-line)}
+  .col.doing .col-h{background:var(--doing-bg);color:var(--doing);border-bottom-color:var(--doing-line)}
+  .col.todo .col-h{background:var(--todo-bg);color:var(--todo)}
+  .col.plan .col-h{background:var(--plan-bg);color:var(--plan);border-bottom-color:var(--plan-line)}
+  .col.risk .col-h{background:var(--risk-bg);color:var(--risk);border-bottom-color:var(--risk-line)}
+
+  .card{padding:10px 13px;border-bottom:1px solid #f1f2f4}
+  .card:last-child{border-bottom:0}
+  .card .t{font-weight:500;font-size:13px}
+  .card .d{color:var(--muted);font-size:12px;margin-top:3px}
+  .card .meta{margin-top:6px;display:flex;flex-wrap:wrap;gap:5px}
+  .tag{font:10.5px var(--mono);border:1px solid var(--line-2);border-radius:4px;padding:0 5px;color:var(--muted)}
+  .tag.p0{border-color:var(--risk-line);background:var(--risk-bg);color:var(--risk)}
+  .tag.p1{border-color:var(--doing-line);background:var(--doing-bg);color:var(--doing)}
+  .tag.be{border-color:#b2d8f5;background:#e7f5ff;color:#1864ab}
+  .tag.fe{border-color:#d0bfff;background:#f3f0ff;color:#5f3dc4}
+  .tag.ops{border-color:#c3fae8;background:#e6fcf5;color:#087f5b}
+
+  table{width:100%;border-collapse:collapse;background:var(--panel);border:1px solid var(--line);
+        border-radius:9px;overflow:hidden;font-size:13px}
+  th,td{padding:8px 12px;text-align:left;border-bottom:1px solid #f1f2f4;vertical-align:top}
+  th{background:#fafbfc;font-weight:600;font-size:12px;color:var(--muted)}
+  tr:last-child td{border-bottom:0}
+  code{font:12px var(--mono);background:#f1f3f5;padding:1px 4px;border-radius:3px}
+  .st{font:11px var(--mono);border-radius:9px;padding:1px 8px;white-space:nowrap}
+  .st.ok{background:var(--done-bg);color:var(--done)}
+  .st.no{background:var(--todo-bg);color:var(--todo)}
+  .st.warn{background:var(--doing-bg);color:var(--doing)}
+  .st.bad{background:var(--risk-bg);color:var(--risk)}
+
+  .note{background:var(--panel);border:1px solid var(--line);border-left:3px solid var(--doing);
+        border-radius:7px;padding:12px 15px;margin:12px 0;font-size:13px}
+  .note b{color:var(--doing)}
+  .note.risk{border-left-color:var(--risk)} .note.risk b{color:var(--risk)}
+  .note p{margin:5px 0 0;color:var(--muted)}
+  ul{margin:6px 0;padding-left:20px;color:var(--muted);font-size:12.5px}
+  li{margin:3px 0}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>产品工作台 · 项目看板</h1>
+  <p class="sub">SQLite + Go + React 的本地化产品管理工作台，规划接入 eino Agent 做工作总结与辅助分析</p>
+  <p class="stamp">更新于 2026-09-15 18:15 · 数据来自实跑统计，非估算 · 工作台运行于 http://bro.vip，库中已有 81 个真实工作对象</p>
+
+  <div class="metrics">
+    <div class="m"><b>26,311</b><span>Go 代码行</span></div>
+    <div class="m"><b>9,968</b><span>TypeScript 行</span></div>
+    <div class="m"><b>3,242</b><span>CSS 行</span></div>
+    <div class="m"><b>70</b><span>API 路由</span></div>
+    <div class="m"><b>9</b><span>数据库迁移</span></div>
+    <div class="m ok"><b>356</b><span>测试用例</span></div>
+    <div class="m ok"><b>0</b><span>失败</span></div>
+  </div>
+
+  <div class="note">
+    <b>已修复：逾期语义按天互斥</b>
+    <p><code>Overdue</code> 原本定义为 <code>due_at &lt; now</code>，导致「今天早些时候已过到期时刻」的对象
+    <strong>同时算今日和逾期</strong>——同一条数据上午在「今日」、下午跳到「逾期」。
+    改成 <code>due_at &lt; 今天00:00</code> 后两者按天互斥，且与一天中的时刻无关。
+    分界抽成 <code>overdueBefore()</code> 供 counts 与 objects 共用，口径不会再漂。
+    实跑验证：今天凌晨 1 点到期的对象 <code>today=1 overdue=0</code>。</p>
+    <p>这个缺陷是被一条「上午跑绿、下午跑红」的测试暴露的。我们当初修「今日/逾期重叠」时
+    只解决了「上界扫进往日」那一半，加总断言设计是对的，但<strong>测试数据选在了非边界值上</strong>。</p>
+  </div>
+
+  <h2>一、已完成 <em>可用且经过实跑验证</em></h2>
+  <div class="board">
+
+    <div class="col done">
+      <div class="col-h"><span>数据层</span><span class="n">完成</span></div>
+      <div class="card"><div class="t">SQLite 单文件引擎</div>
+        <div class="d">WAL、读写双池（写池单连接）、PRAGMA 走 DSN 保证每条连接生效</div>
+        <div class="meta"><span class="tag be">后端</span></div></div>
+      <div class="card"><div class="t">迁移系统 + 内容校验和</div>
+        <div class="d">6 个迁移、sha256 防「同名文件换内容被静默跳过」、启动前全量校验</div>
+        <div class="meta"><span class="tag be">后端</span><span class="tag">6 个用例</span></div></div>
+      <div class="card"><div class="t">单表多态工作对象</div>
+        <div class="d">需求 / 待办 / 项目 / 文档 / 资源 / 笔记，新增类型是数据不是代码</div>
+        <div class="meta"><span class="tag be">后端</span></div></div>
+      <div class="card"><div class="t">分类树</div>
+        <div class="d">物化路径、子树查询、级联移动、防自环、删除改挂、颜色继承</div>
+        <div class="meta"><span class="tag be">后端</span></div></div>
+      <div class="card"><div class="t">标签 · 万物关联 · 字段级修订历史</div>
+        <div class="d">revisions 是日报周报和度量指标的数据源，第一天就建</div>
+        <div class="meta"><span class="tag be">后端</span></div></div>
+    </div>
+
+    <div class="col done">
+      <div class="col-h"><span>接口层</span><span class="n">完成</span></div>
+      <div class="card"><div class="t">55 条 REST 路由</div>
+        <div class="d">统一响应信封、错误码映射、PATCH 三态语义（不改 / 赋值 / 置空）</div>
+        <div class="meta"><span class="tag be">后端</span></div></div>
+      <div class="card"><div class="t">单二进制部署</div>
+        <div class="d">前端 embed 进 Go 二进制，<code>./bin/pmw</code> 一个文件跑起来</div>
+        <div class="meta"><span class="tag ops">工程</span></div></div>
+      <div class="card"><div class="t">三步链条的机器约束</div>
+        <div class="d">domain 字段 → API 解析 → store 谓词，缺任一步都静默失效；三处各有反射测试把关，且都用反证验过自己真会红</div>
+        <div class="meta"><span class="tag be">后端</span><span class="tag p1">关键</span></div></div>
+    </div>
+
+    <div class="col done">
+      <div class="col-h"><span>界面</span><span class="n">完成</span></div>
+      <div class="card"><div class="t">三栏 shell</div>
+        <div class="d">顶栏 / 侧栏 / 主区 / 详情抽屉 / 状态栏，三档响应式，深浅色</div>
+        <div class="meta"><span class="tag fe">前端</span></div></div>
+      <div class="card"><div class="t">导航重构：侧栏单轴</div>
+        <div class="d">侧栏只回答「在看哪类对象」，聚焦 / 标签 / 回收站全部移入工具条</div>
+        <div class="meta"><span class="tag fe">前端</span></div></div>
+      <div class="card"><div class="t">多视图</div>
+        <div class="d">列表（可分组）、看板（拖拽换状态）、表格；日历与时间线留占位</div>
+        <div class="meta"><span class="tag fe">前端</span></div></div>
+      <div class="card"><div class="t">详情抽屉四 Tab</div>
+        <div class="d">详情（全字段可编辑）/ 关联 / 活动（修订时间线）/ AI 助手（插槽已留）</div>
+        <div class="meta"><span class="tag fe">前端</span></div></div>
+      <div class="card"><div class="t">批量操作</div>
+        <div class="d">8 种动作、跨类型时自动禁用状态与分类、部分失败逐条报错、失败项保留选中</div>
+        <div class="meta"><span class="tag fe">前端</span></div></div>
+      <div class="card"><div class="t">命令面板 · 快速捕获</div>
+        <div class="d">Cmd+K 跳转 / 搜索 / 命令；三秒捕获落收件箱</div>
+        <div class="meta"><span class="tag fe">前端</span></div></div>
+    </div>
+
+    <div class="col done">
+      <div class="col-h"><span>功能模块</span><span class="n">完成</span></div>
+      <div class="card"><div class="t">工作对象分类</div>
+        <div class="d">分类管理器、子树过滤、未分类真作用域、分类与标签视觉区分</div>
+        <div class="meta"><span class="tag fe">前端</span><span class="tag be">后端</span></div></div>
+      <div class="card"><div class="t">快捷访问独立页</div>
+        <div class="d">三种跳转目标（外链 / 内跳视图 / 触发动作）、URL 变量替换、分组拖拽、协议白名单</div>
+        <div class="meta"><span class="tag fe">前端</span><span class="tag be">后端</span></div></div>
+      <div class="card"><div class="t">可配置枚举字典</div>
+        <div class="d">优先级与关联关系从硬编码变成数据；停用而非删除、有引用时拒删、key 不可改</div>
+        <div class="meta"><span class="tag be">后端</span></div></div>
+      <div class="card"><div class="t">本地域名 broleez.vip</div>
+        <div class="d">hosts + pf 重定向 80→7777 + 开机自启脚本；不让进程跑 root</div>
+        <div class="meta"><span class="tag ops">工程</span><span class="tag">待执行 sudo</span></div></div>
+    </div>
+  </div>
+
+  <h2>二、本轮新增 <em>四件并行交付，均已实跑验证</em></h2>
+  <div class="board">
+
+    <div class="col done">
+      <div class="col-h"><span>MCP Server</span><span class="n">完成</span></div>
+      <div class="card"><div class="t">9 个工具（6 读 3 写）</div>
+        <div class="d">搜索 / 取对象 / 建 / 改 / 列类型 / 列分类 / 建关联 / 最近变更 / 待办概览</div>
+        <div class="meta"><span class="tag be">后端</span></div></div>
+      <div class="card"><div class="t">走 HTTP API 不直连 DB</div>
+        <div class="d">复用 API 层全部校验，避免两个进程写同一个 SQLite</div></div>
+      <div class="card"><div class="t">读写在三处标明</div>
+        <div class="d">description 前缀、<code>readOnlyHint</code> 注解、握手 instructions；未暴露删除能力</div></div>
+      <div class="card"><div class="t">返回紧凑文本不回原始 JSON</div>
+        <div class="d">状态渲染成「进行中(doing)」——中文给人读，key 让模型知道下一步传什么。上下文是稀缺资源</div></div>
+    </div>
+
+    <div class="col done">
+      <div class="col-h"><span>设置页 · 七个二级页</span><span class="n">完成</span></div>
+      <div class="card"><div class="t">工作对象类型 + 状态集编辑器</div>
+        <div class="d"><code>id</code> / <code>ref_prefix</code> / 状态 key 创建后不可改，界面直接只读并说明原因</div></div>
+      <div class="card"><div class="t">分类</div><div class="d">复用 CategoryManager 的 embedded 模式，不重写逻辑</div></div>
+      <div class="card"><div class="t">标签（含合并）</div>
+        <div class="d">此前完全没有管理界面。合并确认框写明「将把 N 个对象改打目标，然后删除源，不可撤销」</div></div>
+      <div class="card"><div class="t">优先级 / 关联关系</div>
+        <div class="d">通用字典编辑器复用；引用数 &gt; 0 时删除按钮直接禁用，只能停用</div></div>
+      <div class="card"><div class="t">数据与备份</div>
+        <div class="d">迁移版本与 checksum、VACUUM INTO 快照、导出 JSON / Markdown。<strong>导出刻意排除供应商表</strong>——里面有密钥明文</div>
+        <div class="meta"><span class="tag p0">安全</span></div></div>
+      <div class="card"><div class="t">Agent 供应商配置</div>
+        <div class="d">测试连接成功后模型输入框升级成下拉，不用查模型名怎么拼</div></div>
+    </div>
+
+    <div class="col done">
+      <div class="col-h"><span>Agent 供应商</span><span class="n">完成</span></div>
+      <div class="card"><div class="t">三种接入</div>
+        <div class="d">OpenAI 兼容（含 DeepSeek / Moonshot / vLLM）、Google Gemini、本机 Ollama</div></div>
+      <div class="card"><div class="t">密钥只写不读</div>
+        <div class="d">读取路径一律脱敏 <code>sk-…f3a2</code>；<strong>测试失败时整个丢弃上游原文</strong>——Gemini 的 key 在 URL query 里，原样回显就泄漏</div>
+        <div class="meta"><span class="tag p0">安全</span></div></div>
+      <div class="card"><div class="t">开箱即用</div>
+        <div class="d">零供应商时首次发消息自动建本机 ollama 配置（qwen3.5:4b）</div></div>
+    </div>
+
+    <div class="col done">
+      <div class="col-h"><span>底部对话框</span><span class="n">完成</span></div>
+      <div class="card"><div class="t">默认收起 44px，展开可拖拽</div>
+        <div class="d">只占主内容区宽度，不盖侧栏和抽屉；Cmd+J 开合</div></div>
+      <div class="card"><div class="t">三个控件</div>
+        <div class="d">模型选择器 · 输出目录（文本输入 + 检查 + 最近使用）· 会话切换</div></div>
+      <div class="card"><div class="t">四种流事件差异化渲染</div>
+        <div class="d">delta 逐字 / tool_call 转圈 / tool_result 卡片带可点链接 / artifact 文件卡</div></div>
+      <div class="card"><div class="t">静默截断检测</div>
+        <div class="d">TCP 断开时 <code>for await</code> 会正常结束读不到异常。改成追踪是否见过 done/error</div></div>
+      <div class="card"><div class="t">eino 实测后否决</div>
+        <div class="d">模块 36 → 177、拖进整套 gRPC 栈、且上调既有依赖版本。改用 net/http 手写，go.mod 一字未改</div>
+        <div class="meta"><span class="tag ops">选型</span></div></div>
+    </div>
+
+    <div class="col done">
+      <div class="col-h"><span>本地域名</span><span class="n">已生效</span></div>
+      <div class="card"><div class="t">bro.vip / broleez.vip</div>
+        <div class="d">hosts + pf 重定向 80→7777 + LaunchAgent 自启，两个域名均 200</div></div>
+      <div class="card"><div class="t">TLS 已就绪，待执行</div>
+        <div class="d">mkcert 签证书 + 双监听（7777 给 MCP、7443 给浏览器）+ pf 443 转发。<strong>需要五条手动命令</strong></div>
+        <div class="meta"><span class="tag p1">待执行</span></div></div>
+      <div class="card"><div class="t">一个副作用</div>
+        <div class="d">pf 生效后直接访问 <code>127.0.0.1:7777</code> 被遮蔽，一律用域名</div></div>
+    </div>
+  </div>
+
+  <h2>三、最新一轮 <em>本机文件系统接入 + Claude Code 执行 · 真实验证通过</em></h2>
+  <div class="board">
+
+    <div class="col done">
+      <div class="col-h"><span>文件夹选择器</span><span class="n">完成</span></div>
+      <div class="card"><div class="t">目录列表由服务端提供</div>
+        <div class="d">浏览器拿不到本地绝对路径——File System Access API 只给 handle，<code>webkitdirectory</code> 给相对名。所以必须服务端列目录</div>
+        <div class="meta"><span class="tag be">后端</span><span class="tag fe">前端</span></div></div>
+      <div class="card"><div class="t">安全边界四道关</div>
+        <div class="d">只列目录不读内容 · 范围限主目录/<code>/Volumes</code>/<code>/tmp</code> · <code>EvalSymlinks</code> 后比对且前缀须紧跟分隔符 · 权限不足的条目跳过而非中断整列表</div>
+        <div class="meta"><span class="tag p0">安全</span><span class="tag">22 用例</span></div></div>
+      <div class="card"><div class="t">真实环境验证：<code>/Volumes/Macintosh HD</code> 被挡</div>
+        <div class="d">macOS 那个软链指向 <code>/</code>，不拦的话点两下就到 <code>/System</code></div></div>
+      <div class="card"><div class="t">不可写目录能进不能选</div>
+        <div class="d"><code>/</code> 和 <code>/Users</code> 本身不可写但必须能穿过去。置灰 + 只读角标，双击照常进入</div></div>
+      <div class="card"><div class="t">面包屑按可达性分级</div>
+        <div class="d">后端是沙箱的，但面包屑会拼出 <code>/</code>、<code>/Users</code> 这些祖先段——点了必报错。够不着的渲染成灰字不是链接</div></div>
+      <div class="card"><div class="t">「每个根都够得着」守卫测试</div>
+        <div class="d">遍历允许的根，断言至少一个起跳点能走到。以后加了根忘配入口当场炸</div></div>
+    </div>
+
+    <div class="col done">
+      <div class="col-h"><span>项目专属工作区</span><span class="n">完成</span></div>
+      <div class="card"><div class="t"><code>objects.workdir</code> + 继承</div>
+        <div class="d">任务没设时向上取所属项目的，<strong>只向上一层</strong>——项目不会挂在项目下，递归是自找麻烦</div></div>
+      <div class="card"><div class="t">界面区分「自己设的」与「继承的」</div>
+        <div class="d">否则用户会以为每个任务都要单独设一遍</div></div>
+      <div class="card"><div class="t">没有工作区时明确拒绝</div>
+        <div class="d">不退化到当前目录——那会让 Claude 在工作台自己的源码里乱改</div>
+        <div class="meta"><span class="tag p0">安全</span></div></div>
+    </div>
+
+    <div class="col done">
+      <div class="col-h"><span>调用本机 Claude Code</span><span class="n">完成</span></div>
+      <div class="card"><div class="t">详情抽屉第五个 Tab</div>
+        <div class="d">流式输出 + 工具调用独立成行 + 停止 + 耗时 + 历史执行记录</div></div>
+      <div class="card"><div class="t">取消真的杀进程组</div>
+        <div class="d"><code>Setpgid</code> + <code>kill(-pgid)</code>。claude 会拉起子进程，只杀父进程留孤儿。实测两个孙子一次带走</div>
+        <div class="meta"><span class="tag p0">关键</span></div></div>
+      <div class="card"><div class="t">pgid 取 <code>Process.Pid</code> 不用 <code>Getpgid</code></div>
+        <div class="d">进程回收后那个调用会失败，而失败兜底（退回用 pid）正好最危险——pid 可能已被分给别的进程</div></div>
+      <div class="card"><div class="t">默认只读 + 显式写权限开关</div>
+        <div class="d">不传跳过全部权限的 flag；勾选后传 <code>--permission-mode acceptEdits</code>，只放开文件编辑</div>
+        <div class="meta"><span class="tag p0">安全</span></div></div>
+      <div class="card"><div class="t">完整过程落库</div>
+        <div class="d">存渲染后的记录不是原始 NDJSON——事后要读「它做了什么」。超 1MB 截断并写进 workdir 的 <code>.pmw-runs/</code></div></div>
+      <div class="card"><div class="t">客户端断开不杀进程</div>
+        <div class="d">它可能已改了一半文件、记录也没收尾。要停走 <code>/cancel</code></div></div>
+    </div>
+
+    <div class="col">
+      <div class="col-h"><span>排序 tiebreak 全仓整改</span><span class="n">已完成</span></div>
+      <div class="card"><div class="t"><code>revisions</code> 不是竞态，是必然</div>
+        <div class="d">一次多字段更新里所有修订<strong>共用同一个 <code>created_at</code></strong>，顺序 100% 由 id 随机尾巴决定。改 8 个字段读回来完全乱序</div>
+        <div class="meta"><span class="tag p0">日报数据源</span></div></div>
+      <div class="card"><div class="t"><code>links.go</code> 连 tiebreak 都没有</div>
+        <div class="d">SQLite 对平局不作保证，同一份数据刷新两次可能换次序</div></div>
+      <div class="card"><div class="t">判据是时间戳精度，不是「有没有实证」</div>
+        <div class="d">秒级的全是雷，纳秒的只是加保险。<strong>无差别全改会让真正在意顺序的淹没在噪音里</strong></div></div>
+      <div class="card"><div class="t"><code>taskrun.go</code> 改用 <code>rowid</code> 收尾</div>
+        <div class="d">不靠「跑多少次没复现」，直接造出时间戳完全相同的三条记录；退回 <code>id DESC</code> 实测变红</div></div>
+    </div>
+  </div>
+
+  <h2>四、契约防腐 <em>让「悄悄算错」变成「当场变红」</em></h2>
+  <div class="board">
+    <div class="col">
+      <div class="col-h"><span>API 文档双向守卫</span><span class="n">已完成</span></div>
+      <div class="card"><div class="t">70 条路由里只有 25 条写进了文档</div>
+        <div class="d">缺的是<strong>整块整块的</strong>：快捷访问、枚举字典、Agent 供应商、Agent 对话、文件系统、任务执行、运维导出。全是后来加的模块，每块都能独立工作，谁都没想起文档</div>
+        <div class="meta"><span class="tag p0">已补全 45 条</span></div></div>
+      <div class="card"><div class="t">文档脱节不会让任何东西变红</div>
+        <div class="d">它不参与编译、不参与测试。烂掉的唯一表现是有人照着它写调用然后发现对不上</div></div>
+      <div class="card"><div class="t">两个方向都盯着</div>
+        <div class="d"><code>TestEveryRouteIsInTheContractDoc</code>（代码有、文档没有）＋ <code>TestContractDocHasNoDeadRoutes</code>（文档有、代码没有——照着写调用拿 404，而文档看起来一切正常）</div></div>
+      <div class="card"><div class="t">第一版守卫差点给出错误结论</div>
+        <div class="d">报「69 条全缺」。文档是 markdown 表格，方法和路径被分隔符隔开，<strong>从来就不是连续子串</strong>。真实数字是 45。照 69 去写会把已有的 25 条重写一遍</div>
+        <div class="meta"><span class="tag">数字太干净时先怀疑工具</span></div></div>
+    </div>
+
+    <div class="col">
+      <div class="col-h"><span>替身与实现的分叉</span><span class="n">已完成</span></div>
+      <div class="card"><div class="t">替身比真实现<strong>宽松</strong>，方向就是错的</div>
+        <div class="d"><code>ListTaskRuns(limit=0)</code> 在 sqlite 取默认 20 条，在替身返回全部。「不传 limit 会不会拉爆内存」永远测不出来</div>
+        <div class="meta"><span class="tag p0">已统一</span></div></div>
+      <div class="card"><div class="t">同一个数字写在两个包里</div>
+        <div class="d"><code>api</code> 和 <code>sqlite</code> 各有一个 <code>defaultRunLimit = 20</code>。改掉其中一个不会有任何东西变红。收进 <code>store.DefaultRunLimit</code></div></div>
+      <div class="card"><div class="t">休眠的哑弹也要拆</div>
+        <div class="d">替身时间戳撞车时比 <code>id</code>，sqlite 已改成 <code>rowid</code>。纳秒精度下撞不上，但那正是唯一的分歧点</div></div>
+      <div class="card"><div class="t">反证本身也会假绿</div>
+        <div class="d">删掉一段代码想看测试变红，结果红在「import 未使用」——那是<strong>编译错误不是断言失败</strong>，等于什么都没验证。改成把默认值调歪重跑才拿到真东西</div>
+        <div class="meta"><span class="tag p0">方法论</span></div></div>
+    </div>
+
+    <div class="col">
+      <div class="col-h"><span>执行流事件契约</span><span class="n">已完成</span></div>
+      <div class="card"><div class="t">前端漏认 <code>tool_result</code>，事件当场被丢</div>
+        <div class="d"><code>Set&lt;string&gt;</code> 少写一个字符串不违反任何类型，TypeScript 抓不到。改成从 <code>Record&lt;TaskRunEvent['type'], true&gt;</code> 生成，漏一种事件<strong>编译直接红</strong></div></div>
+      <div class="card"><div class="t"><code>tool</code> / <code>tool_result</code> 拆两条而不是合成一条</div>
+        <div class="d">合成一条就得等结果回来才发，一次跑 60 秒的 Bash 期间界面全空。而且取消时孤儿 <code>tool</code> 停在「进行中」是诚实的——合成会让它整个消失</div></div>
+      <div class="card"><div class="t">契约照 <code>Event.MarshalJSON</code> 抄，不照消息抄</div>
+        <div class="d">Agent 手写的清单漏了 <code>start</code>，而后端确实在发。编译器和逐字节测试盯着的那份才是真相</div></div>
+      <div class="card"><div class="t">判定从「有 denial 就失败」改掉了</div>
+        <div class="d">真跑里出现「Write 被拒 → 改用 Bash 绕过去 → 活干成了」。把干成了的执行标红，比标绿更糟——用户会去重做一件已经做完的事</div>
+        <div class="meta"><span class="tag">边缘情况在真实运行里出现了</span></div></div>
+    </div>
+
+    <div class="col">
+      <div class="col-h"><span>迁移校验的真实覆盖面</span><span class="n">已核实</span></div>
+      <div class="card"><div class="t">0005-0009 与线上库逐条比对一致</div>
+        <div class="d">没有采信 Agent 的自报数——它用自己算的数验证自己的改动，不构成独立证据</div></div>
+      <div class="card"><div class="t">0001-0004 的 checksum 是<strong>空串</strong></div>
+        <div class="d">加 checksum 列之前应用的，校验直接跳过（刻意的，否则历史库启动不了）。那四个文件<strong>改了不会被发现</strong></div>
+        <div class="meta"><span class="tag p1">已知缺口 · 不补</span></div></div>
+      <div class="card"><div class="t">为什么不回填</div>
+        <div class="d">回填等于把「现在的样子」追认成「当初应用的样子」，是假装验证过——比明着没有验证更危险，因为它让人以为验过了</div></div>
+      <div class="card"><div class="t">「刚加的迁移应该还没应用」是错的前提</div>
+        <div class="d">用户实例常驻且重启频繁。动手改任何迁移之前先查线上库</div></div>
+    </div>
+  </div>
+
+  <h2>五、待完成 <em>按优先级</em></h2>
+  <div class="board">
+    <div class="col plan">
+      <div class="col-h"><span>M4 · AI Agent（核心诉求）</span><span class="n">P0</span></div>
+      <div class="card"><div class="t">知识分层与基线</div>
+        <div class="d">canonical / decision / process 三层 + <code>agent_context</code> 视图。<strong>从数据层堵死</strong>过程产物污染 Agent 评估，不靠 prompt 约束</div>
+        <div class="meta"><span class="tag p0">地基</span></div></div>
+      <div class="card"><div class="t">产品实现方案基线</div>
+        <div class="d"><code>specs</code> + <code>spec_versions</code>，唯一生效版本；任务绑基线，方案升版后未完成任务自动标「需复核」</div>
+        <div class="meta"><span class="tag p0">地基</span></div></div>
+      <div class="card"><div class="t">eino 工具注册与编排</div>
+        <div class="d">Agent 能力上限 = 工具集设计质量</div></div>
+      <div class="card"><div class="t">人在环：草稿制</div>
+        <div class="d">Agent 写操作一律先落草稿，人工确认才进主表。否则跑几周数据就不可信了</div>
+        <div class="meta"><span class="tag p0">必需</span></div></div>
+      <div class="card"><div class="t">场景 Agent</div>
+        <div class="d">日报周报 / 粗输入转需求卡 / 相似需求发现 / 会议纪要抽待办 / 项目健康度</div></div>
+      <div class="card"><div class="t">运行记录与成本</div>
+        <div class="d"><code>agent_run / step / tool_call</code>，token 与耗时可追溯</div></div>
+    </div>
+
+    <div class="col todo">
+      <div class="col-h"><span>M2 · 跟进能力</span><span class="n">P1</span></div>
+      <div class="card"><div class="t">状态机可配置</div><div class="d">允许的流转路径存表，不写死</div></div>
+      <div class="card"><div class="t">Saved View</div><div class="d">存筛选组合 + 视图类型 + 分组，契约已预留 ViewDescriptor</div></div>
+      <div class="card"><div class="t">调度器</div><div class="d">逾期扫描、定时日报、自动备份</div></div>
+      <div class="card"><div class="t">通知</div><div class="d">桌面 / 邮件 / Slack / 飞书</div></div>
+      <div class="card"><div class="t">中文全文检索</div><div class="d">FTS5 trigram，现在是 LIKE</div></div>
+      <div class="card"><div class="t">附件与双链</div><div class="d">文件落盘 + sha256 去重，<code>[[双链]]</code> 与反向链接</div></div>
+    </div>
+
+    <div class="col todo">
+      <div class="col-h"><span>PM 专业能力</span><span class="n">P1</span></div>
+      <div class="card"><div class="t">RAID 台账</div>
+        <div class="d">风险 / 假设 / 问题 / 依赖四本账 —— <strong>注册 4 个工作对象类型即可，零代码</strong></div></div>
+      <div class="card"><div class="t">决策记录 ADR</div><div class="d">背景 / 决定 / 否决了什么 / 谁拍板</div></div>
+      <div class="card"><div class="t">变更控制</div><div class="d">需求冻结、变更申请、影响分析</div></div>
+      <div class="card"><div class="t">发布与里程碑</div><div class="d">Product → Release → Milestone → Sprint 层级</div></div>
+      <div class="card"><div class="t">度量看板</div>
+        <div class="d">周期时间、状态停留时长、按时交付率 —— <strong>全部从 revisions 算得出</strong></div></div>
+      <div class="card"><div class="t">容量与干系人</div><div class="d">谁手上多少活、超载预警、沟通记录</div></div>
+    </div>
+
+    <div class="col todo">
+      <div class="col-h"><span>工程与集成</span><span class="n">P2</span></div>
+      <div class="card"><div class="t">版本控制</div>
+        <div class="d">仓库至今零 commit。今天丢过一个源码文件、4 条数据，两次都靠运气找回</div>
+        <div class="meta"><span class="tag p0">待决策</span></div></div>
+      <div class="card"><div class="t">鉴权</div>
+        <div class="d">现在无任何鉴权，只靠绑 127.0.0.1。要让手机访问必须先加</div>
+        <div class="meta"><span class="tag p1">前置条件</span></div></div>
+      <div class="card"><div class="t">快捷入口软删</div><div class="d">误删一次点击就没了，没有回收站</div></div>
+      <div class="card"><div class="t">外部同步</div><div class="d">Jira / Confluence / Slack 双向</div></div>
+      <div class="card"><div class="t">日历与时间线视图</div><div class="d">当前是占位</div></div>
+    </div>
+  </div>
+
+  <h2>六、关键设计决定 <em>为什么这么做</em></h2>
+  <table>
+    <tr><th style="width:23%">决定</th><th style="width:38%">理由</th><th>代价 / 边界</th></tr>
+    <tr><td>单表多态工作对象</td>
+        <td>RAID 台账、ADR、里程碑、干系人全部只需注册新类型，零代码</td>
+        <td>跨类型查询要带 type 维度，状态集按类型隔离</td></tr>
+    <tr><td>字段级修订历史</td>
+        <td>日报周报的数据源；周期时间、状态停留时长等度量全从它算</td>
+        <td>写入量翻倍，但个人工具量级可忽略</td></tr>
+    <tr><td>枚举停用而非删除</td>
+        <td>删掉被引用的枚举值会留下悬空数据，界面出现无名无色的孤儿值</td>
+        <td>需要引用计数接口；key 一经创建不可改</td></tr>
+    <tr><td>Agent 只能读 canonical 层</td>
+        <td>过程产物与当前基线混在一起，RAG 会把废弃方案当现行设计</td>
+        <td>要维护基线版本，人工确认才能升为 canonical</td></tr>
+    <tr><td>MCP 走 HTTP 不直连 DB</td>
+        <td>复用 API 层全部校验；避免两个进程写同一个 SQLite</td>
+        <td>工作台必须在跑</td></tr>
+    <tr><td>密钥存明文，防线在出口</td>
+        <td>本地单人工具，引 keychain 会带来「密钥丢了库打不开」的运维负担</td>
+        <td><strong>库要共享或同步上云时此取舍必须重做</strong></td></tr>
+    <tr><td>pf 重定向而非监听 80</td>
+        <td>监听 80 要求整个进程跑 root，一个本地工具没必要</td>
+        <td>需要一次 sudo；pf 规则要 LaunchDaemon 保持</td></tr>
+  </table>
+
+  <h2>七、风险与欠账</h2>
+  <div class="note risk">
+    <b>零版本控制</b>
+    <p>今天已经丢过两次：一个源码文件（靠重写恢复）、4 条数据（靠留着原始请求体恢复）。两次都是运气不是机制。
+    目前唯一兜底是 <code>/tmp/pmw-snapshots/</code> 里的手工快照。</p>
+  </div>
+  <div class="note">
+    <b>无鉴权</b>
+    <p>只靠绑定 127.0.0.1。局域网访问、手机访问、以及 MCP 让任意 Claude Code 会话都能改库——三件事都以此为前提。</p>
+  </div>
+  <div class="note">
+    <b>检索是 LIKE 不是全文索引</b>
+    <p>数据量小时无感，上千条之后中文检索会明显吃力。FTS5 的 trigram 分词方案在 M2。</p>
+  </div>
+  <div class="note risk">
+    <b>0001-0004 迁移不受校验保护</b>
+    <p>它们是在 <code>schema_migrations</code> 加 checksum 列之前应用的，库里记的是空串，启动校验直接跳过。
+    0005 往后才真的锁住。<strong>那四个文件改了不会被发现</strong>。不打算补——回填 checksum 等于把「现在的样子」
+    追认成「当初应用的样子」，是假装验证过。<code>/api/admin/migrations</code> 已把空 checksum 如实暴露。</p>
+  </div>
+  <div class="note">
+    <b>等用户决定的三件事</b>
+    <p>回收站里 20 个软删除的工作对象（恢复还是清空）· TLS 证书（五条手工命令，从 <code>brew install mkcert</code> 起）·
+    版本控制（见下）。</p>
+  </div>
+  <div class="note">
+    <b>本轮反复出现的失效模式</b>
+    <p>「数字错了不会崩溃，只会让人用错的数字做判断」——徽标与列表口径不一致出现三次、筛选参数被静默丢弃出现三次。
+    现在三步链条各有反射测试把关，且都用反证验过自己真会红。这是本轮比修好的 bug 更值钱的产出。</p>
+    <p>后续又长出三种同类：<strong>文档跟代码脱节</strong>（不参与编译，烂掉只表现为有人照着它写调用）、
+    <strong>替身比真实现宽松</strong>（测试永远绿，问题只在生产出现）、
+    <strong>反证本身假绿</strong>（删代码导致编译失败，那是编译错误不是断言失败）。前两种已加守卫，第三种只能靠人记着。</p>
+  </div>
+</div>
+</body>
+</html>

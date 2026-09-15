@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="color-scheme" content="light dark" />
+    <title>产品工作台</title>
+    <script>
+      // 在首帧前套用主题，避免深色下白屏闪一下
+      try {
+        var t = localStorage.getItem('pmw.theme')
+        if (!t) t = matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
+        document.documentElement.dataset.theme = t
+      } catch (e) { document.documentElement.dataset.theme = 'light' }
+    </script>
+    <script type="module" crossorigin src="/assets/index-5Hg4ow7W.js"></script>
+    <link rel="stylesheet" crossorigin href="/assets/index-DocaqXBs.css">
+  </head>
+  <body>
+    <div id="root"></div>
+  </body>
+</html>

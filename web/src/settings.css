@@ -1,0 +1,483 @@
+/* 设置模块专用样式。类名一律 st- 前缀；色值只用 tokens.css 的变量。
+   注意：本文件在打包后排在 index.css / views.css **之前**，所以凡是要盖掉
+   .input / .row-actions / .kv 这类通用类的规则，都必须多带一层选择器提权。 */
+
+.st-page {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.st-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--line);
+  flex: none;
+  flex-wrap: wrap;
+}
+
+.st-page-title {
+  font-size: var(--fs-lg);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.st-page-sub {
+  font-size: var(--fs-sm);
+}
+
+.st-body {
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 0;
+  min-width: 0;
+}
+
+/* ------------------------------------------------------------ 二级导航 */
+
+.st-nav {
+  flex: none;
+  width: 178px;
+  border-right: 1px solid var(--line);
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  overflow: auto;
+  background: var(--panel-soft);
+}
+
+.st-nav-item {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  width: 100%;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: var(--text);
+  text-align: left;
+  padding: 6px 8px;
+  border-radius: var(--r-sm);
+  cursor: pointer;
+}
+
+.st-nav-item:hover {
+  background: var(--panel);
+}
+
+.st-nav-item-active {
+  background: var(--accent-soft);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+
+.st-nav-item-active .st-nav-label {
+  color: var(--accent);
+}
+
+.st-nav-label {
+  font-size: var(--fs);
+  font-weight: 500;
+}
+
+.st-nav-hint {
+  font-size: var(--fs-xs);
+}
+
+.st-content {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  padding: 12px 16px 28px;
+}
+
+/* -------------------------------------------------------------- 页内块 */
+
+.st-sec {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-width: 940px;
+}
+
+.st-sec-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 10px;
+}
+
+.st-sec-text {
+  min-width: 0;
+}
+
+.st-sec-title {
+  margin: 0 0 3px;
+  font-size: var(--fs-md);
+  font-weight: 600;
+}
+
+.st-sec-desc {
+  margin: 0;
+  font-size: var(--fs-sm);
+  color: var(--muted);
+  line-height: 1.55;
+}
+
+.st-sec-actions {
+  margin-left: auto;
+  display: flex;
+  gap: 6px;
+  flex: none;
+}
+
+.st-card {
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  background: var(--panel);
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.st-create {
+  border-color: var(--accent-line);
+  background: var(--accent-soft);
+}
+
+/* st-card 是 flex 列，里面单独站一行的按钮不该被拉成整行宽 */
+.st-card > .btn {
+  align-self: flex-start;
+}
+
+.st-title-note {
+  font-weight: 400;
+  font-size: var(--fs-xs);
+  margin-left: 8px;
+  flex: 1 1 auto;
+  text-align: right;
+}
+
+.st-note {
+  margin: 0;
+  font-size: var(--fs-xs);
+  line-height: 1.6;
+}
+
+.st-pad {
+  padding: 10px 2px;
+  font-size: var(--fs-sm);
+}
+
+.st-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: var(--fs-sm);
+}
+
+.st-toolbar .st-search {
+  max-width: 260px;
+}
+
+.st-group-title {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--muted);
+  margin-top: 4px;
+}
+
+.st-group-title .st-title-note {
+  text-align: left;
+  font-weight: 400;
+}
+
+/* 一经创建不可改的字段：看起来就不像输入框 */
+.st-frozen {
+  border: 1px dashed var(--line-strong);
+  border-radius: var(--r-sm);
+  background: var(--panel-soft);
+  color: var(--muted);
+  padding: 5px 8px;
+  font-size: var(--fs-sm);
+  min-height: 28px;
+}
+
+.st-break {
+  word-break: break-all;
+}
+
+/* -------------------------------------------------------------- 行列表 */
+
+.st-rows {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  overflow: hidden;
+}
+
+.st-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--line);
+  font-size: var(--fs-sm);
+  min-height: 34px;
+}
+
+.st-row:last-child {
+  border-bottom: 0;
+}
+
+.st-row:hover {
+  background: var(--panel-soft);
+}
+
+/* 停用的条目：还在，但不该再被当成可选项 */
+.st-row-off .st-row-name,
+.st-row-off .st-row-key {
+  opacity: 0.55;
+  text-decoration: line-through;
+}
+
+.st-row-key {
+  font-size: var(--fs-xs);
+  color: var(--muted);
+  background: var(--panel-soft);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  padding: 0 5px;
+  line-height: 17px;
+  flex: none;
+}
+
+.st-row-name {
+  font-weight: 500;
+  min-width: 0;
+}
+
+.st-row-desc {
+  font-size: var(--fs-xs);
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.st-row-time {
+  font-size: var(--fs-xs);
+  margin-left: 4px;
+}
+
+/* 设置页是维护界面，动作常驻显示，不玩 hover 才出现那一套 */
+.st-row .row-actions,
+.st-status-row .row-actions {
+  margin-left: auto;
+  opacity: 1;
+  flex: none;
+}
+
+.tag.st-tag-builtin,
+.tag.st-tag-off {
+  flex: none;
+}
+
+.tag.st-tag-off {
+  color: var(--warn);
+  border-color: var(--warn-line);
+  background: var(--warn-soft);
+}
+
+/* ------------------------------------------------------ 类型页两栏布局 */
+
+.st-split {
+  display: grid;
+  grid-template-columns: 196px minmax(0, 1fr);
+  gap: 14px;
+  align-items: start;
+}
+
+.st-list-col {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  border-right: 1px solid var(--line);
+  padding-right: 8px;
+}
+
+.st-list-col .st-list-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: var(--fs-sm);
+  color: var(--text);
+  text-align: left;
+  padding: 5px 8px;
+  border-radius: var(--r-sm);
+  cursor: pointer;
+}
+
+.st-list-col .st-list-item:hover {
+  background: var(--panel-soft);
+}
+
+.st-list-col .st-list-item .badge {
+  margin-left: auto;
+}
+
+.st-edit-col {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+
+.st-foot-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--fs-sm);
+  padding-top: 2px;
+}
+
+/* -------------------------------------------------------------- 状态集 */
+
+.st-status-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.st-status-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 6px;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--line);
+  background: var(--panel-soft);
+  flex-wrap: wrap;
+}
+
+.st-status-key {
+  font-size: var(--fs-xs);
+  color: var(--muted);
+  min-width: 68px;
+  flex: none;
+}
+
+.st-status-row .st-status-label {
+  width: 150px;
+  flex: none;
+}
+
+.st-status-term {
+  flex: none;
+  padding: 2px 6px;
+}
+
+/* -------------------------------------------------------------- 行内表单 */
+
+.st-inline-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  border: 1px solid var(--accent-line);
+  background: var(--accent-soft);
+  border-radius: var(--r);
+  padding: 10px 12px;
+}
+
+/* 嵌在行里时要撑满整行 */
+.st-inline-grow {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.st-inline-acts {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.st-left {
+  justify-content: flex-start;
+}
+
+.st-merge-note {
+  margin-top: 10px;
+  line-height: 1.6;
+}
+
+/* ---------------------------------------------------------- 数据与备份 */
+
+.st-card .st-kv {
+  grid-template-columns: 88px minmax(0, 1fr);
+  font-size: var(--fs-sm);
+}
+
+.v-table.st-table {
+  font-size: var(--fs-sm);
+}
+
+/* ------------------------------------------------------------ 分类嵌入 */
+
+/* 弹窗里的高度限制在整页里没意义，让内容跟着页面滚 */
+.st-embed .v-cm {
+  min-height: 0;
+}
+
+.st-embed .v-cm-tree {
+  max-height: none;
+  overflow: visible;
+}
+
+/* -------------------------------------------------------------- 窄屏 */
+
+@media (max-width: 1099.98px) {
+  .st-split {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .st-list-col {
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+    padding-right: 0;
+    padding-bottom: 6px;
+    flex-direction: row;
+    flex-wrap: wrap;
+  }
+
+  .st-list-col .st-list-item {
+    width: auto;
+  }
+}
+
+@media (max-width: 859.98px) {
+  .st-nav {
+    width: 128px;
+  }
+
+  .st-nav-hint {
+    display: none;
+  }
+
+  .st-content {
+    padding: 10px 12px 24px;
+  }
+}

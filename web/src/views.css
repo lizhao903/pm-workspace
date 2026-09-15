@@ -1,0 +1,943 @@
+/* 视图层样式。只用 tokens.css 的 CSS 变量，不硬编码色值。
+   自有类一律 v- 前缀；少数需要压过外壳层默认值的地方用「全局类 + v- 类」提升特异性。 */
+
+/* ------------------------------------------------------------ 通用小件 */
+
+.v-dot {
+  display: inline-block;
+  border-radius: 50%;
+  flex: none;
+}
+
+.v-caret {
+  width: 0;
+  height: 0;
+  border-left: 4px solid transparent;
+  border-right: 4px solid transparent;
+  border-top: 5px solid var(--faint);
+  transition: transform 0.12s ease;
+  flex: none;
+}
+
+.v-caret-closed {
+  transform: rotate(-90deg);
+}
+
+.v-overdue {
+  color: var(--danger);
+}
+
+.v-ref {
+  font-size: var(--fs-xs);
+}
+
+.v-field-hint,
+.v-field-error {
+  font-size: var(--fs-xs);
+  margin-top: 3px;
+}
+
+.v-field-error {
+  color: var(--danger);
+}
+
+/* 标签：描边 + # 前缀（.tag 由外壳层提供描边样式） */
+.v-tag-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+/* 分类：实底 + 色点，和标签在视觉上拉开距离。
+   底色由分类色 color-mix 推导，查不到分类色时退回中性面板色。 */
+.v-cat-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 200px;
+  min-width: 0;
+  padding: 1px 7px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  background: var(--panel-soft);
+  color: var(--text);
+  font-size: var(--fs-xs);
+}
+
+/* 类型标识：只在「全部类型」作用域下出现，帮用户分清哪条是需求哪条是待办。
+   比分类 chip 更弱（无实底、字更小），免得盖过标题信息。 */
+.v-type-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 6px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--muted);
+  font-size: var(--fs-xs);
+  white-space: nowrap;
+}
+
+.v-tag-x {
+  border: 0;
+  background: none;
+  color: var(--faint);
+  cursor: pointer;
+  padding: 0 1px;
+  font-size: var(--fs-sm);
+  line-height: 1;
+}
+
+.v-tag-x:hover {
+  color: var(--danger);
+}
+
+.v-tag-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-bottom: 6px;
+}
+
+.v-sk {
+  height: 12px;
+  border-radius: var(--r-sm);
+}
+
+.v-sk-title {
+  height: 14px;
+}
+
+.v-toolbar-spacer {
+  flex: 1;
+}
+
+/* ---------------------------------------------------------------- 浮层 */
+
+.v-pop-wrap {
+  position: relative;
+  display: inline-flex;
+}
+
+/* fixed 定位，坐标由 Popover 按触发器 rect 计算，避免被滚动容器裁切 */
+.v-pop {
+  position: fixed;
+  z-index: var(--z-palette);
+  min-width: 140px;
+  overflow: auto;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  box-shadow: var(--shadow);
+  padding: 4px;
+}
+
+.v-pop-pad {
+  padding: 4px 6px;
+}
+
+.v-pop-title {
+  font-size: var(--fs-xs);
+  margin-bottom: 4px;
+}
+
+.v-menu {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.v-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  text-align: left;
+  border: 0;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  font-size: var(--fs-sm);
+  padding: 5px 8px;
+  border-radius: var(--r-sm);
+  cursor: pointer;
+}
+
+.v-menu-item:hover {
+  background: var(--panel-soft);
+}
+
+.v-menu-item-active {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.v-menu-empty {
+  font-size: var(--fs-xs);
+  padding: 5px 8px;
+}
+
+.v-check {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--fs-sm);
+  padding: 4px 8px;
+  border-radius: var(--r-sm);
+  cursor: pointer;
+}
+
+.v-check:hover {
+  background: var(--panel-soft);
+}
+
+/* ------------------------------------------------------------ 中栏视图 */
+
+.v-list-view {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
+  overflow: hidden;
+}
+
+/* 工具条是唯一的筛选入口，信息量大，拆成两行：上行「视图与聚焦」，下行「条件与呈现」 */
+.list-toolbar.v-toolbar {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 7px;
+  flex-wrap: nowrap;
+  flex: none;
+}
+
+.v-toolbar-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+/* 聚焦 chip 组：互斥单选 */
+.v-focus-group {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.v-focus-chip {
+  gap: 5px;
+}
+
+/* 回收站与其它聚焦项性质不同（看的是已删除数据），用竖线隔开 */
+.v-focus-sep {
+  width: 1px;
+  align-self: stretch;
+  min-height: 16px;
+  margin: 0 3px;
+  background: var(--line-strong);
+  flex: none;
+}
+
+/* 计数为 0 的聚焦项弱化，避免一排 0 抢视线 */
+.v-badge-zero {
+  opacity: 0.45;
+}
+
+/* 下拉外面的已选条件 chip（目前只有标签） */
+.v-filter-chips {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.v-tag-count {
+  margin-left: auto;
+}
+
+/* 批量操作栏：有选中项时顶替第二行筛选条 */
+.v-bulk-bar {
+  background: var(--accent-soft);
+  border: 1px solid var(--accent-line);
+  border-radius: var(--r-sm);
+  padding: 4px 8px;
+  margin: -1px 0;
+}
+
+.v-bulk-count {
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--accent);
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  white-space: nowrap;
+}
+
+.v-bulk-count .faint {
+  font-weight: 400;
+  font-size: var(--fs-xs);
+}
+
+.v-bulk-busy {
+  font-size: var(--fs-sm);
+}
+
+.v-bulk-form {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.v-bulk-form-acts {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.v-menu-sep {
+  height: 1px;
+  background: var(--line);
+  margin: 4px 2px;
+}
+
+/* 批量结果提示 */
+.v-batch-note {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 14px;
+  font-size: var(--fs-sm);
+  border-bottom: 1px solid var(--line);
+  background: var(--accent-soft);
+  color: var(--accent);
+  flex: none;
+}
+
+.v-batch-note-bad {
+  background: var(--warn-soft);
+  border-bottom-color: var(--warn-line);
+  color: var(--warn);
+}
+
+.v-batch-fails {
+  max-height: 140px;
+  overflow: auto;
+  border-bottom: 1px solid var(--line);
+  background: var(--panel-soft);
+  flex: none;
+}
+
+.v-batch-fail {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) minmax(0, 1.4fr);
+  gap: 8px;
+  align-items: baseline;
+  padding: 4px 14px;
+  font-size: var(--fs-xs);
+  border-top: 1px solid var(--line);
+}
+
+.v-batch-fail:first-child {
+  border-top: 0;
+}
+
+.v-batch-fail-msg {
+  color: var(--danger);
+  word-break: break-word;
+}
+
+.v-total,
+.v-checked-hint {
+  font-size: var(--fs-xs);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.v-view-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+
+.v-list-body {
+  padding-bottom: 24px;
+}
+
+/* 行网格对齐线框稿：勾选 / 标题 / 状态 / 优先级 / 负责人+到期 / 关联 */
+.obj-row.v-obj-row {
+  position: relative;
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr) 96px 56px 104px 72px;
+  gap: 10px;
+  align-items: center;
+  cursor: pointer;
+}
+
+.v-cb {
+  width: 13px;
+  height: 13px;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.v-cell-title {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.v-title-line {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+}
+
+/* 表头行贴顶，滚动时仍可见 */
+.obj-row.v-head-row {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  cursor: default;
+  font-size: var(--fs-xs);
+  color: var(--faint);
+  background: var(--panel-soft);
+}
+
+.v-title {
+  font-weight: 500;
+}
+
+.v-title-meta {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.v-title-meta:empty {
+  display: none;
+}
+
+.v-cell-owner {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  font-size: var(--fs-xs);
+  min-width: 0;
+}
+
+.v-row-actions {
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  gap: 4px;
+  align-items: center;
+  opacity: 0;
+  pointer-events: none;
+  background: var(--panel);
+  box-shadow: -8px 0 8px -6px rgba(0, 0, 0, 0.12);
+  padding-left: 6px;
+}
+
+.obj-row:hover .v-row-actions,
+.obj-row:focus-within .v-row-actions {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* 选中行底色不同，行动作条要跟着换，否则会有一道色块接缝 */
+.obj-row-selected .v-row-actions {
+  background: var(--accent-soft);
+}
+
+.group-bar.v-group-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  font: inherit;
+  font-size: var(--fs-sm);
+  color: var(--muted);
+  cursor: pointer;
+  text-align: left;
+}
+
+/* ---------------------------------------------------------------- 看板 */
+
+.v-board {
+  display: flex;
+  gap: 10px;
+  padding: 12px;
+  align-items: flex-start;
+  min-height: 100%;
+}
+
+.v-board-column {
+  flex: 0 0 260px;
+  background: var(--panel-soft);
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  display: flex;
+  flex-direction: column;
+  max-height: 100%;
+}
+
+.v-board-column-over {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.v-board-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--line);
+  font-size: var(--fs-sm);
+  font-weight: 600;
+}
+
+.v-board-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+  overflow: auto;
+}
+
+.v-board-card {
+  cursor: grab;
+}
+
+.v-board-card:active {
+  cursor: grabbing;
+}
+
+.v-board-card-selected {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent-line);
+}
+
+.v-board-card-meta {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex-wrap: wrap;
+  margin-top: 6px;
+  font-size: var(--fs-xs);
+}
+
+.v-board-empty {
+  font-size: var(--fs-xs);
+  text-align: center;
+  padding: 14px 0;
+  border: 1px dashed var(--line-strong);
+  border-radius: var(--r-sm);
+}
+
+/* ---------------------------------------------------------------- 表格 */
+
+.v-table-wrap {
+  overflow: auto;
+}
+
+.v-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--fs-sm);
+}
+
+.v-table th {
+  text-align: left;
+  font-weight: 500;
+  color: var(--faint);
+  font-size: var(--fs-xs);
+  padding: 7px 10px;
+  border-bottom: 1px solid var(--line);
+  background: var(--panel-soft);
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
+.v-table td {
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--line);
+  white-space: nowrap;
+  max-width: 320px;
+}
+
+.v-table tbody tr {
+  cursor: pointer;
+}
+
+.v-table tbody tr:hover {
+  background: var(--panel-soft);
+}
+
+.v-table tbody tr.v-tr-selected {
+  background: var(--accent-soft);
+}
+
+/* ---------------------------------------------------------------- 抽屉 */
+
+.v-drawer {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.v-drawer-top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--line);
+  font-size: var(--fs-sm);
+  flex: none;
+}
+
+.v-title-input {
+  font-size: var(--fs-md);
+  font-weight: 600;
+}
+
+.v-kv {
+  align-items: center;
+  row-gap: 6px;
+}
+
+/* 到期那行现在是 datetime-local + 「整天」+ 逾期标记，400px 抽屉里放不下要能换行 */
+.v-kv-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 0;
+}
+
+.v-save-hint {
+  font-size: var(--fs-xs);
+  margin-left: 8px;
+  font-weight: 400;
+}
+
+.v-tag-input {
+  margin-top: 2px;
+}
+
+.v-link-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 0;
+  border-top: 1px solid var(--line);
+}
+
+.v-link-row:first-of-type {
+  border-top: 0;
+}
+
+.v-link-peer {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: var(--fs-sm);
+  color: var(--accent);
+  text-align: left;
+  cursor: pointer;
+  padding: 2px 0;
+}
+
+.v-link-peer:disabled {
+  color: var(--faint);
+  cursor: default;
+}
+
+.v-link-add {
+  display: grid;
+  grid-template-columns: 92px minmax(0, 1fr) auto;
+  gap: 6px;
+  align-items: center;
+}
+
+.v-link-results {
+  margin-top: 6px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  padding: 3px;
+}
+
+/* 活动时间线 */
+.v-timeline {
+  display: flex;
+  flex-direction: column;
+}
+
+.v-tl-item {
+  display: flex;
+  gap: 8px;
+  padding: 7px 8px;
+  border-radius: var(--r-sm);
+  font-size: var(--fs-sm);
+}
+
+.v-tl-agent {
+  background: var(--warn-soft);
+  border: 1px solid var(--warn-line);
+}
+
+.v-tl-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--line-strong);
+  margin-top: 6px;
+  flex: none;
+}
+
+.v-tl-agent .v-tl-dot {
+  background: var(--warn);
+}
+
+.v-tl-content {
+  min-width: 0;
+}
+
+.v-tl-line {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 2px;
+}
+
+/* AI 助手占位 */
+.v-msg {
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  padding: 9px 11px;
+  font-size: var(--fs-sm);
+  background: var(--panel);
+}
+
+.v-msg-ai {
+  background: var(--accent-soft);
+  border-color: var(--accent-line);
+}
+
+.v-draft {
+  border: 1px solid var(--warn-line);
+  background: var(--warn-soft);
+  border-radius: var(--r);
+  padding: 9px 11px;
+  font-size: var(--fs-sm);
+}
+
+.v-draft-line {
+  margin-top: 4px;
+}
+
+.v-draft-acts {
+  display: flex;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.v-composer {
+  gap: 8px;
+}
+
+.v-composer .input {
+  flex: 1;
+}
+
+/* ------------------------------------------------------------ 分类管理 */
+
+.v-cm {
+  display: grid;
+  grid-template-columns: 172px minmax(0, 1fr);
+  gap: 12px;
+  min-height: 380px;
+}
+
+.v-cm-side {
+  border-right: 1px solid var(--line);
+  padding-right: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.v-cm-side-title {
+  font-size: var(--fs-xs);
+  letter-spacing: 0.6px;
+  padding: 2px 6px 6px;
+}
+
+.v-cm-type {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: var(--fs-sm);
+  color: var(--text);
+  text-align: left;
+  padding: 5px 8px;
+  border-radius: var(--r-sm);
+  cursor: pointer;
+}
+
+.v-cm-type:hover {
+  background: var(--panel-soft);
+}
+
+.v-cm-main {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  gap: 8px;
+}
+
+.v-cm-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--fs-sm);
+}
+
+.v-cm-tree {
+  overflow: auto;
+  max-height: 52vh;
+}
+
+.tree-node.v-cm-node {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 6px;
+  border-radius: var(--r-sm);
+  font-size: var(--fs-sm);
+}
+
+.v-cm-node:hover {
+  background: var(--panel-soft);
+}
+
+.v-cm-name {
+  font-weight: 500;
+  min-width: 0;
+}
+
+.v-cm-slug {
+  font-size: var(--fs-xs);
+  min-width: 0;
+  max-width: 160px;
+}
+
+.v-cm-actions {
+  margin-left: auto;
+  display: flex;
+  gap: 4px;
+  align-items: center;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.v-cm-node:hover .v-cm-actions,
+.v-cm-node:focus-within .v-cm-actions {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.v-cm-desc {
+  font-size: var(--fs-xs);
+  padding-bottom: 4px;
+}
+
+.v-cm-form {
+  border: 1px solid var(--accent-line);
+  background: var(--accent-soft);
+  border-radius: var(--r);
+  padding: 10px 12px;
+  margin: 6px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.v-cm-form-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.v-swatches {
+  display: flex;
+  gap: 5px;
+  flex-wrap: wrap;
+}
+
+.v-swatch {
+  width: 20px;
+  height: 20px;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--line-strong);
+  cursor: pointer;
+  padding: 0;
+}
+
+.v-swatch-on {
+  box-shadow: 0 0 0 2px var(--panel), 0 0 0 4px var(--accent);
+}
+
+/* ------------------------------------------------------------ 快速捕获 */
+
+.v-qc {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.v-qc-types {
+  flex-wrap: wrap;
+}
+
+.v-qc-hint {
+  font-size: var(--fs-xs);
+}
+
+/* ------------------------------------------------------------ 响应式 */
+
+@media (max-width: 1100px) {
+  .obj-row.v-obj-row {
+    grid-template-columns: 20px minmax(0, 1fr) 88px 48px 90px;
+  }
+
+  .v-cell-links {
+    display: none;
+  }
+}

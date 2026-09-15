@@ -1,0 +1,343 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>产品工作台 · 布局框架线框稿</title>
+<style>
+  :root{
+    --bg:#f7f7f8; --panel:#fff; --line:#e3e3e6; --line-strong:#c9c9cf;
+    --text:#1b1b1f; --muted:#6c6c78; --faint:#9a9aa5;
+    --accent:#3b5bdb; --accent-soft:#edf0fd;
+    --topbar-h:48px; --statusbar-h:26px; --side-w:224px; --drawer-w:400px;
+    --r:8px; --mono:ui-monospace,SFMono-Regular,Menlo,monospace;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font:13px/1.5 -apple-system,"PingFang SC","Microsoft YaHei",sans-serif;color:var(--text);background:var(--bg)}
+  .wrap{max-width:1500px;margin:0 auto;padding:24px}
+  h1{font-size:18px;margin:0 0 4px}
+  .sub{color:var(--muted);margin:0 0 18px;font-size:12.5px}
+  .app{border:1px solid var(--line-strong);border-radius:10px;overflow:hidden;background:var(--panel);
+       display:grid;grid-template-rows:var(--topbar-h) 1fr var(--statusbar-h);height:760px;box-shadow:0 1px 3px rgba(0,0,0,.06)}
+
+  /* topbar */
+  .topbar{display:flex;align-items:center;gap:10px;padding:0 12px;border-bottom:1px solid var(--line);background:#fcfcfd}
+  .brand{font-weight:600;font-size:13px;letter-spacing:.2px}
+  .ws{border:1px solid var(--line);border-radius:6px;padding:3px 8px;color:var(--muted);font-size:12px}
+  .search{flex:1;max-width:520px;margin:0 auto;border:1px solid var(--line);border-radius:6px;padding:5px 10px;
+          color:var(--faint);display:flex;justify-content:space-between;background:#fff}
+  kbd{font:11px var(--mono);border:1px solid var(--line);border-bottom-width:2px;border-radius:4px;padding:0 5px;color:var(--muted)}
+  .tb-actions{display:flex;gap:8px;align-items:center}
+  .btn{border:1px solid var(--line);border-radius:6px;padding:4px 10px;font-size:12px;color:var(--text);background:#fff}
+  .btn.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+  .dot{width:26px;height:26px;border-radius:50%;background:#e6e6ea;border:1px solid var(--line)}
+
+  /* body grid */
+  .body{display:grid;grid-template-columns:var(--side-w) 1fr var(--drawer-w);min-height:0}
+  .col{min-height:0;display:flex;flex-direction:column}
+  .sidebar{border-right:1px solid var(--line);background:#fbfbfc;padding:8px 0;overflow:auto}
+  .grp{color:var(--faint);font-size:10.5px;letter-spacing:.8px;padding:10px 14px 4px;text-transform:uppercase}
+  .nav{display:flex;align-items:center;justify-content:space-between;padding:6px 14px;color:#33333c;border-left:2px solid transparent}
+  .nav.active{background:var(--accent-soft);border-left-color:var(--accent);color:var(--accent);font-weight:600}
+  .badge{font:11px var(--mono);color:var(--muted);background:#ececf0;border-radius:9px;padding:0 6px}
+  .side-foot{margin-top:auto;border-top:1px solid var(--line);padding:8px 0}
+
+  /* main */
+  .main{border-right:1px solid var(--line);overflow:hidden}
+  .toolbar{display:flex;align-items:center;gap:8px;padding:8px 14px;border-bottom:1px solid var(--line);flex-wrap:wrap}
+  .seg{display:flex;border:1px solid var(--line);border-radius:6px;overflow:hidden}
+  .seg span{padding:4px 10px;font-size:12px;color:var(--muted);border-right:1px solid var(--line)}
+  .seg span:last-child{border-right:0}
+  .seg span.on{background:var(--accent-soft);color:var(--accent);font-weight:600}
+  .chip{border:1px dashed var(--line-strong);border-radius:14px;padding:3px 9px;font-size:11.5px;color:var(--muted)}
+  .spacer{flex:1}
+  .list{overflow:auto;padding:4px 0}
+  .row{display:grid;grid-template-columns:18px 1fr 90px 74px 88px 64px;gap:10px;align-items:center;
+       padding:9px 14px;border-bottom:1px solid #f0f0f2}
+  .row.head{color:var(--faint);font-size:11px;border-bottom:1px solid var(--line);background:#fafafb}
+  .row.sel{background:var(--accent-soft)}
+  .cb{width:13px;height:13px;border:1px solid var(--line-strong);border-radius:3px}
+  .ttl{font-weight:500}
+  .meta{color:var(--muted);font-size:11.5px}
+  .tag{border:1px solid var(--line);border-radius:4px;padding:1px 6px;font-size:11px;color:var(--muted);margin-left:6px}
+  .st{font-size:11.5px;border-radius:10px;padding:1px 8px;border:1px solid var(--line);color:var(--muted);display:inline-block}
+  .st.doing{background:#fff4e6;border-color:#ffd8a8;color:#b35309}
+  .st.todo{background:#f1f3f5}
+  .st.done{background:#ebfbee;border-color:#b2f2bb;color:#2b8a3e}
+  .grpbar{padding:6px 14px;background:#fafafb;color:var(--muted);font-size:11.5px;border-bottom:1px solid #f0f0f2}
+
+  /* drawer */
+  .drawer{background:#fcfcfd;overflow:hidden}
+  .tabs{display:flex;border-bottom:1px solid var(--line)}
+  .tabs div{padding:9px 14px;font-size:12px;color:var(--muted);border-bottom:2px solid transparent}
+  .tabs div.on{color:var(--accent);border-bottom-color:var(--accent);font-weight:600}
+  .dbody{padding:12px 14px;overflow:auto;display:flex;flex-direction:column;gap:10px}
+  .card{border:1px solid var(--line);border-radius:var(--r);background:#fff;padding:10px 12px}
+  .card h4{margin:0 0 6px;font-size:12px;color:var(--muted);font-weight:600}
+  .kv{display:grid;grid-template-columns:64px 1fr;gap:4px 8px;font-size:12px}
+  .kv b{font-weight:400;color:var(--faint)}
+  .ph{border:1px dashed var(--line-strong);border-radius:6px;color:var(--faint);font-size:11.5px;padding:10px;text-align:center}
+  .msg{border:1px solid var(--line);border-radius:var(--r);padding:9px 11px;font-size:12px;background:#fff}
+  .msg.ai{background:#fbfcff;border-color:#dbe2fa}
+  .draft{border:1px solid #ffd8a8;background:#fff9f2;border-radius:var(--r);padding:9px 11px;font-size:12px}
+  .draft .acts{display:flex;gap:6px;margin-top:8px}
+  .mini{font-size:11px;padding:3px 9px;border-radius:5px;border:1px solid var(--line);background:#fff;color:var(--text)}
+  .mini.ok{background:var(--accent);border-color:var(--accent);color:#fff}
+  .composer{margin-top:auto;border-top:1px solid var(--line);padding:9px 12px;display:flex;gap:8px;align-items:center;background:#fff}
+  .composer .inp{flex:1;border:1px solid var(--line);border-radius:6px;padding:6px 9px;color:var(--faint);font-size:12px}
+
+  /* statusbar */
+  .statusbar{display:flex;align-items:center;gap:14px;padding:0 12px;border-top:1px solid var(--line);
+             background:#fafafb;color:var(--faint);font:11px var(--mono)}
+  .live{color:#b35309}
+
+  /* annotations */
+  .notes{margin-top:22px;display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px}
+  .note{background:#fff;border:1px solid var(--line);border-radius:var(--r);padding:12px 14px}
+  .note h3{margin:0 0 6px;font-size:13px}
+  .note p{margin:0;color:var(--muted);font-size:12px}
+  .note code{font:11.5px var(--mono);background:#f1f1f4;padding:1px 4px;border-radius:3px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>产品工作台 · 布局框架线框稿</h1>
+  <p class="sub">轻量化前端模式：单页应用 / 三栏 shell / 右侧抽屉复用「详情 + Agent」，全流程不跳页。桌面宽度 1440 示意。</p>
+
+  <div class="app">
+    <!-- TOPBAR -->
+    <div class="topbar">
+      <span class="brand">PM Workspace</span>
+      <span class="ws">工作区：默认</span>
+      <div class="search"><span>搜索需求 / 文档 / 待办…</span><kbd>Cmd K</kbd></div>
+      <div class="tb-actions"><span class="ws" style="letter-spacing:2px">JR CF FG GH</span>
+        <span class="btn primary">+ 快速捕获</span>
+        <span class="btn">通知 3</span>
+        <span class="dot"></span>
+      </div>
+    </div>
+
+    <!-- BODY -->
+    <div class="body">
+      <!-- SIDEBAR -->
+      <div class="col sidebar">
+        <div class="grp">聚焦</div>
+        <div class="nav"><span>收件箱</span><span class="badge">12</span></div>
+        <div class="nav"><span>今日</span><span class="badge">5</span></div>
+        <div class="nav"><span>本周</span><span class="badge">18</span></div>
+        <div class="nav"><span>逾期</span><span class="badge">2</span></div>
+
+        <div class="grp">工作对象</div>
+        <div class="nav active"><span>需求池</span><span class="badge">86</span></div>
+        <div class="nav"><span>待办</span><span class="badge">41</span></div>
+        <div class="nav"><span>项目</span><span class="badge">7</span></div>
+        <div class="nav"><span>文档</span><span class="badge">153</span></div>
+        <div class="nav"><span>资源</span><span class="badge">64</span></div>
+
+        <div class="grp">保存的视图</div>
+        <div class="nav"><span>P0 未排期</span></div>
+        <div class="nav"><span>停滞 14 天</span><span class="badge">9</span></div>
+        <div class="nav"><span>等我确认</span><span class="badge">3</span></div>
+
+        <div class="grp">标签</div>
+        <div class="nav"><span>云端平台</span></div>
+        <div class="nav"><span>本地客户端</span></div>
+
+        <div class="side-foot">
+          <div class="nav"><span>快捷访问</span><span class="badge">12</span></div>
+          <div class="nav"><span>Agent 中心</span><span class="badge">2 运行中</span></div>
+          <div class="nav"><span>设置 / 数据备份</span></div>
+        </div>
+      </div>
+
+      <!-- MAIN -->
+      <div class="col main">
+        <div class="toolbar">
+          <div class="seg"><span class="on">列表</span><span>看板</span><span>表格</span><span>日历</span><span>时间线</span></div>
+          <span class="chip">状态：进行中 +2</span>
+          <span class="chip">项目：全部</span>
+          <span class="chip">+ 筛选</span>
+          <div class="spacer"></div>
+          <span class="btn">分组：项目</span>
+          <span class="btn">排序：更新时间</span>
+          <span class="btn">另存为视图</span>
+        </div>
+
+        <div class="list">
+          <div class="row head"><span></span><span>标题</span><span>状态</span><span>优先级</span><span>负责人 / 到期</span><span>关联</span></div>
+
+          <div class="grpbar">项目：Octok 云端 · 24 项</div>
+          <div class="row sel">
+            <span class="cb"></span>
+            <span><span class="ttl">多租户组织与角色体系</span><span class="tag">云端平台</span><span class="tag">P0</span></span>
+            <span><i class="st doing">进行中</i></span><span class="meta">P0</span>
+            <span class="meta">我 · 09-22</span><span class="meta">3 任务 2 文档</span>
+          </div>
+          <div class="row">
+            <span class="cb"></span>
+            <span><span class="ttl">审计日志导出与留存策略</span><span class="tag">合规</span></span>
+            <span><i class="st todo">未开工</i></span><span class="meta">P1</span>
+            <span class="meta">未分配 · —</span><span class="meta">1 文档</span>
+          </div>
+          <div class="row">
+            <span class="cb"></span>
+            <span><span class="ttl">账单与用量统计页</span></span>
+            <span><i class="st doing">进行中</i></span><span class="meta">P1</span>
+            <span class="meta">我 · 09-30</span><span class="meta">5 任务</span>
+          </div>
+
+          <div class="grpbar">项目：Octok 本地端 · 17 项</div>
+          <div class="row">
+            <span class="cb"></span>
+            <span><span class="ttl">本地策略同步冲突提示</span><span class="tag">本地客户端</span></span>
+            <span><i class="st done">已完成</i></span><span class="meta">P2</span>
+            <span class="meta">我 · 09-10</span><span class="meta">2 任务</span>
+          </div>
+          <div class="row">
+            <span class="cb"></span>
+            <span><span class="ttl">离线模式下的凭证缓存</span></span>
+            <span><i class="st todo">未开工</i></span><span class="meta">P0</span>
+            <span class="meta">未分配 · 10-08</span><span class="meta">1 需求</span>
+          </div>
+          <div class="row" style="opacity:.45"><span class="cb"></span><span class="meta">… 滚动加载更多</span><span></span><span></span><span></span><span></span></div>
+        </div>
+      </div>
+
+      <!-- DRAWER -->
+      <div class="col drawer">
+        <div class="tabs"><div class="on">详情</div><div>AI 助手</div><div>活动</div><div>关联图</div></div>
+        <div class="dbody">
+          <div class="card">
+            <h4>需求 REQ-0142</h4>
+            <div class="ttl" style="margin-bottom:8px">多租户组织与角色体系</div>
+            <div class="kv">
+              <b>状态</b><span><i class="st doing">进行中</i></span>
+              <b>优先级</b><span>P0</span>
+              <b>项目</b><span>Octok 云端</span>
+              <b>负责人</b><span>我</span>
+              <b>到期</b><span>2026-09-22</span>
+              <b>来源</b><span>Slack 反馈 · 09-03</span>
+            </div>
+          </div>
+
+          <div class="card">
+            <h4>描述 / Markdown 编辑器</h4>
+            <div class="ph">富文本编辑区，支持 [[双链]] 自动补全</div>
+          </div>
+
+          <div class="card">
+            <h4>关联（点击跳转，支持拖入）</h4>
+            <div class="meta">任务 · 组织切换器交互 <i class="st doing">进行中</i></div>
+            <div class="meta">任务 · 角色权限矩阵落库 <i class="st todo">未开工</i></div>
+            <div class="meta">文档 · 多租户方案 v2</div>
+            <div class="meta">需求 · 相似：SSO 接入（相似度 0.83）</div>
+          </div>
+
+          <div class="card">
+            <h4>AI 助手（切到该 Tab 时占满抽屉）</h4>
+            <div class="msg">帮我看下这条需求这周的进展，有风险吗</div>
+            <div class="msg ai" style="margin-top:8px">本周 2 个子任务完成，权限矩阵任务已停滞 9 天且是后续 3 项的前置。建议本周内启动。</div>
+            <div class="draft" style="margin-top:8px">
+              <b>Agent 建议（草稿，需确认）</b>
+              <div class="meta" style="margin-top:4px">新建任务：角色权限矩阵评审会 · 到期 09-18 · 关联 REQ-0142</div>
+              <div class="acts"><span class="mini ok">采纳</span><span class="mini">编辑后采纳</span><span class="mini">忽略</span></div>
+            </div>
+          </div>
+        </div>
+        <div class="composer"><span class="inp">问 AI，或 / 调用场景：日报、周报、需求结构化…</span><span class="btn primary">发送</span></div>
+      </div>
+    </div>
+
+    <!-- STATUSBAR -->
+    <div class="statusbar">
+      <span>data/pm.db · 4.2 MB · WAL</span>
+      <span>索引 FTS 153 / 向量 1,204</span>
+      <span class="live">Agent 运行中：周报生成 (2/5 步)</span>
+      <span>上次备份 09-15 09:00</span>
+    </div>
+  </div>
+
+
+  <h1 style="margin-top:34px">快捷访问 · 独立页面</h1>
+  <p class="sub">侧栏点「快捷访问」进入。中栏整页接管，右侧抽屉收起。三种目标：外链 / 工作台内跳 / 触发动作。</p>
+
+  <div class="app" style="height:640px">
+    <div class="topbar">
+      <span class="brand">PM Workspace</span>
+      <span class="ws">工作区：默认</span>
+      <div class="search"><span>搜索需求 / 文档 / 待办…</span><kbd>Cmd K</kbd></div>
+      <div class="tb-actions"><span class="ws" style="letter-spacing:2px">JR CF FG GH</span><span class="btn primary">+ 快速捕获</span><span class="dot"></span></div>
+    </div>
+    <div class="body" style="grid-template-columns:var(--side-w) 1fr">
+      <div class="col sidebar">
+        <div class="grp">聚焦</div>
+        <div class="nav"><span>收件箱</span><span class="badge">12</span></div>
+        <div class="nav"><span>今日</span><span class="badge">5</span></div>
+        <div class="grp">工作对象</div>
+        <div class="nav"><span>需求池</span><span class="badge">86</span></div>
+        <div class="nav"><span>待办</span><span class="badge">41</span></div>
+        <div class="nav"><span>项目</span><span class="badge">7</span></div>
+        <div class="nav"><span>文档</span><span class="badge">153</span></div>
+        <div class="side-foot">
+          <div class="nav active"><span>快捷访问</span><span class="badge">12</span></div>
+          <div class="nav"><span>Agent 中心</span><span class="badge">2 运行中</span></div>
+          <div class="nav"><span>回收站</span></div>
+        </div>
+      </div>
+      <div class="col main" style="border-right:0">
+        <div class="toolbar">
+          <span class="ttl" style="font-size:14px">快捷访问</span>
+          <span class="chip">搜索入口…</span>
+          <div class="spacer"></div>
+          <div class="seg"><span class="on">卡片</span><span>紧凑</span></div>
+          <span class="btn">+ 新建分组</span>
+          <span class="btn primary">+ 新建入口</span>
+        </div>
+        <div class="list" style="padding:14px">
+          <div class="grpbar" style="border:0;background:transparent;padding:0 0 8px">最近使用</div>
+          <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:18px">
+            <div class="note" style="padding:9px 11px"><b style="font-size:12px">Jira 看板</b><div class="meta">jira.atlassian.net</div></div>
+            <div class="note" style="padding:9px 11px"><b style="font-size:12px">需求池 folder</b><div class="meta">confluence</div></div>
+            <div class="note" style="padding:9px 11px"><b style="font-size:12px">P0 冲刺视图</b><div class="meta">内跳 · 需求池</div></div>
+            <div class="note" style="padding:9px 11px"><b style="font-size:12px">测试环境后台</b><div class="meta">admin-test</div></div>
+          </div>
+
+          <div class="grpbar" style="border:0;background:transparent;padding:0 0 8px">常用系统 · 5 <span class="faint">折叠</span></div>
+          <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px;margin-bottom:18px">
+            <div class="note"><h3>Jira 看板 <span class="tag">外链</span></h3><p>AAA 项目当前迭代<br><span class="faint">jira.atlassian.net</span></p></div>
+            <div class="note"><h3>Confluence 需求池 <span class="tag">外链</span></h3><p>云端需求 folder<br><span class="faint">confluence/2111078405</span></p></div>
+            <div class="note"><h3>测试环境后台 <span class="tag">外链</span></h3><p>NS 资金管理<br><span class="faint">admin-test.nsdigital.io</span></p></div>
+            <div class="note"><h3>监控面板 <span class="tag">外链</span></h3><p>服务健康度<br><span class="faint">grafana</span></p></div>
+            <div class="note" style="border-style:dashed;color:var(--faint)"><h3 style="color:var(--faint)">+ 添加到此分组</h3></div>
+          </div>
+
+          <div class="grpbar" style="border:0;background:transparent;padding:0 0 8px">工作台内跳 · 3</div>
+          <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px;margin-bottom:18px">
+            <div class="note"><h3>P0 未排期 <span class="tag">内跳</span></h3><p>需求池 / 全部分类 / P0<br><span class="faint">内部视图</span></p></div>
+            <div class="note"><h3>停滞 14 天 <span class="tag">内跳</span></h3><p>聚焦 · 停滞<br><span class="faint">内部视图</span></p></div>
+            <div class="note"><h3>新建需求 <span class="tag">动作</span></h3><p>打开快速捕获并预选需求<br><span class="faint">quick-capture:requirement</span></p></div>
+          </div>
+
+          <div class="grpbar" style="border:0;background:transparent;padding:0 0 8px">带变量 · 2</div>
+          <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px">
+            <div class="note"><h3>在 Jira 搜当前需求 <span class="tag">变量</span></h3><p>text~"{{title}}"<br><span class="faint">需先选中一个工作对象</span></p></div>
+            <div class="note" style="opacity:.45"><h3>当日会议纪要 <span class="tag">变量</span></h3><p>/meeting/{{today}}<br><span class="faint">未选中对象，已置灰</span></p></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="statusbar"><span>data/pm.db · 4.2 MB · WAL</span><span>快捷入口 12 个 · 分组 3</span><span>上次备份 09-15 09:00</span></div>
+  </div>
+
+  <div class="notes">
+    <div class="note"><h3>为什么是三栏</h3><p>左栏导航固定、中栏切视图、右栏抽屉承载详情与 AI。所有操作在一页完成，不跳页 = 轻量化的前提。</p></div>
+    <div class="note"><h3>右栏复用</h3><p>「详情 / AI 助手 / 活动 / 关联图」共用一个抽屉。AI 不单独开页面，永远贴着当前选中的对象，上下文天然就有。</p></div>
+    <div class="note"><h3>Agent 草稿区</h3><p>AI 的写操作一律渲染成橙色草稿卡，有 <code>采纳 / 编辑后采纳 / 忽略</code> 三个动作，确认后才落库。</p></div>
+    <div class="note"><h3>状态栏</h3><p>暴露 DB 体积、索引量、Agent 运行进度、备份时间。本地工具要让人对数据有掌控感。</p></div>
+    <div class="note"><h3>快捷访问是独立页</h3><p>侧栏只留一个入口，整页做分组网格与拖拽。三种目标：外链 / 内跳 / 动作。外链支持 <code>{{title}}</code> 等变量，选中需求后可直接跳 Jira 搜同名内容。置顶项上顶栏。</p></div>
+    <div class="note"><h3>响应式降级</h3><p>&lt;1280px 右栏改为浮层；&lt;960px 左栏收成图标条；移动端只保留「快速捕获 + 今日 + 搜索」三件事。</p></div>
+    <div class="note"><h3>键盘优先</h3><p><code>Cmd K</code> 命令面板、<code>C</code> 新建、<code>J/K</code> 上下选、<code>Space</code> 开关右栏、<code>1-5</code> 切视图。</p></div>
+  </div>
+</div>
+</body>
+</html>

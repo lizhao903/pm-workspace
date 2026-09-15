@@ -1,0 +1,298 @@
+/* Agent 对话框。类名一律 ag- 前缀，色值全走 tokens.css。 */
+
+/* 这条选择器写得长，是因为 index.css 里 `.app-main > :not(.loading-bar):not(.error-banner)`
+   把主区所有子节点都拉成了 flex:1；同为 (0,3,0) 且那份样式在包里靠后，平手会输。
+   多一层 .app 把权重顶到 (0,4,0)，dock 才能按自己的 height 站住而不去抢列表的高度。 */
+.app > .app-body > .app-main > .ag-dock {
+  flex: 0 0 auto;
+  min-height: 0;
+}
+
+.ag-dock {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border-top: 1px solid var(--line);
+  background: var(--panel-soft);
+  font-size: var(--fs);
+  position: relative;
+}
+.ag-dock[data-open='closed'] { height: 44px; }
+
+/* ---------------- 拖拽把手 ---------------- */
+.ag-resize {
+  flex: none;
+  height: 6px;
+  margin-top: -3px;
+  cursor: ns-resize;
+  touch-action: none;
+}
+.ag-resize:hover { background: var(--accent-line); }
+
+/* ---------------- 控件区 ---------------- */
+.ag-head {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--line);
+  background: var(--panel);
+}
+.ag-head-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  flex-wrap: wrap;
+}
+.ag-head-push { flex: 1 1 auto; }
+
+/* 多一层 .ag-head 是为了压过 index.css 里 .input/.select 的 padding——
+   agent.css 在包里排在 index.css 前面，同权重会输，而 border-box 下
+   继承来的 5px 上下内边距会把 24px 高的控件文字裁掉。 */
+.ag-head .ag-select {
+  height: 26px;
+  padding: 0 22px 0 7px;
+  line-height: 24px;
+  font-size: var(--fs-sm);
+  max-width: 220px;
+}
+.ag-head .ag-select-session { max-width: 200px; }
+
+.ag-label {
+  color: var(--muted);
+  font-size: var(--fs-xs);
+  flex: none;
+}
+.ag-head .ag-workdir {
+  height: 26px;
+  padding: 0 7px;
+  font: var(--fs-sm)/24px var(--mono);
+  flex: 1 1 220px;
+  min-width: 140px;
+  max-width: 420px;
+}
+.ag-hint { color: var(--faint); font-size: var(--fs-xs); }
+.ag-dir-ok { color: var(--ok); font-size: var(--fs-xs); }
+.ag-dir-bad { color: var(--danger); font-size: var(--fs-xs); }
+
+.ag-unconfigured {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--warn);
+  font-size: var(--fs-sm);
+}
+
+.ag-tip { color: var(--faint); font-size: var(--fs-xs); line-height: 1.5; }
+
+.ag-recent { gap: 4px; }
+.ag-chip {
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--mono);
+  font-size: var(--fs-xs);
+}
+
+.ag-link {
+  background: none;
+  border: 0;
+  padding: 0;
+  color: var(--accent);
+  font: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+.ag-link:hover { text-decoration: underline; }
+
+.ag-confirm {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  background: var(--danger-soft);
+  color: var(--text);
+  font-size: var(--fs-sm);
+}
+
+/* ---------------- 消息区 ---------------- */
+.ag-msgs {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden auto;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  background: var(--panel);
+}
+.ag-empty {
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  text-align: center;
+}
+.ag-empty-title { color: var(--muted); font-size: var(--fs-md); }
+.ag-empty-hint { color: var(--faint); font-size: var(--fs-sm); max-width: 420px; }
+
+.ag-row { display: flex; }
+.ag-row-user { justify-content: flex-end; }
+
+.ag-bubble {
+  max-width: min(72ch, 82%);
+  padding: 6px 10px;
+  border-radius: var(--r);
+  border: 1px solid var(--line);
+  background: var(--panel-soft);
+  color: var(--text);
+  /* 先按纯文本渲染，只保留换行——不引 markdown 依赖 */
+  white-space: pre-wrap;
+  word-break: break-word;
+  line-height: 1.55;
+}
+.ag-bubble-user {
+  background: var(--accent-soft);
+  border-color: var(--accent-line);
+}
+.ag-bubble-err {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: var(--danger-soft);
+  border-color: color-mix(in srgb, var(--danger) 35%, transparent);
+  color: var(--danger);
+}
+.ag-retry { flex: none; }
+
+/* 流式光标：让「还在写」有实感 */
+.ag-caret {
+  display: inline-block;
+  width: 6px;
+  height: 1em;
+  margin-left: 2px;
+  vertical-align: text-bottom;
+  background: var(--accent);
+  animation: ag-blink 1s steps(2, start) infinite;
+}
+@keyframes ag-blink { to { visibility: hidden; } }
+
+/* tool_call：一行灰字 + 转圈 */
+.ag-toolline {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  font-size: var(--fs-sm);
+  padding-left: 2px;
+}
+.ag-spin {
+  width: 10px;
+  height: 10px;
+  border: 1.5px solid var(--line-strong);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: ag-spin .7s linear infinite;
+}
+@keyframes ag-spin { to { transform: rotate(360deg); } }
+
+/* tool_result / artifact：浅色卡片 */
+.ag-card {
+  align-self: flex-start;
+  max-width: min(72ch, 88%);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  background: var(--panel-soft);
+  padding: 6px 9px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.ag-card-file { background: var(--ok-soft); border-color: color-mix(in srgb, var(--ok) 25%, var(--line)); }
+.ag-card-head {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+}
+.ag-card-kind {
+  flex: none;
+  font-size: var(--fs-xs);
+  color: var(--panel);
+  background: var(--muted);
+  border-radius: 3px;
+  padding: 0 4px;
+}
+.ag-card-file .ag-card-kind { background: var(--ok); }
+.ag-card-name {
+  font-family: var(--mono);
+  font-size: var(--fs-sm);
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ag-card-size { margin-left: auto; color: var(--faint); font-size: var(--fs-xs); flex: none; }
+.ag-card-body {
+  color: var(--muted);
+  font-size: var(--fs-sm);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.ag-card-foot { color: var(--faint); font-size: var(--fs-xs); }
+.ag-path { font-family: var(--mono); font-size: var(--fs-xs); }
+
+/* ---------------- 输入条 ---------------- */
+.ag-compose {
+  flex: none;
+  display: flex;
+  align-items: flex-end;
+  gap: 6px;
+  padding: 7px 10px;
+  min-height: 44px;
+  border-top: 1px solid var(--line);
+  background: var(--panel-soft);
+}
+.ag-dock[data-open='closed'] .ag-compose { border-top: 0; }
+
+.ag-toggle {
+  flex: none;
+  height: 24px;
+  padding: 0 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  background: var(--panel);
+  color: var(--muted);
+  font-size: var(--fs-xs);
+  cursor: pointer;
+}
+.ag-toggle:hover { color: var(--accent); border-color: var(--accent); }
+
+.ag-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  max-height: 120px;
+  resize: none;
+  padding: 4px 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  background: var(--panel);
+  color: var(--text);
+  font: var(--fs)/1.5 var(--sans);
+}
+.ag-input::placeholder { color: var(--faint); }
+.ag-input:focus { outline: none; border-color: var(--accent); }
+
+@media (prefers-reduced-motion: reduce) {
+  .ag-caret, .ag-spin { animation: none; }
+}
+
+/* 窄屏：控件换行已由 flex-wrap 处理，这里只把目录输入放开占满 */
+@media (max-width: 959.98px) {
+  .ag-head .ag-workdir { max-width: none; }
+  .ag-head .ag-select, .ag-head .ag-select-session { max-width: 150px; }
+}

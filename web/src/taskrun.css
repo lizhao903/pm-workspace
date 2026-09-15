@@ -1,0 +1,196 @@
+/* 「用本机 Claude Code 执行任务」相关样式。类名一律 tr- 前缀，色值只用 tokens.css 的变量。 */
+
+/* 抽屉 Tab 变多之后一行放不下，允许折行；其余外观仍由 index.css 的 .drawer-tab 决定 */
+.tr-tabs { flex-wrap: wrap; }
+
+/* ---------------- 详情 Tab：工作区字段 ---------------- */
+/* 注意别用 column flex 包 FolderPicker：它自带 flex: 1 1 240px，
+   在纵向容器里那 240px 会变成高度，字段行会凭空高出一大截。 */
+.tr-field { min-width: 0; }
+.tr-field .fp { display: flex; }
+.tr-field-hint { margin-top: 4px; font-size: var(--fs-xs); line-height: 1.5; }
+.tr-src-own { color: var(--accent); }
+.tr-src-inherit { color: var(--muted); }
+
+
+/* ---------------- 执行 Tab ---------------- */
+.tr-panel { min-width: 0; }
+.tr-head { display: flex; flex-direction: column; gap: 8px; }
+
+.tr-wd {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 6px;
+  min-width: 0;
+  font-size: var(--fs-sm);
+}
+.tr-wd b { flex: none; color: var(--muted); font-weight: 500; }
+/* 路径比来源徽标重要：给它整行的伸缩空间，徽标放不下就整块挪到下一行，
+   否则「继承自项目「…」」一长，路径会被挤成三五个字符。 */
+.tr-wd .mono { flex: 1 1 60%; min-width: 0; }
+.tr-wd .badge { max-width: 100%; }
+
+/* 没有工作区时执行按钮是禁用的，这块必须显眼，否则用户点了才发现不行 */
+.tr-warn {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 10px;
+  border: 1px solid var(--warn-line);
+  border-radius: var(--r-sm);
+  background: var(--warn-soft);
+  font-size: var(--fs-sm);
+}
+.tr-warn b { color: var(--warn); }
+.tr-warn span { color: var(--text); }
+.tr-link {
+  align-self: flex-start;
+  color: var(--accent);
+  font-size: var(--fs-sm);
+  text-decoration: underline;
+}
+
+.tr-extra { min-height: 48px; }
+
+/* 「允许修改文件」：勾上就等于放手让 claude 动盘，视觉上要比普通勾选重一点 */
+.tr-writes {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 6px 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  background: var(--panel-soft);
+  font-size: var(--fs-sm);
+  cursor: pointer;
+}
+.tr-writes input { margin-top: 2px; flex: none; }
+.tr-writes-on { border-color: var(--warn-line); background: var(--warn-soft); }
+.tr-writes-on b { color: var(--warn); }
+.tr-writes-hint {
+  display: block;
+  margin-top: 2px;
+  font-size: var(--fs-xs);
+  line-height: 1.5;
+  color: var(--muted);
+}
+.tr-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: var(--fs-sm); }
+.tr-timer { color: var(--muted); font-size: var(--fs-sm); }
+.tr-badge-ok { color: var(--ok); font-size: var(--fs-sm); }
+.tr-badge-fail { color: var(--danger); font-size: var(--fs-sm); font-weight: 600; }
+
+/* ---------------- 输出流 ---------------- */
+.tr-stream-card { display: flex; flex-direction: column; min-height: 0; }
+.tr-runid { margin-left: 6px; }
+.tr-stream {
+  max-height: 42vh;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  background: var(--panel-soft);
+}
+.tr-text {
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: var(--fs-sm);
+  line-height: 1.6;
+  color: var(--text);
+}
+.tr-runwd { font-size: var(--fs-xs); margin-bottom: 4px; }
+
+/* 工具行独立成块，和正文视觉分开：用户最关心的是它动了哪些文件 */
+.tr-tool {
+  min-width: 0;
+  padding: 3px 6px;
+  border-left: 2px solid var(--accent);
+  border-radius: 0 var(--r-sm) var(--r-sm) 0;
+  background: var(--accent-soft);
+  font-size: var(--fs-xs);
+}
+.tr-tool-row { display: flex; align-items: baseline; gap: 6px; min-width: 0; }
+.tr-tool-verb { flex: none; color: var(--accent); font-weight: 600; }
+.tr-tool .mono { flex: 1 1 auto; min-width: 0; color: var(--muted); }
+.tr-tool-state { flex: none; color: var(--muted); }
+.tr-tool-state-fail { color: var(--danger); font-weight: 600; }
+
+/* 工具失败不等于整次执行失败，所以只标这一行，不动面板整体的成败判定 */
+.tr-tool-fail { border-left-color: var(--danger); background: var(--danger-soft); }
+.tr-tool-fail .tr-tool-verb { color: var(--danger); }
+/* 配不上调用记录的结果行：照样显示，只是弱一点 */
+.tr-tool-orphan { border-left-style: dashed; }
+.tr-tool-err {
+  margin-top: 3px;
+  color: var(--danger);
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.tr-tool-more { margin-left: 6px; font-size: var(--fs-xs); }
+
+.tr-notice {
+  padding: 5px 7px;
+  border-radius: var(--r-sm);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  font-size: var(--fs-xs);
+  color: var(--muted);
+}
+.tr-notice-err {
+  border-color: var(--danger);
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+.tr-cursor {
+  width: 6px;
+  height: 13px;
+  background: var(--accent);
+  animation: tr-blink 1s steps(2, start) infinite;
+}
+@keyframes tr-blink { to { visibility: hidden; } }
+@media (prefers-reduced-motion: reduce) {
+  .tr-cursor { animation: none; }
+}
+
+/* ---------------- 历史记录 ---------------- */
+.tr-hist { border-top: 1px solid var(--line); }
+.tr-hist:first-of-type { border-top: none; }
+.tr-hist-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 2px;
+  font-size: var(--fs-sm);
+  text-align: left;
+}
+.tr-hist-row:hover { background: var(--panel-soft); }
+.tr-hist-caret { margin-left: auto; color: var(--accent); font-size: var(--fs-xs); }
+.tr-dot { width: 7px; height: 7px; border-radius: 50%; flex: none; background: var(--faint); }
+.tr-dot-running, .tr-dot-pending { background: var(--accent); }
+.tr-dot-done { background: var(--ok); }
+.tr-dot-failed { background: var(--danger); }
+.tr-dot-canceled { background: var(--faint); }
+
+.tr-hist-body { display: flex; flex-direction: column; gap: 6px; padding: 4px 2px 8px; }
+.tr-hist-meta { font-size: var(--fs-xs); }
+.tr-hist-out {
+  max-height: 32vh;
+  overflow: auto;
+  margin: 0;
+  padding: 6px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  background: var(--panel-soft);
+  font-family: var(--mono);
+  font-size: var(--fs-xs);
+  line-height: 1.55;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--text);
+}
