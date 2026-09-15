@@ -1,7 +1,10 @@
-/data/*.db
-/data/*.db-wal
-/data/*.db-shm
-/data/blobs/
+# 整个 data/ 都不入库，不要改回按扩展名逐条列。
+#
+# 原来写的是 /data/*.db 这种逐条模式，只盖得住顶层：POST /api/admin/snapshot
+# 会往 data/backups/ 里落快照，那是**用户全量数据的副本，含明文 api_key**，
+# 而它不匹配任何一条规则——一次 `git add -A` 就会把它连同密钥写进 git 历史，
+# 而 git 历史是很难干净清掉的。列举要排除的东西，总会漏掉明天才出现的那个。
+/data/
 /bin/
 /web/node_modules/
 # 前端构建产物不入库，但 //go:embed all:dist 要求目录至少有一个文件，
