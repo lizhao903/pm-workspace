@@ -246,6 +246,42 @@
 .ag-card-foot { color: var(--faint); font-size: var(--fs-xs); }
 .ag-path { font-family: var(--mono); font-size: var(--fs-xs); }
 
+/* ---------------- 待确认（question） ---------------- */
+/* 用 warn 色系而不是普通卡片的灰：这张卡是**挡在路上**的，
+   用户不理它这件事就停在这儿了，颜色上要和「已经做完了」的工具卡分开。 */
+.ag-ask {
+  max-width: min(72ch, 92%);
+  background: var(--warn-soft);
+  border-color: color-mix(in srgb, var(--warn) 30%, var(--line));
+  gap: 6px;
+}
+.ag-ask .ag-card-kind { background: var(--warn); }
+.ag-ask-q { color: var(--text); font-size: var(--fs); }
+.ag-ask-opts { display: flex; flex-direction: column; gap: 4px; }
+
+.ag-opt {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  text-align: left;
+  padding: 5px 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  background: var(--panel);
+  cursor: pointer;
+}
+.ag-opt:hover:not(:disabled) { border-color: var(--accent); }
+.ag-opt.is-picked { border-color: var(--accent); background: var(--accent-soft); }
+.ag-opt:disabled { cursor: default; opacity: 0.75; }
+.ag-opt-label { font-size: var(--fs-sm); color: var(--text); }
+/* detail 比 label 小一号但不隐藏、不折叠。它是这张卡存在的理由：
+   只有选项名的话，用户还是在猜「选这个会怎样」。 */
+.ag-opt-detail { font-size: var(--fs-xs); color: var(--muted); white-space: pre-wrap; }
+
+.ag-ask .ag-card-foot { display: flex; align-items: center; gap: 8px; }
+.ag-ask.is-answered { background: var(--panel-soft); border-color: var(--line); }
+.ag-ask.is-answered .ag-card-kind { background: var(--muted); }
+
 /* ---------------- 输入条 ---------------- */
 .ag-compose {
   flex: none;

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -81,6 +82,8 @@ type fakeStore struct {
 	// 替身用 map 存就没有插入顺序可言，只能自己记一个——否则两边在
 	// 「同一时刻的两条记录谁在前」上会分叉，而那正好是 sqlite 侧有测试压着的性质。
 	taskRunSeq map[string]int
+
+	stakeholders map[string]*domain.Stakeholder
 }
 
 func newFakeStore() *fakeStore {
@@ -293,8 +296,51 @@ func (f *fakeStore) CreateObject(_ context.Context, o *domain.Object, a store.Ac
 		f.refSeq[o.TypeID]++
 		o.Ref = fmt.Sprintf("%s-%04d", prefix, f.refSeq[o.TypeID])
 	}
+	// 负责人姓名与参与人的展示字段由 store 填，和 sqlite 的 JOIN 同构——
+	// 替身不填的话，「列表要显示人名」这条性质在 API 层永远测不到。
+	o.OwnerName = f.ownerNameLocked(o.OwnerID, o.Owner)
+	o.Participants = f.refsLocked(idsOfRefs(o.Participants))
 	f.objs[o.ID] = o
 	return o, nil
+}
+
+// idsOfRefs 取 StakeholderRef 上的 id。CreateObject 的入参是整个 domain.Object，
+// 没有单独的 participant_ids 通道，调用方只填 ID，Name/Color 由 store 查回来。
+func idsOfRefs(refs []domain.StakeholderRef) []string {
+	out := make([]string, 0, len(refs))
+	for _, r := range refs {
+		out = append(out, r.ID)
+	}
+	return out
+}
+
+// refsLocked 把 id 列表翻成展示投影。调用方必须已持锁。
+func (f *fakeStore) refsLocked(ids []string) []domain.StakeholderRef {
+	out := []domain.StakeholderRef{}
+	seen := map[string]bool{}
+	for _, id := range ids {
+		if id == "" || seen[id] {
+			continue
+		}
+		seen[id] = true
+		ref := domain.StakeholderRef{ID: id}
+		if sh, ok := f.stakeholdersMap()[id]; ok {
+			ref.Name, ref.Color = sh.Name, sh.Color
+		}
+		out = append(out, ref)
+	}
+	return out
+}
+
+// ownerNameLocked 与 sqlite 同构：owner_id 指向的人名，没有 owner_id 时回退到
+// 0010 之前的自由文本。调用方必须已持锁。
+func (f *fakeStore) ownerNameLocked(ownerID *string, legacy string) string {
+	if ownerID != nil && *ownerID != "" {
+		if sh, ok := f.stakeholdersMap()[*ownerID]; ok {
+			return sh.Name
+		}
+	}
+	return legacy
 }
 
 func (f *fakeStore) UpdateObject(_ context.Context, id string, p domain.ObjectPatch, a store.Actor) (*domain.Object, error) {
@@ -313,6 +359,19 @@ func (f *fakeStore) UpdateObject(_ context.Context, id string, p domain.ObjectPa
 	}
 	if p.DueAt != nil {
 		o.DueAt = *p.DueAt
+	}
+	// owner_id 的空串就是「没有负责人」，和 sqlite 落 NULL 同义。
+	if p.OwnerID != nil {
+		if v := strings.TrimSpace(*p.OwnerID); v == "" {
+			o.OwnerID = nil
+		} else {
+			o.OwnerID = &v
+		}
+		o.OwnerName = f.ownerNameLocked(o.OwnerID, o.Owner)
+	}
+	// 全量替换，不是增量：nil = 不改，空切片 = 清空。
+	if p.ParticipantIDs != nil {
+		o.Participants = f.refsLocked(*p.ParticipantIDs)
 	}
 	return o, nil
 }
@@ -1198,4 +1257,171 @@ func (f *fakeStore) FinishTaskRun(_ context.Context, id, status string, exitCode
 	r.Status, r.ExitCode, r.Output, r.Error, r.FinishedAt = status, exitCode, output, errMsg, &now
 	c := *r
 	return &c, nil
+}
+
+// ---- 干系人名册 ----
+//
+// 这批是主会话随契约一起放的**可用实现**，不是 panic 桩：并行的 agent 要靠它编译。
+// stakeholder-backend 落地 sqlite 实现后，如果发现这里和真实现有语义分歧，
+// **改这里让它跟上**，不要在测试里绕开——替身比真实现宽松，等于那条性质永远测不到。
+
+func (f *fakeStore) stakeholdersMap() map[string]*domain.Stakeholder {
+	if f.stakeholders == nil {
+		f.stakeholders = map[string]*domain.Stakeholder{}
+	}
+	return f.stakeholders
+}
+
+func (f *fakeStore) ListStakeholders(_ context.Context, includeArchived bool) ([]*domain.Stakeholder, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	out := []*domain.Stakeholder{}
+	for _, sh := range f.stakeholdersMap() {
+		if !includeArchived && sh.ArchivedAt != nil {
+			continue
+		}
+		c := *sh
+		c.OwnedCount, c.ParticipatingCount = f.stakeholderUsage(sh.ID)
+		out = append(out, &c)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].SortOrder != out[j].SortOrder {
+			return out[i].SortOrder < out[j].SortOrder
+		}
+		return out[i].Name < out[j].Name
+	})
+	return out, nil
+}
+
+// stakeholderReferencedLocked 判断还有没有任何对象引用这个人，软删的也算。
+// 调用方必须已持锁。
+func (f *fakeStore) stakeholderReferencedLocked(id string) bool {
+	for _, o := range f.objs {
+		if o.OwnerID != nil && *o.OwnerID == id {
+			return true
+		}
+		for _, p := range o.Participants {
+			if p.ID == id {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// stakeholderUsage 数引用。调用方必须已持锁。
+func (f *fakeStore) stakeholderUsage(id string) (owned, participating int) {
+	for _, o := range f.objs {
+		if o.DeletedAt != nil {
+			continue
+		}
+		if o.OwnerID != nil && *o.OwnerID == id {
+			owned++
+		}
+		for _, p := range o.Participants {
+			if p.ID == id {
+				participating++
+			}
+		}
+	}
+	return
+}
+
+func (f *fakeStore) GetStakeholder(_ context.Context, id string) (*domain.Stakeholder, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	sh, ok := f.stakeholdersMap()[id]
+	if !ok {
+		return nil, domain.ErrNotFound
+	}
+	c := *sh
+	c.OwnedCount, c.ParticipatingCount = f.stakeholderUsage(id)
+	return &c, nil
+}
+
+func (f *fakeStore) CreateStakeholder(_ context.Context, sh *domain.Stakeholder) (*domain.Stakeholder, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	name := strings.TrimSpace(sh.Name)
+	if name == "" {
+		return nil, domain.ErrValidation
+	}
+	for _, e := range f.stakeholdersMap() {
+		if e.Name == name {
+			return nil, domain.ErrConflict // 同名唯一，和 0010 的唯一索引一致
+		}
+	}
+	c := *sh
+	c.Name = name
+	if c.ID == "" {
+		c.ID = "stk_fake_" + strconv.Itoa(len(f.stakeholdersMap())+1)
+	}
+	now := time.Now()
+	c.CreatedAt, c.UpdatedAt = now, now
+	f.stakeholdersMap()[c.ID] = &c
+	out := c
+	return &out, nil
+}
+
+func (f *fakeStore) UpdateStakeholder(_ context.Context, id string, p domain.StakeholderPatch) (*domain.Stakeholder, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	sh, ok := f.stakeholdersMap()[id]
+	if !ok {
+		return nil, domain.ErrNotFound
+	}
+	if p.Name != nil {
+		if strings.TrimSpace(*p.Name) == "" {
+			return nil, domain.ErrValidation
+		}
+		for _, e := range f.stakeholdersMap() {
+			if e.ID != id && e.Name == *p.Name {
+				return nil, domain.ErrConflict
+			}
+		}
+		sh.Name = *p.Name
+	}
+	if p.Role != nil {
+		sh.Role = *p.Role
+	}
+	if p.Email != nil {
+		sh.Email = *p.Email
+	}
+	if p.Note != nil {
+		sh.Note = *p.Note
+	}
+	if p.Color != nil {
+		sh.Color = *p.Color
+	}
+	if p.SortOrder != nil {
+		sh.SortOrder = *p.SortOrder
+	}
+	if p.Archived != nil {
+		if *p.Archived {
+			now := time.Now()
+			sh.ArchivedAt = &now
+		} else {
+			sh.ArchivedAt = nil
+		}
+	}
+	sh.UpdatedAt = time.Now()
+	c := *sh
+	c.OwnedCount, c.ParticipatingCount = f.stakeholderUsage(id)
+	return &c, nil
+}
+
+func (f *fakeStore) DeleteStakeholder(_ context.Context, id string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if _, ok := f.stakeholdersMap()[id]; !ok {
+		return domain.ErrNotFound
+	}
+	// 删除检查连回收站里的软删对象一起数，和 sqlite 一致：owner_id 是
+	// ON DELETE SET NULL，删了人之后那条对象恢复回来时负责人已经没了。
+	// 展示用的 OwnedCount 不算软删的——那是「他手上有多少事」，两个口径不能合并。
+	if f.stakeholderReferencedLocked(id) {
+		return domain.ErrConflict // 有引用只能归档
+	}
+	delete(f.stakeholdersMap(), id)
+	return nil
 }

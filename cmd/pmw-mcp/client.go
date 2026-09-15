@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"sort"
 	"strings"
 	"sync"
 	"syscall"
@@ -198,6 +199,43 @@ func (c *client) listObjectTypes(ctx context.Context) ([]*domain.ObjectType, err
 	var items []*domain.ObjectType
 	_, err := c.do(ctx, http.MethodGet, "/api/object-types", nil, nil, &items)
 	return items, err
+}
+
+func (c *client) listStakeholders(ctx context.Context) ([]*domain.Stakeholder, error) {
+	var items []*domain.Stakeholder
+	_, err := c.do(ctx, http.MethodGet, "/api/stakeholders", nil, nil, &items)
+	return items, err
+}
+
+// resolveStakeholder 把人名换成干系人 id。
+//
+// MCP 这层收人名而不是 id，是因为调用方是模型：它手上有「李钊」，没有 stk_xxx，
+// 强行要 id 只会逼出「先查一次再调一次」的两步，而中间那步经常被省掉。
+//
+// 找不到时必须**报错**，不能返回空 id 静默放行。owner_id 传空串的语义是「清空负责人」——
+// 把一个打错的名字变成「清空」，结果是把别人的负责人抹掉，而调用方以为改成功了。
+func (c *client) resolveStakeholder(ctx context.Context, name string) (string, error) {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return "", nil // 空串是合法的「清空负责人」
+	}
+	people, err := c.listStakeholders(ctx)
+	if err != nil {
+		return "", err
+	}
+	names := make([]string, 0, len(people))
+	for _, p := range people {
+		if p.Name == name {
+			return p.ID, nil
+		}
+		names = append(names, p.Name)
+	}
+	if len(names) == 0 {
+		return "", fmt.Errorf("干系人名册还是空的，没有叫「%s」的人。先在工作台的「设置 → 干系人」里把人建出来", name)
+	}
+	sort.Strings(names)
+	return "", fmt.Errorf("没有叫「%s」的干系人。现有：%s。名字要完全一致（不做模糊匹配——匹配错人意味着任务派给了别人）",
+		name, strings.Join(names, "、"))
 }
 
 func (c *client) listDictionaries(ctx context.Context) ([]*domain.Dictionary, error) {

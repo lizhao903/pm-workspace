@@ -138,6 +138,8 @@ export default function AgentDock() {
           streaming={chat.streaming}
           workdir={chat.workdir}
           onRetry={chat.retry}
+          onPick={chat.pickOption}
+          onSubmitAnswers={chat.submitAnswers}
         />
       ) : null}
 

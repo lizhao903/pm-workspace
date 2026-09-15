@@ -47,7 +47,9 @@ export interface WorkObject {
   body: string
   status: string
   priority: string
+  /** 0010 之前的自由文本负责人，**只读**。新写入一律走 owner_id */
   owner: string
+  owner_id: string | null
   category_id: string | null
   project_id: string | null
   source: string
@@ -68,6 +70,10 @@ export interface WorkObject {
   category_color?: string
   project_title?: string
   link_count: number
+  /** owner_id 指向的干系人名字；owner_id 为空时回退到 owner 文本 */
+  owner_name?: string
+  /** 参与人。只带渲染需要的三个字段，不是完整 Stakeholder */
+  participants: StakeholderRef[]
 }
 
 export interface Tag {
@@ -135,7 +141,9 @@ export interface ObjectQuery {
   status?: string[]
   priority?: string[]
   tag?: string[]
-  owner?: string
+  /** 按干系人 id 筛负责人。0010 起取代了原来的 owner 文本匹配——
+   *  一个语义只留一个定义，否则「宋一杰、李钊、振华」按文本搜得到、按 id 搜不到 */
+  owner_id?: string
   project?: string
   q?: string
   due_after?: string
@@ -159,7 +167,10 @@ export interface ObjectPatch {
   body?: string
   status?: string
   priority?: string
-  owner?: string
+  /** 空串 = 清空负责人 */
+  owner_id?: string
+  /** 全量替换：省略 = 不改，空数组 = 清空 */
+  participant_ids?: string[]
   category_id?: string | null
   project_id?: string | null
   source?: string
@@ -395,8 +406,20 @@ export type AgentStreamEvent =
   // 人读编号已经在 summary 里了。字段名早先叫 object_ref 造成过歧义，故改名。
   | { type: 'tool_result'; name: string; summary: string; object_id?: string }
   | { type: 'artifact'; path: string; size: number }
+  // Agent 遇到拿不准的地方时反问，而不是自己猜一个答案继续做。
+  //
+  // 发出 question 后**本轮就结束**（后面紧跟 done），流不会挂在那里等回答。
+  // 用户的回答走下一条普通的 chat 消息，没有单独的应答接口——这样即使前端
+  // 没把它渲染成按钮，问题也仍然是一段看得懂的文字，回答仍然是一句普通的话。
+  | { type: 'question'; id: string; question: string; options: QuestionOption[]; multi: boolean }
   | { type: 'done'; session_id: string; message_id: string }
   | { type: 'error'; message: string }
+
+export interface QuestionOption {
+  label: string
+  /** 选这个意味着什么、有什么代价。只有 label 的选项等于在逼用户猜 */
+  detail: string
+}
 
 // ---- 目录浏览 ----
 
@@ -468,4 +491,40 @@ export interface TaskRunRequest {
    * 默认 false：只读跑一遍看它打算做什么，是比「先改了再说」安全的默认值。
    */
   allow_writes?: boolean
+}
+
+// ---- 干系人名册 ----
+
+/** 干系人的展示投影：够画一个头像加一个名字，仅此而已 */
+export interface StakeholderRef {
+  id: string
+  name: string
+  color: string
+}
+
+export interface Stakeholder {
+  id: string
+  name: string
+  role: string
+  email: string
+  note: string
+  color: string
+  sort_order: number
+  /** null = 在岗 */
+  archived_at: string | null
+  created_at: string
+  updated_at: string
+  /** 删除前的确认依据，也是名册页上的「他手上有多少事」 */
+  owned_count: number
+  participating_count: number
+}
+
+export interface StakeholderPatch {
+  name?: string
+  role?: string
+  email?: string
+  note?: string
+  color?: string
+  sort_order?: number
+  archived?: boolean
 }

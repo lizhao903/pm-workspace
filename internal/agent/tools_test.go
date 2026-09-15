@@ -489,3 +489,180 @@ func TestDueErrorMessageListsFormats(t *testing.T) {
 		t.Errorf("报错要指明重新调用同一个工具，得到 %q", res.Content)
 	}
 }
+
+// --- get_object ---
+
+// TestGetObjectReturnsBodyLinksAndRevisions 盯的是「写需求分析文档」这件事的前提：
+// 正文、关联对象、修订记录三样必须一次拿全。缺任何一样，模型就只能照着标题编。
+func TestGetObjectReturnsBodyLinksAndRevisions(t *testing.T) {
+	tb, st, ctx, _ := newToolbox(t)
+
+	req, err := st.CreateObject(ctx, &domain.Object{
+		TypeID: "requirement",
+		Title:  "导出对账单",
+		Body:   "财务每月要一份带口径说明的对账单，现在是手工拼的。",
+	}, agentActor)
+	if err != nil {
+		t.Fatalf("建需求: %v", err)
+	}
+	task, err := st.CreateObject(ctx, &domain.Object{TypeID: "task", Title: "写导出接口"}, agentActor)
+	if err != nil {
+		t.Fatalf("建任务: %v", err)
+	}
+	if _, err := st.CreateLink(ctx, req.ID, task.ID, domain.RelBlocks, ""); err != nil {
+		t.Fatalf("建关联: %v", err)
+	}
+	// 制造一条修订：状态变更是「这件事推进到哪了」最直接的证据。
+	doing := "doing"
+	if _, err := st.UpdateObject(ctx, req.ID, domain.ObjectPatch{Status: &doing}, agentActor); err != nil {
+		t.Fatalf("改状态: %v", err)
+	}
+
+	res := call(t, tb, ctx, "get_object", map[string]any{"ref": req.Ref})
+	for _, want := range []string{
+		"财务每月要一份带口径说明的对账单", // 正文全文
+		task.Ref,                 // 关联对象带编号
+		domain.RelBlocks,         // 关联的关系名
+		"status",                 // 修订记录里的字段名
+	} {
+		if !strings.Contains(res.Content, want) {
+			t.Errorf("get_object 的内容里缺少 %q\n实际内容：\n%s", want, res.Content)
+		}
+	}
+	if res.ObjectID != req.ID {
+		t.Errorf("ObjectID = %q, 期望内部 id %q", res.ObjectID, req.ID)
+	}
+}
+
+// TestGetObjectClipsLongBody 保证超长正文不会把系统提示词挤出上下文，
+// 而且截断这件事本身要写在文本里——不写的话模型会把半句话当成全文。
+func TestGetObjectClipsLongBody(t *testing.T) {
+	tb, st, ctx, _ := newToolbox(t)
+	long := strings.Repeat("需", maxBodyRunes+500)
+	o, err := st.CreateObject(ctx, &domain.Object{TypeID: "requirement", Title: "长正文", Body: long}, agentActor)
+	if err != nil {
+		t.Fatalf("建对象: %v", err)
+	}
+
+	res := call(t, tb, ctx, "get_object", map[string]any{"ref": o.Ref})
+	if len([]rune(res.Content)) > maxBodyRunes+1000 {
+		t.Errorf("正文没有被截断，长度 %d", len([]rune(res.Content)))
+	}
+	if !strings.Contains(res.Content, "截断") {
+		t.Errorf("截断了却没说明，模型会把半句话当全文：\n%s", res.Content)
+	}
+}
+
+func TestGetObjectUnknownRef(t *testing.T) {
+	tb, _, ctx, _ := newToolbox(t)
+	res := call(t, tb, ctx, "get_object", map[string]any{"ref": "REQ-9999"})
+	if !strings.Contains(res.Content, "错误") {
+		t.Errorf("不存在的编号应该回一条错误，实际：%s", res.Content)
+	}
+}
+
+// --- ask_user ---
+
+func TestAskUserProducesQuestion(t *testing.T) {
+	tb, _, ctx, _ := newToolbox(t)
+
+	res := call(t, tb, ctx, "ask_user", map[string]any{
+		"question": "这个需求只做云端还是本地端也要跟？",
+		"options": []any{
+			map[string]any{"label": "只做云端", "detail": "本期只覆盖 web 后台，本地端排后续迭代"},
+			map[string]any{"label": "两端都做", "detail": "范围翻倍，需要本地端同学一起排期"},
+		},
+	})
+	q := res.Question
+	if q == nil {
+		t.Fatalf("没有产出 Question：%s", res.Content)
+	}
+	if !strings.HasPrefix(q.ID, "q_") {
+		t.Errorf("id = %q，契约要求 q_ 前缀", q.ID)
+	}
+	if len(q.Options) != 2 || q.Options[1].Detail == "" {
+		t.Fatalf("选项解析错了：%+v", q.Options)
+	}
+	if q.Multi {
+		t.Errorf("没传 multi 时应该是单选")
+	}
+	// 回给模型的内容必须说清「本轮到此为止」，否则它会接着替用户把答案假设出来。
+	if !strings.Contains(res.Content, "不要再调用任何工具") {
+		t.Errorf("没有告诉模型停手：%s", res.Content)
+	}
+}
+
+// TestAskUserRejectsOptionWithoutDetail 是这条线上最容易被「优化」掉的一条：
+// 只给 label 的选项等于逼用户猜选它会怎样，必须退回让模型重填。
+func TestAskUserRejectsOptionWithoutDetail(t *testing.T) {
+	tb, _, ctx, _ := newToolbox(t)
+	res := call(t, tb, ctx, "ask_user", map[string]any{
+		"question": "要不要拆？",
+		"options": []any{
+			map[string]any{"label": "拆", "detail": "按前后端拆成三条任务"},
+			map[string]any{"label": "不拆"},
+		},
+	})
+	if res.Question != nil {
+		t.Fatalf("缺 detail 的选项被放行了")
+	}
+	if !strings.Contains(res.Content, "detail") {
+		t.Errorf("错误里没点明是 detail 的问题，模型不知道改哪：%s", res.Content)
+	}
+}
+
+func TestAskUserRejectsSingleOption(t *testing.T) {
+	tb, _, ctx, _ := newToolbox(t)
+	res := call(t, tb, ctx, "ask_user", map[string]any{
+		"question": "行吗？",
+		"options":  []any{map[string]any{"label": "行", "detail": "就这么定"}},
+	})
+	if res.Question != nil {
+		t.Fatalf("单选项被放行了——那是通知，不是提问")
+	}
+}
+
+// TestAskUserAcceptsFlatStrings 是给 4B 模型留的容错：它时不时把嵌套对象拍平成
+// "选项名|说明"。为此白白浪费一轮重试不值得。
+func TestAskUserAcceptsFlatStrings(t *testing.T) {
+	tb, _, ctx, _ := newToolbox(t)
+	res := call(t, tb, ctx, "ask_user", map[string]any{
+		"question": "先做哪个？",
+		"options":  []any{"先做导出|接口简单，一天能完", "先做对账|依赖财务给口径，要等"},
+		"multi":    "true", // 字符串形式的 true 也要认
+	})
+	if res.Question == nil {
+		t.Fatalf("字符串写法的选项没被认出来：%s", res.Content)
+	}
+	if res.Question.Options[0].Detail != "接口简单，一天能完" {
+		t.Errorf("detail 没切出来：%+v", res.Question.Options[0])
+	}
+	if !res.Question.Multi {
+		t.Errorf(`multi="true" 应该认成多选`)
+	}
+}
+
+// TestAskUserCapsQuestionCount 挡的是「答完一个又冒出一个」：
+// 问满上限后必须退回，并且要告诉模型改用「在方案里标成待确认」收场。
+func TestAskUserCapsQuestionCount(t *testing.T) {
+	tb, _, ctx, _ := newToolbox(t)
+	args := map[string]any{
+		"question": "问题",
+		"options": []any{
+			map[string]any{"label": "A", "detail": "选 A 的代价"},
+			map[string]any{"label": "B", "detail": "选 B 的代价"},
+		},
+	}
+	for i := 0; i < maxQuestions; i++ {
+		if call(t, tb, ctx, "ask_user", args).Question == nil {
+			t.Fatalf("第 %d 个问题就被拦了", i+1)
+		}
+	}
+	res := call(t, tb, ctx, "ask_user", args)
+	if res.Question != nil {
+		t.Fatalf("超过上限还能接着问")
+	}
+	if !strings.Contains(res.Content, "待确认") {
+		t.Errorf("没给出收场方式，模型会卡住：%s", res.Content)
+	}
+}

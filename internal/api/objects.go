@@ -27,19 +27,26 @@ func (s *Server) handleListObjects(w http.ResponseWriter, r *http.Request) {
 // createObjectReq 对应 web 的 CreateObjectInput。due_at 收成 RawMessage 是因为
 // 前端既可能传 RFC3339 也可能传 YYYY-MM-DD（日期选择器）。
 type createObjectReq struct {
-	TypeID     string          `json:"type_id"`
-	Title      string          `json:"title"`
-	Body       string          `json:"body"`
-	Status     string          `json:"status"`
-	Priority   string          `json:"priority"`
-	Owner      string          `json:"owner"`
-	Source     string          `json:"source"`
-	CategoryID *string         `json:"category_id"`
-	ProjectID  *string         `json:"project_id"`
-	Props      map[string]any  `json:"props"`
-	Workdir    string          `json:"workdir"`
-	DueAt      json.RawMessage `json:"due_at"`
-	Tags       []string        `json:"tags"`
+	TypeID   string `json:"type_id"`
+	Title    string `json:"title"`
+	Body     string `json:"body"`
+	Status   string `json:"status"`
+	Priority string `json:"priority"`
+	// 0010 起没有 owner 字段：负责人是对干系人名册的引用，不再是自由文本。
+	// 收下一个 owner 字符串会让调用方以为写成功了，而它既不参与筛选也不参与统计。
+	//
+	// OwnerID 空串即「没有负责人」，与 PATCH 的语义一致。
+	OwnerID string `json:"owner_id"`
+	// ParticipantIDs 建对象时就能带上，否则前端只能「先建后改」两次请求，
+	// 中间还会多出一条无意义的修订记录。
+	ParticipantIDs []string        `json:"participant_ids"`
+	Source         string          `json:"source"`
+	CategoryID     *string         `json:"category_id"`
+	ProjectID      *string         `json:"project_id"`
+	Props          map[string]any  `json:"props"`
+	Workdir        string          `json:"workdir"`
+	DueAt          json.RawMessage `json:"due_at"`
+	Tags           []string        `json:"tags"`
 }
 
 func (s *Server) handleCreateObject(w http.ResponseWriter, r *http.Request) {
@@ -67,7 +74,6 @@ func (s *Server) handleCreateObject(w http.ResponseWriter, r *http.Request) {
 		Body:       req.Body,
 		Status:     req.Status,
 		Priority:   req.Priority,
-		Owner:      req.Owner,
 		Source:     req.Source,
 		CategoryID: req.CategoryID,
 		ProjectID:  req.ProjectID,
@@ -75,6 +81,16 @@ func (s *Server) handleCreateObject(w http.ResponseWriter, r *http.Request) {
 		Workdir:    strings.TrimSpace(req.Workdir),
 		DueAt:      due,
 		Tags:       req.Tags,
+	}
+	if id := strings.TrimSpace(req.OwnerID); id != "" {
+		o.OwnerID = &id
+	}
+	// 参与人只能经由 Participants 传给 store：CreateObject 的入参是整个
+	// domain.Object，没有单独的 ids 通道。Name/Color 由 store 按 id 查回来填。
+	for _, id := range req.ParticipantIDs {
+		if id = strings.TrimSpace(id); id != "" {
+			o.Participants = append(o.Participants, domain.StakeholderRef{ID: id})
+		}
 	}
 	out, err := s.st.CreateObject(r.Context(), o, actorFrom(r))
 	if err != nil {
@@ -171,7 +187,10 @@ func parseObjectPatch(body []byte) (domain.ObjectPatch, error) {
 	if p.Priority, err = patchField[string](raw, "priority", "a string"); err != nil {
 		return p, err
 	}
-	if p.Owner, err = patchField[string](raw, "owner", "a string"); err != nil {
+	if p.OwnerID, err = patchField[string](raw, "owner_id", "a string"); err != nil {
+		return p, err
+	}
+	if p.ParticipantIDs, err = patchField[[]string](raw, "participant_ids", "an array of strings"); err != nil {
 		return p, err
 	}
 	if p.Source, err = patchField[string](raw, "source", "a string"); err != nil {

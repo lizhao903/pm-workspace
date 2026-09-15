@@ -199,6 +199,9 @@ func (s *Store) collectExport(ctx context.Context) (*exportBundle, error) {
 	if err := s.fillExportTags(ctx, objs); err != nil {
 		return nil, err
 	}
+	if err := s.fillExportParticipants(ctx, objs); err != nil {
+		return nil, err
+	}
 
 	// 把关联按两端挂回对象上，导出的每条记录自带它的关系网。
 	byID := make(map[string]*exportObject, len(objs))
@@ -265,6 +268,39 @@ func (s *Store) fillExportTags(ctx context.Context, objs []*domain.Object) error
 		}
 		if o, ok := byID[oid]; ok {
 			o.Tags = append(o.Tags, name)
+		}
+	}
+	return rows.Err()
+}
+
+// fillExportParticipants 同 fillExportTags：一次查全表，不按 id IN (...) 绑参。
+// 不填的话导出的每条对象都会带一个空的 participants，看起来像「这件事没有别人参与」——
+// 而它其实只是没查。
+func (s *Store) fillExportParticipants(ctx context.Context, objs []*domain.Object) error {
+	if len(objs) == 0 {
+		return nil
+	}
+	byID := make(map[string]*domain.Object, len(objs))
+	for _, o := range objs {
+		byID[o.ID] = o
+	}
+	rows, err := s.db.R.QueryContext(ctx,
+		`SELECT op.object_id, s.id, s.name, s.color FROM object_participants op
+		 JOIN stakeholders s ON s.id = op.stakeholder_id
+		 ORDER BY op.object_id, op.sort_order, s.name`)
+	if err != nil {
+		return fmt.Errorf("export object participants: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	for rows.Next() {
+		var oid string
+		var ref domain.StakeholderRef
+		if err := rows.Scan(&oid, &ref.ID, &ref.Name, &ref.Color); err != nil {
+			return err
+		}
+		if o, ok := byID[oid]; ok {
+			o.Participants = append(o.Participants, ref)
 		}
 	}
 	return rows.Err()
@@ -406,7 +442,16 @@ func writeObject(sb *strings.Builder, o *exportObject, statuses, priority, relat
 	if len(o.Tags) > 0 {
 		line("标签", strings.Join(o.Tags, "、"))
 	}
-	line("负责人", o.Owner)
+	// 用 OwnerName 而不是 owner 文本：0010 之后新写入只落 owner_id，
+	// 这里读 owner 的话导出的 Markdown 里负责人会整片空着。
+	line("负责人", o.OwnerName)
+	if len(o.Participants) > 0 {
+		names := make([]string, 0, len(o.Participants))
+		for _, ref := range o.Participants {
+			names = append(names, ref.Name)
+		}
+		line("参与人", strings.Join(names, "、"))
+	}
 	if o.ProjectID != nil {
 		if p, ok := objs[*o.ProjectID]; ok {
 			line("所属项目", p.Ref+" "+p.Title)

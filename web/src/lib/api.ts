@@ -6,7 +6,7 @@ import type {
   AgentSession, BackupInfo, WorkdirCheck, DictItem, DictItemInput,
   DictItemPatch, Dictionary, MigrationRecord, ProviderTestResult,
   ObjectPatch, ObjectQuery, ObjectType, Revision, Shortcut, ShortcutGroup,
-  ShortcutGroupInput, ShortcutInput, Stats, Tag, WorkObject,
+  ShortcutGroupInput, ShortcutInput, Stakeholder, StakeholderPatch, Stats, Tag, WorkObject,
 } from './types'
 
 const BASE = '/api'
@@ -49,7 +49,7 @@ function qs(q: ObjectQuery): string {
   if (q.status?.length) p.set('status', q.status.join(','))
   if (q.priority?.length) p.set('priority', q.priority.join(','))
   q.tag?.forEach((t) => p.append('tag', t))
-  if (q.owner) p.set('owner', q.owner)
+  if (q.owner_id) p.set('owner_id', q.owner_id)
   if (q.project) p.set('project', q.project)
   if (q.q) p.set('q', q.q)
   if (q.due_after) p.set('due_after', q.due_after)
@@ -114,6 +114,15 @@ export const api = {
   fsMkdir: (parent: string, name: string) => send<FsListing>('POST', '/fs/mkdir', { parent, name }),
 
   // 用本机 Claude Code 执行任务
+  /** 干系人名册。includeArchived=true 才带上已归档的（名册管理页用），
+   *  选人时一律不带——给已经离职的人再派活是个 bug 不是功能 */
+  stakeholders: (includeArchived = false) =>
+    send<Stakeholder[]>('GET', `/stakeholders${includeArchived ? '?archived=true' : ''}`),
+  createStakeholder: (body: Partial<Stakeholder>) => send<Stakeholder>('POST', '/stakeholders', body),
+  updateStakeholder: (id: string, patch: StakeholderPatch) =>
+    send<Stakeholder>('PATCH', `/stakeholders/${id}`, patch),
+  deleteStakeholder: (id: string) => send<void>('DELETE', `/stakeholders/${id}`),
+
   taskRuns: (objectId: string) => send<TaskRun[]>('GET', `/objects/${objectId}/runs`),
   taskRun: (runId: string) => send<TaskRun>('GET', `/runs/${runId}`),
   cancelTaskRun: (runId: string) => send<TaskRun>('POST', `/runs/${runId}/cancel`),

@@ -3,12 +3,16 @@
 import { useCallback, useEffect, useMemo, useState, type DragEvent, type ReactNode } from 'react'
 import { useWorkspace, type FocusKind } from '../hooks/workspace'
 import { api } from '../lib/api'
-import type { ObjectType, Status, ViewMode, WorkObject } from '../lib/types'
+import type { ObjectPatch, ObjectType, Status, ViewMode, WorkObject } from '../lib/types'
 import {
-  Button, CategoryChip, CategoryPicker, ColorDot, ConfirmDialog, PRIORITIES, Popover, PriorityTag,
-  RelativeTime, StatusPill, TagChip, TextInput, flattenCategories, formatDate, formatDue, isOverdue,
+  Button, CategoryChip, CategoryPicker, ColorDot, ConfirmDialog, Popover, PriorityTag,
+  RelativeTime, TagChip, flattenCategories, formatDate, formatDateTime, formatDue, isOverdue,
   useCategoryTree,
 } from '../components/ui'
+import {
+  OwnerCell, OwnerMenu, PriorityCell, StatusCell, usePriorityOptions,
+} from '../components/InlineEditors'
+import { useStakeholders } from '../components/StakeholderPicker'
 import '../views.css'
 
 const VIEW_MODES: Array<{ key: ViewMode; label: string }> = [
@@ -70,9 +74,18 @@ interface Group {
   items: WorkObject[]
 }
 
-/** 类型 + 状态 key 定位到状态定义，列表里到处要用。 */
-function statusOf(type: ObjectType | undefined, key: string): Status | null {
-  return type?.statuses.find((s) => s.key === key) ?? null
+/* ------------------------------------------------------------ 行内联编辑 */
+
+// 可就地改的三列。和批量操作是两件事：那个是「选中多行，工具条上改」，
+// 这个是「点某一行的某个单元格，当场改」，互不替代。
+type EditField = 'status' | 'priority' | 'owner'
+
+const FIELD_LABEL: Record<EditField, string> = { status: '状态', priority: '优先级', owner: '负责人' }
+
+interface EditFail {
+  ref: string
+  field: EditField
+  message: string
 }
 
 /* -------------------------------------------------------------- 批量执行 */
@@ -159,7 +172,13 @@ export default function ObjectListView() {
   const [showFailures, setShowFailures] = useState(false)
   const [bulkConfirm, setBulkConfirm] = useState<'delete' | 'purge' | null>(null)
   const [bulkCategory, setBulkCategory] = useState<string | null>(null)
-  const [bulkOwner, setBulkOwner] = useState('')
+  // 行内联编辑：正在提交的行 → 正在改哪一列。用来压暗那个单元格并挡住连点，
+  // 否则同一行连点两下会打出两个并发 PATCH，谁后到谁赢。
+  const [editing, setEditing] = useState<Record<string, EditField>>({})
+  // 负责人是引用：patch 里只有 owner_id，名字得等服务端回。
+  // 乐观显示先用本地这一份顶上，请求落地（或回滚）后清掉，换回对象自己的 owner_name。
+  const [ownerPreview, setOwnerPreview] = useState<Record<string, string>>({})
+  const [editFail, setEditFail] = useState<EditFail | null>(null)
 
   const effGroup: GroupKey | CrossGroupKey = allTypes ? crossGroup : groupBy
   const groupOptions = allTypes ? CROSS_GROUP_OPTIONS : GROUP_OPTIONS
@@ -205,11 +224,19 @@ export default function ObjectListView() {
     )
   }, [allTypes, typeById])
 
-  const ownerOptions = useMemo(() => {
-    const set = new Set<string>()
-    for (const o of objects) if (o.owner) set.add(o.owner)
-    return [...set].sort()
-  }, [objects])
+  // 优先级选项来自字典，状态来自各类型自己的状态集——两者都不写死在这个文件里，
+  // 用户去设置里加一档，列表这边当场就有。
+  const priorityOptions = usePriorityOptions()
+  const roster = useStakeholders()
+
+  // filters.owner 存的是干系人 id（0010 起负责人是引用不是文本），筛选条上要显示成名字。
+  // 名册只有在岗的人，所以先查名册、再查当前结果里的 owner_name 兜住已归档的。
+  const ownerFilterName = useMemo(() => {
+    if (!filters.owner) return ''
+    return roster.list.find((s) => s.id === filters.owner)?.name
+      ?? objects.find((o) => o.owner_id === filters.owner)?.owner_name
+      ?? '已归档的干系人'
+  }, [filters.owner, roster.list, objects])
 
   // 条件类筛选（不含聚焦）：空态文案要靠它区分「回收站本来就空」和「回收站里筛没了」
   const hasConditions =
@@ -364,15 +391,19 @@ export default function ObjectListView() {
       return out
     }
 
+    // 组的先后取字典里的 sort_order：用户在设置里把 P0 排到最后，这里就跟着变
     for (const o of objects) push(o.priority || NO_VALUE, o)
     const out: Group[] = []
-    for (const p of PRIORITIES) {
-      const items = buckets.get(p)
-      if (items) { out.push({ key: p, label: p, items }); buckets.delete(p) }
+    for (const p of priorityOptions) {
+      const items = buckets.get(p.key)
+      if (items) {
+        out.push({ key: p.key, label: p.label ? `${p.key} ${p.label}` : p.key, color: p.color, items })
+        buckets.delete(p.key)
+      }
     }
     for (const [k, items] of buckets) out.push({ key: k, label: k === NO_VALUE ? '未设置优先级' : k, items })
     return out
-  }, [effGroup, objects, categories, statusOptions, ws.types])
+  }, [effGroup, objects, categories, statusOptions, priorityOptions, ws.types])
 
   const toggleGroup = useCallback((k: string) => {
     setCollapsed((prev) => {
@@ -405,10 +436,86 @@ export default function ObjectListView() {
     }
   }, [purgeTarget, deleteObject])
 
+  /* ---------------------------------------------------------- 行内联编辑 */
+
+  /**
+   * 就地改一行的一个字段。
+   * 乐观更新与失败回滚都在 ws.updateObject 里，这里只管三件事：
+   * 选回原值不发请求、同一行同时只放一个请求出去、失败了如实说是哪条为什么。
+   * **刻意不调 reloadObjects**：为改一个状态把整页重拉，会丢滚动位置和已勾选的行。
+   * 服务端返回的整条对象会被写回 store，所以改成终态时带回来的 completed_at 会照实显示。
+   */
+  const commitInline = useCallback(async (
+    o: WorkObject, field: EditField, patch: ObjectPatch, preview?: string,
+  ) => {
+    const same = field === 'status'
+      ? patch.status === o.status
+      : field === 'priority'
+        ? patch.priority === o.priority
+        : (patch.owner_id ?? '') === (o.owner_id ?? '')
+    if (same) return // 选回原值：不发请求，也就不会写一条什么都没变的 revision
+
+    setEditFail(null)
+    setEditing((prev) => ({ ...prev, [o.id]: field }))
+    if (preview !== undefined) setOwnerPreview((prev) => ({ ...prev, [o.id]: preview }))
+    try {
+      await updateObject(o.id, patch)
+    } catch (e) {
+      // 界面已经被 updateObject 回滚了，这里只补一句「为什么没改成」
+      setEditFail({ ref: o.ref, field, message: e instanceof Error ? e.message : String(e) })
+    } finally {
+      setEditing((prev) => { const next = { ...prev }; delete next[o.id]; return next })
+      setOwnerPreview((prev) => { const next = { ...prev }; delete next[o.id]; return next })
+    }
+  }, [updateObject])
+
+  // 负责人展示：乐观值 > owner_id 指向的名字 > 0010 之前的自由文本。
+  // `in` 判断而不是 `||`：乐观值可以是空串（刚点了「未分配」），用 || 会立刻被旧名字顶回去。
+  const ownerText = useCallback((o: WorkObject) =>
+    (o.id in ownerPreview ? ownerPreview[o.id] : (o.owner_name ?? o.owner)) || '',
+  [ownerPreview])
+
+  // 三个单元格列表视图与表格视图共用，交互形态必须一致：
+  // 同一列在两个视图里一个能点改、一个不能，用户只会以为坏了。
+  const statusCell = useCallback((o: WorkObject) => (
+    <StatusCell
+      value={o.status}
+      statuses={typeById[o.type_id]?.statuses ?? []}
+      busy={editing[o.id] === 'status'}
+      readOnly={inTrash}
+      completedAt={o.completed_at}
+      onPick={(st) => void commitInline(o, 'status', { status: st.key })}
+    />
+  ), [typeById, editing, inTrash, commitInline])
+
+  const priorityCell = useCallback((o: WorkObject) => (
+    <PriorityCell
+      value={o.priority}
+      options={priorityOptions}
+      busy={editing[o.id] === 'priority'}
+      readOnly={inTrash}
+      onPick={(key) => void commitInline(o, 'priority', { priority: key })}
+    />
+  ), [priorityOptions, editing, inTrash, commitInline])
+
+  const ownerCell = useCallback((o: WorkObject) => (
+    <OwnerCell
+      value={o.owner_id}
+      display={ownerText(o)}
+      legacy={!o.owner_id && !(o.id in ownerPreview)}
+      busy={editing[o.id] === 'owner'}
+      readOnly={inTrash}
+      onPick={(id) => {
+        // 空串 = 清空负责人（契约如此），乐观显示同步给空
+        const name = id ? (roster.list.find((s) => s.id === id)?.name ?? '') : ''
+        void commitInline(o, 'owner', { owner_id: id }, name)
+      }}
+    />
+  ), [ownerText, editing, inTrash, commitInline, roster.list])
+
   /* ------------------------------------------------------------ 行内动作 */
 
   const rowActions = (o: WorkObject) => {
-    const type = typeById[o.type_id]
     if (inTrash) {
       return (
         <div className="row-actions v-row-actions">
@@ -417,40 +524,10 @@ export default function ObjectListView() {
         </div>
       )
     }
+    // 这里原来还有「状态」「优先级」两个弹层，已由单元格内联编辑取代：
+    // 悬停动作条是绝对定位、盖在右侧几列上的，留着它就会正好挡住要点的那两个单元格。
     return (
       <div className="row-actions v-row-actions">
-        <Popover trigger="状态" title="改状态" align="right" width={150}>
-          {(close) => (
-            <div className="v-menu">
-              {(type?.statuses ?? []).map((s) => (
-                <button
-                  key={s.key}
-                  type="button"
-                  className={`v-menu-item ${o.status === s.key ? 'v-menu-item-active' : ''}`.trim()}
-                  onClick={() => { close(); void updateObject(o.id, { status: s.key }) }}
-                >
-                  <ColorDot color={s.color} />{s.label}
-                </button>
-              ))}
-            </div>
-          )}
-        </Popover>
-        <Popover trigger="优先级" title="改优先级" align="right" width={120}>
-          {(close) => (
-            <div className="v-menu">
-              {PRIORITIES.map((p) => (
-                <button
-                  key={p}
-                  type="button"
-                  className={`v-menu-item ${o.priority === p ? 'v-menu-item-active' : ''}`.trim()}
-                  onClick={() => { close(); void updateObject(o.id, { priority: p }) }}
-                >
-                  <PriorityTag value={p} />
-                </button>
-              ))}
-            </div>
-          )}
-        </Popover>
         <Button small variant="danger" title="移到回收站" onClick={() => void deleteObject(o.id)}>删除</Button>
       </div>
     )
@@ -459,7 +536,6 @@ export default function ObjectListView() {
   /* -------------------------------------------------------------- 列表行 */
 
   const renderRow = (o: WorkObject) => {
-    const type = typeById[o.type_id]
     const overdue = isOverdue(o.due_at) && !o.completed_at
     return (
       <div
@@ -499,11 +575,17 @@ export default function ObjectListView() {
             ))}
           </div>
         </div>
-        <div><StatusPill status={statusOf(type, o.status)} fallback={o.status || '—'} /></div>
-        <div><PriorityTag value={o.priority} /></div>
+        <div>{statusCell(o)}</div>
+        <div>{priorityCell(o)}</div>
         <div className="muted v-cell-owner">
-          <span className="truncate">{o.owner || '未分配'}</span>
-          <span className={overdue ? 'v-overdue' : 'faint'}>{formatDue(o.due_at)}</span>
+          {ownerCell(o)}
+          {/* 已完成的条目显示完成时间而不是到期：事情做完之后，「什么时候做完的」
+              比「本来什么时候到期」更有信息量，到期挪到 title 里仍查得到 */}
+          {o.completed_at ? (
+            <span className="faint" title={`到期 ${formatDue(o.due_at)}`}>完成 {formatDate(o.completed_at)}</span>
+          ) : (
+            <span className={overdue ? 'v-overdue' : 'faint'}>{formatDue(o.due_at)}</span>
+          )}
         </div>
         <div className="faint mono v-cell-links">{o.link_count > 0 ? `${o.link_count} 关联` : '—'}</div>
         {rowActions(o)}
@@ -612,7 +694,7 @@ export default function ObjectListView() {
         selectedId={selectedId}
         categoryChip={categoryChip}
         onSelect={select}
-        onMove={(id, status) => void updateObject(id, { status })}
+        onMove={(o, status) => void commitInline(o, 'status', { status })}
       />
     )
   }
@@ -633,9 +715,7 @@ export default function ObjectListView() {
             </tr>
           </thead>
           <tbody>
-            {objects.map((o) => {
-              const type = typeById[o.type_id]
-              return (
+            {objects.map((o) => (
                 <tr
                   key={o.id}
                   className={o.id === selectedId ? 'v-tr-selected' : ''}
@@ -645,17 +725,19 @@ export default function ObjectListView() {
                   {allTypes ? <td>{typeChip(o) ?? <span className="faint">—</span>}</td> : null}
                   <td className="truncate">{o.title}</td>
                   <td>{categoryChip(o) ?? <span className="faint">未分类</span>}</td>
-                  <td><StatusPill status={statusOf(type, o.status)} fallback={o.status || '—'} /></td>
-                  <td><PriorityTag value={o.priority} /></td>
-                  <td className="muted">{o.owner || '未分配'}</td>
-                  <td className={isOverdue(o.due_at) && !o.completed_at ? 'v-overdue' : 'muted'}>
+                  <td>{statusCell(o)}</td>
+                  <td>{priorityCell(o)}</td>
+                  <td>{ownerCell(o)}</td>
+                  <td
+                    className={isOverdue(o.due_at) && !o.completed_at ? 'v-overdue' : 'muted'}
+                    title={o.completed_at ? `完成于 ${formatDateTime(o.completed_at)}` : undefined}
+                  >
                     {formatDue(o.due_at)}
                   </td>
                   <td className="faint">{formatDate(o.created_at)}</td>
                   <td className="faint"><RelativeTime value={o.updated_at} /></td>
                 </tr>
-              )
-            })}
+            ))}
           </tbody>
         </table>
       </div>
@@ -780,64 +862,40 @@ export default function ObjectListView() {
                   )}
                 </Popover>
 
-                <Popover triggerClassName="btn btn-sm" trigger="优先级" width={130}>
+                <Popover triggerClassName="btn btn-sm" trigger="优先级" width={160}>
                   {(close) => (
                     <div className="v-menu">
-                      {PRIORITIES.map((p) => (
+                      {priorityOptions.map((p) => (
                         <button
-                          key={p}
+                          key={p.key}
                           type="button"
                           className="v-menu-item"
-                          onClick={() => { close(); void runAction(`改优先级 → ${p}`, (o) => api.updateObject(o.id, { priority: p })) }}
+                          onClick={() => { close(); void runAction(`改优先级 → ${p.key}`, (o) => api.updateObject(o.id, { priority: p.key })) }}
                         >
-                          <PriorityTag value={p} />
+                          <PriorityTag value={p.key} />
+                          {p.label ? <span className="faint truncate">{p.label}</span> : null}
                         </button>
                       ))}
                     </div>
                   )}
                 </Popover>
 
-                <Popover triggerClassName="btn btn-sm" trigger="负责人" width={210}>
+                {/* 和单行内联编辑复用同一个 OwnerMenu：选中的是干系人 id，不是一段文本。
+                    自由文本输入框已经去掉——库里那条「宋一杰、李钊、振华」就是它的产物。 */}
+                <Popover triggerClassName="btn btn-sm" trigger="负责人" width={230}>
                   {(close) => (
-                    <div className="v-pop-pad v-bulk-form">
-                      <TextInput
-                        placeholder="负责人"
-                        value={bulkOwner}
-                        onValueChange={setBulkOwner}
-                        onKeyDown={(e) => {
-                          if (e.key !== 'Enter' || !bulkOwner.trim()) return
-                          const v = bulkOwner.trim()
-                          close()
-                          void runAction(`改负责人 → ${v}`, (o) => api.updateObject(o.id, { owner: v }))
-                        }}
-                      />
-                      <div className="v-menu">
-                        {ownerOptions.map((o) => (
-                          <button key={o} type="button" className="v-menu-item" onClick={() => setBulkOwner(o)}>{o}</button>
-                        ))}
-                      </div>
-                      <div className="v-bulk-form-acts">
-                        <Button
-                          small
-                          variant="ghost"
-                          onClick={() => { close(); void runAction('清空负责人', (o) => api.updateObject(o.id, { owner: '' })) }}
-                        >
-                          清空
-                        </Button>
-                        <Button
-                          small
-                          variant="primary"
-                          disabled={!bulkOwner.trim()}
-                          onClick={() => {
-                            const v = bulkOwner.trim()
-                            close()
-                            void runAction(`改负责人 → ${v}`, (o) => api.updateObject(o.id, { owner: v }))
-                          }}
-                        >
-                          应用到 {checked.size} 项
-                        </Button>
-                      </div>
-                    </div>
+                    <OwnerMenu
+                      value={null}
+                      emptyLabel="清空负责人"
+                      onPick={(id) => {
+                        close()
+                        const name = roster.list.find((s) => s.id === id)?.name ?? id
+                        void runAction(
+                          id ? `改负责人 → ${name}` : '清空负责人',
+                          (o) => api.updateObject(o.id, { owner_id: id }),
+                        )
+                      }}
+                    />
                   )}
                 </Popover>
 
@@ -945,50 +1003,40 @@ export default function ObjectListView() {
           <Popover
             triggerClassName={`chip ${filters.priority.length ? 'chip-active' : ''}`.trim()}
             trigger={filters.priority.length ? `优先级 · ${filters.priority.join(' ')}` : '优先级'}
-            width={150}
+            width={170}
           >
             {() => (
               <div className="v-menu">
-                {PRIORITIES.map((p) => (
-                  <label className="v-check" key={p}>
+                {priorityOptions.map((p) => (
+                  <label className="v-check" key={p.key}>
                     <input
                       type="checkbox"
-                      checked={filters.priority.includes(p)}
-                      onChange={() => setFilters({ priority: toggleIn(filters.priority, p) })}
+                      checked={filters.priority.includes(p.key)}
+                      onChange={() => setFilters({ priority: toggleIn(filters.priority, p.key) })}
                     />
-                    <PriorityTag value={p} />
+                    <PriorityTag value={p.key} />
+                    {p.label ? <span className="faint truncate">{p.label}</span> : null}
                   </label>
                 ))}
               </div>
             )}
           </Popover>
 
+          {/* filters.owner 是干系人 id（后端按 owner_id 筛），显示给人看的是名字。
+              选项来自名册而不是「当前结果里出现过的负责人」——后者筛完一次就只剩一个人可选了。 */}
           <Popover
             triggerClassName={`chip ${filters.owner ? 'chip-active' : ''}`.trim()}
-            trigger={filters.owner ? `负责人 · ${filters.owner}` : '负责人'}
-            width={180}
+            trigger={filters.owner ? `负责人 · ${ownerFilterName}` : '负责人'}
+            width={230}
           >
             {(close) => (
-              <div className="v-menu">
-                <button
-                  type="button"
-                  className={`v-menu-item ${filters.owner === '' ? 'v-menu-item-active' : ''}`.trim()}
-                  onClick={() => { close(); setFilters({ owner: '' }) }}
-                >
-                  全部
-                </button>
-                {ownerOptions.length === 0 ? <div className="v-menu-empty faint">当前结果里没有负责人</div> : null}
-                {ownerOptions.map((o) => (
-                  <button
-                    key={o}
-                    type="button"
-                    className={`v-menu-item ${filters.owner === o ? 'v-menu-item-active' : ''}`.trim()}
-                    onClick={() => { close(); setFilters({ owner: o }) }}
-                  >
-                    {o}
-                  </button>
-                ))}
-              </div>
+              <OwnerMenu
+                value={filters.owner || null}
+                valueName={ownerFilterName}
+                emptyLabel="全部"
+                hideEmptyHint
+                onPick={(id) => { close(); setFilters({ owner: id }) }}
+              />
             )}
           </Popover>
 
@@ -1075,6 +1123,24 @@ export default function ObjectListView() {
         </div>
         )}
       </div>
+
+      {editFail ? (
+        <div className="v-batch-note v-batch-note-bad">
+          <span>
+            <span className="mono faint v-ref">{editFail.ref}</span>
+            {` 改${FIELD_LABEL[editFail.field]}没成功，已改回原值：${editFail.message}`}
+          </span>
+          <div className="v-toolbar-spacer" />
+          <button
+            type="button"
+            className="btn btn-ghost btn-sm"
+            aria-label="关闭提示"
+            onClick={() => setEditFail(null)}
+          >
+            ×
+          </button>
+        </div>
+      ) : null}
 
       {batchOutcome ? (
         <div className={`v-batch-note ${batchOutcome.failures.length > 0 ? 'v-batch-note-bad' : ''}`.trim()}>
@@ -1169,7 +1235,8 @@ interface BoardProps {
   selectedId: string | null
   categoryChip: (o: WorkObject) => ReactNode
   onSelect: (id: string) => void
-  onMove: (id: string, status: string) => void
+  /** 回整个对象而不只是 id：调用方要拿它比对旧值、失败时报出是哪一条 */
+  onMove: (o: WorkObject, status: string) => void
 }
 
 function BoardView({ statuses, objects, selectedId, categoryChip, onSelect, onMove }: BoardProps) {
@@ -1185,7 +1252,9 @@ function BoardView({ statuses, objects, selectedId, categoryChip, onSelect, onMo
     return m
   }, [statuses, objects])
 
-  // 原生 HTML5 拖拽，不引拖拽库；放下时直接调 updateObject 走乐观更新。
+  // 原生 HTML5 拖拽，不引拖拽库。放下时交给外面的 commitInline：
+  // 和列表里点单元格改状态走同一条路，失败同样回滚并给出提示——
+  // 拖过去的卡片停在新列里、库里还是旧状态，是最难被发现的一种错。
   const handleDrop = (e: DragEvent<HTMLDivElement>, status: string) => {
     e.preventDefault()
     setDragOver(null)
@@ -1193,7 +1262,7 @@ function BoardView({ statuses, objects, selectedId, categoryChip, onSelect, onMo
     if (!id) return
     const obj = objects.find((o) => o.id === id)
     if (!obj || obj.status === status) return
-    onMove(id, status)
+    onMove(obj, status)
   }
 
   return (

@@ -73,15 +73,19 @@ func TestParseObjectPatchThreeStates(t *testing.T) {
 
 func TestParseObjectPatchFields(t *testing.T) {
 	p, err := parseObjectPatch([]byte(`{
-		"title":"标题","body":"正文","status":"doing","priority":"P0","owner":"me","source":"ui",
+		"title":"标题","body":"正文","status":"doing","priority":"P0","owner_id":"stk_1","source":"ui",
+		"participant_ids":["stk_2","stk_3"],
 		"props":{"k":1},"tags":["云端","平台"],"archived":true
 	}`))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if *p.Title != "标题" || *p.Body != "正文" || *p.Status != "doing" ||
-		*p.Priority != "P0" || *p.Owner != "me" || *p.Source != "ui" {
+		*p.Priority != "P0" || *p.OwnerID != "stk_1" || *p.Source != "ui" {
 		t.Fatalf("字符串字段解析错误: %+v", p)
+	}
+	if p.ParticipantIDs == nil || len(*p.ParticipantIDs) != 2 || (*p.ParticipantIDs)[0] != "stk_2" {
+		t.Fatalf("participant_ids = %v", p.ParticipantIDs)
 	}
 	if p.Props == nil || (*p.Props)["k"] != float64(1) {
 		t.Fatalf("props = %v", p.Props)
@@ -137,19 +141,20 @@ func isValidation(err error) bool {
 // jsonForPatchField 给 ObjectPatch 的每个字段配一段「能把它从零值推开」的请求体。
 // 新增字段时必须在这里登记，或者写进 exemptPatchFields 说明为什么不解析。
 var jsonForPatchField = map[string]string{
-	"Title":      `{"title":"标题"}`,
-	"Body":       `{"body":"正文"}`,
-	"Status":     `{"status":"doing"}`,
-	"Priority":   `{"priority":"P0"}`,
-	"Owner":      `{"owner":"me"}`,
-	"CategoryID": `{"category_id":"cat_1"}`,
-	"ProjectID":  `{"project_id":"obj_1"}`,
-	"Source":     `{"source":"ui"}`,
-	"Props":      `{"props":{"k":1}}`,
-	"Workdir":    `{"workdir":"/tmp/ws"}`,
-	"DueAt":      `{"due_at":"2026-09-30T12:00:00+08:00"}`,
-	"Tags":       `{"tags":["云端"]}`,
-	"Archived":   `{"archived":true}`,
+	"Title":          `{"title":"标题"}`,
+	"Body":           `{"body":"正文"}`,
+	"Status":         `{"status":"doing"}`,
+	"Priority":       `{"priority":"P0"}`,
+	"OwnerID":        `{"owner_id":"stk_1"}`,
+	"ParticipantIDs": `{"participant_ids":["stk_2"]}`,
+	"CategoryID":     `{"category_id":"cat_1"}`,
+	"ProjectID":      `{"project_id":"obj_1"}`,
+	"Source":         `{"source":"ui"}`,
+	"Props":          `{"props":{"k":1}}`,
+	"Workdir":        `{"workdir":"/tmp/ws"}`,
+	"DueAt":          `{"due_at":"2026-09-30T12:00:00+08:00"}`,
+	"Tags":           `{"tags":["云端"]}`,
+	"Archived":       `{"archived":true}`,
 }
 
 // exemptPatchFields 登记「有意不从请求体解析」的字段，值是理由。

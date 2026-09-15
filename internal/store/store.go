@@ -99,6 +99,20 @@ type Store interface {
 	// ProviderAPIKey 取出明文密钥，只允许服务端调模型时使用，绝不能进 HTTP 响应。
 	ProviderAPIKey(ctx context.Context, id string) (string, error)
 
+	// 干系人名册。负责人与参与人都指向这里。
+	//
+	// ListStakeholders 的 includeArchived=false 只返回在岗的（选人时用），
+	// true 返回全部（名册管理页用）。两个场景的口径不同，不要合并成一个默认值。
+	// 返回的每个人都带 OwnedCount / ParticipatingCount——删除前要看引用，
+	// 而让调用方逐个回查就是 N+1。
+	ListStakeholders(ctx context.Context, includeArchived bool) ([]*domain.Stakeholder, error)
+	GetStakeholder(ctx context.Context, id string) (*domain.Stakeholder, error)
+	CreateStakeholder(ctx context.Context, sh *domain.Stakeholder) (*domain.Stakeholder, error)
+	UpdateStakeholder(ctx context.Context, id string, p domain.StakeholderPatch) (*domain.Stakeholder, error)
+	// DeleteStakeholder 仅在无引用时允许；有对象引用返回 ErrConflict，让调用方改走归档。
+	// 「归档而不是删除」和 dict_items 一致：人被历史对象引用过，删掉会留下查不出来源的空位。
+	DeleteStakeholder(ctx context.Context, id string) error
+
 	// 任务执行记录（本机 Claude Code）
 	// ListTaskRuns 返回该对象**最近** limit 条执行记录，按开始时间倒序（最近的在前）——
 	// 和 ListAgentMessages 一样，取最早 N 条是错的。limit <= 0 时取 DefaultRunLimit，

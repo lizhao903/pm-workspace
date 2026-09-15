@@ -97,11 +97,12 @@
 
 /* -------------------------------------------------------------- 页内块 */
 
+/* 列表、表格、卡片这些要撑满内容区；读宽限制只留给成段文字（见 .st-sec-desc / .st-note），
+   别再一刀切压住整个区块——宽屏下右边会空出一大条。 */
 .st-sec {
   display: flex;
   flex-direction: column;
   gap: 12px;
-  max-width: 940px;
 }
 
 .st-sec-head {
@@ -122,11 +123,14 @@
   font-weight: 600;
 }
 
+/* 成段说明文字保留读宽：一行拉到两千像素没人读得下去。940 是这页原来的宽度，
+   即现有排版的行长，只是从整个区块挪到了文字本身。 */
 .st-sec-desc {
   margin: 0;
   font-size: var(--fs-sm);
   color: var(--muted);
   line-height: 1.55;
+  max-width: 940px;
 }
 
 .st-sec-actions {
@@ -156,6 +160,12 @@
   align-self: flex-start;
 }
 
+/* 区块撑满之后，单行输入框不该跟着无限变长——超宽屏上一个「排序」输入框一千多像素没有意义。
+   640 之内照旧按可用宽度平分，只在真的太宽时才封顶。 */
+.st-sec .form-row > .field {
+  max-width: 640px;
+}
+
 .st-title-note {
   font-weight: 400;
   font-size: var(--fs-xs);
@@ -164,10 +174,12 @@
   text-align: right;
 }
 
+/* 同上：注释性段落也是读的，不跟着容器一起撑 */
 .st-note {
   margin: 0;
   font-size: var(--fs-xs);
   line-height: 1.6;
+  max-width: 940px;
 }
 
 .st-pad {
@@ -422,6 +434,7 @@
 .st-merge-note {
   margin-top: 10px;
   line-height: 1.6;
+  max-width: 940px;
 }
 
 /* ---------------------------------------------------------- 数据与备份 */
@@ -480,4 +493,32 @@
   .st-content {
     padding: 10px 12px 24px;
   }
+}
+
+/* ------------------------------------------------------------ 干系人名册 */
+
+.st-sh-role {
+  font-size: var(--fs-xs);
+  flex: none;
+}
+
+/* 「负责多少 / 参与多少」是删除前的判断依据，两个数要并排看得见 */
+.st-sh-counts {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+  flex: none;
+}
+
+.st-sh-counts + .row-actions.st-row-acts {
+  margin-left: 8px;
+}
+
+/* 有引用的人这里没有删除按钮，占位说明为什么 */
+.st-sh-nodel {
+  font-size: var(--fs-xs);
+  padding: 0 4px;
+  cursor: help;
+  white-space: nowrap;
 }

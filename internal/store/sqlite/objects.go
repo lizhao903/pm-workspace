@@ -14,17 +14,20 @@ import (
 	"github.com/lizhao903/pm-workspace/internal/store"
 )
 
-const objectCols = `o.id,o.type_id,o.ref,o.title,o.body,o.status,o.priority,o.owner,
+const objectCols = `o.id,o.type_id,o.ref,o.title,o.body,o.status,o.priority,o.owner,o.owner_id,
 	o.category_id,o.project_id,o.source,o.props,o.workdir,o.due_at,o.started_at,o.completed_at,
 	o.archived_at,o.deleted_at,o.created_at,o.updated_at`
 
-// objectSelect 把分类名、所属项目标题和关联数一并带出来，省掉详情页的三次回查。
+// objectSelect 把分类名、所属项目标题、负责人姓名和关联数一并带出来，省掉详情页的几次回查。
+// 负责人姓名走 JOIN 而不是按 owner_id 逐行回查：列表一次 50 行，回查就是 50 次往返。
 const objectSelect = `SELECT ` + objectCols + `,
 	IFNULL(c.name,''), IFNULL(c.path,''), IFNULL(c.color,''), IFNULL(p.title,''),
+	IFNULL(sh.name,''),
 	(SELECT COUNT(*) FROM links l WHERE l.from_id = o.id OR l.to_id = o.id)
 	FROM objects o
 	LEFT JOIN categories c ON c.id = o.category_id
-	LEFT JOIN objects p ON p.id = o.project_id`
+	LEFT JOIN objects p ON p.id = o.project_id
+	LEFT JOIN stakeholders sh ON sh.id = o.owner_id`
 
 const defaultLimit = 50
 const maxLimit = 200
@@ -32,18 +35,26 @@ const maxLimit = 200
 func scanObject(sc rowScanner) (*domain.Object, error) {
 	var (
 		o                                                    domain.Object
-		category, project                                    sql.NullString
+		owner, category, project                             sql.NullString
 		due, started, completed                              sql.NullString
 		archived, deleted                                    sql.NullString
 		props, created, updated                              string
 		categoryName, categoryPath, categoryColor, projTitle string
+		ownerName                                            string
 		linkCount                                            int
 	)
-	if err := sc.Scan(&o.ID, &o.TypeID, &o.Ref, &o.Title, &o.Body, &o.Status, &o.Priority, &o.Owner,
+	if err := sc.Scan(&o.ID, &o.TypeID, &o.Ref, &o.Title, &o.Body, &o.Status, &o.Priority, &o.Owner, &owner,
 		&category, &project, &o.Source, &props, &o.Workdir, &due, &started, &completed,
 		&archived, &deleted, &created, &updated,
-		&categoryName, &categoryPath, &categoryColor, &projTitle, &linkCount); err != nil {
+		&categoryName, &categoryPath, &categoryColor, &projTitle, &ownerName, &linkCount); err != nil {
 		return nil, err
+	}
+	o.OwnerID = strPtr(owner)
+	// owner_id 为空时用 0010 之前的自由文本兜底：迁移判断错了某条的话，界面仍显示得出
+	// 个人名来，不会因为漏迁而变成一片空白。前端只读 owner_name 这一个字段。
+	o.OwnerName = ownerName
+	if o.OwnerName == "" {
+		o.OwnerName = o.Owner
 	}
 	o.CategoryID = strPtr(category)
 	o.ProjectID = strPtr(project)
@@ -63,6 +74,7 @@ func scanObject(sc rowScanner) (*domain.Object, error) {
 		}
 	}
 	o.Tags = []string{}
+	o.Participants = []domain.StakeholderRef{}
 	return &o, nil
 }
 
@@ -75,7 +87,11 @@ func (s *Store) GetObject(ctx context.Context, id string) (*domain.Object, error
 	if err != nil {
 		return nil, fmt.Errorf("get object: %w", err)
 	}
-	if err := s.fillTags(ctx, []*domain.Object{o}); err != nil {
+	items := []*domain.Object{o}
+	if err := s.fillTags(ctx, items); err != nil {
+		return nil, err
+	}
+	if err := s.fillParticipants(ctx, items); err != nil {
 		return nil, err
 	}
 	return o, nil
@@ -127,6 +143,9 @@ func (s *Store) ListObjects(ctx context.Context, f domain.ObjectFilter) ([]*doma
 		return nil, 0, err
 	}
 	if err := s.fillTags(ctx, items); err != nil {
+		return nil, 0, err
+	}
+	if err := s.fillParticipants(ctx, items); err != nil {
 		return nil, 0, err
 	}
 	return items, total, nil
@@ -183,9 +202,9 @@ func (s *Store) buildWhere(ctx context.Context, f domain.ObjectFilter) (string, 
 			JOIN tags t ON t.id = ot.tag_id WHERE ot.object_id = o.id AND t.name = ?)`)
 		args = append(args, tag)
 	}
-	if f.Owner != "" {
-		conds = append(conds, "o.owner = ?")
-		args = append(args, f.Owner)
+	if f.OwnerID != "" {
+		conds = append(conds, "o.owner_id = ?")
+		args = append(args, f.OwnerID)
 	}
 	if f.ProjectID != "" {
 		conds = append(conds, "o.project_id = ?")
@@ -304,6 +323,28 @@ func (s *Store) fillTags(ctx context.Context, items []*domain.Object) error {
 	return rows.Err()
 }
 
+// fillParticipants 一次把这批对象的参与人全查回来，理由同 fillTags：
+// 一行可能有好几个参与人，逐条回查就是 N+1。
+func (s *Store) fillParticipants(ctx context.Context, items []*domain.Object) error {
+	if len(items) == 0 {
+		return nil
+	}
+	ids := make([]string, len(items))
+	for i, o := range items {
+		ids[i] = o.ID
+	}
+	byObject, err := stakeholderRefsByObject(ctx, s.db.R, ids)
+	if err != nil {
+		return err
+	}
+	for _, o := range items {
+		if refs, ok := byObject[o.ID]; ok {
+			o.Participants = refs
+		}
+	}
+	return nil
+}
+
 // --- 写入 ---
 
 func (s *Store) CreateObject(ctx context.Context, o *domain.Object, a store.Actor) (*domain.Object, error) {
@@ -331,6 +372,25 @@ func (s *Store) CreateObject(ctx context.Context, o *domain.Object, a store.Acto
 		}
 		if cat.TypeID != o.TypeID {
 			return nil, validation("category_id", "belongs to another object type")
+		}
+	}
+
+	// 负责人与参与人在建对象时就能带上，否则前端只能「先建后改」两次请求，
+	// 中间还会多出一条无意义的修订记录。
+	// 参与人从 o.Participants 上取 id：CreateObject 的入参是整个 domain.Object，
+	// 没有单独的 ids 通道，调用方填 StakeholderRef{ID: ...} 即可，Name/Color 会被忽略。
+	participantIDs := make([]string, 0, len(o.Participants))
+	for _, ref := range o.Participants {
+		participantIDs = append(participantIDs, ref.ID)
+	}
+	participantIDs = dedupeIDs(participantIDs)
+	if err := assertStakeholdersExist(ctx, s.db.R, "participant_ids", participantIDs); err != nil {
+		return nil, err
+	}
+	ownerID := strings.TrimSpace(derefPtr(o.OwnerID))
+	if ownerID != "" {
+		if _, err := s.GetStakeholder(ctx, ownerID); err != nil {
+			return nil, err
 		}
 	}
 
@@ -363,10 +423,10 @@ func (s *Store) CreateObject(ctx context.Context, o *domain.Object, a store.Acto
 			return err
 		}
 		if _, err := tx.ExecContext(ctx, `INSERT INTO objects
-			(id,type_id,ref,title,body,status,priority,owner,category_id,project_id,source,props,workdir,
+			(id,type_id,ref,title,body,status,priority,owner,owner_id,category_id,project_id,source,props,workdir,
 			 due_at,started_at,completed_at,archived_at,deleted_at,created_at,updated_at)
-			VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-			id, o.TypeID, ref, o.Title, o.Body, status, o.Priority, o.Owner,
+			VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+			id, o.TypeID, ref, o.Title, o.Body, status, o.Priority, o.Owner, nullable(ownerID),
 			ptrArg(o.CategoryID), ptrArg(o.ProjectID), o.Source, string(blob), o.Workdir,
 			timeArg(o.DueAt), timeArg(o.StartedAt), timeArg(o.CompletedAt),
 			timeArg(o.ArchivedAt), timeArg(o.DeletedAt), created, updated); err != nil {
@@ -374,6 +434,11 @@ func (s *Store) CreateObject(ctx context.Context, o *domain.Object, a store.Acto
 		}
 		if len(o.Tags) > 0 {
 			if err := setTags(ctx, tx, id, o.Tags); err != nil {
+				return err
+			}
+		}
+		if len(participantIDs) > 0 {
+			if err := setParticipants(ctx, tx, id, participantIDs); err != nil {
 				return err
 			}
 		}
@@ -439,8 +504,24 @@ func (s *Store) UpdateObject(ctx context.Context, id string, p domain.ObjectPatc
 	if p.Priority != nil {
 		change("priority", cur.Priority, *p.Priority, "priority", *p.Priority)
 	}
-	if p.Owner != nil {
-		change("owner", cur.Owner, *p.Owner, "owner", *p.Owner)
+	if p.OwnerID != nil {
+		// 空串落 NULL：owner_id 是外键，"" 不是合法 id。
+		var curID string
+		if cur.OwnerID != nil {
+			curID = *cur.OwnerID
+		}
+		if v := strings.TrimSpace(*p.OwnerID); v == "" {
+			change("owner_id", curID, "", "owner_id", nil)
+		} else {
+			if v != curID {
+				// 外键会拦下不存在的 id，但它报出来的是一句
+				// "FOREIGN KEY constraint failed"，前端没法从中知道是哪个字段错了。
+				if _, err := s.GetStakeholder(ctx, v); err != nil {
+					return nil, err
+				}
+			}
+			change("owner_id", curID, v, "owner_id", v)
+		}
 	}
 	if p.Source != nil {
 		change("source", cur.Source, *p.Source, "source", *p.Source)
@@ -540,7 +621,29 @@ func (s *Store) UpdateObject(ctx context.Context, id string, p domain.ObjectPatc
 		}
 	}
 
-	if len(sets) == 0 && tagChange == nil {
+	// 参与人也在关联表里，和标签同构：全量替换，差异记一条修订。
+	// 不记的话，日报里看不出人员调整——「谁在这件事里」变了是比改个标题更重要的事。
+	//
+	// 比较是按顺序的：sort_order 决定界面上头像的排列，重排也是一次真实的改动。
+	var participantChange *[]string
+	if p.ParticipantIDs != nil {
+		next := dedupeIDs(*p.ParticipantIDs)
+		if err := assertStakeholdersExist(ctx, s.db.R, "participant_ids", next); err != nil {
+			return nil, err
+		}
+		old := make([]string, 0, len(cur.Participants))
+		for _, ref := range cur.Participants {
+			old = append(old, ref.ID)
+		}
+		if strings.Join(old, ",") != strings.Join(next, ",") {
+			participantChange = &next
+			revs = append(revs, domain.Revision{
+				Field: "participants", OldValue: strings.Join(old, ","), NewValue: strings.Join(next, ","),
+			})
+		}
+	}
+
+	if len(sets) == 0 && tagChange == nil && participantChange == nil {
 		return cur, nil
 	}
 
@@ -557,6 +660,17 @@ func (s *Store) UpdateObject(ctx context.Context, id string, p domain.ObjectPatc
 			if err := setTags(ctx, tx, id, *tagChange); err != nil {
 				return err
 			}
+			if _, err := tx.ExecContext(ctx,
+				`UPDATE objects SET updated_at = ? WHERE id = ?`, now, id); err != nil {
+				return fmt.Errorf("touch object: %w", err)
+			}
+		}
+		if participantChange != nil {
+			if err := setParticipants(ctx, tx, id, *participantChange); err != nil {
+				return err
+			}
+			// 关联表的写入不会动 objects.updated_at，不补这一下，「N 天未更新」
+			// 会把刚调过人员的对象算成停滞。
 			if _, err := tx.ExecContext(ctx,
 				`UPDATE objects SET updated_at = ? WHERE id = ?`, now, id); err != nil {
 				return fmt.Errorf("touch object: %w", err)
