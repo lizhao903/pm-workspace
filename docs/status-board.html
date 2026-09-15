@@ -453,10 +453,17 @@
   </table>
 
   <h2>七、风险与欠账</h2>
+  <div class="note">
+    <b>版本控制已建立（本地）</b>
+    <p>首次提交 <code>78536d4</code>，172 个文件，分支 <code>main</code>，无远端。
+    已实测：全新克隆能直接 <code>go build</code> 通过——<code>internal/webui/dist/</code> 的占位 <code>index.html</code>
+    保住了 <code>go:embed</code> 对「目录非空」的要求。<code>data/</code> 不入库（真实数据，且含明文 api_key）。</p>
+  </div>
   <div class="note risk">
-    <b>零版本控制</b>
-    <p>今天已经丢过两次：一个源码文件（靠重写恢复）、4 条数据（靠留着原始请求体恢复）。两次都是运气不是机制。
-    目前唯一兜底是 <code>/tmp/pmw-snapshots/</code> 里的手工快照。</p>
+    <b>数据本身仍无自动备份</b>
+    <p>git 保护的是源码，不是那 81 个工作对象。<code>/api/admin/snapshot</code> 存在但没有任何东西定期调它，
+    快照全靠手工。原先快照放在 <code>/tmp/pmw-snapshots/</code>——<strong>macOS 会在重启时清空 /tmp</strong>，
+    已复制一份到 <code>~/pmw-snapshots/</code>。真正的解法是给 snapshot 接一个定时器。</p>
   </div>
   <div class="note">
     <b>无鉴权</b>
