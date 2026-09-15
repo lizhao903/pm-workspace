@@ -81,7 +81,7 @@
 <div class="wrap">
   <h1>产品工作台 · 项目看板</h1>
   <p class="sub">SQLite + Go + React 的本地化产品管理工作台，Agent 做任务分析与文档编写，可调用本机 Claude Code 执行任务</p>
-  <p class="stamp">更新于 2026-09-15 21:55 · 数据来自实跑统计，非估算 · 工作台运行于 http://bro.vip，库中已有 81 个真实工作对象</p>
+  <p class="stamp">更新于 2026-09-15 22:10 · 数据来自实跑统计，非估算 · 工作台运行于 http://bro.vip，库中已有 81 个真实工作对象</p>
 
   <div class="metrics">
     <div class="m"><b>28,733</b><span>Go 代码行</span></div>
@@ -547,6 +547,19 @@
     <b>等用户决定的三件事</b>
     <p>回收站里 20 个软删除的工作对象（恢复还是清空）· TLS 证书（五条手工命令，从 <code>brew install mkcert</code> 起）·
     版本控制（见下）。</p>
+  </div>
+  <div class="note risk">
+    <b>一行从写下那刻就是错的注释</b>
+    <p><code>cmd/pmw/main.go</code> 原来写 <code>WriteTimeout: 60 * time.Second, // 给将来的 SSE 留余量</code>。
+    <code>WriteTimeout</code> 不是「写一次卡住多久算超时」，是从开始写响应那一刻起的<strong>绝对</strong>截止时间——
+    对 SSE 等于给整条流设了硬上限，<strong>注释说的和代码做的正好相反</strong>。</p>
+    <p>它不留痕迹：响应头早就发出去了，访问日志照样记 <code>200</code>，服务端没有任何 WARN，
+    只有浏览器那头看到 <code>network error</code>。伤得最重的是任务执行线——跑本机 Claude Code
+    超一分钟是常态，等于<strong>每个长任务都在一分钟整断流，而日志一片祥和</strong>。
+    今天几次执行测试恰好都在 35 秒以内，所以一直没撞上。</p>
+    <p>实测：改前 70s / 81s 两次都断；改后 77 秒、1301 个 delta、正常收到 done。
+    这行从首次提交起就在，<code>git log</code> 里没人动过。
+    <strong>过期的注释还能靠「和代码对不上」发现；这种从写下那刻就错、读起来又完全合理的，只能靠真跑撞出来。</strong></p>
   </div>
   <div class="note">
     <b>本轮反复出现的失效模式</b>
