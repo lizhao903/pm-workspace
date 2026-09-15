@@ -198,3 +198,54 @@ func TestRunnerNudgesOnlyOnce(t *testing.T) {
 		t.Errorf("跑了 %d 轮，只该推一次（查 → 白卷 → 推 → 还是白卷就收）", chat.turns)
 	}
 }
+
+// TestRunnerHidesRejectedAskUser 盯的是一次真机上看见的界面泄漏：
+// ask_user 被打回时，界面上冒出一张「工具 ask_user / ask_user 执行失败：…」的卡片。
+// 那条文字是给模型的重填指令，用户既看不懂也做不了什么，不该出现在对话里。
+func TestRunnerHidesRejectedAskUser(t *testing.T) {
+	bad, _ := json.Marshal(map[string]any{
+		"question": "有几个问题要先厘清：", // 冒号结尾，会被打回
+		"options": []any{
+			map[string]any{"label": "A", "detail": "选 A 的代价"},
+			map[string]any{"label": "B", "detail": "选 B 的代价"},
+		},
+	})
+	chat := &scriptedChat{script: []func(func(Event)){
+		func(on func(Event)) {
+			on(Event{Kind: EventToolCall, Call: ToolCall{ID: "c1", Name: toolAskUser, Args: string(bad)}})
+		},
+		askCall("那就问一个能答的：只做云端还是两端都做？"),
+	}}
+	r, st, ctx := newRunner(t, chat)
+
+	var evs []StreamEvent
+	if _, err := r.Run(ctx, "怎么推进？", func(ev StreamEvent) { evs = append(evs, ev) }); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	for _, ev := range evs {
+		if ev.Name == toolAskUser {
+			t.Errorf("被打回的 ask_user 漏到界面上了：%s / %s", ev.Type, ev.Summary)
+		}
+	}
+	// 打回之后模型改对了，第二次要正常发出去
+	var qs int
+	for _, ev := range evs {
+		if ev.Type == "question" {
+			qs++
+		}
+	}
+	if qs != 1 {
+		t.Errorf("改对之后的提问没发出来，question 事件 %d 个", qs)
+	}
+
+	// 库里也不该留下那条失败记录
+	msgs, err := st.ListAgentMessages(ctx, r.Session.ID, 0)
+	if err != nil {
+		t.Fatalf("读历史: %v", err)
+	}
+	for _, m := range msgs {
+		if strings.Contains(m.Content, "ask_user 执行失败") {
+			t.Errorf("打回记录落库了：%s", m.Content)
+		}
+	}
+}

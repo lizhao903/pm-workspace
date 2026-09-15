@@ -118,8 +118,18 @@ func run(cfg config) error {
 			Handler:           handler,
 			TLSConfig:         tlsConf,
 			ReadHeaderTimeout: 10 * time.Second,
-			WriteTimeout:      60 * time.Second, // 给将来的 SSE 留余量
-			IdleTimeout:       120 * time.Second,
+			// WriteTimeout 必须留空。它不是「写一次卡住多久算超时」，而是从开始写响应
+			// 那一刻起的**绝对**截止时间——对 SSE 就等于给整条流设了硬上限。
+			// 原来这里写 60s，注释写的是「给将来的 SSE 留余量」，实际效果相反：
+			// 超过一分钟的流会被服务端掐断在半路，而且因为响应头早就发出去了，
+			// 访问日志照样记一条 200，只有浏览器那头看到 network error。
+			// 真机上 /api/agent/chat 跑到 70s、81s 的那两次就是这么断的，
+			// /api/objects/{id}/run 跑 Claude Code 超一分钟更是常态。
+			// 这和 internal/agent/chat.go 里 streamClient.Timeout 要留空是同一个道理，
+			// 只是方向相反：那个是出去的，这个是回来的。
+			// 单机、只听 127.0.0.1，没有写超时不构成风险；连接空闲照样由 IdleTimeout 收。
+			WriteTimeout: 0,
+			IdleTimeout:  120 * time.Second,
 		}
 	}
 

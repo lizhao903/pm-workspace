@@ -191,6 +191,20 @@ func (r *Runner) Run(ctx context.Context, userText string, emit func(StreamEvent
 
 			res := tb.Invoke(ctx, call)
 
+			// ask_user 被打回（选项缺 detail、问题写成了开场白……）时，这条结果是给**模型**的
+			// 重填指令，不是给用户看的东西。放它走普通路径的话，界面上会冒出一张
+			// 「工具 ask_user / ask_user 执行失败：…」的卡片——把内部管道摊给用户看，
+			// 而他既看不懂也做不了什么。只回灌给模型，让它下一轮改对。
+			if call.Name == toolAskUser && res.Question == nil {
+				msgs = append(msgs, Message{
+					Role:       domain.RoleTool,
+					Content:    res.Content,
+					ToolCallID: call.ID,
+					ToolName:   call.Name,
+				})
+				continue
+			}
+
 			if q := res.Question; q != nil {
 				asked = true
 				emit(StreamEvent{
