@@ -1,0 +1,206 @@
+package agent
+
+import (
+	"context"
+	"fmt"
+	"strings"
+	"time"
+
+	"github.com/lizhao903/pm-workspace/internal/domain"
+	"github.com/lizhao903/pm-workspace/internal/store"
+)
+
+// StreamEvent 是吐给前端的 SSE 事件，字段与 web/src/lib/types.ts 的 AgentStreamEvent 一一对应。
+// Size 用指针是为了让「0 字节的产物」和「这个事件没有 size」区分开——
+// 用值加 omitempty 的话，写了个空文件前端会读到 undefined。
+type StreamEvent struct {
+	Type      string `json:"type"`
+	Text      string `json:"text,omitempty"`
+	Name      string `json:"name,omitempty"`
+	Args      string `json:"args,omitempty"`
+	Summary   string `json:"summary,omitempty"`
+	ObjectID  string `json:"object_id,omitempty"`
+	Path      string `json:"path,omitempty"`
+	Size      *int64 `json:"size,omitempty"`
+	SessionID string `json:"session_id,omitempty"`
+	MessageID string `json:"message_id,omitempty"`
+	Message   string `json:"message,omitempty"`
+}
+
+// maxTurns 限制「模型说话 → 调工具 → 再说话」的往返轮数。
+// 没有上限的话，一个反复调同一个工具的模型能把会话拖到天荒地老，
+// 每一轮都是真实的 token 和真实的写库。
+const maxTurns = 8
+
+// historyLimit 是喂回给模型的历史消息条数。本地小模型的上下文有限，
+// 全量回灌会在长会话里挤掉系统提示词。
+const historyLimit = 40
+
+// Runner 把一次用户输入跑完：调模型、执行工具、把过程写进库、同时向外吐流式事件。
+type Runner struct {
+	Store   store.Store
+	Chat    Chat
+	Model   string
+	Session *domain.AgentSession
+}
+
+// Run 处理一条用户消息，返回最终落库的 assistant 消息 id。
+//
+// emit 会被同步调用，调用方负责往 SSE 里写并 Flush。这里不并发调用 emit，
+// 所以调用方不需要加锁。
+func (r *Runner) Run(ctx context.Context, userText string, emit func(StreamEvent)) (string, error) {
+	tb := NewToolbox(r.Store, r.Session)
+
+	types, err := r.Store.ListObjectTypes(ctx)
+	if err != nil {
+		return "", fmt.Errorf("读取对象类型失败")
+	}
+
+	// 先把用户这条消息落库，再开始跑模型：中途失败或用户关掉页面时，
+	// 至少「我说过这句话」是留下来的。
+	if _, err := r.Store.AppendAgentMessage(ctx, &domain.AgentMessage{
+		SessionID: r.Session.ID,
+		Role:      domain.RoleUser,
+		Content:   userText,
+	}); err != nil {
+		return "", fmt.Errorf("保存用户消息失败")
+	}
+
+	msgs, err := r.buildHistory(ctx, types)
+	if err != nil {
+		return "", err
+	}
+
+	var finalText strings.Builder
+	for turn := 0; turn < maxTurns; turn++ {
+		var text strings.Builder
+		var calls []ToolCall
+
+		err := r.Chat.Stream(ctx, Request{
+			Model:    r.Model,
+			Messages: msgs,
+			Tools:    tb.Defs(),
+		}, func(ev Event) {
+			switch ev.Kind {
+			case EventDelta:
+				text.WriteString(ev.Text)
+				emit(StreamEvent{Type: "delta", Text: ev.Text})
+			case EventToolCall:
+				calls = append(calls, ev.Call)
+			}
+		})
+		if err != nil {
+			return "", err
+		}
+
+		// 没有工具调用，这一轮就是最终回答。
+		if len(calls) == 0 {
+			finalText.WriteString(text.String())
+			break
+		}
+
+		// 把模型这一轮的发言（含它要调的工具）记进上下文，否则下一轮它看不到自己说过什么。
+		msgs = append(msgs, Message{
+			Role:      domain.RoleAssistant,
+			Content:   text.String(),
+			ToolCalls: calls,
+		})
+		if t := strings.TrimSpace(text.String()); t != "" {
+			finalText.WriteString(t)
+			finalText.WriteString("\n")
+		}
+
+		for _, call := range calls {
+			emit(StreamEvent{Type: "tool_call", Name: call.Name, Args: call.Args})
+
+			res := tb.Invoke(ctx, call)
+
+			// 工具调用连同参数一起落库，界面据此回放「Agent 当时做了什么」。
+			if _, err := r.Store.AppendAgentMessage(ctx, &domain.AgentMessage{
+				SessionID: r.Session.ID,
+				Role:      domain.RoleTool,
+				Content:   res.Summary,
+				ToolName:  call.Name,
+				ToolArgs:  call.Args,
+			}); err != nil {
+				return "", fmt.Errorf("保存工具调用记录失败")
+			}
+
+			emit(StreamEvent{
+				Type: "tool_result", Name: call.Name,
+				Summary: res.Summary, ObjectID: res.ObjectID,
+			})
+			if a := res.Artifact; a != nil {
+				size := a.Size
+				emit(StreamEvent{Type: "artifact", Path: a.Path, Size: &size})
+			}
+
+			msgs = append(msgs, Message{
+				Role:       domain.RoleTool,
+				Content:    res.Content,
+				ToolCallID: call.ID,
+				ToolName:   call.Name,
+			})
+		}
+
+		// 轮数用尽仍在调工具：告诉模型别再调了，让它用已有结果收个尾。
+		if turn == maxTurns-1 {
+			msgs = append(msgs, Message{
+				Role:    RoleSystem,
+				Content: "已达到本轮工具调用上限，请不要再调用任何工具，直接用一两句话总结你已经完成的事情。",
+			})
+		}
+	}
+
+	final := strings.TrimSpace(finalText.String())
+	if final == "" {
+		// 模型只调了工具没说话时兜一句，否则对话框里会留一个空气泡。
+		final = "好的，已经处理完了。"
+		emit(StreamEvent{Type: "delta", Text: final})
+	}
+
+	saved, err := r.Store.AppendAgentMessage(ctx, &domain.AgentMessage{
+		SessionID: r.Session.ID,
+		Role:      domain.RoleAssistant,
+		Content:   final,
+	})
+	if err != nil {
+		return "", fmt.Errorf("保存回复失败")
+	}
+	return saved.ID, nil
+}
+
+// buildHistory 拼出送给模型的消息列表：系统提示词 + 最近若干轮对话。
+//
+// 历史里的 tool 消息回灌的是给人看的 Summary 而不是给模型的 Content：
+// 落库时只存了 Summary，而且对后续轮次来说「上次建了 TSK-0009」这个信息量已经够了，
+// 不值得为了完整回放再单独存一份模型视角的内容。
+func (r *Runner) buildHistory(ctx context.Context, types []*domain.ObjectType) ([]Message, error) {
+	past, err := r.Store.ListAgentMessages(ctx, r.Session.ID, historyLimit)
+	if err != nil {
+		return nil, fmt.Errorf("读取历史消息失败")
+	}
+
+	out := []Message{{
+		Role:    RoleSystem,
+		Content: BuildSystemPrompt(types, time.Now()),
+	}}
+	for _, m := range past {
+		switch m.Role {
+		case domain.RoleUser:
+			out = append(out, Message{Role: domain.RoleUser, Content: m.Content})
+		case domain.RoleAssistant:
+			if strings.TrimSpace(m.Content) != "" {
+				out = append(out, Message{Role: domain.RoleAssistant, Content: m.Content})
+			}
+		case domain.RoleTool:
+			// 转述成 user 视角的一句事实：历史里的 tool 消息已经没有配对的 tool_call 了，
+			// 直接按 tool 角色塞回去，OpenAI 会因为「找不到对应的 tool_call_id」而拒绝整个请求。
+			out = append(out, Message{
+				Role:    domain.RoleUser,
+				Content: fmt.Sprintf("（系统记录：之前 %s）", m.Content),
+			})
+		}
+	}
+	return out, nil
+}

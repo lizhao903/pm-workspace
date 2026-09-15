@@ -1,0 +1,19 @@
+/data/*.db
+/data/*.db-wal
+/data/*.db-shm
+/data/blobs/
+/bin/
+/web/node_modules/
+# 前端构建产物不入库，但 //go:embed all:dist 要求目录至少有一个文件，
+# 所以保留占位 index.html，否则新克隆直接 go build 会编译失败。
+/internal/webui/dist/*
+!/internal/webui/dist/index.html
+.DS_Store
+/logs/
+# TLS 证书与私钥（scripts/setup-tls.sh 生成）。私钥绝不入库，
+# 且 mkcert 签的证书只对本机那个 CA 有效，别的机器拿去也用不了。
+/certs/
+
+# 根目录下的构建产物（Makefile 的临时产物，正式产物在 /bin）
+/pmw-mcp
+/pmw
