@@ -196,8 +196,8 @@
 
 | 方法 | 路径 | body / 说明 |
 |---|---|---|
-| GET | `/api/agent/sessions` | `AgentSession[]` |
-| POST | `/api/agent/sessions` | `{title?,provider_id,model,workdir?}` |
+| GET | `/api/agent/sessions?object_id=X` / `?unscoped=true` | **必须二选一**：`object_id` 给某个对象的会话（详情抽屉用），`unscoped=true` 给 `object_id IS NULL` 的全局会话（底部对话框用）。两个都不给返回空列表，不是全部；两个都给以 `object_id` 为准（不报 400——这俩是前端两处独立代码各自拼的，真撞上时给一批说得通的数据比让抽屉整个打不开好） |
+| POST | `/api/agent/sessions` | `{title?,provider_id,model,workdir?,object_id?}`，`object_id` 省略即全局会话 |
 | PATCH | `/api/agent/sessions/{id}` | |
 | DELETE | `/api/agent/sessions/{id}` | 消息与产物一起级联删除 |
 | GET | `/api/agent/sessions/{id}/messages` | `AgentMessage[]`，**按时间正序**（最旧在前） |
@@ -213,6 +213,10 @@
  "options":[{"label":"拆成三个任务","detail":"按前端/后端/联调拆"},{"label":"先不拆","detail":"作为一个整体推进"}],
  "multi":false}
 ```
+
+**会话的归属一经创建不再改写。**`PATCH /api/agent/sessions/{id}` 改不了 `object_id`，
+chat 带了不同的 `object_id` 也不会让已有会话搬家——搬走会让它从原来那个列表里消失，
+而用户并没有要求移动它。换对象就换一条会话。
 
 `object_id` 是「用户此刻打开的是哪个工作对象」。它不是给模型省一次查询——
 没有它，用户说「这个需求怎么推进」时模型只能猜或者反问，而「任务详情里的助手」

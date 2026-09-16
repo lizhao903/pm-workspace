@@ -993,11 +993,25 @@ func (f *fakeStore) Export(_ context.Context, format string) (string, []byte, er
 // 同样只做够用的内存实现：会话列表按 updated_at 倒序（和界面一致），
 // 消息和产物保持追加顺序，真正的排序与分页语义在 sqlite 那边测。
 
-func (f *fakeStore) ListAgentSessions(context.Context) ([]*domain.AgentSession, error) {
+func (f *fakeStore) ListAgentSessions(_ context.Context, flt domain.AgentSessionFilter) ([]*domain.AgentSession, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	out := make([]*domain.AgentSession, 0, len(f.sessions))
 	for _, sess := range f.sessions {
+		// 两个字段都不给 = 零条，不是全部。照 store.ListAgentSessions 的契约，
+		// 替身在这里放宽的话，「忘了传 filter 会看到别人的会话」这件事就只能在生产上验证。
+		switch {
+		case flt.ObjectID != "":
+			if sess.ObjectID == nil || *sess.ObjectID != flt.ObjectID {
+				continue
+			}
+		case flt.Unscoped:
+			if sess.ObjectID != nil {
+				continue
+			}
+		default:
+			continue
+		}
 		c := *sess
 		c.MessageCount = len(f.messages[c.ID])
 		out = append(out, &c)
@@ -1026,6 +1040,16 @@ func (f *fakeStore) GetAgentSession(_ context.Context, id string) (*domain.Agent
 func (f *fakeStore) CreateAgentSession(_ context.Context, sess *domain.AgentSession) (*domain.AgentSession, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	// 和 sqlite 同构：挂给一个不存在的对象是 ErrNotFound，空串当没传。
+	// 替身放过它的话，「显式指定的归属猜错了会话就出现在错误的地方」这条
+	// 只能在生产上验证。
+	if sess.ObjectID != nil {
+		if id := strings.TrimSpace(*sess.ObjectID); id == "" {
+			sess.ObjectID = nil
+		} else if _, ok := f.objs[id]; !ok {
+			return nil, domain.ErrNotFound
+		}
+	}
 	if sess.ID == "" {
 		sess.ID = idgen.Prefixed("ses")
 	}

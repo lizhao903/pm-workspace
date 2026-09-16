@@ -362,6 +362,8 @@ export interface BackupInfo {
 export interface AgentSession {
   id: string
   title: string
+  /** null = 全局会话（底部对话框）；有值 = 只属于那个工作对象的「AI 助手」页签 */
+  object_id: string | null
   provider_id: string
   model: string
   /** 本次对话的产物落盘目录，Agent 写文件只能落在它下面 */

@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/lizhao903/pm-workspace/internal/domain"
+	"github.com/lizhao903/pm-workspace/internal/store"
 )
 
 // --- 会话增删改查 ---
@@ -95,7 +96,7 @@ func TestAgentSessionCRUD(t *testing.T) {
 	}
 	id, _ := envelopeData(t, w)["id"].(string)
 
-	w = do(s, http.MethodGet, "/api/agent/sessions", "")
+	w = do(s, http.MethodGet, "/api/agent/sessions?unscoped=true", "")
 	if w.Code != http.StatusOK {
 		t.Fatalf("列会话: %s", w.Body.String())
 	}
@@ -183,6 +184,18 @@ func fakeOllama(t *testing.T) *httptest.Server {
 			return
 		}
 		_, _ = io.WriteString(w, `{"message":{"role":"assistant","content":"已经记好了。"},"done":true}`+"\n")
+	}))
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+// plainOllama 是只回一句话、不调工具的上游。归属相关的测试只关心会话落在哪儿，
+// 用 fakeOllama 会顺带建出对象，把断言搅浑。
+func plainOllama(t *testing.T) *httptest.Server {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/x-ndjson")
+		_, _ = io.WriteString(w, `{"message":{"role":"assistant","content":"好的。"},"done":true}`+"\n")
 	}))
 	t.Cleanup(srv.Close)
 	return srv
@@ -294,7 +307,7 @@ func TestAgentChatStreamsFullEventSequence(t *testing.T) {
 	}
 
 	// 没给 session_id，应当自动建了一个会话，并把对话完整落库。
-	sessions, err := f.ListAgentSessions(t.Context())
+	sessions, err := f.ListAgentSessions(t.Context(), domain.AgentSessionFilter{Unscoped: true})
 	if err != nil || len(sessions) != 1 {
 		t.Fatalf("应当自动建一个会话: %v (%d 个)", err, len(sessions))
 	}
@@ -509,6 +522,155 @@ func TestAgentChatUnknownSessionIs404(t *testing.T) {
 	w := do(s, http.MethodPost, "/api/agent/chat", `{"session_id":"ags_nope","message":"你好"}`)
 	if w.Code != http.StatusNotFound {
 		t.Fatalf("状态码 = %d，期望 404 (body=%s)", w.Code, w.Body.String())
+	}
+}
+
+// --- 会话归属 ---
+
+// mustFakeObject 在替身里造一个工作对象，供会话挂靠。
+func mustFakeObject(t *testing.T, f *fakeStore, title string) *domain.Object {
+	t.Helper()
+	o, err := f.CreateObject(t.Context(), &domain.Object{TypeID: "task", Title: title}, store.DefaultActor)
+	if err != nil {
+		t.Fatalf("建对象 %s: %v", title, err)
+	}
+	return o
+}
+
+// TestListAgentSessionsScoping 钉住 GET /api/agent/sessions 的三种口径。
+// 重点是最后那条：两个参数都不给返回空列表，不是全部——忘了传 filter 的调用方
+// 拿到空列表，比让它拿到一堆不属于自己的会话好查。
+func TestListAgentSessionsScoping(t *testing.T) {
+	f := newFakeStore()
+	s := newTestServer(f)
+	obj := mustFakeObject(t, f, "一条任务")
+
+	w := do(s, http.MethodPost, "/api/agent/sessions",
+		fmt.Sprintf(`{"title":"抽屉里聊的","object_id":%q}`, obj.ID))
+	if w.Code != http.StatusCreated {
+		t.Fatalf("建对象会话: %s", w.Body.String())
+	}
+	scoped := envelopeData(t, w)
+	if scoped["object_id"] != obj.ID {
+		t.Errorf("响应里的 object_id = %v，期望 %s", scoped["object_id"], obj.ID)
+	}
+
+	if w := do(s, http.MethodPost, "/api/agent/sessions", `{"title":"底部聊的"}`); w.Code != http.StatusCreated {
+		t.Fatalf("建全局会话: %s", w.Body.String())
+	}
+
+	// object_id：只有这个对象的。
+	w = do(s, http.MethodGet, "/api/agent/sessions?object_id="+obj.ID, "")
+	if w.Code != http.StatusOK {
+		t.Fatalf("按对象列会话: %s", w.Body.String())
+	}
+	items := envelopeList(t, w)
+	if len(items) != 1 {
+		t.Fatalf("object_id 口径下会话数 = %d，期望 1", len(items))
+	}
+	if got := items[0].(map[string]any)["title"]; got != "抽屉里聊的" {
+		t.Errorf("拿到的是 %v，期望抽屉里那条", got)
+	}
+
+	// unscoped=true：只有全局的。
+	w = do(s, http.MethodGet, "/api/agent/sessions?unscoped=true", "")
+	if w.Code != http.StatusOK {
+		t.Fatalf("列全局会话: %s", w.Body.String())
+	}
+	items = envelopeList(t, w)
+	if len(items) != 1 {
+		t.Fatalf("unscoped 口径下会话数 = %d，期望 1", len(items))
+	}
+	if got := items[0].(map[string]any)["title"]; got != "底部聊的" {
+		t.Errorf("拿到的是 %v，期望底部那条", got)
+	}
+	if got := items[0].(map[string]any)["object_id"]; got != nil {
+		t.Errorf("全局会话的 object_id 应为 null，得到 %v", got)
+	}
+
+	// 两个都不给：空列表，而且是 []（不是 null），前端直接 map 不用先判空。
+	w = do(s, http.MethodGet, "/api/agent/sessions", "")
+	if w.Code != http.StatusOK {
+		t.Fatalf("不带参数列会话: %s", w.Body.String())
+	}
+	if items := envelopeList(t, w); len(items) != 0 {
+		t.Fatalf("不带参数应返回空列表，得到 %d 条", len(items))
+	}
+	if !strings.Contains(w.Body.String(), `"data":[]`) {
+		t.Errorf("空结果应当是 []，得到 %s", w.Body.String())
+	}
+}
+
+// TestListAgentSessionsBadUnscoped：unscoped 不是布尔值要报 400，
+// 而不是当成 false 安静地返回空列表——那会让前端对着一个空抽屉查半天。
+func TestListAgentSessionsBadUnscoped(t *testing.T) {
+	s := newTestServer(newFakeStore())
+	if w := do(s, http.MethodGet, "/api/agent/sessions?unscoped=maybe", ""); w.Code != http.StatusBadRequest {
+		t.Errorf("状态码 = %d，期望 400 (body=%s)", w.Code, w.Body.String())
+	}
+}
+
+// TestCreateAgentSessionUnknownObject：显式挂给一个不存在的对象是 404，
+// 不是静默落成全局会话。
+func TestCreateAgentSessionUnknownObject(t *testing.T) {
+	s := newTestServer(newFakeStore())
+	w := do(s, http.MethodPost, "/api/agent/sessions", `{"object_id":"obj_nope"}`)
+	if w.Code != http.StatusNotFound {
+		t.Errorf("状态码 = %d，期望 404 (body=%s)", w.Code, w.Body.String())
+	}
+}
+
+// TestAgentChatScopesAutoCreatedSession 是这条链路上最容易漏的一环：
+// 用户在 TSK 的助手里直接说第一句话，后端自动建的那个会话必须挂在这个对象上。
+// 不挂的话，刷新后它从抽屉里消失、却出现在底部对话框的列表里。
+func TestAgentChatScopesAutoCreatedSession(t *testing.T) {
+	f := newFakeStore()
+	f.putProvider(&domain.AgentProvider{
+		ID: "apv_local", Name: "本机", Kind: domain.ProviderOllama,
+		BaseURL: plainOllama(t).URL, Model: "qwen3.5:4b", Enabled: true, IsDefault: true,
+	}, "")
+	s := newTestServer(f)
+	obj := mustFakeObject(t, f, "一条任务")
+
+	w := do(s, http.MethodPost, "/api/agent/chat",
+		fmt.Sprintf(`{"message":"这个需求怎么推进","object_id":%q}`, obj.ID))
+	if w.Code != http.StatusOK {
+		t.Fatalf("状态码 = %d (body=%s)", w.Code, w.Body.String())
+	}
+
+	scoped, err := f.ListAgentSessions(t.Context(), domain.AgentSessionFilter{ObjectID: obj.ID})
+	if err != nil {
+		t.Fatalf("按对象列会话: %v", err)
+	}
+	if len(scoped) != 1 {
+		t.Fatalf("自动建的会话应当挂在 %s 上，该对象下有 %d 条", obj.ID, len(scoped))
+	}
+	global, err := f.ListAgentSessions(t.Context(), domain.AgentSessionFilter{Unscoped: true})
+	if err != nil {
+		t.Fatalf("列全局会话: %v", err)
+	}
+	if len(global) != 0 {
+		t.Errorf("它不该同时出现在全局列表里，全局有 %d 条", len(global))
+	}
+}
+
+// TestAgentChatStaleObjectStillWorks：选中态指向一个已被删掉的对象时，
+// 对话不能失败——最多让这条会话落成全局的。
+func TestAgentChatStaleObjectStillWorks(t *testing.T) {
+	f := newFakeStore()
+	f.putProvider(&domain.AgentProvider{
+		ID: "apv_local", Name: "本机", Kind: domain.ProviderOllama,
+		BaseURL: plainOllama(t).URL, Model: "qwen3.5:4b", Enabled: true, IsDefault: true,
+	}, "")
+	s := newTestServer(f)
+
+	w := do(s, http.MethodPost, "/api/agent/chat", `{"message":"你好","object_id":"obj_nope"}`)
+	if w.Code != http.StatusOK {
+		t.Fatalf("状态码 = %d，失效的选中态不该让对话失败 (body=%s)", w.Code, w.Body.String())
+	}
+	global, err := f.ListAgentSessions(t.Context(), domain.AgentSessionFilter{Unscoped: true})
+	if err != nil || len(global) != 1 {
+		t.Errorf("应当落成一条全局会话: %v (%d 条)", err, len(global))
 	}
 }
 

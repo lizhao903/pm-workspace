@@ -104,13 +104,24 @@ function toItem(m: AgentMessage): ChatItem {
  * @param objectId 用户此刻打开的工作对象。传给后端只为解决「这个需求怎么推进」里的
  *   「这个」指谁——正文由模型自己调 get_object 现取，这里不承担取数。
  *   没选中任何东西时传空，后端按没传处理。
+ * @param owner 这条对话挂在哪个对象名下。给了就是详情抽屉的「AI 助手」：会话列表只取
+ *   这个对象的，新建会话也记在它名下，产物目录跟着对象走（不给第二处入口去挑）。
+ *
+ *   不给就是底部那个全局对话框。它虽然也把当前选中的对象当「这个」发过去，但会话始终
+ *   是全局的——用户在下面问着一件事，顺手点开另一条对象只是换了「这个」的指向，
+ *   不该把这段对话搬进那条对象的历史里，也不该让它从下面的会话列表里消失。
+ *   所以 objectId 和 owner 是两件事，不能合成一个参数。
  */
-export function useAgentChat(onDataChanged: () => void, objectId?: string | null): UseAgentChat {
+export function useAgentChat(
+  onDataChanged: () => void,
+  objectId?: string | null,
+  owner?: { objectId: string; workdir: string },
+): UseAgentChat {
   const [providers, setProviders] = useState<AgentProvider[]>([])
   const [providerId, setProviderId] = useState('')
   const [sessions, setSessions] = useState<AgentSession[]>([])
   const [sessionId, setSessionId] = useState<string | null>(null)
-  const [workdir, setWorkdirState] = useState(() => {
+  const [ownWorkdir, setWorkdirState] = useState(() => {
     try { return localStorage.getItem(LS_WORKDIR) ?? '' } catch { return '' }
   })
   const [workdirCheck, setWorkdirCheck] = useState<WorkdirCheck | null>(null)
@@ -131,6 +142,12 @@ export function useAgentChat(onDataChanged: () => void, objectId?: string | null
   useEffect(() => { changedRef.current = onDataChanged }, [onDataChanged])
 
   const model = providers.find((p) => p.id === providerId)?.model ?? ''
+  // 拆成两个原始值再用：owner 这个对象字面量每次渲染都是新的，直接进 deps 会把
+  // 下面所有 useCallback 全部作废。
+  const ownerId = owner?.objectId
+  // 挂在对象上时目录由对象定，全局那份（localStorage 里的、会话记录里的）一律不参与。
+  const pinned = owner !== undefined
+  const workdir = owner ? owner.workdir : ownWorkdir
 
   // 状态栏跟着走
   useEffect(() => {
@@ -148,7 +165,7 @@ export function useAgentChat(onDataChanged: () => void, objectId?: string | null
     void (async () => {
       // 后端可能还没上线，失败一律按空态，不弹横幅
       const ps = await api.providers().catch(() => [] as AgentProvider[])
-      const ss = await api.agentSessions().catch(() => [] as AgentSession[])
+      const ss = await api.agentSessions(ownerId).catch(() => [] as AgentSession[])
       if (!alive) return
       // 默认供应商排前，选择器第一项就是开箱即用的那个
       const usable = ps.filter((p) => p.enabled !== false)
@@ -162,12 +179,12 @@ export function useAgentChat(onDataChanged: () => void, objectId?: string | null
       if (pick) setProviderId(pick.id)
     })()
     return () => { alive = false }
-  }, [])
+  }, [ownerId])
 
   const refreshSessions = useCallback(async () => {
-    const ss = await api.agentSessions().catch(() => null)
+    const ss = await api.agentSessions(ownerId).catch(() => null)
     if (ss) setSessions(ss)
-  }, [])
+  }, [ownerId])
 
   /** 一个供应商都没有时，后端会在首次对话里自动建一条本机 ollama 的默认配置。
    *  流跑完补拉一次，模型选择器就不用等用户刷新页面才出现选项。 */
@@ -183,9 +200,10 @@ export function useAgentChat(onDataChanged: () => void, objectId?: string | null
   /* ───────── 输出目录 ───────── */
 
   const setWorkdir = useCallback((v: string) => {
+    if (pinned) return // 目录由对象定，这里改了也没处存
     setWorkdirState(v)
     setWorkdirCheck(null) // 路径一改，旧的校验结果就作废
-  }, [])
+  }, [pinned])
 
   const rememberDir = useCallback((dir: string) => {
     if (!dir) return
@@ -205,7 +223,7 @@ export function useAgentChat(onDataChanged: () => void, objectId?: string | null
       const r = await api.checkWorkdir(dir)
       setWorkdirCheck(r)
       if (r.exists && r.is_dir && r.writable) {
-        rememberDir(dir)
+        if (!pinned) rememberDir(dir)
         if (sessionId) await api.updateAgentSession(sessionId, { workdir: dir }).catch(() => null)
       }
       return r
@@ -219,7 +237,7 @@ export function useAgentChat(onDataChanged: () => void, objectId?: string | null
     } finally {
       setCheckingWorkdir(false)
     }
-  }, [workdir, sessionId, rememberDir])
+  }, [workdir, sessionId, rememberDir, pinned])
 
   /* ───────── 会话切换 ───────── */
 
@@ -234,8 +252,8 @@ export function useAgentChat(onDataChanged: () => void, objectId?: string | null
     })()
     const s = sessions.find((x) => x.id === id)
     if (s?.provider_id) setProviderId(s.provider_id)
-    if (s?.workdir) { setWorkdirState(s.workdir); setWorkdirCheck(null) }
-  }, [sessions])
+    if (!pinned && s?.workdir) { setWorkdirState(s.workdir); setWorkdirCheck(null) }
+  }, [sessions, pinned])
 
   const removeSession = useCallback(async (id: string) => {
     await api.deleteAgentSession(id)
@@ -287,6 +305,9 @@ export function useAgentChat(onDataChanged: () => void, objectId?: string | null
       // 会话由前端显式创建，后端不必猜；建失败就让后端自己兜（session_id 传空）
       const s = await api.createAgentSession({
         title: msg.slice(0, 40), provider_id: providerId, model, workdir: dir,
+        // 建在哪个对象名下，决定它以后出现在哪一份会话列表里。
+        // 这里是 ownerId 不是 objectId：底部对话框建的会话一律是全局的。
+        object_id: ownerId,
       }).catch(() => null)
       if (s) { sid = s.id; setSessionId(s.id); setSessions((prev) => [s, ...prev]) }
     }
@@ -392,14 +413,14 @@ export function useAgentChat(onDataChanged: () => void, objectId?: string | null
     } finally {
       abortRef.current = null
       setStreaming(false)
-      if (dir) rememberDir(dir)
+      if (dir && !pinned) rememberDir(dir) // 对象自己的工作区不该混进对话框的「最近」
       void refreshSessions()
       if (!providers.length) void backfillProviders()
     }
   }, [
     streaming, workdir, workdirCheck, checkWorkdir, sessionId, providerId, model, objectId,
     push, sealAssistant, scheduleReload, rememberDir, refreshSessions,
-    providers.length, backfillProviders,
+    providers.length, backfillProviders, pinned, ownerId,
   ])
 
   /* ───────── 回答提问 ───────── */

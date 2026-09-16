@@ -77,6 +77,28 @@
 .ag-dir-ok { color: var(--ok); font-size: var(--fs-xs); }
 .ag-dir-bad { color: var(--danger); font-size: var(--fs-xs); }
 
+/* 抽屉里的紧凑摆法：400px 宽，一行只放一件事。
+   写成 .ag-head.ag-head-compact（0,3,0）是为了压过上面 .ag-head .ag-select 的 220px
+   和文件末尾那条窄屏 150px——抽屉的宽度不随窗口变，那条限制对它没意义。 */
+.ag-head.ag-head-compact .ag-select,
+.ag-head.ag-head-compact .ag-select-session {
+  /* basis 取 0 而不是 auto：auto 时换行是按「最长那条会话标题」的宽度算的，
+     一条标题长一点就把「新对话 / 删除」挤到第三行去。 */
+  flex: 1 1 0;
+  min-width: 0;
+  max-width: none;
+}
+
+/* 工作区这一行是只读展示：路径长了截它自己，不要把「继承自项目」挤出视野——
+   「这个目录是哪来的」比「路径末尾几个字符」更值得占位置。 */
+.ag-objdir .mono {
+  flex: 0 1 auto;
+  min-width: 0;
+  font-size: var(--fs-xs);
+  color: var(--text);
+}
+.ag-objdir .ag-hint { flex: none; display: inline-flex; align-items: center; gap: 6px; }
+
 .ag-unconfigured {
   display: inline-flex;
   align-items: center;

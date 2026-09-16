@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/lizhao903/pm-workspace/internal/domain"
+	"github.com/lizhao903/pm-workspace/internal/store"
 )
 
 func mustSession(t *testing.T, s *Store, ctx context.Context, title string) *domain.AgentSession {
@@ -62,7 +63,7 @@ func TestAppendAgentMessageTouchesSession(t *testing.T) {
 		t.Fatalf("追加消息: %v", err)
 	}
 
-	list, err := s.ListAgentSessions(ctx)
+	list, err := s.ListAgentSessions(ctx, domain.AgentSessionFilter{Unscoped: true})
 	if err != nil {
 		t.Fatalf("列会话: %v", err)
 	}
@@ -414,7 +415,7 @@ func TestListAgentSessionsOrderWithinSameInstant(t *testing.T) {
 		created = append(created, mustSession(t, s, ctx, title))
 	}
 
-	got, err := s.ListAgentSessions(ctx)
+	got, err := s.ListAgentSessions(ctx, domain.AgentSessionFilter{Unscoped: true})
 	if err != nil {
 		t.Fatalf("列会话: %v", err)
 	}
@@ -431,4 +432,204 @@ func TestListAgentSessionsOrderWithinSameInstant(t *testing.T) {
 			t.Fatalf("第 %d 条 = %q，期望 %q（完整顺序 %v）", i, got[i].Title, want, titles)
 		}
 	}
+}
+
+// --- 会话归属 ---
+
+// mustObjectSession 建一条挂在某个工作对象上的会话。
+func mustObjectSession(t *testing.T, s *Store, ctx context.Context, title, objectID string) *domain.AgentSession {
+	t.Helper()
+	sess, err := s.CreateAgentSession(ctx, &domain.AgentSession{
+		Title: title, ObjectID: &objectID, ProviderID: "apv_x", Model: "qwen3.5:4b",
+	})
+	if err != nil {
+		t.Fatalf("建对象会话 %s: %v", title, err)
+	}
+	return sess
+}
+
+// TestListAgentSessionsByFilter 是这条改动的核心约束：三批会话各回各家。
+//
+// 把「全局的」漏进某个对象的抽屉，或者把 A 对象的对话漏进 B 的，界面上都表现为
+// 「有内容，但不是这里该有的内容」——用户看不出这是 bug，只会以为自己记错了。
+func TestListAgentSessionsByFilter(t *testing.T) {
+	s, ctx := newStore(t)
+	a := mustCreate(t, s, ctx, &domain.Object{TypeID: "task", Title: "对象 A"})
+	b := mustCreate(t, s, ctx, &domain.Object{TypeID: "task", Title: "对象 B"})
+
+	onA := mustObjectSession(t, s, ctx, "A 的对话", a.ID)
+	mustObjectSession(t, s, ctx, "B 的对话", b.ID)
+	global := mustSession(t, s, ctx, "底部对话框聊的")
+
+	// 按对象取：只有那个对象的。
+	got, err := s.ListAgentSessions(ctx, domain.AgentSessionFilter{ObjectID: a.ID})
+	if err != nil {
+		t.Fatalf("按对象列会话: %v", err)
+	}
+	if len(got) != 1 || got[0].ID != onA.ID {
+		t.Fatalf("object_id=%s 应当只拿到 A 的那条，得到 %v", a.ID, sessionTitles(got))
+	}
+	if got[0].ObjectID == nil || *got[0].ObjectID != a.ID {
+		t.Errorf("读路径没把 object_id 带出来: %v", got[0].ObjectID)
+	}
+
+	// 取全局：只有 object_id IS NULL 的，两条对象会话都不该出现。
+	got, err = s.ListAgentSessions(ctx, domain.AgentSessionFilter{Unscoped: true})
+	if err != nil {
+		t.Fatalf("列全局会话: %v", err)
+	}
+	if len(got) != 1 || got[0].ID != global.ID {
+		t.Fatalf("unscoped 应当只拿到全局那条，得到 %v", sessionTitles(got))
+	}
+	if got[0].ObjectID != nil {
+		t.Errorf("全局会话的 object_id 应为 nil，得到 %q", *got[0].ObjectID)
+	}
+
+	// 两个都不给：零条，不是全部。这是故意反直觉的默认值，见 store.ListAgentSessions。
+	got, err = s.ListAgentSessions(ctx, domain.AgentSessionFilter{})
+	if err != nil {
+		t.Fatalf("空 filter: %v", err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("空 filter 应返回零条，得到 %v", sessionTitles(got))
+	}
+	if got == nil {
+		t.Error("空结果要是空切片而不是 nil，调用方直接 range 不该分两种写法")
+	}
+}
+
+// TestListAgentSessionsFilterKeepsMessageCount 确认加了 WHERE 之后消息数还是对的
+// ——过滤条件和 LEFT JOIN 聚合放在一起，写错位置（比如挪进 ON）就会把计数带偏。
+func TestListAgentSessionsFilterKeepsMessageCount(t *testing.T) {
+	s, ctx := newStore(t)
+	obj := mustCreate(t, s, ctx, &domain.Object{TypeID: "task", Title: "对象"})
+	sess := mustObjectSession(t, s, ctx, "带消息的", obj.ID)
+	for _, content := range []string{"在吗", "在"} {
+		if _, err := s.AppendAgentMessage(ctx, &domain.AgentMessage{
+			SessionID: sess.ID, Role: domain.RoleUser, Content: content,
+		}); err != nil {
+			t.Fatalf("追加消息: %v", err)
+		}
+	}
+	empty := mustObjectSession(t, s, ctx, "没消息的", obj.ID)
+
+	got, err := s.ListAgentSessions(ctx, domain.AgentSessionFilter{ObjectID: obj.ID})
+	if err != nil {
+		t.Fatalf("列会话: %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("会话数 = %d，期望 2", len(got))
+	}
+	counts := map[string]int{}
+	for _, g := range got {
+		counts[g.ID] = g.MessageCount
+	}
+	if counts[sess.ID] != 2 {
+		t.Errorf("有消息的那条计数 = %d，期望 2", counts[sess.ID])
+	}
+	if counts[empty.ID] != 0 {
+		t.Errorf("没消息的那条计数 = %d，期望 0", counts[empty.ID])
+	}
+}
+
+// TestCreateAgentSessionUnknownObject：挂给一个不存在的对象要报 404 而不是 500。
+// 靠外键去挡的话，回的是一条驱动层字符串，映射出来是 500。
+func TestCreateAgentSessionUnknownObject(t *testing.T) {
+	s, ctx := newStore(t)
+	if _, err := s.CreateAgentSession(ctx, &domain.AgentSession{
+		Title: "挂给幽灵", ObjectID: pstr("obj_nope"),
+	}); !errors.Is(err, domain.ErrNotFound) {
+		t.Errorf("不存在的对象应报 ErrNotFound，得到 %v", err)
+	}
+}
+
+// TestCreateAgentSessionBlankObjectIsGlobal：空串和不传一样，都是全局会话。
+// 落成空字符串的话它既不在任何对象的抽屉里，也不在全局列表里——彻底查不到。
+func TestCreateAgentSessionBlankObjectIsGlobal(t *testing.T) {
+	s, ctx := newStore(t)
+	sess, err := s.CreateAgentSession(ctx, &domain.AgentSession{Title: "空串", ObjectID: pstr("  ")})
+	if err != nil {
+		t.Fatalf("建会话: %v", err)
+	}
+	if sess.ObjectID != nil {
+		t.Errorf("空串应当落成 nil，得到 %q", *sess.ObjectID)
+	}
+	got, err := s.ListAgentSessions(ctx, domain.AgentSessionFilter{Unscoped: true})
+	if err != nil || len(got) != 1 || got[0].ID != sess.ID {
+		t.Errorf("空串建的会话应当出现在全局列表里: %v (%d 条)", err, len(got))
+	}
+}
+
+// TestHardDeleteObjectCascadesSessions 钉住 0011 的 ON DELETE CASCADE：
+// 硬删对象带走它的会话，别的对象与全局会话一条都不能少。
+func TestHardDeleteObjectCascadesSessions(t *testing.T) {
+	s, ctx := newStore(t)
+	target := mustCreate(t, s, ctx, &domain.Object{TypeID: "task", Title: "要删的"})
+	keep := mustCreate(t, s, ctx, &domain.Object{TypeID: "task", Title: "留着的"})
+
+	doomed := mustObjectSession(t, s, ctx, "要删对象的对话", target.ID)
+	survivor := mustObjectSession(t, s, ctx, "另一个对象的对话", keep.ID)
+	global := mustSession(t, s, ctx, "全局的")
+	// 会话下面的消息也得一起走，否则留下一批指向不存在会话的孤儿。
+	if _, err := s.AppendAgentMessage(ctx, &domain.AgentMessage{
+		SessionID: doomed.ID, Role: domain.RoleUser, Content: "这条也该消失",
+	}); err != nil {
+		t.Fatalf("追加消息: %v", err)
+	}
+
+	if err := s.DeleteObject(ctx, target.ID, true, store.DefaultActor); err != nil {
+		t.Fatalf("硬删对象: %v", err)
+	}
+
+	if _, err := s.GetAgentSession(ctx, doomed.ID); !errors.Is(err, domain.ErrNotFound) {
+		t.Errorf("对象硬删后它的会话应当一起消失，得到 %v", err)
+	}
+	var orphans int
+	if err := s.db.R.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM agent_messages WHERE session_id = ?`, doomed.ID).Scan(&orphans); err != nil {
+		t.Fatalf("查孤儿消息: %v", err)
+	}
+	if orphans != 0 {
+		t.Errorf("会话级联删掉后还剩 %d 条消息", orphans)
+	}
+	if _, err := s.GetAgentSession(ctx, survivor.ID); err != nil {
+		t.Errorf("别的对象的会话被误删: %v", err)
+	}
+	if _, err := s.GetAgentSession(ctx, global.ID); err != nil {
+		t.Errorf("全局会话被误删: %v", err)
+	}
+}
+
+// TestSoftDeleteObjectKeepsSessions：软删（进回收站）不动会话。
+// 从回收站恢复回来对话还在——这正是 0011 注释里区分软硬删的那条取舍。
+func TestSoftDeleteObjectKeepsSessions(t *testing.T) {
+	s, ctx := newStore(t)
+	obj := mustCreate(t, s, ctx, &domain.Object{TypeID: "task", Title: "进回收站的"})
+	sess := mustObjectSession(t, s, ctx, "它的对话", obj.ID)
+
+	if err := s.DeleteObject(ctx, obj.ID, false, store.DefaultActor); err != nil {
+		t.Fatalf("软删对象: %v", err)
+	}
+	if _, err := s.GetAgentSession(ctx, sess.ID); err != nil {
+		t.Errorf("软删不该动会话: %v", err)
+	}
+	got, err := s.ListAgentSessions(ctx, domain.AgentSessionFilter{ObjectID: obj.ID})
+	if err != nil || len(got) != 1 {
+		t.Errorf("软删后按对象仍应列出它的会话: %v (%d 条)", err, len(got))
+	}
+
+	if _, err := s.RestoreObject(ctx, obj.ID, store.DefaultActor); err != nil {
+		t.Fatalf("恢复对象: %v", err)
+	}
+	if _, err := s.GetAgentSession(ctx, sess.ID); err != nil {
+		t.Errorf("恢复后会话应当还在: %v", err)
+	}
+}
+
+func sessionTitles(list []*domain.AgentSession) []string {
+	out := make([]string, len(list))
+	for i, s := range list {
+		out[i] = s.Title
+	}
+	return out
 }

@@ -90,7 +90,7 @@ export default function DetailDrawer() {
 
       {/* key 保证换对象时本地草稿状态重置 */}
       {tab === 'detail' ? <DetailTab key={selected.id} object={selected} /> : null}
-      {tab === 'ai' ? <AiTab object={selected} /> : null}
+      {tab === 'ai' ? <AiTab object={selected} onGoDetail={() => pickTab('detail')} /> : null}
       {tab === 'run' ? <TaskRunPanel key={selected.id} object={selected} onGoDetail={() => pickTab('detail')} /> : null}
       {tab === 'activity' ? <ActivityTab key={selected.id} objectId={selected.id} /> : null}
       {tab === 'links' ? <LinksTab key={selected.id} objectId={selected.id} /> : null}
@@ -511,6 +511,6 @@ function ActivityTab({ objectId }: { objectId: string }) {
 // 共用的话历史上下文里就带着刚才那段不相干的对话——而模型会真的把它当上下文用。
 //
 // key 挂 object.id：换对象要换一条对话，而不是把上一个对象的消息留在这儿。
-function AiTab({ object }: { object: WorkObject }) {
-  return <ObjectAgentPanel key={object.id} object={object} />
+function AiTab({ object, onGoDetail }: { object: WorkObject; onGoDetail: () => void }) {
+  return <ObjectAgentPanel key={object.id} object={object} onGoDetail={onGoDetail} />
 }
