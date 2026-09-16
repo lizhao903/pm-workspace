@@ -452,8 +452,14 @@ type BackupInfo struct {
 // AgentSession 一次对话。Workdir 是这次对话的产物落盘目录，
 // Agent 写出的文件只能落在它下面——路径越界是必须堵死的攻击面。
 type AgentSession struct {
-	ID         string    `json:"id"`
-	Title      string    `json:"title"`
+	ID    string `json:"id"`
+	Title string `json:"title"`
+	// ObjectID 为 nil 表示全局会话（底部那个对话框建的）；非 nil 表示它属于某个
+	// 工作对象，只在那个对象的「AI 助手」页签里出现。
+	//
+	// 两处不拆表：消息、产物、供应商快照完全同构，唯一差别就是这一列，
+	// 拆表等于把同一套读写逻辑写两遍。
+	ObjectID   *string   `json:"object_id"`
 	ProviderID string    `json:"provider_id"`
 	Model      string    `json:"model"`
 	Workdir    string    `json:"workdir"`
@@ -461,6 +467,20 @@ type AgentSession struct {
 	UpdatedAt  time.Time `json:"updated_at"`
 
 	MessageCount int `json:"message_count"`
+}
+
+// AgentSessionFilter 决定列出哪一批会话。
+//
+// 两个字段互斥，且**不能都不给就返回全部**——抽屉里混进底部对话框的记录，
+// 或者底部混进各个对象的对话，都是「看起来有内容，但不是这里该有的内容」。
+// 调用方必须明确说自己要哪一批。
+type AgentSessionFilter struct {
+	// ObjectID 非空：只要挂在这个工作对象上的（详情抽屉用）。
+	ObjectID string
+	// Unscoped：只要 object_id IS NULL 的全局会话（底部对话框用）。
+	// 命名沿用 ObjectFilter.Uncategorized 的先例——同样是「那一列为 NULL」这件事，
+	// 同一个仓库里同一种语义用同一种表达。
+	Unscoped bool
 }
 
 const (

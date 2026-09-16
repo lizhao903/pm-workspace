@@ -126,7 +126,13 @@ type Store interface {
 	ResolveWorkdir(ctx context.Context, objectID string) (string, error)
 
 	// Agent 会话
-	ListAgentSessions(ctx context.Context) ([]*domain.AgentSession, error)
+	// ListAgentSessions 按 filter 返回会话，最近更新的在前。
+	//
+	// filter 的两个字段互斥，**都不给就是零条，不是全部**。这个默认值是故意反直觉的：
+	// 「全部」在这个产品里没有一个正确的展示位置——抽屉要的是这个对象的，
+	// 底部对话框要的是全局的，两边都不该看到对方的。让忘记传 filter 的调用方
+	// 拿到空列表，比让它拿到一堆不属于自己的会话好查。
+	ListAgentSessions(ctx context.Context, f domain.AgentSessionFilter) ([]*domain.AgentSession, error)
 	GetAgentSession(ctx context.Context, id string) (*domain.AgentSession, error)
 	CreateAgentSession(ctx context.Context, s *domain.AgentSession) (*domain.AgentSession, error)
 	UpdateAgentSession(ctx context.Context, id string, title, workdir, providerID, model *string) (*domain.AgentSession, error)

@@ -130,8 +130,17 @@ export const api = {
   taskRunUrl: (objectId: string) => `/api/objects/${objectId}/run`,
 
   // Agent 对话
-  agentSessions: () => send<AgentSession[]>('GET', '/agent/sessions'),
-  createAgentSession: (s: { title?: string; provider_id?: string; model?: string; workdir?: string }) =>
+  /**
+   * 会话列表。**必须明确说要哪一批**：objectId 给了就是那个对象的，
+   * 没给就是全局的（object_id IS NULL）。没有「全部」这个选项——
+   * 抽屉里混进底部对话框的记录、或者底部混进各对象的对话，
+   * 都属于「看起来有内容，但不是这里该有的内容」。
+   */
+  agentSessions: (objectId?: string) =>
+    send<AgentSession[]>('GET', objectId
+      ? `/agent/sessions?object_id=${encodeURIComponent(objectId)}`
+      : '/agent/sessions?unscoped=true'),
+  createAgentSession: (s: { title?: string; provider_id?: string; model?: string; workdir?: string; object_id?: string }) =>
     send<AgentSession>('POST', '/agent/sessions', s),
   updateAgentSession: (id: string, s: { title?: string; provider_id?: string; model?: string; workdir?: string }) =>
     send<AgentSession>('PATCH', `/agent/sessions/${id}`, s),

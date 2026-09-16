@@ -22,8 +22,24 @@ const (
 
 // --- 会话 ---
 
+// handleListAgentSessions 要求调用方明确说自己要哪一批：object_id 给某个工作对象的
+// （详情抽屉用），unscoped=true 给全局的（底部对话框用）。两个都不给返回空列表——
+// 这个默认值是故意反直觉的，理由见 store.ListAgentSessions。
+//
+// 两个都给时以 object_id 为准，不报 400：这两个参数在前端是两处独立代码各自拼的，
+// 真同时出现只可能是拼串出错，而此时返回「这个对象的会话」至少还是一批说得通的数据，
+// 400 则会让抽屉整个打不开。
 func (s *Server) handleListAgentSessions(w http.ResponseWriter, r *http.Request) {
-	items, err := s.st.ListAgentSessions(r.Context())
+	p := newParams(r)
+	unscoped, err := p.boolean("unscoped")
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	items, err := s.st.ListAgentSessions(r.Context(), domain.AgentSessionFilter{
+		ObjectID: p.str("object_id"),
+		Unscoped: unscoped,
+	})
 	if err != nil {
 		s.fail(w, r, err)
 		return
@@ -36,11 +52,15 @@ type createSessionReq struct {
 	ProviderID string `json:"provider_id"`
 	Model      string `json:"model"`
 	Workdir    string `json:"workdir"`
+	// ObjectID 省略即全局会话。挂给一个不存在的对象是 404，不是静默落成全局——
+	// 这是前端显式指定的归属，猜错了会话就出现在错误的地方。
+	// （/api/agent/chat 里的同名字段是另一回事，见 sessionForChat。）
+	ObjectID string `json:"object_id"`
 }
 
 func (s *Server) handleCreateAgentSession(w http.ResponseWriter, r *http.Request) {
 	var req createSessionReq
-	// 四个字段全是可选的，空 body 等同于「用默认供应商开一个新会话」。
+	// 字段全是可选的，空 body 等同于「用默认供应商开一个全局的新会话」。
 	if err := decodeOptionalBody(r, &req); err != nil {
 		s.fail(w, r, err)
 		return
@@ -66,8 +86,13 @@ func (s *Server) newSession(ctx context.Context, req createSessionReq) (*domain.
 			model = p.Model
 		}
 	}
+	var objectID *string
+	if v := strings.TrimSpace(req.ObjectID); v != "" {
+		objectID = &v
+	}
 	return s.st.CreateAgentSession(ctx, &domain.AgentSession{
 		Title:      req.Title,
+		ObjectID:   objectID,
 		ProviderID: providerID,
 		Model:      model,
 		Workdir:    strings.TrimSpace(req.Workdir),
@@ -201,8 +226,13 @@ func (s *Server) handleAgentChat(w http.ResponseWriter, r *http.Request) {
 
 	ctx := r.Context()
 
+	// 对象在这里解析一次，两处共用：后端自动建会话时要把归属一起落库，
+	// Runner 要拿它做指代。查不到一律当没传（见 currentObject），所以一个失效的
+	// 选中态最多让这条会话落成全局的，不会把整条流打断。
+	object := s.currentObject(ctx, req.ObjectID)
+
 	// 准备阶段的失败仍然可以走普通 JSON 错误，因为还没写过任何响应。
-	session, err := s.sessionForChat(ctx, req)
+	session, err := s.sessionForChat(ctx, req, object)
 	if err != nil {
 		s.fail(w, r, err)
 		return
@@ -250,7 +280,7 @@ func (s *Server) handleAgentChat(w http.ResponseWriter, r *http.Request) {
 
 	runner := &agent.Runner{
 		Store: s.st, Chat: chat, Model: model, Session: session,
-		Object: s.currentObject(ctx, req.ObjectID),
+		Object: object,
 	}
 	msgID, err := runner.Run(ctx, req.Message, emit)
 	if err != nil {
@@ -286,12 +316,25 @@ func (s *Server) currentObject(ctx context.Context, id string) *domain.Object {
 
 // sessionForChat 取出这次对话的会话：给了 session_id 就用它（顺带按需更新
 // workdir / 模型），没给就新建一个。
-func (s *Server) sessionForChat(ctx context.Context, req chatReq) (*domain.AgentSession, error) {
+//
+// object 是已经解析过的当前对象，可以为 nil。自动建出来的会话要挂在它上面——
+// 不挂的话，用户在 TSK-0015 的助手里聊完第一句，这条会话就落成了全局的，
+// 刷新后从抽屉里消失、却出现在底部对话框的列表里。
+//
+// 已有会话的归属不会被改写：会话属于哪个对象是建的时候定下的，之后用户从
+// 别处继续同一个会话（比如底部对话框选中了某个对象）不该把它搬走——
+// 那会让它从原来的列表里消失，而用户并没有要求搬家。
+func (s *Server) sessionForChat(ctx context.Context, req chatReq, object *domain.Object) (*domain.AgentSession, error) {
 	id := strings.TrimSpace(req.SessionID)
 	if id == "" {
+		var objectID string
+		if object != nil {
+			objectID = object.ID
+		}
 		// 标题先用用户的第一句话，省得会话列表里全是「新对话」。
 		return s.newSession(ctx, createSessionReq{
 			Title:      titleFromMessage(req.Message),
+			ObjectID:   objectID,
 			ProviderID: req.ProviderID,
 			Model:      req.Model,
 			Workdir:    req.Workdir,

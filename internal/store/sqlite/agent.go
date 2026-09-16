@@ -11,7 +11,7 @@ import (
 	"github.com/lizhao903/pm-workspace/internal/idgen"
 )
 
-const sessionCols = `id, title, provider_id, model, workdir, created_at, updated_at`
+const sessionCols = `id, title, object_id, provider_id, model, workdir, created_at, updated_at`
 
 // agentTimeLayout 是这三张表专用的时间格式：带固定 9 位小数的 RFC3339。
 //
@@ -28,7 +28,11 @@ func nowAgent() string { return time.Now().UTC().Format(agentTimeLayout) }
 
 // --- 会话 ---
 
-// ListAgentSessions 按最近活跃倒序，并带上消息数供侧栏显示。
+// ListAgentSessions 按 filter 取一批会话，最近活跃倒序，并带上消息数供侧栏显示。
+//
+// filter 两个字段都不给返回零条（契约见 store.ListAgentSessions）。过滤条件放在
+// LEFT JOIN 之后的 WHERE 上而不是 HAVING：它筛的是会话自己的列，越早筛掉
+// 越少行进聚合，而且 idx_agent_sessions_object 只有在 WHERE 上才用得到。
 // 计数走一次 LEFT JOIN 而不是逐行子查询：会话数不多，但 N+1 在这种「一进页面就拉」
 // 的接口上是白送的延迟。
 //
@@ -36,14 +40,31 @@ func nowAgent() string { return time.Now().UTC().Format(agentTimeLayout) }
 // 同一毫秒创建的两个会话按 id 排序结果是随机的。updated_at 已经是纳秒精度、
 // 本身就够分辨，rowid 是第二层——两层失效的原因不相关（一个是时间精度、
 // 一个是插入序），留着零成本。
-func (s *Store) ListAgentSessions(ctx context.Context) ([]*domain.AgentSession, error) {
+func (s *Store) ListAgentSessions(ctx context.Context, f domain.AgentSessionFilter) ([]*domain.AgentSession, error) {
+	var (
+		where string
+		args  []any
+	)
+	switch objectID := strings.TrimSpace(f.ObjectID); {
+	case objectID != "":
+		where = `WHERE s.object_id = ?`
+		args = append(args, objectID)
+	case f.Unscoped:
+		where = `WHERE s.object_id IS NULL`
+	default:
+		// 两个都不给 = 零条。这里直接返回而不是拼一个恒假条件去查一次库：
+		// 结果一样，但少一次往返，而且「没说要哪一批」本来就不该到达 SQL。
+		return []*domain.AgentSession{}, nil
+	}
+
 	rows, err := s.db.R.QueryContext(ctx, `
-		SELECT s.id, s.title, s.provider_id, s.model, s.workdir, s.created_at, s.updated_at,
+		SELECT s.id, s.title, s.object_id, s.provider_id, s.model, s.workdir, s.created_at, s.updated_at,
 		       COUNT(m.id)
 		  FROM agent_sessions s
 		  LEFT JOIN agent_messages m ON m.session_id = s.id
+		 `+where+`
 		 GROUP BY s.id
-		 ORDER BY s.updated_at DESC, s.rowid DESC`)
+		 ORDER BY s.updated_at DESC, s.rowid DESC`, args...)
 	if err != nil {
 		return nil, fmt.Errorf("list agent sessions: %w", err)
 	}
@@ -62,7 +83,7 @@ func (s *Store) ListAgentSessions(ctx context.Context) ([]*domain.AgentSession, 
 
 func (s *Store) GetAgentSession(ctx context.Context, id string) (*domain.AgentSession, error) {
 	row := s.db.R.QueryRowContext(ctx, `
-		SELECT s.id, s.title, s.provider_id, s.model, s.workdir, s.created_at, s.updated_at,
+		SELECT s.id, s.title, s.object_id, s.provider_id, s.model, s.workdir, s.created_at, s.updated_at,
 		       (SELECT COUNT(*) FROM agent_messages WHERE session_id = s.id)
 		  FROM agent_sessions s WHERE s.id = ?`, id)
 	sess, err := scanSession(row, true)
@@ -77,6 +98,11 @@ func (s *Store) GetAgentSession(ctx context.Context, id string) (*domain.AgentSe
 
 // CreateAgentSession 不校验 workdir 是否存在：目录检查是 internal/agent 的事，
 // 而且用户完全可以先建会话、之后再指目录。
+//
+// ObjectID 是例外，它要先查一遍对象在不在：外键失败回的是一条驱动层的字符串，
+// 会被映射成 500，而「挂给一个不存在的对象」显然该是 404。和 CreateTaskRun 同一处理。
+// 空指针和空字符串都当全局会话——前端漏传和显式传空在这里没有区别，
+// 让它们走同一条路，省得库里出现一列空字符串的 object_id 永远 join 不上。
 func (s *Store) CreateAgentSession(ctx context.Context, in *domain.AgentSession) (*domain.AgentSession, error) {
 	if in == nil {
 		return nil, validation("session", "is required")
@@ -88,11 +114,30 @@ func (s *Store) CreateAgentSession(ctx context.Context, in *domain.AgentSession)
 		sess.Title = "新对话"
 	}
 
+	// objectID 保持 any：nil 才会写成 SQL NULL，写空字符串进去索引上是另一个值。
+	var objectID any
+	if sess.ObjectID != nil {
+		if id := strings.TrimSpace(*sess.ObjectID); id == "" {
+			sess.ObjectID = nil
+		} else {
+			var exists int
+			if err := s.db.R.QueryRowContext(ctx,
+				`SELECT COUNT(*) FROM objects WHERE id = ?`, id).Scan(&exists); err != nil {
+				return nil, fmt.Errorf("check object: %w", err)
+			}
+			if exists == 0 {
+				return nil, notFound("object")
+			}
+			sess.ObjectID = &id
+			objectID = id
+		}
+	}
+
 	sess.ID = idgen.Prefixed("ags")
 	now := nowAgent()
 	if _, err := s.db.W.ExecContext(ctx,
-		`INSERT INTO agent_sessions (`+sessionCols+`) VALUES (?,?,?,?,?,?,?)`,
-		sess.ID, sess.Title, sess.ProviderID, sess.Model, sess.Workdir, now, now); err != nil {
+		`INSERT INTO agent_sessions (`+sessionCols+`) VALUES (?,?,?,?,?,?,?,?)`,
+		sess.ID, sess.Title, objectID, sess.ProviderID, sess.Model, sess.Workdir, now, now); err != nil {
 		return nil, fmt.Errorf("insert agent session: %w", err)
 	}
 	sess.CreatedAt, sess.UpdatedAt = parseTime(now), parseTime(now)
@@ -347,12 +392,18 @@ func (s *Store) RecordAgentArtifact(ctx context.Context, in *domain.AgentArtifac
 func scanSession(sc rowScanner, withCount bool) (*domain.AgentSession, error) {
 	var s domain.AgentSession
 	var created, updated string
-	dest := []any{&s.ID, &s.Title, &s.ProviderID, &s.Model, &s.Workdir, &created, &updated}
+	// object_id 可空，必须过一层 NullString——直接扫进 *string 会在 NULL 上报错。
+	var objectID sql.NullString
+	dest := []any{&s.ID, &s.Title, &objectID, &s.ProviderID, &s.Model, &s.Workdir, &created, &updated}
 	if withCount {
 		dest = append(dest, &s.MessageCount)
 	}
 	if err := sc.Scan(dest...); err != nil {
 		return nil, err
+	}
+	if objectID.Valid {
+		id := objectID.String
+		s.ObjectID = &id
 	}
 	s.CreatedAt, s.UpdatedAt = parseTime(created), parseTime(updated)
 	return &s, nil
