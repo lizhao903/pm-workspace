@@ -81,15 +81,15 @@
 <div class="wrap">
   <h1>产品工作台 · 项目看板</h1>
   <p class="sub">SQLite + Go + React 的本地化产品管理工作台，Agent 做任务分析与文档编写，可调用本机 Claude Code 执行任务</p>
-  <p class="stamp">更新于 2026-09-15 22:10 · 数据来自实跑统计，非估算 · 工作台运行于 http://bro.vip，库中已有 81 个真实工作对象</p>
+  <p class="stamp">更新于 2026-09-16 11:20 · 数据来自实跑统计，非估算 · 工作台运行于 http://bro.vip，库中已有 81 个真实工作对象</p>
 
   <div class="metrics">
-    <div class="m"><b>28,733</b><span>Go 代码行</span></div>
-    <div class="m"><b>11,282</b><span>TypeScript 行</span></div>
-    <div class="m"><b>3,490</b><span>CSS 行</span></div>
+    <div class="m"><b>29,512</b><span>Go 代码行</span></div>
+    <div class="m"><b>11,505</b><span>TypeScript 行</span></div>
+    <div class="m"><b>3,488</b><span>CSS 行</span></div>
     <div class="m"><b>74</b><span>API 路由</span></div>
-    <div class="m"><b>10</b><span>数据库迁移</span></div>
-    <div class="m ok"><b>383</b><span>测试用例</span></div>
+    <div class="m"><b>11</b><span>数据库迁移</span></div>
+    <div class="m ok"><b>401</b><span>测试用例</span></div>
     <div class="m ok"><b>0</b><span>失败</span></div>
   </div>
 
@@ -433,7 +433,63 @@
     </div>
   </div>
 
-  <h2>六、待完成 <em>按优先级</em></h2>
+  <h2>六、Agent 会话按对象分组 <em>抽屉里的 AI 助手补齐模型与会话控件</em></h2>
+  <div class="board">
+    <div class="col">
+      <div class="col-h"><span>0011 · 会话记上归属</span><span class="n">已上线</span></div>
+      <div class="card"><div class="t">控件早就有，缺的是归属</div>
+        <div class="d">模型下拉、会话下拉、「新对话」在 <code>DockControls</code> 里都现成。
+        但 <code>agent_sessions</code> 是平表——原样搬进抽屉，用户在 TSK-0015 里会看到自己在底部聊的无关内容</div></div>
+      <div class="card"><div class="t">存量会话不去反推归属</div>
+        <div class="d">3 条全部留在 <code>NULL</code>。从消息内容猜「这条大概在说 REQ-0012」只会猜错，
+        而猜错的后果是<strong>用户在某个对象的历史里看到一段他没在那儿说过的话</strong></div></div>
+      <div class="card"><div class="t">filter 两个字段都不给 = 零条，不是全部</div>
+        <div class="d">「全部」在这个产品里没有正确的展示位置。让忘传 filter 的调用方拿到空列表，
+        比让它拿到一堆不属于自己的会话好查</div></div>
+      <div class="card"><div class="t">归属一经创建不再改写</div>
+        <div class="d">搬走会让这条会话从原来那个列表里消失，<strong>而用户并没有要求移动它</strong>。换对象就是换一条会话</div></div>
+    </div>
+
+    <div class="col">
+      <div class="col-h"><span>被 agent 驳回的一条指示</span><span class="n">已改正</span></div>
+      <div class="card"><div class="t">我把两件事当成了一件</div>
+        <div class="d">让它「用已有的 <code>objectId</code> 参数去取会话列表」。
+        但 <code>AgentDock</code> 传的 <code>selectedId</code> 语义是「『这个需求』里的『这个』指谁」，
+        <strong>不是「这条对话属于谁」</strong></div></div>
+      <div class="card"><div class="t">照做的后果是会上线的故障</div>
+        <div class="d">底部对话框立刻变成对象作用域——点开一条任务，全局会话就从下拉里消失。
+        表现是「我的会话不见了」，最难查的那种</div>
+        <div class="meta"><span class="tag p0">拆成两个参数</span></div></div>
+      <div class="card"><div class="t">它是实测发现的，不是读代码</div>
+        <div class="d">我凭印象下的指示，没去看那一行传的到底是什么。照着做完再报「做完了」，这个 bug 就上线了</div></div>
+    </div>
+
+    <div class="col">
+      <div class="col-h"><span>抽屉里不放输出目录</span><span class="n">已完成</span></div>
+      <div class="card"><div class="t">工作区是对象的属性，不是对话的</div>
+        <div class="d">放了选择器就有两个真相：详情 Tab 设了 A、AI 助手选了 B，
+        <strong>用户看着 A 而文件落在 B</strong></div></div>
+      <div class="card"><div class="t">它没自己发明规矩</div>
+        <div class="d">去看同一个抽屉里的「执行」Tab 已经怎么做（只读显示 + 「去详情 Tab 设置」），然后跟上。
+        <strong>同一个抽屉里两个 Tab 用两种挑法本身就是问题</strong></div></div>
+    </div>
+
+    <div class="col">
+      <div class="col-h"><span>取库副本的正确姿势</span><span class="n">已入记忆</span></div>
+      <div class="card"><div class="t"><code>cp data/pm.db</code> 拿到的是陈旧快照</div>
+        <div class="d">库开了 WAL，<code>cp</code> 只复制主文件不带 <code>-wal</code>。实测：<code>.backup</code> 取到 3 条会话，
+        <code>cp</code> 只有 1 条——<code>-wal</code> 里躺着 181KB 还没进主文件的数据</div>
+        <div class="meta"><span class="tag p0">而且不报错</span></div></div>
+      <div class="card"><div class="t">当天所有 agent 都在用 cp</div>
+        <div class="d">查过影响：0010 那次恰好没事（那批 owner 文本是早上导入的，早就 checkpoint 过）。<strong>但那是运气</strong></div></div>
+      <div class="card"><div class="t">同一天两次模式匹配杀进程</div>
+        <div class="d"><code>pkill -f vite</code> 和 <code>pkill -f "exe/pmw"</code> 各误伤一次。
+        <code>go run</code> 的临时二进制全在 <code>/var/folders/.../exe/</code> 下且重名，几乎必然误伤；
+        被杀的一方只看到「服务莫名其妙没了」</div></div>
+    </div>
+  </div>
+
+  <h2>七、待完成 <em>按优先级</em></h2>
   <div class="board">
     <div class="col plan">
       <div class="col-h"><span>M4 · AI Agent（核心诉求）</span><span class="n">P0</span></div>
@@ -490,7 +546,7 @@
     </div>
   </div>
 
-  <h2>七、关键设计决定 <em>为什么这么做</em></h2>
+  <h2>八、关键设计决定 <em>为什么这么做</em></h2>
   <table>
     <tr><th style="width:23%">决定</th><th style="width:38%">理由</th><th>代价 / 边界</th></tr>
     <tr><td>单表多态工作对象</td>
@@ -516,7 +572,7 @@
         <td>需要一次 sudo；pf 规则要 LaunchDaemon 保持</td></tr>
   </table>
 
-  <h2>八、风险与欠账</h2>
+  <h2>九、风险与欠账</h2>
   <div class="note">
     <b>版本控制已建立（本地）</b>
     <p>首次提交 <code>78536d4</code>，172 个文件，分支 <code>main</code>，无远端。
