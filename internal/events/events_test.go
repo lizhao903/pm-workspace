@@ -128,7 +128,7 @@ func wait(t *testing.T, bus *events.Bus) {
 	}
 }
 
-const subAll = `,"subscribes":["object.created","object.updated","object.status_changed","task.review_requested","run.finished"]`
+const subAll = `,"subscribes":["object.created","object.updated","object.status_changed","task.review_requested","run.finished","object.progress_appended"]`
 
 // TestSubscriberPanicIsolated：一个订阅者 panic、一个出错、一个卡住，另一个照样收到，发布方立刻返回。
 func TestSubscriberPanicIsolated(t *testing.T) {
@@ -281,14 +281,17 @@ func TestStorePublishesAfterWrite(t *testing.T) {
 		t.Fatalf("提交验收顺带切状态：object.status_changed = %v", got)
 	}
 
-	// 普通进展：不发验收事件
+	// 普通进展：只发 object.progress_appended，不发验收事件
 	rec.reset()
 	if _, err := st.AppendProgress(ctx, o.ID, domain.ProgressInput{Text: "记一笔"}, store.DefaultActor); err != nil {
 		t.Fatal(err)
 	}
 	wait(t, bus)
-	if got := rec.types(); len(got) != 0 {
-		t.Fatalf("普通进展发了 %v", got)
+	if got := rec.types(); len(got) != 1 || got[0] != events.ProgressAppended {
+		t.Fatalf("普通进展发了 %v，要只有 object.progress_appended", got)
+	}
+	if got := rec.find(t, events.ProgressAppended); got["id"] != o.ID || got["kind"] != domain.ProgressNote {
+		t.Fatalf("object.progress_appended = %v", got)
 	}
 
 	rec.reset()
