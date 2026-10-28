@@ -53,11 +53,60 @@
   .task-row > :nth-child(4), .task-row > :nth-child(5) { display: none; }
 }
 
-/* ---------- 抽屉占位 ---------- */
-.task-stub { display: flex; flex-direction: column; gap: var(--sp-8); }
-.task-stub-title { margin: 0; font-size: var(--fs-xl); font-weight: 600; }
-.task-stub-fields { display: grid; grid-template-columns: 72px 1fr; gap: var(--sp-5) var(--sp-6); margin: 0; align-items: center; }
-.task-stub-fields dt { color: var(--faint); font-size: var(--fs-sm); }
-.task-stub-fields dd { margin: 0; }
-.task-stub-body { white-space: pre-wrap; word-break: break-word; color: var(--muted); max-height: 360px; overflow: auto; padding: var(--sp-6); border: 1px solid var(--line); border-radius: var(--r); background: var(--panel-2); font-size: var(--fs-sm); }
-.task-stub-note { color: var(--faint); font-size: var(--fs-xs); }
+/* ---------- 抽屉 ---------- */
+.task-check { cursor: pointer; padding: 0; background: none; }
+.task-check.on { background: var(--ok); }
+.task-check:not(:disabled):hover { border-color: var(--ok); }
+.task-check:disabled { cursor: default; }
+.task-form { padding-bottom: var(--sp-4); }
+.seg-full { width: 100%; }
+.seg-full button { flex: 1; justify-content: center; }
+.seg-sm button { height: 22px; padding: 0 var(--sp-4); font-size: var(--fs-xs); }
+.seg-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--c); flex: none; }
+.field-group { display: flex; flex-direction: column; gap: var(--sp-6); padding: var(--sp-7); border: 1px solid var(--line); border-radius: var(--r); }
+.field-group-title { font-size: var(--fs-sm); font-weight: 600; color: var(--muted); }
+.mount-head { display: flex; align-items: center; gap: var(--sp-4); }
+.mono-input, .mono-area { font-family: var(--mono); font-size: var(--fs-sm); }
+.dev-open { align-self: flex-start; padding: var(--sp-2) 0; color: var(--accent); font-size: var(--fs-sm); background: none; }
+.dev-open:hover { text-decoration: underline; }
+.task-times { color: var(--faint); font-size: var(--fs-xs); }
+.task-save-err { max-width: 100%; }
+.approve-err { margin-top: var(--sp-4); }
+.wd-ok { color: var(--ok); }
+
+/* Markdown 编辑和预览 */
+.md-head { display: flex; align-items: center; gap: var(--sp-4); }
+.md-preview { min-height: 72px; max-height: 360px; overflow: auto; padding: var(--sp-5) var(--sp-6); border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--panel-2); }
+.md { display: flex; flex-direction: column; gap: var(--sp-4); word-break: break-word; }
+.md > * { margin: 0; }
+.md h3, .md h4, .md h5, .md h6 { font-size: var(--fs-md); font-weight: 600; }
+.md ul, .md ol { padding-left: 20px; display: flex; flex-direction: column; gap: var(--sp-1); }
+.md ul.md-checks { list-style: none; padding-left: 0; }
+.md-checks li { display: flex; align-items: baseline; gap: var(--sp-3); }
+.md pre { padding: var(--sp-4) var(--sp-5); border-radius: var(--r-sm); background: var(--hover); overflow-x: auto; font: var(--fs-xs) var(--mono); }
+.md code { font-family: var(--mono); font-size: 0.92em; }
+.md :not(pre) > code { padding: 0 4px; border-radius: 3px; background: var(--hover); }
+.md blockquote { padding-left: var(--sp-5); border-left: 3px solid var(--line-2); color: var(--muted); white-space: pre-wrap; }
+.md p { white-space: pre-wrap; }
+.md-empty { color: var(--faint); }
+
+/* 工作目录和选目录 */
+.wd-wide { grid-column: 1 / -1; }
+.wd-row { display: flex; gap: var(--sp-3); min-width: 0; }
+.wd-row .input { flex: 1; min-width: 0; }
+.wd-picker { display: flex; flex-direction: column; gap: var(--sp-4); padding: var(--sp-5); border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--panel-2); }
+.wd-shortcuts { display: flex; flex-wrap: wrap; gap: var(--sp-3); }
+.wd-cur { display: flex; align-items: center; gap: var(--sp-4); min-width: 0; font-size: var(--fs-sm); }
+.wd-cur .mono { font-family: var(--mono); min-width: 0; }
+.wd-list { list-style: none; margin: 0; padding: 0; max-height: 200px; overflow-y: auto; border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--panel); }
+.wd-list li + li { border-top: 1px solid var(--line); }
+.wd-item { display: block; width: 100%; padding: var(--sp-3) var(--sp-5); text-align: left; font: var(--fs-sm) var(--mono); background: none; }
+.wd-item:hover { background: var(--hover); }
+.wd-muted { padding: var(--sp-3) var(--sp-5); color: var(--faint); font-size: var(--fs-sm); }
+.wd-foot { display: flex; align-items: center; gap: var(--sp-3); flex-wrap: wrap; }
+
+/* 开发闭环四块的位置（DEV-08a 到 DEV-08d 填） */
+.dev-slots { display: flex; flex-direction: column; gap: var(--sp-6); padding-top: var(--sp-4); border-top: 1px solid var(--line); }
+.dev-slot { display: flex; flex-direction: column; gap: var(--sp-3); }
+.dev-slot-head { display: flex; align-items: center; gap: var(--sp-4); }
+.dev-slot-empty { color: var(--faint); font-size: var(--fs-sm); }

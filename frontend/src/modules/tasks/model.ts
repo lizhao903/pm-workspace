@@ -28,6 +28,19 @@ export const ALL = 'all'
 
 export type Terminal = (status: string) => boolean
 
+/** 待验收：开发闭环约定的状态（迁移 0013），完成圆圈和抽屉对它另有处理 */
+export const REVIEW = 'review'
+
+/** 完成圆圈标完成时用的状态：优先 done，没有就取第一个终态（但不取已取消） */
+export function doneKey(statuses: readonly ObjectStatus[]): string | undefined {
+  return (statuses.find((s) => s.key === 'done') ?? statuses.find((s) => s.terminal && s.key !== 'cancelled'))?.key
+}
+
+/** 已完成的改回去用的状态：第一个非终态（种子里是 todo） */
+export function reopenKey(statuses: readonly ObjectStatus[]): string | undefined {
+  return statuses.find((s) => !s.terminal)?.key
+}
+
 /** 按类型的状态表判断是否终态；不认识的状态算未结束，和后端 terminalClause 一致 */
 export function terminalOf(statuses: readonly ObjectStatus[]): Terminal {
   const set = new Set(statuses.filter((s) => s.terminal).map((s) => s.key))

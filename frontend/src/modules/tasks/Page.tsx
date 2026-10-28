@@ -5,8 +5,10 @@ import { Navigate, useLocation, useNavigate, useParams, useSearchParams } from '
 import { useObjectTypes, type WorkObject } from '../../core/api'
 import { useDictItems, useProjectOptions, useTaskCounts, useTaskList } from '../../core/api/tasks'
 import { ErrorState, LoadingState, Subnav } from '../../core/ui'
-import { OPEN, type StatusFilter } from './model'
-import { TaskDrawerStub } from './TaskDrawerStub'
+import { useApprove, useSetStatus } from '../../core/api/taskEdit'
+import { ApproveDialog } from './ApproveDialog'
+import { OPEN, REVIEW, doneKey, reopenKey, terminalOf, type StatusFilter } from './model'
+import { TaskDrawer } from './TaskDrawer'
 import { TaskList, type TaskView } from './TaskList'
 import './tasks.css'
 
@@ -32,6 +34,10 @@ export default function Page() {
   const [search, setSearch] = useState('')
   const [q, setQ] = useState('')
   const [opened, setOpened] = useState<Opened | null>(null)
+  // 待验收任务点完成圆圈时的确认
+  const [approving, setApproving] = useState<WorkObject | null>(null)
+  const setTaskStatus = useSetStatus()
+  const approve = useApprove()
 
   useEffect(() => {
     const kw = search.trim()
@@ -51,6 +57,19 @@ export default function Page() {
   const taskType = types.data?.find((t) => t.id === 'task')
   const statuses = taskType?.statuses ?? []
   const overdueN = counts.data?.overdue
+
+  // 完成圆圈：待验收的先确认，已结束的改回第一个非终态，其余标完成；请求还在路上时不重复发
+  const toggleDone = (t: WorkObject) => {
+    if (setTaskStatus.isPending) return
+    if (t.status === REVIEW) { approve.reset(); setApproving(t); return }
+    const next = terminalOf(statuses)(t.status) ? reopenKey(statuses) : doneKey(statuses)
+    if (next) setTaskStatus.mutate({ id: t.id, status: next })
+  }
+  const doApprove = (t: WorkObject) => {
+    const done = doneKey(statuses)
+    if (!done) return
+    approve.mutate({ id: t.id, status: done }, { onSuccess: () => setApproving(null) })
+  }
 
   const selectView = (v: TaskView) => {
     setOpened(null)
@@ -82,6 +101,7 @@ export default function Page() {
         statuses={statuses}
         priorities={prios.data ?? []}
         projects={(projects.data?.data ?? []).map((p) => ({ id: p.id, title: p.title }))}
+        onToggleDone={toggleDone}
         status={status}
         onStatus={setStatus}
         search={search}
@@ -110,13 +130,25 @@ export default function Page() {
         },
       ]} />
       <div className="tasks-body">{main}</div>
-      <TaskDrawerStub
-        open={!!opened}
-        task={openTask}
-        statuses={statuses}
-        priorities={prios.data ?? []}
-        onClose={() => setOpened(null)}
-      />
+      {opened && taskType && (
+        <TaskDrawer
+          // 换一条任务就重新挂载，表单从这条任务的值重新开始
+          key={openTask?.id ?? 'new'}
+          task={openTask}
+          statuses={statuses}
+          priorities={prios.data ?? []}
+          projects={projects.data?.data ?? []}
+          onClose={() => setOpened(null)}
+          onCreated={(t) => setOpened({ kind: 'task', task: t })}
+        />
+      )}
+      {approving && (
+        <ApproveDialog task={approving} busy={approve.isPending}
+          error={approve.isError ? approve.error.message : undefined}
+          onCancel={() => setApproving(null)}
+          onOpen={() => { setOpened({ kind: 'task', task: approving }); setApproving(null) }}
+          onApprove={() => doApprove(approving)} />
+      )}
     </div>
   )
 }
