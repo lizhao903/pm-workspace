@@ -11,7 +11,8 @@ import {
 import { DevSlots } from './DevSlots'
 import { buildCreate, buildSave, draftOf, emptyDraft, sameDraft, type TaskDraft } from './draft'
 import { Markdown } from './Markdown'
-import { timeAgo } from './model'
+import { REVIEW, timeAgo } from './model'
+import { ReviewBar } from './ReviewBar'
 import { WorkdirField } from './WorkdirField'
 
 export function TaskDrawer({ task, statuses, priorities, projects, onClose, onCreated }: {
@@ -27,7 +28,7 @@ export function TaskDrawer({ task, statuses, priorities, projects, onClose, onCr
 }) {
   const creating = !task
   // 基准：已有任务取打开时的值，新建取默认值；之后不跟着刷新，免得把别人刚改的值当成自己的改动
-  const [base] = useState<TaskDraft>(() => (task ? draftOf(task) : emptyDraft(statuses, priorities)))
+  const [base, setBase] = useState<TaskDraft>(() => (task ? draftOf(task) : emptyDraft(statuses, priorities)))
   const [d, setD] = useState<TaskDraft>(base)
   const [tried, setTried] = useState(false)
   const [devOpen, setDevOpen] = useState(!creating)
@@ -47,6 +48,12 @@ export function TaskDrawer({ task, statuses, priorities, projects, onClose, onCr
   const titleBad = tried && !d.title.trim()
 
   const deleted = !!task && (!!live.data?.deleted_at || isApiError(live.error, 'not_found'))
+  const reviewing = !!task && (live.data?.status ?? task.status) === REVIEW
+  // 验收或退回后状态在后端已改，基准和表单一起跟上，不算未保存的改动
+  const reviewed = (status: string) => {
+    setBase((b) => ({ ...b, status }))
+    setD((x) => ({ ...x, status }))
+  }
 
   const submit = async () => {
     setTried(true)
@@ -99,6 +106,7 @@ export function TaskDrawer({ task, statuses, priorities, projects, onClose, onCr
   } else {
     body = (
       <div className="form task-form">
+        {task && reviewing && <ReviewBar task={task} statuses={statuses} onReviewed={reviewed} />}
         <Field label="标题" required error={titleBad ? '必填' : undefined}>
           <Input value={d.title} autoFocus={creating} invalid={titleBad} placeholder="要做的事"
             onChange={(e) => set({ title: e.target.value })} />
