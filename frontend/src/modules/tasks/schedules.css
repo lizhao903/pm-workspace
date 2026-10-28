@@ -1,0 +1,67 @@
+/* 定时任务页（SPEC-tasks-7、8），照原型 web-next/src/styles.css 的「定时任务」一段；颜色全走 tokens.css 的变量 */
+
+/* ---------- 列表 ---------- */
+.sched-row {
+  display: grid; align-items: center;
+  grid-template-columns: minmax(150px, 1fr) minmax(120px, 0.9fr) minmax(200px, 1.5fr) 100px 100px 50px;
+  gap: var(--sp-6); min-height: 54px; padding: var(--sp-4) var(--sp-8); border-bottom: 1px solid var(--line); cursor: pointer;
+}
+.sched-row:not(.task-th):hover { background: var(--panel-2); }
+.sched-row:focus-visible { outline: 2px solid var(--accent-line); outline-offset: -2px; }
+.sched-row.sel { background: var(--accent-soft); box-shadow: inset 3px 0 0 var(--accent); }
+.sched-row.is-off .task-title .ellipsis { color: var(--faint); }
+.task-table [role=group] > .sched-row:last-child { border-bottom: 1px solid var(--line); }
+.task-table > .sched-row:last-child { border-bottom: 0; }
+.sched-action { display: flex; align-items: center; gap: var(--sp-4); min-width: 0; }
+.sched-kind { flex: none; font-size: var(--fs-2xs); padding: 2px 7px; border-radius: 4px; }
+.sk-task { background: var(--accent-soft); color: var(--accent); }
+.sk-sop { background: var(--warn-soft); color: var(--warn); }
+.sk-agent { background: var(--hover); color: var(--muted); }
+.sched-next { color: var(--text); font-weight: 500; }
+.sched-alert { display: flex; align-items: center; gap: var(--sp-4); }
+/* 正文不到 760px 宽：只留名称、下次执行、启用 */
+@container (max-width: 760px) {
+  .sched-row { grid-template-columns: minmax(0, 1fr) 96px 50px; }
+  .sched-row > :nth-child(2), .sched-row > :nth-child(3), .sched-row > :nth-child(5) { display: none; }
+}
+
+/* ---------- 开关 ---------- */
+.switch-line { display: inline-flex; align-items: center; gap: var(--sp-4); cursor: pointer; flex: none; position: relative; }
+.switch-line input { position: absolute; inset: 0; opacity: 0; margin: 0; cursor: pointer; }
+.switch-line .switch { position: relative; width: 32px; height: 18px; border-radius: 9px; background: var(--line-2); transition: background 0.15s; pointer-events: none; }
+.switch-line .switch::after {
+  content: ''; position: absolute; top: 2px; left: 2px; width: 14px; height: 14px; border-radius: 50%;
+  background: var(--panel); box-shadow: var(--shadow-sm); transition: transform 0.15s;
+}
+.switch-line input:checked + .switch { background: var(--ok); }
+.switch-line input:checked + .switch::after { transform: translateX(14px); }
+.switch-line input:focus-visible + .switch { outline: 2px solid var(--accent-line); outline-offset: 2px; }
+.switch-line input:disabled + .switch { opacity: 0.5; }
+.switch-row { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-6); cursor: pointer; }
+.switch-row > span:first-child { display: flex; flex-direction: column; gap: 2px; }
+.switch-hint { font-size: var(--fs-xs); color: var(--faint); }
+
+/* ---------- 抽屉 ---------- */
+.sched-form { padding-bottom: var(--sp-4); }
+.field-hint { margin-left: var(--sp-4); font-weight: 400; color: var(--faint); }
+.list-sub { color: var(--faint); font-size: var(--fs-sm); }
+.sched-freq button { padding: 0 6px; }
+.seg button:disabled { opacity: 0.45; cursor: not-allowed; }
+.week-pick { display: flex; gap: 6px; flex-wrap: wrap; }
+.week-day { display: grid; place-items: center; padding: 0; width: 34px; height: 34px; border-radius: 50%; border: 1px solid var(--line); background: var(--panel); color: var(--muted); }
+.week-day.on { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); font-weight: 600; }
+.sched-preview { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
+.tools-head { display: flex; align-items: center; gap: var(--sp-4); }
+.sched-history { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.sched-history li { display: flex; align-items: center; gap: var(--sp-5); padding: 7px 2px; border-bottom: 1px solid var(--line); font-size: var(--fs-sm); }
+.sched-history li:last-child { border-bottom: 0; }
+.sched-history time { color: var(--faint); font-size: var(--fs-xs); flex: none; }
+.sched-h-text { flex: 1; min-width: 0; display: flex; gap: 6px; align-items: center; }
+.sched-h-text > span:first-child { min-width: 0; word-break: break-word; }
+.sched-dot { width: 7px; height: 7px; border-radius: 50%; flex: none; background: var(--faint); }
+.sched-dot.ok { background: var(--ok); }
+.sched-dot.bad { background: var(--danger); }
+.sched-history li.bad .sched-h-text { color: var(--danger); }
+.sched-history .link-btn { color: var(--accent); text-decoration: underline; text-underline-offset: 2px; background: none; padding: 0; }
+.sched-history .link-btn:disabled { color: var(--muted); text-decoration: none; cursor: default; }
+.sched-empty { padding: var(--sp-8) var(--sp-4); text-align: center; color: var(--faint); font-size: var(--fs-sm); }

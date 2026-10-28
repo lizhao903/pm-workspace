@@ -166,3 +166,38 @@ describe('今日聚合的失效（TODAY-02）', () => {
     }
   })
 })
+
+describe('定时任务的失效（TASK-04a）', () => {
+  const keys = {
+    schedules: todayKeys.schedules,
+    today: todayKeys.of(),
+    runs: dataKeys.schedules.runs('sch_a', 50),
+    lastRun: dataKeys.schedules.runs('sch_a', 1),
+    otherRuns: dataKeys.schedules.runs('sch_b', 50),
+    preview: dataKeys.schedules.preview({ freq: 'daily', time: '09:00' }, 3),
+    taskList: dataKeys.objects.listAll({ type: ['task'] }),
+    taskCounts: dataKeys.counts.of('task'),
+  } satisfies Record<string, QueryKey>
+  async function stale(c: Change) {
+    const qc = new QueryClient()
+    for (const k of Object.values(keys)) qc.setQueryData(k, {})
+    await applyChange(qc, c)
+    return (Object.keys(keys) as (keyof typeof keys)[]).filter((n) => qc.getQueryState(keys[n])?.isInvalidated)
+  }
+
+  it('新建、编辑、启停、删除：刷列表（今日同一份）和它自己的执行记录，不动任务和预览', async () => {
+    expect(await stale({ kind: 'schedule', id: 'sch_a' })).toEqual(['schedules', 'runs', 'lastRun'])
+  })
+
+  it('不知道是哪一个时刷全部定时任务的缓存', async () => {
+    expect(await stale({ kind: 'schedule' })).toEqual(['schedules', 'runs', 'lastRun', 'otherRuns', 'preview'])
+  })
+
+  it('立即执行：它的执行记录和「上次」多一条，建出的任务进任务列表、计数和今日', async () => {
+    expect(await stale({ kind: 'schedule-run', id: 'sch_a' })).toEqual(['schedules', 'today', 'runs', 'lastRun', 'taskList', 'taskCounts'])
+  })
+
+  it('对象改动不动定时任务的执行记录', async () => {
+    expect(await stale({ kind: 'object', id: 'obj_a' })).toEqual(['schedules', 'today', 'taskList', 'taskCounts'])
+  })
+})

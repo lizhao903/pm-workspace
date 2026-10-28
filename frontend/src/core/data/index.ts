@@ -35,10 +35,18 @@ export {
 } from './plugins'
 export type { PluginInfo, PluginInstallResult, PluginUninstallResult } from './plugins'
 export {
-  todayKeys, useToday, useSchedules, todayCard, reviewCard, overdueCard, dueTodayCard, runningCard, pluginTodayCards, schedulesToday,
+  todayKeys, useToday, todayCard, reviewCard, overdueCard, dueTodayCard, runningCard, pluginTodayCards, schedulesToday,
   KERNEL_TODAY_CARDS, TODAY_REVIEW, TODAY_OVERDUE, TODAY_DUE, TODAY_RUNNING,
 } from './today'
-export type { Today, TodayCard, TodayRun, Schedule } from './today'
+export type { Today, TodayCard, TodayRun } from './today'
+export {
+  SCHEDULE_RUNS_LIMIT, useSchedules, useScheduleRuns, useLastScheduleRuns, useSchedulePreview, useCreateSchedule, usePatchSchedule,
+  useDeleteSchedule, useRunSchedule,
+} from './schedules'
+export type {
+  Schedule, ScheduleRule, ScheduleFreq, ScheduleAction, ScheduleActionKind, ScheduleRun, ScheduleRunStatus, ScheduleInput, SchedulePatch,
+  SchedulePreview,
+} from './schedules'
 
 // 接口层的纯函数和类型照样给模块用：不发请求，不碰缓存
 export { localDay, focusParams, changedFields, isApiError, isStreamError, ApiError, StreamError } from '../api'
