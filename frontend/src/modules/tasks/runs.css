@@ -1,0 +1,46 @@
+/* 执行记录和流式输出（DEV-08c），照原型 devloop.css 的 dev-run / dev-out 和 styles.css 的 call-card 搬 */
+
+.run-hint { color: var(--faint); font-size: var(--fs-xs); }
+.run-list { display: flex; flex-direction: column; gap: var(--sp-3); }
+
+.run-item { border: 1px solid var(--line); border-radius: var(--r); background: var(--panel); overflow: hidden; }
+.run-head { display: flex; align-items: center; gap: var(--sp-4); width: 100%; min-width: 0; padding: var(--sp-4) var(--sp-5); text-align: left; font-size: var(--fs-sm); background: none; border: 0; color: inherit; cursor: pointer; }
+.run-head:hover { background: var(--hover); }
+.run-chev { display: inline-flex; flex: none; color: var(--faint); transition: transform 0.12s; }
+.run-chev.open { transform: rotate(90deg); }
+.run-st { flex: none; font-size: var(--fs-xs); font-weight: 600; padding: 1px 7px; border-radius: 4px; }
+.run-st-run { color: var(--accent); background: var(--accent-soft); }
+.run-st-ok { color: var(--ok); background: color-mix(in srgb, var(--ok) 12%, transparent); }
+.run-st-bad { color: var(--danger); background: var(--danger-soft); }
+.run-st-off { color: var(--faint); background: var(--hover); }
+.run-extra { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); }
+.run-extra.none { color: var(--faint); }
+.run-at { flex: none; color: var(--muted); }
+.run-note { padding: 0 var(--sp-5) var(--sp-4); font-size: var(--fs-xs); line-height: 1.6; }
+.run-note-muted { color: var(--muted); }
+.run-note-danger { color: var(--danger); font-weight: 500; }
+.run-body { display: flex; flex-direction: column; gap: var(--sp-4); padding: var(--sp-4) var(--sp-5) var(--sp-5); border-top: 1px solid var(--line); background: var(--panel-2); }
+.run-meta { color: var(--muted); font: var(--fs-xs)/1.5 var(--mono); overflow-wrap: anywhere; }
+.run-actions { display: flex; align-items: center; gap: var(--sp-4); font-size: var(--fs-xs); }
+
+/* 流式输出 */
+.run-out { display: flex; flex-direction: column; gap: var(--sp-3); max-height: 480px; overflow: auto; }
+.run-out-empty { color: var(--faint); font-size: var(--fs-sm); }
+.run-out-text { font-size: var(--fs-sm); line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; }
+.run-tool { flex: none; border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--panel); overflow: hidden; }
+.run-tool-head { display: flex; align-items: center; gap: var(--sp-4); padding: var(--sp-3) var(--sp-5); font-size: var(--fs-sm); min-width: 0; }
+.run-tool-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); flex: none; }
+.run-tool-dot.write { background: var(--warn); }
+.run-tool-name { flex: 1; min-width: 0; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.run-tool-detail { font: 400 var(--fs-xs) var(--mono); color: var(--muted); }
+.run-tool-state { flex: none; font-size: var(--fs-xs); color: var(--faint); }
+.run-tool-ok .run-tool-state { color: var(--ok); }
+.run-tool-failed { border-color: color-mix(in srgb, var(--danger) 45%, var(--line)); }
+.run-tool-failed .run-tool-state { color: var(--danger); font-weight: 500; }
+.run-tool-err { padding: 0 var(--sp-5) var(--sp-4); color: var(--danger); font-size: var(--fs-xs); overflow-wrap: anywhere; }
+.run-caret { display: inline-block; width: 7px; height: 14px; background: var(--accent); animation: run-blink 1s steps(2) infinite; }
+@keyframes run-blink { 50% { opacity: 0; } }
+
+@media (max-width: 640px) {
+  .run-head .run-extra { display: none; }
+}
