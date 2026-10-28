@@ -13,6 +13,35 @@
 
 ---
 
+## 2026-10-28 第七批验收、第八批开工
+
+第七批 6 条（DEV-08a、DEV-08b、DEV-08c、CORE-07a、TASK-01、PROTO-09）全部检查通过，已提交验收并提交代码（edd4f69、39e017f、d5f5c78、a9aa13f、b6fd8f6、389c7d1）。检查项：gofmt、go vet、go test ./...、events 和 plugin 加 -race，前端 npm test 216 条、typecheck、lint、build，原型 tsc -b、smoke-proto 462 步 0 问题。
+
+第八批 5 条：DEV-08d、CORE-02a、CORE-04b、REL-02、PROTO-11。DEV-09（交给 Claude Code）和 DEV-08d 都要改任务抽屉底栏，放下一批。
+
+### 测试实例已重启，应用到 0017
+- 23:15 两批之间没有代理在跑，按上批的决定重启了 7796（`scripts/dev-instance.sh stop` 再 `start`，不是 reset），0016、0017 应用成功，任务数据不变。
+- 重启前用 `sqlite3 -readonly .backup` 留了一份停在 0015 的副本 `devinst/pm-before-0016.db`，REL-02 用它演练迁移前快照。
+
+### 事件总线放 internal/events，发布点在 store 外层包装（CORE-07a，同意）
+- **理由**：总线是内核设施，CORE-07c、CORE-08、今日页都要用；包装只覆盖五个写方法，写方法返回错误即回滚、不发事件，store 内部不用改。
+- **已知限制**：状态变化的 from 取自写之前另读的一次，并发改同一条时可能不准；单用户本机先接受。
+- **注册表 `Subscribers` 去掉锁**：停用插件时注册表在锁里等后台任务退出，任务里发事件会卡在这把锁上；`order`、`entries` 只在 Start 前改，启停走原子变量，不加锁安全。主会话加 -race 复跑通过。
+
+### 任务来源写入不校验取值（TASK-01，同意）
+- **理由**：存量数据里 source 有 `''` 和 `import`，收件箱用 `inbox`，加白名单会拒掉导入脚本和收件箱的写入。来源取值只在常量和契约里约定，以后需要再只对 `type=task` 收紧。
+
+### 抽屉三块的取舍（同意）
+- **DEV-08a**：「进行中」按领取时切到的状态判断，待验收的任务不会一直轮询；时间顺序直接把接口返回倒过来，因为 `created_at` 只精确到秒。
+- **DEV-08b**：产出物来源的中文名写在前端，这四个值是契约定死的，后端没有对应字典。
+- **DEV-08c**：从外部（curl、MCP）发起的执行，抽屉里只能在结束后看输出；页面里发起的才有流式输出，入口归 DEV-09。
+
+### PROTO-09 的取舍（同意）
+- 已删除的 Agent 用一个停用的占位 Agent 显示对话，和停用共用拦截逻辑。
+- 联系人规格没有对应条目，不改代码。
+
+---
+
 ## 2026-10-28 第六批验收、第七批开工
 
 第六批 4 条（DEV-07b、FE-00b、CORE-05、PROTO-10）全部检查通过，已提交验收并提交代码（64a19ce、71cbd45、749c67d、2fe9e34）。检查项：gofmt、go vet、go test ./...，前端 npm test 183 条、typecheck、lint、build，原型 tsc -b、smoke-proto 462 步 0 问题。
