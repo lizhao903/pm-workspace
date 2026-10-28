@@ -4,11 +4,35 @@
 
 不可逆或对外的事（推送、合并进 main、改真实库、改已应用的迁移、启动 7777、删除用户文件）不在授权范围内，一律记到「待用户决定」，不做。
 
+## 阶段总结（2026-10-29 05:00）
+
+从 2026-10-28 20:32 开始，按 `docs/dev-tasks.json` 分 24 批派子代理开发，到这里**能自动推进的任务都做完了**。
+
+- **清单状态**：134 条里，任务 105 条，其中 101 条已提交验收（待验收）、4 条未开工；另有 29 条需求级条目（M4 13 条、M5 8 条、M6 8 条），按清单约定开工前再拆成任务，这次没有拆。
+- **剩下的 4 条都需要用户本人**：
+  - DEV-11b：用 Claude Code 真跑三次开发闭环（切真实库的前提）。
+  - CONN-01c、IM-01b、IM-01c：GitHub、Slack、Telegram 真实接通，需要用户提供测试用的凭证。
+- **代码**：都在本地分支 `feat/prototype-dev-loop`，相对 main 一百多个提交，没有推送、没有合并。
+- **数据**：真实库 `data/pm.db` 和 7777 全程没碰；测试实例 7796 在 scratchpad 里，迁移到 0031，任务数据是导入的开发任务。
+- **做出来的东西（按里程碑）**：
+  - M1 开发任务闭环：正式前端的任务列表、抽屉、进展、产出物、执行记录、改动痕迹与验收退回、交给 Claude Code；MCP 回写；演练脚本 `scripts/dev-loop-drill.sh`。原型规格包和原型修正（PROTO 系列）。
+  - M2 插件化内核：插件清单校验、注册与启停、插件迁移和校验和、管理接口和管理页、事件总线和前端事件流、审计、通知、数据访问层、外壳和命令面板、扩展点、工作台、lint 边界规则、迁移前自动快照和回滚。
+  - M3 功能模块：今日聚合和今日页、定时任务（定义、调度、页面）、Webhook（配置、收件、页面）、文档（本机目录挂载、只读文件、文档页）、联系人（字段、IM 身份、会话、列表和抽屉）、会话页、模型服务商（含 Anthropic、DeepSeek）、连接器框架（OAuth、插件登记、影响检查、设置页）、项目插件（列表、概览、设置、任务、文档、干系人、沟通、支持材料、原型进程管理）、IM 消息插件（收消息框架、动作、与我相关、附件、消息页）、`make build` 默认新前端。
+  - QA：截图对照、正式前端冒烟、原型冒烟、契约路由和示例字段双向测试、大量数据夹具。
+- **最后一次检查**（第二十四批后）：gofmt、go vet、`go test ./...` 通过；前端 602 条测试、typecheck、lint、build 通过；smoke-frontend 42 次 0 问题；原型 smoke-proto 462 步 0 问题（第二十批后最后一次改原型时跑过）。
+- **文档欠账**（发布前补）：plugin-api.md 没写这几批新加的插件句柄和扩展点（Store 收窄规则、Conversations、Identities、ObjectWriter、Connectors、ConnectorImpact、Registrar.Connector 的新结构），插件 API 版本发布前定稿；契约里 `Artifact`、`TaskRun` 缺完整示例；后端的英文校验信息还没中文化。
+- **建议的下一步**（用户决定）：
+  1. 按「待用户决定」里 DEV-11b 那一行跑三次演练，结果记到 `docs/dev-loop-drill-log.md`。
+  2. 看过分支后决定推送、合并。
+  3. 切真实库：`make build`、重启 7777、导入任务。
+  4. 提供测试凭证后派 CONN-01c、IM-01b、IM-01c。
+  5. 拆 M4 及以后的需求条目，继续开发。
+
 ## 待用户决定
 
 | 事项 | 现状 | 建议 |
 |---|---|---|
-| 什么时候把开发任务和开发成果切到真实库 | 真实服务 7777 按用户指示停着；开发全程用测试实例 7796 | 第一批功能在测试实例上验收通过后，由用户重启 7777（启动时自动应用 0013），再用 `scripts/import-dev-tasks.py --api http://127.0.0.1:7777 --apply` 导入任务 |
+| 什么时候把开发任务和开发成果切到真实库 | 真实服务 7777 按用户指示停着，真实库停在 0012；开发全程用测试实例 7796（0031） | 先完成 DEV-11b 的三次演练；再由用户 `make build`（默认嵌新前端）并重启 7777：启动时自动快照到 `data/backups/`，一次性应用 0013 到 0031，失败整体回滚；然后用 `scripts/import-dev-tasks.py --api http://127.0.0.1:7777 --apply` 导入任务。回退步骤见 README |
 | 推送到远端、合并进 main | 所有提交都在本地 `feat/prototype-dev-loop` 分支 | 用户看过后决定 |
 | 真正用 Claude Code 走一遍开发闭环（DEV-11b，切真实库的前提是连续跑通三次） | DEV-11a 的脚本已合入（1ec42bb），子代理只用 pmw-mcp 模拟跑通过 | `PMW_DEV_DIR=/tmp/pmw-drill PMW_DEV_ADDR=127.0.0.1:7795 scripts/dev-loop-drill.sh setup`，按它打印的命令在 Claude Code 里执行 `/task <编号>`，再跑 `scripts/dev-loop-drill.sh check <编号>`；三次结果记到 `docs/dev-loop-drill-log.md` |
 | GitHub、Slack、Telegram 真实接通（CONN-01c、IM-01b、IM-01c） | 测试实例保险箱里没有真实凭证，规矩是不往里写 | 用户提供一个测试用的 GitHub Personal Access Token（或 OAuth App 的 client_id、secret），在测试实例界面里自己填；之后派 CONN-01c |
