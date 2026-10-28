@@ -884,7 +884,7 @@
     "spec": [
       "web-next/docs/dev-plan.md 2.7 生命周期（被依赖提示、卸载默认保留数据、删数据先备份）"
     ],
-    "body": "## 要做什么\n\n- `GET /api/plugins`：已装和可装、依赖、权限、状态。\n- 安装（检查依赖、记录权限确认、跑迁移）、启用、停用（被依赖时 409 并列出依赖方）、卸载（默认保留数据；删数据需要确认参数，并先自动快照）。\n\n## 注意事项\n\n- 迁移只加不改：`internal/db/migrations` 里 0001 到 0013 一行不动，新迁移从当时最新编号的下一个开始，只加新表、旧表只加列。0001 到 0004 没有校验和，更不能碰。开工前先看目录里的最新编号，并行任务撞号时后合入的改号。\n- 先在测试实例（`scripts/dev-instance.sh`）或备份副本的拷贝上演练，不碰 `data/pm.db`，不启动或重启 7777 上的服务。\n- 加了或删了路由要同步 `docs/api-contract.md`（`TestEveryRouteIsInTheContractDoc` / `TestContractDocHasNoDeadRoutes` 双向盯着）；契约文档同一时间只由一个任务改，避免并行冲突。",
+    "body": "## 要做什么\n\n- `GET /api/plugins`：已装和可装、依赖、权限、状态。\n- 安装（检查依赖、记录权限确认、跑迁移）、启用、停用（被依赖时 409 并列出依赖方）、卸载（默认保留数据；删数据需要确认参数，并先自动快照）。\n\n## 注意事项\n\n- 迁移只加不改：`internal/db/migrations` 里 0001 到 0013 一行不动，新迁移从当时最新编号的下一个开始，只加新表、旧表只加列。0001 到 0004 没有校验和，更不能碰。开工前先看目录里的最新编号，并行任务撞号时后合入的改号。\n- 先在测试实例（`scripts/dev-instance.sh`）或备份副本的拷贝上演练，不碰 `data/pm.db`，不启动或重启 7777 上的服务。\n- 加了或删了路由要同步 `docs/api-contract.md`（`TestEveryRouteIsInTheContractDoc` / `TestContractDocHasNoDeadRoutes` 双向盯着）；契约文档同一时间只由一个任务改，避免并行冲突。\n\n## 范围补充（2026-10-28，主会话决定）\n\n- 前端 FE-00b 现在读本地 `frontend/src/plugins/enabled.ts`；本条做完接口后，前端 `core/plugin/registry.ts` 的 `fetchPluginState()` 改读 `GET /api/plugins`，必须加超时和兜底：读不到就只显示内核模块，不能让页面空白。\n- cmd/pmw 现在对插件状态表另开了一组库连接，顺手改为复用 store 的连接。",
     "acceptance": "- [ ] 停用被依赖的插件返回 409，错误里列出依赖方\n- [ ] 卸载并删数据前自动快照，快照文件存在；不带确认参数时拒绝删数据\n- [ ] 契约文档更新，契约测试通过"
   },
   {
