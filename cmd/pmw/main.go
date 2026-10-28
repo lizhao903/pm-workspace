@@ -19,9 +19,11 @@ import (
 	"time"
 
 	"github.com/lizhao903/pm-workspace/internal/api"
+	"github.com/lizhao903/pm-workspace/internal/audit"
 	"github.com/lizhao903/pm-workspace/internal/db"
 	"github.com/lizhao903/pm-workspace/internal/events"
 	"github.com/lizhao903/pm-workspace/internal/plugin"
+	"github.com/lizhao903/pm-workspace/internal/plugins/projects"
 	"github.com/lizhao903/pm-workspace/internal/store/sqlite"
 	"github.com/lizhao903/pm-workspace/internal/vault"
 	"github.com/lizhao903/pm-workspace/internal/webui"
@@ -142,6 +144,9 @@ func run(cfg config) error {
 	// defer 晚于 plugins.Close 登记，所以先等在途的订阅者处理完再停插件。
 	bus := events.New(plugins, slog.Default())
 	plugins.Events = bus
+	if err := plugins.Add(projects.New()); err != nil {
+		return fmt.Errorf("登记插件失败: %w", err)
+	}
 	if err := plugins.Start(ctx); err != nil {
 		return fmt.Errorf("启动插件失败: %w", err)
 	}
@@ -149,10 +154,12 @@ func run(cfg config) error {
 	defer bus.Wait(5 * time.Second)
 
 	opts := api.Options{Version: version, Dev: cfg.dev, Vault: v, Plugins: plugins}
+	// 审计日志（CORE-08，0018）：删除和 Agent 写操作在 store 外层记，配置类在 handler 里记
+	opts.Audit = audit.New(pdb, slog.Default())
 	if !cfg.dev {
 		opts.UI = webui.Handler()
 	}
-	handler := api.New(events.WrapStore(st, bus), opts)
+	handler := api.New(events.WrapStore(audit.WrapStore(st, opts.Audit), bus), opts)
 
 	// 两个监听共用同一个 handler，但各自一个 http.Server：Server 内部持有
 	// 监听状态与在途连接，一个实例只能 Serve 一次，不能复用。

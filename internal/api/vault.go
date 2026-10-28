@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 
+	"github.com/lizhao903/pm-workspace/internal/audit"
 	"github.com/lizhao903/pm-workspace/internal/vault"
 )
 
@@ -59,6 +60,7 @@ func (s *Server) handleCreateSecret(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, err)
 		return
 	}
+	s.auditConfig(r, "create", "secret", out.ID, "凭证 "+out.Name+" "+audit.SecretSet, secretDetail(out, audit.SecretSet))
 	respondData(w, http.StatusCreated, out)
 }
 
@@ -80,16 +82,32 @@ func (s *Server) handleRotateSecret(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, err)
 		return
 	}
+	s.auditConfig(r, "rotate", "secret", out.ID, "凭证 "+out.Name+" "+audit.SecretUpdated, secretDetail(out, audit.SecretUpdated))
 	respondData(w, http.StatusOK, out)
+}
+
+// secretDetail 只有名字、种类、版本和提示：不带明文、密文和 hint（hint 含明文尾号）。
+func secretDetail(sec *vault.Secret, value string) map[string]any {
+	return map[string]any{"name": sec.Name, "kind": sec.Kind, "version": sec.Version, "value": value}
 }
 
 func (s *Server) handleDeleteSecret(w http.ResponseWriter, r *http.Request) {
 	if !s.vaultReady(w) {
 		return
 	}
-	if err := s.opt.Vault.Delete(r.Context(), r.PathValue("id")); err != nil {
+	id := r.PathValue("id")
+	label, d := id, map[string]any{}
+	if items, err := s.opt.Vault.List(r.Context()); err == nil {
+		for i := range items {
+			if items[i].ID == id {
+				label, d = items[i].Name, map[string]any{"name": items[i].Name, "kind": items[i].Kind}
+			}
+		}
+	}
+	if err := s.opt.Vault.Delete(r.Context(), id); err != nil {
 		s.fail(w, r, err)
 		return
 	}
+	s.auditConfig(r, "delete", "secret", id, "删除凭证 "+label, d)
 	respondData(w, http.StatusOK, nil)
 }

@@ -11,6 +11,7 @@ import (
 	"runtime/debug"
 	"time"
 
+	"github.com/lizhao903/pm-workspace/internal/audit"
 	"github.com/lizhao903/pm-workspace/internal/plugin"
 	"github.com/lizhao903/pm-workspace/internal/runner"
 	"github.com/lizhao903/pm-workspace/internal/store"
@@ -36,6 +37,10 @@ type Options struct {
 
 	// Plugins 是插件注册表；为 nil 时没有插件路由。必须在 New 之前 Start，路由在 New 时挂上。
 	Plugins *plugin.Registry
+
+	// Audit 是审计日志（CORE-08）；为 nil 时不记，GET /api/audits 回 500。
+	// 删除和 Agent 写操作由 audit.WrapStore 记，这里只给配置类 handler 和查询接口用。
+	Audit *audit.Log
 }
 
 type Server struct {
@@ -86,7 +91,7 @@ func (s *Server) build() http.Handler {
 		})
 	}
 
-	return s.recoverer(s.logging(limitBody(root)))
+	return s.recoverer(s.logging(limitBody(withActor(root))))
 }
 
 // routes 逐条对应 docs/api-contract.md 的表格，顺序保持一致便于比对。
@@ -212,6 +217,9 @@ func (s *Server) routes(m routeRegistrar) {
 	m.HandleFunc("POST /api/runs/{id}/cancel", s.handleCancelTaskRun)
 
 	m.HandleFunc("GET /api/revisions", s.handleRecentRevisions)
+
+	// 审计日志：只读，写入点在各处的 handler 和 audit.WrapStore。
+	m.HandleFunc("GET /api/audits", s.handleListAudits)
 
 	// 凭证保险箱。只回脱敏提示，明文没有任何读接口；{id}/rotate 比 {id} 多一段，不会被吃掉。
 	m.HandleFunc("GET /api/secrets", s.handleListSecrets)
