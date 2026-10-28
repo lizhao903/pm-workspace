@@ -2,8 +2,10 @@
 // 清单在构建时用 glob 读进来（只是数据），入口是懒加载的 glob，每个插件一个代码块，没启用的不会被请求。
 import type { ModuleDef } from './index'
 import type { Disposable, PluginEntry } from './api'
+import { commandRegistry, disposeCommandsOf } from './commands'
 import { checkManifest, formatIssue, parseManifest, PLUGIN_API_VERSION, type PluginManifest } from './manifest'
 import { enabledPlugins } from '../../plugins/enabled'
+import { requestList } from '../api'
 
 // 一个可装的插件：目录名、清单原文、入口加载函数
 export type PluginSource = {
@@ -50,9 +52,31 @@ export function discoverPlugins(): PluginSource[] {
   return [...out.values()]
 }
 
-// 启用列表。CORE-04b 之后改成读 GET /api/plugins（经 core/api），拿已启用的插件和当前插件 API 版本
-export async function fetchPluginState(): Promise<PluginState> {
-  return { enabled: [...enabledPlugins], apiVersion: PLUGIN_API_VERSION }
+// 启用列表读 GET /api/plugins：后端在跑（running）的插件按后端顺序；后端没有记录的插件
+// （后端还没编译进来的，例如示例 hello）按本地 enabled.ts 接在后面。后端有记录就以后端为准。
+// 最多等 timeoutMs；超时或读不到时抛错，loadPlugins 收下后只显示内核模块，并在插件提示里写原因
+export async function fetchPluginState(timeoutMs = 3000): Promise<PluginState> {
+  const ctl = new AbortController()
+  const timer = setTimeout(() => ctl.abort(), timeoutMs)
+  let rows: unknown[]
+  try {
+    rows = (await requestList<unknown>('/api/plugins', { signal: ctl.signal })).data
+  } catch (e) {
+    if (ctl.signal.aborted) throw new Error(`${timeoutMs / 1000} 秒内没有返回，只显示内核模块`)
+    throw new Error(`${(e as Error).message}，只显示内核模块`)
+  } finally {
+    clearTimeout(timer)
+  }
+  const known = new Set<string>()
+  const enabled: string[] = []
+  for (const r of rows) {
+    if (!r || typeof r !== 'object' || typeof (r as { id?: unknown }).id !== 'string') continue
+    const { id, running } = r as { id: string; running?: unknown }
+    known.add(id)
+    if (running === true) enabled.push(id)
+  }
+  for (const id of enabledPlugins) if (!known.has(id)) enabled.push(id)
+  return { enabled, apiVersion: PLUGIN_API_VERSION }
 }
 
 // 按启用列表挑插件：清单不合法、id 和目录名不符、依赖没启用或版本不符、成环的都不加载。
@@ -151,8 +175,10 @@ export async function loadPlugins(
             }
           },
         },
+        commands: commandRegistry(m.id, m.provides, reasons, isDev),
       })
     } catch (e) {
+      disposeCommandsOf(m.id)
       console.error(`插件 ${m.id} 加载失败`, e)
       problems.push({ id: m.id, name: m.name, reasons: ['加载失败：' + (e as Error).message] })
       continue

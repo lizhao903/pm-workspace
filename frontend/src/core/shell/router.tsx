@@ -16,16 +16,15 @@ export function createAppRouter(modules: ModuleDef[]) {
           path: m.path + '/*',
           lazy: async () => ({ Component: (await m.load()).default }),
         })),
-        // 只在 dev 构建出现：设计变量对照页。build 时 import.meta.env.DEV 为 false，这段连同页面一起被摇掉
+        // 只在 dev 构建出现：设计变量对照页、基础组件演示页。build 时 import.meta.env.DEV 为 false，这段连同页面一起被摇掉
         ...(import.meta.env.DEV
-          ? [{ path: '_dev/tokens', lazy: async () => ({ Component: (await import('../ui/dev/TokensPage')).default }) }]
+          ? [
+            { path: '_dev/tokens', lazy: async () => ({ Component: (await import('../ui/dev/TokensPage')).default }) },
+            { path: '_dev/components', lazy: async () => ({ Component: (await import('../ui/dev/ComponentsPage')).default }) },
+          ]
           : []),
         { path: '*', element: <Placeholder title="页面不存在" /> },
       ],
     },
-    // 基础组件演示页不套外壳：外壳的侧栏还没做窄屏（CORE-02a），套着它 390px 宽下内容区只剩一百来像素
-    ...(import.meta.env.DEV
-      ? [{ path: '/_dev/components', errorElement: <RouteError />, lazy: async () => ({ Component: (await import('../ui/dev/ComponentsPage')).default }) }]
-      : []),
   ])
 }

@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { ModuleDef } from './index'
 import { definePlugin, type PluginEntry } from './api'
 import { PLUGIN_API_VERSION, type PluginManifest } from './manifest'
@@ -34,8 +34,65 @@ describe('discoverPlugins', () => {
     expect(typeof hello!.load).toBe('function')
   })
 
-  it('本地启用列表里有 hello', async () => {
-    expect((await fetchPluginState()).enabled).toContain('hello')
+})
+
+describe('fetchPluginState', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    vi.restoreAllMocks()
+  })
+
+  const reply = (data: unknown, status = 200) =>
+    vi.fn((_url: string, _init?: RequestInit) =>
+      Promise.resolve(new Response(JSON.stringify(status < 400 ? { data, meta: { total: 0 } } : { error: { code: 'internal', message: '坏了' } }), { status })),
+    )
+
+  it('读 GET /api/plugins：在跑的按后端顺序，后端没有记录的按本地启用列表接在后面', async () => {
+    const f = reply([
+      { id: 'bb', running: true },
+      { id: 'aa', running: true },
+      { id: 'cc', enabled: true, running: false },
+    ])
+    vi.stubGlobal('fetch', f)
+    const st = await fetchPluginState()
+    expect(f.mock.calls[0][0]).toBe('/api/plugins')
+    expect(f.mock.calls[0][1]?.method).toBe('GET')
+    expect(st).toEqual({ enabled: ['bb', 'aa', 'hello'], apiVersion: PLUGIN_API_VERSION })
+  })
+
+  it('后端有记录就以后端为准：后端说 hello 没在跑，本地启用列表也不加', async () => {
+    vi.stubGlobal('fetch', reply([{ id: 'hello', installed: true, running: false }, { bad: 1 }, null]))
+    expect((await fetchPluginState()).enabled).toEqual([])
+  })
+
+  it('后端没有插件时只剩本地的 hello', async () => {
+    vi.stubGlobal('fetch', reply([]))
+    expect((await fetchPluginState()).enabled).toEqual(['hello'])
+  })
+
+  it('超时：中止请求并抛错', async () => {
+    let signal: AbortSignal | undefined
+    vi.stubGlobal('fetch', (_url: string, init?: RequestInit) => {
+      signal = init?.signal ?? undefined
+      return new Promise((_, reject) => signal?.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError'))))
+    })
+    await expect(fetchPluginState(20)).rejects.toThrow('0.02 秒内没有返回，只显示内核模块')
+    expect(signal?.aborted).toBe(true)
+  })
+
+  it('读不到时 loadPlugins 只给内核模块，插件提示里写原因', async () => {
+    vi.stubGlobal('fetch', () => Promise.reject(new TypeError('fetch failed')))
+    const used = vi.fn(entry('hello'))
+    const r = await loadPlugins([{ ...src('hello'), load: used }])
+    expect(used).not.toHaveBeenCalled()
+    expect(r.modules).toEqual([])
+    expect(r.problems).toEqual([{ id: '插件列表', reasons: ['读取失败：fetch failed，只显示内核模块'] }])
+    expect(mergeModules([{ id: 'today', label: '今日', path: 'today', load: page }], r.modules, []).map((m) => m.id)).toEqual(['today'])
+  })
+
+  it('后端回错误也按读不到处理', async () => {
+    vi.stubGlobal('fetch', reply(null, 500))
+    await expect(fetchPluginState()).rejects.toThrow('坏了，只显示内核模块')
   })
 })
 

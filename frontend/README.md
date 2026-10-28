@@ -179,7 +179,7 @@ src/
 |---|---|
 | `tokens.css` | 设计变量：颜色、圆角、阴影、布局尺寸、字体，浅色写在 `:root`，深色写在 `:root[data-theme='dark']` |
 | `base.css` | 基础排版：正文字体和行高（13px / 1.5）、按钮与表单继承字体、焦点框、链接、滚动条 |
-| `theme.ts` | 主题偏好：`useTheme()` 返回 `{ pref, resolved, setTheme }`，`ThemeSwitch` 是三选一的切换控件（放在侧栏底部） |
+| `theme.ts` | 主题偏好：`useTheme()` 返回 `{ pref, resolved, setTheme }`，`ThemeSwitch` 是三选一的切换控件；外壳（CORE-02a）里主题从命令面板切换 |
 
 - 颜色一律引用变量（`var(--accent)`），组件和页面里不写色值；`.tsx` 里不出现 `#xxxxxx`，验收用 `grep -rnE "#[0-9a-fA-F]{3,8}\b" src --include=*.tsx` 检查。
 - 主题三选一：浅色（默认）、深色、跟随系统。偏好存 localStorage 的 `pmw-theme`（旧前端用的是 `pmw.theme`，换键避免同域上线后互相读错）；读写都包了 try/catch，拿不到存储时只在本次会话生效。实际生效的明暗写在 `<html data-theme>`，模块加载时就写上，首屏不闪；选跟随系统时监听系统明暗变化，别的标签页改了偏好也会跟着变。
@@ -213,7 +213,7 @@ src/
 | `Subnav` | `Subnav.tsx` | 二级菜单，可分组、红点提醒、底部吸底操作；`search` 开启后条目超过 `min`（默认 12）出搜索框，回车打开第一条，Esc 清空；760px 以下变顶部横排 |
 | `EmptyState`、`LoadingState`、`ErrorState` | `states.tsx` | 空、加载中、出错三态；`ErrorState` 的 `error` 传 `Error`（含 `ApiError`）取 message，给 `onRetry` 带「重试」 |
 
-- 演示页：`npm run dev` 后打开 `/_dev/components`，列出全部组件，页内可切主题。为了在 390px 宽下也能看，这个页面不套外壳（外壳侧栏的窄屏在 CORE-02a）；和 `/_dev/tokens` 一样用 `import.meta.env.DEV` 守着，构建产物里没有。
+- 演示页：`npm run dev` 后打开 `/_dev/components`，列出全部组件，页内可切主题。CORE-02a 做完窄屏后已挪回外壳里；和 `/_dev/tokens` 一样用 `import.meta.env.DEV` 守着，构建产物里没有。
 - 组件测试：`SearchSelect.test.tsx`（过滤、键盘选择、Esc、多选）、`Drawer.test.tsx`（焦点进出、Esc 关闭、未保存确认、内层弹层的 Esc 不关抽屉）、`ConfirmDialog.test.tsx`（连带影响、Tab 循环），`searchMatch.test.ts` 是匹配规则的纯函数测试。
 - 层级：抽屉 40，确认弹窗遮罩 300，`SearchSelect` 弹层 400（确认弹窗里也能用）。
 
