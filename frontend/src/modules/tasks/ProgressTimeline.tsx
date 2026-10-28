@@ -1,9 +1,9 @@
 // 任务抽屉的进展时间线（DEV-08a）：领取、进展、提交验收按时间顺序排，提交验收那条醒目显示；
-// 进行中的任务抽屉打开期间每 10 秒刷新；底部可以手工追加一条进展。样式借原型 monitor.tsx 的 mo-timeline。
+// 进行中的任务抽屉打开期间按事件流刷新，事件流断开时每 10 秒轮询；底部可以手工追加一条进展。样式借原型 monitor.tsx 的 mo-timeline。
 import { Fragment, useEffect, useId, useRef, useState, type Ref } from 'react'
 import {
   PROGRESS_LIMIT, chronological, errorText, isInProgress, progressKindLabel, shortSession, useAppendProgress, useNotifyChange, useObject,
-  useObjectTypes, useProgress, type ObjectStatus, type Progress, type WorkObject,
+  useEventsLive, useObjectTypes, useProgress, type ObjectStatus, type Progress, type WorkObject,
 } from '../../core/data'
 import { Button, ErrorState, Pill, Tag, Tags, Textarea, cls } from '../../core/ui'
 import { Markdown } from './Markdown'
@@ -23,8 +23,9 @@ export function ProgressTimeline({ task }: { task: WorkObject }) {
   const types = useObjectTypes()
   const statuses = types.data?.find((t) => t.id === task.type_id)?.statuses ?? []
 
-  // 进行中才轮询
+  // 进行中才自动刷新
   const q = useProgress(task.id, status)
+  const pushed = useEventsLive()
   const rows = q.data ?? []
   const inProgress = isInProgress(status, rows)
 
@@ -43,7 +44,7 @@ export function ProgressTimeline({ task }: { task: WorkObject }) {
       <div className="dev-slot-head">
         <span className="field-group-title">进展</span>
         {rows.length > 0 && <span className="prog-count">{rows.length} 条</span>}
-        {inProgress && <span className="prog-live" title="抽屉打开期间每 10 秒刷新一次">进行中，自动刷新</span>}
+        {inProgress && <span className="prog-live" title={pushed ? '有新进展即时刷新' : '事件流未连上，抽屉打开期间每 10 秒刷新一次'}>进行中，自动刷新</span>}
         <span className="spacer" />
         {lastReview && (
           <button type="button" className="prog-jump" onClick={() => reviewRef.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })}>

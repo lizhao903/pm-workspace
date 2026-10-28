@@ -1,4 +1,5 @@
-// 内核模块。顺序就是侧边栏顺序，启用的插件模块接在后面。
+// 内核模块，各自用 defineCoreModule 标 core。顺序就是侧边栏顺序，启用的插件模块接在后面。
+// initPlugins 先把它们登记进模块注册表（所有者是内核，不能停用），再加载插件
 import { initPlugins, type ModuleDef } from '../core/plugin'
 import { module as today } from './today'
 import { module as tasks } from './tasks'

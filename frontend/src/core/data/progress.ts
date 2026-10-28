@@ -2,12 +2,13 @@
 // 只记进展报 { kind: 'progress' }；带 status 的（同一事务改了状态）按对象改动处理，列表和计数一起刷新。
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { objects, type Progress, type ProgressInput, type ProgressKind, type Revision } from '../api'
+import { useEventsLive } from './events'
 import { useNotifyChange } from './invalidate'
 import { dataKeys } from './keys'
 
 // 后端默认就是 100
 export const PROGRESS_LIMIT = 100
-// 进行中的任务抽屉打开期间的刷新间隔；M2 有事件推送后改成推送（CORE-07c）
+// 进行中的任务抽屉打开期间、事件流断开时的刷新间隔；连着时靠推送（CORE-07c）
 export const PROGRESS_POLL_MS = 10_000
 
 /** kind 是契约里的固定取值（claim / note / review），不是字典，标识在这里定 */
@@ -62,13 +63,15 @@ export function revisionSummary(r: Pick<Revision, 'field' | 'old_value' | 'new_v
   return `${r.field} 从 ${r.old_value} 改成 ${r.new_value}`
 }
 
-// 进展列表；传了对象当前状态且任务进行中时每 10 秒刷新一次（判定要用拿到的领取记录）
+// 进展列表；传了对象当前状态且任务进行中、事件流又没连着时每 10 秒刷新一次（判定要用拿到的领取记录）
 export function useProgress(id: string | null, status?: string) {
+  // 连接状态变了要重新算轮询间隔，所以在这里订阅，不在 refetchInterval 里现读
+  const live = useEventsLive()
   return useQuery({
     queryKey: dataKeys.objects.progress(id ?? ''),
     queryFn: () => objects.progress(id ?? '', { limit: PROGRESS_LIMIT }),
     enabled: !!id,
-    refetchInterval: (q) => (status !== undefined && isInProgress(status, q.state.data ?? []) ? PROGRESS_POLL_MS : false),
+    refetchInterval: (q) => (!live && status !== undefined && isInProgress(status, q.state.data ?? []) ? PROGRESS_POLL_MS : false),
     // 抽屉在后台标签页里不用刷
     refetchIntervalInBackground: false,
   })

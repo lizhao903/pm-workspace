@@ -79,7 +79,7 @@ export const PERMISSIONS: readonly string[] = [
 // 内核事件第一版（docs/plugin-api.md 2.10）
 export const KERNEL_EVENTS: readonly string[] = [
   'object.created', 'object.updated', 'object.status_changed',
-  'task.review_requested', 'run.finished', 'contact.identity_merged',
+  'task.review_requested', 'run.finished', 'contact.identity_merged', 'object.progress_appended',
 ]
 
 const kernelEventNamespaces = ['object', 'task', 'run', 'contact']
