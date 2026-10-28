@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import type { Task } from './taskdata'
-import { isOpenTask } from './taskdata'
+import { isOpenTask, localDay } from './taskdata'
 import { PriorityTag } from './tasks'
 import { useEnumView } from './enumdata'
 import { PageTitle } from './topbar'
@@ -30,7 +30,6 @@ const TONE_RANK = { danger: 0, warn: 1, info: 2 }
 /** 组内排序：异常在前，同级按时间新的在前，没时间的放最后 */
 const byUrgency = (a: TodayItem, b: TodayItem) => TONE_RANK[a.tone] - TONE_RANK[b.tone] || (b.at ?? '').localeCompare(a.at ?? '')
 
-const today = () => new Date().toISOString().slice(0, 10)
 function greet() {
   const h = new Date().getHours()
   return h < 6 ? '夜深了' : h < 11 ? '早上好' : h < 13 ? '中午好' : h < 18 ? '下午好' : '晚上好'
@@ -54,7 +53,7 @@ export function TodayPage({ needs, tasks, schedules, running, more, onOpenTask, 
 }) {
   const statusEnum = useEnumView('task_status')
   const [ask, setAsk] = useState<Task | null>(null)
-  const t = today()
+  const t = localDay()
   const open = tasks.filter((x) => isOpenTask(x.status))
   const overdue = open.filter((x) => x.due && x.due < t).sort((a, b) => a.due!.localeCompare(b.due!))
   const dueToday = open.filter((x) => x.due === t)

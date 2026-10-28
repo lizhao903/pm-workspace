@@ -10,7 +10,7 @@ import { SECTIONS, SettingsNav, type Section } from './settings'
 import { CommandPalette, type PaletteItem } from './palette'
 import { SOPS, act as actOnRun, seedRuns, sopById, tick, runStatus, startRun, upsertSop, type Json, type RunAction } from './sopflow'
 import { SopEditor, newSopDraft } from './sopedit'
-import { ingest, newTask, seedDeliveries, seedHooks, seedTasks, type TaskStatus, isOpenTask } from './taskdata'
+import { ingest, newTask, seedDeliveries, seedHooks, seedTasks, type TaskStatus, isOpenTask, localDay } from './taskdata'
 import { TaskDrawer, TasksNav, TasksPage, WebhookPage, newHook, type TaskDraft, type TaskView } from './tasks'
 import { ScheduleDrawer, SchedulesPage } from './schedule'
 import { nextRun, seedSchedules, whenText, type Schedule } from './scheduledata'
@@ -438,7 +438,8 @@ export default function App() {
     let text = ''
     let ref: string | undefined
     if (a.kind === 'task') {
-      const due = new Date(now.getTime() + a.due_days * 86400000).toISOString().slice(0, 10)
+      const dueAt = new Date(now); dueAt.setDate(dueAt.getDate() + a.due_days)
+      const due = localDay(dueAt)
       const t = newTask(tasks, { title: a.title.replace(/\{\{\s*date\s*\}\}/g, now.toLocaleDateString('zh-CN')), desc: a.desc, priority: a.priority, assignee: a.assignee, due, source: { kind: 'schedule', schedule_id: sc.id, name: sc.name } })
       setTasks((xs) => [t, ...xs])
       text = `建了任务 ${t.ref}`
@@ -564,22 +565,23 @@ export default function App() {
   const ctx = { tasks, messages, contacts, sops: sops.map((x) => ({ id: x.id, name: x.name })) }
 
   // 今日：从各模块收「需要你处理」的事；按数据缓存，别的状态变化不重算（点击回调里只用 setState 和稳定的跳转，旧闭包也没关系）
-  const todayNeeds: TodayItem[] = useMemo(() => [
-    ...runs.filter((r) => ['waiting', 'failed'].includes(runStatus(r))).map((r) => ({
+  // 模块不在当前工作台时它贡献的组整组不出现；运行异常、连接异常在设置里，一直有
+  const todayNeeds: TodayItem[] = useMemo(() => { const modOn = (k: (typeof bench.modules)[number]) => bench.modules.includes(k); return [
+    ...(!modOn('sop') ? [] : runs).filter((r) => ['waiting', 'failed'].includes(runStatus(r))).map((r) => ({
       id: `sop-${r.id}`, kind: 'SOP', tone: runStatus(r) === 'failed' ? 'danger' as const : 'warn' as const, title: r.title,
       sub: runStatus(r) === 'failed' ? '有步骤执行失败' : '停在人工检查或判断，等你处理', at: new Date(r.started_at).toISOString(), action: '去处理',
       onClick: () => { setPage('sop'); setOpenRun(r.id); setDrawer(null) },
     })),
-    ...agentRuns.filter((r) => r.status === 'waiting').map((r) => ({
+    ...(!modOn('sessions') ? [] : agentRuns).filter((r) => r.status === 'waiting').map((r) => ({
       id: `ar-${r.id}`, kind: 'Agent 待确认', tone: 'warn' as const, title: `${agents.find((a) => a.id === r.agent_id)?.name ?? 'Agent'}：${r.trigger}`,
       sub: r.summary, at: r.at, action: '去确认', onClick: () => { setPage('sessions'); setSessionView('runs'); setDrawer(null) },
     })),
-    ...sessions.filter((x) => x.messages.some((m) => m.calls?.some((c) => c.state === 'pending'))).map((x) => ({
+    ...(!modOn('sessions') ? [] : sessions).filter((x) => x.messages.some((m) => m.calls?.some((c) => c.state === 'pending'))).map((x) => ({
       id: `ss-${x.id}`, kind: 'Agent 待确认', tone: 'warn' as const, title: `会话「${x.title}」里有操作等你确认`, sub: agents.find((a) => a.id === x.agent_id)?.name ?? '',
       at: x.updated_at, action: '去确认', onClick: () => { setPage('sessions'); setSessionView('chats'); setCurrentSession(x.id); setDrawer(null) },
     })),
     // 待验收的任务：Claude Code 提交验收后等你拍板，排在 IM 消息前面；在今日页上直接打开抽屉
-    ...tasks.filter((t) => t.status === 'review').map((t) => {
+    ...(!modOn('tasks') ? [] : tasks).filter((t) => t.status === 'review').map((t) => {
       const last = dev.progress.filter((p) => p.task_id === t.id && p.kind === 'review').sort((a, b) => b.at.localeCompare(a.at))[0]
       const pj = projects.find((x) => x.id === t.project_id)?.name
       return {
@@ -588,7 +590,7 @@ export default function App() {
         at: last?.at ?? t.updated_at, action: '去验收', onClick: () => setDrawer({ kind: 'task', id: t.id }),
       }
     }),
-    ...messages.filter((m) => m.status === 'pending' && !(m.snooze_until && new Date(m.snooze_until).getTime() > Date.now())).map((m) => ({
+    ...(!modOn('messages') ? [] : messages).filter((m) => m.status === 'pending' && !(m.snooze_until && new Date(m.snooze_until).getTime() > Date.now())).map((m) => ({
       id: `im-${m.id}`, kind: 'IM 消息', tone: 'info' as const, title: `${m.sender_name}：${m.text}`, sub: m.conversation || '私聊', at: m.at, action: '回复',
       onClick: () => { setPage('messages'); openMessage(m.id) },
     })),
@@ -604,7 +606,7 @@ export default function App() {
       id: `pv-${x.id}`, kind: '连接异常', tone: 'danger' as const, title: `模型服务商「${x.name}」异常`, sub: x.error ?? '', action: '去修复',
       onClick: () => { go('settings'); setSection('providers'); setDrawer({ kind: 'provider', id: x.id }) },
     })),
-  ], [runs, agentRuns, agents, sessions, messages, incidents, connectors, providers, tasks, dev.progress, projects])
+  ] }, [runs, agentRuns, agents, sessions, messages, incidents, connectors, providers, tasks, dev.progress, projects, bench.modules])
   const todaySchedules: TodayLine[] = useMemo(() => schedules.filter((x) => x.enabled).map((x) => ({ x, n: nextRun(x.rule) }))
     .filter(({ n }) => n && n.toDateString() === new Date().toDateString())
     .map(({ x, n }) => ({ id: x.id, title: x.name, sub: whenText(n).replace('今天 ', ''), onClick: () => { setPage('tasks'); setTaskView('schedules'); setDrawer({ kind: 'schedule', id: x.id }) } })), [schedules])
@@ -1153,7 +1155,8 @@ export default function App() {
         onClose={() => setDrawer(null)}
         onSave={(x) => { setSchedules((xs) => (xs.some((y) => y.id === x.id) ? xs.map((y) => (y.id === x.id ? x : y)) : [x, ...xs])); setDrawer({ kind: 'schedule', id: x.id }) }}
         onDelete={() => { setSchedules((xs) => xs.filter((y) => y.id !== sc?.id)); setDrawer(null) }}
-        onRunNow={runScheduleNow} />
+        onRunNow={runScheduleNow}
+        openTask={(ref) => { const t = tasks.find((x) => x.ref === ref); return t && (() => setDrawer({ kind: 'task', id: t.id })) }} />
     )
   }
 
