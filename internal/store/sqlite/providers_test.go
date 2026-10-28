@@ -260,7 +260,8 @@ func TestUpdateProviderAPIKeyTriState(t *testing.T) {
 	if err != nil {
 		t.Fatalf("update without api_key: %v", err)
 	}
-	if !out.HasAPIKey || out.APIKeyMasked != "sk-…1111" {
+	// 18 位的密钥按保险箱的脱敏规则只留后 4。
+	if !out.HasAPIKey || out.APIKeyMasked != "…1111" {
 		t.Errorf("不传 api_key 时掩码 = %q has=%v, 期望保留原密钥", out.APIKeyMasked, out.HasAPIKey)
 	}
 	if plain, _ := s.ProviderAPIKey(ctx, p.ID); plain != "sk-old-000000-1111" {
@@ -273,8 +274,8 @@ func TestUpdateProviderAPIKeyTriState(t *testing.T) {
 	if err != nil {
 		t.Fatalf("update with api_key: %v", err)
 	}
-	if out.APIKeyMasked != "sk-…9999" {
-		t.Errorf("覆盖后掩码 = %q, 期望 sk-…9999", out.APIKeyMasked)
+	if out.APIKeyMasked != "…9999" {
+		t.Errorf("覆盖后掩码 = %q, 期望 …9999", out.APIKeyMasked)
 	}
 	if plain, _ := s.ProviderAPIKey(ctx, p.ID); plain != newKey {
 		t.Errorf("覆盖后明文 = %q, 期望 %q", plain, newKey)

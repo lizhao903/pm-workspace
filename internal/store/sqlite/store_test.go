@@ -2,6 +2,7 @@ package sqlite
 
 import (
 	"context"
+	"crypto/rand"
 	"errors"
 	"fmt"
 	"path/filepath"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/lizhao903/pm-workspace/internal/domain"
 	"github.com/lizhao903/pm-workspace/internal/store"
+	"github.com/lizhao903/pm-workspace/internal/vault"
 )
 
 func newStore(t *testing.T) (*Store, context.Context) {
@@ -20,6 +22,18 @@ func newStore(t *testing.T) (*Store, context.Context) {
 		t.Fatalf("open store: %v", err)
 	}
 	t.Cleanup(func() { _ = s.Close() })
+	// 服务商密钥要进保险箱：和 store 共用连接，主密钥随机生成。
+	key := make([]byte, 32)
+	if _, err := rand.Read(key); err != nil {
+		t.Fatal(err)
+	}
+	v, err := vault.New(s.db, key)
+	if err != nil {
+		t.Fatalf("open vault: %v", err)
+	}
+	if _, err := s.AttachVault(ctx, v); err != nil {
+		t.Fatalf("attach vault: %v", err)
+	}
 	return s, ctx
 }
 
