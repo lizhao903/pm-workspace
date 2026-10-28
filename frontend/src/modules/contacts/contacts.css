@@ -1,0 +1,78 @@
+/* 联系人模块样式，照原型 web-next/src/styles.css 的工具条和联系人表（.table .tr .tr-sec .who .star .im-mark）；
+   类名带 ct- 前缀，不和任务模块的同名规则互相覆盖；颜色全走 tokens.css 的变量 */
+.ct-page { display: flex; flex-direction: column; gap: var(--sp-6); min-width: 0; }
+
+/* ---------- 工具条 ---------- */
+.ct-toolbar { display: flex; align-items: center; gap: var(--sp-4); flex-wrap: wrap; }
+.ct-toolbar .seg { display: flex; padding: 2px; border-radius: var(--r-sm); background: var(--hover); max-width: 100%; overflow-x: auto; }
+.ct-toolbar .seg button { display: flex; align-items: center; gap: 5px; height: 28px; padding: 0 var(--sp-5); border-radius: 4px; color: var(--muted); font-size: var(--fs-sm); white-space: nowrap; }
+.ct-toolbar .seg button:hover { color: var(--text); }
+.ct-toolbar .seg button.on { background: var(--panel); color: var(--text); box-shadow: var(--shadow-sm); font-weight: 500; }
+.ct-toolbar .chip-select select { height: 100%; border: 0; outline: 0; background: none; color: inherit; font: inherit; cursor: pointer; max-width: 100%; min-width: 0; text-overflow: ellipsis; }
+.ct-toolbar .search input::-webkit-search-cancel-button { display: none; }
+.ct-sort { display: flex; align-items: center; gap: 6px; color: var(--faint); font-size: var(--fs-xs); }
+.ct-sort select { height: 30px; padding: 0 var(--sp-4); border-radius: var(--r-sm); border: 1px solid var(--line); background: var(--panel); color: var(--text); font: inherit; max-width: 100%; }
+.ct-err { color: var(--danger); font-size: var(--fs-sm); }
+
+/* ---------- 表格：表头吸顶（overflow 用 clip 才不会把吸顶困在表格里），按最近联系 / 首字母分段，底部显示更多 ---------- */
+.ct-table { border: 1px solid var(--line); border-radius: var(--r-lg); background: var(--panel); overflow: clip; box-shadow: var(--shadow-sm); container-type: inline-size; }
+.ct-tr {
+  display: grid; align-items: center;
+  grid-template-columns: 28px minmax(170px, 1.3fr) minmax(100px, 1fr) 92px 130px 156px minmax(140px, 1.1fr) 80px;
+  gap: var(--sp-6); min-height: 52px; padding: 0 var(--sp-8) 0 var(--sp-5);
+  border-bottom: 1px solid var(--line); cursor: pointer; min-width: 0;
+}
+.ct-tr:last-child { border-bottom: 0; }
+.ct-tr:not(.ct-th):hover { background: var(--panel-2); }
+.ct-tr.sel { background: var(--accent-soft); box-shadow: inset 3px 0 0 var(--accent); }
+.ct-tr:focus-visible { outline: 2px solid var(--accent-line); outline-offset: -2px; }
+.ct-th { position: sticky; top: 0; z-index: 1; min-height: 36px; background: var(--panel-2); font-size: var(--fs-xs); font-weight: 500; color: var(--faint); cursor: default; }
+.ct-sec { display: flex; align-items: center; gap: 6px; min-height: 30px; padding: 0 var(--sp-8); border-bottom: 1px solid var(--line); background: var(--panel-2); color: var(--muted); font-size: var(--fs-xs); font-weight: 600; }
+.ct-more { display: flex; align-items: center; justify-content: center; gap: 6px; width: 100%; min-height: 44px; color: var(--accent); font-size: var(--fs); font-weight: 500; }
+.ct-more:hover { background: var(--panel-2); }
+.ct-who { display: flex; align-items: center; gap: var(--sp-5); min-width: 0; }
+.ct-who-text { display: flex; flex-direction: column; min-width: 0; line-height: 1.35; }
+.ct-who-name { font-weight: 500; }
+.ct-who-title { font-size: var(--fs-xs); color: var(--faint); }
+.ct-mono { font-family: var(--mono); font-size: var(--fs-sm); }
+.ct-star { display: grid; place-items: center; width: 24px; height: 24px; border-radius: 5px; color: var(--line-2); flex: none; }
+.ct-star:hover { color: var(--faint); background: var(--hover); }
+.ct-star.on { color: var(--warn); }
+.ct-im { display: inline-flex; flex-wrap: wrap; gap: 3px; }
+.ct-im-mark {
+  display: inline-grid; place-items: center; height: 20px; padding: 0 5px; border-radius: 5px; font-size: var(--fs-2xs); font-weight: 600;
+  color: color-mix(in srgb, var(--c) 85%, var(--text)); background: color-mix(in srgb, var(--c) 13%, transparent);
+}
+
+/* 接口还没有 IM 身份时少一列 */
+.ct-no-im .ct-tr { grid-template-columns: 28px minmax(170px, 1.3fr) minmax(100px, 1fr) 92px 130px minmax(140px, 1.1fr) 80px; }
+
+/* 表格按自身宽度收列，而不是按视口。列顺序：星标、姓名、公司、分组、电话、IM、邮箱、最近联系 */
+@container (max-width: 960px) {
+  .ct-table .ct-tr { grid-template-columns: 28px minmax(160px, 1.3fr) minmax(100px, 1fr) 90px 130px 150px 76px; }
+  .ct-table .ct-tr > :nth-child(7) { display: none; }
+  .ct-table.ct-no-im .ct-tr { grid-template-columns: 28px minmax(160px, 1.3fr) minmax(100px, 1fr) 90px 130px 76px; }
+  .ct-table.ct-no-im .ct-tr > :nth-child(6) { display: none; }
+  .ct-table.ct-no-im .ct-tr > :nth-child(7) { display: block; }
+}
+@container (max-width: 680px) {
+  .ct-table .ct-tr { grid-template-columns: 24px minmax(110px, 1fr) 84px 140px 64px; gap: var(--sp-5); }
+  .ct-table .ct-tr > :nth-child(3), .ct-table .ct-tr > :nth-child(5), .ct-table .ct-tr > :nth-child(7) { display: none; }
+  .ct-table.ct-no-im .ct-tr { grid-template-columns: 24px minmax(110px, 1fr) 84px 64px; }
+  .ct-table.ct-no-im .ct-tr > :nth-child(6) { display: none; }
+  .ct-table.ct-no-im .ct-tr > :nth-child(7) { display: block; }
+}
+@container (max-width: 460px) {
+  .ct-table .ct-tr { grid-template-columns: 24px minmax(110px, 1fr) 84px 64px; }
+  .ct-table .ct-tr > :nth-child(6) { display: none; }
+}
+
+/* ---------- 抽屉查看态 ---------- */
+.ct-head { display: flex; align-items: center; gap: var(--sp-7); margin-bottom: var(--sp-10); min-width: 0; }
+.ct-head-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.ct-head-name { display: flex; align-items: center; gap: var(--sp-2); font-size: var(--fs-xl); font-weight: 600; min-width: 0; }
+.ct-kv { display: grid; grid-template-columns: 72px minmax(0, 1fr); gap: var(--sp-5) var(--sp-6); margin: 0 0 var(--sp-10); }
+.ct-kv dt { color: var(--faint); font-size: var(--fs-sm); }
+.ct-kv dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+.ct-note-title { font-size: var(--fs-sm); font-weight: 600; color: var(--muted); margin-bottom: var(--sp-3); }
+.ct-note p { margin: 0 0 var(--sp-3); white-space: pre-wrap; }

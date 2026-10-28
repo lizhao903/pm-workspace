@@ -66,6 +66,12 @@ export type {
   Webhook, WebhookWithSecret, WebhookInput, WebhookPatch, WebhookMapping, WebhookDefaults, WebhookUsage, Delivery, DeliveryResult,
   LastDelivery,
 } from './webhooks'
+export {
+  providersApi, useProviderChecks, useCreateProvider, usePatchProvider, useDeleteProvider, useSetDefaultProvider, useTestProvider,
+} from './providers'
+export type { ProviderProtocol, ProviderInput, ProviderPatch, ProviderCheck } from './providers'
+export { contactsApi, useContacts, useSetContactStarred } from './contacts'
+export type { Contact, ContactPatch } from './contacts'
 
 // 接口层的纯函数和类型照样给模块用：不发请求，不碰缓存
 export { localDay, focusParams, changedFields, isApiError, isStreamError, ApiError, StreamError } from '../api'

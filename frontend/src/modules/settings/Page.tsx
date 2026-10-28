@@ -4,6 +4,7 @@ import { PluginSettingsPage } from '../../core/shell/extensionHosts'
 import { useSettingsSections } from '../../core/plugin'
 import { InSubnavHost, Subnav, type SubnavItem } from '../../core/ui'
 import { PluginsSection } from './plugins/PluginsSection'
+import { ProvidersSection } from './providers/ProvidersSection'
 import { WorkspacesSection } from './workspaces/WorkspacesSection'
 
 // 内核的设置分节，照原型 web-next/src/settings.tsx SECTIONS；内网域名是插件的分节，不在这里。
@@ -44,6 +45,7 @@ export default function Page() {
       </InSubnavHost>
       {plugin ? <PluginSettingsPage key={active} section={plugin} />
         : kernel!.key === 'plugins' ? <PluginsSection />
+        : kernel!.key === 'providers' ? <ProvidersSection />
         : kernel!.key === 'workspace' ? <WorkspacesSection /> : <Placeholder title={kernel!.label} />}
     </>
   )
