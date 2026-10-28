@@ -814,16 +814,21 @@ type recordArtifactArgs struct {
 	ObjectID string `json:"object_id,omitempty" jsonschema:"这件产物属于哪个工作对象，传 id 或 ref（如 REQ-0012）。不传就是未归属"`
 	Platform string `json:"platform,omitempty" jsonschema:"平台名，如 Confluence / Jira / 飞书 / Google Drive / Slack / Figma / GitHub。不传会按链接自动落到「其他」"`
 	Note     string `json:"note,omitempty" jsonschema:"备注，比如「v2，已评审」"`
-	Kind     string `json:"kind,omitempty" jsonschema:"产物种类：file（默认，文档和文件）、commit、branch、pr。代码交付用后三种"`
+	Kind     string `json:"kind,omitempty" jsonschema:"产物种类：file（默认，不分类）、doc、prototype、code、data、other，代码交付用 commit、branch、pr"`
 	SHA      string `json:"sha,omitempty" jsonschema:"提交的 sha（短 sha 也行），kind 为 commit 时必填"`
 	Branch   string `json:"branch,omitempty" jsonschema:"分支名。kind 为 branch 时必填；commit / pr 时可选，写明在哪个分支上"`
 	Repo     string `json:"repo,omitempty" jsonschema:"仓库在本机的绝对路径（一般就是任务的工作目录）。commit / branch 没有远端链接时必填，用作这条产物的本地位置"`
+
+	ActorType  string `json:"actor_type,omitempty" jsonschema:"产出者类型：agent、skill、sop、mcp 等。不传记成 mcp。只用来展示和筛选，不影响统计里的来源"`
+	ActorID    string `json:"actor_id,omitempty" jsonschema:"产出者 id，比如技能名或 Agent id"`
+	ActorLabel string `json:"actor_label,omitempty" jsonschema:"产出者当时的显示名，比如「PRD 可视化」"`
 }
 
-// 代码类产物的种类。0012 的 artifacts 表没有 kind 列，不为它加迁移：
-// 种类写进 note 开头的标记（[commit] / [branch] / [pr]），前端按这个前缀识别。
+// 代码类产物的种类。0031 起写进 artifacts.kind；note 开头的标记（[commit] / [branch] / [pr]）
+// 再保留一个版本做兼容，前端改成读 kind 之后去掉。
 // 位置照旧用 url / path——有远端链接就是 url，没有就把仓库目录当 path。
-var artifactKinds = map[string]bool{"file": true, "commit": true, "branch": true, "pr": true}
+// 其余种类（doc、prototype……）原样交给后端按字典 artifact_kind 校验；file 表示不分类。
+var codeArtifactKinds = map[string]bool{"commit": true, "branch": true, "pr": true}
 
 const recordArtifactDesc = `【会写入数据】把一件已经产出的交付物登记进工作台的产物清单：本地写出来的文档、发到 Confluence 的页面、建好的 Jira 单、传到云盘的文件，以及代码交付——提交（commit）、分支（branch）、合并请求（pr）。
 
@@ -834,6 +839,8 @@ const recordArtifactDesc = `【会写入数据】把一件已经产出的交付�
 - object_id 尽量给，这样它会出现在那个需求/任务的详情页里。传 ref（REQ-0012）就行，不用先查 id。
 - 同一个文件发到两个平台，登记两条，各带各的链接。
 - 代码交付：kind=commit 带 sha，kind=branch 带 branch，kind=pr 带 url。有远端链接（GitHub 上的 commit / 分支 / PR 页）就填 url；只在本地的提交填 repo（仓库绝对路径）。一次开发任务通常登记：每个关键 commit 一条、工作分支一条、PR 一条。
+- 种类：文档填 kind=doc、原型 prototype、数据 data；不确定就不填。
+- 是某个技能或 SOP 做出来的，填 actor_type（skill / sop / agent）和 actor_id、actor_label，用户能按产出者筛。
 
 不要用它记：过程中间产物（草稿、临时文件）、你只是读过没有产出的东西。
 
@@ -847,14 +854,11 @@ func addRecordArtifact(s *mcp.Server, c *client) {
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in recordArtifactArgs) (*mcp.CallToolResult, any, error) {
 		url, path := strings.TrimSpace(in.URL), strings.TrimSpace(in.Path)
 		kind := strings.ToLower(strings.TrimSpace(in.Kind))
-		if kind == "" {
-			kind = "file"
-		}
-		if !artifactKinds[kind] {
-			return nil, nil, fmt.Errorf("kind 只能是 file、commit、branch、pr，收到的是 %q", in.Kind)
+		if kind == "file" {
+			kind = ""
 		}
 		title, note := strings.TrimSpace(in.Title), strings.TrimSpace(in.Note)
-		if kind != "file" {
+		if codeArtifactKinds[kind] {
 			var err error
 			title, note, path, err = codeArtifact(kind, in, title, note, url, path)
 			if err != nil {
@@ -873,6 +877,10 @@ func addRecordArtifact(s *mcp.Server, c *client) {
 		putStr(body, "url", url)
 		putStr(body, "path", path)
 		putStr(body, "note", note)
+		putStr(body, "kind", kind)
+		putStr(body, "actor_type", strings.ToLower(strings.TrimSpace(in.ActorType)))
+		putStr(body, "actor_id", in.ActorID)
+		putStr(body, "actor_label", in.ActorLabel)
 		if p := c.resolvePlatform(ctx, in.Platform); p != "" {
 			body["platform"] = p
 		}
@@ -956,6 +964,7 @@ type listArtifactsArgs struct {
 	ObjectID string `json:"object_id,omitempty" jsonschema:"只看某个工作对象的产物，传 id 或 ref"`
 	Platform string `json:"platform,omitempty" jsonschema:"只看某个平台的，如 Confluence / 飞书 / 本地文件"`
 	Q        string `json:"q,omitempty" jsonschema:"关键词，同时匹配标题、路径、链接和备注"`
+	Kind     string `json:"kind,omitempty" jsonschema:"只看某个种类的，如 doc、commit、branch、pr"`
 	Limit    int    `json:"limit,omitempty" jsonschema:"返回条数，1-500，默认 50"`
 }
 
@@ -985,6 +994,7 @@ func addListArtifacts(s *mcp.Server, c *client) {
 			q.Set("platform", p)
 		}
 		setStr(q, "q", in.Q)
+		setStr(q, "kind", strings.ToLower(strings.TrimSpace(in.Kind)))
 
 		items, m, err := c.listArtifacts(ctx, q)
 		if err != nil {
@@ -1012,6 +1022,9 @@ func addListArtifacts(s *mcp.Server, c *client) {
 // 夹在一行中间的长 URL 会被后面的字段挤断行。
 func artifactLine(a *domain.Artifact) string {
 	parts := []string{a.Title}
+	if a.Kind != "" {
+		parts = append(parts, "<"+a.Kind+">")
+	}
 	if a.Platform != "" {
 		parts = append(parts, "["+a.Platform+"]")
 	}

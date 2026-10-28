@@ -54,7 +54,7 @@ var Registry = []Entry{
 	// 以下是原型里有、后端还没建表的实体，前缀和原型一致
 	// 沟通
 	{"ct", "contact", "", "contact"},
-	{"msg", "message", "", "message"},
+	{"msg", "message", "im_messages", "message"}, // IM 插件的表（IM-01a）
 	{"att", "attachment", "", "attachment"},
 	{"rp", "reply", "", "reply"},
 	// 项目

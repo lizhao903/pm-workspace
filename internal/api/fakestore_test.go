@@ -1179,6 +1179,18 @@ func (f *fakeStore) artifactMatch(a *domain.Artifact, fl domain.ArtifactFilter) 
 	if fl.Source != "" && a.Source != fl.Source {
 		return false
 	}
+	for _, c := range [][2]string{
+		{fl.Kind, a.Kind}, {fl.Status, a.Status},
+		{fl.ActorType, a.ActorType}, {fl.ActorID, a.ActorID},
+		{fl.ScopeType, a.ScopeType},
+	} {
+		if c[0] != "" && c[0] != c[1] {
+			return false
+		}
+	}
+	if fl.ScopeType != "" && fl.ScopeID != "" && a.ScopeID != fl.ScopeID {
+		return false
+	}
 	if fl.HasURL != nil && (a.URL != "") != *fl.HasURL {
 		return false
 	}
@@ -1277,6 +1289,18 @@ func (f *fakeStore) putArtifact(in domain.ArtifactInput) (*domain.Artifact, erro
 		RunID: in.RunID, Title: in.Title, Path: in.Path, BaseDir: in.BaseDir,
 		URL: in.URL, Platform: in.Platform, Size: in.Size, Source: in.Source,
 		Note: in.Note, CreatedAt: time.Now(), UpdatedAt: time.Now(),
+		Kind: in.Kind, Status: in.Status, ActorType: in.ActorType, ActorID: in.ActorID,
+		ActorLabel: in.ActorLabel, ScopeType: in.ScopeType, ScopeID: in.ScopeID, Props: in.Props,
+	}
+	// 产出者没声明时按登记途径补，和 sqlite 的 actorOfSource 同一口径。
+	if a.ActorType == "" {
+		a.ActorType = map[string]string{
+			domain.ArtifactSourceManual: domain.ActorUser, domain.ArtifactSourceAgent: domain.ActorAgent,
+			domain.ArtifactSourceRun: domain.ActorRun, domain.ArtifactSourceMCP: domain.ActorMCP,
+		}[a.Source]
+	}
+	if a.Props == nil {
+		a.Props = map[string]any{}
 	}
 	a.RelPath = a.Path
 	f.artifacts = append(f.artifacts, a)
@@ -1315,10 +1339,14 @@ func (f *fakeStore) UpdateArtifact(_ context.Context, id string, p domain.Artifa
 		for dst, src := range map[*string]*string{
 			&a.Title: p.Title, &a.Path: p.Path, &a.BaseDir: p.BaseDir,
 			&a.URL: p.URL, &a.Platform: p.Platform, &a.Note: p.Note,
+			&a.Kind: p.Kind, &a.Status: p.Status, &a.ScopeType: p.ScopeType, &a.ScopeID: p.ScopeID,
 		} {
 			if src != nil {
 				*dst = *src
 			}
+		}
+		if p.Props != nil {
+			a.Props = *p.Props
 		}
 		if a.Path == "" && a.URL == "" {
 			return nil, domain.ErrValidation
@@ -1350,7 +1378,7 @@ func (f *fakeStore) ArtifactStats(ctx context.Context, fl domain.ArtifactFilter)
 		return nil, err
 	}
 	st := &domain.ArtifactStats{
-		Total: total, ByPlatform: map[string]int{}, BySource: map[string]int{},
+		Total: total, ByPlatform: map[string]int{}, BySource: map[string]int{}, ByKind: map[string]int{},
 	}
 	for _, a := range items {
 		if a.Path != "" {
@@ -1365,6 +1393,7 @@ func (f *fakeStore) ArtifactStats(ctx context.Context, fl domain.ArtifactFilter)
 		}
 		st.ByPlatform[a.Platform]++
 		st.BySource[a.Source]++
+		st.ByKind[a.Kind]++
 	}
 	return st, nil
 }

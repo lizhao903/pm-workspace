@@ -1,0 +1,30 @@
+{
+  "id": "im",
+  "name": "IM 消息",
+  "description": "收各 IM 渠道的消息，按 IM 身份认人、按会话归档，筛出与我相关的",
+  "version": "0.1.0",
+  "core": ">=1.0.0 <2.0.0",
+  "depends": {},
+  "optional_depends": {},
+  "provides": {
+    "modules": [],
+    "settings": [],
+    "object_types": [],
+    "connectors": [],
+    "skills": [],
+    "agent_tools": [],
+    "sop_nodes": [],
+    "today_cards": [],
+    "commands": [],
+    "search": []
+  },
+  "emits": ["im.message_received"],
+  "subscribes": [],
+  "adopts": {
+    "object_types": [],
+    "routes": []
+  },
+  "permissions": [],
+  "migrations": "migrations",
+  "table_prefix": "im_"
+}

@@ -36,8 +36,9 @@ func TestMigrationSeedsBuiltinDictionaries(t *testing.T) {
 	if err != nil {
 		t.Fatalf("list dictionaries: %v", err)
 	}
-	if len(dicts) != 3 {
-		t.Fatalf("want 3 builtin dictionaries, got %d", len(dicts))
+	// priority、link_relation、artifact_platform（0012）、artifact_kind（0031）。
+	if len(dicts) != 4 {
+		t.Fatalf("want 4 builtin dictionaries, got %d", len(dicts))
 	}
 
 	byID := map[string]*domain.Dictionary{}
@@ -79,6 +80,17 @@ func TestMigrationSeedsBuiltinDictionaries(t *testing.T) {
 	// meta.inverse 供详情页在对端对象上显示反向关系名。
 	if blocks.Meta["inverse"] != "被阻塞于" {
 		t.Errorf("blocks meta = %+v, want inverse=被阻塞于", blocks.Meta)
+	}
+
+	// 代码类三种要在：0031 按备注前缀回填到这几个 key，pmw_record_artifact 也写它们。
+	kind, ok := byID[domain.DictArtifactKind]
+	if !ok || !kind.Builtin {
+		t.Fatal("artifact_kind dictionary missing or not builtin")
+	}
+	for _, k := range []string{"doc", "commit", "branch", "pr", "other"} {
+		if findDictItem(kind.Items, k) == nil {
+			t.Errorf("artifact_kind 缺少 %s", k)
+		}
 	}
 
 	plat, ok := byID[domain.DictArtifactPlatform]

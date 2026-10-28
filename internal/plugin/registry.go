@@ -62,6 +62,7 @@ type activation struct {
 	jobs     []Job
 	subs     map[string][]EventHandler
 	cards    []TodayCardDef
+	conns    []ConnectorDef
 	cancel   context.CancelFunc
 	done     sync.WaitGroup
 }

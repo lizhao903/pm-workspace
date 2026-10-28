@@ -1,7 +1,7 @@
 {
   "id": "demo",
   "name": "示例插件",
-  "description": "只给测试用：一条接口、一个定时任务、一个常驻任务、一个事件订阅、一张今日卡片",
+  "description": "只给测试用：一条接口、一个定时任务、一个常驻任务、一个事件订阅、一张今日卡片、一个连接器",
   "version": "0.1.0",
   "core": ">=1.0.0 <2.0.0",
   "depends": {},
@@ -10,7 +10,7 @@
     "modules": [],
     "settings": [],
     "object_types": [],
-    "connectors": [],
+    "connectors": ["demo_echo"],
     "skills": [],
     "agent_tools": [],
     "sop_nodes": [],

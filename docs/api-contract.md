@@ -190,6 +190,7 @@
 | idn | IM 身份 | contact_identities |
 | cv | IM 会话 | conversations |
 | cn | 连接器 | connectors |
+| msg | IM 消息（IM 插件） | im_messages |
 
 原型 `ids.ts` 和后端不一致的前缀：后端已经上线的不改，原型的前缀保留，不分给别的实体。
 
@@ -201,7 +202,7 @@
 | af（artifact） | art | 已上线 |
 | sc（schedule） | sch | 已上线 |
 
-原型里其余前缀（ct msg att rp mt pd pt ch sop inc ag ar op kb kd sk dm vd sr pb tp cl wl al ae st rl bk ac ps od rn bt tb pn）的实体后端还没建表，前缀已按原型登记占用。
+原型里其余前缀（ct att rp mt pd pt ch sop inc ag ar op kb kd sk dm vd sr pb tp cl wl al ae st rl bk ac ps od rn bt tb pn）的实体后端还没建表，前缀已按原型登记占用。
 
 ## 进展与领取
 
@@ -527,7 +528,7 @@ chat 带了不同的 `object_id` 也不会让已有会话搬家——搬走会�
 | GET | `/api/artifacts/stats` | `ArtifactStats`，走**同一套**过滤参数，忽略 `limit`/`offset` |
 | POST | `/api/artifacts` | `ArtifactInput`。`source` 由**请求头** `X-Actor-Source` 判定，无条件覆盖请求体里的值 |
 | GET | `/api/artifacts/{id}` | 单条 |
-| PATCH | `/api/artifacts/{id}` | `{object_id?,title?,path?,base_dir?,url?,platform?,note?}` |
+| PATCH | `/api/artifacts/{id}` | `{object_id?,title?,path?,base_dir?,url?,platform?,note?,kind?,status?,scope_type?,scope_id?,props?}`。`props` 整体替换；产出者 `actor_*` 不经 PATCH 改 |
 | DELETE | `/api/artifacts/{id}` | 只删登记记录，**不删磁盘文件、不删云端页面** |
 
 过滤参数（彼此是「与」）：
@@ -539,9 +540,31 @@ chat 带了不同的 `object_id` 也不会让已有会话搬家——搬走会�
 | `session_id` / `run_id` | 按出处过滤 |
 | `platform` | 字典 `artifact_platform` 的 key |
 | `source` | `manual` / `agent` / `run` / `mcp` |
+| `kind` / `status` | 种类（字典 `artifact_kind` 的 key）、状态 |
+| `actor_type` / `actor_id` | 按产出者过滤，`actor_id` 可单独用 |
+| `scope_type` / `scope_id` | 按非对象归属过滤；`scope_id` 要和 `scope_type` 一起给，单给报 400（不同模块的 id 可能撞） |
 | `has_url` / `has_path` | **三态**：不传=不过滤，`true`=该字段非空，`false`=该字段为空。`has_url=false` 就是「还没发出去的本地文件」 |
 | `q` | 同时匹配 title / path / url / note |
 | `limit` / `offset` | 默认 100，上限 500 |
+
+`ArtifactStats` 另有 `by_kind`（未分类的计在 `""` 下），口径和其余分组一样只统计 artifacts。
+
+### 溯源字段（AG-03b，0031）
+
+方案见 `docs/file-artifact-model.md` 第 4 节。会话、执行、对象三个出处 0012 已有（`session_id` / `run_id` / `object_id`），0031 补齐以下列，`Artifact` 响应和 `ArtifactInput` 都带：
+
+| 字段 | 取值 | 说明 |
+|---|---|---|
+| `kind` | 字典 `artifact_kind` 的 key，空=未分类 | 内置 `doc` / `prototype` / `code` / `commit` / `branch` / `pr` / `data` / `other`，插件可往字典里加；不在字典里或已停用的报 400 |
+| `status` | `""` / `draft` / `review` / `final` / `published` | 空表示不跟踪 |
+| `actor_type` | `user` / `agent` / `skill` / `sop` / `run` / `mcp` / `im` / `sync` | 产出者。不传时按 `source` 推：manual→user、agent→agent、run→run、mcp→mcp |
+| `actor_id` / `actor_label` | 任意字符串 | 产出者 id（技能名、Agent id、SOP id）和当时的显示名快照 |
+| `scope_type` / `scope_id` | 任意字符串，成对出现 | 不是工作对象的归属（`kb` 知识库、`video` 等），可与 `object_id` 同时有值；只给一半报 400 |
+| `props` | JSON 对象，默认 `{}` | 种类特有的字段（视频的 `version`、`picked` 等） |
+
+`source` 和 `actor_type` 两个都留：`source` 是登记途径，服务端判定、统计只认它；`actor_*` 可由调用方声明，只用来展示和筛选。
+
+0031 迁移时按 `source` 回填了老数据的 `actor_type`，并把备注以 `[commit]` / `[branch]` / `[pr]` 开头的产物回填到 `kind`，备注原样保留。
 
 ### 一条产物可以同时有 `path` 和 `url`
 
@@ -593,7 +616,7 @@ chat 带了不同的 `object_id` 也不会让已有会话搬家——搬走会�
 
 ### 代码类产物（commit / branch / PR）
 
-0012 没有 `kind` 列，不为它加迁移。代码类产物的种类写在 `note` 开头的固定标记里：
+0031 起种类写在 `kind` 列（`commit` / `branch` / `pr`），前端应改为读 `kind`。`pmw_record_artifact` 仍在 `note` 开头写固定标记，保留一个版本做兼容：
 
 ```
 [commit] sha=a1b2c3d branch=feat/x repo=/abs/path  自由备注…
@@ -602,7 +625,7 @@ chat 带了不同的 `object_id` 也不会让已有会话搬家——搬走会�
 ```
 
 位置照旧：有远端页面（GitHub commit / 分支 / PR）就填 `url`；只在本地的 commit / branch 把仓库目录（绝对路径）填进 `path`，
-`base_dir` 留空。前端按 `note` 的前缀 `^\[(commit|branch|pr)\]` 识别种类，sha / branch / repo 从同一段 `key=value` 里取。
+`base_dir` 留空。sha / branch / repo 从 `note` 里同一段 `key=value` 取；只认 `note` 前缀 `^\[(commit|branch|pr)\]` 的旧前端照旧能用。
 来源照旧按 `X-Actor-Source` 判定，经 MCP 登记的记成 `mcp`。
 
 ## 本机文件系统 fs
@@ -689,11 +712,11 @@ SSE 事件（形状的唯一真相是 `internal/runner` 的 `Event.MarshalJSON`�
 
 ## 连接器 connectors
 
-CONN-01a。连接器的**定义**（认证方式、配置表单、工具目录、连通测试）在代码里登记（`internal/connector` 的注册表，内核提供；插件注册连接器归 CONN-02），不进库。接入的**实例**存在表 `connectors`（0029），id 前缀 `cn`。凭证字段整组 JSON 加密存进保险箱（`vault_secrets`，`kind=connector`，名字 `Connector <id>`），表里只有条目 id 和每个字段的脱敏提示。OAuth 授权和令牌刷新（CONN-01b，0030）见本节末的「OAuth 授权」；真实连接器（GitHub，CONN-01c）、删除前的影响检查（CONN-03）不在本节。全量导出暂不含这张表。
+CONN-01a。连接器的**定义**（认证方式、配置表单、工具目录、连通测试）在代码里登记（`internal/connector` 的注册表，内核提供；插件经 `Registrar.Connector` 登记自己的，CONN-02，见下面「插件提供的连接器」），不进库。接入的**实例**存在表 `connectors`（0029），id 前缀 `cn`。凭证字段整组 JSON 加密存进保险箱（`vault_secrets`，`kind=connector`，名字 `Connector <id>`），表里只有条目 id 和每个字段的脱敏提示。OAuth 授权和令牌刷新（CONN-01b，0030）见本节末的「OAuth 授权」；真实连接器（GitHub，CONN-01c）、删除前的影响检查（CONN-03）不在本节。全量导出暂不含这张表。
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
-| GET | `/api/connectors/defs` | `ConnectorDef[]` + `meta.total`，按登记顺序 |
+| GET | `/api/connectors/defs` | `ConnectorDef[]` + `meta.total`，内核的按登记顺序在前，后面是在跑的插件登记的（按插件登记顺序）；停用的插件的定义不在里面 |
 | GET | `/api/connectors` | `Connector[]` + `meta.total`，不分页，新建的在前；`?tool=` 只要某个工具的 |
 | POST | `/api/connectors` | 接入，body `{tool, name?, auth_mode?, config?, secrets?, enabled?, direction?, interval?}`；回 201 + `Connector`。同一工具已经接过回 409 |
 | GET | `/api/connectors/{id}` | 一个 `Connector`；不存在 404 |
@@ -718,6 +741,7 @@ CONN-01a。连接器的**定义**（认证方式、配置表单、工具目录�
 - `status`：`connecting`（新建或从暂停、断开重新启用后，还没测过）、`connected`、`error`（`error` 是最近一次失败的说明，含令牌刷新失败）、`paused`（`enabled: false`）、`disconnected`（`POST /disconnect` 人主动断开；PATCH `enabled: true` 回到 `connecting`）。`POST /test` 成功置 `connected` 并记下 `account`，失败置 `error`；暂停中的实例照样测，但状态保持 `paused`。`oauth2` 认证还没授权时测试直接失败（「还没完成 OAuth 授权」），不调对方。
 - **工具授权**：`tools` 是 `[{name, desc, write, mode}]`，`mode` 为 `off`（关闭）/ `confirm`（调用前要人确认）/ `auto`（自动），只读工具（`write: false`）不能设 `confirm`，不在清单里的工具名回 400。拉取工具清单时保留已配过的授权，新出现的按默认（写操作 `confirm`、只读 `auto`），对方删掉的去掉；对方把工具改成只读时 `confirm` 降为 `auto`。`tools_at` 是最近一次拉取时间。Agent 按授权调用工具归 AG-02。
 - `available` 为 false 表示定义已不在（提供它的插件停用了）：此时测试、拉取工具清单、改 `auth_mode` / `config` / `secrets` / `direction` 回 409，改名、启停和删除照常。
+- **插件提供的连接器**（CONN-02）：插件在 `Register` 里调 `Registrar.Connector(def)` 登记，`tool` 必须在清单 `provides.connectors` 里（不在、定义不合法、重复都让启用失败），`source` 固定为插件 id。定义只在插件在跑时出现：停用后不在 `/api/connectors/defs` 里，同 `tool` 新建回 400（同未知工具）；已接入的实例一行不动，`available` 为 false（规则同上一条）。重新启用后定义回来，实例的配置、凭证、工具授权照旧，`available` 回到 true。和内核定义同 `tool` 时内核的优先，插件的不出现（插件之间的 `tool` 冲突由清单检查在安装时挡掉）。后台令牌刷新照样跳过取不到定义的实例。
 - 保险箱条目被单独删掉（`DELETE /api/secrets/{id}`）时按没填凭证处理，PATCH 一次 `secrets` 新建条目补上。
 - 内置假连接器 `fake`（不联网）和 `fake_oauth` 只在 `pmw --fake-connector` 时登记，给测试和演练用：`fake` 的 `token` 含 `invalid` 或 `expired` 时测试失败，`config.variant` 为 `v2` 时工具清单换一组；`fake_oauth` 走 OAuth，授权、令牌地址是 `config.base_url` 加 `/authorize`、`/token`，连通测试带 access_token 请求 `base_url/userinfo` 取 `login`，要自己起一个假授权服务对接（Go 测试用 `internal/connector/oauthfake`）。正式运行不登记，定义列表现在为空，真实连接器随 CONN-01c 起陆续登记。
 - 审计按 `config` 记（不分来源），`target_type` 为 `connector`，`action` 为 `create` / `update` / `delete` / `set_tool_modes`；凭证只记 `detail.secrets` 为 `{<key>: 「已设置」|「已清除」}`，修改只记 `detail.fields`；`set_tool_modes` 记 `detail.tools` 和新的 `detail.modes`（授权是权限配置不是凭证）。OAuth 授权成功记 `oauth_authorize`（`detail.secrets` 为 `{access_token, refresh_token}` 的「已设置」，对方没给 refresh_token 时只有 access_token，另记 `detail.scope`），断开记 `disconnect`（清了令牌时 `detail.secrets` 为「已清除」）。连通测试、拉取工具清单、发起授权、授权失败和令牌刷新（手动、后台）不记，刷新失败写服务日志并置 `error`。
@@ -752,7 +776,7 @@ sequenceDiagram
 
 ## 插件 plugins
 
-第一方插件编译进二进制（`docs/plugin-api.md`），接口挂在 `/api/<插件 id>/` 下，由插件注册表（`internal/plugin`）管启停。现在编译进来的只有「项目」（`projects`，接口见「项目插件 projects」一节）。插件路由和内核路由一样受契约测试约束，测试里按 `cmd/pmw` 同样的插件登记。
+第一方插件编译进二进制（`docs/plugin-api.md`），接口挂在 `/api/<插件 id>/` 下，由插件注册表（`internal/plugin`）管启停。现在编译进来的有「项目」（`projects`，接口见「项目插件 projects」一节）和「IM 消息」（`im`，见「IM 消息插件 im」一节）。插件路由和内核路由一样受契约测试约束，测试里按 `cmd/pmw` 同样的插件登记。
 
 ### 插件管理（CORE-04b，plugin-api.md 第 4 节）
 
@@ -1119,6 +1143,84 @@ PJ-02a。表 `projects_conversations`（插件迁移 `0002_conversations.sql`，
 - `{id}` 不是项目、不存在或在回收站里 404；`conversation_id` 为空或查不到 400；`DELETE` 的会话没绑在这个项目上 404。
 - 硬删项目、删会话（`DELETE /api/conversations/{id}`）时绑定一起删（外键 `ON DELETE CASCADE`）；软删项目不动，恢复后绑定还在。
 - 暂不记审计、不发事件，同项目干系人。
+
+## IM 消息插件 im
+
+IM-01a。插件 `im`（`internal/plugins/im`，清单 `plugin.json`，0.1.0）。收各 IM 渠道的消息，落在插件表 `im_messages`（插件迁移 `0001_messages.sql`，安装插件时应用）。发送人按 IM 身份（见「IM 身份 im-identities」）的 id 认、会话按会话（见「会话 conversations」）的 id 归，**不靠名字**。插件未安装或停用时，本节接口回 `not_found` 404（同「插件路由」）；停用时拉取也停下，数据不动。
+
+### 适配器
+
+每个渠道一个适配器，编译进二进制，在 `cmd/pmw` 里交给 `im.New`。两种接法，一个适配器可以都实现：
+
+- 拉取（`Puller`）：插件按适配器给的间隔（默认 30 秒）起后台任务拉，进度存在 `im_cursors`（每个适配器一行，整批落库后才存）。拉到不合法的消息跳过并记日志，不卡进度。
+- 回调（`Receiver`）：渠道推到 `POST /api/im/callbacks/{adapter}`，适配器解析请求、自己验签。一批里有一条不合法整批 400，什么都不落库。
+
+真实渠道（Slack、Telegram）从 IM-01b、IM-01c 起加，现在只有演练用的假适配器：`pmw --fake-im` 时登记 `fake`（渠道 `slack`，「我」的称呼是 `我`），回调 body 是 `{"messages": [Incoming, ...]}`。
+
+`Incoming`（适配器交给插件的一条，对照原型 `IncomingMessage`）：
+
+| 字段 | 说明 |
+|---|---|
+| `external_id` | 渠道里的消息编号，必填；同一渠道里唯一（Slack 用「频道 id:ts」），重复到达按它去重 |
+| `connector_id` | 收这条消息的连接器 id，可空 |
+| `conversation_id` | 渠道里的会话编号（Slack channel id、Telegram chat id），可空；规整规则同 IM 身份（telegram 去掉开头的 `@`） |
+| `conversation_kind` | `group` / `direct`；空时有群名算 `group`、没有算 `direct`，会话认上后以会话表为准 |
+| `conversation_name` | 群名，到达时的快照 |
+| `sender_id` | 发送人在渠道里的编号，必填 |
+| `sender_name` | 发送人在渠道里的名字，快照 |
+| `text` | 正文，超过 20000 字截断 |
+| `at` | 发送时间（RFC 3339），不填取到达时间 |
+| `mention` | 渠道明确给出的提及：`me` / `all` / 空；空时按正文里的 `@` 判断 |
+| `attachments` | 附件元数据数组（原型 `MsgAttachment`），原样存；获取到本地归 IM-04 |
+
+到达时：按 `(渠道, sender_id)` 查 IM 身份、按 `(渠道, conversation_id)` 查会话，查到的存 id；查不到的 id 留空、编号照存，读的时候再按编号认一次（不回写），所以先收消息、后登记身份或会话也能认上。身份、会话删掉时 id 置空，消息保留。
+
+### 消息列表
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| GET | `/api/im/messages` | `Message[]` + `meta {total, limit, offset}`，按发送时间倒序 |
+| GET | `/api/im/adapters` | `[{key, channel, pull, callback}]` + `meta.total`，二进制里带的适配器 |
+| POST | `/api/im/callbacks/{adapter}` | 回调收消息，body 由适配器定；回 `{ids: [新落库的消息 id], duplicates: 已收过的条数}`。没有这个回调适配器 404 |
+
+查询参数（都可选，组合是「且」）：
+
+| 参数 | 说明 |
+|---|---|
+| `status` | `pending` / `done` / `ignored`，和原型 `MsgStatus` 一致；别的值 400 |
+| `channel` | 渠道 key，不分大小写 |
+| `conversation_id` | 会话 id（`cv_`）；到达时还没登记、后来登记了的会话的消息也算进来。会话不存在 400 |
+| `mine` | 与我相关：`any` 是 @我、@所有人、私聊，`at` 只看 @我（同原型筛选）；别的值 400 |
+| `unread` | `true` 只看未读 |
+| `limit` / `offset` | 默认 50 / 0，`limit` 最大 200 |
+
+`Message`（字段名对照原型 `Message`）：
+
+```json
+{ "id": "msg_...", "channel": "slack", "connector_id": "", "external_id": "C01:1712.33",
+  "conversation_id": "cv_..." | null, "conversation_external_id": "C01", "conversation_kind": "group", "conversation": "#product",
+  "sender_id": "U04LINYUAN", "sender_name": "Lin Yuan",
+  "identity_id": "idn_..." | null, "stakeholder_id": "stk_..." | null, "contact_name": "林原",
+  "text": "@Broleez 权限点清单我整理了一版", "attachments": [],
+  "relevance": "me", "status": "pending", "read": false, "snooze_until": null,
+  "at": "2026-10-29T01:00:00.000Z", "received_at": "2026-10-29T01:00:02.000Z" }
+```
+
+- `conversation` 是群名：认上会话的取会话表现在的名字（改群名不断），没认上的取到达时的快照；私聊为空串（原型用空串表示私聊）。
+- `identity_id`、`stakeholder_id` 认不上为 `null`，`contact_name` 为空串；界面上这时显示 `sender_name`。
+- `relevance` 是「与我相关」的原因，到达时算一次：`me`（@我）优先于 `all`（@所有人：所有人、全体成员、all、here、channel、everyone），私聊是 `dm`，无关为空串。「我」的称呼由适配器给，从连接器账号取归 IM-03。
+- `status`、`read`、`snooze_until` 现在只有到达时的初值（`pending`、未读、无），改状态、回复、稍后提醒归 IM-02。
+
+### 事件
+
+新消息落库后发 `im.message_received`（清单 `emits` 里声明，走事件总线），重复到达不发。payload：
+
+```json
+{ "message_id": "msg_...", "channel": "slack", "connector_id": "", "conversation_id": "cv_..." | null,
+  "identity_id": "idn_..." | null, "stakeholder_id": "stk_..." | null, "relevance": "me", "at": "2026-10-29T01:00:00.000Z" }
+```
+
+只带 id 和归类，正文用 `GET /api/im/messages` 取。别的插件要订阅，清单 `depends` 或 `optional_depends` 里要写 `im`。
 
 ## 运维 admin
 

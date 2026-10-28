@@ -378,6 +378,8 @@ const (
 	// 走字典而不是 Go 里的常量：这份名单一定会变，而用户在设置里改一次
 	// 比每次都等一个版本要合理。meta.hosts 是域名特征，界面粘链接时据此自动选平台。
 	DictArtifactPlatform = "artifact_platform"
+	// DictArtifactKind 是产物种类（文档、原型、提交……），落在 artifacts.kind（0031）。
+	DictArtifactKind = "artifact_kind"
 )
 
 type Dictionary struct {
@@ -569,9 +571,23 @@ type Artifact struct {
 	Platform string `json:"platform"` // dict_items(dict_id='artifact_platform').key
 	// Size 仅本地文件有意义。云端产物是 0，不代表「空文件」——统计体积时要按
 	// Path 非空过滤，否则一堆 0 会把平均值拉垮。
-	Size      int64     `json:"size"`
-	Source    string    `json:"source"` // manual | agent | run | mcp
-	Note      string    `json:"note"`
+	Size   int64  `json:"size"`
+	Source string `json:"source"` // manual | agent | run | mcp
+	Note   string `json:"note"`
+
+	// 以下是 0031 加的溯源列，见 docs/file-artifact-model.md 第 4 节。
+	// Kind 是字典 artifact_kind 的 key，Status 空表示不跟踪。
+	// Actor* 是产出者，可由调用方声明，只用来展示和筛选；可信统计只认 Source。
+	// ScopeType + ScopeID 是不是工作对象的归属（知识库、视频等），空串表示没有。
+	Kind       string         `json:"kind"`
+	Status     string         `json:"status"`
+	ActorType  string         `json:"actor_type"`
+	ActorID    string         `json:"actor_id"`
+	ActorLabel string         `json:"actor_label"`
+	ScopeType  string         `json:"scope_type"`
+	ScopeID    string         `json:"scope_id"`
+	Props      map[string]any `json:"props"`
+
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
 
@@ -591,6 +607,18 @@ const (
 	ArtifactSourceMCP    = "mcp"    // 别的 agent 通过 MCP 回写
 )
 
+// ArtifactActor 的取值（actor_type）。和 source 不同，这一列可由调用方声明。
+const (
+	ActorUser  = "user"
+	ActorAgent = "agent"
+	ActorSkill = "skill"
+	ActorSOP   = "sop"
+	ActorRun   = "run"
+	ActorMCP   = "mcp"
+	ActorIM    = "im"
+	ActorSync  = "sync"
+)
+
 // ArtifactInput 是登记一条产物需要的全部字段。
 // 不复用 Artifact：那里面有 ID、时间戳和派生字段，让调用方填一堆它不该关心的东西。
 type ArtifactInput struct {
@@ -605,6 +633,15 @@ type ArtifactInput struct {
 	Size      int64   `json:"size"`
 	Source    string  `json:"source"`
 	Note      string  `json:"note"`
+
+	Kind       string         `json:"kind"`
+	Status     string         `json:"status"`
+	ActorType  string         `json:"actor_type"` // 空时按 source 推
+	ActorID    string         `json:"actor_id"`
+	ActorLabel string         `json:"actor_label"`
+	ScopeType  string         `json:"scope_type"`
+	ScopeID    string         `json:"scope_id"`
+	Props      map[string]any `json:"props"`
 }
 
 // ArtifactPatch 里每个指针都是「没给就不改」。
@@ -618,6 +655,12 @@ type ArtifactPatch struct {
 	URL      *string  `json:"url"`
 	Platform *string  `json:"platform"`
 	Note     *string  `json:"note"`
+
+	Kind      *string         `json:"kind"`
+	Status    *string         `json:"status"`
+	ScopeType *string         `json:"scope_type"`
+	ScopeID   *string         `json:"scope_id"`
+	Props     *map[string]any `json:"props"` // 整体替换
 }
 
 // ArtifactFilter 的字段之间是「与」。空字段 = 不过滤。
@@ -631,6 +674,13 @@ type ArtifactFilter struct {
 	RunID     string
 	Platform  string
 	Source    string
+	// 0031 的溯源列，空 = 不过滤。ScopeID 只在给了 ScopeType 时生效。
+	Kind      string
+	Status    string
+	ActorType string
+	ActorID   string
+	ScopeType string
+	ScopeID   string
 	// HasURL / HasPath 是三态：nil 不过滤，true 要求非空，false 要求为空。
 	// 「只看云端产物」= HasURL(true)，「只看还没发出去的本地文件」= HasURL(false)。
 	HasURL   *bool
@@ -656,6 +706,7 @@ type ArtifactStats struct {
 	Unscoped   int            `json:"unscoped"`
 	ByPlatform map[string]int `json:"by_platform"`
 	BySource   map[string]int `json:"by_source"`
+	ByKind     map[string]int `json:"by_kind"` // 未分类的记在 "" 下
 	// TotalSize 只累加有本地路径的那些，理由见 Artifact.Size。
 	TotalSize int64 `json:"total_size"`
 }

@@ -24,6 +24,12 @@ func artifactFilter(r *http.Request) (domain.ArtifactFilter, error) {
 		RunID:     p.str("run_id"),
 		Platform:  p.str("platform"),
 		Source:    p.str("source"),
+		Kind:      p.str("kind"),
+		Status:    p.str("status"),
+		ActorType: p.str("actor_type"),
+		ActorID:   p.str("actor_id"),
+		ScopeType: p.str("scope_type"),
+		ScopeID:   p.str("scope_id"),
 		Q:         p.str("q"),
 	}
 
@@ -48,6 +54,10 @@ func artifactFilter(r *http.Request) (domain.ArtifactFilter, error) {
 	// 结果必然是空列表。静默返回空会让用户以为这个对象没有产物，所以直接报错。
 	if f.ObjectID != "" && f.Unscoped {
 		return f, validationf("object_id 与 unscoped 不能同时使用")
+	}
+	// scope_id 只在某个 scope_type 下才唯一；单给 scope_id 会被静默忽略，不如直接报错。
+	if f.ScopeID != "" && f.ScopeType == "" {
+		return f, validationf("scope_id 要和 scope_type 一起用")
 	}
 	return f, nil
 }
@@ -144,6 +154,12 @@ type artifactPatchBody struct {
 	URL      *string         `json:"url"`
 	Platform *string         `json:"platform"`
 	Note     *string         `json:"note"`
+
+	Kind      *string         `json:"kind"`
+	Status    *string         `json:"status"`
+	ScopeType *string         `json:"scope_type"`
+	ScopeID   *string         `json:"scope_id"`
+	Props     *map[string]any `json:"props"`
 }
 
 func (s *Server) handleUpdateArtifact(w http.ResponseWriter, r *http.Request) {
@@ -160,6 +176,12 @@ func (s *Server) handleUpdateArtifact(w http.ResponseWriter, r *http.Request) {
 		URL:      b.URL,
 		Platform: b.Platform,
 		Note:     b.Note,
+
+		Kind:      b.Kind,
+		Status:    b.Status,
+		ScopeType: b.ScopeType,
+		ScopeID:   b.ScopeID,
+		Props:     b.Props,
 	}
 	if len(b.ObjectID) > 0 {
 		var id *string
