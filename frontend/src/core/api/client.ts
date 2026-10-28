@@ -24,6 +24,11 @@ export function codeForStatus(status: number): ApiErrorCode {
   }
 }
 
+// 后端给的码认得就用，否则按状态码归类
+export function errorCode(raw: string | undefined, status: number): ApiErrorCode {
+  return raw && serverCodes.has(raw) ? (raw as ApiErrorCode) : codeForStatus(status)
+}
+
 export class ApiError extends Error {
   readonly status: number
   readonly code: ApiErrorCode
@@ -44,6 +49,9 @@ export function isApiError(e: unknown, code?: ApiErrorCode): e is ApiError {
 let base = ''
 export function setApiBase(url: string) {
   base = url.replace(/\/+$/, '')
+}
+export function apiBase() {
+  return base
 }
 
 export type Method = 'GET' | 'POST' | 'PATCH' | 'PUT' | 'DELETE'
@@ -90,8 +98,7 @@ export async function requestEnvelope<T>(
   }
 
   if (!res.ok || body?.error) {
-    const raw = body?.error?.code
-    const code = raw && serverCodes.has(raw) ? (raw as ApiErrorCode) : codeForStatus(res.status)
+    const code = errorCode(body?.error?.code, res.status)
     const message = body?.error?.message || res.statusText || 'HTTP ' + res.status
     throw new ApiError(res.status, code, message)
   }

@@ -16,5 +16,18 @@ export {
   fs,
 } from './resources'
 export { queryClient } from './queryClient'
+export { streamPost, runObject, chat, SSEParser, StreamError, isStreamError } from './sse'
+export type {
+  RunEvent,
+  ChatEvent,
+  StreamEvent,
+  RunDone,
+  ChatDone,
+  QuestionOption,
+  StreamErrorKind,
+  StreamOptions,
+  RunRequest,
+  ChatRequest,
+} from './sse'
 export { keys, useHealth, useObjectTypes, useDictionaries } from './queries'
 export type * from './types'
