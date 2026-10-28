@@ -17,6 +17,34 @@
 
 ---
 
+## 2026-10-29 第二十一批验收、第二十二批开工
+
+第二十一批 3 条（IM-02a、CONN-03、PJ-03a）全部检查通过，已提交验收（70a8022，三条同改契约和 plugin 包，合在一个提交里）。检查项：gofmt、go vet、go test ./...（这批没改前端和原型）。测试实例 04:05 重启到 0031，im 插件 0.2.0、项目插件 0.4.0 都是未安装。
+
+第二十二批 4 条：IM-02b（IM 消息页，新前端插件）、PJ-03b（项目资料页）、IM-03（与我相关识别）、QA-04（契约示例字段测试）。
+
+### 插件 API 版本先不升（主会话定）
+- CONN-03 加了 `Registrar.ConnectorImpact`，IM-02a 给 Core 加了 `ObjectWriter()`、`Connectors()`。按 plugin-api.md 1.3，新扩展点应该升小版本。
+- **决策**：在第一次对外发布或接第三方插件之前，插件 API 保持 `1.0.0`，1.0.0 视为还在定稿中；现在的插件都是第一方、跟内核一起编译，没有版本不匹配的风险。
+- **之后**：发布前统一冻结成 1.0.0（或按实际再升），并把这几批新加的句柄和扩展点补进 plugin-api.md（Store 收窄规则、Conversations、Identities、ObjectWriter、Connectors、ConnectorImpact、2.5 节连接器示例）。这一条记为文档欠账。
+
+### 插件写内核对象（IM-02a，同意，留意）
+- Core 加了只能建对象的 `ObjectWriter`：来源和操作者强制写成插件 id，走外层包过审计和事件的 store，修订、事件照常；插件建任务不进审计（和界面新建同口径，只有 Agent 来源记审计）。
+- 暂不限制能建哪些类型；改对象、建关联等更宽的能力留给 plugin-api.md 规划的 ObjectService。
+- 回复走可选的 `Replier` 接口，没实现就是「渠道不支持回复」；被拦回 409 带 reason，渠道发送失败回 502 `send_failed`。
+- 没做：回复后更新联系人「最近联系」（插件对联系人只读）。
+
+### 删除连接器前的影响（CONN-03，同意）
+- 删除不拦只列影响（原型 connPlan 的做法），消息保留、`connector_id` 不动。
+- 提供者超时、出错、panic、effect 不合法都列进 `incomplete`，前端据此提示影响可能不全。
+- 前端删除确认展示影响另开任务（CONN-01d 留了位置）。
+
+### 项目资料（PJ-03a，同意）
+- 表放项目插件（插件迁移 0003），不建内核 files：现在用到它的只有项目资料，内核迁移只加不改，提前建等于把结构定死。列名照 files 设计，以后并进内核只要一条 INSERT SELECT。
+- 种类不单独存，从 path、url、note 哪一列有值推出，CHECK 保证三选一；文件夹靠 `mime='inode/directory'`。
+
+---
+
 ## 2026-10-29 第二十批验收、第二十一批开工
 
 第二十批 3 条（IM-01a、CONN-02、AG-03b）全部检查通过，已提交验收（6ee7ddc、a3a4391）。三个后端任务同改契约、server.go、plugin 包，合在一个提交里。检查项：gofmt、go vet、go test ./...，前端 npm test 515 条、typecheck、lint、build，smoke-frontend 42 次 0 问题，smoke-proto 462 步 0 问题。测试实例 03:50 重启到 0031。
