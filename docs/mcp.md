@@ -60,7 +60,7 @@ make build         # 构建前端 + pmw + pmw-mcp
 
 | 工具 | 读写 | 作用 |
 | --- | --- | --- |
-| `pmw_search` | 只读 | 按关键词 + 类型/状态/优先级/标签/负责人/分类/到期等条件检索工作对象，返回紧凑列表 |
+| `pmw_search` | 只读 | 按关键词 + 类型/状态/优先级/标签/负责人/分类/来源/到期等条件检索工作对象，返回紧凑列表 |
 | `pmw_get_object` | 只读 | 取单个对象全文：结构化摘要（含工作目录、关联仓库）、验收标准、正文、最近 10 条进展 |
 | `pmw_list_types` | 只读 | 列出所有类型及各自的状态集，外加优先级、关联关系枚举 |
 | `pmw_list_categories` | 只读 | 列出某类型的分类树（含对象数） |
@@ -71,7 +71,7 @@ make build         # 构建前端 + pmw + pmw-mcp
 | `pmw_next_task` | 只读 | 按优先级 → 到期 → 创建时间挑下一个可做的任务（默认 task 的初始状态、负责人为空或是 Claude Code），可按项目、标签筛 |
 | `pmw_list_runs` | 只读 | 某任务的后端执行记录（任务页「交给 Claude Code」起的那些） |
 | `pmw_get_run` | 只读 | 一次执行的详情，输出默认取末尾 8000 字符 |
-| `pmw_create_object` | **写入** | 新建工作对象，必填 `type_id` + `title`；可带 `acceptance`、`repo`、`workdir` |
+| `pmw_create_object` | **写入** | 新建工作对象，必填 `type_id` + `title`；可带 `acceptance`、`repo`、`workdir`、`source`（任务来源 manual / im / webhook / schedule / incident） |
 | `pmw_update_object` | **写入** | 改状态/优先级/负责人/到期/分类/标签/正文/归档，以及 `acceptance`、`repo`、`workdir` |
 | `pmw_link_objects` | **写入** | 在两个对象之间建立有方向的关联 |
 | `pmw_record_artifact` | **写入** | 登记产物；`kind` 支持 `file`（默认）/ `commit` / `branch` / `pr` |

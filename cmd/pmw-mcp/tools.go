@@ -72,6 +72,7 @@ type searchArgs struct {
 	Subtree         bool     `json:"subtree,omitempty" jsonschema:"配合 category 使用：连同子分类下的对象一起返回"`
 	Uncategorized   bool     `json:"uncategorized,omitempty" jsonschema:"只要还没归到任何分类的对象，与 category 互斥"`
 	Inbox           bool     `json:"inbox,omitempty" jsonschema:"只要收件箱里的（来源是 inbox 或尚未分类），即待整理的新东西"`
+	Source          []string `json:"source,omitempty" jsonschema:"来源，如 [\"webhook\",\"im\"]，多个之间是或。任务来源取值 manual、im、webhook、schedule、incident"`
 	Overdue         bool     `json:"overdue,omitempty" jsonschema:"只要已过到期日且还没进终态的"`
 	Stalled         bool     `json:"stalled,omitempty" jsonschema:"只要停滞的：14 天没更新且还没进终态"`
 	NotTerminal     bool     `json:"not_terminal,omitempty" jsonschema:"排除处于终态的对象（已完成、已废弃等）。做「还剩哪些没做」这类统计时应当带上"`
@@ -107,6 +108,7 @@ func addSearch(s *mcp.Server, c *client) {
 		setCSV(q, "type", in.Type)
 		setCSV(q, "status", in.Status)
 		setCSV(q, "priority", in.Priority)
+		setCSV(q, "source", in.Source)
 		for _, t := range in.Tag {
 			if t = strings.TrimSpace(t); t != "" {
 				q.Add("tag", t)
@@ -246,7 +248,7 @@ type createObjectArgs struct {
 	ProjectID  string   `json:"project_id,omitempty" jsonschema:"所属项目对象的 id"`
 	DueAt      string   `json:"due_at,omitempty" jsonschema:"到期时间，YYYY-MM-DD 或 RFC3339"`
 	Tags       []string `json:"tags,omitempty" jsonschema:"标签名列表，不存在的标签会自动创建"`
-	Source     string   `json:"source,omitempty" jsonschema:"来源标记，不传默认按普通新建处理；传 inbox 表示丢进收件箱待整理"`
+	Source     string   `json:"source,omitempty" jsonschema:"来源标记，不传默认按普通新建处理；传 inbox 表示丢进收件箱待整理。任务来源用 manual、im、webhook、schedule、incident"`
 	Acceptance string   `json:"acceptance,omitempty" jsonschema:"验收标准，Markdown，建议写成「- [ ] ...」清单。开发任务应当写"`
 	Repo       string   `json:"repo,omitempty" jsonschema:"关联仓库：远端地址或本机绝对路径。开发任务用"`
 	Workdir    string   `json:"workdir,omitempty" jsonschema:"工作目录，本机绝对路径。不传时执行和开发会继承所属项目的工作目录"`

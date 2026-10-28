@@ -63,6 +63,7 @@
 | `tag` | `云端平台` | 可重复传多个，AND 语义 |
 | `owner` / `project` | | 精确匹配 |
 | `q` | `多租户` | 标题+正文模糊匹配 |
+| `source` | `webhook,im` | 按 `objects.source` 精确匹配，逗号分隔多选。任务来源取值见下方「任务来源」 |
 | `due_after` | `2026-09-15` | 到期日下界。RFC3339 或 YYYY-MM-DD，纯日期补 **00:00:00** |
 | `due_before` | `2026-09-15` | 到期日上界。RFC3339 或 YYYY-MM-DD，纯日期补 **23:59:59** |
 | `stalled` | `true` | N 天未更新且未进终态（口径与 `counts.stalled` 一致） |
@@ -103,15 +104,32 @@
 
 ### props 约定（开发任务）
 
-开发任务在 `props` 里约定两个 key（常量见 `domain.PropAcceptance` / `domain.PropRepo`）：
+开发任务在 `props` 里约定这几个 key（常量见 `domain.PropAcceptance` / `domain.PropRepo` / `domain.PropSourceRef`）：
 
 | key | 类型 | 说明 |
 |---|---|---|
 | `acceptance` | string，Markdown | 验收标准，建议写成 `- [ ] …` 清单 |
 | `repo` | string | 关联仓库：远端地址或本机绝对路径，只放一个。多个仓库的任务拆成每个仓库一条子任务 |
+| `source_ref` | object | 来源详情，见下方「任务来源」 |
 
 工作目录用 `workdir` 列（0008），不在 props 里重复。`PATCH` 的 `props` 是整体替换，
 只改其中一个 key 时要先读回再拼（MCP 的 `pmw_update_object` 已经这么做）。
+
+### 任务来源
+
+来源种类写在 `source` 列（0001 就有，`POST` / `PATCH` 都可写），来源详情写在 `props.source_ref`。
+取值与原型 `TaskSource.kind` 对应（常量见 `domain.TaskSource*` / `domain.PropSourceRef`）：
+
+| `source` | 含义 | `props.source_ref` |
+|---|---|---|
+| `manual` | 手动新建 | 不填 |
+| `im` | IM 消息转的 | `{message_id, channel?}` |
+| `webhook` | Webhook 投递建的 | `{hook_id, delivery_id}` |
+| `schedule` | 定时任务建的 | `{schedule_id}` |
+| `incident` | 异常转的 | `{incident_id}` |
+
+`inbox` 不是任务来源：它是收件箱口径（`inbox=true`、`counts.inbox`）在用的值，新来源不要用它。
+存量数据里还有 `''` 和 `import`（导入脚本写的），写入时不校验取值，`source=` 筛选按原值匹配。
 
 ## 进展与领取
 
