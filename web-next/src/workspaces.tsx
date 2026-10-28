@@ -114,7 +114,7 @@ export function WorkspacesPage({ list, current, onSwitch, onChange, onCreate, on
   }
 
   return (
-    <div className="page page-fill">
+    <div className="page page-fill ws-page">
       <PageTitle parent="设置" count={`${list.length} 个工作台`} desc="一个工作台是一套菜单：开哪些功能模块、怎么分组、按什么顺序、默认打开哪个；数据所有工作台共用"
         actions={<button className="btn btn-primary" onClick={() => setPicking(!picking)}>新建工作台</button>}>工作台与模块</PageTitle>
 
