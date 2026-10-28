@@ -151,11 +151,50 @@
 | `manual` | 手动新建 | 不填 |
 | `im` | IM 消息转的 | `{message_id, channel?}` |
 | `webhook` | Webhook 投递建的 | `{hook_id, delivery_id}` |
-| `schedule` | 定时任务建的 | `{schedule_id}` |
+| `schedule` | 定时任务建的 | `{schedule_id, name}`，`name` 是建任务时定时任务的名字（定时任务删了也能显示） |
 | `incident` | 异常转的 | `{incident_id}` |
 
 `inbox` 不是任务来源：它是收件箱口径（`inbox=true`、`counts.inbox`）在用的值，新来源不要用它。
 存量数据里还有 `''` 和 `import`（导入脚本写的），写入时不校验取值，`source=` 筛选按原值匹配。
+
+### id 前缀
+
+实体 id 形如 `<前缀>_<16 位时间有序串>`，一律由后端生成（`idgen.Prefixed`），前端不生成实体 id。前缀登记在 `internal/idgen/prefixes.go`，一类实体一个，不许共用；新表要用新前缀先登记，重复登记或漏登记时测试失败。对象的 `ref`（REQ-0001 这类）另由后端按类型前缀自增。
+
+| 前缀 | 实体 | 表 |
+|---|---|---|
+| obj | 对象（需求、待办、项目、文档、资源、笔记） | objects |
+| cat | 分类 | categories |
+| tag | 标签 | tags |
+| lnk | 关联 | links |
+| rev | 修订和进展 | revisions |
+| stk | 干系人 | stakeholders |
+| dit | 字典项 | dict_items |
+| sgr | 快捷入口分组 | shortcut_groups |
+| sct | 快捷入口 | shortcuts |
+| apv | 模型供应商 | agent_providers |
+| ags | Agent 会话 | agent_sessions |
+| agm | Agent 消息 | agent_messages |
+| q | ask_user 问题（存在消息里） | - |
+| art | 产物 | artifacts |
+| run | 任务执行记录 | task_runs |
+| sec | 密钥 | vault_secrets |
+| aud | 审计 | audits |
+| ntf | 通知 | notifications |
+| sch | 定时任务 | schedules |
+| srn | 定时任务执行记录 | schedule_runs |
+
+原型 `ids.ts` 和后端不一致的前缀：后端已经上线的不改，原型的前缀保留，不分给别的实体。
+
+| 原型 | 后端 | 原因 |
+|---|---|---|
+| tk（task）、pj（project）、dc（doc） | obj | 都是 objects 里的类型 |
+| ss（session） | ags | 已上线 |
+| pv（provider） | apv | 已上线 |
+| af（artifact） | art | 已上线 |
+| sc（schedule） | sch | 已上线 |
+
+原型里其余前缀（ct cn msg att rp mt pd pt ch wh dl sop inc ag ar op kb kd sk ws dm dir vd sr pb tp cl wl al ae st rl bk ac ps od rn bt tb pn）的实体后端还没建表，前缀已按原型登记占用。
 
 ## 进展与领取
 
@@ -642,7 +681,7 @@ data: {"id":"1761696000123457","type":"object.status_changed","at":"2026-10-29T0
 
 ## 定时任务 schedules
 
-TASK-03a。定义存在表 `schedules`（0020）；本节只有定义和「下次执行」的计算，到点执行和执行记录归 TASK-03b。全量导出暂不含这张表。
+TASK-03a、TASK-03b。定义存在表 `schedules`（0020），执行记录存在表 `schedule_runs`（0021，不复用 Claude Code 的执行记录 `task_runs`）。全量导出暂不含这两张表。
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
@@ -651,7 +690,9 @@ TASK-03a。定义存在表 `schedules`（0020）；本节只有定义和「下�
 | POST | `/api/schedules/preview` | 编辑时预览没保存的规则：body `{rule, count?}`，`count` 缺省 3、最大 10；回 `{rule, next_runs, time_zone}`，`rule` 是规范化后的，`next_runs` 可能少于 `count`（一次性只有一个） |
 | GET | `/api/schedules/{id}` | 一个 `Schedule`；不存在 404 |
 | PATCH | `/api/schedules/{id}` | 只传要改的：`name` / `enabled` / `rule` / `action`，`rule`、`action` 整体替换；回 `Schedule` |
-| DELETE | `/api/schedules/{id}` | 彻底删除，`data` 为 `null`；不存在 404 |
+| DELETE | `/api/schedules/{id}` | 彻底删除，`data` 为 `null`；不存在 404。执行记录一起删，已经建出来的任务保留 |
+| GET | `/api/schedules/{id}/runs?limit=50` | 执行记录 `ScheduleRun[]`，计划时刻新的在前；`limit` 缺省 50、最大 500，`meta.total` 是本页条数。定时任务不存在 404 |
+| POST | `/api/schedules/{id}/run` | 立即执行一次：按**已保存**的配置执行，停用的也能跑，不影响下次执行时间；回 201 + 这次的 `ScheduleRun`（`manual: true`）。不存在 404 |
 
 `Schedule`：`{id, name, enabled, rule, action, next_run_at, created_at, updated_at}`。
 
@@ -682,7 +723,30 @@ TASK-03a。定义存在表 `schedules`（0020）；本节只有定义和「下�
 
 - `sop_id`、`agent_id` 只查非空、不查是否存在（SOP、Agent 的接口在 M4 之后）。
 - 删除按 `delete` 记审计，Agent 来源的新建和修改按 `agent` 记，`target_type` 为 `schedule`。
-- 服务没接定时任务时这几个接口回 `internal` 500，message 为 `schedules are not configured on this server`。
+- 服务没接定时任务时这几个接口回 `internal` 500，message 为 `schedules are not configured on this server`；没接调度器时 `POST /run` 回 `internal` 500，message 为 `schedule runner is not configured on this server`。
+- `POST /run` 由 Agent 来源发起时按 `agent` 记审计，`action` 为 `run`。
+
+### 调度和执行记录
+
+服务启动后调度器每 10 秒看一遍所有定时任务（`internal/schedule` 的 `Runner`），处理「游标到现在」之间的计划时刻：
+
+- 到点 2 分钟以内的算准时，执行一次；更早的（服务没在跑、机器睡眠）算错过，**不补跑**，连续错过的合成一条 `missed`，`at` 是最早错过的那次，`missed` 是错过几次。
+- 停用的定时任务到点记一条 `skipped`「没执行：已停用」，停用期间更早的不记。
+- 重启不重复：游标存在 `schedules.checked_at`（0021 加的列）；执行记录上「定时任务 id + 计划时刻」唯一（手动执行不受限），游标没来得及推进就退出时，同一时刻也插不进第二条。执行先记 `running` 再做动作，上次退出时停在 `running` 的，启动时记为 `failed`「执行中服务退出了，结果不确定，没有重跑」。
+- 动作 `task`：建一条待办（`type_id=task`），`source` 为 `schedule`，`props.source_ref` 为 `{schedule_id, name}`；标题里的 `{{date}}` 换成计划时刻那天（写成 `2026/10/29`）；`due_at` 是那天往后 `due_days` 天的零点（本地时区）；`assignee` 是干系人 id（`stk_` 开头）时设为负责人，干系人已删时不设负责人、结果文字里注明，其他取值忽略。建任务用的操作者是 `schedule#<定时任务 id>`。
+- 动作 `sop`、`agent`：M4 之前不支持，记一条 `unsupported`「没执行：执行 SOP 暂不支持，M4 之后才有」「没执行：让 Agent 去做暂不支持，M4 之后才有」。
+
+`ScheduleRun`：`{id, schedule_id, at, status, ok, text, manual, missed, object_id, ref, started_at, finished_at}`，与原型 `ScheduleRun {at, ok, text, ref, manual}` 同名字段同义。
+
+| 字段 | 说明 |
+|---|---|
+| `at` | 计划时刻，手动执行为点按钮的时刻；带服务所在时区的偏移 |
+| `status` | `running` 执行中 / `ok` 成功 / `failed` 失败 / `skipped` 到点时已停用 / `unsupported` 动作暂不支持 / `missed` 错过 |
+| `ok` | `status = ok` |
+| `text` | 给人看的结果：「建了任务 TSK-0123」「没建成任务：…」「没执行：已停用」「没执行：服务没在运行，从 10-29 09:00 起错过了 3 次，没有补跑」 |
+| `missed` | 只在 `missed` 时有意义，错过几次；数到 10000 次为止 |
+| `object_id`、`ref` | 建出来的任务；没建任务时为 `null`，任务删了这里仍是原值 |
+| `finished_at` | `running` 时为 `null` |
 
 ## 运维 admin
 

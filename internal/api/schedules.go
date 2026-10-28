@@ -9,7 +9,7 @@ import (
 	"github.com/lizhao903/pm-workspace/internal/schedule"
 )
 
-// --- 定时任务（TASK-03a）：只管定义和下次执行时间，到点执行归 TASK-03b ---
+// --- 定时任务（TASK-03a 定义和下次执行时间，TASK-03b 执行记录和手动执行）---
 
 // maxPreview 是预览最多算几次。
 const maxPreview = 10
@@ -147,6 +147,42 @@ func (s *Server) handlePreviewSchedule(w http.ResponseWriter, r *http.Request) {
 		NextRuns []time.Time   `json:"next_runs"`
 		TimeZone string        `json:"time_zone"`
 	}{rule, schedule.NextN(rule, st.Now(), st.Location(), n), st.ZoneName()})
+}
+
+// handleListScheduleRuns 是 GET /api/schedules/{id}/runs：执行记录，计划时刻新的在前。
+func (s *Server) handleListScheduleRuns(w http.ResponseWriter, r *http.Request) {
+	if !s.schedulesConfigured(w) {
+		return
+	}
+	limit, err := newParams(r).limit("limit", schedule.DefaultRunLimit, schedule.MaxRunLimit)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	items, err := s.opt.Schedules.ListRuns(r.Context(), r.PathValue("id"), limit)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	respondList(w, items, Meta{Total: len(items), Limit: limit})
+}
+
+// handleRunSchedule 是 POST /api/schedules/{id}/run：按保存的配置马上执行一次，停用的也能跑，不影响下次执行时间。
+func (s *Server) handleRunSchedule(w http.ResponseWriter, r *http.Request) {
+	if s.opt.ScheduleRunner == nil {
+		writeJSON(w, http.StatusInternalServerError,
+			errBody{Error: errPayload{Code: "internal", Message: "schedule runner is not configured on this server"}})
+		return
+	}
+	run, err := s.opt.ScheduleRunner.RunNow(r.Context(), r.PathValue("id"))
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	if sc, err := s.opt.Schedules.Get(r.Context(), run.ScheduleID); err == nil {
+		s.auditSchedule(r, audit.KindAgent, "run", sc, "手动执行定时任务「"+sc.Name+"」："+run.Text, nil)
+	}
+	respondData(w, http.StatusCreated, run)
 }
 
 // auditSchedule 按契约的审计口径记一条：删除不分来源都记，新建和修改只记 Agent 来源的。
