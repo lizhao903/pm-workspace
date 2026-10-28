@@ -54,3 +54,8 @@ fmt:
 
 clean:
 	rm -rf bin $(DIST)
+
+# 原型冒烟测试：原型要先在跑（cd web-next && npm run dev）。截图存哪用 ARGS="--out 目录" 指定。
+.PHONY: smoke-proto
+smoke-proto:
+	@/opt/miniconda3/bin/python scripts/smoke-proto.py $(ARGS)
