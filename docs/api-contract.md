@@ -28,6 +28,31 @@
 | GET | `/api/health` | `{"data":{"ok":true,"version":"..."}}` |
 | GET | `/api/stats` | 状态栏：db 路径、体积、对象数、最后写入时间 |
 | GET | `/api/counts` | 侧栏徽标，返回 `Counts` |
+| GET | `/api/today?type={typeID}` | 今日页聚合，返回 `Today`，见下方「今日聚合」 |
+
+### 今日聚合
+
+`GET /api/today` 一次请求返回今日页的卡片列表 `{"cards": TodayCard[]}`，按 `order` 排好。
+`type` 的语义和 `/api/counts` 相同：不传是全局，传了收窄到该类型；前端比对徽标时两边传同一个 `type`。
+
+`TodayCard`：`{key, title, order, total, items}`。`total` 是全量条数，`items` 最多 50 条（`domain.TodayCardLimit`）；没有内容时 `items` 是 `[]`，卡片照常返回。
+
+| `key` | 标题 | `order` | `items` | 口径 |
+|---|---|---|---|---|
+| `review` | 等确认 | 10 | `Object[]`，最近更新的在前 | 待办类型（`task`）状态为 `review`（0013）且未归档、未删除。`type` 传了别的类型时为空 |
+| `overdue` | 逾期 | 20 | `Object[]`，截止早的在前 | 与 `counts.overdue` 同一份条件，`total` 恒等于 `counts.overdue` |
+| `due_today` | 今天到期 | 30 | `Object[]`，按截止时间 | 与 `counts.today` 同一份条件，`total` 恒等于 `counts.today` |
+| `running` | 运行中 | 40 | `TodayRun[]`，最近开始的在前 | `task_runs` 里 `finished_at` 为空的执行（`pending` / `running`）。`type` 按所属对象的类型收窄 |
+
+`TodayRun`：`{id, object_id, object_ref, object_title, object_type, workdir, status, started_at}`，不带 `output`，
+看过程走 `GET /api/runs/{id}`。所属对象在回收站里也照样列出：进程还在跑。
+
+逾期、今天到期和 `/api/counts` 在 store 里共用同一段条件（`focusConds`），今天、逾期都按服务端本地日期切，
+改口径只改那一处，两边一起变。
+
+等回答的 Agent 问题暂不返回：Agent 会话目前没有「等用户回答」这个状态（`agent_sessions` 无状态列，
+消息也没有提问标记），要等会话加上这个状态再补一张卡片。插件卡片由 TODAY-01b 接入，`key` 用插件声明的，
+不和上面四个撞。
 
 ## 工作对象类型 object-types
 
@@ -86,6 +111,7 @@
 
 这几个徽标就贴在列表旁边，口径一旦分叉就会出现「徽标 2 / 列表 20 行」，而这类错误
 **不会崩溃、只会让人用错的数字做判断**，很难被发现。改动任何一侧都要同步另一侧。
+`/api/today` 的逾期、今天到期卡片直接复用 counts 的条件，不走这张表的参数，但三者必须对得上（`TestTodayMatchesCounts` 盯着）。
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
@@ -603,7 +629,7 @@ id: 1761696000123457
 data: {"id":"1761696000123457","type":"object.status_changed","at":"2026-10-29T00:10:00.123Z","payload":{"id":"obj_…","type_id":"task","from":"todo","to":"doing"}}
 ```
 
-- `type` / `payload`：内核事件与 `docs/plugin-api.md` 2.10 的表一致（`object.created`、`object.updated`、`object.status_changed`、`task.review_requested`、`run.finished`），插件发布的事件（`<插件 id>.xxx`）原样转发；另有 `notification.created`，载荷是整条 `Notification`。
+- `type` / `payload`：内核事件与 `docs/plugin-api.md` 2.10 的表一致（`object.created`、`object.updated`、`object.status_changed`、`object.progress_appended`、`task.review_requested`、`run.finished`），插件发布的事件（`<插件 id>.xxx`）原样转发；另有 `notification.created`，载荷是整条 `Notification`。
 - 载荷只有 id、字段名、状态 key，不含字段值；要看内容用 id 回查对应接口。
 - 流自己的两条控制事件：
   - `stream.ready`：没带 `Last-Event-ID` 的新连接，第一条就是它，`id` 是当前最新 id、`payload` 为 `{}`。这样连上后一条事件都没收到就断线，重连也能从这里补齐。
