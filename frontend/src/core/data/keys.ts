@@ -63,4 +63,8 @@ export const dataKeys = {
     browse: (path: string) => ['fs', 'browse', path] as const,
     shortcuts: ['fs', 'shortcuts'] as const,
   },
+  plugins: {
+    all: ['plugins'] as const,
+    list: ['plugins', 'list'] as const,
+  },
 }

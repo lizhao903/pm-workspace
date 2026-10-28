@@ -167,6 +167,7 @@ export async function loadPlugins(
       const entry = (await byId.get(m.id)!.load!()).default
       entry.activate(pluginApi(m, reasons, isDev))
       entries.set(m.id, entry)
+      manifests.set(m.id, m)
     } catch (e) {
       disposeAll(m.id)
       console.error(`插件 ${m.id} 加载失败`, e)
@@ -201,8 +202,9 @@ export function pluginApi(m: PluginManifest, reasons: string[], strict: boolean)
   }
 }
 
-// 已激活的插件入口，停用时调它的 deactivate
+// 已激活的插件入口，停用时调它的 deactivate；清单留着给后启用的插件查依赖
 const entries = new Map<string, PluginEntry>()
+const manifests = new Map<string, PluginManifest>()
 
 function disposeAll(owner: string) {
   disposeCommandsOf(owner)
@@ -216,6 +218,7 @@ export function deactivatePlugin(id: string): boolean {
   const entry = entries.get(id)
   if (!entry) return false
   entries.delete(id)
+  manifests.delete(id)
   disposeAll(id)
   try {
     entry.deactivate?.()
@@ -227,6 +230,40 @@ export function deactivatePlugin(id: string): boolean {
 
 export function activePlugins(): string[] {
   return [...entries.keys()]
+}
+
+export type ActivateResult =
+  | { ok: true; reload: boolean }
+  | { ok: false; reasons: string[] }
+
+// 启用插件（docs/plugin-api.md 4.2 的前端部分，插件管理页在后端启用成功后调）：查清单和依赖，加载入口调 activate。
+// 路由和菜单的模块列表是启动时定的：启动时就有路由的模块（启动时启用、后来停用又启用的）直接回到菜单；
+// 启动时没有的要整页重新加载，这时 reload 为 true。已经在跑的不重复加载；只有后端没有前端入口的直接算成功
+export async function activatePlugin(id: string, sources: readonly PluginSource[] = discoverPlugins()): Promise<ActivateResult> {
+  if (entries.has(id)) return { ok: true, reload: false }
+  const src = sources.find((s) => s.id === id)
+  if (!src || src.manifest === undefined) return { ok: true, reload: false }
+  const r = parseManifest(src.manifest)
+  if (!r.ok) return { ok: false, reasons: r.issues.map((i) => '清单 ' + formatIssue(i)) }
+  if (!src.load) return { ok: true, reload: false }
+  const m = r.manifest
+  const issues = checkManifest(m, { apiVersion: PLUGIN_API_VERSION, plugins: [...manifests.values()] })
+  if (issues.length > 0) return { ok: false, reasons: issues.map(formatIssue) }
+  const reasons: string[] = []
+  disposeAll(id)
+  try {
+    const entry = (await src.load()).default
+    entry.activate(pluginApi(m, reasons, isDev))
+    entries.set(id, entry)
+    manifests.set(id, m)
+  } catch (e) {
+    disposeAll(id)
+    console.error(`插件 ${id} 加载失败`, e)
+    return { ok: false, reasons: ['加载失败：' + (e as Error).message] }
+  }
+  problems = problems.filter((p) => p.id !== id)
+  const reload = moduleStore.ofOwner(id).some((d) => !routed.has(d.id))
+  return { ok: true, reload }
 }
 
 // 外壳能力。插件在启动时就拿到 api.shell，那时外壳还没渲染，所以经这一层转给外壳挂上来的实现
@@ -244,13 +281,17 @@ const shellProxy: ShellApi = {
 }
 
 let problems: PluginProblem[] = []
+// 启动时建了路由的模块 id
+let routed = new Set<string>()
 
 // 应用启动时调一次：加载插件，把插件模块接在内核模块后面
 export async function initPlugins(kernel: readonly ModuleDef[]): Promise<ModuleDef[]> {
   registerCoreModules(kernel)
   const r = await loadPlugins()
   problems = r.problems
-  return mergeModules(kernel, r.modules, problems)
+  const list = mergeModules(kernel, r.modules, problems)
+  routed = new Set(list.map((d) => d.id))
+  return list
 }
 
 // 模块 id 或路径和已有的撞了的不要，免得一个菜单项盖掉另一个；撞了的记进 out

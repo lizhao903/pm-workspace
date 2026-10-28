@@ -212,7 +212,8 @@ describe('插件的设置分节和今日卡片（CORE-02b）', () => {
   it('hello 不启用：今日页没有卡片，设置页没有插件分组', async () => {
     await renderReal([], '/settings')
     const nav = await screen.findByRole('navigation', { name: '设置' })
-    expect(nav).not.toHaveTextContent('插件')
+    // 内核自己有「插件」管理分节（CORE-09），这里只看插件注册的分节
+    expect(within(nav).queryByRole('button', { name: /示例插件/ })).not.toBeInTheDocument()
     await userEvent.click(screen.getByRole('link', { name: '今日' }))
     await screen.findByRole('heading', { name: '今日' })
     expect(screen.queryByRole('region', { name: '示例插件' })).not.toBeInTheDocument()

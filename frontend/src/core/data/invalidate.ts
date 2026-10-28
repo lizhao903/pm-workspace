@@ -2,6 +2,7 @@
 // 组件和模块不自己拼键去失效，一律报一个 Change，规则集中在 invalidationsFor 里，有单元测试盯着。
 import { useQueryClient, type QueryClient, type QueryKey } from '@tanstack/react-query'
 import { useCallback } from 'react'
+import { agentKeys } from './agentKeys'
 import { dataKeys } from './keys'
 import { queryClient } from './queryClient'
 
@@ -21,6 +22,12 @@ export type Change =
   | { kind: 'stakeholder' }
   | { kind: 'dictionary' }
   | { kind: 'object-type' }
+  /** 全局会话新建、改标题、删除；删除时产出物的 session_id 被置空 */
+  | { kind: 'agent-session' }
+  /** 一轮对话收尾（done 或失败）：消息、会话的更新时间和标题都变了，工具可能建了对象、写了文件 */
+  | { kind: 'agent-chat'; sessionId?: string }
+  /** 插件安装、启停、卸载：插件可能带来或收起对象类型 */
+  | { kind: 'plugin' }
 
 // 对象一变，所有对象列表（任务列表、今日、项目的任务标签页）、单个对象及其进展和修订、
 // 计数（侧栏红点、逾期徽标）都可能变；干系人名册上的任务数也跟着变。
@@ -51,6 +58,16 @@ export function invalidationsFor(c: Change): QueryKey[] {
     case 'object-type':
       // 状态集变了，计数口径（终态）也变
       return [dataKeys.objectTypes, dataKeys.counts.all]
+    case 'agent-session':
+      // 只刷列表：改名不动消息；删掉的会话再去取消息只会拿到 404
+      return [agentKeys.sessions.unscoped, dataKeys.artifacts.all]
+    case 'agent-chat':
+      return [
+        c.sessionId ? agentKeys.sessions.messages(c.sessionId) : agentKeys.sessions.all,
+        agentKeys.sessions.unscoped, dataKeys.artifacts.all, ...objectWide,
+      ]
+    case 'plugin':
+      return [dataKeys.plugins.all, dataKeys.objectTypes]
   }
 }
 

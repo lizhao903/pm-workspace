@@ -23,6 +23,17 @@ export type { RevisionGroup } from './revisions'
 export { useArtifacts, useObjectArtifacts, useArtifactStats, useArtifactCount, useRecordArtifact } from './artifacts'
 export { runFinished, useTaskRuns, useTaskRun, useCancelRun, streamRun } from './runs'
 export { workdirUsable, useWorkdirCheck, useFsBrowse, useFsShortcuts } from './fs'
+export {
+  useAgentProviders, useProviderModels, useAgentSessions, useAgentMessages, useCreateAgentSession, usePatchAgentSession,
+  useDeleteAgentSession, streamChat,
+} from './agent'
+export type {
+  AgentProvider, AgentProviderKind, ProviderTestResult, AgentSession, AgentMessage, AgentMessageRole, AgentSessionInput, AgentSessionPatch,
+} from './agent'
+export {
+  usePlugins, useInstallPlugin, useEnablePlugin, useDisablePlugins, useUninstallPlugin, enabledDependents, installedDependents,
+} from './plugins'
+export type { PluginInfo, PluginInstallResult, PluginUninstallResult } from './plugins'
 
 // 接口层的纯函数和类型照样给模块用：不发请求，不碰缓存
 export { localDay, focusParams, changedFields, isApiError, isStreamError, ApiError, StreamError } from '../api'

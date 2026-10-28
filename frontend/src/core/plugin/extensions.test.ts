@@ -7,7 +7,7 @@ import {
   settingsStore, sortCards, todayCardStore, type PluginTodayCard,
 } from './extensions'
 import { PLUGIN_API_VERSION, type PluginManifest } from './manifest'
-import { activePlugins, deactivatePlugin, discoverPlugins, loadPlugins, pluginApi } from './registry'
+import { activatePlugin, activePlugins, deactivatePlugin, discoverPlugins, initPlugins, loadPlugins, pluginApi } from './registry'
 
 const state = (enabled: string[]) => ({ enabled, apiVersion: PLUGIN_API_VERSION })
 const page = lazy(() => Promise.resolve({ default: () => null }))
@@ -133,6 +133,50 @@ describe('真实的 hello 插件', () => {
     deactivatePlugin('aa')
     expect(off).toHaveBeenCalledOnce()
     expect(retiredModules().has('aa')).toBe(true)
+  })
+})
+
+describe('activatePlugin', () => {
+  const mod = { id: 'aa', label: 'x', path: 'aa', load: async () => ({ default: () => null }) }
+  const aa = definePlugin({ activate: (api) => void api.modules.register(mod) })
+  const src = (extra: Partial<PluginManifest> = {}) => ({ id: 'aa', manifest: manifest(extra), load: async () => ({ default: aa }) })
+
+  // 后端列表为空时示例插件 hello 按 enabled.ts 加载，启动时就建了路由
+  async function boot() {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ data: [] }))))
+    try {
+      await initPlugins([])
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  }
+
+  it('停用后再启用：模块回到菜单；启动时就有路由，不用整页重新加载；已在跑的不重复加载', async () => {
+    await boot()
+    deactivatePlugin('hello')
+    expect(retiredModules().has('hello')).toBe(true)
+    expect(await activatePlugin('hello')).toEqual({ ok: true, reload: false })
+    expect(retiredModules().has('hello')).toBe(false)
+    expect(activePlugins()).toContain('hello')
+    expect(await activatePlugin('hello')).toEqual({ ok: true, reload: false })
+    expect(settingsStore.list().filter((x) => x.plugin === 'hello')).toHaveLength(1)
+  })
+
+  it('启动时没建路由的插件模块：启用后要整页重新加载', async () => {
+    await boot()
+    expect(await activatePlugin('aa', [src()])).toEqual({ ok: true, reload: true })
+    expect(moduleStore.ofOwner('aa').map((m) => m.id)).toEqual(['aa'])
+  })
+
+  it('依赖没启用、清单不合法、加载出错时不加载并给原因；没有前端入口的直接算成功', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    const dep = await activatePlugin('aa', [src({ depends: { bb: '^1.0.0' } })])
+    expect(dep.ok).toBe(false)
+    expect(activePlugins()).not.toContain('aa')
+    expect(await activatePlugin('aa', [{ id: 'aa', manifest: { id: 'aa' }, load: src().load }])).toMatchObject({ ok: false })
+    expect(await activatePlugin('aa', [{ ...src(), load: () => Promise.reject(new Error('断了')) }])).toEqual({ ok: false, reasons: ['加载失败：断了'] })
+    expect(await activatePlugin('aa', [{ id: 'aa', manifest: manifest() }])).toEqual({ ok: true, reload: false })
+    expect(await activatePlugin('ghost', [])).toEqual({ ok: true, reload: false })
   })
 })
 
