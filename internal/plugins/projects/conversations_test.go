@@ -122,7 +122,7 @@ func TestRenameConversationKeepsBinding(t *testing.T) {
 	s := api.New(st, api.Options{Version: "test", Logger: log, Plugins: reg,
 		Identities: imident.New(st.DB()), Conversations: conversation.New(st.DB())})
 
-	if code, out := call(t, s, "POST", "/api/plugins/projects/install", `{}`); code != 200 {
+	if code, out := call(t, s, "POST", "/api/plugins/projects/install", `{"permissions":["process:spawn"]}`); code != 200 {
 		t.Fatalf("安装：%d %v", code, out)
 	}
 	if code, out := call(t, s, "POST", "/api/plugins/projects/enable", `{}`); code != 200 {

@@ -1,9 +1,10 @@
 // Package projects 是「项目」插件的后端（PJ-01a 起）。清单 plugin.json 只有这一份，前端构建时也读它。
 // 项目本身仍是内核 type=project 的对象，字段约定见 docs/api-contract.md「项目插件」；
-// 插件自己的表放项目干系人（PJ-01b）、绑定的 IM 会话（PJ-02a）、项目资料（PJ-03a），原型启停随 PJ-04 起补。
+// 插件自己的表放项目干系人（PJ-01b）、绑定的 IM 会话（PJ-02a）、项目资料（PJ-03a）、原型定义和崩溃记录（PJ-04a）。
 package projects
 
 import (
+	"context"
 	"embed"
 	"io/fs"
 
@@ -34,6 +35,7 @@ func (p *Plugin) Migrations() fs.FS {
 
 func (p *Plugin) Register(r plugin.Registrar) error {
 	h := &stakeholders{c: r.Core()}
+	pm := newManager(r.Core()) // 每次启用一个，只建结构不起进程
 	r.Routes(func(m plugin.RouteRegistrar) {
 		m.HandleFunc("GET /api/projects/{id}/stakeholders", h.list)
 		m.HandleFunc("POST /api/projects/{id}/stakeholders", h.add)
@@ -49,6 +51,22 @@ func (p *Plugin) Register(r plugin.Registrar) error {
 		m.HandleFunc("GET /api/projects/{id}/materials/{material_id}", mt.show)
 		m.HandleFunc("PATCH /api/projects/{id}/materials/{material_id}", mt.update)
 		m.HandleFunc("DELETE /api/projects/{id}/materials/{material_id}", mt.remove)
+		pt := &prototypes{h, pm}
+		m.HandleFunc("GET /api/projects/{id}/prototypes", pt.list)
+		m.HandleFunc("POST /api/projects/{id}/prototypes", pt.add)
+		m.HandleFunc("GET /api/projects/{id}/prototypes/{prototype_id}", pt.show)
+		m.HandleFunc("PATCH /api/projects/{id}/prototypes/{prototype_id}", pt.update)
+		m.HandleFunc("DELETE /api/projects/{id}/prototypes/{prototype_id}", pt.remove)
+		m.HandleFunc("POST /api/projects/{id}/prototypes/{prototype_id}/start", pt.start)
+		m.HandleFunc("POST /api/projects/{id}/prototypes/{prototype_id}/stop", pt.stop)
+		m.HandleFunc("GET /api/projects/{id}/prototypes/{prototype_id}/logs", pt.logs)
+		m.HandleFunc("GET /api/projects/{id}/prototypes/{prototype_id}/crashes", pt.crashes)
 	})
+	// 常驻任务只等取消：插件停用、服务关闭时停掉这次启用起的全部原型进程
+	r.Job(plugin.Job{Name: "prototypes", Run: func(ctx context.Context, _ plugin.Core) error {
+		<-ctx.Done()
+		pm.closeAll()
+		return nil
+	}})
 	return nil
 }

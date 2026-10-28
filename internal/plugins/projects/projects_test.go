@@ -51,7 +51,7 @@ func TestLifecycle(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer r.Close()
-	if err := r.Install(ctx, "projects", nil); err != nil {
+	if err := r.Install(ctx, "projects", []string{"process:spawn"}); err != nil {
 		t.Fatalf("安装：%v", err)
 	}
 	if err := r.Enable(ctx, "projects"); err != nil {
@@ -86,7 +86,7 @@ func setup(t *testing.T) (*plugin.Registry, http.Handler, *db.DB) {
 		t.Fatal(err)
 	}
 	t.Cleanup(r.Close)
-	if err := r.Install(ctx, "projects", nil); err != nil {
+	if err := r.Install(ctx, "projects", []string{"process:spawn"}); err != nil {
 		t.Fatal(err)
 	}
 	if err := r.Enable(ctx, "projects"); err != nil {

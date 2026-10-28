@@ -32,6 +32,8 @@ type Registry struct {
 	Events Publisher
 	// DB 是插件 Store、Objects、Contacts 用的库；为 nil 时取 Migrations 是 SQLMigrationStore 时的那个。
 	DB *db.DB
+	// DataDir 是库文件所在目录，插件的附件目录在它下面（IM-04a，datadir.go）；空串表示没有。
+	DataDir string
 
 	// APIVersion 为空时用 APIVersion 常量；测试用它模拟内核升级。
 	APIVersion string

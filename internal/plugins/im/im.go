@@ -67,6 +67,10 @@ func (p *Plugin) Register(r plugin.Registrar) error {
 		m.HandleFunc("POST /api/im/messages/{id}/snooze", in.snooze)
 		m.HandleFunc("POST /api/im/messages/{id}/reply", in.reply)
 		m.HandleFunc("POST /api/im/messages/{id}/task", in.toTask)
+		// 附件获取（IM-04a，attachments.go）
+		m.HandleFunc("POST /api/im/messages/{id}/attachments/{attachment_id}/fetch", in.fetch)
+		m.HandleFunc("GET /api/im/attachments", in.attachmentsInfo)
+		m.HandleFunc("GET /api/im/attachments/{channel}/{name}", in.download)
 	})
 	for _, a := range p.adapters {
 		if pl, ok := a.(Puller); ok {

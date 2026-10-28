@@ -54,13 +54,13 @@ var Registry = []Entry{
 	// 以下是原型里有、后端还没建表的实体，前缀和原型一致
 	// 沟通
 	{"ct", "contact", "", "contact"},
-	{"msg", "message", "im_messages", "message"}, // IM 插件的表（IM-01a）
-	{"att", "attachment", "", "attachment"},
-	{"rp", "reply", "im_replies", "reply"}, // IM 插件的表（IM-02a）
+	{"msg", "message", "im_messages", "message"},          // IM 插件的表（IM-01a）
+	{"att", "attachment", "im_attachments", "attachment"}, // IM 插件补的附件 id（IM-04a），附件本身在消息里，表里是获取状态
+	{"rp", "reply", "im_replies", "reply"},                // IM 插件的表（IM-02a）
 	// 项目
-	{"mt", "material", "projects_materials", "material"}, // 项目插件的表（PJ-03a）
-	{"pd", "projectDoc", "", "projectDoc"},               // PJ-03a 起项目文档并进资料用 mt，前缀保留
-	{"pt", "prototype", "", "prototype"},
+	{"mt", "material", "projects_materials", "material"},    // 项目插件的表（PJ-03a）
+	{"pd", "projectDoc", "", "projectDoc"},                  // PJ-03a 起项目文档并进资料用 mt，前缀保留
+	{"pt", "prototype", "projects_prototypes", "prototype"}, // 项目插件的表（PJ-04a）
 	{"ch", "projectChat", "", "projectChat"},
 	// 任务与自动化
 	{"sop", "sop", "", "sop"},

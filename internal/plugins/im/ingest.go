@@ -2,7 +2,6 @@ package im
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -48,6 +47,7 @@ type inbox struct {
 	adapters []Adapter
 	now      func() time.Time
 	taskMu   sync.Mutex // 转任务串行，同一条消息连点两次不建两条任务
+	fetchMu  sync.Mutex // 获取附件串行，挑文件名和落库不打架（IM-04a）
 }
 
 func (in *inbox) clock() time.Time {
@@ -163,11 +163,10 @@ func (in *inbox) prepare(ctx context.Context, ch string, self []string, m Incomi
 	}
 	r.attachments = "[]"
 	if a := strings.TrimSpace(string(m.Attachments)); a != "" && a != "null" {
-		var list []json.RawMessage
-		if json.Unmarshal([]byte(a), &list) != nil {
-			return r, bad("attachments must be an array")
+		// 没有 id 或 id 重复的附件补上 id，获取时按 id 找（IM-04a）
+		if r.attachments, err = normalizeAttachments(a); err != nil {
+			return r, err
 		}
-		r.attachments = a
 	}
 	at := m.At
 	if at.IsZero() {

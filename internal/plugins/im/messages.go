@@ -195,6 +195,9 @@ func (in *inbox) query(ctx context.Context, sql string, args ...any) ([]Message,
 	if err := in.fillActions(ctx, out); err != nil {
 		return nil, err
 	}
+	if err := in.fillAttachments(ctx, out); err != nil {
+		return nil, err
+	}
 	return out, nil
 }
 
