@@ -53,6 +53,19 @@ export {
 export type {
   Workspace, WorkspaceGroup, WorkspaceGroupInput, WorkspaceMark, WorkspaceTemplate, WorkspaceInput, WorkspacePatch,
 } from './workspaces'
+export {
+  docsApi, useCategoryTree, useTags, useLocalDirs, useLocalDirFiles, useLocalFile, useMountLocalDir, useUnmountLocalDir,
+  useSetStarred, setStarred, isStarred, PROP_STARRED,
+} from './docs'
+export type { Category, TagInfo, LocalDir, LocalFileEntry, LocalFileList, LocalFile } from './docs'
+export {
+  DELIVERIES_MAX, SIGNATURE_HEADER, DELIVERY_HEADER, hookPath, useWebhooks, useWebhookDeliveries, useLastDeliveries, useWebhookUsages,
+  useCreateWebhook, usePatchWebhook, useRotateWebhookSecret, useDeleteWebhook, usePushWebhook,
+} from './webhooks'
+export type {
+  Webhook, WebhookWithSecret, WebhookInput, WebhookPatch, WebhookMapping, WebhookDefaults, WebhookUsage, Delivery, DeliveryResult,
+  LastDelivery,
+} from './webhooks'
 
 // 接口层的纯函数和类型照样给模块用：不发请求，不碰缓存
 export { localDay, focusParams, changedFields, isApiError, isStreamError, ApiError, StreamError } from '../api'

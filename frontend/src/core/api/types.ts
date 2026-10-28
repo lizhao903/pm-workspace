@@ -160,6 +160,8 @@ export type ObjectListParams = {
   tag?: string[]
   owner_id?: string
   project?: string
+  // 按 objects.source 精确匹配，多个之间是或（任务来源见契约「任务来源」）
+  source?: string[]
   q?: string
   // 纯日期 YYYY-MM-DD 由后端补时：due_after 补 00:00:00，due_before 补 23:59:59；也可传 RFC3339
   due_after?: string

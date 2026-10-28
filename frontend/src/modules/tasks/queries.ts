@@ -1,12 +1,13 @@
 // 任务列表页用的查询（DEV-07a 起），建在数据访问层上：缓存键和失效都由 core/data 管，
 // 任务在抽屉里改了状态，这里的列表和逾期计数跟着刷新。
-import { useAllObjects, useCounts } from '../../core/data'
+import { useAllObjects, useCounts, useObjects } from '../../core/data'
+import { SOURCE_VIEW, type SourceKind } from './sourceModel'
 
-export type TaskListParams = { q?: string; overdue?: boolean }
+export type TaskListParams = { q?: string; overdue?: boolean; source?: string[] }
 
-// 任务列表：type=task，搜索走 q，逾期视图走 overdue=true（和 /api/counts 的 overdue 同一口径）
+// 任务列表：type=task，搜索走 q，逾期视图走 overdue=true（和 /api/counts 的 overdue 同一口径），来源视图走 source=
 export function useTaskList(p: TaskListParams) {
-  return useAllObjects({ type: ['task'], q: p.q, overdue: p.overdue }, { keepPrevious: true })
+  return useAllObjects({ type: ['task'], q: p.q, overdue: p.overdue, source: p.source }, { keepPrevious: true })
 }
 
 // 聚焦类计数器收窄到任务
@@ -14,3 +15,14 @@ export const useTaskCounts = () => useCounts({ type: 'task' })
 
 // 项目筛选的选项
 export const useProjectOptions = () => useAllObjects({ type: ['project'], sort: 'title' })
+
+// 来源视图的条数（二级菜单「来源」组）：和列表用同一个 source 筛选，只取 total
+const useSourceTotal = (k: SourceKind) => useObjects({ type: ['task'], source: SOURCE_VIEW[k].filter, limit: 1 }).data?.total
+export function useSourceCounts(): Record<SourceKind, number | undefined> {
+  const manual = useSourceTotal('manual')
+  const im = useSourceTotal('im')
+  const webhook = useSourceTotal('webhook')
+  const schedule = useSourceTotal('schedule')
+  const incident = useSourceTotal('incident')
+  return { manual, im, webhook, schedule, incident }
+}

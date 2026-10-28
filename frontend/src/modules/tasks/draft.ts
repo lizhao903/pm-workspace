@@ -90,9 +90,9 @@ export function buildSave(before: WorkObject, d: TaskDraft): ObjectSave {
   return { id: before.id, patch, props: Object.keys(props).length ? props : undefined }
 }
 
-/** 新建的请求体：空值不传，交给后端的默认 */
+/** 新建的请求体：空值不传，交给后端的默认。在哪个视图里新建都是人工任务（SPEC-tasks-3.4） */
 export function buildCreate(d: TaskDraft): ObjectCreateInput {
-  const input: ObjectCreateInput = { type_id: 'task', title: d.title.trim() }
+  const input: ObjectCreateInput = { type_id: 'task', title: d.title.trim(), source: 'manual' }
   if (d.body) input.body = d.body
   if (d.status) input.status = d.status
   if (d.priority) input.priority = d.priority

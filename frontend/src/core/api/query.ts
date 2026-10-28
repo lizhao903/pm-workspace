@@ -43,6 +43,7 @@ export function objectListQuery(p: ObjectListParams = {}): URLSearchParams {
   }
   str(qs, 'owner_id', p.owner_id)
   str(qs, 'project', p.project)
+  csv(qs, 'source', p.source)
   str(qs, 'q', p.q)
   // 纯日期原样传，由后端按上下界分别补时；前端不要自己补
   str(qs, 'due_after', p.due_after)

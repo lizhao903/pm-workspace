@@ -35,10 +35,19 @@ export type Change =
   | { kind: 'schedule-run'; id: string }
   /** 工作台新建、修改、删除：只换菜单，数据不隔离，不刷别的 */
   | { kind: 'workspace' }
+  /** 挂载、移除本地目录（DOC-01b）；顶栏「刷新」也报它，重新读文件清单和打开的文件 */
+  | { kind: 'local-dir' }
+  /** Webhook 新建、编辑、启停、轮换密钥、删除（TASK-04b） */
+  | { kind: 'webhook'; id?: string }
+  /** 往收件地址推了一次：多一条投递记录，可能建出一条任务 */
+  | { kind: 'webhook-delivery'; id: string }
 
 // 对象一变，所有对象列表（任务列表、今日、项目的任务标签页）、单个对象及其进展和修订、
 // 计数（侧栏红点、逾期徽标）都可能变；干系人名册上的任务数也跟着变；今日聚合（待验收、逾期、今天到期、插件卡片）也是。
-const objectWide: QueryKey[] = [dataKeys.objects.all, dataKeys.counts.all, dataKeys.stakeholders.all, todayKeys.all]
+// 文档的分类树数量、标签引用数（DOC-01b）也按对象算。
+const objectWide: QueryKey[] = [
+  dataKeys.objects.all, dataKeys.counts.all, dataKeys.stakeholders.all, todayKeys.all, dataKeys.categories.all, dataKeys.tags.all,
+]
 
 /** 一次改动要按前缀失效的查询键 */
 export function invalidationsFor(c: Change): QueryKey[] {
@@ -85,6 +94,16 @@ export function invalidationsFor(c: Change): QueryKey[] {
       return [dataKeys.schedules.runsOf(c.id), ...objectWide]
     case 'workspace':
       return [dataKeys.workspaces.list]
+    case 'local-dir':
+      return [dataKeys.localDirs.all]
+    case 'webhook':
+      // 列表（二级菜单同一份）；删除时投递记录和影响一起没了
+      return c.id
+        ? [dataKeys.webhooks.list, dataKeys.webhooks.deliveriesOf(c.id), dataKeys.webhooks.usage(c.id)]
+        : [dataKeys.webhooks.all]
+    case 'webhook-delivery':
+      // 建出来的任务要进任务列表、来源视图条数、计数和今日；「建了任务」一列跟着变
+      return [dataKeys.webhooks.deliveriesOf(c.id), dataKeys.webhooks.usage(c.id), ...objectWide]
   }
 }
 

@@ -230,3 +230,66 @@ describe('工作台的失效（CORE-10b）', () => {
     }
   })
 })
+
+describe('文档页的失效（DOC-01b）', () => {
+  const keys = {
+    docs: dataKeys.objects.listAll({ type: ['doc'] }),
+    categories: dataKeys.categories.tree('doc'),
+    tags: dataKeys.tags.list,
+    dirs: dataKeys.localDirs.list,
+    files: dataKeys.localDirs.files('dir_a'),
+    read: dataKeys.localDirs.read('/tmp/a/x.md'),
+    taskList: dataKeys.objects.listAll({ type: ['task'] }),
+  } satisfies Record<string, QueryKey>
+  async function stale(c: Change) {
+    const qc = new QueryClient()
+    for (const k of Object.values(keys)) qc.setQueryData(k, {})
+    await applyChange(qc, c)
+    return (Object.keys(keys) as (keyof typeof keys)[]).filter((n) => qc.getQueryState(keys[n])?.isInvalidated)
+  }
+
+  it('对象改动（含星标）：文档列表、分类树数量、标签引用数都刷，挂载目录不动', async () => {
+    expect(await stale({ kind: 'object', id: 'obj_a' })).toEqual(['docs', 'categories', 'tags', 'taskList'])
+  })
+
+  it('挂载、移除、刷新本地目录：只刷挂载列表、文件清单和读过的文件', async () => {
+    expect(await stale({ kind: 'local-dir' })).toEqual(['dirs', 'files', 'read'])
+  })
+})
+
+describe('Webhook 的失效（TASK-04b）', () => {
+  const keys = {
+    hooks: dataKeys.webhooks.list,
+    deliveries: dataKeys.webhooks.deliveries('wh_a', 200),
+    lastDelivery: dataKeys.webhooks.deliveries('wh_a', 1),
+    usage: dataKeys.webhooks.usage('wh_a'),
+    otherDeliveries: dataKeys.webhooks.deliveries('wh_b', 1),
+    sourceList: dataKeys.objects.listAll({ type: ['task'], source: ['webhook'] }),
+    sourceCount: dataKeys.objects.list({ type: ['task'], source: ['webhook'], limit: 1 }),
+    taskCounts: dataKeys.counts.of('task'),
+    today: todayKeys.of(),
+  } satisfies Record<string, QueryKey>
+  async function stale(c: Change) {
+    const qc = new QueryClient()
+    for (const k of Object.values(keys)) qc.setQueryData(k, {})
+    await applyChange(qc, c)
+    return (Object.keys(keys) as (keyof typeof keys)[]).filter((n) => qc.getQueryState(keys[n])?.isInvalidated)
+  }
+
+  it('新建、编辑、启停、轮换、删除：刷列表和它自己的投递记录、影响，不动任务', async () => {
+    expect(await stale({ kind: 'webhook', id: 'wh_a' })).toEqual(['hooks', 'deliveries', 'lastDelivery', 'usage'])
+  })
+
+  it('不知道是哪一个时刷全部 Webhook 的缓存', async () => {
+    expect(await stale({ kind: 'webhook' })).toEqual(['hooks', 'deliveries', 'lastDelivery', 'usage', 'otherDeliveries'])
+  })
+
+  it('推了一次：它的投递记录和「建了任务」变，建出的任务进来源视图、计数和今日', async () => {
+    expect(await stale({ kind: 'webhook-delivery', id: 'wh_a' }))
+      .toEqual(['deliveries', 'lastDelivery', 'usage', 'sourceList', 'sourceCount', 'taskCounts', 'today'])
+  })
+
+  it('对象改动不动 Webhook 的缓存', async () => {
+    expect(await stale({ kind: 'object', id: 'obj_a' })).toEqual(['sourceList', 'sourceCount', 'taskCounts', 'today'])
+  })
+})

@@ -110,3 +110,10 @@
 .dev-slot { display: flex; flex-direction: column; gap: var(--sp-3); }
 .dev-slot-head { display: flex; align-items: center; gap: var(--sp-4); }
 .dev-slot-empty { color: var(--faint); font-size: var(--fs-sm); }
+
+/* ---------- 来源标签（TASK-04b） ---------- */
+.src-im { background: color-mix(in srgb, var(--ok) 11%, transparent); color: color-mix(in srgb, var(--ok) 85%, var(--text)); }
+.src-webhook { background: var(--accent-soft); color: var(--accent); }
+.src-schedule { background: var(--warn-soft); color: var(--warn); }
+.src-incident { background: var(--danger-soft); color: var(--danger); }
+.task-meta > .src-tag:first-child { min-width: 2.6em; }
