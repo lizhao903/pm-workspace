@@ -129,5 +129,14 @@ export const dataKeys = {
     all: ['im'] as const,
     list: ['im', 'messages'] as const,
     detail: (id: string) => ['im', 'message', id] as const,
+    /** 一个会话里的消息（PJ-02b 项目沟通），也在 im 前缀下，消息一变跟着刷 */
+    conversation: (conversationId: string) => ['im', 'conversation', conversationId] as const,
   },
+  /** IM 会话（PJ-02b）：项目绑定时从这里挑 */
+  conversations: {
+    all: ['conversations'] as const,
+    list: ['conversations', 'list'] as const,
+  },
+  /** 项目绑定的会话（PJ-02b）：只随绑定、解绑刷新 */
+  projectConversations: (projectId: string) => ['project-conversations', projectId] as const,
 }
