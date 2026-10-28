@@ -15,6 +15,45 @@
 
 ---
 
+## 2026-10-29 第十二批验收、第十三批开工
+
+第十二批 5 条（CORE-09、AG-01a、PROTO-01、TASK-03a、TODAY-01b）全部检查通过，已提交验收（55f117b、6ca2ec7、1e85740、553ea72、6fedea1）。检查项：gofmt、go vet、go test ./...，前端 npm test 316 条、typecheck、lint、build，smoke-frontend 42 次 0 问题，smoke-proto 462 步 0 问题。测试实例 01:05 重启到 0020。
+
+第十三批 4 条：TODAY-02、CORE-03b、TASK-03b、CORE-11。
+
+### 主会话补的同步
+- 保留 id 加 `schedules`（后端 manifest.go、前端 manifest.ts、plugin-api.md 1.4），避免插件 id 和 `/api/schedules` 撞路由。
+- 契约「今日聚合」一节补插件卡片的合并规则；plugin-api.md 2.8 的 `TodayCardDef` 同步成实际实现（`Title`、`Order`、`Load` 返回 `*TodayCardData`）。
+- 提交拆分：core/data 的 `keys.ts`、`invalidate.ts`、`index.ts` 被 CORE-09 和 AG-01a 同时改过，随 CORE-09 一起提交；AG-01a 的 `core/data/agent.ts` 也在那次提交里。
+
+### 插件管理页的取舍（CORE-09，同意）
+- 新装的插件启用后整页重新加载，停用后再启用直接回菜单：路由和菜单启动时建一次，不改外壳加不进新模块。以后外壳支持动态路由再换掉。
+- 被依赖时只给「一起停用」，先停依赖方再停它自己；依赖方由前端按列表算（core/api 的 ApiError 带不出 409 里的 `dependents`），后端仍拒绝时显示后端原话。
+- 删数据要输入插件名或 id，发给后端的 confirm 是 id。
+- 没做：升级入口、删数据前的行数预览、缺依赖时一起安装。写进了 settings.md 末尾的插件一节。
+
+### 会话页的取舍（AG-01a，同意）
+- 用「服务商加模型」代替 Agent：后端会话没有 agent_id，Agent 配置在 AG-01b。
+- 提问刷新后靠解析回复里的「【需要你确认】」文字还原成按钮，只有最后一条、后面没人回话的提问能点。
+- 联调时模型按选项真的在 7796 上建了三条任务（TSK-0131 到 0133），子代理已硬删。以后让模型调写工具的联调，要在临时目录和临时任务上做，任务说明里写清。
+- 重试会再存一次人的消息（后端在跑模型前就存了用户消息），记为已知问题。
+- 没做：全局 ⌘J 和侧栏「新建会话」（要改外壳）、执行记录页、写操作确认流程。
+
+### 演示数据（PROTO-01，同意）
+- 一个人、四个项目、一周的工作；新增的两个项目排在原有两个后面，「第一个项目」的截图路径不变。
+- 种子检查用的是之前数据层分析留下的只读脚本（scratchpad 里，不入库），0 error、24 warn，warn 都是已知口径。
+
+### 定时任务的取舍（TASK-03a，同意）
+- 做成内核独立包 `internal/schedule`，不进 store 接口，和通知一致。
+- 下次执行时间读时现算不落库；cron 做完整 5 段解析，31 号不顺延；夏令时拨快跳过的时刻顺延、拨慢重复的只跑一次。
+- 多加 `POST /api/schedules/preview` 让前端显示接下来几次，口径只有后端一份。
+- 全量导出不含 schedules 表（audits、notifications 也不含）。记为已知差距，导出格式扩展时一起补。
+
+### 插件今日卡片（TODAY-01b，同意）
+- `Load` 返回 `*TodayCardData`（插件给出 total），带 `type` 请求时不合并插件卡片。
+
+---
+
 ## 2026-10-29 第十一批验收、第十二批开工
 
 第十一批 4 条（CORE-02b、CORE-07c、TODAY-01a、PROTO-02）检查通过，已提交验收（d5f6150、c7a4169、1a4f13b）。PROTO-02 检查后没有需要清理的残留，没有改文件、没有提交。检查项：gofmt、go vet、go test ./...，前端 npm test 289 条、typecheck、lint、build，smoke-frontend 42 次 0 问题，smoke-proto 462 步 0 问题。CORE-02b 和 CORE-07c 都改前端但文件不重叠，合在一个提交里。
