@@ -13,6 +13,7 @@ import (
 
 	"github.com/lizhao903/pm-workspace/internal/audit"
 	"github.com/lizhao903/pm-workspace/internal/events"
+	"github.com/lizhao903/pm-workspace/internal/localdir"
 	"github.com/lizhao903/pm-workspace/internal/notify"
 	"github.com/lizhao903/pm-workspace/internal/plugin"
 	"github.com/lizhao903/pm-workspace/internal/runner"
@@ -62,6 +63,12 @@ type Options struct {
 
 	// Workspaces 是工作台配置（CORE-10a，0023）；为 nil 时 /api/workspaces 回 500。
 	Workspaces *workspace.Store
+
+	// LocalDirs 是文档挂载的本机目录（DOC-01a，0025）；为 nil 时 /api/local-dirs 回 500。
+	LocalDirs *localdir.Store
+
+	// DataDir 是库文件所在目录（含 vault.key、backups/），读文件和挂载一律不许进去；空串表示不限制。
+	DataDir string
 }
 
 type Server struct {
@@ -229,6 +236,16 @@ func (s *Server) routes(m routeRegistrar) {
 	m.HandleFunc("GET /api/fs/browse", s.handleFsBrowse)
 	m.HandleFunc("GET /api/fs/shortcuts", s.handleFsShortcuts)
 	m.HandleFunc("POST /api/fs/mkdir", s.handleFsMkdir)
+	// 读文件（DOC-01a）：只读、同一套允许根，越界 403
+	m.HandleFunc("GET /api/fs/read", s.handleFsRead)
+
+	// 文档挂载的本机目录。reorder 是字面量，比 {id} 更具体；{id}/files 多一段，不会被吃掉。
+	m.HandleFunc("GET /api/local-dirs", s.handleListLocalDirs)
+	m.HandleFunc("POST /api/local-dirs", s.handleCreateLocalDir)
+	m.HandleFunc("POST /api/local-dirs/reorder", s.handleReorderLocalDirs)
+	m.HandleFunc("PATCH /api/local-dirs/{id}", s.handleUpdateLocalDir)
+	m.HandleFunc("DELETE /api/local-dirs/{id}", s.handleDeleteLocalDir)
+	m.HandleFunc("GET /api/local-dirs/{id}/files", s.handleListLocalDirFiles)
 
 	// 用本机 Claude Code 执行任务。/api/objects/{id}/run 与 .../runs 是两段不同的
 	// 字面量，互不遮挡；/api/runs/{id}/cancel 比 /api/runs/{id} 多一段，
@@ -267,6 +284,9 @@ func (s *Server) routes(m routeRegistrar) {
 	m.HandleFunc("DELETE /api/webhooks/{id}", s.handleDeleteWebhook)
 	m.HandleFunc("GET /api/webhooks/{id}/usage", s.handleWebhookUsage)
 	m.HandleFunc("POST /api/webhooks/{id}/rotate-secret", s.handleRotateWebhookSecret)
+	// 投递记录和收件地址（TASK-02b）。收件在 /api/hooks 下，和配置分开：它不走前端，只认签名。
+	m.HandleFunc("GET /api/webhooks/{id}/deliveries", s.handleListWebhookDeliveries)
+	m.HandleFunc("POST /api/hooks/{token}", s.handleReceiveHook)
 
 	// 工作台配置。templates 是字面量，比 {id} 更具体，不会被当成 id。
 	m.HandleFunc("GET /api/workspaces", s.handleListWorkspaces)

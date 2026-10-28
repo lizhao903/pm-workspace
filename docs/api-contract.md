@@ -184,6 +184,9 @@
 | sch | 定时任务 | schedules |
 | srn | 定时任务执行记录 | schedule_runs |
 | wh | Webhook | webhooks |
+| dl | Webhook 投递记录 | webhook_deliveries |
+| ws | 工作台 | workspaces |
+| dir | 挂载的本机目录 | local_dirs |
 
 原型 `ids.ts` 和后端不一致的前缀：后端已经上线的不改，原型的前缀保留，不分给别的实体。
 
@@ -195,7 +198,7 @@
 | af（artifact） | art | 已上线 |
 | sc（schedule） | sch | 已上线 |
 
-原型里其余前缀（ct cn msg att rp mt pd pt ch dl sop inc ag ar op kb kd sk ws dm dir vd sr pb tp cl wl al ae st rl bk ac ps od rn bt tb pn）的实体后端还没建表，前缀已按原型登记占用。
+原型里其余前缀（ct cn msg att rp mt pd pt ch sop inc ag ar op kb kd sk dm vd sr pb tp cl wl al ae st rl bk ac ps od rn bt tb pn）的实体后端还没建表，前缀已按原型登记占用。
 
 ## 进展与领取
 
@@ -502,6 +505,31 @@ chat 带了不同的 `object_id` 也不会让已有会话搬家——搬走会�
 | GET | `/api/fs/shortcuts` | `FsShortcut[]`，选目录时的起跳点（主目录、桌面、临时目录等） |
 | POST | `/api/fs/mkdir` | `{parent, name}` |
 
+### 文件读取和挂载目录（DOC-01a，0025）
+
+文档模块的工作区除了内置文档库，还能挂本机目录（原型 `library.tsx` 的 `dir:<id>`）。挂载存在 `local_dirs` 表（id 前缀 `dir`），文件内容不进库，按需读。
+边界和上面的浏览是同一套（`fsbrowse` 的 resolve：字面量和解析软链后各查一次允许根），挂载的路径本身也要在允许根内。
+这几个接口越界回 **403**，`{"error":{"code":"forbidden",...}}`；上面的 browse、mkdir 越界目前仍回 400 validation（`failFs` 的旧行为，未改）。
+
+| 方法 | 路径 | body / 说明 |
+|---|---|---|
+| GET | `/api/fs/read?path=/abs/file.md` | `FsFile`，只读。**只能读已挂载目录里的文件**，挂载目录以下任何一段是隐藏项（`.` 开头，如 `.env`、`.git/`）也不行，否则 403：允许根包含主目录，不能借这个接口读 `~/.ssh`、`vault.key` 这类凭证。目录、管道等非普通文件回 400，不存在回 404 |
+| GET | `/api/local-dirs` | `LocalDir[]`，按 `position` |
+| POST | `/api/local-dirs` | `{path, name?}` 挂载，201。`path` 须是允许根内存在的目录，存解析软链后的路径；`name` 省略取目录名。同一目录挂两次 409。路径里有隐藏段（如 `~/.ssh`），或是工作台自己的数据目录（库文件所在目录，含 `vault.key`、`backups/`）、或包住了数据目录（比如挂整个仓库根），回 403 |
+| POST | `/api/local-dirs/reorder` | `{ids}` 按给定顺序重排，必须正好列出全部挂载各一次，否则 400；回重排后的 `LocalDir[]` |
+| PATCH | `/api/local-dirs/{id}` | `{name}` 改名。路径不能改，换目录就移除再挂 |
+| DELETE | `/api/local-dirs/{id}` | 移除挂载，只删记录不动磁盘 |
+| GET | `/api/local-dirs/{id}/files` | `FsFileList`：目录下的文本文件清单。每次重新校验边界，目录已不在回 404 |
+
+`LocalDir`：`{id, path, name, position, created_at, updated_at}`。
+
+`FsFile`：`{path, name, ext, size, modified, binary, truncated, limit, content}`。
+- 上限 `limit` 是 1MB（1048576 字节）。文件更大时 `truncated: true`，`content` 是前 1MB（退到 UTF-8 字符边界），`size` 是文件真实大小。阅读器整篇渲染，再大的多是日志和导出数据，看开头就够。
+- 二进制（前 8000 字节有 NUL，或不是合法 UTF-8）`binary: true`、`content` 为空串，只给元信息：JSON 装不下原始字节，阅读器也只渲染文本。
+
+`FsFileList`：`{path, files, skipped, truncated}`，`files` 是 `{rel, path, name, ext, size, modified}[]`，按 `rel` 排序；`rel` 相对挂载目录、分隔符 `/`，读内容拿 `path` 调 `/api/fs/read`。
+规则和原型 `localdir.ts` 一致：跳过隐藏项和 `node_modules`、`.git`、`dist`、`build`、`.venv`、`__pycache__`，只收 md、markdown、txt、text、log、csv、json、yaml、yml、toml、xml、html、sql；其它扩展名计入 `skipped`。软链不跟。最多 1000 个文件、走 20000 项，超出 `truncated: true`。
+
 ## 任务执行 runs
 
 用本机 Claude Code 执行任务。
@@ -751,7 +779,7 @@ TASK-03a、TASK-03b。定义存在表 `schedules`（0020），执行记录存在
 
 ## Webhook 配置 webhooks
 
-TASK-02a。配置存在表 `webhooks`（0022），接收密钥存在保险箱（`vault_secrets`，`kind=webhook`，名字 `Webhook <id>`），表里只有条目 id。收件、映射执行、去重和推送记录归 TASK-02b，接收地址的路由也由它定。全量导出暂不含这张表。
+TASK-02a。配置存在表 `webhooks`（0022），接收密钥存在保险箱（`vault_secrets`，`kind=webhook`，名字 `Webhook <id>`），表里只有条目 id。收件、映射执行、去重和投递记录见下面「收件和投递记录」（TASK-02b）。全量导出暂不含这张表和投递记录表。
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
@@ -776,6 +804,42 @@ TASK-02a。配置存在表 `webhooks`（0022），接收密钥存在保险箱（
 - `usage`：`tasks` 是 `source=webhook`、`props.source_ref.hook_id` 是它、没删的任务数；`open_tasks` 是其中状态不是终态的。
 - 审计按 `config` 记（不分来源），`target_type` 为 `webhook`，`action` 为 `create` / `update` / `rotate_secret` / `delete`；`detail` 里密钥只记 `secret` 为「已设置」「已更新」「已清除」，修改只记 `detail.fields`，删除带 `tasks`、`open_tasks`。
 - 服务没接 Webhook 时这几个接口回 `internal` 500，message 为 `webhooks are not configured on this server`。
+
+### 收件和投递记录
+
+TASK-02b。投递记录存在表 `webhook_deliveries`（0024），id 前缀 `dl`；删 Webhook 时一起删，建出来的任务保留。映射和过滤的语义照原型 `web-next/src/taskdata.ts` 的 `getPath`、`mapFields`、`passFilter`、`ingest`，原型的两个种子 Webhook 和五条种子投递是 `internal/webhook` 的测试用例。
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| POST | `/api/hooks/{token}` | 收件地址，外部系统推 JSON 对象，`token` 是 `Webhook.token`。请求头 `X-PMW-Signature` 必填，`X-PMW-Delivery` 可选；回这次的 `Delivery`，建了任务 201，没建 200 |
+| GET | `/api/webhooks/{id}/deliveries?result=&limit=&offset=` | 投递记录 `Delivery[]` + `meta`，新的在前；`limit` 默认 50、最多 200；`result` 只能是 `created` / `skipped` / `failed`，留空不筛；Webhook 不存在 404 |
+
+收件端点不走前端，这几种直接拒收，**不留投递记录**：
+
+| 情况 | 状态 | `code` |
+|---|---|---|
+| `token` 不存在 | 404 | `not_found` |
+| 签名缺失、不是 64 位十六进制、对不上，或保险箱条目被单独删了（`secret_version` 为 0） | 401 | `unauthorized`（只有这个端点用） |
+| 请求体超过 256 KB | 413 | `payload_too_large`（只有这个端点用） |
+
+- **签名**：`X-PMW-Signature` 是用接收密钥（明文，`whsec_` 开头的整串）对原始请求体做 HMAC-SHA256 的十六进制，可以带 `sha256=` 前缀。轮换密钥后旧签名立即失效。
+- **处理顺序**（同原型 `ingest`）：不是 JSON 对象记 `failed`「推送内容不是 JSON 对象」→ 停用记 `skipped`「Webhook 已停用，只记录不建任务」→ 过滤不通过记 `skipped`，原因如「不满足过滤条件 action == created（实际是「resolved」）」，条件写法不对时「过滤条件写法不对：…」→ 重复推送记 `skipped`，`task_id` 是之前建的那条 → 标题取不到记 `failed`「标题路径 answers.need 取不到值」→ 建任务，出错记 `failed`「没建成任务：…」。
+- **去重键**依次取：`dedupe` 路径取到的值（原因写「event.id = b902ee 已经建过任务，按重复推送忽略」）；取不到或没配时用 `X-PMW-Delivery`（「投递 id … 已经建过任务…」）；都没有时用请求体的 sha256（「同样的推送内容已经建过任务…」）。只认 `created` 且任务没删的记录：任务被删（软删也算）后，同样的推送再来会重新建；从回收站恢复不影响已经新建的那条。收件串行处理，并发重试不会建出两条。
+- **建出的任务**：类型 `task`，`source=webhook`，`props.source_ref` 为 `{hook_id, delivery_id}`（`GET /api/webhooks/{id}/usage` 按 `hook_id` 统计）。标题去首尾空白后取前 120 字；描述是 `desc` 的值；优先级按原型 `toPriority` 对（`p0`-`p3`、fatal/critical/紧急→P0、error/high/高→P1、warn/medium/中→P2、info/low/低→P3），对不上用 `defaults.priority`；截止日期取值开头的 `yyyy-mm-dd`，按服务端本地时区零点；负责人取映射值，为空用 `defaults.assignee`，按干系人 id 或在岗干系人的名字对上就设 `owner_id`，对不上不设，`reason` 记「负责人「…」不在干系人名册里，没设负责人」。
+- 操作者记 `webhook#<Webhook id>`，来源 `webhook`；事件和审计按 store 外层包装的口径走（来源不是 `agent`，不记 Agent 写操作），收件本身不另记审计。
+
+`Delivery`：`{id, hook_id, at, payload, result, reason, task_id, external_id, dedupe_key, mapped, task_ref, task_deleted}`，与原型 `Delivery` 同名字段同义。
+
+| 字段 | 说明 |
+|---|---|
+| `payload` | 原始请求体；是 JSON 时原样给出，不是时是一个字符串 |
+| `result` | `created` / `skipped` / `failed` |
+| `reason` | 给人看的原因；`created` 时一般为空串 |
+| `task_id` | 建出来的任务，重复推送时是之前建的那条，其余为 `null`；任务删了仍是原值 |
+| `external_id` | `X-PMW-Delivery` 的值（去首尾空白，最多 200 字），没带为空串 |
+| `dedupe_key` | 去重键：`p:<路径>=<值>`、`id:<投递 id>` 或 `sha256:<十六进制>`；请求体不是 JSON 时为空串 |
+| `mapped` | 映射出来的 `{title, desc, priority, assignee, due}` 原始文字，失败时也留着 |
+| `task_ref`、`task_deleted` | 读时现查：任务编号（硬删后为空串），任务已删（含软删）为 `true` |
 
 ## 工作台 workspaces
 

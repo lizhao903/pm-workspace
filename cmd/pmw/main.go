@@ -22,6 +22,7 @@ import (
 	"github.com/lizhao903/pm-workspace/internal/audit"
 	"github.com/lizhao903/pm-workspace/internal/db"
 	"github.com/lizhao903/pm-workspace/internal/events"
+	"github.com/lizhao903/pm-workspace/internal/localdir"
 	"github.com/lizhao903/pm-workspace/internal/notify"
 	"github.com/lizhao903/pm-workspace/internal/plugin"
 	"github.com/lizhao903/pm-workspace/internal/plugins/projects"
@@ -172,6 +173,9 @@ func run(cfg config) error {
 	opts.Webhooks = webhook.New(pdb, v)
 	// 工作台配置（CORE-10a，0023）
 	opts.Workspaces = workspace.New(pdb)
+	// 文档挂载的本机目录（DOC-01a，0025）
+	opts.LocalDirs = localdir.New(pdb)
+	opts.DataDir = filepath.Dir(cfg.dbPath)
 	if !cfg.dev {
 		opts.UI = webui.Handler()
 	}
