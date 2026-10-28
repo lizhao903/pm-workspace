@@ -11,8 +11,8 @@ import (
 	"time"
 )
 
-// dist 默认由 web/ 的 vite build 产出（outDir 指向这里）；make build FRONTEND=new 时
-// 换成 frontend/ 的产物（Makefile 的 frontend 目标拷过来）。仓库里只留一个空的 .gitkeep，
+// dist 默认放 frontend/ 的产物（Makefile 的 frontend 目标拷过来）；make build FRONTEND=legacy 时
+// 换成旧前端 web/ 的 vite build 产物（outDir 直接指向这里）。仓库里只留一个空的 .gitkeep，
 // 因为 //go:embed 找不到目录会直接编译失败。构建产物本身不入库——
 // 没构建过的克隆跑起来会走 serveIndex 的那条「前端尚未构建」分支。
 //
@@ -70,7 +70,7 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 func (h *handler) serveIndex(w http.ResponseWriter, r *http.Request) {
 	b, err := fs.ReadFile(h.files, "index.html")
 	if err != nil {
-		http.Error(w, "前端尚未构建，执行 make web", http.StatusNotFound)
+		http.Error(w, "前端尚未构建，执行 make ui", http.StatusNotFound)
 		return
 	}
 	// index.html 引用的资源名每次构建都变，自身必须每次回源校验。

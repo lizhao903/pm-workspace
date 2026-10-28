@@ -13,7 +13,7 @@
 # 不留 index.html：vite 每次构建都会重写它，里面引用的是带 hash 的 assets 文件名，
 # 而那些文件本身不入库。提交它等于在仓库里放一个指向不存在资源的页面——
 # 新克隆 go build 会成功，跑起来却是白屏，而「构建通过」看上去一切正常。
-# 现在没有 index.html 时 webui 会回一句「前端尚未构建，执行 make web」，是句实话。
+# 现在没有 index.html 时 webui 会回一句「前端尚未构建，执行 make ui」，是句实话。
 # vite build 会清空 outDir，把 .gitkeep 一起删掉——所以 web/package.json 的
 # build 脚本在 vite 之后把它补回来。少了那一步，「新克隆能 build」这条会在
 # 下一次构建之后悄悄失效，而且只有新克隆的人才撞得到。
