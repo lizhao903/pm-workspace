@@ -1,0 +1,579 @@
+package api
+
+import (
+	"encoding/json"
+	"fmt"
+	"os"
+	"reflect"
+	"regexp"
+	"sort"
+	"strings"
+	"testing"
+	"unicode"
+
+	"github.com/lizhao903/pm-workspace/internal/agent"
+	"github.com/lizhao903/pm-workspace/internal/audit"
+	"github.com/lizhao903/pm-workspace/internal/connector"
+	"github.com/lizhao903/pm-workspace/internal/conversation"
+	"github.com/lizhao903/pm-workspace/internal/domain"
+	"github.com/lizhao903/pm-workspace/internal/fsbrowse"
+	"github.com/lizhao903/pm-workspace/internal/imident"
+	"github.com/lizhao903/pm-workspace/internal/localdir"
+	"github.com/lizhao903/pm-workspace/internal/notify"
+	"github.com/lizhao903/pm-workspace/internal/plugins/im"
+	"github.com/lizhao903/pm-workspace/internal/plugins/projects"
+	"github.com/lizhao903/pm-workspace/internal/schedule"
+	"github.com/lizhao903/pm-workspace/internal/webhook"
+	"github.com/lizhao903/pm-workspace/internal/workspace"
+)
+
+// 契约文档里的结构示例和 Go 结构序列化后的字段名逐个比对（QA-04）。
+//
+// 路由测试只管「有这个接口」，字段名写错、漏写、结构加了字段没记文档，它都看不见。
+// 文档里结构有三种写法，都抽：
+//   - json 代码块；
+//   - 行内 `Name`：`{a, b?, c}`，同一行里的「`c` 是 `{x, y}[]`」当成 c 的嵌套结构；
+//   - 首列表头为「字段」的表格，首列反引号里的名字就是字段。
+//
+// 示例怎么对上结构：示例前一行以 `Name`： 开头（或行内 `Name`：`{`）的，按 Name 对；
+// 没有这种标签的 json 块和字段表，按「所在小节#json序号 / #table序号」对。
+// 对照表维护在测试里，不往文档里加注释：标签本来就在文档里，加注释是第二份要同步的东西；
+// 而且 IM 一节由别的任务维护，不该为了测试去改它。
+// 对照表两头都盯：文档里有标签的示例测试没登记，或登记了的示例在文档里找不到，都报错。
+//
+// 口径：
+//   - 结构一侧的字段是把每个字段都填上非零值再 json.Marshal 得到的，所以 omitempty 的字段也算，
+//     自定义 MarshalJSON 的输出也算——比的是线上实际可能出现的字段名。
+//   - 示例里带 `?` 的字段（可选）照样必须在结构里存在；可选只说明调用方可以不传。
+//   - 示例里写了 `...` / `…` 的那一层，只查「示例里的字段结构里都有」，不要求列全。
+//   - 结构一侧是 map 的（序列化出来是空对象），不往下比，键是数据不是字段。
+//   - partial：文档只列了一部分字段（例如只列新增的列、或 SSE 联合事件里的一种），只查示例到结构这一个方向。
+
+type contractSpec struct {
+	v       any    // 对应的 Go 值，取它的类型
+	partial bool   // 文档只列了一部分字段
+	skip    string // 不比对的理由
+}
+
+var contractSpecs = map[string]contractSpec{
+	"响应信封#json1": {v: envelope{}},
+	"响应信封#json2": {v: errBody{}},
+
+	"ProgressInput": {v: domain.ProgressInput{}},
+	"Progress":      {v: domain.Progress{}},
+	"ClaimInput":    {v: domain.ClaimInput{}},
+	"进展与领取#table1":  {v: domain.ProgressInput{}},
+	"进展与领取#table2":  {v: domain.ClaimInput{}},
+	"ClaimResult":   {v: domain.ClaimResult{}},
+	"TodayCard":     {v: domain.TodayCard{}},
+	"TodayRun":      {v: domain.TodayRun{}},
+
+	// 联系人字段表只列 0026 新加的列
+	"干系人名册 stakeholders#table1": {v: domain.Stakeholder{}, partial: true},
+	"Identity":                  {v: imident.Identity{}},
+	"Conversation":              {v: conversation.Conversation{}},
+	// SSE 事件是一个联合结构，示例只是其中的 question
+	"Agent 对话 agent#json1": {v: agent.StreamEvent{}, partial: true},
+	// 溯源字段表只列 0031 补的列
+	"输出产物 artifacts / 溯源字段（AG-03b，0031）#table1": {v: domain.Artifact{}, partial: true},
+
+	"LocalDir":   {v: localdir.Dir{}},
+	"FsFile":     {v: fsbrowse.FileContent{}},
+	"FsFileList": {v: fsbrowse.FileList{}},
+
+	"ConnectorDef":       {v: connector.Def{}},
+	"Connector":          {v: connector.Connector{}},
+	"ConnectorDef.oauth": {v: connector.OAuthSpec{}},
+	"连接器 connectors / OAuth 授权（CONN-01b）:oauth": {v: connector.OAuthStatus{}},
+
+	"插件 plugins / 插件管理（CORE-04b，plugin-api.md 第 4 节）#json1": {v: pluginView{}},
+	"插件 plugins / 插件管理（CORE-04b，plugin-api.md 第 4 节）#json2": {v: pluginErrBody{}},
+
+	"Audit":        {v: audit.Entry{}},
+	"Notification": {v: notify.Notification{}},
+	"Schedule":     {v: schedule.Schedule{}},
+	"ScheduleRun":  {v: schedule.Run{}},
+	// 字段表只解释了部分字段
+	"定时任务 schedules / 调度和执行记录#table1": {v: schedule.Run{}, partial: true},
+	"Webhook":  {v: webhook.Webhook{}},
+	"Delivery": {v: webhook.Delivery{}},
+	"Webhook 配置 webhooks / 收件和投递记录#table1": {v: webhook.Delivery{}, partial: true},
+
+	"Workspace":             {v: workspace.Workspace{}},
+	"WorkspaceTemplate":     {v: workspace.Template{}},
+	"工作台 workspaces:groups": {v: workspace.Group{}},
+	"工作台 workspaces:mark":   {v: workspace.Mark{}},
+
+	"ProjectStakeholder":  {v: projects.Stakeholder{}},
+	"ProjectConversation": {v: projects.ProjectConversation{}},
+	"ProjectMaterial":     {v: projects.Material{}},
+
+	"Incoming": {v: im.Incoming{}},
+	"Message":  {v: im.Message{}},
+	// 两种错误的附加字段是 actionError.extra 这个 map 拼出来的，没有可比的结构
+	"IM 消息插件 im / 处理动作#json1": {skip: "错误附加字段来自 map，无结构"},
+	"IM 消息插件 im / 事件#json1":   {v: im.Received{}},
+}
+
+// docShape 是从文档里抽出来的一个对象：字段名和（如果有）字段的嵌套对象。
+type docShape struct {
+	fields map[string]*docShape
+	open   bool // 写了 ... / …，没列全
+}
+
+type docExample struct {
+	key    string
+	line   int
+	shapes []*docShape
+}
+
+var (
+	labelLineRe   = regexp.MustCompile("^`(\\w+)`(?:（[^）]*）)?：\\s*$")
+	inlineLabelRe = regexp.MustCompile("`([\\w.]+)`）?(?:（[^）]*）)?：`(\\[?\\{[^`]*\\}\\]?)`")
+	inlineNestRe  = regexp.MustCompile("`(\\w+)` (?:是|为)[^`]*`(\\[?\\{[^`]*\\}\\]?(?:\\[\\])?)`")
+	fieldNameRe   = regexp.MustCompile("`([a-z_][a-z0-9_]*)`")
+)
+
+// docExamples 按上面说的三种写法把文档里的结构示例抽出来。
+func docExamples(t *testing.T, body string) []docExample {
+	t.Helper()
+	lines := strings.Split(body, "\n")
+	var out []docExample
+	h2, h3 := "", ""
+	counts := map[string]int{}
+	section := func() string {
+		if h3 == "" {
+			return h2
+		}
+		return h2 + " / " + h3
+	}
+	// 往前找最近一个非空行，是 `Name`： 就当标签
+	labelBefore := func(i int) string {
+		for j := i - 1; j >= 0; j-- {
+			if s := strings.TrimSpace(lines[j]); s != "" {
+				if m := labelLineRe.FindStringSubmatch(s); m != nil {
+					return m[1]
+				}
+				return ""
+			}
+		}
+		return ""
+	}
+	keyFor := func(i int, kind string) string {
+		if l := labelBefore(i); l != "" {
+			return l
+		}
+		k := section() + "#" + kind
+		counts[k]++
+		return fmt.Sprintf("%s%d", k, counts[k])
+	}
+	for i := 0; i < len(lines); i++ {
+		line := lines[i]
+		switch {
+		case strings.HasPrefix(line, "## "):
+			h2, h3 = strings.TrimSpace(line[3:]), ""
+		case strings.HasPrefix(line, "### "):
+			h3 = strings.TrimSpace(line[4:])
+		case strings.HasPrefix(line, "```"):
+			lang := strings.TrimSpace(line[3:])
+			start := i
+			var buf []string
+			for i++; i < len(lines) && !strings.HasPrefix(lines[i], "```"); i++ {
+				buf = append(buf, lines[i])
+			}
+			if lang != "json" {
+				continue
+			}
+			shapes := parseShapes(strings.Join(buf, "\n"))
+			if len(shapes) == 0 {
+				t.Errorf("契约文档第 %d 行的 json 块里一个对象都没抽出来", start+1)
+				continue
+			}
+			out = append(out, docExample{key: keyFor(start, "json"), line: start + 1, shapes: shapes})
+		case strings.HasPrefix(line, "|") && (i == 0 || !strings.HasPrefix(lines[i-1], "|")):
+			cells := strings.Split(strings.Trim(strings.TrimSpace(line), "|"), "|")
+			start := i
+			if strings.TrimSpace(cells[0]) != "字段" {
+				for i+1 < len(lines) && strings.HasPrefix(lines[i+1], "|") {
+					i++
+				}
+				continue
+			}
+			s := &docShape{fields: map[string]*docShape{}}
+			for i+1 < len(lines) && strings.HasPrefix(lines[i+1], "|") {
+				i++
+				first := strings.Split(strings.Trim(strings.TrimSpace(lines[i]), "|"), "|")[0]
+				for _, m := range fieldNameRe.FindAllStringSubmatch(first, -1) {
+					s.fields[m[1]] = nil
+				}
+			}
+			out = append(out, docExample{key: keyFor(start, "table"), line: start + 1, shapes: []*docShape{s}})
+		default:
+			m := inlineLabelRe.FindStringSubmatchIndex(line)
+			if m == nil {
+				continue
+			}
+			name, shapes := line[m[2]:m[3]], parseShapes(line[m[4]:m[5]])
+			if len(shapes) == 0 {
+				continue
+			}
+			// 小写开头的是某个字段的形状（`mark`：`{...}`），名字只在本节内有意义
+			if unicode.IsLower(rune(name[0])) {
+				name = section() + ":" + name
+			}
+			// 同一行后面「`c` 是 `{x, y}[]`」补成 c 的嵌套结构
+			for _, n := range inlineNestRe.FindAllStringSubmatch(line[m[1]:], -1) {
+				if _, ok := shapes[0].fields[n[1]]; ok {
+					if sub := parseShapes(n[2]); len(sub) > 0 {
+						shapes[0].fields[n[1]] = sub[0]
+					}
+				}
+			}
+			out = append(out, docExample{key: name, line: i + 1, shapes: shapes})
+		}
+	}
+	return out
+}
+
+// parseShapes 宽松地抽出文本里的顶层对象。示例不是严格 JSON：值里有 `"cv_..." | null`、
+// `<payload>`、`Progress | null`，行内写法的键不带引号还可能带 `?`，所以只认键和嵌套，值一律跳过。
+func parseShapes(src string) []*docShape {
+	p := &shapeParser{s: []rune(src)}
+	var out []*docShape
+	for p.i < len(p.s) {
+		switch p.s[p.i] {
+		case '{':
+			p.i++
+			out = append(out, p.object())
+		case '"':
+			p.str()
+		default:
+			p.i++
+		}
+	}
+	return out
+}
+
+type shapeParser struct {
+	s []rune
+	i int
+}
+
+func (p *shapeParser) ws() {
+	for p.i < len(p.s) && unicode.IsSpace(p.s[p.i]) {
+		p.i++
+	}
+}
+
+func (p *shapeParser) str() string {
+	p.i++ // 开头的引号
+	var b strings.Builder
+	for p.i < len(p.s) && p.s[p.i] != '"' {
+		if p.s[p.i] == '\\' {
+			p.i++
+		}
+		if p.i < len(p.s) {
+			b.WriteRune(p.s[p.i])
+		}
+		p.i++
+	}
+	p.i++
+	return b.String()
+}
+
+// object 从 { 之后读到配对的 }。
+func (p *shapeParser) object() *docShape {
+	s := &docShape{fields: map[string]*docShape{}}
+	for {
+		p.ws()
+		if p.i >= len(p.s) {
+			return s
+		}
+		c := p.s[p.i]
+		switch {
+		case c == '}':
+			p.i++
+			return s
+		case c == ',':
+			p.i++
+			continue
+		case c == '.' || c == '…':
+			for p.i < len(p.s) && (p.s[p.i] == '.' || p.s[p.i] == '…') {
+				p.i++
+			}
+			s.open = true
+			continue
+		}
+		key := ""
+		if c == '"' {
+			key = p.str()
+		} else {
+			st := p.i
+			for p.i < len(p.s) && (p.s[p.i] == '_' || unicode.IsLetter(p.s[p.i]) || unicode.IsDigit(p.s[p.i])) {
+				p.i++
+			}
+			key = string(p.s[st:p.i])
+			if key == "" {
+				p.skipValue()
+				continue
+			}
+		}
+		p.ws()
+		if p.i < len(p.s) && p.s[p.i] == '?' {
+			p.i++
+			p.ws()
+		}
+		s.fields[key] = nil
+		if p.i < len(p.s) && p.s[p.i] == ':' {
+			p.i++
+			p.ws()
+			s.fields[key] = p.value()
+		}
+	}
+}
+
+// value 读一个值，返回其中的对象结构（数组取第一个对象元素），标量返回 nil；停在 , 或 } 前。
+func (p *shapeParser) value() *docShape {
+	var found *docShape
+	for p.i < len(p.s) {
+		switch p.s[p.i] {
+		case ',', '}':
+			return found
+		case '{':
+			p.i++
+			o := p.object()
+			if found == nil {
+				found = o
+			}
+		case '[':
+			p.i++
+			if a := p.array(); found == nil {
+				found = a
+			}
+		case '"':
+			p.str()
+		default:
+			p.i++
+		}
+	}
+	return found
+}
+
+func (p *shapeParser) array() *docShape {
+	var found *docShape
+	for p.i < len(p.s) {
+		switch p.s[p.i] {
+		case ']':
+			p.i++
+			return found
+		case '{':
+			p.i++
+			if o := p.object(); found == nil {
+				found = o
+			}
+		case '[':
+			p.i++
+			if a := p.array(); found == nil {
+				found = a
+			}
+		case '"':
+			p.str()
+		default:
+			p.i++
+		}
+	}
+	return found
+}
+
+func (p *shapeParser) skipValue() {
+	for p.i < len(p.s) && p.s[p.i] != ',' && p.s[p.i] != '}' {
+		p.i++
+	}
+}
+
+// filledJSON 把 v 的类型每个字段都填上非零值再序列化，omitempty 的字段也会出现。
+func filledJSON(t *testing.T, v any) any {
+	t.Helper()
+	rv := reflect.New(reflect.TypeOf(v)).Elem()
+	fill(rv, 0)
+	b, err := json.Marshal(rv.Interface())
+	if err != nil {
+		t.Fatalf("序列化 %T: %v", v, err)
+	}
+	var out any
+	if err := json.Unmarshal(b, &out); err != nil {
+		t.Fatalf("反序列化 %T: %v", v, err)
+	}
+	return out
+}
+
+var rawMessageType = reflect.TypeOf(json.RawMessage(nil))
+
+func fill(v reflect.Value, depth int) {
+	if depth > 6 || !v.CanSet() {
+		return
+	}
+	if v.Type() == rawMessageType {
+		v.SetBytes([]byte("{}"))
+		return
+	}
+	switch v.Kind() {
+	case reflect.String:
+		v.SetString("x")
+	case reflect.Bool:
+		v.SetBool(true)
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		v.SetInt(1)
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+		v.SetUint(1)
+	case reflect.Float32, reflect.Float64:
+		v.SetFloat(1)
+	case reflect.Pointer:
+		v.Set(reflect.New(v.Type().Elem()))
+		fill(v.Elem(), depth+1)
+	case reflect.Slice:
+		s := reflect.MakeSlice(v.Type(), 1, 1)
+		fill(s.Index(0), depth+1)
+		v.Set(s)
+	case reflect.Map:
+		v.Set(reflect.MakeMap(v.Type())) // 键是数据，不填
+	case reflect.Struct:
+		for i := 0; i < v.NumField(); i++ {
+			if v.Type().Field(i).IsExported() {
+				fill(v.Field(i), depth+1)
+			}
+		}
+	}
+}
+
+// compareShape 比对一层，嵌套的对象往下递归。
+func compareShape(doc *docShape, got any, path string, partial bool) []string {
+	for {
+		a, ok := got.([]any)
+		if !ok || len(a) == 0 {
+			break
+		}
+		got = a[0]
+	}
+	obj, ok := got.(map[string]any)
+	if !ok || len(obj) == 0 {
+		return nil
+	}
+	var diffs []string
+	for _, k := range sortedKeys(doc.fields) {
+		v, ok := obj[k]
+		if !ok {
+			diffs = append(diffs, "示例里有、结构里没有："+path+k)
+			continue
+		}
+		if sub := doc.fields[k]; sub != nil {
+			diffs = append(diffs, compareShape(sub, v, path+k+".", false)...)
+		}
+	}
+	if !partial && !doc.open {
+		for _, k := range sortedKeys(obj) {
+			if _, ok := doc.fields[k]; !ok {
+				diffs = append(diffs, "结构里有、示例里没有："+path+k)
+			}
+		}
+	}
+	return diffs
+}
+
+func sortedKeys[V any](m map[string]V) []string {
+	ks := make([]string, 0, len(m))
+	for k := range m {
+		ks = append(ks, k)
+	}
+	sort.Strings(ks)
+	return ks
+}
+
+func loadContractExamples(t *testing.T) []docExample {
+	t.Helper()
+	body, err := os.ReadFile("../../docs/api-contract.md")
+	if err != nil {
+		t.Fatalf("读契约文档: %v", err)
+	}
+	ex := docExamples(t, string(body))
+	if len(ex) < 20 {
+		t.Fatalf("契约文档里只抽出 %d 个结构示例——多半是文档格式或抽取规则变了，本测试已经失效", len(ex))
+	}
+	return ex
+}
+
+// TestContractExamplesMatchStructs 守着「契约文档里的字段名和后端实际序列化出来的不一致」。
+// 不一致时改示例（改契约），不改 Go 的 json 字段名：前端已经在按现在的名字读。
+func TestContractExamplesMatchStructs(t *testing.T) {
+	seen := map[string]bool{}
+	for _, ex := range loadContractExamples(t) {
+		if seen[ex.key] {
+			t.Errorf("契约文档第 %d 行：示例 %s 出现了不止一次，对照表分不清该比哪个", ex.line, ex.key)
+			continue
+		}
+		seen[ex.key] = true
+		spec, ok := contractSpecs[ex.key]
+		if !ok {
+			t.Errorf("契约文档第 %d 行的示例 %s 在 contractSpecs 里没登记对应的 Go 结构", ex.line, ex.key)
+			continue
+		}
+		if spec.skip != "" {
+			continue
+		}
+		got := filledJSON(t, spec.v)
+		if obj, ok := got.(map[string]any); !ok || len(obj) == 0 {
+			t.Errorf("%s 对应的 %T 序列化出来不是带字段的对象，比不了", ex.key, spec.v)
+			continue
+		}
+		for _, s := range ex.shapes {
+			if diffs := compareShape(s, got, "", spec.partial); len(diffs) > 0 {
+				t.Errorf("契约文档第 %d 行的示例 %s 和 %T 对不上：\n  %s",
+					ex.line, ex.key, spec.v, strings.Join(diffs, "\n  "))
+			}
+		}
+	}
+	for _, k := range sortedKeys(contractSpecs) {
+		if !seen[k] {
+			t.Errorf("contractSpecs 登记了 %s，但契约文档里找不到这个示例（改名、挪了小节或删了）", k)
+		}
+	}
+}
+
+// TestParseShapes 钉住宽松解析器对文档里几种非严格写法的处理。
+func TestParseShapes(t *testing.T) {
+	cases := []struct {
+		src  string
+		want string
+	}{
+		{`{ "data": <payload>, "meta": { "total": 86, "limit": 50 } }`, "data meta{limit total}"},
+		{`{ "a": "cv_..." | null, "b": Progress | null, "c": [{ "x": 1, "y": "..." }] }`, "a b c{x y}"},
+		{`{id, name?, conversation: {id, kind}, created_at}`, "conversation{id kind} created_at id name"},
+		{`{ "provides": { "modules": [], ... } }`, "provides{modules ...}"},
+		{`[{name, modules}]`, "modules name"},
+	}
+	for _, c := range cases {
+		got := parseShapes(c.src)
+		if len(got) != 1 {
+			t.Errorf("%s：抽出 %d 个对象", c.src, len(got))
+			continue
+		}
+		if s := describeShape(got[0]); s != c.want {
+			t.Errorf("%s：得到 %q，要 %q", c.src, s, c.want)
+		}
+	}
+}
+
+func describeShape(s *docShape) string {
+	var parts []string
+	for _, k := range sortedKeys(s.fields) {
+		if sub := s.fields[k]; sub != nil {
+			parts = append(parts, k+"{"+describeShape(sub)+"}")
+		} else {
+			parts = append(parts, k)
+		}
+	}
+	if s.open {
+		parts = append(parts, "...")
+	}
+	return strings.Join(parts, " ")
+}
