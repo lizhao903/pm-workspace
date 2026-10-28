@@ -1,0 +1,35 @@
+/* 基础排版，写法沿用原型 styles.css 开头那段 */
+* { box-sizing: border-box; }
+html, body, #root { height: 100%; margin: 0; }
+body {
+  background: var(--bg);
+  color: var(--text);
+  font: var(--fs)/var(--lh) var(--sans);
+  -webkit-font-smoothing: antialiased;
+  font-variant-numeric: tabular-nums;
+}
+button { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; text-align: left; }
+button:disabled { cursor: not-allowed; opacity: 0.45; }
+input, textarea, select { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; border-radius: var(--r-sm); }
+h1, h2 { margin: 0; font-weight: 600; letter-spacing: -0.01em; }
+code, kbd, pre { font-family: var(--mono); }
+kbd {
+  font: 500 var(--fs-2xs)/1 var(--mono);
+  padding: 3px 5px; border-radius: 4px;
+  border: 1px solid var(--line-2); border-bottom-width: 2px;
+  color: var(--muted); background: var(--panel);
+}
+
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; text-underline-offset: 2px; }
+
+/* 滚动条：细、跟主题走 */
+* { scrollbar-width: thin; scrollbar-color: var(--line-2) transparent; }
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--line-2); border-radius: 99px; border: 2px solid transparent; background-clip: content-box; }
+::-webkit-scrollbar-thumb:hover { background-color: var(--faint); }
+
+.muted { color: var(--muted); }
+.faint { color: var(--faint); }

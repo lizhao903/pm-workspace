@@ -1,0 +1,15 @@
+/* /_dev/tokens 对照页，只在 dev 构建里加载 */
+.tk-page { max-width: 1080px; display: flex; flex-direction: column; gap: var(--sp-12); }
+.tk-head { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--sp-8); }
+.tk-head h1 { font-size: var(--fs-2xl); margin-bottom: var(--sp-2); }
+.tk-head p { margin: 0; }
+.tk-section h2 { font-size: var(--fs-lg); margin-bottom: var(--sp-5); }
+.tk-section > p { margin: 0 0 var(--sp-5); }
+.tk-swatches { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: var(--sp-6); }
+.tk-swatch { display: flex; flex-direction: column; gap: var(--sp-2); padding: var(--sp-5); background: var(--panel); border: 1px solid var(--line); border-radius: var(--r); font-size: var(--fs-sm); }
+.tk-chip { height: 48px; border-radius: var(--r-sm); border: 1px solid var(--line); }
+.tk-box { height: 48px; background: var(--panel-2); border: 1px solid var(--line); margin-bottom: var(--sp-2); }
+.tk-rows { display: flex; flex-direction: column; gap: var(--sp-4); padding: var(--sp-8); background: var(--panel); border: 1px solid var(--line); border-radius: var(--r); }
+.tk-row { display: grid; grid-template-columns: 110px 70px 1fr; align-items: center; gap: var(--sp-6); font-size: var(--fs-sm); }
+.tk-val { font-variant-numeric: tabular-nums; }
+.tk-bar { height: 12px; background: var(--accent); border-radius: 2px; }

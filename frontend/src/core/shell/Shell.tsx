@@ -1,9 +1,10 @@
 import { NavLink, Outlet } from 'react-router'
 import { useHealth } from '../api'
 import type { ModuleDef } from '../plugin'
+import { ThemeSwitch } from '../ui'
 import './shell.css'
 
-// 空壳：侧边栏列出模块，右边是当前模块的页面。样式等 FE-01a 的设计变量出来后替换。
+// 空壳：侧边栏列出模块，底部是主题切换和后端状态，右边是当前模块的页面。
 export function Shell({ modules }: { modules: ModuleDef[] }) {
   return (
     <div className="shell">
@@ -16,7 +17,10 @@ export function Shell({ modules }: { modules: ModuleDef[] }) {
             </NavLink>
           ))}
         </nav>
-        <BackendStatus />
+        <div className="shell-foot">
+          <ThemeSwitch />
+          <BackendStatus />
+        </div>
       </aside>
       <main className="shell-main">
         <Outlet />
