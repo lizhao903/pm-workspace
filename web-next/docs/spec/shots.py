@@ -181,10 +181,69 @@ def projects_comms(pg, shot):
     shot('沟通_绑定')
 
 
+
+def _side(pg, label):
+    # 只认一级菜单项：「会话」会撞上侧栏顶部的「新建会话」
+    pg.locator('.side-item', has_text=label).first.click(); pg.wait_for_timeout(400)
+
+
+def _sub(pg, label):
+    pg.locator('.subnav-item', has_text=label).first.click(); pg.wait_for_timeout(300)
+
+
+def _toggle_agent(pg, name):
+    _side(pg, '设置'); _sub(pg, 'Agent')
+    pg.locator('.agent-card', has_text=name).locator('.switch-line').click(); pg.wait_for_timeout(200)
+
+
+def _new_chat(pg, agent, text):
+    _side(pg, '会话')
+    pg.locator('.subnav-new').click(); pg.wait_for_timeout(200)
+    pg.locator('.agent-pick .menu-item', has_text=agent).click(); pg.wait_for_timeout(300)
+    pg.locator('.ai-box textarea').fill(text); pg.keyboard.press('Meta+Enter'); pg.wait_for_timeout(1300)
+
+
+def sessions_agent_off(pg, shot):
+    """会话的 Agent 已停用、已删除时只能回看（SPEC-sessions-1.26、SPEC-sessions-1.27）。"""
+    _toggle_agent(pg, '消息分诊助手')
+    _side(pg, '会话')
+    pg.locator('.chat-item', has_text='今天谁找我了').click(); pg.wait_for_timeout(300)
+    shot('会话_Agent已停用')
+    _toggle_agent(pg, '流程执行助手')
+    _new_chat(pg, '流程执行助手', '你好，你能做什么')
+    _side(pg, '设置'); _sub(pg, 'Agent')
+    pg.locator('.agent-card', has_text='流程执行助手').click(); pg.wait_for_timeout(300)
+    pg.locator('button.btn-danger-ghost', has_text='删除').click(); pg.wait_for_timeout(150)
+    pg.locator('button.btn-danger', has_text='删除').click(); pg.wait_for_timeout(300)
+    _side(pg, '会话')
+    pg.locator('.chat-item', has_text='你好，你能做什么').click(); pg.wait_for_timeout(300)
+    shot('会话_Agent已删除')
+
+
+def sessions_perm(pg, shot):
+    """权限没开时，回复指向设置 / Agent / 工具与权限（SPEC-sessions-1.18）。"""
+    _new_chat(pg, '周报助手', '梁晚晴找我了吗，帮我回复一下')
+    shot('会话_权限没开')
+
+
+def sessions_outputs(pg, shot):
+    """产出的目标已删除、来源跳到执行记录那一条（SPEC-sessions-3.5、SPEC-sessions-3.11）。"""
+    _side(pg, '任务')
+    pg.locator('.task-row', has_text='T-014').click(); pg.wait_for_timeout(300)
+    dr = pg.locator('aside.drawer')
+    dr.locator('button', has_text='删除任务').click(); dr.locator('.btn-danger', has_text='删除').click(); pg.wait_for_timeout(300)
+    _side(pg, '会话'); _sub(pg, '产出结果')
+    pg.locator('.output-row', has_text='确认演示环境').first.locator('.output-title .link-btn').click(); pg.wait_for_timeout(200)
+    shot('产出结果_目标已删除')
+    pg.locator('.output-row', has_text='第 43 周周报').filter(has_text='执行记录').locator('.output-origin button').click(); pg.wait_for_timeout(700)
+    shot('执行记录_定位到那一条')
+
+
 STEPS = {
     'tasks': [tasks_devloop, tasks_unsaved, tasks_schedule],
     'messages': [messages_drawer, messages_fetch_paused],
     'projects': [projects_task_confirm, projects_comms],
+    'sessions': [sessions_agent_off, sessions_perm, sessions_outputs],
 }
 
 

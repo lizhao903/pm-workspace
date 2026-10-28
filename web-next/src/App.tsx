@@ -219,6 +219,8 @@ export default function App() {
   const [skills, setSkills] = useState(SKILLS)
   const [sessions, setSessions] = useState(seedSessions)
   const [outputs, setOutputs] = useState(seedOutputs)
+  /** 产出结果点来源跳到执行记录时，要定位的那一条 */
+  const [runFocus, setRunFocus] = useState<string | null>(null)
   const [sessionView, setSessionView] = useState<SessionView>('chats')
   const [currentSession, setCurrentSession] = useState<string | null>(seedSessions[0]?.id ?? null)
   const [pickAgent, setPickAgent] = useState(0)
@@ -538,7 +540,12 @@ export default function App() {
       record('reply', `回复 ${String(c.input.to ?? '')}：${String(c.input.text ?? '').slice(0, 24)}`, m?.id)
       return { sent: true, message_id: m?.id ?? null }
     }
-    if (c.tool === 'run_sop') { record('sop', `发起「${String(c.input.sop ?? '')}」`); return { queued: true } }
+    if (c.tool === 'run_sop') {
+      // 记下是哪个 SOP，产出结果里点标题能打开它
+      const sop = sops.find((x) => x.id === c.input.sop || x.name === c.input.sop)
+      record('sop', `发起「${String(c.input.sop ?? '')}」`, sop?.id)
+      return { queued: true, sop_id: sop?.id ?? null }
+    }
     return { ok: true }
   }
   // 副作用（建任务等）放在 setState 外面做：更新函数在开发模式下会被调两次，放里面会建出两条
@@ -789,14 +796,25 @@ export default function App() {
     setCurrentSession(ss.id)
     setPage('sessions'); setSessionView('chats'); setDrawer(null)
   }
-  const openOutputTarget = (o: AgentOutput) => {
-    if (o.kind === 'task' && o.target) setDrawer({ kind: 'task', id: o.target })
-    else if (o.kind === 'doc') { const doc = content.find((x) => x.id === o.target || x.title === o.title); setPage('library'); switchWs('builtin'); if (doc) setReading(doc.id) }
-    else if (o.kind === 'reply' && o.target) { setPage('messages'); openMessage(o.target) }
-    else if (o.kind === 'sop') setPage('sop')
+  // 目标已删除时不跳页面，返回提示给产出结果那一行显示
+  const openOutputTarget = (o: AgentOutput): string | void => {
+    if (o.kind === 'task' && o.target) {
+      if (!tasks.some((t) => t.id === o.target)) return '这条任务已删除'
+      setDrawer({ kind: 'task', id: o.target })
+    } else if (o.kind === 'doc') {
+      const doc = content.find((x) => x.id === o.target || x.title === o.title)
+      if (!doc) return '这篇文档已删除'
+      setPage('library'); switchWs('builtin'); setReading(doc.id)
+    } else if (o.kind === 'reply' && o.target) {
+      if (!messages.some((m) => m.id === o.target)) return '这条消息已删除'
+      setPage('messages'); openMessage(o.target)
+    } else if (o.kind === 'sop' && o.target) {
+      if (!sops.some((x) => x.id === o.target)) return '这个 SOP 已删除'
+      setPage('sop'); setSopView(`sop:${o.target}`); setOpenRun(null)
+    }
   }
   const openOutputOrigin = (o: AgentOutput) => {
-    if (o.origin.type === 'session') { setCurrentSession(o.origin.id); setSessionView('chats') } else setSessionView('runs')
+    if (o.origin.type === 'session') { setCurrentSession(o.origin.id); setSessionView('chats') } else { setRunFocus(o.origin.id); setSessionView('runs') }
   }
 
   // 命令面板的条目：跳转、操作、各模块的数据；只放当前工作台开着的模块
@@ -1511,7 +1529,7 @@ export default function App() {
               onExecute={(sid, c) => executeAgentCall(c, sessions.find((x) => x.id === sid)?.agent_id ?? '', { type: 'session', id: sid })}
               onOpenAgent={(id) => { go('settings'); setSection('agents'); setAgentView(id) }} />
           )}
-          {page === 'sessions' && sessionView === 'runs' && <RunsView agents={agents} runs={agentRuns} onSettle={settleAgentRun} />}
+          {page === 'sessions' && sessionView === 'runs' && <RunsView agents={agents} runs={agentRuns} onSettle={settleAgentRun} focus={runFocus} onFocused={() => setRunFocus(null)} />}
           {page === 'sessions' && sessionView === 'outputs' && <OutputsView agents={agents} outputs={outputs} sessions={sessions} runs={agentRuns} onOpenTarget={openOutputTarget} onOpenOrigin={openOutputOrigin} />}
           {page === 'settings' && section === 'agents' && (agentView === 'list' ? (
             <AgentsPage agents={agents} runs={agentRuns} models={modelChoices} onOpen={setAgentView} onNew={() => setAgentView('new')}
