@@ -47,6 +47,7 @@ var Registry = []Entry{
 	{"dl", "delivery", "webhook_deliveries", "delivery"},
 	{"ws", "workspace", "workspaces", "workspace"},
 	{"dir", "localDir", "local_dirs", "localDir"},
+	{"idn", "contactIdentity", "contact_identities", ""}, // 原型的身份挂在 Contact.im 上，没有单独的 id
 
 	// 以下是原型里有、后端还没建表的实体，前缀和原型一致
 	// 沟通

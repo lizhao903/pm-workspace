@@ -66,12 +66,18 @@ type Job struct {
 	Run   func(ctx context.Context, c Core) error
 }
 
-// Core 是插件能用的内核能力。这一版只有身份、日志、事件发布，对象、设置、凭证等句柄随各自的任务加。
+// Core 是插件能用的内核能力。这一版有身份、日志、事件发布、本插件的表和对象、联系人的只读查询（store.go），
+// 设置、凭证等句柄随各自的任务加。
 type Core interface {
 	PluginID() string
 	Log() *slog.Logger
 	// Events 发布本插件的事件，类型必须在清单 emits 里（2.10）。
 	Events() Publisher
+	// Store 读写本插件 table_prefix 开头的表（PJ-01b 起）。
+	Store() Store
+	// Objects、Contacts 只读查内核对象和联系人，写要走内核接口。
+	Objects() ObjectReader
+	Contacts() ContactReader
 }
 
 // Publisher 往事件总线上发事件。payload 按 JSON 序列化；总线没接上时什么都不做。
@@ -92,10 +98,11 @@ type Event struct {
 type EventHandler func(ctx context.Context, c Core, e Event) error
 
 type core struct {
-	id    string
-	log   *slog.Logger
-	emits []string
-	reg   *Registry // 发布时取 reg.Events，cmd/pmw 在 Start 之前接上
+	id     string
+	log    *slog.Logger
+	emits  []string
+	prefix string    // 清单的 table_prefix，Store 只许碰这些表
+	reg    *Registry // 发布时取 reg.Events，cmd/pmw 在 Start 之前接上
 }
 
 func (c *core) PluginID() string  { return c.id }

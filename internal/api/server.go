@@ -13,6 +13,7 @@ import (
 
 	"github.com/lizhao903/pm-workspace/internal/audit"
 	"github.com/lizhao903/pm-workspace/internal/events"
+	"github.com/lizhao903/pm-workspace/internal/imident"
 	"github.com/lizhao903/pm-workspace/internal/localdir"
 	"github.com/lizhao903/pm-workspace/internal/notify"
 	"github.com/lizhao903/pm-workspace/internal/plugin"
@@ -66,6 +67,9 @@ type Options struct {
 
 	// LocalDirs 是文档挂载的本机目录（DOC-01a，0025）；为 nil 时 /api/local-dirs 回 500。
 	LocalDirs *localdir.Store
+
+	// Identities 是联系人的 IM 身份（CT-01b，0027）；为 nil 时 /api/im-identities 回 500。
+	Identities *imident.Store
 
 	// DataDir 是库文件所在目录（含 vault.key、backups/），读文件和挂载一律不许进去；空串表示不限制。
 	DataDir string
@@ -201,6 +205,13 @@ func (s *Server) routes(m routeRegistrar) {
 	m.HandleFunc("POST /api/stakeholders", s.handleCreateStakeholder)
 	m.HandleFunc("PATCH /api/stakeholders/{id}", s.handleUpdateStakeholder)
 	m.HandleFunc("DELETE /api/stakeholders/{id}", s.handleDeleteStakeholder)
+	// 联系人的 IM 身份（CT-01b）：resolve 是字面路径，优先于 {id}
+	m.HandleFunc("GET /api/im-identities", s.handleListIdentities)
+	m.HandleFunc("POST /api/im-identities", s.handleCreateIdentity)
+	m.HandleFunc("GET /api/im-identities/resolve", s.handleResolveIdentity)
+	m.HandleFunc("GET /api/im-identities/{id}", s.handleGetIdentity)
+	m.HandleFunc("PATCH /api/im-identities/{id}", s.handleUpdateIdentity)
+	m.HandleFunc("DELETE /api/im-identities/{id}", s.handleDeleteIdentity)
 
 	// Agent 供应商。{id}/default 和 {id}/test 比 {id} 多一段，
 	// ServeMux 按最具体的模式匹配，不会被 {id} 吃掉；仍按从具体到宽泛的顺序写，便于目视核对。

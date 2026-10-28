@@ -13,6 +13,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/lizhao903/pm-workspace/internal/db"
 )
 
 // Registry 管编译进二进制的插件（docs/plugin-api.md 第 4 节）：登记、按状态表启停、
@@ -28,6 +30,8 @@ type Registry struct {
 	Migrations MigrationStore
 	// Events 是插件发布事件用的总线（internal/events），为 nil 时插件发布什么都不做。
 	Events Publisher
+	// DB 是插件 Store、Objects、Contacts 用的库；为 nil 时取 Migrations 是 SQLMigrationStore 时的那个。
+	DB *db.DB
 
 	// APIVersion 为空时用 APIVersion 常量；测试用它模拟内核升级。
 	APIVersion string
@@ -129,7 +133,7 @@ func (r *Registry) Add(p Plugin) error {
 	if _, dup := r.entries[m.ID]; dup {
 		return fmt.Errorf("plugin registry: duplicate plugin id %s", m.ID)
 	}
-	e := &entry{p: p, m: m, core: &core{id: m.ID, log: r.log.With("plugin", m.ID), emits: m.Emits, reg: r}, state: State{ID: m.ID}}
+	e := &entry{p: p, m: m, core: &core{id: m.ID, log: r.log.With("plugin", m.ID), emits: m.Emits, prefix: m.TablePrefix, reg: r}, state: State{ID: m.ID}}
 	migs, err := loadMigrations(&m, p.Migrations())
 	if err != nil {
 		return err
