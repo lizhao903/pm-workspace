@@ -9,8 +9,8 @@ LDFLAGS := -X main.version=$(VERSION)
 .DEFAULT_GOAL := build
 .PHONY: deps web frontend ui build build-mcp run dev seed test vet fmt clean placeholder
 
-# 嵌哪套前端：legacy 是旧前端 web/（默认），new 是正式前端 frontend/。默认切换留给 REL-01。
-FRONTEND ?= legacy
+# 嵌哪套前端：new 是正式前端 frontend/（默认），legacy 是旧前端 web/，保留一个版本做回退，下个版本删。
+FRONTEND ?= new
 ifeq ($(filter $(FRONTEND),legacy new),)
 $(error FRONTEND 只能是 legacy 或 new，当前是 "$(FRONTEND)")
 endif
@@ -25,7 +25,7 @@ deps:
 placeholder:
 	@test -f $(DIST)/index.html || { \
 		mkdir -p $(DIST); \
-		printf '%s\n' '<!doctype html><meta charset="utf-8"><title>产品工作台</title><p>前端尚未构建，执行 make web。' > $(DIST)/index.html; \
+		printf '%s\n' '<!doctype html><meta charset="utf-8"><title>产品工作台</title><p>前端尚未构建，执行 make ui。' > $(DIST)/index.html; \
 	}
 
 web:
@@ -41,10 +41,11 @@ frontend:
 	@touch $(DIST)/.gitkeep
 	@echo "已把 frontend/dist 拷进 $(DIST)"
 
-# ui 按 FRONTEND 构建对应前端：make ui FRONTEND=new。
+# ui 按 FRONTEND 构建对应前端：make ui 是正式前端，make ui FRONTEND=legacy 是旧前端。
 ui: $(UI_TARGET)
 
-# make build FRONTEND=new 嵌正式前端，不带参数嵌旧前端。
+# make build 嵌正式前端；回退旧前端用 make build FRONTEND=legacy。
+# 输出位置可覆盖，演练时别碰正式二进制：make build BIN=/tmp/x/pmw BIN_MCP=/tmp/x/pmw-mcp。
 build: $(UI_TARGET) build-mcp
 	go build -ldflags "$(LDFLAGS)" -o $(BIN) ./cmd/pmw
 	@echo "已生成 $(BIN)"
@@ -59,8 +60,9 @@ run: placeholder
 
 # dev 分两个终端跑：Go 只服务 API，前端热更新交给 vite。
 dev: placeholder
-	@echo "终端 1: go run ./cmd/pmw --dev"
-	@echo "终端 2: cd web && npm run dev   然后打开 http://127.0.0.1:5173"
+	@echo "终端 1: scripts/dev-instance.sh start   测试实例 7796，用的是真实库副本"
+	@echo "终端 2: cd frontend && npm run dev   然后打开 http://127.0.0.1:7780，/api 代理到 7796"
+	@echo "旧前端：cd web && npm run dev，http://127.0.0.1:5173，/api 代理到 7777"
 
 seed: placeholder
 	go run ./cmd/pmw --seed-demo
