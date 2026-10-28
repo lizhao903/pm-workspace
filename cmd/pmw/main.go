@@ -19,6 +19,8 @@ import (
 	"time"
 
 	"github.com/lizhao903/pm-workspace/internal/api"
+	"github.com/lizhao903/pm-workspace/internal/db"
+	"github.com/lizhao903/pm-workspace/internal/plugin"
 	"github.com/lizhao903/pm-workspace/internal/store/sqlite"
 	"github.com/lizhao903/pm-workspace/internal/vault"
 	"github.com/lizhao903/pm-workspace/internal/webui"
@@ -123,7 +125,20 @@ func run(cfg config) error {
 		slog.Info("模型服务商密钥已搬进凭证保险箱", "count", n)
 	}
 
-	opts := api.Options{Version: version, Dev: cfg.dev, Vault: v}
+	// 插件注册表：第一方插件编译进二进制，在这里 Add（PJ-01a 起）；启停状态存在 plugins 表。
+	// Start 必须在 api.New 之前：插件路由在 New 时挂上。defer 先于关库执行，后台任务先停。
+	pdb, err := db.Open(cfg.dbPath)
+	if err != nil {
+		return fmt.Errorf("打开插件状态库失败: %w", err)
+	}
+	defer pdb.Close()
+	plugins := plugin.NewRegistry(plugin.NewSQLStateStore(pdb), slog.Default())
+	if err := plugins.Start(ctx); err != nil {
+		return fmt.Errorf("启动插件失败: %w", err)
+	}
+	defer plugins.Close()
+
+	opts := api.Options{Version: version, Dev: cfg.dev, Vault: v, Plugins: plugins}
 	if !cfg.dev {
 		opts.UI = webui.Handler()
 	}

@@ -11,6 +11,7 @@ import (
 	"runtime/debug"
 	"time"
 
+	"github.com/lizhao903/pm-workspace/internal/plugin"
 	"github.com/lizhao903/pm-workspace/internal/runner"
 	"github.com/lizhao903/pm-workspace/internal/store"
 )
@@ -32,6 +33,9 @@ type Options struct {
 
 	// Vault 是凭证保险箱；为 nil 时 /api/secrets 一律回 500 并说明未配置。
 	Vault SecretVault
+
+	// Plugins 是插件注册表；为 nil 时没有插件路由。必须在 New 之前 Start，路由在 New 时挂上。
+	Plugins *plugin.Registry
 }
 
 type Server struct {
@@ -219,6 +223,9 @@ func (s *Server) routes(m routeRegistrar) {
 	m.HandleFunc("GET /api/admin/migrations", s.handleMigrations)
 	m.HandleFunc("POST /api/admin/snapshot", s.handleSnapshot)
 	m.HandleFunc("GET /api/admin/export", s.handleExport)
+
+	// 插件路由：/api/<插件 id>/...，停用时回 404（见 plugins.go）。
+	s.pluginRoutes(m)
 }
 
 // --- 中间件 ---
