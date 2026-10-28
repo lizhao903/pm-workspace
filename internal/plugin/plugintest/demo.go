@@ -70,7 +70,21 @@ func (d *Demo) Register(r plugin.Registrar) error {
 		d.Events.Add(1)
 		return nil
 	})
+	r.TodayCard(plugin.TodayCardDef{Key: "demo_inbox", Title: "示例收件箱", Order: 50, Load: d.inbox})
 	return nil
+}
+
+// DemoCardItem 是示例卡片里的一条。
+type DemoCardItem struct {
+	ID    string `json:"id"`
+	Title string `json:"title"`
+}
+
+// inbox 给今日聚合一张卡片：总数 3，带前 2 条。
+func (d *Demo) inbox(context.Context, plugin.Core) (*plugin.TodayCardData, error) {
+	return &plugin.TodayCardData{Total: 3, Items: []DemoCardItem{
+		{ID: "d1", Title: "示例一"}, {ID: "d2", Title: "示例二"},
+	}}, nil
 }
 
 func (d *Demo) ping(w http.ResponseWriter, _ *http.Request) {

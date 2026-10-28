@@ -57,6 +57,7 @@ type activation struct {
 	handlers map[string]http.HandlerFunc
 	jobs     []Job
 	subs     map[string][]EventHandler
+	cards    []TodayCardDef
 	cancel   context.CancelFunc
 	done     sync.WaitGroup
 }

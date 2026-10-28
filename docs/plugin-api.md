@@ -85,7 +85,7 @@
 
 插件 id 不能是这些（它们是内核的接口路径段或模块 key）：
 
-`api` `admin` `agent` `agent_providers` `artifacts` `audits` `categories` `contacts` `core` `counts` `dict_items` `dictionaries` `events` `fs` `health` `kernel` `library` `links` `notifications` `objects` `object_types` `plugins` `revisions` `runs` `sessions` `settings` `shortcut_groups` `shortcuts` `stakeholders` `stats` `tags` `tasks` `today` `workspaces`
+`api` `admin` `agent` `agent_providers` `artifacts` `audits` `categories` `contacts` `core` `counts` `dict_items` `dictionaries` `events` `fs` `health` `kernel` `library` `links` `notifications` `objects` `object_types` `plugins` `revisions` `runs` `schedules` `sessions` `settings` `shortcut_groups` `shortcuts` `stakeholders` `stats` `tags` `tasks` `today` `workspaces`
 
 内核以后加新的一级路径时同步这张表；已发布插件的 id 和新路径冲突时，内核让路（换内核路径），不改插件 id。
 
@@ -569,10 +569,16 @@ export interface TodayCardRegistry { register<T>(def: TodayCardView<T>): Disposa
 
 ```go
 type TodayCardDef struct {
-	Key string
+	Key   string
+	Title string
+	Order int // 0 表示默认 100
 	// Load 在今日聚合接口里并发调用，超时（默认 800ms）就跳过这张卡，不拖慢整页。
 	// 返回 nil 表示今天没有内容，卡片不显示。
-	Load func(ctx context.Context, c Core) (any, error)
+	Load func(ctx context.Context, c Core) (*TodayCardData, error)
+}
+type TodayCardData struct {
+	Total int // 全量条数
+	Items any // 形状由插件定
 }
 // Registrar.TodayCard(c TodayCardDef)
 ```
@@ -580,8 +586,12 @@ type TodayCardDef struct {
 例子（IM 消息，与我相关）：
 
 ```go
-r.TodayCard(plugin.TodayCardDef{Key: "im_mentions", Load: func(ctx context.Context, c plugin.Core) (any, error) {
-	return p.unreadMentions(ctx, 5) // 最多 5 条，带总数
+r.TodayCard(plugin.TodayCardDef{Key: "im_mentions", Title: "与我相关", Load: func(ctx context.Context, c plugin.Core) (*plugin.TodayCardData, error) {
+	top5, n, err := p.unreadMentions(ctx, 5) // 最多 5 条，带总数
+	if err != nil || n == 0 {
+		return nil, err
+	}
+	return &plugin.TodayCardData{Total: n, Items: top5}, nil
 }})
 ```
 
