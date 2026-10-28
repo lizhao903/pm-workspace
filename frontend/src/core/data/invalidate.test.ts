@@ -405,3 +405,50 @@ describe('连接器的失效（CONN-01d）', () => {
     expect(await stale({ kind: 'agent-provider' })).toEqual(['providers'])
   })
 })
+
+describe('项目资料的失效（PJ-03b）', () => {
+  const keys = {
+    mine: dataKeys.projectMaterials('obj_p1'),
+    other: dataKeys.projectMaterials('obj_p2'),
+    stakes: dataKeys.projectStakeholders('obj_p1'),
+    objects: dataKeys.objects.detail('obj_p1'),
+  } satisfies Record<string, QueryKey>
+  async function stale(c: Change) {
+    const qc = new QueryClient()
+    for (const k of Object.values(keys)) qc.setQueryData(k, {})
+    await applyChange(qc, c)
+    return (Object.keys(keys) as (keyof typeof keys)[]).filter((n) => qc.getQueryState(keys[n])?.isInvalidated)
+  }
+
+  it('加、改、移除只刷这个项目的资料', async () => {
+    expect(await stale({ kind: 'project-material', projectId: 'obj_p1' })).toEqual(['mine'])
+  })
+
+  it('改对象、干系人不动资料', async () => {
+    expect(await stale({ kind: 'object' })).toEqual(['stakes', 'objects'])
+    expect(await stale({ kind: 'stakeholder' })).toEqual(['stakes', 'objects'])
+  })
+})
+
+describe('IM 消息的失效（IM-02b）', () => {
+  const keys = {
+    list: dataKeys.im.list,
+    one: dataKeys.im.detail('msg_1'),
+    objects: dataKeys.objects.detail('obj_t1'),
+    contacts: dataKeys.contacts.list,
+  } satisfies Record<string, QueryKey>
+  async function stale(c: Change) {
+    const qc = new QueryClient()
+    for (const k of Object.values(keys)) qc.setQueryData(k, {})
+    await applyChange(qc, c)
+    return (Object.keys(keys) as (keyof typeof keys)[]).filter((n) => qc.getQueryState(keys[n])?.isInvalidated)
+  }
+
+  it('处理动作刷消息列表和单条，不动对象和联系人', async () => {
+    expect(await stale({ kind: 'im-message', id: 'msg_1' })).toEqual(['list', 'one'])
+  })
+
+  it('改对象不动消息', async () => {
+    expect(await stale({ kind: 'object' })).toEqual(['objects', 'contacts'])
+  })
+})

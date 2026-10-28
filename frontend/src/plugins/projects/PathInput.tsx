@@ -13,7 +13,7 @@ const FolderIcon = () => (
   </svg>
 )
 
-export function PathInput({ value, onChange, placeholder, label, check }: {
+export function PathInput({ value, onChange, placeholder, label, check, pickAs, start }: {
   value: string
   onChange: (v: string) => void
   placeholder?: string
@@ -21,6 +21,10 @@ export function PathInput({ value, onChange, placeholder, label, check }: {
   label: string
   /** 停手后校验目录在不在，不在时提示「找不到这个目录」（仍允许保存） */
   check?: boolean
+  /** 选好目录后填进输入框的值，默认就是目录本身（选文件时填「目录/」再补文件名） */
+  pickAs?: (dir: string) => string
+  /** 选目录从哪开始，默认输入框里的路径 */
+  start?: string
 }) {
   const [picking, setPicking] = useState(false)
   const [checked, setChecked] = useState(value.trim())
@@ -44,7 +48,7 @@ export function PathInput({ value, onChange, placeholder, label, check }: {
         </button>
       </span>
       {missing && <span className="field-err">找不到这个目录</span>}
-      {picking && <DirPicker start={value.trim()} onPick={(p) => { onChange(p); setPicking(false) }} onClose={() => setPicking(false)} />}
+      {picking && <DirPicker start={start ?? value.trim()} onPick={(p) => { onChange(pickAs ? pickAs(p) : p); setPicking(false) }} onClose={() => setPicking(false)} />}
     </div>
   )
 }
