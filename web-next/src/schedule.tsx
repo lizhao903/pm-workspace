@@ -93,7 +93,7 @@ export function SchedulesPage({ schedules, sops, agents, selected, onOpen, onNew
   )
 }
 
-export function ScheduleDrawer({ schedule, sops, agents, assignees, onClose, onSave, onDelete, onRunNow }: {
+export function ScheduleDrawer({ schedule, sops, agents, assignees, onClose, onSave, onDelete, onRunNow, openTask }: {
   schedule: Schedule | null
   sops: Named[]
   agents: Named[]
@@ -103,6 +103,8 @@ export function ScheduleDrawer({ schedule, sops, agents, assignees, onClose, onS
   onDelete: () => void
   /** 立即执行一次，返回执行结果写进记录 */
   onRunNow: (s: Schedule) => void
+  /** 执行记录里建出的任务编号：任务还在就返回打开它的回调，删了返回 undefined（编号只显示文字） */
+  openTask?: (ref: string) => (() => void) | undefined
 }) {
   const prioEnum = useEnumView('task_priority')
   // 新建任务类动作时的默认优先级取设置里的默认值
@@ -250,13 +252,20 @@ export function ScheduleDrawer({ schedule, sops, agents, assignees, onClose, onS
             </div>
             {schedule!.history.length ? (
               <ol className="sched-history">
-                {schedule!.history.map((h, i) => (
+                {schedule!.history.map((h, i) => {
+                  const go = h.ref ? openTask?.(h.ref) : undefined
+                  const at = go && h.ref ? h.text.indexOf(h.ref) : -1
+                  return (
                   <li key={i} className={cls(!h.ok && 'bad')}>
                     <span className={cls('sched-dot', h.ok ? 'ok' : 'bad')} />
-                    <span className="sched-h-text">{h.text}{h.manual && <span className="tag">手动</span>}</span>
+                    <span className="sched-h-text">
+                      <span>{at < 0 ? h.text : <>{h.text.slice(0, at)}<button className="link-btn" title="打开这条任务" onClick={go}>{h.ref}</button>{h.text.slice(at + h.ref!.length)}</>}</span>
+                      {h.manual && <span className="tag">手动</span>}
+                    </span>
                     <time>{timeAgo(h.at)}</time>
                   </li>
-                ))}
+                  )
+                })}
               </ol>
             ) : <div className="io-empty">还没执行过</div>}
           </section>

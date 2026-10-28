@@ -362,7 +362,8 @@ kbd {
 
 /* ---------- 窄屏 ---------- */
 @media (max-width: 1100px) {
-  .drawer { position: fixed; top: 0; right: 0; bottom: 0; width: min(var(--drawer-w), 100%); z-index: 40; box-shadow: var(--shadow-lg); }
+  /* 带上 .shell > .drawer，否则外壳里的固定宽度优先级更高，手机上抽屉比屏幕宽 */
+  .drawer, .shell > .drawer { position: fixed; top: 0; right: 0; bottom: 0; width: min(var(--drawer-w), 100%); z-index: 40; box-shadow: var(--shadow-lg); }
 }
 @media (max-width: 760px) {
   .shell { flex-direction: column; }

@@ -1,10 +1,10 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { PageTitle } from './topbar'
 import { IM_CHANNELS, type Message } from './data'
 import { Subnav } from './subnav'
 import {
   FIELD_LABEL, HOOK_BASE, getPath, mapFields, passFilter,
-  type Delivery, type Ingest, type Json, type Priority, type Task, type TaskStatus, type Webhook, isOpenTask,
+  type Delivery, type Ingest, type Json, type Priority, type Task, type TaskStatus, type Webhook, isOpenTask, localDay,
 } from './taskdata'
 import { cls, timeAgo } from './ui'
 import { SearchSelect } from './searchselect'
@@ -16,7 +16,8 @@ import { ApproveConfirm, ArtifactsBlock, DevFields, ProgressBlock, ReviewBar, Ru
 export type TaskView = 'all' | 'due' | 'manual' | 'im' | 'webhook' | 'schedule' | 'incident' | 'schedules' | 'hooks' | `hook:${string}`
 
 const channelLabel = (k: string) => IM_CHANNELS.find((c) => c.key === k)?.label ?? k
-const today = () => new Date().toISOString().slice(0, 10)
+// 「今天」按本地日期；addDays、weekEnd 只做日历日加减，用 UTC 解析不受时区影响
+const today = () => localDay()
 const addDays = (d: string, n: number) => { const x = new Date(`${d}T00:00:00Z`); x.setUTCDate(x.getUTCDate() + n); return x.toISOString().slice(0, 10) }
 /** 本周最后一天（周日） */
 const weekEnd = (d: string) => addDays(d, (7 - new Date(`${d}T00:00:00Z`).getUTCDay()) % 7)
@@ -225,10 +226,30 @@ function TaskList({ tasks, hooks, projects, view, selected, onOpen, onNew, onSta
         </div>
       </div>
       {rows.length === 0 ? (
-        <div className="empty">
-          <div className="empty-title">{kw || prio || proj ? '没有匹配的任务' : view === 'due' ? '没有逾期的任务' : '这里还没有任务'}</div>
-          <div className="list-sub">{view === 'due' ? '截止日都还没到，或者已经做完了' : view === 'im' ? '在 IM 消息里点「转任务」' : view === 'webhook' ? '在「Webhook 接入」里建一个 Webhook，把地址填到外部系统里' : '点右上角新建一个'}</div>
-        </div>
+        // 搜索、优先级、项目筛空了；只是状态筛空了（视图里有任务）；视图里一条都没有，三种分开说
+        kw || prio || proj ? (
+          <div className="empty">
+            <div className="empty-title">没有匹配的任务</div>
+            <div className="list-sub">换个筛选条件试试</div>
+          </div>
+        ) : base.length ? (
+          <div className="empty">
+            <div className="empty-title">没有符合条件的任务</div>
+            <div className="list-sub">{st === 'open' ? `这里的 ${base.length} 条都已结束` : `没有处于「${statusEnum.label(st)}」的任务`}</div>
+            <button className="btn btn-ghost" onClick={() => setSt(st === 'open' ? 'all' : 'open')}>{st === 'open' ? '看全部' : '切回「未完成」'}</button>
+          </div>
+        ) : (
+          <div className="empty">
+            <div className="empty-title">{view === 'due' ? '没有逾期的任务' : '这里还没有任务'}</div>
+            <div className="list-sub">{{
+              due: '截止日都还没到，或者已经做完了',
+              im: '在 IM 消息里点「转任务」',
+              webhook: '在「Webhook 接入」里建一个 Webhook，把地址填到外部系统里',
+              schedule: '定时任务到点会建在这里',
+              incident: '在「设置 / 运行异常」里转任务',
+            }[view as string] ?? '点右上角新建一个'}</div>
+          </div>
+        )
       ) : (
         <div className="task-table">
           <div className="task-row task-th"><span /><span>任务</span><span>优先级</span><span>负责人</span><span>截止</span><span>状态</span></div>
@@ -331,6 +352,9 @@ function WebhooksPage({ hooks, deliveries, tasks, onOpen, onNew }: {
 /* ---------- 抽屉：新建 / 查看任务 ---------- */
 
 export interface TaskDraft { title: string; desc: string; status: TaskStatus; priority: Priority; assignee: string; due: string | null; project_id?: string; acceptance?: string; workdir?: string; repo?: string }
+const draftOf = (t: Task): TaskDraft => ({ title: t.title, desc: t.desc, status: t.status, priority: t.priority, assignee: t.assignee, due: t.due, project_id: t.project_id, acceptance: t.acceptance, workdir: t.workdir, repo: t.repo })
+/** 两份草稿内容一样：空串、null、undefined 都当没填 */
+const sameDraft = (a: TaskDraft, b: TaskDraft) => (Object.keys({ ...a, ...b }) as (keyof TaskDraft)[]).every((k) => (a[k] || '') === (b[k] || ''))
 
 export function TaskDrawer({ task, initial, fromMessage, hooks, deliveries, assignees, projects, onClose, onSave, onDelete, onOpenMessage, onOpenHook, onOpenSchedule, onOpenIncident, delImpact, dev }: {
   onOpenIncident?: (id: string) => void
@@ -377,13 +401,33 @@ export function TaskDrawer({ task, initial, fromMessage, hooks, deliveries, assi
   const delivery = src.kind === 'webhook' ? deliveries.find((x) => x.id === src.delivery_id) : undefined
   const hook = src.kind === 'webhook' ? hooks.find((h) => h.id === src.hook_id) : undefined
   const save = () => { setTried(true); if (d.title.trim()) onSave({ ...d, title: d.title.trim() }, markDone) }
+  // 未保存的改动：已有任务跟它现在的值比（验收、交给 Claude Code 已经直接改了任务，不算），新建跟打开时比
+  const [blank] = useState(d)
+  const dirty = !sameDraft(d, task ? draftOf(task) : blank)
+  const [askClose, setAskClose] = useState(false)
+  const close = () => { if (dirty) { setConfirmDel(false); setAskClose(true) } else onClose() }
+  // Esc 先于 App 的全局 Esc 处理；弹窗开着时交给弹窗
+  const latest = useRef({ dirty, runOpen, askClose, onClose })
+  latest.current = { dirty, runOpen, askClose, onClose }
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const s = latest.current
+      if (e.key !== 'Escape' || s.runOpen || document.querySelector('.dev-confirm')) return
+      e.stopPropagation()
+      if (s.askClose) setAskClose(false)
+      else if (s.dirty) { setConfirmDel(false); setAskClose(true) }
+      else s.onClose()
+    }
+    window.addEventListener('keydown', onKey, true)
+    return () => window.removeEventListener('keydown', onKey, true)
+  }, [])
 
   return (
     <aside className="drawer">
       <div className="drawer-head">
         <span className="drawer-kicker">{creating ? (fromMessage ? 'IM 消息转任务' : '新建任务') : task.ref}</span>
         <div className="spacer" />
-        <button className="icon-btn" onClick={onClose} title="关闭 (Esc)">
+        <button className="icon-btn" onClick={close} title="关闭 (Esc)">
           <svg viewBox="0 0 16 16" width="14" height="14"><path d="m4 4 8 8M12 4l-8 8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" /></svg>
         </button>
       </div>
@@ -499,7 +543,14 @@ export function TaskDrawer({ task, initial, fromMessage, hooks, deliveries, assi
           }} />
       )}
       <div className="drawer-foot">
-        {confirmDel ? (
+        {askClose ? (
+          <>
+            <span className="warn-text">有未保存的修改，关闭后会丢掉</span>
+            <div className="spacer" />
+            <button className="btn btn-ghost" onClick={() => setAskClose(false)}>继续编辑</button>
+            <button className="btn btn-danger" onClick={onClose}>放弃修改</button>
+          </>
+        ) : confirmDel ? (
           <>
             <span className="danger-text">{delImpact?.length ? `删除后不能恢复；${delImpact.join('；')}` : '删除后不能恢复'}</span>
             <div className="spacer" />
@@ -510,7 +561,7 @@ export function TaskDrawer({ task, initial, fromMessage, hooks, deliveries, assi
           <>
             {task && <button className="btn btn-ghost btn-danger-ghost" onClick={() => setConfirmDel(true)}>删除任务</button>}
             <div className="spacer" />
-            <button className="btn btn-ghost" onClick={onClose}>取消</button>
+            <button className="btn btn-ghost" onClick={close}>取消</button>
             <button className="btn btn-primary" onClick={save}>{creating ? '创建任务' : '保存'}</button>
           </>
         )}

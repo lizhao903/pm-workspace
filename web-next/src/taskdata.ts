@@ -7,6 +7,8 @@
 export type TaskStatus = 'todo' | 'doing' | 'review' | 'done' | 'cancelled'
 /** 还没结束的任务：没完成也没取消 */
 export const isOpenTask = (s: TaskStatus) => s !== 'done' && s !== 'cancelled'
+/** 本地日期 yyyy-mm-dd：「今天」、逾期、截止日都按本地时区算，不用 toISOString（那是 UTC，东八区 0 点到 8 点会差一天） */
+export const localDay = (d = new Date()) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 // 优先级可在设置的枚举里新增，类型放宽成任意字符串，保留内置四档的字面量提示
 export type Priority = 'P0' | 'P1' | 'P2' | 'P3' | (string & {})
 export type Json = Record<string, unknown>
@@ -163,7 +165,7 @@ export function newTask(tasks: Task[], p: Partial<Task> & { title: string }, at 
 /* ---------- 演示数据 ---------- */
 
 const minsAgo = (m: number) => new Date(Date.now() - m * 60000).toISOString()
-const dayOffset = (d: number) => new Date(Date.now() + d * 86400000).toISOString().slice(0, 10)
+const dayOffset = (d: number) => { const x = new Date(); x.setDate(x.getDate() + d); return localDay(x) }
 
 export const seedHooks: Webhook[] = [
   {
