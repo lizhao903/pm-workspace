@@ -86,3 +86,9 @@ smoke-proto:
 .PHONY: shot-compare
 shot-compare:
 	@/opt/miniconda3/bin/python scripts/shot-compare.py --module $(or $(MODULE),all) $(ARGS)
+
+# 压测夹具：往测试实例灌 2000 任务、500 干系人、1000 文档（默认 7796，拒绝 7777）。
+# make seed-bulk ARGS="--api http://127.0.0.1:7799 --apply"；删掉加 --purge。
+.PHONY: seed-bulk
+seed-bulk:
+	@/usr/bin/python3 scripts/seed-bulk.py $(ARGS)
