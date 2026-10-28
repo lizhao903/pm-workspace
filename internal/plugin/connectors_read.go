@@ -10,6 +10,7 @@ type ConnectorInfo struct {
 	ID        string
 	Tool      string
 	Name      string
+	Account   string // 连接器连着的账号（连通测试时由对方给），IM 插件拿它认「我」（IM-03）
 	Status    string // connected / connecting / error / paused / disconnected
 	Error     string // 最近一次失败的说明
 	Direction string // receive / both
@@ -30,7 +31,7 @@ func (r connectorReader) Get(ctx context.Context, id string) (ConnectorInfo, err
 		return ConnectorInfo{}, ErrNoStore
 	}
 	var info ConnectorInfo
-	err := d.R.QueryRowContext(ctx, `SELECT id, tool, name, status, error, direction FROM connectors WHERE id = ?`, id).
-		Scan(&info.ID, &info.Tool, &info.Name, &info.Status, &info.Error, &info.Direction)
+	err := d.R.QueryRowContext(ctx, `SELECT id, tool, name, account, status, error, direction FROM connectors WHERE id = ?`, id).
+		Scan(&info.ID, &info.Tool, &info.Name, &info.Account, &info.Status, &info.Error, &info.Direction)
 	return info, err
 }
