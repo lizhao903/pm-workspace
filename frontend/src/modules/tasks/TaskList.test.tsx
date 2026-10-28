@@ -131,6 +131,20 @@ describe('任务列表', () => {
     expect(screen.getByRole('searchbox', { name: '搜索任务' })).toHaveValue('')
   })
 
+  it('点完成圆圈不打开抽屉，悬停提示按状态区分', async () => {
+    const user = userEvent.setup()
+    const onOpen = vi.fn()
+    const onToggleDone = vi.fn()
+    const rows = [task({ title: '普通' }), task({ title: '待验收的', status: 'review' })]
+    render(<TaskList view="all" tasks={rows} statuses={statuses} priorities={priorities} projects={[]} status={OPEN}
+      onStatus={() => {}} search="" onSearch={() => {}} q="" selected={null} onOpen={onOpen} onNew={() => {}}
+      onToggleDone={onToggleDone} now={now} />)
+    await user.click(screen.getByRole('button', { name: `标为已完成：${rows[0].ref}` }))
+    await user.click(screen.getByRole('button', { name: `验收通过：${rows[1].ref}` }))
+    expect(onToggleDone.mock.calls.map((c) => c[0].id)).toEqual([rows[0].id, rows[1].id])
+    expect(onOpen).not.toHaveBeenCalled()
+  })
+
   it('加载失败时显示错误和重试，状态按钮不带条数', async () => {
     const user = userEvent.setup()
     const onRetry = vi.fn()

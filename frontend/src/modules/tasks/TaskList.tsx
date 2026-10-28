@@ -7,7 +7,7 @@ import {
   SearchSelect, cls,
 } from '../../core/ui'
 import {
-  ALL, MORE_STEP, OPEN, PAGE, dueText, isOverdue, matchStatus, priorityRank, segment, sortTasks, statusButtons,
+  ALL, MORE_STEP, OPEN, PAGE, REVIEW, dueText, isOverdue, matchStatus, priorityRank, segment, sortTasks, statusButtons,
   terminalOf, timeAgo, type DueSeg, type StatusFilter,
 } from './model'
 
@@ -23,7 +23,7 @@ const NO_PROJECT = '-'
 
 export function TaskList({
   view, tasks, loading, error, onRetry, statuses, priorities, projects,
-  status, onStatus, search, onSearch, q, selected, onOpen, onNew, now: nowProp,
+  status, onStatus, search, onSearch, q, selected, onOpen, onNew, onToggleDone, now: nowProp,
 }: {
   view: TaskView
   tasks: WorkObject[]
@@ -43,6 +43,8 @@ export function TaskList({
   selected: string | null
   onOpen: (t: WorkObject) => void
   onNew: () => void
+  /** 点完成圆圈：未完成的标为完成、已完成的改回待办、待验收的先确认（由上层处理） */
+  onToggleDone?: (t: WorkObject) => void
   /** 测试里固定「今天」 */
   now?: Date
 }) {
@@ -91,8 +93,11 @@ export function TaskList({
         className={cls('task-row', selected === t.id && 'sel', done && 'is-done')}
         onClick={() => onOpen(t)}
         onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onOpen(t) } }}>
-        {/* 完成圆圈先只展示，点它改状态在 DEV-07b */}
-        <span className={cls('task-check', done && 'on')} aria-hidden="true">{done && <CheckMark />}</span>
+        {/* 完成圆圈：点它不打开抽屉 */}
+        <button type="button" className={cls('task-check', done && 'on')} disabled={!onToggleDone}
+          title={checkTip(t.status, done)} aria-label={`${checkTip(t.status, done)}：${t.ref}`}
+          onClick={(e) => { e.stopPropagation(); onToggleDone?.(t) }}
+          onKeyDown={(e) => e.stopPropagation()}>{done && <CheckMark />}</button>
         <span className="task-main">
           <span className="task-title"><span className="task-ref">{t.ref}</span><span className="ellipsis">{t.title}</span></span>
           <span className="task-meta">
@@ -191,6 +196,12 @@ export function TaskList({
       {body}
     </div>
   )
+}
+
+// 待验收的点了是验收通过（SPEC-tasks-2.11、5.27）
+function checkTip(status: string, done: boolean) {
+  if (status === REVIEW) return '验收通过'
+  return done ? '标为待办' : '标为已完成'
 }
 
 function CheckMark() {
