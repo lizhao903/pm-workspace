@@ -51,7 +51,7 @@ function StartingRow({ live }: { live: LiveRun }) {
         <StatusTag status="running" />
         <span className="run-extra">正在启动</span>
       </div>
-      <div className="run-body"><RunStream events={live.events} live /></div>
+      <div className="run-body"><RunStream events={live.events} live follow /></div>
     </div>
   )
 }
@@ -85,7 +85,7 @@ function RunRow({ run }: { run: TaskRun }) {
         <div className="run-body">
           <div className="run-meta">{r.workdir} · 记录 {run.id.slice(-8)}{finished ? ` · exit ${r.exit_code}` : ''}</div>
           {live
-            ? <RunStream events={live.events} live={streaming && !finished} />
+            ? <RunStream events={live.events} live={streaming && !finished} follow />
             : !finished
               ? <div className="run-out-empty">这次执行不是从本页发起的，输出在执行结束后才能看到</div>
               : detail.isError
