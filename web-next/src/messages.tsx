@@ -43,7 +43,8 @@ export function MentionText({ text }: { text: string }) {
   return <>{out.map((p, i) => typeof p === 'string' ? p : <span key={i} className={cls('mention', p.mine && 'mention-me')}>@{p.name}</span>)}</>
 }
 
-const isSnoozed = (m: Message) => m.status === 'pending' && !!m.snooze_until && new Date(m.snooze_until).getTime() > Date.now()
+/** 待处理里设了稍后、还没到点的；项目里的待回复也按这个排除 */
+export const isSnoozed = (m: Message) => m.status === 'pending' && !!m.snooze_until && new Date(m.snooze_until).getTime() > Date.now()
 const channelOf = (key: string) => IM_CHANNELS.find((c) => c.key === key)!
 export const contactFor = (m: Message, contacts: Contact[]) => contacts.find((c) => c.im[m.channel] === m.sender_id)
 /** 「渠道:发信人编号」，查联系人索引用 */
@@ -75,6 +76,16 @@ export function replyBlocker(conn: Connector | undefined) {
   if (conn.status === 'disconnected') return `连接器「${conn.name}」已断开，去设置里重新连接`
   if (conn.status === 'connecting') return `连接器「${conn.name}」正在连接`
   if (conn.direction === 'receive') return `连接器「${conn.name}」设置为只收消息`
+  return null
+}
+
+/** 取不到附件的原因；null 表示能取。分类和 replyBlocker 一样，只收消息的照样能取。incident 为真时要记运行异常 */
+export function fetchBlocker(conn: Connector | undefined): { text: string; incident: boolean } | null {
+  if (!conn) return { text: '渠道已删除，取不到附件', incident: false }
+  if (conn.status === 'error') return { text: `连接器「${conn.name}」异常，取不到附件；修好连接器后重试`, incident: true }
+  if (conn.status === 'paused') return { text: `连接器「${conn.name}」已暂停，取不到附件；恢复后重试`, incident: false }
+  if (conn.status === 'disconnected') return { text: `连接器「${conn.name}」已断开，取不到附件；去设置里重新连接`, incident: false }
+  if (conn.status === 'connecting') return { text: `连接器「${conn.name}」正在连接，连上后重试`, incident: false }
   return null
 }
 
@@ -233,11 +244,12 @@ export function MessagesPage({ messages, contacts, connectors, selected, onOpen,
         onOpen(rows[n].id)
       }
       if (e.key === 'k' && rows.length) onOpen(rows[Math.max(i - 1, 0)].id)
-      if (e.key === 'e' && selected) onAct(selected, { kind: 'done' })
+      // 只对待处理（含稍后）的生效，已处理、已忽略的不动
+      if (e.key === 'e' && selected && messages.find((m) => m.id === selected)?.status === 'pending') onAct(selected, { kind: 'done' })
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [rows, selected, onOpen, onAct, limit, sig])
+  }, [rows, messages, selected, onOpen, onAct, limit, sig])
 
   return (
     <div className="page">
@@ -331,7 +343,7 @@ export function MessagesPage({ messages, contacts, connectors, selected, onOpen,
                     {m.status !== 'pending' && <span className="state" style={stateStyle(msgEnum.color(m.status))}>{msgEnum.label(m.status)}</span>}
                     {isSnoozed(m) && <span className="state state-snooze">{new Date(m.snooze_until!).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })} 提醒</span>}
                     {m.replies.length > 0 && <span className="state">已回复 {m.replies.length}</span>}
-                    {task && <span className="state state-task">已转任务 {task}</span>}
+                    {task && <button className="state state-task state-link" onClick={(e) => { e.stopPropagation(); onToTask(m.id) }} onKeyDown={(e) => e.stopPropagation()} title="打开这条任务">已转任务 {task}</button>}
                     <span className="msg-time">{timeAgo(m.at)}</span>
                   </div>
                   <div className="msg-text"><MentionText text={m.text} /></div>

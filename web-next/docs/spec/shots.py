@@ -127,7 +127,65 @@ def tasks_schedule(pg, shot):
     shot('定时任务抽屉')
 
 
-STEPS = {'tasks': [tasks_devloop, tasks_unsaved, tasks_schedule]}
+def _open_msg(pg, who, text=''):
+    row = pg.locator('.msg', has_text=who)
+    if text:
+        row = row.filter(has_text=text)
+    row.first.click(); pg.wait_for_timeout(300)
+
+
+def messages_drawer(pg, shot):
+    """消息抽屉：附件、连接器异常、只收消息、已转任务（SPEC-messages-2、SPEC-messages-3）。"""
+    _menu(pg, 'IM 消息')
+    _open_msg(pg, '林予安', '权限点清单')
+    shot('抽屉_附件')
+    _open_msg(pg, '唐一苇')
+    shot('抽屉_连接异常')
+    _open_msg(pg, '许知行', '@所有人')
+    shot('抽屉_只收消息和已转任务')
+
+
+def messages_fetch_paused(pg, shot):
+    """连接器暂停时获取附件，失败原因按连接器状态说（SPEC-messages-3.5）。"""
+    _menu(pg, 'IM 消息')
+    pg.locator('button', has_text='渠道配置').first.click(); pg.wait_for_timeout(400)
+    pg.locator('.conn-row', has_text='公司 Slack').first.click(); pg.wait_for_timeout(300)
+    dr = pg.locator('aside.drawer')
+    dr.locator('input.switch').last.uncheck()
+    dr.locator('.drawer-foot .btn-primary').click(); pg.wait_for_timeout(300)
+    _menu(pg, 'IM 消息')
+    _open_msg(pg, 'Kevin Wu', '导出按钮')
+    pg.locator('aside.drawer .att-row button', has_text='获取').first.click(); pg.wait_for_timeout(1200)
+    shot('抽屉_附件获取失败')
+
+
+def _project(pg, name, tab):
+    _menu(pg, '项目')
+    pg.locator('.pl-card', has_text=name).first.click(); pg.wait_for_timeout(300)
+    pg.locator('.project-tabs button', has_text=tab).first.click(); pg.wait_for_timeout(300)
+
+
+def projects_task_confirm(pg, shot):
+    """项目任务标签里点待验收任务的完成圆圈，先弹确认（SPEC-projects-7.5）。"""
+    _project(pg, '产品工作台新版', '任务')
+    pg.locator('.pt-task', has_text='T-015').locator('.task-check').click(); pg.wait_for_timeout(200)
+    shot('任务_待验收确认')
+
+
+def projects_comms(pg, shot):
+    """沟通标签：附件逐个决定、绑定面板（SPEC-projects-4、SPEC-projects-5）。"""
+    _project(pg, '产品工作台新版', '沟通')
+    pg.locator('.att-inbox button', has_text='逐个决定').click(); pg.wait_for_timeout(200)
+    shot('沟通_附件逐个决定')
+    pg.locator('.pt-chats .mount-head button', has_text='绑定').click(); pg.wait_for_timeout(200)
+    shot('沟通_绑定')
+
+
+STEPS = {
+    'tasks': [tasks_devloop, tasks_unsaved, tasks_schedule],
+    'messages': [messages_drawer, messages_fetch_paused],
+    'projects': [projects_task_confirm, projects_comms],
+}
 
 
 def run_steps(url, out, widths, themes, keys):

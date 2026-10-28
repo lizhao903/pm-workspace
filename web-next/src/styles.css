@@ -503,8 +503,14 @@ kbd {
 .act-quiet { border-color: transparent; color: var(--muted); background: none; }
 @container (max-width: 720px) {
   .msg { flex-wrap: wrap; }
-  .msg-actions { width: 100%; padding-left: 46px; }
+  .msg-actions { width: 100%; padding-left: 46px; flex-wrap: wrap; row-gap: 6px; }
 }
+/* 手机宽度：按钮不再缩进到头像右边，一行放得下五个；再窄就换行，不裁掉 */
+@container (max-width: 460px) {
+  .msg-actions { padding-left: 0; }
+}
+.state-link { border: 0; font: inherit; font-size: 11px; cursor: pointer; }
+.state-link:hover { text-decoration: underline; }
 
 .sender { display: flex; align-items: center; gap: 12px; padding-bottom: 16px; margin-bottom: 16px; border-bottom: 1px solid var(--line); }
 .sender-name { font-weight: 600; font-size: 15px; }
@@ -1702,6 +1708,13 @@ input.mono { font-family: var(--mono); }
 .proto-error { border-color: color-mix(in srgb, var(--danger) 40%, var(--line)); }
 .proto-head { display: flex; align-items: center; gap: 10px; }
 .proto-head a.act { text-decoration: none; }
+/* 卡片窄（手机宽度或抽屉挤窄）：名称和状态留第一行，域名和按钮换到第二行 */
+.proto-card { container-type: inline-size; }
+@container (max-width: 520px) {
+  .proto-head { flex-wrap: wrap; row-gap: 8px; }
+  .proto-head > .spacer { flex-basis: 100%; height: 0; }
+  .proto-name { min-width: 0; overflow-wrap: anywhere; }
+}
 .proto-name { font-weight: 600; font-size: 14px; }
 .proto-meta { display: flex; flex-wrap: wrap; gap: 6px 18px; font-size: 12.5px; color: var(--muted); }
 .proto-meta code { font: 12px var(--mono); color: var(--text); }
@@ -2296,5 +2309,8 @@ input.mono { font-family: var(--mono); }
 /* 顶栏里可点的上级（项目 / 项目名 里的「项目」） */
 .tb-parent-btn { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; }
 .tb-parent-btn:hover { color: var(--accent); text-decoration: underline; }
+/* 项目详情没有二级菜单：手机宽度和抽屉挤窄时也留着「项目 /」，这是回列表的入口 */
+.tb-title .tb-parent:has(> .tb-parent-keep) { display: inline; flex: none; }
+.tb-title .tb-parent:has(> .tb-parent-keep) + .tb-sep { display: inline; }
 
 @media (max-width: 760px) { .side .side-item-folded { display: flex; } }
