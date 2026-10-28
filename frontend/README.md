@@ -16,7 +16,8 @@ npm run dev       # dev server：http://127.0.0.1:7780
 | `npm run build` | 类型检查加构建，产物在 `frontend/dist` |
 | `npm run typecheck` | 只做类型检查（`tsc -b`） |
 | `npm run lint` | oxlint，配置在 `.oxlintrc.json` |
-| `npm test` | Vitest，跑 `src/**/*.test.ts`（配置在 `vitest.config.ts`）；QA-01 在此基础上补组件测试 |
+| `npm test` | Vitest 跑一遍退出（非 watch），纯函数测试和组件测试都跑，见下面「测试」一节 |
+| `npm run test:watch` | Vitest watch 模式，开发时用 |
 | `npm run preview` | 本地预览构建产物 |
 
 ## 接口代理
@@ -30,6 +31,34 @@ PMW_API=http://127.0.0.1:7921 npm run dev   # 连别的临时实例
 联调只连测试实例或临时实例。真实服务的端口不要写进配置，要连真实库必须显式设置 `PMW_API`，并且清楚界面上的写操作会落到真实数据上。
 
 端口分配：7778 原型，7780 本工程，7796 测试实例。
+
+## 测试
+
+Vitest，配置在 `vitest.config.ts`，分两个 project：
+
+| project | 匹配 | 环境 | 用途 |
+|---|---|---|---|
+| `unit` | `src/**/*.test.ts` | node | 纯函数、打桩 `fetch` 的接口层测试 |
+| `dom` | `src/**/*.test.tsx` | jsdom | 组件测试，用 `@testing-library/react` 渲染、`@testing-library/user-event` 操作 |
+
+约定：
+
+- 测试文件放在被测文件旁边，纯函数用 `*.test.ts`，组件用 `*.test.tsx`，扩展名决定跑在哪个环境。
+- 样板：纯函数看 `src/core/ui/cls.test.ts`，组件看 `src/core/ui/ThemeSwitch.test.tsx`。
+- 组件测试的公共准备在 `src/test/setup.ts`：注册 `@testing-library/jest-dom` 的断言（`toBeInTheDocument`、`toHaveAttribute` 等），补上 jsdom 没有的 `matchMedia`（默认系统浅色），每条用例后卸载渲染的组件。
+- 按角色和可见文字找元素（`getByRole('radio', { name: '深色' })`），不按 className 找。
+- 模块级状态（比如 `theme.ts` 的主题偏好）在用例之间不会重置，要在 `beforeEach` 里自己复位。
+- 测试文件都在 `src` 下，`npm run typecheck` 会一起检查；不 import `web-next` 的任何代码。
+- 不连后端。要连测试实例的只读用例见下面「联调测试实例」。
+
+```bash
+npm test                                   # 全部跑一遍
+npx vitest run src/core/ui                 # 只跑某个目录
+npx vitest run --project dom               # 只跑组件测试
+npm run test:watch                         # 开发时 watch
+```
+
+浏览器端到端（Playwright）不在这里，见 QA-02a、QA-02b。
 
 ## 接口层
 
@@ -67,6 +96,32 @@ PMW_LIVE_API=http://127.0.0.1:7796 npx vitest run src/core/api/live.test.ts --re
 1. `objects.list({type:['task']})` 返回 `data`（每条 `type_id` 都是 `task`）和数字 `total`；
 2. `objects.get('obj_does_not_exist')` 抛 `ApiError`，`status` 为 404、`code` 为 `not_found`；
 3. 非法 `sort` 得到 `validation`；类型、字典、干系人、计数能读；进展带 `kind`、`commits`、`files`、`status`，修订带 `actor_name`、`session_id`。
+
+## 构建嵌入
+
+pmw 单文件分发，前端产物由 `internal/webui` 用 `//go:embed` 嵌进二进制。嵌哪套前端由仓库根目录 Makefile 的 `FRONTEND` 开关决定，默认仍是旧前端 `web/`，默认值切到本工程留给 REL-01。
+
+```bash
+make build                  # 嵌旧前端 web/（默认，等同 FRONTEND=legacy）
+make build FRONTEND=new     # 嵌本工程：npm run build 后把 frontend/dist 整份换进 internal/webui/dist
+make frontend               # 只构建并拷贝本工程，不编译 Go
+make deps                   # 同时安装 web/ 和 frontend/ 的依赖
+```
+
+- `make frontend` 先清空 `internal/webui/dist` 再拷，然后补回 `.gitkeep`（理由见根目录 `.gitignore`）；旧前端的 `make web` 由 vite 的 `emptyOutDir` 清空，两套来回切不会留下对方的文件。
+- `internal/webui/dist` 只有一份，最后一次构建的是谁就嵌谁。`go build`、`scripts/dev-instance.sh start` 不会自己构建前端，嵌的是当时 dist 里的东西。
+- `go test ./internal/webui/` 会检查嵌进去的 `index.html` 引用的 `/assets` 文件都在，拷了一半或混了两套产物时直接失败。
+- 后端对没命中文件的路径一律回落 `index.html`，所以 `createBrowserRouter` 的前端路由直接刷新也能打开；`/assets` 下的文件永久缓存，`index.html` 每次回源。
+
+在测试实例上看本工程（不要 reset，看完换回旧前端）：
+
+```bash
+make build FRONTEND=new BIN=/tmp/pmw BIN_MCP=/tmp/pmw-mcp   # 二进制放临时目录，不覆盖 bin/pmw、bin/pmw-mcp
+scripts/dev-instance.sh stop && scripts/dev-instance.sh start   # start 重新编译 bin/pmw-dev，嵌入当前 dist
+# 打开 http://127.0.0.1:7796/ ，标题是「一人之下」
+make build BIN=/tmp/pmw BIN_MCP=/tmp/pmw-mcp                  # 换回旧前端
+scripts/dev-instance.sh stop && scripts/dev-instance.sh start
+```
 
 ## 目录
 
