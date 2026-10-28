@@ -64,7 +64,7 @@ export const RESERVED_IDS: readonly string[] = [
   'api', 'admin', 'agent', 'agent_providers', 'artifacts', 'audits', 'categories', 'contacts', 'core', 'counts',
   'dict_items', 'dictionaries', 'events', 'fs', 'health', 'kernel', 'library', 'links', 'notifications', 'objects', 'object_types',
   'plugins', 'revisions', 'runs', 'schedules', 'sessions', 'settings', 'shortcut_groups', 'shortcuts', 'stakeholders',
-  'stats', 'tags', 'tasks', 'today', 'workspaces',
+  'stats', 'tags', 'tasks', 'today', 'webhooks', 'workspaces',
 ]
 
 // 内核认的固定权限；另有 secrets:<scope>（docs/plugin-api.md 3.1）

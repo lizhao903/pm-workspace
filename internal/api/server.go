@@ -18,6 +18,8 @@ import (
 	"github.com/lizhao903/pm-workspace/internal/runner"
 	"github.com/lizhao903/pm-workspace/internal/schedule"
 	"github.com/lizhao903/pm-workspace/internal/store"
+	"github.com/lizhao903/pm-workspace/internal/webhook"
+	"github.com/lizhao903/pm-workspace/internal/workspace"
 )
 
 // maxBodyBytes 限制单次请求体，避免手滑把大文件 POST 进来撑爆内存。
@@ -54,6 +56,12 @@ type Options struct {
 	Schedules *schedule.Store
 	// ScheduleRunner 是调度器（TASK-03b），手动执行要用；为 nil 时 POST /api/schedules/{id}/run 回 500。
 	ScheduleRunner *schedule.Runner
+
+	// Webhooks 是 Webhook 配置（TASK-02a，0022），密钥在保险箱里；为 nil 时 /api/webhooks 回 500。
+	Webhooks *webhook.Store
+
+	// Workspaces 是工作台配置（CORE-10a，0023）；为 nil 时 /api/workspaces 回 500。
+	Workspaces *workspace.Store
 }
 
 type Server struct {
@@ -250,6 +258,23 @@ func (s *Server) routes(m routeRegistrar) {
 	m.HandleFunc("DELETE /api/schedules/{id}", s.handleDeleteSchedule)
 	m.HandleFunc("GET /api/schedules/{id}/runs", s.handleListScheduleRuns)
 	m.HandleFunc("POST /api/schedules/{id}/run", s.handleRunSchedule)
+
+	// Webhook 配置。{id}/usage、{id}/rotate-secret 比 {id} 多一段，不会被吃掉。
+	m.HandleFunc("GET /api/webhooks", s.handleListWebhooks)
+	m.HandleFunc("POST /api/webhooks", s.handleCreateWebhook)
+	m.HandleFunc("GET /api/webhooks/{id}", s.handleGetWebhook)
+	m.HandleFunc("PATCH /api/webhooks/{id}", s.handleUpdateWebhook)
+	m.HandleFunc("DELETE /api/webhooks/{id}", s.handleDeleteWebhook)
+	m.HandleFunc("GET /api/webhooks/{id}/usage", s.handleWebhookUsage)
+	m.HandleFunc("POST /api/webhooks/{id}/rotate-secret", s.handleRotateWebhookSecret)
+
+	// 工作台配置。templates 是字面量，比 {id} 更具体，不会被当成 id。
+	m.HandleFunc("GET /api/workspaces", s.handleListWorkspaces)
+	m.HandleFunc("POST /api/workspaces", s.handleCreateWorkspace)
+	m.HandleFunc("GET /api/workspaces/templates", s.handleListWorkspaceTemplates)
+	m.HandleFunc("GET /api/workspaces/{id}", s.handleGetWorkspace)
+	m.HandleFunc("PATCH /api/workspaces/{id}", s.handleUpdateWorkspace)
+	m.HandleFunc("DELETE /api/workspaces/{id}", s.handleDeleteWorkspace)
 
 	// 凭证保险箱。只回脱敏提示，明文没有任何读接口；{id}/rotate 比 {id} 多一段，不会被吃掉。
 	m.HandleFunc("GET /api/secrets", s.handleListSecrets)
