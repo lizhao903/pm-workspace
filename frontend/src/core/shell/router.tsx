@@ -23,5 +23,9 @@ export function createAppRouter(modules: ModuleDef[]) {
         { path: '*', element: <Placeholder title="页面不存在" /> },
       ],
     },
+    // 基础组件演示页不套外壳：外壳的侧栏还没做窄屏（CORE-02a），套着它 390px 宽下内容区只剩一百来像素
+    ...(import.meta.env.DEV
+      ? [{ path: '/_dev/components', errorElement: <RouteError />, lazy: async () => ({ Component: (await import('../ui/dev/ComponentsPage')).default }) }]
+      : []),
   ])
 }
