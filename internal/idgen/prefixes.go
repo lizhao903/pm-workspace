@@ -56,10 +56,10 @@ var Registry = []Entry{
 	{"ct", "contact", "", "contact"},
 	{"msg", "message", "im_messages", "message"}, // IM 插件的表（IM-01a）
 	{"att", "attachment", "", "attachment"},
-	{"rp", "reply", "", "reply"},
+	{"rp", "reply", "im_replies", "reply"}, // IM 插件的表（IM-02a）
 	// 项目
-	{"mt", "material", "", "material"},
-	{"pd", "projectDoc", "", "projectDoc"},
+	{"mt", "material", "projects_materials", "material"}, // 项目插件的表（PJ-03a）
+	{"pd", "projectDoc", "", "projectDoc"},               // PJ-03a 起项目文档并进资料用 mt，前缀保留
 	{"pt", "prototype", "", "prototype"},
 	{"ch", "projectChat", "", "projectChat"},
 	// 任务与自动化

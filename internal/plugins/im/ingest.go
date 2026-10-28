@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 	"unicode"
 	"unicode/utf8"
@@ -50,6 +51,7 @@ type inbox struct {
 	c        plugin.Core
 	adapters []Adapter
 	now      func() time.Time
+	taskMu   sync.Mutex // 转任务串行，同一条消息连点两次不建两条任务
 }
 
 func (in *inbox) clock() time.Time {
@@ -84,6 +86,7 @@ func (in *inbox) ingest(ctx context.Context, a Adapter, msgs []Incoming, strict 
 		case err != nil:
 			return res, err
 		}
+		r.adapter = a.Key()
 		rows = append(rows, r)
 	}
 	for _, r := range rows {
@@ -114,6 +117,7 @@ type row struct {
 	senderExt, senderName, text          string
 	attachments, relevance               string
 	sentAt, receivedAt                   string
+	adapter                              string
 }
 
 // badInput 是一条消息本身不合法（和查库出错区分开）。
@@ -195,11 +199,11 @@ func (in *inbox) prepare(ctx context.Context, ch string, self []string, m Incomi
 func (in *inbox) insert(ctx context.Context, r row) (bool, error) {
 	res, err := in.c.Store().Exec(ctx, `INSERT INTO im_messages (id, channel, connector_id, external_id,
 		conversation_id, conversation_external_id, conversation_kind, conversation_name,
-		sender_identity_id, sender_external_id, sender_name, text, attachments, relevance, sent_at, received_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		sender_identity_id, sender_external_id, sender_name, text, attachments, relevance, sent_at, received_at, adapter)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT (channel, external_id) DO NOTHING`,
 		r.id, r.channel, r.connectorID, r.externalID, r.convID, r.convExt, r.convKind, r.convName,
-		r.identityID, r.senderExt, r.senderName, r.text, r.attachments, r.relevance, r.sentAt, r.receivedAt)
+		r.identityID, r.senderExt, r.senderName, r.text, r.attachments, r.relevance, r.sentAt, r.receivedAt, r.adapter)
 	if err != nil {
 		return false, fmt.Errorf("insert im message: %w", err)
 	}

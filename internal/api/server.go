@@ -337,6 +337,7 @@ func (s *Server) routes(m routeRegistrar) {
 	m.HandleFunc("GET /api/connectors/{id}", s.handleGetConnector)
 	m.HandleFunc("PATCH /api/connectors/{id}", s.handleUpdateConnector)
 	m.HandleFunc("DELETE /api/connectors/{id}", s.handleDeleteConnector)
+	m.HandleFunc("GET /api/connectors/{id}/impact", s.handleConnectorImpact)
 	m.HandleFunc("POST /api/connectors/{id}/test", s.handleTestConnector)
 	m.HandleFunc("POST /api/connectors/{id}/tools/refresh", s.handleRefreshConnectorTools)
 	m.HandleFunc("PATCH /api/connectors/{id}/tools", s.handleSetConnectorToolModes)

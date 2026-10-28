@@ -38,6 +38,9 @@ type Registry struct {
 	// StopTimeout 是停用时等后台任务退出的上限，默认 10 秒。超时只记日志，状态照样置停用。
 	StopTimeout time.Duration
 
+	// objects 是插件建内核对象用的 store（IM-02a，objects_write.go），SetObjectCreator 接上
+	objects atomic.Pointer[objectCreatorBox]
+
 	mu      sync.Mutex // 串行化生命周期操作，也守着 entry.state
 	order   []string
 	entries map[string]*entry
@@ -63,6 +66,7 @@ type activation struct {
 	subs     map[string][]EventHandler
 	cards    []TodayCardDef
 	conns    []ConnectorDef
+	impacts  []ConnectorImpactDef
 	cancel   context.CancelFunc
 	done     sync.WaitGroup
 }

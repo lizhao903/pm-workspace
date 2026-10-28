@@ -712,7 +712,7 @@ SSE 事件（形状的唯一真相是 `internal/runner` 的 `Event.MarshalJSON`�
 
 ## 连接器 connectors
 
-CONN-01a。连接器的**定义**（认证方式、配置表单、工具目录、连通测试）在代码里登记（`internal/connector` 的注册表，内核提供；插件经 `Registrar.Connector` 登记自己的，CONN-02，见下面「插件提供的连接器」），不进库。接入的**实例**存在表 `connectors`（0029），id 前缀 `cn`。凭证字段整组 JSON 加密存进保险箱（`vault_secrets`，`kind=connector`，名字 `Connector <id>`），表里只有条目 id 和每个字段的脱敏提示。OAuth 授权和令牌刷新（CONN-01b，0030）见本节末的「OAuth 授权」；真实连接器（GitHub，CONN-01c）、删除前的影响检查（CONN-03）不在本节。全量导出暂不含这张表。
+CONN-01a。连接器的**定义**（认证方式、配置表单、工具目录、连通测试）在代码里登记（`internal/connector` 的注册表，内核提供；插件经 `Registrar.Connector` 登记自己的，CONN-02，见下面「插件提供的连接器」），不进库。接入的**实例**存在表 `connectors`（0029），id 前缀 `cn`。凭证字段整组 JSON 加密存进保险箱（`vault_secrets`，`kind=connector`，名字 `Connector <id>`），表里只有条目 id 和每个字段的脱敏提示。OAuth 授权和令牌刷新（CONN-01b，0030）见本节末的「OAuth 授权」，删除前的影响检查（CONN-03）见「删除前的影响检查」；真实连接器（GitHub，CONN-01c）不在本节。全量导出暂不含这张表。
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
@@ -721,7 +721,8 @@ CONN-01a。连接器的**定义**（认证方式、配置表单、工具目录�
 | POST | `/api/connectors` | 接入，body `{tool, name?, auth_mode?, config?, secrets?, enabled?, direction?, interval?}`；回 201 + `Connector`。同一工具已经接过回 409 |
 | GET | `/api/connectors/{id}` | 一个 `Connector`；不存在 404 |
 | PATCH | `/api/connectors/{id}` | 只传要改的：`name` / `auth_mode` / `config` / `secrets` / `enabled` / `direction` / `interval`；带 `tool`、`tools`、`status`、`account` 回 400；回 `Connector` |
-| DELETE | `/api/connectors/{id}` | 彻底删除，保险箱里的凭证一起删；回删掉的那条 `Connector` |
+| DELETE | `/api/connectors/{id}` | 彻底删除，保险箱里的凭证一起删；回删掉的那条 `Connector`。不拦，删之前先调下一行看影响 |
+| GET | `/api/connectors/{id}/impact` | 删除前的影响检查（CONN-03），只读：`{connector_id, items, incomplete}`，见「删除前的影响检查」；不存在 404 |
 | POST | `/api/connectors/{id}/test` | 连通测试，回 `{ok, account, message, connector}`。连不上不是接口错误：200 + `ok: false` |
 | POST | `/api/connectors/{id}/tools/refresh` | 向对方拉工具清单，回 `{added, removed, connector}`；拉取失败回 409，工具清单不变 |
 | PATCH | `/api/connectors/{id}/tools` | 改工具授权，body `{modes: {<工具名>: "off" \| "confirm" \| "auto"}}`，只改给了的；回 `Connector` |
@@ -746,6 +747,23 @@ CONN-01a。连接器的**定义**（认证方式、配置表单、工具目录�
 - 内置假连接器 `fake`（不联网）和 `fake_oauth` 只在 `pmw --fake-connector` 时登记，给测试和演练用：`fake` 的 `token` 含 `invalid` 或 `expired` 时测试失败，`config.variant` 为 `v2` 时工具清单换一组；`fake_oauth` 走 OAuth，授权、令牌地址是 `config.base_url` 加 `/authorize`、`/token`，连通测试带 access_token 请求 `base_url/userinfo` 取 `login`，要自己起一个假授权服务对接（Go 测试用 `internal/connector/oauthfake`）。正式运行不登记，定义列表现在为空，真实连接器随 CONN-01c 起陆续登记。
 - 审计按 `config` 记（不分来源），`target_type` 为 `connector`，`action` 为 `create` / `update` / `delete` / `set_tool_modes`；凭证只记 `detail.secrets` 为 `{<key>: 「已设置」|「已清除」}`，修改只记 `detail.fields`；`set_tool_modes` 记 `detail.tools` 和新的 `detail.modes`（授权是权限配置不是凭证）。OAuth 授权成功记 `oauth_authorize`（`detail.secrets` 为 `{access_token, refresh_token}` 的「已设置」，对方没给 refresh_token 时只有 access_token，另记 `detail.scope`），断开记 `disconnect`（清了令牌时 `detail.secrets` 为「已清除」）。连通测试、拉取工具清单、发起授权、授权失败和令牌刷新（手动、后台）不记，刷新失败写服务日志并置 `error`。
 - 服务没接连接器时这几个接口回 `internal` 500，message 为 `connectors are not configured on this server`。
+
+### 删除前的影响检查（CONN-03）
+
+策略照原型 PR-01（`web-next/src/App.tsx` 的 `connPlan`、`deleteConnector`）：删连接器**不拦**，确认框里列出连带影响；不删别处的数据，不留需要人收拾的悬空引用。
+
+- `items` 是 `[{source, key, count, text, effect}]`，内核的在前，后面按插件登记顺序；没有影响的项不出现，`items` 为空表示删了只是不再同步。`source` 是 `core` 或插件 id；`count` 大于 0；`text` 是给人看的一句话，前端原样列进确认框（原型 `delImpact`）；`effect` 是删除后这项数据的去向：`keep`（保留，只能查看）/ `revoke`（一并删掉或撤销）/ `detach`（保留，关联置空）/ `fallback`（保留，改用别的方式）。
+- `incomplete` 是 `[{source, key}]`：没查完的提供者（超过 2 秒、出错、panic、返回的 `effect` 不合法）。非空时影响可能不全，前端要提示，不当成没有影响。
+- 目前的几项：
+
+| source | key | effect | 删除时怎么处理 | text 例 |
+|---|---|---|---|---|
+| `core` | `tool_grants` | `revoke` | 实例上 `mode` 不是 `off` 的工具授权随实例一起删掉，Agent 不能再调这些工具；只数开着的 | `2 个 Agent 工具授权会一并撤销：post_message、read_messages` |
+| `im` | `messages` | `keep` | IM 插件 `im_messages` 里 `connector_id` 是它的消息原样保留，`connector_id` 不动（不建外键，0001），前端按实例已不在显示「渠道已删除」，只能查看 | `3 条 IM 消息会变成「渠道已删除」，只能查看` |
+
+- 原型里的「盯盘提醒改为只在应用内提醒」（`fallback`）和「Agent 卸下这个连接器」随交易套件、Agent 工具授权（AG-02）各自登记，现在后端还没有这些数据。
+- **插件登记**：插件在 `Register` 里调 `Registrar.ConnectorImpact({Key, Load})`，`key` 本插件内唯一（小写字母、数字、下划线），不用写进清单；`Load(ctx, core, {id, tool})` 返回 `{count, text, effect}`，nil 或 `count` 为 0 表示没有影响。只问在跑的插件：停用的插件不出现，它的数据照它自己的规则留着。删除本身不经过插件，提供者只负责如实说出删除后它的数据会怎样。
+- 影响检查不记审计。
 
 ### OAuth 授权（CONN-01b）
 
@@ -1081,7 +1099,7 @@ CORE-10a。工作台是一套菜单：开哪些模块、怎么分组、默认打
 
 ## 项目插件 projects
 
-PJ-01b。插件 `projects`（`internal/plugins/projects`，清单 `plugin.json`）。项目仍是 `type=project` 的工作对象，读写走上面的 `/api/objects`，插件不另开项目接口；插件自己的表放项目干系人和绑定的会话。项目插件未安装或停用时，本节 `/api/projects/...` 接口回 `not_found` 404（同「插件路由」），项目对象本身照常能读写。
+PJ-01b。插件 `projects`（`internal/plugins/projects`，清单 `plugin.json`）。项目仍是 `type=project` 的工作对象，读写走上面的 `/api/objects`，插件不另开项目接口；插件自己的表放项目干系人、绑定的会话和项目资料。项目插件未安装或停用时，本节 `/api/projects/...` 接口回 `not_found` 404（同「插件路由」），项目对象本身照常能读写。
 
 ### 项目字段
 
@@ -1102,7 +1120,7 @@ PJ-01b。插件 `projects`（`internal/plugins/projects`，清单 `plugin.json`�
 | `stakeholders` | 插件表 `projects_stakeholders` | 见下方「项目干系人」，不放 props |
 | `created_at` | `created_at` | |
 | `chats` | 插件表 `projects_conversations` | 见下方「项目绑定的会话」，按会话 id 绑，不放 props |
-| `materials` / `docs` | 不在这里 | 合并成「项目资料」，PJ-03 做 |
+| `materials` / `docs` | 插件表 `projects_materials` | 合并成「项目资料」，见下方，不放 props |
 | `prototypes` | 不在这里 | 原型进程管理，PJ-04 做 |
 
 - 后端不校验这几个 props key 的取值，按上表写；`PATCH` 的 `props` 整体替换，改一个 key 要先读回再拼（同开发任务）。
@@ -1144,9 +1162,35 @@ PJ-02a。表 `projects_conversations`（插件迁移 `0002_conversations.sql`，
 - 硬删项目、删会话（`DELETE /api/conversations/{id}`）时绑定一起删（外键 `ON DELETE CASCADE`）；软删项目不动，恢复后绑定还在。
 - 暂不记审计、不发事件，同项目干系人。
 
+### 项目资料
+
+PJ-03a。表 `projects_materials`（插件迁移 `0003_materials.sql`，插件 0.4.0，安装插件时应用；已装着旧版的库有待应用的迁移，插件不启动，要等升级接口），id 前缀 `mt`。原型的支持材料 `Material` 和项目文档 `ProjectDoc` 合成一种：带 `category`（PRD、技术方案……）的就是原来的项目文档，不带的是普通材料。只存路径和元信息，不读本机文件内容（读内容走 `/api/fs/read`，有挂载目录和敏感文件限制）。
+
+| 方法 | 路径 | body / 说明 |
+|---|---|---|
+| GET | `/api/projects/{id}/materials` | `ProjectMaterial[]` + `meta.total`，不分页，按添加先后；`?kind=` 只看一种 |
+| POST | `/api/projects/{id}/materials` | `{kind, value, name?, category?, status?, tags?}`，回 201 + `ProjectMaterial` |
+| GET | `/api/projects/{id}/materials/{material_id}` | 一条 `ProjectMaterial` |
+| PATCH | `/api/projects/{id}/materials/{material_id}` | 只传要改的：`name` / `value` / `category` / `status` / `tags`；回 `ProjectMaterial` |
+| DELETE | `/api/projects/{id}/materials/{material_id}` | 只删登记，不动本机文件；`data` 为 `null` |
+
+`ProjectMaterial`：`{id, project_id, kind, name, value, category, status, tags, source, created_at, updated_at}`。
+
+- `kind` 四选一，和原型 `MaterialKind` 一致：`file` 文件、`folder` 文件夹、`link` 链接、`note` 笔记；别的值 400。种类建了不能改（`PATCH` 带不同的 `kind` 400），要换种类删了重加。
+- `value` 必填，去首尾空白，按种类：`file` / `folder` 是本机**绝对路径**（相对路径、`~` 开头 400；存规整后的路径，去掉结尾的 `/`，最长 4096 字节），项目目录下的相对路径由前端拼上项目 `workdir` 再传；`link` 是 `http` / `https` 网址（其他协议、没有主机 400，最长 2048 字节）；`note` 是笔记正文，最多 5000 字，要长期编辑的应建成文档对象。
+- `name` 去首尾空白，最多 200 字；不传或空串时取默认：文件、文件夹取最后一段，链接取网址，笔记取第一行前 40 字。
+- `category` 是资料类别（原型 `DOC_KINDS`：PRD、技术方案、交互说明……），自由文本，最多 50 字，空串表示普通材料；后端不限取值，标签名和筛选由界面定（PROTO-10 的 P-2）。
+- `status` 是项目文档的状态：`draft` 草稿、`review` 评审中、`final` 定稿，空串表示不跟踪（默认）；别的值 400，表上有 CHECK 兜底。
+- `tags` 是 `string[]`，去空白、去空串、去重，最多 20 个，每个最多 30 字；`PATCH` 整体替换。存在 `props.tags`，`props` 里别的 key 改的时候原样保留。
+- `source` 是登记途径，本接口建的都是 `manual`，不接受自报。原型 `Material.from`（IM 附件出处）由 IM-04 接；原型项目文档「关联文档库里的一篇」（`source.type=library`）本条不做，等资料合并的界面定了再加（见 `docs/file-artifact-model.md` 6.1 的 `ref_object_id`）。
+- 库里不单独存种类：`path` / `url` / `note` 三列有且只有一列非空，文件夹靠 `mime='inode/directory'` 区分（同 `docs/file-artifact-model.md` 的 `files`）。列名照 `files` 取，以后资料并进内核 `files` 时 `category` 对应 `files.kind`。
+- `{id}` 不是项目、不存在或在回收站里 404；`PATCH` / `GET` / `DELETE` 的资料不在这个项目里 404。
+- 硬删项目时资料一起删（外键 `ON DELETE CASCADE`）；软删项目不动，恢复后资料还在。项目的产出（`artifacts`）不算资料，分开计数。
+- 暂不记审计、不发事件，同项目干系人。
+
 ## IM 消息插件 im
 
-IM-01a。插件 `im`（`internal/plugins/im`，清单 `plugin.json`，0.1.0）。收各 IM 渠道的消息，落在插件表 `im_messages`（插件迁移 `0001_messages.sql`，安装插件时应用）。发送人按 IM 身份（见「IM 身份 im-identities」）的 id 认、会话按会话（见「会话 conversations」）的 id 归，**不靠名字**。插件未安装或停用时，本节接口回 `not_found` 404（同「插件路由」）；停用时拉取也停下，数据不动。
+IM-01a 起。插件 `im`（`internal/plugins/im`，清单 `plugin.json`，0.2.0）。收各 IM 渠道的消息，落在插件表 `im_messages`（插件迁移 `0001_messages.sql`；IM-02a 的处理动作加了 `0002_actions.sql`，回复在 `im_replies`；安装插件时应用）。发送人按 IM 身份（见「IM 身份 im-identities」）的 id 认、会话按会话（见「会话 conversations」）的 id 归，**不靠名字**。插件未安装或停用时，本节接口回 `not_found` 404（同「插件路由」）；停用时拉取也停下，数据不动。
 
 ### 适配器
 
@@ -1192,6 +1236,7 @@ IM-01a。插件 `im`（`internal/plugins/im`，清单 `plugin.json`，0.1.0）�
 | `conversation_id` | 会话 id（`cv_`）；到达时还没登记、后来登记了的会话的消息也算进来。会话不存在 400 |
 | `mine` | 与我相关：`any` 是 @我、@所有人、私聊，`at` 只看 @我（同原型筛选）；别的值 400 |
 | `unread` | `true` 只看未读 |
+| `snoozed` | `true` 只看设了稍后、还没到点的待处理消息（原型的「稍后」视图）；`false` 去掉这些（原型的「待处理」视图配 `status=pending`）；别的值 400 |
 | `limit` / `offset` | 默认 50 / 0，`limit` 最大 200 |
 
 `Message`（字段名对照原型 `Message`）：
@@ -1203,13 +1248,65 @@ IM-01a。插件 `im`（`internal/plugins/im`，清单 `plugin.json`，0.1.0）�
   "identity_id": "idn_..." | null, "stakeholder_id": "stk_..." | null, "contact_name": "林原",
   "text": "@Broleez 权限点清单我整理了一版", "attachments": [],
   "relevance": "me", "status": "pending", "read": false, "snooze_until": null,
-  "at": "2026-10-29T01:00:00.000Z", "received_at": "2026-10-29T01:00:02.000Z" }
+  "at": "2026-10-29T01:00:00.000Z", "received_at": "2026-10-29T01:00:02.000Z",
+  "adapter": "slack", "task_id": "obj_..." | null, "task_ref": "TSK-0012",
+  "replies": [{ "id": "rp_...", "text": "收到，我今天看。", "status": "sent", "error": "", "external_id": "C01:1712.40", "at": "..." }],
+  "reply_error": "" }
 ```
 
 - `conversation` 是群名：认上会话的取会话表现在的名字（改群名不断），没认上的取到达时的快照；私聊为空串（原型用空串表示私聊）。
 - `identity_id`、`stakeholder_id` 认不上为 `null`，`contact_name` 为空串；界面上这时显示 `sender_name`。
 - `relevance` 是「与我相关」的原因，到达时算一次：`me`（@我）优先于 `all`（@所有人：所有人、全体成员、all、here、channel、everyone），私聊是 `dm`，无关为空串。「我」的称呼由适配器给，从连接器账号取归 IM-03。
-- `status`、`read`、`snooze_until` 现在只有到达时的初值（`pending`、未读、无），改状态、回复、稍后提醒归 IM-02。
+- `status`、`read`、`snooze_until` 到达时是 `pending`、未读、无，用下面的处理动作改。
+- `adapter` 是收这条消息的适配器 key，回复时按它找适配器；0.2.0 之前收的为空串，回复时按渠道找。
+- `task_id`、`task_ref` 是这条消息转成的任务；任务删了（含软删）读出来为 `null` 和空串，可以再转。
+- `replies` 按时间正序，含发送失败的（`status: "failed"`，`error` 是原因）；`reply_error` 是最近一次发送失败的原因，再发成功后清空。
+
+### 处理动作
+
+IM-02a，口径照原型 `App.tsx` 的 `actOnMessage`。除单条读取外都是 `POST`，成功时 `data` 是改后的整条 `Message`；消息不存在 404 `not_found`。
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| GET | `/api/im/messages/{id}` | 单条 `Message` |
+| POST | `/api/im/messages/{id}/done` | 处理完：`status=done`，清掉稍后，标已读 |
+| POST | `/api/im/messages/{id}/ignore` | 忽略：`status=ignored`，清掉稍后，标已读 |
+| POST | `/api/im/messages/{id}/reopen` | 重新打开：`status=pending`，清掉稍后，已读不变 |
+| POST | `/api/im/messages/{id}/read` | 标已读 |
+| POST | `/api/im/messages/{id}/snooze` | 稍后提醒，body `{until}`（RFC 3339，必须在将来、一年以内，否则 400）；只有待处理的能设，别的 409 `conflict`。状态仍是 `pending`，标已读 |
+| POST | `/api/im/messages/{id}/reply` | 回复，body `{text, done}`：`text` 必填、最多 4000 字；`done` 为真且发成功时顺带标成处理完。经适配器发出，见下 |
+| POST | `/api/im/messages/{id}/task` | 转任务，body 可省略，见下；成功 201 |
+
+稍后提醒到点：插件后台任务 `snooze_wake` 每 15 秒把 `snooze_until` 到点的清成 `null`，消息回到待处理（`read` 不变，同原型）；插件停用时不跑，重新启用后第一次就补上。
+
+回复：
+
+- 先看回不回得了，回不了 409 `conflict`，`error` 里多一个 `reason`，`message` 是给人看的原因（同原型 `replyBlocker`）。被拦的不发、不记。
+
+| `reason` | 什么时候 | `message` 例 |
+|---|---|---|
+| `connector_missing` | 消息的 `connector_id` 在连接器里查不到 | 渠道已删除，这条消息只能查看 |
+| `connector_error` / `connector_paused` / `connector_disconnected` / `connector_connecting` | 连接器状态是异常、暂停、断开、连接中 | 连接器「Slack 工作区」已暂停 |
+| `receive_only` | 连接器 `direction` 是 `receive` | 连接器「Slack 工作区」设置为只收消息 |
+| `no_adapter` | 二进制里没有收这条消息的适配器 | 渠道 slack 没有可用的适配器，回不了 |
+| `unsupported` | 适配器不支持回复（没实现 `Replier`） | 渠道 telegram 不支持回复 |
+
+- `connector_id` 为空（假适配器灌的消息）时不查连接器。
+- 适配器发送失败：记一条 `status=failed` 的回复、原因写进消息的 `reply_error`，回 502 `send_failed`，`error` 里多一个 `reply_id`；不重试，`done` 不生效。发成功的记 `status=sent` 和渠道回给的编号，清空 `reply_error`、标已读。
+- 发送超时 15 秒。回复不更新联系人的「最近联系」（插件对联系人只有只读句柄，留给以后）。
+
+```json
+{ "error": { "code": "conflict", "reason": "unsupported", "message": "渠道 telegram 不支持回复" } }
+{ "error": { "code": "send_failed", "reply_id": "rp_...", "message": "发送失败：rate limited" } }
+```
+
+转任务：
+
+- body（都可选）：`{title, body, priority, project_id, owner_id, due_at, done}`。`title` 空时取正文压掉空白后的前 40 字，没正文时是「来自 <联系人或发送人> 的消息」；`due_at` 是 RFC 3339；`project_id` 必须是没删的项目、`owner_id` 必须是联系人，否则 400；其余校验同 `POST /api/objects`。`done` 为真且消息待处理时顺带标成处理完。
+- 建的是 `type=task`、`source=im` 的任务，修订的操作者是 `im`、来源 `plugin`。`props.source_ref` 指向消息：`{message_id, channel, connector_id, external_id, conversation_id, conversation, sender, sender_id, text, at}`，`text` 截前 500 字。
+- 关联记在消息上（`task_id`、`task_ref`），不进内核 `links`：`links` 只连两个对象，消息不是对象。
+- 已经转过、任务还在：409 `conflict`，`error` 里多 `task_id`、`task_ref`，前端打开那条任务。
+- 成功 201，`data` 是 `{message: Message, task: {id, ref, title, status, source}}`。
 
 ### 事件
 

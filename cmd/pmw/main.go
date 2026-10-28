@@ -223,6 +223,8 @@ func run(cfg config) error {
 		opts.UI = webui.Handler()
 	}
 	objects := events.WrapStore(audit.WrapStore(st, opts.Audit), bus)
+	// 插件建内核对象（IM-02a 转任务）走同一个外层包装，修订、审计、事件照常；来源记为插件 id
+	plugins.SetObjectCreator(objects)
 	// 调度器（TASK-03b，0021）：到点执行定时任务，建任务走外层包装，事件和审计照常；退出时先停调度再关库
 	opts.ScheduleRunner = schedule.NewRunner(opts.Schedules, objects, slog.Default())
 	if err := opts.ScheduleRunner.Start(ctx); err != nil {
