@@ -181,6 +181,17 @@ def projects_comms(pg, shot):
     shot('沟通_绑定')
 
 
+def projects_dock(pg, shot):
+    """标题行的终端、浏览器：在底部展开项目自己的终端和浏览器（SPEC-projects-14）。"""
+    _project(pg, '产品工作台新版', '概览')
+    btns = pg.locator('.tb-actions .pdock-btn')
+    btns.nth(0).click(); pg.wait_for_timeout(200)
+    pg.locator('.pdock .term-input').first.fill('ls'); pg.keyboard.press('Enter'); pg.wait_for_timeout(150)
+    shot('终端和浏览器_终端')
+    btns.nth(1).click(); pg.wait_for_timeout(600)
+    shot('终端和浏览器_浏览器')
+
+
 
 def _side(pg, label):
     # 只认一级菜单项：「会话」会撞上侧栏顶部的「新建会话」
@@ -403,7 +414,7 @@ def settings_misc(pg, shot):
 STEPS = {
     'tasks': [tasks_devloop, tasks_unsaved, tasks_schedule],
     'messages': [messages_drawer, messages_fetch_paused],
-    'projects': [projects_task_confirm, projects_comms],
+    'projects': [projects_task_confirm, projects_comms, projects_dock],
     'sessions': [sessions_agent_off, sessions_perm, sessions_outputs],
     'settings': [settings_workspace, settings_im_drawer, settings_app_drawer, settings_provider_drawer, settings_agent_editor,
                  settings_agent_model_off, settings_kb, settings_skill, settings_incident, settings_misc],

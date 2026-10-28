@@ -4,7 +4,7 @@
 |---|---|
 | 模块 key | `projects` |
 | 原型入口 | 一级菜单「项目」，http://127.0.0.1:7778 |
-| 源码 | `web-next/src/projects.tsx`（列表页 `ProjectsListPage`、详情页 `ProjectPage`，含概览、文档、支持材料、原型、设置标签和 `ProtoCard`）、`web-next/src/projecttabs.tsx`（沟通 `CommsTab`、干系人 `StakeholdersTab`、任务 `ProjectTasksTab`、SOP `ProjectSopTab`、Agent `ProjectAgentTab`、`projectMessages`）、`web-next/src/attachments.tsx`（`ProjectAttachmentInbox`）；接线在 `web-next/src/App.tsx`（`newProject`、`projectPlan`、`deleteProject`、`startProto`、`stopProto`、`recentProjects`） |
+| 源码 | `web-next/src/projects.tsx`（列表页 `ProjectsListPage`、详情页 `ProjectPage`，含概览、文档、支持材料、原型、设置标签和 `ProtoCard`）、`web-next/src/projecttabs.tsx`（沟通 `CommsTab`、干系人 `StakeholdersTab`、任务 `ProjectTasksTab`、SOP `ProjectSopTab`、Agent `ProjectAgentTab`、`projectMessages`）、`web-next/src/attachments.tsx`（`ProjectAttachmentInbox`）；项目里的终端和浏览器 `ProjectDock` 在 `projects.tsx`，复用 `terminal.tsx` 的 `TerminalPage` 和 `browser.tsx` 的 `BrowserPage`（`embedded` 模式）；接线在 `web-next/src/App.tsx`（`newProject`、`projectPlan`、`deleteProject`、`startProto`、`stopProto`、`recentProjects`、`docks`、`showDock`、`closeDock`） |
 | 数据文件 | `web-next/src/projectdata.ts`（`Project`、`ProjectChat`、`Stakeholder`、`StakeRole`、`Material`、`MaterialKind`、`ProjectDoc`、`DocStatus`、`DOC_KINDS`、`Prototype`、`ProtoStatus`、`RelatedDir`、`RESERVED_PORTS`、`portConflict`） |
 | 截图 | [`shots/projects/`](shots/projects/) |
 | 负责任务 | PROTO-04d |
@@ -46,6 +46,7 @@ SOP、Agent 标签（`SPEC-projects-9`、`SPEC-projects-10`）目前没有对应
 | [SPEC-projects-11](#spec-projects-11-支持材料) | 支持材料 | 标签「支持材料」 | 文件、文件夹、链接、笔记 |
 | [SPEC-projects-12](#spec-projects-12-原型) | 原型 | 标签「原型」 | 原型卡片：启停、日志、端口 |
 | [SPEC-projects-13](#spec-projects-13-设置) | 设置 | 标签「设置」；概览右上「项目设置」 | 名称、标志、目录、关联目录、删除 |
+| [SPEC-projects-14](#spec-projects-14-项目里的终端和浏览器) | 项目里的终端和浏览器 | 详情页标题行最右「终端」「浏览器」 | 在底部展开这个项目自己的终端和内置浏览器，可收起、一键全部关闭 |
 
 ### 共用数据结构
 
@@ -178,6 +179,7 @@ SOP、Agent 标签（`SPEC-projects-9`、`SPEC-projects-10`）目前没有对应
 | 被改动 | 联系人 | 删除联系人 | 从干系人里移除，和 TA 的私聊绑定解除 | `SPEC-contacts-2.12` |
 | 被改动 | 任务、会话 | 任务、会话选了所属项目 | 任务标签、Agent 标签的会话列表里多一条 | `SPEC-tasks-4`、`SPEC-sessions-1` |
 | 改动 | 任务、会话、视频、内网域名 | 删除项目 | 任务、会话、视频移出项目（任务上留「原属项目已删除」）；指向本项目原型的域名一起删 | `SPEC-projects-13.11` |
+| 出去 | 终端、浏览器 | 详情页标题行「终端」「浏览器」 | 在项目里展开这个项目自己的终端和浏览器，和一级菜单的两个模块互不相干 | `SPEC-projects-14` |
 | 被引用 | 终端、浏览器、内网域名 | 列原型 | 终端能启停原型；浏览器首页按项目分组列原型；域名可以指向原型 | `SPEC-terminal`、`SPEC-browser`、`SPEC-settings`（内网域名节） |
 | 显示 | 一级菜单 | 始终 | 「项目」菜单角标是项目总数 | 全局 |
 
@@ -256,7 +258,7 @@ SOP、Agent 标签（`SPEC-projects-9`、`SPEC-projects-10`）目前没有对应
 | SPEC-projects-2.1 | 顶栏 | 显示 | 「项目 /」+ 项目标志（20）+ 项目名 + 说明 |
 | SPEC-projects-2.2 | 顶栏「项目」 | 点击 | 回到项目列表，悬停「回到项目列表」 |
 | SPEC-projects-2.3 | 标签条 | 点击 | 切换标签（顺序见 `ProjectTab`）；切换时页面滚回顶部。「沟通」上有待回复消息（不含稍后）时带红点；「原型」上有运行中的原型时带绿灯 |
-| SPEC-projects-2.4 | 右上按钮 | 显示 | 随标签变：概览「项目设置」（切到设置标签）；文档「加文档」；支持材料「加材料」；原型「加原型」；其余标签没有 |
+| SPEC-projects-2.4 | 右上按钮 | 显示 | 随标签变：概览「项目设置」（切到设置标签）；文档「加文档」；支持材料「加材料」；原型「加原型」；其余标签没有。这些按钮右边固定跟着「终端」「浏览器」两个按钮，所有标签都有，见 `SPEC-projects-14` |
 | SPEC-projects-2.5 | 手机宽度 | 显示 | 标签条横向滚动；顶栏照样留「项目 /」（回列表的入口），说明收起。抽屉打开、顶栏挤窄时也留着 |
 | SPEC-projects-2.6 | 再次进入 | 一级菜单点「项目」 | 回到列表；从列表重新打开时回到概览标签 |
 
@@ -837,6 +839,68 @@ SOP、Agent 标签（`SPEC-projects-9`、`SPEC-projects-10`）目前没有对应
 |---|---|---|---|---|
 | 改动 | 任务、会话、视频、内网域名 | 删除项目 | 见 13.11 | `SPEC-tasks-4`、`SPEC-sessions-1`、`SPEC-settings` |
 | 改动 | 本模块 | 改项目目录 | 原型卡片、文件类材料、概览的目录显示跟着变 | `SPEC-projects-3`、`SPEC-projects-11`、`SPEC-projects-12` |
+
+## SPEC-projects-14 项目里的终端和浏览器
+
+每个项目有自己的终端和内置浏览器：从详情页标题行最右的「终端」「浏览器」两个按钮进，在主区域底部展开一块独立区域，上面的项目内容照常可用。终端默认在项目目录，浏览器第一个标签是这个项目的原型。
+
+### 截图
+
+| | 亮 | 暗 |
+|---|---|---|
+| 终端（1440） | ![](shots/projects/终端和浏览器_终端-1440-light.png) | ![](shots/projects/终端和浏览器_终端-1440-dark.png) |
+| 浏览器（1440） | ![](shots/projects/终端和浏览器_浏览器-1440-light.png) | ![](shots/projects/终端和浏览器_浏览器-1440-dark.png) |
+
+### 交互
+
+| 编号 | 元素 | 操作 | 结果 |
+|---|---|---|---|
+| SPEC-projects-14.1 | 标题行「终端」「浏览器」 | 显示 | 在各标签自己的按钮右边（概览上就在「项目设置」右侧），所有标签都有。图标 + 名称 + 已打开的数量（终端数标签页，浏览器数网页标签）；数量为 0 不显示。展开着的那个按钮高亮。标题行窄于 640 时只留图标和数量 |
+| SPEC-projects-14.2 | 「终端」 | 点击 | 展开区域并切到终端；这个项目还没开终端时先开一个，目录是项目目录（没填目录时在 `~`）。展开着并且正显示终端时再点就收起 |
+| SPEC-projects-14.3 | 「浏览器」 | 点击 | 展开区域并切到浏览器；还没开时先开一个，第一个标签是这个项目的原型（有在跑的取在跑的，否则取第一个；原型没在跑时显示「这个原型没在运行」+「启动原型」，和一级菜单浏览器里的原型标签一样）；项目没有原型时是新标签页。展开着并且正显示浏览器时再点就收起 |
+| SPEC-projects-14.4 | 区域头部 | 显示 | 左边「终端 N」「浏览器 N」切换；项目名和项目目录（手机宽度不显示）；右边「全部关闭」、收起按钮 |
+| SPEC-projects-14.5 | 头部「终端」「浏览器」切换 | 点击 | 在两者间切换，不收起；切到的那边一个都没开时先开一个，规则同 14.2、14.3 |
+| SPEC-projects-14.6 | 终端 | 使用 | 和一级菜单「终端」是同一套模拟终端：多标签、每个标签最多 2x2 拆分、双击标签改名、在原型目录里 `npm run dev` 启动原型、Ctrl+C 停止。拆分按钮在标签栏右端。新标签页的目录是项目目录 |
+| SPEC-projects-14.7 | 浏览器 | 使用 | 和一级菜单「浏览器」是同一套：多标签（最多 12 个）、固定、右键菜单、地址栏、前进后退、Google 登录。新标签页里的「项目原型」只列这个项目的原型 |
+| SPEC-projects-14.8 | 收起按钮 | 点击 | 区域收起，已打开的终端（含输出和在跑的原型）和网页（含已加载的页面）都保留；再点标题行按钮展开，内容还在 |
+| SPEC-projects-14.9 | 切项目、切菜单 | 离开再回来 | 区域只跟着打开它的项目：换到别的项目，看到的是那个项目自己的（没开过就是收起的、数量为 0）；离开项目详情时区域不显示；回来时保持离开前的展开或收起，内容都在 |
+| SPEC-projects-14.10 | 「全部关闭」 | 点击 | 关掉这个项目打开的全部终端和网页，终端里跑着的原型一起停掉，区域收起，标题行两个数量归零；别的项目不受影响。不弹确认。什么都没开时置灰 |
+| SPEC-projects-14.11 | 关掉最后一个 | 关掉终端的最后一个标签或浏览器的最后一个网页 | 那一边变成空状态，数量归零；另一边还开着时区域照常显示 |
+
+### 空状态和异常状态
+
+| 编号 | 场景 | 显示 | 可做的操作 |
+|---|---|---|---|
+| SPEC-projects-14.12 | 终端一个都没开（切到终端那边） | 「没有打开的终端」+「新建终端」 | 新建一个，目录是项目目录 |
+| SPEC-projects-14.13 | 浏览器一个都没开 | 「没有打开的网页」+「打开浏览器」 | 打开，规则同 14.3 |
+| SPEC-projects-14.14 | 项目没填目录 | 终端在 `~` 打开，头部只显示项目名 | 去设置标签填目录 |
+
+### 数据
+
+`ProjectDockState`（`projects.tsx`），按项目 id 记在 `App.tsx` 的 `docks`：
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `open` | boolean | 是否展开 |
+| `view` | `'term' \| 'browser'` | 展开时显示哪边 |
+| `term` | `TermTab[]` | 这个项目的终端标签，结构同一级菜单的终端 |
+| `termActive` | string | 当前终端标签 |
+| `br` | number | 浏览器实例的 key，0 表示没开；全部关闭后再开换一个新的 |
+| `brTabs` | number | 浏览器当前的标签数（标题行数量用） |
+
+浏览器标签状态在 `BrowserPage` 组件里，区域收起或离开项目时组件不卸载，只是藏起来，所以已加载的网页不重载。原型里这些都只在内存，刷新就没了；正式产品终端会话在后端（TERM-01），浏览器标签持久化归 BR-01，按项目分开存。
+
+### 联动
+
+| 方向 | 对方模块 | 触发 | 结果 | 见 |
+|---|---|---|---|---|
+| 改动 | 本模块原型 | 在项目终端里 `npm run dev` / Ctrl+C；「全部关闭」 | 启停对应原型，原型标签和概览的运行数跟着变 | `SPEC-projects-12` |
+| 读取 | 本模块原型 | 项目浏览器第一个标签、新标签页 | 只用这个项目的原型 | `SPEC-projects-12` |
+| 读取 | 浏览器 | Google 登录 | 和一级菜单的浏览器共用同一个 Google 账号 | — |
+
+### 和一级菜单「终端」「浏览器」的关系
+
+一级菜单里的「终端」「浏览器」是两个独立模块，先保留：它们不属于任何项目，适合跨项目或临时用；标签和项目里的这块互不相干，在一边开的标签不会出现在另一边。项目里其他地方的「打开」（原型卡片、概览原型块）仍按 `SPEC-projects-12` 交给一级菜单的浏览器。这两个模块以后是去掉、还是改成「全部项目的终端和浏览器」汇总，另行决定。
 
 ## 原型和规格对不上的地方
 

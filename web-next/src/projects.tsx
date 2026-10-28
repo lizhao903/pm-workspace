@@ -14,6 +14,9 @@ import {
   type DocStatus, type Material, type MaterialKind, type Project, type ProjectDoc, type Prototype, type StakeRole,
 } from './projectdata'
 import { Mark, MarkEditor } from './imagepick'
+import { BrowserPage, type ProtoEntry } from './browser'
+import type { GoogleAccount } from './browserdata'
+import { TerminalPage, type TermTab } from './terminal'
 import { PageTitle } from './topbar'
 import { cls, timeAgo } from './ui'
 import { newId } from './ids'
@@ -273,9 +276,13 @@ export interface ProjectLinks {
   onAddAttachment: (projectId: string, msgId: string, attId: string) => void
 }
 
-export function ProjectPage({ project, projects, agents, content, tab, onTab, onChange, onDelete, onStart, onStop, onOpenDoc, onChat, onOpenAgent, links, delImpact, onAll }: {
+export function ProjectPage({ project, projects, agents, content, tab, onTab, onChange, onDelete, onStart, onStop, onOpenDoc, onChat, onOpenAgent, links, delImpact, onAll, dock, onDock }: {
   /** 顶栏「项目」点回项目列表 */
   onAll?: () => void
+  /** 这个项目已打开的终端、网页数量，和展开区域当前显示的是哪个（收起时为 null） */
+  dock?: { term: number; browser: number; open: DockView | null }
+  /** 标题行的终端、浏览器按钮 */
+  onDock?: (v: DockView) => void
   links: ProjectLinks
   project: Project
   projects: Project[]
@@ -334,10 +341,21 @@ export function ProjectPage({ project, projects, agents, content, tab, onTab, on
     prototypes: <button className="btn btn-primary" onClick={() => setNewProto({ name: '', dir: '', command: 'npm run dev', port: freePort() })}>加原型</button>,
     settings: null,
   }[tab]
+  // 终端、浏览器固定在标题行最右，排在各标签自己的按钮后面（概览上就是「项目设置」右侧）
+  const dockBtns = dock && onDock && <>
+    <button className={cls('btn btn-outline pdock-btn', dock.open === 'term' && 'on')} aria-pressed={dock.open === 'term'}
+      title={dock.open === 'term' ? '收起终端' : `这个项目的终端${dock.term ? `，已打开 ${dock.term} 个` : ''}`} onClick={() => onDock('term')}>
+      {DOCK_ICON.term}<span className="pdock-btn-label">终端</span>{dock.term > 0 && <span className="pdock-n">{dock.term}</span>}
+    </button>
+    <button className={cls('btn btn-outline pdock-btn', dock.open === 'browser' && 'on')} aria-pressed={dock.open === 'browser'}
+      title={dock.open === 'browser' ? '收起浏览器' : `这个项目的浏览器${dock.browser ? `，已打开 ${dock.browser} 个网页` : ''}`} onClick={() => onDock('browser')}>
+      {DOCK_ICON.browser}<span className="pdock-btn-label">浏览器</span>{dock.browser > 0 && <span className="pdock-n">{dock.browser}</span>}
+    </button>
+  </>
 
   return (
     <div className="page page-fill project-page">
-      <PageTitle parent={onAll ? <button className="tb-parent-btn tb-parent-keep" onClick={onAll} title="回到项目列表">项目</button> : '项目'} desc={p.desc} actions={actions} icon={<ProjectMark p={p} size={20} />}>{p.name}</PageTitle>
+      <PageTitle parent={onAll ? <button className="tb-parent-btn tb-parent-keep" onClick={onAll} title="回到项目列表">项目</button> : '项目'} desc={p.desc} actions={dockBtns ? <>{actions}{dockBtns}</> : actions} icon={<ProjectMark p={p} size={20} />}>{p.name}</PageTitle>
       <div className="project-tabs np-tabs">
         {TABS.map((t) => (
           <button key={t.key} className={cls(tab === t.key && 'on')} onClick={() => onTab(t.key)}>
@@ -659,5 +677,94 @@ export function ProjectPage({ project, projects, agents, content, tab, onTab, on
         </div>
       )}
     </div>
+  )
+}
+
+/* ---------- 项目里的终端和浏览器 ---------- */
+
+// 每个项目一份：终端默认在项目目录，浏览器第一个标签是这个项目的原型
+// 状态记在 App 里，切项目、切菜单、收起都留着；「全部关闭」才清掉
+export type DockView = 'term' | 'browser'
+export interface ProjectDockState {
+  open: boolean
+  view: DockView
+  term: TermTab[]
+  termActive: string
+  /** 浏览器实例的 key：0 表示没开；全部关闭后再开换一个，标签从头来 */
+  br: number
+  /** 浏览器当前的标签数 */
+  brTabs: number
+}
+export const EMPTY_DOCK: ProjectDockState = { open: false, view: 'term', term: [], termActive: '', br: 0, brTabs: 0 }
+export const dockCount = (d: ProjectDockState) => d.term.length + d.brTabs
+/** 浏览器第一个标签：在跑的原型优先，没有就第一个原型；一个原型都没有就是新标签页 */
+export const dockStartUrl = (p: Project) => {
+  const x = p.prototypes.find((y) => y.status === 'running') ?? p.prototypes[0]
+  return x ? `http://127.0.0.1:${x.port}` : undefined
+}
+
+const DOCK_ICON: Record<DockView, React.ReactNode> = {
+  term: <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"><rect x="1.8" y="2.8" width="12.4" height="10.4" rx="1.6" /><path d="m4.6 6.4 2 1.6-2 1.6M8.4 10h3" /></svg>,
+  browser: <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.4"><circle cx="8" cy="8" r="6" /><path d="M2 8h12M8 2c1.8 1.8 2.6 3.8 2.6 6S9.8 12.2 8 14M8 2C6.2 3.8 5.4 5.8 5.4 8s.8 4.2 2.6 6" /></svg>,
+}
+
+export function ProjectDock({ project, projects, state, hidden, prototypes, google, onState, onShow, onCollapse, onCloseAll, onStartProto, onStopProto, onGoogleLogin, onGoogleLogout }: {
+  project: Project
+  projects: Project[]
+  state: ProjectDockState
+  /** 不在这个项目详情上或收起了：只藏起来，已加载的网页留着 */
+  hidden: boolean
+  /** 只给这个项目的原型 */
+  prototypes: ProtoEntry[]
+  google: GoogleAccount | null
+  onState: (f: (d: ProjectDockState) => ProjectDockState) => void
+  /** 切到终端或浏览器；那边一个都没开时先开一个 */
+  onShow: (v: DockView) => void
+  onCollapse: () => void
+  onCloseAll: () => void
+  onStartProto: (id: string) => void
+  onStopProto: (id: string) => void
+  onGoogleLogin: (acc: GoogleAccount) => void
+  onGoogleLogout: () => void
+}) {
+  const d = state
+  const n = dockCount(d)
+  const seg = (v: DockView, label: string, count: number) => (
+    <button className={cls(d.view === v && 'on')} aria-pressed={d.view === v} onClick={() => onShow(v)}>
+      {DOCK_ICON[v]}{label}{count > 0 && <span className="seg-n">{count}</span>}
+    </button>
+  )
+  return (
+    <section className="pdock" hidden={hidden} aria-label={`${project.name} 的终端和浏览器`}>
+      <div className="pdock-head">
+        <div className="seg seg-sm pdock-seg">{seg('term', '终端', d.term.length)}{seg('browser', '浏览器', d.brTabs)}</div>
+        <span className="pdock-where faint ellipsis" title={project.root}>{project.name}{project.root ? ` · ${project.root}` : ''}</span>
+        <span className="spacer" />
+        <button className="act act-quiet" disabled={!n} title="关闭这个项目打开的全部终端和网页；终端里跑着的原型一起停掉" onClick={onCloseAll}>全部关闭</button>
+        <button className="icon-btn" title="收起（已打开的终端和网页保留）" onClick={onCollapse}>
+          <svg viewBox="0 0 16 16" width="14" height="14"><path d="m4 6 4 4 4-4" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" /></svg>
+        </button>
+      </div>
+      <div className="pdock-body">
+        <div className="pdock-pane" hidden={d.view !== 'term'}>
+          {d.term.length ? (
+            <TerminalPage embedded tabs={d.term} active={d.termActive || d.term[0].id} cwd={project.root || undefined} projects={projects}
+              onTabs={(f) => onState((x) => ({ ...x, term: f(x.term) }))} onActive={(id) => onState((x) => ({ ...x, termActive: id }))}
+              onStartProto={onStartProto} onStopProto={onStopProto} />
+          ) : (
+            <div className="pdock-empty"><span className="muted">没有打开的终端</span><button className="act act-primary" onClick={() => onShow('term')}>新建终端</button></div>
+          )}
+        </div>
+        <div className="pdock-pane" hidden={d.view !== 'browser'}>
+          {d.br ? (
+            <BrowserPage key={d.br} embedded openRequest={null} startUrl={dockStartUrl(project)} prototypes={prototypes} onStartProto={onStartProto}
+              google={google} onGoogleLogin={onGoogleLogin} onGoogleLogout={onGoogleLogout} hidden={hidden || d.view !== 'browser'}
+              onCount={(c) => onState((x) => (x.brTabs === c ? x : { ...x, brTabs: c }))} onEmpty={() => onState((x) => ({ ...x, br: 0, brTabs: 0 }))} />
+          ) : (
+            <div className="pdock-empty"><span className="muted">没有打开的网页</span><button className="act act-primary" onClick={() => onShow('browser')}>打开浏览器</button></div>
+          )}
+        </div>
+      </div>
+    </section>
   )
 }
