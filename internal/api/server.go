@@ -12,6 +12,8 @@ import (
 	"time"
 
 	"github.com/lizhao903/pm-workspace/internal/audit"
+	"github.com/lizhao903/pm-workspace/internal/connector"
+	"github.com/lizhao903/pm-workspace/internal/conversation"
 	"github.com/lizhao903/pm-workspace/internal/events"
 	"github.com/lizhao903/pm-workspace/internal/imident"
 	"github.com/lizhao903/pm-workspace/internal/localdir"
@@ -70,6 +72,12 @@ type Options struct {
 
 	// Identities 是联系人的 IM 身份（CT-01b，0027）；为 nil 时 /api/im-identities 回 500。
 	Identities *imident.Store
+
+	// Conversations 是 IM 会话（CT-02，0028）；为 nil 时 /api/conversations 回 500。
+	Conversations *conversation.Store
+
+	// Connectors 是连接器的定义和实例（CONN-01a，0029），凭证在保险箱里；为 nil 时 /api/connectors 回 500。
+	Connectors *connector.Store
 
 	// DataDir 是库文件所在目录（含 vault.key、backups/），读文件和挂载一律不许进去；空串表示不限制。
 	DataDir string
@@ -212,6 +220,15 @@ func (s *Server) routes(m routeRegistrar) {
 	m.HandleFunc("GET /api/im-identities/{id}", s.handleGetIdentity)
 	m.HandleFunc("PATCH /api/im-identities/{id}", s.handleUpdateIdentity)
 	m.HandleFunc("DELETE /api/im-identities/{id}", s.handleDeleteIdentity)
+	// IM 会话（CT-02）：resolve 是字面路径，优先于 {id}
+	m.HandleFunc("GET /api/conversations", s.handleListConversations)
+	m.HandleFunc("POST /api/conversations", s.handleCreateConversation)
+	m.HandleFunc("GET /api/conversations/resolve", s.handleResolveConversation)
+	m.HandleFunc("GET /api/conversations/{id}", s.handleGetConversation)
+	m.HandleFunc("PATCH /api/conversations/{id}", s.handleUpdateConversation)
+	m.HandleFunc("DELETE /api/conversations/{id}", s.handleDeleteConversation)
+	m.HandleFunc("POST /api/conversations/{id}/members", s.handleAddConversationMember)
+	m.HandleFunc("DELETE /api/conversations/{id}/members/{identity_id}", s.handleRemoveConversationMember)
 
 	// Agent 供应商。{id}/default 和 {id}/test 比 {id} 多一段，
 	// ServeMux 按最具体的模式匹配，不会被 {id} 吃掉；仍按从具体到宽泛的顺序写，便于目视核对。
@@ -312,6 +329,17 @@ func (s *Server) routes(m routeRegistrar) {
 	m.HandleFunc("POST /api/secrets", s.handleCreateSecret)
 	m.HandleFunc("POST /api/secrets/{id}/rotate", s.handleRotateSecret)
 	m.HandleFunc("DELETE /api/secrets/{id}", s.handleDeleteSecret)
+
+	// 连接器。defs 是字面量，比 {id} 更具体；{id}/test、{id}/tools 多一段，不会被吃掉。
+	m.HandleFunc("GET /api/connectors/defs", s.handleListConnectorDefs)
+	m.HandleFunc("GET /api/connectors", s.handleListConnectors)
+	m.HandleFunc("POST /api/connectors", s.handleCreateConnector)
+	m.HandleFunc("GET /api/connectors/{id}", s.handleGetConnector)
+	m.HandleFunc("PATCH /api/connectors/{id}", s.handleUpdateConnector)
+	m.HandleFunc("DELETE /api/connectors/{id}", s.handleDeleteConnector)
+	m.HandleFunc("POST /api/connectors/{id}/test", s.handleTestConnector)
+	m.HandleFunc("POST /api/connectors/{id}/tools/refresh", s.handleRefreshConnectorTools)
+	m.HandleFunc("PATCH /api/connectors/{id}/tools", s.handleSetConnectorToolModes)
 
 	// 数据与备份。export 直接回文件流，不套 envelope。
 	m.HandleFunc("GET /api/admin/migrations", s.handleMigrations)

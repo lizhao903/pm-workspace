@@ -20,6 +20,8 @@ import (
 
 	"github.com/lizhao903/pm-workspace/internal/api"
 	"github.com/lizhao903/pm-workspace/internal/audit"
+	"github.com/lizhao903/pm-workspace/internal/connector"
+	"github.com/lizhao903/pm-workspace/internal/conversation"
 	"github.com/lizhao903/pm-workspace/internal/db"
 	"github.com/lizhao903/pm-workspace/internal/events"
 	"github.com/lizhao903/pm-workspace/internal/imident"
@@ -50,6 +52,8 @@ type config struct {
 	open     bool
 	// vaultKeychain：保险箱主密钥是否优先放 macOS 钥匙串；测试实例关掉，只用数据目录下的密钥文件
 	vaultKeychain bool
+	// fakeConnector：登记内置的假连接器（不联网），只给测试实例演练连接器框架用
+	fakeConnector bool
 }
 
 func main() {
@@ -63,6 +67,7 @@ func main() {
 	flag.BoolVar(&cfg.dev, "dev", false, "开发模式：放开 CORS，不服务内嵌前端（前端交给 vite dev）")
 	flag.BoolVar(&cfg.open, "open", false, "启动后用默认浏览器打开（仅 macOS）")
 	flag.BoolVar(&cfg.vaultKeychain, "vault-keychain", true, "凭证保险箱主密钥优先放 macOS 钥匙串；关掉则只用数据目录下权限 0600 的 vault.key")
+	flag.BoolVar(&cfg.fakeConnector, "fake-connector", false, "登记内置的假连接器 fake（不联网，只用于演练连接器框架）")
 	flag.Parse()
 
 	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo})))
@@ -178,6 +183,16 @@ func run(cfg config) error {
 	opts.LocalDirs = localdir.New(pdb)
 	// 联系人的 IM 身份（CT-01b，0027）
 	opts.Identities = imident.New(pdb)
+	// IM 会话（CT-02，0028）
+	opts.Conversations = conversation.New(pdb)
+	// 连接器（CONN-01a，0029）：定义在代码里登记，实例存表，凭证存保险箱
+	connDefs := connector.NewRegistry()
+	if cfg.fakeConnector {
+		if err := connDefs.Register(connector.Fake()); err != nil {
+			return err
+		}
+	}
+	opts.Connectors = connector.New(pdb, v, connDefs)
 	opts.DataDir = filepath.Dir(cfg.dbPath)
 	if !cfg.dev {
 		opts.UI = webui.Handler()
