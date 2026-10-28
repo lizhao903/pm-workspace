@@ -108,7 +108,7 @@ export const connectorsApi = {
     normConnector(await request<Connector>('PATCH', `${path(id)}/tools`, { body: { modes } })),
 }
 
-/** 定义在代码里登记，运行中不变（插件启停归 CONN-02），缓存久一点 */
+/** 定义在代码里登记；插件启停时会变（CONN-02），由失效规则 plugin 刷新，其余时候不变，缓存久一点 */
 export function useConnectorDefs() {
   return useQuery({ queryKey: dataKeys.connectors.defs, queryFn: connectorsApi.defs, staleTime: 5 * 60_000 })
 }

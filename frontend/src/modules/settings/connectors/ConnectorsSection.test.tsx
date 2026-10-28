@@ -160,4 +160,32 @@ describe('连接器页', () => {
     expect(writes(calls).at(-1)).toEqual(['POST', '/api/connectors/cn_s/test', {}])
     expect(await within(s).findByText('已连接')).toBeInTheDocument()
   })
+
+  it('插件停用后它的工具不在分类里、实例归「提供方已停用」，重新启用后回来；缓存里的旧定义进来时重新取（CONN-02）', async () => {
+    const echo: ConnectorDef = { ...slack, tool: 'demo_echo', label: '示例连接器', category: 'other', source: 'demo' }
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const mount = () => render(<QueryClientProvider client={qc}><ConnectorsSection /></QueryClientProvider>)
+    const row = (available: boolean) => conn({ id: 'cn_e', tool: 'demo_echo', name: '示例实例', available })
+
+    stub([github, echo], [row(true)])
+    let view = mount()
+    expect(await within(await screen.findByRole('region', { name: '其他' })).findByText('示例实例')).toBeInTheDocument()
+    expect(screen.queryByRole('region', { name: '提供方已停用' })).toBeNull()
+    view.unmount()
+
+    // 停用：定义列表里没有了，实例 available=false；定义的缓存还新鲜，也要重新取
+    stub([github], [row(false)])
+    view = mount()
+    const off = await screen.findByRole('region', { name: '提供方已停用' })
+    expect(within(off).getByText('示例实例')).toBeInTheDocument()
+    expect(screen.queryByRole('region', { name: '其他' })).toBeNull()
+    expect(screen.getByRole('button', { name: /全部分类/ })).toHaveTextContent('1')
+    view.unmount()
+
+    // 重新启用：回到原来的分类，实例原样
+    stub([github, echo], [row(true)])
+    mount()
+    expect(await within(await screen.findByRole('region', { name: '其他' })).findByText('示例实例')).toBeInTheDocument()
+    expect(screen.queryByRole('region', { name: '提供方已停用' })).toBeNull()
+  })
 })

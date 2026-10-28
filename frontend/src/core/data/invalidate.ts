@@ -92,8 +92,8 @@ export function invalidationsFor(c: Change): QueryKey[] {
         agentKeys.sessions.unscoped, dataKeys.artifacts.all, ...objectWide,
       ]
     case 'plugin':
-      // 插件停用后它的今日卡片从聚合里消失
-      return [dataKeys.plugins.all, dataKeys.objectTypes, todayKeys.all]
+      // 插件停用后它的今日卡片从聚合里消失，它登记的连接器定义也跟着出现或消失（CONN-02）
+      return [dataKeys.plugins.all, dataKeys.objectTypes, todayKeys.all, dataKeys.connectors.all]
     case 'schedule':
       // 列表（今日的「今天还会自动执行」同一份）；删除时执行记录一起没了
       return c.id ? [todayKeys.schedules, dataKeys.schedules.runsOf(c.id)] : [todayKeys.schedules, dataKeys.schedules.all]
