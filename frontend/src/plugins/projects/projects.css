@@ -199,3 +199,22 @@
   .pj-task-title { flex-basis: calc(100% - 120px); }
   .pj-task-owner, .pj-task-due { flex: none; }
 }
+
+/* ---------- 支持材料标签（.mat-list .mount-card .mat-kind） ---------- */
+.pj-mat-seg { align-self: flex-start; }
+.pj-mat-pick { display: flex; align-items: flex-start; gap: var(--sp-4); flex-wrap: wrap; }
+.pj-mat-pick > .pj-path { flex: 1; min-width: 240px; }
+.pj-mat-files { flex: none; cursor: pointer; }
+.pj-mat-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--sp-4); }
+.pj-mat { display: flex; align-items: flex-start; gap: var(--sp-5); padding: var(--sp-5) var(--sp-6); border: 1px solid var(--line); border-radius: var(--r); background: var(--panel); min-width: 0; }
+.pj-mat-kind { flex: none; min-width: 46px; text-align: center; font-size: var(--fs-2xs); padding: 2px 7px; border-radius: 4px; background: var(--hover); color: var(--muted); }
+.pj-mk-file { background: var(--accent-soft); color: var(--accent); }
+.pj-mk-folder { background: color-mix(in srgb, #7a4fd6 12%, transparent); color: color-mix(in srgb, #7a4fd6 85%, var(--text)); }
+.pj-mk-link { background: color-mix(in srgb, #0c8599 12%, transparent); color: color-mix(in srgb, #0c8599 85%, var(--text)); }
+.pj-mk-note { background: var(--warn-soft); color: var(--warn); }
+.pj-mat-text { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0; font-size: var(--fs-sm); }
+.pj-mat-name { font-weight: 500; overflow-wrap: anywhere; }
+.pj-mat-note { white-space: pre-line; overflow-wrap: anywhere; }
+.pj-mat-val { display: block; max-width: 100%; }
+.pj-mat-path { font: var(--fs-xs) var(--mono); color: var(--muted); overflow-wrap: anywhere; }
+.pj-mat-meta { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-3); font-size: var(--fs-xs); color: var(--faint); }

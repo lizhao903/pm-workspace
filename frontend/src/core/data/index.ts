@@ -93,6 +93,12 @@ export type {
 } from './connectors'
 export { projectStakeholdersApi, useAddProjectStakeholder, usePatchProjectStakeholder, useRemoveProjectStakeholder } from './projectStakeholders'
 export type { ProjectStakeholderInput, ProjectStakeholderPatch } from './projectStakeholders'
+export { IM_PAGE_MAX, imApi, normMessage, useImMessages, useImMessage, useImAction, useImToTask } from './im'
+export type { ImMessage, ImMsgStatus, ImRelevance, ImAttachment, ImReply, ImAction, ImTaskInput, ImTaskResult } from './im'
+export {
+  MATERIAL_KINDS, projectMaterialsApi, useProjectMaterials, useAddProjectMaterials, usePatchProjectMaterial, useRemoveProjectMaterial,
+} from './materials'
+export type { MaterialKind, MaterialStatus, ProjectMaterial, ProjectMaterialInput, ProjectMaterialPatch } from './materials'
 
 // 接口层的纯函数和类型照样给模块用：不发请求，不碰缓存
 export { localDay, focusParams, changedFields, isApiError, isStreamError, ApiError, StreamError } from '../api'

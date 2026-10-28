@@ -38,6 +38,8 @@ export const dataKeys = {
   },
   /** 项目干系人（PJ-01c）：也挂在 stakeholders 前缀下，名册和对象一变一起刷 */
   projectStakeholders: (projectId: string) => ['stakeholders', 'projects', projectId] as const,
+  /** 项目资料（PJ-03b）：只随资料的增删改刷新 */
+  projectMaterials: (projectId: string) => ['project-materials', projectId] as const,
   /** IM 身份（CT-03b）：一次拉全，按联系人合进 Contact.im */
   identities: {
     all: ['im-identities'] as const,
@@ -121,5 +123,11 @@ export const dataKeys = {
     all: ['connectors'] as const,
     defs: ['connectors', 'defs'] as const,
     list: ['connectors', 'list'] as const,
+  },
+  /** IM 消息（IM-02b）：消息列表一次拉全，单条另存 */
+  im: {
+    all: ['im'] as const,
+    list: ['im', 'messages'] as const,
+    detail: (id: string) => ['im', 'message', id] as const,
   },
 }
