@@ -9,6 +9,7 @@ import {
   Button, ConfirmDialog, Drawer, EmptyState, Field, Input, SearchSelect, Textarea, cls, type SearchOption,
 } from '../../core/ui'
 import { DevSlots } from './DevSlots'
+import { HandOffButton } from './HandOff'
 import { buildCreate, buildSave, draftOf, emptyDraft, sameDraft, type TaskDraft } from './draft'
 import { Markdown } from './Markdown'
 import { REVIEW, timeAgo } from './model'
@@ -142,7 +143,11 @@ export function TaskDrawer({ task, statuses, priorities, projects, onClose, onCr
         </Field>
         {devOpen ? (
           <div className="field-group">
-            <div className="mount-head"><span className="field-group-title">开发</span></div>
+            <div className="mount-head">
+              <span className="field-group-title">开发</span>
+              <span className="spacer" />
+              {task && <HandOffButton task={task} workdir={d.workdir} inherit={inherit} />}
+            </div>
             <MdField label="验收标准" value={d.acceptance} rows={4} mono placeholder="- [ ] 一条一行，写成能检查的样子"
               onChange={(v) => set({ acceptance: v })} />
             <div className="field-row">

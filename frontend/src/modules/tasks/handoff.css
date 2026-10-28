@@ -1,0 +1,20 @@
+/* 交给 Claude Code 弹窗（DEV-09），照原型 styles.css 的 qs 和 devloop.css 的 dev-perm 搬 */
+
+.ho-scrim { place-items: start center; padding: 14vh var(--sp-8) var(--sp-8); }
+.ho {
+  width: min(600px, 100%); max-height: calc(100vh - 14vh - 16px); overflow-y: auto;
+  display: flex; flex-direction: column; gap: var(--sp-6);
+  padding: var(--sp-8); border-radius: var(--r-lg);
+  background: var(--panel); border: 1px solid var(--line); box-shadow: var(--shadow-lg);
+}
+.ho:focus-visible { outline: 0; }
+.ho-head { display: flex; align-items: center; gap: var(--sp-5); min-width: 0; }
+.ho-head b { font-size: var(--fs-lg); flex: none; }
+.ho-sub { min-width: 0; color: var(--muted); font-size: var(--fs-sm); }
+.ho-dir { display: flex; flex-direction: column; gap: var(--sp-2); }
+.ho-perm { display: flex; flex-direction: column; gap: var(--sp-2); }
+.ho-check { color: var(--text); font-weight: 500; font-size: var(--fs); }
+.ho-foot { display: flex; align-items: center; gap: var(--sp-5); flex-wrap: wrap; }
+
+/* 按钮上的运行中指示灯 */
+.ho-light { display: inline-block; width: 7px; height: 7px; margin-right: var(--sp-3); border-radius: 50%; background: var(--accent); animation: run-blink 1s steps(2) infinite; }
