@@ -38,10 +38,13 @@ function dirId(path: string): string {
   return /\/plugins\/([^/]+)\//.exec(path)?.[1] ?? path
 }
 
-// 第一方插件都在 src/plugins/<id>/：plugin.json 是清单，index.ts 是入口。
-// 规范里清单只有一份、放在 internal/plugins/<id>/plugin.json；后端带上第一个插件时把这里的清单 glob 换过去
+// 第一方插件的入口都在 src/plugins/<id>/index.ts。清单只有一份：有后端的插件放在 internal/plugins/<id>/plugin.json，
+// 只有前端的（示例 hello）放在 src/plugins/<id>/plugin.json，两处都读，同一个 id 以后端那份为准
 export function discoverPlugins(): PluginSource[] {
-  const manifests = import.meta.glob<unknown>('../../plugins/*/plugin.json', { eager: true, import: 'default' })
+  const manifests = {
+    ...import.meta.glob<unknown>('../../plugins/*/plugin.json', { eager: true, import: 'default' }),
+    ...import.meta.glob<unknown>('../../../../internal/plugins/*/plugin.json', { eager: true, import: 'default' }),
+  }
   const entries = import.meta.glob<{ default: PluginEntry }>('../../plugins/*/index.ts')
   const out = new Map<string, PluginSource>()
   for (const [path, m] of Object.entries(manifests)) out.set(dirId(path), { id: dirId(path), manifest: m })
