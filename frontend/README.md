@@ -71,6 +71,7 @@ npm run test:watch                         # 开发时 watch
 | `query.ts` | query 参数生成（`objectListQuery`、`artifactListQuery`）、聚焦口径 `focusParams`、PATCH 挑改动字段 `changedFields` |
 | `resources.ts` | 各资源的请求函数：`objects`、`objectTypes`、`dictionaries`、`stakeholders`、`artifacts`、`runs`、`fs`、`counts` 等 |
 | `queries.ts` | 查询键和查询 hook（缓存与数据访问层在 CORE-03a） |
+| `sse.ts` | 流式接口：`runObject`（`POST /api/objects/{id}/run`）、`chat`（`POST /api/agent/chat`），事件类型 `RunEvent`、`ChatEvent`，见下面「流式响应」 |
 
 错误码：`validation` 400、`not_found` 404、`conflict` 409、`readonly` 403、`internal` 500，后端没给码或给了不认识的码时按状态码归类；请求没到后端（服务没起、断网）是 `network`，`status` 为 0。
 
@@ -80,6 +81,25 @@ npm run test:watch                         # 开发时 watch
 - `due_after` / `due_before` 传纯日期 `YYYY-MM-DD`，由后端补时（下界补 00:00:00、上界补 23:59:59），前端不要自己补；「今日」「本周」用 `focusParams`，口径和 `/api/counts` 一致。
 - PATCH 只传改动字段（用 `changedFields(原对象, 草稿)` 挑）；`category_id: null` 表示置空，`owner_id: ""` 表示清空负责人，`participant_ids`、`tags`、`props` 都是整体替换。
 - 列表函数返回 `{ data, total, limit, offset }`，`total` 来自 `meta.total`。
+
+### 流式响应（SSE）
+
+执行任务和 Agent 对话都是 POST 带 body 的 SSE，`EventSource` 只能 GET，所以 `sse.ts` 用 `fetch` + `ReadableStream` 自己按空行切块，只认 `data:` 行（事件类型在 JSON 的 `type` 里）。
+
+```ts
+const ac = new AbortController()
+const done = await runObject(id, { allow_writes: false }, {
+  signal: ac.signal,
+  onEvent: (e) => { if (e.type === 'start') runId = e.run_id },
+})
+```
+
+- 事件形状：执行看 `internal/runner` 的 `Event.MarshalJSON`（start、delta、tool、tool_result、artifact、error、done），对话看 `internal/agent` 的 `StreamEvent`（delta、tool_call、tool_result、artifact、question、error、done）。两边的 `tool_result` 字段不一样，分成两个联合类型。
+- 收到 `done` 才 resolve，值就是 done 事件；每条事件（含 done、error）都先交给 `onEvent`。
+- 没收到 `done` 流就结束一律是错误，抛 `StreamError`：`truncated` 是断流（连接断开、后端崩了），`server` 是只有 `error` 没有 `done`（对话出错时后端就是这么收尾的），`malformed` 是 data 不是合法 JSON。执行里的 `error` 后面还会跟 `done`，不算失败，看 `onEvent` 收到的 error 事件。
+- 开流之前的失败（对象不存在、没有工作目录）还是 JSON 错误，抛 `ApiError`；请求没到后端是 `network`。
+- `signal` 只中断读取，抛 `AbortError`；后端的 claude 进程照样跑完落库。要停执行调 `runs.cancel(run_id)`（`start` 事件里有 `run_id`），两件事分开。
+- 结尾没有空行的最后一块也会交出（后端最后一条往往就是 done）；跨 chunk 的半行和被切开的多字节字符都留到下一块再拼。
 
 ### 联调测试实例（手工验证）
 
@@ -131,7 +151,7 @@ src/
   core/               内核，插件和模块只能依赖这里暴露的东西
     api/              接口层：请求、错误、查询键、各接口的查询 hook 和类型
     shell/            外壳：布局、侧边栏、路由、出错页、占位页
-    ui/               设计变量、基础排版、主题（FE-01a）；基础组件（FE-01b）
+    ui/               设计变量、基础排版、主题（FE-01a）；基础组件（FE-01b），见「基础组件」一节
     plugin/           模块和插件的描述结构、注册表（清单加载在 FE-00b）
   modules/            内核模块，每个一个目录：today 今日、tasks 任务、docs 文档、
                       contacts 联系人、conversations 会话、settings 设置
@@ -175,6 +195,27 @@ src/
 | `:root[data-theme='dark']` | 22 | 22 | 0 | 0 |
 
 浅色 32 个：`--bg` `--side` `--panel` `--panel-2` `--hover` `--line` `--line-2` `--text` `--muted` `--faint` `--accent` `--accent-ink` `--accent-soft` `--accent-line` `--ok` `--warn` `--warn-soft` `--danger` `--danger-soft` `--r-sm` `--r` `--r-lg` `--shadow-sm` `--shadow` `--shadow-lg` `--side-w` `--drawer-w` `--subnav-w` `--foot-h` `--top-h` `--sans` `--mono`；深色覆盖其中的 19 个颜色和 3 个阴影。原型改了这两段的值，这里要同步改，并重跑对照。
+
+## 基础组件
+
+`src/core/ui/`（FE-01b），从 `../ui`（或 `src/core/ui/index.ts`）引入。写法和类名照原型 `web-next/src`（`ui.tsx`、`searchselect.tsx`、`subnav.tsx`、`topbar.tsx`、`tasks.tsx` 的列表分段），样式在 `components.css`，颜色全走 `tokens.css` 的变量。
+
+| 组件 | 文件 | 要点 |
+|---|---|---|
+| `Button`、`IconButton` | `Button.tsx` | `variant`：`primary` / `ghost`（默认）/ `outline` / `danger` / `danger-ghost`，`size="sm"`；`type` 默认 `button`；`IconButton` 必须给 `label`（同时是 aria-label 和悬停提示） |
+| `Field`、`Input`、`Textarea`、`Select`、`Checkbox` | `form.tsx` | `Field` 是「标题 + 控件 + 提示或错误」，默认用 `<label>` 包控件，控件是按钮（`SearchSelect`）时传 `wrap={false}`；`invalid` 红框带 `aria-invalid`；`Select` 是原生下拉，选项少时用，`onValueChange` 直接拿值 |
+| `SearchSelect` | `SearchSelect.tsx`、`searchMatch.ts` | 可搜索选择器，单选 / 多选、分组、当前值已删除照样显示、只渲染前 `limit` 条；`variant` 为 `chip`（工具条）或 `field`（表单）。搜索规则 `matchOption`：按空格切词，每个词都要命中 label / keywords / hint。键盘：触发按钮上下键打开，弹层里上下键移动（跳过禁用项）、回车选中、Esc 关闭并回到触发按钮 |
+| `Drawer` | `Drawer.tsx` | 右侧抽屉，固定定位、挂在 body 上，宽 `min(var(--drawer-w), 100%)`。Esc、关闭按钮都走「请求关闭」：`dirty` 为 true 时先弹「放弃未保存的改动？」。打开时焦点进正文第一个可聚焦元素（有 `autoFocus` 的优先），关闭后回到打开前的元素。`footer` 可以写成函数 `(requestClose) => ...`，自己的「取消」按钮也走未保存确认。抽屉里的弹层自己处理的 Esc 不会关抽屉 |
+| `ConfirmDialog` | `ConfirmDialog.tsx` | 居中确认弹窗，`danger` 用于删除，`impacts` 列连带影响（一条一行）；焦点落在「取消」，Tab 不出弹窗，Esc 和点遮罩等于取消 |
+| `ListSegHead`、`ListSegMore` | `ListSeg.tsx` | 列表分段：段标题可折叠带数量（`tone="danger"` 用于已逾期），段尾「这一段还有 N 条」 |
+| `Pill`、`Tag`、`Tags`、`Avatar` | `Pill.tsx` | `Pill` 的 `color` 传 CSS 颜色值，一般取后端字典的 color，没有用 `--faint`；`Tag` 给 `onRemove` 带移除按钮；`Avatar` 颜色由名字哈希出色相，同一个人到处同色 |
+| `PageTitle`、`TopbarContext` | `PageTitle.tsx`、`topbar.ts` | 页面标题（上级 / 标题 / 数量 / 说明 / 操作）；外壳用 `TopbarContext` 提供顶栏位置就送进顶栏，没提供就原地渲染 |
+| `Subnav` | `Subnav.tsx` | 二级菜单，可分组、红点提醒、底部吸底操作；`search` 开启后条目超过 `min`（默认 12）出搜索框，回车打开第一条，Esc 清空；760px 以下变顶部横排 |
+| `EmptyState`、`LoadingState`、`ErrorState` | `states.tsx` | 空、加载中、出错三态；`ErrorState` 的 `error` 传 `Error`（含 `ApiError`）取 message，给 `onRetry` 带「重试」 |
+
+- 演示页：`npm run dev` 后打开 `/_dev/components`，列出全部组件，页内可切主题。为了在 390px 宽下也能看，这个页面不套外壳（外壳侧栏的窄屏在 CORE-02a）；和 `/_dev/tokens` 一样用 `import.meta.env.DEV` 守着，构建产物里没有。
+- 组件测试：`SearchSelect.test.tsx`（过滤、键盘选择、Esc、多选）、`Drawer.test.tsx`（焦点进出、Esc 关闭、未保存确认、内层弹层的 Esc 不关抽屉）、`ConfirmDialog.test.tsx`（连带影响、Tab 循环），`searchMatch.test.ts` 是匹配规则的纯函数测试。
+- 层级：抽屉 40，确认弹窗遮罩 300，`SearchSelect` 弹层 400（确认弹窗里也能用）。
 
 ## 约定
 
