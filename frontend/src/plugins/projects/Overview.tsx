@@ -1,5 +1,5 @@
 // 概览（SPEC-projects-3）：数字卡片和摘要块，每块都能点进对应标签。
-// 现在有数据来源的是任务、干系人、项目目录；最新沟通、项目 Agent、原型、文档和材料等对应后端（PJ-02、AG、PJ-04、PJ-03）有了再补
+// 现在有数据来源的是任务、干系人、项目目录、原型（PJ-04b）；最新沟通、项目 Agent、文档和材料等对应后端（PJ-02、AG、PJ-03）有了再补
 import { Suspense, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router'
 import {
@@ -8,6 +8,7 @@ import {
 import { useObjectDrawer } from '../../core/plugin'
 import { ErrorState, cls } from '../../core/ui'
 import { STAKE_PEEK, TASK_PEEK, type ProjectTab } from './model'
+import { ProtoBlock, ProtoStat } from './PrototypesTab'
 
 const PRIORITY_DICT = 'priority'
 
@@ -46,6 +47,7 @@ export function Overview({ project, onTab }: { project: WorkObject; onTab: (t: P
       <div className="pj-stats">
         {stat('未完成任务', tasks.data?.data.length, 'tasks')}
         {stat('干系人', stakes.data?.length, 'stakeholders')}
+        <ProtoStat projectId={p.id} onOpen={() => onTab('prototypes')} />
       </div>
       <div className="pj-ov-grid">
         <section className="pj-block" aria-label="进行中的任务">
@@ -95,6 +97,8 @@ export function Overview({ project, onTab }: { project: WorkObject; onTab: (t: P
             <div className="pj-chips">{p.related.map((r) => <span key={r.path} className="tag" title={r.path}>{r.label || r.path.split('/').pop()}</span>)}</div>
           )}
         </section>
+
+        <ProtoBlock projectId={p.id} projectName={p.name} onAll={() => onTab('prototypes')} />
       </div>
       <Suspense fallback={null}>
         {openId && drawer && <drawer.drawer key={openId} objectId={openId} onClose={() => setOpenId(null)} />}

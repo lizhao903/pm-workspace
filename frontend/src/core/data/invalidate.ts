@@ -55,6 +55,8 @@ export type Change =
   | { kind: 'project-material'; projectId: string }
   /** 项目绑定、解绑会话（PJ-02b）；消息本身不动 */
   | { kind: 'project-conversation'; projectId: string }
+  /** 项目原型加、改、移除、启动、停止（PJ-04b） */
+  | { kind: 'project-prototype'; projectId: string }
 
 // 对象一变，所有对象列表（任务列表、今日、项目的任务标签页）、单个对象及其进展和修订、
 // 计数（侧栏红点、逾期徽标）都可能变；干系人名册上的任务数也跟着变；今日聚合（待验收、逾期、今天到期、插件卡片）也是。
@@ -138,6 +140,9 @@ export function invalidationsFor(c: Change): QueryKey[] {
     case 'project-conversation':
       // 绑定列表变了，绑了哪些会话的消息由组件按新列表去取
       return [dataKeys.projectConversations(c.projectId)]
+    case 'project-prototype':
+      // 列表和打开着的日志（启动时后端先记两行、停止时记一行）
+      return [dataKeys.projectPrototypes.of(c.projectId)]
   }
 }
 

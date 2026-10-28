@@ -141,3 +141,23 @@
 .im-totask { display: flex; flex-direction: column; gap: var(--sp-6); min-width: 0; }
 .im-totask .input { width: 100%; }
 .im-totask-src blockquote { margin: 4px 0 0; padding: 6px 10px; border-left: 3px solid var(--accent-line); background: var(--panel-2); border-radius: 0 var(--r-sm) var(--r-sm) 0; color: var(--muted); max-height: 120px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
+
+/* ---------- 附件面板（IM-04b），照原型 .att-row .att-ico .att-main .att-acts .att-in ---------- */
+.im-att-list { display: flex; flex-direction: column; gap: 6px; }
+.im-att-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 8px 10px; border: 1px solid var(--line); border-radius: var(--r); background: var(--panel); min-width: 0; }
+.im-att-bad { border-color: color-mix(in srgb, var(--danger) 35%, transparent); }
+.im-att-bad .im-att-sub { color: var(--danger); }
+.im-att-ico { width: 28px; height: 28px; border-radius: 7px; display: grid; place-items: center; flex: none; background: var(--hover); color: var(--muted); }
+.im-att-ico.im-att-image { color: var(--ok); }
+.im-att-ico.im-att-link { color: var(--accent); }
+.im-att-ico.im-att-file { color: var(--warn); }
+.im-att-main { display: flex; flex-direction: column; min-width: 0; flex: 1 1 200px; }
+.im-att-name { font-weight: 500; font-size: var(--fs-sm); color: var(--text); text-decoration: none; }
+a.im-att-name { color: var(--accent); }
+a.im-att-name:hover { text-decoration: underline; }
+.im-att-sub { font-size: var(--fs-xs); color: var(--faint); }
+.im-att-acts { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-left: auto; }
+.im-att-acts a.im-act { text-decoration: none; }
+.im-att-proj.ss-trigger { height: 28px; max-width: 160px; }
+.im-att-in { flex-basis: 100%; font-size: var(--fs-2xs); color: var(--ok); padding-left: 38px; }
+.im-att-in.im-err { color: var(--danger); }

@@ -1,7 +1,7 @@
 // 沟通标签（SPEC-projects-4，PJ-02b）：左边是项目绑定的群聊和私聊，右边只显示这些会话里的消息。
 // 绑定按会话 id 存在项目插件里（PJ-02a），候选从内核会话表列（含还没收到消息的群）；消息按绑定的会话逐个取（IM-01a）。
 // IM 消息插件没装或停用时消息区提示去插件管理，绑定照常能增删。点消息跳到 IM 消息页打开抽屉（插件间不 import 抽屉）。
-// 没做：消息里的附件（SPEC-projects-5，等 IM-04）。
+// 顶上是消息里的附件（SPEC-projects-5，IM-04b，AttachmentInbox），IM 插件没在跑时不显示。
 import { useEffect, useMemo, useState, type KeyboardEvent } from 'react'
 import { useNavigate } from 'react-router'
 import {
@@ -15,6 +15,7 @@ import {
   lastMessageAt, mentionParts, peopleOf, pendingByConversation, statusLabeler, whoName,
 } from './commsModel'
 import { ago } from './model'
+import { AttachmentInbox } from './AttachmentInbox'
 
 const PLUGINS_PATH = '/settings/plugins'
 const MESSAGES_PATH = '/messages'
@@ -231,7 +232,13 @@ export function CommsTab({ projectId }: { projectId: string }) {
     )
   }
 
+  const inbox = !noIm && !msgs.isPending && mine.length > 0 && (
+    <AttachmentInbox projectId={projectId} messages={mine} now={now} onOpenMessage={openMessage} />
+  )
+
   return (
+    <>
+    {inbox}
     <div className="pj-comms">
       <div className="pj-chats">
         <div className="pj-chats-head">
@@ -244,5 +251,6 @@ export function CommsTab({ projectId }: { projectId: string }) {
       </div>
       <div className="pj-msgs" aria-label="项目消息">{body}</div>
     </div>
+    </>
   )
 }
