@@ -11,7 +11,7 @@ import (
 )
 
 // 插件的数据句柄（plugin-api.md 2.0）：Store 只能读写本插件 table_prefix 开头的表；
-// 内核数据只读、只给插件要用到的几项（Objects、Contacts），写内核数据要走内核接口，修订和审计才不漏。
+// 内核数据只读、只给插件要用到的几项（Objects、Contacts、Conversations），写内核数据要走内核接口，修订和审计才不漏。
 
 // ErrNoRows：Get 没查到，或 QueryRow 的 Scan 没有行。插件不 import database/sql，用这个判断。
 var ErrNoRows = sql.ErrNoRows
@@ -56,6 +56,20 @@ type ContactReader interface {
 	Get(ctx context.Context, id string) (ContactInfo, error)
 }
 
+// ConversationInfo 是 IM 会话（CT-02，0028）里插件常用的几项，不带成员。
+type ConversationInfo struct {
+	ID         string
+	Channel    string
+	ExternalID string
+	Kind       string // group 或 direct
+	Name       string
+}
+
+// ConversationReader 只读查 IM 会话。没有这个 id 返回 ErrNoRows。
+type ConversationReader interface {
+	Get(ctx context.Context, id string) (ConversationInfo, error)
+}
+
 // database 是插件句柄用的库：注册表的 DB，没设时取 SQL 迁移记录用的那个（cmd/pmw 两者是同一个连接）。
 func (r *Registry) database() *db.DB {
 	if r == nil {
@@ -80,6 +94,9 @@ func (c *core) db() *db.DB {
 func (c *core) Store() Store            { return &pluginStore{c: c} }
 func (c *core) Objects() ObjectReader   { return objectReader{c} }
 func (c *core) Contacts() ContactReader { return contactReader{c} }
+func (c *core) Conversations() ConversationReader {
+	return conversationReader{c}
+}
 
 type pluginStore struct{ c *core }
 
@@ -255,5 +272,21 @@ func (r contactReader) Get(ctx context.Context, id string) (ContactInfo, error) 
 		return ContactInfo{}, err
 	}
 	info.Archived = archived.Valid
+	return info, nil
+}
+
+type conversationReader struct{ c *core }
+
+func (r conversationReader) Get(ctx context.Context, id string) (ConversationInfo, error) {
+	d := r.c.db()
+	if d == nil {
+		return ConversationInfo{}, ErrNoStore
+	}
+	var info ConversationInfo
+	err := d.R.QueryRowContext(ctx, `SELECT id, channel, external_id, kind, name FROM conversations WHERE id = ?`, id).
+		Scan(&info.ID, &info.Channel, &info.ExternalID, &info.Kind, &info.Name)
+	if err != nil {
+		return ConversationInfo{}, err
+	}
 	return info, nil
 }

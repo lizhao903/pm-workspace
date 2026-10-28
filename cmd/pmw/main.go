@@ -54,6 +54,8 @@ type config struct {
 	vaultKeychain bool
 	// fakeConnector：登记内置的假连接器（不联网），只给测试实例演练连接器框架用
 	fakeConnector bool
+	// publicURL：浏览器访问工作台的地址，OAuth 回调地址 = 它 + /api/connectors/oauth/callback
+	publicURL string
 }
 
 func main() {
@@ -67,7 +69,8 @@ func main() {
 	flag.BoolVar(&cfg.dev, "dev", false, "开发模式：放开 CORS，不服务内嵌前端（前端交给 vite dev）")
 	flag.BoolVar(&cfg.open, "open", false, "启动后用默认浏览器打开（仅 macOS）")
 	flag.BoolVar(&cfg.vaultKeychain, "vault-keychain", true, "凭证保险箱主密钥优先放 macOS 钥匙串；关掉则只用数据目录下权限 0600 的 vault.key")
-	flag.BoolVar(&cfg.fakeConnector, "fake-connector", false, "登记内置的假连接器 fake（不联网，只用于演练连接器框架）")
+	flag.BoolVar(&cfg.fakeConnector, "fake-connector", false, "登记内置的假连接器 fake 和 fake_oauth（只用于演练连接器框架）")
+	flag.StringVar(&cfg.publicURL, "public-url", connector.DefaultPublicURL, "浏览器访问工作台的地址，OAuth 回调地址由它拼出（见 docs/local-domain.md）")
 	flag.Parse()
 
 	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo})))
@@ -188,11 +191,19 @@ func run(cfg config) error {
 	// 连接器（CONN-01a，0029）：定义在代码里登记，实例存表，凭证存保险箱
 	connDefs := connector.NewRegistry()
 	if cfg.fakeConnector {
-		if err := connDefs.Register(connector.Fake()); err != nil {
-			return err
+		for _, d := range []connector.Def{connector.Fake(), connector.FakeOAuth()} {
+			if err := connDefs.Register(d); err != nil {
+				return err
+			}
 		}
 	}
 	opts.Connectors = connector.New(pdb, v, connDefs)
+	if err := opts.Connectors.SetPublicURL(cfg.publicURL); err != nil {
+		return err
+	}
+	// OAuth 令牌到期前后台刷新（CONN-01b）；退出时先停刷新再关库
+	opts.Connectors.StartRefresher(ctx)
+	defer opts.Connectors.StopRefresher()
 	opts.DataDir = filepath.Dir(cfg.dbPath)
 	if !cfg.dev {
 		opts.UI = webui.Handler()

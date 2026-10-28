@@ -2,7 +2,11 @@ package connector
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
+	"net/http"
 	"strings"
 )
 
@@ -53,5 +57,47 @@ func fakeTools(variant string) []ToolDef {
 		{Name: "list_items", Desc: "列出条目", Write: false},
 		{Name: "get_item", Desc: "读取一个条目", Write: false},
 		{Name: "create_item", Desc: "新建条目", Write: true},
+	}
+}
+
+// FakeOAuthTool 是内置假 OAuth 连接器的 key，和 fake 一样只在 --fake-connector 时登记。
+const FakeOAuthTool = "fake_oauth"
+
+// FakeOAuth 是走 OAuth 2.0 的假连接器：授权地址、令牌地址接在 config.base_url 后面（/authorize、/token），
+// 连通测试拿 access_token 请求 base_url/userinfo，回 {"login": "..."}。测试和演练时自己起一个假 OAuth 服务对接。
+func FakeOAuth() Def {
+	return Def{
+		Tool: FakeOAuthTool, Label: "测试 OAuth 连接器", Category: "dev", Color: "#64748b",
+		Desc: "内置的假 OAuth 连接器，对接自己起的假授权服务，只用于测试和演练", Auth: []AuthMode{AuthOAuth2},
+		Fields: []Field{
+			{Key: "base_url", Label: "授权服务地址", Kind: "text", Placeholder: "http://127.0.0.1:7798", Required: true},
+			{Key: "client_id", Label: "Client ID", Kind: "text", Required: true},
+			{Key: "client_secret", Label: "Client Secret", Kind: "secret"},
+		},
+		OAuth: &OAuthSpec{AuthURL: "/authorize", TokenURL: "/token", Scopes: []string{"read", "write"},
+			BaseURLField: "base_url", ClientIDField: "client_id", ClientSecretField: "client_secret"},
+		Tools: fakeTools("v1"),
+		Test: func(ctx context.Context, cfg Config) (string, error) {
+			req, err := http.NewRequestWithContext(ctx, http.MethodGet, strings.TrimRight(cfg.Get("base_url"), "/")+"/userinfo", nil)
+			if err != nil {
+				return "", err
+			}
+			req.Header.Set("Authorization", "Bearer "+cfg.AccessToken())
+			resp, err := http.DefaultClient.Do(req)
+			if err != nil {
+				return "", err
+			}
+			defer func() { _ = resp.Body.Close() }()
+			var out struct {
+				Login string `json:"login"`
+			}
+			if resp.StatusCode != http.StatusOK {
+				return "", fmt.Errorf("userinfo returned %d", resp.StatusCode)
+			}
+			if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<16)).Decode(&out); err != nil {
+				return "", fmt.Errorf("userinfo: %w", err)
+			}
+			return out.Login, nil
+		},
 	}
 }
