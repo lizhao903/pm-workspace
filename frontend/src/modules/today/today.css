@@ -1,0 +1,77 @@
+/* 今日页样式，照原型 web-next/src/styles.css 的「今日」一段和 hook-sec、mount-*；颜色全走 tokens.css 的变量 */
+.today-page { display: flex; flex-direction: column; gap: var(--sp-8); min-width: 0; }
+
+/* 汇总数字 */
+.today-sum { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: var(--sp-5); }
+.today-num { display: flex; align-items: baseline; gap: var(--sp-4); padding: var(--sp-6) var(--sp-7); border: 1px solid var(--line); border-radius: var(--r-lg); background: var(--panel); min-width: 0; }
+.today-num b { font-size: var(--fs-2xl); font-weight: 600; font-variant-numeric: tabular-nums; }
+.today-num span { font-size: var(--fs-sm); color: var(--muted); }
+.today-num.warn b { color: var(--warn); }
+.today-num.bad b { color: var(--danger); }
+.today-num.ok b { color: var(--ok); }
+
+/* 两栏：左需要你处理，右今天的任务、自动执行、正在运行 */
+.today-grid { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); gap: var(--sp-8); align-items: start; }
+.today-side { display: flex; flex-direction: column; gap: var(--sp-8); min-width: 0; }
+.today-sec { display: flex; flex-direction: column; gap: var(--sp-5); padding: var(--sp-8); border: 1px solid var(--line); border-radius: var(--r-lg); background: var(--panel); min-width: 0; }
+.today-head { display: flex; align-items: center; gap: var(--sp-4); min-width: 0; }
+.today-title { flex: 1; min-width: 0; font-size: var(--fs-sm); font-weight: 600; color: var(--muted); }
+.today-hint { margin-left: var(--sp-4); font-weight: 400; color: var(--faint); }
+.today-link { height: 24px; padding: 0 var(--sp-4); font-size: var(--fs-sm); color: var(--muted); flex: none; border-radius: var(--r-sm); }
+.today-link:hover { background: var(--hover); color: var(--text); }
+.today-empty { padding: var(--sp-7); text-align: center; color: var(--faint); font-size: var(--fs-sm); border: 1px dashed var(--line-2); border-radius: var(--r); }
+.today-clear { padding: 18px; text-align: center; color: var(--ok); font-weight: 500; }
+.today-miss { display: flex; align-items: center; gap: var(--sp-4); padding: var(--sp-4) var(--sp-2); font-size: var(--fs-sm); color: var(--danger); }
+.today-miss .btn { margin-left: auto; }
+
+/* 需要你处理 */
+.today-group { display: flex; flex-direction: column; }
+.today-group + .today-group { margin-top: var(--sp-3); }
+.today-group-head { display: flex; align-items: center; gap: var(--sp-4); min-width: 0; }
+.today-group-name { flex: 1; min-width: 0; padding: var(--sp-4) var(--sp-6) var(--sp-1); font-size: var(--fs-xs); font-weight: 600; color: var(--faint); }
+.today-group-n { font-weight: 400; }
+.today-more { color: var(--accent); }
+.today-need { display: flex; align-items: center; gap: var(--sp-5); width: 100%; padding: var(--sp-4) var(--sp-5); border-radius: var(--r-sm); text-align: left; min-width: 0; }
+.today-need:hover { background: var(--hover); }
+.today-need-text { display: flex; flex-direction: column; gap: var(--sp-1); flex: 1; min-width: 0; font-size: var(--fs); }
+.today-need-title { font-weight: 500; }
+.today-need-sub { color: var(--muted); }
+.today-dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+.td-danger { background: var(--danger); }
+.td-warn { background: var(--warn); }
+.td-info { background: var(--accent); }
+.today-at { flex: none; font-size: var(--fs-sm); color: var(--muted); }
+.today-go { flex: none; font-size: var(--fs-sm); color: var(--accent); }
+
+/* 今天的任务 */
+.today-tasks { display: flex; flex-direction: column; }
+.today-task { display: flex; align-items: center; gap: var(--sp-4); padding: 7px var(--sp-2); border-bottom: 1px solid var(--line); cursor: pointer; min-width: 0; }
+.today-task:last-child { border-bottom: 0; }
+.today-task:hover { background: var(--panel-2); }
+.today-task-title { flex: 1; min-width: 0; }
+.today-check { width: 18px; height: 18px; flex: none; padding: 0; border-radius: 50%; border: 1.5px solid var(--line-2); background: none; cursor: pointer; }
+.today-check:not(:disabled):hover { border-color: var(--ok); }
+.today-prio { display: inline-flex; align-items: center; height: 20px; padding: 0 6px; border-radius: 4px; flex: none; font: 600 var(--fs-xs) var(--mono); white-space: nowrap; color: color-mix(in srgb, var(--c) 85%, var(--text)); background: color-mix(in srgb, var(--c) 12%, transparent); }
+.today-due { font-size: var(--fs-xs); color: var(--muted); flex: none; }
+.today-due.bad { color: var(--danger); font-weight: 500; }
+.today-ref { font: var(--fs-xs) var(--mono); color: var(--faint); flex: none; }
+.today-rest { padding: var(--sp-4) var(--sp-2); font-size: var(--fs-sm); color: var(--accent); text-align: left; }
+.today-rest:hover { background: var(--panel-2); }
+.today-err { font-size: var(--fs-sm); color: var(--danger); }
+
+/* 自动执行、正在运行 */
+.today-line { display: flex; align-items: center; gap: var(--sp-4); width: 100%; min-height: 32px; padding: 0 var(--sp-2); border-bottom: 1px solid var(--line); font-size: var(--fs); text-align: left; color: var(--text); min-width: 0; }
+.today-line:last-child { border-bottom: 0; }
+button.today-line:hover { background: var(--panel-2); }
+.today-line .ellipsis { flex: 1; }
+.today-line-sub { color: var(--muted); flex: none; }
+.today-time { font: var(--fs-sm) var(--mono); color: var(--accent); flex: none; width: 44px; }
+.today-light { width: 8px; height: 8px; border-radius: 50%; flex: none; background: var(--ok); box-shadow: 0 0 0 3px color-mix(in srgb, var(--ok) 20%, transparent); }
+.today-light.wait { background: var(--accent); box-shadow: none; }
+
+/* 插件卡片 */
+.today-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: var(--sp-8); align-items: start; }
+.today-card-total { font-size: var(--fs-sm); color: var(--muted); }
+
+@media (max-width: 1100px) { .today-grid { grid-template-columns: minmax(0, 1fr); } }
+@media (max-width: 760px) { .today-sum { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
