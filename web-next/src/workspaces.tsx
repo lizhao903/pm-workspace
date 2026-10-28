@@ -183,6 +183,11 @@ export function WorkspacesPage({ list, current, onSwitch, onChange, onCreate, on
                     <input className="grp-name" value={x.name} placeholder="不显示标题" onChange={(e) => patchGroup(x.id, (y) => ({ ...y, name: e.target.value }))} />
                     <span className="list-sub">{x.modules.length} 个模块</span>
                     <span className="spacer" />
+                    {x.name && (
+                      <label className="switch-line" title="侧栏里这组默认收起；在侧栏点分组标题也能随时展开、收起">
+                        <input type="checkbox" checked={!!x.collapsed} onChange={(e) => patchGroup(x.id, (y) => ({ ...y, collapsed: e.target.checked }))} /><span className="switch" />默认折叠
+                      </label>
+                    )}
                     {groups.length > 1 && <button className="act act-quiet btn-danger-ghost" onClick={() => removeGroup(gi)} title="里面的模块会并到相邻的分组">删除分组</button>}
                   </div>
                   {x.modules.length ? x.modules.map((k, mi) => (

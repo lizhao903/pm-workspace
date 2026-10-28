@@ -1,5 +1,6 @@
 import { Fragment, useEffect, useRef, useState, type ReactNode } from 'react'
 import { PageTitle } from './topbar'
+import './agents.css'
 import {
   ABILITIES, AGENT_COLORS, AVATAR_ICONS, TRIGGER_KIND,
   type AbilityMode, type Agent, type AgentAvatarConf, type AgentRun, type ChatMsg, type KnowledgeBase, type Skill, type ToolCall, type TriggerKind,
@@ -458,6 +459,15 @@ function MountPicker<T extends { id: string }>({ label, items, render, text, gro
   )
 }
 
+/** 配置页的标签：一个标签只管一类配置 */
+type EditorTab = 'basic' | 'model' | 'instructions' | 'skills' | 'tools' | 'kbs' | 'triggers'
+const EDITOR_TABS: { key: EditorTab; label: string }[] = [
+  { key: 'basic', label: '基本信息' }, { key: 'model', label: '模型' }, { key: 'instructions', label: '指令' }, { key: 'skills', label: '技能' },
+  { key: 'tools', label: '工具与权限' }, { key: 'kbs', label: '知识库' }, { key: 'triggers', label: '触发方式' },
+]
+/** 每个 Agent 上次看的标签，只在内存里记 */
+const lastTab = new Map<string, EditorTab>()
+
 export interface MountableConn { id: string; name: string; kind: string; ok: boolean; tools: ConnToolChoice[] }
 
 export function AgentEditor({ agent, creating, ctx, folders, models, conns, kbs, skills, onBack, onSave, onDelete, onExecute, onCreateKb, onGoConnectors, delPlan }: {
@@ -490,6 +500,9 @@ export function AgentEditor({ agent, creating, ctx, folders, models, conns, kbs,
   // 调试面板叠在编辑区下面时（1100px 以下）默认收起，编辑区留够高度；宽屏它在右栏，收起不生效
   const [debugFolded, setDebugFolded] = useState(() => typeof window !== 'undefined' && window.matchMedia?.('(max-width: 1100px)').matches)
   const [newKb, setNewKb] = useState<{ name: string; sources: string[] } | null>(null)
+  // 新建时停在基本信息；已有的回到上次看的标签
+  const [tab, setTab] = useState<EditorTab>(() => (creating ? 'basic' : lastTab.get(agent.id) ?? 'basic'))
+  const go = (t: EditorTab) => { lastTab.set(d.id, t); setTab(t) }
   const dirty = creating || JSON.stringify(d) !== JSON.stringify(agent)
   const groups = [...new Set(ABILITIES.map((a) => a.group))]
   const setMode = (k: string, m: AbilityMode) => setD({ ...d, abilities: { ...d.abilities, [k]: m } })
@@ -505,7 +518,7 @@ export function AgentEditor({ agent, creating, ctx, folders, models, conns, kbs,
   }
   const save = () => {
     setTried(true)
-    if (!d.name.trim()) return
+    if (!d.name.trim()) { go('basic'); return }
     onSave({ ...d, name: d.name.trim() })
     setSaved(true)
     window.setTimeout(() => setSaved(false), 1500)
@@ -514,6 +527,19 @@ export function AgentEditor({ agent, creating, ctx, folders, models, conns, kbs,
   const mountedSkills = skills.filter((x) => d.skills.includes(x.id))
   const mountedConns = conns.filter((x) => d.mcps.includes(x.id))
   const mountedKbs = kbs.filter((x) => d.kbs.includes(x.id))
+  const curModel = models.find((m) => m.key === d.model)
+  const toolsOn = ABILITIES.filter((a) => (d.abilities[a.key] ?? 'off') !== 'off').length
+    + mountedConns.reduce((n, c) => n + c.tools.filter((t) => (d.abilities[t.key] ?? 'off') !== 'off').length, 0)
+  // 标签后面的数字：挂了几项；没有数量概念的标签不显示
+  const counts: Partial<Record<EditorTab, number>> = { skills: mountedSkills.length, tools: toolsOn, kbs: mountedKbs.length, triggers: d.triggers.length }
+  // 标签上的红点：这一类配置里有要处理的问题
+  const badConns = mountedConns.filter((c) => !c.ok)
+  const issues: Partial<Record<EditorTab, string>> = {
+    basic: !d.name.trim() ? '名称还没填' : undefined,
+    model: !curModel ? '还没选模型' : !curModel.ok ? `${curModel.label} 当前不可用` : undefined,
+    tools: badConns.length ? `${badConns.map((c) => c.name).join('、')} 连接异常` : undefined,
+    triggers: d.triggers.some((t) => t.kind !== 'manual' && !t.detail.trim()) ? '有触发方式没填条件' : undefined,
+  }
   const catEnum = useEnumView('content_category')
   const sourceLabel = (k: string) => (k.startsWith('dir:') ? `本地目录 · ${k.slice(4)}` : catEnum.label(k))
   const createKb = () => {
@@ -531,16 +557,7 @@ export function AgentEditor({ agent, creating, ctx, folders, models, conns, kbs,
 
   return (
     <div className={cls('agent-editor', debugFolded && 'debug-folded')}>
-      <PageTitle parent="Agent" desc={d.desc} actions={<>
-        {!creating && (confirmDel ? (
-          <>
-            <span className="danger-text">{delPlan?.block ? `不能删除：${delPlan.block}` : delPlan?.impact.length ? `删除后${delPlan.impact.join('；')}` : '删除后会话和执行记录保留'}</span>
-            <button className="btn btn-ghost" onClick={() => setConfirmDel(false)}>{delPlan?.block ? '知道了' : '取消'}</button>
-            {!delPlan?.block && <button className="btn btn-danger" onClick={onDelete}>删除</button>}
-          </>
-        ) : <button className="btn btn-ghost btn-danger-ghost" onClick={() => setConfirmDel(true)}>删除</button>)}
-        <button className="btn btn-primary" disabled={!dirty} onClick={save}>{creating ? '创建' : saved ? '已保存' : dirty ? '保存' : '已保存'}</button>
-      </>}>{creating ? '新建 Agent' : d.name || '未命名'}</PageTitle>
+      <PageTitle parent="Agent" desc={d.desc}>{creating ? '新建 Agent' : d.name || '未命名'}</PageTitle>
       <div className="agent-main">
         <div className="editor-head">
           <button className="btn btn-ghost" onClick={onBack}>
@@ -550,231 +567,276 @@ export function AgentEditor({ agent, creating, ctx, folders, models, conns, kbs,
           <span className="list-sub">会话、执行记录和产出结果在左侧「会话」菜单里看</span>
         </div>
 
-        <div className="editor-body form agent-form">
-          <div className="agent-ident">
-            <AvatarEditor agent={d} onChange={(p) => setD({ ...d, ...p })} />
-            <div className="agent-ident-fields">
-              <input className={cls('editor-title', tried && !d.name.trim() && 'bad')} value={d.name} placeholder="Agent 名称，比如：消息分诊助手" onChange={(e) => setD({ ...d, name: e.target.value })} />
-              <input className="agent-desc-input" value={d.desc} placeholder="一句话说明它负责什么" onChange={(e) => setD({ ...d, desc: e.target.value })} />
+        <div className="np-tabs ae-tabs" role="tablist">
+          {EDITOR_TABS.map((t) => (
+            <button key={t.key} role="tab" aria-selected={tab === t.key} className={cls(tab === t.key && 'on')} onClick={() => go(t.key)} title={issues[t.key]}>
+              {t.label}
+              {counts[t.key] !== undefined && <span className="seg-n">{counts[t.key]}</span>}
+              {issues[t.key] && <span className="ae-dot" />}
+            </button>
+          ))}
+        </div>
+        <div className="editor-body form agent-form ae-body">
+          {tab === 'basic' && (
+            <>
+            <div className="agent-ident">
+              <AvatarEditor agent={d} onChange={(p) => setD({ ...d, ...p })} />
+              <div className="agent-ident-fields">
+                <input className={cls('editor-title', tried && !d.name.trim() && 'bad')} value={d.name} placeholder="Agent 名称，比如：消息分诊助手" onChange={(e) => setD({ ...d, name: e.target.value })} />
+                <input className="agent-desc-input" value={d.desc} placeholder="一句话说明它负责什么" onChange={(e) => setD({ ...d, desc: e.target.value })} />
+              </div>
             </div>
-          </div>
-
-          <section className="hook-sec">
-            <div className="field-group-title">模型</div>
-            {(() => {
-              const usable = models.filter((m) => m.ok || m.key === d.model)
-              const opt = (m: ModelChoice) => (
-                <label key={m.key} className={cls('model-opt', d.model === m.key && 'on', !m.ok && 'bad')}>
-                  <input type="radio" checked={d.model === m.key} disabled={!m.ok} onChange={() => { setD({ ...d, model: m.key }); setPickModel(false) }} />
-                  <span><b>{m.label}</b><span className={cls('list-sub', !m.ok && 'danger-text')}>{m.note}</span></span>
-                </label>
-              )
-              if (usable.length <= MANY_MODELS) return <div className="model-list">{usable.map(opt)}</div>
-              const cur = models.find((m) => m.key === d.model)
-              if (!pickModel) {
+            <section className="hook-sec">
+              <label className="switch-row">
+                <span>
+                  <span className="field-label">启用</span>
+                  <span className="switch-hint">{d.enabled ? '启用中，会按触发方式自动运行' : '停用后不再被触发，已有会话和执行记录保留'}</span>
+                </span>
+                <input type="checkbox" className="switch" checked={d.enabled} onChange={(e) => setD({ ...d, enabled: e.target.checked })} />
+              </label>
+            </section>
+            </>
+          )}
+          {tab === 'model' && (
+            <section className="hook-sec">
+              <div className="field-group-title">模型</div>
+              {issues.model && <div className="banner banner-danger ae-banner">{issues.model}，Agent 调用会失败，换一个可用的模型。</div>}
+              {(() => {
+                const usable = models.filter((m) => m.ok || m.key === d.model)
+                const opt = (m: ModelChoice) => (
+                  <label key={m.key} className={cls('model-opt', d.model === m.key && 'on', !m.ok && 'bad')}>
+                    <input type="radio" checked={d.model === m.key} disabled={!m.ok} onChange={() => { setD({ ...d, model: m.key }); setPickModel(false) }} />
+                    <span><b>{m.label}</b><span className={cls('list-sub', !m.ok && 'danger-text')}>{m.note}</span></span>
+                  </label>
+                )
+                if (usable.length <= MANY_MODELS) return <div className="model-list">{usable.map(opt)}</div>
+                const cur = models.find((m) => m.key === d.model)
+                if (!pickModel) {
+                  return (
+                    <div className="model-cur">
+                      {cur ? opt(cur) : <span className="mount-empty">还没选模型</span>}
+                      <button className="act" onClick={() => { setPickModel(true); setModelQ('') }}>换模型<span className="seg-n">{usable.filter((m) => m.ok).length} 个可用</span></button>
+                    </div>
+                  )
+                }
+                // 换模型：按服务商分组，能搜模型名和服务商
+                const hits = usable.filter((m) => hasAll(`${m.label} ${m.note} ${modelGroup(m)}`, modelQ))
+                const gs = [...new Set(hits.map(modelGroup))]
                 return (
-                  <div className="model-cur">
-                    {cur ? opt(cur) : <span className="mount-empty">还没选模型</span>}
-                    <button className="act" onClick={() => { setPickModel(true); setModelQ('') }}>换模型<span className="seg-n">{usable.filter((m) => m.ok).length} 个可用</span></button>
+                  <div className="model-chooser">
+                    <div className="model-chooser-bar">
+                      <MiniSearch value={modelQ} onChange={setModelQ} placeholder="搜模型或服务商" autoFocus />
+                      <button className="act act-quiet" onClick={() => setPickModel(false)}>收起</button>
+                    </div>
+                    {gs.map((g) => (
+                      <div key={g} className="model-chooser-group">
+                        <div className="menu-label">{g}</div>
+                        <div className="model-list">{hits.filter((m) => modelGroup(m) === g).map(opt)}</div>
+                      </div>
+                    ))}
+                    {!hits.length && <div className="mount-empty">没有匹配的模型</div>}
                   </div>
                 )
-              }
-              // 换模型：按服务商分组，能搜模型名和服务商
-              const hits = usable.filter((m) => hasAll(`${m.label} ${m.note} ${modelGroup(m)}`, modelQ))
-              const gs = [...new Set(hits.map(modelGroup))]
-              return (
-                <div className="model-chooser">
-                  <div className="model-chooser-bar">
-                    <MiniSearch value={modelQ} onChange={setModelQ} placeholder="搜模型或服务商" autoFocus />
-                    <button className="act act-quiet" onClick={() => setPickModel(false)}>收起</button>
-                  </div>
-                  {gs.map((g) => (
-                    <div key={g} className="model-chooser-group">
-                      <div className="menu-label">{g}</div>
-                      <div className="model-list">{hits.filter((m) => modelGroup(m) === g).map(opt)}</div>
+              })()}
+            </section>
+          )}
+          {tab === 'instructions' && (
+            <section className="hook-sec">
+              <div className="field-group-title">指令<span className="field-hint">告诉它是谁、负责什么、按什么规矩做事</span></div>
+              <textarea className="json-area agent-prompt" rows={7} value={d.instructions} placeholder={'比如：\n你是产品经理的消息分诊助手。先确认发消息的人是谁，再判断要不要跟进……'} onChange={(e) => setD({ ...d, instructions: e.target.value })} />
+            </section>
+          )}
+          {tab === 'skills' && (
+            <section className="hook-sec">
+              <div className="mount-head">
+                <div className="field-group-title">技能<span className="field-hint">一段可复用的做事方法，挂上后 Agent 遇到对应的事就按它做</span></div>
+                <MountPicker label="挂载技能" items={skills.filter((k) => !d.skills.includes(k.id))} empty="技能都挂上了"
+                  text={(k) => `${k.name} ${k.desc}`} group={(k) => k.source}
+                  onPick={(id) => toggle('skills', id)}
+                  render={(k) => <span className="mount-text"><b>{k.name}</b><span className="list-sub">{k.desc}</span></span>} />
+              </div>
+              {mountedSkills.length ? (
+                <div className="mount-list">
+                  {mountedSkills.map((k) => (
+                    <div key={k.id} className="mount-card">
+                      <span className="mount-icon skill-icon"><svg viewBox="0 0 16 16" width="13" height="13"><path d="M8 2 9.4 6.6 14 8 9.4 9.4 8 14 6.6 9.4 2 8 6.6 6.6Z" fill="currentColor" /></svg></span>
+                      <span className="mount-text">
+                        <span><b>{k.name}</b><span className="tag mount-src">{k.source}</span></span>
+                        <span className="list-sub">{k.instructions}</span>
+                        <span className="mount-uses">用到：{k.uses.join('、')}</span>
+                      </span>
+                      {x(() => toggle('skills', k.id), '卸下')}
                     </div>
                   ))}
-                  {!hits.length && <div className="mount-empty">没有匹配的模型</div>}
                 </div>
-              )
-            })()}
-          </section>
-
-          <section className="hook-sec">
-            <div className="field-group-title">指令<span className="field-hint">告诉它是谁、负责什么、按什么规矩做事</span></div>
-            <textarea className="json-area agent-prompt" rows={7} value={d.instructions} placeholder={'比如：\n你是产品经理的消息分诊助手。先确认发消息的人是谁，再判断要不要跟进……'} onChange={(e) => setD({ ...d, instructions: e.target.value })} />
-          </section>
-
-          <section className="hook-sec">
-            <div className="mount-head">
-              <div className="field-group-title">技能<span className="field-hint">一段可复用的做事方法，挂上后 Agent 遇到对应的事就按它做</span></div>
-              <MountPicker label="挂载技能" items={skills.filter((k) => !d.skills.includes(k.id))} empty="技能都挂上了"
-                text={(k) => `${k.name} ${k.desc}`} group={(k) => k.source}
-                onPick={(id) => toggle('skills', id)}
-                render={(k) => <span className="mount-text"><b>{k.name}</b><span className="list-sub">{k.desc}</span></span>} />
-            </div>
-            {mountedSkills.length ? (
-              <div className="mount-list">
-                {mountedSkills.map((k) => (
-                  <div key={k.id} className="mount-card">
-                    <span className="mount-icon skill-icon"><svg viewBox="0 0 16 16" width="13" height="13"><path d="M8 2 9.4 6.6 14 8 9.4 9.4 8 14 6.6 9.4 2 8 6.6 6.6Z" fill="currentColor" /></svg></span>
-                    <span className="mount-text">
-                      <span><b>{k.name}</b><span className="tag mount-src">{k.source}</span></span>
-                      <span className="list-sub">{k.instructions}</span>
-                      <span className="mount-uses">用到：{k.uses.join('、')}</span>
-                    </span>
-                    {x(() => toggle('skills', k.id), '卸下')}
+              ) : <div className="mount-empty">还没挂技能</div>}
+            </section>
+          )}
+          {tab === 'tools' && (
+            <>
+            <section className="hook-sec">
+              <div className="field-group-title">内置工具与权限<span className="field-hint">写操作建议「需确认」：Agent 只提出要做什么，你点确认才执行</span></div>
+              <div className="ability-table">
+                {groups.map((g) => (
+                  <div key={g} className="ability-group">
+                    <div className="ability-group-name">{g}</div>
+                    {ABILITIES.filter((a) => a.group === g).map((a) => {
+                      const m = d.abilities[a.key] ?? 'off'
+                      return (
+                        <div key={a.key} className="ability-row">
+                          <span className="ability-text">
+                            <span>{a.label}{a.write && <span className="write-tag">写</span>}</span>
+                            {a.desc && <span className="list-sub">{a.desc}</span>}
+                          </span>
+                          <div className="seg seg-sm">
+                            {((a.write ? ['off', 'confirm', 'auto'] : ['off', 'auto']) as AbilityMode[]).map((v) => (
+                              <button key={v} className={cls(m === v && 'on', v === 'auto' && a.write && m === v && 'risky')} onClick={() => setMode(a.key, v)}>{MODE_LABEL[v]}</button>
+                            ))}
+                          </div>
+                        </div>
+                      )
+                    })}
                   </div>
                 ))}
               </div>
-            ) : <div className="mount-empty">还没挂技能</div>}
-          </section>
-
-          <section className="hook-sec">
-            <div className="field-group-title">内置工具与权限<span className="field-hint">写操作建议「需确认」：Agent 只提出要做什么，你点确认才执行</span></div>
-            <div className="ability-table">
-              {groups.map((g) => (
-                <div key={g} className="ability-group">
-                  <div className="ability-group-name">{g}</div>
-                  {ABILITIES.filter((a) => a.group === g).map((a) => {
-                    const m = d.abilities[a.key] ?? 'off'
+              {autoWrites.length > 0 && <div className="banner banner-warn">{autoWrites.map((a) => `「${a.label}」`).join('')}设为自动：Agent 会直接执行，不再等你确认。</div>}
+            </section>
+            <section className="hook-sec">
+              <div className="mount-head">
+                <div className="field-group-title">MCP / 连接器工具<span className="field-hint">挂上后可以用它的工具；权限不能比连接器那边更松</span></div>
+                <MountPicker label="挂载" items={conns.filter((c) => !d.mcps.includes(c.id))} empty="没有更多可挂的。去「设置 / 连接器」接入并获取工具清单"
+                  text={(c) => `${c.name} ${c.kind}`} group={(c) => c.kind}
+                  onPick={mountConn}
+                  render={(c) => <span className="mount-text"><b>{c.name}</b><span className={cls('list-sub', !c.ok && 'danger-text')}>{c.kind} · {c.tools.length} 个可用工具{!c.ok && ' · 连接异常'}</span></span>} />
+              </div>
+              {mountedConns.length ? (
+                <div className="mount-list">
+                  {mountedConns.map((c) => {
+                    const on = c.tools.filter((t) => (d.abilities[t.key] ?? 'off') !== 'off').length
+                    const open = openConn === c.id
                     return (
-                      <div key={a.key} className="ability-row">
-                        <span className="ability-text">
-                          <span>{a.label}{a.write && <span className="write-tag">写</span>}</span>
-                          {a.desc && <span className="list-sub">{a.desc}</span>}
-                        </span>
-                        <div className="seg seg-sm">
-                          {((a.write ? ['off', 'confirm', 'auto'] : ['off', 'auto']) as AbilityMode[]).map((v) => (
-                            <button key={v} className={cls(m === v && 'on', v === 'auto' && a.write && m === v && 'risky')} onClick={() => setMode(a.key, v)}>{MODE_LABEL[v]}</button>
-                          ))}
+                      <div key={c.id} className={cls('mount-card mount-conn', open && 'open')}>
+                        <div className="mount-conn-head">
+                          <span className="mount-icon conn-icon"><svg viewBox="0 0 16 16" width="13" height="13"><path d="M6 3v3M10 3v3M4.5 6h7v2.5a3.5 3.5 0 0 1-7 0ZM8 12v2" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" /></svg></span>
+                          <button className="mount-text mount-toggle" onClick={() => { setOpenConn(open ? null : c.id); setToolQ('') }}>
+                            <span><b>{c.name}</b><span className="tag mount-src">{c.kind}</span></span>
+                            <span className={cls('list-sub', !c.ok && 'danger-text')}>{c.ok ? `开了 ${on} / ${c.tools.length} 个工具` : '连接异常，调用会失败'}</span>
+                          </button>
+                          <button className="act act-quiet" onClick={() => { setOpenConn(open ? null : c.id); setToolQ('') }}>{open ? '收起' : '工具权限'}</button>
+                          {x(() => unmountConn(c.id), '卸下')}
                         </div>
+                        {open && c.tools.length > 10 && (
+                          <div className="mount-tools-search">
+                            <MiniSearch value={toolQ} onChange={setToolQ} placeholder={`搜工具，共 ${c.tools.length} 个`} />
+                          </div>
+                        )}
+                        {open && (
+                          <div className="ability-table mount-tools">
+                            {c.tools.filter((t) => c.tools.length <= 10 || hasAll(`${t.name} ${t.desc}`, toolQ)).map((t) => {
+                              const m = d.abilities[t.key] ?? 'off'
+                              const opts = ((t.write ? ['off', 'confirm', 'auto'] : ['off', 'auto']) as AbilityMode[]).filter((v) => RANK[v] <= RANK[t.connMode])
+                              return (
+                                <div key={t.key} className="ability-row">
+                                  <span className="ability-text">
+                                    <span><code className="tool-fn">{t.name}</code>{t.write && <span className="write-tag">写</span>}</span>
+                                    <span className="list-sub">{t.desc}{t.write && t.connMode === 'confirm' && ' · 连接器要求确认'}</span>
+                                  </span>
+                                  <div className="seg seg-sm">
+                                    {opts.map((v) => <button key={v} className={cls(m === v && 'on', v === 'auto' && t.write && m === v && 'risky')} onClick={() => setMode(t.key, v)}>{MODE_LABEL[v]}</button>)}
+                                  </div>
+                                </div>
+                              )
+                            })}
+                          </div>
+                        )}
                       </div>
                     )
                   })}
                 </div>
-              ))}
-            </div>
-            {autoWrites.length > 0 && <div className="banner banner-warn">{autoWrites.map((a) => `「${a.label}」`).join('')}设为自动：Agent 会直接执行，不再等你确认。</div>}
-          </section>
-
-          <section className="hook-sec">
-            <div className="mount-head">
-              <div className="field-group-title">MCP 与连接器<span className="field-hint">挂上后可以用它的工具；权限不能比连接器那边更松</span></div>
-              <MountPicker label="挂载" items={conns.filter((c) => !d.mcps.includes(c.id))} empty="没有更多可挂的。去「设置 / 连接器」接入并获取工具清单"
-                text={(c) => `${c.name} ${c.kind}`} group={(c) => c.kind}
-                onPick={mountConn}
-                render={(c) => <span className="mount-text"><b>{c.name}</b><span className={cls('list-sub', !c.ok && 'danger-text')}>{c.kind} · {c.tools.length} 个可用工具{!c.ok && ' · 连接异常'}</span></span>} />
-            </div>
-            {mountedConns.length ? (
-              <div className="mount-list">
-                {mountedConns.map((c) => {
-                  const on = c.tools.filter((t) => (d.abilities[t.key] ?? 'off') !== 'off').length
-                  const open = openConn === c.id
-                  return (
-                    <div key={c.id} className={cls('mount-card mount-conn', open && 'open')}>
-                      <div className="mount-conn-head">
-                        <span className="mount-icon conn-icon"><svg viewBox="0 0 16 16" width="13" height="13"><path d="M6 3v3M10 3v3M4.5 6h7v2.5a3.5 3.5 0 0 1-7 0ZM8 12v2" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" /></svg></span>
-                        <button className="mount-text mount-toggle" onClick={() => { setOpenConn(open ? null : c.id); setToolQ('') }}>
-                          <span><b>{c.name}</b><span className="tag mount-src">{c.kind}</span></span>
-                          <span className={cls('list-sub', !c.ok && 'danger-text')}>{c.ok ? `开了 ${on} / ${c.tools.length} 个工具` : '连接异常，调用会失败'}</span>
-                        </button>
-                        <button className="act act-quiet" onClick={() => { setOpenConn(open ? null : c.id); setToolQ('') }}>{open ? '收起' : '工具权限'}</button>
-                        {x(() => unmountConn(c.id), '卸下')}
-                      </div>
-                      {open && c.tools.length > 10 && (
-                        <div className="mount-tools-search">
-                          <MiniSearch value={toolQ} onChange={setToolQ} placeholder={`搜工具，共 ${c.tools.length} 个`} />
-                        </div>
-                      )}
-                      {open && (
-                        <div className="ability-table mount-tools">
-                          {c.tools.filter((t) => c.tools.length <= 10 || hasAll(`${t.name} ${t.desc}`, toolQ)).map((t) => {
-                            const m = d.abilities[t.key] ?? 'off'
-                            const opts = ((t.write ? ['off', 'confirm', 'auto'] : ['off', 'auto']) as AbilityMode[]).filter((v) => RANK[v] <= RANK[t.connMode])
-                            return (
-                              <div key={t.key} className="ability-row">
-                                <span className="ability-text">
-                                  <span><code className="tool-fn">{t.name}</code>{t.write && <span className="write-tag">写</span>}</span>
-                                  <span className="list-sub">{t.desc}{t.write && t.connMode === 'confirm' && ' · 连接器要求确认'}</span>
-                                </span>
-                                <div className="seg seg-sm">
-                                  {opts.map((v) => <button key={v} className={cls(m === v && 'on', v === 'auto' && t.write && m === v && 'risky')} onClick={() => setMode(t.key, v)}>{MODE_LABEL[v]}</button>)}
-                                </div>
-                              </div>
-                            )
-                          })}
-                        </div>
-                      )}
-                    </div>
-                  )
-                })}
+              ) : <div className="mount-empty">还没挂 MCP 或连接器。<button className="link-btn" onClick={onGoConnectors}>去接入</button></div>}
+            </section>
+            </>
+          )}
+          {tab === 'kbs' && (
+            <section className="hook-sec">
+              <div className="mount-head">
+                <div className="field-group-title">知识库<span className="field-hint">回答和写作时会先在这些资料里找依据</span></div>
+                <span className="spacer" />
+                <button className="act act-quiet" onClick={() => setNewKb(newKb ? null : { name: '', sources: [] })}>新建知识库</button>
+                <MountPicker label="挂载知识库" items={kbs.filter((k) => !d.kbs.includes(k.id))} empty="知识库都挂上了"
+                  text={(k) => `${k.name} ${k.desc}`}
+                  onPick={(id) => toggle('kbs', id)}
+                  render={(k) => <span className="mount-text"><b>{k.name}</b><span className="list-sub">{k.sources.map(sourceLabel).join('、')} · {k.docs} 篇</span></span>} />
               </div>
-            ) : <div className="mount-empty">还没挂 MCP 或连接器。<button className="link-btn" onClick={onGoConnectors}>去接入</button></div>}
-          </section>
-
-          <section className="hook-sec">
-            <div className="mount-head">
-              <div className="field-group-title">知识库<span className="field-hint">回答和写作时会先在这些资料里找依据</span></div>
-              <span className="spacer" />
-              <button className="act act-quiet" onClick={() => setNewKb(newKb ? null : { name: '', sources: [] })}>新建知识库</button>
-              <MountPicker label="挂载知识库" items={kbs.filter((k) => !d.kbs.includes(k.id))} empty="知识库都挂上了"
-                text={(k) => `${k.name} ${k.desc}`}
-                onPick={(id) => toggle('kbs', id)}
-                render={(k) => <span className="mount-text"><b>{k.name}</b><span className="list-sub">{k.sources.map(sourceLabel).join('、')} · {k.docs} 篇</span></span>} />
-            </div>
-            {newKb && (
-              <div className="kb-new">
-                <input value={newKb.name} placeholder="知识库名称，比如：竞品资料" onChange={(e) => setNewKb({ ...newKb, name: e.target.value })} />
-                <div className="dep-list">
-                  {[...catEnum.optionsWith().map((c) => c.key), ...folders.map((f) => `dir:${f}`)].map((k) => (
-                    <label key={k} className={cls('dep-chip', newKb.sources.includes(k) && 'on')}>
-                      <input type="checkbox" checked={newKb.sources.includes(k)} onChange={() => setNewKb({ ...newKb, sources: newKb.sources.includes(k) ? newKb.sources.filter((y) => y !== k) : [...newKb.sources, k] })} />{sourceLabel(k)}
-                    </label>
+              {newKb && (
+                <div className="kb-new">
+                  <input value={newKb.name} placeholder="知识库名称，比如：竞品资料" onChange={(e) => setNewKb({ ...newKb, name: e.target.value })} />
+                  <div className="dep-list">
+                    {[...catEnum.optionsWith().map((c) => c.key), ...folders.map((f) => `dir:${f}`)].map((k) => (
+                      <label key={k} className={cls('dep-chip', newKb.sources.includes(k) && 'on')}>
+                        <input type="checkbox" checked={newKb.sources.includes(k)} onChange={() => setNewKb({ ...newKb, sources: newKb.sources.includes(k) ? newKb.sources.filter((y) => y !== k) : [...newKb.sources, k] })} />{sourceLabel(k)}
+                      </label>
+                    ))}
+                  </div>
+                  <div className="act-row">
+                    <button className="act act-primary" disabled={!newKb.name.trim() || !newKb.sources.length} onClick={createKb}>建好并挂上</button>
+                    <button className="act act-quiet" onClick={() => setNewKb(null)}>取消</button>
+                    {!folders.length && <span className="list-sub">在「文档」里选了本地目录后，本地目录也能当来源</span>}
+                  </div>
+                </div>
+              )}
+              {mountedKbs.length ? (
+                <div className="mount-list">
+                  {mountedKbs.map((k) => (
+                    <div key={k.id} className="mount-card">
+                      <span className="mount-icon kb-icon"><svg viewBox="0 0 16 16" width="13" height="13"><path d="M3 3.5h4.5v9H3zM8.5 3.5H13v9H8.5" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" /></svg></span>
+                      <span className="mount-text">
+                        <b>{k.name}</b>
+                        <span className="list-sub">{k.sources.map(sourceLabel).join('、')} · {k.docs} 篇 · {timeAgo(k.updated_at)}更新</span>
+                      </span>
+                      {x(() => toggle('kbs', k.id), '卸下')}
+                    </div>
                   ))}
                 </div>
-                <div className="act-row">
-                  <button className="act act-primary" disabled={!newKb.name.trim() || !newKb.sources.length} onClick={createKb}>建好并挂上</button>
-                  <button className="act act-quiet" onClick={() => setNewKb(null)}>取消</button>
-                  {!folders.length && <span className="list-sub">在「文档」里选了本地目录后，本地目录也能当来源</span>}
-                </div>
-              </div>
-            )}
-            {mountedKbs.length ? (
-              <div className="mount-list">
-                {mountedKbs.map((k) => (
-                  <div key={k.id} className="mount-card">
-                    <span className="mount-icon kb-icon"><svg viewBox="0 0 16 16" width="13" height="13"><path d="M3 3.5h4.5v9H3zM8.5 3.5H13v9H8.5" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" /></svg></span>
-                    <span className="mount-text">
-                      <b>{k.name}</b>
-                      <span className="list-sub">{k.sources.map(sourceLabel).join('、')} · {k.docs} 篇 · {timeAgo(k.updated_at)}更新</span>
-                    </span>
-                    {x(() => toggle('kbs', k.id), '卸下')}
+              ) : !newKb && <div className="mount-empty">还没挂知识库</div>}
+            </section>
+          )}
+          {tab === 'triggers' && (
+            <section className="hook-sec">
+              <div className="field-group-title">触发方式</div>
+              <div className="trigger-list">
+                {d.triggers.map((t, i) => (
+                  <div key={i} className="field-line">
+                    <select value={t.kind} onChange={(e) => setD({ ...d, triggers: d.triggers.map((y, j) => (j === i ? { ...y, kind: e.target.value as TriggerKind } : y)) })}>
+                      {(Object.keys(TRIGGER_KIND) as TriggerKind[]).map((k) => <option key={k} value={k}>{TRIGGER_KIND[k]}</option>)}
+                    </select>
+                    {t.kind !== 'manual' && (
+                      <input value={t.detail} placeholder={{ im: '哪些渠道、群还是私聊', schedule: '比如：每周五 16:00', task: '比如：标签含「Agent」的任务', manual: '' }[t.kind]}
+                        onChange={(e) => setD({ ...d, triggers: d.triggers.map((y, j) => (j === i ? { ...y, detail: e.target.value } : y)) })} />
+                    )}
+                    {t.kind === 'manual' && <span className="list-sub agent-trigger-note">在「会话」里直接找它</span>}
+                    <button className="act act-quiet" disabled={d.triggers.length < 2} onClick={() => setD({ ...d, triggers: d.triggers.filter((_, j) => j !== i) })}>删除</button>
                   </div>
                 ))}
+                <button className="act act-quiet case-add" onClick={() => setD({ ...d, triggers: [...d.triggers, { kind: 'schedule', detail: '' }] })}>加一个触发方式</button>
               </div>
-            ) : !newKb && <div className="mount-empty">还没挂知识库</div>}
-          </section>
-
-          <section className="hook-sec">
-            <div className="field-group-title">触发方式</div>
-            <div className="trigger-list">
-              {d.triggers.map((t, i) => (
-                <div key={i} className="field-line">
-                  <select value={t.kind} onChange={(e) => setD({ ...d, triggers: d.triggers.map((y, j) => (j === i ? { ...y, kind: e.target.value as TriggerKind } : y)) })}>
-                    {(Object.keys(TRIGGER_KIND) as TriggerKind[]).map((k) => <option key={k} value={k}>{TRIGGER_KIND[k]}</option>)}
-                  </select>
-                  {t.kind !== 'manual' && (
-                    <input value={t.detail} placeholder={{ im: '哪些渠道、群还是私聊', schedule: '比如：每周五 16:00', task: '比如：标签含「Agent」的任务', manual: '' }[t.kind]}
-                      onChange={(e) => setD({ ...d, triggers: d.triggers.map((y, j) => (j === i ? { ...y, detail: e.target.value } : y)) })} />
-                  )}
-                  {t.kind === 'manual' && <span className="list-sub agent-trigger-note">在「会话」里直接找它</span>}
-                  <button className="act act-quiet" disabled={d.triggers.length < 2} onClick={() => setD({ ...d, triggers: d.triggers.filter((_, j) => j !== i) })}>删除</button>
-                </div>
-              ))}
-              <button className="act act-quiet case-add" onClick={() => setD({ ...d, triggers: [...d.triggers, { kind: 'schedule', detail: '' }] })}>加一个触发方式</button>
-            </div>
-          </section>
+            </section>
+          )}
+        </div>
+        <div className="ae-foot">
+          {/* 确认删除时这里让给删除提示 */}
+          <span className="ae-foot-note">
+            {!confirmDel && Object.values(issues).some(Boolean) && <span className="danger-text">{Object.values(issues).filter(Boolean).join('；')}</span>}
+            {!confirmDel && !creating && dirty && <span>有未保存的修改，切换标签不会丢</span>}
+          </span>
+          {!creating && (confirmDel ? (
+            <>
+              <span className="danger-text">{delPlan?.block ? `不能删除：${delPlan.block}` : delPlan?.impact.length ? `删除后${delPlan.impact.join('；')}` : '删除后会话和执行记录保留'}</span>
+              <button className="btn btn-ghost" onClick={() => setConfirmDel(false)}>{delPlan?.block ? '知道了' : '取消'}</button>
+              {!delPlan?.block && <button className="btn btn-danger" onClick={onDelete}>删除</button>}
+            </>
+          ) : <button className="btn btn-ghost btn-danger-ghost" onClick={() => setConfirmDel(true)}>删除</button>)}
+          <button className="btn btn-primary" disabled={!dirty} onClick={save}>{creating ? '创建' : saved ? '已保存' : dirty ? '保存' : '已保存'}</button>
         </div>
       </div>
       <DebugChat agent={d} ctx={ctx} onExecute={onExecute} folded={debugFolded} onFold={setDebugFolded} />

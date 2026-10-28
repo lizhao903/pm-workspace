@@ -306,7 +306,9 @@ export interface ProjectLinks {
   onAddAttachment: (projectId: string, msgId: string, attId: string) => void
 }
 
-export function ProjectPage({ project, projects, agents, content, tab, onTab, onChange, onDelete, onStart, onStop, onOpenDoc, onChat, onOpenAgent, links, delImpact }: {
+export function ProjectPage({ project, projects, agents, content, tab, onTab, onChange, onDelete, onStart, onStop, onOpenDoc, onChat, onOpenAgent, links, delImpact, onAll }: {
+  /** 顶栏「项目」点回项目列表 */
+  onAll?: () => void
   links: ProjectLinks
   project: Project
   projects: Project[]
@@ -364,7 +366,7 @@ export function ProjectPage({ project, projects, agents, content, tab, onTab, on
 
   return (
     <div className="page page-fill project-page">
-      <PageTitle parent="项目" desc={p.desc} actions={actions} icon={<ProjectMark p={p} size={20} />}>{p.name}</PageTitle>
+      <PageTitle parent={onAll ? <button className="tb-parent-btn" onClick={onAll} title="回到项目列表">项目</button> : '项目'} desc={p.desc} actions={actions} icon={<ProjectMark p={p} size={20} />}>{p.name}</PageTitle>
       <div className="project-tabs np-tabs">
         {TABS.map((t) => (
           <button key={t.key} className={cls(tab === t.key && 'on')} onClick={() => onTab(t.key)}>

@@ -25,7 +25,8 @@ export const MODULES: { key: ModuleKey; label: string; desc: string }[] = [
 export const moduleOf = (k: ModuleKey) => MODULES.find((m) => m.key === k)!
 
 /** 菜单分组；name 留空就只分隔、不显示标题 */
-export interface MenuGroup { id: string; name: string; modules: ModuleKey[] }
+/** collapsed：一级菜单里这组折叠起来；没标题的组不折叠 */
+export interface MenuGroup { id: string; name: string; modules: ModuleKey[]; collapsed?: boolean }
 export interface Workbench { id: string; name: string; role: string; groups: MenuGroup[]; modules: ModuleKey[]; home: ModuleKey; mark?: { text: string; color: string; image?: string; icon?: string } }
 
 let gseq = 0

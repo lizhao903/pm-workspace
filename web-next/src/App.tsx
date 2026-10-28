@@ -21,7 +21,7 @@ import { TerminalPage, newTab, type TermTab } from './terminal'
 import { IncidentDrawer, IncidentsPage } from './incidents'
 import { WorkspaceSwitcher, WorkspacesPage } from './workspaces'
 import { loadWorkspaces, saveWorkspaces, type Workbench } from './workspacedata'
-import { KbDrawer, KnowledgePage, SkillDrawer, SkillsPage, type SearchDoc } from './kbskills'
+import { KbDrawer, KnowledgePage, SkillDrawer, SkillsPage } from './kbskills'
 import { mergeIncident, seedIncidents, type IncidentReport } from './incidentdata'
 import { SopDetailPage, SopNav, SopRunView, SopRunsPage, SopStartDrawer, type SopView } from './sop'
 import { EnumContext, seedEnums } from './enumdata'
@@ -35,7 +35,7 @@ import { TopbarContext } from './topbar'
 import { AppearancePage, type ThemePref } from './appearance'
 import { cls } from './ui'
 import { PLATFORMS, PLATFORM_TOOL, STAGES, seedArtifacts, seedPublishes, seedSeries, seedVideos, videoState, type Video } from './videodata'
-import { VideoDetail, VideosListPage, VideosNav, type VideoView } from './videos'
+import { VideoDetail, VideosListPage, VideosTabs, type VideoView } from './videos'
 import { PublishPage, SeriesPage, type ChannelState } from './videopublish'
 import { ClipsPage, TopicsPage } from './topics'
 import { seedClips, seedTopics, type Topic } from './topicdata'
@@ -148,6 +148,9 @@ export default function App() {
   const [series, setSeries] = useState(seedSeries)
   const [publishes, setPublishes] = useState(seedPublishes)
   const [videoView, setVideoView] = useState<VideoView>('all')
+  // 打开某一集时记下从哪进来的：从系列进的标签高亮「系列」，否则高亮「全部视频」
+  const [videoFrom, setVideoFrom] = useState<VideoView | undefined>()
+  const openVideo = (id: string) => { setVideoFrom(videoView); setVideoView(`video:${id}`) }
   const [publishFilter, setPublishFilter] = useState<string | undefined>()
   // 选题和素材收件箱
   const [topics, setTopics] = useState(seedTopics)
@@ -194,7 +197,8 @@ export default function App() {
     }, 5000)
     return () => window.clearInterval(t)
   }, [])
-  const [projectId, setProjectId] = useState(seedProjects[0]?.id ?? '')
+  // 进「项目」默认落在项目列表；点导航或列表里的项目进详情
+  const [projectId, setProjectId] = useState<string>(ALL_PROJECTS)
   const [projectTab, setProjectTab] = useState<ProjectTab>('overview')
   // 最近打开的项目，新的在前：项目菜单只露这几个，完整列表在「全部项目」
   const [recentProjects, setRecentProjects] = useState<string[]>(() => (seedProjects[0] ? [seedProjects[0].id] : []))
@@ -717,6 +721,10 @@ export default function App() {
   const browserStartProto = useStable(startProto)
   const browserLogin = useStable(googleLogin)
   const browserLogout = useStable(googleLogout)
+  const videoTabs = (
+    <VideosTabs view={videoView} from={videoFrom} videos={videos} clips={clips}
+      onSelect={(v) => { setVideoView(v); setVideoFrom(undefined); if (v === 'publish') setPublishFilter(undefined); if (v === 'topics') setTopicFocus(null) }} />
+  )
   // 选题立项：生成一集视频，带上系列、集数、要出的比例（按目标平台的偏好比例）
   const makeVideoFromTopic = (t: Topic) => {
     const now = new Date().toISOString()
@@ -738,7 +746,7 @@ export default function App() {
       checkpoints: STAGES.filter((s) => s.checkpoint).map((s) => ({ stage: s.key, state: 'pending' })),
       root: `videos/new-${videos.length + 1}`, chapters: 3, created_at: now, updated_at: now,
     }
-    setVideos((xs) => [v, ...xs]); setVideoView(`video:${v.id}`)
+    setVideos((xs) => [v, ...xs]); setVideoFrom(seriesId ? `sr:${seriesId}` : undefined); setVideoView(`video:${v.id}`)
   }
 
   const newProject = () => {
@@ -800,6 +808,8 @@ export default function App() {
     if (page === 'settings' || MENU.some((m) => m.key === page)) return
     setPage(((MENU.find((m) => m.key === bench.home) ?? MENU[0])?.key ?? 'settings') as Page)
   }, [page, bench.modules.join(','), bench.home])
+  // 一级菜单分组折叠：直接记在工作台配置里，和「设置 / 工作台与模块」的默认折叠是同一个值
+  const toggleGroup = (gid: string) => setBenches((xs) => xs.map((w) => (w.id !== bench.id ? w : { ...w, groups: w.groups.map((g) => (g.id === gid ? { ...g, collapsed: !g.collapsed } : g)) })))
   const switchBench = (id: string) => {
     const w = benches.find((x) => x.id === id)
     if (!w) return
@@ -912,7 +922,7 @@ export default function App() {
     setSessions((xs) => xs.map((x) => (x.project_id === pj.id ? { ...x, project_id: undefined } : x)))
     setVideos((xs) => xs.map((x) => (x.project_id === pj.id ? { ...x, project_id: undefined } : x)))
     setDomainRoutes((xs) => xs.filter((r) => !(r.target.kind === 'proto' && protoIds.has(r.target.proto_id))))
-    setProjectId(projects.find((y) => y.id !== pj.id)?.id ?? '')
+    setProjectId(ALL_PROJECTS)
   }
   // 模型服务商：用它模型的 Agent 换成别家第一个可用模型；没得换就拦截
   const providerPlan = (id: string): DelPlan => {
@@ -1088,19 +1098,10 @@ export default function App() {
   }
 
   // 知识库能检索的资料：勾选的文档分类 + 本地目录里的文件
-  const docsOf = (kb: { sources: string[] }): SearchDoc[] => [
-    ...content.filter((c) => kb.sources.includes(c.category)).map((c) => ({ id: c.id, title: c.title, body: c.body, source: '文档' })),
-    ...folders.filter((f) => kb.sources.includes(`dir:${f.name}`)).flatMap((f) => f.files.map((x) => ({ id: `${f.id}:${x.path}`, title: x.name, body: x.text, source: f.name }))),
-  ]
-  const reindexKb = (id: string) => {
-    setKbs((xs) => xs.map((k) => (k.id === id ? { ...k, status: 'indexing' } : k)))
-    window.setTimeout(() => setKbs((xs) => xs.map((k) => (k.id === id ? { ...k, status: 'ready', docs: docsOf(k).length, updated_at: new Date().toISOString() } : k))), 1200)
-  }
   if (drawer?.kind === 'kb' || drawer?.kind === 'new-kb') {
     const kb = drawer.kind === 'kb' ? kbs.find((x) => x.id === drawer.id) ?? null : null
     if (drawer.kind === 'new-kb' || kb) drawerEl = (
-      <KbDrawer key={kb?.id ?? 'new'} kb={kb} agents={agents} folders={folders.map((f) => f.name)} docsOf={docsOf} onClose={() => setDrawer(null)}
-        onReindex={reindexKb}
+      <KbDrawer key={kb?.id ?? 'new'} kb={kb} agents={agents} folders={folders.map((f) => f.name)} onClose={() => setDrawer(null)}
         onSave={(k) => { setKbs((xs) => (xs.some((y) => y.id === k.id) ? xs.map((y) => (y.id === k.id ? k : y)) : [...xs, k])); setDrawer({ kind: 'kb', id: k.id }) }}
         onDelete={() => { if (kb) { setKbs((xs) => xs.filter((y) => y.id !== kb.id)); setAgents((xs) => xs.map((a) => ({ ...a, kbs: a.kbs.filter((x) => x !== kb.id) }))) } setDrawer(null) }} />
     )
@@ -1189,11 +1190,20 @@ export default function App() {
           {bench.groups.map((grp, gi) => {
             const items = grp.modules.map((k) => MENU.find((m) => m.key === k)).filter((m): m is (typeof MENU)[number] => !!m)
             if (!items.length) return null
+            const folded = !!grp.name && !!grp.collapsed
             return (
-              <div key={grp.id} className={cls('side-sec', gi > 0 && 'side-sec-gap')}>
-                {grp.name && <div className="side-sec-title">{grp.name}</div>}
+              <div key={grp.id} className={cls('side-sec', gi > 0 && 'side-sec-gap', folded && 'side-sec-folded')}>
+                {grp.name && (
+                  <button className="side-sec-title" onClick={() => toggleGroup(grp.id)} aria-expanded={!folded} title={folded ? '展开' : '折叠'}>
+                    <svg className="side-sec-chev" viewBox="0 0 16 16" width="10" height="10"><path d="m6 4 4 4-4 4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" /></svg>
+                    <span>{grp.name}</span>
+                    {/* 折叠后组里有事等你处理，红点挪到标题上 */}
+                    {folded && items.some((it) => it.alert) && <span className="side-dot" />}
+                  </button>
+                )}
                 {items.map((it) => (
-                  <button key={it.key} className={cls('side-item', page === it.key && 'active')} onClick={() => go(it.key)} title={collapsed ? it.label : undefined}>
+                  // 折叠的组里只留当前打开的那一项；收起成图标和窄屏横排时不折叠（见样式）
+                  <button key={it.key} className={cls('side-item', page === it.key && 'active', folded && page !== it.key && 'side-item-folded')} onClick={() => go(it.key)} title={collapsed ? it.label : undefined}>
                     {icons[it.key]}<span className="side-label">{it.label}</span>
                     {/* 菜单上不放数量，只在有事等你处理时给个红点 */}
                     {it.alert && <span className="side-dot" title={`${it.badge} 条待处理`} />}
@@ -1212,7 +1222,7 @@ export default function App() {
           </button>
         </div>
       </aside>
-      {page === 'projects' && <ProjectsNav projects={projects} current={projectId} recent={recentProjects} onSelect={(id) => { setProjectId(id); setProjectTab('overview') }} onNew={newProject} />}
+      {page === 'projects' && <ProjectsNav projects={projects} current={projectId} recent={recentProjects} onSelect={(id) => setProjectId(id)} onNew={newProject} />}
       {page === 'sessions' && <SessionsNav view={sessionView} onSelect={setSessionView} waiting={agentWaiting} onNew={() => { setSessionView('chats'); setPickAgent((n) => n + 1) }} />}
       {page === 'tasks' && <TasksNav tasks={tasks} hooks={hooks} deliveries={deliveries} view={taskView} onSelect={(v) => { setTaskView(v); setDrawer(null) }} onNewHook={() => { setTaskView('hook:new'); setDrawer(null) }} />}
       {page === 'library' && <LibraryTree ws={ws} model={lib} items={content} folders={folders} selected={reading} onSelect={setReading} onSwitch={switchWs}
@@ -1220,7 +1230,6 @@ export default function App() {
       {page === 'strategy' && <StrategyNav strategies={strategies} backtests={backtests} runs={tradeRuns} view={strategyView} onSelect={setStrategyView} onNew={newStrategy} />}
       {page === 'trading' && <TradingNav view={tradingView} onSelect={setTradingView} accounts={accounts} runs={tradeRuns} risk={risk}
         onKill={() => { const s = killAll({ runs: tradeRuns, orders, risk }, '手动一键全停'); setTradeRuns(s.runs); setOrders(s.orders); setRisk(s.risk) }} />}
-      {page === 'videos' && <VideosNav videos={videos} series={series} view={videoView} onSelect={(v) => { setVideoView(v); if (v === 'publish') setPublishFilter(undefined); if (v === 'topics') setTopicFocus(null) }} onNew={() => newVideo()} pendingClips={clips.filter((c) => !c.triaged).length} />}
       {page === 'sop' && !sopView.startsWith('edit:') && <SopNav sops={sops} runs={runs} view={sopView} onSelect={(v) => { setSopView(v); setOpenRun(null); setSopFilter(undefined) }} onNew={() => { setSopView('edit:new'); setOpenRun(null) }} />}
       {page === 'settings' && (
         <SettingsNav active={section} alerts={{ connectors: brokenConnectors, providers: brokenProviders, incidents: openIncidents }}
@@ -1334,7 +1343,7 @@ export default function App() {
             const pj = projects.find((x) => x.id === projectId)
             if (!pj) return <div className="lib-reader-empty">还没有项目，点左下「新建项目」</div>
             return (
-              <ProjectPage key={pj.id} project={pj} projects={projects} agents={agents} content={content} tab={projectTab} onTab={setProjectTab}
+              <ProjectPage key={pj.id} project={pj} projects={projects} agents={agents} content={content} tab={projectTab} onTab={setProjectTab} onAll={() => setProjectId(ALL_PROJECTS)}
                 onChange={(x) => setProjects((xs) => xs.map((y) => (y.id === x.id ? x : y)))}
                 delImpact={projectPlan(pj).impact}
                 onDelete={() => deleteProject(pj)}
@@ -1370,18 +1379,19 @@ export default function App() {
             </div>
           )}
           {page === 'videos' && (videoView === 'all' || videoView === 'review' || videoView === 'single' || videoView.startsWith('sr:')) && (
-            <VideosListPage view={videoView} videos={videos} artifacts={artifacts} series={series} projects={projects} onOpen={(id) => setVideoView(`video:${id}`)} onNew={newVideo} onView={setVideoView} />
+            <VideosListPage view={videoView} videos={videos} artifacts={artifacts} series={series} projects={projects} onOpen={openVideo} onNew={newVideo} onView={setVideoView}
+              tabs={videoTabs} onSeries={setSeries} onVideos={setVideos} />
           )}
           {page === 'videos' && videoView === 'topics' && (
             <TopicsPage topics={topics} clips={clips} series={series} videos={videos} focus={topicFocus} onTopics={setTopics} onClips={setClips}
-              onMakeVideo={makeVideoFromTopic} onOpenVideo={(id) => setVideoView(`video:${id}`)} onOpenClips={() => setVideoView('clips')} />
+              onMakeVideo={makeVideoFromTopic} onOpenVideo={openVideo} tabs={videoTabs} />
           )}
           {page === 'videos' && videoView === 'clips' && (
-            <ClipsPage clips={clips} topics={topics} onClips={setClips} onTopics={setTopics}
+            <ClipsPage clips={clips} topics={topics} onClips={setClips} onTopics={setTopics} tabs={videoTabs}
               onOpenTopic={(id) => { setTopicFocus((r) => ({ id, n: (r?.n ?? 0) + 1 })); setVideoView('topics') }} />
           )}
           {page === 'videos' && videoView === 'series' && (
-            <SeriesPage series={series} videos={videos} artifacts={artifacts} onSeries={setSeries} onVideos={setVideos} onOpenVideo={(id) => setVideoView(`video:${id}`)} />
+            <SeriesPage series={series} videos={videos} onSeries={setSeries} onOpenSeries={(id) => setVideoView(`sr:${id}`)} tabs={videoTabs} />
           )}
           {page === 'videos' && videoView === 'publish' && (
             <PublishPage publishes={publishes} videos={videos} artifacts={artifacts} videoId={publishFilter} onPublishes={setPublishes}
@@ -1396,13 +1406,13 @@ export default function App() {
                 setPage('settings'); setSection('connectors'); setConnCat('media')
                 setDrawer(c ? { kind: 'connector', id: c.id } : { kind: 'new-connector', tool: PLATFORM_TOOL[k] })
               }}
-              onOpenVideo={(id) => setVideoView(`video:${id}`)} onOpenUrl={openInBrowser} onClearFilter={() => setPublishFilter(undefined)} />
+              onOpenVideo={openVideo} onOpenUrl={openInBrowser} onClearFilter={() => setPublishFilter(undefined)} tabs={videoTabs} />
           )}
           {page === 'videos' && videoView.startsWith('video:') && (() => {
             const v = videos.find((x) => x.id === videoView.slice(6))
             if (!v) return <div className="page"><PageTitle>视频</PageTitle><div className="empty"><div className="empty-title">这个视频已经删除</div></div></div>
             return (
-              <VideoDetail key={v.id} video={v} artifacts={artifacts} series={series} projects={projects}
+              <VideoDetail key={v.id} video={v} artifacts={artifacts} series={series} projects={projects} tabs={videoTabs}
                 publishCount={publishes.filter((x) => x.video_id === v.id).length}
                 onChange={(nv) => setVideos((xs) => xs.map((x) => (x.id === nv.id ? nv : x)))}
                 onArtifacts={setArtifacts}
@@ -1498,7 +1508,7 @@ export default function App() {
               onDelete={(id) => { const rest = benches.filter((x) => x.id !== id); setBenches(rest); if (id === bench.id) switchBench(rest[0].id) }} />
           )}
           {page === 'settings' && section === 'kbs' && (
-            <KnowledgePage kbs={kbs} agents={agents} docsOf={docsOf} selected={drawer?.kind === 'kb' ? drawer.id : null} onOpen={(id) => setDrawer({ kind: 'kb', id })} onNew={() => setDrawer({ kind: 'new-kb' })} />
+            <KnowledgePage kbs={kbs} agents={agents} content={content} providers={providers} onOpenAgent={(id) => { setSection('agents'); setAgentView(id) }} selected={drawer?.kind === 'kb' ? drawer.id : null} onOpen={(id) => setDrawer({ kind: 'kb', id })} onNew={() => setDrawer({ kind: 'new-kb' })} />
           )}
           {page === 'settings' && section === 'skills' && (
             <SkillsPage skills={skills} agents={agents} selected={drawer?.kind === 'skill' ? drawer.id : null} onOpen={(id) => setDrawer({ kind: 'skill', id })} onNew={() => setDrawer({ kind: 'new-skill' })} />

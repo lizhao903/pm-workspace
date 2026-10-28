@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useState } from 'react'
+import { Fragment, useEffect, useState, type ReactNode } from 'react'
 import './topics.css'
 import { PageTitle } from './topbar'
 import { cls, timeAgo } from './ui'
@@ -49,7 +49,7 @@ const KindTag = ({ k }: { k: ClipKind }) => <span className="tp-kind" style={{ '
 
 /* ---------- 选题 ---------- */
 
-export function TopicsPage({ topics, clips, series, videos, focus, onTopics, onClips, onMakeVideo, onOpenVideo, onOpenClips }: {
+export function TopicsPage({ topics, clips, series, videos, focus, onTopics, onClips, onMakeVideo, onOpenVideo, tabs }: {
   topics: Topic[]; clips: Clip[]; series: Series[]; videos: Video[]
   /** 外部要求打开某个选题（素材页「去选题」），n 变化触发 */
   focus: { id: string; n: number } | null
@@ -58,7 +58,10 @@ export function TopicsPage({ topics, clips, series, videos, focus, onTopics, onC
   /** 立项：生成一集视频，返回视频 id */
   onMakeVideo: (t: Topic) => string
   onOpenVideo: (id: string) => void
-  onOpenClips: () => void
+  /** 旧接线还在传；素材收件箱改从模块标签进 */
+  onOpenClips?: () => void
+  /** 模块标签栏，放在顶栏下面 */
+  tabs?: ReactNode
 }) {
   const [view, setView] = useState<'board' | 'table'>('board')
   const [q, setQ] = useState('')
@@ -81,7 +84,6 @@ export function TopicsPage({ topics, clips, series, videos, focus, onTopics, onC
     onTopics((xs) => [t, ...xs]); setOpen(t.id)
   }
   const cur = topics.find((t) => t.id === open)
-  const pending = clips.filter((c) => !c.triaged).length
 
   const Card = ({ t }: { t: Topic }) => (
     <button className="tp-card" onClick={() => setOpen(t.id)}>
@@ -99,9 +101,9 @@ export function TopicsPage({ topics, clips, series, videos, focus, onTopics, onC
   return (
     <div className="page page-fill">
       <PageTitle parent="视频" count={topics.length} desc="从收集的素材里挑题、打分、想清楚角度，可开拍了就立项成视频" actions={<>
-        <button className="btn btn-outline" onClick={onOpenClips}>素材收件箱{pending ? `（${pending} 条待整理）` : ''}</button>
         <button className="btn btn-primary" onClick={create}>新建选题</button>
       </>}>选题</PageTitle>
+      {tabs}
 
       <div className="toolbar">
         <div className="search vd-search">
@@ -283,8 +285,10 @@ function TopicDrawer({ t, clips, series, video, onClose, onSave, onDelete, onUnl
 let trendCursor = 0
 let commentCursor = 0
 
-export function ClipsPage({ clips, topics, onClips, onTopics, onOpenTopic }: {
+export function ClipsPage({ clips, topics, onClips, onTopics, onOpenTopic, tabs }: {
   clips: Clip[]; topics: Topic[]
+  /** 模块标签栏，放在顶栏下面 */
+  tabs?: ReactNode
   onClips: (fn: (xs: Clip[]) => Clip[]) => void
   onTopics: (fn: (xs: Topic[]) => Topic[]) => void
   onOpenTopic: (id: string) => void
@@ -343,6 +347,7 @@ export function ClipsPage({ clips, topics, onClips, onTopics, onOpenTopic }: {
         <button className="btn btn-outline" disabled={!!busy} onClick={() => pull('trend')}>{busy === 'trend' ? '拉取中…' : '拉取热榜'}</button>
         <button className="btn btn-outline" disabled={!!busy} onClick={() => pull('comment')}>{busy === 'comment' ? '收集中…' : '收集评论'}</button>
       </>}>素材收件箱</PageTitle>
+      {tabs}
 
       <div className="tp-add">
         <input value={draft} placeholder="粘贴链接，或者随手记一句想法，回车收进来" onChange={(e) => setDraft(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && !e.nativeEvent.isComposing) add() }} />

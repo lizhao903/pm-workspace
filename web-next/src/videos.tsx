@@ -1,5 +1,6 @@
 import './videos.css'
-import { useEffect, useState } from 'react'
+import './videopublish.css'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { SearchSelect } from './searchselect'
 import { Subnav } from './subnav'
 import { PageTitle } from './topbar'
@@ -35,7 +36,7 @@ const parseDuration = (s: string) => {
   return undefined
 }
 const cpOf = (v: Video, k: StageKey) => v.checkpoints.find((c) => c.stage === k)
-const isFinished = (v: Video) => v.stage === 'distribution' && cpOf(v, 'distribution')?.state === 'passed'
+export const isFinished = (v: Video) => v.stage === 'distribution' && cpOf(v, 'distribution')?.state === 'passed'
 /** 规划检查通过后比例锁定：每个比例是一个独立的演示工程，换比例等于重做 */
 const orientLocked = (v: Video) => cpOf(v, 'plan')?.state === 'passed'
 // 演示工程自己的预览服务端口；别和项目原型的端口撞上，不然内置浏览器会把它当成那个原型
@@ -90,7 +91,7 @@ const OrientShape = ({ o }: { o: Orientation }) => <i className="vd-shape" style
 /* ---------- 二级菜单 ---------- */
 
 /** 等我动手的：停在检查点上待确认，或者被退回待修改 */
-const needsMe = (v: Video) => videoState(v).tone === 'warn'
+export const needsMe = (v: Video) => videoState(v).tone === 'warn'
 
 // 菜单只放视图和系列，单集不进菜单：一个系列几十集时菜单会被撑得没法用，集数在系列页的表里看
 // 系列多了也只放几个：有待处理的、当前打开的、最近更新的，全部系列在「系列管理」里
@@ -135,13 +136,60 @@ export function VideosNav({ videos, series, view, onSelect, onNew, pendingClips 
   )
 }
 
-/* ---------- 列表：全部 / 待处理 / 某个系列 / 单集 ---------- */
+/* ---------- 标签栏 ---------- */
+
+type ModuleTab = 'all' | 'review' | 'topics' | 'clips' | 'series' | 'publish'
+const MODULE_TABS: { key: ModuleTab; label: string }[] = [
+  { key: 'all', label: '全部视频' }, { key: 'review', label: '待我处理' }, { key: 'topics', label: '选题' },
+  { key: 'clips', label: '素材收件箱' }, { key: 'series', label: '系列' }, { key: 'publish', label: '发布记录' },
+]
+const fromSeries = (v?: VideoView) => v === 'series' || !!v?.startsWith('sr:')
+/** 视图落在哪个标签：系列详情算「系列」，单集列表算「全部视频」；打开某一集时看从哪进来的，从系列进的算「系列」，其余算「全部视频」 */
+const tabOf = (view: VideoView, from?: VideoView): ModuleTab => {
+  if (view.startsWith('video:')) return fromSeries(from) ? 'series' : 'all'
+  if (view.startsWith('sr:')) return 'series'
+  if (view === 'single') return 'all'
+  return view as ModuleTab
+}
+
+/** 视频模块的标签栏：各视图页面在 PageTitle 下面渲染；待处理、未整理素材的数量标在标签上 */
+export function VideosTabs({ view, from, videos, clips = [], onSelect }: {
+  view: VideoView
+  /** 打开某一集时，是从哪个视图点进来的 */
+  from?: VideoView
+  videos: Video[]
+  clips?: { triaged?: boolean }[]
+  onSelect: (v: VideoView) => void
+}) {
+  const active = tabOf(view, from)
+  const review = videos.filter(needsMe).length
+  const pending = clips.filter((c) => !c.triaged).length
+  const badge: Partial<Record<ModuleTab, { n: number; title: string }>> = {
+    review: { n: review, title: `${review} 集停在检查点或被退回` },
+    clips: { n: pending, title: `${pending} 条素材待整理` },
+  }
+  return (
+    <div className="np-tabs vd-mtabs" role="tablist">
+      {MODULE_TABS.map((t) => {
+        const b = badge[t.key]
+        return (
+          <button key={t.key} role="tab" aria-selected={active === t.key} className={cls(active === t.key && 'on')} title={b?.n ? b.title : undefined} onClick={() => onSelect(t.key)}>
+            {t.label}
+            {!!b?.n && <span className="vd-mtab-n">{b.n}</span>}
+          </button>
+        )
+      })}
+    </div>
+  )
+}
+
+/* ---------- 列表：全部 / 待处理 / 系列详情 / 单集 ---------- */
 
 type StageFilter = '' | StageKey | 'done'
 const stageOf = (v: Video): StageFilter => (isFinished(v) ? 'done' : v.stage)
 
 /** 阶段分布条：一眼看出这批视频卡在哪；点一段按这个阶段筛 */
-function StageDist({ videos, value, onChange }: { videos: Video[]; value: StageFilter; onChange: (s: StageFilter) => void }) {
+export function StageDist({ videos, value, onChange }: { videos: Video[]; value: StageFilter; onChange: (s: StageFilter) => void }) {
   const keys: StageFilter[] = [...STAGES.map((s) => s.key), 'done']
   const n = (k: StageFilter) => videos.filter((v) => stageOf(v) === k).length
   const warn = (k: StageFilter) => videos.some((v) => stageOf(v) === k && needsMe(v))
@@ -167,13 +215,19 @@ function StageDist({ videos, value, onChange }: { videos: Video[]; value: StageF
   )
 }
 
-export function VideosListPage({ view, videos, artifacts, series, projects, onOpen, onNew, onView }: {
+export function VideosListPage({ view, videos, artifacts, series, projects, onOpen, onNew, onView, tabs, onSeries, onVideos }: {
   view: VideoView
   videos: Video[]; artifacts: Artifact[]; series: Series[]; projects: { id: string; name: string }[]
   onOpen: (id: string) => void
   /** 在某个系列里新建：带上系列和下一集的集数 */
   onNew: (seriesId?: string) => void
   onView: (v: VideoView) => void
+  /** 模块标签栏，放在顶栏下面 */
+  tabs?: ReactNode
+  /** 系列详情：改设置、标记已同步；不传就只读 */
+  onSeries?: (fn: (xs: Series[]) => Series[]) => void
+  /** 系列详情：加集、移出、调集数；不传就只读 */
+  onVideos?: (fn: (xs: Video[]) => Video[]) => void
 }) {
   const sr = view.startsWith('sr:') ? series.find((s) => s.id === view.slice(3)) : undefined
   const scope = sr ? videos.filter((v) => v.series_id === sr.id)
@@ -184,8 +238,11 @@ export function VideosListPage({ view, videos, artifacts, series, projects, onOp
   const [proj, setProj] = useState('')
   const [q, setQ] = useState('')
   const [sort, setSort] = useState<'episode' | 'updated'>(sr ? 'episode' : 'updated')
+  /** 系列详情：编排集数（改集数、移出） */
+  const [editing, setEditing] = useState(false)
+  const [settings, setSettings] = useState(false)
   // 切到别的系列时筛选清空
-  useEffect(() => { setStage(''); setQ(''); setProj(''); setSort(view.startsWith('sr:') ? 'episode' : 'updated') }, [view])
+  useEffect(() => { setStage(''); setQ(''); setProj(''); setSort(view.startsWith('sr:') ? 'episode' : 'updated'); setEditing(false); setSettings(false) }, [view])
   const kw = q.trim().toLowerCase()
   const projName = (id?: string) => (id ? projects.find((p) => p.id === id)?.name ?? '已删除的项目' : '')
   const rows = scope.filter((v) => (!stage || stageOf(v) === stage) && (!proj || (proj === '-' ? !v.project_id : v.project_id === proj))
@@ -195,17 +252,42 @@ export function VideosListPage({ view, videos, artifacts, series, projects, onOp
   // 全部视频、没筛选时按系列分组，每组只露几集，长系列点进去看
   const grouped = view === 'all' && !filtered
   const title = sr ? sr.name : view === 'single' ? '单集' : view === 'review' ? '待我处理' : '全部视频'
-  const desc = sr ? sr.desc : view === 'review' ? '停在检查点上等你确认，或者被退回要改的' : view === 'single' ? '不属于任何系列的视频' : '按系列分组；点系列看全部集数'
+  const desc = sr ? sr.desc || '多集共用开场、收尾和模板' : view === 'review' ? '停在检查点上等你确认，或者被退回要改的' : view === 'single' ? '不属于任何系列的视频' : '按系列分组；点系列看全部集数'
   const stale = new Set(sr?.stale ?? [])
   const nextEp = sr ? Math.max(0, ...scope.map((v) => v.episode ?? 0)) + 1 : 0
+  const staleEps = scope.filter((v) => stale.has(v.id)).sort((a, b) => (a.episode ?? 9999) - (b.episode ?? 9999))
+  const canEdit = !!sr && !!onVideos
+  const edit = canEdit && editing
+  const freeOptions = useMemo(() => [...videos].filter((v) => !v.series_id).sort((a, b) => b.updated_at.localeCompare(a.updated_at))
+    .map((v) => ({ value: v.id, label: v.title || '未命名视频', hint: videoState(v).label, keywords: v.root })), [videos])
+  // 同号的集标红
+  const dup = new Set(scope.map((v) => v.episode).filter((n, i, arr) => n !== undefined && arr.indexOf(n) !== i))
 
-  const Row = ({ v, showSeries }: { v: Video; showSeries: boolean }) => {
+  const unsync = (ids: string[]) => sr && onSeries?.((xs) => xs.map((x) => (x.id === sr.id ? { ...x, stale: x.stale.filter((y) => !ids.includes(y)) } : x)))
+  const addEpisode = (id: string) => sr && onVideos?.((xs) => xs.map((v) => (v.id === id ? { ...v, series_id: sr.id, episode: nextEp, updated_at: now() } : v)))
+  const removeEpisode = (id: string) => {
+    onVideos?.((xs) => xs.map((v) => (v.id === id ? { ...v, series_id: undefined, episode: undefined, updated_at: now() } : v)))
+    unsync([id])
+  }
+  const setEpisode = (v: Video, raw: string) => {
+    const n = Math.floor(Number(raw))
+    if (n >= 1 && n !== v.episode) onVideos?.((xs) => xs.map((x) => (x.id === v.id ? { ...x, episode: n, updated_at: now() } : x)))
+  }
+
+  // 用函数而不是组件渲染行：组件每次渲染都是新的，编排时输入框会被重建、丢焦点
+  const row = (v: Video, showSeries: boolean) => {
     const arts = artifacts.filter((a) => a.video_id === v.id).length
     // 第二行只放有信息的：所属系列（跨系列列表里）、项目、产出物数；都没有就单行，长系列一屏能看更多集
     const meta = showSeries || !!projName(v.project_id) || arts > 0
     return (
-    <div className={cls('vd-row', !meta && 'vd-row-1')} onClick={() => onOpen(v.id)}>
-      <span className="vd-ep">{v.episode ? `${v.episode}` : '-'}</span>
+    <div key={v.id} className={cls('vd-row', !meta && 'vd-row-1', edit && 'vd-row-edit')} onClick={edit ? undefined : () => onOpen(v.id)}>
+      {edit ? (
+        <span className="vd-ep">
+          {/* 失焦或回车才改，免得边输边重新排序 */}
+          <input key={v.episode ?? ''} className={cls('vd-ep-input', dup.has(v.episode) && 'bad')} type="number" min={1} defaultValue={v.episode ?? ''} aria-label={`${v.title} 的集数`}
+            onBlur={(e) => setEpisode(v, e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur() }} />
+        </span>
+      ) : <span className="vd-ep">{v.episode ? `${v.episode}` : '-'}</span>}
       <span className="task-main">
         <span className="task-title"><span className="ellipsis">{v.title || '未命名视频'}</span>{stale.has(v.id) && <span className="vd-stale-tag" title="系列的开场、收尾或模板改过，这集要重新录屏渲染">待同步</span>}</span>
         {!meta && <span className="task-meta vd-narrow-xs"><StageBar v={v} /></span>}
@@ -223,11 +305,11 @@ export function VideosListPage({ view, videos, artifacts, series, projects, onOp
       </span>
       <span className="vd-prog"><StageBar v={v} /><span className="run-muted">{stageIndex(v.stage) + 1}/{STAGES.length}</span></span>
       <span><VideoStatePill v={v} /></span>
-      <span className="run-muted">{timeAgo(v.updated_at)}</span>
+      {edit ? <span><button className="act act-quiet btn-danger-ghost" onClick={() => removeEpisode(v.id)}>移出</button></span> : <span className="run-muted">{timeAgo(v.updated_at)}</span>}
     </div>
     )
   }
-  const Head = () => <div className="vd-row task-th"><span>集</span><span>视频</span><span>比例</span><span>进度</span><span>状态</span><span>更新</span></div>
+  const head = <div className={cls('vd-row task-th', edit && 'vd-row-edit')}><span>集</span><span>视频</span><span>比例</span><span>进度</span><span>状态</span><span>{edit ? '' : '更新'}</span></div>
 
   // 分组时每组先露「等我处理的」，再按更新时间补满
   const PEEK = 4
@@ -239,21 +321,45 @@ export function VideosListPage({ view, videos, artifacts, series, projects, onOp
 
   return (
     <div className="page page-fill">
-      <PageTitle parent="视频" count={scope.length} desc={desc} actions={<>
-        {sr && <button className="btn btn-outline" onClick={() => onView('series')}>系列设置</button>}
+      <PageTitle parent={sr ? <button className="vd-crumb" onClick={() => onView('series')}>系列</button> : '视频'} count={scope.length} desc={desc} actions={<>
+        {sr && onSeries && <button className="btn btn-outline" onClick={() => setSettings(true)}>系列设置</button>}
         <button className="btn btn-primary" onClick={() => onNew(sr?.id)}>
           <svg viewBox="0 0 16 16" width="12" height="12"><path d="M8 3v10M3 8h10" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" /></svg>
           {sr ? `新建第 ${nextEp} 集` : '新建视频'}
         </button>
       </>}>{title}</PageTitle>
+      {tabs}
 
-      {sr && (sr.intro || sr.outro || sr.template) && (
-        <div className="vd-sr-shared">
-          <span><span className="run-muted">开场</span>{sr.intro || '无'}</span>
-          <span><span className="run-muted">收尾</span>{sr.outro || '无'}</span>
-          <span><span className="run-muted">模板</span>{sr.template || '无'}</span>
-          {sr.stale.length > 0 && <span className="vd-stale-tag">{sr.stale.length} 集待同步</span>}
-        </div>
+      {sr && (
+        <section className="vd-sr-top">
+          <div className="vd-sr-shared">
+            <span><span className="run-muted">开场</span><span className={cls('ellipsis', !sr.intro && 'faint')}>{sr.intro || '未设置'}</span></span>
+            <span><span className="run-muted">收尾</span><span className={cls('ellipsis', !sr.outro && 'faint')}>{sr.outro || '未设置'}</span></span>
+            <span><span className="run-muted">模板</span><span className={cls('ellipsis', !sr.template && 'faint')}>{sr.template || '未设置'}</span></span>
+            {onSeries && <button className="link-btn" onClick={() => setSettings(true)}>修改</button>}
+          </div>
+          {staleEps.length > 0 && (
+            <div className="vd-sr-stale">
+              <div className="vd-sr-stale-head">
+                <span className="vd-stale-tag">{staleEps.length} 集待同步</span>
+                <span className="run-muted">共用部分改过，这几集要重新录屏渲染</span>
+                <span className="spacer" />
+                {onSeries && staleEps.length > 1 && <button className="act act-quiet" onClick={() => unsync(staleEps.map((v) => v.id))}>全部标记已同步</button>}
+              </div>
+              {staleEps.map((v) => (
+                <div key={v.id} className="vd-sr-stale-row">
+                  <span className="vd-ep">{v.episode ?? '-'}</span>
+                  <span className="ellipsis vd-sr-stale-title">{v.title || '未命名视频'}</span>
+                  <VideoStatePill v={v} />
+                  <span className="vd-sr-stale-acts">
+                    {onSeries && <button className="act act-quiet" onClick={() => unsync([v.id])}>标记已同步</button>}
+                    <button className="act act-quiet" onClick={() => onOpen(v.id)}>去这一集</button>
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
       )}
 
       {scope.length > 0 && view !== 'review' && <StageDist videos={scope} value={stage} onChange={setStage} />}
@@ -268,13 +374,22 @@ export function VideosListPage({ view, videos, artifacts, series, projects, onOp
             options={[...projects.map((p) => ({ value: p.id, label: p.name })), { value: '-', label: '不属于项目' }]} />
         )}
         <span className="spacer" />
-        {!grouped && (
+        {canEdit && (
+          <SearchSelect value="" placeholder="加入已有视频" searchPlaceholder="搜标题或目录" align="end" disabled={!freeOptions.length}
+            title={freeOptions.length ? `从 ${freeOptions.length} 个未归入系列的视频里选，排在第 ${nextEp} 集` : '没有未归入系列的视频'}
+            options={freeOptions} emptyText="没有未归入系列的视频" onChange={(id) => id && addEpisode(id)} />
+        )}
+        {canEdit && scope.length > 0 && (
+          <button className={cls('chip', edit && 'chip-on')} onClick={() => { if (!edit) setSort('episode'); setEditing(!edit) }}>{edit ? '完成编排' : '编排集数'}</button>
+        )}
+        {!grouped && !edit && (
           <div className="seg seg-sm">
             <button className={cls(sort === 'episode' && 'on')} onClick={() => setSort('episode')}>按集数</button>
             <button className={cls(sort === 'updated' && 'on')} onClick={() => setSort('updated')}>按更新</button>
           </div>
         )}
       </div>
+      {edit && dup.size > 0 && <div className="field-err vd-dup">有几集集数重复了，改一下</div>}
 
       {grouped ? (
         <div className="vd-groups">
@@ -288,23 +403,145 @@ export function VideosListPage({ view, videos, artifacts, series, projects, onOp
                 {g.xs.length > PEEK && <button className="act act-quiet" onClick={() => onView(g.key)}>查看全部 {g.xs.length} 集</button>}
               </div>
               <div className="task-table">
-                {peek(g.xs).map((v) => <Row key={v.id} v={v} showSeries={false} />)}
+                {peek(g.xs).map((v) => row(v, false))}
               </div>
             </section>
           ))}
         </div>
       ) : !rows.length ? (
         <div className="empty">
-          <div className="empty-title">{filtered ? '没有匹配的视频' : view === 'review' ? '没有等你处理的视频' : '还没有视频'}</div>
-          <div className="list-sub">{filtered ? '换个筛选条件试试' : view === 'review' ? '检查点都确认过了' : '把一篇文章或口播稿做成网页演示，再录成视频'}</div>
+          <div className="empty-title">{filtered ? '没有匹配的视频' : view === 'review' ? '没有等你处理的视频' : sr ? '这个系列还没有集' : '还没有视频'}</div>
+          <div className="list-sub">{filtered ? '换个筛选条件试试' : view === 'review' ? '检查点都确认过了' : sr ? `新建第 ${nextEp} 集，或者用「加入已有视频」把单集归进来` : '把一篇文章或口播稿做成网页演示，再录成视频'}</div>
         </div>
       ) : (
         <div className="task-table">
-          <Head />
-          {rows.map((v) => <Row key={v.id} v={v} showSeries={!sr} />)}
+          {head}
+          {rows.map((v) => row(v, !sr))}
         </div>
       )}
+
+      {sr && settings && onSeries && (
+        <SeriesSettingsDrawer key={sr.id} series={sr} videos={videos} onClose={() => setSettings(false)}
+          onSave={(s) => { onSeries((xs) => xs.map((x) => (x.id === s.id ? s : x))); setSettings(false) }} />
+      )}
     </div>
+  )
+}
+
+/* ---------- 系列设置 ---------- */
+
+const SHARED: { key: 'intro' | 'outro' | 'template'; label: string; ph: string }[] = [
+  { key: 'intro', label: '共用开场', ph: '比如 shared/intro.tsx（5 秒标志动画）' },
+  { key: 'outro', label: '共用收尾', ph: '比如 shared/outro.tsx（关注引导 + 下集预告）' },
+  { key: 'template', label: '共用模板', ph: '比如 templates/theme（主题、字体、配色）' },
+]
+const CloseIcon = () => <svg viewBox="0 0 16 16" width="14" height="14"><path d="m4 4 8 8M12 4l-8 8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" /></svg>
+
+/** 抽屉里按 Esc：有确认框先关确认框，没有就关抽屉 */
+function useEsc(fn: () => void) {
+  const ref = useRef(fn)
+  useEffect(() => { ref.current = fn })
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') ref.current() }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
+}
+
+/**
+ * 系列设置：名称、说明、共用的开场收尾模板。series 不传是新建。
+ * 改了共用部分保存前先确认影响范围，勾上的集标为「待同步」；加集、移出、调集数在系列详情的表格里做
+ */
+export function SeriesSettingsDrawer({ series, videos, onClose, onSave }: {
+  series: Series | null; videos: Video[]
+  onClose: () => void
+  onSave: (s: Series) => void
+}) {
+  const creating = !series
+  const [d, setD] = useState<Series>(() => series ?? { id: newId('sr'), name: '', desc: '', intro: '', outro: '', template: '', stale: [] })
+  const [tried, setTried] = useState(false)
+  // 影响范围确认：要标记的集
+  const [confirm, setConfirm] = useState<string[] | null>(null)
+  useEsc(() => (confirm ? setConfirm(null) : onClose()))
+
+  const eps = series ? videos.filter((v) => v.series_id === series.id).sort((a, b) => (a.episode ?? 999) - (b.episode ?? 999)) : []
+  const changed = series ? SHARED.filter((f) => d[f.key].trim() !== series[f.key].trim()) : []
+  const clean = () => ({ ...d, name: d.name.trim(), desc: d.desc.trim(), intro: d.intro.trim(), outro: d.outro.trim(), template: d.template.trim() })
+
+  const save = () => {
+    setTried(true)
+    if (!d.name.trim()) return
+    if (creating) { onSave(clean()); return }
+    if (changed.length && eps.length) { setConfirm(eps.map((v) => v.id)); return }
+    onSave({ ...clean(), stale: series!.stale })
+  }
+  const confirmSave = () => {
+    const picked = confirm ?? []
+    const base = series!.stale.filter((id) => !picked.includes(id))
+    onSave({ ...clean(), stale: [...base, ...picked] })
+  }
+
+  return (
+    <aside className="drawer vp-drawer">
+      <div className="drawer-head">
+        <span className="drawer-kicker">{creating ? '新建系列' : '系列设置'}</span>
+        <div className="spacer" />
+        <button className="icon-btn" onClick={onClose} title="关闭 (Esc)"><CloseIcon /></button>
+      </div>
+      <div className="drawer-body form">
+        <label className="field">
+          <span className="field-label">名称<em>*</em></span>
+          <input value={d.name} autoFocus={creating} className={cls(tried && !d.name.trim() && 'bad')} placeholder="比如：一人之下 10 分钟上手" onChange={(e) => setD({ ...d, name: e.target.value })} />
+        </label>
+        <label className="field">
+          <span className="field-label">说明</span>
+          <textarea rows={2} value={d.desc} placeholder="这个系列讲什么、出哪几个比例、发哪些平台" onChange={(e) => setD({ ...d, desc: e.target.value })} />
+        </label>
+        <section className="field-group">
+          <div className="field-group-title">共用部分<span className="field-hint">{creating ? '各集录屏时套用' : `改了任一项，保存时会让你确认这 ${eps.length} 集里哪几集要重新录屏渲染`}</span></div>
+          {SHARED.map((f) => (
+            <label key={f.key} className="field">
+              <span className="field-label">{f.label}{series && d[f.key].trim() !== series[f.key].trim() && <span className="vp-changed">已改</span>}</span>
+              <input className="mono" value={d[f.key]} placeholder={f.ph} onChange={(e) => setD({ ...d, [f.key]: e.target.value })} />
+            </label>
+          ))}
+        </section>
+        {creating && <div className="mount-empty">建好后在系列详情里新建一集，或者把已有的视频加进来</div>}
+      </div>
+      <div className="drawer-foot">
+        <div className="spacer" />
+        {tried && !d.name.trim() && <span className="field-err">名称必填</span>}
+        <button className="btn btn-ghost" onClick={onClose}>取消</button>
+        <button className="btn btn-primary" onClick={save}>{creating ? '创建' : '保存'}</button>
+      </div>
+
+      {confirm && (
+        <div className="vp-modal-mask" onClick={() => setConfirm(null)}>
+          <div className="vp-modal" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
+            <div className="vp-modal-title">影响范围</div>
+            <div className="list-sub">改了{changed.map((f) => f.label).join('、')}。下面这些集需要重新录屏渲染，勾上的会标为「待同步」。</div>
+            <div className="vp-modal-list">
+              {eps.map((v) => (
+                <label key={v.id} className="vp-check-row">
+                  <input type="checkbox" checked={confirm.includes(v.id)}
+                    onChange={(e) => setConfirm(e.target.checked ? [...confirm, v.id] : confirm.filter((x) => x !== v.id))} />
+                  <span className="vp-ep-no">{v.episode ?? '-'}</span>
+                  <span className="ellipsis">{v.title}</span>
+                  <span className="spacer" />
+                  <span className={cls('vp-stage-label', `vp-tone-${videoState(v).tone}`)}>{videoState(v).label}</span>
+                </label>
+              ))}
+            </div>
+            <div className="vp-modal-foot">
+              <button className="act act-quiet" onClick={() => setConfirm(confirm.length === eps.length ? [] : eps.map((v) => v.id))}>{confirm.length === eps.length ? '全不选' : '全选'}</button>
+              <div className="spacer" />
+              <button className="btn btn-ghost" onClick={() => setConfirm(null)}>返回修改</button>
+              <button className="btn btn-primary" onClick={confirmSave}>{confirm.length ? `保存并标记 ${confirm.length} 集` : '只保存'}</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </aside>
   )
 }
 
@@ -315,8 +552,10 @@ const TABS: { key: DetailTab; label: string }[] = [{ key: 'flow', label: '制作
 
 interface NewArt { kind: ArtifactKind; variant?: Orientation; option?: number; name: string; path: string; duration: string; touched: boolean }
 
-export function VideoDetail({ video, artifacts, series, projects, publishCount, onChange, onArtifacts, onOpenSeries, onOpenPublish, onPreview, onDelete }: {
+export function VideoDetail({ video, artifacts, series, projects, publishCount, onChange, onArtifacts, onOpenSeries, onOpenPublish, onPreview, onDelete, tabs }: {
   video: Video; artifacts: Artifact[]; series: Series[]; projects: { id: string; name: string }[]; publishCount: number
+  /** 模块标签栏，放在顶栏下面 */
+  tabs?: ReactNode
   onChange: (v: Video) => void
   onArtifacts: (fn: (xs: Artifact[]) => Artifact[]) => void
   onOpenSeries: (id: string) => void
@@ -417,6 +656,7 @@ export function VideoDetail({ video, artifacts, series, projects, publishCount, 
   return (
     <div className="page page-fill project-page vd-page">
       <PageTitle parent={sr ? <button className="vd-crumb" onClick={() => onOpenSeries(sr.id)}>{sr.name}</button> : '视频'} desc={descText} actions={actions}>{v.title || '未命名视频'}</PageTitle>
+      {tabs}
       <div className="project-tabs np-tabs">
         {TABS.map((t) => (
           <button key={t.key} className={cls(tab === t.key && 'on')} onClick={() => setTab(t.key)}>
