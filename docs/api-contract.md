@@ -277,6 +277,10 @@
 | POST | `/api/agent-providers/{id}/default` | 设为默认供应商，同时取消原默认 |
 | POST | `/api/agent-providers/{id}/test` | 连通性探测，顺带拉回可用模型列表 |
 
+- `api_key` 存在凭证保险箱里（`agent_providers.api_key_secret_id` 指向条目，条目名 `模型服务商 <id>`），库里的 `api_key` 列只剩空串；0015 之前存的明文在服务启动时加密搬进保险箱后清空。
+- `api_key_masked` 用保险箱的 `hint` 规则（见「凭证保险箱」一节）。换密钥会换一个新条目、删掉旧条目；删服务商连带删条目。
+- 条目在 `/api/secrets` 被单独删掉时，该服务商按「未配置 API Key」处理（`has_api_key=false`）。
+
 ## Agent 对话 agent
 
 | 方法 | 路径 | body / 说明 |
@@ -467,7 +471,7 @@ SSE 事件（形状的唯一真相是 `internal/runner` 的 `Event.MarshalJSON`�
 |---|---|---|
 | GET | `/api/admin/migrations` | 已应用的迁移及其 checksum；0001-0004 的 checksum 为空串（加列之前应用的，不参与校验） |
 | POST | `/api/admin/snapshot` | 打一份数据库快照 |
-| GET | `/api/admin/export?format=json\|markdown` | 全量导出。**刻意不含 `agent_providers`**（里面有明文 api_key）**和保险箱 `vault_secrets`** |
+| GET | `/api/admin/export?format=json\|markdown` | 全量导出。**刻意不含 `agent_providers`**（0015 之前的库里有明文 api_key）**和保险箱 `vault_secrets`** |
 
 ## 约定
 

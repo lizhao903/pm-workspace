@@ -116,6 +116,12 @@ func run(cfg config) error {
 	}
 	defer v.Close()
 	slog.Info("凭证保险箱已就绪", "key", keySrc)
+	// 模型服务商的 api_key 存进保险箱；0015 之前留下的明文在这里加密搬过去，旧列清空
+	if n, err := st.AttachVault(ctx, v); err != nil {
+		return fmt.Errorf("迁移模型服务商密钥失败: %w", err)
+	} else if n > 0 {
+		slog.Info("模型服务商密钥已搬进凭证保险箱", "count", n)
+	}
 
 	opts := api.Options{Version: version, Dev: cfg.dev, Vault: v}
 	if !cfg.dev {

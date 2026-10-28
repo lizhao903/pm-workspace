@@ -22,6 +22,8 @@ var _ store.Store = (*Store)(nil)
 
 type Store struct {
 	db *db.DB
+	// keys 存模型服务商的 api_key，启动时 AttachVault 设一次，之后只读
+	keys ProviderKeyVault
 }
 
 // Open 打开数据库并跑完迁移，返回可直接使用的 Store。
