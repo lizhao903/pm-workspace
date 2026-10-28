@@ -1,0 +1,25 @@
+/* 任务抽屉的产出物（DEV-08b），照原型 devloop.css 的 dev-art 系列 */
+.art-hint { margin-left: var(--sp-4); font-weight: 400; color: var(--faint); font-size: var(--fs-xs); }
+.art-spacer { flex: 1; }
+.art-empty { padding: var(--sp-7); text-align: center; color: var(--faint); font-size: var(--fs-sm); border: 1px dashed var(--line-2); border-radius: var(--r); }
+.art-group { display: flex; flex-direction: column; gap: var(--sp-2); }
+.art-group-name { padding: var(--sp-2) var(--sp-4) 0; font-size: var(--fs-xs); font-weight: 600; color: var(--faint); }
+.art-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--sp-1); }
+.art-row { display: flex; align-items: center; gap: var(--sp-4); min-height: 32px; padding: var(--sp-2) var(--sp-4); border-radius: var(--r-sm); font-size: var(--fs-sm); }
+.art-row:hover { background: var(--hover); }
+.art-main { flex: 1; min-width: 0; display: flex; align-items: center; gap: var(--sp-4); }
+.art-sha { flex: none; font-family: var(--mono); color: var(--accent); }
+.art-branch { flex: 0 1 auto; min-width: 0; max-width: 45%; display: inline-flex; }
+.art-branch .tag { font-family: var(--mono); }
+.art-link { color: var(--accent); }
+.art-link:hover { text-decoration: underline; }
+.art-path { font-family: var(--mono); }
+.art-sub { flex: 0 1 auto; color: var(--faint); font-size: var(--fs-xs); }
+.art-at { flex: none; width: 64px; text-align: right; color: var(--faint); font-size: var(--fs-xs); }
+.art-form { display: flex; flex-direction: column; gap: var(--sp-4); }
+.art-form-acts { display: flex; gap: var(--sp-4); }
+
+@media (max-width: 760px) {
+  .art-at { display: none; }
+  .art-row { flex-wrap: wrap; }
+}
