@@ -293,3 +293,48 @@ describe('Webhook 的失效（TASK-04b）', () => {
     expect(await stale({ kind: 'object', id: 'obj_a' })).toEqual(['sourceList', 'sourceCount', 'taskCounts', 'today'])
   })
 })
+
+describe('模型服务商的失效（MP-01b）', () => {
+  const keys = {
+    providers: agentKeys.providers,
+    models: agentKeys.models('apv_a'),
+    sessions: agentKeys.sessions.unscoped,
+    taskList: dataKeys.objects.listAll({ type: ['task'] }),
+  } satisfies Record<string, QueryKey>
+  async function stale(c: Change) {
+    const qc = new QueryClient()
+    for (const k of Object.values(keys)) qc.setQueryData(k, {})
+    await applyChange(qc, c)
+    return (Object.keys(keys) as (keyof typeof keys)[]).filter((n) => qc.getQueryState(keys[n])?.isInvalidated)
+  }
+
+  it('新建、编辑、设默认、删除：刷服务商列表和各自的模型列表，不动会话和对象', async () => {
+    expect(await stale({ kind: 'agent-provider' })).toEqual(['providers', 'models'])
+  })
+
+  it('会话改动不动服务商', async () => {
+    expect(await stale({ kind: 'agent-session' })).toEqual(['sessions'])
+  })
+})
+
+describe('联系人的失效（CT-03a）', () => {
+  const keys = {
+    contacts: dataKeys.contacts.list,
+    stakeholders: dataKeys.stakeholders.list(),
+    types: dataKeys.objectTypes,
+  } satisfies Record<string, QueryKey>
+  async function stale(c: Change) {
+    const qc = new QueryClient()
+    for (const k of Object.values(keys)) qc.setQueryData(k, {})
+    await applyChange(qc, c)
+    return (Object.keys(keys) as (keyof typeof keys)[]).filter((n) => qc.getQueryState(keys[n])?.isInvalidated)
+  }
+
+  it('联系人和干系人是同一张名册：改星标、改资料一起刷', async () => {
+    expect(await stale({ kind: 'stakeholder' })).toEqual(['contacts', 'stakeholders'])
+  })
+
+  it('对象改动带来任务数变化，联系人列表也跟着刷', async () => {
+    expect(await stale({ kind: 'object', id: 'obj_a' })).toEqual(['contacts', 'stakeholders'])
+  })
+})

@@ -32,6 +32,10 @@ export const dataKeys = {
     all: ['stakeholders'] as const,
     list: (archived = false) => ['stakeholders', 'list', { archived }] as const,
   },
+  /** 联系人（CT-03a）：同一张名册带联系人字段，挂在 stakeholders 前缀下，干系人一变一起刷 */
+  contacts: {
+    list: ['stakeholders', 'contacts'] as const,
+  },
   objects: {
     all: ['objects'] as const,
     lists: ['objects', 'list'] as const,
