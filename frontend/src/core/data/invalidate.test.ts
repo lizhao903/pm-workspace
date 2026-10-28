@@ -2,6 +2,7 @@ import { QueryClient, type QueryKey } from '@tanstack/react-query'
 import { describe, expect, it } from 'vitest'
 import { applyChange, invalidationsFor, type Change } from './invalidate'
 import { dataKeys, normFilter } from './keys'
+import { agentKeys } from './agentKeys'
 
 // 各页面会用到的缓存，挨个种进一个空缓存，看一次改动把哪些标成过期
 const seeded = {
@@ -26,6 +27,11 @@ const seeded = {
   otherRuns: dataKeys.runs.list('obj_b'),
   run: dataKeys.runs.detail('run_1'),
   workdir: dataKeys.workdir('/tmp'),
+  plugins: dataKeys.plugins.list,
+  agentSessions: agentKeys.sessions.unscoped,
+  agentMessages: agentKeys.sessions.messages('ags_a'),
+  otherMessages: agentKeys.sessions.messages('ags_b'),
+  agentProviders: agentKeys.providers,
 } satisfies Record<string, QueryKey>
 
 type Name = keyof typeof seeded
@@ -45,7 +51,7 @@ describe('失效规则', () => {
       'detail', 'progress', 'revisions', 'taskCounts', 'menuCounts', 'stakeholders',
     ]))
     // 和对象无关的不动
-    for (const n of ['types', 'dictItems', 'artifacts', 'artifactStats', 'runs', 'run', 'workdir'] as Name[]) expect(s).not.toContain(n)
+    for (const n of ['types', 'dictItems', 'artifacts', 'artifactStats', 'runs', 'run', 'workdir', 'plugins'] as Name[]) expect(s).not.toContain(n)
   })
 
   it('只记进展：刷这个对象的进展、修订和对象本身，不刷列表和计数', async () => {
@@ -80,11 +86,25 @@ describe('失效规则', () => {
     expect(await stale({ kind: 'object-type' })).toEqual(['taskCounts', 'menuCounts', 'types'])
   })
 
+  it('插件装卸、启停：刷插件列表和对象类型，不动对象和计数', async () => {
+    expect(await stale({ kind: 'plugin' })).toEqual(['types', 'plugins'])
+  })
+
+  it('会话新建、改名、删除：刷会话列表和产出物（删除后产出物的 session_id 置空），不动消息、对象和服务商', async () => {
+    expect(await stale({ kind: 'agent-session' })).toEqual(['artifacts', 'artifactStats', 'agentSessions'])
+  })
+
+  it('一轮对话收尾：刷这个会话的消息、会话列表、产出物，以及对象和计数（工具可能建了任务）', async () => {
+    const s = await stale({ kind: 'agent-chat', sessionId: 'ags_a' })
+    expect(s).toEqual(expect.arrayContaining(['agentMessages', 'agentSessions', 'artifacts', 'artifactStats', 'taskList', 'detail', 'taskCounts']))
+    for (const n of ['otherMessages', 'agentProviders', 'types', 'workdir', 'plugins'] as Name[]) expect(s).not.toContain(n)
+  })
+
   it('每种改动都有规则', () => {
     const all: Change[] = [
       { kind: 'object' }, { kind: 'progress', id: 'x' }, { kind: 'artifact' }, { kind: 'run-started', objectId: 'x' },
       { kind: 'run-settled', objectId: 'x' }, { kind: 'run-canceled' }, { kind: 'stakeholder' }, { kind: 'dictionary' },
-      { kind: 'object-type' },
+      { kind: 'object-type' }, { kind: 'plugin' }, { kind: 'agent-session' }, { kind: 'agent-chat', sessionId: 'x' },
     ]
     for (const c of all) expect(invalidationsFor(c).length).toBeGreaterThan(0)
   })
