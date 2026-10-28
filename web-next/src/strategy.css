@@ -26,7 +26,12 @@
 .bt-row.sel { background: var(--accent-soft); }
 .sg-th { min-height: 36px; background: var(--panel-2); font-size: 11.5px; font-weight: 500; color: var(--faint); cursor: default; }
 .sg-syms { display: flex; align-items: center; gap: 4px; min-width: 0; overflow: hidden; }
-.sg-syms .tag { display: inline-block; max-width: 110px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; line-height: 22px; }
+/* 一行放不下的标签折到第二行并被裁掉，SymTags 数出来显示成 +N */
+.sg-syms-line { display: flex; flex-wrap: wrap; gap: 4px; flex: 1 1 0; min-width: 0; height: 22px; overflow: hidden; }
+.sg-syms .tag { display: inline-block; flex: none; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; line-height: 22px; }
+.sg-syms-more { flex: none; font-size: 12px; }
+.sg-more, .sr-more { margin-top: 10px; }
+.sg-more .faint { margin-left: 4px; }
 .sg-last { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .sg-last-sub { font-size: 11.5px; color: var(--faint); white-space: nowrap; }
 @container (max-width: 760px) {

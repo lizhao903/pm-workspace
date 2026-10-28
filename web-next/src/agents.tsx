@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { Fragment, useEffect, useRef, useState, type ReactNode } from 'react'
 import { PageTitle } from './topbar'
 import {
   ABILITIES, AGENT_COLORS, AVATAR_ICONS, TRIGGER_KIND,
@@ -20,7 +20,23 @@ export interface ConnToolChoice { key: string; connId: string; conn: string; con
 const RANK: Record<AbilityMode, number> = { off: 0, confirm: 1, auto: 2 }
 
 /** 可选模型来自「设置 / 模型服务商」里勾选启用的模型；ok 为 false 的显示但不能选 */
-export interface ModelChoice { key: string; label: string; note: string; ok: boolean }
+export interface ModelChoice { key: string; label: string; note: string; ok: boolean; /** 服务商名，换模型时按它分组；不传就取 note 里「·」前面那段 */ group?: string }
+const modelGroup = (m: ModelChoice) => m.group ?? (m.ok ? m.note.split(' · ')[0] : '不可用')
+/** 可选模型多于这个数时，只露当前选中的，点「换模型」再展开 */
+const MANY_MODELS = 6
+
+const SearchIcon = () => <svg viewBox="0 0 16 16" width="13" height="13"><circle cx="7" cy="7" r="4.5" fill="none" stroke="currentColor" strokeWidth="1.5" /><path d="M10.5 10.5 14 14" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" /></svg>
+/** 小搜索框：Agent 配置页里几处列表共用 */
+function MiniSearch({ value, onChange, placeholder, autoFocus, onKeyDown }: { value: string; onChange: (v: string) => void; placeholder: string; autoFocus?: boolean; onKeyDown?: (e: React.KeyboardEvent<HTMLInputElement>) => void }) {
+  return (
+    <div className="search search-sm">
+      <SearchIcon />
+      <input value={value} placeholder={placeholder} autoFocus={autoFocus} onChange={(e) => onChange(e.target.value)} onKeyDown={onKeyDown} />
+      {value && <button type="button" className="search-clear" title="清空" onClick={() => onChange('')}><svg viewBox="0 0 16 16" width="10" height="10"><path d="m4 4 8 8M12 4l-8 8" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" /></svg></button>}
+    </div>
+  )
+}
+const hasAll = (hay: string, q: string) => { const h = hay.toLowerCase(); return q.trim().toLowerCase().split(/\s+/).filter(Boolean).every((w) => h.includes(w)) }
 const MODE_LABEL: Record<AbilityMode, string> = { off: '关闭', confirm: '需确认', auto: '自动' }
 
 const ICON_PATH: Record<string, ReactNode> = {
@@ -155,6 +171,8 @@ export function AgentsPage({ agents, runs, models, onOpen, onNew, onToggle }: {
   agents: Agent[]; runs: AgentRun[]; models: ModelChoice[]
   onOpen: (id: string) => void; onNew: () => void; onToggle: (id: string, on: boolean) => void
 }) {
+  const [q, setQ] = useState('')
+  const rows = agents.filter((a) => hasAll(`${a.name} ${a.desc}`, q))
   return (
     <div className="page page-fill">
       <PageTitle parent="设置" count={agents.length} desc="工作助手：各有指令、模型和工具，写操作默认要你确认才执行" actions={
@@ -163,9 +181,14 @@ export function AgentsPage({ agents, runs, models, onOpen, onNew, onToggle }: {
           新建 Agent
         </button>
       }>Agent</PageTitle>
+      <div className="toolbar">
+        <MiniSearch value={q} onChange={setQ} placeholder="搜 Agent 名称和说明" />
+        {q.trim() && <span className="list-sub">命中 {rows.length} 个</span>}
+      </div>
+      {!rows.length && <div className="empty"><div className="empty-title">没有匹配的 Agent</div><div className="list-sub">换个关键词试试</div></div>}
       {/* 等确认的操作标在对应 Agent 的卡片上，点进去默认打开运行记录 */}
       <div className="agent-grid">
-        {agents.map((a) => {
+        {rows.map((a) => {
           const mine = runs.filter((r) => r.agent_id === a.id)
           const on = ABILITIES.filter((x) => a.abilities[x.key] && a.abilities[x.key] !== 'off')
           const wait = mine.filter((r) => r.status === 'waiting').length
@@ -361,10 +384,10 @@ export function ChatPane({ agent, msgs, onMsgs, ctx, onExecute, head, examples, 
 export const CHAT_EXAMPLES = ['我现在有哪些任务最急？', '梁晚晴找我了吗，帮我回复一下', '建一条任务：周五前整理演示环境', '这周的周报帮我汇总一下']
 
 /** 配置页右边的调试：用当前（没保存的）配置对话，不存会话 */
-function DebugChat({ agent, ctx, onExecute }: { agent: Agent; ctx: Ctx; onExecute: (call: ToolCall) => unknown }) {
+function DebugChat({ agent, ctx, onExecute, folded, onFold }: { agent: Agent; ctx: Ctx; onExecute: (call: ToolCall) => unknown; folded: boolean; onFold: (v: boolean) => void }) {
   const [msgs, setMsgs] = useState<ChatMsg[]>([])
   return (
-    <aside className="agent-debug">
+    <aside className={cls('agent-debug', folded && 'folded')}>
       <ChatPane agent={{ ...agent, enabled: true }} msgs={msgs} onMsgs={setMsgs} ctx={ctx} onExecute={onExecute} examples={CHAT_EXAMPLES}
         placeholderNote="调试对话不保存；产出照常落到数据上"
         head={(
@@ -373,7 +396,9 @@ function DebugChat({ agent, ctx, onExecute }: { agent: Agent; ctx: Ctx; onExecut
             <span className="ai-title">调试</span>
             <span className="list-sub">用当前配置试一试，不留会话记录</span>
             <span className="spacer" />
-            {msgs.length > 0 && <button className="act act-quiet" onClick={() => setMsgs([])}>清空</button>}
+            {msgs.length > 0 && !folded && <button className="act act-quiet" onClick={() => setMsgs([])}>清空</button>}
+            {/* 只在窄屏出现：调试面板默认收成一条，点开再盖住下半屏 */}
+            <button className="act act-quiet agent-debug-toggle" onClick={() => onFold(!folded)}>{folded ? '展开调试' : '收起'}</button>
           </div>
         )} />
     </aside>
@@ -382,16 +407,24 @@ function DebugChat({ agent, ctx, onExecute }: { agent: Agent; ctx: Ctx; onExecut
 
 /* ---------- 配置页 ---------- */
 
-/** 「挂载」下拉：列出还没挂的项，选一个挂上 */
-function MountPicker<T extends { id: string }>({ label, items, render, onPick, empty }: {
+/** 「挂载」下拉：列出还没挂的项，选一个挂上；条目多时顶部能搜，传了 group 就按它分组 */
+function MountPicker<T extends { id: string }>({ label, items, render, text, group, onPick, empty }: {
   label: string
   items: T[]
   render: (t: T) => ReactNode
+  /** 搜索时匹配的文字 */
+  text: (t: T) => string
+  group?: (t: T) => string
   onPick: (id: string) => void
   empty: string
 }) {
   const [open, setOpen] = useState(false)
+  const [q, setQ] = useState('')
   const ref = useRef<HTMLDivElement>(null)
+  const groups = group ? [...new Set(items.map(group))] : []
+  const sorted = group ? [...items].sort((a, b) => groups.indexOf(group(a)) - groups.indexOf(group(b))) : items
+  const shown = sorted.filter((t) => hasAll(text(t), q))
+  const pick = (id: string) => { onPick(id); setOpen(false) }
   useEffect(() => {
     if (!open) return
     const off = (e: MouseEvent) => { if (!ref.current?.contains(e.target as Node)) setOpen(false) }
@@ -400,15 +433,25 @@ function MountPicker<T extends { id: string }>({ label, items, render, onPick, e
   }, [open])
   return (
     <div className="menu-wrap" ref={ref}>
-      <button className="act" onClick={() => setOpen(!open)}>
+      <button className="act" onClick={() => { setOpen(!open); setQ('') }}>
         <svg viewBox="0 0 16 16" width="11" height="11"><path d="M8 3v10M3 8h10" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" /></svg>
         {label}
       </button>
       {open && (
         <div className="menu mount-menu">
-          {items.length ? items.map((t) => (
-            <button key={t.id} className="menu-item mount-item" onClick={() => { onPick(t.id); setOpen(false) }}>{render(t)}</button>
+          {items.length > 8 && (
+            <div className="mount-search">
+              <MiniSearch value={q} onChange={setQ} placeholder={`搜索，共 ${items.length} 个`} autoFocus
+                onKeyDown={(e) => { if (e.key === 'Enter' && shown[0]) pick(shown[0].id); if (e.key === 'Escape') { e.stopPropagation(); setOpen(false) } }} />
+            </div>
+          )}
+          {items.length ? shown.map((t, i) => (
+            <Fragment key={t.id}>
+              {group && group(t) !== (i ? group(shown[i - 1]) : '') && <div className="menu-label">{group(t)}</div>}
+              <button className="menu-item mount-item" onClick={() => pick(t.id)}>{render(t)}</button>
+            </Fragment>
           )) : <div className="io-empty">{empty}</div>}
+          {items.length > 0 && !shown.length && <div className="io-empty">没有匹配的</div>}
         </div>
       )}
     </div>
@@ -441,6 +484,11 @@ export function AgentEditor({ agent, creating, ctx, folders, models, conns, kbs,
   const [confirmDel, setConfirmDel] = useState(false)
   const [saved, setSaved] = useState(false)
   const [openConn, setOpenConn] = useState<string | null>(null)
+  const [toolQ, setToolQ] = useState('')
+  const [pickModel, setPickModel] = useState(false)
+  const [modelQ, setModelQ] = useState('')
+  // 调试面板叠在编辑区下面时（1100px 以下）默认收起，编辑区留够高度；宽屏它在右栏，收起不生效
+  const [debugFolded, setDebugFolded] = useState(() => typeof window !== 'undefined' && window.matchMedia?.('(max-width: 1100px)').matches)
   const [newKb, setNewKb] = useState<{ name: string; sources: string[] } | null>(null)
   const dirty = creating || JSON.stringify(d) !== JSON.stringify(agent)
   const groups = [...new Set(ABILITIES.map((a) => a.group))]
@@ -482,7 +530,7 @@ export function AgentEditor({ agent, creating, ctx, folders, models, conns, kbs,
   )
 
   return (
-    <div className="agent-editor">
+    <div className={cls('agent-editor', debugFolded && 'debug-folded')}>
       <PageTitle parent="Agent" desc={d.desc} actions={<>
         {!creating && (confirmDel ? (
           <>
@@ -513,14 +561,43 @@ export function AgentEditor({ agent, creating, ctx, folders, models, conns, kbs,
 
           <section className="hook-sec">
             <div className="field-group-title">模型</div>
-            <div className="model-list">
-              {models.filter((m) => m.ok || m.key === d.model).map((m) => (
+            {(() => {
+              const usable = models.filter((m) => m.ok || m.key === d.model)
+              const opt = (m: ModelChoice) => (
                 <label key={m.key} className={cls('model-opt', d.model === m.key && 'on', !m.ok && 'bad')}>
-                  <input type="radio" checked={d.model === m.key} disabled={!m.ok} onChange={() => setD({ ...d, model: m.key })} />
+                  <input type="radio" checked={d.model === m.key} disabled={!m.ok} onChange={() => { setD({ ...d, model: m.key }); setPickModel(false) }} />
                   <span><b>{m.label}</b><span className={cls('list-sub', !m.ok && 'danger-text')}>{m.note}</span></span>
                 </label>
-              ))}
-            </div>
+              )
+              if (usable.length <= MANY_MODELS) return <div className="model-list">{usable.map(opt)}</div>
+              const cur = models.find((m) => m.key === d.model)
+              if (!pickModel) {
+                return (
+                  <div className="model-cur">
+                    {cur ? opt(cur) : <span className="mount-empty">还没选模型</span>}
+                    <button className="act" onClick={() => { setPickModel(true); setModelQ('') }}>换模型<span className="seg-n">{usable.filter((m) => m.ok).length} 个可用</span></button>
+                  </div>
+                )
+              }
+              // 换模型：按服务商分组，能搜模型名和服务商
+              const hits = usable.filter((m) => hasAll(`${m.label} ${m.note} ${modelGroup(m)}`, modelQ))
+              const gs = [...new Set(hits.map(modelGroup))]
+              return (
+                <div className="model-chooser">
+                  <div className="model-chooser-bar">
+                    <MiniSearch value={modelQ} onChange={setModelQ} placeholder="搜模型或服务商" autoFocus />
+                    <button className="act act-quiet" onClick={() => setPickModel(false)}>收起</button>
+                  </div>
+                  {gs.map((g) => (
+                    <div key={g} className="model-chooser-group">
+                      <div className="menu-label">{g}</div>
+                      <div className="model-list">{hits.filter((m) => modelGroup(m) === g).map(opt)}</div>
+                    </div>
+                  ))}
+                  {!hits.length && <div className="mount-empty">没有匹配的模型</div>}
+                </div>
+              )
+            })()}
           </section>
 
           <section className="hook-sec">
@@ -532,6 +609,7 @@ export function AgentEditor({ agent, creating, ctx, folders, models, conns, kbs,
             <div className="mount-head">
               <div className="field-group-title">技能<span className="field-hint">一段可复用的做事方法，挂上后 Agent 遇到对应的事就按它做</span></div>
               <MountPicker label="挂载技能" items={skills.filter((k) => !d.skills.includes(k.id))} empty="技能都挂上了"
+                text={(k) => `${k.name} ${k.desc}`} group={(k) => k.source}
                 onPick={(id) => toggle('skills', id)}
                 render={(k) => <span className="mount-text"><b>{k.name}</b><span className="list-sub">{k.desc}</span></span>} />
             </div>
@@ -584,6 +662,7 @@ export function AgentEditor({ agent, creating, ctx, folders, models, conns, kbs,
             <div className="mount-head">
               <div className="field-group-title">MCP 与连接器<span className="field-hint">挂上后可以用它的工具；权限不能比连接器那边更松</span></div>
               <MountPicker label="挂载" items={conns.filter((c) => !d.mcps.includes(c.id))} empty="没有更多可挂的。去「设置 / 连接器」接入并获取工具清单"
+                text={(c) => `${c.name} ${c.kind}`} group={(c) => c.kind}
                 onPick={mountConn}
                 render={(c) => <span className="mount-text"><b>{c.name}</b><span className={cls('list-sub', !c.ok && 'danger-text')}>{c.kind} · {c.tools.length} 个可用工具{!c.ok && ' · 连接异常'}</span></span>} />
             </div>
@@ -596,16 +675,21 @@ export function AgentEditor({ agent, creating, ctx, folders, models, conns, kbs,
                     <div key={c.id} className={cls('mount-card mount-conn', open && 'open')}>
                       <div className="mount-conn-head">
                         <span className="mount-icon conn-icon"><svg viewBox="0 0 16 16" width="13" height="13"><path d="M6 3v3M10 3v3M4.5 6h7v2.5a3.5 3.5 0 0 1-7 0ZM8 12v2" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" /></svg></span>
-                        <button className="mount-text mount-toggle" onClick={() => setOpenConn(open ? null : c.id)}>
+                        <button className="mount-text mount-toggle" onClick={() => { setOpenConn(open ? null : c.id); setToolQ('') }}>
                           <span><b>{c.name}</b><span className="tag mount-src">{c.kind}</span></span>
                           <span className={cls('list-sub', !c.ok && 'danger-text')}>{c.ok ? `开了 ${on} / ${c.tools.length} 个工具` : '连接异常，调用会失败'}</span>
                         </button>
-                        <button className="act act-quiet" onClick={() => setOpenConn(open ? null : c.id)}>{open ? '收起' : '工具权限'}</button>
+                        <button className="act act-quiet" onClick={() => { setOpenConn(open ? null : c.id); setToolQ('') }}>{open ? '收起' : '工具权限'}</button>
                         {x(() => unmountConn(c.id), '卸下')}
                       </div>
+                      {open && c.tools.length > 10 && (
+                        <div className="mount-tools-search">
+                          <MiniSearch value={toolQ} onChange={setToolQ} placeholder={`搜工具，共 ${c.tools.length} 个`} />
+                        </div>
+                      )}
                       {open && (
                         <div className="ability-table mount-tools">
-                          {c.tools.map((t) => {
+                          {c.tools.filter((t) => c.tools.length <= 10 || hasAll(`${t.name} ${t.desc}`, toolQ)).map((t) => {
                             const m = d.abilities[t.key] ?? 'off'
                             const opts = ((t.write ? ['off', 'confirm', 'auto'] : ['off', 'auto']) as AbilityMode[]).filter((v) => RANK[v] <= RANK[t.connMode])
                             return (
@@ -635,6 +719,7 @@ export function AgentEditor({ agent, creating, ctx, folders, models, conns, kbs,
               <span className="spacer" />
               <button className="act act-quiet" onClick={() => setNewKb(newKb ? null : { name: '', sources: [] })}>新建知识库</button>
               <MountPicker label="挂载知识库" items={kbs.filter((k) => !d.kbs.includes(k.id))} empty="知识库都挂上了"
+                text={(k) => `${k.name} ${k.desc}`}
                 onPick={(id) => toggle('kbs', id)}
                 render={(k) => <span className="mount-text"><b>{k.name}</b><span className="list-sub">{k.sources.map(sourceLabel).join('、')} · {k.docs} 篇</span></span>} />
             </div>
@@ -692,7 +777,7 @@ export function AgentEditor({ agent, creating, ctx, folders, models, conns, kbs,
           </section>
         </div>
       </div>
-      <DebugChat agent={d} ctx={ctx} onExecute={onExecute} />
+      <DebugChat agent={d} ctx={ctx} onExecute={onExecute} folded={debugFolded} onFold={setDebugFolded} />
     </div>
   )
 }

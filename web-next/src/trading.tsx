@@ -1,14 +1,16 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, useEffect, useRef, useState } from 'react'
 import { Subnav } from './subnav'
 import { PageTitle } from './topbar'
 import { cls, timeAgo } from './ui'
 import {
-  INSTRUMENTS, MARKETS, ORDER_STATUS, ORDER_TYPE, RUN_STATUS, SESSION_LABEL, UP, DOWN,
+  MARKETS, ORDER_STATUS, ORDER_TYPE, RUN_STATUS, SESSION_LABEL, UP, DOWN,
   fmtPct, fmtPrice, instOf, positionPnl, prevClose, priceAt, round, sessionOf, useNow,
   type Instrument, type MarketKey, type Order, type OrderType, type Position, type RiskRules,
   type Strategy, type StrategyRun, type TradeAccount,
 } from './tradedata'
 import './trading.css'
+import { KIND_SHORT, SymbolPicker } from './symbolpick'
+import { SearchSelect } from './searchselect'
 
 // 交易员工作台 > 交易：总览、持仓、委托、策略运行、交易账户、风控
 // 数据都在 App 里，这里只通过 onXxx(fn) 改；撮合、策略日志这些模拟只在本页挂载时跑
@@ -24,6 +26,13 @@ const fromUsd = (v: number, cur: string) => v / (FX[cur] ?? 1)
 const num = (v: number, d = 0) => v.toLocaleString('en-US', { minimumFractionDigits: d, maximumFractionDigits: d })
 const usd = (v: number, d = 0) => `${v < 0 ? '-' : ''}$${num(Math.abs(v), d)}`
 const signedUsd = (v: number, d = 0) => `${v > 0 ? '+' : v < 0 ? '-' : ''}$${num(Math.abs(v), d)}`
+/** 总览大数字：超过 7 位整数改紧凑写法（$96.1M），完整值放 title；金额不能被省略号截掉尾数 */
+const compact = (v: number, sign = false) => {
+  const a = Math.abs(v)
+  const s = v < 0 ? '-' : sign && v > 0 ? '+' : ''
+  if (a < 1e7) return `${s}$${num(a)}`
+  return a >= 1e9 ? `${s}$${(a / 1e9).toFixed(2)}B` : `${s}$${(a / 1e6).toFixed(1)}M`
+}
 const signed = (v: number, d = 2) => `${v > 0 ? '+' : v < 0 ? '-' : ''}${num(Math.abs(v), d)}`
 const tone = (v: number) => (v > 0 ? UP : v < 0 ? DOWN : undefined)
 const curOf = (i?: Instrument) => (i ? MARKETS[i.market].currency : 'USD')
@@ -35,7 +44,6 @@ const nowIso = () => new Date().toISOString()
 const fmtTime = (iso: string) => new Date(iso).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false })
 const cnDate = (t: number) => new Date(t).toLocaleDateString('en-CA', { timeZone: 'Asia/Shanghai' })
 const instName = (symbol: string) => instOf(symbol)?.name ?? symbol
-const KIND_SHORT: Record<Instrument['kind'], string> = { spot: '现货', perp: '永续', future: '期货', option: '期权' }
 
 const Pill = ({ label, color }: { label: string; color: string }) => <span className="pill" style={{ '--c': color } as React.CSSProperties}><span className="pill-dot" />{label}</span>
 const CloseIcon = () => <svg viewBox="0 0 16 16" width="14" height="14"><path d="m4 4 8 8M12 4l-8 8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" /></svg>
@@ -278,6 +286,8 @@ export function TradingPage(props: {
   onOpenChart: (symbol: string) => void
   onOpenStrategy: (id: string) => void
   onReport: (title: string, message: string) => void
+  /** 切换二级视图（总览里「全部账户」跳交易账户）；不传时就地展开 */
+  onView?: (v: TradingView) => void
   /** 账户不能删的原因（有持仓、挂单、在跑的部署），能删返回 null */
   accountDeleteBlock: (id: string) => string | null
   onDeleteAccount: (id: string) => void
@@ -519,10 +529,14 @@ function HaltBar({ risk, onRelease }: { risk: RiskRules; onRelease: () => void }
 
 /* ---------- 总览 ---------- */
 
-function Overview({ accounts, positions, orders, runs, risk, strategies, sum, lossUsed, lossLimit, at, acctName, onOpenStrategy }: {
+const OV_ACCTS = 6
+
+function Overview({ accounts, positions, orders, runs, risk, strategies, sum, lossUsed, lossLimit, at, acctName, onOpenStrategy, onView }: {
   accounts: TradeAccount[]; positions: Position[]; orders: Order[]; runs: StrategyRun[]; risk: RiskRules; strategies: Strategy[]
   sum: ReturnType<typeof summarize>; lossUsed: number; lossLimit: number; at: number; acctName: (id: string) => string; onOpenStrategy: (id: string) => void
+  onView?: (v: TradingView) => void
 }) {
+  const [allAccts, setAllAccts] = useState(false)
   const cash = sum.available
   const segs = [...(Object.keys(MARKETS) as MarketKey[]).map((m) => ({ key: m, label: MARKETS[m].label, color: MARKETS[m].color, v: sum.byMarket[m] })), { key: 'cash', label: '可用现金', color: 'var(--line-2)', v: cash }].filter((s) => s.v > 0)
   const total = segs.reduce((s, x) => s + x.v, 0)
@@ -530,13 +544,16 @@ function Overview({ accounts, positions, orders, runs, risk, strategies, sum, lo
   const recent = [...orders].sort((a, b) => b.created_at.localeCompare(a.created_at)).slice(0, 6)
   const lossPct = lossLimit ? Math.min(1, lossUsed / lossLimit) : 0
   const bad = accounts.filter((a) => a.status !== 'connected')
+  // 异常的在前，只露前几个；其余到「交易账户」看，没接跳转时就地展开
+  const acctRows = [...bad, ...accounts.filter((a) => a.status === 'connected')]
+  const acctShown = allAccts ? acctRows : acctRows.slice(0, OV_ACCTS)
   return (
     <>
       <section className="stats tr-stats">
-        <div className="stat"><div className="stat-label">总权益（折 USD）</div><div className="stat-value tr-num">{usd(sum.equity)}</div></div>
-        <div className="stat"><div className="stat-label">今日盈亏</div><div className="stat-value tr-num" style={{ color: tone(sum.today) }}>{signedUsd(sum.today)}</div></div>
-        <div className="stat"><div className="stat-label">持仓浮盈</div><div className="stat-value tr-num" style={{ color: tone(sum.float) }}>{signedUsd(sum.float)}</div></div>
-        <div className="stat"><div className="stat-label">可用资金</div><div className="stat-value tr-num">{usd(sum.available)}</div></div>
+        <div className="stat"><div className="stat-label">总权益（折 USD）</div><div className="stat-value tr-num" title={usd(sum.equity)}>{compact(sum.equity)}</div></div>
+        <div className="stat"><div className="stat-label">今日盈亏</div><div className="stat-value tr-num" style={{ color: tone(sum.today) }} title={signedUsd(sum.today)}>{compact(sum.today, true)}</div></div>
+        <div className="stat"><div className="stat-label">持仓浮盈</div><div className="stat-value tr-num" style={{ color: tone(sum.float) }} title={signedUsd(sum.float)}>{compact(sum.float, true)}</div></div>
+        <div className="stat"><div className="stat-label">可用资金</div><div className="stat-value tr-num" title={usd(sum.available)}>{compact(sum.available)}</div></div>
         <div className="stat"><div className="stat-label">保证金占用率</div><div className={cls('stat-value tr-num', sum.marginRate > 0.5 && 'stat-danger')}>{(sum.marginRate * 100).toFixed(1)}%</div></div>
       </section>
 
@@ -606,7 +623,7 @@ function Overview({ accounts, positions, orders, runs, risk, strategies, sum, lo
           <section className="hook-sec">
             <div className="field-group-title">账户<span className="field-hint">{accounts.length} 个{bad.length ? `，${bad.length} 个异常` : ''}</span></div>
             <div className="tr-list">
-              {accounts.map((a) => (
+              {acctShown.map((a) => (
                 <div key={a.id} className="tr-list-row">
                   <span className={cls('tr-dot', a.status === 'connected' ? 'ok' : 'bad')} />
                   <span className="tr-list-main"><span className="ellipsis">{a.name}</span><span className="run-muted ellipsis">{a.paper ? '模拟' : '实盘'} · {a.markets.map((m) => MARKETS[m].label).join(' / ')}</span></span>
@@ -614,6 +631,11 @@ function Overview({ accounts, positions, orders, runs, risk, strategies, sum, lo
                 </div>
               ))}
             </div>
+            {acctRows.length > OV_ACCTS && (
+              onView
+                ? <button className="act act-quiet tr-more" onClick={() => onView('accounts')}>全部 {acctRows.length} 个账户</button>
+                : <button className="act act-quiet tr-more" onClick={() => setAllAccts(!allAccts)}>{allAccts ? '收起' : `其余 ${acctRows.length - OV_ACCTS} 个账户`}</button>
+            )}
           </section>
           <div className="faint tr-foot-note">按 {new Date(at).toLocaleTimeString('zh-CN', { hour12: false })} 的模拟行情计算</div>
         </div>
@@ -636,6 +658,12 @@ function PositionsView({ accounts, positions, runs, strategies, at, acctName, on
   const calc = rows.map((p) => ({ p, c: posCalc(p, at) }))
   const totalPnl = calc.reduce((s, x) => s + x.c.pnlUsd, 0)
   const totalVal = calc.reduce((s, x) => s + x.c.valueUsd, 0)
+  // 按账户分段，段头带权益和浮盈；只看一个账户时不分段
+  const [folded, setFolded] = useState<string[]>([])
+  const groups = accounts.map((a) => ({ a, items: calc.filter((x) => x.p.account_id === a.id) })).filter((g) => g.items.length)
+  const orphan = calc.filter((x) => !accounts.some((a) => a.id === x.p.account_id))
+  const sections = acct ? [{ key: acct, a: undefined, items: calc }] : [...groups.map((g) => ({ key: g.a.id, a: g.a as TradeAccount | undefined, items: g.items })), ...(orphan.length ? [{ key: '-', a: undefined, items: orphan }] : [])]
+  const fold = (k: string) => setFolded(folded.includes(k) ? folded.filter((x) => x !== k) : [...folded, k])
   const runName = (id?: string) => {
     if (!id) return '手动'
     const r = runs.find((x) => x.id === id)
@@ -664,7 +692,21 @@ function PositionsView({ accounts, positions, runs, strategies, at, acctName, on
       ) : (
         <div className="task-table tr-table">
           <div className="tr-pos-row task-th"><span>标的</span><span className="tr-r tr-c-qty">数量</span><span className="tr-r tr-c-px">成本 / 现价</span><span className="tr-r">浮盈</span><span className="tr-r tr-c-val">市值</span><span className="tr-r tr-c-lev">杠杆 / 强平</span><span className="tr-r">操作</span></div>
-          {calc.map(({ p, c }) => (
+          {sections.map((g) => {
+            const pnl = g.items.reduce((s, x) => s + x.c.pnlUsd, 0)
+            const shut = !acct && folded.includes(g.key)
+            return (
+            <Fragment key={g.key}>
+              {!acct && (
+                <button className="tr-grp" onClick={() => fold(g.key)} aria-expanded={!shut}>
+                  <svg className={cls('tr-grp-chev', shut && 'shut')} viewBox="0 0 16 16" width="12" height="12"><path d="m4 6 4 4 4-4" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" /></svg>
+                  <b className="ellipsis">{g.a?.name ?? '已删除的账户'}</b>
+                  <span className="run-muted tr-grp-sub">{g.items.length} 个持仓{g.a ? ` · 权益 ${num(g.a.equity)} ${g.a.currency}` : ''}</span>
+                  <span className="spacer" />
+                  <span className="run-muted tr-num">浮盈 <b style={{ color: tone(pnl) }}>{signedUsd(pnl)}</b></span>
+                </button>
+              )}
+              {!shut && g.items.map(({ p, c }) => (
             <div key={p.id} className="tr-pos-wrap">
               <div className="tr-pos-row">
                 <span className="task-main">
@@ -713,7 +755,10 @@ function PositionsView({ accounts, positions, runs, strategies, at, acctName, on
                 )
               })()}
             </div>
-          ))}
+              ))}
+            </Fragment>
+            )
+          })}
         </div>
       )}
     </>
@@ -723,13 +768,17 @@ function PositionsView({ accounts, positions, runs, strategies, at, acctName, on
 /* ---------- 委托 ---------- */
 
 const ACTIVE: Order['status'][] = ['pending', 'open', 'partial']
+/** 历史委托先露这么多条 */
+const ORDER_PAGE = 50
 
 function OrdersView({ orders, accounts, acctName, at, onOrders }: {
   orders: Order[]; accounts: TradeAccount[]; acctName: (id: string) => string; at: number; onOrders: (fn: (xs: Order[]) => Order[]) => void
 }) {
   const [tab, setTab] = useState<'active' | 'history'>('active')
-  const [acct, setAcct] = useState('')
+  const [acct, setAcctRaw] = useState('')
+  const setAcct = (v: string) => { setAcctRaw(v); setLimit(ORDER_PAGE) }
   const [edit, setEdit] = useState<{ id: string; price: string } | null>(null)
+  const [limit, setLimit] = useState(ORDER_PAGE)
   const isActive = (o: Order) => ACTIVE.includes(o.status)
   const base = orders.filter((o) => !acct || o.account_id === acct)
   const rows = base.filter((o) => (tab === 'active' ? isActive(o) : !isActive(o))).sort((a, b) => b.created_at.localeCompare(a.created_at))
@@ -744,8 +793,8 @@ function OrdersView({ orders, accounts, acctName, at, onOrders }: {
     <>
       <div className="toolbar">
         <div className="seg">
-          <button className={cls(tab === 'active' && 'on')} onClick={() => setTab('active')}>当前委托<span className="seg-n">{base.filter(isActive).length}</span></button>
-          <button className={cls(tab === 'history' && 'on')} onClick={() => setTab('history')}>历史委托<span className="seg-n">{base.filter((o) => !isActive(o)).length}</span></button>
+          <button className={cls(tab === 'active' && 'on')} onClick={() => { setTab('active'); setLimit(ORDER_PAGE) }}>当前委托<span className="seg-n">{base.filter(isActive).length}</span></button>
+          <button className={cls(tab === 'history' && 'on')} onClick={() => { setTab('history'); setLimit(ORDER_PAGE) }}>历史委托<span className="seg-n">{base.filter((o) => !isActive(o)).length}</span></button>
         </div>
         <label className={cls('chip chip-select', acct && 'chip-on')}>
           <select value={acct} onChange={(e) => setAcct(e.target.value)}>
@@ -761,7 +810,7 @@ function OrdersView({ orders, accounts, acctName, at, onOrders }: {
       ) : (
         <div className="task-table tr-table">
           <div className="tr-ord-row task-th"><span>标的</span><span className="tr-c-type">类型</span><span className="tr-r tr-c-oprice">价格</span><span className="tr-r tr-c-oqty">成交 / 数量</span><span>状态</span><span className="tr-r">操作</span></div>
-          {rows.map((o) => {
+          {(tab === 'history' ? rows.slice(0, limit) : rows).map((o) => {
             const i = instOf(o.symbol)
             const shown = o.type === 'stop' ? o.stop_price : o.price
             const canEdit = isActive(o) && o.status !== 'pending' && o.type !== 'market'
@@ -814,6 +863,9 @@ function OrdersView({ orders, accounts, acctName, at, onOrders }: {
           })}
         </div>
       )}
+      {tab === 'history' && rows.length > limit && (
+        <button className="act act-quiet tr-more" onClick={() => setLimit(limit + ORDER_PAGE)}>再显示 {Math.min(ORDER_PAGE, rows.length - limit)} 条<span className="faint">（还有 {rows.length - limit} 条更早的）</span></button>
+      )}
     </>
   )
 }
@@ -832,8 +884,7 @@ function OrderDrawer({ init, accounts, positions, risk, onClose, onPlace, onRepo
   const firstOk = (i?: Instrument) => accounts.find((a) => !acctBlock(a, i))?.id ?? ''
   const [symbol, setSymbol] = useState(init.symbol)
   const inst = instOf(symbol)
-  const [q, setQ] = useState('')
-  const [searching, setSearching] = useState(false)
+  const [showBlocked, setShowBlocked] = useState(false)
   const [side, setSide] = useState(init.side)
   const [type, setType] = useState<OrderType>('limit')
   const [price, setPrice] = useState(() => String(priceAt(init.symbol)))
@@ -845,14 +896,9 @@ function OrderDrawer({ init, accounts, positions, risk, onClose, onPlace, onRepo
   const [confirming, setConfirming] = useState(false)
   const [tried, setTried] = useState(false)
 
-  const matches = useMemo(() => {
-    const kw = q.trim().toLowerCase()
-    if (!kw) return INSTRUMENTS.slice(0, 10)
-    return INSTRUMENTS.filter((i) => `${i.symbol} ${i.name} ${i.venue}`.toLowerCase().includes(kw)).slice(0, 10)
-  }, [q])
   const pick = (s: string) => {
     const i = instOf(s)
-    setSymbol(s); setQ(''); setSearching(false)
+    setSymbol(s)
     setPrice(String(priceAt(s))); setStop(''); setQty(''); setReduce(false); setConfirming(false)
     if (!accounts.find((a) => a.id === acctId && !acctBlock(a, i))) setAcctId(firstOk(i))
   }
@@ -867,6 +913,8 @@ function OrderDrawer({ init, accounts, positions, risk, onClose, onPlace, onRepo
   }
 
   const account = accounts.find((a) => a.id === acctId)
+  const usableAccts = accounts.filter((a) => !acctBlock(a, inst))
+  const blockedAccts = accounts.flatMap((a) => { const why = acctBlock(a, inst); return why ? [{ a, why }] : [] })
   const last = priceAt(symbol, now)
   const contract = isContract(inst)
   const needPrice = type === 'limit' || type === 'stop_limit'
@@ -931,44 +979,32 @@ function OrderDrawer({ init, accounts, positions, risk, onClose, onPlace, onRepo
       <div className="drawer-body form">
         <div className="field">
           <span className="field-label">标的</span>
-          <div className="tr-search">
-            <button className="tr-sym" onClick={() => setSearching(!searching)}>
-              <span className="tr-sym-name ellipsis">{inst.name}</span>
-              <span className="faint ellipsis">{inst.venue} · {KIND_SHORT[inst.kind]} · {inst.symbol}</span>
-              <span className="spacer" />
-              <span className="tr-num tr-sym-px">{fmtPrice(symbol, last)}</span>
-            </button>
-            {searching && (
-              <div className="tr-search-pop">
-                <input autoFocus placeholder="搜代码、名称、交易所" value={q} onChange={(e) => setQ(e.target.value)}
-                  onKeyDown={(e) => { if (e.key === 'Enter' && matches[0]) pick(matches[0].symbol); if (e.key === 'Escape') { e.stopPropagation(); setSearching(false) } }} />
-                <div className="tr-search-list">
-                  {matches.map((i) => (
-                    <button key={i.symbol} className={cls('tr-search-item', i.symbol === symbol && 'on')} onClick={() => pick(i.symbol)}>
-                      <span className="ellipsis">{i.name}</span>
-                      <span className="faint ellipsis">{MARKETS[i.market].label} · {KIND_SHORT[i.kind]} · {i.symbol}</span>
-                    </button>
-                  ))}
-                  {!matches.length && <div className="mount-empty">没有匹配的标的</div>}
-                </div>
-              </div>
-            )}
-          </div>
+          <SymbolPicker value={symbol} onChange={pick} side={<span className="tr-num">{fmtPrice(symbol, last)}</span>} />
         </div>
 
         <div className="field">
           <span className="field-label">账户<span className="field-hint">只能选支持{MARKETS[inst.market].label}、有交易权限、已连接的</span></span>
           <div className="tr-acct-pick">
-            {accounts.map((a) => {
-              const why = acctBlock(a, inst)
-              return (
-                <button key={a.id} disabled={!!why} className={cls('tr-acct-opt', acctId === a.id && 'on')} onClick={() => setAcctId(a.id)}>
-                  <span className="ellipsis">{a.name}</span>
-                  <span className={cls('tr-small', why ? 'faint' : 'run-muted')}>{why ?? `${a.paper ? '模拟' : '实盘'} · 可用 ${num(a.available)} ${a.currency}`}</span>
-                </button>
-              )
-            })}
+            {/* 能下单的在前；不能下单的收成一行，点开再看原因 */}
+            {usableAccts.map((a) => (
+              <button key={a.id} className={cls('tr-acct-opt', acctId === a.id && 'on')} onClick={() => setAcctId(a.id)}>
+                <span className="ellipsis">{a.name}</span>
+                <span className="tr-small run-muted">{a.paper ? '模拟' : '实盘'} · 可用 {num(a.available)} {a.currency}</span>
+              </button>
+            ))}
+            {showBlocked && blockedAccts.map(({ a, why }) => (
+              <button key={a.id} disabled className="tr-acct-opt">
+                <span className="ellipsis">{a.name}</span>
+                <span className="tr-small faint">{why}</span>
+              </button>
+            ))}
           </div>
+          {!usableAccts.length && <div className="mount-empty">没有能交易{MARKETS[inst.market].label}的账户</div>}
+          {blockedAccts.length > 0 && (
+            <button className="act act-quiet tr-acct-more" onClick={() => setShowBlocked(!showBlocked)}>
+              {showBlocked ? '收起不可用的账户' : `其他 ${blockedAccts.length} 个账户不可用`}
+            </button>
+          )}
         </div>
 
         <div className="field-row">
@@ -1073,6 +1109,7 @@ function RunsView({ runs, accounts, strategies, risk, onRuns, onOpenStrategy, on
 }) {
   const [open, setOpen] = useState<string | null>(null)
   const [stopAsk, setStopAsk] = useState<string | null>(null)
+  const [showStopped, setShowStopped] = useState(false)
   const setStatus = (id: string, status: StrategyRun['status'], text: string) => {
     const at = nowIso()
     // 停止时记下时间和原因；从停止状态恢复就清掉
@@ -1080,10 +1117,14 @@ function RunsView({ runs, accounts, strategies, risk, onRuns, onOpenStrategy, on
     onRuns((xs) => xs.map((r) => (r.id === id ? { ...r, status, ...stop, error: status === 'error' ? r.error : undefined, logs: [...r.logs, { at, level: 'info', text }] } : r)))
   }
   const order: Record<StrategyRun['status'], number> = { error: 0, running: 1, paused: 2, stopped: 3 }
-  const rows = [...runs].sort((a, b) => order[a.status] - order[b.status] || b.started_at.localeCompare(a.started_at))
-  if (!rows.length) return <div className="empty"><div className="empty-title">还没有策略在跑</div><div className="list-sub">在策略页回测满意后部署，或者直接新建一个运行</div><button className="btn btn-primary" onClick={onNew}>新建运行</button></div>
+  const all = [...runs].sort((a, b) => order[a.status] - order[b.status] || b.started_at.localeCompare(a.started_at))
+  // 已停止的折叠成一行，点开再看
+  const stopped = all.filter((r) => r.status === 'stopped')
+  const rows = showStopped ? all : all.filter((r) => r.status !== 'stopped')
+  if (!all.length) return <div className="empty"><div className="empty-title">还没有策略在跑</div><div className="list-sub">在策略页回测满意后部署，或者直接新建一个运行</div><button className="btn btn-primary" onClick={onNew}>新建运行</button></div>
   return (
-    <div className="tr-cards">
+    <>
+    {rows.length > 0 && <div className="tr-cards">
       {rows.map((r) => {
         const s = strategies.find((x) => x.id === r.strategy_id)
         const a = accounts.find((x) => x.id === r.account_id)
@@ -1136,7 +1177,11 @@ function RunsView({ runs, accounts, strategies, risk, onRuns, onOpenStrategy, on
           </section>
         )
       })}
-    </div>
+    </div>}
+    {stopped.length > 0 && (
+      <button className="act act-quiet tr-more" onClick={() => setShowStopped(!showStopped)}>{showStopped ? '收起已停止的' : `已停止 ${stopped.length} 个`}</button>
+    )}
+    </>
   )
 }
 
@@ -1164,6 +1209,7 @@ function RunDrawer({ initStrategy, strategies, accounts, risk, onClose, onCreate
   const [params, setParams] = useState<Record<string, string>>(() => Object.fromEntries(Object.entries(s?.params ?? {}).map(([k, v]) => [k, String(v)])))
   const [ack, setAck] = useState(false)
   const [tried, setTried] = useState(false)
+  const [showBlocked, setShowBlocked] = useState(false)
 
   const pickStrategy = (id: string) => {
     const st = strategies.find((x) => x.id === id)
@@ -1211,29 +1257,30 @@ function RunDrawer({ initStrategy, strategies, accounts, risk, onClose, onCreate
         <div className="field">
           <span className="field-label">策略</span>
           {!strategies.length ? <div className="mount-empty">还没有策略，先去策略页建一个</div> : (
-            <div className="tr-acct-pick">
-              {strategies.map((x) => (
-                <button key={x.id} className={cls('tr-acct-opt', sid === x.id && 'on')} onClick={() => pickStrategy(x.id)}>
-                  <span className="ellipsis">{x.name}</span>
-                  <span className="run-muted tr-small ellipsis">{x.interval} · {x.symbols.map(instName).join('、')}</span>
-                </button>
-              ))}
-            </div>
+            <SearchSelect variant="field" value={sid} placeholder="选一个策略" searchPlaceholder="搜策略名、标的"
+              options={strategies.map((x) => ({ value: x.id, label: x.name || '未命名策略', hint: `${x.interval} · ${x.symbols.map(instName).join('、')}`, keywords: x.tags.join(' ') }))}
+              missingLabel={() => '已删除的策略'} onChange={(v) => { if (v) pickStrategy(v) }} />
           )}
         </div>
         <div className="field">
           <span className="field-label">账户<span className="field-hint">先在模拟盘跑一段再上实盘</span></span>
           <div className="tr-acct-pick">
-            {accounts.map((x) => {
+            {/* 同下单抽屉：能用的在前，不能用的收成一行 */}
+            {[...accounts.filter((x) => !why(x, s)), ...(showBlocked ? accounts.filter((x) => why(x, s)) : [])].map((x) => {
               const w = why(x, s)
               return (
                 <button key={x.id} disabled={!!w} className={cls('tr-acct-opt', aid === x.id && 'on')} onClick={() => pickAcct(x)}>
-                  <span className="ellipsis">{x.name}<span className={cls('tag tr-tag-sm', !x.paper && 'tr-tag-live')}>{x.paper ? '模拟' : '实盘'}</span></span>
+                  <span><span className="ellipsis">{x.name}</span><span className={cls('tag tr-tag-sm', !x.paper && 'tr-tag-live')}>{x.paper ? '模拟' : '实盘'}</span></span>
                   <span className={cls('tr-small', w ? 'faint' : 'run-muted')}>{w ?? `可用 ${num(x.available)} ${x.currency}`}</span>
                 </button>
               )
             })}
           </div>
+          {accounts.some((x) => why(x, s)) && (
+            <button className="act act-quiet tr-acct-more" onClick={() => setShowBlocked(!showBlocked)}>
+              {showBlocked ? '收起不可用的账户' : `其他 ${accounts.filter((x) => why(x, s)).length} 个账户不可用`}
+            </button>
+          )}
         </div>
         {s && (
           <div className="field">

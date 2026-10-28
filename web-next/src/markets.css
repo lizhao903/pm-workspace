@@ -10,7 +10,8 @@
 /* ---------- 看盘页骨架 ---------- */
 .mk-page { display: flex; flex-direction: column; height: 100%; min-height: 0; overflow: hidden; font-variant-numeric: tabular-nums; }
 .mk-top { flex: none; display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--line); background: var(--panel); }
-.mk-list-toggle { display: none; height: 30px; gap: 6px; }
+.mk-list-toggle { display: none; height: 30px; gap: 6px; min-width: 0; max-width: 62vw; white-space: nowrap; }
+.mk-list-toggle .faint { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .mk-body { flex: 1; min-height: 0; display: grid; grid-template-columns: 264px minmax(0, 1fr) 300px; }
 .mk-body-opt { grid-template-columns: minmax(0, 1fr) 300px; }
 .mk-left { display: flex; flex-direction: column; min-height: 0; border-right: 1px solid var(--line); background: var(--panel); }
@@ -22,7 +23,10 @@
 /* ---------- 左栏：自选 ---------- */
 .mk-watch { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 8px; padding: 10px; }
 .mk-groups { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; }
-.mk-groups .chip { display: inline-flex; align-items: center; gap: 5px; height: 26px; padding: 0 9px; font-size: 12px; }
+.mk-groups .chip { display: inline-flex; align-items: center; gap: 5px; height: 26px; padding: 0 9px; font-size: 12px; white-space: nowrap; max-width: 160px; min-width: 0; }
+.mk-group-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.mk-groups .chip .seg-n { flex: none; }
+.mk-groups .mk-group-more { max-width: 140px; }
 .mk-rename { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
 .mk-rename input { flex: 1; min-width: 100px; height: 28px; padding: 0 8px; border: 1px solid var(--accent-line); border-radius: var(--r-sm); background: var(--panel); outline: 0; box-shadow: 0 0 0 3px var(--accent-soft); }
 .mk-mf { align-self: stretch; }
@@ -252,6 +256,13 @@ button.mo-cell:hover { border-color: var(--line-2); box-shadow: var(--shadow-sm)
 .mo-ev-text { color: var(--muted); word-break: break-word; }
 .mo-ev.unread .mo-ev-text { color: var(--text); font-weight: 600; }
 .mo-ev-meta { display: flex; flex-wrap: wrap; gap: 2px 12px; font-size: 11.5px; color: var(--faint); }
+.mo-ev-day { padding: 10px 0 4px; font-size: 11.5px; font-weight: 600; color: var(--muted); }
+.mo-ev-day:first-child { padding-top: 0; }
+.mo-ev:has(+ .mo-ev-day)::before { display: none; }
+.mo-more { align-self: flex-start; margin-top: 8px; }
+.mo-more .faint { margin-left: 4px; }
+.mo-rules-bar { flex-wrap: wrap; }
+.mo-rules-search { width: 220px; max-width: 100%; }
 
 .mo-drawer { position: fixed; top: 0; right: 0; bottom: 0; width: min(var(--drawer-w), 100%); z-index: 40; box-shadow: var(--shadow-lg); }
 .mo-drawer .field select { width: 100%; min-width: 0; }

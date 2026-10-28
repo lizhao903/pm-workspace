@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import { PageTitle } from './topbar'
 import { Subnav } from './subnav'
 import { cls, timeAgo } from './ui'
@@ -11,6 +11,7 @@ import {
 import './strategy.css'
 import { StrategyRunsPanel } from './strategyruns'
 import { newId } from './ids'
+import { SearchSelect } from './searchselect'
 
 // 交易员 > 策略：策略库、策略编辑（条件规则 / 代码）、回测记录、回测报告
 // 回测的排队、进度和调用 runBacktest 由主会话负责，这里只发起和展示
@@ -168,22 +169,54 @@ function Spark({ values, color = 'var(--accent)' }: { values: number[]; color?: 
   return <svg className="sg-spark" viewBox="0 0 100 30" preserveAspectRatio="none"><path d={d} fill="none" style={{ stroke: color }} strokeWidth={1.4} vectorEffect="non-scaling-stroke" /></svg>
 }
 
+/** 标的标签：一行放得下几个放几个，放不下的收进 +N；第一个太长时省略号截断 */
+function SymTags({ symbols, empty }: { symbols: string[]; empty?: string }) {
+  const ref = useRef<HTMLSpanElement>(null)
+  const head = symbols.slice(0, 6)
+  const [hidden, setHidden] = useState(Math.max(0, symbols.length - 2))
+  const key = head.join('|')
+  useLayoutEffect(() => {
+    const el = ref.current
+    if (!el) return
+    const measure = () => {
+      const tags = [...el.children] as HTMLElement[]
+      const top = tags[0]?.offsetTop ?? 0
+      const n = tags.filter((t) => t.offsetTop > top).length + symbols.length - head.length
+      setHidden((h) => (h === n ? h : n))
+    }
+    measure()
+    const ro = new ResizeObserver(measure)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [key, symbols.length])
+  if (!symbols.length) return <span className="sg-syms">{empty && <span className="faint">{empty}</span>}</span>
+  return (
+    <span className="sg-syms" title={symbols.map(instName).join('、')}>
+      <span className="sg-syms-line" ref={ref}>{head.map((x) => <span key={x} className="tag">{instName(x)}</span>)}</span>
+      {hidden > 0 && <span className="faint sg-syms-more">+{hidden}</span>}
+    </span>
+  )
+}
+
 /* ---------- 二级菜单 ---------- */
 
+/** 菜单里「最近编辑」放几个 */
+const NAV_RECENT = 5
+
+// 菜单只放视图和最近编辑的几个策略，完整列表在策略库的表里搜、筛
 export function StrategyNav({ strategies, backtests, runs = [], view, onSelect, onNew }: { strategies: Strategy[]; backtests: Backtest[]; runs?: StrategyRun[]; view: StrategyView; onSelect: (v: StrategyView) => void; onNew: () => void }) {
   const running = backtests.filter((b) => b.status === 'running').length
   const live = runs.filter((r) => r.status === 'running').length
   const broken = runs.filter((r) => r.status === 'error').length
-  const groupOf = (s: Strategy) => s.tags[0] || '未分类'
-  const groups = [...new Set(strategies.map(groupOf))]
-  const sorted = groups.flatMap((g) => strategies.filter((s) => groupOf(s) === g))
-  const active: StrategyView = view.startsWith('bt:') ? 'backtests' : view
+  const recent = [...strategies].sort((a, b) => b.updated_at.localeCompare(a.updated_at)).slice(0, NAV_RECENT)
+  // 打开的策略不在最近编辑里时，高亮「策略库」
+  const active: StrategyView = view.startsWith('bt:') ? 'backtests' : view.startsWith('st:') && !recent.some((s) => `st:${s.id}` === view) ? 'list' : view
   return (
     <Subnav title="策略" active={active} onSelect={onSelect} items={[
-      { key: 'list' as StrategyView, label: '策略库', desc: `${strategies.length} 个策略` },
-      { key: 'backtests' as StrategyView, label: '回测记录', alert: running, title: running ? `${running} 个回测运行中` : undefined, desc: running ? `${running} 个运行中` : undefined },
-      { key: 'runs' as StrategyView, label: '运行记录', alert: broken, title: broken ? `${broken} 个运行异常` : undefined, desc: live ? `${live} 个在实盘或模拟盘跑` : undefined },
-      ...sorted.map((s) => ({ key: `st:${s.id}` as StrategyView, label: s.name || '未命名策略', desc: `${MODE_LABEL[s.mode]} · ${INTERVALS[s.interval].label}`, group: groupOf(s) })),
+      { key: 'list' as StrategyView, label: '策略库', desc: `${strategies.length} 个策略`, group: '视图' },
+      { key: 'backtests' as StrategyView, label: '回测记录', alert: running, title: running ? `${running} 个回测运行中` : undefined, desc: running ? `${running} 个运行中` : undefined, group: '视图' },
+      { key: 'runs' as StrategyView, label: '运行记录', alert: broken, title: broken ? `${broken} 个运行异常` : undefined, desc: live ? `${live} 个在实盘或模拟盘跑` : undefined, group: '视图' },
+      ...recent.map((s) => ({ key: `st:${s.id}` as StrategyView, label: s.name || '未命名策略', desc: `${MODE_LABEL[s.mode]} · ${INTERVALS[s.interval].label}`, group: '最近编辑', title: s.name })),
     ]}>
       <button className="subnav-new" onClick={onNew}><PlusIcon s={13} />新建策略</button>
     </Subnav>
@@ -242,11 +275,7 @@ export function StrategyListPage({ strategies, backtests, onOpen, onNew }: { str
                   <span className="task-meta"><span className="ellipsis">{s.desc || '没有说明'}</span></span>
                 </span>
                 <span><span className={cls('tag', s.mode === 'code' && 'sg-tag-code')}>{MODE_LABEL[s.mode]}</span></span>
-                <span className="sg-syms">
-                  {s.symbols.slice(0, 2).map((x) => <span key={x} className="tag" title={x}>{instName(x)}</span>)}
-                  {s.symbols.length > 2 && <span className="faint">+{s.symbols.length - 2}</span>}
-                  {!s.symbols.length && <span className="faint">未选标的</span>}
-                </span>
+                <SymTags symbols={s.symbols} empty="未选标的" />
                 <span className="run-muted">{INTERVALS[s.interval].label}</span>
                 <span className="run-muted">{DIR_LABEL[s.direction]}</span>
                 <span className="sg-last">
@@ -674,12 +703,16 @@ function LastPanel({ st, bt, onOpen }: { st: Strategy; bt?: Backtest; onOpen: (i
 
 type BtFilter = 'all' | BacktestStatus
 
+/** 回测记录先露这么多条 */
+const BT_PAGE = 50
+
 export function BacktestsPage({ backtests, strategies, onOpen }: { backtests: Backtest[]; strategies: Strategy[]; onOpen: (id: string) => void; onCompare?: never }) {
   const [st, setSt] = useState<BtFilter>('all')
   const [sid, setSid] = useState('')
   const [q, setQ] = useState('')
   const [picked, setPicked] = useState<string[]>([])
   const [comparing, setComparing] = useState(false)
+  const [limit, setLimit] = useState(BT_PAGE)
   const kw = q.trim().toLowerCase()
   const stName = (b: Backtest) => strategies.find((s) => s.id === b.config.strategy_id)?.name ?? b.strategy_snapshot.name
   const rows = backtests
@@ -697,20 +730,16 @@ export function BacktestsPage({ backtests, strategies, onOpen }: { backtests: Ba
       <div className="toolbar">
         <div className="seg sg-seg-wrap">
           {([['all', '全部'], ['running', '运行中'], ['queued', '排队中'], ['done', '已完成'], ['failed', '失败']] as [BtFilter, string][]).map(([k, l]) => (
-            <button key={k} className={cls(st === k && 'on')} onClick={() => setSt(k)}>{l}<span className="seg-n">{backtests.filter((b) => k === 'all' || b.status === k).length}</span></button>
+            <button key={k} className={cls(st === k && 'on')} onClick={() => { setSt(k); setLimit(BT_PAGE) }}>{l}<span className="seg-n">{backtests.filter((b) => k === 'all' || b.status === k).length}</span></button>
           ))}
         </div>
-        <label className={cls('chip chip-select', sid && 'chip-on')}>
-          <select value={sid} onChange={(e) => setSid(e.target.value)}>
-            <option value="">全部策略</option>
-            {sids.map((x) => <option key={x} value={x}>{strategies.find((s) => s.id === x)?.name ?? backtests.find((b) => b.config.strategy_id === x)?.strategy_snapshot.name ?? x}</option>)}
-          </select>
-        </label>
+        <SearchSelect value={sid} noneLabel="全部策略" searchPlaceholder="搜策略名" onChange={(v) => { setSid(v); setLimit(BT_PAGE) }}
+          options={sids.map((x) => ({ value: x, label: strategies.find((s) => s.id === x)?.name ?? backtests.find((b) => b.config.strategy_id === x)?.strategy_snapshot.name ?? x, hint: `${backtests.filter((b) => b.config.strategy_id === x).length} 次` }))} />
         {picked.length > 0 && <button className="act act-quiet" onClick={() => { setPicked([]); setComparing(false) }}>清除勾选 {picked.length}</button>}
         <span className="spacer" />
         <div className="search">
           <svg viewBox="0 0 16 16" width="14" height="14"><circle cx="7" cy="7" r="4.5" fill="none" stroke="currentColor" strokeWidth="1.5" /><path d="M10.5 10.5 14 14" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" /></svg>
-          <input placeholder="搜回测名、策略、标的" value={q} onChange={(e) => setQ(e.target.value)} />
+          <input placeholder="搜回测名、策略、标的" value={q} onChange={(e) => { setQ(e.target.value); setLimit(BT_PAGE) }} />
         </div>
       </div>
       {!rows.length ? (
@@ -721,7 +750,7 @@ export function BacktestsPage({ backtests, strategies, onOpen }: { backtests: Ba
       ) : (
         <div className="sg-table">
           <div className="bt-row sg-th"><span /><span>回测</span><span>标的</span><span>区间</span><span>状态</span><span>收益</span><span>回撤</span><span>夏普</span><span>时间</span></div>
-          {rows.map((b) => {
+          {rows.slice(0, limit).map((b) => {
             const s = b.result?.stats
             const can = b.status === 'done' && !!b.result
             const on = picked.includes(b.id)
@@ -734,10 +763,7 @@ export function BacktestsPage({ backtests, strategies, onOpen }: { backtests: Ba
                   <span className="task-title"><span className="ellipsis">{b.name}</span></span>
                   <span className="task-meta"><span className="ellipsis">{stName(b)}</span></span>
                 </span>
-                <span className="sg-syms">
-                  {b.config.symbols.slice(0, 2).map((x) => <span key={x} className="tag" title={x}>{instName(x)}</span>)}
-                  {b.config.symbols.length > 2 && <span className="faint">+{b.config.symbols.length - 2}</span>}
-                </span>
+                <SymTags symbols={b.config.symbols} />
                 <span className="run-muted sg-num">{b.config.bars} 根 · {INTERVALS[b.config.interval].label}</span>
                 <span><StatusCell b={b} /></span>
                 <span>{s ? <Signed x={s.total_return} /> : <span className="faint">-</span>}</span>
@@ -749,6 +775,7 @@ export function BacktestsPage({ backtests, strategies, onOpen }: { backtests: Ba
           })}
         </div>
       )}
+      {rows.length > limit && <button className="act act-quiet sg-more" onClick={() => setLimit(limit + BT_PAGE)}>再显示 {Math.min(BT_PAGE, rows.length - limit)} 条<span className="faint">（还有 {rows.length - limit} 条更早的）</span></button>}
     </div>
   )
 }

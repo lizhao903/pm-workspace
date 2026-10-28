@@ -1,4 +1,5 @@
-import { useState } from 'react'
+import { Fragment, useMemo, useState } from 'react'
+import { SearchSelect } from './searchselect'
 import { PageTitle } from './topbar'
 import { cls, timeAgo } from './ui'
 import {
@@ -24,6 +25,9 @@ export function DomainsPage({ settings: s, routes, protos, onSettings, onRoutes,
   const [draft, setDraft] = useState<{ host: string; kind: RouteTarget['kind']; proto: string; url: string; note: string }>({ host: '', kind: 'url', proto: '', url: 'http://127.0.0.1:', note: '' })
   const [showCfg, setShowCfg] = useState<'resolve' | 'proxy'>('resolve')
   const [checking, setChecking] = useState<string | null>(null)
+  const [q, setQ] = useState('')
+  /** 手动展开、收起过的项目组；没动过的按「有问题就展开」 */
+  const [toggled, setToggled] = useState<Record<string, boolean>>({})
   const all = allRoutes(routes, s, protos)
   const dup = conflicts(all)
   const protoOf = (id: string) => protos.find((p) => p.id === id)
@@ -44,6 +48,58 @@ export function DomainsPage({ settings: s, routes, protos, onSettings, onRoutes,
   const down = (r: DomainRoute) => r.target.kind === 'proto' && protoOf(r.target.proto_id)?.status !== 'running'
   const cfg = renderConfig(all, s, upstream)
   const suffixBad = !validSuffix(s.suffix)
+  // 原型选项按项目分组，同一项目的排在一起
+  const protoOptions = useMemo(() => {
+    const order = [...new Set(protos.map((p) => p.project))]
+    return [...protos].sort((a, b) => order.indexOf(a.project) - order.indexOf(b.project))
+      .map((p) => ({ value: p.id, label: p.name, hint: `:${p.port}`, group: p.project, keywords: `${p.project} ${p.port}` }))
+  }, [protos])
+  const kw = q.trim().toLowerCase()
+  const hit = (r: DomainRoute) => !kw || `${fqdn(r, s)} ${targetLabel(r)} ${r.note ?? ''}`.toLowerCase().includes(kw)
+  const problem = (r: DomainRoute) => (dup.has(r.host) && r.enabled) || (!!r.check && !r.check.ok)
+  const manual = all.filter((r) => !r.auto && hit(r))
+  const autoAll = all.filter((r) => r.auto)
+  // 自动分配的按项目分组，默认收起；有冲突或测试失败的组、搜索命中的组自动展开
+  const autoGroups = (() => {
+    const by = new Map<string, DomainRoute[]>()
+    autoAll.filter(hit).forEach((r) => {
+      const p = r.target.kind === 'proto' ? protoOf(r.target.proto_id)?.project ?? '已删除的项目' : '其他'
+      by.set(p, [...(by.get(p) ?? []), r])
+    })
+    return [...by].map(([name, xs]) => ({ name, xs, bad: xs.filter(problem).length, on: xs.filter((r) => r.enabled).length }))
+  })()
+  // 原型域名不多时（12 个以内）默认全展开
+  const groupOpen = (g: { name: string; bad: number }) => toggled[g.name] ?? (!!kw || g.bad > 0 || autoAll.length <= 12)
+  const row = (r: DomainRoute) => {
+    const bad = dup.has(r.host) && r.enabled
+    return (
+      <div key={r.id} className={cls('dm-row', !r.enabled && 'dm-row-off', bad && 'bad')}>
+          <label className="switch-line" title={r.enabled ? '停用' : '启用'}><input type="checkbox" checked={r.enabled} onChange={(e) => patch(r, { enabled: e.target.checked })} /><span className="switch" /></label>
+          <span className="dm-host">
+            <button className="link-btn mono ellipsis" disabled={!s.enabled || !r.enabled} onClick={() => onOpenUrl(domainUrl(r, s), fqdn(r, s))}>{fqdn(r, s)}</button>
+            <span className="list-sub ellipsis">
+              {r.auto && <span className="tag">自动</span>}{r.note}
+              {bad && <span className="danger-text"> 和另一条同名</span>}
+              {down(r) && <span className="run-muted"> 原型没在运行</span>}
+            </span>
+          </span>
+          <span className="dm-target ellipsis mono">{targetLabel(r)}</span>
+          <span className={cls('dm-check', r.check && (r.check.ok ? 'ok' : 'warn'))} title={r.check?.message}>
+            {checking === r.id ? '测试中…' : r.check ? `${r.check.ok ? '正常' : '有问题'} · ${timeAgo(r.check.at)}` : ''}
+          </span>
+          <span className="dm-acts">
+            <button className="act act-quiet" disabled={checking === r.id} onClick={() => check(r)}>测试</button>
+            <button className="act act-quiet" onClick={() => navigator.clipboard?.writeText(domainUrl(r, s))}>复制</button>
+            {!r.auto && r.target.kind !== 'app' && (
+              <button className="icon-btn icon-btn-sm" title="删除" onClick={() => onRoutes((xs) => xs.filter((y) => y.id !== r.id))}>
+                <svg viewBox="0 0 16 16" width="11" height="11"><path d="m4 4 8 8M12 4l-8 8" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" /></svg>
+              </button>
+            )}
+          </span>
+          {r.check && !r.check.ok && <span className="dm-check-msg">{r.check.message}</span>}
+      </div>
+    )
+  }
   const hostErr = !draft.host ? '' : !validHost(draft.host) ? '只能用小写字母、数字和连字符' : all.some((r) => r.host === draft.host) ? '已经有这个域名了' : ''
 
   const patch = (r: DomainRoute, x: Partial<DomainRoute>) => {
@@ -128,6 +184,10 @@ export function DomainsPage({ settings: s, routes, protos, onSettings, onRoutes,
       <section className={cls('hook-sec dm-routes', !s.enabled && 'dm-off')}>
         <div className="mount-head">
           <div className="field-group-title">域名<span className="field-hint">{all.filter((r) => r.enabled).length} 个启用</span></div>
+          <div className="search search-sm">
+            <svg viewBox="0 0 16 16" width="13" height="13"><circle cx="7" cy="7" r="4.5" fill="none" stroke="currentColor" strokeWidth="1.5" /><path d="M10.5 10.5 14 14" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" /></svg>
+            <input placeholder="搜域名、目标地址或端口" value={q} onChange={(e) => setQ(e.target.value)} />
+          </div>
           <label className="switch-line"><input type="checkbox" checked={s.auto_proto} onChange={(e) => set({ auto_proto: e.target.checked })} /><span className="switch" />项目原型自动分配</label>
           <button className="act" onClick={() => setAdding(!adding)}>加一个</button>
         </div>
@@ -143,10 +203,9 @@ export function DomainsPage({ settings: s, routes, protos, onSettings, onRoutes,
             </div>
             {draft.kind === 'url' && <input className="text-box mono" value={draft.url} onChange={(e) => setDraft({ ...draft, url: e.target.value })} />}
             {draft.kind === 'proto' && (
-              <select className="text-box" value={draft.proto} onChange={(e) => setDraft({ ...draft, proto: e.target.value })}>
-                <option value="">选原型…</option>
-                {protos.map((p) => <option key={p.id} value={p.id}>{p.project} / {p.name}（:{p.port}）</option>)}
-              </select>
+              <SearchSelect variant="field" className="text-box" value={draft.proto} placeholder="选原型…" searchPlaceholder="搜原型、项目、端口"
+                options={protoOptions} emptyText="还没有项目原型" missingLabel={() => '已删除的原型'}
+                onChange={(v) => setDraft({ ...draft, proto: v })} />
             )}
             <input className="text-box" placeholder="备注（可选）" value={draft.note} onChange={(e) => setDraft({ ...draft, note: e.target.value })} />
             {hostErr && <span className="danger-text">{hostErr}</span>}
@@ -155,38 +214,39 @@ export function DomainsPage({ settings: s, routes, protos, onSettings, onRoutes,
           </div>
         )}
 
-        <div className="dm-table">
-          {all.map((r) => {
-            const bad = dup.has(r.host) && r.enabled
-            return (
-              <div key={r.id} className={cls('dm-row', !r.enabled && 'dm-row-off', bad && 'bad')}>
-                <label className="switch-line" title={r.enabled ? '停用' : '启用'}><input type="checkbox" checked={r.enabled} onChange={(e) => patch(r, { enabled: e.target.checked })} /><span className="switch" /></label>
-                <span className="dm-host">
-                  <button className="link-btn mono ellipsis" disabled={!s.enabled || !r.enabled} onClick={() => onOpenUrl(domainUrl(r, s), fqdn(r, s))}>{fqdn(r, s)}</button>
-                  <span className="list-sub ellipsis">
-                    {r.auto && <span className="tag">自动</span>}{r.note}
-                    {bad && <span className="danger-text"> 和另一条同名</span>}
-                    {down(r) && <span className="run-muted"> 原型没在运行</span>}
-                  </span>
-                </span>
-                <span className="dm-target ellipsis mono">{targetLabel(r)}</span>
-                <span className={cls('dm-check', r.check && (r.check.ok ? 'ok' : 'warn'))} title={r.check?.message}>
-                  {checking === r.id ? '测试中…' : r.check ? `${r.check.ok ? '正常' : '有问题'} · ${timeAgo(r.check.at)}` : ''}
-                </span>
-                <span className="dm-acts">
-                  <button className="act act-quiet" disabled={checking === r.id} onClick={() => check(r)}>测试</button>
-                  <button className="act act-quiet" onClick={() => navigator.clipboard?.writeText(domainUrl(r, s))}>复制</button>
-                  {!r.auto && r.target.kind !== 'app' && (
-                    <button className="icon-btn icon-btn-sm" title="删除" onClick={() => onRoutes((xs) => xs.filter((y) => y.id !== r.id))}>
-                      <svg viewBox="0 0 16 16" width="11" height="11"><path d="m4 4 8 8M12 4l-8 8" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" /></svg>
-                    </button>
-                  )}
-                </span>
-                {r.check && !r.check.ok && <span className="dm-check-msg">{r.check.message}</span>}
+        <div className="section-label">手动配置 {manual.length}{kw && <span className="field-hint">搜索「{q.trim()}」</span>}</div>
+        {manual.length ? <div className="dm-table">{manual.map((r) => row(r))}</div> : <div className="mount-empty">{kw ? '没有匹配的手动域名' : '还没有手动配置的域名'}</div>}
+
+        {s.auto_proto && (
+          <>
+            <div className="section-label">项目原型自动分配 {autoAll.length}<span className="field-hint">跟着原型走，不用手动维护；改了某一条就转成手动配置</span></div>
+            {autoGroups.length ? (
+              <div className="dm-table">
+                {autoGroups.map((g) => {
+                  const open = groupOpen(g)
+                  const flip = () => setToggled({ ...toggled, [g.name]: !open })
+                  return (
+                    <Fragment key={g.name}>
+                      <div className={cls('dm-row', g.bad > 0 && 'bad')}>
+                        <button className="icon-btn icon-btn-sm" onClick={flip} title={open ? '收起' : '展开'} aria-expanded={open}>
+                          <svg viewBox="0 0 16 16" width="11" height="11" style={{ transform: open ? 'rotate(90deg)' : undefined }}><path d="m6 3.5 4.5 4.5L6 12.5" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" /></svg>
+                        </button>
+                        <span className="dm-host">
+                          <button className="link-btn ellipsis" onClick={flip}><b>{g.name}</b></button>
+                          <span className="list-sub ellipsis">{g.xs.length} 个域名，{g.on} 个启用</span>
+                        </span>
+                        <span className={cls('dm-target', g.bad > 0 && 'danger-text')}>{g.bad ? `${g.bad} 个冲突或测试失败` : '没有问题'}</span>
+                        <span />
+                        <span className="dm-acts"><button className="act act-quiet" onClick={flip}>{open ? '收起' : '展开'}</button></span>
+                      </div>
+                      {open && g.xs.map((r) => row(r))}
+                    </Fragment>
+                  )
+                })}
               </div>
-            )
-          })}
-        </div>
+            ) : <div className="mount-empty">{kw ? '没有匹配的原型域名' : '项目里还没有原型'}</div>}
+          </>
+        )}
       </section>
 
       <section className={cls('hook-sec', !s.enabled && 'dm-off')}>

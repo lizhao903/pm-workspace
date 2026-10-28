@@ -146,6 +146,20 @@ button.vp-cover.on { border-color: var(--accent); box-shadow: 0 0 0 2px var(--ac
 .vp-met { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; text-align: right; font-size: 12.5px; }
 .vp-met em { display: none; font-style: normal; color: var(--faint); margin-right: 4px; }
 .vp-met-th { font-size: 11.5px; }
+.vp-search { width: 220px; }
+/* 按视频分组：组标题一行，下面露几条 */
+.vp-group-row { display: flex; align-items: center; gap: 8px; min-width: 0; padding: 10px 16px 8px; border-bottom: 1px solid var(--line); background: var(--panel-2); }
+.vp-group-title { min-width: 0; font-weight: 600; font-size: 13px; text-align: left; }
+.vp-group-plats { display: flex; gap: 4px; flex: none; flex-wrap: wrap; }
+.vp-group-n { flex: none; font-size: 12px; }
+.vp-more, .vp-eps-more { width: 100%; padding: 10px; color: var(--muted); font-size: 12.5px; text-align: center; }
+.vp-more:hover { color: var(--accent); background: var(--accent-soft); }
+.vp-eps-more { padding: 8px 0 0; text-align: left; color: var(--faint); font-size: 12px; }
+@media (max-width: 760px) {
+  .vp-search { width: 100%; }
+  .vp-group-row { flex-wrap: wrap; padding: 10px 14px 8px; }
+  .vp-group-title { flex: 1 1 100%; }
+}
 
 @container (max-width: 900px) {
   .vp-row.task-th { display: none; }

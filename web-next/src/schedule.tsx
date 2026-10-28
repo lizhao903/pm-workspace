@@ -1,4 +1,6 @@
 import { useState } from 'react'
+import { SearchSelect } from './searchselect'
+import { ListSegHead } from './tasks'
 import {
   ACTION_LABEL, FREQ_LABEL, WEEK, describeRule, emptyRule, nextRun, ruleError, whenText,
   type Freq, type Schedule, type ScheduleAction,
@@ -27,32 +29,64 @@ export function SchedulesPage({ schedules, sops, agents, selected, onOpen, onNew
   onNew: () => void
   onToggle: (id: string, on: boolean) => void
 }) {
-  const rows = [...schedules].sort((a, b) => Number(b.enabled) - Number(a.enabled) || (nextRun(a.rule)?.getTime() ?? Infinity) - (nextRun(b.rule)?.getTime() ?? Infinity))
+  const [q, setQ] = useState('')
+  const [kind, setKind] = useState<'' | ScheduleAction['kind']>('')
+  // 停用的沉到底部，默认收起
+  const [offOpen, setOffOpen] = useState(false)
+  const kw = q.trim().toLowerCase()
+  const hit = (s: Schedule) => (!kind || s.action.kind === kind) && (!kw || `${s.name} ${describeRule(s.rule)} ${actionText(s.action, sops, agents)}`.toLowerCase().includes(kw))
+  const sorted = schedules.filter(hit).sort((a, b) => (nextRun(a.rule)?.getTime() ?? Infinity) - (nextRun(b.rule)?.getTime() ?? Infinity))
+  const on = sorted.filter((s) => s.enabled)
+  const off = sorted.filter((s) => !s.enabled)
+  const row = (s: Schedule) => {
+    const last = s.history[0]
+    const next = s.enabled ? nextRun(s.rule) : null
+    return (
+      <div key={s.id} className={cls('sched-row', selected === s.id && 'sel', !s.enabled && 'is-off')} onClick={() => onOpen(s.id)}>
+        <span className="task-main"><span className="task-title"><span className="ellipsis" title={s.name}>{s.name}</span></span></span>
+        <span className="run-muted ellipsis">{describeRule(s.rule)}</span>
+        <span className="sched-action"><span className={`sched-kind sk-${s.action.kind}`}>{ACTION_LABEL[s.action.kind]}</span><span className="ellipsis run-muted">{actionText(s.action, sops, agents)}</span></span>
+        <span className={cls('run-muted', s.enabled && next && 'sched-next')}>{s.enabled ? whenText(next) : '已停用'}</span>
+        <span className={cls('run-muted', last && !last.ok && 'danger-text')} title={last?.text}>{last ? `${timeAgo(last.at)}${last.ok ? '' : ' 失败'}` : '还没执行过'}</span>
+        <span onClick={(e) => e.stopPropagation()}>
+          <label className="switch-line"><input type="checkbox" checked={s.enabled} onChange={(e) => onToggle(s.id, e.target.checked)} /><span className="switch" /></label>
+        </span>
+      </div>
+    )
+  }
   return (
     <div className="page page-fill">
       <PageTitle parent="任务" count={schedules.length} desc="到点自动建任务、执行 SOP，或者让 Agent 去做；它建的任务来源标为「定时」"
         actions={<button className="btn btn-primary" onClick={onNew}>新建定时任务</button>}>定时任务</PageTitle>
-      {!rows.length ? (
+      {schedules.length > 0 && (
+        <div className="toolbar">
+          <div className="seg">
+            {([['', '全部'], ...(Object.keys(ACTION_LABEL) as ScheduleAction['kind'][]).map((k) => [k, ACTION_LABEL[k]])] as ['' | ScheduleAction['kind'], string][]).map(([k, l]) => (
+              <button key={k} className={cls(kind === k && 'on')} onClick={() => setKind(k)}>{l}<span className="seg-n">{k ? schedules.filter((s) => s.action.kind === k).length : schedules.length}</span></button>
+            ))}
+          </div>
+          <span className="spacer" />
+          <div className="search">
+            <svg viewBox="0 0 16 16" width="14" height="14"><circle cx="7" cy="7" r="4.5" fill="none" stroke="currentColor" strokeWidth="1.5" /><path d="M10.5 10.5 14 14" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" /></svg>
+            <input placeholder="搜索名称、规则、要做的事" value={q} onChange={(e) => setQ(e.target.value)} />
+          </div>
+        </div>
+      )}
+      {!schedules.length ? (
         <div className="empty"><div className="empty-title">还没有定时任务</div><div className="list-sub">比如每周一 9 点建一条「整理周会议程」，或者每周五让周报助手写周报</div></div>
+      ) : !sorted.length ? (
+        <div className="empty"><div className="empty-title">没有匹配的定时任务</div><div className="list-sub">换个筛选条件试试</div></div>
       ) : (
         <div className="task-table">
           <div className="sched-row task-th"><span>名称</span><span>什么时候</span><span>做什么</span><span>下次执行</span><span>上次</span><span>启用</span></div>
-          {rows.map((s) => {
-            const last = s.history[0]
-            const next = s.enabled ? nextRun(s.rule) : null
-            return (
-              <div key={s.id} className={cls('sched-row', selected === s.id && 'sel', !s.enabled && 'is-off')} onClick={() => onOpen(s.id)}>
-                <span className="task-main"><span className="task-title"><span className="ellipsis">{s.name}</span></span></span>
-                <span className="run-muted ellipsis">{describeRule(s.rule)}</span>
-                <span className="sched-action"><span className={`sched-kind sk-${s.action.kind}`}>{ACTION_LABEL[s.action.kind]}</span><span className="ellipsis run-muted">{actionText(s.action, sops, agents)}</span></span>
-                <span className={cls('run-muted', s.enabled && next && 'sched-next')}>{s.enabled ? whenText(next) : '已停用'}</span>
-                <span className={cls('run-muted', last && !last.ok && 'danger-text')} title={last?.text}>{last ? `${timeAgo(last.at)}${last.ok ? '' : ' 失败'}` : '还没执行过'}</span>
-                <span onClick={(e) => e.stopPropagation()}>
-                  <label className="switch-line"><input type="checkbox" checked={s.enabled} onChange={(e) => onToggle(s.id, e.target.checked)} /><span className="switch" /></label>
-                </span>
-              </div>
-            )
-          })}
+          {on.map(row)}
+          {off.length > 0 && (
+            <div role="group" aria-label="已停用">
+              {/* 搜索时停用的也展开，免得命中的藏在收起的段里 */}
+              <ListSegHead label="已停用" n={off.length} open={offOpen || !!kw} onToggle={() => setOffOpen(!offOpen)} />
+              {(offOpen || !!kw) && off.map(row)}
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -180,20 +214,20 @@ export function ScheduleDrawer({ schedule, sops, agents, assignees, onClose, onS
             </>
           )}
           {a.kind === 'sop' && (
-            <label className="field"><span className="field-label">执行哪个 SOP</span>
-              <select value={a.sop_id} onChange={(e) => setD({ ...d, action: { ...a, sop_id: e.target.value } })}>
-                {sops.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
-              </select>
+            <div className="field"><span className="field-label">执行哪个 SOP</span>
+              <SearchSelect variant="field" value={a.sop_id} placeholder="选一个 SOP" searchPlaceholder="搜 SOP" aria-label="执行哪个 SOP"
+                options={sops.map((s) => ({ value: s.id, label: s.name }))} missingLabel={() => '已删除的 SOP'}
+                onChange={(v) => setD({ ...d, action: { ...a, sop_id: v } })} />
               <span className="field-hint-line">用 SOP 输入字段的默认值执行；流程里的人工检查点照常停下等你</span>
-            </label>
+            </div>
           )}
           {a.kind === 'agent' && (
             <>
-              <label className="field"><span className="field-label">交给哪个 Agent</span>
-                <select value={a.agent_id} onChange={(e) => setD({ ...d, action: { ...a, agent_id: e.target.value } })}>
-                  {agents.map((x) => <option key={x.id} value={x.id} disabled={x.enabled === false}>{x.name}{x.enabled === false ? '（已停用）' : ''}</option>)}
-                </select>
-              </label>
+              <div className="field"><span className="field-label">交给哪个 Agent</span>
+                <SearchSelect variant="field" value={a.agent_id} placeholder="选一个 Agent" searchPlaceholder="搜 Agent" aria-label="交给哪个 Agent"
+                  options={agents.map((x) => ({ value: x.id, label: x.name, hint: x.enabled === false ? '已停用' : undefined, disabled: x.enabled === false }))}
+                  missingLabel={() => '已删除的 Agent'} onChange={(v) => setD({ ...d, action: { ...a, agent_id: v } })} />
+              </div>
               <label className="field"><span className="field-label">要它做什么<em>*</em></span>
                 <textarea rows={3} value={a.prompt} className={cls(tried && !a.prompt.trim() && 'bad')} placeholder="比如：汇总这周的任务，写成周报草稿" onChange={(e) => setD({ ...d, action: { ...a, prompt: e.target.value } })} />
                 <span className="field-hint-line">执行结果在「会话 / 执行记录」里，写操作按 Agent 的权限等你确认</span>

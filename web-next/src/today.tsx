@@ -20,28 +20,44 @@ export interface TodayItem {
 }
 export interface TodayLine { id: string; title: string; sub: string; href?: string; onClick?: () => void }
 
+/** 每组需要处理的事露几条，今天的任务露几条，自动执行、正在运行各露几条 */
+const NEED_SHOW = 3
+const TASK_SHOW = 8
+const LINE_SHOW = 5
+const TONE_RANK = { danger: 0, warn: 1, info: 2 }
+/** 组内排序：异常在前，同级按时间新的在前，没时间的放最后 */
+const byUrgency = (a: TodayItem, b: TodayItem) => TONE_RANK[a.tone] - TONE_RANK[b.tone] || (b.at ?? '').localeCompare(a.at ?? '')
+
 const today = () => new Date().toISOString().slice(0, 10)
 function greet() {
   const h = new Date().getHours()
   return h < 6 ? '夜深了' : h < 11 ? '早上好' : h < 13 ? '中午好' : h < 18 ? '下午好' : '晚上好'
 }
 
-export function TodayPage({ needs, tasks, schedules, running, onOpenTask, onDoneTask, onAllTasks }: {
+export function TodayPage({ needs, tasks, schedules, running, more, onOpenTask, onDoneTask, onAllTasks, onAllSchedules, onAllRunning }: {
   needs: TodayItem[]
   tasks: Task[]
   schedules: TodayLine[]
   running: TodayLine[]
+  /** 分组名 -> 「查看全部」跳到能批量处理的地方；没给的组不显示入口 */
+  more?: Partial<Record<string, () => void>>
   onOpenTask: (id: string) => void
   onDoneTask: (id: string) => void
-  onAllTasks: () => void
+  /** due：带上「逾期」筛选打开任务页 */
+  onAllTasks: (view?: 'due') => void
+  onAllSchedules?: () => void
+  onAllRunning?: () => void
 }) {
   const statusEnum = useEnumView('task_status')
   const t = today()
   const open = tasks.filter((x) => isOpenTask(x.status))
-  const overdue = open.filter((x) => x.due && x.due < t)
+  const overdue = open.filter((x) => x.due && x.due < t).sort((a, b) => a.due!.localeCompare(b.due!))
   const dueToday = open.filter((x) => x.due === t)
   const hot = open.filter((x) => !overdue.includes(x) && !dueToday.includes(x) && (x.priority === 'P0' || (x.priority === 'P1' && x.status === 'doing')))
-  const groups = [...new Set(needs.map((n) => n.kind))]
+  const groups = [...new Set(needs.map((n) => n.kind))].map((g) => ({ g, items: needs.filter((n) => n.kind === g).sort(byUrgency) }))
+  // 逾期（截止早的在前）、今天截止、进行中的高优先级合起来只露前几条
+  const dayTasks = [...overdue.map((x) => [x, '逾期'] as const), ...dueToday.map((x) => [x, '今天'] as const), ...hot.map((x) => [x, x.status === 'doing' ? statusEnum.label('doing') : undefined] as const)]
+  const restTasks = dayTasks.length - TASK_SHOW
   const date = new Date().toLocaleDateString('zh-CN', { month: 'long', day: 'numeric', weekday: 'long' })
 
   const taskRow = (x: Task, tag?: string) => (
@@ -68,10 +84,13 @@ export function TodayPage({ needs, tasks, schedules, running, onOpenTask, onDone
       <div className="today-grid">
         <section className="hook-sec today-needs">
           <div className="field-group-title">需要你处理<span className="field-hint">按来源分组，点一条直接去处理</span></div>
-          {needs.length ? groups.map((g) => (
+          {needs.length ? groups.map(({ g, items }) => (
             <div key={g} className="today-group">
-              <div className="ability-group-name">{g}<span className="seg-n"> {needs.filter((n) => n.kind === g).length}</span></div>
-              {needs.filter((n) => n.kind === g).map((n) => (
+              <div className="today-group-head">
+                <div className="ability-group-name">{g}<span className="seg-n"> {items.length}</span></div>
+                {items.length > NEED_SHOW && more?.[g] && <button className="act act-quiet today-more" onClick={more[g]}>查看全部 {items.length} 条</button>}
+              </div>
+              {items.slice(0, NEED_SHOW).map((n) => (
                 <button key={n.id} className="today-need" onClick={n.onClick}>
                   <span className={cls('today-dot', `td-${n.tone}`)} />
                   <span className="mount-text"><span className="ellipsis today-need-title">{n.title}</span><span className="list-sub ellipsis">{n.sub}</span></span>
@@ -87,27 +106,32 @@ export function TodayPage({ needs, tasks, schedules, running, onOpenTask, onDone
           <section className="hook-sec">
             <div className="mount-head">
               <div className="field-group-title">今天的任务<span className="field-hint">逾期、今天截止、{statusEnum.label('doing')}的高优先级</span></div>
-              <button className="act act-quiet" onClick={onAllTasks}>全部任务</button>
+              <button className="act act-quiet" onClick={() => onAllTasks()}>全部任务</button>
             </div>
-            {overdue.length + dueToday.length + hot.length ? (
+            {dayTasks.length ? (
               <div className="today-tasks">
-                {overdue.map((x) => taskRow(x, '逾期'))}
-                {dueToday.map((x) => taskRow(x, '今天'))}
-                {hot.map((x) => taskRow(x, x.status === 'doing' ? statusEnum.label('doing') : undefined))}
+                {dayTasks.slice(0, TASK_SHOW).map(([x, tag]) => taskRow(x, tag))}
+                {restTasks > 0 && <button className="today-rest" onClick={() => onAllTasks(overdue.length ? 'due' : undefined)}>还有 {restTasks} 条，去任务</button>}
               </div>
             ) : <div className="today-clear">今天没有要赶的任务</div>}
           </section>
 
           <section className="hook-sec">
-            <div className="field-group-title">今天还会自动执行</div>
-            {schedules.length ? schedules.map((s) => (
+            <div className="mount-head">
+              <div className="field-group-title">今天还会自动执行</div>
+              {schedules.length > LINE_SHOW && onAllSchedules && <button className="act act-quiet" onClick={onAllSchedules}>全部 {schedules.length} 个</button>}
+            </div>
+            {schedules.length ? schedules.slice(0, LINE_SHOW).map((s) => (
               <button key={s.id} className="today-line" onClick={s.onClick}><span className="today-time">{s.sub}</span><span className="ellipsis">{s.title}</span></button>
             )) : <div className="mount-empty">今天没有定时任务</div>}
           </section>
 
           <section className="hook-sec">
-            <div className="field-group-title">正在运行</div>
-            {running.length ? running.map((r) => (
+            <div className="mount-head">
+              <div className="field-group-title">正在运行</div>
+              {running.length > LINE_SHOW && onAllRunning && <button className="act act-quiet" onClick={onAllRunning}>全部 {running.length} 个</button>}
+            </div>
+            {running.length ? running.slice(0, LINE_SHOW).map((r) => (
               r.href
                 ? <a key={r.id} className="today-line" href={r.href} target="_blank" rel="noreferrer"><span className="proto-light pl-running" /><span className="ellipsis">{r.title}</span><span className="list-sub">{r.sub}</span></a>
                 : <button key={r.id} className="today-line" onClick={r.onClick}><span className="proto-light pl-starting" /><span className="ellipsis">{r.title}</span><span className="list-sub">{r.sub}</span></button>

@@ -1,11 +1,42 @@
-import { useMemo, useState } from 'react'
+import { Fragment, useMemo, useState } from 'react'
 import { PageTitle } from './topbar'
 import { IM_CHANNELS, type Contact, type Group } from './data'
 import { useEnumView } from './enumdata'
 import { MarkEditor } from './imagepick'
 import { Avatar, GroupPill, ImBadges, ImMark, Star, ago, cls } from './ui'
+import { SearchSelect } from './searchselect'
 
 /* ---------- 联系人 ---------- */
+
+/** 分组筛选 seg 里最多放几个分组，其余收进「更多分组」 */
+const SEG_MAX = 5
+/** 表格先渲染这么多行，底部「显示更多」再加这么多 */
+const PAGE = 100
+
+/** 按最近联系分段 */
+function recentBucket(iso: string | null) {
+  if (!iso) return '未联系'
+  const t = new Date(), d = new Date(iso).getTime()
+  const today = new Date(t.getFullYear(), t.getMonth(), t.getDate()).getTime()
+  const week = today - ((t.getDay() + 6) % 7) * 86400000
+  const month = new Date(t.getFullYear(), t.getMonth(), 1).getTime()
+  return d >= today ? '今天' : d >= week ? '本周' : d >= month ? '本月' : '更早'
+}
+
+// 按姓名分段：取拼音首字母。没有拼音库，用每个字母开头的第一个汉字做边界，按 zh-CN 排序规则比较
+const PY_LETTERS = 'ABCDEFGHJKLMNOPQRSTWXYZ'
+const PY_BOUNDS = '阿八嚓哒妸发旮哈讥咔垃妈拏噢妑七呥仨他穵夕丫帀'
+const zh = new Intl.Collator('zh-CN')
+function initialOf(name: string) {
+  const ch = name.trim().charAt(0)
+  if (!ch) return '#'
+  if (/[a-z]/i.test(ch)) return ch.toUpperCase()
+  if (!/[\u4e00-\u9fa5]/.test(ch)) return '#'
+  let i = PY_BOUNDS.length - 1
+  while (i > 0 && zh.compare(ch, PY_BOUNDS[i]) < 0) i -= 1
+  return PY_LETTERS[i]
+}
+const letterRank = (x: string) => (x === '#' ? 99 : x.charCodeAt(0))
 
 export function ContactsPage({ contacts, selected, onOpen, onNew, onStar }: {
   contacts: Contact[]; selected: string | null
@@ -22,12 +53,37 @@ export function ContactsPage({ contacts, selected, onOpen, onNew, onStar }: {
   const rows = useMemo(() => contacts
     .filter((c) => (!group || c.group === group) && (!starredOnly || c.starred) && (!channel || c.im[channel])
       && (!kw || [c.name, c.company, c.title, c.phone.replace(/\s/g, ''), c.email, ...c.tags, ...Object.values(c.im)].some((v) => v.toLowerCase().includes(kw.replace(/\s/g, '')) || v.toLowerCase().includes(kw))))
+    // 按姓名时先按首字母（英文名和中文名混排），# 放最后，保证同一字母的人挨在一起
     .sort((a, b) => sort === 'name'
-      ? a.name.localeCompare(b.name, 'zh-CN')
+      ? letterRank(initialOf(a.name)) - letterRank(initialOf(b.name)) || a.name.localeCompare(b.name, 'zh-CN')
       : (b.last_contact_at ?? '').localeCompare(a.last_contact_at ?? '')),
   [contacts, group, starredOnly, channel, kw, sort])
 
-  const countOf = (g: Group) => contacts.filter((c) => c.group === g).length
+  // 每个分组的人数一次算完
+  const counts = useMemo(() => {
+    const m = new Map<string, number>()
+    for (const c of contacts) m.set(c.group, (m.get(c.group) ?? 0) + 1)
+    return m
+  }, [contacts])
+  const countOf = (g: Group) => counts.get(g) ?? 0
+  // 停用的分组还有人在用时照样列出来，不然这些联系人筛不到
+  const groups = groupItems.filter((g) => g.enabled || countOf(g.key) > 0)
+  // 分组多时 seg 只放人数最多的几个（保持设置里的顺序），其余收进「更多分组」
+  const segKeys = groups.length <= SEG_MAX + 1 ? null : new Set([...groups].sort((a, b) => countOf(b.key) - countOf(a.key)).slice(0, SEG_MAX).map((g) => g.key))
+  const segGroups = segKeys ? groups.filter((g) => segKeys.has(g.key)) : groups
+  const moreGroups = segKeys ? groups.filter((g) => !segKeys.has(g.key)) : []
+
+  // 先渲染 PAGE 行；筛选或排序一变就回到第一页
+  const sig = [group, starredOnly, channel, kw, sort].join('|')
+  const [lim, setLim] = useState({ sig, n: PAGE })
+  const limit = lim.sig === sig ? lim.n : PAGE
+  const sectionOf = (c: Contact) => (sort === 'name' ? initialOf(c.name) : recentBucket(c.last_contact_at))
+  const sectionCount = useMemo(() => {
+    const m = new Map<string, number>()
+    for (const c of rows) { const s = sort === 'name' ? initialOf(c.name) : recentBucket(c.last_contact_at); m.set(s, (m.get(s) ?? 0) + 1) }
+    return m
+  }, [rows, sort])
+  const shown = rows.slice(0, limit)
 
   return (
     <div className="page">
@@ -48,11 +104,16 @@ export function ContactsPage({ contacts, selected, onOpen, onNew, onStar }: {
         </div>
         <div className="seg">
           <button className={cls(!group && 'on')} onClick={() => setGroup(null)}>全部<span className="seg-n">{contacts.length}</span></button>
-          {/* 停用的分组还有人在用时照样列出来，不然这些联系人筛不到 */}
-          {groupItems.filter((g) => g.enabled || countOf(g.key) > 0).map((g) => (
+          {segGroups.map((g) => (
             <button key={g.key} className={cls(group === g.key && 'on')} onClick={() => setGroup(g.key)}>{g.label}<span className="seg-n">{countOf(g.key)}</span></button>
           ))}
         </div>
+        {moreGroups.length > 0 && (
+          <SearchSelect value={group && moreGroups.some((g) => g.key === group) ? group : ''} placeholder={`更多分组 ${moreGroups.length}`}
+            searchPlaceholder="搜分组" aria-label="更多分组"
+            options={moreGroups.map((g) => ({ value: g.key, label: g.label, hint: `${countOf(g.key)} 人${g.enabled ? '' : ' · 已停用'}` }))}
+            onChange={(v) => setGroup(v || null)} />
+        )}
         <button className={cls('chip', starredOnly && 'chip-on')} onClick={() => setStarredOnly(!starredOnly)}>只看星标</button>
         <label className={cls('chip chip-select', channel && 'chip-on')}>
           <select value={channel} onChange={(e) => setChannel(e.target.value)}>
@@ -88,8 +149,11 @@ export function ContactsPage({ contacts, selected, onOpen, onNew, onStar }: {
           <div className="tr th">
             <span /><span>姓名</span><span>公司</span><span>分组</span><span>电话</span><span>IM 渠道</span><span>邮箱</span><span>最近联系</span>
           </div>
-          {rows.map((c) => (
-            <div key={c.id} role="button" tabIndex={0} className={cls('tr', selected === c.id && 'sel')}
+          {shown.map((c, i) => (
+            <Fragment key={c.id}>
+            {/* 每段第一行前插分段标题：最近联系按时间，姓名按首字母 */}
+            {(i === 0 || sectionOf(shown[i - 1]) !== sectionOf(c)) && <div className="tr-sec">{sectionOf(c)}<span className="seg-n">{sectionCount.get(sectionOf(c))}</span></div>}
+            <div role="button" tabIndex={0} className={cls('tr', selected === c.id && 'sel')}
               onClick={() => onOpen(c.id)} onKeyDown={(e) => e.key === 'Enter' && onOpen(c.id)}>
               <span><Star on={c.starred} onClick={() => onStar(c.id)} /></span>
               <span className="who">
@@ -106,7 +170,13 @@ export function ContactsPage({ contacts, selected, onOpen, onNew, onStar }: {
               <span className="ellipsis">{c.email || <span className="faint">-</span>}</span>
               <span className="muted">{ago(c.last_contact_at) ?? <span className="faint">未联系</span>}</span>
             </div>
+            </Fragment>
           ))}
+          {rows.length > limit && (
+            <button className="tr-more" onClick={() => setLim({ sig, n: limit + PAGE })}>
+              显示更多<span className="seg-n">还有 {rows.length - limit} 人</span>
+            </button>
+          )}
         </div>
       )}
     </div>
@@ -200,9 +270,16 @@ export function ContactDrawer({ contact, initial, onClose, onSave, onDelete, onT
           </div>
           <div className="field">
             <span className="field-label">分组</span>
-            <div className="seg seg-full">
-              {groupEnum.optionsWith(draft.group).map((g) => <button key={g.key} type="button" className={cls(draft.group === g.key && 'on')} onClick={() => set('group', g.key)}>{g.label}</button>)}
-            </div>
+            {/* 分组多时 seg 放不下，换成可搜索的下拉 */}
+            {groupEnum.optionsWith(draft.group).length > SEG_MAX + 1 ? (
+              <SearchSelect variant="field" value={draft.group} searchPlaceholder="搜分组" aria-label="分组"
+                options={groupEnum.optionsWith(draft.group).map((g) => ({ value: g.key, label: g.label, hint: g.enabled ? undefined : '已停用' }))}
+                onChange={(v) => { if (v) set('group', v) }} />
+            ) : (
+              <div className="seg seg-full">
+                {groupEnum.optionsWith(draft.group).map((g) => <button key={g.key} type="button" className={cls(draft.group === g.key && 'on')} onClick={() => set('group', g.key)}>{g.label}</button>)}
+              </div>
+            )}
           </div>
           <div className="field-row">
             {field('phone', '电话', '手机或座机')}

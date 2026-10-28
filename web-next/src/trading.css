@@ -27,7 +27,7 @@
 .tr-tag-live { color: var(--warn); background: var(--warn-soft); }
 
 /* 总览 */
-.tr-stats .stat-value { font-size: 21px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tr-stats .stat-value { font-size: 21px; white-space: nowrap; }
 .tr-ov { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 14px; align-items: start; }
 .tr-ov-main, .tr-ov-side { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
 .tr-sec-bad { border-color: color-mix(in srgb, var(--danger) 35%, var(--line)); }
@@ -64,9 +64,17 @@
 .tr-foot-note { font-size: 11.5px; text-align: right; }
 
 /* 表格（持仓、委托）：宽度不够时按 container query 收列 */
+.tr-grp { display: flex; align-items: center; gap: 8px; width: 100%; min-width: 0; min-height: 38px; padding: 6px 16px; border-bottom: 1px solid var(--line); background: var(--panel-2); text-align: left; font-size: 12.5px; }
+.tr-grp:hover { background: var(--hover); }
+.tr-grp > b { font-weight: 600; min-width: 0; }
+.tr-grp-sub { flex: none; }
+.tr-grp-chev { flex: none; color: var(--faint); transition: transform 0.12s; }
+.tr-grp-chev.shut { transform: rotate(-90deg); }
+.tr-more { align-self: flex-start; margin-top: 10px; }
+.tr-more .faint { margin-left: 4px; }
 .tr-table .task-th { min-height: 34px; }
 .tr-pos-row, .tr-ord-row { display: grid; align-items: center; gap: 12px; min-height: 56px; padding: 8px 16px; border-bottom: 1px solid var(--line); }
-.tr-pos-row { grid-template-columns: minmax(150px, 1fr) 82px 104px 108px 104px 132px 186px; }
+.tr-pos-row { grid-template-columns: minmax(150px, 1fr) 82px 104px 108px 104px 132px max-content; }
 .tr-ord-row { grid-template-columns: minmax(150px, 1fr) 84px 118px 110px minmax(120px, 0.6fr) 120px; }
 .tr-pos-wrap:last-child > :last-child, .tr-ord-wrap:last-child > :last-child { border-bottom: 0; }
 .tr-pos-wrap:hover .tr-pos-row:not(.task-th), .tr-ord-wrap:hover .tr-ord-row { background: var(--panel-2); }
@@ -84,12 +92,13 @@
 .tr-input:focus { border-color: var(--accent-line); box-shadow: 0 0 0 3px var(--accent-soft); }
 .tr-input.bad { border-color: var(--danger); }
 
-@container (max-width: 900px) {
-  .tr-pos-row { grid-template-columns: minmax(140px, 1fr) 82px 104px 108px 132px 186px; }
+/* 操作列按内容宽（平仓、看图、加止损约 175px），七列放下要将近 980px */
+@container (max-width: 980px) {
+  .tr-pos-row { grid-template-columns: minmax(140px, 1fr) 82px 104px 108px 132px max-content; }
   .tr-pos-row .tr-c-val { display: none; }
 }
 @container (max-width: 760px) {
-  .tr-pos-row { grid-template-columns: minmax(130px, 1fr) 104px 108px 186px; }
+  .tr-pos-row { grid-template-columns: minmax(130px, 1fr) 104px 108px max-content; }
   .tr-pos-row .tr-c-qty, .tr-pos-row .tr-c-lev { display: none; }
   .tr-ord-row { grid-template-columns: minmax(130px, 1fr) 110px 100px 120px; }
   .tr-ord-row .tr-c-type, .tr-ord-row .tr-c-oqty { display: none; }
@@ -105,6 +114,8 @@
   .tr-ord-row.task-th > :last-child { display: none; }
   .tr-ord-row .tr-ord-st { align-items: flex-end; }
   .tr-pos-row, .tr-ord-row { padding: 10px 12px; }
+  .tr-grp { padding: 6px 12px; flex-wrap: wrap; row-gap: 2px; }
+  .tr-grp .spacer { display: none; }
 }
 
 /* 卡片：策略运行、交易账户 */
@@ -138,25 +149,14 @@ button.tr-card-title:hover { color: var(--accent); }
 /* 抽屉 */
 .tr-drawer { position: fixed; top: 0; right: 0; bottom: 0; width: min(var(--drawer-w), 100%); z-index: 40; box-shadow: var(--shadow-lg); }
 .tr-drawer .drawer-foot { flex-wrap: wrap; }
-.tr-search { position: relative; }
-.tr-sym { display: flex; align-items: center; gap: 10px; width: 100%; min-width: 0; height: 40px; padding: 0 12px; border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--panel-2); text-align: left; }
-.tr-sym:hover { border-color: var(--line-2); }
-.tr-sym-name { font-weight: 600; flex: none; max-width: 50%; }
-.tr-sym .faint { font-size: 12px; }
-.tr-sym-px { font-weight: 600; flex: none; }
-.tr-search-pop { position: absolute; z-index: 5; top: 44px; left: 0; right: 0; padding: 6px; border: 1px solid var(--line); border-radius: var(--r); background: var(--panel); box-shadow: var(--shadow); }
-.tr-search-pop input { width: 100%; height: 32px; padding: 0 10px; border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--panel-2); color: var(--text); outline: 0; }
-.tr-search-pop input:focus { border-color: var(--accent-line); }
-.tr-search-list { display: flex; flex-direction: column; max-height: 300px; overflow-y: auto; margin-top: 4px; }
-.tr-search-item { display: flex; flex-direction: column; gap: 1px; padding: 6px 8px; border-radius: var(--r-sm); text-align: left; min-width: 0; }
-.tr-search-item .faint { font-size: 11.5px; }
-.tr-search-item:hover, .tr-search-item.on { background: var(--hover); }
 .tr-acct-pick { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(200px, 100%), 1fr)); gap: 6px; }
 .tr-acct-opt { display: flex; flex-direction: column; gap: 2px; min-width: 0; padding: 8px 10px; border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--panel); text-align: left; }
 .tr-acct-opt > span:first-child { display: flex; align-items: center; font-weight: 500; }
 .tr-acct-opt:hover:not(:disabled) { border-color: var(--line-2); background: var(--hover); }
 .tr-acct-opt.on { border-color: var(--accent); background: var(--accent-soft); box-shadow: inset 0 0 0 1px var(--accent); }
 .tr-acct-opt:disabled { cursor: not-allowed; opacity: 0.5; background: var(--panel-2); }
+.tr-acct-opt .tr-tag-sm { flex: none; }
+.tr-acct-more { align-self: flex-start; height: 26px; padding: 0 8px; margin-top: 6px; }
 .tr-side-seg button.on.buy { color: #fff; background: var(--tr-up, #d4372c); }
 .tr-side-seg button.on.sell { color: #fff; background: var(--tr-down, #1f9d55); }
 .tr-drawer .seg { overflow-x: auto; }

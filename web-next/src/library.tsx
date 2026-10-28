@@ -205,6 +205,7 @@ function buildTree(rows: Doc[], order?: string[]): TreeDir {
   return root
 }
 
+const MAX_INDENT = 4
 const chevron = <svg viewBox="0 0 16 16" width="10" height="10"><path d="m6 3.5 4.5 4.5L6 12.5" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" /></svg>
 const fileIcon = <svg viewBox="0 0 16 16" width="13" height="13"><path d="M4 1.8h5.5L12.5 5v9.2H4Z" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" /><path d="M9.3 2v3.2h3" fill="none" stroke="currentColor" strokeWidth="1.3" /></svg>
 const folderIcon = <svg viewBox="0 0 16 16" width="13" height="13"><path d="M1.8 4.2c0-.6.4-1 1-1h3.4l1.5 1.6h5.5c.6 0 1 .4 1 1v6.9c0 .6-.4 1-1 1H2.8c-.6 0-1-.4-1-1Z" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" /></svg>
@@ -224,7 +225,8 @@ export function LibraryTree({ ws, model, items, folders, selected, onSelect, onS
   adding: boolean
   error: string
 }) {
-  const [closed, setClosed] = useState<Set<string>>(new Set())
+  // 记「展开了哪些」：默认都收起，只展开当前阅读文档所在的那条路径
+  const [opened, setOpened] = useState<Set<string>>(new Set())
   const [menu, setMenu] = useState(false)
   const menuRef = useRef<HTMLDivElement>(null)
   model = useCategoryModel(model)
@@ -232,7 +234,16 @@ export function LibraryTree({ ws, model, items, folders, selected, onSelect, onS
   // 搜索时全部展开，否则命中的条目可能藏在收起的文件夹里
   const searching = !!q.trim()
 
-  useEffect(() => { setClosed(new Set()) }, [ws])
+  const selDirs = model.docs.find((d) => d.id === selected)?.dirs
+  const selPath = selDirs?.join('/') ?? ''
+  const lastWs = useRef(ws)
+  useEffect(() => {
+    // 换了工作目录先全部收起；再把当前文档的各级父目录展开
+    const reset = lastWs.current !== ws
+    lastWs.current = ws
+    const anc = selPath ? selPath.split('/').map((_, i, xs) => xs.slice(0, i + 1).join('/')) : []
+    setOpened((s) => { const n = reset ? new Set<string>() : new Set(s); anc.forEach((x) => n.add(x)); return n })
+  }, [ws, selPath])
   useEffect(() => {
     if (!menu) return
     const off = (e: MouseEvent) => { if (!menuRef.current?.contains(e.target as Node)) setMenu(false) }
@@ -240,25 +251,28 @@ export function LibraryTree({ ws, model, items, folders, selected, onSelect, onS
     return () => window.removeEventListener('mousedown', off)
   }, [menu])
 
-  const toggle = (p: string) => setClosed((s) => { const n = new Set(s); if (n.has(p)) n.delete(p); else n.add(p); return n })
+  const toggle = (p: string) => setOpened((s) => { const n = new Set(s); if (n.has(p)) n.delete(p); else n.add(p); return n })
+  // 缩进最多 4 层，再深的文件夹前面用「…/」表示省略的上层
+  const indent = (depth: number) => 8 + Math.min(depth, MAX_INDENT) * 14
 
   const renderDir = (dir: TreeDir, depth: number): ReactNode => (
     <>
       {dir.dirs.map((d) => {
-        const open = searching || !closed.has(d.path)
+        const open = searching || opened.has(d.path)
         return (
           <div key={d.path} role="group">
-            <button className="tree-row tree-dir" style={{ paddingLeft: 8 + depth * 14 }} onClick={() => toggle(d.path)} aria-expanded={open}>
+            <button className="tree-row tree-dir" style={{ paddingLeft: indent(depth) }} onClick={() => toggle(d.path)} aria-expanded={open} title={depth > MAX_INDENT ? d.path : undefined}>
               <span className={cls('tree-chev', open && 'open')}>{chevron}</span>
               <span className="tree-icon">{folderIcon}</span>
-              <span className="ellipsis tree-label">{d.name}</span>
+              <span className="ellipsis tree-label">{depth > MAX_INDENT && <span className="tree-elide">…/</span>}{d.name}</span>
+              <span className="tree-count">{d.count}</span>
             </button>
             {open && renderDir(d, depth + 1)}
           </div>
         )
       })}
       {dir.files.map((f) => (
-        <button key={f.id} className={cls('tree-row tree-file', selected === f.id && 'sel')} style={{ paddingLeft: 8 + depth * 14 + 16 }} onClick={() => onSelect(f.id)} title={f.title}>
+        <button key={f.id} className={cls('tree-row tree-file', selected === f.id && 'sel')} style={{ paddingLeft: indent(depth) + 16 }} onClick={() => onSelect(f.id)} title={f.title}>
           <span className="tree-icon">{fileIcon}</span>
           <span className="ellipsis tree-label">{f.title}</span>
           {f.starred && <span className="lib-star" aria-label="星标"><svg viewBox="0 0 16 16" width="10" height="10"><path d="m8 1.8 1.9 3.9 4.3.6-3.1 3 .7 4.3L8 11.6l-3.8 2 .7-4.3-3.1-3 4.3-.6Z" fill="currentColor" /></svg></span>}
@@ -310,11 +324,10 @@ export function LibraryTree({ ws, model, items, folders, selected, onSelect, onS
           </div>
         )}
         {error && <div className="subnav-error">{error}</div>}
-        {model.folder && model.folder.skipped > 0 && <div className="subnav-hint">跳过了 {model.folder.skipped} 个非文本或过大的文件</div>}
         <button className={cls('ws-btn', menu && 'open')} onClick={() => setMenu(!menu)} aria-haspopup="menu" aria-expanded={menu}>
           <span className="tree-icon">{folderIcon}</span>
           <span className="ws-btn-text">
-            <span className="ws-btn-kicker">工作目录</span>
+            <span className="ws-btn-kicker" title={model.folder?.skipped ? `跳过了 ${model.folder.skipped} 个非文本或过大的文件` : undefined}>工作目录{model.folder && model.folder.skipped > 0 && ` · 跳过 ${model.folder.skipped} 个`}</span>
             <span className="ellipsis">{adding ? '正在读取…' : model.title}</span>
           </span>
           <svg className="ws-btn-chev" viewBox="0 0 16 16" width="12" height="12"><path d="m4 10 4-4 4 4" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" /></svg>

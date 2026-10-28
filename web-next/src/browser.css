@@ -2,9 +2,12 @@
 .br-page { display: flex; flex-direction: column; height: 100%; min-height: 0; min-width: 0; overflow: hidden; background: var(--bg); position: relative; }
 
 /* ---------- 标签栏 ---------- */
-.br-tabs { position: relative; display: flex; align-items: stretch; gap: 2px; padding: 6px 8px 0; background: var(--side); border-bottom: 1px solid var(--line); flex: none; overflow-x: auto; scrollbar-width: none; min-width: 0; }
+/* 标签区自己横向滚，「+」和「全部标签」在滚动区外面固定在右边 */
+.br-tabbar { display: flex; align-items: stretch; gap: 2px; padding: 6px 8px 0; background: var(--side); border-bottom: 1px solid var(--line); flex: none; min-width: 0; }
+.br-tabs { position: relative; display: flex; align-items: stretch; gap: 2px; flex: 0 1 auto; overflow-x: auto; scrollbar-width: none; min-width: 0; }
 .br-tabs::-webkit-scrollbar { display: none; }
-.br-tab { display: flex; align-items: center; gap: 6px; height: 32px; padding: 0 6px 0 10px; width: 190px; min-width: 150px; flex: 0 1 190px; border-radius: 8px 8px 0 0; color: var(--muted); font-size: 12.5px; cursor: pointer; user-select: none; }
+/* 像 Chrome 一样先压缩再滚动；窄到一定程度藏掉固定按钮，再窄只有当前标签留关闭按钮 */
+.br-tab { display: flex; align-items: center; gap: 6px; height: 32px; padding: 0 6px 0 10px; width: 190px; min-width: 72px; flex: 0 1 190px; border-radius: 8px 8px 0 0; color: var(--muted); font-size: 12.5px; cursor: pointer; user-select: none; container-type: inline-size; }
 .br-tab:hover { background: var(--hover); color: var(--text); }
 .br-tab.on { background: var(--panel); color: var(--text); box-shadow: inset 0 2px 0 var(--accent); }
 .br-tab-pinned { width: 38px; min-width: 38px; flex: none; justify-content: center; padding: 0; }
@@ -13,7 +16,13 @@
 .br-tab-btn:hover { background: var(--line); color: var(--text); }
 .br-tab-pin { visibility: hidden; }
 .br-tab:hover .br-tab-pin, .br-tab.on .br-tab-pin { visibility: visible; }
-.br-tab-add { width: 30px; display: grid; place-items: center; color: var(--muted); border-radius: 6px; flex: none; }
+/* 放在按钮规则后面才盖得住 display */
+@container (max-width: 120px) { .br-tab .br-tab-pin { display: none; } }
+@container (max-width: 92px) { .br-tab:not(.on) .br-tab-btn { display: none; } }
+.br-tab-add { width: 30px; height: 32px; display: grid; place-items: center; color: var(--muted); border-radius: 6px; flex: none; }
+.br-tab-all-wrap { flex: none; margin-left: auto; }
+.br-all-menu { width: 280px; max-width: calc(100vw - 32px); max-height: 60vh; overflow-y: auto; }
+.br-all-menu .menu-item .ellipsis { flex: 1; min-width: 0; text-align: left; }
 .br-tab-add:hover:not(:disabled) { background: var(--hover); color: var(--text); }
 
 .br-kicon { flex: none; color: var(--faint); }
@@ -78,6 +87,25 @@
 .br-card { padding: 14px 16px; border: 1px solid var(--line); border-radius: var(--r-lg); background: var(--panel); box-shadow: var(--shadow-sm); min-width: 0; }
 .br-card-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 6px; min-width: 0; }
 .br-card-head h2 { font-size: 14px; flex: none; }
+.br-card-head-wrap { flex-wrap: wrap; align-items: center; row-gap: 8px; }
+.br-card-sub { flex: 1; min-width: 0; }
+.br-proto-search { width: 220px; max-width: 100%; }
+/* 原型按项目分组，组标题能点开收起 */
+.br-pgroups { display: flex; flex-direction: column; }
+.br-pgroup { border-top: 1px solid var(--line); min-width: 0; }
+.br-pgroup:first-child { border-top: 0; }
+.br-pgroup-head { display: flex; align-items: center; gap: 8px; width: 100%; height: 38px; padding: 0 8px; margin: 0 -8px; box-sizing: content-box; border-radius: var(--r-sm); text-align: left; min-width: 0; }
+.br-pgroup-head:hover:not(:disabled) { background: var(--hover); }
+.br-pgroup-head:disabled { cursor: default; color: inherit; opacity: 1; }
+.br-chev { flex: none; color: var(--faint); transition: transform 0.12s; }
+.br-chev.on { transform: rotate(90deg); }
+.br-pgroup-name { flex: 1; min-width: 0; font-weight: 500; }
+.br-pgroup-meta { flex: none; font-size: 12px; color: var(--faint); }
+.br-pgroup-meta.on { color: var(--ok); }
+.br-pgroup-bad { color: var(--danger); }
+.br-pgroup .br-protos { padding: 0 0 6px 20px; }
+.br-pgroup-rest { align-self: flex-start; padding: 6px 0; font-size: 12.5px; color: var(--accent); }
+.br-pgroup-rest:hover { text-decoration: underline; }
 .br-protos, .br-recent { display: flex; flex-direction: column; }
 .br-proto { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-top: 1px solid var(--line); min-width: 0; }
 .br-proto:first-child { border-top: 0; }
@@ -201,6 +229,7 @@ button.br-frow:hover { background: var(--hover); }
 @media (max-width: 760px) {
   /* 窄屏标签不再压缩，标签栏自己横向滚；固定按钮只留给当前标签 */
   .br-tab { width: 140px; min-width: 140px; flex: none; }
+  .br-proto-search { width: 100%; }
   .br-tab:not(.on) .br-tab-pin { display: none; }
   .br-bar { padding: 6px; gap: 2px; }
   .br-addr { margin: 0 4px; }
