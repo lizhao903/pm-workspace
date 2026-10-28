@@ -203,7 +203,7 @@ export const seedDeliveries: Delivery[] = [
 export const seedTasks: Task[] = [
   // 交给 Claude Code 做的开发任务：进展、产出物、执行记录在文件末尾的 seedProgress / seedArtifacts / seedRuns
   { id: 'tk_dev3', project_id: 'pj_perm', ref: 'T-017', title: '权限变更缓存改成按部门失效', desc: '对应 T-009：权限变更要 1 分钟内生效。现在整租户缓存 10 分钟，改成按部门打版本号，改了哪个部门只失效哪个部门。', status: 'review', priority: 'P1', assignee: 'Claude Code', due: dayOffset(2), source: { kind: 'manual' },
-    acceptance: '- [ ] 改了某个部门的角色，1 分钟内该部门成员的权限生效\n- [ ] 其他部门的缓存不受影响\n- [ ] 压测 500 并发下权限查询 p99 不超过 20ms',
+    acceptance: '- [ ] 改了某个部门的角色，1 分钟内该部门成员的权限生效\n- [ ] 其他部门的缓存不受影响\n- [ ] 500 并发下权限查询 p99 不超过 20ms',
     workdir: '/Volumes/project/clients/yuanchuan-permission/server', repo: '/Volumes/project/clients/yuanchuan-permission', created_at: minsAgo(60 * 4), updated_at: minsAgo(50) },
   { id: 'tk_dev2', project_id: 'pj_pmw', ref: 'T-016', title: '旧版设置页的错误横幅改成行内提示', desc: '旧版问题清单里的「列表页错误横幅太占地方」。保存失败时在出错的字段下面提示，不在页顶铺一条横幅。', status: 'doing', priority: 'P2', assignee: 'Claude Code', due: dayOffset(4), source: { kind: 'manual' },
     acceptance: '- [ ] 连接器、模型服务商、Agent 三个设置页保存失败时在字段下提示\n- [ ] 页顶不再出现错误横幅\n- [ ] npm run build 通过',
@@ -214,12 +214,14 @@ export const seedTasks: Task[] = [
   { id: 'tk_a1', project_id: 'pj_perm', ref: 'T-014', title: '确认演示环境能不能打开自定义角色', desc: '消息分诊助手在会话里建的，跟 T-010 配套：先确认演示环境的开关', status: 'todo', priority: 'P2', assignee: '我', due: dayOffset(2), source: { kind: 'manual' }, created_at: minsAgo(24), updated_at: minsAgo(24) },
   { id: 'tk_inc_seed', ref: 'T-013', title: '[异常] Webhook：官网需求表单标题字段取不到', desc: '对方表单可能改了字段名，映射要兼容，或者取不到时给出明确提示', status: 'todo', priority: 'P2', assignee: '周屿', due: dayOffset(4), source: { kind: 'incident', incident_id: 'inc3', title: '官网需求表单：标题字段取不到' }, created_at: minsAgo(110), updated_at: minsAgo(110) },
   { id: 'tk_s1', project_id: 'pj_pmw', ref: 'T-012', title: 'Export job timeout after 300s', desc: 'src/pages/Export.tsx in runExport', status: 'doing', priority: 'P0', assignee: '周屿', due: dayOffset(0), source: { kind: 'webhook', hook_id: 'wh_sentry', delivery_id: 'dl_s1' }, created_at: AT_S1, updated_at: minsAgo(10) },
-  { id: 'tk_f1', ref: 'T-011', title: '司机端支持离线签收', desc: '山区信号差，签收时经常提交失败，希望先存本地，有网了自动补传。', status: 'todo', priority: 'P1', assignee: '林予安', due: dayOffset(21), source: { kind: 'webhook', hook_id: 'wh_form', delivery_id: 'dl_f1' }, created_at: AT_F1, updated_at: AT_F1 },
+  { id: 'tk_f1', project_id: 'pj_beian', ref: 'T-011', title: '司机端支持离线签收', desc: '山区信号差，签收时经常提交失败，希望先存本地，有网了自动补传。', status: 'todo', priority: 'P1', assignee: '林予安', due: dayOffset(21), source: { kind: 'webhook', hook_id: 'wh_form', delivery_id: 'dl_f1' }, created_at: AT_F1, updated_at: AT_F1 },
   { id: 'tk_i1', project_id: 'pj_perm', ref: 'T-010', title: '月底演示带上按部门自定义角色', desc: '客户老板下周要看，先确认演示环境能不能开这个开关。', status: 'todo', priority: 'P1', assignee: '我', due: dayOffset(3), source: { kind: 'im', message_id: 'msg_003', channel: 'lark', sender: '许知行', text: '月底的演示能不能把按部门自定义角色带上？我们老板下周要看。' }, created_at: minsAgo(30), updated_at: minsAgo(30) },
   { id: 'tk_i2', project_id: 'pj_perm', ref: 'T-009', title: '和后端对齐权限变更生效时间的缓存方案', desc: '', status: 'doing', priority: 'P2', assignee: '我', due: dayOffset(1), source: { kind: 'im', message_id: 'msg_005', channel: 'slack', sender: 'Zhou Yu', text: '权限变更 1 分钟内生效这条，缓存方案要改，可能会影响排期，找时间对一下。' }, created_at: minsAgo(75), updated_at: minsAgo(40) },
   { id: 'tk_m1', project_id: 'pj_pmw', ref: 'T-008', title: '整理 Q4 路线图初稿', desc: '按「云端 / 本地端 / 平台」三条线，先列候选，周五前给到负责人。', status: 'todo', priority: 'P2', assignee: '我', due: dayOffset(-1), source: { kind: 'manual' }, created_at: minsAgo(60 * 30), updated_at: minsAgo(60 * 30) },
   { id: 'tk_m2', project_id: 'pj_perm', ref: 'T-007', title: '权限模型 PRD 评审', desc: '约林予安、周屿、陈若溪', status: 'done', priority: 'P1', assignee: '我', due: dayOffset(-2), source: { kind: 'manual' }, created_at: minsAgo(60 * 70), updated_at: minsAgo(60 * 26) },
   { id: 'tk_m3', ref: 'T-006', title: '续签云栈 IDC 机柜合同', desc: '', status: 'todo', priority: 'P3', assignee: '我', due: dayOffset(10), source: { kind: 'manual' }, created_at: minsAgo(60 * 80), updated_at: minsAgo(60 * 80) },
+  { id: 'tk_eu1', project_id: 'pj_eu', ref: 'T-004', title: '画欧盟租户的存储和备份架构', desc: '业务数据和备份都落在欧盟境内机房；运维访问走工单留痕。和 Mia 通电话前发给她。', status: 'doing', priority: 'P1', assignee: '我', due: dayOffset(1), source: { kind: 'manual' }, created_at: minsAgo(60 * 24 * 5), updated_at: minsAgo(60 * 3) },
+  { id: 'tk_ba1', project_id: 'pj_beian', ref: 'T-003', title: '用工单状态机搭审批流 demo', desc: '待提交、审批中、通过 / 驳回，驳回后能重新提交；金额大于 5 万走总监审批。', status: 'todo', priority: 'P3', assignee: '林予安', due: dayOffset(14), source: { kind: 'manual' }, created_at: minsAgo(60 * 24 * 6), updated_at: minsAgo(60 * 24 * 2) },
   // 定时任务「周会前整理议程」每周一建的两条（scheduledata 里 sc_weekly_agenda 的执行记录指向它们）
   { id: 'tk_sc2', ref: 'T-005', title: '整理本周产品周会议程', desc: '把上周遗留问题和本周要拍板的事列出来，会前发群里', status: 'done', priority: 'P2', assignee: '我', due: dayOffset(-2), source: { kind: 'schedule', schedule_id: 'sc_weekly_agenda', name: '周会前整理议程' }, created_at: minsAgo(60 * 24 * 2 + 300), updated_at: minsAgo(60 * 24 * 2 + 180) },
   { id: 'tk_sc1', ref: 'T-002', title: '整理本周产品周会议程', desc: '把上周遗留问题和本周要拍板的事列出来，会前发群里', status: 'done', priority: 'P2', assignee: '我', due: dayOffset(-9), source: { kind: 'schedule', schedule_id: 'sc_weekly_agenda', name: '周会前整理议程' }, created_at: minsAgo(60 * 24 * 9 + 300), updated_at: minsAgo(60 * 24 * 9 + 200) },
@@ -321,19 +323,19 @@ export const seedProgress: TaskProgress[] = [
   // T-015：第一次提交验收被退回（前端还是 300 秒报超时），换了一个会话接着做
   cc('tk_dev1', SS_A, 300, 'claim', '领取了任务', { status: 'doing' }),
   cc('tk_dev1', SS_A, 290, 'note', '定位到原因：runExport 先把审计日志全读进内存再写 CSV，12 万行要 340 秒。改成每 5000 行一批，边读边写。', { files: ['internal/export/runner.go'] }),
-  cc('tk_dev1', SS_A, 262, 'note', '改完。本地 12 万行导出 41 秒，内存峰值 96MB；补了分批写的测试。', { commits: ['e3b91c4'], files: ['internal/export/runner.go', 'internal/export/runner_test.go'] }),
+  cc('tk_dev1', SS_A, 262, 'note', '改完。本地 12 万行导出 41 秒，内存峰值 96MB；补了分批写的单元用例。', { commits: ['e3b91c4'], files: ['internal/export/runner.go', 'internal/export/runner_test.go'] }),
   cc('tk_dev1', SS_A, 250, 'review', '提交验收：服务端改成分批写文件，12 万行 41 秒、内存峰值 96MB；go test ./internal/export/... 通过。', { commits: ['e3b91c4'], status: 'review' }),
   { id: 'pg_tk_dev1_180', task_id: 'tk_dev1', kind: 'note', text: '退回：服务端快了，但界面还是固定等 300 秒就报「导出超时」，验收标准第 3 条没过。', commits: [], files: [], status: 'todo', actor_name: '我', source: 'ui', at: minsAgo(180) },
   cc('tk_dev1', SS_B, 150, 'claim', '领取了任务，接着处理退回意见', { status: 'doing' }),
   cc('tk_dev1', SS_B, 125, 'note', '前端不再写死 300 秒：导出任务完成前一直按进度轮询，超时改成看服务端返回的状态。', { commits: ['5a07d2f'], files: ['web/src/pages/Export.tsx'] }),
-  cc('tk_dev1', SS_B, 100, 'review', '提交验收：\n- 服务端分批写文件：12 万行 41 秒，内存峰值 96MB\n- 界面按导出任务的状态轮询，不再固定 300 秒报超时\n- go test ./internal/export/... 通过，npm run build 通过\n压测记录在 docs/export-bench.md。', { commits: ['e3b91c4', '5a07d2f'], files: ['docs/export-bench.md'], status: 'review' }),
+  cc('tk_dev1', SS_B, 100, 'review', '提交验收：\n- 服务端分批写文件：12 万行 41 秒，内存峰值 96MB\n- 界面按导出任务的状态轮询，不再固定 300 秒报超时\n- go test ./internal/export/... 通过，npm run build 通过\n性能记录在 docs/export-bench.md。', { commits: ['e3b91c4', '5a07d2f'], files: ['docs/export-bench.md'], status: 'review' }),
   // T-016：做到一半
   cc('tk_dev2', SS_C, 40, 'claim', '领取了任务', { status: 'doing' }),
   cc('tk_dev2', SS_C, 25, 'note', '连接器、模型服务商两个设置页改完了，错误跟在字段下面；还剩 Agent 设置页。', { commits: ['9c2e7a1'], files: ['web/src/pages/Connectors.tsx', 'web/src/pages/Providers.tsx'] }),
   // T-017：一次做完，等验收
   cc('tk_dev3', SS_D, 200, 'claim', '领取了任务', { status: 'doing' }),
   cc('tk_dev3', SS_D, 130, 'note', '权限缓存的 key 加上部门版本号；改角色时只给受影响的部门加版本号，其他部门的缓存不动。', { files: ['server/authz/cache.go'] }),
-  cc('tk_dev3', SS_D, 50, 'review', '提交验收：\n- 改角色后 1 分钟内生效（实测 3 秒）\n- 其他部门缓存命中率不变\n- 500 并发压测 p99 14ms，截图在产出物里', { commits: ['f81d3b0'], files: ['server/authz/cache.go', 'server/authz/cache_test.go'], status: 'review' }),
+  cc('tk_dev3', SS_D, 50, 'review', '提交验收：\n- 改角色后 1 分钟内生效（实测 3 秒）\n- 其他部门缓存命中率不变\n- 500 并发下 p99 14ms，截图在产出物里', { commits: ['f81d3b0'], files: ['server/authz/cache.go', 'server/authz/cache_test.go'], status: 'review' }),
 ]
 
 export const seedArtifacts: TaskArtifact[] = [
@@ -341,11 +343,11 @@ export const seedArtifacts: TaskArtifact[] = [
   { id: 'af_d2', task_id: 'tk_dev1', note: `[commit] sha=5a07d2f branch=fix/export-batch repo=${PMW} 界面按任务状态轮询`, path: PMW, source: 'mcp', at: minsAgo(125) },
   { id: 'af_d3', task_id: 'tk_dev1', note: '[branch] branch=fix/export-batch', path: PMW, source: 'mcp', at: minsAgo(262) },
   { id: 'af_d4', task_id: 'tk_dev1', note: '[pr] branch=fix/export-batch 导出超时修复', url: 'https://git.example.com/pm-workspace/pull/42', source: 'mcp', at: minsAgo(100) },
-  { id: 'af_d5', task_id: 'tk_dev1', note: '压测记录', path: `${PMW}/docs/export-bench.md`, rel_path: 'docs/export-bench.md', source: 'run', at: minsAgo(100) },
+  { id: 'af_d5', task_id: 'tk_dev1', note: '性能记录', path: `${PMW}/docs/export-bench.md`, rel_path: 'docs/export-bench.md', source: 'run', at: minsAgo(100) },
   { id: 'af_d6', task_id: 'tk_dev2', note: `[branch] branch=feat/inline-errors repo=${PMW}`, path: PMW, source: 'mcp', at: minsAgo(25) },
   { id: 'af_d7', task_id: 'tk_dev2', note: `[commit] sha=9c2e7a1 branch=feat/inline-errors repo=${PMW} 连接器和服务商页改成行内提示`, path: PMW, source: 'mcp', at: minsAgo(25) },
   { id: 'af_d8', task_id: 'tk_dev3', note: `[commit] sha=f81d3b0 branch=feat/dept-cache repo=${YC} 按部门版本号失效`, path: YC, source: 'mcp', at: minsAgo(55) },
-  { id: 'af_d9', task_id: 'tk_dev3', note: '压测截图', path: `${YC}/docs/shots/cache-p99.png`, rel_path: 'docs/shots/cache-p99.png', source: 'run', at: minsAgo(52) },
+  { id: 'af_d9', task_id: 'tk_dev3', note: 'p99 截图', path: `${YC}/docs/shots/cache-p99.png`, rel_path: 'docs/shots/cache-p99.png', source: 'run', at: minsAgo(52) },
 ]
 
 const ev = {
@@ -365,7 +367,7 @@ export const seedRuns: TaskRun[] = [
     id: 'run_d2', task_id: 'tk_dev1', status: 'done', workdir: PMW, allow_writes: true, extra_prompt: '', exit_code: 0,
     session_id: SS_A, started_at: minsAgo(300), ended_at: minsAgo(250), pending: [],
     events: [ev.t('t1', 'pmw_claim_task', 'T-015'), ev.r('t1'), ev.t('t2', 'Edit', 'internal/export/runner.go'), ev.r('t2'), ev.t('t3', 'Bash', 'go test ./internal/export/...'), ev.r('t3'),
-      ev.t('t4', 'pmw_submit_review', 'T-015'), ev.r('t4'), ev.d('改完了，测试通过，已提交验收。')],
+      ev.t('t4', 'pmw_submit_review', 'T-015'), ev.r('t4'), ev.d('改完了，go test 通过，已提交验收。')],
   },
   {
     id: 'run_d3', task_id: 'tk_dev2', status: 'failed', workdir: `${PMW}/web`, allow_writes: true, extra_prompt: '', exit_code: 1,
@@ -373,7 +375,7 @@ export const seedRuns: TaskRun[] = [
     events: [ev.t('t1', 'Read', 'web/src/pages/Providers.tsx'), ev.r('t1', false, '文件被另一个进程锁住'), ev.t('t2', 'Bash', 'npm run build'), ev.r('t2', false, 'Providers.tsx(42,7): Property \'field\' does not exist')],
   },
   {
-    id: 'run_d4', task_id: 'tk_dev3', status: 'done', workdir: `${YC}/server`, allow_writes: true, extra_prompt: '压测用 500 并发', exit_code: 0,
+    id: 'run_d4', task_id: 'tk_dev3', status: 'done', workdir: `${YC}/server`, allow_writes: true, extra_prompt: '并发按 500 跑', exit_code: 0,
     session_id: SS_D, started_at: minsAgo(205), ended_at: minsAgo(50), pending: [],
     events: [ev.t('t1', 'pmw_claim_task', 'T-017'), ev.r('t1'), ev.t('t2', 'Edit', 'server/authz/cache.go'), ev.r('t2'), ev.t('t3', 'Bash', 'go test ./authz/...'), ev.r('t3'),
       ev.t('t4', 'Bash', 'hey -c 500 -n 50000 /authz/check'), ev.r('t4'), ev.d('p99 14ms，截图已登记。已提交验收。')],
@@ -390,8 +392,8 @@ export function runScript(task: Task, allow: boolean, extra: string, files: stri
     ev.d('看一下工作目录里相关的代码。\n'), ev.t('t2', 'Grep', task.title.slice(0, 12)), ev.r('t2'), ev.t('t3', 'Read', f), ev.r('t3'),
     ev.t('t4', 'Edit', f), allow ? ev.r('t4') : ev.r('t4', false, '只读运行，没有写入权限'),
     ...(allow
-      ? [ev.t('t5', 'Bash', '跑测试'), ev.r('t5'), ev.d('改完了，测试通过。进展和改动的文件已回写到任务里。')]
-      : [ev.d(`只读运行，下面是打算的改法：\n1. 改 ${f}\n2. 补测试\n勾选「允许写入」再执行一次就会真的改。`)]),
+      ? [ev.t('t5', 'Bash', '运行单元用例'), ev.r('t5'), ev.d('改完了，用例都通过。进展和改动的文件已回写到任务里。')]
+      : [ev.d(`只读运行，下面是打算的改法：\n1. 改 ${f}\n2. 补单元用例\n勾选「允许写入」再执行一次就会真的改。`)]),
   ]
 }
 

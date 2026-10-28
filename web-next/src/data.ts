@@ -62,7 +62,7 @@ export const seedContacts: Contact[] = [
   c({ name: '林予安', im: { wechat: 'linyuan_fe', lark: 'lin.yuan@example.com', slack: 'U04LINYUAN' }, group: '同事', company: '本公司', title: '前端负责人', phone: '138 0013 2201', email: 'lin.yuan@example.com', tags: ['研发'], starred: true, last_contact_at: daysAgo(0) }),
   c({ name: '周屿', im: { wechat: 'zhouyu1990', lark: 'zhou.yu@example.com', slack: 'U04ZHOUYU0' }, group: '同事', company: '本公司', title: '后端负责人', phone: '139 1022 3302', email: 'zhou.yu@example.com', tags: ['研发'], last_contact_at: daysAgo(1) }),
   c({ name: '陈若溪', im: { lark: 'chen.ruoxi@example.com', slack: 'U05CHENRX0' }, group: '同事', company: '本公司', title: '设计师', email: 'chen.ruoxi@example.com', tags: ['设计'], last_contact_at: daysAgo(3) }),
-  c({ name: '何牧', im: { lark: 'he.mu@example.com' }, group: '同事', company: '本公司', title: '测试', email: 'he.mu@example.com', last_contact_at: daysAgo(9) }),
+  c({ name: '何牧', im: { lark: 'he.mu@example.com' }, group: '同事', company: '本公司', title: 'QA 工程师', email: 'he.mu@example.com', last_contact_at: daysAgo(9) }),
   c({ name: '许知行', im: { wechat: 'xzx_yc', lark: 'ou_7f3a9c21' }, group: '客户', company: '远川科技', title: 'IT 总监', phone: '137 2233 4405', email: 'xu.zx@yuanchuan.example', tags: ['试点客户', '决策人'], starred: true, last_contact_at: daysAgo(2),
     note: '云端平台 2.0 的试点方。关心权限模型能否按部门自定义，月底前要一版演示。' }),
   c({ name: '梁晚晴', im: { wechat: 'liangwanqing88', lark: 'ou_liangwq' }, group: '客户', company: '远川科技', title: '采购经理', phone: '136 5566 7708', email: 'liang.wq@yuanchuan.example', tags: ['试点客户'], last_contact_at: daysAgo(14) }),
@@ -625,11 +625,11 @@ POST /api/roles
   { id: 'dc_w43r', category: 'note', title: '第 43 周周报（按项目重写）', source: '周报助手 · 会话', tags: ['周报'], starred: false, updated_at: minsAgo(60 * 24 * 5 - 30),
     body: `# 第 43 周周报
 
-## 权限改造
+## 远川科技权限改造
 - 已完成：PRD 评审、设计稿 v4
 - 进行中：权限变更 1 分钟内生效的缓存方案
 
-## 一人之下
+## 产品工作台新版
 - 进行中：导出任务超时
 - 下周：Q4 路线图初稿` },
 ]

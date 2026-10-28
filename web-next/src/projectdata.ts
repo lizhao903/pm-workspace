@@ -123,7 +123,7 @@ export const seedProjects: Project[] = [
       { contact_id: 'ct_001', role: 'owner', focus: '前端实现和交付节奏' },
       { contact_id: 'ct_002', role: 'member', focus: '接口和权限缓存方案' },
       { contact_id: 'ct_003', role: 'member', focus: '交互和视觉规范' },
-      { contact_id: 'ct_004', role: 'informed', focus: '测试计划' },
+      { contact_id: 'ct_004', role: 'informed', focus: '回归用例和验收' },
     ],
     sop_ids: ['sop_meeting'],
     materials: [
@@ -156,10 +156,51 @@ export const seedProjects: Project[] = [
     sop_ids: ['sop_feedback', 'sop_contact'],
     materials: [
       { id: 'mt4', name: '客户访谈纪要 10/20', kind: 'file', value: 'materials/interview-1020.md', tags: ['访谈'], added_at: minsAgo(60 * 24 * 8) },
-      { id: 'mt5', name: 'Mia：欧盟数据驻留的法务要求', kind: 'note', value: '欧盟租户数据落在境内机房；运维访问留痕；备份不出境', tags: ['合规'], added_at: minsAgo(60 * 24 * 2) },
     ],
     docs: [{ id: 'pd3', title: '权限配置交互说明', kind: '交互说明', status: 'draft', source: { type: 'file', path: 'docs/permission-ux.md' }, updated_at: minsAgo(60 * 20) }],
     prototypes: [{ id: 'pt3', name: '权限配置原型', dir: 'prototype', command: 'npm run dev -- --port 7781', port: 7781, status: 'stopped', logs: [] }],
     created_at: minsAgo(60 * 24 * 15),
+  },
+  {
+    id: 'pj_beian', name: '北岸物流审批流 demo', desc: '给北岸物流演示运营后台审批流，顺带评估司机端离线签收', color: '#b0570b', mark: { text: '', icon: 'checklist' },
+    root: '/Volumes/project/clients/beian-approval',
+    related: [],
+    agent_ids: ['ag_triage'],
+    chats: [{ id: 'ch6', kind: 'dm', contact_id: 'ct_007' }],
+    stakeholders: [
+      { contact_id: 'ct_007', role: 'decider', focus: '审批流能不能接他们的签收单据' },
+      { contact_id: 'ct_001', role: 'member', focus: '司机端离线签收的前端方案' },
+      { contact_id: 'ct_003', role: 'informed', focus: '演示用的审批页面' },
+    ],
+    sop_ids: ['sop_feedback'],
+    materials: [
+      { id: 'mt7', name: '展会交流记录', kind: 'note', value: '运营后台审批流感兴趣；山区司机签收经常失败；下季度再约', tags: ['线索'], added_at: minsAgo(60 * 24 * 31) },
+    ],
+    docs: [
+      { id: 'pd4', title: '审批流可以复用工单的状态机', kind: '技术方案', status: 'draft', source: { type: 'library', content_id: 'dc_003' }, updated_at: seedContent.find((c) => c.id === 'dc_003')?.updated_at ?? minsAgo(60 * 50) },
+      { id: 'pd5', title: '离线同步方案对比', kind: '技术方案', status: 'review', source: { type: 'library', content_id: 'dc_006' }, updated_at: seedContent.find((c) => c.id === 'dc_006')?.updated_at ?? minsAgo(60 * 24 * 5) },
+    ],
+    prototypes: [{ id: 'pt4', name: '审批流 demo', dir: 'demo', command: 'npm run dev -- --port 7782', port: 7782, status: 'stopped', logs: [] }],
+    created_at: minsAgo(60 * 24 * 7),
+  },
+  {
+    id: 'pj_eu', name: '欧盟数据驻留方案', desc: '和 Nordlicht 一起定欧盟租户的存储和运维方案', color: '#2f7d43', mark: { text: '', icon: 'globe' },
+    root: '/Volumes/docs/方案/eu-residency',
+    related: [],
+    agent_ids: ['ag_weekly'],
+    chats: [{ id: 'ch7', kind: 'dm', contact_id: 'ct_008' }],
+    stakeholders: [
+      { contact_id: 'ct_008', role: 'contact', focus: '欧盟法务口径和本地机房' },
+      { contact_id: 'ct_009', role: 'member', focus: '审计日志保留期和运维访问留痕' },
+      { contact_id: 'ct_002', role: 'member', focus: '存储架构和备份' },
+    ],
+    sop_ids: [],
+    materials: [
+      { id: 'mt5', name: 'Mia：欧盟数据驻留的法务要求', kind: 'note', value: '欧盟租户数据落在欧盟境内机房；运维访问留痕；备份不出境', tags: ['合规'], added_at: minsAgo(18) },
+      { id: 'mt8', name: '现有存储架构图', kind: 'file', value: 'architecture/storage-current.png', tags: ['架构'], added_at: minsAgo(60 * 24 * 3) },
+    ],
+    docs: [{ id: 'pd6', title: 'Mia：欧盟数据驻留的法务要求', kind: '其他', status: 'draft', source: { type: 'library', content_id: 'dc_004' }, updated_at: seedContent.find((c) => c.id === 'dc_004')?.updated_at ?? minsAgo(18) }],
+    prototypes: [],
+    created_at: minsAgo(60 * 24 * 6),
   },
 ]
