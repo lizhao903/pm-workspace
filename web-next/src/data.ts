@@ -353,7 +353,7 @@ export const seedConnectors: Connector[] = [
   { id: 'cn_binance_md', tool: 'binance_md', name: 'Binance 行情', account: '公开接口', status: 'connected', direction: 'receive', interval: 0, config: {}, last_sync_at: minsAgo(0), created_at: daysAgo(10), auth: { mode: 'none' }, tools: catalogOf('binance_md'), tools_at: daysAgo(10) },
   { id: 'cn_futu_opend', tool: 'futu_opend', name: '富途 OpenD', account: '127.0.0.1:11111', status: 'connected', direction: 'receive', interval: 0, config: { host: '127.0.0.1:11111' }, last_sync_at: minsAgo(1), created_at: daysAgo(10), auth: { mode: 'none' }, tools: catalogOf('futu_opend'), tools_at: daysAgo(10) },
   { id: 'cn_slack', tool: 'slack', name: '公司 Slack', account: 'acme.slack.com', status: 'connected', direction: 'both', interval: 5,
-    config: { bot_token: 'xoxb-1234-demo', signing_secret: 'demo-signing', channels: '#product, #feedback' }, last_sync_at: minsAgo(2), created_at: daysAgo(40) },
+    config: { bot_token: 'xoxb-1234-demo', signing_secret: 'demo-signing', channels: '#product, #feedback, #release, #pmw-beta' }, last_sync_at: minsAgo(2), created_at: daysAgo(40) },
   { id: 'cn_tg', tool: 'telegram', name: '个人 Telegram', account: '@broleez', status: 'connected', direction: 'both', interval: 5,
     config: { mode: '用户账号（API ID）', api_id: '2040123', api_hash: 'demo-hash', phone: '+86 138 0000 0000' }, last_sync_at: minsAgo(4), created_at: daysAgo(30) },
   { id: 'cn_lark', tool: 'lark', name: '飞书工作区', account: '远川科技 x 本公司', status: 'connected', direction: 'receive', interval: 15,

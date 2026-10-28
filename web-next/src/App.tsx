@@ -5,7 +5,7 @@ import { ContactDrawer, ContactsPage, type Draft as ContactDraft } from './conta
 import { LibraryBar, LibraryReader, LibraryTree, libraryModel, type Workspace } from './library'
 import { pickFolder, readHandle, type LocalFolder } from './localdir'
 import { seedConnectors, seedContacts, seedContent, seedMessages, TOOLS, type Connector, type Contact, type Message } from './data'
-import { MessageDrawer, MessagesPage, contactFor, gear, type MsgAction } from './messages'
+import { MessageDrawer, MessagesPage, contactFor, fetchBlocker, gear, type MsgAction } from './messages'
 import { SECTIONS, SettingsNav, type Section } from './settings'
 import { CommandPalette, type PaletteItem } from './palette'
 import { SOPS, act as actOnRun, seedRuns, sopById, tick, runStatus, startRun, upsertSop, type Json, type RunAction } from './sopflow'
@@ -355,14 +355,13 @@ export default function App() {
     const a = m?.attachments?.find((x) => x.id === attId)
     if (!m || !a) return
     const conn = connectors.find((c) => c.id === m.connector_id)
-    const bad = !conn || conn.status !== 'connected'
+    // 失败原因按连接器实际状态说，分类同回复受阻；只有连接器异常记运行异常，删了、暂停、断开、连接中不记
+    const blocked = fetchBlocker(conn)
     patchAtt(msgId, attId, (x) => ({ ...x, fetch: 'fetching', error: undefined }))
     window.setTimeout(() => {
-      if (bad) {
-        // 连接器删了：渠道已删除，不当成连接异常记
-        if (!conn) { patchAtt(msgId, attId, (x) => ({ ...x, fetch: 'error', error: '渠道已删除，取不到附件' })); return }
-        patchAtt(msgId, attId, (x) => ({ ...x, fetch: 'error', error: `${conn?.name ?? '渠道'}连接异常，取不到附件；修好连接器后重试` }))
-        report({ fingerprint: `att:${m.connector_id}`, level: 'warn', module: 'IM 消息', title: '附件获取失败', message: `「${a.name}」没取到：${conn?.name ?? '渠道'}连接异常`, context: { 消息: m.id, 附件: a.name, 渠道: conn?.name ?? m.channel } })
+      if (blocked) {
+        patchAtt(msgId, attId, (x) => ({ ...x, fetch: 'error', error: blocked.text }))
+        if (blocked.incident) report({ fingerprint: `att:${m.connector_id}`, level: 'warn', module: 'IM 消息', title: '附件获取失败', message: `「${a.name}」没取到：连接器「${conn?.name}」异常`, context: { 消息: m.id, 附件: a.name, 渠道: conn?.name ?? m.channel } })
         return
       }
       const local = `${ATTACH_DIR}/${a.name}`
@@ -409,6 +408,20 @@ export default function App() {
       }
     }
   }
+
+  // 稍后到点：在最早的提醒时间清掉 snooze_until，消息回到待处理，各处计数跟着变（正式产品由后端到点改回）
+  const nextWake = messages.reduce((n, m) => {
+    const t = m.status === 'pending' && m.snooze_until ? new Date(m.snooze_until).getTime() : Infinity
+    return t < n ? t : n
+  }, Infinity)
+  useEffect(() => {
+    if (nextWake === Infinity) return
+    const t = window.setTimeout(() => {
+      const now = Date.now()
+      setMessages((xs) => xs.map((m) => (m.snooze_until && new Date(m.snooze_until).getTime() <= now ? { ...m, snooze_until: null } : m)))
+    }, Math.min(Math.max(nextWake - Date.now(), 0) + 200, 2 ** 31 - 1))
+    return () => window.clearTimeout(t)
+  }, [nextWake])
 
   const pending = messages.filter((m) => m.status === 'pending' && !(m.snooze_until && new Date(m.snooze_until).getTime() > Date.now())).length
   const brokenConnectors = connectors.filter((c) => c.status === 'error').length
@@ -1356,7 +1369,7 @@ export default function App() {
           )}
           {page === 'projects' && projectId !== ALL_PROJECTS && (() => {
             const pj = projects.find((x) => x.id === projectId)
-            if (!pj) return <div className="lib-reader-empty">还没有项目，点左下「新建项目」</div>
+            if (!pj) return <div className="page"><div className="empty"><div className="empty-title">这个项目不存在或已删除</div><button className="btn btn-outline" onClick={() => setProjectId(ALL_PROJECTS)}>回到项目列表</button></div></div>
             return (
               <ProjectPage key={pj.id} project={pj} projects={projects} agents={agents} content={content} tab={projectTab} onTab={setProjectTab} onAll={() => setProjectId(ALL_PROJECTS)}
                 onChange={(x) => setProjects((xs) => xs.map((y) => (y.id === x.id ? x : y)))}
@@ -1368,11 +1381,12 @@ export default function App() {
                 onOpenAgent={(id) => { go('settings'); setSection('agents'); setAgentView(id) }}
                 links={{
                   messages, contacts, tasks, sops, runs, sessions,
+                  connectors: connectors.filter((c) => TOOLS.find((t) => t.key === c.tool)?.category === 'im'),
                   onOpenMessage: openMessage, onOpenContact: (id) => setDrawer({ kind: 'contact', id }),
                   onNewTask: () => setDrawer({ kind: 'new-task', initial: { project_id: pj.id } }),
                   onOpenTask: (id) => setDrawer({ kind: 'task', id }),
-                  // 待验收的任务不能在项目里点圆圈绕过验收：打开抽屉，用顶部的验收通过 / 退回
-                  onTaskStatus: (id, st) => { if (st === 'done' && tasks.find((t) => t.id === id)?.status === 'review') setDrawer({ kind: 'task', id }); else patchTask(id, { status: st }) },
+                  // 待验收的任务点圆圈和任务页一样先弹确认，确认后等于验收通过
+                  onTaskStatus: (id, st) => patchTask(id, { status: st }), onApproveTask: (id) => dev.review(id, true, ''),
                   onStartSop: (id) => setDrawer({ kind: 'sop-start', sopId: id }),
                   onOpenRun: (id) => { setPage('sop'); setOpenRun(id) },
                   onOpenSop: (id) => { setPage('sop'); setSopView(`sop:${id}`); setOpenRun(null) },

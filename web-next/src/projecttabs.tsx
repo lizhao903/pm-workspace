@@ -1,8 +1,8 @@
 import { useMemo, useState } from 'react'
 import type { Agent, Session } from './agentdata'
 import { AgentAvatar } from './agents'
-import { IM_CHANNELS, type Contact, type Message } from './data'
-import { contactIndex, senderKey } from './messages'
+import { IM_CHANNELS, type Connector, type Contact, type Message } from './data'
+import { MentionText, contactIndex, isSnoozed, senderKey } from './messages'
 import { SearchSelect, matchOption } from './searchselect'
 import { STAKE_ROLE, type Project, type ProjectChat, type StakeRole } from './projectdata'
 import { RUN_STATUS, runStatus, type Sop, type SopRun } from './sopflow'
@@ -12,6 +12,7 @@ import { PriorityTag, TaskStatusPill } from './tasks'
 import { useEnumView } from './enumdata'
 import { Avatar, cls, timeAgo } from './ui'
 import { AttachmentChips, ProjectAttachmentInbox } from './attachments'
+import { ApproveConfirm } from './devloop'
 
 // 项目里的沟通、干系人、任务、SOP、Agent 页签。数据都在各自模块里，项目只记关联关系
 
@@ -39,8 +40,10 @@ const DM_PEEK = 8
 
 /* ---------- 沟通：私聊 + 群聊 ---------- */
 
-export function CommsTab({ p, messages, contacts, onChange, onOpenMessage, onFetchAttachment, onAddAttachment }: {
+export function CommsTab({ p, messages, contacts, connectors = [], onChange, onOpenMessage, onFetchAttachment, onAddAttachment }: {
   p: Project; messages: Message[]; contacts: Contact[]
+  /** IM 连接器：配置里监听的频道也算可绑的群，新建的群收到第一条消息前也能绑 */
+  connectors?: Connector[]
   onChange: (x: Partial<Project>) => void; onOpenMessage: (id: string) => void
   onFetchAttachment: (msgId: string, attId: string) => void
   /** 加进这个项目的支持材料；没获取的会先获取 */
@@ -56,9 +59,13 @@ export function CommsTab({ p, messages, contacts, onChange, onOpenMessage, onFet
   const chatIdOf = (m: Message) => keyOf.get(msgKey(m, people))
   const rows = mine.filter((m) => !filter || chatIdOf(m) === filter)
   const label = (c: ProjectChat) => (c.kind === 'group' ? c.conversation : contacts.find((x) => x.id === c.contact_id)?.name ?? '已删除的联系人')
-  // 可以绑的群：现有消息里出现过的群聊，去掉已经绑了的
+  // 可以绑的群：现有消息里出现过的群聊，加上连接器配置里监听的频道（还没收到消息的排最后），去掉已经绑了的
   // 没搜的时候群聊也只露最近有消息的几个
-  const groupPool = [...new Map([...messages].sort((a, b) => a.at.localeCompare(b.at)).filter((m) => m.conversation).map((m) => [`${m.channel}|${m.conversation}`, m])).values()]
+  const seen = new Map([...messages].sort((a, b) => a.at.localeCompare(b.at)).filter((m) => m.conversation).map((m) => [`${m.channel}|${m.conversation}`, { channel: m.channel, conversation: m.conversation, at: m.at }]))
+  for (const c of connectors) for (const name of (c.config.channels ?? '').split(/[,，]/).map((x) => x.trim()).filter(Boolean)) {
+    if (!seen.has(`${c.tool}|${name}`)) seen.set(`${c.tool}|${name}`, { channel: c.tool, conversation: name, at: '' })
+  }
+  const groupPool = [...seen.values()]
     .filter((m) => !keyOf.has(`g:${m.channel}|${m.conversation}`))
     .sort((a, b) => b.at.localeCompare(a.at))
   const groupMatched = groupPool.filter((m) => matchOption({ label: m.conversation, hint: chLabel(m.channel) }, bq))
@@ -70,7 +77,8 @@ export function CommsTab({ p, messages, contacts, onChange, onOpenMessage, onFet
     : [...dmPool].sort((a, b) => (b.last_contact_at ?? '').localeCompare(a.last_contact_at ?? ''))
   const dms = dmMatched.slice(0, bq.trim() ? 50 : DM_PEEK)
   const pendingBy = new Map<string, number>()
-  for (const m of mine) if (m.status === 'pending') { const id = chatIdOf(m); if (id) pendingBy.set(id, (pendingBy.get(id) ?? 0) + 1) }
+  // 待处理不含稍后，和 IM 消息页一致
+  for (const m of mine) if (m.status === 'pending' && !isSnoozed(m)) { const id = chatIdOf(m); if (id) pendingBy.set(id, (pendingBy.get(id) ?? 0) + 1) }
   const pending = (c: ProjectChat) => pendingBy.get(c.id) ?? 0
   const bind = (c: ProjectChat) => { onChange({ chats: [...p.chats, c] }); setAdding(false); setBq('') }
   // 消息先渲染一页，换渠道筛选就回到第一页
@@ -91,7 +99,7 @@ export function CommsTab({ p, messages, contacts, onChange, onOpenMessage, onFet
             <div className="menu-label">{bq.trim() || groupPool.length <= DM_PEEK ? '群聊' : `群聊 · 最近有消息的 ${DM_PEEK} 个`}</div>
             {groups.length ? groups.map((m) => (
               <button key={`${m.channel}|${m.conversation}`} className="menu-item" title={m.conversation} onClick={() => bind({ id: uid('ch'), kind: 'group', channel: m.channel, conversation: m.conversation })}>
-                <span className="tag">{chLabel(m.channel)}</span><span className="ellipsis">{m.conversation}</span>
+                <span className="tag">{chLabel(m.channel)}</span><span className="ellipsis">{m.conversation}</span>{!m.at && <span className="list-sub">还没收到消息</span>}
               </button>
             )) : <div className="list-sub pt-bind-empty">{bq.trim() ? '没有匹配的群' : '没有可绑的群'}</div>}
             {groupMatched.length > groups.length && <div className="list-sub pt-bind-empty">{bq.trim() ? `还有 ${groupMatched.length - groups.length} 个，继续输入筛选` : `共 ${groupMatched.length} 个群，输入群名搜`}</div>}
@@ -127,15 +135,16 @@ export function CommsTab({ p, messages, contacts, onChange, onOpenMessage, onFet
           onSkip={(id, skip) => onChange({ skipped_attachments: skip ? [...(p.skipped_attachments ?? []), id] : (p.skipped_attachments ?? []).filter((x) => x !== id) })} />
         {rows.length ? rows.slice(0, limit).map((m) => {
           const who = people.get(senderKey(m))
+          const snoozed = isSnoozed(m)
           return (
-            <button key={m.id} className={cls('pt-msg', m.status === 'pending' && 'pending')} onClick={() => onOpenMessage(m.id)}>
+            <button key={m.id} className={cls('pt-msg', m.status === 'pending' && !snoozed && 'pending')} onClick={() => onOpenMessage(m.id)}>
               <Avatar name={who?.name ?? m.sender_name} size={30} src={who?.photo} />
               <span className="mount-text">
                 <span className="pt-msg-top"><b>{who?.name ?? m.sender_name}</b><span className="list-sub">{chLabel(m.channel)} · {m.conversation || '私聊'}</span><span className="spacer" /><span className="run-muted">{timeAgo(m.at)}</span></span>
-                <span className="pt-msg-text">{m.text}</span>
+                <span className="pt-msg-text"><MentionText text={m.text} /></span>
                 <AttachmentChips atts={m.attachments} />
               </span>
-              {m.status === 'pending' ? <span className="today-go">回复</span> : <span className="list-sub">{msgEnum.label(m.status)}</span>}
+              {snoozed ? <span className="list-sub">稍后提醒</span> : m.status === 'pending' ? <span className="today-go">回复</span> : <span className="list-sub">{msgEnum.label(m.status)}</span>}
             </button>
           )
         }) : <div className="empty"><div className="empty-title">没有消息</div><div className="list-sub">绑定的群和私聊里收到消息后会出现在这里</div></div>}
@@ -155,16 +164,16 @@ export function StakeholdersTab({ p, contacts, messages, onChange, onOpenContact
 }) {
   const avail = contacts.filter((c) => !p.stakeholders.some((s) => s.contact_id === c.id))
   const patch = (id: string, x: Partial<{ role: StakeRole; focus: string }>) => onChange({ stakeholders: p.stakeholders.map((s) => (s.contact_id === id ? { ...s, ...x } : s)) })
-  // 每个联系人最近的一条消息：消息扫一遍，按发信人归到联系人上
+  // 每个联系人在本项目绑定的会话里最近的一条消息：项目消息扫一遍，按发信人归到联系人上
   const latest = useMemo(() => {
     const people = contactIndex(contacts)
     const out = new Map<string, Message>()
-    for (const m of messages) {
+    for (const m of projectMessages(p, messages, contacts, people)) {
       const c = people.get(senderKey(m))
       if (c && (out.get(c.id)?.at ?? '') < m.at) out.set(c.id, m)
     }
     return out
-  }, [messages, contacts])
+  }, [p, messages, contacts])
   const lastMsg = (c: Contact) => latest.get(c.id)
   const order: StakeRole[] = ['decider', 'contact', 'owner', 'member', 'informed']
   const rows = [...p.stakeholders].sort((a, b) => order.indexOf(a.role) - order.indexOf(b.role))
@@ -195,7 +204,7 @@ export function StakeholdersTab({ p, contacts, messages, onChange, onOpenContact
                   {order.map((r) => <option key={r} value={r}>{STAKE_ROLE[r].label}</option>)}
                 </select>
                 <input className="stake-focus" value={s.focus} placeholder="他关心什么" onChange={(e) => patch(c.id, { focus: e.target.value })} />
-                <span>{last ? <button className="link-btn link-muted ellipsis" onClick={() => onOpenMessage(last.id)} title={last.text}>{timeAgo(last.at)} · {last.text.slice(0, 14)}…</button> : <span className="list-sub">没有消息</span>}</span>
+                <span>{last ? <button className="link-btn link-muted ellipsis" onClick={() => onOpenMessage(last.id)} title={last.text}>{timeAgo(last.at)} · {last.text.length > 14 ? `${last.text.slice(0, 14)}…` : last.text}</button> : <span className="list-sub">{p.chats.length ? '本项目会话里没有消息' : '还没绑定沟通渠道'}</span>}</span>
                 <button className="act act-quiet" onClick={() => onChange({ stakeholders: p.stakeholders.filter((x) => x.contact_id !== c.id) })}>移除</button>
               </div>
             )
@@ -208,10 +217,14 @@ export function StakeholdersTab({ p, contacts, messages, onChange, onOpenContact
 
 /* ---------- 任务 ---------- */
 
-export function ProjectTasksTab({ p, tasks, onNew, onOpen, onStatus }: {
+export function ProjectTasksTab({ p, tasks, onNew, onOpen, onStatus, onApprove }: {
   p: Project; tasks: Task[]; onNew: () => void; onOpen: (id: string) => void; onStatus: (id: string, s: TaskStatus) => void
+  /** 待验收的任务点完成圆圈：确认后等于验收通过，和任务列表同一套 */
+  onApprove?: (id: string) => void
 }) {
+  const statusEnum = useEnumView('task_status')
   const [all, setAll] = useState(false)
+  const [ask, setAsk] = useState<Task | null>(null)
   const mine = tasks.filter((t) => t.project_id === p.id)
   const rows = mine.filter((t) => all || isOpenTask(t.status)).sort((a, b) => a.priority.localeCompare(b.priority))
   return (
@@ -228,7 +241,8 @@ export function ProjectTasksTab({ p, tasks, onNew, onOpen, onStatus }: {
         <div className="task-table">
           {rows.map((t) => (
             <div key={t.id} className={cls('pt-task', t.status === 'done' && 'is-done')} onClick={() => onOpen(t.id)}>
-              <button className={cls('task-check', t.status === 'done' && 'on')} onClick={(e) => { e.stopPropagation(); onStatus(t.id, t.status === 'done' ? 'todo' : 'done') }}>
+              <button className={cls('task-check', t.status === 'done' && 'on')} title={t.status === 'done' ? `标为${statusEnum.label('todo')}` : t.status === 'review' ? '验收通过' : `标为${statusEnum.label('done')}`}
+                onClick={(e) => { e.stopPropagation(); if (t.status === 'review') setAsk(t); else onStatus(t.id, t.status === 'done' ? 'todo' : 'done') }}>
                 {t.status === 'done' && <svg viewBox="0 0 16 16" width="10" height="10"><path d="m3.5 8.5 3 3 6-7" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" /></svg>}
               </button>
               <PriorityTag p={t.priority} />
@@ -241,6 +255,10 @@ export function ProjectTasksTab({ p, tasks, onNew, onOpen, onStatus }: {
           ))}
         </div>
       ) : <div className="empty"><div className="empty-title">{all ? '这个项目还没有任务' : '没有未完成的任务'}</div><div className="list-sub">在这里新建的任务会自动归到这个项目；其他任务在任务详情里也能改所属项目</div></div>}
+      {ask && (
+        <ApproveConfirm task={ask} onClose={() => setAsk(null)} onOpen={() => { setAsk(null); onOpen(ask.id) }}
+          onApprove={() => { setAsk(null); if (onApprove) onApprove(ask.id); else onStatus(ask.id, 'done') }} />
+      )}
     </>
   )
 }

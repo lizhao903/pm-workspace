@@ -2,9 +2,9 @@ import { useOpenUrl, useProtoDomain } from './openurl'
 import { useMemo, useState } from 'react'
 import type { Agent, Session } from './agentdata'
 import { AgentAvatar } from './agents'
-import type { Contact, ContentItem, Message } from './data'
+import type { Connector, Contact, ContentItem, Message } from './data'
 import { CommsTab, ProjectAgentTab, ProjectSopTab, ProjectTasksTab, StakeholdersTab, projectMessages } from './projecttabs'
-import { contactIndex } from './messages'
+import { contactIndex, isSnoozed, senderKey } from './messages'
 import { SearchSelect } from './searchselect'
 import type { Sop, SopRun } from './sopflow'
 import type { Task, TaskStatus } from './taskdata'
@@ -29,6 +29,8 @@ const TABS: { key: ProjectTab; label: string }[] = [
 ]
 const Pill = ({ label, color }: { label: string; color: string }) => <span className="pill" style={{ '--c': color } as React.CSSProperties}><span className="pill-dot" />{label}</span>
 const running = (p: Project) => p.prototypes.filter((x) => x.status === 'running').length
+/** 待回复：待处理且不在稍后里，和 IM 消息页的待处理同一口径 */
+export const awaitingReply = (m: Message) => m.status === 'pending' && !isSnoozed(m)
 export const ProjectMark = ({ p, size = 22 }: { p: Project; size?: number }) => <Mark image={p.mark?.image} icon={p.mark?.icon} text={p.mark?.text || p.name.slice(0, 1) || '项'} color={p.color} size={size} />
 /** 概览里露几个原型、几个干系人 */
 const PROTO_PEEK = 5
@@ -39,6 +41,10 @@ const STAKE_ORDER: StakeRole[] = ['decider', 'contact', 'owner', 'member', 'info
 /** 路径里的目录前缀：「materials/a.md」→「materials」；没有就默认放 materials 下 */
 const dirOf = (v: string) => (v.includes('/') ? v.slice(0, v.lastIndexOf('/')) : v.trim() ? '' : 'materials')
 
+/** 浏览器支不支持目录选择器；不支持时选文件夹的按钮置灰并说明 */
+const canPickDir = () => typeof (window as unknown as { showDirectoryPicker?: unknown }).showDirectoryPicker === 'function'
+const NO_DIR_PICKER = '这个浏览器不支持选文件夹，请手填路径'
+
 /** 选本地文件 / 文件夹。浏览器拿不到绝对路径，只拿得到名字，路径按「项目目录下的相对路径」拼 */
 function LocalPick({ kind, onPick }: { kind: 'file' | 'folder'; onPick: (names: string[]) => void }) {
   const pickFolder = async () => {
@@ -46,7 +52,7 @@ function LocalPick({ kind, onPick }: { kind: 'file' | 'folder'; onPick: (names: 
     if (!w.showDirectoryPicker) return
     try { onPick([(await w.showDirectoryPicker()).name]) } catch { /* 用户取消 */ }
   }
-  if (kind === 'folder') return <button type="button" className="act" onClick={pickFolder}>选择文件夹…</button>
+  if (kind === 'folder') return <button type="button" className="act" disabled={!canPickDir()} title={canPickDir() ? undefined : NO_DIR_PICKER} onClick={pickFolder}>选择文件夹…</button>
   return (
     <label className="act">
       选择文件…
@@ -84,7 +90,7 @@ export function ProjectsListPage({ projects, messages, contacts, tasks, recent, 
     const open = new Map<string, number>()
     for (const t of tasks) if (t.project_id && isOpenTask(t.status)) open.set(t.project_id, (open.get(t.project_id) ?? 0) + 1)
     return new Map(projects.map((p) => [p.id, {
-      pending: projectMessages(p, messages, contacts, people).filter((m) => m.status === 'pending').length,
+      pending: projectMessages(p, messages, contacts, people).filter(awaitingReply).length,
       tasks: open.get(p.id) ?? 0,
     }]))
   }, [projects, messages, contacts, tasks])
@@ -186,7 +192,7 @@ function PathInput({ value, onChange, placeholder }: { value: string; onChange: 
     <span className="path-box">
       <svg className="path-ico" viewBox="0 0 16 16" width="14" height="14"><path d="M2 4.5A1.5 1.5 0 0 1 3.5 3h2.8l1.4 1.5h4.8A1.5 1.5 0 0 1 14 6v5.5a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 2 11.5Z" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" /></svg>
       <input className="mono" value={value} placeholder={placeholder} spellCheck={false} onChange={(e) => onChange(e.target.value)} />
-      <button type="button" className="path-pick" onClick={pick} title="浏览器只能拿到选中目录的名字，上级路径要自己补">选择</button>
+      <button type="button" className="path-pick" onClick={pick} disabled={!canPickDir()} title={canPickDir() ? '浏览器只能拿到选中目录的名字，上级路径要自己补' : NO_DIR_PICKER}>选择</button>
     </span>
   )
 }
@@ -253,8 +259,12 @@ function ProtoCard({ p, project, projects, onStart, onStop, onChange, onRemove }
 
 export interface ProjectLinks {
   messages: Message[]; contacts: Contact[]; tasks: Task[]; sops: Sop[]; runs: SopRun[]; sessions: Session[]
+  /** IM 连接器，绑定群聊时补候选 */
+  connectors?: Connector[]
   onOpenMessage: (id: string) => void; onOpenContact: (id: string) => void
   onNewTask: () => void; onOpenTask: (id: string) => void; onTaskStatus: (id: string, s: TaskStatus) => void
+  /** 待验收任务确认后验收通过 */
+  onApproveTask?: (id: string) => void
   onStartSop: (id: string) => void; onOpenRun: (id: string) => void; onOpenSop: (id: string) => void
   onOpenSession: (id: string) => void
   /** 去会话页看这个项目的全部会话（会话页按项目筛）；不传就在项目里就地展开 */
@@ -288,7 +298,9 @@ export function ProjectPage({ project, projects, agents, content, tab, onTab, on
   const agent = agents.find((a) => a.id === p.agent_ids[0])
   const openUrl = useOpenUrl()
   const L = links
-  const pmsgs = projectMessages(p, L.messages, L.contacts)
+  const people = useMemo(() => contactIndex(L.contacts), [L.contacts])
+  const pmsgs = projectMessages(p, L.messages, L.contacts, people)
+  const waiting = pmsgs.filter(awaitingReply).length
   const ptasks = L.tasks.filter((t) => t.project_id === p.id)
   const openTasks = ptasks.filter((t) => isOpenTask(t.status))
   const [newMat, setNewMat] = useState<Omit<Material, 'id' | 'added_at'> | null>(null)
@@ -296,6 +308,8 @@ export function ProjectPage({ project, projects, agents, content, tab, onTab, on
   const [newDoc, setNewDoc] = useState<{ title: string; kind: string; type: 'library' | 'file'; ref: string } | null>(null)
   const [newProto, setNewProto] = useState<{ name: string; dir: string; command: string; port: number } | null>(null)
   const [confirmDel, setConfirmDel] = useState(false)
+  // 名称必填：清空时只改输入框、不存，离开输入框时恢复成原来的名字
+  const [nameDraft, setNameDraft] = useState<string | null>(null)
   const [matQ, setMatQ] = useState('')
   const [matKind, setMatKind] = useState<MaterialKind | ''>('')
   const [showStopped, setShowStopped] = useState(false)
@@ -323,13 +337,13 @@ export function ProjectPage({ project, projects, agents, content, tab, onTab, on
 
   return (
     <div className="page page-fill project-page">
-      <PageTitle parent={onAll ? <button className="tb-parent-btn" onClick={onAll} title="回到项目列表">项目</button> : '项目'} desc={p.desc} actions={actions} icon={<ProjectMark p={p} size={20} />}>{p.name}</PageTitle>
+      <PageTitle parent={onAll ? <button className="tb-parent-btn tb-parent-keep" onClick={onAll} title="回到项目列表">项目</button> : '项目'} desc={p.desc} actions={actions} icon={<ProjectMark p={p} size={20} />}>{p.name}</PageTitle>
       <div className="project-tabs np-tabs">
         {TABS.map((t) => (
           <button key={t.key} className={cls(tab === t.key && 'on')} onClick={() => onTab(t.key)}>
             {t.label}
             {t.key === 'prototypes' && running(p) > 0 && <span className="proto-light pl-running" />}
-            {t.key === 'comms' && pmsgs.some((m) => m.status === 'pending') && <span className="side-dot" />}
+            {t.key === 'comms' && waiting > 0 && <span className="side-dot" />}
           </button>
         ))}
       </div>
@@ -337,7 +351,7 @@ export function ProjectPage({ project, projects, agents, content, tab, onTab, on
       {tab === 'overview' && (
         <div className="proj-overview">
           <div className="stats">
-            <button className="stat stat-btn" onClick={() => onTab('comms')}><div className="stat-label">待回复消息</div><div className={cls('stat-value', pmsgs.some((m) => m.status === 'pending') && 'stat-danger')}>{pmsgs.filter((m) => m.status === 'pending').length}</div></button>
+            <button className="stat stat-btn" onClick={() => onTab('comms')}><div className="stat-label">待回复消息</div><div className={cls('stat-value', waiting > 0 && 'stat-danger')}>{waiting}</div></button>
             <button className="stat stat-btn" onClick={() => onTab('tasks')}><div className="stat-label">未完成任务</div><div className="stat-value">{openTasks.length}</div></button>
             <button className="stat stat-btn" onClick={() => onTab('stakeholders')}><div className="stat-label">干系人</div><div className="stat-value">{p.stakeholders.length}</div></button>
             <button className="stat stat-btn" onClick={() => onTab('docs')}><div className="stat-label">产品文档</div><div className="stat-value">{p.docs.length}</div></button>
@@ -348,9 +362,10 @@ export function ProjectPage({ project, projects, agents, content, tab, onTab, on
               <div className="mount-head"><div className="field-group-title">最新沟通</div><button className="act act-quiet" onClick={() => onTab('comms')}>全部</button></div>
               {pmsgs.length ? [...pmsgs].sort((a, b) => b.at.localeCompare(a.at)).slice(0, 4).map((m) => (
                 <button key={m.id} className="proj-proto-line" onClick={() => L.onOpenMessage(m.id)}>
-                  <span className={cls('today-dot', m.status === 'pending' ? 'td-info' : 'td-done')} /><b className="pt-who">{m.sender_name}</b><span className="ellipsis">{m.text}</span><span className="spacer" /><span className="run-muted">{timeAgo(m.at)}</span>
+                  <span className={cls('today-dot', awaitingReply(m) ? 'td-info' : 'td-done')} /><b className="pt-who">{people.get(senderKey(m))?.name ?? m.sender_name}</b><span className="ellipsis">{m.text}</span><span className="spacer" /><span className="run-muted">{timeAgo(m.at)}</span>
                 </button>
-              )) : <div className="mount-empty">还没绑定沟通渠道。<button className="link-btn" onClick={() => onTab('comms')}>去绑定</button></div>}
+              )) : p.chats.length ? <div className="mount-empty">绑定的会话里还没有消息</div>
+                : <div className="mount-empty">还没绑定沟通渠道。<button className="link-btn" onClick={() => onTab('comms')}>去绑定</button></div>}
             </section>
             <section className="hook-sec">
               <div className="mount-head"><div className="field-group-title">进行中的任务</div><button className="act act-quiet" onClick={() => onTab('tasks')}>全部</button></div>
@@ -380,7 +395,7 @@ export function ProjectPage({ project, projects, agents, content, tab, onTab, on
                   <span className="mount-text"><b>{agent.name}</b><span className="list-sub">{agent.desc}</span></span>
                   <button className="act act-primary" disabled={!agent.enabled} onClick={() => onChat(agent.id)}>和它对话</button>
                 </div>
-              ) : <div className="mount-empty">还没设置。<button className="link-btn" onClick={() => onTab('settings')}>去设置</button></div>}
+              ) : <div className="mount-empty">还没设置。<button className="link-btn" onClick={() => onTab('agents')}>去设置</button></div>}
             </section>
             <section className="hook-sec">
               <div className="mount-head"><div className="field-group-title">原型{p.prototypes.length > PROTO_PEEK && <span className="field-hint">共 {p.prototypes.length} 个</span>}</div>{p.prototypes.length > 0 && <button className="act act-quiet" onClick={() => onTab('prototypes')}>全部</button>}</div>
@@ -389,25 +404,31 @@ export function ProjectPage({ project, projects, agents, content, tab, onTab, on
                   <span className={cls('proto-light', `pl-${x.status}`)} /><span className="ellipsis">{x.name}</span><code>:{x.port}</code>
                   <span className="spacer" />
                   {x.status === 'running' ? <><button className="act act-quiet" onClick={() => openUrl(`http://127.0.0.1:${x.port}`, x.name)}>打开</button><button className="act" onClick={() => onStop(x.id)}>停止</button></>
-                    : <button className="act" disabled={x.status === 'starting' || x.status === 'stopping' || !!portConflict(x.port, x.id, projects)} onClick={() => onStart(x.id)}>{PROTO_STATUS[x.status].label === '已停止' ? '启动' : PROTO_STATUS[x.status].label}</button>}
+                    : (() => {
+                      // 和原型卡片同一套文字：已停止「启动」、启动失败「重新启动」、启停中显示状态；端口冲突置灰并悬停原因
+                      const conflict = x.status === 'starting' || x.status === 'stopping' ? null : portConflict(x.port, x.id, projects)
+                      return <button className="act" disabled={x.status === 'starting' || x.status === 'stopping' || !!conflict} title={conflict ?? undefined} onClick={() => onStart(x.id)}>
+                        {x.status === 'stopped' ? '启动' : x.status === 'error' ? '重新启动' : x.status === 'starting' ? '启动中…' : '停止中…'}
+                      </button>
+                    })()}
                 </div>
               )) : <div className="mount-empty">还没有原型</div>}
             </section>
             <section className="hook-sec">
               <div className="field-group-title">最近的文档和材料</div>
-              {[...p.docs.map((x) => ({ k: `d${x.id}`, t: x.title, at: x.updated_at, tag: x.kind })), ...p.materials.map((x) => ({ k: `m${x.id}`, t: x.name, at: x.added_at, tag: MATERIAL_KIND[x.kind] }))]
+              {p.docs.length || p.materials.length ? [...p.docs.map((x) => ({ k: `d${x.id}`, t: x.title, at: x.updated_at, tag: x.kind })), ...p.materials.map((x) => ({ k: `m${x.id}`, t: x.name, at: x.added_at, tag: MATERIAL_KIND[x.kind] }))]
                 .sort((a, b) => b.at.localeCompare(a.at)).slice(0, 5).map((x) => (
                   <div key={x.k} className="proj-proto-line"><span className="tag">{x.tag}</span><span className="ellipsis">{x.t}</span><span className="spacer" /><span className="run-muted">{timeAgo(x.at)}</span></div>
-                ))}
+                )) : <div className="mount-empty">还没有文档和材料</div>}
             </section>
           </div>
         </div>
       )}
 
-      {tab === 'comms' && <CommsTab p={p} messages={L.messages} contacts={L.contacts} onChange={set} onOpenMessage={L.onOpenMessage}
+      {tab === 'comms' && <CommsTab p={p} messages={L.messages} contacts={L.contacts} connectors={L.connectors} onChange={set} onOpenMessage={L.onOpenMessage}
         onFetchAttachment={L.onFetchAttachment} onAddAttachment={(mid, aid) => L.onAddAttachment(p.id, mid, aid)} />}
       {tab === 'stakeholders' && <StakeholdersTab p={p} contacts={L.contacts} messages={L.messages} onChange={set} onOpenContact={L.onOpenContact} onOpenMessage={L.onOpenMessage} />}
-      {tab === 'tasks' && <ProjectTasksTab p={p} tasks={L.tasks} onNew={L.onNewTask} onOpen={L.onOpenTask} onStatus={L.onTaskStatus} />}
+      {tab === 'tasks' && <ProjectTasksTab p={p} tasks={L.tasks} onNew={L.onNewTask} onOpen={L.onOpenTask} onStatus={L.onTaskStatus} onApprove={L.onApproveTask} />}
       {tab === 'sop' && <ProjectSopTab p={p} sops={L.sops} runs={L.runs} onChange={set} onStart={L.onStartSop} onOpenRun={L.onOpenRun} onOpenSop={L.onOpenSop} />}
       {tab === 'agents' && <ProjectAgentTab p={p} agents={agents} sessions={L.sessions} onChange={set} onChat={onChat} onOpenAgent={onOpenAgent} onOpenSession={L.onOpenSession} onAllSessions={L.onAllSessions} />}
       {tab === 'materials' && (
@@ -602,7 +623,10 @@ export function ProjectPage({ project, projects, agents, content, tab, onTab, on
                 onColor={(color) => set({ color })}>
                 <ProjectMark p={p} size={48} />
               </MarkEditor>
-              <label className="field"><span className="field-label">名称</span><input value={p.name} onChange={(e) => set({ name: e.target.value })} /></label>
+              <label className="field"><span className="field-label">名称</span>
+                <input value={nameDraft ?? p.name} onChange={(e) => { const v = e.target.value; setNameDraft(v.trim() ? null : v); if (v.trim()) set({ name: v }) }} onBlur={() => setNameDraft(null)} />
+                {nameDraft !== null && <span className="field-err">名称必填；不填的话离开输入框时恢复成「{p.name}」</span>}
+              </label>
             </div>
             <label className="field"><span className="field-label">说明</span><input value={p.desc} onChange={(e) => set({ desc: e.target.value })} /></label>
           </section>
