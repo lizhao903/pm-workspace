@@ -97,6 +97,91 @@
 | GET | `/api/objects/{id}/links` | `LinkView[]`，含 in/out 两个方向 |
 | POST | `/api/objects/{id}/links` | `{to_id,relation,note?}` |
 | GET | `/api/objects/{id}/revisions?limit=50` | `Revision[]` |
+| GET | `/api/objects/{id}/progress?limit=100` | `Progress[]`，**最近** N 条，最近的在前；limit 省略取 100，上限 500。对象不存在 404 |
+| POST | `/api/objects/{id}/progress` | `ProgressInput`，**服务端追加**；`status` 非空时状态切换与这条进展同一事务落库。201 |
+| POST | `/api/objects/{id}/claim` | `ClaimInput`，领取任务。领到 201；同一会话重复领 200（`already=true`，什么都不写）；被占用 409 |
+
+### props 约定（开发任务）
+
+开发任务在 `props` 里约定两个 key（常量见 `domain.PropAcceptance` / `domain.PropRepo`）：
+
+| key | 类型 | 说明 |
+|---|---|---|
+| `acceptance` | string，Markdown | 验收标准，建议写成 `- [ ] …` 清单 |
+| `repo` | string | 关联仓库：远端地址或本机绝对路径，只放一个。多个仓库的任务拆成每个仓库一条子任务 |
+
+工作目录用 `workdir` 列（0008），不在 props 里重复。`PATCH` 的 `props` 是整体替换，
+只改其中一个 key 时要先读回再拼（MCP 的 `pmw_update_object` 已经这么做）。
+
+## 进展与领取
+
+开发任务闭环（领取 → 记进展 → 提交验收）的两个接口。没有为它建表：进展和会话标识落在 `revisions`，
+验收标准和关联仓库落在 `objects.props`，代码类产物落在 `artifacts`（见「输出产物」）。
+待办类型的「待验收」状态（`review`，非终态）由 0013 加上。
+
+**为什么是服务端追加。** 进展如果写在正文里，调用方只能「读出正文、拼一段、整体 PATCH 回去」，
+两个会话同时写，后写的会把先写的那段覆盖掉，而且不报错。`POST /progress` 只插入不更新，
+并发追加互不影响（`internal/store/sqlite/progress_test.go` 有两个会话各追加 40 条、一条不丢的测试）。
+
+**存储。** 一条进展 = `revisions` 里一行 `field='progress'`：`new_value` 是正文（Markdown），
+`old_value` 是元数据 JSON（`{"kind":"note","commits":[...],"files":[...],"status":"..."}`）。
+这类行的 `old_value` 不是「旧值」，是复用 revisions 的代价。所以：
+
+- `GET /api/objects/{id}/revisions` 和 `GET /api/revisions` 里会出现 `field="progress"` 的行，
+  渲染时不要按「从 old 改成 new」显示，显示 `new_value` 即可（旧前端 DetailDrawer 目前会显示成 JSON）。
+- 读进展一律走 `GET /progress`，它已经把元数据拆成字段。
+
+`ProgressInput`：
+
+```json
+{ "kind": "note", "text": "定位到原因：……", "commits": ["a1b2c3d"], "files": ["internal/x.go"], "status": "" }
+```
+
+| 字段 | 说明 |
+|---|---|
+| `kind` | `note`（默认）或 `review`。`claim` **只能**经由 `/claim` 写，这里传会 400——否则「谁领了这条任务」可以绕过占用检查伪造 |
+| `text` | 必填，去首尾空白后不能为空，合法 UTF-8，上限 32KB |
+| `commits` / `files` | 可选，去空白、去重、保序，各自最多 100 条 |
+| `status` | 可选。非空时必须属于该对象类型的状态集，和进展同一事务切换（并维护 `started_at` / `completed_at`，规则同 PATCH） |
+
+`Progress`（响应）：
+
+```json
+{
+  "id": "rev_…", "object_id": "obj_…", "kind": "review",
+  "text": "……", "commits": ["a1b2c3d"], "files": ["calc.py"], "status": "review",
+  "actor": "claude-code#332d2cac-…", "actor_name": "claude-code", "session_id": "332d2cac-…",
+  "source": "agent", "created_at": "2026-10-28T10:00:00Z"
+}
+```
+
+`ClaimInput`：
+
+```json
+{ "owner_id": "stk_…", "status": "", "text": "", "takeover": false }
+```
+
+| 字段 | 说明 |
+|---|---|
+| `owner_id` | 必填，领取者在干系人名册里的 id |
+| `status` | 领取后切到的状态 key。空串取该类型的 `doing`；类型里没有 `doing` 时 400，必须显式传。不能是终态 |
+| `text` | 领取时记的一句话，空串默认「领取了任务」 |
+| `takeover` | 接手被别人或别的会话占着的任务。默认 false |
+
+领取在**一个写事务**里完成「检查占用 → 切状态 → 改负责人 → 记一条 `kind=claim` 的进展」。
+检查和写入必须同事务，否则两个会话会同时看到「没人领」然后都写进去
+（`TestClaimObjectConcurrentOnlyOneWins`：8 个会话并发领同一条，恰好 1 个成功）。
+
+409 的情况（`takeover=true` 时放行，归档除外）：
+
+| 情况 | 说明 |
+|---|---|
+| 负责人已是别人 | message 带上负责人姓名 |
+| 另一个会话领了且仍在进行中 | 「仍在进行中」= 对象状态仍是那次领取切到的状态，且负责人仍是领取者。任务被退回初始状态、或提交到别的状态（如 `review`）之后，别的会话可以再领 |
+| 对象处于终态 | |
+| 对象已归档 | 不受 takeover 影响 |
+
+响应 `ClaimResult`：`{ "object": Object, "progress": Progress | null, "already": bool }`。
 
 ## 标签 tags
 
@@ -305,6 +390,20 @@ chat 带了不同的 `object_id` 也不会让已有会话搬家——搬走会�
 
 `agent` 和 `run` 这两个来源不可能从 HTTP 接口进来，由 `store.RecordArtifact` 内部填。
 
+### 代码类产物（commit / branch / PR）
+
+0012 没有 `kind` 列，不为它加迁移。代码类产物的种类写在 `note` 开头的固定标记里：
+
+```
+[commit] sha=a1b2c3d branch=feat/x repo=/abs/path  自由备注…
+[branch] branch=feat/x repo=/abs/path
+[pr] branch=feat/x  …
+```
+
+位置照旧：有远端页面（GitHub commit / 分支 / PR）就填 `url`；只在本地的 commit / branch 把仓库目录（绝对路径）填进 `path`，
+`base_dir` 留空。前端按 `note` 的前缀 `^\[(commit|branch|pr)\]` 识别种类，sha / branch / repo 从同一段 `key=value` 里取。
+来源照旧按 `X-Actor-Source` 判定，经 MCP 登记的记成 `mcp`。
+
 ## 本机文件系统 fs
 
 只读浏览 + 建目录，范围受允许根限制，越界返回 403。
@@ -357,6 +456,13 @@ SSE 事件（形状的唯一真相是 `internal/runner` 的 `Event.MarshalJSON`�
 
 - 时间一律 RFC3339 带时区字符串；可空时间用 `null`。
 - 前端 PATCH 只传要改的字段。
-- 写操作在 header 可带 `X-Actor-Source: ui|agent|import`，缺省 `api`，落进 revisions.source。
+- 写操作在 header 可带三个取证头，都落进 `revisions`。不合法时降级而不是拒绝，取证信息写坏了不让写入失败：
+  - `X-Actor-Source: ui|api|agent|import`，缺省 `api`，其它值也按 `api`，落进 `revisions.source`；
+  - `X-Actor-Name`：操作者名（如 `claude-code`），缺省 `me`。去掉控制字符和 `#`，超过 40 字符截断；
+  - `X-Actor-Session`：会话标识（如 Claude Code 的会话 id），只收 `[A-Za-z0-9._:-]{1,64}`，不合法整串丢弃。
+- 名字和会话拼成 `revisions.actor = "<name>#<session>"`（无会话时就是 `<name>`，与老数据一致）。
+  `Revision`（以及 `Progress`）响应多两个派生字段 `actor_name`、`session_id`，前端按 `session_id` 分组即可「按会话看 Agent 改动」，
+  不要自己拆 `actor`。拆分规则只在 `domain.SplitActor` 一处。
+- `--dev` 下 CORS 的 `Access-Control-Allow-Headers` 含 `Content-Type, X-Actor-Source, X-Actor-Name, X-Actor-Session`。
 - 路由表与本文档由 `TestEveryRouteIsInTheContractDoc` / `TestContractDocHasNoDeadRoutes`
   双向盯着：加了路由不记文档、或文档里留了已删除的路由，测试都会红。

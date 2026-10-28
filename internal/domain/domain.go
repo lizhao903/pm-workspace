@@ -739,7 +739,7 @@ const (
 // 进展复用 revisions 而不是另建表：它和修订一样是「只追加、带操作者、按时间读」的流水，
 // 只插入不更新，并发追加天然不会互相覆盖。一条进展 = 一行 field='progress' 的修订，
 // new_value 是正文（Markdown），old_value 存元数据 JSON（ProgressMeta）。
-// old_value 在这类行上不是「旧值」——这是复用的代价，只在这里和契约草稿里说明。
+// old_value 在这类行上不是「旧值」——这是复用的代价，只在这里和 docs/api-contract.md「进展与领取」一节里说明。
 const FieldProgress = "progress"
 
 // 进展的种类。claim / review 由领取和提交验收接口写，note 是普通进展。
