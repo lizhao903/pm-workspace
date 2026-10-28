@@ -157,8 +157,8 @@
       "docs/api-contract.md objects 查询参数与「今日、本周、逾期、停滞」口径",
       "web-next/docs/dev-plan.md 4.0 DEV-07"
     ],
-    "body": "## 背景\n\n计划里 DEV-07 原定改原型的任务页；现在改为在正式前端 `frontend/` 里做，原型 `tasks.tsx` 当规格。原计划规模 L，拆成列表（本条）和抽屉（DEV-07b）。\n\n## 要做什么\n\n- 路由 `/tasks`，二级菜单：全部、逾期、按状态；来源视图（IM、Webhook、定时、异常）要等 TASK-01 有来源字段后在 TASK-04b 里补，这里先不显示。\n- 列表：`GET /api/objects?type=task`，按状态分段可折叠，每段最多 30 条、段尾「这一段还有 N 条」；搜索走 `q`；优先级、状态标签和颜色从 `/api/object-types`、`/api/dictionaries` 读。\n- 「待验收」（review，迁移 0013）作为独立分段显示。\n- 逾期视图用 `overdue=true`，旁边的数字取 `/api/counts`，口径必须与列表一致。\n- 点一行打开抽屉（抽屉本身在 DEV-07b）。\n\n## 不做什么\n\n- 不做新建、编辑（DEV-07b），不做进展时间线（DEV-08a）。\n- 暂时不接外壳和插件注册表（CORE-02b 再迁入内核模块），先作为独立路由。\n\n## 注意事项\n\n- 只在 `frontend/` 里写代码，不 import `web-next` 的任何代码：原型的交互和样式可以照着写、挑着搬。\n- 联调只连测试实例（`scripts/dev-instance.sh start`，默认 127.0.0.1:7796），不连 7777，不启动或重启 7777 上的服务。\n- 组件里不直接 fetch，数据一律走 `frontend/src/core/api`（FE-02a）；有数据访问层（CORE-03a）之后走数据访问层。\n- 状态、类型、优先级从后端读（`/api/object-types`、`/api/dictionaries`），不写死。",
-    "acceptance": "- [ ] 测试实例里建 3 条不同状态的任务，列表按状态分段显示；刷新后仍在\n- [ ] 用 curl `PATCH /api/objects/{id}` 改一条状态，新前端刷新后显示新状态（和其它客户端看到的是同一份数据）\n- [ ] 用 `PATCH /api/object-types/task` 改某个状态的 label，列表上的标签跟着变（没有写死）\n- [ ] 「逾期」视图的条数等于 `/api/counts` 的 overdue\n- [ ] review 状态的任务在「待验收」分段里\n- [ ] 某个状态超过 30 条时出现「这一段还有 N 条」，点击后加载更多\n- [ ] 输入搜索词后请求带 `q=`（浏览器网络面板可见）"
+    "body": "## 背景\n\n计划里 DEV-07 原定改原型的任务页；现在改为在正式前端 `frontend/` 里做，原型 `tasks.tsx` 当规格。原计划规模 L，拆成列表（本条）和抽屉（DEV-07b）。\n\n## 要做什么\n\n- 路由 `/tasks`，二级菜单：全部、逾期、按状态；来源视图（IM、Webhook、定时、异常）要等 TASK-01 有来源字段后在 TASK-04b 里补，这里先不显示。\n- 列表：`GET /api/objects?type=task`，按状态分段可折叠，每段最多 30 条、段尾「这一段还有 N 条」；搜索走 `q`；优先级、状态标签和颜色从 `/api/object-types`、`/api/dictionaries` 读。\n- 「待验收」（review，迁移 0013）作为独立分段显示。\n- 逾期视图用 `overdue=true`，旁边的数字取 `/api/counts`，口径必须与列表一致。\n- 点一行打开抽屉（抽屉本身在 DEV-07b）。\n\n## 不做什么\n\n- 不做新建、编辑（DEV-07b），不做进展时间线（DEV-08a）。\n- 暂时不接外壳和插件注册表（CORE-02b 再迁入内核模块），先作为独立路由。\n\n## 注意事项\n\n- 只在 `frontend/` 里写代码，不 import `web-next` 的任何代码：原型的交互和样式可以照着写、挑着搬。\n- 联调只连测试实例（`scripts/dev-instance.sh start`，默认 127.0.0.1:7796），不连 7777，不启动或重启 7777 上的服务。\n- 组件里不直接 fetch，数据一律走 `frontend/src/core/api`（FE-02a）；有数据访问层（CORE-03a）之后走数据访问层。\n- 状态、类型、优先级从后端读（`/api/object-types`、`/api/dictionaries`），不写死。\n\n## 口径调整（2026-10-28，主会话决定）\n\n- 原来写的「按状态分段、待验收单独分段」和原型不一致；原型是规格，改为按截止日分段、状态作筛选。",
+    "acceptance": "- [ ] 用 curl `PATCH /api/objects/{id}` 改一条状态，新前端刷新后显示新状态（和其它客户端看到的是同一份数据）\n- [ ] 用 `PATCH /api/object-types/task` 改某个状态的 label，列表上的标签跟着变（没有写死）\n- [ ] 「逾期」视图的条数等于 `/api/counts` 的 overdue\n- [ ] 输入搜索词后请求带 `q=`（浏览器网络面板可见）\n- [ ] 某一段超过 30 条时出现「这一段还有 N 条」，点击后加载更多\n- [ ] 列表按截止日分段（逾期、今天、本周、以后、无截止、已结束），状态是筛选按钮，和规格 SPEC-tasks 一致；待验收也算未完成、会算逾期"
   },
   {
     "key": "DEV-07b",
@@ -189,7 +189,8 @@
     "priority": "P0",
     "estimate": "M",
     "depends_on": [
-      "DEV-07b"
+      "DEV-07b",
+      "PROTO-07"
     ],
     "workdir": "frontend",
     "spec": [
@@ -2537,5 +2538,63 @@
     ],
     "body": "## 背景\n\nQA-02a 的 `make smoke-proto` 第一次全量跑就查出原型在 768 宽度下（亮暗都有）三处页面横向滚动：设置 / 工作台与模块（页面宽 1060px）、设置 / 枚举值（942px）、设置 / 内网域名（822px）。修好之前 `make smoke-proto` 会一直失败。\n\n## 要做什么\n\n- 找到三个页面在 768 宽撑宽的元素（固定宽度、不换行的行、表格），改成可换行或容器查询收列，写法沿用原型里已有的响应式做法。\n\n## 不做什么\n\n- 不改其他页面，不改示例数据。\n\n## 注意事项\n\n- 原型只当规格和演示，改动只为让它和规格一致；验证截图看完即删。",
     "acceptance": "- [ ] `make smoke-proto` 全部通过（0 个横向滚动、0 个 console error）\n- [ ] 三个页面在 375、768、1440 宽，亮暗两种主题下都没有横向滚动，内容不被截断"
+  },
+  {
+    "key": "PROTO-07",
+    "type": "task",
+    "title": "把开发任务闭环补进原型：任务抽屉的进展、产出、执行记录、交给 Claude Code，今日页的待验收组",
+    "milestone": "M1",
+    "module": "proto",
+    "priority": "P0",
+    "estimate": "M",
+    "depends_on": [
+      "PROTO-04b"
+    ],
+    "workdir": "web-next",
+    "spec": [
+      "web-next/docs/spec/tasks.md 末尾「原型和规格对不上」第 4、5、6 条",
+      "web-next/docs/spec/today.md 末尾第 2 条",
+      "web-next/docs/dev-plan.md 4.0 开发任务闭环时序图",
+      "docs/api-contract.md 进展与领取、runs、artifacts"
+    ],
+    "body": "## 背景\n\nPROTO-04b 写规格时发现：DEV-08a 到 DEV-09 要做的任务抽屉开发闭环区块，原型里没有；待验收的任务不出现在今日页；演示数据里没有待验收的任务。原型是规格，DEV-08a 开工前要先补齐。\n\n## 要做什么\n\n- 任务抽屉加开发闭环区块：验收标准、工作目录、关联仓库；进展时间线（按会话分组，标出是 Claude Code 哪次会话写的）；产出物（commit、branch、PR、文件）；执行记录；「交给 Claude Code」（选只读或允许写入、附加说明，模拟流式输出）。\n- 待验收（review）的任务：抽屉里有「验收通过」和「退回」（退回要写意见，状态回到进行中）；列表上点完成圆圈等于验收通过，先弹确认。\n- 今日页「需要你处理」加一组「任务待验收」。\n- 演示数据补两三条由 Claude Code 做的开发任务，处在进行中和待验收，带进展和产出，和现有项目对得上。\n- 规格包 `web-next/docs/spec/tasks.md`、`today.md` 同步补上这几节（截图用 shots.py --only tasks,today 重新生成）。\n\n## 注意事项\n\n- 原型只当规格和演示；改动只为让原型和规格一致，示例数据保持一条前后对得上的演示故事线。\n- 原型 7778 由用户在跑，不要重启它；验证截图看完即删；改完 `cd web-next && npx tsc -b` 0 错误，`make smoke-proto` 通过。",
+    "acceptance": "- [ ] 任务抽屉能看到验收标准、工作目录、进展时间线（按会话分组）、产出物、执行记录\n- [ ] 「交给 Claude Code」默认只读，勾选允许写入才写；流式显示过程\n- [ ] 待验收任务能验收通过或退回，退回必须写意见；列表完成圆圈对待验收任务先确认\n- [ ] 今日页有「任务待验收」一组\n- [ ] 规格包 tasks.md、today.md 已补对应章节和截图"
+  },
+  {
+    "key": "PROTO-08",
+    "type": "task",
+    "title": "修原型今日与任务模块和规格对不上的地方",
+    "milestone": "M1",
+    "module": "proto",
+    "priority": "P1",
+    "estimate": "S",
+    "depends_on": [
+      "PROTO-07"
+    ],
+    "workdir": "web-next",
+    "spec": [
+      "web-next/docs/spec/today.md 末尾「原型和规格对不上」第 1、3 条",
+      "web-next/docs/spec/tasks.md 末尾第 7 到 11 条"
+    ],
+    "body": "## 要做什么\n\n按规格修：\n- 模块停用后，今日「需要你处理」里对应的条目也不出现。\n- 「今天」统一按本地日期算（今日、任务页逾期和今天截止），不按 UTC。\n- 只按状态筛选结果为空时，空状态写「没有符合条件的任务」，和模块里一条都没有区分开。\n- 定时、运行异常两个来源视图的空状态不要写「点右上角新建」。\n- 任务抽屉关闭时有未保存的改动先确认。\n- 定时任务执行记录里的任务编号可以点开那条任务。\n\n## 注意事项\n\n- 原型只当规格和演示；改动只为让原型和规格一致，示例数据保持一条前后对得上的演示故事线。\n- 原型 7778 由用户在跑，不要重启它；验证截图看完即删；改完 `cd web-next && npx tsc -b` 0 错误，`make smoke-proto` 通过。",
+    "acceptance": "- [ ] 上面六处逐条修好，规格包 today.md、tasks.md 末尾对应条目标为已修\n- [ ] 东八区 0 点到 8 点之间（可用 Playwright 的 timezone 和时钟模拟验证）逾期和今天截止的判断正确"
+  },
+  {
+    "key": "PROTO-09",
+    "type": "task",
+    "title": "修原型文档、联系人、会话模块和规格对不上的地方",
+    "milestone": "M1",
+    "module": "proto",
+    "priority": "P1",
+    "estimate": "S",
+    "depends_on": [
+      "PROTO-04c"
+    ],
+    "workdir": "web-next",
+    "spec": [
+      "web-next/docs/spec/library.md、contacts.md、sessions.md 末尾「原型和规格对不上」"
+    ],
+    "body": "## 要做什么\n\n按规格修：\n- 文档页 375 宽没选文档时布局错乱（目录名和筛选条掉到下面、下半屏空白）。\n- Agent 被删除后，它的会话仍能打开看历史（只读）。\n- 停用的 Agent 不能再收到消息（⌘Enter 和示例问题都要拦住）。\n- 手机宽度下产出结果保留来源列，能回到当时的会话或执行记录。\n- 产出指向的任务已删除时，点标题给出提示；从来源跳到执行记录页时定位到那一条。\n- 会话页权限拒绝的提示改成指向设置 / Agent / 工具与权限。\n- SOP 类产出记录目标，标题可以点开。\n- 空状态区分「这个分类下还没有内容 / 筛选后为空 / 一条都没有」。\n\n## 注意事项\n\n- 原型只当规格和演示；改动只为让原型和规格一致，示例数据保持一条前后对得上的演示故事线。\n- 原型 7778 由用户在跑，不要重启它；验证截图看完即删；改完 `cd web-next && npx tsc -b` 0 错误，`make smoke-proto` 通过。",
+    "acceptance": "- [ ] 上面八处逐条修好，规格包三份文件末尾对应条目标为已修\n- [ ] 375 宽下文档页布局正常"
   }
 ]
