@@ -120,6 +120,8 @@ PMW_LIVE_API=http://127.0.0.1:7796 npx vitest run src/core/api/live.test.ts --re
 
 `src/core/data`（CORE-03a）：模块和插件取数、写数据只走这里。`.oxlintrc.json` 对 `src/modules/**`、`src/plugins/**` 开了 `no-restricted-imports`，`import` 任何 `core/api` 路径（含只引类型）都报错；类型和不发请求的纯函数（`localDay`、`changedFields`、`isApiError` 等）由 `core/data` 再导出。内核目录（`core/shell`、`core/plugin`）不受这条限制。
 
+边界规则 `pmw/boundaries`（CORE-03b，`scripts/lint-boundaries.js`，oxlint 的 JS 插件，随 `npm run lint` 跑）：插件只能 import `core/*` 和自己目录；模块之间只能 import 对方的 `index.ts`，不能引别的模块的内部文件，也不能引插件。插件靠动态加载，联动走 `core/data` 或事件。oxlint 的 JS 插件还是 alpha，升级 oxlint 后如果不能用，把同一套判断改成独立脚本挂进 lint。
+
 | 文件 | 内容 |
 |---|---|
 | `keys.ts` | 缓存键 `dataKeys`，按资源分前缀。对象列表一律在 `['objects', 'list', 过滤条件]` 下（任务列表、今日、项目的任务标签页都是），过滤条件经 `normFilter` 归一（去空值、键排序）；计数是 `['counts', type]` |
