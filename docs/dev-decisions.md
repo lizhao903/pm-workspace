@@ -11,9 +11,40 @@
 | 什么时候把开发任务和开发成果切到真实库 | 真实服务 7777 按用户指示停着；开发全程用测试实例 7796 | 第一批功能在测试实例上验收通过后，由用户重启 7777（启动时自动应用 0013），再用 `scripts/import-dev-tasks.py --api http://127.0.0.1:7777 --apply` 导入任务 |
 | 推送到远端、合并进 main | 所有提交都在本地 `feat/prototype-dev-loop` 分支 | 用户看过后决定 |
 | 真正用 Claude Code 走一遍开发闭环（DEV-11b，切真实库的前提是连续跑通三次） | DEV-11a 的脚本已合入（1ec42bb），子代理只用 pmw-mcp 模拟跑通过 | `PMW_DEV_DIR=/tmp/pmw-drill PMW_DEV_ADDR=127.0.0.1:7795 scripts/dev-loop-drill.sh setup`，按它打印的命令在 Claude Code 里执行 `/task <编号>`，再跑 `scripts/dev-loop-drill.sh check <编号>`；三次结果记到 `docs/dev-loop-drill-log.md` |
-| GitHub 连接器真实接通（CONN-01c） | 测试实例保险箱里没有真实凭证，规矩是不往里写 | 用户提供一个测试用的 GitHub Personal Access Token（或 OAuth App 的 client_id、secret），在测试实例界面里自己填；之后派 CONN-01c |
+| GitHub、Slack、Telegram 真实接通（CONN-01c、IM-01b、IM-01c） | 测试实例保险箱里没有真实凭证，规矩是不往里写 | 用户提供一个测试用的 GitHub Personal Access Token（或 OAuth App 的 client_id、secret），在测试实例界面里自己填；之后派 CONN-01c |
 | 联系人重名时放宽干系人 name 的唯一约束 | 目前保持唯一，撞名回 409 要求加区分（CT-01a） | 需要放宽时由用户同意，用新迁移改索引 |
 | 项目里的「打开原型」在哪个浏览器打开；一级菜单的终端、浏览器以后去留 | PROTO-05 保留现状：原型卡片仍在一级菜单浏览器打开，一级菜单两个模块保留 | 用户看过 PROTO-05 的原型后定 |
+
+---
+
+## 2026-10-29 第二十批验收、第二十一批开工
+
+第二十批 3 条（IM-01a、CONN-02、AG-03b）全部检查通过，已提交验收（6ee7ddc、a3a4391）。三个后端任务同改契约、server.go、plugin 包，合在一个提交里。检查项：gofmt、go vet、go test ./...，前端 npm test 515 条、typecheck、lint、build，smoke-frontend 42 次 0 问题，smoke-proto 462 步 0 问题。测试实例 03:50 重启到 0031。
+
+第二十一批 3 条：IM-02a（消息动作）、CONN-03（删除连接器前的影响检查）、PJ-03a（项目资料）。IM-01b（Slack）、IM-01c（Telegram）和 CONN-01c（GitHub）一样需要真实凭证，暂不派，已在「待用户决定」里一并写明。
+
+### 主会话补的前端
+- 插件启停时连接器缓存不刷新（CONN-02 发现）：失效规则 `plugin` 同时刷新连接器缓存，改正 connectors.ts 里过时的注释（a3a4391）。
+
+### IM 消息插件框架（IM-01a，同意）
+- 发送人身份、会话还没登记时 id 留空、编号照存，读的时候再补认，不回写（插件对身份和会话只有只读句柄）。
+- 身份、会话的外键 `ON DELETE SET NULL`，消息保留；`connector_id` 不建外键，删连接器不删历史消息。
+- 「与我相关」在到达时算一次存成 relevance（me、all、dm），口径照原型。
+- 假适配器只在 `--fake-im` 时登记；清单 `provides.modules` 留空，前端插件页面另开任务。
+- 已知：在界面上启用 im 插件时，前端会提示「缺少入口」（还没有 `frontend/src/plugins/im`）。
+
+### 插件登记连接器（CONN-02，同意）
+- `plugin.ConnectorDef` 就是内核 `connector.Def` 的别名；插件的定义查询时现取在跑插件的，停用后自然 `available=false`，不需要注销流程。
+- 插件 API 版本不升，1.0.0 的规范里本来就有 `Registrar.Connector`。
+- 遗留：plugin-api.md 2.5 节的后端示例过时（单个认证方式、`Network` 字段），下次改插件文档时同步。
+
+### 产物溯源（AG-03b，同意）
+- 会话、执行、对象三个溯源字段 0012 已有；0031 补产出者、种类、状态、非对象归属、props，并把备注前缀 `[commit]` 等回填到 `kind`。
+- **files 表这次不建，留给 PJ-03a**：本批只能改契约的产物一节，迁移又只加不改，先建一张没人用的表等于提前把结构定死。
+- `object_origins` 表建了，暂不写入，由 AG-01 接。
+- 种类字典 `artifact_kind` 多了 commit、branch、pr；写入时种类必须在字典里。
+- `pmw_record_artifact` 改写 `kind` 列，同时保留一个版本的备注前缀做兼容；前端还按备注前缀识别种类，改读 `kind` 另开前端任务。
+- 顺手修了关键词过滤和其它条件组合时参数错位的老问题。
 
 ---
 
