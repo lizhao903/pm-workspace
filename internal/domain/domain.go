@@ -200,8 +200,10 @@ type ObjectFilter struct {
 	Stalled bool
 	// NotTerminal：排除处于终态的对象。「今日」「本周」这类待办视图要用它，
 	// 否则今天到期但已完成的会混进列表，而 Counts 那边是排除终态的，两边又对不上。
-	NotTerminal     bool
-	Inbox           bool // source='inbox' 或未分类
+	NotTerminal bool
+	Inbox       bool // source='inbox' 或未分类
+	// Sources 按 objects.source 精确匹配，多个之间是或。任务来源取值见 TaskSource* 常量。
+	Sources         []string
 	IncludeArchived bool
 	IncludeDeleted  bool
 	Sort            string // updated_at|created_at|due_at|priority|title，前缀 - 表示倒序
@@ -732,6 +734,19 @@ const (
 	// PropRepo 是关联仓库：远端地址（https://github.com/...）或本机绝对路径。
 	// 只放一个值。真有多个仓库的任务，应当拆成每个仓库一条子任务。
 	PropRepo = "repo"
+	// PropSourceRef 是来源详情，对象（map）。来源种类在 objects.source 列，
+	// 这里放对应的 id：message_id、hook_id + delivery_id、schedule_id、incident_id。
+	PropSourceRef = "source_ref"
+)
+
+// 任务来源，落在 objects.source。和原型 TaskSource.kind 一一对应。
+// 不用 inbox：那是收件箱口径（Counts.Inbox、ObjectFilter.Inbox）在用的值。
+const (
+	TaskSourceManual   = "manual"   // 手动新建
+	TaskSourceIM       = "im"       // IM 消息转的
+	TaskSourceWebhook  = "webhook"  // Webhook 投递建的
+	TaskSourceSchedule = "schedule" // 定时任务建的
+	TaskSourceIncident = "incident" // 异常转的
 )
 
 // FieldProgress 是进展在 revisions 里的 field 值。

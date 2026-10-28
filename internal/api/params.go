@@ -166,6 +166,7 @@ func objectFilter(r *http.Request) (domain.ObjectFilter, error) {
 	f.OwnerID = p.str("owner_id")
 	f.ProjectID = p.str("project")
 	f.Query = p.str("q")
+	f.Sources = p.csv("source")
 
 	if f.CategorySubtree, err = p.boolean("subtree"); err != nil {
 		return f, err

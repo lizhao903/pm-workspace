@@ -258,6 +258,10 @@ func (s *Store) buildWhere(ctx context.Context, f domain.ObjectFilter) (string, 
 	if f.Inbox {
 		conds = append(conds, "(o.source = 'inbox' OR o.category_id IS NULL)")
 	}
+	if len(f.Sources) > 0 {
+		conds = append(conds, "o.source IN ("+placeholders(len(f.Sources))+")")
+		args = append(args, anySlice(f.Sources)...)
+	}
 	return strings.Join(conds, " AND "), args, nil
 }
 
