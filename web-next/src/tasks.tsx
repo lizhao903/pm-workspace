@@ -9,6 +9,7 @@ import {
 import { cls, timeAgo } from './ui'
 import { SearchSelect } from './searchselect'
 import { useEnumView } from './enumdata'
+import { ApproveConfirm, ArtifactsBlock, DevFields, ProgressBlock, ReviewBar, RunDialog, RunsBlock, isDevTask, type DevLoop } from './devloop'
 
 /** 任务页的二级菜单 key */
 /** schedule：定时任务建出来的任务；schedules：定时任务本身的管理页；due：逾期未完成；hooks：Webhook 列表 */
@@ -119,6 +120,8 @@ const dueSeg = (t: Task, now: string, end: string): DueSeg => (!isOpenTask(t.sta
 export function TasksPage(props: {
   tasks: Task[]; hooks: Webhook[]; projects: { id: string; name: string }[]; view: ListView; selected: string | null
   onOpen: (id: string) => void; onNew: () => void; onStatus: (id: string, s: TaskStatus) => void
+  /** 待验收的任务点完成圆圈：确认后等于验收通过 */
+  onApprove?: (id: string) => void
   /** Webhook 列表页（view = hooks）用：推送记录、打开某个 Webhook、新建 */
   deliveries?: Delivery[]; onOpenHook?: (id: string) => void; onNewHook?: () => void
 }) {
@@ -126,9 +129,9 @@ export function TasksPage(props: {
   return <TaskList {...props} view={props.view} />
 }
 
-function TaskList({ tasks, hooks, projects, view, selected, onOpen, onNew, onStatus }: {
+function TaskList({ tasks, hooks, projects, view, selected, onOpen, onNew, onStatus, onApprove }: {
   tasks: Task[]; hooks: Webhook[]; projects: { id: string; name: string }[]; view: Exclude<ListView, 'hooks'>; selected: string | null
-  onOpen: (id: string) => void; onNew: () => void; onStatus: (id: string, s: TaskStatus) => void
+  onOpen: (id: string) => void; onNew: () => void; onStatus: (id: string, s: TaskStatus) => void; onApprove?: (id: string) => void
 }) {
   const statusEnum = useEnumView('task_status')
   const prioEnum = useEnumView('task_priority')
@@ -138,6 +141,7 @@ function TaskList({ tasks, hooks, projects, view, selected, onOpen, onNew, onSta
   const [q, setQ] = useState('')
   const [closed, setClosed] = useState<Set<DueSeg>>(new Set())
   const [more, setMore] = useState<Partial<Record<DueSeg, number>>>({})
+  const [ask, setAsk] = useState<Task | null>(null)
   const kw = q.trim().toLowerCase()
   // 换了筛选，各段重新只露前 30 条
   useEffect(() => { setMore({}) }, [view, st, prio, proj, kw])
@@ -170,8 +174,8 @@ function TaskList({ tasks, hooks, projects, view, selected, onOpen, onNew, onSta
     const overdue = isOverdue(t)
     return (
       <div key={t.id} className={cls('task-row', selected === t.id && 'sel', t.status === 'done' && 'is-done')} onClick={() => onOpen(t.id)}>
-        <button className={cls('task-check', t.status === 'done' && 'on')} title={t.status === 'done' ? `标为${statusEnum.label('todo')}` : `标为${statusEnum.label('done')}`}
-          onClick={(e) => { e.stopPropagation(); onStatus(t.id, t.status === 'done' ? 'todo' : 'done') }}>
+        <button className={cls('task-check', t.status === 'done' && 'on')} title={t.status === 'done' ? `标为${statusEnum.label('todo')}` : t.status === 'review' ? '验收通过' : `标为${statusEnum.label('done')}`}
+          onClick={(e) => { e.stopPropagation(); if (t.status === 'review') setAsk(t); else onStatus(t.id, t.status === 'done' ? 'todo' : 'done') }}>
           {t.status === 'done' && <svg viewBox="0 0 16 16" width="10" height="10"><path d="m3.5 8.5 3 3 6-7" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" /></svg>}
         </button>
         <span className="task-main">
@@ -240,6 +244,10 @@ function TaskList({ tasks, hooks, projects, view, selected, onOpen, onNew, onSta
             )
           })}
         </div>
+      )}
+      {ask && (
+        <ApproveConfirm task={ask} onClose={() => setAsk(null)} onOpen={() => { setAsk(null); onOpen(ask.id) }}
+          onApprove={() => { setAsk(null); if (onApprove) onApprove(ask.id); else onStatus(ask.id, 'done') }} />
       )}
     </div>
   )
@@ -322,9 +330,9 @@ function WebhooksPage({ hooks, deliveries, tasks, onOpen, onNew }: {
 
 /* ---------- 抽屉：新建 / 查看任务 ---------- */
 
-export interface TaskDraft { title: string; desc: string; status: TaskStatus; priority: Priority; assignee: string; due: string | null; project_id?: string }
+export interface TaskDraft { title: string; desc: string; status: TaskStatus; priority: Priority; assignee: string; due: string | null; project_id?: string; acceptance?: string; workdir?: string; repo?: string }
 
-export function TaskDrawer({ task, initial, fromMessage, hooks, deliveries, assignees, projects, onClose, onSave, onDelete, onOpenMessage, onOpenHook, onOpenSchedule, onOpenIncident, delImpact }: {
+export function TaskDrawer({ task, initial, fromMessage, hooks, deliveries, assignees, projects, onClose, onSave, onDelete, onOpenMessage, onOpenHook, onOpenSchedule, onOpenIncident, delImpact, dev }: {
   onOpenIncident?: (id: string) => void
   onOpenSchedule?: (id: string) => void
   task: Task | null
@@ -334,8 +342,8 @@ export function TaskDrawer({ task, initial, fromMessage, hooks, deliveries, assi
   hooks: Webhook[]
   deliveries: Delivery[]
   assignees: string[]
-  /** 可选的所属项目 */
-  projects: { id: string; name: string }[]
+  /** 可选的所属项目；root 是任务没设工作目录时继承的目录 */
+  projects: { id: string; name: string; root?: string }[]
   onClose: () => void
   onSave: (d: TaskDraft, markMessageDone: boolean) => void
   onDelete: () => void
@@ -343,6 +351,8 @@ export function TaskDrawer({ task, initial, fromMessage, hooks, deliveries, assi
   onOpenHook: (id: string) => void
   /** 删除的连带影响，列在确认里 */
   delImpact?: string[]
+  /** 开发闭环：进展、产出物、执行记录、验收 */
+  dev?: DevLoop
 }) {
   const statusEnum = useEnumView('task_status')
   const prioEnum = useEnumView('task_priority')
@@ -351,8 +361,14 @@ export function TaskDrawer({ task, initial, fromMessage, hooks, deliveries, assi
   // 新建时的默认状态、优先级取设置里的默认值
   const [d, setD] = useState<TaskDraft>(() => ({
     title: task?.title ?? '', desc: task?.desc ?? '', status: task?.status ?? (statusEnum.defaultKey as TaskStatus | undefined) ?? 'todo', priority: task?.priority ?? (prioEnum.defaultKey as Priority | undefined) ?? 'P2',
-    assignee: task?.assignee ?? '我', due: task?.due ?? null, project_id: task?.project_id, ...initial,
+    assignee: task?.assignee ?? '我', due: task?.due ?? null, project_id: task?.project_id,
+    acceptance: task?.acceptance, workdir: task?.workdir, repo: task?.repo, ...initial,
   }))
+  const [runOpen, setRunOpen] = useState(false)
+  const inheritDir = projects.find((x) => x.id === d.project_id)?.root
+  const mine = <T extends { task_id: string }>(xs: T[]) => (task ? xs.filter((x) => x.task_id === task.id) : [])
+  const devOn = !!(task && dev && isDevTask(task, dev))
+  const runningId = dev && mine(dev.runs).find((r) => r.status === 'running')?.id
   const [markDone, setMarkDone] = useState(true)
   const [tried, setTried] = useState(false)
   const [confirmDel, setConfirmDel] = useState(false)
@@ -415,6 +431,12 @@ export function TaskDrawer({ task, initial, fromMessage, hooks, deliveries, assi
             {showPayload && delivery && <pre className="io-json src-payload">{JSON.stringify(delivery.payload, null, 2)}</pre>}
           </div>
         )}
+        {task && dev && task.status === 'review' && (
+          <ReviewBar task={task} progress={mine(dev.progress)} onReview={(ok, c) => {
+            dev.review(task.id, ok, c)
+            setD((x) => ({ ...x, status: ok ? 'done' : 'todo' }))
+          }} />
+        )}
         <label className="field">
           <span className="field-label">标题<em>*</em></span>
           <input value={d.title} autoFocus={creating} className={cls(tried && !d.title.trim() && 'bad')} onChange={(e) => setD({ ...d, title: e.target.value })} placeholder="要做的事" />
@@ -454,11 +476,28 @@ export function TaskDrawer({ task, initial, fromMessage, hooks, deliveries, assi
             onChange={(v) => setD({ ...d, project_id: v || undefined })} />
           {!d.project_id && task?.project_removed && <span className="list-sub">原属项目「{task.project_removed}」已删除</span>}
         </div>
+        <DevFields d={d} inheritDir={inheritDir} onChange={(p) => setD((x) => ({ ...x, ...p }))}
+          onRun={task && dev ? () => setRunOpen(true) : undefined} runningId={runningId} />
+        {devOn && task && dev && (
+          <>
+            <ProgressBlock items={mine(dev.progress)} onAppend={(text) => dev.append(task.id, text)} />
+            <ArtifactsBlock items={mine(dev.artifacts)} onAdd={(a) => dev.addArtifact(task.id, a)} />
+            <RunsBlock runs={mine(dev.runs)} onCancel={dev.cancel} />
+          </>
+        )}
         {creating && fromMessage && fromMessage.status === 'pending' && (
           <label className="check"><input type="checkbox" checked={markDone} onChange={(e) => setMarkDone(e.target.checked)} />建好后把这条消息标为{msgEnum.label('done')}</label>
         )}
         {task && <div className="list-sub">{timeAgo(task.created_at)}创建 · {timeAgo(task.updated_at)}更新</div>}
       </div>
+      {runOpen && task && dev && (
+        <RunDialog task={{ ...task, workdir: d.workdir }} inheritDir={inheritDir} onClose={() => setRunOpen(false)}
+          onStart={(o) => {
+            dev.start(task, o)
+            if (o.allow_writes) setD((x) => ({ ...x, status: 'doing', assignee: 'Claude Code' }))
+            setRunOpen(false)
+          }} />
+      )}
       <div className="drawer-foot">
         {confirmDel ? (
           <>
