@@ -659,7 +659,7 @@
       "web-next/src/settings.tsx SECTIONS（设置分节）",
       "web-next/src/today.tsx（今日卡片位置）"
     ],
-    "body": "## 要做什么\n\n- 注册表支持：功能模块、设置分节、今日卡片、命令面板命令、对象类型渲染器。\n- 内核模块（今日、任务、文档、联系人、会话、设置）放 `src/modules/`，在清单里标 core，不可停用；还没做的模块先放占位页。\n- M1 做好的任务页迁到 `src/modules/tasks`，改走注册表，自己管自己的状态。\n\n## 注意事项\n\n- 只在 `frontend/` 里写代码，不 import `web-next` 的任何代码：原型的交互和样式可以照着写、挑着搬。\n- 联调只连测试实例（`scripts/dev-instance.sh start`，默认 127.0.0.1:7796），不连 7777，不启动或重启 7777 上的服务。\n- 组件里不直接 fetch，数据一律走 `frontend/src/core/api`（FE-02a）；有数据访问层（CORE-03a）之后走数据访问层。\n- 状态、类型、优先级从后端读（`/api/object-types`、`/api/dictionaries`），不写死。",
+    "body": "## 要做什么\n\n- 注册表支持：功能模块、设置分节、今日卡片、命令面板命令、对象类型渲染器。\n- 内核模块（今日、任务、文档、联系人、会话、设置）放 `src/modules/`，在清单里标 core，不可停用；还没做的模块先放占位页。\n- M1 做好的任务页迁到 `src/modules/tasks`，改走注册表，自己管自己的状态。\n\n## 注意事项\n\n- 只在 `frontend/` 里写代码，不 import `web-next` 的任何代码：原型的交互和样式可以照着写、挑着搬。\n- 联调只连测试实例（`scripts/dev-instance.sh start`，默认 127.0.0.1:7796），不连 7777，不启动或重启 7777 上的服务。\n- 组件里不直接 fetch，数据一律走 `frontend/src/core/api`（FE-02a）；有数据访问层（CORE-03a）之后走数据访问层。\n- 状态、类型、优先级从后端读（`/api/object-types`、`/api/dictionaries`），不写死。\n\n## 补充（2026-10-28）\n\n- CORE-01b 只做了清单的类型和校验，`docs/plugin-api.md` 2.0 节的 `PluginApi` 和十个扩展点的注册接口类型（`frontend/src/core/plugin/api.ts`）在本任务里一起做。",
     "acceptance": "- [ ] 迁移后 DEV-07a、DEV-07b、DEV-08a 的验收项重新跑一遍全部通过\n- [ ] hello 插件注册的设置分节和今日卡片能显示，停用后消失\n- [ ] 内核模块在界面上没有停用入口"
   },
   {
@@ -1426,8 +1426,8 @@
       "web-next/src/projects.tsx ProjectsNav（最近 RECENT_MAX=6）、ProjectsListPage（分组 GROUP_PEEK=12）、ProjectPage 的 overview 与 settings 标签、NewProjectBtn、PathInput",
       "web-next/src/markicons.tsx"
     ],
-    "body": "## 要做什么\n\n- 项目插件里的列表、二级菜单的最近项目、新建项目、概览、设置（工作目录、相关目录、标识）。\n\n## 注意事项\n\n- 只在 `frontend/` 里写代码，不 import `web-next` 的任何代码：原型的交互和样式可以照着写、挑着搬。\n- 联调只连测试实例（`scripts/dev-instance.sh start`，默认 127.0.0.1:7796），不连 7777，不启动或重启 7777 上的服务。\n- 组件里不直接 fetch，数据一律走 `frontend/src/core/api`（FE-02a）；有数据访问层（CORE-03a）之后走数据访问层。\n- 状态、类型、优先级从后端读（`/api/object-types`、`/api/dictionaries`），不写死。",
-    "acceptance": "- [ ] 新建项目设好工作目录后，该项目下新建的任务继承这个目录\n- [ ] 最近打开的项目出现在二级菜单\n- [ ] 与 PROTO-04d 的项目规格节对照通过"
+    "body": "## 要做什么\n\n- 项目插件里的列表、二级菜单的最近项目、新建项目、概览、设置（工作目录、相关目录、标识）。\n\n## 注意事项\n\n- 只在 `frontend/` 里写代码，不 import `web-next` 的任何代码：原型的交互和样式可以照着写、挑着搬。\n- 联调只连测试实例（`scripts/dev-instance.sh start`，默认 127.0.0.1:7796），不连 7777，不启动或重启 7777 上的服务。\n- 组件里不直接 fetch，数据一律走 `frontend/src/core/api`（FE-02a）；有数据访问层（CORE-03a）之后走数据访问层。\n- 状态、类型、优先级从后端读（`/api/object-types`、`/api/dictionaries`），不写死。\n\n## 口径调整（2026-10-28，主会话决定）\n\n- 项目已经改成列表页加详情页、没有二级菜单（用户决定），原来「最近打开的项目出现在二级菜单」改为列表页按最近打开排序。",
+    "acceptance": "- [ ] 进「项目」是全部项目列表页（没有二级菜单），可搜索、按状态筛选，按最近打开排序；点进详情，顶栏和一级菜单都能回到列表（SPEC-projects-1、-2）\n- [ ] 新建项目设好工作目录后，该项目下新建的任务继承这个目录（原型里还没有这条，PROTO-10 补进原型）\n- [ ] 与 PROTO-04d 的项目规格节对照通过"
   },
   {
     "key": "PJ-01d",
@@ -2567,7 +2567,7 @@
     "milestone": "M1",
     "module": "proto",
     "priority": "P1",
-    "estimate": "S",
+    "estimate": "M",
     "depends_on": [
       "PROTO-07"
     ],
@@ -2576,8 +2576,8 @@
       "web-next/docs/spec/today.md 末尾「原型和规格对不上」第 1、3 条",
       "web-next/docs/spec/tasks.md 末尾第 7 到 11 条"
     ],
-    "body": "## 要做什么\n\n按规格修：\n- 模块停用后，今日「需要你处理」里对应的条目也不出现。\n- 「今天」统一按本地日期算（今日、任务页逾期和今天截止），不按 UTC。\n- 只按状态筛选结果为空时，空状态写「没有符合条件的任务」，和模块里一条都没有区分开。\n- 定时、运行异常两个来源视图的空状态不要写「点右上角新建」。\n- 任务抽屉关闭时有未保存的改动先确认。\n- 定时任务执行记录里的任务编号可以点开那条任务。\n\n## 注意事项\n\n- 原型只当规格和演示；改动只为让原型和规格一致，示例数据保持一条前后对得上的演示故事线。\n- 原型 7778 由用户在跑，不要重启它；验证截图看完即删；改完 `cd web-next && npx tsc -b` 0 错误，`make smoke-proto` 通过。",
-    "acceptance": "- [ ] 上面六处逐条修好，规格包 today.md、tasks.md 末尾对应条目标为已修\n- [ ] 东八区 0 点到 8 点之间（可用 Playwright 的 timezone 和时钟模拟验证）逾期和今天截止的判断正确"
+    "body": "## 要做什么\n\n按规格修：\n- 模块停用后，今日「需要你处理」里对应的条目也不出现。\n- 「今天」统一按本地日期算（今日、任务页逾期和今天截止），不按 UTC。\n- 只按状态筛选结果为空时，空状态写「没有符合条件的任务」，和模块里一条都没有区分开。\n- 定时、运行异常两个来源视图的空状态不要写「点右上角新建」。\n- 任务抽屉关闭时有未保存的改动先确认。\n- 定时任务执行记录里的任务编号可以点开那条任务。\n- 抽屉在 375 宽下宽度仍是 520px、左边一截在屏幕外：`styles.css` 里 `.shell > .drawer` 的宽度盖过了手机断点的规则（PROTO-07 发现，tasks.md 末尾第 12 条）。\n- `shots.py --only tasks` 会删掉 PROTO-07 另外截的 16 张抽屉图（tasks.md 末尾第 13 条）：把 scratchpad 里的 drawershots.py 的做法并进 shots.py，让截图脚本也能按步骤截抽屉和弹窗。\n\n## 注意事项\n\n- 原型只当规格和演示；改动只为让原型和规格一致，示例数据保持一条前后对得上的演示故事线。\n- 原型 7778 由用户在跑，不要重启它；验证截图看完即删；改完 `cd web-next && npx tsc -b` 0 错误，`make smoke-proto` 通过。",
+    "acceptance": "- [ ] 上面六处逐条修好，规格包 today.md、tasks.md 末尾对应条目标为已修\n- [ ] 东八区 0 点到 8 点之间（可用 Playwright 的 timezone 和时钟模拟验证）逾期和今天截止的判断正确\n- [ ] 375 宽下抽屉不超出屏幕\n- [ ] shots.py 能截抽屉和弹窗，`--only tasks` 后抽屉截图还在"
   },
   {
     "key": "PROTO-09",
@@ -2596,5 +2596,25 @@
     ],
     "body": "## 要做什么\n\n按规格修：\n- 文档页 375 宽没选文档时布局错乱（目录名和筛选条掉到下面、下半屏空白）。\n- Agent 被删除后，它的会话仍能打开看历史（只读）。\n- 停用的 Agent 不能再收到消息（⌘Enter 和示例问题都要拦住）。\n- 手机宽度下产出结果保留来源列，能回到当时的会话或执行记录。\n- 产出指向的任务已删除时，点标题给出提示；从来源跳到执行记录页时定位到那一条。\n- 会话页权限拒绝的提示改成指向设置 / Agent / 工具与权限。\n- SOP 类产出记录目标，标题可以点开。\n- 空状态区分「这个分类下还没有内容 / 筛选后为空 / 一条都没有」。\n\n## 注意事项\n\n- 原型只当规格和演示；改动只为让原型和规格一致，示例数据保持一条前后对得上的演示故事线。\n- 原型 7778 由用户在跑，不要重启它；验证截图看完即删；改完 `cd web-next && npx tsc -b` 0 错误，`make smoke-proto` 通过。",
     "acceptance": "- [ ] 上面八处逐条修好，规格包三份文件末尾对应条目标为已修\n- [ ] 375 宽下文档页布局正常"
+  },
+  {
+    "key": "PROTO-10",
+    "type": "task",
+    "title": "修原型 IM 消息与项目模块和规格对不上的地方",
+    "milestone": "M1",
+    "module": "proto",
+    "priority": "P1",
+    "estimate": "M",
+    "depends_on": [
+      "PROTO-04d",
+      "PROTO-07"
+    ],
+    "workdir": "web-next",
+    "spec": [
+      "web-next/docs/spec/messages.md 末尾 M-1 到 M-5",
+      "web-next/docs/spec/projects.md 末尾 P-1 到 P-17"
+    ],
+    "body": "## 要做什么\n\n按规格修 PROTO-04d 列出的 22 处，重点：\n- 手机宽度下 IM 消息行内的「忽略」按钮被裁掉一半。\n- 附件获取失败的原因按连接器实际状态说，和回复受阻的说法一致。\n- 项目里的「待回复」不算稍后提醒还没到点的，和 IM 消息页的待处理数一致。\n- 项目概览「项目 Agent」空状态的「去设置」跳到 Agent 标签。\n- 项目不存在时的提示改掉「点左下新建项目」。\n- 项目下新建的任务继承项目工作目录（PJ-01c 要求）。\n- 项目任务标签里点待验收任务的完成圆圈：和任务页一样弹「验收通过」确认（PROTO-07 先改成了打开抽屉）。\n- 其余各条按规格末尾逐条处理，处理完标为已修。\n\n## 注意事项\n\n- 原型只当规格和演示；改动只为让原型和规格一致，示例数据保持一条前后对得上的演示故事线。\n- 原型 7778 由用户在跑，不要重启它；验证截图看完即删；改完 `cd web-next && npx tsc -b` 0 错误，`make smoke-proto` 通过。",
+    "acceptance": "- [ ] messages.md、projects.md 末尾列出的问题逐条修好或写明不修的理由，标为已修\n- [ ] `make smoke-proto` 通过"
   }
 ]
