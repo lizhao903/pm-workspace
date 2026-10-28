@@ -22,6 +22,7 @@ import (
 	"github.com/lizhao903/pm-workspace/internal/audit"
 	"github.com/lizhao903/pm-workspace/internal/db"
 	"github.com/lizhao903/pm-workspace/internal/events"
+	"github.com/lizhao903/pm-workspace/internal/notify"
 	"github.com/lizhao903/pm-workspace/internal/plugin"
 	"github.com/lizhao903/pm-workspace/internal/plugins/projects"
 	"github.com/lizhao903/pm-workspace/internal/store/sqlite"
@@ -156,6 +157,12 @@ func run(cfg config) error {
 	opts := api.Options{Version: version, Dev: cfg.dev, Vault: v, Plugins: plugins}
 	// 审计日志（CORE-08，0018）：删除和 Agent 写操作在 store 外层记，配置类在 handler 里记
 	opts.Audit = audit.New(pdb, slog.Default())
+	// 事件流和通知（CORE-07b，0019）：内核内部订阅总线，不经插件注册表；退出时先关流，SSE 连接不拖住 Shutdown
+	opts.Stream = events.NewStream(events.DefaultStreamSize)
+	bus.Tap(opts.Stream.Append)
+	opts.Notify = notify.New(pdb, st, opts.Stream, slog.Default())
+	bus.Tap(opts.Notify.Handle)
+	defer opts.Notify.Wait(5 * time.Second)
 	if !cfg.dev {
 		opts.UI = webui.Handler()
 	}
@@ -164,7 +171,7 @@ func run(cfg config) error {
 	// 两个监听共用同一个 handler，但各自一个 http.Server：Server 内部持有
 	// 监听状态与在途连接，一个实例只能 Serve 一次，不能复用。
 	newServer := func() *http.Server {
-		return &http.Server{
+		srv := &http.Server{
 			Handler:           handler,
 			TLSConfig:         tlsConf,
 			ReadHeaderTimeout: 10 * time.Second,
@@ -181,6 +188,8 @@ func run(cfg config) error {
 			WriteTimeout: 0,
 			IdleTimeout:  120 * time.Second,
 		}
+		srv.RegisterOnShutdown(opts.Stream.Close)
+		return srv
 	}
 
 	var (

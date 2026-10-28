@@ -12,6 +12,8 @@ import (
 	"time"
 
 	"github.com/lizhao903/pm-workspace/internal/audit"
+	"github.com/lizhao903/pm-workspace/internal/events"
+	"github.com/lizhao903/pm-workspace/internal/notify"
 	"github.com/lizhao903/pm-workspace/internal/plugin"
 	"github.com/lizhao903/pm-workspace/internal/runner"
 	"github.com/lizhao903/pm-workspace/internal/store"
@@ -41,6 +43,11 @@ type Options struct {
 	// Audit 是审计日志（CORE-08）；为 nil 时不记，GET /api/audits 回 500。
 	// 删除和 Agent 写操作由 audit.WrapStore 记，这里只给配置类 handler 和查询接口用。
 	Audit *audit.Log
+
+	// Notify 是通知（CORE-07b，0019）；为 nil 时 /api/notifications 回 500。
+	Notify *notify.Center
+	// Stream 是推给前端的事件流，来源是事件总线（Bus.Tap）；为 nil 时 GET /api/events 回 500。
+	Stream *events.Stream
 }
 
 type Server struct {
@@ -220,6 +227,12 @@ func (s *Server) routes(m routeRegistrar) {
 
 	// 审计日志：只读，写入点在各处的 handler 和 audit.WrapStore。
 	m.HandleFunc("GET /api/audits", s.handleListAudits)
+
+	// 通知与事件流。read-all 是字面量，和 {id}/read 段数不同，互不遮挡。
+	m.HandleFunc("GET /api/notifications", s.handleListNotifications)
+	m.HandleFunc("POST /api/notifications/read-all", s.handleReadAllNotifications)
+	m.HandleFunc("POST /api/notifications/{id}/read", s.handleReadNotification)
+	m.HandleFunc("GET /api/events", s.handleEvents)
 
 	// 凭证保险箱。只回脱敏提示，明文没有任何读接口；{id}/rotate 比 {id} 多一段，不会被吃掉。
 	m.HandleFunc("GET /api/secrets", s.handleListSecrets)

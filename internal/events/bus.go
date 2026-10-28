@@ -40,6 +40,11 @@ type Bus struct {
 	Timeout time.Duration
 
 	wg sync.WaitGroup
+
+	// taps 是内核内部的订阅者（事件流、通知），见 Tap。
+	tapMu sync.RWMutex
+	taps  map[int]func(plugin.Event)
+	tapN  int
 }
 
 func New(src Source, log *slog.Logger) *Bus {
@@ -67,6 +72,7 @@ func (b *Bus) Publish(_ context.Context, eventType string, payload any) error {
 		return fmt.Errorf("event %s: %w", eventType, err)
 	}
 	ev := plugin.Event{Type: eventType, At: time.Now().UTC(), Payload: raw}
+	b.tap(ev)
 	if b.src == nil {
 		return nil
 	}
@@ -75,6 +81,42 @@ func (b *Bus) Publish(_ context.Context, eventType string, payload any) error {
 		go b.deliver(s, ev)
 	}
 	return nil
+}
+
+// Tap 给内核内部登记一个订阅者，收所有类型的事件，返回取消函数。
+// 和插件订阅者不同：fn 在 Publish 里同步调用、按发布顺序，所以必须很快、不能阻塞，
+// 要做重活自己起协程。不经过插件注册表，插件启停不影响它。
+func (b *Bus) Tap(fn func(plugin.Event)) (cancel func()) {
+	b.tapMu.Lock()
+	defer b.tapMu.Unlock()
+	if b.taps == nil {
+		b.taps = map[int]func(plugin.Event){}
+	}
+	b.tapN++
+	id := b.tapN
+	b.taps[id] = fn
+	return func() {
+		b.tapMu.Lock()
+		defer b.tapMu.Unlock()
+		delete(b.taps, id)
+	}
+}
+
+func (b *Bus) tap(ev plugin.Event) {
+	b.tapMu.RLock()
+	defer b.tapMu.RUnlock()
+	for _, fn := range b.taps {
+		b.safeTap(fn, ev)
+	}
+}
+
+func (b *Bus) safeTap(fn func(plugin.Event), ev plugin.Event) {
+	defer func() {
+		if v := recover(); v != nil {
+			b.log.Error("event tap panic", "type", ev.Type, "panic", v, "stack", string(debug.Stack()))
+		}
+	}()
+	fn(ev)
 }
 
 func (b *Bus) deliver(s plugin.Subscriber, ev plugin.Event) {
