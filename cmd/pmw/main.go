@@ -25,6 +25,7 @@ import (
 	"github.com/lizhao903/pm-workspace/internal/notify"
 	"github.com/lizhao903/pm-workspace/internal/plugin"
 	"github.com/lizhao903/pm-workspace/internal/plugins/projects"
+	"github.com/lizhao903/pm-workspace/internal/schedule"
 	"github.com/lizhao903/pm-workspace/internal/store/sqlite"
 	"github.com/lizhao903/pm-workspace/internal/vault"
 	"github.com/lizhao903/pm-workspace/internal/webui"
@@ -163,6 +164,8 @@ func run(cfg config) error {
 	opts.Notify = notify.New(pdb, st, opts.Stream, slog.Default())
 	bus.Tap(opts.Notify.Handle)
 	defer opts.Notify.Wait(5 * time.Second)
+	// 定时任务的定义（TASK-03a，0020）：规则按本机时区算；到点执行归 TASK-03b
+	opts.Schedules = schedule.New(pdb, time.Local)
 	if !cfg.dev {
 		opts.UI = webui.Handler()
 	}

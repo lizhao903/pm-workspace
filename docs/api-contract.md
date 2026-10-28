@@ -51,8 +51,8 @@
 改口径只改那一处，两边一起变。
 
 等回答的 Agent 问题暂不返回：Agent 会话目前没有「等用户回答」这个状态（`agent_sessions` 无状态列，
-消息也没有提问标记），要等会话加上这个状态再补一张卡片。插件卡片由 TODAY-01b 接入，`key` 用插件声明的，
-不和上面四个撞。
+消息也没有提问标记），要等会话加上这个状态再补一张卡片。
+插件卡片（TODAY-01b）：已启用并在跑的插件按 `provides.today_cards` 登记的卡片，在不传 `type` 时合进来，和内核卡片一起按 `order` 排（插件没写 order 时为 100）。`key` 以 `<插件id>_` 开头，不和上面四个撞。`items` 的形状由插件定。单张卡片加载超过 800ms、出错或没有内容时不返回这张卡。插件停用后卡片消失。
 
 ## 工作对象类型 object-types
 
@@ -586,8 +586,8 @@ SSE 事件（形状的唯一真相是 `internal/runner` 的 `Event.MarshalJSON`�
 | kind | 何时记 | target_type / action |
 |---|---|---|
 | `config` | 类型、字典、服务商、插件、保险箱的写接口成功后（不分来源） | `object_type`：create/update/delete；`dict_item`：create/update/archive/unarchive/delete，`dictionary`：reorder；`agent_provider`：create/update/delete/set_default；`plugin`：install/enable/disable/uninstall；`secret`：create/rotate/delete |
-| `delete` | 删除成功后（不分来源） | `object`（`detail.hard` 区分软删和彻底删除）、`category`、`tag`（合并标签按删除记，`detail.merged_into`）、`link`、`artifact`、`stakeholder`、`shortcut`、`shortcut_group`、`agent_session` |
-| `agent` | `X-Actor-Source: agent` 的写操作（MCP 都带这个头） | `object`：create/update/restore/progress/claim；`link`、`artifact`、`category`、`tag`、`stakeholder` 的新建和修改 |
+| `delete` | 删除成功后（不分来源） | `object`（`detail.hard` 区分软删和彻底删除）、`category`、`tag`（合并标签按删除记，`detail.merged_into`）、`link`、`artifact`、`stakeholder`、`shortcut`、`shortcut_group`、`agent_session`、`schedule` |
+| `agent` | `X-Actor-Source: agent` 的写操作（MCP 都带这个头） | `object`：create/update/restore/progress/claim；`link`、`artifact`、`category`、`tag`、`stakeholder`、`schedule` 的新建和修改 |
 | `order` | 下单，交易插件接入后记 | 预留 |
 
 - Agent 做的配置变更和删除按 `config` / `delete` 记一条，`source` 是 `agent`，不重复记 `agent`。
@@ -639,6 +639,50 @@ data: {"id":"1761696000123457","type":"object.status_changed","at":"2026-10-29T0
 - 响应先发 `retry: 3000`（断线 3 秒后重连）；每 25 秒一行 `: ping` 注释作心跳。
 - 客户端处理太慢（积压超过 256 条）时服务端主动断开，前端照常带 `Last-Event-ID` 重连补齐；服务退出时也会先关掉所有事件流。
 - 服务没接事件流时回 `internal` 500，message 为 `event stream is not configured on this server`。
+
+## 定时任务 schedules
+
+TASK-03a。定义存在表 `schedules`（0020）；本节只有定义和「下次执行」的计算，到点执行和执行记录归 TASK-03b。全量导出暂不含这张表。
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| GET | `/api/schedules` | `Schedule[]` + `meta.total`，不分页。下次执行早的在前，不再执行的（停用、一次性已过）排最后，同组按新建时间倒序 |
+| POST | `/api/schedules` | 新建，body `{name, enabled?, rule, action}`，`enabled` 缺省 `true`；回 201 + `Schedule` |
+| POST | `/api/schedules/preview` | 编辑时预览没保存的规则：body `{rule, count?}`，`count` 缺省 3、最大 10；回 `{rule, next_runs, time_zone}`，`rule` 是规范化后的，`next_runs` 可能少于 `count`（一次性只有一个） |
+| GET | `/api/schedules/{id}` | 一个 `Schedule`；不存在 404 |
+| PATCH | `/api/schedules/{id}` | 只传要改的：`name` / `enabled` / `rule` / `action`，`rule`、`action` 整体替换；回 `Schedule` |
+| DELETE | `/api/schedules/{id}` | 彻底删除，`data` 为 `null`；不存在 404 |
+
+`Schedule`：`{id, name, enabled, rule, action, next_run_at, created_at, updated_at}`。
+
+- `next_run_at` 读的时候按规则现算，不落库；停用、一次性已过、cron 在四年内碰不上时为 `null`。带服务所在时区的偏移（如 `2026-11-02T09:00:00+08:00`）。
+- `name` 去首尾空白后必填，最多 100 字。
+
+`rule` 与原型 `ScheduleRule` 同形 `{freq, time, weekdays, day, date, cron}`，各频率只用自己的字段，其余原样保存（切换频率时不丢）：
+
+| freq | 用到的字段 | 说明 |
+|---|---|---|
+| `once` | `date`（yyyy-mm-dd）、`time`（HH:mm） | 只执行一次。新建或改规则时这个时间已经过去回 400 |
+| `daily` | `time` | 每天 |
+| `weekdays` | `time` | 周一到周五 |
+| `weekly` | `time`、`weekdays` | `weekdays` 是 0 到 6（0 为周日），至少一个，保存时去重排序 |
+| `monthly` | `time`、`day` | `day` 为 1 到 31；小月没有这一天时按月底算（31 号在 11 月是 30 号、平年 2 月是 28 号） |
+| `cron` | `cron` | 5 段：分 时 日 月 周。认数字、`*`、`a-b`、`*/n`、`a-b/n`、逗号列表，月和周可写 `JAN`、`MON` 这类缩写，周的 7 也是周日。日和周都限定时（都不以 `*` 开头）任一满足即可。不按月底顺延：`0 9 31 * *` 只在有 31 号的月份执行 |
+
+- 时间都是服务所在机器本地时区的「墙上时间」（`time_zone` 即这个时区）。夏令时切换时：拨快跳过的时刻顺延跳过的时长（02:30 不存在就在 03:30），当天仍执行一次；拨慢重复的时刻只在第一次执行。不用夏令时的时区不受影响。
+- 只改 `name` 或 `enabled` 时不重新校验旧规则，过期的一次性任务也能改名、停用。
+
+`action` 与原型 `ScheduleAction` 同形，按 `kind` 只输出自己的字段，其余字段保存时丢掉：
+
+| kind | 字段 | 说明 |
+|---|---|---|
+| `task` | `title`（必填）、`desc`、`priority`、`assignee`、`due_days` | 到点建一条任务；`due_days` 是截止日距执行当天几天，0 到 365 |
+| `sop` | `sop_id`（必填） | 执行一个 SOP |
+| `agent` | `agent_id`（必填）、`prompt` | 让一个 Agent 去做 |
+
+- `sop_id`、`agent_id` 只查非空、不查是否存在（SOP、Agent 的接口在 M4 之后）。
+- 删除按 `delete` 记审计，Agent 来源的新建和修改按 `agent` 记，`target_type` 为 `schedule`。
+- 服务没接定时任务时这几个接口回 `internal` 500，message 为 `schedules are not configured on this server`。
 
 ## 运维 admin
 
