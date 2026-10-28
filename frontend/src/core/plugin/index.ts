@@ -1,4 +1,4 @@
-// 插件注册表。按插件清单加载模块放在 FE-00b，这里先只定内核模块和插件共用的描述结构。
+// 内核模块和插件共用的模块描述、插件清单、插件入口和注册表。
 import type { ComponentType } from 'react'
 
 export type ModuleDef = {
@@ -12,3 +12,5 @@ export type ModuleDef = {
 
 export * from './manifest'
 export * from './semver'
+export * from './api'
+export * from './registry'

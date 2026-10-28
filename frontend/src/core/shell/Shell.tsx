@@ -1,7 +1,8 @@
 import { NavLink, Outlet } from 'react-router'
 import { useHealth } from '../api'
-import type { ModuleDef } from '../plugin'
+import { pluginProblems, type ModuleDef } from '../plugin'
 import { ThemeSwitch } from '../ui'
+import { PluginNotice } from './PluginNotice'
 import './shell.css'
 
 // 空壳：侧边栏列出模块，底部是主题切换和后端状态，右边是当前模块的页面。
@@ -18,6 +19,7 @@ export function Shell({ modules }: { modules: ModuleDef[] }) {
           ))}
         </nav>
         <div className="shell-foot">
+          <PluginNotice problems={pluginProblems()} />
           <ThemeSwitch />
           <BackendStatus />
         </div>

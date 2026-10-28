@@ -26,3 +26,7 @@
 .shell-main { flex: 1; min-width: 0; overflow: auto; padding: var(--sp-12); background: var(--bg); }
 .shell-placeholder h1 { margin: 0 0 var(--sp-4); font-size: var(--fs-2xl); }
 .shell-placeholder p { margin: 0; color: var(--muted); }
+.shell-notice { padding: var(--sp-3) var(--sp-4); border-radius: var(--r-sm); background: var(--warn-soft); font-size: var(--fs-xs); color: var(--text); }
+.shell-notice summary { cursor: pointer; color: var(--warn); font-weight: 500; }
+.shell-notice ul { margin: var(--sp-3) 0 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: var(--sp-3); color: var(--muted); word-break: break-all; }
+.shell-notice-name { color: var(--text); }
