@@ -1,0 +1,11 @@
+/* 插件扩展点的宿主：今日页的插件卡片、设置页的插件分节。卡片样式照原型 hook-sec */
+.ext-cards {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: var(--sp-8); margin-top: var(--sp-8); align-items: start;
+}
+.ext-card {
+  display: flex; flex-direction: column; gap: var(--sp-5); min-width: 0;
+  padding: var(--sp-8); border: 1px solid var(--line); border-radius: var(--r-lg); background: var(--panel);
+}
+.ext-card-title { font-size: var(--fs-sm); font-weight: 600; color: var(--muted); }
+.ext-settings { display: flex; flex-direction: column; gap: var(--sp-6); min-width: 0; }

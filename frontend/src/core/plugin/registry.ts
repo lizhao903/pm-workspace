@@ -1,8 +1,14 @@
 // 插件注册表（FE-00b）：按启用列表挑出能加载的插件，动态 import 入口并调 activate，收集它们注册的模块。
 // 清单在构建时用 glob 读进来（只是数据），入口是懒加载的 glob，每个插件一个代码块，没启用的不会被请求。
+// CORE-02b 起 activate 拿到完整的 PluginApi，注册按插件 id 记账，deactivatePlugin 一次撤掉。
 import type { ModuleDef } from './index'
-import type { Disposable, PluginEntry } from './api'
-import { commandRegistry, disposeCommandsOf } from './commands'
+import type { PluginApi, PluginEntry } from './api'
+import { commandRegistry, disposeCommandsOf, type ShellApi } from './commands'
+import {
+  CORE_OWNER, disposeExtensionsOf, moduleRegistry, moduleStore, notImplemented, objectTypeRegistry, registerCoreModules,
+  settingsRegistry, todayCardRegistry,
+} from './extensions'
+import * as data from '../data'
 import { checkManifest, formatIssue, parseManifest, PLUGIN_API_VERSION, type PluginManifest } from './manifest'
 import { enabledPlugins } from '../../plugins/enabled'
 import { requestList } from '../api'
@@ -154,49 +160,94 @@ export async function loadPlugins(
   const plugins: PluginManifest[] = []
 
   for (const m of ok) {
-    const own: ModuleDef[] = []
     const reasons: string[] = []
+    // 上一次加载留下的注册先撤掉，同一个插件不会注册两份
+    disposeAll(m.id)
     try {
       const entry = (await byId.get(m.id)!.load!()).default
-      entry.activate({
-        id: m.id,
-        manifest: m,
-        modules: {
-          register(def): Disposable {
-            if (!(m.provides.modules ?? []).includes(def.id)) {
-              const msg = `注册的模块 ${def.id} 不在清单 provides.modules 里`
-              if (isDev) throw new Error(msg)
-              reasons.push(msg)
-              return { dispose() {} }
-            }
-            own.push(def)
-            return {
-              dispose() {
-                const i = own.indexOf(def)
-                if (i >= 0) own.splice(i, 1)
-              },
-            }
-          },
-        },
-        commands: commandRegistry(m.id, m.provides, reasons, isDev),
-      })
+      entry.activate(pluginApi(m, reasons, isDev))
+      entries.set(m.id, entry)
     } catch (e) {
-      disposeCommandsOf(m.id)
+      disposeAll(m.id)
       console.error(`插件 ${m.id} 加载失败`, e)
       problems.push({ id: m.id, name: m.name, reasons: ['加载失败：' + (e as Error).message] })
       continue
     }
     if (reasons.length > 0) problems.push({ id: m.id, name: m.name, reasons })
-    modules.push(...own.map((def) => ({ plugin: m, def })))
+    modules.push(...moduleStore.ofOwner(m.id).map((def) => ({ plugin: m, def })))
     plugins.push(m)
   }
   return { modules, plugins, problems }
+}
+
+// 给一个插件的 API。没实现的扩展点用到就抛错，插件按加载失败处理
+export function pluginApi(m: PluginManifest, reasons: string[], strict: boolean): PluginApi {
+  const ctx = { owner: m.id, manifest: m, reasons, strict }
+  return {
+    id: m.id,
+    manifest: m,
+    modules: moduleRegistry(ctx),
+    settings: settingsRegistry(ctx),
+    objectTypes: objectTypeRegistry(ctx),
+    migrations: notImplemented('migrations', '2.4'),
+    connectors: notImplemented('connectors', '2.5'),
+    agent: notImplemented('agent', '2.6'),
+    sopNodes: notImplemented('sopNodes', '2.7'),
+    todayCards: todayCardRegistry(ctx),
+    commands: commandRegistry(m.id, m.provides, reasons, strict),
+    events: notImplemented('events', '2.10'),
+    data,
+    shell: shellProxy,
+  }
+}
+
+// 已激活的插件入口，停用时调它的 deactivate
+const entries = new Map<string, PluginEntry>()
+
+function disposeAll(owner: string) {
+  disposeCommandsOf(owner)
+  disposeExtensionsOf(owner)
+}
+
+// 停用插件（docs/plugin-api.md 4.3 的前端部分）：撤掉它的全部注册，再调 deactivate。
+// 菜单、设置分节、今日卡片、命令跟着消失；停在它页面上的会被路由送回默认模块。内核模块不能停用
+export function deactivatePlugin(id: string): boolean {
+  if (id === CORE_OWNER || moduleStore.find((d) => !!d.core && d.id === id)) throw new Error(`${id} 是内核模块，不能停用`)
+  const entry = entries.get(id)
+  if (!entry) return false
+  entries.delete(id)
+  disposeAll(id)
+  try {
+    entry.deactivate?.()
+  } catch (e) {
+    console.error(`插件 ${id} 停用时出错`, e)
+  }
+  return true
+}
+
+export function activePlugins(): string[] {
+  return [...entries.keys()]
+}
+
+// 外壳能力。插件在启动时就拿到 api.shell，那时外壳还没渲染，所以经这一层转给外壳挂上来的实现
+let shellHost: ShellApi | null = null
+
+export function setShellHost(host: ShellApi | null) {
+  shellHost = host
+}
+
+const shellProxy: ShellApi = {
+  navigate(to) {
+    if (!shellHost) throw new Error('外壳还没挂上，不能跳转')
+    shellHost.navigate(to)
+  },
 }
 
 let problems: PluginProblem[] = []
 
 // 应用启动时调一次：加载插件，把插件模块接在内核模块后面
 export async function initPlugins(kernel: readonly ModuleDef[]): Promise<ModuleDef[]> {
+  registerCoreModules(kernel)
   const r = await loadPlugins()
   problems = r.problems
   return mergeModules(kernel, r.modules, problems)

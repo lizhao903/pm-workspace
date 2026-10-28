@@ -1,9 +1,12 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { render, screen } from '@testing-library/react'
+import { act, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { createMemoryRouter, RouterProvider } from 'react-router'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { discoverPlugins, disposeCommandsOf, loadPlugins, mergeModules, PLUGIN_API_VERSION, type ModuleDef } from '../plugin'
+import { deactivatePlugin, discoverPlugins, disposeCommandsOf, loadPlugins, mergeModules, PLUGIN_API_VERSION, type ModuleDef } from '../plugin'
+import { module as settingsModule } from '../../modules/settings'
+import { module as todayModule } from '../../modules/today'
+import { ModuleRoute } from './ModuleRoute'
 import { PluginNotice } from './PluginNotice'
 import { Shell } from './Shell'
 
@@ -144,5 +147,89 @@ describe('外壳的菜单和命令面板', () => {
     await userEvent.keyboard('{Escape}')
     expect(btn).toHaveAttribute('aria-expanded', 'false')
     expect(btn).toHaveFocus()
+  })
+})
+
+describe('插件的设置分节和今日卡片（CORE-02b）', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn(() => new Promise(() => {})))
+    localStorage.clear()
+  })
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    deactivatePlugin('hello')
+  })
+
+  // 真实的今日、设置页，路由和 createAppRouter 一样包一层 ModuleRoute
+  async function renderReal(enabled: string[], at: string) {
+    const r = await loadPlugins(discoverPlugins(), { enabled, apiVersion: PLUGIN_API_VERSION })
+    const modules = mergeModules([todayModule, settingsModule], r.modules, r.problems)
+    const router = createMemoryRouter(
+      [{
+        path: '/',
+        element: <Shell modules={modules} />,
+        children: modules.map((m) => ({
+          path: m.path + '/*',
+          lazy: async () => {
+            const Page = (await m.load()).default
+            return { Component: () => <ModuleRoute module={m} page={Page} home="/today" /> }
+          },
+        })),
+      }],
+      { initialEntries: [at] },
+    )
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <RouterProvider router={router} />
+      </QueryClientProvider>,
+    )
+    return router
+  }
+
+  it('hello 启用：今日页出卡片，设置页「插件」分组里有它的分节；停用后都消失', async () => {
+    await renderReal(['hello'], '/today')
+    const card = await screen.findByRole('region', { name: '示例插件' })
+    expect(card).toHaveTextContent('这张卡片来自示例插件 hello')
+
+    await userEvent.click(screen.getByRole('link', { name: '设置' }))
+    const nav = await screen.findByRole('navigation', { name: '设置' })
+    expect(nav).toHaveTextContent('插件')
+    await userEvent.click(within(nav).getByRole('button', { name: /示例插件/ }))
+    expect(await screen.findByText(/这一节来自示例插件 hello/)).toBeInTheDocument()
+    expect(screen.getByText('来自插件「示例插件」')).toBeInTheDocument()
+
+    // 停在插件分节上停用：分节从菜单去掉，页面回到第一节
+    act(() => { deactivatePlugin('hello') })
+    expect(within(nav).queryByRole('button', { name: /示例插件/ })).not.toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: '工作台与模块' })).toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: '示例插件' })).not.toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole('link', { name: '今日' }))
+    await screen.findByRole('heading', { name: '今日' })
+    expect(screen.queryByRole('region', { name: '示例插件' })).not.toBeInTheDocument()
+  })
+
+  it('hello 不启用：今日页没有卡片，设置页没有插件分组', async () => {
+    await renderReal([], '/settings')
+    const nav = await screen.findByRole('navigation', { name: '设置' })
+    expect(nav).not.toHaveTextContent('插件')
+    await userEvent.click(screen.getByRole('link', { name: '今日' }))
+    await screen.findByRole('heading', { name: '今日' })
+    expect(screen.queryByRole('region', { name: '示例插件' })).not.toBeInTheDocument()
+  })
+
+  it('停在插件页面上停用：送回默认模块', async () => {
+    const router = await renderReal(['hello'], '/hello')
+    expect(await screen.findByText(/这个页面来自示例插件 hello/)).toBeInTheDocument()
+    act(() => { deactivatePlugin('hello') })
+    expect(await screen.findByRole('heading', { name: '今日' })).toBeInTheDocument()
+    expect(router.state.location.pathname).toBe('/today')
+  })
+
+  it('内核模块在界面上没有停用入口', async () => {
+    await renderReal(['hello'], '/settings')
+    await screen.findByRole('navigation', { name: '设置' })
+    expect(screen.queryByRole('button', { name: /停用/ })).not.toBeInTheDocument()
+    expect(screen.queryByText(/停用/)).not.toBeInTheDocument()
   })
 })

@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { NavLink, Outlet, useNavigate } from 'react-router'
-import { commandProviders, pluginProblems, registeredCommands, type CommandDef, type ModuleDef, type ShellApi } from '../plugin'
+import {
+  commandProviders, pluginProblems, registeredCommands, setShellHost, useActiveModules, type CommandDef, type ModuleDef, type ShellApi,
+} from '../plugin'
 import { cls, DrawerHostContext, IconButton, IconSearch, setTheme, SubnavHostContext, TopbarContext, useTheme } from '../ui'
 import { CommandPalette } from './CommandPalette'
 import { IconMenu, IconSectionChevron, IconSideToggle, ModuleIcon } from './icons'
@@ -19,7 +21,9 @@ export function Shell({ modules }: { modules: ModuleDef[] }) {
   const navigate = useNavigate()
   const { resolved, pref } = useTheme()
   const marks = useMenuMarks()
-  const menu = useMemo(() => buildMenu(modules), [modules])
+  // 插件停用后它的模块从菜单里去掉；内核模块一直在
+  const live = useActiveModules(modules)
+  const menu = useMemo(() => buildMenu(live), [live])
 
   const [collapsed, setCollapsed] = useState(readCollapsed)
   useEffect(() => { writeCollapsed(collapsed) }, [collapsed])
@@ -48,6 +52,11 @@ export function Shell({ modules }: { modules: ModuleDef[] }) {
 
   const [palette, setPalette] = useState<PaletteItem[] | null>(null)
   const shellApi: ShellApi = useMemo(() => ({ navigate: (to) => { void navigate(to) } }), [navigate])
+  // 插件拿到的 api.shell 经这里转给外壳
+  useEffect(() => {
+    setShellHost(shellApi)
+    return () => setShellHost(null)
+  }, [shellApi])
   const toItem = useCallback((c: CommandDef): PaletteItem => ({
     id: 'cmd-' + c.id, group: c.group, title: c.title, sub: c.sub, keywords: c.keywords,
     run: () => { void Promise.resolve(c.run({ shell: shellApi })).catch((e) => console.error(`命令 ${c.id} 执行出错`, e)) },

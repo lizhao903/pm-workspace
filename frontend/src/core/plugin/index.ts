@@ -8,6 +8,8 @@ export type ModuleDef = {
   path: string
   // 按需加载页面，返回的模块默认导出页面组件
   load: () => Promise<{ default: ComponentType }>
+  // 内核模块（今日、任务、文档、联系人、会话、设置）：不能停用，界面上没有停用入口
+  core?: boolean
 }
 
 export * from './manifest'
@@ -15,3 +17,4 @@ export * from './semver'
 export * from './api'
 export * from './commands'
 export * from './registry'
+export * from './extensions'
