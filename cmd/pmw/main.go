@@ -133,6 +133,8 @@ func run(cfg config) error {
 	}
 	defer pdb.Close()
 	plugins := plugin.NewRegistry(plugin.NewSQLStateStore(pdb), slog.Default())
+	// 插件迁移记在 plugins_migrations（0017）；已应用的被改过时 Start 报错，拒绝启动
+	plugins.Migrations = plugin.NewSQLMigrationStore(pdb)
 	if err := plugins.Start(ctx); err != nil {
 		return fmt.Errorf("启动插件失败: %w", err)
 	}

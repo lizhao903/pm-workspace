@@ -24,6 +24,9 @@ type Registry struct {
 	store StateStore
 	log   *slog.Logger
 
+	// Migrations 存插件迁移记录，默认是内存的；cmd/pmw 在 Add 之前换成 SQLMigrationStore。
+	Migrations MigrationStore
+
 	// APIVersion 为空时用 APIVersion 常量；测试用它模拟内核升级。
 	APIVersion string
 	// StopTimeout 是停用时等后台任务退出的上限，默认 10 秒。超时只记日志，状态照样置停用。
@@ -40,6 +43,7 @@ type entry struct {
 	m      Manifest
 	core   *core
 	routes []string // 启动时登记的路由模式，挂进接口层的就是这些
+	migs   []migrationFile
 	state  State
 
 	active atomic.Pointer[activation] // nil 表示没在跑
@@ -84,7 +88,7 @@ func NewRegistry(store StateStore, log *slog.Logger) *Registry {
 	if log == nil {
 		log = slog.Default()
 	}
-	return &Registry{store: store, log: log, entries: map[string]*entry{}}
+	return &Registry{store: store, log: log, Migrations: NewMemMigrationStore(), entries: map[string]*entry{}}
 }
 
 func (r *Registry) apiVersion() string {
@@ -117,6 +121,11 @@ func (r *Registry) Add(p Plugin) error {
 		return fmt.Errorf("plugin registry: duplicate plugin id %s", m.ID)
 	}
 	e := &entry{p: p, m: m, core: &core{id: m.ID, log: r.log.With("plugin", m.ID)}, state: State{ID: m.ID}}
+	migs, err := loadMigrations(&m, p.Migrations())
+	if err != nil {
+		return err
+	}
+	e.migs = migs
 	a, err := r.collect(e)
 	if err != nil {
 		return err
@@ -127,13 +136,23 @@ func (r *Registry) Add(p Plugin) error {
 	return nil
 }
 
-// Start 读状态表，把已启用的插件按依赖顺序跑起来。单个插件起不来只记日志，不拦启动。
+// Start 读状态表，把已启用的插件按依赖顺序跑起来。单个插件起不来只记日志，不拦启动；
+// 但已应用的插件迁移被改过时整个启动失败，和内核迁移一样（2.4）。
 func (r *Registry) Start(ctx context.Context) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	states, err := r.store.Load(ctx)
 	if err != nil {
 		return err
+	}
+	applied, err := r.appliedByPlugin(ctx)
+	if err != nil {
+		return err
+	}
+	for _, id := range r.order {
+		if err := verifyMigrations(id, r.entries[id].migs, applied[id]); err != nil {
+			return err
+		}
 	}
 	r.started = true
 	for _, id := range r.depOrder() {
@@ -147,6 +166,11 @@ func (r *Registry) Start(ctx context.Context) error {
 		if e.state.Version != e.m.Version {
 			// 换了二进制、版本变了：先照常启用，「可升级」由管理接口按 State.Version 判断（4.5）
 			e.core.log.Info("plugin version changed", "installed", e.state.Version, "binary", e.m.Version)
+		}
+		if n := len(pending(e.migs, applied[id])); n > 0 {
+			// 新代码要的表还没建，起来也是坏的；迁移等升级流程（先备份再跑，4.5）
+			e.core.log.Error("plugin not started: migrations pending, upgrade required", "pending", n)
+			continue
 		}
 		if err := r.checkEnable(e); err != nil {
 			e.core.log.Error("plugin not started", "err", err)
@@ -172,8 +196,9 @@ func (r *Registry) Close() {
 	}
 }
 
-// Install 记下安装和确认过的权限，不启用（安装后接着启用由管理接口串起来）。
-// confirmed 必须覆盖清单里的全部权限（3.2）。迁移和 OnInstall 在 CORE-05、CORE-04b 加。
+// Install 跑本插件的迁移、记下安装和确认过的权限，不启用（安装后接着启用由管理接口串起来）。
+// confirmed 必须覆盖清单里的全部权限（3.2）。卸载保留数据后重装时跳过已应用的迁移。
+// 迁移中途失败时前面已提交的文件不回滚，靠安装前的快照恢复（4.1、REL-02）。OnInstall 在 CORE-04b 加。
 func (r *Registry) Install(ctx context.Context, id string, confirmed []string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -205,6 +230,9 @@ func (r *Registry) Install(ctx context.Context, id string, confirmed []string) e
 	}
 	if len(missing) > 0 {
 		return fmt.Errorf("%w: 这些权限没有确认：%s", ErrState, strings.Join(missing, "、"))
+	}
+	if err := r.migrate(ctx, e); err != nil {
+		return err
 	}
 	now := time.Now().UTC()
 	st := State{
@@ -367,7 +395,106 @@ func (r *Registry) Subscribers(eventType string) []Subscriber {
 	return out
 }
 
+// MigrationSteps 返回插件迁移。id 为空时只给已应用的记录（含已不在二进制里的插件）；
+// 给了 id 时是这个插件已应用和待应用的全部文件，按文件名排序。
+func (r *Registry) MigrationSteps(ctx context.Context, id string) ([]MigrationStep, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	all, err := r.Migrations.Applied(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var out []MigrationStep
+	if id == "" {
+		for i := range all {
+			a := all[i]
+			out = append(out, MigrationStep{Plugin: a.Plugin, File: a.File, Checksum: a.Checksum, Applied: &a})
+		}
+		slices.SortFunc(out, func(x, y MigrationStep) int {
+			return strings.Compare(x.Plugin+"/"+x.File, y.Plugin+"/"+y.File)
+		})
+		return out, nil
+	}
+	e, ok := r.entries[id]
+	applied := map[string]AppliedMigration{}
+	for _, a := range all {
+		if a.Plugin == id {
+			applied[a.File] = a
+		}
+	}
+	if !ok && len(applied) == 0 {
+		return nil, fmt.Errorf("%w: %s", ErrNotFound, id)
+	}
+	files := map[string]string{}
+	if ok {
+		for _, f := range e.migs {
+			files[f.name] = f.checksum
+		}
+	}
+	for name := range applied {
+		if _, has := files[name]; !has {
+			files[name] = applied[name].Checksum
+		}
+	}
+	for _, name := range slices.Sorted(maps.Keys(files)) {
+		st := MigrationStep{Plugin: id, File: name, Checksum: files[name]}
+		if a, has := applied[name]; has {
+			st.Applied = &a
+		}
+		out = append(out, st)
+	}
+	return out, nil
+}
+
 // --- 内部 ---
+
+func (r *Registry) appliedByPlugin(ctx context.Context) (map[string]map[string]AppliedMigration, error) {
+	all, err := r.Migrations.Applied(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := map[string]map[string]AppliedMigration{}
+	for _, a := range all {
+		if out[a.Plugin] == nil {
+			out[a.Plugin] = map[string]AppliedMigration{}
+		}
+		out[a.Plugin][a.File] = a
+	}
+	return out, nil
+}
+
+func pending(files []migrationFile, applied map[string]AppliedMigration) []migrationFile {
+	var out []migrationFile
+	for _, f := range files {
+		if _, ok := applied[f.name]; !ok {
+			out = append(out, f)
+		}
+	}
+	return out
+}
+
+// migrate 先校验已应用的，再按文件名顺序应用待应用的，每个文件一个事务。
+func (r *Registry) migrate(ctx context.Context, e *entry) error {
+	if len(e.migs) == 0 {
+		return nil
+	}
+	applied, err := r.appliedByPlugin(ctx)
+	if err != nil {
+		return err
+	}
+	if err := verifyMigrations(e.m.ID, e.migs, applied[e.m.ID]); err != nil {
+		return err
+	}
+	for _, f := range pending(e.migs, applied[e.m.ID]) {
+		a := AppliedMigration{Plugin: e.m.ID, File: f.name, Checksum: f.checksum,
+			PluginVersion: e.m.Version, AppliedAt: time.Now().UTC()}
+		if err := r.Migrations.Apply(ctx, a, f.body); err != nil {
+			return err
+		}
+		e.core.log.Info("plugin migration applied", "file", f.name)
+	}
+	return nil
+}
 
 func (r *Registry) get(id string) (*entry, error) {
 	e, ok := r.entries[id]

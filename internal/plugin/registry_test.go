@@ -54,7 +54,14 @@ func manifest(t *testing.T, id, extra string) plugin.Manifest {
 
 func newRegistry(t *testing.T, store plugin.StateStore, ps ...plugin.Plugin) *plugin.Registry {
 	t.Helper()
+	return newRegistryM(t, store, plugin.NewMemMigrationStore(), ps...)
+}
+
+// newRegistryM 同 newRegistry，迁移记录用给定的 store（重启类测试要和状态表一起留着）。
+func newRegistryM(t *testing.T, store plugin.StateStore, migs plugin.MigrationStore, ps ...plugin.Plugin) *plugin.Registry {
+	t.Helper()
 	r := plugin.NewRegistry(store, quiet)
+	r.Migrations = migs
 	for _, p := range ps {
 		if err := r.Add(p); err != nil {
 			t.Fatalf("add: %v", err)
@@ -198,8 +205,10 @@ func TestStateSurvivesRestart(t *testing.T) {
 		t.Fatal(err)
 	}
 	store := plugin.NewSQLStateStore(d0)
+	migs := plugin.NewSQLMigrationStore(d0)
 
 	r1 := plugin.NewRegistry(store, quiet)
+	r1.Migrations = migs
 	d1 := plugintest.NewDemo(time.Hour)
 	if err := r1.Add(d1); err != nil {
 		t.Fatal(err)
@@ -224,7 +233,7 @@ func TestStateSurvivesRestart(t *testing.T) {
 	}
 
 	d2 := plugintest.NewDemo(time.Hour)
-	r2 := newRegistry(t, store, d2)
+	r2 := newRegistryM(t, store, migs, d2)
 	if code := get(t, mux(r2), "/api/demo/ping"); code != http.StatusOK {
 		t.Fatalf("重启后 ping = %d，要 200", code)
 	}
@@ -235,7 +244,7 @@ func TestStateSurvivesRestart(t *testing.T) {
 	}
 	r2.Close()
 	d3 := plugintest.NewDemo(time.Hour)
-	r3 := newRegistry(t, store, d3)
+	r3 := newRegistryM(t, store, migs, d3)
 	if code := get(t, mux(r3), "/api/demo/ping"); code != http.StatusNotFound {
 		t.Fatalf("停用后重启 ping = %d，要 404", code)
 	}
@@ -302,7 +311,8 @@ func TestStartOrdersByDependency(t *testing.T) {
 		_ = store.Save(ctx, plugin.State{ID: id, Installed: true, Enabled: true, Version: "0.1.0"})
 	}
 	child := &fakePlugin{m: manifest(t, "child", `,"depends":{"demo":">=0.1.0 <1.0.0"}`)}
-	r := newRegistry(t, store, child, plugintest.NewDemo(time.Hour))
+	// 状态表是直接写的、没走安装，迁移记录也没有；这里只看启动顺序，去掉迁移
+	r := newRegistry(t, store, child, plugintest.NewDemo(time.Hour).WithMigrations(nil))
 	for _, id := range []string{"demo", "child"} {
 		if info, _ := r.Get(id); !info.Running {
 			t.Fatalf("%s 没起来", id)

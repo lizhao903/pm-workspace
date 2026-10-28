@@ -20,5 +20,7 @@
   },
   "emits": [],
   "subscribes": ["object.created"],
-  "permissions": ["network:localhost"]
+  "permissions": ["network:localhost"],
+  "migrations": "migrations",
+  "table_prefix": "demo_"
 }

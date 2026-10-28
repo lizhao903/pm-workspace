@@ -1,10 +1,10 @@
-// Package plugintest 是只给测试用的示例插件，不编译进 cmd/pmw。
+// Package plugintest 是只给测试用的示例插件，不编译进 cmd/pmw。迁移在 migrations/ 下，表前缀 demo_。
 // 它按第一方插件的写法来：清单 embed 进来、Register 里只登记、后台活动交给 Job。
 package plugintest
 
 import (
 	"context"
-	_ "embed"
+	"embed"
 	"encoding/json"
 	"io/fs"
 	"net/http"
@@ -17,10 +17,14 @@ import (
 //go:embed plugin.json
 var manifestJSON []byte
 
+//go:embed migrations/*.sql
+var migrationsFS embed.FS
+
 // Demo 的计数器给测试断言：Resident 是常驻任务协程还活着几个，Ticks 是定时任务跑了几次。
 type Demo struct {
 	m     plugin.Manifest
 	every time.Duration
+	migs  fs.FS
 
 	Resident atomic.Int64
 	Ticks    atomic.Int64
@@ -30,11 +34,21 @@ type Demo struct {
 
 // NewDemo 的定时任务间隔是 every；测试里给几毫秒。
 func NewDemo(every time.Duration) *Demo {
-	return &Demo{m: plugin.MustParse(manifestJSON), every: every}
+	sub, err := fs.Sub(migrationsFS, "migrations")
+	if err != nil {
+		panic(err)
+	}
+	return &Demo{m: plugin.MustParse(manifestJSON), every: every, migs: sub}
 }
 
 func (d *Demo) Manifest() plugin.Manifest { return d.m }
-func (d *Demo) Migrations() fs.FS         { return nil }
+func (d *Demo) Migrations() fs.FS         { return d.migs }
+
+// WithMigrations 换掉迁移目录，测试用来模拟「已应用的迁移文件被改过」。
+func (d *Demo) WithMigrations(fsys fs.FS) *Demo {
+	d.migs = fsys
+	return d
+}
 
 func (d *Demo) Register(r plugin.Registrar) error {
 	r.Routes(func(m plugin.RouteRegistrar) {
