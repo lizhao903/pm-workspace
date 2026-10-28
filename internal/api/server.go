@@ -16,6 +16,7 @@ import (
 	"github.com/lizhao903/pm-workspace/internal/notify"
 	"github.com/lizhao903/pm-workspace/internal/plugin"
 	"github.com/lizhao903/pm-workspace/internal/runner"
+	"github.com/lizhao903/pm-workspace/internal/schedule"
 	"github.com/lizhao903/pm-workspace/internal/store"
 )
 
@@ -48,6 +49,9 @@ type Options struct {
 	Notify *notify.Center
 	// Stream 是推给前端的事件流，来源是事件总线（Bus.Tap）；为 nil 时 GET /api/events 回 500。
 	Stream *events.Stream
+
+	// Schedules 是定时任务的定义（TASK-03a，0020）；为 nil 时 /api/schedules 回 500。
+	Schedules *schedule.Store
 }
 
 type Server struct {
@@ -234,6 +238,14 @@ func (s *Server) routes(m routeRegistrar) {
 	m.HandleFunc("POST /api/notifications/read-all", s.handleReadAllNotifications)
 	m.HandleFunc("POST /api/notifications/{id}/read", s.handleReadNotification)
 	m.HandleFunc("GET /api/events", s.handleEvents)
+
+	// 定时任务。preview 是字面量，POST /api/schedules/{id} 没有注册，不会被吃掉。
+	m.HandleFunc("GET /api/schedules", s.handleListSchedules)
+	m.HandleFunc("POST /api/schedules", s.handleCreateSchedule)
+	m.HandleFunc("POST /api/schedules/preview", s.handlePreviewSchedule)
+	m.HandleFunc("GET /api/schedules/{id}", s.handleGetSchedule)
+	m.HandleFunc("PATCH /api/schedules/{id}", s.handleUpdateSchedule)
+	m.HandleFunc("DELETE /api/schedules/{id}", s.handleDeleteSchedule)
 
 	// 凭证保险箱。只回脱敏提示，明文没有任何读接口；{id}/rotate 比 {id} 多一段，不会被吃掉。
 	m.HandleFunc("GET /api/secrets", s.handleListSecrets)
