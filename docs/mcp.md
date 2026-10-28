@@ -161,6 +161,22 @@ claude --mcp-config .mcp.dev.json   # 加载指向测试实例的 MCP（服务�
 `PMW_DEV_DIR` 不设时用 `$TMPDIR/pmw-devinst`，监听地址可用 `PMW_DEV_ADDR` 改。复制用 `sqlite3 -readonly data/pm.db ".backup …"`，
 只读打开源库、带上 WAL 里的数据。脚本拒绝使用 7777 端口、拒绝把副本放进 `data/`，也不写 `bin/pmw`、`bin/pmw-mcp`。
 
+### 闭环演练（DEV-11）
+
+`scripts/dev-loop-drill.sh`（`make dev-loop-drill ARGS="…"`）在测试实例上走一遍 `/task`：
+
+```bash
+export PMW_DEV_DIR=/path/to/drill PMW_DEV_ADDR=127.0.0.1:7795 PMW_SRC_DB=/path/to/pm-copy.db
+scripts/dev-loop-drill.sh setup          # reset 实例，建沙箱仓库（test_add 会失败）和演示任务，打印编号和下一步命令
+scripts/dev-loop-drill.sh check TSK-0123 # 逐项输出「通过 / 不通过」，全过才 0 退出
+scripts/dev-loop-drill.sh stop           # 转给 dev-instance.sh stop
+```
+
+沙箱在 `$PMW_DEV_DIR/sandbox`，每次 setup 重建，可重复跑。7796 是共用实例，对它 setup 必须带 `--yes`；
+端口不是 7796 时 `.mcp.dev.json` 对不上，脚本在 `$PMW_DEV_DIR/mcp.json` 生成一份临时配置并打印 `claude --mcp-config …` 命令。
+check 的各项：状态为 review；进展至少 3 条且含 claim 和 review；session_id 非空且一致；至少 1 条 commit 产物且 sha 在沙箱里；
+沙箱有新分支和提交；setup 之后没有对象被切到终态。
+
 ## 安全边界
 
 **这个 MCP server 能改用户的真实数据库，而 Claude Code 里任何一个会话、任何一个 subagent 都能调用它。** 接入前要清楚这意味着什么：

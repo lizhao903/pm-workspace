@@ -92,3 +92,14 @@ shot-compare:
 .PHONY: seed-bulk
 seed-bulk:
 	@/usr/bin/python3 scripts/seed-bulk.py $(ARGS)
+
+# 正式前端冒烟测试：前端要先在跑（cd frontend && npm run dev，后端为测试实例 7796）。换端口 ARGS="--front-port 7792"。
+.PHONY: smoke-frontend
+smoke-frontend:
+	@/opt/miniconda3/bin/python scripts/smoke-frontend.py $(ARGS)
+
+# 开发任务闭环演练（DEV-11）：make dev-loop-drill ARGS="setup" / ARGS="check TSK-0123"。
+# 默认对 7796，setup 会 reset 它、要带 --yes；独立实例用 PMW_DEV_DIR、PMW_DEV_ADDR、PMW_SRC_DB 指定。
+.PHONY: dev-loop-drill
+dev-loop-drill:
+	@scripts/dev-loop-drill.sh $(ARGS)
