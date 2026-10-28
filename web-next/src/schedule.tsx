@@ -1,0 +1,251 @@
+import { useState } from 'react'
+import {
+  ACTION_LABEL, FREQ_LABEL, WEEK, describeRule, emptyRule, nextRun, ruleError, whenText,
+  type Freq, type Schedule, type ScheduleAction,
+} from './scheduledata'
+import type { Priority } from './taskdata'
+import { useEnumView } from './enumdata'
+import { PageTitle } from './topbar'
+import { cls, timeAgo } from './ui'
+import { newId } from './ids'
+
+// 任务 > 定时任务：列表 + 抽屉。抽屉里配「什么时候」和「做什么」，下面是执行记录
+
+interface Named { id: string; name: string; enabled?: boolean }
+
+export const actionText = (a: ScheduleAction, sops: Named[], agents: Named[]) => (a.kind === 'task'
+  ? `建任务「${a.title || '未填标题'}」`
+  : a.kind === 'sop' ? `执行「${sops.find((s) => s.id === a.sop_id)?.name ?? '已删除的 SOP'}」`
+    : `${agents.find((x) => x.id === a.agent_id)?.name ?? '已删除的 Agent'}：${a.prompt || '未填要求'}`)
+
+export function SchedulesPage({ schedules, sops, agents, selected, onOpen, onNew, onToggle }: {
+  schedules: Schedule[]
+  sops: Named[]
+  agents: Named[]
+  selected: string | null
+  onOpen: (id: string) => void
+  onNew: () => void
+  onToggle: (id: string, on: boolean) => void
+}) {
+  const rows = [...schedules].sort((a, b) => Number(b.enabled) - Number(a.enabled) || (nextRun(a.rule)?.getTime() ?? Infinity) - (nextRun(b.rule)?.getTime() ?? Infinity))
+  return (
+    <div className="page page-fill">
+      <PageTitle parent="任务" count={schedules.length} desc="到点自动建任务、执行 SOP，或者让 Agent 去做；它建的任务来源标为「定时」"
+        actions={<button className="btn btn-primary" onClick={onNew}>新建定时任务</button>}>定时任务</PageTitle>
+      {!rows.length ? (
+        <div className="empty"><div className="empty-title">还没有定时任务</div><div className="list-sub">比如每周一 9 点建一条「整理周会议程」，或者每周五让周报助手写周报</div></div>
+      ) : (
+        <div className="task-table">
+          <div className="sched-row task-th"><span>名称</span><span>什么时候</span><span>做什么</span><span>下次执行</span><span>上次</span><span>启用</span></div>
+          {rows.map((s) => {
+            const last = s.history[0]
+            const next = s.enabled ? nextRun(s.rule) : null
+            return (
+              <div key={s.id} className={cls('sched-row', selected === s.id && 'sel', !s.enabled && 'is-off')} onClick={() => onOpen(s.id)}>
+                <span className="task-main"><span className="task-title"><span className="ellipsis">{s.name}</span></span></span>
+                <span className="run-muted ellipsis">{describeRule(s.rule)}</span>
+                <span className="sched-action"><span className={`sched-kind sk-${s.action.kind}`}>{ACTION_LABEL[s.action.kind]}</span><span className="ellipsis run-muted">{actionText(s.action, sops, agents)}</span></span>
+                <span className={cls('run-muted', s.enabled && next && 'sched-next')}>{s.enabled ? whenText(next) : '已停用'}</span>
+                <span className={cls('run-muted', last && !last.ok && 'danger-text')} title={last?.text}>{last ? `${timeAgo(last.at)}${last.ok ? '' : ' 失败'}` : '还没执行过'}</span>
+                <span onClick={(e) => e.stopPropagation()}>
+                  <label className="switch-line"><input type="checkbox" checked={s.enabled} onChange={(e) => onToggle(s.id, e.target.checked)} /><span className="switch" /></label>
+                </span>
+              </div>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
+}
+
+export function ScheduleDrawer({ schedule, sops, agents, assignees, onClose, onSave, onDelete, onRunNow }: {
+  schedule: Schedule | null
+  sops: Named[]
+  agents: Named[]
+  assignees: string[]
+  onClose: () => void
+  onSave: (s: Schedule) => void
+  onDelete: () => void
+  /** 立即执行一次，返回执行结果写进记录 */
+  onRunNow: (s: Schedule) => void
+}) {
+  const prioEnum = useEnumView('task_priority')
+  // 新建任务类动作时的默认优先级取设置里的默认值
+  const defPrio = (prioEnum.defaultKey ?? 'P2') as Priority
+  const creating = !schedule
+  const [d, setD] = useState<Schedule>(() => schedule ?? {
+    id: newId('sc'), name: '', enabled: true, rule: emptyRule(), created_at: new Date().toISOString(), history: [],
+    action: { kind: 'task', title: '', desc: '', priority: defPrio, assignee: '我', due_days: 0 },
+  })
+  const [tried, setTried] = useState(false)
+  const [confirmDel, setConfirmDel] = useState(false)
+  const r = d.rule
+  const setRule = (p: Partial<typeof r>) => setD({ ...d, rule: { ...r, ...p } })
+  const setKind = (k: ScheduleAction['kind']) => setD({
+    ...d, action: k === 'task' ? { kind: 'task', title: '', desc: '', priority: defPrio, assignee: '我', due_days: 0 }
+      : k === 'sop' ? { kind: 'sop', sop_id: sops[0]?.id ?? '' } : { kind: 'agent', agent_id: agents.find((a) => a.enabled !== false)?.id ?? '', prompt: '' },
+  })
+  const a = d.action
+  const rErr = ruleError(r)
+  const aErr = a.kind === 'task' ? (!a.title.trim() ? '任务标题必填' : '') : a.kind === 'sop' ? (!a.sop_id ? '选一个 SOP' : '') : (!a.agent_id ? '选一个 Agent' : !a.prompt.trim() ? '写一下要它做什么' : '')
+  const errors = [!d.name.trim() && '名称必填', rErr, aErr].filter(Boolean) as string[]
+  const next = nextRun(r)
+  // 列出接下来三次，帮人确认规则是不是自己想的那样
+  const upcoming = (() => {
+    const out: Date[] = []
+    let from = new Date()
+    for (let i = 0; i < 3; i += 1) { const n = nextRun(r, from); if (!n) break; out.push(n); from = new Date(n.getTime() + 60000) }
+    return out
+  })()
+  const save = () => { setTried(true); if (!errors.length) onSave({ ...d, name: d.name.trim() }) }
+
+  return (
+    <aside className="drawer">
+      <div className="drawer-head">
+        <span className="drawer-kicker">{creating ? '新建定时任务' : '定时任务'}</span>
+        <div className="spacer" />
+        <button className="icon-btn" onClick={onClose} title="关闭 (Esc)">
+          <svg viewBox="0 0 16 16" width="14" height="14"><path d="m4 4 8 8M12 4l-8 8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" /></svg>
+        </button>
+      </div>
+      <div className="drawer-body form">
+        <label className="field">
+          <span className="field-label">名称<em>*</em></span>
+          <input value={d.name} autoFocus={creating} className={cls(tried && !d.name.trim() && 'bad')} placeholder="比如：周会前整理议程" onChange={(e) => setD({ ...d, name: e.target.value })} />
+        </label>
+
+        <section className="field-group">
+          <div className="field-group-title">什么时候</div>
+          <div className="seg seg-full sched-freq">
+            {(Object.keys(FREQ_LABEL) as Freq[]).map((f) => <button key={f} className={cls(r.freq === f && 'on')} onClick={() => setRule({ freq: f })}>{FREQ_LABEL[f].replace('只执行', '')}</button>)}
+          </div>
+          {r.freq === 'weekly' && (
+            <div className="week-pick">
+              {[1, 2, 3, 4, 5, 6, 0].map((w) => (
+                <button key={w} className={cls('week-day', r.weekdays.includes(w) && 'on')} onClick={() => setRule({ weekdays: r.weekdays.includes(w) ? r.weekdays.filter((x) => x !== w) : [...r.weekdays, w] })}>{WEEK[w]}</button>
+              ))}
+            </div>
+          )}
+          <div className="field-row">
+            {r.freq === 'once' && <label className="field"><span className="field-label">日期</span><input type="date" value={r.date} onChange={(e) => setRule({ date: e.target.value })} /></label>}
+            {r.freq === 'monthly' && (
+              <label className="field"><span className="field-label">几号</span>
+                <select value={r.day} onChange={(e) => setRule({ day: Number(e.target.value) })}>
+                  {Array.from({ length: 31 }, (_, i) => i + 1).map((n) => <option key={n} value={n}>{n === 31 ? '31（小月按月底）' : n} 号</option>)}
+                </select>
+              </label>
+            )}
+            {r.freq === 'cron' ? (
+              <label className="field"><span className="field-label">Cron 表达式<span className="field-hint">分 时 日 月 周</span></span><input className="mono" value={r.cron} placeholder="0 9 * * 1" onChange={(e) => setRule({ cron: e.target.value })} /></label>
+            ) : (
+              <label className="field"><span className="field-label">时间</span><input type="time" value={r.time} onChange={(e) => setRule({ time: e.target.value })} /></label>
+            )}
+          </div>
+          {rErr ? <div className="field-err">{rErr}</div> : (
+            <div className="sched-preview">
+              <span className="list-sub">{describeRule(r)}，接下来：</span>
+              {upcoming.map((u) => <span key={u.toISOString()} className="tag">{whenText(u)}</span>)}
+              {!upcoming.length && <span className="list-sub">不会再执行</span>}
+            </div>
+          )}
+        </section>
+
+        <section className="field-group">
+          <div className="field-group-title">做什么</div>
+          <div className="seg seg-full">
+            {(Object.keys(ACTION_LABEL) as ScheduleAction['kind'][]).map((k) => <button key={k} className={cls(a.kind === k && 'on')} onClick={() => setKind(k)}>{ACTION_LABEL[k]}</button>)}
+          </div>
+          {a.kind === 'task' && (
+            <>
+              <label className="field">
+                <span className="field-label">任务标题<em>*</em><span className="field-hint">可以写 {'{{date}}'}，执行时换成当天日期</span></span>
+                <input value={a.title} className={cls(tried && !a.title.trim() && 'bad')} placeholder="比如：整理 {{date}} 周会议程" onChange={(e) => setD({ ...d, action: { ...a, title: e.target.value } })} />
+              </label>
+              <label className="field"><span className="field-label">描述</span><textarea rows={2} value={a.desc} onChange={(e) => setD({ ...d, action: { ...a, desc: e.target.value } })} /></label>
+              <div className="field-row">
+                <label className="field"><span className="field-label">优先级</span>
+                  <select value={a.priority} onChange={(e) => setD({ ...d, action: { ...a, priority: e.target.value as Priority } })}>{prioEnum.optionsWith(a.priority).map((p) => <option key={p.key} value={p.key}>{p.label}</option>)}</select>
+                </label>
+                <label className="field"><span className="field-label">负责人</span>
+                  <input list="sched-assignees" value={a.assignee} onChange={(e) => setD({ ...d, action: { ...a, assignee: e.target.value } })} />
+                  <datalist id="sched-assignees">{assignees.map((x) => <option key={x} value={x} />)}</datalist>
+                </label>
+                <label className="field"><span className="field-label">截止</span>
+                  <select value={a.due_days} onChange={(e) => setD({ ...d, action: { ...a, due_days: Number(e.target.value) } })}>
+                    {[0, 1, 2, 3, 5, 7].map((n) => <option key={n} value={n}>{n === 0 ? '当天' : `${n} 天后`}</option>)}
+                  </select>
+                </label>
+              </div>
+            </>
+          )}
+          {a.kind === 'sop' && (
+            <label className="field"><span className="field-label">执行哪个 SOP</span>
+              <select value={a.sop_id} onChange={(e) => setD({ ...d, action: { ...a, sop_id: e.target.value } })}>
+                {sops.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+              </select>
+              <span className="field-hint-line">用 SOP 输入字段的默认值执行；流程里的人工检查点照常停下等你</span>
+            </label>
+          )}
+          {a.kind === 'agent' && (
+            <>
+              <label className="field"><span className="field-label">交给哪个 Agent</span>
+                <select value={a.agent_id} onChange={(e) => setD({ ...d, action: { ...a, agent_id: e.target.value } })}>
+                  {agents.map((x) => <option key={x.id} value={x.id} disabled={x.enabled === false}>{x.name}{x.enabled === false ? '（已停用）' : ''}</option>)}
+                </select>
+              </label>
+              <label className="field"><span className="field-label">要它做什么<em>*</em></span>
+                <textarea rows={3} value={a.prompt} className={cls(tried && !a.prompt.trim() && 'bad')} placeholder="比如：汇总这周的任务，写成周报草稿" onChange={(e) => setD({ ...d, action: { ...a, prompt: e.target.value } })} />
+                <span className="field-hint-line">执行结果在「会话 / 执行记录」里，写操作按 Agent 的权限等你确认</span>
+              </label>
+            </>
+          )}
+        </section>
+
+        <label className="switch-row">
+          <span><span className="field-label">启用</span><span className="switch-hint">{d.enabled && next ? `下次：${whenText(next)}` : '停用后不会自动执行，可以手动执行'}</span></span>
+          <span className="switch-line"><input type="checkbox" checked={d.enabled} onChange={(e) => setD({ ...d, enabled: e.target.checked })} /><span className="switch" /></span>
+        </label>
+
+        {!creating && (
+          <section className="field-group">
+            <div className="field-group-title tools-head">
+              <span>执行记录<span className="field-hint">{schedule!.history.length} 次</span></span>
+              <span className="spacer" />
+              <button className="act" disabled={!!errors.length} onClick={() => onRunNow({ ...d, name: d.name.trim() })} title="按当前配置马上跑一次，不影响下次执行时间">立即执行一次</button>
+            </div>
+            {schedule!.history.length ? (
+              <ol className="sched-history">
+                {schedule!.history.map((h, i) => (
+                  <li key={i} className={cls(!h.ok && 'bad')}>
+                    <span className={cls('sched-dot', h.ok ? 'ok' : 'bad')} />
+                    <span className="sched-h-text">{h.text}{h.manual && <span className="tag">手动</span>}</span>
+                    <time>{timeAgo(h.at)}</time>
+                  </li>
+                ))}
+              </ol>
+            ) : <div className="io-empty">还没执行过</div>}
+          </section>
+        )}
+      </div>
+      <div className="drawer-foot">
+        {confirmDel ? (
+          <>
+            <span className="danger-text">删除后不再执行，已经建出来的任务保留</span>
+            <div className="spacer" />
+            <button className="btn btn-ghost" onClick={() => setConfirmDel(false)}>取消</button>
+            <button className="btn btn-danger" onClick={onDelete}>删除</button>
+          </>
+        ) : (
+          <>
+            {!creating && <button className="btn btn-ghost btn-danger-ghost" onClick={() => setConfirmDel(true)}>删除</button>}
+            <div className="spacer" />
+            {tried && errors.length > 0 && <span className="field-err">{errors[0]}</span>}
+            <button className="btn btn-ghost" onClick={onClose}>取消</button>
+            <button className="btn btn-primary" onClick={save}>{creating ? '创建' : '保存'}</button>
+          </>
+        )}
+      </div>
+    </aside>
+  )
+}
