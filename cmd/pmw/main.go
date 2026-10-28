@@ -22,6 +22,7 @@ import (
 	"github.com/lizhao903/pm-workspace/internal/audit"
 	"github.com/lizhao903/pm-workspace/internal/db"
 	"github.com/lizhao903/pm-workspace/internal/events"
+	"github.com/lizhao903/pm-workspace/internal/imident"
 	"github.com/lizhao903/pm-workspace/internal/localdir"
 	"github.com/lizhao903/pm-workspace/internal/notify"
 	"github.com/lizhao903/pm-workspace/internal/plugin"
@@ -175,6 +176,8 @@ func run(cfg config) error {
 	opts.Workspaces = workspace.New(pdb)
 	// 文档挂载的本机目录（DOC-01a，0025）
 	opts.LocalDirs = localdir.New(pdb)
+	// 联系人的 IM 身份（CT-01b，0027）
+	opts.Identities = imident.New(pdb)
 	opts.DataDir = filepath.Dir(cfg.dbPath)
 	if !cfg.dev {
 		opts.UI = webui.Handler()

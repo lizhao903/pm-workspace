@@ -1,12 +1,16 @@
 package api
 
 import (
+	"log/slog"
 	"net/http"
 	"os"
 	"regexp"
 	"sort"
 	"strings"
 	"testing"
+
+	"github.com/lizhao903/pm-workspace/internal/plugin"
+	"github.com/lizhao903/pm-workspace/internal/plugins/projects"
 )
 
 // recordingMux 收下 routes() 注册的每一条模式，不真的建路由。
@@ -19,7 +23,12 @@ func (r *recordingMux) HandleFunc(pattern string, _ func(http.ResponseWriter, *h
 func registeredRoutes(t *testing.T) []string {
 	t.Helper()
 	rec := &recordingMux{}
-	(&Server{}).routes(rec)
+	// 编译进二进制的第一方插件的路由也要写进契约，和 cmd/pmw 登记的插件保持一致
+	plugins := plugin.NewRegistry(plugin.NewMemStateStore(), slog.New(slog.DiscardHandler))
+	if err := plugins.Add(projects.New()); err != nil {
+		t.Fatal(err)
+	}
+	(&Server{opt: Options{Plugins: plugins}}).routes(rec)
 	if len(rec.patterns) == 0 {
 		t.Fatal("一条路由都没收到——routes() 的签名或实现变了，本测试已经失效")
 	}
