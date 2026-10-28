@@ -1,5 +1,5 @@
 // 项目列表和设置的纯函数：搜索、状态筛选和分组、排序、最近打开、底色、关联目录的保存口径。
-import { projectView, type ObjectStatus, type ProjectMark, type ProjectProps, type ProjectSave, type ProjectView, type RelatedDir, type WorkObject } from '../../core/data'
+import { PROJECT_ROLES, localDay, projectView, type DictItem, type ObjectStatus, type ProjectMark, type ProjectProps, type ProjectSave, type ProjectStakeholder, type ProjectView, type RelatedDir, type WorkObject } from '../../core/data'
 import { PROJECT_COLORS } from './markIcons'
 
 /** 每组先露几个，多的点「显示全部」（SPEC-projects-1.8） */
@@ -100,9 +100,9 @@ export type ProjectTab = 'overview' | 'comms' | 'stakeholders' | 'tasks' | 'docs
 export const TABS: { key: ProjectTab; label: string; todo?: string }[] = [
   { key: 'overview', label: '概览' },
   { key: 'comms', label: '沟通', todo: '绑定群聊和私聊、看项目里的消息，由 PJ-02b 实现' },
-  { key: 'stakeholders', label: '干系人', todo: '从联系人里挑人、标角色和关注点，由 PJ-01d 实现' },
-  { key: 'tasks', label: '任务', todo: '这个项目的任务，由 PJ-01d 实现' },
-  { key: 'docs', label: '文档', todo: '关联文档库或项目目录里的文件，由 PJ-01d 实现' },
+  { key: 'stakeholders', label: '干系人' },
+  { key: 'tasks', label: '任务' },
+  { key: 'docs', label: '文档' },
   { key: 'sop', label: 'SOP', todo: '关联的标准流程和最近执行，等 SOP 插件' },
   { key: 'agents', label: 'Agent', todo: '项目 Agent 和项目里的会话，等 Agent 相关任务' },
   { key: 'materials', label: '支持材料', todo: '文件、文件夹、链接、笔记，由 PJ-03b 实现' },
@@ -142,4 +142,46 @@ export function touchRecent(id: string): string[] {
 /** 测试用：清掉模块里缓存的一份 */
 export function resetRecentMemo() {
   memo = null
+}
+
+// ---- 任务标签（SPEC-projects-7）：终态看 /api/object-types 的 terminal 标记，优先级顺序看字典 ----
+
+/** 未完成：状态不是终态（已完成、已取消）；不认识的状态算未完成，和后端 not_terminal 一致 */
+export const isOpenStatus = (statuses: readonly ObjectStatus[], k: string) => !statuses.some((s) => s.key === k && s.terminal)
+
+/** 完成圆圈标完成用的状态：优先 done，没有就取第一个终态（但不取已取消） */
+export const doneStatus = (statuses: readonly ObjectStatus[]) =>
+  (statuses.find((s) => s.key === 'done') ?? statuses.find((s) => s.terminal && s.key !== 'cancelled'))?.key
+
+/** 已完成的改回去用的状态：第一个非终态 */
+export const reopenStatus = (statuses: readonly ObjectStatus[]) => statuses.find((s) => !s.terminal)?.key
+
+/** 按优先级排（字典顺序，没有优先级的排最后），同优先级的新改的在前 */
+export function sortByPriority(tasks: readonly WorkObject[], prios: readonly DictItem[]): WorkObject[] {
+  const rank = new Map(prios.map((x, i) => [x.key, i]))
+  const r = (k: string) => rank.get(k) ?? (k ? 999 : 1000)
+  return [...tasks].sort((a, b) => r(a.priority) - r(b.priority) || a.priority.localeCompare(b.priority) || b.updated_at.localeCompare(a.updated_at))
+}
+
+// ---- 干系人标签（SPEC-projects-6）：按角色顺序（STAKE_ORDER），同角色按加入顺序 ----
+
+const roleRank = (role: string) => {
+  const i = PROJECT_ROLES.findIndex((x) => x.key === role)
+  return i < 0 ? PROJECT_ROLES.length : i
+}
+
+export function sortStakeholders(rows: readonly ProjectStakeholder[]): ProjectStakeholder[] {
+  return [...rows].sort((a, b) => roleRank(a.role) - roleRank(b.role) || a.sort_order - b.sort_order || a.created_at.localeCompare(b.created_at))
+}
+
+/** 相对时间：刚刚、N 分钟前、N 小时前、N 天前，超过 30 天给日期 */
+export function ago(iso: string, now = Date.now()): string {
+  const t = new Date(iso).getTime()
+  if (Number.isNaN(t)) return '-'
+  const m = Math.floor((now - t) / 60000)
+  if (m < 1) return '刚刚'
+  if (m < 60) return `${m} 分钟前`
+  if (m < 60 * 24) return `${Math.floor(m / 60)} 小时前`
+  if (m < 60 * 24 * 30) return `${Math.floor(m / 1440)} 天前`
+  return localDay(new Date(t))
 }

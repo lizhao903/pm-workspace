@@ -45,6 +45,10 @@ export type Change =
   | { kind: 'agent-provider' }
   /** IM 身份增删改（CT-03b）；删联系人时身份跟着删，也报它 */
   | { kind: 'im-identity' }
+  /** 连接器接入、编辑（含启停、凭证）、测试、拉工具清单、改工具授权、删除（CONN-01d） */
+  | { kind: 'connector' }
+  /** 项目干系人加人、移除（PJ-01d）；改角色、关注点由数据层直接写回缓存 */
+  | { kind: 'project-stakeholder'; projectId: string }
 
 // 对象一变，所有对象列表（任务列表、今日、项目的任务标签页）、单个对象及其进展和修订、
 // 计数（侧栏红点、逾期徽标）都可能变；干系人名册上的任务数也跟着变；今日聚合（待验收、逾期、今天到期、插件卡片）也是。
@@ -114,6 +118,12 @@ export function invalidationsFor(c: Change): QueryKey[] {
     case 'im-identity':
       // 联系人列表的 IM 列由身份合出来，身份列表一刷就跟着变
       return [dataKeys.identities.all]
+    case 'connector':
+      // 只刷实例列表（设置的红点同一份）；定义在代码里登记，不随实例变
+      return [dataKeys.connectors.list]
+    case 'project-stakeholder':
+      // 只刷这个项目的（概览的干系人块同一份）
+      return [dataKeys.projectStakeholders(c.projectId)]
   }
 }
 

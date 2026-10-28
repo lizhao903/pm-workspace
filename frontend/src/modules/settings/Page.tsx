@@ -2,7 +2,9 @@ import { Navigate, useNavigate, useParams } from 'react-router'
 import { Placeholder } from '../../core/shell/Placeholder'
 import { PluginSettingsPage } from '../../core/shell/extensionHosts'
 import { useSettingsSections } from '../../core/plugin'
+import { useConnectors } from '../../core/data'
 import { InSubnavHost, Subnav, type SubnavItem } from '../../core/ui'
+import { ConnectorsSection } from './connectors/ConnectorsSection'
 import { PluginsSection } from './plugins/PluginsSection'
 import { ProvidersSection } from './providers/ProvidersSection'
 import { WorkspacesSection } from './workspaces/WorkspacesSection'
@@ -29,8 +31,10 @@ export default function Page() {
   const navigate = useNavigate()
   const active = useParams()['*'] ?? ''
   const sections = useSettingsSections()
+  // 连接器异常的数量挂在二级菜单的红点上（SPEC-settings-1.3）
+  const connErrors = (useConnectors().data ?? []).filter((c) => c.status === 'error').length
   const items: SubnavItem<string>[] = [
-    ...KERNEL,
+    ...KERNEL.map((k) => (k.key === 'connectors' && connErrors ? { ...k, alert: connErrors } : k)),
     ...sections.map((s) => ({ key: pluginKey(s.plugin, s.key), label: s.label, desc: s.desc, group: s.group ?? '插件' })),
   ]
   const kernel = KERNEL.find((k) => k.key === active)
@@ -46,6 +50,7 @@ export default function Page() {
       {plugin ? <PluginSettingsPage key={active} section={plugin} />
         : kernel!.key === 'plugins' ? <PluginsSection />
         : kernel!.key === 'providers' ? <ProvidersSection />
+        : kernel!.key === 'connectors' ? <ConnectorsSection />
         : kernel!.key === 'workspace' ? <WorkspacesSection /> : <Placeholder title={kernel!.label} />}
     </>
   )

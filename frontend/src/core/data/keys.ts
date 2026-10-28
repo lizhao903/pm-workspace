@@ -116,4 +116,10 @@ export const dataKeys = {
     deliveries: (id: string, limit: number) => ['webhooks', 'deliveries', id, { limit }] as const,
     usage: (id: string) => ['webhooks', 'usage', id] as const,
   },
+  /** 连接器（CONN-01d）：定义列表和实例列表 */
+  connectors: {
+    all: ['connectors'] as const,
+    defs: ['connectors', 'defs'] as const,
+    list: ['connectors', 'list'] as const,
+  },
 }
