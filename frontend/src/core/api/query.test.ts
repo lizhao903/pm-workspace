@@ -10,6 +10,10 @@ describe('objectListQuery', () => {
     expect(qs.get('priority')).toBe('P0,P1')
   })
 
+  it('来源多选逗号拼接', () => {
+    expect(objectListQuery({ type: ['task'], source: ['manual', 'import'] }).get('source')).toBe('manual,import')
+  })
+
   it('空数组和空串不出现', () => {
     expect(objectListQuery({ type: [], status: [''], q: '  ', owner_id: '' }).toString()).toBe('')
   })

@@ -60,6 +60,8 @@ export type RequestOptions = {
   query?: URLSearchParams
   body?: unknown
   signal?: AbortSignal
+  /** 额外的请求头（Webhook 测试推送的签名头） */
+  headers?: Record<string, string>
 }
 
 type Envelope<T> = { data?: T; meta?: Meta; error?: { code?: string; message?: string } }
@@ -73,6 +75,7 @@ export async function requestEnvelope<T>(
   // 写操作统一标成界面来源，落进 revisions.source；产物登记也按它判定 source。
   if (method !== 'GET') headers.set('X-Actor-Source', 'ui')
   if (opts.body !== undefined) headers.set('Content-Type', 'application/json')
+  for (const [k, v] of Object.entries(opts.headers ?? {})) headers.set(k, v)
 
   const qs = opts.query?.toString()
   const url = base + path + (qs ? '?' + qs : '')

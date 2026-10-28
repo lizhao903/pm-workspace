@@ -97,6 +97,15 @@ describe('请求头和请求体', () => {
     expect(new Headers(calls[1].init.headers).get('X-Actor-Source')).toBeNull()
   })
 
+  it('额外的请求头原样带上（Webhook 测试推送的签名）', async () => {
+    const calls = mockFetch(200, { data: {} })
+    await requestEnvelope('POST', '/api/hooks/t', { body: { a: 1 }, headers: { 'X-PMW-Signature': 'ab' } })
+    const h = new Headers(calls[0].init.headers)
+    expect(h.get('X-PMW-Signature')).toBe('ab')
+    expect(h.get('X-Actor-Source')).toBe('ui')
+    expect(calls[0].init.body).toBe('{"a":1}')
+  })
+
   it('PATCH 原样保留 null 和空串，丢掉 undefined', async () => {
     const calls = mockFetch(200, { data: {} })
     await objects.patch('obj_1', { category_id: null, owner_id: '', title: undefined })

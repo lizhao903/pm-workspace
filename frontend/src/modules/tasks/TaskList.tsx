@@ -10,11 +10,14 @@ import {
   ALL, MORE_STEP, OPEN, PAGE, REVIEW, dueText, isOverdue, matchStatus, priorityRank, segment, sortTasks, statusButtons,
   terminalOf, timeAgo, type DueSeg, type StatusFilter,
 } from './model'
+import { SOURCE_VIEW, isSourceKind, type SourceKind } from './sourceModel'
+import { SourceTag } from './SourceTag'
 
-export type TaskView = 'all' | 'overdue'
+/** 全部任务、逾期，加五个来源视图（SPEC-tasks-3） */
+export type TaskView = 'all' | 'overdue' | SourceKind
 
-const TITLE: Record<TaskView, string> = { all: '全部任务', overdue: '逾期任务' }
-const DESC: Record<TaskView, string> = {
+const TITLE: Record<'all' | 'overdue', string> = { all: '全部任务', overdue: '逾期任务' }
+const DESC: Record<'all' | 'overdue', string> = {
   all: '人工创建、IM 消息转来、Webhook 推来的任务都在这里，按截止日分段',
   overdue: '过了截止日还没完成的任务，最早到期的在前',
 }
@@ -23,7 +26,7 @@ const NO_PROJECT = '-'
 
 export function TaskList({
   view, tasks, loading, error, onRetry, statuses, priorities, projects,
-  status, onStatus, search, onSearch, q, selected, onOpen, onNew, onToggleDone, now: nowProp,
+  status, onStatus, search, onSearch, q, selected, onOpen, onNew, onToggleDone, now: nowProp, hookName = noHook, onGoHooks,
 }: {
   view: TaskView
   tasks: WorkObject[]
@@ -47,6 +50,10 @@ export function TaskList({
   onToggleDone?: (t: WorkObject) => void
   /** 测试里固定「今天」 */
   now?: Date
+  /** 来源标签上的 Webhook 名；undefined 是还没取到，null 是已删除 */
+  hookName?: (id: string) => string | null | undefined
+  /** Webhook 来源视图空状态里的「Webhook 接入」 */
+  onGoHooks?: () => void
 }) {
   // 「今天」取页面打开那一刻，渲染里不直接 new Date()
   const [opened] = useState(() => new Date())
@@ -101,6 +108,7 @@ export function TaskList({
         <span className="task-main">
           <span className="task-title"><span className="task-ref">{t.ref}</span><span className="ellipsis">{t.title}</span></span>
           <span className="task-meta">
+            <SourceTag task={t} hookName={hookName} />
             {t.project_id && <span className="src-tag src-proj" title={pname}>{pname ?? '已删除的项目'}</span>}
             <span>{timeAgo(t.created_at, now)}创建</span>
           </span>
@@ -132,6 +140,11 @@ export function TaskList({
         : <EmptyState title="没有处于该状态的任务" action={<Button variant="outline" onClick={() => onStatus(OPEN)}>切回「未完成」</Button>} />
     } else if (view === 'overdue') {
       body = <EmptyState title="没有逾期的任务" desc="截止日都还没到，或者已经做完了" />
+    } else if (isSourceKind(view)) {
+      // 来源视图各有各的空状态（SPEC-tasks-3.5 到 3.7）；在这里新建的是人工任务，只有人工创建给「新建任务」
+      const action = view === 'manual' ? <Button variant="outline" onClick={onNew}>新建任务</Button>
+        : view === 'webhook' && onGoHooks ? <Button variant="outline" onClick={onGoHooks}>Webhook 接入</Button> : undefined
+      body = <EmptyState title="这里还没有任务" desc={SOURCE_VIEW[view].empty} action={action} />
     } else {
       body = <EmptyState title="这里还没有任务" desc="点右上角新建一个" />
     }
@@ -157,9 +170,9 @@ export function TaskList({
   const filters: [StatusFilter, string][] = [[OPEN, '未完成'], ...head.map((s): [string, string] => [s.key, s.label]), [ALL, '全部']]
   return (
     <div className="tasks-page">
-      <PageTitle parent="任务" count={showCounts ? rows.length : undefined} desc={DESC[view]}
+      <PageTitle parent="任务" count={showCounts ? rows.length : undefined} desc={isSourceKind(view) ? SOURCE_VIEW[view].desc : DESC[view]}
         actions={<Button variant="primary" onClick={onNew}><PlusMark />新建任务</Button>}>
-        {TITLE[view]}
+        {isSourceKind(view) ? SOURCE_VIEW[view].title : TITLE[view]}
       </PageTitle>
       <div className="toolbar">
         <div className="seg" role="group" aria-label="状态">
@@ -197,6 +210,8 @@ export function TaskList({
     </div>
   )
 }
+
+const noHook = () => undefined
 
 // 待验收的点了是验收通过（SPEC-tasks-2.11、5.27）
 function checkTip(status: string, done: boolean) {

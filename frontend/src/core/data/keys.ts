@@ -73,6 +73,22 @@ export const dataKeys = {
     list: ['workspaces', 'list'] as const,
     templates: ['workspaces', 'templates'] as const,
   },
+  /** 文档页（DOC-01b）：分类树带数量，对象一变就跟着刷 */
+  categories: {
+    all: ['categories'] as const,
+    tree: (type: string) => ['categories', 'tree', type] as const,
+  },
+  tags: {
+    all: ['tags'] as const,
+    list: ['tags', 'list'] as const,
+  },
+  /** 挂载的本地目录、目录里的文件清单、读过的文件，挂载变了一起刷 */
+  localDirs: {
+    all: ['local-dirs'] as const,
+    list: ['local-dirs', 'list'] as const,
+    files: (id: string) => ['local-dirs', 'files', id] as const,
+    read: (path: string) => ['local-dirs', 'read', path] as const,
+  },
   /** 定时任务的列表在 todayKeys.schedules（今日页共用）；这里是执行记录和规则预览 */
   schedules: {
     all: ['schedules'] as const,
@@ -80,5 +96,13 @@ export const dataKeys = {
     runsOf: (id: string) => ['schedules', 'runs', id] as const,
     runs: (id: string, limit: number) => ['schedules', 'runs', id, { limit }] as const,
     preview: (rule: unknown, count: number) => ['schedules', 'preview', { rule, count }] as const,
+  },
+  /** Webhook（TASK-04b）：列表、投递记录（各种条数都在 deliveriesOf 前缀下）、删除影响 */
+  webhooks: {
+    all: ['webhooks'] as const,
+    list: ['webhooks', 'list'] as const,
+    deliveriesOf: (id: string) => ['webhooks', 'deliveries', id] as const,
+    deliveries: (id: string, limit: number) => ['webhooks', 'deliveries', id, { limit }] as const,
+    usage: (id: string) => ['webhooks', 'usage', id] as const,
   },
 }

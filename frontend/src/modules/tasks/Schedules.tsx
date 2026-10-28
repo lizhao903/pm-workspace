@@ -71,13 +71,15 @@ function NotFoundBar({ onClose }: { onClose: () => void }) {
   )
 }
 
-/** 按编号取任务再开任务抽屉；任务被彻底删掉时给一句话 */
-function TaskById({ id, statuses, priorities, projects, onClose }: {
+/** 按编号取任务再开任务抽屉；任务被彻底删掉时给一句话。Webhook 页的推送记录也用它 */
+export function TaskById({ id, statuses, priorities, projects, onClose, back = '回到定时任务' }: {
   id: string
   statuses: ObjectStatus[]
   priorities: DictItem[]
   projects: WorkObject[]
   onClose: () => void
+  /** 任务打不开时的返回按钮 */
+  back?: string
 }) {
   const q = useObject(id)
   if (q.data) {
@@ -87,7 +89,7 @@ function TaskById({ id, statuses, priorities, projects, onClose }: {
     return (
       <div className="sched-alert field-err" role="alert">
         {isApiError(q.error, 'not_found') ? '这条任务已经删掉了' : `任务没打开：${errorText(q.error)}`}
-        <Button size="sm" onClick={onClose}>回到定时任务</Button>
+        <Button size="sm" onClick={onClose}>{back}</Button>
       </div>
     )
   }
