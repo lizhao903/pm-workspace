@@ -29,6 +29,9 @@ type Options struct {
 	// 测试靠 ClaudeBin 指向一个假的 CLI，不必装真的 claude 也不联网。
 	ClaudeBin  string
 	RunTimeout time.Duration
+
+	// Vault 是凭证保险箱；为 nil 时 /api/secrets 一律回 500 并说明未配置。
+	Vault SecretVault
 }
 
 type Server struct {
@@ -205,6 +208,12 @@ func (s *Server) routes(m routeRegistrar) {
 	m.HandleFunc("POST /api/runs/{id}/cancel", s.handleCancelTaskRun)
 
 	m.HandleFunc("GET /api/revisions", s.handleRecentRevisions)
+
+	// 凭证保险箱。只回脱敏提示，明文没有任何读接口；{id}/rotate 比 {id} 多一段，不会被吃掉。
+	m.HandleFunc("GET /api/secrets", s.handleListSecrets)
+	m.HandleFunc("POST /api/secrets", s.handleCreateSecret)
+	m.HandleFunc("POST /api/secrets/{id}/rotate", s.handleRotateSecret)
+	m.HandleFunc("DELETE /api/secrets/{id}", s.handleDeleteSecret)
 
 	// 数据与备份。export 直接回文件流，不套 envelope。
 	m.HandleFunc("GET /api/admin/migrations", s.handleMigrations)
