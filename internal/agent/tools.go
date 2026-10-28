@@ -38,7 +38,7 @@ type ToolResult struct {
 	Summary  string
 	ObjectID string
 	Content  string
-	Artifact *domain.AgentArtifact
+	Artifact *domain.Artifact
 	// Question 只有 ask_user 会填。Runner 见到它就发一条 question 事件并结束本轮——
 	// 答案走用户的下一条消息，流不挂在这里等。
 	Question *Question
@@ -569,14 +569,28 @@ func (tb *Toolbox) writeFile(ctx context.Context, args map[string]any) ToolResul
 	}
 
 	size := int64(len(content))
-	art, err := tb.st.RecordAgentArtifact(ctx, &domain.AgentArtifact{
-		SessionID: tb.session.ID,
+	// 产物登记走通用的 artifacts 表：一条产物同时带上会话（出处）和对象（归属）。
+	// 只挂会话的话，用户在任务详情里看「这件事产出了什么」会是空的——
+	// 对话在对象里，产物却记在会话上，两者对不上。
+	art, err := tb.st.RecordArtifact(ctx, domain.ArtifactInput{
+		ObjectID:  tb.session.ObjectID,
+		SessionID: &tb.session.ID,
 		Path:      stored,
+		BaseDir:   tb.session.Workdir,
+		Platform:  "local",
 		Size:      size,
+		Source:    domain.ArtifactSourceAgent,
 	})
 	if err != nil {
 		// 文件已经落盘了，索引没记上不该让用户以为写失败——降级成一条没有 id 的记录。
-		art = &domain.AgentArtifact{SessionID: tb.session.ID, Path: stored, Size: size}
+		art = &domain.Artifact{
+			SessionID: &tb.session.ID,
+			Path:      filepath.Join(tb.session.Workdir, stored),
+			BaseDir:   tb.session.Workdir,
+			RelPath:   stored,
+			Size:      size,
+			Source:    domain.ArtifactSourceAgent,
+		}
 	}
 
 	return ToolResult{

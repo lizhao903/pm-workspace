@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/url"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -53,6 +54,9 @@ func registerTools(s *mcp.Server, c *client) {
 	addLinkObjects(s, c)
 	addRecentChanges(s, c)
 	addCounts(s, c)
+	addRecordArtifact(s, c)
+	addListArtifacts(s, c)
+	registerDevTools(s, c)
 }
 
 // --- pmw_search ---
@@ -163,7 +167,7 @@ type getObjectArgs struct {
 	ID string `json:"id" jsonschema:"工作对象 id，形如 obj_0abc…，从 pmw_search 的结果里取。也接受 REQ-0001 这样的 ref，会自动换算成 id"`
 }
 
-const getObjectDesc = `【只读】取单个工作对象的全文：结构化摘要（类型、状态、优先级、负责人、分类、所属项目、到期、标签、关联数、时间戳）加上完整正文。
+const getObjectDesc = `【只读】取单个工作对象的全文：结构化摘要（类型、状态、优先级、负责人、分类、所属项目、到期、标签、关联数、时间戳、工作目录、关联仓库）、验收标准、完整正文，以及最近 10 条进展。
 
 什么时候用：pmw_search 只给出一行摘要，要读需求描述、验收标准这些正文内容，或者在改动前确认当前值，就调这个。
 
@@ -192,7 +196,22 @@ func addGetObject(s *mcp.Server, c *client) {
 				return nil, nil, err
 			}
 		}
-		return textResult(objectDetail(cat, o)), nil, nil
+		out := objectDetail(cat, o)
+		// 任务自己没设工作目录时向上取所属项目的，和后端 ResolveWorkdir 同一个规则。
+		// 不补这一句的话，模型看到「没有工作目录」会去猜一个，而那个目录多半是错的。
+		if o.Workdir == "" && o.ProjectID != nil && *o.ProjectID != "" {
+			if p, perr := c.getObject(ctx, *o.ProjectID); perr == nil && p.Workdir != "" {
+				out += "\n工作目录（继承自所属项目 " + joinNonEmpty(" ", p.Ref, p.Title) + "）：" + p.Workdir + "\n"
+			}
+		}
+		// 进展是锦上添花：老版本工作台没有这个接口，取不到就不显示，不让整个工具失败。
+		if items, perr := c.listProgress(ctx, o.ID, progressInGetObj); perr == nil && len(items) > 0 {
+			out += fmt.Sprintf("\n--- 最近 %d 条进展（新→旧）---\n", len(items))
+			for _, p := range items {
+				out += progressLine(p) + "\n"
+			}
+		}
+		return textResult(out), nil, nil
 	})
 }
 
@@ -228,6 +247,9 @@ type createObjectArgs struct {
 	DueAt      string   `json:"due_at,omitempty" jsonschema:"到期时间，YYYY-MM-DD 或 RFC3339"`
 	Tags       []string `json:"tags,omitempty" jsonschema:"标签名列表，不存在的标签会自动创建"`
 	Source     string   `json:"source,omitempty" jsonschema:"来源标记，不传默认按普通新建处理；传 inbox 表示丢进收件箱待整理"`
+	Acceptance string   `json:"acceptance,omitempty" jsonschema:"验收标准，Markdown，建议写成「- [ ] ...」清单。开发任务应当写"`
+	Repo       string   `json:"repo,omitempty" jsonschema:"关联仓库：远端地址或本机绝对路径。开发任务用"`
+	Workdir    string   `json:"workdir,omitempty" jsonschema:"工作目录，本机绝对路径。不传时执行和开发会继承所属项目的工作目录"`
 }
 
 const createObjectDesc = `【会写入数据】在产品工作台里新建一个工作对象（需求、待办、项目、文档等）。
@@ -280,6 +302,17 @@ func addCreateObject(s *mcp.Server, c *client) {
 		if len(in.Tags) > 0 {
 			body["tags"] = in.Tags
 		}
+		putStr(body, "workdir", in.Workdir)
+		props := map[string]any{}
+		if v := strings.TrimSpace(in.Acceptance); v != "" {
+			props[domain.PropAcceptance] = v
+		}
+		if v := strings.TrimSpace(in.Repo); v != "" {
+			props[domain.PropRepo] = v
+		}
+		if len(props) > 0 {
+			body["props"] = props
+		}
 
 		o, err := c.createObject(ctx, body)
 		if err != nil {
@@ -305,6 +338,9 @@ type updateObjectArgs struct {
 	DueAt      *string  `json:"due_at,omitempty" jsonschema:"新到期时间，YYYY-MM-DD 或 RFC3339；传空串表示去掉到期日"`
 	Tags       []string `json:"tags,omitempty" jsonschema:"标签整体替换（不是追加）。要加标签，先 pmw_get_object 读到现有标签再传合并后的完整列表；传空数组表示清空所有标签"`
 	Archived   *bool    `json:"archived,omitempty" jsonschema:"true 归档、false 取消归档。归档不是删除，对象仍可检索到"`
+	Acceptance *string  `json:"acceptance,omitempty" jsonschema:"新的验收标准（整体替换），传空串表示清掉"`
+	Repo       *string  `json:"repo,omitempty" jsonschema:"新的关联仓库，传空串表示清掉"`
+	Workdir    *string  `json:"workdir,omitempty" jsonschema:"新的工作目录（本机绝对路径），传空串表示清掉、改为继承所属项目"`
 }
 
 const updateObjectDesc = `【会写入数据】修改一个已有的工作对象：状态、优先级、负责人、到期日、分类、标签、正文都走这个工具。
@@ -316,6 +352,7 @@ const updateObjectDesc = `【会写入数据】修改一个已有的工作对象
 - body 和 tags 都是整体替换不是追加。要在原有基础上增补，先用 pmw_get_object 读回来，拼好完整内容再传。
 - owner、category_id、project_id、due_at 传空串表示清空该字段。
 - archived=true 是归档不是删除；本工具不提供删除能力。
+- acceptance / repo 只改这两项，其它自定义属性保持不变。
 
 返回：更新后的对象摘要。`
 
@@ -355,6 +392,34 @@ func addUpdateObject(s *mcp.Server, c *client) {
 		}
 		if in.Archived != nil {
 			patch["archived"] = *in.Archived
+		}
+		if in.Workdir != nil {
+			patch["workdir"] = strings.TrimSpace(*in.Workdir)
+		}
+		if in.Acceptance != nil || in.Repo != nil {
+			// props 在后端是整体替换。这里先读回当前值，只改这两个 key，
+			// 别的自定义属性原样带回去——否则改一下验收标准就把其它属性全清了。
+			cur, err := c.resolveObject(ctx, id)
+			if err != nil {
+				return nil, nil, err
+			}
+			props := map[string]any{}
+			for k, v := range cur.Props {
+				props[k] = v
+			}
+			setProp := func(k string, v *string) {
+				if v == nil {
+					return
+				}
+				if t := strings.TrimSpace(*v); t != "" {
+					props[k] = t
+				} else {
+					delete(props, k)
+				}
+			}
+			setProp(domain.PropAcceptance, in.Acceptance)
+			setProp(domain.PropRepo, in.Repo)
+			patch["props"] = props
 		}
 		if len(patch) == 0 {
 			return nil, nil, fmt.Errorf("没有给出任何要修改的字段，至少传一个（如 status、priority、owner、due_at、tags、body）")
@@ -736,4 +801,231 @@ func clamp(v, def, min, max int) int {
 		return max
 	}
 	return v
+}
+
+// --- pmw_record_artifact ---
+
+type recordArtifactArgs struct {
+	Title    string `json:"title,omitempty" jsonschema:"产物标题，比如「角色权限矩阵 v2」。留空时用文件名或链接兜底；commit / branch / pr 留空时自动生成"`
+	URL      string `json:"url,omitempty" jsonschema:"云端链接。发到 Confluence / Jira / 飞书 / 云盘之后把那个页面地址填这里"`
+	Path     string `json:"path,omitempty" jsonschema:"本地文件的绝对路径。url 和 path 至少要给一个，两个都给表示同一份东西既在本地也发出去了"`
+	ObjectID string `json:"object_id,omitempty" jsonschema:"这件产物属于哪个工作对象，传 id 或 ref（如 REQ-0012）。不传就是未归属"`
+	Platform string `json:"platform,omitempty" jsonschema:"平台名，如 Confluence / Jira / 飞书 / Google Drive / Slack / Figma / GitHub。不传会按链接自动落到「其他」"`
+	Note     string `json:"note,omitempty" jsonschema:"备注，比如「v2，已评审」"`
+	Kind     string `json:"kind,omitempty" jsonschema:"产物种类：file（默认，文档和文件）、commit、branch、pr。代码交付用后三种"`
+	SHA      string `json:"sha,omitempty" jsonschema:"提交的 sha（短 sha 也行），kind 为 commit 时必填"`
+	Branch   string `json:"branch,omitempty" jsonschema:"分支名。kind 为 branch 时必填；commit / pr 时可选，写明在哪个分支上"`
+	Repo     string `json:"repo,omitempty" jsonschema:"仓库在本机的绝对路径（一般就是任务的工作目录）。commit / branch 没有远端链接时必填，用作这条产物的本地位置"`
+}
+
+// 代码类产物的种类。0012 的 artifacts 表没有 kind 列，不为它加迁移：
+// 种类写进 note 开头的标记（[commit] / [branch] / [pr]），前端按这个前缀识别。
+// 位置照旧用 url / path——有远端链接就是 url，没有就把仓库目录当 path。
+var artifactKinds = map[string]bool{"file": true, "commit": true, "branch": true, "pr": true}
+
+const recordArtifactDesc = `【会写入数据】把一件已经产出的交付物登记进工作台的产物清单：本地写出来的文档、发到 Confluence 的页面、建好的 Jira 单、传到云盘的文件，以及代码交付——提交（commit）、分支（branch）、合并请求（pr）。
+
+什么时候用：**每次你把东西发到工作台之外的地方，发完就调一次。**写完一份 PRD 发了 Confluence、建完一批 Jira 单、把原型传到云盘——这些产出散落在各个平台，工作台是唯一能把它们汇总起来的地方。不登记的话，用户在工作台里看到的产物清单就是残缺的，而残缺的清单和完整的清单长得一模一样。
+
+要点：
+- url 和 path 至少给一个。同一份东西既在本地也发出去了，就两个都给，登记成**一条**（拆成两条会让产物总数翻倍）。
+- object_id 尽量给，这样它会出现在那个需求/任务的详情页里。传 ref（REQ-0012）就行，不用先查 id。
+- 同一个文件发到两个平台，登记两条，各带各的链接。
+- 代码交付：kind=commit 带 sha，kind=branch 带 branch，kind=pr 带 url。有远端链接（GitHub 上的 commit / 分支 / PR 页）就填 url；只在本地的提交填 repo（仓库绝对路径）。一次开发任务通常登记：每个关键 commit 一条、工作分支一条、PR 一条。
+
+不要用它记：过程中间产物（草稿、临时文件）、你只是读过没有产出的东西。
+
+返回：登记后的产物摘要。`
+
+func addRecordArtifact(s *mcp.Server, c *client) {
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "pmw_record_artifact",
+		Description: recordArtifactDesc,
+		Annotations: writes("登记产物", false),
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, in recordArtifactArgs) (*mcp.CallToolResult, any, error) {
+		url, path := strings.TrimSpace(in.URL), strings.TrimSpace(in.Path)
+		kind := strings.ToLower(strings.TrimSpace(in.Kind))
+		if kind == "" {
+			kind = "file"
+		}
+		if !artifactKinds[kind] {
+			return nil, nil, fmt.Errorf("kind 只能是 file、commit、branch、pr，收到的是 %q", in.Kind)
+		}
+		title, note := strings.TrimSpace(in.Title), strings.TrimSpace(in.Note)
+		if kind != "file" {
+			var err error
+			title, note, path, err = codeArtifact(kind, in, title, note, url, path)
+			if err != nil {
+				return nil, nil, err
+			}
+		}
+		if url == "" && path == "" {
+			return nil, nil, fmt.Errorf("url 和 path 至少要给一个——两个都空的产物记录指不到任何东西")
+		}
+
+		// 不在请求体里填 source：后端按 X-Actor-Source 头判定（client.go 发的是
+		// agent，对应产物来源 mcp）。请求体里的 source 会被无条件覆盖，
+		// 填了只会让人以为这里能控制它。
+		body := map[string]any{}
+		putStr(body, "title", title)
+		putStr(body, "url", url)
+		putStr(body, "path", path)
+		putStr(body, "note", note)
+		if p := c.resolvePlatform(ctx, in.Platform); p != "" {
+			body["platform"] = p
+		}
+		if oid := strings.TrimSpace(in.ObjectID); oid != "" {
+			// 模型手上是 REQ-0012 这种人读编号，先换成内部 id。
+			// 换不出来时原样传下去，让后端的外键去报错——在这里静默丢掉
+			// object_id 的话，产物会登记成「未归属」，而调用方以为挂上了。
+			if o, ok := c.resolveRef(ctx, oid); ok {
+				oid = o.ID
+			}
+			body["object_id"] = oid
+		}
+
+		a, err := c.createArtifact(ctx, body)
+		if err != nil {
+			return nil, nil, err
+		}
+		return textResult("已登记产物：" + artifactLine(a)), nil, nil
+	})
+}
+
+// codeArtifact 补齐代码类产物的标题、备注标记和本地位置。
+func codeArtifact(kind string, in recordArtifactArgs, title, note, url, path string) (string, string, string, error) {
+	sha, branch, repo := strings.TrimSpace(in.SHA), strings.TrimSpace(in.Branch), strings.TrimSpace(in.Repo)
+	switch kind {
+	case "commit":
+		if sha == "" {
+			return "", "", "", fmt.Errorf("kind=commit 时 sha 必填")
+		}
+	case "branch":
+		if branch == "" {
+			return "", "", "", fmt.Errorf("kind=branch 时 branch 必填")
+		}
+	case "pr":
+		if url == "" {
+			return "", "", "", fmt.Errorf("kind=pr 时 url 必填，填 PR 页面地址")
+		}
+	}
+	if path == "" && url == "" {
+		if repo == "" {
+			return "", "", "", fmt.Errorf("kind=%s 没有远端链接时 repo 必填，填仓库在本机的绝对路径", kind)
+		}
+		path = repo
+	}
+	if title == "" {
+		switch kind {
+		case "commit":
+			title = "commit " + shortSHA(sha)
+		case "branch":
+			title = "branch " + branch
+		case "pr":
+			title = "PR " + url
+		}
+	}
+	// 标记放在 note 最前面，格式固定为「[kind] key=value ...」，后面才是自由备注。
+	// 前端和统计都按这个前缀认种类，别在这里换格式。
+	tag := "[" + kind + "]"
+	if sha != "" {
+		tag += " sha=" + sha
+	}
+	if branch != "" {
+		tag += " branch=" + branch
+	}
+	if repo != "" {
+		tag += " repo=" + repo
+	}
+	note = strings.TrimSpace(tag + " " + note)
+	return title, note, path, nil
+}
+
+func shortSHA(s string) string {
+	if len(s) > 10 {
+		return s[:10]
+	}
+	return s
+}
+
+// --- pmw_list_artifacts ---
+
+type listArtifactsArgs struct {
+	ObjectID string `json:"object_id,omitempty" jsonschema:"只看某个工作对象的产物，传 id 或 ref"`
+	Platform string `json:"platform,omitempty" jsonschema:"只看某个平台的，如 Confluence / 飞书 / 本地文件"`
+	Q        string `json:"q,omitempty" jsonschema:"关键词，同时匹配标题、路径、链接和备注"`
+	Limit    int    `json:"limit,omitempty" jsonschema:"返回条数，1-500，默认 50"`
+}
+
+const listArtifactsDesc = `【只读】列出工作台记下的输出产物：本地文件和发到各个平台的东西都在这里。
+
+什么时候用：
+- 查重——要写某份文档之前，先看这件事之前是不是已经产出过，别做第二遍。
+- 找链接——「上次那份需求发哪儿了」，这里有地址。
+- 交付盘点——某个需求/项目一共产出了什么，传 object_id。
+
+返回：每行「标题  平台  链接或路径  (归属对象)」。`
+
+func addListArtifacts(s *mcp.Server, c *client) {
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "pmw_list_artifacts",
+		Description: listArtifactsDesc,
+		Annotations: readOnly("查看产物清单"),
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, in listArtifactsArgs) (*mcp.CallToolResult, any, error) {
+		q := url.Values{"limit": {strconv.Itoa(clamp(in.Limit, 50, 1, 500))}}
+		if oid := strings.TrimSpace(in.ObjectID); oid != "" {
+			if o, ok := c.resolveRef(ctx, oid); ok {
+				oid = o.ID
+			}
+			q.Set("object_id", oid)
+		}
+		if p := c.resolvePlatform(ctx, in.Platform); p != "" {
+			q.Set("platform", p)
+		}
+		setStr(q, "q", in.Q)
+
+		items, m, err := c.listArtifacts(ctx, q)
+		if err != nil {
+			return nil, nil, err
+		}
+		if len(items) == 0 {
+			return textResult("没有匹配的产物。"), nil, nil
+		}
+		var b strings.Builder
+		fmt.Fprintf(&b, "共 %d 件产物", m.Total)
+		if m.Total > len(items) {
+			fmt.Fprintf(&b, "，以下是前 %d 件", len(items))
+		}
+		b.WriteString("：\n")
+		for _, a := range items {
+			b.WriteString(artifactLine(a) + "\n")
+		}
+		return textResult(b.String()), nil, nil
+	})
+}
+
+// artifactLine 是产物在 MCP 输出里的一行。
+//
+// 链接放在最后而不是中间：模型要复述给用户的往往就是这个地址，
+// 夹在一行中间的长 URL 会被后面的字段挤断行。
+func artifactLine(a *domain.Artifact) string {
+	parts := []string{a.Title}
+	if a.Platform != "" {
+		parts = append(parts, "["+a.Platform+"]")
+	}
+	if a.ObjectRef != "" {
+		parts = append(parts, "("+a.ObjectRef+" "+a.ObjectTitle+")")
+	}
+	if a.Note != "" {
+		parts = append(parts, a.Note)
+	}
+	// 本地和云端都有时两个都列：这一行的用处就是让人能直接点过去或打开，
+	// 只给其中一个等于替用户决定他现在想去哪边。
+	if a.Path != "" {
+		parts = append(parts, a.Path)
+	}
+	if a.URL != "" {
+		parts = append(parts, a.URL)
+	}
+	return "  " + strings.Join(parts, "  ")
 }

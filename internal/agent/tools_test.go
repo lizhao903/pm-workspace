@@ -203,15 +203,21 @@ func TestWriteFileWritesAndRecordsArtifact(t *testing.T) {
 		t.Errorf("内容不对: %q", got)
 	}
 
-	// 库里存相对路径，换目录时才搬得动。
-	if res.Artifact.Path != filepath.Join("docs", "角色权限矩阵.md") {
-		t.Errorf("产物路径 = %q，期望相对路径", res.Artifact.Path)
+	// 0012 之后 Path 存绝对路径、BaseDir 存基准目录，相对路径由两者现算。
+	// 两个都要断言：只验 RelPath 的话，BaseDir 漏填时 RelPath 会退回成绝对路径，
+	// 断言还是绿的（因为它比的是拼出来的那个值），而库里躺着一条没有基准的记录。
+	wantRel := filepath.Join("docs", "角色权限矩阵.md")
+	if res.Artifact.RelPath != wantRel {
+		t.Errorf("相对路径 = %q，期望 %q", res.Artifact.RelPath, wantRel)
 	}
-	if filepath.IsAbs(res.Artifact.Path) {
-		t.Error("产物路径不能是绝对路径")
+	if !filepath.IsAbs(res.Artifact.Path) {
+		t.Errorf("产物 Path 应是绝对路径，得到 %q", res.Artifact.Path)
+	}
+	if res.Artifact.BaseDir == "" {
+		t.Error("产物 BaseDir 不能为空，否则相对路径无从解释")
 	}
 
-	arts, err := st.ListAgentArtifacts(ctx, tb.session.ID)
+	arts, _, err := st.ListArtifacts(ctx, domain.ArtifactFilter{SessionID: tb.session.ID})
 	if err != nil || len(arts) != 1 {
 		t.Fatalf("列产物: %v (%d 条)", err, len(arts))
 	}
@@ -228,7 +234,7 @@ func TestWriteFileNormalizesPath(t *testing.T) {
 	call(t, tb, ctx, "write_file", map[string]any{"path": "./报告.md", "content": "v2"})
 	call(t, tb, ctx, "write_file", map[string]any{"path": "tmp/../报告.md", "content": "v3"})
 
-	arts, err := st.ListAgentArtifacts(ctx, tb.session.ID)
+	arts, _, err := st.ListArtifacts(ctx, domain.ArtifactFilter{SessionID: tb.session.ID})
 	if err != nil {
 		t.Fatalf("列产物: %v", err)
 	}
@@ -278,7 +284,7 @@ func TestWriteFileRejectsEscapes(t *testing.T) {
 	}
 
 	// 一条产物都不该被记下。
-	arts, err := st.ListAgentArtifacts(ctx, tb.session.ID)
+	arts, _, err := st.ListArtifacts(ctx, domain.ArtifactFilter{SessionID: tb.session.ID})
 	if err != nil {
 		t.Fatalf("列产物: %v", err)
 	}

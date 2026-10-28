@@ -36,8 +36,8 @@ func TestMigrationSeedsBuiltinDictionaries(t *testing.T) {
 	if err != nil {
 		t.Fatalf("list dictionaries: %v", err)
 	}
-	if len(dicts) != 2 {
-		t.Fatalf("want 2 builtin dictionaries, got %d", len(dicts))
+	if len(dicts) != 3 {
+		t.Fatalf("want 3 builtin dictionaries, got %d", len(dicts))
 	}
 
 	byID := map[string]*domain.Dictionary{}
@@ -79,6 +79,59 @@ func TestMigrationSeedsBuiltinDictionaries(t *testing.T) {
 	// meta.inverse 供详情页在对端对象上显示反向关系名。
 	if blocks.Meta["inverse"] != "被阻塞于" {
 		t.Errorf("blocks meta = %+v, want inverse=被阻塞于", blocks.Meta)
+	}
+
+	plat, ok := byID[domain.DictArtifactPlatform]
+	if !ok {
+		t.Fatal("artifact_platform dictionary missing")
+	}
+	if !plat.Builtin || plat.Scope != domain.ScopeGlobal {
+		t.Errorf("artifact_platform: builtin=%v scope=%q, want true/global", plat.Builtin, plat.Scope)
+	}
+	// local 必须在，而且必须排第一：sqlite 那边 normalizeArtifact 在没给平台、
+	// 也没有链接时会落到 "local"。种子里没有它的话，产物会指向一个不存在的
+	// 字典项——界面上显示成一个没有名字的灰块，而且不会报错。
+	if local := findDictItem(plat.Items, "local"); local == nil {
+		t.Error("artifact_platform 缺少 local，本地产物会落到一个不存在的字典项上")
+	}
+	if other := findDictItem(plat.Items, "other"); other == nil {
+		t.Error("artifact_platform 缺少 other，没指定平台的云端产物会落空")
+	}
+
+	// meta.hosts 是界面粘链接时自动选平台的依据。它写坏了不会报错，
+	// 只会让自动识别安静地永远不命中——所以这里逐条解出来看结构对不对。
+	for _, it := range plat.Items {
+		raw, ok := it.Meta["hosts"]
+		if !ok {
+			t.Errorf("平台 %s 缺 meta.hosts", it.Key)
+			continue
+		}
+		hosts, ok := raw.([]any)
+		if !ok {
+			t.Errorf("平台 %s 的 meta.hosts = %T，期望数组", it.Key, raw)
+			continue
+		}
+		for _, h := range hosts {
+			if sv, ok := h.(string); !ok || strings.TrimSpace(sv) == "" {
+				t.Errorf("平台 %s 的 hosts 里有空项或非字符串: %#v", it.Key, h)
+			}
+		}
+	}
+	// confluence 的特征串要真能匹配上一个 Confluence 链接。
+	// 只验「是个数组」的话，写成 [""] 也能过，而那会匹配任何链接。
+	conf := findDictItem(plat.Items, "confluence")
+	if conf == nil {
+		t.Fatal("artifact_platform 缺少 confluence")
+	}
+	sample := "https://mycorp.atlassian.net/wiki/spaces/PM/pages/123/方案"
+	hit := false
+	for _, h := range conf.Meta["hosts"].([]any) {
+		if strings.Contains(sample, h.(string)) {
+			hit = true
+		}
+	}
+	if !hit {
+		t.Errorf("confluence 的 hosts %v 匹配不上一个真实的 Confluence 链接", conf.Meta["hosts"])
 	}
 }
 

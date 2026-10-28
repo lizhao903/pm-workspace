@@ -583,3 +583,104 @@ func TestFreshRunningRunIsNotReaped(t *testing.T) {
 		t.Fatalf("刚起的执行不该被当成残留收掉：%+v", stored)
 	}
 }
+
+// TestRunRegistersChangedFilesAsArtifacts 验的是整条链，不是其中一段。
+//
+// 链有四节：执行前拍快照 → claude 真的写盘 → 差集算出改动 → 登记进 artifacts。
+// 只断言 SSE 里出现了 artifact 事件，证明不了第四节；只查库，证明不了流上有没有回显。
+// 所以两边都查，而且先去磁盘上确认文件真的在——事件和库记录都可能在文件没写成时
+// 照样产生，那样验的就只是我们自己的簿记。
+func TestRunRegistersChangedFilesAsArtifacts(t *testing.T) {
+	// 假 claude 写两个文件：一个在根下，一个在子目录里；
+	// 再往 node_modules 写一个，它必须被挡掉。
+	s, f, obj, wd := runFixture(t, `
+mkdir -p docs node_modules
+echo '# 方案' > docs/方案.md
+echo 'v1' > 记录.txt
+echo 'noise' > node_modules/x.js
+echo '{"type":"result","subtype":"success","is_error":false}'
+`)
+
+	w := do(s, http.MethodPost, "/api/objects/"+obj.ID+"/run", `{"allow_writes":true}`)
+	if w.Code != http.StatusOK {
+		t.Fatalf("状态码 = %d (body=%s)", w.Code, w.Body.String())
+	}
+
+	// 第一节 + 第二节：文件真的落盘了。
+	for _, rel := range []string{"docs/方案.md", "记录.txt"} {
+		if _, err := os.Stat(filepath.Join(wd, rel)); err != nil {
+			t.Fatalf("文件没写成 %s: %v", rel, err)
+		}
+	}
+
+	// 第三节：流上回显了，而且顺序对——artifact 必须在 done 之前。
+	// 反了的话前端收到 done 就去刷产物列表，刷出来是空的。
+	evs := runEvents(t, w)
+	var artPaths []string
+	doneAt, lastArtAt := -1, -1
+	for i, ev := range evs {
+		switch ev["type"] {
+		case "artifact":
+			artPaths = append(artPaths, ev["path"].(string))
+			lastArtAt = i
+		case "done":
+			doneAt = i
+		}
+	}
+	if len(artPaths) != 2 {
+		t.Fatalf("期望 2 条 artifact 事件（node_modules 那个要被挡掉），得到 %d 条: %v", len(artPaths), artPaths)
+	}
+	if doneAt < 0 || lastArtAt > doneAt {
+		t.Errorf("artifact 事件必须在 done 之前，artifact@%d done@%d", lastArtAt, doneAt)
+	}
+
+	// 第四节：真的进库了，而且归属、来源、出处都对。
+	// 这一节最容易漏——前三节全对而登记失败时，流上一切正常，
+	// 用户要等到打开产物页才发现是空的。
+	items, _, err := f.ListArtifacts(t.Context(), domain.ArtifactFilter{ObjectID: obj.ID})
+	if err != nil {
+		t.Fatalf("列产物: %v", err)
+	}
+	if len(items) != 2 {
+		t.Fatalf("库里期望 2 条产物，得到 %d 条", len(items))
+	}
+	for _, a := range items {
+		if a.Source != domain.ArtifactSourceRun {
+			t.Errorf("%s 的来源 = %q，期望 run", a.Title, a.Source)
+		}
+		if a.RunID == nil || *a.RunID == "" {
+			t.Errorf("%s 没记下是哪次执行产出的", a.Title)
+		}
+		if a.BaseDir != wd {
+			t.Errorf("%s 的基准目录 = %q，期望 %q", a.Title, a.BaseDir, wd)
+		}
+		if !strings.HasPrefix(a.Path, wd) {
+			t.Errorf("%s 的路径不是绝对路径: %q", a.Title, a.Path)
+		}
+		if strings.Contains(a.Path, "node_modules") {
+			t.Errorf("node_modules 里的文件被登记了: %q", a.Path)
+		}
+	}
+}
+
+// TestRunWithoutChangesRegistersNothing 守空跑：只读跑一遍不该凭空造出产物。
+func TestRunWithoutChangesRegistersNothing(t *testing.T) {
+	s, f, obj, _ := runFixture(t, `
+echo '{"type":"assistant","message":{"content":[{"type":"text","text":"我先看看"}]}}'
+echo '{"type":"result","subtype":"success","is_error":false}'
+`)
+
+	w := do(s, http.MethodPost, "/api/objects/"+obj.ID+"/run", `{}`)
+	if w.Code != http.StatusOK {
+		t.Fatalf("状态码 = %d", w.Code)
+	}
+	for _, ev := range runEvents(t, w) {
+		if ev["type"] == "artifact" {
+			t.Errorf("没改动任何文件，不该有 artifact 事件: %v", ev)
+		}
+	}
+	items, _, _ := f.ListArtifacts(t.Context(), domain.ArtifactFilter{ObjectID: obj.ID})
+	if len(items) != 0 {
+		t.Errorf("没改动任何文件，不该登记产物，得到 %d 条", len(items))
+	}
+}

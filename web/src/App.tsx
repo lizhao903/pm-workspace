@@ -11,6 +11,7 @@ import AgentDock from './components/AgentDock'
 import ObjectListView from './views/ObjectListView'
 import ShortcutsPage, { runShortcut, useShortcuts } from './views/ShortcutsPage'
 import SettingsPage from './views/SettingsPage'
+import ArtifactsPage from './views/ArtifactsPage'
 import { useWorkspace, type FocusKind, type ViewDescriptor } from './hooks/workspace'
 import type { ViewMode } from './lib/types'
 
@@ -241,7 +242,9 @@ export default function App() {
             </div>
           )}
           {isPage
-            ? (nav.page === 'settings' ? <SettingsPage /> : <ShortcutsPage lastScope={lastScope.current} />)
+            ? (nav.page === 'settings' ? <SettingsPage />
+              : nav.page === 'artifacts' ? <ArtifactsPage />
+              : <ShortcutsPage lastScope={lastScope.current} />)
             : <ObjectListView />}
           {/* 贴主区底部的 Agent 对话框：独立页面下同样可用，展开时主区内容相应收缩 */}
           <AgentDock />

@@ -73,6 +73,10 @@ const (
 	EventToolResult = "tool_result"
 	EventDone       = "done"
 	EventError      = "error"
+	// EventArtifact 在执行收尾时发，每登记一件产物一条。
+	// 不等用户下次打开产物页才告诉他：这次执行到底产出了什么，
+	// 是他盯着这条流最想知道的事。
+	EventArtifact = "artifact"
 )
 
 // Event 是推给前端的一条流事件，字段契约见 web/src/lib/types.ts 的 TaskRunEvent。
@@ -99,6 +103,13 @@ type Event struct {
 	ExitCode int    // done
 	// Message 在 error 上是失败原因，在 tool_result 上是这次工具调用的错误文本。
 	Message string
+
+	// 以下仅 artifact 事件使用。Path 是相对 workdir 的路径（界面上显示它），
+	// ArtifactID 给前端做跳转。
+	ArtifactID string
+	Path       string
+	Size       int64
+	IsNew      bool
 }
 
 func (e Event) MarshalJSON() ([]byte, error) {
@@ -116,6 +127,9 @@ func (e Event) MarshalJSON() ([]byte, error) {
 		return jsonObject("type", EventDone, "run_id", e.RunID, "exit_code", e.ExitCode)
 	case EventError:
 		return jsonObject("type", EventError, "message", e.Message)
+	case EventArtifact:
+		return jsonObject("type", EventArtifact, "artifact_id", e.ArtifactID,
+			"path", e.Path, "size", e.Size, "is_new", e.IsNew)
 	}
 	return nil, fmt.Errorf("unknown run event type %q", e.Type)
 }

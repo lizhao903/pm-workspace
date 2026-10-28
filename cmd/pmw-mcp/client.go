@@ -27,6 +27,13 @@ type client struct {
 	base string
 	hc   *http.Client
 
+	// actor / session 随每个请求带上（X-Actor-Name / X-Actor-Session），
+	// 后端把它们记进变更记录和进展，任务页才能按会话分组看「这次会话改了什么」。
+	actor   string
+	session string
+	// agentOwner 是领任务时写进负责人的干系人名字，默认「Claude Code」。
+	agentOwner string
+
 	// 类型目录用于把 status key 渲染成人话（进行中(doing)）。它变动极少，
 	// 缓存一小段时间，省掉每次列表渲染都多打一次 HTTP。
 	mu     sync.Mutex
@@ -37,9 +44,10 @@ type client struct {
 
 func newClient(base string) *client {
 	return &client{
-		base:   strings.TrimRight(strings.TrimSpace(base), "/"),
-		hc:     &http.Client{Timeout: 20 * time.Second},
-		catTTL: 30 * time.Second,
+		base:       strings.TrimRight(strings.TrimSpace(base), "/"),
+		hc:         &http.Client{Timeout: 20 * time.Second},
+		catTTL:     30 * time.Second,
+		agentOwner: defaultAgentOwner,
 	}
 }
 
@@ -103,6 +111,12 @@ func (c *client) do(ctx context.Context, method, path string, query url.Values, 
 	}
 	// 让变更历史能区分出「这条是 Agent 改的」。白名单见 internal/api/params.go。
 	req.Header.Set("X-Actor-Source", "agent")
+	if c.actor != "" {
+		req.Header.Set("X-Actor-Name", c.actor)
+	}
+	if c.session != "" {
+		req.Header.Set("X-Actor-Session", c.session)
+	}
 
 	resp, err := c.hc.Do(req)
 	if err != nil {
@@ -238,6 +252,51 @@ func (c *client) resolveStakeholder(ctx context.Context, name string) (string, e
 		name, strings.Join(names, "、"))
 }
 
+func (c *client) createArtifact(ctx context.Context, body map[string]any) (*domain.Artifact, error) {
+	var a domain.Artifact
+	if _, err := c.do(ctx, http.MethodPost, "/api/artifacts", nil, body, &a); err != nil {
+		return nil, err
+	}
+	return &a, nil
+}
+
+func (c *client) listArtifacts(ctx context.Context, q url.Values) ([]*domain.Artifact, *meta, error) {
+	var items []*domain.Artifact
+	m, err := c.do(ctx, http.MethodGet, "/api/artifacts", q, nil, &items)
+	return items, m, err
+}
+
+// resolvePlatform 把平台名换成字典 key，和 resolveStakeholder 同一个道理：
+// 调用方是模型，它手上有「Confluence」不是「confluence」。
+//
+// 这里比人名宽松——大小写不敏感，label 和 key 都认。因为猜错平台的后果只是
+// 分组归错，而猜错人名的后果是任务派给了别人。宽松程度要跟错的代价对齐，
+// 两处用同一套严格度的话，总有一处是错的。
+//
+// 完全认不出时返回 "other" 而不是报错：产物链接本身是有价值的，
+// 为了一个分组标签把整条登记拒掉，只会让调用方干脆不登记。
+func (c *client) resolvePlatform(ctx context.Context, name string) string {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return ""
+	}
+	dicts, err := c.listDictionaries(ctx)
+	if err != nil {
+		return "other"
+	}
+	for _, d := range dicts {
+		if d.ID != domain.DictArtifactPlatform {
+			continue
+		}
+		for _, it := range d.Items {
+			if strings.EqualFold(it.Key, name) || strings.EqualFold(it.Label, name) {
+				return it.Key
+			}
+		}
+	}
+	return "other"
+}
+
 func (c *client) listDictionaries(ctx context.Context) ([]*domain.Dictionary, error) {
 	var items []*domain.Dictionary
 	q := url.Values{"with_items": {"true"}}
@@ -280,4 +339,83 @@ func (c *client) objectRevisions(ctx context.Context, objectID string, limit int
 	var items []*domain.Revision
 	_, err := c.do(ctx, http.MethodGet, path, q, nil, &items)
 	return items, err
+}
+
+// --- 开发任务闭环 ---
+
+func (c *client) claimObject(ctx context.Context, id string, body map[string]any) (*domain.ClaimResult, error) {
+	var out domain.ClaimResult
+	path := "/api/objects/" + url.PathEscape(id) + "/claim"
+	if _, err := c.do(ctx, http.MethodPost, path, nil, body, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+func (c *client) appendProgress(ctx context.Context, id string, in domain.ProgressInput) (*domain.Progress, error) {
+	var out domain.Progress
+	path := "/api/objects/" + url.PathEscape(id) + "/progress"
+	if _, err := c.do(ctx, http.MethodPost, path, nil, in, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+func (c *client) listProgress(ctx context.Context, id string, limit int) ([]*domain.Progress, error) {
+	var items []*domain.Progress
+	q := url.Values{"limit": {fmt.Sprint(limit)}}
+	path := "/api/objects/" + url.PathEscape(id) + "/progress"
+	_, err := c.do(ctx, http.MethodGet, path, q, nil, &items)
+	return items, err
+}
+
+func (c *client) listRuns(ctx context.Context, objectID string, limit int) ([]*domain.TaskRun, error) {
+	var items []*domain.TaskRun
+	q := url.Values{"limit": {fmt.Sprint(limit)}}
+	path := "/api/objects/" + url.PathEscape(objectID) + "/runs"
+	_, err := c.do(ctx, http.MethodGet, path, q, nil, &items)
+	return items, err
+}
+
+func (c *client) getRun(ctx context.Context, id string) (*domain.TaskRun, error) {
+	var out domain.TaskRun
+	if _, err := c.do(ctx, http.MethodGet, "/api/runs/"+url.PathEscape(id), nil, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+func (c *client) createStakeholder(ctx context.Context, body map[string]any) (*domain.Stakeholder, error) {
+	var out domain.Stakeholder
+	if _, err := c.do(ctx, http.MethodPost, "/api/stakeholders", nil, body, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// agentOwnerID 取「Claude Code」这个干系人的 id，名册里没有就建一个。
+//
+// 这里和 resolveStakeholder 的「查不到就报错」相反，是有意的：那边的名字来自模型，
+// 查不到多半是打错了，自动建会凭空多出一个错名字的人；这边的名字是本进程的配置，
+// 不会打错，而它不存在只说明这是第一次有 Agent 来领任务。报错的话，第一次领任务
+// 必然失败，用户得先去设置页手工建一个人——这一步没有任何判断可做。
+func (c *client) agentOwnerID(ctx context.Context) (string, bool, error) {
+	people, err := c.listStakeholders(ctx)
+	if err != nil {
+		return "", false, err
+	}
+	for _, p := range people {
+		if p.Name == c.agentOwner {
+			return p.ID, false, nil
+		}
+	}
+	sh, err := c.createStakeholder(ctx, map[string]any{
+		"name": c.agentOwner,
+		"role": "AI Agent",
+		"note": "由 pmw-mcp 在第一次领任务时自动创建，代表通过 MCP 干活的 Claude Code",
+	})
+	if err != nil {
+		return "", false, err
+	}
+	return sh.ID, true, nil
 }

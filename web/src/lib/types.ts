@@ -383,13 +383,110 @@ export interface AgentMessage {
   created_at: string
 }
 
-export interface AgentArtifact {
+/**
+ * Artifact 是一件输出产物：这项工作实际产出的、能被打开的东西。
+ *
+ * 取代了原来的 AgentArtifact（只记内置 Agent 写的本地文件）。改成一等对象是因为
+ * 「这件事一共产出了什么」的答案分散在四处：内置 Agent 写盘、Claude Code 执行时写盘、
+ * 用户手工登记、别的 Agent 通过 MCP 回写。只统计其中一个来源，得到的数字不会报错、
+ * 不会为空，只是偏小——而偏小的数字看起来和正确的一模一样。
+ */
+export interface Artifact {
   id: string
-  session_id: string
-  /** 相对 workdir 的路径 */
+  /** 可空：底部对话框产生的产物没有归属；工作对象被硬删后产物也会落到未归属 */
+  object_id: string | null
+  session_id: string | null
+  run_id: string | null
+  title: string
+  /** 绝对路径。和 url **可以同时有值**：先在本地写出方案、再发到 Confluence，
+   *  那是同一份交付物的两个位置，拆成两条会让产物总数翻倍。两者至少有一个非空。 */
   path: string
+  /** path 的基准目录，可空 */
+  base_dir: string
+  url: string
+  /** 字典 artifact_platform 的 key */
+  platform: string
+  /** 字节数。仅本地文件有意义，云端产物恒为 0——不代表「空文件」 */
   size: number
+  source: ArtifactSource
+  note: string
   created_at: string
+  updated_at: string
+
+  /** 后端现算的派生字段，**不接受写入**。base_dir 为空或文件已不在其下时等于 path */
+  rel_path: string
+  object_ref?: string
+  object_title?: string
+}
+
+export type ArtifactSource = 'manual' | 'agent' | 'run' | 'mcp'
+
+/** 各来源的显示名。用 Record 而不是普通对象：漏掉一个 source 时 tsc 会红，
+ *  而漏掉的后果是统计页上出现一个没有名字的分组。 */
+export const ARTIFACT_SOURCE_LABELS: Record<ArtifactSource, string> = {
+  manual: '手工登记',
+  agent: 'AI 助手',
+  run: '任务执行',
+  mcp: '外部工具',
+}
+
+/** POST /api/artifacts 的请求体。source 由后端强制为 manual，这里不给。 */
+export interface ArtifactInput {
+  object_id?: string | null
+  title?: string
+  path?: string
+  base_dir?: string
+  url?: string
+  platform?: string
+  note?: string
+}
+
+/**
+ * PATCH 的 object_id 是三态：字段不出现 = 不改，null = 解除归属，有值 = 改挂过去。
+ * 用 '' 表达清空是不行的——它会被当成一个不存在的对象 id。
+ * 所以这里是 `string | null | undefined`，而 undefined 必须真的不出现在 JSON 里
+ * （见 api.ts 的 updateArtifact）。
+ */
+export interface ArtifactPatch {
+  object_id?: string | null
+  title?: string
+  path?: string
+  base_dir?: string
+  url?: string
+  platform?: string
+  note?: string
+}
+
+export interface ArtifactFilter {
+  object_id?: string
+  session_id?: string
+  run_id?: string
+  platform?: string
+  source?: ArtifactSource
+  /** 三态：不传 = 不过滤，false = 「还没发出去的本地文件」。
+   *  用 `has_url?: boolean` 而不是 `has_url: boolean` 才能表达「不过滤」。 */
+  has_url?: boolean
+  has_path?: boolean
+  q?: string
+  /** 只看没有归属对象的。与 object_id 同时给后端报 400 */
+  unscoped?: boolean
+  limit?: number
+  offset?: number
+}
+
+export interface ArtifactStats {
+  total: number
+  /**
+   * local + remote 可能大于 total：一份既在本地又发了云端的产物两边都算。
+   * 它回答的是「有多少落在本地」和「有多少已经发出去了」，不是一次互斥划分。
+   */
+  local: number
+  remote: number
+  unscoped: number
+  by_platform: Record<string, number>
+  by_source: Record<string, number>
+  /** 只累加有本地路径的那些，云端产物的 size 恒为 0 */
+  total_size: number
 }
 
 export interface WorkdirCheck {
@@ -482,6 +579,9 @@ export type TaskRunEvent =
   | { type: 'tool_result'; id: string; name: string; ok: boolean; error: string }
   | { type: 'done'; run_id: string; exit_code: number }
   | { type: 'error'; message: string }
+  /** 收尾时扫工作目录扫出来的产出，每登记一件一条，**在 done 之前发**。
+   *  path 是相对 workdir 的路径。 */
+  | { type: 'artifact'; artifact_id: string; path: string; size: number; is_new: boolean }
 
 /** POST /api/objects/{id}/run 的请求体 */
 export interface TaskRunRequest {

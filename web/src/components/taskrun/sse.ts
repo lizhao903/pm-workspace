@@ -11,6 +11,7 @@ export type TaskRunStreamEvent = TaskRunEvent
 // 但 Record 少一个 key 是编译错误。以后契约加事件、这里忘了跟，构建当场红。
 const KNOWN_MAP: Record<TaskRunEvent['type'], true> = {
   start: true, delta: true, tool: true, tool_result: true, done: true, error: true,
+  artifact: true,
 }
 const KNOWN = new Set(Object.keys(KNOWN_MAP))
 

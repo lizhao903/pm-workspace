@@ -74,7 +74,8 @@ func TestFakeStoreAgentMessageLimitSemantics(t *testing.T) {
 	if err != nil || len(got) != 0 {
 		t.Fatalf("不存在的会话应回空列表, got %v err=%v", contents(got), err)
 	}
-	arts, err := f.ListAgentArtifacts(ctx, "ses_nope")
+	// 产物已统一到 artifacts 表，按会话过滤同样是「不存在就空列表」而不是报错。
+	arts, _, err := f.ListArtifacts(ctx, domain.ArtifactFilter{SessionID: "ses_nope"})
 	if err != nil || len(arts) != 0 {
 		t.Fatalf("不存在的会话产物应回空列表, got %d err=%v", len(arts), err)
 	}
