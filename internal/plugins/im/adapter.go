@@ -3,6 +3,8 @@ package im
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"net/http"
 	"regexp"
 	"sync"
@@ -38,6 +40,23 @@ type Receiver interface {
 	Receive(r *http.Request) ([]Incoming, error)
 }
 
+// Replier 是可选接口：能往渠道里回消息（IM-02a）。没实现的适配器回复时回 409 unsupported。
+// 返回渠道里新消息的编号；出错时插件把原因记在消息上，不重试。
+type Replier interface {
+	Adapter
+	Reply(ctx context.Context, out Outgoing) (externalID string, err error)
+}
+
+// Outgoing 是一条回复，编号都是渠道里的。
+type Outgoing struct {
+	ConnectorID      string `json:"connector_id"`
+	ConversationID   string `json:"conversation_id"` // 渠道里的会话编号；私聊没有编号时为空，按 RecipientID 发
+	ConversationKind string `json:"conversation_kind"`
+	RecipientID      string `json:"recipient_id"` // 原消息的发送人
+	ReplyTo          string `json:"reply_to"`     // 原消息的编号，渠道支持串回复时用
+	Text             string `json:"text"`
+}
+
 // Handles 是可选接口：「我」在这个渠道里的称呼，正文里 @ 到它算 @我。
 // 没实现的适配器只认 @所有人和私聊；称呼从连接器账号取归 IM-03。
 type Handles interface {
@@ -67,9 +86,11 @@ type Fake struct {
 	every        time.Duration
 	self         []string
 
-	mu    sync.Mutex
-	queue []Incoming
-	pulls int
+	mu      sync.Mutex
+	queue   []Incoming
+	pulls   int
+	sent    []Outgoing
+	failMsg string
 }
 
 // NewFake 建一个假适配器；every 是拉取间隔，self 是「我」的称呼。
@@ -119,4 +140,29 @@ func (f *Fake) Receive(r *http.Request) ([]Incoming, error) {
 		return nil, err
 	}
 	return body.Messages, nil
+}
+
+// Reply 记下回复；FailReplies 设了原因时照原因失败。
+func (f *Fake) Reply(_ context.Context, out Outgoing) (string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.failMsg != "" {
+		return "", errors.New(f.failMsg)
+	}
+	f.sent = append(f.sent, out)
+	return fmt.Sprintf("%s:reply%d", out.ConversationID, len(f.sent)), nil
+}
+
+// FailReplies 让之后的回复按 reason 失败，传空串恢复。测试用。
+func (f *Fake) FailReplies(reason string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.failMsg = reason
+}
+
+// Sent 是发出去的回复，测试用。
+func (f *Fake) Sent() []Outgoing {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]Outgoing(nil), f.sent...)
 }

@@ -53,6 +53,8 @@ type Registrar interface {
 	TodayCard(c TodayCardDef)
 	// Connector 登记一个连接器定义，Tool 必须在清单 provides.connectors 里（2.5，CONN-02）。
 	Connector(d ConnectorDef)
+	// ConnectorImpact 登记一项删除连接器前的影响检查，Key 本插件内唯一（CONN-03，impact.go）。
+	ConnectorImpact(d ConnectorImpactDef)
 }
 
 // RouteRegistrar 和 internal/api 里的同名接口一致，*http.ServeMux 天然满足。
@@ -83,6 +85,10 @@ type Core interface {
 	Conversations() ConversationReader
 	// Identities 只读查 IM 身份（IM-01a，identities.go）。
 	Identities() IdentityReader
+	// ObjectWriter 建内核对象，只能建、来源记为本插件（IM-02a，objects_write.go）。
+	ObjectWriter() ObjectWriter
+	// Connectors 只读查连接器实例（IM-02a，connectors_read.go）。
+	Connectors() ConnectorReader
 }
 
 // Publisher 往事件总线上发事件。payload 按 JSON 序列化；总线没接上时什么都不做。

@@ -59,6 +59,14 @@ func (p *Plugin) Register(r plugin.Registrar) error {
 		m.HandleFunc("GET /api/im/messages", in.list)
 		m.HandleFunc("GET /api/im/adapters", in.listAdapters)
 		m.HandleFunc("POST /api/im/callbacks/{adapter}", in.callback)
+		// 处理动作（IM-02a，actions.go）
+		m.HandleFunc("GET /api/im/messages/{id}", in.getOne)
+		for _, k := range []string{"done", "ignore", "reopen", "read"} {
+			m.HandleFunc("POST /api/im/messages/{id}/"+k, in.setState(k))
+		}
+		m.HandleFunc("POST /api/im/messages/{id}/snooze", in.snooze)
+		m.HandleFunc("POST /api/im/messages/{id}/reply", in.reply)
+		m.HandleFunc("POST /api/im/messages/{id}/task", in.toTask)
 	})
 	for _, a := range p.adapters {
 		if pl, ok := a.(Puller); ok {
@@ -69,5 +77,7 @@ func (p *Plugin) Register(r plugin.Registrar) error {
 			r.Job(plugin.Job{Name: "pull_" + a.Key(), Every: every, Run: in.pullJob(pl)})
 		}
 	}
+	r.Job(plugin.Job{Name: "snooze_wake", Every: snoozeEvery, Run: in.wakeJob})
+	r.ConnectorImpact(plugin.ConnectorImpactDef{Key: "messages", Load: messagesImpact})
 	return nil
 }

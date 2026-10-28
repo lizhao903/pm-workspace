@@ -49,11 +49,18 @@ type Message struct {
 	SnoozeUntil            *string         `json:"snooze_until"`
 	At                     string          `json:"at"`
 	ReceivedAt             string          `json:"received_at"`
+	// 以下 IM-02a：adapter 是收这条消息的适配器 key；task_id、task_ref 是转成的任务，任务删了（含软删）为 null 和空串；
+	// replies 按时间正序，含发送失败的；reply_error 是最近一次发送失败的原因，发成功后清空
+	Adapter    string  `json:"adapter"`
+	TaskID     *string `json:"task_id"`
+	TaskRef    string  `json:"task_ref"`
+	Replies    []Reply `json:"replies"`
+	ReplyError string  `json:"reply_error"`
 }
 
 const messageCols = `id, channel, connector_id, external_id, conversation_id, conversation_external_id, conversation_kind,
 	conversation_name, sender_identity_id, sender_external_id, sender_name, text, attachments, relevance, status,
-	is_read, snooze_until, sent_at, received_at`
+	is_read, snooze_until, sent_at, received_at, adapter, task_id, task_ref, reply_error`
 
 func (in *inbox) list(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
@@ -92,6 +99,16 @@ func (in *inbox) list(w http.ResponseWriter, r *http.Request) {
 		where = append(where, "relevance = 'me'")
 	default:
 		fail(w, r, in.c, apiErr(errValidation, "mine must be any or at"))
+		return
+	}
+	switch q.Get("snoozed") {
+	case "":
+	case "true", "1":
+		where, args = append(where, "status = 'pending' AND snooze_until > ?"), append(args, in.clock().UTC().Format(timeLayout))
+	case "false", "0":
+		where, args = append(where, "(snooze_until IS NULL OR snooze_until <= ?)"), append(args, in.clock().UTC().Format(timeLayout))
+	default:
+		fail(w, r, in.c, apiErr(errValidation, "snoozed must be true or false"))
 		return
 	}
 	switch q.Get("unread") {
@@ -157,7 +174,7 @@ func (in *inbox) query(ctx context.Context, sql string, args ...any) ([]Message,
 		var read int
 		if err := rows.Scan(&m.ID, &m.Channel, &m.ConnectorID, &m.ExternalID, &m.ConversationID, &m.ConversationExternalID,
 			&m.ConversationKind, &convName, &m.IdentityID, &m.SenderID, &m.SenderName, &m.Text, &attachments, &m.Relevance,
-			&m.Status, &read, &m.SnoozeUntil, &m.At, &m.ReceivedAt); err != nil {
+			&m.Status, &read, &m.SnoozeUntil, &m.At, &m.ReceivedAt, &m.Adapter, &m.TaskID, &m.TaskRef, &m.ReplyError); err != nil {
 			_ = rows.Close()
 			return nil, err
 		}
@@ -174,6 +191,9 @@ func (in *inbox) query(ctx context.Context, sql string, args ...any) ([]Message,
 		if err := rs.fill(ctx, &out[i]); err != nil {
 			return nil, err
 		}
+	}
+	if err := in.fillActions(ctx, out); err != nil {
+		return nil, err
 	}
 	return out, nil
 }
@@ -308,6 +328,7 @@ func (in *inbox) callback(w http.ResponseWriter, r *http.Request) {
 var (
 	errValidation = errors.New("validation")
 	errNotFound   = errors.New("not_found")
+	errConflict   = errors.New("conflict")
 )
 
 func apiErr(kind error, format string, args ...any) error {
@@ -330,8 +351,15 @@ func decode(r *http.Request, v any, max int64) error {
 
 // fail 按内核的错误信封写回：{"error":{"code","message"}}。
 func fail(w http.ResponseWriter, r *http.Request, c plugin.Core, err error) {
+	var ae *actionError
+	if errors.As(err, &ae) {
+		writeJSON(w, ae.status, map[string]any{"error": ae.body()})
+		return
+	}
 	status, code, msg := http.StatusInternalServerError, "internal", err.Error()
 	switch {
+	case errors.Is(err, errConflict):
+		status, code = http.StatusConflict, "conflict"
 	case errors.Is(err, errNotFound):
 		status, code = http.StatusNotFound, "not_found"
 	case errors.Is(err, errValidation):
