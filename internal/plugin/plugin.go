@@ -13,7 +13,7 @@ import (
 )
 
 // 后端插件接口（CORE-04a），见 docs/plugin-api.md 2.0、2.1、2.10。
-// 这一版只有路由、后台任务、事件订阅三个扩展点；设置分节、对象类型、连接器等随各自的任务加，
+// 这一版有路由、后台任务、事件订阅、今日卡片四个扩展点；设置分节、对象类型、连接器等随各自的任务加，
 // 加的时候升插件 API 的小版本。
 
 // Plugin 是第一方插件的后端入口，编译进二进制，用 Registry.Add 登记。
@@ -49,6 +49,8 @@ type Registrar interface {
 	Routes(fn func(m RouteRegistrar))
 	Job(j Job)
 	Subscribe(eventType string, h EventHandler)
+	// TodayCard 登记一张今日卡片，Key 必须在清单 provides.today_cards 里（2.8）。
+	TodayCard(c TodayCardDef)
 }
 
 // RouteRegistrar 和 internal/api 里的同名接口一致，*http.ServeMux 天然满足。
