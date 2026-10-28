@@ -7,6 +7,7 @@ import {
 } from './agentdata'
 import type { Contact, Message } from './data'
 import { useEnumView } from './enumdata'
+import { defaultSettings, kbStore, settingsOf, useKbStore } from './kbdata'
 import type { Task } from './taskdata'
 import { isOpenTask } from './taskdata'
 import { cls, timeAgo } from './ui'
@@ -186,7 +187,10 @@ export function AgentsPage({ agents, runs, models, onOpen, onNew, onToggle }: {
         <MiniSearch value={q} onChange={setQ} placeholder="搜 Agent 名称和说明" />
         {q.trim() && <span className="list-sub">命中 {rows.length} 个</span>}
       </div>
-      {!rows.length && <div className="empty"><div className="empty-title">没有匹配的 Agent</div><div className="list-sub">换个关键词试试</div></div>}
+      {/* 一个都没有和搜不到分开说 */}
+      {!rows.length && (agents.length
+        ? <div className="empty"><div className="empty-title">没有匹配的 Agent</div><div className="list-sub">换个关键词试试</div></div>
+        : <div className="empty"><div className="empty-title">还没有 Agent</div><div className="list-sub">点右上角「新建 Agent」</div></div>)}
       {/* 等确认的操作标在对应 Agent 的卡片上，点进去默认打开运行记录 */}
       <div className="agent-grid">
         {rows.map((a) => {
@@ -194,7 +198,8 @@ export function AgentsPage({ agents, runs, models, onOpen, onNew, onToggle }: {
           const on = ABILITIES.filter((x) => a.abilities[x.key] && a.abilities[x.key] !== 'off')
           const wait = mine.filter((r) => r.status === 'waiting').length
           return (
-            <div key={a.id} className={cls('agent-card', !a.enabled && 'off')} onClick={() => onOpen(a.id)}>
+            <div key={a.id} role="button" tabIndex={0} className={cls('agent-card', !a.enabled && 'off')} onClick={() => onOpen(a.id)}
+              onKeyDown={(e) => e.key === 'Enter' && e.target === e.currentTarget && onOpen(a.id)}>
               <div className="agent-card-head">
                 <AgentAvatar agent={a} size={38} />
                 <div className="agent-card-title">
@@ -476,7 +481,7 @@ const lastTab = new Map<string, EditorTab>()
 
 export interface MountableConn { id: string; name: string; kind: string; ok: boolean; tools: ConnToolChoice[] }
 
-export function AgentEditor({ agent, creating, ctx, folders, models, conns, kbs, skills, onBack, onSave, onDelete, onExecute, onCreateKb, onGoConnectors, delPlan }: {
+export function AgentEditor({ agent, creating, ctx, models, conns, kbs, skills, guard, onBack, onSave, onDelete, onExecute, onCreateKb, onGoConnectors, delPlan }: {
   models: ModelChoice[]
   /** 可挂载的 MCP / 连接器（已经获取过工具清单的） */
   conns: MountableConn[]
@@ -485,7 +490,8 @@ export function AgentEditor({ agent, creating, ctx, folders, models, conns, kbs,
   agent: Agent
   creating: boolean
   ctx: Ctx
-  folders: string[]
+  /** 离开配置页前问一声：App 切二级菜单时调它，有未保存的改动就先确认，返回 false 表示先别走 */
+  guard?: { current: ((leave: () => void) => boolean) | null }
   onBack: () => void
   onSave: (a: Agent) => void
   onDelete: () => void
@@ -505,11 +511,23 @@ export function AgentEditor({ agent, creating, ctx, folders, models, conns, kbs,
   const [modelQ, setModelQ] = useState('')
   // 调试面板叠在编辑区下面时（1100px 以下）默认收起，编辑区留够高度；宽屏它在右栏，收起不生效
   const [debugFolded, setDebugFolded] = useState(() => typeof window !== 'undefined' && window.matchMedia?.('(max-width: 1100px)').matches)
-  const [newKb, setNewKb] = useState<{ name: string; sources: string[] } | null>(null)
+  const [newKb, setNewKb] = useState<{ name: string; sources: string[]; dir: string } | null>(null)
   // 新建时停在基本信息；已有的回到上次看的标签
   const [tab, setTab] = useState<EditorTab>(() => (creating ? 'basic' : lastTab.get(agent.id) ?? 'basic'))
   const go = (t: EditorTab) => { lastTab.set(d.id, t); setTab(t) }
   const dirty = creating || JSON.stringify(d) !== JSON.stringify(agent)
+  // 离开时比的是真改过没有：新建跟打开时比（App 每次渲染都会给一个新的空 Agent），已有的跟它现在的值比
+  const [blank] = useState(agent)
+  const changed = JSON.stringify(d) !== JSON.stringify(creating ? blank : agent)
+  const [askLeave, setAskLeave] = useState<(() => void) | null>(null)
+  const changedRef = useRef(changed)
+  changedRef.current = changed
+  const leave = (next: () => void) => { if (changedRef.current) { setConfirmDel(false); setAskLeave(() => next) } else next() }
+  useEffect(() => {
+    if (!guard) return
+    guard.current = (next) => { if (!changedRef.current) return true; setConfirmDel(false); setAskLeave(() => next); return false }
+    return () => { guard.current = null }
+  }, [guard])
   const groups = [...new Set(ABILITIES.map((a) => a.group))]
   const setMode = (k: string, m: AbilityMode) => setD({ ...d, abilities: { ...d.abilities, [k]: m } })
   const toggle = (key: 'skills' | 'mcps' | 'kbs', id: string) => setD({ ...d, [key]: d[key].includes(id) ? d[key].filter((x) => x !== id) : [...d[key], id] })
@@ -547,11 +565,21 @@ export function AgentEditor({ agent, creating, ctx, folders, models, conns, kbs,
     triggers: d.triggers.some((t) => t.kind !== 'manual' && !t.detail.trim()) ? '有触发方式没填条件' : undefined,
   }
   const catEnum = useEnumView('content_category')
-  const sourceLabel = (k: string) => (k.startsWith('dir:') ? `本地目录 · ${k.slice(4)}` : catEnum.label(k))
+  // 篇数和本地目录都从 kbdata 算，和知识库列表一个口径
+  const kbData = useKbStore()
+  const kbLine = (k: KnowledgeBase) => {
+    const dirs = settingsOf(k.id).dirs.length
+    const src = [...k.sources.map((s) => catEnum.label(s)), ...(dirs ? [`本地目录 ${dirs} 个`] : [])]
+    return `${src.length ? src.join('、') : '没选来源'} · ${kbData.docs.filter((x) => x.kb_id === k.id).length} 篇`
+  }
+  const newDir = newKb?.dir.trim().replace(/\/+$/, '') ?? ''
+  const newDirErr = newDir && !newDir.startsWith('/') ? '填绝对路径，以 / 开头' : ''
   const createKb = () => {
-    if (!newKb?.name.trim() || !newKb.sources.length) return
-    const kb: KnowledgeBase = { id: newId('kb'), name: newKb.name.trim(), desc: '', sources: newKb.sources, docs: 0, updated_at: new Date().toISOString() }
+    if (!newKb?.name.trim() || newDirErr || (!newKb.sources.length && !newDir)) return
+    const kb: KnowledgeBase = { id: newId('kb'), name: newKb.name.trim(), desc: '', sources: newKb.sources, updated_at: new Date().toISOString() }
     onCreateKb(kb)
+    // 本地目录和知识库详情「设置」里挂的是同一份
+    if (newDir) kbStore.setSettings({ ...defaultSettings(kb.id), dirs: [{ path: newDir, auto_sync: true, synced_at: new Date().toISOString() }] })
     setD({ ...d, kbs: [...d.kbs, kb.id] })
     setNewKb(null)
   }
@@ -566,7 +594,7 @@ export function AgentEditor({ agent, creating, ctx, folders, models, conns, kbs,
       <PageTitle parent="Agent" desc={d.desc}>{creating ? '新建 Agent' : d.name || '未命名'}</PageTitle>
       <div className="agent-main">
         <div className="editor-head">
-          <button className="btn btn-ghost" onClick={onBack}>
+          <button className="btn btn-ghost" onClick={() => leave(onBack)}>
             <svg viewBox="0 0 16 16" width="13" height="13"><path d="M10 3 5 8l5 5" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" /></svg>
             Agent
           </button>
@@ -768,26 +796,28 @@ export function AgentEditor({ agent, creating, ctx, folders, models, conns, kbs,
               <div className="mount-head">
                 <div className="field-group-title">知识库<span className="field-hint">回答和写作时会先在这些资料里找依据</span></div>
                 <span className="spacer" />
-                <button className="act act-quiet" onClick={() => setNewKb(newKb ? null : { name: '', sources: [] })}>新建知识库</button>
+                <button className="act act-quiet" onClick={() => setNewKb(newKb ? null : { name: '', sources: [], dir: '' })}>新建知识库</button>
                 <MountPicker label="挂载知识库" items={kbs.filter((k) => !d.kbs.includes(k.id))} empty="知识库都挂上了"
                   text={(k) => `${k.name} ${k.desc}`}
                   onPick={(id) => toggle('kbs', id)}
-                  render={(k) => <span className="mount-text"><b>{k.name}</b><span className="list-sub">{k.sources.map(sourceLabel).join('、')} · {k.docs} 篇</span></span>} />
+                  render={(k) => <span className="mount-text"><b>{k.name}</b><span className="list-sub">{kbLine(k)}</span></span>} />
               </div>
               {newKb && (
                 <div className="kb-new">
                   <input value={newKb.name} placeholder="知识库名称，比如：竞品资料" onChange={(e) => setNewKb({ ...newKb, name: e.target.value })} />
                   <div className="dep-list">
-                    {[...catEnum.optionsWith().map((c) => c.key), ...folders.map((f) => `dir:${f}`)].map((k) => (
+                    {catEnum.optionsWith().map((c) => c.key).map((k) => (
                       <label key={k} className={cls('dep-chip', newKb.sources.includes(k) && 'on')}>
-                        <input type="checkbox" checked={newKb.sources.includes(k)} onChange={() => setNewKb({ ...newKb, sources: newKb.sources.includes(k) ? newKb.sources.filter((y) => y !== k) : [...newKb.sources, k] })} />{sourceLabel(k)}
+                        <input type="checkbox" checked={newKb.sources.includes(k)} onChange={() => setNewKb({ ...newKb, sources: newKb.sources.includes(k) ? newKb.sources.filter((y) => y !== k) : [...newKb.sources, k] })} />{catEnum.label(k)}
                       </label>
                     ))}
                   </div>
+                  <input className={cls('mono', newDirErr && 'bad')} value={newKb.dir} placeholder="本地目录（可选），比如 /Volumes/docs/客户/远川科技" onChange={(e) => setNewKb({ ...newKb, dir: e.target.value })} />
+                  {newDirErr && <span className="field-err">{newDirErr}</span>}
                   <div className="act-row">
-                    <button className="act act-primary" disabled={!newKb.name.trim() || !newKb.sources.length} onClick={createKb}>建好并挂上</button>
+                    <button className="act act-primary" disabled={!newKb.name.trim() || !!newDirErr || (!newKb.sources.length && !newDir)} onClick={createKb}>建好并挂上</button>
                     <button className="act act-quiet" onClick={() => setNewKb(null)}>取消</button>
-                    {!folders.length && <span className="list-sub">在「文档」里选了本地目录后，本地目录也能当来源</span>}
+                    <span className="list-sub">选文档分类或填本地目录，至少一样；以后在知识库详情的「设置」里还能加目录</span>
                   </div>
                 </div>
               )}
@@ -798,7 +828,7 @@ export function AgentEditor({ agent, creating, ctx, folders, models, conns, kbs,
                       <span className="mount-icon kb-icon"><svg viewBox="0 0 16 16" width="13" height="13"><path d="M3 3.5h4.5v9H3zM8.5 3.5H13v9H8.5" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" /></svg></span>
                       <span className="mount-text">
                         <b>{k.name}</b>
-                        <span className="list-sub">{k.sources.map(sourceLabel).join('、')} · {k.docs} 篇 · {timeAgo(k.updated_at)}更新</span>
+                        <span className="list-sub">{kbLine(k)} · {timeAgo(k.updated_at)}更新</span>
                       </span>
                       {x(() => toggle('kbs', k.id), '卸下')}
                     </div>
@@ -830,6 +860,13 @@ export function AgentEditor({ agent, creating, ctx, folders, models, conns, kbs,
           )}
         </div>
         <div className="ae-foot">
+          {askLeave ? (
+            <>
+              <span className="ae-foot-note"><span className="warn-text">有未保存的修改，离开后会丢掉</span></span>
+              <button className="btn btn-ghost" onClick={() => setAskLeave(null)}>继续编辑</button>
+              <button className="btn btn-danger" onClick={() => { const next = askLeave; setAskLeave(null); next() }}>放弃修改</button>
+            </>
+          ) : (<>
           {/* 确认删除时这里让给删除提示 */}
           <span className="ae-foot-note">
             {!confirmDel && Object.values(issues).some(Boolean) && <span className="danger-text">{Object.values(issues).filter(Boolean).join('；')}</span>}
@@ -843,6 +880,7 @@ export function AgentEditor({ agent, creating, ctx, folders, models, conns, kbs,
             </>
           ) : <button className="btn btn-ghost btn-danger-ghost" onClick={() => setConfirmDel(true)}>删除</button>)}
           <button className="btn btn-primary" disabled={!dirty} onClick={save}>{creating ? '创建' : saved ? '已保存' : dirty ? '保存' : '已保存'}</button>
+          </>)}
         </div>
       </div>
       <DebugChat agent={d} ctx={ctx} onExecute={onExecute} folded={debugFolded} onFold={setDebugFolded} />

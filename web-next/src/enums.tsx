@@ -5,6 +5,9 @@ import { cls } from './ui'
 
 // 枚举值管理：左边枚举列表（按模块分组），右边是选中枚举的值。改动先攒在草稿里，保存才生效
 
+/** Key 规则（KEY_RE）的说明，新建枚举和加值共用 */
+const KEY_HINT = '只能用字母、数字、中文、下划线和中划线，32 字以内'
+
 /** 值超过这么多个时才出搜索框，已停用的沉底并默认收起 */
 const MANY = 12
 
@@ -36,6 +39,13 @@ export function EnumsPage({ groups, usage, onSave, onMigrate, onDeleteGroup }: {
   const [active, setActive] = useState(groups[0]?.key ?? '')
   const [q, setQ] = useState('')
   const [creating, setCreating] = useState(false)
+  /** 右边有没保存的改动；切走前先确认 */
+  const [dirty, setDirty] = useState(false)
+  const [leaveTo, setLeaveTo] = useState<{ key: string; creating: boolean } | null>(null)
+  const pick = (key: string, toCreate: boolean) => {
+    if (dirty && !creating && (toCreate || key !== active)) { setLeaveTo({ key, creating: toCreate }); return }
+    setActive(key); setCreating(toCreate); setLeaveTo(null)
+  }
   const current = groups.find((g) => g.key === active)
   const kw = q.trim().toLowerCase()
   const shown = groups.filter((g) => !kw || [g.name, g.key, g.desc, ...g.items.map((i) => i.label)].some((v) => v.toLowerCase().includes(kw)))
@@ -46,7 +56,7 @@ export function EnumsPage({ groups, usage, onSave, onMigrate, onDeleteGroup }: {
         <div className="enum-list-head">
           <PageTitle parent="设置" count={groups.length}>枚举值</PageTitle>
           <span className="list-sub">按模块分组</span>
-          <button className="act" onClick={() => setCreating(true)}>新建枚举</button>
+          <button className="act" onClick={() => pick(active, true)}>新建枚举</button>
         </div>
         <div className="search search-full search-sm">
           <svg viewBox="0 0 16 16" width="13" height="13"><circle cx="7" cy="7" r="4.5" fill="none" stroke="currentColor" strokeWidth="1.5" /><path d="M10.5 10.5 14 14" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" /></svg>
@@ -57,7 +67,7 @@ export function EnumsPage({ groups, usage, onSave, onMigrate, onDeleteGroup }: {
             <div key={m}>
               <div className="subnav-group">{m}</div>
               {shown.filter((g) => g.module === m).map((g) => (
-                <button key={g.key} className={cls('enum-g', g.key === active && !creating && 'on')} onClick={() => { setActive(g.key); setCreating(false) }}>
+                <button key={g.key} className={cls('enum-g', g.key === active && !creating && 'on')} onClick={() => pick(g.key, false)}>
                   <span className="ellipsis">{g.name}</span>
                   <span className="enum-g-dots">{g.items.filter((i) => i.enabled).slice(0, 5).map((i) => <i key={i.key} style={{ background: i.color }} />)}</span>
                   <span className="tree-count">{g.items.length}</span>
@@ -71,7 +81,9 @@ export function EnumsPage({ groups, usage, onSave, onMigrate, onDeleteGroup }: {
       {creating ? (
         <NewGroup taken={groups.map((g) => g.key)} onCancel={() => setCreating(false)} onCreate={(g) => { onSave(g); setActive(g.key); setCreating(false) }} />
       ) : current ? (
-        <GroupEditor key={current.key} group={current} usage={usage} onSave={onSave} onMigrate={onMigrate}
+        <GroupEditor key={current.key} group={current} usage={usage} onSave={onSave} onMigrate={onMigrate} onDirty={setDirty}
+          leaving={!!leaveTo} onStay={() => setLeaveTo(null)}
+          onLeave={() => { if (leaveTo) { setDirty(false); setActive(leaveTo.key); setCreating(leaveTo.creating); setLeaveTo(null) } }}
           onDelete={() => { onDeleteGroup(current.key); setActive(groups.find((g) => g.key !== current.key)?.key ?? '') }} />
       ) : <div className="lib-reader-empty">选一个枚举</div>}
     </div>
@@ -83,7 +95,7 @@ function NewGroup({ taken, onCancel, onCreate }: { taken: string[]; onCancel: ()
   const [key, setKey] = useState('')
   const [desc, setDesc] = useState('')
   const [tried, setTried] = useState(false)
-  const keyErr = !key.trim() ? '必填' : !KEY_RE.test(key) ? '只能用字母、数字、下划线和中划线' : taken.includes(key) ? '已经有这个 key 了' : ''
+  const keyErr = !key.trim() ? '必填' : !KEY_RE.test(key) ? KEY_HINT : taken.includes(key) ? '已经有这个 key 了' : ''
   const create = () => {
     setTried(true)
     if (!name.trim() || keyErr) return
@@ -115,12 +127,17 @@ function NewGroup({ taken, onCancel, onCreate }: { taken: string[]; onCancel: ()
   )
 }
 
-function GroupEditor({ group, usage, onSave, onMigrate, onDelete }: {
+function GroupEditor({ group, usage, onSave, onMigrate, onDelete, onDirty, leaving, onStay, onLeave }: {
   group: EnumGroup
   usage: UsageFn
   onSave: (g: EnumGroup) => void
   onMigrate: (group: string, from: string, to: string) => void
   onDelete: () => void
+  onDirty: (dirty: boolean) => void
+  /** 左栏点了别的枚举、草稿还没保存：底栏换成确认 */
+  leaving: boolean
+  onStay: () => void
+  onLeave: () => void
 }) {
   const [d, setD] = useState(group)
   const [removing, setRemoving] = useState<{ key: string; to: string } | null>(null)
@@ -135,6 +152,7 @@ function GroupEditor({ group, usage, onSave, onMigrate, onDelete }: {
   useEffect(() => { setQ(''); setShowOff(false) }, [group.key])
 
   const dirty = JSON.stringify(d) !== JSON.stringify(group)
+  useEffect(() => { onDirty(dirty) }, [dirty, onDirty])
   const useOf = (k: string) => usage(group.key, k)
   const wired = group.items.some((i) => useOf(i.key) !== undefined)
   const patch = (k: string, p: Partial<EnumItem>) => setD({ ...d, items: d.items.map((i) => (i.key === k ? { ...i, ...p } : i)) })
@@ -162,7 +180,7 @@ function GroupEditor({ group, usage, onSave, onMigrate, onDelete }: {
     const keys = d.items.map((i) => i.key)
     d.items.forEach((i, n) => {
       if (!i.label.trim()) out.push(`第 ${n + 1} 个值没有显示名`)
-      if (!KEY_RE.test(i.key)) out.push(`「${i.label || i.key}」的 key 只能用字母、数字、下划线和中划线`)
+      if (!KEY_RE.test(i.key)) out.push(`「${i.label || i.key}」的 key ${KEY_HINT}`)
       else if (keys.indexOf(i.key) !== n) out.push(`key「${i.key}」重复了`)
     })
     if (!d.items.some((i) => i.enabled)) out.push('至少保留一个启用的值')
@@ -291,7 +309,14 @@ function GroupEditor({ group, usage, onSave, onMigrate, onDelete }: {
       {tried && errors.length > 0 && <div className="editor-issues has-error"><ul>{errors.map((e) => <li key={e}>{e}</li>)}</ul></div>}
 
       <div className="hook-foot enum-foot">
-        {confirmDel ? (
+        {leaving ? (
+          <>
+            <span className="warn-text">有未保存的修改，切走后会丢掉</span>
+            <span className="spacer" />
+            <button className="btn btn-ghost" onClick={onStay}>继续编辑</button>
+            <button className="btn btn-danger" onClick={onLeave}>放弃修改</button>
+          </>
+        ) : confirmDel ? (
           <>
             <span className="danger-text">删除整个枚举「{group.name}」？</span>
             <span className="spacer" />

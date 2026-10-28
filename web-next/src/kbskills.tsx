@@ -16,8 +16,8 @@ import { newId } from './ids'
 /** 能被检索的一篇资料：工作台文档或本地目录里的文件 */
 export interface SearchDoc { id: string; title: string; body: string; source: string }
 
-// 分类的显示名读「文档分类」枚举
-const sourceLabel = (e: EnumView, k: string) => (k.startsWith('dir:') ? `本地目录 · ${k.slice(4)}` : e.label(k))
+// 分类的显示名读「文档分类」枚举；本地目录不算来源，挂在知识库设置的 dirs 里
+const sourceLabel = (e: EnumView, k: string) => e.label(k)
 const usedBy = (agents: Agent[], f: (a: Agent) => boolean) => agents.filter(f)
 /** 卡片、列表里的头像：露前几个，其余收成 +N，全名在 title 里 */
 const AVATARS = 5
@@ -118,7 +118,7 @@ function KbList({ kbs, agents, selected, onOpen, onNew }: { kbs: KnowledgeBase[]
         <SearchBox value={q} onChange={setQ} placeholder="搜知识库名称、说明、里面的文档标题" />
         {q.trim() && <span className="list-sub">命中 {rows.length} 个</span>}
       </div>
-      {!rows.length && <div className="empty"><div className="empty-title">{kbs.length ? '没有匹配的知识库' : '还没有知识库'}</div><div className="list-sub">{kbs.length ? '换个关键词试试' : '点右上角「新建知识库」，选文档分类或本地目录当来源'}</div></div>}
+      {!rows.length && <div className="empty"><div className="empty-title">{kbs.length ? '没有匹配的知识库' : '还没有知识库'}</div><div className="list-sub">{kbs.length ? '换个关键词试试' : '点右上角「新建知识库」，选文档分类当来源；本地目录、文件在详情里加'}</div></div>}
       <div className="kb-grid">
         {rows.map(({ k, docs, matched }) => {
           const users = usedBy(agents, (a) => a.kbs.includes(k.id))
@@ -512,7 +512,7 @@ function KbSettingsTab({ kb, docs, settings: s, agents, providers, editing, onEd
   const [confirmDir, setConfirmDir] = useState<string | null>(null)
   const set = (p: Partial<KbSettings>) => kbStore.setSettings({ ...s, ...p })
   const users = usedBy(agents, (a) => a.kbs.includes(kb.id))
-  const cats = kb.sources.filter((x) => !x.startsWith('dir:'))
+  const cats = kb.sources
   const embeds = embedOptions(providers)
   const pv = providers.find((p) => p.id === s.embed.provider_id)
   const pending = docs.filter((d) => d.status === 'pending')
@@ -636,10 +636,9 @@ function KbSettingsTab({ kb, docs, settings: s, agents, providers, editing, onEd
   )
 }
 
-export function KbDrawer({ kb, agents, folders, onClose, onSave, onDelete }: {
+export function KbDrawer({ kb, agents, onClose, onSave, onDelete }: {
   kb: KnowledgeBase | null
   agents: Agent[]
-  folders: string[]
   /** 旧参数，篇数和检索都挪到知识库详情页了 */
   docsOf?: (kb: KnowledgeBase) => SearchDoc[]
   onClose: () => void
@@ -655,7 +654,7 @@ export function KbDrawer({ kb, agents, folders, onClose, onSave, onDelete }: {
   const [confirmDel, setConfirmDel] = useState(false)
   const users = usedBy(agents, (a) => a.kbs.includes(d.id))
   // 停用的分类不再出现，已经选上的照常列出来，方便取消
-  const all = [...catEnum.items.filter((i) => i.enabled || d.sources.includes(i.key)).map((i) => i.key), ...folders.map((f) => `dir:${f}`)]
+  const all = catEnum.items.filter((i) => i.enabled || d.sources.includes(i.key)).map((i) => i.key)
   const toggle = (k: string) => setD({ ...d, sources: d.sources.includes(k) ? d.sources.filter((x) => x !== k) : [...d.sources, k] })
   const save = () => {
     setTried(true)
@@ -721,11 +720,14 @@ export function SkillsPage({ skills, agents, selected, onOpen, onNew }: { skills
         </div>
         <SearchBox value={q} onChange={setQ} placeholder="搜技能名称、说明、用到的工具" />
       </div>
-      {!rows.length && <div className="empty"><div className="empty-title">没有匹配的技能</div><div className="list-sub">换个关键词或来源试试</div></div>}
+      {/* 一个都没有和筛不到分开说 */}
+      {!rows.length && (skills.length
+        ? <div className="empty"><div className="empty-title">没有匹配的技能</div><div className="list-sub">换个关键词或来源试试</div></div>
+        : <div className="empty"><div className="empty-title">还没有技能</div><div className="list-sub">点右上角「新建技能」</div></div>)}
       {rows.length > 0 && <div className="task-table">
         <div className="skill-row task-th"><span>技能</span><span>来源</span><span>用到</span><span>在用的 Agent</span></div>
         {rows.map((k) => (
-          <div key={k.id} className={cls('skill-row', selected === k.id && 'sel')} onClick={() => onOpen(k.id)}>
+          <div key={k.id} role="button" tabIndex={0} className={cls('skill-row', selected === k.id && 'sel')} onClick={() => onOpen(k.id)} onKeyDown={(e) => e.key === 'Enter' && onOpen(k.id)}>
             <span className="task-main">
               <span className="task-title"><span className="ellipsis">{k.name}</span></span>
               <span className="task-meta"><span className="ellipsis">{k.desc}</span></span>

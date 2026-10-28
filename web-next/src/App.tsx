@@ -29,7 +29,7 @@ import { EnumContext, seedEnums } from './enumdata'
 import { SKILLS, newAgent, seedAgentRuns, seedAgents, seedKBs, seedOutputs, seedSessions, type AgentOutput, type OutputKind, type Session, type ToolCall } from './agentdata'
 import { AgentEditor, AgentsPage, type ConnToolChoice, type ModelChoice, type MountableConn } from './agents'
 import { ChatsView, OutputsView, RunsView, SessionsNav, type SessionView } from './sessions'
-import { seedModels, seedProviders, usable, type ProviderKind } from './modeldata'
+import { kindOf, seedModels, seedProviders, usable, type ProviderKind } from './modeldata'
 import { ProviderDrawer, ProvidersPage } from './models'
 import { EnumsPage, type UsageFn } from './enums'
 import { TopbarContext } from './topbar'
@@ -126,6 +126,9 @@ export default function App() {
   useEffect(() => { saveWorkspaces(benches, bench.id) }, [benches, bench.id])
   const [page, setPage] = useState<Page>(() => (bench.home as Page) ?? 'projects')
   const [section, setSection] = useState<Section>('connectors')
+  // Agent 配置页有未保存的改动时，切二级菜单先让它确认
+  const agentGuard = useRef<((leave: () => void) => boolean) | null>(null)
+  const leaveAgent = (go: () => void) => { if (!agentGuard.current || agentGuard.current(go)) go() }
   const [content, setContent] = useState(seedContent)
   const [ws, setWs] = useState<Workspace>('builtin')
   const [libKind, setLibKind] = useState('')
@@ -1139,6 +1142,11 @@ export default function App() {
           setDrawer(null)
         }}
         delPlan={current ? providerPlan(current.id) : undefined}
+        // 对方返回的错误按 provider:<id>:<错误码> 记，和连接器一样；没有错误码的（地址写错这类）记成 config
+        onFail={(id, name, error) => {
+          const code = /^(\d{3})\b/.exec(error)?.[1] ?? 'config'
+          report({ fingerprint: `provider:${id}:${code}`, level: 'error', module: '模型服务商', title: `${name} ${code === '401' ? '鉴权失败' : '连接失败'}`, message: error, context: { 服务商: name, 类型: kindOf(kind).label } })
+        }}
         onDelete={() => { if (current && !providerPlan(current.id).block) deleteProvider(current.id); setDrawer(null) }} />
     )
   }
@@ -1147,7 +1155,7 @@ export default function App() {
   if (drawer?.kind === 'kb' || drawer?.kind === 'new-kb') {
     const kb = drawer.kind === 'kb' ? kbs.find((x) => x.id === drawer.id) ?? null : null
     if (drawer.kind === 'new-kb' || kb) drawerEl = (
-      <KbDrawer key={kb?.id ?? 'new'} kb={kb} agents={agents} folders={folders.map((f) => f.name)} onClose={() => setDrawer(null)}
+      <KbDrawer key={kb?.id ?? 'new'} kb={kb} agents={agents} onClose={() => setDrawer(null)}
         onSave={(k) => { setKbs((xs) => (xs.some((y) => y.id === k.id) ? xs.map((y) => (y.id === k.id ? k : y)) : [...xs, k])); setDrawer({ kind: 'kb', id: k.id }) }}
         onDelete={() => { if (kb) { setKbs((xs) => xs.filter((y) => y.id !== kb.id)); setAgents((xs) => xs.map((a) => ({ ...a, kbs: a.kbs.filter((x) => x !== kb.id) }))) } setDrawer(null) }} />
     )
@@ -1264,7 +1272,7 @@ export default function App() {
           <button className={cls('side-item', page === 'settings' && 'active')} onClick={() => go('settings')} title={collapsed ? '设置' : undefined}>
             {icons.settings}<span className="side-label">设置</span>
             {brokenConnectors + brokenProviders + openIncidents > 0 && (
-              <span className="side-dot" title={[brokenConnectors && `${brokenConnectors} 个连接器异常`, brokenProviders && `${brokenProviders} 个模型服务商连接异常`, openIncidents && `${openIncidents} 个运行异常未处理`].filter(Boolean).join('，')}/>
+              <span className="side-dot" title={[brokenConnectors && `${brokenConnectors} 个连接器异常`, brokenProviders && `${brokenProviders} 个模型服务商连接异常`, openIncidents && `${openIncidents} 个运行错误未处理`].filter(Boolean).join('，')}/>
             )}
           </button>
         </div>
@@ -1279,7 +1287,7 @@ export default function App() {
       {page === 'sop' && !sopView.startsWith('edit:') && <SopNav sops={sops} runs={runs} view={sopView} onSelect={(v) => { setSopView(v); setOpenRun(null); setSopFilter(undefined) }} onNew={() => { setSopView('edit:new'); setOpenRun(null) }} />}
       {page === 'settings' && (
         <SettingsNav active={section} alerts={{ connectors: brokenConnectors, providers: brokenProviders, incidents: openIncidents }}
-          onSelect={(k) => { setSection(k as Section); if (k === 'agents') setAgentView('list'); setDrawer(null) }} />
+          onSelect={(k) => leaveAgent(() => { setSection(k as Section); if (k === 'agents') setAgentView('list'); setDrawer(null) })} />
       )}
       <div className="main">
         <div className="topbar">
@@ -1365,6 +1373,8 @@ export default function App() {
             <TodayPage needs={todayNeeds} tasks={tasks} schedules={todaySchedules} running={todayRunning}
               more={{
                 SOP: has('sop') ? () => { go('sop'); setSopView('waiting') } : undefined,
+                // 原型的任务页不能带状态筛选打开，先去全部任务；正式产品带 status=review
+                任务待验收: has('tasks') ? () => { go('tasks'); setTaskView('all') } : undefined,
                 'Agent 待确认': has('sessions') ? () => { go('sessions'); setSessionView('runs') } : undefined,
                 'IM 消息': has('messages') ? () => go('messages') : undefined,
                 运行异常: () => { go('settings'); setSection('incidents') },
@@ -1537,8 +1547,8 @@ export default function App() {
           ) : (() => {
             const existing = agents.find((a) => a.id === agentView)
             return (
-              <AgentEditor key={agentView} models={modelChoices} conns={mountableConns} kbs={kbs} skills={skills} agent={existing ?? { ...newAgent(), model: modelChoices.find((x) => x.ok)?.key ?? newAgent().model }} creating={!existing} folders={folders.map((f) => f.name)}
-                ctx={ctx} onCreateKb={(kb) => setKbs((xs) => [...xs, kb])} onGoConnectors={() => { setSection('connectors'); setAgentView('list') }}
+              <AgentEditor key={agentView} models={modelChoices} conns={mountableConns} kbs={kbs} skills={skills} agent={existing ?? { ...newAgent(), model: modelChoices.find((x) => x.ok)?.key ?? newAgent().model }} creating={!existing}
+                ctx={ctx} guard={agentGuard} onCreateKb={(kb) => setKbs((xs) => [...xs, kb])} onGoConnectors={() => { setSection('connectors'); setAgentView('list') }}
                 onBack={() => setAgentView('list')}
                 onSave={(a) => { setAgents((xs) => (xs.some((x) => x.id === a.id) ? xs.map((x) => (x.id === a.id ? a : x)) : [...xs, a])); setAgentView(a.id) }}
                 delPlan={existing ? agentPlan(existing.id) : undefined}

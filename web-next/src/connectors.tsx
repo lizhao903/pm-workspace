@@ -11,6 +11,9 @@ const STATUS: Record<ConnStatus, { label: string; tone: string }> = {
   disconnected: { label: '已断开', tone: 'muted' },
 }
 
+/** 断开前的确认文案：列表和抽屉共用 */
+const OFF_HINT = '断开后收不到消息，Agent 也调不了它的工具'
+
 /** 抽屉顶部的连接状态条：连着的可以断开，断开的、异常的可以（重新）连接 */
 export function ConnBar({ connector, onConnect, onDisconnect }: { connector: Connector; onConnect: () => void; onDisconnect: () => void }) {
   const [confirm, setConfirm] = useState(false)
@@ -28,7 +31,7 @@ export function ConnBar({ connector, onConnect, onDisconnect }: { connector: Con
       </span>
       {confirm ? (
         <>
-          <span className="danger-text">断开后收不到消息，Agent 也调不了它的工具</span>
+          <span className="danger-text">{OFF_HINT}</span>
           <button className="act act-quiet" onClick={() => setConfirm(false)}>取消</button>
           <button className="act btn-danger" onClick={() => { onDisconnect(); setConfirm(false) }}>断开</button>
         </>
@@ -67,6 +70,8 @@ export function ConnectorsSettings({ connectors, messageCount, initialCat = '', 
   onAdd: (toolKey: string) => void
 }) {
   const [cat, setCat] = useState<string>(initialCat)
+  /** 列表上点了「断开」、等确认的连接器 */
+  const [askOff, setAskOff] = useState<string | null>(null)
   const cats = TOOL_CATEGORIES.filter((c) => !cat || c.key === cat)
   const n = (s: ConnStatus) => connectors.filter((c) => c.status === s).length
   const notLinked = TOOLS.filter((t) => !connectors.some((c) => c.tool === t.key)).length
@@ -114,22 +119,30 @@ export function ConnectorsSettings({ connectors, messageCount, initialCat = '', 
                   {mine.length > 0 ? (
                     <div className="conn-list">
                       {mine.map((x) => (
-                        <div key={x.id} role="button" tabIndex={0} className="conn-row" onClick={() => onConfigure(x.id)} onKeyDown={(e) => e.key === 'Enter' && onConfigure(x.id)}>
+                        <div key={x.id} role="button" tabIndex={0} className="conn-row" onClick={() => onConfigure(x.id)} onKeyDown={(e) => e.key === 'Enter' && e.target === e.currentTarget && onConfigure(x.id)}>
                           <div className="conn-row-main">
                             {x.icon && <ToolLogo tool={t} src={x.icon} size={18} />}
                             <span className="conn-name ellipsis">{x.name}</span>
                             <span className="conn-account ellipsis">{x.account}</span>
                             <span className="spacer" />
-                            {/* 列表上直接连 / 断；断开要二次确认的话放在抽屉里，这里只做「连接」和直接断开 */}
-                            {x.status === 'connected' && <button className="act act-quiet conn-act" onClick={(e) => { e.stopPropagation(); onDisconnect(x.id) }} title="断开后配置保留，随时可以再连">断开</button>}
+                            {/* 列表上的断开和抽屉里一样先确认：行内换成「取消 / 断开」 */}
+                            {x.status === 'connected' && askOff === x.id && (
+                              <>
+                                <button className="act act-quiet conn-act" onClick={(e) => { e.stopPropagation(); setAskOff(null) }}>取消</button>
+                                <button className="act btn-danger conn-act" onClick={(e) => { e.stopPropagation(); onDisconnect(x.id); setAskOff(null) }}>断开</button>
+                              </>
+                            )}
+                            {x.status === 'connected' && askOff !== x.id && <button className="act act-quiet conn-act" onClick={(e) => { e.stopPropagation(); setAskOff(x.id) }} title="断开后配置保留，随时可以再连">断开</button>}
                             {(x.status === 'disconnected' || x.status === 'paused' || x.status === 'error') && <button className="act conn-act" onClick={(e) => { e.stopPropagation(); onConnect(x.id) }}>{x.status === 'error' ? '重连' : '连接'}</button>}
                           </div>
-                          <div className="conn-row-side">
-                            <StatusDot s={x.status} />
-                            <span className="faint">{x.auth
-                              ? `${AUTH_LABEL[x.auth.mode]} · ${x.tools?.filter((t) => t.mode !== 'off').length ?? 0}/${x.tools?.length ?? 0} 个工具可用`
-                              : `${x.direction === 'both' ? '收发' : '只收'} · ${messageCount[x.id] ?? 0} 条 · ${x.last_sync_at ? timeAgo(x.last_sync_at) : '未同步'}`}</span>
-                          </div>
+                          {x.status === 'connected' && askOff === x.id ? <div className="conn-row-side danger-text">{OFF_HINT}</div> : (
+                            <div className="conn-row-side">
+                              <StatusDot s={x.status} />
+                              <span className="faint">{x.auth
+                                ? `${AUTH_LABEL[x.auth.mode]} · ${x.tools?.filter((t) => t.mode !== 'off').length ?? 0}/${x.tools?.length ?? 0} 个工具可用`
+                                : `${x.direction === 'both' ? '收发' : '只收'} · ${messageCount[x.id] ?? 0} 条 · ${x.last_sync_at ? timeAgo(x.last_sync_at) : '未同步'}`}</span>
+                            </div>
+                          )}
                         </div>
                       ))}
                     </div>
@@ -299,6 +312,7 @@ export function ConnectorDrawer({ tool, connector, onClose, onSave, onDelete, on
           <>
             {!creating && <button className="btn btn-ghost btn-danger-ghost" onClick={() => setConfirmDel(true)}>删除连接器</button>}
             <div className="spacer" />
+            {tried && (missing.length > 0 || !d.name.trim()) && <span className="field-err">还没填：{[...(d.name.trim() ? [] : ['连接器名称']), ...missing.map((f) => f.label)].join('、')}</span>}
             <button className="btn btn-ghost" onClick={onClose}>取消</button>
             <button className="btn btn-primary" onClick={save}>{creating ? '接入' : '保存'}</button>
           </>
