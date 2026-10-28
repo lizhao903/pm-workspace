@@ -84,7 +84,13 @@ export function WorkspacesPage({ list, current, onSwitch, onChange, onCreate, on
   const [confirmDel, setConfirmDel] = useState(false)
   /** 未启用的模块要启用到哪一组；没选就放最后一组 */
   const [pick, setPick] = useState<Partial<Record<ModuleKey, string>>>({})
+  /** 名称输入框获得焦点时的名字：清空后失焦就恢复它 */
+  const [nameAt, setNameAt] = useState('')
+  /** 刚删掉的分组：模块已并到相邻组，几秒内可以撤销 */
+  const [undo, setUndo] = useState<{ ws: string; groups: MenuGroup[]; name: string; into: string; n: number } | null>(null)
+  const undoTimer = useRef(0)
   useEffect(() => { setEditing(current) }, [current])
+  useEffect(() => () => window.clearTimeout(undoTimer.current), [])
   const w = list.find((x) => x.id === editing) ?? list[0]
   const groups = w.groups
   const off = MODULES.filter((m) => !w.modules.includes(m.key))
@@ -99,6 +105,14 @@ export function WorkspacesPage({ list, current, onSwitch, onChange, onCreate, on
     if (groups.length < 2) return
     const target = i > 0 ? i - 1 : 1
     set(groups.map((x, k) => (k === target ? { ...x, modules: [...x.modules, ...groups[i].modules] } : x)).filter((_, k) => k !== i))
+    setUndo({ ws: w.id, groups, name: groups[i].name, into: groups[target].name, n: groups[i].modules.length })
+    window.clearTimeout(undoTimer.current)
+    undoTimer.current = window.setTimeout(() => setUndo(null), 8000)
+  }
+  const undoRemove = () => {
+    const ws = undo ? list.find((x) => x.id === undo.ws) : undefined
+    if (undo && ws) onChange(withGroups(ws, undo.groups))
+    setUndo(null)
   }
   const moveModule = (gid: string, k: ModuleKey, d: -1 | 1) => patchGroup(gid, (x) => {
     const i = x.modules.indexOf(k); const j = i + d
@@ -133,7 +147,7 @@ export function WorkspacesPage({ list, current, onSwitch, onChange, onCreate, on
       <div className="ws-layout">
         <div className="ws-list">
           {list.map((x) => (
-            <button key={x.id} className={cls('ws-list-item', x.id === w.id && 'on')} onClick={() => { setEditing(x.id); setConfirmDel(false) }}>
+            <button key={x.id} className={cls('ws-list-item', x.id === w.id && 'on')} onClick={() => { setEditing(x.id); setConfirmDel(false); setUndo(null) }}>
               <span className="ws-menu-text"><span className="ellipsis">{x.name}</span><span className="list-sub">{x.role} · {x.groups.length} 组 {x.modules.length} 个模块</span></span>
               {x.id === current && <span className="tag">当前</span>}
             </button>
@@ -150,7 +164,11 @@ export function WorkspacesPage({ list, current, onSwitch, onChange, onCreate, on
                 hint="显示在左上角；PNG、JPG，1MB 以内">
                 <BenchMark w={w} size={44} />
               </MarkEditor>
-              <label className="field"><span className="field-label">名称</span><input value={w.name} onChange={(e) => onChange({ ...w, name: e.target.value })} /></label>
+              <label className="field"><span className="field-label">名称<em>*</em></span>
+                <input value={w.name} className={cls(!w.name.trim() && 'bad')} onFocus={() => setNameAt(w.name)}
+                  onBlur={() => { if (!w.name.trim()) onChange({ ...w, name: nameAt.trim() || '我的工作台' }) }} onChange={(e) => onChange({ ...w, name: e.target.value })} />
+                {!w.name.trim() && <span className="field-err">必填，留空会恢复原来的名称</span>}
+              </label>
               <label className="field"><span className="field-label">角色</span><input value={w.role} onChange={(e) => onChange({ ...w, role: e.target.value })} /></label>
             </div>
             <label className="field"><span className="field-label">默认打开</span>
@@ -172,6 +190,13 @@ export function WorkspacesPage({ list, current, onSwitch, onChange, onCreate, on
               <div className="field-group-title">菜单分组<span className="field-hint">左侧菜单按这里的分组和顺序显示；分组名留空只分隔不显示标题</span></div>
               <button className="act" onClick={addGroup}>加一个分组</button>
             </div>
+            {undo && undo.ws === w.id && (
+              <div className="banner banner-warn ws-undo">
+                <span>已删除分组{undo.name ? `「${undo.name}」` : '（无标题）'}{undo.n ? `，里面的 ${undo.n} 个模块并到了${undo.into ? `「${undo.into}」` : '相邻的分组'}` : ''}</span>
+                <span className="spacer" />
+                <button className="act" onClick={undoRemove}>撤销</button>
+              </div>
+            )}
             <div className="grp-list">
               {groups.map((x, gi) => (
                 <div key={x.id} className="grp-card">

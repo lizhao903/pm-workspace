@@ -239,11 +239,174 @@ def sessions_outputs(pg, shot):
     shot('执行记录_定位到那一条')
 
 
+def _settings(pg, label):
+    _side(pg, '设置'); _sub(pg, label)
+
+
+def _row(pg, name):
+    pg.locator('.conn-row', has_text=name).first.click(); pg.wait_for_timeout(300)
+
+
+def _esc(pg):
+    pg.keyboard.press('Escape'); pg.wait_for_timeout(200)
+
+
+def settings_workspace(pg, shot):
+    """工作台与模块：模板卡片、左上角切换菜单、删除确认（SPEC-settings-2）。"""
+    _settings(pg, '工作台与模块')
+    pg.locator('button', has_text='新建工作台').click(); pg.wait_for_timeout(200)
+    shot('工作台与模块_模板')
+    pg.locator('button', has_text='新建工作台').click(); pg.wait_for_timeout(150)
+    pg.locator('button', has_text='删除工作台').click(); pg.wait_for_timeout(150)
+    shot('工作台与模块_删除确认')
+    pg.locator('.brand-btn').click(); pg.wait_for_timeout(200)
+    shot('工作台切换菜单')
+
+
+def settings_im_drawer(pg, shot):
+    """即时通讯连接器抽屉：已连接、异常、新建，列表上断开确认（SPEC-settings-3.9、SPEC-settings-4）。"""
+    _settings(pg, '连接器')
+    pg.locator('.conn-row', has_text='公司 Slack').locator('button', has_text='断开').click(); pg.wait_for_timeout(150)
+    pg.locator('.conn-row', has_text='公司 Slack').evaluate('e => e.scrollIntoView({ block: "center" })'); pg.wait_for_timeout(100)
+    shot('连接器_断开确认')
+    pg.locator('.conn-row', has_text='公司 Slack').locator('button', has_text='取消').click(); pg.wait_for_timeout(100)
+    _row(pg, '公司 Slack')
+    shot('即时通讯抽屉_已连接')
+    _esc(pg); _row(pg, '企业微信')
+    shot('即时通讯抽屉_异常')
+    _esc(pg)
+    pg.locator('.tool-card', has_text='QQ').locator('button', has_text='接入').click(); pg.wait_for_timeout(300)
+    pg.locator('aside.drawer .drawer-foot .btn-primary').click(); pg.wait_for_timeout(150)
+    shot('即时通讯抽屉_新建没填')
+
+
+def settings_app_drawer(pg, shot):
+    """应用与 API 连接器抽屉：OAuth 已授权、授权过期、Token、自定义 MCP（SPEC-settings-5）。"""
+    _settings(pg, '连接器')
+    _row(pg, '公司 GitHub')
+    shot('应用连接器抽屉_OAuth')
+    _esc(pg); _row(pg, 'Notion 产品空间')
+    shot('应用连接器抽屉_授权过期')
+    _esc(pg); _row(pg, '视频号数据')
+    shot('应用连接器抽屉_Token')
+    _esc(pg)
+    pg.locator('.tool-card', has_text='MCP 服务').locator('button', has_text='接入').click(); pg.wait_for_timeout(300)
+    shot('应用连接器抽屉_自定义')
+
+
+def settings_provider_drawer(pg, shot):
+    """模型服务商抽屉：正常、异常、本地、手填模型 ID（SPEC-settings-7）。"""
+    _settings(pg, '模型服务商')
+    for name, f in (('Anthropic', '服务商抽屉_正常'), ('OpenAI', '服务商抽屉_异常'), ('本机 Ollama', '服务商抽屉_本地')):
+        pg.locator('.pv-card', has_text=name).first.click(); pg.wait_for_timeout(300)
+        shot(f)
+        _esc(pg)
+    pg.locator('.pv-card-add', has_text='自定义').first.click(); pg.wait_for_timeout(300)
+    pg.locator('aside.drawer .field input').first.fill('')
+    pg.locator('aside.drawer .drawer-foot .btn-primary').click(); pg.wait_for_timeout(150)
+    shot('服务商抽屉_自定义没填')
+
+
+def settings_agent_editor(pg, shot):
+    """Agent 配置页：基本信息、工具与权限、知识库、未保存确认、新建（SPEC-settings-9）。"""
+    _settings(pg, 'Agent')
+    pg.locator('.agent-card', has_text='消息分诊助手').click(); pg.wait_for_timeout(300)
+    tab = lambda t: (pg.locator('.ae-tabs button', has_text=t).click(), pg.wait_for_timeout(200))
+    tab('基本信息')
+    shot('Agent配置页_基本信息')
+    tab('工具与权限')
+    shot('Agent配置页_工具与权限')
+    tab('知识库')
+    shot('Agent配置页_知识库')
+    tab('基本信息')
+    pg.locator('.agent-desc-input').fill('新 IM 消息先看一遍，认出是谁、要不要转任务')
+    pg.locator('.editor-head button', has_text='Agent').click(); pg.wait_for_timeout(200)
+    shot('Agent配置页_未保存确认')
+    pg.locator('.ae-foot button', has_text='放弃修改').click(); pg.wait_for_timeout(300)
+    pg.locator('button', has_text='新建 Agent').click(); pg.wait_for_timeout(300)
+    shot('Agent配置页_新建')
+
+
+def settings_agent_model_off(pg, shot):
+    """模型不可用：停用 Anthropic 后打开用它模型的 Agent（SPEC-settings-9.11）。"""
+    _settings(pg, '模型服务商')
+    pg.locator('.pv-card', has_text='Anthropic').first.click(); pg.wait_for_timeout(300)
+    pg.locator('aside.drawer .switch-row').last.locator('.switch').click()
+    pg.locator('aside.drawer .drawer-foot .btn-primary').click(); pg.wait_for_timeout(300)
+    _sub(pg, 'Agent')
+    pg.locator('.agent-card', has_text='消息分诊助手').click(); pg.wait_for_timeout(300)
+    pg.locator('.ae-tabs button', has_text='模型').click(); pg.wait_for_timeout(200)
+    shot('Agent配置页_模型不可用')
+
+
+def settings_kb(pg, shot):
+    """知识库详情三个标签、阅读视图、加文档，知识库抽屉（SPEC-settings-11 到 SPEC-settings-14）。"""
+    _settings(pg, '知识库')
+    pg.locator('button', has_text='新建知识库').click(); pg.wait_for_timeout(300)
+    shot('知识库抽屉_新建')
+    _esc(pg)
+    pg.locator('.kb-card', has_text='产品文档库').click(); pg.wait_for_timeout(300)
+    shot('知识库详情_文档')
+    pg.locator('.kbx-title').first.click(); pg.wait_for_timeout(300)
+    shot('知识库详情_阅读')
+    pg.locator('.project-tabs button', has_text='文档').click(); pg.wait_for_timeout(200)
+    pg.locator('button', has_text='加文档').click(); pg.wait_for_timeout(300)
+    shot('知识库详情_加文档')
+    pg.locator('.project-tabs button', has_text='检索测试').click(); pg.wait_for_timeout(200)
+    pg.locator('.kbx-samples .chip', has_text='权限变更').first.click(); pg.wait_for_timeout(300)
+    shot('知识库详情_检索测试')
+    pg.locator('.project-tabs button', has_text='设置').click(); pg.wait_for_timeout(200)
+    shot('知识库详情_设置')
+    pg.locator('button', has_text='改名称和分类').click(); pg.wait_for_timeout(300)
+    shot('知识库抽屉_编辑')
+
+
+def settings_skill(pg, shot):
+    """技能抽屉：内置只读、自定义、复制一份（SPEC-settings-16）。"""
+    _settings(pg, '技能')
+    pg.locator('.skill-row', has_text='写周报').click(); pg.wait_for_timeout(300)
+    shot('技能抽屉_内置')
+    pg.locator('aside.drawer button', has_text='复制一份来改').click(); pg.wait_for_timeout(300)
+    shot('技能抽屉_复制')
+    _esc(pg)
+    pg.locator('.skill-row', has_text='业务数据查询').click(); pg.wait_for_timeout(300)
+    shot('技能抽屉_自定义')
+
+
+def settings_incident(pg, shot):
+    """运行异常抽屉：未处理、转任务、已解决（SPEC-settings-19）。"""
+    _settings(pg, '运行异常')
+    pg.locator('.inc-row', has_text='企业微信连接器凭证失效').first.click(); pg.wait_for_timeout(300)
+    shot('运行异常抽屉')
+    pg.locator('aside.drawer button', has_text='转为研发任务').click(); pg.wait_for_timeout(200)
+    shot('运行异常抽屉_转任务')
+    _esc(pg)
+    # 演示数据里没有已解决的，先把「交易账户异常」标为已解决
+    pg.locator('.inc-row', has_text='交易账户异常').first.click(); pg.wait_for_timeout(300)
+    pg.locator('aside.drawer button', has_text='标为已解决').last.click(); pg.wait_for_timeout(200)
+    pg.locator('.seg button', has_text='已解决').first.click(); pg.wait_for_timeout(200)
+    pg.locator('.inc-row', has_text='交易账户异常').first.click(); pg.wait_for_timeout(300)
+    shot('运行异常抽屉_已解决')
+
+
+def settings_misc(pg, shot):
+    """枚举值新建、内网域名加域名和 HTTPS 提示（SPEC-settings-17、SPEC-settings-20）。"""
+    _settings(pg, '枚举值')
+    pg.locator('.enum-list button', has_text='新建枚举').click(); pg.wait_for_timeout(200)
+    shot('枚举值_新建')
+    _sub(pg, '内网域名')
+    pg.locator('.dm-routes button', has_text='加一个').click(); pg.wait_for_timeout(200)
+    pg.locator('.switch-row', has_text='HTTPS').locator('.switch').click(); pg.wait_for_timeout(150)
+    shot('内网域名_加域名和HTTPS')
+
+
 STEPS = {
     'tasks': [tasks_devloop, tasks_unsaved, tasks_schedule],
     'messages': [messages_drawer, messages_fetch_paused],
     'projects': [projects_task_confirm, projects_comms],
     'sessions': [sessions_agent_off, sessions_perm, sessions_outputs],
+    'settings': [settings_workspace, settings_im_drawer, settings_app_drawer, settings_provider_drawer, settings_agent_editor,
+                 settings_agent_model_off, settings_kb, settings_skill, settings_incident, settings_misc],
 }
 
 

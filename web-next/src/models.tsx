@@ -33,6 +33,7 @@ export function ProvidersPage({ providers, models, selected, onOpen, onAdd }: {
     <div className="page page-fill">
       <PageTitle parent="设置" count={`${providers.length} 个已接入`} desc="配好 API Key 和地址、测通之后，勾选要启用的模型，Agent 和 SOP 就能选用">模型服务商</PageTitle>
       <div className="section-label">已接入</div>
+      {!providers.length && <div className="mount-empty">还没接模型服务商，从下面挑一家接入</div>}
       <div className="pv-grid">
         {providers.map((p) => {
           const st = !p.enabled ? STATUS.off : STATUS[p.status]
@@ -70,7 +71,7 @@ export function ProvidersPage({ providers, models, selected, onOpen, onAdd }: {
   )
 }
 
-export function ProviderDrawer({ provider, kind, models, onClose, onSave, onDelete, delPlan }: {
+export function ProviderDrawer({ provider, kind, models, onClose, onSave, onDelete, onFail, delPlan }: {
   provider: Provider | null
   kind: ProviderKind
   models: ModelConf[]
@@ -78,6 +79,8 @@ export function ProviderDrawer({ provider, kind, models, onClose, onSave, onDele
   /** 保存服务商，同时把勾选的目录模型同步成启用 / 不启用 */
   onSave: (p: Provider, models: ModelConf[]) => void
   onDelete: () => void
+  /** 测试或保存时对方返回了错误（不含没填必填项）：App 记一条运行异常 */
+  onFail?: (id: string, name: string, error: string) => void
   /** 删除前算出的影响；block 有值时不能删 */
   delPlan?: { block?: string; impact: string[] }
 }) {
@@ -102,7 +105,12 @@ export function ProviderDrawer({ provider, kind, models, onClose, onSave, onDele
 
   const runTest = () => {
     setTest({ state: 'running' })
-    window.setTimeout(() => { const r = testProvider(kind, values); setTest(r.ok ? { state: 'ok' } : { state: 'error', error: r.error }) }, 700)
+    window.setTimeout(() => {
+      const r = testProvider(kind, values)
+      setTest(r.ok ? { state: 'ok' } : { state: 'error', error: r.error })
+      // 还没保存的新服务商不记，保存时出错才记
+      if (!r.ok && provider && !missing.length && r.error) onFail?.(id, name.trim() || def.label, r.error)
+    }, 700)
   }
   const save = () => {
     setTried(true)
@@ -114,6 +122,7 @@ export function ProviderDrawer({ provider, kind, models, onClose, onSave, onDele
       return old ? { ...old, enabled: picked.includes(c.id) } : { ...catalogModel(id, c), enabled: picked.includes(c.id) }
     })
     onSave(p, next)
+    if (p.status === 'error' && p.error && test.state !== 'error') onFail?.(id, p.name, p.error)
   }
 
   return (
@@ -139,8 +148,9 @@ export function ProviderDrawer({ provider, kind, models, onClose, onSave, onDele
           </div>
         </div>
         <label className="field">
-          <span className="field-label">名称<span className="field-hint">同一家接多个账号时用来区分，比如「Anthropic 公司账号」</span></span>
+          <span className="field-label">名称<em>*</em><span className="field-hint">同一家接多个账号时用来区分，比如「Anthropic 公司账号」</span></span>
           <input value={name} className={cls(tried && !name.trim() && 'bad')} onChange={(e) => setName(e.target.value)} />
+          {tried && !name.trim() && <span className="field-err">必填</span>}
         </label>
         {def.fields.map((f) => (
           <label key={f.key} className="field">

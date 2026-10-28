@@ -92,7 +92,8 @@ export function TodayPage({ needs, tasks, schedules, running, more, onOpenTask, 
             <div key={g} className="today-group">
               <div className="today-group-head">
                 <div className="ability-group-name">{g}<span className="seg-n"> {items.length}</span></div>
-                {items.length > NEED_SHOW && more?.[g] && <button className="act act-quiet today-more" onClick={more[g]}>查看全部 {items.length} 条</button>}
+                {/* 任务待验收不多也给入口：去任务列表一起验收 */}
+                {(items.length > NEED_SHOW || g === '任务待验收') && more?.[g] && <button className="act act-quiet today-more" onClick={more[g]}>{items.length > NEED_SHOW ? `查看全部 ${items.length} 条` : '查看全部'}</button>}
               </div>
               {items.slice(0, NEED_SHOW).map((n) => (
                 <button key={n.id} className="today-need" onClick={n.onClick}>

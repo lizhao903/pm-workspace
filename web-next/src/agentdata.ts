@@ -18,7 +18,7 @@ export const ABILITIES: Ability[] = [
   { key: 'write_contacts', label: '新建 / 修改联系人', group: '联系人', write: true, desc: '' },
   { key: 'read_tasks', label: '查任务', group: '任务', write: false, desc: '按状态、负责人、截止时间查任务' },
   { key: 'write_tasks', label: '新建 / 更新任务', group: '任务', write: true, desc: '' },
-  { key: 'read_content', label: '读文档', group: '文档', write: false, desc: '只能读下面「可读文档」里勾选的范围' },
+  { key: 'read_content', label: '读文档', group: '文档', write: false, desc: '只能读挂载的知识库里的资料' },
   { key: 'write_content', label: '写文档', group: '文档', write: true, desc: '新建笔记、摘录' },
   { key: 'run_sop', label: '发起 SOP', group: 'SOP', write: true, desc: '按标准流程执行，流程里的人工检查点照常停下' },
 ]

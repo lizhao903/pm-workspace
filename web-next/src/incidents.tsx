@@ -73,7 +73,12 @@ export function IncidentsPage({ incidents, tasks, selected, onOpen }: { incident
 
   return (
     <div className="page page-fill">
-      <PageTitle parent="设置" count={incidents.filter((x) => x.status === 'open').length + ' 个未处理'} desc="系统运行中出的问题，同一个问题合并记次数；能转成研发任务去优化">运行异常</PageTitle>
+      <PageTitle parent="设置" count={(() => {
+        // 二级菜单红点只算错误，这里把错误单独点出来，两处数字对得上
+        const open = incidents.filter((x) => x.status === 'open')
+        const errs = open.filter((x) => x.level === 'error').length
+        return `${open.length} 个未处理${errs && errs < open.length ? `，${errs} 个是错误` : ''}`
+      })()} desc="系统运行中出的问题，同一个问题合并记次数；能转成研发任务去优化">运行异常</PageTitle>
       <div className="toolbar">
         <div className="seg">
           {([['open', '未处理'], ['tasked', '已转任务'], ['resolved', '已解决'], ['ignored', '已忽略'], ['all', '全部']] as [Filter, string][]).map(([k, l]) => (

@@ -12,6 +12,10 @@ import { newId } from './ids'
 
 const APP_PORT = 7778
 
+type Check = NonNullable<DomainRoute['check']>
+/** 解析测试的结果按域名单独记，不写回路由：测一次不算修改，自动分配的也不会因此转成手动。切出页面再回来还在 */
+let savedChecks: Record<string, Check> = {}
+
 export function DomainsPage({ settings: s, routes, protos, onSettings, onRoutes, onOpenUrl }: {
   settings: DomainSettings
   routes: DomainRoute[]
@@ -25,6 +29,17 @@ export function DomainsPage({ settings: s, routes, protos, onSettings, onRoutes,
   const [draft, setDraft] = useState<{ host: string; kind: RouteTarget['kind']; proto: string; url: string; note: string }>({ host: '', kind: 'url', proto: '', url: 'http://127.0.0.1:', note: '' })
   const [showCfg, setShowCfg] = useState<'resolve' | 'proxy'>('resolve')
   const [checking, setChecking] = useState<string | null>(null)
+  const [checks, setChecks] = useState(savedChecks)
+  const chk = (r: DomainRoute) => checks[r.host] ?? r.check
+  /** 刚点过「复制」的按钮，短暂显示「已复制」 */
+  const [copied, setCopied] = useState<string | null>(null)
+  const copy = (key: string, text: string) => {
+    navigator.clipboard?.writeText(text)
+    setCopied(key)
+    window.setTimeout(() => setCopied((c) => (c === key ? null : c)), 1200)
+  }
+  /** 等确认删除的域名 */
+  const [askDel, setAskDel] = useState<string | null>(null)
   const [q, setQ] = useState('')
   /** 手动展开、收起过的项目组；没动过的按「有问题就展开」 */
   const [toggled, setToggled] = useState<Record<string, boolean>>({})
@@ -56,7 +71,7 @@ export function DomainsPage({ settings: s, routes, protos, onSettings, onRoutes,
   }, [protos])
   const kw = q.trim().toLowerCase()
   const hit = (r: DomainRoute) => !kw || `${fqdn(r, s)} ${targetLabel(r)} ${r.note ?? ''}`.toLowerCase().includes(kw)
-  const problem = (r: DomainRoute) => (dup.has(r.host) && r.enabled) || (!!r.check && !r.check.ok)
+  const problem = (r: DomainRoute) => (dup.has(r.host) && r.enabled) || (!!chk(r) && !chk(r)!.ok)
   const manual = all.filter((r) => !r.auto && hit(r))
   const autoAll = all.filter((r) => r.auto)
   // 自动分配的按项目分组，默认收起；有冲突或测试失败的组、搜索命中的组自动展开
@@ -72,6 +87,7 @@ export function DomainsPage({ settings: s, routes, protos, onSettings, onRoutes,
   const groupOpen = (g: { name: string; bad: number }) => toggled[g.name] ?? (!!kw || g.bad > 0 || autoAll.length <= 12)
   const row = (r: DomainRoute) => {
     const bad = dup.has(r.host) && r.enabled
+    const c = chk(r)
     return (
       <div key={r.id} className={cls('dm-row', !r.enabled && 'dm-row-off', bad && 'bad')}>
           <label className="switch-line" title={r.enabled ? '停用' : '启用'}><input type="checkbox" checked={r.enabled} onChange={(e) => patch(r, { enabled: e.target.checked })} /><span className="switch" /></label>
@@ -84,19 +100,29 @@ export function DomainsPage({ settings: s, routes, protos, onSettings, onRoutes,
             </span>
           </span>
           <span className="dm-target ellipsis mono">{targetLabel(r)}</span>
-          <span className={cls('dm-check', r.check && (r.check.ok ? 'ok' : 'warn'))} title={r.check?.message}>
-            {checking === r.id ? '测试中…' : r.check ? `${r.check.ok ? '正常' : '有问题'} · ${timeAgo(r.check.at)}` : ''}
+          <span className={cls('dm-check', c && (c.ok ? 'ok' : 'warn'))} title={c?.message}>
+            {checking === r.id ? '测试中…' : c ? `${c.ok ? '正常' : '有问题'} · ${timeAgo(c.at)}` : ''}
           </span>
           <span className="dm-acts">
-            <button className="act act-quiet" disabled={checking === r.id} onClick={() => check(r)}>测试</button>
-            <button className="act act-quiet" onClick={() => navigator.clipboard?.writeText(domainUrl(r, s))}>复制</button>
-            {!r.auto && r.target.kind !== 'app' && (
-              <button className="icon-btn icon-btn-sm" title="删除" onClick={() => onRoutes((xs) => xs.filter((y) => y.id !== r.id))}>
-                <svg viewBox="0 0 16 16" width="11" height="11"><path d="m4 4 8 8M12 4l-8 8" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" /></svg>
-              </button>
+            {askDel === r.id ? (
+              <>
+                <span className="danger-text">删除这个域名？</span>
+                <button className="act act-quiet" onClick={() => setAskDel(null)}>取消</button>
+                <button className="act btn-danger" onClick={() => { onRoutes((xs) => xs.filter((y) => y.id !== r.id)); setAskDel(null) }}>删除</button>
+              </>
+            ) : (
+              <>
+                <button className="act act-quiet" disabled={checking === r.id} onClick={() => check(r)}>测试</button>
+                <button className="act act-quiet" onClick={() => copy(r.id, domainUrl(r, s))}>{copied === r.id ? '已复制' : '复制'}</button>
+                {!r.auto && r.target.kind !== 'app' && (
+                  <button className="icon-btn icon-btn-sm" title="删除" onClick={() => setAskDel(r.id)}>
+                    <svg viewBox="0 0 16 16" width="11" height="11"><path d="m4 4 8 8M12 4l-8 8" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" /></svg>
+                  </button>
+                )}
+              </>
             )}
           </span>
-          {r.check && !r.check.ok && <span className="dm-check-msg">{r.check.message}</span>}
+          {c && !c.ok && <span className="dm-check-msg">{c.message}</span>}
       </div>
     )
   }
@@ -112,7 +138,9 @@ export function DomainsPage({ settings: s, routes, protos, onSettings, onRoutes,
     setChecking(r.id)
     window.setTimeout(() => {
       const problem = suffixBad ? '域名后缀不合法' : dup.has(r.host) ? '有两条同名的域名' : !upstream(r) ? '目标原型不存在' : down(r) ? '解析正常，但目标原型没在运行' : s.https && !s.ca_installed ? '解析正常，但本地根证书没装，浏览器会提示不安全' : ''
-      patch(r, { check: { ok: !problem, at: new Date().toISOString(), message: problem || `${fqdn(r, s)} 解析到 ${s.lan ? s.lan_ip : '127.0.0.1'}，转发到 ${upstream(r)}` } })
+      const next = { ...savedChecks, [r.host]: { ok: !problem, at: new Date().toISOString(), message: problem || `${fqdn(r, s)} 解析到 ${s.lan ? s.lan_ip : '127.0.0.1'}，转发到 ${upstream(r)}` } }
+      savedChecks = next
+      setChecks(next)
       setChecking(null)
     }, 600)
   }
@@ -256,7 +284,7 @@ export function DomainsPage({ settings: s, routes, protos, onSettings, onRoutes,
             <button className={cls(showCfg === 'resolve' && 'on')} onClick={() => setShowCfg('resolve')}>{RESOLVE_MODE[s.resolve].label}</button>
             <button className={cls(showCfg === 'proxy' && 'on')} onClick={() => setShowCfg('proxy')}>{PROXY_KIND[s.proxy].label}</button>
           </div>
-          <button className="act" onClick={() => navigator.clipboard?.writeText(cfg[showCfg])}>复制</button>
+          <button className="act" onClick={() => copy('cfg', cfg[showCfg])}>{copied === 'cfg' ? '已复制' : '复制'}</button>
         </div>
         <pre className="dm-cfg">{cfg[showCfg] || '没有启用的域名'}</pre>
       </section>
