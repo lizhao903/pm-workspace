@@ -5,11 +5,15 @@
     "typescript",
     "oxc"
   ],
+  "jsPlugins": [
+    "./scripts/lint-boundaries.js"
+  ],
   "ignorePatterns": [
     "dist",
     "node_modules"
   ],
   "rules": {
+    "pmw/boundaries": "error",
     "react/rules-of-hooks": "error",
     "react/only-export-components": [
       "warn",
