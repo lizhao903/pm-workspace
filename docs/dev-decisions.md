@@ -16,6 +16,42 @@
 
 ---
 
+## 2026-10-29 第十六批验收、第十七批开工
+
+第十六批 4 条（TASK-04b、DOC-01b、CT-01a、MP-01a）检查通过，已提交验收（53bbe42、17b99f7、de3566e）。MP-01a 的第二条验收只部分满足：Ollama 真测通过，Anthropic、DeepSeek 没有真实 key，只验到官方端点认出鉴权。检查项：gofmt、go vet、go test ./...，前端 npm test 405 条、typecheck、lint、build，smoke-frontend 42 次 0 问题，smoke-proto 462 步 0 问题。测试实例 02:28 重启到 0026。
+
+第十七批 4 条：CT-03a、MP-01b、CT-01b（0027）、PJ-01b（插件自己的迁移）。
+
+### 读文件再加一道：按文件名拦敏感文件（主会话做，安全）
+- **问题**：DOC-01b 联调时在 7796 上挂上了整个仓库根。7796 的数据目录在 scratchpad，所以「不许挂数据目录」只拦住了它自己的，挂上仓库根后能读到正式服务的 `data/`。
+- **决策**：`vault.key`、`.db` 及其 `-wal`、`-shm`、`-journal`，以及 `.sqlite`、`.key`、`.pem`、`.p12`、`.pfx`，在任何挂载目录里都不给读（de3566e）。7796 实测挂仓库根后读 `data/pm.db` 为 403，README 正常。
+- 前面的「隐藏项不给读」「本实例数据目录不许挂」照旧。
+
+### 干系人重名的两条记录冲突
+- 第一批记的是「允许重名，靠 id 区分」，第十五批改成了「保持唯一、撞名回 409」。库里有 name 唯一索引，放宽要删旧索引，违反迁移只加不改，以第十五批为准；旧条目已标注更正。按 IM 身份认人（CT-01b）不受影响。
+
+### Webhook 页（TASK-04b，同意）
+- 测试推送由浏览器用内存里的密钥明文签名（刚建或刚轮换时拿到的，或人粘贴的），不落存储；只有 https 或本机地址下能算签名。以后可以加后端 `POST /api/webhooks/{id}/test` 免去明文。
+- 「人工创建」视图包含导入的任务（`source=manual,import`），7796 上现有任务都是导入的。
+- 子代理改了 core/api 两处（请求加可选 headers、对象筛选加 source），都是只加，同意。
+- 新建任务带 `source: 'manual'`。
+
+### 文档页（DOC-01b，同意）
+- Markdown 挪到 `core/ui`，tasks 里保留再导出。
+- 星标存在 `props.starred`，不加迁移；代价是加星标刷新 `updated_at` 并多一条修订。
+- 工作台文档一次拉全、筛选在前端做；本地目录只按文件名搜，不搜正文。
+
+### 联系人字段（CT-01a，同意）
+- 职位单独加 `title` 列，不复用 `role`；分组列名 `contact_group`（`group` 是 SQL 关键字）。
+- `im` 字段归 CT-01b 的身份表。
+- 撞名的错误信息是英文，沿用后端现有风格，记为已知问题（同 TASK-04a 的英文校验信息）。
+
+### 服务商（MP-01a，同意）
+- DeepSeek 用 `kind=openai` 加 `extra.preset=deepseek`：kind 只表示协议，以后其它兼容 OpenAI 的厂商只加 preset。
+- Anthropic 的 `max_tokens` 固定 8192。
+
+---
+
 ## 2026-10-29 第十五批验收、第十六批开工
 
 第十五批 3 条（CORE-10b、TASK-02b、DOC-01a）全部检查通过，已提交验收（4b2bd6c、d9f5a4c、bf8edfa）。检查项：gofmt、go vet、go test ./...，前端 npm test 369 条、typecheck、lint、build，smoke-frontend 42 次 0 问题，smoke-proto 462 步 0 问题。测试实例 02:03 重启到 0025。
