@@ -219,4 +219,7 @@ type Store interface {
 	// Overdue/Stalled）按该类型统计；ByType/ByStatus/UncategorizedByType/Total 恒为全局
 	// ——侧栏要用它们，它们天然跨类型。混合口径是有意的，不要「统一」成全部按 typeID 过滤。
 	Counts(ctx context.Context, typeID string) (*domain.Counts, error)
+	// Today 返回今日页的内核卡片（等确认、逾期、今天到期、运行中）。typeID 的语义同 Counts；
+	// 逾期、今天到期和 Counts 共用同一份条件，卡片的 Total 必须等于对应的计数器。
+	Today(ctx context.Context, typeID string) (*domain.Today, error)
 }

@@ -58,13 +58,53 @@ func (s *Store) Counts(ctx context.Context, typeID string) (*domain.Counts, erro
 		return nil, err
 	}
 
+	fc, err := s.focusConds(ctx, time.Now(), typeID)
+	if err != nil {
+		return nil, err
+	}
+
+	type q struct {
+		dst *int
+		fc  focusCond
+	}
+	queries := []q{
+		// Total 恒为全局，不吃 scope。
+		{&c.Total, focusCond{liveCond, nil}},
+		{&c.Inbox, fc.inbox},
+		{&c.Today, fc.today},
+		{&c.Week, fc.week},
+		{&c.Overdue, fc.overdue},
+		{&c.Stalled, fc.stalled},
+	}
+	for _, item := range queries {
+		if err := s.db.R.QueryRowContext(ctx,
+			`SELECT COUNT(*) FROM objects o WHERE `+item.fc.cond, item.fc.args...).Scan(item.dst); err != nil {
+			return nil, fmt.Errorf("count objects: %w", err)
+		}
+	}
+	return c, nil
+}
+
+// focusCond 是一个聚焦类计数器的 WHERE 条件（表别名 o）。
+type focusCond struct {
+	cond string
+	args []any
+}
+
+// focusConds 是聚焦类计数器的全部条件。Counts 拿它数条数，Today 拿它取行，
+// 两边用的是同一份条件，今日页的条数和侧栏徽标不会分叉。
+type focusConds struct {
+	inbox, today, week, overdue, stalled focusCond
+}
+
+// focusConds 按 now 和 typeID 拼出聚焦类计数器的条件。typeID 为空时是全局。
+func (s *Store) focusConds(ctx context.Context, now time.Time, typeID string) (*focusConds, error) {
 	notTerminal, targs, err := s.terminalClause(ctx, "o")
 	if err != nil {
 		return nil, err
 	}
 
 	// 今天/本周按本地自然日切，产品经理看的是日历上的今天，不是 UTC 的今天。
-	now := time.Now()
 	dayStart := startOfDay(now)
 	dayEnd := dayStart.AddDate(0, 0, 1)
 	weekEnd := dayStart.AddDate(0, 0, 7)
@@ -75,32 +115,18 @@ func (s *Store) Counts(ctx context.Context, typeID string) (*domain.Counts, erro
 		scopeCond, scopeArgs = " AND o.type_id = ?", []any{typeID}
 	}
 
-	type q struct {
-		dst  *int
-		cond string
-		args []any
-	}
-	queries := []q{
-		// Total 恒为全局，不吃 scope。
-		{&c.Total, liveCond, nil},
-		{&c.Inbox, liveCond + ` AND (o.source = 'inbox' OR o.category_id IS NULL)` + scopeCond,
+	return &focusConds{
+		inbox: focusCond{liveCond + ` AND (o.source = 'inbox' OR o.category_id IS NULL)` + scopeCond,
 			scopeArgs},
-		{&c.Today, liveCond + ` AND o.due_at >= ? AND o.due_at < ? AND ` + notTerminal + scopeCond,
+		today: focusCond{liveCond + ` AND o.due_at >= ? AND o.due_at < ? AND ` + notTerminal + scopeCond,
 			concatArgs([]any{timeStr(dayStart), timeStr(dayEnd)}, targs, scopeArgs)},
-		{&c.Week, liveCond + ` AND o.due_at >= ? AND o.due_at < ? AND ` + notTerminal + scopeCond,
+		week: focusCond{liveCond + ` AND o.due_at >= ? AND o.due_at < ? AND ` + notTerminal + scopeCond,
 			concatArgs([]any{timeStr(dayStart), timeStr(weekEnd)}, targs, scopeArgs)},
-		{&c.Overdue, liveCond + ` AND o.due_at IS NOT NULL AND o.due_at < ? AND ` + notTerminal + scopeCond,
+		overdue: focusCond{liveCond + ` AND o.due_at IS NOT NULL AND o.due_at < ? AND ` + notTerminal + scopeCond,
 			concatArgs([]any{overdueBefore(now)}, targs, scopeArgs)},
-		{&c.Stalled, liveCond + ` AND o.updated_at < ? AND ` + notTerminal + scopeCond,
+		stalled: focusCond{liveCond + ` AND o.updated_at < ? AND ` + notTerminal + scopeCond,
 			concatArgs([]any{stalledBefore(now)}, targs, scopeArgs)},
-	}
-	for _, item := range queries {
-		if err := s.db.R.QueryRowContext(ctx,
-			`SELECT COUNT(*) FROM objects o WHERE `+item.cond, item.args...).Scan(item.dst); err != nil {
-			return nil, fmt.Errorf("count objects: %w", err)
-		}
-	}
-	return c, nil
+	}, nil
 }
 
 // groupCount 按给定表达式分组计数，extra 是追加的过滤条件（可为空）。

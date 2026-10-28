@@ -112,6 +112,7 @@ func (s *Server) routes(m routeRegistrar) {
 	m.HandleFunc("GET /api/health", s.handleHealth)
 	m.HandleFunc("GET /api/stats", s.handleStats)
 	m.HandleFunc("GET /api/counts", s.handleCounts)
+	m.HandleFunc("GET /api/today", s.handleToday)
 
 	m.HandleFunc("GET /api/object-types", s.handleListObjectTypes)
 	m.HandleFunc("POST /api/object-types", s.handleCreateObjectType)
