@@ -4,12 +4,12 @@
 |---|---|
 | 模块 key | `tasks` |
 | 原型入口 | 一级菜单「任务」，http://127.0.0.1:7778 |
-| 源码 | `web-next/src/tasks.tsx`（二级菜单、列表、任务抽屉、Webhook 列表和配置页）、`web-next/src/schedule.tsx`（定时任务列表和抽屉）；接线在 `web-next/src/App.tsx`（`patchTask`、`deleteTask`、`taskPlan`、`runScheduleNow`、`ingest` 调用） |
-| 数据文件 | `web-next/src/taskdata.ts`（任务、Webhook、投递）、`web-next/src/scheduledata.ts`（定时任务）；状态、优先级的显示名和颜色在 `web-next/src/enumdata.ts`（`task_status`、`task_priority`） |
+| 源码 | `web-next/src/tasks.tsx`（二级菜单、列表、任务抽屉、Webhook 列表和配置页）、`web-next/src/devloop.tsx`（开发闭环：等你验收栏、进展、产出物、执行记录、交给 Claude Code 弹窗、完成圆圈确认，`useDevLoop`）、`web-next/src/schedule.tsx`（定时任务列表和抽屉）；接线在 `web-next/src/App.tsx`（`patchTask`、`useDevLoop`、`deleteTask`、`taskPlan`、`runScheduleNow`、`ingest` 调用） |
+| 数据文件 | `web-next/src/taskdata.ts`（任务、Webhook、投递；末尾是开发闭环的进展、产出物、执行记录和演示数据）、`web-next/src/scheduledata.ts`（定时任务）；状态、优先级的显示名和颜色在 `web-next/src/enumdata.ts`（`task_status`、`task_priority`） |
 | 截图 | [`shots/tasks/`](shots/tasks/) |
-| 负责任务 | PROTO-04b |
+| 负责任务 | PROTO-04b、PROTO-07（开发闭环） |
 | 状态 | 已整理 |
-| 最后对照 | 2026-10-28，原型提交 `932555b` |
+| 最后对照 | 2026-10-28，原型提交 `932555b`；`SPEC-tasks-5`、`SPEC-tasks-6` 和待验收相关的条目按 PROTO-07 的原型改动（未提交）修订 |
 
 ## SPEC-tasks-0 模块概述
 
@@ -23,8 +23,8 @@
 | [SPEC-tasks-2](#spec-tasks-2-全部任务和逾期) | 全部任务、逾期 | 二级菜单「全部任务」「逾期」（模块入口是全部任务） | 任务列表，按截止日分段 |
 | [SPEC-tasks-3](#spec-tasks-3-来源视图) | 来源视图 | 二级菜单「人工创建」「IM 消息」「Webhook」「定时」「运行异常」 | 同一个列表，只看某种来源 |
 | [SPEC-tasks-4](#spec-tasks-4-任务抽屉) | 任务抽屉 | 列表点一行、「新建任务」、IM 消息「转任务」、今日点任务 | 新建、查看、编辑、删除 |
-| [SPEC-tasks-5](#spec-tasks-5-任务抽屉的开发闭环区块原型未做) | 任务抽屉的开发闭环区块 | 任务抽屉里 | 进展、产出物、执行记录、改动痕迹、验收和退回。原型未做 |
-| [SPEC-tasks-6](#spec-tasks-6-交给-claude-code原型未做) | 交给 Claude Code | 任务抽屉里的按钮 | 选工作目录和权限，调用执行。原型未做 |
+| [SPEC-tasks-5](#spec-tasks-5-任务抽屉的开发闭环区块) | 任务抽屉的开发闭环区块 | 开发任务的抽屉里 | 等你验收栏（验收通过、退回）、进展时间线（按会话分组）、产出物、执行记录；列表完成圆圈的验收确认。改动区原型未做 |
+| [SPEC-tasks-6](#spec-tasks-6-交给-claude-code) | 交给 Claude Code | 任务抽屉「开发」组的按钮 | 选工作目录、只读或允许写入、附加说明，流式显示执行过程 |
 | [SPEC-tasks-7](#spec-tasks-7-定时任务列表) | 定时任务列表 | 二级菜单「定时任务」 | 规则列表，启停 |
 | [SPEC-tasks-8](#spec-tasks-8-定时任务抽屉) | 定时任务抽屉 | 定时任务列表点一行、「新建定时任务」、今日点定时任务 | 配规则和动作、立即执行、执行记录 |
 | [SPEC-tasks-9](#spec-tasks-9-webhook-接入) | Webhook 接入 | 二级菜单「Webhook 接入」 | Webhook 列表 |
@@ -35,11 +35,11 @@
 | 任务 | 对照的节 |
 |---|---|
 | DEV-07a 任务列表页接真实接口 | `SPEC-tasks-1.1 到 1.4`、`SPEC-tasks-2`（全节）；待验收见 `SPEC-tasks-2.6`、`SPEC-tasks-0` 状态流转 |
-| DEV-07b 任务抽屉：新建、编辑、改状态 | `SPEC-tasks-4`（全节） |
-| DEV-08a 进展时间线 | `SPEC-tasks-5.1 到 5.6` |
+| DEV-07b 任务抽屉：新建、编辑、改状态 | `SPEC-tasks-4`（全节，开发字段见 `SPEC-tasks-4.25 到 4.28`） |
+| DEV-08a 进展时间线 | `SPEC-tasks-5.1 到 5.6`、`5.19`（会话 id 复制） |
 | DEV-08b 产出物 | `SPEC-tasks-5.7 到 5.11` |
-| DEV-08c 执行记录和流式输出 | `SPEC-tasks-5.12 到 5.17` |
-| DEV-08d 改动痕迹、验收和退回 | `SPEC-tasks-5.18 到 5.25` |
+| DEV-08c 执行记录和流式输出 | `SPEC-tasks-5.12 到 5.17`、`5.26` |
+| DEV-08d 改动痕迹、验收和退回 | `SPEC-tasks-5.18`、`5.20 到 5.25`、`5.27`（完成圆圈确认）、`5.28` |
 | DEV-09 交给 Claude Code | `SPEC-tasks-6`（全节） |
 | TODAY-02 今日页 | 点任务打开的抽屉是 `SPEC-tasks-4`；主体见 `today.md` `SPEC-today-1` |
 | TASK-04a 定时任务页 | `SPEC-tasks-7`、`SPEC-tasks-8` |
@@ -62,6 +62,9 @@
 | `source` | `TaskSource` | 是 | 从哪来的 | 见下 |
 | `project_id` | `string` | 否 | 所属项目；不属于任何项目时没有这个字段 | `pj_perm` |
 | `project_removed` | `string` | 否 | 原属项目被删时记下的项目名，任务上提示「原属项目已删除」；重新选了项目后清掉 | `远川科技权限改造` |
+| `acceptance` | `string` | 否 | 开发任务的验收标准，Markdown 清单 `- [ ] …`（正式产品存 `props.acceptance`） | `- [ ] 12 万行的导出 60 秒内完成` |
+| `workdir` | `string` | 否 | 开发任务的工作目录，本机绝对路径；没设时继承所属项目的根目录（正式产品是 `workdir` 列） | `/Volumes/project/clients/yuanchuan-permission/server` |
+| `repo` | `string` | 否 | 关联仓库，远端地址或本机绝对路径，只放一个（正式产品存 `props.repo`） | `/Volumes/project/0xBroleez/pm-workspace` |
 | `created_at` | `string` | 是 | ISO 时间 | |
 | `updated_at` | `string` | 是 | ISO 时间，每次改动刷新 | |
 
@@ -259,12 +262,12 @@ stateDiagram-v2
 | SPEC-tasks-2.3 | 状态筛选（分段按钮） | 点击 | 依次是「未完成」（默认，未结束的状态都算，含待验收）、枚举里除 `cancelled` 以外的前 5 个状态、「全部」；每个按钮带该视图下的条数。已取消的只在「全部」里看得到 |
 | SPEC-tasks-2.4 | 「更多状态」下拉 | 选择 | 枚举里的状态超过 5 个（不算已取消）时出现，可搜索，选项旁带条数；选中后按该状态过滤，清空回到「未完成」 |
 | SPEC-tasks-2.5 | 「全部优先级」下拉 | 选择 | 按优先级过滤，选项来自枚举 `task_priority` |
-| SPEC-tasks-2.6 | 待验收 | 展示 | 状态筛选里有「待验收」按钮（`review`）；待验收的任务在「未完成」里照常按截止日分段，状态列显示紫色「待验收」标签；不算逾期豁免，过了截止日照样进「逾期」 |
+| SPEC-tasks-2.6 | 待验收 | 展示 | 状态筛选里有「待验收」按钮（`review`）；待验收的任务在「未完成」里照常按截止日分段，状态列显示紫色「待验收」标签；不算逾期豁免，过了截止日照样进「逾期」。演示数据里 `T-015`、`T-017` 待验收，`T-016` 进行中，都由 Claude Code 做（`SPEC-tasks-5`） |
 | SPEC-tasks-2.7 | 「全部项目」下拉 | 选择 | 可搜索；选项是所有项目和「不属于项目」。选中的项目已删除时显示「已删除的项目」 |
 | SPEC-tasks-2.8 | 搜索框 | 输入 | 按标题、描述、编号、负责人模糊匹配（不区分大小写），实时过滤，清空后恢复 |
 | SPEC-tasks-2.9 | 列表行 | 展示 | 列：完成圆圈、任务（编号、标题；下一行是来源标签、项目标签、「N 分钟前创建」）、优先级、负责人（空时「未分配」）、截止（今天显示「今天」，其余 `mm-dd`，没有显示「-」，逾期的红字加「逾期」）、状态。项目已删除时项目标签显示「已删除的项目」；任务的原属项目被删时显示「原属项目已删除」，悬停显示原项目名。已完成的行变淡 |
 | SPEC-tasks-2.10 | 列表行 | 点击 | 打开该任务的抽屉（`SPEC-tasks-4`），当前行高亮 |
-| SPEC-tasks-2.11 | 行首完成圆圈 | 点击 | 不打开抽屉。未完成（含待验收）的标为 `done`，圆圈打勾；已完成的改回 `todo`。悬停提示「标为已完成」/「标为待办」 |
+| SPEC-tasks-2.11 | 行首完成圆圈 | 点击 | 不打开抽屉。未完成的标为 `done`，圆圈打勾；已完成的改回 `todo`。悬停提示「标为已完成」/「标为待办」。待验收的任务例外：先弹确认，确认后等于验收通过，悬停提示「验收通过」（`SPEC-tasks-5.27`） |
 | SPEC-tasks-2.12 | 截止分段 | 展示 | 列表按截止日分段：逾期（红字）、今天、本周（到本周日）、以后、无截止、已结束（`done`、`cancelled`），没有条目的段不出现。段内先按优先级 key 排，再按截止日，没有截止的在后 |
 | SPEC-tasks-2.13 | 分段标题 | 点击 | 折叠或展开这一段，标题带条数 |
 | SPEC-tasks-2.14 | 段尾「这一段还有 N 条」 | 点击 | 每段先露 30 条，超出时出现；点一次多露 100 条。换视图、状态、优先级、项目或搜索词后各段重新只露 30 条 |
@@ -357,6 +360,7 @@ stateDiagram-v2
 - 查看定时来源：「全部」状态下点 `T-005`；运行异常来源：点 `T-013`。
 - IM 消息转任务：IM 消息模块里选一条待处理的消息，点「转任务」。
 - 删除确认：打开任意任务，点左下「删除任务」。
+- 开发任务（等你验收栏、开发组、进展、产出物、执行记录）：点 `T-015`、`T-017`（待验收）或 `T-016`（进行中），截图见 `SPEC-tasks-5`。
 
 ### 交互
 
@@ -380,6 +384,10 @@ stateDiagram-v2
 | SPEC-tasks-4.16 | 「创建任务」 | 点击 | 标题去首尾空白后保存；建好后抽屉切到这条新任务的查看状态。来源：IM 转来的记 `im`，其余 `manual` |
 | SPEC-tasks-4.17 | 「保存」 | 点击 | 保存全部字段并关闭抽屉，`updated_at` 刷新；重新选了项目时清掉 `project_removed` |
 | SPEC-tasks-4.18 | 「取消」 | 点击 | 同关闭 |
+| SPEC-tasks-4.25 | 「+ 开发信息：验收标准、工作目录，交给 Claude Code 做」 | 点击 | 新建任务时出现在所属项目下面，展开后是「开发」组。已存在的任务一直显示「开发」组 |
+| SPEC-tasks-4.26 | 「开发」组：验收标准 | 输入 | 等宽多行文本，占位「- [ ] 一条一行，写成能检查的样子」；清空等于不设。保存时随表单一起保存 |
+| SPEC-tasks-4.27 | 「开发」组：工作目录、关联仓库 | 输入 | 一行两格，等宽字体。工作目录没填时占位「继承自项目：项目根目录」，下面提示「没设时用所属项目的目录」；不属于项目时占位「本机绝对路径」。关联仓库占位「远端地址或本机路径，只放一个」 |
+| SPEC-tasks-4.28 | 「开发」组右上「交给 Claude Code」 | 点击 | 只在已存在的任务上出现，见 `SPEC-tasks-6` |
 | SPEC-tasks-4.19 | 左下「删除任务」 | 点击 | 底栏换成红字确认：「删除后不能恢复」，有连带影响时接着列出，如「运行异常「…」会退回未处理」「Webhook 再推送同样的内容会重新建任务」；「取消」回到原底栏，「删除」删掉并关闭抽屉。由异常转来的任务删掉后，异常退回未处理、备注「关联的任务已删除」；Webhook 投递记录保留，去重只认还在的任务 |
 
 ### 空状态和异常状态
@@ -405,8 +413,9 @@ stateDiagram-v2
 | `assignee` | `string` | 是 | |
 | `due` | `string \| null` | 是 | |
 | `project_id` | `string` | 否 | |
+| `acceptance`、`workdir`、`repo` | `string` | 否 | 开发字段，清空时为 `undefined` |
 
-正式产品（DEV-07b）在原型字段之外加：正文用 Markdown、负责人和参与人从干系人名册选（`owner_id`、`participant_ids`）、工作目录（`workdir` 列，可选目录并即时校验，任务没设时显示「继承自项目：…」）、关联仓库（`props.repo`）、验收标准（`props.acceptance`，Markdown 清单）。编辑只传改动的字段，`props` 先读回再合并。删除走软删。抽屉下部留出 `SPEC-tasks-5` 的四块。
+正式产品（DEV-07b）在原型字段之外加：正文用 Markdown、负责人和参与人从干系人名册选（`owner_id`、`participant_ids`）、工作目录（`workdir` 列，可选目录并即时校验，任务没设时显示「继承自项目：…」）、关联仓库（`props.repo`）、验收标准（`props.acceptance`，Markdown 清单）。编辑只传改动的字段，`props` 先读回再合并。删除走软删。开发任务的抽屉下部是 `SPEC-tasks-5` 的三块，顶部是等你验收栏；正式产品再加一块改动区（`SPEC-tasks-5.18`）。
 
 ### 联动
 
@@ -417,13 +426,32 @@ stateDiagram-v2
 | 出去 | IM 消息、设置、Webhook、定时任务 | 来源卡按钮 | 见 `SPEC-tasks-4.4 到 4.8` | |
 | 改动 | IM 消息、设置 / 运行异常 | 转任务勾选、删除任务 | 见 `SPEC-tasks-4.14`、`SPEC-tasks-4.19` | |
 
-## SPEC-tasks-5 任务抽屉的开发闭环区块（原型未做）
+## SPEC-tasks-5 任务抽屉的开发闭环区块
 
-开发任务（交给 Claude Code 做的任务）在抽屉里多四块：进展、产出物、执行记录、改动。**原型的任务抽屉里没有这些交互**，本节按 `web-next/docs/dev-plan.md` 4.0 的时序图、`docs/api-contract.md`（进展与领取、输出产物、任务执行 runs、约定）和 `docs/dev-tasks.json` 里 DEV-08a 到 DEV-08d 的要求整理；样式借原型：时间线参照 `videos.tsx` 的阶段时间线和 `monitor.tsx` 的 `mo-timeline`，产出列表参照 `sessions.tsx` 的 `OutputsView`，工具调用卡片参照 `agents.tsx` 的 `CallCard`。原型补上这些区块后再按原型修订本节（见文末第 7 条）。
+开发任务（交给 Claude Code 做的任务）在抽屉里多出：顶部的「等你验收」栏（只在待验收时）、表单里的「开发」组（`SPEC-tasks-4.25 到 4.28`），以及表单下面的三块：进展、产出物、执行记录。原型在 `web-next/src/devloop.tsx`（组件和 `useDevLoop`），数据在 `taskdata.ts` 末尾；字段和 `docs/api-contract.md` 进展与领取、输出产物、任务执行 runs 对齐。时序见 `web-next/docs/dev-plan.md` 4.0。
+
+什么算开发任务（`isDevTask`）：填了验收标准、工作目录、关联仓库之一，或者已经有进展、产出物、执行记录。不是开发任务的抽屉不出现这三块。
+
+演示故事线（都在「产品工作台新版」「远川科技权限改造」两个项目里，负责人 Claude Code）：
+
+| 任务 | 状态 | 故事 |
+|---|---|---|
+| `T-015` 导出改成分批写文件，修掉 300 秒超时 | 待验收 | 对应 `T-012` 的 Sentry 告警。会话 `7c41e2a9` 领取、改服务端、提交验收；你以「界面还是 300 秒报超时」退回；会话 `b18f5d03` 重新领取、改前端、再次提交验收。两条执行记录：一次只读（被权限挡下一次，有保留意见）、一次允许写入 |
+| `T-016` 旧版设置页的错误横幅改成行内提示 | 进行中 | 对应项目资料「旧版用起来的问题清单」。会话 `e5a90c17` 做到一半；一条失败的执行记录 |
+| `T-017` 权限变更缓存改成按部门失效 | 待验收 | 对应 `T-009`。会话 `42d7b8e6` 一次做完提交验收，带压测截图 |
 
 ### 截图
 
-原型未做，没有截图。
+截图脚本 `shots.py` 只截一级、二级菜单和标签，下面这些抽屉截图是另外截的（桌面 1440，打开 `T-015`；手机宽度下抽屉本身有问题，见文末第 12 条，没截）。重跑 `shots.py --only tasks` 会清掉它们，要按下表的步骤重截。
+
+| 场景 | 步骤 | 亮 | 暗 |
+|---|---|---|---|
+| 等你验收 | 全部任务点 `T-015` | ![](shots/tasks/抽屉_待验收-1440-light.png) | ![](shots/tasks/抽屉_待验收-1440-dark.png) |
+| 退回 | 等你验收栏点「退回」 | ![](shots/tasks/抽屉_退回-1440-light.png) | ![](shots/tasks/抽屉_退回-1440-dark.png) |
+| 进展时间线 | 抽屉往下滚到「进展」 | ![](shots/tasks/抽屉_进展-1440-light.png) | ![](shots/tasks/抽屉_进展-1440-dark.png) |
+| 产出物和执行记录 | 滚到「产出物」，展开只读那条执行记录 | ![](shots/tasks/抽屉_产出物和执行记录-1440-light.png) | ![](shots/tasks/抽屉_产出物和执行记录-1440-dark.png) |
+| 执行中（流式） | 「交给 Claude Code」只读执行，开始后 2 秒 | ![](shots/tasks/抽屉_执行中-1440-light.png) | ![](shots/tasks/抽屉_执行中-1440-dark.png) |
+| 列表完成圆圈确认 | 全部任务点 `T-017` 行首圆圈 | ![](shots/tasks/待验收_完成圆圈确认-1440-light.png) | ![](shots/tasks/待验收_完成圆圈确认-1440-dark.png) |
 
 ### 交互
 
@@ -431,97 +459,146 @@ stateDiagram-v2
 
 | 编号 | 元素 | 操作 | 结果 |
 |---|---|---|---|
-| SPEC-tasks-5.1 | 「进展」时间线 | 展示 | 读 `GET /api/objects/{id}/progress`，按时间顺序排；每条显示类型标识（`claim` 领取 / `note` 进展 / `review` 提交验收）、操作者 `actor_name`、会话 id 短码、时间、Markdown 正文、`commits` 和 `files` 小标签 |
-| SPEC-tasks-5.2 | 提交验收那条（`kind = review`） | 展示 | 醒目显示，作为验收时的阅读入口 |
-| SPEC-tasks-5.3 | 自动刷新 | 抽屉打开期间 | 任务处于进行中时每 10 秒刷新一次；有事件推送（CORE-07c）后改为推送 |
-| SPEC-tasks-5.4 | 「追加进展」输入框和按钮 | 输入、提交 | `POST /progress`，`kind = note`；正文去首尾空白后不能为空；提交后出现在时间线末尾，刷新后仍在 |
-| SPEC-tasks-5.5 | 修订记录里的进展行 | 展示 | `/revisions` 里 `field = progress` 的行不按「从 old 改成 new」显示（`old_value` 是元数据 JSON），只显示正文；任何位置都不把它显示成 JSON |
+| SPEC-tasks-5.1 | 「进展」时间线 | 展示 | 标题旁说明「按会话分组，标出是 Claude Code 哪次会话写的」。按时间顺序排；相邻、同一会话（`session_id` 和 `actor_name` 都相同）的进展归成一组。组头：操作者（`claude-code` 显示为紫色「Claude Code」，界面操作显示「我」）、会话 id 前 8 位（界面操作的组显示「界面操作」、底色更灰）、时间范围「5 小时前 到 4 小时前」。组里每条：圆点（领取蓝、进展灰、提交验收紫）、类型（领取 / 进展 / 提交验收）、「状态改为…」（这条进展同时切了状态时）、相对时间、正文（保留换行）、提交和文件小标签（提交只显示前 7 位） |
+| SPEC-tasks-5.2 | 提交验收那条（`kind = review`） | 展示 | 正文区域加紫色浅底，类型字样紫色，作为验收时的阅读入口；最近一条还会出现在顶部「等你验收」栏（`SPEC-tasks-5.21`） |
+| SPEC-tasks-5.3 | 自动刷新 | 抽屉打开期间 | 原型的进展都在本地，不刷新。正式产品：任务处于进行中时每 10 秒刷新一次；有事件推送（CORE-07c）后改为推送 |
+| SPEC-tasks-5.4 | 「追加一条进展」输入框和「追加进展」 | 输入、提交 | 正文去首尾空白后为空时按钮不可用；Cmd/Ctrl + Enter 也能提交。提交后以「我 / 界面操作」出现在时间线末尾，输入框清空。正式产品：`POST /progress`，`kind = note` |
+| SPEC-tasks-5.5 | 修订记录里的进展行 | 展示 | 原型没有修订记录。正式产品：`/revisions` 里 `field = progress` 的行不按「从 old 改成 new」显示（`old_value` 是元数据 JSON），只显示正文；任何位置都不把它显示成 JSON |
 | SPEC-tasks-5.6 | 没有进展 | 展示 | 「还没有进展」 |
+| SPEC-tasks-5.19 | 组头的会话 id | 点击 | 复制完整会话 id，按钮文字变成「已复制，claude --resume 7c41e2a9…」；悬停提示「复制会话 id，可以 claude --resume <id> 接着做」 |
 
 产出物（DEV-08b）：
 
 | 编号 | 元素 | 操作 | 结果 |
 |---|---|---|---|
-| SPEC-tasks-5.7 | 「产出物」面板 | 展示 | 读 `GET /api/artifacts?object_id=…`，分四组：提交、分支、PR、文件。种类从 `note` 前缀 `[commit]` / `[branch]` / `[pr]` 识别，没有前缀的算文件；sha、branch、repo 从同一段 `key=value` 取；commit 显示 7 位 sha 和分支 |
-| SPEC-tasks-5.8 | 有 `url` 的条目 | 点击 | 新窗口打开 |
-| SPEC-tasks-5.9 | 只有 `path` 的条目 | 展示、复制 | 显示 `rel_path`，可复制绝对路径 |
-| SPEC-tasks-5.10 | 来源标签 | 展示 | `manual` / `agent` / `run` / `mcp` |
-| SPEC-tasks-5.11 | 「登记产出物」 | 提交 | `POST /api/artifacts`，来源由后端定为 `manual`；没有产出物时显示「还没有产出物」 |
+| SPEC-tasks-5.7 | 「产出物」面板 | 展示 | 标题旁说明「提交、分支、PR、文件」。分四组，组名带条数，没有条目的组不出现。种类从 `note` 前缀 `[commit]` / `[branch]` / `[pr]` 识别（`parseArtifact`），没有前缀的算文件；sha、branch、repo 从紧跟前缀的 `key=value` 取，余下的是备注。提交：7 位 sha（蓝色等宽）、分支标签、备注；分支：分支标签；PR：分支标签、备注（链接）；文件：相对路径、备注 |
+| SPEC-tasks-5.8 | 有 `url` 的条目 | 点击 | 用「打开地址」打开（工作台开了浏览器模块就在内置浏览器里开，否则新窗口） |
+| SPEC-tasks-5.9 | 只有 `path` 的条目 | 展示、复制 | 文件显示 `rel_path`（没有时显示绝对路径）；右侧「复制路径」复制绝对路径，按钮变「已复制」，悬停显示绝对路径 |
+| SPEC-tasks-5.10 | 来源标签 | 展示 | `manual` 手动登记 / `agent` Agent / `run` 执行扫描 / `mcp` MCP 回写；每行最右是相对时间（手机上不显示） |
+| SPEC-tasks-5.11 | 右上「登记产出物」 | 点击、提交 | 展开一个小表单：「链接或本机绝对路径」（必填）和备注（占位提示提交写成 `[commit] sha=… branch=…`）。以 `http` 开头记为 `url`，以 `/` 开头记为 `path`，其余提示「链接以 http 开头，路径要写绝对路径」且「登记」不可用。登记后来源是 `manual`。没有产出物时显示「还没有产出物」。正式产品：`POST /api/artifacts`，来源由后端定 |
 
 执行记录（DEV-08c）：
 
 | 编号 | 元素 | 操作 | 结果 |
 |---|---|---|---|
-| SPEC-tasks-5.12 | 「执行记录」列表 | 展示 | 读 `GET /api/objects/{id}/runs`，最近的在前；状态按 `TaskRun.Status` 显示，不按 `exit_code` 判断（`exit_code` 为 0 但 `Status` 为 `failed` 的显示失败） |
-| SPEC-tasks-5.13 | 一条执行记录 | 点击 | 展开 `GET /api/runs/{id}` 的完整输出 |
-| SPEC-tasks-5.14 | 流式输出 | 运行中 | 正文增量（`delta`）连续追加；工具调用（`tool`）和结果（`tool_result`）按 `id` 配对成一张卡片，显示成功或失败，失败的标红 |
-| SPEC-tasks-5.15 | 「取消」 | 点击（运行中） | `POST /api/runs/{id}/cancel`，状态变为后端返回的取消状态，不再有输出 |
-| SPEC-tasks-5.16 | 保留意见 | 展示 | `Status = done` 但 `Error` 里有一句保留意见时，在记录上显示出来 |
+| SPEC-tasks-5.12 | 「执行记录」列表 | 展示 | 标题旁说明「从这里交给 Claude Code 的每一次执行，最近的在前」。每条一行：状态（运行中蓝 / 完成绿 / 失败红 / 已取消灰，按 `TaskRun.status`，不看 `exit_code`）、权限（「只读」灰 / 「允许写入」橙）、附加说明（没有时「没有附加说明」，手机上隐藏）、「N 分钟前 · 用时」 |
+| SPEC-tasks-5.13 | 一条执行记录 | 点击 | 展开或收起完整输出：首行等宽显示工作目录、会话 id 前 8 位、`exit N`，下面是输出。运行中的一直展开 |
+| SPEC-tasks-5.14 | 流式输出 | 运行中 | 正文增量（`delta`）连续拼成段落；工具调用（`tool`）和结果（`tool_result`）按 `id` 配成一张卡片：工具名、参数摘要、右侧「执行中 / 成功 / 失败」；失败的卡片红边并在下面显示原因。写入类工具（Edit、Write、Bash）圆点是橙色。运行中末尾有闪烁的光标。原型每 450ms 吐一个事件模拟 SSE |
+| SPEC-tasks-5.15 | 「取消执行」 | 点击（运行中） | 状态变「已取消」，原因「已取消」，不再有输出。正式产品：`POST /api/runs/{id}/cancel`，状态以后端返回为准 |
+| SPEC-tasks-5.16 | 保留意见 | 展示 | 状态是完成但 `error` 有值时，行下面灰字「保留意见：…」，如「有 1 次工具调用被权限挡下（只读运行），没有改文件」；失败的红字显示原因 |
 | SPEC-tasks-5.17 | 没有执行记录 | 展示 | 「还没有执行过」 |
+| SPEC-tasks-5.26 | 执行结束后 | 展示 | 原型模拟：一个工具调用都没成功记「失败」，原因「没有一次工具调用成功」；有失败的记「完成」加保留意见；允许写入且完成时，Claude Code 会话回写一条进展「执行完成：改了文件，测试通过。」，改过的文件登记为来源「执行扫描」的产出物 |
 
 改动痕迹、验收和退回（DEV-08d）：
 
 | 编号 | 元素 | 操作 | 结果 |
 |---|---|---|---|
-| SPEC-tasks-5.18 | 「改动」区 | 展示 | 读 `GET /api/objects/{id}/revisions`，按 `session_id` 分组；每组显示 `actor_name`、会话 id、时间范围、字段变更列表。不自己拆 `actor` 字符串 |
-| SPEC-tasks-5.19 | 会话 id | 点击复制 | 复制会话 id，提示可以 `claude --resume <id>` |
-| SPEC-tasks-5.20 | 没有会话的改动（界面、接口） | 展示 | 归到一组「界面或接口改动」，不显示会话 id |
-| SPEC-tasks-5.21 | 「验收通过」 | 点击（只在 `review` 时出现） | 可选填意见；`POST /progress`，`kind = note`，正文「验收通过」加意见，`status = done`，进展和状态同一事务；`completed_at` 有值 |
-| SPEC-tasks-5.22 | 「退回」 | 点击（只在 `review` 时出现） | 意见必填，不填不能提交；`POST /progress`，`kind = note`，`status = todo`。退回到 `todo` 而不是 `doing`：领取规则里「状态仍是那次领取切到的状态、负责人仍是领取者」算占用，退回到 `doing` 会让别的会话领不到 |
-| SPEC-tasks-5.23 | 退回后 | 展示 | 状态回到待办，进展里多一条带意见的记录；另一个会话 `pmw_claim_task` 能领到（不返回 409） |
+| SPEC-tasks-5.18 | 「改动」区 | 展示 | 原型没有单独的改动区：字段改动没有修订记录，按会话分组只做在进展时间线上（`SPEC-tasks-5.1`）。正式产品：读 `GET /api/objects/{id}/revisions`，按 `session_id` 分组，组头样式同进展时间线；每组显示 `actor_name`、会话 id、时间范围、字段变更列表。不自己拆 `actor` 字符串 |
+| SPEC-tasks-5.20 | 没有会话的改动（界面、接口） | 展示 | 归到「界面操作」组，不显示会话 id（进展时间线已经这样做） |
+| SPEC-tasks-5.21 | 顶部「等你验收」栏 | 展示（只在 `review` 时） | 紫色边框的卡片，在来源卡之后、标题之前。头部「等你验收」加「Claude Code · 会话 b18f5d03 · 1 小时前提交」（取最近一条提交验收的进展）；正文是那条进展的全文；有验收标准时列出清单「对照验收标准（勾选只为自己核对，不保存）」，可勾选；底部「验收通过」「退回」 |
+| SPEC-tasks-5.22 | 「验收通过」 | 点击 | 展开意见框（占位「意见（可选）」）和「确认验收通过」「取消」，说明「状态改为已完成，记一条「验收通过」的进展」。确认后记一条「我 / 界面操作」的进展「验收通过」（有意见时「验收通过：意见」），状态改为已完成，等你验收栏消失，抽屉里的状态按钮同步。正式产品：`POST /progress`，`kind = note`，`status = done`，进展和状态同一事务，`completed_at` 有值 |
+| SPEC-tasks-5.23 | 「退回」 | 点击 | 展开意见框（占位「哪里没过、要怎么改，Claude Code 下次领取时会读到」）和「确认退回」「取消」，说明「状态回到待办，别的会话可以重新领取」。意见去首尾空白后为空时「确认退回」不可用，点过一次后框标红并提示「写一下退回原因」。确认后记一条进展「退回：意见」，状态改为待办。退回到待办而不是进行中：领取规则里「状态仍是那次领取切到的状态、负责人仍是领取者」算占用，退回到进行中会让别的会话领不到（`docs/api-contract.md` 进展与领取） |
 | SPEC-tasks-5.24 | 「接手」 | 不提供 | 不做 takeover 按钮 |
-| SPEC-tasks-5.25 | 加载失败 | 展示 | 四块各自显示错误和「重试」，互不影响；任务表单照常可用 |
-
-### 空状态和异常状态
-
-空状态见 `SPEC-tasks-5.6`、`5.11`、`5.17`，加载失败见 `5.25`。退回意见为空：「退回」按钮不可用，输入框下方提示「写一下退回原因」（文案待原型补上后以原型为准）。
-
-### 数据
-
-原型未定义类型，字段以 `docs/api-contract.md` 为准：`Progress`（`id`、`object_id`、`kind`、`text`、`commits`、`files`、`status`、`actor`、`actor_name`、`session_id`、`source`、`created_at`）、`ProgressInput`（`kind`、`text`、`commits`、`files`、`status`）、产出物 `Artifact`（`path`、`url`、`rel_path`、`source`、`note`）、`TaskRun`（`Status`、`exit_code`、`Error`）和 SSE 事件 `start` / `delta` / `tool` / `tool_result` / `done` / `error`、`Revision`（含 `session_id`、`actor_name`）。
-
-### 联动
-
-| 方向 | 对方模块 | 触发 | 结果 | 见 |
-|---|---|---|---|---|
-| 进来 | Claude Code（MCP） | `pmw_claim_task`、`pmw_append_progress`、`pmw_record_artifact`、`pmw_submit_review` | 进展、产出物、改动多出对应记录；提交验收后任务停在 `review` | `docs/mcp.md` |
-| 改动 | 任务列表、今日 | 验收通过 / 退回 | 状态变为 `done` / `todo` | `SPEC-tasks-2`、`SPEC-today-1.7` |
-
-## SPEC-tasks-6 交给 Claude Code（原型未做）
-
-任务抽屉里的按钮和弹窗：把这条任务交给本机 Claude Code 执行。**原型未做**，本节按 dev-plan 4.0「两种入口」、`docs/api-contract.md` 的 `POST /api/objects/{id}/run` 和 DEV-09 的要求整理；弹窗样式参照 `web-next/src/quicksession.tsx`。
-
-### 截图
-
-原型未做，没有截图。
-
-### 交互
-
-| 编号 | 元素 | 操作 | 结果 |
-|---|---|---|---|
-| SPEC-tasks-6.1 | 抽屉里「交给 Claude Code」 | 点击 | 打开弹窗。同一任务已有运行中的执行时，按钮改为「查看运行中」，点击定位到 `SPEC-tasks-5.14` 的流式输出 |
-| SPEC-tasks-6.2 | 工作目录 | 输入或选择 | 默认取任务的 `workdir`，没有时继承所属项目的；可改，改动后用 `POST /api/agent/workdir/check` 即时校验，不可用时输入框下方提示原因 |
-| SPEC-tasks-6.3 | 「允许写入」 | 勾选 | 默认不勾（只读：只跑一遍看它打算做什么）；勾选时弹二次确认，说明会以 `acceptEdits` 权限模式运行。任何情况下都不会跳过权限确认 |
-| SPEC-tasks-6.4 | 附加说明 | 输入 | 可选，作为 `extra_prompt` |
-| SPEC-tasks-6.5 | 「开始执行」 | 点击 | 请求体只有 `workdir`、`extra_prompt`、`allow_writes` 三个字段；返回 SSE，用 `SPEC-tasks-5.14` 的流式组件实时显示；结束后执行记录列表刷新 |
-| SPEC-tasks-6.6 | 「取消」/ Esc | 点击 | 关闭弹窗，不执行 |
+| SPEC-tasks-5.27 | 列表、今日的完成圆圈（待验收的任务） | 点击 | 不直接改状态，先弹确认：标题「验收通过 T-017？」，说明「「标题」会改为已完成，并记一条「验收通过」的进展。要写意见或退回，打开任务处理。」；按钮「取消」「打开任务」「验收通过」（默认焦点）。Esc、点遮罩同取消。确认后等于 `SPEC-tasks-5.22` 不填意见；「打开任务」打开抽屉。圆圈悬停提示「验收通过」 |
 
 ### 空状态和异常状态
 
 | 编号 | 场景 | 显示 | 可做的操作 |
 |---|---|---|---|
-| SPEC-tasks-6.7 | 工作目录不存在或不可用 | 提示原因，「开始执行」不可用 | 改目录 |
-| SPEC-tasks-6.8 | 执行接口报错（`error` 事件或请求失败） | 流式区显示错误信息，执行记录照常刷新 | 重新执行 |
+| SPEC-tasks-5.6 / 5.11 / 5.17 | 没有进展 / 产出物 / 执行记录 | 「还没有进展」/「还没有产出物」/「还没有执行过」 | 追加进展 / 登记产出物 / 交给 Claude Code |
+| SPEC-tasks-5.23 | 退回不写意见 | 「确认退回」不可用，提示「写一下退回原因」 | 写意见 |
+| SPEC-tasks-5.25 | 加载失败 | 原型未做。正式产品：三块和改动区各自显示错误和「重试」，互不影响；任务表单照常可用 | 重试 |
+| SPEC-tasks-5.28 | 验收、退回提交失败 | 原型未做。正式产品：意见框保留输入，显示失败原因，状态不变 | 重试 |
 
 ### 数据
 
-原型未定义类型。请求体 `{ workdir?: string, extra_prompt?: string, allow_writes?: boolean }`；`workdir` 省略时后端按任务、所属项目逐级继承；`allow_writes` 默认 `false`。
+`TaskProgress`（`taskdata.ts`，对应接口的 `Progress`）
+
+| 字段 | 类型 | 必填 | 说明 | 取值 / 示例 |
+|---|---|---|---|---|
+| `id` | `string` | 是 | 编号 | `pg_tk_dev1_300` |
+| `task_id` | `string` | 是 | 哪条任务（接口里是 `object_id`） | `tk_dev1` |
+| `kind` | `ProgressKind` | 是 | `claim` 领取 / `note` 进展 / `review` 提交验收；显示名 `PROGRESS_LABEL` | `review` |
+| `text` | `string` | 是 | 正文，Markdown，原型按纯文本保留换行显示 | |
+| `commits` | `string[]` | 是 | 相关提交 | `['e3b91c4']` |
+| `files` | `string[]` | 是 | 相关文件，相对工作目录 | `['internal/export/runner.go']` |
+| `status` | `TaskStatus` | 否 | 和这条进展同时切到的状态 | `review` |
+| `actor_name` | `string` | 是 | `claude-code` 或界面上的「我」 | `claude-code` |
+| `session_id` | `string` | 否 | Claude Code 的会话 id；界面操作没有 | `b18f5d03-92c4-4a7e-8d61-0f3a9e27c5b4` |
+| `source` | `'agent' \| 'ui'` | 是 | 谁写的 | `agent` |
+| `at` | `string` | 是 | ISO 时间（接口里是 `created_at`） | |
+
+`TaskArtifact`（`taskdata.ts`，对应接口的 `Artifact`）：`id`、`task_id`（接口里是 `object_id`）、`note: string`（种类标记加备注）、`url?: string`、`path?: string`（绝对路径；本地的 commit / branch 填仓库目录）、`rel_path?: string`、`source: 'manual' | 'agent' | 'run' | 'mcp'`、`at`。`ArtifactKind`：`'commit' | 'branch' | 'pr' | 'file'`，分组和显示名 `ARTIFACT_GROUPS`；`parseArtifact(note)` 返回 `{ kind, sha?, branch?, repo?, text }`。
+
+`TaskRun`（`taskdata.ts`，对应接口的 `TaskRun`）
+
+| 字段 | 类型 | 必填 | 说明 |
+|---|---|---|---|
+| `id` | `string` | 是 | 编号，如 `run_d1` |
+| `task_id` | `string` | 是 | 哪条任务 |
+| `status` | `'running' \| 'done' \| 'failed' \| 'cancelled'` | 是 | 按「有没有工具调用成功过」判定，不看 `exit_code` |
+| `workdir` | `string` | 是 | 这次执行用的目录 |
+| `allow_writes` | `boolean` | 是 | 是否允许写入 |
+| `extra_prompt` | `string` | 是 | 附加说明，可以是空串 |
+| `exit_code` | `number` | 否 | 结束后才有 |
+| `error` | `string` | 否 | 失败原因；`done` 时是保留意见 |
+| `session_id` | `string` | 是 | 这次执行的 Claude Code 会话 |
+| `started_at` / `ended_at` | `string` | 是 / 否 | ISO 时间 |
+| `events` | `RunEvent[]` | 是 | 已输出的事件 |
+| `pending` | `RunEvent[]` | 是 | 原型模拟流式用：还没吐出来的事件，正式产品没有 |
+
+`RunEvent`：`{ type: 'delta'; text }` / `{ type: 'tool'; id; name; detail }` / `{ type: 'tool_result'; id; ok; error? }`，对应 SSE 的 `delta` / `tool` / `tool_result`；`start`、`done`、`error` 事件在原型里体现为 `TaskRun` 的字段。`stepRun` 每次吐一个事件并在吐完时定状态；`runScript` 生成模拟的执行过程。
 
 ### 联动
 
 | 方向 | 对方模块 | 触发 | 结果 | 见 |
 |---|---|---|---|---|
-| 改动 | 任务抽屉 | 执行结束 | 执行记录多一条；Claude Code 回写的进展、产出物出现在对应区块 | `SPEC-tasks-5` |
+| 进来 | Claude Code（MCP） | `pmw_claim_task`、`pmw_append_progress`、`pmw_record_artifact`、`pmw_submit_review` | 进展、产出物多出对应记录；提交验收后任务停在 `review`。原型用演示数据和 `SPEC-tasks-5.26` 模拟 | `docs/mcp.md` |
+| 改动 | 任务列表、今日 | 验收通过 / 退回 | 状态变为 `done` / `todo`；今日「任务待验收」组少一条 | `SPEC-tasks-2`、`SPEC-today-1.4` |
+| 进来 | 今日 | 「任务待验收」一条的「去验收」 | 在今日页上打开任务抽屉，顶部是等你验收栏 | `SPEC-today-1.25` |
+
+## SPEC-tasks-6 交给 Claude Code
+
+任务抽屉「开发」组右上的按钮和弹窗：把这条任务交给本机 Claude Code 执行。原型是 `devloop.tsx` 的 `RunDialog`，样式同快速新建会话（`quicksession.tsx`）。
+
+### 截图
+
+| 场景 | 步骤 | 亮 | 暗 |
+|---|---|---|---|
+| 弹窗（默认只读） | 打开 `T-015`，点「交给 Claude Code」 | ![](shots/tasks/交给_Claude_Code-1440-light.png) | ![](shots/tasks/交给_Claude_Code-1440-dark.png) |
+| 允许写入的二次确认 | 勾选「允许写入」 | ![](shots/tasks/交给_Claude_Code_允许写入确认-1440-light.png) | ![](shots/tasks/交给_Claude_Code_允许写入确认-1440-dark.png) |
+
+执行起来的样子见 `SPEC-tasks-5` 截图「执行中（流式）」。
+
+### 交互
+
+| 编号 | 元素 | 操作 | 结果 |
+|---|---|---|---|
+| SPEC-tasks-6.1 | 抽屉「开发」组右上「交给 Claude Code」 | 点击 | 只在已存在的任务上出现（新建时没有）。打开弹窗，标题「交给 Claude Code」，旁边是任务编号和标题。同一任务已有运行中的执行时，按钮变成带绿灯的「查看运行中」，点击滚到那条执行记录 |
+| SPEC-tasks-6.2 | 工作目录 | 输入 | 默认取抽屉里当前填的工作目录，没有时用所属项目的根目录；下面提示来源「任务上设的」/「继承自所属项目」/「这次执行用的目录」。为空提示「选一个工作目录，任务和所属项目都没设」，不是绝对路径提示「要写本机绝对路径」，「开始执行」不可用。原型只校验写法；正式产品用 `POST /api/agent/workdir/check` 即时校验 |
+| SPEC-tasks-6.3 | 「允许写入」 | 勾选 | 默认不勾，下面说明「默认只读：只跑一遍看它打算怎么做，不改文件」。点勾选时先不勾上，弹出橙色确认：「允许写入后，Claude Code 可以不经确认直接改「目录」里的文件。其他需要权限的操作仍会被挡下，任何情况下都不会跳过权限确认。」，按钮「确认允许写入」「算了，只读」；确认后才勾上，说明变成「会以 acceptEdits 权限模式运行：可以直接改工作目录里的文件」。确认没答时「开始执行」不可用。取消勾选不用确认 |
+| SPEC-tasks-6.4 | 附加说明 | 输入 | 可选，占位「可选：这次要特别注意的事，会接在任务内容后面发给 Claude Code」，作为 `extra_prompt`；执行输出第一句是「按附加说明：…」 |
+| SPEC-tasks-6.5 | 「开始执行（只读）」/「开始执行（允许写入）」 | 点击 | 按钮文字随权限变。关闭弹窗，执行记录最上面多一条运行中的记录并展开，流式显示过程（`SPEC-tasks-5.14`）。允许写入时 Claude Code 先领取：进展多一条该会话的「领取」，状态改为进行中，负责人改为 Claude Code。只读时不领取、不改状态，写文件那一步被挡下（「只读运行，没有写入权限」），最后输出打算的改法 |
+| SPEC-tasks-6.6 | 「取消」/ 右上关闭 / Esc / 点遮罩 | 点击 | 关闭弹窗，不执行 |
+
+### 空状态和异常状态
+
+| 编号 | 场景 | 显示 | 可做的操作 |
+|---|---|---|---|
+| SPEC-tasks-6.7 | 工作目录为空或不是绝对路径 | 输入框下红字提示原因，「开始执行」不可用 | 改目录 |
+| SPEC-tasks-6.8 | 执行接口报错（`error` 事件或请求失败） | 原型未做。正式产品：流式区显示错误信息，执行记录照常刷新 | 重新执行 |
+| SPEC-tasks-6.9 | 执行失败 | 执行记录显示「失败」和原因（演示数据 `T-016` 的那条：「npm run build 失败：Providers.tsx 类型错误」） | 重新执行 |
+
+### 数据
+
+请求体 `{ workdir?: string, extra_prompt?: string, allow_writes?: boolean }`（原型 `start(task, { workdir, allow_writes, extra_prompt })`）；`workdir` 省略时后端按任务、所属项目逐级继承；`allow_writes` 默认 `false`，为 `true` 时后端加 `--permission-mode acceptEdits`，任何情况下都不传 `--dangerously-skip-permissions`。
+
+### 联动
+
+| 方向 | 对方模块 | 触发 | 结果 | 见 |
+|---|---|---|---|---|
+| 改动 | 任务抽屉 | 开始执行 / 执行结束 | 执行记录多一条；允许写入时进展多「领取」、状态改进行中；结束后 Claude Code 回写的进展、产出物出现在对应区块 | `SPEC-tasks-5` |
+| 改动 | 任务列表、今日 | 允许写入的执行开始 | 状态改进行中，待验收的任务从今日「任务待验收」组里消失 | `SPEC-tasks-2`、`SPEC-today-1.4` |
 
 ## SPEC-tasks-7 定时任务列表
 
@@ -736,12 +813,15 @@ Sentry 线上告警（最近有忽略和建任务的推送）：
 整理时发现、还没改的，另开原型修错任务（或先确认规格），不在本规格里顺手改原型。
 
 1. **列表分段口径和 DEV-07a 不一致**：原型按截止日分段（逾期 / 今天 / 本周 / 以后 / 无截止 / 已结束），状态只是上方的筛选按钮；DEV-07a 的要求写的是「按状态分段」「review 状态的任务在「待验收」分段里」「某个状态超过 30 条时出现「这一段还有 N 条」」。原型是规格，本节按原型写（`SPEC-tasks-2.3`、`2.6`、`2.12`）；需要主会话决定是改 DEV-07a 的验收（改成「状态筛选里有待验收、按截止分段」），还是改原型改成按状态分段。
-2. **演示数据里没有待验收的任务**：`seedTasks` 没有 `status = review` 的条目，「待验收」按钮永远是 0，看不出待验收在列表、今日里的样子。建议原型加一条由 Claude Code 提交验收的开发任务。
-3. **列表的完成圆圈能跳过验收**：待验收的任务点圆圈直接变 `done`，绕过了 `SPEC-tasks-5.21` 的「验收通过」（不留验收进展）。建议待验收的任务点圆圈时打开抽屉定位到验收按钮，需要先确认是否改规格。
+2. ~~演示数据里没有待验收的任务~~：PROTO-07 已补 `T-015`、`T-017`（待验收）和 `T-016`（进行中）。
+3. ~~列表的完成圆圈能跳过验收~~：PROTO-07 已改，列表和今日先弹确认、确认后等于验收通过（`SPEC-tasks-5.27`，决策见 `docs/dev-decisions.md`）；项目的任务标签里点圆圈改为打开任务抽屉（那个组件在 `projecttabs.tsx`，没加确认弹窗）。
 4. **状态筛选没有结果时文案不对**：只切到「待验收」等状态筛选、结果为空时，显示的是「这里还没有任务 / 点右上角新建一个」，看起来像模块里一条任务都没有（`SPEC-tasks-2.19`）。
 5. **定时、运行异常来源视图的空状态文案**：显示「点右上角新建一个」，但在这里新建的是人工任务，不会出现在当前视图（`SPEC-tasks-3.7`）。应改成「定时任务到点会建在这里」「在「设置 / 运行异常」里转任务」。
 6. **任务抽屉关闭时不提示未保存的改动**：Esc、关闭按钮、取消都直接丢弃（`SPEC-tasks-4.23`）；DEV-07b 要求有未保存改动时先确认。
-7. **开发闭环区块和「交给 Claude Code」原型没有**：`SPEC-tasks-5`、`SPEC-tasks-6` 只能按接口文档和开发任务写；DEV-08a 到 DEV-09 开工前最好在原型里补上，再按原型修订这两节。
+7. ~~开发闭环区块和「交给 Claude Code」原型没有~~：PROTO-07 已补，两节已按原型修订。原型仍没有的：单独的改动区（`SPEC-tasks-5.18`）、进行中自动刷新（`5.3`）、工作目录的真实校验（`6.2`）。
 8. **「今天」按 UTC 取**：`tasks.tsx` 的 `today()` 和 `today.tsx` 一样用 `toISOString().slice(0, 10)`，东八区 0 点到 8 点之间逾期、今天、本周分段会错一天。正式产品按本地日期。
 9. **定时任务执行记录的 `ref` 没用上**：`ScheduleRun.ref` 记了建出的任务编号，但抽屉里的执行记录只是文字，不能点开那条任务。建议做成链接。
 10. **截图压缩的残影（不是原型问题）**：`Sentry_线上告警-1440-*.png` 底部「删除 Webhook」后面有一块白色不规则残影。用原色截图核对过，原型的底栏是半透明叠在内容上，残影是压成 256 色造成的，原型不用改；以后截图脚本可以考虑对这类半透明区域保留原色。
+11. **退回到哪个状态，PROTO-07 的任务说明和 DEV-08d 不一致**：PROTO-07 写「退回后状态回到进行中」，DEV-08d、状态流转图和接口契约的领取规则都是回到待办。原型按 DEV-08d 做（`SPEC-tasks-5.23`），PROTO-07 的说明是笔误。
+12. **手机宽度下抽屉比屏幕宽**：`styles.css` 里 `.shell > .drawer { width: var(--drawer-w) }` 的优先级高于手机断点里的 `.drawer { width: min(var(--drawer-w), 100%) }`，375 宽时抽屉仍是 520px，左边一截在屏幕外。所有抽屉都这样，不是开发闭环新加的；`SPEC-tasks-5` 因此没截手机图。建议并进 PROTO-08。
+13. **截图脚本不截抽屉**：`SPEC-tasks-5`、`SPEC-tasks-6` 的截图是另外截的，`shots.py --only tasks` 重跑会把它们删掉。建议 `shots.py` 支持按步骤截抽屉，或者对 `抽屉_` 前缀的文件不删。

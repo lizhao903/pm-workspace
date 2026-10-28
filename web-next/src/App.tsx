@@ -15,6 +15,7 @@ import { TaskDrawer, TasksNav, TasksPage, WebhookPage, newHook, type TaskDraft, 
 import { ScheduleDrawer, SchedulesPage } from './schedule'
 import { nextRun, seedSchedules, whenText, type Schedule } from './scheduledata'
 import { TodayPage, type TodayItem, type TodayLine } from './today'
+import { useDevLoop } from './devloop'
 import { ALL_PROJECTS, ProjectPage, ProjectsListPage, type ProjectTab } from './projects'
 import { PROJECT_COLORS, portConflict, seedProjects, startLogs, type Project } from './projectdata'
 import { TerminalPage, newTab, type TermTab } from './terminal'
@@ -421,6 +422,8 @@ export default function App() {
 
   const openTasks = tasks.filter((t) => isOpenTask(t.status)).length
   const patchTask = (id: string, p: Partial<(typeof tasks)[number]>) => setTasks((xs) => xs.map((x) => (x.id === id ? { ...x, ...p, updated_at: new Date().toISOString() } : x)))
+  // 开发任务闭环：进展、产出物、交给 Claude Code 的执行记录
+  const dev = useDevLoop(patchTask)
   const openTaskFromMessage = (id: string) => {
     const m = messages.find((x) => x.id === id)
     if (!m) return
@@ -575,6 +578,16 @@ export default function App() {
       id: `ss-${x.id}`, kind: 'Agent 待确认', tone: 'warn' as const, title: `会话「${x.title}」里有操作等你确认`, sub: agents.find((a) => a.id === x.agent_id)?.name ?? '',
       at: x.updated_at, action: '去确认', onClick: () => { setPage('sessions'); setSessionView('chats'); setCurrentSession(x.id); setDrawer(null) },
     })),
+    // 待验收的任务：Claude Code 提交验收后等你拍板，排在 IM 消息前面；在今日页上直接打开抽屉
+    ...tasks.filter((t) => t.status === 'review').map((t) => {
+      const last = dev.progress.filter((p) => p.task_id === t.id && p.kind === 'review').sort((a, b) => b.at.localeCompare(a.at))[0]
+      const pj = projects.find((x) => x.id === t.project_id)?.name
+      return {
+        id: `rv-${t.id}`, kind: '任务待验收', tone: 'warn' as const, title: `${t.ref} ${t.title}`,
+        sub: [last ? `${last.actor_name === 'claude-code' ? 'Claude Code' : last.actor_name} 提交验收` : '等你验收', pj].filter(Boolean).join(' · '),
+        at: last?.at ?? t.updated_at, action: '去验收', onClick: () => setDrawer({ kind: 'task', id: t.id }),
+      }
+    }),
     ...messages.filter((m) => m.status === 'pending' && !(m.snooze_until && new Date(m.snooze_until).getTime() > Date.now())).map((m) => ({
       id: `im-${m.id}`, kind: 'IM 消息', tone: 'info' as const, title: `${m.sender_name}：${m.text}`, sub: m.conversation || '私聊', at: m.at, action: '回复',
       onClick: () => { setPage('messages'); openMessage(m.id) },
@@ -591,7 +604,7 @@ export default function App() {
       id: `pv-${x.id}`, kind: '连接异常', tone: 'danger' as const, title: `模型服务商「${x.name}」异常`, sub: x.error ?? '', action: '去修复',
       onClick: () => { go('settings'); setSection('providers'); setDrawer({ kind: 'provider', id: x.id }) },
     })),
-  ], [runs, agentRuns, agents, sessions, messages, incidents, connectors, providers])
+  ], [runs, agentRuns, agents, sessions, messages, incidents, connectors, providers, tasks, dev.progress, projects])
   const todaySchedules: TodayLine[] = useMemo(() => schedules.filter((x) => x.enabled).map((x) => ({ x, n: nextRun(x.rule) }))
     .filter(({ n }) => n && n.toDateString() === new Date().toDateString())
     .map(({ x, n }) => ({ id: x.id, title: x.name, sub: whenText(n).replace('今天 ', ''), onClick: () => { setPage('tasks'); setTaskView('schedules'); setDrawer({ kind: 'schedule', id: x.id }) } })), [schedules])
@@ -1069,7 +1082,7 @@ export default function App() {
         onOpenHook={(id) => { setPage('tasks'); setTaskView(`hook:${id}`); setDrawer(null) }}
         onOpenSchedule={(id) => { setPage('tasks'); setTaskView('schedules'); setDrawer({ kind: 'schedule', id }) }}
         onOpenIncident={(id) => { go('settings'); setSection('incidents'); setDrawer({ kind: 'incident', id }) }}
-        delImpact={task ? taskPlan(task.id).impact : []}
+        delImpact={task ? taskPlan(task.id).impact : []} dev={dev}
         onDelete={() => { if (task) deleteTask(task.id); setDrawer(null) }}
         onSave={(d, markDone) => {
           // 重新挑了项目，「原属项目已删除」的提示就不要了
@@ -1273,7 +1286,7 @@ export default function App() {
             )
           })() : (
             <TasksPage tasks={tasks} hooks={hooks} projects={projects} view={taskView as 'all'} selected={selectedId} onOpen={(id) => setDrawer({ kind: 'task', id })}
-              onNew={() => setDrawer({ kind: 'new-task' })} onStatus={(id, st: TaskStatus) => patchTask(id, { status: st })}
+              onNew={() => setDrawer({ kind: 'new-task' })} onStatus={(id, st: TaskStatus) => patchTask(id, { status: st })} onApprove={(id) => dev.review(id, true, '')}
               deliveries={deliveries} onOpenHook={(id) => setTaskView(`hook:${id}`)} onNewHook={() => setTaskView('hook:new')} />
           ))}
           {page === 'messages' && (
@@ -1323,7 +1336,7 @@ export default function App() {
                 运行异常: () => { go('settings'); setSection('incidents') },
                 连接异常: () => { go('settings'); setSection('connectors') },
               }}
-              onOpenTask={(id) => setDrawer({ kind: 'task', id })} onDoneTask={(id) => patchTask(id, { status: 'done' })}
+              onOpenTask={(id) => setDrawer({ kind: 'task', id })} onDoneTask={(id) => patchTask(id, { status: 'done' })} onApproveTask={(id) => dev.review(id, true, '')}
               // 逾期视图的 key 和任务组约定为 due
               onAllTasks={(v) => { go('tasks'); setTaskView(v ?? 'all') }}
               onAllSchedules={() => { go('tasks'); setTaskView('schedules') }}
@@ -1354,7 +1367,9 @@ export default function App() {
                   messages, contacts, tasks, sops, runs, sessions,
                   onOpenMessage: openMessage, onOpenContact: (id) => setDrawer({ kind: 'contact', id }),
                   onNewTask: () => setDrawer({ kind: 'new-task', initial: { project_id: pj.id } }),
-                  onOpenTask: (id) => setDrawer({ kind: 'task', id }), onTaskStatus: (id, st) => patchTask(id, { status: st }),
+                  onOpenTask: (id) => setDrawer({ kind: 'task', id }),
+                  // 待验收的任务不能在项目里点圆圈绕过验收：打开抽屉，用顶部的验收通过 / 退回
+                  onTaskStatus: (id, st) => { if (st === 'done' && tasks.find((t) => t.id === id)?.status === 'review') setDrawer({ kind: 'task', id }); else patchTask(id, { status: st }) },
                   onStartSop: (id) => setDrawer({ kind: 'sop-start', sopId: id }),
                   onOpenRun: (id) => { setPage('sop'); setOpenRun(id) },
                   onOpenSop: (id) => { setPage('sop'); setSopView(`sop:${id}`); setOpenRun(null) },

@@ -1,8 +1,10 @@
+import { useState } from 'react'
 import type { Task } from './taskdata'
 import { isOpenTask } from './taskdata'
 import { PriorityTag } from './tasks'
 import { useEnumView } from './enumdata'
 import { PageTitle } from './topbar'
+import { ApproveConfirm } from './devloop'
 import { cls, timeAgo } from './ui'
 
 // 今日：今天要处理的事集中在一页。数据都是 App 从各模块收过来的，点一条就跳到能处理它的地方
@@ -34,7 +36,7 @@ function greet() {
   return h < 6 ? '夜深了' : h < 11 ? '早上好' : h < 13 ? '中午好' : h < 18 ? '下午好' : '晚上好'
 }
 
-export function TodayPage({ needs, tasks, schedules, running, more, onOpenTask, onDoneTask, onAllTasks, onAllSchedules, onAllRunning }: {
+export function TodayPage({ needs, tasks, schedules, running, more, onOpenTask, onDoneTask, onApproveTask, onAllTasks, onAllSchedules, onAllRunning }: {
   needs: TodayItem[]
   tasks: Task[]
   schedules: TodayLine[]
@@ -43,12 +45,15 @@ export function TodayPage({ needs, tasks, schedules, running, more, onOpenTask, 
   more?: Partial<Record<string, () => void>>
   onOpenTask: (id: string) => void
   onDoneTask: (id: string) => void
+  /** 待验收的任务点完成圆圈：确认后等于验收通过 */
+  onApproveTask?: (id: string) => void
   /** due：带上「逾期」筛选打开任务页 */
   onAllTasks: (view?: 'due') => void
   onAllSchedules?: () => void
   onAllRunning?: () => void
 }) {
   const statusEnum = useEnumView('task_status')
+  const [ask, setAsk] = useState<Task | null>(null)
   const t = today()
   const open = tasks.filter((x) => isOpenTask(x.status))
   const overdue = open.filter((x) => x.due && x.due < t).sort((a, b) => a.due!.localeCompare(b.due!))
@@ -62,7 +67,7 @@ export function TodayPage({ needs, tasks, schedules, running, more, onOpenTask, 
 
   const taskRow = (x: Task, tag?: string) => (
     <div key={x.id} className="today-task" onClick={() => onOpenTask(x.id)}>
-      <button className="task-check" title={`标为${statusEnum.label('done')}`} onClick={(e) => { e.stopPropagation(); onDoneTask(x.id) }} />
+      <button className="task-check" title={x.status === 'review' ? '验收通过' : `标为${statusEnum.label('done')}`} onClick={(e) => { e.stopPropagation(); if (x.status === 'review') setAsk(x); else onDoneTask(x.id) }} />
       <PriorityTag p={x.priority} />
       <span className="ellipsis today-task-title">{x.title}</span>
       {tag && <span className={cls('today-due', tag === '逾期' && 'bad')}>{tag}</span>}
@@ -139,6 +144,10 @@ export function TodayPage({ needs, tasks, schedules, running, more, onOpenTask, 
           </section>
         </div>
       </div>
+      {ask && (
+        <ApproveConfirm task={ask} onClose={() => setAsk(null)} onOpen={() => { setAsk(null); onOpenTask(ask.id) }}
+          onApprove={() => { setAsk(null); if (onApproveTask) onApproveTask(ask.id); else onDoneTask(ask.id) }} />
+      )}
     </div>
   )
 }
