@@ -1,7 +1,7 @@
 // Package connector 是连接器框架（CONN-01a）：连接器定义在代码里注册（Registry），接入的实例存在
 // connectors 表（0029，store.go）。凭证整组加密存进保险箱，表里只有条目 id 和脱敏提示；
 // 明文只在连通测试、拉取工具清单时经 Config 交给定义，调用结束即丢，不进响应、日志和错误文本。
-// OAuth 流程和真实连接器（GitHub 等）归 CONN-01b、01c；插件注册连接器归 CONN-02。
+// OAuth 授权和令牌刷新见 oauth.go（CONN-01b）；真实连接器（GitHub 等）归 CONN-01c；插件注册连接器归 CONN-02。
 package connector
 
 import (
@@ -69,6 +69,9 @@ func (c Config) Get(key string) string { return c.values[key] }
 // Secret 取凭证字段的明文，没填为空串。
 func (c Config) Secret(key string) string { return c.secrets[key] }
 
+// AccessToken 是 OAuth 授权拿到的 access_token，没授权为空串。
+func (c Config) AccessToken() string { return c.secrets[keyAccessToken] }
+
 // NewConfig 给测试和定义自己的单测用。
 func NewConfig(mode AuthMode, values, secrets map[string]string) Config {
 	return Config{Mode: mode, values: values, secrets: secrets}
@@ -88,6 +91,8 @@ type Def struct {
 	Tools []ToolDef `json:"tools"`
 	// Source 是谁提供的：core 或插件 id
 	Source string `json:"source"`
+	// OAuth 是 OAuth 2.0 的配置；Auth 含 oauth2 时必填
+	OAuth *OAuthSpec `json:"oauth"`
 
 	// Test 做一次连通测试，返回对方的账号名（「我」的称呼从这里来）。
 	Test func(ctx context.Context, cfg Config) (account string, err error) `json:"-"`
@@ -127,6 +132,16 @@ func (d *Def) check() error {
 		if f.Kind != "text" && f.Kind != "secret" && f.Kind != "select" {
 			return fmt.Errorf("connector %s: field %s has unknown kind %q", d.Tool, f.Key, f.Kind)
 		}
+	}
+	if slices.Contains(d.Auth, AuthOAuth2) {
+		if d.OAuth == nil {
+			return fmt.Errorf("connector %s: oauth2 needs an OAuth spec", d.Tool)
+		}
+		if err := d.OAuth.check(d); err != nil {
+			return fmt.Errorf("connector %s: %w", d.Tool, err)
+		}
+	} else if d.OAuth != nil {
+		return fmt.Errorf("connector %s: OAuth spec given but oauth2 is not an auth mode", d.Tool)
 	}
 	return checkToolDefs(d.Tool, d.Tools)
 }
@@ -169,6 +184,12 @@ func (r *Registry) Register(d Def) error {
 	}
 	// 空的也给 []，接口里不出 null
 	d.Auth, d.Fields, d.Tools = nonNil(d.Auth), nonNil(d.Fields), nonNil(d.Tools)
+	if d.OAuth != nil {
+		// 拷一份再改，不动调用方的定义
+		o := *d.OAuth
+		o.Scopes, o.Builtin = nonNil(o.Scopes), o.ClientID != ""
+		d.OAuth = &o
+	}
 	if err := d.check(); err != nil {
 		return err
 	}

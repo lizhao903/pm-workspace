@@ -66,6 +66,8 @@ type Connector struct {
 	ToolsAt      *time.Time        `json:"tools_at"`
 	LastTestedAt *time.Time        `json:"last_tested_at"`
 	LastSyncAt   *time.Time        `json:"last_sync_at"`
+	// OAuth 是授权状态，auth_mode 为 oauth2 时才有，否则为 null（CONN-01b，0030）
+	OAuth *OAuthStatus `json:"oauth"`
 	// Available 是定义还在不在（插件提供的定义停用后为 false，测试和拉取工具清单回 409）
 	Available bool      `json:"available"`
 	CreatedAt time.Time `json:"created_at"`
@@ -129,6 +131,8 @@ type Store struct {
 	now  func() time.Time
 	// mu 让改同一张表的读改写一个一个来：查重、合并凭证、合并工具授权都是先读后写
 	mu sync.Mutex
+	// OAuth 授权和令牌刷新（oauth.go）
+	oauth oauthRuntime
 }
 
 // New 建实例表的读写；sec 为 nil 时写凭证报错，defs 为 nil 时没有任何定义。
@@ -136,7 +140,7 @@ func New(d *db.DB, sec Secrets, defs *Registry) *Store {
 	if defs == nil {
 		defs = NewRegistry()
 	}
-	return &Store{db: d, sec: sec, defs: defs, log: slog.Default(), now: time.Now}
+	return &Store{db: d, sec: sec, defs: defs, log: slog.Default(), now: time.Now, oauth: newOAuthRuntime()}
 }
 
 // Defs 是定义注册表。
@@ -250,10 +254,13 @@ func checkRequired(d *Def, values, secrets map[string]string) error {
 
 // --- 凭证 ---
 
-// hintsOf 是每个凭证字段的脱敏提示，规则同保险箱。
+// hintsOf 是每个凭证字段的脱敏提示，规则同保险箱。OAuth 令牌（_ 开头的键）不出提示。
 func hintsOf(secrets map[string]string) map[string]string {
 	out := map[string]string{}
 	for k, v := range secrets {
+		if isTokenKey(k) {
+			continue
+		}
 		out[k] = vault.Hint(v)
 	}
 	return out
@@ -410,7 +417,8 @@ func (s *Store) Create(ctx context.Context, in Input) (*Connector, error) {
 }
 
 const selectCols = `SELECT id, tool, name, account, status, error, auth_mode, config, secret_id, secret_hints,
-	direction, interval, tools, tools_at, last_tested_at, last_sync_at, created_at, updated_at FROM connectors`
+	direction, interval, tools, tools_at, last_tested_at, last_sync_at, created_at, updated_at,
+	oauth_authorized_at, oauth_expires_at, oauth_refreshed_at, oauth_refresh_failed_at, oauth_scope FROM connectors`
 
 type scanner interface{ Scan(dest ...any) error }
 
@@ -420,10 +428,17 @@ func (s *Store) scan(r scanner) (*Connector, error) {
 		mode, cj, hj, tj        string
 		toolsAt, tested, synced sql.NullString
 		created, updated        string
+		oAt, oExp, oRef, oFail  sql.NullString
+		oScope                  string
 	)
 	if err := r.Scan(&c.ID, &c.Tool, &c.Name, &c.Account, &c.Status, &c.Error, &mode, &cj, &c.SecretID, &hj,
-		&c.Direction, &c.Interval, &tj, &toolsAt, &tested, &synced, &created, &updated); err != nil {
+		&c.Direction, &c.Interval, &tj, &toolsAt, &tested, &synced, &created, &updated,
+		&oAt, &oExp, &oRef, &oFail, &oScope); err != nil {
 		return nil, err
+	}
+	if AuthMode(mode) == AuthOAuth2 {
+		c.OAuth = &OAuthStatus{AuthorizedAt: parseNull(oAt), ExpiresAt: parseNull(oExp), RefreshedAt: parseNull(oRef),
+			RefreshFailedAt: parseNull(oFail), Scope: oScope}
 	}
 	c.AuthMode = AuthMode(mode)
 	for _, f := range []struct {
@@ -497,7 +512,7 @@ func (s *Store) List(ctx context.Context, tool string) ([]Connector, error) {
 	return out, rows.Err()
 }
 
-// Update 改配置和凭证。enabled=false 置为 paused；从 paused 重新启用置为 connecting，等下一次测试。
+// Update 改配置和凭证。enabled=false 置为 paused；从 paused、disconnected 重新启用置为 connecting，等下一次测试。
 // 定义不在了（插件停用）时只能改名字和启停。
 func (s *Store) Update(ctx context.Context, id string, p Patch) (*Connector, error) {
 	s.mu.Lock()
@@ -560,7 +575,7 @@ func (s *Store) Update(ctx context.Context, id string, p Patch) (*Connector, err
 		switch {
 		case !*p.Enabled:
 			cur.Status = StatusPaused
-		case cur.Status == StatusPaused:
+		case cur.Status == StatusPaused || cur.Status == StatusDisconnected:
 			cur.Status = StatusConnecting
 		}
 	}
@@ -621,9 +636,17 @@ func (s *Store) Test(ctx context.Context, id string) (*TestResult, error) {
 	if err != nil {
 		return nil, err
 	}
-	cctx, cancel := context.WithTimeout(ctx, callTimeout)
-	account, terr := d.Test(cctx, cfg)
-	cancel()
+	var (
+		account string
+		terr    error
+	)
+	if cfg.Mode == AuthOAuth2 && cfg.AccessToken() == "" {
+		terr = errors.New("还没完成 OAuth 授权")
+	} else {
+		cctx, cancel := context.WithTimeout(ctx, callTimeout)
+		account, terr = d.Test(cctx, cfg)
+		cancel()
+	}
 	res := &TestResult{OK: terr == nil}
 	if terr != nil {
 		res.Message = scrub(terr.Error(), cfg.secrets)

@@ -340,6 +340,11 @@ func (s *Server) routes(m routeRegistrar) {
 	m.HandleFunc("POST /api/connectors/{id}/test", s.handleTestConnector)
 	m.HandleFunc("POST /api/connectors/{id}/tools/refresh", s.handleRefreshConnectorTools)
 	m.HandleFunc("PATCH /api/connectors/{id}/tools", s.handleSetConnectorToolModes)
+	// OAuth（CONN-01b）：callback 是字面路径，优先于 {id}
+	m.HandleFunc("GET /api/connectors/oauth/callback", s.handleConnectorOAuthCallback)
+	m.HandleFunc("POST /api/connectors/{id}/oauth/start", s.handleStartConnectorOAuth)
+	m.HandleFunc("POST /api/connectors/{id}/oauth/refresh", s.handleRefreshConnectorOAuth)
+	m.HandleFunc("POST /api/connectors/{id}/disconnect", s.handleDisconnectConnector)
 
 	// 数据与备份。export 直接回文件流，不套 envelope。
 	m.HandleFunc("GET /api/admin/migrations", s.handleMigrations)

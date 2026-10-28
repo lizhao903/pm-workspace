@@ -104,8 +104,9 @@ start() {
   build
   [ -f "$DB" ] || copy_db
   # 测试实例的保险箱主密钥只用副本目录下的密钥文件，不碰钥匙串
-  echo "启动：$BIN --db $DB --addr $ADDR --vault-keychain=false"
-  nohup "$BIN" --db "$DB" --addr "$ADDR" --vault-keychain=false >>"$LOG" 2>&1 &
+  # --public-url 指回测试实例自己：不指的话 OAuth 回调会落到 bro.vip（正式服务）
+  echo "启动：$BIN --db $DB --addr $ADDR --vault-keychain=false --public-url http://$ADDR"
+  nohup "$BIN" --db "$DB" --addr "$ADDR" --vault-keychain=false --public-url "http://$ADDR" >>"$LOG" 2>&1 &
   echo $! >"$PID_FILE"
   for _ in $(seq 1 50); do
     if health >/dev/null; then

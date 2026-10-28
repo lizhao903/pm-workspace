@@ -66,7 +66,7 @@ type Job struct {
 	Run   func(ctx context.Context, c Core) error
 }
 
-// Core 是插件能用的内核能力。这一版有身份、日志、事件发布、本插件的表和对象、联系人的只读查询（store.go），
+// Core 是插件能用的内核能力。这一版有身份、日志、事件发布、本插件的表和对象、联系人、会话的只读查询（store.go），
 // 设置、凭证等句柄随各自的任务加。
 type Core interface {
 	PluginID() string
@@ -75,9 +75,10 @@ type Core interface {
 	Events() Publisher
 	// Store 读写本插件 table_prefix 开头的表（PJ-01b 起）。
 	Store() Store
-	// Objects、Contacts 只读查内核对象和联系人，写要走内核接口。
+	// Objects、Contacts、Conversations 只读查内核对象、联系人和 IM 会话，写要走内核接口。
 	Objects() ObjectReader
 	Contacts() ContactReader
+	Conversations() ConversationReader
 }
 
 // Publisher 往事件总线上发事件。payload 按 JSON 序列化；总线没接上时什么都不做。
