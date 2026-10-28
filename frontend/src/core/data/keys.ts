@@ -67,4 +67,12 @@ export const dataKeys = {
     all: ['plugins'] as const,
     list: ['plugins', 'list'] as const,
   },
+  /** 定时任务的列表在 todayKeys.schedules（今日页共用）；这里是执行记录和规则预览 */
+  schedules: {
+    all: ['schedules'] as const,
+    /** 一个定时任务的全部执行记录（各种条数）都在这个前缀下 */
+    runsOf: (id: string) => ['schedules', 'runs', id] as const,
+    runs: (id: string, limit: number) => ['schedules', 'runs', id, { limit }] as const,
+    preview: (rule: unknown, count: number) => ['schedules', 'preview', { rule, count }] as const,
+  },
 }

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { pluginTodayCards, reviewCard, schedulesToday, type Schedule, type Today } from './today'
 
 const sch = (id: string, next: string | null, enabled = true): Schedule => ({
-  id, name: id, enabled, rule: {}, action: {}, next_run_at: next, created_at: '', updated_at: '',
+  id, name: id, enabled, rule: {} as Schedule['rule'], action: {} as Schedule['action'], next_run_at: next, created_at: '', updated_at: '',
 })
 
 describe('今日聚合的纯函数', () => {

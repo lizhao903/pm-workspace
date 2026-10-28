@@ -1,8 +1,9 @@
-// 今日（TODAY-02）：今日聚合 GET /api/today，加上「今天还会自动执行」要的定时任务列表 GET /api/schedules。
+// 今日（TODAY-02）：今日聚合 GET /api/today，加上「今天还会自动执行」的挑法；定时任务列表的取数在 schedules.ts。
 // 契约见 docs/api-contract.md「今日聚合」「定时任务 schedules」。缓存键都在 ['today'] 下，对象、执行、插件一变就整体刷新（invalidate.ts）
 import { useQuery } from '@tanstack/react-query'
-import { localDay, request, requestList } from '../api'
+import { localDay, request } from '../api'
 import type { WorkObject } from '../api/types'
+import type { Schedule } from './schedules'
 
 /** 内核卡片的 key；插件卡片的 key 以 `<插件id>_` 开头 */
 export const TODAY_REVIEW = 'review'
@@ -27,18 +28,8 @@ export type TodayRun = {
 export type TodayCard<T = unknown> = { key: string; title: string; order: number; total: number; items: T[] }
 export type Today = { cards: TodayCard[] }
 
-/** 定时任务（TASK-03a）。今日页只读 name、enabled、next_run_at */
-export type Schedule = {
-  id: string
-  name: string
-  enabled: boolean
-  rule: Record<string, unknown>
-  action: Record<string, unknown>
-  /** 按规则现算，带服务时区偏移；停用、一次性已过时为 null */
-  next_run_at: string | null
-  created_at: string
-  updated_at: string
-}
+/** 定时任务的类型和取数在 schedules.ts（TASK-04a），今日页只读 name、enabled、next_run_at */
+export type { Schedule } from './schedules'
 
 export const todayKeys = {
   all: ['today'] as const,
@@ -50,15 +41,10 @@ export const todayKeys = {
 export const todayApi = {
   get: (type?: string, signal?: AbortSignal) =>
     request<Today>('GET', type ? `/api/today?type=${encodeURIComponent(type)}` : '/api/today', { signal }),
-  schedules: (signal?: AbortSignal) => requestList<Schedule>('/api/schedules', { signal }).then((r) => r.data),
 }
 
 export function useToday(type?: string) {
   return useQuery({ queryKey: todayKeys.of(type), queryFn: ({ signal }) => todayApi.get(type, signal) })
-}
-
-export function useSchedules() {
-  return useQuery({ queryKey: todayKeys.schedules, queryFn: ({ signal }) => todayApi.schedules(signal) })
 }
 
 /** 按 key 取一张卡；没有这张卡时 undefined */

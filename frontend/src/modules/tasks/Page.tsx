@@ -1,5 +1,6 @@
 // 任务模块（SPEC-tasks-1、SPEC-tasks-2）：二级菜单 + 列表。路由挂在 tasks/* 下：
 // /tasks 全部任务，/tasks/overdue 逾期；状态筛选记在 ?status=，可以直接链接到「待验收」这类视图。
+// /tasks/schedules 定时任务（SPEC-tasks-7、8，TASK-04a），二级菜单「自动化」组。
 import { useEffect, useState } from 'react'
 import { Navigate, useLocation, useNavigate, useParams, useSearchParams } from 'react-router'
 import { useApprove, useDictItems, useObjectTypes, useSetStatus, type WorkObject } from '../../core/data'
@@ -7,6 +8,7 @@ import { ErrorState, LoadingState, Subnav } from '../../core/ui'
 import { useProjectOptions, useTaskCounts, useTaskList } from './queries'
 import { ApproveDialog } from './ApproveDialog'
 import { OPEN, REVIEW, doneKey, reopenKey, terminalOf, type StatusFilter } from './model'
+import { SchedulesView } from './Schedules'
 import { TaskDrawer } from './TaskDrawer'
 import { TaskList, type TaskView } from './TaskList'
 import './tasks.css'
@@ -16,7 +18,8 @@ const SEARCH_DELAY = 300
 // 优先级字典的 id（/api/dictionaries）
 const PRIORITY_DICT = 'priority'
 
-const SUBPATH: Record<TaskView, string> = { all: '', overdue: 'overdue' }
+type View = TaskView | 'schedules'
+const SUBPATH: Record<View, string> = { all: '', overdue: 'overdue', schedules: 'schedules' }
 
 type Opened = { kind: 'task'; task: WorkObject } | { kind: 'new' }
 
@@ -25,7 +28,7 @@ export default function Page() {
   const { pathname } = useLocation()
   const navigate = useNavigate()
   const [params, setParams] = useSearchParams()
-  const view: TaskView | null = rest === '' ? 'all' : rest === 'overdue' ? 'overdue' : null
+  const view: View | null = rest === '' ? 'all' : rest === 'overdue' ? 'overdue' : rest === 'schedules' ? 'schedules' : null
   // 模块根路径：去掉子路径，模块以后挂到别的路径下也不用改
   const root = pathname.slice(0, pathname.length - rest.length).replace(/\/+$/, '')
 
@@ -70,7 +73,7 @@ export default function Page() {
     approve.mutate({ id: t.id, status: done }, { onSuccess: () => setApproving(null) })
   }
 
-  const selectView = (v: TaskView) => {
+  const selectView = (v: View) => {
     setOpened(null)
     navigate(SUBPATH[v] ? `${root}/${SUBPATH[v]}` : root)
   }
@@ -85,6 +88,7 @@ export default function Page() {
   if (types.isError) main = <ErrorState title="任务类型加载失败" error={types.error} onRetry={() => void types.refetch()} />
   else if (types.isPending) main = <LoadingState />
   else if (!taskType) main = <ErrorState title="后端没有任务类型" error="/api/object-types 里找不到 id 为 task 的类型" />
+  else if (view === 'schedules') main = <SchedulesView statuses={statuses} priorities={prios.data ?? []} projects={projects.data?.data ?? []} />
   else {
     // 当前打开的任务以列表里的最新数据为准，不在列表里（被筛掉了）就用打开时的那份
     const sel = opened?.kind === 'task' ? opened.task.id : null
@@ -119,7 +123,7 @@ export default function Page() {
 
   return (
     <div className="tasks-mod">
-      <Subnav<TaskView> title="任务" active={view} onSelect={selectView} items={[
+      <Subnav<View> title="任务" active={view} onSelect={selectView} items={[
         { key: 'all', label: '全部任务', group: '视图' },
         {
           key: 'overdue', label: '逾期', group: '视图',
@@ -127,6 +131,7 @@ export default function Page() {
           desc: overdueN === undefined ? undefined : overdueN ? `${overdueN} 条过了截止日还没完成` : '没有逾期的任务',
           alert: overdueN ?? 0,
         },
+        { key: 'schedules', label: '定时任务', group: '自动化', desc: '到点自动建任务、跑 SOP、叫 Agent' },
       ]} />
       <div className="tasks-body">{main}</div>
       {opened && taskType && (

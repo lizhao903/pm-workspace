@@ -29,6 +29,10 @@ export type Change =
   | { kind: 'agent-chat'; sessionId?: string }
   /** 插件安装、启停、卸载：插件可能带来或收起对象类型 */
   | { kind: 'plugin' }
+  /** 定时任务新建、编辑、启停、删除 */
+  | { kind: 'schedule'; id?: string }
+  /** 立即执行了一次定时任务：多一条执行记录，建任务类还建出一条任务 */
+  | { kind: 'schedule-run'; id: string }
 
 // 对象一变，所有对象列表（任务列表、今日、项目的任务标签页）、单个对象及其进展和修订、
 // 计数（侧栏红点、逾期徽标）都可能变；干系人名册上的任务数也跟着变；今日聚合（待验收、逾期、今天到期、插件卡片）也是。
@@ -71,6 +75,12 @@ export function invalidationsFor(c: Change): QueryKey[] {
     case 'plugin':
       // 插件停用后它的今日卡片从聚合里消失
       return [dataKeys.plugins.all, dataKeys.objectTypes, todayKeys.all]
+    case 'schedule':
+      // 列表（今日的「今天还会自动执行」同一份）；删除时执行记录一起没了
+      return c.id ? [todayKeys.schedules, dataKeys.schedules.runsOf(c.id)] : [todayKeys.schedules, dataKeys.schedules.all]
+    case 'schedule-run':
+      // 建出来的任务要进任务列表、计数和今日；列表的「上次」也在执行记录前缀下
+      return [dataKeys.schedules.runsOf(c.id), ...objectWide]
   }
 }
 
