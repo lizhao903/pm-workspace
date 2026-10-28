@@ -264,3 +264,81 @@
 .pj-more { display: flex; align-items: center; justify-content: center; gap: 6px; width: 100%; min-height: 40px; color: var(--accent); font-size: var(--fs-sm); font-weight: 500; background: none; }
 .pj-more:hover { background: var(--panel-2); }
 @media (max-width: 1100px) { .pj-comms { grid-template-columns: minmax(0, 1fr); } }
+
+/* ---------- 沟通：消息里的附件（IM-04b，SPEC-projects-5），照原型 .att-inbox .att-row ---------- */
+.pj-att-inbox { display: flex; flex-direction: column; gap: 6px; padding: 12px; margin-bottom: 12px; border: 1px solid var(--line); border-radius: var(--r-lg); background: var(--panel); }
+.pj-att-folded { padding-top: 8px; padding-bottom: 8px; }
+.pj-att-head { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; min-height: 28px; }
+.pj-att-hint { margin-left: 8px; font-weight: 400; white-space: normal; }
+.pj-att-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 8px 10px; border: 1px solid var(--line); border-radius: var(--r); background: var(--panel); min-width: 0; }
+.pj-att-bad { border-color: color-mix(in srgb, var(--danger) 35%, transparent); }
+.pj-att-bad .pj-att-sub { color: var(--danger); }
+.pj-att-ico { width: 28px; height: 28px; border-radius: 7px; display: grid; place-items: center; flex: none; background: var(--hover); color: var(--muted); }
+.pj-att-ico.pj-att-image { color: var(--ok); }
+.pj-att-ico.pj-att-link { color: var(--accent); }
+.pj-att-ico.pj-att-file { color: var(--warn); }
+.pj-att-main { display: flex; flex-direction: column; min-width: 0; flex: 1 1 200px; }
+.pj-att-name { font-weight: 500; font-size: var(--fs-sm); color: var(--text); text-decoration: none; }
+a.pj-att-name { color: var(--accent); }
+a.pj-att-name:hover { text-decoration: underline; }
+.pj-att-sub { font-size: var(--fs-xs); color: var(--faint); }
+.pj-att-acts { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-left: auto; }
+.pj-att-act {
+  display: inline-flex; align-items: center; height: 28px; padding: 0 10px; border-radius: var(--r-sm);
+  border: 1px solid var(--line); background: var(--panel); color: var(--text); font-size: var(--fs-sm); white-space: nowrap;
+}
+.pj-att-act:hover:not(:disabled) { border-color: var(--line-2); background: var(--hover); }
+.pj-att-act:disabled { opacity: 0.5; cursor: not-allowed; }
+.pj-att-primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); font-weight: 500; }
+.pj-att-primary:hover:not(:disabled) { background: var(--accent); border-color: var(--accent); filter: brightness(1.08); }
+.pj-att-quiet { border-color: transparent; color: var(--muted); background: none; }
+.pj-att-more { align-self: flex-start; }
+.pj-att-note { flex-basis: 100%; font-size: var(--fs-2xs); padding-left: 38px; }
+
+/* ---------- 原型标签（SPEC-projects-12，.proto-card .proto-light .proto-logs .proto-fold） ---------- */
+.pj-proto-list { display: flex; flex-direction: column; gap: var(--sp-6); }
+.pj-proto {
+  display: flex; flex-direction: column; gap: var(--sp-5); padding: var(--sp-7) var(--sp-8); min-width: 0;
+  border: 1px solid var(--line); border-radius: var(--r-lg); background: var(--panel); box-shadow: var(--shadow-sm);
+  container-type: inline-size;
+}
+.pj-proto-running { border-color: color-mix(in srgb, var(--ok) 40%, var(--line)); }
+.pj-proto-crashed { border-color: color-mix(in srgb, var(--danger) 40%, var(--line)); }
+.pj-proto-head { display: flex; align-items: center; gap: var(--sp-5); min-width: 0; }
+.pj-proto-head a.btn { text-decoration: none; display: inline-flex; align-items: center; }
+.pj-proto-name { font-weight: 600; font-size: var(--fs-md); min-width: 0; overflow-wrap: anywhere; }
+.pj-proto-light { width: 8px; height: 8px; border-radius: 50%; flex: none; background: var(--line-2); }
+.pj-pl-running { background: var(--ok); box-shadow: 0 0 0 3px color-mix(in srgb, var(--ok) 20%, transparent); }
+.pj-pl-starting, .pj-pl-stopping { background: var(--accent); animation: pj-pulse 1s ease-in-out infinite; }
+.pj-pl-crashed { background: var(--danger); }
+@keyframes pj-pulse { 50% { opacity: 0.35; } }
+.pj-proto-meta { display: flex; flex-wrap: wrap; gap: 6px 18px; font-size: var(--fs-sm); color: var(--muted); min-width: 0; }
+.pj-proto-meta > span { min-width: 0; overflow-wrap: anywhere; }
+.pj-proto-meta code { font: var(--fs-xs) var(--mono); color: var(--text); }
+.pj-proto-k { color: var(--faint); margin-right: 6px; }
+.pj-proto-warn { font-size: var(--fs-sm); color: var(--danger); overflow-wrap: anywhere; }
+.pj-proto-crash { display: flex; flex-direction: column; gap: var(--sp-3); }
+.pj-proto-logs {
+  margin: 0; padding: var(--sp-5) var(--sp-6); border-radius: var(--r-sm); background: #1b1b19; color: #d6d4cc;
+  font: var(--fs-xs)/1.6 var(--mono); max-height: 260px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere;
+}
+.pj-proto-edit { display: flex; flex-direction: column; gap: var(--sp-4); padding-top: var(--sp-5); border-top: 1px solid var(--line); }
+.pj-proto-row { display: flex; gap: var(--sp-4); flex-wrap: wrap; align-items: flex-end; }
+.pj-proto-port { flex: 0 0 110px; }
+.pj-proto-fold {
+  display: flex; align-items: center; gap: var(--sp-5); width: 100%; min-height: 44px; padding: 0 var(--sp-8);
+  border: 1px dashed var(--line-2); border-radius: var(--r-lg); color: var(--muted); font-size: var(--fs); text-align: left; background: none;
+}
+.pj-proto-fold:hover { color: var(--text); border-color: var(--muted); }
+/* 卡片窄（手机宽度或抽屉挤窄）：名称和状态留第一行，按钮换到第二行（SPEC-projects-12.18） */
+@container (max-width: 520px) {
+  .pj-proto-head { flex-wrap: wrap; row-gap: var(--sp-4); }
+  .pj-proto-head > .spacer { flex-basis: 100%; height: 0; }
+}
+/* 概览的原型块和标签条上的绿灯（SPEC-projects-3.7、2.3） */
+.pj-proto-line { display: flex; align-items: center; gap: var(--sp-4); min-height: 34px; border-bottom: 1px solid var(--line); min-width: 0; font-size: var(--fs); }
+.pj-lines li:last-child > .pj-proto-line { border-bottom: 0; }
+.pj-proto-line code { font: var(--fs-xs) var(--mono); color: var(--faint); flex: none; }
+.pj-proto-line a.btn { text-decoration: none; display: inline-flex; align-items: center; }
+.pj-stat-value.ok { color: var(--ok); }
+.pj-tab-light { width: 7px; height: 7px; border-radius: 50%; background: var(--ok); }

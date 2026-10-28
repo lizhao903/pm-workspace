@@ -475,3 +475,27 @@ describe('项目会话绑定的失效（PJ-02b）', () => {
     expect(await stale({ kind: 'im-message' })).toEqual(['msgs'])
   })
 })
+
+describe('项目原型的失效（PJ-04b）', () => {
+  const keys = {
+    list: dataKeys.projectPrototypes.list('obj_p1'),
+    logs: dataKeys.projectPrototypes.logs('obj_p1', 'pt_1'),
+    other: dataKeys.projectPrototypes.list('obj_p2'),
+    mats: dataKeys.projectMaterials('obj_p1'),
+  } satisfies Record<string, QueryKey>
+  async function stale(c: Change) {
+    const qc = new QueryClient()
+    for (const k of Object.values(keys)) qc.setQueryData(k, {})
+    await applyChange(qc, c)
+    return (Object.keys(keys) as (keyof typeof keys)[]).filter((n) => qc.getQueryState(keys[n])?.isInvalidated)
+  }
+
+  it('启停、增删改刷这个项目的原型列表和日志', async () => {
+    expect(await stale({ kind: 'project-prototype', projectId: 'obj_p1' })).toEqual(['list', 'logs'])
+  })
+
+  it('改对象、资料不动原型', async () => {
+    expect(await stale({ kind: 'object' })).toEqual([])
+    expect(await stale({ kind: 'project-material', projectId: 'obj_p1' })).toEqual(['mats'])
+  })
+})

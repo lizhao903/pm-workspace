@@ -105,6 +105,19 @@ export {
   projectConversationsApi, useProjectConversations, useBindProjectConversation, useUnbindProjectConversation, useConversationMessages, useAllImMessages,
 } from './projectConversations'
 export type { ProjectConversation, ConversationMessages } from './projectConversations'
+export {
+  PROTOTYPE_STATUS, PROTOTYPE_LOG_MAX, prototypesApi, prototypesPollMs, mergeLogs, useProjectPrototypes, usePrototypeLogs, useAddPrototype,
+  usePatchPrototype, useRemovePrototype, useStartPrototype, useStopPrototype,
+} from './prototypes'
+export type { PrototypeStatus, ProjectPrototype, PrototypeCrash, PrototypeLogLine, PrototypeLogs, PrototypeInput, PrototypePatch } from './prototypes'
+export {
+  ATTACHMENT_TAG, ATTACH_KIND, PROP_SKIPPED_ATTACHMENTS, attachmentsApi, needsFetch, attachmentHref, attachmentContentUrl, attachmentMaterial,
+  attachmentAdded, skipKey, skippedAttachments, useImAttachmentStorage, useFetchAttachment, useAddAttachmentToProject, useSkipAttachment,
+  useAttachmentTargets,
+} from './attachments'
+export type {
+  ImAttachmentFile, ImAttachmentStorage, AttachmentRef, AddAttachmentInput, AddAttachmentResult, AttachmentProject, AttachmentTargets,
+} from './attachments'
 
 // 接口层的纯函数和类型照样给模块用：不发请求，不碰缓存
 export { localDay, focusParams, changedFields, isApiError, isStreamError, ApiError, StreamError } from '../api'

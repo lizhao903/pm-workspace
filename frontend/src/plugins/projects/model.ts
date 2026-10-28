@@ -106,7 +106,7 @@ export const TABS: { key: ProjectTab; label: string; todo?: string }[] = [
   { key: 'sop', label: 'SOP', todo: '关联的标准流程和最近执行，等 SOP 插件' },
   { key: 'agents', label: 'Agent', todo: '项目 Agent 和项目里的会话，等 Agent 相关任务' },
   { key: 'materials', label: '支持材料' },
-  { key: 'prototypes', label: '原型', todo: '原型卡片的启停与日志，由 PJ-04b 实现' },
+  { key: 'prototypes', label: '原型' },
   { key: 'settings', label: '设置' },
 ]
 
