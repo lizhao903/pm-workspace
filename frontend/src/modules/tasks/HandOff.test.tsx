@@ -2,7 +2,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import type { TaskRun, WorkObject } from '../../core/api'
+import type { TaskRun, WorkObject } from '../../core/data'
 import { HandOffButton } from './HandOff'
 import { resetLiveRuns } from './runLive'
 

@@ -2,7 +2,7 @@
 // 三个按钮「取消」「打开任务」「验收通过」，默认焦点在「验收通过」；Esc、点遮罩同取消。
 import { useEffect, useId, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import type { WorkObject } from '../../core/api'
+import type { WorkObject } from '../../core/data'
 import { Button } from '../../core/ui'
 import { restoreFocus, trapTab } from '../../core/ui/focus'
 

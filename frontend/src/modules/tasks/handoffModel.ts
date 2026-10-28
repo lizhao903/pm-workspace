@@ -1,6 +1,5 @@
 // 交给 Claude Code（DEV-09）的纯函数：默认工作目录、请求体、运行中的那条。
-import type { RunRequest, TaskRun } from '../../core/api'
-import { runFinished } from '../../core/api/taskRuns'
+import { runFinished, type RunRequest, type TaskRun } from '../../core/data'
 import type { LiveRun } from './runLive'
 
 // 弹窗打开时的工作目录：任务上设的优先，没设用所属项目的

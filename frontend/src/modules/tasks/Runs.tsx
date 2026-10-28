@@ -1,7 +1,6 @@
 // 任务抽屉的执行记录（DEV-08c，SPEC-tasks-5.12 到 5.17）：列表、展开看完整输出、取消运行中的执行。
 import { useMemo, useState } from 'react'
-import type { TaskRun, WorkObject } from '../../core/api'
-import { runFinished, useCancelRun, useTaskRun, useTaskRuns } from '../../core/api/taskRuns'
+import { errorText, runFinished, useCancelRun, useTaskRun, useTaskRuns, type TaskRun, type WorkObject } from '../../core/data'
 import { Button, ErrorState, IconChevronRight, LoadingState, cls } from '../../core/ui'
 import { timeAgo } from './model'
 import { useLiveRun, useLiveRuns, type LiveRun } from './runLive'
@@ -96,7 +95,7 @@ function RunRow({ run }: { run: TaskRun }) {
               <Button variant="danger" size="sm" disabled={cancel.isPending || cancel.isSuccess} onClick={() => cancel.mutate(run.id)}>
                 {cancel.isPending || cancel.isSuccess ? '正在取消' : '取消执行'}
               </Button>
-              {cancel.isError && <span className="run-note-danger" role="alert">取消失败：{cancel.error.message}</span>}
+              {cancel.isError && <span className="run-note-danger" role="alert">取消失败：{errorText(cancel.error)}</span>}
             </div>
           )}
         </div>

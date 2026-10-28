@@ -1,12 +1,10 @@
 // 任务抽屉的进展时间线（DEV-08a）：领取、进展、提交验收按时间顺序排，提交验收那条醒目显示；
 // 进行中的任务抽屉打开期间每 10 秒刷新；底部可以手工追加一条进展。样式借原型 monitor.tsx 的 mo-timeline。
 import { Fragment, useEffect, useId, useRef, useState, type Ref } from 'react'
-import { useQueryClient } from '@tanstack/react-query'
-import { useObjectTypes, type ObjectStatus, type Progress, type WorkObject } from '../../core/api'
 import {
-  PROGRESS_LIMIT, chronological, isInProgress, progressKindLabel, shortSession, useAppendProgress, useProgress,
-} from '../../core/api/progress'
-import { useObject } from '../../core/api/taskEdit'
+  PROGRESS_LIMIT, chronological, errorText, isInProgress, progressKindLabel, shortSession, useAppendProgress, useNotifyChange, useObject,
+  useObjectTypes, useProgress, type ObjectStatus, type Progress, type WorkObject,
+} from '../../core/data'
 import { Button, ErrorState, Pill, Tag, Tags, Textarea, cls } from '../../core/ui'
 import { Markdown } from './Markdown'
 import { timeAgo } from './model'
@@ -19,7 +17,7 @@ const fmtTime = (iso: string) => {
 }
 
 export function ProgressTimeline({ task }: { task: WorkObject }) {
-  const qc = useQueryClient()
+  const notify = useNotifyChange()
   const live = useObject(task.id)
   const status = live.data?.status ?? task.status
   const types = useObjectTypes()
@@ -30,11 +28,11 @@ export function ProgressTimeline({ task }: { task: WorkObject }) {
   const rows = q.data ?? []
   const inProgress = isInProgress(status, rows)
 
-  // 最新一条进展切了状态而抽屉里的对象还是旧状态（别的会话改的），刷新对象，轮询开关跟着变
+  // 最新一条进展切了状态而抽屉里的对象还是旧状态（别的会话改的），按对象改动刷新：对象、列表、计数一起跟上，轮询开关跟着变
   const newest = rows[0]
   useEffect(() => {
-    if (newest?.status && newest.status !== status) void qc.invalidateQueries({ queryKey: ['objects', 'get', task.id] })
-  }, [newest?.id, newest?.status, status, qc, task.id])
+    if (newest?.status && newest.status !== status) void notify({ kind: 'object', id: task.id })
+  }, [newest?.id, newest?.status, status, notify, task.id])
 
   const list = chronological(rows)
   const lastReview = [...list].reverse().find((p) => p.kind === 'review')
@@ -133,7 +131,7 @@ function AppendNote({ taskId }: { taskId: string }) {
       setText('')
       setOpen(false)
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e))
+      setError(errorText(e))
     }
   }
   return (

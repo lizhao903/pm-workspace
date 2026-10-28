@@ -407,3 +407,6 @@ export type Counts = {
   stalled: number
   total: number
 }
+
+// POST /api/agent/workdir/check 的结果
+export type WorkdirCheck = { path: string; exists: boolean; is_dir: boolean; writable: boolean; message: string }

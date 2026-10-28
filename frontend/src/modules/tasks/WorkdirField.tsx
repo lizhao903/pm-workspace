@@ -1,6 +1,6 @@
 // 工作目录：可以手填，也可以用 /api/fs/browse 选；改动后停手片刻就用 /api/agent/workdir/check 校验（SPEC-tasks-4.27）。
 import { useEffect, useId, useState } from 'react'
-import { useFsBrowse, useFsShortcuts, useWorkdirCheck, workdirUsable } from '../../core/api/taskEdit'
+import { errorText, useFsBrowse, useFsShortcuts, useWorkdirCheck, workdirUsable } from '../../core/data'
 import { Button, cls } from '../../core/ui'
 
 // 停手多久再校验
@@ -34,7 +34,7 @@ export function WorkdirField({ value, onChange, inherit }: {
       ? <span className="field-hint-line wd-ok">目录可用</span>
       : <span className="field-err" role="alert">不可用：{check.data.message || '目录不能用'}</span>
   } else if (!typing && check.isError) {
-    hint = <span className="field-err">校验失败：{check.error.message}</span>
+    hint = <span className="field-err">校验失败：{errorText(check.error)}</span>
   }
   const bad = !typing && !!check.data && !!value.trim() && !workdirUsable(check.data)
 
@@ -79,7 +79,7 @@ function DirPicker({ start, onPick, onClose }: { start: string; onPick: (path: s
         <span className="mono ellipsis" title={cur?.path}>{cur?.path ?? (path || '...')}</span>
       </div>
       {list.isError
-        ? <div className="field-err">{list.error.message}</div>
+        ? <div className="field-err">{errorText(list.error)}</div>
         : (
           <ul className="wd-list">
             {list.isPending && <li className="wd-muted">加载中</li>}

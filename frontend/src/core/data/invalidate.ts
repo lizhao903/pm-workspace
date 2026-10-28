@@ -1,0 +1,69 @@
+// 失效规则（CORE-03a）：写操作说清楚「改了什么」，这里决定刷新哪些缓存。
+// 组件和模块不自己拼键去失效，一律报一个 Change，规则集中在 invalidationsFor 里，有单元测试盯着。
+import { useQueryClient, type QueryClient, type QueryKey } from '@tanstack/react-query'
+import { useCallback } from 'react'
+import { dataKeys } from './keys'
+import { queryClient } from './queryClient'
+
+export type Change =
+  /** 对象新建、编辑、改状态、删除、恢复，以及带 status 的进展（同一事务改了状态） */
+  | { kind: 'object'; id?: string }
+  /** 只追加了一条进展，状态没变 */
+  | { kind: 'progress'; id: string }
+  /** 登记、编辑、删除产出物 */
+  | { kind: 'artifact'; objectId?: string }
+  /** 执行记录已建好（start 事件），只刷这个对象的执行列表 */
+  | { kind: 'run-started'; objectId: string }
+  /** 执行收尾或开流失败：执行过程中可能改了对象、记了进展、登记了产出物 */
+  | { kind: 'run-settled'; objectId: string }
+  /** 发出取消；后端稍后才收尾，以之后读回的为准 */
+  | { kind: 'run-canceled' }
+  | { kind: 'stakeholder' }
+  | { kind: 'dictionary' }
+  | { kind: 'object-type' }
+
+// 对象一变，所有对象列表（任务列表、今日、项目的任务标签页）、单个对象及其进展和修订、
+// 计数（侧栏红点、逾期徽标）都可能变；干系人名册上的任务数也跟着变。
+const objectWide: QueryKey[] = [dataKeys.objects.all, dataKeys.counts.all, dataKeys.stakeholders.all]
+
+/** 一次改动要按前缀失效的查询键 */
+export function invalidationsFor(c: Change): QueryKey[] {
+  switch (c.kind) {
+    case 'object':
+      return objectWide
+    case 'progress':
+      // 进展本身也是一条修订，对象的 updated_at 会变
+      return [dataKeys.objects.progress(c.id), dataKeys.objects.revisions(c.id), dataKeys.objects.detail(c.id)]
+    case 'artifact':
+      // 列表和统计（删除确认里的产出物数）一起刷
+      return [dataKeys.artifacts.all]
+    case 'run-started':
+      return [dataKeys.runs.list(c.objectId)]
+    case 'run-settled':
+      return [dataKeys.runs.all, dataKeys.artifacts.all, ...objectWide]
+    case 'run-canceled':
+      return [dataKeys.runs.all]
+    case 'stakeholder':
+      // 负责人、参与人的名字跟着对象一起返回
+      return [dataKeys.stakeholders.all, dataKeys.objects.all]
+    case 'dictionary':
+      return [dataKeys.dictionaries.all]
+    case 'object-type':
+      // 状态集变了，计数口径（终态）也变
+      return [dataKeys.objectTypes, dataKeys.counts.all]
+  }
+}
+
+/** 按规则失效；返回的 Promise 在有人在看的查询重新取完后 resolve */
+export function applyChange(qc: QueryClient, c: Change): Promise<void> {
+  return Promise.all(invalidationsFor(c).map((queryKey) => qc.invalidateQueries({ queryKey }))).then(() => undefined)
+}
+
+/** 组件外（模块级状态、流式回调）用：作用在应用唯一的缓存上 */
+export const notifyChange = (c: Change) => applyChange(queryClient, c)
+
+/** 组件里用：作用在当前 QueryClientProvider 的缓存上（测试里各自的缓存）；返回的函数引用稳定 */
+export function useNotifyChange() {
+  const qc = useQueryClient()
+  return useCallback((c: Change) => applyChange(qc, c), [qc])
+}

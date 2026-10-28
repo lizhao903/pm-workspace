@@ -1,6 +1,6 @@
 // 任务抽屉下部开发闭环的四块位置（SPEC-tasks-5）：进展 DEV-08a、产出物 DEV-08b、执行记录 DEV-08c、改动 DEV-08d。
 // 四块都已换成真内容；抽屉只负责按这个顺序摆放。
-import type { WorkObject } from '../../core/api'
+import type { WorkObject } from '../../core/data'
 import { ArtifactsPanel } from './ArtifactsPanel'
 import { ChangesPanel } from './Changes'
 import { ProgressTimeline } from './ProgressTimeline'

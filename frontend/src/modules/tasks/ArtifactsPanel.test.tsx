@@ -2,7 +2,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import type { Artifact, WorkObject } from '../../core/api'
+import type { Artifact, WorkObject } from '../../core/data'
 import { ArtifactsPanel } from './ArtifactsPanel'
 
 const at = new Date().toISOString()

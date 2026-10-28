@@ -2,7 +2,7 @@ import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { useState } from 'react'
 import { describe, expect, it, vi } from 'vitest'
-import type { DictItem, ObjectStatus, WorkObject } from '../../core/api'
+import type { DictItem, ObjectStatus, WorkObject } from '../../core/data'
 import { OPEN, type StatusFilter } from './model'
 import { TaskList, type TaskView } from './TaskList'
 

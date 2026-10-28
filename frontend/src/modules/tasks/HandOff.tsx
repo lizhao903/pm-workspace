@@ -3,9 +3,7 @@
 // 发起走 runLive.startRun，输出在执行记录里流式显示；同一任务有执行在跑时按钮变成「查看运行中」。
 import { useEffect, useId, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import type { WorkObject } from '../../core/api'
-import { useWorkdirCheck, workdirUsable } from '../../core/api/taskEdit'
-import { useTaskRuns } from '../../core/api/taskRuns'
+import { useTaskRuns, useWorkdirCheck, workdirUsable, type WorkObject } from '../../core/data'
 import { Button, Checkbox, ConfirmDialog, Field, IconButton, IconClose, Textarea } from '../../core/ui'
 import { restoreFocus, trapTab } from '../../core/ui/focus'
 import { defaultWorkdir, runRequest, runningOf } from './handoffModel'

@@ -1,9 +1,9 @@
 // 任务抽屉的改动痕迹（DEV-08d）：这条任务的修订按会话分组，每组标出操作者、会话 id、时间范围和字段变更。
 // 会话 id 可以复制，拿去 claude --resume 接着做。进展行用 revisionSummary 显示正文，不显示元数据 JSON。
 import { useEffect, useState } from 'react'
-import type { WorkObject } from '../../core/api'
-import { revisionSummary, shortSession } from '../../core/api/progress'
-import { REVISION_LIMIT, groupRevisions, useObjectRevisions, type RevisionGroup } from '../../core/api/taskReview'
+import {
+  REVISION_LIMIT, groupRevisions, revisionSummary, shortSession, useObjectRevisions, type RevisionGroup, type WorkObject,
+} from '../../core/data'
 import { ErrorState } from '../../core/ui'
 import { timeAgo } from './model'
 import './changes.css'

@@ -2,8 +2,7 @@
 // 执行记录的输出只在收尾时落库，运行中的过程只有发起方的 SSE 流里有，
 // 所以流的状态放在模块级，抽屉关了再打开、执行记录列表都能读到同一份。
 import { useSyncExternalStore } from 'react'
-import { isApiError, isStreamError, queryClient, runObject, type RunDone, type RunEvent, type RunRequest } from '../../core/api'
-import { taskRunKeys } from '../../core/api/taskRuns'
+import { errorText, streamRun, type RunDone, type RunEvent, type RunRequest } from '../../core/data'
 
 export type LivePhase = 'starting' | 'streaming' | 'done' | 'failed'
 
@@ -48,12 +47,8 @@ export function startRun(objectId: string, req: RunRequest = {}, opts: { signal?
   const key = 'live-' + ++seq
   runsList = [...runsList, { key, objectId, phase: 'starting', events: [], errors: [] }]
   emit()
-  const refresh = () => {
-    queryClient.invalidateQueries({ queryKey: taskRunKeys.all })
-    // 执行扫描登记的产出物
-    queryClient.invalidateQueries({ queryKey: ['artifacts'] })
-  }
-  runObject(objectId, req, {
+  // 执行列表、产出物、对象的刷新由 streamRun 按失效规则做
+  streamRun(objectId, req, {
     signal: opts.signal,
     onEvent: (e) => {
       patch(key, (r) => {
@@ -63,13 +58,9 @@ export function startRun(objectId: string, req: RunRequest = {}, opts: { signal?
         if (e.type === 'done') return { ...next, done: e, phase: 'done' }
         return next
       })
-      // 记录已经建好，列表里马上出现这一条
-      if (e.type === 'start') queryClient.invalidateQueries({ queryKey: taskRunKeys.list(objectId) })
     },
-  }).then(refresh, (err: unknown) => {
-    const msg = isApiError(err) || isStreamError(err) || err instanceof Error ? err.message : String(err)
-    patch(key, (r) => ({ ...r, phase: 'failed', errors: [...r.errors, msg] }))
-    refresh()
+  }).catch((err: unknown) => {
+    patch(key, (r) => ({ ...r, phase: 'failed', errors: [...r.errors, errorText(err)] }))
   })
   return key
 }

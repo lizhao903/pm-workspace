@@ -1,5 +1,5 @@
 // 执行记录的纯函数：事件折成显示块、落库输出解析成显示块、状态显示、附加说明、用时。
-import type { RunEvent, RunStatus, TaskRun } from '../../core/api'
+import type { RunEvent, RunStatus, TaskRun } from '../../core/data'
 
 // 工具卡片的状态：pending 执行中，unknown 是落库输出里看不出结果（被取消时最后一个调用）
 export type ToolState = 'pending' | 'ok' | 'failed' | 'unknown'

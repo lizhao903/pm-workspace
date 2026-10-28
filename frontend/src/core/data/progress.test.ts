@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { chronological, isInProgress, progressKindLabel, revisionSummary, shortSession } from './progress'
-import type { Progress } from './types'
+import type { Progress } from '../api'
 
 const p = (id: string, kind: Progress['kind'], at: string, status = ''): Progress => ({
   id, object_id: 'o', kind, text: id, commits: [], files: [], status,
