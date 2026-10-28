@@ -16,7 +16,7 @@ import { ScheduleDrawer, SchedulesPage } from './schedule'
 import { nextRun, seedSchedules, whenText, type Schedule } from './scheduledata'
 import { TodayPage, type TodayItem, type TodayLine } from './today'
 import { useDevLoop } from './devloop'
-import { ALL_PROJECTS, ProjectPage, ProjectsListPage, type ProjectTab } from './projects'
+import { ALL_PROJECTS, EMPTY_DOCK, ProjectDock, ProjectPage, ProjectsListPage, type DockView, type ProjectDockState, type ProjectTab } from './projects'
 import { PROJECT_COLORS, portConflict, seedProjects, startLogs, type Project } from './projectdata'
 import { TerminalPage, newTab, type TermTab } from './terminal'
 import { IncidentDrawer, IncidentsPage } from './incidents'
@@ -214,6 +214,9 @@ export default function App() {
   // 终端的标签页放在 App 里：切到别的菜单再回来，窗格里的内容还在
   const [termTabs, setTermTabs] = useState<TermTab[]>(() => [newTab(seedProjects[0]?.root ?? '/Users/me', '工作台')])
   const [termActive, setTermActive] = useState('')
+  // 项目里的终端和浏览器（标题行按钮展开的那块）：按项目各一份，和一级菜单的终端、浏览器互不相干
+  const [docks, setDocks] = useState<Record<string, ProjectDockState>>({})
+  const browserKey = useRef(0)
   const [enums, setEnums] = useState(seedEnums)
   const [agents, setAgents] = useState(seedAgents)
   const [agentRuns, setAgentRuns] = useState(seedAgentRuns)
@@ -686,6 +689,28 @@ export default function App() {
   const stopProto = (protoId: string) => {
     patchProto(protoId, (x) => ({ ...x, status: 'stopping' }))
     window.setTimeout(() => patchProto(protoId, (x) => ({ ...x, status: 'stopped', started_at: undefined, logs: [...x.logs, '^C', '已停止'] })), 600)
+  }
+  const patchDock = (pid: string, f: (d: ProjectDockState) => ProjectDockState) => setDocks((m) => ({ ...m, [pid]: f(m[pid] ?? EMPTY_DOCK) }))
+  /** 展开项目的终端或浏览器，那边一个都没开时先开一个；toggle 时已经在显示的就收起 */
+  const showDock = (pid: string, view: DockView, toggle = false) => {
+    const d = docks[pid] ?? EMPTY_DOCK
+    const has = view === 'term' ? d.term.length > 0 : d.br > 0
+    if (toggle && d.open && d.view === view && has) { patchDock(pid, (x) => ({ ...x, open: false })); return }
+    const root = projects.find((x) => x.id === pid)?.root || '/Users/me'
+    const t = view === 'term' && !d.term.length ? newTab(root) : null
+    const br = view === 'browser' && !d.br ? (browserKey.current += 1) : 0
+    patchDock(pid, (x) => ({
+      ...x, open: true, view,
+      ...(t && !x.term.length ? { term: [t], termActive: t.id } : {}),
+      ...(br && !x.br ? { br, brTabs: 1 } : {}),
+    }))
+  }
+  /** 全部关闭：终端里跑着的原型一起停，网页和终端都清掉 */
+  const closeDock = (pid: string) => {
+    const d = docks[pid]
+    if (!d) return
+    d.term.forEach((t) => t.panes.forEach((pn) => pn.running && stopProto(pn.running)))
+    setDocks((m) => ({ ...m, [pid]: EMPTY_DOCK }))
   }
   // 内置浏览器：开了浏览器模块就在里面开，没开交给系统浏览器
   const openInBrowser = (url: string, title?: string) => {
@@ -1400,6 +1425,8 @@ export default function App() {
             if (!pj) return <div className="page"><div className="empty"><div className="empty-title">这个项目不存在或已删除</div><button className="btn btn-outline" onClick={() => setProjectId(ALL_PROJECTS)}>回到项目列表</button></div></div>
             return (
               <ProjectPage key={pj.id} project={pj} projects={projects} agents={agents} content={content} tab={projectTab} onTab={setProjectTab} onAll={() => setProjectId(ALL_PROJECTS)}
+                dock={(() => { const d = docks[pj.id] ?? EMPTY_DOCK; return { term: d.term.length, browser: d.brTabs, open: d.open && (d.term.length || d.br) ? d.view : null } })()}
+                onDock={(v) => showDock(pj.id, v, true)}
                 onChange={(x) => setProjects((xs) => xs.map((y) => (y.id === x.id ? x : y)))}
                 delImpact={projectPlan(pj).impact}
                 onDelete={() => deleteProject(pj)}
@@ -1589,6 +1616,18 @@ export default function App() {
               onConfigure={(id) => setDrawer({ kind: 'connector', id })} onAdd={(tool) => setDrawer({ kind: 'new-connector', tool })} />
           )}
         </main>
+        {/* 项目的终端和浏览器：一直挂着，只在打开的是这个项目、并且展开时显示；切走、收起后网页和终端都留着 */}
+        {Object.entries(docks).map(([pid, d]) => {
+          const pj = projects.find((x) => x.id === pid)
+          if (!pj || (!d.term.length && !d.br)) return null
+          return (
+            <ProjectDock key={pid} project={pj} projects={projects} state={d} hidden={!(d.open && page === 'projects' && projectId === pid)}
+              prototypes={protoRefs.filter((x) => x.projectId === pid)} google={google}
+              onState={(f) => patchDock(pid, f)} onShow={(v) => showDock(pid, v)} onCollapse={() => patchDock(pid, (x) => ({ ...x, open: false }))}
+              onCloseAll={() => closeDock(pid)} onStartProto={browserStartProto} onStopProto={stopProto}
+              onGoogleLogin={browserLogin} onGoogleLogout={browserLogout} />
+          )
+        })}
       </div>
       {drawerEl}
       {palette && <CommandPalette items={buildPaletteItems} onClose={() => setPalette(false)} />}

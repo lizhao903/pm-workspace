@@ -58,7 +58,7 @@ const makeTab = (url: string, title: string): BrowserTab => {
 }
 
 // memo：App 别的状态变化时不跟着重渲染；回调要由 App 传稳定的引用
-export const BrowserPage = memo(function BrowserPage({ openRequest, prototypes, onStartProto, google, onGoogleLogin, onGoogleLogout, hidden = false }: {
+export const BrowserPage = memo(function BrowserPage({ openRequest, prototypes, onStartProto, google, onGoogleLogin, onGoogleLogout, hidden = false, embedded = false, startUrl, onCount, onEmpty }: {
   /** 外部要求打开一个地址（来自项目原型、视频预览、发布链接）；n 变化即触发一次，同 url 已开就切过去 */
   openRequest: { url: string; title?: string; n: number } | null
   prototypes: ProtoEntry[]
@@ -68,8 +68,16 @@ export const BrowserPage = memo(function BrowserPage({ openRequest, prototypes, 
   onGoogleLogout: () => void
   /** 切到别的模块时浏览器只是藏起来：iframe 留着保住页面，新标签页这类纯数据视图不渲染 */
   hidden?: boolean
+  /** 嵌在项目详情的展开区域里：不占顶栏 */
+  embedded?: boolean
+  /** 第一个标签打开的地址，默认新标签页 */
+  startUrl?: string
+  /** 标签数变了告诉外面（项目标题行上的数量） */
+  onCount?: (n: number) => void
+  /** 传了就是关掉最后一个标签时交给外面处理，不再自动补一个新标签页 */
+  onEmpty?: () => void
 }) {
-  const [tabs, setTabs] = useState<BrowserTab[]>(() => [makeTab(HOME_URL, '新标签页')])
+  const [tabs, setTabs] = useState<BrowserTab[]>(() => [startUrl ? makeTab(startUrl, titleOf(startUrl, prototypes)) : makeTab(HOME_URL, '新标签页')])
   /** 新标签页里项目分组手动展开 / 收起过的，按项目记；没记的按「有原型在跑就展开」 */
   const [protoOpen, setProtoOpen] = useState<Record<string, boolean>>({})
   const [active, setActive] = useState(() => tabs[0].id)
@@ -125,6 +133,7 @@ export const BrowserPage = memo(function BrowserPage({ openRequest, prototypes, 
   }
   const closeTab = (id: string) => {
     const rest = tabs.filter((t) => t.id !== id)
+    if (!rest.length && onEmpty) { onEmpty(); return }
     if (!rest.length) { const n = makeTab(HOME_URL, '新标签页'); setTabs([n]); setActive(n.id); return }
     setTabs(rest)
     if (id === active) setActive(rest[Math.max(0, tabs.findIndex((t) => t.id === id) - 1)].id)
@@ -139,6 +148,8 @@ export const BrowserPage = memo(function BrowserPage({ openRequest, prototypes, 
     const next = ts.map((t) => (t.id === id ? { ...t, pinned: !t.pinned } : t))
     return [...next.filter((t) => t.pinned), ...next.filter((t) => !t.pinned)]
   })
+
+  useEffect(() => { onCount?.(tabs.length) }, [tabs.length])
 
   // 外部打开请求：n 变一次处理一次；ref 防止 StrictMode 下重复开标签
   const handledN = useRef<number | null>(null)
@@ -194,10 +205,10 @@ export const BrowserPage = memo(function BrowserPage({ openRequest, prototypes, 
   }
 
   return (
-    <div className="br-page">
-      <PageTitle desc={tab.title} actions={
+    <div className={cls('br-page', embedded && 'br-embedded')}>
+      {!embedded && <PageTitle desc={tab.title} actions={
         <button className="btn btn-outline" disabled={tab.kind === 'home'} onClick={() => openExternal(tab.url)}>在系统浏览器打开</button>
-      }>浏览器</PageTitle>
+      }>浏览器</PageTitle>}
 
       <div className="br-tabbar">
       <div className="br-tabs" role="tablist" ref={stripRef}>

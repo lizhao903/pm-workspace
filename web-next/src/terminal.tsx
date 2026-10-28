@@ -78,7 +78,7 @@ function resolve(cwd: string, arg: string): string {
   return path
 }
 
-export function TerminalPage({ tabs, active, onTabs, onActive, projects, onStartProto, onStopProto }: {
+export function TerminalPage({ tabs, active, onTabs, onActive, projects, onStartProto, onStopProto, cwd, embedded = false }: {
   tabs: TermTab[]
   active: string
   onTabs: (f: (t: TermTab[]) => TermTab[]) => void
@@ -86,10 +86,14 @@ export function TerminalPage({ tabs, active, onTabs, onActive, projects, onStart
   projects: Project[]
   onStartProto: (id: string) => void
   onStopProto: (id: string) => void
+  /** 新标签页的目录；不传就用第一个有目录的项目 */
+  cwd?: string
+  /** 嵌在项目详情的展开区域里：不占顶栏，拆分按钮放进标签栏，关掉最后一个标签就是没有终端了 */
+  embedded?: boolean
 }) {
   const tab = tabs.find((t) => t.id === active) ?? tabs[0]
   const [renaming, setRenaming] = useState<string | null>(null)
-  const defaultCwd = projects.find((p) => p.root)?.root ?? HOME
+  const defaultCwd = cwd || (projects.find((p) => p.root)?.root ?? HOME)
   const patchTab = (id: string, f: (t: TermTab) => TermTab) => onTabs((ts) => ts.map((t) => (t.id === id ? f(t) : t)))
 
   const addTab = () => { const t = newTab(defaultCwd); onTabs((ts) => [...ts, t]); onActive(t.id) }
@@ -97,6 +101,7 @@ export function TerminalPage({ tabs, active, onTabs, onActive, projects, onStart
     const t = tabs.find((x) => x.id === id)
     t?.panes.forEach((p) => p.running && onStopProto(p.running))
     const rest = tabs.filter((x) => x.id !== id)
+    if (!rest.length && embedded) { onTabs(() => []); onActive(''); return }
     if (!rest.length) { const n = newTab(defaultCwd); onTabs(() => [n]); onActive(n.id); return }
     onTabs(() => rest)
     if (id === active) onActive(rest[Math.max(0, tabs.findIndex((x) => x.id === id) - 1)].id)
@@ -120,12 +125,12 @@ export function TerminalPage({ tabs, active, onTabs, onActive, projects, onStart
   const tabName = (t: TermTab) => t.name || base(t.panes.find((p) => p.id === t.focus)?.cwd ?? HOME)
 
   return (
-    <div className="term-page">
-      <PageTitle desc="模拟终端；在项目原型目录里 npm run dev 会启动对应原型" actions={tab && <>
+    <div className={cls('term-page', embedded && 'term-embedded')}>
+      {!embedded && <PageTitle desc="模拟终端；在项目原型目录里 npm run dev 会启动对应原型" actions={tab && <>
         <button className="btn btn-outline" disabled={tab.panes.length >= 4} onClick={() => split('row')} title="向右拆分 (⌘D)">向右拆分</button>
         <button className="btn btn-outline" disabled={tab.panes.length >= 4} onClick={() => split('col')} title="向下拆分 (⇧⌘D)">向下拆分</button>
         <button className="btn btn-primary" onClick={addTab}>新标签页</button>
-      </>}>终端</PageTitle>
+      </>}>终端</PageTitle>}
       <div className="term-tabs" role="tablist">
         {tabs.map((t) => {
           const run = t.panes.some((p) => p.running)
@@ -148,6 +153,15 @@ export function TerminalPage({ tabs, active, onTabs, onActive, projects, onStart
         <button className="term-tab-add" onClick={addTab} title="新标签页">
           <svg viewBox="0 0 16 16" width="12" height="12"><path d="M8 3v10M3 8h10" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" /></svg>
         </button>
+        {embedded && tab && <>
+          <span className="spacer" />
+          <button className="term-btn term-tabs-btn" disabled={tab.panes.length >= 4} title="向右拆分 (⌘D)" onClick={() => split('row')}>
+            <svg viewBox="0 0 16 16" width="12" height="12"><rect x="2" y="3" width="12" height="10" rx="1.5" fill="none" stroke="currentColor" strokeWidth="1.4" /><path d="M8 3v10" stroke="currentColor" strokeWidth="1.4" /></svg>
+          </button>
+          <button className="term-btn term-tabs-btn" disabled={tab.panes.length >= 4} title="向下拆分 (⇧⌘D)" onClick={() => split('col')}>
+            <svg viewBox="0 0 16 16" width="12" height="12"><rect x="2" y="3" width="12" height="10" rx="1.5" fill="none" stroke="currentColor" strokeWidth="1.4" /><path d="M2 8h12" stroke="currentColor" strokeWidth="1.4" /></svg>
+          </button>
+        </>}
       </div>
       {tab && (
         <div className={cls('term-grid', layout)}>
