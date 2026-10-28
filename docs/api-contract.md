@@ -1099,7 +1099,7 @@ CORE-10a。工作台是一套菜单：开哪些模块、怎么分组、默认打
 
 ## 项目插件 projects
 
-PJ-01b。插件 `projects`（`internal/plugins/projects`，清单 `plugin.json`）。项目仍是 `type=project` 的工作对象，读写走上面的 `/api/objects`，插件不另开项目接口；插件自己的表放项目干系人、绑定的会话和项目资料。项目插件未安装或停用时，本节 `/api/projects/...` 接口回 `not_found` 404（同「插件路由」），项目对象本身照常能读写。
+PJ-01b。插件 `projects`（`internal/plugins/projects`，清单 `plugin.json`）。项目仍是 `type=project` 的工作对象，读写走上面的 `/api/objects`，插件不另开项目接口；插件自己的表放项目干系人、绑定的会话、项目资料和原型定义。项目插件未安装或停用时，本节 `/api/projects/...` 接口回 `not_found` 404（同「插件路由」），项目对象本身照常能读写。
 
 ### 项目字段
 
@@ -1121,7 +1121,7 @@ PJ-01b。插件 `projects`（`internal/plugins/projects`，清单 `plugin.json`�
 | `created_at` | `created_at` | |
 | `chats` | 插件表 `projects_conversations` | 见下方「项目绑定的会话」，按会话 id 绑，不放 props |
 | `materials` / `docs` | 插件表 `projects_materials` | 合并成「项目资料」，见下方，不放 props |
-| `prototypes` | 不在这里 | 原型进程管理，PJ-04 做 |
+| `prototypes` | 插件表 `projects_prototypes` | 定义落库，状态和日志在内存，见下方「项目原型」，不放 props |
 
 - 后端不校验这几个 props key 的取值，按上表写；`PATCH` 的 `props` 整体替换，改一个 key 要先读回再拼（同开发任务）。
 - props 里没有的 key 按空值处理：`related`、`agent_ids`、`sop_ids`、`skipped_attachments` 当 `[]`，`color` 当空串（前端按顺序给一个）。
@@ -1188,9 +1188,41 @@ PJ-03a。表 `projects_materials`（插件迁移 `0003_materials.sql`，插件 0
 - 硬删项目时资料一起删（外键 `ON DELETE CASCADE`）；软删项目不动，恢复后资料还在。项目的产出（`artifacts`）不算资料，分开计数。
 - 暂不记审计、不发事件，同项目干系人。
 
+### 项目原型
+
+PJ-04a。表 `projects_prototypes`、`projects_prototype_crashes`（插件迁移 `0004_prototypes.sql`，插件 0.5.0），id 前缀 `pt`。插件要起本机进程，清单权限 `process:spawn`，安装时必须在 `permissions` 里确认（同「插件管理」）。原型的定义（目录、命令、端口）落库；状态、进程号、日志只在服务进程内存里：**插件停用、服务关闭时停掉这次启用起的全部原型进程**，重启后都是 `stopped`。
+
+| 方法 | 路径 | body / 说明 |
+|---|---|---|
+| GET | `/api/projects/{id}/prototypes` | `ProjectPrototype[]` + `meta.total`，不分页，按添加先后 |
+| POST | `/api/projects/{id}/prototypes` | `{dir, command 或 argv, port, name?}`，回 201 + `ProjectPrototype` |
+| GET | `/api/projects/{id}/prototypes/{prototype_id}` | 一条 `ProjectPrototype` |
+| PATCH | `/api/projects/{id}/prototypes/{prototype_id}` | 只传要改的：`name` / `dir` / `command` 或 `argv` / `port`；在跑时 409 |
+| DELETE | `/api/projects/{id}/prototypes/{prototype_id}` | 删定义和崩溃记录，不动目录；在跑时 409；`data` 为 `null` |
+| POST | `/api/projects/{id}/prototypes/{prototype_id}/start` | 启动，回 `ProjectPrototype`（`status=starting`）；冲突 409、命令找不到 400 |
+| POST | `/api/projects/{id}/prototypes/{prototype_id}/stop` | 停止，等进程退出后回 `ProjectPrototype`；没在跑也回 200 |
+| GET | `/api/projects/{id}/prototypes/{prototype_id}/logs` | `PrototypeLogLine[]`，`?after=<seq>` 只要更新的（轮询），`?limit=` 1 到 1000，默认 200 取最新的；`meta: {last_seq, status}` |
+| GET | `/api/projects/{id}/prototypes/{prototype_id}/crashes` | `PrototypeCrash[]`，新的在前，最多 50 条 |
+
+`ProjectPrototype`：`{id, project_id, name, dir, command, argv, port, url, status, error, pid, started_at, last_crash, created_at, updated_at}`。`url` 是 `http://127.0.0.1:<port>`；`pid`、`started_at` 只在 `starting` / `running` 时有值（否则 `0` / `null`）；`last_crash` 是最近一条 `PrototypeCrash` 或 `null`，跨重启保留。
+
+`PrototypeLogLine`：`{seq, at, text}`。
+
+`PrototypeCrash`：`{id, prototype_id, project_id, exit_code, signal, reason, log, started_at, exited_at}`，`log` 是这次运行最后 50 行（`string[]`）。
+
+- `status` 四种：`stopped` 已停止、`starting` 启动中（进程起来了、端口还没监听）、`running` 运行中（`127.0.0.1` 或 `::1` 上端口能连上）、`crashed` 崩溃。对照原型 `PROTO_STATUS`：停止是同步等进程退出的，不单列 `stopping`；原型的 `error` 叫 `crashed`，原因在 `error` 字段。不监听端口的命令一直是 `starting`，不自动判失败。
+- 崩溃：不是点停止、且退出码不为 0 或被信号结束，记一条 `PrototypeCrash`，`error` 是 `进程意外退出：退出码 3` 这样的原因。进程自己以退出码 0 结束算 `stopped`，`error` 写明，不记崩溃。运行异常模块还没有后端，崩溃先只记在这张表，以后对接。
+- 命令**不经 shell 执行**：`argv` 是参数数组（1 到 64 个，每个最长 4096 字节），原样执行；`command` 是一行命令，按 shell 的小子集拆成 `argv`（空白分隔，单引号原样，双引号里 `\"`、`\\` 转义，引号外 `\` 转义下一个字符）。引号外出现 `|`、`&`、`;`、`<`、`>`、`(`、`)`、`$`、反引号、`*`、`?`、词首的 `~`、开头的 `VAR=value` 直接 400：这些在 shell 里有意思、这里不生效，要用 shell 就写 `sh -c '...'`。两者只能传一个；传 `argv` 时 `command` 由后端拼回（需要时加单引号）。`argv[0]` 按服务进程的 `PATH` 找，找不到启动时 400。
+- `dir` 是本机**绝对路径**，必须存在且是文件夹（相对路径、不存在 400；启动时再查一次），项目目录下的相对路径由前端拼上项目 `workdir`（同项目资料）。原型 `Prototype.dir` 是相对路径，前端换算。
+- 环境变量继承服务进程，另加 `PORT=<port>`；输出 stdout、stderr 合成一路按行进日志，每个原型最多留 1000 行（内存环形缓冲，跨次启动保留，停用插件后清空），单行超过 4096 字节截断。每次启动先记 `$ cd <dir>`、`$ <command>` 两行，退出时记 `[已停止]` / `[崩溃]` / `[退出]` 一行。
+- 端口 1024 到 65535。保留端口新增、修改、启动都拒绝并说明给谁用着：`7777` 真实数据的工作台服务、`7796` 测试实例、`7778` 原型站点（web-next）、`7780` 正式前端的开发服务，以及当前服务自己的端口（按请求进来的端口取）；新增、修改时 400，启动时 409。启动时另查：本项目或其他项目里 `starting` / `running` 的原型占着同一端口 409（`5173 端口被「项目 / 原型」占着`），本机别的程序已在这个端口监听 409。端口不设唯一，两个原型可以轮流用同一个端口。
+- 进程起在自己的进程组里，停止时先对整个进程组发 `SIGTERM`，5 秒没退再 `SIGKILL`；进程退出后再对进程组补一次 `SIGKILL`，清掉它拉起的子进程。只按本插件记下的进程组号发信号，不按名字找进程。
+- `{id}` 不是项目、不存在或在回收站里 404；原型不在这个项目里 404。硬删项目时定义和崩溃记录一起删（外键 `ON DELETE CASCADE`）；软删项目不动。
+- 暂不记审计、不发事件，同项目干系人。
+
 ## IM 消息插件 im
 
-IM-01a 起。插件 `im`（`internal/plugins/im`，清单 `plugin.json`，0.2.0）。收各 IM 渠道的消息，落在插件表 `im_messages`（插件迁移 `0001_messages.sql`；IM-02a 的处理动作加了 `0002_actions.sql`，回复在 `im_replies`；安装插件时应用）。发送人按 IM 身份（见「IM 身份 im-identities」）的 id 认、会话按会话（见「会话 conversations」）的 id 归，**不靠名字**。插件未安装或停用时，本节接口回 `not_found` 404（同「插件路由」）；停用时拉取也停下，数据不动。
+IM-01a 起。插件 `im`（`internal/plugins/im`，清单 `plugin.json`，0.3.0）。收各 IM 渠道的消息，落在插件表 `im_messages`（插件迁移 `0001_messages.sql`；IM-02a 的处理动作加了 `0002_actions.sql`，回复在 `im_replies`；IM-04a 的附件获取加了 `0003_attachments.sql`，获取状态在 `im_attachments`；安装插件时应用）。发送人按 IM 身份（见「IM 身份 im-identities」）的 id 认、会话按会话（见「会话 conversations」）的 id 归，**不靠名字**。插件未安装或停用时，本节接口回 `not_found` 404（同「插件路由」）；停用时拉取也停下，数据不动。
 
 ### 适配器
 
@@ -1198,6 +1230,8 @@ IM-01a 起。插件 `im`（`internal/plugins/im`，清单 `plugin.json`，0.2.0�
 
 - 拉取（`Puller`）：插件按适配器给的间隔（默认 30 秒）起后台任务拉，进度存在 `im_cursors`（每个适配器一行，整批落库后才存）。拉到不合法的消息跳过并记日志，不卡进度。
 - 回调（`Receiver`）：渠道推到 `POST /api/im/callbacks/{adapter}`，适配器解析请求、自己验签。一批里有一条不合法整批 400，什么都不落库。
+
+另有两个可选能力：`Replier`（往渠道回消息，见「处理动作」）、`Fetcher`（把附件下载下来，见「附件获取」），没实现的分别回 409 `unsupported`。
 
 真实渠道（Slack、Telegram）从 IM-01b、IM-01c 起加，现在只有演练用的假适配器：`pmw --fake-im` 时登记 `fake`（渠道 `slack`，适配器给的「我」的称呼是 `我`，再加上消息所属连接器的账号），回调 body 是 `{"messages": [Incoming, ...]}`。
 
@@ -1215,7 +1249,7 @@ IM-01a 起。插件 `im`（`internal/plugins/im`，清单 `plugin.json`，0.2.0�
 | `text` | 正文，超过 20000 字截断 |
 | `at` | 发送时间（RFC 3339），不填取到达时间 |
 | `mention` | 渠道明确给出的提及：`me` / `all` / 空；空时按正文里的 `@` 判断 |
-| `attachments` | 附件元数据数组（原型 `MsgAttachment`），原样存；获取到本地归 IM-04 |
+| `attachments` | 附件元数据数组（原型 `MsgAttachment`：`{id, name, kind: file / image / link, size, url}`），原样存，渠道自己的字段（file_id 等）照留，下载时交回适配器；没有 `id` 或 `id` 在这条消息里重复的，插件补一个 `att_` 开头的 id。获取状态见「附件获取」 |
 
 到达时：按 `(渠道, sender_id)` 查 IM 身份、按 `(渠道, conversation_id)` 查会话，查到的存 id；查不到的 id 留空、编号照存，读的时候再按编号认一次（不回写），所以先收消息、后登记身份或会话也能认上。身份、会话删掉时 id 置空，消息保留。
 
@@ -1263,6 +1297,7 @@ IM-01a 起。插件 `im`（`internal/plugins/im`，清单 `plugin.json`，0.2.0�
 - `adapter` 是收这条消息的适配器 key，回复时按它找适配器；0.2.0 之前收的为空串，回复时按渠道找。
 - `task_id`、`task_ref` 是这条消息转成的任务；任务删了（含软删）读出来为 `null` 和空串，可以再转。
 - `replies` 按时间正序，含发送失败的（`status: "failed"`，`error` 是原因）；`reply_error` 是最近一次发送失败的原因，再发成功后清空。
+- `attachments` 里每个文件、图片附件带上获取状态（IM-04a，见「附件获取」）：`fetch` 是 `idle`（未获取）/ `done`（已获取，带 `local`、`download_url`，`size` 换成实际下载的字节数）/ `error`（失败，带 `error` 原因）；链接没有这几项。渠道带来的同名字段不算数。
 
 ### 处理动作
 
@@ -1309,6 +1344,45 @@ IM-02a，口径照原型 `App.tsx` 的 `actOnMessage`。除单条读取外都是
 - 关联记在消息上（`task_id`、`task_ref`），不进内核 `links`：`links` 只连两个对象，消息不是对象。
 - 已经转过、任务还在：409 `conflict`，`error` 里多 `task_id`、`task_ref`，前端打开那条任务。
 - 成功 201，`data` 是 `{message: Message, task: {id, ref, title, status, source}}`。
+
+### 附件获取
+
+IM-04a，口径照原型 `App.tsx` 的 `fetchAttachment`、`messages.tsx` 的 `fetchBlocker`。附件下载到数据目录下的 `attachments/<渠道>/`（和库文件同级，备份数据目录时一起带走，见 `docs/dev-decisions.md`「消息附件存在哪」）；状态记在插件表 `im_attachments`，读消息时叠到附件上（见上面 `Message` 的 `attachments`）。
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| POST | `/api/im/messages/{id}/attachments/{attachment_id}/fetch` | 下载一个附件，body 不用传；成功 200，`data` 是整条 `Message`。已获取且本机文件还在的直接回，不重新下载；文件被删了的重新下到原路径 |
+| GET | `/api/im/attachments` | `{dir, max_bytes}`：附件目录的绝对路径（没接数据目录时为空串）和单个附件的大小上限 |
+| GET | `/api/im/attachments/{channel}/{name}` | 读已获取的附件内容，`name` 是 `local` 的文件名（`download_url` 就是这个地址）。一律按下载给（`Content-Disposition: attachment`，带 `X-Content-Type-Options: nosniff`、`Content-Security-Policy: sandbox`），支持 Range |
+
+获取：
+
+- 消息不存在、附件 id 不在这条消息里 404；链接 409 `conflict`、`reason: "link"`（链接不用获取，直接加进资料）；没接数据目录 409 `reason: "no_storage"`。这三种不记到附件上。
+- 先看取不取得到，取不到 409 `conflict`，`error` 里多一个 `reason`，同时把附件记成 `fetch: "error"`、`error` 是同一句话。连接器口径同回复（只收不发的连接器不拦，下载算收）：
+
+| `reason` | 什么时候 | `message` 例 |
+|---|---|---|
+| `connector_missing` | 消息的 `connector_id` 在连接器里查不到 | 渠道已删除，取不到附件 |
+| `connector_error` | 连接器状态是异常；另记一条 warn 日志（原型里记运行异常，后端还没有运行异常） | 连接器「Slack 工作区」异常，取不到附件；修好连接器后重试 |
+| `connector_paused` / `connector_disconnected` / `connector_connecting` | 连接器暂停、断开、连接中 | 连接器「Slack 工作区」已暂停，取不到附件；恢复后重试 |
+| `no_adapter` | 二进制里没有收这条消息的适配器 | 渠道 slack 没有可用的适配器，取不到附件 |
+| `unsupported` | 适配器不支持获取附件（没实现 `Fetcher`） | 渠道 telegram 不支持获取附件 |
+| `too_large` | 元数据里的 `size` 超过上限（50 MB），不去下载 | 附件 80.0 MB，超过 50.0 MB 的上限 |
+
+- 渠道下载失败（含下载超时 60 秒、实际内容超过上限）：附件记成 `error`、原因是渠道给的说明，回 502 `fetch_failed`；不重试，不留半截文件。之后再调一次就是重试，成功时清掉原因。
+- 文件名由附件的 `name` 规整：路径分隔符和冒号换成 `_`，控制字符和不可见的格式字符（含从右到左改向）去掉，开头的 `.` 去掉，超过 200 字节时保留扩展名截断，空名是「附件」。同一渠道目录里重名的加「 (2)」「 (3)」，不覆盖别的附件和本机已有的文件。
+- 在 `connector_id` 为空（假适配器灌的消息）时不查连接器。消息删了获取状态一起删，本机文件不删。
+
+- 例：获取成功后附件是 `fetch: "done"`、`local: "<数据目录>/attachments/slack/权限点清单 v2.xlsx"`、`download_url: "/api/im/attachments/slack/%E6%9D%83...xlsx"`；渠道下载失败回 `{"error": {"code": "fetch_failed", "message": "获取失败：file_not_found"}}`，被拦回的 `error` 同回复，多一个 `reason`。
+
+读内容：只认附件目录里、登记为已获取的文件，真实路径（解开软链后）也得在 `attachments/<channel>/` 里；名字不是规整过的样子、越界、没登记（手放进目录的）都回 404。数据目录不能挂载、`/api/fs/read` 也不读它（DOC-01a），附件内容只走这里。
+
+加进项目资料：插件之间不能直接调，由前端组合两次请求：
+
+1. 文件、图片还没获取的先调上面的获取；链接直接用 `url`。
+2. `POST /api/projects/{id}/materials`，body `{kind: "file", name: <附件 name>, value: <local>, tags: ["消息附件"]}`（链接是 `{kind: "link", value: <url>}`），见「项目插件 projects」的「项目资料」。资料只存路径；读内容时，`value` 在 `GET /api/im/attachments` 的 `dir` 下面的，用最后两段拼 `/api/im/attachments/{channel}/{name}`。
+
+已知：资料上不记来源消息（原型的 `from`），`source` 是 `manual`；同一附件重复加由前端按 `value` 去重。
 
 ### 事件
 

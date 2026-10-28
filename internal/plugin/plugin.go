@@ -89,6 +89,8 @@ type Core interface {
 	ObjectWriter() ObjectWriter
 	// Connectors 只读查连接器实例（IM-02a，connectors_read.go）。
 	Connectors() ConnectorReader
+	// AttachmentDir 是本机附件目录的绝对路径（IM-04a，datadir.go），没接数据目录时为空串。
+	AttachmentDir() string
 }
 
 // Publisher 往事件总线上发事件。payload 按 JSON 序列化；总线没接上时什么都不做。

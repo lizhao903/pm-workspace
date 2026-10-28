@@ -162,6 +162,8 @@ func run(cfg config) error {
 	// defer 晚于 plugins.Close 登记，所以先等在途的订阅者处理完再停插件。
 	bus := events.New(plugins, slog.Default())
 	plugins.Events = bus
+	// 插件的附件目录在数据目录下（IM-04a）：attachments/ 和库文件同级
+	plugins.DataDir = filepath.Dir(cfg.dbPath)
 	if err := plugins.Add(projects.New()); err != nil {
 		return fmt.Errorf("登记插件失败: %w", err)
 	}

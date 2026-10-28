@@ -1,10 +1,12 @@
 package im
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"regexp"
 	"sync"
@@ -57,6 +59,25 @@ type Outgoing struct {
 	Text             string `json:"text"`
 }
 
+// Fetcher 是可选接口：能把附件从渠道下载下来（IM-04a）。没实现的适配器获取时回 409 unsupported。
+// 返回的内容由插件读完、限大小、落到附件目录；出错时插件把原因记在附件上，不重试。
+type Fetcher interface {
+	Adapter
+	Fetch(ctx context.Context, ref AttachmentRef) (io.ReadCloser, error)
+}
+
+// AttachmentRef 是要下载的附件，编号都是渠道里的。Raw 是到达时的附件元数据原文，渠道自己的字段（file_id 等）从这里取。
+type AttachmentRef struct {
+	ConnectorID    string          `json:"connector_id"`
+	ConversationID string          `json:"conversation_id"`
+	MessageID      string          `json:"message_id"` // 渠道里的消息编号
+	ID             string          `json:"id"`
+	Name           string          `json:"name"`
+	Kind           string          `json:"kind"`
+	URL            string          `json:"url"`
+	Raw            json.RawMessage `json:"raw"`
+}
+
 // Handles 是可选接口：「我」在这个渠道里的称呼，正文里 @ 到它算 @我。
 // 和收消息的连接器账号拆出来的称呼合在一起用（relevance.go）；没实现时只认连接器账号。
 type Handles interface {
@@ -91,6 +112,10 @@ type Fake struct {
 	pulls   int
 	sent    []Outgoing
 	failMsg string
+
+	fetched   []AttachmentRef
+	fetchFail string
+	fetchBody []byte
 }
 
 // NewFake 建一个假适配器；every 是拉取间隔，self 是「我」的称呼。
@@ -165,4 +190,40 @@ func (f *Fake) Sent() []Outgoing {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return append([]Outgoing(nil), f.sent...)
+}
+
+// Fetch 回测试内容：SetFetchBody 设了就用它，没设是一行说明；FailFetches 设了原因时照原因失败。
+func (f *Fake) Fetch(_ context.Context, ref AttachmentRef) (io.ReadCloser, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.fetchFail != "" {
+		return nil, errors.New(f.fetchFail)
+	}
+	f.fetched = append(f.fetched, ref)
+	body := f.fetchBody
+	if body == nil {
+		body = []byte(fmt.Sprintf("fake attachment %s (%s) of message %s\n", ref.ID, ref.Name, ref.MessageID))
+	}
+	return io.NopCloser(bytes.NewReader(body)), nil
+}
+
+// FailFetches 让之后的下载按 reason 失败，传空串恢复。测试用。
+func (f *Fake) FailFetches(reason string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.fetchFail = reason
+}
+
+// SetFetchBody 设下载回的内容，传 nil 恢复默认。测试用。
+func (f *Fake) SetFetchBody(b []byte) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.fetchBody = b
+}
+
+// Fetched 是下载过的附件，测试用。
+func (f *Fake) Fetched() []AttachmentRef {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]AttachmentRef(nil), f.fetched...)
 }
