@@ -1,10 +1,10 @@
 // 任务抽屉（SPEC-tasks-4、DEV-07b）：新建、查看、编辑、删除。
 // 已有任务以打开那一刻的值为基准：保存只传改过的字段，props 由接口层读回最新的再合并；未保存的改动关闭前先确认。
 import { useId, useState, type CSSProperties, type ReactNode } from 'react'
-import { isApiError, type DictItem, type ObjectStatus, type WorkObject } from '../../core/api'
 import {
-  useArtifactCount, useCreateObject, useDeleteObject, useObject, useSaveObject, useStakeholders,
-} from '../../core/api/taskEdit'
+  errorText, isApiError, useArtifactCount, useCreateObject, useDeleteObject, useObject, usePatchObject, useStakeholders,
+  type DictItem, type ObjectStatus, type WorkObject,
+} from '../../core/data'
 import {
   Button, ConfirmDialog, Drawer, EmptyState, Field, Input, SearchSelect, Textarea, cls, type SearchOption,
 } from '../../core/ui'
@@ -40,7 +40,7 @@ export function TaskDrawer({ task, statuses, priorities, projects, onClose, onCr
   const live = useObject(task?.id ?? null)
   const artifactN = useArtifactCount(askDelete && task ? task.id : null)
   const create = useCreateObject()
-  const save = useSaveObject()
+  const save = usePatchObject()
   const del = useDeleteObject()
   const busy = create.isPending || save.isPending || del.isPending
 
@@ -68,7 +68,7 @@ export function TaskDrawer({ task, statuses, priorities, projects, onClose, onCr
         onClose()
       }
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e))
+      setError(errorText(e))
     }
   }
   const remove = async () => {
@@ -79,7 +79,7 @@ export function TaskDrawer({ task, statuses, priorities, projects, onClose, onCr
       onClose()
     } catch (e) {
       setAskDelete(false)
-      setError(e instanceof Error ? e.message : String(e))
+      setError(errorText(e))
     }
   }
 

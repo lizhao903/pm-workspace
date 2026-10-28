@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import type { TaskRun } from '../../core/api'
+import type { TaskRun } from '../../core/data'
 import { defaultWorkdir, runRequest, runningOf } from './handoffModel'
 import type { LiveRun } from './runLive'
 

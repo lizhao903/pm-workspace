@@ -9,5 +9,6 @@
 - 依赖缺失、版本不符、清单不合法的插件不加载，外壳侧栏底部提示原因。
 - 清单只有一份：有后端的插件放在后端 `internal/plugins/<id>/plugin.json`（前端构建时用 glob 读进来），前端目录里只放入口和页面；只有前端的插件（示例 `hello`）清单放在 `src/plugins/<id>/plugin.json`。`discoverPlugins` 两处都读，目录名就是 id。
 - 有后端记录的插件（`projects`）不要加进 `enabled.ts`，启停以 `GET /api/plugins` 为准。
+- 插件取数、写数据只走 `core/data`（数据访问层），不 import `core/api`，lint 规则拦着；写完报 `Change` 由失效规则刷新，见 frontend/README「数据访问层」。
 - `hello` 是示例插件，只用来验证加载流程。
 - `projects` 是项目插件，PJ-01a 只有壳（一个空页面），菜单放在「工作」组。

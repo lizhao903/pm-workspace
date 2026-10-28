@@ -1,9 +1,10 @@
 // 任务抽屉的产出物（DEV-08b，SPEC-tasks-5）：按提交、分支、PR、文件分组，有链接的新窗口打开，
 // 只有本机路径的显示相对路径、可复制绝对路径；可以手工登记一条（来源记成 manual）。
 import { useState } from 'react'
-import type { Artifact, ArtifactSource, WorkObject } from '../../core/api'
-import { useRecordArtifact, useTaskArtifacts } from '../../core/api/taskArtifacts'
-import { Button, ErrorState, Input, LoadingState, Tag } from '../../core/ui'
+import {
+  QueryState, errorText, useObjectArtifacts, useRecordArtifact, type Artifact, type ArtifactSource, type WorkObject,
+} from '../../core/data'
+import { Button, Input, Tag } from '../../core/ui'
 import { groupArtifacts, locationOf, shortSha, type ParsedNote } from './artifactNote'
 import { timeAgo } from './model'
 import './artifacts.css'
@@ -51,7 +52,7 @@ function AddForm({ objectId, onDone }: { objectId: string; onDone: () => void })
       <Input value={note} aria-label="备注" placeholder="备注；提交写成 [commit] sha=… branch=…"
         onChange={(e) => setNote(e.target.value)} />
       {bad && <span className="field-err">链接以 http 开头，路径要写绝对路径</span>}
-      {record.error && <span className="field-err">{record.error.message}</span>}
+      {record.error && <span className="field-err">{errorText(record.error)}</span>}
       <div className="art-form-acts">
         <Button type="submit" variant="primary" size="sm" disabled={!where || record.isPending}>{record.isPending ? '登记中' : '登记'}</Button>
         <Button size="sm" onClick={onDone}>取消</Button>
@@ -61,7 +62,7 @@ function AddForm({ objectId, onDone }: { objectId: string; onDone: () => void })
 }
 
 export function ArtifactsPanel({ task }: { task: WorkObject }) {
-  const q = useTaskArtifacts(task.id)
+  const q = useObjectArtifacts(task.id)
   const [adding, setAdding] = useState(false)
   const [copied, setCopied] = useState('')
   const items = q.data?.data ?? []
@@ -76,7 +77,7 @@ export function ArtifactsPanel({ task }: { task: WorkObject }) {
         <span className="art-spacer" />
         {!adding && <Button size="sm" onClick={() => setAdding(true)}>登记产出物</Button>}
       </div>
-      {q.isPending ? <LoadingState /> : q.isError ? <ErrorState compact error={q.error} onRetry={() => q.refetch()} /> : (
+      <QueryState query={q} compact>{() => (
         <>
           {!items.length && !adding && <div className="art-empty">还没有产出物</div>}
           {groups.map((g) => (
@@ -88,7 +89,7 @@ export function ArtifactsPanel({ task }: { task: WorkObject }) {
             </div>
           ))}
         </>
-      )}
+      )}</QueryState>
       {adding && <AddForm objectId={task.id} onDone={() => setAdding(false)} />}
     </section>
   )

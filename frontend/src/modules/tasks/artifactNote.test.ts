@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import type { Artifact } from '../../core/api'
+import type { Artifact } from '../../core/data'
 import { groupArtifacts, locationOf, parseArtifactNote, shortSha } from './artifactNote'
 
 describe('parseArtifactNote', () => {

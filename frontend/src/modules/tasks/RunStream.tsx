@@ -1,6 +1,6 @@
 // 流式输出（DEV-08c，DEV-09 复用）：正文连续拼成段落，工具调用和结果按 id 配成一张卡片。
 import { useLayoutEffect, useMemo, useRef } from 'react'
-import type { RunEvent } from '../../core/api'
+import type { RunEvent } from '../../core/data'
 import { cls } from '../../core/ui'
 import { foldEvents, isWriteTool, type OutBlock, type ToolState } from './runsModel'
 import './runs.css'

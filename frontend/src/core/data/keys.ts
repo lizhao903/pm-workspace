@@ -1,0 +1,66 @@
+// 缓存键（CORE-03a）。所有查询键都在这里生成，按资源分前缀，失效规则（invalidate.ts）按前缀刷新。
+// 对象列表一律挂在 ['objects', 'list'] 下：任务列表、今日、项目的任务标签页都是它，改了对象一起刷新。
+import type { ArtifactListParams, ObjectListParams } from '../api'
+
+type Filter = Record<string, unknown>
+
+/**
+ * 过滤条件归一：去掉空值（undefined、null、空串、false、空数组），键按字母排。
+ * 同一个过滤条件不管字段顺序、写没写默认值，生成的缓存键都一样。
+ */
+export function normFilter<T extends object>(f: T | undefined): Filter {
+  const out: Filter = {}
+  if (!f) return out
+  for (const k of Object.keys(f).sort()) {
+    const v = (f as Filter)[k]
+    if (v === undefined || v === null || v === '' || v === false) continue
+    if (Array.isArray(v) && !v.length) continue
+    out[k] = v
+  }
+  return out
+}
+
+export const dataKeys = {
+  health: ['health'] as const,
+  objectTypes: ['object-types'] as const,
+  dictionaries: {
+    all: ['dictionaries'] as const,
+    list: (withItems = false) => ['dictionaries', 'list', { withItems }] as const,
+    items: (dictId: string) => ['dictionaries', dictId, 'items'] as const,
+  },
+  stakeholders: {
+    all: ['stakeholders'] as const,
+    list: (archived = false) => ['stakeholders', 'list', { archived }] as const,
+  },
+  objects: {
+    all: ['objects'] as const,
+    lists: ['objects', 'list'] as const,
+    /** 一页；分页参数也进键 */
+    list: (f?: ObjectListParams) => ['objects', 'list', normFilter(f)] as const,
+    /** 按页拉完的整份，和单页分开缓存 */
+    listAll: (f?: Omit<ObjectListParams, 'limit' | 'offset'>) => ['objects', 'list', { ...normFilter(f), all: true }] as const,
+    detail: (id: string) => ['objects', 'get', id] as const,
+    progress: (id: string) => ['objects', 'progress', id] as const,
+    revisions: (id: string) => ['objects', 'revisions', id] as const,
+  },
+  /** type 只收窄聚焦类计数器；不传是全局 */
+  counts: {
+    all: ['counts'] as const,
+    of: (type?: string) => ['counts', type ?? ''] as const,
+  },
+  artifacts: {
+    all: ['artifacts'] as const,
+    list: (f?: ArtifactListParams) => ['artifacts', 'list', normFilter(f)] as const,
+    stats: (f?: ArtifactListParams) => ['artifacts', 'stats', normFilter(f)] as const,
+  },
+  runs: {
+    all: ['runs'] as const,
+    list: (objectId: string) => ['runs', 'list', objectId] as const,
+    detail: (id: string) => ['runs', 'get', id] as const,
+  },
+  workdir: (path: string) => ['agent', 'workdir', path] as const,
+  fs: {
+    browse: (path: string) => ['fs', 'browse', path] as const,
+    shortcuts: ['fs', 'shortcuts'] as const,
+  },
+}

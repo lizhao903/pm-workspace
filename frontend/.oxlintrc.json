@@ -1,25 +1,79 @@
 {
   "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "plugins": ["react", "typescript", "oxc"],
-  "ignorePatterns": ["dist", "node_modules"],
+  "plugins": [
+    "react",
+    "typescript",
+    "oxc"
+  ],
+  "ignorePatterns": [
+    "dist",
+    "node_modules"
+  ],
   "rules": {
     "react/rules-of-hooks": "error",
-    "react/only-export-components": ["warn", { "allowConstantExport": true }],
+    "react/only-export-components": [
+      "warn",
+      {
+        "allowConstantExport": true
+      }
+    ],
     "no-restricted-globals": [
       "error",
-      { "name": "fetch", "message": "请求一律走 src/core/api，不要直接 fetch" }
+      {
+        "name": "fetch",
+        "message": "请求一律走 src/core/api，不要直接 fetch"
+      }
     ],
     "no-restricted-properties": [
       "error",
-      { "object": "window", "property": "fetch", "message": "请求一律走 src/core/api，不要直接 fetch" },
-      { "object": "globalThis", "property": "fetch", "message": "请求一律走 src/core/api，不要直接 fetch" },
-      { "object": "self", "property": "fetch", "message": "请求一律走 src/core/api，不要直接 fetch" }
+      {
+        "object": "window",
+        "property": "fetch",
+        "message": "请求一律走 src/core/api，不要直接 fetch"
+      },
+      {
+        "object": "globalThis",
+        "property": "fetch",
+        "message": "请求一律走 src/core/api，不要直接 fetch"
+      },
+      {
+        "object": "self",
+        "property": "fetch",
+        "message": "请求一律走 src/core/api，不要直接 fetch"
+      }
     ]
   },
   "overrides": [
     {
-      "files": ["src/core/api/**"],
-      "rules": { "no-restricted-globals": "off", "no-restricted-properties": "off" }
+      "files": [
+        "src/core/api/**"
+      ],
+      "rules": {
+        "no-restricted-globals": "off",
+        "no-restricted-properties": "off"
+      }
+    },
+    {
+      "files": [
+        "src/modules/**",
+        "src/plugins/**"
+      ],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "patterns": [
+              {
+                "group": [
+                  "**/core/api",
+                  "**/core/api/*"
+                ],
+                "message": "模块和插件不直接调用 core/api，取数和写数据走 core/data（数据访问层），类型也从 core/data 引"
+              }
+            ]
+          }
+        ]
+      }
     }
   ]
 }

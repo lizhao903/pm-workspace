@@ -14,8 +14,8 @@ export {
   artifacts,
   runs,
   fs,
+  agentWorkdir,
 } from './resources'
-export { queryClient } from './queryClient'
 export { streamPost, runObject, chat, SSEParser, StreamError, isStreamError } from './sse'
 export type {
   RunEvent,
@@ -29,5 +29,4 @@ export type {
   RunRequest,
   ChatRequest,
 } from './sse'
-export { keys, useHealth, useObjectTypes, useDictionaries } from './queries'
 export type * from './types'

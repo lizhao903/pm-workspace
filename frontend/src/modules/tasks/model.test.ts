@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import type { DictItem, ObjectStatus, WorkObject } from '../../core/api'
+import type { DictItem, ObjectStatus, WorkObject } from '../../core/data'
 import {
   ALL, OPEN, dueSeg, dueText, isOverdue, matchStatus, priorityRank, segment, sortTasks, statusButtons, terminalOf, weekEnd,
 } from './model'

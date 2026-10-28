@@ -1,7 +1,6 @@
 // 任务列表的纯函数：截止分段、状态筛选、排序。规格见 web-next/docs/spec/tasks.md SPEC-tasks-2。
 // 「是否结束」一律看 /api/object-types 里状态的 terminal 标记，和后端 overdue / not_terminal 的判定同一来源。
-import { localDay } from '../../core/api'
-import type { DictItem, ObjectStatus, WorkObject } from '../../core/api'
+import { localDay, type DictItem, type ObjectStatus, type WorkObject } from '../../core/data'
 
 /** 每段先露几条 */
 export const PAGE = 30

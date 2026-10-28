@@ -62,15 +62,14 @@ npm run test:watch                         # 开发时 watch
 
 ## 接口层
 
-`src/core/api` 是唯一发请求的地方，`.oxlintrc.json` 的 `no-restricted-globals` / `no-restricted-properties` 禁止在它之外用 `fetch`（含 `window.fetch`、`globalThis.fetch`）。
+`src/core/api` 是唯一发请求的地方，`.oxlintrc.json` 的 `no-restricted-globals` / `no-restricted-properties` 禁止在它之外用 `fetch`（含 `window.fetch`、`globalThis.fetch`）。这里只发请求，不管缓存；模块和插件不直接用它，走下面的「数据访问层」。
 
 | 文件 | 内容 |
 |---|---|
 | `client.ts` | 统一请求函数：解开 `{data, meta}` 信封；失败抛 `ApiError{status, code, message}`；写请求统一带 `X-Actor-Source: ui` |
 | `types.ts` | 按 `docs/api-contract.md` 手写的类型。契约里的 `Object` 在这里叫 `WorkObject`，免得遮住全局 `Object` |
 | `query.ts` | query 参数生成（`objectListQuery`、`artifactListQuery`）、聚焦口径 `focusParams`、PATCH 挑改动字段 `changedFields` |
-| `resources.ts` | 各资源的请求函数：`objects`、`objectTypes`、`dictionaries`、`stakeholders`、`artifacts`、`runs`、`fs`、`counts` 等 |
-| `queries.ts` | 查询键和查询 hook（缓存与数据访问层在 CORE-03a） |
+| `resources.ts` | 各资源的请求函数：`objects`、`objectTypes`、`dictionaries`、`stakeholders`、`artifacts`、`runs`、`fs`、`agentWorkdir`、`counts` 等 |
 | `sse.ts` | 流式接口：`runObject`（`POST /api/objects/{id}/run`）、`chat`（`POST /api/agent/chat`），事件类型 `RunEvent`、`ChatEvent`，见下面「流式响应」 |
 
 错误码：`validation` 400、`not_found` 404、`conflict` 409、`readonly` 403、`internal` 500，后端没给码或给了不认识的码时按状态码归类；请求没到后端（服务没起、断网）是 `network`，`status` 为 0。
@@ -117,6 +116,32 @@ PMW_LIVE_API=http://127.0.0.1:7796 npx vitest run src/core/api/live.test.ts --re
 2. `objects.get('obj_does_not_exist')` 抛 `ApiError`，`status` 为 404、`code` 为 `not_found`；
 3. 非法 `sort` 得到 `validation`；类型、字典、干系人、计数能读；进展带 `kind`、`commits`、`files`、`status`，修订带 `actor_name`、`session_id`。
 
+## 数据访问层
+
+`src/core/data`（CORE-03a）：模块和插件取数、写数据只走这里。`.oxlintrc.json` 对 `src/modules/**`、`src/plugins/**` 开了 `no-restricted-imports`，`import` 任何 `core/api` 路径（含只引类型）都报错；类型和不发请求的纯函数（`localDay`、`changedFields`、`isApiError` 等）由 `core/data` 再导出。内核目录（`core/shell`、`core/plugin`）不受这条限制。
+
+| 文件 | 内容 |
+|---|---|
+| `keys.ts` | 缓存键 `dataKeys`，按资源分前缀。对象列表一律在 `['objects', 'list', 过滤条件]` 下（任务列表、今日、项目的任务标签页都是），过滤条件经 `normFilter` 归一（去空值、键排序）；计数是 `['counts', type]` |
+| `invalidate.ts` | 失效规则：写操作报一个 `Change`（`object`、`progress`、`artifact`、`run-started`、`run-settled`、`run-canceled`、`stakeholder`、`dictionary`、`object-type`），`invalidationsFor` 决定按哪些前缀失效。组件里用 `useNotifyChange()`，组件外（模块级状态、流回调）用 `notifyChange` |
+| `queryClient.ts` | 应用唯一的缓存，`main.tsx` 挂上；4xx 不重试 |
+| `errors.ts`、`QueryState.tsx` | 统一的错误提示 `errorText(e)`（network 说「连不上后端」，后端没给说明按错误码兜底）；`<QueryState query>` 统一加载中、出错带重试、有数据才渲染 |
+| `meta.ts` | `useHealth`、`useObjectTypes`、`useDictionaries`、`useDictItems`、`useStakeholders`、`useCounts` |
+| `objects.ts` | `useObjects`（一页）、`useAllObjects`（按页拉完）、`useObject`；`useCreateObject`、`usePatchObject`（props 先读回再合并）、`useSetStatus`、`useDeleteObject` |
+| `progress.ts`、`revisions.ts` | 进展列表和追加、验收通过 `useApprove`；修订和按会话分组、退回 `useReject` |
+| `artifacts.ts`、`runs.ts`、`fs.ts` | 产出物和统计、登记；执行记录、取消、发起执行的流 `streamRun`；工作目录校验和选目录 |
+
+主要规则（测试在 `invalidate.test.ts`）：
+
+| 改动 | 刷新 |
+|---|---|
+| 对象新建、编辑、改状态、删除，带 status 的进展（验收通过、退回） | 所有对象列表和单个对象、全部计数（逾期徽标、侧栏红点）、干系人 |
+| 只记进展 | 这个对象的进展、修订和对象本身 |
+| 登记产出物 | 产出物列表和统计 |
+| 执行开始 / 收尾 / 取消 | 这个对象的执行列表 / 执行记录、产出物、对象和计数 / 执行记录 |
+
+新加的写操作先想清楚属于哪种 `Change`，没有合适的就在 `invalidate.ts` 里加一种并补测试，不在组件里自己拼键去失效。
+
 ## 构建嵌入
 
 pmw 单文件分发，前端产物由 `internal/webui` 用 `//go:embed` 嵌进二进制。嵌哪套前端由仓库根目录 Makefile 的 `FRONTEND` 开关决定，默认仍是旧前端 `web/`，默认值切到本工程留给 REL-01。
@@ -149,7 +174,8 @@ scripts/dev-instance.sh stop && scripts/dev-instance.sh start
 src/
   main.tsx            入口：挂 QueryClientProvider 和路由
   core/               内核，插件和模块只能依赖这里暴露的东西
-    api/              接口层：请求、错误、查询键、各接口的查询 hook 和类型
+    api/              接口层：请求、错误、各接口的请求函数和类型，不管缓存
+    data/             数据访问层：资源级 hook、缓存键、失效规则、统一错误和加载状态
     shell/            外壳：布局、侧边栏、路由、出错页、占位页
     ui/               设计变量、基础排版、主题（FE-01a）；基础组件（FE-01b），见「基础组件」一节
     plugin/           模块和插件的描述结构、清单校验、插件注册表和加载（registry.ts）
@@ -167,7 +193,7 @@ src/
 |---|---|---|
 | 框架 | React 19 + TypeScript 6 + Vite 8 | 版本与原型 `web-next` 对齐 |
 | 路由 | react-router 8（`createBrowserRouter` 数据路由） | 模块页面用路由的 `lazy` 按需加载；模块内子路由挂在 `<path>/*` 下 |
-| 服务端状态 | TanStack Query 5 | 后端数据一律用查询 hook 取，查询键集中在 `core/api/queries.ts` 的 `keys`；写操作用 mutation，成功后按键失效缓存，不手动拷一份到组件状态 |
+| 服务端状态 | TanStack Query 5 | 后端数据一律用 `core/data` 的 hook 取，查询键集中在 `core/data/keys.ts` 的 `dataKeys`；写操作用它的 mutation，成功后按失效规则刷新，不手动拷一份到组件状态 |
 | 本地界面状态 | React 自带的 state / context | 不引入全局状态库，确有需要再评估 |
 | 代码检查 | oxlint | 规则沿用旧前端 `web/` |
 
@@ -219,7 +245,7 @@ src/
 
 ## 约定
 
-- 组件里不直接 `fetch`，请求一律走 `src/core/api`。后端返回 `{ data, meta? }`，出错返回 `{ error: { code, message } }`，接口层统一解开信封，出错抛 `ApiError`（带 `status`、`code`）。
+- 组件里不直接 `fetch`，模块和插件也不直接调用 `src/core/api`，数据一律走 `src/core/data`。后端返回 `{ data, meta? }`，出错返回 `{ error: { code, message } }`，接口层统一解开信封，出错抛 `ApiError`（带 `status`、`code`）。
 - 状态、类型、优先级从后端读（`/api/object-types`、`/api/dictionaries`，对应 `useObjectTypes`、`useDictionaries`），不在前端写死。
 - 副作用不写进 `setState` 的 updater。
 - 不使用 emoji。

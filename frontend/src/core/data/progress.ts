@@ -1,16 +1,14 @@
-// 任务进展时间线用的查询和写入（DEV-08a）。查询键挂在 objects 前缀下，对象改动后一起失效。
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { objects } from './resources'
-import type { Progress, ProgressInput, ProgressKind, Revision } from './types'
+// 进展的读写（DEV-08a 起，CORE-03a 迁进数据访问层）：进展列表、追加进展、验收通过。
+// 只记进展报 { kind: 'progress' }；带 status 的（同一事务改了状态）按对象改动处理，列表和计数一起刷新。
+import { useMutation, useQuery } from '@tanstack/react-query'
+import { objects, type Progress, type ProgressInput, type ProgressKind, type Revision } from '../api'
+import { useNotifyChange } from './invalidate'
+import { dataKeys } from './keys'
 
 // 后端默认就是 100
 export const PROGRESS_LIMIT = 100
 // 进行中的任务抽屉打开期间的刷新间隔；M2 有事件推送后改成推送（CORE-07c）
 export const PROGRESS_POLL_MS = 10_000
-
-export const progressKeys = {
-  list: (id: string) => ['objects', 'progress', id] as const,
-}
 
 /** kind 是契约里的固定取值（claim / note / review），不是字典，标识在这里定 */
 export const PROGRESS_KIND_LABEL: Record<ProgressKind, string> = {
@@ -67,7 +65,7 @@ export function revisionSummary(r: Pick<Revision, 'field' | 'old_value' | 'new_v
 // 进展列表；传了对象当前状态且任务进行中时每 10 秒刷新一次（判定要用拿到的领取记录）
 export function useProgress(id: string | null, status?: string) {
   return useQuery({
-    queryKey: progressKeys.list(id ?? ''),
+    queryKey: dataKeys.objects.progress(id ?? ''),
     queryFn: () => objects.progress(id ?? '', { limit: PROGRESS_LIMIT }),
     enabled: !!id,
     refetchInterval: (q) => (status !== undefined && isInProgress(status, q.state.data ?? []) ? PROGRESS_POLL_MS : false),
@@ -76,14 +74,21 @@ export function useProgress(id: string | null, status?: string) {
   })
 }
 
-// 人工追加一条进展（kind=note）；成功后刷新进展和这个对象（带 status 时状态会变）
+// 人工追加一条进展（kind=note）；带 status 时状态会变，按对象改动刷新
 export function useAppendProgress(id: string) {
-  const qc = useQueryClient()
+  const notify = useNotifyChange()
   return useMutation({
     mutationFn: (input: ProgressInput) => objects.appendProgress(id, { kind: 'note', ...input }),
-    onSuccess: () => Promise.all([
-      qc.invalidateQueries({ queryKey: progressKeys.list(id) }),
-      qc.invalidateQueries({ queryKey: ['objects', 'get', id] }),
-    ]),
+    onSuccess: (_, input) => notify(input.status ? { kind: 'object', id } : { kind: 'progress', id }),
+  })
+}
+
+// 验收通过：记一条进展并同一事务把状态改为 done（SPEC-tasks-5.22、5.27）
+export function useApprove() {
+  const notify = useNotifyChange()
+  return useMutation({
+    mutationFn: ({ id, status, comment }: { id: string; status: string; comment?: string }) =>
+      objects.appendProgress(id, { kind: 'note', text: comment?.trim() ? `验收通过：${comment.trim()}` : '验收通过', status }),
+    onSuccess: (_, v) => notify({ kind: 'object', id: v.id }),
   })
 }

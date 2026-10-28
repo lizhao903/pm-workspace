@@ -2,7 +2,7 @@ import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { QueryClientProvider } from '@tanstack/react-query'
 import { RouterProvider } from 'react-router'
-import { queryClient } from './core/api'
+import { queryClient } from './core/data'
 import { createAppRouter } from './core/shell/router'
 import { coreModules } from './modules'
 

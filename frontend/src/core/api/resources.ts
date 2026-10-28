@@ -1,5 +1,5 @@
 // 各资源的请求函数，一个接口一个函数，路径和参数照 docs/api-contract.md。
-// 不做缓存（CORE-03a 负责），也不做 SSE（FE-02b 负责）。
+// 不做缓存（在 core/data），也不做 SSE（在 sse.ts）。
 
 import { request, requestList, seg, type ListResult } from './client'
 import { artifactListQuery, objectListQuery } from './query'
@@ -34,6 +34,7 @@ import type {
   StakeholderInput,
   StakeholderPatch,
   TaskRun,
+  WorkdirCheck,
   WorkObject,
 } from './types'
 
@@ -151,6 +152,12 @@ export const runs = {
     request<TaskRun[]>('GET', `/api/objects/${seg(objectId)}/runs`, { query: limitQuery(opts.limit) }),
   get: (id: string) => request<TaskRun>('GET', `/api/runs/${seg(id)}`),
   cancel: (id: string) => request<TaskRun>('POST', `/api/runs/${seg(id)}/cancel`),
+}
+
+// 不可用也是 200，看返回的字段，message 说明原因
+export const agentWorkdir = {
+  check: (path: string, signal?: AbortSignal) =>
+    request<WorkdirCheck>('POST', '/api/agent/workdir/check', { body: { path }, signal }),
 }
 
 export const fs = {

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { mergeProps, saveObject } from './taskEdit'
+import { mergeProps, saveObject } from './objects'
 
 describe('props 合并', () => {
   it('只动改了的 key，其它原样保留；空值去掉 key', () => {

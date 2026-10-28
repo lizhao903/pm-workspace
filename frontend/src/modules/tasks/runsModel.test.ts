@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import type { RunEvent } from '../../core/api'
+import type { RunEvent } from '../../core/data'
 import { duration, extraOf, foldEvents, parseOutput, runNote, runStatusOf } from './runsModel'
 
 describe('foldEvents', () => {

@@ -1,10 +1,7 @@
 // 待验收的任务在抽屉里验收通过或退回（DEV-08d，照原型 devloop.tsx 的 ReviewBar）。
 // 验收通过和列表完成圆圈走同一个 useApprove（kind=note、status=done）；退回意见必填，状态回初始状态。
 import { useState } from 'react'
-import type { ObjectStatus, WorkObject } from '../../core/api'
-import { shortSession, useProgress } from '../../core/api/progress'
-import { useApprove } from '../../core/api/taskEdit'
-import { useReject } from '../../core/api/taskReview'
+import { errorText, shortSession, useApprove, useProgress, useReject, type ObjectStatus, type WorkObject } from '../../core/data'
 import { Button, Textarea } from '../../core/ui'
 import { doneKey, reopenKey, timeAgo } from './model'
 import './changes.css'
@@ -28,7 +25,8 @@ export function ReviewBar({ task, statuses, onReviewed }: {
   const done = doneKey(statuses)
   const initial = reopenKey(statuses)
   const busy = approve.isPending || reject.isPending
-  const err = (mode === 'pass' ? approve.error : mode === 'back' ? reject.error : null)?.message
+  const failed = mode === 'pass' ? approve.error : mode === 'back' ? reject.error : null
+  const err = failed ? errorText(failed) : undefined
   const missing = tried && mode === 'back' && !text.trim()
 
   const pick = (m: Mode) => {

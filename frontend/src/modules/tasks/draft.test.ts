@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import type { DictItem, ObjectStatus, WorkObject } from '../../core/api'
+import type { DictItem, ObjectStatus, WorkObject } from '../../core/data'
 import { buildCreate, buildSave, draftOf, emptyDraft, sameDraft } from './draft'
 
 const due = (d: string) => new Date(`${d}T23:59:59`).toISOString()
