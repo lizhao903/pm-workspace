@@ -58,10 +58,11 @@ import type { Backtest, BacktestConfig, Strategy } from './tradedata'
 import { ATTACH_DIR, SYNC_POOL, type MsgAttachment } from './data'
 import { newId } from './ids'
 import { PageTitle } from './topbar'
+import { OverviewPage, type OverviewKey } from './overview'
 
 // 菜单从这里加：Page 加一个 key，MENU 加一行，main 里接上页面。设置不在 MENU 里，单独吸底
 type Page = 'today' | 'projects' | 'contacts' | 'messages' | 'tasks' | 'library' | 'sop' | 'sessions' | 'terminal' | 'browser'
-  | 'videos' | 'markets' | 'monitor' | 'strategy' | 'trading' | 'settings'
+  | 'videos' | 'markets' | 'monitor' | 'strategy' | 'trading' | 'settings' | 'overview'
 
 // 抽屉是全局的一个：从消息页「存为联系人」时，不用离开消息页就能打开联系人表单
 type DrawerState =
@@ -115,6 +116,7 @@ const icons: Record<Page, React.ReactNode> = {
   strategy: <svg className="side-icon" viewBox="0 0 16 16" width="15" height="15"><path d="M2 13.5h12M3.5 11l3-3.5 2.5 2 4-5" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" /><path d="M10.5 4.5h2.5V7" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" /></svg>,
   trading: <svg className="side-icon" viewBox="0 0 16 16" width="15" height="15"><path d="M3 5h9.5l-2.5-2.5M13 11H3.5L6 13.5" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" /></svg>,
   settings: <span className="side-icon">{gear}</span>,
+  overview: <svg className="side-icon" viewBox="0 0 16 16" width="15" height="15"><rect x="2" y="2" width="5" height="5" rx="1.2" fill="none" stroke="currentColor" strokeWidth="1.4" /><rect x="9" y="2" width="5" height="5" rx="1.2" fill="none" stroke="currentColor" strokeWidth="1.4" /><rect x="2" y="9" width="5" height="5" rx="1.2" fill="none" stroke="currentColor" strokeWidth="1.4" /><path d="M9.5 10h4M9.5 12.5h4" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" /></svg>,
 }
 
 export default function App() {
@@ -864,6 +866,7 @@ export default function App() {
       ? { id: `c-stop-${x.id}`, group: '原型', title: `停止原型「${x.name}」`, sub: `${pj.name} · :${x.port}`, keywords: 'prototype 停止', run: () => stopProto(x.id) }
       : { id: `c-start-${x.id}`, group: '原型', title: `启动原型「${x.name}」`, sub: `${pj.name} · :${x.port}`, keywords: 'prototype 启动', run: () => startProto(x.id) }))) : []),
     ...MENU.map((m) => ({ id: `g-${m.key}`, group: '跳转', title: m.label, sub: '功能模块', run: goto(m.key) })),
+    { id: 'g-overview', group: '跳转', title: '原型总览', sub: '每个模块的页面和对应的规格章节', keywords: 'overview spec 规格 总览', run: goto('overview') },
     ...SECTIONS.map((x) => ({ id: `g-set-${x.key}`, group: '跳转', title: `设置 / ${x.label}`, sub: x.desc, run: () => { go('settings'); setSection(x.key); if (x.key === 'agents') setAgentView('list') } })),
     ...(has('projects') ? projects.map((x) => ({ id: `p-${x.id}`, group: '项目', title: x.name, sub: x.desc, keywords: x.root, run: () => { setPage('projects'); setProjectId(x.id); setProjectTab('overview') } })) : []),
     ...(has('tasks') ? tasks.map((x) => ({ id: `t-${x.id}`, group: '任务', title: `${x.ref} ${x.title}`, sub: `${x.priority} · ${x.assignee || '未分配'}`, keywords: x.desc, run: () => { setPage('tasks'); setDrawer({ kind: 'task', id: x.id }) } })) : []),
@@ -879,7 +882,7 @@ export default function App() {
   useLayoutEffect(() => { mainRef.current?.scrollTo(0, 0) }, [page, section, taskView, sopView, openRun, sessionView, strategyView, tradingView, videoView, projectId, projectTab, agentView])
 
   useEffect(() => {
-    if (page === 'settings' || MENU.some((m) => m.key === page)) return
+    if (page === 'settings' || page === 'overview' || MENU.some((m) => m.key === page)) return
     setPage(((MENU.find((m) => m.key === bench.home) ?? MENU[0])?.key ?? 'settings') as Page)
   }, [page, bench.modules.join(','), bench.home])
   // 一级菜单分组折叠：直接记在工作台配置里，和「设置 / 工作台与模块」的默认折叠是同一个值
@@ -892,6 +895,20 @@ export default function App() {
     if (page !== 'settings') { setPage(w.home as Page); setDrawer(null) }
   }
   const go = (p: Page) => { setPage(p); setDrawer(null); if (p === 'settings') setConnCat(''); if (p === 'sop') { setOpenRun(null); setSopFilter(undefined) } if (p === 'sessions') setSessionProject(undefined); if (p === 'projects') setProjectId(ALL_PROJECTS) }
+  // 从原型总览打开某页：当前工作台没开这个模块就先切到开着它的工作台，再落到对应子页
+  const openFromOverview = (m: OverviewKey, view?: string) => {
+    if (m !== 'settings' && !bench.modules.includes(m)) { const w = benches.find((x) => x.modules.includes(m)); if (!w) return; setBenchId(w.id) }
+    go(m)
+    if (!view) return
+    if (m === 'tasks') setTaskView(view as TaskView)
+    else if (m === 'sessions') setSessionView(view as SessionView)
+    else if (m === 'sop') setSopView(view as SopView)
+    else if (m === 'videos') setVideoView(view as VideoView)
+    else if (m === 'strategy') setStrategyView(view as StrategyView)
+    else if (m === 'trading') setTradingView(view as TradingView)
+    else if (m === 'projects' && projects[0]) { setProjectId(projects[0].id); setProjectTab(view as ProjectTab) }
+    else if (m === 'settings') { setSection(view as Section); if (view === 'agents') setAgentView('list') }
+  }
   const openImConnectors = () => { setPage('settings'); setSection('connectors'); setConnCat('im'); setDrawer(null) }
 
   // 本地目录只在内存里，刷新页面就没了；同一个目录再选一次是重新读取，不会多出一项
@@ -1300,6 +1317,10 @@ export default function App() {
               <span className="side-dot" title={[brokenConnectors && `${brokenConnectors} 个连接器异常`, brokenProviders && `${brokenProviders} 个模型服务商连接异常`, openIncidents && `${openIncidents} 个运行错误未处理`].filter(Boolean).join('，')}/>
             )}
           </button>
+          {/* 总览不是模块，不占一级菜单的位置；放在设置旁边，冒烟脚本点的第一个 .side-item 仍是设置 */}
+          <button className={cls('icon-btn side-ov', page === 'overview' && 'active')} onClick={() => go('overview')} title="原型总览：每页做什么、对应规格哪一节" aria-label="原型总览">
+            {icons.overview}
+          </button>
         </div>
       </aside>
       {page === 'sessions' && <SessionsNav view={sessionView} onSelect={setSessionView} waiting={agentWaiting} onNew={() => { setSessionView('chats'); setPickAgent((n) => n + 1) }} />}
@@ -1394,6 +1415,7 @@ export default function App() {
             return <SopRunsPage key={`${sopView}:${sopFilter ?? ''}`} runs={runs} view={sopView as 'runs' | 'waiting' | 'library'} sop={sopFilter} onOpen={setOpenRun}
               sops={sops} onOpenSop={(id) => setSopView(`sop:${id}`)} onNew={() => { setSopView('edit:new'); setOpenRun(null) }} />
           })()}
+          {page === 'overview' && <OverviewPage benches={benches} current={bench.id} onOpen={openFromOverview} />}
           {page === 'today' && (
             <TodayPage needs={todayNeeds} tasks={tasks} schedules={todaySchedules} running={todayRunning}
               more={{
