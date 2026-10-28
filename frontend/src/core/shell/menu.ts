@@ -7,7 +7,7 @@ export type MenuGroup = { id: string; name: string; items: ModuleDef[] }
 
 export const DEFAULT_GROUPS: readonly MenuGroupDef[] = [
   { id: 'home', name: '', modules: ['today'] },
-  { id: 'work', name: '工作', modules: ['tasks', 'docs'] },
+  { id: 'work', name: '工作', modules: ['projects', 'tasks', 'docs'] },
   { id: 'talk', name: '沟通', modules: ['contacts', 'conversations'] },
 ]
 
