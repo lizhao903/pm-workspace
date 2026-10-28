@@ -58,11 +58,11 @@
 
 | 模块 | key | 规格文件 | 截图 | 负责任务 | 状态 |
 |---|---|---|---|---|---|
-| 今日 | `today` | `today.md` | [shots/today](shots/today) | PROTO-04b | 待整理 |
-| 任务 | `tasks` | `tasks.md` | [shots/tasks](shots/tasks) | PROTO-04b | 待整理 |
-| 文档 | `library` | `library.md` | [shots/library](shots/library) | PROTO-04c | 待整理 |
-| 联系人 | `contacts` | `contacts.md` | [shots/contacts](shots/contacts) | PROTO-04c | 待整理 |
-| 会话 | `sessions` | `sessions.md` | [shots/sessions](shots/sessions) | PROTO-04c | 待整理 |
+| 今日 | `today` | `today.md` | [shots/today](shots/today) | PROTO-04b | 已整理 |
+| 任务 | `tasks` | `tasks.md` | [shots/tasks](shots/tasks) | PROTO-04b | 已整理 |
+| 文档 | `library` | `library.md` | [shots/library](shots/library) | PROTO-04c | 已整理 |
+| 联系人 | `contacts` | `contacts.md` | [shots/contacts](shots/contacts) | PROTO-04c | 已整理 |
+| 会话 | `sessions` | `sessions.md` | [shots/sessions](shots/sessions) | PROTO-04c | 已整理 |
 | IM 消息 | `messages` | `messages.md` | [shots/messages](shots/messages) | PROTO-04d | 待整理 |
 | 项目 | `projects` | `projects.md` | [shots/projects](shots/projects) | PROTO-04d | 待整理 |
 | 设置 | `settings` | `settings.md` | [shots/settings](shots/settings) | PROTO-04e（设置的全部分节：工作台与模块、连接器、模型服务商、Agent、知识库、技能、枚举值、运行异常、内网域名、外观） | 待整理 |
