@@ -7,7 +7,7 @@
   "depends": {},
   "optional_depends": {},
   "provides": {
-    "modules": [],
+    "modules": ["messages"],
     "settings": [],
     "object_types": [],
     "connectors": [],

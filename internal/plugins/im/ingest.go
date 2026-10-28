@@ -8,7 +8,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-	"unicode"
 	"unicode/utf8"
 
 	"github.com/lizhao903/pm-workspace/internal/idgen"
@@ -25,9 +24,6 @@ const (
 	maxText = 20000 // 正文上限（字），超出截断
 	maxName = 200
 )
-
-// allHandles 是 @所有人 的写法，和原型 ALL_HANDLES 一致。
-var allHandles = []string{"所有人", "全体成员", "all", "here", "channel", "everyone"}
 
 // Received 是 im.message_received 的 payload。只带 id 和归类，正文用 /api/im/messages 取。
 type Received struct {
@@ -69,12 +65,13 @@ func (in *inbox) ingest(ctx context.Context, a Adapter, msgs []Incoming, strict 
 	if err != nil {
 		return res, fmt.Errorf("适配器 %s 的渠道不对：%w", a.Key(), err)
 	}
-	var self []string
-	if h, ok := a.(Handles); ok {
-		self = h.Handles()
-	}
+	me := newSelfHandles(a)
 	rows := make([]row, 0, len(msgs))
 	for i, m := range msgs {
+		self, err := me.forConnector(ctx, in.c, strings.TrimSpace(m.ConnectorID))
+		if err != nil {
+			return res, err
+		}
 		r, err := in.prepare(ctx, ch, self, m)
 		var bi *badInput
 		switch {
@@ -209,48 +206,6 @@ func (in *inbox) insert(ctx context.Context, r row) (bool, error) {
 	}
 	n, _ := res.RowsAffected()
 	return n == 1, nil
-}
-
-// relevance 是这条消息为什么和我有关：@我 优先于 @所有人，私聊本来就是发给我的；无关为空串。口径同原型 relevance。
-func relevance(mention, text string, self []string, kind string) string {
-	if mention != "" {
-		return mention
-	}
-	if mentions(text, self) {
-		return "me"
-	}
-	if mentions(text, allHandles) {
-		return "all"
-	}
-	if kind == "direct" {
-		return "dm"
-	}
-	return ""
-}
-
-// mentions：正文里有「@称呼」，称呼后面不紧跟字母数字（@我们 不算 @我）。英文不分大小写。
-func mentions(text string, handles []string) bool {
-	low := strings.ToLower(text)
-	for _, h := range handles {
-		h = strings.ToLower(strings.TrimSpace(h))
-		if h == "" {
-			continue
-		}
-		needle := "@" + h
-		for i := 0; ; {
-			j := strings.Index(low[i:], needle)
-			if j < 0 {
-				break
-			}
-			end := i + j + len(needle)
-			next, _ := utf8.DecodeRuneInString(low[end:])
-			if end == len(low) || !(unicode.IsLetter(next) || unicode.IsDigit(next) || next == '_') {
-				return true
-			}
-			i = end
-		}
-	}
-	return false
 }
 
 func clip(s string, n int) string {
