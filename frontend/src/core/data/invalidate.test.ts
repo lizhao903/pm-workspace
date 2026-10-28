@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { applyChange, invalidationsFor, type Change } from './invalidate'
 import { dataKeys, normFilter } from './keys'
 import { agentKeys } from './agentKeys'
+import { todayKeys } from './today'
 
 // 各页面会用到的缓存，挨个种进一个空缓存，看一次改动把哪些标成过期
 const seeded = {
@@ -129,5 +130,39 @@ describe('缓存键', () => {
   it('计数：全局和收窄到类型的分开，都在 counts 前缀下', () => {
     expect(dataKeys.counts.of()).not.toEqual(dataKeys.counts.of('task'))
     expect(dataKeys.counts.of('task')[0]).toBe(dataKeys.counts.all[0])
+  })
+})
+
+describe('今日聚合的失效（TODAY-02）', () => {
+  const keys = {
+    today: todayKeys.of(),
+    todayTask: todayKeys.of('task'),
+    schedules: todayKeys.schedules,
+  } satisfies Record<string, QueryKey>
+  async function staleToday(c: Change) {
+    const qc = new QueryClient()
+    for (const k of Object.values(keys)) qc.setQueryData(k, {})
+    await applyChange(qc, c)
+    return (Object.keys(keys) as (keyof typeof keys)[]).filter((n) => qc.getQueryState(keys[n])?.isInvalidated)
+  }
+
+  it('对象一改（含改状态、验收通过、执行收尾、对话收尾）：今日整体刷新，点完成后该行直接消失', async () => {
+    for (const c of [{ kind: 'object', id: 'obj_a' }, { kind: 'run-settled', objectId: 'obj_a' }, { kind: 'agent-chat', sessionId: 'ags_a' }] as Change[]) {
+      expect(await staleToday(c)).toEqual(['today', 'todayTask', 'schedules'])
+    }
+  })
+
+  it('执行开始：「正在运行」要多一行，刷两份聚合，不刷定时任务', async () => {
+    expect(await staleToday({ kind: 'run-started', objectId: 'obj_a' })).toEqual(['today', 'todayTask'])
+  })
+
+  it('插件启停：插件贡献的卡片跟着出现或消失', async () => {
+    expect(await staleToday({ kind: 'plugin' })).toEqual(['today', 'todayTask', 'schedules'])
+  })
+
+  it('只记进展、产出物、字典不动今日', async () => {
+    for (const c of [{ kind: 'progress', id: 'obj_a' }, { kind: 'artifact' }, { kind: 'dictionary' }] as Change[]) {
+      expect(await staleToday(c)).toEqual([])
+    }
   })
 })

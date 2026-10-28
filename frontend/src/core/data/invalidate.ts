@@ -5,6 +5,7 @@ import { useCallback } from 'react'
 import { agentKeys } from './agentKeys'
 import { dataKeys } from './keys'
 import { queryClient } from './queryClient'
+import { todayKeys } from './today'
 
 export type Change =
   /** 对象新建、编辑、改状态、删除、恢复，以及带 status 的进展（同一事务改了状态） */
@@ -30,8 +31,8 @@ export type Change =
   | { kind: 'plugin' }
 
 // 对象一变，所有对象列表（任务列表、今日、项目的任务标签页）、单个对象及其进展和修订、
-// 计数（侧栏红点、逾期徽标）都可能变；干系人名册上的任务数也跟着变。
-const objectWide: QueryKey[] = [dataKeys.objects.all, dataKeys.counts.all, dataKeys.stakeholders.all]
+// 计数（侧栏红点、逾期徽标）都可能变；干系人名册上的任务数也跟着变；今日聚合（待验收、逾期、今天到期、插件卡片）也是。
+const objectWide: QueryKey[] = [dataKeys.objects.all, dataKeys.counts.all, dataKeys.stakeholders.all, todayKeys.all]
 
 /** 一次改动要按前缀失效的查询键 */
 export function invalidationsFor(c: Change): QueryKey[] {
@@ -45,7 +46,8 @@ export function invalidationsFor(c: Change): QueryKey[] {
       // 列表和统计（删除确认里的产出物数）一起刷
       return [dataKeys.artifacts.all]
     case 'run-started':
-      return [dataKeys.runs.list(c.objectId)]
+      // 今日的「正在运行」也要多一行
+      return [dataKeys.runs.list(c.objectId), todayKeys.of(), todayKeys.of('task')]
     case 'run-settled':
       return [dataKeys.runs.all, dataKeys.artifacts.all, ...objectWide]
     case 'run-canceled':
@@ -67,7 +69,8 @@ export function invalidationsFor(c: Change): QueryKey[] {
         agentKeys.sessions.unscoped, dataKeys.artifacts.all, ...objectWide,
       ]
     case 'plugin':
-      return [dataKeys.plugins.all, dataKeys.objectTypes]
+      // 插件停用后它的今日卡片从聚合里消失
+      return [dataKeys.plugins.all, dataKeys.objectTypes, todayKeys.all]
   }
 }
 

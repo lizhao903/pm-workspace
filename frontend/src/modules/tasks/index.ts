@@ -1,3 +1,4 @@
+import { lazy } from 'react'
 import { defineCoreModule } from '../../core/plugin'
 
 // 内核模块：标 core，不能停用
@@ -7,3 +8,9 @@ export const module = defineCoreModule({
   path: 'tasks',
   load: () => import('./Page'),
 })
+
+// 给别的模块用的公开入口（今日页打开任务抽屉、待验收确认）。按需加载，样式跟着一起来，不拖大首屏
+const withStyles = () => import('./tasks.css')
+export const TaskDrawer = lazy(() => Promise.all([import('./TaskDrawer'), withStyles()]).then(([m]) => ({ default: m.TaskDrawer })))
+export const ApproveDialog = lazy(() => Promise.all([import('./ApproveDialog'), withStyles()]).then(([m]) => ({ default: m.ApproveDialog })))
+export { REVIEW, doneKey, dueDay, priorityRank, terminalOf, timeAgo } from './model'
