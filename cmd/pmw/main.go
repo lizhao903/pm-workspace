@@ -101,6 +101,11 @@ func run(cfg config) error {
 
 	st, err := sqlite.Open(ctx, cfg.dbPath)
 	if err != nil {
+		// 迁移失败已整体回滚，库停在迁移前的版本；把快照路径单独打出来，恢复时照着拷回去
+		var me *db.MigrationError
+		if errors.As(err, &me) && me.Snapshot != "" {
+			slog.Error("迁移失败，已回滚，库版本未变", "migration", me.Version, "snapshot", me.Snapshot)
+		}
 		return fmt.Errorf("打开数据库失败: %w", err)
 	}
 	defer st.Close()
@@ -128,11 +133,8 @@ func run(cfg config) error {
 
 	// 插件注册表：第一方插件编译进二进制，在这里 Add（PJ-01a 起）；启停状态存在 plugins 表。
 	// Start 必须在 api.New 之前：插件路由在 New 时挂上。defer 先于关库执行，后台任务先停。
-	pdb, err := db.Open(cfg.dbPath)
-	if err != nil {
-		return fmt.Errorf("打开插件状态库失败: %w", err)
-	}
-	defer pdb.Close()
+	// 状态表和迁移记录复用 store 的连接，不另开一组（写池单连接，插件迁移和内核写入排同一个队）。
+	pdb := st.DB()
 	plugins := plugin.NewRegistry(plugin.NewSQLStateStore(pdb), slog.Default())
 	// 插件迁移记在 plugins_migrations（0017）；已应用的被改过时 Start 报错，拒绝启动
 	plugins.Migrations = plugin.NewSQLMigrationStore(pdb)

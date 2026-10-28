@@ -64,15 +64,21 @@ type activation struct {
 var (
 	ErrNotFound = errors.New("plugin not found")
 	ErrState    = errors.New("plugin state conflict")
+	// ErrUnconfirmed：安装时没确认清单里的全部权限。同时也是 ErrState，旧调用方照常认。
+	ErrUnconfirmed = errors.New("plugin permissions not confirmed")
 )
 
-// DependentsError：还有已启用的插件强依赖它，不能停用（4.3）。
+// DependentsError：还有插件强依赖它。停用时看已启用的（4.3），卸载时看已安装的（4.4）。
 type DependentsError struct {
 	ID         string
 	Dependents []string
+	Uninstall  bool
 }
 
 func (e *DependentsError) Error() string {
+	if e.Uninstall {
+		return fmt.Sprintf("插件 %s 被这些已安装的插件依赖，要先卸载它们：%s", e.ID, strings.Join(e.Dependents, "、"))
+	}
 	return fmt.Sprintf("插件 %s 被这些已启用的插件依赖，要先停用它们：%s", e.ID, strings.Join(e.Dependents, "、"))
 }
 
@@ -200,7 +206,8 @@ func (r *Registry) Close() {
 
 // Install 跑本插件的迁移、记下安装和确认过的权限，不启用（安装后接着启用由管理接口串起来）。
 // confirmed 必须覆盖清单里的全部权限（3.2）。卸载保留数据后重装时跳过已应用的迁移。
-// 迁移中途失败时前面已提交的文件不回滚，靠安装前的快照恢复（4.1、REL-02）。OnInstall 在 CORE-04b 加。
+// 迁移中途失败时前面已提交的文件不回滚，靠安装前的快照恢复（4.1、REL-02）。
+// 迁移跑完、写状态表之前调 Installer.OnInstall，出错整次安装失败（迁移同样不回滚）。
 func (r *Registry) Install(ctx context.Context, id string, confirmed []string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -208,6 +215,43 @@ func (r *Registry) Install(ctx context.Context, id string, confirmed []string) e
 	if err != nil {
 		return err
 	}
+	if err := r.checkInstall(e, confirmed); err != nil {
+		return err
+	}
+	if err := r.migrate(ctx, e); err != nil {
+		return err
+	}
+	if in, ok := e.p.(Installer); ok {
+		if err := in.OnInstall(ctx, e.core); err != nil {
+			return fmt.Errorf("插件 %s 安装失败：%w", id, err)
+		}
+	}
+	now := time.Now().UTC()
+	st := State{
+		ID: id, Installed: true, Version: e.m.Version, InstalledAt: &now,
+		Permissions: slices.Clone(e.m.Permissions), PermissionsAt: &now, UpdatedAt: now,
+	}
+	if err := r.store.Save(ctx, st); err != nil {
+		return err
+	}
+	e.state = st
+	return nil
+}
+
+// CheckInstall 只做安装前的检查，不改任何东西。接口层先用它挡掉装不了的，再去打快照。
+func (r *Registry) CheckInstall(id string, confirmed []string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	e, err := r.get(id)
+	if err != nil {
+		return err
+	}
+	return r.checkInstall(e, confirmed)
+}
+
+// checkInstall：未安装、依赖已启用、清单和环境相容、权限都确认了。
+func (r *Registry) checkInstall(e *entry, confirmed []string) error {
+	id := e.m.ID
 	if e.state.Installed {
 		return fmt.Errorf("%w: 插件 %s 已安装", ErrState, id)
 	}
@@ -231,20 +275,8 @@ func (r *Registry) Install(ctx context.Context, id string, confirmed []string) e
 		}
 	}
 	if len(missing) > 0 {
-		return fmt.Errorf("%w: 这些权限没有确认：%s", ErrState, strings.Join(missing, "、"))
+		return fmt.Errorf("%w: %w: 这些权限没有确认：%s", ErrState, ErrUnconfirmed, strings.Join(missing, "、"))
 	}
-	if err := r.migrate(ctx, e); err != nil {
-		return err
-	}
-	now := time.Now().UTC()
-	st := State{
-		ID: id, Installed: true, Version: e.m.Version, InstalledAt: &now,
-		Permissions: slices.Clone(e.m.Permissions), PermissionsAt: &now, UpdatedAt: now,
-	}
-	if err := r.store.Save(ctx, st); err != nil {
-		return err
-	}
-	e.state = st
 	return nil
 }
 
@@ -309,12 +341,14 @@ func (r *Registry) Disable(ctx context.Context, id string) error {
 	return nil
 }
 
-// Info 是一个插件对外的样子：清单、状态表里的行、是否在跑、还没退出的后台任务数。
+// Info 是一个插件对外的样子：清单、状态表里的行、是否在跑、还没退出的后台任务数，
+// 以及二进制里强依赖它的插件（不论装没装，停用、卸载前提示用）。
 type Info struct {
-	Manifest Manifest `json:"manifest"`
-	State    State    `json:"state"`
-	Running  bool     `json:"running"`
-	Jobs     int      `json:"jobs"`
+	Manifest   Manifest `json:"manifest"`
+	State      State    `json:"state"`
+	Running    bool     `json:"running"`
+	Jobs       int      `json:"jobs"`
+	Dependents []string `json:"dependents"`
 }
 
 func (r *Registry) List() []Info {
@@ -338,7 +372,13 @@ func (r *Registry) Get(id string) (Info, error) {
 }
 
 func (r *Registry) info(e *entry) Info {
-	return Info{Manifest: e.m, State: e.state, Running: e.active.Load() != nil, Jobs: int(e.jobs.Load())}
+	deps := []string{}
+	for _, oid := range r.order {
+		if _, ok := r.entries[oid].m.Depends[e.m.ID]; ok {
+			deps = append(deps, oid)
+		}
+	}
+	return Info{Manifest: e.m, State: e.state, Running: e.active.Load() != nil, Jobs: int(e.jobs.Load()), Dependents: deps}
 }
 
 // Route 是挂进接口层的一条插件路由。
