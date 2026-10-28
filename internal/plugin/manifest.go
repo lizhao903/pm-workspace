@@ -106,7 +106,7 @@ var Permissions = []string{
 // KernelEvents 是内核事件第一版（docs/plugin-api.md 2.10）。
 var KernelEvents = []string{
 	"object.created", "object.updated", "object.status_changed",
-	"task.review_requested", "run.finished", "contact.identity_merged",
+	"task.review_requested", "run.finished", "contact.identity_merged", "object.progress_appended",
 }
 
 // 内核事件用的命名空间；这些前缀的事件只能是 KernelEvents 里的。

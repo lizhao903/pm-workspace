@@ -36,7 +36,7 @@ def open_fresh(page, url, theme):
     """打开页面，清掉存储只留主题，重新加载。"""
     page.goto(url, wait_until='domcontentloaded')
     page.evaluate("t => { localStorage.clear(); sessionStorage.clear(); localStorage.setItem('pmw-theme', t) }", theme)
-    page.reload(wait_until='networkidle')
+    page.reload(wait_until='load')
 
 
 def read_menu(browser, base):
@@ -96,7 +96,7 @@ class Run:
         self.where = f'{mod["label"]}（{mod["path"]}）'
         page = self.page
         try:
-            page.goto(base + mod['path'], wait_until='networkidle', timeout=20000)
+            page.goto(base + mod['path'], wait_until='load', timeout=20000)
         except Exception as e:
             self.add('打不开', str(e).splitlines()[0][:200])
             return

@@ -23,6 +23,7 @@ const (
 	ObjectUpdated       = "object.updated"
 	ObjectStatusChanged = "object.status_changed"
 	TaskReviewRequested = "task.review_requested"
+	ProgressAppended    = "object.progress_appended"
 	RunFinished         = "run.finished"
 )
 

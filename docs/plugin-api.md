@@ -636,6 +636,7 @@ api.commands.register({ id: 'projects.new', group: '操作', title: '新建项�
 | `object.created` | 对象新建 | `{ id, type_id }` |
 | `object.updated` | 对象字段变化 | `{ id, type_id, fields }` |
 | `object.status_changed` | 状态变化 | `{ id, type_id, from, to }` |
+| `object.progress_appended` | 记了一条进展（领取、普通进展、提交验收都发） | `{ id, kind }` |
 | `task.review_requested` | 任务提交验收 | `{ id }` |
 | `run.finished` | 执行结束 | `{ run_id, object_id, ok }` |
 | `contact.identity_merged` | 两个 IM 身份合到一个联系人 | `{ contact_id, identity_ids }` |

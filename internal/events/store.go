@@ -76,6 +76,8 @@ func (s *Store) AppendProgress(ctx context.Context, objectID string, in domain.P
 			s.changed(ctx, prev, cur)
 		}
 	}
+	// 每条进展都发：不带状态的普通进展也要让打开着的抽屉即时刷新（CORE-07c）
+	s.publish(ctx, ProgressAppended, map[string]any{"id": out.ObjectID, "kind": out.Kind})
 	if out.Kind == domain.ProgressReview {
 		s.publish(ctx, TaskReviewRequested, map[string]any{"id": out.ObjectID})
 	}
