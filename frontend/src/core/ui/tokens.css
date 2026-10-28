@@ -1,0 +1,97 @@
+/* 设计变量。色值、阴影、圆角、尺寸照原型 web-next/src/styles.css 的 :root 与暗色段抄写，变量名保持一致；
+   字号 --fs-* 和间距 --sp-* 原型里没有，按原型用得最多的取值补的。组件里一律引用变量，不写色值。 */
+:root {
+  --bg: #f4f3ef;
+  --side: #eceae4;
+  --panel: #fdfcfa;
+  --panel-2: #f8f7f3;
+  --hover: #f0eee8;
+  --line: #e4e1d9;
+  --line-2: #d3cfc4;
+
+  --text: #23221e;
+  --muted: #6e6b62;
+  --faint: #a19d92;
+
+  --accent: #3d4fd6;
+  --accent-ink: #ffffff;
+  --accent-soft: #e9ebfb;
+  --accent-line: #c9cef4;
+
+  --ok: #2f7d43;
+  --warn: #b0570b;
+  --warn-soft: #fbefe0;
+  --danger: #c0352b;
+  --danger-soft: #fbe9e6;
+
+  --r-sm: 6px;
+  --r: 10px;
+  --r-lg: 14px;
+
+  --shadow-sm: 0 1px 0 rgba(35, 34, 30, 0.04), 0 1px 2px rgba(35, 34, 30, 0.06);
+  --shadow: 0 2px 6px rgba(35, 34, 30, 0.06), 0 10px 30px rgba(35, 34, 30, 0.08);
+  --shadow-lg: 0 24px 64px rgba(35, 34, 30, 0.22);
+
+  --side-w: 236px;
+  --drawer-w: clamp(520px, 45vw, 860px);
+  --subnav-w: 248px;
+  --foot-h: 56px;
+  --top-h: 52px;
+
+  --sans: -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Segoe UI", sans-serif;
+  --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, monospace;
+
+  /* 字阶：正文 13px；原型里零散的 11px / 12px 并到相邻档 */
+  --fs-2xs: 10.5px;
+  --fs-xs: 11.5px;
+  --fs-sm: 12.5px;
+  --fs: 13px;
+  --fs-md: 14px;
+  --fs-lg: 15px;
+  --fs-xl: 18px;
+  --fs-2xl: 22px;
+  --fs-3xl: 26px;
+  --lh: 1.5;
+  --lh-tight: 1.35;
+
+  /* 间距：--sp-N 等于 N 个 2px */
+  --sp-1: 2px;
+  --sp-2: 4px;
+  --sp-3: 6px;
+  --sp-4: 8px;
+  --sp-5: 10px;
+  --sp-6: 12px;
+  --sp-7: 14px;
+  --sp-8: 16px;
+  --sp-10: 20px;
+  --sp-12: 24px;
+  --sp-16: 32px;
+
+  color-scheme: light;
+}
+
+:root[data-theme='dark'] {
+  --bg: #161614;
+  --side: #1b1b19;
+  --panel: #20201d;
+  --panel-2: #252522;
+  --hover: #2a2a26;
+  --line: #2f2f2b;
+  --line-2: #3d3d38;
+  --text: #ecebe6;
+  --muted: #a6a398;
+  --faint: #6f6d66;
+  --accent: #8794ff;
+  --accent-ink: #14142a;
+  --accent-soft: #262a48;
+  --accent-line: #3a4175;
+  --ok: #6cc486;
+  --warn: #f0a050;
+  --warn-soft: #3a2a18;
+  --danger: #f07a6e;
+  --danger-soft: #3d1f1b;
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow: 0 2px 6px rgba(0, 0, 0, 0.3), 0 10px 30px rgba(0, 0, 0, 0.35);
+  --shadow-lg: 0 24px 64px rgba(0, 0, 0, 0.6);
+  color-scheme: dark;
+}
