@@ -152,7 +152,7 @@ src/
     api/              接口层：请求、错误、查询键、各接口的查询 hook 和类型
     shell/            外壳：布局、侧边栏、路由、出错页、占位页
     ui/               设计变量、基础排版、主题（FE-01a）；基础组件（FE-01b），见「基础组件」一节
-    plugin/           模块和插件的描述结构、注册表（清单加载在 FE-00b）
+    plugin/           模块和插件的描述结构、清单校验、插件注册表和加载（registry.ts）
   modules/            内核模块，每个一个目录：today 今日、tasks 任务、docs 文档、
                       contacts 联系人、conversations 会话、settings 设置
     index.ts          内核模块列表，顺序即侧边栏顺序
