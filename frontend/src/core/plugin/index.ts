@@ -13,4 +13,5 @@ export type ModuleDef = {
 export * from './manifest'
 export * from './semver'
 export * from './api'
+export * from './commands'
 export * from './registry'

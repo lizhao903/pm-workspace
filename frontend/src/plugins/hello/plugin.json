@@ -1,9 +1,9 @@
 {
   "id": "hello",
   "name": "示例插件",
-  "description": "演示插件怎么注册一个功能模块，没有后端部分",
+  "description": "演示插件怎么注册一个功能模块和一条命令面板命令，没有后端部分",
   "version": "0.1.0",
   "core": "^1.0.0",
-  "provides": { "modules": ["hello"] },
+  "provides": { "modules": ["hello"], "commands": ["hello.open"] },
   "permissions": []
 }

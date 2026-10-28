@@ -1,4 +1,5 @@
-// 插件入口和插件 API（docs/plugin-api.md 2.0）。FE-00b 先只实现功能模块这一个扩展点，其余注册接口在 CORE-02b
+// 插件入口和插件 API（docs/plugin-api.md 2.0）。已实现功能模块（FE-00b）和命令面板命令（CORE-02a），其余注册接口在 CORE-02b
+import type { CommandRegistry } from './commands'
 import type { ModuleDef } from './index'
 import type { PluginManifest } from './manifest'
 
@@ -15,6 +16,7 @@ export interface PluginApi {
   readonly id: string
   readonly manifest: PluginManifest
   modules: ModuleRegistry
+  commands: CommandRegistry
 }
 
 export interface PluginEntry {
