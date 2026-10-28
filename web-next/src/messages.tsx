@@ -1,10 +1,11 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import { PageTitle } from './topbar'
 import { ALL_HANDLES, IM_CHANNELS, MY_HANDLES, QUICK_REPLIES, TOOLS, type Connector, type Contact, type Message } from './data'
 import { Avatar, ImMark, cls, timeAgo } from './ui'
 import { AttachmentChips, AttachmentPanel } from './attachments'
 import type { Project } from './projectdata'
 import { useEnumView } from './enumdata'
+import { SearchSelect, type SearchOption } from './searchselect'
 
 export type MsgAction =
   | { kind: 'done' | 'ignore' | 'reopen' | 'read' }
@@ -45,6 +46,26 @@ export function MentionText({ text }: { text: string }) {
 const isSnoozed = (m: Message) => m.status === 'pending' && !!m.snooze_until && new Date(m.snooze_until).getTime() > Date.now()
 const channelOf = (key: string) => IM_CHANNELS.find((c) => c.key === key)!
 export const contactFor = (m: Message, contacts: Contact[]) => contacts.find((c) => c.im[m.channel] === m.sender_id)
+/** 「渠道:发信人编号」，查联系人索引用 */
+export const senderKey = (m: Message) => `${m.channel}:${m.sender_id}`
+/** 联系人索引：「渠道:编号」→ 联系人。列表逐行查人时先建好它，别每行扫一遍联系人；同一编号取第一个，和 contactFor 一致 */
+export function contactIndex(contacts: Contact[]) {
+  const map = new Map<string, Contact>()
+  for (const c of contacts) for (const [ch, id] of Object.entries(c.im)) if (id && !map.has(`${ch}:${id}`)) map.set(`${ch}:${id}`, c)
+  return map
+}
+/** 消息属于哪个会话：群聊按渠道 + 群名，私聊按渠道 + 发信人 */
+const convKey = (m: Message) => (m.conversation ? `g:${m.channel}|${m.conversation}` : `d:${senderKey(m)}`)
+/** 列表按天分段 */
+const dayLabel = (iso: string) => {
+  const d = new Date(iso), t = new Date()
+  const start = new Date(t.getFullYear(), t.getMonth(), t.getDate()).getTime()
+  return d.getTime() >= start ? '今天' : d.getTime() >= start - 86400000 ? '昨天' : '更早'
+}
+/** 状态 seg 里最多放几个状态（不算「全部」） */
+const VIEW_SEG_MAX = 4
+/** 列表先渲染这么多条，底部「加载更多」再加这么多 */
+const PAGE = 50
 
 /** 回不了的原因；null 表示能回。界面上按钮灰掉时要把原因写出来，不能只是点不动 */
 export function replyBlocker(conn: Connector | undefined) {
@@ -126,6 +147,13 @@ export function MessagesPage({ messages, contacts, connectors, selected, onOpen,
   /** '' 全部；mine 与我相关（@我、@所有人、私聊）；at 只看 @我 */
   const [mine, setMine] = useState<'' | 'mine' | 'at'>('')
   const [q, setQ] = useState('')
+  /** 只看某个会话：convKey */
+  const [conv, setConv] = useState('')
+  const people = useMemo(() => contactIndex(contacts), [contacts])
+  const whoOf = (m: Message) => people.get(senderKey(m))
+  // @ 解析是正则，每条只算一次
+  const rels = useMemo(() => new Map(messages.map((m) => [m.id, relevance(m)])), [messages])
+  const relOf = (m: Message) => rels.get(m.id) ?? null
 
   const inView = (m: Message, v: View) =>
     v === 'all' ? true
@@ -133,16 +161,53 @@ export function MessagesPage({ messages, contacts, connectors, selected, onOpen,
         : v === 'snoozed' ? isSnoozed(m)
           : m.status === v
   const kw = q.trim().toLowerCase()
-  const relOk = (m: Message) => !mine || (mine === 'at' ? relevance(m) === 'me' : relevance(m) !== null)
+  const relOk = (m: Message) => !mine || (mine === 'at' ? relOf(m) === 'me' : relOf(m) !== null)
   const rows = useMemo(() => messages
-    .filter((m) => inView(m, view) && (!channel || m.channel === channel) && (!unreadOnly || !m.read) && relOk(m)
-      && (!kw || [m.text, m.sender_name, m.conversation, contactFor(m, contacts)?.name ?? ''].some((v) => v.toLowerCase().includes(kw))))
+    .filter((m) => inView(m, view) && (!channel || m.channel === channel) && (!conv || convKey(m) === conv) && (!unreadOnly || !m.read) && relOk(m)
+      && (!kw || [m.text, m.sender_name, m.conversation, whoOf(m)?.name ?? ''].some((v) => v.toLowerCase().includes(kw))))
     .sort((a, b) => b.at.localeCompare(a.at)),
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  [messages, contacts, view, channel, unreadOnly, mine, kw])
+  [messages, people, rels, view, channel, conv, unreadOnly, mine, kw])
 
-  const count = (v: View) => messages.filter((m) => inView(m, v) && (!channel || m.channel === channel) && relOk(m)).length
-  const atMe = messages.filter((m) => m.status === 'pending' && !isSnoozed(m) && relevance(m) === 'me').length
+  // 状态 seg：待处理、稍后 + 枚举里的状态；状态多时 seg 只放前几个，其余收进「更多状态」
+  const views = msgEnum.items.flatMap((i) => (i.key === 'pending' ? [[i.key, i.label], ['snoozed', '稍后']] : [[i.key, i.label]])) as [View, string][]
+  const segViews = views.length > VIEW_SEG_MAX + 1 ? views.slice(0, VIEW_SEG_MAX) : views
+  const moreViews = views.slice(segViews.length)
+  const count = (v: View) => messages.filter((m) => inView(m, v) && (!channel || m.channel === channel) && (!conv || convKey(m) === conv) && relOk(m)).length
+  const atMe = messages.filter((m) => m.status === 'pending' && !isSnoozed(m) && relOf(m) === 'me').length
+
+  // 会话筛选的选项：当前渠道下出现过的群和私聊，各自按待处理数排
+  const convOptions = useMemo(() => {
+    const acc = new Map<string, { m: Message; n: number; pending: number }>()
+    for (const m of messages) {
+      if (channel && m.channel !== channel) continue
+      const k = convKey(m)
+      const x = acc.get(k) ?? { m, n: 0, pending: 0 }
+      x.n += 1
+      if (m.status === 'pending' && !isSnoozed(m)) x.pending += 1
+      acc.set(k, x)
+    }
+    const opt = ([k, x]: [string, { m: Message; n: number; pending: number }]): SearchOption => {
+      const p = people.get(senderKey(x.m))
+      return {
+        value: k, group: x.m.conversation ? '群聊' : '私聊',
+        label: x.m.conversation || p?.name || x.m.sender_name,
+        hint: `${channelOf(x.m.channel).label} · ${x.pending ? `${x.pending} 条${msgEnum.label('pending')}` : `${x.n} 条`}`,
+        keywords: x.m.conversation ? '' : `${x.m.sender_name} ${x.m.sender_id}`,
+      }
+    }
+    const by = (a: [string, { pending: number; m: Message }], b: [string, { pending: number; m: Message }]) => b[1].pending - a[1].pending || b[1].m.at.localeCompare(a[1].m.at)
+    const xs = [...acc.entries()]
+    return [...xs.filter(([k]) => k.startsWith('g:')).sort(by).map(opt), ...xs.filter(([k]) => k.startsWith('d:')).sort(by).map(opt)]
+  }, [messages, channel, people, msgEnum])
+
+  // 先渲染 PAGE 条；筛选一变就回到第一页（按筛选条件记，不用 effect 清）
+  const sig = [view, channel, conv, unreadOnly, mine, kw].join('|')
+  const [lim, setLim] = useState({ sig, n: PAGE })
+  const limit = lim.sig === sig ? lim.n : PAGE
+  const shown = rows.slice(0, limit)
+  const dayCount = new Map<string, number>()
+  for (const m of rows) dayCount.set(dayLabel(m.at), (dayCount.get(dayLabel(m.at)) ?? 0) + 1)
   const usedChannels = IM_CHANNELS.filter((ch) => connectors.some((c) => c.tool === ch.key) || messages.some((m) => m.channel === ch.key))
   const broken = connectors.filter((c) => c.status === 'error' && TOOLS.find((t) => t.key === c.tool)?.category === 'im')
   const lastSync = connectors.filter((c) => TOOLS.find((t) => t.key === c.tool)?.category === 'im' && c.last_sync_at).map((c) => c.last_sync_at!).sort().pop()
@@ -161,13 +226,18 @@ export function MessagesPage({ messages, contacts, connectors, selected, onOpen,
       const t = e.target as HTMLElement
       if (t.closest('input, textarea, select') || e.metaKey || e.ctrlKey) return
       const i = rows.findIndex((r) => r.id === selected)
-      if (e.key === 'j' && rows.length) onOpen(rows[Math.min(i + 1, rows.length - 1)].id)
+      if (e.key === 'j' && rows.length) {
+        const n = Math.min(i + 1, rows.length - 1)
+        // 走到已渲染的末尾就再加载一页
+        if (n >= limit) setLim({ sig, n: limit + PAGE })
+        onOpen(rows[n].id)
+      }
       if (e.key === 'k' && rows.length) onOpen(rows[Math.max(i - 1, 0)].id)
       if (e.key === 'e' && selected) onAct(selected, { kind: 'done' })
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [rows, selected, onOpen, onAct])
+  }, [rows, selected, onOpen, onAct, limit, sig])
 
   return (
     <div className="page">
@@ -190,10 +260,15 @@ export function MessagesPage({ messages, contacts, connectors, selected, onOpen,
 
       <div className="toolbar">
         <div className="seg">
-          {([...msgEnum.items.flatMap((i) => (i.key === 'pending' ? [[i.key, i.label], ['snoozed', '稍后']] : [[i.key, i.label]])), ['all', '全部']] as [View, string][]).map(([v, label]) => (
+          {[...segViews, ['all', '全部'] as [View, string]].map(([v, label]) => (
             <button key={v} className={cls(view === v && 'on')} onClick={() => setView(v)}>{label}<span className="seg-n">{count(v)}</span></button>
           ))}
         </div>
+        {moreViews.length > 0 && (
+          <SearchSelect value={moreViews.some(([v]) => v === view) ? view : ''} placeholder={`更多状态 ${moreViews.length}`} searchPlaceholder="搜状态" aria-label="更多状态"
+            options={moreViews.map(([v, label]) => ({ value: v, label, hint: `${count(v)} 条` }))}
+            onChange={(v) => setView(v ? (v as View) : 'pending')} />
+        )}
         <div className="search">
           <svg viewBox="0 0 16 16" width="14" height="14"><circle cx="7" cy="7" r="4.5" fill="none" stroke="currentColor" strokeWidth="1.5" /><path d="M10.5 10.5 14 14" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" /></svg>
           <input placeholder="搜索内容、发信人、群名" value={q} onChange={(e) => setQ(e.target.value)} />
@@ -207,11 +282,15 @@ export function MessagesPage({ messages, contacts, connectors, selected, onOpen,
           {!mine && atMe > 0 && <span className="mention-n" title={`${atMe} 条 @我 的消息${msgEnum.label('pending')}`}>@{atMe}</span>}
         </div>
         <button className={cls('chip', unreadOnly && 'chip-on')} onClick={() => setUnreadOnly(!unreadOnly)}>只看未读</button>
+        {convOptions.length > 1 && (
+          <SearchSelect value={conv} onChange={setConv} noneLabel="全部会话" options={convOptions}
+            searchPlaceholder="搜群名、发信人" missingLabel={() => '这个渠道下没有这个会话'} aria-label="只看某个会话" />
+        )}
         <div className="spacer" />
         <div className="channel-filter">
-          <button className={cls('ch-btn', !channel && 'on')} onClick={() => setChannel('')}>全部渠道</button>
+          <button className={cls('ch-btn', !channel && 'on')} onClick={() => { setChannel(''); setConv('') }}>全部渠道</button>
           {usedChannels.map((ch) => (
-            <button key={ch.key} className={cls('ch-btn', channel === ch.key && 'on')} style={{ ['--c' as string]: ch.color }} onClick={() => setChannel(channel === ch.key ? '' : ch.key)}>
+            <button key={ch.key} className={cls('ch-btn', channel === ch.key && 'on')} style={{ ['--c' as string]: ch.color }} onClick={() => { setChannel(channel === ch.key ? '' : ch.key); setConv('') }}>
               <i className="pill-dot" />{ch.label}
             </button>
           ))}
@@ -220,18 +299,23 @@ export function MessagesPage({ messages, contacts, connectors, selected, onOpen,
 
       {rows.length === 0 ? (
         <div className="empty">
-          <div className="empty-title">{mine === 'at' ? '没有 @我 的消息' : view === 'pending' ? `${msgEnum.label('pending')}的消息都清完了` : '这里没有消息'}</div>
-          <div className="muted">{view === 'pending' ? '新消息会按连接器的同步间隔收进来' : '换个状态或渠道看看'}</div>
+          <div className="empty-title">{mine === 'at' ? '没有 @我 的消息' : view === 'pending' && !conv ? `${msgEnum.label('pending')}的消息都清完了` : '这里没有消息'}</div>
+          <div className="muted">{view === 'pending' && !conv ? '新消息会按连接器的同步间隔收进来' : '换个状态、渠道或会话看看'}</div>
         </div>
       ) : (
         <div className="msg-list">
-          {rows.map((m) => {
+          {shown.map((m, i) => {
             const ch = channelOf(m.channel)
-            const who = contactFor(m, contacts)
-            const blocker = replyBlocker(connectors.find((c) => c.id === m.connector_id))
-            const rel = relevance(m)
+            const who = whoOf(m)
+            const conn = connectors.find((c) => c.id === m.connector_id)
+            const blocker = replyBlocker(conn)
+            const rel = relOf(m)
+            const task = taskOf(m.id)
+            const day = dayLabel(m.at)
             return (
-              <div key={m.id} role="button" tabIndex={0} className={cls('msg', selected === m.id && 'sel', !m.read && 'unread', m.status !== 'pending' && 'msg-closed')}
+              <Fragment key={m.id}>
+              {(i === 0 || dayLabel(shown[i - 1].at) !== day) && <div className="msg-day">{day}<span className="seg-n">{dayCount.get(day)}</span></div>}
+              <div role="button" tabIndex={0} className={cls('msg', selected === m.id && 'sel', !m.read && 'unread', m.status !== 'pending' && 'msg-closed')}
                 onClick={() => onOpen(m.id)} onKeyDown={(e) => e.key === 'Enter' && onOpen(m.id)}>
                 <span className="msg-unread" />
                 <Avatar name={who?.name ?? m.sender_name} size={34} src={who?.photo} />
@@ -240,14 +324,14 @@ export function MessagesPage({ messages, contacts, connectors, selected, onOpen,
                     <span className="msg-who">{who?.name ?? m.sender_name}</span>
                     {!who && <span className="msg-stranger">未存联系人</span>}
                     <ImMark ch={ch} compact />
-                    {broken.some((c) => c.id === m.connector_id) && <span className="state state-bad" title={connectors.find((c) => c.id === m.connector_id)?.error}>渠道异常</span>}
+                    {conn && broken.includes(conn) && <span className="state state-bad" title={conn.error}>渠道异常</span>}
                     <span className="msg-conv">{m.conversation || '私聊'}</span>
                     {rel && rel !== 'dm' && <span className={cls('rel-tag', rel === 'me' && 'rel-me')}>{RELEVANCE[rel]}</span>}
                     <span className="spacer" />
                     {m.status !== 'pending' && <span className="state" style={stateStyle(msgEnum.color(m.status))}>{msgEnum.label(m.status)}</span>}
                     {isSnoozed(m) && <span className="state state-snooze">{new Date(m.snooze_until!).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })} 提醒</span>}
                     {m.replies.length > 0 && <span className="state">已回复 {m.replies.length}</span>}
-                    {taskOf(m.id) && <span className="state state-task">已转任务 {taskOf(m.id)}</span>}
+                    {task && <span className="state state-task">已转任务 {task}</span>}
                     <span className="msg-time">{timeAgo(m.at)}</span>
                   </div>
                   <div className="msg-text"><MentionText text={m.text} /></div>
@@ -265,7 +349,7 @@ export function MessagesPage({ messages, contacts, connectors, selected, onOpen,
                           <button key={o.label} className="menu-item" onClick={() => { onAct(m.id, { kind: 'snooze', until: o.until.toISOString() }); close() }}>{o.label}</button>
                         ))}
                       </Menu>
-                      {!taskOf(m.id) && <button className="act" onClick={() => onToTask(m.id)}>转任务</button>}
+                      {!task && <button className="act" onClick={() => onToTask(m.id)}>转任务</button>}
                       <button className="act act-quiet" onClick={() => onAct(m.id, { kind: 'ignore' })}>忽略</button>
                     </>
                   ) : (
@@ -273,8 +357,14 @@ export function MessagesPage({ messages, contacts, connectors, selected, onOpen,
                   )}
                 </div>
               </div>
+              </Fragment>
             )
           })}
+          {rows.length > limit && (
+            <button className="msg-more" onClick={() => setLim({ sig, n: limit + PAGE })}>
+              加载更多<span className="seg-n">还有 {rows.length - limit} 条</span>
+            </button>
+          )}
         </div>
       )}
     </div>

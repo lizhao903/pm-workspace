@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { Fragment, useEffect, useState } from 'react'
 import './topics.css'
 import { PageTitle } from './topbar'
 import { cls, timeAgo } from './ui'
@@ -32,6 +32,19 @@ const PriorityBadge = ({ score }: { score: TopicScore }) => {
   const p = topicPriority(score)
   return <span className={cls('tp-prio', p >= 8 ? 'hi' : p >= 6 ? 'mid' : 'lo')} title="按需求度、契合度、制作成本算出的优先级，满分 10">{p.toFixed(1)}</span>
 }
+/** 看板每列先露几张，表格、收件箱一次渲染多少条 */
+const COL_PEEK = 8
+const PAGE = 50
+const More = ({ left, onMore, unit = '条' }: { left: number; onMore: () => void; unit?: string }) => (left > 0 ? <button className="tp-more" onClick={onMore}>显示更多（还有 {left} {unit}）</button> : null)
+/** 收进来的日子：今天 / 昨天 / 本周 / 更早 */
+function dayGroup(iso: string) {
+  const d = new Date(iso).getTime(), n = new Date()
+  const day0 = new Date(n.getFullYear(), n.getMonth(), n.getDate()).getTime()
+  if (d >= day0) return '今天'
+  if (d >= day0 - 86400000) return '昨天'
+  return d >= day0 - ((n.getDay() + 6) % 7) * 86400000 ? '本周' : '更早'
+}
+const SearchIcon = () => <svg viewBox="0 0 16 16" width="13" height="13"><circle cx="7" cy="7" r="4.5" fill="none" stroke="currentColor" strokeWidth="1.5" /><path d="M10.5 10.5 14 14" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" /></svg>
 const KindTag = ({ k }: { k: ClipKind }) => <span className="tp-kind" style={{ '--c': CLIP_KIND[k].color } as React.CSSProperties}>{CLIP_KIND[k].label}</span>
 
 /* ---------- 选题 ---------- */
@@ -52,10 +65,15 @@ export function TopicsPage({ topics, clips, series, videos, focus, onTopics, onC
   const [sr, setSr] = useState('')
   const [open, setOpen] = useState<string | null>(null)
   const [showDropped, setShowDropped] = useState(false)
+  const [st, setSt] = useState<'' | TopicStatus>('')
+  /** 看板上点了「展开」的列 */
+  const [openCols, setOpenCols] = useState<TopicStatus[]>([])
+  const [limit, setLimit] = useState(PAGE)
   const [seen, setSeen] = useState(0)
   if (focus && focus.n !== seen) { setSeen(focus.n); setOpen(focus.id) }
   const kw = q.trim().toLowerCase()
-  const rows = topics.filter((t) => (!kw || `${t.title}${t.angle}${t.tags.join('')}`.toLowerCase().includes(kw)) && (!sr || (sr === '-' ? !t.series_id : t.series_id === sr)))
+  const rows = topics.filter((t) => (!kw || `${t.title}${t.angle}${t.tags.join('')}`.toLowerCase().includes(kw)) && (!sr || (sr === '-' ? !t.series_id : t.series_id === sr))
+    && (view === 'board' || !st || t.status === st))
     .sort((a, b) => topicPriority(b.score) - topicPriority(a.score) || b.updated_at.localeCompare(a.updated_at))
   const cols = TOPIC_FLOW.filter((s) => s !== 'dropped' || showDropped)
   const create = () => {
@@ -88,10 +106,18 @@ export function TopicsPage({ topics, clips, series, videos, focus, onTopics, onC
       <div className="toolbar">
         <div className="search vd-search">
           <svg viewBox="0 0 16 16" width="14" height="14"><circle cx="7" cy="7" r="4.5" fill="none" stroke="currentColor" strokeWidth="1.5" /><path d="M10.5 10.5 14 14" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" /></svg>
-          <input placeholder="搜标题、角度、标签" value={q} onChange={(e) => setQ(e.target.value)} />
+          <input placeholder="搜标题、角度、标签" value={q} onChange={(e) => { setQ(e.target.value); setLimit(PAGE) }} />
         </div>
+        {view === 'table' && (
+          <div className={cls('chip chip-select', st && 'chip-on')}>
+            <select value={st} onChange={(e) => { setSt(e.target.value as TopicStatus | ''); setLimit(PAGE) }}>
+              <option value="">全部状态</option>
+              {TOPIC_FLOW.map((s) => <option key={s} value={s}>{TOPIC_STATUS[s].label}（{topics.filter((t) => t.status === s).length}）</option>)}
+            </select>
+          </div>
+        )}
         <div className={cls('chip chip-select', sr && 'chip-on')}>
-          <select value={sr} onChange={(e) => setSr(e.target.value)}>
+          <select value={sr} onChange={(e) => { setSr(e.target.value); setLimit(PAGE) }}>
             <option value="">全部系列</option>
             {series.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
             <option value="-">不属于系列</option>
@@ -111,12 +137,19 @@ export function TopicsPage({ topics, clips, series, videos, focus, onTopics, onC
         <div className="tp-board">
           {cols.map((s) => {
             const xs = rows.filter((t) => t.status === s)
+            // 每列按优先级露前几张；已做成、已放弃的往往最多，也最不用看
+            const all = openCols.includes(s)
             return (
               <section key={s} className="tp-col">
                 <div className="tp-col-head"><StatusPill s={s} /><span className="run-muted">{xs.length}</span></div>
                 <div className="tp-col-body">
-                  {xs.map((t) => <Card key={t.id} t={t} />)}
+                  {(all ? xs : xs.slice(0, COL_PEEK)).map((t) => <Card key={t.id} t={t} />)}
                   {!xs.length && <div className="tp-col-empty">{TOPIC_STATUS[s].desc}</div>}
+                  {xs.length > COL_PEEK && (
+                    <button className="tp-col-more" onClick={() => setOpenCols(all ? openCols.filter((x) => x !== s) : [...openCols, s])}>
+                      {all ? '收起' : `还有 ${xs.length - COL_PEEK} 个`}
+                    </button>
+                  )}
                 </div>
               </section>
             )
@@ -125,7 +158,7 @@ export function TopicsPage({ topics, clips, series, videos, focus, onTopics, onC
       ) : (
         <div className="task-table">
           <div className="tp-row task-th"><span>优先级</span><span>选题</span><span>系列</span><span>素材</span><span>状态</span><span>更新</span></div>
-          {rows.filter((t) => showDropped || t.status !== 'dropped' || view === 'table').map((t) => (
+          {rows.slice(0, limit).map((t) => (
             <div key={t.id} className="tp-row" onClick={() => setOpen(t.id)}>
               <span><PriorityBadge score={t.score} /></span>
               <span className="task-main"><span className="task-title"><span className="ellipsis">{t.title || '未命名选题'}</span></span>{t.angle && <span className="task-meta"><span className="ellipsis">{t.angle}</span></span>}</span>
@@ -135,6 +168,8 @@ export function TopicsPage({ topics, clips, series, videos, focus, onTopics, onC
               <span className="run-muted">{timeAgo(t.updated_at)}</span>
             </div>
           ))}
+          {!rows.length && <div className="tree-empty">没有匹配的选题</div>}
+          <More left={rows.length - limit} onMore={() => setLimit(limit + PAGE)} />
         </div>
       )}
 
@@ -261,6 +296,8 @@ export function ClipsPage({ clips, topics, onClips, onTopics, onOpenTopic }: {
   const [busy, setBusy] = useState<'' | 'trend' | 'comment'>('')
   const [note, setNote] = useState('')
   const [assign, setAssign] = useState<string | null>(null)
+  const [assignQ, setAssignQ] = useState('')
+  const [limit, setLimit] = useState(PAGE)
   const kw = q.trim().toLowerCase()
   const rows = clips.filter((c) => (box === 'all' || (box === 'todo' ? !c.triaged : c.starred)) && (!kind || c.kind === kind)
     && (!kw || `${c.title}${c.content}${c.source}${c.tags.join('')}`.toLowerCase().includes(kw)))
@@ -314,16 +351,16 @@ export function ClipsPage({ clips, topics, onClips, onTopics, onOpenTopic }: {
 
       <div className="toolbar">
         <div className="seg">
-          {([['todo', '待整理'], ['starred', '收藏'], ['all', '全部']] as const).map(([k, l]) => <button key={k} className={cls(box === k && 'on')} onClick={() => setBox(k)}>{l}<span className="seg-n">{n(k)}</span></button>)}
+          {([['todo', '待整理'], ['starred', '收藏'], ['all', '全部']] as const).map(([k, l]) => <button key={k} className={cls(box === k && 'on')} onClick={() => { setBox(k); setLimit(PAGE) }}>{l}<span className="seg-n">{n(k)}</span></button>)}
         </div>
         <div className="search vd-search">
           <svg viewBox="0 0 16 16" width="14" height="14"><circle cx="7" cy="7" r="4.5" fill="none" stroke="currentColor" strokeWidth="1.5" /><path d="M10.5 10.5 14 14" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" /></svg>
-          <input placeholder="搜标题、内容、来源" value={q} onChange={(e) => setQ(e.target.value)} />
+          <input placeholder="搜标题、内容、来源" value={q} onChange={(e) => { setQ(e.target.value); setLimit(PAGE) }} />
         </div>
         <span className="spacer" />
         <div className="channel-filter">
-          <button className={cls('ch-btn', !kind && 'on')} onClick={() => setKind('')}>全部类型</button>
-          {(Object.keys(CLIP_KIND) as ClipKind[]).map((k) => <button key={k} className={cls('ch-btn', kind === k && 'on')} style={{ '--c': CLIP_KIND[k].color } as React.CSSProperties} onClick={() => setKind(kind === k ? '' : k)}><i className="pill-dot" />{CLIP_KIND[k].label}</button>)}
+          <button className={cls('ch-btn', !kind && 'on')} onClick={() => { setKind(''); setLimit(PAGE) }}>全部类型</button>
+          {(Object.keys(CLIP_KIND) as ClipKind[]).map((k) => <button key={k} className={cls('ch-btn', kind === k && 'on')} style={{ '--c': CLIP_KIND[k].color } as React.CSSProperties} onClick={() => { setKind(kind === k ? '' : k); setLimit(PAGE) }}><i className="pill-dot" />{CLIP_KIND[k].label}</button>)}
         </div>
       </div>
 
@@ -331,8 +368,10 @@ export function ClipsPage({ clips, topics, onClips, onTopics, onOpenTopic }: {
         <div className="empty"><div className="empty-title">{box === 'todo' ? '待整理的都处理完了' : '这里没有素材'}</div><div className="list-sub">在上面粘贴链接，或者拉取热榜、收集评论</div></div>
       ) : (
         <div className="tp-clips">
-          {rows.map((c) => (
-            <div key={c.id} className={cls('tp-clip', !c.triaged && 'todo')}>
+          {rows.slice(0, limit).map((c, i) => (
+            <Fragment key={c.id}>
+            {dayGroup(c.created_at) !== (i ? dayGroup(rows[i - 1].created_at) : '') && <div className="tp-day">{dayGroup(c.created_at)}</div>}
+            <div className={cls('tp-clip', !c.triaged && 'todo')}>
               <div className="tp-clip-top">
                 <KindTag k={c.kind} />
                 {c.url ? <a className="link-btn ellipsis tp-clip-title" href={c.url} target="_blank" rel="noreferrer">{c.title}</a> : <b className="ellipsis tp-clip-title">{c.title}</b>}
@@ -348,11 +387,18 @@ export function ClipsPage({ clips, topics, onClips, onTopics, onOpenTopic }: {
                 <button className={cls('act act-quiet', c.starred && 'on')} onClick={() => patch(c.id, { starred: !c.starred })}>{c.starred ? '已收藏' : '收藏'}</button>
                 <button className="act" onClick={() => toTopic(c)}>转为选题</button>
                 <span className="menu-wrap">
-                  <button className="act" disabled={!open.length} title={open.length ? undefined : '没有进行中的选题'} onClick={() => setAssign(assign === c.id ? null : c.id)}>归到选题</button>
+                  <button className="act" disabled={!open.length} title={open.length ? undefined : '没有进行中的选题'} onClick={() => { setAssign(assign === c.id ? null : c.id); setAssignQ('') }}>归到选题</button>
                   {assign === c.id && (
                     <div className="menu tp-assign">
                       <div className="menu-label">归到哪个选题</div>
-                      {open.map((t) => <button key={t.id} className="menu-item" disabled={c.topic_ids.includes(t.id)} onClick={() => link(c, t.id)}><span className="ellipsis">{t.title || '未命名选题'}</span><span className="list-sub">{TOPIC_STATUS[t.status].label}</span></button>)}
+                      {open.length > 8 && (
+                        <div className="search search-sm tp-assign-search">
+                          <SearchIcon />
+                          <input autoFocus value={assignQ} placeholder={`搜选题，共 ${open.length} 个`} onChange={(e) => setAssignQ(e.target.value)}
+                            onKeyDown={(e) => { if (e.key === 'Escape') setAssign(null) }} />
+                        </div>
+                      )}
+                      {open.filter((t) => !assignQ.trim() || `${t.title} ${t.tags.join(' ')}`.toLowerCase().includes(assignQ.trim().toLowerCase())).map((t) => <button key={t.id} className="menu-item" disabled={c.topic_ids.includes(t.id)} onClick={() => link(c, t.id)}><span className="ellipsis">{t.title || '未命名选题'}</span><span className="list-sub">{TOPIC_STATUS[t.status].label}</span></button>)}
                     </div>
                   )}
                 </span>
@@ -360,7 +406,9 @@ export function ClipsPage({ clips, topics, onClips, onTopics, onOpenTopic }: {
                 <button className="act act-quiet" onClick={() => { onClips((xs) => xs.filter((x) => x.id !== c.id)); onTopics((xs) => xs.map((t) => ({ ...t, clip_ids: t.clip_ids.filter((x) => x !== c.id) }))) }}>删除</button>
               </div>
             </div>
+            </Fragment>
           ))}
+          <More left={rows.length - limit} onMore={() => setLimit(limit + PAGE)} />
         </div>
       )}
     </div>

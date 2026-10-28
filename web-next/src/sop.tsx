@@ -1,15 +1,17 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { PageTitle } from './topbar'
 import {
-  RUN_STATUS, STEP_STATUS, depsOf, focusIndex, isFinished, isManualDecide, needsMe, ranks, runStatus,
+  RUN_STATUS, SOPS, STEP_STATUS, depsOf, focusIndex, isFinished, isManualDecide, needsMe, ranks, runStatus,
   type Json, type RunAction, type RunStep, type Sop, type SopRun,
 } from './sopflow'
 import { KindTag, isBranching } from './nodetypes'
 import { Subnav } from './subnav'
 import { cls, timeAgo } from './ui'
+import { SearchSelect } from './searchselect'
+import { ListSegHead, ListSegMore } from './tasks'
 
-/** SOP 页的二级菜单 key */
-export type SopView = 'runs' | 'waiting' | `sop:${string}` | `edit:${string}`
+/** SOP 页的二级菜单 key；library：流程库（全部 SOP 的卡片列表） */
+export type SopView = 'runs' | 'waiting' | 'library' | `sop:${string}` | `edit:${string}`
 
 const iso = (t: number) => new Date(t).toISOString()
 const dur = (ms: number) => (ms < 60000 ? `${Math.max(1, Math.round(ms / 1000))} 秒` : ms < 3600000 ? `${Math.round(ms / 60000)} 分钟` : `${(ms / 3600000).toFixed(1)} 小时`)
@@ -21,13 +23,26 @@ function Pill({ label, color }: { label: string; color: string }) {
 }
 
 
+/** 每个 SOP 最近一次执行的开始时间 */
+const lastRunAt = (runs: SopRun[]) => {
+  const m = new Map<string, number>()
+  for (const r of runs) if (r.started_at > (m.get(r.sop_id) ?? 0)) m.set(r.sop_id, r.started_at)
+  return m
+}
+const isPending = (r: SopRun) => ['waiting', 'failed'].includes(runStatus(r))
+
 export function SopNav({ sops, runs, view, onSelect, onNew }: { sops: Sop[]; runs: SopRun[]; view: SopView; onSelect: (v: SopView) => void; onNew: () => void }) {
-  const waiting = runs.filter((r) => runStatus(r) === 'waiting' || runStatus(r) === 'failed').length
+  const waiting = runs.filter(isPending).length
+  // 菜单只放最近执行过的 5 个流程，完整列表在「流程库」里
+  const last = useMemo(() => lastRunAt(runs), [runs])
+  const recent = sops.filter((s) => last.has(s.id)).sort((a, b) => last.get(b.id)! - last.get(a.id)!).slice(0, 5)
+  const active: SopView = view.startsWith('sop:') && !recent.some((s) => view === `sop:${s.id}`) ? 'library' : view
   return (
-    <Subnav title="SOP" active={view} onSelect={onSelect} items={[
-      { key: 'runs' as SopView, label: '执行记录' },
-      { key: 'waiting' as SopView, label: '待我处理', alert: waiting, desc: '待检查、待确认、失败' },
-      ...sops.map((s) => ({ key: `sop:${s.id}` as SopView, label: s.name, group: '标准流程' })),
+    <Subnav title="SOP" active={active} onSelect={onSelect} items={[
+      { key: 'runs' as SopView, label: '执行记录', group: '视图' },
+      { key: 'waiting' as SopView, label: '待我处理', alert: waiting, desc: '待检查、待确认、失败', group: '视图' },
+      { key: 'library' as SopView, label: '流程库', desc: `${sops.length} 个标准流程`, group: '视图' },
+      ...recent.map((s) => ({ key: `sop:${s.id}` as SopView, label: s.name, desc: `${timeAgo(iso(last.get(s.id)!))}执行`, group: '最近用过' })),
     ]}>
       <button className="subnav-new" onClick={onNew}>
         <svg viewBox="0 0 16 16" width="13" height="13"><path d="M8 3v10M3 8h10" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" /></svg>
@@ -58,70 +73,226 @@ function Progress({ run }: { run: SopRun }) {
   )
 }
 
+function RunRow({ r, onOpen, showSop }: { r: SopRun; onOpen: (id: string) => void; showSop: boolean }) {
+  const st = runStatus(r)
+  return (
+    <button className="run-row" onClick={() => onOpen(r.id)}>
+      <span className="run-name">
+        <span className="ellipsis" title={r.title}>{r.title}</span>
+        {showSop && <span className="run-sop ellipsis">{r.sop.name}{r.step_through ? ' · 逐步确认' : ''}</span>}
+      </span>
+      <span><Pill {...RUN_STATUS[st]} /></span>
+      <Progress run={r} />
+      <span className="run-muted">{timeAgo(iso(r.started_at))}</span>
+      <span className="run-muted">{runDur(r)}</span>
+    </button>
+  )
+}
+
+const RunHead = () => (
+  <div className="run-row run-th">
+    <span>执行</span><span>状态</span><span>进度</span><span>开始</span><span>耗时</span>
+  </div>
+)
+
 function RunRows({ runs, onOpen, showSop = true }: { runs: SopRun[]; onOpen: (id: string) => void; showSop?: boolean }) {
-  if (!runs.length) return <div className="empty"><div className="empty-title">没有执行记录</div><div className="list-sub">从左侧选一个标准流程开始执行</div></div>
+  if (!runs.length) return <div className="empty"><div className="empty-title">没有执行记录</div><div className="list-sub">从流程库里选一个标准流程开始执行</div></div>
   return (
     <div className="run-table">
-      <div className="run-row run-th">
-        <span>执行</span><span>状态</span><span>进度</span><span>开始</span><span>耗时</span>
-      </div>
-      {runs.map((r) => {
-        const st = runStatus(r)
-        return (
-          <button key={r.id} className="run-row" onClick={() => onOpen(r.id)}>
-            <span className="run-name">
-              <span className="ellipsis">{r.title}</span>
-              {showSop && <span className="run-sop ellipsis">{r.sop.name}{r.step_through ? ' · 逐步确认' : ''}</span>}
-            </span>
-            <span><Pill {...RUN_STATUS[st]} /></span>
-            <Progress run={r} />
-            <span className="run-muted">{timeAgo(iso(r.started_at))}</span>
-            <span className="run-muted">{runDur(r)}</span>
-          </button>
-        )
-      })}
+      <RunHead />
+      {runs.map((r) => <RunRow key={r.id} r={r} onOpen={onOpen} showSop={showSop} />)}
     </div>
   )
 }
 
 const ORDER = { waiting: 0, failed: 1, running: 2, done: 3, stopped: 4 }
+const PAGE = 30
 
-export function SopRunsPage({ runs, view, onOpen }: { runs: SopRun[]; view: 'runs' | 'waiting'; onOpen: (id: string) => void }) {
+/** 按开始日期分段：今天 / 昨天 / 本周 / 更早 */
+type DaySeg = 'today' | 'yesterday' | 'week' | 'older'
+const DAY_SEGS: { key: DaySeg; label: string }[] = [{ key: 'today', label: '今天' }, { key: 'yesterday', label: '昨天' }, { key: 'week', label: '本周更早' }, { key: 'older', label: '更早' }]
+function daySegOf() {
+  const d0 = new Date(); d0.setHours(0, 0, 0, 0)
+  const today = d0.getTime()
+  const yesterday = today - 86400000
+  // 周一算一周的第一天
+  const week = today - ((d0.getDay() + 6) % 7) * 86400000
+  return (t: number): DaySeg => (t >= today ? 'today' : t >= yesterday ? 'yesterday' : t >= week ? 'week' : 'older')
+}
+
+export function SopRunsPage({ runs, view, onOpen, sops, sop, onOpenSop, onNew }: {
+  runs: SopRun[]; view: 'runs' | 'waiting' | 'library'; onOpen: (id: string) => void
+  /** 流程库（view = library）用的全部 SOP；不传用 sopflow 里的 SOPS（App 增删时会同步它） */
+  sops?: Sop[]
+  /** 打开时预先按这个 SOP 筛（从流程详情「在执行记录里看全部」跳过来） */
+  sop?: string
+  /** 流程库点卡片打开流程详情 */
+  onOpenSop?: (id: string) => void
+  onNew?: () => void
+}) {
+  if (view === 'library') return <SopLibraryPage sops={sops ?? SOPS} runs={runs} onOpen={onOpenSop} onNew={onNew} />
+  return <RunList runs={runs} view={view} onOpen={onOpen} sops={sops ?? SOPS} initialSop={sop} />
+}
+
+function RunList({ runs, view, onOpen, sops, initialSop }: { runs: SopRun[]; view: 'runs' | 'waiting'; onOpen: (id: string) => void; sops?: Sop[]; initialSop?: string }) {
   const [st, setSt] = useState<'' | 'running' | 'waiting' | 'done' | 'failed'>('')
-  const base = view === 'waiting' ? runs.filter((r) => ['waiting', 'failed'].includes(runStatus(r))) : runs
+  const [sopF, setSopF] = useState(initialSop ?? '')
+  const [q, setQ] = useState('')
+  const [closed, setClosed] = useState<Set<DaySeg>>(new Set())
+  const [more, setMore] = useState<Partial<Record<DaySeg, number>>>({})
+  const kw = q.trim().toLowerCase()
+  useEffect(() => { setMore({}) }, [st, sopF, kw])
+  // 流程筛选的选项：传了 sops 用它，否则按执行记录里出现过的流程
+  const sopOptions = useMemo(() => {
+    const m = new Map<string, string>()
+    for (const s of sops ?? []) m.set(s.id, s.name)
+    for (const r of runs) if (!m.has(r.sop_id)) m.set(r.sop_id, r.sop.name)
+    const n = new Map<string, number>()
+    for (const r of runs) n.set(r.sop_id, (n.get(r.sop_id) ?? 0) + 1)
+    return [...m].map(([value, label]) => ({ value, label, hint: `${n.get(value) ?? 0} 次` }))
+  }, [sops, runs])
+  const base = (view === 'waiting' ? runs.filter(isPending) : runs).filter((r) => (!sopF || r.sop_id === sopF) && (!kw || `${r.title} ${r.sop.name}`.toLowerCase().includes(kw)))
   const rows = base.filter((r) => !st || runStatus(r) === st)
     .sort((a, b) => ORDER[runStatus(a)] - ORDER[runStatus(b)] || b.started_at - a.started_at)
+  const segOf = daySegOf()
+  const segs = DAY_SEGS.map((s) => ({ ...s, xs: rows.filter((r) => segOf(r.started_at) === s.key) })).filter((s) => s.xs.length)
+  const toggle = (k: DaySeg) => setClosed((s) => { const n = new Set(s); if (n.has(k)) n.delete(k); else n.add(k); return n })
+  const filtered = !!(st || sopF || kw)
   return (
     <div className="page page-fill">
       <PageTitle parent="SOP" count={rows.length} desc={view === 'waiting' ? '这些执行停下来等你：检查输出、确认输入，或处理失败的步骤' : '每一步都留着输入和输出，点进去可以逐步查看'}>{view === 'waiting' ? '待我处理' : '执行记录'}</PageTitle>
-      {view === 'runs' && (
-        <div className="toolbar">
+      <div className="toolbar">
+        {view === 'runs' && (
           <div className="seg">
             {([['', '全部'], ['running', '执行中'], ['waiting', '待我处理'], ['failed', '失败'], ['done', '已完成']] as const).map(([k, l]) => (
               <button key={k} className={cls(st === k && 'on')} onClick={() => setSt(k)}>
-                {l}<span className="seg-n">{k ? runs.filter((r) => runStatus(r) === k).length : runs.length}</span>
+                {l}<span className="seg-n">{k ? base.filter((r) => runStatus(r) === k).length : base.length}</span>
               </button>
             ))}
           </div>
+        )}
+        <SearchSelect value={sopF} onChange={setSopF} noneLabel="全部流程" searchPlaceholder="搜流程" options={sopOptions} missingLabel={() => '已删除的流程'} />
+        <span className="spacer" />
+        <div className="search">
+          <svg viewBox="0 0 16 16" width="14" height="14"><circle cx="7" cy="7" r="4.5" fill="none" stroke="currentColor" strokeWidth="1.5" /><path d="M10.5 10.5 14 14" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" /></svg>
+          <input placeholder="搜索执行标题、流程名" value={q} onChange={(e) => setQ(e.target.value)} />
+        </div>
+      </div>
+      {!rows.length ? (
+        <div className="empty">
+          <div className="empty-title">{filtered ? '没有匹配的执行记录' : view === 'waiting' ? '没有等你处理的执行' : '没有执行记录'}</div>
+          <div className="list-sub">{filtered ? '换个筛选条件试试' : view === 'waiting' ? '检查点都处理完了' : '从流程库里选一个标准流程开始执行'}</div>
+        </div>
+      ) : (
+        <div className="run-table">
+          <RunHead />
+          {segs.map((s) => {
+            const open = !closed.has(s.key)
+            const n = PAGE + (more[s.key] ?? 0)
+            return (
+              <div key={s.key} role="group" aria-label={s.label}>
+                <ListSegHead label={s.label} n={s.xs.length} open={open} onToggle={() => toggle(s.key)} />
+                {open && s.xs.slice(0, n).map((r) => <RunRow key={r.id} r={r} onOpen={onOpen} showSop />)}
+                {open && <ListSegMore n={s.xs.length - n} onMore={() => setMore((m) => ({ ...m, [s.key]: (m[s.key] ?? 0) + 100 }))} />}
+              </div>
+            )
+          })}
         </div>
       )}
-      <RunRows runs={rows} onOpen={onOpen} />
+    </div>
+  )
+}
+
+/* ---------- 流程库 ---------- */
+
+type LibFilter = '' | 'pending' | 'never'
+
+function SopLibraryPage({ sops, runs, onOpen, onNew }: { sops: Sop[]; runs: SopRun[]; onOpen?: (id: string) => void; onNew?: () => void }) {
+  const [q, setQ] = useState('')
+  const [f, setF] = useState<LibFilter>('')
+  const last = useMemo(() => lastRunAt(runs), [runs])
+  const stat = useMemo(() => {
+    const m = new Map<string, { n: number; pending: number }>()
+    for (const r of runs) {
+      const x = m.get(r.sop_id) ?? { n: 0, pending: 0 }
+      x.n += 1
+      if (isPending(r)) x.pending += 1
+      m.set(r.sop_id, x)
+    }
+    return m
+  }, [runs])
+  const pass = (s: Sop, k: LibFilter) => !k || (k === 'pending' ? (stat.get(s.id)?.pending ?? 0) > 0 : !last.has(s.id))
+  const kw = q.trim().toLowerCase()
+  // 有待处理的在前，其余按最近执行时间，没执行过的按名字排在最后
+  const rows = sops.filter((s) => pass(s, f) && (!kw || `${s.name} ${s.desc} ${s.trigger}`.toLowerCase().includes(kw)))
+    .sort((a, b) => Number((stat.get(b.id)?.pending ?? 0) > 0) - Number((stat.get(a.id)?.pending ?? 0) > 0) || (last.get(b.id) ?? 0) - (last.get(a.id) ?? 0) || a.name.localeCompare(b.name))
+  return (
+    <div className="page page-fill">
+      <PageTitle parent="SOP" count={sops.length} desc="全部标准流程；有执行停下来等你的排在前面" actions={onNew && (
+        <button className="btn btn-primary" onClick={onNew}>
+          <svg viewBox="0 0 16 16" width="12" height="12"><path d="M8 3v10M3 8h10" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" /></svg>
+          新建 SOP
+        </button>
+      )}>流程库</PageTitle>
+      <div className="toolbar">
+        <div className="seg">
+          {([['', '全部'], ['pending', '有待处理'], ['never', '没执行过']] as [LibFilter, string][]).map(([k, l]) => (
+            <button key={k} className={cls(f === k && 'on')} onClick={() => setF(k)}>{l}<span className="seg-n">{sops.filter((s) => pass(s, k)).length}</span></button>
+          ))}
+        </div>
+        <span className="spacer" />
+        <div className="search">
+          <svg viewBox="0 0 16 16" width="14" height="14"><circle cx="7" cy="7" r="4.5" fill="none" stroke="currentColor" strokeWidth="1.5" /><path d="M10.5 10.5 14 14" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" /></svg>
+          <input placeholder="搜索流程名、说明、触发方式" value={q} onChange={(e) => setQ(e.target.value)} />
+        </div>
+      </div>
+      {!rows.length ? (
+        <div className="empty">
+          <div className="empty-title">{kw || f ? '没有匹配的流程' : '还没有标准流程'}</div>
+          <div className="list-sub">{kw || f ? '换个筛选条件试试' : '把反复做的事情编排成 SOP，每次按同样的步骤执行'}</div>
+        </div>
+      ) : (
+        <div className="sop-lib-grid">
+          {rows.map((s) => {
+            const x = stat.get(s.id)
+            const at = last.get(s.id)
+            return (
+              <button key={s.id} className="sop-lib-card" disabled={!onOpen} onClick={() => onOpen?.(s.id)}>
+                <span className="sop-lib-head">
+                  <span className="sop-lib-name ellipsis" title={s.name}>{s.name}</span>
+                  {!!x?.pending && <span className="sop-lib-pending">{x.pending} 个待处理</span>}
+                </span>
+                <span className="sop-lib-desc" title={s.desc}>{s.desc || '没有说明'}</span>
+                <span className="sop-lib-meta">
+                  <span>{s.steps.length} 步</span>
+                  <span>{x ? `执行 ${x.n} 次` : '没执行过'}</span>
+                  {at && <span>{timeAgo(iso(at))}执行</span>}
+                </span>
+              </button>
+            )
+          })}
+        </div>
+      )}
     </div>
   )
 }
 
 /* ---------- 流程详情 ---------- */
 
-export function SopDetailPage({ sop, runs, onStart, onOpen, onEdit, onDelete, delPlan }: {
+export function SopDetailPage({ sop, runs, onStart, onOpen, onEdit, onDelete, delPlan, onAllRuns }: {
   sop: Sop; runs: SopRun[]; onStart: () => void; onOpen: (id: string) => void; onEdit: () => void
   onDelete?: () => void
   /** 删除前算出的影响；block 有值时不能删 */
   delPlan?: { block?: string; impact: string[] }
+  /** 跳执行记录页并按这个流程筛；不传时在本页展开全部 */
+  onAllRuns?: () => void
 }) {
   const [confirmDel, setConfirmDel] = useState(false)
+  const [allRuns, setAllRuns] = useState(false)
   const mine = runs.filter((r) => r.sop_id === sop.id).sort((a, b) => b.started_at - a.started_at)
   const reviews = sop.steps.filter((s) => s.kind === 'review' || isManualDecide(s)).length
   const decides = sop.steps.filter((s) => isBranching(s.kind)).length
+  const RECENT = 10
   return (
     <div className="page page-fill">
       <PageTitle parent="SOP" desc={sop.desc} actions={<>
@@ -154,8 +325,13 @@ export function SopDetailPage({ sop, runs, onStart, onOpen, onEdit, onDelete, de
         {sop.fields.map((f) => <span key={f.key} className="tag">{f.label}{f.required ? '（必填）' : ''}</span>)}
       </div>
 
-      <div className="section-label">最近执行</div>
-      <RunRows runs={mine} onOpen={onOpen} showSop={false} />
+      <div className="section-label">最近执行{mine.length > 0 && <span className="field-hint">共 {mine.length} 次</span>}</div>
+      <RunRows runs={allRuns ? mine : mine.slice(0, RECENT)} onOpen={onOpen} showSop={false} />
+      {!allRuns && mine.length > RECENT && (
+        <button className="list-seg-more list-seg-more-out" onClick={() => (onAllRuns ? onAllRuns() : setAllRuns(true))}>
+          {onAllRuns ? `在执行记录里看全部 ${mine.length} 次` : `显示全部 ${mine.length} 次`}
+        </button>
+      )}
     </div>
   )
 }

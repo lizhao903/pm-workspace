@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from 'react'
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
+import { SearchSelect } from './searchselect'
 import {
   ORIENT, PLATFORMS, PUBLISH_STATUS, STAGES, stageIndex, videoState,
   type Artifact, type Metrics, type Orientation, type PlatformKey, type Publish, type PublishStatus, type Series, type Video,
@@ -66,6 +67,14 @@ const SHARED: { key: 'intro' | 'outro' | 'template'; label: string; ph: string }
   { key: 'template', label: '共用模板', ph: '比如 templates/theme（主题、字体、配色）' },
 ]
 
+/** 发布记录按视频分组时，每组先露几条；一次渲染多少个视频组 */
+const PEEK = 3
+const GROUPS = 30
+/** 系列卡片上露几集；待同步的排前面，其余点开系列在抽屉里看 */
+const CARD_EPS = 5
+/** 选视频的下拉：标题 + 当前阶段，按更新时间倒序 */
+const videoOptions = (xs: Video[]) => [...xs].sort((a, b) => b.updated_at.localeCompare(a.updated_at))
+  .map((v) => ({ value: v.id, label: v.title || '未命名视频', hint: videoState(v).label, keywords: v.root }))
 const episodesOf = (s: Series, videos: Video[]) => videos.filter((v) => v.series_id === s.id).sort((a, b) => (a.episode ?? 999) - (b.episode ?? 999))
 
 export function SeriesPage({ series, videos, artifacts, onSeries, onVideos, onOpenVideo }: {
@@ -95,6 +104,7 @@ export function SeriesPage({ series, videos, artifacts, onSeries, onVideos, onOp
           {series.map((s) => {
             const eps = episodesOf(s, videos)
             const stale = eps.filter((v) => s.stale.includes(v.id))
+            const peek = eps.length > CARD_EPS ? [...stale, ...eps.filter((v) => !s.stale.includes(v.id))].slice(0, CARD_EPS).sort((a, b) => (a.episode ?? 999) - (b.episode ?? 999)) : eps
             return (
               <div key={s.id} className={cls('vp-series', open === s.id && 'sel')} onClick={() => setOpen(s.id)}>
                 <div className="vp-series-head">
@@ -108,7 +118,7 @@ export function SeriesPage({ series, videos, artifacts, onSeries, onVideos, onOp
                 </dl>
                 {eps.length ? (
                   <div className="vp-eps">
-                    {eps.map((v) => (
+                    {peek.map((v) => (
                       <div key={v.id} className="vp-ep">
                         <span className="vp-ep-no">{v.episode ?? '-'}</span>
                         <span className="vp-ep-main">
@@ -126,6 +136,7 @@ export function SeriesPage({ series, videos, artifacts, onSeries, onVideos, onOp
                         )}
                       </div>
                     ))}
+                    {eps.length > peek.length && <div className="vp-eps-more">还有 {eps.length - peek.length} 集，点开系列看全部</div>}
                   </div>
                 ) : <div className="mount-empty">还没有归入的集，点开系列把视频加进来</div>}
               </div>
@@ -163,6 +174,7 @@ function SeriesDrawer({ series, videos, artifacts, onClose, onCreate, onSave, on
 
   const eps = series ? episodesOf(series, videos) : []
   const free = videos.filter((v) => !v.series_id)
+  const freeOptions = useMemo(() => videoOptions(videos.filter((v) => !v.series_id)), [videos])
   const changed = series ? SHARED.filter((f) => d[f.key].trim() !== series[f.key].trim()) : []
   const coverCount = (v: Video) => artifacts.filter((a) => a.video_id === v.id && a.kind === 'cover').length
 
@@ -258,12 +270,9 @@ function SeriesDrawer({ series, videos, artifacts, onClose, onCreate, onSave, on
             ) : <div className="mount-empty">还没有归入的集</div>}
             {dup.size > 0 && <div className="field-err">有几集集数重复了，改一下</div>}
             <div className="vp-add">
-              <label className={cls('chip chip-select vp-add-select', adding && 'chip-on')}>
-                <select value={adding} onChange={(e) => setAdding(e.target.value)}>
-                  <option value="">{free.length ? '选一个未归入系列的视频' : '没有未归入系列的视频'}</option>
-                  {free.map((v) => <option key={v.id} value={v.id}>{v.title}</option>)}
-                </select>
-              </label>
+              <SearchSelect variant="field" className="vp-add-select" value={adding} placeholder={free.length ? `选一个未归入系列的视频（${free.length} 个）` : '没有未归入系列的视频'}
+                searchPlaceholder="搜标题或目录" options={freeOptions} emptyText="没有未归入系列的视频" disabled={!free.length}
+                onChange={(v) => setAdding(v)} />
               <button className="act" disabled={!adding} onClick={addVideo}>加入系列</button>
             </div>
           </section>
@@ -350,20 +359,25 @@ export function PublishPage({ publishes, videos, artifacts, videoId, onPublishes
   const [st, setSt] = useState<PublishStatus | ''>('')
   const [open, setOpen] = useState<string | null>(null)
   const [metric, setMetric] = useState<MetricKey>('views')
+  const [q, setQ] = useState('')
+  /** 展开看全部的视频组 */
+  const [openV, setOpenV] = useState<string[]>([])
+  const [glimit, setGlimit] = useState(GROUPS)
   // 正在模拟发布的记录
   const [busy, setBusy] = useState<string[]>([])
   const pubsRef = useRef(publishes)
   useEffect(() => { pubsRef.current = publishes })
 
+  const titleOf = (id: string) => videos.find((v) => v.id === id)?.title ?? '已删除的视频'
   const video = videoId ? videos.find((v) => v.id === videoId) : undefined
   const base = videoId ? publishes.filter((p) => p.video_id === videoId) : publishes
+  const kw = q.trim().toLowerCase()
   const rows = base
-    .filter((p) => (!plat || p.platform === plat) && (!st || p.status === st))
+    .filter((p) => (!plat || p.platform === plat) && (!st || p.status === st) && (!kw || `${p.title} ${titleOf(p.video_id)}`.toLowerCase().includes(kw)))
     .sort((a, b) => (b.published_at ?? b.scheduled_at ?? '').localeCompare(a.published_at ?? a.scheduled_at ?? ''))
   const published = base.filter((p) => p.status === 'published')
   const sum = (k: MetricKey) => published.reduce((n, p) => n + (p.metrics?.[k] ?? 0), 0)
   const failed = base.filter((p) => p.status === 'failed').length
-  const titleOf = (id: string) => videos.find((v) => v.id === id)?.title ?? '已删除的视频'
   const coverOf = (p: Publish) => (p.cover_id ? artifacts.find((a) => a.id === p.cover_id) : undefined)
 
   // 模拟发布：1.2 秒后变成已发布；到点时从 ref 拿最新记录，期间被删了或状态变了就不动
@@ -387,6 +401,39 @@ export function PublishPage({ publishes, videos, artifacts, videoId, onPublishes
   }).filter((x) => x.has)
   const max = Math.max(1, ...byPlat.map((x) => x.v))
   const current = open && open !== 'new' ? publishes.find((p) => p.id === open) : undefined
+  const row = (p: Publish) => {
+    const cv = coverOf(p)
+    const sending = busy.includes(p.id)
+    return (
+      <div key={p.id} className={cls('vp-row', open === p.id && 'sel')} onClick={() => setOpen(p.id)}>
+      <span className="task-main">
+        <span className="task-title"><span className="ellipsis">{p.title || '未填标题'}</span></span>
+        <span className="task-meta"><span className="ellipsis">{titleOf(p.video_id)}</span></span>
+      </span>
+      <span><PlatformTag k={p.platform} /></span>
+      <span className="vp-var">
+        <span className="tag">{ORIENT[p.variant].label}</span>
+        {cv ? <CoverSwatch variant={p.variant} option={cv.option} size="sm" title={cv.name} /> : <span className="faint">无封面</span>}
+      </span>
+      <span>{sending ? <Pill label="发布中…" color={PUBLISH_STATUS.scheduled.color} /> : <Pill {...PUBLISH_STATUS[p.status]} />}</span>
+      <span className="run-muted vp-time">
+        {p.status === 'published' && p.published_at ? fmtTime(p.published_at)
+          : p.status === 'scheduled' && p.scheduled_at ? `定时 ${fmtTime(p.scheduled_at)}`
+            : p.status === 'failed' ? <span className="danger-text ellipsis" title={p.error}>{p.error ?? '失败'}</span> : '-'}
+      </span>
+      <span className="vp-met">
+        {METRICS.map((m) => <span key={m.key}><em>{m.label}</em>{p.metrics ? num(p.metrics[m.key]) : '-'}</span>)}
+      </span>
+      </div>
+    )
+  }
+  // 全部发布记录按视频分组：组的先后跟着组里最新的一条，每组先露几条，失败的排前面
+  const groups = (() => {
+    const by = new Map<string, Publish[]>()
+    rows.forEach((p) => by.set(p.video_id, [...(by.get(p.video_id) ?? []), p]))
+    return [...by].map(([id, xs]) => ({ id, xs }))
+  })()
+  const peekOf = (xs: Publish[]) => [...xs.filter((p) => p.status === 'failed'), ...xs.filter((p) => p.status !== 'failed')].slice(0, PEEK)
 
   return (
     <div className="page page-fill">
@@ -435,6 +482,10 @@ export function PublishPage({ publishes, videos, artifacts, videoId, onPublishes
       )}
 
       <div className="toolbar vp-filters">
+        <div className="search search-sm vp-search">
+          <svg viewBox="0 0 16 16" width="13" height="13"><circle cx="7" cy="7" r="4.5" fill="none" stroke="currentColor" strokeWidth="1.5" /><path d="M10.5 10.5 14 14" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" /></svg>
+          <input placeholder={videoId ? '搜发布标题' : '搜发布标题或视频'} value={q} onChange={(e) => { setQ(e.target.value); setGlimit(GROUPS) }} />
+        </div>
         <div className="vp-chips">
           <button className={cls('chip', !plat && 'chip-on')} onClick={() => setPlat('')}>全部平台</button>
           {PLATFORMS.map((p) => <button key={p.key} className={cls('chip', plat === p.key && 'chip-on')} onClick={() => setPlat(plat === p.key ? '' : p.key)}>{p.label}<span className="seg-n">{base.filter((x) => x.platform === p.key).length}</span></button>)}
@@ -447,38 +498,30 @@ export function PublishPage({ publishes, videos, artifacts, videoId, onPublishes
 
       {!rows.length ? (
         <div className="empty">
-          <div className="empty-title">{plat || st ? '没有匹配的发布记录' : '还没有发布记录'}</div>
+          <div className="empty-title">{plat || st || kw ? '没有匹配的发布记录' : '还没有发布记录'}</div>
           <div className="list-sub">点右上角「新建发布」，选视频、平台、比例和封面</div>
         </div>
       ) : (
         <div className="task-table vp-table">
           <div className="vp-row task-th"><span>视频</span><span>平台</span><span>比例 / 封面</span><span>状态</span><span>时间</span><span className="vp-met vp-met-th">{METRICS.map((m) => <span key={m.key}>{m.label}</span>)}</span></div>
-          {rows.map((p) => {
-            const cv = coverOf(p)
-            const sending = busy.includes(p.id)
+          {videoId ? rows.map(row) : groups.slice(0, glimit).map((g) => {
+            const all = openV.includes(g.id) || g.xs.length <= PEEK
+            const fail = g.xs.filter((p) => p.status === 'failed').length
             return (
-              <div key={p.id} className={cls('vp-row', open === p.id && 'sel')} onClick={() => setOpen(p.id)}>
-                <span className="task-main">
-                  <span className="task-title"><span className="ellipsis">{p.title || '未填标题'}</span></span>
-                  <span className="task-meta"><span className="ellipsis">{titleOf(p.video_id)}</span></span>
-                </span>
-                <span><PlatformTag k={p.platform} /></span>
-                <span className="vp-var">
-                  <span className="tag">{ORIENT[p.variant].label}</span>
-                  {cv ? <CoverSwatch variant={p.variant} option={cv.option} size="sm" title={cv.name} /> : <span className="faint">无封面</span>}
-                </span>
-                <span>{sending ? <Pill label="发布中…" color={PUBLISH_STATUS.scheduled.color} /> : <Pill {...PUBLISH_STATUS[p.status]} />}</span>
-                <span className="run-muted vp-time">
-                  {p.status === 'published' && p.published_at ? fmtTime(p.published_at)
-                    : p.status === 'scheduled' && p.scheduled_at ? `定时 ${fmtTime(p.scheduled_at)}`
-                      : p.status === 'failed' ? <span className="danger-text ellipsis" title={p.error}>{p.error ?? '失败'}</span> : '-'}
-                </span>
-                <span className="vp-met">
-                  {METRICS.map((m) => <span key={m.key}><em>{m.label}</em>{p.metrics ? num(p.metrics[m.key]) : '-'}</span>)}
-                </span>
-              </div>
+              <Fragment key={g.id}>
+                <div className="vp-group-row">
+                  <button className="link-btn ellipsis vp-group-title" title={titleOf(g.id)} onClick={() => onOpenVideo(g.id)}>{titleOf(g.id)}</button>
+                  <span className="vp-group-plats">{[...new Set(g.xs.map((p) => p.platform))].map((k) => <PlatformTag key={k} k={k} />)}</span>
+                  {fail > 0 && <span className="danger-text vp-group-n">{fail} 条失败</span>}
+                  <span className="spacer" />
+                  <span className="run-muted vp-group-n">{g.xs.length} 条</span>
+                  {g.xs.length > PEEK && <button className="act act-quiet" onClick={() => setOpenV(all ? openV.filter((x) => x !== g.id) : [...openV, g.id])}>{all ? '收起' : `查看全部 ${g.xs.length} 条`}</button>}
+                </div>
+                {(all ? g.xs : peekOf(g.xs)).map(row)}
+              </Fragment>
             )
           })}
+          {!videoId && groups.length > glimit && <button className="vp-more" onClick={() => setGlimit(glimit + GROUPS)}>显示更多视频（还有 {groups.length - glimit} 个）</button>}
         </div>
       )}
 
@@ -521,6 +564,7 @@ function NewPublishDrawer({ videos, artifacts, defaultVideo, channels, onConnect
   useEsc(onClose)
 
   const video = videos.find((v) => v.id === vid)
+  const vOptions = useMemo(() => videoOptions(videos), [videos])
   const platform = platOf(plat)
   const covers = artifacts.filter((a) => a.video_id === vid && a.kind === 'cover' && a.variant === variant).sort((a, b) => (a.option ?? 0) - (b.option ?? 0))
   const descArt = artifacts.filter((a) => a.video_id === vid && a.kind === 'description').sort((a, b) => b.version - a.version)[0]
@@ -567,10 +611,9 @@ function NewPublishDrawer({ videos, artifacts, defaultVideo, channels, onConnect
       <div className="drawer-body form">
         <label className="field">
           <span className="field-label">视频<em>*</em></span>
-          <select value={vid} onChange={(e) => changeVideo(e.target.value)}>
-            {!videos.length && <option value="">还没有视频</option>}
-            {videos.map((v) => <option key={v.id} value={v.id}>{v.title}</option>)}
-          </select>
+          <SearchSelect variant="field" value={vid} placeholder={videos.length ? '选一个视频' : '还没有视频'} searchPlaceholder="搜标题或目录"
+            options={vOptions} emptyText="还没有视频" missingLabel={() => '已删除的视频'} disabled={!videos.length}
+            onChange={(v) => { if (v) changeVideo(v) }} />
           {video && <span className="field-hint-line">出了 {video.orientations.map((o) => ORIENT[o].label).join('、')}，现在在「{videoState(video).label}」</span>}
         </label>
 

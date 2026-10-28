@@ -52,6 +52,8 @@ export function WorkspaceSwitcher({ list, current, collapsed, onSwitch, onManage
       {open && pos && createPortal(
         <div className="menu ws-menu" role="menu" ref={menuRef} style={{ left: pos.left, top: pos.top }}>
           <div className="menu-label">切换工作台</div>
+          {/* 工作台多了只滚这一段，底部的「设置」一直看得到 */}
+          <div className="ws-menu-list">
           {list.map((w) => (
             <button key={w.id} className={cls('menu-item ws-menu-item', w.id === cur.id && 'on')} onClick={() => { onSwitch(w.id); setOpen(false) }}>
               <BenchMark w={w} size={24} />
@@ -59,6 +61,7 @@ export function WorkspaceSwitcher({ list, current, collapsed, onSwitch, onManage
               {w.id === cur.id && <svg viewBox="0 0 16 16" width="12" height="12"><path d="m3.5 8.5 3 3 6-7" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg>}
             </button>
           ))}
+          </div>
           <div className="menu-sep" />
           <button className="menu-item" onClick={() => { onManage(); setOpen(false) }}>工作台与模块设置…</button>
         </div>,

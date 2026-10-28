@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import { ABILITIES, type Agent, type KnowledgeBase, type Skill } from './agentdata'
 import { AgentAvatar } from './agents'
+import { SearchSelect } from './searchselect'
 import { useEnumView, type EnumView } from './enumdata'
 import { PageTitle } from './topbar'
 import { cls, timeAgo } from './ui'
@@ -14,9 +15,34 @@ export interface SearchDoc { id: string; title: string; body: string; source: st
 // 分类的显示名读「文档分类」枚举
 const sourceLabel = (e: EnumView, k: string) => (k.startsWith('dir:') ? `本地目录 · ${k.slice(4)}` : e.label(k))
 const usedBy = (agents: Agent[], f: (a: Agent) => boolean) => agents.filter(f)
+/** 卡片、列表里的头像：露前几个，其余收成 +N，全名在 title 里 */
+const AVATARS = 5
 const Users = ({ list }: { list: Agent[] }) => (
-  <span className="kb-users">{list.length ? list.map((a) => <span key={a.id} title={a.name}><AgentAvatar agent={a} size={20} /></span>) : <span className="list-sub">没有 Agent 在用</span>}</span>
+  <span className="kb-users" title={list.length > AVATARS ? list.map((a) => a.name).join('、') : undefined}>
+    {list.length ? list.slice(0, AVATARS).map((a) => <span key={a.id} title={a.name}><AgentAvatar agent={a} size={20} /></span>) : <span className="list-sub">没有 Agent 在用</span>}
+    {list.length > AVATARS && <span className="kb-users-more">+{list.length - AVATARS}</span>}
+  </span>
 )
+/** 抽屉里的「在用的 Agent」：名字 chip，多了先露几个 */
+const CHIPS = 8
+function UserChips({ list }: { list: Agent[] }) {
+  const [all, setAll] = useState(false)
+  return (
+    <div className="kb-user-list">
+      {(all ? list : list.slice(0, CHIPS)).map((a) => <span key={a.id} className="tag kb-user" title={a.name}><AgentAvatar agent={a} size={16} /><span className="kb-user-name">{a.name}</span></span>)}
+      {list.length > CHIPS && <button className="link-btn" onClick={() => setAll(!all)}>{all ? '收起' : `还有 ${list.length - CHIPS} 个`}</button>}
+    </div>
+  )
+}
+/** 删除确认里点名：最多列三个 */
+const names = (list: Agent[]) => (list.length > 3 ? `${list.slice(0, 3).map((a) => a.name).join('、')} 等 ${list.length} 个 Agent` : list.map((a) => a.name).join('、'))
+const SearchBox = ({ value, onChange, placeholder }: { value: string; onChange: (v: string) => void; placeholder: string }) => (
+  <div className="search">
+    <svg viewBox="0 0 16 16" width="14" height="14"><circle cx="7" cy="7" r="4.5" fill="none" stroke="currentColor" strokeWidth="1.5" /><path d="M10.5 10.5 14 14" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" /></svg>
+    <input placeholder={placeholder} value={value} onChange={(e) => onChange(e.target.value)} />
+  </div>
+)
+const hit = (hay: string, q: string) => { const h = hay.toLowerCase(); return q.trim().toLowerCase().split(/\s+/).filter(Boolean).every((w) => h.includes(w)) }
 
 const KB_STATUS = { ready: { label: '已索引', color: '#2f7d43' }, indexing: { label: '索引中', color: '#3d4fd6' }, stale: { label: '有更新待索引', color: '#b0570b' } }
 const Pill = ({ label, color }: { label: string; color: string }) => <span className="pill" style={{ '--c': color } as React.CSSProperties}><span className="pill-dot" />{label}</span>
@@ -39,12 +65,19 @@ export function KnowledgePage({ kbs, agents, docsOf, selected, onOpen, onNew }: 
   onOpen: (id: string) => void; onNew: () => void
 }) {
   const catEnum = useEnumView('content_category')
+  const [q, setQ] = useState('')
+  const rows = kbs.filter((k) => hit(`${k.name} ${k.desc}`, q))
   return (
     <div className="page page-fill">
       <PageTitle parent="设置" count={kbs.length} desc="一组可检索的资料，来源是文档分类或本地目录；挂到 Agent 上，回答和写作时先在这里找依据"
         actions={<button className="btn btn-primary" onClick={onNew}>新建知识库</button>}>知识库</PageTitle>
+      <div className="toolbar">
+        <SearchBox value={q} onChange={setQ} placeholder="搜知识库名称和说明" />
+        {q.trim() && <span className="list-sub">命中 {rows.length} 个</span>}
+      </div>
+      {!rows.length && <div className="empty"><div className="empty-title">{kbs.length ? '没有匹配的知识库' : '还没有知识库'}</div><div className="list-sub">{kbs.length ? '换个关键词试试' : '点右上角「新建知识库」，选文档分类或本地目录当来源'}</div></div>}
       <div className="kb-grid">
-        {kbs.map((k) => {
+        {rows.map((k) => {
           const users = usedBy(agents, (a) => a.kbs.includes(k.id))
           const n = docsOf(k).length
           return (
@@ -146,13 +179,13 @@ export function KbDrawer({ kb, agents, folders, docsOf, onClose, onSave, onDelet
 
         <div className="field">
           <span className="field-label">在用的 Agent</span>
-          {users.length ? <div className="kb-user-list">{users.map((a) => <span key={a.id} className="tag kb-user"><AgentAvatar agent={a} size={16} />{a.name}</span>)}</div> : <span className="list-sub">还没有 Agent 挂这个知识库，到「设置 / Agent」里挂</span>}
+          {users.length ? <UserChips list={users} /> : <span className="list-sub">还没有 Agent 挂这个知识库，到「设置 / Agent」里挂</span>}
         </div>
       </div>
       <div className="drawer-foot">
         {confirmDel ? (
           <>
-            <span className="danger-text">{users.length ? `${users.map((a) => a.name).join('、')} 挂着它，删除后会自动卸下` : '删除后不能恢复，原文档不受影响'}</span>
+            <span className="danger-text">{users.length ? `${names(users)} 挂着它，删除后会自动卸下` : '删除后不能恢复，原文档不受影响'}</span>
             <div className="spacer" />
             <button className="btn btn-ghost" onClick={() => setConfirmDel(false)}>取消</button>
             <button className="btn btn-danger" onClick={onDelete}>删除</button>
@@ -175,7 +208,8 @@ export function KbDrawer({ kb, agents, folders, docsOf, onClose, onSave, onDelet
 
 export function SkillsPage({ skills, agents, selected, onOpen, onNew }: { skills: Skill[]; agents: Agent[]; selected: string | null; onOpen: (id: string) => void; onNew: () => void }) {
   const [src, setSrc] = useState<'' | Skill['source']>('')
-  const rows = skills.filter((k) => !src || k.source === src)
+  const [q, setQ] = useState('')
+  const rows = skills.filter((k) => (!src || k.source === src) && hit(`${k.name} ${k.desc} ${k.uses.join(' ')}`, q))
   return (
     <div className="page page-fill">
       <PageTitle parent="设置" count={skills.length} desc="可复用的做事方法：说明怎么做、什么时候用、用到哪些工具；挂到 Agent 上就会按它做"
@@ -184,8 +218,10 @@ export function SkillsPage({ skills, agents, selected, onOpen, onNew }: { skills
         <div className="seg">
           {([['', '全部'], ['内置', '内置'], ['自定义', '自定义']] as const).map(([k, l]) => <button key={k} className={cls(src === k && 'on')} onClick={() => setSrc(k)}>{l}<span className="seg-n">{k ? skills.filter((x) => x.source === k).length : skills.length}</span></button>)}
         </div>
+        <SearchBox value={q} onChange={setQ} placeholder="搜技能名称、说明、用到的工具" />
       </div>
-      <div className="task-table">
+      {!rows.length && <div className="empty"><div className="empty-title">没有匹配的技能</div><div className="list-sub">换个关键词或来源试试</div></div>}
+      {rows.length > 0 && <div className="task-table">
         <div className="skill-row task-th"><span>技能</span><span>来源</span><span>用到</span><span>在用的 Agent</span></div>
         {rows.map((k) => (
           <div key={k.id} className={cls('skill-row', selected === k.id && 'sel')} onClick={() => onOpen(k.id)}>
@@ -198,7 +234,7 @@ export function SkillsPage({ skills, agents, selected, onOpen, onNew }: { skills
             <span><Users list={usedBy(agents, (a) => a.skills.includes(k.id))} /></span>
           </div>
         ))}
-      </div>
+      </div>}
     </div>
   )
 }
@@ -221,7 +257,14 @@ export function SkillDrawer({ skill, isNew, agents, toolNames, onClose, onSave, 
   const [tried, setTried] = useState(false)
   const [confirmDel, setConfirmDel] = useState(false)
   const users = usedBy(agents, (a) => a.skills.includes(d.id))
-  const pool = [...new Set([...ABILITIES.map((a) => a.label), ...toolNames, ...d.uses])]
+  // 内置能力就那几项，常显成勾选 chip；连接器工具几百个，只显示选了的，「加工具」里按连接器分组搜
+  const builtin = ABILITIES.map((a) => a.label)
+  const picked = d.uses.filter((u) => !builtin.includes(u))
+  const toolOptions = useMemo(() => [...new Set(toolNames)].map((t) => {
+    const i = t.indexOf(' · ')
+    return { value: t, label: i > 0 ? t.slice(i + 3) : t, group: i > 0 ? t.slice(0, i) : '其他', keywords: t }
+  }).sort((a, b) => a.group.localeCompare(b.group, 'zh-CN')), [toolNames])
+  const setPicked = (xs: string[]) => setD({ ...d, uses: [...d.uses.filter((u) => builtin.includes(u)), ...xs] })
   const save = () => { setTried(true); if (d.name.trim() && d.instructions.trim()) onSave({ ...d, name: d.name.trim() }) }
   return (
     <aside className="drawer">
@@ -243,22 +286,34 @@ export function SkillDrawer({ skill, isNew, agents, toolNames, onClose, onSave, 
         <div className="field">
           <span className="field-label">用到的工具<span className="field-hint">只是说明；Agent 有没有这些工具的权限，在 Agent 配置里定</span></span>
           <div className="dep-list">
-            {pool.map((t) => (
+            {builtin.map((t) => (
               <label key={t} className={cls('dep-chip', d.uses.includes(t) && 'on', readonly && 'disabled')}>
                 <input type="checkbox" disabled={readonly} checked={d.uses.includes(t)} onChange={() => setD({ ...d, uses: d.uses.includes(t) ? d.uses.filter((x) => x !== t) : [...d.uses, t] })} />{t}
               </label>
             ))}
           </div>
+          <div className="dep-list skill-tools">
+            {picked.map((t) => (
+              <label key={t} className={cls('dep-chip on skill-tool', readonly && 'disabled')} title={t}>
+                <input type="checkbox" disabled={readonly} checked onChange={() => setPicked(picked.filter((x) => x !== t))} /><span className="ellipsis">{t}</span>
+              </label>
+            ))}
+            {!readonly && (
+              <SearchSelect multiple value={picked} onChange={setPicked} placeholder={picked.length ? '加工具' : '加连接器工具'} searchPlaceholder="搜连接器或工具名"
+                options={toolOptions} emptyText="还没有接入带工具的连接器" missingLabel={(v) => v} menuWidth={360} active={false} />
+            )}
+            {readonly && !picked.length && <span className="list-sub">没有用到连接器工具</span>}
+          </div>
         </div>
         <div className="field">
           <span className="field-label">在用的 Agent</span>
-          {users.length ? <div className="kb-user-list">{users.map((a) => <span key={a.id} className="tag kb-user"><AgentAvatar agent={a} size={16} />{a.name}</span>)}</div> : <span className="list-sub">还没有 Agent 挂这个技能</span>}
+          {users.length ? <UserChips list={users} /> : <span className="list-sub">还没有 Agent 挂这个技能</span>}
         </div>
       </div>
       <div className="drawer-foot">
         {confirmDel ? (
           <>
-            <span className="danger-text">{users.length ? `${users.map((a) => a.name).join('、')} 挂着它，删除后会自动卸下` : '删除后不能恢复'}</span>
+            <span className="danger-text">{users.length ? `${names(users)} 挂着它，删除后会自动卸下` : '删除后不能恢复'}</span>
             <div className="spacer" />
             <button className="btn btn-ghost" onClick={() => setConfirmDel(false)}>取消</button>
             <button className="btn btn-danger" onClick={onDelete}>删除</button>

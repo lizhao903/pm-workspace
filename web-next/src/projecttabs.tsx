@@ -1,8 +1,9 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import type { Agent, Session } from './agentdata'
 import { AgentAvatar } from './agents'
 import { IM_CHANNELS, type Contact, type Message } from './data'
-import { contactFor } from './messages'
+import { contactIndex, senderKey } from './messages'
+import { SearchSelect, matchOption } from './searchselect'
 import { STAKE_ROLE, type Project, type ProjectChat, type StakeRole } from './projectdata'
 import { RUN_STATUS, runStatus, type Sop, type SopRun } from './sopflow'
 import type { Task, TaskStatus } from './taskdata'
@@ -18,13 +19,23 @@ const chLabel = (k: string) => IM_CHANNELS.find((c) => c.key === k)?.label ?? k
 const Pill = ({ label, color }: { label: string; color: string }) => <span className="pill" style={{ '--c': color } as React.CSSProperties}><span className="pill-dot" />{label}</span>
 const uid = (p: string) => `${p}${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`
 
-/** 一条消息属于这个项目的哪个沟通渠道 */
-export function chatOf(m: Message, chats: ProjectChat[], contacts: Contact[]): ProjectChat | undefined {
-  return chats.find((c) => (c.kind === 'group'
-    ? m.channel === c.channel && m.conversation === c.conversation
-    : !m.conversation && contactFor(m, contacts)?.id === c.contact_id))
+// 渠道键：群聊按渠道 + 群名，私聊按联系人。消息和渠道都换成键再比，不用逐条扫联系人
+const chatKey = (c: ProjectChat) => (c.kind === 'group' ? `g:${c.channel}|${c.conversation}` : `d:${c.contact_id}`)
+const msgKey = (m: Message, people: Map<string, Contact>) => (m.conversation ? `g:${m.channel}|${m.conversation}` : `d:${people.get(senderKey(m))?.id ?? ''}`)
+
+/** 一条消息属于这个项目的哪个沟通渠道；people 是 contactIndex(contacts)，批量调用时传进来省得每次重建 */
+export function chatOf(m: Message, chats: ProjectChat[], contacts: Contact[], people = contactIndex(contacts)): ProjectChat | undefined {
+  const k = msgKey(m, people)
+  return chats.find((c) => chatKey(c) === k)
 }
-export const projectMessages = (p: Project, messages: Message[], contacts: Contact[]) => messages.filter((m) => chatOf(m, p.chats, contacts))
+export function projectMessages(p: Project, messages: Message[], contacts: Contact[], people = contactIndex(contacts)) {
+  const keys = new Set(p.chats.map(chatKey))
+  return keys.size ? messages.filter((m) => keys.has(msgKey(m, people))) : []
+}
+/** 沟通消息先渲染这么多条 */
+const MSG_PAGE = 50
+/** 绑定弹层里没搜的时候露几个最近联系的私聊 */
+const DM_PEEK = 8
 
 /* ---------- 沟通：私聊 + 群聊 ---------- */
 
@@ -38,34 +49,61 @@ export function CommsTab({ p, messages, contacts, onChange, onOpenMessage, onFet
   const msgEnum = useEnumView('msg_status')
   const [filter, setFilter] = useState('')
   const [adding, setAdding] = useState(false)
-  const mine = projectMessages(p, messages, contacts).sort((a, b) => b.at.localeCompare(a.at))
-  const rows = mine.filter((m) => !filter || chatOf(m, p.chats, contacts)?.id === filter)
+  const [bq, setBq] = useState('')
+  const people = useMemo(() => contactIndex(contacts), [contacts])
+  const mine = projectMessages(p, messages, contacts, people).sort((a, b) => b.at.localeCompare(a.at))
+  const keyOf = new Map(p.chats.map((c) => [chatKey(c), c.id]))
+  const chatIdOf = (m: Message) => keyOf.get(msgKey(m, people))
+  const rows = mine.filter((m) => !filter || chatIdOf(m) === filter)
   const label = (c: ProjectChat) => (c.kind === 'group' ? c.conversation : contacts.find((x) => x.id === c.contact_id)?.name ?? '已删除的联系人')
   // 可以绑的群：现有消息里出现过的群聊，去掉已经绑了的
-  const groups = [...new Map(messages.filter((m) => m.conversation).map((m) => [`${m.channel}|${m.conversation}`, m])).values()]
-    .filter((m) => !p.chats.some((c) => c.kind === 'group' && c.channel === m.channel && c.conversation === m.conversation))
-  const dms = contacts.filter((c) => !p.chats.some((x) => x.kind === 'dm' && x.contact_id === c.id))
-  const pending = (c: ProjectChat) => mine.filter((m) => chatOf(m, [c], contacts) && m.status === 'pending').length
+  // 没搜的时候群聊也只露最近有消息的几个
+  const groupPool = [...new Map([...messages].sort((a, b) => a.at.localeCompare(b.at)).filter((m) => m.conversation).map((m) => [`${m.channel}|${m.conversation}`, m])).values()]
+    .filter((m) => !keyOf.has(`g:${m.channel}|${m.conversation}`))
+    .sort((a, b) => b.at.localeCompare(a.at))
+  const groupMatched = groupPool.filter((m) => matchOption({ label: m.conversation, hint: chLabel(m.channel) }, bq))
+  const groups = groupMatched.slice(0, bq.trim() ? 50 : DM_PEEK)
+  // 私聊：没搜的时候只露最近联系的几个，搜了再从全部联系人里找
+  const dmPool = contacts.filter((c) => !keyOf.has(`d:${c.id}`))
+  const dmMatched = bq.trim()
+    ? dmPool.filter((c) => matchOption({ label: c.name, hint: c.company, keywords: c.title }, bq))
+    : [...dmPool].sort((a, b) => (b.last_contact_at ?? '').localeCompare(a.last_contact_at ?? ''))
+  const dms = dmMatched.slice(0, bq.trim() ? 50 : DM_PEEK)
+  const pendingBy = new Map<string, number>()
+  for (const m of mine) if (m.status === 'pending') { const id = chatIdOf(m); if (id) pendingBy.set(id, (pendingBy.get(id) ?? 0) + 1) }
+  const pending = (c: ProjectChat) => pendingBy.get(c.id) ?? 0
+  const bind = (c: ProjectChat) => { onChange({ chats: [...p.chats, c] }); setAdding(false); setBq('') }
+  // 消息先渲染一页，换渠道筛选就回到第一页
+  const [lim, setLim] = useState({ filter, n: MSG_PAGE })
+  const limit = lim.filter === filter ? lim.n : MSG_PAGE
 
   return (
     <div className="pt-comms">
       <div className="pt-chats">
-        <div className="mount-head"><div className="field-group-title">项目沟通渠道</div><button className="act" onClick={() => setAdding(!adding)}>绑定</button></div>
+        <div className="mount-head"><div className="field-group-title">项目沟通渠道</div><button className="act" onClick={() => { setAdding(!adding); setBq('') }}>{adding ? '收起' : '绑定'}</button></div>
         {adding && (
           <div className="pt-bind">
-            <div className="menu-label">群聊</div>
+            <div className="search search-sm pt-bind-search">
+              <svg viewBox="0 0 16 16" width="13" height="13"><circle cx="7" cy="7" r="4.5" fill="none" stroke="currentColor" strokeWidth="1.5" /><path d="M10.5 10.5 14 14" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" /></svg>
+              <input autoFocus value={bq} placeholder="搜群名、联系人" onChange={(e) => setBq(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); if (bq) setBq(''); else setAdding(false) } }} />
+            </div>
+            <div className="menu-label">{bq.trim() || groupPool.length <= DM_PEEK ? '群聊' : `群聊 · 最近有消息的 ${DM_PEEK} 个`}</div>
             {groups.length ? groups.map((m) => (
-              <button key={`${m.channel}|${m.conversation}`} className="menu-item" onClick={() => { onChange({ chats: [...p.chats, { id: uid('ch'), kind: 'group', channel: m.channel, conversation: m.conversation }] }); setAdding(false) }}>
-                <span className="tag">{chLabel(m.channel)}</span>{m.conversation}
+              <button key={`${m.channel}|${m.conversation}`} className="menu-item" title={m.conversation} onClick={() => bind({ id: uid('ch'), kind: 'group', channel: m.channel, conversation: m.conversation })}>
+                <span className="tag">{chLabel(m.channel)}</span><span className="ellipsis">{m.conversation}</span>
               </button>
-            )) : <div className="list-sub pt-bind-empty">没有可绑的群</div>}
-            <div className="menu-label">私聊</div>
+            )) : <div className="list-sub pt-bind-empty">{bq.trim() ? '没有匹配的群' : '没有可绑的群'}</div>}
+            {groupMatched.length > groups.length && <div className="list-sub pt-bind-empty">{bq.trim() ? `还有 ${groupMatched.length - groups.length} 个，继续输入筛选` : `共 ${groupMatched.length} 个群，输入群名搜`}</div>}
+            <div className="menu-label">{bq.trim() || dmPool.length <= DM_PEEK ? '私聊' : `私聊 · 最近联系的 ${DM_PEEK} 个`}</div>
             <div className="pt-bind-dms">
               {dms.map((c) => (
-                <button key={c.id} className="menu-item" onClick={() => { onChange({ chats: [...p.chats, { id: uid('ch'), kind: 'dm', contact_id: c.id }] }); setAdding(false) }}>
-                  <Avatar name={c.name} size={18} src={c.photo} />{c.name}<span className="list-sub">{c.company}</span>
+                <button key={c.id} className="menu-item" title={[c.name, c.company].filter(Boolean).join(' · ')} onClick={() => bind({ id: uid('ch'), kind: 'dm', contact_id: c.id })}>
+                  <Avatar name={c.name} size={18} src={c.photo} /><span className="ellipsis">{c.name}</span><span className="list-sub ellipsis">{c.company}</span>
                 </button>
               ))}
+              {!dms.length && <div className="list-sub pt-bind-empty">{bq.trim() ? '没有匹配的联系人' : '联系人都已经绑过了'}</div>}
+              {dmMatched.length > dms.length && <div className="list-sub pt-bind-empty">{bq.trim() ? `还有 ${dmMatched.length - dms.length} 个，继续输入筛选` : `共 ${dmMatched.length} 个联系人，输入名字或公司搜`}</div>}
             </div>
           </div>
         )}
@@ -87,8 +125,8 @@ export function CommsTab({ p, messages, contacts, onChange, onOpenMessage, onFet
       <div className="pt-msgs">
         <ProjectAttachmentInbox p={p} messages={mine} onFetch={onFetchAttachment} onAdd={onAddAttachment} onOpenMessage={onOpenMessage}
           onSkip={(id, skip) => onChange({ skipped_attachments: skip ? [...(p.skipped_attachments ?? []), id] : (p.skipped_attachments ?? []).filter((x) => x !== id) })} />
-        {rows.length ? rows.map((m) => {
-          const who = contactFor(m, contacts)
+        {rows.length ? rows.slice(0, limit).map((m) => {
+          const who = people.get(senderKey(m))
           return (
             <button key={m.id} className={cls('pt-msg', m.status === 'pending' && 'pending')} onClick={() => onOpenMessage(m.id)}>
               <Avatar name={who?.name ?? m.sender_name} size={30} src={who?.photo} />
@@ -101,6 +139,9 @@ export function CommsTab({ p, messages, contacts, onChange, onOpenMessage, onFet
             </button>
           )
         }) : <div className="empty"><div className="empty-title">没有消息</div><div className="list-sub">绑定的群和私聊里收到消息后会出现在这里</div></div>}
+        {rows.length > limit && (
+          <button className="pt-more" onClick={() => setLim({ filter, n: limit + MSG_PAGE })}>加载更早的消息<span className="seg-n">还有 {rows.length - limit} 条</span></button>
+        )}
       </div>
     </div>
   )
@@ -112,10 +153,19 @@ export function StakeholdersTab({ p, contacts, messages, onChange, onOpenContact
   p: Project; contacts: Contact[]; messages: Message[]
   onChange: (x: Partial<Project>) => void; onOpenContact: (id: string) => void; onOpenMessage: (id: string) => void
 }) {
-  const [adding, setAdding] = useState(false)
   const avail = contacts.filter((c) => !p.stakeholders.some((s) => s.contact_id === c.id))
   const patch = (id: string, x: Partial<{ role: StakeRole; focus: string }>) => onChange({ stakeholders: p.stakeholders.map((s) => (s.contact_id === id ? { ...s, ...x } : s)) })
-  const lastMsg = (c: Contact) => messages.filter((m) => contactFor(m, contacts)?.id === c.id).sort((a, b) => b.at.localeCompare(a.at))[0]
+  // 每个联系人最近的一条消息：消息扫一遍，按发信人归到联系人上
+  const latest = useMemo(() => {
+    const people = contactIndex(contacts)
+    const out = new Map<string, Message>()
+    for (const m of messages) {
+      const c = people.get(senderKey(m))
+      if (c && (out.get(c.id)?.at ?? '') < m.at) out.set(c.id, m)
+    }
+    return out
+  }, [messages, contacts])
+  const lastMsg = (c: Contact) => latest.get(c.id)
   const order: StakeRole[] = ['decider', 'contact', 'owner', 'member', 'informed']
   const rows = [...p.stakeholders].sort((a, b) => order.indexOf(a.role) - order.indexOf(b.role))
   return (
@@ -123,10 +173,10 @@ export function StakeholdersTab({ p, contacts, messages, onChange, onOpenContact
       <div className="mount-head pt-head">
         <span className="list-sub">谁拍板、谁对接、谁负责，每个人关心什么。人从联系人里挑</span>
         <span className="spacer" />
-        <select className="chat-filter" value="" onChange={(e) => { if (e.target.value) { onChange({ stakeholders: [...p.stakeholders, { contact_id: e.target.value, role: 'member', focus: '' }] }); setAdding(false) } }} onFocus={() => setAdding(true)}>
-          <option value="">{adding ? '选一个联系人…' : '加干系人'}</option>
-          {avail.map((c) => <option key={c.id} value={c.id}>{c.name}{c.company ? ` · ${c.company}` : ''}</option>)}
-        </select>
+        <SearchSelect value="" placeholder="加干系人" searchPlaceholder="搜姓名、公司、职位" align="end" active={false}
+          options={avail.map((c) => ({ value: c.id, label: c.name, hint: c.company, keywords: c.title, icon: <Avatar name={c.name} size={18} src={c.photo} /> }))}
+          emptyText="联系人都已经加进来了"
+          onChange={(id) => { if (id) onChange({ stakeholders: [...p.stakeholders, { contact_id: id, role: 'member', focus: '' }] }) }} />
       </div>
       {rows.length ? (
         <div className="task-table">
@@ -209,10 +259,10 @@ export function ProjectSopTab({ p, sops, runs, onChange, onStart, onOpenRun, onO
       <div className="mount-head pt-head">
         <span className="list-sub">这个项目常用的标准流程，在这里直接执行</span>
         <span className="spacer" />
-        <select className="chat-filter" value="" onChange={(e) => e.target.value && onChange({ sop_ids: [...p.sop_ids, e.target.value] })}>
-          <option value="">关联 SOP…</option>
-          {avail.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
-        </select>
+        <SearchSelect value="" placeholder="关联 SOP" searchPlaceholder="搜流程名" align="end" active={false}
+          options={avail.map((s) => ({ value: s.id, label: s.name, keywords: s.desc }))}
+          emptyText="SOP 都已经关联了"
+          onChange={(id) => { if (id) onChange({ sop_ids: [...p.sop_ids, id] }) }} />
       </div>
       {mine.length ? (
         <div className="mount-list">
@@ -246,10 +296,16 @@ export function ProjectSopTab({ p, sops, runs, onChange, onStart, onOpenRun, onO
 
 /* ---------- Agent ---------- */
 
-export function ProjectAgentTab({ p, agents, sessions, onChange, onChat, onOpenAgent, onOpenSession }: {
+/** 项目 Agent 页签里露几条会话 */
+const SESSION_PEEK = 10
+
+export function ProjectAgentTab({ p, agents, sessions, onChange, onChat, onOpenAgent, onOpenSession, onAllSessions }: {
   p: Project; agents: Agent[]; sessions: Session[]
   onChange: (x: Partial<Project>) => void; onChat: (agentId: string) => void; onOpenAgent: (id: string) => void; onOpenSession: (id: string) => void
+  /** 去会话页看这个项目的全部会话；不传就在这里就地展开 */
+  onAllSessions?: () => void
 }) {
+  const [allChats, setAllChats] = useState(false)
   const mine = p.agent_ids.map((id) => agents.find((a) => a.id === id)).filter((a): a is Agent => !!a)
   const avail = agents.filter((a) => !p.agent_ids.includes(a.id))
   const chats = sessions.filter((s) => s.project_id === p.id).sort((a, b) => b.updated_at.localeCompare(a.updated_at))
@@ -258,10 +314,10 @@ export function ProjectAgentTab({ p, agents, sessions, onChange, onChat, onOpenA
       <div className="mount-head pt-head">
         <span className="list-sub">第一个是默认项目 Agent；在这里开的会话归到这个项目，能读这个项目的材料和文档</span>
         <span className="spacer" />
-        <select className="chat-filter" value="" onChange={(e) => e.target.value && onChange({ agent_ids: [...p.agent_ids, e.target.value] })}>
-          <option value="">加 Agent…</option>
-          {avail.map((a) => <option key={a.id} value={a.id} disabled={!a.enabled}>{a.name}{a.enabled ? '' : '（已停用）'}</option>)}
-        </select>
+        <SearchSelect value="" placeholder="加 Agent" searchPlaceholder="搜 Agent" align="end" active={false}
+          options={avail.map((a) => ({ value: a.id, label: a.name, hint: a.enabled ? undefined : '已停用', keywords: a.desc, disabled: !a.enabled, icon: <AgentAvatar agent={a} size={18} /> }))}
+          emptyText="Agent 都已经加进来了"
+          onChange={(id) => { if (id) onChange({ agent_ids: [...p.agent_ids, id] }) }} />
       </div>
       {mine.length ? (
         <div className="mount-list">
@@ -279,10 +335,10 @@ export function ProjectAgentTab({ p, agents, sessions, onChange, onChat, onOpenA
           ))}
         </div>
       ) : <div className="mount-empty">还没给项目配 Agent</div>}
-      <div className="section-label">项目里的会话</div>
+      <div className="section-label">项目里的会话{chats.length > SESSION_PEEK && <span className="seg-n"> {chats.length}</span>}</div>
       {chats.length ? (
         <div className="task-table">
-          {chats.map((s) => {
+          {(allChats ? chats : chats.slice(0, SESSION_PEEK)).map((s) => {
             const a = agents.find((x) => x.id === s.agent_id)
             return (
               <button key={s.id} className="pt-run" onClick={() => onOpenSession(s.id)}>
@@ -293,6 +349,9 @@ export function ProjectAgentTab({ p, agents, sessions, onChange, onChat, onOpenA
               </button>
             )
           })}
+          {chats.length > SESSION_PEEK && (onAllSessions
+            ? <button className="pt-more" onClick={onAllSessions}>在会话里看全部<span className="seg-n">{chats.length} 条</span></button>
+            : <button className="pt-more" onClick={() => setAllChats(!allChats)}>{allChats ? '收起' : <>显示全部<span className="seg-n">还有 {chats.length - SESSION_PEEK} 条</span></>}</button>)}
         </div>
       ) : <div className="mount-empty">还没有项目会话；点上面的「对话」开一个</div>}
     </>

@@ -13,11 +13,14 @@ export interface PaletteItem {
   run: () => void
 }
 
-/** 没输入时只显示这几组，免得一打开就是一长串 */
+/** 没输入时只显示这几组，免得一打开就是一长串；「工作台」「原型」这类条目多的组只在输入后出现 */
 const IDLE_GROUPS = ['操作', '跳转']
 const MAX_PER_GROUP = 6
 
-export function CommandPalette({ items, onClose }: { items: PaletteItem[]; onClose: () => void }) {
+/** items 传函数时只在打开那一刻拼一次，面板开着时外面再怎么重渲染都不重拼、不重筛 */
+export function CommandPalette({ items: source, onClose }: { items: PaletteItem[] | (() => PaletteItem[]); onClose: () => void }) {
+  const [built] = useState(() => (typeof source === 'function' ? source() : null))
+  const items = built ?? (source as PaletteItem[])
   const [q, setQ] = useState('')
   const [i, setI] = useState(0)
   const listRef = useRef<HTMLDivElement>(null)

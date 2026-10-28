@@ -2,6 +2,7 @@ import { useState } from 'react'
 import type { Message, MsgAttachment } from './data'
 import type { Project } from './projectdata'
 import { useOpenUrl } from './openurl'
+import { SearchSelect } from './searchselect'
 import { cls, timeAgo } from './ui'
 
 // 消息附件：在消息列表上露个名字，在消息详情里获取、加进项目资料，在项目沟通里集中挑哪些要进支持材料
@@ -82,11 +83,12 @@ export function AttachmentPanel({ msg, projects, suggested, onFetch, onAdd }: {
                 {a.kind !== 'link' && a.fetch !== 'done' && (
                   <button className="act" disabled={a.fetch === 'fetching'} onClick={() => onFetch(a.id)}>{a.fetch === 'error' ? '重试' : a.fetch === 'fetching' ? '获取中' : '获取'}</button>
                 )}
-                <select className="att-proj" value={target} onChange={(e) => setPick({ ...pick, [a.id]: e.target.value })} title="加进哪个项目的支持材料">
-                  <option value="">选项目…</option>
-                  {suggested.length > 0 && <optgroup label="这条消息所在的项目">{projects.filter((p) => suggested.includes(p.id)).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</optgroup>}
-                  <optgroup label={suggested.length ? '其他项目' : '项目'}>{projects.filter((p) => !suggested.includes(p.id)).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</optgroup>
-                </select>
+                <SearchSelect className="att-proj" value={target} onChange={(v) => setPick({ ...pick, [a.id]: v })} placeholder="选项目" searchPlaceholder="搜项目" active={false}
+                  aria-label="加进哪个项目的支持材料" align="end" missingLabel={() => '已删除的项目'}
+                  options={[
+                    ...projects.filter((p) => suggested.includes(p.id)).map((p) => ({ value: p.id, label: p.name, group: '这条消息所在的项目', hint: inP.includes(p) ? '已加入' : undefined })),
+                    ...projects.filter((p) => !suggested.includes(p.id)).map((p) => ({ value: p.id, label: p.name, group: suggested.length ? '其他项目' : '项目', hint: inP.includes(p) ? '已加入' : undefined })),
+                  ]} />
                 <button className="act act-primary" disabled={!canAdd || a.fetch === 'fetching'} onClick={() => onAdd(a.id, target)}
                   title={a.kind !== 'link' && a.fetch !== 'done' ? '会先获取到本地再加入' : undefined}>
                   {a.kind !== 'link' && a.fetch !== 'done' ? '获取并加入' : '加入资料'}
@@ -101,6 +103,9 @@ export function AttachmentPanel({ msg, projects, suggested, onFetch, onAdd }: {
   )
 }
 
+/** 待决定的附件超过这么多个就折叠，展开后也先露这么多个 */
+const PEEK = 3
+
 /** 项目沟通页顶上：这个项目消息里还没决定的附件，一条条选加不加 */
 export function ProjectAttachmentInbox({ p, messages, onFetch, onAdd, onSkip, onOpenMessage }: {
   p: Project
@@ -112,19 +117,26 @@ export function ProjectAttachmentInbox({ p, messages, onFetch, onAdd, onSkip, on
   onOpenMessage: (id: string) => void
 }) {
   const [showSkipped, setShowSkipped] = useState(false)
-  const all = messages.flatMap((m) => (m.attachments ?? []).map((a) => ({ m, a }))).sort((x, y) => y.m.at.localeCompare(x.m.at))
+  /** 待决定的超过 PEEK 个时整块默认折叠成一行；open 展开露 PEEK 个，all 全部 */
+  const [open, setOpen] = useState(false)
+  const [all, setAll] = useState(false)
+  const rows = messages.flatMap((m) => (m.attachments ?? []).map((a) => ({ m, a }))).sort((x, y) => y.m.at.localeCompare(x.m.at))
   const added = (id: string) => p.materials.some((x) => x.from?.attachment_id === id)
   const skipped = (id: string) => p.skipped_attachments?.includes(id) ?? false
-  const todo = all.filter((x) => !added(x.a.id) && !skipped(x.a.id))
-  const skippedRows = all.filter((x) => skipped(x.a.id))
-  if (!all.length) return null
+  const todo = rows.filter((x) => !added(x.a.id) && !skipped(x.a.id))
+  const skippedRows = rows.filter((x) => skipped(x.a.id))
+  if (!rows.length) return null
+  const foldable = todo.length > PEEK
+  const folded = foldable && !open
+  const todoShown = folded ? [] : all || !foldable ? todo : todo.slice(0, PEEK)
   return (
-    <section className="att-inbox">
+    <section className={cls('att-inbox', folded && 'att-folded')}>
       <div className="mount-head">
         <div className="field-group-title">消息里的附件<span className="field-hint">{todo.length ? `${todo.length} 个还没决定要不要放进支持材料` : '都处理过了'}</span></div>
-        {skippedRows.length > 0 && <button className="act act-quiet" onClick={() => setShowSkipped(!showSkipped)}>{showSkipped ? '收起' : `看不加入的 ${skippedRows.length} 个`}</button>}
+        {foldable && <button className="act act-quiet" onClick={() => { setOpen(!open); setAll(false) }}>{open ? '收起' : '逐个决定'}</button>}
+        {!folded && skippedRows.length > 0 && <button className="act act-quiet" onClick={() => setShowSkipped(!showSkipped)}>{showSkipped ? '收起不加入的' : `看不加入的 ${skippedRows.length} 个`}</button>}
       </div>
-      {todo.map(({ m, a }) => (
+      {todoShown.map(({ m, a }) => (
         <AttRow key={a.id} a={a}>
           <span className="att-acts">
             <button className="act act-quiet" onClick={() => onOpenMessage(m.id)} title={m.text}>{m.sender_name} · {timeAgo(m.at)}</button>
@@ -134,7 +146,8 @@ export function ProjectAttachmentInbox({ p, messages, onFetch, onAdd, onSkip, on
           </span>
         </AttRow>
       ))}
-      {showSkipped && skippedRows.map(({ m, a }) => (
+      {!folded && foldable && !all && <button className="act act-quiet att-more" onClick={() => setAll(true)}>还有 {todo.length - PEEK} 个</button>}
+      {!folded && showSkipped && skippedRows.map(({ m, a }) => (
         <AttRow key={a.id} a={a}>
           <span className="att-acts">
             <span className="run-muted">{m.sender_name} · 选了不加入</span>

@@ -9,6 +9,7 @@ import {
   type BarInterval, type Instrument, type MarketKey, type Watchlist,
 } from './tradedata'
 import { newId } from './ids'
+import { SearchSelect } from './searchselect'
 
 // 行情：左自选、中 K 线、右盘口与成交；另一个标签是期权 T 型报价
 // K 线历史按 (标的, 周期, 分钟) 缓存，最后一根每秒用 bars(...,1,now) 单独现算
@@ -92,6 +93,8 @@ const IconX = ({ s = 10 }: { s?: number }) => <svg viewBox="0 0 16 16" width={s}
 /* ---------- 左栏：自选 ---------- */
 
 type MarketFilter = MarketKey | 'all'
+/** 自选组超过这么多个时，标签只放前 3 个和当前组，其余收进可搜索的下拉 */
+const GROUP_CHIPS_MAX = 6
 
 function WatchPanel({ watchlists, onWatchlists, wlId, setWlId, symbol, onPick, now }: {
   watchlists: Watchlist[]
@@ -139,15 +142,23 @@ function WatchPanel({ watchlists, onWatchlists, wlId, setWlId, symbol, onPick, n
     setWlId(rest[0].id); setRenaming(null)
   }
 
+  const many = watchlists.length > GROUP_CHIPS_MAX
+  const chips = many ? watchlists.filter((w, k) => k < 3 || w.id === wl?.id) : watchlists
+
   return (
     <div className="mk-watch">
       <div className="mk-groups">
-        {watchlists.map((w) => (
+        {chips.map((w) => (
           <button key={w.id} className={cls('chip', w.id === wl?.id && 'chip-on')} onClick={() => setWlId(w.id)}
-            onDoubleClick={() => { setRenaming(w.id); setName(w.name) }} title="双击改名">
-            {w.name}<span className="seg-n">{w.symbols.length}</span>
+            onDoubleClick={() => { setRenaming(w.id); setName(w.name) }} title={`${w.name}（双击改名）`}>
+            <span className="mk-group-name">{w.name}</span><span className="seg-n">{w.symbols.length}</span>
           </button>
         ))}
+        {many && (
+          <SearchSelect value="" placeholder={`全部 ${watchlists.length} 组`} searchPlaceholder="搜自选组" active={false} className="mk-group-more"
+            options={watchlists.map((w) => ({ value: w.id, label: w.name, hint: `${w.symbols.length} 个` }))}
+            onChange={(id) => { if (id) setWlId(id) }} />
+        )}
         <button className="icon-btn icon-btn-sm" title="新建自选组" onClick={newGroup}>
           <svg viewBox="0 0 16 16" width="12" height="12"><path d="M8 3v10M3 8h10" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" /></svg>
         </button>

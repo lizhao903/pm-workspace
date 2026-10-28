@@ -1,9 +1,12 @@
-import { useEffect, useMemo, useState } from 'react'
+import { Fragment, useEffect, useMemo, useState } from 'react'
 import { PageTitle } from './topbar'
 import { ENUM_COLORS, KEY_RE, MODULES, type EnumGroup, type EnumItem } from './enumdata'
 import { cls } from './ui'
 
 // 枚举值管理：左边枚举列表（按模块分组），右边是选中枚举的值。改动先攒在草稿里，保存才生效
+
+/** 值超过这么多个时才出搜索框，已停用的沉底并默认收起 */
+const MANY = 12
 
 /** 每个值被多少条数据用着；没接数据的枚举返回空 */
 export type UsageFn = (group: string, key: string) => number | undefined
@@ -126,14 +129,28 @@ function GroupEditor({ group, usage, onSave, onMigrate, onDelete }: {
   const [tried, setTried] = useState(false)
   const [confirmDel, setConfirmDel] = useState(false)
   const [saved, setSaved] = useState(false)
+  const [q, setQ] = useState('')
+  const [showOff, setShowOff] = useState(false)
   useEffect(() => { setD(group); setMerges([]) }, [group])
+  useEffect(() => { setQ(''); setShowOff(false) }, [group.key])
 
   const dirty = JSON.stringify(d) !== JSON.stringify(group)
   const useOf = (k: string) => usage(group.key, k)
   const wired = group.items.some((i) => useOf(i.key) !== undefined)
   const patch = (k: string, p: Partial<EnumItem>) => setD({ ...d, items: d.items.map((i) => (i.key === k ? { ...i, ...p } : i)) })
+  const many = d.items.length > MANY
+  const kw = q.trim().toLowerCase()
+  // 沉底的只算保存过的停用值；这次刚关掉的留在原位，免得一点就跳走
+  const sunk = (i: EnumItem) => many && !i.enabled && group.items.some((g) => g.key === i.key && !g.enabled)
+  const indexed = d.items.map((i, n) => ({ i, n }))
+  const matched = kw ? indexed.filter(({ i }) => `${i.label} ${i.key} ${i.desc}`.toLowerCase().includes(kw)) : null
+  const live = matched ?? indexed.filter(({ i }) => !sunk(i))
+  const off = matched ? [] : indexed.filter(({ i }) => sunk(i))
+  const visible = [...live, ...(showOff ? off : [])]
+  // 上下移只在同一段里挪：跳过收起的停用值
   const move = (i: number, dir: -1 | 1) => {
-    const j = i + dir
+    let j = i + dir
+    while (j >= 0 && j < d.items.length && sunk(d.items[j]) !== sunk(d.items[i])) j += dir
     if (j < 0 || j >= d.items.length) return
     const items = [...d.items]
     ;[items[i], items[j]] = [items[j], items[i]]
@@ -156,6 +173,7 @@ function GroupEditor({ group, usage, onSave, onMigrate, onDelete }: {
   const add = () => {
     let n = d.items.length + 1
     while (d.items.some((i) => i.key === `v${n}`)) n += 1
+    setQ('')
     setD({ ...d, items: [...d.items, { key: `v${n}`, label: '', color: ENUM_COLORS[d.items.length % ENUM_COLORS.length], desc: '', enabled: true }] })
   }
   const askRemove = (k: string) => {
@@ -192,19 +210,34 @@ function GroupEditor({ group, usage, onSave, onMigrate, onDelete }: {
         </div>
       </div>
 
+      {many && (
+        <div className="toolbar">
+          <div className="search search-sm">
+            <svg viewBox="0 0 16 16" width="13" height="13"><circle cx="7" cy="7" r="4.5" fill="none" stroke="currentColor" strokeWidth="1.5" /><path d="M10.5 10.5 14 14" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" /></svg>
+            <input placeholder="搜值：显示名、Key、说明" value={q} onChange={(e) => setQ(e.target.value)} />
+          </div>
+          <span className="list-sub">{matched ? `命中 ${matched.length} / ${d.items.length} 个` : `${d.items.length} 个值，${d.items.filter((i) => !i.enabled).length} 个停用`}</span>
+        </div>
+      )}
       <div className="enum-table">
         <div className="enum-row enum-th">
           <span>顺序</span><span>颜色</span><span>显示名</span><span>Key</span><span>说明</span><span>{wired ? '使用中' : ''}</span><span>默认</span><span>启用</span><span />
         </div>
-        {d.items.map((i, n) => {
+        {visible.map(({ i, n }, vi) => {
           const used = useOf(i.key)
+          const sameSeg = (k: number) => k >= 0 && k < d.items.length && sunk(d.items[k]) === sunk(i)
+          const canUp = !kw && indexed.slice(0, n).some(({ n: k }) => sameSeg(k))
+          const canDown = !kw && indexed.slice(n + 1).some(({ n: k }) => sameSeg(k))
           return (
-            <div key={i.key + n} className={cls('enum-row', !i.enabled && 'off')}>
+            <Fragment key={i.key + n}>
+            {/* 收起的停用值展开后，接在启用值后面，中间插一条收起按钮 */}
+            {vi === live.length && off.length > 0 && <button className="enum-add enum-off-toggle" onClick={() => setShowOff(false)}>收起已停用的 {off.length} 个</button>}
+            <div className={cls('enum-row', !i.enabled && 'off')}>
               <span className="enum-order">
-                <button className="icon-btn icon-btn-sm" disabled={n === 0} onClick={() => move(n, -1)} title="上移">
+                <button className="icon-btn icon-btn-sm" disabled={!canUp} onClick={() => move(n, -1)} title={kw ? '搜索时不能调顺序' : '上移'}>
                   <svg viewBox="0 0 16 16" width="11" height="11"><path d="m4 10 4-4 4 4" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" /></svg>
                 </button>
-                <button className="icon-btn icon-btn-sm" disabled={n === d.items.length - 1} onClick={() => move(n, 1)} title="下移">
+                <button className="icon-btn icon-btn-sm" disabled={!canDown} onClick={() => move(n, 1)} title={kw ? '搜索时不能调顺序' : '下移'}>
                   <svg viewBox="0 0 16 16" width="11" height="11"><path d="m4 6 4 4 4-4" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" /></svg>
                 </button>
               </span>
@@ -232,8 +265,11 @@ function GroupEditor({ group, usage, onSave, onMigrate, onDelete }: {
                   : <button className="act act-quiet btn-danger-ghost" onClick={() => askRemove(i.key)}>删除</button>}
               </span>
             </div>
+            </Fragment>
           )
         })}
+        {matched && !matched.length && <div className="tree-empty">没有匹配的值</div>}
+        {!showOff && off.length > 0 && <button className="enum-add enum-off-toggle" onClick={() => setShowOff(true)}>已停用 {off.length} 个，点开查看</button>}
         {removing && (
           <div className="enum-merge">
             <span>「{d.items.find((i) => i.key === removing.key)?.label}」有 {useOf(removing.key)} 条数据在用，删除前要把它们合并到：</span>

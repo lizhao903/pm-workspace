@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { ConnectorDrawer, ConnectorsSettings } from './connectors'
 import { ApiConnectorDrawer } from './apiconn'
 import { ContactDrawer, ContactsPage, type Draft as ContactDraft } from './contacts'
@@ -15,7 +15,7 @@ import { TaskDrawer, TasksNav, TasksPage, WebhookPage, newHook, type TaskDraft, 
 import { ScheduleDrawer, SchedulesPage } from './schedule'
 import { nextRun, seedSchedules, whenText, type Schedule } from './scheduledata'
 import { TodayPage, type TodayItem, type TodayLine } from './today'
-import { ProjectPage, ProjectsNav, type ProjectTab } from './projects'
+import { ALL_PROJECTS, ProjectPage, ProjectsListPage, ProjectsNav, type ProjectTab } from './projects'
 import { PROJECT_COLORS, portConflict, seedProjects, startLogs, type Project } from './projectdata'
 import { TerminalPage, newTab, type TermTab } from './terminal'
 import { IncidentDrawer, IncidentsPage } from './incidents'
@@ -40,7 +40,7 @@ import { PublishPage, SeriesPage, type ChannelState } from './videopublish'
 import { ClipsPage, TopicsPage } from './topics'
 import { seedClips, seedTopics, type Topic } from './topicdata'
 import { BrowserPage } from './browser'
-import type { GoogleAccount } from './browserdata'
+import { HOME_URL, type GoogleAccount } from './browserdata'
 import { OpenUrlContext, ProtoDomainContext } from './openurl'
 import { DomainsPage } from './domains'
 import { protoDomain, seedDomainRoutes, seedDomainSettings } from './domaindata'
@@ -89,6 +89,13 @@ const nameList = (xs: string[], max = 3) => xs.slice(0, max).map((x) => `「${x}
 const lines = (...xs: (string | false | 0 | undefined)[]) => xs.filter((x): x is string => !!x)
 /** 还没成交完的委托 */
 const ACTIVE_ORDER = ['pending', 'open', 'partial']
+
+/** 引用不变、调用时总走最新版本的回调：传给 memo 过的组件，免得每次渲染换一个新函数把 memo 打穿 */
+function useStable<A extends unknown[], R>(f: (...a: A) => R): (...a: A) => R {
+  const ref = useRef(f)
+  ref.current = f
+  return useCallback((...a: A) => ref.current(...a), [])
+}
 
 const icons: Record<Page, React.ReactNode> = {
   contacts: <svg className="side-icon" viewBox="0 0 16 16" width="15" height="15"><circle cx="6" cy="5.5" r="2.5" fill="none" stroke="currentColor" strokeWidth="1.4" /><path d="M1.5 13.5c.6-2.4 2.3-3.6 4.5-3.6s3.9 1.2 4.5 3.6M11 3.2a2.4 2.4 0 0 1 0 4.6M12.6 10.2c1 .5 1.6 1.6 1.9 3.3" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" /></svg>,
@@ -189,6 +196,11 @@ export default function App() {
   }, [])
   const [projectId, setProjectId] = useState(seedProjects[0]?.id ?? '')
   const [projectTab, setProjectTab] = useState<ProjectTab>('overview')
+  // 最近打开的项目，新的在前：项目菜单只露这几个，完整列表在「全部项目」
+  const [recentProjects, setRecentProjects] = useState<string[]>(() => (seedProjects[0] ? [seedProjects[0].id] : []))
+  useEffect(() => {
+    if (projectId && projectId !== ALL_PROJECTS) setRecentProjects((xs) => [projectId, ...xs.filter((x) => x !== projectId)].slice(0, 20))
+  }, [projectId])
   const projectsRef = useRef(projects)
   projectsRef.current = projects
   // 终端的标签页放在 App 里：切到别的菜单再回来，窗格里的内容还在
@@ -208,6 +220,10 @@ export default function App() {
   const [providers, setProviders] = useState(seedProviders)
   const [models, setModels] = useState(seedModels)
   const [sopView, setSopView] = useState<SopView>('runs')
+  /** 执行记录页预先按这个 SOP 筛（从流程详情「在执行记录里看全部」跳过来） */
+  const [sopFilter, setSopFilter] = useState<string | undefined>()
+  /** 会话页预先按这个项目筛（从项目 Agent 页签「查看全部」跳过来） */
+  const [sessionProject, setSessionProject] = useState<string | undefined>()
   const [openRun, setOpenRun] = useState<string | null>(null)
   const [folderBusy, setFolderBusy] = useState(false)
   const [folderError, setFolderError] = useState('')
@@ -391,7 +407,11 @@ export default function App() {
 
   const pending = messages.filter((m) => m.status === 'pending' && !(m.snooze_until && new Date(m.snooze_until).getTime() > Date.now())).length
   const brokenConnectors = connectors.filter((c) => c.status === 'error').length
-  const messageCount = messages.reduce<Record<string, number>>((acc, m) => ({ ...acc, [m.connector_id]: (acc[m.connector_id] ?? 0) + 1 }), {})
+  const messageCount = useMemo(() => {
+    const acc: Record<string, number> = {}
+    for (const m of messages) acc[m.connector_id] = (acc[m.connector_id] ?? 0) + 1
+    return acc
+  }, [messages])
 
   const sopWaiting = runs.filter((r) => ['waiting', 'failed'].includes(runStatus(r))).length
 
@@ -457,19 +477,19 @@ export default function App() {
   const openIncidents = incidents.filter((x) => x.status === 'open' && x.level === 'error').length
   const brokenProviders = providers.filter((p) => p.enabled && p.status === 'error').length
   // 停用、不可用的模型也列进来（ok 为 false），这样 Agent 卡片上还能显示名字和原因
-  const modelChoices: ModelChoice[] = models.map((m) => {
+  const modelChoices: ModelChoice[] = useMemo(() => models.map((m) => {
     const u = usable(m, providers)
     return { key: m.id, label: m.name, note: u.ok ? `${providers.find((p) => p.id === m.provider_id)?.name} · ${m.context}K 上下文` : u.why!, ok: u.ok }
-  })
+  }), [models, providers])
   // 连接器里没关掉的工具都能给 Agent 用；暂停的连接器不列
-  const connToolChoices: ConnToolChoice[] = connectors.filter((c) => c.tools && c.status !== 'paused' && c.status !== 'disconnected').flatMap((c) => c.tools!
+  const connToolChoices: ConnToolChoice[] = useMemo(() => connectors.filter((c) => c.tools && c.status !== 'paused' && c.status !== 'disconnected').flatMap((c) => c.tools!
     .filter((t) => t.mode !== 'off')
-    .map((t) => ({ key: `conn:${c.id}:${t.name}`, connId: c.id, conn: c.name, connOk: c.status === 'connected', name: t.name, desc: t.desc, write: t.write, connMode: t.mode })))
+    .map((t) => ({ key: `conn:${c.id}:${t.name}`, connId: c.id, conn: c.name, connOk: c.status === 'connected', name: t.name, desc: t.desc, write: t.write, connMode: t.mode }))), [connectors])
   // 可挂载到 Agent 的 MCP / 连接器：获取过工具清单、没暂停的
-  const mountableConns: MountableConn[] = connectors.filter((c) => c.tools && c.status !== 'paused' && c.status !== 'disconnected').map((c) => ({
+  const mountableConns: MountableConn[] = useMemo(() => connectors.filter((c) => c.tools && c.status !== 'paused' && c.status !== 'disconnected').map((c) => ({
     id: c.id, name: c.name, kind: TOOLS.find((t) => t.key === c.tool)?.category === 'custom' ? 'MCP / 自定义' : TOOLS.find((t) => t.key === c.tool)?.label ?? c.tool,
     ok: c.status === 'connected', tools: connToolChoices.filter((t) => t.connId === c.id),
-  }))
+  })), [connectors, connToolChoices])
   const agentWaiting = agentRuns.filter((r) => r.status === 'waiting').length
   // Agent 的写操作真的落到数据上：建任务、写文档、回 IM；发起 SOP 原型里只回一个排队结果
   // 每一次落地都记一条产出，带上是哪个 Agent、从哪个会话或执行记录来的
@@ -536,8 +556,8 @@ export default function App() {
   const MENU = bench.modules.map((k) => ALL_MENU.find((m) => m.key === k)).filter((m): m is (typeof ALL_MENU)[number] => !!m)
   const ctx = { tasks, messages, contacts, sops: sops.map((x) => ({ id: x.id, name: x.name })) }
 
-  // 今日：从各模块收「需要你处理」的事
-  const todayNeeds: TodayItem[] = [
+  // 今日：从各模块收「需要你处理」的事；按数据缓存，别的状态变化不重算（点击回调里只用 setState 和稳定的跳转，旧闭包也没关系）
+  const todayNeeds: TodayItem[] = useMemo(() => [
     ...runs.filter((r) => ['waiting', 'failed'].includes(runStatus(r))).map((r) => ({
       id: `sop-${r.id}`, kind: 'SOP', tone: runStatus(r) === 'failed' ? 'danger' as const : 'warn' as const, title: r.title,
       sub: runStatus(r) === 'failed' ? '有步骤执行失败' : '停在人工检查或判断，等你处理', at: new Date(r.started_at).toISOString(), action: '去处理',
@@ -551,7 +571,7 @@ export default function App() {
       id: `ss-${x.id}`, kind: 'Agent 待确认', tone: 'warn' as const, title: `会话「${x.title}」里有操作等你确认`, sub: agents.find((a) => a.id === x.agent_id)?.name ?? '',
       at: x.updated_at, action: '去确认', onClick: () => { setPage('sessions'); setSessionView('chats'); setCurrentSession(x.id); setDrawer(null) },
     })),
-    ...messages.filter((m) => m.status === 'pending' && !(m.snooze_until && new Date(m.snooze_until).getTime() > Date.now())).slice(0, 6).map((m) => ({
+    ...messages.filter((m) => m.status === 'pending' && !(m.snooze_until && new Date(m.snooze_until).getTime() > Date.now())).map((m) => ({
       id: `im-${m.id}`, kind: 'IM 消息', tone: 'info' as const, title: `${m.sender_name}：${m.text}`, sub: m.conversation || '私聊', at: m.at, action: '回复',
       onClick: () => { setPage('messages'); openMessage(m.id) },
     })),
@@ -567,14 +587,14 @@ export default function App() {
       id: `pv-${x.id}`, kind: '连接异常', tone: 'danger' as const, title: `模型服务商「${x.name}」异常`, sub: x.error ?? '', action: '去修复',
       onClick: () => { go('settings'); setSection('providers'); setDrawer({ kind: 'provider', id: x.id }) },
     })),
-  ]
-  const todaySchedules: TodayLine[] = schedules.filter((x) => x.enabled).map((x) => ({ x, n: nextRun(x.rule) }))
+  ], [runs, agentRuns, agents, sessions, messages, incidents, connectors, providers])
+  const todaySchedules: TodayLine[] = useMemo(() => schedules.filter((x) => x.enabled).map((x) => ({ x, n: nextRun(x.rule) }))
     .filter(({ n }) => n && n.toDateString() === new Date().toDateString())
-    .map(({ x, n }) => ({ id: x.id, title: x.name, sub: whenText(n).replace('今天 ', ''), onClick: () => { setPage('tasks'); setTaskView('schedules'); setDrawer({ kind: 'schedule', id: x.id }) } }))
-  const todayRunning: TodayLine[] = [
+    .map(({ x, n }) => ({ id: x.id, title: x.name, sub: whenText(n).replace('今天 ', ''), onClick: () => { setPage('tasks'); setTaskView('schedules'); setDrawer({ kind: 'schedule', id: x.id }) } })), [schedules])
+  const todayRunning: TodayLine[] = useMemo(() => [
     ...projects.flatMap((pj) => pj.prototypes.filter((x) => x.status === 'running').map((x) => ({ id: x.id, title: `${pj.name} / ${x.name}`, sub: `:${x.port}`, href: `http://127.0.0.1:${x.port}` }))),
     ...runs.filter((r) => runStatus(r) === 'running').map((r) => ({ id: r.id, title: r.title, sub: 'SOP 执行中', onClick: () => { setPage('sop'); setOpenRun(r.id) } })),
-  ]
+  ], [projects, runs])
   // 今日菜单上的红点：有要处理的事就亮
   ALL_MENU[0].badge = todayNeeds.length
   ALL_MENU[0].alert = todayNeeds.some((n) => n.tone !== 'info')
@@ -691,7 +711,12 @@ export default function App() {
     setStrategies((xs) => [st, ...xs]); setStrategyView(`st:${st.id}`)
   }
   const tradeReport = (title: string, message: string) => report({ fingerprint: `trade:${title}`, level: 'warn', module: '交易', title, message, context: {} })
-  const protoRefs = projects.flatMap((pj) => pj.prototypes.map((x) => ({ id: x.id, name: x.name, project: pj.name, port: x.port, status: x.status })))
+  // 原型清单：浏览器首页、内网域名都用它；只跟着项目变
+  const protoRefs = useMemo(() => projects.flatMap((pj) => pj.prototypes.map((x) => ({ id: x.id, name: x.name, project: pj.name, projectId: pj.id, port: x.port, status: x.status }))), [projects])
+  // 浏览器是 memo 过的，传进去的回调要稳定
+  const browserStartProto = useStable(startProto)
+  const browserLogin = useStable(googleLogin)
+  const browserLogout = useStable(googleLogout)
   // 选题立项：生成一集视频，带上系列、集数、要出的比例（按目标平台的偏好比例）
   const makeVideoFromTopic = (t: Topic) => {
     const now = new Date().toISOString()
@@ -739,9 +764,10 @@ export default function App() {
   }
 
   // 命令面板的条目：跳转、操作、各模块的数据；只放当前工作台开着的模块
+  // 只在面板打开那一刻拼一次，平时不拼；工作台切换、原型启停各自一组，输入后才出现
   const has = (p: Page) => MENU.some((m) => m.key === p)
   const goto = (p: Page) => () => go(p)
-  const paletteItems: PaletteItem[] = [
+  const buildPaletteItems = (): PaletteItem[] => [
     { id: 'c-quick-session', group: '操作', title: '新建会话', sub: '挑个 Agent 直接开聊（⌘J）', keywords: 'session chat agent 会话 对话 新建', run: () => setQuickSession(true) },
     ...(has('tasks') ? [{ id: 'c-task', group: '操作', title: '新建任务', keywords: 'task 待办', run: () => { setPage('tasks'); setDrawer({ kind: 'new-task' }) } },
       { id: 'c-sched', group: '操作', title: '新建定时任务', keywords: 'schedule 定时', run: () => { setPage('tasks'); setTaskView('schedules'); setDrawer({ kind: 'new-schedule' }) } }] : []),
@@ -751,10 +777,10 @@ export default function App() {
     ...(has('projects') ? [{ id: 'c-proj', group: '操作', title: '新建项目', keywords: 'project', run: () => { setPage('projects'); newProject() } }] : []),
     { id: 'c-theme', group: '操作', title: theme === 'dark' ? '切换到浅色' : '切换到深色', keywords: '配色 主题 dark light 外观', run: () => setTheme(theme === 'dark' ? 'light' : 'dark') },
     { id: 'c-side', group: '操作', title: collapsed ? '展开左侧菜单' : '收起左侧菜单', keywords: '侧栏 菜单', run: () => setCollapsed(!collapsed) },
-    ...benches.filter((b) => b.id !== bench.id).map((b) => ({ id: `c-bench-${b.id}`, group: '操作', title: `切换到「${b.name}」`, sub: b.role, keywords: '工作台', run: () => switchBench(b.id) })),
+    ...benches.filter((b) => b.id !== bench.id).map((b) => ({ id: `c-bench-${b.id}`, group: '工作台', title: `切换到「${b.name}」`, sub: b.role, keywords: '工作台 切换', run: () => switchBench(b.id) })),
     ...(has('projects') ? projects.flatMap((pj) => pj.prototypes.map((x) => (x.status === 'running'
-      ? { id: `c-stop-${x.id}`, group: '操作', title: `停止原型「${x.name}」`, sub: `${pj.name} · :${x.port}`, keywords: 'prototype 原型 停止', run: () => stopProto(x.id) }
-      : { id: `c-start-${x.id}`, group: '操作', title: `启动原型「${x.name}」`, sub: `${pj.name} · :${x.port}`, keywords: 'prototype 原型 启动', run: () => startProto(x.id) }))) : []),
+      ? { id: `c-stop-${x.id}`, group: '原型', title: `停止原型「${x.name}」`, sub: `${pj.name} · :${x.port}`, keywords: 'prototype 停止', run: () => stopProto(x.id) }
+      : { id: `c-start-${x.id}`, group: '原型', title: `启动原型「${x.name}」`, sub: `${pj.name} · :${x.port}`, keywords: 'prototype 启动', run: () => startProto(x.id) }))) : []),
     ...MENU.map((m) => ({ id: `g-${m.key}`, group: '跳转', title: m.label, sub: '功能模块', run: goto(m.key) })),
     ...SECTIONS.map((x) => ({ id: `g-set-${x.key}`, group: '跳转', title: `设置 / ${x.label}`, sub: x.desc, run: () => { go('settings'); setSection(x.key); if (x.key === 'agents') setAgentView('list') } })),
     ...(has('projects') ? projects.map((x) => ({ id: `p-${x.id}`, group: '项目', title: x.name, sub: x.desc, keywords: x.root, run: () => { setPage('projects'); setProjectId(x.id); setProjectTab('overview') } })) : []),
@@ -765,6 +791,10 @@ export default function App() {
     ...(has('sop') ? sops.map((x) => ({ id: `f-${x.id}`, group: 'SOP', title: x.name, sub: x.desc, run: () => { setPage('sop'); setSopView(`sop:${x.id}`); setOpenRun(null) } })) : []),
     ...agents.map((x) => ({ id: `a-${x.id}`, group: 'Agent', title: x.name, sub: x.desc, run: () => { go('settings'); setSection('agents'); setAgentView(x.id) } })),
   ]
+
+  // 所有页面共用一个 .content 滚动容器：换页面、换二级菜单都回到顶部；不用 key 重挂 main，会把浏览器一起卸掉
+  const mainRef = useRef<HTMLElement>(null)
+  useLayoutEffect(() => { mainRef.current?.scrollTo(0, 0) }, [page, section, taskView, sopView, openRun, sessionView, strategyView, tradingView, videoView, projectId, projectTab, agentView])
 
   useEffect(() => {
     if (page === 'settings' || MENU.some((m) => m.key === page)) return
@@ -777,7 +807,7 @@ export default function App() {
     // 切过去后停在设置里就不动；否则打开新工作台的默认模块
     if (page !== 'settings') { setPage(w.home as Page); setDrawer(null) }
   }
-  const go = (p: Page) => { setPage(p); setDrawer(null); if (p === 'settings') setConnCat(''); if (p === 'sop') setOpenRun(null) }
+  const go = (p: Page) => { setPage(p); setDrawer(null); if (p === 'settings') setConnCat(''); if (p === 'sop') { setOpenRun(null); setSopFilter(undefined) } if (p === 'sessions') setSessionProject(undefined) }
   const openImConnectors = () => { setPage('settings'); setSection('connectors'); setConnCat('im'); setDrawer(null) }
 
   // 本地目录只在内存里，刷新页面就没了；同一个目录再选一次是重新读取，不会多出一项
@@ -1182,7 +1212,7 @@ export default function App() {
           </button>
         </div>
       </aside>
-      {page === 'projects' && <ProjectsNav projects={projects} current={projectId} onSelect={(id) => { setProjectId(id); setProjectTab('overview') }} onNew={newProject} />}
+      {page === 'projects' && <ProjectsNav projects={projects} current={projectId} recent={recentProjects} onSelect={(id) => { setProjectId(id); setProjectTab('overview') }} onNew={newProject} />}
       {page === 'sessions' && <SessionsNav view={sessionView} onSelect={setSessionView} waiting={agentWaiting} onNew={() => { setSessionView('chats'); setPickAgent((n) => n + 1) }} />}
       {page === 'tasks' && <TasksNav tasks={tasks} hooks={hooks} deliveries={deliveries} view={taskView} onSelect={(v) => { setTaskView(v); setDrawer(null) }} onNewHook={() => { setTaskView('hook:new'); setDrawer(null) }} />}
       {page === 'library' && <LibraryTree ws={ws} model={lib} items={content} folders={folders} selected={reading} onSelect={setReading} onSwitch={switchWs}
@@ -1191,7 +1221,7 @@ export default function App() {
       {page === 'trading' && <TradingNav view={tradingView} onSelect={setTradingView} accounts={accounts} runs={tradeRuns} risk={risk}
         onKill={() => { const s = killAll({ runs: tradeRuns, orders, risk }, '手动一键全停'); setTradeRuns(s.runs); setOrders(s.orders); setRisk(s.risk) }} />}
       {page === 'videos' && <VideosNav videos={videos} series={series} view={videoView} onSelect={(v) => { setVideoView(v); if (v === 'publish') setPublishFilter(undefined); if (v === 'topics') setTopicFocus(null) }} onNew={() => newVideo()} pendingClips={clips.filter((c) => !c.triaged).length} />}
-      {page === 'sop' && !sopView.startsWith('edit:') && <SopNav sops={sops} runs={runs} view={sopView} onSelect={(v) => { setSopView(v); setOpenRun(null) }} onNew={() => { setSopView('edit:new'); setOpenRun(null) }} />}
+      {page === 'sop' && !sopView.startsWith('edit:') && <SopNav sops={sops} runs={runs} view={sopView} onSelect={(v) => { setSopView(v); setOpenRun(null); setSopFilter(undefined) }} onNew={() => { setSopView('edit:new'); setOpenRun(null) }} />}
       {page === 'settings' && (
         <SettingsNav active={section} alerts={{ connectors: brokenConnectors, providers: brokenProviders, incidents: openIncidents }}
           onSelect={(k) => { setSection(k as Section); if (k === 'agents') setAgentView('list'); setDrawer(null) }} />
@@ -1201,7 +1231,7 @@ export default function App() {
           {page === 'library' ? <LibraryBar model={lib} kind={libKind} onKind={setLibKind} onRefresh={refreshFolder} /> : <div className="tb-slot" ref={setTopSlot} />}
         </div>
         {/* 内容页自己分两栏各自滚动，外层不滚 */}
-        <main className={cls('content', (page === 'library' || page === 'terminal' || page === 'browser' || page === 'markets' || (page === 'sessions' && sessionView === 'chats') || (page === 'settings' && (section === 'enums' || (section === 'agents' && agentView !== 'list'))) || (page === 'sop' && (openRun || sopView.startsWith('edit:')))) && 'content-flush')}>
+        <main ref={mainRef} className={cls('content', (page === 'library' || page === 'terminal' || page === 'browser' || page === 'markets' || (page === 'sessions' && sessionView === 'chats') || (page === 'settings' && (section === 'enums' || (section === 'agents' && agentView !== 'list'))) || (page === 'sop' && (openRun || sopView.startsWith('edit:')))) && 'content-flush')}>
           {page === 'library' && (
             <LibraryReader model={lib} selected={reading} onSelect={setReading}
               onStar={(id) => setContent((xs) => xs.map((x) => (x.id === id ? { ...x, starred: !x.starred } : x)))} />
@@ -1221,9 +1251,9 @@ export default function App() {
             const h = hook ?? newHook()
             return (
               <WebhookPage key={hook?.id ?? 'new'} hook={h} creating={!hook} deliveries={deliveries} tasks={tasks}
-                onCancel={() => setTaskView('webhook')}
+                onCancel={() => setTaskView('hooks')}
                 onSave={(x) => { setHooks((xs) => (hook ? xs.map((y) => (y.id === x.id ? x : y)) : [...xs, x])); if (!hook) setTaskView(`hook:${x.id}`) }}
-                onDelete={() => { setHooks((xs) => xs.filter((y) => y.id !== h.id)); setTaskView('webhook') }}
+                onDelete={() => { setHooks((xs) => xs.filter((y) => y.id !== h.id)); setTaskView('hooks') }}
                 onOpenTask={(tid) => setDrawer({ kind: 'task', id: tid })}
                 onTest={(x, payload) => {
                   const r = ingest(x, payload, tasks, deliveries)
@@ -1235,7 +1265,8 @@ export default function App() {
             )
           })() : (
             <TasksPage tasks={tasks} hooks={hooks} projects={projects} view={taskView as 'all'} selected={selectedId} onOpen={(id) => setDrawer({ kind: 'task', id })}
-              onNew={() => setDrawer({ kind: 'new-task' })} onStatus={(id, st: TaskStatus) => patchTask(id, { status: st })} />
+              onNew={() => setDrawer({ kind: 'new-task' })} onStatus={(id, st: TaskStatus) => patchTask(id, { status: st })}
+              deliveries={deliveries} onOpenHook={(id) => setTaskView(`hook:${id}`)} onNewHook={() => setTaskView('hook:new')} />
           ))}
           {page === 'messages' && (
             <MessagesPage messages={messages} contacts={contacts} connectors={connectors} selected={selectedId}
@@ -1268,16 +1299,38 @@ export default function App() {
               const sop = sopById(sopView.slice(4))
               if (!sop) return <div className="page"><PageTitle>SOP</PageTitle><div className="empty"><div className="empty-title">这个 SOP 已经删除</div></div></div>
               return <SopDetailPage key={sop.id} sop={sop} runs={runs} onOpen={setOpenRun} onEdit={() => setSopView(`edit:${sop.id}`)} onStart={() => setDrawer({ kind: 'sop-start', sopId: sop.id })}
+                onAllRuns={() => { setSopFilter(sop.id); setSopView('runs') }}
                 delPlan={sopPlan(sop.id)} onDelete={() => { if (!sopPlan(sop.id).block) deleteSop(sop.id) }} />
             }
-            return <SopRunsPage key={sopView} runs={runs} view={sopView as 'runs' | 'waiting'} onOpen={setOpenRun} />
+            // 流程库（library）也走这里；带着 SOP 筛选进来时换 key 重置页面里的筛选
+            return <SopRunsPage key={`${sopView}:${sopFilter ?? ''}`} runs={runs} view={sopView as 'runs' | 'waiting' | 'library'} sop={sopFilter} onOpen={setOpenRun}
+              sops={sops} onOpenSop={(id) => setSopView(`sop:${id}`)} onNew={() => { setSopView('edit:new'); setOpenRun(null) }} />
           })()}
           {page === 'today' && (
             <TodayPage needs={todayNeeds} tasks={tasks} schedules={todaySchedules} running={todayRunning}
+              more={{
+                SOP: has('sop') ? () => { go('sop'); setSopView('waiting') } : undefined,
+                'Agent 待确认': has('sessions') ? () => { go('sessions'); setSessionView('runs') } : undefined,
+                'IM 消息': has('messages') ? () => go('messages') : undefined,
+                运行异常: () => { go('settings'); setSection('incidents') },
+                连接异常: () => { go('settings'); setSection('connectors') },
+              }}
               onOpenTask={(id) => setDrawer({ kind: 'task', id })} onDoneTask={(id) => patchTask(id, { status: 'done' })}
-              onAllTasks={() => { setPage('tasks'); setTaskView('all') }} />
+              // 逾期视图的 key 和任务组约定为 due
+              onAllTasks={(v) => { go('tasks'); setTaskView(v ?? 'all') }}
+              onAllSchedules={() => { go('tasks'); setTaskView('schedules') }}
+              onAllRunning={() => {
+                // 有原型在跑就去浏览器首页（按项目分组、在跑的展开），否则看 SOP 执行记录
+                if (has('browser') && todayRunning.some((r) => r.href)) openInBrowser(HOME_URL, '新标签页')
+                else if (has('sop')) { go('sop'); setSopView('runs') }
+                else go('projects')
+              }} />
           )}
-          {page === 'projects' && (() => {
+          {page === 'projects' && projectId === ALL_PROJECTS && (
+            <ProjectsListPage projects={projects} messages={messages} contacts={contacts} tasks={tasks} recent={recentProjects}
+              onOpen={(id) => { setProjectId(id); setProjectTab('overview') }} onNew={newProject} />
+          )}
+          {page === 'projects' && projectId !== ALL_PROJECTS && (() => {
             const pj = projects.find((x) => x.id === projectId)
             if (!pj) return <div className="lib-reader-empty">还没有项目，点左下「新建项目」</div>
             return (
@@ -1298,6 +1351,7 @@ export default function App() {
                   onOpenRun: (id) => { setPage('sop'); setOpenRun(id) },
                   onOpenSop: (id) => { setPage('sop'); setSopView(`sop:${id}`); setOpenRun(null) },
                   onOpenSession: (id) => { setPage('sessions'); setSessionView('chats'); setCurrentSession(id) },
+                  onAllSessions: () => { setPage('sessions'); setSessionView('chats'); setSessionProject(pj.id); setDrawer(null) },
                   onFetchAttachment: (mid, aid) => fetchAttachment(mid, aid), onAddAttachment: addAttachmentToProject,
                 }} />
             )
@@ -1310,8 +1364,8 @@ export default function App() {
           {has('browser') && (
             <div className="browser-host" hidden={page !== 'browser'}>
               <TopbarContext.Provider value={page === 'browser' ? topSlot : null}>
-                <BrowserPage openRequest={browserReq} onStartProto={startProto} google={google} onGoogleLogin={googleLogin} onGoogleLogout={googleLogout}
-                  prototypes={projects.flatMap((pj) => pj.prototypes.map((x) => ({ id: x.id, name: x.name, project: pj.name, port: x.port, status: x.status })))} />
+                <BrowserPage openRequest={browserReq} onStartProto={browserStartProto} google={google} onGoogleLogin={browserLogin} onGoogleLogout={browserLogout}
+                  prototypes={protoRefs} hidden={page !== 'browser'} />
               </TopbarContext.Provider>
             </div>
           )}
@@ -1372,7 +1426,7 @@ export default function App() {
             <TradingPage view={tradingView} accounts={accounts} positions={positions} orders={orders} runs={tradeRuns} risk={risk} strategies={strategies}
               onAccounts={setAccounts} onPositions={setPositions} onOrders={setOrders} onRuns={setTradeRuns} onRisk={setRisk}
               accountDeleteBlock={accountBlock} onDeleteAccount={deleteAccount}
-              orderRequest={orderReq} deployRequest={deployReq} onOpenChart={openChart} onOpenStrategy={(id) => { setPage('strategy'); setStrategyView(`st:${id}`) }} onReport={tradeReport} />
+              orderRequest={orderReq} deployRequest={deployReq} onView={setTradingView} onOpenChart={openChart} onOpenStrategy={(id) => { setPage('strategy'); setStrategyView(`st:${id}`) }} onReport={tradeReport} />
           )}
           {page === 'strategy' && strategyView === 'list' && <StrategyListPage strategies={strategies} backtests={backtests} onOpen={(id) => setStrategyView(`st:${id}`)} onNew={newStrategy} />}
           {page === 'strategy' && strategyView === 'runs' && (
@@ -1402,6 +1456,7 @@ export default function App() {
           })()}
           {page === 'sessions' && sessionView === 'chats' && (
             <ChatsView agents={agents} sessions={sessions} current={currentSession} ctx={ctx} pickRequest={pickAgent} firstMessage={firstMessage}
+              projects={projects} initialProject={sessionProject}
               onOpen={setCurrentSession} onNew={(id) => newSession(id)}
               onMsgs={(id, f) => setSessions((xs) => xs.map((x) => {
                 if (x.id !== id) return x
@@ -1467,11 +1522,11 @@ export default function App() {
         </main>
       </div>
       {drawerEl}
-      {palette && <CommandPalette items={paletteItems} onClose={() => setPalette(false)} />}
+      {palette && <CommandPalette items={buildPaletteItems} onClose={() => setPalette(false)} />}
       {quickSession && (
         <QuickSession agents={agents} projects={projects} onClose={() => setQuickSession(false)}
           defaultAgent={[...sessions].sort((a, b) => b.updated_at.localeCompare(a.updated_at))[0]?.agent_id}
-          defaultProject={page === 'projects' ? projectId : undefined}
+          defaultProject={page === 'projects' && projectId !== ALL_PROJECTS ? projectId : undefined}
           onCreate={(agentId, pid, text) => { setQuickSession(false); newSession(agentId, pid, text || undefined) }} />
       )}
     </div>

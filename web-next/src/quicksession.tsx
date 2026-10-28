@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { Agent } from './agentdata'
 import { AgentAvatar } from './agents'
+import { SearchSelect } from './searchselect'
 import { cls } from './ui'
 
 // 快速新建会话：在任何页面按 ⌘J 或点侧栏按钮，挑个 Agent、可选挂到项目、写下第一句话，回车就开聊
@@ -23,7 +24,8 @@ export function QuickSession({ agents, projects, defaultAgent, defaultProject, o
   const ref = useRef<HTMLTextAreaElement>(null)
   useEffect(() => { ref.current?.focus() }, [])
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') { e.stopPropagation(); onClose() } }
+    // 下拉开着时 Esc 先关下拉，不关整个弹窗
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape' && !document.querySelector('.ss-menu')) { e.stopPropagation(); onClose() } }
     window.addEventListener('keydown', onKey, true)
     return () => window.removeEventListener('keydown', onKey, true)
   }, [onClose])
@@ -35,6 +37,10 @@ export function QuickSession({ agents, projects, defaultAgent, defaultProject, o
     setAgent(usable[(i + d + usable.length) % usable.length]?.id ?? agent)
   }
   const cur = usable.find((a) => a.id === agent)
+  // Agent 多时只露几个 chip（当前选中的一定在里面），其余在「更多」里搜
+  const CHIPS = 7
+  const chips = usable.length <= CHIPS + 1 ? usable : [...usable.slice(0, CHIPS).filter((a) => a.id !== agent), ...(cur ? [cur] : [])].slice(-CHIPS).sort((a, b) => usable.indexOf(a) - usable.indexOf(b))
+  const rest = usable.filter((a) => !chips.includes(a))
 
   return (
     <div className="qs-mask" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose() }}>
@@ -46,11 +52,16 @@ export function QuickSession({ agents, projects, defaultAgent, defaultProject, o
         {usable.length ? (
           <>
             <div className="qs-agents">
-              {usable.map((a) => (
+              {chips.map((a) => (
                 <button key={a.id} className={cls('qs-agent', a.id === agent && 'on')} onClick={() => { setAgent(a.id); ref.current?.focus() }} title={a.desc}>
                   <AgentAvatar agent={a} size={22} /><span className="ellipsis">{a.name}</span>
                 </button>
               ))}
+              {rest.length > 0 && (
+                <SearchSelect value="" placeholder={`更多 Agent（${rest.length}）`} searchPlaceholder="搜 Agent" className="qs-more"
+                  options={rest.map((a) => ({ value: a.id, label: a.name, hint: a.desc, icon: <AgentAvatar agent={a} size={16} /> }))}
+                  onChange={(v) => { if (v) setAgent(v); ref.current?.focus() }} />
+              )}
             </div>
             <textarea ref={ref} className="qs-input" rows={3} value={text} placeholder={`问 ${cur?.name ?? 'Agent'} 点什么；留空就只开一个空会话`}
               onChange={(e) => setText(e.target.value)}
@@ -61,10 +72,8 @@ export function QuickSession({ agents, projects, defaultAgent, defaultProject, o
             <div className="qs-foot">
               <label className="qs-proj">
                 <span className="list-sub">关联项目</span>
-                <select value={project} onChange={(e) => setProject(e.target.value)}>
-                  <option value="">不关联</option>
-                  {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-                </select>
+                <SearchSelect value={project} noneLabel="不关联" searchPlaceholder="搜项目" missingLabel={() => '已删除的项目'}
+                  options={projects.map((p) => ({ value: p.id, label: p.name }))} onChange={(v) => { setProject(v); ref.current?.focus() }} />
               </label>
               <span className="spacer" />
               <span className="qs-keys"><kbd>Enter</kbd> 开始 <kbd>Shift Enter</kbd> 换行 <kbd>Option ↑↓</kbd> 换 Agent</span>

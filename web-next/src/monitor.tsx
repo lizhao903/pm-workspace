@@ -1,16 +1,52 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, memo, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import './markets.css'
 import { PageTitle } from './topbar'
 import { cls, timeAgo } from './ui'
 import {
   ALERT_COND, DOWN, INSTRUMENTS, MARKETS, OPTION_EXPIRIES, OPTION_UNDERLYINGS, SESSION_LABEL, UP,
-  bars, fmtPct, fmtPrice, greeks, instOf, optionChain, prevClose, priceAt, sessionOf, useNow,
+  bars, fmtPct, fmtPrice, greeks, instOf, optionChain, prevClose, priceAt, sessionOf,
   type AlertCond, type AlertEvent, type AlertNotify, type Instrument, type MarketKey, type PriceAlert, type SessionState, type Watchlist,
 } from './tradedata'
 import { newId } from './ids'
+import { SearchSelect } from './searchselect'
+import { SymbolPicker } from './symbolpick'
 
 // 盯盘：市场时段、盯盘墙（迷你分时）、提醒规则、触发记录
 // checkAlerts 是纯函数，主会话每 5 秒调用一次，负责写 last_fired_at 和追加触发记录
+// 页面本身不跟秒走：时钟、盯盘墙、规则的「当前值」各自订阅下面的共用时钟，规则行和触发记录都是 memo
+
+/* ---------- 共用的秒级时钟 ---------- */
+
+const clock = { now: Date.now(), subs: new Set<() => void>(), timer: 0 }
+function subscribeClock(fn: () => void) {
+  clock.subs.add(fn)
+  if (!clock.timer) {
+    clock.now = Date.now()
+    clock.timer = window.setInterval(() => { clock.now = Date.now(); clock.subs.forEach((f) => f()) }, 1000)
+  }
+  return () => {
+    clock.subs.delete(fn)
+    if (!clock.subs.size) { window.clearInterval(clock.timer); clock.timer = 0 }
+  }
+}
+const noSub = () => () => {}
+const readClock = () => clock.now
+/** on 为 false 时不订阅，停在上次渲染的时刻 */
+function useClock(on = true) { return useSyncExternalStore(on ? subscribeClock : noSub, readClock) }
+
+/** 元素在不在可视区附近；不在的规则行不跟着时钟算当前值 */
+function useNearView<T extends Element>() {
+  const ref = useRef<T>(null)
+  const [near, setNear] = useState(false)
+  useEffect(() => {
+    const el = ref.current
+    if (!el) return
+    const io = new IntersectionObserver(([e]) => setNear(e.isIntersecting), { rootMargin: '200px 0px' })
+    io.observe(el)
+    return () => io.disconnect()
+  }, [])
+  return [ref, near] as const
+}
 
 const TAU = Math.PI * 2
 function hashStr(s: string) { let h = 2166136261; for (const c of s) h = Math.imul(h ^ c.charCodeAt(0), 16777619); return h >>> 0 }
@@ -137,7 +173,8 @@ export function fmtSpan(ms: number) {
 const SESSION_COLOR: Record<SessionState, string> = { open: 'var(--ok)', pre: 'var(--warn)', post: 'var(--warn)', break: 'var(--warn)', closed: 'var(--faint)' }
 export const SessionPill = ({ s }: { s: SessionState }) => <span className="pill" style={{ '--c': SESSION_COLOR[s] } as React.CSSProperties}><span className="pill-dot" />{SESSION_LABEL[s]}</span>
 
-function SessionCards({ now }: { now: number }) {
+function SessionCards() {
+  const now = useClock()
   const minute = Math.floor(now / 60000) * 60000
   const plans = useMemo(() => (['cn', 'hk', 'us'] as MarketKey[]).map((m) => [m, sessionPlan(m, minute)] as const), [minute])
   const clock = (tz?: string) => new Intl.DateTimeFormat('zh-CN', { timeZone: tz, hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' }).format(new Date(now))
@@ -213,24 +250,20 @@ function WallCell({ symbol, now, onOpen }: { symbol: string; now: number; onOpen
 const NOTIFY_LABEL: Record<AlertNotify, string> = { app: '应用内', im: 'IM', sound: '声音' }
 const isPrice = (c: AlertCond) => c === 'price_above' || c === 'price_below'
 
+/** 提醒能选的标的：全部标的按市场排，加上各标的第二个到期日的平值认购 / 认沽；当前标的不在里面时放最前 */
 function symbolChoices(extra: string) {
-  // 期权取各标的第二个到期日的平值认购 / 认沽
   const opts = OPTION_UNDERLYINGS.flatMap((u) => { const ch = optionChain(u, OPTION_EXPIRIES[1], 11); const mid = ch[ch.length >> 1]; return mid ? [mid.call, mid.put] : [] })
-  const groups: { label: string; items: Instrument[] }[] = (Object.keys(MARKETS) as MarketKey[]).map((m) => ({ label: MARKETS[m].label, items: INSTRUMENTS.filter((x) => x.market === m) }))
-  groups.push({ label: '期权（平值）', items: opts })
-  const all = groups.flatMap((g) => g.items)
+  const all = [...(Object.keys(MARKETS) as MarketKey[]).flatMap((m) => INSTRUMENTS.filter((x) => x.market === m)), ...opts]
   const ex = instOf(extra)
-  if (ex && !all.some((x) => x.symbol === extra)) groups.unshift({ label: '当前标的', items: [ex] })
-  return groups
+  return ex && !all.some((x) => x.symbol === extra) ? [ex, ...all] : all
 }
 
 type Draft = Omit<PriceAlert, 'id' | 'created_at' | 'value'> & { value: string }
 
-function AlertDrawer({ alert, symbol, imConnectors, now, onClose, onSave, onDelete }: {
+function AlertDrawer({ alert, symbol, imConnectors, onClose, onSave, onDelete }: {
   alert: PriceAlert | null
   symbol: string
   imConnectors: { id: string; name: string }[]
-  now: number
   onClose: () => void
   onSave: (d: Omit<PriceAlert, 'id' | 'created_at'>) => void
   onDelete: () => void
@@ -239,6 +272,7 @@ function AlertDrawer({ alert, symbol, imConnectors, now, onClose, onSave, onDele
     ? { ...alert, value: String(alert.value) }
     : { symbol, cond: 'price_above', value: '', repeat: false, cooldown_min: 30, notify: ['app'], im_connector: imConnectors[0]?.id, enabled: true, note: '' })
   const [confirmDel, setConfirmDel] = useState(false)
+  const now = useClock()
   const closeRef = useRef(onClose)
   closeRef.current = onClose
   useEffect(() => {
@@ -246,7 +280,7 @@ function AlertDrawer({ alert, symbol, imConnectors, now, onClose, onSave, onDele
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [])
-  const groups = useMemo(() => symbolChoices(d.symbol), [d.symbol])
+  const pool = useMemo(() => symbolChoices(d.symbol), [d.symbol])
   const inst = instOf(d.symbol)
   const conds = (Object.keys(ALERT_COND) as AlertCond[]).filter((c) => condFits(c, inst))
   const cur = condValue(d.cond, d.symbol, now)
@@ -281,15 +315,9 @@ function AlertDrawer({ alert, symbol, imConnectors, now, onClose, onSave, onDele
         </button>
       </div>
       <div className="drawer-body form">
-        <label className="field"><span className="field-label">标的</span>
-          <select value={d.symbol} onChange={(e) => setSymbol(e.target.value)}>
-            {groups.map((g) => (
-              <optgroup key={g.label} label={g.label}>
-                {g.items.map((x) => <option key={x.symbol} value={x.symbol}>{x.name}（{x.symbol}）</option>)}
-              </optgroup>
-            ))}
-          </select>
-        </label>
+        <div className="field"><span className="field-label">标的<span className="field-hint">期权只列平值</span></span>
+          <SymbolPicker value={d.symbol} onChange={setSymbol} pool={pool} side={inst ? <span>{fmtPrice(d.symbol, priceAt(d.symbol, now))}</span> : undefined} />
+        </div>
         <div className="field-row">
           <label className="field"><span className="field-label">条件<span className="field-hint">按品种过滤</span></span>
             <select value={d.cond} onChange={(e) => setD({ ...d, cond: e.target.value as AlertCond, value: '' })}>
@@ -363,6 +391,176 @@ function AlertDrawer({ alert, symbol, imConnectors, now, onClose, onSave, onDele
   )
 }
 
+/* ---------- 盯盘墙：自己订阅时钟 ---------- */
+
+function Wall({ wl, size, onOpenChart }: { wl: Watchlist; size: 2 | 3 | 4; onOpenChart: (symbol: string) => void }) {
+  const now = useClock()
+  const cells = wl.symbols.slice(0, size * size)
+  return (
+    <div className={cls('mo-wall', `mo-wall-${size}`)}>
+      {Array.from({ length: size * size }, (_, k) => cells[k]
+        ? <WallCell key={cells[k]} symbol={cells[k]} now={now} onOpen={() => onOpenChart(cells[k])} />
+        : <div key={`e${k}`} className="mo-cell mo-cell-empty">空位</div>)}
+    </div>
+  )
+}
+
+/* ---------- 提醒规则 ---------- */
+
+type RuleFilter = 'all' | 'on' | 'fired' | 'off'
+const RULE_FILTERS: [RuleFilter, string][] = [['all', '全部'], ['on', '启用'], ['fired', '已触发'], ['off', '停用']]
+const ruleIn = (a: PriceAlert, f: RuleFilter) => f === 'all' || (f === 'on' ? a.enabled : f === 'off' ? !a.enabled : !!a.last_fired_at)
+/** 规则先露这么多条 */
+const RULE_PAGE = 50
+
+/** 当前值：只有启用、并且在可视区附近的规则跟着时钟算 */
+function CurValue({ a }: { a: PriceAlert }) {
+  const [ref, near] = useNearView<HTMLSpanElement>()
+  const now = useClock(a.enabled && near)
+  const v = condValue(a.cond, a.symbol, now)
+  return <span ref={ref} className="mo-r-cur">{v === null ? '-' : fmtCondValue(a.cond, a.symbol, v)}</span>
+}
+
+const AlertRow = memo(function AlertRow({ a, sel, imName, onOpen, onPatch }: {
+  a: PriceAlert; sel: boolean; imName?: string
+  onOpen: (a: PriceAlert) => void
+  onPatch: (id: string, p: Partial<PriceAlert>) => void
+}) {
+  const i = instOf(a.symbol)
+  const fits = condFits(a.cond, i)
+  const spent = !a.repeat && !!a.last_fired_at
+  return (
+    <div className={cls('mo-rrow', !a.enabled && 'is-off', sel && 'sel')} onClick={() => onOpen(a)}>
+      <span className="mo-r-sym">
+        <span className="mo-r-name"><span className="mk-dot" style={{ background: i ? MARKETS[i.market].color : 'var(--faint)' }} /><span className="ellipsis">{i?.name ?? a.symbol}</span></span>
+        {a.note && <span className="mo-r-note ellipsis">{a.note}</span>}
+      </span>
+      <span className="mo-r-cond">{ALERT_COND[a.cond].label} <b>{isPrice(a.cond) ? fmtPrice(a.symbol, a.value) : a.value}</b> <span className="faint">{isPrice(a.cond) ? '' : ALERT_COND[a.cond].unit}</span>{!fits && <span className="state state-bad">不适用</span>}</span>
+      <CurValue a={a} />
+      <span className="mo-r-notify">{a.notify.map((n) => <span key={n} className="tag">{n === 'im' ? `IM${imName ? `：${imName}` : ''}` : NOTIFY_LABEL[n]}</span>)}</span>
+      <span className="mo-r-rep">{a.repeat ? `重复 · 冷却 ${a.cooldown_min} 分` : '单次'}</span>
+      <span className="mo-r-last">
+        {a.last_fired_at ? <span title={new Date(a.last_fired_at).toLocaleString('zh-CN')}>{timeAgo(a.last_fired_at)}</span> : <span className="faint">未触发</span>}
+        {spent && <button className="act act-quiet mo-rearm" onClick={(e) => { e.stopPropagation(); onPatch(a.id, { last_fired_at: undefined }) }} title="单次提醒已经响过，清掉触发记录重新检查">重新上膛</button>}
+      </span>
+      <span className="mo-r-sw" onClick={(e) => e.stopPropagation()}>
+        <label className="switch-line" title={a.enabled ? '停用' : '启用'}>
+          <input type="checkbox" checked={a.enabled} onChange={(e) => onPatch(a.id, { enabled: e.target.checked })} /><span className="switch" />
+        </label>
+      </span>
+    </div>
+  )
+})
+
+function RulesPanel({ alerts, selId, imConnectors, onOpen, onPatch, onNew }: {
+  alerts: PriceAlert[]; selId: string | null
+  imConnectors: { id: string; name: string }[]
+  onOpen: (a: PriceAlert) => void
+  onPatch: (id: string, p: Partial<PriceAlert>) => void
+  onNew: () => void
+}) {
+  const [f, setF] = useState<RuleFilter>('all')
+  const [q, setQ] = useState('')
+  const [limit, setLimit] = useState(RULE_PAGE)
+  const words = q.trim().toLowerCase().split(/\s+/).filter(Boolean)
+  const rows = useMemo(() => alerts.filter((a) => {
+    if (!ruleIn(a, f)) return false
+    if (!words.length) return true
+    const hay = `${instOf(a.symbol)?.name ?? ''} ${a.symbol} ${a.note} ${ALERT_COND[a.cond].label}`.toLowerCase()
+    return words.every((w) => hay.includes(w))
+  }), [alerts, f, words.join(' ')])
+  const shown = rows.slice(0, limit)
+  const connName = (id?: string) => imConnectors.find((c) => c.id === id)?.name
+  const setFilter = (k: RuleFilter) => { setF(k); setLimit(RULE_PAGE) }
+  return (
+    <section className="mo-section mo-rules">
+      <div className="toolbar"><span className="mo-h">提醒规则</span><span className="list-count">{alerts.length}</span><span className="spacer" /><button className="act" onClick={onNew}>新建提醒</button></div>
+      {!alerts.length ? <div className="mount-empty">还没有提醒。价格上穿下穿、涨跌幅、放量、资金费率、隐含波动率、接近涨跌停都能盯</div> : (
+        <>
+          <div className="toolbar mo-rules-bar">
+            <div className="seg seg-sm">
+              {RULE_FILTERS.map(([k, l]) => <button key={k} className={cls(f === k && 'on')} onClick={() => setFilter(k)}>{l}<span className="seg-n">{alerts.filter((a) => ruleIn(a, k)).length}</span></button>)}
+            </div>
+            <span className="spacer" />
+            <div className="search search-sm mo-rules-search">
+              <svg viewBox="0 0 16 16" width="13" height="13"><circle cx="7" cy="7" r="4.5" fill="none" stroke="currentColor" strokeWidth="1.5" /><path d="M10.5 10.5 14 14" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" /></svg>
+              <input placeholder="搜标的、代码、备注" value={q} onChange={(e) => { setQ(e.target.value); setLimit(RULE_PAGE) }} onKeyDown={(e) => { if (e.key === 'Escape' && q) { e.stopPropagation(); setQ('') } }} />
+              {q && <button className="search-clear" title="清空" onClick={() => setQ('')}><svg viewBox="0 0 16 16" width="10" height="10"><path d="m4 4 8 8M12 4l-8 8" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" /></svg></button>}
+            </div>
+          </div>
+          {!rows.length ? <div className="mount-empty">没有匹配的提醒</div> : (
+            <div className="mo-table">
+              <div className="mo-rrow mo-th"><span>标的</span><span>条件</span><span>当前值</span><span>通知</span><span>触发方式</span><span>上次触发</span><span>启用</span></div>
+              {shown.map((a) => <AlertRow key={a.id} a={a} sel={selId === a.id} imName={a.notify.includes('im') ? connName(a.im_connector) : undefined} onOpen={onOpen} onPatch={onPatch} />)}
+            </div>
+          )}
+          {rows.length > limit && <button className="act act-quiet mo-more" onClick={() => setLimit(limit + RULE_PAGE)}>再显示 {Math.min(RULE_PAGE, rows.length - limit)} 条<span className="faint">（共 {rows.length} 条）</span></button>}
+        </>
+      )}
+    </section>
+  )
+}
+
+/* ---------- 触发记录：按天分段，先露 20 条 ---------- */
+
+const EV_FIRST = 20
+const EV_STEP = 50
+function dayLabel(iso: string) {
+  const d = new Date(iso)
+  const today = new Date(); today.setHours(0, 0, 0, 0)
+  const diff = Math.round((today.getTime() - new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime()) / 86400000)
+  if (diff === 0) return '今天'
+  if (diff === 1) return '昨天'
+  return d.getFullYear() === today.getFullYear() ? `${d.getMonth() + 1} 月 ${d.getDate()} 日` : `${d.getFullYear()} 年 ${d.getMonth() + 1} 月 ${d.getDate()} 日`
+}
+
+const EventsPanel = memo(function EventsPanel({ events, onRead, onReadAll, onOpenChart }: {
+  events: AlertEvent[]
+  onRead: (id: string) => void
+  onReadAll: () => void
+  onOpenChart: (symbol: string) => void
+}) {
+  const [limit, setLimit] = useState(EV_FIRST)
+  const sorted = useMemo(() => [...events].sort((a, b) => b.at.localeCompare(a.at)), [events])
+  const unread = events.filter((e) => !e.read).length
+  const shown = sorted.slice(0, limit)
+  const rest = sorted.length - shown.length
+  return (
+    <section className="mo-section mo-events">
+      <div className="toolbar">
+        <span className="mo-h">触发记录</span>{unread > 0 && <span className="mo-unread">{unread} 条未读</span>}
+        <span className="spacer" />
+        <button className="act act-quiet" disabled={!unread} onClick={onReadAll}>全部已读</button>
+      </div>
+      {!sorted.length ? <div className="mount-empty">提醒触发后记在这里</div> : (
+        <ol className="mo-timeline">
+          {shown.map((e, k) => {
+            const i = instOf(e.symbol)
+            const day = dayLabel(e.at)
+            return (
+              <Fragment key={e.id}>
+                {(k === 0 || dayLabel(shown[k - 1].at) !== day) && <li className="mo-ev-day">{day}</li>}
+                <li className={cls('mo-ev', !e.read && 'unread')}>
+                  <span className="mo-ev-dot" />
+                  <button className="mo-ev-body" title="打开图表" onClick={() => { if (!e.read) onRead(e.id); onOpenChart(e.symbol) }}>
+                    <span className="mo-ev-text">{e.text}</span>
+                    <span className="mo-ev-meta">
+                      <span title={new Date(e.at).toLocaleString('zh-CN')}>{timeAgo(e.at)}</span>
+                      <span>触发价 {i ? fmtPrice(e.symbol, e.price) : e.price}</span>
+                      <span className="link">看图表</span>
+                    </span>
+                  </button>
+                </li>
+              </Fragment>
+            )
+          })}
+        </ol>
+      )}
+      {rest > 0 && <button className="act act-quiet mo-more" onClick={() => setLimit(limit + EV_STEP)}>更早的 {rest} 条<span className="faint">（每次再显示 {Math.min(EV_STEP, rest)} 条）</span></button>}
+    </section>
+  )
+})
+
 /* ---------- 页面 ---------- */
 
 export function MonitorPage({ alerts, events, watchlists, imConnectors, onAlerts, onEvents, onOpenChart, newRequest }: {
@@ -374,7 +572,6 @@ export function MonitorPage({ alerts, events, watchlists, imConnectors, onAlerts
   /** 外部要求新建某标的的提醒，n 变化即打开新建抽屉 */
   newRequest: { symbol: string; n: number } | null
 }) {
-  const now = useNow(1000)
   const [wlId, setWlId] = useState(watchlists[0]?.id ?? '')
   const wl = watchlists.find((w) => w.id === wlId) ?? watchlists[0]
   const [size, setSize] = useState<2 | 3 | 4>(3)
@@ -386,10 +583,18 @@ export function MonitorPage({ alerts, events, watchlists, imConnectors, onAlerts
     setDrawer({ id: null, symbol: newRequest.symbol, key: Date.now() })
   }, [newRequest])
 
+  // 回调走 ref，给 memo 的规则行和触发记录传稳定的函数
+  const live = useRef({ onAlerts, onEvents, onOpenChart })
+  useEffect(() => { live.current = { onAlerts, onEvents, onOpenChart } })
+  const patch = useCallback((id: string, p: Partial<PriceAlert>) => live.current.onAlerts((xs) => xs.map((a) => (a.id === id ? { ...a, ...p } : a))), [])
+  const openRule = useCallback((a: PriceAlert) => setDrawer({ id: a.id, symbol: a.symbol, key: Date.now() }), [])
+  const openChart = useCallback((s: string) => live.current.onOpenChart(s), [])
+  const readOne = useCallback((id: string) => live.current.onEvents((xs) => xs.map((x) => (x.id === id ? { ...x, read: true } : x))), [])
+  const readAll = useCallback(() => live.current.onEvents((xs) => xs.map((e) => (e.read ? e : { ...e, read: true }))), [])
+
   const defaultSymbol = wl?.symbols[0] ?? INSTRUMENTS[0].symbol
   const openNew = () => setDrawer({ id: null, symbol: defaultSymbol, key: Date.now() })
   const editing = drawer?.id ? alerts.find((a) => a.id === drawer.id) ?? null : null
-  const connName = (id?: string) => imConnectors.find((c) => c.id === id)?.name
 
   const save = (x: Omit<PriceAlert, 'id' | 'created_at'>) => {
     if (editing) {
@@ -409,111 +614,38 @@ export function MonitorPage({ alerts, events, watchlists, imConnectors, onAlerts
     onAlerts((xs) => xs.filter((a) => a.id !== id))
     setDrawer(null)
   }
-  const patch = (id: string, p: Partial<PriceAlert>) => onAlerts((xs) => xs.map((a) => (a.id === id ? { ...a, ...p } : a)))
-
-  const sortedEvents = [...events].sort((a, b) => b.at.localeCompare(a.at))
-  const unread = events.filter((e) => !e.read).length
-  const cells = wl ? wl.symbols.slice(0, size * size) : []
 
   return (
     <div className="page page-fill mo-page">
       <PageTitle count={`${alerts.filter((a) => a.enabled).length} 条提醒启用中`} desc="市场时段、盯盘墙、价格提醒和触发记录"
         actions={<button className="btn btn-primary" onClick={openNew}>新建提醒</button>}>盯盘</PageTitle>
 
-      <SessionCards now={now} />
+      <SessionCards />
 
       <section className="mo-section">
         <div className="toolbar">
           <span className="mo-h">盯盘墙</span>
-          <label className="chip chip-select chip-on">
-            <select value={wl?.id ?? ''} onChange={(e) => setWlId(e.target.value)}>
-              {watchlists.map((w) => <option key={w.id} value={w.id}>{w.name}（{w.symbols.length}）</option>)}
-            </select>
-          </label>
+          {wl && (
+            <SearchSelect value={wl.id} onChange={(id) => { if (id) setWlId(id) }} searchPlaceholder="搜自选组" aria-label="自选组"
+              options={watchlists.map((w) => ({ value: w.id, label: w.name, hint: `${w.symbols.length} 个` }))} />
+          )}
           <div className="seg seg-sm">
             {([2, 3, 4] as const).map((n) => <button key={n} className={cls(size === n && 'on')} onClick={() => setSize(n)}>{n}x{n}</button>)}
           </div>
           <span className="spacer" />
           <span className="faint mo-legend">5 分钟涨跌超过 1% 的格子会描边</span>
         </div>
-        {!wl ? <div className="mount-empty">还没有自选组，到「行情」里建一个</div> : (
-          <div className={cls('mo-wall', `mo-wall-${size}`)}>
-            {Array.from({ length: size * size }, (_, k) => cells[k]
-              ? <WallCell key={cells[k]} symbol={cells[k]} now={now} onOpen={() => onOpenChart(cells[k])} />
-              : <div key={`e${k}`} className="mo-cell mo-cell-empty">空位</div>)}
-          </div>
-        )}
+        {!wl ? <div className="mount-empty">还没有自选组，到「行情」里建一个</div> : <Wall wl={wl} size={size} onOpenChart={openChart} />}
         {wl && wl.symbols.length > size * size && <div className="list-sub">这组有 {wl.symbols.length} 个标的，只显示前 {size * size} 个，换更大的网格看全</div>}
       </section>
 
       <div className="mo-cols">
-        <section className="mo-section mo-rules">
-          <div className="toolbar"><span className="mo-h">提醒规则</span><span className="list-count">{alerts.length}</span><span className="spacer" /><button className="act" onClick={openNew}>新建提醒</button></div>
-          {!alerts.length ? <div className="mount-empty">还没有提醒。价格上穿下穿、涨跌幅、放量、资金费率、隐含波动率、接近涨跌停都能盯</div> : (
-            <div className="mo-table">
-              <div className="mo-rrow mo-th"><span>标的</span><span>条件</span><span>当前值</span><span>通知</span><span>触发方式</span><span>上次触发</span><span>启用</span></div>
-              {alerts.map((a) => {
-                const i = instOf(a.symbol)
-                const v = condValue(a.cond, a.symbol, now)
-                const fits = condFits(a.cond, i)
-                const spent = !a.repeat && !!a.last_fired_at
-                return (
-                  <div key={a.id} className={cls('mo-rrow', !a.enabled && 'is-off', drawer?.id === a.id && 'sel')} onClick={() => setDrawer({ id: a.id, symbol: a.symbol, key: Date.now() })}>
-                    <span className="mo-r-sym">
-                      <span className="mo-r-name"><span className="mk-dot" style={{ background: i ? MARKETS[i.market].color : 'var(--faint)' }} /><span className="ellipsis">{i?.name ?? a.symbol}</span></span>
-                      {a.note && <span className="mo-r-note ellipsis">{a.note}</span>}
-                    </span>
-                    <span className="mo-r-cond">{ALERT_COND[a.cond].label} <b>{isPrice(a.cond) ? fmtPrice(a.symbol, a.value) : a.value}</b> <span className="faint">{isPrice(a.cond) ? '' : ALERT_COND[a.cond].unit}</span>{!fits && <span className="state state-bad">不适用</span>}</span>
-                    <span className="mo-r-cur">{v === null ? '-' : fmtCondValue(a.cond, a.symbol, v)}</span>
-                    <span className="mo-r-notify">{a.notify.map((n) => <span key={n} className="tag">{n === 'im' ? `IM${connName(a.im_connector) ? `：${connName(a.im_connector)}` : ''}` : NOTIFY_LABEL[n]}</span>)}</span>
-                    <span className="mo-r-rep">{a.repeat ? `重复 · 冷却 ${a.cooldown_min} 分` : '单次'}</span>
-                    <span className="mo-r-last">
-                      {a.last_fired_at ? <span title={new Date(a.last_fired_at).toLocaleString('zh-CN')}>{timeAgo(a.last_fired_at)}</span> : <span className="faint">未触发</span>}
-                      {spent && <button className="act act-quiet mo-rearm" onClick={(e) => { e.stopPropagation(); patch(a.id, { last_fired_at: undefined }) }} title="单次提醒已经响过，清掉触发记录重新检查">重新上膛</button>}
-                    </span>
-                    <span className="mo-r-sw" onClick={(e) => e.stopPropagation()}>
-                      <label className="switch-line" title={a.enabled ? '停用' : '启用'}>
-                        <input type="checkbox" checked={a.enabled} onChange={(e) => patch(a.id, { enabled: e.target.checked })} /><span className="switch" />
-                      </label>
-                    </span>
-                  </div>
-                )
-              })}
-            </div>
-          )}
-        </section>
-
-        <section className="mo-section mo-events">
-          <div className="toolbar">
-            <span className="mo-h">触发记录</span>{unread > 0 && <span className="mo-unread">{unread} 条未读</span>}
-            <span className="spacer" />
-            <button className="act act-quiet" disabled={!unread} onClick={() => onEvents((xs) => xs.map((e) => (e.read ? e : { ...e, read: true })))}>全部已读</button>
-          </div>
-          {!sortedEvents.length ? <div className="mount-empty">提醒触发后记在这里</div> : (
-            <ol className="mo-timeline">
-              {sortedEvents.map((e) => {
-                const i = instOf(e.symbol)
-                return (
-                  <li key={e.id} className={cls('mo-ev', !e.read && 'unread')}>
-                    <span className="mo-ev-dot" />
-                    <button className="mo-ev-body" title="打开图表" onClick={() => { if (!e.read) onEvents((xs) => xs.map((x) => (x.id === e.id ? { ...x, read: true } : x))); onOpenChart(e.symbol) }}>
-                      <span className="mo-ev-text">{e.text}</span>
-                      <span className="mo-ev-meta">
-                        <span title={new Date(e.at).toLocaleString('zh-CN')}>{timeAgo(e.at)}</span>
-                        <span>触发价 {i ? fmtPrice(e.symbol, e.price) : e.price}</span>
-                        <span className="link">看图表</span>
-                      </span>
-                    </button>
-                  </li>
-                )
-              })}
-            </ol>
-          )}
-        </section>
+        <RulesPanel alerts={alerts} selId={drawer?.id ?? null} imConnectors={imConnectors} onOpen={openRule} onPatch={patch} onNew={openNew} />
+        <EventsPanel events={events} onRead={readOne} onReadAll={readAll} onOpenChart={openChart} />
       </div>
 
       {drawer && (
-        <AlertDrawer key={drawer.key} alert={editing} symbol={drawer.symbol} imConnectors={imConnectors} now={now}
+        <AlertDrawer key={drawer.key} alert={editing} symbol={drawer.symbol} imConnectors={imConnectors}
           onClose={() => setDrawer(null)} onSave={save} onDelete={remove} />
       )}
     </div>

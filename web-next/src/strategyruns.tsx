@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { PageTitle } from './topbar'
 import { cls, timeAgo } from './ui'
 import { RUN_STATUS, UP, DOWN, instOf, type RunStatus, type Strategy, type StrategyRun, type TradeAccount } from './tradedata'
+import { SearchSelect } from './searchselect'
 
 // 策略的运行记录：每次部署到实盘或模拟盘算一次运行，停了也留着，方便回看这个策略真实跑出来怎么样
 // 运行本身在「交易 / 策略运行」里启停，这里只看
@@ -72,10 +73,17 @@ export function StrategyRunsPage({ runs, strategies, accounts, onOpenStrategy, o
   const [status, setStatus] = useState<'' | RunStatus>('')
   const [kind, setKind] = useState<'' | 'live' | 'paper'>('')
   const [open, setOpen] = useState<string | null>(null)
+  const [showStopped, setShowStopped] = useState(false)
   const accOf = (r: StrategyRun) => accounts.find((a) => a.id === r.account_id)
+  // 异常、运行中、暂停的置顶；已停止的折叠成一行，点开再看
+  const order: Record<RunStatus, number> = { error: 0, running: 1, paused: 2, stopped: 3 }
   const rows = runs
     .filter((r) => (!stf || r.strategy_id === stf) && (!status || r.status === status) && (!kind || (kind === 'paper') === !!accOf(r)?.paper))
-    .sort((a, b) => b.started_at.localeCompare(a.started_at))
+    .sort((a, b) => order[a.status] - order[b.status] || b.started_at.localeCompare(a.started_at))
+  const stoppedN = rows.filter((r) => r.status === 'stopped').length
+  // 只筛已停止时直接展开
+  const foldStopped = status !== 'stopped' && !showStopped
+  const shown = foldStopped ? rows.filter((r) => r.status !== 'stopped') : rows
   const total = rows.reduce((n, r) => n + r.pnl, 0)
   const nowRunning = runs.filter((r) => r.status === 'running').length
 
@@ -91,12 +99,8 @@ export function StrategyRunsPage({ runs, strategies, accounts, onOpenStrategy, o
       </div>
 
       <div className="toolbar">
-        <div className={cls('chip chip-select', stf && 'chip-on')}>
-          <select value={stf} onChange={(e) => setStf(e.target.value)}>
-            <option value="">全部策略</option>
-            {strategies.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
-          </select>
-        </div>
+        <SearchSelect value={stf} noneLabel="全部策略" searchPlaceholder="搜策略名" onChange={setStf} missingLabel={() => '已删除的策略'}
+          options={strategies.map((s) => ({ value: s.id, label: s.name || '未命名策略', hint: `${runs.filter((r) => r.strategy_id === s.id).length} 次`, keywords: s.tags.join(' ') }))} />
         <div className={cls('chip chip-select', status && 'chip-on')}>
           <select value={status} onChange={(e) => setStatus(e.target.value as typeof status)}>
             <option value="">全部状态</option>
@@ -111,8 +115,9 @@ export function StrategyRunsPage({ runs, strategies, accounts, onOpenStrategy, o
       {!rows.length ? (
         <div className="empty"><div className="empty-title">没有运行记录</div><div className="muted">在策略里点「部署」，跑起来之后这里会有记录</div></div>
       ) : (
-        <div className="sr-list">
-          {rows.map((r) => {
+        <>
+        {shown.length > 0 && <div className="sr-list">
+          {shown.map((r) => {
             const st = strategies.find((s) => s.id === r.strategy_id)
             const acc = accOf(r)
             const end = endOf(r)
@@ -149,7 +154,11 @@ export function StrategyRunsPage({ runs, strategies, accounts, onOpenStrategy, o
               </div>
             )
           })}
-        </div>
+        </div>}
+        {stoppedN > 0 && status !== 'stopped' && (
+          <button className="act act-quiet sr-more" onClick={() => setShowStopped(!showStopped)}>{showStopped ? '收起已停止的' : `已停止 ${stoppedN} 个`}</button>
+        )}
+        </>
       )}
     </div>
   )

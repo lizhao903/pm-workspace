@@ -1,5 +1,6 @@
 import './videos.css'
 import { useEffect, useState } from 'react'
+import { SearchSelect } from './searchselect'
 import { Subnav } from './subnav'
 import { PageTitle } from './topbar'
 import { cls, timeAgo } from './ui'
@@ -92,6 +93,8 @@ const OrientShape = ({ o }: { o: Orientation }) => <i className="vd-shape" style
 const needsMe = (v: Video) => videoState(v).tone === 'warn'
 
 // 菜单只放视图和系列，单集不进菜单：一个系列几十集时菜单会被撑得没法用，集数在系列页的表里看
+// 系列多了也只放几个：有待处理的、当前打开的、最近更新的，全部系列在「系列管理」里
+const MENU_SERIES = 6
 export function VideosNav({ videos, series, view, onSelect, onNew, pendingClips = 0 }: { videos: Video[]; series: Series[]; view: VideoView; onSelect: (v: VideoView) => void; onNew: () => void; pendingClips?: number }) {
   const single = videos.filter((v) => !series.some((s) => s.id === v.series_id))
   const review = videos.filter(needsMe).length
@@ -102,15 +105,23 @@ export function VideosNav({ videos, series, view, onSelect, onNew, pendingClips 
     const w = xs.filter(needsMe).length
     return `${xs.length} 集${w ? ` · ${w} 集待处理` : ''}`
   }
+  const latest = (id: string) => videos.reduce((m, v) => (v.series_id === id && v.updated_at > m ? v.updated_at : m), '')
+  const menuSeries = series.length <= MENU_SERIES + 1 ? series : (() => {
+    const rank = [...series].sort((a, b) => Number(`sr:${b.id}` === active) - Number(`sr:${a.id}` === active)
+      || Number(videos.some((v) => v.series_id === b.id && needsMe(v))) - Number(videos.some((v) => v.series_id === a.id && needsMe(v)))
+      || latest(b.id).localeCompare(latest(a.id)))
+    const keep = new Set(rank.slice(0, MENU_SERIES).map((s) => s.id))
+    return series.filter((s) => keep.has(s.id))
+  })()
   return (
     <Subnav title="视频" active={active} onSelect={onSelect} items={[
       { key: 'all' as VideoView, label: '全部视频', group: '视图' },
       { key: 'review' as VideoView, label: '待我处理', desc: review ? `${review} 集停在检查点或被退回` : '没有要处理的', alert: review, group: '视图' },
       { key: 'publish' as VideoView, label: '发布记录', group: '视图' },
-      { key: 'series' as VideoView, label: '系列管理', desc: '共用开场收尾、集数编排', group: '视图' },
+      { key: 'series' as VideoView, label: '系列管理', desc: series.length > menuSeries.length ? `全部 ${series.length} 个系列` : '共用开场收尾、集数编排', group: '视图' },
       { key: 'topics' as VideoView, label: '选题', desc: '打分排优先级，可开拍了就立项', group: '策划' },
       { key: 'clips' as VideoView, label: '素材收件箱', desc: pendingClips ? `${pendingClips} 条待整理` : '评论、热榜、竞品、想法', alert: pendingClips, group: '策划' },
-      ...series.map((s) => {
+      ...menuSeries.map((s) => {
         const xs = videos.filter((v) => v.series_id === s.id)
         return { key: `sr:${s.id}` as VideoView, label: s.name, desc: desc(xs), group: '系列', alert: xs.filter(needsMe).length }
       }),
@@ -253,13 +264,8 @@ export function VideosListPage({ view, videos, artifacts, series, projects, onOp
           <input placeholder={sr ? '搜标题或集数' : '搜标题、目录'} value={q} onChange={(e) => setQ(e.target.value)} />
         </div>
         {!sr && (
-          <div className={cls('chip chip-select', proj && 'chip-on')}>
-            <select value={proj} onChange={(e) => setProj(e.target.value)}>
-              <option value="">全部项目</option>
-              {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-              <option value="-">不属于项目</option>
-            </select>
-          </div>
+          <SearchSelect value={proj} onChange={setProj} noneLabel="全部项目" searchPlaceholder="搜项目" missingLabel={() => '已删除的项目'}
+            options={[...projects.map((p) => ({ value: p.id, label: p.name })), { value: '-', label: '不属于项目' }]} />
         )}
         <span className="spacer" />
         {!grouped && (
@@ -618,10 +624,8 @@ export function VideoDetail({ video, artifacts, series, projects, publishCount, 
             <label className="field"><span className="field-label">标题</span><input value={v.title} placeholder="比如：第 4 集：知识库怎么喂" onChange={(e) => set({ title: e.target.value })} /></label>
             <div className="field-row">
               <label className="field"><span className="field-label">所属项目</span>
-                <select value={v.project_id ?? ''} onChange={(e) => set({ project_id: e.target.value || undefined })}>
-                  <option value="">不属于项目</option>
-                  {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-                </select>
+                <SearchSelect variant="field" value={v.project_id ?? ''} noneLabel="不属于项目" searchPlaceholder="搜项目" missingLabel={() => '已删除的项目'}
+                  options={projects.map((p) => ({ value: p.id, label: p.name }))} onChange={(x) => set({ project_id: x || undefined })} />
               </label>
               <label className="field"><span className="field-label">章节数</span>
                 <input type="number" min={1} value={v.chapters} onChange={(e) => set({ chapters: Math.max(1, Number(e.target.value) || 1) })} />

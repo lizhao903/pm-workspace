@@ -7,14 +7,45 @@ import {
   type Delivery, type Ingest, type Json, type Priority, type Task, type TaskStatus, type Webhook, isOpenTask,
 } from './taskdata'
 import { cls, timeAgo } from './ui'
+import { SearchSelect } from './searchselect'
 import { useEnumView } from './enumdata'
 
 /** 任务页的二级菜单 key */
-/** schedule：定时任务建出来的任务；schedules：定时任务本身的管理页 */
-export type TaskView = 'all' | 'manual' | 'im' | 'webhook' | 'schedule' | 'incident' | 'schedules' | `hook:${string}`
+/** schedule：定时任务建出来的任务；schedules：定时任务本身的管理页；due：逾期未完成；hooks：Webhook 列表 */
+export type TaskView = 'all' | 'due' | 'manual' | 'im' | 'webhook' | 'schedule' | 'incident' | 'schedules' | 'hooks' | `hook:${string}`
 
 const channelLabel = (k: string) => IM_CHANNELS.find((c) => c.key === k)?.label ?? k
 const today = () => new Date().toISOString().slice(0, 10)
+const addDays = (d: string, n: number) => { const x = new Date(`${d}T00:00:00Z`); x.setUTCDate(x.getUTCDate() + n); return x.toISOString().slice(0, 10) }
+/** 本周最后一天（周日） */
+const weekEnd = (d: string) => addDays(d, (7 - new Date(`${d}T00:00:00Z`).getUTCDay()) % 7)
+const isOverdue = (t: Task) => !!t.due && t.due < today() && isOpenTask(t.status)
+/** 每个 Webhook 最近一次推送 */
+const lastDeliveries = (deliveries: Delivery[]) => {
+  const m = new Map<string, Delivery>()
+  for (const d of deliveries) { const p = m.get(d.hook_id); if (!p || d.at > p.at) m.set(d.hook_id, d) }
+  return m
+}
+
+const PAGE = 30
+const searchIcon = <svg viewBox="0 0 16 16" width="14" height="14"><circle cx="7" cy="7" r="4.5" fill="none" stroke="currentColor" strokeWidth="1.5" /><path d="M10.5 10.5 14 14" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" /></svg>
+const segChevron = <svg viewBox="0 0 16 16" width="10" height="10"><path d="m6 3.5 4.5 4.5L6 12.5" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" /></svg>
+
+/** 列表分段的段标题：可折叠，带数量 */
+export function ListSegHead({ label, n, open, onToggle, tone }: { label: string; n: number; open: boolean; onToggle: () => void; tone?: 'danger' }) {
+  return (
+    <button className={cls('list-seg-head', tone === 'danger' && 'danger-text')} onClick={onToggle} aria-expanded={open}>
+      <span className={cls('tree-chev', open && 'open')}>{segChevron}</span>
+      <span>{label}</span>
+      <span className="seg-n">{n}</span>
+    </button>
+  )
+}
+/** 段尾「这一段还有 N 条」 */
+export function ListSegMore({ n, onMore, text }: { n: number; onMore: () => void; text?: string }) {
+  if (n <= 0) return null
+  return <button className="list-seg-more" onClick={onMore}>{text ?? `这一段还有 ${n} 条`}</button>
+}
 
 function Pill({ label, color }: { label: string; color: string }) {
   return <span className="pill" style={{ '--c': color } as React.CSSProperties}><span className="pill-dot" />{label}</span>
@@ -43,17 +74,25 @@ export function TasksNav({ tasks, hooks, deliveries, view, onSelect, onNewHook }
   onSelect: (v: TaskView) => void; onNewHook: () => void
 }) {
   // 最近一次推送失败的 Webhook 标红：多半是对方改了字段，映射没跟上
-  const failing = (h: Webhook) => deliveries.filter((d) => d.hook_id === h.id).sort((a, b) => b.at.localeCompare(a.at))[0]?.result === 'failed' ? 1 : 0
+  const last = useMemo(() => lastDeliveries(deliveries), [deliveries])
+  const failing = (h: Webhook) => (last.get(h.id)?.result === 'failed' ? 1 : 0)
+  const failN = hooks.filter(failing).length
+  const dueN = tasks.filter(isOverdue).length
+  // 菜单只放最近推送过的几个 Webhook，完整列表在「Webhook 接入」里
+  const recent = hooks.filter((h) => last.has(h.id)).sort((a, b) => last.get(b.id)!.at.localeCompare(last.get(a.id)!.at)).slice(0, 5)
+  const active: TaskView = view.startsWith('hook:') && view !== 'hook:new' && !recent.some((h) => view === `hook:${h.id}`) ? 'hooks' : view
   return (
-    <Subnav title="任务" active={view} onSelect={onSelect} items={[
-      { key: 'all' as TaskView, label: '全部任务' },
+    <Subnav title="任务" active={active} onSelect={onSelect} items={[
+      { key: 'all' as TaskView, label: '全部任务', group: '视图' },
+      { key: 'due' as TaskView, label: '逾期', desc: dueN ? `${dueN} 条过了截止日还没完成` : '没有逾期的任务', alert: dueN, group: '视图' },
       { key: 'manual' as TaskView, label: '人工创建', group: '来源' },
       { key: 'im' as TaskView, label: 'IM 消息', group: '来源' },
       { key: 'webhook' as TaskView, label: 'Webhook', group: '来源' },
       { key: 'schedule' as TaskView, label: '定时', group: '来源' },
       { key: 'incident' as TaskView, label: '运行异常', group: '来源' },
       { key: 'schedules' as TaskView, label: '定时任务', desc: '到点自动建任务、跑 SOP、叫 Agent', group: '自动化' },
-      ...hooks.map((h) => ({ key: `hook:${h.id}` as TaskView, label: h.name, desc: h.enabled ? undefined : '已停用', alert: failing(h), group: 'Webhook 接入' })),
+      { key: 'hooks' as TaskView, label: 'Webhook 接入', desc: `${hooks.length} 个${failN ? `，${failN} 个最近推送失败` : ''}`, alert: failN, group: '自动化' },
+      ...recent.map((h) => ({ key: `hook:${h.id}` as TaskView, label: h.name, desc: `${timeAgo(last.get(h.id)!.at)}推送${h.enabled ? '' : ' · 已停用'}`, alert: failing(h), group: '最近推送' })),
     ]}>
       <button className="subnav-new" onClick={onNewHook}>
         <svg viewBox="0 0 16 16" width="13" height="13"><path d="M8 3v10M3 8h10" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" /></svg>
@@ -66,9 +105,29 @@ export function TasksNav({ tasks, hooks, deliveries, view, onSelect, onNewHook }
 /* ---------- 列表 ---------- */
 
 type StatusFilter = 'open' | TaskStatus | 'all'
+type ListView = Exclude<TaskView, `hook:${string}` | 'schedules'>
 
-export function TasksPage({ tasks, hooks, projects, view, selected, onOpen, onNew, onStatus }: {
-  tasks: Task[]; hooks: Webhook[]; projects: { id: string; name: string }[]; view: Exclude<TaskView, `hook:${string}` | 'schedules'>; selected: string | null
+/** 按截止分段：逾期 / 今天 / 本周 / 以后 / 无截止；已完成、已取消的单独一段放最后 */
+type DueSeg = 'overdue' | 'today' | 'week' | 'later' | 'none' | 'closed'
+const DUE_SEGS: { key: DueSeg; label: string }[] = [
+  { key: 'overdue', label: '逾期' }, { key: 'today', label: '今天' }, { key: 'week', label: '本周' },
+  { key: 'later', label: '以后' }, { key: 'none', label: '无截止' }, { key: 'closed', label: '已结束' },
+]
+const dueSeg = (t: Task, now: string, end: string): DueSeg => (!isOpenTask(t.status) ? 'closed'
+  : !t.due ? 'none' : t.due < now ? 'overdue' : t.due === now ? 'today' : t.due <= end ? 'week' : 'later')
+
+export function TasksPage(props: {
+  tasks: Task[]; hooks: Webhook[]; projects: { id: string; name: string }[]; view: ListView; selected: string | null
+  onOpen: (id: string) => void; onNew: () => void; onStatus: (id: string, s: TaskStatus) => void
+  /** Webhook 列表页（view = hooks）用：推送记录、打开某个 Webhook、新建 */
+  deliveries?: Delivery[]; onOpenHook?: (id: string) => void; onNewHook?: () => void
+}) {
+  if (props.view === 'hooks') return <WebhooksPage hooks={props.hooks} deliveries={props.deliveries} tasks={props.tasks} onOpen={props.onOpenHook} onNew={props.onNewHook} />
+  return <TaskList {...props} view={props.view} />
+}
+
+function TaskList({ tasks, hooks, projects, view, selected, onOpen, onNew, onStatus }: {
+  tasks: Task[]; hooks: Webhook[]; projects: { id: string; name: string }[]; view: Exclude<ListView, 'hooks'>; selected: string | null
   onOpen: (id: string) => void; onNew: () => void; onStatus: (id: string, s: TaskStatus) => void
 }) {
   const statusEnum = useEnumView('task_status')
@@ -77,21 +136,55 @@ export function TasksPage({ tasks, hooks, projects, view, selected, onOpen, onNe
   const [prio, setPrio] = useState('')
   const [proj, setProj] = useState('')
   const [q, setQ] = useState('')
-  const base = tasks.filter((t) => (view === 'all' || t.source.kind === view) && (!proj || (proj === '-' ? !t.project_id : t.project_id === proj)))
-  const match = (t: Task, s: StatusFilter) => s === 'all' || (s === 'open' ? isOpenTask(t.status) : t.status === s)
+  const [closed, setClosed] = useState<Set<DueSeg>>(new Set())
+  const [more, setMore] = useState<Partial<Record<DueSeg, number>>>({})
   const kw = q.trim().toLowerCase()
+  // 换了筛选，各段重新只露前 30 条
+  useEffect(() => { setMore({}) }, [view, st, prio, proj, kw])
+  const now = today()
+  const end = weekEnd(now)
+  const base = tasks.filter((t) => (view === 'all' || (view === 'due' ? isOverdue(t) : t.source.kind === view)) && (!proj || (proj === '-' ? !t.project_id : t.project_id === proj)))
+  const match = (t: Task, s: StatusFilter) => s === 'all' || (s === 'open' ? isOpenTask(t.status) : t.status === s)
   const rows = base
     .filter((t) => match(t, st) && (!prio || t.priority === prio) && (!kw || [t.title, t.desc, t.ref, t.assignee].some((v) => v.toLowerCase().includes(kw))))
     .sort((a, b) => a.priority.localeCompare(b.priority) || (a.due ?? '9').localeCompare(b.due ?? '9'))
-  const title = { all: '全部任务', manual: '人工创建的任务', im: 'IM 消息转的任务', webhook: 'Webhook 转的任务', schedule: '定时任务建的任务', incident: '运行异常转的研发任务' }[view]
+  const segs = DUE_SEGS.map((s) => ({ ...s, xs: rows.filter((t) => dueSeg(t, now, end) === s.key) })).filter((s) => s.xs.length)
+  const projName = (id: string) => projects.find((x) => x.id === id)?.name
+  const title = { all: '全部任务', due: '逾期任务', manual: '人工创建的任务', im: 'IM 消息转的任务', webhook: 'Webhook 转的任务', schedule: '定时任务建的任务', incident: '运行异常转的研发任务' }[view]
   const sub = {
-    all: '人工创建、IM 消息转来、Webhook 推来的任务都在这里',
+    all: '人工创建、IM 消息转来、Webhook 推来的任务都在这里，按截止日分段',
+    due: '过了截止日还没完成的任务，最早到期的在前',
     manual: '自己手动建的任务',
     im: '在 IM 消息里点「转任务」建的，能回看原消息',
     webhook: '外部系统推到接收地址后按映射规则自动建的，能回看原始推送',
     schedule: '定时任务到点自动建的，规则在「定时任务」里改',
     incident: '从「设置 / 运行异常」转过来的，带着异常详情；做完回去把异常标为已解决',
   }[view]
+  // 状态在设置里可以加很多个：seg 只放前 5 个，其余收进「更多状态」
+  const statusItems = statusEnum.items.filter((i) => i.key !== 'cancelled')
+  const statusHead = statusItems.slice(0, 5)
+  const statusRest = statusItems.slice(5)
+  const toggle = (k: DueSeg) => setClosed((s) => { const n = new Set(s); if (n.has(k)) n.delete(k); else n.add(k); return n })
+
+  const row = (t: Task) => {
+    const overdue = isOverdue(t)
+    return (
+      <div key={t.id} className={cls('task-row', selected === t.id && 'sel', t.status === 'done' && 'is-done')} onClick={() => onOpen(t.id)}>
+        <button className={cls('task-check', t.status === 'done' && 'on')} title={t.status === 'done' ? `标为${statusEnum.label('todo')}` : `标为${statusEnum.label('done')}`}
+          onClick={(e) => { e.stopPropagation(); onStatus(t.id, t.status === 'done' ? 'todo' : 'done') }}>
+          {t.status === 'done' && <svg viewBox="0 0 16 16" width="10" height="10"><path d="m3.5 8.5 3 3 6-7" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" /></svg>}
+        </button>
+        <span className="task-main">
+          <span className="task-title"><span className="task-ref">{t.ref}</span><span className="ellipsis">{t.title}</span></span>
+          <span className="task-meta"><SourceTag task={t} hooks={hooks} />{t.project_id && <span className="src-tag src-proj" title={projName(t.project_id)}>{projName(t.project_id) ?? '已删除的项目'}</span>}{!t.project_id && t.project_removed && <span className="src-tag src-proj" title={`原属项目「${t.project_removed}」`}>原属项目已删除</span>}<span>{timeAgo(t.created_at)}创建</span></span>
+        </span>
+        <span><PriorityTag p={t.priority} /></span>
+        <span className="ellipsis run-muted">{t.assignee || '未分配'}</span>
+        <span className={cls('run-muted', overdue && 'danger-text')}>{t.due ? (t.due === now ? '今天' : t.due.slice(5)) : '-'}{overdue ? ' 逾期' : ''}</span>
+        <span><TaskStatusPill s={t.status} /></span>
+      </div>
+    )
+  }
 
   return (
     <div className="page page-fill">
@@ -103,53 +196,121 @@ export function TasksPage({ tasks, hooks, projects, view, selected, onOpen, onNe
       }>{title}</PageTitle>
       <div className="toolbar">
         <div className="seg">
-          {([['open', '未完成'], ...statusEnum.items.filter((i) => i.key !== 'cancelled').map((i) => [i.key, i.label]), ['all', '全部']] as [StatusFilter, string][]).map(([k, l]) => (
+          {([['open', '未完成'], ...statusHead.map((i) => [i.key, i.label]), ['all', '全部']] as [StatusFilter, string][]).map(([k, l]) => (
             <button key={k} className={cls(st === k && 'on')} onClick={() => setSt(k)}>{l}<span className="seg-n">{base.filter((t) => match(t, k)).length}</span></button>
           ))}
         </div>
+        {statusRest.length > 0 && (
+          <SearchSelect value={statusRest.some((i) => i.key === st) ? st : ''} placeholder="更多状态" searchPlaceholder="搜状态"
+            options={statusRest.map((i) => ({ value: i.key, label: i.label, hint: `${base.filter((t) => t.status === i.key).length}` }))}
+            onChange={(v) => setSt(v ? (v as TaskStatus) : 'open')} />
+        )}
         <div className="chip chip-select">
           <select value={prio} onChange={(e) => setPrio(e.target.value)}>
             <option value="">全部优先级</option>
             {prioEnum.items.map((p) => <option key={p.key} value={p.key}>{p.label}</option>)}
           </select>
         </div>
-        <div className={cls('chip chip-select', proj && 'chip-on')}>
-          <select value={proj} onChange={(e) => setProj(e.target.value)}>
-            <option value="">全部项目</option>
-            {projects.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}
-            <option value="-">不属于项目</option>
-          </select>
-        </div>
+        <SearchSelect value={proj} onChange={setProj} noneLabel="全部项目" searchPlaceholder="搜项目"
+          options={[...projects.map((x) => ({ value: x.id, label: x.name })), { value: '-', label: '不属于项目' }]}
+          missingLabel={() => '已删除的项目'} />
         <span className="spacer" />
         <div className="search">
-          <svg viewBox="0 0 16 16" width="14" height="14"><circle cx="7" cy="7" r="4.5" fill="none" stroke="currentColor" strokeWidth="1.5" /><path d="M10.5 10.5 14 14" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" /></svg>
+          {searchIcon}
           <input placeholder="搜索标题、编号、负责人" value={q} onChange={(e) => setQ(e.target.value)} />
         </div>
       </div>
       {rows.length === 0 ? (
         <div className="empty">
-          <div className="empty-title">{kw || prio ? '没有匹配的任务' : '这里还没有任务'}</div>
-          <div className="list-sub">{view === 'im' ? '在 IM 消息里点「转任务」' : view === 'webhook' ? '在左侧建一个 Webhook，把地址填到外部系统里' : '点右上角新建一个'}</div>
+          <div className="empty-title">{kw || prio || proj ? '没有匹配的任务' : view === 'due' ? '没有逾期的任务' : '这里还没有任务'}</div>
+          <div className="list-sub">{view === 'due' ? '截止日都还没到，或者已经做完了' : view === 'im' ? '在 IM 消息里点「转任务」' : view === 'webhook' ? '在「Webhook 接入」里建一个 Webhook，把地址填到外部系统里' : '点右上角新建一个'}</div>
         </div>
       ) : (
         <div className="task-table">
           <div className="task-row task-th"><span /><span>任务</span><span>优先级</span><span>负责人</span><span>截止</span><span>状态</span></div>
-          {rows.map((t) => {
-            const overdue = t.due && t.due < today() && t.status !== 'done' && t.status !== 'cancelled'
+          {segs.map((s) => {
+            const open = !closed.has(s.key)
+            const n = PAGE + (more[s.key] ?? 0)
             return (
-              <div key={t.id} className={cls('task-row', selected === t.id && 'sel', t.status === 'done' && 'is-done')} onClick={() => onOpen(t.id)}>
-                <button className={cls('task-check', t.status === 'done' && 'on')} title={t.status === 'done' ? `标为${statusEnum.label('todo')}` : `标为${statusEnum.label('done')}`}
-                  onClick={(e) => { e.stopPropagation(); onStatus(t.id, t.status === 'done' ? 'todo' : 'done') }}>
-                  {t.status === 'done' && <svg viewBox="0 0 16 16" width="10" height="10"><path d="m3.5 8.5 3 3 6-7" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" /></svg>}
-                </button>
-                <span className="task-main">
-                  <span className="task-title"><span className="task-ref">{t.ref}</span><span className="ellipsis">{t.title}</span></span>
-                  <span className="task-meta"><SourceTag task={t} hooks={hooks} />{t.project_id && <span className="src-tag src-proj">{projects.find((x) => x.id === t.project_id)?.name ?? '已删除的项目'}</span>}{!t.project_id && t.project_removed && <span className="src-tag src-proj" title={`原属项目「${t.project_removed}」`}>原属项目已删除</span>}<span>{timeAgo(t.created_at)}创建</span></span>
+              <div key={s.key} role="group" aria-label={s.label}>
+                <ListSegHead label={s.label} n={s.xs.length} open={open} onToggle={() => toggle(s.key)} tone={s.key === 'overdue' ? 'danger' : undefined} />
+                {open && s.xs.slice(0, n).map(row)}
+                {open && <ListSegMore n={s.xs.length - n} onMore={() => setMore((m) => ({ ...m, [s.key]: (m[s.key] ?? 0) + 100 }))} />}
+              </div>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
+}
+
+/* ---------- Webhook 列表 ---------- */
+
+type HookFilter = '' | 'failed' | 'off'
+
+function WebhooksPage({ hooks, deliveries, tasks, onOpen, onNew }: {
+  hooks: Webhook[]; deliveries?: Delivery[]; tasks: Task[]
+  onOpen?: (id: string) => void; onNew?: () => void
+}) {
+  const [q, setQ] = useState('')
+  const [f, setF] = useState<HookFilter>('')
+  // 没拿到推送记录时推送相关的列显示「-」，不当成「没收到推送」
+  const known = deliveries !== undefined
+  const last = useMemo(() => lastDeliveries(deliveries ?? []), [deliveries])
+  const pushes = useMemo(() => {
+    const m = new Map<string, number>()
+    for (const d of deliveries ?? []) m.set(d.hook_id, (m.get(d.hook_id) ?? 0) + 1)
+    return m
+  }, [deliveries])
+  const made = useMemo(() => {
+    const m = new Map<string, number>()
+    for (const t of tasks) if (t.source.kind === 'webhook') m.set(t.source.hook_id, (m.get(t.source.hook_id) ?? 0) + 1)
+    return m
+  }, [tasks])
+  const failed = (h: Webhook) => last.get(h.id)?.result === 'failed'
+  const pass = (h: Webhook, k: HookFilter) => !k || (k === 'failed' ? failed(h) : !h.enabled)
+  const kw = q.trim().toLowerCase()
+  // 最近失败的在前，其余按最近推送时间
+  const rows = hooks.filter((h) => pass(h, f) && (!kw || `${h.name} ${h.token}`.toLowerCase().includes(kw)))
+    .sort((a, b) => Number(failed(b)) - Number(failed(a)) || Number(b.enabled) - Number(a.enabled) || (last.get(b.id)?.at ?? '').localeCompare(last.get(a.id)?.at ?? '') || a.name.localeCompare(b.name))
+  return (
+    <div className="page page-fill">
+      <PageTitle parent="任务" count={hooks.length} desc="外部系统往接收地址 POST 一段 JSON，按映射规则自动建任务；最近推送失败的排在前面"
+        actions={onNew && <button className="btn btn-primary" onClick={onNew}>新建 Webhook</button>}>Webhook 接入</PageTitle>
+      <div className="toolbar">
+        <div className="seg">
+          {([['', '全部'], ...(known ? [['failed', '最近失败']] : []), ['off', '已停用']] as [HookFilter, string][]).map(([k, l]) => (
+            <button key={k} className={cls(f === k && 'on')} onClick={() => setF(k)}>{l}<span className="seg-n">{hooks.filter((h) => pass(h, k)).length}</span></button>
+          ))}
+        </div>
+        <span className="spacer" />
+        <div className="search">
+          {searchIcon}
+          <input placeholder="搜索名称、地址" value={q} onChange={(e) => setQ(e.target.value)} />
+        </div>
+      </div>
+      {!rows.length ? (
+        <div className="empty">
+          <div className="empty-title">{kw || f ? '没有匹配的 Webhook' : '还没有 Webhook'}</div>
+          <div className="list-sub">{kw || f ? '换个筛选条件试试' : '建一个 Webhook，把接收地址填到 Sentry、表单、工单系统里，推过来的事件自动变成任务'}</div>
+        </div>
+      ) : (
+        <div className="task-table">
+          <div className="sched-row task-th"><span>名称</span><span>接收地址</span><span>最近推送</span><span>推送时间</span><span>建了任务</span><span>启用</span></div>
+          {rows.map((h) => {
+            const d = last.get(h.id)
+            const t = d?.task_id ? tasks.find((k) => k.id === d.task_id) : undefined
+            return (
+              <div key={h.id} className={cls('sched-row', !h.enabled && 'is-off', !onOpen && 'is-static')} onClick={onOpen && (() => onOpen(h.id))}>
+                <span className="task-main"><span className="task-title"><span className="ellipsis" title={h.name}>{h.name || '未命名'}</span></span></span>
+                <span className="run-muted ellipsis mono" title={`${HOOK_BASE}${h.token}`}>…/{h.token}</span>
+                <span className="sched-action">
+                  {d ? <><Pill {...RESULT[d.result]} /><span className="ellipsis run-muted" title={d.reason}>{d.result === 'created' && t ? `${t.ref} ${t.title}` : d.reason}</span></> : <span className="run-muted">{known ? '还没收到推送' : '-'}</span>}
                 </span>
-                <span><PriorityTag p={t.priority} /></span>
-                <span className="ellipsis run-muted">{t.assignee || '未分配'}</span>
-                <span className={cls('run-muted', overdue && 'danger-text')}>{t.due ? (t.due === today() ? '今天' : t.due.slice(5)) : '-'}{overdue ? ' 逾期' : ''}</span>
-                <span><TaskStatusPill s={t.status} /></span>
+                <span className={cls('run-muted', d?.result === 'failed' && 'danger-text')}>{d ? timeAgo(d.at) : '-'}</span>
+                <span className="run-muted" title={known ? `推送 ${pushes.get(h.id) ?? 0} 次，建了 ${made.get(h.id) ?? 0} 条任务` : undefined}>{made.get(h.id) ?? 0} 条{known ? ` / ${pushes.get(h.id) ?? 0} 次` : ''}</span>
+                <span className="run-muted">{h.enabled ? '启用' : '停用'}</span>
               </div>
             )
           })}
@@ -286,14 +447,13 @@ export function TaskDrawer({ task, initial, fromMessage, hooks, deliveries, assi
             <input type="date" value={d.due ?? ''} onChange={(e) => setD({ ...d, due: e.target.value || null })} />
           </label>
         </div>
-        <label className="field">
+        <div className="field">
           <span className="field-label">所属项目</span>
-          <select value={d.project_id ?? ''} onChange={(e) => setD({ ...d, project_id: e.target.value || undefined })}>
-            <option value="">不属于项目</option>
-            {projects.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}
-          </select>
+          <SearchSelect variant="field" value={d.project_id ?? ''} noneLabel="不属于项目" searchPlaceholder="搜项目" aria-label="所属项目"
+            options={projects.map((x) => ({ value: x.id, label: x.name }))} missingLabel={() => '已删除的项目'}
+            onChange={(v) => setD({ ...d, project_id: v || undefined })} />
           {!d.project_id && task?.project_removed && <span className="list-sub">原属项目「{task.project_removed}」已删除</span>}
-        </label>
+        </div>
         {creating && fromMessage && fromMessage.status === 'pending' && (
           <label className="check"><input type="checkbox" checked={markDone} onChange={(e) => setMarkDone(e.target.checked)} />建好后把这条消息标为{msgEnum.label('done')}</label>
         )}
@@ -364,6 +524,8 @@ export function WebhookPage({ hook, creating, deliveries, tasks, onSave, onDelet
   const [sample, setSample] = useState(hook.sample)
   const [last, setLast] = useState<Ingest | null>(null)
   const [openLog, setOpenLog] = useState<string | null>(null)
+  // 推送记录先露 20 条
+  const [allLogs, setAllLogs] = useState(false)
   const [tried, setTried] = useState(false)
   const [confirmDel, setConfirmDel] = useState(false)
   useEffect(() => { setD(hook); setSample(hook.sample); setLast(null) }, [hook])
@@ -478,7 +640,7 @@ export function WebhookPage({ hook, creating, deliveries, tasks, onSave, onDelet
             <div className="field-group-title">推送记录<span className="field-hint">{mine.length} 次</span></div>
             {mine.length === 0 ? <div className="io-empty">还没有收到推送</div> : (
               <div className="log-list">
-                {mine.map((x) => {
+                {(allLogs ? mine : mine.slice(0, 20)).map((x) => {
                   const t = x.task_id ? tasks.find((k) => k.id === x.task_id) : undefined
                   return (
                     <div key={x.id} className="log-item">
@@ -507,6 +669,7 @@ export function WebhookPage({ hook, creating, deliveries, tasks, onSave, onDelet
                     </div>
                   )
                 })}
+                {!allLogs && <ListSegMore n={mine.length - 20} text={`更早的 ${mine.length - 20} 条`} onMore={() => setAllLogs(true)} />}
               </div>
             )}
           </section>

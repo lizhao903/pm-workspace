@@ -41,7 +41,7 @@ export function ProvidersPage({ providers, models, selected, onOpen, onAdd }: {
             <button key={p.id} className={cls('pv-card', selected === p.id && 'sel')} onClick={() => onOpen(p.id)}>
               <ProviderLogo kind={p.kind} />
               <span className="pv-text">
-                <span className="pv-name">{p.name}</span>
+                <span className="pv-name" title={p.name}>{p.name}</span>
                 <span className={cls('pv-hint', p.enabled && p.status === 'error' && 'danger-text')}>{p.enabled && p.status === 'error' ? '连接异常，点开看原因' : `${kindOf(p.kind).label} · ${ms.filter((m) => m.enabled).length}/${ms.length} 个模型启用`}</span>
               </span>
               <span className="provider-st"><Pill {...st} />{p.checked_at && <span className="pv-hint">{timeAgo(p.checked_at)}检查</span>}</span>
@@ -58,7 +58,7 @@ export function ProvidersPage({ providers, models, selected, onOpen, onAdd }: {
               return (
                 <button key={k.kind} className="pv-card pv-card-add" onClick={() => onAdd(k.kind)}>
                   <ProviderLogo kind={k.kind} />
-                  <span className="pv-text"><span className="pv-name">{k.label}</span><span className="pv-hint">{k.desc || (k.catalog.length ? `${k.catalog.length} 个模型` : '模型 ID 自己填')}</span></span>
+                  <span className="pv-text"><span className="pv-name" title={k.label}>{k.label}</span><span className="pv-hint">{k.desc || (k.catalog.length ? `${k.catalog.length} 个模型` : '模型 ID 自己填')}</span></span>
                   <span className="pv-add">{linked ? '再接一个' : '接入'}</span>
                 </button>
               )

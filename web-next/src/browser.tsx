@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type FormEvent, type MouseEvent as ReactMouseEvent } from 'react'
+import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent, type MouseEvent as ReactMouseEvent } from 'react'
 import './browser.css'
 import {
   DRIVE_HOME, DRIVE_RECENT, DRIVE_SHARED, GOOGLE_SCOPES, HOME_URL,
@@ -12,7 +12,7 @@ import { newId } from './ids'
 // 内置浏览器：多标签，原型和普通网页用真 iframe 加载；Google Drive 是模拟的文件浏览器和预览
 // 标签页只在组件内存里，刷新不保留
 
-export interface ProtoEntry { id: string; name: string; project: string; port: number; status: 'running' | 'stopped' | 'starting' | 'stopping' | 'error' }
+export interface ProtoEntry { id: string; name: string; project: string; projectId?: string; port: number; status: 'running' | 'stopped' | 'starting' | 'stopping' | 'error' }
 
 interface Recent { url: string; title: string; kind: TabKind; at: string }
 
@@ -57,7 +57,8 @@ const makeTab = (url: string, title: string): BrowserTab => {
   return { id: newId('bt'), url, title, kind, history: [url], cursor: 0, loading: isFrame(kind) }
 }
 
-export function BrowserPage({ openRequest, prototypes, onStartProto, google, onGoogleLogin, onGoogleLogout }: {
+// memo：App 别的状态变化时不跟着重渲染；回调要由 App 传稳定的引用
+export const BrowserPage = memo(function BrowserPage({ openRequest, prototypes, onStartProto, google, onGoogleLogin, onGoogleLogout, hidden = false }: {
   /** 外部要求打开一个地址（来自项目原型、视频预览、发布链接）；n 变化即触发一次，同 url 已开就切过去 */
   openRequest: { url: string; title?: string; n: number } | null
   prototypes: ProtoEntry[]
@@ -65,8 +66,12 @@ export function BrowserPage({ openRequest, prototypes, onStartProto, google, onG
   google: GoogleAccount | null
   onGoogleLogin: (acc: GoogleAccount) => void
   onGoogleLogout: () => void
+  /** 切到别的模块时浏览器只是藏起来：iframe 留着保住页面，新标签页这类纯数据视图不渲染 */
+  hidden?: boolean
 }) {
   const [tabs, setTabs] = useState<BrowserTab[]>(() => [makeTab(HOME_URL, '新标签页')])
+  /** 新标签页里项目分组手动展开 / 收起过的，按项目记；没记的按「有原型在跑就展开」 */
+  const [protoOpen, setProtoOpen] = useState<Record<string, boolean>>({})
   const [active, setActive] = useState(() => tabs[0].id)
   const [reloads, setReloads] = useState<Record<string, number>>({})
   /** 标签 id -> 等它启动完要打开的原型 id */
@@ -168,8 +173,19 @@ export function BrowserPage({ openRequest, prototypes, onStartProto, google, onG
     const strip = stripRef.current
     if (!el || !strip) return
     if (el.offsetLeft < strip.scrollLeft) strip.scrollLeft = el.offsetLeft - 8
-    else if (el.offsetLeft + el.offsetWidth > strip.scrollLeft + strip.clientWidth) strip.scrollLeft = el.offsetLeft + el.offsetWidth - strip.clientWidth + 40
+    else if (el.offsetLeft + el.offsetWidth > strip.scrollLeft + strip.clientWidth) strip.scrollLeft = el.offsetLeft + el.offsetWidth - strip.clientWidth + 8
   }, [active, tabs.length])
+  // 标签压到最窄还放不下（窄屏、固定的多）时，右边出「全部标签」
+  const [overflow, setOverflow] = useState(false)
+  useLayoutEffect(() => {
+    const strip = stripRef.current
+    if (!strip) return
+    const check = () => setOverflow(strip.scrollWidth > strip.clientWidth + 1)
+    check()
+    const ro = new ResizeObserver(check)
+    ro.observe(strip)
+    return () => ro.disconnect()
+  }, [tabs])
 
   const startAndOpen = (p: ProtoEntry, tabId = tab.id) => {
     if (p.status === 'running') { navigate(tabId, protoUrl(p)); return }
@@ -183,6 +199,7 @@ export function BrowserPage({ openRequest, prototypes, onStartProto, google, onG
         <button className="btn btn-outline" disabled={tab.kind === 'home'} onClick={() => openExternal(tab.url)}>在系统浏览器打开</button>
       }>浏览器</PageTitle>
 
+      <div className="br-tabbar">
       <div className="br-tabs" role="tablist" ref={stripRef}>
         {tabs.map((t) => (
           <div key={t.id} role="tab" aria-selected={t.id === tab.id} title={t.pinned ? `${t.title}（右键可取消固定）` : t.title}
@@ -204,10 +221,13 @@ export function BrowserPage({ openRequest, prototypes, onStartProto, google, onG
             )}
           </div>
         ))}
+      </div>
+        {/* 新建按钮在滚动区外面，标签再多也看得到 */}
         <button className="br-tab-add" disabled={tabs.length >= MAX_TABS} onClick={() => openTab(HOME_URL, '新标签页')}
           title={tabs.length >= MAX_TABS ? `最多 ${MAX_TABS} 个标签页` : '新标签页'}>
           <svg viewBox="0 0 16 16" width="12" height="12"><path d="M8 3v10M3 8h10" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" /></svg>
         </button>
+        {overflow && <AllTabs tabs={tabs} active={tab.id} onPick={setActive} />}
       </div>
 
       <Toolbar tab={tab} google={google} onBack={() => go(-1)} onForward={() => go(1)} onReload={() => reload(tab.id)}
@@ -216,8 +236,10 @@ export function BrowserPage({ openRequest, prototypes, onStartProto, google, onG
       <div className="br-body">
         {tabs.map((t) => (
           <div key={t.id} className="br-view" hidden={t.id !== tab.id}>
-            {t.kind === 'home' && (
+            {/* 新标签页只渲染当前这一个，藏起来时也不渲染 */}
+            {t.kind === 'home' && t.id === tab.id && !hidden && (
               <HomeView prototypes={prototypes} pendingProto={pending[t.id]} google={google} recent={recent}
+                open={protoOpen} onToggle={(k, v) => setProtoOpen((m) => ({ ...m, [k]: v }))}
                 onOpen={(url, title) => navigate(t.id, url, title)} onStart={(p) => startAndOpen(p, t.id)} onLogin={() => setLoginOpen(true)} />
             )}
             {isFrame(t.kind) && (
@@ -250,7 +272,7 @@ export function BrowserPage({ openRequest, prototypes, onStartProto, google, onG
       {loginOpen && <LoginModal onClose={() => setLoginOpen(false)} onDone={(acc) => { setLoginOpen(false); onGoogleLogin(acc) }} />}
     </div>
   )
-}
+})
 
 /* ---------- 标签与工具栏 ---------- */
 
@@ -392,46 +414,166 @@ function TabMenu({ x, y, items, onClose }: { x: number; y: number; items: { labe
   )
 }
 
+function AllTabs({ tabs, active, onPick }: { tabs: BrowserTab[]; active: string; onPick: (id: string) => void }) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (!open) return
+    const off = (e: MouseEvent) => { if (!ref.current?.contains(e.target as Node)) setOpen(false) }
+    const esc = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false) }
+    window.addEventListener('mousedown', off)
+    window.addEventListener('keydown', esc)
+    return () => { window.removeEventListener('mousedown', off); window.removeEventListener('keydown', esc) }
+  }, [open])
+  return (
+    <div className="menu-wrap br-tab-all-wrap" ref={ref}>
+      <button className="br-tab-add" title={`全部标签（${tabs.length} 个）`} aria-expanded={open} onClick={() => setOpen((o) => !o)}>
+        <svg viewBox="0 0 16 16" width="12" height="12"><path d="m4 6 4 4 4-4" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" /></svg>
+      </button>
+      {open && (
+        <div className="menu br-all-menu">
+          <div className="menu-label">全部标签 · {tabs.length} 个</div>
+          {tabs.map((t) => (
+            <button key={t.id} className={cls('menu-item', t.id === active && 'on')} title={t.title} onClick={() => { setOpen(false); onPick(t.id) }}>
+              <KindIcon kind={t.kind} /><span className="ellipsis">{t.title}</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 /* ---------- 新标签页 ---------- */
 
-function HomeView({ prototypes, pendingProto, google, recent, onOpen, onStart, onLogin }: {
+/** 原型超过这个数才给搜索框；搜索结果最多渲染这么多条 */
+const PROTO_SEARCH_MIN = 8
+const PROTO_MATCH_LIMIT = 60
+/** 展开的组先露几条（在跑的排在前面），其余点「还有 N 个」再展 */
+const PROTO_GROUP_SHOW = 6
+const isLive = (p: ProtoEntry) => p.status === 'running' || p.status === 'starting'
+const PROTO_RANK: Record<ProtoEntry['status'], number> = { running: 0, starting: 1, error: 2, stopping: 3, stopped: 4 }
+
+function HomeView({ prototypes, pendingProto, google, recent, open, onToggle, onOpen, onStart, onLogin }: {
   prototypes: ProtoEntry[]
   pendingProto?: string
   google: GoogleAccount | null
   recent: Recent[]
+  open: Record<string, boolean>
+  onToggle: (key: string, open: boolean) => void
   onOpen: (url: string, title?: string) => void
   onStart: (p: ProtoEntry) => void
   onLogin: () => void
 }) {
+  const [q, setQ] = useState('')
+  const words = q.trim().toLowerCase().split(/\s+/).filter(Boolean)
+  // 按项目分组：有原型在跑的项目排前面并默认展开，其次是有启动失败的，其余按项目顺序；组内在跑的在前
+  const groups = useMemo(() => {
+    const m = new Map<string, { key: string; name: string; items: ProtoEntry[] }>()
+    for (const p of prototypes) {
+      const key = p.projectId ?? p.project
+      const g = m.get(key) ?? { key, name: p.project, items: [] }
+      g.items.push(p)
+      m.set(key, g)
+    }
+    return [...m.values()]
+      .map((g) => ({ ...g, items: [...g.items].sort((a, b) => PROTO_RANK[a.status] - PROTO_RANK[b.status]), running: g.items.filter((p) => p.status === 'running').length, failed: g.items.filter((p) => p.status === 'error').length, live: g.items.some(isLive) }))
+      .sort((a, b) => Number(b.live) - Number(a.live) || Number(b.failed > 0) - Number(a.failed > 0))
+  }, [prototypes])
+  const running = prototypes.filter((p) => p.status === 'running').length
+  const hit = (p: ProtoEntry) => { const hay = `${p.name} ${p.project} ${p.port}`.toLowerCase(); return words.every((w) => hay.includes(w)) }
+  // 搜索时只看命中的，命中的组全展开，渲染条数封顶；不搜索时按组展开收起，不封顶
+  const shown = words.length ? groups.map((g) => ({ ...g, items: g.items.filter(hit) })).filter((g) => g.items.length) : groups
+  let budget = words.length ? PROTO_MATCH_LIMIT : Infinity
+  const matched = shown.reduce((n, g) => n + g.items.length, 0)
+
+  const row = (p: ProtoEntry) => {
+    const waiting = pendingProto === p.id
+    return (
+      <div key={p.id} className="br-proto">
+        <span className={`proto-light pl-${p.status}`} />
+        <div className="br-proto-text">
+          <div className="ellipsis br-proto-name">{p.name}</div>
+          <div className="faint ellipsis">127.0.0.1:{p.port} · {STATUS_LABEL[p.status]}</div>
+        </div>
+        {p.status === 'running' ? (
+          <button className="act act-primary" onClick={() => onOpen(protoUrl(p))}>打开</button>
+        ) : waiting || p.status === 'starting' ? (
+          <button className="act" disabled>{waiting ? '启动后自动打开' : '启动中'}</button>
+        ) : p.status === 'stopping' ? (
+          <button className="act" disabled>停止中</button>
+        ) : (
+          <button className="act" onClick={() => onStart(p)}>{p.status === 'error' ? '重新启动并打开' : '启动并打开'}</button>
+        )}
+      </div>
+    )
+  }
+
   return (
     <div className="br-home">
+      {/* 最近打开放最上面；还没打开过就不占位置 */}
+      {recent.length > 0 && (
       <section className="br-card">
-        <div className="br-card-head"><h2>项目原型</h2><span className="faint">{prototypes.filter((p) => p.status === 'running').length} / {prototypes.length} 个在运行</span></div>
-        {prototypes.length ? (
-          <div className="br-protos">
-            {prototypes.map((p) => {
-              const waiting = pendingProto === p.id
-              return (
-                <div key={p.id} className="br-proto">
-                  <span className={`proto-light pl-${p.status}`} />
-                  <div className="br-proto-text">
-                    <div className="ellipsis br-proto-name">{p.name}</div>
-                    <div className="faint ellipsis">{p.project} · 127.0.0.1:{p.port} · {STATUS_LABEL[p.status]}</div>
-                  </div>
-                  {p.status === 'running' ? (
-                    <button className="act act-primary" onClick={() => onOpen(protoUrl(p))}>打开</button>
-                  ) : waiting || p.status === 'starting' ? (
-                    <button className="act" disabled>{waiting ? '启动后自动打开' : '启动中'}</button>
-                  ) : p.status === 'stopping' ? (
-                    <button className="act" disabled>停止中</button>
-                  ) : (
-                    <button className="act" onClick={() => onStart(p)}>{p.status === 'error' ? '重新启动并打开' : '启动并打开'}</button>
-                  )}
-                </div>
-              )
-            })}
+        <div className="br-card-head"><h2>最近打开</h2></div>
+          <div className="br-recent">
+            {recent.map((r) => (
+              <button key={r.url} className="br-recent-row" onClick={() => onOpen(r.url, r.title)}>
+                <KindIcon kind={r.kind} />
+                <span className="ellipsis br-recent-title">{r.title}</span>
+                <span className="faint ellipsis br-recent-url">{displayUrl(r.url)}</span>
+                <span className="faint br-recent-at">{timeAgo(r.at)}</span>
+              </button>
+            ))}
           </div>
-        ) : <div className="br-none">「项目」里还没有登记原型</div>}
+      </section>
+      )}
+
+      <section className="br-card">
+        <div className="br-card-head br-card-head-wrap">
+          <h2>项目原型</h2><span className="faint br-card-sub">{running} / {prototypes.length} 个在运行</span>
+          {prototypes.length > PROTO_SEARCH_MIN && (
+            <div className="search search-sm br-proto-search">
+              <svg viewBox="0 0 16 16" width="13" height="13"><circle cx="7" cy="7" r="4.5" fill="none" stroke="currentColor" strokeWidth="1.5" /><path d="M10.5 10.5 14 14" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" /></svg>
+              <input value={q} placeholder="搜原型、项目、端口" aria-label="搜索项目原型" onChange={(e) => setQ(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Escape' && q) { e.stopPropagation(); setQ('') } }} />
+              {q && <button type="button" className="search-clear" title="清空" onClick={() => setQ('')}><svg viewBox="0 0 16 16" width="10" height="10"><path d="m4 4 8 8M12 4l-8 8" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" /></svg></button>}
+            </div>
+          )}
+        </div>
+        {!prototypes.length ? <div className="br-none">「项目」里还没有登记原型</div>
+          : !shown.length ? <div className="br-none">没有匹配「{q.trim()}」的原型</div>
+          : (
+            <div className="br-pgroups">
+              {shown.map((g) => {
+                // 原型不多（不出搜索框）时全展开；等着启动的那个所在的组也展开
+                const isOpen = words.length > 0 || (open[g.key] ?? (g.live || prototypes.length <= PROTO_SEARCH_MIN || g.items.some((p) => p.id === pendingProto)))
+                const full = words.length > 0 || open[`${g.key}:all`]
+                const cap = full ? budget : Math.min(budget, PROTO_GROUP_SHOW)
+                const items = isOpen && cap > 0 ? g.items.slice(0, cap) : []
+                const hiddenN = !full && isOpen ? g.items.length - items.length : 0
+                budget -= items.length
+                return (
+                  <div key={g.key} className="br-pgroup">
+                    <button className="br-pgroup-head" aria-expanded={isOpen} disabled={words.length > 0} onClick={() => onToggle(g.key, !isOpen)}>
+                      <svg className={cls('br-chev', isOpen && 'on')} viewBox="0 0 16 16" width="12" height="12"><path d="m6 4 4 4-4 4" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" /></svg>
+                      <span className="ellipsis br-pgroup-name">{g.name}</span>
+                      <span className={cls('br-pgroup-meta', g.running > 0 && 'on')}>
+                        {words.length ? `${g.items.length} 个匹配` : g.running ? `${g.running} 个在运行` : `${g.items.length} 个原型`}
+                        {!words.length && g.failed > 0 && <span className="br-pgroup-bad"> · {g.failed} 个启动失败</span>}
+                      </span>
+                    </button>
+                    {items.length > 0 && (
+                      <div className="br-protos">
+                        {items.map(row)}
+                        {hiddenN > 0 && <button className="br-pgroup-rest" onClick={() => onToggle(`${g.key}:all`, true)}>还有 {hiddenN} 个原型</button>}
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
+              {words.length > 0 && matched > PROTO_MATCH_LIMIT && <div className="br-none">还有 {matched - PROTO_MATCH_LIMIT} 个匹配的没显示，继续输入筛选</div>}
+            </div>
+          )}
       </section>
 
       <section className="br-card">
@@ -448,22 +590,6 @@ function HomeView({ prototypes, pendingProto, google, recent, onOpen, onStart, o
             <button className="act act-primary" onClick={onLogin}>登录 Google</button>
           </div>
         )}
-      </section>
-
-      <section className="br-card">
-        <div className="br-card-head"><h2>最近打开</h2></div>
-        {recent.length ? (
-          <div className="br-recent">
-            {recent.map((r) => (
-              <button key={r.url} className="br-recent-row" onClick={() => onOpen(r.url, r.title)}>
-                <KindIcon kind={r.kind} />
-                <span className="ellipsis br-recent-title">{r.title}</span>
-                <span className="faint ellipsis br-recent-url">{displayUrl(r.url)}</span>
-                <span className="faint br-recent-at">{timeAgo(r.at)}</span>
-              </button>
-            ))}
-          </div>
-        ) : <div className="br-none">还没有打开过页面</div>}
       </section>
     </div>
   )
