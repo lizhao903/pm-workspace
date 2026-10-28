@@ -7,11 +7,19 @@ VERSION ?= 0.1.0
 LDFLAGS := -X main.version=$(VERSION)
 
 .DEFAULT_GOAL := build
-.PHONY: deps web build build-mcp run dev seed test vet fmt clean placeholder
+.PHONY: deps web frontend ui build build-mcp run dev seed test vet fmt clean placeholder
+
+# 嵌哪套前端：legacy 是旧前端 web/（默认），new 是正式前端 frontend/。默认切换留给 REL-01。
+FRONTEND ?= legacy
+ifeq ($(filter $(FRONTEND),legacy new),)
+$(error FRONTEND 只能是 legacy 或 new，当前是 "$(FRONTEND)")
+endif
+UI_TARGET := $(if $(filter new,$(FRONTEND)),frontend,web)
 
 deps:
 	go mod download
 	cd web && npm install
+	cd frontend && npm install
 
 # placeholder 保证 dist 至少有个 index.html，否则 //go:embed 编译不过。
 placeholder:
@@ -23,7 +31,21 @@ placeholder:
 web:
 	cd web && npm run build
 
-build: web build-mcp
+# frontend/ 产物在 frontend/dist，整份换进 DIST。.gitkeep 要补回来，理由见 .gitignore。
+frontend:
+	cd frontend && npm run build
+	@test -f frontend/dist/index.html || { echo "frontend/dist/index.html 不存在，构建没产出" >&2; exit 1; }
+	rm -rf $(DIST)
+	mkdir -p $(DIST)
+	cp -R frontend/dist/. $(DIST)/
+	@touch $(DIST)/.gitkeep
+	@echo "已把 frontend/dist 拷进 $(DIST)"
+
+# ui 按 FRONTEND 构建对应前端：make ui FRONTEND=new。
+ui: $(UI_TARGET)
+
+# make build FRONTEND=new 嵌正式前端，不带参数嵌旧前端。
+build: $(UI_TARGET) build-mcp
 	go build -ldflags "$(LDFLAGS)" -o $(BIN) ./cmd/pmw
 	@echo "已生成 $(BIN)"
 
