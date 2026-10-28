@@ -117,9 +117,26 @@ func (s *Store) sealProviderKey(ctx context.Context, providerID, key string) (*v
 // providerDefaultBaseURL 是各 kind 的默认端点。用户建供应商时通常只想填个密钥，
 // 端点让它自己补上；填了就以用户填的为准（自建兼容端点、代理都靠这个）。
 var providerDefaultBaseURL = map[string]string{
-	domain.ProviderOpenAI: "https://api.openai.com/v1",
-	domain.ProviderGemini: "https://generativelanguage.googleapis.com/v1beta",
-	domain.ProviderOllama: "http://localhost:11434",
+	domain.ProviderOpenAI:    "https://api.openai.com/v1",
+	domain.ProviderAnthropic: "https://api.anthropic.com",
+	domain.ProviderGemini:    "https://generativelanguage.googleapis.com/v1beta",
+	domain.ProviderOllama:    "http://localhost:11434",
+}
+
+// providerPresetBaseURL 是 openai 兼容厂商的默认端点，按 extra.preset 取。
+// 不认识的 preset 只当标签，回落到 kind 的默认端点。
+var providerPresetBaseURL = map[string]string{
+	domain.ProviderPresetDeepSeek: "https://api.deepseek.com",
+}
+
+// defaultBaseURL 先看 preset 再看 kind。preset 只对 openai 协议生效。
+func defaultBaseURL(kind string, extra map[string]any) string {
+	if kind == domain.ProviderOpenAI {
+		if preset, _ := extra["preset"].(string); providerPresetBaseURL[preset] != "" {
+			return providerPresetBaseURL[preset]
+		}
+	}
+	return providerDefaultBaseURL[kind]
 }
 
 // providerNeedsKey 标记哪些 kind 必须有密钥。ollama 跑在本机，没有鉴权。
@@ -225,7 +242,7 @@ func (s *Store) CreateProvider(ctx context.Context, in *domain.AgentProvider, ap
 	if err := checkProviderKind(p.Kind); err != nil {
 		return nil, err
 	}
-	p.BaseURL = normalizeBaseURL(p.BaseURL, p.Kind)
+	p.BaseURL = normalizeBaseURL(p.BaseURL, defaultBaseURL(p.Kind, p.Extra))
 	if providerNeedsKey(p.Kind) && apiKey == "" {
 		return nil, validation("api_key", "is required for "+p.Kind+" providers")
 	}
@@ -330,11 +347,15 @@ func (s *Store) UpdateProvider(ctx context.Context, id string, in domain.AgentPr
 			}
 			cur.Name = name
 		}
+		extra := cur.Extra
+		if in.Extra != nil {
+			extra = *in.Extra
+		}
 		switch {
 		case in.BaseURL != nil:
-			cur.BaseURL = normalizeBaseURL(*in.BaseURL, cur.Kind)
+			cur.BaseURL = normalizeBaseURL(*in.BaseURL, defaultBaseURL(cur.Kind, extra))
 		case kindChanged:
-			cur.BaseURL = providerDefaultBaseURL[cur.Kind]
+			cur.BaseURL = defaultBaseURL(cur.Kind, extra)
 		}
 		if in.Model != nil {
 			cur.Model = strings.TrimSpace(*in.Model)
@@ -494,20 +515,20 @@ func maskAPIKey(key string) string {
 
 func checkProviderKind(kind string) error {
 	switch kind {
-	case domain.ProviderOpenAI, domain.ProviderGemini, domain.ProviderOllama:
+	case domain.ProviderOpenAI, domain.ProviderAnthropic, domain.ProviderGemini, domain.ProviderOllama:
 		return nil
 	case "":
 		return validation("kind", "is required")
 	default:
-		return validation("kind", "must be one of openai, gemini, ollama")
+		return validation("kind", "must be one of openai, anthropic, gemini, ollama")
 	}
 }
 
 // normalizeBaseURL 去掉末尾斜杠，拼 /models 时才不会出现 //models。
-func normalizeBaseURL(raw, kind string) string {
+func normalizeBaseURL(raw, fallback string) string {
 	u := strings.TrimRight(strings.TrimSpace(raw), "/")
 	if u == "" {
-		return providerDefaultBaseURL[kind]
+		return fallback
 	}
 	return u
 }

@@ -23,6 +23,7 @@ func TestCreateProviderFillsDefaultBaseURL(t *testing.T) {
 
 	cases := []struct{ kind, key, want string }{
 		{domain.ProviderOpenAI, "sk-test-0001-abcd", "https://api.openai.com/v1"},
+		{domain.ProviderAnthropic, "sk-ant-test-0001-abcd", "https://api.anthropic.com"},
 		{domain.ProviderGemini, "AIza-test-0001-abcd", "https://generativelanguage.googleapis.com/v1beta"},
 		{domain.ProviderOllama, "", "http://localhost:11434"},
 	}
@@ -42,6 +43,47 @@ func TestCreateProviderFillsDefaultBaseURL(t *testing.T) {
 	}
 	if p.BaseURL != "https://llm.internal/v1" {
 		t.Errorf("base_url = %q, 期望去掉末尾斜杠后的 https://llm.internal/v1", p.BaseURL)
+	}
+}
+
+// TestProviderPresetDefaultBaseURL：DeepSeek 是 openai 协议加 extra.preset，
+// 不填 base_url 时补 DeepSeek 的端点；不认识的 preset 回落到 kind 的默认端点。
+func TestProviderPresetDefaultBaseURL(t *testing.T) {
+	s, ctx := newStore(t)
+	ds, err := s.CreateProvider(ctx, &domain.AgentProvider{
+		Name: "DeepSeek", Kind: domain.ProviderOpenAI, Enabled: true,
+		Extra: map[string]any{"preset": domain.ProviderPresetDeepSeek},
+	}, "sk-deepseek-0001")
+	if err != nil {
+		t.Fatalf("创建 DeepSeek: %v", err)
+	}
+	if ds.BaseURL != "https://api.deepseek.com" || ds.Kind != domain.ProviderOpenAI {
+		t.Errorf("kind=%s base_url=%q", ds.Kind, ds.BaseURL)
+	}
+	if ds.Extra["preset"] != domain.ProviderPresetDeepSeek {
+		t.Errorf("extra.preset 应原样保留，得到 %v", ds.Extra)
+	}
+
+	other, err := s.CreateProvider(ctx, &domain.AgentProvider{
+		Name: "未知厂商", Kind: domain.ProviderOpenAI, Enabled: true, Extra: map[string]any{"preset": "nope"},
+	}, "sk-other-0001")
+	if err != nil {
+		t.Fatalf("创建: %v", err)
+	}
+	if other.BaseURL != "https://api.openai.com/v1" {
+		t.Errorf("未知 preset 应回落到 openai 默认端点，得到 %q", other.BaseURL)
+	}
+
+	// 从 anthropic 换成 openai + deepseek preset，没给 base_url 时跟着换成 DeepSeek 的端点。
+	p := mustProvider(t, s, ctx, "换协议", domain.ProviderAnthropic, "sk-ant-0001-abcd")
+	kind := domain.ProviderOpenAI
+	extra := map[string]any{"preset": domain.ProviderPresetDeepSeek}
+	got, err := s.UpdateProvider(ctx, p.ID, domain.AgentProviderInput{Kind: &kind, Extra: &extra})
+	if err != nil {
+		t.Fatalf("更新: %v", err)
+	}
+	if got.BaseURL != "https://api.deepseek.com" {
+		t.Errorf("换 kind 后 base_url = %q", got.BaseURL)
 	}
 }
 
@@ -68,7 +110,7 @@ func TestCreateProviderKeyRequirementByKind(t *testing.T) {
 
 func TestCreateProviderRejectsUnknownKind(t *testing.T) {
 	s, ctx := newStore(t)
-	for _, kind := range []string{"", "anthropic", "OpenAI"} {
+	for _, kind := range []string{"", "bedrock", "OpenAI"} {
 		_, err := s.CreateProvider(ctx,
 			&domain.AgentProvider{Name: "野 kind", Kind: kind, Enabled: true}, "sk-x-0001-abcd")
 		if !errors.Is(err, domain.ErrValidation) {
@@ -336,7 +378,7 @@ func TestUpdateProviderValidatesAndNotFound(t *testing.T) {
 	if _, err := s.UpdateProvider(ctx, p.ID, domain.AgentProviderInput{Name: &blank}); !errors.Is(err, domain.ErrValidation) {
 		t.Errorf("空 name 应报 ErrValidation, got %v", err)
 	}
-	bad := "anthropic"
+	bad := "bedrock"
 	if _, err := s.UpdateProvider(ctx, p.ID, domain.AgentProviderInput{Kind: &bad}); !errors.Is(err, domain.ErrValidation) {
 		t.Errorf("非法 kind 应报 ErrValidation, got %v", err)
 	}

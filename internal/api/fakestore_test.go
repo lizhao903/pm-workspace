@@ -1630,6 +1630,30 @@ func (f *fakeStore) UpdateStakeholder(_ context.Context, id string, p domain.Sta
 	if p.SortOrder != nil {
 		sh.SortOrder = *p.SortOrder
 	}
+	if p.Group != nil {
+		sh.Group = *p.Group
+	}
+	if p.Company != nil {
+		sh.Company = *p.Company
+	}
+	if p.Title != nil {
+		sh.Title = *p.Title
+	}
+	if p.Phone != nil {
+		sh.Phone = *p.Phone
+	}
+	if p.Tags != nil {
+		sh.Tags = *p.Tags
+	}
+	if p.Photo != nil {
+		sh.Photo = *p.Photo
+	}
+	if p.Starred != nil {
+		sh.Starred = *p.Starred
+	}
+	if p.LastContactAt != nil {
+		sh.LastContactAt = *p.LastContactAt
+	}
 	if p.Archived != nil {
 		if *p.Archived {
 			now := time.Now()
