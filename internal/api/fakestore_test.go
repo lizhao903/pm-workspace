@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -36,9 +37,11 @@ type fakeStore struct {
 	providers    map[string]*domain.AgentProvider
 	providerKeys map[string]string
 
-	sessions  map[string]*domain.AgentSession
-	messages  map[string][]*domain.AgentMessage  // sessionID -> 按追加顺序
-	artifacts map[string][]*domain.AgentArtifact // sessionID -> 按记录顺序
+	sessions map[string]*domain.AgentSession
+	messages map[string][]*domain.AgentMessage // sessionID -> 按追加顺序
+	// artifacts 是一张平表，和 artifacts 表同构。按 sessionID 分桶是 0012 之前的
+	// 形状——那样的话「列出全部产物」在替身上根本无从实现，而这正是被测接口的主路径。
+	artifacts []*domain.Artifact
 
 	// 错误注入：非 nil 时对应方法直接返回它，用来测错误码映射。
 	errGetObject      error
@@ -84,6 +87,9 @@ type fakeStore struct {
 	taskRunSeq map[string]int
 
 	stakeholders map[string]*domain.Stakeholder
+
+	// progress 按追加顺序存，方法在 fakestore_progress_test.go。
+	progress []*domain.Progress
 }
 
 func newFakeStore() *fakeStore {
@@ -103,7 +109,7 @@ func newFakeStore() *fakeStore {
 		providerKeys: map[string]string{},
 		sessions:     map[string]*domain.AgentSession{},
 		messages:     map[string][]*domain.AgentMessage{},
-		artifacts:    map[string][]*domain.AgentArtifact{},
+		artifacts:    []*domain.Artifact{},
 	}
 }
 
@@ -1086,7 +1092,11 @@ func (f *fakeStore) UpdateAgentSession(_ context.Context, id string, title, work
 	return &c, nil
 }
 
-// DeleteAgentSession 连消息和产物一起删：它们没有会话就是孤儿。
+// DeleteAgentSession 删消息，但**不删产物**——这跟 0007 时的行为是反的。
+//
+// 那时候产物是会话的附属物，一起删掉说得通。0012 之后产物指向的是磁盘上
+// 真实存在的文件或云端一个真实存在的页面，删掉一段对话不该让那个文件
+// 从产物清单里消失。库里对应的是 session_id ON DELETE SET NULL。
 func (f *fakeStore) DeleteAgentSession(_ context.Context, id string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -1095,7 +1105,11 @@ func (f *fakeStore) DeleteAgentSession(_ context.Context, id string) error {
 	}
 	delete(f.sessions, id)
 	delete(f.messages, id)
-	delete(f.artifacts, id)
+	for _, a := range f.artifacts {
+		if a.SessionID != nil && *a.SessionID == id {
+			a.SessionID = nil
+		}
+	}
 	return nil
 }
 
@@ -1134,29 +1148,225 @@ func (f *fakeStore) AppendAgentMessage(_ context.Context, m *domain.AgentMessage
 	return m, nil
 }
 
-// 同样跟 sqlite 对齐：会话不存在回空列表，不报 not found。
-func (f *fakeStore) ListAgentArtifacts(_ context.Context, sessionID string) ([]*domain.AgentArtifact, error) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	out := make([]*domain.AgentArtifact, len(f.artifacts[sessionID]))
-	copy(out, f.artifacts[sessionID])
-	return out, nil
+// --- 产物 ---
+//
+// 这里照着 sqlite 实现把过滤逐条复刻了一遍，包括 has_url/has_path 的三态和
+// object_id 与 unscoped 的互斥。替身比真实现宽松是这个项目反复栽过的坑：
+// handler 把参数拼错、或者干脆没往下传，在一个不过滤的替身上照样全绿。
+
+func (f *fakeStore) artifactMatch(a *domain.Artifact, fl domain.ArtifactFilter) bool {
+	ptr := func(p *string) string {
+		if p == nil {
+			return ""
+		}
+		return *p
+	}
+	if fl.ObjectID != "" && ptr(a.ObjectID) != fl.ObjectID {
+		return false
+	}
+	if fl.Unscoped && a.ObjectID != nil {
+		return false
+	}
+	if fl.SessionID != "" && ptr(a.SessionID) != fl.SessionID {
+		return false
+	}
+	if fl.RunID != "" && ptr(a.RunID) != fl.RunID {
+		return false
+	}
+	if fl.Platform != "" && a.Platform != fl.Platform {
+		return false
+	}
+	if fl.Source != "" && a.Source != fl.Source {
+		return false
+	}
+	if fl.HasURL != nil && (a.URL != "") != *fl.HasURL {
+		return false
+	}
+	if fl.HasPath != nil && (a.Path != "") != *fl.HasPath {
+		return false
+	}
+	if q := strings.TrimSpace(fl.Q); q != "" {
+		hay := a.Title + "\x00" + a.Path + "\x00" + a.URL + "\x00" + a.Note
+		if !strings.Contains(strings.ToLower(hay), strings.ToLower(q)) {
+			return false
+		}
+	}
+	return true
 }
 
-func (f *fakeStore) RecordAgentArtifact(_ context.Context, a *domain.AgentArtifact) (*domain.AgentArtifact, error) {
+func (f *fakeStore) ListArtifacts(_ context.Context, fl domain.ArtifactFilter) ([]*domain.Artifact, int, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	if _, ok := f.sessions[a.SessionID]; !ok {
-		return nil, domain.ErrNotFound
+
+	var hits []*domain.Artifact
+	for _, a := range f.artifacts {
+		if f.artifactMatch(a, fl) {
+			hits = append(hits, a)
+		}
 	}
-	if a.ID == "" {
-		a.ID = idgen.Prefixed("art")
+	// 最近的在前，和 sqlite 的 ORDER BY created_at DESC 一致。
+	sort.SliceStable(hits, func(i, j int) bool { return hits[i].CreatedAt.After(hits[j].CreatedAt) })
+
+	total := len(hits)
+	limit := fl.Limit
+	if limit <= 0 {
+		limit = store.DefaultArtifactLimit
 	}
-	if a.CreatedAt.IsZero() {
-		a.CreatedAt = time.Now()
+	// 分页也要复刻：handler 漏传 offset 时，不分页的替身依然返回正确的第一页。
+	if fl.Offset >= len(hits) {
+		hits = nil
+	} else {
+		hits = hits[fl.Offset:]
 	}
-	f.artifacts[a.SessionID] = append(f.artifacts[a.SessionID], a)
+	if len(hits) > limit {
+		hits = hits[:limit]
+	}
+	out := make([]*domain.Artifact, len(hits))
+	copy(out, hits)
+	return out, total, nil
+}
+
+func (f *fakeStore) GetArtifact(_ context.Context, id string) (*domain.Artifact, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for _, a := range f.artifacts {
+		if a.ID == id {
+			return a, nil
+		}
+	}
+	return nil, domain.ErrNotFound
+}
+
+func (f *fakeStore) CreateArtifact(_ context.Context, in domain.ArtifactInput) (*domain.Artifact, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.putArtifact(in)
+}
+
+// putArtifact 复刻 sqlite 那边 normalizeArtifact 的两条会被 handler 依赖的规则：
+// 两个位置都空要报 validation，平台留空按有没有链接补默认值。
+//
+// **有意不复刻的一条：按域名认平台。**真实现会查字典 artifact_platform 的
+// meta.hosts，把 Confluence 链接认成 confluence；这里一律给 other。
+// 替身没有字典，硬造一份就是第三份域名特征副本，而它一定会和迁移里的种子分叉。
+// 代价是 API 层测不到平台识别——那一条由 sqlite 的 TestDetectPlatformFromURL 守着，
+// 写在这里是为了让下一个人知道这个缺口是选的，不是漏的。
+func (f *fakeStore) putArtifact(in domain.ArtifactInput) (*domain.Artifact, error) {
+	if in.Path == "" && in.URL == "" {
+		return nil, domain.ErrValidation
+	}
+	if in.Source == "" {
+		in.Source = domain.ArtifactSourceManual
+	}
+	if in.Platform == "" {
+		if in.URL == "" {
+			in.Platform = "local"
+		} else {
+			in.Platform = "other"
+		}
+	}
+	if in.Title == "" {
+		if in.Path != "" {
+			in.Title = filepath.Base(in.Path)
+		} else {
+			in.Title = in.URL
+		}
+	}
+	a := &domain.Artifact{
+		ID: idgen.Prefixed("art"), ObjectID: in.ObjectID, SessionID: in.SessionID,
+		RunID: in.RunID, Title: in.Title, Path: in.Path, BaseDir: in.BaseDir,
+		URL: in.URL, Platform: in.Platform, Size: in.Size, Source: in.Source,
+		Note: in.Note, CreatedAt: time.Now(), UpdatedAt: time.Now(),
+	}
+	a.RelPath = a.Path
+	f.artifacts = append(f.artifacts, a)
 	return a, nil
+}
+
+// RecordArtifact 复刻去重：同一会话/同一次执行内路径相同就更新那一条。
+// 替身不去重的话，「反复写同一个文件只留一条」这个保证在 API 层测不到。
+func (f *fakeStore) RecordArtifact(_ context.Context, in domain.ArtifactInput) (*domain.Artifact, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	same := func(a, b *string) bool {
+		return a != nil && b != nil && *a == *b && *a != ""
+	}
+	if in.Path != "" {
+		for _, a := range f.artifacts {
+			if a.Path == in.Path && (same(a.SessionID, in.SessionID) || same(a.RunID, in.RunID)) {
+				a.Size, a.UpdatedAt = in.Size, time.Now()
+				return a, nil
+			}
+		}
+	}
+	return f.putArtifact(in)
+}
+
+func (f *fakeStore) UpdateArtifact(_ context.Context, id string, p domain.ArtifactPatch) (*domain.Artifact, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for _, a := range f.artifacts {
+		if a.ID != id {
+			continue
+		}
+		if p.ObjectID != nil {
+			a.ObjectID = *p.ObjectID
+		}
+		for dst, src := range map[*string]*string{
+			&a.Title: p.Title, &a.Path: p.Path, &a.BaseDir: p.BaseDir,
+			&a.URL: p.URL, &a.Platform: p.Platform, &a.Note: p.Note,
+		} {
+			if src != nil {
+				*dst = *src
+			}
+		}
+		if a.Path == "" && a.URL == "" {
+			return nil, domain.ErrValidation
+		}
+		a.UpdatedAt = time.Now()
+		return a, nil
+	}
+	return nil, domain.ErrNotFound
+}
+
+func (f *fakeStore) DeleteArtifact(_ context.Context, id string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for i, a := range f.artifacts {
+		if a.ID == id {
+			f.artifacts = append(f.artifacts[:i], f.artifacts[i+1:]...)
+			return nil
+		}
+	}
+	return domain.ErrNotFound
+}
+
+func (f *fakeStore) ArtifactStats(ctx context.Context, fl domain.ArtifactFilter) (*domain.ArtifactStats, error) {
+	// 有意复用 ListArtifacts 的过滤：统计和列表在真实现里也共用一个 WHERE，
+	// 替身各写一套的话就验不出「两处过滤分叉」这个 bug。
+	fl.Limit, fl.Offset = 1<<30, 0
+	items, total, err := f.ListArtifacts(ctx, fl)
+	if err != nil {
+		return nil, err
+	}
+	st := &domain.ArtifactStats{
+		Total: total, ByPlatform: map[string]int{}, BySource: map[string]int{},
+	}
+	for _, a := range items {
+		if a.Path != "" {
+			st.Local++
+			st.TotalSize += a.Size
+		}
+		if a.URL != "" {
+			st.Remote++
+		}
+		if a.ObjectID == nil {
+			st.Unscoped++
+		}
+		st.ByPlatform[a.Platform]++
+		st.BySource[a.Source]++
+	}
+	return st, nil
 }
 
 // ResolveWorkdir 复刻「自身没设就回退到所属项目」这一条规则——API 层的 fake

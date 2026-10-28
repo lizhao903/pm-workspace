@@ -199,9 +199,9 @@
 | GET | `/api/agent/sessions?object_id=X` / `?unscoped=true` | **必须二选一**：`object_id` 给某个对象的会话（详情抽屉用），`unscoped=true` 给 `object_id IS NULL` 的全局会话（底部对话框用）。两个都不给返回空列表，不是全部；两个都给以 `object_id` 为准（不报 400——这俩是前端两处独立代码各自拼的，真撞上时给一批说得通的数据比让抽屉整个打不开好） |
 | POST | `/api/agent/sessions` | `{title?,provider_id,model,workdir?,object_id?}`，`object_id` 省略即全局会话 |
 | PATCH | `/api/agent/sessions/{id}` | |
-| DELETE | `/api/agent/sessions/{id}` | 消息与产物一起级联删除 |
+| DELETE | `/api/agent/sessions/{id}` | 消息级联删除；**产物保留**，只把它的 `session_id` 置空（见「输出产物」一节） |
 | GET | `/api/agent/sessions/{id}/messages` | `AgentMessage[]`，**按时间正序**（最旧在前） |
-| GET | `/api/agent/sessions/{id}/artifacts` | `AgentArtifact[]` |
+| GET | `/api/agent/sessions/{id}/artifacts` | `Artifact[]`，等价于 `/api/artifacts?session_id={id}`；会话不存在报 404（而不是回空列表） |
 | POST | `/api/agent/workdir/check` | `{path}`，校验产物目录是否存在且可写 |
 | POST | `/api/agent/chat` | `{session_id?,provider_id?,model?,workdir?,object_id?,message}`，**SSE 流式响应**，见下 |
 
@@ -229,6 +229,81 @@ chat 带了不同的 `object_id` 也不会让已有会话搬家——搬走会�
 
 `/api/agent/chat` 与 `/api/objects/{id}/run` 都是 SSE，而 `EventSource` 只能发 GET、带不了 body，
 前端一律用 `fetch` + `ReadableStream` 自己按空行切块。
+
+## 输出产物 artifacts
+
+「这件事一共产出了什么」的唯一答案来源。一条产物 = 一件交付物，可能落在本地、
+可能发到了云端，也可能两者都有。
+
+| 方法 | 路径 | body / 说明 |
+|---|---|---|
+| GET | `/api/artifacts` | `Artifact[]` + `meta.total`，最近登记的在前。过滤见下 |
+| GET | `/api/artifacts/stats` | `ArtifactStats`，走**同一套**过滤参数，忽略 `limit`/`offset` |
+| POST | `/api/artifacts` | `ArtifactInput`。`source` 由**请求头** `X-Actor-Source` 判定，无条件覆盖请求体里的值 |
+| GET | `/api/artifacts/{id}` | 单条 |
+| PATCH | `/api/artifacts/{id}` | `{object_id?,title?,path?,base_dir?,url?,platform?,note?}` |
+| DELETE | `/api/artifacts/{id}` | 只删登记记录，**不删磁盘文件、不删云端页面** |
+
+过滤参数（彼此是「与」）：
+
+| 参数 | 说明 |
+|---|---|
+| `object_id` | 某个工作对象的产物 |
+| `unscoped=true` | 只看没有归属对象的。与 `object_id` 同时给报 400——两者相与必然是空集，静默返回空会被读成「这个对象没有产物」 |
+| `session_id` / `run_id` | 按出处过滤 |
+| `platform` | 字典 `artifact_platform` 的 key |
+| `source` | `manual` / `agent` / `run` / `mcp` |
+| `has_url` / `has_path` | **三态**：不传=不过滤，`true`=该字段非空，`false`=该字段为空。`has_url=false` 就是「还没发出去的本地文件」 |
+| `q` | 同时匹配 title / path / url / note |
+| `limit` / `offset` | 默认 100，上限 500 |
+
+### 一条产物可以同时有 `path` 和 `url`
+
+先在本地写出方案、再发到 Confluence，那是同一份交付物的两个位置，不是两件产出。
+拆成两条会让「一共产出了多少」翻倍。两者**至少有一个**非空，否则 400。
+
+因此 `stats` 里 `local + remote` 可能大于 `total`——它回答的是「有多少落在本地」
+和「有多少已经发出去了」，不是一次互斥划分。`total_size` 只累加有本地路径的那些
+（云端产物的 `size` 恒为 0，混进去会让体积统计失真）。
+
+### 路径存绝对值，相对路径是算出来的
+
+`path` 是绝对路径，`base_dir` 是登记时的基准目录（可空），`rel_path` 是响应里
+现算出来的派生字段，**不接受写入**。库里不存第二个路径字符串：存两个的话，
+文件挪窝时改了一个漏了另一个，两边都不报错，而读的人无从判断该信哪个。
+
+`base_dir` 为空、或文件已不在 `base_dir` 下时，`rel_path` 等于 `path`。
+
+### `object_id` 的三态
+
+`PATCH` 的 `object_id` 区分三种情况：字段不出现=不改，`null`=解除归属，
+有值=改挂到那个对象。用 `""` 表达清空是不行的——它会被当成一个不存在的对象 id。
+
+工作对象被**硬删**时产物不跟着删，只是 `object_id` 置空变成「未归属」
+（`ON DELETE SET NULL`）。产物指向的是这个库之外真实存在的东西，
+而这一行往往是那个链接在本机唯一的索引；跟着删等于用户删掉一条需求、
+顺手永久丢掉了当初发出去的页面地址，且没有任何提示。软删（回收站）不触发这条。
+
+### 登记来源
+
+| `source` | 谁写的 | 去重范围 |
+|---|---|---|
+| `manual` | 用户在界面上登记 | 不去重。同一个文件先发 Confluence 再发飞书是两条合理记录 |
+| `agent` | 内置 Agent 的 `write_file` | 同一会话内同路径只留一条 |
+| `run` | Claude Code 执行后扫工作目录 | 同一次执行内同路径只留一条 |
+| `mcp` | 别的 Agent 通过 `pmw_record_artifact` 回写 | 不去重 |
+
+`POST /api/artifacts` **不接受调用方自报 `source`**，请求体里的这个字段会被无条件覆盖。
+否则统计页上「AI 助手产出了多少」就不再可信——而那个数看起来完全正常。
+
+判据是请求头 `X-Actor-Source`（这个项目既有的调用方标识）：
+
+| `X-Actor-Source` | 记成 | 谁在发 |
+|---|---|---|
+| `agent` | `mcp` | `pmw-mcp`（内置 Agent 的 `write_file` 直接调 store，不走 HTTP） |
+| 其余（`ui` / `api` / 缺省） | `manual` | 界面登记、手工 curl |
+
+`agent` 和 `run` 这两个来源不可能从 HTTP 接口进来，由 `store.RecordArtifact` 内部填。
 
 ## 本机文件系统 fs
 

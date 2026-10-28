@@ -1,7 +1,10 @@
 // Package domain 定义工作台的领域模型。这是前后端与各层之间的契约，改动需同步 web/src/lib/types.ts。
 package domain
 
-import "time"
+import (
+	"strings"
+	"time"
+)
 
 // Status 是某个工作对象类型下允许的状态。
 type Status struct {
@@ -239,14 +242,20 @@ type LinkView struct {
 }
 
 type Revision struct {
-	ID        string    `json:"id"`
-	ObjectID  string    `json:"object_id"`
-	Field     string    `json:"field"`
-	OldValue  string    `json:"old_value"`
-	NewValue  string    `json:"new_value"`
+	ID       string `json:"id"`
+	ObjectID string `json:"object_id"`
+	Field    string `json:"field"`
+	OldValue string `json:"old_value"`
+	NewValue string `json:"new_value"`
+	// Actor 是库里 revisions.actor 的原文。带会话标识时形如 "claude-code#<session>"，
+	// 拆开的两段放在 ActorName / SessionID 里，见 SplitActor。
 	Actor     string    `json:"actor"`
 	Source    string    `json:"source"`
 	CreatedAt time.Time `json:"created_at"`
+
+	// 以下为读取时由 Actor 拆出来的派生字段，不落库。
+	ActorName string `json:"actor_name"`
+	SessionID string `json:"session_id"`
 }
 
 // Counts 驱动左侧栏徽标。
@@ -342,6 +351,10 @@ const (
 const (
 	DictPriority     = "priority"
 	DictLinkRelation = "link_relation"
+	// DictArtifactPlatform 是产物所在平台的名单（Confluence / 飞书 / 本地文件 …）。
+	// 走字典而不是 Go 里的常量：这份名单一定会变，而用户在设置里改一次
+	// 比每次都等一个版本要合理。meta.hosts 是域名特征，界面粘链接时据此自动选平台。
+	DictArtifactPlatform = "artifact_platform"
 )
 
 type Dictionary struct {
@@ -500,14 +513,121 @@ type AgentMessage struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
-// AgentArtifact 是 Agent 写进 Workdir 的一个文件。Path 存相对路径，
-// 绝对路径由 Workdir 拼出来——库里存绝对路径的话，换机器或改目录就全失效了。
-type AgentArtifact struct {
-	ID        string    `json:"id"`
-	SessionID string    `json:"session_id"`
-	Path      string    `json:"path"`
+// Artifact 是一件输出产物：这项工作实际产出的、能被打开的东西。
+//
+// 它取代了 0007 的 AgentArtifact（只覆盖内置 agent 写的本地文件）。改成一等对象是因为
+// 「这件事一共产出了什么」的答案分散在四处：内置 agent 写盘、Claude Code 执行时写盘、
+// 用户自己做的文档、别的 agent 发到 Confluence/Jira/云盘的东西。只统计其中一个来源，
+// 得到的数字不会报错也不会为空，只是偏小——而偏小的数字看起来和正确的一模一样。
+//
+// Path 和 URL 可以同时有值：先在本地写出方案、再发到 Confluence，那是同一份交付物的
+// 两个位置。拆成两条会让总数翻倍。至少有一个非空，由库里的 CHECK 兜底。
+type Artifact struct {
+	ID string `json:"id"`
+	// ObjectID 可空。底部对话框产生的产物没有归属对象；工作对象被硬删后，
+	// 产物也会落到未归属（ON DELETE SET NULL，见 0012 迁移）。
+	ObjectID  *string `json:"object_id"`
+	SessionID *string `json:"session_id"`
+	RunID     *string `json:"run_id"`
+
+	Title string `json:"title"`
+	// Path 是绝对路径。BaseDir 是登记时的基准目录（可空），相对路径由两者现算，
+	// 不落库——存两个路径字符串的话，文件挪窝时改一个漏一个，两边都不会报错。
+	Path     string `json:"path"`
+	BaseDir  string `json:"base_dir"`
+	URL      string `json:"url"`
+	Platform string `json:"platform"` // dict_items(dict_id='artifact_platform').key
+	// Size 仅本地文件有意义。云端产物是 0，不代表「空文件」——统计体积时要按
+	// Path 非空过滤，否则一堆 0 会把平均值拉垮。
 	Size      int64     `json:"size"`
+	Source    string    `json:"source"` // manual | agent | run | mcp
+	Note      string    `json:"note"`
 	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+
+	// 以下为查询时填充的展示字段，不落 artifacts 表。
+	// RelPath = Rel(BaseDir, Path)，BaseDir 为空时等于 Path。
+	RelPath     string `json:"rel_path"`
+	ObjectRef   string `json:"object_ref,omitempty"`
+	ObjectTitle string `json:"object_title,omitempty"`
+}
+
+// ArtifactSource 的取值。放常量而不是各处写字面量：统计页要按来源分组，
+// 写错一个字母不会报错，只会凭空多出一个永远是 0 的分组。
+const (
+	ArtifactSourceManual = "manual" // 用户在界面上登记
+	ArtifactSourceAgent  = "agent"  // 内置 agent 的 write_file
+	ArtifactSourceRun    = "run"    // Claude Code 执行后扫目录扫出来的
+	ArtifactSourceMCP    = "mcp"    // 别的 agent 通过 MCP 回写
+)
+
+// ArtifactInput 是登记一条产物需要的全部字段。
+// 不复用 Artifact：那里面有 ID、时间戳和派生字段，让调用方填一堆它不该关心的东西。
+type ArtifactInput struct {
+	ObjectID  *string `json:"object_id"`
+	SessionID *string `json:"session_id"`
+	RunID     *string `json:"run_id"`
+	Title     string  `json:"title"`
+	Path      string  `json:"path"`
+	BaseDir   string  `json:"base_dir"`
+	URL       string  `json:"url"`
+	Platform  string  `json:"platform"`
+	Size      int64   `json:"size"`
+	Source    string  `json:"source"`
+	Note      string  `json:"note"`
+}
+
+// ArtifactPatch 里每个指针都是「没给就不改」。
+// ObjectID 用 **string：nil = 不改，指向 nil = 清空归属，指向值 = 改挂到那个对象。
+// 少这一层的话，「把产物移出某个对象」和「不动它」在 JSON 里长得一模一样。
+type ArtifactPatch struct {
+	ObjectID **string `json:"object_id"`
+	Title    *string  `json:"title"`
+	Path     *string  `json:"path"`
+	BaseDir  *string  `json:"base_dir"`
+	URL      *string  `json:"url"`
+	Platform *string  `json:"platform"`
+	Note     *string  `json:"note"`
+}
+
+// ArtifactFilter 的字段之间是「与」。空字段 = 不过滤。
+//
+// 注意 ObjectID 和 Unscoped 的关系跟 AgentSessionFilter 不同：这里两个都不给
+// 就是**全部产物**，因为产物页的默认视图就是全量清单。Unscoped 单独表示
+// 「只看未归属的那些」。
+type ArtifactFilter struct {
+	ObjectID  string
+	SessionID string
+	RunID     string
+	Platform  string
+	Source    string
+	// HasURL / HasPath 是三态：nil 不过滤，true 要求非空，false 要求为空。
+	// 「只看云端产物」= HasURL(true)，「只看还没发出去的本地文件」= HasURL(false)。
+	HasURL   *bool
+	HasPath  *bool
+	Q        string // 匹配 title / path / url / note
+	Unscoped bool   // 只看没有归属对象的
+	Limit    int
+	Offset   int
+}
+
+// ArtifactStats 是产物页顶部那几个数。
+//
+// 每个分组都用 map 而不是切片：key 是字典 key / 来源常量，前端要按字典顺序渲染，
+// 而字典顺序只有前端知道（它已经拿着 dict_items）。后端排一遍等于把顺序定义
+// 复制到第二个地方。
+type ArtifactStats struct {
+	Total int `json:"total"`
+	// Local 是有本地路径的条数，Remote 是有 URL 的条数。两者相加可能大于 Total——
+	// 一份既在本地又发了云端的产物两边都算。这是有意的：它回答的是
+	// 「有多少产物落在本地」和「有多少已经发出去了」，不是一次划分。
+	Local      int            `json:"local"`
+	Remote     int            `json:"remote"`
+	Unscoped   int            `json:"unscoped"`
+	ByPlatform map[string]int `json:"by_platform"`
+	BySource   map[string]int `json:"by_source"`
+	// TotalSize 只累加有本地路径的那些，理由见 Artifact.Size。
+	TotalSize int64 `json:"total_size"`
 }
 
 // WorkdirCheck 是目录可用性的检查结果，界面在用户选目录时即时反馈。
@@ -569,4 +689,120 @@ type TaskRun struct {
 	Error      string     `json:"error"`
 	StartedAt  time.Time  `json:"started_at"`
 	FinishedAt *time.Time `json:"finished_at"`
+}
+
+// ---- 开发任务闭环：进展、领取、会话标识 ----
+
+// ActorSessionSep 分隔 revisions.actor 里的操作者名和会话标识。
+//
+// 会话标识不单独建列：revisions.actor 本来就是「谁干的」，「哪一次会话干的」是它的细化，
+// 塞进同一列就不用为它加迁移。代价是读的时候要拆——拆分只在 SplitActor 一处做，
+// 写入端（store 的 addRevision）也只经由 ComposeActor 拼，两头对得上。
+// 名字和会话标识在 API 入口都做过清洗，不可能含有这个分隔符。
+const ActorSessionSep = "#"
+
+// ComposeActor 把操作者名和会话标识拼成落库的 actor 值。session 为空时就是名字本身，
+// 和 0001 以来的老数据形状一致。
+func ComposeActor(name, session string) string {
+	if session == "" {
+		return name
+	}
+	return name + ActorSessionSep + session
+}
+
+// SplitActor 是 ComposeActor 的逆。没有分隔符的老数据整串当名字，会话为空。
+func SplitActor(actor string) (name, session string) {
+	if i := strings.Index(actor, ActorSessionSep); i >= 0 {
+		return actor[:i], actor[i+len(ActorSessionSep):]
+	}
+	return actor, ""
+}
+
+// 开发任务在 objects.props 里的约定字段。
+//
+// 验收标准、关联仓库不加列：props 本来就是「类型相关的自定义字段」的落点（0001 就有），
+// 加列意味着迁移，而这两个字段只有开发类任务才用得上。工作目录已经有 objects.workdir（0008），
+// 不再在 props 里重复一份。
+//
+// key 写成常量是因为它同时被 MCP、前端和演练脚本读写——拼错一个字母不会报错，
+// 只会让那个字段在另一端永远是空的。
+const (
+	// PropAcceptance 是验收标准，Markdown 字符串，一般是一串「- [ ] ...」。
+	PropAcceptance = "acceptance"
+	// PropRepo 是关联仓库：远端地址（https://github.com/...）或本机绝对路径。
+	// 只放一个值。真有多个仓库的任务，应当拆成每个仓库一条子任务。
+	PropRepo = "repo"
+)
+
+// FieldProgress 是进展在 revisions 里的 field 值。
+//
+// 进展复用 revisions 而不是另建表：它和修订一样是「只追加、带操作者、按时间读」的流水，
+// 只插入不更新，并发追加天然不会互相覆盖。一条进展 = 一行 field='progress' 的修订，
+// new_value 是正文（Markdown），old_value 存元数据 JSON（ProgressMeta）。
+// old_value 在这类行上不是「旧值」——这是复用的代价，只在这里和契约草稿里说明。
+const FieldProgress = "progress"
+
+// 进展的种类。claim / review 由领取和提交验收接口写，note 是普通进展。
+const (
+	ProgressNote   = "note"
+	ProgressClaim  = "claim"
+	ProgressReview = "review"
+)
+
+// ProgressMeta 是进展行 old_value 里的 JSON。字段都可空，空的不序列化，
+// 省得每条普通进展都背一串空数组。
+type ProgressMeta struct {
+	Kind    string   `json:"kind"`
+	Commits []string `json:"commits,omitempty"`
+	Files   []string `json:"files,omitempty"`
+	// Status 是这条进展顺带把对象切到的状态（领取、提交验收时有值）。
+	Status string `json:"status,omitempty"`
+}
+
+// Progress 是一条进展。
+type Progress struct {
+	ID       string   `json:"id"`
+	ObjectID string   `json:"object_id"`
+	Kind     string   `json:"kind"`
+	Text     string   `json:"text"`
+	Commits  []string `json:"commits"`
+	Files    []string `json:"files"`
+	Status   string   `json:"status"`
+	// Actor 是原文，ActorName / SessionID 是拆出来的两段，和 Revision 一致。
+	Actor     string    `json:"actor"`
+	ActorName string    `json:"actor_name"`
+	SessionID string    `json:"session_id"`
+	Source    string    `json:"source"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+// ProgressInput 是追加一条进展的入参。
+//
+// Status 非空时，这条进展和状态切换在同一个事务里落库：提交验收要的就是
+// 「状态变了」和「附了总结」同时成立，分两次请求的话中间失败会留下半截。
+type ProgressInput struct {
+	Kind    string   `json:"kind"`
+	Text    string   `json:"text"`
+	Commits []string `json:"commits"`
+	Files   []string `json:"files"`
+	Status  string   `json:"status"`
+}
+
+// ClaimInput 是领取任务的入参。
+type ClaimInput struct {
+	// OwnerID 是领取者在干系人名册里的 id，必填。
+	OwnerID string `json:"owner_id"`
+	// Status 是领取后切到的状态 key。空串时取该类型的 doing，类型里没有 doing 就报 400。
+	Status string `json:"status"`
+	Text   string `json:"text"`
+	// Takeover 为 true 时允许接手别人（或别的会话）正在做的任务。
+	// 只该在用户明确要求时传，默认拒绝。
+	Takeover bool `json:"takeover"`
+}
+
+// ClaimResult 是领取的结果。Already 为 true 表示同一会话重复领取，什么都没写。
+type ClaimResult struct {
+	Object   *Object   `json:"object"`
+	Progress *Progress `json:"progress"`
+	Already  bool      `json:"already"`
 }

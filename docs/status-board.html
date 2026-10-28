@@ -489,7 +489,77 @@
     </div>
   </div>
 
-  <h2>七、待完成 <em>按优先级</em></h2>
+  <h2>七、输出产物汇总 <em>本地与各平台的交付物记在一处</em></h2>
+  <div class="board">
+    <div class="col">
+      <div class="col-h"><span>0012 · 产物成为一等对象</span><span class="n">已完成</span></div>
+      <div class="card"><div class="t">原来只有 <code>agent_artifacts</code>，而且是 0 行</div>
+        <div class="d">它只记内置 Agent <code>write_file</code> 写的文件，挂在会话上。真库里一条都没有——
+        唯一那次调用因为<strong>会话没设产物目录</strong>失败了，模型已经把整篇 <code>REQ-0009处理方案.md</code>
+        写出来了，内容还留在 <code>tool_args</code> 里，文件从来没落盘</div>
+        <div class="meta"><span class="tag p0">101 个对象里设了产物目录的是 0 个</span></div></div>
+      <div class="card"><div class="t">一张表，不是两张</div>
+        <div class="d">「全部产物」这个数如果只覆盖一个来源，它不会报错、不会为空、看上去完全正常——<strong>只是偏小</strong>。
+        而偏小的数字和正确的数字长得一模一样</div></div>
+      <div class="card"><div class="t">一条产物可以同时有本地路径和链接</div>
+        <div class="d">先写出方案、再发 Confluence，那是同一份交付物的两个位置。
+        拆成两条会让产物总数<strong>凭空翻倍</strong>，而两条记录看上去都没错</div></div>
+      <div class="card"><div class="t">硬删对象不删产物（<code>SET NULL</code>）</div>
+        <div class="d">和 <code>task_runs</code> 的 <code>CASCADE</code> 相反。执行记录脱离主体就是没有主语的日志；
+        产物指向的是<strong>库外真实存在的东西</strong>，而这一行往往是那个链接在本机唯一的索引</div></div>
+    </div>
+
+    <div class="col">
+      <div class="col-h"><span>四条登记渠道</span><span class="n">均已实跑</span></div>
+      <div class="card"><div class="t">手工登记 · 界面上贴链接</div>
+        <div class="d">唯一对「已经发到 Confluence / 飞书」有效的办法——工作台不在那条发布链路上，无法自动感知</div></div>
+      <div class="card"><div class="t">Agent 写盘 · <code>write_file</code> 后自动记</div>
+        <div class="d">顺带把会话的 <code>object_id</code> 带上。只挂会话的话，用户在任务详情里看「产出了什么」会是空的</div></div>
+      <div class="card"><div class="t">任务执行 · 跑完扫工作目录</div>
+        <div class="d">扫目录而不是解析工具调用：Claude Code 写盘的方式不止一种（Write / Edit / Bash 重定向 / 自己起的脚本），
+        逐个认工具名<strong>必然漏</strong>。<code>node_modules</code>、<code>.git</code>、<code>dist</code> 这些挡在外面</div>
+        <div class="meta"><span class="tag">超过 100 个改动会说出来，不静默截断</span></div></div>
+      <div class="card"><div class="t">MCP 回写 · <code>pmw_record_artifact</code></div>
+        <div class="d">pm-ns / pm-xaue 这些 agent 发完 Confluence 页、建完 Jira 单，把链接推回来。
+        <strong>这是云端产物能自动进来的唯一路径</strong></div></div>
+    </div>
+
+    <div class="col">
+      <div class="col-h"><span>三个「不报错的错」当场抓到</span><span class="n">已修</span></div>
+      <div class="card"><div class="t">平台识别只写在前端</div>
+        <div class="d">四条渠道里只有手工那条经过前端，其余三条全落进「其他」。
+        统计页最有用的那一列就此失效——<strong>显示成「大部分产物的平台是：其他」</strong>。已下沉到 store</div>
+        <div class="meta"><span class="tag p0">端到端实跑才发现</span></div></div>
+      <div class="card"><div class="t"><code>source</code> 写成了「没给才补」</div>
+        <div class="d">契约文档写的是「强制覆盖」。请求体带一个 <code>source:"agent"</code> 就原样穿过去，
+        统计页上「AI 助手产出了多少」看起来完全正常，只是数字是假的。改成按 <code>X-Actor-Source</code> 头判定</div></div>
+      <div class="card"><div class="t"><code>artifact</code> 事件从流上消失</div>
+        <div class="d">加了事件类型、忘了在 <code>MarshalJSON</code> 里加分支，而 <code>writeRunSSE</code> 当时是
+        <code>if err != nil { return }</code>——<strong>日志干净、状态码 200、前端不报错，只是界面上少一截</strong>。
+        单测全绿，端到端那条测试才发现</div>
+        <div class="meta"><span class="tag p0">已改成失败留痕 + 加守卫测试</span></div></div>
+      <div class="card"><div class="t">「本地占用」永远是 0 B</div>
+        <div class="d">手工登记时没人去读文件大小。<strong>一个永远是 0 的统计比不显示更糟</strong>，它看起来像是算过的</div></div>
+    </div>
+
+    <div class="col">
+      <div class="col-h"><span>守卫与反证</span><span class="n">已验</span></div>
+      <div class="card"><div class="t">列表与统计共用同一个 <code>WHERE</code></div>
+        <div class="d">两处各写一套的话，某个条件下会出现「共 9 件」但列表只有 7 行，<strong>两个数字都不报错</strong>。
+        反证：让统计漏掉 <code>HasURL</code> 一条 → 测试报「统计 total=3，期望 2（与列表分叉了）」</div></div>
+      <div class="card"><div class="t">事件类型完整性守卫</div>
+        <div class="d">扫源码里的 <code>EventXxx</code> 常量逐个序列化。手写名单漏掉新类型时不违反任何规则，
+        <strong>而漏掉正是它要防的事</strong>。前端那边是 <code>Record&lt;TaskRunEvent['type'], true&gt;</code>，这是 Go 侧的对应物</div></div>
+      <div class="card"><div class="t">执行链四节都验</div>
+        <div class="d">快照 → claude 真写盘 → 差集 → 入库。只断言流上有 <code>artifact</code> 事件证明不了第四节；
+        只查库证明不了流上有回显。<strong>先去磁盘确认文件真在</strong>，否则验的只是我们自己的簿记</div></div>
+      <div class="card"><div class="t">迁移搬运在真库上是 0 行</div>
+        <div class="d">照样写了搬运语句，并<strong>伪造两条老产物验过两条分支</strong>（有 workdir 拼绝对路径 / 没有则原样留）。
+        「反正是空的」一旦不成立，丢的是数据且不报错</div></div>
+    </div>
+  </div>
+
+  <h2>八、待完成 <em>按优先级</em></h2>
   <div class="board">
     <div class="col plan">
       <div class="col-h"><span>M4 · AI Agent（核心诉求）</span><span class="n">P0</span></div>
@@ -546,7 +616,7 @@
     </div>
   </div>
 
-  <h2>八、关键设计决定 <em>为什么这么做</em></h2>
+  <h2>九、关键设计决定 <em>为什么这么做</em></h2>
   <table>
     <tr><th style="width:23%">决定</th><th style="width:38%">理由</th><th>代价 / 边界</th></tr>
     <tr><td>单表多态工作对象</td>
@@ -572,7 +642,7 @@
         <td>需要一次 sudo；pf 规则要 LaunchDaemon 保持</td></tr>
   </table>
 
-  <h2>九、风险与欠账</h2>
+  <h2>十、风险与欠账</h2>
   <div class="note">
     <b>版本控制已建立（本地）</b>
     <p>首次提交 <code>78536d4</code>，172 个文件，分支 <code>main</code>，无远端。

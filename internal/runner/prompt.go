@@ -18,6 +18,10 @@ type Task struct {
 	Links    []string // 关联对象的标题，给模型一点上下文
 	Workdir  string   // 它将要工作的目录
 	Extra    string   // 用户在发起时补的一句话，优先级最高
+	// Acceptance 是验收标准（props.acceptance），Repo 是关联仓库（props.repo）。
+	// 验收标准单独成节而不是混进正文：它是「做到什么程度算完」，模型要逐条对照。
+	Acceptance string
+	Repo       string
 }
 
 // promptTemplate 是喂给 claude 的任务描述。
@@ -41,11 +45,16 @@ const promptTemplate = `你正在协助处理一个来自「产品工作台」�
 {{if .Status}}状态：{{.Status}}
 {{end}}{{if .Priority}}优先级：{{.Priority}}
 {{end}}{{if .DueAt}}到期：{{.DueAt}}
+{{end}}{{if .Repo}}关联仓库：{{.Repo}}
 {{end}}{{if .Links}}关联：
 {{range .Links}}  - {{.}}
 {{end}}{{end}}
+
 {{if .Body}}## 任务描述
 {{.Body}}
+
+{{end}}{{if .Acceptance}}## 验收标准
+{{.Acceptance}}
 
 {{end}}{{if .Extra}}## 本次执行的补充要求
 {{.Extra}}
@@ -63,6 +72,8 @@ func BuildPrompt(t Task) string {
 	t.Title = strings.TrimSpace(t.Title)
 	t.Body = strings.TrimSpace(t.Body)
 	t.Extra = strings.TrimSpace(t.Extra)
+	t.Acceptance = strings.TrimSpace(t.Acceptance)
+	t.Repo = strings.TrimSpace(t.Repo)
 
 	var sb strings.Builder
 	if err := promptTmpl.Execute(&sb, t); err != nil {

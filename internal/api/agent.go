@@ -168,7 +168,10 @@ func (s *Server) handleListAgentArtifacts(w http.ResponseWriter, r *http.Request
 		s.fail(w, r, err)
 		return
 	}
-	items, err := s.st.ListAgentArtifacts(r.Context(), id)
+	// 产物已经统一到 artifacts 表，这里按会话过滤。路由保持原样是因为
+	// 「这个会话产出了什么」仍然是对话框侧栏的一个真实读法；
+	// 它现在只是同一份数据的一个切片，而不是另一份数据。
+	items, _, err := s.st.ListArtifacts(r.Context(), domain.ArtifactFilter{SessionID: id})
 	if err != nil {
 		s.fail(w, r, err)
 		return

@@ -239,8 +239,11 @@ func (r *Runner) Run(ctx context.Context, userText string, emit func(StreamEvent
 				Summary: res.Summary, ObjectID: res.ObjectID,
 			})
 			if a := res.Artifact; a != nil {
+				// 发相对路径，不是 a.Path。0012 之后 Path 存的是绝对路径，
+				// 直接发出去会让对话里出现一长串 /Users/…/ 前缀——而用户刚刚
+				// 就是在这个目录里让它写的文件，前缀对他没有任何信息量。
 				size := a.Size
-				emit(StreamEvent{Type: "artifact", Path: a.Path, Size: &size})
+				emit(StreamEvent{Type: "artifact", Path: a.RelPath, Size: &size})
 			}
 
 			msgs = append(msgs, Message{

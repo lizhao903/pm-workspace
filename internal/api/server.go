@@ -115,6 +115,12 @@ func (s *Server) routes(m routeRegistrar) {
 	m.HandleFunc("POST /api/objects/{id}/links", s.handleCreateLink)
 	m.HandleFunc("GET /api/objects/{id}/revisions", s.handleObjectRevisions)
 
+	// 开发任务闭环：进展与领取。进展是服务端追加（只插入不更新），
+	// 不走 PATCH body——读出来拼一段再整体写回，两个会话同时写就会丢一段。
+	m.HandleFunc("GET /api/objects/{id}/progress", s.handleListProgress)
+	m.HandleFunc("POST /api/objects/{id}/progress", s.handleAppendProgress)
+	m.HandleFunc("POST /api/objects/{id}/claim", s.handleClaimObject)
+
 	// /api/shortcuts/reorder 必须先于 /api/shortcuts/{id} 注册，否则 reorder 会被当成一个 id。
 	m.HandleFunc("GET /api/shortcuts", s.handleListShortcuts)
 	m.HandleFunc("POST /api/shortcuts", s.handleCreateShortcut)
@@ -175,6 +181,15 @@ func (s *Server) routes(m routeRegistrar) {
 	m.HandleFunc("DELETE /api/agent/sessions/{id}", s.handleDeleteAgentSession)
 	m.HandleFunc("POST /api/agent/workdir/check", s.handleCheckWorkdir)
 	m.HandleFunc("POST /api/agent/chat", s.handleAgentChat)
+
+	// 输出产物。/api/artifacts/stats 是字面量，比 /api/artifacts/{id} 更具体，
+	// ServeMux 优先匹配它——不会有 id="stats" 的请求打到 GetArtifact 上。
+	m.HandleFunc("GET /api/artifacts", s.handleListArtifacts)
+	m.HandleFunc("GET /api/artifacts/stats", s.handleArtifactStats)
+	m.HandleFunc("POST /api/artifacts", s.handleCreateArtifact)
+	m.HandleFunc("GET /api/artifacts/{id}", s.handleGetArtifact)
+	m.HandleFunc("PATCH /api/artifacts/{id}", s.handleUpdateArtifact)
+	m.HandleFunc("DELETE /api/artifacts/{id}", s.handleDeleteArtifact)
 
 	// 目录浏览。browse / shortcuts / mkdir 三个都是固定路径，互不遮挡。
 	m.HandleFunc("GET /api/fs/browse", s.handleFsBrowse)
@@ -276,7 +291,7 @@ func devCORS(next http.Handler) http.Handler {
 			h.Set("Access-Control-Allow-Origin", "*")
 		}
 		h.Set("Access-Control-Allow-Methods", "GET, POST, PATCH, DELETE, OPTIONS")
-		h.Set("Access-Control-Allow-Headers", "Content-Type, X-Actor-Source")
+		h.Set("Access-Control-Allow-Headers", "Content-Type, X-Actor-Source, X-Actor-Name, X-Actor-Session")
 		h.Set("Access-Control-Max-Age", "600")
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusNoContent)

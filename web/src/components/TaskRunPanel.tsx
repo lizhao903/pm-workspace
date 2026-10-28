@@ -259,6 +259,15 @@ export default function TaskRunPanel({ object, onGoDetail }: TaskRunPanelProps) 
                   expanded={openErrors.has(it.id)}
                   onToggle={() => toggleError(it.id)}
                 />
+              ) : it.kind === 'artifact' ? (
+                // 收尾时登记下来的产出。和工具行区分开：工具行说的是「它做了什么」，
+                // 这一行说的是「留下了什么」——后者是用户跑完之后真正要找的东西。
+                <div className="tr-artifact" key={it.id}>
+                  <span className={it.artifactNew ? 'tr-art-tag tr-art-new' : 'tr-art-tag'}>
+                    {it.artifactNew ? '新建' : '改动'}
+                  </span>
+                  <span className="mono truncate" title={it.text}>{it.text}</span>
+                </div>
               ) : it.kind === 'notice' ? (
                 <div className={it.tone === 'error' ? 'tr-notice tr-notice-err' : 'tr-notice'} key={it.id}>
                   {it.text}

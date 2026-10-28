@@ -15,6 +15,12 @@ const revisionLimitMax = 500
 
 // addRevision 落一条字段级变更。ts 由调用方传，保证同一次更新里的多条修订时间戳一致。
 func addRevision(ctx context.Context, tx *sql.Tx, objectID, field, oldVal, newVal string, a store.Actor, ts string) error {
+	_, err := insertRevision(ctx, tx, objectID, field, oldVal, newVal, a, ts)
+	return err
+}
+
+// insertRevision 和 addRevision 一样，只是把新行的 id 交回来——进展要用它作为自己的 id。
+func insertRevision(ctx context.Context, tx *sql.Tx, objectID, field, oldVal, newVal string, a store.Actor, ts string) (string, error) {
 	actor := a.Name
 	if actor == "" {
 		actor = store.DefaultActor.Name
@@ -23,13 +29,14 @@ func addRevision(ctx context.Context, tx *sql.Tx, objectID, field, oldVal, newVa
 	if source == "" {
 		source = store.DefaultActor.Source
 	}
+	id := idgen.Prefixed("rev")
 	if _, err := tx.ExecContext(ctx, `INSERT INTO revisions
 		(id, object_id, field, old_value, new_value, actor, source, created_at)
 		VALUES (?,?,?,?,?,?,?,?)`,
-		idgen.Prefixed("rev"), objectID, field, oldVal, newVal, actor, source, ts); err != nil {
-		return fmt.Errorf("insert revision: %w", err)
+		id, objectID, field, oldVal, newVal, domain.ComposeActor(actor, a.Session), source, ts); err != nil {
+		return "", fmt.Errorf("insert revision: %w", err)
 	}
-	return nil
+	return id, nil
 }
 
 // tiebreak 用 rowid 而不是 id：created_at 是秒级，同一次多字段更新写出的多条修订
@@ -68,6 +75,7 @@ func scanRevisions(rows *sql.Rows) ([]*domain.Revision, error) {
 			return nil, err
 		}
 		r.CreatedAt = parseTime(created)
+		r.ActorName, r.SessionID = domain.SplitActor(r.Actor)
 		out = append(out, &r)
 	}
 	return out, rows.Err()

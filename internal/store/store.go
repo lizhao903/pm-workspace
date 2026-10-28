@@ -11,6 +11,9 @@ import (
 type Actor struct {
 	Name   string // 默认 "me"
 	Source string // ui|api|agent|import
+	// Session 是发起这次写入的会话标识（如 Claude Code 的会话 id），可空。
+	// 落库时和 Name 拼进 revisions.actor，见 domain.ComposeActor。
+	Session string
 }
 
 var DefaultActor = Actor{Name: "me", Source: "api"}
@@ -21,6 +24,15 @@ var DefaultActor = Actor{Name: "me", Source: "api"}
 // 测试替身的兜底必须是同一个值。三处各写一个 20，其中一处被改掉时不会有任何
 // 东西变红——测试在替身上绿，生产返回另一个条数。
 const DefaultRunLimit = 20
+
+// DefaultArtifactLimit 同理，是产物列表不指定条数时的一页长度。
+// 比执行历史大一档：产物页是个清单，一屏只给 20 条会让「统计全部产物」
+// 变成不停翻页。
+const DefaultArtifactLimit = 100
+
+// DefaultProgressLimit 是进展列表不指定条数时的长度。一条开发任务一般十几条进展，
+// 给 100 足够一次读完，又不会把半年的流水全搬出来。
+const DefaultProgressLimit = 100
 
 type Store interface {
 	Close() error
@@ -69,6 +81,20 @@ type Store interface {
 	// 修订历史
 	ListRevisions(ctx context.Context, objectID string, limit int) ([]*domain.Revision, error)
 	RecentRevisions(ctx context.Context, limit int) ([]*domain.Revision, error)
+
+	// 进展（开发任务闭环）
+	//
+	// 进展落在 revisions 里（field='progress'），只插入不更新，所以两个会话同时追加
+	// 不会互相覆盖——这正是不能让调用方「读出正文、拼上一段、整体写回」的原因。
+	// ListProgress 返回**最近** limit 条，最近的在前，和执行历史同一个读法；
+	// limit <= 0 取 DefaultProgressLimit。
+	ListProgress(ctx context.Context, objectID string, limit int) ([]*domain.Progress, error)
+	// AppendProgress 追加一条进展。in.Status 非空时在同一事务里切状态。
+	AppendProgress(ctx context.Context, objectID string, in domain.ProgressInput, a Actor) (*domain.Progress, error)
+	// ClaimObject 领取：在一个写事务里检查「有没有被别人领走」并改状态、负责人、记进展。
+	// 检查和写入必须在同一个事务里，否则两个会话同时领会都通过检查。
+	// 被占用时返回 ErrConflict，message 写明是谁、哪个会话。
+	ClaimObject(ctx context.Context, objectID string, in domain.ClaimInput, a Actor) (*domain.ClaimResult, error)
 
 	// 快捷访问
 	ListShortcutGroups(ctx context.Context) ([]*domain.ShortcutGroup, error)
@@ -144,8 +170,30 @@ type Store interface {
 	ListAgentMessages(ctx context.Context, sessionID string, limit int) ([]*domain.AgentMessage, error)
 	AppendAgentMessage(ctx context.Context, m *domain.AgentMessage) (*domain.AgentMessage, error)
 
-	ListAgentArtifacts(ctx context.Context, sessionID string) ([]*domain.AgentArtifact, error)
-	RecordAgentArtifact(ctx context.Context, a *domain.AgentArtifact) (*domain.AgentArtifact, error)
+	// 输出产物
+	//
+	// 这一组取代了 0007 的 ListAgentArtifacts/RecordAgentArtifact。产物不再是
+	// agent 会话的附属物：它可能来自内置 agent、Claude Code 执行、用户手工登记，
+	// 或别的 agent 通过 MCP 回写。挂在会话下面的话，后三种无处可放。
+
+	// ListArtifacts 按 filter 返回产物，最近登记的在前。
+	// total 是**不含 Limit/Offset** 的命中总数，产物页要靠它显示「共 N 件」。
+	ListArtifacts(ctx context.Context, f domain.ArtifactFilter) (items []*domain.Artifact, total int, err error)
+	GetArtifact(ctx context.Context, id string) (*domain.Artifact, error)
+	CreateArtifact(ctx context.Context, in domain.ArtifactInput) (*domain.Artifact, error)
+	UpdateArtifact(ctx context.Context, id string, p domain.ArtifactPatch) (*domain.Artifact, error)
+	DeleteArtifact(ctx context.Context, id string) error
+
+	// RecordArtifact 是自动来源（agent 写盘、执行后扫目录）的入口：
+	// 同一来源范围内路径相同就更新那一条，不新增。
+	// 和 CreateArtifact 分开是因为手工登记**需要**能重复——同一个本地文件
+	// 先发 Confluence 再发飞书是两条合理记录，去重会把第二条吃掉。
+	RecordArtifact(ctx context.Context, in domain.ArtifactInput) (*domain.Artifact, error)
+
+	// ArtifactStats 返回产物页顶部的汇总数。它走的是和 ListArtifacts 同一个
+	// filter，所以「筛选后的统计」和「筛选后的列表」永远对得上——
+	// 各写一套 WHERE 的话，两个数字会在某个条件下悄悄分叉。
+	ArtifactStats(ctx context.Context, f domain.ArtifactFilter) (*domain.ArtifactStats, error)
 
 	// 备份与导出
 	Migrations(ctx context.Context) ([]domain.MigrationRecord, error)

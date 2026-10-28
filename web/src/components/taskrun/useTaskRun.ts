@@ -4,7 +4,7 @@ import { api } from '../../lib/api'
 import type { TaskRun, TaskRunRequest } from '../../lib/types'
 import { streamTaskRun } from './sse'
 
-export type RunItemKind = 'text' | 'tool' | 'tool_result' | 'notice'
+export type RunItemKind = 'text' | 'tool' | 'tool_result' | 'notice' | 'artifact'
 
 /** 工具行的状态。一直没等到 tool_result 就停在 running——执行被取消时正是这样，
  *  它是诚实的：用户能看出 claude 当时卡在哪一步。流结束时不做统一收尾。 */
@@ -24,6 +24,10 @@ export interface RunItem {
   toolError?: string
   /** notice 的语气：报错标红，其余按中性提示 */
   tone?: 'info' | 'error'
+  /** artifact 行：登记下来的产物。path 是相对工作目录的路径 */
+  artifactId?: string
+  artifactNew?: boolean
+  artifactSize?: number
 }
 
 export interface UseTaskRun {
@@ -200,6 +204,14 @@ export function useTaskRun(objectId: string): UseTaskRun {
             sawTerminal = true
             if (ev.run_id) { runIdRef.current = ev.run_id; setRunId(ev.run_id) }
             setExitCode(typeof ev.exit_code === 'number' ? ev.exit_code : 0)
+            break
+          case 'artifact':
+            // 收尾时扫目录扫出来的产出，在 done 之前到。
+            // 单独成行而不是并进 notice：用户扫一眼要能数清这次产出了几件。
+            push({
+              id: nextId(), kind: 'artifact', text: ev.path,
+              artifactId: ev.artifact_id, artifactNew: ev.is_new, artifactSize: ev.size,
+            })
             break
           case 'error':
             sawTerminal = true
