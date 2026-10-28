@@ -235,4 +235,17 @@ func TestLocalDirsGuardSecrets(t *testing.T) {
 	}
 	mustCode(t, do(s, "POST", "/api/local-dirs", `{"path":`+jsonStr(hid)+`}`), http.StatusForbidden, "mount hidden dir")
 	mustCode(t, do(s, "GET", "/api/fs/read?path="+filepath.Join(data, "vault.key"), ""), http.StatusForbidden, "read vault.key")
+
+	// 别的实例的数据目录（不是本实例的 DataDir）挂上了，库文件和密钥文件也不给读
+	other := tmpDirUnderTmp(t)
+	for _, f := range []string{"pm.db", "pm.db-wal", "vault.key", "id.pem", "note.md"} {
+		if err := os.WriteFile(filepath.Join(other, f), []byte("x"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	mustCode(t, do(s, "POST", "/api/local-dirs", `{"path":`+jsonStr(other)+`}`), http.StatusCreated, "mount other data dir")
+	for _, f := range []string{"pm.db", "pm.db-wal", "vault.key", "id.pem"} {
+		mustCode(t, do(s, "GET", "/api/fs/read?path="+filepath.Join(other, f), ""), http.StatusForbidden, "read "+f)
+	}
+	mustCode(t, do(s, "GET", "/api/fs/read?path="+filepath.Join(other, "note.md"), ""), http.StatusOK, "read note.md")
 }
