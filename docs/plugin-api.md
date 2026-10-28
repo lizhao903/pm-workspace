@@ -363,7 +363,7 @@ type ObjectTypeDef struct {
 
 ```go
 r.ObjectType(plugin.ObjectTypeDef{
-	ID: "video", Name: "视频", Plural: "视频", RefPrefix: "VID", Icon: "video", Color: "#e8590c",
+	ID: "videos_clip", Name: "视频", Plural: "视频", RefPrefix: "VID", Icon: "video", Color: "#e8590c",
 	Statuses: []domain.Status{{Key: "script", Label: "写稿"}, {Key: "recording", Label: "录制"}, {Key: "published", Label: "已发布", Terminal: true}},
 })
 ```

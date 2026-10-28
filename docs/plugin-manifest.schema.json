@@ -1,0 +1,131 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pm-workspace.local/schemas/plugin-manifest.schema.json",
+  "title": "插件清单（plugin.json）",
+  "description": "插件 API 1.0.0 的清单格式，规范见 docs/plugin-api.md 第 1 节。Schema 只表达结构；和插件 id 相关的前缀、内核保留字、依赖是否存在、强依赖成环、连接器冲突由 internal/plugin 和 frontend/src/core/plugin 校验，两边共用 docs/plugin-manifest-examples/ 的样例。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id", "name", "version", "core", "provides", "permissions"],
+  "properties": {
+    "id": {
+      "description": "插件 id，一经发布不能改；不能是内核保留字（docs/plugin-api.md 1.4）",
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]{1,23}$"
+    },
+    "name": { "description": "显示名", "type": "string", "minLength": 1 },
+    "description": { "description": "一句话说明", "type": "string" },
+    "version": { "description": "插件版本，MAJOR.MINOR.PATCH", "$ref": "#/$defs/version" },
+    "core": { "description": "要求的插件 API 版本范围", "$ref": "#/$defs/range" },
+    "depends": { "description": "强依赖：插件 id 到版本范围", "$ref": "#/$defs/deps" },
+    "optional_depends": { "description": "弱依赖：装了就联动，没装也能用", "$ref": "#/$defs/deps" },
+    "provides": {
+      "description": "本插件注册的扩展点 id，按扩展点分组（docs/plugin-api.md 1.5）",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "modules": { "$ref": "#/$defs/keys" },
+        "settings": { "$ref": "#/$defs/keys" },
+        "object_types": { "description": "等于插件 id 或以 <id>_ 开头", "$ref": "#/$defs/keys" },
+        "connectors": { "description": "全局命名空间，不加插件前缀", "$ref": "#/$defs/keys" },
+        "skills": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "pattern": "^sk_[a-z0-9_]*$" }
+        },
+        "agent_tools": { "description": "以 <id>_ 开头", "$ref": "#/$defs/keys" },
+        "sop_nodes": { "description": "以 <id>_ 开头", "$ref": "#/$defs/keys" },
+        "today_cards": { "description": "以 <id>_ 开头", "$ref": "#/$defs/keys" },
+        "commands": {
+          "description": "<id>.<动作>",
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/event" }
+        },
+        "search": { "$ref": "#/$defs/keys" }
+      }
+    },
+    "emits": {
+      "description": "本插件发布的事件，以 <id>. 开头",
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/event" }
+    },
+    "subscribes": {
+      "description": "订阅的内核事件或别的插件的事件；别的插件要在 depends 或 optional_depends 里",
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/event" }
+    },
+    "adopts": {
+      "description": "认领插件化之前就在内核里的东西，只认白名单里的（docs/plugin-api.md 1.6）",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "object_types": { "$ref": "#/$defs/keys" },
+        "routes": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "pattern": "^/api/" }
+        }
+      }
+    },
+    "permissions": {
+      "description": "需要的权限（docs/plugin-api.md 3.1），可以是空数组",
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "anyOf": [
+          {
+            "enum": [
+              "fs:read:project",
+              "fs:write:project",
+              "fs:read:attachments",
+              "fs:write:attachments",
+              "fs:read:any",
+              "fs:write:any",
+              "network:localhost",
+              "network:im",
+              "network:media-platforms",
+              "network:market-data",
+              "network:exchanges",
+              "network:any",
+              "process:spawn",
+              "trade:live"
+            ]
+          },
+          { "type": "string", "pattern": "^secrets:[a-z][a-z0-9_]*$" }
+        ]
+      }
+    },
+    "migrations": {
+      "description": "迁移目录，相对插件目录",
+      "type": "string",
+      "minLength": 1,
+      "not": { "pattern": "(^/|\\\\|(^|/)\\.\\.(/|$))" }
+    },
+    "table_prefix": { "description": "表名前缀，必须是 <id>_（共享前缀白名单除外）", "type": "string", "pattern": "^[a-z][a-z0-9_]*_$" }
+  },
+  "dependentRequired": { "migrations": ["table_prefix"] },
+  "$defs": {
+    "version": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]{0,8})\\.(0|[1-9][0-9]{0,8})\\.(0|[1-9][0-9]{0,8})$"
+    },
+    "range": {
+      "description": "空格分隔的比较，每项是 >=、>、<=、<、=、^、~ 加版本或精确版本；省略写法只允许跟比较运算符。不支持 ||、*、x、预发布标签",
+      "type": "string",
+      "pattern": "^\\s*(((>=|<=|>|<)(0|[1-9][0-9]{0,8})(\\.(0|[1-9][0-9]{0,8})){0,2})|((=|\\^|~)?(0|[1-9][0-9]{0,8})\\.(0|[1-9][0-9]{0,8})\\.(0|[1-9][0-9]{0,8})))(\\s+(((>=|<=|>|<)(0|[1-9][0-9]{0,8})(\\.(0|[1-9][0-9]{0,8})){0,2})|((=|\\^|~)?(0|[1-9][0-9]{0,8})\\.(0|[1-9][0-9]{0,8})\\.(0|[1-9][0-9]{0,8}))))*\\s*$"
+    },
+    "deps": {
+      "type": "object",
+      "propertyNames": { "pattern": "^[a-z][a-z0-9_]{1,23}$" },
+      "additionalProperties": { "$ref": "#/$defs/range" }
+    },
+    "keys": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "type": "string", "pattern": "^[a-z][a-z0-9_]*$" }
+    },
+    "event": { "type": "string", "pattern": "^[a-z][a-z0-9_]*\\.[a-z][a-z0-9_]*$" }
+  }
+}

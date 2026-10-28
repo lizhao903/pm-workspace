@@ -1,0 +1,12 @@
+{
+  "id": "kanban",
+  "name": "看板",
+  "version": "0.1.0",
+  "core": "^1.0.0",
+  "provides": {
+    "modules": ["kanban"],
+    "widgets": ["kanban_board"],
+    "today_card": ["kanban_due"]
+  },
+  "permissions": []
+}

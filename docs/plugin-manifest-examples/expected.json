@@ -1,0 +1,33 @@
+{
+  "comment": "前后端共用的清单样例。valid/ 下的清单一起组成环境（env.plugins），每个样例按 Validate(样例, env) 校验，errors 是期望的错误，逐字比对、顺序一致；空数组表示合法。",
+  "env": { "api_version": "1.0.0", "plugins": ["valid/projects.json", "valid/im.json", "valid/videos.json"] },
+  "cases": {
+    "valid/projects.json": [],
+    "valid/im.json": [],
+    "valid/videos.json": [],
+    "invalid/bad-version-range.json": [
+      "depends.projects 版本范围不合法：>=1.x"
+    ],
+    "invalid/missing-dependency.json": [
+      "depends.im 要求 ^1.0.0，已有版本 0.1.0",
+      "depends.notes 依赖的插件不存在"
+    ],
+    "invalid/unknown-permission.json": [
+      "permissions[1] 是未知权限：network:internet",
+      "permissions[2] 是未知权限：secrets:Media"
+    ],
+    "invalid/unknown-extension-point.json": [
+      "provides.today_card 是未知扩展点",
+      "provides.widgets 是未知扩展点"
+    ],
+    "invalid/bad-fields.json": [
+      "homepage 是未知字段",
+      "version 不是合法的版本号（MAJOR.MINOR.PATCH）：1.0",
+      "provides.agent_tools[0] 必须以 clips_ 开头：upload_clip",
+      "emits[0] 必须是 clips.<事件名>：videos.uploaded",
+      "subscribes[0] 订阅了 projects 的事件，但 projects 不在 depends 或 optional_depends 里：projects.prototype_started",
+      "subscribes[1] 是未知的内核事件：object.deleted",
+      "table_prefix 有迁移时必填"
+    ]
+  }
+}
