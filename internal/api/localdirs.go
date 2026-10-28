@@ -94,6 +94,20 @@ func (s *Server) forbiddenMount(p string) bool {
 	return hasHiddenSeg(real) || s.inDataDir(real)
 }
 
+// sensitiveFile：库文件、密钥、证书这类文件不管在哪个挂载目录里都不给读。
+// 数据目录只拦得住本实例自己的；另一个实例（比如测试实例挂了正式库所在的仓库）的 data/ 靠这一道。
+func sensitiveFile(p string) bool {
+	base := strings.ToLower(filepath.Base(p))
+	if base == "vault.key" {
+		return true
+	}
+	switch filepath.Ext(base) {
+	case ".db", ".sqlite", ".sqlite3", ".key", ".pem", ".p12", ".pfx", ".keychain":
+		return true
+	}
+	return strings.HasSuffix(base, ".db-wal") || strings.HasSuffix(base, ".db-shm") || strings.HasSuffix(base, ".db-journal")
+}
+
 // insideMountedDir 判断 p（绝对路径）解析软链后是否落在某个挂载目录内、且挂载目录以下没有隐藏段。
 // 路径不存在时按字面量判断，让 ReadFile 回 404 而不是 403。
 func (s *Server) insideMountedDir(r *http.Request, p string) (bool, error) {
@@ -101,7 +115,7 @@ func (s *Server) insideMountedDir(r *http.Request, p string) (bool, error) {
 		return true, nil // 相对路径交给 ReadFile 回 400
 	}
 	real := realPath(p)
-	if s.inDataDir(real) {
+	if s.inDataDir(real) || sensitiveFile(real) {
 		return false, nil
 	}
 	dirs, err := s.opt.LocalDirs.List(r.Context())
