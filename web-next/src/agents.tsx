@@ -231,7 +231,10 @@ export function AgentsPage({ agents, runs, models, onOpen, onNew, onToggle }: {
 
 export interface Ctx { tasks: Task[]; messages: Message[]; contacts: Contact[]; sops: { id: string; name: string }[] }
 
-function reply(agent: Agent, text: string, ctx: Ctx): { text: string; calls: ToolCall[] } {
+/** 权限没开时提示去哪里开：调试对话就在配置页左边，会话页要指到设置里 */
+const PERM_HINT = '可以在左边「工具与权限」里打开'
+
+function reply(agent: Agent, text: string, ctx: Ctx, permHint = PERM_HINT): { text: string; calls: ToolCall[] } {
   const can = (k: string) => agent.abilities[k] && agent.abilities[k] !== 'off'
   const mode = (k: string): ToolCall['state'] => (agent.abilities[k] === 'auto' ? 'done' : 'pending')
   const calls: ToolCall[] = []
@@ -291,13 +294,15 @@ function reply(agent: Agent, text: string, ctx: Ctx): { text: string; calls: Too
     } else denied.push('写文档')
   }
 
-  if (denied.length) lines.push(`这件事要用到「${denied.join('、')}」，这个 Agent 没开这项权限，可以在左边「工具与权限」里打开。`)
+  if (denied.length) lines.push(`这件事要用到「${denied.join('、')}」，这个 Agent 没开这项权限，${permHint}。`)
   if (!lines.length) lines.push(`我是${agent.name || '这个 Agent'}。${agent.desc || ''}可以问我任务、消息、联系人，或者让我建任务、起草回复。`)
   return { text: lines.join('\n'), calls }
 }
 
 /** 对话面板：消息由外面管（会话要存下来，调试不存），工具调用按权限执行或等确认 */
-export function ChatPane({ agent, msgs, onMsgs, ctx, onExecute, head, examples, placeholderNote, autoSend }: {
+export function ChatPane({ agent, msgs, onMsgs, ctx, onExecute, head, examples, placeholderNote, autoSend, permHint }: {
+  /** 权限没开时回复里指向哪里打开，默认是配置页左边的「工具与权限」 */
+  permHint?: string
   /** 刚建的空会话自动发出去的第一句话（快速新建会话用） */
   autoSend?: string
   agent: Agent
@@ -316,13 +321,14 @@ export function ChatPane({ agent, msgs, onMsgs, ctx, onExecute, head, examples, 
   useEffect(() => { listRef.current?.scrollTo({ top: listRef.current.scrollHeight, behavior: 'smooth' }) }, [msgs, thinking])
 
   const send = (t = text) => {
-    if (!t.trim() || thinking) return
+    // 停用、已删除的 Agent 只能回看：按钮、⌘Enter、示例问题都从这里拦
+    if (!t.trim() || thinking || !agent.enabled) return
     const uid = nextId()
     onMsgs((m) => [...m, { id: uid, role: 'user', text: t.trim(), at: new Date().toISOString() }])
     setText('')
     setThinking(true)
     window.setTimeout(() => {
-      const r = reply(agent, t, ctx)
+      const r = reply(agent, t, ctx, permHint)
       // 自动档的写操作直接执行，拿回真实输出
       const calls = r.calls.map((c) => (c.state === 'done' && abilityOf(c.tool).write ? { ...c, output: onExecute(c) } : c))
       onMsgs((m) => [...m, { id: uid + 1, role: 'agent', text: r.text, calls, at: new Date().toISOString() }])
@@ -352,7 +358,7 @@ export function ChatPane({ agent, msgs, onMsgs, ctx, onExecute, head, examples, 
         {!msgs.length && examples && (
           <div className="ai-examples">
             <div className="ai-examples-title">试着问它</div>
-            {examples.map((e) => <button key={e} className="ai-example" onClick={() => send(e)}>{e}</button>)}
+            {examples.map((e) => <button key={e} className="ai-example" disabled={!agent.enabled} onClick={() => send(e)}>{e}</button>)}
           </div>
         )}
         {msgs.map((m) => (
@@ -370,11 +376,11 @@ export function ChatPane({ agent, msgs, onMsgs, ctx, onExecute, head, examples, 
       </div>
       <div className="ai-input">
         <div className="ai-box">
-          <textarea rows={2} value={text} placeholder={`和${agent.name || '这个 Agent'}对话…`} onChange={(e) => setText(e.target.value)}
+          <textarea rows={2} value={text} placeholder={agent.enabled ? `和${agent.name || '这个 Agent'}对话…` : '只能回看，不能再发消息'} onChange={(e) => setText(e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); send() } }} />
           <div className="ai-box-foot">
             <span className="field-hint-line">{placeholderNote ?? '⌘Enter 发送；写操作按权限停下来等你确认'}</span>
-            <button className="act act-primary" disabled={!text.trim() || thinking || !agent.enabled} title={!agent.enabled ? 'Agent 已停用' : undefined} onClick={() => send()}>发送</button>
+            <button className="act act-primary" disabled={!text.trim() || thinking || !agent.enabled} title={!agent.enabled ? placeholderNote ?? 'Agent 已停用' : undefined} onClick={() => send()}>发送</button>
           </div>
         </div>
       </div>

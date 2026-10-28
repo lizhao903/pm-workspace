@@ -70,6 +70,12 @@ function whenGroup(iso: string) {
   return d.getTime() >= week0 ? '本周' : '更早'
 }
 
+/** 已删除的 Agent 的占位：停用、没有权限，只用来回看会话 */
+const goneAgent = (id: string): Agent => ({
+  id, name: '已删除的 Agent', desc: '', color: 'var(--faint)', model: '', instructions: '', abilities: {}, avatar: { kind: 'icon', value: 'robot' },
+  skills: [], mcps: [], kbs: [], triggers: [], enabled: false, created_at: '',
+})
+
 const More = ({ left, onMore }: { left: number; onMore: () => void }) => (left > 0 ? <button className="agent-more" onClick={onMore}>显示更多（还有 {left} 条）</button> : null)
 
 /* ---------- 会话 ---------- */
@@ -123,7 +129,9 @@ export function ChatsView({ agents, sessions, current, ctx, pickRequest, onOpen,
   const pickList = pkw ? recent.filter((a) => `${a.name} ${a.desc}`.toLowerCase().includes(pkw)) : recent
   const setF = (f: () => void) => { f(); setLimit(PAGE) }
   const cur = sessions.find((s) => s.id === current) ?? null
-  const agent = cur ? agentOf(cur.agent_id) : undefined
+  const found = cur ? agentOf(cur.agent_id) : undefined
+  // Agent 删了会话还在：换一个停用的占位 Agent，照样能回看历史，发不了消息
+  const agent = cur && !found ? goneAgent(cur.agent_id) : found
   const pending = (s: Session) => s.messages.some((m) => m.calls?.some((c) => c.state === 'pending'))
 
   return (
@@ -194,10 +202,11 @@ export function ChatsView({ agents, sessions, current, ctx, pickRequest, onOpen,
           <ChatPane key={cur.id} agent={agent} msgs={cur.messages} onMsgs={(f) => onMsgs(cur.id, f)} ctx={ctx} onExecute={(c) => onExecute(cur.id, c)}
             autoSend={firstMessage?.sessionId === cur.id ? firstMessage.text : undefined}
             examples={CHAT_EXAMPLES}
-            placeholderNote={agent.enabled ? undefined : '这个 Agent 已停用，只能回看'}
+            placeholderNote={!found ? '这个 Agent 已删除，只能回看' : agent.enabled ? undefined : '这个 Agent 已停用，只能回看'}
+            permHint="可以到「设置 / Agent / 工具与权限」里打开"
             head={(
               <div className="chat-head">
-                <AgentAvatar agent={agent} size={28} />
+                {found && <AgentAvatar agent={agent} size={28} />}
                 {editing ? (
                   <input className="chat-title-input" autoFocus defaultValue={cur.title}
                     onBlur={(e) => { onRename(cur.id, e.target.value.trim() || cur.title); setEditing(false) }}
@@ -205,7 +214,7 @@ export function ChatsView({ agents, sessions, current, ctx, pickRequest, onOpen,
                 ) : (
                   <button className="chat-title" onClick={() => setEditing(true)} title="点一下改标题">{cur.title}</button>
                 )}
-                <button className="link-btn chat-agent" onClick={() => onOpenAgent(agent.id)}>{agent.name}</button>
+                {found ? <button className="link-btn chat-agent" onClick={() => onOpenAgent(agent.id)}>{agent.name}</button> : <span className="list-sub">已删除的 Agent</span>}
                 <span className="spacer" />
                 {confirmDel ? (
                   <>
@@ -226,12 +235,38 @@ export function ChatsView({ agents, sessions, current, ctx, pickRequest, onOpen,
 
 /* ---------- 执行记录 ---------- */
 
-export function RunsView({ agents, runs, onSettle }: { agents: Agent[]; runs: AgentRun[]; onSettle: (runId: string, i: number, ok: boolean) => void }) {
+export function RunsView({ agents, runs, onSettle, focus, onFocused }: {
+  agents: Agent[]
+  runs: AgentRun[]
+  onSettle: (runId: string, i: number, ok: boolean) => void
+  /** 从产出结果的来源跳过来：展开这一条、滚到它、高亮一下 */
+  focus?: string | null
+  onFocused?: () => void
+}) {
   const [filter, setFilter] = useState('')
   const [st, setSt] = useState<'' | AgentRun['status']>('')
   const [limit, setLimit] = useState(PAGE)
   /** 手动展开、收起过的；没动过的只展开等你确认的 */
   const [toggled, setToggled] = useState<Record<string, boolean>>({})
+  const [lit, setLit] = useState<string | null>(null)
+  useEffect(() => {
+    if (!focus) return
+    const i = runs.findIndex((r) => r.id === focus)
+    if (i >= 0) {
+      // 清掉筛选、放开条数，保证这一条在列表里
+      setFilter(''); setSt(''); setLimit(Math.max(PAGE, runs.length))
+      setToggled((t) => ({ ...t, [focus]: true }))
+      setLit(focus)
+    }
+    onFocused?.()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focus])
+  useEffect(() => {
+    if (!lit) return
+    document.querySelector(`[data-run="${lit}"]`)?.scrollIntoView({ block: 'center', behavior: 'smooth' })
+    const t = window.setTimeout(() => setLit(null), 2400)
+    return () => window.clearTimeout(t)
+  }, [lit])
   // 等你确认的置顶
   const rows = runs.filter((r) => (!filter || r.agent_id === filter) && (!st || r.status === st))
     .sort((a, b) => Number(b.status === 'waiting') - Number(a.status === 'waiting') || b.at.localeCompare(a.at))
@@ -247,13 +282,15 @@ export function RunsView({ agents, runs, onSettle }: { agents: Agent[]; runs: Ag
         </div>
         <AgentFilter agents={agents} value={filter} onChange={(v) => { setFilter(v); setLimit(PAGE) }} used={used} />
       </div>
-      {!rows.length && <div className="empty"><div className="empty-title">没有执行记录</div><div className="list-sub">Agent 被触发后，每次调用了什么工具、输入输出是什么都会留在这里</div></div>}
+      {!rows.length && (runs.length
+        ? <div className="empty"><div className="empty-title">没有符合条件的执行记录</div><div className="list-sub">换个状态或 Agent 看看</div></div>
+        : <div className="empty"><div className="empty-title">没有执行记录</div><div className="list-sub">Agent 被触发后，每次调用了什么工具、输入输出是什么都会留在这里</div></div>)}
       <div className="agent-runs">
         {rows.slice(0, limit).map((r) => {
           const a = agents.find((x) => x.id === r.agent_id)
           const open = toggled[r.id] ?? r.status === 'waiting'
           return (
-            <div key={r.id} className={cls('agent-run', r.status === 'waiting' && 'waiting', !open && 'folded')}>
+            <div key={r.id} data-run={r.id} className={cls('agent-run', r.status === 'waiting' && 'waiting', !open && 'folded', lit === r.id && 'lit')}>
               <button className="agent-run-head" onClick={() => setToggled({ ...toggled, [r.id]: !open })} aria-expanded={open} title={open ? '收起' : '展开看调用'}>
                 <svg className={cls('call-chev', open && 'open')} viewBox="0 0 16 16" width="10" height="10"><path d="m6 3.5 4.5 4.5L6 12.5" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" /></svg>
                 {a && <AgentAvatar agent={a} size={24} />}
@@ -288,12 +325,16 @@ export function OutputsView({ agents, outputs, sessions, runs, onOpenTarget, onO
   outputs: AgentOutput[]
   sessions: Session[]
   runs: AgentRun[]
-  onOpenTarget: (o: AgentOutput) => void
+  /** 打开目标；目标已经不在了返回提示文字，不跳页面 */
+  onOpenTarget: (o: AgentOutput) => string | void
   onOpenOrigin: (o: AgentOutput) => void
 }) {
   const [filter, setFilter] = useState('')
   const [kind, setKind] = useState<'' | OutputKind>('')
   const [limit, setLimit] = useState(PAGE)
+  /** 点了但目标已删除的产出：id -> 提示 */
+  const [gone, setGone] = useState<Record<string, string>>({})
+  const open = (o: AgentOutput) => { const why = onOpenTarget(o); if (why) setGone((g) => ({ ...g, [o.id]: why })) }
   const used = useMemo(() => outputs.map((o) => o.agent_id), [outputs])
   const rows = outputs.filter((o) => (!filter || o.agent_id === filter) && (!kind || o.kind === kind)).sort((a, b) => b.at.localeCompare(a.at))
   const kinds = (Object.keys(OUTPUT_KIND) as OutputKind[]).filter((k) => outputs.some((o) => o.kind === k))
@@ -310,8 +351,9 @@ export function OutputsView({ agents, outputs, sessions, runs, onOpenTarget, onO
         </div>
         <AgentFilter agents={agents} value={filter} onChange={(v) => { setFilter(v); setLimit(PAGE) }} used={used} />
       </div>
-      {!rows.length ? (
-        <div className="empty"><div className="empty-title">还没有产出</div><div className="list-sub">Agent 建了任务、写了文档、发了回复后会出现在这里</div></div>
+      {!rows.length ? (outputs.length
+        ? <div className="empty"><div className="empty-title">没有符合条件的产出</div><div className="list-sub">换个类型或 Agent 看看</div></div>
+        : <div className="empty"><div className="empty-title">还没有产出</div><div className="list-sub">Agent 建了任务、写了文档、发了回复后会出现在这里</div></div>
       ) : (
         <div className="task-table">
           <div className="output-row task-th"><span>类型</span><span>产出</span><span>Agent</span><span>来源</span><span>时间</span></div>
@@ -320,11 +362,14 @@ export function OutputsView({ agents, outputs, sessions, runs, onOpenTarget, onO
             return (
               <div key={o.id} className="output-row">
                 <span><span className={`out-kind out-${o.kind}`}>{OUTPUT_KIND[o.kind]}</span></span>
-                <span className="ellipsis">
-                  {o.target || o.kind === 'doc' ? <button className="link-btn" onClick={() => onOpenTarget(o)}>{o.title}</button> : o.title}
+                <span className="output-title">
+                  {o.target || o.kind === 'doc'
+                    ? <button className={cls('link-btn ellipsis', gone[o.id] && 'link-gone')} onClick={() => open(o)}>{o.title}</button>
+                    : <span className="ellipsis">{o.title}</span>}
+                  {gone[o.id] && <span className="out-gone">{gone[o.id]}</span>}
                 </span>
                 <span className="output-agent">{a && <AgentAvatar agent={a} size={18} />}<span className="ellipsis">{a?.name ?? '已删除'}</span></span>
-                <span className="ellipsis"><button className="link-btn link-muted" onClick={() => onOpenOrigin(o)}>{originLabel(o)}</button></span>
+                <span className="ellipsis output-origin"><button className="link-btn link-muted" onClick={() => onOpenOrigin(o)}>{originLabel(o)}</button></span>
                 <span className="run-muted">{timeAgo(o.at)}</span>
               </div>
             )

@@ -842,7 +842,9 @@ button.run-row:hover { background: var(--panel-2); }
 @media (max-width: 760px) {
   /* 手机：内容树和阅读二选一；树占满，点一条进阅读，「返回目录」回来 */
   .tree-nav { width: auto; flex-direction: column; align-items: stretch; padding: 0; border-bottom: 0; overflow: hidden; }
-  .shell[data-lib='tree'] .tree-nav { flex: 1; min-height: 0; }
+  /* 顶栏（目录名和筛选）放在树上面，正文区收起；不然顶栏掉到树下面，下面空一大块 */
+  .shell[data-lib='tree'] .tree-nav { flex: 1; min-height: 0; order: 2; }
+  .shell[data-lib='tree'] .main { flex: none; order: 1; }
   .shell[data-lib='tree'] .content { display: none; }
   .shell[data-lib='reader'] .tree-nav { display: none; }
   .shell[data-lib] .lib-reader { display: block; }
@@ -972,7 +974,8 @@ button.run-row:hover { background: var(--panel-2); }
 .ai-examples { display: flex; flex-direction: column; gap: 6px; margin-top: 4px; }
 .ai-examples-title { font-size: 11.5px; color: var(--faint); font-weight: 600; }
 .ai-example { text-align: left; padding: 8px 10px; border-radius: var(--r-sm); border: 1px dashed var(--line-2); font-size: 12.5px; line-height: 1.55; color: var(--muted); }
-.ai-example:hover { border-color: var(--accent-line); color: var(--text); background: var(--panel); }
+.ai-example:not(:disabled):hover { border-color: var(--accent-line); color: var(--text); background: var(--panel); }
+.ai-example:disabled { cursor: default; opacity: 0.55; }
 .ai-input { flex: none; padding: 8px 12px 12px; border-top: 1px solid var(--line); display: flex; flex-direction: column; gap: 8px; }
 .ai-chips { display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; }
 .ai-chips .fchip { flex: none; }
@@ -1628,9 +1631,19 @@ input.mono { font-family: var(--mono); }
 .out-reply { background: color-mix(in srgb, #0c8599 12%, transparent); color: color-mix(in srgb, #0c8599 85%, var(--text)); }
 .out-sop { background: var(--warn-soft); color: var(--warn); }
 .link-muted { color: var(--muted); }
+.output-title { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.output-title > .link-btn { min-width: 0; }
+.link-gone { color: var(--faint); text-decoration: line-through; }
+.out-gone { flex: none; font-size: 11.5px; color: var(--danger); }
+.agent-run.lit { border-color: var(--accent-line); box-shadow: 0 0 0 3px var(--accent-soft); transition: box-shadow 0.3s; }
 @container (max-width: 700px) {
-  .output-row { grid-template-columns: 64px minmax(0, 1fr) 80px; }
-  .output-row > :nth-child(3), .output-row > :nth-child(4) { display: none; }
+  /* 窄了只藏 Agent 列；来源挪到产出下面一行，手机上也能回到当时的会话或执行记录 */
+  .output-row { grid-template-columns: 64px minmax(0, 1fr) 80px; row-gap: 2px; }
+  .output-row > :nth-child(3), .output-row.task-th > :nth-child(4) { display: none; }
+  .output-row > .output-origin { grid-column: 2; grid-row: 2; font-size: 12px; }
+  .output-row > :nth-child(1) { grid-column: 1; grid-row: 1 / span 2; }
+  .output-row > :nth-child(2) { grid-column: 2; grid-row: 1; }
+  .output-row > :nth-child(5) { grid-column: 3; grid-row: 1 / span 2; }
 }
 @media (max-width: 760px) {
   .chats { grid-template-columns: minmax(0, 1fr); grid-template-rows: 40% minmax(0, 1fr); }

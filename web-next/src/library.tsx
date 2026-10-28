@@ -107,6 +107,8 @@ export interface LibraryModel {
   /** 顶栏筛选项；「全部」由界面自己加 */
   kinds: { key: string; label: string; count: number }[]
   rows: Doc[]
+  /** 当前筛选 key，空串为全部；空状态按它分情况说 */
+  kind: string
   /** 内容树一级文件夹的顺序（显示名）；本地目录不用 */
   order?: string[]
 }
@@ -123,7 +125,7 @@ export function libraryModel(ws: Workspace, items: ContentItem[], folders: Local
   const kw = q.trim().toLowerCase()
   const rows = docs.filter((d) => (!kind || (kind === 'starred' ? d.starred : d.kind === kind))
     && (!kw || [d.title, d.body, d.dirs.join('/'), ...d.tags].some((v) => v.toLowerCase().includes(kw))))
-  return { folder, title: folder ? folder.name : '工作台文档', docs, kinds, rows }
+  return { folder, title: folder ? folder.name : '工作台文档', docs, kinds, rows, kind }
 }
 
 /** libraryModel 由 App 直接调用，拿不到枚举 context；组件里再按枚举换一遍分类显示名和顺序。
@@ -180,6 +182,15 @@ export function LibraryBar({ model, kind, onKind, onRefresh }: {
 }
 
 /* ---------- 二级菜单：内容树 + 底部切换工作目录 ---------- */
+
+/** 内容树为空时说清是哪种空：搜不到、一篇都没有、这个分类下没有、筛选后没有 */
+function emptyText(model: LibraryModel, q: string) {
+  if (q.trim()) return '没有匹配的内容'
+  if (!model.docs.length) return model.folder ? '这个目录下没有可读的文本文件' : '还没有文档'
+  if (model.kind === 'starred') return '还没有加星标的文档'
+  if (model.kind && !model.folder) return '这个分类下还没有内容'
+  return '没有符合筛选的内容'
+}
 
 interface TreeDir { name: string; path: string; dirs: TreeDir[]; files: Doc[]; count: number }
 
@@ -293,7 +304,7 @@ export function LibraryTree({ ws, model, items, folders, selected, onSelect, onS
       </div>
       <div className="tree" role="tree">
         {model.rows.length === 0
-          ? <div className="tree-empty">{q.trim() ? '没有匹配的内容' : model.folder ? '这个目录下没有可读的文本文件' : '这个分类下还没有内容'}</div>
+          ? <div className="tree-empty">{emptyText(model, q)}</div>
           : renderDir(tree, 0)}
       </div>
 
