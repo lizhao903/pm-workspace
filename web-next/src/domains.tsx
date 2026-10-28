@@ -124,7 +124,7 @@ export function DomainsPage({ settings: s, routes, protos, onSettings, onRoutes,
   }
 
   return (
-    <div className="page page-fill">
+    <div className="page page-fill dm-page">
       <PageTitle parent="设置" desc="给本机跑的服务配好记的域名，自己和局域网里的同事不用记端口" actions={
         <label className="switch-line"><input type="checkbox" checked={s.enabled} onChange={(e) => set({ enabled: e.target.checked })} /><span className="switch" />{s.enabled ? '已启用' : '未启用'}</label>
       }>内网域名</PageTitle>

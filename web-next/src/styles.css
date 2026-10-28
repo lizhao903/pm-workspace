@@ -1270,6 +1270,20 @@ button.run-row:hover { background: var(--panel-2); }
   .enum-editor { padding: 16px 16px 0; }
   .enum-foot { margin: 16px -16px 0; padding: 10px 16px; }
 }
+/* 768 宽时侧栏和二级菜单还在，正文只剩不到 300px：按正文宽度而不是视口收成上下两栏。
+   容器查询管不到容器自己，所以容器放在外面的 .content 上 */
+.content:has(> .enum-page) { container: enum-page / inline-size; }
+@container enum-page (max-width: 620px) {
+  .enum-page { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); }
+  .enum-list { border-right: 0; border-bottom: 1px solid var(--line); max-height: 34vh; }
+  .enum-editor { padding: 16px 16px 0; }
+  .enum-editor > .list-head { flex-direction: column; align-items: stretch; }
+  .enum-foot { margin: 16px -16px 0; padding: 10px 16px; }
+}
+@container (max-width: 340px) {
+  .enum-row { grid-template-columns: 26px 22px minmax(60px, 1fr) 36px 46px; gap: 6px; padding: 6px 8px; }
+  .enum-order { flex-direction: column; }
+}
 
 /* ---------- Agent ---------- */
 .agent-avatar { display: inline-grid; place-items: center; border-radius: 30%; color: #fff; font-weight: 700; flex: none; }
@@ -1925,6 +1939,19 @@ input.mono { font-family: var(--mono); }
 .mod-order { display: flex; gap: 2px; }
 .mod-text { display: flex; flex-direction: column; gap: 1px; flex: 1; min-width: 0; font-size: 13px; }
 @media (max-width: 760px) { .ws-layout { grid-template-columns: minmax(0, 1fr); } }
+/* 768 宽时正文只剩不到 300px：按页面宽度收成单栏，分组头和模块行放不下就换行 */
+.ws-page { container: ws-page / inline-size; }
+@container ws-page (max-width: 640px) {
+  .ws-layout { grid-template-columns: minmax(0, 1fr); }
+  .ws-edit .hook-sec { padding: 12px; }
+  .ws-edit .name-with-mark { flex-wrap: wrap; }
+  .ws-edit .name-with-mark > .field { flex-basis: 140px; }
+  .ws-edit .mount-head { flex-wrap: wrap; }
+  .grp-head, .mod-row { flex-wrap: wrap; }
+  .grp-name { flex: 1 1 120px; width: auto; min-width: 0; }
+  .mod-row { gap: 8px; }
+  .mod-text { flex-basis: 100px; }
+}
 
 /* ---------- 今日 ---------- */
 .today-sum { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin-bottom: 16px; }
@@ -2192,7 +2219,7 @@ input.mono { font-family: var(--mono); }
 @media (max-width: 760px) { .side-actions { display: none; } }
 
 /* ---------- 设置 / 内网域名 ---------- */
-.dm-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 14px; margin-bottom: 14px; }
+.dm-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(340px, 100%), 1fr)); gap: 14px; margin-bottom: 14px; }
 .dm-off { opacity: .55; }
 .dm-sub { margin-top: 14px; }
 .dm-suffix { display: flex; align-items: center; gap: 4px; height: 36px; padding: 0 10px; border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--panel-2); min-width: 0; }
@@ -2230,6 +2257,17 @@ input.mono { font-family: var(--mono); }
   .dm-row { grid-template-columns: 40px minmax(0, 1fr) auto; }
   .dm-target, .dm-check { display: none; }
   .dm-check-msg { grid-column: 1 / -1; }
+}
+/* 768 宽时正文只剩不到 300px：标题栏、添加表单换行，域名行的操作挪到第二行 */
+.dm-page { container: dm-page / inline-size; }
+@container dm-page (max-width: 640px) {
+  .dm-page .mount-head { flex-wrap: wrap; }
+  .dm-add .dm-suffix { width: 100%; }
+  .dm-ip .text-box { flex: 1 1 120px; width: auto; min-width: 0; }
+}
+@container (max-width: 360px) {
+  .dm-row { grid-template-columns: 40px minmax(0, 1fr); }
+  .dm-acts { grid-column: 2 / -1; justify-content: flex-start; }
 }
 
 /* 产品 logo */
