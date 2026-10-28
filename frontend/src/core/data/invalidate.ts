@@ -43,6 +43,8 @@ export type Change =
   | { kind: 'webhook-delivery'; id: string }
   /** 模型服务商新建、编辑（含启停、换或清空密钥）、设默认、删除（MP-01b） */
   | { kind: 'agent-provider' }
+  /** IM 身份增删改（CT-03b）；删联系人时身份跟着删，也报它 */
+  | { kind: 'im-identity' }
 
 // 对象一变，所有对象列表（任务列表、今日、项目的任务标签页）、单个对象及其进展和修订、
 // 计数（侧栏红点、逾期徽标）都可能变；干系人名册上的任务数也跟着变；今日聚合（待验收、逾期、今天到期、插件卡片）也是。
@@ -109,6 +111,9 @@ export function invalidationsFor(c: Change): QueryKey[] {
     case 'agent-provider':
       // 列表（会话里的服务商下拉同一份）；在用的模型下拉跟着按新配置重新测
       return [agentKeys.providers]
+    case 'im-identity':
+      // 联系人列表的 IM 列由身份合出来，身份列表一刷就跟着变
+      return [dataKeys.identities.all]
   }
 }
 

@@ -76,3 +76,56 @@
 .ct-kv dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
 .ct-note-title { font-size: var(--fs-sm); font-weight: 600; color: var(--muted); margin-bottom: var(--sp-3); }
 .ct-note p { margin: 0 0 var(--sp-3); white-space: pre-wrap; }
+
+/* ---------- 抽屉：快捷动作、复制、IM 渠道、换头像、底部确认条（CT-03b） ---------- */
+.ct-quick { display: flex; gap: var(--sp-4); margin: calc(-1 * var(--sp-4)) 0 var(--sp-10); flex-wrap: wrap; }
+.ct-quick-btn {
+  display: inline-flex; align-items: center; justify-content: center; flex: 1; min-width: 88px; height: 32px; padding: 0 var(--sp-5);
+  border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--panel); color: var(--text); font-size: var(--fs-sm); font-weight: 500;
+}
+.ct-quick-btn:hover:not(.disabled):not(:disabled) { background: var(--hover); }
+.ct-quick-btn.disabled, .ct-quick-btn:disabled { color: var(--faint); cursor: not-allowed; pointer-events: none; }
+.ct-copy { margin-left: var(--sp-4); padding: 1px 6px; border-radius: 4px; color: var(--accent); font-size: var(--fs-xs); }
+.ct-copy:hover { background: var(--accent-soft); }
+.ct-copy-fail { color: var(--danger); }
+.ct-im-list { display: flex; flex-direction: column; margin-bottom: var(--sp-10); border: 1px solid var(--line); border-radius: var(--r); }
+.ct-im-row { display: flex; align-items: center; gap: var(--sp-5); min-height: 38px; padding: 0 var(--sp-5); border-bottom: 1px solid var(--line); min-width: 0; }
+.ct-im-row:last-child { border-bottom: 0; }
+.ct-im-row .ct-copy { margin-left: 0; }
+.ct-im-mark-full { min-width: 64px; height: 22px; font-size: var(--fs-xs); }
+.ct-photo { position: relative; flex: none; }
+.ct-photo-btn { display: block; padding: 0; border-radius: 50%; }
+.ct-photo-btn:focus-visible { outline: 2px solid var(--accent-line); outline-offset: 2px; }
+.ct-photo-menu {
+  position: absolute; z-index: 5; top: calc(100% + 6px); left: 0; display: flex; flex-direction: column; gap: 2px; width: 200px; padding: var(--sp-3);
+  border: 1px solid var(--line); border-radius: var(--r); background: var(--panel); box-shadow: var(--shadow);
+}
+.ct-photo-menu > button { height: 30px; padding: 0 var(--sp-4); border-radius: 4px; text-align: left; font-size: var(--fs-sm); }
+.ct-photo-menu > button:hover { background: var(--hover); }
+.ct-photo-hint { padding: var(--sp-2) var(--sp-4); font-size: var(--fs-xs); color: var(--faint); }
+.ct-photo-menu .field-err { padding: 0 var(--sp-4) var(--sp-2); }
+.ct-foot-confirm, .ct-foot-form { display: flex; flex-direction: column; gap: var(--sp-4); width: 100%; min-width: 0; }
+.ct-foot-btns { display: flex; align-items: center; justify-content: flex-end; gap: var(--sp-4); }
+.ct-blocked { color: var(--text); font-size: var(--fs-sm); line-height: var(--lh); }
+
+/* ---------- 抽屉表单 ---------- */
+.ct-form .field-hint { margin-left: var(--sp-4); font-weight: 400; color: var(--faint); font-size: var(--fs-xs); }
+.ct-name-row { display: flex; align-items: flex-end; gap: var(--sp-6); }
+.ct-name-row > .field { flex: 1; }
+.ct-seg { display: flex; padding: 2px; border-radius: var(--r-sm); background: var(--hover); overflow-x: auto; }
+.ct-seg button { display: flex; align-items: center; flex: 1; justify-content: center; height: 28px; padding: 0 var(--sp-4); border-radius: 4px; color: var(--muted); font-size: var(--fs-sm); white-space: nowrap; }
+.ct-seg button:hover { color: var(--text); }
+.ct-seg button.on { background: var(--panel); color: var(--text); box-shadow: var(--shadow-sm); font-weight: 500; }
+.ct-im-form { display: flex; flex-direction: column; gap: var(--sp-4); }
+.ct-im-form-item { display: flex; flex-direction: column; gap: 3px; }
+.ct-im-form-row { display: flex; align-items: center; gap: var(--sp-5); }
+.ct-im-form-row .input { flex: 1; }
+.ct-mono-input { font-family: var(--mono); font-size: var(--fs-sm); }
+.ct-im-taken { padding-left: 76px; font-size: var(--fs-xs); color: var(--warn); }
+.ct-tag-input {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 5px; min-height: 36px; padding: 4px var(--sp-4);
+  border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--panel-2);
+}
+.ct-tag-input:focus-within { border-color: var(--accent-line); background: var(--panel); box-shadow: 0 0 0 3px var(--accent-soft); }
+.ct-tag-input input { flex: 1; min-width: 100px; border: 0; outline: 0; background: none; color: var(--text); font: inherit; padding: 2px 0; }
+.ct-tag-input input::placeholder { color: var(--faint); }

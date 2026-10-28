@@ -1,5 +1,5 @@
 // 联系人列表的纯函数（SPEC-contacts-1）：分组、搜索、排序、分段、相对时间。页面状态和渲染在 Page.tsx。
-import type { Contact, DictItem, Dictionary } from '../../core/data'
+import { imOf, type Contact, type DictItem, type Dictionary, type Identity } from '../../core/data'
 import { initialRank, nameInitial } from './pinyin'
 
 /** 分组切换里最多放几个分组，其余收进「更多分组」 */
@@ -38,15 +38,27 @@ export function groupItems(dicts: Dictionary[] | undefined): GroupItem[] {
 /** 联系人的分组 key：后端默认空串，按默认分组算 */
 export const groupOf = (c: Pick<Contact, 'group'>) => c.group.trim() || DEFAULT_GROUP
 
-/** IM 渠道（SPEC-contacts-0 的 IM_CHANNELS）；加渠道只改这张表。IM 身份表（CT-01b）上线前接口不带 im */
-export type ImChannel = { key: string; label: string; short: string; color: string }
+/** IM 渠道（SPEC-contacts-0 的 IM_CHANNELS）；加渠道只改这张表。身份来自 /api/im-identities（CT-01b），合进 Contact.im */
+export type ImChannel = {
+  key: string; label: string; short: string; color: string
+  /** 表单里提示填什么 */
+  hint: string
+  /** 能直达会话的给链接，没有公开 deep link 的只提供复制 */
+  link?: (id: string) => string
+}
 export const IM_CHANNELS: ImChannel[] = [
-  { key: 'wechat', label: '微信', short: '微信', color: '#07c160' },
-  { key: 'lark', label: '飞书', short: '飞书', color: '#3370ff' },
-  { key: 'slack', label: 'Slack', short: 'Slack', color: '#611f69' },
-  { key: 'telegram', label: 'Telegram', short: 'TG', color: '#229ed9' },
-  { key: 'qq', label: 'QQ', short: 'QQ', color: '#12b7f5' },
+  { key: 'wechat', label: '微信', short: '微信', color: '#07c160', hint: '微信号，不是昵称' },
+  { key: 'lark', label: '飞书', short: '飞书', color: '#3370ff', hint: '飞书 / Lark 的用户 ID 或登录邮箱' },
+  { key: 'slack', label: 'Slack', short: 'Slack', color: '#611f69', hint: 'Member ID，形如 U01ABCDEF' },
+  { key: 'telegram', label: 'Telegram', short: 'TG', color: '#229ed9', hint: '用户名，形如 @name', link: (id) => `https://t.me/${id.replace(/^@+/, '')}` },
+  { key: 'qq', label: 'QQ', short: 'QQ', color: '#12b7f5', hint: 'QQ 号' },
 ]
+
+/** 身份合进联系人：身份接口能用时每个人都带 im（没有身份是空对象），不能用时保持 undefined，列表不显示 IM 列 */
+export function mergeIm(list: Contact[], byContact: Map<string, Identity[]> | null): Contact[] {
+  if (!byContact) return list
+  return list.map((c) => ({ ...c, im: imOf(byContact.get(c.id)) }))
+}
 
 /** 接口带不带 IM 身份：不带时不显示 IM 列和渠道筛选 */
 export const hasImField = (list: Contact[]) => list.some((c) => c.im !== undefined)
@@ -143,3 +155,47 @@ export function groupView(items: GroupItem[], contacts: Contact[]) {
 export function groupColor(items: GroupItem[], key: string) {
   return items.find((g) => g.key === key)?.color ?? GONE_COLOR
 }
+
+// ---- 新建和编辑（SPEC-contacts-3） ----
+
+export type Draft = {
+  name: string; company: string; title: string; phone: string; email: string; group: string
+  tags: string[]; photo: string; note: string; im: Record<string, string>
+}
+
+/** 新建的空白值；分组取枚举默认值 */
+export const blankDraft = (group = DEFAULT_GROUP): Draft => ({
+  name: '', company: '', title: '', phone: '', email: '', group, tags: [], photo: '', note: '', im: {},
+})
+
+export const draftOf = (c: Contact): Draft => ({
+  name: c.name, company: c.company, title: c.title, phone: c.phone, email: c.email, group: groupOf(c),
+  tags: c.tags, photo: c.photo, note: c.note, im: { ...(c.im ?? {}) },
+})
+
+const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+
+/** 校验：姓名必填，邮箱非空时要像邮箱；电话不校验 */
+export function validate(d: Draft): { name: string; email: string } {
+  return {
+    name: d.name.trim() ? '' : '姓名必填',
+    email: d.email.trim() && !EMAIL.test(d.email.trim()) ? '邮箱格式不对' : '',
+  }
+}
+
+/** 表单可选的分组：启用的，加上当前值（即使已停用或字典里没有） */
+export function groupOptions(items: GroupItem[], current: string): GroupItem[] {
+  const out = items.filter((g) => g.enabled || g.key === current)
+  if (current && !items.some((g) => g.key === current)) out.push({ key: current, label: current, color: GONE_COLOR, enabled: false })
+  return out
+}
+
+/** 删除前的检查：名册只在零引用时允许删除，有负责或参与的事就拦下，改为归档 */
+export function deleteBlock(c: Pick<Contact, 'name' | 'owned_count' | 'participating_count'>): string | null {
+  const parts = [c.owned_count > 0 && `负责 ${c.owned_count} 件事`, c.participating_count > 0 && `参与 ${c.participating_count} 件事`].filter(Boolean)
+  if (!parts.length) return null
+  return `「${c.name}」还${parts.join('、')}，不能删除。可以改为归档：不再出现在联系人里，事项上的负责人和参与人保持不变`
+}
+
+/** 撞名 409 的提示（后端是英文）：要求加区分 */
+export const dupNameText = (name: string) => `已经有叫「${name}」的联系人了，名字加个区分再保存，比如「${name}（公司）」`

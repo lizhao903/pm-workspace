@@ -1,10 +1,28 @@
-import { EmptyState, PageTitle } from '../../core/ui'
+// 项目插件的页面（PJ-01c）：没有二级菜单，模块根是全部项目列表，/<根>/<项目 id>[/<标签>] 是详情。
+// 一级菜单点「项目」回到根路径，也就是列表；打开项目时记进最近打开，列表按它排序。
+import { Navigate, useLocation, useNavigate, useParams } from 'react-router'
+import { ListPage } from './ListPage'
+import { tabOf, touchRecent, type ProjectTab } from './model'
+import { ProjectPage } from './ProjectPage'
+import './projects.css'
 
 export default function Page() {
+  const rest = useParams()['*'] ?? ''
+  const { pathname } = useLocation()
+  const navigate = useNavigate()
+  // 模块根路径：去掉子路径，模块以后挂到别的路径下也不用改
+  const root = pathname.slice(0, pathname.length - rest.length).replace(/\/+$/, '')
+  const [id, tabSeg, ...extra] = rest.split('/').filter(Boolean).map(decodeURIComponent)
+
+  const open = (pid: string, tab?: ProjectTab) => {
+    touchRecent(pid)
+    navigate(`${root}/${encodeURIComponent(pid)}${tab && tab !== 'overview' ? `/${tab}` : ''}`)
+  }
+  if (!id) return <ListPage onOpen={open} />
+  const tab = tabOf(tabSeg)
+  if (!tab || extra.length) return <Navigate to={`${root}/${encodeURIComponent(id)}`} replace />
   return (
-    <section>
-      <PageTitle>项目</PageTitle>
-      <EmptyState title="还没有项目" desc="项目插件已启用，项目列表还在开发中。" />
-    </section>
+    <ProjectPage id={id} tab={tab} onAll={() => navigate(root)}
+      onTab={(t) => navigate(`${root}/${encodeURIComponent(id)}${t === 'overview' ? '' : `/${t}`}`, { replace: true })} />
   )
 }

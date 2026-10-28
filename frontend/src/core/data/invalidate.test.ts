@@ -338,3 +338,25 @@ describe('联系人的失效（CT-03a）', () => {
     expect(await stale({ kind: 'object', id: 'obj_a' })).toEqual(['contacts', 'stakeholders'])
   })
 })
+
+describe('IM 身份的失效（CT-03b）', () => {
+  const keys = {
+    identities: dataKeys.identities.list,
+    contacts: dataKeys.contacts.list,
+    types: dataKeys.objectTypes,
+  } satisfies Record<string, QueryKey>
+  async function stale(c: Change) {
+    const qc = new QueryClient()
+    for (const k of Object.values(keys)) qc.setQueryData(k, {})
+    await applyChange(qc, c)
+    return (Object.keys(keys) as (keyof typeof keys)[]).filter((n) => qc.getQueryState(keys[n])?.isInvalidated)
+  }
+
+  it('身份增删改只刷身份列表，联系人资料不动', async () => {
+    expect(await stale({ kind: 'im-identity' })).toEqual(['identities'])
+  })
+
+  it('改联系人资料不动身份', async () => {
+    expect(await stale({ kind: 'stakeholder' })).toEqual(['contacts'])
+  })
+})

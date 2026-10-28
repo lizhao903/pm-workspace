@@ -1,0 +1,110 @@
+import { beforeEach, describe, expect, it } from 'vitest'
+import type { ObjectStatus, ProjectView } from '../../core/data'
+import {
+  RECENT_MAX, colorOf, diffForm, dirName, groupByStatus, loadRecent, markText, matchQuery, resetRecentMemo, sortProjects, tabOf,
+  touchRecent, type Form,
+} from './model'
+import { PROJECT_COLORS } from './markIcons'
+
+const pv = (id: string, x: Partial<ProjectView> = {}): ProjectView => ({
+  id, ref: id, name: id, desc: '', status: 'planning', color: '', mark: { text: '' }, root: '', related: [],
+  created_at: '', updated_at: '', ...x,
+})
+const statuses: ObjectStatus[] = [
+  { key: 'planning', label: '筹备中', color: '', terminal: false },
+  { key: 'active', label: '进行中', color: '', terminal: false },
+  { key: 'done', label: '已结项', color: '', terminal: true },
+]
+
+describe('项目列表', () => {
+  it('搜名称、说明、项目目录，不区分大小写', () => {
+    const p = pv('a', { name: 'PMW 新版', desc: '重做前端', root: '/Volumes/project/Web-Next' })
+    expect(matchQuery(p, 'pmw')).toBe(true)
+    expect(matchQuery(p, '前端')).toBe(true)
+    expect(matchQuery(p, 'web-next')).toBe(true)
+    expect(matchQuery(p, '后端')).toBe(false)
+  })
+
+  it('最近打开排前面，新的在前；没打开过的保持原顺序排后面', () => {
+    const list = ['a', 'b', 'c', 'd'].map((x) => pv(x))
+    expect(sortProjects(list, 'recent', ['c', 'a']).map((p) => p.id)).toEqual(['c', 'a', 'b', 'd'])
+    expect(sortProjects(list, 'recent', []).map((p) => p.id)).toEqual(['a', 'b', 'c', 'd'])
+  })
+
+  it('名称按中文排序规则', () => {
+    const list = ['张', '阿', '李'].map((n, i) => pv(String(i), { name: n }))
+    expect(sortProjects(list, 'name', []).map((p) => p.name)).toEqual(['阿', '李', '张'])
+  })
+
+  it('按后端的状态集分组，空组不要，认不出的状态归「其他」', () => {
+    const rows = [pv('a', { status: 'active' }), pv('b', { status: 'planning' }), pv('c', { status: 'gone' }), pv('d', { status: 'active' })]
+    const g = groupByStatus(rows, statuses)
+    expect(g.map((x) => [x.label, x.items.map((p) => p.id)])).toEqual([['筹备中', ['b']], ['进行中', ['a', 'd']], ['其他', ['c']]])
+  })
+
+  it('底色没填时按 id 固定给一个，标志文字取名称第一个字，都空时「项」', () => {
+    expect(colorOf({ id: 'x', color: '#123456' })).toBe('#123456')
+    expect(PROJECT_COLORS).toContain(colorOf({ id: 'obj_1', color: '' }))
+    expect(colorOf({ id: 'obj_1', color: '' })).toBe(colorOf({ id: 'obj_1', color: '' }))
+    expect(markText({ name: '工作台', mark: { text: '' } })).toBe('工')
+    expect(markText({ name: '', mark: { text: '' } })).toBe('项')
+    expect(markText({ name: '工作台', mark: { text: 'PW' } })).toBe('PW')
+  })
+
+  it('目录只显示最后一段', () => {
+    expect(dirName('/Volumes/project/pm-workspace/')).toBe('pm-workspace')
+    expect(dirName('')).toBe('')
+  })
+})
+
+describe('最近打开', () => {
+  beforeEach(() => {
+    const m = new Map<string, string>()
+    globalThis.localStorage = {
+      getItem: (k: string) => m.get(k) ?? null, setItem: (k: string, v: string) => { m.set(k, v) },
+      removeItem: (k: string) => { m.delete(k) }, clear: () => m.clear(), key: () => null, length: 0,
+    } as Storage
+    resetRecentMemo()
+  })
+
+  it('打开的挪到最前，最多记 20 个，存进 localStorage', () => {
+    for (let i = 0; i < 25; i += 1) touchRecent(`p${i}`)
+    touchRecent('p10')
+    const r = loadRecent()
+    expect(r).toHaveLength(RECENT_MAX)
+    expect(r[0]).toBe('p10')
+    expect(r.filter((x) => x === 'p10')).toHaveLength(1)
+    resetRecentMemo()
+    expect(loadRecent()).toEqual(r)
+  })
+
+  it('存储里是坏数据时当没有', () => {
+    localStorage.setItem('pmw-projects-recent', '{oops')
+    expect(loadRecent()).toEqual([])
+  })
+})
+
+describe('设置的保存口径', () => {
+  const base: Form = { name: '工作台', desc: '', status: 'planning', root: '', color: '#3d4fd6', mark: { text: '', icon: 'folder' }, related: [] }
+
+  it('名称清空不存，目录去首尾空白', () => {
+    expect(diffForm({ ...base, name: '  ' }, base)).toEqual({ patch: {}, props: {} })
+    expect(diffForm({ ...base, root: ' /tmp/a ' }, base).patch).toEqual({ workdir: '/tmp/a' })
+  })
+
+  it('关联目录路径为空的行不存；只加了空行不算改动', () => {
+    expect(diffForm({ ...base, related: [{ path: '', label: '设计稿' }] }, base)).toEqual({ patch: {}, props: {} })
+    expect(diffForm({ ...base, related: [{ path: '/a ', label: '设计稿' }, { path: '', label: '' }] }, base).props)
+      .toEqual({ related: [{ path: '/a', label: '设计稿' }] })
+  })
+
+  it('标志、底色进 props', () => {
+    expect(diffForm({ ...base, mark: { text: '工' }, color: '#0f8a8a' }, base).props).toEqual({ mark: { text: '工' }, color: '#0f8a8a' })
+  })
+
+  it('标签路径认不出来的不给进', () => {
+    expect(tabOf(undefined)).toBe('overview')
+    expect(tabOf('settings')).toBe('settings')
+    expect(tabOf('nope')).toBeNull()
+  })
+})

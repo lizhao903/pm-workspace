@@ -11,4 +11,4 @@
 - 有后端记录的插件（`projects`）不要加进 `enabled.ts`，启停以 `GET /api/plugins` 为准。
 - 插件取数、写数据只走 `core/data`（数据访问层），不 import `core/api`，lint 规则拦着；写完报 `Change` 由失效规则刷新，见 frontend/README「数据访问层」。
 - `hello` 是示例插件，只用来验证加载流程。
-- `projects` 是项目插件，PJ-01a 只有壳（一个空页面），菜单放在「工作」组。
+- `projects` 是项目插件，菜单放在「工作」组：列表页、详情的概览和设置标签（PJ-01c），其余标签是占位，由 PJ-01d、PJ-02b、PJ-03b、PJ-04b 等补。

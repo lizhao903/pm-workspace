@@ -1,0 +1,67 @@
+// 项目详情的框架（SPEC-projects-2）：顶栏「项目 /」回列表、标志、名称、说明；标签条；各标签的右上按钮。
+// 本任务做概览和设置；其余标签按规格占位，由后续任务补（干系人、任务、文档 PJ-01d，沟通 PJ-02b，支持材料 PJ-03b，原型 PJ-04b）
+import { useEffect, useRef } from 'react'
+import { errorText, isApiError, isLiveProject, projectView, useProject } from '../../core/data'
+import { Button, EmptyState, ErrorState, LoadingState, PageTitle, cls } from '../../core/ui'
+import { ProjectMarkView } from './Mark'
+import { Overview } from './Overview'
+import { Settings } from './Settings'
+import { TABS, type ProjectTab } from './model'
+
+export function ProjectPage({ id, tab, onTab, onAll }: {
+  id: string
+  tab: ProjectTab
+  onTab: (t: ProjectTab) => void
+  /** 回到项目列表 */
+  onAll: () => void
+}) {
+  const q = useProject(id)
+  const ref = useRef<HTMLDivElement>(null)
+  // 切换标签时滚回顶部（SPEC-projects-2.3）：滚动的是外壳的内容区
+  useEffect(() => {
+    const box = ref.current?.closest('.shell-content')
+    if (box) box.scrollTop = 0
+  }, [tab])
+
+  const back = <button type="button" className="pj-back" title="回到项目列表" onClick={onAll}>项目</button>
+  const gone = (q.isError && isApiError(q.error) && q.error.code === 'not_found') || (q.data && !isLiveProject(q.data))
+  if (gone) {
+    return (
+      <div className="pj-page">
+        <PageTitle parent={back}>项目不存在</PageTitle>
+        <EmptyState title="这个项目不存在或已删除" action={<Button variant="primary" onClick={onAll}>回到项目列表</Button>} />
+      </div>
+    )
+  }
+  if (q.isPending) return <div className="pj-page"><PageTitle parent={back}>项目</PageTitle><LoadingState /></div>
+  if (q.isError && !q.data) {
+    return (
+      <div className="pj-page">
+        <PageTitle parent={back}>项目</PageTitle>
+        <ErrorState title="项目没加载出来" error={errorText(q.error)} onRetry={() => void q.refetch()} />
+      </div>
+    )
+  }
+  const o = q.data!
+  const p = projectView(o)
+  const cur = TABS.find((t) => t.key === tab)!
+  const actions = tab === 'overview' ? <Button variant="outline" onClick={() => onTab('settings')}>项目设置</Button> : undefined
+
+  return (
+    <div className="pj-page" ref={ref}>
+      <PageTitle parent={back} icon={<ProjectMarkView p={p} size={20} />} desc={p.desc || undefined} actions={actions}>{p.name}</PageTitle>
+      <div className="pj-tabs" role="tablist" aria-label="项目标签">
+        {TABS.map((t) => (
+          <button key={t.key} type="button" role="tab" aria-selected={tab === t.key} className={cls(tab === t.key && 'on')} onClick={() => onTab(t.key)}>
+            {t.label}
+          </button>
+        ))}
+      </div>
+      <div role="tabpanel" aria-label={cur.label}>
+        {tab === 'overview' && <Overview project={o} onTab={onTab} />}
+        {tab === 'settings' && <Settings key={o.id} project={o} onDeleted={onAll} />}
+        {cur.todo && <EmptyState title={`「${cur.label}」还在开发中`} desc={cur.todo} />}
+      </div>
+    </div>
+  )
+}
