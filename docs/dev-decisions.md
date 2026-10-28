@@ -13,6 +13,46 @@
 
 ---
 
+## 2026-10-28 第八批验收、第九批开工
+
+第八批 5 条（DEV-08d、CORE-02a、CORE-04b、REL-02、PROTO-11）全部检查通过，已提交验收并提交代码（6a11d75、04a0589、246fc3c、ee15de7、76d0914）。检查项：gofmt、go vet、go test ./...，前端 npm test 244 条、typecheck、lint、build，原型 tsc -b、smoke-proto 462 步 0 问题。
+
+第九批 5 条：DEV-09、CORE-08、PJ-01a、PROTO-05、QA-03。DEV-09 做完后 M1 的开发闭环就齐了（剩 PROTO-02、PROTO-03 两条原型整理）。CORE-02b、CORE-03a 都要改任务模块，和 DEV-09 冲突，放下一批。
+
+### 提交拆分
+- `cmd/pmw/main.go` 同时有 REL-02（打印快照路径）和 CORE-04b（复用 store 连接）的改动，`core/plugin/registry.ts` 同时有 CORE-02a（命令注册）和 CORE-04b（读 /api/plugins）的改动。按文件不好拆，所以 main.go 随 CORE-04b 提交、registry.ts 随 CORE-02a 提交，提交说明和验收记录里都写了对应关系。DEV-08d 的 `core/api/taskReview.ts` 也随 CORE-02a 的提交进了库。
+- 以后同一批里多个任务改同一个文件时，派活说明里要求各自在回复里列出改动的行，方便拆提交。
+
+### 测试实例再次重启
+- 23:42 重启 7796，现在有 `/api/plugins`（目前为空，正式二进制还没编译进插件）。
+
+### 内核迁移改为一个事务（REL-02，同意）
+- 所有待应用的内核迁移放进同一个事务，任一失败整体回滚。
+- **理由**：逐个提交时中途失败库会停在中间版本，和迁移前的快照对不上。现有迁移里的 `PRAGMA foreign_keys` 在事务里本来就不生效，合并不改变语义。
+- **对真实库的影响**：真实库现在停在 0012，以后用户重启 7777 时会先自动快照到 `data/backups/`，再一次性应用 0013 到 0017（或更新）。快照只有库文件，不含 `vault.key`。主会话已把这段写进契约文档的 migrations 说明。
+
+### 插件管理的取舍（CORE-04b，同意）
+- 路径用 plugin-api.md 4 节写好的 `POST /api/plugins/{id}/install|enable|disable|uninstall`。
+- 删数据的确认值填插件 id；前端「输入插件名」以后在插件管理页做。
+- 前端按 `running` 加载插件，不按 `enabled`：启用但迁移没跑的插件不会起，按 enabled 加载会 404。
+- `enabled.ts` 保留，作为后端没有记录时的回退（示例插件 hello 只有前端）。主会话更新了它的注释和 plugins/README。
+- 没做：升级接口、删数据前的预览接口，留给插件管理页（CORE-09）。
+
+### 外壳的取舍（CORE-02a，同意）
+- 菜单分组先写在外壳里（今日 / 工作 / 沟通，设置在底部），以后由 CORE-10 的工作台配置接管。
+- 主题切换从侧栏底部拿掉，只在命令面板里切，和原型一致。主会话同步了 frontend/README。
+- 任务页二级菜单的位置差异，等 CORE-02b 把任务页迁成内核模块、改用 `InSubnavHost` 时对齐。
+
+### 验收和退回（DEV-08d，同意）
+- 退回的状态取状态表第一个非终态，不写死 todo。
+- 改动行里的字段名和取值还是原始 key（如 `owner_id 设为 stk_…`），要显示中文标签另开任务改 `revisionSummary`。记为已知差距。
+
+### PROTO-11 的取舍（同意）
+- P-1（切换工作台时提示缺插件）等插件管理原型定了再做。
+- 今日「查看全部」只能落在全部任务，原型的任务页状态筛选是页内状态；正式产品带 `status=review` 打开。
+
+---
+
 ## 2026-10-28 第七批验收、第八批开工
 
 第七批 6 条（DEV-08a、DEV-08b、DEV-08c、CORE-07a、TASK-01、PROTO-09）全部检查通过，已提交验收并提交代码（edd4f69、39e017f、d5f5c78、a9aa13f、b6fd8f6、389c7d1）。检查项：gofmt、go vet、go test ./...、events 和 plugin 加 -race，前端 npm test 216 条、typecheck、lint、build，原型 tsc -b、smoke-proto 462 步 0 问题。
