@@ -534,6 +534,42 @@ SSE 事件（形状的唯一真相是 `internal/runner` 的 `Event.MarshalJSON`�
 - 停用时先撤路由，再取消插件的后台任务并等它们退出（最多 10 秒）；数据不动。
 - 启停状态存在 `plugins` 表（0016）：是否安装、是否启用、安装时的版本、安装时间、确认过的权限。全量导出不含这张表。
 
+## 审计日志 audits
+
+记已成功的操作，失败的不记（CORE-08，表 `audits`，0018）。只读接口，没有写和删的路由；全量导出不含这张表。
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| GET | `/api/audits` | `Audit[]` + `meta.total`，最近的在前。query 见下表，都可省略 |
+
+| 参数 | 示例 | 说明 |
+|---|---|---|
+| `target_type` / `target_id` | `object` / `obj_01j…` | 按被操作的东西查，两个都给就是「这一条的审计」 |
+| `kind` | `config,delete` | 分组，逗号分隔多选：`config` `delete` `agent` `order` |
+| `action` | `delete` | 动词，精确匹配 |
+| `actor` | `claude-code` | 按名字匹配，含同名的所有会话；写成 `<name>#<session>` 时精确匹配一个会话 |
+| `source` | `agent` | 即 `X-Actor-Source` |
+| `since` / `until` | `2026-10-28` | 时间区间，两端都含、精确到秒。RFC3339 或 YYYY-MM-DD，纯日期补法与 `due_after` / `due_before` 相同 |
+| `limit` / `offset` | `50` / `0` | 默认 50，最大 200 |
+
+`Audit`：`{id, at, kind, action, target_type, target_id, actor, source, summary, detail}`。
+`actor` 与 `revisions.actor` 同一写法；`summary` 是给人看的一句话；`detail` 是 JSON 对象，键随 `target_type` 不同。
+
+记哪些：
+
+| kind | 何时记 | target_type / action |
+|---|---|---|
+| `config` | 类型、字典、服务商、插件、保险箱的写接口成功后（不分来源） | `object_type`：create/update/delete；`dict_item`：create/update/archive/unarchive/delete，`dictionary`：reorder；`agent_provider`：create/update/delete/set_default；`plugin`：install/enable/disable/uninstall；`secret`：create/rotate/delete |
+| `delete` | 删除成功后（不分来源） | `object`（`detail.hard` 区分软删和彻底删除）、`category`、`tag`（合并标签按删除记，`detail.merged_into`）、`link`、`artifact`、`stakeholder`、`shortcut`、`shortcut_group`、`agent_session` |
+| `agent` | `X-Actor-Source: agent` 的写操作（MCP 都带这个头） | `object`：create/update/restore/progress/claim；`link`、`artifact`、`category`、`tag`、`stakeholder` 的新建和修改 |
+| `order` | 下单，交易插件接入后记 | 预留 |
+
+- Agent 做的配置变更和删除按 `config` / `delete` 记一条，`source` 是 `agent`，不重复记 `agent`。
+- **凭证不进审计**：保险箱和服务商密钥只记 `detail.value` / `detail.api_key` 为「已设置」「已更新」「已清除」，不记明文、密文、长度和 `hint`（`hint` 含明文尾号）。
+- 改字段的审计只记字段名（`detail.fields`），不记新旧值；要看值去 `revisions`。
+- 审计写在业务事务提交之后，写失败只记日志，不让业务写入失败。
+- 服务没接审计时 `GET /api/audits` 回 `internal` 500，message 为 `audit log is not configured on this server`。
+
 ## 运维 admin
 
 | 方法 | 路径 | 说明 |

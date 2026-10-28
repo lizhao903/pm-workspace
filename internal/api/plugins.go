@@ -184,6 +184,7 @@ func (s *Server) handleInstallPlugin(w http.ResponseWriter, r *http.Request) {
 		s.pluginFail(w, r, err)
 		return
 	}
+	s.auditConfig(r, "install", "plugin", id, "安装插件 "+id, map[string]any{"permissions": nonNil(req.Permissions), "backup": backup})
 	s.respondPlugin(w, r, id, map[string]any{"backup": backup})
 }
 
@@ -196,6 +197,7 @@ func (s *Server) handleEnablePlugin(w http.ResponseWriter, r *http.Request) {
 		s.pluginFail(w, r, err)
 		return
 	}
+	s.auditConfig(r, "enable", "plugin", id, "启用插件 "+id, nil)
 	s.respondPlugin(w, r, id, nil)
 }
 
@@ -209,6 +211,7 @@ func (s *Server) handleDisablePlugin(w http.ResponseWriter, r *http.Request) {
 		s.pluginFail(w, r, err)
 		return
 	}
+	s.auditConfig(r, "disable", "plugin", id, "停用插件 "+id, nil)
 	s.respondPlugin(w, r, id, nil)
 }
 
@@ -251,6 +254,9 @@ func (s *Server) handleUninstallPlugin(w http.ResponseWriter, r *http.Request) {
 	if res.Backup != "" {
 		backup = &res.Backup
 	}
+	s.auditConfig(r, "uninstall", "plugin", id, "卸载插件 "+id, map[string]any{
+		"data_deleted": res.DataDeleted, "backup": backup, "dropped_tables": nonNil(res.DroppedTables),
+	})
 	s.respondPlugin(w, r, id, map[string]any{
 		"data_deleted": res.DataDeleted, "backup": backup, "dropped_tables": res.DroppedTables,
 	})

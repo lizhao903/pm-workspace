@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/lizhao903/pm-workspace/internal/audit"
 	"github.com/lizhao903/pm-workspace/internal/domain"
 )
 
@@ -68,6 +69,11 @@ func (s *Server) handleCreateProvider(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, err)
 		return
 	}
+	d := providerDetail(out)
+	if req.APIKey != "" {
+		d["api_key"] = audit.SecretSet
+	}
+	s.auditConfig(r, "create", "agent_provider", out.ID, "新建服务商 "+out.Name, d)
 	respondData(w, http.StatusCreated, out)
 }
 
@@ -87,7 +93,25 @@ func (s *Server) handleUpdateProvider(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, err)
 		return
 	}
+	d := providerDetail(out)
+	d["fields"] = givenFields(map[string]bool{
+		"name": in.Name != nil, "kind": in.Kind != nil, "base_url": in.BaseURL != nil, "model": in.Model != nil,
+		"enabled": in.Enabled != nil, "api_key": in.APIKey != nil, "extra": in.Extra != nil,
+	})
+	// 密钥只记提示，不记值、长度和脱敏尾号
+	if in.APIKey != nil {
+		d["api_key"] = audit.SecretUpdated
+		if *in.APIKey == "" {
+			d["api_key"] = audit.SecretCleared
+		}
+	}
+	s.auditConfig(r, "update", "agent_provider", out.ID, "修改服务商 "+out.Name, d)
 	respondData(w, http.StatusOK, out)
+}
+
+// providerDetail 是服务商审计的公共字段；刻意不带 api_key_masked。
+func providerDetail(p *domain.AgentProvider) map[string]any {
+	return map[string]any{"name": p.Name, "kind": p.Kind, "model": p.Model}
 }
 
 // parseProviderInput 里 api_key 的三态靠 patchField 的「缺失 -> nil」实现：
@@ -123,10 +147,16 @@ func parseProviderInput(body []byte) (domain.AgentProviderInput, error) {
 }
 
 func (s *Server) handleDeleteProvider(w http.ResponseWriter, r *http.Request) {
-	if err := s.st.DeleteProvider(r.Context(), r.PathValue("id")); err != nil {
+	id := r.PathValue("id")
+	label, d := id, map[string]any{}
+	if p, err := s.st.GetProvider(r.Context(), id); err == nil {
+		label, d = p.Name, providerDetail(p)
+	}
+	if err := s.st.DeleteProvider(r.Context(), id); err != nil {
 		s.fail(w, r, err)
 		return
 	}
+	s.auditConfig(r, "delete", "agent_provider", id, "删除服务商 "+label, d)
 	respondData(w, http.StatusOK, nil)
 }
 
@@ -142,6 +172,7 @@ func (s *Server) handleSetDefaultProvider(w http.ResponseWriter, r *http.Request
 		s.fail(w, r, err)
 		return
 	}
+	s.auditConfig(r, "set_default", "agent_provider", id, "设为默认服务商 "+out.Name, providerDetail(out))
 	respondData(w, http.StatusOK, out)
 }
 
