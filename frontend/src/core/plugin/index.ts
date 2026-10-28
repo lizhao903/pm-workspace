@@ -9,3 +9,6 @@ export type ModuleDef = {
   // 按需加载页面，返回的模块默认导出页面组件
   load: () => Promise<{ default: ComponentType }>
 }
+
+export * from './manifest'
+export * from './semver'

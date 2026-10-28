@@ -1,0 +1,26 @@
+{
+  "id": "videos",
+  "name": "视频创作",
+  "description": "视频脚本、录制、发布到内容平台；强依赖项目插件",
+  "version": "0.1.0",
+  "core": "^1.0.0",
+  "depends": { "projects": "^0.1.0" },
+  "optional_depends": {},
+  "provides": {
+    "modules": ["videos"],
+    "settings": ["videos"],
+    "object_types": ["videos_clip"],
+    "connectors": ["douyin", "bilibili", "channels"],
+    "skills": ["sk_video_script"],
+    "agent_tools": ["videos_draft_script"],
+    "sop_nodes": ["videos_publish"],
+    "today_cards": ["videos_publish_due"],
+    "commands": ["videos.new", "videos.publish"],
+    "search": ["videos_clips"]
+  },
+  "emits": ["videos.published"],
+  "subscribes": ["object.status_changed", "projects.prototype_exited"],
+  "permissions": ["network:media-platforms", "secrets:media", "fs:read:project"],
+  "migrations": "migrations",
+  "table_prefix": "videos_"
+}
