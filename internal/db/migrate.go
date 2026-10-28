@@ -5,9 +5,14 @@ import (
 	"crypto/sha256"
 	"embed"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io/fs"
+	"log/slog"
+	"os"
+	"path/filepath"
 	"sort"
+	"strings"
 	"time"
 )
 
@@ -23,7 +28,26 @@ var legacyChecksums = map[string]string{
 	"0004_inherit_category_color.sql": "50a17f382cfd572d1b06532003f6d33b2873e90429b977c255c4c811d3fc3aba",
 }
 
-// Migrate 按文件名字典序执行未应用的迁移，每个文件一个事务，可重复调用。
+// MigrationError 是应用迁移失败：本次待应用的迁移整体回滚，库版本停在迁移前。
+// Snapshot 是迁移前打的快照，新建的空库不打快照，此时为空串。
+type MigrationError struct {
+	Version  string
+	Snapshot string
+	Err      error
+}
+
+func (e *MigrationError) Error() string {
+	if e.Snapshot == "" {
+		return e.Err.Error()
+	}
+	return fmt.Sprintf("%v (rolled back; pre-migration snapshot: %s)", e.Err, e.Snapshot)
+}
+
+func (e *MigrationError) Unwrap() error { return e.Err }
+
+// Migrate 按文件名字典序执行未应用的迁移，可重复调用。
+// 已有数据的库在应用前先打快照到库文件旁的 backups/；待应用的迁移放在同一个事务里，
+// 任何一个失败都整体回滚，返回 *MigrationError。没有待应用的迁移时什么都不做。
 func Migrate(ctx context.Context, d *DB) error {
 	sub, err := fs.Sub(migrationFS, "migrations")
 	if err != nil {
@@ -93,40 +117,90 @@ func migrate(ctx context.Context, d *DB, fsys fs.FS) error {
 		}
 	}
 
+	var pending []string
 	for _, name := range names {
-		if _, ok := applied[name]; ok {
-			continue
+		if _, ok := applied[name]; !ok {
+			pending = append(pending, name)
 		}
-		body, err := fs.ReadFile(fsys, name)
+	}
+	if len(pending) == 0 {
+		return nil
+	}
+
+	// 新建的库没有可丢的数据，不打快照；否则先快照再动手，快照失败就不迁移。
+	snapshot := ""
+	if len(applied) > 0 {
+		snapshot, err = snapshotBeforeMigrate(ctx, d, pending[len(pending)-1])
 		if err != nil {
-			return fmt.Errorf("read migration %s: %w", name, err)
+			return fmt.Errorf("snapshot before migrating: %w", err)
 		}
-		if err := applyOne(ctx, d, name, string(body), checksumBytes(body)); err != nil {
-			return err
-		}
+		slog.Info("迁移前已打快照", "snapshot", snapshot, "pending", len(pending), "target", pending[len(pending)-1])
+	}
+	if name, err := applyAll(ctx, d, fsys, pending); err != nil {
+		return &MigrationError{Version: name, Snapshot: snapshot, Err: err}
 	}
 	return nil
 }
 
-func applyOne(ctx context.Context, d *DB, name, body, checksum string) error {
+// applyAll 在一个事务里应用全部待应用的迁移，失败时返回出错的文件名，事务回滚。
+// 一起回滚而不是逐个提交：中途失败时库停在迁移前的版本，和快照对得上，不会卡在半截。
+func applyAll(ctx context.Context, d *DB, fsys fs.FS, pending []string) (string, error) {
 	tx, err := d.W.BeginTx(ctx, nil)
 	if err != nil {
-		return fmt.Errorf("begin migration %s: %w", name, err)
+		return pending[0], fmt.Errorf("begin migrations: %w", err)
 	}
 	defer func() { _ = tx.Rollback() }()
 
-	if _, err := tx.ExecContext(ctx, body); err != nil {
-		return fmt.Errorf("apply migration %s: %w", name, err)
-	}
-	if _, err := tx.ExecContext(ctx,
-		`INSERT INTO schema_migrations (version, applied_at, checksum) VALUES (?, ?, ?)`,
-		name, time.Now().UTC().Format(time.RFC3339), checksum); err != nil {
-		return fmt.Errorf("record migration %s: %w", name, err)
+	now := time.Now().UTC().Format(time.RFC3339)
+	for _, name := range pending {
+		body, err := fs.ReadFile(fsys, name)
+		if err != nil {
+			return name, fmt.Errorf("read migration %s: %w", name, err)
+		}
+		if _, err := tx.ExecContext(ctx, string(body)); err != nil {
+			return name, fmt.Errorf("apply migration %s: %w", name, err)
+		}
+		if _, err := tx.ExecContext(ctx,
+			`INSERT INTO schema_migrations (version, applied_at, checksum) VALUES (?, ?, ?)`,
+			name, now, checksumBytes(body)); err != nil {
+			return name, fmt.Errorf("record migration %s: %w", name, err)
+		}
 	}
 	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("commit migration %s: %w", name, err)
+		return pending[len(pending)-1], fmt.Errorf("commit migrations: %w", err)
 	}
-	return nil
+	return "", nil
+}
+
+// snapshotBeforeMigrate 用 VACUUM INTO 把库快照到库文件旁的 backups/，做法同 /api/admin/snapshot
+// （store/sqlite 的 Snapshot，db 包不能反向引用它）。文件名带 UTC 时间和目标版本，
+// 例 pm-20261028-151200-before-0017.db。
+func snapshotBeforeMigrate(ctx context.Context, d *DB, target string) (string, error) {
+	dir := filepath.Join(filepath.Dir(d.Path), "backups")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return "", fmt.Errorf("create backup dir: %w", err)
+	}
+	version, _, _ := strings.Cut(target, "_")
+	stamp := time.Now().UTC().Format("20060102-150405")
+	for i := 1; i <= 100; i++ {
+		name := fmt.Sprintf("pm-%s-before-%s.db", stamp, version)
+		if i > 1 {
+			name = fmt.Sprintf("pm-%s-before-%s-%d.db", stamp, version, i)
+		}
+		p := filepath.Join(dir, name)
+		// VACUUM INTO 拒绝写已存在的文件，同一秒内撞名就加序号。
+		if _, err := os.Stat(p); !errors.Is(err, os.ErrNotExist) {
+			if err != nil {
+				return "", fmt.Errorf("stat backup target: %w", err)
+			}
+			continue
+		}
+		if _, err := d.W.ExecContext(ctx, `VACUUM INTO ?`, p); err != nil {
+			return "", fmt.Errorf("vacuum into %s: %w", p, err)
+		}
+		return p, nil
+	}
+	return "", errors.New("too many snapshots taken within the same second")
 }
 
 // ensureChecksumColumn 给老库补上 checksum 列，已经有了就跳过。
