@@ -36,6 +36,13 @@ export const dataKeys = {
   contacts: {
     list: ['stakeholders', 'contacts'] as const,
   },
+  /** 项目干系人（PJ-01c）：也挂在 stakeholders 前缀下，名册和对象一变一起刷 */
+  projectStakeholders: (projectId: string) => ['stakeholders', 'projects', projectId] as const,
+  /** IM 身份（CT-03b）：一次拉全，按联系人合进 Contact.im */
+  identities: {
+    all: ['im-identities'] as const,
+    list: ['im-identities', 'list'] as const,
+  },
   objects: {
     all: ['objects'] as const,
     lists: ['objects', 'list'] as const,

@@ -1,13 +1,16 @@
 // 联系人列表（SPEC-contacts-1，CT-03a）：搜索、分组和渠道筛选、星标、按最近联系或姓名首字母分段、每次渲染 100 行。
 // 联系人就是干系人名册（/api/stakeholders），一次拉全在前端筛；打开的联系人放在地址里（?c=<id>），别的模块可以直接链过来。
+// IM 身份（/api/im-identities）也一次拉全，按联系人合进 im；新建、编辑、删除在抽屉里（CT-03b）。
 import { Fragment, useCallback, useDeferredValue, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router'
-import { errorText, useContacts, useDictionaries, useSetContactStarred } from '../../core/data'
-import { Avatar, ErrorState, IconClose, IconSearch, LoadingState, PageTitle, SearchSelect, cls } from '../../core/ui'
+import { errorText, identitiesByContact, useContacts, useDictionaries, useIdentities, useSetContactStarred } from '../../core/data'
+import { Avatar, Button, ErrorState, IconClose, IconSearch, LoadingState, PageTitle, SearchSelect, cls } from '../../core/ui'
+import { ContactForm } from './ContactForm'
 import { ContactView } from './ContactView'
 import { GroupPill, ImBadges, Star } from './parts'
 import {
-  IM_CHANNELS, PAGE, ago, applyFilter, groupItems, groupOf, groupView, hasImField, sectionCounts, sectionOf, toRows, type Sort,
+  DEFAULT_GROUP, IM_CHANNELS, PAGE, ago, applyFilter, blankDraft, draftOf, groupItems, groupOf, groupView, hasImField, sectionCounts,
+  sectionOf, toRows, mergeIm, type Sort,
 } from './model'
 import './contacts.css'
 
@@ -15,6 +18,9 @@ export default function Page() {
   const contacts = useContacts()
   const dicts = useDictionaries({ withItems: true })
   const star = useSetContactStarred()
+  const identities = useIdentities()
+  // 抽屉的表单态：新建，或编辑地址里打开的那个人
+  const [form, setForm] = useState<'create' | 'edit' | null>(null)
   const [params, setParams] = useSearchParams()
   const openId = params.get('c')
   const [q, setQ] = useState('')
@@ -25,6 +31,8 @@ export default function Page() {
   const [sort, setSort] = useState<Sort>('recent')
 
   const setOpen = useCallback((id: string | null) => {
+    // 换人或关掉都回到查看态
+    setForm(null)
     setParams((p) => {
       const n = new URLSearchParams(p)
       if (id) n.set('c', id)
@@ -33,7 +41,9 @@ export default function Page() {
     }, { replace: true })
   }, [setParams])
 
-  const list = useMemo(() => contacts.data ?? [], [contacts.data])
+  // 身份接口能用才合进 im；不能用（老后端 404、出错）时不显示 IM 列，和 CT-03a 一样
+  const byContact = useMemo(() => (identities.data ? identitiesByContact(identities.data) : null), [identities.data])
+  const list = useMemo(() => mergeIm(contacts.data ?? [], byContact), [contacts.data, byContact])
   const items = useMemo(() => groupItems(dicts.data), [dicts.data])
   const all = useMemo(() => toRows(list), [list])
   const rows = useMemo(() => applyFilter(all, { q: dq, group, starredOnly, channel, sort }), [all, dq, group, starredOnly, channel, sort])
@@ -50,8 +60,10 @@ export default function Page() {
   const shown = rows.slice(0, limit)
   const opened = openId ? list.find((c) => c.id === openId) ?? null : null
 
+  const nameOf = (id: string) => list.find((c) => c.id === id)?.name ?? '另一个联系人'
   const title = (
-    <PageTitle count={contacts.data ? list.length : undefined} desc="客户、合作伙伴、同事和供应商，按最近联系排序">联系人</PageTitle>
+    <PageTitle count={contacts.data ? list.length : undefined} desc="客户、合作伙伴、同事和供应商，按最近联系排序"
+      actions={<Button variant="primary" size="sm" onClick={() => setForm('create')}>新建联系人</Button>}>联系人</PageTitle>
   )
   if (contacts.isPending) return <div className="ct-page">{title}<LoadingState /></div>
   if (contacts.isError && !contacts.data) {
@@ -169,8 +181,17 @@ export default function Page() {
         </div>
       )}
 
-      {openId && (
-        <ContactView contact={opened} groups={items} onClose={() => setOpen(null)}
+      {form === 'create' ? (
+        <ContactForm key="create" contact={null} initial={blankDraft(DEFAULT_GROUP)} groups={items} identities={identities.data} nameOf={nameOf}
+          onCancel={() => setForm(null)} onClose={() => setForm(null)}
+          onSaved={(r) => { if (!r.failed.length) { setForm(null); setOpen(r.contact.id) } }} />
+      ) : form === 'edit' && opened ? (
+        <ContactForm key={`edit:${opened.id}`} contact={opened} initial={draftOf(opened)} groups={items} identities={identities.data}
+          nameOf={nameOf} onCancel={() => setForm(null)} onClose={() => { setForm(null); setOpen(null) }}
+          onSaved={(r) => { if (!r.failed.length) setForm(null) }} />
+      ) : openId && (
+        <ContactView key={openId} contact={opened} groups={items} imCount={opened ? byContact?.get(opened.id)?.length ?? 0 : 0}
+          onEdit={() => setForm('edit')} onClose={() => setOpen(null)}
           star={<Star on={!!opened?.starred} name={opened?.name ?? ''} onToggle={() => opened && star.mutate({ id: opened.id, on: !opened.starred })} />} />
       )}
     </div>

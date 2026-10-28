@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { request } from '../api'
 import type { Stakeholder } from '../api'
 import { useNotifyChange } from './invalidate'
+import { applyIdentityPlan, identityPlan, type Identity, type IdentityFailure } from './identities'
 import { dataKeys } from './keys'
 
 export type Contact = Stakeholder & {
@@ -54,5 +55,59 @@ export function useSetContactStarred() {
       if (ctx?.prev) qc.setQueryData(dataKeys.contacts.list, ctx.prev)
     },
     onSettled: () => notify({ kind: 'stakeholder' }),
+  })
+}
+
+// ---- 新建、编辑、删除（CT-03b） ----
+
+/** 新建和编辑表单提交的资料；name 必填，全局唯一，撞名回 409 */
+export type ContactInput = Pick<Contact, 'name' | 'group' | 'company' | 'title' | 'phone' | 'email' | 'tags' | 'photo' | 'note'>
+  & { starred?: boolean; last_contact_at?: string | null }
+
+/** 归档、改名也走它 */
+export type ContactUpdate = ContactPatch & { name?: string; archived?: boolean }
+
+export type ContactSave = {
+  /** 不传是新建 */
+  id?: string
+  fields: ContactInput
+  /** 渠道到编号；空串表示没填 */
+  im: Record<string, string>
+  /** 这个人现有的身份，比出要增删改的 */
+  before: Identity[]
+}
+
+export type ContactSaved = { contact: Contact; failed: IdentityFailure[] }
+
+/** 资料先存，存成了再逐个改 IM 身份；资料失败整体报错，身份失败的放在 failed 里，别的渠道照样存 */
+export function useSaveContact() {
+  const notify = useNotifyChange()
+  return useMutation({
+    mutationFn: async ({ id, fields, im, before }: ContactSave): Promise<ContactSaved> => {
+      const contact = id
+        ? await request<Contact>('PATCH', path(id), { body: fields })
+        : await request<Contact>('POST', '/api/stakeholders', { body: fields })
+      const failed = await applyIdentityPlan(contact.id, identityPlan(id ? before : [], im))
+      return { contact, failed }
+    },
+    onSettled: () => Promise.all([notify({ kind: 'stakeholder' }), notify({ kind: 'im-identity' })]),
+  })
+}
+
+/** 单改几个字段：记一次联系、换头像、归档 */
+export function useUpdateContact() {
+  const notify = useNotifyChange()
+  return useMutation({
+    mutationFn: ({ id, patch }: { id: string; patch: ContactUpdate }) => request<Contact>('PATCH', path(id), { body: patch }),
+    onSettled: () => notify({ kind: 'stakeholder' }),
+  })
+}
+
+/** 只在零引用时成功（含回收站里的对象），有引用回 409，改走归档；身份跟着删 */
+export function useDeleteContact() {
+  const notify = useNotifyChange()
+  return useMutation({
+    mutationFn: (id: string) => request<null>('DELETE', path(id)),
+    onSuccess: () => Promise.all([notify({ kind: 'stakeholder' }), notify({ kind: 'im-identity' })]),
   })
 }

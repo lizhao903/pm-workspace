@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { Contact, Dictionary } from '../../core/data'
 import {
-  DEFAULT_GROUP, GONE_COLOR, SEG_MAX, ago, applyFilter, groupItems, groupOf, groupView, hasImField, recentBucket, sectionCounts,
+  DEFAULT_GROUP, GONE_COLOR, SEG_MAX, ago, blankDraft, deleteBlock, groupOptions, mergeIm, validate, applyFilter, groupItems, groupOf, groupView, hasImField, recentBucket, sectionCounts,
   sectionOf, toRows, type Filter, type GroupItem,
 } from './model'
 
@@ -145,5 +145,32 @@ describe('分组切换', () => {
     // 正好 SEG_MAX + 1 个时全放进切换
     const six = items.slice(0, SEG_MAX + 1).map((g) => g.key)
     expect(groupView(items.slice(0, SEG_MAX + 1), people.filter((c) => six.includes(c.group))).more).toEqual([])
+  })
+})
+
+describe('抽屉（CT-03b）', () => {
+  it('校验：姓名必填，邮箱非空时要像邮箱，电话不管', () => {
+    expect(validate(blankDraft())).toEqual({ name: '姓名必填', email: '' })
+    expect(validate({ ...blankDraft(), name: ' 许 ', email: 'x@y', phone: 'abc' })).toEqual({ name: '', email: '邮箱格式不对' })
+    expect(validate({ ...blankDraft(), name: '许', email: 'xu@a.example' })).toEqual({ name: '', email: '' })
+  })
+
+  it('删除检查：有负责或参与的事就拦下，提示改为归档', () => {
+    expect(deleteBlock({ name: '许', owned_count: 0, participating_count: 0 })).toBeNull()
+    expect(deleteBlock({ name: '许', owned_count: 2, participating_count: 1 })).toMatch(/还负责 2 件事、参与 1 件事，不能删除。可以改为归档/)
+    expect(deleteBlock({ name: '许', owned_count: 0, participating_count: 3 })).toMatch(/参与 3 件事/)
+  })
+
+  it('分组选项：启用的加上当前值（停用或字典里没有的也留着）', () => {
+    const items = [{ key: '客户', label: '客户', color: '#000', enabled: true }, { key: '旧', label: '旧', color: '#000', enabled: false }]
+    expect(groupOptions(items, '客户').map((g) => g.key)).toEqual(['客户'])
+    expect(groupOptions(items, '旧').map((g) => g.key)).toEqual(['客户', '旧'])
+    expect(groupOptions(items, '没了').map((g) => g.key)).toEqual(['客户', '没了'])
+  })
+
+  it('身份合进联系人：接口不能用时 im 保持 undefined', () => {
+    const c = { id: 'stk_a' } as never
+    expect(mergeIm([c], null)[0]).toBe(c)
+    expect(mergeIm([c], new Map())[0]).toMatchObject({ im: {} })
   })
 })

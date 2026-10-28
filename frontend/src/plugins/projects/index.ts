@@ -1,5 +1,5 @@
 // 项目插件（PJ-01a 起）：清单在后端 internal/plugins/projects/plugin.json，这里只有入口。
-// 现在只注册一个空页面，项目列表和详情从 PJ-01b 起补
+// 页面是全部项目列表加项目详情（PJ-01c），没有二级菜单
 import { definePlugin } from '../../core/plugin'
 
 export default definePlugin({

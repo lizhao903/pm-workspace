@@ -72,6 +72,17 @@ export {
 export type { ProviderProtocol, ProviderInput, ProviderPatch, ProviderCheck } from './providers'
 export { contactsApi, useContacts, useSetContactStarred } from './contacts'
 export type { Contact, ContactPatch } from './contacts'
+export {
+  PROJECT_TYPE, PROJECT_ROLES, projectView, mergeProjectProps, isLiveProject, saveProject, projectsApi, useProjects, useProject,
+  useCreateProject, useSaveProject, useProjectStakeholders,
+} from './projects'
+export type { ProjectView, ProjectMark, RelatedDir, ProjectProps, ProjectCreate, ProjectSave, ProjectRole, ProjectStakeholder } from './projects'
+export { useSaveContact, useUpdateContact, useDeleteContact } from './contacts'
+export type { ContactInput, ContactUpdate, ContactSave, ContactSaved } from './contacts'
+export {
+  identitiesApi, useIdentities, normExternalId, identitiesByContact, imOf, identityOwner, identityPlan, applyIdentityPlan,
+} from './identities'
+export type { Identity, IdentityInput, IdentityOp, IdentityFailure } from './identities'
 
 // 接口层的纯函数和类型照样给模块用：不发请求，不碰缓存
 export { localDay, focusParams, changedFields, isApiError, isStreamError, ApiError, StreamError } from '../api'
