@@ -208,7 +208,7 @@ const seedDocs: KbDoc[] = [
   fromLib('kb_feedback', 'dc_005'),
   own('kb_feedback', 'interview-1020.md', { type: 'dir', ref: `${YC_CLIENT}/interview-1020.md` }, `# 远川科技访谈纪要 10/20
 
-参与：许知行（信息部负责人）、梁晚晴（采购经理）
+参与：许知行（IT 总监）、梁晚晴（采购经理）
 
 ## 许知行
 

@@ -184,7 +184,7 @@ export const seedSeries: Series[] = [
 // 一个 32 集的长系列：前面的已完成，中间几集卡在各个阶段，后面的还在写稿
 const AI_TOPICS = ['ChatGPT 写周报', 'Claude 读长文档', 'Cursor 改代码', 'Midjourney 出封面', 'Notion AI 整理会议', 'Perplexity 做调研', 'Kimi 读 PDF', '豆包做配音',
   '剪映 AI 字幕', 'Runway 生成空镜', 'Suno 写片头音乐', 'Gamma 做演示', 'Napkin 画图解', 'Whisper 转写访谈', 'DeepSeek 写 SQL', '通义听悟记笔记',
-  'Copilot 写测试', 'v0 出界面', 'Bolt 搭原型', 'Dify 编工作流', 'Coze 做机器人', 'Ollama 本地跑模型', 'LM Studio 对比模型', 'Raycast AI 快捷指令',
+  'Copilot 写单测', 'v0 出界面', 'Bolt 搭原型', 'Dify 编工作流', 'Coze 做机器人', 'Ollama 本地跑模型', 'LM Studio 对比模型', 'Raycast AI 快捷指令',
   'Arc 浏览器 AI', 'Granola 会议纪要', 'Descript 剪口播', 'HeyGen 数字人', 'ElevenLabs 克隆声音', 'Recraft 做图标', 'Krea 实时出图', 'NotebookLM 做播客']
 function aiSeries(): Video[] {
   return AI_TOPICS.map((t, i) => {

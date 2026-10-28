@@ -272,7 +272,7 @@ export const SOPS: Sop[] = [
     trigger: '手动 / 每周一 18:00',
     fields: [
       { key: 'meeting', label: '会议', type: 'text', required: true, default: '产品周会 10/26' },
-      { key: 'transcript', label: '转写稿', type: 'textarea', required: true, default: '王一帆：权限模型下周三前给到评审稿。\n林舟：导出异步化要先评估存储成本。\n王一帆：客户 A 的时区问题这周先给临时方案。\n林舟：好，我周五前出方案。' },
+      { key: 'transcript', label: '转写稿', type: 'textarea', required: true, default: '林予安：权限点清单周三前和后端对齐。\n周屿：导出异步化要先评估存储成本。\n陈若溪：远川的时区问题这周先给临时方案。\n周屿：好，缓存方案我周五前出。' },
     ],
     steps: [
       {
@@ -548,7 +548,7 @@ export const seedRuns: SopRun[] = (() => {
   const [fb, mt, ct] = SOPS
   return [
     // 刚开始的周会纪要，正在三路并行
-    simulate(mt, { ...defaults(mt), meeting: '产品周会 11/02' }, 0.03, stepIs('summarize', 'running')),
+    simulate(mt, { ...defaults(mt), meeting: '权限 PRD 评审会 10/29' }, 0.03, stepIs('summarize', 'running')),
     // 功能需求分支，停在「确认诉求清单」等人检查
     simulate(fb, defaults(fb), 12, stepIs('confirm', 'review')),
     // 联系人建档，查到疑似重复，等人判断新建还是合并
