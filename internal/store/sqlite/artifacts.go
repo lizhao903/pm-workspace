@@ -16,7 +16,8 @@ import (
 )
 
 const artifactCols = `a.id, a.object_id, a.session_id, a.run_id, a.title, a.path,
-	a.base_dir, a.url, a.platform, a.size, a.source, a.note, a.created_at, a.updated_at`
+	a.base_dir, a.url, a.platform, a.size, a.source, a.note, a.created_at, a.updated_at,
+	a.kind, a.status, a.actor_type, a.actor_id, a.actor_label, a.scope_type, a.scope_id, a.props`
 
 // artifactSelect 顺带带出归属对象的编号和标题。产物页每行都要显示「属于哪件事」，
 // 逐行回查就是 N+1——而这个页面的默认视图是全量清单，行数正好是最多的时候。
@@ -43,6 +44,33 @@ var artifactSources = map[string]bool{
 	domain.ArtifactSourceMCP:    true,
 }
 
+// artifactActors 是 actor_type 的白名单，空串表示没声明（入库前按 source 补）。
+var artifactActors = map[string]bool{
+	domain.ActorUser: true, domain.ActorAgent: true, domain.ActorSkill: true,
+	domain.ActorSOP: true, domain.ActorRun: true, domain.ActorMCP: true,
+	domain.ActorIM: true, domain.ActorSync: true,
+}
+
+// artifactStatuses 是 status 的白名单，空串表示不跟踪。
+var artifactStatuses = map[string]bool{
+	"": true, "draft": true, "review": true, "final": true, "published": true,
+}
+
+// actorOfSource 是没声明产出者时的默认值，和 0031 回填老数据的口径一致。
+func actorOfSource(source string) string {
+	switch source {
+	case domain.ArtifactSourceManual:
+		return domain.ActorUser
+	case domain.ArtifactSourceAgent:
+		return domain.ActorAgent
+	case domain.ArtifactSourceRun:
+		return domain.ActorRun
+	case domain.ArtifactSourceMCP:
+		return domain.ActorMCP
+	}
+	return ""
+}
+
 func scanArtifact(sc rowScanner) (*domain.Artifact, error) {
 	var (
 		a                   domain.Artifact
@@ -50,11 +78,18 @@ func scanArtifact(sc rowScanner) (*domain.Artifact, error) {
 		runID               sql.NullString
 		objRef, objTitle    sql.NullString
 		created, updated    string
+		props               string
 	)
 	if err := sc.Scan(&a.ID, &objectID, &sessionID, &runID, &a.Title, &a.Path,
 		&a.BaseDir, &a.URL, &a.Platform, &a.Size, &a.Source, &a.Note,
-		&created, &updated, &objRef, &objTitle); err != nil {
+		&created, &updated, &a.Kind, &a.Status, &a.ActorType, &a.ActorID,
+		&a.ActorLabel, &a.ScopeType, &a.ScopeID, &props, &objRef, &objTitle); err != nil {
 		return nil, err
+	}
+	a.Props = map[string]any{}
+	_ = json.Unmarshal([]byte(props), &a.Props)
+	if a.Props == nil {
+		a.Props = map[string]any{}
 	}
 	a.ObjectID = nullStrPtr(objectID)
 	a.SessionID = nullStrPtr(sessionID)
@@ -120,6 +155,21 @@ func artifactWhere(f domain.ArtifactFilter) (string, []any) {
 		conds = append(conds, `a.source = ?`)
 		args = append(args, f.Source)
 	}
+	for _, c := range []struct{ col, v string }{
+		{"kind", f.Kind}, {"status", f.Status},
+		{"actor_type", f.ActorType}, {"actor_id", f.ActorID},
+		{"scope_type", f.ScopeType},
+	} {
+		if c.v != "" {
+			conds = append(conds, `a.`+c.col+` = ?`)
+			args = append(args, c.v)
+		}
+	}
+	// scope_id 离开 scope_type 没有意义：不同模块的 id 可能撞上。
+	if f.ScopeType != "" && f.ScopeID != "" {
+		conds = append(conds, `a.scope_id = ?`)
+		args = append(args, f.ScopeID)
+	}
 	// 三态：nil 不过滤，true 要求非空，false 要求为空。
 	// 「只看还没发出去的本地文件」就是 HasURL=false，这是用户真会问的一个问题，
 	// 所以不能用「零值即不过滤」的 bool。
@@ -140,8 +190,10 @@ func artifactWhere(f domain.ArtifactFilter) (string, []any) {
 	if q := strings.TrimSpace(f.Q); q != "" {
 		// 关键词同时扫标题、路径、链接和备注：用户记得住的可能是文件名，
 		// 也可能是那个 Confluence 页面的标题，还可能只记得链接里的一段。
-		conds = append(conds, `(a.title LIKE ?1 OR a.path LIKE ?1 OR a.url LIKE ?1 OR a.note LIKE ?1)`)
-		args = append(args, "%"+q+"%")
+		// 用四个 ? 而不是 ?1：?1 指的是第一个参数，前面有别的条件时会对错位。
+		conds = append(conds, `(a.title LIKE ? OR a.path LIKE ? OR a.url LIKE ? OR a.note LIKE ?)`)
+		like := "%" + q + "%"
+		args = append(args, like, like, like, like)
 	}
 
 	if len(conds) == 0 {
@@ -281,6 +333,25 @@ func normalizeArtifact(in *domain.ArtifactInput) error {
 	if !artifactSources[in.Source] {
 		return validation("source", "未知的产物来源："+in.Source)
 	}
+	in.Kind = strings.TrimSpace(in.Kind)
+	in.Status = strings.TrimSpace(in.Status)
+	in.ActorType = strings.TrimSpace(in.ActorType)
+	in.ActorID = strings.TrimSpace(in.ActorID)
+	in.ActorLabel = strings.TrimSpace(in.ActorLabel)
+	in.ScopeType = strings.TrimSpace(in.ScopeType)
+	in.ScopeID = strings.TrimSpace(in.ScopeID)
+	if in.ActorType == "" {
+		in.ActorType = actorOfSource(in.Source)
+	}
+	if !artifactActors[in.ActorType] {
+		return validation("actor_type", "未知的产出者类型："+in.ActorType)
+	}
+	if !artifactStatuses[in.Status] {
+		return validation("status", "未知的产物状态："+in.Status)
+	}
+	if err := checkArtifactScope(in.ScopeType, in.ScopeID); err != nil {
+		return err
+	}
 	// 平台留给调用方补：只有本地路径就是本地文件，有链接的交给 detectPlatform
 	// 按域名认。这里不能认，因为认平台要查字典、要 ctx。
 	if in.Platform == "" && in.URL == "" {
@@ -295,6 +366,44 @@ func normalizeArtifact(in *domain.ArtifactInput) error {
 		}
 	}
 	return nil
+}
+
+// checkArtifactScope 要求 scope_type 和 scope_id 同时有或同时空：只有一半的归属
+// 查不到、也挂不回去。
+func checkArtifactScope(typ, id string) error {
+	if (typ == "") != (id == "") {
+		return validation("scope_type", "scope_type 和 scope_id 要同时给")
+	}
+	return nil
+}
+
+// checkArtifactKind 要求 kind 是字典 artifact_kind 里启用的条目。
+// 不校验的话拼错的种类会安静入库，在筛选和统计里多出一个谁也认不得的分组。
+func (s *Store) checkArtifactKind(ctx context.Context, kind string) error {
+	if kind == "" {
+		return nil
+	}
+	var n int
+	if err := s.db.R.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM dict_items WHERE dict_id = ? AND key = ? AND archived_at IS NULL`,
+		domain.DictArtifactKind, kind).Scan(&n); err != nil {
+		return fmt.Errorf("check artifact kind: %w", err)
+	}
+	if n == 0 {
+		return validation("kind", "未知的产物种类："+kind)
+	}
+	return nil
+}
+
+func encodeArtifactProps(p map[string]any) (string, error) {
+	if p == nil {
+		return "{}", nil
+	}
+	b, err := json.Marshal(p)
+	if err != nil {
+		return "", validation("props", "props 不是合法的 JSON 对象")
+	}
+	return string(b), nil
 }
 
 // fillSize 在调用方没给大小时去读一下文件。
@@ -313,15 +422,22 @@ func fillSize(in *domain.ArtifactInput) {
 }
 
 func (s *Store) insertArtifact(ctx context.Context, in domain.ArtifactInput) (*domain.Artifact, error) {
+	props, err := encodeArtifactProps(in.Props)
+	if err != nil {
+		return nil, err
+	}
 	id := idgen.Prefixed("art")
 	now := nowArtifact()
-	_, err := s.db.W.ExecContext(ctx, `INSERT INTO artifacts
+	_, err = s.db.W.ExecContext(ctx, `INSERT INTO artifacts
 		(id, object_id, session_id, run_id, title, path, base_dir, url, platform,
-		 size, source, note, created_at, updated_at)
-		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		 size, source, note, created_at, updated_at,
+		 kind, status, actor_type, actor_id, actor_label, scope_type, scope_id, props)
+		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		id, ptrArg(in.ObjectID), ptrArg(in.SessionID), ptrArg(in.RunID),
 		in.Title, in.Path, in.BaseDir, in.URL, in.Platform,
-		in.Size, in.Source, in.Note, now, now)
+		in.Size, in.Source, in.Note, now, now,
+		in.Kind, in.Status, in.ActorType, in.ActorID, in.ActorLabel,
+		in.ScopeType, in.ScopeID, props)
 	if err != nil {
 		return nil, fmt.Errorf("insert artifact: %w", err)
 	}
@@ -332,6 +448,9 @@ func (s *Store) insertArtifact(ctx context.Context, in domain.ArtifactInput) (*d
 // 同一个本地文件先发 Confluence 再发飞书，那是两条合理的记录。
 func (s *Store) CreateArtifact(ctx context.Context, in domain.ArtifactInput) (*domain.Artifact, error) {
 	if err := normalizeArtifact(&in); err != nil {
+		return nil, err
+	}
+	if err := s.checkArtifactKind(ctx, in.Kind); err != nil {
 		return nil, err
 	}
 	if in.Platform == "" {
@@ -349,6 +468,9 @@ func (s *Store) CreateArtifact(ctx context.Context, in domain.ArtifactInput) (*d
 // 否则要么插入报错、要么留下索引拦不住的重复。
 func (s *Store) RecordArtifact(ctx context.Context, in domain.ArtifactInput) (*domain.Artifact, error) {
 	if err := normalizeArtifact(&in); err != nil {
+		return nil, err
+	}
+	if err := s.checkArtifactKind(ctx, in.Kind); err != nil {
 		return nil, err
 	}
 	if in.Platform == "" {
@@ -427,6 +549,44 @@ func (s *Store) UpdateArtifact(ctx context.Context, id string, p domain.Artifact
 		sets = append(sets, "note = ?")
 		args = append(args, strings.TrimSpace(*p.Note))
 	}
+	if p.Kind != nil {
+		k := strings.TrimSpace(*p.Kind)
+		if err := s.checkArtifactKind(ctx, k); err != nil {
+			return nil, err
+		}
+		sets = append(sets, "kind = ?")
+		args = append(args, k)
+	}
+	if p.Status != nil {
+		st := strings.TrimSpace(*p.Status)
+		if !artifactStatuses[st] {
+			return nil, validation("status", "未知的产物状态："+st)
+		}
+		sets = append(sets, "status = ?")
+		args = append(args, st)
+	}
+	if p.ScopeType != nil || p.ScopeID != nil {
+		typ, sid := cur.ScopeType, cur.ScopeID
+		if p.ScopeType != nil {
+			typ = strings.TrimSpace(*p.ScopeType)
+		}
+		if p.ScopeID != nil {
+			sid = strings.TrimSpace(*p.ScopeID)
+		}
+		if err := checkArtifactScope(typ, sid); err != nil {
+			return nil, err
+		}
+		sets = append(sets, "scope_type = ?", "scope_id = ?")
+		args = append(args, typ, sid)
+	}
+	if p.Props != nil {
+		props, err := encodeArtifactProps(*p.Props)
+		if err != nil {
+			return nil, err
+		}
+		sets = append(sets, "props = ?")
+		args = append(args, props)
+	}
 	if len(sets) == 0 {
 		return cur, nil
 	}
@@ -476,6 +636,7 @@ func (s *Store) ArtifactStats(ctx context.Context, f domain.ArtifactFilter) (*do
 		// Object.entries(null) 直接抛异常，而这在库里一条产物都没有时必然发生。
 		ByPlatform: map[string]int{},
 		BySource:   map[string]int{},
+		ByKind:     map[string]int{},
 	}
 
 	// Local 和 Remote 相加可能大于 Total——一份既在本地又发了云端的产物两边都算。
@@ -496,7 +657,7 @@ func (s *Store) ArtifactStats(ctx context.Context, f domain.ArtifactFilter) (*do
 	for _, g := range []struct {
 		col string
 		dst map[string]int
-	}{{"platform", st.ByPlatform}, {"source", st.BySource}} {
+	}{{"platform", st.ByPlatform}, {"source", st.BySource}, {"kind", st.ByKind}} {
 		rows, err := s.db.R.QueryContext(ctx,
 			`SELECT a.`+g.col+`, COUNT(*) FROM artifacts a`+where+` GROUP BY a.`+g.col, args...)
 		if err != nil {

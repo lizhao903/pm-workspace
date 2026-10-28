@@ -6,11 +6,14 @@ import (
 	"context"
 	"embed"
 	"encoding/json"
+	"errors"
 	"io/fs"
 	"net/http"
+	"strings"
 	"sync/atomic"
 	"time"
 
+	"github.com/lizhao903/pm-workspace/internal/connector"
 	"github.com/lizhao903/pm-workspace/internal/plugin"
 )
 
@@ -71,7 +74,30 @@ func (d *Demo) Register(r plugin.Registrar) error {
 		return nil
 	})
 	r.TodayCard(plugin.TodayCardDef{Key: "demo_inbox", Title: "示例收件箱", Order: 50, Load: d.inbox})
+	r.Connector(EchoConnector())
 	return nil
+}
+
+// EchoTool 是示例插件登记的连接器。
+const EchoTool = "demo_echo"
+
+// EchoConnector 不联网：Token 认证，token 里含 invalid 时测试失败，账号名取配置里的 account。
+func EchoConnector() plugin.ConnectorDef {
+	return plugin.ConnectorDef{
+		Tool: EchoTool, Label: "示例连接器", Category: "other", Color: "#0ea5e9",
+		Desc: "示例插件登记的连接器，只给测试用", Auth: []connector.AuthMode{connector.AuthToken},
+		Fields: []connector.Field{
+			{Key: "account", Label: "账号名", Kind: "text", Required: true},
+			{Key: "token", Label: "Token", Kind: "secret", Required: true},
+		},
+		Tools: []connector.ToolDef{{Name: "echo", Desc: "原样返回"}, {Name: "post", Desc: "发一条", Write: true}},
+		Test: func(_ context.Context, cfg connector.Config) (string, error) {
+			if strings.Contains(cfg.Secret("token"), "invalid") {
+				return "", errors.New("token 无效")
+			}
+			return cfg.Get("account"), nil
+		},
+	}
 }
 
 // DemoCardItem 是示例卡片里的一条。

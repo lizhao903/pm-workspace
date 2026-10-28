@@ -67,14 +67,14 @@ make build         # 构建前端 + pmw + pmw-mcp
 | `pmw_list_stakeholders` | 只读 | 列出干系人名册，负责人、参与人传的是这里的名字 |
 | `pmw_recent_changes` | 只读 | 字段级变更流水，日报周报的数据源 |
 | `pmw_counts` | 只读 | 待办概览：收件箱/今日/本周/逾期/停滞，以及按类型和状态的分布 |
-| `pmw_list_artifacts` | 只读 | 列出产物，可按对象、平台、关键词筛 |
+| `pmw_list_artifacts` | 只读 | 列出产物，可按对象、平台、种类（`kind`）、关键词筛 |
 | `pmw_next_task` | 只读 | 按优先级 → 到期 → 创建时间挑下一个可做的任务（默认 task 的初始状态、负责人为空或是 Claude Code），可按项目、标签筛 |
 | `pmw_list_runs` | 只读 | 某任务的后端执行记录（任务页「交给 Claude Code」起的那些） |
 | `pmw_get_run` | 只读 | 一次执行的详情，输出默认取末尾 8000 字符 |
 | `pmw_create_object` | **写入** | 新建工作对象，必填 `type_id` + `title`；可带 `acceptance`、`repo`、`workdir`、`source`（任务来源 manual / im / webhook / schedule / incident） |
 | `pmw_update_object` | **写入** | 改状态/优先级/负责人/到期/分类/标签/正文/归档，以及 `acceptance`、`repo`、`workdir` |
 | `pmw_link_objects` | **写入** | 在两个对象之间建立有方向的关联 |
-| `pmw_record_artifact` | **写入** | 登记产物；`kind` 支持 `file`（默认）/ `commit` / `branch` / `pr` |
+| `pmw_record_artifact` | **写入** | 登记产物；`kind` 支持 `file`（默认，不分类）/ `commit` / `branch` / `pr`，以及字典 `artifact_kind` 里的 `doc` / `prototype` / `code` / `data` / `other`，写进产物的 `kind` 列（代码类仍在备注开头写 `[commit]` 等标记，保留一个版本做兼容）；可选 `actor_type` / `actor_id` / `actor_label` 声明产出者（不传记成 `mcp`，不影响 `source`） |
 | `pmw_claim_task` | **写入** | 领任务：状态切到进行中、负责人设为 Claude Code、记 claim 进展；被别人或别的会话占着时拒绝 |
 | `pmw_append_progress` | **写入** | 追加进展（Markdown，可带 commits / files），服务端追加不覆盖 |
 | `pmw_submit_review` | **写入** | 提交验收：记 review 进展（总结、改动文件、测试结果）并把状态切到 `review`（待验收） |

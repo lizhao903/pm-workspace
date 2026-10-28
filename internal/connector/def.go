@@ -169,16 +169,25 @@ func (d *Def) field(key string) *Field {
 // ErrDuplicate：同一个 tool 注册了两次。
 var ErrDuplicate = errors.New("connector already registered")
 
-// Registry 是连接器定义的注册表，内核启动时登记；以后插件经 CONN-02 接进来。
+// Registry 是连接器定义的注册表，内核启动时登记；插件的定义经 SetPluginDefs 接进来（CONN-02）。
 type Registry struct {
 	mu   sync.RWMutex
 	defs []Def
+	// plugin 返回在跑的插件登记的定义（已经 Prepare 过），每次 List、Get 现取：插件停用后立刻不在里面
+	plugin func() []Def
+}
+
+// SetPluginDefs 接上插件登记的定义（plugin.Registry.ConnectorDefs）。和内核定义同 tool 时内核的优先，插件的不出现。
+func (r *Registry) SetPluginDefs(fn func() []Def) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.plugin = fn
 }
 
 func NewRegistry() *Registry { return &Registry{} }
 
-// Register 登记一个定义；Source 留空记为 core。
-func (r *Registry) Register(d Def) error {
+// Prepare 补齐默认值并校验，返回可以登记的定义；Source 留空记为 core。插件登记时也走它。
+func Prepare(d Def) (Def, error) {
 	if d.Source == "" {
 		d.Source = "core"
 	}
@@ -191,6 +200,15 @@ func (r *Registry) Register(d Def) error {
 		d.OAuth = &o
 	}
 	if err := d.check(); err != nil {
+		return Def{}, err
+	}
+	return d, nil
+}
+
+// Register 登记一个内核定义；Source 留空记为 core。
+func (r *Registry) Register(d Def) error {
+	d, err := Prepare(d)
+	if err != nil {
 		return err
 	}
 	r.mu.Lock()
@@ -202,20 +220,39 @@ func (r *Registry) Register(d Def) error {
 	return nil
 }
 
-// List 全部定义，按登记顺序。
+// List 全部定义：内核的按登记顺序，后面是在跑的插件登记的。
 func (r *Registry) List() []Def {
 	r.mu.RLock()
-	defer r.mu.RUnlock()
-	return slices.Clone(r.defs)
+	out, fn := slices.Clone(r.defs), r.plugin
+	r.mu.RUnlock()
+	if fn == nil {
+		return out
+	}
+	for _, d := range fn() {
+		if !slices.ContainsFunc(out, func(x Def) bool { return x.Tool == d.Tool }) {
+			out = append(out, d)
+		}
+	}
+	return out
 }
 
-// Get 按 tool 取定义。
+// Get 按 tool 取定义；插件停用后它的定义取不到，实例上 available 为 false。
 func (r *Registry) Get(tool string) (Def, bool) {
 	r.mu.RLock()
-	defer r.mu.RUnlock()
-	for _, d := range r.defs {
-		if d.Tool == tool {
-			return d, true
+	i, fn := slices.IndexFunc(r.defs, func(d Def) bool { return d.Tool == tool }), r.plugin
+	var d Def
+	if i >= 0 {
+		d = r.defs[i]
+	}
+	r.mu.RUnlock()
+	if i >= 0 {
+		return d, true
+	}
+	if fn != nil {
+		for _, d := range fn() {
+			if d.Tool == tool {
+				return d, true
+			}
 		}
 	}
 	return Def{}, false

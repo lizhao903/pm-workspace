@@ -28,6 +28,7 @@ import (
 	"github.com/lizhao903/pm-workspace/internal/localdir"
 	"github.com/lizhao903/pm-workspace/internal/notify"
 	"github.com/lizhao903/pm-workspace/internal/plugin"
+	"github.com/lizhao903/pm-workspace/internal/plugins/im"
 	"github.com/lizhao903/pm-workspace/internal/plugins/projects"
 	"github.com/lizhao903/pm-workspace/internal/schedule"
 	"github.com/lizhao903/pm-workspace/internal/store/sqlite"
@@ -54,6 +55,8 @@ type config struct {
 	vaultKeychain bool
 	// fakeConnector：登记内置的假连接器（不联网），只给测试实例演练连接器框架用
 	fakeConnector bool
+	// fakeIM：IM 插件带上假适配器 fake（slack 渠道，不联网），只给测试实例演练收消息用
+	fakeIM bool
 	// publicURL：浏览器访问工作台的地址，OAuth 回调地址 = 它 + /api/connectors/oauth/callback
 	publicURL string
 }
@@ -70,6 +73,7 @@ func main() {
 	flag.BoolVar(&cfg.open, "open", false, "启动后用默认浏览器打开（仅 macOS）")
 	flag.BoolVar(&cfg.vaultKeychain, "vault-keychain", true, "凭证保险箱主密钥优先放 macOS 钥匙串；关掉则只用数据目录下权限 0600 的 vault.key")
 	flag.BoolVar(&cfg.fakeConnector, "fake-connector", false, "登记内置的假连接器 fake 和 fake_oauth（只用于演练连接器框架）")
+	flag.BoolVar(&cfg.fakeIM, "fake-im", false, "IM 插件带上假适配器 fake，可用 POST /api/im/callbacks/fake 灌消息（只用于演练）")
 	flag.StringVar(&cfg.publicURL, "public-url", connector.DefaultPublicURL, "浏览器访问工作台的地址，OAuth 回调地址由它拼出（见 docs/local-domain.md）")
 	flag.Parse()
 
@@ -161,6 +165,14 @@ func run(cfg config) error {
 	if err := plugins.Add(projects.New()); err != nil {
 		return fmt.Errorf("登记插件失败: %w", err)
 	}
+	// IM 消息插件（IM-01a）：真实渠道的适配器从 IM-01b 起加
+	var imAdapters []im.Adapter
+	if cfg.fakeIM {
+		imAdapters = append(imAdapters, im.NewFake("fake", "slack", 5*time.Second, "我"))
+	}
+	if err := plugins.Add(im.New(imAdapters...)); err != nil {
+		return fmt.Errorf("登记插件失败: %w", err)
+	}
 	if err := plugins.Start(ctx); err != nil {
 		return fmt.Errorf("启动插件失败: %w", err)
 	}
@@ -197,6 +209,8 @@ func run(cfg config) error {
 			}
 		}
 	}
+	// 插件登记的连接器定义（CONN-02）：插件停用后它的定义不出现，实例保留、available 为 false
+	connDefs.SetPluginDefs(plugins.ConnectorDefs)
 	opts.Connectors = connector.New(pdb, v, connDefs)
 	if err := opts.Connectors.SetPublicURL(cfg.publicURL); err != nil {
 		return err

@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/lizhao903/pm-workspace/internal/plugin"
+	"github.com/lizhao903/pm-workspace/internal/plugins/im"
 	"github.com/lizhao903/pm-workspace/internal/plugins/projects"
 )
 
@@ -26,6 +27,9 @@ func registeredRoutes(t *testing.T) []string {
 	// 编译进二进制的第一方插件的路由也要写进契约，和 cmd/pmw 登记的插件保持一致
 	plugins := plugin.NewRegistry(plugin.NewMemStateStore(), slog.New(slog.DiscardHandler))
 	if err := plugins.Add(projects.New()); err != nil {
+		t.Fatal(err)
+	}
+	if err := plugins.Add(im.New()); err != nil {
 		t.Fatal(err)
 	}
 	(&Server{opt: Options{Plugins: plugins}}).routes(rec)

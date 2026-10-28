@@ -68,6 +68,8 @@ type ConversationInfo struct {
 // ConversationReader 只读查 IM 会话。没有这个 id 返回 ErrNoRows。
 type ConversationReader interface {
 	Get(ctx context.Context, id string) (ConversationInfo, error)
+	// Find 按渠道和会话编号找（identities.go）。
+	Find(ctx context.Context, channel, externalID string) (ConversationInfo, error)
 }
 
 // database 是插件句柄用的库：注册表的 DB，没设时取 SQL 迁移记录用的那个（cmd/pmw 两者是同一个连接）。

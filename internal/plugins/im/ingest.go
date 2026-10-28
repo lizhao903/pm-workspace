@@ -1,0 +1,284 @@
+package im
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"strings"
+	"time"
+	"unicode"
+	"unicode/utf8"
+
+	"github.com/lizhao903/pm-workspace/internal/idgen"
+	"github.com/lizhao903/pm-workspace/internal/imident"
+	"github.com/lizhao903/pm-workspace/internal/plugin"
+)
+
+// 收消息（IM-01a）：规整、认人、认会话、算「与我相关」、去重落库，新落库的发 im.message_received。
+
+// timeLayout 定长毫秒 UTC，字符串比较即时间比较。
+const timeLayout = "2006-01-02T15:04:05.000Z"
+
+const (
+	maxText = 20000 // 正文上限（字），超出截断
+	maxName = 200
+)
+
+// allHandles 是 @所有人 的写法，和原型 ALL_HANDLES 一致。
+var allHandles = []string{"所有人", "全体成员", "all", "here", "channel", "everyone"}
+
+// Received 是 im.message_received 的 payload。只带 id 和归类，正文用 /api/im/messages 取。
+type Received struct {
+	MessageID      string  `json:"message_id"`
+	Channel        string  `json:"channel"`
+	ConnectorID    string  `json:"connector_id"`
+	ConversationID *string `json:"conversation_id"`
+	IdentityID     *string `json:"identity_id"`
+	StakeholderID  *string `json:"stakeholder_id"`
+	Relevance      string  `json:"relevance"`
+	At             string  `json:"at"`
+}
+
+// IngestResult 是一批消息的落库结果。
+type IngestResult struct {
+	IDs        []string `json:"ids"`        // 新落库的消息 id
+	Duplicates int      `json:"duplicates"` // 已经收过的
+}
+
+type inbox struct {
+	c        plugin.Core
+	adapters []Adapter
+	now      func() time.Time
+}
+
+func (in *inbox) clock() time.Time {
+	if in.now != nil {
+		return in.now()
+	}
+	return time.Now()
+}
+
+// ingest 落一批。strict（回调）时有一条不合法整批拒绝、回 400；拉取时跳过不合法的并记日志，免得进度卡住。
+// 落到一半出错不回滚：重来一次时靠去重跳过已落的。
+func (in *inbox) ingest(ctx context.Context, a Adapter, msgs []Incoming, strict bool) (IngestResult, error) {
+	res := IngestResult{IDs: []string{}}
+	ch, err := imident.NormalizeChannel(a.Channel())
+	if err != nil {
+		return res, fmt.Errorf("适配器 %s 的渠道不对：%w", a.Key(), err)
+	}
+	var self []string
+	if h, ok := a.(Handles); ok {
+		self = h.Handles()
+	}
+	rows := make([]row, 0, len(msgs))
+	for i, m := range msgs {
+		r, err := in.prepare(ctx, ch, self, m)
+		var bi *badInput
+		switch {
+		case errors.As(err, &bi) && !strict:
+			in.c.Log().Warn("skip invalid im message", "adapter", a.Key(), "index", i, "err", err)
+			continue
+		case errors.As(err, &bi):
+			return res, apiErr(errValidation, "messages[%d]: %s", i, err)
+		case err != nil:
+			return res, err
+		}
+		rows = append(rows, r)
+	}
+	for _, r := range rows {
+		ok, err := in.insert(ctx, r)
+		if err != nil {
+			return res, err
+		}
+		if !ok {
+			res.Duplicates++
+			continue
+		}
+		res.IDs = append(res.IDs, r.id)
+		ev := Received{MessageID: r.id, Channel: r.channel, ConnectorID: r.connectorID, ConversationID: r.convID,
+			IdentityID: r.identityID, StakeholderID: r.stakeholderID, Relevance: r.relevance, At: r.sentAt}
+		if err := in.c.Events().Publish(ctx, EventReceived, ev); err != nil {
+			in.c.Log().Warn("publish im event failed", "message", r.id, "err", err)
+		}
+	}
+	return res, nil
+}
+
+// row 是规整好、待插入的一条。
+type row struct {
+	id, channel, connectorID, externalID string
+	convID                               *string
+	convExt, convKind, convName          string
+	identityID, stakeholderID            *string
+	senderExt, senderName, text          string
+	attachments, relevance               string
+	sentAt, receivedAt                   string
+}
+
+// badInput 是一条消息本身不合法（和查库出错区分开）。
+type badInput struct{ msg string }
+
+func (e *badInput) Error() string { return e.msg }
+
+func bad(format string, args ...any) error { return &badInput{fmt.Sprintf(format, args...)} }
+
+func (in *inbox) prepare(ctx context.Context, ch string, self []string, m Incoming) (row, error) {
+	now := in.clock().UTC()
+	r := row{id: idgen.Prefixed("msg"), channel: ch, receivedAt: now.Format(timeLayout)}
+	r.externalID = strings.TrimSpace(m.ExternalID)
+	if r.externalID == "" {
+		return r, bad("external_id is required")
+	}
+	r.connectorID = strings.TrimSpace(m.ConnectorID)
+	sender, err := imident.NormalizeExternalID(ch, m.SenderID)
+	if err != nil {
+		return r, bad("sender_id is required")
+	}
+	r.senderExt = sender
+	r.senderName = clip(strings.TrimSpace(m.SenderName), maxName)
+	r.text = clip(m.Text, maxText)
+	r.convName = clip(strings.TrimSpace(m.ConversationName), maxName)
+	if s := strings.TrimSpace(m.ConversationID); s != "" {
+		if r.convExt, err = imident.NormalizeExternalID(ch, s); err != nil {
+			return r, bad("conversation_id: %v", err)
+		}
+	}
+	switch k := strings.TrimSpace(m.ConversationKind); k {
+	case "group", "direct":
+		r.convKind = k
+	case "":
+		r.convKind = "group"
+		if r.convName == "" {
+			r.convKind = "direct"
+		}
+	default:
+		return r, bad("conversation_kind must be group or direct")
+	}
+	switch m.Mention {
+	case "", "me", "all":
+	default:
+		return r, bad("mention must be me, all or empty")
+	}
+	r.attachments = "[]"
+	if a := strings.TrimSpace(string(m.Attachments)); a != "" && a != "null" {
+		var list []json.RawMessage
+		if json.Unmarshal([]byte(a), &list) != nil {
+			return r, bad("attachments must be an array")
+		}
+		r.attachments = a
+	}
+	at := m.At
+	if at.IsZero() {
+		at = now
+	}
+	r.sentAt = at.UTC().Format(timeLayout)
+
+	// 按编号认发送人和会话；没登记的留空，读的时候再补认
+	if idn, err := in.c.Identities().Find(ctx, ch, r.senderExt); err == nil {
+		r.identityID, r.stakeholderID = &idn.ID, &idn.StakeholderID
+	} else if !errors.Is(err, plugin.ErrNoRows) {
+		return r, err
+	}
+	if r.convExt != "" {
+		if cv, err := in.c.Conversations().Find(ctx, ch, r.convExt); err == nil {
+			r.convID, r.convKind = &cv.ID, cv.Kind
+		} else if !errors.Is(err, plugin.ErrNoRows) {
+			return r, err
+		}
+	}
+	r.relevance = relevance(m.Mention, r.text, self, r.convKind)
+	return r, nil
+}
+
+// insert 落一条，同一渠道的同一消息编号已在时跳过，返回 false。
+func (in *inbox) insert(ctx context.Context, r row) (bool, error) {
+	res, err := in.c.Store().Exec(ctx, `INSERT INTO im_messages (id, channel, connector_id, external_id,
+		conversation_id, conversation_external_id, conversation_kind, conversation_name,
+		sender_identity_id, sender_external_id, sender_name, text, attachments, relevance, sent_at, received_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT (channel, external_id) DO NOTHING`,
+		r.id, r.channel, r.connectorID, r.externalID, r.convID, r.convExt, r.convKind, r.convName,
+		r.identityID, r.senderExt, r.senderName, r.text, r.attachments, r.relevance, r.sentAt, r.receivedAt)
+	if err != nil {
+		return false, fmt.Errorf("insert im message: %w", err)
+	}
+	n, _ := res.RowsAffected()
+	return n == 1, nil
+}
+
+// relevance 是这条消息为什么和我有关：@我 优先于 @所有人，私聊本来就是发给我的；无关为空串。口径同原型 relevance。
+func relevance(mention, text string, self []string, kind string) string {
+	if mention != "" {
+		return mention
+	}
+	if mentions(text, self) {
+		return "me"
+	}
+	if mentions(text, allHandles) {
+		return "all"
+	}
+	if kind == "direct" {
+		return "dm"
+	}
+	return ""
+}
+
+// mentions：正文里有「@称呼」，称呼后面不紧跟字母数字（@我们 不算 @我）。英文不分大小写。
+func mentions(text string, handles []string) bool {
+	low := strings.ToLower(text)
+	for _, h := range handles {
+		h = strings.ToLower(strings.TrimSpace(h))
+		if h == "" {
+			continue
+		}
+		needle := "@" + h
+		for i := 0; ; {
+			j := strings.Index(low[i:], needle)
+			if j < 0 {
+				break
+			}
+			end := i + j + len(needle)
+			next, _ := utf8.DecodeRuneInString(low[end:])
+			if end == len(low) || !(unicode.IsLetter(next) || unicode.IsDigit(next) || next == '_') {
+				return true
+			}
+			i = end
+		}
+	}
+	return false
+}
+
+func clip(s string, n int) string {
+	if utf8.RuneCountInString(s) <= n {
+		return s
+	}
+	return string([]rune(s)[:n])
+}
+
+// pullJob 是一个拉取型适配器的后台任务：读进度、拉、落库、存进度。
+func (in *inbox) pullJob(p Puller) func(ctx context.Context, c plugin.Core) error {
+	return func(ctx context.Context, _ plugin.Core) error {
+		var cursor string
+		err := in.c.Store().QueryRow(ctx, `SELECT cursor FROM im_cursors WHERE adapter = ?`, p.Key()).Scan(&cursor)
+		if err != nil && !errors.Is(err, plugin.ErrNoRows) {
+			return err
+		}
+		msgs, next, err := p.Pull(ctx, cursor)
+		if err != nil {
+			return fmt.Errorf("pull %s: %w", p.Key(), err)
+		}
+		if len(msgs) > 0 {
+			if _, err := in.ingest(ctx, p, msgs, false); err != nil {
+				return fmt.Errorf("pull %s: %w", p.Key(), err)
+			}
+		}
+		if next == cursor {
+			return nil
+		}
+		_, err = in.c.Store().Exec(ctx, `INSERT INTO im_cursors (adapter, cursor, updated_at) VALUES (?, ?, ?)
+			ON CONFLICT (adapter) DO UPDATE SET cursor = excluded.cursor, updated_at = excluded.updated_at`,
+			p.Key(), next, in.clock().UTC().Format(timeLayout))
+		return err
+	}
+}

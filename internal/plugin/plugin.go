@@ -13,7 +13,7 @@ import (
 )
 
 // 后端插件接口（CORE-04a），见 docs/plugin-api.md 2.0、2.1、2.10。
-// 这一版有路由、后台任务、事件订阅、今日卡片四个扩展点；设置分节、对象类型、连接器等随各自的任务加，
+// 这一版有路由、后台任务、事件订阅、今日卡片、连接器五个扩展点；设置分节、对象类型等随各自的任务加，
 // 加的时候升插件 API 的小版本。
 
 // Plugin 是第一方插件的后端入口，编译进二进制，用 Registry.Add 登记。
@@ -51,6 +51,8 @@ type Registrar interface {
 	Subscribe(eventType string, h EventHandler)
 	// TodayCard 登记一张今日卡片，Key 必须在清单 provides.today_cards 里（2.8）。
 	TodayCard(c TodayCardDef)
+	// Connector 登记一个连接器定义，Tool 必须在清单 provides.connectors 里（2.5，CONN-02）。
+	Connector(d ConnectorDef)
 }
 
 // RouteRegistrar 和 internal/api 里的同名接口一致，*http.ServeMux 天然满足。
@@ -79,6 +81,8 @@ type Core interface {
 	Objects() ObjectReader
 	Contacts() ContactReader
 	Conversations() ConversationReader
+	// Identities 只读查 IM 身份（IM-01a，identities.go）。
+	Identities() IdentityReader
 }
 
 // Publisher 往事件总线上发事件。payload 按 JSON 序列化；总线没接上时什么都不做。
