@@ -10,8 +10,36 @@
 |---|---|---|
 | 什么时候把开发任务和开发成果切到真实库 | 真实服务 7777 按用户指示停着；开发全程用测试实例 7796 | 第一批功能在测试实例上验收通过后，由用户重启 7777（启动时自动应用 0013），再用 `scripts/import-dev-tasks.py --api http://127.0.0.1:7777 --apply` 导入任务 |
 | 推送到远端、合并进 main | 所有提交都在本地 `feat/prototype-dev-loop` 分支 | 用户看过后决定 |
-| 真正用 Claude Code 走一遍开发闭环 | 子代理只能用 pmw-mcp 模拟领取、进展、提交验收 | DEV-11a 合入后，用户跑 `scripts/dev-loop-drill` 的 setup，再在 `claude --mcp-config .mcp.dev.json` 里执行 `/task <编号>`，最后跑 check |
+| 真正用 Claude Code 走一遍开发闭环（DEV-11b，切真实库的前提是连续跑通三次） | DEV-11a 的脚本已合入（1ec42bb），子代理只用 pmw-mcp 模拟跑通过 | `PMW_DEV_DIR=/tmp/pmw-drill PMW_DEV_ADDR=127.0.0.1:7795 scripts/dev-loop-drill.sh setup`，按它打印的命令在 Claude Code 里执行 `/task <编号>`，再跑 `scripts/dev-loop-drill.sh check <编号>`；三次结果记到 `docs/dev-loop-drill-log.md` |
 | 项目里的「打开原型」在哪个浏览器打开；一级菜单的终端、浏览器以后去留 | PROTO-05 保留现状：原型卡片仍在一级菜单浏览器打开，一级菜单两个模块保留 | 用户看过 PROTO-05 的原型后定 |
+
+---
+
+## 2026-10-29 第十批验收、第十一批开工
+
+第十批 5 条（DEV-11a、CORE-03a、CORE-07b、PROTO-03、QA-02b）全部检查通过，已提交验收并提交代码（1ec42bb、81ec381、05dd7d8、3e6c190、1ec42bb）。检查项：gofmt、go vet、go test ./...，前端 npm test 267 条、typecheck、lint、build，`make smoke-frontend` 42 次 0 问题（主会话复跑），原型 tsc -b、smoke-proto 462 步 0 问题。DEV-11a 和 QA-02b 都往 Makefile 末尾加目标，合在一个提交里。
+
+第十一批 4 条：CORE-02b、CORE-07c、TODAY-01a、PROTO-02。测试实例 00:19 已重启到 0019。
+
+### DEV-11b 留给用户
+- DEV-11b 要求用 Claude Code 真实跑三次 `/task` 闭环，这正是用户要测试的流程，子代理不代跑。它是当前唯一剩下的 M1 开发任务（PROTO-02 本批在做），已在「待用户决定」里写了怎么跑。
+- 演练脚本对 7796 跑 setup 必须带 `--yes`（会 reset 共享测试实例）；建议用户用独立目录和端口，例如 `PMW_DEV_DIR=/tmp/pmw-drill PMW_DEV_ADDR=127.0.0.1:7795 scripts/dev-loop-drill.sh setup`。
+
+### 事件流的取舍（CORE-07b，同意）
+- 补齐窗口只在内存里留最近 1000 条，不存库：补齐只为短暂断线，补不齐时发 `stream.reset` 让前端整页重拉。
+- id 从启动时刻微秒数起递增，重启后新起点比旧 id 大，旧 id 自然判为补不齐。
+- 通知第一版只从「任务提交验收」「执行结束」生成，改状态不生成。通知不自动清理，量大了再加。
+- 保留 id 加 `events`、`notifications`：子代理改了后端，主会话同步了前端 `manifest.ts` 和 plugin-api.md 1.4。
+
+### 数据访问层的取舍（CORE-03a，同意）
+- 写操作只报「改了什么」，失效规则集中在 `core/data/invalidate.ts`，有单测和反证。
+- 所有对象列表共用一个缓存前缀，任务一改，列表、今日、项目的任务标签页都刷新。
+- lint 拦截 `modules/**`、`plugins/**` 引用 `core/api`；`core/plugin/registry.ts` 仍直接用 core/api，它属于内核不受限。
+
+### 原型总览页（PROTO-03，同意）
+- 入口放侧栏底部「设置」右边的图标按钮，不占一级菜单；规格用 `import.meta.glob` 打进页面在抽屉里展开，不改 vite 配置（7778 不能重启）。
+- 状态和页面清单直接读规格包 README 和各规格的页面清单表，不手抄。
+- 总览页本身不在 smoke-proto 的遍历里，以后需要再改脚本。
 
 ---
 
