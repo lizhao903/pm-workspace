@@ -20,6 +20,7 @@ import (
 
 	"github.com/lizhao903/pm-workspace/internal/api"
 	"github.com/lizhao903/pm-workspace/internal/db"
+	"github.com/lizhao903/pm-workspace/internal/events"
 	"github.com/lizhao903/pm-workspace/internal/plugin"
 	"github.com/lizhao903/pm-workspace/internal/store/sqlite"
 	"github.com/lizhao903/pm-workspace/internal/vault"
@@ -135,16 +136,21 @@ func run(cfg config) error {
 	plugins := plugin.NewRegistry(plugin.NewSQLStateStore(pdb), slog.Default())
 	// 插件迁移记在 plugins_migrations（0017）；已应用的被改过时 Start 报错，拒绝启动
 	plugins.Migrations = plugin.NewSQLMigrationStore(pdb)
+	// 事件总线：订阅者从注册表现取；内核事件在 store 写成功后发（events.WrapStore）。
+	// defer 晚于 plugins.Close 登记，所以先等在途的订阅者处理完再停插件。
+	bus := events.New(plugins, slog.Default())
+	plugins.Events = bus
 	if err := plugins.Start(ctx); err != nil {
 		return fmt.Errorf("启动插件失败: %w", err)
 	}
 	defer plugins.Close()
+	defer bus.Wait(5 * time.Second)
 
 	opts := api.Options{Version: version, Dev: cfg.dev, Vault: v, Plugins: plugins}
 	if !cfg.dev {
 		opts.UI = webui.Handler()
 	}
-	handler := api.New(st, opts)
+	handler := api.New(events.WrapStore(st, bus), opts)
 
 	// 两个监听共用同一个 handler，但各自一个 http.Server：Server 内部持有
 	// 监听状态与在途连接，一个实例只能 Serve 一次，不能复用。
