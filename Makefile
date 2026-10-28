@@ -81,3 +81,8 @@ clean:
 .PHONY: smoke-proto
 smoke-proto:
 	@/opt/miniconda3/bin/python scripts/smoke-proto.py $(ARGS)
+
+# 原型和正式前端的截图对照：两边都要先在跑。make shot-compare MODULE=tasks ARGS="--front-port 7781 --diff"
+.PHONY: shot-compare
+shot-compare:
+	@/opt/miniconda3/bin/python scripts/shot-compare.py --module $(or $(MODULE),all) $(ARGS)
