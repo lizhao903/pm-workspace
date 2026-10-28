@@ -43,6 +43,8 @@ var Registry = []Entry{
 	{"ntf", "notification", "notifications", ""},
 	{"sch", "schedule", "schedules", ""},
 	{"srn", "schedule_run", "schedule_runs", ""},
+	{"wh", "webhook", "webhooks", "webhook"},
+	{"ws", "workspace", "workspaces", "workspace"},
 
 	// 以下是原型里有、后端还没建表的实体，前缀和原型一致
 	// 沟通
@@ -57,7 +59,6 @@ var Registry = []Entry{
 	{"pt", "prototype", "", "prototype"},
 	{"ch", "projectChat", "", "projectChat"},
 	// 任务与自动化
-	{"wh", "webhook", "", "webhook"},
 	{"dl", "delivery", "", "delivery"},
 	{"sop", "sop", "", "sop"},
 	{"inc", "incident", "", "incident"},
@@ -69,7 +70,6 @@ var Registry = []Entry{
 	{"kd", "kbDoc", "", "kbDoc"},
 	{"sk", "skill", "", "skill"},
 	// 工作台、域名、本地目录
-	{"ws", "workspace", "", "workspace"},
 	{"dm", "domainRoute", "", "domainRoute"},
 	{"dir", "localDir", "", "localDir"},
 	// 视频

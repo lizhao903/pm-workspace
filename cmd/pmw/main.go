@@ -28,7 +28,9 @@ import (
 	"github.com/lizhao903/pm-workspace/internal/schedule"
 	"github.com/lizhao903/pm-workspace/internal/store/sqlite"
 	"github.com/lizhao903/pm-workspace/internal/vault"
+	"github.com/lizhao903/pm-workspace/internal/webhook"
 	"github.com/lizhao903/pm-workspace/internal/webui"
+	"github.com/lizhao903/pm-workspace/internal/workspace"
 )
 
 // version 可通过 -ldflags "-X main.version=..." 覆盖。
@@ -166,6 +168,10 @@ func run(cfg config) error {
 	defer opts.Notify.Wait(5 * time.Second)
 	// 定时任务的定义（TASK-03a，0020）：规则按本机时区算
 	opts.Schedules = schedule.New(pdb, time.Local)
+	// Webhook 配置（TASK-02a，0022）：接收密钥存保险箱，表里只有条目 id
+	opts.Webhooks = webhook.New(pdb, v)
+	// 工作台配置（CORE-10a，0023）
+	opts.Workspaces = workspace.New(pdb)
 	if !cfg.dev {
 		opts.UI = webui.Handler()
 	}
