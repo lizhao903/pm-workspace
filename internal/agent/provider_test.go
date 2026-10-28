@@ -286,7 +286,7 @@ func TestUpstreamErrorsNeverLeakCredentials(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 
-	for _, kind := range []string{domain.ProviderGemini, domain.ProviderOpenAI} {
+	for _, kind := range []string{domain.ProviderGemini, domain.ProviderOpenAI, domain.ProviderAnthropic} {
 		c, err := New(kind, srv.URL, secret)
 		if err != nil {
 			t.Fatalf("new %s: %v", kind, err)
@@ -303,7 +303,166 @@ func TestUpstreamErrorsNeverLeakCredentials(t *testing.T) {
 
 // TestUnknownProviderKindRejected 确认没有「默默当成 openai 处理」的兜底。
 func TestUnknownProviderKindRejected(t *testing.T) {
-	if _, err := New("anthropic", "http://x", ""); err == nil {
+	if _, err := New("bedrock", "http://x", ""); err == nil {
 		t.Fatal("未知 kind 应当报错")
+	}
+}
+
+// --- Anthropic：SSE，按 content block 组织，工具参数走 input_json_delta ---
+
+func TestAnthropicStreamParsesContentBlocks(t *testing.T) {
+	// 真实流里每个 data: 前面还有一行 event:，解析只看 data 里的 type。
+	body := strings.Join([]string{
+		"event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_1\",\"role\":\"assistant\",\"content\":[]}}",
+		"event: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"thinking\",\"thinking\":\"\"}}",
+		"event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"thinking_delta\",\"thinking\":\"用户想记待办……\"}}",
+		"event: content_block_stop\ndata: {\"type\":\"content_block_stop\",\"index\":0}",
+		"event: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":1,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}",
+		"event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"text_delta\",\"text\":\"好的\"}}",
+		"event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"text_delta\",\"text\":\"，记下了。\"}}",
+		"event: content_block_stop\ndata: {\"type\":\"content_block_stop\",\"index\":1}",
+		"event: ping\ndata: {\"type\":\"ping\"}",
+		"event: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":2,\"content_block\":{\"type\":\"tool_use\",\"id\":\"toolu_1\",\"name\":\"create_object\",\"input\":{}}}",
+		"event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":2,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"{\\\"type_id\\\": \\\"task\\\",\"}}",
+		"event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":2,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\" \\\"title\\\": \\\"和财务对账\\\"}\"}}",
+		"event: content_block_stop\ndata: {\"type\":\"content_block_stop\",\"index\":2}",
+		"event: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":3,\"content_block\":{\"type\":\"tool_use\",\"id\":\"toolu_2\",\"name\":\"list_types\",\"input\":{}}}",
+		"event: content_block_stop\ndata: {\"type\":\"content_block_stop\",\"index\":3}",
+		"event: message_delta\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"tool_use\"}}",
+		"event: message_stop\ndata: {\"type\":\"message_stop\"}",
+		``,
+	}, "\n\n")
+
+	var gotPath, gotKey, gotVersion, gotAuth string
+	var gotPayload map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		raw, _ := io.ReadAll(r.Body)
+		_ = json.Unmarshal(raw, &gotPayload)
+		gotPath = r.URL.Path
+		gotKey, gotVersion = r.Header.Get("x-api-key"), r.Header.Get("anthropic-version")
+		gotAuth = r.Header.Get("Authorization")
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = io.WriteString(w, body)
+	}))
+	t.Cleanup(srv.Close)
+
+	c, err := New(domain.ProviderAnthropic, srv.URL, "sk-ant-secret-0001")
+	if err != nil {
+		t.Fatalf("new: %v", err)
+	}
+	text, calls := collect(t, c, Request{
+		Model: "claude-test",
+		Messages: []Message{
+			{Role: RoleSystem, Content: "你是助理"},
+			{Role: domain.RoleUser, Content: "记一个待办"},
+		},
+		Tools: []ToolDef{{Name: "create_object", Description: "建对象", Parameters: obj(props{}, nil)}},
+	})
+
+	if gotPath != "/v1/messages" {
+		t.Errorf("端点 = %q，期望 /v1/messages", gotPath)
+	}
+	if gotKey != "sk-ant-secret-0001" || gotVersion != AnthropicVersion || gotAuth != "" {
+		t.Errorf("鉴权头 x-api-key=%q anthropic-version=%q Authorization=%q", gotKey, gotVersion, gotAuth)
+	}
+	if gotPayload["stream"] != true || gotPayload["max_tokens"] == nil {
+		t.Errorf("必须带 stream:true 和 max_tokens，得到 %v", gotPayload)
+	}
+	// system 是顶层字段，不能留在 messages 里。
+	if gotPayload["system"] != "你是助理" {
+		t.Errorf("system = %v", gotPayload["system"])
+	}
+	if msgs, _ := gotPayload["messages"].([]any); len(msgs) != 1 {
+		t.Errorf("messages 应只剩 user 一条，得到 %v", gotPayload["messages"])
+	}
+	tools, _ := gotPayload["tools"].([]any)
+	if len(tools) != 1 || tools[0].(map[string]any)["input_schema"] == nil {
+		t.Errorf("tools 要用 input_schema，得到 %v", gotPayload["tools"])
+	}
+
+	if text != "好的，记下了。" {
+		t.Errorf("文本 = %q（thinking 不应混进来）", text)
+	}
+	if len(calls) != 2 {
+		t.Fatalf("工具调用数 = %d，期望 2", len(calls))
+	}
+	if calls[0].ID != "toolu_1" || calls[0].Name != "create_object" || calls[1].Name != "list_types" {
+		t.Errorf("调用 = %+v", calls)
+	}
+	var args map[string]any
+	if err := json.Unmarshal([]byte(calls[0].Args), &args); err != nil {
+		t.Fatalf("分片参数没有被拼成合法 JSON: %v（原文 %q）", err, calls[0].Args)
+	}
+	if args["type_id"] != "task" || args["title"] != "和财务对账" {
+		t.Errorf("参数 = %v", args)
+	}
+	// 没有 input_json_delta 的无参工具，参数补成空对象。
+	if calls[1].Args != "{}" {
+		t.Errorf("无参工具的 Args = %q，期望 {}", calls[1].Args)
+	}
+}
+
+// TestAnthropicBaseURLWithV1 确认 base_url 写成带 /v1 的形式时不会拼成 /v1/v1。
+func TestAnthropicBaseURLWithV1(t *testing.T) {
+	var gotPath string
+	srv := stubServer(t, "text/event-stream", "", func(p string, _ map[string]any) { gotPath = p })
+	c, _ := New(domain.ProviderAnthropic, srv.URL+"/v1/", "k")
+	if err := c.Stream(context.Background(), Request{Model: "m"}, func(Event) {}); err != nil {
+		t.Fatalf("stream: %v", err)
+	}
+	if gotPath != "/v1/messages" {
+		t.Errorf("端点 = %q，期望 /v1/messages", gotPath)
+	}
+}
+
+// TestAnthropicStreamSurfacesInlineError：overloaded 这类错误在 200 的流里以 error 事件到达。
+func TestAnthropicStreamSurfacesInlineError(t *testing.T) {
+	body := "event: error\ndata: {\"type\":\"error\",\"error\":{\"type\":\"overloaded_error\",\"message\":\"Overloaded\"}}\n\n"
+	srv := stubServer(t, "text/event-stream", body, nil)
+	c, _ := New(domain.ProviderAnthropic, srv.URL, "k")
+	err := c.Stream(context.Background(), Request{Model: "m"}, func(Event) {})
+	if err == nil || !strings.Contains(err.Error(), "overloaded_error") {
+		t.Fatalf("error 事件应当转成错误返回，得到 %v", err)
+	}
+}
+
+// TestAnthropicMessagesGroupsToolResults 覆盖回灌这一侧：assistant 的工具调用变成 tool_use 块，
+// 同一轮的多个工具结果必须并进同一条 user 消息，否则 API 报 400。
+func TestAnthropicMessagesGroupsToolResults(t *testing.T) {
+	system, msgs := anthropicMessages([]Message{
+		{Role: RoleSystem, Content: "甲"},
+		{Role: RoleSystem, Content: "乙"},
+		{Role: domain.RoleUser, Content: "建两个待办"},
+		{Role: domain.RoleAssistant, ToolCalls: []ToolCall{
+			{ID: "toolu_a", Name: "create_object", Args: `{"title":"一"}`},
+			{ID: "toolu_b", Name: "create_object", Args: ""},
+		}},
+		{Role: domain.RoleTool, ToolCallID: "toolu_a", ToolName: "create_object", Content: "ok 一"},
+		{Role: domain.RoleTool, ToolCallID: "toolu_b", ToolName: "create_object", Content: "ok 二"},
+		{Role: domain.RoleAssistant, Content: "都建好了"},
+		{Role: domain.RoleAssistant}, // 空轮次要丢掉
+	})
+	if system != "甲\n\n乙" {
+		t.Errorf("system = %q", system)
+	}
+	if len(msgs) != 4 {
+		t.Fatalf("消息数 = %d，期望 4：%v", len(msgs), msgs)
+	}
+	asst := msgs[1]["content"].([]map[string]any)
+	if len(asst) != 2 || asst[0]["type"] != "tool_use" || asst[0]["id"] != "toolu_a" {
+		t.Errorf("assistant 块 = %v", asst)
+	}
+	if in, ok := asst[1]["input"].(map[string]any); !ok || len(in) != 0 {
+		t.Errorf("空参数应回填成空对象，得到 %v", asst[1]["input"])
+	}
+	if msgs[2]["role"] != "user" {
+		t.Errorf("tool 结果应挂在 user 一侧，得到 %v", msgs[2]["role"])
+	}
+	results := msgs[2]["content"].([]map[string]any)
+	if len(results) != 2 || results[0]["tool_use_id"] != "toolu_a" || results[1]["tool_use_id"] != "toolu_b" {
+		t.Errorf("两个 tool_result 应并在一条 user 里，得到 %v", results)
+	}
+	if msgs[3]["role"] != "assistant" {
+		t.Errorf("最后一条应是 assistant，得到 %v", msgs[3])
 	}
 }

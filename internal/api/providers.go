@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/lizhao903/pm-workspace/internal/agent"
 	"github.com/lizhao903/pm-workspace/internal/audit"
 	"github.com/lizhao903/pm-workspace/internal/domain"
 )
@@ -203,14 +204,14 @@ func (s *Server) handleTestProvider(w http.ResponseWriter, r *http.Request) {
 	respondData(w, http.StatusOK, res)
 }
 
-// probeProvider 按 kind 走各自的「列模型」端点：这是三家都有、且只读、
+// probeProvider 按 kind 走各自的「列模型」端点：这是四家都有、且只读、
 // 又能同时验证「地址对不对」和「密钥认不认」的最轻探针。
 func probeProvider(ctx context.Context, p *domain.AgentProvider, key string) *domain.ProviderTestResult {
 	if providerNeedsKey(p.Kind) && key == "" {
 		return &domain.ProviderTestResult{Message: "尚未配置 API Key"}
 	}
 
-	endpoint, header := probeTarget(p, key)
+	endpoint, headers := probeTarget(p, key)
 	ctx, cancel := context.WithTimeout(ctx, providerTestTimeout)
 	defer cancel()
 
@@ -219,8 +220,8 @@ func probeProvider(ctx context.Context, p *domain.AgentProvider, key string) *do
 		// err 里带着完整 URL（含 query 上的 key），只能丢掉，用归类后的说法。
 		return &domain.ProviderTestResult{Message: "base_url 不是合法的地址"}
 	}
-	if header != "" {
-		req.Header.Set("Authorization", header)
+	for k, v := range headers {
+		req.Header.Set(k, v)
 	}
 
 	start := time.Now()
@@ -245,18 +246,22 @@ func probeProvider(ctx context.Context, p *domain.AgentProvider, key string) *do
 	return &domain.ProviderTestResult{OK: true, Latency: latency, Message: "连接成功", Models: models}
 }
 
-// probeTarget 返回探测地址和 Authorization 头。
+// probeTarget 返回探测地址和鉴权头。
 // Gemini 的密钥走 query（官方就这么设计），所以这个 URL 本身是敏感的，
 // 任何时候都不能出现在返回值、日志或错误里。
-func probeTarget(p *domain.AgentProvider, key string) (endpoint, authHeader string) {
+func probeTarget(p *domain.AgentProvider, key string) (endpoint string, headers map[string]string) {
 	base := strings.TrimRight(p.BaseURL, "/")
 	switch p.Kind {
 	case domain.ProviderOpenAI:
-		return base + "/models", "Bearer " + key
+		return base + "/models", map[string]string{"Authorization": "Bearer " + key}
+	case domain.ProviderAnthropic:
+		// 默认一页只回 20 个，limit 给到上限，一次拉全。
+		return agent.AnthropicEndpoint(base, "/models?limit=1000"),
+			map[string]string{"x-api-key": key, "anthropic-version": agent.AnthropicVersion}
 	case domain.ProviderGemini:
-		return base + "/models?" + url.Values{"key": {key}}.Encode(), ""
+		return base + "/models?" + url.Values{"key": {key}}.Encode(), nil
 	default: // ollama：本机服务，无鉴权
-		return base + "/api/tags", ""
+		return base + "/api/tags", nil
 	}
 }
 
@@ -289,7 +294,7 @@ func statusMessage(code int) string {
 	}
 }
 
-// decodeModels 各家的模型列表结构不同：OpenAI 是 data[].id，
+// decodeModels 各家的模型列表结构不同：OpenAI 和 Anthropic 是 data[].id，
 // Gemini 和 Ollama 都是 models[].name（Gemini 的 name 带 models/ 前缀，去掉后才是模型名）。
 func decodeModels(kind string, body io.Reader) ([]string, error) {
 	var payload struct {
@@ -305,7 +310,7 @@ func decodeModels(kind string, body io.Reader) ([]string, error) {
 	}
 
 	out := []string{}
-	if kind == domain.ProviderOpenAI {
+	if kind == domain.ProviderOpenAI || kind == domain.ProviderAnthropic {
 		for _, m := range payload.Data {
 			if m.ID != "" {
 				out = append(out, m.ID)

@@ -136,6 +136,17 @@ type Stakeholder struct {
 	CreatedAt  time.Time  `json:"created_at"`
 	UpdatedAt  time.Time  `json:"updated_at"`
 
+	// 联系人字段（0026），对照原型 Contact。Group 是分组显示名，不约束取值；
+	// Photo 是 data:image/ URL，空串按名字生成头像；LastContactAt 为 nil 表示没联系过。
+	Group         string     `json:"group"`
+	Company       string     `json:"company"`
+	Title         string     `json:"title"`
+	Phone         string     `json:"phone"`
+	Tags          []string   `json:"tags"`
+	Photo         string     `json:"photo"`
+	Starred       bool       `json:"starred"`
+	LastContactAt *time.Time `json:"last_contact_at"`
+
 	// 以下为查询时填充的展示字段，不落 stakeholders 表。
 	// OwnedCount / ParticipatingCount 是删除前的确认依据，也是名册页上的「他手上有多少事」。
 	OwnedCount         int `json:"owned_count"`
@@ -150,6 +161,16 @@ type StakeholderPatch struct {
 	Color     *string `json:"color"`
 	SortOrder *int    `json:"sort_order"`
 	Archived  *bool   `json:"archived"`
+
+	Group   *string   `json:"group"`
+	Company *string   `json:"company"`
+	Title   *string   `json:"title"`
+	Phone   *string   `json:"phone"`
+	Tags    *[]string `json:"tags"`
+	Photo   *string   `json:"photo"`
+	Starred *bool     `json:"starred"`
+	// LastContactAt 双指针：外层 nil 不改，内层 nil 清空（回到「没联系过」）。
+	LastContactAt **time.Time `json:"last_contact_at"`
 }
 
 type ObjectPatch struct {
@@ -399,13 +420,20 @@ type DictItemPatch struct {
 	Meta        *map[string]any `json:"meta"`
 }
 
-// ---- Agent 供应商：接入 OpenAI 兼容 / Gemini / 本地 Ollama ----
+// ---- Agent 供应商：接入 OpenAI 兼容 / Anthropic / Gemini / 本地 Ollama ----
 
+// kind 是协议，不是厂商：DeepSeek、Moonshot 这类兼容 OpenAI 的厂商一律 kind=openai，
+// 厂商身份放在 extra.preset 上（见 ProviderPresetDeepSeek）。
 const (
-	ProviderOpenAI = "openai" // OpenAI 及一切 /v1/chat/completions 兼容端点（DeepSeek、Moonshot、vLLM…）
-	ProviderGemini = "gemini"
-	ProviderOllama = "ollama" // 本地，不需要 api_key
+	ProviderOpenAI    = "openai" // OpenAI 及一切 /v1/chat/completions 兼容端点（DeepSeek、Moonshot、vLLM…）
+	ProviderAnthropic = "anthropic"
+	ProviderGemini    = "gemini"
+	ProviderOllama    = "ollama" // 本地，不需要 api_key
 )
+
+// ProviderPresetDeepSeek 是 extra.preset 的取值，和原型 modeldata.ts 的 ProviderKind 同名。
+// 只影响默认 base_url，调用走的仍是 openai 协议。
+const ProviderPresetDeepSeek = "deepseek"
 
 // AgentProvider 是一个模型接入点。APIKey 只写不读——读取时一律脱敏，
 // 避免密钥经由界面、日志、MCP 工具返回值泄漏出去。
