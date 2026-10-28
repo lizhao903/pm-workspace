@@ -4,7 +4,7 @@
 // - 连接 = 启用（暂停中的先 PATCH enabled）再做一次连通测试；断开先落成暂停，主动断开（disconnected）归 CONN-01b。
 // - 后端的 connecting 是「接入后还没测过」，行上照样给「连接」。
 // - 删除前的影响检查归 CONN-03，现在只确认删除。
-import { useState, type MouseEvent } from 'react'
+import { useEffect, useRef, useState, type MouseEvent } from 'react'
 import {
   errorText, QueryState, useConnectorDefs, useConnectors, usePatchConnector, useTestConnector,
   type Connector, type ConnectorDef,
@@ -31,6 +31,16 @@ export function ConnectorsSection() {
   const [checks, setChecks] = useState<Record<string, ConnCheck>>({})
   const [testErrors, setTestErrors] = useState<Record<string, unknown>>({})
   const [actionError, setActionError] = useState<string | null>(null)
+
+  // 定义随插件启停出现、隐藏（CONN-02），插件管理那边改了不会通知这里：进来时缓存里已有的重新取一次，
+  // 免得停用的插件的工具还在、重新启用的还挂在「提供方已停用」里
+  const refreshed = useRef(false)
+  useEffect(() => {
+    if (refreshed.current) return
+    refreshed.current = true
+    if (!defsQ.isFetching) void defsQ.refetch()
+    if (!listQ.isFetching) void listQ.refetch()
+  }, [defsQ, listQ])
 
   const defs = defsQ.data ?? []
   const list = listQ.data ?? []
