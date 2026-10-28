@@ -3,9 +3,12 @@ package plugin
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"io/fs"
 	"log/slog"
 	"net/http"
+	"slices"
 	"time"
 )
 
@@ -50,11 +53,21 @@ type Job struct {
 	Run   func(ctx context.Context, c Core) error
 }
 
-// Core 是插件能用的内核能力。这一版只有身份和日志，对象、设置、凭证等句柄随各自的任务加。
+// Core 是插件能用的内核能力。这一版只有身份、日志、事件发布，对象、设置、凭证等句柄随各自的任务加。
 type Core interface {
 	PluginID() string
 	Log() *slog.Logger
+	// Events 发布本插件的事件，类型必须在清单 emits 里（2.10）。
+	Events() Publisher
 }
+
+// Publisher 往事件总线上发事件。payload 按 JSON 序列化；总线没接上时什么都不做。
+type Publisher interface {
+	Publish(ctx context.Context, eventType string, payload any) error
+}
+
+// ErrEventNotDeclared：插件发布了清单 emits 里没写的事件类型。
+var ErrEventNotDeclared = errors.New("event type not declared in emits")
 
 // Event 是事件总线上的一条事件（CORE-07a 发布）。
 type Event struct {
@@ -66,12 +79,25 @@ type Event struct {
 type EventHandler func(ctx context.Context, c Core, e Event) error
 
 type core struct {
-	id  string
-	log *slog.Logger
+	id    string
+	log   *slog.Logger
+	emits []string
+	reg   *Registry // 发布时取 reg.Events，cmd/pmw 在 Start 之前接上
 }
 
 func (c *core) PluginID() string  { return c.id }
 func (c *core) Log() *slog.Logger { return c.log }
+func (c *core) Events() Publisher { return c }
+
+func (c *core) Publish(ctx context.Context, eventType string, payload any) error {
+	if !slices.Contains(c.emits, eventType) {
+		return fmt.Errorf("%w: %s", ErrEventNotDeclared, eventType)
+	}
+	if c.reg == nil || c.reg.Events == nil {
+		return nil
+	}
+	return c.reg.Events.Publish(ctx, eventType, payload)
+}
 
 // MustParse 解析 embed 进来的 plugin.json，不合法直接 panic：第一方插件的清单写错是编译期问题。
 func MustParse(data []byte) Manifest {

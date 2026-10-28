@@ -26,6 +26,8 @@ type Registry struct {
 
 	// Migrations 存插件迁移记录，默认是内存的；cmd/pmw 在 Add 之前换成 SQLMigrationStore。
 	Migrations MigrationStore
+	// Events 是插件发布事件用的总线（internal/events），为 nil 时插件发布什么都不做。
+	Events Publisher
 
 	// APIVersion 为空时用 APIVersion 常量；测试用它模拟内核升级。
 	APIVersion string
@@ -120,7 +122,7 @@ func (r *Registry) Add(p Plugin) error {
 	if _, dup := r.entries[m.ID]; dup {
 		return fmt.Errorf("plugin registry: duplicate plugin id %s", m.ID)
 	}
-	e := &entry{p: p, m: m, core: &core{id: m.ID, log: r.log.With("plugin", m.ID)}, state: State{ID: m.ID}}
+	e := &entry{p: p, m: m, core: &core{id: m.ID, log: r.log.With("plugin", m.ID), emits: m.Emits, reg: r}, state: State{ID: m.ID}}
 	migs, err := loadMigrations(&m, p.Migrations())
 	if err != nil {
 		return err
@@ -369,16 +371,17 @@ func (r *Registry) Routes(notFound http.HandlerFunc) []Route {
 	return out
 }
 
-// Subscriber 是一个在跑的插件对某类事件的订阅，CORE-07a 的事件总线按它分发。
+// Subscriber 是一个在跑的插件对某类事件的订阅，事件总线（internal/events）按它分发。
 type Subscriber struct {
 	Plugin string
 	Handle func(ctx context.Context, e Event) error
 }
 
 // Subscribers 返回当前在跑的插件里订阅了 eventType 的处理函数；停用的插件不在里面。
+// 处理函数调用时再查一次：拿到之后插件被停用（或停了又启用）就不送，停用后一条都收不到。
+// 不拿 r.mu：order、entries 只在 Start 之前改，启停走 atomic；否则停用时等后台任务退出，
+// 任务里发事件会卡在这把锁上，一直等到 StopTimeout。
 func (r *Registry) Subscribers(eventType string) []Subscriber {
-	r.mu.Lock()
-	defer r.mu.Unlock()
 	var out []Subscriber
 	for _, id := range r.order {
 		e := r.entries[id]
@@ -388,6 +391,9 @@ func (r *Registry) Subscribers(eventType string) []Subscriber {
 		}
 		for _, h := range a.subs[eventType] {
 			out = append(out, Subscriber{Plugin: id, Handle: func(ctx context.Context, ev Event) error {
+				if e.active.Load() != a {
+					return nil
+				}
 				return h(ctx, e.core, ev)
 			}})
 		}
