@@ -83,6 +83,16 @@ export {
   identitiesApi, useIdentities, normExternalId, identitiesByContact, imOf, identityOwner, identityPlan, applyIdentityPlan,
 } from './identities'
 export type { Identity, IdentityInput, IdentityOp, IdentityFailure } from './identities'
+export {
+  connectorsApi, normConnector, useConnectorDefs, useConnectors, useCreateConnector, usePatchConnector, useDeleteConnector,
+  useTestConnector, useRefreshConnectorTools, useSetConnectorToolModes,
+} from './connectors'
+export type {
+  Connector, ConnectorDef, ConnectorField, ConnectorTool, ConnectorToolDef, ConnectorAuthMode, ConnectorToolMode, ConnectorStatus,
+  ConnectorDirection, ConnectorInput, ConnectorPatch, ConnectorTestResult, ConnectorRefreshResult,
+} from './connectors'
+export { projectStakeholdersApi, useAddProjectStakeholder, usePatchProjectStakeholder, useRemoveProjectStakeholder } from './projectStakeholders'
+export type { ProjectStakeholderInput, ProjectStakeholderPatch } from './projectStakeholders'
 
 // 接口层的纯函数和类型照样给模块用：不发请求，不碰缓存
 export { localDay, focusParams, changedFields, isApiError, isStreamError, ApiError, StreamError } from '../api'

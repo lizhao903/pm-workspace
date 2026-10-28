@@ -1,5 +1,5 @@
 import { lazy } from 'react'
-import { defineCoreModule } from '../../core/plugin'
+import { defineCoreModule, registerCoreObjectDrawer } from '../../core/plugin'
 
 // 内核模块：标 core，不能停用
 export const module = defineCoreModule({
@@ -14,3 +14,11 @@ const withStyles = () => import('./tasks.css')
 export const TaskDrawer = lazy(() => Promise.all([import('./TaskDrawer'), withStyles()]).then(([m]) => ({ default: m.TaskDrawer })))
 export const ApproveDialog = lazy(() => Promise.all([import('./ApproveDialog'), withStyles()]).then(([m]) => ({ default: m.ApproveDialog })))
 export { REVIEW, doneKey, dueDay, priorityRank, terminalOf, timeAgo } from './model'
+
+// 插件打开任务抽屉（PJ-01d）：登记到 core/plugin 的「打开对象」，插件按类型拿，不 import 这里
+const objectDrawer = () => import('./ObjectDrawer')
+registerCoreObjectDrawer({
+  typeId: 'task',
+  drawer: lazy(objectDrawer),
+  approve: lazy(() => objectDrawer().then((m) => ({ default: m.ObjectApprove }))),
+})

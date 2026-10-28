@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import type { ObjectStatus, ProjectView } from '../../core/data'
+import type { DictItem, ObjectStatus, ProjectStakeholder, ProjectView, WorkObject } from '../../core/data'
 import {
-  RECENT_MAX, colorOf, diffForm, dirName, groupByStatus, loadRecent, markText, matchQuery, resetRecentMemo, sortProjects, tabOf,
+  RECENT_MAX, ago, colorOf, doneStatus, isOpenStatus, reopenStatus, sortByPriority, sortStakeholders, diffForm, dirName, groupByStatus, loadRecent, markText, matchQuery, resetRecentMemo, sortProjects, tabOf,
   touchRecent, type Form,
 } from './model'
 import { PROJECT_COLORS } from './markIcons'
@@ -106,5 +106,44 @@ describe('设置的保存口径', () => {
     expect(tabOf(undefined)).toBe('overview')
     expect(tabOf('settings')).toBe('settings')
     expect(tabOf('nope')).toBeNull()
+  })
+})
+
+describe('项目标签', () => {
+  const st = (stakeholder_id: string, role: string, sort_order: number) =>
+    ({ project_id: 'p', stakeholder_id, role, focus: '', sort_order, created_at: '', updated_at: '' }) as ProjectStakeholder
+  it('干系人按角色顺序排（决策人、对接人、负责人、参与、知会），同角色按加入顺序', () => {
+    const rows = [st('a', 'member', 1), st('b', 'informed', 2), st('c', 'owner', 3), st('d', 'decider', 4), st('e', 'contact', 5), st('f', 'member', 0)]
+    expect(sortStakeholders(rows).map((x) => x.stakeholder_id)).toEqual(['d', 'e', 'c', 'f', 'a', 'b'])
+  })
+
+  const ts: ObjectStatus[] = [
+    { key: 'todo', label: '待办', color: '', terminal: false },
+    { key: 'review', label: '待验收', color: '', terminal: false },
+    { key: 'done', label: '已完成', color: '', terminal: true },
+    { key: 'cancelled', label: '已取消', color: '', terminal: true },
+  ]
+  it('未完成看终态标记；完成、改回用的状态从状态集取', () => {
+    expect(isOpenStatus(ts, 'review')).toBe(true)
+    expect(isOpenStatus(ts, 'cancelled')).toBe(false)
+    expect(isOpenStatus(ts, 'unknown')).toBe(true)
+    expect(doneStatus(ts)).toBe('done')
+    expect(doneStatus(ts.filter((s) => s.key !== 'done'))).toBeUndefined()
+    expect(reopenStatus(ts)).toBe('todo')
+  })
+
+  it('任务按字典里的优先级顺序排，没有优先级的最后', () => {
+    const prios = [{ key: 'P0' }, { key: 'P1' }, { key: 'P2' }] as DictItem[]
+    const t = (id: string, priority: string, updated_at = '2026-10-01') => ({ id, priority, updated_at }) as WorkObject
+    expect(sortByPriority([t('a', ''), t('b', 'P2'), t('c', 'P0'), t('d', 'P2', '2026-10-02')], prios).map((x) => x.id)).toEqual(['c', 'd', 'b', 'a'])
+  })
+
+  it('相对时间', () => {
+    const now = Date.parse('2026-10-29T12:00:00Z')
+    expect(ago('2026-10-29T11:59:40Z', now)).toBe('刚刚')
+    expect(ago('2026-10-29T11:30:00Z', now)).toBe('30 分钟前')
+    expect(ago('2026-10-29T09:00:00Z', now)).toBe('3 小时前')
+    expect(ago('2026-10-26T12:00:00Z', now)).toBe('3 天前')
+    expect(ago('bad', now)).toBe('-')
   })
 })

@@ -1,6 +1,6 @@
 // 扩展点的注册表（CORE-02b）：每条注册记下是哪个插件的，停用时按插件 id 一起撤掉。
 // 外壳和页面用 use* 订阅，插件停用、注册撤掉后设置分节、今日卡片、菜单跟着消失。
-import { useMemo, useSyncExternalStore } from 'react'
+import { useMemo, useSyncExternalStore, type ComponentType, type LazyExoticComponent } from 'react'
 import type {
   Disposable, ObjectTypeRegistry, ObjectTypeView, SettingsRegistry, SettingsSectionDef, TodayCardRegistry, TodayCardView,
 } from './api'
@@ -222,4 +222,41 @@ export function objectTypeView(typeId: string): PluginObjectTypeView | undefined
 export function useObjectTypeView(typeId: string): PluginObjectTypeView | undefined {
   const list = useSyncExternalStore(objectTypeStore.subscribe, objectTypeStore.list)
   return list.find((v) => v.typeId === typeId)
+}
+
+// ---- 打开对象（PJ-01d）：内核模块登记某类对象的详情抽屉，插件和别的模块按类型拿，不用 import 模块内部 ----
+
+export type ObjectDrawerProps = {
+  /** null 表示新建 */
+  objectId: string | null
+  /** 新建时预填的字段，比如项目里新建的任务带上 project_id */
+  init?: { project_id?: string }
+  onClose: () => void
+}
+
+/** 列表上点完成圆圈、对象在待验收时的确认：确认后等于验收通过 */
+export type ObjectApproveProps = {
+  objectId: string
+  /** 确认弹窗里点「打开」 */
+  onOpen: () => void
+  onClose: () => void
+}
+
+export type ObjectDrawerDef = {
+  typeId: string
+  drawer: LazyExoticComponent<ComponentType<ObjectDrawerProps>>
+  approve?: LazyExoticComponent<ComponentType<ObjectApproveProps>>
+}
+
+export const objectDrawerStore = new OwnedStore<ObjectDrawerDef>()
+
+/** 内核模块登记；同一类型只收第一个 */
+export function registerCoreObjectDrawer(def: ObjectDrawerDef): Disposable {
+  if (objectDrawerStore.find((d) => d.typeId === def.typeId)) return { dispose() {} }
+  return objectDrawerStore.add(CORE_OWNER, def)
+}
+
+export function useObjectDrawer(typeId: string): ObjectDrawerDef | undefined {
+  const list = useSyncExternalStore(objectDrawerStore.subscribe, objectDrawerStore.list)
+  return list.find((d) => d.typeId === typeId)
 }

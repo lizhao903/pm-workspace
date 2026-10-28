@@ -360,3 +360,48 @@ describe('IM 身份的失效（CT-03b）', () => {
     expect(await stale({ kind: 'stakeholder' })).toEqual(['contacts'])
   })
 })
+
+describe('项目干系人的失效（PJ-01d）', () => {
+  const keys = {
+    mine: dataKeys.projectStakeholders('obj_p1'),
+    other: dataKeys.projectStakeholders('obj_p2'),
+    contacts: dataKeys.contacts.list,
+    tasks: dataKeys.objects.listAll({ type: ['task'], project: 'obj_p1' }),
+  } satisfies Record<string, QueryKey>
+  async function stale(c: Change) {
+    const qc = new QueryClient()
+    for (const k of Object.values(keys)) qc.setQueryData(k, {})
+    await applyChange(qc, c)
+    return (Object.keys(keys) as (keyof typeof keys)[]).filter((n) => qc.getQueryState(keys[n])?.isInvalidated)
+  }
+
+  it('加人、移除只刷这个项目的干系人', async () => {
+    expect(await stale({ kind: 'project-stakeholder', projectId: 'obj_p1' })).toEqual(['mine'])
+  })
+
+  it('改联系人资料、删联系人时各项目的干系人一起刷', async () => {
+    expect(await stale({ kind: 'stakeholder' })).toEqual(['mine', 'other', 'contacts', 'tasks'])
+  })
+})
+
+describe('连接器的失效（CONN-01d）', () => {
+  const keys = {
+    list: dataKeys.connectors.list,
+    defs: dataKeys.connectors.defs,
+    providers: agentKeys.providers,
+  } satisfies Record<string, QueryKey>
+  async function stale(c: Change) {
+    const qc = new QueryClient()
+    for (const k of Object.values(keys)) qc.setQueryData(k, {})
+    await applyChange(qc, c)
+    return (Object.keys(keys) as (keyof typeof keys)[]).filter((n) => qc.getQueryState(keys[n])?.isInvalidated)
+  }
+
+  it('实例的增删改只刷实例列表，定义不动', async () => {
+    expect(await stale({ kind: 'connector' })).toEqual(['list'])
+  })
+
+  it('改模型服务商不动连接器', async () => {
+    expect(await stale({ kind: 'agent-provider' })).toEqual(['providers'])
+  })
+})

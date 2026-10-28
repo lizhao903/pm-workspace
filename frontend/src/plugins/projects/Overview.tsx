@@ -1,10 +1,11 @@
 // 概览（SPEC-projects-3）：数字卡片和摘要块，每块都能点进对应标签。
 // 现在有数据来源的是任务、干系人、项目目录；最新沟通、项目 Agent、原型、文档和材料等对应后端（PJ-02、AG、PJ-04、PJ-03）有了再补
-import { useMemo } from 'react'
+import { Suspense, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router'
 import {
   PROJECT_ROLES, errorText, projectView, useAllObjects, useContacts, useDictItems, useProjectStakeholders, type WorkObject,
 } from '../../core/data'
+import { useObjectDrawer } from '../../core/plugin'
 import { ErrorState, cls } from '../../core/ui'
 import { STAKE_PEEK, TASK_PEEK, type ProjectTab } from './model'
 
@@ -17,6 +18,9 @@ export function Overview({ project, onTab }: { project: WorkObject; onTab: (t: P
   const prios = useDictItems(PRIORITY_DICT)
   const stakes = useProjectStakeholders(p.id)
   const contacts = useContacts()
+  // 点任务打开任务模块登记的抽屉（PJ-01d）
+  const drawer = useObjectDrawer('task')
+  const [openId, setOpenId] = useState<string | null>(null)
 
   // 未完成任务按优先级排（字典顺序），同优先级的新改的在前
   const openTasks = useMemo(() => {
@@ -51,9 +55,11 @@ export function Overview({ project, onTab }: { project: WorkObject; onTab: (t: P
               : openTasks.length ? (
                 <ul className="pj-lines">
                   {openTasks.slice(0, TASK_PEEK).map((t) => (
-                    <li key={t.id} className="pj-line">
-                      <span className="pj-ref">{t.ref}</span><span className="ellipsis">{t.title}</span>
-                      <span className="spacer" /><span className="pj-muted">{t.owner_name || t.owner}</span>
+                    <li key={t.id}>
+                      <button type="button" className="pj-line pj-line-btn" disabled={!drawer} onClick={() => setOpenId(t.id)}>
+                        <span className="pj-ref">{t.ref}</span><span className="ellipsis">{t.title}</span>
+                        <span className="spacer" /><span className="pj-muted">{t.owner_name || t.owner}</span>
+                      </button>
                     </li>
                   ))}
                 </ul>
@@ -90,6 +96,9 @@ export function Overview({ project, onTab }: { project: WorkObject; onTab: (t: P
           )}
         </section>
       </div>
+      <Suspense fallback={null}>
+        {openId && drawer && <drawer.drawer key={openId} objectId={openId} onClose={() => setOpenId(null)} />}
+      </Suspense>
     </div>
   )
 }

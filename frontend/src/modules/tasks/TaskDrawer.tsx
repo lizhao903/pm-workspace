@@ -16,20 +16,22 @@ import { REVIEW, timeAgo } from './model'
 import { ReviewBar } from './ReviewBar'
 import { WorkdirField } from './WorkdirField'
 
-export function TaskDrawer({ task, statuses, priorities, projects, onClose, onCreated }: {
+export function TaskDrawer({ task, statuses, priorities, projects, init, onClose, onCreated }: {
   /** null 表示新建 */
   task: WorkObject | null
   statuses: ObjectStatus[]
   priorities: DictItem[]
   /** type=project 的对象，选所属项目、算继承的工作目录 */
   projects: WorkObject[]
+  /** 新建时预填的字段（项目里新建任务带上所属项目） */
+  init?: Partial<TaskDraft>
   onClose: () => void
   /** 新建成功后切到这条任务 */
   onCreated: (t: WorkObject) => void
 }) {
   const creating = !task
   // 基准：已有任务取打开时的值，新建取默认值；之后不跟着刷新，免得把别人刚改的值当成自己的改动
-  const [base, setBase] = useState<TaskDraft>(() => (task ? draftOf(task) : emptyDraft(statuses, priorities)))
+  const [base, setBase] = useState<TaskDraft>(() => (task ? draftOf(task) : { ...emptyDraft(statuses, priorities), ...init }))
   const [d, setD] = useState<TaskDraft>(base)
   const [tried, setTried] = useState(false)
   const [devOpen, setDevOpen] = useState(!creating)
