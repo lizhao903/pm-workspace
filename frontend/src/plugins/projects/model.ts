@@ -99,7 +99,7 @@ export type ProjectTab = 'overview' | 'comms' | 'stakeholders' | 'tasks' | 'docs
 
 export const TABS: { key: ProjectTab; label: string; todo?: string }[] = [
   { key: 'overview', label: '概览' },
-  { key: 'comms', label: '沟通', todo: '绑定群聊和私聊、看项目里的消息，由 PJ-02b 实现' },
+  { key: 'comms', label: '沟通' },
   { key: 'stakeholders', label: '干系人' },
   { key: 'tasks', label: '任务' },
   { key: 'docs', label: '文档' },

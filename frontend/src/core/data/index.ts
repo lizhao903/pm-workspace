@@ -99,6 +99,12 @@ export {
   MATERIAL_KINDS, projectMaterialsApi, useProjectMaterials, useAddProjectMaterials, usePatchProjectMaterial, useRemoveProjectMaterial,
 } from './materials'
 export type { MaterialKind, MaterialStatus, ProjectMaterial, ProjectMaterialInput, ProjectMaterialPatch } from './materials'
+export { conversationsApi, normConversation, useConversations } from './conversations'
+export type { Conversation, ConversationKind } from './conversations'
+export {
+  projectConversationsApi, useProjectConversations, useBindProjectConversation, useUnbindProjectConversation, useConversationMessages, useAllImMessages,
+} from './projectConversations'
+export type { ProjectConversation, ConversationMessages } from './projectConversations'
 
 // 接口层的纯函数和类型照样给模块用：不发请求，不碰缓存
 export { localDay, focusParams, changedFields, isApiError, isStreamError, ApiError, StreamError } from '../api'

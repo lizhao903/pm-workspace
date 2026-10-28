@@ -1,9 +1,10 @@
 // 项目详情的框架（SPEC-projects-2）：顶栏「项目 /」回列表、标志、名称、说明；标签条；各标签的右上按钮。
-// 概览、设置（PJ-01c），干系人、任务、文档（PJ-01d），支持材料（PJ-03b）；其余标签按规格占位，由后续任务补（沟通 PJ-02b，原型 PJ-04b）
+// 概览、设置（PJ-01c），干系人、任务、文档（PJ-01d），支持材料（PJ-03b），沟通（PJ-02b）；其余标签按规格占位，由后续任务补（原型 PJ-04b）
 import { useEffect, useRef, useState } from 'react'
 import { errorText, isApiError, isLiveProject, projectView, useProject } from '../../core/data'
 import { Button, EmptyState, ErrorState, LoadingState, PageTitle, cls } from '../../core/ui'
 import { ProjectMarkView } from './Mark'
+import { CommsTab } from './CommsTab'
 import { DocsTab } from './DocsTab'
 import { MaterialsTab } from './MaterialsTab'
 import { Overview } from './Overview'
@@ -70,6 +71,7 @@ export function ProjectPage({ id, tab, onTab, onAll }: {
       </div>
       <div role="tabpanel" aria-label={cur.label}>
         {tab === 'overview' && <Overview project={o} onTab={onTab} />}
+        {tab === 'comms' && <CommsTab key={o.id} projectId={o.id} />}
         {tab === 'settings' && <Settings key={o.id} project={o} onDeleted={onAll} />}
         {tab === 'stakeholders' && <StakeholdersTab key={o.id} projectId={o.id} />}
         {tab === 'tasks' && <TasksTab key={o.id} projectId={o.id} />}

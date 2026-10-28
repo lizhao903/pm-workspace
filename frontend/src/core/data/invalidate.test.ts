@@ -452,3 +452,26 @@ describe('IM 消息的失效（IM-02b）', () => {
     expect(await stale({ kind: 'object' })).toEqual(['objects', 'contacts'])
   })
 })
+
+describe('项目会话绑定的失效（PJ-02b）', () => {
+  const keys = {
+    mine: dataKeys.projectConversations('obj_p1'),
+    other: dataKeys.projectConversations('obj_p2'),
+    msgs: dataKeys.im.conversation('cv_1'),
+    convs: dataKeys.conversations.list,
+  } satisfies Record<string, QueryKey>
+  async function stale(c: Change) {
+    const qc = new QueryClient()
+    for (const k of Object.values(keys)) qc.setQueryData(k, {})
+    await applyChange(qc, c)
+    return (Object.keys(keys) as (keyof typeof keys)[]).filter((n) => qc.getQueryState(keys[n])?.isInvalidated)
+  }
+
+  it('绑定、解绑只刷这个项目的绑定，不动消息', async () => {
+    expect(await stale({ kind: 'project-conversation', projectId: 'obj_p1' })).toEqual(['mine'])
+  })
+
+  it('消息一变，按会话取的消息也刷', async () => {
+    expect(await stale({ kind: 'im-message' })).toEqual(['msgs'])
+  })
+})
