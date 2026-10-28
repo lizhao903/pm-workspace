@@ -201,3 +201,32 @@ describe('定时任务的失效（TASK-04a）', () => {
     expect(await stale({ kind: 'object', id: 'obj_a' })).toEqual(['schedules', 'today', 'taskList', 'taskCounts'])
   })
 })
+
+describe('工作台的失效（CORE-10b）', () => {
+  const keys = {
+    workspaces: dataKeys.workspaces.list,
+    templates: dataKeys.workspaces.templates,
+    taskList: dataKeys.objects.listAll({ type: ['task'] }),
+    taskCounts: dataKeys.counts.of('task'),
+    today: todayKeys.of(),
+    plugins: dataKeys.plugins.list,
+  } satisfies Record<string, QueryKey>
+  async function stale(c: Change) {
+    const qc = new QueryClient()
+    for (const k of Object.values(keys)) qc.setQueryData(k, {})
+    await applyChange(qc, c)
+    return (Object.keys(keys) as (keyof typeof keys)[]).filter((n) => qc.getQueryState(keys[n])?.isInvalidated)
+  }
+
+  it('新建、修改、删除工作台只刷工作台列表：切工作台只换菜单，任务列表、计数、今日都不动', async () => {
+    expect(await stale({ kind: 'workspace' })).toEqual(['workspaces'])
+  })
+
+  it('对象、插件改动不动工作台', async () => {
+    for (const c of [{ kind: 'object', id: 'obj_a' }, { kind: 'plugin' }] as Change[]) {
+      const s = await stale(c)
+      expect(s).not.toContain('workspaces')
+      expect(s).not.toContain('templates')
+    }
+  })
+})

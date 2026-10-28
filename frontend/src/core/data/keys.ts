@@ -67,6 +67,12 @@ export const dataKeys = {
     all: ['plugins'] as const,
     list: ['plugins', 'list'] as const,
   },
+  /** 工作台（CORE-10b）：列表和只读的模板 */
+  workspaces: {
+    all: ['workspaces'] as const,
+    list: ['workspaces', 'list'] as const,
+    templates: ['workspaces', 'templates'] as const,
+  },
   /** 定时任务的列表在 todayKeys.schedules（今日页共用）；这里是执行记录和规则预览 */
   schedules: {
     all: ['schedules'] as const,

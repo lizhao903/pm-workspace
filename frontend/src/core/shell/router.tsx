@@ -1,5 +1,6 @@
-import { createBrowserRouter, Navigate } from 'react-router'
+import { createBrowserRouter } from 'react-router'
 import type { ModuleDef } from '../plugin'
+import { HomeRedirect } from './HomeRedirect'
 import { ModuleRoute } from './ModuleRoute'
 import { Placeholder } from './Placeholder'
 import { RouteError } from './RouteError'
@@ -12,7 +13,7 @@ export function createAppRouter(modules: ModuleDef[]) {
       element: <Shell modules={modules} />,
       errorElement: <RouteError />,
       children: [
-        { index: true, element: <Navigate to={'/' + (modules[0]?.path ?? '')} replace /> },
+        { index: true, element: <HomeRedirect modules={modules} /> },
         ...modules.map((m) => ({
           path: m.path + '/*',
           lazy: async () => {

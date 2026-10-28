@@ -1,13 +1,21 @@
 import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { IconCheck, IconChevronDown } from '../ui'
+import type { Workspace } from '../data'
+import { cls, IconCheck, IconChevronDown } from '../ui'
 import { AppLogo } from './Logo'
 
-// 左上角的工作台切换，位置和样子照原型 web-next/src/workspaces.tsx。
-// 工作台数据在 CORE-10b 接入，这之前只有一个默认工作台，菜单里只能去设置
-const CURRENT = '我的工作台'
+// 左上角的工作台切换，位置和样子照原型 web-next/src/workspaces.tsx WorkspaceSwitcher。
+// 列表来自 GET /api/workspaces；取不到时只显示默认名字，菜单里只能去设置
+const FALLBACK = '我的工作台'
 
-export function WorkspaceSwitcher({ collapsed, onManage }: { collapsed: boolean; onManage: () => void }) {
+export function WorkspaceSwitcher({ list, current, collapsed, onSwitch, onManage }: {
+  list: readonly Workspace[]
+  current: Workspace | undefined
+  collapsed: boolean
+  onSwitch: (w: Workspace) => void
+  onManage: () => void
+}) {
+  const name = current?.name ?? FALLBACK
   const [pos, setPos] = useState<{ left: number; top: number } | null>(null)
   const ref = useRef<HTMLButtonElement>(null)
   const menuRef = useRef<HTMLDivElement>(null)
@@ -43,23 +51,36 @@ export function WorkspaceSwitcher({ collapsed, onManage }: { collapsed: boolean;
 
   return (
     <div className="ws-brand">
-      <button ref={ref} type="button" className="brand-btn" onClick={toggle} title={collapsed ? `一人之下 · ${CURRENT}` : '切换工作台'}
-        aria-label={`一人之下，当前工作台：${CURRENT}`} aria-haspopup="menu" aria-expanded={open}>
+      <button ref={ref} type="button" className="brand-btn" onClick={toggle} title={collapsed ? `一人之下 · ${name}` : '切换工作台'}
+        aria-label={`一人之下，当前工作台：${name}`} aria-haspopup="menu" aria-expanded={open}>
         <AppLogo size={30} />
         <span className="brand-text">
           <span className="brand-name">一人之下</span>
-          <span className="brand-sub ellipsis">{CURRENT}</span>
+          <span className="brand-sub ellipsis">{name}</span>
         </span>
         <IconChevronDown className="brand-chev" />
       </button>
       {pos && createPortal(
         <div className="menu ws-menu" role="menu" ref={menuRef} style={{ left: pos.left, top: pos.top }}>
           <div className="menu-label">切换工作台</div>
-          <button type="button" role="menuitemradio" aria-checked="true" className="menu-item ws-menu-item on" onClick={() => setPos(null)}>
-            <span className="ellipsis">{CURRENT}</span>
-            <IconCheck />
-          </button>
-          <div className="ws-menu-hint">暂时只有一个工作台</div>
+          {/* 工作台多了只滚这一段，底部的设置入口一直看得到 */}
+          {list.length ? (
+            <div className="ws-menu-list">
+              {list.map((w) => {
+                const on = w.id === current?.id
+                return (
+                  <button key={w.id} type="button" role="menuitemradio" aria-checked={on} className={cls('menu-item ws-menu-item', on && 'on')}
+                    onClick={() => { setPos(null); if (!on) onSwitch(w) }}>
+                    <span className="ws-menu-text">
+                      <span className="ellipsis">{w.name}</span>
+                      {w.role && <span className="ws-menu-role ellipsis">{w.role}</span>}
+                    </span>
+                    {on && <IconCheck />}
+                  </button>
+                )
+              })}
+            </div>
+          ) : <div className="ws-menu-hint">工作台列表没取到，菜单先用默认的</div>}
           <div className="menu-sep" />
           <button type="button" role="menuitem" className="menu-item" onClick={() => { setPos(null); onManage() }}>工作台与模块设置…</button>
         </div>,
