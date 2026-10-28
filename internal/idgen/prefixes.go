@@ -44,7 +44,9 @@ var Registry = []Entry{
 	{"sch", "schedule", "schedules", ""},
 	{"srn", "schedule_run", "schedule_runs", ""},
 	{"wh", "webhook", "webhooks", "webhook"},
+	{"dl", "delivery", "webhook_deliveries", "delivery"},
 	{"ws", "workspace", "workspaces", "workspace"},
+	{"dir", "localDir", "local_dirs", "localDir"},
 
 	// 以下是原型里有、后端还没建表的实体，前缀和原型一致
 	// 沟通
@@ -59,7 +61,6 @@ var Registry = []Entry{
 	{"pt", "prototype", "", "prototype"},
 	{"ch", "projectChat", "", "projectChat"},
 	// 任务与自动化
-	{"dl", "delivery", "", "delivery"},
 	{"sop", "sop", "", "sop"},
 	{"inc", "incident", "", "incident"},
 	// Agent 与模型
@@ -69,9 +70,8 @@ var Registry = []Entry{
 	{"kb", "kb", "", "kb"},
 	{"kd", "kbDoc", "", "kbDoc"},
 	{"sk", "skill", "", "skill"},
-	// 工作台、域名、本地目录
+	// 工作台、域名
 	{"dm", "domainRoute", "", "domainRoute"},
-	{"dir", "localDir", "", "localDir"},
 	// 视频
 	{"vd", "video", "", "video"},
 	{"sr", "series", "", "series"},
