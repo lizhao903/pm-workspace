@@ -33,6 +33,8 @@ export type Change =
   | { kind: 'schedule'; id?: string }
   /** 立即执行了一次定时任务：多一条执行记录，建任务类还建出一条任务 */
   | { kind: 'schedule-run'; id: string }
+  /** 工作台新建、修改、删除：只换菜单，数据不隔离，不刷别的 */
+  | { kind: 'workspace' }
 
 // 对象一变，所有对象列表（任务列表、今日、项目的任务标签页）、单个对象及其进展和修订、
 // 计数（侧栏红点、逾期徽标）都可能变；干系人名册上的任务数也跟着变；今日聚合（待验收、逾期、今天到期、插件卡片）也是。
@@ -81,6 +83,8 @@ export function invalidationsFor(c: Change): QueryKey[] {
     case 'schedule-run':
       // 建出来的任务要进任务列表、计数和今日；列表的「上次」也在执行记录前缀下
       return [dataKeys.schedules.runsOf(c.id), ...objectWide]
+    case 'workspace':
+      return [dataKeys.workspaces.list]
   }
 }
 

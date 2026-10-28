@@ -47,6 +47,12 @@ export type {
   Schedule, ScheduleRule, ScheduleFreq, ScheduleAction, ScheduleActionKind, ScheduleRun, ScheduleRunStatus, ScheduleInput, SchedulePatch,
   SchedulePreview,
 } from './schedules'
+export {
+  useWorkspaces, useWorkspaceTemplates, useCreateWorkspace, usePatchWorkspace, useDeleteWorkspace, applyPatch as applyWorkspacePatch,
+} from './workspaces'
+export type {
+  Workspace, WorkspaceGroup, WorkspaceGroupInput, WorkspaceMark, WorkspaceTemplate, WorkspaceInput, WorkspacePatch,
+} from './workspaces'
 
 // 接口层的纯函数和类型照样给模块用：不发请求，不碰缓存
 export { localDay, focusParams, changedFields, isApiError, isStreamError, ApiError, StreamError } from '../api'

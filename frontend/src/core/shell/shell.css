@@ -82,8 +82,20 @@
 .app-logo-ren { fill: none; stroke: #fff; }
 .side-toggle { margin-left: auto; color: var(--faint); }
 
-.ws-menu { position: fixed; z-index: 300; right: auto; width: calc(var(--side-w) - 20px); max-width: calc(100vw - 20px); }
-.ws-menu-item { justify-content: space-between; }
+.ws-menu {
+  position: fixed; z-index: 300; right: auto; width: calc(var(--side-w) - 20px); max-width: calc(100vw - 20px);
+  display: flex; flex-direction: column; max-height: calc(100vh - 80px); overflow: hidden;
+}
+.ws-menu > * { flex: none; }
+.ws-menu > .ws-menu-list { flex: 1; min-height: 0; overflow-y: auto; }
+.ws-menu-item { justify-content: space-between; height: auto; padding: 6px var(--sp-5); }
+.ws-menu-text { display: flex; flex-direction: column; min-width: 0; flex: 1; line-height: 1.4; text-align: left; }
+.ws-menu-role { font-size: var(--fs-xs); color: var(--faint); font-weight: 400; }
+/* 缺插件的提示 */
+.ws-prompt-p { margin: 0 0 var(--sp-4); }
+.ws-prompt-muted { color: var(--muted); font-size: var(--fs-sm); }
+.ws-link { color: var(--accent); font-weight: 500; }
+.ws-link:hover { text-decoration: underline; }
 .ws-menu-item.on { color: var(--text); font-weight: 500; }
 .ws-menu-hint { padding: var(--sp-1) var(--sp-5) var(--sp-3); font-size: var(--fs-xs); color: var(--faint); }
 .menu-sep { height: 1px; margin: var(--sp-2) 0; background: var(--line); }

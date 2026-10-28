@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { NavLink, Outlet, useNavigate } from 'react-router'
+import { NavLink, Outlet, useLocation, useNavigate } from 'react-router'
+import { useWorkspaces } from '../data'
 import {
   commandProviders, pluginProblems, registeredCommands, setShellHost, useActiveModules, type CommandDef, type ModuleDef, type ShellApi,
 } from '../plugin'
@@ -7,9 +8,11 @@ import { cls, DrawerHostContext, IconButton, IconSearch, setTheme, SubnavHostCon
 import { CommandPalette } from './CommandPalette'
 import { IconMenu, IconSectionChevron, IconSideToggle, ModuleIcon } from './icons'
 import { useMenuMarks, type MenuMark } from './marks'
-import { buildMenu, readCollapsed, readFolded, toggleId, writeCollapsed, writeFolded } from './menu'
+import { buildMenu, isGroupFolded, readCollapsed, readFolded, toggleId, writeCollapsed, writeFolded } from './menu'
 import { modKey, type PaletteItem } from './palette'
 import { PluginNotice } from './PluginNotice'
+import { CATALOG_IDS, homeModule, resolveCurrent, useCurrentWorkspaceId, workspaceMenuGroups } from './workspace'
+import { useWorkspaceSwitch } from './useWorkspaceSwitch'
 import { WorkspaceSwitcher } from './WorkspaceSwitcher'
 import './shell.css'
 
@@ -19,11 +22,25 @@ import './shell.css'
  */
 export function Shell({ modules }: { modules: ModuleDef[] }) {
   const navigate = useNavigate()
+  const location = useLocation()
   const { resolved, pref } = useTheme()
   const marks = useMenuMarks()
   // 插件停用后它的模块从菜单里去掉；内核模块一直在
   const live = useActiveModules(modules)
-  const menu = useMemo(() => buildMenu(live), [live])
+  // 菜单分组和顺序由当前工作台决定；第一次取工作台时先不出菜单（免得闪一下默认的），取不到就用默认分组
+  const workspaces = useWorkspaces()
+  const current = resolveCurrent(workspaces.data, useCurrentWorkspaceId())
+  const menu = useMemo(() => {
+    if (current) return buildMenu(live, workspaceMenuGroups(current), CATALOG_IDS)
+    if (workspaces.isPending) return { groups: [], foot: [] }
+    return buildMenu(live)
+  }, [live, current, workspaces.isPending])
+  // 切工作台只换菜单；不在设置里时打开新工作台的默认模块
+  const { switchTo, prompt: switchPrompt } = useWorkspaceSwitch((w) => {
+    if (location.pathname.startsWith('/settings')) return
+    const home = homeModule(w, live)
+    if (home) void navigate('/' + home.path)
+  })
 
   const [collapsed, setCollapsed] = useState(readCollapsed)
   useEffect(() => { writeCollapsed(collapsed) }, [collapsed])
@@ -117,7 +134,9 @@ export function Shell({ modules }: { modules: ModuleDef[] }) {
     <div className={cls('shell', menuOpen && 'shell-menu-open')}>
       <aside ref={sideRef} tabIndex={-1} className={cls('shell-side', collapsed && 'side-collapsed')} aria-label="一级菜单">
         <div className="brand-row">
-          <WorkspaceSwitcher collapsed={collapsed} onManage={() => { setMenuOpen(false); void navigate('/settings') }} />
+          <WorkspaceSwitcher list={workspaces.data ?? []} current={current} collapsed={collapsed}
+            onSwitch={(w) => { setMenuOpen(false); switchTo(w) }}
+            onManage={() => { setMenuOpen(false); void navigate('/settings/workspace') }} />
           <IconButton size="sm" className="side-toggle" label={collapsed ? '展开菜单' : '收起菜单'} aria-expanded={!collapsed}
             onClick={() => setCollapsed(!collapsed)}>
             <IconSideToggle collapsed={collapsed} />
@@ -133,7 +152,7 @@ export function Shell({ modules }: { modules: ModuleDef[] }) {
         <nav className="side-group" aria-label="功能模块">
           {/* 分组名为空只留间距；菜单收起时分组之间画一条线、不显示标题也不折叠 */}
           {menu.groups.map((g, gi) => {
-            const isFolded = !!g.name && folded.includes(g.id)
+            const isFolded = isGroupFolded(g, folded)
             return (
               <div key={g.id} className={cls('side-sec', gi > 0 && 'side-sec-gap', isFolded && 'side-sec-folded')}>
                 {g.name && (
@@ -173,6 +192,7 @@ export function Shell({ modules }: { modules: ModuleDef[] }) {
         </main>
       </div>
       <div className="shell-drawer" ref={setDrawerSlot} />
+      {switchPrompt}
       {palette && <CommandPalette items={palette} search={search} onClose={() => setPalette(null)} />}
     </div>
     </DrawerHostContext.Provider>

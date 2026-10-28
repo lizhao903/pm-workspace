@@ -4,9 +4,10 @@ import { PluginSettingsPage } from '../../core/shell/extensionHosts'
 import { useSettingsSections } from '../../core/plugin'
 import { InSubnavHost, Subnav, type SubnavItem } from '../../core/ui'
 import { PluginsSection } from './plugins/PluginsSection'
+import { WorkspacesSection } from './workspaces/WorkspacesSection'
 
 // 内核的设置分节，照原型 web-next/src/settings.tsx SECTIONS；内网域名是插件的分节，不在这里。
-// 插件管理（CORE-09）原型里还没有，放在「工作台与模块」后面；其余内容还没做，点进去是占位页
+// 插件管理（CORE-09）原型里还没有，放在「工作台与模块」（CORE-10b）后面；其余内容还没做，点进去是占位页
 const KERNEL: SubnavItem<string>[] = [
   { key: 'workspace', label: '工作台与模块', desc: '切换工作台、选功能模块' },
   { key: 'plugins', label: '插件', desc: '安装、启停、卸载功能插件' },
@@ -42,7 +43,8 @@ export default function Page() {
         <Subnav title="设置" items={items} active={active} onSelect={(k) => { void navigate('/settings/' + k) }} />
       </InSubnavHost>
       {plugin ? <PluginSettingsPage key={active} section={plugin} />
-        : kernel!.key === 'plugins' ? <PluginsSection /> : <Placeholder title={kernel!.label} />}
+        : kernel!.key === 'plugins' ? <PluginsSection />
+        : kernel!.key === 'workspace' ? <WorkspacesSection /> : <Placeholder title={kernel!.label} />}
     </>
   )
 }
