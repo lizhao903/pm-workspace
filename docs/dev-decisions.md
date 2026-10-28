@@ -15,6 +15,44 @@
 
 ---
 
+## 2026-10-29 第十一批验收、第十二批开工
+
+第十一批 4 条（CORE-02b、CORE-07c、TODAY-01a、PROTO-02）检查通过，已提交验收（d5f6150、c7a4169、1a4f13b）。PROTO-02 检查后没有需要清理的残留，没有改文件、没有提交。检查项：gofmt、go vet、go test ./...，前端 npm test 289 条、typecheck、lint、build，smoke-frontend 42 次 0 问题，smoke-proto 462 步 0 问题。CORE-02b 和 CORE-07c 都改前端但文件不重叠，合在一个提交里。
+
+第十二批 5 条：CORE-09、AG-01a、PROTO-01、TASK-03a、TODAY-01b。测试实例 00:40 已重启。
+
+### 普通进展补发事件（主会话做）
+- **问题**：CORE-07c 验收时发现，后端只在进展带状态或是提交验收时发事件，`pmw_append_progress` 记的普通进展什么都不发；前端改成事件驱动后，事件流连着时抽屉收不到普通进展，比原来的 10 秒轮询还差。
+- **决策**：`events.WrapStore.AppendProgress` 每次成功都发 `object.progress_appended {id, kind}`，加进内核事件表（前后端 `KernelEvents` 和 plugin-api.md 2.10 同步），前端收到后刷新该对象的进展（1a4f13b）。7796 重启后用 curl 订阅确认普通进展即时推送。
+- **理由**：改动最小，事件名落在已有的 `object.` 命名空间，插件也能订阅。
+- **撤回**：删掉这一处 publish 和事件表里的一项，前端退回到「带 id 的 object 事件按对象改动刷新」的兜底规则。
+
+### 冒烟脚本不再等网络空闲（主会话做）
+- 前端接了事件流长连接后，`wait_until='networkidle'` 永远等不到；`scripts/smoke-frontend.py` 改为 `load`，后面原有的固定等待不变。主会话复跑 42 次 0 问题。
+
+### 扩展点的取舍（CORE-02b，同意）
+- 今日卡片 `render` 收 `{ data: T | undefined }`，不是文档写的 `{ data: T }`：hello 没有后端、今日聚合也还没接前端，拿不到数据也要能显示。
+- 内网域名按开发计划 2.3 算插件的设置分节，没放进内核列表；插件分节路径 `/settings/plugins/<插件>/<分节>`。
+- 五个未实现的扩展点调用即抛「插件 API 的 x.y 还没实现」，插件按加载失败处理。
+- 遗留：任务页二级菜单改用 `InSubnavHost` 对齐外壳位置，本批限制没做；frontend/README 和 plugins/README 还没写新扩展点，下次改到时补。
+
+### 事件流前端的取舍（CORE-07c，同意）
+- 自己按 1、2、4、8、15 秒退避重连（EventSource 遇到服务没起会直接关掉不重试），带最后一个事件 id。
+- 没走 core/api 的 apiBase，用同源 `/api/events`。
+- 顺带发现：抽屉里的编辑表单在别的会话改了任务后不跟着更新（头部已显示新状态，表单还是旧值）。这和事件流无关，是表单基准只在打开时取值的设计（DEV-07b），记为已知问题，后续任务模块改动时处理。
+
+### 今日聚合的取舍（TODAY-01a，同意）
+- 返回 `{cards:[{key,title,order,total,items}]}`，和插件卡片形状一致；逾期和今天到期分两张卡，前端合并显示。
+- 等回答的 Agent 问题暂不返回：会话表没有状态列、消息没有提问标记，契约里写明。
+- 每卡最多 50 条，`total` 为全量。
+
+### 第十二批的安排
+- PROTO-01 依赖的 PR-03 不在本清单：原型里已经有统一的 id 前缀（`ids.ts` 的 `dc` 等），但没有留下 check-seeds 脚本，按验收第二条手工核对引用关系。
+- CORE-09 原型里没有规格，先做正式前端，在 settings.md 末尾补一节交互说明，原型待补。
+- AG-01a 如果测试实例没有可用的模型服务商密钥，流式回复用组件测试加 mock 验证，不往保险箱写真实密钥。
+
+---
+
 ## 2026-10-29 第十批验收、第十一批开工
 
 第十批 5 条（DEV-11a、CORE-03a、CORE-07b、PROTO-03、QA-02b）全部检查通过，已提交验收并提交代码（1ec42bb、81ec381、05dd7d8、3e6c190、1ec42bb）。检查项：gofmt、go vet、go test ./...，前端 npm test 267 条、typecheck、lint、build，`make smoke-frontend` 42 次 0 问题（主会话复跑），原型 tsc -b、smoke-proto 462 步 0 问题。DEV-11a 和 QA-02b 都往 Makefile 末尾加目标，合在一个提交里。
