@@ -90,7 +90,8 @@ export const SKILLS: Skill[] = [
 
 /* ---------- 知识库：一组可检索的资料，来源是文档分类或本地目录 ---------- */
 
-export interface KnowledgeBase { id: string; name: string; desc: string; sources: string[]; docs: number; updated_at: string; status?: 'ready' | 'indexing' | 'stale' }
+/** 知识库。篇数、索引状态由 kbdata 里的文档列表算出，docs、status 只留着兼容旧调用 */
+export interface KnowledgeBase { id: string; name: string; desc: string; sources: string[]; docs?: number; updated_at: string; status?: 'ready' | 'indexing' | 'stale' }
 
 /* ---------- 会话与产出 ---------- */
 
@@ -179,9 +180,9 @@ export const seedAgentRuns: AgentRun[] = [
 ]
 
 export const seedKBs: KnowledgeBase[] = [
-  { id: 'kb_product', name: '产品文档库', desc: 'PRD、方案对比、会议纪要', sources: ['doc', 'meeting'], docs: 3, updated_at: minsAgo(40) },
-  { id: 'kb_feedback', name: '客户反馈库', desc: '从 IM 摘出来的客户原话', sources: ['clip'], docs: 2, updated_at: minsAgo(60 * 3) },
-  { id: 'kb_notes', name: '个人笔记', desc: '工作日志和想法', sources: ['note'], docs: 4, updated_at: minsAgo(60 * 20) },
+  { id: 'kb_product', name: '产品文档库', desc: 'PRD、方案对比、会议纪要', sources: ['doc', 'meeting'], updated_at: minsAgo(40) },
+  { id: 'kb_feedback', name: '客户反馈库', desc: '从 IM 摘出来的客户原话', sources: ['clip'], updated_at: minsAgo(60 * 3) },
+  { id: 'kb_notes', name: '个人笔记', desc: '工作日志和想法', sources: ['note'], updated_at: minsAgo(60 * 20) },
 ]
 
 export const seedSessions: Session[] = [

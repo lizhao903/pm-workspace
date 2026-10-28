@@ -2005,7 +2005,13 @@ input.mono { font-family: var(--mono); }
 /* 左侧菜单分组 */
 .side-sec { display: flex; flex-direction: column; gap: 1px; }
 .side-sec-gap { margin-top: 10px; }
-.side-sec-title { padding: 4px 8px 4px; font-size: 11px; font-weight: 600; color: var(--faint); letter-spacing: 0.02em; }
+.side-sec-title { display: flex; align-items: center; gap: 4px; width: 100%; padding: 4px 8px 4px 4px; font-size: 11px; font-weight: 600; color: var(--faint); letter-spacing: 0.02em; background: none; border: 0; border-radius: var(--r-sm); cursor: pointer; text-align: left; font-family: inherit; }
+.side-sec-title:hover { color: var(--muted); background: var(--hover); }
+.side-sec-title .side-dot { margin-left: auto; }
+.side-sec-chev { flex: none; transform: rotate(90deg); transition: transform 0.12s; opacity: 0.7; }
+.side-sec-folded .side-sec-chev { transform: none; }
+/* 折叠只在展开的侧栏里生效；收起成图标、窄屏横排时全部显示 */
+.side:not(.side-collapsed) .side-item-folded { display: none; }
 .side-collapsed .side-sec-title { display: none; }
 .side-collapsed .side-sec-gap { margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--line); }
 @media (max-width: 760px) {
@@ -2247,3 +2253,9 @@ input.mono { font-family: var(--mono); }
 /* 终端和浏览器不要顶部标题栏：拆分、新标签、在系统浏览器打开这些操作，它们自己的标签栏和地址栏里都有 */
 .main:has(> .content > .term-page) > .topbar,
 .main:has(> .content > .browser-host:not([hidden])) > .topbar { display: none; }
+
+/* 顶栏里可点的上级（项目 / 项目名 里的「项目」） */
+.tb-parent-btn { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; }
+.tb-parent-btn:hover { color: var(--accent); text-decoration: underline; }
+
+@media (max-width: 760px) { .side .side-item-folded { display: flex; } }

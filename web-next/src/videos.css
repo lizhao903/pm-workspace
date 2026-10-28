@@ -15,6 +15,18 @@
 .vd-seg-cur { background: var(--accent); }
 .vd-seg-warn { background: var(--warn); }
 
+/* ---------- 模块标签栏 ---------- */
+/* 贴着顶栏、左右撑满；窄屏标签栏自己横向滚，页面不滚 */
+.vd-mtabs { margin: -6px calc(-1 * var(--page-x)) 18px; padding: 0 var(--page-x); overflow-x: auto; overscroll-behavior-x: contain; scrollbar-width: none; }
+.vd-mtabs::-webkit-scrollbar { display: none; }
+.vd-mtabs button { flex: none; display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.vd-mtab-n { min-width: 18px; height: 16px; padding: 0 5px; border-radius: 8px; font-size: 11px; font-weight: 600; line-height: 16px; text-align: center; font-variant-numeric: tabular-nums; color: var(--danger); background: var(--danger-soft); }
+/* 单集详情：模块标签下面还有自己的一排标签 */
+.vd-mtabs + .project-tabs { margin-top: -8px; }
+@media (max-width: 760px) {
+  .vd-mtabs { margin: -4px -16px 14px; padding: 0 16px; gap: 16px; }
+}
+
 /* ---------- 列表 ---------- */
 .vd-search { width: 220px; }
 .vd-row { display: grid; align-items: center; grid-template-columns: 40px minmax(200px, 1fr) 120px 140px 96px 72px; gap: 12px; min-height: 48px; padding: 6px 16px; border-bottom: 1px solid var(--line); cursor: pointer; }
@@ -63,9 +75,40 @@
 .vd-group-bar .vd-dist-legend { display: none; }
 .vd-group .task-table { container-type: inline-size; }
 
-/* 系列页顶部：共用部分 */
-.vd-sr-shared { display: flex; flex-wrap: wrap; gap: 6px 18px; align-items: center; padding: 10px 12px; margin-bottom: 14px; border: 1px solid var(--line); border-radius: var(--r); background: var(--panel); font-size: 12.5px; }
-.vd-sr-shared > span { display: inline-flex; gap: 6px; min-width: 0; }
+/* 系列详情顶部：共用部分 + 待同步的集 */
+.vd-sr-top { display: flex; flex-direction: column; margin-bottom: 14px; border: 1px solid var(--line); border-radius: var(--r); background: var(--panel); overflow: hidden; }
+.vd-sr-shared { display: flex; flex-wrap: wrap; gap: 6px 18px; align-items: center; padding: 10px 12px; font-size: 12.5px; min-width: 0; }
+.vd-sr-shared > span { display: inline-flex; gap: 6px; min-width: 0; max-width: 100%; }
+.vd-sr-shared > span > .ellipsis { font-family: var(--mono); font-size: 12px; }
+.vd-sr-shared .link-btn { margin-left: auto; }
+.vd-sr-stale { display: flex; flex-direction: column; border-top: 1px solid var(--line); background: color-mix(in srgb, var(--warn-soft) 45%, var(--panel)); }
+.vd-sr-stale-head { display: flex; align-items: center; gap: 4px 8px; flex-wrap: wrap; padding: 8px 12px; font-size: 12.5px; }
+.vd-sr-stale-head .vd-stale-tag { margin-left: 0; }
+.vd-sr-stale-row { display: flex; align-items: center; gap: 10px; min-width: 0; padding: 6px 12px; border-top: 1px solid var(--line); }
+.vd-sr-stale-row .vd-ep { width: 28px; flex: none; }
+.vd-sr-stale-title { flex: 1 1 120px; min-width: 0; font-weight: 500; }
+.vd-sr-stale-acts { display: flex; gap: 2px; flex: none; margin-left: auto; }
+@media (max-width: 560px) {
+  .vd-sr-stale-row { flex-wrap: wrap; row-gap: 4px; }
+  .vd-sr-stale-title { flex-basis: calc(100% - 40px); }
+  .vd-sr-stale-row .pill { margin-left: 38px; }
+}
+
+/* 编排集数：集号变输入框，最后一列放「移出」 */
+.vd-row-edit { cursor: default; grid-template-columns: 64px minmax(200px, 1fr) 120px 140px 96px 72px; }
+.vd-ep-input { width: 52px; height: 28px; padding: 0 6px; text-align: center; border-radius: var(--r-sm); border: 1px solid var(--line); background: var(--panel); color: var(--text); outline: 0; font: inherit; font-variant-numeric: tabular-nums; }
+.vd-ep-input:focus { border-color: var(--accent-line); box-shadow: 0 0 0 3px var(--accent-soft); }
+.vd-ep-input.bad { border-color: var(--danger); }
+.vd-dup { margin: -4px 0 10px; }
+@container (max-width: 760px) {
+  .vd-row.vd-row-edit { grid-template-columns: 64px minmax(0, 1fr) 88px auto; }
+  .vd-row.vd-row-edit > :nth-child(4) { display: none; }
+  .vd-row.vd-row-edit > :nth-child(6) { display: block; }
+}
+@container (max-width: 520px) {
+  .vd-row.vd-row-edit { grid-template-columns: 60px minmax(0, 1fr) auto; }
+  .vd-row.vd-row-edit > :nth-child(5) { display: none; }
+}
 .vd-stale-tag { display: inline-flex; align-items: center; height: 18px; padding: 0 6px; margin-left: 6px; border-radius: 4px; font-size: 11px; color: var(--warn); background: var(--warn-soft); white-space: nowrap; }
 @media (max-width: 760px) {
   .vd-search { width: 100%; }

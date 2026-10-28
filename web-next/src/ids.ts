@@ -31,6 +31,7 @@ export const ID_PREFIX = {
   session: 'ss',
   output: 'op',
   kb: 'kb',
+  kbDoc: 'kd',
   skill: 'sk',
   provider: 'pv',
   // 工作台、域名、本地目录
