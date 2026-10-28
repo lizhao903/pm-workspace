@@ -85,7 +85,7 @@
 
 插件 id 不能是这些（它们是内核的接口路径段或模块 key）：
 
-`api` `admin` `agent` `agent_providers` `artifacts` `audits` `categories` `contacts` `core` `counts` `dict_items` `dictionaries` `events` `fs` `health` `hooks` `kernel` `library` `links` `notifications` `objects` `object_types` `plugins` `revisions` `runs` `schedules` `sessions` `settings` `shortcut_groups` `shortcuts` `stakeholders` `stats` `tags` `tasks` `today` `webhooks` `workspaces`
+`api` `admin` `agent` `agent_providers` `artifacts` `audits` `categories` `connectors` `contacts` `conversations` `core` `counts` `dict_items` `dictionaries` `events` `fs` `health` `hooks` `kernel` `library` `links` `notifications` `objects` `object_types` `plugins` `revisions` `runs` `schedules` `sessions` `settings` `shortcut_groups` `shortcuts` `stakeholders` `stats` `tags` `tasks` `today` `webhooks` `workspaces`
 
 内核以后加新的一级路径时同步这张表；已发布插件的 id 和新路径冲突时，内核让路（换内核路径），不改插件 id。
 

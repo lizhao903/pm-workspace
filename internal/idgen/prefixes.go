@@ -48,11 +48,12 @@ var Registry = []Entry{
 	{"ws", "workspace", "workspaces", "workspace"},
 	{"dir", "localDir", "local_dirs", "localDir"},
 	{"idn", "contactIdentity", "contact_identities", ""}, // 原型的身份挂在 Contact.im 上，没有单独的 id
+	{"cv", "conversation", "conversations", ""},          // 原型按渠道加群名认会话，没有 id；ch 是项目绑定，不是会话
+	{"cn", "connector", "connectors", "connector"},
 
 	// 以下是原型里有、后端还没建表的实体，前缀和原型一致
 	// 沟通
 	{"ct", "contact", "", "contact"},
-	{"cn", "connector", "", "connector"},
 	{"msg", "message", "", "message"},
 	{"att", "attachment", "", "attachment"},
 	{"rp", "reply", "", "reply"},
