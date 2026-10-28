@@ -101,3 +101,49 @@ func TestNoPluginsNoRoutes(t *testing.T) {
 		t.Fatalf("接上示例插件后多了 %d 条路由，要 %d", got, want)
 	}
 }
+
+// TestMigrationsIncludePlugins：/api/admin/migrations 内核记录在前、插件已应用的在后；
+// ?plugin=<id> 只给这个插件的，含待应用的；不存在的插件 404。
+func TestMigrationsIncludePlugins(t *testing.T) {
+	s, reg, _ := newPluginServer(t)
+	ctx := context.Background()
+
+	rows := func(target string) []map[string]any {
+		t.Helper()
+		w := do(s, http.MethodGet, target, "")
+		if w.Code != http.StatusOK {
+			t.Fatalf("%s = %d：%s", target, w.Code, w.Body.String())
+		}
+		var out []map[string]any
+		for _, it := range decodeEnvelope(t, w)["data"].([]any) {
+			out = append(out, it.(map[string]any))
+		}
+		return out
+	}
+
+	pend := rows("/api/admin/migrations?plugin=demo")
+	if len(pend) != 2 || pend[0]["pending"] != true || pend[0]["applied_at"] != nil || pend[0]["plugin"] != "demo" {
+		t.Fatalf("安装前应是两条待应用：%v", pend)
+	}
+	if got := rows("/api/admin/migrations"); len(got) != 1 || got[0]["plugin"] != nil {
+		t.Fatalf("安装前只该有内核记录：%v", got)
+	}
+
+	if err := reg.Install(ctx, "demo", []string{"network:localhost"}); err != nil {
+		t.Fatal(err)
+	}
+	all := rows("/api/admin/migrations")
+	if len(all) != 3 || all[0]["version"] != "0001_init.sql" {
+		t.Fatalf("安装后应是 1 条内核加 2 条插件：%v", all)
+	}
+	for _, r := range all[1:] {
+		if r["plugin"] != "demo" || r["plugin_version"] != "0.1.0" || r["pending"] != nil ||
+			r["applied_at"] == nil || len(r["checksum"].(string)) != checksumPrefix {
+			t.Fatalf("插件行不对：%v", r)
+		}
+	}
+	if all[1]["version"] != "0001_items.sql" || all[2]["version"] != "0002_item_note.sql" {
+		t.Fatalf("插件迁移的顺序不对：%v", all[1:])
+	}
+	assertError(t, do(s, http.MethodGet, "/api/admin/migrations?plugin=nope", ""), http.StatusNotFound, "not_found")
+}

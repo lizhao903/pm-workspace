@@ -201,3 +201,92 @@ func TestEmbeddedMigrationsApplyCleanly(t *testing.T) {
 		t.Fatalf("second migrate: %v", err)
 	}
 }
+
+// 0001-0004 的期望 checksum 写在代码里，必须和内嵌的文件一致；少一个也算错。
+func TestLegacyChecksumsMatchEmbeddedFiles(t *testing.T) {
+	sub, err := fs.Sub(migrationFS, "migrations")
+	if err != nil {
+		t.Fatalf("sub fs: %v", err)
+	}
+	if len(legacyChecksums) != 4 {
+		t.Fatalf("legacyChecksums has %d entries, want 4 (0001-0004)", len(legacyChecksums))
+	}
+	for name, want := range legacyChecksums {
+		got, err := checksumOf(sub, name)
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		if got != want {
+			t.Errorf("%s: embedded checksum %s, built-in %s", name, got, want)
+		}
+	}
+}
+
+// 0001-0004 被改过时，即使库里的记录是空串也要拒绝，报错里点出文件名。
+func TestMigrateRejectsModifiedLegacyMigration(t *testing.T) {
+	d, ctx := openTestDB(t)
+	sub, err := fs.Sub(migrationFS, "migrations")
+	if err != nil {
+		t.Fatalf("sub fs: %v", err)
+	}
+	orig, err := fs.ReadFile(sub, "0003_shortcuts.sql")
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	fsys := fstest.MapFS{
+		"0003_shortcuts.sql": &fstest.MapFile{Data: append(append([]byte{}, orig...), []byte("\n-- edited\n")...)},
+	}
+	err = migrate(ctx, d, fsys)
+	if err == nil {
+		t.Fatal("modified legacy migration must be rejected")
+	}
+	for _, want := range []string{"0003_shortcuts.sql", "built-in checksum", legacyChecksums["0003_shortcuts.sql"][:8]} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error missing %q: %s", want, err)
+		}
+	}
+	if _, ok := appliedChecksums(t, d)["0003_shortcuts.sql"]; ok {
+		t.Error("modified legacy migration must not be applied")
+	}
+}
+
+// 老库里 0001-0004 的空 checksum 记录保持原样：比对只在代码里做，不回写库。
+func TestLegacyRowsAreNotRewritten(t *testing.T) {
+	d, ctx := openTestDB(t)
+	if err := Migrate(ctx, d); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	// 退化成真实库的样子：0001-0004 的 checksum 是空串、时间是很早以前。
+	const old = "2026-09-15T04:13:52Z"
+	for name := range legacyChecksums {
+		if _, err := d.W.ExecContext(ctx,
+			`UPDATE schema_migrations SET checksum = '', applied_at = ? WHERE version = ?`, old, name); err != nil {
+			t.Fatalf("downgrade %s: %v", name, err)
+		}
+	}
+	if err := Migrate(ctx, d); err != nil {
+		t.Fatalf("second migrate: %v", err)
+	}
+	rows, err := d.R.QueryContext(ctx, `SELECT version, checksum, applied_at FROM schema_migrations`)
+	if err != nil {
+		t.Fatalf("query: %v", err)
+	}
+	defer func() { _ = rows.Close() }()
+	seen := 0
+	for rows.Next() {
+		var v, sum, at string
+		if err := rows.Scan(&v, &sum, &at); err != nil {
+			t.Fatalf("scan: %v", err)
+		}
+		if _, ok := legacyChecksums[v]; !ok {
+			continue
+		}
+		seen++
+		if sum != "" || at != old {
+			t.Errorf("%s was rewritten: checksum=%q applied_at=%s", v, sum, at)
+		}
+	}
+	if seen != len(legacyChecksums) {
+		t.Errorf("saw %d legacy rows, want %d", seen, len(legacyChecksums))
+	}
+}

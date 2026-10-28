@@ -14,6 +14,15 @@ import (
 //go:embed migrations/*.sql
 var migrationFS embed.FS
 
+// legacyChecksums 是 0001-0004 的期望 sha256（取自首次提交 78536d4，此后未改过）。
+// 这四个文件应用时还没有 checksum 列，库里只有空串，只能在代码里比对（CORE-05）。
+var legacyChecksums = map[string]string{
+	"0001_init.sql":                   "64566810053377993ccc14b4755c53bbab75fdc844d49569857dc62e2bcfaf3f",
+	"0002_seed_types.sql":             "f8fae997a37a562d6cffa04ff97c9c741cfbf1940afc70597913f11c1ced2a05",
+	"0003_shortcuts.sql":              "68a652fe873af29ec8880b9464053dded46b20f76677e78283153f730f916d28",
+	"0004_inherit_category_color.sql": "50a17f382cfd572d1b06532003f6d33b2873e90429b977c255c4c811d3fc3aba",
+}
+
 // Migrate 按文件名字典序执行未应用的迁移，每个文件一个事务，可重复调用。
 func Migrate(ctx context.Context, d *DB) error {
 	sub, err := fs.Sub(migrationFS, "migrations")
@@ -42,6 +51,25 @@ func migrate(ctx context.Context, d *DB, fsys fs.FS) error {
 	names, err := migrationNames(fsys)
 	if err != nil {
 		return err
+	}
+
+	// 0001-0004 是加 checksum 列之前应用的，库里记录是空串、无从比对，
+	// 改成和代码里写死的期望值比。库里的老记录不补写：那等于改迁移历史。
+	for _, name := range names {
+		want, ok := legacyChecksums[name]
+		if !ok {
+			continue
+		}
+		sum, err := checksumOf(fsys, name)
+		if err != nil {
+			return err
+		}
+		if sum != want {
+			return fmt.Errorf(
+				"migration %s does not match its built-in checksum (expected %s, current %s); "+
+					"it was applied before checksums were recorded and must never be edited",
+				name, short(want), short(sum))
+		}
 	}
 
 	// 先把已应用的全校验一遍再动手。迁移是按文件名判重的，文件内容被换掉时
