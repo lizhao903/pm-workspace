@@ -103,8 +103,9 @@ start() {
   fi
   build
   [ -f "$DB" ] || copy_db
-  echo "启动：$BIN --db $DB --addr $ADDR"
-  nohup "$BIN" --db "$DB" --addr "$ADDR" >>"$LOG" 2>&1 &
+  # 测试实例的保险箱主密钥只用副本目录下的密钥文件，不碰钥匙串
+  echo "启动：$BIN --db $DB --addr $ADDR --vault-keychain=false"
+  nohup "$BIN" --db "$DB" --addr "$ADDR" --vault-keychain=false >>"$LOG" 2>&1 &
   echo $! >"$PID_FILE"
   for _ in $(seq 1 50); do
     if health >/dev/null; then

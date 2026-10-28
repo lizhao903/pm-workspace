@@ -20,6 +20,7 @@ import (
 
 	"github.com/lizhao903/pm-workspace/internal/api"
 	"github.com/lizhao903/pm-workspace/internal/store/sqlite"
+	"github.com/lizhao903/pm-workspace/internal/vault"
 	"github.com/lizhao903/pm-workspace/internal/webui"
 )
 
@@ -36,6 +37,8 @@ type config struct {
 	seedDemo bool
 	dev      bool
 	open     bool
+	// vaultKeychain：保险箱主密钥是否优先放 macOS 钥匙串；测试实例关掉，只用数据目录下的密钥文件
+	vaultKeychain bool
 }
 
 func main() {
@@ -48,6 +51,7 @@ func main() {
 	flag.BoolVar(&cfg.seedDemo, "seed-demo", false, "写入演示数据后退出前继续运行")
 	flag.BoolVar(&cfg.dev, "dev", false, "开发模式：放开 CORS，不服务内嵌前端（前端交给 vite dev）")
 	flag.BoolVar(&cfg.open, "open", false, "启动后用默认浏览器打开（仅 macOS）")
+	flag.BoolVar(&cfg.vaultKeychain, "vault-keychain", true, "凭证保险箱主密钥优先放 macOS 钥匙串；关掉则只用数据目录下权限 0600 的 vault.key")
 	flag.Parse()
 
 	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo})))
@@ -105,7 +109,15 @@ func run(cfg config) error {
 		slog.Info("demo 数据已写入", "db", cfg.dbPath)
 	}
 
-	opts := api.Options{Version: version, Dev: cfg.dev}
+	// 凭证保险箱：主密钥和库一起决定能不能解密，备份时要连同 vault.key（或钥匙串条目）一起带走
+	v, keySrc, err := vault.Open(ctx, cfg.dbPath, vault.KeyOptions{UseKeychain: cfg.vaultKeychain && runtime.GOOS == "darwin"})
+	if err != nil {
+		return fmt.Errorf("打开凭证保险箱失败: %w", err)
+	}
+	defer v.Close()
+	slog.Info("凭证保险箱已就绪", "key", keySrc)
+
+	opts := api.Options{Version: version, Dev: cfg.dev, Vault: v}
 	if !cfg.dev {
 		opts.UI = webui.Handler()
 	}

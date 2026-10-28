@@ -444,13 +444,30 @@ SSE 事件（形状的唯一真相是 `internal/runner` 的 `Event.MarshalJSON`�
 后端按「有没有工具调用成功过」判定 `TaskRun.Status`：一个都没成功记 `failed`，
 有成功的记 `done` 并在 `Error` 里留一句保留意见。
 
+## 凭证保险箱 secrets
+
+连接器配置、API Key、Webhook 密钥等加密存放（AES-256-GCM），**明文没有任何读接口**，
+响应里只有脱敏提示 `hint`；后端内部用 `vault.Resolve(id)` 取明文，不经 HTTP。
+
+| 方法 | 路径 | body / 说明 |
+|---|---|---|
+| GET | `/api/secrets` | `Secret[]`：`{id,name,kind,hint,version,created_at,updated_at,rotated_at}`，不含明文和密文 |
+| POST | `/api/secrets` | `{name,kind?,value}`，`kind` 缺省 `api_key`（小写字母、数字、下划线，至多 32 位）；`value` 只写，至多 64 KB；回 201 + `Secret` |
+| POST | `/api/secrets/{id}/rotate` | `{value}`，原条目换成新值、`version` 加一；旧值随即不可再取到 |
+| DELETE | `/api/secrets/{id}` | 直接删除，不进回收站 |
+
+- `hint`：明文不少于 20 位时保留前 3 后 4（`sk-…3f2a`），12 到 19 位只留后 4（`…3f2a`），短于 12 位一律 `***`。
+- 主密钥不在库里：macOS 优先系统钥匙串（服务名 `pm-workspace-vault`，账户名为数据目录绝对路径），取不到退回数据目录下权限 0600 的 `vault.key`；权限放宽了拒绝启动。测试实例与自动化测试只用密钥文件。
+- 只备份 `pm.db` 不带主密钥，换机恢复时保险箱解不开——要连同 `vault.key`（或钥匙串条目）一起迁移。
+- 服务没配保险箱时，这四个接口回 `internal` 500，message 为 `vault is not configured on this server`。
+
 ## 运维 admin
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
 | GET | `/api/admin/migrations` | 已应用的迁移及其 checksum；0001-0004 的 checksum 为空串（加列之前应用的，不参与校验） |
 | POST | `/api/admin/snapshot` | 打一份数据库快照 |
-| GET | `/api/admin/export?format=json\|markdown` | 全量导出。**刻意不含 `agent_providers`**——里面有明文 api_key |
+| GET | `/api/admin/export?format=json\|markdown` | 全量导出。**刻意不含 `agent_providers`**（里面有明文 api_key）**和保险箱 `vault_secrets`** |
 
 ## 约定
 
