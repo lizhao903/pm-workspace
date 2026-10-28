@@ -1,6 +1,9 @@
 // 任务抽屉下部开发闭环的四块位置（SPEC-tasks-5）：进展 DEV-08a、产出物 DEV-08b、执行记录 DEV-08c、改动 DEV-08d。
 // 现在只占位，各任务把对应的组件换成真内容；抽屉只负责按这个顺序摆放。
 import type { WorkObject } from '../../core/api'
+import { ArtifactsPanel } from './ArtifactsPanel'
+import { ProgressTimeline } from './ProgressTimeline'
+import { RunsBlock } from './Runs'
 
 type SlotProps = { task: WorkObject }
 
@@ -14,15 +17,15 @@ function Slot({ task, slot, title, desc }: SlotProps & { slot: string; title: st
 }
 
 export function ProgressSlot({ task }: SlotProps) {
-  return <Slot task={task} slot="progress" title="进展" desc="进展时间线还没接上（DEV-08a）" />
+  return <ProgressTimeline task={task} />
 }
 
 export function ArtifactsSlot({ task }: SlotProps) {
-  return <Slot task={task} slot="artifacts" title="产出物" desc="产出物还没接上（DEV-08b）" />
+  return <ArtifactsPanel task={task} />
 }
 
 export function RunsSlot({ task }: SlotProps) {
-  return <Slot task={task} slot="runs" title="执行记录" desc="执行记录还没接上（DEV-08c）" />
+  return <RunsBlock task={task} />
 }
 
 export function ChangesSlot({ task }: SlotProps) {
