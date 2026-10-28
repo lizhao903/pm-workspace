@@ -1057,7 +1057,7 @@ func (f *fakeStore) CreateAgentSession(_ context.Context, sess *domain.AgentSess
 		}
 	}
 	if sess.ID == "" {
-		sess.ID = idgen.Prefixed("ses")
+		sess.ID = idgen.Prefixed("ags")
 	}
 	if sess.CreatedAt.IsZero() {
 		sess.CreatedAt = time.Now()
@@ -1135,7 +1135,7 @@ func (f *fakeStore) AppendAgentMessage(_ context.Context, m *domain.AgentMessage
 		return nil, domain.ErrNotFound
 	}
 	if m.ID == "" {
-		m.ID = idgen.Prefixed("msg")
+		m.ID = idgen.Prefixed("agm")
 	}
 	if m.CreatedAt.IsZero() {
 		m.CreatedAt = time.Now()
