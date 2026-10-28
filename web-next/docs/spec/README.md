@@ -65,7 +65,7 @@
 | 会话 | `sessions` | `sessions.md` | [shots/sessions](shots/sessions) | PROTO-04c | 已整理 |
 | IM 消息 | `messages` | `messages.md` | [shots/messages](shots/messages) | PROTO-04d | 已整理 |
 | 项目 | `projects` | `projects.md` | [shots/projects](shots/projects) | PROTO-04d | 已整理 |
-| 设置 | `settings` | `settings.md` | [shots/settings](shots/settings) | PROTO-04e（设置的全部分节：工作台与模块、连接器、模型服务商、Agent、知识库、技能、枚举值、运行异常、内网域名、外观） | 待整理 |
+| 设置 | `settings` | `settings.md` | [shots/settings](shots/settings) | PROTO-04e（设置的全部分节：工作台与模块、连接器、模型服务商、Agent、知识库、技能、枚举值、运行异常、内网域名、外观） | 已整理（抽屉和子页截图待 shots.py 步骤补） |
 | SOP | `sop` | `sop.md` | [shots/sop](shots/sop) | PROTO-04f | 待整理 |
 | 终端 | `terminal` | `terminal.md` | [shots/terminal](shots/terminal) | PROTO-04f | 待整理 |
 | 浏览器 | `browser` | `browser.md` | [shots/browser](shots/browser) | PROTO-04f | 待整理 |
