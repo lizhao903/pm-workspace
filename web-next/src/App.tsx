@@ -15,7 +15,7 @@ import { TaskDrawer, TasksNav, TasksPage, WebhookPage, newHook, type TaskDraft, 
 import { ScheduleDrawer, SchedulesPage } from './schedule'
 import { nextRun, seedSchedules, whenText, type Schedule } from './scheduledata'
 import { TodayPage, type TodayItem, type TodayLine } from './today'
-import { ALL_PROJECTS, ProjectPage, ProjectsListPage, ProjectsNav, type ProjectTab } from './projects'
+import { ALL_PROJECTS, ProjectPage, ProjectsListPage, type ProjectTab } from './projects'
 import { PROJECT_COLORS, portConflict, seedProjects, startLogs, type Project } from './projectdata'
 import { TerminalPage, newTab, type TermTab } from './terminal'
 import { IncidentDrawer, IncidentsPage } from './incidents'
@@ -197,7 +197,7 @@ export default function App() {
     }, 5000)
     return () => window.clearInterval(t)
   }, [])
-  // 进「项目」默认落在项目列表；点导航或列表里的项目进详情
+  // 项目没有二级菜单：进「项目」是全部项目列表，点列表里的项目进详情，详情顶栏「项目」点回列表
   const [projectId, setProjectId] = useState<string>(ALL_PROJECTS)
   const [projectTab, setProjectTab] = useState<ProjectTab>('overview')
   // 最近打开的项目，新的在前：项目菜单只露这几个，完整列表在「全部项目」
@@ -817,7 +817,7 @@ export default function App() {
     // 切过去后停在设置里就不动；否则打开新工作台的默认模块
     if (page !== 'settings') { setPage(w.home as Page); setDrawer(null) }
   }
-  const go = (p: Page) => { setPage(p); setDrawer(null); if (p === 'settings') setConnCat(''); if (p === 'sop') { setOpenRun(null); setSopFilter(undefined) } if (p === 'sessions') setSessionProject(undefined) }
+  const go = (p: Page) => { setPage(p); setDrawer(null); if (p === 'settings') setConnCat(''); if (p === 'sop') { setOpenRun(null); setSopFilter(undefined) } if (p === 'sessions') setSessionProject(undefined); if (p === 'projects') setProjectId(ALL_PROJECTS) }
   const openImConnectors = () => { setPage('settings'); setSection('connectors'); setConnCat('im'); setDrawer(null) }
 
   // 本地目录只在内存里，刷新页面就没了；同一个目录再选一次是重新读取，不会多出一项
@@ -1222,7 +1222,6 @@ export default function App() {
           </button>
         </div>
       </aside>
-      {page === 'projects' && <ProjectsNav projects={projects} current={projectId} recent={recentProjects} onSelect={(id) => setProjectId(id)} onNew={newProject} />}
       {page === 'sessions' && <SessionsNav view={sessionView} onSelect={setSessionView} waiting={agentWaiting} onNew={() => { setSessionView('chats'); setPickAgent((n) => n + 1) }} />}
       {page === 'tasks' && <TasksNav tasks={tasks} hooks={hooks} deliveries={deliveries} view={taskView} onSelect={(v) => { setTaskView(v); setDrawer(null) }} onNewHook={() => { setTaskView('hook:new'); setDrawer(null) }} />}
       {page === 'library' && <LibraryTree ws={ws} model={lib} items={content} folders={folders} selected={reading} onSelect={setReading} onSwitch={switchWs}

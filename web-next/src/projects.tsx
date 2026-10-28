@@ -14,7 +14,6 @@ import {
   type DocStatus, type Material, type MaterialKind, type Project, type ProjectDoc, type Prototype, type StakeRole,
 } from './projectdata'
 import { Mark, MarkEditor } from './imagepick'
-import { Subnav } from './subnav'
 import { PageTitle } from './topbar'
 import { cls, timeAgo } from './ui'
 import { newId } from './ids'
@@ -56,50 +55,8 @@ function LocalPick({ kind, onPick }: { kind: 'file' | 'folder'; onPick: (names: 
   )
 }
 
-/** 二级菜单里「全部项目」的 key；App 收到它时渲染 ProjectsListPage */
+/** 当前停在项目列表页时 projectId 用这个值；项目没有二级菜单，列表页就是入口 */
 export const ALL_PROJECTS = ':all'
-/** 菜单里最多露几个最近打开的项目 */
-const RECENT_MAX = 6
-
-/**
- * 项目二级菜单，和视频一样只放视图和少量入口：「全部项目」+ 最近打开的几个，完整列表在 ProjectsListPage。
- * recent：最近打开的项目 id，新的在前；不足 RECENT_MAX 个时用其余项目补满。
- * 不传 recent 时退回平铺全部项目（带搜索），给还没接线的调用方用。
- */
-export function ProjectsNav({ projects, current, onSelect, onNew, recent }: {
-  projects: Project[]; current: string; onSelect: (id: string) => void; onNew: () => void
-  recent?: string[]
-}) {
-  const item = (p: Project, group?: string) => ({ key: p.id, icon: <ProjectMark p={p} />, label: p.name, desc: running(p) ? `${running(p)} 个原型运行中` : p.root.split('/').pop() || '未设目录', group })
-  if (!recent) {
-    return (
-      <Subnav title="项目" active={current} onSelect={onSelect} search={{ placeholder: '搜索项目' }} items={projects.map((p) => item(p))}>
-        <NewProjectBtn onNew={onNew} />
-      </Subnav>
-    )
-  }
-  const byId = new Map(projects.map((p) => [p.id, p]))
-  const ids = [...new Set([...recent, ...projects.map((p) => p.id)])].filter((id) => byId.has(id)).slice(0, RECENT_MAX)
-  // 当前打开的项目总在菜单里，挤掉最后一个
-  if (byId.has(current) && !ids.includes(current)) ids.splice(RECENT_MAX - 1, 1, current)
-  return (
-    <Subnav title="项目" active={current} onSelect={onSelect} items={[
-      { key: ALL_PROJECTS, label: '全部项目', desc: `${projects.length} 个`, group: '视图' },
-      ...ids.map((id) => item(byId.get(id)!, '最近打开')),
-    ]}>
-      <NewProjectBtn onNew={onNew} />
-    </Subnav>
-  )
-}
-
-function NewProjectBtn({ onNew }: { onNew: () => void }) {
-  return (
-    <button className="subnav-new" onClick={onNew}>
-      <svg viewBox="0 0 16 16" width="13" height="13"><path d="M8 3v10M3 8h10" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" /></svg>
-      新建项目
-    </button>
-  )
-}
 
 /* ---------- 全部项目：卡片网格，可搜索、按状态筛 ---------- */
 
