@@ -33,7 +33,9 @@ func newScheduleServer(t *testing.T) (*Server, *schedule.Store) {
 	ss.SetClock(func() time.Time { return now })
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	al := audit.New(st.DB(), log)
-	return New(audit.WrapStore(st, al), Options{Version: "test", Logger: log, Audit: al, Schedules: ss}), ss
+	ws := audit.WrapStore(st, al)
+	runner := schedule.NewRunner(ss, ws, log)
+	return New(ws, Options{Version: "test", Logger: log, Audit: al, Schedules: ss, ScheduleRunner: runner}), ss
 }
 
 type scheduleResp struct {
@@ -207,4 +209,122 @@ func TestSchedulesNotConfigured(t *testing.T) {
 			t.Errorf("%s %s message = %v", c[0], c[1], e["message"])
 		}
 	}
+}
+
+// 执行记录接口：调度器到点执行、手动执行、错过，都能查到；新的在前。
+func TestScheduleRuns(t *testing.T) {
+	s, ss := newScheduleServer(t)
+	clk := time.Date(2026, 10, 29, 10, 0, 0, 0, ss.Location())
+	ss.SetClock(func() time.Time { return clk })
+
+	w := do(s, "POST", "/api/schedules", `{"name":"整理议程","rule":{"freq":"daily","time":"10:30"},"action":{"kind":"task","title":"议程 {{date}}"}}`)
+	mustCode(t, w, http.StatusCreated, "create")
+	sc := decodeSchedule(t, w.Body.Bytes())
+
+	type runResp struct {
+		ID       string  `json:"id"`
+		At       string  `json:"at"`
+		Status   string  `json:"status"`
+		OK       bool    `json:"ok"`
+		Text     string  `json:"text"`
+		Manual   bool    `json:"manual"`
+		Missed   int     `json:"missed"`
+		ObjectID *string `json:"object_id"`
+		Ref      *string `json:"ref"`
+	}
+	list := func(q string) ([]runResp, int) {
+		t.Helper()
+		w := do(s, "GET", "/api/schedules/"+sc.ID+"/runs"+q, "")
+		mustCode(t, w, http.StatusOK, "runs")
+		var env struct {
+			Data []runResp `json:"data"`
+			Meta Meta      `json:"meta"`
+		}
+		if err := json.Unmarshal(w.Body.Bytes(), &env); err != nil {
+			t.Fatalf("%v: %s", err, w.Body)
+		}
+		return env.Data, env.Meta.Limit
+	}
+	if rs, limit := list(""); len(rs) != 0 || limit != schedule.DefaultRunLimit {
+		t.Fatalf("还没执行过：%+v limit=%d", rs, limit)
+	}
+
+	// 手动执行一次（Agent 来源记审计）
+	w = do(s, "POST", "/api/schedules/"+sc.ID+"/run", "", [2]string{"X-Actor-Source", "agent"})
+	mustCode(t, w, http.StatusCreated, "run now")
+
+	// 到点执行一次
+	clk = time.Date(2026, 10, 29, 10, 30, 2, 0, ss.Location())
+	if err := s.opt.ScheduleRunner.Tick(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	// 隔两天再看：错过一次（10-30），10-31 这次准时
+	clk = time.Date(2026, 10, 31, 10, 30, 5, 0, ss.Location())
+	if err := s.opt.ScheduleRunner.Tick(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+
+	rs, _ := list("")
+	if len(rs) != 4 {
+		t.Fatalf("应有 4 条：%+v", rs)
+	}
+	if rs[0].Status != "ok" || rs[0].Manual || rs[0].At != "2026-10-31T10:30:00+08:00" || rs[0].Ref == nil || rs[0].ObjectID == nil {
+		t.Errorf("最新一条应为 10-31 准时执行：%+v", rs[0])
+	}
+	if rs[1].Status != "missed" || rs[1].OK || rs[1].Missed != 1 || rs[1].At != "2026-10-30T10:30:00+08:00" {
+		t.Errorf("第二条应为 10-30 错过：%+v", rs[1])
+	}
+	if rs[2].Status != "ok" || rs[2].At != "2026-10-29T10:30:00+08:00" {
+		t.Errorf("第三条应为 10-29 准时执行：%+v", rs[2])
+	}
+	if !rs[3].Manual || !rs[3].OK || rs[3].Text != "建了任务 "+*rs[3].Ref {
+		t.Errorf("最早一条应为手动执行：%+v", rs[3])
+	}
+	if rs, limit := list("?limit=2"); len(rs) != 2 || limit != 2 {
+		t.Errorf("limit=2：%d 条 limit=%d", len(rs), limit)
+	}
+
+	// 建出来的任务来源为 schedule
+	w = do(s, "GET", "/api/objects?type=task&source=schedule", "")
+	mustCode(t, w, http.StatusOK, "objects")
+	var objs struct {
+		Data []struct {
+			Title  string         `json:"title"`
+			Source string         `json:"source"`
+			Props  map[string]any `json:"props"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &objs); err != nil {
+		t.Fatal(err)
+	}
+	if len(objs.Data) != 3 || objs.Data[0].Source != "schedule" || objs.Data[0].Props["source_ref"].(map[string]any)["schedule_id"] != sc.ID {
+		t.Fatalf("建出的任务：%+v", objs.Data)
+	}
+
+	found := false
+	for _, a := range listAudits(t, s, "target_type=schedule") {
+		if a["action"] == "run" && a["target_id"] == sc.ID {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("Agent 手动执行没记审计")
+	}
+
+	assertError(t, do(s, "GET", "/api/schedules/nope/runs", ""), http.StatusNotFound, "not_found")
+	assertError(t, do(s, "POST", "/api/schedules/nope/run", ""), http.StatusNotFound, "not_found")
+	assertError(t, do(s, "GET", "/api/schedules/"+sc.ID+"/runs?limit=x", ""), http.StatusBadRequest, "validation")
+
+	// 删定时任务后执行记录查不到（级联删除）
+	mustCode(t, do(s, "DELETE", "/api/schedules/"+sc.ID, ""), http.StatusOK, "delete")
+	assertError(t, do(s, "GET", "/api/schedules/"+sc.ID+"/runs", ""), http.StatusNotFound, "not_found")
+}
+
+func TestScheduleRunnerNotConfigured(t *testing.T) {
+	s := newTestServer(newFakeStore())
+	e := assertError(t, do(s, "POST", "/api/schedules/x/run", ""), http.StatusInternalServerError, "internal")
+	if e["message"] != "schedule runner is not configured on this server" {
+		t.Errorf("message = %v", e["message"])
+	}
+	assertError(t, do(s, "GET", "/api/schedules/x/runs", ""), http.StatusInternalServerError, "internal")
 }

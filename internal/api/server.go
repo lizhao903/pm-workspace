@@ -52,6 +52,8 @@ type Options struct {
 
 	// Schedules 是定时任务的定义（TASK-03a，0020）；为 nil 时 /api/schedules 回 500。
 	Schedules *schedule.Store
+	// ScheduleRunner 是调度器（TASK-03b），手动执行要用；为 nil 时 POST /api/schedules/{id}/run 回 500。
+	ScheduleRunner *schedule.Runner
 }
 
 type Server struct {
@@ -246,6 +248,8 @@ func (s *Server) routes(m routeRegistrar) {
 	m.HandleFunc("GET /api/schedules/{id}", s.handleGetSchedule)
 	m.HandleFunc("PATCH /api/schedules/{id}", s.handleUpdateSchedule)
 	m.HandleFunc("DELETE /api/schedules/{id}", s.handleDeleteSchedule)
+	m.HandleFunc("GET /api/schedules/{id}/runs", s.handleListScheduleRuns)
+	m.HandleFunc("POST /api/schedules/{id}/run", s.handleRunSchedule)
 
 	// 凭证保险箱。只回脱敏提示，明文没有任何读接口；{id}/rotate 比 {id} 多一段，不会被吃掉。
 	m.HandleFunc("GET /api/secrets", s.handleListSecrets)

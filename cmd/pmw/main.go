@@ -164,12 +164,19 @@ func run(cfg config) error {
 	opts.Notify = notify.New(pdb, st, opts.Stream, slog.Default())
 	bus.Tap(opts.Notify.Handle)
 	defer opts.Notify.Wait(5 * time.Second)
-	// 定时任务的定义（TASK-03a，0020）：规则按本机时区算；到点执行归 TASK-03b
+	// 定时任务的定义（TASK-03a，0020）：规则按本机时区算
 	opts.Schedules = schedule.New(pdb, time.Local)
 	if !cfg.dev {
 		opts.UI = webui.Handler()
 	}
-	handler := api.New(events.WrapStore(audit.WrapStore(st, opts.Audit), bus), opts)
+	objects := events.WrapStore(audit.WrapStore(st, opts.Audit), bus)
+	// 调度器（TASK-03b，0021）：到点执行定时任务，建任务走外层包装，事件和审计照常；退出时先停调度再关库
+	opts.ScheduleRunner = schedule.NewRunner(opts.Schedules, objects, slog.Default())
+	if err := opts.ScheduleRunner.Start(ctx); err != nil {
+		return fmt.Errorf("启动定时任务调度失败: %w", err)
+	}
+	defer opts.ScheduleRunner.Stop()
+	handler := api.New(objects, opts)
 
 	// 两个监听共用同一个 handler，但各自一个 http.Server：Server 内部持有
 	// 监听状态与在途连接，一个实例只能 Serve 一次，不能复用。
