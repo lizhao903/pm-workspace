@@ -1,13 +1,34 @@
-// 接口层：所有请求都从这里发，组件里不直接 fetch。
+// 接口层：所有请求都从这里发，组件里不直接 fetch（lint 规则 no-restricted-globals 盯着）。
 // 后端统一返回 { data, meta? }，出错返回 { error: { code, message } }（见 docs/api-contract.md）。
 
 export type Meta = { total?: number; limit?: number; offset?: number }
 
+// 前五个是契约里的错误码；network 是前端自己的：请求根本没到后端（服务没起、断网）。
+export type ApiErrorCode = 'validation' | 'not_found' | 'conflict' | 'readonly' | 'internal' | 'network'
+
+const serverCodes = new Set<string>(['validation', 'not_found', 'conflict', 'readonly', 'internal'])
+
+// 后端没给错误码（代理报错页、非 JSON）或给了不认识的码时，按状态码归类。
+export function codeForStatus(status: number): ApiErrorCode {
+  switch (status) {
+    case 400:
+      return 'validation'
+    case 403:
+      return 'readonly'
+    case 404:
+      return 'not_found'
+    case 409:
+      return 'conflict'
+    default:
+      return 'internal'
+  }
+}
+
 export class ApiError extends Error {
   readonly status: number
-  readonly code: string
+  readonly code: ApiErrorCode
 
-  constructor(status: number, code: string, message: string) {
+  constructor(status: number, code: ApiErrorCode, message: string) {
     super(message)
     this.name = 'ApiError'
     this.status = status
@@ -15,16 +36,49 @@ export class ApiError extends Error {
   }
 }
 
+export function isApiError(e: unknown, code?: ApiErrorCode): e is ApiError {
+  return e instanceof ApiError && (code === undefined || e.code === code)
+}
+
+// 默认走同源 /api（dev server 代理到测试实例）；在 Node 里联调时设成完整地址。
+let base = ''
+export function setApiBase(url: string) {
+  base = url.replace(/\/+$/, '')
+}
+
+export type Method = 'GET' | 'POST' | 'PATCH' | 'PUT' | 'DELETE'
+
+export type RequestOptions = {
+  query?: URLSearchParams
+  body?: unknown
+  signal?: AbortSignal
+}
+
 type Envelope<T> = { data?: T; meta?: Meta; error?: { code?: string; message?: string } }
 
-export async function requestEnvelope<T>(path: string, init?: RequestInit): Promise<{ data: T; meta?: Meta }> {
-  const headers = new Headers(init?.headers)
-  if (init?.body != null && !headers.has('Content-Type')) headers.set('Content-Type', 'application/json')
+export async function requestEnvelope<T>(
+  method: Method,
+  path: string,
+  opts: RequestOptions = {},
+): Promise<{ data: T; meta?: Meta }> {
+  const headers = new Headers()
+  // 写操作统一标成界面来源，落进 revisions.source；产物登记也按它判定 source。
+  if (method !== 'GET') headers.set('X-Actor-Source', 'ui')
+  if (opts.body !== undefined) headers.set('Content-Type', 'application/json')
+
+  const qs = opts.query?.toString()
+  const url = base + path + (qs ? '?' + qs : '')
 
   let res: Response
   try {
-    res = await fetch(path, { ...init, headers })
+    res = await fetch(url, {
+      method,
+      headers,
+      body: opts.body === undefined ? undefined : JSON.stringify(opts.body),
+      signal: opts.signal,
+    })
   } catch (e) {
+    if (e instanceof DOMException && e.name === 'AbortError') throw e
     throw new ApiError(0, 'network', e instanceof Error ? e.message : '网络错误')
   }
 
@@ -36,21 +90,37 @@ export async function requestEnvelope<T>(path: string, init?: RequestInit): Prom
   }
 
   if (!res.ok || body?.error) {
-    throw new ApiError(res.status, body?.error?.code ?? 'http_' + res.status, body?.error?.message ?? res.statusText)
+    const raw = body?.error?.code
+    const code = raw && serverCodes.has(raw) ? (raw as ApiErrorCode) : codeForStatus(res.status)
+    const message = body?.error?.message || res.statusText || 'HTTP ' + res.status
+    throw new ApiError(res.status, code, message)
   }
-  if (!body || !('data' in body)) throw new ApiError(res.status, 'bad_response', '响应格式不对')
+  if (!body || typeof body !== 'object' || !('data' in body)) {
+    throw new ApiError(res.status, 'internal', '响应格式不对：缺少 data')
+  }
   return { data: body.data as T, meta: body.meta }
 }
 
-export async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  return (await requestEnvelope<T>(path, init)).data
+export async function request<T>(method: Method, path: string, opts?: RequestOptions): Promise<T> {
+  return (await requestEnvelope<T>(method, path, opts)).data
+}
+
+// 列表接口：data 加上 meta.total。没有 meta 时 total 取本页条数。
+export type ListResult<T> = { data: T[]; total: number; limit?: number; offset?: number }
+
+export async function requestList<T>(path: string, opts?: RequestOptions): Promise<ListResult<T>> {
+  const { data, meta } = await requestEnvelope<T[] | null>('GET', path, opts)
+  const items = data ?? []
+  return { data: items, total: meta?.total ?? items.length, limit: meta?.limit, offset: meta?.offset }
 }
 
 export const api = {
-  get: <T>(path: string) => request<T>(path),
-  post: <T>(path: string, body?: unknown) =>
-    request<T>(path, { method: 'POST', body: body === undefined ? undefined : JSON.stringify(body) }),
-  patch: <T>(path: string, body: unknown) => request<T>(path, { method: 'PATCH', body: JSON.stringify(body) }),
-  put: <T>(path: string, body: unknown) => request<T>(path, { method: 'PUT', body: JSON.stringify(body) }),
-  del: <T>(path: string) => request<T>(path, { method: 'DELETE' }),
+  get: <T>(path: string, query?: URLSearchParams, signal?: AbortSignal) => request<T>('GET', path, { query, signal }),
+  post: <T>(path: string, body?: unknown) => request<T>('POST', path, { body }),
+  patch: <T>(path: string, body: unknown) => request<T>('PATCH', path, { body }),
+  put: <T>(path: string, body: unknown) => request<T>('PUT', path, { body }),
+  del: <T>(path: string, query?: URLSearchParams) => request<T>('DELETE', path, { query }),
 }
+
+// 路径段里的 id 一律转义，防止带斜杠的值拼出别的路由。
+export const seg = encodeURIComponent
