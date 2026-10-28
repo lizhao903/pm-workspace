@@ -31,6 +31,17 @@ type DisableGuard interface {
 	CanDisable(ctx context.Context, c Core) (ok bool, reason string)
 }
 
+// Installer 是可选接口：安装时迁移跑完后调一次，做表以外的初始化（4.1）。
+type Installer interface {
+	OnInstall(ctx context.Context, c Core) error
+}
+
+// Uninstaller 是可选接口：卸载时调，deleteData 为 true 时插件前缀的表已经备份、马上要删（4.4）。
+// 出错整次卸载失败，表和状态都不动。
+type Uninstaller interface {
+	OnUninstall(ctx context.Context, c Core, deleteData bool) error
+}
+
 // Registrar 是 Register 拿到的登记入口。登记的东西不对（路径不在 /api/<id>/ 下、
 // 订阅了清单里没写的事件）时 Register 整体失败，插件不会被启用。
 type Registrar interface {

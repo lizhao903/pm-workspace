@@ -38,9 +38,11 @@ type MigrationStep struct {
 }
 
 // MigrationStore 存取插件迁移记录。Apply 要在同一个事务里执行 body 并写记录。
+// DropData 是卸载删数据：删掉表名以 prefix 开头的表和这个插件的迁移记录，同一个事务，返回删掉的表。
 type MigrationStore interface {
 	Applied(ctx context.Context) ([]AppliedMigration, error)
 	Apply(ctx context.Context, m AppliedMigration, body string) error
+	DropData(ctx context.Context, pluginID, prefix string) ([]string, error)
 }
 
 // MemMigrationStore 只记录不执行 SQL，测试用（注册表默认也用它，cmd/pmw 换成 SQL 的）。
@@ -62,6 +64,14 @@ func (s *MemMigrationStore) Apply(_ context.Context, m AppliedMigration, _ strin
 	defer s.mu.Unlock()
 	s.m = append(s.m, m)
 	return nil
+}
+
+// DropData 只删记录，没有表可删。
+func (s *MemMigrationStore) DropData(_ context.Context, pluginID, _ string) ([]string, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.m = slices.DeleteFunc(s.m, func(m AppliedMigration) bool { return m.Plugin == pluginID })
+	return nil, nil
 }
 
 // Tamper 改写一条记录的校验和，测试用来模拟「文件在应用后被改过」。
@@ -115,6 +125,56 @@ func (s *SQLMigrationStore) Apply(ctx context.Context, m AppliedMigration, body 
 		return fmt.Errorf("record plugin migration %s/%s: %w", m.Plugin, m.File, err)
 	}
 	return tx.Commit()
+}
+
+// DropData 按表名前缀删表（大小写不敏感，和静态检查一致），索引随表一起删。
+// 外键检查推迟到提交：插件自己的表互相引用时删除顺序无所谓，提交时它们都已不在。
+func (s *SQLMigrationStore) DropData(ctx context.Context, pluginID, prefix string) ([]string, error) {
+	if prefix == "" {
+		// 没有前缀就没有表；防止空前缀匹配到全部内核表
+		if _, err := s.d.W.ExecContext(ctx, `DELETE FROM plugins_migrations WHERE plugin_id = ?`, pluginID); err != nil {
+			return nil, fmt.Errorf("delete plugin migrations %s: %w", pluginID, err)
+		}
+		return []string{}, nil
+	}
+	tx, err := s.d.W.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("begin drop plugin data: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	if _, err := tx.ExecContext(ctx, `PRAGMA defer_foreign_keys = ON`); err != nil {
+		return nil, err
+	}
+	rows, err := tx.QueryContext(ctx, `SELECT name FROM sqlite_master WHERE type = 'table'
+		AND lower(substr(name, 1, ?)) = lower(?) ORDER BY name`, len(prefix), prefix)
+	if err != nil {
+		return nil, fmt.Errorf("list plugin tables: %w", err)
+	}
+	tables := []string{}
+	for rows.Next() {
+		var n string
+		if err := rows.Scan(&n); err != nil {
+			_ = rows.Close()
+			return nil, err
+		}
+		tables = append(tables, n)
+	}
+	_ = rows.Close()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	for _, n := range tables {
+		if _, err := tx.ExecContext(ctx, `DROP TABLE "`+strings.ReplaceAll(n, `"`, `""`)+`"`); err != nil {
+			return nil, fmt.Errorf("drop %s: %w", n, err)
+		}
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM plugins_migrations WHERE plugin_id = ?`, pluginID); err != nil {
+		return nil, fmt.Errorf("delete plugin migrations %s: %w", pluginID, err)
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	return tables, nil
 }
 
 // migrationFile 是插件迁移目录里的一个文件。

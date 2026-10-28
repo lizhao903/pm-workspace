@@ -41,6 +41,10 @@ func Open(ctx context.Context, path string) (*Store, error) {
 
 func (s *Store) Close() error { return s.db.Close() }
 
+// DB 返回底层连接，给同进程里要直接读写内核表的组件（插件状态表、插件迁移）复用，
+// 不另开一组连接。关库仍由 Store.Close 负责。
+func (s *Store) DB() *db.DB { return s.db }
+
 func (s *Store) Ping(ctx context.Context) error { return s.db.Ping(ctx) }
 
 func (s *Store) Stats(ctx context.Context) (map[string]any, error) {
