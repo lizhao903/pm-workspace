@@ -2516,5 +2516,26 @@
     ],
     "body": "交易套件插件，涉及真实资金：默认只开模拟盘。\n\n需求级条目：开工前再按当时的进展拆成可执行任务，不直接用 /task 执行。",
     "acceptance": "- [ ] 评审通过前实盘开关不可用"
+  },
+  {
+    "key": "PROTO-06",
+    "type": "task",
+    "title": "修原型 768 宽下三个设置页的横向滚动",
+    "milestone": "M1",
+    "module": "proto",
+    "priority": "P1",
+    "estimate": "S",
+    "depends_on": [
+      "QA-02a"
+    ],
+    "workdir": "web-next",
+    "spec": [
+      "scripts/smoke-proto.py（QA-02a）",
+      "web-next/src/workspaces.tsx 设置 / 工作台与模块",
+      "web-next/src/enums.tsx 设置 / 枚举值",
+      "web-next/src/domains.tsx 设置 / 内网域名"
+    ],
+    "body": "## 背景\n\nQA-02a 的 `make smoke-proto` 第一次全量跑就查出原型在 768 宽度下（亮暗都有）三处页面横向滚动：设置 / 工作台与模块（页面宽 1060px）、设置 / 枚举值（942px）、设置 / 内网域名（822px）。修好之前 `make smoke-proto` 会一直失败。\n\n## 要做什么\n\n- 找到三个页面在 768 宽撑宽的元素（固定宽度、不换行的行、表格），改成可换行或容器查询收列，写法沿用原型里已有的响应式做法。\n\n## 不做什么\n\n- 不改其他页面，不改示例数据。\n\n## 注意事项\n\n- 原型只当规格和演示，改动只为让它和规格一致；验证截图看完即删。",
+    "acceptance": "- [ ] `make smoke-proto` 全部通过（0 个横向滚动、0 个 console error）\n- [ ] 三个页面在 375、768、1440 宽，亮暗两种主题下都没有横向滚动，内容不被截断"
   }
 ]
