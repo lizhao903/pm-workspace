@@ -4233,6 +4233,132 @@
     "acceptance": "- [ ] 上面列的每一项在 plugin-api.md 里都有签名和例子，和代码一致（逐个 grep 核对）"
   },
   {
+    "key": "PR-01a",
+    "type": "task",
+    "title": "命令面板能搜到任务和联系人",
+    "milestone": "M4",
+    "module": "frontend",
+    "priority": "P1",
+    "estimate": "S",
+    "depends_on": [
+      "ALIGN-16"
+    ],
+    "workdir": "frontend",
+    "spec": [
+      "docs/product-review.md A-01（内核任务、联系人部分）"
+    ],
+    "body": "## 要做什么\n\n按 `docs/product-review.md` 的 A-01（内核任务、联系人部分） 改：逐条照「建议改法」做，规格编号见各条。\n\n命令面板的搜索数据源：内核任务模块、联系人模块各登记一个，按标题、编号、姓名、电话、邮箱、IM 编号搜；结果按「任务 / 联系人」分组，回车打开对应抽屉。projects、im 插件的数据源由 PR-01b 做，分组展示框架本条先搭好。\n\n## 注意事项\n\n- 验收在 7796 本身看一遍（主会话重启后），不只看 vite dev server。\n- 规格要改的（web-next/docs/spec）同步改，原型代码只在规格和原型对不上时改。",
+    "acceptance": "- [ ] ⌘K 搜「常乐」能出联系人，搜任务编号或标题能出任务，回车打开抽屉\n- [ ] 改到的 Go 跑 gofmt、go vet、go test ./...；前端 npm test、typecheck、lint、build、smoke-frontend 通过"
+  },
+  {
+    "key": "PR-01b",
+    "type": "task",
+    "title": "命令面板能搜到项目和 IM 消息",
+    "milestone": "M4",
+    "module": "fullstack",
+    "priority": "P1",
+    "estimate": "S",
+    "depends_on": [
+      "ALIGN-16"
+    ],
+    "workdir": "fullstack",
+    "spec": [
+      "docs/product-review.md A-01（projects、im 插件部分）"
+    ],
+    "body": "## 要做什么\n\n按 `docs/product-review.md` 的 A-01（projects、im 插件部分） 改：逐条照「建议改法」做，规格编号见各条。\n\nprojects、im 插件在 plugin.json 的 provides.search 声明并 provide 数据源（项目按名称、说明、目录；消息按正文、发信人、群名），各升一次版本，不加权限。分组展示用 PR-01a 搭的框架。\n\n## 注意事项\n\n- 验收在 7796 本身看一遍（主会话重启后），不只看 vite dev server。\n- 规格要改的（web-next/docs/spec）同步改，原型代码只在规格和原型对不上时改。",
+    "acceptance": "- [ ] ⌘K 搜「Octok」能出项目，搜消息里的词能出 IM 消息，回车打开项目或消息抽屉\n- [ ] 改到的 Go 跑 gofmt、go vet、go test ./...；前端 npm test、typecheck、lint、build、smoke-frontend 通过"
+  },
+  {
+    "key": "PR-02",
+    "type": "task",
+    "title": "收消息自动登记会话、绑定面板候选按真实原因，待回复只算与我相关",
+    "milestone": "M4",
+    "module": "fullstack",
+    "priority": "P1",
+    "estimate": "M",
+    "depends_on": [
+      "ALIGN-16"
+    ],
+    "workdir": "fullstack",
+    "spec": [
+      "docs/product-review.md A-02、E-01、B-01"
+    ],
+    "body": "## 要做什么\n\n按 `docs/product-review.md` 的 A-02、E-01、B-01 改：逐条照「建议改法」做，规格编号见各条。\n\n主会话已定 B-01：口径改成「与我相关」（@我、@所有人、私聊，即 relevance 非空）才进今日和项目的待回复；其余群消息只在 IM 收件箱。今日 IM 组按 @我 优先。先改规格 SPEC-today-1、SPEC-projects-1、3 的口径再改代码。\n\n## 注意事项\n\n- 验收在 7796 本身看一遍（主会话重启后），不只看 vite dev server。\n- 规格要改的（web-next/docs/spec）同步改，原型代码只在规格和原型对不上时改。",
+    "acceptance": "- [ ] 收到没登记过的群消息后，项目绑定面板的群聊候选里出现这个群\n- [ ] 私聊候选按联系人列，没填 IM 编号的置灰并写原因；空状态按真实原因写\n- [ ] 今日和项目的待回复只数与我相关的消息\n- [ ] 改到的 Go 跑 gofmt、go vet、go test ./...；前端 npm test、typecheck、lint、build、smoke-frontend 通过"
+  },
+  {
+    "key": "PR-03",
+    "type": "task",
+    "title": "IM 消息批量处理",
+    "milestone": "M4",
+    "module": "fullstack",
+    "priority": "P1",
+    "estimate": "S",
+    "depends_on": [
+      "ALIGN-16"
+    ],
+    "workdir": "fullstack",
+    "spec": [
+      "docs/product-review.md B-02"
+    ],
+    "body": "## 要做什么\n\n按 `docs/product-review.md` 的 B-02 改：逐条照「建议改法」做，规格编号见各条。\n\n后端加批量接口（按 id 列表，或按会话加时间点之前），前端多选、底栏批量已处理和忽略，选了会话筛选时出「这个会话全部标为已处理」。只改 im 的 actions.go、Page.tsx、model.ts 和契约 IM 一节自己那几行。\n\n## 注意事项\n\n- 验收在 7796 本身看一遍（主会话重启后），不只看 vite dev server。\n- 规格要改的（web-next/docs/spec）同步改，原型代码只在规格和原型对不上时改。",
+    "acceptance": "- [ ] 勾选多条一次标已处理，按会话一键清空待处理\n- [ ] 改到的 Go 跑 gofmt、go vet、go test ./...；前端 npm test、typecheck、lint、build、smoke-frontend 通过"
+  },
+  {
+    "key": "PR-04",
+    "type": "task",
+    "title": "联系人分组可多选，筛选按包含匹配",
+    "milestone": "M4",
+    "module": "fullstack",
+    "priority": "P1",
+    "estimate": "S",
+    "depends_on": [
+      "ALIGN-16"
+    ],
+    "workdir": "fullstack",
+    "spec": [
+      "docs/product-review.md B-03"
+    ],
+    "body": "## 要做什么\n\n按 `docs/product-review.md` 的 B-03 改：逐条照「建议改法」做，规格编号见各条。\n\n分组改成可多选（stakeholders.group 用「、」分隔存多个，或改成数组，选改动面小、可逆的那种；需要迁移就用内核 0039），筛选按包含匹配，分组标签超宽截断加悬停。不要改 7796 上的数据；7796 现有的「Octok、XAUE」这种值由主会话之后统一修正，代码要能直接认它。\n\n## 注意事项\n\n- 验收在 7796 本身看一遍（主会话重启后），不只看 vite dev server。\n- 规格要改的（web-next/docs/spec）同步改，原型代码只在规格和原型对不上时改。",
+    "acceptance": "- [ ] 点「Octok」出 33 人（含两边都有的 9 人），点「XAUE」出 36 人\n- [ ] 分组列标签不再挤到右边\n- [ ] 改到的 Go 跑 gofmt、go vet、go test ./...；前端 npm test、typecheck、lint、build、smoke-frontend 通过"
+  },
+  {
+    "key": "PR-05",
+    "type": "task",
+    "title": "任务抽屉打开时列表保留标题",
+    "milestone": "M4",
+    "module": "frontend",
+    "priority": "P1",
+    "estimate": "S",
+    "depends_on": [
+      "ALIGN-16"
+    ],
+    "workdir": "frontend",
+    "spec": [
+      "docs/product-review.md C-01"
+    ],
+    "body": "## 要做什么\n\n按 `docs/product-review.md` 的 C-01 改：逐条照「建议改法」做，规格编号见各条。\n\n抽屉打开时二级菜单自动收起；窄列保留标题（两行截断），去掉来源标签、负责人、截止；同步改 SPEC-tasks-2 的窄列规则。\n\n## 注意事项\n\n- 验收在 7796 本身看一遍（主会话重启后），不只看 vite dev server。\n- 规格要改的（web-next/docs/spec）同步改，原型代码只在规格和原型对不上时改。",
+    "acceptance": "- [ ] 1440 宽打开任务抽屉后列表里能看到标题，J/K 切换时有参照\n- [ ] 改到的 Go 跑 gofmt、go vet、go test ./...；前端 npm test、typecheck、lint、build、smoke-frontend 通过"
+  },
+  {
+    "key": "PR-06",
+    "type": "task",
+    "title": "文档可以新建和编辑，项目文档标签能新建并归到本项目",
+    "milestone": "M4",
+    "module": "fullstack",
+    "priority": "P1",
+    "estimate": "M",
+    "depends_on": [
+      "ALIGN-16"
+    ],
+    "workdir": "fullstack",
+    "spec": [
+      "docs/product-review.md C-03"
+    ],
+    "body": "## 要做什么\n\n按 `docs/product-review.md` 的 C-03 改：逐条照「建议改法」做，规格编号见各条。\n\n主会话已定 C-03：文档模块可以新建和编辑。先改规格 SPEC-library-0 和相关节，再做：文档页「新建文档」、阅读区「编辑」（复用任务抽屉的编辑和预览写法，markdown），保存记修订；项目文档标签加「新建并归到本项目」。只读的本机目录文件仍不能编辑。\n\n## 注意事项\n\n- 验收在 7796 本身看一遍（主会话重启后），不只看 vite dev server。\n- 规格要改的（web-next/docs/spec）同步改，原型代码只在规格和原型对不上时改。",
+    "acceptance": "- [ ] 文档页能新建、编辑、保存一篇文档，修订里有记录\n- [ ] 项目文档标签能新建一篇并归到本项目\n- [ ] 本机目录挂载的文件仍是只读\n- [ ] 改到的 Go 跑 gofmt、go vet、go test ./...；前端 npm test、typecheck、lint、build、smoke-frontend 通过"
+  },
+  {
     "key": "VID-08p",
     "type": "task",
     "title": "原型补商单",
