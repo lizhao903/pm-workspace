@@ -4,4 +4,6 @@ export const videoKeys = {
   videos: ['video', 'list'] as const,
   video: (id: string) => ['video', 'detail', id] as const,
   series: ['video', 'series'] as const,
+  /** 一集的产出物（VID-01d） */
+  artifacts: (videoId: string) => ['video', 'artifacts', videoId] as const,
 }

@@ -44,6 +44,10 @@ type Registry struct {
 	objects atomic.Pointer[objectCreatorBox]
 	// agent 是插件用模型和 Agent 的实现（SOP-01c，agent.go），SetAgent 接上
 	agent atomic.Pointer[agentBox]
+	// sopRefs 查指向 SOP 流程的定时任务（SOP-01d，soplaunch.go），SetSOPRefs 接上
+	sopRefs atomic.Pointer[sopRefsBox]
+	// notifier 是插件发通知用的通知中心（VID-06b，notify.go），SetNotifier 接上
+	notifier atomic.Pointer[notifierBox]
 
 	mu      sync.Mutex // 串行化生命周期操作，也守着 entry.state
 	order   []string
@@ -77,6 +81,12 @@ type activation struct {
 	sopEngine SOPEngine
 	cancel    context.CancelFunc
 	done      sync.WaitGroup
+
+	// sopStarter 是「发起 SOP」的入口（SOP-01d，soplaunch.go）
+	sopStarter SOPStarter
+
+	// host 是按 Host 分发的处理器（DOM-02a，host.go）
+	host *HostHandlerDef
 }
 
 var (
@@ -650,12 +660,13 @@ func (r *Registry) collect(e *entry) (*activation, error) {
 func (r *Registry) start(e *entry, a *activation) {
 	ctx, cancel := context.WithCancel(context.Background())
 	a.cancel = cancel
+	// 先标在跑再起任务：任务一启动就可能发通知（Notify 只认在跑的插件）
+	e.active.Store(a)
 	for _, j := range a.jobs {
 		a.done.Add(1)
 		e.jobs.Add(1)
 		go r.runJob(ctx, e, a, j)
 	}
-	e.active.Store(a)
 	e.core.log.Info("plugin started", "routes", len(a.handlers), "jobs", len(a.jobs))
 }
 

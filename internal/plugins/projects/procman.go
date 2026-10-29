@@ -323,8 +323,10 @@ func (m *manager) wait(p *proc, cmd *exec.Cmd, pgid int, done chan struct{}) {
 	rec := Crash{PrototypeID: p.id, ProjectID: p.projectID, ExitCode: code, Signal: sig, Reason: p.errMsg,
 		Log: tail, StartedAt: p.startedAt, ExitedAt: time.Now().UTC()}
 	p.pid = 0
+	ev := protoEvent{ID: p.id, Name: p.name, ProjectID: p.projectID, ProjectName: p.projectName, Port: p.port, Status: p.status}
 	close(done)
 	m.mu.Unlock()
+	m.publish(evStopped, ev)
 
 	if crash {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -332,6 +334,29 @@ func (m *manager) wait(p *proc, cmd *exec.Cmd, pgid int, done chan struct{}) {
 		if err := saveCrash(ctx, m.c.Store(), rec); err != nil {
 			m.c.Log().Warn("prototype crash not recorded", "prototype", p.id, "err", err)
 		}
+	}
+}
+
+// 原型启停删的事件（DOM-02a），内网域名插件订阅它们分配域名、转发；只发不等，发失败只记日志。
+const (
+	evStarted = "projects.prototype_started"
+	evStopped = "projects.prototype_stopped"
+	evDeleted = "projects.prototype_deleted"
+)
+
+// protoEvent 是三个事件的载荷；status 只有停止事件带：stopped（停止或自己退出）、crashed（崩溃）。
+type protoEvent struct {
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	ProjectID   string `json:"project_id"`
+	ProjectName string `json:"project_name"`
+	Port        int    `json:"port"`
+	Status      string `json:"status,omitempty"`
+}
+
+func (m *manager) publish(eventType string, ev protoEvent) {
+	if err := m.c.Events().Publish(context.Background(), eventType, ev); err != nil {
+		m.c.Log().Warn("prototype event not published", "type", eventType, "prototype", ev.ID, "err", err)
 	}
 }
 

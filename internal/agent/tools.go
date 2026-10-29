@@ -55,6 +55,8 @@ type Toolbox struct {
 	asked int
 	// kbs 是会话所挂 Agent 的知识库，kb_search 只能搜这些，见 kbsearch.go
 	kbs []string
+	// sopAgent 是会话挂的 Agent，非 nil 时给 run_sop，见 runsop.go
+	sopAgent *domain.Agent
 }
 
 func NewToolbox(st store.Store, session *domain.AgentSession) *Toolbox {
@@ -142,7 +144,7 @@ func (tb *Toolbox) Defs() []ToolDef {
 				"content": str("文件的完整内容"),
 			}, []string{"path", "content"}),
 		},
-	}, tb.kbDefs()...)
+	}, append(tb.kbDefs(), tb.sopDefs()...)...)
 }
 
 // Invoke 执行一次工具调用。
@@ -173,6 +175,8 @@ func (tb *Toolbox) Invoke(ctx context.Context, call ToolCall) ToolResult {
 		return tb.writeFile(ctx, args)
 	case toolKbSearch:
 		return tb.kbSearch(ctx, args)
+	case toolRunSOP:
+		return tb.runSOP(ctx, args)
 	default:
 		return failed(call.Name, fmt.Sprintf("没有名为 %s 的工具", call.Name))
 	}

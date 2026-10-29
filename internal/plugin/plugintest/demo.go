@@ -106,6 +106,15 @@ func (d *Demo) Resume(ctx context.Context, runID, step string, output map[string
 	return c.SOP().Resume(ctx, runID, step, output)
 }
 
+// Notify 以示例插件的身份发一条通知（VID-06b）。
+func (d *Demo) Notify(ctx context.Context, n plugin.Notification) error {
+	c, ok := d.core.Load().(plugin.Core)
+	if !ok {
+		return errors.New("示例插件还没登记")
+	}
+	return c.Notify(ctx, n)
+}
+
 // SkillID 是示例插件登记的技能。
 const SkillID = "sk_demo_digest"
 

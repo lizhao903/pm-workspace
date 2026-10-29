@@ -2,6 +2,7 @@
 // 只读检测 hosts、pf 转发、本地证书的状态（status.go），生成 hosts 片段、pf anchor、Caddy、Nginx 配置和
 // 要用户自己执行的 sudo 命令（config.go）。插件不写任何系统文件、不执行 sudo。
 // 设置和路由落在插件表（settings.go、routes.go），形状同原型 web-next/src/domaindata.ts。
+// DOM-02a 起订阅项目插件的原型事件分配域名（auto.go），内置代理按 Host 转发（proxy.go）。
 // 接口契约见 docs/api-contract.md「内网域名插件 domains」。
 package domains
 
@@ -19,6 +20,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"github.com/lizhao903/pm-workspace/internal/plugin"
 )
@@ -43,6 +45,12 @@ type Plugin struct {
 	opt  Options
 	sys  System
 	inst string // 本进程的实例标记，可达检测靠它认出「回到的是本服务」
+
+	// 下面几个跨启停保留：停用再启用时原型还在跑，端口不能丢
+	protos    *protoTable     // 原型的运行情况，按项目插件的事件更新（auto.go）
+	snap      snapshot        // 按 Host 分发用的设置和路由快照（proxy.go）
+	transport *http.Transport // 内置代理的上游连接
+	autoMu    sync.Mutex      // 建删自动路由串行，免得两条同名
 }
 
 func New(opt Options) *Plugin {
@@ -57,7 +65,8 @@ func New(opt Options) *Plugin {
 	}
 	b := make([]byte, 16)
 	_, _ = rand.Read(b)
-	return &Plugin{m: plugin.MustParse(manifestJSON), opt: opt, sys: defaultSystem(certDir), inst: hex.EncodeToString(b)}
+	return &Plugin{m: plugin.MustParse(manifestJSON), opt: opt, sys: defaultSystem(certDir), inst: hex.EncodeToString(b),
+		protos: newProtoTable(), transport: newTransport()}
 }
 
 // WithSystem 换掉系统路径和外部命令，测试指向临时目录。
@@ -95,6 +104,11 @@ func (p *Plugin) Register(r plugin.Registrar) error {
 		m.HandleFunc("GET /api/domains/status", h.status)
 		m.HandleFunc("GET /api/domains/config", h.config)
 	})
+	r.Subscribe(evStarted, h.onStarted)
+	r.Subscribe(evStopped, h.onStopped)
+	r.Subscribe(evDeleted, h.onDeleted)
+	r.HostHandler(plugin.HostHandlerDef{Suffix: h.hostSuffix, Match: h.hostMatch, Handler: http.HandlerFunc(h.serveHost)})
+	p.snap.invalidate()
 	return nil
 }
 

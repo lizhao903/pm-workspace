@@ -17,6 +17,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -65,9 +66,14 @@ type OAuthSpec struct {
 	Builtin bool `json:"builtin"`
 	// ClientID 是内置的 client_id，不出接口
 	ClientID string `json:"-"`
-	// AuthParams 是授权地址上额外带的参数（如 Google 的 access_type=offline）
-	AuthParams map[string]string `json:"-"`
+	// AuthParams 是授权地址上额外带的参数（如 Google 的 access_type=offline、prompt=consent），
+	// 不能覆盖流程自己的参数（client_id、redirect_uri、scope、state、PKCE 等）
+	AuthParams map[string]string `json:"auth_params,omitempty"`
 }
+
+// reservedAuthParams 是授权地址上由流程自己填的参数，AuthParams 不能带
+var reservedAuthParams = []string{"response_type", "client_id", "redirect_uri", "scope", "state",
+	"code_challenge", "code_challenge_method"}
 
 func (o *OAuthSpec) check(d *Def) error {
 	if o.AuthURL == "" || o.TokenURL == "" {
@@ -91,6 +97,11 @@ func (o *OAuthSpec) check(d *Def) error {
 	if o.ClientSecretField != "" {
 		if f := d.field(o.ClientSecretField); f == nil || f.Kind != "secret" {
 			return fmt.Errorf("oauth client_secret_field %q must be a secret field", o.ClientSecretField)
+		}
+	}
+	for k := range o.AuthParams {
+		if k == "" || slices.Contains(reservedAuthParams, k) {
+			return fmt.Errorf("oauth auth_params cannot set %q", k)
 		}
 	}
 	return nil

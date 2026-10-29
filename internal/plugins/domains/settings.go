@@ -127,6 +127,16 @@ func (h *handlers) putSettings(w http.ResponseWriter, r *http.Request) {
 		h.fail(w, r, err)
 		return
 	}
+	h.p.snap.invalidate()
+	// 刚打开自动分配：给已经在跑的原型补上域名（DOM-02a）
+	if s.AutoProto {
+		for _, ev := range h.p.protos.runningEvents() {
+			if err := h.ensureAuto(ctx, ev); err != nil {
+				h.c.Log().Warn("auto route not created", "prototype", ev.ID, "err", err)
+			}
+		}
+		h.p.snap.invalidate()
+	}
 	h.getSettings(w, r)
 }
 

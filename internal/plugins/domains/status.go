@@ -432,8 +432,8 @@ func (p *Plugin) testRoute(ctx context.Context, s Settings, rt Route, routes []R
 	if slices.Contains(s.Aliases, rt.FQDN) && rt.Target.Kind != "app" {
 		return false, "和工作台的别名同名"
 	}
-	if rt.Target.Kind == "proto" {
-		return false, "目标是项目原型，要等原型联动（DOM-02a）接上才能测"
+	if rt.Target.Kind == "proto" && rt.protoPort == 0 {
+		return false, "目标原型没在运行"
 	}
 	var caOK bool
 	if s.HTTPS {
@@ -462,7 +462,7 @@ func (p *Plugin) testRoute(ctx context.Context, s Settings, rt Route, routes []R
 		if inst != p.inst {
 			return false, fmt.Sprintf("%s 解析到 %s，但 %s 回来的不是本服务", rt.FQDN, want, addr)
 		}
-	} else if isLocalURL(up, s.LANIP) {
+	} else if rt.Target.Kind == "proto" || isLocalURL(up, s.LANIP) {
 		if _, err := probeURL(ctx, up); err != nil {
 			return false, fmt.Sprintf("%s 解析到 %s，但上游 %s 没有回应", rt.FQDN, want, up)
 		}

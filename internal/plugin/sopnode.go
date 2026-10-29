@@ -63,10 +63,14 @@ type SOPNode struct {
 // SOPEngine 是 SOP 插件登记的执行引擎入口。caller 是调 Resume 的插件 id，只能唤醒它自己提供的节点。
 type SOPEngine interface {
 	Resume(ctx context.Context, caller, runID, step string, output map[string]any) error
+	// Fail 让挂起的步骤失败，reason 写进步骤的失败原因（SOP-02b，例：等回复超时）。
+	Fail(ctx context.Context, caller, runID, step, reason string) error
 }
 
 // SOPService 是插件用的 SOP 句柄（Core.SOP()）。
 type SOPService interface {
+	// Schedules 是动作指向这个流程的定时任务，删流程前列出来；内核没接定时任务时为空（SOP-01d，soplaunch.go）。
+	Schedules(ctx context.Context, flowID string) ([]SOPScheduleRef, error)
 	// Nodes 是在跑的插件登记的节点，按插件登记顺序、登记顺序。
 	Nodes() []SOPNode
 	// Provider 是清单 provides.sop_nodes 里声明了 kind 的插件 id（不管装没装、启没启用）。
@@ -75,6 +79,8 @@ type SOPService interface {
 	RunNode(ctx context.Context, kind string, in SOPNodeInput) (map[string]any, error)
 	// Resume 唤醒挂起的步骤，output 是这一步的输出。SOP 插件没在跑回 ErrNoSOPEngine。
 	Resume(ctx context.Context, runID, step string, output map[string]any) error
+	// Fail 让挂起的步骤失败，reason 是给人看的原因，校验同 Resume（SOP-02b）。
+	Fail(ctx context.Context, runID, step, reason string) error
 }
 
 func (c *core) SOP() SOPService { return sopService{c} }
@@ -139,19 +145,35 @@ func (s sopService) RunNode(ctx context.Context, kind string, in SOPNodeInput) (
 }
 
 func (s sopService) Resume(ctx context.Context, runID, step string, output map[string]any) error {
+	eng, err := s.engine()
+	if err != nil {
+		return err
+	}
+	return eng.Resume(ctx, s.c.id, runID, step, output)
+}
+
+func (s sopService) Fail(ctx context.Context, runID, step, reason string) error {
+	eng, err := s.engine()
+	if err != nil {
+		return err
+	}
+	return eng.Fail(ctx, s.c.id, runID, step, reason)
+}
+
+func (s sopService) engine() (SOPEngine, error) {
 	r := s.c.reg
 	if r == nil {
-		return ErrNoSOPEngine
+		return nil, ErrNoSOPEngine
 	}
 	e, ok := r.entries[SOPPluginID]
 	if !ok {
-		return ErrNoSOPEngine
+		return nil, ErrNoSOPEngine
 	}
 	a := e.active.Load()
 	if a == nil || a.sopEngine == nil {
-		return ErrNoSOPEngine
+		return nil, ErrNoSOPEngine
 	}
-	return a.sopEngine.Resume(ctx, s.c.id, runID, step, output)
+	return a.sopEngine, nil
 }
 
 func (c *collector) SOPNode(d SOPNodeDef) {

@@ -14,6 +14,7 @@ import (
 	"io/fs"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/lizhao903/pm-workspace/internal/plugin"
@@ -68,11 +69,29 @@ func (p *Plugin) Register(r plugin.Registrar) error {
 		m.HandleFunc("DELETE /api/video/artifacts/{id}", h.removeArtifact)
 		m.HandleFunc("POST /api/video/artifacts/{id}/reviews", h.review)
 		m.HandleFunc("POST /api/video/artifacts/{id}/bump", h.bump)
+		m.HandleFunc("GET /api/video/topics", h.listTopics)
+		m.HandleFunc("POST /api/video/topics", h.addTopic)
+		m.HandleFunc("GET /api/video/topics/{id}", h.showTopic)
+		m.HandleFunc("PATCH /api/video/topics/{id}", h.updateTopic)
+		m.HandleFunc("DELETE /api/video/topics/{id}", h.removeTopic)
+		m.HandleFunc("POST /api/video/topics/{id}/make", h.makeVideo)
+		m.HandleFunc("GET /api/video/clips", h.listClips)
+		m.HandleFunc("POST /api/video/clips", h.addClip)
+		m.HandleFunc("GET /api/video/clips/{id}", h.showClip)
+		m.HandleFunc("PATCH /api/video/clips/{id}", h.updateClip)
+		m.HandleFunc("DELETE /api/video/clips/{id}", h.removeClip)
+		m.HandleFunc("POST /api/video/clips/{id}/topic", h.clipToTopic)
+		m.HandleFunc("POST /api/video/clips/{id}/link", h.linkTopic)
 	})
 	return nil
 }
 
-type handler struct{ c plugin.Core }
+type handler struct {
+	c plugin.Core
+	// 0002 时登记的产出物补没补过（VID-02a，artifacts.go 的 upgradeLegacy）
+	legacyMu   sync.Mutex
+	legacyDone bool
+}
 
 // 错误分类，对应信封里的 code
 var (

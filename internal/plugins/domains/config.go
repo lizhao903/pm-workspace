@@ -66,10 +66,13 @@ func names(es []entry) []string {
 	return out
 }
 
-// upstream：工作台转到明文口；原型要等 DOM-02a 和项目插件联动，现在没有。
+// upstream：工作台转到明文口；原型在运行时转到它的端口（DOM-02a），没在运行时没有上游。
 func upstream(s Settings, e entry) (string, bool) {
 	if e.route == nil || e.route.Target.Kind == "app" {
 		return fmt.Sprintf("http://127.0.0.1:%d", s.HTTPPort), true
+	}
+	if e.route.Target.Kind == "proto" && e.route.protoPort > 0 {
+		return fmt.Sprintf("http://127.0.0.1:%d", e.route.protoPort), true
 	}
 	if e.route.Target.Kind == "url" {
 		return e.route.Target.URL, true
@@ -263,7 +266,7 @@ func renderProxy(s Settings, es []entry, proxy string) Section {
 			parts = append(parts, fmt.Sprintf("%s  ->  %s", e.fqdn, up))
 		}
 		sec.Content = strings.Join(parts, "\n")
-		sec.Note = "内置代理会自动应用：经 pf 进来的请求由工作台按域名转发（转到原型和其他地址从 DOM-02 起）"
+		sec.Note = "内置代理会自动应用：经 pf 进来的请求由工作台按域名转发；原型没在运行时回 502 说明页，地址目标只转发本机和局域网地址"
 	}
 	return sec
 }

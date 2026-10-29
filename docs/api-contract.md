@@ -607,9 +607,11 @@ AG-02a。表 `agent_tool_grants`（0035）存每个 Agent 自己的授权，`age
 | `create_object`、`update_object` | `write_tasks` |
 | `write_file` | `write_content` |
 | `kb_search` | `read_content` |
+| `run_sop` | `run_sop`（SOP-01d） |
 | `ask_user`、`list_types` | 不需要授权（反问用户；只列类型和状态 key） |
 
-  `read_messages`、`reply_message`、`read_contacts`、`write_contacts`、`run_sop` 现在没有对应的内置工具，授权先存着。
+  `read_messages`、`reply_message`、`read_contacts`、`write_contacts` 现在没有对应的内置工具，授权先存着。
+  `run_sop`（SOP-01d）参数是 `{flow_id, input?}`：`flow_id` 是流程 id，也认流程名；`input` 是输入字段，没给的取默认值。经内核「发起 SOP」钩子起一条执行（同定时任务的 `sop` 动作，来源记 `agent`），不等它跑完，人工检查点照常停下；`summary` 为「发起了 SOP「周会」，执行记录 spr_…」。只给挂了 Agent 的会话，SOP 编排插件没启用时工具结果是「SOP 编排插件没启用……」。确认卡片写「发起 SOP <flow_id>」。
 - **执行时**：给模型的工具列表只有实际档位不是关闭的。连接器工具给模型的名字是 `<连接器定义 tool>__<工具名>`（非字母数字的字符换成 `_`，最长 64）。模型硬调关闭的工具不执行，工具结果是「错误：没有授权……」，`tool_result` 的 `summary` 为「<工具> 没有授权，没有执行」。需确认的发 `confirm` 事件后本轮结束，见「Agent 对话」。
 - **连接器工具真正调用**：经连接器定义上可选的 `Call` 调对方，参数是模型给的 JSON 原文，对方错误里的凭证原文换成 `***`，单次 15 秒超时。定义没实现 `Call` 时工具结果是「这个连接器的工具还不能调用」。现在只有假连接器 `fake` 实现了：`list_items` 回两条固定条目，`get_item` / `create_item` / `delete_item` 回 `{tool, ok, args}`，`token` 含 `invalid` 时失败。
 - **确认、拒绝**：只有 `pending` 的能处理，已经处理过回 409（两个页面同时点，只有一个执行）。会话删了、Agent 删了或停用回 409；确认时按当前授权再查一次，已经关闭的回 409「…已经没有授权了」，调用保持 `pending`，可以拒绝掉。这些都在开流之前。执行结果（或拒绝说明）记进 `agent_tool_calls.result`。执行记录里的调用（`run_id` 非空）同样记着它的会话，确认、拒绝走这两个接口，在那个会话里接着跑，跑完重算执行记录的状态，见「Agent 执行记录」。
@@ -973,7 +975,7 @@ CONN-01a。连接器的**定义**（认证方式、配置表单、工具目录�
 - `available` 为 false 表示定义已不在（提供它的插件停用了）：此时测试、拉取工具清单、改 `auth_mode` / `config` / `secrets` / `direction` 回 409，改名、启停和删除照常。
 - **插件提供的连接器**（CONN-02）：插件在 `Register` 里调 `Registrar.Connector(def)` 登记，`tool` 必须在清单 `provides.connectors` 里（不在、定义不合法、重复都让启用失败），`source` 固定为插件 id。定义只在插件在跑时出现：停用后不在 `/api/connectors/defs` 里，同 `tool` 新建回 400（同未知工具）；已接入的实例一行不动，`available` 为 false（规则同上一条）。重新启用后定义回来，实例的配置、凭证、工具授权照旧，`available` 回到 true。和内核定义同 `tool` 时内核的优先，插件的不出现（插件之间的 `tool` 冲突由清单检查在安装时挡掉）。后台令牌刷新照样跳过取不到定义的实例。
 - 保险箱条目被单独删掉（`DELETE /api/secrets/{id}`）时按没填凭证处理，PATCH 一次 `secrets` 新建条目补上。
-- 内置假连接器 `fake`（不联网）和 `fake_oauth` 只在 `pmw --fake-connector` 时登记，给测试和演练用：`fake` 的 `token` 含 `invalid` 或 `expired` 时测试失败，`config.variant` 为 `v2` 时工具清单换一组；`fake_oauth` 走 OAuth，授权、令牌地址是 `config.base_url` 加 `/authorize`、`/token`，连通测试带 access_token 请求 `base_url/userinfo` 取 `login`，要自己起一个假授权服务对接（Go 测试用 `internal/connector/oauthfake`）。正式运行不登记，定义列表现在为空，真实连接器随 CONN-01c 起陆续登记。
+- 内置假连接器 `fake`（不联网）和 `fake_oauth` 只在 `pmw --fake-connector` 时登记，给测试和演练用：`fake` 的 `token` 含 `invalid` 或 `expired` 时测试失败，`config.variant` 为 `v2` 时工具清单换一组；`fake_oauth` 走 OAuth，授权、令牌地址是 `config.base_url` 加 `/authorize`、`/token`，连通测试带 access_token 请求 `base_url/userinfo` 取 `login`，要自己起一个假授权服务对接（Go 测试用 `internal/connector/oauthfake`）。正式运行不登记；真实连接器现在登记的有 Google Drive（`gdrive`，见下面「Google」），GitHub 等随 CONN-01c 起陆续登记。
 - 审计按 `config` 记（不分来源），`target_type` 为 `connector`，`action` 为 `create` / `update` / `delete` / `set_tool_modes`；凭证只记 `detail.secrets` 为 `{<key>: 「已设置」|「已清除」}`，修改只记 `detail.fields`；`set_tool_modes` 记 `detail.tools` 和新的 `detail.modes`（授权是权限配置不是凭证）。OAuth 授权成功记 `oauth_authorize`（`detail.secrets` 为 `{access_token, refresh_token}` 的「已设置」，对方没给 refresh_token 时只有 access_token，另记 `detail.scope`），断开记 `disconnect`（清了令牌时 `detail.secrets` 为「已清除」）。连通测试、拉取工具清单、发起授权、授权失败和令牌刷新（手动、后台）不记，刷新失败写服务日志并置 `error`。
 - 服务没接连接器时这几个接口回 `internal` 500，message 为 `connectors are not configured on this server`。
 
@@ -1014,13 +1016,32 @@ sequenceDiagram
   P-->>B: 302 回 return_to 或结果页
 ```
 
-- **定义里声明**（`ConnectorDef.oauth`）：`{auth_url, token_url, scopes, base_url_field?, client_id_field?, client_secret_field?, builtin}`。`auth_url`、`token_url` 是完整地址；给了 `base_url_field` 时两者是以 `/` 开头的路径，接在该 `text` 字段的值后面（自建实例用）。client_id 从哪来：内置在代码里（`builtin: true`，接口不出值，用户只需点授权）或取 `client_id_field` 指的 `text` 配置字段；client_secret 需要时取 `client_secret_field` 指的 `secret` 字段，和别的凭证一起进保险箱。`scopes` 用空格拼进 `scope` 参数。
+- **定义里声明**（`ConnectorDef.oauth`）：`{auth_url, token_url, scopes, base_url_field?, client_id_field?, client_secret_field?, builtin}`，有附加授权参数时另带 `auth_params`。`auth_url`、`token_url` 是完整地址；给了 `base_url_field` 时两者是以 `/` 开头的路径，接在该 `text` 字段的值后面（自建实例用）。client_id 从哪来：内置在代码里（`builtin: true`，接口不出值，用户只需点授权）或取 `client_id_field` 指的 `text` 配置字段；client_secret 需要时取 `client_secret_field` 指的 `secret` 字段，和别的凭证一起进保险箱。`scopes` 用空格拼进 `scope` 参数。`auth_params` 是授权地址上额外带的参数（CONN-01e1，如 Google 的 `access_type=offline`、`prompt=consent`），没有时不出这个键；不能是流程自己填的参数（`response_type`、`client_id`、`redirect_uri`、`scope`、`state`、`code_challenge`、`code_challenge_method`），定义带了登记失败。
 - **回调地址** = `pmw --public-url`（默认 `https://bro.vip`，按 docs/local-domain.md，浏览器经 pf 转到 7443）+ `/api/connectors/oauth/callback`，即 `https://bro.vip/api/connectors/oauth/callback`，要原样登记在对方的 OAuth 应用里；`start` 回的 `redirect_uri` 就是它。`--public-url` 只能是 `scheme://host[:port]`，不带路径。测试实例要带 `--public-url http://127.0.0.1:<端口>`，否则回调会落到 bro.vip（正式服务）上。
 - **state**：每次 `start` 生成一个随机 state（32 字节）和 PKCE 校验码，只存在进程内存里，10 分钟有效、只能用一次；回调时 state 不认识、已用过、过期一律 400，不跳转、不改实例。进程重启后进行中的授权作废，重新点一次即可。同时进行中的授权最多 200 个，超了回 409。
 - **return_to**：可选，授权结束后浏览器回到哪。只放行站内路径（`/` 开头，不能 `//`）、本机地址（`127.0.0.1`、`localhost`、`::1` 的 http(s)）和 `--public-url` 同主机的地址，别的回 400，免得变成开放跳转。跳回时追加 `oauth=ok|error`、`connector=<id>`、`message=<说明>`。
 - **换令牌**：表单 POST 到 `token_url`（`grant_type=authorization_code`、`code`、`redirect_uri`、`client_id`、`code_verifier`，有 client_secret 时放表单里），带 `Accept: application/json`，JSON 和表单编码的响应都认。成功后令牌合进实例原有的保险箱条目（键名以 `_` 开头，不会和字段撞，不出 `secret_hints`），记下授权时间、到期时间（`expires_in`，没给则为 null）和授予范围（对方没回 `scope` 时取请求的），然后自动做一次连通测试：成功置 `connected` 并记下 `account`，失败置 `error`。对方拒绝授权（`error=access_denied` 等）或换令牌失败：`ok=false`，实例状态不变，说明里的凭证和授权码换成 `***`。
 - **刷新**：后台每分钟查一次，`oauth.expires_at` 在 5 分钟以内的（不含暂停、断开的）用 `refresh_token` 换新令牌；对方轮换了 `refresh_token` 就存新的，没给就沿用旧的。刷新失败（对方拒绝、没有 `refresh_token`、网络错误）把实例置为 `error`，`error` 为「令牌刷新失败：…」（凭证已抹掉），记下 `oauth.refresh_failed_at`；之后 30 分钟内后台不再试，过后再试一次。刷新成功清掉 `refresh_failed_at`，原来是 `error` 的回到 `connected`。手动 `POST /oauth/refresh` 不受退避限制；暂停、断开的实例手动刷新时状态保持不变。
 - `oauth`（`Connector` 上）：`{authorized_at, expires_at, refreshed_at, refresh_failed_at, scope}`，时间为 null 表示没有；没授权或已断开时 `authorized_at` 为 null。令牌本身任何响应里都没有。定义里通过 `Config.AccessToken()` 拿 access_token 调对方。
+
+### Google（CONN-01e1）
+
+Google 连接器共用一套 OAuth（`internal/connector/google.go`）；现在登记了 Google Drive，日历归 CONN-01e2。
+
+- **OAuth**：授权地址 `https://accounts.google.com/o/oauth2/v2/auth`，令牌地址 `https://oauth2.googleapis.com/token`；`scopes` 是 `openid`、`email` 加各自的范围；`auth_params` 为 `{access_type: offline, prompt: consent}`，这样首次和重新授权都会拿到 `refresh_token`。client_id、client_secret 不内置（`builtin: false`），走配置字段 `client_id`（`text`，必填）和 `client_secret`（`secret`，必填，进保险箱）。
+- **要用户做的**：在 Google Cloud 建一个「Web 应用」类型的 OAuth 客户端，回调地址登记 `https://bro.vip/api/connectors/oauth/callback`；测试实例另登记 `--public-url` 对应的 `<地址>/api/connectors/oauth/callback`。在连接器设置页填 client_id、client_secret 后点授权。
+- **连通测试**：带 access_token 请求 `https://openidconnect.googleapis.com/v1/userinfo`，`account` 取 `email`；没回邮箱算失败。
+- **Google Drive**（`tool: gdrive`，分类 `docs`）：范围 `https://www.googleapis.com/auth/drive.readonly`。工具目录是静态的，全部只读（`write: false`，默认 `auto`），实现了 `Call`（Agent 可调），结果是 JSON 文本，文件信息为 `{id, name, mime_type, parents?, modified_time?, size?, shared, web_view_link?, owners?}`：
+
+| 工具 | 参数 | 说明 |
+|---|---|---|
+| `search_files` | `{query, page_size?, page_token?}` | 名称或全文包含 `query`、不在回收站的文件，按修改时间倒序；回 `{files, next_page_token?}` |
+| `list_folder` | `{folder_id?, page_size?, page_token?}` | 文件夹里的文件，`folder_id` 默认 `root`（我的云端硬盘）；回同上 |
+| `get_file` | `{file_id}` | 一个文件的信息 |
+| `read_file` | `{file_id, max_chars?}` | 读正文：Google 文档、幻灯片导出纯文本，表格导出 CSV（只有第一个工作表），`text/*` 和 JSON、XML 直接下载；别的类型（PDF、图片等）失败。回 `{id, name, mime_type, format, content, truncated}`，`content` 默认最多 20000 字、`max_chars` 最大 100000 |
+
+  `page_size` 默认 20、最大 100；`file_id`、`folder_id` 只能是字母、数字、`-`、`_`。对方的错误回「Google 返回 <状态码>：<说明>」，不带请求头。
+- 开发和 Go 测试只对接本机假服务（`internal/connector/oauthfake` 加测试里的假 userinfo、Drive 接口），`connector.GoogleDrive(GoogleEndpoints{...})` 可以换地址；`cmd/pmw` 用零值登记正式地址。真实 Google 账号的连通由用户在测试实例里验收。
 
 ## 插件 plugins
 
@@ -1202,7 +1223,7 @@ TASK-03a、TASK-03b。定义存在表 `schedules`（0020），执行记录存在
 | `sop` | `sop_id`（必填） | 执行一个 SOP |
 | `agent` | `agent_id`（必填）、`prompt` | 让一个 Agent 去做 |
 
-- `sop_id`、`agent_id` 只查非空、不查是否存在（SOP、Agent 的接口在 M4 之后）。
+- `sop_id`、`agent_id` 只查非空、不查是否存在（SOP 是插件，可能还没装），到点执行时找不到记 `failed`。
 - 删除按 `delete` 记审计，Agent 来源的新建和修改按 `agent` 记，`target_type` 为 `schedule`。
 - 服务没接定时任务时这几个接口回 `internal` 500，message 为 `schedules are not configured on this server`；没接调度器时 `POST /run` 回 `internal` 500，message 为 `schedule runner is not configured on this server`。
 - `POST /run` 由 Agent 来源发起时按 `agent` 记审计，`action` 为 `run`。
@@ -1215,7 +1236,7 @@ TASK-03a、TASK-03b。定义存在表 `schedules`（0020），执行记录存在
 - 停用的定时任务到点记一条 `skipped`「没执行：已停用」，停用期间更早的不记。
 - 重启不重复：游标存在 `schedules.checked_at`（0021 加的列）；执行记录上「定时任务 id + 计划时刻」唯一（手动执行不受限），游标没来得及推进就退出时，同一时刻也插不进第二条。执行先记 `running` 再做动作，上次退出时停在 `running` 的，启动时记为 `failed`「执行中服务退出了，结果不确定，没有重跑」。
 - 动作 `task`：建一条待办（`type_id=task`），`source` 为 `schedule`，`props.source_ref` 为 `{schedule_id, name}`；标题里的 `{{date}}` 换成计划时刻那天（写成 `2026/10/29`）；`due_at` 是那天往后 `due_days` 天的零点（本地时区）；`assignee` 是干系人 id（`stk_` 开头）时设为负责人，干系人已删时不设负责人、结果文字里注明，其他取值忽略。建任务用的操作者是 `schedule#<定时任务 id>`。
-- 动作 `sop`：M4 之前不支持，记一条 `unsupported`「没执行：执行 SOP 暂不支持，M4 之后才有」。
+- 动作 `sop`（SOP-01d）：经内核「发起 SOP」钩子（`docs/plugin-api.md` 2.7）交给 SOP 编排插件起一条执行，同 `POST /api/sop/flows/{id}/runs`：流程当前定义的快照、输入全用字段默认值、不逐步确认，流程里的人工检查点照常停下；不等它跑完。发起了记 `ok`「发起了 SOP「周会纪要」，执行记录 spr_…」；流程不存在、必填字段没有默认值记 `failed`「没执行：流程 sop_x 不存在」「没执行：「客户」必填」。SOP 编排插件没装、停用（没有插件登记发起入口）记 `unsupported`「没执行：SOP 编排插件没启用」。执行的结果看 SOP 运行页。
 - 动作 `agent`（AG-01b4）：交给这个 Agent 跑一次，不等它跑完，不看 Agent 上有没有配 `schedule` 触发。发起了记 `ok`「交给了 Agent「周报助手」，执行记录 ar_…」；Agent 不存在、已停用记 `failed`「没执行：Agent「周报助手」已停用」；执行记录建了但没跑起来（服务商不对等）记 `failed`「Agent「周报助手」没跑起来：…，执行记录 ar_…」。Agent 的结果看「Agent 执行记录」。服务没接 Agent 执行时仍记 `unsupported`「没执行：让 Agent 去做暂不支持，M4 之后才有」。
 
 `ScheduleRun`：`{id, schedule_id, at, status, ok, text, manual, missed, object_id, ref, started_at, finished_at}`，与原型 `ScheduleRun {at, ok, text, ref, manual}` 同名字段同义。
@@ -1475,7 +1496,7 @@ ALIGN-05。项目列表（SPEC-projects-1.5 到 1.11）按「有原型在跑 / �
 
 ## IM 消息插件 im
 
-IM-01a 起。插件 `im`（`internal/plugins/im`，清单 `plugin.json`，0.3.0）。收各 IM 渠道的消息，落在插件表 `im_messages`（插件迁移 `0001_messages.sql`；IM-02a 的处理动作加了 `0002_actions.sql`，回复在 `im_replies`；IM-04a 的附件获取加了 `0003_attachments.sql`，获取状态在 `im_attachments`；安装插件时应用）。发送人按 IM 身份（见「IM 身份 im-identities」）的 id 认、会话按会话（见「会话 conversations」）的 id 归，**不靠名字**。插件未安装或停用时，本节接口回 `not_found` 404（同「插件路由」）；停用时拉取也停下，数据不动。
+IM-01a 起。插件 `im`（`internal/plugins/im`，清单 `plugin.json`，0.4.0）。收各 IM 渠道的消息，落在插件表 `im_messages`（插件迁移 `0001_messages.sql`；IM-02a 的处理动作加了 `0002_actions.sql`，回复在 `im_replies`；IM-04a 的附件获取加了 `0003_attachments.sql`，获取状态在 `im_attachments`；SOP-02b 的等回复节点加了 `0004_sop_waits.sql`，挂起中的等待在 `im_sop_waits`；安装插件时应用）。发送人按 IM 身份（见「IM 身份 im-identities」）的 id 认、会话按会话（见「会话 conversations」）的 id 归，**不靠名字**。插件未安装或停用时，本节接口回 `not_found` 404（同「插件路由」）；停用时拉取也停下，数据不动。
 
 ### 适配器
 
@@ -1637,6 +1658,22 @@ IM-04a，口径照原型 `App.tsx` 的 `fetchAttachment`、`messages.tsx` 的 `f
 
 已知：资料上不记来源消息（原型的 `from`），`source` 是 `manual`；同一附件重复加由前端按 `value` 去重。
 
+### SOP 节点
+
+SOP-02b。IM 插件经 SOP 节点扩展点（`docs/plugin-api.md` 2.7）登记两个节点，清单 `provides.sop_nodes` 里声明，分组 `沟通`，出现在 `GET /api/sop/node-types` 里（`source: "im"`）；IM 插件停用后从目录里消失，用到它们的步骤执行时失败（见「SOP 编排插件 sop」的「节点类型」）。原型的内置节点 `notify`（发送消息）不在 SOP 插件里实现，编辑器里由 `im_send_message` 代替，SOP 插件不依赖 IM 插件。不加路由。
+
+| kind | 必填配置 | 其余配置 | 说明 |
+|---|---|---|---|
+| `im_send_message` | `conversation` 会话、`text` 内容 | | 往会话里发一条消息，两项都支持 `{{字段}}` |
+| `im_wait_reply` | `conversation` 会话 | `timeout` 最多等多久 | 等这个会话里对方的下一条消息，挂起到收到或超时 |
+
+- `conversation` 是会话 id（见「会话 conversations」），可以写 `{{conversation_id}}` 从输入里取；会话不存在时步骤失败，`error` 是 `会话 cv_x 不存在`。
+- **发消息**：内容按输入替换 `{{字段}}`（取不到的留空，写法同 SOP 的模板），替换后为空失败（`要发的内容是空的`），最多 4000 字。连接器和适配器按这个会话最近收到的一条消息定：一条都没收到过时失败（`「#product」里还没收到过消息，不知道用哪个连接器发`）；拦截口径同「处理动作」的回复，只能发到 `direction` 为 `both` 的连接器，被拦时 `error` 是那张表里的 `message`（如 `连接器「Slack 只收」设置为只收消息`）。发给渠道的是会话编号，不串在某条消息下面；私聊另带对方编号。发送超时 15 秒；渠道发送失败时步骤失败，`error` 是 `发送失败：<渠道给的原因>`，不重试。成功时输出是输入加上 `sent: {conversation_id, conversation, channel, connector_id, text, external_id, at}`。发送不记在消息的回复里。
+- **发送记审计**：成功、失败各记一条，`kind: "agent"`、`action: "send"`、`target_type: "conversation"`、`target_id` 是会话 id，操作者 `im#<运行 id>`、`source: "plugin"`；`summary` 例 `发消息到「#product」`、`发消息到「#product」失败`；`detail` 有 `status`（`sent` / `failed`）、`channel`、`connector_id`、`adapter`、`conversation`、`text`（前 500 字）、`external_id` 或 `error`，以及 `run_id`、`flow_id`、`step`、`attempt`、`write_key`。
+- **等回复**：步骤挂起（`running`，日志 `挂起：等「#product」里对方回复，最多等 1 小时，等插件唤醒`），等待落在 `im_sop_waits`，服务重启后接着等。插件后台任务（约每 3 秒）看这个会话里挂起之后发的消息（按 `at`），发送人的编号或名字是「我」的称呼的不算（口径同「与我相关」：适配器给的加连接器账号拆出来的）。收到对方的消息时唤醒，这一步 `done`，输出是输入加上 `reply: {message_id, conversation_id, conversation, channel, text, sender_id, sender_name, stakeholder_id, contact_name, at}`。
+- `timeout` 写法同等待节点：`30 分钟`、`1 小时`、`2 天`，也认 `90s`、`1h30m`；留空是 1 小时，最多 30 天，写错或超过时步骤失败。到点还没等到时步骤失败，`error` 例 `等了 1 小时，「#product」里对方还没回复（超时）`。失败走内核句柄 `SOP().Fail`（SOP-02b 新加，和 `Resume` 一样只能结束自己提供的、挂起中的步骤）。
+- 唤醒没成（执行还没调度上、SOP 插件没在跑）的留到下一轮再试；到点后不管成没成都删掉这条等待。重试、退回重做后再挂起，按新的一次重新计时。
+
 ### 事件
 
 新消息落库后发 `im.message_received`（清单 `emits` 里声明，走事件总线），重复到达不发。payload：
@@ -1650,7 +1687,7 @@ IM-04a，口径照原型 `App.tsx` 的 `fetchAttachment`、`messages.tsx` 的 `f
 
 ## SOP 编排插件 sop
 
-SOP-01a 起。插件 `sop`（`internal/plugins/sop`，清单 `plugin.json`，0.3.0，权限 `network:any`：HTTP 节点要访问任意地址，高风险，安装时在 `permissions` 里单独确认）。流程定义落在插件表 `sop_flows`（插件迁移 `0001_flows.sql`，安装插件时应用），id 前缀 `sop`；执行（SOP-01b）落在 `sop_runs`、`sop_run_steps`（插件迁移 `0002_runs.sql`），id 前缀 `spr`。AI 类和外部节点 SOP-01c 起；定时任务和 Agent 发起（SOP-01d）后续接上。插件未安装或停用时，本节接口回 `not_found` 404（同「插件路由」），数据不动。
+SOP-01a 起。插件 `sop`（`internal/plugins/sop`，清单 `plugin.json`，0.3.0，权限 `network:any`：HTTP 节点要访问任意地址，高风险，安装时在 `permissions` 里单独确认）。流程定义落在插件表 `sop_flows`（插件迁移 `0001_flows.sql`，安装插件时应用），id 前缀 `sop`；执行（SOP-01b）落在 `sop_runs`、`sop_run_steps`（插件迁移 `0002_runs.sql`），id 前缀 `spr`。AI 类和外部节点 SOP-01c 起；定时任务的 `sop` 动作和 Agent 的 `run_sop` 工具经内核「发起 SOP」钩子发起执行（SOP-01d）。插件未安装或停用时，本节接口回 `not_found` 404（同「插件路由」），数据不动。
 
 ### 流程定义
 
@@ -1660,7 +1697,7 @@ SOP-01a 起。插件 `sop`（`internal/plugins/sop`，清单 `plugin.json`，0.3
 | POST | `/api/sop/flows` | `{name, desc?, trigger?, fields?, steps, layout?, id?}`，校验通过回 201 + `SopFlow` |
 | GET | `/api/sop/flows/{id}` | 一条 `SopFlow`；不存在 404 |
 | PATCH | `/api/sop/flows/{id}` | 只传要改的：`name` / `desc` / `trigger` / `fields` / `steps` / `layout`，数组和 `layout` 整体替换，`layout: null` 清掉；可带 `version`，和库里不一致 409。改完对整条定义重新校验，`version` 加 1 |
-| DELETE | `/api/sop/flows/{id}` | 彻底删除，`data` 为 `null`；有进行中的执行（没结束也没终止）409；不存在 404；执行记录不跟着删 |
+| DELETE | `/api/sop/flows/{id}` | 彻底删除，`data` 为 `null`；有进行中的执行（没结束也没终止）、有定时任务指向它时 409；不存在 404；执行记录不跟着删 |
 | GET | `/api/sop/node-types` | 节点类型 `SopNodeType[]` + `meta.total`：先是内置的，和原型 `NODE_TYPES` 同序；后面接在跑的插件登记的（SOP-03a） |
 
 `SopFlow`：`{id, name, desc, trigger, fields, steps, layout?, version, created_at, updated_at}`。形状同原型 `web-next/src/sopflow.ts` 的 `Sop`：`fields` 是 `SopField[]`，`steps` 是 `SopStepDef[]`，`layout` 是 `{<步骤 key 或 __start>: {x, y}}`，没有就不返回这个字段。
@@ -1669,7 +1706,7 @@ SOP-01a 起。插件 `sop`（`internal/plugins/sop`，清单 `plugin.json`，0.3
 - `after` 不写就接在上一步后面、第一步是起点（同原型 `depsOf`），存的时候不补写。
 - `id` 可以不传，后端生成；传了是导入原型或别处导出的流程：必须 `sop_` 开头、后面只能是小写字母、数字、下划线，最多 60 个，已存在 409。
 - `name` 去首尾空白后必填，最多 100 字；`desc` 最多 1000 字；`trigger` 是给人看的触发方式说明（如「手动 / 每周一 18:00」），最多 200 字，真正的定时由「定时任务」的 `sop` 动作指过来（SOP-01d）。输入字段最多 50 个，步骤最多 200 个，请求体最多 1MB。
-- 删除时有定时任务指向它，SOP-01d 接上后在影响里列出；本条还没做。
+- 删除被拦（SOP-01d，规格 `SPEC-sop-5.7`）：409 `conflict`，`message` 是「这个流程有 N 个进行中的执行，等它们结束或终止后再删」和 / 或「定时任务「周一例会」、「周五复盘」会发起它，先改掉或删掉这些定时任务」，两条用「；」连；`error.schedules` 是动作 `sop` 指向它的定时任务 `{id, name}[]`（停用的也算，按新建时间倒序），没有为 `[]`。定时任务经内核句柄 `SOP().Schedules` 查。
 - 暂不记审计、不发事件。
 
 ### 保存校验
@@ -1830,7 +1867,7 @@ TERM-01a。插件 `terminal`（`internal/plugins/terminal`，清单 `plugin.json
 
 ## 内网域名插件 domains
 
-DOM-01a。插件 `domains`（`internal/plugins/domains`，清单 `plugin.json`，0.1.0），不依赖别的插件，权限 `fs:read:any`、`process:spawn`（都是高风险，安装时在 `permissions` 里单独确认）、`network:localhost`。表前缀 `domains_`，迁移在插件目录 `migrations/0001_domains.sql`。接现有 bro.vip 方案（`docs/local-domain.md`）：**只读检测、只生成配置和命令，不写任何系统文件、不执行 sudo**；读 `/etc/hosts`、`/etc/pf.anchors/broleez-local`、`/etc/pf.conf`、`/Library/LaunchDaemons/vip.broleez.pf.plist` 和证书目录，调 `mkcert -CAROOT`、`security verify-cert`（命令先按 `PATH` 找，再试 `/opt/homebrew/bin`、`/usr/local/bin`）。插件未安装或停用时本节接口回 `not_found` 404（同「插件路由」）。设置分节的前端是 DOM-01b，原型自动分配域名和内置代理按域名转发是 DOM-02a、DOM-02b。
+DOM-01a。插件 `domains`（`internal/plugins/domains`，清单 `plugin.json`，0.2.0），弱依赖 `projects`（订阅它的原型事件，DOM-02a），权限 `fs:read:any`、`process:spawn`（都是高风险，安装时在 `permissions` 里单独确认）、`network:localhost`。表前缀 `domains_`，迁移在插件目录 `migrations/0001_domains.sql`。接现有 bro.vip 方案（`docs/local-domain.md`）：**只读检测、只生成配置和命令，不写任何系统文件、不执行 sudo**；读 `/etc/hosts`、`/etc/pf.anchors/broleez-local`、`/etc/pf.conf`、`/Library/LaunchDaemons/vip.broleez.pf.plist` 和证书目录，调 `mkcert -CAROOT`、`security verify-cert`（命令先按 `PATH` 找，再试 `/opt/homebrew/bin`、`/usr/local/bin`）。插件未安装或停用时本节接口回 `not_found` 404（同「插件路由」）。设置分节的前端是 DOM-01b，原型自动分配域名和内置代理按域名转发是 DOM-02a、DOM-02b。
 
 | 方法 | 路径 | body / 说明 |
 |---|---|---|
@@ -1854,7 +1891,7 @@ DOM-01a。插件 `domains`（`internal/plugins/domains`，清单 `plugin.json`�
 - `id` 是 `dm_` 前缀（已登记）；安装时写一条 `dm_app`：子域名为空、目标是这个工作台（完整域名就是后缀本身，即 `bro.vip`）。只有目标是工作台的路由 `host` 可以为空，其余要是小写字母、数字、连字符（1 到 63 个，不以连字符开头结尾），否则 400。`host` 和别的路由（含停用的）重名 409「已经有这个域名了」。
 - `auto` 只在新建时认（DOM-02a 建自动分配的路由用）。
 
-测试（`POST /api/domains/routes/{id}/check`）依次查：后缀合法；没有另一条启用的同名、不和工作台别名同名；目标是原型时直接记失败（等 DOM-02a）；HTTPS 开着时本地根证书已装进钥匙串；真的解析一次，要解析到 `127.0.0.1`（开了局域网访问是 `lan_ip`）；工作台目标带 `Host` 头请求 `127.0.0.1:80` 要回到本服务，地址目标是本机或 `lan_ip` 时直接请求一次上游要有回应；HTTPS 开着时站点证书要覆盖这个域名且没过期。全过是 `<域名> 解析到 <IP>，转发到 <上游>`，否则 `message` 写第一个没过的原因。
+测试（`POST /api/domains/routes/{id}/check`）依次查：后缀合法；没有另一条启用的同名、不和工作台别名同名；目标是原型时原型没在运行直接记失败「目标原型没在运行」；HTTPS 开着时本地根证书已装进钥匙串；真的解析一次，要解析到 `127.0.0.1`（开了局域网访问是 `lan_ip`）；工作台目标带 `Host` 头请求 `127.0.0.1:80` 要回到本服务，原型目标请求一次 `127.0.0.1:<端口>`、地址目标是本机或 `lan_ip` 时请求一次上游，要有回应；HTTPS 开着时站点证书要覆盖这个域名且没过期。全过是 `<域名> 解析到 <IP>，转发到 <上游>`，否则 `message` 写第一个没过的原因。
 
 `DomainStatus`：`{checked_at, enabled, domains, service: {addr, tls_addr}, items, summary: {ok, problem, unknown}}`。`domains` 是要生效的完整域名：别名在前（同 `setup-local-domain.sh` 默认 `DOMAINS` 的顺序），再接启用的路由。`items` 每项 `{key, group, name, state, message, fix?, detail?}`，`state` 是 `ok`（正常）/ `problem`（有问题）/ `unknown`（没检测到：读不了、命令跑不了），有问题时 `fix: {text, commands}` 给要用户自己执行的命令（多半要 sudo）。
 
@@ -1872,10 +1909,19 @@ DOM-01a。插件 `domains`（`internal/plugins/domains`，清单 `plugin.json`�
 
 - `resolve`：按解析方式。`hosts` 是注释行 `# 产品工作台本地域名（scripts/setup-local-domain.sh 添加）` 加每个域名一行 `<IP>\t<域名>`，同脚本写进 `/etc/hosts` 的格式；后缀 `bro.vip` 时就是文档里的 `127.0.0.1 broleez.vip`、`127.0.0.1 bro.vip` 两行。`local_dns`、`router_dns` 同原型 `renderConfig`。
 - `pf`：`proxy` 是 `builtin` 时是 anchor 文件内容，同 `setup-local-domain.sh` 写的两条（`rdr pass on lo0 inet proto tcp from any to 127.0.0.1 port 80 -> 127.0.0.1 port <http_port>`，443 同理），开了局域网访问再加发往 `lan_ip` 的两条；命令是 `cd <仓库>` 加 `sudo env DOMAINS='<域名…>' PORT=<http_port> TLS_PORT=<https_port> ./scripts/setup-local-domain.sh`（`sudo` 默认清环境变量，所以用 `env` 传）。Caddy、Nginx 时 `content` 为空，`note` 说明不需要 pf。
-- `proxy_config`：内置写 `<域名>  ->  <上游>`，Caddy、Nginx 片段同原型 `renderConfig`。工作台和别名的上游是 `http://127.0.0.1:<http_port>`，原型目标暂时没有上游（内置写「未运行」，DOM-02a 接上）。
+- `proxy_config`：内置写 `<域名>  ->  <上游>`，Caddy、Nginx 片段同原型 `renderConfig`。工作台和别名的上游是 `http://127.0.0.1:<http_port>`，原型在运行时是 `http://127.0.0.1:<原型端口>`，没在运行时没有上游（内置写「未运行」）。
 - `cert`：HTTPS 开着才有，命令是 `brew install mkcert`、`mkcert -install`、`HOSTS='<域名…> localhost 127.0.0.1 ::1' ./scripts/setup-tls.sh`、`./scripts/install-autostart.sh`。
 
 - 暂不记审计、不发事件。
+
+### 原型自动分配域名和内置代理（DOM-02a）
+
+不加接口。插件订阅项目插件的 `projects.prototype_started`、`projects.prototype_stopped`、`projects.prototype_deleted`（载荷 `{id, name, project_id, project_name, port, status?}`，见 `docs/plugin-api.md` 2.10），运行中的原型和端口只记在内存（服务重启后原型都会停，从空开始）。
+
+- 自动分配：`auto_proto` 打开时，原型启动后如果还没有指向它的路由（手动的、自动的、停用的都算），建一条 `auto: true` 的路由，子域名按原型 `slugHost`：名字转小写、非字母数字换成连字符、去掉首尾连字符，最长 50 字符，剩不到 2 个字符（比如全是中文）用 `proto-<端口>`；和已有路由或工作台别名重名时接 `-<端口>`，再重名接 `-<端口>-<序号>`。备注是 `自动分配：<项目> / <原型>`。停止不删路由；删除原型时删掉指向它的自动路由，手动的留着。把 `auto_proto` 从关改成开时，给正在运行的原型补上。事件先后乱了按事件时间只认更新的，删除之后晚到的启动事件不会把路由建回来。
+- 内置代理：插件登记内核的 Host 处理器（`docs/plugin-api.md` 2.11），`enabled` 为真时接 `<子域名>.<suffix>` 的请求（只接一级子域名；后缀本身、别名、目标是工作台的、停用的路由不接，照常进工作台；`--public-url` 的主机、IP、`localhost` 由内核挡住，永远进工作台）。原型目标转到 `127.0.0.1:<端口>`（连不上再试 `::1`），地址目标只转本机和 `lan_ip`；转发时 `Host` 改成上游地址，原来的域名放在 `X-Forwarded-Host`。WebSocket 升级照转（vite 热更新要用）。
+- 转发不了时回 HTML 中文说明页：原型没在运行 502「原型没在运行」，上游连不上 502「连不上目标」，地址目标不是本机 502「不转发到外部地址」，路由刚好被删 404「没有这个域名」。
+- 设置和路由在插件里有 2 秒的快照，经本插件接口改动时立刻作废。
 
 ## 交易套件插件 trade
 
@@ -1911,7 +1957,7 @@ TRD-01a。插件 `trade`（`internal/plugins/trade`，清单 `plugin.json`，0.1
 
 ## 视频创作插件 video
 
-VID-01a 起。插件 `video`（`internal/plugins/video`，清单 `plugin.json`，0.2.0），强依赖 `projects`，弱依赖 `im`，权限 `fs:read:project`、`fs:write:project`、`network:media-platforms`（都是普通级别；产出物路径按 `fs:read:project` 的范围限制在视频工程目录内，现在只登记不读写磁盘，内容平台 VID-04 起用网络权限）。功能模块 key 是 `videos`（同工作台目录和 `ws_video` 模板）。表前缀 `video_`，迁移在插件目录：`migrations/0001_video.sql` 建 `video_series`、`video_videos`、`video_checkpoints`、`video_publishes`，`0002_artifacts.sql`（VID-01b）建 `video_artifacts`、`video_artifact_reviews`；0.1.0 装过的要走升级（`POST /api/plugins/{id}/upgrade`）应用 0002，没升级前插件不启动。形状同原型 `web-next/src/videodata.ts`。前端两页是 VID-01c、VID-01d；**不接任何内容平台**，发布记录只能手动登记。插件未安装或停用时本节接口回 `not_found` 404（同「插件路由」），数据不动，再启用照旧。停用 `projects` 时 `video` 在 `dependents` 里（同「插件管理」）。
+VID-01a 起。插件 `video`（`internal/plugins/video`，清单 `plugin.json`，0.3.0），强依赖 `projects`，弱依赖 `im`，权限 `fs:read:project`、`fs:write:project`、`network:media-platforms`（都是普通级别；产出物路径按 `fs:read:project` 的范围限制在视频工程目录内，现在只登记不读写磁盘，内容平台 VID-04 起用网络权限）。功能模块 key 是 `videos`（同工作台目录和 `ws_video` 模板）。表前缀 `video_`，迁移在插件目录：`migrations/0001_video.sql` 建 `video_series`、`video_videos`、`video_checkpoints`、`video_publishes`，`0002_artifacts.sql`（VID-01b）建 `video_artifacts`、`video_artifact_reviews`，`0003_artifact_ratio.sql`（VID-02a）给产出物加 `ratio`、`lang` 和按封面比例分组的序号、选用列；0.1.0、0.2.0 装过的要走升级（`POST /api/plugins/{id}/upgrade`）应用新迁移，没升级前插件不启动。形状同原型 `web-next/src/videodata.ts`。前端两页是 VID-01c、VID-01d；**不接任何内容平台**，发布记录只能手动登记。插件未安装或停用时本节接口回 `not_found` 404（同「插件路由」），数据不动，再启用照旧。停用 `projects` 时 `video` 在 `dependents` 里（同「插件管理」）。
 
 | 方法 | 路径 | body / 说明 |
 |---|---|---|
@@ -1932,10 +1978,10 @@ VID-01a 起。插件 `video`（`internal/plugins/video`，清单 `plugin.json`�
 | GET | `/api/video/publishes/{id}` | 一个 `VideoPublish`；不存在 404 |
 | PATCH | `/api/video/publishes/{id}` | 只传要改的，字段同新建，`video_id` 不能换（400）；可选字段传 `null` 清掉；回 `VideoPublish` |
 | DELETE | `/api/video/publishes/{id}` | `data` 为 `null` |
-| GET | `/api/video/artifacts?video_id=&kind=&variant=&status=&source_type=&run_id=&session_id=` | `VideoArtifact[]` + `meta.total`，不分页，按登记先后；筛选都可选，`run_id`、`session_id` 用来从一次运行反查它的产出物 |
-| POST | `/api/video/artifacts` | `{video_id, kind, path, name?, variant?, option?, version?, status?, duration?, picked?, source?}`，回 201 + `VideoArtifact` |
+| GET | `/api/video/artifacts?video_id=&kind=&variant=&ratio=&lang=&status=&source_type=&run_id=&session_id=` | `VideoArtifact[]` + `meta.total`，不分页，按登记先后；筛选都可选，`run_id`、`session_id` 用来从一次运行反查它的产出物 |
+| POST | `/api/video/artifacts` | `{video_id, kind, path, name?, variant?, ratio?, option?, lang?, version?, status?, duration?, picked?, source?}`，回 201 + `VideoArtifact` |
 | GET | `/api/video/artifacts/{id}` | 一个 `VideoArtifact`；不存在 404 |
-| PATCH | `/api/video/artifacts/{id}` | 只传要改的：`name` / `path` / `variant` / `option` / `status` / `duration` / `picked`；`variant`、`option`、`duration` 传 `null` 清掉；带 `video_id`、`kind`、`version`、`source`、`reviews` 400；回 `VideoArtifact` |
+| PATCH | `/api/video/artifacts/{id}` | 只传要改的：`name` / `path` / `variant` / `ratio` / `option` / `lang` / `status` / `duration` / `picked`；`variant`、`ratio`、`option`、`lang`、`duration` 传 `null` 清掉（封面的 `ratio` 清掉回到方向的默认比例）；带 `video_id`、`kind`、`version`、`source`、`reviews` 400；回 `VideoArtifact` |
 | DELETE | `/api/video/artifacts/{id}` | `data` 为 `null`；只删记录，文件不动；验收记录一起删，用它当封面的发布记录 `cover_id` 清掉 |
 | POST | `/api/video/artifacts/{id}/reviews` | `{ok, comment?}`，追加一条验收记录；回 `VideoArtifact` |
 | POST | `/api/video/artifacts/{id}/bump` | `{from?}`，升版本：版本号加一、状态回到 `draft`，验收记录都留着；回 `VideoArtifact` |
@@ -1964,18 +2010,21 @@ VID-01a 起。插件 `video`（`internal/plugins/video`，清单 `plugin.json`�
 `VideoPublish`：`{id, video_id, platform, variant, cover_id?, title, desc, status, scheduled_at?, published_at?, url?, error?, metrics?, created_at, updated_at}`，同原型 `Publish` 多时间；`metrics` 是 `{views, likes, comments, shares, updated_at}`。
 
 - `id` 是 `pb_` 前缀（已登记）。`video_id` 要是存在的视频，否则 400。`platform` 是 `bilibili` / `youtube` / `douyin` / `channels` / `xiaohongshu`（同原型 `PLATFORMS`），`variant` 是画面比例，`status` 是 `planned`（默认）/ `scheduled` / `published` / `failed`，别的值 400。
-- `title` 去首尾空白后必填，最多 200 字；`desc` 最多 5000 字；`cover_id` 是产出物 id（`vaf_`，见 `VideoArtifact`），现在只按字符串存、不查，产出物删掉时清空；`url` 要是 `http://` 或 `https://` 开头；`error` 最多 2000 字。`status` 是 `scheduled` 时要有 `scheduled_at`。
+- `title` 去首尾空白后必填，最多 200 字；`desc` 最多 5000 字；`cover_id` 是封面产出物 id（`vaf_`，见 `VideoArtifact`），产出物删掉时清空；`url` 要是 `http://` 或 `https://` 开头；`error` 最多 2000 字。`status` 是 `scheduled` 时要有 `scheduled_at`。
+- 选封面（VID-02a）：登记时带了 `cover_id`，或修改时传了 `cover_id`、`platform`、`variant` 之一，就校验封面，不符 400：封面不存在「封面 x 不存在」、不是这个视频的、不是封面类型、方向和这条发布的 `variant` 不同「封面是横屏的，这条发布是竖屏」、比例不是平台收的「封面比例不符合要求：抖音要 3:4 或 9:16，这次用的是 16:9」。只改别的字段不重新校验。平台收的封面比例放插件代码里的平台表（`data.go` 的 `PlatformCovers`，同原型 `PLATFORMS.cover`，第一个是推荐的）：`bilibili` 16:9、4:3，`youtube` 16:9，`douyin` 3:4、9:16，`channels` 9:16、3:4，`xiaohongshu` 3:4、1:1。
 - 时间是 RFC3339，存成 UTC 到秒。`metrics` 是平台回填的播放数据，四个数都是非负整数，`updated_at` 必填；不认识的键 400。
 - 可选字段没有就不返回；`cover_id`、`url`、`error` 存的是空串。
 
-`VideoArtifact`：`{id, video_id, kind, name, path, variant?, option?, version, status, duration?, source, reviews, picked?, created_at, updated_at}`，同原型 `Artifact` 多 `updated_at`；`reviews` 是 `{at, ok, comment, version}[]`，同原型 `Review` 多 `version`（验收的是第几版），按先后排；`source` 是 `{type, label, id?, session_id?, run_id?, artifact_id?}`。
+`VideoArtifact`：`{id, video_id, kind, name, path, variant?, ratio?, option?, lang?, version, status, duration?, source, reviews, picked?, created_at, updated_at}`，同原型 `Artifact` 多 `updated_at`；`reviews` 是 `{at, ok, comment, version}[]`，同原型 `Review` 多 `version`（验收的是第几版），按先后排；`source` 是 `{type, label, id?, session_id?, run_id?, artifact_id?}`。
 
 - `id` 是 `vaf_` 前缀（原型的 `af` 已归内核产物 `art`）。`video_id` 要是存在的视频，否则 400。
-- `kind` 是 `article` / `script` / `outline` / `presentation` / `audio` / `video` / `cover` / `description` / `chapters`（同原型 `ARTIFACT_KIND`），登记后不能改。`presentation`、`video`、`cover` 按画面比例区分，`variant`（`landscape` / `portrait` / `square`）必填；其余类型带 `variant` 400。`variant` 不查是不是这集选了的比例（同原型「不在本工程比例里」照样显示）。
+- `kind` 是 `article` / `script` / `outline` / `presentation` / `audio` / `video` / `subtitle` / `cover` / `description` / `chapters`（同原型 `ARTIFACT_KIND`），登记后不能改。口播稿、大纲、演示工程、成片、字幕、封面、简介、章节时间轴按画面比例各一套（技能布局 B：横版 `pc/`、竖版 `app/` 各写各的、各自升版本和验收），`variant`（`landscape` / `portrait` / `square`）必填，不给 400「口播稿按画面比例区分，要选 variant」；`article`、`audio` 带 `variant` 400。`variant` 不查是不是这集选了的比例（同原型「不在本工程比例里」照样显示）。
 - `name` 最多 200 字，不给用类型名（封面带方案序号时是「封面 n」）。`status` 是 `draft`（默认）/ `review` / `final` / `published`（同原型 `ARTIFACT_STATUS`），可以直接改。`version` 只在登记时能给（1 到 9999，默认 1），之后只能用 `bump` 加一。
 - `path` 相对视频的 `root`（工程目录），必填，最多 1000 字。按 `/` 规整（去掉 `.`、多余的 `/`，目录内的 `..` 折掉，结尾的 `/` 保留表示目录）；**绝对路径（`/` 或 `~` 开头、带盘符、`file://` 之类）、规整后越出工程目录（`..` 开头）、工程目录本身、带反斜杠的一律 400**。不查磁盘。
-- `option` 是封面方案序号，1 到 99，只有封面能带；同一视频同一类型同一比例的序号唯一，重复 409「这个比例的第 n 个方案已经登记过了」。`duration` 是秒，0 到 86400，只有 `audio`、`video` 能带。
-- `picked` 只有封面返回（没选是 `false`），非封面传 `true` 400。同一视频同一比例只能选用一张：选用这张时同组其余的自动取消（同原型「选用这张」）。
+- `ratio` 是封面本身的比例 `16x9` / `4x3` / `9x16` / `3x4` / `1x1`（同原型 `CoverRatio`），和舞台方向 `variant` 分开，只有封面有，别的类型带了 400；登记封面不给取方向的默认比例（同原型 `DEFAULT_COVER_RATIOS` 的第一个：横屏 16:9、竖屏 9:16、方形 1:1）。只改 `variant` 不给 `ratio` 时，原比例不在新方向的默认比例里（横屏 16:9、4:3，竖屏 9:16、3:4、1:1，方形 1:1、4:3）就回到新方向的第一个。有发布记录在用的封面改了方向或比例，要对得上那些发布记录（同下「选封面」），否则 400「有抖音的发布记录在用这张封面，……」。
+- `lang` 是字幕语言，只有 `subtitle` 有，别的类型带了 400；写成 `zh`、`en`、`zh-Hans` 这样的语言代码（小写 2 到 3 个字母，后面可以接 `-` 分段），最多 20 字，可以不给。
+- `option` 是封面方案序号，1 到 99，只有封面能带；同一视频同一方向同一封面比例的序号唯一，重复 409「竖屏封面 3:4 的第 n 个方案已经登记过了」。`duration` 是秒，0 到 86400，只有 `audio`、`video` 能带。
+- `picked` 只有封面返回（没选是 `false`），非封面传 `true` 400。同一视频同一方向同一封面比例只能选用一张（竖屏的 9:16 和 3:4 各选一张）：选用这张时同组其余的自动取消（同原型「选用这张」）。
 - 来源 `source` 同原型 `source`，多内核产物溯源（AG-03b）的几个出处，没有的不返回。只在登记时能给，之后不能改；不给是 `{type: "manual", label: "手动登记"}`。
   - `type` 是 `manual` / `sop` / `agent` / `skill`；`label` 是当时的名字快照，最多 100 字，不给用 `id`，再没有用「SOP」「Agent」「技能」；`id` 是 Agent id、SOP 流程 id 或技能名。
   - `session_id` 是 Agent 会话（`ags_`），`run_id` 是这次运行（Agent 执行记录 `ar_`、SOP 执行 `spr_`、开发执行 `run_`），`artifact_id` 是同一件东西在内核产物表里的那一行（`art_`），都只能有字母、数字和 `. _ : -`，最多 100 字。插件读不到内核表，这几个 id **只存不查**；前端按 id 前缀跳到对应的记录：`ar_` 走 `GET /api/agent-runs/{id}`，`spr_` 走 `GET /api/sop/runs/{id}`，`run_` 走 `GET /api/runs/{id}`，只有 `session_id` 时打开那个会话。
@@ -1983,7 +2032,55 @@ VID-01a 起。插件 `video`（`internal/plugins/video`，清单 `plugin.json`�
 - 验收（`reviews`）：`ok` 必填（布尔）；`comment` 最多 2000 字。**退回（`ok: false`）`comment` 去空白后必填，不写 400「退回要写意见」**，状态回到 `draft`；通过没写意见存「通过」，状态变 `final`，已经是 `published` 的保持 `published`。每条记下当时的 `version`。
 - 升版本（`bump`）：在原记录上 `version` 加一、`status` 回到 `draft`（同原型「升版本」），路径、选用不变；**旧版本的验收记录照留**，靠 `version` 区分。传了 `from` 且和当前版本不一致 409（防止重复点）。
 - 登记、修改、验收、升版本、删除产出物都会刷新所属视频的 `updated_at`（同规格 `SPEC-videos-12.3`）。
-- 原型为 VID-02 新加的 `ratio`（封面比例）、`lang`（字幕语言）、`subtitle` 类型和文稿按比例区分，本条还没做。
+- 0.2.0 时登记的产出物（0003 之前）在插件每次启动后第一次处理产出物时补齐：封面按方向补默认比例；口播稿、大纲、简介、章节时间轴当时不分比例，补成视频的第一个画面比例，视频还没选比例的补 `landscape`（同原型新登记的默认），补错了用 PATCH 改 `variant`。
+
+### 选题和素材箱（VID-08a）
+
+插件迁移 `migrations/0004_topics.sql` 建 `video_topics`、`video_clips` 和关联表 `video_topic_clips`（选题和素材多对多），形状同原型 `web-next/src/topicdata.ts` 的 `Topic`、`Clip`。0.2.0 装过的要走升级应用。现在只能手动收素材，**拉热榜、收评论不接内容平台**（VID-04 起）。
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| GET | `/api/video/topics?status=&series_id=&video_id=&clip_id=` | `VideoTopic[]` + `meta.total`，不分页，按新建先后；筛选都可选，`video_id` 从视频反查立项它的选题，`clip_id` 从素材反查它归到的选题 |
+| POST | `/api/video/topics` | `{title?, angle?, audience?, status?, score?, tags?, series_id?, platforms?, outline?, clip_ids?, planned_at?, drop_reason?}`，回 201 + `VideoTopic` |
+| GET | `/api/video/topics/{id}` | 一个 `VideoTopic`；不存在 404 |
+| PATCH | `/api/video/topics/{id}` | 只传要改的，字段同新建；`clip_ids` 整体替换（去掉的只解除关联，素材留着）；带 `video_id` 400；回 `VideoTopic` |
+| DELETE | `/api/video/topics/{id}` | `data` 为 `null`；和素材的关联一起删，素材和立项生成的视频都留着 |
+| POST | `/api/video/topics/{id}/make` | `{project_id?}`，立项（开始制作）：生成一集视频并回写 `video_id`；回 201 + `{topic, video}` |
+| GET | `/api/video/clips?box=&kind=&topic_id=&publish_id=&message_id=&q=` | `VideoClip[]` + `meta.total`、`meta.todo`，不分页，**按收进来的时间倒序**（同原型收件箱）；筛选见下 |
+| POST | `/api/video/clips` | `{kind, title?, content?, url?, source?, heat?, tags?, starred?, triaged?, publish_id?, message_id?}`，回 201 + `VideoClip` |
+| GET | `/api/video/clips/{id}` | 一个 `VideoClip`；不存在 404 |
+| PATCH | `/api/video/clips/{id}` | 只传要改的：`title` / `content` / `url` / `source` / `heat` / `tags` / `starred` / `triaged`；带 `kind`、`publish_id`、`message_id`、`topic_ids` 400；回 `VideoClip` |
+| DELETE | `/api/video/clips/{id}` | `data` 为 `null`；和选题的关联一起删，选题留着 |
+| POST | `/api/video/clips/{id}/topic` | 转为选题，body 可带选题字段（除 `clip_ids`）覆盖默认值；回 201 + `{topic, clip}` |
+| POST | `/api/video/clips/{id}/link` | `{topic_id}`，并入已有选题；回 `{topic, clip}` |
+
+`VideoTopic`：`{id, title, angle, audience, status, score, tags, series_id?, platforms, outline, clip_ids, planned_at?, video_id?, drop_reason?, created_at, updated_at}`，同原型 `Topic`。
+
+- `id` 是 `tp_` 前缀（已登记）。`title` 最多 200 字，可以为空（同原型新建空选题），立项时必填；`angle` 最多 1000 字，`audience` 最多 500 字，`outline`（markdown）最多 20000 字，`drop_reason` 最多 500 字、传 `null` 清掉。
+- `status` 是 `idea`（默认）/ `research` / `ready` / `scheduled` / `made` / `dropped`（同原型 `TOPIC_FLOW`），别的值 400。**`made` 只能由立项进入**：没有 `video_id` 时传 `made` 400「已做成要先立项成视频」（同原型「已做成」不可选）。
+- `score` 是 `{demand, fit, effort}`，各 1 到 5 的整数，默认都是 3，可以只传其中几项；不认识的键 400。优先级分（原型 `topicPriority`）由前端算，不存。
+- `tags` 是字符串数组，去空白、去空串、去重保序，最多 50 个、每个最多 40 字。`platforms` 是 `bilibili` / `youtube` / `douyin` / `channels` / `xiaohongshu`（同原型 `PLATFORMS`），去重后按这个顺序存。`series_id` 要是存在的系列，否则 400，传 `null` 清掉；系列删掉时清空。`planned_at` 是 RFC3339，存成 UTC，传 `null` 清掉。
+- `clip_ids` 是关联的素材，按关联先后排；每个都要存在，否则 400。新关联上的素材记为已整理（`triaged: true`）。
+- `video_id` 是立项生成的视频，一个视频只对应一个选题；视频删掉时清空，状态不动，可以重新立项。可选字段没有就不返回。
+
+立项（`make`，同原型 `makeVideoFromTopic`）：
+
+- 已经有 `video_id` 409「这个选题已经立项了」；`dropped` 409「已放弃的选题不能立项」；`title` 为空 400「先写标题」。`project_id` 同视频接口，要是没删的项目对象，否则 400。
+- 生成的 `Video`：在系列里时 `episode` 接着系列里最大的集数加一、标题是「第 n 集：选题标题」，不在系列里标题就是选题标题；`orientations` 按目标平台的偏好比例（B 站、YouTube 横屏，抖音、视频号、小红书竖屏），没选平台用 `landscape`；`root` 是 `videos/<选题 id>`，`chapters` 是 3，阶段 `script`、4 个检查点 `pending`（同 `POST /api/video/videos`）。
+- 然后选题 `video_id` 回写为新视频、`status` 变 `made`。回写时发现别处已经立项或放弃了，删掉刚建的视频，409。
+
+`VideoClip`：`{id, kind, title, content, url?, source, heat?, tags, starred, topic_ids, triaged, publish_id?, message_id?, created_at, updated_at}`，同原型 `Clip` 多来源出处和 `updated_at`。
+
+- `id` 是 `cl_` 前缀（已登记）。`kind` 必填，是 `link` / `note` / `trend` / `comment` / `competitor` / `im`（同原型 `CLIP_KIND`），登记后不能改。
+- `title` 最多 200 字；没给时同原型「收进来」：有 `url` 取去掉协议的前 60 字，否则取 `content` 的前 40 字；三样都没有 400。`content` 最多 5000 字；`url` 要是 `http://` 或 `https://` 开头；`source` 是来源说明（平台名、热榜名、评论所在视频、消息所在群），最多 200 字，不给存「手动添加」；`heat` 是非负整数，传 `null` 清掉；`tags` 同选题。`starred`、`triaged` 是布尔，默认 `false`。
+- **来源出处**，登记后不能改：`publish_id` 只有 `comment` 能带，是这条评论所在的发布记录（`pb_`），要存在，否则 400，发布记录删掉时清空；`message_id` 只有 `im` 能带，是 im 插件的消息 id（`msg_`），只能有字母、数字和 `. _ : -`，最多 100 字，插件读不到 im 的表，**只存不查**。前端从评论跳发布记录再到视频，从 IM 素材跳消息。
+- `topic_ids` 是归到的选题，按关联先后排，只能用转为选题、并入、选题的 `clip_ids` 改。
+- 列表筛选：`box` 是 `todo`（`triaged` 为 `false`）/ `starred` / `all`（默认），同原型收件箱三栏；`kind` 同上，别的值 400；`topic_id`、`publish_id`、`message_id` 按关联或出处反查；`q` 搜标题、内容、来源、标签（不分大小写，`%`、`_` 按字面）。`meta.todo` 是全部待整理的条数，不受筛选影响（红点用）。
+
+转为选题和并入（同原型素材收件箱的「转为选题」「归到选题」）：
+
+- 转为选题：新选题 `title` 用素材标题，`outline` 用素材内容，`tags` 照搬，`status` 是 `idea`，`score` 的 `demand` 在 `heat` 过万时是 4、否则 3，`fit`、`effort` 是 3；body 里给的字段覆盖这些默认值，校验同新建选题。素材关联到新选题并记为已整理。
+- 并入：`topic_id` 必填，要存在，否则 400；只能并入进行中的选题，`made`、`dropped` 409；已经关联过的不重复记，照样回 200。素材记为已整理，选题刷新 `updated_at`。
 
 - 暂不记审计、不发事件。
 

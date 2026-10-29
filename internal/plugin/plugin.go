@@ -62,6 +62,10 @@ type Registrar interface {
 	SOPNode(n SOPNodeDef)
 	// SOPEngine 只给 SOP 编排插件用：登记唤醒挂起步骤的入口（SOP-03a）。
 	SOPEngine(e SOPEngine)
+	// SOPStarter 登记「发起 SOP」的入口，只有 provides.modules 含 sop 的插件能登记，同一时间只有一个（SOP-01d，soplaunch.go）。
+	SOPStarter(st SOPStarter)
+	// HostHandler 登记按 Host 分发的处理器，要声明 network:localhost，每个插件最多一个（DOM-02a，host.go）。
+	HostHandler(d HostHandlerDef)
 }
 
 // RouteRegistrar 和 internal/api 里的同名接口一致，*http.ServeMux 天然满足。
@@ -106,6 +110,10 @@ type Core interface {
 	Granted(perm string) bool
 	// SOP 查插件登记的 SOP 节点、执行插件节点、唤醒挂起的步骤（SOP-03a，sopnode.go）。
 	SOP() SOPService
+	// Audit 记插件替用户做的对外动作，操作者记为插件，记在审计 agent 一组（SOP-02b，audit_note.go）。
+	Audit() AuditLog
+	// Notify 以本插件的名义发通知：kind 补插件前缀、来源记插件 id，停用后回错误（VID-06b，notify.go）。
+	Notify(ctx context.Context, n Notification) error
 }
 
 // Publisher 往事件总线上发事件。payload 按 JSON 序列化；总线没接上时什么都不做。

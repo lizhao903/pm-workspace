@@ -129,6 +129,7 @@ func (r *Runner) Resume(ctx context.Context, d *Decision, emit func(StreamEvent)
 func (r *Runner) run(ctx context.Context, userText string, dec *Decision, emit func(StreamEvent)) (string, error) {
 	tb := NewToolbox(r.Store, r.Session)
 	tb.withAgentKBs(r.Agent)
+	tb.withAgentSOP(r.Agent)
 
 	types, err := r.Store.ListObjectTypes(ctx)
 	if err != nil {

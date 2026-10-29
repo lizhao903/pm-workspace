@@ -3,10 +3,10 @@
   "name": "内网域名",
   "description": "给本机跑的服务配好记的域名：检测 hosts、pf 转发和本地证书，生成配置和要自己执行的命令",
   "icon": "globe",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "core": ">=1.0.0 <2.0.0",
   "depends": {},
-  "optional_depends": {},
+  "optional_depends": { "projects": ">=0.6.0 <1.0.0" },
   "provides": {
     "modules": [],
     "settings": ["domains"],
@@ -20,7 +20,7 @@
     "search": []
   },
   "emits": [],
-  "subscribes": [],
+  "subscribes": ["projects.prototype_started", "projects.prototype_stopped", "projects.prototype_deleted"],
   "permissions": ["fs:read:any", "process:spawn", "network:localhost"],
   "migrations": "migrations",
   "table_prefix": "domains_"

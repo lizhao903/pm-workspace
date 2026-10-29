@@ -1,0 +1,404 @@
+package im
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"regexp"
+	"strconv"
+	"strings"
+	"time"
+	"unicode/utf8"
+
+	"github.com/lizhao903/pm-workspace/internal/plugin"
+)
+
+// SOP 节点（SOP-02b）：发消息 im_send_message、等回复 im_wait_reply，经内核的 SOP 节点扩展点登记（plugin-api.md 2.7）。
+// 原型的内置 notify 不在 SOP 插件里实现，编辑器里由 im_send_message 代替，SOP 插件不依赖 IM 插件。
+//
+// 发消息：会话是内核会话 id，内容支持 {{字段}}；连接器和适配器按这个会话最近收到的一条消息找，
+// 拦截口径同回复（IM-02a 的 replyBlocker：连接器异常、暂停、断开、只收的都发不出），发出后记一条审计。
+// 等回复：落一行 im_sop_waits、步骤挂起；后台任务 sop_waits 看会话里有没有对方在挂起之后发的消息，
+// 有就唤醒（Core.SOP().Resume），到点还没有就让步骤失败（Core.SOP().Fail）。「对方」是发送人不是「我」的称呼。
+
+const (
+	NodeSendMessage = "im_send_message"
+	NodeWaitReply   = "im_wait_reply"
+
+	defaultWaitTimeout = time.Hour
+	maxWaitTimeout     = 30 * 24 * time.Hour
+	auditTextMax       = 500
+)
+
+// waitEvery 是多久看一次挂起中的等待；测试里调小。
+var waitEvery = 3 * time.Second
+
+func (in *inbox) registerSOPNodes(r plugin.Registrar) {
+	r.SOPNode(plugin.SOPNodeDef{Kind: NodeSendMessage, Group: "沟通",
+		Required: []plugin.SOPNodeField{{Key: "conversation", Label: "会话"}, {Key: "text", Label: "内容"}},
+		Run:      in.sendNode})
+	r.SOPNode(plugin.SOPNodeDef{Kind: NodeWaitReply, Group: "沟通",
+		Required: []plugin.SOPNodeField{{Key: "conversation", Label: "会话"}},
+		Run:      in.waitNode})
+	r.Job(plugin.Job{Name: "sop_waits", Every: waitEvery, Run: in.waitJob})
+}
+
+// conversationOf 按配置找会话（内核会话 id，支持 {{字段}}）。
+func (in *inbox) conversationOf(ctx context.Context, cfg map[string]string, input map[string]any) (plugin.ConversationInfo, error) {
+	id := strings.TrimSpace(render(cfg["conversation"], input))
+	if id == "" {
+		return plugin.ConversationInfo{}, errors.New("没有指定会话")
+	}
+	cv, err := in.c.Conversations().Get(ctx, id)
+	if errors.Is(err, plugin.ErrNoRows) {
+		return cv, fmt.Errorf("会话 %s 不存在", id)
+	}
+	return cv, err
+}
+
+func convLabel(cv plugin.ConversationInfo) string {
+	if cv.Name != "" {
+		return "「" + cv.Name + "」"
+	}
+	return "会话 " + cv.ID
+}
+
+// convCond 是这个会话里的消息：认上了会话的按 id，到达时会话还没登记的按渠道编号（同 GET /api/im/messages）。
+const convCond = `(conversation_id = ? OR (conversation_id IS NULL AND channel = ? AND conversation_external_id = ?))`
+
+func convArgs(id, channel, ext string) []any { return []any{id, channel, ext} }
+
+/* ---------- 发消息 ---------- */
+
+func (in *inbox) sendNode(ctx context.Context, c plugin.Core, n plugin.SOPNodeInput) (map[string]any, error) {
+	cv, err := in.conversationOf(ctx, n.Config, n.Input)
+	if err != nil {
+		return nil, err
+	}
+	text := strings.TrimSpace(render(n.Config["text"], n.Input))
+	if text == "" {
+		return nil, errors.New("要发的内容是空的")
+	}
+	if utf8.RuneCountInString(text) > maxReply {
+		return nil, fmt.Errorf("要发的内容超过 %d 字", maxReply)
+	}
+	// 用会话里最近收到的一条消息定连接器和适配器
+	last, err := in.query(ctx, `SELECT `+messageCols+` FROM im_messages WHERE `+convCond+` ORDER BY sent_at DESC, rowid DESC LIMIT 1`,
+		convArgs(cv.ID, cv.Channel, cv.ExternalID)...)
+	if err != nil {
+		return nil, err
+	}
+	if len(last) == 0 {
+		return nil, fmt.Errorf("%s里还没收到过消息，不知道用哪个连接器发", convLabel(cv))
+	}
+	m := last[0]
+	rp, err := in.replyBlocker(ctx, m)
+	if err != nil {
+		return nil, err
+	}
+	out := Outgoing{ConnectorID: m.ConnectorID, ConversationID: cv.ExternalID, ConversationKind: cv.Kind, Text: text}
+	if cv.Kind == "direct" {
+		out.RecipientID = m.SenderID
+	}
+	sendCtx, cancel := context.WithTimeout(ctx, replyTimeout)
+	ext, sendErr := rp.Reply(sendCtx, out)
+	cancel()
+	at := in.clock().UTC().Format(timeLayout)
+	meta := plugin.WriteMeta{Session: n.RunID, Key: fmt.Sprintf("%s/%s#%d", n.RunID, n.Step, n.Attempt), Detail: map[string]any{
+		"run_id": n.RunID, "flow_id": n.FlowID, "step": n.Step, "attempt": n.Attempt,
+	}}
+	detail := map[string]any{"channel": cv.Channel, "connector_id": m.ConnectorID, "adapter": rp.Key(),
+		"conversation": cv.Name, "text": clip(text, auditTextMax)}
+	if sendErr != nil {
+		reason := clip(sendErr.Error(), maxReplyError)
+		detail["status"], detail["error"] = "failed", reason
+		c.Audit().Note(ctx, plugin.AuditNote{Action: "send", TargetType: "conversation", TargetID: cv.ID,
+			Summary: "发消息到" + convLabel(cv) + "失败", Detail: detail}, meta)
+		c.Log().Warn("im sop send failed", "conversation", cv.ID, "adapter", rp.Key(), "err", sendErr)
+		return nil, errors.New("发送失败：" + reason)
+	}
+	detail["status"], detail["external_id"] = "sent", ext
+	c.Audit().Note(ctx, plugin.AuditNote{Action: "send", TargetType: "conversation", TargetID: cv.ID,
+		Summary: "发消息到" + convLabel(cv), Detail: detail}, meta)
+	return with(n.Input, "sent", map[string]any{
+		"conversation_id": cv.ID, "conversation": cv.Name, "channel": cv.Channel, "connector_id": m.ConnectorID,
+		"text": text, "external_id": ext, "at": at,
+	}), nil
+}
+
+// with 同原型 {...input, key: v}。
+func with(input map[string]any, key string, v any) map[string]any {
+	out := make(map[string]any, len(input)+1)
+	for k, x := range input {
+		out[k] = x
+	}
+	out[key] = v
+	return out
+}
+
+/* ---------- 等回复 ---------- */
+
+func (in *inbox) waitNode(ctx context.Context, _ plugin.Core, n plugin.SOPNodeInput) (map[string]any, error) {
+	cv, err := in.conversationOf(ctx, n.Config, n.Input)
+	if err != nil {
+		return nil, err
+	}
+	d, err := parseTimeout(n.Config["timeout"])
+	if err != nil {
+		return nil, err
+	}
+	b, err := json.Marshal(orEmptyMap(n.Input))
+	if err != nil {
+		return nil, fmt.Errorf("输入不能转成 JSON：%w", err)
+	}
+	now := in.clock().UTC()
+	deadline := now.Add(d)
+	_, err = in.c.Store().Exec(ctx, `INSERT INTO im_sop_waits (run_id, step, attempt, conversation_id, channel,
+		conversation_external_id, conversation_name, input, since, deadline) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT (run_id, step) DO UPDATE SET attempt = excluded.attempt, conversation_id = excluded.conversation_id,
+		channel = excluded.channel, conversation_external_id = excluded.conversation_external_id,
+		conversation_name = excluded.conversation_name, input = excluded.input, since = excluded.since, deadline = excluded.deadline`,
+		n.RunID, n.Step, n.Attempt, cv.ID, cv.Channel, cv.ExternalID, cv.Name, string(b), now.Format(timeLayout), deadline.Format(timeLayout))
+	if err != nil {
+		return nil, err
+	}
+	return nil, fmt.Errorf("等%s里对方回复，最多等 %s：%w", convLabel(cv), humanDur(d), plugin.ErrWaiting)
+}
+
+type sopWait struct {
+	runID, step              string
+	attempt                  int
+	convID, channel, convExt string
+	convName, input          string
+	since, deadline          string
+}
+
+// waitJob 看每个挂起中的等待：会话里有对方的新消息就唤醒，到点了就让步骤失败。
+// 唤醒出错（执行还没调度上、SOP 插件没在跑）留着下次再试；到点后不管 Fail 成不成都删掉。
+func (in *inbox) waitJob(ctx context.Context, c plugin.Core) error {
+	rows, err := in.c.Store().Query(ctx, `SELECT run_id, step, attempt, conversation_id, channel, conversation_external_id,
+		conversation_name, input, since, deadline FROM im_sop_waits ORDER BY since`)
+	if err != nil {
+		return err
+	}
+	var ws []sopWait
+	for rows.Next() {
+		var w sopWait
+		if err := rows.Scan(&w.runID, &w.step, &w.attempt, &w.convID, &w.channel, &w.convExt,
+			&w.convName, &w.input, &w.since, &w.deadline); err != nil {
+			_ = rows.Close()
+			return err
+		}
+		ws = append(ws, w)
+	}
+	err = rows.Err()
+	_ = rows.Close()
+	if err != nil {
+		return err
+	}
+	for _, w := range ws {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		reply, err := in.replyAfter(ctx, w)
+		if err != nil {
+			return err
+		}
+		cv := plugin.ConversationInfo{ID: w.convID, Name: w.convName}
+		switch {
+		case reply != nil:
+			var input map[string]any
+			_ = json.Unmarshal([]byte(w.input), &input)
+			out := with(input, "reply", map[string]any{
+				"message_id": reply.ID, "conversation_id": w.convID, "conversation": w.convName, "channel": reply.Channel,
+				"text": reply.Text, "sender_id": reply.SenderID, "sender_name": reply.SenderName,
+				"stakeholder_id": reply.StakeholderID, "contact_name": reply.ContactName, "at": reply.At,
+			})
+			if err := c.SOP().Resume(ctx, w.runID, w.step, out); err != nil {
+				c.Log().Debug("im sop wait resume failed, retry later", "run", w.runID, "step", w.step, "err", err)
+				continue
+			}
+		case in.clock().UTC().Format(timeLayout) >= w.deadline:
+			d := timeBetween(w.since, w.deadline)
+			reason := fmt.Sprintf("等了 %s，%s里对方还没回复（超时）", humanDur(d), convLabel(cv))
+			if err := c.SOP().Fail(ctx, w.runID, w.step, reason); err != nil {
+				if errors.Is(err, plugin.ErrNoSOPEngine) {
+					continue
+				}
+				c.Log().Debug("im sop wait timeout fail", "run", w.runID, "step", w.step, "err", err)
+			}
+		default:
+			continue
+		}
+		if _, err := in.c.Store().Exec(ctx, `DELETE FROM im_sop_waits WHERE run_id = ? AND step = ? AND attempt = ?`,
+			w.runID, w.step, w.attempt); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// replyAfter 是会话里挂起之后对方发的第一条消息，没有回 nil。
+func (in *inbox) replyAfter(ctx context.Context, w sopWait) (*Message, error) {
+	ms, err := in.query(ctx, `SELECT `+messageCols+` FROM im_messages WHERE `+convCond+` AND sent_at > ?
+		ORDER BY sent_at, rowid LIMIT 50`, append(convArgs(w.convID, w.channel, w.convExt), w.since)...)
+	if err != nil {
+		return nil, err
+	}
+	for i := range ms {
+		mine, err := in.fromMe(ctx, ms[i])
+		if err != nil {
+			return nil, err
+		}
+		if !mine {
+			return &ms[i], nil
+		}
+	}
+	return nil, nil
+}
+
+// fromMe：发送人的编号或名字是「我」的称呼（适配器给的加连接器账号拆出来的，同「与我相关」）。
+func (in *inbox) fromMe(ctx context.Context, m Message) (bool, error) {
+	var a Adapter
+	for _, x := range in.adapters {
+		if x.Key() == m.Adapter {
+			a = x
+		}
+	}
+	if a == nil {
+		a = fixedAdapter{}
+	}
+	hs, err := newSelfHandles(a).forConnector(ctx, in.c, m.ConnectorID)
+	if err != nil {
+		return false, err
+	}
+	for _, h := range hs {
+		h = strings.TrimPrefix(strings.TrimSpace(h), "@")
+		if h == "" {
+			continue
+		}
+		for _, s := range []string{m.SenderID, m.SenderName} {
+			if strings.EqualFold(strings.TrimPrefix(strings.TrimSpace(s), "@"), h) {
+				return true, nil
+			}
+		}
+	}
+	return false, nil
+}
+
+// fixedAdapter 是适配器已不在时的占位：没有自己的称呼，只认连接器账号。
+type fixedAdapter struct{}
+
+func (fixedAdapter) Key() string     { return "" }
+func (fixedAdapter) Channel() string { return "" }
+
+func orEmptyMap(m map[string]any) map[string]any {
+	if m == nil {
+		return map[string]any{}
+	}
+	return m
+}
+
+/* ---------- 模板、时长：口径同 SOP 插件（nodes.go 的 render、parseWait），插件之间不互相 import ---------- */
+
+var (
+	tplRe   = regexp.MustCompile(`\{\{\s*([\w.\[\]\p{Han}]+)\s*\}\}`)
+	indexRe = regexp.MustCompile(`\[(\d+)\]`)
+	durRe   = regexp.MustCompile(`^\s*(\d+(?:\.\d+)?)\s*(秒钟?|分钟|分|小时|时|天|周)\s*$`)
+)
+
+// render 把 {{字段}} 换成输入里的值，取不到的留空。
+func render(tpl string, input map[string]any) string {
+	return tplRe.ReplaceAllStringFunc(tpl, func(m string) string {
+		return txt(getPath(input, tplRe.FindStringSubmatch(m)[1]))
+	})
+}
+
+func getPath(obj any, path string) any {
+	p := indexRe.ReplaceAllString(strings.TrimSpace(path), ".$1")
+	cur := obj
+	for _, k := range strings.Split(p, ".") {
+		if k == "" {
+			continue
+		}
+		switch v := cur.(type) {
+		case map[string]any:
+			cur = v[k]
+		case []any:
+			i, err := strconv.Atoi(k)
+			if err != nil || i < 0 || i >= len(v) {
+				return nil
+			}
+			cur = v[i]
+		default:
+			return nil
+		}
+	}
+	return cur
+}
+
+// txt 对象转 JSON，nil 是空串。
+func txt(v any) string {
+	switch x := v.(type) {
+	case nil:
+		return ""
+	case string:
+		return x
+	case map[string]any, []any:
+		b, _ := json.Marshal(x)
+		return string(b)
+	case float64:
+		return strconv.FormatFloat(x, 'f', -1, 64)
+	}
+	return fmt.Sprint(v)
+}
+
+// parseTimeout 解析「最多等多久」：「30 分钟」「1 小时」「2 天」，也认 Go 的写法（90s、1h30m）。留空是 1 小时，最多 30 天。
+func parseTimeout(s string) (time.Duration, error) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return defaultWaitTimeout, nil
+	}
+	var d time.Duration
+	if m := durRe.FindStringSubmatch(s); m != nil {
+		n, _ := strconv.ParseFloat(m[1], 64)
+		unit := map[string]time.Duration{"秒": time.Second, "秒钟": time.Second, "分": time.Minute, "分钟": time.Minute,
+			"时": time.Hour, "小时": time.Hour, "天": 24 * time.Hour, "周": 7 * 24 * time.Hour}[m[2]]
+		d = time.Duration(n * float64(unit))
+	} else {
+		var err error
+		if d, err = time.ParseDuration(s); err != nil {
+			return 0, fmt.Errorf("「最多等多久」写法不对：%s，要写成「30 分钟」「1 小时」「2 天」", s)
+		}
+	}
+	if d <= 0 {
+		return 0, errors.New("「最多等多久」要大于 0")
+	}
+	if d > maxWaitTimeout {
+		return 0, errors.New("「最多等多久」不能超过 30 天")
+	}
+	return d, nil
+}
+
+func timeBetween(a, b string) time.Duration {
+	ta, err1 := time.Parse(timeLayout, a)
+	tb, err2 := time.Parse(timeLayout, b)
+	if err1 != nil || err2 != nil {
+		return 0
+	}
+	return tb.Sub(ta)
+}
+
+// humanDur 给人看的时长：整天、整小时、整分钟，其余按秒。
+func humanDur(d time.Duration) string {
+	switch {
+	case d >= 24*time.Hour && d%(24*time.Hour) == 0:
+		return fmt.Sprintf("%d 天", d/(24*time.Hour))
+	case d >= time.Hour && d%time.Hour == 0:
+		return fmt.Sprintf("%d 小时", d/time.Hour)
+	case d >= time.Minute && d%time.Minute == 0:
+		return fmt.Sprintf("%d 分钟", d/time.Minute)
+	}
+	return strconv.FormatFloat(d.Seconds(), 'f', -1, 64) + " 秒"
+}

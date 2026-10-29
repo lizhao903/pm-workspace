@@ -1,10 +1,11 @@
 // 视频插件的小部件：阶段进度条、状态胶囊、比例标签、模块标签栏、阶段分布条（照原型 videos.tsx 的 StageBar、VideosTabs、StageDist）
 import type { CSSProperties } from 'react'
-import type { Video, VideoOrientation } from '../../core/data'
+import type { Video, VideoCoverRatio, VideoOrientation } from '../../core/data'
 import { Pill, cls } from '../../core/ui'
 import {
   ORIENT, STAGES, STAGE_FILTERS, TONE_COLOR, needsMe, orientText, stageIndex, stageLabel, stageOf, stepState, videoState, type StageFilter,
 } from './model'
+import { COVER_RATIO } from './artifactModel'
 
 /** 阶段进度：8 段小条，做完的绿、当前的蓝（卡在检查点上的橙） */
 export function StageBar({ v }: { v: Video }) {
@@ -32,8 +33,8 @@ export const OrientTag = ({ o, large }: { o: VideoOrientation; large?: boolean }
   <span className={cls('vd-otag', large && 'vd-otag-lg')} title={orientText(o)}><OrientShape o={o} />{large ? orientText(o) : ORIENT[o].ratio}</span>
 )
 
-export type ModuleTab = 'all' | 'review'
-const MODULE_TABS: { key: ModuleTab; label: string }[] = [{ key: 'all', label: '全部视频' }, { key: 'review', label: '待我处理' }]
+export type ModuleTab = 'all' | 'review' | 'series'
+const MODULE_TABS: { key: ModuleTab; label: string }[] = [{ key: 'all', label: '全部视频' }, { key: 'review', label: '待我处理' }, { key: 'series', label: '系列' }]
 
 /** 模块标签栏：放在顶栏下面；「待我处理」后面是停在检查点或被退回的集数，为 0 不显示 */
 export function VideosTabs({ active, videos, onSelect }: { active: ModuleTab; videos: Video[]; onSelect: (t: ModuleTab) => void }) {
@@ -52,8 +53,10 @@ export function VideosTabs({ active, videos, onSelect }: { active: ModuleTab; vi
 }
 
 /** 阶段分布条：一眼看出这批视频卡在哪；点一段或一块按这个阶段筛，再点取消。compact 只要上面那条 */
-export function StageDist({ videos, value, onChange, compact }: {
+export function StageDist({ videos, value, onChange, compact, still }: {
   videos: Video[]; value: StageFilter; onChange: (s: StageFilter) => void; compact?: boolean
+  /** 只看不点：系列卡片里用，整张卡片才是按钮 */
+  still?: boolean
 }) {
   const n = (k: StageFilter) => videos.filter((v) => stageOf(v) === k).length
   const warn = (k: StageFilter) => videos.some((v) => stageOf(v) === k && needsMe(v))
@@ -62,13 +65,17 @@ export function StageDist({ videos, value, onChange, compact }: {
   return (
     <div className="vd-dist">
       <div className="vd-dist-bar">
-        {keys.map((k) => (
+        {still && keys.map((k) => (
+          <span key={k} className={cls('vd-dist-seg', `vd-ds-${k === 'done' ? 'done' : warn(k) ? 'warn' : 'cur'}`)} style={{ flexGrow: n(k) / total }}
+            title={`${stageLabel(k)} ${n(k)} 集`} />
+        ))}
+        {!still && keys.map((k) => (
           <button key={k} type="button" className={cls('vd-dist-seg', `vd-ds-${k === 'done' ? 'done' : warn(k) ? 'warn' : 'cur'}`, value === k && 'on')}
             style={{ flexGrow: n(k) / total }} title={`${stageLabel(k)} ${n(k)} 集`} aria-label={`${stageLabel(k)} ${n(k)} 集`}
             tabIndex={compact ? undefined : -1} onClick={() => onChange(value === k ? '' : k)} />
         ))}
       </div>
-      {!compact && (
+      {!compact && !still && (
         <div className="vd-dist-legend">
           {keys.map((k) => (
             <button key={k} type="button" aria-pressed={value === k} className={cls('vd-dist-chip', value === k && 'on', warn(k) && 'warn')}
@@ -86,6 +93,13 @@ export function StageDist({ videos, value, onChange, compact }: {
 export const IconPlus = () => (
   <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path d="M8 3v10M3 8h10" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" /></svg>
 )
+
+/** 封面色块：按封面比例画，色调跟着第几版走 */
+export const CoverThumb = ({ r, op, big }: { r: VideoCoverRatio; op: number; big?: boolean }) => (
+  <span className={cls('vd-thumb', big && 'vd-thumb-big')} aria-hidden="true"
+    style={{ aspectRatio: `${COVER_RATIO[r].w} / ${COVER_RATIO[r].h}`, '--h': COVER_HUE[(op - 1) % COVER_HUE.length] } as CSSProperties}>{op}</span>
+)
+const COVER_HUE = [24, 205, 145, 275, 340]
 
 export const IconCheckSmall = () => (
   <svg viewBox="0 0 16 16" width="11" height="11" aria-hidden="true">

@@ -215,6 +215,8 @@ func run(cfg config) error {
 	bus.Tap(opts.Stream.Append)
 	opts.Notify = notify.New(pdb, st, opts.Stream, slog.Default())
 	bus.Tap(opts.Notify.Handle)
+	// 插件发通知（VID-06b）：kind 带插件前缀、data.source 记插件 id，同样推 notification.created
+	plugins.SetNotifier(opts.Notify)
 	defer opts.Notify.Wait(5 * time.Second)
 	// 定时任务的定义（TASK-03a，0020）：规则按本机时区算
 	opts.Schedules = schedule.New(pdb, time.Local)
@@ -230,6 +232,10 @@ func run(cfg config) error {
 	opts.Conversations = conversation.New(pdb)
 	// 连接器（CONN-01a，0029）：定义在代码里登记，实例存表，凭证存保险箱
 	connDefs := connector.NewRegistry()
+	// 真实连接器：Google Drive（CONN-01e1），client_id、secret 由用户在设置页填
+	if err := connDefs.Register(connector.GoogleDrive(connector.GoogleEndpoints{})); err != nil {
+		return err
+	}
 	if cfg.fakeConnector {
 		for _, d := range []connector.Def{connector.Fake(), connector.FakeOAuth()} {
 			if err := connDefs.Register(d); err != nil {
@@ -266,7 +272,12 @@ func run(cfg config) error {
 	// 调度器（TASK-03b，0021）：到点执行定时任务，建任务走外层包装，事件和审计照常；退出时先停调度再关库
 	opts.ScheduleRunner = schedule.NewRunner(opts.Schedules, objects, slog.Default())
 	opts.ScheduleRunner.Agents = opts.AgentRuns
-	handler := api.New(objects, opts)
+	// 发起 SOP（SOP-01d）：定时任务的 sop 动作和 Agent 的 run_sop 经插件注册表的钩子交给 SOP 插件；删流程前查指向它的定时任务
+	opts.ScheduleRunner.SOPs = plugins
+	agent.SetSOPStarter(plugins)
+	plugins.SetSOPRefs(opts.Schedules.SOPRefs)
+	// 按 Host 分发（DOM-02a）：内网域名插件接原型等子域名，--public-url 的主机和 IP、localhost 永远进工作台
+	handler := plugins.HostDispatch(api.New(objects, opts), cfg.publicURL)
 	// 在 api.New 之后启动：agent 动作要用 New 接上的 Runner
 	if err := opts.ScheduleRunner.Start(ctx); err != nil {
 		return fmt.Errorf("启动定时任务调度失败: %w", err)

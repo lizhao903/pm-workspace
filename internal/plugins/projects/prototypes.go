@@ -205,6 +205,11 @@ func (h *prototypes) remove(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.m.forget(p.ID)
+	ev := protoEvent{ID: p.ID, Name: p.Name, ProjectID: p.ProjectID, Port: p.Port}
+	if o, err := h.c.Objects().Get(r.Context(), p.ProjectID); err == nil {
+		ev.ProjectName = o.Title
+	}
+	h.m.publish(evDeleted, ev)
 	writeJSON(w, http.StatusOK, map[string]any{"data": nil})
 }
 
@@ -224,6 +229,7 @@ func (h *prototypes) start(w http.ResponseWriter, r *http.Request) {
 		h.fail(w, r, err)
 		return
 	}
+	h.m.publish(evStarted, protoEvent{ID: p.ID, Name: p.Name, ProjectID: p.ProjectID, ProjectName: o.Title, Port: p.Port})
 	h.reply(w, r, http.StatusOK, p)
 }
 
