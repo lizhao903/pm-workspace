@@ -216,3 +216,66 @@ func TestCoverTestValidation(t *testing.T) {
 		t.Fatalf("删测试不动封面：%v", a)
 	}
 }
+
+// 手动判定（VID-05d）：提前采用、不判胜负结束都不动门槛；差距超过 10 倍也照手动选的判；结束了 409
+func TestCoverTestDecide(t *testing.T) {
+	e := setup(t)
+	vd := newVideo(t, e, `{"title":"第 5 集","orientations":["landscape"]}`)
+	covers := coverFixture(t, e, vd, "landscape", "16x9", 3)
+	body := `{"video_id":"` + vd + `","platform":"youtube","mode":"native","started_at":"` + daysAgo(2.5) + `",
+		"arms":[{"cover_id":"` + covers[0] + `","impressions":800,"ctr":0.004},{"cover_id":"` + covers[1] + `","impressions":900,"ctr":0.06},{"cover_id":"` + covers[2] + `"}]}`
+	id := mustCall(t, e.h, "POST", "/api/video/cover-tests", body, 201)["id"].(string)
+	thresholds := func(got map[string]any) bool {
+		return got["min_days"] == 7.0 && got["min_impressions"] == 10000.0 && got["min_gap"] == 0.2
+	}
+	for _, c := range []struct{ body, want string }{
+		{`{"winner_id":"vaf_nope"}`, "不在这次测试里"},
+		{`{"winner":"x"}`, "不认识的字段"},
+	} {
+		if code, out := call(t, e.h, "POST", "/api/video/cover-tests/"+id+"/decide", c.body); code != 400 || !strings.Contains(errMsg(out), c.want) {
+			t.Errorf("%s：要 400 %q，实际 %d %v", c.body, c.want, code, out)
+		}
+	}
+	got := mustCall(t, e.h, "POST", "/api/video/cover-tests/"+id+"/decide", `{"winner_id":"`+covers[1]+`"}`, 200)
+	if got["status"] != "decided" || got["winner_id"] != covers[1] || got["ended_at"] == nil || !thresholds(got) {
+		t.Fatalf("提前采用要判出第 2 张、门槛不变：%v", got)
+	}
+	if a := artifactOf(t, e, covers[1]); a["picked"] != true || a["archived"] != false {
+		t.Fatalf("胜者要选用：%v", a)
+	}
+	for _, c := range []string{covers[0], covers[2]} {
+		if a := artifactOf(t, e, c); a["picked"] != false || a["archived"] != true {
+			t.Fatalf("其余要归档：%v", a)
+		}
+	}
+	for _, b := range []string{`{"winner_id":"` + covers[1] + `"}`, ``} {
+		if code, out := call(t, e.h, "POST", "/api/video/cover-tests/"+id+"/decide", b); code != 409 {
+			t.Fatalf("结束了再判要 409：%d %v", code, out)
+		}
+	}
+
+	// 不判胜负结束：点击率差 15 倍、有组没数据也能结束，封面都不动；空请求体也行
+	vd2 := newVideo(t, e, `{"title":"第 6 集","orientations":["landscape"]}`)
+	c2 := coverFixture(t, e, vd2, "landscape", "16x9", 2)
+	id2 := mustCall(t, e.h, "POST", "/api/video/cover-tests", `{"video_id":"`+vd2+`","platform":"youtube","mode":"native","started_at":"`+daysAgo(2.5)+`",
+		"arms":[{"cover_id":"`+c2[0]+`","impressions":800,"ctr":0.004},{"cover_id":"`+c2[1]+`","impressions":900,"ctr":0.06}]}`, 201)["id"].(string)
+	got = mustCall(t, e.h, "POST", "/api/video/cover-tests/"+id2+"/decide", `{}`, 200)
+	if got["status"] != "inconclusive" || got["winner_id"] != nil || got["ended_at"] == nil || !thresholds(got) {
+		t.Fatalf("不判胜负要没有结论、门槛不变：%v", got)
+	}
+	for i, c := range c2 {
+		if a := artifactOf(t, e, c); a["archived"] != false || a["picked"] != (i == 0) {
+			t.Fatalf("不判胜负封面不动：%v", a)
+		}
+	}
+	vd3 := newVideo(t, e, `{"title":"第 7 集","orientations":["landscape"]}`)
+	c3 := coverFixture(t, e, vd3, "landscape", "16x9", 2)
+	id3 := mustCall(t, e.h, "POST", "/api/video/cover-tests", `{"video_id":"`+vd3+`","platform":"youtube","mode":"native",
+		"arms":[{"cover_id":"`+c3[0]+`"},{"cover_id":"`+c3[1]+`"}]}`, 201)["id"].(string)
+	if got := mustCall(t, e.h, "POST", "/api/video/cover-tests/"+id3+"/decide", "", 200); got["status"] != "inconclusive" {
+		t.Fatalf("空请求体结束：%v", got)
+	}
+	if code, _ := call(t, e.h, "POST", "/api/video/cover-tests/vct_nope/decide", ""); code != 404 {
+		t.Fatalf("不存在的测试要 404：%d", code)
+	}
+}

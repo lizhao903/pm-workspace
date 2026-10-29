@@ -217,6 +217,7 @@ export const videoPublishApi = {
   patchTest: (id: string, body: VideoCoverTestPatch) => request<VideoCoverTest>('PATCH', testPath(id), { body }),
   removeTest: (id: string) => request<null>('DELETE', testPath(id)),
   evaluateTest: (id: string) => request<VideoCoverTest>('POST', `${testPath(id)}/evaluate`),
+  decideTest: (id: string, winnerId?: string) => request<VideoCoverTest>('POST', `${testPath(id)}/decide`, { body: winnerId ? { winner_id: winnerId } : {} }),
 }
 
 /** 全部发布记录，按登记先后 */
@@ -225,8 +226,8 @@ export function useVideoPublishes(opts: { enabled?: boolean } = {}) {
 }
 
 /** 五个平台：规则、收的封面比例、能力和接入情况 */
-export function useVideoPlatforms() {
-  return useQuery({ queryKey: videoPublishKeys.platforms, queryFn: ({ signal }) => videoPublishApi.platforms(signal) })
+export function useVideoPlatforms(opts: { enabled?: boolean } = {}) {
+  return useQuery({ queryKey: videoPublishKeys.platforms, queryFn: ({ signal }) => videoPublishApi.platforms(signal), enabled: opts.enabled ?? true })
 }
 
 export function useVideoAccounts() {
@@ -286,6 +287,11 @@ export function usePatchCoverTest() {
 
 export function useEvaluateCoverTest() {
   return usePubWrite((id: string) => videoPublishApi.evaluateTest(id))
+}
+
+/** 手动判定，门槛不动：给了 winnerId 按它判胜（设主封面、其余归档），不给就结束不判胜负 */
+export function useDecideCoverTest() {
+  return usePubWrite(({ id, winnerId }: { id: string; winnerId?: string }) => videoPublishApi.decideTest(id, winnerId))
 }
 
 /** 只删测试和分组，封面的选用、归档不回退 */

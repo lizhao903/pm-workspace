@@ -17,6 +17,9 @@
 .sk-task { background: var(--accent-soft); color: var(--accent); }
 .sk-sop { background: var(--warn-soft); color: var(--warn); }
 .sk-agent { background: var(--hover); color: var(--muted); }
+/* 视频插件的到点发布（VID-06d） */
+.sched-plugin-acts { display: flex; flex-wrap: wrap; gap: 8px; }
+.sk-video_publish { background: color-mix(in srgb, var(--warn) 12%, transparent); color: var(--warn); }
 .sched-next { color: var(--text); font-weight: 500; }
 .sched-alert { display: flex; align-items: center; gap: var(--sp-4); }
 /* 正文不到 760px 宽：只留名称、下次执行、启用 */

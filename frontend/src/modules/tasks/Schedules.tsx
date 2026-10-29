@@ -3,13 +3,13 @@
 import { useState } from 'react'
 import { useSearchParams } from 'react-router'
 import {
-  errorText, isApiError, useLastScheduleRuns, useObject, usePatchSchedule, useSchedules,
-  type DictItem, type ObjectStatus, type Schedule, type ScheduleActionKind, type ScheduleRun, type WorkObject,
+  errorText, isApiError, useLastScheduleRuns, useObject, usePatchSchedule, useSchedules, useVideoPlatforms, useVideoPublishes,
+  type DictItem, type ObjectStatus, type Schedule, type ScheduleRun, type WorkObject,
 } from '../../core/data'
 import { Button, EmptyState, ErrorState, IconClose, IconSearch, ListSegHead, LoadingState, PageTitle, cls } from '../../core/ui'
 import { timeAgo } from './model'
 import { ScheduleDrawer } from './ScheduleDrawer'
-import { ACTION_KINDS, ACTION_LABEL, actionText, describeRule, fullRule, matchSchedule, whenText } from './scheduleModel'
+import { ACTION_KINDS, actionLabel, actionText, describeRule, fullRule, isPluginAction, matchSchedule, publishIdOf, whenText, type ActionNames } from './scheduleModel'
 import { TaskDrawer } from './TaskDrawer'
 import './schedules.css'
 
@@ -110,16 +110,24 @@ export function SchedulesPage({ schedules, loading, error, onRetry, selected, on
   const [opened] = useState(() => new Date())
   const now = nowProp ?? opened
   const [q, setQ] = useState('')
-  const [kind, setKind] = useState<'' | ScheduleActionKind>('')
+  // 内核三种加上列表里出现的插件动作
+  const [kind, setKind] = useState('')
   // 停用的沉到底部，默认收起
   const [offOpen, setOffOpen] = useState(false)
   const [toggleErr, setToggleErr] = useState('')
   const toggle = usePatchSchedule()
   const last = useLastScheduleRuns(schedules.map((s) => s.id), LAST_RUN_POLL_MS)
+  // 有视频发布动作时才取发布记录，拿标题显示；视频插件没启用时取不到，显示编号
+  const hasPub = schedules.some((s) => !!publishIdOf(s.action))
+  const pubs = useVideoPublishes({ enabled: hasPub })
+  const plats = useVideoPlatforms({ enabled: hasPub })
+  const platLabel = (k: string) => plats.data?.find((x) => x.key === k)?.label ?? k
+  const names: ActionNames = pubs.data ? { publishes: Object.fromEntries(pubs.data.map((p) => [p.id, `${platLabel(p.platform)} · ${p.title || '未填标题'}`])) } : {}
+  const kinds = [...ACTION_KINDS as string[], ...new Set(schedules.map((s) => s.action.kind as string).filter(isPluginAction))]
 
   const kw = q.trim()
   // 后端已按下次执行排好（早的在前，不再执行的在后），这里只筛不排
-  const hit = schedules.filter((s) => (!kind || s.action.kind === kind) && matchSchedule(s, kw))
+  const hit = schedules.filter((s) => (!kind || s.action.kind === kind) && matchSchedule(s, kw, names))
   const on = hit.filter((s) => s.enabled)
   const off = hit.filter((s) => !s.enabled)
   const offShown = offOpen || !!kw
@@ -144,8 +152,8 @@ export function SchedulesPage({ schedules, loading, error, onRetry, selected, on
         <span className="task-main"><span className="task-title"><span className="ellipsis" title={s.name}>{s.name}</span></span></span>
         <span className="run-muted ellipsis">{describeRule(fullRule(s.rule, now))}</span>
         <span className="sched-action">
-          <span className={`sched-kind sk-${s.action.kind}`}>{ACTION_LABEL[s.action.kind]}</span>
-          <span className="ellipsis run-muted" title={actionText(s.action)}>{actionText(s.action)}</span>
+          <span className={`sched-kind sk-${s.action.kind}`}>{actionLabel(s.action.kind)}</span>
+          <span className="ellipsis run-muted" title={actionText(s.action, names)}>{actionText(s.action, names)}</span>
         </span>
         <span className={cls('run-muted', s.enabled && s.next_run_at && 'sched-next')}>{s.enabled ? whenText(s.next_run_at, now) : '已停用'}</span>
         <LastCell run={lr} now={now} />
@@ -194,9 +202,9 @@ export function SchedulesPage({ schedules, loading, error, onRetry, selected, on
       {ready && schedules.length > 0 && (
         <div className="toolbar">
           <div className="seg" role="group" aria-label="动作类型">
-            {(['', ...ACTION_KINDS] as const).map((k) => (
+            {['', ...kinds].map((k) => (
               <button key={k} type="button" className={cls(kind === k && 'on')} aria-pressed={kind === k} onClick={() => setKind(k)}>
-                {k ? ACTION_LABEL[k] : '全部'}
+                {k ? actionLabel(k) : '全部'}
                 <span className="seg-n">{k ? schedules.filter((s) => s.action.kind === k).length : schedules.length}</span>
               </button>
             ))}

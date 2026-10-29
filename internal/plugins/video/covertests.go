@@ -661,6 +661,74 @@ func (h *handler) evaluateCoverTestNow(w http.ResponseWriter, r *http.Request) {
 	h.respondCoverTest(w, r, http.StatusOK, r.PathValue("id"))
 }
 
+// decideCoverTest 是 POST /api/video/cover-tests/{id}/decide（VID-05d）：手动判定，门槛不动。
+// 给了 winner_id 按它判胜（同自动判出：设主封面、其余归档），不给就结束、不判胜负，封面都不动；已结束的 409。
+func (h *handler) decideCoverTest(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	raw := map[string]json.RawMessage{}
+	if r.ContentLength != 0 {
+		var err error
+		if raw, err = readBody(r, "winner_id"); err != nil {
+			fail(w, r, h.c, err)
+			return
+		}
+	}
+	var winner string
+	if b, ok := raw["winner_id"]; ok && !isNull(b) {
+		if err := strField(raw, "winner_id", "winner_id", &winner, 100); err != nil {
+			fail(w, r, h.c, err)
+			return
+		}
+	}
+	if err := h.decideCoverTestAs(ctx, r.PathValue("id"), winner); err != nil {
+		fail(w, r, h.c, err)
+		return
+	}
+	out, err := h.getCoverTest(ctx, r.PathValue("id"))
+	if err != nil {
+		fail(w, r, h.c, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"data": out})
+}
+
+func (h *handler) decideCoverTestAs(ctx context.Context, id, winner string) error {
+	coverTestMu.Lock()
+	defer coverTestMu.Unlock()
+	t, err := h.getCoverTest(ctx, id)
+	if err != nil {
+		return err
+	}
+	if t.Status != "running" {
+		return apiErr(errConflict, "测试已经结束了，不能再判")
+	}
+	status := "inconclusive"
+	if winner != "" {
+		if !slices.ContainsFunc(t.Arms, func(a CoverTestArm) bool { return a.CoverID == winner }) {
+			return apiErr(errValidation, "封面 %s 不在这次测试里", winner)
+		}
+		if _, err := h.getArtifact(ctx, winner); errors.Is(err, errNotFound) {
+			return apiErr(errValidation, "封面 %s 不存在", winner)
+		} else if err != nil {
+			return err
+		}
+		status = "decided"
+		if err := h.applyCoverWinner(ctx, t, winner); err != nil {
+			return err
+		}
+	}
+	now := nowStr()
+	if _, err := h.c.Store().Exec(ctx, `UPDATE video_cover_tests SET status = ?, winner_id = ?, ended_at = ?, updated_at = ? WHERE id = ? AND status = 'running'`,
+		status, winner, now, now, t.ID); err != nil {
+		return err
+	}
+	if err := h.touchVideo(ctx, t.VideoID); err != nil {
+		return err
+	}
+	h.c.Log().Info("cover test decided by hand", "test", t.ID, "status", status, "winner", winner)
+	return nil
+}
+
 // removeCoverTest：只删测试和分组，封面的选用、归档不回退。
 func (h *handler) removeCoverTest(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()

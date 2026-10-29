@@ -185,13 +185,6 @@ export function fillToMetrics(f: MetricFill, at = new Date().toISOString()): Vid
 /** 判定进度：小号分发的数后端从发布记录读，放在 state.arms */
 export const armNums = (t: VideoCoverTest, coverId: string) => t.state.arms.find((a) => a.cover_id === coverId) ?? t.arms.find((a) => a.cover_id === coverId)
 
-/**
- * 后端没有「手动判定」的接口：按现在的数据采用领先的，是把门槛降到最低（1 天、曝光 0、差距 0）再判一次；
- * 不判胜负结束，是差距门槛拉到最高（10 倍）再判一次。都要每张封面都有点击率，否则后端判不出结果
- */
-export const ADOPT_NOW = { min_days: 1, min_impressions: 0, min_gap: 0 }
-export const STOP_NOW = { min_days: 1, min_impressions: 0, min_gap: 10 }
-
 /** 原生测试回填各组数据：曝光填整数，点击率填 0 到 100 */
 export const badArmImp = (s: string) => !!s.trim() && !/^\d+$/.test(s.trim())
 export const badArmCtr = (s: string) => !!s.trim() && (!/^\d+(\.\d+)?$/.test(s.trim()) || Number(s.trim()) > 100)

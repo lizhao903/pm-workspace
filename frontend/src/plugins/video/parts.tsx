@@ -33,9 +33,9 @@ export const OrientTag = ({ o, large }: { o: VideoOrientation; large?: boolean }
   <span className={cls('vd-otag', large && 'vd-otag-lg')} title={orientText(o)}><OrientShape o={o} />{large ? orientText(o) : ORIENT[o].ratio}</span>
 )
 
-export type ModuleTab = 'all' | 'review' | 'topics' | 'clips' | 'series' | 'publishes'
+export type ModuleTab = 'all' | 'review' | 'calendar' | 'topics' | 'clips' | 'series' | 'publishes'
 const MODULE_TABS: { key: ModuleTab; label: string }[] = [
-  { key: 'all', label: '全部视频' }, { key: 'review', label: '待我处理' }, { key: 'topics', label: '选题' }, { key: 'clips', label: '素材收件箱' },
+  { key: 'all', label: '全部视频' }, { key: 'review', label: '待我处理' }, { key: 'calendar', label: '日历' }, { key: 'topics', label: '选题' }, { key: 'clips', label: '素材收件箱' },
   { key: 'series', label: '系列' }, { key: 'publishes', label: '发布记录' },
 ]
 

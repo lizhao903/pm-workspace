@@ -5,7 +5,9 @@
 // - 后端的 connecting 是「接入后还没测过」，行上照样给「连接」。
 // - 删除前的影响检查归 CONN-03，现在只确认删除。
 // - OAuth 授权回调回到这一页（带 ?oauth=）时只显示结果，那是授权弹出的窗口（CONN-04b）。
+// - 别处带 ?tool=<工具 key> 跳来（SHELL-02）：分类切到这个工具的分类，接过的打开它的抽屉（有异常的优先），没接过的打开新建抽屉；用过就从地址上去掉。
 import { useEffect, useRef, useState, type MouseEvent } from 'react'
+import { useSearchParams } from 'react-router'
 import {
   errorText, QueryState, useConnectorDefs, useConnectors, usePatchConnector, useTestConnector,
   type Connector, type ConnectorDef,
@@ -40,6 +42,8 @@ function Connectors() {
   const [testErrors, setTestErrors] = useState<Record<string, unknown>>({})
   const [actionError, setActionError] = useState<string | null>(null)
   const [catalog, setCatalog] = useState(false)
+  const [search, setSearch] = useSearchParams()
+  const toolParam = search.get('tool')
 
   // 定义随插件启停出现、隐藏（CONN-02），插件管理那边改了不会通知这里：进来时缓存里已有的重新取一次，
   // 免得停用的插件的工具还在、重新启用的还挂在「提供方已停用」里
@@ -50,6 +54,27 @@ function Connectors() {
     if (!defsQ.isFetching) void defsQ.refetch()
     if (!listQ.isFetching) void listQ.refetch()
   }, [defsQ, listQ])
+
+  // ?tool= 等定义和连接器都到了再认，在渲染时改状态（只认一次）；不认识的工具只去掉参数，参数在 effect 里去掉
+  const [usedTool, setUsedTool] = useState<string | null>(null)
+  if (!toolParam && usedTool) setUsedTool(null)
+  if (toolParam && toolParam !== usedTool && defsQ.data && listQ.data) {
+    setUsedTool(toolParam)
+    const def = defsQ.data.find((d) => d.tool === toolParam)
+    if (def) {
+      const mine = listQ.data.filter((c) => c.tool === def.tool && c.available)
+      const pick = mine.find((c) => c.status === 'error') ?? mine[0]
+      setCatalog(false)
+      setCat(categoryOf(def.category).key)
+      setOpen(pick ? { mode: 'edit', id: pick.id } : { mode: 'new', tool: def.tool })
+    }
+  }
+  useEffect(() => {
+    if (!toolParam || toolParam !== usedTool) return
+    const next = new URLSearchParams(search)
+    next.delete('tool')
+    setSearch(next, { replace: true })
+  }, [toolParam, usedTool, search, setSearch])
 
   const defs = defsQ.data ?? []
   const list = listQ.data ?? []

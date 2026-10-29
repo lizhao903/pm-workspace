@@ -21,7 +21,7 @@ function sch(id: string, name: string, p: Partial<Schedule> = {}): Schedule {
 }
 
 // 内存里的后端：定时任务、执行记录、预览，立即执行时记一条并「建出」任务
-function fakeBackend(rows: Schedule[], runs: Record<string, ScheduleRun[]> = {}) {
+function fakeBackend(rows: Schedule[], runs: Record<string, ScheduleRun[]> = {}, extra: (path: string) => unknown = () => undefined) {
   const json = (data: unknown, meta?: unknown, status = 200) => new Response(JSON.stringify({ data, meta }), { status })
   const calls: string[] = []
   let n = 0
@@ -30,6 +30,8 @@ function fakeBackend(rows: Schedule[], runs: Record<string, ScheduleRun[]> = {})
     const method = init?.method ?? 'GET'
     const body = init?.body ? JSON.parse(String(init.body)) : undefined
     calls.push(`${method} ${u.pathname}`)
+    const more = extra(u.pathname)
+    if (more !== undefined) return json(more, { total: 1 })
     if (u.pathname === '/api/object-types') return json([{ id: 'task', name: '任务', statuses }])
     if (u.pathname === '/api/counts') return json({ overdue: 0, by_type: {}, total: 0 })
     if (u.pathname === '/api/schedules/preview') return json({ rule: body.rule, next_runs: [later(4), later(11), later(18)], time_zone: 'Asia/Shanghai' })
@@ -127,5 +129,24 @@ describe('定时任务页（TASK-04a）', () => {
     await userEvent.click(within(drawer).getByRole('button', { name: '保存并执行一次' }))
     await waitFor(() => expect(calls).toContain('POST /api/schedules/sch_a/run'))
     expect(calls.indexOf('PATCH /api/schedules/sch_a')).toBeLessThan(calls.indexOf('POST /api/schedules/sch_a/run'))
+  })
+
+  it('视频发布动作（VID-06d）：显示「发布视频」和平台加发布标题，动作筛选多一项，抽屉里只读', async () => {
+    const a = { kind: 'video_publish', publish_id: 'pb_1' } as unknown as Schedule['action']
+    fakeBackend([sch('sch_1', '周会'), sch('sch_2', '周四定时发布', { action: a })], {}, (path) => (
+      path === '/api/video/publishes' ? [{ id: 'pb_1', video_id: 'vd_1', platform: 'bilibili', title: 'B 站首发', status: 'scheduled' }]
+        : path === '/api/video/platforms' ? [{ key: 'bilibili', label: 'B 站' }] : undefined))
+    const user = userEvent.setup()
+    renderPage()
+    const row = await screen.findByRole('button', { name: '周四定时发布' })
+    expect(within(row).getByText('发布视频')).toBeInTheDocument()
+    expect(await within(row).findByText('发布「B 站 · B 站首发」')).toBeInTheDocument()
+    const seg = screen.getByRole('group', { name: '动作类型' })
+    await user.click(within(seg).getByRole('button', { name: /发布视频/ }))
+    expect(screen.queryByRole('button', { name: '周会' })).not.toBeInTheDocument()
+    await user.click(row)
+    const d = await screen.findByRole('dialog')
+    expect(within(d).getByText(/这条定时跟着视频的发布记录走/)).toBeInTheDocument()
+    expect(within(d).getByRole('button', { name: '去内容日历' })).toBeInTheDocument()
   })
 })

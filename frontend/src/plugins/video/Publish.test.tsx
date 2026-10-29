@@ -98,10 +98,15 @@ function fakeBackend(opts: { platforms?: VideoPlatformInfo[]; submitFails?: bool
       }
       if (method === 'DELETE') { pubs.splice(pubs.indexOf(x), 1); return json(null) }
     }
-    m = p.match(/^\/api\/video\/cover-tests\/([^/]+)(\/evaluate)?$/)
+    m = p.match(/^\/api\/video\/cover-tests\/([^/]+)(\/evaluate|\/decide)?$/)
     if (m) {
       const t = tests.find((y) => y.id === m![1])!
       if (method === 'PATCH') Object.assign(t, body)
+      // 手动判定：门槛不动，给了 winner_id 判胜，不给判没有结论
+      if (m[2] === '/decide') {
+        if (t.status !== 'running') return err(409, 'conflict', '测试已经结束了，不能再判')
+        Object.assign(t, { status: body?.winner_id ? 'decided' : 'inconclusive', winner_id: body?.winner_id, ended_at: T })
+      }
       return json(state(t))
     }
     return err(404, 'not_found', '没有这个接口')
@@ -212,7 +217,36 @@ describe('封面 A/B', () => {
     await user.click(within(t).getByRole('button', { name: '提前采用领先的' }))
     await user.click(within(t).getByRole('button', { name: '仍然采用' }))
     expect(await within(t).findByText(/胜出，已设为主封面/)).toBeInTheDocument()
-    expect(be.calls.find((c) => c.method === 'PATCH' && c.path === '/api/video/cover-tests/vct_1')?.body).toEqual({ min_days: 1, min_impressions: 0, min_gap: 0 })
+    expect(be.calls.find((c) => c.path === '/api/video/cover-tests/vct_1/decide')?.body).toEqual({ winner_id: 'vaf_1' })
+    expect(be.calls.some((c) => c.method === 'PATCH' && c.path === '/api/video/cover-tests/vct_1')).toBe(false)
+    expect(be.tests[0]).toMatchObject({ min_days: 7, min_impressions: 10000, min_gap: 0.2 })
     expect(within(screen.getByRole('region', { name: '封面 A/B' })).getByText(/封面 1 胜出/)).toBeInTheDocument()
+  })
+
+  it('点击率差 10 倍以上、有封面没数据也能结束不判胜负，门槛不变', async () => {
+    const be = fakeBackend()
+    be.pubs.push(
+      { id: 'pb_m', video_id: 'vd_1', platform: 'channels', variant: 'portrait', cover_id: 'vaf_1', account_id: 'pa_m', title: '主号', desc: '', status: 'published',
+        metrics: { views: 1, likes: 0, comments: 0, shares: 0, impressions: 12000, ctr: 0.08, updated_at: T }, created_at: T, updated_at: T },
+      { id: 'pb_a', video_id: 'vd_1', platform: 'channels', variant: 'portrait', cover_id: 'vaf_2', account_id: 'pa_a', title: 'A 号', desc: '', status: 'published',
+        metrics: { views: 1, likes: 0, comments: 0, shares: 0, impressions: 11000, ctr: 0.005, updated_at: T }, created_at: T, updated_at: T },
+      { id: 'pb_b', video_id: 'vd_1', platform: 'channels', variant: 'portrait', cover_id: 'vaf_3', account_id: 'pa_a', title: 'A 号二', desc: '', status: 'planned',
+        created_at: T, updated_at: T },
+    )
+    be.tests.push({ id: 'vct_9', video_id: 'vd_1', platform: 'channels', mode: 'accounts', started_at: T, min_days: 7, min_impressions: 10000, min_gap: 0.2,
+      status: 'running', created_at: T, updated_at: T,
+      arms: [{ cover_id: 'vaf_1', publish_id: 'pb_m' }, { cover_id: 'vaf_2', publish_id: 'pb_a' }, { cover_id: 'vaf_3', publish_id: 'pb_b' }],
+      state: { days: 1, reached: 0, days_ok: false, imp_ok: false, gap_ok: false, arms: [] } })
+    const user = userEvent.setup()
+    show('/videos/publishes?t=vct_9')
+    const t = await screen.findByRole('dialog', { name: '封面 A/B 测试' })
+    await user.click(within(t).getByRole('button', { name: '结束，不判胜负' }))
+    expect(within(t).getByText('结束测试，不判胜负，主封面不变？')).toBeInTheDocument()
+    await user.click(within(t).getByRole('button', { name: '结束' }))
+    expect(await within(t).findByText(/没有判胜负就结束了/)).toBeInTheDocument()
+    expect(be.calls.find((c) => c.path === '/api/video/cover-tests/vct_9/decide')?.body).toEqual({})
+    expect(be.calls.some((c) => c.method === 'PATCH' && c.path.startsWith('/api/video/cover-tests/'))).toBe(false)
+    expect(be.tests[0]).toMatchObject({ status: 'inconclusive', min_days: 7, min_impressions: 10000, min_gap: 0.2 })
+    expect(be.tests[0].winner_id).toBeUndefined()
   })
 })

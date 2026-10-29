@@ -207,13 +207,15 @@ export type { VideoDeal, VideoDealInput, VideoDealStatus, VideoDealCurrency, Vid
 export {
   videoPublishApi, videoPublishKeys, useVideoPublishes, useVideoPlatforms, useVideoAccounts, useVideoCovers, usePublishSnapshots, useVideoCoverTests,
   useCreatePublish, usePatchPublish, useDeletePublish, useSubmitPublish, useSyncPublish,
-  useCreateCoverTest, usePatchCoverTest, useEvaluateCoverTest, useDeleteCoverTest,
+  useCreateCoverTest, usePatchCoverTest, useEvaluateCoverTest, useDecideCoverTest, useDeleteCoverTest,
 } from './videoPublish'
 export type {
   VideoPublish, VideoPublishInput, VideoPublishStatus, VideoPublishCheck, VideoMetrics, VideoMetricSnapshot, VideoSnapshots, VideoPublishRule,
   VideoPlatformCap, VideoPlatformInfo, VideoAccount, VideoAccountRole, VideoCoverTest, VideoCoverTestInput, VideoCoverTestPatch, VideoCoverTestMode,
   VideoCoverTestStatus, VideoCoverTestArm, VideoCoverTestState,
 } from './videoPublish'
+export { videoCalendarApi, videoCalendarKeys, useVideoCalendar, calendarPollMs, isVideoEvent } from './videoCalendar'
+export type { VideoCalendar, VideoCalendarItem, VideoCalendarKind, VideoCalendarRange, VideoCalendarTone } from './videoCalendar'
 
 export { browserKeys } from './browserKeys'
 export { BROWSER_MAX_STORED_TABS, browserApi, useBrowserGoogle, useBrowserGoogleLogin, useBrowserGoogleLogout, useBrowserAllowlist, useAddBrowserAllow } from './browser'

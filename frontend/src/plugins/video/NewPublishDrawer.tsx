@@ -27,8 +27,8 @@ export function NewPublishDrawer({ videos, platforms, accounts, covers, defaultV
   onClose: () => void
   /** 建好了；now 为 true 时接着投稿 */
   onCreated: (p: VideoPublish, now: boolean) => void
-  /** 去设置里接入或修复连接器 */
-  onConnect: () => void
+  /** 去设置里接入或修复连接器；tool 是平台对应的连接器工具，连接器页据此直接打开抽屉 */
+  onConnect: (tool: string | undefined) => void
 }) {
   const create = useCreatePublish()
   const sorted = useMemo(() => [...videos].sort((a, b) => b.updated_at.localeCompare(a.updated_at)), [videos])
@@ -171,7 +171,7 @@ export function NewPublishDrawer({ videos, platforms, accounts, covers, defaultV
               : chan.state === 'error' ? `${chan.name ?? label}连接异常：${chan.error || '请重新授权'}。修好之前只能登记。`
                 : chan.state === 'manual' ? `${label}不开放发布接口，请在 App 或创作者中心发布后回来填链接；数据会自动拉取。`
                   : `${label}不开放发布接口，只能登记发布记录，发完回来填链接、手填数据。`}</span>
-            {(chan.state === 'none' || chan.state === 'error') && <button type="button" className="vd-link" onClick={onConnect}>{chan.state === 'none' ? '去接入' : '去修复'}</button>}
+            {(chan.state === 'none' || chan.state === 'error') && <button type="button" className="vd-link" onClick={() => onConnect(info?.tool)}>{chan.state === 'none' ? '去接入' : '去修复'}</button>}
           </div>
         )}
 

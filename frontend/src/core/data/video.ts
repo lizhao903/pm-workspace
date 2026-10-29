@@ -32,6 +32,8 @@ export type Video = {
   runners?: VideoStageRunner[]
   /** 最近一次执行，没跑过没有 */
   last_run?: VideoLastRun
+  /** 计划首发日 YYYY-MM-DD（VID-06c），没排没有 */
+  target_date?: string
   created_at: string
   updated_at: string
 }
@@ -63,6 +65,8 @@ export type VideoInput = {
   orientations?: VideoOrientation[]
   root?: string
   chapters?: number
+  /** null 清掉 */
+  target_date?: string | null
 }
 
 export type VideoSeries = {

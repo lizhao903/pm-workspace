@@ -1,10 +1,10 @@
 // 封面 A/B（SPEC-videos-7.15、SPEC-videos-14，照原型 web-next/src/covertest.tsx）：发布记录页上的「封面 A/B」一节和测试抽屉。
 // 判定在后端（VID-05b）：快照落库、新建、修改、evaluate 后重算，到线了自动判出，胜者设为主封面、其余归档。
 // 原型的「模拟拉取数据」换成：小号分发经连接器拉各条发布的数据，原生测试手动回填各版的曝光、点击率；
-// 「提前采用」「不判胜负结束」后端没有专门的接口，用调门槛再判一次实现（见 publishModel 的 ADOPT_NOW、STOP_NOW）
+// 「提前采用领先的」「结束，不判胜负」走手动判定接口 decide（VID-05d），门槛不动
 import { useMemo, useState, type CSSProperties } from 'react'
 import {
-  errorText, useCreateCoverTest, useEvaluateCoverTest, usePatchCoverTest, useSyncPublish,
+  errorText, useCreateCoverTest, useDecideCoverTest, useEvaluateCoverTest, usePatchCoverTest, useSyncPublish,
   type Video, type VideoAccount, type VideoArtifact, type VideoCoverTest, type VideoCoverTestMode, type VideoPlatform, type VideoPlatformInfo, type VideoPublish,
 } from '../../core/data'
 import { Button, Drawer, Input, Pill, SearchSelect, cls } from '../../core/ui'
@@ -12,7 +12,7 @@ import { COVER_RATIO, coverRatioOf } from './artifactModel'
 import { timeAgo } from './model'
 import { CoverSwatch, PlatformTag, RuleChips } from './publishParts'
 import {
-  ACCOUNT_ROLE, ADOPT_NOW, COVER_TEST_MODE, COVER_TEST_STATUS, MAX_ARMS, PLATFORM_KEYS, PLATFORM_META, STOP_NOW, armNums, badArmCtr, badArmImp, canSync,
+  ACCOUNT_ROLE, COVER_TEST_MODE, COVER_TEST_STATUS, MAX_ARMS, PLATFORM_KEYS, PLATFORM_META, armNums, badArmCtr, badArmImp, canSync,
   coversFor, nativeTestOk, num, pct, ratiosText,
 } from './publishModel'
 
@@ -103,6 +103,7 @@ function TestView({ t, videos, covers, publishes, accounts, platforms, onClose, 
 }) {
   const patch = usePatchCoverTest()
   const evaluate = useEvaluateCoverTest()
+  const decide = useDecideCoverTest()
   const sync = useSyncPublish()
   const [confirm, setConfirm] = useState<'early' | 'stop' | null>(null)
   const [fill, setFill] = useState<Record<string, { imp: string; ctr: string }> | null>(null)
@@ -114,13 +115,14 @@ function TestView({ t, videos, covers, publishes, accounts, platforms, onClose, 
   const leader = coverOf(st.leader)
   const arms = t.arms.map((a) => ({ ...a, ...armNums(t, a.cover_id), publish: a.publish_id ? publishes.find((p) => p.id === a.publish_id) : undefined }))
   const maxCtr = Math.max(0.0001, ...arms.map((a) => a.ctr ?? 0))
-  const busy = patch.isPending || evaluate.isPending || pulling
-  const failure = patch.error ?? evaluate.error
+  const busy = patch.isPending || evaluate.isPending || decide.isPending || pulling
+  const failure = patch.error ?? evaluate.error ?? decide.error
   const platform = platforms.find((p) => p.key === t.platform)
   const pullable = t.mode === 'accounts' && canSync(platform) && arms.some((a) => a.publish?.status === 'published' && a.publish.url)
 
-  const clear = () => { patch.reset(); evaluate.reset(); setPullErr('') }
-  const decideNow = (thresholds: typeof ADOPT_NOW) => { if (!busy) { clear(); patch.mutate({ id: t.id, patch: thresholds }, { onSettled: () => setConfirm(null) }) } }
+  const clear = () => { patch.reset(); evaluate.reset(); decide.reset(); setPullErr('') }
+  // 提前采用传领先的封面，不判胜负不传
+  const decideNow = (winnerId?: string) => { if (!busy) { clear(); decide.mutate({ id: t.id, winnerId }, { onSettled: () => setConfirm(null) }) } }
   const reEvaluate = () => { if (!busy) { clear(); evaluate.mutate(t.id) } }
   // 小号分发：各条已发布、有链接的发布逐条拉一次，拉到数据后端自己重算
   const pull = async () => {
@@ -156,20 +158,19 @@ function TestView({ t, videos, covers, publishes, accounts, platforms, onClose, 
           <span className="vd-danger-text">{confirm === 'early' ? `条件没满足，按现在的数据采用${leader?.name ?? '领先的封面'}？` : '结束测试，不判胜负，主封面不变？'}</span>
           <span className="spacer" />
           <Button onClick={() => setConfirm(null)}>取消</Button>
-          <Button variant="primary" disabled={busy} onClick={() => decideNow(confirm === 'early' ? ADOPT_NOW : STOP_NOW)}>{confirm === 'early' ? '仍然采用' : '结束'}</Button>
+          <Button variant="primary" disabled={busy} onClick={() => decideNow(confirm === 'early' ? st.leader : undefined)}>{confirm === 'early' ? '仍然采用' : '结束'}</Button>
         </>
       ) : (
         <>
-          <Button disabled={busy || !!st.data_incomplete} title={st.data_incomplete ? '还有封面没有点击率，判不出结果；先补上数据' : undefined}
-            onClick={() => setConfirm('stop')}>结束，不判胜负</Button>
+          <Button disabled={busy} onClick={() => setConfirm('stop')}>结束，不判胜负</Button>
           <span className="spacer" />
           {pullable && <Button variant="outline" disabled={busy} onClick={() => void pull()}>{pulling ? '拉取中…' : '拉取数据'}</Button>}
           {t.mode !== 'accounts' && !fill && <Button variant="outline" disabled={busy} onClick={startFill}>回填各版数据</Button>}
           {ready ? <Button variant="primary" disabled={busy} onClick={reEvaluate}>采用胜者</Button>
             : <>
               <Button disabled={busy} onClick={reEvaluate}>重新判定</Button>
-              <Button variant="outline" disabled={busy || !st.leader || !!st.data_incomplete}
-                title={st.data_incomplete ? '还有封面没有点击率' : undefined} onClick={() => setConfirm('early')}>提前采用领先的</Button>
+              <Button variant="outline" disabled={busy || !st.leader} title={st.leader ? undefined : '还没有封面有点击率'}
+                onClick={() => setConfirm('early')}>提前采用领先的</Button>
             </>}
         </>
       )}>

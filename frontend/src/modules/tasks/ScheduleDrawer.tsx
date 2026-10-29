@@ -1,6 +1,7 @@
 // 定时任务抽屉（SPEC-tasks-8）：配「什么时候」和「做什么」，下面是执行记录和「立即执行一次」。
 // 接下来几次由后端预览（POST /api/schedules/preview）；立即执行按已保存的配置跑，有没保存的改动时先保存再执行。
 import { useEffect, useState } from 'react'
+import { useNavigate } from 'react-router'
 import {
   errorText, isApiError, useCreateSchedule, useDeleteSchedule, useDictItems, usePatchSchedule, useRunSchedule, useScheduleRuns,
   useSchedulePreview, useStakeholders, type Schedule, type ScheduleActionKind, type ScheduleFreq, type ScheduleRule,
@@ -9,7 +10,7 @@ import { Button, Drawer, Field, Input, SearchSelect, Select, Textarea, cls, type
 import { prioText, timeAgo } from './model'
 import {
   ACTION_KINDS, ACTION_LABEL, DUE_DAYS, FREQS, FREQ_LABEL, WEEK, WEEK_ORDER, buildScheduleInput, buildSchedulePatch, defaultPriority,
-  describeRule, draftErrors, emptyAction, emptyScheduleDraft, ruleError, runTone, scheduleDirty, scheduleDraftOf, whenText,
+  actionLabel, describeRule, draftErrors, emptyAction, emptyScheduleDraft, isPluginAction, publishIdOf, ruleError, runTone, scheduleDirty, scheduleDraftOf, whenText,
   type ScheduleDraft,
 } from './scheduleModel'
 
@@ -59,6 +60,9 @@ export function ScheduleDrawer({ schedule, onClose, onCreated, onOpenTask }: {
 
   const r = d.rule
   const a = d.action
+  const navigate = useNavigate()
+  // 视频发布动作（VID-06d）的发布记录，抽屉里给跳转
+  const pubId = schedule ? publishIdOf(schedule.action) : undefined
   const clientErr = ruleError(r, now)
   // 规则停手一会儿再预览，cron 一个字一个字敲时不连发
   const [previewRule, setPreviewRule] = useState<ScheduleRule | null>(clientErr ? null : r)
@@ -229,6 +233,21 @@ export function ScheduleDrawer({ schedule, onClose, onCreated, onOpenTask }: {
           <Field label="执行哪个 SOP" hint="SOP 的接口 M4 之后才有，现在到点只记一条「暂不支持」">
             <Input className="mono-input" value={a.sop_id} placeholder="SOP 编号" onChange={(e) => setAction({ sop_id: e.target.value })} />
           </Field>
+        )}
+        {isPluginAction(a.kind) && (
+          <>
+            <div className="list-sub">
+              {(a.kind as string) === 'video_publish'
+                ? '这条定时跟着视频的发布记录走：改时间在内容日历里拖，或者在发布记录里改；到点按发布记录发'
+                : `${actionLabel(a.kind)}：这种动作由插件登记，这里只读`}
+            </div>
+            {pubId && (
+              <div className="sched-plugin-acts">
+                <Button size="sm" onClick={() => void navigate(`/videos/publishes?p=${encodeURIComponent(pubId)}`)}>打开发布记录</Button>
+                <Button size="sm" onClick={() => void navigate('/videos/calendar')}>去内容日历</Button>
+              </div>
+            )}
+          </>
         )}
         {a.kind === 'agent' && (
           <>
