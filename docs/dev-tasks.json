@@ -4192,6 +4192,47 @@
     "acceptance": "- [ ] 选题一步能选、换、新建选题\n- [ ] 内容编写能写横竖口播稿和大纲、保存新版本、按选题起草、交给验收\n- [ ] npm test、typecheck、lint、build、smoke-frontend 通过"
   },
   {
+    "key": "ALIGN-16",
+    "type": "task",
+    "title": "用真实数据把产品经理工作台逐页走一遍，列出不顺手和对不上原型的地方",
+    "milestone": "M4",
+    "module": "qa",
+    "priority": "P1",
+    "estimate": "M",
+    "depends_on": [
+      "ALIGN-15"
+    ],
+    "workdir": ".",
+    "spec": [
+      "web-next/docs/spec/*.md",
+      "docs/proto-align.md（ALIGN-03 的格式）"
+    ],
+    "body": "## 背景\n\n用户说「先把产品工作和视频博主相关工作功能优化好」。ALIGN-03 之后改了十几批，7796 上现在有真实数据：166 条开发任务、60 个联系人（Octok、XAUE 干系人）、94 条选题、几个会话。\n\n## 要做什么\n\n- 在 7796 本身（只读，不改数据）用产品经理工作台的菜单逐页走：今日、项目（列表和详情各页签）、任务、文档、IM 消息、联系人、会话、SOP、终端、浏览器、设置各节。每页对照原型 7778 和规格包，再从「一个产品经理每天怎么用」的角度看：数据多了以后列表能不能找、筛选够不够、空状态和报错说得清不清、常用操作要点几下。\n- 产出 `docs/product-review.md`：每条写页面、现象、为什么是问题、建议改法、涉及文件，标 P1 / P2 / P3，分「对不上原型」「数据多了不好用」「操作绕」「文案」「报错和空状态」。末尾给派批建议。\n\n## 注意事项\n\n- 不改代码，不改 7796 上的数据。要试写操作就自己起临时后端（7796 库的只读备份副本），用完删掉。",
+    "acceptance": "- [ ] product-review.md 覆盖上面全部页面，每条能直接拆成任务\n- [ ] 截图看完已删除"
+  },
+  {
+    "key": "DOC-02",
+    "type": "task",
+    "title": "补插件接口文档的欠账",
+    "milestone": "M4",
+    "module": "docs",
+    "priority": "P2",
+    "estimate": "S",
+    "depends_on": [
+      "VID-03d",
+      "IM-01d"
+    ],
+    "workdir": ".",
+    "spec": [
+      "docs/plugin-api.md",
+      "internal/plugin",
+      "frontend/src/core/plugin",
+      "docs/dev-decisions.md 里记的文档欠账"
+    ],
+    "body": "## 要做什么\n\n按 docs/dev-decisions.md 记下的欠账，对着代码把 docs/plugin-api.md 补齐：Store 收窄规则、Conversations、Identities、ObjectWriter、ContactWriter、Connectors、ConnectorImpact、Registrar.Connector 新结构、RecordSync、IM 适配器可选接口、Core.Notify、Core.Audit、Core.Runs、SOP().Fail、SOP().InstallFlow、Granted 和 Require、前端扩展点 todaySources 和 sopNodes、清单的 icon 和 icons。每项写签名、谁能调、权限要求、一个最小例子。插件 API 版本号不改（发布前由用户定），在文档开头写明「当前文档覆盖到哪一批」。\n\n## 注意事项\n\n- 只改 docs/plugin-api.md，不改代码。",
+    "acceptance": "- [ ] 上面列的每一项在 plugin-api.md 里都有签名和例子，和代码一致（逐个 grep 核对）"
+  },
+  {
     "key": "VID-08p",
     "type": "task",
     "title": "原型补商单",
