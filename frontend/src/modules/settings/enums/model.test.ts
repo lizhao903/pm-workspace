@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import type { DictItem, Dictionary } from '../../../core/data'
-import { newItem, planEmpty, sameGroup, savePlan, toGroup, validate } from './model'
+import type { Category, DictItem, Dictionary, ObjectType } from '../../../core/data'
+import { categoryGroup, moduleShown, newItem, planEmpty, sameGroup, savePlan, statusGroup, toGroup, validate } from './model'
 
 const dict = (id: string): Dictionary => ({ id, name: id, description: '', scope: 'global', builtin: true, sort_order: 0, created_at: '', updated_at: '' })
 const item = (key: string, p: Partial<DictItem> = {}): DictItem => ({
@@ -25,9 +25,51 @@ describe('toGroup', () => {
     expect(toGroup(dict('priority'), [item('P1', { meta: { default: true } }), item('P2')]).default_key).toBe('P1')
     const rel = toGroup(dict('link_relation'), [item('blocks'), item('relates')])
     expect(rel.items.every((i) => i.locked)).toBe(true)
-    const kind = toGroup(dict('artifact_kind'), [item('doc'), item('other')])
-    expect(kind.items.map((i) => [i.locked, i.usage])).toEqual([[false, undefined], [true, undefined]])
+    const kind = toGroup(dict('artifact_kind'), [item('doc'), item('other', { usage: 2 })])
+    expect(kind.items.map((i) => [i.locked, i.usage])).toEqual([[false, 0], [true, 2]])
     expect(kind.module).toBe('产出物')
+    expect(toGroup(dict('my_enum'), [item('a', { usage: 1 })]).items[0].usage).toBeUndefined()
+  })
+
+  it('联系人分组「其他」是系统值、兜底默认；IM 消息状态全是系统值，默认由程序定', () => {
+    const grp = toGroup(dict('contact_group'), [item('客户'), item('其他')])
+    expect([grp.module, grp.default_key, grp.items.map((i) => i.locked)]).toEqual(['联系人', '其他', [false, true]])
+    const msg = toGroup(dict('msg_status'), [item('pending'), item('done')])
+    expect(msg.module).toBe('IM 消息')
+    expect(msg.items.every((i) => i.locked)).toBe(true)
+    expect(msg.defaultHint).toBeTruthy()
+  })
+})
+
+describe('任务状态、文档分类', () => {
+  const task: ObjectType = {
+    id: 'task', name: '任务', plural: '', ref_prefix: 'TSK', icon: '', color: '', builtin: true, sort_order: 0, created_at: '', updated_at: '',
+    statuses: [{ key: 'todo', label: '未开工', color: '#868e96', terminal: false }, { key: 'done', label: '已完成', color: '#2b8a3e', terminal: true, description: '算完成' }],
+  }
+  const cat = (id: string, p: Partial<Category> = {}): Category => ({
+    id, type_id: 'doc', parent_id: null, name: id, slug: id, path: `/${id}/`, depth: 0, color: '', description: '', sort_order: 0,
+    created_at: '', updated_at: '', count: 0, total_count: 0, ...p,
+  })
+
+  it('任务状态全是系统值，使用数取 counts.by_status 的 task:<key>，说明来自 description', () => {
+    const g = statusGroup(task, { 'task:todo': 5, 'doc:todo': 9 })
+    expect(g.items.map((i) => [i.key, i.usage, i.locked, i.desc])).toEqual([['todo', 5, true, ''], ['done', 0, true, '算完成']])
+    expect([g.source, g.module, g.defaultHint && 'hint']).toEqual(['status', '任务', 'hint'])
+  })
+
+  it('文档分类只取一级、按 sort_order 排，使用数含子分类，不能停用', () => {
+    const g = categoryGroup('doc', [cat('b', { sort_order: 20, total_count: 3, children: [cat('b1', { parent_id: 'b' })] }), cat('a', { sort_order: 10, color: '#111' })])
+    expect(g.items.map((i) => [i.id, i.key, i.usage, i.meta.children])).toEqual([['a', 'a', 0, 0], ['b', 'b', 3, 1]])
+    expect(g.items[0].color).toBe('#111')
+    expect(g.noArchive).toBe(true)
+  })
+
+  it('当前工作台没开的模块不显示；其他、自定义一直显示；没有工作台信息时全显示', () => {
+    expect(moduleShown('产出物', ['tasks'])).toBe(false)
+    expect(moduleShown('产出物', ['tasks', 'videos'])).toBe(true)
+    expect(moduleShown('IM 消息', ['messages'])).toBe(true)
+    expect(moduleShown('自定义', [])).toBe(true)
+    expect(moduleShown('产出物', undefined)).toBe(true)
   })
 })
 

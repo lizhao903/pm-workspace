@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import type { Contact, Conversation, Identity, ImMessage } from '../../core/data'
 import {
   DM_PEEK, awaitingCount, awaitingReply, channelLabeler, directCandidates, directEmptyText, fmtSize, groupCandidates, latestByContact,
-  mentionParts, pendingByConversation, snippet,
+  atMeCount, canMarkDone, filterMessages, mentionParts, pendingByConversation, relOk, snippet, textOk,
 } from './commsModel'
 
 const conv = (id: string, p: Partial<Conversation> = {}): Conversation => ({
@@ -115,5 +115,42 @@ describe('项目消息的汇总', () => {
     expect(fmtSize(512)).toBe('512 B')
     expect(fmtSize(2048)).toBe('2 KB')
     expect(fmtSize(3 * 1024 * 1024)).toBe('3.0 MB')
+  })
+})
+
+describe('项目消息筛选（B-10）', () => {
+  const t = (p: Partial<ImMessage>) => m({ text: '', sender_name: '', contact_name: '', conversation: '', ...p })
+  const list = [
+    t({ id: 'a', relevance: 'me', text: '@我 看下', conversation_id: 'cv_a', conversation: '#product' }),
+    t({ id: 'b', relevance: 'all', text: '@所有人 发版', conversation_id: 'cv_a' }),
+    t({ id: 'c', relevance: 'dm', text: '私聊', conversation_id: 'cv_b', contact_name: '林予安' }),
+    t({ id: 'd', relevance: '', text: '闲聊 收到', conversation_id: 'cv_a', sender_name: 'Lin Yuan' }),
+    t({ id: 'e', relevance: 'me', status: 'done', text: '@我 已经处理', conversation_id: 'cv_a' }),
+  ]
+
+  it('与我相关：@我、@所有人、私聊；只看 @我', () => {
+    expect(list.filter((x) => relOk(x, '')).length).toBe(5)
+    expect(list.filter((x) => relOk(x, 'mine')).map((x) => x.id)).toEqual(['a', 'b', 'c', 'e'])
+    expect(list.filter((x) => relOk(x, 'at')).map((x) => x.id)).toEqual(['a', 'e'])
+  })
+
+  it('搜正文、发信人、联系人、群名，多个词都要命中，不区分大小写', () => {
+    expect(textOk(list[3], 'lin 收到')).toBe(true)
+    expect(textOk(list[2], '林予安')).toBe(true)
+    expect(textOk(list[0], '#PRODUCT')).toBe(true)
+    expect(textOk(list[0], 'product 发版')).toBe(false)
+    expect(textOk(list[0], '  ')).toBe(true)
+  })
+
+  it('渠道、与我相关、搜索叠加，保持原顺序', () => {
+    expect(filterMessages(list, { conv: 'cv_a', mine: 'mine', q: '' }).map((x) => x.id)).toEqual(['a', 'b', 'e'])
+    expect(filterMessages(list, { conv: '', mine: 'at', q: '处理' }).map((x) => x.id)).toEqual(['e'])
+  })
+
+  it('@我 的待回复数不含已处理和稍后；已处理只给待处理的', () => {
+    const later = t({ id: 'f', relevance: 'me', snooze_until: '2999-01-01T00:00:00Z' })
+    expect(atMeCount([...list, later])).toBe(1)
+    expect(canMarkDone(later)).toBe(true)
+    expect(canMarkDone(list[4])).toBe(false)
   })
 })

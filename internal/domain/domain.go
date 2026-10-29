@@ -12,6 +12,8 @@ type Status struct {
 	Label    string `json:"label"`
 	Color    string `json:"color"`
 	Terminal bool   `json:"terminal"`
+	// Description 是给人看的说明，设置的枚举值页里填；老数据没有。
+	Description string `json:"description,omitempty"`
 }
 
 // ObjectType 是工作对象分类的第一层：类型（需求/待办/项目/文档/资源/笔记，可自定义）。
@@ -380,6 +382,10 @@ const (
 	DictArtifactPlatform = "artifact_platform"
 	// DictArtifactKind 是产物种类（文档、原型、提交……），落在 artifacts.kind（0031）。
 	DictArtifactKind = "artifact_kind"
+	// DictContactGroup 是联系人分组，key 就是显示名，落在 stakeholders.contact_group（多个用「、」连，0041）。
+	DictContactGroup = "contact_group"
+	// DictMsgStatus 是 IM 消息的处理状态，落在 im 插件的 im_messages.status（0041）。
+	DictMsgStatus = "msg_status"
 )
 
 type Dictionary struct {

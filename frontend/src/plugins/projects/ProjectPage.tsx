@@ -1,5 +1,5 @@
 // 项目详情的框架（SPEC-projects-2）：顶栏「项目 /」回列表、标志、名称、说明；标签条；各标签的右上按钮。
-// 概览、设置（PJ-01c），干系人、任务、文档（PJ-01d），支持材料（PJ-03b），沟通（PJ-02b），原型（PJ-04b）；其余标签按规格占位，由后续任务补
+// 概览、设置（PJ-01c），干系人、任务、文档（PJ-01d），支持材料（PJ-03b），沟通（PJ-02b），原型（PJ-04b），SOP（PR-10）；其余标签按规格占位，由后续任务补
 import { useEffect, useRef, useState } from 'react'
 import { errorText, isApiError, isLiveProject, projectView, useProject } from '../../core/data'
 import { Button, EmptyState, ErrorState, LoadingState, PageTitle, cls } from '../../core/ui'
@@ -10,6 +10,7 @@ import { MaterialsTab } from './MaterialsTab'
 import { PrototypesTab, ProtoTabLight } from './PrototypesTab'
 import { Overview } from './Overview'
 import { Settings } from './Settings'
+import { SopTab } from './SopTab'
 import { StakeholdersTab } from './StakeholdersTab'
 import { TasksTab } from './TasksTab'
 import { TABS, type ProjectTab } from './model'
@@ -81,6 +82,7 @@ export function ProjectPage({ id, tab, onTab, onAll }: {
         {tab === 'settings' && <Settings key={o.id} project={o} onDeleted={onAll} />}
         {tab === 'stakeholders' && <StakeholdersTab key={o.id} projectId={o.id} />}
         {tab === 'tasks' && <TasksTab key={o.id} projectId={o.id} />}
+        {tab === 'sop' && <SopTab key={o.id} project={o} />}
         {tab === 'docs' && <DocsTab key={o.id} projectId={o.id} adding={docAdding} onAdding={setDocAdding} />}
         {tab === 'materials' && <MaterialsTab key={o.id} projectId={o.id} root={p.root} adding={matAdding} onAdding={setMatAdding} />}
         {tab === 'prototypes' && <PrototypesTab key={o.id} projectId={o.id} projectName={p.name} root={p.root} adding={protoAdding} onAdding={setProtoAdding} />}

@@ -1,5 +1,6 @@
 // 任务抽屉（SPEC-tasks-4、DEV-07b）：新建、查看、编辑、删除。
 // 已有任务以打开那一刻的值为基准：保存只传改过的字段，props 由接口层读回最新的再合并；未保存的改动关闭前先确认。
+// 待验收时验收是主要动作（PR-07，product-review A-04、C-02）：等你验收栏、改动、产出物、进展在前，任务字段收进「编辑任务」，正文默认预览。
 import { useId, useState, type CSSProperties, type ReactNode } from 'react'
 import {
   errorText, isApiError, useArtifactCount, useCreateObject, useDeleteObject, useObject, usePatchObject, useStakeholders,
@@ -35,6 +36,7 @@ export function TaskDrawer({ task, statuses, priorities, projects, init, onClose
   const [d, setD] = useState<TaskDraft>(base)
   const [tried, setTried] = useState(false)
   const [devOpen, setDevOpen] = useState(!creating)
+  const [editOpen, setEditOpen] = useState(false)
   const [askDelete, setAskDelete] = useState(false)
   const [error, setError] = useState('')
 
@@ -60,7 +62,10 @@ export function TaskDrawer({ task, statuses, priorities, projects, init, onClose
 
   const submit = async () => {
     setTried(true)
-    if (!d.title.trim()) return
+    if (!d.title.trim()) {
+      setEditOpen(true)
+      return
+    }
     setError('')
     try {
       if (!task) {
@@ -103,67 +108,91 @@ export function TaskDrawer({ task, statuses, priorities, projects, init, onClose
   if (task?.participants.length) impacts.push(`${task.participants.length} 位参与人的手上不再算这条任务`)
   if (task?.owner_id) impacts.push(`负责人「${task.owner_name ?? ''}」手上不再算这条任务`)
 
+  const fields = (
+    <>
+      <Field label="标题" required error={titleBad ? '必填' : undefined}>
+        <Input value={d.title} autoFocus={creating} invalid={titleBad} placeholder="要做的事"
+          onChange={(e) => set({ title: e.target.value })} />
+      </Field>
+      <MdField label="正文" value={d.body} rows={5} placeholder="支持 Markdown" defaultPreview={reviewing}
+        onChange={(v) => set({ body: v })} />
+      <Field label="状态" wrap={false}>
+        <SegPick label="状态" options={statusOpts} value={d.status} onChange={(v) => set({ status: v })} />
+      </Field>
+      <Field label="优先级" wrap={false}>
+        <SegPick label="优先级" options={prioOpts} value={d.priority} onChange={(v) => set({ priority: v })}
+          color={(k) => priorities.find((p) => p.key === k)?.color} />
+      </Field>
+      <div className="field-row">
+        <Field label="负责人" wrap={false}
+          hint={!d.owner_id && task && !task.owner_id && task.owner ? `原来记的是「${task.owner}」，选一位干系人替换` : undefined}>
+          <SearchSelect variant="field" aria-label="负责人" value={d.owner_id} noneLabel="未分配" placeholder="未分配"
+            searchPlaceholder="搜干系人" options={peopleOpts} emptyText={people.isPending ? '加载中' : '名册里还没有人'}
+            missingLabel={(id) => nameOf(id) ?? '已归档的干系人'} onChange={(v) => set({ owner_id: v })} />
+        </Field>
+        <Field label="截止日期">
+          <Input type="date" value={d.due} onChange={(e) => set({ due: e.target.value })} />
+        </Field>
+      </div>
+      <Field label="参与人" wrap={false}>
+        <SearchSelect variant="field" multiple aria-label="参与人" value={d.participant_ids} placeholder="没有参与人"
+          searchPlaceholder="搜干系人" options={peopleOpts} missingLabel={(id) => nameOf(id) ?? '已归档的干系人'}
+          onChange={(v) => set({ participant_ids: v })} />
+      </Field>
+      <Field label="所属项目" wrap={false}>
+        <SearchSelect variant="field" aria-label="所属项目" value={d.project_id} noneLabel="不属于项目" placeholder="不属于项目"
+          searchPlaceholder="搜项目" options={projectOpts} missingLabel={() => task?.project_title ?? '已删除的项目'}
+          onChange={(v) => set({ project_id: v })} />
+      </Field>
+      {devOpen ? (
+        <div className="field-group">
+          <div className="mount-head">
+            <span className="field-group-title">开发</span>
+            <span className="spacer" />
+            {task && <HandOffButton task={task} workdir={d.workdir} inherit={inherit} />}
+          </div>
+          <MdField label="验收标准" value={d.acceptance} rows={4} mono placeholder="- [ ] 一条一行，写成能检查的样子"
+            onChange={(v) => set({ acceptance: v })} />
+          <div className="field-row">
+            <WorkdirField value={d.workdir} onChange={(v) => set({ workdir: v })} inherit={inherit} />
+            <Field label="关联仓库">
+              <Input className="mono-input" value={d.repo} placeholder="远端地址或本机路径，只放一个"
+                onChange={(e) => set({ repo: e.target.value })} />
+            </Field>
+          </div>
+        </div>
+      ) : (
+        <button type="button" className="dev-open" onClick={() => setDevOpen(true)}>+ 开发信息：验收标准、工作目录，交给 Claude Code 做</button>
+      )}
+    </>
+  )
+  const times = task && <div className="task-times">{timeAgo(task.created_at)}创建 · {timeAgo(task.updated_at)}更新</div>
+
   let body
   if (deleted) {
     body = <EmptyState title="这条任务已删除" desc="它已经在回收站里，可以从回收站恢复" />
+  } else if (task && reviewing) {
+    body = (
+      <div className="form task-form">
+        <div className="rv-title">{base.title || task.title}</div>
+        <ReviewBar task={task} statuses={statuses} acceptance={base.acceptance} onReviewed={reviewed} />
+        <DevSlots task={task} reviewing />
+        <section className="rv-edit" aria-label="编辑任务">
+          <button type="button" className="rv-edit-toggle" aria-expanded={editOpen} onClick={() => setEditOpen((v) => !v)}>
+            <span className="rv-edit-caret" aria-hidden="true">{editOpen ? '-' : '+'}</span>
+            <span className="field-group-title">编辑任务</span>
+            <span className="rv-sub">{dirty ? '有未保存的修改' : '标题、正文、状态、优先级、负责人、开发信息'}</span>
+          </button>
+          {editOpen && <div className="form rv-edit-body">{fields}</div>}
+        </section>
+        {times}
+      </div>
+    )
   } else {
     body = (
       <div className="form task-form">
-        {task && reviewing && <ReviewBar task={task} statuses={statuses} onReviewed={reviewed} />}
-        <Field label="标题" required error={titleBad ? '必填' : undefined}>
-          <Input value={d.title} autoFocus={creating} invalid={titleBad} placeholder="要做的事"
-            onChange={(e) => set({ title: e.target.value })} />
-        </Field>
-        <MdField label="正文" value={d.body} rows={5} placeholder="支持 Markdown" onChange={(v) => set({ body: v })} />
-        <Field label="状态" wrap={false}>
-          <SegPick label="状态" options={statusOpts} value={d.status} onChange={(v) => set({ status: v })} />
-        </Field>
-        <Field label="优先级" wrap={false}>
-          <SegPick label="优先级" options={prioOpts} value={d.priority} onChange={(v) => set({ priority: v })}
-            color={(k) => priorities.find((p) => p.key === k)?.color} />
-        </Field>
-        <div className="field-row">
-          <Field label="负责人" wrap={false}
-            hint={!d.owner_id && task && !task.owner_id && task.owner ? `原来记的是「${task.owner}」，选一位干系人替换` : undefined}>
-            <SearchSelect variant="field" aria-label="负责人" value={d.owner_id} noneLabel="未分配" placeholder="未分配"
-              searchPlaceholder="搜干系人" options={peopleOpts} emptyText={people.isPending ? '加载中' : '名册里还没有人'}
-              missingLabel={(id) => nameOf(id) ?? '已归档的干系人'} onChange={(v) => set({ owner_id: v })} />
-          </Field>
-          <Field label="截止日期">
-            <Input type="date" value={d.due} onChange={(e) => set({ due: e.target.value })} />
-          </Field>
-        </div>
-        <Field label="参与人" wrap={false}>
-          <SearchSelect variant="field" multiple aria-label="参与人" value={d.participant_ids} placeholder="没有参与人"
-            searchPlaceholder="搜干系人" options={peopleOpts} missingLabel={(id) => nameOf(id) ?? '已归档的干系人'}
-            onChange={(v) => set({ participant_ids: v })} />
-        </Field>
-        <Field label="所属项目" wrap={false}>
-          <SearchSelect variant="field" aria-label="所属项目" value={d.project_id} noneLabel="不属于项目" placeholder="不属于项目"
-            searchPlaceholder="搜项目" options={projectOpts} missingLabel={() => task?.project_title ?? '已删除的项目'}
-            onChange={(v) => set({ project_id: v })} />
-        </Field>
-        {devOpen ? (
-          <div className="field-group">
-            <div className="mount-head">
-              <span className="field-group-title">开发</span>
-              <span className="spacer" />
-              {task && <HandOffButton task={task} workdir={d.workdir} inherit={inherit} />}
-            </div>
-            <MdField label="验收标准" value={d.acceptance} rows={4} mono placeholder="- [ ] 一条一行，写成能检查的样子"
-              onChange={(v) => set({ acceptance: v })} />
-            <div className="field-row">
-              <WorkdirField value={d.workdir} onChange={(v) => set({ workdir: v })} inherit={inherit} />
-              <Field label="关联仓库">
-                <Input className="mono-input" value={d.repo} placeholder="远端地址或本机路径，只放一个"
-                  onChange={(e) => set({ repo: e.target.value })} />
-              </Field>
-            </div>
-          </div>
-        ) : (
-          <button type="button" className="dev-open" onClick={() => setDevOpen(true)}>+ 开发信息：验收标准、工作目录，交给 Claude Code 做</button>
-        )}
-        {task && <div className="task-times">{timeAgo(task.created_at)}创建 · {timeAgo(task.updated_at)}更新</div>}
+        {fields}
+        {times}
         {task && <DevSlots task={task} />}
       </div>
     )
@@ -225,15 +254,17 @@ function SegPick({ label, options, value, onChange, color }: {
 }
 
 /** Markdown 输入：编辑和预览切换 */
-function MdField({ label, value, onChange, rows, mono, placeholder }: {
+function MdField({ label, value, onChange, rows, mono, placeholder, defaultPreview }: {
   label: string
   value: string
   onChange: (v: string) => void
   rows: number
   mono?: boolean
   placeholder?: string
+  /** 打开时先显示预览 */
+  defaultPreview?: boolean
 }) {
-  const [preview, setPreview] = useState(false)
+  const [preview, setPreview] = useState(!!defaultPreview)
   const id = useId()
   return (
     <div className="field">

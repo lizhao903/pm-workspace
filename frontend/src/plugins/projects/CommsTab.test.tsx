@@ -57,6 +57,12 @@ function fakeBackend() {
     if (p === '/api/im-identities') return json(identities)
     if (p === '/api/stakeholders') return json(contacts)
     if (p.startsWith('/api/connectors') || p.startsWith('/api/dictionaries')) return json([])
+    const act = p.match(/^\/api\/im\/messages\/([^/]+)\/done$/)
+    if (act && method === 'POST') {
+      const m = MSGS.find((x) => x.id === decodeURIComponent(act[1]))!
+      m.status = 'done'
+      return json(m)
+    }
     if (p === '/api/im/messages') {
       if (!imRunning) return notFound()
       const cid = u.searchParams.get('conversation_id')
@@ -99,8 +105,10 @@ const PROJECT = { id: 'obj_p', ref: 'P-1', type_id: 'project', title: '工作台
 const BASE_CONVS = [...CONVS]
 const BASE_CONTACTS = [...contacts]
 const BASE_IDENTITIES = [...identities]
+const BASE_STATUS = MSGS.map((m) => m.status)
 beforeEach(() => {
   imRunning = true; bound = []; calls = []
+  MSGS.forEach((m, i) => { m.status = BASE_STATUS[i] })
   CONVS.splice(0, CONVS.length, ...BASE_CONVS); contacts = [...BASE_CONTACTS]; identities = [...BASE_IDENTITIES]
   fakeBackend()
 })
@@ -309,3 +317,53 @@ describe('项目消息在别处的用法', () => {
   })
 })
 
+describe('沟通标签的筛选和行内已处理（B-10）', () => {
+  const msgRows = () => screen.queryAllByRole('button', { name: /林予安/ }).filter((b) => b.classList.contains('pj-msg'))
+
+  it('与我相关只留 @我、@所有人、私聊；只看 @我 只留 @我', async () => {
+    bound = ['cv_prod', 'cv_dm']
+    renderTab()
+    await screen.findByText('私聊里问进度')
+    expect(msgRows()).toHaveLength(4)
+    const sel = screen.getByRole('combobox', { name: '与我相关' })
+    expect(within(sel).getByRole('option', { name: '只看 @我（1 条待回复）' })).toBeInTheDocument()
+    await userEvent.selectOptions(sel, 'mine')
+    expect(msgRows()).toHaveLength(2)
+    expect(screen.queryByText('好的收到')).not.toBeInTheDocument()
+    await userEvent.selectOptions(sel, 'at')
+    expect(msgRows()).toHaveLength(1)
+    expect(screen.getByText('权限点清单整理了一版', { exact: false })).toBeInTheDocument()
+    // 左边渠道的数字不跟着筛选变
+    expect(screen.getByRole('button', { name: /^全部/ })).toHaveTextContent('4')
+  })
+
+  it('搜正文、发信人、群名；没结果时能一键清掉筛选', async () => {
+    bound = ['cv_prod', 'cv_dm']
+    renderTab()
+    await screen.findByText('私聊里问进度')
+    const q = screen.getByRole('textbox', { name: '搜索项目消息' })
+    await userEvent.type(q, '进度')
+    expect(msgRows()).toHaveLength(1)
+    await userEvent.clear(q)
+    await userEvent.type(q, '#product 收到')
+    expect(msgRows()).toHaveLength(1)
+    expect(screen.getByText('好的收到')).toBeInTheDocument()
+    await userEvent.type(q, 'zzz')
+    expect(screen.getByText('没有匹配的消息')).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: '清掉筛选' }))
+    expect(q).toHaveValue('')
+    expect(msgRows()).toHaveLength(4)
+  })
+
+  it('待处理的行有「已处理」，点了只标这一条、不打开抽屉；已处理的行没有', async () => {
+    bound = ['cv_prod', 'cv_dm']
+    renderTab()
+    await screen.findByText('私聊里问进度')
+    const rows = msgRows()
+    expect(within(rows[1]).queryByRole('button', { name: /标为已处理/ })).not.toBeInTheDocument()
+    await userEvent.click(within(rows[0]).getByRole('button', { name: '把 林予安 的这条标为已处理' }))
+    await waitFor(() => expect(calls.some((c) => c.method === 'POST' && c.path === '/api/im/messages/msg_1/done')).toBe(true))
+    expect(screen.getByTestId('where')).toHaveTextContent('/projects/obj_p/comms')
+    await waitFor(() => expect(within(msgRows()[0]).queryByText('回复')).not.toBeInTheDocument())
+  })
+})

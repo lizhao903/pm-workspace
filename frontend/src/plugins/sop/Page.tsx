@@ -1,6 +1,6 @@
 // SOP 插件的页面（SPEC-sop-1 到 7）：二级菜单 + 执行记录（默认）、待我处理、流程库、流程详情、运行页，发起执行抽屉。
-// 路由挂在 sop/* 下：/sop 执行记录（?flow= 按流程筛），/sop/waiting，/sop/library，/sop/flows/<id> 流程详情，/sop/runs/<id> 运行页。
-// 编排页（SOP-04c）：/sop/new 新建，/sop/flows/<id>/edit 编辑，保存后回流程详情，「测试运行」再打开发起执行抽屉。打开运行页时把来处记在 location.state，「返回」回到那里
+// 路由挂在 sop/* 下：/sop 执行记录（?flow= 按流程筛），/sop/waiting，/sop/library，/sop/flows/<id> 流程详情（?start=1 打开发起执行抽屉），/sop/runs/<id> 运行页。
+// 编排页（SOP-04c）：/sop/new 新建，/sop/flows/<id>/edit 编辑，保存后回流程详情，「测试运行」再打开发起执行抽屉；流程详情「复制」出的新流程直接进它的编排页。打开运行页时把来处记在 location.state，「返回」回到那里
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { Navigate, useLocation, useNavigate, useParams, useSearchParams } from 'react-router'
 import {
@@ -16,6 +16,7 @@ import { branchingOf, flowStats, isEnded, isPendingRun, recentFlows, timeAgo } f
 import { IconPlus } from './parts'
 import { RunList } from './RunList'
 import { RunView } from './RunView'
+import { useFlowNeeds, useTriggerLabel } from './scope'
 import { StartDrawer } from './StartDrawer'
 import './sop.css'
 
@@ -55,6 +56,8 @@ export default function Page() {
   // 插件节点的名字、颜色在注册表里，登记变了重画
   useSopNodeViews()
   const branching = useMemo(() => branchingOf(types.data), [types.data])
+  const needs = useFlowNeeds()
+  const trigger = useTriggerLabel()
   const [start, setStart] = useState<{ flow: SopFlow; initial?: SopJson | null } | null>(null)
 
   // 相对时间每分钟走一次
@@ -63,10 +66,24 @@ export default function Page() {
   const runList = useMemo(() => runs.data ?? [], [runs.data])
   const stats = useMemo(() => flowStats(runList), [runList])
   const recent = useMemo(() => recentFlows(flowList, stats), [flowList, stats])
+  // 别处（项目的 SOP 标签）带 ?start=1 进流程详情：流程取到后直接打开发起执行抽屉，关掉时去掉这个参数
+  const startId = route.kind === 'flow' && params.get('start') === '1' ? route.id : ''
+  const startFlow = startId ? flowList.find((f) => f.id === startId) : undefined
+  const drawer = start ?? (startFlow ? { flow: startFlow, initial: null } : null)
+  const closeStart = () => {
+    setStart(null)
+    if (!startId) return
+    const next = new URLSearchParams(params)
+    next.delete('start')
+    setParams(next, { replace: true, state })
+  }
 
   if (route.kind === 'bad') return <Navigate to={root} replace />
 
-  const here = pathname + search
+  // 来处不带 start，从运行页返回时不再弹发起执行抽屉
+  const hereQs = new URLSearchParams(search)
+  hereQs.delete('start')
+  const here = pathname + (hereQs.toString() ? `?${hereQs}` : '')
   const go = (to: string, st?: BackState) => navigate(to, { state: st })
   const openRun = (id: string, nav?: NavKey) => go(`${root}/runs/${encodeURIComponent(id)}`, { back: here, nav })
   const openFlow = (id: string) => go(`${root}/flows/${encodeURIComponent(id)}`)
@@ -119,7 +136,7 @@ export default function Page() {
       </Loaded>
     )
   } else if (route.kind === 'library') {
-    body = <Loaded q={both}>{(fl) => <Library flows={fl} stats={stats} onOpen={openFlow} onNew={onNew} now={now} />}</Loaded>
+    body = <Loaded q={both}>{(fl) => <Library flows={fl} stats={stats} needs={needs} trigger={trigger} onOpen={openFlow} onNew={onNew} now={now} />}</Loaded>
   } else if (route.kind === 'flow') {
     const id = route.id
     body = (
@@ -128,9 +145,10 @@ export default function Page() {
           const flow = fl.find((f) => f.id === id)
           if (!flow) return <Gone title="这个 SOP 已经删除" onBack={() => go(`${root}/library`)} backLabel="回到流程库" />
           return (
-            <FlowDetail flow={flow} runs={rs} branching={branching} now={now} onStart={() => setStart({ flow })}
+            <FlowDetail flow={flow} runs={rs} branching={branching} needs={needs(flow)} trigger={trigger} now={now} onStart={() => setStart({ flow })}
               onOpenRun={(rid) => openRun(rid, active)} onEdit={() => go(`${root}/flows/${encodeURIComponent(id)}/edit`)}
-              onAllRuns={() => runsOf(id)} onDeleted={() => navigate(root, { replace: true })} />
+              onAllRuns={() => runsOf(id)} onDeleted={() => navigate(root, { replace: true })}
+              onCopied={(f) => go(`${root}/flows/${encodeURIComponent(f.id)}/edit`)} />
           )
         }}
       </Loaded>
@@ -165,8 +183,8 @@ export default function Page() {
     <div className={route.kind === 'run' || route.kind === 'edit' ? 'sop-mod sop-mod-fill' : 'sop-mod'}>
       {subnav}
       {body}
-      {start && (
-        <StartDrawer key={start.flow.id} flow={start.flow} initial={start.initial} onClose={() => setStart(null)}
+      {drawer && (
+        <StartDrawer key={drawer.flow.id} flow={drawer.flow} initial={drawer.initial} onClose={closeStart}
           onStarted={(id) => { setStart(null); openRun(id, active) }} />
       )}
     </div>

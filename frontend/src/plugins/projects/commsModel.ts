@@ -1,4 +1,4 @@
-// 沟通标签（SPEC-projects-4，PJ-02b）的纯函数：渠道名、待回复口径、会话显示名、绑定面板的候选、正文 @ 切分。
+// 沟通标签（SPEC-projects-4，PJ-02b）的纯函数：渠道名、待回复口径、消息筛选、会话显示名、绑定面板的候选、正文 @ 切分。
 // 照原型 web-next/src/projecttabs.tsx 的 CommsTab；插件之间不能 import，IM 插件里的同类小函数这里各写一份，口径保持一致。
 import type { Contact, Conversation, ConnectorDef, DictItem, Identity, ImMessage, ProjectConversation } from '../../core/data'
 
@@ -53,6 +53,34 @@ export function pendingByConversation(list: readonly ImMessage[], now = Date.now
   for (const m of list) if (m.conversation_id && awaitingReply(m, now)) out.set(m.conversation_id, (out.get(m.conversation_id) ?? 0) + 1)
   return out
 }
+
+// ---- 消息筛选（B-10）：与我相关、搜索，口径同 IM 消息页 ----
+
+/** 「全部消息」「与我相关」（@我、@所有人、私聊）「只看 @我」 */
+export type Mine = '' | 'mine' | 'at'
+
+export const relOk = (m: Pick<ImMessage, 'relevance'>, mine: Mine) => !mine || (mine === 'at' ? m.relevance === 'me' : !!m.relevance)
+
+/** 搜正文、发信人、联系人姓名、群名；按空格切词，每个词都要命中，不区分大小写 */
+export function textOk(m: Pick<ImMessage, 'text' | 'sender_name' | 'contact_name' | 'conversation'>, q: string) {
+  const words = q.trim().toLowerCase().split(/\s+/).filter(Boolean)
+  if (!words.length) return true
+  const hay = `${m.text} ${m.sender_name} ${m.contact_name} ${m.conversation}`.toLowerCase()
+  return words.every((w) => hay.includes(w))
+}
+
+export type MsgFilter = { conv: string; mine: Mine; q: string }
+
+/** 右栏要列的消息：按渠道、与我相关、搜索筛，顺序不动（项目消息已按时间倒序） */
+export const filterMessages = (list: readonly ImMessage[], f: MsgFilter) =>
+  list.filter((m) => (!f.conv || m.conversation_id === f.conv) && relOk(m, f.mine) && textOk(m, f.q))
+
+/** 「只看 @我」后面的数：@我、待回复的 */
+export const atMeCount = (list: readonly ImMessage[], now = Date.now()) =>
+  list.filter((m) => m.relevance === 'me' && awaitingReply(m, now)).length
+
+/** 行内「已处理」只给待处理的（含稍后的），和 IM 消息页一样 */
+export const canMarkDone = (m: Pick<ImMessage, 'status'>) => m.status === 'pending'
 
 // ---- 会话显示名：群用群名；私聊按成员认联系人 ----
 

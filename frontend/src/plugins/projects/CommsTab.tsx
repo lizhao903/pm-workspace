@@ -3,17 +3,19 @@
 // 私聊候选按联系人的 IM 身份列，还没有私聊会话的绑定前按身份建一个，没填 IM 编号的置灰（PR-02）。消息按绑定的会话逐个取（IM-01a）。
 // IM 消息插件没装或停用时消息区提示去插件管理，绑定照常能增删。点消息跳到 IM 消息页打开抽屉（插件间不 import 抽屉）。
 // 右栏消息列表上面是消息里的附件（SPEC-projects-4.13、5，AttachmentInbox），IM 插件没在跑时不显示。
+// 附件下面是筛选条：搜索、与我相关，口径同 IM 消息页（B-10）；待处理的行悬停出「已处理」，不用再去 IM 消息页点。
 // 项目消息（绑定、IM 插件状态、按会话取的消息）抽成 useProjectMessages，概览、标签红点、干系人用同一份缓存。
 import { useEffect, useMemo, useState, type KeyboardEvent } from 'react'
 import { useNavigate } from 'react-router'
 import {
   ATTACH_KIND, conversationsApi, errorText, onServerEvent, useBindProjectConversation, useConnectorDefs, useContacts, useConversations,
-  useDictionaries, useIdentities, useAllImMessages, useNotifyChange, useUnbindProjectConversation, type ImAttachment, type ImMessage,
+  useDictionaries, useIdentities, useAllImMessages, useImAction, useNotifyChange, useUnbindProjectConversation, type ImAttachment, type ImMessage,
 } from '../../core/data'
 import { Avatar, Button, EmptyState, ErrorState, IconButton, IconClose, IconSearch, LoadingState, cls } from '../../core/ui'
 import {
-  DM_PEEK, MSG_PAGE, NO_IDENTITY_HINT, awaitingCount, awaitingReply, channelLabeler, fmtSize, convLabel, directCandidates, directEmptyText,
-  groupCandidates, isDirect, isSnoozed, lastMessageAt, mentionParts, peopleOf, pendingByConversation, statusLabeler, whoName, type DirectCand,
+  DM_PEEK, MSG_PAGE, NO_IDENTITY_HINT, atMeCount, awaitingCount, awaitingReply, canMarkDone, channelLabeler, fmtSize, convLabel, directCandidates,
+  directEmptyText, filterMessages, groupCandidates, isDirect, isSnoozed, lastMessageAt, mentionParts, peopleOf, pendingByConversation, statusLabeler,
+  whoName, type DirectCand, type Mine,
 } from './commsModel'
 import { ago } from './model'
 import { AttIcon, AttachmentInbox } from './AttachmentInbox'
@@ -65,17 +67,20 @@ export function CommsTab({ projectId }: { projectId: string }) {
   const dicts = useDictionaries({ withItems: true })
   const bind = useBindProjectConversation(projectId)
   const unbind = useUnbindProjectConversation(projectId)
-
+  const act = useImAction()
 
   const [filter, setFilter] = useState('')
+  const [mine, setMine] = useState<Mine>('')
+  const [q, setQ] = useState('')
   const [adding, setAdding] = useState(false)
   const [bq, setBq] = useState('')
   const [err, setErr] = useState('')
   // 绑私聊时先建会话的那一下
   const [creating, setCreating] = useState(false)
-  // 消息先渲染一页，换渠道筛选就回到第一页
-  const [lim, setLim] = useState({ filter, n: MSG_PAGE })
-  const limit = lim.filter === filter ? lim.n : MSG_PAGE
+  // 消息先渲染一页，换渠道、与我相关、搜索就回到第一页
+  const view = `${filter}\u0000${mine}\u0000${q.trim()}`
+  const [lim, setLim] = useState({ view, n: MSG_PAGE })
+  const limit = lim.view === view ? lim.n : MSG_PAGE
 
   // 新消息事件由标签条的 CommsTabDot 订阅；事件流断开时 useProjectMessages 退回轮询
   // 相对时间、稍后到点每分钟重算一次
@@ -99,9 +104,12 @@ export function CommsTab({ projectId }: { projectId: string }) {
   const dms = directCandidates(contacts.data ?? [], identities.data ?? [], convs.data ?? [], boundSet, bq)
   const searching = !!bq.trim()
 
-  const mine = msgs.data
-  const rows = filter ? mine.filter((m) => m.conversation_id === filter) : mine
-  const pending = pendingByConversation(mine, now)
+  const all = msgs.data
+  const rows = filterMessages(all, { conv: filter, mine, q })
+  const narrowed = !!mine || !!q.trim()
+  const pending = pendingByConversation(all, now)
+  const atMe = atMeCount(all, now)
+  const doneLabel = stLabel('done')
 
   const togglePanel = () => { setAdding(!adding); setBq('') }
   const onBind = (id: string) => {
@@ -131,6 +139,15 @@ export function CommsTab({ projectId }: { projectId: string }) {
     else setAdding(false)
   }
   const openMessage = (m: ImMessage) => navigate(`${MESSAGES_PATH}?m=${encodeURIComponent(m.id)}`)
+  const onDone = (m: ImMessage) => {
+    setErr('')
+    act.mutate({ id: m.id, action: { kind: 'done' } }, { onError: (e) => setErr(`${whoName(m)} 的消息没标上${doneLabel}：${errorText(e)}`) })
+  }
+  const onQKey = (e: KeyboardEvent<HTMLInputElement>) => {
+    if (e.key !== 'Escape' || !q) return
+    e.stopPropagation()
+    setQ('')
+  }
 
   const panel = adding && (
     <div className="pj-bind">
@@ -178,7 +195,7 @@ export function CommsTab({ projectId }: { projectId: string }) {
     list = (
       <>
         <button type="button" className={cls('pj-chat', !filter && 'on')} aria-pressed={!filter} onClick={() => setFilter('')}>
-          <span className="ellipsis">全部</span><span className="pj-chat-n">{noIm || msgs.isPending ? '' : mine.length}</span>
+          <span className="ellipsis">全部</span><span className="pj-chat-n">{noIm || msgs.isPending ? '' : all.length}</span>
         </button>
         {bound.map((b) => {
           const c = b.conversation
@@ -209,10 +226,15 @@ export function CommsTab({ projectId }: { projectId: string }) {
       <EmptyState title="需要 IM 消息插件" desc="项目里的消息来自 IM 消息插件。装上并启用后，绑定的群和私聊里的消息会出现在这里"
         action={<Button variant="primary" onClick={() => navigate(PLUGINS_PATH)}>去插件管理</Button>} />
     )
-  } else if (msgs.isError && !mine.length) {
+  } else if (msgs.isError && !all.length) {
     body = <ErrorState title="消息没加载出来" error={errorText(msgs.error)} onRetry={msgs.refetch} />
   } else if (binds.isPending || msgs.isPending) body = <LoadingState />
-  else if (!rows.length) body = <EmptyState title="没有消息" desc="绑定的群和私聊里收到消息后会出现在这里" />
+  else if (!rows.length && narrowed && all.length) {
+    body = (
+      <EmptyState title="没有匹配的消息" desc={mine ? '换个关键词，或改成「全部消息」' : '换个关键词'}
+        action={<Button onClick={() => { setQ(''); setMine('') }}>清掉筛选</Button>} />
+    )
+  } else if (!rows.length) body = <EmptyState title="没有消息" desc="绑定的群和私聊里收到消息后会出现在这里" />
   else {
     body = (
       <>
@@ -222,8 +244,10 @@ export function CommsTab({ projectId }: { projectId: string }) {
           const photo = m.stakeholder_id ? people.contacts.get(m.stakeholder_id)?.photo : undefined
           const snoozed = isSnoozed(m, now)
           const waiting = awaitingReply(m, now)
+          const marking = act.isPending && act.variables?.id === m.id
           return (
-            <button key={m.id} type="button" className={cls('pj-msg', waiting && 'pending')} onClick={() => openMessage(m)}>
+            <div key={m.id} role="button" tabIndex={0} className={cls('pj-msg', waiting && 'pending')} onClick={() => openMessage(m)}
+              onKeyDown={(e) => { if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); openMessage(m) } }}>
               <Avatar name={who} size={30} src={photo || undefined} />
               <span className="pj-msg-main">
                 <span className="pj-msg-top">
@@ -233,16 +257,22 @@ export function CommsTab({ projectId }: { projectId: string }) {
                   <span className="pj-msg-side">
                     <span className="pj-muted" title={m.at}>{ago(m.at, now)}</span>
                     {snoozed ? <span className="pj-muted">稍后提醒</span> : waiting ? <span className="pj-msg-go">回复</span> : <span className="pj-muted">{stLabel(m.status)}</span>}
+                    {canMarkDone(m) && (
+                      <button type="button" className="pj-msg-done" title={`标为${doneLabel}`} aria-label={`把 ${who} 的这条标为${doneLabel}`}
+                        disabled={marking} onClick={(e) => { e.stopPropagation(); onDone(m) }}>
+                        {doneLabel}
+                      </button>
+                    )}
                   </span>
                 </span>
                 <span className="pj-msg-text"><MentionText text={m.text} /></span>
                 <AttachmentChips atts={m.attachments} />
               </span>
-            </button>
+            </div>
           )
         })}
         {rows.length > limit && (
-          <button type="button" className="pj-more" onClick={() => setLim({ filter, n: limit + MSG_PAGE })}>
+          <button type="button" className="pj-more" onClick={() => setLim({ view, n: limit + MSG_PAGE })}>
             加载更早的消息<span className="pj-muted">还有 {rows.length - limit} 条</span>
           </button>
         )}
@@ -250,8 +280,31 @@ export function CommsTab({ projectId }: { projectId: string }) {
     )
   }
 
-  const inbox = !noIm && !msgs.isPending && mine.length > 0 && (
-    <AttachmentInbox projectId={projectId} messages={mine} now={now} onOpenMessage={openMessage} />
+  // 筛选条：有消息才有；不影响左边渠道的数字和上面的附件
+  const tools = !noIm && !msgs.isPending && all.length > 0 && (
+    <div className="pj-msg-tools">
+      <div className="search search-sm pj-msg-search">
+        <IconSearch size={13} />
+        <input value={q} placeholder="搜索内容、发信人、群名" aria-label="搜索项目消息" onChange={(e) => setQ(e.target.value)} onKeyDown={onQKey} />
+        {q && (
+          <button type="button" className="search-clear" title="清空" aria-label="清空搜索" onClick={() => setQ('')}>
+            <IconClose size={10} />
+          </button>
+        )}
+      </div>
+      <label className={cls('chip chip-select', mine && 'chip-on')} title="与我相关：@我、@所有人和私聊">
+        <select value={mine} aria-label="与我相关" onChange={(e) => setMine(e.target.value as Mine)}>
+          <option value="">全部消息</option>
+          <option value="mine">与我相关</option>
+          <option value="at">只看 @我{atMe ? `（${atMe} 条待回复）` : ''}</option>
+        </select>
+      </label>
+      {narrowed && <span className="pj-muted">{rows.length} 条</span>}
+    </div>
+  )
+
+  const inbox = !noIm && !msgs.isPending && all.length > 0 && (
+    <AttachmentInbox projectId={projectId} messages={all} now={now} onOpenMessage={openMessage} />
   )
 
   return (
@@ -265,7 +318,7 @@ export function CommsTab({ projectId }: { projectId: string }) {
         {err && <div className="pj-err" role="alert">{err}</div>}
         {list}
       </div>
-      <div className="pj-msgs" aria-label="项目消息">{inbox}{body}</div>
+      <div className="pj-msgs" aria-label="项目消息">{inbox}{tools}{body}</div>
     </div>
   )
 }

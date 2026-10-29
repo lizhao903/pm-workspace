@@ -107,6 +107,82 @@ export function sortTasks(rows: WorkObject[], rank: (k: string) => number): Work
     rank(a.priority) - rank(b.priority) || a.priority.localeCompare(b.priority) || due(a) - due(b) || a.ref.localeCompare(b.ref))
 }
 
+/** 排序（B-06）：'' 是默认，逾期到以后按优先级、无截止按最近更新、已结束按完成时间倒序 */
+export type TaskSort = '' | 'priority' | 'updated' | 'created'
+export const SORTS: { key: TaskSort; label: string }[] = [
+  { key: '', label: '默认排序' },
+  { key: 'priority', label: '按优先级' },
+  { key: 'updated', label: '最近更新' },
+  { key: 'created', label: '创建时间' },
+]
+
+// 时间倒序，取不到的在后，同一时刻编号大的在前
+function byTimeDesc(at: (t: WorkObject) => string | null | undefined) {
+  const ms = (t: WorkObject) => {
+    const v = at(t)
+    const n = v ? Date.parse(v) : NaN
+    return Number.isNaN(n) ? Number.NEGATIVE_INFINITY : n
+  }
+  return (rows: WorkObject[]) => [...rows].sort((a, b) => (ms(b) - ms(a)) || b.ref.localeCompare(a.ref))
+}
+const byUpdated = byTimeDesc((t) => t.updated_at)
+const byCreated = byTimeDesc((t) => t.created_at)
+// 完成时间没记的（迁移前就结束的）退回最近更新
+const byCompleted = byTimeDesc((t) => t.completed_at || t.updated_at)
+
+/** 一段里的排序；选了排序方式各段都按它排 */
+export function sortSeg(rows: WorkObject[], seg: DueSeg, sort: TaskSort, rank: (k: string) => number): WorkObject[] {
+  if (sort === 'priority') return sortTasks(rows, rank)
+  if (sort === 'updated') return byUpdated(rows)
+  if (sort === 'created') return byCreated(rows)
+  if (seg === 'closed') return byCompleted(rows)
+  if (seg === 'none') return byUpdated(rows)
+  return sortTasks(rows, rank)
+}
+
+/** 负责人筛选（B-07）：'' 全部，其余是干系人 id */
+export const OWNER_NONE = '-'
+export const OWNER_ME = 'me'
+
+/** 「我」没有后端标记，记的是这台浏览器上选的干系人 id；存不了、读不到都当没选 */
+const ME_KEY = 'pmw-tasks-me'
+export function loadMe(): string {
+  try { return localStorage.getItem(ME_KEY) ?? '' } catch { return '' }
+}
+export function saveMe(id: string) {
+  try {
+    if (id) localStorage.setItem(ME_KEY, id)
+    else localStorage.removeItem(ME_KEY)
+  } catch { /* 存不了就只在这次打开里有效 */ }
+}
+
+/** 未分配：没有负责人，也没有 0010 之前的自由文本负责人（列表上那种会显示名字） */
+export function matchOwner(t: WorkObject, f: string, me: string): boolean {
+  if (!f) return true
+  if (f === OWNER_NONE) return !t.owner_id && !t.owner
+  if (f === OWNER_ME) return !!me && t.owner_id === me
+  return t.owner_id === f
+}
+
+/** 列表里出现过的负责人，任务多的在前 */
+export function ownerOptions(rows: readonly WorkObject[]): { id: string; name: string; n: number }[] {
+  const m = new Map<string, { id: string; name: string; n: number }>()
+  for (const t of rows) {
+    if (!t.owner_id) continue
+    const o = m.get(t.owner_id) ?? { id: t.owner_id, name: t.owner_name || '', n: 0 }
+    o.n += 1
+    m.set(t.owner_id, o)
+  }
+  return [...m.values()].sort((a, b) => b.n - a.n || a.name.localeCompare(b.name))
+}
+
+/** 搜索（SPEC-tasks-2.8）：标题、描述、编号、负责人，不区分大小写 */
+export function matchQuery(t: WorkObject, q: string): boolean {
+  const kw = q.trim().toLowerCase()
+  if (!kw) return true
+  return [t.ref, t.title, t.body, t.owner_name ?? '', t.owner].some((s) => s.toLowerCase().includes(kw))
+}
+
 export function segment(rows: WorkObject[], terminal: Terminal, now: Date) {
   const today = localDay(now)
   const end = weekEnd(now)

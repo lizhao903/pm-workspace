@@ -78,6 +78,10 @@ button.sop-run-row:hover { background: var(--panel-2); }
 .sop-lib-head { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .sop-lib-name { flex: 1; min-width: 0; font-weight: 600; }
 .sop-lib-pending { flex: none; height: 18px; padding: 0 6px; border-radius: 4px; font-size: var(--fs-2xs); line-height: 18px; color: var(--warn); background: var(--warn-soft); white-space: nowrap; }
+/* 要当前工作台没开的模块的流程（SPEC-sop-2.11） */
+.sop-lib-need { flex: none; height: 18px; padding: 0 6px; border-radius: 4px; font-size: var(--fs-2xs); line-height: 18px; color: var(--muted); background: var(--panel-2); border: 1px solid var(--line); white-space: nowrap; }
+.sop-lib-card.elsewhere .sop-lib-name { color: var(--muted); }
+.sop-need-text { color: var(--warn); }
 .sop-lib-desc { font-size: var(--fs-sm); color: var(--muted); line-height: 1.5; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
 .sop-lib-meta { display: flex; flex-wrap: wrap; gap: 2px 12px; font-size: var(--fs-xs); color: var(--faint); }
 

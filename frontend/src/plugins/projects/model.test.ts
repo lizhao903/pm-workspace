@@ -7,7 +7,7 @@ import {
 import { PROJECT_COLORS } from './markIcons'
 
 const pv = (id: string, x: Partial<ProjectView> = {}): ProjectView => ({
-  id, ref: id, name: id, desc: '', status: 'planning', color: '', mark: { text: '' }, root: '', related: [],
+  id, ref: id, name: id, desc: '', status: 'planning', color: '', mark: { text: '' }, root: '', related: [], sopIds: [],
   created_at: '', updated_at: '', ...x,
 })
 

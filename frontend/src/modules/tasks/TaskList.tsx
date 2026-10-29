@@ -1,5 +1,5 @@
 // 任务列表（SPEC-tasks-2）：状态分段按钮筛选、按截止日分段可折叠、每段先露 30 条。
-// 只管展示和本地筛选，数据由 Page 从接口层取好传进来。
+// 负责人筛选、排序、搜索都在本地算（B-06、B-07）；只管展示和本地筛选，数据由 Page 从接口层取好传进来。
 import { useMemo, useState, type CSSProperties } from 'react'
 import { localDay, type DictItem, type ObjectStatus, type WorkObject } from '../../core/data'
 import {
@@ -7,8 +7,9 @@ import {
   SearchSelect, cls,
 } from '../../core/ui'
 import {
-  ALL, MORE_STEP, OPEN, PAGE, REVIEW, dueText, isOverdue, matchStatus, prioText, priorityRank, segment, sortTasks, statusButtons,
-  terminalOf, timeAgo, type DueSeg, type StatusFilter,
+  ALL, MORE_STEP, OPEN, OWNER_ME, OWNER_NONE, PAGE, REVIEW, SORTS, dueText, isOverdue, loadMe, matchOwner, matchQuery, matchStatus,
+  ownerOptions, prioText, priorityRank, saveMe, segment, sortSeg, statusButtons, terminalOf, timeAgo, type DueSeg, type StatusFilter,
+  type TaskSort,
 } from './model'
 import { SOURCE_VIEW, isSourceKind, type SourceKind } from './sourceModel'
 import { SourceTag } from './SourceTag'
@@ -25,7 +26,7 @@ const DESC: Record<'all' | 'overdue', string> = {
 const NO_PROJECT = '-'
 
 export function TaskList({
-  view, tasks, loading, error, onRetry, statuses, priorities, projects,
+  view, tasks, loading, error, onRetry, statuses, priorities, projects, people = [],
   status, onStatus, search, onSearch, q, selected, drawerOpen, onOpen, onNew, onToggleDone, now: nowProp, hookName = noHook, onGoHooks,
 }: {
   view: TaskView
@@ -36,12 +37,14 @@ export function TaskList({
   statuses: ObjectStatus[]
   priorities: DictItem[]
   projects: { id: string; title: string }[]
+  /** 在岗干系人，「我是哪位」的候选 */
+  people?: { id: string; name: string }[]
   status: StatusFilter
   onStatus: (f: StatusFilter) => void
   /** 搜索框里的字 */
   search: string
   onSearch: (v: string) => void
-  /** 已经发给后端的搜索词（防抖后） */
+  /** 防抖后的搜索词，在列表里本地匹配（含负责人名） */
   q: string
   selected: string | null
   /** 抽屉开着：列表窄时改成窄列（标题两行，不显示来源、负责人、截止） */
@@ -62,9 +65,13 @@ export function TaskList({
   const now = nowProp ?? opened
   const [prio, setPrio] = useState('')
   const [proj, setProj] = useState('')
+  const [owner, setOwner] = useState('')
+  const [sort, setSort] = useState<TaskSort>('')
+  // 「我」是哪位干系人，记在这台浏览器上
+  const [me, setMe] = useState(loadMe)
   const [closed, setClosed] = useState<Set<DueSeg>>(() => new Set())
   // 各段多露的条数；换了视图或筛选条件（sig 变了）就作废，重新只露 30 条
-  const sig = [view, status, prio, proj, q].join('\n')
+  const sig = [view, status, prio, proj, owner, me, sort, q].join('\n')
   const [more, setMore] = useState<{ sig: string; n: Partial<Record<DueSeg, number>> }>({ sig, n: {} })
   const extra = more.sig === sig ? more.n : {}
 
@@ -75,9 +82,13 @@ export function TaskList({
   const prioOf = (k: string) => priorities.find((p) => p.key === k)
   const projName = (t: WorkObject) => t.project_title || projects.find((p) => p.id === t.project_id)?.title
 
-  const base = tasks.filter((t) => !proj || (proj === NO_PROJECT ? !t.project_id : t.project_id === proj))
-  const rows = sortTasks(base.filter((t) => matchStatus(t, status, terminal) && (!prio || t.priority === prio)), rank)
-  const segs = segment(rows, terminal, now)
+  // 状态按钮的条数跟着项目、负责人、搜索走，不跟状态和优先级
+  const base = tasks.filter((t) => (!proj || (proj === NO_PROJECT ? !t.project_id : t.project_id === proj))
+    && matchOwner(t, owner, me) && matchQuery(t, q))
+  const rows = base.filter((t) => matchStatus(t, status, terminal) && (!prio || t.priority === prio))
+  const segs = segment(rows, terminal, now).map((s) => ({ ...s, rows: sortSeg(s.rows, s.key, sort, rank) }))
+  const owners = ownerOptions(tasks)
+  const meName = me ? people.find((p) => p.id === me)?.name ?? owners.find((o) => o.id === me)?.name : undefined
   const { head, rest } = statusButtons(statuses)
   const countOf = (f: StatusFilter) => base.filter((t) => matchStatus(t, f, terminal)).length
   const showCounts = !loading && !error
@@ -89,7 +100,8 @@ export function TaskList({
     setClosed(n)
   }
   const showMore = (k: DueSeg) => setMore({ sig, n: { ...extra, [k]: (extra[k] ?? 0) + MORE_STEP } })
-  const clearFilters = () => { setPrio(''); setProj(''); onSearch('') }
+  const clearFilters = () => { setPrio(''); setProj(''); setOwner(''); onSearch('') }
+  const pickMe = (id: string) => { setMe(id); saveMe(id) }
 
   const row = (t: WorkObject) => {
     const st = statusOf(t.status)
@@ -129,12 +141,14 @@ export function TaskList({
     )
   }
 
-  const filtered = !!(q || prio || proj)
+  const filtered = !!(q || prio || proj || owner)
   let body
   if (error) body = <ErrorState error={error} onRetry={onRetry} />
   else if (loading) body = <LoadingState />
   else if (rows.length === 0) {
-    if (filtered) {
+    if (owner === OWNER_ME && !me) {
+      body = <EmptyState title="还没选你是哪位干系人" desc="在筛选条的「我是」里选一下，只记在这台浏览器上" />
+    } else if (filtered) {
       body = <EmptyState title="没有匹配的任务" action={<Button variant="outline" onClick={clearFilters}>清掉筛选条件</Button>} />
     } else if (base.length > 0 && status !== ALL) {
       body = status === OPEN
@@ -199,10 +213,28 @@ export function TaskList({
         <SearchSelect value={proj} onChange={setProj} noneLabel="全部项目" placeholder="全部项目" searchPlaceholder="搜项目" aria-label="项目"
           options={[...projects.map((p) => ({ value: p.id, label: p.title })), { value: NO_PROJECT, label: '不属于项目' }]}
           missingLabel={() => '已删除的项目'} />
+        <SearchSelect value={owner} onChange={setOwner} noneLabel="全部负责人" placeholder="全部负责人" searchPlaceholder="搜负责人"
+          aria-label="负责人"
+          options={[
+            { value: OWNER_ME, label: meName ? `我（${meName}）` : '我' },
+            { value: OWNER_NONE, label: '未分配' },
+            ...owners.filter((o) => o.id !== me).map((o) => ({ value: o.id, label: o.name || '已归档的干系人', hint: String(o.n) })),
+          ]}
+          missingLabel={() => '已归档的干系人'} />
+        {owner === OWNER_ME && (
+          <SearchSelect value={me} onChange={pickMe} placeholder="我是哪位干系人" searchPlaceholder="搜干系人" aria-label="我是"
+            options={people.map((p) => ({ value: p.id, label: `我是 ${p.name}` }))} active={!me}
+            missingLabel={() => '我是 已归档的干系人'} />
+        )}
+        <div className={cls('chip chip-select', sort && 'chip-on')}>
+          <select value={sort} aria-label="排序" onChange={(e) => setSort(e.target.value as TaskSort)}>
+            {SORTS.map((o) => <option key={o.key} value={o.key}>{o.label}</option>)}
+          </select>
+        </div>
         <span className="spacer" />
         <div className="search">
           <IconSearch />
-          <input type="search" placeholder="搜索标题、描述、编号" aria-label="搜索任务" value={search}
+          <input type="search" placeholder="搜索标题、描述、编号、负责人" aria-label="搜索任务" value={search}
             onChange={(e) => onSearch(e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Escape' && search) { e.preventDefault(); onSearch('') } }} />
           {search && <button type="button" className="search-clear" aria-label="清空" title="清空" onClick={() => onSearch('')}><IconClose size={10} /></button>}

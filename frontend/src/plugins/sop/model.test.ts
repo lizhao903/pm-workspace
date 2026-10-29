@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import type { SopFlow, SopRunBrief, SopRunStep } from '../../core/data'
 import {
-  baseRuns, branchingOf, daySegOf, defaultTab, flowOptions, flowStats, focusIndex, libraryRows, parseJsonObject, progressText, ranks,
-  recentFlows, sortRuns, upstreamOf,
+  baseRuns, branchingOf, daySegOf, defaultTab, flowOptions, flowPlugins, flowStats, focusIndex, libraryRows, missingFlowPlugins, parseJsonObject,
+  progressText, ranks, recentFlows, sortRuns, triggerLabelOf, upstreamOf,
 } from './model'
 
 const flow = (p: Partial<SopFlow> = {}): SopFlow => ({
@@ -101,6 +101,30 @@ describe('流程库', () => {
 
   it('最近用过按最近一次开始时间排', () => {
     expect(recentFlows([a, b, c], stats).map((f) => f.id)).toEqual(['sop_a', 'sop_b'])
+  })
+
+  it('搜索认触发方式的显示名；要别的模块的排最后', () => {
+    const w = flow({ id: 'sop_w', name: '周报', trigger: 'weekly' })
+    const label = triggerLabelOf()
+    expect(libraryRows([a, w], stats, '', '每周一', { trigger: label }).map((f) => f.id)).toEqual(['sop_w'])
+    expect(libraryRows([a, b, c], stats, '', '', { elsewhere: (f) => f.id === 'sop_b' }).map((f) => f.id)).toEqual(['sop_a', 'sop_c', 'sop_b'])
+  })
+})
+
+describe('触发方式和插件', () => {
+  it('触发方式：枚举优先，再内置中文名，都没有原样', () => {
+    const l = triggerLabelOf([{ key: 'manual', label: '手工' }])
+    expect([l('manual'), l('weekly'), l('webhook'), l('IM 消息'), l('')]).toEqual(['手工', '每周一 18:00', 'Webhook', 'IM 消息', '手动'])
+    expect(triggerLabelOf()('manual')).toBe('手动')
+  })
+
+  it('插件节点按清单认提供者，认不出取前缀；内置节点不算', () => {
+    const f = flow({ steps: [{ key: 'a', name: 'A', kind: 'auto' }, { key: 'b', name: 'B', kind: 'video_run_stage' }, { key: 'c', name: 'C', kind: 'im_send_message' }] })
+    const plugins = [{ id: 'video', provides: { sop_nodes: ['video_run_stage'] } }]
+    expect(flowPlugins(f, plugins)).toEqual(['video', 'im'])
+    expect(missingFlowPlugins(f, new Set(['im', 'sop']), plugins)).toEqual(['video'])
+    expect(missingFlowPlugins(f, null, plugins)).toEqual([])
+    expect(flowPlugins(flow())).toEqual([])
   })
 })
 

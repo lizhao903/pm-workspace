@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { charInitial, initialRank, nameInitial } from './pinyin'
+import { charInitial, compareNames, initialRank, nameInitial } from './pinyin'
 import { PY_TABLE } from './pinyinData'
 
 describe('拼音首字母', () => {
@@ -92,5 +92,12 @@ describe('拼音首字母', () => {
     expect(new Set(all).size).toBe(6763)
     expect(Object.keys(PY_TABLE).join('')).toBe('ABCDEFGHJKLMNOPQRSTWXYZ')
     expect(new TextEncoder().encode(all).length).toBeLessThan(30 * 1024)
+  })
+})
+
+describe('按姓名排序', () => {
+  it('拉丁名和中文名混排时按索引字母排，# 在最后', () => {
+    const names = ['Zoe', '侯明', '刁亮', '刘一', '史强', 'alice', '123', '安然']
+    expect([...names].sort(compareNames)).toEqual(['安然', 'alice', '刁亮', '侯明', '刘一', '史强', 'Zoe', '123'])
   })
 })

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import type { Contact, Dictionary } from '../../core/data'
 import {
   DEFAULT_GROUP, GONE_COLOR, SEG_MAX, ago, blankDraft, deleteBlock, groupOptions, mergeIm, validate, applyFilter, groupItems, groupsOf, groupView, joinGroups, toggleGroup, hasImField, recentBucket, sectionCounts,
-  sectionOf, toRows, type Filter, type GroupItem,
+  defaultSort, sectionOf, toRows, type Filter, type GroupItem,
 } from './model'
 
 let seq = 0
@@ -31,6 +31,19 @@ describe('搜索', () => {
   it('电话忽略空格：输「13722」能搜到「137 2233 4405」', () => {
     expect(names(applyFilter(rows, { ...F, q: '13722' }))).toEqual(['许知行'])
     expect(names(applyFilter(rows, { ...F, q: ' 1372 2334 ' }))).toEqual(['许知行'])
+  })
+  it('备注和角色也搜；多个词按空格拆开，每个词都要命中，可以跨字段', () => {
+    const rs = toRows([
+      ct({ name: '常乐', company: 'Northstar', tags: ['Octok'], note: 'fleetent 团队负责人\n别名：Randy、乐哥' }),
+      ct({ name: 'Abby Chua', role: '产品 / 文案，XAUE 信用卡运营执行' }),
+      ct({ name: '周岚', company: 'XAUE' }),
+    ])
+    expect(names(applyFilter(rs, { ...F, q: 'randy' }))).toEqual(['常乐'])
+    expect(names(applyFilter(rs, { ...F, q: 'Fleetent' }))).toEqual(['常乐'])
+    expect(names(applyFilter(rs, { ...F, q: 'xaue 信用卡' }))).toEqual(['Abby Chua'])
+    expect(names(applyFilter(rs, { ...F, q: 'octok  乐哥' }))).toEqual(['常乐'])
+    expect(names(applyFilter(rs, { ...F, q: 'XAUE', sort: 'name' }))).toEqual(['Abby Chua', '周岚'])
+    expect(applyFilter(rs, { ...F, q: 'XAUE 乐哥' })).toEqual([])
   })
   it('空白搜索词不过滤', () => {
     expect(applyFilter(rows, { ...F, q: '   ' })).toHaveLength(3)
@@ -197,5 +210,15 @@ describe('抽屉（CT-03b）', () => {
     const c = { id: 'stk_a' } as never
     expect(mergeIm([c], null)[0]).toBe(c)
     expect(mergeIm([c], new Map())[0]).toMatchObject({ im: {} })
+  })
+})
+
+describe('默认排序', () => {
+  const at = '2026-01-01T00:00:00Z'
+  it('没联系过的人多于一半按姓名，否则按最近联系', () => {
+    expect(defaultSort([])).toBe('recent')
+    expect(defaultSort([ct({}), ct({}), ct({ last_contact_at: at })])).toBe('name')
+    expect(defaultSort([ct({}), ct({ last_contact_at: at })])).toBe('recent')
+    expect(defaultSort(Array.from({ length: 62 }, () => ct({})))).toBe('name')
   })
 })

@@ -36,6 +36,34 @@ export const KIND_LABEL: Record<string, string> = {
 }
 export const kindLabel = (k: string) => KIND_LABEL[k] ?? sopNodeView(k)?.label ?? k
 
+/** 触发方式的内置显示名（同原型 enumdata.ts 的 sop_trigger），设置里有 sop_trigger 枚举时以枚举为准；都没有的原样显示（SPEC-sop-0） */
+export const TRIGGER_LABEL: Record<string, string> = {
+  manual: '手动', im: 'IM 消息', daily: '每天 09:00', weekly: '每周一 18:00', schedule: '定时', cron: '定时', webhook: 'Webhook',
+}
+export function triggerLabelOf(items?: readonly { key: string; label: string }[]) {
+  const m = new Map((items ?? []).map((x) => [x.key, x.label]))
+  return (t: string) => (t ? m.get(t) ?? TRIGGER_LABEL[t] ?? t : '手动')
+}
+
+/* ---------- 流程要的插件 ---------- */
+
+type Provider = { id: string; provides?: Record<string, string[] | undefined> }
+
+/** 流程里插件节点的提供者，去重保序：按插件清单 provides.sop_nodes 认，清单里没有的取 kind 的「<插件 id>_」前缀（plugin-api.md 2.7） */
+export function flowPlugins(flow: Pick<SopFlow, 'steps'>, plugins: readonly Provider[] = []): string[] {
+  const out = new Set<string>()
+  for (const s of flow.steps) {
+    if (s.kind in KIND_LABEL) continue
+    const p = plugins.find((x) => x.provides?.sop_nodes?.includes(s.kind))?.id ?? s.kind.split('_')[0]
+    if (p) out.add(p)
+  }
+  return [...out]
+}
+
+/** 当前工作台没开的插件；enabled 为 null（工作台还没取到）时不判断 */
+export const missingFlowPlugins = (flow: Pick<SopFlow, 'steps'>, enabled: ReadonlySet<string> | null, plugins: readonly Provider[] = []) =>
+  enabled ? flowPlugins(flow, plugins).filter((p) => !enabled.has(p)) : []
+
 const FINISHED: readonly SopStepStatus[] = ['done', 'skipped', 'bypassed']
 export const isFinished = (s: SopStepStatus) => FINISHED.includes(s)
 export const needsMe = (s: SopStepStatus) => s === 'paused' || s === 'review' || s === 'failed'
@@ -170,12 +198,15 @@ export type LibFilter = '' | 'pending' | 'never'
 export const libPass = (f: SopFlow, k: LibFilter, stats: Map<string, FlowStat>) =>
   !k || (k === 'pending' ? (stats.get(f.id)?.pending ?? 0) > 0 : !stats.has(f.id))
 
-/** 流程库：有待处理的在前，其余按最近执行时间，没执行过的按名字排在最后 */
-export function libraryRows(flows: readonly SopFlow[], stats: Map<string, FlowStat>, k: LibFilter, q: string) {
+/** 流程库：有待处理的在前，其余按最近执行时间，没执行过的按名字排在后面；要当前工作台没开的模块的（elsewhere）排在最后 */
+export function libraryRows(flows: readonly SopFlow[], stats: Map<string, FlowStat>, k: LibFilter, q: string,
+  opts: { trigger?: (t: string) => string; elsewhere?: (f: SopFlow) => boolean } = {}) {
   const kw = q.trim().toLowerCase()
+  const trig = opts.trigger ?? ((t: string) => t)
+  const away = (f: SopFlow) => Number(!!opts.elsewhere?.(f))
   const pend = (f: SopFlow) => Number((stats.get(f.id)?.pending ?? 0) > 0)
-  return flows.filter((f) => libPass(f, k, stats) && (!kw || `${f.name} ${f.desc} ${f.trigger}`.toLowerCase().includes(kw)))
-    .sort((a, b) => pend(b) - pend(a) || (stats.get(b.id)?.last ?? 0) - (stats.get(a.id)?.last ?? 0) || a.name.localeCompare(b.name, 'zh-CN'))
+  return flows.filter((f) => libPass(f, k, stats) && (!kw || `${f.name} ${f.desc} ${f.trigger} ${trig(f.trigger)}`.toLowerCase().includes(kw)))
+    .sort((a, b) => away(a) - away(b) || pend(b) - pend(a) || (stats.get(b.id)?.last ?? 0) - (stats.get(a.id)?.last ?? 0) || a.name.localeCompare(b.name, 'zh-CN'))
 }
 
 /** 流程筛选的选项：现有流程加执行记录里出现过的已删除流程，后面带「N 次」 */

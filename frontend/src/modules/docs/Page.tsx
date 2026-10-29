@@ -1,18 +1,19 @@
 // 文档模块（SPEC-library，DOC-01b）：二级菜单位置是内容树和工作目录切换，顶栏是目录名和筛选，右边阅读区。
 // 工作台文档是 type=doc 的对象，一次拉全，按分类树分组；本地目录是挂载在后端的目录（/api/local-dirs），刷新页面还在。
 // 当前工作目录和正在读的文档放在地址里（?dir=<挂载 id>&doc=<文档 id>），别的模块可以直接链过来；筛选、搜索是页面状态。
+// 工作台文档能按所属项目筛，阅读区显示所属项目、点了去项目的文档标签（C-04）。
 // 工作台文档可以新建、编辑（C-03）：?edit=new 新建，?doc=<id>&edit=1 编辑这篇；有没保存的改动时离开先确认（SPEC-library-1.46）。
 import { useCallback, useDeferredValue, useEffect, useMemo, useState } from 'react'
-import { useSearchParams } from 'react-router'
+import { useNavigate, useSearchParams } from 'react-router'
 import {
   errorText, isApiError, isStarred, useAllObjects, useCategoryTree, useLocalDirFiles, useLocalDirs, useNotifyChange, useObjectTypes,
-  useSetStarred, useTags, useUnmountLocalDir, type LocalDir, type ObjectFilter,
+  useProjects, useSetStarred, useTags, useUnmountLocalDir, type LocalDir, type ObjectFilter,
 } from '../../core/data'
 import { Button, ConfirmDialog, InSubnavHost, LoadingState } from '../../core/ui'
 import { LibraryBar } from './Bar'
 import { DocEditor } from './Editor'
 import {
-  builtinModel, BUILTIN, defaultCategory, dirWs, folderModel, indexCategories, timeAgo, UNCATEGORIZED_LABEL, type Doc, type Filter, type Workspace,
+  builtinModel, BUILTIN, defaultCategory, dirWs, folderModel, indexCategories, projectOptions, timeAgo, UNCATEGORIZED_LABEL, type Doc, type Filter, type Workspace,
 } from './model'
 import { MountDrawer } from './MountDrawer'
 import { LibraryReader } from './Reader'
@@ -21,6 +22,8 @@ import './docs.css'
 
 const DOC_FILTER: ObjectFilter = { type: ['doc'], sort: '-updated_at' }
 const WIDE = '(min-width: 761px)'
+/** 项目插件的路径；项目详情的文档标签是 /projects/<id>/docs */
+const PROJECTS = '/projects'
 const wide = () => typeof window !== 'undefined' && !!window.matchMedia?.(WIDE).matches
 
 export default function Page() {
@@ -34,6 +37,7 @@ export default function Page() {
   const reading = params.get('doc')
   const [kind, setKind] = useState('')
   const [tags, setTags] = useState<string[]>([])
+  const [project, setProject] = useState('')
   const [q, setQ] = useState('')
   const dq = useDeferredValue(q)
   const [mounting, setMounting] = useState(false)
@@ -41,7 +45,7 @@ export default function Page() {
   // 编辑区有没保存的改动；要离开时先把去处记下，确认后再走
   const [dirty, setDirty] = useState(false)
   const [leaving, setLeaving] = useState<{ run: () => void } | null>(null)
-  const filter: Filter = useMemo(() => ({ kind, tags, q: dq }), [kind, tags, dq])
+  const filter: Filter = useMemo(() => ({ kind, tags, q: dq, project }), [kind, tags, dq, project])
 
   const dir: LocalDir | null = dirId ? dirs.data?.find((d) => d.id === dirId) ?? null : null
   const docs = useAllObjects(DOC_FILTER, { enabled: !dirId })
@@ -49,6 +53,8 @@ export default function Page() {
   const tagList = useTags()
   const files = useLocalDirFiles(dir?.id ?? null)
   const types = useObjectTypes()
+  const projects = useProjects()
+  const navigate = useNavigate()
   const notify = useNotifyChange()
   const star = useSetStarred()
   const unmount = useUnmountLocalDir()
@@ -77,7 +83,7 @@ export default function Page() {
 
   // 换工作目录：筛选、搜索、当前阅读一起清空（SPEC-library-1.8）
   const switchWs = useCallback((w: Workspace) => {
-    setKind(''); setTags([]); setQ(''); setDirError('')
+    setKind(''); setTags([]); setProject(''); setQ(''); setDirError('')
     update({ dir: w === BUILTIN ? null : w.slice(4), doc: null, edit: null })
   }, [update])
 
@@ -102,7 +108,7 @@ export default function Page() {
   // 保存后先把列表读回来再切回阅读，免得新建的这篇还没进列表就被「落到第一条」顶掉
   const saved = (id: string) => {
     setDirty(false)
-    if (creating) { setKind(''); setTags([]); setQ('') }
+    if (creating) { setKind(''); setTags([]); setProject(''); setQ('') }
     void docs.refetch().finally(() => update({ doc: id, edit: null }))
   }
 
@@ -118,6 +124,18 @@ export default function Page() {
       .sort((a, b) => (order.get(a[0]) ?? 1e9) - (order.get(b[0]) ?? 1e9) || a[0].localeCompare(b[0]))
       .map(([t, c]) => ({ value: t, label: t, hint: `${c} 篇` }))
   }, [dir, model.docs, tagList.data])
+
+  const projectList = useMemo(() => (projects.data?.data ?? []).map((p) => ({ id: p.id, title: p.title })), [projects.data])
+  // 没有项目、也没有文档挂在项目上（比如没开项目模块）时不显示下拉
+  const projectOpts = useMemo(
+    () => (dir || (!projectList.length && !model.docs.some((d) => d.project)) ? [] : projectOptions(model.docs, projectList)),
+    [dir, projectList, model.docs],
+  )
+  // 阅读区的所属项目：项目列表还没读到时先当作在；读到了不在就是进了回收站，不给跳
+  const projectOf = useCallback((id: string) => {
+    const p = projects.data?.data.find((x) => x.id === id)
+    return p ? { name: p.title, live: true } : { name: '', live: !projects.data }
+  }, [projects.data])
 
   const source = dir ? files : docs
   let status = null
@@ -151,6 +169,7 @@ export default function Page() {
   return (
     <div className="docs-mod" data-lib={mode}>
       <LibraryBar model={model} kind={kind} onKind={setKind} tags={tags} onTags={setTags} tagOptions={tagOptions}
+        project={project} onProject={setProject} projectOptions={projectOpts}
         onRefresh={() => void notify({ kind: 'local-dir' })} refreshing={files.isFetching}
         readAt={files.dataUpdatedAt ? timeAgo(files.dataUpdatedAt) : ''}
         onNew={() => guard(() => update({ edit: 'new' }))} creating={creating} />
@@ -166,7 +185,8 @@ export default function Page() {
       ) : (
         <LibraryReader model={model} current={current} statusLabel={statusLabel} catName={catName}
           onBack={() => update({ doc: null })} onStar={(d) => star.mutate({ id: d.id, on: !d.starred })} starring={star.isPending}
-          onEdit={(d) => update({ doc: d.id, edit: '1' })} />
+          onEdit={(d) => update({ doc: d.id, edit: '1' })} projectOf={projectOf}
+          onProject={(id) => void navigate(`${PROJECTS}/${encodeURIComponent(id)}/docs`)} />
       )}
       <ConfirmDialog open={!!leaving} title="有没保存的改动" confirmLabel="丢掉改动" cancelLabel="接着写" danger
         onCancel={() => setLeaving(null)}

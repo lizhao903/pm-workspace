@@ -1,19 +1,39 @@
 // 设置里的「枚举值」（ALIGN-14），照原型 web-next/src/enums.tsx EnumsPage（SPEC-settings-17）。
 // 左边按模块分组的字典，右边选中字典的值；改动攒在草稿里，保存时按差异写 /api/dictionaries 的接口。
 // 后端没有建字典、删字典、合并数据的接口：「新建枚举」置灰，被用过的值不能删，只能停用。
+// 任务状态、文档分类不是字典，读写各自的接口（PR-13）；当前工作台没开的模块整组不显示。
 import { Fragment, useEffect, useMemo, useState } from 'react'
-import { errorText, useDictionaries, useDictItemsAll, useSaveDictItems } from '../../../core/data'
+import {
+  errorText, useCategoryTree, useCounts, useDictionaries, useDictItemsAll, useObjectTypes, useSaveDictItems, useWorkspaces, type EnumTarget,
+} from '../../../core/data'
+import { resolveCurrent, useCurrentWorkspaceId } from '../../../core/shell/workspace'
 import { Button, cls, ErrorState, IconButton, IconSearch, LoadingState, PageTitle, Switch } from '../../../core/ui'
-import { ENUM_COLORS, FIXED, MANY, matchGroup, MODULES, newItem, planEmpty, sameGroup, savePlan, toGroup, validate, type EnumGroup, type EnumItem } from './model'
+import {
+  categoryGroup, ENUM_COLORS, FIXED, MANY, matchGroup, moduleShown, MODULES, newItem, planEmpty, sameGroup, savePlan, statusGroup, toGroup, validate,
+  type EnumGroup, type EnumItem,
+} from './model'
 import './enums.css'
 
 export function EnumsSection() {
   const dq = useDictionaries()
   const dicts = useMemo(() => dq.data ?? [], [dq.data])
   const iq = useDictItemsAll(dicts.map((d) => d.id))
-  const failed = dq.error ?? iq.find((q) => q.error)?.error
-  const ready = !!dq.data && iq.every((q) => q.data)
-  const groups = ready ? dicts.map((d, n) => toGroup(d, iq[n].data!)) : []
+  const tq = useObjectTypes()
+  const cq = useCounts()
+  const catq = useCategoryTree('doc')
+  const wq = useWorkspaces()
+  const wsId = useCurrentWorkspaceId()
+  const failed = dq.error ?? iq.find((q) => q.error)?.error ?? tq.error ?? cq.error ?? catq.error
+  const ready = !!dq.data && iq.every((q) => q.data) && !!tq.data && !!cq.data && !!catq.data
+  // 工作台列表没拉到时不筛，全部显示
+  const menu = resolveCurrent(wq.data, wsId)?.modules
+  const task = tq.data?.find((t) => t.id === 'task')
+  const all = ready ? [
+    ...(task ? [statusGroup(task, cq.data!.by_status)] : []),
+    ...dicts.map((d, n) => toGroup(d, iq[n].data!)),
+    ...(tq.data!.some((t) => t.id === 'doc') ? [categoryGroup('doc', catq.data!)] : []),
+  ] : []
+  const groups = all.filter((g) => moduleShown(g.module, menu))
 
   const [active, setActive] = useState('')
   const [q, setQ] = useState('')
@@ -151,7 +171,7 @@ function GroupEditor({ group, onDirty, leaving, onStay, onLeave }: {
     setD({ ...d, items: [...d.items, newItem(d)] })
   }
   const askRemove = (i: EnumItem) => {
-    if (!i.usage || isNew(i)) {
+    if ((!i.usage && !Number(i.meta.children ?? 0)) || isNew(i)) {
       setD({ ...d, items: d.items.filter((x) => x.key !== i.key), default_key: d.default_key === i.key ? undefined : d.default_key })
       if (removing === i.key) setRemoving(null)
       return
@@ -159,6 +179,7 @@ function GroupEditor({ group, onDirty, leaving, onStay, onLeave }: {
     setRemoving(i.key)
   }
   const removingItem = d.items.find((i) => i.key === removing)
+  const removingKids = removingItem ? Number(removingItem.meta.children ?? 0) : 0
   const reset = () => { setD(group); setTried(false); setSaveErr(''); setRemoving(null) }
   const submit = async () => {
     setTried(true)
@@ -168,7 +189,7 @@ function GroupEditor({ group, onDirty, leaving, onStay, onLeave }: {
     if (planEmpty(plan)) return
     setFollow(true)
     try {
-      await save.mutateAsync({ plan, current: group.items.flatMap((i) => (i.id ? [{ key: i.key, id: i.id }] : [])) })
+      await save.mutateAsync({ plan, current: group.items.flatMap((i) => (i.id ? [{ key: i.key, id: i.id }] : [])), target: targetOf(group) })
       setTried(false)
       setSaved(true)
     } catch (e) {
@@ -235,12 +256,12 @@ function GroupEditor({ group, onDirty, leaving, onStay, onLeave }: {
                 <span><input className="en-desc" value={i.desc} placeholder="说明（可选）" aria-label="说明" onChange={(e) => patch(i.key, { desc: e.target.value })} /></span>
                 <span className="en-used">{i.usage === undefined || isNew(i) ? '' : `${i.usage} 条`}</span>
                 <span>
-                  <input type="radio" name={`def-${group.key}`} aria-label="默认" checked={d.default_key === i.key} disabled={!i.enabled}
-                    onChange={() => setD({ ...d, default_key: i.key })} title="新建时默认选这个" />
+                  <input type="radio" name={`def-${group.key}`} aria-label="默认" checked={d.default_key === i.key} disabled={!i.enabled || !!group.defaultHint}
+                    onChange={() => setD({ ...d, default_key: i.key })} title={group.defaultHint ?? '新建时默认选这个'} />
                 </span>
                 <span>
-                  <Switch aria-label="启用" checked={i.enabled} disabled={i.locked || d.default_key === i.key}
-                    title={i.locked ? '系统值，程序逻辑依赖它，不能停用' : i.enabled ? '停用后新建和编辑时不再出现，已有数据照常显示' : '启用'}
+                  <Switch aria-label="启用" checked={i.enabled} disabled={i.locked || group.noArchive || d.default_key === i.key}
+                    title={i.locked ? '系统值，程序逻辑依赖它，不能停用' : group.noArchive ? '分类不能停用；不用了可以删除' : i.enabled ? '停用后新建和编辑时不再出现，已有数据照常显示' : '启用'}
                     onCheckedChange={(v) => patch(i.key, { enabled: v })} />
                 </span>
                 <span>
@@ -256,16 +277,22 @@ function GroupEditor({ group, onDirty, leaving, onStay, onLeave }: {
         {!showOff && off.length > 0 && <button type="button" className="en-add en-off-toggle" onClick={() => setShowOff(true)}>已停用 {off.length} 个，点开查看</button>}
         {removingItem && (
           <div className="en-merge" role="status">
-            <span>
-              「{removingItem.label || removingItem.key}」有 {removingItem.usage} 条数据在用，不能删除
-              {removingItem.enabled ? '；停用后新建和编辑时不再出现，已有数据照常显示' : '，已经停用了'}
-            </span>
-            {removingItem.enabled && (
+            {group.noArchive ? (
+              <span>
+                「{removingItem.label || removingItem.key}」{removingItem.usage ? `有 ${removingItem.usage} 条数据在用` : `下面还有 ${removingKids} 个子分类`}，不能删除；先在文档页把它们挪到别的分类
+              </span>
+            ) : (
+              <span>
+                「{removingItem.label || removingItem.key}」有 {removingItem.usage} 条数据在用，不能删除
+                {removingItem.enabled ? '；停用后新建和编辑时不再出现，已有数据照常显示' : '，已经停用了'}
+              </span>
+            )}
+            {removingItem.enabled && !group.noArchive && (
               <Button size="sm" variant="primary" disabled={d.default_key === removingItem.key}
                 title={d.default_key === removingItem.key ? '默认值不能停用，先换一个默认值' : undefined}
                 onClick={() => { patch(removingItem.key, { enabled: false }); setRemoving(null) }}>停用</Button>
             )}
-            <Button size="sm" onClick={() => setRemoving(null)}>{removingItem.enabled ? '取消' : '知道了'}</Button>
+            <Button size="sm" onClick={() => setRemoving(null)}>{removingItem.enabled && !group.noArchive ? '取消' : '知道了'}</Button>
           </div>
         )}
         <button type="button" className="en-add" disabled={fixed} title={fixed ? '这几个值由程序固定，不能加新值' : undefined} onClick={add}>加一个值</button>
@@ -294,4 +321,11 @@ function GroupEditor({ group, onDirty, leaving, onStay, onLeave }: {
       </div>
     </div>
   )
+}
+
+/** 这组枚举保存时写哪套接口 */
+function targetOf(g: EnumGroup): EnumTarget {
+  if (g.source === 'status') return { kind: 'status', typeId: g.typeId!, statuses: g.items.map((i) => ({ key: i.key, label: i.label, color: i.color, terminal: !!i.meta.terminal, description: i.desc })) }
+  if (g.source === 'category') return { kind: 'category', typeId: g.typeId! }
+  return { kind: 'dict' }
 }

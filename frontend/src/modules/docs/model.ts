@@ -14,6 +14,8 @@ export const UNCATEGORIZED = '__none'
 export const UNCATEGORIZED_LABEL = '未分类'
 /** 筛选 key：星标 */
 export const STARRED = 'starred'
+/** 项目筛选 key：不属于项目的文档 */
+export const NO_PROJECT = '__noproj'
 /** 按 Markdown 渲染的扩展名，其他按纯文本 */
 const MD_EXT = new Set(['md', 'markdown'])
 
@@ -36,6 +38,8 @@ export interface Doc {
   /** 本地文件的绝对路径，读内容用 */
   path?: string
   status?: string
+  /** 所属项目（C-04）；name 是对象上带的项目标题，项目进了回收站也还在 */
+  project?: { id: string; name: string }
 }
 
 export const charCount = (s: string) => s.replace(/[#>*`\-\s]/g, '').length
@@ -75,7 +79,7 @@ export function fromObject(o: WorkObject, cats: CategoryIndex, starred: boolean)
   return {
     id: o.id, title: o.title, body: o.body, markdown: true, kind, kindLabel: c?.name ?? o.category_name ?? UNCATEGORIZED_LABEL,
     updated: new Date(o.updated_at).getTime(), meta: o.source ? [o.source] : [], dirs: names, tags: o.tags ?? [],
-    starred, status: o.status,
+    starred, status: o.status, ...(o.project_id ? { project: { id: o.project_id, name: o.project_title ?? '' } } : {}),
   }
 }
 
@@ -95,6 +99,8 @@ export interface Filter {
   kind: string
   tags: string[]
   q: string
+  /** 项目 id，NO_PROJECT 是不属于项目，空串或不填是全部（C-04）；本地目录不用 */
+  project?: string
 }
 
 export interface LibraryModel {
@@ -120,11 +126,12 @@ function haystack(d: Doc) {
   return h
 }
 
-/** 筛选和搜索：kind 单选，标签全部都要有（和后端 tag 参数一样是 AND），关键词按空格切词每个都要命中 */
+/** 筛选和搜索：kind 单选，标签全部都要有（和后端 tag 参数一样是 AND），项目单选，关键词按空格切词每个都要命中 */
 export function filterDocs(docs: Doc[], f: Filter): Doc[] {
   const words = f.q.trim().toLowerCase().split(/\s+/).filter(Boolean)
   return docs.filter((d) => (!f.kind || (f.kind === STARRED ? d.starred : d.kind === f.kind))
     && f.tags.every((t) => d.tags.includes(t))
+    && (!f.project || (f.project === NO_PROJECT ? !d.project : d.project?.id === f.project))
     && (!words.length || words.every((w) => haystack(d).includes(w))))
 }
 
@@ -153,15 +160,33 @@ export function folderModel(dir: LocalDir, list: LocalFileList | undefined, f: F
   const docs = (list?.files ?? []).map((x) => fromLocalFile(dir, x))
   const kinds = [...new Set(docs.map((d) => d.kind))].sort()
     .map((k) => ({ key: k, label: (k || '无扩展名').toUpperCase(), count: docs.filter((d) => d.kind === k).length }))
-  return { folder: dir, title: dir.name, docs, kinds, rows: filterDocs(docs, { ...f, tags: [] }), kind: f.kind }
+  return { folder: dir, title: dir.name, docs, kinds, rows: filterDocs(docs, { ...f, tags: [], project: '' }), kind: f.kind }
+}
+
+/** 项目下拉（C-04）：在用的项目按名字排，带篇数；文档上挂着、项目已不在（回收站）的照列；最后是「不属于项目」 */
+export function projectOptions(docs: Doc[], projects: { id: string; title: string }[]): { value: string; label: string; hint: string }[] {
+  const n = new Map<string, number>()
+  let none = 0
+  for (const d of docs) {
+    if (d.project) n.set(d.project.id, (n.get(d.project.id) ?? 0) + 1)
+    else none += 1
+  }
+  const live = new Set(projects.map((p) => p.id))
+  const gone = docs.flatMap((d) => (d.project && !live.has(d.project.id) ? [d.project] : []))
+    .filter((p, i, a) => a.findIndex((x) => x.id === p.id) === i)
+    .map((p) => ({ id: p.id, title: p.name || '已删除的项目' }))
+  return [...[...projects].sort((a, b) => a.title.localeCompare(b.title)), ...gone]
+    .map((p) => ({ value: p.id, label: p.title, hint: `${n.get(p.id) ?? 0} 篇` }))
+    .concat({ value: NO_PROJECT, label: '不属于项目', hint: `${none} 篇` })
 }
 
 /** 内容树为空时说清是哪种空：搜不到、一篇都没有、这个分类下没有、筛选后没有 */
 export function emptyText(model: LibraryModel, f: Filter): string {
   if (f.q.trim()) return '没有匹配的内容'
   if (!model.docs.length) return model.folder ? '这个目录下没有可读的文本文件' : '还没有文档'
-  if (model.kind === STARRED && !f.tags.length) return '还没有加星标的文档'
-  if (model.kind && !model.folder && !f.tags.length) return '这个分类下还没有内容'
+  const narrowed = f.tags.length > 0 || !!(f.project && !model.folder)
+  if (model.kind === STARRED && !narrowed) return '还没有加星标的文档'
+  if (model.kind && !model.folder && !narrowed) return '这个分类下还没有内容'
   return '没有符合筛选的内容'
 }
 

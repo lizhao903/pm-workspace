@@ -53,6 +53,35 @@ const sections = () => screen.getAllByRole('rowheader').map((h) => h.textContent
 afterEach(() => vi.unstubAllGlobals())
 
 describe('联系人列表', () => {
+  it('没联系过的人多于一半时默认按姓名排，选了「最近联系」就按选的', async () => {
+    const today = new Date().toISOString()
+    fakeBackend([ct({ name: '周岚' }), ct({ name: 'Bob' }), ct({ name: '许知行', last_contact_at: today })])
+    mount()
+    await screen.findByText('周岚')
+    expect(screen.getByRole('combobox', { name: /排序/ })).toHaveValue('name')
+    expect(screen.getByText('客户、合作伙伴、同事和供应商，按姓名排序')).toBeInTheDocument()
+    expect(sections()).toEqual(['B', 'X', 'Z'])
+    await userEvent.selectOptions(screen.getByRole('combobox', { name: /排序/ }), 'recent')
+    expect(sections()).toEqual(['今天', '未联系'])
+    expect(rowNames()).toEqual(['许知行', '周岚', 'Bob'])
+  })
+
+  it('搜索覆盖备注和角色，多个词可以分别命中不同字段', async () => {
+    fakeBackend([
+      ct({ name: '常乐', company: 'Northstar', tags: ['Octok'], note: 'Octok：fleetent 团队负责人\n别名：Randy、乐哥' }),
+      ct({ name: 'Abby Chua', role: '产品 / 文案，XAUE 信用卡运营执行' }),
+      ct({ name: '周岚', company: 'XAUE' }),
+    ])
+    mount()
+    await screen.findByText('常乐')
+    const box = screen.getByRole('searchbox', { name: '搜索联系人' })
+    for (const [q, want] of [['Randy', ['常乐']], ['fleetent', ['常乐']], ['XAUE 信用卡', ['Abby Chua']], ['northstar 乐哥', ['常乐']]] as const) {
+      await userEvent.clear(box)
+      await userEvent.type(box, q)
+      expect(rowNames(), q).toEqual(want)
+    }
+  })
+
   it('按姓名排序时中文名按拼音首字母分段，和英文名混排，对不上的归到 #', async () => {
     fakeBackend(['张伟', 'Alice', '曾国强', '单雄', '李娜', '123'].map((name) => ct({ name })))
     mount()
@@ -63,12 +92,12 @@ describe('联系人列表', () => {
     expect(rowNames()).toEqual(['Alice', '李娜', '单雄', '曾国强', '张伟', '123'])
   })
 
-  it('默认按最近联系分段；搜索、分组、星标筛选，没结果时有提示', async () => {
+  it('联系过的人不少于一半时默认按最近联系分段；搜索、分组、星标筛选，没结果时有提示', async () => {
     const today = new Date().toISOString()
     fakeBackend([
       ct({ name: '许知行', company: '远川科技', phone: '137 2233 4405', group: '客户', last_contact_at: today, starred: true }),
       ct({ name: '周岚', group: '同事' }),
-      ct({ name: 'Bob', group: '' }),
+      ct({ name: 'Bob', group: '', last_contact_at: today }),
       ct({ name: '常乐', group: '客户、同事' }),
     ])
     mount()
@@ -138,7 +167,8 @@ describe('联系人列表', () => {
     await userEvent.click(screen.getByRole('button', { name: /显示更多\s*还有 50 人/ }))
     expect(rowNames()).toHaveLength(250)
     expect(screen.queryByRole('button', { name: /显示更多/ })).not.toBeInTheDocument()
-    await userEvent.selectOptions(screen.getByRole('combobox', { name: /排序/ }), 'name')
+    // 全员没联系过，默认按姓名；换成最近联系也回到前 100 行
+    await userEvent.selectOptions(screen.getByRole('combobox', { name: /排序/ }), 'recent')
     expect(rowNames()).toHaveLength(100)
     // 展开后搜一下再清空，也回到前 100 行，不恢复成之前展开的
     await userEvent.click(screen.getByRole('button', { name: /显示更多/ }))
@@ -147,7 +177,7 @@ describe('联系人列表', () => {
     await userEvent.click(screen.getByRole('button', { name: '清空' }))
     expect(rowNames()).toHaveLength(100)
     // 分段人数算的是全部，不只是已渲染的
-    expect(screen.getByRole('row', { name: /^C\s*250$/ })).toBeInTheDocument()
+    expect(screen.getByRole('row', { name: /^未联系\s*250$/ })).toBeInTheDocument()
   })
 
   it('地址里的联系人不在了：抽屉说已删除', async () => {

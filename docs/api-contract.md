@@ -61,6 +61,8 @@
 | GET | `/api/object-types` | 返回 `ObjectType[]`，按 sort_order |
 | POST | `/api/object-types` | `{id,name,plural,ref_prefix,icon,color,sort_order,statuses}`，id 为小写英文短名 |
 | PATCH | `/api/object-types/{id}` | `ObjectTypePatch`，builtin 类型仅允许改 icon/color/sort_order/statuses |
+
+状态 `{key,label,color,terminal,description?}`：`description` 是给人看的说明（PR-13，设置的枚举值页里改），可省，空时不返回；0041 给任务的待验收、受阻、已完成、已取消补了说明。
 | DELETE | `/api/object-types/{id}` | builtin 返回 403；下挂对象非空返回 409 |
 
 ## 分类 categories
@@ -338,6 +340,19 @@
 | DELETE | `/api/dict-items/{id}` | 仅在无引用时允许，有引用返回 409 |
 | GET | `/api/dict-items/{id}/usage` | 引用计数，删除前的确认依据 |
 | POST | `/api/dictionaries/{id}/items/reorder` | `{type_id?, ids: string[]}` |
+
+内置字典和 `usage` 的统计口径（没登记的字典 `usage` 恒为 0）：
+
+| 字典 | 来源 | 落在 | `usage` |
+|---|---|---|---|
+| `priority` | 0005 | `objects.priority` | 没删的对象数 |
+| `link_relation` | 0005 | `links.relation` | 关联数 |
+| `artifact_platform` | 0012 | `artifacts.platform` | 产物数 |
+| `artifact_kind` | 0031 | `artifacts.kind` | 产物数 |
+| `contact_group` | 0041 | `stakeholders.contact_group` | 联系人数（含已归档）。分组按「、」（也认逗号、斜杠、分号）拆开各算一次，没填的算 `其他`；key 就是显示名，内置客户、合作伙伴、同事、供应商、其他（默认） |
+| `msg_status` | 0041 | im 插件的 `im_messages.status` | 消息数；im 插件没装（表不存在）时为 0。`pending`（默认）、`done`、`ignored` 由表的约束定死 |
+
+任务状态（对象类型的 `statuses`）和文档分类（`/api/categories`）不进字典表，设置的枚举值页直接读写它们各自的接口。
 
 ## 干系人名册 stakeholders
 

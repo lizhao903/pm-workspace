@@ -130,6 +130,17 @@
 .conv-page .run-muted { color: var(--muted); font-size: var(--fs-sm); }
 .output-row { display: grid; align-items: center; grid-template-columns: 64px minmax(200px, 1.6fr) minmax(120px, 0.8fr) minmax(160px, 1fr) 90px; gap: var(--sp-6); min-height: 50px; padding: var(--sp-4) var(--sp-8); border-bottom: 1px solid var(--line); }
 .output-row:last-child { border-bottom: 0; }
+/* 合并的提交（B-08）：一组一条分隔线，展开后下面列涉及的任务 */
+.output-item { border-bottom: 1px solid var(--line); }
+.output-item:last-of-type { border-bottom: 0; }
+.output-item > .output-row { border-bottom: 0; }
+.output-item.open > .output-row { background: var(--panel-2); }
+.output-sha { font-size: var(--fs-xs); color: var(--muted); margin-right: var(--sp-2); }
+.output-expand { max-width: 100%; text-align: left; }
+.output-objs { list-style: none; margin: 0; padding: 0 var(--sp-8) var(--sp-4) calc(64px + var(--sp-8) + var(--sp-6)); display: grid; gap: 2px; background: var(--panel-2); }
+.output-objs li { display: flex; gap: var(--sp-4); align-items: baseline; min-width: 0; font-size: var(--fs-sm); }
+.output-objs li > :first-child { flex-shrink: 0; white-space: nowrap; }
+.output-objs li > .ellipsis { min-width: 0; }
 .output-row:not(.task-th):hover { background: var(--panel-2); }
 .output-row > * { min-width: 0; }
 .output-title { display: flex; align-items: center; gap: var(--sp-4); min-width: 0; }
@@ -148,6 +159,7 @@
   .output-row > :nth-child(1) { grid-column: 1; grid-row: 1 / span 2; }
   .output-row > :nth-child(2) { grid-column: 2; grid-row: 1; }
   .output-row > :nth-child(5) { grid-column: 3; grid-row: 1 / span 2; }
+  .output-objs { padding-left: calc(56px + var(--sp-8) + var(--sp-6)); }
 }
 
 @media (max-width: 760px) {

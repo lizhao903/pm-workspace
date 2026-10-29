@@ -4,7 +4,9 @@
 // /tasks/source/<来源> 来源视图（SPEC-tasks-3），/tasks/webhooks Webhook 接入、/tasks/webhooks/<id|new> 配置页（SPEC-tasks-9、10，TASK-04b）。
 import { useEffect, useState } from 'react'
 import { Navigate, useLocation, useNavigate, useParams, useSearchParams } from 'react-router'
-import { useApprove, useDictItems, useLastDeliveries, useObject, useObjectTypes, useSetStatus, useWebhooks, type WorkObject } from '../../core/data'
+import {
+  useApprove, useDictItems, useLastDeliveries, useObject, useObjectTypes, useSetStatus, useStakeholders, useWebhooks, type WorkObject,
+} from '../../core/data'
 import { Button, ErrorState, InSubnavHost, LoadingState, Subnav, type SubnavItem } from '../../core/ui'
 import { timeAgo } from './model'
 import { useProjectOptions, useSourceCounts, useTaskCounts, useTaskList } from './queries'
@@ -94,7 +96,9 @@ export default function Page() {
   const projects = useProjectOptions()
   const counts = useTaskCounts()
   const sourceCounts = useSourceCounts()
-  const list = useTaskList({ q, overdue: view === 'overdue', source: view && isSourceKind(view) ? SOURCE_VIEW[view].filter : undefined })
+  // 搜索在拉全的列表上本地匹配（要搜负责人名，后端 q 不管负责人），不传 q
+  const list = useTaskList({ overdue: view === 'overdue', source: view && isSourceKind(view) ? SOURCE_VIEW[view].filter : undefined })
+  const people = useStakeholders()
   const hooks = useWebhooks()
   const hookList = hooks.data ?? []
   const lastDeliveries = useLastDeliveries(hookList.map((h) => h.id), LAST_DELIVERY_POLL_MS)
@@ -148,7 +152,7 @@ export default function Page() {
     const sel = opened?.kind === 'task' ? opened.task.id : null
     main = (
       <TaskList
-        // 换视图时折叠、多露条数、优先级和项目筛选都重新来：逾期视图只有一段，沿用全部任务里的折叠会整页空掉
+        // 换视图时折叠、多露条数、优先级、项目、负责人筛选和排序都重新来：逾期视图只有一段，沿用全部任务里的折叠会整页空掉
         key={view}
         view={view}
         tasks={list.data?.data ?? []}
@@ -158,6 +162,7 @@ export default function Page() {
         statuses={statuses}
         priorities={prios.data ?? []}
         projects={(projects.data?.data ?? []).map((p) => ({ id: p.id, title: p.title }))}
+        people={people.data ?? []}
         onToggleDone={toggleDone}
         status={status}
         onStatus={setStatus}

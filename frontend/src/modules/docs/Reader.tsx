@@ -1,6 +1,7 @@
 // 阅读区（SPEC-library-1.15 到 1.24）：工具条（类型、路径、目录下拉、字号、复制、星标）、标题、元信息、标签、正文、右侧目录。
 // 写法照原型 library.tsx 的 LibraryReader。本地文件打开时才读内容（/api/fs/read）。
 // 工作台文档多「编辑」「修订」（SPEC-library-1.41、1.47）；本地文件只读，没有这两个。
+// 归到项目的工作台文档，工具条上显示所属项目，点了去项目的文档标签（SPEC-library-1.52，C-04）。
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { errorText, isApiError, useLocalFile, type LocalFile } from '../../core/data'
 import { Button, cls, Markdown, mdHeadings, Tag } from '../../core/ui'
@@ -34,7 +35,7 @@ function fileError(e: unknown): string {
   return `读取失败：${errorText(e)}`
 }
 
-export function LibraryReader({ model, current, statusLabel, catName, onBack, onStar, starring, onEdit }: {
+export function LibraryReader({ model, current, statusLabel, catName, onBack, onStar, starring, onEdit, projectOf, onProject }: {
   model: LibraryModel
   current: Doc | null
   /** 工作台文档的状态显示名，从对象类型读 */
@@ -45,6 +46,9 @@ export function LibraryReader({ model, current, statusLabel, catName, onBack, on
   onStar: (doc: Doc) => void
   starring: boolean
   onEdit: (doc: Doc) => void
+  /** 项目当前的名字、还在不在（进了回收站就不在） */
+  projectOf: (id: string) => { name: string; live: boolean }
+  onProject: (id: string) => void
 }) {
   const { rows, folder } = model
   const [size, setSize] = useState<FontSize>(readSize)
@@ -113,6 +117,7 @@ export function LibraryReader({ model, current, statusLabel, catName, onBack, on
           <div className="reader-toolbar">
             <span className="lib-cat">{current.kindLabel}</span>
             {current.status && <span className="lib-cat">{statusLabel(current.status)}</span>}
+            {current.project && <ProjectChip project={current.project} of={projectOf} onOpen={onProject} />}
             {current.dirs.length > 0 && (folder || current.dirs.length > 1) && (
               <span className="reader-crumb ellipsis" title={current.dirs.join(' / ')}>{current.dirs.join(' / ')}</span>
             )}
@@ -174,5 +179,22 @@ export function LibraryReader({ model, current, statusLabel, catName, onBack, on
         )}
       </div>
     </div>
+  )
+}
+
+/** 所属项目：项目还在就是按钮，去项目的文档标签；不在了显示原名并注明 */
+function ProjectChip({ project, of, onOpen }: {
+  project: { id: string; name: string }
+  of: (id: string) => { name: string; live: boolean }
+  onOpen: (id: string) => void
+}) {
+  const p = of(project.id)
+  const name = p.name || project.name || '已删除的项目'
+  if (!p.live) return <span className="lib-cat lib-proj lib-proj-gone" title="所属项目已经不在了">{name}（已删除）</span>
+  return (
+    <button type="button" className="lib-cat lib-proj" onClick={() => onOpen(project.id)} title={`去项目「${name}」的文档`}>
+      <svg viewBox="0 0 16 16" width="11" height="11" aria-hidden="true"><path d="M2 4.5c0-.6.4-1 1-1h3l1.3 1.4H13c.6 0 1 .4 1 1V12c0 .6-.4 1-1 1H3c-.6 0-1-.4-1-1Z" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" /></svg>
+      {name}
+    </button>
   )
 }

@@ -19,3 +19,17 @@
 .rv-sub, .rv-hint { font-size: var(--fs-xs); color: var(--faint); }
 .rv-form { display: flex; flex-direction: column; gap: var(--sp-3); }
 .rv-acts { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-3); }
+.rv-text { min-width: 0; max-height: 420px; overflow: auto; padding: var(--sp-3) var(--sp-4); border-radius: var(--r-sm); background: var(--panel); word-break: break-word; }
+.rv-text .md > :first-child { margin-top: 0; }
+.rv-refs { display: flex; align-items: baseline; gap: var(--sp-3); min-width: 0; }
+.rv-refs-label { flex: none; font-size: var(--fs-xs); color: var(--faint); }
+.rv-refs .tags { min-width: 0; }
+.rv-mono { font-family: var(--mono); }
+.rv-checks { display: flex; flex-direction: column; gap: var(--sp-2); }
+.rv-checks .check { align-items: flex-start; color: var(--text); font-size: var(--fs-sm); line-height: 1.5; }
+.rv-checks .check input { margin-top: 3px; flex: none; }
+.rv-title { font-size: var(--fs-lg); font-weight: 600; line-height: 1.4; word-break: break-word; }
+.rv-edit { display: flex; flex-direction: column; gap: var(--sp-5); padding-top: var(--sp-4); border-top: 1px solid var(--line); }
+.rv-edit-toggle { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px var(--sp-4); padding: 0; background: none; text-align: left; }
+.rv-edit-toggle:hover .field-group-title { color: var(--accent); }
+.rv-edit-caret { width: 12px; font-family: var(--mono); color: var(--faint); }

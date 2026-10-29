@@ -10,7 +10,7 @@ import { ContactView } from './ContactView'
 import { GroupPills, IconPlus, ImBadges, Star } from './parts'
 import {
   DEFAULT_GROUP, IM_CHANNELS, PAGE, ago, applyFilter, blankDraft, draftOf, groupItems, groupsOf, groupView, hasImField, sectionCounts,
-  sectionOf, toRows, mergeIm, type Sort,
+  defaultSort, sectionOf, toRows, mergeIm, type Sort,
 } from './model'
 import './contacts.css'
 
@@ -28,7 +28,8 @@ export default function Page() {
   const [group, setGroup] = useState<string | null>(null)
   const [starredOnly, setStarredOnly] = useState(false)
   const [channel, setChannel] = useState('')
-  const [sort, setSort] = useState<Sort>('recent')
+  // 没选过排序时按数据定默认值（E-03），选过就用选的
+  const [pickedSort, setSort] = useState<Sort | null>(null)
 
   const setOpen = useCallback((id: string | null) => {
     // 换人或关掉都回到查看态
@@ -46,6 +47,7 @@ export default function Page() {
   const list = useMemo(() => mergeIm(contacts.data ?? [], byContact), [contacts.data, byContact])
   const items = useMemo(() => groupItems(dicts.data), [dicts.data])
   const all = useMemo(() => toRows(list), [list])
+  const sort = pickedSort ?? defaultSort(list)
   const rows = useMemo(() => applyFilter(all, { q: dq, group, starredOnly, channel, sort }), [all, dq, group, starredOnly, channel, sort])
   const counts = useMemo(() => sectionCounts(rows, sort), [rows, sort])
   const gv = useMemo(() => groupView(items, list), [items, list])
@@ -62,7 +64,7 @@ export default function Page() {
 
   const nameOf = (id: string) => list.find((c) => c.id === id)?.name ?? '另一个联系人'
   const title = (
-    <PageTitle count={contacts.data ? list.length : undefined} desc="客户、合作伙伴、同事和供应商，按最近联系排序"
+    <PageTitle count={contacts.data ? list.length : undefined} desc={`客户、合作伙伴、同事和供应商，按${sort === 'name' ? '姓名' : '最近联系'}排序`}
       actions={<Button variant="primary" size="sm" onClick={() => setForm('create')}><IconPlus />新建联系人</Button>}>联系人</PageTitle>
   )
   if (contacts.isPending) return <div className="ct-page">{title}<LoadingState /></div>
@@ -81,7 +83,7 @@ export default function Page() {
       <div className="toolbar ct-toolbar">
         <div className="search">
           <IconSearch />
-          <input type="search" placeholder="搜索姓名、公司、电话、邮箱、IM 编号" aria-label="搜索联系人" value={q}
+          <input type="search" placeholder="搜索姓名、公司、备注、标签、电话、邮箱、IM 编号" aria-label="搜索联系人" value={q}
             onChange={(e) => setQ(e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Escape' && q) { e.preventDefault(); setQ('') } }} />
           {q && <button type="button" className="search-clear" aria-label="清空" title="清空" onClick={() => setQ('')}><IconClose size={10} /></button>}
