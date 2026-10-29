@@ -7,8 +7,9 @@
 .shell-subnav:empty, .shell-drawer:empty { display: none; }
 .shell-drawer { flex: none; width: var(--drawer-w); display: flex; flex-direction: column; min-height: 0; border-left: 1px solid var(--line); background: var(--panel); }
 .shell-main { flex: 1; display: flex; flex-direction: column; min-width: 0; min-height: 0; background: var(--bg); }
-/* 任务页（tasks-mod）用负外边距抵掉这层内边距，改之前先改它 */
-.shell-content { flex: 1; min-height: 0; overflow: auto; padding: var(--sp-12); }
+/* 任务页（tasks-mod）用负外边距抵掉这层内边距，改之前先改它。
+   内容区是具名容器 shell-content：抽屉停靠后内容变窄，各页用 @container shell-content 按它的宽度收列 */
+.shell-content { flex: 1; min-height: 0; overflow: auto; padding: var(--sp-12); container: shell-content / inline-size; }
 
 /* ---------- 顶栏 ---------- */
 .topbar {

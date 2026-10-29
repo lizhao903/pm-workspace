@@ -1,8 +1,9 @@
-import { useEffect, useId, useRef, useState, type ReactNode } from 'react'
+import { useContext, useEffect, useId, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { cls } from './cls'
 import { ConfirmDialog } from './ConfirmDialog'
 import { focusables, restoreFocus } from './focus'
+import { DrawerHostContext } from './hostContext'
 import { IconClose } from './icons'
 
 /** footer 可以是函数，拿到 requestClose 给自己的「取消」按钮用，这样也会走未保存确认 */
@@ -14,6 +15,8 @@ type DrawerFooter = ReactNode | ((requestClose: () => void) => ReactNode)
  * - 打开时焦点进入抽屉（正文里的 autoFocus 优先，其次第一个可聚焦元素，都没有就是抽屉本身），
  *   关闭后回到打开前的元素（一般就是触发它的按钮）。
  * - 抽屉里的弹层（SearchSelect、确认弹窗）自己吃掉的 Esc 不会关抽屉。
+ * - 在外壳里时送进外壳的抽屉位置：宽屏停靠在内容右边、内容跟着收窄，1100px 以下浮在内容上面；
+ *   外壳外（单独演示）挂在 body 上浮着。
  */
 export function Drawer(props: {
   open: boolean
@@ -43,6 +46,7 @@ function DrawerPanel({ onClose, kicker, headActions, dirty, dirtyMessage, classN
   // 渲染时就记下打开前的焦点：正文里的 autoFocus 在 effect 之前就会抢走焦点
   const [prev] = useState(() => document.activeElement)
   const id = useId()
+  const host = useContext(DrawerHostContext)
 
   const requestClose = () => {
     if (dirty) setConfirming(true)
@@ -94,6 +98,6 @@ function DrawerPanel({ onClose, kicker, headActions, dirty, dirtyMessage, classN
         {dirtyMessage ?? '关闭后，这次填写的内容不会保存。'}
       </ConfirmDialog>
     </>,
-    document.body,
+    host ?? document.body,
   )
 }

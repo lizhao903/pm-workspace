@@ -511,7 +511,73 @@ type AgentSession struct {
 	CreatedAt  time.Time `json:"created_at"`
 	UpdatedAt  time.Time `json:"updated_at"`
 
+	// AgentID 为 nil 表示不挂 Agent 的会话（0032 之前的都是）。建的时候定下，之后不改。
+	AgentID *string `json:"agent_id"`
+	// AgentDeleted：挂了 Agent 但 Agent 已删除，会话照常能看、不能再发消息。
+	AgentDeleted bool `json:"agent_deleted"`
+
 	MessageCount int `json:"message_count"`
+}
+
+// ---- Agent 配置（AG-01b1，0032）----
+
+// Agent 是一个工作助手，字段对齐原型 web-next/src/agentdata.ts 的 Agent；
+// 工具权限 abilities 归 AG-02a，不在这里。模型带服务商：ProviderID + Model。
+type Agent struct {
+	ID           string         `json:"id"`
+	Name         string         `json:"name"`
+	Desc         string         `json:"desc"`
+	Color        string         `json:"color"`
+	Avatar       AgentAvatar    `json:"avatar"`
+	ProviderID   string         `json:"provider_id"`
+	Model        string         `json:"model"`
+	Instructions string         `json:"instructions"`
+	Skills       []string       `json:"skills"`
+	MCPs         []string       `json:"mcps"`
+	KBs          []string       `json:"kbs"`
+	Triggers     []AgentTrigger `json:"triggers"`
+	Enabled      bool           `json:"enabled"`
+	CreatedAt    time.Time      `json:"created_at"`
+	UpdatedAt    time.Time      `json:"updated_at"`
+}
+
+// AgentAvatar 对应原型 AgentAvatarConf：Kind 为 text / icon / image，image 的 Value 是 data URL。
+type AgentAvatar struct {
+	Kind  string `json:"kind"`
+	Value string `json:"value"`
+}
+
+// AgentTrigger 对应原型 AgentTrigger：Kind 为 manual / im / schedule / task，Detail 是条件。
+type AgentTrigger struct {
+	Kind   string `json:"kind"`
+	Detail string `json:"detail"`
+}
+
+const (
+	AvatarText  = "text"
+	AvatarIcon  = "icon"
+	AvatarImage = "image"
+
+	TriggerManual   = "manual"
+	TriggerIM       = "im"
+	TriggerSchedule = "schedule"
+	TriggerTask     = "task"
+)
+
+// AgentInput 是建和改共用的入参，指针语义：nil 不改（建时取默认值）。
+type AgentInput struct {
+	Name         *string         `json:"name"`
+	Desc         *string         `json:"desc"`
+	Color        *string         `json:"color"`
+	Avatar       *AgentAvatar    `json:"avatar"`
+	ProviderID   *string         `json:"provider_id"`
+	Model        *string         `json:"model"`
+	Instructions *string         `json:"instructions"`
+	Skills       *[]string       `json:"skills"`
+	MCPs         *[]string       `json:"mcps"`
+	KBs          *[]string       `json:"kbs"`
+	Triggers     *[]AgentTrigger `json:"triggers"`
+	Enabled      *bool           `json:"enabled"`
 }
 
 // AgentSessionFilter 决定列出哪一批会话。

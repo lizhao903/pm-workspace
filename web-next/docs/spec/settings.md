@@ -1511,6 +1511,26 @@ store（原型）：`{ docs: KbDoc[]; settings: KbSettings[]; busy: string[] }`�
 | 改动 | 项目 | 启用、自动分配 | 原型卡片显示域名 | `SPEC-projects-12` |
 | 进来 | 项目 | 删除项目 | 指向它原型的手动域名一起删 | `SPEC-projects-13.11` |
 
+### 正式版补充（DOM-01a 到 DOM-02b）
+
+PROTO-04f2 复核时补的：原型里没有、但 DOM-01a 到 DOM-02b 要做的部分。复核结论见 `SPEC-browser` 文末「联动：内网域名（SPEC-settings-20 复核）」。原型不跟着加，截图暂缺。总原则：插件不写任何系统文件、不执行 sudo，只读检测和生成命令，要改系统的步骤由用户自己执行。
+
+| 编号 | 元素 / 场景 | 操作 | 结果 |
+|---|---|---|---|
+| SPEC-settings-20.29 | 真实状态区（DOM-01b） | 看、点击 | 放在「域名后缀」上面，标题「本机状态」+「重新检测」；数据来自 `GET /api/domains/status`。每项一行：名称、状态（正常 / 有问题 / 没检测到）、一句说明；有问题的行下面写怎么修，带可复制的命令（多半要 sudo）。进分节时检测一次，「重新检测」再测，检测中按钮写「检测中…」 |
+| SPEC-settings-20.30 | 状态项：hosts | 看 | 每个启用的域名一行（工作台自己的域名也算）：`/etc/hosts` 里有没有指到本机（开了局域网访问时指到 `lan_ip`）。没有或指错写「hosts 里没有 <域名>」/「<域名> 指到了 <IP>」，修法给要追加的行和 `sudo` 命令；解析方式不是 hosts 时这几行不出，改成检测「<后缀> 能不能解析到本机」 |
+| SPEC-settings-20.31 | 状态项：端口转发和可达 | 看 | 三行。pf anchor：`/etc/pf.anchors/broleez-local` 在不在、80 和 443 的 `rdr` 规则是不是转到工作台的明文口和 TLS 口（规则见 `docs/local-domain.md`）；开机自启：`/Library/LaunchDaemons/vip.broleez.pf.plist` 在不在（没有重启后域名会失效）；可达：带 Host 头请求 `127.0.0.1:80`、`127.0.0.1:443` 能不能回到本服务。修法给 `sudo ./scripts/setup-local-domain.sh`（带当前端口的 `PORT`、`TLS_PORT`） |
+| SPEC-settings-20.32 | 状态项：证书 | 看 | HTTPS 打开时才出。根证书：`mkcert -CAROOT` 下的根证书在不在、在不在系统钥匙串里受信任（没装修法给 `mkcert -install`）；站点证书：`certs/` 下证书的 SAN 覆盖了哪些启用的域名、哪天到期，没覆盖的域名列出来，30 天内到期标有问题，修法给带 `HOSTS` 的 `./scripts/setup-tls.sh` |
+| SPEC-settings-20.33 | 生成的配置 | 看、点击 | 在 `20.20` 基础上分段改成解析（hosts / dnsmasq 和 resolver / 路由器泛解析，按解析方式）、pf、代理（内置 / Caddy / Nginx，按代理）三段；pf 段是 anchor 文件内容。每段下面一块「要你自己执行的命令」（写文件、`pfctl` 重新加载、装证书），整块可复制。数据来自 `GET /api/domains/config?proxy=`。后缀是 `bro.vip` 时，hosts 行和 pf 规则要和 `docs/local-domain.md` 逐行一致 |
+| SPEC-settings-20.34 | 「安装证书」「移除证书」 | 点击 | 正式版插件不能真装，`20.6` 的按钮改成「怎么安装」：展开 `mkcert -install` 和签站点证书的命令；证书状态以 `20.32` 的检测为准，不由按钮切换 |
+| SPEC-settings-20.35 | 写 hosts、装证书要管理员权限 | 看 | `20.28` 的正式版口径：不尝试写，直接给命令；用户执行完点「重新检测」看结果 |
+| SPEC-settings-20.36 | 工作台自己的域名 | 看 | 现有方案是不带子域名的 `bro.vip`、`broleez.vip`，原型的完整域名只能是「<子域名>.<后缀>」。DOM-01a 开工时定：建议「这个工作台」这一条允许子域名为空（完整域名就是后缀本身），额外的别名在状态区和 hosts 片段里一起出；内置代理永远不把工作台自己的域名和 `--public-url` 交给插件 |
+| SPEC-settings-20.37 | 自动分配的原型域名（DOM-02a） | 原型启动、停止、删除 | 原型里自动分配的不存、算出来（`allRoutes`）；正式版收到项目插件的原型事件后建、删路由行（`auto` 为真），规则同 `20.11`，`auto_proto` 关掉时删掉全部自动行。内置代理按 Host 把请求转到 `127.0.0.1:<端口>`，WebSocket 升级照转；目标原型没在运行时回 502 中文说明页「<域名> 对应的原型「<名字>」没在运行，到项目里启动它」 |
+| SPEC-settings-20.38 | 在内置浏览器打开域名 | 点域名 | 同 `20.15`；正式版内网域名后缀下的主机都在浏览器白名单内，直接 iframe 加载（后缀由前端带给浏览器插件，插件之间不互读），见 `SPEC-browser-3.12` |
+| SPEC-settings-20.39 | 「测试」的正式版检查项 | 点击 | `POST /api/domains/routes/{id}/check`：在 `20.17` 的检查之外，真的解析一次域名看是不是本机（或 `lan_ip`），再带 Host 头请求一次看上游回不回；HTTPS 开着时检查站点证书是否覆盖这个域名。结果仍按域名另存，不改路由 |
+
+`GET /api/domains/status` 的返回（原型未定义类型，DOM-01a 定字段名）：每项 `key`（`hosts:<域名>`、`pf_anchor`、`pf_daemon`、`reach_80`、`reach_443`、`ca_root`、`cert:<域名>`）、`ok`、`message`、`fix`（修法说明和命令，可空）、`checked_at`；证书项多 `expires_at`、`hosts`（SAN 列表）。
+
 ## SPEC-settings-21 外观
 
 配色方案和一级菜单收起。偏好只存在这台电脑的浏览器里。

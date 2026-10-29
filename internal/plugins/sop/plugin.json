@@ -1,0 +1,31 @@
+{
+  "id": "sop",
+  "name": "SOP 编排",
+  "description": "标准工作流的编辑、节点和执行",
+  "icon": "flow",
+  "version": "0.1.0",
+  "core": ">=1.0.0 <2.0.0",
+  "depends": {},
+  "optional_depends": {},
+  "provides": {
+    "modules": ["sop"],
+    "settings": [],
+    "object_types": [],
+    "connectors": [],
+    "skills": [],
+    "agent_tools": [],
+    "sop_nodes": [],
+    "today_cards": [],
+    "commands": [],
+    "search": []
+  },
+  "emits": [],
+  "subscribes": [],
+  "adopts": {
+    "object_types": [],
+    "routes": []
+  },
+  "permissions": [],
+  "migrations": "migrations",
+  "table_prefix": "sop_"
+}

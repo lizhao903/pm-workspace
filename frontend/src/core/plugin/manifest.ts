@@ -63,9 +63,9 @@ export function formatIssue(i: ManifestIssue): string {
 
 // 内核保留字，插件 id 不能用（docs/plugin-api.md 1.4）
 export const RESERVED_IDS: readonly string[] = [
-  'api', 'admin', 'agent', 'agent_providers', 'artifacts', 'audits', 'categories', 'connectors', 'contacts', 'conversations', 'core', 'counts',
-  'dict_items', 'dictionaries', 'events', 'fs', 'health', 'hooks', 'kernel', 'library', 'links', 'notifications', 'objects', 'object_types',
-  'plugins', 'revisions', 'runs', 'schedules', 'sessions', 'settings', 'shortcut_groups', 'shortcuts', 'stakeholders',
+  'api', 'admin', 'agent', 'agent_providers', 'agents', 'artifacts', 'audits', 'categories', 'connectors', 'contacts', 'conversations', 'core', 'counts',
+  'dict_items', 'dictionaries', 'events', 'fs', 'health', 'hooks', 'kernel', 'knowledge_bases', 'library', 'links', 'notifications', 'objects', 'object_types',
+  'plugins', 'revisions', 'runs', 'schedules', 'sessions', 'settings', 'shortcut_groups', 'shortcuts', 'skills', 'stakeholders',
   'stats', 'tags', 'tasks', 'today', 'webhooks', 'workspaces',
 ]
 

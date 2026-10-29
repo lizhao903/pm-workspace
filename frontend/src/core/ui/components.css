@@ -138,6 +138,9 @@
 }
 .drawer:focus-visible { outline: 0; }
 @keyframes ui-slide-in { from { transform: translateX(16px); opacity: 0; } }
+/* 停靠在外壳的抽屉位置里：位置、宽度、边线和阴影交给外壳那一栏；同时开了两个只显示后开的那个 */
+.shell-drawer > .drawer { position: static; flex: 1; width: auto; border-left: 0; box-shadow: none; }
+.shell-drawer > .drawer:has(~ .drawer) { display: none; }
 .drawer-head { display: flex; align-items: center; gap: var(--sp-2); height: var(--top-h); padding: 0 var(--sp-6) 0 var(--sp-10); border-bottom: 1px solid var(--line); flex: none; }
 .drawer-kicker { font-size: var(--fs-sm); color: var(--faint); font-weight: 500; }
 .drawer-body { flex: 1; overflow-y: auto; padding: 22px var(--sp-10) var(--sp-12); }

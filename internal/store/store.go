@@ -164,6 +164,17 @@ type Store interface {
 	UpdateAgentSession(ctx context.Context, id string, title, workdir, providerID, model *string) (*domain.AgentSession, error)
 	DeleteAgentSession(ctx context.Context, id string) error
 
+	// Agent 配置（AG-01b1，0032）。ProviderID 必须是存在的服务商，Model 不校验是否在模型列表里；
+	// 名称、头像、触发方式等的校验和默认值在实现里，规则见 docs/api-contract.md「Agent 配置 agents」。
+	// ListAgents 新建的在前。DeleteAgent 回删掉的那条；会话不动，之后读出来 agent_deleted 为 true。
+	ListAgents(ctx context.Context) ([]*domain.Agent, error)
+	GetAgent(ctx context.Context, id string) (*domain.Agent, error)
+	CreateAgent(ctx context.Context, in domain.AgentInput) (*domain.Agent, error)
+	UpdateAgent(ctx context.Context, id string, in domain.AgentInput) (*domain.Agent, error)
+	DeleteAgent(ctx context.Context, id string) (*domain.Agent, error)
+	// CountAgentSessions 数挂在这个 Agent 上的会话，删除前的影响检查用。
+	CountAgentSessions(ctx context.Context, agentID string) (int, error)
+
 	// ListAgentMessages 返回**最近** limit 条消息，但按时间正序（最旧在前）排列，
 	// 这样前端拿到就能直接从上往下渲染。limit <= 0 表示全部。
 	// 取最早 N 条是错的：对话框要的是「最近说了什么」，而不是「这个会话最开始说了什么」。

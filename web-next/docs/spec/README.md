@@ -66,9 +66,9 @@
 | IM 消息 | `messages` | `messages.md` | [shots/messages](shots/messages) | PROTO-04d | 已整理 |
 | 项目 | `projects` | `projects.md` | [shots/projects](shots/projects) | PROTO-04d | 已整理 |
 | 设置 | `settings` | `settings.md` | [shots/settings](shots/settings) | PROTO-04e（设置的全部分节：工作台与模块、连接器、模型服务商、Agent、知识库、技能、枚举值、运行异常、内网域名、外观） | 已整理（抽屉和子页截图待 shots.py 步骤补） |
-| SOP | `sop` | `sop.md` | [shots/sop](shots/sop) | PROTO-04f | 待整理 |
-| 终端 | `terminal` | `terminal.md` | [shots/terminal](shots/terminal) | PROTO-04f | 待整理 |
-| 浏览器 | `browser` | `browser.md` | [shots/browser](shots/browser) | PROTO-04f | 待整理 |
+| SOP | `sop` | [`sop.md`](sop.md) | [shots/sop](shots/sop) | PROTO-04f1（流程库、待我处理、执行记录、流程详情、发起执行、运行页、编排页、AI 协助、18 种节点的配置项、原型模拟清单） | 已整理（发现的 6 处原型问题记在 `SPEC-sop-0`，待另开修错任务） |
+| 终端 | `terminal` | `terminal.md` | [shots/terminal](shots/terminal) | PROTO-04f2 | 已整理 |
+| 浏览器 | `browser` | `browser.md` | [shots/browser](shots/browser) | PROTO-04f2 | 已整理 |
 | 视频 | `videos` | `videos.md` | [shots/videos](shots/videos) | PROTO-04f | 待整理 |
 | 行情 | `markets` | `markets.md` | [shots/markets](shots/markets) | PROTO-04f | 待整理 |
 | 盯盘 | `monitor` | `monitor.md` | [shots/monitor](shots/monitor) | PROTO-04f | 待整理 |

@@ -63,10 +63,10 @@ var Registry = []Entry{
 	{"pt", "prototype", "projects_prototypes", "prototype"}, // 项目插件的表（PJ-04a）
 	{"ch", "projectChat", "", "projectChat"},
 	// 任务与自动化
-	{"sop", "sop", "", "sop"},
+	{"sop", "sop", "sop_flows", "sop"}, // SOP 插件的表（SOP-01a）
 	{"inc", "incident", "", "incident"},
 	// Agent 与模型
-	{"ag", "agent", "", "agent"},
+	{"ag", "agent", "agents", "agent"}, // 内核的表（AG-01b1，0032）
 	{"ar", "agentRun", "", "agentRun"},
 	{"op", "output", "", "output"},
 	{"kb", "kb", "", "kb"},
