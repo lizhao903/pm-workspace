@@ -2106,7 +2106,7 @@
     "spec": [
       "docs/proto-align.md L-02、L-03、L-04"
     ],
-    "body": "## 要做什么\n\n按 `docs/proto-align.md` 的 L-02、L-03、L-04 改，让正式前端和原型一致。\n\n## 注意事项\n\n- 逐条照 `docs/proto-align.md` 对应编号的「建议改法」做，规格编号见各条；原型 7778 对照。\n- 只在 `frontend/` 里写代码（后端改动另行说明），数据走 `frontend/src/core/data`。\n- 验收在 7796 本身看一遍（`scripts/dev-instance.sh` 重启后嵌新前端），不只看 vite dev server。",
+    "body": "## 要做什么\n\n按 `docs/proto-align.md` 的 L-02、L-03、L-04 改，让正式前端和原型一致。\n\n## 注意事项\n\n- 逐条照 `docs/proto-align.md` 对应编号的「建议改法」做，规格编号见各条；原型 7778 对照。\n- 只在 `frontend/` 里写代码（后端改动另行说明），数据走 `frontend/src/core/data`。\n- 验收在 7796 本身看一遍（`scripts/dev-instance.sh` 重启后嵌新前端），不只看 vite dev server。\n\n（第二十七批并进 ALIGN-06 一起做。）",
     "acceptance": "- [ ] L-02、L-03、L-04 逐条对照原型通过（截图看完删掉）\n- [ ] 在 7796 本身打开过\n- [ ] npm test、typecheck、lint、build、smoke-frontend 通过"
   },
   {
@@ -2252,6 +2252,46 @@
     ],
     "body": "## 要做什么\n\n按 `docs/proto-align.md` 的 T-05、F-18 改，让正式前端和原型一致。",
     "acceptance": "- [ ] 规格已补，make smoke-proto 通过"
+  },
+  {
+    "key": "PROTO-12",
+    "type": "task",
+    "title": "修原型里和规格对不上的 13 处",
+    "milestone": "M4",
+    "module": "proto",
+    "priority": "P3",
+    "estimate": "S",
+    "depends_on": [
+      "PROTO-04f1",
+      "PROTO-04f2"
+    ],
+    "workdir": "web-next",
+    "spec": [
+      "web-next/docs/spec/sop.md SPEC-sop-0.1 到 0.6",
+      "web-next/docs/spec/terminal.md 末尾 T-1 到 T-3",
+      "web-next/docs/spec/browser.md 末尾 B-1 到 B-4"
+    ],
+    "body": "## 要做什么\n\nPROTO-04f1、PROTO-04f2 写规格时记下的原型问题，逐条修原型，让原型和规格一致：SOP 6 处（手机宽度删除确认条、字段类型下拉、AI 提案撤销、流程名撤销历史、触发方式读枚举、收起 AI 面板清空对话），终端 3 处（⇧⌘D、Ctrl+C 两行、顶栏死代码），浏览器 4 处（系统浏览器打开入口、选择账号取消、嵌入提示白名单卡片、Drive 断开后状态）。\n\n## 注意事项\n\n- 原型 7778 由用户在跑，不要重启；改完跑 make smoke-proto。\n- 原型内容保持干净，不加测试数据。",
+    "acceptance": "- [ ] 13 处逐条修好，规格里对应的「原型和规格对不上」条目删掉或标已修\n- [ ] make smoke-proto 通过"
+  },
+  {
+    "key": "TERM-01c",
+    "type": "task",
+    "title": "终端在项目里打开时默认用项目根目录",
+    "milestone": "M4",
+    "module": "backend",
+    "priority": "P3",
+    "estimate": "S",
+    "depends_on": [
+      "TERM-01a"
+    ],
+    "workdir": ".",
+    "spec": [
+      "docs/api-contract.md「终端插件 terminal」",
+      "docs/plugin-api.md 内核句柄"
+    ],
+    "body": "## 要做什么\n\nTERM-01a 里 `cwd` 不传时用主目录，因为插件读不到项目的根目录。给内核对象查询句柄补 `workdir`（只加字段），终端带 `project_id` 时默认用项目根目录。\n\n## 注意事项\n\n- 改 `internal/plugin` 句柄要同步 `docs/plugin-api.md`。",
+    "acceptance": "- [ ] 带 project_id 建会话、不传 cwd 时 pwd 是项目根目录\n- [ ] gofmt、go vet、go test 通过"
   },
   {
     "key": "PROTO-04f1",
