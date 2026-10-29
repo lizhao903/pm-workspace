@@ -42,6 +42,8 @@ type Registry struct {
 
 	// objects 是插件建内核对象用的 store（IM-02a，objects_write.go），SetObjectCreator 接上
 	objects atomic.Pointer[objectCreatorBox]
+	// agent 是插件用模型和 Agent 的实现（SOP-01c，agent.go），SetAgent 接上
+	agent atomic.Pointer[agentBox]
 
 	mu      sync.Mutex // 串行化生命周期操作，也守着 entry.state
 	order   []string

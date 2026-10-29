@@ -573,12 +573,17 @@ func (tb *Toolbox) writeFile(ctx context.Context, args map[string]any) ToolResul
 	}
 
 	size := int64(len(content))
+	// 调试对话没有会话（AG-02c），产物不挂会话
+	var sid *string
+	if tb.session.ID != "" {
+		sid = &tb.session.ID
+	}
 	// 产物登记走通用的 artifacts 表：一条产物同时带上会话（出处）和对象（归属）。
 	// 只挂会话的话，用户在任务详情里看「这件事产出了什么」会是空的——
 	// 对话在对象里，产物却记在会话上，两者对不上。
 	art, err := tb.st.RecordArtifact(ctx, domain.ArtifactInput{
 		ObjectID:  tb.session.ObjectID,
-		SessionID: &tb.session.ID,
+		SessionID: sid,
 		Path:      stored,
 		BaseDir:   tb.session.Workdir,
 		Platform:  "local",
@@ -588,7 +593,7 @@ func (tb *Toolbox) writeFile(ctx context.Context, args map[string]any) ToolResul
 	if err != nil {
 		// 文件已经落盘了，索引没记上不该让用户以为写失败——降级成一条没有 id 的记录。
 		art = &domain.Artifact{
-			SessionID: &tb.session.ID,
+			SessionID: sid,
 			Path:      filepath.Join(tb.session.Workdir, stored),
 			BaseDir:   tb.session.Workdir,
 			RelPath:   stored,

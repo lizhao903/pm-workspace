@@ -10,6 +10,9 @@ import { ProvidersSection } from './providers/ProvidersSection'
 import { WorkspacesSection } from './workspaces/WorkspacesSection'
 import { EnumsSection } from './enums/EnumsSection'
 import { AppearanceSection } from './appearance/AppearanceSection'
+import { AgentsSection } from './agents/AgentsSection'
+import { KbSection } from './kb/KbSection'
+import { SkillsSection } from './skills/SkillsSection'
 
 // 内核的设置分节，照原型 web-next/src/settings.tsx SECTIONS；内网域名是插件的分节，不在这里。
 // 插件管理（CORE-09）原型里还没有，放在「工作台与模块」（CORE-10b）后面；其余内容还没做，点进去是占位页
@@ -31,7 +34,9 @@ const pluginKey = (plugin: string, key: string) => `plugins/${plugin}/${key}`
 
 export default function Page() {
   const navigate = useNavigate()
-  const active = useParams()['*'] ?? ''
+  const path = useParams()['*'] ?? ''
+  // Agent 配置页在 agents/<id>、agents/new 下，二级菜单仍停在 Agent（AG-01b5）
+  const active = path.startsWith('agents/') ? 'agents' : path
   const sections = useSettingsSections()
   // 连接器异常的数量挂在二级菜单的红点上（SPEC-settings-1.3）
   const connErrors = (useConnectors().data ?? []).filter((c) => c.status === 'error').length
@@ -55,6 +60,9 @@ export default function Page() {
         : kernel!.key === 'connectors' ? <ConnectorsSection />
         : kernel!.key === 'workspace' ? <WorkspacesSection />
         : kernel!.key === 'enums' ? <EnumsSection />
+        : kernel!.key === 'agents' ? <AgentsSection />
+        : kernel!.key === 'kbs' ? <KbSection />
+        : kernel!.key === 'skills' ? <SkillsSection />
         : kernel!.key === 'appearance' ? <AppearanceSection /> : <Placeholder title={kernel!.label} />}
     </>
   )

@@ -28,6 +28,9 @@ const (
 
 const maxSubflowDepth = 5
 
+// agentPoll 是 agent 步骤停下等确认时看会话有没有新回复的间隔，测试里调小。
+var agentPoll = 2 * time.Second
+
 type engine struct {
 	c plugin.Core
 	// hook 在每个节点执行前调，测试用它卡住执行；返回错误就不出结果（等取消）
@@ -477,6 +480,14 @@ func (r *runner) dispatch(ctx context.Context) {
 	if r.over() {
 		return
 	}
+	// 不再执行中、也不在等 Agent 确认的步骤，收掉它的协程（比如等确认时被人工放行）
+	for i, f := range r.inflight {
+		if _, ok := waitingAgent(r.defs[i], r.run.Steps[i]); !ok && r.run.Steps[i].Status != stRunning {
+			f.cancel()
+			delete(r.inflight, i)
+		}
+	}
+	r.watchAgents(ctx)
 	for i := range r.run.Steps {
 		s := &r.run.Steps[i]
 		if s.Status != stRunning {
@@ -524,10 +535,42 @@ func (r *runner) dispatch(ctx context.Context) {
 				}
 				res = nodeResult{output: with(orEmpty(input), "waited", orDefault(def.Config["duration"], "1 小时"))}
 			} else {
-				res = runNode(def, orEmpty(input), keys)
+				res = execNode(sctx, r.e.c, def, orEmpty(input), keys)
 			}
 			select {
 			case r.inbox <- resultMsg{step: i, token: token, res: res}:
+			case <-sctx.Done():
+			}
+		}()
+	}
+}
+
+// watchAgents 给停下等确认的 agent 步骤起协程看会话，出了新回复按结果发回来（服务重启后也接着看）。
+func (r *runner) watchAgents(ctx context.Context) {
+	for i := range r.run.Steps {
+		st, ok := waitingAgent(r.defs[i], r.run.Steps[i])
+		if !ok {
+			continue
+		}
+		if _, busy := r.inflight[i]; busy {
+			continue
+		}
+		r.seq++
+		token := r.seq
+		sctx, cancel := context.WithCancel(ctx)
+		r.inflight[i] = inflight{token: token, cancel: cancel}
+		input, every := orEmpty(clone(r.run.Steps[i].Input)), agentPoll
+		step := i
+		r.e.wg.Add(1)
+		go func() {
+			defer r.e.wg.Done()
+			defer cancel()
+			res, ok := watchAgent(sctx, r.e.c.Agent(), input, st, every)
+			if !ok {
+				return
+			}
+			select {
+			case r.inbox <- resultMsg{step: step, token: token, res: res}:
 			case <-sctx.Done():
 			}
 		}()
@@ -565,11 +608,18 @@ func (r *runner) finish(m resultMsg) {
 	}
 	delete(r.inflight, m.step)
 	s := &r.run.Steps[m.step]
+	def := r.defs[m.step]
+	if _, ok := waitingAgent(def, *s); ok {
+		// 人在会话里确认后 Agent 接着跑完了
+		t := now()
+		s.Status, s.Output, s.EndedAt = stDone, m.res.output, &t
+		r.log(m.step, t, "会话里已经确认，Agent 跑完了这一轮，这一步完成")
+		return
+	}
 	if s.Status != stRunning {
 		return
 	}
 	t := now()
-	def := r.defs[m.step]
 	res := m.res
 	if res.log != "" {
 		r.log(m.step, t, res.log)
@@ -580,6 +630,8 @@ func (r *runner) finish(m resultMsg) {
 	case res.route != "":
 		s.Status, s.Output, s.Route, s.RouteReason, s.EndedAt = stDone, res.output, res.route, res.reason, &t
 		r.log(m.step, t, fmt.Sprintf("判断结果：走「%s」，%s", caseLabel(def, res.route), res.reason))
+	case res.review && def.Kind == "agent":
+		s.Status, s.Output = stReview, res.output
 	case res.review && def.Kind == "decide":
 		s.Status, s.Output = stReview, res.output
 		r.log(m.step, t, "等待人工判断走哪个分支")

@@ -93,6 +93,8 @@ type Core interface {
 	Connectors() ConnectorReader
 	// AttachmentDir 是本机附件目录的绝对路径（IM-04a，datadir.go），没接数据目录时为空串。
 	AttachmentDir() string
+	// Agent 用默认服务商补全、按 Agent 的授权跑一轮、搜指定知识库（SOP-01c，agent.go）。
+	Agent() AgentService
 }
 
 // Publisher 往事件总线上发事件。payload 按 JSON 序列化；总线没接上时什么都不做。

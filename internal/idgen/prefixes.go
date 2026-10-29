@@ -69,13 +69,14 @@ var Registry = []Entry{
 	// Agent 与模型
 	{"ag", "agent", "agents", "agent"},               // 内核的表（AG-01b1，0032）
 	{"atc", "agentToolCall", "agent_tool_calls", ""}, // 内核的表（AG-02a，0035），要人确认的工具调用
-	{"ar", "agentRun", "", "agentRun"},
+	{"dbg", "agentDebugCall", "", ""},                // 调试对话里要人确认的调用，只在进程内存里（AG-02c）
+	{"ar", "agentRun", "agent_runs", "agentRun"},     // 内核的表（AG-01b4，0036）
 	{"op", "output", "", "output"},
 	{"kb", "kb", "knowledge_bases", "kb"}, // 内核的表（AG-01b3，0034）
 	{"kd", "kbDoc", "kb_docs", "kbDoc"},   // 内核的表（AG-01b3，0034），切块 kb_chunks 用整数 id
 	{"sk", "skill", "skills", "skill"},    // 内核的表（AG-01b2，0033），只放自定义技能
 	// 工作台、域名
-	{"dm", "domainRoute", "", "domainRoute"},
+	{"dm", "domainRoute", "domains_routes", "domainRoute"}, // 内网域名插件的表（DOM-01a）
 	// 视频
 	{"vd", "video", "", "video"},
 	{"sr", "series", "", "series"},

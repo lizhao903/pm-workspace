@@ -198,6 +198,9 @@
 | kb | 知识库 | knowledge_bases |
 | kd | 知识库来源（切块 `kb_chunks` 用整数 id） | kb_docs |
 | atc | 要人确认的 Agent 工具调用 | agent_tool_calls |
+| ar | Agent 执行记录 | agent_runs |
+| dbg | 调试对话里要人确认的调用（只在进程内存里） | - |
+| dm | 内网域名路由（内网域名插件） | domains_routes |
 | pn | 终端会话（终端插件，128 位随机串，不走 `idgen.Prefixed`，不入库） | - |
 
 原型 `ids.ts` 和后端不一致的前缀：后端已经上线的不改，原型的前缀保留，不分给别的实体。
@@ -553,7 +556,7 @@ AG-01b1。表 `agents`（0032），id 前缀 `ag`，字段对齐原型 `web-next
 | DELETE | `/api/agents/{id}` | 回删掉的那条 `Agent`；影响检查有拦截原因时回 409，message 为「不能删除：<原因>」 |
 | GET | `/api/agents/{id}/impact` | 删除前的影响检查，只读，回 `AgentImpact`；不存在 404 |
 
-`Agent`：`{id, name, desc, color, avatar, provider_id, model, instructions, skills, mcps, kbs, triggers, enabled, created_at, updated_at}`，`avatar` 是 `{kind, value}`，`triggers` 是 `{kind, detail}[]`。
+`Agent`：`{id, name, desc, color, avatar, provider_id, model, instructions, skills, mcps, kbs, triggers, enabled, created_at, updated_at}`，`avatar` 是 `{kind, value}`，`triggers` 是 `{kind, detail, match?}[]`。
 
 - **模型必须带服务商**：新建时 `provider_id` 必填且必须是存在的服务商，不带或不存在回 400；`model` 不给时取服务商的默认模型，服务商也没有默认模型回 400。`model` 不校验是否在模型列表里，服务商停用、模型下架由前端标红，不拦保存（`SPEC-settings-9.27`）；服务商删了 Agent 还在，`provider_id` 留着。PATCH 改 `provider_id` 同样要存在，`model` 不能改成空串。
 - `name` 去首尾空白，必填，最多 100 字；`desc` 最多 500 字；`instructions` 最多 20000 字。
@@ -561,6 +564,7 @@ AG-01b1。表 `agents`（0032），id 前缀 `ag`，字段对齐原型 `web-next
 - `avatar.kind` 为 `text`（`value` 零到两个字，空就用名字第一个字）/ `icon`（`value` 是原型 `AVATAR_ICONS` 之一）/ `image`（`value` 是 `data:image/...;base64,...`，图片解码后 1MB 以内）；不给时 `{kind: "text", value: ""}`。
 - `skills`、`mcps`、`kbs` 是 id 数组，去空白、去重，各最多 100 个；不查 id 是否存在（连接器的问题不拦保存，技能、知识库的表还没有）。
 - `triggers` 至少一条，`kind` 为 `manual` / `im` / `schedule` / `task`，`detail` 最多 200 字；不给时 `[{kind: "manual", detail: ""}]`。`enabled` 不给时为 `true`。
+- `match` 是结构化的触发条件（AG-01b4），见「Agent 执行记录」一节；没有时不出现这个键。
 - 校验失败回 400，message 是中文整句（如「名称还没填」「服务商 apv_x 不存在」）。
 
 `AgentImpact`：`{agent_id, blocks, items}`，口径同原型 `agentPlan`（`SPEC-settings-9.29`、`9.30`）。`blocks` 和 `items` 都是 `{key, count, text, effect?}[]`，没有的项不出现，`text` 前端原样显示。
@@ -604,9 +608,70 @@ AG-02a。表 `agent_tool_grants`（0035）存每个 Agent 自己的授权，`age
   `read_messages`、`reply_message`、`read_contacts`、`write_contacts`、`run_sop` 现在没有对应的内置工具，授权先存着。
 - **执行时**：给模型的工具列表只有实际档位不是关闭的。连接器工具给模型的名字是 `<连接器定义 tool>__<工具名>`（非字母数字的字符换成 `_`，最长 64）。模型硬调关闭的工具不执行，工具结果是「错误：没有授权……」，`tool_result` 的 `summary` 为「<工具> 没有授权，没有执行」。需确认的发 `confirm` 事件后本轮结束，见「Agent 对话」。
 - **连接器工具真正调用**：经连接器定义上可选的 `Call` 调对方，参数是模型给的 JSON 原文，对方错误里的凭证原文换成 `***`，单次 15 秒超时。定义没实现 `Call` 时工具结果是「这个连接器的工具还不能调用」。现在只有假连接器 `fake` 实现了：`list_items` 回两条固定条目，`get_item` / `create_item` / `delete_item` 回 `{tool, ok, args}`，`token` 含 `invalid` 时失败。
-- **确认、拒绝**：只有 `pending` 的能处理，已经处理过回 409（两个页面同时点，只有一个执行）。会话删了、Agent 删了或停用回 409；确认时按当前授权再查一次，已经关闭的回 409「…已经没有授权了」，调用保持 `pending`，可以拒绝掉。这些都在开流之前。执行结果（或拒绝说明）记进 `agent_tool_calls.result`。执行记录里的调用（`run_id`，AG-01b4）现在还没有，处理它回 409。
+- **确认、拒绝**：只有 `pending` 的能处理，已经处理过回 409（两个页面同时点，只有一个执行）。会话删了、Agent 删了或停用回 409；确认时按当前授权再查一次，已经关闭的回 409「…已经没有授权了」，调用保持 `pending`，可以拒绝掉。这些都在开流之前。执行结果（或拒绝说明）记进 `agent_tool_calls.result`。执行记录里的调用（`run_id` 非空）同样记着它的会话，确认、拒绝走这两个接口，在那个会话里接着跑，跑完重算执行记录的状态，见「Agent 执行记录」。
 - **删除连接器**时，挂着它的 Agent 从 `mcps` 里摘掉、`conn:<id>:*` 授权清掉（同一个事务），影响检查里是 `agent_mounts` 一项，见「连接器」一节。
 - 审计：PUT 按 `config` 记，`target_type` 为 `agent`，`action` 为 `set_tool_grants`，`detail.changed` 是改了的 `{<key>: 新档位}`（改成关闭记 `off`），没有改动不记。确认、拒绝按 `agent` 记，`target_type` 为 `agent_tool_call`，`action` 为 `confirm` / `reject`，`detail` 为 `{agent_id, session_id, tool, grant_key}`。
+
+### 调试对话
+
+AG-02c。设置页 Agent 配置右边的调试面板用（`SPEC-settings-9.31`、`9.42`）：用**当前没保存的配置**试，**不写 `agent_sessions`、不写消息**，产出照常落到数据上。
+
+| 方法 | 路径 | body / 说明 |
+|---|---|---|
+| POST | `/api/agents/debug/chat` | `{agent_id?, <Agent 字段>, grants?, workdir?, messages}`，**SSE**，事件同 `/api/agent/chat` |
+
+- **配置**：Agent 字段同 `PATCH /api/agents/{id}`（`name`、`desc`、`provider_id`、`model`、`instructions`、`skills`、`mcps`、`kbs` 起作用，其余照收不用）。带 `agent_id` 时以它存着的配置打底、body 里给了的字段覆盖，不存在 404；新建还没保存时不带。`provider_id` 最后为空 400「服务商还没选」，不存在 400；`model` 为空取服务商的默认模型。`name` 为空按「新 Agent」。
+- **授权**：`grants` 同 `PUT /api/agents/{id}/grants` 的 body，校验也一样（错的 key、只读设 `confirm` 400），按「Agent 工具授权」的规则算实际档位；不给时用 `agent_id` 存着的，新建时同 `newAgent` 只开 `read_tasks`、`read_contacts`（自动）。
+- **停用照常能调**（`9.42`）：不看 `enabled`，按启用处理。
+- `messages` 是这次调试的对话 `{role, content}[]`，`role` 只能是 `user` / `assistant`，最后一条必须是非空的 `user`（就是这次要发的话），最多 200 条，喂给模型的截到最近 40 条；不合格 400。前端自己留着对话，每次整段带上，「清空」就是前端清掉。
+- `workdir` 是 `write_file` 的产物目录，不给时写文件失败；登记的产物 `session_id` 为 `null`。
+- `done` 事件只有 `type`，没有 `session_id`、`message_id`。
+- **需确认的调用**：发 `confirm` 事件，`id` 前缀 `dbg_`（不是 `atc_`），**只存在进程内存里**，10 分钟有效，不进 `agent_tool_calls`、不拦删除 Agent。确认、拒绝同样走 `POST /api/agent/tool-calls/{id}/confirm` / `reject`，按调试时的配置快照接着跑（不看 Agent 现在的状态和授权）；过期、进程重启后、已经处理过的回 404，两个页面同时点时后到的 409。
+- **审计**：调试里执行的写操作照常按 `agent` 记（新建、修改对象，登记产物等），`detail` 多一个 `debug: true`；确认、拒绝同「Agent 工具授权」，`target_id` 是 `dbg_` id，`detail` 为 `{agent_id, session_id: null, tool, grant_key, debug: true}`（新建没保存时 `agent_id` 为空串）。
+
+## Agent 执行记录 agent-runs
+
+AG-01b4。表 `agent_runs`（0036），id 前缀 `ar`，对应原型 `web-next/src/agentdata.ts` 的 `AgentRun`（`SPEC-sessions-2`）。Agent 被任务、IM 消息、定时任务触发后的每一次执行记一条。全量导出暂不含这张表。
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| GET | `/api/agent-runs` | `AgentRun[]` + `meta.total`（不含分页）。等确认的（`waiting`）在前，其余按开始时间倒序。query：`agent`（Agent id）、`status`（逗号分隔多选，别的值 400）、`since` / `until`（按开始时间，两端都含，RFC3339 或 YYYY-MM-DD）、`limit`（缺省 50、最大 500）、`offset` |
+| GET | `/api/agent-runs/{id}` | `AgentRunDetail`；不存在 404 |
+
+`AgentRun`：`{id, agent_id, trigger_kind, trigger, source_id, event_key, session_id, status, summary, started_at, finished_at, pending}`。
+
+| 字段 | 说明 |
+|---|---|
+| `trigger_kind` | `task` / `im` / `schedule` |
+| `trigger` | 给人看的触发说明，同原型 `AgentRun.trigger`：「任务分配给它 · TSK-0012」「任务带了标签「Agent」 · TSK-0012」「收到 slack 消息 · @我」「定时 · 写周报」 |
+| `source_id` | 触发来源：任务的对象 id、IM 消息 id、定时任务 id |
+| `event_key` | 去重键：`task:<对象 id>`、`im:<消息 id>`、`schedule:<定时任务执行记录 id>` |
+| `session_id` | 这次执行建的会话；还没建出会话就失败了为 `null` |
+| `status` | `running` 执行中 / `waiting` 等你确认 / `done` 已完成 / `rejected` 已拒绝 / `failed` 失败。`running` 原型没有：后端在后台跑，跑完才有结果 |
+| `summary` | Agent 最后一条回复（500 字截断），失败时是原因 |
+| `finished_at` | `running` 时为 `null`；`waiting` 也有值（这一轮已经跑完，停在等确认） |
+| `pending` | 还在等确认的调用数 |
+
+`AgentRunDetail`：`AgentRun` 的字段加 `calls`、`tool_calls`。`calls` 是会话里的工具调用记录 `{tool, args, summary, at}[]`，按时间正序（含「等待确认：…」那条）；`tool_calls` 是这次执行里要人确认的调用，结构同「Agent 工具授权」的 `agent_tool_calls`，先记的在前。
+
+**触发**：订阅事件总线，命中的**启用中**的 Agent 各跑一次：建一条会话（挂 Agent，按 Agent 当前的服务商和模型）、记执行记录、在后台跑一轮（10 分钟上限），口径同「Agent 对话」（授权、技能、知识库都生效）。停用的 Agent 不触发。
+
+- `task`：`object.created`，以及 `fields` 含 `props` 或 `tags` 的 `object.updated`，只看 `type_id = task`、没删没归档的。任务分配给 Agent 记在 `props.agent_id`（`owner_id` 是干系人的外键，放不了 Agent）。会话挂在这条任务下（`object_id` 为任务 id），交给模型的第一句是「任务 TSK-0012「…」分配给了你……」。
+- `im`：IM 插件的 `im.message_received`。会话不挂对象；交给模型的第一句带渠道、消息 id、和我的关系、会话 id、联系人 id，正文要等读消息的工具（现在还没有）。
+- `schedule`：不在 Agent 上配，由定时任务的 `agent` 动作指过来，见「定时任务 schedules」；`prompt` 为空时第一句是「定时任务「…」到点了……」。会话不挂对象。
+
+`match`（`triggers[].match`）是结构化的条件，`detail` 仍是给人看的文字。`{assigned, tags, connector_id, channel, conversation_id, only_me}`，按 `kind` 只留自己的字段（其余存成零值），`manual`、`schedule` 给了也丢掉：
+
+| kind | 字段 | 不给 `match` 时 |
+|---|---|---|
+| `task` | `assigned`：任务分配给它（`props.agent_id` 是它）；`tags`：任务带了其中任一标签（去空白、去重，最多 100 个）。两者任一满足即可，两样都没有 400「任务触发至少要选「分配给它」或者填标签」。**Agent 建的任务（`source = agent`）不认标签**，免得 Agent 之间互相派活停不下来 | 只看分配 |
+| `im` | `connector_id`、`channel`、`conversation_id`：空串不限；`only_me`：只看与我相关的（`relevance` 为 `me` / `all` / `dm`，同 IM 消息列表的 `mine=any`） | 什么消息都算 |
+
+- **去重**：同一事件对同一 Agent 只触发一次，(`agent_id`, `event_key`) 唯一，重放、重启都不会多跑。同一任务先按标签触发过，后来又分配给它，不再跑第二次。
+- **需确认的调用**：发起时记进 `agent_tool_calls`，`run_id` 是这条执行记录、`session_id` 是它的会话，这一轮停下，记录为 `waiting`。确认、拒绝走「Agent 工具授权」的 `POST /api/agent/tool-calls/{id}/confirm` / `reject`，接着跑完后重算（同原型 `SPEC-sessions-2.5`）：还有等确认的为 `waiting`；都处理完了，有调用且全部拒绝为 `rejected`，其余为 `done`；接着跑出错为 `failed`。`summary` 换成最后一条回复。
+- **失败**：建会话失败、服务商或模型不对记 `failed`「没跑起来：…」；模型出错、超时记 `failed`「执行失败：…」。服务退出时还在 `running` 的，下次启动记为 `failed`「执行中服务退出了，结果不确定，没有重跑」。
+- 删除 Agent：执行记录保留；它还有等确认的调用（会话里或执行记录里）时删除被拦，见「Agent 配置」影响检查的 `pending_calls`。
+- 执行记录不记审计；Agent 在执行里的写操作照常按 `agent` 记。
 
 ## 技能 skills
 
@@ -1139,7 +1204,8 @@ TASK-03a、TASK-03b。定义存在表 `schedules`（0020），执行记录存在
 - 停用的定时任务到点记一条 `skipped`「没执行：已停用」，停用期间更早的不记。
 - 重启不重复：游标存在 `schedules.checked_at`（0021 加的列）；执行记录上「定时任务 id + 计划时刻」唯一（手动执行不受限），游标没来得及推进就退出时，同一时刻也插不进第二条。执行先记 `running` 再做动作，上次退出时停在 `running` 的，启动时记为 `failed`「执行中服务退出了，结果不确定，没有重跑」。
 - 动作 `task`：建一条待办（`type_id=task`），`source` 为 `schedule`，`props.source_ref` 为 `{schedule_id, name}`；标题里的 `{{date}}` 换成计划时刻那天（写成 `2026/10/29`）；`due_at` 是那天往后 `due_days` 天的零点（本地时区）；`assignee` 是干系人 id（`stk_` 开头）时设为负责人，干系人已删时不设负责人、结果文字里注明，其他取值忽略。建任务用的操作者是 `schedule#<定时任务 id>`。
-- 动作 `sop`、`agent`：M4 之前不支持，记一条 `unsupported`「没执行：执行 SOP 暂不支持，M4 之后才有」「没执行：让 Agent 去做暂不支持，M4 之后才有」。
+- 动作 `sop`：M4 之前不支持，记一条 `unsupported`「没执行：执行 SOP 暂不支持，M4 之后才有」。
+- 动作 `agent`（AG-01b4）：交给这个 Agent 跑一次，不等它跑完，不看 Agent 上有没有配 `schedule` 触发。发起了记 `ok`「交给了 Agent「周报助手」，执行记录 ar_…」；Agent 不存在、已停用记 `failed`「没执行：Agent「周报助手」已停用」；执行记录建了但没跑起来（服务商不对等）记 `failed`「Agent「周报助手」没跑起来：…，执行记录 ar_…」。Agent 的结果看「Agent 执行记录」。服务没接 Agent 执行时仍记 `unsupported`「没执行：让 Agent 去做暂不支持，M4 之后才有」。
 
 `ScheduleRun`：`{id, schedule_id, at, status, ok, text, manual, missed, object_id, ref, started_at, finished_at}`，与原型 `ScheduleRun {at, ok, text, ref, manual}` 同名字段同义。
 
@@ -1573,7 +1639,7 @@ IM-04a，口径照原型 `App.tsx` 的 `fetchAttachment`、`messages.tsx` 的 `f
 
 ## SOP 编排插件 sop
 
-SOP-01a 起。插件 `sop`（`internal/plugins/sop`，清单 `plugin.json`，0.2.0，权限为空）。流程定义落在插件表 `sop_flows`（插件迁移 `0001_flows.sql`，安装插件时应用），id 前缀 `sop`；执行（SOP-01b）落在 `sop_runs`、`sop_run_steps`（插件迁移 `0002_runs.sql`），id 前缀 `spr`。AI 类和外部节点（SOP-01c）、定时任务和 Agent 发起（SOP-01d）后续接上。插件未安装或停用时，本节接口回 `not_found` 404（同「插件路由」），数据不动。
+SOP-01a 起。插件 `sop`（`internal/plugins/sop`，清单 `plugin.json`，0.3.0，权限 `network:any`：HTTP 节点要访问任意地址，高风险，安装时在 `permissions` 里单独确认）。流程定义落在插件表 `sop_flows`（插件迁移 `0001_flows.sql`，安装插件时应用），id 前缀 `sop`；执行（SOP-01b）落在 `sop_runs`、`sop_run_steps`（插件迁移 `0002_runs.sql`），id 前缀 `spr`。AI 类和外部节点 SOP-01c 起；定时任务和 Agent 发起（SOP-01d）后续接上。插件未安装或停用时，本节接口回 `not_found` 404（同「插件路由」），数据不动。
 
 ### 流程定义
 
@@ -1621,6 +1687,22 @@ SOP-01a 起。插件 `sop`（`internal/plugins/sop`，清单 `plugin.json`，0.2
 
 `SopNodeType`：`{kind, group, branching, default_cases?, required}`。`group` 是原型的分组名（`基础`、`知识与数据`、`逻辑`、`人工`、`外部`、`输出`）；`default_cases` 只有分支节点有；`required` 是必填配置项 `[{key, label}]`，`label` 用在校验信息里，没有必填项是 `[]`。节点的名字、说明、颜色、图标和配置项的其余信息仍在前端。插件注册的节点类型归 SOP-03，现在只认内置的 18 种。
 
+### AI 协助
+
+SOP-04a。编排页左侧 AI 协助面板的接口，口径同原型 `web-next/src/sopedit.tsx` 的 `respond`（规格 `web-next/docs/spec/sop.md` 的 `SPEC-sop-10`）。**不保存**，草稿要前端点「应用到流程」后照常走 `PATCH` / `POST` 保存。
+
+| 方法 | 路径 | body / 说明 |
+|---|---|---|
+| POST | `/api/sop/assist` | `{message, draft?, selected?}`，回 `SopAssistReply` |
+
+- `message` 去首尾空白后必填，最多 4000 字；`draft` 是编排页当前的草稿（形状同 `SopFlow` 去掉 `version` 和时间，可以没保存过、可以不合格），不传当空草稿；`selected` 是选中步骤的下标（从 0 起），不在草稿里 400。`draft` 的字段类型不对（如 `steps` 不是数组）400。
+- `SopAssistReply`：`{text, draft?, notes?}`，同原型 `Reply`，`proposal` 改叫 `draft`。`draft` 是改好的整条草稿 `{id?, name, desc, trigger, fields, steps}`，不带 `layout`（前端应用时清掉手动位置）；没给的 `fields`、`trigger` 等沿用请求的草稿，请求的草稿已有名称时保留名称。
+- **检查不调模型**：草稿有步骤，且 `message` 以「检查」「看看」「校验」（可带「帮我」）开头，或含「有没有问题」「哪里不对」时，直接用保存校验（见「保存校验」）加原型只提醒的三条（没有人工检查点、某个分支下没有步骤、有多个起点）回答：有问题时 `text` 为 `看了一遍，有 N 处要注意：`，`notes` 逐条 `必须改：…`（拦保存的）、`建议：…`（只提醒的）；没问题时 `text` 为 `流程结构没问题：每个判断的分支都有步骤，有人工检查点，依赖也都连上了。`，`notes` 是流程概要（各类型数量、每个判断的分支、并行分叉数）。不出 `draft`。
+- 其余请求经内核的 Agent 句柄（SOP-01c）用默认服务商和它的模型补全一次（启用中标默认的，没有就第一条启用的），提示词里带节点类型目录（`/api/sop/node-types` 的内容加类型名）、当前草稿和选中的步骤，要求模型只回 `{text, draft, notes}` 的 JSON；包在代码块里、前后多说了话也认。
+- 模型回的 `draft` 过一遍保存校验，**有问题照常返回**，问题按上面的写法追加在模型自己的 `notes` 后面（规格 `SPEC-sop-10.21`）。
+- 模型的回复不是合法 JSON、`text` 和 `draft` 都没有、`draft` 不是对象或没有 `steps`、`draft` 的字段类型不对：422 `bad_model_reply`，`message` 是原因（如 `模型回的不是 JSON`、`模型回的不是合法 JSON：有语法错误或不完整`），前端显示「没能生成流程：原因」（`SPEC-sop-10.20`）。调模型失败（没有启用的服务商、连不上、认证失败、限流等）502 `model_failed`，`message` 是归类后的说法；内核没接上模型句柄 503 `model_unavailable`。
+- 不记审计、不发事件。
+
 ### 运行
 
 SOP-01b 起。执行语义同原型 `web-next/src/sopflow.ts` 的 `startRun`、`advance`、`tick`、`act`（规格 `web-next/docs/spec/sop.md`「执行语义」）。后端每条没结束的执行一个协程、单写者调度；依赖都结束的步骤同时放出（并行），依赖多于一步的等几路都结束（汇合）；没选中的分支 `bypassed`；逐步确认时执行前停在 `paused`；人工检查、人工判断停在 `review`。原型的 `ms` 不进后端，按真实耗时。
@@ -1651,7 +1733,7 @@ SOP-01b 起。执行语义同原型 `web-next/src/sopflow.ts` 的 `startRun`、`
 | `stop` | 执行没结束 | `stopped`、写 `ended_at`；`running`、`paused`、`review` 的步骤回到 `pending`；子流程起的子执行一起终止 |
 | `step-through` | 执行没结束，带 `on` | 改逐步确认，只影响之后放出的步骤 |
 
-节点执行（本条实现的几种，其余在 SOP-01c 之前执行直接失败，`error` 为 `这个节点还没接上`，可重试、可跳过）：
+节点执行（`notify`、`task` 等写节点在 SOP-02 之前执行直接失败，`error` 为 `这个节点还没接上`，可重试、可跳过）：
 
 | 节点 | 后端怎么执行 |
 |---|---|
@@ -1663,6 +1745,16 @@ SOP-01b 起。执行语义同原型 `web-next/src/sopflow.ts` 的 `startRun`、`
 | `wait` | `config.duration`（默认 `1 小时`）：`30 分钟`、`2 小时`、`1 天`、`10 秒`、`1 周`，也认 `90s`、`1h30m`；到点时间落在 `wake_at`；写法不认时失败 |
 | `subflow` | `config.sop` 是流程 id（也认流程名）；用这一步的输入起一条子执行（补默认值，必填空着就失败），等它结束：完成时输出加 `subflow: {run_id, flow_id, sop, status, output}`（`output` 是子执行没有下游的那几步的输出，只有一步时就是它的输出），子执行被终止时这一步失败；最多嵌套 5 层 |
 | `end` | `config.outputs`（逗号隔开）只留这些字段，取不到为 `null`；留空原样 |
+| `ai` | SOP-01c。经内核 Agent 句柄用默认服务商补全一次，`config.model` 非空时换这个模型名；提示词带步骤名、`desc`（给 AI 的要求，支持 `{{字段}}`）和输入，回的正文去掉首尾空白写到 `config.output`（默认 `result`） |
+| `extract` | SOP-01c。从 `config.from`（留空取输入里最长的那段文字）里提 `config.fields`（逗号隔开），要模型只回 JSON 对象（包在代码块里、前后多说了话也认）；输出加 `extracted: {字段: 值}`，只有配置的字段，取不到为空串。回的不是 JSON 对象时失败，`error` 以 `模型回的不是 JSON 对象，可以重试` 开头 |
+| `classifier` | SOP-01c。分支节点。把 `cases` 的类别名、`config.hint`（判断依据）和要分类的文字（`config.from`，同上）交给模型，要它回一个类别名；回的和类别名或 key 一致、或包含某个类别名（取最长的）就走那一类，`route_reason` 为 `模型判断属于「…」`；都不中走第一类，`route_reason` 为 `模型回的「…」不在分支里，归到第一类「…」`。输出等于输入 |
+| `iterate` | SOP-01c。`config.list` 取到的不是数组时失败（`输入里的「…」不是列表`），超过 100 项失败；否则对每一项按 `config.action` 调一次模型，输出加 `results: [{item, result}]`；任一项失败整步失败（`第 N 项调模型失败：…`） |
+| `knowledge` | SOP-01c。只搜 `config.kbs`（知识库 id，逗号隔开）里的知识库，没配置时失败（`没有配置要检索的知识库`），不搜全部；问题是渲染后的 `config.query`，最多 `config.top_k` 段（默认 3）；输出加 `query` 和 `matches: [{kb_id, doc_id, title, index, score, snippet}]`。原型的 `scope`（文档分类）后端不认 |
+| `agent` | SOP-01c。`config.agent` 是 Agent id（也认名称），停用的失败；新建一个挂它的会话（标题 `SOP · 步骤名`），把 `config.prompt`（留空用 `desc` 或步骤名，支持 `{{字段}}`）和输入交给它按自己的工具授权跑一轮。跑完时输出加 `agent_reply` 和 `agent: {session_id, message_id, agent_id, name, status: "done"}`。遇到授权为「需确认」的工具时这一步停在 `review`，日志 `Agent「…」要调用需确认的工具（…），等你在会话里确认`，输出的 `agent.status` 为 `waiting`、`agent.call_ids` 是待确认调用的 id；人在会话里确认或拒绝（`/api/agent/tool-calls/{id}/confirm`、`reject`）后 Agent 接着跑，引擎每 2 秒看一次会话，出了不再等确认的新回复就把这一步记为 `done`（日志 `会话里已经确认，Agent 跑完了这一轮，这一步完成`），运行继续；服务重启后接着看。等确认时也可以直接 `approve` 放行 |
+| `http` | SOP-01c。`config.method`（默认 `POST`，`GET` / `POST` / `PUT` / `PATCH` / `DELETE`）、`config.url`（只认 `http://`、`https://`）、`config.headers`（每行 `名称: 值`）、`config.body` 都支持 `{{字段}}`；请求体是合法 JSON 且没给 `Content-Type` 时补 `application/json`，`GET` 不带请求体；30 秒超时。请求体超过 64KB 时失败；响应体最多读 64KB，超过的截断并在输出里加 `truncated: true`。输出加 `http: {status, method, url, body}`，`body` 是 JSON 时解析成对象。对方回 4xx、5xx 时失败（`HTTP 500：对方服务出错`、`HTTP 404：对方拒绝了请求`），连不上、超时也失败，都可重试。日志记一行请求和结果，名字像凭证的请求头（含 auth、token、secret、key、password、cookie、signature、credential、session）的值、同样名字的查询参数、地址里的用户名密码打成 `***`；输出里的 `url` 也打码 |
+| `code` | SOP-01c。后端不执行代码，执行时失败，`error` 为 `代码节点暂不支持在后端执行` |
+
+调模型的节点（`ai`、`extract`、`classifier`、`iterate`）在没有模型服务商时失败（`调模型失败：还没有配置模型服务商，先在设置 > 模型里加一个`），模型服务出错时也失败（`调模型失败：…`）；`agent` 跑不起来时失败为 `调用 Agent 失败：…`，`knowledge` 检索出错为 `检索失败：…`；都可重试。
 
 条件分支规则（`SopStepDef.rule`，一行）：`字段 等于 值`、`字段 包含 值`，另有 `不等于`、`不包含`。字段写法同模板；值可以加引号（`"…"`、`'…'`、`「…」`）。`等于` 按文字比；`包含` 对文字是子串，对列表是有一项等于这个值。成立走第一个分支（`cases[0]`），不成立走第二个（`cases[1]`），`route_reason` 是 `规则「…」成立` / `不成立`。写法不认时这一步失败。
 
@@ -1681,7 +1773,7 @@ TERM-01a。插件 `terminal`（`internal/plugins/terminal`，清单 `plugin.json
 | 方法 | 路径 | body / 说明 |
 |---|---|---|
 | GET | `/api/terminal/sessions` | `TerminalSession[]` + `meta.total`，不分页，按创建先后，含已退出的 |
-| POST | `/api/terminal/sessions` | `{cwd?, cols?, rows?}`，回 201 + `TerminalSession`；body 可以为空 |
+| POST | `/api/terminal/sessions` | `{cwd?, project_id?, cols?, rows?}`，回 201 + `TerminalSession`；body 可以为空 |
 | DELETE | `/api/terminal/sessions/{id}` | 结束进程组并删掉会话，等进程退出后回，`data` 为 `null`；已退出的会话也用它删 |
 | GET | `/api/terminal/sessions/{id}/ws` | WebSocket 握手，收发协议见下；`?after=<字节位置>` 只补发这之后的输出 |
 
@@ -1689,6 +1781,7 @@ TERM-01a。插件 `terminal`（`internal/plugins/terminal`，清单 `plugin.json
 
 - `id` 是 `pn_` 加 32 位十六进制（128 位随机数），对应原型的 termPane（前缀 `pn` 已登记），**不走 `idgen.Prefixed`**：拿到 id 就能连终端，所以不能按时间猜。
 - `cwd` 必须是存在的**绝对路径**文件夹，相对路径、不存在 400；不传或空串取用户主目录。在项目里开终端时前端传项目 `root`（同项目资料、原型的 `dir`）。
+- `project_id`（TERM-01c）：不传 `cwd` 时取这个项目的 `root`（对象的 `workdir`）当 `cwd`，同样要是存在的绝对目录，否则 400；项目没设 `root` 时取用户主目录；对象不存在、已删或不是项目 400。传了 `cwd` 就以 `cwd` 为准，`project_id` 不查。
 - `cols`、`rows` 1 到 1000，默认 80、24，超出 400。
 - shell 用服务进程的 `$SHELL`（不是绝对路径时用 `/bin/sh`），以登录 shell（`-l`）起，环境继承服务进程，另加 `TERM=xterm-256color`、`COLORTERM=truecolor`。shell 起在自己的会话和进程组里，起不来 400。
 - 最多 16 个 `running` 的会话，再建 409。已退出的会话留在列表里，连已退出的一起超过 32 个时新建会丢掉最早退出的。
@@ -1711,6 +1804,55 @@ TERM-01a。插件 `terminal`（`internal/plugins/terminal`，清单 `plugin.json
 - 字节位置从会话开始累计：`to` 之后每收到 n 字节输出位置加 n，断线重连带 `?after=<位置>` 不重复收；页面刷新后不带 `after`，从缓冲开头补发。
 - 一个会话可以同时有多个连接，输入都写进同一个 pty。
 - 关闭码：会话被删或插件停用 1001；连接收得太慢、积压超过 256 块 1013（重连补发即可）；shell 退出 1000。
+
+## 内网域名插件 domains
+
+DOM-01a。插件 `domains`（`internal/plugins/domains`，清单 `plugin.json`，0.1.0），不依赖别的插件，权限 `fs:read:any`、`process:spawn`（都是高风险，安装时在 `permissions` 里单独确认）、`network:localhost`。表前缀 `domains_`，迁移在插件目录 `migrations/0001_domains.sql`。接现有 bro.vip 方案（`docs/local-domain.md`）：**只读检测、只生成配置和命令，不写任何系统文件、不执行 sudo**；读 `/etc/hosts`、`/etc/pf.anchors/broleez-local`、`/etc/pf.conf`、`/Library/LaunchDaemons/vip.broleez.pf.plist` 和证书目录，调 `mkcert -CAROOT`、`security verify-cert`（命令先按 `PATH` 找，再试 `/opt/homebrew/bin`、`/usr/local/bin`）。插件未安装或停用时本节接口回 `not_found` 404（同「插件路由」）。设置分节的前端是 DOM-01b，原型自动分配域名和内置代理按域名转发是 DOM-02a、DOM-02b。
+
+| 方法 | 路径 | body / 说明 |
+|---|---|---|
+| GET | `/api/domains/settings` | `DomainSettings`；响应头 `X-Pmw-Instance` 是本进程的实例标记（可达检测靠它认出回到的是不是本服务） |
+| PUT | `/api/domains/settings` | `DomainSettings` 的部分字段，只改出现的，回整个 `DomainSettings`；校验见下 |
+| GET | `/api/domains/routes` | `DomainRoute[]` + `meta.total`，不分页，按创建先后 |
+| POST | `/api/domains/routes` | `{host, target, enabled?, note?, auto?}`，回 201 + `DomainRoute` |
+| PATCH | `/api/domains/routes/{id}` | `{host?, target?, enabled?, note?}`，回 `DomainRoute`；改过的一律 `auto: false`（自动分配的改了就转成手动） |
+| DELETE | `/api/domains/routes/{id}` | `data` 为 `null`；目标是这个工作台的不能删，409 |
+| POST | `/api/domains/routes/{id}/check` | 测试一次，回 `{id, fqdn, check}`；结果按完整域名另存，不改路由 |
+| GET | `/api/domains/status` | 本机状态 `DomainStatus`，每次现测，不缓存 |
+| GET | `/api/domains/config?proxy=` | 生成的配置 `DomainConfig`；`proxy` 是 `builtin` / `caddy` / `nginx`，不传用设置里的，别的值 400 |
+
+`DomainSettings`：`{enabled, suffix, resolve, proxy, https, ca_installed, lan, lan_ip, auto_proto, aliases, http_port, https_port, updated_at}`，前九个同原型 `DomainSettings`。多出来的：`aliases` 是工作台的别名（完整域名数组，比如 `broleez.vip`），和工作台那条路由一起出现在 hosts、状态和证书里；`http_port`、`https_port` 是 pf 把 80、443 转到的工作台明文口和 TLS 口（同 `setup-local-domain.sh` 的 `PORT`、`TLS_PORT`）。安装时写默认值，按现有方案：`suffix: "bro.vip"`、`aliases: ["broleez.vip"]`、`resolve: "hosts"`、`proxy: "builtin"`、`https: true`、`lan: false`、`lan_ip: ""`、`auto_proto: true`、`http_port: 7777`、`https_port: 7443`。`ca_installed` 只为和原型同形，证书状态以 `status` 的检测为准。
+
+- `suffix` 去掉空白、转小写；要是小写字母、数字、连字符，点隔开；`local` 和 `.local` 结尾的 400「后缀不合法；也别用 .local，它被系统的 mDNS 占用了」。`aliases` 每个按同样规则，还要带点、不能重复、不能等于后缀。
+- `resolve` 是 `hosts` / `local_dns` / `router_dns`，`proxy` 是 `builtin` / `caddy` / `nginx`；`lan` 打开或 `resolve` 是 `router_dns` 时 `lan_ip` 要是 IPv4。两个端口 1 到 65535 且不相同。不认识的字段 400。
+
+`DomainRoute`：`{id, host, fqdn, target: {kind, proto_id?, url?}, enabled, auto, note, check, created_at, updated_at}`，同原型 `DomainRoute`，多 `fqdn`（完整域名 = `host.后缀`）和时间。`target` 有三种写法：`{kind: "app"}`、`{kind: "proto", proto_id}`、`{kind: "url", url}`（`url` 要是 `http://` 或 `https://` 开头）。`check` 是最近一次测试 `{ok, at, message}`，按 `fqdn` 记，没测过为 `null`。
+
+- `id` 是 `dm_` 前缀（已登记）；安装时写一条 `dm_app`：子域名为空、目标是这个工作台（完整域名就是后缀本身，即 `bro.vip`）。只有目标是工作台的路由 `host` 可以为空，其余要是小写字母、数字、连字符（1 到 63 个，不以连字符开头结尾），否则 400。`host` 和别的路由（含停用的）重名 409「已经有这个域名了」。
+- `auto` 只在新建时认（DOM-02a 建自动分配的路由用）。
+
+测试（`POST /api/domains/routes/{id}/check`）依次查：后缀合法；没有另一条启用的同名、不和工作台别名同名；目标是原型时直接记失败（等 DOM-02a）；HTTPS 开着时本地根证书已装进钥匙串；真的解析一次，要解析到 `127.0.0.1`（开了局域网访问是 `lan_ip`）；工作台目标带 `Host` 头请求 `127.0.0.1:80` 要回到本服务，地址目标是本机或 `lan_ip` 时直接请求一次上游要有回应；HTTPS 开着时站点证书要覆盖这个域名且没过期。全过是 `<域名> 解析到 <IP>，转发到 <上游>`，否则 `message` 写第一个没过的原因。
+
+`DomainStatus`：`{checked_at, enabled, domains, service: {addr, tls_addr}, items, summary: {ok, problem, unknown}}`。`domains` 是要生效的完整域名：别名在前（同 `setup-local-domain.sh` 默认 `DOMAINS` 的顺序），再接启用的路由。`items` 每项 `{key, group, name, state, message, fix?, detail?}`，`state` 是 `ok`（正常）/ `problem`（有问题）/ `unknown`（没检测到：读不了、命令跑不了），有问题时 `fix: {text, commands}` 给要用户自己执行的命令（多半要 sudo）。
+
+| `key` | 什么时候出 | 查什么 |
+|---|---|---|
+| `hosts:<域名>` | `resolve` 是 `hosts` | 每个域名一行：`/etc/hosts` 里有没有指到 `127.0.0.1`（开了局域网访问是 `lan_ip`）；没有写「hosts 里没有 <域名>」，指错写「<域名> 指到了 <IP>」 |
+| `resolve` | `resolve` 不是 `hosts` | 后缀下随便一个名字能不能解析到本机（路由器 DNS 是 `lan_ip`） |
+| `pf_anchor` | `proxy` 是 `builtin` | anchor 文件在不在；`80` 的 `rdr` 是不是转到 `http_port`，HTTPS 开着时 `443` 是不是转到 `https_port`；`/etc/pf.conf` 里有没有 `rdr-anchor "broleez-local"` 和 `load anchor` 两行（缺一行规则不会加载）。`detail: {http_to, https_to}` |
+| `pf_autostart` | `proxy` 是 `builtin` | `/Library/LaunchDaemons/vip.broleez.pf.plist` 在不在、里面有没有 `pfctl` |
+| `reach_http`、`reach_https` | `reach_https` 只在 HTTPS 开着时 | 带 `Host: <工作台域名>` 请求 `127.0.0.1:80`（`443` 走 TLS，不校验证书）的 `GET /api/domains/settings`，回来的 `X-Pmw-Instance` 等于本进程的才算回到本服务；连不上、回到别的实例都算有问题 |
+| `ca` | HTTPS 开着 | `mkcert -CAROOT` 下的 `rootCA.pem` 在不在、`security verify-cert -c <它> -l -L -q` 过不过（系统钥匙串信不信）；没装 mkcert 修法给 `brew install mkcert`、`mkcert -install` |
+| `cert` | HTTPS 开着 | 证书目录（`--tls-cert` 所在目录，没给是仓库的 `certs/`）下的 `.pem`（跳过 `-key.pem`）覆盖了哪些域名、最早哪天到期；没覆盖的列出来，过期或 30 天内到期算有问题。`detail: {certs: [{file, dns_names, not_after}], covered, missing, not_after}` |
+
+`DomainConfig`：`{proxy, domains, resolve, pf, proxy_config, cert}`，每段是 `{kind, path?, content, commands, note?}`：`content` 是要写进 `path` 的内容，`commands` 是要用户自己执行的命令（插件不执行）。没有启用的域名时 hosts 段和代理段的 `content` 是「没有启用的域名」。
+
+- `resolve`：按解析方式。`hosts` 是注释行 `# 产品工作台本地域名（scripts/setup-local-domain.sh 添加）` 加每个域名一行 `<IP>\t<域名>`，同脚本写进 `/etc/hosts` 的格式；后缀 `bro.vip` 时就是文档里的 `127.0.0.1 broleez.vip`、`127.0.0.1 bro.vip` 两行。`local_dns`、`router_dns` 同原型 `renderConfig`。
+- `pf`：`proxy` 是 `builtin` 时是 anchor 文件内容，同 `setup-local-domain.sh` 写的两条（`rdr pass on lo0 inet proto tcp from any to 127.0.0.1 port 80 -> 127.0.0.1 port <http_port>`，443 同理），开了局域网访问再加发往 `lan_ip` 的两条；命令是 `cd <仓库>` 加 `sudo env DOMAINS='<域名…>' PORT=<http_port> TLS_PORT=<https_port> ./scripts/setup-local-domain.sh`（`sudo` 默认清环境变量，所以用 `env` 传）。Caddy、Nginx 时 `content` 为空，`note` 说明不需要 pf。
+- `proxy_config`：内置写 `<域名>  ->  <上游>`，Caddy、Nginx 片段同原型 `renderConfig`。工作台和别名的上游是 `http://127.0.0.1:<http_port>`，原型目标暂时没有上游（内置写「未运行」，DOM-02a 接上）。
+- `cert`：HTTPS 开着才有，命令是 `brew install mkcert`、`mkcert -install`、`HOSTS='<域名…> localhost 127.0.0.1 ::1' ./scripts/setup-tls.sh`、`./scripts/install-autostart.sh`。
+
+- 暂不记审计、不发事件。
 
 ## 运维 admin
 

@@ -106,6 +106,10 @@ type Runner struct {
 	Skills []store.Skill
 	// Policy 是 Agent 的工具授权（AG-02a），nil 是没挂 Agent 的老会话，行为不变，见 grants.go。
 	Policy *Policy
+	// RunID 是这一轮属于哪条执行记录（AG-01b4），空串是人在会话里聊；要确认的调用记上它
+	RunID string
+	// Debug 非 nil 是调试对话（AG-02c）：不写会话和消息，历史从它来，见 debug.go。
+	Debug *Debug
 }
 
 // Run 处理一条用户消息，返回最终落库的 assistant 消息 id。
@@ -134,7 +138,7 @@ func (r *Runner) run(ctx context.Context, userText string, dec *Decision, emit f
 	// 先把用户这条消息落库，再开始跑模型：中途失败或用户关掉页面时，
 	// 至少「我说过这句话」是留下来的。
 	if dec == nil {
-		if _, err := r.Store.AppendAgentMessage(ctx, &domain.AgentMessage{
+		if _, err := r.record(ctx, &domain.AgentMessage{
 			SessionID: r.Session.ID,
 			Role:      domain.RoleUser,
 			Content:   userText,
@@ -274,7 +278,7 @@ func (r *Runner) run(ctx context.Context, userText string, dec *Decision, emit f
 			}
 
 			// 工具调用连同参数一起落库，界面据此回放「Agent 当时做了什么」。
-			if _, err := r.Store.AppendAgentMessage(ctx, &domain.AgentMessage{
+			if _, err := r.record(ctx, &domain.AgentMessage{
 				SessionID: r.Session.ID,
 				Role:      domain.RoleTool,
 				Content:   res.Summary,
@@ -326,7 +330,7 @@ func (r *Runner) run(ctx context.Context, userText string, dec *Decision, emit f
 		emit(StreamEvent{Type: "delta", Text: final})
 	}
 
-	saved, err := r.Store.AppendAgentMessage(ctx, &domain.AgentMessage{
+	saved, err := r.record(ctx, &domain.AgentMessage{
 		SessionID: r.Session.ID,
 		Role:      domain.RoleAssistant,
 		Content:   final,
@@ -334,7 +338,24 @@ func (r *Runner) run(ctx context.Context, userText string, dec *Decision, emit f
 	if err != nil {
 		return "", fmt.Errorf("保存回复失败")
 	}
+	if r.Debug != nil {
+		// 确认后接着跑要带上这一轮的回复
+		for _, id := range r.Debug.held {
+			r.Debug.Calls.setHistory(id, r.debugTranscript())
+		}
+	}
 	return saved.ID, nil
+}
+
+// record 落一条消息；调试对话不落库，只记进内存，回的消息没有 id。
+func (r *Runner) record(ctx context.Context, m *domain.AgentMessage) (*domain.AgentMessage, error) {
+	if r.Debug == nil {
+		return r.Store.AppendAgentMessage(ctx, m)
+	}
+	if h, ok := historyMessage(m); ok {
+		r.Debug.log = append(r.Debug.log, h)
+	}
+	return m, nil
 }
 
 // buildHistory 拼出送给模型的消息列表：系统提示词 + 最近若干轮对话。
@@ -343,30 +364,24 @@ func (r *Runner) run(ctx context.Context, userText string, dec *Decision, emit f
 // 落库时只存了 Summary，而且对后续轮次来说「上次建了 TSK-0009」这个信息量已经够了，
 // 不值得为了完整回放再单独存一份模型视角的内容。
 func (r *Runner) buildHistory(ctx context.Context, types []*domain.ObjectType) ([]Message, error) {
-	past, err := r.Store.ListAgentMessages(ctx, r.Session.ID, historyLimit)
-	if err != nil {
-		return nil, fmt.Errorf("读取历史消息失败")
-	}
-
 	out := []Message{{
 		Role:    RoleSystem,
 		Content: BuildSystemPrompt(types, time.Now(), r.Object) + agentSection(r.Agent) + skillSection(r.Skills),
 	}}
+	if r.Debug != nil {
+		past := r.debugTranscript()
+		if len(past) > historyLimit {
+			past = past[len(past)-historyLimit:]
+		}
+		return append(out, past...), nil
+	}
+	past, err := r.Store.ListAgentMessages(ctx, r.Session.ID, historyLimit)
+	if err != nil {
+		return nil, fmt.Errorf("读取历史消息失败")
+	}
 	for _, m := range past {
-		switch m.Role {
-		case domain.RoleUser:
-			out = append(out, Message{Role: domain.RoleUser, Content: m.Content})
-		case domain.RoleAssistant:
-			if strings.TrimSpace(m.Content) != "" {
-				out = append(out, Message{Role: domain.RoleAssistant, Content: m.Content})
-			}
-		case domain.RoleTool:
-			// 转述成 user 视角的一句事实：历史里的 tool 消息已经没有配对的 tool_call 了，
-			// 直接按 tool 角色塞回去，OpenAI 会因为「找不到对应的 tool_call_id」而拒绝整个请求。
-			out = append(out, Message{
-				Role:    domain.RoleUser,
-				Content: fmt.Sprintf("（系统记录：之前 %s）", m.Content),
-			})
+		if h, ok := historyMessage(m); ok {
+			out = append(out, h)
 		}
 	}
 	return out, nil

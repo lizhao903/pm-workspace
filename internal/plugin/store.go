@@ -32,10 +32,12 @@ type Store interface {
 type Row interface{ Scan(dest ...any) error }
 
 // ObjectInfo 是内核对象里插件常用的几项；软删的 Deleted 为 true。
+// Workdir 是对象自身的 workdir 列（项目的 root），没设为空串，不往所属项目继承（TERM-01c）。
 type ObjectInfo struct {
 	ID      string
 	Type    string
 	Title   string
+	Workdir string
 	Deleted bool
 }
 
@@ -250,11 +252,12 @@ func (o objectReader) Get(ctx context.Context, id string) (ObjectInfo, error) {
 	}
 	var info ObjectInfo
 	var deleted sql.NullString
-	err := d.R.QueryRowContext(ctx, `SELECT id, type_id, title, deleted_at FROM objects WHERE id = ?`, id).
-		Scan(&info.ID, &info.Type, &info.Title, &deleted)
+	err := d.R.QueryRowContext(ctx, `SELECT id, type_id, title, workdir, deleted_at FROM objects WHERE id = ?`, id).
+		Scan(&info.ID, &info.Type, &info.Title, &info.Workdir, &deleted)
 	if err != nil {
 		return ObjectInfo{}, err
 	}
+	info.Workdir = strings.TrimSpace(info.Workdir)
 	info.Deleted = deleted.Valid
 	return info, nil
 }

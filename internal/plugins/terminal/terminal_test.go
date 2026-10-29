@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"regexp"
 	"strconv"
@@ -26,6 +27,13 @@ import (
 
 // setup 起项目和终端两个插件，终端用 /bin/sh、不读启动文件，提示符固定成 "$ "
 func setup(t *testing.T) (*plugin.Registry, *httptest.Server) {
+	t.Helper()
+	r, srv, _ := setupDB(t)
+	return r, srv
+}
+
+// setupDB 同 setup，另外返回库，测试里直接插内核对象
+func setupDB(t *testing.T) (*plugin.Registry, *httptest.Server, *db.DB) {
 	t.Helper()
 	ctx := context.Background()
 	d, err := db.Open(filepath.Join(t.TempDir(), "pm.db"))
@@ -63,7 +71,7 @@ func setup(t *testing.T) (*plugin.Registry, *httptest.Server) {
 	}
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
-	return r, srv
+	return r, srv, d
 }
 
 func call(t *testing.T, srv *httptest.Server, method, path, body string) (int, map[string]any) {
@@ -367,5 +375,48 @@ func TestRing(t *testing.T) {
 	_, data, _ = s2.attach(0)
 	if data[0] != 'b' {
 		t.Fatalf("切口没对齐：%q", data[:4])
+	}
+}
+
+// TERM-01c：带 project_id、不传 cwd 时用项目的 root；显式 cwd 优先；项目没设 root 回落主目录
+func TestCreateProjectRoot(t *testing.T) {
+	_, srv, d := setupDB(t)
+	root, other := t.TempDir(), t.TempDir()
+	now := time.Now().UTC().Format(time.RFC3339)
+	for _, q := range []string{
+		`INSERT INTO objects (id, type_id, ref, title, workdir, created_at, updated_at) VALUES ('obj_p1', 'project', 'PRJ-T1', '项目一', '` + root + `', '` + now + `', '` + now + `')`,
+		`INSERT INTO objects (id, type_id, ref, title, created_at, updated_at) VALUES ('obj_p2', 'project', 'PRJ-T2', '没设目录', '` + now + `', '` + now + `')`,
+		`INSERT INTO objects (id, type_id, ref, title, workdir, created_at, updated_at) VALUES ('obj_t1', 'task', 'TSK-T1', '任务', '` + root + `', '` + now + `', '` + now + `')`,
+		`INSERT INTO objects (id, type_id, ref, title, workdir, created_at, updated_at, deleted_at) VALUES ('obj_p3', 'project', 'PRJ-T3', '已删', '` + root + `', '` + now + `', '` + now + `', '` + now + `')`,
+	} {
+		if _, err := d.W.Exec(q); err != nil {
+			t.Fatal(err)
+		}
+	}
+	want, _ := filepath.EvalSymlinks(root)
+
+	s := create(t, srv, `{"project_id":"obj_p1"}`)
+	if s["cwd"] != root {
+		t.Fatalf("cwd = %v, want %s", s["cwd"], root)
+	}
+	// shell 里 pwd 就是项目根目录
+	tm, _, err := dial(t, srv, s["id"].(string), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tm.send("pwd -P\n")
+	tm.waitFor(regexp.QuoteMeta(want) + `\r?\n`)
+
+	if s := create(t, srv, `{"project_id":"obj_p1","cwd":"`+other+`"}`); s["cwd"] != other {
+		t.Errorf("显式 cwd 应优先，cwd = %v", s["cwd"])
+	}
+	home, _ := os.UserHomeDir()
+	if s := create(t, srv, `{"project_id":"obj_p2"}`); s["cwd"] != filepath.Clean(home) {
+		t.Errorf("项目没设 root 应回落主目录，cwd = %v", s["cwd"])
+	}
+	for _, id := range []string{"obj_nope", "obj_t1", "obj_p3"} {
+		if code, _ := call(t, srv, "POST", "/api/terminal/sessions", `{"project_id":"`+id+`"}`); code != 400 {
+			t.Errorf("project_id %s: code = %d, want 400", id, code)
+		}
 	}
 }

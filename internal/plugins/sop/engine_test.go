@@ -278,9 +278,9 @@ func TestReworkRetrySkipStepThroughStop(t *testing.T) {
 	if code, _ := act(t, h, rid, `{"kind":"approve","step":"r"}`); code != 200 {
 		t.Fatal("放行")
 	}
-	// AI 节点在 SOP-01c 之前直接失败
+	// 没接模型时 AI 节点失败
 	run = waitStatus(t, h, rid, "failed")
-	if s := step(run, "ai"); s["error"] != "这个节点还没接上" {
+	if s := step(run, "ai"); s["error"] != "调模型失败："+plugin.ErrNoAgent.Error() {
 		t.Fatalf("ai error=%v", s["error"])
 	}
 	if code, _ := act(t, h, rid, `{"kind":"retry","step":"ai"}`); code != 200 {
@@ -357,7 +357,7 @@ func TestResumeAfterRestart(t *testing.T) {
 	p1 := New()
 	p1.stepHook = g.hook
 	r1, h1 := boot(p1)
-	if err := r1.Install(ctx, "sop", nil); err != nil {
+	if err := r1.Install(ctx, "sop", []string{"network:any"}); err != nil {
 		t.Fatal(err)
 	}
 	if err := r1.Enable(ctx, "sop"); err != nil {
@@ -574,7 +574,7 @@ func TestSubflowWaitsForChild(t *testing.T) {
 	waitStatus(t, h, cid, "stopped")
 }
 
-// 原型三条示例流程原样导入后能跑：写死的函数没了，按各自类型执行，AI 节点在 SOP-01c 之前失败
+// 原型三条示例流程原样导入后能跑：写死的函数没了，按各自类型执行，没接模型时 AI 节点失败
 func TestPrototypeFlowsRun(t *testing.T) {
 	_, h := setup(t, New())
 	b, err := os.ReadFile(filepath.Join("testdata", "prototype_sops.json"))
@@ -598,7 +598,7 @@ func TestPrototypeFlowsRun(t *testing.T) {
 		t.Fatalf("split=%v", s["status"])
 	}
 	for _, k := range []string{"summarize", "todos"} {
-		if s := step(run, k); s["status"] != "failed" || s["error"] != "这个节点还没接上" {
+		if s := step(run, k); s["status"] != "failed" || !strings.Contains(s["error"].(string), plugin.ErrNoAgent.Error()) {
 			t.Fatalf("%s=%v %v", k, s["status"], s["error"])
 		}
 	}

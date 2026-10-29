@@ -2,9 +2,11 @@
 // 组件和模块不自己拼键去失效，一律报一个 Change，规则集中在 invalidationsFor 里，有单元测试盯着。
 import { useQueryClient, type QueryClient, type QueryKey } from '@tanstack/react-query'
 import { useCallback } from 'react'
+import { agentConfigKeys } from './agentConfigKeys'
 import { agentKeys } from './agentKeys'
 import { dataKeys } from './keys'
 import { queryClient } from './queryClient'
+import { skillKeys } from './skillKeys'
 import { todayKeys } from './today'
 
 export type Change =
@@ -63,6 +65,12 @@ export type Change =
   | { kind: 'sop-run'; id?: string }
   /** 终端会话新建、结束（TERM-01b） */
   | { kind: 'terminal-session' }
+  /** 知识库新建、编辑、删除，加文档、改文档、移除、重新索引、同步（AG-01b7） */
+  | { kind: 'knowledge-base' }
+  /** 自定义技能新建（含复制）、修改、删除（AG-01b6）；删除时挂着它的 Agent 也被摘掉 */
+  | { kind: 'skill' }
+  /** Agent 新建、编辑（含启停）、删除（AG-01b5）；删除时挂着它的会话显示为已删除的 Agent */
+  | { kind: 'agent'; id?: string }
 
 // 对象一变，所有对象列表（任务列表、今日、项目的任务标签页）、单个对象及其进展和修订、
 // 计数（侧栏红点、逾期徽标）都可能变；干系人名册上的任务数也跟着变；今日聚合（待验收、逾期、今天到期、插件卡片）也是。
@@ -106,8 +114,8 @@ export function invalidationsFor(c: Change): QueryKey[] {
         agentKeys.sessions.unscoped, dataKeys.artifacts.all, ...objectWide,
       ]
     case 'plugin':
-      // 插件停用后它的今日卡片从聚合里消失，它登记的连接器定义也跟着出现或消失（CONN-02）
-      return [dataKeys.plugins.all, dataKeys.objectTypes, todayKeys.all, dataKeys.connectors.all]
+      // 插件停用后它的今日卡片从聚合里消失，它登记的连接器定义、技能也跟着出现或消失（CONN-02、AG-01b6）
+      return [dataKeys.plugins.all, dataKeys.objectTypes, todayKeys.all, dataKeys.connectors.all, skillKeys.all]
     case 'schedule':
       // 列表（今日的「今天还会自动执行」同一份）；删除时执行记录一起没了
       return c.id ? [todayKeys.schedules, dataKeys.schedules.runsOf(c.id)] : [todayKeys.schedules, dataKeys.schedules.all]
@@ -156,6 +164,15 @@ export function invalidationsFor(c: Change): QueryKey[] {
       return [dataKeys.projectPrototypes.of(c.projectId), dataKeys.projectSummary, dataKeys.terminal.prototypes]
     case 'terminal-session':
       return [dataKeys.terminal.sessions]
+    case 'knowledge-base':
+      // 篇数、状态、挂着的 Agent 都在知识库上，检索结果跟着文档变；删库时 Agent 的挂载也变
+      return [dataKeys.knowledgeBases.all, agentConfigKeys.all]
+    case 'skill':
+      // 删技能时挂着它的 Agent 被摘掉（AG-01b5）
+      return [skillKeys.all, agentConfigKeys.all]
+    case 'agent':
+      // 技能、知识库上的「在用的 Agent」，会话上的 Agent 名和已删除标记跟着变
+      return [agentConfigKeys.all, skillKeys.all, dataKeys.knowledgeBases.all, agentKeys.sessions.all]
   }
 }
 

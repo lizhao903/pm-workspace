@@ -18,6 +18,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/lizhao903/pm-workspace/internal/agent"
 	"github.com/lizhao903/pm-workspace/internal/api"
 	"github.com/lizhao903/pm-workspace/internal/audit"
 	"github.com/lizhao903/pm-workspace/internal/connector"
@@ -28,6 +29,7 @@ import (
 	"github.com/lizhao903/pm-workspace/internal/localdir"
 	"github.com/lizhao903/pm-workspace/internal/notify"
 	"github.com/lizhao903/pm-workspace/internal/plugin"
+	"github.com/lizhao903/pm-workspace/internal/plugins/domains"
 	"github.com/lizhao903/pm-workspace/internal/plugins/im"
 	"github.com/lizhao903/pm-workspace/internal/plugins/projects"
 	"github.com/lizhao903/pm-workspace/internal/plugins/sop"
@@ -185,6 +187,10 @@ func run(cfg config) error {
 	if err := plugins.Add(terminal.New(cfg.publicURL)); err != nil {
 		return fmt.Errorf("登记插件失败: %w", err)
 	}
+	// 内网域名插件（DOM-01a）：只读检测 hosts、pf、证书，生成配置和命令，不写系统文件
+	if err := plugins.Add(domains.New(domains.Options{Addr: cfg.addr, TLSAddr: cfg.tlsAddr, TLSCert: cfg.tlsCert})); err != nil {
+		return fmt.Errorf("登记插件失败: %w", err)
+	}
 	if err := plugins.Start(ctx); err != nil {
 		return fmt.Errorf("启动插件失败: %w", err)
 	}
@@ -237,13 +243,25 @@ func run(cfg config) error {
 	objects := events.WrapStore(audit.WrapStore(st, opts.Audit), bus)
 	// 插件建内核对象（IM-02a 转任务）走同一个外层包装，修订、审计、事件照常；来源记为插件 id
 	plugins.SetObjectCreator(objects)
+	// 插件用模型和 Agent（SOP-01c）：口径同对话接口，Agent 的写操作走外层包装，审计、事件照常
+	plugins.SetAgent(&agent.Service{Store: objects, Connectors: opts.Connectors, PluginSkills: plugins.Skills})
+	// Agent 的触发和执行记录（AG-01b4，0036）：任务、IM 事件和定时任务的 agent 动作交给它，跑模型的 Runner 由 api.New 接上。
+	// 退出时最多等 5 秒在途的执行，没跑完的下次启动记为失败
+	opts.AgentRuns = agent.NewDispatcher(objects, slog.Default())
+	if err := opts.AgentRuns.Recover(ctx); err != nil {
+		return fmt.Errorf("整理 Agent 执行记录失败: %w", err)
+	}
+	bus.Tap(func(e plugin.Event) { opts.AgentRuns.HandleEvent(e.Type, e.Payload) })
+	defer opts.AgentRuns.Wait(5 * time.Second)
 	// 调度器（TASK-03b，0021）：到点执行定时任务，建任务走外层包装，事件和审计照常；退出时先停调度再关库
 	opts.ScheduleRunner = schedule.NewRunner(opts.Schedules, objects, slog.Default())
+	opts.ScheduleRunner.Agents = opts.AgentRuns
+	handler := api.New(objects, opts)
+	// 在 api.New 之后启动：agent 动作要用 New 接上的 Runner
 	if err := opts.ScheduleRunner.Start(ctx); err != nil {
 		return fmt.Errorf("启动定时任务调度失败: %w", err)
 	}
 	defer opts.ScheduleRunner.Stop()
-	handler := api.New(objects, opts)
 
 	// 两个监听共用同一个 handler，但各自一个 http.Server：Server 内部持有
 	// 监听状态与在途连接，一个实例只能 Serve 一次，不能复用。

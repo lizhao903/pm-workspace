@@ -225,11 +225,25 @@ type Core interface {
 	Events() Publisher          // 只能发布清单 emits 里的类型
 	Audit() AuditLog            // CORE-08
 	Store() Store               // 只能访问 table_prefix 开头的表
+	Agent() AgentService        // 用默认服务商补全、按 Agent 的授权跑一轮、搜指定知识库（SOP-01c）
 	Log() *slog.Logger
 }
 ```
 
 `RouteRegistrar` 沿用 `internal/api/server.go` 里的同名接口（`HandleFunc(pattern, handler)`），路径必须以 `/api/<id>/` 开头；内核在外面包一层，停用时整组返回 404。加了路由照旧要写进 `docs/api-contract.md`（契约测试双向检查）。
+
+内核对象只读句柄（已实现，`internal/plugin/store.go`）：`Objects().Get(ctx, id)` 返回 `ObjectInfo{ID, Type, Title, Workdir, Deleted}`，没有这个 id 返回 `ErrNoRows`。`Workdir` 是对象自身的 `workdir` 列，对项目就是 `root`，没设为空串，不往所属项目继承（TERM-01c 加）。
+
+模型和 Agent 句柄（已实现，`internal/plugin/agent.go`，SOP-01c 加）：实现是 `internal/agent` 的 `Service`，`cmd/pmw` 用 `Registry.SetAgent` 接上；没接上时每个方法回 `ErrNoAgent`。服务商、授权、技能的口径和对话接口（`/api/agent/chat`）一致。
+
+| 方法 | 做什么 |
+|---|---|
+| `Complete(ctx, CompleteRequest{System, Prompt, Model})` | 不带工具补全一次，回模型说的原文。服务商取默认的（没有默认的取第一个启用的），`Model` 为空用服务商的模型；一个服务商都没有回 `agent.ErrNoProvider` |
+| `RunAgent(ctx, AgentRunRequest{Agent, Prompt, Title})` | `Agent` 是 id 或名称，停用的不跑。新建一个挂这个 Agent 的会话（标题 `Title`），按它当前的服务商、模型、技能、工具授权跑一轮。遇到授权是「需确认」的工具不执行，回 `Waiting: true`、`Pending`（给人看的一句话）、`CallIDs`；人在会话里确认或拒绝后由对话接口接着跑 |
+| `AgentState(ctx, sessionID)` | 会话里最新一条 Agent 回复（`MessageID`、`Reply`）；回复里还有确认卡片时 `Waiting` 为真。插件靠「`MessageID` 变了、`Waiting` 为假」判断确认后这一轮跑完了 |
+| `SearchKB(ctx, kbIDs, query, top)` | 只在给的知识库里检索，回前 `top` 段（`KBHit` 即 `kb.SearchHit`）；`kbIDs` 为空直接报错，不搜全部 |
+
+这个句柄暂不按权限收窄：调模型、跑 Agent 不在 3.1 的权限清单里，Agent 能做什么由它自己的工具授权管。
 
 ### 2.1 功能模块
 

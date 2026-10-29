@@ -29,6 +29,28 @@ type TaskCreator interface {
 	CreateObject(ctx context.Context, o *domain.Object, a store.Actor) (*domain.Object, error)
 }
 
+// AgentRequest 是定时任务交给 Agent 的一次执行（AG-01b4）。RunID 是这次定时任务执行记录的 id，Agent 那边按它去重。
+type AgentRequest struct {
+	AgentID      string
+	ScheduleID   string
+	ScheduleName string
+	RunID        string
+	Prompt       string
+}
+
+// AgentStarted 是发起的结果。Failed 是 Agent 执行记录建了但没跑起来（服务商、模型不对之类），Reason 是原因。
+type AgentStarted struct {
+	RunID     string
+	AgentName string
+	Failed    bool
+	Reason    string
+}
+
+// AgentStarter 发起一次 Agent 执行，不等它跑完。Agent 不存在、已停用时回错误，错误文字给人看。
+type AgentStarter interface {
+	StartAgent(ctx context.Context, q AgentRequest) (*AgentStarted, error)
+}
+
 // Runner 是调度器：每隔 Interval 看一遍定时任务，到点的执行，错过的只记一条，不补跑。
 //
 // 防重有两道：schedules.checked_at 游标（处理过的时刻不再看），和执行记录上「定时任务 + 计划时刻」的唯一索引
@@ -40,6 +62,8 @@ type Runner struct {
 	log      *slog.Logger
 	Interval time.Duration
 	Grace    time.Duration
+	// Agents 执行动作 agent（AG-01b4）；为 nil 时记 unsupported
+	Agents AgentStarter
 
 	mu     sync.Mutex // Tick 串行
 	cancel context.CancelFunc
@@ -183,7 +207,9 @@ func (r *Runner) execute(ctx context.Context, sc *Schedule, planned time.Time, m
 	case ActionSOP:
 		return r.s.insertRun(ctx, sc.ID, planned, manual, runResult{status: RunUnsupported, text: "没执行：执行 SOP 暂不支持，M4 之后才有"}, 0)
 	case ActionAgent:
-		return r.s.insertRun(ctx, sc.ID, planned, manual, runResult{status: RunUnsupported, text: "没执行：让 Agent 去做暂不支持，M4 之后才有"}, 0)
+		if r.Agents == nil {
+			return r.s.insertRun(ctx, sc.ID, planned, manual, runResult{status: RunUnsupported, text: "没执行：让 Agent 去做暂不支持，M4 之后才有"}, 0)
+		}
 	case ActionTask:
 	default:
 		return r.s.insertRun(ctx, sc.ID, planned, manual, runResult{status: RunFailed, text: fmt.Sprintf("没执行：不认识的动作 %q", sc.Action.Kind)}, 0)
@@ -193,14 +219,33 @@ func (r *Runner) execute(ctx context.Context, sc *Schedule, planned time.Time, m
 	if err != nil || run == nil {
 		return nil, err
 	}
-	res := r.createTask(ctx, sc, planned)
+	var res runResult
+	if sc.Action.Kind == ActionAgent {
+		res = r.startAgent(ctx, sc, run.ID)
+	} else {
+		res = r.createTask(ctx, sc, planned)
+	}
 	if err := r.s.finishRun(ctx, run, res); err != nil {
 		return nil, err
 	}
 	if res.status != RunOK {
-		r.log.Warn("定时任务没建成任务", "schedule", sc.ID, "text", res.text)
+		r.log.Warn("定时任务没执行成", "schedule", sc.ID, "text", res.text)
 	}
 	return run, nil
+}
+
+// startAgent 交给 Agent 去做，不等它跑完；结果文字指到 Agent 的执行记录。
+func (r *Runner) startAgent(ctx context.Context, sc *Schedule, runID string) runResult {
+	got, err := r.Agents.StartAgent(ctx, AgentRequest{
+		AgentID: sc.Action.AgentID, ScheduleID: sc.ID, ScheduleName: sc.Name, RunID: runID, Prompt: sc.Action.Prompt,
+	})
+	if err != nil {
+		return runResult{status: RunFailed, text: "没执行：" + err.Error()}
+	}
+	if got.Failed {
+		return runResult{status: RunFailed, text: fmt.Sprintf("Agent「%s」没跑起来：%s，执行记录 %s", got.AgentName, got.Reason, got.RunID)}
+	}
+	return runResult{status: RunOK, text: fmt.Sprintf("交给了 Agent「%s」，执行记录 %s", got.AgentName, got.RunID)}
 }
 
 var datePlaceholder = regexp.MustCompile(`\{\{\s*date\s*\}\}`)

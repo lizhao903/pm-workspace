@@ -230,21 +230,27 @@ func (r *Runner) requestConfirm(ctx context.Context, call ToolCall, key string, 
 	if r.Agent == nil {
 		return "", fmt.Errorf("没有挂 Agent 的会话不需要确认")
 	}
-	sid := r.Session.ID
-	tc, err := r.Store.CreateAgentToolCall(ctx, &store.AgentToolCall{
-		AgentID: r.Agent.ID, SessionID: &sid, CallID: call.ID, Tool: call.Name, GrantKey: key, Args: defaultArgs(call.Args),
-	})
-	if err != nil {
-		return "", fmt.Errorf("保存待确认的调用失败")
+	var id string
+	if r.Debug != nil {
+		id = r.holdDebugCall(call, key)
+	} else {
+		sid := r.Session.ID
+		tc, err := r.Store.CreateAgentToolCall(ctx, &store.AgentToolCall{
+			AgentID: r.Agent.ID, SessionID: &sid, RunID: r.runRef(), CallID: call.ID, Tool: call.Name, GrantKey: key, Args: defaultArgs(call.Args),
+		})
+		if err != nil {
+			return "", fmt.Errorf("保存待确认的调用失败")
+		}
+		id = tc.ID
 	}
 	brief := r.callBrief(call)
-	if _, err := r.Store.AppendAgentMessage(ctx, &domain.AgentMessage{
+	if _, err := r.record(ctx, &domain.AgentMessage{
 		SessionID: r.Session.ID, Role: domain.RoleTool, Content: "等待确认：" + brief,
 		ToolName: call.Name, ToolArgs: call.Args,
 	}); err != nil {
 		return "", fmt.Errorf("保存工具调用记录失败")
 	}
-	emit(StreamEvent{Type: "confirm", ID: tc.ID, Name: call.Name, Args: defaultArgs(call.Args), Summary: brief})
+	emit(StreamEvent{Type: "confirm", ID: id, Name: call.Name, Args: defaultArgs(call.Args), Summary: brief})
 	return brief, nil
 }
 
@@ -263,7 +269,7 @@ func (r *Runner) applyDecision(ctx context.Context, tb *Toolbox, d *Decision, em
 		note = fmt.Sprintf("用户拒绝了你上一轮提出的调用（%s %s），没有执行。不要再提出同样的调用；向用户说明情况，或者换别的办法。", call.Name, clip(call.Args, 300))
 	}
 	d.Result = res.Summary
-	if _, err := r.Store.AppendAgentMessage(ctx, &domain.AgentMessage{
+	if _, err := r.record(ctx, &domain.AgentMessage{
 		SessionID: r.Session.ID, Role: domain.RoleTool, Content: res.Summary, ToolName: call.Name, ToolArgs: call.Args,
 	}); err != nil {
 		return "", fmt.Errorf("保存工具调用记录失败")

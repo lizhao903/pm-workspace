@@ -194,6 +194,11 @@ func (s *Server) agentPolicy(ctx context.Context, a *domain.Agent) (*agent.Polic
 	if err != nil {
 		return nil, err
 	}
+	return s.policyFor(ctx, a, grants)
+}
+
+// policyFor 按给定的授权算 Policy；调试对话用没保存的授权（AG-02c）。
+func (s *Server) policyFor(ctx context.Context, a *domain.Agent, grants map[string]string) (*agent.Policy, error) {
 	p := &agent.Policy{Grants: grants}
 	if s.opt.Connectors == nil {
 		return p, nil
@@ -253,6 +258,11 @@ func (s *Server) decideToolCall(w http.ResponseWriter, r *http.Request, approved
 		s.fail(w, r, fmt.Errorf("response writer does not support streaming"))
 		return
 	}
+	// 调试对话里的调用只在内存里（AG-02c）
+	if agent.IsDebugCall(r.PathValue("id")) {
+		s.decideDebugCall(w, r, flusher, approved)
+		return
+	}
 	tc, err := s.st.GetAgentToolCall(ctx, r.PathValue("id"))
 	if err != nil {
 		s.fail(w, r, err)
@@ -262,8 +272,9 @@ func (s *Server) decideToolCall(w http.ResponseWriter, r *http.Request, approved
 		s.fail(w, r, conflictf("这次调用已经处理过了"))
 		return
 	}
+	// 执行记录里的调用也记着它的会话（AG-01b4），确认后在那个会话里接着跑
 	if tc.SessionID == nil {
-		s.fail(w, r, conflictf("执行记录里的调用还不能在这里处理"))
+		s.fail(w, r, conflictf("这次调用没有会话，不能接着跑"))
 		return
 	}
 	session, err := s.st.GetAgentSession(ctx, *tc.SessionID)
@@ -294,6 +305,9 @@ func (s *Server) decideToolCall(w http.ResponseWriter, r *http.Request, approved
 	if err != nil {
 		s.fail(w, r, err)
 		return
+	}
+	if tc.RunID != nil {
+		runner.RunID = *tc.RunID
 	}
 	state, action, verb := store.ToolCallRejected, "reject", "拒绝"
 	if approved {
@@ -327,6 +341,16 @@ func (s *Server) decideToolCall(w http.ResponseWriter, r *http.Request, approved
 		// 和流解耦：用户关掉页面时结果也要记下
 		if e := s.st.SetAgentToolCallResult(context.WithoutCancel(ctx), tc.ID, dec.Result); e != nil {
 			s.log.Warn("save tool call result failed", "call", tc.ID, "err", e)
+		}
+	}
+	// 执行记录按这次处理重算状态（AG-01b4）；客户端断开不算执行失败
+	if tc.RunID != nil {
+		runErr := err
+		if ctx.Err() != nil {
+			runErr = nil
+		}
+		if e := agent.SettleRun(context.WithoutCancel(ctx), s.st, *tc.RunID, runErr); e != nil {
+			s.log.Warn("settle agent run failed", "run", *tc.RunID, "err", e)
 		}
 	}
 	if err != nil {

@@ -11,6 +11,7 @@ import (
 	"runtime/debug"
 	"time"
 
+	"github.com/lizhao903/pm-workspace/internal/agent"
 	"github.com/lizhao903/pm-workspace/internal/audit"
 	"github.com/lizhao903/pm-workspace/internal/connector"
 	"github.com/lizhao903/pm-workspace/internal/conversation"
@@ -61,6 +62,9 @@ type Options struct {
 	// ScheduleRunner 是调度器（TASK-03b），手动执行要用；为 nil 时 POST /api/schedules/{id}/run 回 500。
 	ScheduleRunner *schedule.Runner
 
+	// AgentRuns 是 Agent 的触发和执行记录（AG-01b4，0036）；New 给它接上 Prepare。为 nil 时不自动触发，列表照常读库。
+	AgentRuns *agent.Dispatcher
+
 	// Webhooks 是 Webhook 配置（TASK-02a，0022），密钥在保险箱里；为 nil 时 /api/webhooks 回 500。
 	Webhooks *webhook.Store
 
@@ -102,6 +106,9 @@ func New(st store.Store, opts Options) *Server {
 		s.opt.Version = "dev"
 	}
 	s.run = &runner.Runner{Bin: opts.ClaudeBin, Timeout: opts.RunTimeout, Logger: s.log}
+	if opts.AgentRuns != nil {
+		opts.AgentRuns.Prepare = s.agentRunner
+	}
 	s.h = s.build()
 	return s
 }
@@ -263,6 +270,11 @@ func (s *Server) routes(m routeRegistrar) {
 	m.HandleFunc("PUT /api/agents/{id}/grants", s.handlePutAgentGrants)
 	m.HandleFunc("POST /api/agent/tool-calls/{id}/confirm", s.handleConfirmToolCall)
 	m.HandleFunc("POST /api/agent/tool-calls/{id}/reject", s.handleRejectToolCall)
+	// Agent 执行记录（AG-01b4，0036）
+	m.HandleFunc("GET /api/agent-runs", s.handleListAgentRuns)
+	m.HandleFunc("GET /api/agent-runs/{id}", s.handleGetAgentRun)
+	// Agent 调试对话（AG-02c）
+	m.HandleFunc("POST /api/agents/debug/chat", s.handleAgentDebugChat)
 	m.HandleFunc("GET /api/skills", s.handleListSkills)
 	m.HandleFunc("POST /api/skills", s.handleCreateSkill)
 	m.HandleFunc("GET /api/skills/{id}", s.handleGetSkill)
