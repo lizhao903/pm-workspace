@@ -23,6 +23,7 @@
 #   PMW_DEV_DIR   副本库、pid、日志所在目录（默认 $TMPDIR/pmw-devinst）
 #   PMW_DEV_ADDR  监听地址（默认 127.0.0.1:7796）
 #   PMW_SRC_DB    被复制的真实库（默认 <仓库>/data/pm.db）
+#   PMW_DEV_SKIP_UI=1  编译时不重建正式前端（默认每次 start 都 make frontend 再嵌进去）
 
 set -euo pipefail
 
@@ -72,8 +73,11 @@ health() {
 
 build() {
   echo "编译 $BIN 与 $BIN_MCP"
-  # webui 的 //go:embed 要求 dist 至少有一个文件，和 Makefile 的 placeholder 同一个道理。
-  if [ ! -f "$REPO/internal/webui/dist/index.html" ]; then
+  # 嵌正式前端 frontend/，和 make build 默认一致。只放占位页或沿用旧产物，7796 上看到的就不是原型对应的界面。
+  # PMW_DEV_SKIP_UI=1 时跳过前端构建（只改后端时省时间），dist 为空才放占位页。
+  if [ "${PMW_DEV_SKIP_UI:-}" != "1" ]; then
+    (cd "$REPO" && make frontend >/dev/null) || die "前端构建失败"
+  elif [ ! -f "$REPO/internal/webui/dist/index.html" ]; then
     (cd "$REPO" && make placeholder >/dev/null)
   fi
   (cd "$REPO" && go build -ldflags "-X main.version=dev" -o "$BIN" ./cmd/pmw)
