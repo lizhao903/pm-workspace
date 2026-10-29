@@ -4611,6 +4611,47 @@
     "acceptance": "- [ ] 设置的运行异常不再写「待开发」\n- [ ] SOP 流程详情空状态文案对\n- [ ] /api/object-types 里任务类型叫「任务」\n- [ ] 改到的 Go 跑 gofmt、go vet、go test ./...；前端 npm test、typecheck、lint、build、smoke-frontend 通过"
   },
   {
+    "key": "VID-08e",
+    "type": "task",
+    "title": "前端商单页：列表、抽屉、关联视频、结案报告",
+    "milestone": "M5",
+    "module": "frontend",
+    "priority": "P3",
+    "estimate": "M",
+    "depends_on": [
+      "VID-08d",
+      "VID-01c"
+    ],
+    "workdir": "frontend",
+    "spec": [
+      "web-next/docs/spec/videos.md 商单相关节（VID-08p）",
+      "web-next/src/videos.tsx、videodata.ts 的商单部分",
+      "docs/api-contract.md video 一节的商单"
+    ],
+    "body": "## 要做什么\n\n后端商单（VID-08d）已合入，前端还没有页面。照原型和规格做商单列表、商单抽屉（品牌、项目、询价人、报价、状态）、关联视频、出结案报告；IM 询价转商单的入口在 IM 消息抽屉里加（插件之间不 import，走 core/data）。",
+    "acceptance": "- [ ] 能建商单、关联视频、出结案报告并打开\n- [ ] 从 IM 消息转商单预填品牌、询价人\n- [ ] npm test、typecheck、lint、build、smoke-frontend 通过"
+  },
+  {
+    "key": "PR-21",
+    "type": "task",
+    "title": "项目详情的 Agent 标签",
+    "milestone": "M4",
+    "module": "frontend",
+    "priority": "P2",
+    "estimate": "M",
+    "depends_on": [
+      "AG-01b8",
+      "PR-10"
+    ],
+    "workdir": "frontend",
+    "spec": [
+      "web-next/docs/spec/projects.md SPEC-projects-10",
+      "docs/proto-align.md F-10"
+    ],
+    "body": "## 要做什么\n\n项目 Agent 标签还是「还在开发中」占位（ALIGN-03 F-10），Agent 配置和会话挂 Agent 都已做完。照 SPEC-projects-10 做：项目 Agent 列表（默认、设为默认、对话、移除，存在项目 props 里）和项目里的会话；概览的「项目 Agent」块接上。",
+    "acceptance": "- [ ] 项目里能加 Agent、设默认、从这里开对话，会话列在项目里\n- [ ] 概览的项目 Agent 块显示默认 Agent\n- [ ] npm test、typecheck、lint、build、smoke-frontend 通过"
+  },
+  {
     "key": "VID-08p",
     "type": "task",
     "title": "原型补商单",
