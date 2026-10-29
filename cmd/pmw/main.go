@@ -30,6 +30,8 @@ import (
 	"github.com/lizhao903/pm-workspace/internal/plugin"
 	"github.com/lizhao903/pm-workspace/internal/plugins/im"
 	"github.com/lizhao903/pm-workspace/internal/plugins/projects"
+	"github.com/lizhao903/pm-workspace/internal/plugins/sop"
+	"github.com/lizhao903/pm-workspace/internal/plugins/terminal"
 	"github.com/lizhao903/pm-workspace/internal/schedule"
 	"github.com/lizhao903/pm-workspace/internal/store/sqlite"
 	"github.com/lizhao903/pm-workspace/internal/vault"
@@ -173,6 +175,14 @@ func run(cfg config) error {
 		imAdapters = append(imAdapters, im.NewFake("fake", "slack", 5*time.Second, "我"))
 	}
 	if err := plugins.Add(im.New(imAdapters...)); err != nil {
+		return fmt.Errorf("登记插件失败: %w", err)
+	}
+	// SOP 编排插件（SOP-01a）：先只有流程定义，执行引擎从 SOP-01b 起
+	if err := plugins.Add(sop.New()); err != nil {
+		return fmt.Errorf("登记插件失败: %w", err)
+	}
+	// 终端插件（TERM-01a）：WebSocket 握手认本机和 --public-url 的 Origin
+	if err := plugins.Add(terminal.New(cfg.publicURL)); err != nil {
 		return fmt.Errorf("登记插件失败: %w", err)
 	}
 	if err := plugins.Start(ctx); err != nil {

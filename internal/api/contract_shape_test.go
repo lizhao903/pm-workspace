@@ -22,6 +22,8 @@ import (
 	"github.com/lizhao903/pm-workspace/internal/notify"
 	"github.com/lizhao903/pm-workspace/internal/plugins/im"
 	"github.com/lizhao903/pm-workspace/internal/plugins/projects"
+	"github.com/lizhao903/pm-workspace/internal/plugins/sop"
+	"github.com/lizhao903/pm-workspace/internal/plugins/terminal"
 	"github.com/lizhao903/pm-workspace/internal/schedule"
 	"github.com/lizhao903/pm-workspace/internal/webhook"
 	"github.com/lizhao903/pm-workspace/internal/workspace"
@@ -74,6 +76,8 @@ var contractSpecs = map[string]contractSpec{
 	"Conversation":              {v: conversation.Conversation{}},
 	// SSE 事件是一个联合结构，示例只是其中的 question
 	"Agent 对话 agent#json1": {v: agent.StreamEvent{}, partial: true},
+	"Agent":                {v: domain.Agent{}},
+	"AgentImpact":          {v: agentImpactResult{}},
 	// 溯源字段表只列 0031 补的列
 	"输出产物 artifacts / 溯源字段（AG-03b，0031）#table1": {v: domain.Artifact{}, partial: true},
 
@@ -116,6 +120,11 @@ var contractSpecs = map[string]contractSpec{
 	// 两种错误的附加字段是 actionError.extra 这个 map 拼出来的，没有可比的结构
 	"IM 消息插件 im / 处理动作#json1": {skip: "错误附加字段来自 map，无结构"},
 	"IM 消息插件 im / 事件#json1":   {v: im.Received{}},
+
+	"SopFlow":     {v: sop.Flow{}},
+	"SopNodeType": {v: sop.NodeType{}},
+
+	"TerminalSession": {v: terminal.Session{}},
 }
 
 // docShape 是从文档里抽出来的一个对象：字段名和（如果有）字段的嵌套对象。

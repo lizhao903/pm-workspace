@@ -191,6 +191,9 @@
 | cv | IM 会话 | conversations |
 | cn | 连接器 | connectors |
 | msg | IM 消息（IM 插件） | im_messages |
+| ag | Agent 配置 | agents |
+| sop | SOP 流程（SOP 插件） | sop_flows |
+| pn | 终端会话（终端插件，128 位随机串，不走 `idgen.Prefixed`，不入库） | - |
 
 原型 `ids.ts` 和后端不一致的前缀：后端已经上线的不改，原型的前缀保留，不分给别的实体。
 
@@ -484,13 +487,13 @@ IM 里的群聊和私聊（CT-02，0028，表 `conversations`、`conversation_me
 | 方法 | 路径 | body / 说明 |
 |---|---|---|
 | GET | `/api/agent/sessions?object_id=X` / `?unscoped=true` | **必须二选一**：`object_id` 给某个对象的会话（详情抽屉用），`unscoped=true` 给 `object_id IS NULL` 的全局会话（底部对话框用）。两个都不给返回空列表，不是全部；两个都给以 `object_id` 为准（不报 400——这俩是前端两处独立代码各自拼的，真撞上时给一批说得通的数据比让抽屉整个打不开好） |
-| POST | `/api/agent/sessions` | `{title?,provider_id,model,workdir?,object_id?}`，`object_id` 省略即全局会话 |
+| POST | `/api/agent/sessions` | `{title?,provider_id,model,workdir?,object_id?,agent_id?}`，`object_id` 省略即全局会话；`agent_id` 见下面「会话挂 Agent」 |
 | PATCH | `/api/agent/sessions/{id}` | |
 | DELETE | `/api/agent/sessions/{id}` | 消息级联删除；**产物保留**，只把它的 `session_id` 置空（见「输出产物」一节） |
 | GET | `/api/agent/sessions/{id}/messages` | `AgentMessage[]`，**按时间正序**（最旧在前） |
 | GET | `/api/agent/sessions/{id}/artifacts` | `Artifact[]`，等价于 `/api/artifacts?session_id={id}`；会话不存在报 404（而不是回空列表） |
 | POST | `/api/agent/workdir/check` | `{path}`，校验产物目录是否存在且可写 |
-| POST | `/api/agent/chat` | `{session_id?,provider_id?,model?,workdir?,object_id?,message}`，**SSE 流式响应**，见下 |
+| POST | `/api/agent/chat` | `{session_id?,provider_id?,model?,workdir?,object_id?,agent_id?,message}`，**SSE 流式响应**，见下；`agent_id` 只在不带 `session_id`、新建会话时用 |
 
 `/api/agent/chat` 的 SSE 事件在 `delta` / `tool_call` / `tool_result` / `artifact` / `done` / `error`
 之外多一种 **`question`**——Agent 遇到拿不准的地方时反问用户，而不是自己猜一个答案继续做：
@@ -516,6 +519,47 @@ chat 带了不同的 `object_id` 也不会让已有会话搬家——搬走会�
 
 `/api/agent/chat` 与 `/api/objects/{id}/run` 都是 SSE，而 `EventSource` 只能发 GET、带不了 body，
 前端一律用 `fetch` + `ReadableStream` 自己按空行切块。
+
+### 会话挂 Agent（AG-01b1，0032）
+
+- 会话多两个字段：`agent_id`（挂的 Agent，`null` 是不挂 Agent 的会话，0032 之前的都是）和 `agent_deleted`（挂了 Agent 但 Agent 已删除时为 `true`，其余为 `false`）。`agent_id` 建的时候定下，PATCH 改不了。
+- `POST /api/agent/sessions` 带 `agent_id` 时用这个 Agent 的 `provider_id` 和 `model`，请求里的这两项忽略；Agent 不存在 404。停用的 Agent 也能建会话，只是不能发消息。
+- `POST /api/agent/chat`：会话挂了 Agent 时按 Agent **当前**的服务商和模型跑（和会话里的快照不同就先写回会话），请求里的 `provider_id`、`model` 不认；Agent 的名称、说明和 `instructions` 拼在系统提示词最后。Agent 停用回 409「Agent 已停用」，删了回 409「Agent 已删除」，都在开流之前、用户消息不落库。不带 `session_id` 但带 `agent_id` 时先查 Agent，再新建会话。
+- 删除 Agent 不动会话：消息、产物都在，`agent_id` 原样留着，读出来 `agent_deleted: true`。不带 `agent_id` 的会话行为不变。
+
+## Agent 配置 agents
+
+AG-01b1。表 `agents`（0032），id 前缀 `ag`，字段对齐原型 `web-next/src/agentdata.ts` 的 `Agent`（`SPEC-settings-9` 数据）。工具权限 `abilities` 归 AG-02a，技能、知识库的接口在 AG-01b2、AG-01b3，触发和执行记录在 AG-01b4，这里只存挂载的 id。全量导出暂不含这张表。
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| GET | `/api/agents` | `Agent[]` + `meta.total`，不分页，新建的在前 |
+| POST | `/api/agents` | 新建，body 是 `Agent` 去掉 `id` 和时间戳，除 `name`、`provider_id` 外都可省；回 201 + `Agent` |
+| GET | `/api/agents/{id}` | 一个 `Agent`；不存在 404 |
+| PATCH | `/api/agents/{id}` | 只传要改的字段，`null` 等于没传，不认的键（`id`、`abilities` 等）忽略；回 `Agent` |
+| DELETE | `/api/agents/{id}` | 回删掉的那条 `Agent`；影响检查有拦截原因时回 409，message 为「不能删除：<原因>」 |
+| GET | `/api/agents/{id}/impact` | 删除前的影响检查，只读，回 `AgentImpact`；不存在 404 |
+
+`Agent`：`{id, name, desc, color, avatar, provider_id, model, instructions, skills, mcps, kbs, triggers, enabled, created_at, updated_at}`，`avatar` 是 `{kind, value}`，`triggers` 是 `{kind, detail}[]`。
+
+- **模型必须带服务商**：新建时 `provider_id` 必填且必须是存在的服务商，不带或不存在回 400；`model` 不给时取服务商的默认模型，服务商也没有默认模型回 400。`model` 不校验是否在模型列表里，服务商停用、模型下架由前端标红，不拦保存（`SPEC-settings-9.27`）；服务商删了 Agent 还在，`provider_id` 留着。PATCH 改 `provider_id` 同样要存在，`model` 不能改成空串。
+- `name` 去首尾空白，必填，最多 100 字；`desc` 最多 500 字；`instructions` 最多 20000 字。
+- `color` 是 `#rrggbb`，不给时从原型 `AGENT_COLORS` 里随机挑一个。
+- `avatar.kind` 为 `text`（`value` 零到两个字，空就用名字第一个字）/ `icon`（`value` 是原型 `AVATAR_ICONS` 之一）/ `image`（`value` 是 `data:image/...;base64,...`，图片解码后 1MB 以内）；不给时 `{kind: "text", value: ""}`。
+- `skills`、`mcps`、`kbs` 是 id 数组，去空白、去重，各最多 100 个；不查 id 是否存在（连接器的问题不拦保存，技能、知识库的表还没有）。
+- `triggers` 至少一条，`kind` 为 `manual` / `im` / `schedule` / `task`，`detail` 最多 200 字；不给时 `[{kind: "manual", detail: ""}]`。`enabled` 不给时为 `true`。
+- 校验失败回 400，message 是中文整句（如「名称还没填」「服务商 apv_x 不存在」）。
+
+`AgentImpact`：`{agent_id, blocks, items}`，口径同原型 `agentPlan`（`SPEC-settings-9.29`、`9.30`）。`blocks` 和 `items` 都是 `{key, count, text, effect?}[]`，没有的项不出现，`text` 前端原样显示。
+
+| 放在 | key | 什么时候有 | text 例 |
+|---|---|---|---|
+| `blocks` | `schedules` | 有定时任务的 `action.kind` 为 `agent` 且 `action.agent_id` 是它 | `定时任务「周报」交给它执行，先改掉或删掉这些定时任务` |
+| `items` | `sessions` | 有会话挂在它上面（`effect` 为 `keep`） | `2 个会话和它们的产出保留，显示为已删除的 Agent` |
+
+- 原型里另外两项后端还没有数据：「还有 N 处操作等你确认」（执行记录和会话里的待确认调用，AG-01b4、AG-02a）拦删除，「会从项目 X 里摘掉」（项目挂 Agent）是影响，等对应任务补。
+- 影响检查不记审计。服务没接定时任务时不查 `schedules`。
+- 审计按 `config` 记，`target_type` 为 `agent`，`action` 为 `create` / `update` / `delete`：新建、删除记 `detail.name`、`provider_id`、`model`（新建另记 `enabled`），修改只记 `detail.fields`（改了启停时另记新的 `detail.enabled`）。被拦下的删除不记。
 
 ## 输出产物 artifacts
 
@@ -1394,6 +1438,94 @@ IM-04a，口径照原型 `App.tsx` 的 `fetchAttachment`、`messages.tsx` 的 `f
 ```
 
 只带 id 和归类，正文用 `GET /api/im/messages` 取。别的插件要订阅，清单 `depends` 或 `optional_depends` 里要写 `im`。
+
+## SOP 编排插件 sop
+
+SOP-01a 起。插件 `sop`（`internal/plugins/sop`，清单 `plugin.json`，0.1.0，权限为空）。流程定义落在插件表 `sop_flows`（插件迁移 `0001_flows.sql`，安装插件时应用），id 前缀 `sop`。执行引擎（SOP-01b）、AI 类和外部节点（SOP-01c）、定时任务和 Agent 发起（SOP-01d）后续接上。插件未安装或停用时，本节接口回 `not_found` 404（同「插件路由」），数据不动。
+
+### 流程定义
+
+| 方法 | 路径 | body / 说明 |
+|---|---|---|
+| GET | `/api/sop/flows` | `SopFlow[]` + `meta.total`，不分页，按新建先后 |
+| POST | `/api/sop/flows` | `{name, desc?, trigger?, fields?, steps, layout?, id?}`，校验通过回 201 + `SopFlow` |
+| GET | `/api/sop/flows/{id}` | 一条 `SopFlow`；不存在 404 |
+| PATCH | `/api/sop/flows/{id}` | 只传要改的：`name` / `desc` / `trigger` / `fields` / `steps` / `layout`，数组和 `layout` 整体替换，`layout: null` 清掉；可带 `version`，和库里不一致 409。改完对整条定义重新校验，`version` 加 1 |
+| DELETE | `/api/sop/flows/{id}` | 彻底删除，`data` 为 `null`；有进行中的执行 409（执行引擎 SOP-01b 接上前不会出现）；不存在 404 |
+| GET | `/api/sop/node-types` | 内置节点类型 `SopNodeType[]` + `meta.total`，和原型 `NODE_TYPES` 同序 |
+
+`SopFlow`：`{id, name, desc, trigger, fields, steps, layout?, version, created_at, updated_at}`。形状同原型 `web-next/src/sopflow.ts` 的 `Sop`：`fields` 是 `SopField[]`，`steps` 是 `SopStepDef[]`，`layout` 是 `{<步骤 key 或 __start>: {x, y}}`，没有就不返回这个字段。
+
+- `fields`、`steps`、`layout` 校验后按原样存 JSON，取回来和存进去一致，没认的字段（`rule`、`ms` 等）原样保留。步骤里原型的函数字段（`run`、`fail`、`decide`）不在 JSON 里；没有 `decide` 也没有 `rule` 的判断节点就是人工判断（同原型 `isManualDecide`）。
+- `after` 不写就接在上一步后面、第一步是起点（同原型 `depsOf`），存的时候不补写。
+- `id` 可以不传，后端生成；传了是导入原型或别处导出的流程：必须 `sop_` 开头、后面只能是小写字母、数字、下划线，最多 60 个，已存在 409。
+- `name` 去首尾空白后必填，最多 100 字；`desc` 最多 1000 字；`trigger` 是给人看的触发方式说明（如「手动 / 每周一 18:00」），最多 200 字，真正的定时由「定时任务」的 `sop` 动作指过来（SOP-01d）。输入字段最多 50 个，步骤最多 200 个，请求体最多 1MB。
+- 删除时有定时任务指向它，SOP-01d 接上后在影响里列出；本条还没做。
+- 暂不记审计、不发事件。
+
+### 保存校验
+
+新建和修改都对整条定义校验，不合格回 `validation` 400，**一次列出全部问题**：`message` 是全部问题用「；」连起来，`error.issues` 是 `[{text, step?}]`，`step` 是步骤下标（从 0 起），整条流程的问题没有 `step`。口径同原型编辑器的「检查」（`web-next/src/sopedit.tsx` 的 `checkSop`）里拦保存的那几条，另加接口要自己查的：
+
+| 问题 | message 里的写法 |
+|---|---|
+| 名称为空 | `还没有名称` |
+| 输入字段没有名称 / 没有 key / key 重复 / 类型不是 `text`、`textarea`、`select` | `第 1 个输入字段没有名称`、`输入字段 key 重复：customer` 等 |
+| 没有步骤 | `至少要有一个步骤` |
+| 步骤 key 为空、用了 `__start`、重复 | `步骤 key 重复：a（第 1 步和第 2 步）` |
+| 步骤没有名称 | `步骤 2 没有名称` |
+| 节点类型不存在 | `「甲」的类型 nope 不存在` |
+| 必填配置项没填（同原型 `missingFields`，只有空白也算没填） | `「调接口」还没填「地址」` |
+| 分支节点少于两个分支、分支没写名称、分支 key 为空或重复 | `「判断」至少要有两个分支` |
+| `branch.of` 不存在或不是分支节点 | `「甲」挂在一个不存在的判断上` |
+| `branch.case` 在那个分支节点的 `cases` 里不存在 | `「甲」挂的分支 maybe 在「判断」里不存在` |
+| `after` 引用不存在的步骤 | `「乙」依赖的步骤 x 不存在` |
+| 依赖成环（含依赖自己），按 `after` 和默认依赖一起算，每个环报一次 | `依赖成环：「甲」 → 「乙」 → 「甲」` |
+| 字段类型不对（如 `config` 的值不是字符串、`ms` 不是数字）、`layout` 的位置缺 `x` 或 `y` | `步骤 1 格式不对：config 应该是 字符串` 等 |
+
+原型里只是提醒的（没有人工检查点、某个分支下没有步骤、有多个起点）不拦，前端自己提示。
+
+### 节点类型
+
+`SopNodeType`：`{kind, group, branching, default_cases?, required}`。`group` 是原型的分组名（`基础`、`知识与数据`、`逻辑`、`人工`、`外部`、`输出`）；`default_cases` 只有分支节点有；`required` 是必填配置项 `[{key, label}]`，`label` 用在校验信息里，没有必填项是 `[]`。节点的名字、说明、颜色、图标和配置项的其余信息仍在前端。插件注册的节点类型归 SOP-03，现在只认内置的 18 种。
+
+## 终端插件 terminal
+
+TERM-01a。插件 `terminal`（`internal/plugins/terminal`，清单 `plugin.json`，0.1.0），强依赖 `projects`，权限 `process:spawn`（高风险，安装时在 `permissions` 里单独确认，同「插件管理」）。没有自己的表：会话、输出只在服务进程内存里，**删会话、插件停用、服务关闭时按进程组结束这次启用起的全部 shell**，重启后列表是空的。插件未安装或停用时本节接口回 `not_found` 404（同「插件路由」）。前端（TERM-01b）用 xterm 接。
+
+| 方法 | 路径 | body / 说明 |
+|---|---|---|
+| GET | `/api/terminal/sessions` | `TerminalSession[]` + `meta.total`，不分页，按创建先后，含已退出的 |
+| POST | `/api/terminal/sessions` | `{cwd?, cols?, rows?}`，回 201 + `TerminalSession`；body 可以为空 |
+| DELETE | `/api/terminal/sessions/{id}` | 结束进程组并删掉会话，等进程退出后回，`data` 为 `null`；已退出的会话也用它删 |
+| GET | `/api/terminal/sessions/{id}/ws` | WebSocket 握手，收发协议见下；`?after=<字节位置>` 只补发这之后的输出 |
+
+`TerminalSession`：`{id, cwd, shell, cols, rows, pid, status, exit_code, output_bytes, created_at, exited_at}`。`status` 是 `running` / `exited`；`exit_code`、`exited_at` 退出后才有值（否则 `null`），被信号结束时 `exit_code` 为 `-1`；`output_bytes` 是累计输出字节数。
+
+- `id` 是 `pn_` 加 32 位十六进制（128 位随机数），对应原型的 termPane（前缀 `pn` 已登记），**不走 `idgen.Prefixed`**：拿到 id 就能连终端，所以不能按时间猜。
+- `cwd` 必须是存在的**绝对路径**文件夹，相对路径、不存在 400；不传或空串取用户主目录。在项目里开终端时前端传项目 `root`（同项目资料、原型的 `dir`）。
+- `cols`、`rows` 1 到 1000，默认 80、24，超出 400。
+- shell 用服务进程的 `$SHELL`（不是绝对路径时用 `/bin/sh`），以登录 shell（`-l`）起，环境继承服务进程，另加 `TERM=xterm-256color`、`COLORTERM=truecolor`。shell 起在自己的会话和进程组里，起不来 400。
+- 最多 16 个 `running` 的会话，再建 409。已退出的会话留在列表里，连已退出的一起超过 32 个时新建会丢掉最早退出的。
+- 结束：对 shell 的进程组和当时终端的前台进程组（交互 shell 给前台作业单开进程组）发 `SIGHUP`，2 秒没退再 `SIGKILL`；shell 退出后对这些进程组补一次 `SIGKILL`。shell 收到 `SIGHUP` 会转给后台作业。只按本插件记下的进程组号发信号，不按名字找进程。
+- 输出：每个会话留最近 256 KB（环形缓冲，切口对齐到 UTF-8 字符开头），前端刷新后重连先补发这一段。
+- 暂不记审计、不发事件。
+
+### 终端收发（WebSocket）
+
+`GET /api/terminal/sessions/{id}/ws` 升级成 WebSocket。握手先查 Origin：只接受本机（`127.0.0.1`、`localhost`、`::1`，`http` 或 `https`，任意端口）和 `--public-url` 同源（协议、主机、端口都相同，默认端口可省）的 Origin，其余回 403 `{"error":{"code":"forbidden",...}}`、不升级；不带 Origin 的非浏览器客户端放行（跨站页面发起的握手浏览器一定带 Origin）。Origin 通过后会话不存在 404，`after` 不是非负整数 400。
+
+| 方向 | 帧 | 内容 |
+|---|---|---|
+| 服务端到客户端 | 文本 | 连上先发 `{"type":"replay","from":<n>,"to":<m>}`，接着一个二进制帧补发 `[from, to)` 这段输出（为空就不发）；`from` 是 `after` 和缓冲开头里靠后的那个 |
+| 服务端到客户端 | 二进制 | 终端输出，原样字节 |
+| 服务端到客户端 | 文本 | shell 退出时 `{"type":"exit","code":<退出码>}`，随后正常关闭（1000） |
+| 客户端到服务端 | 二进制 | 键盘输入，原样写进 pty；单帧最多 64 KB |
+| 客户端到服务端 | 文本 | 控制消息，现在只有 `{"type":"resize","cols":<n>,"rows":<n>}`，范围同新建；不认的忽略 |
+
+- 字节位置从会话开始累计：`to` 之后每收到 n 字节输出位置加 n，断线重连带 `?after=<位置>` 不重复收；页面刷新后不带 `after`，从缓冲开头补发。
+- 一个会话可以同时有多个连接，输入都写进同一个 pty。
+- 关闭码：会话被删或插件停用 1001；连接收得太慢、积压超过 256 块 1013（重连补发即可）；shell 退出 1000。
 
 ## 运维 admin
 

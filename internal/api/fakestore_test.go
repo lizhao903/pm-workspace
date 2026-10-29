@@ -90,6 +90,9 @@ type fakeStore struct {
 
 	// progress 按追加顺序存，方法在 fakestore_progress_test.go。
 	progress []*domain.Progress
+
+	// agents 懒初始化，方法在 fakestore_agents_test.go。
+	agents map[string]*domain.Agent
 }
 
 func newFakeStore() *fakeStore {

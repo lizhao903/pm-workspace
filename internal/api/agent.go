@@ -56,6 +56,8 @@ type createSessionReq struct {
 	// 这是前端显式指定的归属，猜错了会话就出现在错误的地方。
 	// （/api/agent/chat 里的同名字段是另一回事，见 sessionForChat。）
 	ObjectID string `json:"object_id"`
+	// AgentID 给了就用这个 Agent 的服务商和模型，provider_id / model 忽略；Agent 不存在 404。
+	AgentID string `json:"agent_id"`
 }
 
 func (s *Server) handleCreateAgentSession(w http.ResponseWriter, r *http.Request) {
@@ -76,7 +78,15 @@ func (s *Server) handleCreateAgentSession(w http.ResponseWriter, r *http.Request
 // newSession 建会话，并在 provider_id / model 缺省时补上默认值。
 func (s *Server) newSession(ctx context.Context, req createSessionReq) (*domain.AgentSession, error) {
 	providerID, model := strings.TrimSpace(req.ProviderID), strings.TrimSpace(req.Model)
-	if providerID == "" || model == "" {
+	var agentID *string
+	if v := strings.TrimSpace(req.AgentID); v != "" {
+		ag, err := s.st.GetAgent(ctx, v)
+		if err != nil {
+			return nil, err
+		}
+		agentID, providerID, model = &ag.ID, ag.ProviderID, ag.Model
+	}
+	if agentID == nil && (providerID == "" || model == "") {
 		p, err := s.resolveProvider(ctx, providerID)
 		if err != nil {
 			return nil, err
@@ -96,6 +106,7 @@ func (s *Server) newSession(ctx context.Context, req createSessionReq) (*domain.
 		ProviderID: providerID,
 		Model:      model,
 		Workdir:    strings.TrimSpace(req.Workdir),
+		AgentID:    agentID,
 	})
 }
 
@@ -202,7 +213,9 @@ type chatReq struct {
 	Workdir    string `json:"workdir"`
 	// ObjectID 是用户此刻打开的工作对象。可以不传（全局对话框里没选中任何东西时）。
 	ObjectID string `json:"object_id"`
-	Message  string `json:"message"`
+	// AgentID 只在没给 session_id、要新建会话时用，同 POST /api/agent/sessions。
+	AgentID string `json:"agent_id"`
+	Message string `json:"message"`
 }
 
 // handleAgentChat 是唯一的流式接口。
@@ -234,11 +247,37 @@ func (s *Server) handleAgentChat(w http.ResponseWriter, r *http.Request) {
 	// 选中态最多让这条会话落成全局的，不会把整条流打断。
 	object := s.currentObject(ctx, req.ObjectID)
 
+	// 要新建挂 Agent 的会话时先查 Agent，停用的不留一条空会话
+	if strings.TrimSpace(req.SessionID) == "" && strings.TrimSpace(req.AgentID) != "" {
+		if _, err := s.st.GetAgent(ctx, strings.TrimSpace(req.AgentID)); err != nil {
+			s.fail(w, r, err)
+			return
+		}
+		if _, err := s.chatAgent(ctx, strings.TrimSpace(req.AgentID)); err != nil {
+			s.fail(w, r, err)
+			return
+		}
+	}
+
 	// 准备阶段的失败仍然可以走普通 JSON 错误，因为还没写过任何响应。
 	session, err := s.sessionForChat(ctx, req, object)
 	if err != nil {
 		s.fail(w, r, err)
 		return
+	}
+	// 挂了 Agent 的会话按 Agent 当前的服务商和模型跑，并把快照写回会话；删了或停用了回 409
+	var ag *domain.Agent
+	if session.AgentID != nil {
+		if ag, err = s.chatAgent(ctx, *session.AgentID); err != nil {
+			s.fail(w, r, err)
+			return
+		}
+		if ag.ProviderID != session.ProviderID || ag.Model != session.Model {
+			if session, err = s.st.UpdateAgentSession(ctx, session.ID, nil, nil, &ag.ProviderID, &ag.Model); err != nil {
+				s.fail(w, r, err)
+				return
+			}
+		}
 	}
 	provider, err := s.resolveProvider(ctx, session.ProviderID)
 	if err != nil {
@@ -283,7 +322,7 @@ func (s *Server) handleAgentChat(w http.ResponseWriter, r *http.Request) {
 
 	runner := &agent.Runner{
 		Store: s.st, Chat: chat, Model: model, Session: session,
-		Object: object,
+		Object: object, Agent: ag,
 	}
 	msgID, err := runner.Run(ctx, req.Message, emit)
 	if err != nil {
@@ -341,6 +380,7 @@ func (s *Server) sessionForChat(ctx context.Context, req chatReq, object *domain
 			ProviderID: req.ProviderID,
 			Model:      req.Model,
 			Workdir:    req.Workdir,
+			AgentID:    req.AgentID,
 		})
 	}
 
@@ -353,10 +393,11 @@ func (s *Server) sessionForChat(ctx context.Context, req chatReq, object *domain
 	if v := strings.TrimSpace(req.Workdir); v != "" && v != sess.Workdir {
 		workdir = &v
 	}
-	if v := strings.TrimSpace(req.ProviderID); v != "" && v != sess.ProviderID {
+	// 挂了 Agent 的会话，服务商和模型跟 Agent 走，请求里带的不认
+	if v := strings.TrimSpace(req.ProviderID); v != "" && v != sess.ProviderID && sess.AgentID == nil {
 		providerID = &v
 	}
-	if v := strings.TrimSpace(req.Model); v != "" && v != sess.Model {
+	if v := strings.TrimSpace(req.Model); v != "" && v != sess.Model && sess.AgentID == nil {
 		model = &v
 	}
 	if workdir == nil && providerID == nil && model == nil {

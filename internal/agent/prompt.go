@@ -163,6 +163,27 @@ func currentObjectSection(o *domain.Object) string {
 	return b.String()
 }
 
+// agentSection 把会话挂的 Agent 的名称、说明和指令拼在系统提示词最后。
+// 放在最后是让 Agent 的规矩压过前面的通用说法；没挂 Agent 或指令为空时只写身份。
+func agentSection(a *domain.Agent) string {
+	if a == nil {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("\n## 你在这个会话里的身份\n\n")
+	fmt.Fprintf(&b, "你是 Agent「%s」。", a.Name)
+	if d := strings.TrimSpace(a.Desc); d != "" {
+		fmt.Fprintf(&b, "%s。", strings.TrimRight(d, "。"))
+	}
+	b.WriteString("\n")
+	if ins := strings.TrimSpace(a.Instructions); ins != "" {
+		b.WriteString("\n下面是用户给你定的指令，和上面的通用说法冲突时以这里为准：\n\n")
+		b.WriteString(ins)
+		b.WriteString("\n")
+	}
+	return b.String()
+}
+
 func weekdayCN(d time.Weekday) string {
 	names := [...]string{"周日", "周一", "周二", "周三", "周四", "周五", "周六"}
 	return names[int(d)%7]

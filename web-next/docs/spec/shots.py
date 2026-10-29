@@ -411,6 +411,234 @@ def settings_misc(pg, shot):
     shot('内网域名_加域名和HTTPS')
 
 
+def _sop_run(pg, title):
+    """从执行记录打开一次执行；已在运行页时先返回。"""
+    if pg.locator('.run-back').count():
+        pg.locator('.run-back').click(); pg.wait_for_timeout(200)
+    pg.locator('.run-row', has_text=title).first.click(); pg.wait_for_timeout(400)
+
+
+def _sop_flow(pg, name):
+    _side(pg, 'SOP'); _sub(pg, '流程库')
+    pg.locator('.sop-lib-card', has_text=name).first.click(); pg.wait_for_timeout(300)
+
+
+def sop_run(pg, shot):
+    """运行页：检查、改输出、退回、并行、人工判断、失败、日志、未走此分支（SPEC-sop-7）。"""
+    _side(pg, 'SOP')
+    _sop_run(pg, '客户反馈转需求 · 梁晚晴')
+    shot('运行页_待检查')
+    ins = pg.locator('.inspector')
+    ins.locator('.insp-banner button', has_text='修改输出').click(); pg.wait_for_timeout(150)
+    ins.locator('.io-edit textarea').fill('{ "demands": ')
+    ins.locator('.insp-banner button', has_text='保存修改并放行').click(); pg.wait_for_timeout(150)
+    shot('运行页_改输出格式不对')
+    ins.locator('.insp-banner button', has_text='取消修改').click(); pg.wait_for_timeout(100)
+    ins.locator('.insp-banner button', has_text='退回').click(); pg.wait_for_timeout(150)
+    shot('运行页_退回重做')
+    pg.wait_for_timeout(1500)
+    pg.locator('.inspector .insp-banner button', has_text='通过，继续执行').click(); pg.wait_for_timeout(1500)
+    shot('运行页_并行执行中')
+    _sop_run(pg, '联系人建档 · 梁晚晴')
+    shot('运行页_人工判断')
+    _sop_run(pg, '客户反馈转需求 · 许知行')
+    shot('运行页_失败')
+    pg.locator('.insp-tabs button', has_text='日志').click(); pg.wait_for_timeout(150)
+    shot('运行页_日志')
+    _sop_run(pg, '联系人建档 · 何嘉宁')
+    pg.locator('.fnode', has_text='合并字段').click(); pg.wait_for_timeout(300)
+    shot('运行页_已完成_未走此分支')
+
+
+sop_run.widths = (375, 1440)
+
+
+def sop_start(pg, shot):
+    """流程详情删除拦截、发起执行抽屉、逐步确认、改输入、终止（SPEC-sop-5、SPEC-sop-6、SPEC-sop-7）。"""
+    _sop_flow(pg, '客户反馈转需求')
+    pg.locator('button.btn-danger-ghost', has_text='删除').click(); pg.wait_for_timeout(150)
+    shot('流程详情_不能删除')
+    # 手机宽度下确认条会把按钮挤出屏幕（原型问题，已记进 sop.md），换个流程打开就收起了
+    _sop_flow(pg, '周会纪要整理')
+    pg.locator('button.btn-primary', has_text='执行').first.evaluate('e => e.click()'); pg.wait_for_timeout(300)
+    dr = pg.locator('aside.drawer')
+    shot('发起执行')
+    dr.locator('.field', has_text='会议').locator('input').fill('')
+    dr.locator('.drawer-foot .btn-primary').click(); pg.wait_for_timeout(150)
+    shot('发起执行_必填没填')
+    dr.locator('.field', has_text='会议').locator('input').fill('产品周会 10/30')
+    dr.locator('.check input[type=checkbox]').check()
+    dr.locator('.drawer-foot .btn-primary').click(); pg.wait_for_timeout(400)
+    shot('运行页_执行前暂停')
+    ins = pg.locator('.inspector')
+    ins.locator('.insp-banner button', has_text='修改输入').click(); pg.wait_for_timeout(150)
+    shot('运行页_改输入')
+    ins.locator('.insp-banner button', has_text='取消修改').click(); pg.wait_for_timeout(100)
+    ins.locator('.insp-banner button', has_text='确认并执行').click(); pg.wait_for_timeout(1300)
+    shot('运行页_多个步骤待确认')
+    pg.locator('button', has_text='终止执行').first.evaluate('e => e.click()'); pg.wait_for_timeout(300)
+    shot('运行页_已终止')
+
+
+sop_start.widths = (375, 1440)
+
+
+def sop_editor_entry(pg, shot):
+    """编排页入口、开始节点属性、节点选择器，窄屏下手动打开 AI 协助（SPEC-sop-8 到 SPEC-sop-11）。"""
+    _side(pg, 'SOP'); _sub(pg, '流程库')
+    pg.locator('.subnav-new').first.evaluate('e => e.click()'); pg.wait_for_timeout(500)
+    shot('编辑器_新建')
+    if not pg.locator('.ai-panel').count():
+        pg.locator('.cv-empty button', has_text='让 AI 帮我建').click(); pg.wait_for_timeout(300)
+        shot('AI协助_打开')
+    # 编排页没有二级菜单，先点左上角返回
+    pg.locator('.cv-top-left .icon-btn').first.evaluate('e => e.click()'); pg.wait_for_timeout(300)
+    _sop_flow(pg, '客户反馈转需求')
+    pg.locator('button.btn-outline', has_text='编辑').click(); pg.wait_for_timeout(600)
+    shot('编辑器_编辑')
+    pg.locator('.cv-node[data-node="__start"] .cv-node-head').click(); pg.wait_for_timeout(300)
+    shot('编辑器_开始节点属性')
+    pg.locator('.node-panel .np-add').first.click(); pg.wait_for_timeout(200)
+    shot('编辑器_节点选择器')
+
+
+sop_editor_entry.widths = (375, 1440)
+
+
+def sop_editor_new(pg, shot):
+    """新建：发布时校验、AI 拆步骤的提案和应用、必填配置（SPEC-sop-8、SPEC-sop-9、SPEC-sop-10）。"""
+    _side(pg, 'SOP'); _sub(pg, '流程库')
+    pg.locator('.subnav-new').first.evaluate('e => e.click()'); pg.wait_for_timeout(500)
+    pg.locator('.cv-top-right .btn-primary', has_text='发布').click(); pg.wait_for_timeout(200)
+    shot('编辑器_发布没填')
+    pg.locator('.cv-top-right .menu-wrap > button').click(); pg.wait_for_timeout(100)
+    pg.locator('.ai-example').first.click(); pg.wait_for_timeout(1100)
+    shot('AI协助_提案')
+    pg.locator('.ai-proposal button', has_text='应用到流程').click(); pg.wait_for_timeout(600)
+    shot('AI协助_已应用')
+    pg.locator('.cv-node[data-node="__start"] .cv-handle').click(); pg.wait_for_timeout(200)
+    pg.locator('.palette input').fill('HTTP'); pg.wait_for_timeout(100)
+    pg.locator('.palette-item', has_text='HTTP 请求').click(); pg.wait_for_timeout(400)
+    pg.locator('.cv-top-right .btn-primary').click(); pg.wait_for_timeout(200)
+    pg.locator('.cv-top-right .menu-wrap > button').click(); pg.wait_for_timeout(100)
+    shot('编辑器_必填配置没填')
+
+
+def sop_editor_edit(pg, shot):
+    """编辑已有流程：分支节点、普通节点属性、上次运行、检查结果（SPEC-sop-8、SPEC-sop-9）。"""
+    _sop_flow(pg, '客户反馈转需求')
+    pg.locator('button.btn-outline', has_text='编辑').click(); pg.wait_for_timeout(600)
+    pg.locator('.cv-node', has_text='判断反馈类型').locator('.cv-node-head').click(); pg.wait_for_timeout(300)
+    shot('编辑器_分支节点属性')
+    pg.locator('.cv-node', has_text='AI 提炼诉求').locator('.cv-node-head').click(); pg.wait_for_timeout(300)
+    shot('编辑器_节点属性')
+    pg.locator('.np-tabs button', has_text='上次运行').click(); pg.wait_for_timeout(200)
+    shot('编辑器_上次运行')
+    pg.locator('.cv-top-right .menu-wrap > button').click(); pg.wait_for_timeout(150)
+    shot('编辑器_检查')
+
+
+def _term_run(pg, cmd):
+    pg.locator('.term-pane.focus .term-input').fill(cmd); pg.keyboard.press('Enter'); pg.wait_for_timeout(150)
+
+
+def _term_split(pg, title):
+    pg.locator('.term-pane.focus .term-btn[title="%s"]' % title).click(); pg.wait_for_timeout(200)
+
+
+def terminal_split(pg, shot):
+    """拆成 2x2、焦点格、命令输出和报错、多标签和改名（SPEC-terminal-1、SPEC-terminal-2）。"""
+    _side(pg, '终端')
+    _term_run(pg, 'ls')
+    _term_split(pg, '向右拆分'); _term_run(pg, 'git status')
+    _term_split(pg, '向下拆分'); _term_run(pg, 'npm run dev')
+    _term_split(pg, '向右拆分'); _term_run(pg, 'help')
+    shot('2x2分屏')
+    pg.locator('.term-tab-add').click(); pg.wait_for_timeout(200)
+    pg.locator('.term-tab').first.dblclick(); pg.wait_for_timeout(150)
+    pg.locator('.term-tab-input').fill('原型调试')
+    shot('多标签和改名')
+
+
+terminal_split.widths = (375, 1440)
+
+
+def terminal_proto(pg, shot):
+    """在原型目录里 npm run dev 启动原型、Ctrl+C 停止（SPEC-terminal-2）。"""
+    _side(pg, '终端')
+    _term_run(pg, 'cd docs')
+    _term_run(pg, 'npm run dev'); pg.wait_for_timeout(1600)
+    shot('运行原型')
+    pg.locator('.term-pane.focus .term-input').press('Control+c'); pg.wait_for_timeout(900)
+    _term_run(pg, 'history')
+    shot('停止原型和历史')
+
+
+terminal_proto.widths = (375, 1440)
+
+
+def _br_go(pg, addr):
+    pg.locator('.br-addr input').fill(addr); pg.keyboard.press('Enter'); pg.wait_for_timeout(300)
+
+
+def browser_tabs(pg, shot):
+    """原型没运行、原型标签、网页标签的嵌入提示、标签右键菜单（SPEC-browser-1、SPEC-browser-3）。"""
+    _side(pg, '浏览器')
+    _br_go(pg, '7790')
+    shot('原型没在运行')
+    pg.locator('.br-tab-add').click(); pg.wait_for_timeout(200)
+    pg.locator('.br-proto', has_text='新版前端原型').locator('button', has_text='打开').click(); pg.wait_for_timeout(2500)
+    shot('原型标签')
+    pg.locator('.br-tab-add').click(); pg.wait_for_timeout(200)
+    _br_go(pg, 'example.com'); pg.wait_for_timeout(2500)
+    shot('网页_嵌入提示')
+    pg.locator('.br-tab').first.click(button='right'); pg.wait_for_timeout(150)
+    shot('标签右键菜单')
+
+
+browser_tabs.widths = (375, 1440)
+
+
+def browser_google(pg, shot):
+    """Google 登录、授权范围、账号面板、Drive 没登录和没授权（SPEC-browser-4、SPEC-browser-5）。"""
+    _side(pg, '浏览器')
+    _br_go(pg, 'drive.google.com/drive/my-drive')
+    shot('Drive_没登录')
+    pg.locator('.br-login-btn').click(); pg.wait_for_timeout(200)
+    shot('登录_选择账号')
+    md = pg.locator('.br-modal')
+    md.locator('.br-acc-pick', has_text='使用其他账号').click(); pg.wait_for_timeout(100)
+    md.locator('input').fill('chen.yi')
+    md.locator('button[type=submit]').click(); pg.wait_for_timeout(100)
+    shot('登录_邮箱不对')
+    md.locator('button', has_text='返回').click(); pg.wait_for_timeout(100)
+    md.locator('.br-acc-pick').first.click(); pg.wait_for_timeout(150)
+    md.locator('.br-scope', has_text='drive.readonly').locator('input').uncheck()
+    shot('登录_授权范围')
+    md.locator('.btn-primary', has_text='允许').click(); pg.wait_for_timeout(1300)
+    shot('Drive_没授权')
+    pg.locator('.br-acc').click(); pg.wait_for_timeout(150)
+    shot('账号面板')
+
+
+browser_google.widths = (375, 1440)
+
+
+def browser_drive(pg, shot):
+    """原型里模拟的 Drive 文件浏览和预览，正式版不搬（SPEC-browser-5）。"""
+    _side(pg, '浏览器')
+    pg.locator('.br-drive-guest button', has_text='登录 Google').click(); pg.wait_for_timeout(200)
+    pg.locator('.br-modal .br-acc-pick').first.click(); pg.wait_for_timeout(150)
+    pg.locator('.br-modal .btn-primary', has_text='允许').click(); pg.wait_for_timeout(1300)
+    pg.locator('.br-drive-link', has_text='我的云端硬盘').click(); pg.wait_for_timeout(300)
+    shot('Drive_文件浏览')
+    pg.locator('.br-frow', has_text='2027 产品路线图').click(); pg.wait_for_timeout(300)
+    shot('Drive_文件预览')
+
+
+browser_drive.widths = (375, 1440)
+
+
 STEPS = {
     'tasks': [tasks_devloop, tasks_unsaved, tasks_schedule],
     'messages': [messages_drawer, messages_fetch_paused],
@@ -418,6 +646,9 @@ STEPS = {
     'sessions': [sessions_agent_off, sessions_perm, sessions_outputs],
     'settings': [settings_workspace, settings_im_drawer, settings_app_drawer, settings_provider_drawer, settings_agent_editor,
                  settings_agent_model_off, settings_kb, settings_skill, settings_incident, settings_misc],
+    'sop': [sop_run, sop_start, sop_editor_entry, sop_editor_new, sop_editor_edit],
+    'terminal': [terminal_split, terminal_proto],
+    'browser': [browser_tabs, browser_google, browser_drive],
 }
 
 
@@ -430,7 +661,8 @@ def run_steps(url, out, widths, themes, keys):
         try:
             for key in keys:
                 for flow in STEPS.get(key, []):
-                    for w in widths:
+                    # 步骤函数可以用 widths 属性指定自己的宽度，比如 SOP 运行页也要手机宽度
+                    for w in getattr(flow, 'widths', widths):
                         for theme in themes:
                             ctx = browser.new_context(viewport={'width': w, 'height': 900}, color_scheme=theme)
                             pg = ctx.new_page()

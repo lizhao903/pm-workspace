@@ -100,6 +100,8 @@ type Runner struct {
 	// Object 是用户此刻打开的工作对象，可以为 nil。只用来告诉模型「这个/这条」指谁；
 	// 正文一律由它自己调 get_object 现取，理由见 currentObjectSection。
 	Object *domain.Object
+	// Agent 是会话挂的 Agent，可以为 nil；它的指令拼进系统提示词，见 agentSection。
+	Agent *domain.Agent
 }
 
 // Run 处理一条用户消息，返回最终落库的 assistant 消息 id。
@@ -300,7 +302,7 @@ func (r *Runner) buildHistory(ctx context.Context, types []*domain.ObjectType) (
 
 	out := []Message{{
 		Role:    RoleSystem,
-		Content: BuildSystemPrompt(types, time.Now(), r.Object),
+		Content: BuildSystemPrompt(types, time.Now(), r.Object) + agentSection(r.Agent),
 	}}
 	for _, m := range past {
 		switch m.Role {

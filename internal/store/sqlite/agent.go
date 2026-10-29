@@ -11,7 +11,10 @@ import (
 	"github.com/lizhao903/pm-workspace/internal/idgen"
 )
 
-const sessionCols = `id, title, object_id, provider_id, model, workdir, created_at, updated_at`
+const sessionCols = `id, title, object_id, provider_id, model, workdir, created_at, updated_at, agent_id`
+
+// sessionAgentDeleted 算 agent_deleted：挂了 Agent 但 agents 里已经没有它（0032 不建外键，会话保留）。
+const sessionAgentDeleted = `(agent_sessions.agent_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM agents a WHERE a.id = agent_sessions.agent_id))`
 
 // agentTimeLayout 是这三张表专用的时间格式：带固定 9 位小数的 RFC3339。
 //
@@ -59,6 +62,7 @@ func (s *Store) ListAgentSessions(ctx context.Context, f domain.AgentSessionFilt
 
 	rows, err := s.db.R.QueryContext(ctx, `
 		SELECT s.id, s.title, s.object_id, s.provider_id, s.model, s.workdir, s.created_at, s.updated_at,
+		       s.agent_id, `+strings.ReplaceAll(sessionAgentDeleted, "agent_sessions.", "s.")+`,
 		       COUNT(m.id)
 		  FROM agent_sessions s
 		  LEFT JOIN agent_messages m ON m.session_id = s.id
@@ -84,6 +88,7 @@ func (s *Store) ListAgentSessions(ctx context.Context, f domain.AgentSessionFilt
 func (s *Store) GetAgentSession(ctx context.Context, id string) (*domain.AgentSession, error) {
 	row := s.db.R.QueryRowContext(ctx, `
 		SELECT s.id, s.title, s.object_id, s.provider_id, s.model, s.workdir, s.created_at, s.updated_at,
+		       s.agent_id, `+strings.ReplaceAll(sessionAgentDeleted, "agent_sessions.", "s.")+`,
 		       (SELECT COUNT(*) FROM agent_messages WHERE session_id = s.id)
 		  FROM agent_sessions s WHERE s.id = ?`, id)
 	sess, err := scanSession(row, true)
@@ -136,8 +141,8 @@ func (s *Store) CreateAgentSession(ctx context.Context, in *domain.AgentSession)
 	sess.ID = idgen.Prefixed("ags")
 	now := nowAgent()
 	if _, err := s.db.W.ExecContext(ctx,
-		`INSERT INTO agent_sessions (`+sessionCols+`) VALUES (?,?,?,?,?,?,?,?)`,
-		sess.ID, sess.Title, objectID, sess.ProviderID, sess.Model, sess.Workdir, now, now); err != nil {
+		`INSERT INTO agent_sessions (`+sessionCols+`) VALUES (?,?,?,?,?,?,?,?,?)`,
+		sess.ID, sess.Title, objectID, sess.ProviderID, sess.Model, sess.Workdir, now, now, ptrArg(sess.AgentID)); err != nil {
 		return nil, fmt.Errorf("insert agent session: %w", err)
 	}
 	sess.CreatedAt, sess.UpdatedAt = parseTime(now), parseTime(now)
@@ -150,7 +155,7 @@ func (s *Store) CreateAgentSession(ctx context.Context, in *domain.AgentSession)
 func (s *Store) UpdateAgentSession(ctx context.Context, id string, title, workdir, providerID, model *string) (*domain.AgentSession, error) {
 	var out *domain.AgentSession
 	err := s.withTx(ctx, func(tx *sql.Tx) error {
-		row := tx.QueryRowContext(ctx, `SELECT `+sessionCols+` FROM agent_sessions WHERE id = ?`, id)
+		row := tx.QueryRowContext(ctx, `SELECT `+sessionCols+`, `+sessionAgentDeleted+` FROM agent_sessions WHERE id = ?`, id)
 		cur, err := scanSession(row, false)
 		if noRows(err) {
 			return notFound("agent session")
@@ -306,8 +311,8 @@ func scanSession(sc rowScanner, withCount bool) (*domain.AgentSession, error) {
 	var s domain.AgentSession
 	var created, updated string
 	// object_id 可空，必须过一层 NullString——直接扫进 *string 会在 NULL 上报错。
-	var objectID sql.NullString
-	dest := []any{&s.ID, &s.Title, &objectID, &s.ProviderID, &s.Model, &s.Workdir, &created, &updated}
+	var objectID, agentID sql.NullString
+	dest := []any{&s.ID, &s.Title, &objectID, &s.ProviderID, &s.Model, &s.Workdir, &created, &updated, &agentID, &s.AgentDeleted}
 	if withCount {
 		dest = append(dest, &s.MessageCount)
 	}
@@ -318,6 +323,7 @@ func scanSession(sc rowScanner, withCount bool) (*domain.AgentSession, error) {
 		id := objectID.String
 		s.ObjectID = &id
 	}
+	s.AgentID = strPtr(agentID)
 	s.CreatedAt, s.UpdatedAt = parseTime(created), parseTime(updated)
 	return &s, nil
 }

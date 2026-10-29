@@ -251,6 +251,14 @@ func (s *Server) routes(m routeRegistrar) {
 	m.HandleFunc("POST /api/agent/workdir/check", s.handleCheckWorkdir)
 	m.HandleFunc("POST /api/agent/chat", s.handleAgentChat)
 
+	// Agent 配置（AG-01b1，0032）
+	m.HandleFunc("GET /api/agents", s.handleListAgents)
+	m.HandleFunc("POST /api/agents", s.handleCreateAgent)
+	m.HandleFunc("GET /api/agents/{id}", s.handleGetAgent)
+	m.HandleFunc("PATCH /api/agents/{id}", s.handleUpdateAgent)
+	m.HandleFunc("DELETE /api/agents/{id}", s.handleDeleteAgent)
+	m.HandleFunc("GET /api/agents/{id}/impact", s.handleAgentImpact)
+
 	// 输出产物。/api/artifacts/stats 是字面量，比 /api/artifacts/{id} 更具体，
 	// ServeMux 优先匹配它——不会有 id="stats" 的请求打到 GetArtifact 上。
 	m.HandleFunc("GET /api/artifacts", s.handleListArtifacts)
@@ -384,6 +392,9 @@ func (w *statusWriter) Flush() {
 		f.Flush()
 	}
 }
+
+// Unwrap 让 http.ResponseController 和 WebSocket 库拿到底下的 Hijacker（终端插件的 ws，TERM-01a）。
+func (w *statusWriter) Unwrap() http.ResponseWriter { return w.ResponseWriter }
 
 func (s *Server) logging(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

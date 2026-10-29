@@ -3,6 +3,8 @@ module github.com/lizhao903/pm-workspace
 go 1.25.0
 
 require (
+	github.com/coder/websocket v1.8.15
+	github.com/creack/pty v1.1.24
 	github.com/modelcontextprotocol/go-sdk v1.8.0
 	modernc.org/sqlite v1.58.0
 )

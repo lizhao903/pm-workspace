@@ -1,0 +1,339 @@
+[
+  {
+    "id": "sop_feedback",
+    "name": "客户反馈转需求",
+    "desc": "把 IM 里的客户反馈提炼成诉求，按功能需求和缺陷分开处理，回复客户并同步研发",
+    "trigger": "手动 / IM 消息",
+    "fields": [
+      {
+        "key": "customer",
+        "label": "客户",
+        "type": "text",
+        "required": true,
+        "default": "梁晚晴",
+        "placeholder": "联系人姓名"
+      },
+      {
+        "key": "channel",
+        "label": "回复渠道",
+        "type": "select",
+        "default": "lark",
+        "options": [
+          {
+            "value": "lark",
+            "label": "飞书"
+          },
+          {
+            "value": "slack",
+            "label": "Slack"
+          },
+          {
+            "value": "telegram",
+            "label": "Telegram"
+          },
+          {
+            "value": "wechat",
+            "label": "微信"
+          }
+        ]
+      },
+      {
+        "key": "message",
+        "label": "反馈原文",
+        "type": "textarea",
+        "required": true,
+        "default": "导出的报表里时间是 UTC，我们财务每次都要手动换算成北京时间，能不能导出时选时区？另外导出超过 5 万行就卡住了。"
+      }
+    ],
+    "steps": [
+      {
+        "key": "fetch",
+        "name": "整理反馈原文",
+        "kind": "auto",
+        "ms": 900,
+        "after": [],
+        "desc": "去掉寒暄和表情，按句拆开，带上客户和渠道信息"
+      },
+      {
+        "key": "extract",
+        "name": "AI 提炼诉求",
+        "kind": "ai",
+        "ms": 2200,
+        "desc": "每条诉求给出一句话描述、类型和建议优先级"
+      },
+      {
+        "key": "classify",
+        "name": "判断反馈类型",
+        "kind": "decide",
+        "ms": 500,
+        "desc": "有功能诉求走需求流程；全是缺陷就直接建缺陷单",
+        "cases": [
+          {
+            "key": "feature",
+            "label": "功能需求"
+          },
+          {
+            "key": "bug",
+            "label": "缺陷"
+          }
+        ]
+      },
+      {
+        "key": "confirm",
+        "name": "确认诉求清单",
+        "kind": "review",
+        "ms": 300,
+        "after": [
+          "classify"
+        ],
+        "branch": {
+          "of": "classify",
+          "case": "feature"
+        },
+        "desc": "检查 AI 拆出来的诉求对不对，改标题或优先级后放行"
+      },
+      {
+        "key": "archive",
+        "name": "存为内容摘录",
+        "kind": "auto",
+        "ms": 800,
+        "desc": "在「文档 > 摘录」里新建一条，带上原文出处"
+      },
+      {
+        "key": "bug_ticket",
+        "name": "建缺陷单",
+        "kind": "auto",
+        "ms": 900,
+        "after": [
+          "classify"
+        ],
+        "branch": {
+          "of": "classify",
+          "case": "bug"
+        },
+        "desc": "按 P0 建缺陷单，附上客户原话"
+      },
+      {
+        "key": "draft",
+        "name": "AI 起草回复",
+        "kind": "ai",
+        "ms": 1800,
+        "after": [
+          "archive",
+          "bug_ticket"
+        ],
+        "desc": "按客户的语气起草一条回复，告知已记录和大致排期"
+      },
+      {
+        "key": "notify_team",
+        "name": "同步给研发群",
+        "kind": "auto",
+        "ms": 1200,
+        "after": [
+          "archive",
+          "bug_ticket"
+        ],
+        "desc": "把诉求或缺陷单发到研发群，和回复客户并行"
+      },
+      {
+        "key": "review_reply",
+        "name": "检查回复内容",
+        "kind": "review",
+        "ms": 300,
+        "after": [
+          "draft"
+        ],
+        "desc": "发出去之前看一眼，措辞可以直接改"
+      },
+      {
+        "key": "send",
+        "name": "发送回复",
+        "kind": "auto",
+        "ms": 1000,
+        "desc": "通过对应渠道的连接器发出"
+      },
+      {
+        "key": "close",
+        "name": "标记消息已处理",
+        "kind": "auto",
+        "ms": 500,
+        "after": [
+          "send",
+          "notify_team"
+        ],
+        "desc": "回复和同步都完成后，把这条 IM 消息标为已处理"
+      }
+    ]
+  },
+  {
+    "id": "sop_meeting",
+    "name": "周会纪要整理",
+    "desc": "转写稿拆开后并行生成纪要、待办和发言统计，校对后同时归档和同步到群里",
+    "trigger": "手动 / 每周一 18:00",
+    "fields": [
+      {
+        "key": "meeting",
+        "label": "会议",
+        "type": "text",
+        "required": true,
+        "default": "产品周会 10/26"
+      },
+      {
+        "key": "transcript",
+        "label": "转写稿",
+        "type": "textarea",
+        "required": true,
+        "default": "林予安：权限点清单周三前和后端对齐。\n周屿：导出异步化要先评估存储成本。\n陈若溪：远川的时区问题这周先给临时方案。\n周屿：好，缓存方案我周五前出。"
+      }
+    ],
+    "steps": [
+      {
+        "key": "split",
+        "name": "按发言人切分",
+        "kind": "auto",
+        "ms": 800,
+        "after": [],
+        "desc": "把转写稿拆成「谁 - 说了什么」"
+      },
+      {
+        "key": "summarize",
+        "name": "AI 提炼结论",
+        "kind": "ai",
+        "ms": 2400,
+        "after": [
+          "split"
+        ],
+        "desc": "会上定下来的事"
+      },
+      {
+        "key": "todos",
+        "name": "AI 提取待办",
+        "kind": "ai",
+        "ms": 1900,
+        "after": [
+          "split"
+        ],
+        "desc": "负责人 + 截止时间"
+      },
+      {
+        "key": "stats",
+        "name": "统计发言",
+        "kind": "auto",
+        "ms": 700,
+        "after": [
+          "split"
+        ],
+        "desc": "每人发言次数，看谁没说话"
+      },
+      {
+        "key": "proofread",
+        "name": "校对纪要",
+        "kind": "review",
+        "ms": 300,
+        "after": [
+          "summarize",
+          "todos",
+          "stats"
+        ],
+        "desc": "三路结果汇到一起，核对待办的负责人和截止时间"
+      },
+      {
+        "key": "save",
+        "name": "归档到内容",
+        "kind": "auto",
+        "ms": 700,
+        "after": [
+          "proofread"
+        ],
+        "desc": "存为「文档 > 会议纪要」"
+      },
+      {
+        "key": "notify",
+        "name": "同步到飞书群",
+        "kind": "auto",
+        "ms": 900,
+        "after": [
+          "proofread"
+        ],
+        "desc": "发到项目群，@ 待办负责人"
+      }
+    ]
+  },
+  {
+    "id": "sop_contact",
+    "name": "联系人建档",
+    "desc": "从签名或名片文字里解析联系方式，查重后由人决定新建还是合并",
+    "trigger": "手动",
+    "fields": [
+      {
+        "key": "raw",
+        "label": "签名 / 名片文字",
+        "type": "textarea",
+        "required": true,
+        "default": "梁晚晴 | 采购总监\n远川科技\n手机 136 5566 7788\n邮箱 wanqing.liang@yuanchuan.tech\n飞书 ou_liangwq"
+      }
+    ],
+    "steps": [
+      {
+        "key": "parse",
+        "name": "AI 解析字段",
+        "kind": "ai",
+        "ms": 1600,
+        "after": [],
+        "desc": "识别姓名、公司、职位、电话、邮箱、IM 账号"
+      },
+      {
+        "key": "dedupe",
+        "name": "查重",
+        "kind": "auto",
+        "ms": 700,
+        "desc": "按姓名、电话、IM 账号比对已有联系人"
+      },
+      {
+        "key": "match",
+        "name": "新建还是合并",
+        "kind": "decide",
+        "ms": 300,
+        "desc": "查重有疑似重复时由人判断；没有候选也要确认一次",
+        "cases": [
+          {
+            "key": "new",
+            "label": "新建联系人"
+          },
+          {
+            "key": "merge",
+            "label": "合并到已有"
+          }
+        ]
+      },
+      {
+        "key": "write",
+        "name": "写入新联系人",
+        "kind": "auto",
+        "ms": 600,
+        "after": [
+          "match"
+        ],
+        "branch": {
+          "of": "match",
+          "case": "new"
+        },
+        "desc": "新建一条联系人"
+      },
+      {
+        "key": "merge",
+        "name": "合并字段",
+        "kind": "review",
+        "ms": 400,
+        "after": [
+          "match"
+        ],
+        "branch": {
+          "of": "match",
+          "case": "merge"
+        },
+        "desc": "列出要覆盖的字段（职位、邮箱等），确认后写回已有联系人"
+      }
+    ]
+  }
+]

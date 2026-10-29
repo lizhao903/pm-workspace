@@ -91,6 +91,10 @@
   .im-channels { width: 100%; }
   .im-toolbar .search { flex: 1 1 100%; }
 }
+/* 抽屉停靠后内容区变窄：渠道切换照窄屏规则单独一行（搜索框不撑满，同原型） */
+@container shell-content (max-width: 760px) {
+  .im-channels { width: 100%; }
+}
 
 /* ---------- 抽屉 ---------- */
 .im-kicker { display: inline-flex; align-items: center; gap: 6px; min-width: 0; }

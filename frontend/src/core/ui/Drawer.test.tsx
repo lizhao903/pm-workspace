@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event'
 import { useState } from 'react'
 import { describe, expect, it, vi } from 'vitest'
 import { Drawer } from './Drawer'
+import { DrawerHostContext } from './hostContext'
 import { SearchSelect } from './SearchSelect'
 
 function Harness({ dirty = false, onClose }: { dirty?: boolean; onClose?: () => void }) {
@@ -94,5 +95,22 @@ describe('Drawer', () => {
     expect(onClose).toHaveBeenCalledTimes(1)
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
     expect(trigger).toHaveFocus()
+  })
+
+  it('外壳给了抽屉位置就停靠进去，没给就挂在 body 上', () => {
+    const slot = document.createElement('div')
+    document.body.appendChild(slot)
+    const { unmount } = render(
+      <DrawerHostContext.Provider value={slot}>
+        <Drawer open kicker="停靠" onClose={() => {}} />
+      </DrawerHostContext.Provider>,
+    )
+    expect(slot).toContainElement(screen.getByRole('dialog', { name: '停靠' }))
+    unmount()
+    expect(slot).toBeEmptyDOMElement()
+
+    render(<Drawer open kicker="浮着" onClose={() => {}} />)
+    expect(screen.getByRole('dialog', { name: '浮着' }).parentElement).toBe(document.body)
+    slot.remove()
   })
 })
