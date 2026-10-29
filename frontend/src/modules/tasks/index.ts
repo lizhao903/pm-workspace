@@ -1,5 +1,6 @@
 import { lazy } from 'react'
-import { defineCoreModule, registerCoreObjectDrawer } from '../../core/plugin'
+import { defineCoreModule, registerCoreObjectDrawer, registerCoreSearch } from '../../core/plugin'
+import { searchTasks } from './search'
 
 // 内核模块：标 core，不能停用
 export const module = defineCoreModule({
@@ -22,3 +23,6 @@ registerCoreObjectDrawer({
   drawer: lazy(objectDrawer),
   approve: lazy(() => objectDrawer().then((m) => ({ default: m.ObjectApprove }))),
 })
+
+// 命令面板搜任务（A-01）：编号、标题、正文，回车打开抽屉
+registerCoreSearch('tasks', (q) => searchTasks(q, module.path))

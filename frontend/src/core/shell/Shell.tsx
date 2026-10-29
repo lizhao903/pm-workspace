@@ -12,7 +12,7 @@ import { moduleIconKey } from './pluginIcons'
 import { QuickSessionHost } from './QuickSession'
 import { buildMenu, isGroupFolded, readFolded, toggleId, writeFolded } from './menu'
 import { useSideCollapsed } from './sideCollapse'
-import { modKey, type PaletteItem } from './palette'
+import { arrangeFound, modKey, type PaletteItem } from './palette'
 import { PluginNotice } from './PluginNotice'
 import { CATALOG_IDS, homeModule, resolveCurrent, useCurrentWorkspaceId, workspaceMenuGroups } from './workspace'
 import { useWorkspaceSwitch } from './useWorkspaceSwitch'
@@ -112,7 +112,8 @@ export function Shell({ modules }: { modules: ModuleDef[] }) {
       console.warn(`命令面板数据源 ${p.source} 出错`, e)
       return [] as CommandDef[]
     })))
-    return lists.flat().map(toItem)
+    // 按「项目 / 任务 / 联系人 / 消息」分组，不管哪个数据源先回来
+    return arrangeFound(lists.flat().map(toItem))
   }, [toItem])
 
   // Cmd/Ctrl+K 开关命令面板。用 ref 拿最新的条目构造，免得每次渲染都重绑监听

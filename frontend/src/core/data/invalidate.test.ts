@@ -477,12 +477,12 @@ describe('项目会话绑定的失效（PJ-02b）', () => {
     return (Object.keys(keys) as (keyof typeof keys)[]).filter((n) => qc.getQueryState(keys[n])?.isInvalidated)
   }
 
-  it('绑定、解绑只刷这个项目的绑定，不动消息', async () => {
-    expect(await stale({ kind: 'project-conversation', projectId: 'obj_p1' })).toEqual(['mine'])
+  it('绑定、解绑只刷这个项目的绑定和会话表（绑私聊可能新建会话），不动消息', async () => {
+    expect(await stale({ kind: 'project-conversation', projectId: 'obj_p1' })).toEqual(['mine', 'convs'])
   })
 
-  it('消息一变，按会话取的消息也刷', async () => {
-    expect(await stale({ kind: 'im-message' })).toEqual(['msgs'])
+  it('消息一变，按会话取的消息和会话表也刷（收消息会登记新会话）', async () => {
+    expect(await stale({ kind: 'im-message' })).toEqual(['msgs', 'convs'])
   })
 })
 

@@ -2,10 +2,11 @@
 // 打开的消息记在地址 ?m=<id>，刷新、从别的模块跳过来都能直接打开；处理状态都在后端，刷新后保持。
 // 转任务：先确认标题，再由后端建任务，然后打开任务模块登记的任务抽屉（经 core/plugin 的「打开对象」，不 import 任务模块）。
 // 「渠道配置」打开 IM 渠道的配置抽屉（IM-01b，ChannelPanel），记在地址 ?channels=1。
+// 批量（PR-03）：待处理的行能勾选，底栏批量标已处理、忽略；选了会话时列表上方能把这个会话全部标为已处理。
 import { Fragment, Suspense, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { useNavigate, useSearchParams } from 'react-router'
 import {
-  errorText, isApiError, onServerEvent, useConnectorDefs, useConnectors, useContacts, useDictionaries, useEventsLive, useImAction, useImMessage,
+  errorText, isApiError, onServerEvent, useConnectorDefs, useConnectors, useContacts, useDictionaries, useEventsLive, useImAction, useImBatch, useImMessage,
   useImMessages, useImSyncConnector, useNotifyChange, type ImAction, type ImMessage,
 } from '../../core/data'
 import { useObjectDrawer } from '../../core/plugin'
@@ -13,8 +14,8 @@ import { Avatar, ErrorState, LoadingState, PageTitle, SearchSelect, cls } from '
 import { ChannelPanel } from './ChannelPanel'
 import { MessageDrawer } from './MessageDrawer'
 import {
-  MSG_STATUS_DICT, PAGE, RELEVANCE, VIEW_SEG_MAX, baseOk, channelOf, channelTable, convOptions, dayLabel, filterRows, inView, isSnoozed,
-  nextWake, replyBlocker, shortTime, snoozeOptions, statusItems, statusView, timeAgo, usedChannels, viewsOf, whoName, type Mine, type View,
+  BATCH_MAX, MSG_STATUS_DICT, PAGE, RELEVANCE, VIEW_SEG_MAX, baseOk, canPick, channelOf, channelTable, convBatch, convOptions, dayLabel, filterRows,
+  inView, isSnoozed, nextWake, pickAll, pickedRows, togglePick, replyBlocker, shortTime, snoozeOptions, statusItems, statusView, timeAgo, usedChannels, viewsOf, whoName, type Mine, type View,
 } from './model'
 import { AttachmentChips, Caret, ChannelMark, Gear, Menu, MentionText, QuickReplyItems } from './parts'
 import { ToTaskDialog } from './ToTaskDialog'
@@ -39,6 +40,7 @@ export default function Page() {
   const contacts = useContacts()
   const dicts = useDictionaries({ withItems: true })
   const act = useImAction()
+  const batch = useImBatch()
   const markRead = useImAction()
   const notify = useNotifyChange()
   const taskDrawer = useObjectDrawer('task')
@@ -80,6 +82,7 @@ export default function Page() {
   const [toTask, setToTask] = useState<ImMessage | null>(null)
   const [taskOpen, setTaskOpen] = useState<string | null>(null)
   const [rowErr, setRowErr] = useState('')
+  const [sel, setSel] = useState<ReadonlySet<string>>(() => new Set())
 
   const filter = { view, channel, conv, unreadOnly, mine, q }
   const rows = useMemo(() => filterRows(list, { view, channel, conv, unreadOnly, mine, q }, now), [list, view, channel, conv, unreadOnly, mine, q, now])
@@ -91,6 +94,10 @@ export default function Page() {
   const convOpts = useMemo(() => convOptions(list, channel, now), [list, channel, now])
   const used = usedChannels(channels, list, imConnectors)
   const broken = imConnectors.filter((c) => c.status === 'error')
+  const picked = pickedRows(rows, sel)
+  const pickable = rows.filter(canPick).length
+  const cb = useMemo(() => convBatch(list, conv, now), [list, conv, now])
+  const convName = convOpts.find((o) => o.value === conv)?.label ?? ''
   const lastSync = imConnectors.map((c) => c.last_sync_at).filter((x): x is string => !!x).sort().pop()
 
   // 先渲染 PAGE 条；筛选一变就回到前 PAGE 条
@@ -194,6 +201,20 @@ export default function Page() {
     return () => window.clearTimeout(t)
   }, [syncNote])
 
+  // 批量：成功后清掉勾选，按钮左边报改了几条
+  const runBatch = (action: 'done' | 'ignore', input: { ids: string[] } | { conversation_id: string; before: string }) => {
+    if (batch.isPending) return
+    setRowErr('')
+    const label = action === 'done' ? sv.label('done') : sv.label('ignored')
+    batch.mutate({ action, ...input }, {
+      onSuccess: (r) => {
+        setSel(new Set())
+        setSyncNote({ text: r.count ? `已把 ${r.count} 条标为${label}` : '没有要处理的消息', bad: false })
+      },
+      onError: (e) => setRowErr(`批量没处理成：${errorText(e)}`),
+    })
+  }
+
   const pendingLabel = sv.label('pending')
   const doneLabel = sv.label('done')
   const chOn = channel ? channelOf(channels, channel) : null
@@ -245,9 +266,13 @@ export default function Page() {
             <Fragment key={m.id}>
               {(i === 0 || dayLabel(shown[i - 1].at) !== day) && <div className="im-day">{day}<span className="seg-n">{dayCount.get(day)}</span></div>}
               <div role="listitem" tabIndex={0} aria-label={`${who}：${m.text}`}
-                className={cls('im-msg', openId === m.id && 'sel', !m.read && 'unread', m.status !== 'pending' && 'im-closed')}
+                className={cls('im-msg', openId === m.id && 'sel', !m.read && 'unread', m.status !== 'pending' && 'im-closed', sel.has(m.id) && canPick(m) && 'picked')}
                 onClick={() => setOpen(m.id)} onKeyDown={(e) => { if (e.key === 'Enter' && e.target === e.currentTarget) setOpen(m.id) }}>
                 <span className="im-unread" />
+                {canPick(m)
+                  ? <input type="checkbox" className="im-pick" checked={sel.has(m.id)} aria-label={`选中 ${who} 的消息`}
+                      onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()} onChange={() => setSel((x) => togglePick(x, m.id))} />
+                  : <span className="im-pick" aria-hidden="true" />}
                 <Avatar name={who} size={34} src={(m.stakeholder_id && photos.get(m.stakeholder_id)) || undefined} />
                 <div className="im-main">
                   <div className="im-top">
@@ -354,7 +379,30 @@ export default function Page() {
       </div>
 
       {rowErr && <div className="im-err" role="alert">{rowErr}</div>}
+      {cb && (
+        <div className="im-conv-bar">
+          <span className="im-conv-bar-text">{convName ? `「${convName}」` : '这个会话'}还有 {cb.n} 条{pendingLabel}</span>
+          <button type="button" className="btn btn-sm btn-outline" disabled={batch.isPending}
+            title={`把这个会话里的${pendingLabel}消息都标为${doneLabel}（不含稍后的）`} onClick={() => runBatch('done', cb.input)}>
+            这个会话全部标为{doneLabel}
+          </button>
+        </div>
+      )}
       {body}
+      {picked.length > 0 && (
+        <div className="im-bulk" role="toolbar" aria-label="批量处理">
+          <span className="im-bulk-n">已选 {picked.length} 条</span>
+          {picked.length < Math.min(pickable, BATCH_MAX) && (
+            <button type="button" className="btn btn-sm btn-ghost" onClick={() => setSel(pickAll(rows))}>全选 {Math.min(pickable, BATCH_MAX)} 条</button>
+          )}
+          <span className="spacer" />
+          <button type="button" className="btn btn-sm btn-primary" disabled={batch.isPending}
+            onClick={() => runBatch('done', { ids: picked.slice(0, BATCH_MAX).map((m) => m.id) })}>标为{doneLabel}</button>
+          <button type="button" className="btn btn-sm btn-outline" disabled={batch.isPending}
+            onClick={() => runBatch('ignore', { ids: picked.slice(0, BATCH_MAX).map((m) => m.id) })}>忽略</button>
+          <button type="button" className="btn btn-sm btn-ghost" onClick={() => setSel(new Set())}>取消选择</button>
+        </div>
+      )}
 
       {openId && (
         <MessageDrawer msg={opened} missing={missing} ch={channelOf(channels, opened?.channel ?? '')} connectors={connectors.data} sv={sv}

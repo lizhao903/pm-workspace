@@ -97,8 +97,8 @@ export type {
 } from './connectors'
 export { projectStakeholdersApi, useAddProjectStakeholder, usePatchProjectStakeholder, useRemoveProjectStakeholder } from './projectStakeholders'
 export type { ProjectStakeholderInput, ProjectStakeholderPatch } from './projectStakeholders'
-export { IM_PAGE_MAX, imApi, normMessage, useImMessages, useImMessage, useImAction, useImToTask, useImPendingCount, useImSyncConnector } from './im'
-export type { ImMessage, ImMsgStatus, ImRelevance, ImAttachment, ImReply, ImAction, ImTaskInput, ImTaskResult, ImSyncResult } from './im'
+export { IM_PAGE_MAX, imApi, normMessage, useImMessages, useImMessage, useImAction, useImBatch, useImToTask, useImPendingCount, useImSyncConnector } from './im'
+export type { ImMessage, ImMsgStatus, ImRelevance, ImAttachment, ImReply, ImAction, ImBatchInput, ImBatchResult, ImTaskInput, ImTaskResult, ImSyncResult } from './im'
 export {
   MATERIAL_KINDS, projectMaterialsApi, useProjectMaterials, useAddProjectMaterials, usePatchProjectMaterial, useRemoveProjectMaterial,
 } from './materials'
@@ -188,6 +188,8 @@ export type {
   VideoSeriesInput, VideoRunnerType, VideoStageRunner, VideoRunStatus, VideoLastRun,
 } from './video'
 export { videoRunnerApi, usePutRunner, useRemoveRunner, useRunStage, useWatchVideoRun } from './videoRunners'
+export { videoContentApi, usePutVideoTopic, useArtifactContent, usePutArtifactContent } from './videoContent'
+export type { VideoArtifactContent } from './videoContent'
 export {
   videoTopicApi, useVideoTopics, useVideoClips, useCreateTopic, usePatchTopic, useMakeTopic, useDeleteTopic,
   useCreateClip, usePatchClip, useClipToTopic, useLinkClip, useDeleteClip,
@@ -202,6 +204,8 @@ export type {
   BrowserTabKind, BrowserTabRecord, BrowserGoogleConn, BrowserGoogleAccount, BrowserGoogleState, BrowserOAuthStart, BrowserGoogleLogin,
   BrowserGoogleLogout, BrowserAllowEntry,
 } from './browser'
+
+export { fetchObjects, fetchContacts, fetchIdentities } from './search'
 
 // 接口层的纯函数和类型照样给模块用：不发请求，不碰缓存
 export { localDay, focusParams, changedFields, isApiError, isStreamError, ApiError, StreamError } from '../api'

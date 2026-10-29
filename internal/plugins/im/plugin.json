@@ -3,7 +3,7 @@
   "name": "IM 消息",
   "description": "收各 IM 渠道的消息，按 IM 身份认人、按会话归档，筛出与我相关的",
   "icon": "message",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "core": ">=1.0.0 <2.0.0",
   "depends": {},
   "optional_depends": {},
@@ -17,7 +17,7 @@
     "sop_nodes": ["im_send_message", "im_wait_reply"],
     "today_cards": [],
     "commands": [],
-    "search": []
+    "search": ["im_messages"]
   },
   "emits": ["im.message_received"],
   "subscribes": [],

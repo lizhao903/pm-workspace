@@ -30,9 +30,10 @@ describe('视频状态', () => {
 
   it('进度：当前之前做完，已完成时全部做完', () => {
     const v = vid('a', { stage: 'web' })
-    expect([0, 1, 2, 3].map((i) => stepState(v, i))).toEqual(['done', 'done', 'current', 'todo'])
+    // 第一步是选题（VID-09b）
+    expect([0, 1, 2, 3, 4].map((i) => stepState(v, i))).toEqual(['done', 'done', 'done', 'current', 'todo'])
     const done = vid('a', { stage: 'distribution', checkpoints: cps({ distribution: { state: 'passed' } }) })
-    expect(stepState(done, 7)).toBe('done')
+    expect(stepState(done, 8)).toBe('done')
   })
 
   it('规划检查通过后比例锁定', () => {

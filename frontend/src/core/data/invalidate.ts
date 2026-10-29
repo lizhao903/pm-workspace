@@ -167,13 +167,13 @@ export function invalidationsFor(c: Change): QueryKey[] {
       // 只刷这个项目的（概览的干系人块同一份）
       return [dataKeys.projectStakeholders(c.projectId)]
     case 'im-message':
-      // 列表和单条一起刷：计数、会话选项都从列表算
-      return [dataKeys.im.all]
+      // 列表和单条一起刷：计数、会话选项都从列表算；收消息时会登记新会话（PR-02），会话表一起刷
+      return [dataKeys.im.all, dataKeys.conversations.all]
     case 'project-material':
       return [dataKeys.projectMaterials(c.projectId)]
     case 'project-conversation':
-      // 绑定列表变了，绑了哪些会话的消息由组件按新列表去取
-      return [dataKeys.projectConversations(c.projectId), dataKeys.projectSummary]
+      // 绑定列表变了，绑了哪些会话的消息由组件按新列表去取；绑私聊时可能新建了会话
+      return [dataKeys.projectConversations(c.projectId), dataKeys.projectSummary, dataKeys.conversations.all]
     case 'sop-flow':
       return [dataKeys.sop.flows]
     case 'sop-run':

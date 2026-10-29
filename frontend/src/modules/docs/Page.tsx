@@ -1,15 +1,19 @@
 // 文档模块（SPEC-library，DOC-01b）：二级菜单位置是内容树和工作目录切换，顶栏是目录名和筛选，右边阅读区。
 // 工作台文档是 type=doc 的对象，一次拉全，按分类树分组；本地目录是挂载在后端的目录（/api/local-dirs），刷新页面还在。
 // 当前工作目录和正在读的文档放在地址里（?dir=<挂载 id>&doc=<文档 id>），别的模块可以直接链过来；筛选、搜索是页面状态。
+// 工作台文档可以新建、编辑（C-03）：?edit=new 新建，?doc=<id>&edit=1 编辑这篇；有没保存的改动时离开先确认（SPEC-library-1.46）。
 import { useCallback, useDeferredValue, useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router'
 import {
   errorText, isApiError, isStarred, useAllObjects, useCategoryTree, useLocalDirFiles, useLocalDirs, useNotifyChange, useObjectTypes,
   useSetStarred, useTags, useUnmountLocalDir, type LocalDir, type ObjectFilter,
 } from '../../core/data'
-import { Button, InSubnavHost, LoadingState } from '../../core/ui'
+import { Button, ConfirmDialog, InSubnavHost, LoadingState } from '../../core/ui'
 import { LibraryBar } from './Bar'
-import { builtinModel, BUILTIN, dirWs, folderModel, timeAgo, type Doc, type Filter, type Workspace } from './model'
+import { DocEditor } from './Editor'
+import {
+  builtinModel, BUILTIN, defaultCategory, dirWs, folderModel, indexCategories, timeAgo, UNCATEGORIZED_LABEL, type Doc, type Filter, type Workspace,
+} from './model'
 import { MountDrawer } from './MountDrawer'
 import { LibraryReader } from './Reader'
 import { LibraryTree } from './Tree'
@@ -34,6 +38,9 @@ export default function Page() {
   const dq = useDeferredValue(q)
   const [mounting, setMounting] = useState(false)
   const [dirError, setDirError] = useState('')
+  // 编辑区有没保存的改动；要离开时先把去处记下，确认后再走
+  const [dirty, setDirty] = useState(false)
+  const [leaving, setLeaving] = useState<{ run: () => void } | null>(null)
   const filter: Filter = useMemo(() => ({ kind, tags, q: dq }), [kind, tags, dq])
 
   const dir: LocalDir | null = dirId ? dirs.data?.find((d) => d.id === dirId) ?? null : null
@@ -51,7 +58,7 @@ export default function Page() {
     [dir, files.data, docs.data, cats.data, filter],
   )
 
-  const update = useCallback((next: { dir?: string | null; doc?: string | null }) => {
+  const update = useCallback((next: { dir?: string | null; doc?: string | null; edit?: string | null }) => {
     setParams((p) => {
       const n = new URLSearchParams(p)
       for (const [k, v] of Object.entries(next)) {
@@ -62,10 +69,16 @@ export default function Page() {
     }, { replace: true })
   }, [setParams])
 
+  // 有没保存的改动时先确认，确认了再走（SPEC-library-1.46）
+  const guard = (run: () => void) => {
+    if (dirty) setLeaving({ run })
+    else run()
+  }
+
   // 换工作目录：筛选、搜索、当前阅读一起清空（SPEC-library-1.8）
   const switchWs = useCallback((w: Workspace) => {
     setKind(''); setTags([]); setQ(''); setDirError('')
-    update({ dir: w === BUILTIN ? null : w.slice(4), doc: null })
+    update({ dir: w === BUILTIN ? null : w.slice(4), doc: null, edit: null })
   }, [update])
 
   useEffect(() => {
@@ -75,9 +88,23 @@ export default function Page() {
   // 当前阅读的不在筛选结果里就落到第一条；宽屏下右侧不留空，手机上留在内容树（SPEC-library-1.15）
   const current: Doc | null = model.rows.find((r) => r.id === reading) ?? null
   const ready = dir ? !!files.data : !!docs.data
+  // 编辑状态只对工作台文档：新建，或当前阅读的这篇能在对象列表里找到
+  const editParam = dir ? null : params.get('edit')
+  const creating = editParam === 'new'
+  const editObj = editParam === '1' && reading ? docs.data?.data.find((o) => o.id === reading) ?? null : null
+  const editing = creating || !!editObj
   useEffect(() => {
-    if (ready && !current && model.rows.length && wide()) update({ doc: model.rows[0].id })
-  }, [ready, current, model.rows, update])
+    if (ready && !current && !creating && model.rows.length && wide()) update({ doc: model.rows[0].id })
+  }, [ready, current, creating, model.rows, update])
+
+  const catIndex = useMemo(() => indexCategories(cats.data ?? []), [cats.data])
+  const catName = useCallback((id: string) => catIndex.get(id)?.names.join(' / ') ?? (id || UNCATEGORIZED_LABEL), [catIndex])
+  // 保存后先把列表读回来再切回阅读，免得新建的这篇还没进列表就被「落到第一条」顶掉
+  const saved = (id: string) => {
+    setDirty(false)
+    if (creating) { setKind(''); setTags([]); setQ('') }
+    void docs.refetch().finally(() => update({ doc: id, edit: null }))
+  }
 
   const statusLabel = useCallback((key: string) => types.data?.find((t) => t.id === 'doc')?.statuses.find((s) => s.key === key)?.label ?? key, [types.data])
 
@@ -119,21 +146,33 @@ export default function Page() {
     })
   }
 
-  const mode = reading ? 'reader' : 'tree'
+  const mode = reading || creating ? 'reader' : 'tree'
 
   return (
     <div className="docs-mod" data-lib={mode}>
       <LibraryBar model={model} kind={kind} onKind={setKind} tags={tags} onTags={setTags} tagOptions={tagOptions}
         onRefresh={() => void notify({ kind: 'local-dir' })} refreshing={files.isFetching}
-        readAt={files.dataUpdatedAt ? timeAgo(files.dataUpdatedAt) : ''} />
+        readAt={files.dataUpdatedAt ? timeAgo(files.dataUpdatedAt) : ''}
+        onNew={() => guard(() => update({ edit: 'new' }))} creating={creating} />
       <InSubnavHost>
-        <LibraryTree ws={ws} model={model} filter={filter} dirs={dirs.data ?? []} selected={reading}
-          onSelect={(id) => update({ doc: id })} onSwitch={switchWs}
+        <LibraryTree ws={ws} model={model} filter={filter} dirs={dirs.data ?? []} selected={creating ? null : reading}
+          onSelect={(id) => guard(() => update({ doc: id, edit: null }))} onSwitch={(w) => guard(() => switchWs(w))}
           onAddFolder={() => { setDirError(''); setMounting(true) }} onRemoveFolder={removeDir}
           q={q} onQ={setQ} status={status} kicker={kicker} error={dirError} mode={mode} />
       </InSubnavHost>
-      <LibraryReader model={model} current={current} statusLabel={statusLabel} onBack={() => update({ doc: null })}
-        onStar={(d) => star.mutate({ id: d.id, on: !d.starred })} starring={star.isPending} />
+      {editing ? (
+        <DocEditor key={editObj?.id ?? 'new'} doc={editObj} cats={cats.data ?? []} defaultCat={defaultCategory(cats.data ?? [], kind)}
+          onSaved={saved} onDirty={setDirty} onCancel={() => guard(() => update({ edit: null }))} />
+      ) : (
+        <LibraryReader model={model} current={current} statusLabel={statusLabel} catName={catName}
+          onBack={() => update({ doc: null })} onStar={(d) => star.mutate({ id: d.id, on: !d.starred })} starring={star.isPending}
+          onEdit={(d) => update({ doc: d.id, edit: '1' })} />
+      )}
+      <ConfirmDialog open={!!leaving} title="有没保存的改动" confirmLabel="丢掉改动" cancelLabel="接着写" danger
+        onCancel={() => setLeaving(null)}
+        onConfirm={() => { const run = leaving?.run; setLeaving(null); setDirty(false); run?.() }}>
+        离开后这次的改动不会保存。
+      </ConfirmDialog>
       <MountDrawer open={mounting} onClose={() => setMounting(false)} existing={dirs.data ?? []}
         onMounted={(d) => { setMounting(false); switchWs(dirWs(d.id)) }} />
     </div>

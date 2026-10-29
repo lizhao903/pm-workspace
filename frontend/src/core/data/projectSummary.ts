@@ -1,5 +1,5 @@
 // 项目汇总（ALIGN-05）：项目插件的 /api/projects/summary，每个项目的原型总数、运行中数和绑定的会话，项目列表一次取齐。
-// 待回复数不在汇总里（消息在 IM 插件），拿一次全部待处理消息（不含稍后），按会话对上项目，口径见契约「项目汇总」。
+// 待回复数不在汇总里（消息在 IM 插件），拿一次与我相关的待处理消息（不含稍后），按会话对上项目，口径见契约「项目汇总」。
 // 原型启停、会话绑定解绑时刷汇总（invalidate.ts）；待处理消息挂在 im 前缀下，消息一变跟着刷。
 import { useQuery } from '@tanstack/react-query'
 import { isApiError, requestList } from '../api'
@@ -22,11 +22,11 @@ export const EMPTY_STAT: ProjectStat = { protoTotal: 0, protoRunning: 0, pending
 export const projectSummaryApi = {
   list: async (signal?: AbortSignal) =>
     (await requestList<ProjectSummary>('/api/projects/summary', { signal })).data.map((s) => ({ ...s, conversations: s.conversations ?? [] })),
-  /** 待处理、不在稍后里的消息，按页拉完 */
+  /** 待处理、不在稍后里、与我相关（@我、@所有人、私聊，B-01）的消息，按页拉完 */
   pending: async (signal?: AbortSignal) => {
     const out: ImMessage[] = []
     for (let offset = 0; ; offset += IM_PAGE_MAX) {
-      const query = new URLSearchParams({ status: 'pending', snoozed: 'false', limit: String(IM_PAGE_MAX), offset: String(offset) })
+      const query = new URLSearchParams({ status: 'pending', snoozed: 'false', mine: 'any', limit: String(IM_PAGE_MAX), offset: String(offset) })
       const r = await requestList<ImMessage>('/api/im/messages', { query, signal })
       out.push(...r.data.map(normMessage))
       if (!r.data.length || out.length >= r.total) return out
@@ -57,13 +57,13 @@ export function usePendingImMessages(enabled: boolean) {
   })
 }
 
-/** 每个项目的统计：原型数照汇总，待回复数按会话对上；一个会话绑了几个项目就算进每个项目 */
+/** 每个项目的统计：原型数照汇总，待回复数（与我相关的待处理）按会话对上；一个会话绑了几个项目就算进每个项目 */
 export function projectStats(summary: readonly ProjectSummary[], pending: readonly ImMessage[]): Map<string, ProjectStat> {
   const byConv = new Map<string, number>()
   const byExt = new Map<string, number>()
   const extKey = (channel: string, ext: string) => `${channel}\u0000${ext}`
   for (const m of pending) {
-    if (m.status !== 'pending') continue
+    if (m.status !== 'pending' || !m.relevance) continue
     if (m.conversation_id) byConv.set(m.conversation_id, (byConv.get(m.conversation_id) ?? 0) + 1)
     else if (m.conversation_external_id) {
       const k = extKey(m.channel, m.conversation_external_id)

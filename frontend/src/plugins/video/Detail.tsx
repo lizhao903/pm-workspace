@@ -1,11 +1,14 @@
 // 视频详情（SPEC-videos-10、11、13）：制作流程、产出物（VID-01d）、设置三个标签。
-// 制作流程是 8 个阶段的竖向时间线：没有检查点的阶段点「这一步做完了」往下走；4 个检查点通过、退回（必须写意见）、
+// 制作流程是 9 个阶段的竖向时间线：没有检查点的阶段点「这一步做完了」往下走；4 个检查点通过、退回（必须写意见）、
 // 音频合成可以跳过；规划检查里选画面比例，通过后锁定。阶段和检查点都由后端校验，冲突（别处推进过）照后端的话提示。
 // VID-02b：每个阶段下面列这一步的产出物（字幕在录屏渲染，封面带封面比例），第一章验收列演示工程；点一条打开抽屉（?a=），登记跳到产出物标签
 // VID-03c：能跑的阶段下面是执行器（Runner.tsx），同一时间只改一个阶段的；有执行在跑时轮询这个视频
+// VID-09b：第一步选题（TopicStep.tsx）挑、换、新建选题；内容编写是当前阶段时直接展开编辑区（ScriptDesk.tsx），别的时候点开；
+// 规划检查顶上列内容编写里保存的文稿版本，只提醒不拦
 import { useState } from 'react'
 import {
-  errorText, projectView, useAdvanceVideo, useDecideCheckpoint, usePatchVideo, useVideoArtifacts, useWatchVideoRun, type Video, type VideoArtifact,
+  errorText, projectView, useAdvanceVideo, useDecideCheckpoint, usePatchVideo, useVideoArtifacts, useVideoClips, useVideoTopics, useWatchVideoRun,
+  type Video, type VideoArtifact,
   type VideoArtifactKind, type VideoCheckpointStage, type VideoCheckpointState, type VideoSeries, type VideoStageRunner,
 } from '../../core/data'
 import { Button, PageTitle, Pill, Textarea, cls } from '../../core/ui'
@@ -22,6 +25,9 @@ import {
 import { RUNNABLE } from './runnerModel'
 import { RunnerBox } from './Runner'
 import { useRunnerChoices } from './runnerChoices'
+import { TopicStep } from './TopicStep'
+import { ScriptDesk } from './ScriptDesk'
+import { planDocs, useDeskStore } from './scriptModel'
 
 export type DetailTab = 'flow' | 'artifacts' | 'settings'
 const TABS: { key: DetailTab; label: string }[] = [{ key: 'flow', label: '制作流程' }, { key: 'artifacts', label: '产出物' }, { key: 'settings', label: '设置' }]
@@ -73,7 +79,7 @@ export function Detail({ video, videos, series, projects, tab, from, openArt, on
           </button>
         ))}
       </div>
-      {tab === 'flow' && <Flow key={v.id} v={v} arts={arts.data} openId={openArt} onOpen={onOpenArt} onNew={startNew} />}
+      {tab === 'flow' && <Flow key={v.id} v={v} arts={arts.data} series={series} openId={openArt} onOpen={onOpenArt} onNew={startNew} />}
       {tab === 'artifacts' && (
         <ArtifactsTab key={v.id} v={v} query={arts} draft={draft} onDraft={setDraft} openId={openArt} onOpen={onOpenArt} />
       )}
@@ -82,8 +88,9 @@ export function Detail({ video, videos, series, projects, tab, from, openArt, on
   )
 }
 
-function Flow({ v, arts, openId, onOpen, onNew }: {
+function Flow({ v, arts, series, openId, onOpen, onNew }: {
   v: Video
+  series: VideoSeries[]
   /** 还没取回来时不列产出物 */
   arts: VideoArtifact[] | undefined
   openId: string | null
@@ -99,6 +106,13 @@ function Flow({ v, arts, openId, onOpen, onNew }: {
   const [runEdit, setRunEdit] = useState<VideoStageRunner | null>(null)
   const choices = useRunnerChoices()
   useWatchVideoRun(v)
+  const topics = useVideoTopics()
+  const clips = useVideoClips()
+  const desk = useDeskStore()
+  const [deskOpen, setDeskOpen] = useState(false)
+  const [topicOpen, setTopicOpen] = useState(false)
+  const topic = v.topic_id ? topics.data?.find((t) => t.id === v.topic_id) : undefined
+  const hasDraft = Object.keys(desk.drafts).some((k) => k.startsWith(`${v.id}:`))
   const locked = orientLocked(v)
   const busy = advance.isPending || decide.isPending
   const failed = advance.error ?? decide.error ?? patch.error
@@ -158,6 +172,7 @@ function Flow({ v, arts, openId, onOpen, onNew }: {
           const noOrient = s.key === 'plan' && !v.orientations.length
           const items = mine.filter((a) => ARTIFACT_KIND[a.kind]?.stage === s.key)
           const firstKind = KINDS.find((k) => ARTIFACT_KIND[k].stage === s.key)
+          const showDesk = s.key === 'script' && (cur || deskOpen)
           return (
             <li key={s.key} aria-label={s.label} aria-current={cur ? 'step' : undefined}
               className={cls('vd-step', `vd-step-${state}`, s.checkpoint && 'vd-step-cp', cur && (cp?.state === 'pending' || cp?.state === 'rejected') && 'vd-step-wait')}>
@@ -174,6 +189,22 @@ function Flow({ v, arts, openId, onOpen, onNew }: {
                 </div>
                 <div className="vd-step-desc">{s.desc}</div>
                 {cp?.note && cp.state !== 'rejected' && <div className="vd-cp-note">意见：{cp.note}</div>}
+
+                {s.key === 'topic' && (
+                  <TopicStep v={v} topics={topics.data} clips={clips.data ?? []} series={series} drawerOpen={topicOpen} onDrawer={setTopicOpen} />
+                )}
+                {arts && s.key === 'plan' && (() => {
+                  const pd = planDocs(v, mine, hasDraft)
+                  return (
+                    <div className="vd-sub" aria-label="要对齐的文稿">
+                      <div className="vd-label">要对齐的文稿<span className="vd-hint">内容编写里保存的版本</span></div>
+                      {pd.docs.length ? pd.docs.map(artLine) : (
+                        <div className="vd-col-empty">还没有文稿。<button type="button" className="vd-link" onClick={() => setDeskOpen(true)}>去内容编写</button></div>
+                      )}
+                      {pd.warns.map((w) => <div key={w} className="vd-plan-warn">{w}</div>)}
+                    </div>
+                  )
+                })()}
 
                 {s.key === 'plan' && (
                   <div className="vd-plan">
@@ -202,11 +233,18 @@ function Flow({ v, arts, openId, onOpen, onNew }: {
                     )}
                   </div>
                 )}
-                {items.length > 0 && <div className="vd-sub" aria-label={`${s.label}的产出物`}>{items.map(artLine)}</div>}
+                {items.length > 0 && !showDesk && <div className="vd-sub" aria-label={`${s.label}的产出物`}>{items.map(artLine)}</div>}
+                {s.key === 'script' && !showDesk && (
+                  <div className="vd-act-row"><button type="button" className="vd-link" onClick={() => setDeskOpen(true)}>打开编辑区改文稿</button></div>
+                )}
                 {RUNNABLE.includes(s.key) && !isFinished(v) && (
                   <RunnerBox v={v} stage={s.key} cur={cur} choices={choices} edit={runEdit?.stage === s.key ? runEdit : null} onEdit={setRunEdit} />
                 )}
-                {arts && cur && !items.length && firstKind && !s.checkpoint && (
+                {arts && showDesk && (
+                  <ScriptDesk v={v} arts={mine} topic={topic} clips={clips.data ?? []} choices={choices} onOpenArt={(id) => onOpen(id)}
+                    onClose={cur ? undefined : () => setDeskOpen(false)} />
+                )}
+                {arts && cur && !items.length && firstKind && !s.checkpoint && s.key !== 'script' && (
                   <div className="vd-col-empty">这一步还没登记产出物。<button type="button" className="vd-link" onClick={() => onNew(firstKind)}>登记一个</button></div>
                 )}
 
@@ -236,7 +274,15 @@ function Flow({ v, arts, openId, onOpen, onNew }: {
                     )}
                   </div>
                 )}
-                {cur && !s.checkpoint && i < STAGES.length - 1 && (
+                {cur && s.key === 'topic' && (
+                  <div className="vd-act-row vd-adv">
+                    <Button variant="primary" size="sm" disabled={busy || !topic} title={!topic ? '先选一个选题或新建一个' : undefined} onClick={onAdvance}>
+                      确认选题，进入「{STAGES[i + 1].label}」
+                    </Button>
+                    {!topic && <span className="vd-muted">先选一个选题或新建一个</span>}
+                  </div>
+                )}
+                {cur && !s.checkpoint && s.key !== 'topic' && i < STAGES.length - 1 && (
                   <div className="vd-act-row vd-adv">
                     <Button variant="primary" size="sm" disabled={busy} onClick={onAdvance}>这一步做完了，进入「{STAGES[i + 1].label}」</Button>
                   </div>

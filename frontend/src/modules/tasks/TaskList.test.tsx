@@ -157,4 +157,16 @@ describe('任务列表', () => {
     await user.click(screen.getByRole('button', { name: '重试' }))
     expect(onRetry).toHaveBeenCalled()
   })
+  it('抽屉开着时列表带窄列标记，标题仍在行里（C-01）', () => {
+    const t = task({ title: '窄列也要看得到的标题' })
+    const props = {
+      view: 'all' as const, tasks: [t], statuses, priorities, projects: [], status: OPEN, onStatus: () => {},
+      search: '', onSearch: () => {}, q: '', selected: t.id, onOpen: () => {}, onNew: () => {}, now,
+    }
+    const { container, rerender } = render(<TaskList {...props} />)
+    expect(container.querySelector('.task-table')).not.toHaveClass('task-table-docked')
+    rerender(<TaskList {...props} drawerOpen />)
+    expect(container.querySelector('.task-table')).toHaveClass('task-table-docked')
+    expect(screen.getByRole('button', { name: `${t.ref} ${t.title}` })).toHaveTextContent('窄列也要看得到的标题')
+  })
 })

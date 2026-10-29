@@ -7,7 +7,7 @@ import { useNotifyChange } from './invalidate'
 import { videoKeys } from './videoKeys'
 
 export type VideoOrientation = 'landscape' | 'portrait' | 'square'
-export type VideoStageKey = 'script' | 'plan' | 'web' | 'ch1' | 'chapters' | 'audio' | 'record' | 'distribution'
+export type VideoStageKey = 'topic' | 'script' | 'plan' | 'web' | 'ch1' | 'chapters' | 'audio' | 'record' | 'distribution'
 export type VideoCheckpointStage = 'plan' | 'ch1' | 'audio' | 'distribution'
 export type VideoCheckpointState = 'pending' | 'passed' | 'rejected' | 'skipped'
 
@@ -20,6 +20,8 @@ export type Video = {
   project_id?: string
   series_id?: string
   episode?: number
+  /** 这一集的选题（VID-09a），只能用 PUT /topic 和立项写 */
+  topic_id?: string
   orientations: VideoOrientation[]
   stage: VideoStageKey
   /** 固定 4 个，按 plan、ch1、audio、distribution 排 */

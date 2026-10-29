@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import type { Category, LocalDir, WorkObject } from '../../core/data'
-import { buildTree, builtinModel, charCount, emptyText, fileSize, folderModel, STARRED, UNCATEGORIZED, type Filter } from './model'
+import {
+  buildTree, builtinModel, categoryOptions, charCount, defaultCategory, docPatch, docRevisionText, draftOfObject, emptyText, fileSize,
+  folderModel, sameDocDraft, STARRED, UNCATEGORIZED, type Filter,
+} from './model'
 
 const cat = (id: string, name: string, sort: number, total: number, children: Category[] = []): Category => ({
   id, type_id: 'doc', parent_id: null, name, slug: id, path: `/${id}/`, depth: 0, color: '', description: '', sort_order: sort,
@@ -88,5 +91,41 @@ describe('小工具', () => {
     expect(fileSize(512)).toBe('512 B')
     expect(fileSize(6587)).toBe('6.4 KB')
     expect(fileSize(3 * 1024 * 1024)).toBe('3.0 MB')
+  })
+})
+
+describe('新建和编辑', () => {
+  it('分类下拉：按顺序摊平，子分类带父名，最后是未分类', () => {
+    expect(categoryOptions(tree)).toEqual([
+      { value: 'c_a', label: '需求文档' }, { value: 'c_a1', label: '需求文档 / 子类' }, { value: 'c_b', label: '技术方案' }, { value: '', label: '未分类' },
+    ])
+    expect(categoryOptions([])).toEqual([{ value: '', label: '未分类' }])
+  })
+
+  it('默认分类：当前筛选是分类就用它，否则取排在最前的', () => {
+    expect(defaultCategory(tree, 'c_b')).toBe('c_b')
+    expect(defaultCategory(tree, 'c_a1')).toBe('c_a1')
+    expect(defaultCategory(tree, STARRED)).toBe('c_a')
+    expect(defaultCategory(tree, '')).toBe('c_a')
+    expect(defaultCategory([], '')).toBe('')
+  })
+
+  it('保存只带改过的字段，标题去空白，分类清空传 null', () => {
+    const base = draftOfObject(obj({ title: '旧', body: '正文', category_id: 'c_a' }))
+    expect(sameDocDraft(base, { ...base })).toBe(true)
+    expect(docPatch(base, { ...base })).toEqual({})
+    expect(docPatch(base, { ...base, title: ' 新 ' })).toEqual({ title: '新' })
+    expect(docPatch(base, { ...base, body: '改了', category: '' })).toEqual({ body: '改了', category_id: null })
+  })
+
+  it('修订的说法：正文只说字数变化，分类和状态用显示名', () => {
+    const names = { cat: (id: string) => (id === 'c_b' ? '技术方案' : id), status: (k: string) => (k === 'final' ? '定稿' : k) }
+    expect(docRevisionText({ field: 'created', old_value: '', new_value: 't' }, names)).toBe('新建')
+    expect(docRevisionText({ field: 'body', old_value: 'ab', new_value: 'abcd' }, names)).toBe('改了正文（多 2 字）')
+    expect(docRevisionText({ field: 'body', old_value: 'abc', new_value: 'a' }, names)).toBe('改了正文（少 2 字）')
+    expect(docRevisionText({ field: 'title', old_value: 'A', new_value: 'B' }, names)).toBe('标题从「A」改成「B」')
+    expect(docRevisionText({ field: 'category_id', old_value: '', new_value: 'c_b' }, names)).toBe('分类改成「技术方案」')
+    expect(docRevisionText({ field: 'status', old_value: 'draft', new_value: 'final' }, names)).toBe('状态从「draft」改成「定稿」')
+    expect(docRevisionText({ field: 'project_id', old_value: '', new_value: 'p1' }, names)).toBe('归到项目')
   })
 })

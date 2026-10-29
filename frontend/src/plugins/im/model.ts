@@ -120,6 +120,43 @@ export function convOptions(list: readonly ImMessage[], channel: string, now = D
   return [...xs.filter((o) => o.opt.group === '群聊').sort(by), ...xs.filter((o) => o.opt.group === '私聊').sort(by)].map((o) => o.opt)
 }
 
+// ---- 批量处理（PR-03） ----
+
+/** 后端一次最多带的 id 数 */
+export const BATCH_MAX = 500
+
+/** 能勾选的：待处理（含稍后）的才有批量动作 */
+export const canPick = (m: Pick<ImMessage, 'status'>) => m.status === 'pending'
+
+/** 勾选里还在当前列表、还能处理的；筛选一变、处理掉的自然不算 */
+export const pickedRows = (rows: readonly ImMessage[], sel: ReadonlySet<string>) => rows.filter((m) => sel.has(m.id) && canPick(m))
+
+/** 勾选一行：有就去掉，没有就加上 */
+export function togglePick(sel: ReadonlySet<string>, id: string) {
+  const n = new Set(sel)
+  if (n.has(id)) n.delete(id)
+  else n.add(id)
+  return n
+}
+
+/** 「全选」：当前筛选结果里能处理的，最多 BATCH_MAX 条 */
+export const pickAll = (rows: readonly ImMessage[]) => new Set(rows.filter(canPick).slice(0, BATCH_MAX).map((m) => m.id))
+
+export type ConvBatch = { n: number; input: { conversation_id: string; before: string } | { ids: string[] } }
+
+/** 「这个会话全部标为已处理」：这个会话里的待处理（不含稍后，同待处理视图），不受与我相关、搜索、未读筛选影响。
+ * 登记过的会话按会话 + 最近一条的时间点交给后端，后面新到的不动；没登记的按 id */
+export function convBatch(list: readonly ImMessage[], conv: string, now = Date.now()): ConvBatch | null {
+  if (!conv) return null
+  const xs = list.filter((m) => convKey(m) === conv && inView(m, 'pending', now))
+  if (!xs.length) return null
+  if (conv.startsWith('cv:')) {
+    const before = xs.reduce((a, m) => (m.at > a ? m.at : a), xs[0].at)
+    return { n: xs.length, input: { conversation_id: conv.slice(3), before } }
+  }
+  return { n: xs.length, input: { ids: xs.slice(0, BATCH_MAX).map((m) => m.id) } }
+}
+
 /** 列表按天分段 */
 export function dayLabel(iso: string, now = new Date()) {
   const t = new Date(iso).getTime()

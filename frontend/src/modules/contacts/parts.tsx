@@ -23,9 +23,18 @@ export function Star({ on, name, onToggle }: { on: boolean; name: string; onTogg
   )
 }
 
-/** 分组标签：名字和颜色取分组枚举；枚举里删掉了的按原值显示、用灰 */
-export function GroupPill({ items, g }: { items: GroupItem[]; g: string }) {
-  return <Pill label={items.find((i) => i.key === g)?.label ?? g} color={groupColor(items, g)} />
+const groupLabel = (items: GroupItem[], g: string) => items.find((i) => i.key === g)?.label ?? g
+
+/** 分组标签：名字和颜色取分组枚举；枚举里删掉了的按原值显示、用灰。
+ *  compact（表格里）只放第一个分组加「+N」，超宽截断，悬停看全部；抽屉里全部列出 */
+export function GroupPills({ items, gs, compact = false }: { items: GroupItem[]; gs: string[]; compact?: boolean }) {
+  const shown = compact ? gs.slice(0, 1) : gs
+  return (
+    <span className="ct-groups" title={gs.map((g) => groupLabel(items, g)).join('、')}>
+      {shown.map((g) => <Pill key={g} className="ct-pill" label={<span className="ellipsis">{groupLabel(items, g)}</span>} color={groupColor(items, g)} />)}
+      {gs.length > shown.length && <span className="ct-groups-more">+{gs.length - shown.length}</span>}
+    </span>
+  )
 }
 
 /** IM 列：只列有编号的渠道，悬停看编号 */

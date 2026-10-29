@@ -1,6 +1,7 @@
 // 制作流程里一个阶段的执行器（VID-03c，同原型 web-next/src/videos.tsx 的 runnerBox）：配了就显示是谁、能不能跑、上次跑的结果，
 // 没配就在当前阶段给个入口。前置检查（检查点没过、不是当前阶段、别的阶段在跑）由后端 409 回原因，这里照原文提示。
 // 跑起来以后由 useWatchVideoRun 轮询这个视频，跑完产出物进「待验收」，检查点仍由人确认。
+// VID-09b：内容编写的执行器只在这里配，跑（按选题大纲起草）和结果都在编辑区（ScriptDesk.tsx）。
 import { useNavigate } from 'react-router'
 import {
   errorText, usePutRunner, useRemoveRunner, useRunStage, type Video, type VideoStageKey, type VideoStageRunner,
@@ -87,7 +88,7 @@ export function RunnerBox({ v, stage, cur, choices, edit, onEdit }: {
     if (!cur) return null
     return (
       <div className="vd-runner vd-runner-none">
-        <span className="vd-muted">没配执行器，产出物手动登记</span>
+        <span className="vd-muted">{stage === 'script' ? '没配执行器，按选题大纲起草时用技能「网页演示做视频」' : '没配执行器，产出物手动登记'}</span>
         <button type="button" className="vd-link" onClick={() => onEdit({ stage, type: 'skill', ref_id: RUNNER_SKILLS[0].id })}>配执行器</button>
       </div>
     )
@@ -101,6 +102,8 @@ export function RunnerBox({ v, stage, cur, choices, edit, onEdit }: {
     run.mutate({ id: v.id, stage })
   }
   const otherBusy = running && !busy
+  // 内容编写不在这里跑，在编辑区里「按选题大纲起草」，起草的状态也显示在编辑区
+  const inDesk = stage === 'script'
   return (
     <div className={cls('vd-runner', last?.status === 'failed' && 'vd-runner-failed')} aria-label={`${label}的执行器`}>
       <div className="vd-runner-head">
@@ -109,26 +112,26 @@ export function RunnerBox({ v, stage, cur, choices, edit, onEdit }: {
         {r.prompt && <span className="ellipsis vd-runner-prompt">{r.prompt}</span>}
         <span className="spacer" />
         {!busy && <Button size="sm" onClick={() => { run.reset(); onEdit(r) }}>修改</Button>}
-        {cur && (
+        {cur && !inDesk && (
           <Button variant="primary" size="sm" disabled={running || run.isPending} title={otherBusy ? '另一个阶段正在跑，等它跑完' : undefined} onClick={onRun}>
             {busy ? '运行中…' : run.isPending ? '正在发起…' : last?.status === 'failed' ? '重试' : '运行'}
           </Button>
         )}
       </div>
       {run.error && <div className="vd-err" role="alert">{errorText(run.error)}</div>}
-      {busy && (
+      {busy && !inDesk && (
         <div className="vd-runner-state" role="status">
           <i className="spinner vd-spin" aria-hidden="true" />正在跑，开始于 {timeAgo(last.started_at)}；跑完产出物会进「待验收」
           {link && <button type="button" className="vd-link" onClick={() => navigate(link.to)}>{link.label}</button>}
         </div>
       )}
-      {last?.status === 'failed' && (
+      {last?.status === 'failed' && !inDesk && (
         <div className="vd-cp-reject" role="status">
           运行失败：{last.error || '没有返回原因'}{last.ended_at && ` · ${timeAgo(last.ended_at)}`}
           {link && <> <button type="button" className="vd-link" onClick={() => navigate(link.to)}>{link.label}</button></>}
         </div>
       )}
-      {last?.status === 'done' && (
+      {last?.status === 'done' && !inDesk && (
         <div className="vd-runner-state ok" role="status">
           {timeAgo(last.ended_at ?? last.started_at)}跑完，{last.artifact_ids?.length ? `登记了 ${last.artifact_ids.length} 个产出物，待验收` : '没有新产出物'}
           {stage !== 'web' && STAGES.find((x) => x.key === stage)?.checkpoint && <span className="vd-muted">；检查点还要你来确认</span>}

@@ -1,5 +1,6 @@
 // 命令面板的命令注册（docs/plugin-api.md 2.9）。插件经 api.commands 注册，外壳打开命令面板时读一次。
 import type { Disposable } from './api'
+import { CORE_OWNER } from './extensions'
 
 // 外壳能力。CORE-02a 先只给跳转，抽屉、提示、确认框在 CORE-02b
 export interface ShellApi {
@@ -62,6 +63,14 @@ export function commandRegistry(
       return { dispose: () => remove(providers, x) }
     },
   }
+}
+
+// 内核模块（任务、联系人）登记的搜索数据源：不经清单，模块入口加载时登记一次，同名的只收第一个
+export function registerCoreSearch(source: string, fn: (q: string) => Promise<CommandDef[]>): Disposable {
+  if (providers.some((p) => p.owner === CORE_OWNER && p.source === source)) return { dispose() {} }
+  const x = { owner: CORE_OWNER, source, fn }
+  providers.push(x)
+  return { dispose: () => remove(providers, x) }
 }
 
 // 撤掉某个插件注册的全部命令和数据源（加载失败、停用时）

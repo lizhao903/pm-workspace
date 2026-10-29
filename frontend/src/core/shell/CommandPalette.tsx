@@ -24,7 +24,10 @@ export function CommandPalette({ items, search, onClose }: {
     if (!search || !kw) return
     let live = true
     const t = window.setTimeout(() => {
-      search(kw).then((xs) => { if (live) setFound({ q: kw, items: xs }) }, (e) => console.warn('命令面板数据源出错', e))
+      search(kw).then((xs) => { if (live) setFound({ q: kw, items: xs }) }, (e) => {
+        console.warn('命令面板数据源出错', e)
+        if (live) setFound({ q: kw, items: [] })
+      })
     }, SEARCH_DELAY)
     return () => { live = false; window.clearTimeout(t) }
   }, [search, kw])
@@ -34,6 +37,8 @@ export function CommandPalette({ items, search, onClose }: {
     return kw && found.q === kw ? [...base, ...found.items] : base
   }, [items, kw, found])
 
+  // 数据源还没回来：先不说「没找到」
+  const searching = !!search && !!kw && found.q !== kw
   const cur = Math.min(i, Math.max(0, shown.length - 1))
   useEffect(() => { listRef.current?.querySelector('.pal-item.on')?.scrollIntoView?.({ block: 'nearest' }) }, [cur])
 
@@ -61,7 +66,7 @@ export function CommandPalette({ items, search, onClose }: {
       <div className="pal" role="dialog" aria-modal="true" aria-label="搜索和命令" onMouseDown={(e) => e.stopPropagation()}>
         <div className="pal-input">
           <IconSearch size={16} />
-          <input autoFocus value={q} aria-label="搜索和命令" placeholder="搜功能模块，或者输入要做的事，比如「深色」"
+          <input autoFocus value={q} aria-label="搜索和命令" placeholder="搜任务、联系人、功能模块，或者输入要做的事，比如「深色」"
             role="combobox" aria-expanded="true" aria-controls="pal-list" aria-activedescendant={shown[cur] ? 'pal-' + shown[cur].id : undefined}
             onChange={(e) => { setQ(e.target.value); setI(0) }} onKeyDown={onKey} />
           <kbd>Esc</kbd>
@@ -78,7 +83,7 @@ export function CommandPalette({ items, search, onClose }: {
               </button>
             </div>
           ))}
-          {!shown.length && <div className="pal-empty">没找到「{kw}」相关的内容</div>}
+          {!shown.length && <div className="pal-empty">{searching ? '正在搜…' : `没找到「${kw}」相关的内容`}</div>}
         </div>
         <div className="pal-foot">
           <span><kbd>↑</kbd><kbd>↓</kbd> 选择</span>

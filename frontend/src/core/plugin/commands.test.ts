@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import { definePlugin } from './api'
-import { commandProviders, commandRegistry, disposeCommandsOf, registeredCommands, type CommandDef } from './commands'
+import { commandProviders, commandRegistry, disposeCommandsOf, registerCoreSearch, registeredCommands, type CommandDef } from './commands'
 import { PLUGIN_API_VERSION } from './manifest'
 import { loadPlugins } from './registry'
 
@@ -25,6 +25,16 @@ describe('commandRegistry', () => {
     commandRegistry('aa', { commands: ['aa.one'] }, reasons, false).register(cmd('aa.x'))
     expect(reasons).toEqual(['注册的命令 aa.x 不在清单 provides.commands 里'])
     expect(registeredCommands()).toEqual([])
+  })
+
+  it('内核数据源不经清单，同名只收第一个，dispose 后撤掉', () => {
+    const before = commandProviders().length
+    const d = registerCoreSearch('zz-test', async () => [])
+    registerCoreSearch('zz-test', async () => [cmd('x')])
+    expect(commandProviders().filter((p) => p.source === 'zz-test')).toHaveLength(1)
+    expect(commandProviders().find((p) => p.source === 'zz-test')?.owner).toBe('core')
+    d.dispose()
+    expect(commandProviders()).toHaveLength(before)
   })
 
   it('数据源按 provides.search 检查；disposeCommandsOf 只撤这个插件的', () => {

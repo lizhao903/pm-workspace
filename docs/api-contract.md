@@ -358,7 +358,7 @@
 
 | 字段 | 类型 | 说明 |
 |---|---|---|
-| `group` | string | 分组显示名（客户、合作伙伴、同事、供应商、其他，可在设置里新增），不约束取值，去首尾空白；库里列名 `contact_group` |
+| `group` | string | 分组显示名（客户、合作伙伴、同事、供应商、其他，可在设置里新增），不约束取值，去首尾空白；库里列名 `contact_group`。一人可在多个分组，多个用「、」连接存成一个字符串（如 `Octok、XAUE`），后端不拆，前端按「、」拆开（也认逗号、斜杠、分号）后按包含匹配筛选（PR-04） |
 | `company` / `title` / `phone` | string | 公司、职位、电话，默认空串。`title` 是职位，和原有的 `role`（产品、研发这类角色）是两个字段 |
 | `tags` | string[] | 去首尾空白、去空、去重后保存，默认 `[]` |
 | `photo` | string | `data:image/` 开头的 data URL，1.4MB 以内（和工作台图标同一上限）；空串表示按名字生成头像 |
@@ -1536,7 +1536,7 @@ ALIGN-05。项目列表（SPEC-projects-1.5 到 1.11）按「有原型在跑 / �
 
 - 只列有原型或绑了会话的项目；不在里面的项目原型和会话都是 0。不看项目是否在回收站，前端按自己的项目列表对上。顺序：先有原型的项目（按第一个原型的添加先后），再只绑了会话的项目。
 - `running` 只数 `status=running` 的原型（端口能连上），`starting` 不算，和原型标签上的绿灯一致。
-- 待回复数不在这里：消息在 IM 插件的表里，项目插件读不到，也不加跨插件依赖。前端拿一次 `GET /api/im/messages?status=pending&snoozed=false`（翻页拉完），按 `conversations` 对上项目：消息的 `conversation_id` 等于会话 `id`，或消息没认上会话（`conversation_id` 为 `null`）时 `channel`、`conversation_external_id` 等于会话的 `channel`、`external_id`（同 `/api/im/messages?conversation_id=` 的口径）。一个会话绑了几个项目，它的消息就算进每个项目。IM 插件没装或停用时消息接口 404，待回复都按 0。
+- 待回复数不在这里：消息在 IM 插件的表里，项目插件读不到，也不加跨插件依赖。只算与我相关的（`relevance` 非空：@我、@所有人、私聊；B-01，PR-02 起），其余群消息只在 IM 消息页。前端拿一次 `GET /api/im/messages?status=pending&snoozed=false&mine=any`（翻页拉完），按 `conversations` 对上项目：消息的 `conversation_id` 等于会话 `id`，或消息没认上会话（`conversation_id` 为 `null`）时 `channel`、`conversation_external_id` 等于会话的 `channel`、`external_id`（同 `/api/im/messages?conversation_id=` 的口径）。一个会话绑了几个项目，它的消息就算进每个项目。IM 插件没装或停用时消息接口 404，待回复都按 0。
 - 原型状态在内存里，不发事件；启停原型、绑定解绑会话后前端重新取。
 
 ## IM 消息插件 im
@@ -1572,7 +1572,7 @@ IM-01a 起。插件 `im`（`internal/plugins/im`，清单 `plugin.json`，0.5.0�
 | `mention` | 渠道明确给出的提及：`me` / `all` / 空；空时按正文里的 `@` 判断 |
 | `attachments` | 附件元数据数组（原型 `MsgAttachment`：`{id, name, kind: file / image / link, size, url}`），原样存，渠道自己的字段（file_id 等）照留，下载时交回适配器；没有 `id` 或 `id` 在这条消息里重复的，插件补一个 `att_` 开头的 id。获取状态见「附件获取」 |
 
-到达时：按 `(渠道, sender_id)` 查 IM 身份、按 `(渠道, conversation_id)` 查会话，查到的存 id；查不到的 id 留空、编号照存，读的时候再按编号认一次（不回写），所以先收消息、后登记身份或会话也能认上。身份、会话删掉时 id 置空，消息保留。
+到达时：按 `(渠道, sender_id)` 查 IM 身份、按 `(渠道, conversation_id)` 查会话，查到的存 id；身份查不到的 id 留空、编号照存，读的时候再按编号认一次（不回写），所以先收消息、后登记身份也能认上。会话查不到时自动登记（PR-02，走插件句柄 `ConversationWriter`，只建不改）：渠道、编号、`conversation_name`（群没有名字时用编号，超过 100 字截断）、`conversation_kind`，私聊认上了发送人时成员是这个身份；登记失败只记日志，id 留空，照读时补认。插件启用时跑一次补登记，之前收到、会话还没登记的消息按 `(渠道, 会话编号)` 登记会话（群名取最近一条）并回写 `conversation_id`。身份、会话删掉时 id 置空，消息保留；删掉的会话再收到消息时会重新登记。
 
 ### Slack（IM-01b）
 
@@ -1672,6 +1672,14 @@ IM-02a，口径照原型 `App.tsx` 的 `actOnMessage`。除单条读取外都是
 | POST | `/api/im/messages/{id}/snooze` | 稍后提醒，body `{until}`（RFC 3339，必须在将来、一年以内，否则 400）；只有待处理的能设，别的 409 `conflict`。状态仍是 `pending`，标已读 |
 | POST | `/api/im/messages/{id}/reply` | 回复，body `{text, done}`：`text` 必填、最多 4000 字；`done` 为真且发成功时顺带标成处理完。经适配器发出，见下 |
 | POST | `/api/im/messages/{id}/task` | 转任务，body 可省略，见下；成功 201 |
+| POST | `/api/im/messages/batch` | 批量处理完或忽略（PR-03），见下 |
+
+批量处理（PR-03）：body `{action, ids}` 或 `{action, conversation_id, before}`，二选一，都给或都没给 400。
+
+- `action` 只能是 `done`、`ignore`，效果同单条的处理完、忽略。只改待处理的，已处理、已忽略、不存在的 id 跳过，不报错。
+- 按 id：`ids` 最多 500 个；挑中的稍后（还没到点）也一起改。
+- 按会话：`conversation_id` 必须是登记过的会话，否则 400；口径同列表的 `conversation_id` 筛选（没认上会话、渠道和会话编号对得上的也算）。`before` 必填（RFC 3339），只改发送时间不晚于它的，免得把刚收进来、还没看到的一起清掉；还没到点的稍后不动，同「待处理」视图。
+- 成功 200，`data` 是 `{action, ids, count}`：`ids` 是这次改到的消息 id，按发送时间倒序。不逐条发事件，前端按 `im-message` 整体刷新。
 
 稍后提醒到点：插件后台任务 `snooze_wake` 每 15 秒把 `snooze_until` 到点的清成 `null`，消息回到待处理（`read` 不变，同原型）；插件停用时不跑，重新启用后第一次就补上。
 

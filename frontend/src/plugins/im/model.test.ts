@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { Connector, ImMessage } from '../../core/data'
 import {
-  channelTable, convKey, convOptions, dayLabel, filterRows, fmtSize, inView, mentionParts, nextWake, replyBlocker, snoozeOptions, statusItems,
+  BATCH_MAX, channelTable, convBatch, convKey, pickAll, pickedRows, togglePick, convOptions, dayLabel, filterRows, fmtSize, inView, mentionParts, nextWake, replyBlocker, snoozeOptions, statusItems,
   taskTitleOf,
 } from './model'
 
@@ -124,5 +124,31 @@ describe('其它', () => {
     expect(taskTitleOf({ text: '  一二  三\n四 ', contact_name: '', sender_name: 'A' })).toBe('一二 三 四')
     expect(taskTitleOf({ text: '', contact_name: '', sender_name: 'Kevin' })).toBe('来自 Kevin 的消息')
     expect([fmtSize(900), fmtSize(48213), fmtSize(3 * 1024 * 1024), fmtSize()]).toEqual(['900 B', '47 KB', '3.0 MB', ''])
+  })
+})
+
+describe('批量处理（PR-03）', () => {
+  it('勾选只算还在列表里的待处理', () => {
+    const a = msg(), b = msg({ status: 'done' }), c = msg()
+    let sel = togglePick(new Set(), a.id)
+    sel = togglePick(sel, b.id)
+    sel = togglePick(sel, 'msg_gone')
+    expect(pickedRows([a, b, c], sel).map((m) => m.id)).toEqual([a.id])
+    expect(togglePick(sel, a.id).has(a.id)).toBe(false)
+    expect([...pickAll([a, b, c])]).toEqual([a.id, c.id])
+    expect(pickAll(Array.from({ length: BATCH_MAX + 3 }, () => msg())).size).toBe(BATCH_MAX)
+  })
+
+  it('会话：登记过的按会话 + 最近一条时间点，没登记的按 id；不含稍后和已处理', () => {
+    const later = new Date(NOW + 3600_000).toISOString()
+    const xs = [
+      msg({ conversation_id: 'cv_1', at: '2026-10-29T01:00:00.000Z' }), msg({ conversation_id: 'cv_1', at: '2026-10-29T02:00:00.000Z' }),
+      msg({ conversation_id: 'cv_1', at: '2026-10-29T03:00:00.000Z', snooze_until: later }), msg({ conversation_id: 'cv_1', status: 'done', at: '2026-10-29T04:00:00.000Z' }),
+    ]
+    expect(convBatch(xs, 'cv:cv_1', NOW)).toEqual({ n: 2, input: { conversation_id: 'cv_1', before: '2026-10-29T02:00:00.000Z' } })
+    const loose = msg({ conversation_external_id: 'C09' })
+    expect(convBatch([loose], convKey(loose), NOW)).toEqual({ n: 1, input: { ids: [loose.id] } })
+    expect(convBatch(xs, '', NOW)).toBeNull()
+    expect(convBatch([xs[3]], 'cv:cv_1', NOW)).toBeNull()
   })
 })

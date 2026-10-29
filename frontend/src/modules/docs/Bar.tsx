@@ -1,11 +1,11 @@
 // 顶栏（SPEC-library-1.12 到 1.14）：目录名、刷新（本地目录）、分类或文件类型筛选，工作台文档再加标签筛选。
-// 写法照原型 library.tsx 的 LibraryBar；外壳给了顶栏位置就送进顶栏。
+// 写法照原型 library.tsx 的 LibraryBar；外壳给了顶栏位置就送进顶栏。工作台文档最右是「新建文档」（SPEC-library-1.40）。
 import { useContext } from 'react'
 import { createPortal } from 'react-dom'
-import { cls, SearchSelect, TopbarContext, type SearchOption } from '../../core/ui'
+import { Button, cls, SearchSelect, TopbarContext, type SearchOption } from '../../core/ui'
 import type { LibraryModel } from './model'
 
-export function LibraryBar({ model, kind, onKind, tags, onTags, tagOptions, onRefresh, refreshing, readAt }: {
+export function LibraryBar({ model, kind, onKind, tags, onTags, tagOptions, onRefresh, refreshing, readAt, onNew, creating }: {
   model: LibraryModel
   kind: string
   onKind: (k: string) => void
@@ -16,6 +16,9 @@ export function LibraryBar({ model, kind, onKind, tags, onTags, tagOptions, onRe
   refreshing: boolean
   /** 本地目录文件清单读到的时间 */
   readAt: string
+  onNew: () => void
+  /** 正在新建：按钮置灰 */
+  creating: boolean
 }) {
   const el = useContext(TopbarContext)
   const { folder } = model
@@ -48,6 +51,12 @@ export function LibraryBar({ model, kind, onKind, tags, onTags, tagOptions, onRe
           placeholder="标签" searchPlaceholder="搜标签" aria-label="按标签筛选" align="end"
           title={tags.length ? `同时带这些标签：${tags.join('、')}` : '按标签筛选，选多个时要同时带上'}
           missingLabel={(v) => v} />
+      )}
+      {!folder && (
+        <Button variant="primary" size="sm" className="lib-new" onClick={onNew} disabled={creating}>
+          <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path d="M8 3v10M3 8h10" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" /></svg>
+          新建文档
+        </Button>
       )}
     </div>
   )

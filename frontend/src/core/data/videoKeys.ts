@@ -9,4 +9,6 @@ export const videoKeys = {
   /** 选题、素材箱（VID-08c），都是一次取完 */
   topics: ['video', 'topics'] as const,
   clips: ['video', 'clips'] as const,
+  /** 原文、口播稿、大纲的正文（VID-09b），按版本 */
+  content: (artifactId: string, version: number) => ['video', 'content', artifactId, version] as const,
 }

@@ -88,15 +88,16 @@ describe('项目列表', () => {
     const b = obj({ title: '交易台', status: 'planning', body: '行情和下单' })
     const c = obj({ title: '视频号', status: 'active' })
     const d = obj({ title: '博客', status: 'active' })
-    const msg = (id: string, x: object) => ({ id, channel: 'slack', status: 'pending', conversation_id: null, conversation_external_id: '', at: '2026-10-29T00:00:00Z', ...x })
+    const msg = (id: string, x: object) => ({ id, channel: 'slack', status: 'pending', relevance: 'me', conversation_id: null, conversation_external_id: '', at: '2026-10-29T00:00:00Z', ...x })
     fakeBackend([a, b, c, d], {
       summary: [
         { project_id: a.id, prototypes: { total: 2, running: 1 }, conversations: [{ id: 'cv_g', channel: 'slack', external_id: 'C01' }] },
         { project_id: b.id, prototypes: { total: 1, running: 0 }, conversations: [{ id: 'cv_g', channel: 'slack', external_id: 'C01' }] },
         { project_id: c.id, prototypes: { total: 0, running: 0 }, conversations: [{ id: 'cv_d', channel: 'slack', external_id: 'D09' }] },
       ],
-      // 两条认上了会话，一条没认上、按渠道和会话编号对上私聊
-      pending: [msg('m1', { conversation_id: 'cv_g' }), msg('m2', { conversation_id: 'cv_g' }), msg('m3', { conversation_external_id: 'D09' })],
+      // 两条认上了会话，一条没认上、按渠道和会话编号对上私聊；和我无关的群消息不算待回复（B-01）
+      pending: [msg('m1', { conversation_id: 'cv_g' }), msg('m2', { conversation_id: 'cv_g' }), msg('m3', { conversation_external_id: 'D09' }),
+        msg('m4', { conversation_id: 'cv_g', relevance: '' })],
     })
     mount()
     await screen.findByTitle('工作台')

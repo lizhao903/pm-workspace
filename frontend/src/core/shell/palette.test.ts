@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { filterPalette, type PaletteItem } from './palette'
+import { arrangeFound, filterPalette, type PaletteItem } from './palette'
 
 const it_ = (id: string, group: string, title: string, extra: Partial<PaletteItem> = {}): PaletteItem => ({ id, group, title, run: () => {}, ...extra })
 const items = [
@@ -28,5 +28,24 @@ describe('filterPalette', () => {
   it('有输入时每组最多 6 条', () => {
     const many = Array.from({ length: 9 }, (_, i) => it_('m' + i, '任务', '任务 ' + i))
     expect(filterPalette(many, '任务')).toHaveLength(6)
+  })
+})
+
+describe('arrangeFound', () => {
+  it('按项目、任务、联系人、消息排组，其余组在后面，组内保持原顺序', () => {
+    const found = [
+      it_('u1', '联系人', '常乐'),
+      it_('x1', '文档', '周报'),
+      it_('t1', '任务', 'TSK-1'),
+      it_('u2', '联系人', '常乐乐'),
+      it_('t2', '任务', 'TSK-2'),
+      it_('p1', '项目', 'Octok'),
+    ]
+    expect(arrangeFound(found).map((x) => x.id)).toEqual(['p1', 't1', 't2', 'u1', 'u2', 'x1'])
+  })
+
+  it('每组最多 6 条', () => {
+    const many = Array.from({ length: 9 }, (_, i) => it_('m' + i, '联系人', '人 ' + i))
+    expect(arrangeFound(many)).toHaveLength(6)
   })
 })

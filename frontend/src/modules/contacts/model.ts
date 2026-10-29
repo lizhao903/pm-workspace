@@ -1,4 +1,4 @@
-// 联系人列表的纯函数（SPEC-contacts-1）：分组、搜索、排序、分段、相对时间。页面状态和渲染在 Page.tsx。
+// 联系人列表的纯函数（SPEC-contacts-1）：分组（可多个）、搜索、排序、分段、相对时间。页面状态和渲染在 Page.tsx。
 import { imOf, type Contact, type DictItem, type Dictionary, type Identity } from '../../core/data'
 import { initialRank, nameInitial } from './pinyin'
 
@@ -35,8 +35,17 @@ export function groupItems(dicts: Dictionary[] | undefined): GroupItem[] {
     .map((i) => ({ key: i.key, label: i.label, color: i.color || GONE_COLOR, enabled: !i.archived_at }))
 }
 
-/** 联系人的分组 key：后端默认空串，按默认分组算 */
-export const groupOf = (c: Pick<Contact, 'group'>) => c.group.trim() || DEFAULT_GROUP
+/** 多个分组存成一个字符串，用「、」连接；读的时候也认逗号、斜杠和分号 */
+export const GROUP_SEP = '、'
+
+/** 联系人的分组 key 列表：拆开、去空白、去重；后端默认空串，按默认分组算 */
+export function groupsOf(c: Pick<Contact, 'group'>): string[] {
+  const out = [...new Set(c.group.split(/[、,，/／;；]/).map((g) => g.trim()).filter(Boolean))]
+  return out.length ? out : [DEFAULT_GROUP]
+}
+
+/** 存回后端的分组字符串 */
+export const joinGroups = (gs: string[]) => gs.join(GROUP_SEP)
 
 /** IM 渠道（SPEC-contacts-0 的 IM_CHANNELS）；加渠道只改这张表。身份来自 /api/im-identities（CT-01b），合进 Contact.im */
 export type ImChannel = {
@@ -89,7 +98,7 @@ const zh = new Intl.Collator('zh-CN')
 
 /** 筛选加排序：按姓名时先按索引字母（英文名和中文名混排，# 最后），同字母内按中文排序规则；按最近联系倒序，没联系过的最后 */
 export function applyFilter(rows: Row[], f: Filter): Row[] {
-  const out = rows.filter((r) => (!f.group || groupOf(r.c) === f.group) && (!f.starredOnly || r.c.starred)
+  const out = rows.filter((r) => (!f.group || groupsOf(r.c).includes(f.group)) && (!f.starredOnly || r.c.starred)
     && (!f.channel || !!r.c.im?.[f.channel]) && matches(r, f.q))
   return out.sort(f.sort === 'name'
     ? (a, b) => initialRank(a.initial) - initialRank(b.initial) || zh.compare(a.c.name, b.c.name)
@@ -133,10 +142,10 @@ export function ago(iso: string | null, now = new Date()): string | null {
   return `${Math.floor(d / 365)} 年前`
 }
 
-/** 分组切换的内容：列出启用的和停用但还有人的；多于 SEG_MAX+1 个时切换里放人数最多的 SEG_MAX 个（保持枚举顺序），其余进「更多分组」 */
+/** 分组切换的内容：一个人在几个分组里就各算一次；列出启用的和停用但还有人的；多于 SEG_MAX+1 个时切换里放人数最多的 SEG_MAX 个（保持枚举顺序），其余进「更多分组」 */
 export function groupView(items: GroupItem[], contacts: Contact[]) {
   const counts = new Map<string, number>()
-  for (const c of contacts) counts.set(groupOf(c), (counts.get(groupOf(c)) ?? 0) + 1)
+  for (const c of contacts) for (const g of groupsOf(c)) counts.set(g, (counts.get(g) ?? 0) + 1)
   const countOf = (k: string) => counts.get(k) ?? 0
   const groups = items.filter((g) => g.enabled || countOf(g.key) > 0)
   // 字典里没有的分组值（被删掉的）也要能筛到，排在最后
@@ -159,17 +168,17 @@ export function groupColor(items: GroupItem[], key: string) {
 // ---- 新建和编辑（SPEC-contacts-3） ----
 
 export type Draft = {
-  name: string; company: string; title: string; phone: string; email: string; group: string
+  name: string; company: string; title: string; phone: string; email: string; group: string[]
   tags: string[]; photo: string; note: string; im: Record<string, string>
 }
 
 /** 新建的空白值；分组取枚举默认值 */
 export const blankDraft = (group = DEFAULT_GROUP): Draft => ({
-  name: '', company: '', title: '', phone: '', email: '', group, tags: [], photo: '', note: '', im: {},
+  name: '', company: '', title: '', phone: '', email: '', group: [group], tags: [], photo: '', note: '', im: {},
 })
 
 export const draftOf = (c: Contact): Draft => ({
-  name: c.name, company: c.company, title: c.title, phone: c.phone, email: c.email, group: groupOf(c),
+  name: c.name, company: c.company, title: c.title, phone: c.phone, email: c.email, group: groupsOf(c),
   tags: c.tags, photo: c.photo, note: c.note, im: { ...(c.im ?? {}) },
 })
 
@@ -183,11 +192,19 @@ export function validate(d: Draft): { name: string; email: string } {
   }
 }
 
-/** 表单可选的分组：启用的，加上当前值（即使已停用或字典里没有） */
-export function groupOptions(items: GroupItem[], current: string): GroupItem[] {
-  const out = items.filter((g) => g.enabled || g.key === current)
-  if (current && !items.some((g) => g.key === current)) out.push({ key: current, label: current, color: GONE_COLOR, enabled: false })
+/** 表单可选的分组：启用的，加上当前选中的（即使已停用或字典里没有） */
+export function groupOptions(items: GroupItem[], current: string[]): GroupItem[] {
+  const out = items.filter((g) => g.enabled || current.includes(g.key))
+  for (const k of current) if (!items.some((g) => g.key === k)) out.push({ key: k, label: k, color: GONE_COLOR, enabled: false })
   return out
+}
+
+/** 表单里点一个分组：选上或去掉，至少留一个；顺序按可选项的顺序 */
+export function toggleGroup(opts: GroupItem[], current: string[], key: string): string[] {
+  const next = current.includes(key) ? current.filter((k) => k !== key) : [...current, key]
+  if (!next.length) return current
+  const rank = (k: string) => { const i = opts.findIndex((g) => g.key === k); return i < 0 ? opts.length : i }
+  return [...next].sort((a, b) => rank(a) - rank(b))
 }
 
 /** 删除前的检查：名册只在零引用时允许删除，有负责或参与的事就拦下，改为归档 */

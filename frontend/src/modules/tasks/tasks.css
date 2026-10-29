@@ -53,6 +53,12 @@
   /* 优先级列放得下「P0 最高」这样的编号加名称 */
   .task-row { grid-template-columns: 22px minmax(0, 1fr) 56px 80px; }
   .task-row > :nth-child(4), .task-row > :nth-child(5) { display: none; }
+  /* 抽屉开着的窄列：标题两行截断，不要来源那一行，J/K 逐条看时靠标题认任务（C-01） */
+  .task-table-docked .task-meta { display: none; }
+  .task-table-docked .task-title > .ellipsis {
+    display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2;
+    white-space: normal; overflow-wrap: anywhere; line-height: 1.4;
+  }
 }
 
 /* ---------- 抽屉 ---------- */

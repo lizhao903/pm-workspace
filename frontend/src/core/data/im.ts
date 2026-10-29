@@ -63,6 +63,12 @@ export type ImAction =
 /** 立即同步一个渠道的结果（IM-01b）：新落库的消息 id 和已收过的条数 */
 export type ImSyncResult = { connector_id: string; adapter: string; ids: string[]; duplicates: number }
 
+/** 批量处理完或忽略（PR-03）：按 id 列表，或按会话 + 时间点之前；只改待处理的 */
+export type ImBatchInput =
+  | { action: 'done' | 'ignore'; ids: string[] }
+  | { action: 'done' | 'ignore'; conversation_id: string; before: string }
+export type ImBatchResult = { action: 'done' | 'ignore'; ids: string[]; count: number }
+
 export type ImTaskInput = { title?: string; body?: string; priority?: string; project_id?: string; owner_id?: string; due_at?: string; done?: boolean }
 export type ImTaskResult = { message: ImMessage; task: { id: string; ref: string; title: string; status: string; source: string } }
 
@@ -100,6 +106,10 @@ export const imApi = {
   /** 立即同步一个 IM 渠道：渠道出错回 502 sync_failed（连接器已置为异常），暂停、不能同步 409 */
   syncConnector: async (connectorId: string) => {
     const r = await request<ImSyncResult>('POST', `/api/im/connectors/${encodeURIComponent(connectorId)}/sync`, { body: {} })
+    return { ...r, ids: r.ids ?? [] }
+  },
+  batch: async (input: ImBatchInput) => {
+    const r = await request<ImBatchResult>('POST', '/api/im/messages/batch', { body: input })
     return { ...r, ids: r.ids ?? [] }
   },
   toTask: async (id: string, body: ImTaskInput) => {
@@ -162,6 +172,15 @@ export function useImAction() {
     },
     // 发送失败（502）时后端记了失败的回复和原因，读回来
     onError: (_e, v) => notify({ kind: 'im-message', id: v.id }),
+  })
+}
+
+/** 批量处理：成败都整体刷一遍（失败时可能已改了一部分） */
+export function useImBatch() {
+  const notify = useNotifyChange()
+  return useMutation({
+    mutationFn: (input: ImBatchInput) => imApi.batch(input),
+    onSettled: () => notify({ kind: 'im-message' }),
   })
 }
 

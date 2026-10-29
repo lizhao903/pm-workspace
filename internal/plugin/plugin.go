@@ -96,6 +96,8 @@ type Core interface {
 	Objects() ObjectReader
 	Contacts() ContactReader
 	Conversations() ConversationReader
+	// ConversationWriter 收消息时登记还没登记的会话，只建不改（PR-02，conversations_write.go）。
+	ConversationWriter() ConversationWriter
 	// Identities 只读查 IM 身份（IM-01a，identities.go）。
 	Identities() IdentityReader
 	// ObjectWriter 建内核对象，只能建、来源记为本插件（IM-02a，objects_write.go）。

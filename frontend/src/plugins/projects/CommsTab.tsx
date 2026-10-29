@@ -1,18 +1,19 @@
 // 沟通标签（SPEC-projects-4，PJ-02b）：左边是项目绑定的群聊和私聊，右边只显示这些会话里的消息。
-// 绑定按会话 id 存在项目插件里（PJ-02a），候选从内核会话表列（含还没收到消息的群）；消息按绑定的会话逐个取（IM-01a）。
+// 绑定按会话 id 存在项目插件里（PJ-02a），群聊候选从内核会话表列（含还没收到消息的群，收到消息的群 IM 插件会登记）；
+// 私聊候选按联系人的 IM 身份列，还没有私聊会话的绑定前按身份建一个，没填 IM 编号的置灰（PR-02）。消息按绑定的会话逐个取（IM-01a）。
 // IM 消息插件没装或停用时消息区提示去插件管理，绑定照常能增删。点消息跳到 IM 消息页打开抽屉（插件间不 import 抽屉）。
 // 右栏消息列表上面是消息里的附件（SPEC-projects-4.13、5，AttachmentInbox），IM 插件没在跑时不显示。
 // 项目消息（绑定、IM 插件状态、按会话取的消息）抽成 useProjectMessages，概览、标签红点、干系人用同一份缓存。
 import { useEffect, useMemo, useState, type KeyboardEvent } from 'react'
 import { useNavigate } from 'react-router'
 import {
-  ATTACH_KIND, errorText, onServerEvent, useBindProjectConversation, useConnectorDefs, useContacts, useConversations,
+  ATTACH_KIND, conversationsApi, errorText, onServerEvent, useBindProjectConversation, useConnectorDefs, useContacts, useConversations,
   useDictionaries, useIdentities, useAllImMessages, useNotifyChange, useUnbindProjectConversation, type ImAttachment, type ImMessage,
 } from '../../core/data'
 import { Avatar, Button, EmptyState, ErrorState, IconButton, IconClose, IconSearch, LoadingState, cls } from '../../core/ui'
 import {
-  DM_PEEK, MSG_PAGE, awaitingCount, awaitingReply, channelLabeler, fmtSize, convLabel, directCandidates, groupCandidates, isDirect, isSnoozed,
-  lastMessageAt, mentionParts, peopleOf, pendingByConversation, statusLabeler, whoName,
+  DM_PEEK, MSG_PAGE, NO_IDENTITY_HINT, awaitingCount, awaitingReply, channelLabeler, fmtSize, convLabel, directCandidates, directEmptyText,
+  groupCandidates, isDirect, isSnoozed, lastMessageAt, mentionParts, peopleOf, pendingByConversation, statusLabeler, whoName, type DirectCand,
 } from './commsModel'
 import { ago } from './model'
 import { AttIcon, AttachmentInbox } from './AttachmentInbox'
@@ -70,6 +71,8 @@ export function CommsTab({ projectId }: { projectId: string }) {
   const [adding, setAdding] = useState(false)
   const [bq, setBq] = useState('')
   const [err, setErr] = useState('')
+  // 绑私聊时先建会话的那一下
+  const [creating, setCreating] = useState(false)
   // 消息先渲染一页，换渠道筛选就回到第一页
   const [lim, setLim] = useState({ filter, n: MSG_PAGE })
   const limit = lim.filter === filter ? lim.n : MSG_PAGE
@@ -93,7 +96,7 @@ export function CommsTab({ projectId }: { projectId: string }) {
   const boundSet = useMemo(() => new Set(boundIds), [boundIds])
   const lastAt = useMemo(() => lastMessageAt(panelMsgs), [panelMsgs])
   const groups = groupCandidates(convs.data ?? [], boundSet, lastAt, chLabel, bq)
-  const dms = directCandidates(convs.data ?? [], boundSet, people, bq)
+  const dms = directCandidates(contacts.data ?? [], identities.data ?? [], convs.data ?? [], boundSet, bq)
   const searching = !!bq.trim()
 
   const mine = msgs.data
@@ -107,6 +110,13 @@ export function CommsTab({ projectId }: { projectId: string }) {
       onSuccess: () => { setAdding(false); setBq('') },
       onError: (e) => setErr(`没绑上：${errorText(e)}`),
     })
+  }
+  const onBindDirect = (d: DirectCand) => {
+    if (d.conv) return onBind(d.conv.id)
+    if (!d.identity) return
+    setErr('')
+    setCreating(true)
+    conversationsApi.directFor(d.identity).then((cv) => onBind(cv.id), (e) => setErr(`没绑上：${errorText(e)}`)).finally(() => setCreating(false))
   }
   const onUnbind = (id: string) => {
     setErr('')
@@ -129,7 +139,7 @@ export function CommsTab({ projectId }: { projectId: string }) {
         <input autoFocus value={bq} placeholder="搜群名、联系人" aria-label="搜群名、联系人" onChange={(e) => setBq(e.target.value)} onKeyDown={onSearchKey} />
       </div>
       {convs.isError ? <ErrorState compact title="会话没加载出来" error={errorText(convs.error)} onRetry={() => void convs.refetch()} />
-        : convs.isPending ? <div className="pj-muted pj-bind-empty">加载中</div> : (
+        : convs.isPending || contacts.isPending || identities.isPending ? <div className="pj-muted pj-bind-empty">加载中</div> : (
           <>
             <div className="menu-label">{searching || groups.pool <= DM_PEEK ? '群聊' : `群聊 · 最近有消息的 ${DM_PEEK} 个`}</div>
             {groups.shown.length ? groups.shown.map((g) => (
@@ -142,13 +152,17 @@ export function CommsTab({ projectId }: { projectId: string }) {
               <div className="pj-muted pj-bind-empty">{searching ? `还有 ${groups.matched - groups.shown.length} 个，继续输入筛选` : `共 ${groups.matched} 个群，输入群名搜`}</div>
             )}
             <div className="menu-label">{searching || dms.pool <= DM_PEEK ? '私聊' : `私聊 · 最近联系的 ${DM_PEEK} 个`}</div>
-            {dms.shown.length ? dms.shown.map((d) => (
-              <button key={d.conv.id} type="button" className="menu-item" disabled={bind.isPending} onClick={() => onBind(d.conv.id)}
-                title={[d.label, d.contact?.company, chLabel(d.channel)].filter(Boolean).join(' · ')}>
-                <Avatar name={d.label} size={18} src={d.contact?.photo || undefined} /><span className="ellipsis">{d.label}</span>
-                <span className="pj-muted ellipsis pj-bind-sub">{d.contact?.company || chLabel(d.channel)}</span>
-              </button>
-            )) : <div className="pj-muted pj-bind-empty">{searching ? '没有匹配的联系人' : '联系人都已经绑过了'}</div>}
+            {dms.shown.length ? dms.shown.map((d) => {
+              const sub = d.identity ? [d.contact.company, chLabel(d.channel)].filter(Boolean).join(' · ') : NO_IDENTITY_HINT
+              return (
+                <button key={d.key} type="button" className="menu-item" disabled={!d.identity || bind.isPending || creating}
+                  onClick={() => onBindDirect(d)} title={`${d.label} · ${sub}`}>
+                  <Avatar name={d.label} size={18} src={d.contact.photo || undefined} /><span className="ellipsis">{d.label}</span>
+                  <span className="pj-muted ellipsis pj-bind-sub">{sub}</span>
+                </button>
+              )
+            }) : <div className="pj-muted pj-bind-empty">{directEmptyText(dms, searching)}</div>}
+            {!searching && dms.pool > 0 && !dms.bindable && <div className="pj-muted pj-bind-empty">联系人都没填 IM 编号，先在联系人里填</div>}
             {dms.matched > dms.shown.length && (
               <div className="pj-muted pj-bind-empty">{searching ? `还有 ${dms.matched - dms.shown.length} 个，继续输入筛选` : `共 ${dms.matched} 个联系人，输入名字或公司搜`}</div>
             )}

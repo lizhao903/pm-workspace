@@ -14,6 +14,8 @@ export type TodayItem = {
   tone: TodayTone
   title: string
   sub: string
+  /** 同一 tone 里越小越靠前，没有算 0（IM 消息组的 @我 排在前面）；再按 at */
+  rank?: number
   /** 相对时间按它算；没有时不显示，组内排在同级最后 */
   at?: string | null
   /** 动作文案，如「回复」；正在运行里不用 */

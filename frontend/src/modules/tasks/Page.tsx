@@ -1,10 +1,10 @@
 // 任务模块（SPEC-tasks-1、SPEC-tasks-2）：二级菜单 + 列表。路由挂在 tasks/* 下：
-// /tasks 全部任务，/tasks/overdue 逾期；状态筛选记在 ?status=，可以直接链接到「待验收」这类视图。
+// /tasks 全部任务，/tasks/overdue 逾期；状态筛选记在 ?status=，可以直接链接到「待验收」这类视图；?t=<id> 打开某条任务的抽屉。
 // /tasks/schedules 定时任务（SPEC-tasks-7、8，TASK-04a），二级菜单「自动化」组。
 // /tasks/source/<来源> 来源视图（SPEC-tasks-3），/tasks/webhooks Webhook 接入、/tasks/webhooks/<id|new> 配置页（SPEC-tasks-9、10，TASK-04b）。
 import { useEffect, useState } from 'react'
 import { Navigate, useLocation, useNavigate, useParams, useSearchParams } from 'react-router'
-import { useApprove, useDictItems, useLastDeliveries, useObjectTypes, useSetStatus, useWebhooks, type WorkObject } from '../../core/data'
+import { useApprove, useDictItems, useLastDeliveries, useObject, useObjectTypes, useSetStatus, useWebhooks, type WorkObject } from '../../core/data'
 import { Button, ErrorState, InSubnavHost, LoadingState, Subnav, type SubnavItem } from '../../core/ui'
 import { timeAgo } from './model'
 import { useProjectOptions, useSourceCounts, useTaskCounts, useTaskList } from './queries'
@@ -65,6 +65,22 @@ export default function Page() {
   const [approving, setApproving] = useState<WorkObject | null>(null)
   const setTaskStatus = useSetStatus()
   const approve = useApprove()
+
+  // 命令面板打开某条任务（A-01）：?t=<id>，取到就打开抽屉，再把参数从地址里去掉
+  const linkId = params.get('t')
+  const linked = useObject(linkId)
+  // 取到就在渲染时打开（随输入调整状态的写法），同一个 id 只开一次
+  const [linkSeen, setLinkSeen] = useState<string | null>(null)
+  if (linkSeen !== linkId && (!linkId || linked.data)) {
+    setLinkSeen(linkId)
+    if (linkId && linked.data) setOpened({ kind: 'task', task: linked.data })
+  }
+  useEffect(() => {
+    if (!linkId || (!linked.data && !linked.isError)) return
+    const next = new URLSearchParams(params)
+    next.delete('t')
+    setParams(next, { replace: true })
+  }, [linkId, linked.data, linked.isError, params, setParams])
 
   useEffect(() => {
     const kw = search.trim()
@@ -149,6 +165,7 @@ export default function Page() {
         onSearch={setSearch}
         q={q}
         selected={sel}
+        drawerOpen={!!opened}
         onOpen={(t) => setOpened({ kind: 'task', task: t })}
         onNew={() => setOpened({ kind: 'new' })}
         hookName={hookName}
@@ -170,7 +187,7 @@ export default function Page() {
     <div className="tasks-mod">
       {/* 二级菜单送进外壳的二级菜单位置：从页面最上方开始，顶栏只在它右边 */}
       <InSubnavHost>
-        <Subnav<View> title="任务" active={navActive} onSelect={selectView} items={[
+        <Subnav<View> title="任务" className="subnav-fold" active={navActive} onSelect={selectView} items={[
           { key: 'all', label: '全部任务', group: '视图' },
           {
             key: 'overdue', label: '逾期', group: '视图',
