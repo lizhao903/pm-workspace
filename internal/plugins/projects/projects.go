@@ -61,6 +61,8 @@ func (p *Plugin) Register(r plugin.Registrar) error {
 		m.HandleFunc("POST /api/projects/{id}/prototypes/{prototype_id}/stop", pt.stop)
 		m.HandleFunc("GET /api/projects/{id}/prototypes/{prototype_id}/logs", pt.logs)
 		m.HandleFunc("GET /api/projects/{id}/prototypes/{prototype_id}/crashes", pt.crashes)
+		sm := &summary{h, pm}
+		m.HandleFunc("GET /api/projects/summary", sm.list)
 	})
 	// 常驻任务只等取消：插件停用、服务关闭时停掉这次启用起的全部原型进程
 	r.Job(plugin.Job{Name: "prototypes", Run: func(ctx context.Context, _ plugin.Core) error {

@@ -110,6 +110,8 @@ export {
   usePatchPrototype, useRemovePrototype, useStartPrototype, useStopPrototype,
 } from './prototypes'
 export type { PrototypeStatus, ProjectPrototype, PrototypeCrash, PrototypeLogLine, PrototypeLogs, PrototypeInput, PrototypePatch } from './prototypes'
+export { EMPTY_STAT, SUMMARY_POLL_MS, projectSummaryApi, projectStats, useProjectSummary, usePendingImMessages } from './projectSummary'
+export type { ProjectSummary, ProjectStat } from './projectSummary'
 export {
   ATTACHMENT_TAG, ATTACH_KIND, PROP_SKIPPED_ATTACHMENTS, attachmentsApi, needsFetch, attachmentHref, attachmentContentUrl, attachmentMaterial,
   attachmentAdded, skipKey, skippedAttachments, useImAttachmentStorage, useFetchAttachment, useAddAttachmentToProject, useSkipAttachment,

@@ -64,6 +64,7 @@ var Registry = []Entry{
 	{"ch", "projectChat", "", "projectChat"},
 	// 任务与自动化
 	{"sop", "sop", "sop_flows", "sop"}, // SOP 插件的表（SOP-01a）
+	{"spr", "sopRun", "sop_runs", ""},  // SOP 插件的执行（SOP-01b）；run 已给开发执行，原型的 sopRun 还用 run
 	{"inc", "incident", "", "incident"},
 	// Agent 与模型
 	{"ag", "agent", "agents", "agent"}, // 内核的表（AG-01b1，0032）
@@ -71,7 +72,7 @@ var Registry = []Entry{
 	{"op", "output", "", "output"},
 	{"kb", "kb", "", "kb"},
 	{"kd", "kbDoc", "", "kbDoc"},
-	{"sk", "skill", "", "skill"},
+	{"sk", "skill", "skills", "skill"}, // 内核的表（AG-01b2，0033），只放自定义技能
 	// 工作台、域名
 	{"dm", "domainRoute", "", "domainRoute"},
 	// 视频

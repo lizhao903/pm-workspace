@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import type { DictItem, ObjectStatus, ProjectStakeholder, ProjectView, WorkObject } from '../../core/data'
 import {
-  RECENT_MAX, ago, colorOf, doneStatus, isOpenStatus, reopenStatus, sortByPriority, sortStakeholders, diffForm, dirName, groupByStatus, loadRecent, markText, matchQuery, resetRecentMemo, sortProjects, tabOf,
+  RECENT_MAX, ago, colorOf, doneStatus, isOpenStatus, reopenStatus, sortByPriority, sortStakeholders, diffForm, dirName, activityOf, groupByActivity, showStatusTag, loadRecent, markText, matchQuery, resetRecentMemo, sortProjects, tabOf,
   touchRecent, type Form,
 } from './model'
 import { PROJECT_COLORS } from './markIcons'
@@ -10,11 +10,6 @@ const pv = (id: string, x: Partial<ProjectView> = {}): ProjectView => ({
   id, ref: id, name: id, desc: '', status: 'planning', color: '', mark: { text: '' }, root: '', related: [],
   created_at: '', updated_at: '', ...x,
 })
-const statuses: ObjectStatus[] = [
-  { key: 'planning', label: '筹备中', color: '', terminal: false },
-  { key: 'active', label: '进行中', color: '', terminal: false },
-  { key: 'done', label: '已结项', color: '', terminal: true },
-]
 
 describe('项目列表', () => {
   it('搜名称、说明、项目目录，不区分大小写', () => {
@@ -36,10 +31,24 @@ describe('项目列表', () => {
     expect(sortProjects(list, 'name', []).map((p) => p.name)).toEqual(['阿', '李', '张'])
   })
 
-  it('按后端的状态集分组，空组不要，认不出的状态归「其他」', () => {
-    const rows = [pv('a', { status: 'active' }), pv('b', { status: 'planning' }), pv('c', { status: 'gone' }), pv('d', { status: 'active' })]
-    const g = groupByStatus(rows, statuses)
-    expect(g.map((x) => [x.label, x.items.map((p) => p.id)])).toEqual([['筹备中', ['b']], ['进行中', ['a', 'd']], ['其他', ['c']]])
+  it('有原型在跑优先，其次有待回复，其余归「其他」；一个项目只归一组', () => {
+    expect(activityOf({ protoRunning: 1, pending: 3 })).toBe('running')
+    expect(activityOf({ protoRunning: 0, pending: 2 })).toBe('pending')
+    expect(activityOf({ protoRunning: 0, pending: 0 })).toBe('other')
+    expect(activityOf(undefined)).toBe('other')
+  })
+
+  it('按有原型在跑、有待回复、其他分段，段内保持顺序，空段不要', () => {
+    const rows = [pv('a'), pv('b'), pv('c'), pv('d')]
+    const of = (p: ProjectView) => (({ a: 'other', b: 'running', c: 'other', d: 'running' }) as const)[p.id as 'a']
+    const g = groupByActivity(rows, of)
+    expect(g.map((x) => [x.label, x.items.map((p) => p.id)])).toEqual([['有原型在跑', ['b', 'd']], ['其他', ['a', 'c']]])
+  })
+
+  it('进行中不标状态，其他状态标', () => {
+    expect(showStatusTag('active')).toBe(false)
+    expect(showStatusTag('paused')).toBe(true)
+    expect(showStatusTag('')).toBe(false)
   })
 
   it('底色没填时按 id 固定给一个，标志文字取名称第一个字，都空时「项」', () => {

@@ -183,19 +183,21 @@ export default function Page() {
   const pendingLabel = sv.label('pending')
   const doneLabel = sv.label('done')
   const chOn = channel ? channelOf(channels, channel) : null
+  const syncLabel = syncing ? '同步中…' : chOn ? `同步${chOn.label}` : '立即同步'
   const title = (
     <PageTitle count={messages.data ? `${count('pending')} 条${pendingLabel}` : undefined}
       desc={<>各渠道收进来的消息。<kbd>J</kbd> <kbd>K</kbd> 上下切换，<kbd>E</kbd> 标为{doneLabel}</>}
       actions={(
         <>
           {syncNote && <span className={cls('im-sync-note', syncNote.bad && 'bad')} role="status">{syncNote.text}</span>}
-          <button type="button" className="btn btn-outline" onClick={() => void sync()} disabled={syncing}
+          <button type="button" className={cls('btn btn-outline', chOn && 'im-sync-ch')} onClick={() => void sync()} disabled={syncing}
+            aria-label={syncLabel}
             title={`${chOn ? `只同步${chOn.label}` : '同步全部 IM 渠道'}${lastSync ? `；上次同步 ${timeAgo(lastSync, now)}` : ''}`}>
             <svg className={cls(syncing && 'im-spin')} viewBox="0 0 16 16" width="13" height="13" aria-hidden="true"><path d="M13 8a5 5 0 1 1-1.5-3.6M13 3v2.5h-2.5" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /></svg>
-            {syncing ? '同步中…' : chOn ? `同步${chOn.label}` : '立即同步'}
+            <span className="im-tb-label">{syncLabel}</span>
           </button>
-          <button type="button" className="btn btn-ghost btn-outline" onClick={() => navigate(CONNECTORS_PATH)} title="在设置里管理 IM 渠道的连接器">
-            <Gear />渠道配置
+          <button type="button" className="btn btn-ghost btn-outline" onClick={() => navigate(CONNECTORS_PATH)} title="在设置里管理 IM 渠道的连接器" aria-label="渠道配置">
+            <Gear /><span className="im-tb-label">渠道配置</span>
             {broken.length > 0 && <span className="im-dot-alert" title={`${broken.length} 个连接器异常`} />}
           </button>
         </>

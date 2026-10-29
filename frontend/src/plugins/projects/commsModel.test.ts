@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import type { Contact, Conversation, Identity, ImMessage } from '../../core/data'
-import { DM_PEEK, awaitingReply, channelLabeler, directCandidates, groupCandidates, mentionParts, peopleOf, pendingByConversation } from './commsModel'
+import {
+  DM_PEEK, awaitingCount, awaitingReply, channelLabeler, directCandidates, fmtSize, groupCandidates, latestByContact, mentionParts, peopleOf,
+  pendingByConversation, snippet,
+} from './commsModel'
 
 const conv = (id: string, p: Partial<Conversation> = {}): Conversation => ({
   id, channel: 'slack', external_id: id, kind: 'group', name: `#${id}`, members: [], created_at: '', updated_at: '', ...p,
@@ -46,5 +49,38 @@ describe('沟通的纯函数', () => {
     expect(mentionParts('@我 看下，@Lin Yuan 也看 @所有人')).toEqual([
       { name: '我', hot: true }, ' 看下，', { name: 'Lin Yuan', hot: false }, ' 也看 ', { name: '所有人', hot: true },
     ])
+  })
+})
+
+describe('项目消息的汇总', () => {
+  it('待回复条数不含稍后和已处理', () => {
+    const now = Date.parse('2026-10-29T00:00:00Z')
+    expect(awaitingCount([m({}), m({ status: 'done' }), m({ snooze_until: '2026-10-29T01:00:00Z' })], now)).toBe(1)
+  })
+
+  it('每个联系人最近的一条：先认 stakeholder_id，没有时按身份认', () => {
+    const list = [
+      m({ id: 'a', stakeholder_id: 'stk_lin', at: '2026-10-29T01:00:00Z' }),
+      m({ id: 'b', stakeholder_id: 'stk_lin', at: '2026-10-29T03:00:00Z' }),
+      m({ id: 'c', stakeholder_id: null, identity_id: 'idn_zhou', at: '2026-10-29T02:00:00Z' }),
+      m({ id: 'd', stakeholder_id: null, identity_id: 'idn_x', at: '2026-10-29T04:00:00Z' }),
+    ]
+    const got = latestByContact(list, new Map([['idn_zhou', 'stk_zhou']]))
+    expect(got.get('stk_lin')?.id).toBe('b')
+    expect(got.get('stk_zhou')?.id).toBe('c')
+    expect(got.size).toBe(2)
+  })
+
+  it('正文前 14 字，超出才加省略号', () => {
+    expect(snippet('一二三四五六七八九十一二三四')).toBe('一二三四五六七八九十一二三四')
+    expect(snippet('一二三四五六七八九十一二三四五')).toBe('一二三四五六七八九十一二三四…')
+    expect(snippet('  a\n b ')).toBe('a b')
+  })
+
+  it('附件大小', () => {
+    expect(fmtSize(undefined)).toBe('')
+    expect(fmtSize(512)).toBe('512 B')
+    expect(fmtSize(2048)).toBe('2 KB')
+    expect(fmtSize(3 * 1024 * 1024)).toBe('3.0 MB')
   })
 })

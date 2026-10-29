@@ -78,6 +78,7 @@ var contractSpecs = map[string]contractSpec{
 	"Agent 对话 agent#json1": {v: agent.StreamEvent{}, partial: true},
 	"Agent":                {v: domain.Agent{}},
 	"AgentImpact":          {v: agentImpactResult{}},
+	"Skill":                {v: skillView{}},
 	// 溯源字段表只列 0031 补的列
 	"输出产物 artifacts / 溯源字段（AG-03b，0031）#table1": {v: domain.Artifact{}, partial: true},
 
@@ -114,6 +115,7 @@ var contractSpecs = map[string]contractSpec{
 	"ProjectPrototype":    {v: projects.Prototype{}},
 	"PrototypeLogLine":    {v: projects.LogLine{}},
 	"PrototypeCrash":      {v: projects.Crash{}},
+	"ProjectSummary":      {v: projects.ProjectSummary{}},
 
 	"Incoming": {v: im.Incoming{}},
 	"Message":  {v: im.Message{}},
@@ -121,8 +123,12 @@ var contractSpecs = map[string]contractSpec{
 	"IM 消息插件 im / 处理动作#json1": {skip: "错误附加字段来自 map，无结构"},
 	"IM 消息插件 im / 事件#json1":   {v: im.Received{}},
 
-	"SopFlow":     {v: sop.Flow{}},
-	"SopNodeType": {v: sop.NodeType{}},
+	"SopFlow":      {v: sop.Flow{}},
+	"SopNodeType":  {v: sop.NodeType{}},
+	"SopRun":       {v: sop.Run{}},
+	"SopRunStep":   {v: sop.RunStep{}},
+	"SopRunBrief":  {v: sop.RunBrief{}},
+	"SopRunAction": {v: sop.Action{}},
 
 	"TerminalSession": {v: terminal.Session{}},
 }

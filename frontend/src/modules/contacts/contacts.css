@@ -88,9 +88,14 @@
 .ct-copy { margin-left: var(--sp-4); padding: 1px 6px; border-radius: 4px; color: var(--accent); font-size: var(--fs-xs); }
 .ct-copy:hover { background: var(--accent-soft); }
 .ct-copy-fail { color: var(--danger); }
+/* 复制和打开只在悬停那一行时出现；键盘聚焦、刚点过、触屏上常显（L-14） */
+.ct-kv dd .ct-copy, .ct-im-row .ct-copy { opacity: 0; }
+.ct-kv dd:hover .ct-copy, .ct-im-row:hover .ct-copy, .ct-copy:focus-visible, .ct-copy.ct-copy-busy { opacity: 1; }
+@media (hover: none) { .ct-kv dd .ct-copy, .ct-im-row .ct-copy { opacity: 1; } }
 .ct-im-list { display: flex; flex-direction: column; margin-bottom: var(--sp-10); border: 1px solid var(--line); border-radius: var(--r); }
 .ct-im-row { display: flex; align-items: center; gap: var(--sp-5); min-height: 38px; padding: 0 var(--sp-5); border-bottom: 1px solid var(--line); min-width: 0; }
 .ct-im-row:last-child { border-bottom: 0; }
+.ct-im-row.is-empty { opacity: 0.55; }
 .ct-im-row .ct-copy { margin-left: 0; }
 .ct-im-mark-full { min-width: 64px; height: 22px; font-size: var(--fs-xs); }
 .ct-photo { position: relative; flex: none; }
@@ -118,10 +123,13 @@
 .ct-seg button.on { background: var(--panel); color: var(--text); box-shadow: var(--shadow-sm); font-weight: 500; }
 .ct-im-form { display: flex; flex-direction: column; gap: var(--sp-4); }
 .ct-im-form-item { display: flex; flex-direction: column; gap: 3px; }
-.ct-im-form-row { display: flex; align-items: center; gap: var(--sp-5); }
+/* 渠道名是和输入框等高的色块（L-13） */
+.ct-im-form-row { display: flex; align-items: stretch; gap: var(--sp-4); }
+.ct-im-form-row .ct-im-mark { min-width: 72px; height: auto; }
 .ct-im-form-row .input { flex: 1; }
 .ct-mono-input { font-family: var(--mono); font-size: var(--fs-sm); }
-.ct-im-taken { padding-left: 76px; font-size: var(--fs-xs); color: var(--warn); }
+.ct-mono-input::placeholder { font-family: var(--sans); font-size: var(--fs); }
+.ct-im-taken { padding-left: 80px; font-size: var(--fs-xs); color: var(--warn); }
 .ct-tag-input {
   display: flex; flex-wrap: wrap; align-items: center; gap: 5px; min-height: 36px; padding: 4px var(--sp-4);
   border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--panel-2);

@@ -322,7 +322,7 @@ func (s *Server) handleAgentChat(w http.ResponseWriter, r *http.Request) {
 
 	runner := &agent.Runner{
 		Store: s.st, Chat: chat, Model: model, Session: session,
-		Object: object, Agent: ag,
+		Object: object, Agent: ag, Skills: s.agentSkills(ctx, ag),
 	}
 	msgID, err := runner.Run(ctx, req.Message, emit)
 	if err != nil {

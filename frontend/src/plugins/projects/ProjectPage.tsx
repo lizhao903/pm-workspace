@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'react'
 import { errorText, isApiError, isLiveProject, projectView, useProject } from '../../core/data'
 import { Button, EmptyState, ErrorState, LoadingState, PageTitle, cls } from '../../core/ui'
 import { ProjectMarkView } from './Mark'
-import { CommsTab } from './CommsTab'
+import { CommsTab, CommsTabDot } from './CommsTab'
 import { DocsTab } from './DocsTab'
 import { MaterialsTab } from './MaterialsTab'
 import { PrototypesTab, ProtoTabLight } from './PrototypesTab'
@@ -70,6 +70,7 @@ export function ProjectPage({ id, tab, onTab, onAll }: {
         {TABS.map((t) => (
           <button key={t.key} type="button" role="tab" aria-selected={tab === t.key} className={cls(tab === t.key && 'on')} onClick={() => { setDocAdding(false); setMatAdding(false); setProtoAdding(false); onTab(t.key) }}>
             {t.label}
+            {t.key === 'comms' && <CommsTabDot projectId={o.id} />}
             {t.key === 'prototypes' && <ProtoTabLight projectId={o.id} />}
           </button>
         ))}

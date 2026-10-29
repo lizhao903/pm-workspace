@@ -485,11 +485,15 @@ export interface AgentRegistry {
 后端：
 
 ```go
+// 已实现（AG-01b2，internal/plugin/skill.go），字段对齐原型 Skill
 type SkillDef struct {
-	ID     string   // sk_ 开头
-	Name   string
-	Prompt fs.FS    // SKILL.md 和资源文件
-	Tools  []string // 这个技能默认用到的工具名
+	ID           string   // = provides.skills 里的一项，sk_ 开头，不能和内置技能重复
+	Name         string   // 必填
+	Desc         string   // 一句话说明
+	When         string   // 什么时候用
+	Instructions string   // 怎么做；为空时读 Prompt 里的 SKILL.md
+	Prompt       fs.FS    // 可选，SKILL.md 和资源文件（embed 进来的，登记时读一次）
+	Tools        []string // 用到的工具，对应原型 uses
 }
 type AgentToolDef struct {
 	Name        string          // <id>_ 开头
@@ -501,6 +505,13 @@ type AgentToolDef struct {
 // Registrar.Skill(s SkillDef) / Registrar.AgentTool(t AgentToolDef)
 // 返回值沿用 internal/agent 的 ToolResult。
 ```
+
+技能后端的实现情况（AG-01b2）：
+
+- `Registrar.Skill` 已实现。登记不对（id 不在 `provides.skills`、和内置技能重复、没名称、没说明、本插件内重复）时 `Register` 整体失败，插件起不来。
+- 插件技能在 `GET /api/skills` 里 `source` 是插件 id，只读（改、删回 409）；停用插件后不在列表里，`GET /api/skills/{id}` 回 404，挂了它的 Agent 对话时跳过、不报错，重新启用后回来。Agent 的 `skills` 里不摘掉它。
+- 对话时按 Agent 挂载顺序拼成「技能：<名称>」段，见 `docs/api-contract.md`「技能 skills」。
+- `AgentTool` 还没实现（AG-02）。
 
 例子（IM 消息）：
 

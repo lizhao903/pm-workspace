@@ -1,6 +1,7 @@
 // Package sop 是「SOP 编排」插件的后端（SOP-01a 起）。清单 plugin.json 只有这一份，前端构建时也读它。
 // 流程定义落在插件表 sop_flows，形状同原型 web-next/src/sopflow.ts 的 Sop，保存前校验（flows.go）。
-// 执行引擎（SOP-01b）、AI 类和外部节点（SOP-01c）、定时任务和 Agent 发起（SOP-01d）后续接上。
+// 执行引擎（SOP-01b）：运行落在 sop_runs、sop_run_steps，调度见 engine.go，节点执行见 nodes.go。
+// AI 类和外部节点（SOP-01c）、定时任务和 Agent 发起（SOP-01d）后续接上。
 // 接口契约见 docs/api-contract.md「SOP 编排插件 sop」。
 package sop
 
@@ -27,11 +28,13 @@ var migrationsFS embed.FS
 // Plugin 是 SOP 插件的入口，cmd/pmw 用 Registry.Add 登记。
 type Plugin struct {
 	m plugin.Manifest
-	// activeRuns 查一条流程进行中的执行数，删除前用；SOP-01b 之前恒为 0，测试里可以换掉
+	// activeRuns 查一条流程进行中的执行数，删除前用；nil 时查运行表，测试里可以换掉
 	activeRuns func(ctx context.Context, id string) (int, error)
+	// stepHook 在每个节点执行前调，测试用它卡住执行
+	stepHook func(ctx context.Context, runID, step string) error
 }
 
-func New() *Plugin { return &Plugin{m: plugin.MustParse(manifestJSON), activeRuns: noRuns} }
+func New() *Plugin { return &Plugin{m: plugin.MustParse(manifestJSON)} }
 
 func (p *Plugin) Manifest() plugin.Manifest { return p.m }
 
@@ -45,7 +48,16 @@ func (p *Plugin) Migrations() fs.FS {
 }
 
 func (p *Plugin) Register(r plugin.Registrar) error {
-	f := &flows{c: r.Core(), activeRuns: p.activeRuns}
+	c := r.Core()
+	active := p.activeRuns
+	if active == nil {
+		active = func(ctx context.Context, id string) (int, error) { return countActive(ctx, c.Store(), id) }
+	}
+	f := &flows{c: c, activeRuns: active}
+	// 每次启用一个新引擎，停用时后台任务取消、引擎跟着停
+	e := newEngine(c)
+	e.hook = p.stepHook
+	rn := &runs{c: c, e: e}
 	r.Routes(func(m plugin.RouteRegistrar) {
 		m.HandleFunc("GET /api/sop/flows", f.list)
 		m.HandleFunc("POST /api/sop/flows", f.add)
@@ -53,12 +65,15 @@ func (p *Plugin) Register(r plugin.Registrar) error {
 		m.HandleFunc("PATCH /api/sop/flows/{id}", f.update)
 		m.HandleFunc("DELETE /api/sop/flows/{id}", f.remove)
 		m.HandleFunc("GET /api/sop/node-types", f.nodeTypes)
+		m.HandleFunc("POST /api/sop/flows/{id}/runs", rn.start)
+		m.HandleFunc("GET /api/sop/runs", rn.list)
+		m.HandleFunc("GET /api/sop/runs/{id}", rn.show)
+		m.HandleFunc("POST /api/sop/runs/{id}/actions", rn.act)
 	})
+	r.Job(plugin.Job{Name: "engine", Run: e.job})
+	r.TodayCard(plugin.TodayCardDef{Key: "sop_pending", Title: "SOP 待我处理", Order: 50, Load: pendingCard})
 	return nil
 }
-
-// noRuns 是还没有执行引擎时的进行中运行数，SOP-01b 换成查运行表。
-func noRuns(context.Context, string) (int, error) { return 0, nil }
 
 // 错误分类，对应信封里的 code
 var (

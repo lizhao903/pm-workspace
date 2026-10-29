@@ -135,7 +135,7 @@ export function ContactView({ contact, groups, star, imCount, onEdit, onClose }:
             {IM_CHANNELS.map((ch) => {
               const id = im[ch.key]
               return (
-                <div key={ch.key} role="listitem" aria-label={ch.label} className={cls('ct-im-row', !id && 'ct-im-row-empty')}>
+                <div key={ch.key} role="listitem" aria-label={ch.label} className={cls('ct-im-row', !id && 'is-empty')}>
                   <ImMark ch={ch} />
                   {id ? <span className="ct-mono ellipsis">{id}</span> : <span className="faint">未填写</span>}
                   <span className="spacer" />

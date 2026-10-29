@@ -4,7 +4,7 @@ import userEvent from '@testing-library/user-event'
 import { createMemoryRouter, RouterProvider } from 'react-router'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { applyChange, localDay, type ObjectStatus, type WorkObject } from '../../core/data'
-import { todayCardStore } from '../../core/plugin'
+import { todayCardStore, todaySourceStore } from '../../core/plugin'
 import Page from './Page'
 
 const statuses: ObjectStatus[] = [
@@ -37,6 +37,10 @@ type Backend = {
   /** GET /api/plugins */
   plugins: { id: string }[]
   failToday?: boolean
+  /** 任务 id -> 进展（新的在前） */
+  progress?: Record<string, unknown[]>
+  /** GET /api/connectors */
+  connectors?: unknown[]
 }
 
 // 内存里的后端：聚合、列表都按当前数据现算，改了状态之后再取就是新的
@@ -82,7 +86,8 @@ function fakeBackend(b: Backend) {
       const out = open().filter((t) => !pr.length || pr.includes(t.priority))
       return json(out, { total: out.length })
     }
-    if (m?.[2]) return json([], { total: 0 })
+    if (m?.[2]) return json(b.progress?.[m[1]] ?? [], { total: 0 })
+    if (u.pathname === '/api/connectors') return json(b.connectors ?? [], { total: (b.connectors ?? []).length })
     if (m) return json(b.rows.find((r) => r.id === m[1]))
     if (u.pathname === '/api/artifacts/stats') return json({ total: 0 })
     if (u.pathname.startsWith('/api/agent/workdir')) return json({ path: '', exists: false, is_dir: false, writable: false, message: '' })
@@ -96,6 +101,7 @@ function renderPage() {
   const router = createMemoryRouter([
     { path: '/today', element: <Page /> },
     { path: '/tasks/*', element: <div>任务页</div> },
+    { path: '/messages', element: <div>消息页</div> },
   ], { initialEntries: ['/today'] })
   render(<QueryClientProvider client={qc}><RouterProvider router={router} /></QueryClientProvider>)
   return { qc, router }
@@ -106,6 +112,8 @@ describe('今日页', () => {
     vi.unstubAllGlobals()
     todayCardStore.removeOwner('hello')
     todayCardStore.removeOwner('demo')
+    todaySourceStore.removeOwner('im')
+    todaySourceStore.removeOwner('projects')
   })
 
   it('今天的任务：逾期、今天截止、高优先级；点任务打开抽屉，点完成后该行消失，不需要刷新', async () => {
@@ -166,6 +174,84 @@ describe('今日页', () => {
     await waitFor(() => expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument())
     await waitFor(() => expect(within(sec).queryByText('等你看的')).not.toBeInTheDocument())
     expect(within(needs).getByText('都处理完了')).toBeInTheDocument()
+  })
+
+  it('任务待验收的说明取最近一条提交验收进展的操作者和时间', async () => {
+    const at = new Date(Date.now() - 3 * 3600_000).toISOString()
+    fakeBackend({
+      rows: [
+        task('obj_0031', '有人交的', { status: 'review', project_id: 'obj_p001' }),
+        task('obj_0032', '没人交的', { status: 'review' }),
+      ],
+      progress: { obj_0031: [{ id: 'g2', kind: 'review', actor_name: 'claude-code', created_at: at }, { id: 'g1', kind: 'note', actor_name: 'x', created_at: ago }] },
+      pluginCards: [], plugins: [],
+    })
+    renderPage()
+    const needs = await screen.findByRole('region', { name: '需要你处理' })
+    const row = (await within(needs).findByText('TSK-0031 有人交的')).closest('button')!
+    await waitFor(() => expect(row).toHaveTextContent('Claude Code 提交验收'))
+    expect(row).toHaveTextContent('3 小时前')
+    const other = within(needs).getByText('TSK-0032 没人交的').closest('button')!
+    await waitFor(() => expect(other).toHaveTextContent('等你验收'))
+  })
+
+  it('插件贡献的组和连接异常按来源顺序出现，汇总数字相加；点 IM 消息去消息页', async () => {
+    fakeBackend({
+      rows: [task('obj_0041', '待验收', { status: 'review' })],
+      connectors: [
+        { id: 'con_1', tool: 'slack', name: 'Slack 工作区', status: 'error', error: '凭证已失效' },
+        { id: 'con_2', tool: 'github', name: 'GitHub', status: 'connected', error: '' },
+      ],
+      pluginCards: [], plugins: [],
+    })
+    todaySourceStore.add('im', {
+      plugin: 'im', key: 'pending', slot: 'need', label: 'IM 消息', order: 40, more: '/messages',
+      queryKey: ['im', 'test'], queryFn: async () => null,
+      select: () => ({ total: 1, items: [{ id: 'm1', tone: 'info', title: '张三：在吗', sub: '私聊', at: ago, action: '回复', to: '/messages?m=m1' }] }),
+    })
+    const { router } = renderPage()
+    const needs = await screen.findByRole('region', { name: '需要你处理' })
+    await within(needs).findByText('张三：在吗')
+    await within(needs).findByText('连接器「Slack 工作区」异常')
+    expect(within(needs).queryByText('连接器「GitHub」异常')).not.toBeInTheDocument()
+    const order = [...needs.querySelectorAll('[data-group]')].map((g) => g.getAttribute('data-group'))
+    expect(order).toEqual(['review', 'im:pending', 'connection'])
+    expect(screen.getByText('件事等你处理').previousSibling).toHaveTextContent('3')
+    await userEvent.click(within(needs).getByText('张三：在吗'))
+    expect(router.state.location.pathname).toBe('/messages')
+    expect(router.state.location.search).toBe('?m=m1')
+  })
+
+  it('正在运行先列运行中的原型，点了新窗口打开端口', async () => {
+    fakeBackend({ rows: [], pluginCards: [], plugins: [] })
+    todaySourceStore.add('projects', {
+      plugin: 'projects', key: 'prototypes', slot: 'running', label: '运行中的原型', order: 10,
+      queryKey: ['project-prototypes', 'test'], queryFn: async () => null,
+      select: () => ({ total: 1, items: [{ id: 'pp1', tone: 'ok', title: '官网 / 首页', sub: ':5173', href: 'http://127.0.0.1:5173' }] }),
+    })
+    renderPage()
+    const sec = await screen.findByRole('region', { name: '正在运行' })
+    const link = await within(sec).findByRole('link', { name: /官网 \/ 首页/ })
+    expect(link).toHaveAttribute('href', 'http://127.0.0.1:5173')
+    expect(link).toHaveAttribute('target', '_blank')
+    expect(screen.getByText('个在运行').previousSibling).toHaveTextContent('1')
+  })
+
+  it('插件来源没取到：那一组显示这部分没取到和重试，其余照常', async () => {
+    fakeBackend({ rows: [], pluginCards: [], plugins: [] })
+    let fail = true
+    todaySourceStore.add('im', {
+      plugin: 'im', key: 'pending', slot: 'need', label: 'IM 消息', order: 40,
+      queryKey: ['im', 'test-fail'], queryFn: async () => { if (fail) throw new Error('挂了'); return null },
+      select: () => ({ total: 1, items: [{ id: 'm2', tone: 'info', title: '李四：好的', sub: '私聊' }] }),
+    })
+    renderPage()
+    const needs = await screen.findByRole('region', { name: '需要你处理' })
+    expect(await within(needs).findByText('这部分没取到')).toBeInTheDocument()
+    expect(screen.getByText('今天没有要赶的任务')).toBeInTheDocument()
+    fail = false
+    await userEvent.click(within(needs).getByRole('button', { name: '重试' }))
+    expect(await within(needs).findByText('李四：好的')).toBeInTheDocument()
   })
 
   it('查看全部去任务页并带上待验收筛选', async () => {

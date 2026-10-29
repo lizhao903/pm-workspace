@@ -43,16 +43,30 @@ export function sortProjects(list: ProjectView[], sort: Sort, recent: string[]):
   return [...list].sort((a, b) => (rank.get(a.id) ?? Infinity) - (rank.get(b.id) ?? Infinity))
 }
 
-export type StatusGroup = { key: string; label: string; color: string; items: ProjectView[] }
+// ---- 列表的分组和筛选（SPEC-projects-1.5、1.6、1.8）：有原型在跑 / 有待回复 / 其他，一个项目只归一组 ----
 
-/** 按项目类型的状态分组（状态集从后端读）；不在状态集里的归到最后的「其他」；空的组不要 */
-export function groupByStatus(rows: ProjectView[], statuses: ObjectStatus[]): StatusGroup[] {
-  const known = new Set(statuses.map((s) => s.key))
-  const groups: StatusGroup[] = statuses.map((s) => ({ key: s.key, label: s.label, color: s.color, items: rows.filter((p) => p.status === s.key) }))
-  const rest = rows.filter((p) => !known.has(p.status))
-  if (rest.length) groups.push({ key: '', label: '其他', color: '', items: rest })
-  return groups.filter((g) => g.items.length)
+export type ActivityKey = 'running' | 'pending' | 'other'
+export type Activity = '' | ActivityKey
+
+export const ACTIVITY_GROUPS: { key: ActivityKey; label: string }[] = [
+  { key: 'running', label: '有原型在跑' },
+  { key: 'pending', label: '有待回复' },
+  { key: 'other', label: '其他' },
+]
+
+/** 有运行中的原型归「有原型在跑」，否则有待回复（不含稍后）归「有待回复」，否则「其他」 */
+export const activityOf = (s: { protoRunning: number; pending: number } | undefined): ActivityKey =>
+  s?.protoRunning ? 'running' : s?.pending ? 'pending' : 'other'
+
+export type ActivityGroup = { key: ActivityKey; label: string; items: ProjectView[] }
+
+/** 按 ACTIVITY_GROUPS 的顺序分段，段内保持传进来的顺序；空的段不要 */
+export function groupByActivity(rows: ProjectView[], of: (p: ProjectView) => ActivityKey): ActivityGroup[] {
+  return ACTIVITY_GROUPS.map((g) => ({ ...g, items: rows.filter((p) => of(p) === g.key) })).filter((g) => g.items.length)
 }
+
+/** 卡片上要不要标项目状态：常态「进行中」不标，筹备中、已暂停、已结项这类才标 */
+export const showStatusTag = (status: string) => !!status && status !== 'active'
 
 /** 每个项目的未完成任务数；传进来的已经是未进终态的任务 */
 export function openTaskCounts(tasks: WorkObject[]): Map<string, number> {

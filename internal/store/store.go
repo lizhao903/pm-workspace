@@ -175,6 +175,14 @@ type Store interface {
 	// CountAgentSessions 数挂在这个 Agent 上的会话，删除前的影响检查用。
 	CountAgentSessions(ctx context.Context, agentID string) (int, error)
 
+	// 自定义技能（AG-01b2，0033）。内置和插件技能不在库里，由接口层合进列表，见 skills.go。
+	// ListSkills 新建的在前。DeleteSkill 回删掉的那条和被摘掉它的 Agent id（按 Agent 新建的在前）。
+	ListSkills(ctx context.Context) ([]*Skill, error)
+	GetSkill(ctx context.Context, id string) (*Skill, error)
+	CreateSkill(ctx context.Context, in SkillInput) (*Skill, error)
+	UpdateSkill(ctx context.Context, id string, in SkillInput) (*Skill, error)
+	DeleteSkill(ctx context.Context, id string) (*Skill, []string, error)
+
 	// ListAgentMessages 返回**最近** limit 条消息，但按时间正序（最旧在前）排列，
 	// 这样前端拿到就能直接从上往下渲染。limit <= 0 表示全部。
 	// 取最早 N 条是错的：对话框要的是「最近说了什么」，而不是「这个会话最开始说了什么」。

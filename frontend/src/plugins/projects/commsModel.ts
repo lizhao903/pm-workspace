@@ -149,3 +149,28 @@ export function mentionParts(text: string, myHandles: readonly string[] = ['我'
   if (last < text.length) out.push(text.slice(last))
   return out
 }
+
+// ---- 概览、标签红点、干系人共用项目消息（SPEC-projects-2.3、3.1、3.2、6.7） ----
+
+/** 待回复条数，口径同 awaitingReply（不含稍后） */
+export const awaitingCount = (list: readonly ImMessage[], now = Date.now()) => list.filter((m) => awaitingReply(m, now)).length
+
+/** 每个联系人在这些消息里最近的一条：先认消息上的 stakeholder_id，没有时按 IM 身份对上联系人 */
+export function latestByContact(list: readonly ImMessage[], identityOwner: ReadonlyMap<string, string> = new Map()): Map<string, ImMessage> {
+  const out = new Map<string, ImMessage>()
+  for (const m of list) {
+    const c = m.stakeholder_id || (m.identity_id ? identityOwner.get(m.identity_id) : undefined)
+    if (c && (out.get(c)?.at ?? '') < m.at) out.set(c, m)
+  }
+  return out
+}
+
+/** 正文前 n 个字，超出加省略号（SPEC-projects-6.7） */
+export const snippet = (text: string, n = 14) => {
+  const cs = Array.from(text.replace(/\s+/g, ' ').trim())
+  return cs.length > n ? `${cs.slice(0, n).join('')}…` : cs.join('')
+}
+
+/** 附件大小：B、KB、MB */
+export const fmtSize = (n?: number) => (n === undefined || n === null ? ''
+  : n < 1024 ? `${n} B` : n < 1024 * 1024 ? `${Math.round(n / 1024)} KB` : `${(n / 1024 / 1024).toFixed(1)} MB`)

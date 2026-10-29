@@ -75,6 +75,10 @@
 .pj-card-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; min-width: 0; font-size: var(--fs-xs); color: var(--faint); }
 .pj-card-meta > span { display: inline-flex; align-items: center; gap: 5px; min-width: 0; max-width: 100%; }
 .pj-card-meta .pj-mono { font-size: var(--fs-2xs); }
+.pj-card-meta .pj-card-dir { display: block; flex-basis: 100%; }
+.pj-card-head .pj-card-status { flex: none; }
+.pj-card-meta .pj-ok { color: var(--ok); }
+.pj-card-meta .pj-warn { color: var(--warn); font-weight: 500; }
 
 /* ---------- 详情：标签条、概览 ---------- */
 .pj-tabs { display: flex; gap: 18px; border-bottom: 1px solid var(--line); overflow-x: auto; scrollbar-width: none; margin-top: calc(-1 * var(--sp-3)); }
@@ -100,7 +104,16 @@
 .pj-block-empty { padding: var(--sp-7); text-align: center; color: var(--faint); font-size: var(--fs-sm); border: 1px dashed var(--line-2); border-radius: var(--r); }
 .pj-lines { list-style: none; margin: 0; padding: 0; }
 .pj-line { display: flex; align-items: center; gap: var(--sp-4); min-height: 34px; border-bottom: 1px solid var(--line); min-width: 0; }
-.pj-line:last-child { border-bottom: 0; }
+.pj-lines > li:last-child > .pj-line, .pj-lines > .pj-line:last-child { border-bottom: 0; }
+/* 块标题右侧的「全部」是灰色小字（L-05） */
+.pj-block-head .pj-link { color: var(--muted); }
+.pj-block-head .pj-link:hover { color: var(--text); text-decoration: none; }
+.pj-block-empty .pj-link { margin-left: 2px; }
+.pj-stat-value.danger { color: var(--danger); }
+/* 最新沟通（SPEC-projects-3.2）：状态点，待回复蓝，其他灰 */
+.pj-dot { flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--line-2); }
+.pj-dot-wait { background: var(--accent); }
+.pj-line-who { flex: none; font-size: var(--fs-sm); max-width: 40%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pj-ref { flex: none; font: var(--fs-xs) var(--mono); color: var(--faint); }
 .pj-chips { display: flex; flex-wrap: wrap; gap: 6px; }
 .pj-chip { cursor: pointer; }
@@ -180,6 +193,10 @@
 .pj-doc-status { color: color-mix(in srgb, var(--c) 85%, var(--text)); background: color-mix(in srgb, var(--c) 10%, var(--panel)); }
 .pj-role-decider { border-color: var(--accent-line); color: var(--accent); }
 .pj-role-owner { border-color: color-mix(in srgb, var(--ok) 40%, var(--line)); }
+/* 干系人「最近沟通」（SPEC-projects-6.7）：灰色可点，单行省略 */
+.pj-last { min-width: 0; }
+.pj-last-btn { display: block; max-width: 100%; padding: 0; background: none; color: var(--muted); font-size: var(--fs-sm); text-align: left; cursor: pointer; }
+.pj-last-btn:hover { color: var(--accent); }
 .pj-focus-cell { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .pj-focus-cell .input { height: 30px; }
 .pj-focus-cell .pj-err { display: flex; gap: var(--sp-3); align-items: center; }
@@ -248,8 +265,9 @@
 .pj-msg:last-child { border-bottom: 0; }
 .pj-msg:hover { background: var(--panel-2); }
 .pj-msg.pending { box-shadow: inset 3px 0 0 var(--accent); }
-.pj-msg > .pj-muted, .pj-msg-go { flex: none; align-self: center; }
 .pj-msg-go { color: var(--accent); font-size: var(--fs-sm); font-weight: 500; }
+/* 右上「相对时间 回复」同一行（L-03） */
+.pj-msg-side { flex: none; display: inline-flex; align-items: baseline; gap: var(--sp-4); white-space: nowrap; }
 .pj-msg-main { flex: 1; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .pj-msg-top { display: flex; align-items: baseline; gap: var(--sp-4); min-width: 0; }
 .pj-msg-top b { flex: 0 0 auto; max-width: 60%; }
@@ -260,7 +278,8 @@
 .pj-mention { color: var(--accent); font-weight: 500; }
 .pj-mention-hot { background: color-mix(in srgb, var(--accent) 14%, transparent); border-radius: 4px; padding: 0 3px; font-weight: 600; }
 .pj-att-chips { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
-.pj-att-chip { display: inline-flex; align-items: center; max-width: 220px; height: 20px; padding: 0 7px; border-radius: 5px; font-size: var(--fs-2xs); color: var(--muted); background: var(--hover); border: 1px solid var(--line); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pj-att-chip { display: inline-flex; align-items: center; gap: 4px; max-width: 220px; height: 20px; padding: 0 7px; border-radius: 5px; font-size: var(--fs-2xs); color: var(--muted); background: var(--hover); border: 1px solid var(--line); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pj-att-chip svg { flex: none; }
 .pj-more { display: flex; align-items: center; justify-content: center; gap: 6px; width: 100%; min-height: 40px; color: var(--accent); font-size: var(--fs-sm); font-weight: 500; background: none; }
 .pj-more:hover { background: var(--panel-2); }
 @media (max-width: 1100px) { .pj-comms { grid-template-columns: minmax(0, 1fr); } }
@@ -342,3 +361,4 @@ a.pj-att-name:hover { text-decoration: underline; }
 .pj-proto-line a.btn { text-decoration: none; display: inline-flex; align-items: center; }
 .pj-stat-value.ok { color: var(--ok); }
 .pj-tab-light { width: 7px; height: 7px; border-radius: 50%; background: var(--ok); }
+.pj-tabs .pj-tab-dot { margin-left: 0; }

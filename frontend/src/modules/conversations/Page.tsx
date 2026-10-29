@@ -8,6 +8,10 @@ import { ChatsView } from './ChatsView'
 import { OutputsView } from './OutputsView'
 import './conversations.css'
 
+function IconPlus() {
+  return <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path d="M8 3v10M3 8h10" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" /></svg>
+}
+
 type View = 'chats' | 'outputs'
 const SUBPATH: Record<View, string> = { chats: '', outputs: 'outputs' }
 
@@ -39,7 +43,7 @@ export default function Page() {
           { key: 'chats', label: '会话', desc: '和 Agent 的对话' },
           { key: 'outputs', label: '产出结果', desc: '写的文件、登记的链接' },
         ]}>
-          <Button className="subnav-new" onClick={() => { if (view !== 'chats') select('chats'); setPickRequest((n) => n + 1) }}>新会话</Button>
+          <Button className="subnav-new" onClick={() => { if (view !== 'chats') select('chats'); setPickRequest((n) => n + 1) }}><IconPlus />新会话</Button>
         </Subnav>
       </InSubnavHost>
       {view === 'chats'

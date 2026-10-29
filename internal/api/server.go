@@ -258,6 +258,11 @@ func (s *Server) routes(m routeRegistrar) {
 	m.HandleFunc("PATCH /api/agents/{id}", s.handleUpdateAgent)
 	m.HandleFunc("DELETE /api/agents/{id}", s.handleDeleteAgent)
 	m.HandleFunc("GET /api/agents/{id}/impact", s.handleAgentImpact)
+	m.HandleFunc("GET /api/skills", s.handleListSkills)
+	m.HandleFunc("POST /api/skills", s.handleCreateSkill)
+	m.HandleFunc("GET /api/skills/{id}", s.handleGetSkill)
+	m.HandleFunc("PATCH /api/skills/{id}", s.handleUpdateSkill)
+	m.HandleFunc("DELETE /api/skills/{id}", s.handleDeleteSkill)
 
 	// 输出产物。/api/artifacts/stats 是字面量，比 /api/artifacts/{id} 更具体，
 	// ServeMux 优先匹配它——不会有 id="stats" 的请求打到 GetArtifact 上。
