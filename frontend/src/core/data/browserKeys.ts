@@ -3,4 +3,6 @@
 export const browserKeys = {
   all: ['browser'] as const,
   google: ['browser', 'google'] as const,
+  /** 能嵌入的地址白名单（BR-02a） */
+  allowlist: ['browser', 'allowlist'] as const,
 }

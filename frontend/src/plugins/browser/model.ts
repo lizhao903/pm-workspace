@@ -51,6 +51,28 @@ export function classify(url: string): TabKind {
 
 export const isFrame = (k: TabKind) => k !== 'home'
 
+/** 白名单内的 iframe 等这么久没 load 就提示可能不允许嵌入（SPEC-browser-3.12） */
+export const FRAME_TIMEOUT_MS = 8000
+
+/** 能嵌入的判断依据：白名单主机（可以是 *. 开头）和内网域名后缀（设置里开着时才给） */
+export type FrameAllow = { hosts: readonly string[]; suffix?: string }
+
+const hostMatch = (h: string, rule: string) => {
+  const r = rule.toLowerCase()
+  if (r.startsWith('*.')) return h.endsWith(r.slice(1))
+  return h === r
+}
+
+/** 能不能挂 iframe：本机地址总能，其余要命中后缀或白名单（跨域读不到 X-Frame-Options，只能这么判断） */
+export function frameAllowed(url: string, allow: FrameAllow): boolean {
+  const h = hostOf(url).toLowerCase()
+  if (!h) return false
+  if (LOCAL_HOSTS.has(h)) return true
+  const sfx = allow.suffix?.trim().toLowerCase().replace(/^\.+/, '')
+  if (sfx && (h === sfx || h.endsWith(`.${sfx}`))) return true
+  return allow.hosts.some((r) => hostMatch(h, r))
+}
+
 export function portOf(url: string): number | null {
   try {
     const u = new URL(url)

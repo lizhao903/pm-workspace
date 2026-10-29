@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -25,9 +25,10 @@ const rec = (o: Partial<BrowserTabRecord> & Pick<BrowserTabRecord, 'id' | 'url'>
   title: '', kind: 'web', history: [o.url], cursor: 0, pinned: false, position: 0, active: false, ...o,
 })
 
-function fakeBackend(opts: { tabs?: BrowserTabRecord[]; google?: BrowserGoogleState; failPut?: boolean; protos?: unknown[] } = {}) {
+function fakeBackend(opts: { tabs?: BrowserTabRecord[]; google?: BrowserGoogleState; failPut?: boolean; protos?: unknown[]; allow?: string[]; domains?: { enabled: boolean; suffix: string } } = {}) {
   const calls: Call[] = []
-  const st = { tabs: opts.tabs ?? [], google: opts.google ?? SIGNED_OUT, failPut: !!opts.failPut }
+  const st = { tabs: opts.tabs ?? [], google: opts.google ?? SIGNED_OUT, failPut: !!opts.failPut, allow: ['127.0.0.1', 'localhost', ...(opts.allow ?? [])] }
+  const entry = (host: string) => ({ host, note: '', builtin: host === '127.0.0.1' || host === 'localhost', created_at: null })
   const json = (data: unknown, status = 200) => new Response(JSON.stringify(status < 300 ? { data, meta: { total: 0 } } : data), { status })
   vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const u = new URL(String(input), 'http://x')
@@ -40,6 +41,13 @@ function fakeBackend(opts: { tabs?: BrowserTabRecord[]; google?: BrowserGoogleSt
       st.tabs = body.tabs
       return json(st.tabs)
     }
+    if (u.pathname === '/api/browser/allowlist' && method === 'GET') return json(st.allow.map(entry))
+    if (u.pathname === '/api/browser/allowlist' && method === 'POST') {
+      if (st.allow.includes(body.host)) return json({ error: { code: 'conflict', message: '已经在白名单里' } }, 409)
+      st.allow.push(body.host)
+      return json(entry(body.host), 201)
+    }
+    if (u.pathname === '/api/domains/settings' && opts.domains) return json({ resolve: 'hosts', ...opts.domains })
     if (u.pathname === '/api/browser/google') return json(st.google)
     if (u.pathname === '/api/browser/google/logout') {
       st.google = SIGNED_OUT
@@ -213,6 +221,73 @@ describe('浏览器页', () => {
     await user.click(within(panel).getByRole('button', { name: '退出登录' }))
     await waitFor(() => expect(be.calls.some((c) => c.path === '/api/browser/google/logout')).toBe(true))
     await waitFor(() => expect(screen.getAllByRole('button', { name: '登录 Google' }).length).toBeGreaterThan(0))
+  })
+
+  it('不在白名单的网页不挂 iframe，出卡片；「在系统浏览器打开」开新窗口', async () => {
+    fakeBackend({ tabs: [rec({ id: 'bt_1', url: 'https://example.com', title: 'example.com', active: true })] })
+    const open = vi.fn()
+    vi.stubGlobal('open', open)
+    const user = userEvent.setup()
+    renderPage()
+    expect(await screen.findByText('这个站点不能在这里打开')).toBeInTheDocument()
+    expect(screen.getByText('example.com 不在白名单里，多数网站不允许嵌入显示')).toBeInTheDocument()
+    expect(document.querySelector('iframe')).toBeNull()
+    expect(within(screen.getByRole('alert')).queryByRole('button', { name: '继续等' })).toBeNull()
+    await user.click(within(screen.getByRole('alert')).getByRole('button', { name: '在系统浏览器打开' }))
+    expect(open).toHaveBeenCalledWith('https://example.com', '_blank', 'noopener')
+  })
+
+  it('「加进白名单再试」：POST 主机，刷回白名单后同一地址改用 iframe', async () => {
+    const be = fakeBackend({ tabs: [rec({ id: 'bt_1', url: 'https://example.com/a?b=1', title: 'example.com', active: true })] })
+    const user = userEvent.setup()
+    renderPage()
+    await user.click(await screen.findByRole('button', { name: '加进白名单再试' }))
+    await waitFor(() => expect(document.querySelector('iframe')?.getAttribute('src')).toBe('https://example.com/a?b=1'))
+    expect(be.calls.find((c) => c.method === 'POST' && c.path === '/api/browser/allowlist')?.body).toEqual({ host: 'example.com' })
+    expect(screen.queryByText('这个站点不能在这里打开')).toBeNull()
+  })
+
+  it('本机地址、白名单里的主机、开着的内网域名后缀直接嵌入', async () => {
+    fakeBackend({
+      tabs: [
+        rec({ id: 'bt_1', url: 'http://127.0.0.1:7778', title: '原型', kind: 'proto', active: true }),
+        rec({ id: 'bt_2', url: 'https://docs.example.com', title: 'docs', position: 1 }),
+        rec({ id: 'bt_3', url: 'https://wiki.bro.lan', title: 'wiki', position: 2 }),
+      ],
+      allow: ['docs.example.com'],
+      domains: { enabled: true, suffix: 'bro.lan' },
+    })
+    renderPage()
+    await waitFor(() => expect(document.querySelectorAll('iframe')).toHaveLength(3))
+    expect(screen.queryByText('这个站点不能在这里打开')).toBeNull()
+  })
+
+  it('内网域名关着时，后缀下的主机不算白名单', async () => {
+    fakeBackend({ tabs: [rec({ id: 'bt_1', url: 'https://wiki.bro.lan', title: 'wiki', active: true })], domains: { enabled: false, suffix: 'bro.lan' } })
+    renderPage()
+    expect(await screen.findByText('wiki.bro.lan 不在白名单里，多数网站不允许嵌入显示')).toBeInTheDocument()
+  })
+
+  it('白名单内 8 秒没 load 盖一层卡片；「继续等」收起，再等 8 秒再出；load 了就不再出', async () => {
+    fakeBackend({ tabs: [rec({ id: 'bt_1', url: 'http://127.0.0.1:7791', title: '慢', kind: 'proto', active: true })] })
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    try {
+      renderPage()
+      await waitFor(() => expect(document.querySelector('iframe')).not.toBeNull())
+      act(() => { vi.advanceTimersByTime(7900) })
+      expect(screen.queryByText('这个站点不能在这里打开')).toBeNull()
+      act(() => { vi.advanceTimersByTime(200) })
+      expect(screen.getByText('127.0.0.1 8 秒还没加载完，可能不允许嵌入显示')).toBeInTheDocument()
+      expect(document.querySelector('iframe')).not.toBeNull()
+      fireEvent.click(screen.getByRole('button', { name: '继续等' }))
+      expect(screen.queryByText('这个站点不能在这里打开')).toBeNull()
+      act(() => { vi.advanceTimersByTime(8000) })
+      expect(screen.getByRole('button', { name: '继续等' })).toBeInTheDocument()
+      fireEvent.load(document.querySelector('iframe')!)
+      expect(screen.queryByText('这个站点不能在这里打开')).toBeNull()
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('授权回调回到的窗口只显示结果，不读标签', async () => {

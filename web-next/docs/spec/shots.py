@@ -706,8 +706,8 @@ def videos_detail_states(pg, shot):
     shot('视频详情_删除确认')
     # 阶段执行器：规划检查通过后跑网页开发，跑完产出进待验收；第 27 集是跑失败的样子
     _vd_open(pg, '第 28 集', '待我处理')
-    pg.locator('.vd-step').nth(1).locator('.vd-cp-box button', has_text='通过').click(); pg.wait_for_timeout(200)
-    web = pg.locator('.vd-step').nth(2)
+    pg.locator('.vd-step').nth(2).locator('.vd-cp-box button', has_text='通过').click(); pg.wait_for_timeout(200)
+    web = pg.locator('.vd-step').nth(3)
     web.evaluate('e => e.scrollIntoView({ block: "center" })'); pg.wait_for_timeout(100)
     shot('视频详情_执行器')
     web.locator('.vd-runner button', has_text='运行').click(); pg.wait_for_timeout(200)
@@ -717,11 +717,58 @@ def videos_detail_states(pg, shot):
     _vd_tab(pg, '全部视频')
     pg.locator('.vd-search input').fill('Descript'); pg.wait_for_timeout(200)
     pg.locator('.vd-row', has_text='第 27 集').first.click(); pg.wait_for_timeout(400)
-    web = pg.locator('.vd-step').nth(2)
+    web = pg.locator('.vd-step').nth(3)
     web.evaluate('e => e.scrollIntoView({ block: "center" })'); pg.wait_for_timeout(100)
     shot('视频详情_执行器失败')
     web.locator('.vd-runner button', has_text='修改').click(); pg.wait_for_timeout(150)
     shot('视频详情_配执行器')
+
+
+def videos_script(pg, shot):
+    """选题一步和内容编写：新建视频挑选题、编辑区写稿、按选题大纲起草和对比、原文导入、规划检查看文稿、起草失败（SPEC-videos-10）。"""
+    _side(pg, '视频'); _vd_tab(pg, '全部视频')
+    pg.locator('button.btn-primary', has_text='新建视频').first.click(); pg.wait_for_timeout(400)
+    steps = pg.locator('.vd-step')
+    topic, script, plan = steps.nth(0), steps.nth(1), steps.nth(2)
+    shot('视频详情_选题')
+    topic.locator('button', has_text='从选题库选一个').click(); pg.wait_for_timeout(200)
+    shot('视频详情_挑选题')
+    pg.locator('[role=option]', has_text='Cursor 和 Claude Code').first.click(); pg.wait_for_timeout(300)
+    shot('视频详情_已选题')
+    topic.locator('.vd-adv button').click(); pg.wait_for_timeout(300)
+    pane = script.locator('.vd-pane').first
+    pane.locator('textarea').fill('## 开场\n这一期讲 Cursor 和 Claude Code 怎么选。\n\n## 1. 改现有项目\n先看一个真实的老项目。')
+    pg.wait_for_timeout(150)
+    _into(script.locator('.vd-desk'), 'start'); pg.wait_for_timeout(100)
+    shot('视频详情_内容编写')
+    script.locator('.vd-desk-bar button', has_text='按选题大纲起草').click(); pg.wait_for_timeout(2200)
+    _into(script.locator('.vd-proposal'), 'start'); pg.wait_for_timeout(100)
+    shot('视频详情_起草对比')
+    script.locator('.vd-proposal button', has_text='全部采用').click(); pg.wait_for_timeout(200)
+    pane.locator('button', has_text='交给验收').click(); pg.wait_for_timeout(150)
+    _into(script.locator('.vd-desk-cols'), 'start'); pg.wait_for_timeout(100)
+    shot('视频详情_采用并交验收')
+    script.locator('.vd-article-toggle').click(); pg.wait_for_timeout(100)
+    script.locator('.vd-import input').fill('cursor 对比')
+    script.locator('.vd-import button').click(); pg.wait_for_timeout(100)
+    _into(script.locator('.vd-article'), 'center'); pg.wait_for_timeout(100)
+    shot('视频详情_原文链接不对')
+    script.locator('.vd-import input').fill('https://www.bilibili.com/video/BV1demo01')
+    script.locator('.vd-import button').click(); pg.wait_for_timeout(1200)
+    shot('视频详情_原文导入')
+    script.locator('.vd-adv button').click(); pg.wait_for_timeout(300)
+    _into(plan, 'start'); pg.wait_for_timeout(100)
+    shot('视频详情_规划检查文稿')
+    # 换成一个还没写大纲的选题，起草失败
+    topic.locator('button', has_text='换一个').click(); pg.wait_for_timeout(200)
+    pg.locator('[role=option]', has_text='一个人怎么管').first.click(); pg.wait_for_timeout(300)
+    script.locator('.link-btn', has_text='打开编辑区').click(); pg.wait_for_timeout(200)
+    script.locator('.vd-desk-bar button', has_text='按选题大纲起草').click(); pg.wait_for_timeout(2200)
+    _into(script, 'start'); pg.wait_for_timeout(100)
+    shot('视频详情_起草失败')
+
+
+videos_script.widths = (375, 1440)
 
 
 def videos_publish(pg, shot):
@@ -1333,7 +1380,7 @@ STEPS = {
     'sop': [sop_run, sop_start, sop_editor_entry, sop_editor_new, sop_editor_edit],
     'terminal': [terminal_split, terminal_proto],
     'browser': [browser_tabs, browser_google, browser_drive],
-    'videos': [videos_detail, videos_detail_states, videos_publish, videos_ab, videos_series, videos_topics, videos_clips, videos_calendar, videos_deals],
+    'videos': [videos_detail, videos_detail_states, videos_script, videos_publish, videos_ab, videos_series, videos_topics, videos_clips, videos_calendar, videos_deals],
     'markets': [markets_chart, markets_watch, markets_option],
     'monitor': [monitor_wall, monitor_rules, monitor_drawer],
     'strategy': [strategy_editor, strategy_side, strategy_backtests, strategy_report, strategy_runs],

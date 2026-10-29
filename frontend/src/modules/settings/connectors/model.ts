@@ -167,8 +167,33 @@ export function notReady(def: ConnectorDef, d: Draft, c?: Connector): string {
   if (c && !c.available) return '提供它的插件已停用'
   const missing = missingFields(def, d, c)
   if (missing.length) return `还没填：${missing.map((k) => def.fields.find((f) => f.key === k)?.label ?? k).join('、')}`
-  if (d.authMode === 'oauth2') return 'OAuth 授权还没开放，先用 Token'
+  if (d.authMode === 'oauth2' && oauthState(c) === 'none') return '还没完成 OAuth 授权'
   return ''
+}
+
+/** 已保存的实例的授权状态：没授权（含断开、认证方式还没存成 OAuth）、已授权、已过期（刷新失败或过了到期时间） */
+export function oauthState(c: Connector | undefined, now = Date.now()): 'none' | 'ok' | 'expired' {
+  const o = c?.oauth
+  if (!c || c.auth_mode !== 'oauth2' || !o?.authorized_at || c.status === 'disconnected') return 'none'
+  if ((o.refresh_failed_at && c.status === 'error') || (o.expires_at && Date.parse(o.expires_at) < now)) return 'expired'
+  return 'ok'
+}
+
+/** 「去授权」前差什么；能点是空串。授权按已保存的配置发起，必填要先填齐（自定义类即 Client ID、授权地址、令牌地址） */
+export function oauthLack(def: ConnectorDef, d: Draft, c?: Connector): string {
+  if (c && !c.available) return '提供它的插件已停用'
+  if (!def.oauth) return '这个连接器还不支持 OAuth 授权'
+  const missing = missingFields(def, d, c)
+  if (missing.length) return `先填 ${missing.map((k) => def.fields.find((f) => f.key === k)?.label ?? k).join('、')}，才能去授权`
+  if (!d.name.trim()) return '先填名称，才能去授权'
+  return ''
+}
+
+const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]', '::1'])
+
+/** 授权结束后浏览器回到哪：本机打开时给完整地址（回到当前这个前端），否则给站内路径；后端只放行这两种 */
+export function oauthReturnTo(loc: Pick<Location, 'origin' | 'hostname'> = globalThis.location): string {
+  return LOCAL_HOSTS.has(loc.hostname) ? `${loc.origin}/settings/connectors` : '/settings/connectors'
 }
 
 /** 拉取清单后的说明：第一次和重新获取写法不同 */

@@ -653,6 +653,7 @@ type SOPNodeInput struct {
 - 挂起后要让步骤失败（例：等回复超时）调 `c.SOP().Fail(ctx, runID, step, reason)`（SOP-02b），这一步 `failed`、`error` 是 `reason`，校验同 `Resume`。
 - `Registrar.SOPEngine` 只给 SOP 编排插件用（别的插件登记直接失败），是 `Resume` 的接收方。
 - 前端登记（`SopNodeRegistry`）归 SOP-03b。示例插件 `internal/plugin/plugintest` 登记了 `demo_wait_reply` 用来测试；第一方节点是 SOP-02b 的 IM 发消息 `im_send_message`、等回复 `im_wait_reply`（契约「IM 消息插件 im」的「SOP 节点」）。
+- 内置流程（VID-03d，`internal/plugin/sopflow.go`）：插件经 `Core.SOP().InstallFlow(ctx, SOPFlowTemplate)` 把自带的流程写进 SOP，`RemoveFlow(ctx, id)` 撤下。`SOPFlowTemplate` 形状同 `POST /api/sop/flows` 的请求体，id 必须是 `sop_<插件 id>_` 开头（靠前缀认归属，只能写入、撤下自己的）。内核只转交给 SOP 插件登记的执行引擎，引擎另外实现 `SOPFlowInstaller` 才接得住，否则回 `ErrNoSOPFlowInstaller`。写入时已有同 id 的不动、回 `false`；撤下只删还是第 1 版、没有进行中的执行、没被定时任务引用的，别的回 `false` 和原因。第一个用的是视频插件的「视频周更」（契约「视频创作插件 video」的「SOP 节点和内置流程」）。
 
 **发起 SOP 的钩子（SOP-01d，`internal/plugin/soplaunch.go`）**：SOP 编排是插件，内核不直接调它。定时任务的 `sop` 动作和 Agent 的内置工具 `run_sop` 经这个钩子起执行。
 
@@ -927,7 +928,7 @@ r.ScheduleAction(plugin.ScheduleActionDef{Kind: "demo_note", Validate: validateN
 | `localhost` | 回环地址（127.0.0.0/8、::1）、`localhost`、`*.localhost` |
 | `im` | `slack.com`、`*.slack.com`、`api.telegram.org`、`open.feishu.cn`、`open.larksuite.com`、`qyapi.weixin.qq.com` |
 | `media-platforms` | B 站 `bilibili.com`、`*.bilibili.com`、`*.hdslb.com`、`*.bilivideo.com`；YouTube `youtube.com`、`*.youtube.com`、`youtube.googleapis.com`、`*.googlevideo.com`、`*.ytimg.com`，`www.googleapis.com` 只放 `/youtube/`、`/upload/youtube/`；抖音 `douyin.com`、`*.douyin.com`、`*.douyinpic.com`、`*.douyinvod.com` |
-| `market-data` | Binance `data-api.binance.vision`、`data-stream.binance.vision`，`api.binance.com` 只放公开行情路径（`/api/v3/` 下的 ping、time、exchangeInfo、depth、trades、aggTrades、klines、uiKlines、avgPrice、ticker）；OKX `www.okx.com` 只放 `/api/v5/market/`、`/api/v5/public/`，`ws.okx.com` 只放 `/ws/v5/public`、`/ws/v5/business` |
+| `market-data` | Binance `data-api.binance.vision`、`data-stream.binance.vision`，`api.binance.com` 只放公开行情路径（`/api/v3/` 下的 ping、time、exchangeInfo、depth、trades、aggTrades、klines、uiKlines、avgPrice、ticker），U 本位永续 `fapi.binance.com` 只放公开行情路径（`/fapi/v1/` 下的 ping、time、exchangeInfo、depth、klines、premiumIndex、fundingRate、fundingInfo、ticker）；OKX `www.okx.com` 只放 `/api/v5/market/`、`/api/v5/public/`，`ws.okx.com` 只放 `/ws/v5/public`、`/ws/v5/business` |
 | `exchanges` | Binance `api.binance.com`、`api1` 到 `api4.binance.com`、`fapi`、`dapi`、`stream`、`fstream.binance.com`、`testnet.binance.vision`；OKX `www.okx.com`、`ws.okx.com`。先只列域名，实盘（`trade:live`、TRD-08）之前不用 |
 | `any` | 任意 http、https 地址 |
 

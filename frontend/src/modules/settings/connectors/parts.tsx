@@ -1,9 +1,11 @@
 // 列表和抽屉共用的小件：工具标志、状态点、抽屉顶部的连接状态条，照原型 web-next/src/connectors.tsx ToolLogo、StatusDot、ConnBar。
-import { useState, type CSSProperties } from 'react'
+// OAuthDone 是授权回调回到的窗口（CONN-04b）。
+import { useEffect, useState, type CSSProperties } from 'react'
 import type { Connector, ConnectorDef, ConnectorStatus } from '../../../core/data'
 import { Button, cls } from '../../../core/ui'
 import { OFF_HINT, STATUS } from './catalog'
 import { ago } from './model'
+import { OAUTH_CHANNEL, type OAuthMsg } from './oauth'
 
 /** 标志：定义给的底色加名称前两个字；没有底色用灰。src 是自定义分类换的图标（data URL） */
 export function ToolLogo({ def, size = 40, src }: { def: Pick<ConnectorDef, 'label' | 'color'>; size?: number; src?: string }) {
@@ -51,6 +53,29 @@ export function ConnBar({ connector: c, pending, onConnect, onDisconnect }: {
       ) : (
         <Button size="sm" variant="primary" disabled={!c.available} onClick={onConnect}>{s === 'error' ? '重新连接' : '连接'}</Button>
       )}
+    </div>
+  )
+}
+
+/** 授权回调回到的窗口：显示结果，告诉抽屉，成功了自己关掉 */
+export function OAuthDone({ ok, connector, message }: OAuthMsg) {
+  useEffect(() => {
+    if (typeof BroadcastChannel !== 'undefined') {
+      const ch = new BroadcastChannel(OAUTH_CHANNEL)
+      ch.postMessage({ ok, connector, message } satisfies OAuthMsg)
+      ch.close()
+    }
+    if (ok) {
+      const t = setTimeout(() => window.close(), 800)
+      return () => clearTimeout(t)
+    }
+  }, [ok, connector, message])
+  return (
+    <div className="page cn-page">
+      <div className="cn-oauth-done" role="status">
+        <h2>{ok ? '授权完成' : '授权没完成'}</h2>
+        <div className="cn-faint">{ok ? '可以关掉这个窗口，回到工作台继续。' : `${message || '对方没有给出原因'}。回到工作台重试。`}</div>
+      </div>
     </div>
   )
 }

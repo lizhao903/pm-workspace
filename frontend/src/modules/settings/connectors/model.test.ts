@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import type { Connector, ConnectorDef } from '../../../core/data'
 import {
-  bulkModes, createBody, fieldOn, initialDraft, missingFields, modesFor, needsRetest, nextName, notReady, patchBody, pruneModes, refreshNote, rowSummary,
-  tokenPreview,
+  bulkModes, createBody, fieldOn, initialDraft, missingFields, modesFor, needsRetest, nextName, notReady, oauthLack, oauthReturnTo, oauthState, patchBody,
+  pruneModes, refreshNote, rowSummary, tokenPreview,
 } from './model'
+import { oauthResult } from './oauth'
 
 const def: ConnectorDef = {
   tool: 'fake', label: '测试连接器', category: 'dev', color: '#64748b', desc: '', can_send: false, auth: ['token'], source: 'core',
@@ -51,10 +52,10 @@ describe('草稿和请求体', () => {
     expect(initialDraft(def, conn({ status: 'paused' })).enabled).toBe(false)
   })
 
-  it('OAuth 还没开放，没就绪；定义不在了也没就绪', () => {
+  it('OAuth 还没授权，没就绪；定义不在了也没就绪', () => {
     const c = conn()
     expect(notReady(def, initialDraft(def, c), c)).toBe('')
-    expect(notReady({ ...def, auth: ['oauth2', 'token'] }, { ...initialDraft(def, c), authMode: 'oauth2' }, c)).toMatch('OAuth')
+    expect(notReady({ ...def, auth: ['oauth2', 'token'] }, { ...initialDraft(def, c), authMode: 'oauth2' }, c)).toBe('还没完成 OAuth 授权')
     expect(notReady(def, initialDraft(def), undefined)).toBe('还没填：访问令牌')
     expect(notReady(def, initialDraft(def, c), conn({ available: false }))).toMatch('插件已停用')
   })
@@ -142,5 +143,49 @@ describe('自定义连接器（CONN-04）', () => {
     expect(tokenPreview(mcp, { ...d, config: { ...d.config, token_header: 'api_key', token_in: '查询参数' } })).toBe('请求时带上查询参数：api_key=••••••')
     expect(tokenPreview(mcp, { ...d, authMode: 'none' })).toBe('')
     expect(tokenPreview(def, { ...initialDraft(def) })).toBe('')
+  })
+})
+
+describe('OAuth 授权（CONN-04b）', () => {
+  const oauthDef: ConnectorDef = {
+    ...mcp, auth: ['oauth2', 'token'],
+    fields: [
+      ...mcp.fields,
+      { key: 'oauth_auth_url', label: '授权地址', kind: 'text', required: true, auth: ['oauth2'] },
+      { key: 'oauth_token_url', label: '令牌地址', kind: 'text', required: true, auth: ['oauth2'] },
+    ],
+    oauth: { auth_url: '', token_url: '', scopes: null, auth_url_field: 'oauth_auth_url', token_url_field: 'oauth_token_url', client_id_field: 'oauth_client_id', builtin: false },
+  }
+  const authed = { authorized_at: '2026-10-29T01:00:00Z', expires_at: '2026-12-29T01:00:00Z', refreshed_at: null, refresh_failed_at: null, scope: 'read' }
+  const now = Date.parse('2026-10-30T00:00:00Z')
+
+  it('授权状态：没授权、断开、认证方式不是 OAuth 都算没授权；刷新失败或过了到期时间算过期', () => {
+    const c = conn({ tool: 'custom_mcp', auth_mode: 'oauth2', oauth: authed })
+    expect(oauthState(undefined)).toBe('none')
+    expect(oauthState(c, now)).toBe('ok')
+    expect(oauthState({ ...c, auth_mode: 'token' }, now)).toBe('none')
+    expect(oauthState({ ...c, status: 'disconnected' }, now)).toBe('none')
+    expect(oauthState({ ...c, oauth: { ...authed, authorized_at: null } }, now)).toBe('none')
+    expect(oauthState({ ...c, status: 'error', oauth: { ...authed, refresh_failed_at: '2026-10-29T02:00:00Z' } }, now)).toBe('expired')
+    expect(oauthState(c, Date.parse('2027-01-01T00:00:00Z'))).toBe('expired')
+  })
+
+  it('没填 Client ID、授权地址时不能去授权，写明差什么；定义没有 OAuth 配置也不能', () => {
+    const d = { ...initialDraft(oauthDef), authMode: 'oauth2' as const }
+    d.config = { ...d.config, url: 'http://127.0.0.1:9/mcp' }
+    expect(oauthLack(oauthDef, d)).toBe('先填 Client ID、授权地址、令牌地址，才能去授权')
+    const full = { ...d, config: { ...d.config, oauth_client_id: 'cid', oauth_auth_url: 'http://127.0.0.1:9/a', oauth_token_url: 'http://127.0.0.1:9/t' } }
+    expect(oauthLack(oauthDef, full)).toBe('')
+    expect(oauthLack(oauthDef, { ...full, name: ' ' })).toBe('先填名称，才能去授权')
+    expect(oauthLack({ ...oauthDef, oauth: null }, full)).toMatch('不支持')
+    expect(oauthLack(oauthDef, full, conn({ available: false }))).toMatch('插件已停用')
+  })
+
+  it('回到哪：本机打开给完整地址，否则给站内路径；回调参数解出结果', () => {
+    expect(oauthReturnTo({ origin: 'http://127.0.0.1:7789', hostname: '127.0.0.1' })).toBe('http://127.0.0.1:7789/settings/connectors')
+    expect(oauthReturnTo({ origin: 'https://bro.vip', hostname: 'bro.vip' })).toBe('/settings/connectors')
+    expect(oauthResult('')).toBeNull()
+    expect(oauthResult('?oauth=ok&connector=cn_a&message=%E6%8E%88%E6%9D%83%E5%AE%8C%E6%88%90')).toEqual({ ok: true, connector: 'cn_a', message: '授权完成' })
+    expect(oauthResult('?oauth=error&connector=cn_a')).toEqual({ ok: false, connector: 'cn_a', message: '' })
   })
 })

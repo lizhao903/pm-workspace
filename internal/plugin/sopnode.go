@@ -81,6 +81,10 @@ type SOPService interface {
 	Resume(ctx context.Context, runID, step string, output map[string]any) error
 	// Fail 让挂起的步骤失败，reason 是给人看的原因，校验同 Resume（SOP-02b）。
 	Fail(ctx context.Context, runID, step, reason string) error
+	// InstallFlow 写入本插件的内置流程（id 以 sop_<插件 id>_ 开头），已有不动；回是不是新写的（VID-03d，sopflow.go）。
+	InstallFlow(ctx context.Context, t SOPFlowTemplate) (bool, error)
+	// RemoveFlow 撤下本插件没被改过的内置流程，回删没删和留下的原因（VID-03d，sopflow.go）。
+	RemoveFlow(ctx context.Context, id string) (bool, string, error)
 }
 
 func (c *core) SOP() SOPService { return sopService{c} }

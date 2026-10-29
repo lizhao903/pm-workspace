@@ -24,7 +24,7 @@ import (
 
 // Telegram 渠道（IM-01c）：只做 Bot API，不做用户账号（有封号风险，web-next/docs/dev-plan.md 6 节）。
 // 连接器定义由本插件登记（tool telegram），Bot Token 存在连接器的保险箱条目里，调用时经 Core.Connectors().With 现取。
-// 默认 getUpdates 长轮询，offset 存在 im_cursors（连同实例 id、Bot id），整批落库后才写，重启不重复；
+// 默认 getUpdates 长轮询，offset 按实例存在 im_cursors（连同实例 id、Bot id），整批落库后才写，重启不重复；
 // 填了公网地址时测试连接会 setWebhook，改由 Telegram 推到 POST /api/im/callbacks/telegram，带 secret_token 校验。
 // 出网走 Core.HTTP("im")，域名清单里只有 api.telegram.org。回复走 sendMessage，附件经 getFile 下载。
 
@@ -43,7 +43,7 @@ const (
 
 var telegramTokenRe = regexp.MustCompile(`^([0-9]{3,20}):[A-Za-z0-9_-]{20,100}$`)
 
-// Telegram 是 Telegram Bot 适配器，cmd/pmw 交给 New。一个连接器实例一个 Bot（一个工具只接一个账号）。
+// Telegram 是 Telegram Bot 适配器，cmd/pmw 交给 New。一个连接器实例一个 Bot，可以接多个（IM-01d）。
 type Telegram struct {
 	c        plugin.Core
 	poll     time.Duration
@@ -51,14 +51,15 @@ type Telegram struct {
 	callback string // 回调路径，setWebhook 时接在公网地址后面
 
 	mu         sync.Mutex
-	failedAt   time.Time
-	recordedAt time.Time // 最近一次记成功的时间：后台拉没新消息、状态正常时一分钟记一次就够
-	background bool      // Due 放行的这一轮是后台拉；立即同步每次都记
+	failedAt   map[string]time.Time // 连接器 id -> 上次失败的时间
+	recordedAt map[string]time.Time // 连接器 id -> 最近一次记成功的时间：后台拉没新消息、状态正常时一分钟记一次就够
+	background bool                 // Due 放行的这一轮是后台拉；立即同步每次都记
 }
 
 // NewTelegram 建 Telegram 适配器。
 func NewTelegram() *Telegram {
-	return &Telegram{poll: telegramLongPoll, every: telegramPollEvery, callback: "/api/im/callbacks/" + TelegramTool}
+	return &Telegram{poll: telegramLongPoll, every: telegramPollEvery, callback: "/api/im/callbacks/" + TelegramTool,
+		failedAt: map[string]time.Time{}, recordedAt: map[string]time.Time{}}
 }
 
 func (t *Telegram) Key() string        { return TelegramTool }
@@ -239,6 +240,16 @@ func webhookSecret(token string) string {
 	return hex.EncodeToString(sum[:24])
 }
 
+// tgExternalID 是消息编号「会话 id:消息 id」。私聊的会话 id 就是对方的用户 id、消息 id 每个 Bot 各数各的，
+// 接两个 Bot 时会撞号，所以私聊后面带上「@Bot id」（IM-01d）；群里同一条消息各 Bot 看到的编号一样，不带。
+func tgExternalID(bot string, m *tgMessage) string {
+	id := fmt.Sprintf("%d:%d", m.Chat.ID, m.MessageID)
+	if m.Chat.Type == "private" && bot != "" {
+		id += "@" + bot
+	}
+	return id
+}
+
 // toIncoming 把一条更新翻成 Incoming；服务消息（进群、改群名等）没有正文和附件，跳过。
 func toIncoming(connectorID, bot string, u tgUpdate) (Incoming, bool) {
 	m := u.Message
@@ -249,7 +260,7 @@ func toIncoming(connectorID, bot string, u tgUpdate) (Incoming, bool) {
 		return Incoming{}, false
 	}
 	in := Incoming{
-		ExternalID:     fmt.Sprintf("%d:%d", m.Chat.ID, m.MessageID),
+		ExternalID:     tgExternalID(bot, m),
 		ConnectorID:    connectorID,
 		ConversationID: strconv.FormatInt(m.Chat.ID, 10),
 		Text:           m.Text,
@@ -398,34 +409,127 @@ type tgCursor struct {
 
 func (t *Telegram) Interval() time.Duration { return t.every }
 
-// Due 是后台这一轮拉不拉：上次失败后退避一会儿，免得令牌失效时一直打对方；立即同步不问它。
-func (t *Telegram) Due(_ context.Context, now time.Time) bool {
+// Due 是后台这一轮拉不拉：有在用的实例不在退避里就拉（上次失败后退避一会儿，免得令牌失效时一直打对方）；立即同步不问它。
+func (t *Telegram) Due(ctx context.Context, now time.Time) bool {
+	list, err := instancesOf(ctx, t.c, TelegramTool)
+	if err != nil {
+		return false
+	}
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	t.background = t.failedAt.IsZero() || now.Sub(t.failedAt) >= telegramBackoff
+	t.background = false
+	for _, cn := range list {
+		if !inactive(cn) && t.ready(cn.ID, now) {
+			t.background = true
+		}
+	}
 	return t.background
 }
 
-// Pull 长轮询一次 getUpdates。只有一个实例（一个工具只接一个账号）；暂停、断开、走 webhook 的不拉。
-// 拉完把结果回报给连接器：失败（Token 失效回 401 等）实例置为异常并写原因。
+// ready 是这个实例不在失败退避里，调用方持锁。
+func (t *Telegram) ready(id string, now time.Time) bool {
+	f := t.failedAt[id]
+	return f.IsZero() || now.Sub(f) >= telegramBackoff
+}
+
+// Pull 是一轮拉取：在用的实例各长轮询一次 getUpdates（并发，免得一个 Bot 的长轮询拖住别的）；
+// 暂停、断开、走 webhook、在退避里（后台拉时）的不拉。各实例各记同步结果；都失败才算这一轮失败（IM-01d）。
 func (t *Telegram) Pull(ctx context.Context, cursor string) ([]Incoming, string, error) {
+	list, err := instancesOf(ctx, t.c, TelegramTool)
+	if err != nil || len(list) == 0 {
+		return nil, cursor, err
+	}
+	now := time.Now()
+	t.mu.Lock()
+	background := t.background
+	t.background = false
+	var todo []plugin.ConnectorInfo
+	for _, cn := range list {
+		if !inactive(cn) && (!background || t.ready(cn.ID, now)) {
+			todo = append(todo, cn)
+		}
+	}
+	t.mu.Unlock()
+	curs := readCursors(cursor)
+	keep := map[string]json.RawMessage{}
+	for _, cn := range list {
+		if v, ok := curs[cn.ID]; ok {
+			keep[cn.ID] = v
+		}
+	}
+	type result struct {
+		msgs []Incoming
+		next json.RawMessage
+		err  error
+	}
+	res := make([]result, len(todo))
+	var wg sync.WaitGroup
+	for i, cn := range todo {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			r := &res[i]
+			r.msgs, r.next, r.err = t.pullInstance(ctx, cn, keep[cn.ID], background)
+		}()
+	}
+	wg.Wait()
+	if ctx.Err() != nil {
+		return nil, cursor, ctx.Err()
+	}
+	var (
+		msgs []Incoming
+		errs []error
+	)
+	for i, r := range res {
+		if r.err != nil {
+			errs = append(errs, r.err)
+			continue
+		}
+		msgs = append(msgs, r.msgs...)
+		if r.next != nil {
+			keep[todo[i].ID] = r.next
+		}
+	}
+	if err := pullErrors(len(todo), errs); err != nil {
+		return nil, cursor, err
+	}
+	return msgs, writeCursors(keep), nil
+}
+
+// PullConnector 是立即同步：只拉这一个实例，不看退避，别的实例的进度原样留着。
+func (t *Telegram) PullConnector(ctx context.Context, id, cursor string) ([]Incoming, string, error) {
 	if t.c == nil {
 		return nil, cursor, nil
 	}
-	list, err := t.c.Connectors().List(ctx, TelegramTool)
+	cn, err := t.c.Connectors().Get(ctx, id)
+	if errors.Is(err, plugin.ErrNoRows) || (err == nil && (cn.Tool != TelegramTool || inactive(cn))) {
+		return nil, cursor, nil
+	}
 	if err != nil {
 		return nil, cursor, err
 	}
-	if len(list) == 0 || list[0].Status == "paused" || list[0].Status == "disconnected" {
-		return nil, cursor, nil
+	curs := readCursors(cursor)
+	msgs, next, err := t.pullInstance(ctx, cn, curs[cn.ID], false)
+	if err != nil {
+		return nil, cursor, err
 	}
-	cn := list[0]
+	if next != nil {
+		curs[cn.ID] = next
+	}
+	return msgs, writeCursors(curs), nil
+}
+
+// pullInstance 长轮询一个实例一次，拉完把结果回报给这个实例：失败（Token 失效回 401 等）置为异常并写原因。
+// 后台拉没新消息、状态正常时一分钟记一次就够。回这个实例的新进度；实例已删或走 webhook 时 next 为 nil。
+func (t *Telegram) pullInstance(ctx context.Context, cn plugin.ConnectorInfo, raw json.RawMessage, background bool) ([]Incoming, json.RawMessage, error) {
 	var cur tgCursor
-	_ = json.Unmarshal([]byte(cursor), &cur)
-	var msgs []Incoming
-	next := cursor
-	webhook := false
-	err = t.c.Connectors().With(ctx, cn.ID, func(cfg connector.Config) error {
+	_ = json.Unmarshal(raw, &cur)
+	var (
+		msgs    []Incoming
+		next    json.RawMessage
+		webhook bool
+	)
+	err := t.c.Connectors().With(ctx, cn.ID, func(cfg connector.Config) error {
 		token := cfg.Secret("bot_token")
 		if token == "" {
 			return errors.New("还没填 Bot Token")
@@ -459,26 +563,25 @@ func (t *Telegram) Pull(ctx context.Context, cursor string) ([]Incoming, string,
 				msgs = append(msgs, m)
 			}
 		}
-		b, _ := json.Marshal(cur)
-		next = string(b)
+		next, _ = json.Marshal(cur)
 		return nil
 	})
 	if ctx.Err() != nil {
-		return nil, cursor, ctx.Err()
+		return nil, nil, ctx.Err()
 	}
 	if errors.Is(err, plugin.ErrNoRows) || webhook {
-		return nil, cursor, nil
+		return nil, nil, nil
 	}
 	now := time.Now()
 	t.mu.Lock()
-	record := !t.background || err != nil || len(msgs) > 0 || cn.Status != "connected" || now.Sub(t.recordedAt) >= telegramRecordGap
-	t.background = false
+	record := !background || err != nil || len(msgs) > 0 || cn.Status != "connected" || now.Sub(t.recordedAt[cn.ID]) >= telegramRecordGap
 	if err != nil {
-		t.failedAt, t.recordedAt = now, time.Time{}
+		t.failedAt[cn.ID] = now
+		delete(t.recordedAt, cn.ID)
 	} else {
-		t.failedAt = time.Time{}
+		delete(t.failedAt, cn.ID)
 		if record {
-			t.recordedAt = now
+			t.recordedAt[cn.ID] = now
 		}
 	}
 	t.mu.Unlock()
@@ -488,15 +591,16 @@ func (t *Telegram) Pull(ctx context.Context, cursor string) ([]Incoming, string,
 		}
 	}
 	if err != nil {
-		return nil, cursor, err
+		return nil, nil, err
 	}
 	return msgs, next, nil
 }
 
 // --- 回调（webhook） ---
 
-// Receive 收 Telegram 推来的一条更新。只有一个 Telegram 实例（一个工具只接一个账号）；
-// 请求头的 secret_token 和 Token 派生的不一致回 401，实例没填公网地址（不该收到推送）也回 401。
+// Receive 收 Telegram 推来的一条更新：请求头的 secret_token 和哪个实例的 Token 派生的一致就算哪个实例的（IM-01d），
+// 没填公网地址的实例不该收到推送、不参与比对。都对不上回 401；对不上而有暂停、断开的实例时回 200 不落库
+// （暂停的取不到 Token，认不出是不是它），免得 Telegram 一直重推。
 func (t *Telegram) Receive(r *http.Request) ([]Incoming, error) {
 	if t.c == nil {
 		return nil, errors.New("IM 插件还没启用")
@@ -506,29 +610,40 @@ func (t *Telegram) Receive(r *http.Request) ([]Incoming, error) {
 	if err != nil {
 		return nil, err
 	}
-	unauthorized := Unauthorized("secret token 不对")
-	if len(list) == 0 {
-		return nil, unauthorized
+	got := r.Header.Get(telegramSecretHdr)
+	var (
+		cn     plugin.ConnectorInfo
+		bot    string
+		hit    bool
+		paused bool
+	)
+	for _, x := range list {
+		if inactive(x) {
+			paused = true
+			continue
+		}
+		err := t.c.Connectors().With(ctx, x.ID, func(cfg connector.Config) error {
+			token := cfg.Secret("bot_token")
+			if token != "" && strings.TrimSpace(cfg.Get("webhook_url")) != "" && got != "" &&
+				subtle.ConstantTimeCompare([]byte(got), []byte(webhookSecret(token))) == 1 {
+				hit, bot = true, botID(token)
+			}
+			return nil
+		})
+		if err != nil && !errors.Is(err, plugin.ErrNoRows) {
+			paused = true // 取不到配置的按暂停算：回 200 不落库
+			continue
+		}
+		if hit {
+			cn = x
+			break
+		}
 	}
-	cn := list[0]
-	var bot string
-	err = t.c.Connectors().With(ctx, cn.ID, func(cfg connector.Config) error {
-		token := cfg.Secret("bot_token")
-		got := r.Header.Get(telegramSecretHdr)
-		if token == "" || strings.TrimSpace(cfg.Get("webhook_url")) == "" ||
-			subtle.ConstantTimeCompare([]byte(got), []byte(webhookSecret(token))) != 1 {
-			return unauthorized
+	if !hit {
+		if paused {
+			return nil, &CallbackReply{Status: http.StatusOK, Body: map[string]any{"data": map[string]any{"ids": []string{}, "duplicates": 0}}}
 		}
-		bot = botID(token)
-		return nil
-	})
-	if err != nil {
-		var cr *CallbackReply
-		if errors.As(err, &cr) {
-			return nil, cr
-		}
-		// 暂停、断开时回 200 不落库，免得 Telegram 一直重推
-		return nil, &CallbackReply{Status: http.StatusOK, Body: map[string]any{"data": map[string]any{"ids": []string{}, "duplicates": 0}}}
+		return nil, Unauthorized("secret token 不对")
 	}
 	var u tgUpdate
 	if err := decode(r, &u, 1<<20); err != nil {
@@ -554,6 +669,7 @@ func (t *Telegram) Reply(ctx context.Context, out Outgoing) (string, error) {
 	}
 	params := map[string]any{"chat_id": chat, "text": out.Text}
 	if _, mid, ok := strings.Cut(out.ReplyTo, ":"); ok {
+		mid, _, _ = strings.Cut(mid, "@")
 		if n, err := strconv.ParseInt(mid, 10, 64); err == nil {
 			params["reply_parameters"] = map[string]any{"message_id": n, "allow_sending_without_reply": true}
 		}

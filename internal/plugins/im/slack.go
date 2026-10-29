@@ -24,6 +24,7 @@ import (
 // Bot Token、Signing Secret 在连接器的保险箱条目里，调用时经 Core.Connectors().With 现取。
 // 两种收法：事件订阅（Events API）推到 POST /api/im/callbacks/slack，按 Signing Secret 验签；
 // 回调不可达时（工作台不在公网上）按连接器的同步间隔拉 conversations.history，进度存在 im_cursors。
+// 可以接多个工作区（IM-01d）：每个实例各拉各的、各记各的同步结果，回调按签名认实例，回复走消息所属的实例。
 // 收的范围：私信和多人私信，加上「监听频道」里列的频道（Bot 要先被加进频道）。
 // 出网走 Core.HTTP("im")（域名清单里有 slack.com、*.slack.com）。回复走 chat.postMessage，附件按 url_private_download 下载。
 
@@ -38,13 +39,14 @@ const (
 	slackLookupLimit = 50 // 一次同步最多查几个人名，查不到的先用编号
 )
 
-// Slack 是 Slack 适配器，cmd/pmw 交给 New。一个工具只接一个账号，所以只认第一个 slack 实例。
+// Slack 是 Slack 适配器，cmd/pmw 交给 New。每个 slack 连接器实例是一个工作区的 Bot（IM-01d）。
 type Slack struct {
 	api string
 	c   plugin.Core
 
 	mu       sync.Mutex
-	lastPull time.Time
+	lastPull map[string]time.Time // 连接器 id -> 上次拉的时间
+	teams    map[string]string    // 连接器 id -> 工作区编号，回调按 team_id 认实例用
 	users    map[string]string    // Member ID -> 显示名
 	convs    map[string]slackConv // 会话 id -> 会话
 }
@@ -56,7 +58,8 @@ type SlackOptions struct {
 }
 
 func NewSlack(o SlackOptions) *Slack {
-	return &Slack{api: connector.SlackEndpoints{API: o.API}.Base(), users: map[string]string{}, convs: map[string]slackConv{}}
+	return &Slack{api: connector.SlackEndpoints{API: o.API}.Base(), lastPull: map[string]time.Time{}, teams: map[string]string{},
+		users: map[string]string{}, convs: map[string]slackConv{}}
 }
 
 func (s *Slack) Key() string             { return connector.SlackTool }
@@ -88,13 +91,9 @@ func (s *Slack) client() (*http.Client, error) {
 	return c.HTTP("im")
 }
 
-// instance 是在用的 slack 实例；没有时 ok 为 false。
+// instance 是最新建的 slack 实例，只给不带 connector_id 的旧消息回复、取附件用；没有时 ok 为 false。
 func (s *Slack) instance(ctx context.Context) (plugin.ConnectorInfo, bool, error) {
-	c := s.core()
-	if c == nil {
-		return plugin.ConnectorInfo{}, false, nil
-	}
-	list, err := c.Connectors().List(ctx, connector.SlackTool)
+	list, err := instancesOf(ctx, s.core(), connector.SlackTool)
 	if err != nil || len(list) == 0 {
 		return plugin.ConnectorInfo{}, false, err
 	}
@@ -105,18 +104,31 @@ func inactive(cn plugin.ConnectorInfo) bool {
 	return cn.Status == "paused" || cn.Status == "disconnected"
 }
 
-// Due：实例在用、设了同步间隔（分钟），离上次拉够了间隔。间隔为 0 时只收回调和立即同步。
+// Due：有实例在用、设了同步间隔（分钟），离它上次拉够了间隔。间隔为 0 时只收回调和立即同步。
 func (s *Slack) Due(ctx context.Context, now time.Time) bool {
-	cn, ok, err := s.instance(ctx)
-	if err != nil || !ok || inactive(cn) || cn.Interval <= 0 {
+	list, err := instancesOf(ctx, s.core(), connector.SlackTool)
+	if err != nil {
+		return false
+	}
+	for _, cn := range list {
+		if s.due(cn, now) {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *Slack) due(cn plugin.ConnectorInfo, now time.Time) bool {
+	if inactive(cn) || cn.Interval <= 0 {
 		return false
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.lastPull.IsZero() || now.Sub(s.lastPull) >= time.Duration(cn.Interval)*time.Minute
+	last := s.lastPull[cn.ID]
+	return last.IsZero() || now.Sub(last) >= time.Duration(cn.Interval)*time.Minute
 }
 
-// slackCursor 是 im_cursors 里的进度：哪个实例、哪个工作区，每个会话拉到的最后一条 ts。实例或工作区换了从头来。
+// slackCursor 是一个实例的进度：哪个实例、哪个工作区，每个会话拉到的最后一条 ts。工作区换了从头来。
 type slackCursor struct {
 	Connector string            `json:"connector"`
 	Team      string            `json:"team"`
@@ -186,28 +198,92 @@ func (s *Slack) call(ctx context.Context, hc *http.Client, token, method string,
 	return err
 }
 
-// Pull 拉一轮：auth.test（顺带认出 Token 失效）、列会话、逐个拉新消息。拉完把结果记到连接器：
-// 失败（invalid_auth 等）实例置为异常并写原因；监听频道里有找不到的也记成异常，找到的照收。
+// Pull 是后台的一轮：到了同步间隔的实例逐个拉，各自记同步结果；有的实例失败不耽误别的，都失败才算这一轮失败。
+// 已删掉的实例的进度顺手清掉。
 func (s *Slack) Pull(ctx context.Context, cursor string) ([]Incoming, string, error) {
-	cn, ok, err := s.instance(ctx)
-	if err != nil || !ok || inactive(cn) {
+	list, err := instancesOf(ctx, s.core(), connector.SlackTool)
+	if err != nil || len(list) == 0 {
 		return nil, cursor, err
 	}
+	curs := readCursors(cursor)
+	keep := map[string]json.RawMessage{}
+	var (
+		msgs  []Incoming
+		errs  []error
+		tried int
+		now   = time.Now()
+	)
+	for _, cn := range list {
+		if v, ok := curs[cn.ID]; ok {
+			keep[cn.ID] = v
+		}
+		if !s.due(cn, now) {
+			continue
+		}
+		tried++
+		got, next, err := s.pullInstance(ctx, cn, keep[cn.ID])
+		if ctx.Err() != nil {
+			return nil, cursor, ctx.Err()
+		}
+		if err != nil {
+			errs = append(errs, err)
+			continue
+		}
+		msgs = append(msgs, got...)
+		if next != nil {
+			keep[cn.ID] = next
+		}
+	}
+	if err := pullErrors(tried, errs); err != nil {
+		return nil, cursor, err
+	}
+	sort.SliceStable(msgs, func(i, j int) bool { return msgs[i].At.Before(msgs[j].At) })
+	return msgs, writeCursors(keep), nil
+}
+
+// PullConnector 是立即同步：只拉这一个实例，不看同步间隔，别的实例的进度原样留着。
+func (s *Slack) PullConnector(ctx context.Context, id, cursor string) ([]Incoming, string, error) {
+	c := s.core()
+	if c == nil {
+		return nil, cursor, nil
+	}
+	cn, err := c.Connectors().Get(ctx, id)
+	if errors.Is(err, plugin.ErrNoRows) || (err == nil && (cn.Tool != connector.SlackTool || inactive(cn))) {
+		return nil, cursor, nil
+	}
+	if err != nil {
+		return nil, cursor, err
+	}
+	curs := readCursors(cursor)
+	msgs, next, err := s.pullInstance(ctx, cn, curs[cn.ID])
+	if err != nil {
+		return nil, cursor, err
+	}
+	if next != nil {
+		curs[cn.ID] = next
+	}
+	sort.SliceStable(msgs, func(i, j int) bool { return msgs[i].At.Before(msgs[j].At) })
+	return msgs, writeCursors(curs), nil
+}
+
+// pullInstance 拉一个实例：auth.test（顺带认出 Token 失效）、列会话、逐个拉新消息。拉完把结果记到这个实例：
+// 失败（invalid_auth 等）置为异常并写原因；监听频道里有找不到的也记成异常，找到的照收。
+// 回这个实例的新进度；实例已删时 next 为 nil。
+func (s *Slack) pullInstance(ctx context.Context, cn plugin.ConnectorInfo, raw json.RawMessage) ([]Incoming, json.RawMessage, error) {
 	s.mu.Lock()
-	s.lastPull = time.Now()
+	s.lastPull[cn.ID] = time.Now()
 	s.mu.Unlock()
 	var cur slackCursor
-	_ = json.Unmarshal([]byte(cursor), &cur)
+	_ = json.Unmarshal(raw, &cur)
 	var (
-		msgs   []Incoming
-		warn   error
-		hc     *http.Client
-		c      = s.core()
-		nextCu = cursor
+		msgs []Incoming
+		warn error
+		next json.RawMessage
+		c    = s.core()
 	)
-	err = c.Connectors().With(ctx, cn.ID, func(cfg plugin.ConnectorConfig) error {
-		var err error
-		if hc, err = s.client(); err != nil {
+	err := c.Connectors().With(ctx, cn.ID, func(cfg plugin.ConnectorConfig) error {
+		hc, err := s.client()
+		if err != nil {
 			return err
 		}
 		token := cfg.Secret("bot_token")
@@ -215,6 +291,7 @@ func (s *Slack) Pull(ctx context.Context, cursor string) ([]Incoming, string, er
 		if err != nil {
 			return err
 		}
+		s.setTeam(cn.ID, me.TeamID)
 		if cur.Connector != cn.ID || cur.Team != me.TeamID || cur.Latest == nil {
 			cur = slackCursor{Connector: cn.ID, Team: me.TeamID, Latest: map[string]string{}}
 		}
@@ -225,36 +302,35 @@ func (s *Slack) Pull(ctx context.Context, cursor string) ([]Incoming, string, er
 		if len(missing) > 0 {
 			warn = fmt.Errorf("这些频道找不到或 Bot 没被加进去：%s", strings.Join(missing, "、"))
 		}
-		var raw []slackMsg
+		var got []slackMsg
 		for _, cv := range convs {
-			got, latest, err := s.history(ctx, hc, token, cv.ID, cur.Latest[cv.ID])
+			ms, latest, err := s.history(ctx, hc, token, cv.ID, cur.Latest[cv.ID])
 			if err != nil {
 				return err
 			}
 			if latest != "" {
 				cur.Latest[cv.ID] = latest
 			}
-			for i := range got {
-				got[i].Channel = cv.ID
+			for i := range ms {
+				ms[i].Channel = cv.ID
 			}
-			raw = append(raw, got...)
+			got = append(got, ms...)
 		}
-		s.lookupUsers(ctx, hc, token, raw)
-		for _, m := range raw {
+		s.lookupUsers(ctx, hc, token, got)
+		for _, m := range got {
 			cv, known := s.conv(m.Channel)
 			if in, ok := s.toIncoming(cn.ID, me, cfg.Get("self_user_id"), cv, known, m); ok {
 				msgs = append(msgs, in)
 			}
 		}
-		b, _ := json.Marshal(cur)
-		nextCu = string(b)
+		next, _ = json.Marshal(cur)
 		return nil
 	})
 	if ctx.Err() != nil {
-		return nil, cursor, ctx.Err()
+		return nil, nil, ctx.Err()
 	}
 	if errors.Is(err, plugin.ErrNoRows) {
-		return nil, cursor, nil
+		return nil, nil, nil
 	}
 	rec := err
 	if rec == nil {
@@ -264,10 +340,9 @@ func (s *Slack) Pull(ctx context.Context, cursor string) ([]Incoming, string, er
 		c.Log().Warn("record slack sync failed", "connector", cn.ID, "err", rerr)
 	}
 	if err != nil {
-		return nil, cursor, err
+		return nil, nil, err
 	}
-	sort.SliceStable(msgs, func(i, j int) bool { return msgs[i].At.Before(msgs[j].At) })
-	return msgs, nextCu, nil
+	return msgs, next, nil
 }
 
 // conversations 列 Bot 所在的会话：私信、多人私信全收，频道只收 channels 里列的（名字或编号，# 可带可不带）。
@@ -583,8 +658,10 @@ type slackEnvelope struct {
 	Event     slackMsg `json:"event"`
 }
 
-// Receive 收 Slack 推来的一次事件：先按 Signing Secret 验签（不对、没填都回 401），
-// url_verification 原样回 challenge；消息事件按收的范围筛过再交给插件落库。实例暂停、断开时回 200 不落库，免得 Slack 一直重试。
+// Receive 收 Slack 推来的一次事件：按各实例的 Signing Secret 验签，对上哪个就算哪个实例的（IM-01d）；
+// 多个实例共用一个 Slack App（Secret 一样）时再比事件的 team_id，都不是已接入的工作区回 200 不落库。
+// 都对不上、没填、还没接入 Slack 回 401。url_verification 原样回 challenge；消息事件按这个实例收的范围筛过再交给插件落库。
+// 在用的实例都对不上而有暂停、断开的实例时回 200 不落库（暂停的取不到 Secret，认不出是不是它），免得 Slack 一直重试。
 func (s *Slack) Receive(r *http.Request) ([]Incoming, error) {
 	body, err := io.ReadAll(io.LimitReader(r.Body, slackMaxBody+1))
 	if err != nil {
@@ -594,65 +671,81 @@ func (s *Slack) Receive(r *http.Request) ([]Incoming, error) {
 		return nil, apiErr(errValidation, "body too large")
 	}
 	ctx := r.Context()
-	cn, ok, err := s.instance(ctx)
+	list, err := instancesOf(ctx, s.core(), connector.SlackTool)
 	if err != nil {
 		return nil, err
 	}
-	if !ok {
+	if len(list) == 0 {
 		return nil, Unauthorized("还没接入 Slack 渠道")
-	}
-	if inactive(cn) {
-		return nil, &CallbackReply{Status: http.StatusOK, Body: map[string]any{"data": map[string]any{"ignored": "连接器「" + cn.Name + "」已暂停或断开"}}}
 	}
 	c := s.core()
 	var (
-		env  slackEnvelope
-		msgs []Incoming
+		env     slackEnvelope
+		msgs    []Incoming
+		paused  string
+		cn      plugin.ConnectorInfo
+		vErr    error
+		lastErr error
+		hit     bool
 	)
-	err = c.Connectors().With(ctx, cn.ID, func(cfg plugin.ConnectorConfig) error {
-		if err := connector.SlackVerify(cfg.Secret("signing_secret"), r.Header.Get("X-Slack-Request-Timestamp"),
-			r.Header.Get("X-Slack-Signature"), body, time.Now()); err != nil {
-			return Unauthorized(err.Error())
+	ts, sig := r.Header.Get("X-Slack-Request-Timestamp"), r.Header.Get("X-Slack-Signature")
+	// 同一个 Slack App 装进两个工作区时两个实例的 Signing Secret 一样，再按事件带的 team_id 认（验签过了才看它）
+	var head struct {
+		TeamID string `json:"team_id"`
+	}
+	_ = json.Unmarshal(body, &head)
+	active := 0
+	for _, x := range list {
+		if !inactive(x) {
+			active++
 		}
-		if err := json.Unmarshal(body, &env); err != nil {
-			return apiErr(errValidation, "invalid json: %v", err)
-		}
-		if env.Type == "url_verification" {
-			return &CallbackReply{Status: http.StatusOK, Body: map[string]string{"challenge": env.Challenge}}
-		}
-		m := env.Event
-		if env.Type != "event_callback" || m.Type != "message" {
-			return nil
-		}
-		cv, known := s.conv(m.Channel)
-		direct := m.ChType == "im" || m.ChType == "mpim" || cv.IsIM || cv.MPIM
-		token := cfg.Secret("bot_token")
-		hc, err := s.client()
-		if err != nil {
-			return err
-		}
-		if !direct {
-			if !known {
-				cv, known = s.lookupConv(ctx, hc, token, m.Channel)
+	}
+	other := false
+	for _, x := range list {
+		if inactive(x) {
+			if paused == "" {
+				paused = x.Name
 			}
-			want := splitChannels(cfg.Get("channels"))
-			if !slices.ContainsFunc(want, func(w string) bool { return w == m.Channel || (known && strings.EqualFold(w, cv.Name)) }) {
+			continue
+		}
+		err = c.Connectors().With(ctx, x.ID, func(cfg plugin.ConnectorConfig) error {
+			if err := connector.SlackVerify(cfg.Secret("signing_secret"), ts, sig, body, time.Now()); err != nil {
+				vErr = err
 				return nil
 			}
+			if active > 1 && head.TeamID != "" {
+				if team := s.teamOf(ctx, x.ID, cfg.Secret("bot_token")); team != "" && team != head.TeamID {
+					other = true
+					return nil
+				}
+			}
+			hit, cn = true, x
+			return s.handleEvent(ctx, x, cfg, body, &env, &msgs)
+		})
+		if hit {
+			break
 		}
-		me := s.botIdentity(ctx, hc, token)
-		s.lookupUsers(ctx, hc, token, []slackMsg{m})
-		if in, ok := s.toIncoming(cn.ID, me, cfg.Get("self_user_id"), cv, known, m); ok {
-			msgs = append(msgs, in)
+		if err != nil && !errors.Is(err, plugin.ErrNoRows) {
+			lastErr = err
 		}
-		return nil
-	})
+	}
+	if !hit {
+		switch {
+		case other:
+			return nil, &CallbackReply{Status: http.StatusOK, Body: map[string]any{"data": map[string]any{"ignored": "工作区 " + head.TeamID + " 没接入"}}}
+		case paused != "":
+			return nil, &CallbackReply{Status: http.StatusOK, Body: map[string]any{"data": map[string]any{"ignored": "连接器「" + paused + "」已暂停或断开"}}}
+		case vErr == nil && lastErr != nil:
+			return nil, lastErr
+		case vErr == nil:
+			vErr = errors.New("签名不对")
+		}
+		return nil, Unauthorized(vErr.Error())
+	}
 	var cr *CallbackReply
 	switch {
 	case errors.As(err, &cr):
 		return nil, cr
-	case errors.Is(err, errValidation):
-		return nil, err
 	case err != nil:
 		return nil, err
 	}
@@ -662,6 +755,42 @@ func (s *Slack) Receive(r *http.Request) ([]Incoming, error) {
 		}
 	}
 	return msgs, nil
+}
+
+// handleEvent 处理验签对上的一次事件：握手回 challenge，消息按这个实例的收的范围筛过翻成 Incoming。
+func (s *Slack) handleEvent(ctx context.Context, cn plugin.ConnectorInfo, cfg plugin.ConnectorConfig, body []byte, env *slackEnvelope, msgs *[]Incoming) error {
+	if err := json.Unmarshal(body, env); err != nil {
+		return apiErr(errValidation, "invalid json: %v", err)
+	}
+	if env.Type == "url_verification" {
+		return &CallbackReply{Status: http.StatusOK, Body: map[string]string{"challenge": env.Challenge}}
+	}
+	m := env.Event
+	if env.Type != "event_callback" || m.Type != "message" {
+		return nil
+	}
+	cv, known := s.conv(m.Channel)
+	direct := m.ChType == "im" || m.ChType == "mpim" || cv.IsIM || cv.MPIM
+	token := cfg.Secret("bot_token")
+	hc, err := s.client()
+	if err != nil {
+		return err
+	}
+	if !direct {
+		if !known {
+			cv, known = s.lookupConv(ctx, hc, token, m.Channel)
+		}
+		want := splitChannels(cfg.Get("channels"))
+		if !slices.ContainsFunc(want, func(w string) bool { return w == m.Channel || (known && strings.EqualFold(w, cv.Name)) }) {
+			return nil
+		}
+	}
+	me := s.botIdentity(ctx, hc, token)
+	s.lookupUsers(ctx, hc, token, []slackMsg{m})
+	if in, ok := s.toIncoming(cn.ID, me, cfg.Get("self_user_id"), cv, known, m); ok {
+		*msgs = append(*msgs, in)
+	}
+	return nil
 }
 
 // lookupConv 查一个还没见过的会话（conversations.info），查不到当作不认识。
@@ -676,6 +805,32 @@ func (s *Slack) lookupConv(ctx context.Context, hc *http.Client, token, id strin
 	return out.Channel, true
 }
 
+// teamOf 是实例所在的工作区编号：拉取时记下，没记过现查一次 auth.test；查不到为空。
+func (s *Slack) teamOf(ctx context.Context, id, token string) string {
+	s.mu.Lock()
+	team := s.teams[id]
+	s.mu.Unlock()
+	if team != "" {
+		return team
+	}
+	hc, err := s.client()
+	if err != nil {
+		return ""
+	}
+	me := s.botIdentity(ctx, hc, token)
+	s.setTeam(id, me.TeamID)
+	return me.TeamID
+}
+
+func (s *Slack) setTeam(id, team string) {
+	if team == "" {
+		return
+	}
+	s.mu.Lock()
+	s.teams[id] = team
+	s.mu.Unlock()
+}
+
 // botIdentity 是 Bot 自己的身份，用来跳过自己发的消息、认 @Bot；查不到时为空，不拦收消息。
 func (s *Slack) botIdentity(ctx context.Context, hc *http.Client, token string) connector.SlackIdentity {
 	id, _ := connector.SlackAuthTest(ctx, hc, s.api, token)
@@ -684,7 +839,8 @@ func (s *Slack) botIdentity(ctx context.Context, hc *http.Client, token string) 
 
 // --- 回复、附件 ---
 
-// Reply 经 chat.postMessage 发出去：频道里串在原消息下面（thread_ts），私信直接发；没有会话编号时发给对方的 Member ID。
+// Reply 经 chat.postMessage 用消息所属的实例发出去：频道里串在原消息下面（thread_ts），私信直接发；
+// 没有会话编号时发给对方的 Member ID。消息没记实例（旧数据）时用最新建的实例。
 func (s *Slack) Reply(ctx context.Context, out Outgoing) (string, error) {
 	c := s.core()
 	if c == nil {

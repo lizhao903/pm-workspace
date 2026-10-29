@@ -4,20 +4,22 @@
 // - 测试连接、获取工具清单都按已保存的配置做：新建点「接入」先保存再自动测一次，抽屉留着看结果；有没保存的改动时先保存。
 // - 凭证只显示后端给的脱敏提示，输入框空着保存不改；不是必填的凭证可以单独清掉。
 // - Token 的请求头、前缀由定义决定（自定义类的定义里有 token_header、token_prefix 字段，就能改）；
-//   OAuth 授权流程归 CONN-01b，现在选了 OAuth 也测不了。
+// - OAuth 授权（CONN-04b）：按已保存的配置发起，有没保存的改动（含新建）先保存；新窗口打开对方的授权页，
+//   轮询实例等 oauth.authorized_at 变了算完成（后端换完令牌会测一次），回调窗口报回的失败写在授权框里。
 // - 字段可以只属于某种认证方式（定义的 auth），切换认证方式时跟着显示、隐藏（CONN-04）。
 // - 改了地址、认证或凭证保存后不关抽屉，提示重新测试、重新获取工具清单。
-import { useState, type ChangeEvent } from 'react'
+import { useEffect, useState, type ChangeEvent } from 'react'
 import {
-  errorText, useCreateConnector, useDeleteConnector, usePatchConnector, useRefreshConnectorTools, useSetConnectorToolModes,
-  type Connector, type ConnectorDef, type ConnectorField, type ConnectorToolMode,
+  errorText, useConnectors, useCreateConnector, useDeleteConnector, usePatchConnector, useRefreshConnectorTools, useSetConnectorToolModes,
+  useStartConnectorOAuth, type Connector, type ConnectorDef, type ConnectorField, type ConnectorToolMode,
 } from '../../../core/data'
 import { Button, cls, ConfirmDialog, Drawer, Field, Input, Select, Textarea } from '../../../core/ui'
 import { AUTH_HINT, AUTH_LABEL, categoryOf, INTERVALS, MODE_LABEL } from './catalog'
 import {
-  ago, bulkModes, createBody, effectiveTools, fieldOn, initialDraft, isCustom, isIM, missingFields, modesFor, needsRetest, notReady, patchBody,
-  pruneModes, refreshNote, tokenPreview, type Bulk, type ConnCheck, type Draft,
+  ago, bulkModes, createBody, effectiveTools, fieldOn, initialDraft, isCustom, isIM, missingFields, modesFor, needsRetest, notReady, oauthLack,
+  oauthReturnTo, oauthState, patchBody, pruneModes, refreshNote, tokenPreview, type Bulk, type ConnCheck, type Draft,
 } from './model'
+import { listenOAuth, OAUTH_POLL_MS, openBlank } from './oauth'
 import { ConnBar, ToolLogo } from './parts'
 
 /** 自定义图标上限：data URL 存在库里，后端最多 512KB */
@@ -56,12 +58,21 @@ export function ConnectorDrawer({ def, connector: c, taken, check, pending, test
   const [q, setQ] = useState('')
   const [retest, setRetest] = useState(false)
   const [iconError, setIconError] = useState('')
+  /** 这次发起的授权：before 是发起前的授权时间，变了就是完成了；url 给「授权页没打开」用，expires 之后这次作废 */
+  const [authRun, setAuthRun] = useState<{ id: string; before: string | null; url: string; expires: string } | null>(null)
+  const [authError, setAuthError] = useState('')
   const create = useCreateConnector()
   const patch = usePatchConnector()
   const remove = useDeleteConnector()
   const refresh = useRefreshConnectorTools()
   const setModes = useSetConnectorToolModes()
-  const busy = create.isPending || patch.isPending || remove.isPending || refresh.isPending || setModes.isPending
+  const oauthStart = useStartConnectorOAuth()
+  const authAt = c?.oauth?.authorized_at ?? null
+  const authDone = !!authRun && c?.id === authRun.id && !!authAt && authAt !== authRun.before && c.status !== 'disconnected'
+  const authWait = authDone ? null : authRun
+  // 等授权时定时重取实例列表，c 跟着变
+  const listQ = useConnectors(authWait ? OAUTH_POLL_MS : false)
+  const busy = create.isPending || patch.isPending || remove.isPending || refresh.isPending || setModes.isPending || oauthStart.isPending
 
   const missing = missingFields(def, draft, c)
   const nameBad = tried && !draft.name.trim()
@@ -78,6 +89,31 @@ export function ConnectorDrawer({ def, connector: c, taken, check, pending, test
   const plain = def.fields.filter((f) => f.kind !== 'secret' && !f.auth?.length)
   const authFields = def.fields.filter((f) => (f.kind === 'secret' || f.auth?.length) && fieldOn(f, draft.authMode))
   const preview = tokenPreview(def, draft)
+  const authLack = oauthLack(def, draft, c)
+  const authSaved = oauthState(c)
+  // 授权完成后端会测一次，这之前的测试结论作废
+  const freshCheck = check && !(authAt && check.at < Date.parse(authAt)) ? check : undefined
+
+  // 回调窗口报回来的结果：失败写原因，成功立刻重取一次（以轮询到的实例为准）
+  const refetchList = listQ.refetch
+  useEffect(() => {
+    if (!authWait) return
+    return listenOAuth((m) => {
+      if (m.connector && m.connector !== authWait.id) return
+      if (m.ok) { void refetchList(); return }
+      setAuthRun(null)
+      setAuthError(m.message || '对方没有给出原因')
+    })
+  }, [authWait, refetchList])
+
+  // 过了这次授权的有效期还没完成：停止等待
+  useEffect(() => {
+    if (!authWait) return
+    const left = Date.parse(authWait.expires) - Date.now()
+    if (!Number.isFinite(left)) return
+    const t = setTimeout(() => { setAuthRun(null); setAuthError('等太久了，这次授权已作废，重新点「去授权」') }, Math.max(left, 0))
+    return () => clearTimeout(t)
+  }, [authWait])
 
   const set = (p: Partial<Draft>) => { setDraft({ ...draft, ...p }); setReadyError(null) }
   const setCfg = (k: string, v: string) => set({ config: { ...draft.config, [k]: v } })
@@ -140,6 +176,34 @@ export function ConnectorDrawer({ def, connector: c, taken, check, pending, test
     }
   }
 
+  /** 去授权：先同步开空窗口（点击里开才不会被拦）；有没保存的改动（含新建）先保存，再拿授权地址跳过去 */
+  async function authorize() {
+    setError(null)
+    setAuthError('')
+    setAuthRun(null)
+    setTried(true)
+    if (authLack) return
+    const w = openBlank()
+    try {
+      let x = c
+      if (!x) {
+        x = await create.mutateAsync(createBody(def, draft))
+        reset(x)
+        onCreated(x)
+      } else {
+        if (body && Object.keys(body).length) x = await patch.mutateAsync({ id: x.id, patch: body })
+        if (Object.keys(modeChanges).length) x = await setModes.mutateAsync({ id: x.id, modes: modeChanges })
+        if (x !== c) reset(x)
+      }
+      const r = await oauthStart.mutateAsync({ id: x.id, returnTo: oauthReturnTo() })
+      setAuthRun({ id: x.id, before: x.oauth?.authorized_at ?? null, url: r.authorize_url, expires: r.expires_at })
+      if (w) w.location.href = r.authorize_url
+    } catch (e) {
+      w?.close()
+      setAuthError(`没能发起授权：${errorText(e)}`)
+    }
+  }
+
   function pickIcon(e: ChangeEvent<HTMLInputElement>) {
     const f = e.target.files?.[0]
     e.target.value = ''
@@ -175,8 +239,8 @@ export function ConnectorDrawer({ def, connector: c, taken, check, pending, test
     if (testError) return <span className="danger-text">测试没发出去：{errorText(testError)}</span>
     if (hasChanges) return <span className="cn-faint">改了配置，保存后才按新配置测</span>
     if (retest) return <span className="cn-faint">已保存新配置，还没按新配置测</span>
-    if (check) return check.ok ? <span className="cn-ok-text">{check.message || '连接正常'}{c.account && ` · ${c.account}`}</span>
-      : <span className="danger-text">{check.message}</span>
+    if (freshCheck) return freshCheck.ok ? <span className="cn-ok-text">{freshCheck.message || '连接正常'}{c.account && ` · ${c.account}`}</span>
+      : <span className="danger-text">{freshCheck.message}</span>
     if (c.status === 'error') return <span className="danger-text">{c.error || '连接异常'}</span>
     if (c.last_tested_at && c.status === 'connected') return <span className="cn-faint">上次连接正常 · {ago(c.last_tested_at)}</span>
     return <span className="cn-faint">还没测过</span>
@@ -247,12 +311,37 @@ export function ConnectorDrawer({ def, connector: c, taken, check, pending, test
         ))}
       </div>
       <div className="cn-faint">{AUTH_HINT[draft.authMode]}</div>
-      {draft.authMode === 'oauth2' && (
-        <div className="cn-oauth">
-          <span className="cn-oauth-text"><b>还没授权</b><span className="cn-faint">OAuth 授权还没开放，先用 Token 接入</span></span>
-          <Button size="sm" variant="primary" disabled>去 {def.label} 授权</Button>
-        </div>
-      )}
+    </>
+  )
+
+  // 授权框，照原型 oauth-box：还没授权、已授权、已过期三种；已保存的认证方式不是 OAuth 时按还没授权算
+  const authText = () => {
+    if (authWait) return <><b>等待授权…</b><span className="cn-faint">在新打开的 {def.label} 页面里登录、确认授权，完成后这里自动更新</span></>
+    if (authSaved === 'ok') {
+      return <><b>已授权{c?.account && `：${c.account}`}</b>
+        <span className="cn-faint">{c?.oauth?.expires_at ? `令牌到期：${new Date(c.oauth.expires_at).toLocaleDateString('zh-CN')}，到期前自动续期` : '令牌没有到期时间'}</span></>
+    }
+    if (authSaved === 'expired') {
+      return <><b className="danger-text">授权已过期</b><span className="cn-faint">{c?.error || '令牌已失效，用到它的 Agent 和流程会失败'}</span></>
+    }
+    return <><b>还没授权</b><span className="cn-faint">{authLack || `点右边按钮会在新窗口打开 ${def.label} 的授权页`}</span></>
+  }
+  const oauthBox = draft.authMode === 'oauth2' && (
+    <>
+      <div className={cls('cn-oauth', !authWait && authSaved === 'ok' && 'ok', !authWait && authSaved === 'expired' && 'bad')} data-oauth={authWait ? 'wait' : authSaved}>
+        <span className="cn-oauth-text">{authText()}</span>
+        {authWait ? <>
+          <a className="link cn-oauth-link" href={authWait.url} target="_blank" rel="noopener noreferrer">授权页没打开？</a>
+          <Button size="sm" onClick={() => setAuthRun(null)}>不等了</Button>
+        </> : (
+          <Button size="sm" variant={authSaved === 'ok' ? 'outline' : 'primary'} disabled={!!authLack || busy || pending}
+            title={authLack || undefined} onClick={() => void authorize()}>
+            {oauthStart.isPending ? '正在打开…' : authSaved === 'none' ? `${hasChanges ? (creating ? '接入并' : '保存并') : ''}去 ${def.label} 授权` : '重新授权'}
+          </Button>
+        )}
+      </div>
+      {authError && <div className="danger-text" role="alert">授权没完成：{authError}</div>}
+      {authDone && authSaved === 'ok' && <div className="cn-ok-text" role="status">授权完成{c?.status === 'connected' ? '，已连接' : ''}</div>}
     </>
   )
 
@@ -378,6 +467,7 @@ export function ConnectorDrawer({ def, connector: c, taken, check, pending, test
               <div className="cn-group-title">凭证与参数</div>
               {authSeg}
               {def.fields.filter((f) => fieldOn(f, draft.authMode)).map(field)}
+              {oauthBox}
               {testRow}
             </section>
             <section className="cn-group" aria-label="同步">
@@ -407,6 +497,7 @@ export function ConnectorDrawer({ def, connector: c, taken, check, pending, test
                 <div className="cn-group-title">认证方式</div>
                 {authSeg}
                 {authFields.map(field)}
+                {oauthBox}
                 {preview && <div className="cn-faint">{preview}</div>}
                 {testRow}
               </section>

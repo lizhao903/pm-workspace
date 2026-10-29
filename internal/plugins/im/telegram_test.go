@@ -30,6 +30,7 @@ const (
 // fakeTelegram 是本机假 Bot API：updates 按 offset 返回，sendMessage 记下请求，token 不对回 401。
 type fakeTelegram struct {
 	mu      sync.Mutex
+	token   string // 空为 tgToken
 	updates []map[string]any
 	offsets []float64 // 每次 getUpdates 带的 offset，没带记 -1
 	sent    []map[string]any
@@ -39,13 +40,17 @@ type fakeTelegram struct {
 func (f *fakeTelegram) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	if strings.HasPrefix(r.URL.Path, "/file/bot"+tgToken+"/") {
+	want := f.token
+	if want == "" {
+		want = tgToken
+	}
+	if strings.HasPrefix(r.URL.Path, "/file/bot"+want+"/") {
 		_, _ = io.WriteString(w, "file body")
 		return
 	}
 	tok, method, _ := strings.Cut(strings.TrimPrefix(r.URL.Path, "/bot"), "/")
 	w.Header().Set("Content-Type", "application/json")
-	if tok != tgToken {
+	if tok != want {
 		w.WriteHeader(http.StatusUnauthorized)
 		_, _ = io.WriteString(w, `{"ok":false,"error_code":401,"description":"Unauthorized"}`)
 		return
@@ -124,6 +129,12 @@ type tgEnv struct {
 // path 给了时用同一个库（模拟重启）。
 func setupTelegram(t *testing.T, path string, fake *fakeTelegram) tgEnv {
 	t.Helper()
+	return setupTelegramOn(t, path, fake, fake)
+}
+
+// setupTelegramOn 同 setupTelegram，假 Bot API 换成 h（多个 Bot 时按 Token 分派）。
+func setupTelegramOn(t *testing.T, path string, fake *fakeTelegram, h http.Handler) tgEnv {
+	t.Helper()
 	ctx := context.Background()
 	fresh := path == ""
 	if fresh {
@@ -148,7 +159,7 @@ func setupTelegram(t *testing.T, path string, fake *fakeTelegram) tgEnv {
 	r.Migrations = plugin.NewSQLMigrationStore(d)
 	r.SetConnectors(conns)
 	defs.SetPluginDefs(r.ConnectorDefs)
-	srv := httptest.NewServer(fake)
+	srv := httptest.NewServer(h)
 	t.Cleanup(srv.Close)
 	u, _ := url.Parse(srv.URL)
 	r.SetHTTPTransport(rewrite{u})
@@ -261,7 +272,7 @@ func TestTelegramPullOffsetAndRestart(t *testing.T) {
 		t.Fatalf("群消息：relevance=%s kind=%s conv=%s sender=%s", rel, kind, conv, sender)
 	}
 	var dm string
-	_ = e.d.R.QueryRow(`SELECT relevance FROM im_messages WHERE external_id = '555:2'`).Scan(&dm)
+	_ = e.d.R.QueryRow(`SELECT relevance FROM im_messages WHERE external_id = '555:2@123456789'`).Scan(&dm)
 	if dm != "dm" {
 		t.Fatalf("私聊 relevance=%s", dm)
 	}

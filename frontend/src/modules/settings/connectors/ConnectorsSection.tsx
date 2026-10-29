@@ -4,6 +4,7 @@
 // - 连接 = 启用（暂停中的先 PATCH enabled）再做一次连通测试；断开先落成暂停，主动断开（disconnected）归 CONN-01b。
 // - 后端的 connecting 是「接入后还没测过」，行上照样给「连接」。
 // - 删除前的影响检查归 CONN-03，现在只确认删除。
+// - OAuth 授权回调回到这一页（带 ?oauth=）时只显示结果，那是授权弹出的窗口（CONN-04b）。
 import { useEffect, useRef, useState, type MouseEvent } from 'react'
 import {
   errorText, QueryState, useConnectorDefs, useConnectors, usePatchConnector, useTestConnector,
@@ -13,13 +14,20 @@ import { Button, cls, Drawer, EmptyState, PageTitle } from '../../../core/ui'
 import { AUTH_LABEL, CATEGORIES, categoryOf, OFF_HINT, OTHER } from './catalog'
 import { ConnectorDrawer } from './ConnectorDrawer'
 import { fallbackDef, rowSummary, type ConnCheck } from './model'
-import { StatusDot, ToolLogo } from './parts'
+import { OAuthDone, StatusDot, ToolLogo } from './parts'
+import { oauthResult } from './oauth'
 import './connectors.css'
 
 // 新建成功后换成编辑同一条，slot 沿用新建时的 key，抽屉不重新挂载
 type Open = { mode: 'new'; tool: string } | { mode: 'edit'; id: string; slot?: string }
 
 export function ConnectorsSection() {
+  const [done] = useState(() => oauthResult(globalThis.location?.search ?? ''))
+  if (done) return <OAuthDone {...done} />
+  return <Connectors />
+}
+
+function Connectors() {
   const defsQ = useConnectorDefs()
   const listQ = useConnectors()
   const test = useTestConnector()

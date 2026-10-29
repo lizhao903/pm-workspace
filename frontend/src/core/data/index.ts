@@ -88,11 +88,12 @@ export {
 export type { Identity, IdentityInput, IdentityOp, IdentityFailure } from './identities'
 export {
   connectorsApi, normConnector, useConnectorDefs, useConnectors, useCreateConnector, usePatchConnector, useDeleteConnector,
-  useTestConnector, useRefreshConnectorTools, useSetConnectorToolModes,
+  useTestConnector, useRefreshConnectorTools, useSetConnectorToolModes, useStartConnectorOAuth,
 } from './connectors'
 export type {
   Connector, ConnectorDef, ConnectorField, ConnectorTool, ConnectorToolDef, ConnectorAuthMode, ConnectorToolMode, ConnectorStatus,
   ConnectorDirection, ConnectorInput, ConnectorPatch, ConnectorTestResult, ConnectorRefreshResult,
+  ConnectorOAuthDef, ConnectorOAuthState, ConnectorOAuthStart,
 } from './connectors'
 export { projectStakeholdersApi, useAddProjectStakeholder, usePatchProjectStakeholder, useRemoveProjectStakeholder } from './projectStakeholders'
 export type { ProjectStakeholderInput, ProjectStakeholderPatch } from './projectStakeholders'
@@ -184,8 +185,9 @@ export {
 export type {
   Video, VideoInput, VideoSeries, VideoOrientation, VideoStageKey, VideoCheckpoint, VideoCheckpointStage, VideoCheckpointState,
   VideoArtifact, VideoArtifactInput, VideoArtifactKind, VideoArtifactStatus, VideoArtifactReview, VideoArtifactSource, VideoCoverRatio,
-  VideoSeriesInput,
+  VideoSeriesInput, VideoRunnerType, VideoStageRunner, VideoRunStatus, VideoLastRun,
 } from './video'
+export { videoRunnerApi, usePutRunner, useRemoveRunner, useRunStage, useWatchVideoRun } from './videoRunners'
 export {
   videoTopicApi, useVideoTopics, useVideoClips, useCreateTopic, usePatchTopic, useMakeTopic, useDeleteTopic,
   useCreateClip, usePatchClip, useClipToTopic, useLinkClip, useDeleteClip,
@@ -195,10 +197,10 @@ export type {
 } from './videoTopics'
 
 export { browserKeys } from './browserKeys'
-export { BROWSER_MAX_STORED_TABS, browserApi, useBrowserGoogle, useBrowserGoogleLogin, useBrowserGoogleLogout } from './browser'
+export { BROWSER_MAX_STORED_TABS, browserApi, useBrowserGoogle, useBrowserGoogleLogin, useBrowserGoogleLogout, useBrowserAllowlist, useAddBrowserAllow } from './browser'
 export type {
   BrowserTabKind, BrowserTabRecord, BrowserGoogleConn, BrowserGoogleAccount, BrowserGoogleState, BrowserOAuthStart, BrowserGoogleLogin,
-  BrowserGoogleLogout,
+  BrowserGoogleLogout, BrowserAllowEntry,
 } from './browser'
 
 // 接口层的纯函数和类型照样给模块用：不发请求，不碰缓存
