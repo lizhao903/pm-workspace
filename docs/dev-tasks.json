@@ -4652,6 +4652,46 @@
     "acceptance": "- [ ] 项目里能加 Agent、设默认、从这里开对话，会话列在项目里\n- [ ] 概览的项目 Agent 块显示默认 Agent\n- [ ] npm test、typecheck、lint、build、smoke-frontend 通过"
   },
   {
+    "key": "VID-05d",
+    "type": "task",
+    "title": "封面 A/B 手动判定接口，前端换掉调门槛的做法",
+    "milestone": "M5",
+    "module": "fullstack",
+    "priority": "P3",
+    "estimate": "S",
+    "depends_on": [
+      "VID-05b",
+      "VID-05c"
+    ],
+    "workdir": ".",
+    "spec": [
+      "web-next/docs/spec/videos.md SPEC-videos-14",
+      "docs/api-contract.md video 一节封面 A/B"
+    ],
+    "body": "## 背景\n\nVID-05c 的「提前采用领先的」「结束，不判胜负」是靠把门槛改成极值再判一次实现的，会改掉测试记的门槛，差距真超过 10 倍时还会误判。\n\n## 要做什么\n\n- 后端加 `POST /api/video/cover-tests/{id}/decide`，body `{winner_id?}`：给了就按它判胜（设主封面、其余归档），不给就结束不判胜负；门槛不动；已决出的回 409。\n- 前端两个按钮改用这个接口。\n- 契约 video 一节同步。",
+    "acceptance": "- [ ] 提前采用、不判胜负结束都走新接口，测试门槛不变（Go 测试和前端组件测试）\n- [ ] gofmt、go vet、go test ./...；npm test、typecheck、lint、build、smoke-frontend 通过"
+  },
+  {
+    "key": "SHELL-02",
+    "type": "task",
+    "title": "视频菜单红点、连接器页按工具直达抽屉",
+    "milestone": "M4",
+    "module": "frontend",
+    "priority": "P3",
+    "estimate": "S",
+    "depends_on": [
+      "VID-07b",
+      "CONN-04"
+    ],
+    "workdir": "frontend",
+    "spec": [
+      "frontend/src/core/shell/marks.ts",
+      "web-next/docs/spec/settings.md SPEC-settings-3、8.8、8.9"
+    ],
+    "body": "## 要做什么\n\n- 一级菜单「视频」：今日页三张视频卡（待验收、待发布、发布失败）有条目时给红点，按外壳现有规则只给红点、不放数字（VID-01c、VID-07b 留下的缺口）。\n- 连接器设置页认 `?tool=<key>`：已接入的打开它的抽屉，没接入的打开新建抽屉；视频发布里的「去接入 / 去修复」改成带这个参数跳过去。",
+    "acceptance": "- [ ] 有视频待处理时菜单红点亮，清掉后灭\n- [ ] 从视频发布点「去接入」直接打开对应平台的连接器抽屉\n- [ ] npm test、typecheck、lint、build、smoke-frontend 通过"
+  },
+  {
     "key": "VID-08p",
     "type": "task",
     "title": "原型补商单",
