@@ -190,6 +190,8 @@
 .pj-role-decider { border-color: color-mix(in srgb, var(--danger) 40%, var(--line)); color: var(--danger); }
 .pj-role-contact { border-color: var(--accent-line); color: var(--accent); }
 .pj-role-owner { border-color: color-mix(in srgb, var(--ok) 40%, var(--line)); color: var(--ok); }
+/* 不认识的角色（E-02）：实线红框加浅红底，和决策人的淡红区分开 */
+.pj-role-unknown { border-color: var(--danger); background: color-mix(in srgb, var(--danger) 10%, var(--panel)); color: var(--danger); }
 .pj-doc-status {
   height: 26px; border-color: color-mix(in srgb, var(--c) 35%, transparent);
   background: color-mix(in srgb, var(--c) 10%, var(--panel)); color: color-mix(in srgb, var(--c) 85%, var(--text));
@@ -209,7 +211,11 @@
 .pj-inline-form { display: flex; flex-direction: column; gap: var(--sp-4); padding: var(--sp-7); border: 1px solid var(--line); border-radius: var(--r-lg); background: var(--panel-2); max-width: 560px; }
 
 @media (max-width: 760px) {
-  .pj-stats, .pj-ov-grid { grid-template-columns: minmax(0, 1fr); }
+  /* 数字卡两列，不然五张各占一行，滚两屏才到最新沟通（B-11） */
+  .pj-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--sp-4); }
+  .pj-stat { padding: var(--sp-5) var(--sp-6); }
+  .pj-stat-label { max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+  .pj-ov-grid { grid-template-columns: minmax(0, 1fr); }
   .pj-related-row { grid-template-columns: minmax(0, 1fr) auto; }
   .pj-related-row > .input { grid-column: 1 / -1; }
   .pj-block { padding: var(--sp-6); }

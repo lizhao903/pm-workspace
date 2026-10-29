@@ -15,15 +15,15 @@ import (
 // 视频：表 video_videos、video_checkpoints，接口 /api/video/videos。
 // 阶段只往前走：没有检查点的阶段用 advance，有检查点的阶段通过或跳过后进下一阶段，退回停在原地。
 
-const videoCols = `id, title, project_id, series_id, episode, orientations, stage, root, chapters, created_at, updated_at, topic_id`
+const videoCols = `id, title, project_id, series_id, episode, orientations, stage, root, chapters, created_at, updated_at, topic_id, target_date`
 
-var videoFields = []string{"title", "project_id", "series_id", "episode", "orientations", "root", "chapters"}
+var videoFields = []string{"title", "project_id", "series_id", "episode", "orientations", "root", "chapters", "target_date"}
 
 func scanVideo(row plugin.Row) (Video, error) {
 	var v Video
 	var episode *int64
 	var orients string
-	if err := row.Scan(&v.ID, &v.Title, &v.ProjectID, &v.SeriesID, &episode, &orients, &v.Stage, &v.Root, &v.Chapters, &v.CreatedAt, &v.UpdatedAt, &v.TopicID); err != nil {
+	if err := row.Scan(&v.ID, &v.Title, &v.ProjectID, &v.SeriesID, &episode, &orients, &v.Stage, &v.Root, &v.Chapters, &v.CreatedAt, &v.UpdatedAt, &v.TopicID, &v.TargetDate); err != nil {
 		return Video{}, err
 	}
 	if episode != nil {
@@ -175,6 +175,9 @@ func (h *handler) applyVideo(ctx context.Context, v *Video, raw map[string]json.
 	if err := intField(raw, "chapters", "章节数", &v.Chapters, 0, 999); err != nil {
 		return err
 	}
+	if err := dateField(raw, "target_date", "计划首发日", &v.TargetDate); err != nil {
+		return err
+	}
 	if b, ok := raw["project_id"]; ok {
 		id, err := optID(b, "project_id")
 		if err != nil {
@@ -266,8 +269,8 @@ func (h *handler) addVideo(w http.ResponseWriter, r *http.Request) {
 	v.ID = idgen.Prefixed("vd")
 	now := nowStr()
 	orients, _ := json.Marshal(v.Orientations)
-	if _, err := h.c.Store().Exec(ctx, `INSERT INTO video_videos (`+videoCols+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		v.ID, v.Title, v.ProjectID, v.SeriesID, v.Episode, string(orients), v.Stage, v.Root, v.Chapters, now, now, v.TopicID); err != nil {
+	if _, err := h.c.Store().Exec(ctx, `INSERT INTO video_videos (`+videoCols+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		v.ID, v.Title, v.ProjectID, v.SeriesID, v.Episode, string(orients), v.Stage, v.Root, v.Chapters, now, now, v.TopicID, v.TargetDate); err != nil {
 		fail(w, r, h.c, err)
 		return
 	}
@@ -325,8 +328,8 @@ func (h *handler) updateVideo(w http.ResponseWriter, r *http.Request) {
 	}
 	orients, _ := json.Marshal(v.Orientations)
 	if _, err := h.c.Store().Exec(ctx, `UPDATE video_videos SET title = ?, project_id = ?, series_id = ?, episode = ?, orientations = ?,
-		root = ?, chapters = ?, stale = `+stale+`, updated_at = ? WHERE id = ?`,
-		v.Title, v.ProjectID, v.SeriesID, v.Episode, string(orients), v.Root, v.Chapters, nowStr(), id); err != nil {
+		root = ?, chapters = ?, target_date = ?, stale = `+stale+`, updated_at = ? WHERE id = ?`,
+		v.Title, v.ProjectID, v.SeriesID, v.Episode, string(orients), v.Root, v.Chapters, v.TargetDate, nowStr(), id); err != nil {
 		fail(w, r, h.c, err)
 		return
 	}

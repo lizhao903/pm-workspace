@@ -107,6 +107,15 @@ export function diffForm(f: Form, saved: Form): { patch: NonNullable<ProjectSave
   return { patch, props }
 }
 
+// ---- 刚新建的项目（C-05）：名称没改就离开设置时问要不要删；只记在本页内存里，刷新后不再问 ----
+
+/** 新建项目的默认名称（SPEC-projects-1.2） */
+export const NEW_PROJECT_NAME = '新项目'
+const fresh = new Set<string>()
+export const markFresh = (id: string) => { fresh.add(id) }
+export const isFresh = (id: string) => fresh.has(id)
+export const unmarkFresh = (id: string) => { fresh.delete(id) }
+
 // ---- 详情的标签（顺序和显示名见 SPEC-projects-0 ProjectTab）；todo 是还没做的标签由谁补 ----
 
 export type ProjectTab = 'overview' | 'comms' | 'stakeholders' | 'tasks' | 'docs' | 'sop' | 'agents' | 'materials' | 'prototypes' | 'settings'
@@ -179,7 +188,10 @@ export function sortByPriority(tasks: readonly WorkObject[], prios: readonly Dic
 
 // ---- 干系人标签（SPEC-projects-6）：按角色顺序（STAKE_ORDER），同角色按加入顺序 ----
 
-const roleRank = (role: string) => {
+/** 不是五个角色之一（库里的旧数据或别处写进来的）：界面显示原值并标红（E-02） */
+export const isKnownRole = (role: string) => PROJECT_ROLES.some((x) => x.key === role)
+
+export const roleRank = (role: string) => {
   const i = PROJECT_ROLES.findIndex((x) => x.key === role)
   return i < 0 ? PROJECT_ROLES.length : i
 }

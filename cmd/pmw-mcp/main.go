@@ -1,5 +1,5 @@
 // Command pmw-mcp 把产品工作台暴露成一个 MCP server，让 Claude Code 之类的
-// Agent 能直接查需求、建待办、搜文档、看最近变更。
+// Agent 能直接查需求、建任务、搜文档、看最近变更。
 //
 // 它是个瘦客户端：所有操作都打工作台的 HTTP API（默认 http://127.0.0.1:7777），
 // 不直接开 SQLite。原因有两条——校验规则（类型状态集、分类与类型同源、字典枚举）
@@ -28,11 +28,11 @@ var version = "0.1.0"
 const defaultAPIBase = "http://127.0.0.1:7777"
 
 // instructions 是握手时发给客户端的总体说明，补充单个工具描述讲不到的全局约定。
-const instructions = `这是「产品工作台」——一个跑在本机的个人产品管理工具，统一管需求、待办、项目、文档、资源和笔记。
+const instructions = `这是「产品工作台」——一个跑在本机的个人产品管理工具，统一管需求、任务、项目、文档、资源和笔记。
 
 几条通用约定：
 
-1. 状态、类型、优先级、关联关系传的都是 key 不是中文标签，而且状态集是按类型隔离的（需求的 doing 和待办的 doing 是两套）。拿不准就先调 pmw_list_types，不要猜。
+1. 状态、类型、优先级、关联关系传的都是 key 不是中文标签，而且状态集是按类型隔离的（需求的 doing 和任务的 doing 是两套）。拿不准就先调 pmw_list_types，不要猜。
 2. 对象 id 形如 obj_0abc…，REQ-0001 这类是给人看的 ref。多数工具两种都认，但 id 更可靠。
 3. pmw_search / pmw_get_object / pmw_list_types / pmw_list_categories / pmw_list_stakeholders / pmw_recent_changes / pmw_counts / pmw_list_artifacts / pmw_next_task / pmw_list_runs / pmw_get_run 是只读的；pmw_create_object / pmw_update_object / pmw_link_objects / pmw_record_artifact / pmw_claim_task / pmw_append_progress / pmw_submit_review / pmw_create_subtasks 会真的写进用户的数据库，动手前先确认清楚要改的是哪一条。
 4. pmw_update_object 的 body 和 tags 是整体替换不是追加，要增补先读回来再拼完整内容。
@@ -68,7 +68,7 @@ func main() {
 	srv := mcp.NewServer(&mcp.Implementation{
 		Name:        "pm-workspace",
 		Title:       "产品工作台",
-		Description: "本机产品工作台：需求、待办、项目、文档的检索与维护",
+		Description: "本机产品工作台：需求、任务、项目、文档的检索与维护",
 		Version:     version,
 	}, &mcp.ServerOptions{Instructions: instructions})
 

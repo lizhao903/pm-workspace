@@ -6,6 +6,7 @@ import type * as DataLayer from '../data'
 import type { CommandRegistry, ShellApi } from './commands'
 import type { ModuleDef } from './index'
 import type { PluginManifest } from './manifest'
+import type { ProjectTabRegistry } from './projectTabs'
 import type { TodaySourceRegistry } from './todaySources'
 
 export interface Disposable {
@@ -144,6 +145,8 @@ export interface PluginApi {
   todayCards: TodayCardRegistry // 2.8
   // 今日「需要你处理」「正在运行」的来源（ALIGN-08）
   todaySources: TodaySourceRegistry
+  // 项目详情的插件标签（VID-08d）
+  projectTabs: ProjectTabRegistry
   commands: CommandRegistry // 2.9
   events: EventRegistry // 2.10（未实现）
   data: DataClient

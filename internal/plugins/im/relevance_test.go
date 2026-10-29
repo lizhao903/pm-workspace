@@ -5,6 +5,9 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/lizhao903/pm-workspace/internal/connector"
+	"github.com/lizhao903/pm-workspace/internal/plugin"
 )
 
 func TestAccountHandles(t *testing.T) {
@@ -102,5 +105,70 @@ func TestRelevanceFromConnectorAccount(t *testing.T) {
 	}
 	if _, ok := at[newMe]; !ok {
 		t.Fatal("mine=at 要有改名后的 @我")
+	}
+}
+
+func TestNameHandles(t *testing.T) {
+	for _, c := range []struct {
+		names string
+		want  []string
+	}{
+		{"", []string{}},
+		{"李钊", []string{"李钊"}},
+		{" 李钊, @Zhao，钊哥、zhao ; Lin Zhao\n", []string{"李钊", "Zhao", "钊哥", "Lin Zhao"}},
+	} {
+		if got := nameHandles(c.names); !slices.Equal(got, c.want) {
+			t.Errorf("%q：%q，应为 %q", c.names, got, c.want)
+		}
+	}
+}
+
+// 两个 IM 渠道的连接器定义都有「我的称呼」，否则保存配置时回 400
+func TestSelfNamesField(t *testing.T) {
+	for _, d := range []plugin.ConnectorDef{NewSlack(SlackOptions{}).ConnectorDef(), NewTelegram().ConnectorDef()} {
+		if !slices.ContainsFunc(d.Fields, func(f connector.Field) bool { return f.Key == SelfNamesField && f.Kind == "text" }) {
+			t.Errorf("%s 没有 %s 字段", d.Tool, SelfNamesField)
+		}
+	}
+}
+
+// 渠道配置里填的「我的称呼」（PR-19）：按名字 @ 也算 @我，和账号拆出来的一起认；改了之后新到的按新称呼认
+func TestRelevanceFromSelfNames(t *testing.T) {
+	e := setup(t)
+	exec(t, e.d, `INSERT INTO connectors (id, tool, name, account, status, direction, config, created_at, updated_at) VALUES
+		('cn_tg', 'telegram', 'Telegram', 'PM Bot（@pm_bot）', 'connected', 'both', '{"self_names":"李钊, Zhao"}', 'x', 'x')`)
+	n := 0
+	send := func(text string) string {
+		t.Helper()
+		n++
+		ext := fmt.Sprintf("G01:n%d", n)
+		body := fmt.Sprintf(`{"messages":[{"external_id":%q,"connector_id":"cn_tg","conversation_id":"G01","conversation_name":"产品群","sender_id":"lin","text":%q}]}`, ext, text)
+		if code, out := call(t, e.h, "POST", "/api/im/callbacks/fake", body); code != 200 {
+			t.Fatalf("回调：%d %v", code, out)
+		}
+		return ext
+	}
+	cases := []struct{ text, want string }{
+		{"@李钊 验收标准麻烦再确认一下", "me"},
+		{"@zhao 看下", "me"},      // 不分大小写
+		{"@pm_bot 账号的也认", "me"}, // 账号照旧
+		{"@李钊们 都来", ""},         // 称呼后面紧跟字不算
+		{"李钊 没有 @ 的不算", ""},
+	}
+	exts := make([]string, len(cases))
+	for i, c := range cases {
+		exts[i] = send(c.text)
+	}
+	exec(t, e.d, `UPDATE connectors SET config = '{"self_names":"钊哥"}' WHERE id = 'cn_tg'`)
+	renamed := send("@钊哥 改了称呼")
+	old := send("@李钊 旧称呼")
+	_, got := list(t, e.h, "")
+	for i, c := range cases {
+		if r := got[exts[i]]["relevance"]; r != c.want {
+			t.Errorf("%q：%v，应为 %q", c.text, r, c.want)
+		}
+	}
+	if got[renamed]["relevance"] != "me" || got[old]["relevance"] != "" {
+		t.Fatalf("改称呼后：新 %v（应为 me），旧 %v（应为空）", got[renamed]["relevance"], got[old]["relevance"])
 	}
 }

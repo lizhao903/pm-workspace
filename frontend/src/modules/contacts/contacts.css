@@ -69,8 +69,15 @@
   .ct-table.ct-no-im .ct-tr > :nth-child(7) { display: block; }
 }
 @container (max-width: 460px) {
-  .ct-table .ct-tr { grid-template-columns: 24px minmax(110px, 1fr) 84px 64px; }
+  /* 姓名列不设下限、收窄内边距和列间距，不然 375 宽时整行溢出，最近联系被右边框切掉（B-11） */
+  .ct-table .ct-tr { grid-template-columns: 24px minmax(0, 1fr) 84px 60px; gap: var(--sp-4); padding: 0 var(--sp-6) 0 var(--sp-4); }
+  .ct-table.ct-no-im .ct-tr { grid-template-columns: 24px minmax(0, 1fr) 84px 60px; }
+  .ct-table .ct-sec { padding: 0 var(--sp-6); }
   .ct-table .ct-tr > :nth-child(6) { display: none; }
+}
+/* 窄表最近联系一列靠右，和分组标签、「+N」拉开距离（B-11） */
+@container (max-width: 680px) {
+  .ct-table .ct-tr > :last-child { text-align: right; white-space: nowrap; }
 }
 
 /* ---------- 抽屉查看态 ---------- */

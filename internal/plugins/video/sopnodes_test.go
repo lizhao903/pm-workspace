@@ -132,15 +132,12 @@ func weeklyBody(t *testing.T) string {
 	return string(b)
 }
 
-// 验收 1：SOP 编辑器的节点目录里有两种视频节点，停用视频插件后消失；video_publish 只在清单里预留
+// 验收 1：SOP 编辑器的节点目录里有三种视频节点（video_publish 是 VID-06c 加的），停用视频插件后消失
 func TestSOPNodeTypesFollowPlugin(t *testing.T) {
 	e := setupWith(t, sop.New())
 	got := nodeKinds(t, e.h)
-	if got[NodeWaitCheckpoint] != "video/视频" || got[NodeRunStage] != "video/视频" {
+	if got[NodeWaitCheckpoint] != "video/视频" || got[NodeRunStage] != "video/视频" || got[NodePublish] != "video/视频" {
 		t.Fatalf("节点目录：%v", got)
-	}
-	if _, ok := got["video_publish"]; ok {
-		t.Fatalf("video_publish 归 VID-06c，不该登记：%v", got)
 	}
 	if err := e.r.Disable(context.Background(), "video"); err != nil {
 		t.Fatal(err)

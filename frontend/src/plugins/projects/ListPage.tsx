@@ -11,7 +11,8 @@ import { IM_PLUGIN } from './commsModel'
 import { ProjectMarkView } from './Mark'
 import { NEW_PROJECT_ICON } from './markIcons'
 import {
-  ACTIVITY_GROUPS, GROUP_PEEK, activityOf, dirName, groupByActivity, loadRecent, matchQuery, nextColor, openTaskCounts, showStatusTag, sortProjects,
+  ACTIVITY_GROUPS, GROUP_PEEK, NEW_PROJECT_NAME, activityOf, dirName, groupByActivity, loadRecent, markFresh, matchQuery, nextColor, openTaskCounts,
+  showStatusTag, sortProjects,
   type Activity, type Sort,
 } from './model'
 
@@ -46,8 +47,9 @@ export function ListPage({ onOpen }: { onOpen: (id: string, tab?: 'settings') =>
   const newProject = () => {
     if (create.isPending) return
     create.mutate(
-      { title: '新项目', color: nextColor(all.length), mark: { text: '', icon: NEW_PROJECT_ICON } },
-      { onSuccess: (o) => onOpen(o.id, 'settings') },
+      { title: NEW_PROJECT_NAME, color: nextColor(all.length), mark: { text: '', icon: NEW_PROJECT_ICON } },
+      // 记成刚新建：名称没改就离开设置时问要不要删（C-05）
+      { onSuccess: (o) => { markFresh(o.id); onOpen(o.id, 'settings') } },
     )
   }
   const newBtn = (
@@ -57,7 +59,7 @@ export function ListPage({ onOpen }: { onOpen: (id: string, tab?: 'settings') =>
     </Button>
   )
   const title = (
-    <PageTitle parent="项目" count={projects.data ? all.length : undefined} desc="按状态分组；点卡片打开项目" actions={newBtn}>全部项目</PageTitle>
+    <PageTitle parent="项目" count={projects.data ? all.length : undefined} desc="有原型在跑、有待回复的排在前面；点卡片打开项目" actions={newBtn}>全部项目</PageTitle>
   )
 
   const card = (p: ProjectView) => {

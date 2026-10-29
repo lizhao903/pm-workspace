@@ -238,15 +238,6 @@ func (h *handler) submitPublish(w http.ResponseWriter, r *http.Request) {
 		fail(w, r, h.c, err)
 		return
 	}
-	if p.Status == "published" || p.URL != "" {
-		fail(w, r, h.c, apiErr(errConflict, "这条发布已经有稿件了，不能再投一次"))
-		return
-	}
-	a, err := h.adapterFor(p, CapUpload, "投稿：用发布包（GET /api/video/publishes/{id}/package）到创作者后台发布，再回填链接")
-	if err != nil {
-		fail(w, r, h.c, err)
-		return
-	}
 	var connID, fileID string
 	// 标签、分区、合集没给的用发布记录上存的（VID-05a）
 	in := PublishInput{Title: p.Title, Desc: p.Desc, Tags: p.Tags, Category: p.Category, Collection: p.Collection}
@@ -266,71 +257,83 @@ func (h *handler) submitPublish(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	out, cnID, ref, err := h.submitOne(ctx, p, connID, fileID, in)
+	var ue *upstreamErr
+	if errors.As(err, &ue) {
+		upstreamFail(w, "publish_failed", ue.err, map[string]any{"publish_id": id, "connector_id": ue.connector})
+		return
+	} else if err != nil {
+		fail(w, r, h.c, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"data": out, "meta": map[string]any{"connector_id": cnID, "remote_id": ref.ID}})
+}
+
+// submitOne 投一条发布：接口和到点发布（schedule.go）共用。in 带好标题简介标签分区合集，这里补定时、成片和封面。
+// 平台出错时发布记录置为 failed、写上原因，回 *upstreamErr；投之前的检查不过回分类错误，记录不动。
+func (h *handler) submitOne(ctx context.Context, p Publish, connID, fileID string, in PublishInput) (Publish, string, RemoteRef, error) {
+	var ref RemoteRef
+	id := p.ID
+	if p.Status == "published" || p.URL != "" {
+		return p, "", ref, apiErr(errConflict, "这条发布已经有稿件了，不能再投一次")
+	}
+	a, err := h.adapterFor(p, CapUpload, "投稿：用发布包（GET /api/video/publishes/{id}/package）到创作者后台发布，再回填链接")
+	if err != nil {
+		return p, "", ref, err
+	}
 	if p.ScheduledAt != nil && parseTime(*p.ScheduledAt).After(parseTime(nowStr())) {
 		in.ScheduledAt = *p.ScheduledAt
 		if !hasCap(a, CapSchedule) {
-			fail(w, r, h.c, apiErr(errUnsupported, "%s还不能定时投稿，清掉定时或到点再发", PlatformLabels[p.Platform]))
-			return
+			return p, "", ref, apiErr(errUnsupported, "%s还不能定时投稿，清掉定时或到点再发", PlatformLabels[p.Platform])
 		}
 	}
 	v, err := h.getVideo(ctx, p.VideoID)
 	if err != nil {
-		fail(w, r, h.c, err)
-		return
+		return p, "", ref, err
 	}
 	file, err := h.videoArtifact(ctx, p, fileID)
 	if err != nil {
-		fail(w, r, h.c, err)
-		return
+		return p, "", ref, err
 	}
 	if in.Video, err = h.localFile(ctx, v, file, "成片"); err != nil {
-		fail(w, r, h.c, err)
-		return
+		return p, "", ref, err
 	}
 	if p.CoverID != "" {
 		cv, err := h.getArtifact(ctx, p.CoverID)
 		if err != nil {
-			fail(w, r, h.c, err)
-			return
+			return p, "", ref, err
 		}
 		f, err := h.localFile(ctx, v, cv, "封面")
 		if err != nil {
-			fail(w, r, h.c, err)
-			return
+			return p, "", ref, err
 		}
 		in.Cover = &f
 	}
 	if err := a.Validate(in); err != nil {
-		fail(w, r, h.c, apiErr(errValidation, "%s", err.Error()))
-		return
+		return p, "", ref, apiErr(errValidation, "%s", err.Error())
 	}
 	// 平台规则校验有一项不过就不投（VID-05a，平台适配器自己的校验在前），标签按这次投的算
 	pc := p
 	pc.Tags = in.Tags
 	checks, err := h.publishChecks(ctx, pc)
 	if err != nil {
-		fail(w, r, h.c, err)
-		return
+		return p, "", ref, err
 	}
 	if bad := firstFailed(checks); bad != "" {
-		fail(w, r, h.c, apiErr(errValidation, "%s", bad))
-		return
+		return p, "", ref, apiErr(errValidation, "%s", bad)
 	}
 	if connID == "" {
 		connID = h.accountConnector(ctx, p)
 	}
 	cn, err := h.pickConnector(ctx, a, connID)
 	if err != nil {
-		fail(w, r, h.c, err)
-		return
+		return p, "", ref, err
 	}
 	if _, busy := h.submitting.LoadOrStore(id, true); busy {
-		fail(w, r, h.c, apiErr(errConflict, "这条发布正在投稿"))
-		return
+		return p, "", ref, apiErr(errConflict, "这条发布正在投稿")
 	}
 	defer h.submitting.Delete(id)
 
-	var ref RemoteRef
 	err = h.withPlatform(ctx, cn, func(s Session) error {
 		upload, err := a.UploadVideo(ctx, s, in.Video)
 		if err != nil {
@@ -350,11 +353,9 @@ func (h *handler) submitPublish(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		msg := clipText(err.Error(), 2000)
 		if _, uerr := h.c.Store().Exec(wctx, `UPDATE video_publishes SET status = 'failed', error = ?, updated_at = ? WHERE id = ?`, msg, nowStr(), id); uerr != nil {
-			fail(w, r, h.c, uerr)
-			return
+			return p, "", ref, uerr
 		}
-		upstreamFail(w, "publish_failed", errors.New(msg), map[string]any{"publish_id": id, "connector_id": cn.ID})
-		return
+		return p, "", ref, &upstreamErr{connector: cn.ID, err: errors.New(msg)}
 	}
 	now := nowStr()
 	status, publishedAt := "published", &now
@@ -363,15 +364,10 @@ func (h *handler) submitPublish(w http.ResponseWriter, r *http.Request) {
 	}
 	if _, err := h.c.Store().Exec(wctx, `UPDATE video_publishes SET status = ?, url = ?, error = '', published_at = ?, updated_at = ? WHERE id = ?`,
 		status, ref.URL, publishedAt, now, id); err != nil {
-		fail(w, r, h.c, err)
-		return
+		return p, "", ref, err
 	}
 	out, err := h.getPublish(wctx, id)
-	if err != nil {
-		fail(w, r, h.c, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"data": out, "meta": map[string]any{"connector_id": cn.ID, "remote_id": ref.ID}})
+	return out, cn.ID, ref, err
 }
 
 // remoteOf 是发布记录对应的平台稿件，从 url 里认。

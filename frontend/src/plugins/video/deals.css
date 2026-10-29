@@ -1,0 +1,83 @@
+/* 商单（VID-08d），照原型 web-next/src/videocalendar.css 的 deal- 部分；类名 dl- 前缀，颜色走 tokens.css。
+   项目详情、今日页里也会用到，不依赖视频页自己的样式 */
+.dl-muted { color: var(--faint); font-size: var(--fs-xs); }
+.dl-hint { margin-left: var(--sp-4); font-weight: 400; color: var(--faint); font-size: var(--fs-xs); }
+.dl-err { color: var(--danger); font-size: var(--fs-sm); }
+.dl-link { color: var(--accent); background: none; padding: 0; font-size: var(--fs-sm); text-align: left; min-width: 0; }
+.dl-link:hover { text-decoration: underline; text-underline-offset: 2px; }
+.dl-saved { color: var(--ok); font-size: var(--fs-sm); }
+.dl-empty { font-size: var(--fs-sm); color: var(--faint); padding: var(--sp-2) 0; }
+.dl-warn { color: var(--warn); }
+
+/* ---------- 标签页 ---------- */
+.dl-tab { display: flex; flex-direction: column; gap: var(--sp-6); }
+.dl-toolbar { display: flex; align-items: center; gap: var(--sp-6); flex-wrap: wrap; }
+.dl-stats { display: flex; flex-wrap: wrap; gap: var(--sp-4) var(--sp-10); font-size: var(--fs-sm); color: var(--muted); }
+.dl-stats b { color: var(--text); font-variant-numeric: tabular-nums; }
+
+/* 列表：1 商单 2 状态 3 报价 4 交付 / 账期 5 视频 */
+.dl-list { display: flex; flex-direction: column; border: 1px solid var(--line); border-radius: var(--r-lg); background: var(--panel); overflow: hidden; container-type: inline-size; }
+.dl-row {
+  display: grid; grid-template-columns: minmax(180px, 1.6fr) 96px 96px 130px minmax(120px, 1fr); gap: var(--sp-6); align-items: center;
+  min-height: 52px; padding: var(--sp-3) var(--sp-8); border: 0; border-bottom: 1px solid var(--line); background: none; text-align: left; color: var(--text); width: 100%;
+}
+.dl-row > * { min-width: 0; }
+.dl-row:last-child { border-bottom: 0; }
+div.dl-row[role='button'] { cursor: pointer; }
+div.dl-row[role='button']:hover { background: var(--panel-2); }
+.dl-row.sel { background: var(--accent-soft); }
+.dl-th { min-height: 34px; font-size: var(--fs-xs); color: var(--faint); background: var(--panel-2); }
+.dl-more { cursor: pointer; display: block; }
+.dl-more:hover { color: var(--accent); }
+.dl-main { display: flex; flex-direction: column; gap: 2px; }
+.dl-title { font-weight: 600; }
+.dl-money { font-variant-numeric: tabular-nums; }
+.dl-due { font-size: var(--fs-sm); color: var(--muted); }
+.dl-due.warn { color: var(--warn); }
+.dl-due.danger { color: var(--danger); }
+.dl-gone { display: flex; align-items: center; gap: var(--sp-4); font-size: var(--fs-sm); color: var(--muted); }
+.dl-dot { display: inline-block; width: 6px; height: 6px; margin-left: var(--sp-2); border-radius: 50%; background: var(--danger); vertical-align: middle; }
+
+/* ---------- 抽屉 ---------- */
+.dl-drawer .drawer-foot { flex-wrap: wrap; }
+.dl-form { display: flex; flex-direction: column; gap: var(--sp-7); }
+.dl-src { padding: var(--sp-4) var(--sp-5); border-radius: var(--r); background: var(--panel-2); border: 1px solid var(--line); font-size: var(--fs-sm); color: var(--muted); display: flex; flex-direction: column; gap: var(--sp-2); }
+.dl-src-text { color: var(--text); white-space: pre-wrap; word-break: break-word; }
+.dl-banner { padding: var(--sp-4) var(--sp-5); border-radius: var(--r); background: var(--warn-soft); color: var(--warn); font-size: var(--fs-sm); }
+.dl-banner.danger { background: var(--danger-soft); color: var(--danger); }
+.dl-group { display: flex; flex-direction: column; gap: var(--sp-5); padding-top: var(--sp-6); border-top: 1px solid var(--line); }
+.dl-group-title { font-size: var(--fs-sm); font-weight: 600; color: var(--muted); }
+.dl-chips { display: flex; flex-wrap: wrap; gap: var(--sp-3); }
+.dl-flow { display: flex; flex-wrap: wrap; gap: var(--sp-2); }
+.dl-step { height: 28px; padding: 0 var(--sp-5); border-radius: var(--r-sm); border: 1px solid var(--line); background: var(--panel); font-size: var(--fs-sm); color: var(--muted); }
+.dl-step:hover:not(:disabled) { border-color: var(--line-2); color: var(--text); }
+.dl-step:disabled { opacity: .5; cursor: not-allowed; }
+.dl-step.done { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 35%, var(--line)); }
+.dl-step.cur { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.dl-step.lost { background: var(--danger); border-color: var(--danger); color: var(--accent-ink); }
+.dl-ref { display: flex; flex-direction: column; gap: var(--sp-2); padding: var(--sp-4) var(--sp-5); border-radius: var(--r); background: var(--panel-2); font-size: var(--fs-sm); color: var(--muted); }
+.dl-ref b { color: var(--text); font-variant-numeric: tabular-nums; }
+.dl-fill { margin-left: var(--sp-3); }
+.dl-videos { display: flex; flex-direction: column; border: 1px solid var(--line); border-radius: var(--r); }
+.dl-video { display: flex; align-items: center; gap: var(--sp-4); min-height: 38px; padding: 0 var(--sp-5); border-bottom: 1px solid var(--line); min-width: 0; }
+.dl-video:last-child { border-bottom: 0; }
+.dl-act-row { display: flex; align-items: center; gap: var(--sp-4); flex-wrap: wrap; }
+
+/* ---------- 今日卡片 ---------- */
+.dl-due-line { text-decoration: none; }
+.dl-due-line:hover { background: var(--panel-2); }
+.dl-due-dot { flex: none; width: 6px; height: 6px; border-radius: 50%; background: var(--warn); }
+.dl-due-dot.danger { background: var(--danger); }
+/* 名称优先，金额那行先被挤掉 */
+.today-line.dl-due-line .dl-due-title { flex: 0 0 auto; max-width: 100%; }
+.today-line.dl-due-line .dl-due-sub { flex: 1 1 0; }
+
+/* 列表变窄（抽屉停靠、窄屏）先收起视频列；手机宽度只留名称和状态（SPEC-videos-16.3） */
+@container (max-width: 680px) {
+  .dl-row { grid-template-columns: minmax(140px, 1fr) 90px 90px 120px; }
+  .dl-row > .dl-vids { display: none; }
+}
+@container (max-width: 460px) {
+  .dl-row { grid-template-columns: minmax(0, 1fr) 90px; padding: var(--sp-3) var(--sp-5); }
+  .dl-row > :nth-child(n + 3) { display: none; }
+}

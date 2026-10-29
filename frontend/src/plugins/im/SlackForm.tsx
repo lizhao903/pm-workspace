@@ -7,7 +7,7 @@ import {
   type Connector, type ConnectorPatch,
 } from '../../core/data'
 import { Checkbox, Field, Input, Select } from '../../core/ui'
-import { callbackUrl, intervalLabel, memberIdError, SLACK_SCOPES, slackTokenError, SYNC_INTERVALS } from './channelModel'
+import { callbackUrl, intervalLabel, memberIdError, SELF_NAMES_FIELD, SELF_NAMES_HINT, SLACK_SCOPES, slackTokenError, SYNC_INTERVALS } from './channelModel'
 
 export const SLACK_TOOL = 'slack'
 const DEFAULT_INTERVAL = 5
@@ -27,6 +27,7 @@ export function SlackForm({ connector, onSaved, onCancel }: {
   const [signing, setSigning] = useState('')
   const [channels, setChannels] = useState(connector?.config.channels ?? '')
   const [self, setSelf] = useState(connector?.config.self_user_id ?? '')
+  const [names, setNames] = useState(connector?.config[SELF_NAMES_FIELD] ?? '')
   const [every, setEvery] = useState(connector?.interval ?? DEFAULT_INTERVAL)
   const [reply, setReply] = useState((connector?.direction ?? 'both') === 'both')
   const [touched, setTouched] = useState(false)
@@ -43,7 +44,7 @@ export function SlackForm({ connector, onSaved, onCancel }: {
     setTouched(true)
     setResult(null)
     if (tokenErr || selfErr || busy) return
-    const config = { channels: channels.trim(), self_user_id: self.trim() }
+    const config = { channels: channels.trim(), self_user_id: self.trim(), [SELF_NAMES_FIELD]: names.trim() }
     const secrets: Record<string, string> = {}
     if (token.trim()) secrets.bot_token = token.trim()
     if (signing.trim()) secrets.signing_secret = signing.trim()
@@ -97,6 +98,9 @@ export function SlackForm({ connector, onSaved, onCancel }: {
       </Field>
       <Field label="我的 Member ID" error={touched ? selfErr : undefined} hint="@ 到它的消息算「@我」；留空只认 @Bot">
         <Input value={self} invalid={touched && !!selfErr} placeholder="U01ABCDEF" onChange={(e) => setSelf(e.target.value)} />
+      </Field>
+      <Field label="我的称呼" hint={SELF_NAMES_HINT}>
+        <Input value={names} placeholder="李钊, Zhao" onChange={(e) => setNames(e.target.value)} />
       </Field>
       <Field label="同步间隔" hint="工作台不在公网上时 Slack 推不进来，靠定时拉 conversations.history 收消息">
         <Select value={String(every)} onValueChange={(v) => setEvery(Number(v))}

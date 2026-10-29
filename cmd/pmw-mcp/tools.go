@@ -84,7 +84,7 @@ type searchArgs struct {
 	Offset          int      `json:"offset,omitempty" jsonschema:"跳过前 N 条，翻页用"`
 }
 
-const searchDesc = `【只读】在产品工作台里检索工作对象（需求 / 待办 / 项目 / 文档 / 资源 / 笔记，具体有哪些类型看 pmw_list_types）。
+const searchDesc = `【只读】在产品工作台里检索工作对象（需求 / 任务 / 项目 / 文档 / 资源 / 笔记，具体有哪些类型看 pmw_list_types）。
 
 什么时候用：回答「有哪些…」「XX 相关的需求是哪些」「谁手上还有什么没做完」「哪些逾期了」这类问题；或者在读全文、改字段之前，先把目标对象找出来拿到它的 id。
 
@@ -254,9 +254,9 @@ type createObjectArgs struct {
 	Workdir    string   `json:"workdir,omitempty" jsonschema:"工作目录，本机绝对路径。不传时执行和开发会继承所属项目的工作目录"`
 }
 
-const createObjectDesc = `【会写入数据】在产品工作台里新建一个工作对象（需求、待办、项目、文档等）。
+const createObjectDesc = `【会写入数据】在产品工作台里新建一个工作对象（需求、任务、项目、文档等）。
 
-什么时候用：用户说「记一下」「建个需求」「加个待办」，或者你在对话里整理出了需要落库跟踪的事项。
+什么时候用：用户说「记一下」「建个需求」「加个任务」，或者你在对话里整理出了需要落库跟踪的事项。
 
 必填 type_id 和 title。其余不传就留空，不要为了填满字段而编造负责人或到期日。status 必须是该类型状态集里的 key（用 pmw_list_types 查），不传则走该类型的默认首状态，通常这样更稳妥。
 
@@ -347,7 +347,7 @@ type updateObjectArgs struct {
 
 const updateObjectDesc = `【会写入数据】修改一个已有的工作对象：状态、优先级、负责人、到期日、分类、标签、正文都走这个工具。
 
-关于 status：它必须是该对象所属类型状态集里的 key，不是中文标签。不同类型的状态集不一样（需求有 backlog/planned/doing/done，待办是 todo/doing/blocked/done），改之前先用 pmw_list_types 查该类型合法的 key，传错会被工作台直接拒绝。
+关于 status：它必须是该对象所属类型状态集里的 key，不是中文标签。不同类型的状态集不一样（需求有 backlog/planned/doing/done，任务是 todo/doing/blocked/done），改之前先用 pmw_list_types 查该类型合法的 key，传错会被工作台直接拒绝。
 
 语义说明：
 - 只传你要改的字段，没传的字段保持原值。
@@ -454,7 +454,7 @@ const listTypesDesc = `【只读】列出工作台里所有工作对象类型，
 
 什么时候用：这是其它工具的前置查询。在 pmw_create_object 选 type_id、在 pmw_update_object 传 status、在 pmw_search 按 type/status 筛、在 pmw_link_objects 选 relation 之前，只要拿不准合法取值就先调这个。不确定的时候宁可多调一次，也别猜一个 key 传过去被拒。
 
-要点：状态集是按类型隔离的——需求的 doing 和待办的 doing 是两回事，不同类型的状态 key 不能互相套用。
+要点：状态集是按类型隔离的——需求的 doing 和任务的 doing 是两回事，不同类型的状态 key 不能互相套用。
 
 返回：每个类型的 id、名称、ref 前缀，以及它的状态 key 列表（含中文标签、哪些是终态）；再附上全局的优先级与关联关系取值。`
 
@@ -535,7 +535,7 @@ const listCategoriesDesc = `【只读】列出某个工作对象类型下的分�
 
 什么时候用：要按分类检索（pmw_search 的 category 参数）、或者新建/修改对象时要指定 category_id，先用这个把分类 id 查出来。
 
-要点：分类隶属于具体类型，需求的分类不能挂到待办上。
+要点：分类隶属于具体类型，需求的分类不能挂到任务上。
 
 返回：缩进表示层级的树，每行是「分类名 (id) 对象数」，子树数量也会一并标出。`
 
@@ -567,7 +567,7 @@ type linkObjectsArgs struct {
 	Note     string `json:"note,omitempty" jsonschema:"备注，说明这两个对象为什么关联"`
 }
 
-const linkObjectsDesc = `【会写入数据】在两个工作对象之间建立关联，比如「这个待办阻塞了那个需求」「这两条需求重复了」。
+const linkObjectsDesc = `【会写入数据】在两个工作对象之间建立关联，比如「这个任务阻塞了那个需求」「这两条需求重复了」。
 
 关联是有方向的：from_id 是起点，to_id 是终点。relation=blocks 表示「from 阻塞 to」，relation=parent 表示「from 是 to 的父级」，方向搞反了含义就反了。
 

@@ -67,7 +67,12 @@ func (h *handler) addSnapshot(ctx context.Context, p Publish, m Metrics, source 
 	_, err := h.c.Store().Exec(ctx, `INSERT INTO video_metric_snapshots (`+snapshotCols+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		p.ID, dayAfter(p.PublishedAt, m.UpdatedAt), source, m.Views, m.Likes, m.Comments, m.Shares, m.Impressions, m.CTR, m.AvgWatchSec, m.Completion,
 		m.Favorites, m.Coins, m.FollowersGained, m.UpdatedAt, nowStr())
-	return err
+	if err != nil {
+		return err
+	}
+	// 快照落库后重算挂着这条发布的封面测试（VID-05b）
+	h.evaluateCoverTestsFor(ctx, p.ID)
+	return nil
 }
 
 func (h *handler) snapshotsOf(ctx context.Context, publishID string) ([]MetricSnapshot, error) {

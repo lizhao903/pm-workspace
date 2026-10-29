@@ -114,3 +114,21 @@ describe('加干系人', () => {
     expect(screen.getByRole('button', { name: '加 1 人' })).toBeEnabled()
   })
 })
+
+describe('角色', () => {
+  it('不认识的角色照原值显示、标红，排在最后（E-02）', async () => {
+    fakeBackend([{ stakeholder_id: 'sh_3', role: 'boss' }, { stakeholder_id: 'sh_1', role: 'member' }])
+    mount()
+    const odd = await screen.findByRole('combobox', { name: '刘一 的角色' })
+    expect(odd).toHaveValue('boss')
+    expect(within(odd).getByRole('option', { selected: true })).toHaveTextContent('boss')
+    expect(odd).toHaveAttribute('aria-invalid', 'true')
+    expect(odd).toHaveAttribute('title', '不认识的角色「boss」，选一个改掉')
+    expect(odd.className).toContain('pj-role-unknown')
+    const ok = screen.getByRole('combobox', { name: '侯明 的角色' })
+    expect(within(ok).getByRole('option', { selected: true })).toHaveTextContent('参与')
+    expect(ok).not.toHaveAttribute('aria-invalid')
+    const rows = screen.getAllByRole('row').slice(1).map((r) => within(r).getAllByRole('cell')[0].querySelector('b')?.textContent)
+    expect(rows).toEqual(['侯明', '刘一'])
+  })
+})

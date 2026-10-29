@@ -183,8 +183,7 @@ func TestFieldsMatchPrototype(t *testing.T) {
 			t.Fatalf("%s 一个字段都没解析出来", name)
 		}
 		for _, f := range proto {
-			// target_date 是 VID-06p 给原型加的（内容日历），VID-06b 落地时删掉
-			if !slices.Contains(tags, f) && !(name == "Video" && f == "target_date") {
+			if !slices.Contains(tags, f) {
 				t.Errorf("%s.%s 原型里有，Go 结构里没有", name, f)
 			}
 		}

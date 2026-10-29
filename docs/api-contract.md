@@ -63,6 +63,8 @@
 | PATCH | `/api/object-types/{id}` | `ObjectTypePatch`，builtin 类型仅允许改 icon/color/sort_order/statuses |
 
 状态 `{key,label,color,terminal,description?}`：`description` 是给人看的说明（PR-13，设置的枚举值页里改），可省，空时不返回；0041 给任务的待验收、受阻、已完成、已取消补了说明。
+
+内置类型 `task` 的 `name`、`plural` 是「任务」（0042 从「待办」「待办事项」改过来，PR-20），key 和前缀 `TSK` 不变；MCP 的 `pmw_list_types` 读的是同一份。
 | DELETE | `/api/object-types/{id}` | builtin 返回 403；下挂对象非空返回 409 |
 
 ## 分类 categories
@@ -165,7 +167,7 @@
 
 | 前缀 | 实体 | 表 |
 |---|---|---|
-| obj | 对象（需求、待办、项目、文档、资源、笔记） | objects |
+| obj | 对象（需求、任务、项目、文档、资源、笔记） | objects |
 | cat | 分类 | categories |
 | tag | 标签 | tags |
 | lnk | 关联 | links |
@@ -208,8 +210,9 @@
 | pb | 发布记录（视频插件；检查点按视频加阶段认，没有 id） | video_publishes |
 | vaf | 视频产出物（视频插件；验收记录用整数 id） | video_artifacts |
 | pa | 平台账号（视频插件；数据快照没有 id） | video_accounts |
+| vct | 封面 A/B 测试（视频插件；分组没有 id） | video_cover_tests |
 | bt | 浏览器标签页（浏览器插件） | browser_tabs |
-| deal | 商单（原型先补，后端还没有表） | - |
+| deal | 商单（视频插件） | video_deals |
 | pn | 终端会话（终端插件，128 位随机串，不走 `idgen.Prefixed`，不入库） | - |
 
 原型 `ids.ts` 和后端不一致的前缀：后端已经上线的不改，原型的前缀保留，不分给别的实体。
@@ -228,7 +231,7 @@
 
 开发任务闭环（领取 → 记进展 → 提交验收）的两个接口。没有为它建表：进展和会话标识落在 `revisions`，
 验收标准和关联仓库落在 `objects.props`，代码类产物落在 `artifacts`（见「输出产物」）。
-待办类型的「待验收」状态（`review`，非终态）由 0013 加上。
+任务类型的「待验收」状态（`review`，非终态）由 0013 加上。
 
 **为什么是服务端追加。** 进展如果写在正文里，调用方只能「读出正文、拼一段、整体 PATCH 回去」，
 两个会话同时写，后写的会把先写的那段覆盖掉，而且不报错。`POST /progress` 只插入不更新，
@@ -1593,7 +1596,7 @@ IM-01a 起。插件 `im`（`internal/plugins/im`，清单 `plugin.json`，0.5.0�
 
 Slack App 的 **Bot Token**（`xoxb-`）方式。适配器 `slack`（`internal/plugins/im/slack.go`，渠道 `slack`），连接器定义 `internal/connector/slack.go`（`tool: slack`，分类 `im`，`source: im`，`can_send: true`，认证 `token`），由 IM 插件登记；出网走 `network:im`，连通测试也走它。
 
-- **字段**：`bot_token`（`secret`，必填，`xoxb-` 开头）、`signing_secret`（`secret`，用事件订阅时必填）进保险箱，界面只有 `secret_hints`；`channels`（`text`，监听频道，`#product, #feedback`，逗号、顿号、空格分隔，`#` 可省，也可以写频道 id；留空只收私信）；`self_user_id`（`text`，「我的 Member ID」，@ 到它算 @我）。
+- **字段**：`bot_token`（`secret`，必填，`xoxb-` 开头）、`signing_secret`（`secret`，用事件订阅时必填）进保险箱，界面只有 `secret_hints`；`channels`（`text`，监听频道，`#product, #feedback`，逗号、顿号、空格分隔，`#` 可省，也可以写频道 id；留空只收私信）；`self_user_id`（`text`，「我的 Member ID」，@ 到它算 @我）；`self_names`（`text`，「我的称呼」，逗号分隔，见下面「我」的称呼，PR-19）。
 - **连通测试**：`auth.test`，Token 不是 `xoxb-` 开头的直接失败、不调对方；`account` 是 `Bot 名（Bot 的 Member ID）`。
 - **收的范围**：私信（`im`，`direct`）、多人私信（`mpim`，`group`，`conversation_name` 是「多人私信」）全收；频道只收 `channels` 里列的，Bot 要先被邀请进频道。普通消息、带文件的、串里回复同时发到频道的、`/me` 和别的 Bot 发的收；编辑、删除、进出频道等子类型和 Bot 自己发的跳过。
 - **事件订阅（优先）**：推到回调 `/api/im/callbacks/slack`（即上面的 `{adapter}` 为 `slack`），按 `signing_secret` 校验 `X-Slack-Signature`（`v0=HMAC-SHA256("v0:<时间戳>:<原文>")`），时间戳和本机差 5 分钟以上按重放拒绝；接了多个工作区时逐个实例验签，对上哪个算哪个；同一个 Slack App 装进几个工作区（Signing Secret 一样）时再比事件的 `team_id` 和实例的工作区（拉取或 `auth.test` 时记下），都不是已接入的工作区回 200 `{data: {ignored}}` 不落库。签名都对不上、没填 Signing Secret、还没接入 Slack 都回 401 `unauthorized`，不落库。`url_verification` 签名对时回 `{challenge}`。在用的实例都对不上而有暂停、断开的实例时回 200 `{data: {ignored}}` 不落库（暂停的取不到 Secret，认不出是不是它）。只处理 `event_callback` 里 `type: message` 的事件（含串里的回复），别的回 200 空结果。Slack 重试同一事件按 `external_id` 去重。收到消息时也记一次同步成功。
@@ -1615,7 +1618,7 @@ Slack App 的 **Bot Token**（`xoxb-`）方式。适配器 `slack`（`internal/p
 
 只接 **Bot API**，不接个人账号（有封号风险）。适配器 `telegram`（`internal/plugins/im/telegram.go`，渠道 `telegram`），连接器定义由 IM 插件登记（`tool: telegram`，分类 `im`，`source: im`，`can_send: true`，认证 `token`），出网走 `network:im`（域名清单只有 `api.telegram.org`）。一个实例就是一个 Bot，可以接多个（见上面「多个实例」）。
 
-- **字段**：`bot_token`（`secret`，必填，BotFather 给的 `123456789:AA…`，进保险箱，界面只有 `secret_hints`）；`webhook_url`（`text`，可选，`https://域名`，不带路径）。
+- **字段**：`bot_token`（`secret`，必填，BotFather 给的 `123456789:AA…`，进保险箱，界面只有 `secret_hints`）；`webhook_url`（`text`，可选，`https://域名`，不带路径）；`self_names`（`text`，「我的称呼」，同 Slack）。
 - **连通测试**：`getMe`，不是 Bot 或 Token 不对算失败；`account` 写成 `名字（@用户名）`，正文里 `@用户名` 算 @我（见上面「我」的称呼）。没填 `webhook_url` 时如果 Bot 还挂着 webhook 就 `deleteWebhook`（回到拉取）；填了就 `setWebhook` 到 `<webhook_url>/api/im/callbacks/telegram`，带 `secret_token`（由 Token 派生，换 Token 后要重新测试一次）。
 - **拉取（默认）**：`getUpdates` 长轮询（`timeout` 5 秒，两轮之间隔 1 秒），只要 `message`、`channel_post`；本机没有公网回调也能用。进度存在 `im_cursors`（`adapter=telegram`，每个实例一份 `{connector, bot, offset}`，见上面「多个实例」），整批落库后才写，服务重启后接着拉，已收过的不会再来；换了实例或 Bot（Token 冒号前的数字变了）时从头拉。暂停、断开、填了 `webhook_url` 的实例不拉。失败后后台 30 秒内不再试，「立即同步」（`POST /api/im/connectors/{id}/sync`）不受限。
 - **同步结果**：每次拉完经 `Core.Connectors().RecordSync` 记到实例上：成功记 `last_sync_at`，原来 `error`、`connecting` 的回到 `connected`；失败置 `error`，`error` 是原因，例如 Token 被重置时为「Telegram 返回 401：Unauthorized（Bot Token 无效或已被重置，去 BotFather 重新拿一个填上）」，原因里不带 Token。同一个 Bot 被别处 `getUpdates` 时 Telegram 回 409，原因里提示「同一个 Bot 只能有一处在收消息」。
@@ -1665,7 +1668,7 @@ Slack App 的 **Bot Token**（`xoxb-`）方式。适配器 `slack`（`internal/p
 - `conversation` 是群名：认上会话的取会话表现在的名字（改群名不断），没认上的取到达时的快照；私聊为空串（原型用空串表示私聊）。
 - `identity_id`、`stakeholder_id` 认不上为 `null`，`contact_name` 为空串；界面上这时显示 `sender_name`。
 - `relevance` 是「与我相关」的原因，到达时算一次：`me`（@我）优先于 `all`（@所有人：所有人、全体成员、all、here、channel、everyone），私聊是 `dm`，无关为空串；`Incoming.mention` 给了时以它为准。正文里 `@称呼` 后面紧跟字母、数字、下划线的不算（`@我们` 不算 `@我`），不分大小写。
-- 「我」的称呼（IM-03）：收这条消息的连接器（`connector_id`）的 `account` 拆出来的几种，加上适配器自己给的（例如渠道里的用户编号）。`account` 按括号、逗号、顿号、斜杠、竖线分段，每段和整串都算，开头的 `@` 去掉，段里 `@` 开头的词也单算，例 `Lin Zhao（@zhaoli，U07ME）` 认 `@Lin Zhao`、`@zhaoli`、`@U07ME`。没给 `connector_id` 或连接器已删时只认适配器给的。
+- 「我」的称呼（IM-03）：收这条消息的连接器（`connector_id`）的 `account` 拆出来的几种，加上适配器自己给的（例如渠道里的用户编号）。`account` 按括号、逗号、顿号、斜杠、竖线分段，每段和整串都算，开头的 `@` 去掉，段里 `@` 开头的词也单算，例 `Lin Zhao（@zhaoli，U07ME）` 认 `@Lin Zhao`、`@zhaoli`、`@U07ME`。另加连接器配置里用户自己填的「我的称呼」`config.self_names`（PR-19，微信、飞书这类按名字 @ 的渠道要填）：按逗号、顿号、分号、换行分开，开头的 `@` 去掉，段里的空格保留，例 `李钊, Zhao` 认 `@李钊`、`@Zhao`；改了之后到的消息按新称呼认，已存的不重算（同 `account`）。没给 `connector_id` 或连接器已删时只认适配器给的。
 - 连接器的 `account` 变了（重新连通测试时由对方给），之后到的消息按新称呼认；已存的 `relevance` 不重算：那些消息到达时确实是 @ 当时的我，而且渠道给的 `mention` 没有落库，重算会把它丢掉。
 - `status`、`read`、`snooze_until` 到达时是 `pending`、未读、无，用下面的处理动作改。
 - `adapter` 是收这条消息的适配器 key，回复时按它找适配器；0.2.0 之前收的为空串，回复时按渠道找。
@@ -2065,7 +2068,7 @@ TRD-01a。插件 `trade`（`internal/plugins/trade`，清单 `plugin.json`，0.1
 
 ## 视频创作插件 video
 
-VID-01a 起。插件 `video`（`internal/plugins/video`，清单 `plugin.json`，0.4.0），强依赖 `projects`，弱依赖 `im`，权限 `fs:read:project`、`fs:write:project`、`network:media-platforms`、`process:spawn`（前三个是普通级别；`process:spawn` 是高风险，VID-03b 加，技能执行器要它才能让 Claude Code 在工程目录里写文件，0.3.0 升上来要重新确认；产出物路径按 `fs:read:project` 的范围限制在视频工程目录内，登记时不查磁盘；经连接器投稿时读成片和封面，内容平台出网用 `network:media-platforms`，VID-04b 起）。功能模块 key 是 `videos`（同工作台目录和 `ws_video` 模板）。表前缀 `video_`，迁移在插件目录：`migrations/0001_video.sql` 建 `video_series`、`video_videos`、`video_checkpoints`、`video_publishes`，`0002_artifacts.sql`（VID-01b）建 `video_artifacts`、`video_artifact_reviews`，`0003_artifact_ratio.sql`（VID-02a）给产出物加 `ratio`、`lang` 和按封面比例分组的序号、选用列，`0005_runners.sql`（VID-03b）建阶段执行器 `video_runners` 和执行记录 `video_runs`，`0007_video_topic.sql`（VID-09a）给视频加 `topic_id`，`0008_publish_snapshots.sql`（VID-05a）给发布记录加账号、标签、分区、合集和校验结果，建平台账号 `video_accounts`、数据快照 `video_metric_snapshots`；0.1.0、0.2.0 装过的要走升级（`POST /api/plugins/{id}/upgrade`）应用新迁移，没升级前插件不启动。形状同原型 `web-next/src/videodata.ts`。前端两页是 VID-01c、VID-01d。内容平台连接器有 B 站 `bilibili`（VID-04b）、YouTube `youtube`、抖音 `douyin`（VID-04d），见下「内容平台」；视频号、小红书不做连接器，发布记录只登记、回填链接，数据手填。插件未安装或停用时本节接口回 `not_found` 404（同「插件路由」），数据不动，再启用照旧。停用 `projects` 时 `video` 在 `dependents` 里（同「插件管理」）。
+VID-01a 起。插件 `video`（`internal/plugins/video`，清单 `plugin.json`，0.4.0），强依赖 `projects`，弱依赖 `im`，权限 `fs:read:project`、`fs:write:project`、`network:media-platforms`、`process:spawn`（前三个是普通级别；`process:spawn` 是高风险，VID-03b 加，技能执行器要它才能让 Claude Code 在工程目录里写文件，0.3.0 升上来要重新确认；产出物路径按 `fs:read:project` 的范围限制在视频工程目录内，登记时不查磁盘；经连接器投稿时读成片和封面，内容平台出网用 `network:media-platforms`，VID-04b 起）。功能模块 key 是 `videos`（同工作台目录和 `ws_video` 模板）。表前缀 `video_`，迁移在插件目录：`migrations/0001_video.sql` 建 `video_series`、`video_videos`、`video_checkpoints`、`video_publishes`，`0002_artifacts.sql`（VID-01b）建 `video_artifacts`、`video_artifact_reviews`，`0003_artifact_ratio.sql`（VID-02a）给产出物加 `ratio`、`lang` 和按封面比例分组的序号、选用列，`0005_runners.sql`（VID-03b）建阶段执行器 `video_runners` 和执行记录 `video_runs`，`0007_video_topic.sql`（VID-09a）给视频加 `topic_id`，`0008_publish_snapshots.sql`（VID-05a）给发布记录加账号、标签、分区、合集和校验结果，建平台账号 `video_accounts`、数据快照 `video_metric_snapshots`，`0010_cover_tests.sql`（VID-05b）建封面 A/B 测试 `video_cover_tests`、`video_cover_test_arms`，给产出物加归档列，`0011_target_date.sql`（VID-06c）给视频加计划首发日 `target_date`、给发布记录加到点查询的索引；0.1.0、0.2.0 装过的要走升级（`POST /api/plugins/{id}/upgrade`）应用新迁移，没升级前插件不启动。形状同原型 `web-next/src/videodata.ts`。前端两页是 VID-01c、VID-01d。内容平台连接器有 B 站 `bilibili`（VID-04b）、YouTube `youtube`、抖音 `douyin`（VID-04d），见下「内容平台」；视频号、小红书不做连接器，发布记录只登记、回填链接，数据手填。插件未安装或停用时本节接口回 `not_found` 404（同「插件路由」），数据不动，再启用照旧。停用 `projects` 时 `video` 在 `dependents` 里（同「插件管理」）。
 
 | 方法 | 路径 | body / 说明 |
 |---|---|---|
@@ -2095,15 +2098,16 @@ VID-01a 起。插件 `video`（`internal/plugins/video`，清单 `plugin.json`�
 | GET | `/api/video/publishes/{id}/comments?cursor=&connector_id=` | 拉稿件的一页评论 `VideoComment[]`，不落库，`meta` 是 `{total, next, connector_id}`；平台没有评论能力 400 `unsupported`，平台出错 502 `fetch_failed`（VID-04b） |
 | GET | `/api/video/publishes/{id}/package?file_id=` | 发布包 `VideoPublishPackage`：手动到创作者后台发布要用的东西，只读、不出网（VID-04d），见下「内容平台」 |
 | GET | `/api/video/publishes/{id}/snapshots` | 这条发布的数据快照 `VideoMetricSnapshot[]`，按天、按先后排，不分页；`meta` 是 `{total, days}`，`days` 是按天曲线（同一天取最后一条，VID-05a），见下「平台账号、发布规则和按天快照」 |
+| GET | `/api/video/calendar?month=&week=&from=&to=` | 内容日历 `VideoCalendarItem[]`：范围内的发布和计划首发日，计划首发日带落后标记 `behind`；`meta` 是 `{total, from, to, today, late_days, behind}`（VID-06c），见下「定时发布和内容日历」 |
 | GET | `/api/video/accounts?platform=` | 平台账号 `VideoAccount[]` + `meta.total`，不分页，按登记先后；`platform` 可选（VID-05a） |
 | POST | `/api/video/accounts` | `{platform, handle?, connector_id?, uid?, role?, caps?, followers?}`，回 201 + `VideoAccount` |
 | GET | `/api/video/accounts/{id}` | 一个 `VideoAccount`；不存在 404 |
 | PATCH | `/api/video/accounts/{id}` | 只传要改的，字段同新建；`connector_id`、`followers` 传 `null` 清掉；回 `VideoAccount` |
 | DELETE | `/api/video/accounts/{id}` | `data` 为 `null`；挂着发布记录的 409 |
 | GET | `/api/video/artifacts?video_id=&kind=&variant=&ratio=&lang=&status=&source_type=&run_id=&session_id=` | `VideoArtifact[]` + `meta.total`，不分页，按登记先后；筛选都可选，`run_id`、`session_id` 用来从一次运行反查它的产出物 |
-| POST | `/api/video/artifacts` | `{video_id, kind, path, name?, variant?, ratio?, option?, lang?, version?, status?, duration?, picked?, source?}`，回 201 + `VideoArtifact` |
+| POST | `/api/video/artifacts` | `{video_id, kind, path, name?, variant?, ratio?, option?, lang?, version?, status?, duration?, picked?, archived?, source?}`，回 201 + `VideoArtifact` |
 | GET | `/api/video/artifacts/{id}` | 一个 `VideoArtifact`；不存在 404 |
-| PATCH | `/api/video/artifacts/{id}` | 只传要改的：`name` / `path` / `variant` / `ratio` / `option` / `lang` / `status` / `duration` / `picked`；`variant`、`ratio`、`option`、`lang`、`duration` 传 `null` 清掉（封面的 `ratio` 清掉回到方向的默认比例）；带 `video_id`、`kind`、`version`、`source`、`reviews` 400；回 `VideoArtifact` |
+| PATCH | `/api/video/artifacts/{id}` | 只传要改的：`name` / `path` / `variant` / `ratio` / `option` / `lang` / `status` / `duration` / `picked` / `archived`；`variant`、`ratio`、`option`、`lang`、`duration` 传 `null` 清掉（封面的 `ratio` 清掉回到方向的默认比例）；带 `video_id`、`kind`、`version`、`source`、`reviews` 400；回 `VideoArtifact` |
 | DELETE | `/api/video/artifacts/{id}` | `data` 为 `null`；只删记录，文件不动；验收记录一起删，用它当封面的发布记录 `cover_id` 清掉 |
 | POST | `/api/video/artifacts/{id}/reviews` | `{ok, comment?}`，追加一条验收记录；回 `VideoArtifact` |
 | POST | `/api/video/artifacts/{id}/bump` | `{from?}`，升版本：版本号加一、状态回到 `draft`，验收记录都留着；回 `VideoArtifact` |
@@ -2116,13 +2120,14 @@ VID-01a 起。插件 `video`（`internal/plugins/video`，清单 `plugin.json`�
 - `id` 是 `sr_` 前缀（已登记）。`name` 去首尾空白后必填，最多 100 字；`desc` 最多 1000 字；`intro`、`outro`、`template` 是共用开场、收尾、模板（路径或说明），各最多 500 字。
 - `stale` 整体替换，只能是这个系列的集，别的 400。改共用部分时，前端把用户勾选的受影响的集并进原来的 `stale` 一起传（同原型「影响范围确认」）；「标记已同步」就是传去掉那几集的数组。待同步记在视频上：视频移出或换了系列、被删掉，就不再算待同步。
 
-`Video`：`{id, title, project_id?, series_id?, episode?, topic_id?, orientations, stage, checkpoints, root, chapters, runners, last_run?, created_at, updated_at}`，同原型 `Video`（`target_date` 还没有）；`checkpoints` 是 `{stage, state, at?, note?}[]`。
+`Video`：`{id, title, project_id?, series_id?, episode?, topic_id?, orientations, stage, checkpoints, root, chapters, runners, last_run?, target_date?, created_at, updated_at}`，同原型 `Video`；`checkpoints` 是 `{stage, state, at?, note?}[]`。
 
 - `id` 是 `vd_` 前缀（已登记）。`project_id`、`series_id`、`episode` 没有就不返回这个字段；`checkpoints` 固定 4 个，按 `plan`、`ch1`、`audio`、`distribution` 排，`at`、`note` 没有就不返回。
 - `title` 最多 200 字，可以为空（前端显示「未命名视频」）；`project_id` 要是没删的项目对象，否则 400「项目不存在」；`series_id` 要是存在的系列，否则 400；`episode` 是 1 到 9999 的整数；`root` 是视频项目目录，最多 1000 字，不查磁盘；`chapters` 0 到 999。
 - `orientations` 是 `landscape` / `portrait` / `square` 的数组，去重后按这个顺序存（同原型 `ORIENT`）。**规划检查（`plan`）通过后锁定**：改成不一样的值 409「规划检查已通过，画面比例锁定了，要换比例得新开工程」，传同样的值不算改。
 - `stage` 是 `topic`、`script`、`plan`、`web`、`ch1`、`chapters`、`audio`、`record`、`distribution` 之一（同原型 `STAGES`；`topic` 是 VID-09a 加在最前面的，已有视频的阶段不动），只能用下面两个接口往前推；PATCH 里带 `stage`、`checkpoints` 或 `topic_id` 400。不认识的字段 400。
 - `topic_id` 是这一集来自哪个选题（`VideoTopic.id`），选题那边同时记着 `video_id`；只能用 `PUT /api/video/videos/{id}/topic` 和立项写，选题删掉时清空。没有就不返回。
+- `target_date` 是计划首发日（VID-06c），`YYYY-MM-DD` 本地日期，新建、PATCH 可传，传 `null` 或空串清掉，格式不对 400「计划首发日 要写成 YYYY-MM-DD」。排内容日历、算制作进度落后用，没有就不返回。
 
 阶段推进（同原型视频详情的 `advance`、`decide`）：
 
@@ -2176,6 +2181,28 @@ VID-01a 起。插件 `video`（`internal/plugins/video`，清单 `plugin.json`�
 - `day` 是发布后第几天（同原型 `dayAfter`）：数据时间减 `published_at` 的整天数，最少是 1；没有 `published_at` 按第 1 天。平台不提供的指标存空、不返回。
 - 后台任务 `metrics_daily`（插件 Job，每小时看一遍）：已发布、或已定时且到了定时时间的、有 `url`、平台有 `metrics` 能力的发布记录，当天（按 `day`）还没有 `connector` 快照的拉一次，同 `sync`；单条出错只记日志，接着拉下一条。视频号、小红书没有连接器，不拉，只手填。
 
+### 封面 A/B 测试（VID-05b）
+
+形状同原型 `web-next/src/videodata.ts` 的 `CoverTest`、`CoverTestArm` 和判定 `coverTestState`（COVER.md Part 7）。表 `video_cover_tests`、`video_cover_test_arms`（插件迁移 `0010_cover_tests.sql`，同时给产出物加归档列 `cover_archived`）。
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| GET | `/api/video/cover-tests?video_id=&status=` | `VideoCoverTest[]` + `meta.total`，不分页，按新建先后；筛选都可选 |
+| POST | `/api/video/cover-tests` | `{video_id, platform, mode, arms, started_at?, min_days?, min_impressions?, min_gap?}`，回 201 + `VideoCoverTest`；建好立刻算一遍，数据已经够的直接判出 |
+| GET | `/api/video/cover-tests/{id}` | 一个 `VideoCoverTest`；不存在 404 |
+| PATCH | `/api/video/cover-tests/{id}` | 只有进行中的能改，结束了 409；只传要改的：`min_days` / `min_impressions` / `min_gap`，`arms` 是 `{cover_id, impressions?, ctr?}[]`（按 `cover_id` 对上，只改曝光、点击率，传 `null` 清掉；不在测试里的封面 400「分组建好后不能增删」；小号分发 400，数据回填到发布记录上）；改完立刻算一遍，回 `VideoCoverTest` |
+| DELETE | `/api/video/cover-tests/{id}` | `data` 为 `null`；只删测试和分组，封面的选用、归档不回退 |
+| POST | `/api/video/cover-tests/{id}/evaluate` | 无 body，按当前数据马上算一遍；已结束的原样返回；回 `VideoCoverTest` |
+
+`VideoCoverTest`：`{id, video_id, platform, mode, arms, started_at, ended_at?, min_days, min_impressions, min_gap, winner_id?, status, state, created_at, updated_at}`，同原型 `CoverTest` 多 `state` 和时间；`arms` 是 `{cover_id, publish_id?, impressions?, ctr?}[]`，按登记顺序。
+
+- `id` 是 `vct_` 前缀（已登记）。`video_id` 要是存在的视频，否则 400「视频不存在」；`platform` 同发布记录，必填；`mode` 是 `native`（平台原生测试）/ `accounts`（小号分发）/ `utm`（分链接），必填（同原型 `COVER_TEST_MODE`）。`started_at` 是 RFC3339，不给按现在。门槛默认 `min_days` 7（1 到 365）、`min_impressions` 10000（非负整数）、`min_gap` 0.2（0 到 10 的小数，0.2 即点击率第一领先第二 20%）。
+- `arms` 2 到 5 组，每组一张这个视频的封面（`kind: cover`），不重复、没归档，否则 400。`accounts` 每组必须带一条本视频、本平台的发布记录 `publish_id`，不重复；发布记录用了封面的要和这组的封面一致；曝光、点击率从发布记录最新一次数据（`metrics.impressions`、`metrics.ctr`）读，组上不能手填。`native`、`utm` 的发布记录可选、可以几组共用一条（要是本视频本平台的），曝光 `impressions`（非负整数）、点击率 `ctr`（0 到 1）记在组上，平台按封面分开给的数手填或经 PATCH 回填。
+- 同一视频同一平台同时只能有一个进行中的测试，再开 409。视频删掉时测试一起删；封面、发布记录删掉时分组照留，读不到就当没有数据。
+- `status` 是 `running`（进行中）/ `decided`（已决出）/ `inconclusive`（没有结论），同原型 `COVER_TEST_STATUS`，不能直接改。`state` 是按当前数据算的判定过程 `{days, gap?, reached, leader?, days_ok, imp_ok, gap_ok, arms, data_incomplete?}`，同原型 `coverTestState` 的返回：`days` 是开始到结束（没结束到现在）第几天，满一天算 1、不足一天也算 1；`leader` 是点击率最高的封面；`gap` 是第一名点击率除以第二名减 1，第二名是 0 或不到两组有点击率时没有；`reached` 是曝光到线的组数；`arms` 是每组实际用的 `{cover_id, impressions?, ctr?}`；有组还没有点击率时 `data_incomplete` 为 `true`。
+- **判定**：进行中的测试在每次快照落库后（回填、`sync`、后台任务 `metrics_daily` 记快照时，算挂着这条发布的）、后台任务 `cover_tests`（插件 Job，启用时先跑一轮，之后每小时一轮，天数到线不一定有新快照）、新建和 PATCH 后重算。天数到线（`days_ok`）、每组曝光都到线（`imp_ok`）且每组都有点击率时出结果：差距到线（`gap_ok`）判 `decided`，`winner_id` 是领先的封面；差距不够判 `inconclusive`，没有 `winner_id`。没到线的照旧 `running`。出结果时记 `ended_at`，之后不再重算、数据再变也不改结果。
+- **胜者设为主封面**：胜者在它那一组（视频 + 方向 + 封面比例）设为选用（`picked: true`，同组原来选用的取消），取消归档；其余各组的封面标归档（`archived: true`）、取消选用。只改产出物记录的这两个标记，记录不删、文件不动。`inconclusive` 时封面都不动。
+
 ### 内容平台（VID-04b）
 
 插件内的平台适配接口（`internal/plugins/video/platform.go`）：每个平台一个适配器，自带连接器定义（由本插件登记，`source` 是 `video`），声明自己实际能做什么：`upload`（上传成片、设封面、投稿）、`schedule`（投稿时定时公开）、`metrics`（拉单条稿件数据）、`comments`（拉评论），同原型 `ContentPlatformCap` 的前四个。没声明的能力，接口直接 400，不去试。凭证存在连接器的保险箱条目里，调用时经 `Connectors().With` 现取；出网走 `Core.HTTP("media-platforms")`，域名清单见插件出网一节。**投稿会在用户的平台账号下产生稿件**，只在用户点了才发，没有后台自动投稿。
@@ -2201,7 +2228,7 @@ VID-01a 起。插件 `video`（`internal/plugins/video`，清单 `plugin.json`�
 - 发布包（`package`，VID-04d）：`VideoPublishPackage` 是 `{publish_id, platform, label, creator_url, upload, title, desc, tags, category?, collection?, scheduled_at?, video, cover?, checks, steps}`。`upload` 是这个平台能不能经连接器投稿；`video`、`cover` 是 `{artifact_id, path, name, size, ratio?}`，`path` 是本机绝对路径，成片取法同投稿（`file_id` 可指定），封面用 `cover_id`，文件不在、成片没有都 400；`checks` 是按平台规则算的校验（同发布记录的 `checks`），不拦；`steps` 是给人看的几步说明。任何平台都能取；发布记录不存在 404。
 - 渠道异常：令牌失效或没权限（B 站返回 -101 等鉴权错误码、HTTP 401、403）、连不上、平台 5xx 时连接器置为 `error`、`error` 是原因（同 IM 渠道的「记一次同步」）；成功一次回到 `connected`。平台只是不收这次投稿（如标题有敏感词）不动连接器。请求被取消的不记。
 
-`VideoArtifact`：`{id, video_id, kind, name, path, variant?, ratio?, option?, lang?, version, status, duration?, source, reviews, picked?, created_at, updated_at}`，同原型 `Artifact` 多 `updated_at`；`reviews` 是 `{at, ok, comment, version}[]`，同原型 `Review` 多 `version`（验收的是第几版），按先后排；`source` 是 `{type, label, id?, session_id?, run_id?, artifact_id?}`。
+`VideoArtifact`：`{id, video_id, kind, name, path, variant?, ratio?, option?, lang?, version, status, duration?, source, reviews, picked?, archived?, created_at, updated_at}`，同原型 `Artifact` 多 `updated_at`；`reviews` 是 `{at, ok, comment, version}[]`，同原型 `Review` 多 `version`（验收的是第几版），按先后排；`source` 是 `{type, label, id?, session_id?, run_id?, artifact_id?}`。
 
 - `id` 是 `vaf_` 前缀（原型的 `af` 已归内核产物 `art`）。`video_id` 要是存在的视频，否则 400。
 - `kind` 是 `article` / `script` / `outline` / `presentation` / `audio` / `video` / `subtitle` / `cover` / `description` / `chapters`（同原型 `ARTIFACT_KIND`），登记后不能改。口播稿、大纲、演示工程、成片、字幕、封面、简介、章节时间轴按画面比例各一套（技能布局 B：横版 `pc/`、竖版 `app/` 各写各的、各自升版本和验收），`variant`（`landscape` / `portrait` / `square`）必填，不给 400「口播稿按画面比例区分，要选 variant」；`article`、`audio` 带 `variant` 400。`variant` 不查是不是这集选了的比例（同原型「不在本工程比例里」照样显示）。
@@ -2211,6 +2238,7 @@ VID-01a 起。插件 `video`（`internal/plugins/video`，清单 `plugin.json`�
 - `lang` 是字幕语言，只有 `subtitle` 有，别的类型带了 400；写成 `zh`、`en`、`zh-Hans` 这样的语言代码（小写 2 到 3 个字母，后面可以接 `-` 分段），最多 20 字，可以不给。
 - `option` 是封面方案序号，1 到 99，只有封面能带；同一视频同一方向同一封面比例的序号唯一，重复 409「竖屏封面 3:4 的第 n 个方案已经登记过了」。`duration` 是秒，0 到 86400，只有 `audio`、`video` 能带。
 - `picked` 只有封面返回（没选是 `false`），非封面传 `true` 400。同一视频同一方向同一封面比例只能选用一张（竖屏的 9:16 和 3:4 各选一张）：选用这张时同组其余的自动取消（同原型「选用这张」）。
+- `archived` 只有封面返回（没归档是 `false`），是封面 A/B 测试输掉后标的（VID-05b，见下「封面 A/B 测试」），记录和文件都留着；非封面传 `true` 400，同时选用和归档 400「归档的封面不能选用，先取消归档」，手动传 `false` 取消归档。
 - 来源 `source` 同原型 `source`，多内核产物溯源（AG-03b）的几个出处，没有的不返回。只在登记时能给，之后不能改；不给是 `{type: "manual", label: "手动登记"}`。
   - `type` 是 `manual` / `sop` / `agent` / `skill`；`label` 是当时的名字快照，最多 100 字，不给用 `id`，再没有用「SOP」「Agent」「技能」；`id` 是 Agent id、SOP 流程 id 或技能名。
   - `session_id` 是 Agent 会话（`ags_`），`run_id` 是这次运行（Agent 执行记录 `ar_`、SOP 执行 `spr_`、开发执行 `run_`），`artifact_id` 是同一件东西在内核产物表里的那一行（`art_`），都只能有字母、数字和 `. _ : -`，最多 100 字。插件读不到内核表，这几个 id **只存不查**；前端按 id 前缀跳到对应的记录：`ar_` 走 `GET /api/agent-runs/{id}`，`spr_` 走 `GET /api/sop/runs/{id}`，`run_` 走 `GET /api/runs/{id}`，只有 `session_id` 时打开那个会话。
@@ -2317,6 +2345,64 @@ VID-01a 起。插件 `video`（`internal/plugins/video`，清单 `plugin.json`�
 - **跑阶段**：发起口径同 `POST /api/video/videos/{id}/runners/{stage}/run`，那里回 409 的情况这里步骤直接失败，`error` 是同一句话（例 `「规划检查」还没通过，不能开始「网页开发」`、`「内容编写」还没配执行器，先配一个再跑`）；发起时就失败的记一条失败的执行，步骤失败。发起成功后挂起，执行记录收尾后：跑成了唤醒，输出是输入加上 `stage_run: {video_id, title, stage, label, status, run_id, ref, artifact_ids, ended_at}`；没跑成步骤失败，`error` 是 `「内容编写」没跑成：<原因>`。产出物照常进待验收，检查点不动。
 - 唤醒没成（执行还没调度上、SOP 插件没在跑）的留到下一轮再试，同 IM 的等回复。
 - **内置流程「视频周更」**（id `sop_video_weekly`，同原型 `sopflow.ts`）：入参 `video_id`；八步依次是文稿处理（跑 `script`）、规划检查（等 `plan`）、开发第 1 章（跑 `web`）、检查第 1 章（等 `ch1`）、并行开发其余章节（跑 `chapters`）、音频检查（等 `audio`）、渲染（跑 `record`）、分发包检查（等 `distribution`）。插件启用后由后台任务经 `Core.SOP().InstallFlow` 写进 SOP，SOP 插件没在跑时下次再试；写过一次记在 `video_sop_templates`，用户删了不补回来。用户改要先复制一份（新 id）。卸载视频插件时撤下还是第 1 版、没有进行中的执行、没被定时任务引用的模板，改过的留着；复制的副本不归插件，不动。
+
+### 定时发布和内容日历（VID-06c）
+
+定时发布（同原型「定时发布」，规格 `video-creator-analysis.md` P0-2）：
+
+- 定时就存在发布记录上：`status` 为 `scheduled`、有 `scheduled_at`（已定时要过发布前校验，见 VID-05a）。改 `scheduled_at` 就是改时间，删发布记录就不再发，不用另外同步。
+- 插件常驻后台任务 `publish_due` 启用时先看一轮，之后约每 30 秒一轮：`status` 为 `scheduled`、`scheduled_at` 已到、还没有 `url` 的发布记录逐条投稿，口径同 `POST /api/video/publishes/{id}/submit`（标签、分区、合集用发布记录上存的，连接器用挂的账号的或这个平台唯一的那个）。投成了 `status` 变为 `published`、写上 `url`、`published_at`。`planned` 的不会自动发。已经交给平台定时公开（投稿时带了以后的 `scheduled_at`、平台有 `schedule` 能力）的有 `url`，不再投，由同步接口跟状态。
+- 投不成的：`status` 变为 `failed`，`error` 写原因（平台报错的是平台给的原因；投之前就过不了的是同一句校验文字，例「这集还没有横屏成片：先登记成片，或用 file_id 指定」；平台没有 `upload` 能力的在原因后加「；到点了，请用发布包手动发布后回填链接」），并以插件名义发一条通知：`kind` 是 `video.publish_failed`、级别 `error`、标题「定时发布失败：《发布标题》」、正文是原因（原因不以平台名开头时前面加「平台名：」），`data` 是 `{publish_id, video_id, platform, source: "video"}`。失败的不自动重试；改回 `scheduled` 后到点再投。
+- 定时任务动作 `video_publish`（plugin-api.md 2.12）：`action` 是 `{"kind":"video_publish","publish_id":"pb_…"}`，保存时校验发布记录存在、没有别的参数。到点时放进同一个后台任务的队列马上返回，执行记录写「开始发布《标题》到平台名，记录 pb_…」；已经发布过的写「《标题》已经发布过了，没有再投」。投稿结果和失败通知同上。插件拿不到内核定时任务的写句柄，所以新建定时发布时**不会**自动建定时任务，定时任务页的这种动作要用户自己建。
+- SOP 节点 `video_publish`（分组「视频」，必填配置 `publish`：发布记录 id，支持 `{{字段}}`）：当场投稿，不挂起；投成了输出是输入加上 `publish: {publish_id, video_id, platform, title, status, url}`，投不成步骤失败，`error` 是原因，发布记录和通知同上（通知标题是「SOP 发布失败：…」）。
+
+内容日历 `GET /api/video/calendar`（同原型 `calendarItems`）：
+
+- 范围三选一：`month=YYYY-MM`（整月）、`week=YYYY-MM-DD`（这一天所在的那一周，周一到周日）、`from=YYYY-MM-DD&to=YYYY-MM-DD`（含两端，最多 93 天）；都不给是本月；给了多种、格式不对、`to` 早于 `from` 400。日期都按服务所在时区的本地日期算。
+- `VideoCalendarItem`：`{date, kind, ref_id, label, tone, at?, status?, platform?, video_id?, movable, behind?}`，同原型 `CalendarItem` 多 `behind`。按 `date`、`at` 排。
+  - `kind: publish`：有日期的发布记录（`published` 取 `published_at`，其余取 `scheduled_at`，都没有的不上日历）。`ref_id` 是发布记录 id，`label` 是发布标题，没有用视频标题，再没有是「未填标题」；`tone` 失败 `danger`、已发布 `ok`、其余 `muted`；`movable` 是 `planned`、`scheduled` 为 `true`。
+  - `kind: target`：排了 `target_date` 的视频，`ref_id` 是视频 id。已完成（到了分发包且分发包检查点通过）`tone: ok`、`movable: false`；**落后**（离首发日不到 7 天或已经过了，第一章验收 `ch1` 还没通过，同原型 `isBehind`、`LATE_DAYS`）`behind: true`、`tone: danger`；其余 `muted`。`behind` 只有落后时返回。
+  - 商单截止 `deal_deadline` 等商单后端（VID-08d）落地后再加。
+
+### 今日卡片（VID-07a）
+
+视频插件经今日卡片扩展点（`docs/plugin-api.md` 2.8）登记三张卡片，合进 `GET /api/today`（不传 `type` 时），没有内容就不出这张卡，插件停用后消失。`total` 是全量条数，`items` 最多 50 条。每条带 `link`，是前端路由，点了直接跳。不加路由、不加迁移。
+
+| `key` | 标题 | `order` | 口径 | `items` 排序 |
+|---|---|---|---|---|
+| `video_waiting` | 视频待验收 | 60 | 停在带检查点的阶段、当前阶段检查点 `pending` 或 `rejected` 的视频（同原型 `videoState` 的 warn），加上 `status` 为 `review` 的产出物 | `at` 新的在前 |
+| `video_scheduled` | 视频待发布 | 61 | `status` 为 `scheduled`、`scheduled_at` 在 24 小时内的发布记录，已过点还没发出去的也算 | 定时早的在前 |
+| `video_failed` | 视频发布失败 | 62 | `status` 为 `failed` 的发布记录 | 最近更新的在前 |
+
+- `video_waiting` 的条目：`{kind, video_id, video_title, label, at, link}`，`kind` 是 `checkpoint` 时另带 `stage, stage_label, state, note?`，`label` 是「待<阶段名>」或「退回修改」，`at` 是视频的 `updated_at`（退回的取检查点的 `at`），`link` 是 `/videos/v/{video_id}`；`kind` 是 `artifact` 时另带 `artifact_id, artifact_name, artifact_kind, version`，`label` 是「<产出物类型>待验收」，`at` 是产出物的 `updated_at`，`link` 是 `/videos/v/{video_id}/artifacts?a={artifact_id}`。
+- `video_scheduled`、`video_failed` 的条目：`{id, video_id, video_title, platform, platform_label, variant, title, status, scheduled_at?, error?, at, link}`，字段取自 `VideoPublish`，`at` 是它的 `updated_at`，`link` 是 `/videos/v/{video_id}?p={id}`（`p` 留给发布抽屉，前端还没接时停在视频详情）。
+
+### 商单（VID-08d）
+
+品牌询价转成商单挂在项目下，按状态流转；视频挂到商单上，发布满 7 天出结案报告存进「文档」（规格 `video-creator-analysis.md` P2-1、`SPEC-videos-16`）。插件迁移 `migrations/0012_deals.sql` 建 `video_deals` 和关联表 `video_deal_videos`，形状同原型 `web-next/src/videodata.ts` 的 `Deal`。金额只是记录，不接收付款、不对接支付渠道。
+
+| 方法 | 路径 | body / 说明 |
+|---|---|---|
+| GET | `/api/video/deals?project_id=&status=&video_id=&source_message_id=` | `VideoDeal[]` + `meta.total`，不分页，按新建先后；筛选都可选，`video_id` 从视频反查挂着它的商单，`source_message_id` 查一条 IM 消息转过的商单 |
+| POST | `/api/video/deals` | `{project_id, brand, title, contact_id?, platforms?, deliverables?, quote?, currency?, status?, deadline?, pay_due?, video_ids?, source_message_id?, lost_reason?}`，回 201 + `VideoDeal` |
+| GET | `/api/video/deals/quote-ref?platforms=` | 报价参考 `{platforms, avg, n, cpm, value}`，`platforms` 逗号分隔，不给是各平台 |
+| GET | `/api/video/deals/{id}` | `VideoDeal` |
+| PATCH | `/api/video/deals/{id}` | 只传要改的，字段同新建；可选字段传 `null` 清掉；`video_ids` 整体替换；带 `history`、`report_content_id`、`report_state` 400；回 `VideoDeal` |
+| DELETE | `/api/video/deals/{id}` | 只删商单，挂的视频和结案报告文档都留着 |
+| POST | `/api/video/deals/{id}/report` | 出结案报告，回 201 + `{deal, doc: {id, ref, title}}` |
+
+`VideoDeal`：`{id, project_id, contact_id?, brand, title, platforms, deliverables, quote, currency, status, deadline?, pay_due?, video_ids, source_message_id?, report_content_id?, lost_reason?, history, report_state?, created_at, updated_at}`，同原型 `Deal` 多 `report_state`。
+
+- `id` 是 `deal_` 前缀（已登记）。`brand`（最多 100 字）、`title`（最多 200 字）必填，`project_id` 必填，要是没删的项目对象，否则 400「品牌必填」「商单名称必填」「选一个项目」「项目不存在」。`contact_id` 是询价人（联系人 id），不存在 400「联系人不存在」。
+- `platforms` 是投放平台，取值同 `VideoPublish.platform`，去重后按平台顺序存。`quote` 是 0 到 10 亿的整数，`currency` 是 `CNY`（默认）/ `USD`。`deadline`（交付截止）、`pay_due`（账期，最晚收款日）是本地日期 `YYYY-MM-DD`。
+- `video_ids` 是挂的视频，按挂上的先后；视频要存在，否则 400。保存时挂着的、还没有项目的视频归到商单的项目（`project_id` 改成商单的），有项目的不动。视频删掉时从商单上摘掉。
+- `source_message_id` 是从哪条 IM 消息转来的（im 插件的消息 id，只存不查）。`report_content_id` 是结案报告文档的对象 id，只能由出报告接口写。
+- 状态流转：`status` 是 `inquiry`（默认，询价）/ `quoted` / `signed` / `producing` / `client_review` / `delivered` / `paid` / `lost`（同原型 `DEAL_STATUS`），别的值 400。正常七步之间可以前后跳（同原型点哪步就是哪步）；进 `lost` 要有 `lost_reason`，否则 400「写一下丢单原因」；`paid` 不能进 `lost`，400「已收款的商单不能丢单」；离开 `lost` 时 `lost_reason` 清空。状态变了后端在 `history` 最前面记一条 `{status, at}`，新建时记第一条；前端不能写 `history`。
+- `report_state` 同原型 `reportState`：`{ready, left, first_published_at}`，挂上的视频最早一条已发布记录满 7 天 `ready` 为 `true`，`left` 是还差几天；挂上的视频还没有已发布的记录时不返回。
+- 报价参考同原型 `avgViews30`：近 30 天 `status` 为 `published` 的发布记录（`platforms` 里的平台），每条取最新一条数据快照的播放（没有快照的取发布记录上的 `metrics`，都没有的不算），`avg` 是平均播放，`n` 是算了几条；`cpm` 是每千次播放折多少钱（150 元），`value` 是 `avg / 1000 × cpm` 取整到百。没有数据时 `avg`、`n`、`value` 都是 0。平台不认识 400。
+- 出结案报告：`report_state` 没有时 409「挂上的视频还没有发出去；发布满 7 天后可以出结案报告」，没满 7 天 409「最早一条发布还差 N 天满 7 天」。满了经插件建对象（`Core.ObjectWriter`）建一篇文档：标题「<品牌> · <名称> 结案报告」，类型 `doc`、状态取文档类型的第一个，`project_id` 是商单的项目，标签「商单」「结案报告」，来源 `video`，`props.source_ref` 是 `{deal_id, deal}`；正文同原型 `dealReport`（合作概况、数据汇总、各平台明细、结论）。建成后把 `report_content_id` 换成这篇。插件只能建不能改，所以「按最新数据重出」是再建一篇新的，旧的那篇留在文档里。
+
+今日卡片 `video_deal_due`（标题「商单账期」，`order` 63）：`status` 为 `delivered`、有 `pay_due`、离账期不到 7 天或已经过了的商单（同原型 `payState`），账期早的在前。条目 `{id, project_id, brand, deal_title, quote, currency, pay_due, days, tone, label, title, sub, at, link}`：`days` 是离账期几天（负数是已过），`tone` 已过是 `danger`、其余 `warn`，`label` 是「N 天后到账期」「今天到账期」「账期已过 N 天」，`title` 是「<品牌>「<名称>」<label>」，`sub` 是「已交付待收款 · <报价>」，`at` 是商单的 `updated_at`，`link` 是 `/projects/{project_id}/deals?deal={id}`。
 
 ## 内置浏览器插件 browser
 

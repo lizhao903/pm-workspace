@@ -90,7 +90,7 @@
 4. 否则 `conversation` 为空（私聊）：`dm`。
 5. 否则和我无关：`null`。
 
-正式产品按 IM-03：「我」的称呼从连接器账号来，不写死 `MY_HANDLES`。
+正式产品按 IM-03：「我」的称呼从连接器账号来，不写死 `MY_HANDLES`；另加渠道配置里用户填的「我的称呼」（多个，逗号分隔，PR-19），微信、飞书这类按名字 @ 的渠道靠它认出「@李钊」是 @我。
 
 `Connector`（`web-next/src/data.ts`）里本模块用到的字段：`id`、`tool`（渠道 key，`TOOLS` 里 `category === 'im'` 的才算 IM 连接器）、`name`、`status`（`ConnStatus`）、`error`、`direction`（`'receive'` 只收 / `'both'` 收发）、`last_sync_at`。`ConnStatus`：`connected` 已连接 / `connecting` 连接中 / `error` 异常 / `paused` 已暂停 / `disconnected` 已断开。完整定义归设置的连接器节（`SPEC-settings`，PROTO-04e）。
 

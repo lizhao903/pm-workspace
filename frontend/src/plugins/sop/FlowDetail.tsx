@@ -86,7 +86,7 @@ export function FlowDetail({ flow, runs, branching, needs = [], trigger, onStart
 
       <div className="sop-section-label">最近执行{mine.length > 0 && <span className="sop-section-hint">共 {mine.length} 次</span>}</div>
       {!mine.length ? (
-        <EmptyState compact title="没有执行记录" desc="从流程库里选一个标准流程开始执行" />
+        <EmptyState compact title="没有执行记录" desc="点右上「执行」跑一次" />
       ) : (
         <div className="sop-run-table">
           <RunHead />
