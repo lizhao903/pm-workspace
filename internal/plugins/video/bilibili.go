@@ -445,6 +445,9 @@ func (b *Bilibili) Stats(ctx context.Context, s Session, ref RemoteRef) (RemoteS
 		Favorites: out.Favorite, Coins: out.Coin, Danmaku: out.Danmaku}, nil
 }
 
+// StatsKeys：B 站的稿件数据带收藏和投币。
+func (b *Bilibili) StatsKeys() []string { return []string{"favorites", "coins"} }
+
 func (b *Bilibili) Comments(context.Context, Session, RemoteRef, string) (CommentPage, error) {
 	return CommentPage{}, ErrUnsupported
 }

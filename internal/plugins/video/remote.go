@@ -24,6 +24,8 @@ type PlatformInfo struct {
 	Tool       string           `json:"tool,omitempty"`
 	Caps       []string         `json:"caps"`
 	Covers     []string         `json:"covers"`
+	CreatorURL string           `json:"creator_url"` // 创作者后台发稿页，没有上传能力时到这里手动发（VID-04d）
+	Rule       PlatformRule     `json:"rule"`        // 平台发布规则（VID-05a），同原型 PLATFORM_RULES
 	Connectors []PlatformTarget `json:"connectors"`
 }
 
@@ -39,7 +41,7 @@ type PlatformTarget struct {
 func (h *handler) listPlatforms(w http.ResponseWriter, r *http.Request) {
 	out := make([]PlatformInfo, 0, len(Platforms))
 	for _, k := range Platforms {
-		p := PlatformInfo{Key: k, Label: PlatformLabels[k], Caps: []string{}, Covers: PlatformCovers[k], Connectors: []PlatformTarget{}}
+		p := PlatformInfo{Key: k, Label: PlatformLabels[k], Caps: []string{}, Covers: PlatformCovers[k], CreatorURL: CreatorURLs[k], Rule: PlatformRules[k], Connectors: []PlatformTarget{}}
 		if a := h.platforms[k]; a != nil {
 			p.Tool, p.Caps = a.ConnectorDef().Tool, a.Caps()
 			list, err := h.c.Connectors().List(r.Context(), p.Tool)
@@ -65,11 +67,11 @@ func upstreamFail(w http.ResponseWriter, code string, err error, extra map[strin
 	writeJSON(w, http.StatusBadGateway, map[string]any{"error": e})
 }
 
-// adapterFor 是发布记录所在平台的适配器，没有或没有这项能力 400。
+// adapterFor 是发布记录所在平台的适配器，没有或没有这项能力 400 unsupported。
 func (h *handler) adapterFor(p Publish, capability, doing string) (PlatformAdapter, error) {
 	a := h.platforms[p.Platform]
 	if !hasCap(a, capability) {
-		return nil, apiErr(errValidation, "%s还不能经连接器%s", PlatformLabels[p.Platform], doing)
+		return nil, apiErr(errUnsupported, "%s还不能经连接器%s", PlatformLabels[p.Platform], doing)
 	}
 	return a, nil
 }
@@ -240,13 +242,14 @@ func (h *handler) submitPublish(w http.ResponseWriter, r *http.Request) {
 		fail(w, r, h.c, apiErr(errConflict, "这条发布已经有稿件了，不能再投一次"))
 		return
 	}
-	a, err := h.adapterFor(p, CapUpload, "投稿，手动发布后回填链接")
+	a, err := h.adapterFor(p, CapUpload, "投稿：用发布包（GET /api/video/publishes/{id}/package）到创作者后台发布，再回填链接")
 	if err != nil {
 		fail(w, r, h.c, err)
 		return
 	}
 	var connID, fileID string
-	in := PublishInput{Title: p.Title, Desc: p.Desc}
+	// 标签、分区、合集没给的用发布记录上存的（VID-05a）
+	in := PublishInput{Title: p.Title, Desc: p.Desc, Tags: p.Tags, Category: p.Category, Collection: p.Collection}
 	for _, f := range []struct {
 		key string
 		dst *string
@@ -257,14 +260,16 @@ func (h *handler) submitPublish(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	if in.Tags, err = stringList(raw, "tags", 50); err != nil {
-		fail(w, r, h.c, err)
-		return
+	if _, ok := raw["tags"]; ok {
+		if in.Tags, err = stringList(raw, "tags", 50); err != nil {
+			fail(w, r, h.c, err)
+			return
+		}
 	}
 	if p.ScheduledAt != nil && parseTime(*p.ScheduledAt).After(parseTime(nowStr())) {
 		in.ScheduledAt = *p.ScheduledAt
 		if !hasCap(a, CapSchedule) {
-			fail(w, r, h.c, apiErr(errValidation, "%s还不能定时投稿，清掉定时或到点再发", PlatformLabels[p.Platform]))
+			fail(w, r, h.c, apiErr(errUnsupported, "%s还不能定时投稿，清掉定时或到点再发", PlatformLabels[p.Platform]))
 			return
 		}
 	}
@@ -298,6 +303,21 @@ func (h *handler) submitPublish(w http.ResponseWriter, r *http.Request) {
 	if err := a.Validate(in); err != nil {
 		fail(w, r, h.c, apiErr(errValidation, "%s", err.Error()))
 		return
+	}
+	// 平台规则校验有一项不过就不投（VID-05a，平台适配器自己的校验在前），标签按这次投的算
+	pc := p
+	pc.Tags = in.Tags
+	checks, err := h.publishChecks(ctx, pc)
+	if err != nil {
+		fail(w, r, h.c, err)
+		return
+	}
+	if bad := firstFailed(checks); bad != "" {
+		fail(w, r, h.c, apiErr(errValidation, "%s", bad))
+		return
+	}
+	if connID == "" {
+		connID = h.accountConnector(ctx, p)
 	}
 	cn, err := h.pickConnector(ctx, a, connID)
 	if err != nil {
@@ -373,7 +393,7 @@ func (h *handler) connectorQuery(r *http.Request, raw map[string]json.RawMessage
 	return id, nil
 }
 
-// syncPublish 是 POST /api/video/publishes/{id}/sync：查稿件状态、拉数据，写回发布记录。
+// syncPublish 是 POST /api/video/publishes/{id}/sync：查稿件状态、拉数据，写回发布记录，拉到数据的追加一条快照（VID-05a）。
 func (h *handler) syncPublish(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	id := r.PathValue("id")
@@ -390,25 +410,63 @@ func (h *handler) syncPublish(w http.ResponseWriter, r *http.Request) {
 		fail(w, r, h.c, err)
 		return
 	}
-	a := h.platforms[p.Platform]
-	if !hasCap(a, CapUpload) && !hasCap(a, CapMetrics) {
-		fail(w, r, h.c, apiErr(errValidation, "%s还不能经连接器查状态和拉数据，手动回填", PlatformLabels[p.Platform]))
-		return
-	}
-	ref, err := h.remoteOf(p, a)
-	if err != nil {
-		fail(w, r, h.c, err)
-		return
-	}
 	connID, err := h.connectorQuery(r, raw)
 	if err != nil {
 		fail(w, r, h.c, err)
 		return
 	}
-	cn, err := h.pickConnector(ctx, a, connID)
-	if err != nil {
+	res, err := h.syncOne(ctx, p, connID)
+	var ue *upstreamErr
+	if errors.As(err, &ue) {
+		upstreamFail(w, "sync_failed", errors.New(clipText(ue.err.Error(), 2000)), map[string]any{"publish_id": id, "connector_id": ue.connector})
+		return
+	} else if err != nil {
 		fail(w, r, h.c, err)
 		return
+	}
+	meta := map[string]any{"connector_id": res.connector, "remote_id": res.ref.ID}
+	if res.status.State != "" {
+		meta["remote"] = res.status
+	}
+	if res.stats != nil {
+		meta["stats"] = res.stats
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"data": res.publish, "meta": meta})
+}
+
+// upstreamErr 是同步时平台出的错，接口回 502。
+type upstreamErr struct {
+	connector string
+	err       error
+}
+
+func (e *upstreamErr) Error() string { return e.err.Error() }
+
+type syncResult struct {
+	publish   Publish
+	connector string
+	ref       RemoteRef
+	status    RemoteStatus
+	stats     *RemoteStats
+}
+
+// syncOne 查一条发布的稿件状态、拉数据写回；接口和后台任务 metrics_daily 共用。
+// 没给 connID 时用发布记录挂的账号的连接器（VID-05a），账号也没接的按平台自动挑。
+func (h *handler) syncOne(ctx context.Context, p Publish, connID string) (syncResult, error) {
+	a := h.platforms[p.Platform]
+	if !hasCap(a, CapUpload) && !hasCap(a, CapMetrics) {
+		return syncResult{}, apiErr(errUnsupported, "%s还不能经连接器查状态和拉数据，手动回填", PlatformLabels[p.Platform])
+	}
+	ref, err := h.remoteOf(p, a)
+	if err != nil {
+		return syncResult{}, err
+	}
+	if connID == "" {
+		connID = h.accountConnector(ctx, p)
+	}
+	cn, err := h.pickConnector(ctx, a, connID)
+	if err != nil {
+		return syncResult{}, err
 	}
 	var (
 		st    RemoteStatus
@@ -430,8 +488,7 @@ func (h *handler) syncPublish(w http.ResponseWriter, r *http.Request) {
 		return nil
 	})
 	if err != nil {
-		upstreamFail(w, "sync_failed", errors.New(clipText(err.Error(), 2000)), map[string]any{"publish_id": id, "connector_id": cn.ID})
-		return
+		return syncResult{}, &upstreamErr{connector: cn.ID, err: err}
 	}
 	switch st.State {
 	case RemoteFailed:
@@ -445,27 +502,24 @@ func (h *handler) syncPublish(w http.ResponseWriter, r *http.Request) {
 		p.Error = ""
 	}
 	if stats != nil {
-		p.Metrics = &Metrics{Views: stats.Views, Likes: stats.Likes, Comments: stats.Comments, Shares: stats.Shares, UpdatedAt: nowStr()}
+		m := metricsFromStats(a, *stats, nowStr())
+		p.Metrics = &m
 	}
 	wctx := context.WithoutCancel(ctx)
 	if _, err := h.c.Store().Exec(wctx, `UPDATE video_publishes SET status = ?, error = ?, published_at = ?, metrics = ?, updated_at = ? WHERE id = ?`,
-		p.Status, p.Error, p.PublishedAt, metricsCol(p.Metrics), nowStr(), id); err != nil {
-		fail(w, r, h.c, err)
-		return
-	}
-	out, err := h.getPublish(wctx, id)
-	if err != nil {
-		fail(w, r, h.c, err)
-		return
-	}
-	meta := map[string]any{"connector_id": cn.ID, "remote_id": ref.ID}
-	if st.State != "" {
-		meta["remote"] = st
+		p.Status, p.Error, p.PublishedAt, metricsCol(p.Metrics), nowStr(), p.ID); err != nil {
+		return syncResult{}, err
 	}
 	if stats != nil {
-		meta["stats"] = stats
+		if err := h.addSnapshot(wctx, p, *p.Metrics, "connector"); err != nil {
+			return syncResult{}, err
+		}
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"data": out, "meta": meta})
+	out, err := h.getPublish(wctx, p.ID)
+	if err != nil {
+		return syncResult{}, err
+	}
+	return syncResult{publish: out, connector: cn.ID, ref: ref, status: st, stats: stats}, nil
 }
 
 // listComments 是 GET /api/video/publishes/{id}/comments?cursor=&connector_id=：拉这条稿件的一页评论，不落库。
@@ -487,6 +541,9 @@ func (h *handler) listComments(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	connID, _ := h.connectorQuery(r, nil)
+	if connID == "" {
+		connID = h.accountConnector(ctx, p)
+	}
 	cn, err := h.pickConnector(ctx, a, connID)
 	if err != nil {
 		fail(w, r, h.c, err)

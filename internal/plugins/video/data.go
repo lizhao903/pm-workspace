@@ -14,7 +14,9 @@ type Stage struct {
 	Checkpoint bool
 }
 
+// 选题（VID-09a）在最前面：新建视频从它开始，立项生成的视频直接到内容编写。
 var Stages = []Stage{
+	{"topic", "选题", false},
 	{"script", "内容编写", false},
 	{"plan", "规划检查", true},
 	{"web", "网页开发", false},
@@ -82,13 +84,14 @@ type Checkpoint struct {
 	Note  string `json:"note,omitempty"`
 }
 
-// Video 同原型 Video：project_id、series_id、episode 没有就不返回。
+// Video 同原型 Video：project_id、series_id、episode、topic_id 没有就不返回。
 type Video struct {
 	ID           string        `json:"id"`
 	Title        string        `json:"title"`
 	ProjectID    *string       `json:"project_id,omitempty"`
 	SeriesID     *string       `json:"series_id,omitempty"`
 	Episode      *int          `json:"episode,omitempty"`
+	TopicID      *string       `json:"topic_id,omitempty"`
 	Orientations []string      `json:"orientations"`
 	Stage        string        `json:"stage"`
 	Checkpoints  []Checkpoint  `json:"checkpoints"`
@@ -135,13 +138,20 @@ type Series struct {
 	UpdatedAt string   `json:"updated_at"`
 }
 
-// Metrics 同原型 Metrics：平台回填的播放数据。
+// Metrics 同原型 Metrics：平台回填的播放数据。扩展的几项（VID-05a）平台不提供的留空、不返回。
 type Metrics struct {
-	Views     int    `json:"views"`
-	Likes     int    `json:"likes"`
-	Comments  int    `json:"comments"`
-	Shares    int    `json:"shares"`
-	UpdatedAt string `json:"updated_at"`
+	Views           int      `json:"views"`
+	Likes           int      `json:"likes"`
+	Comments        int      `json:"comments"`
+	Shares          int      `json:"shares"`
+	Impressions     *int     `json:"impressions,omitempty"`
+	CTR             *float64 `json:"ctr,omitempty"`
+	AvgWatchSec     *float64 `json:"avg_watch_sec,omitempty"`
+	Completion      *float64 `json:"completion,omitempty"`
+	Favorites       *int     `json:"favorites,omitempty"`
+	Coins           *int     `json:"coins,omitempty"`
+	FollowersGained *int     `json:"followers_gained,omitempty"`
+	UpdatedAt       string   `json:"updated_at"`
 }
 
 // Publish 同原型 Publish，多时间；可选字段没有就不返回。
@@ -159,8 +169,14 @@ type Publish struct {
 	URL         string   `json:"url,omitempty"`
 	Error       string   `json:"error,omitempty"`
 	Metrics     *Metrics `json:"metrics,omitempty"`
-	CreatedAt   string   `json:"created_at"`
-	UpdatedAt   string   `json:"updated_at"`
+	// VID-05a：发布用的平台账号、标签、分区、合集和发布前校验结果
+	AccountID  string         `json:"account_id,omitempty"`
+	Tags       []string       `json:"tags,omitempty"`
+	Category   string         `json:"category,omitempty"`
+	Collection string         `json:"collection,omitempty"`
+	Checks     []PublishCheck `json:"checks,omitempty"`
+	CreatedAt  string         `json:"created_at"`
+	UpdatedAt  string         `json:"updated_at"`
 }
 
 // ArtifactKind 同原型 ARTIFACT_KIND：PerVariant 是不是每个比例一份。

@@ -15,7 +15,7 @@ import (
 // 视频：表 video_videos、video_checkpoints，接口 /api/video/videos。
 // 阶段只往前走：没有检查点的阶段用 advance，有检查点的阶段通过或跳过后进下一阶段，退回停在原地。
 
-const videoCols = `id, title, project_id, series_id, episode, orientations, stage, root, chapters, created_at, updated_at`
+const videoCols = `id, title, project_id, series_id, episode, orientations, stage, root, chapters, created_at, updated_at, topic_id`
 
 var videoFields = []string{"title", "project_id", "series_id", "episode", "orientations", "root", "chapters"}
 
@@ -23,7 +23,7 @@ func scanVideo(row plugin.Row) (Video, error) {
 	var v Video
 	var episode *int64
 	var orients string
-	if err := row.Scan(&v.ID, &v.Title, &v.ProjectID, &v.SeriesID, &episode, &orients, &v.Stage, &v.Root, &v.Chapters, &v.CreatedAt, &v.UpdatedAt); err != nil {
+	if err := row.Scan(&v.ID, &v.Title, &v.ProjectID, &v.SeriesID, &episode, &orients, &v.Stage, &v.Root, &v.Chapters, &v.CreatedAt, &v.UpdatedAt, &v.TopicID); err != nil {
 		return Video{}, err
 	}
 	if episode != nil {
@@ -38,6 +38,9 @@ func scanVideo(row plugin.Row) (Video, error) {
 
 // loadVideos 查视频并带上检查点；缺的检查点行按 pending 补（新建时 4 行和视频不在一个事务里）。
 func (h *handler) loadVideos(ctx context.Context, where string, args ...any) ([]Video, error) {
+	if err := h.upgradeTopicLinks(ctx); err != nil {
+		return nil, err
+	}
 	rows, err := h.c.Store().Query(ctx, `SELECT `+videoCols+` FROM video_videos `+where+` ORDER BY created_at, rowid`, args...)
 	if err != nil {
 		return nil, err
@@ -263,8 +266,8 @@ func (h *handler) addVideo(w http.ResponseWriter, r *http.Request) {
 	v.ID = idgen.Prefixed("vd")
 	now := nowStr()
 	orients, _ := json.Marshal(v.Orientations)
-	if _, err := h.c.Store().Exec(ctx, `INSERT INTO video_videos (`+videoCols+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		v.ID, v.Title, v.ProjectID, v.SeriesID, v.Episode, string(orients), v.Stage, v.Root, v.Chapters, now, now); err != nil {
+	if _, err := h.c.Store().Exec(ctx, `INSERT INTO video_videos (`+videoCols+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		v.ID, v.Title, v.ProjectID, v.SeriesID, v.Episode, string(orients), v.Stage, v.Root, v.Chapters, now, now, v.TopicID); err != nil {
 		fail(w, r, h.c, err)
 		return
 	}
@@ -284,7 +287,7 @@ func (h *handler) addVideo(w http.ResponseWriter, r *http.Request) {
 func (h *handler) updateVideo(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	id := r.PathValue("id")
-	raw, err := readBody(r, append(videoFields, "stage", "checkpoints")...)
+	raw, err := readBody(r, append(videoFields, "stage", "checkpoints", "topic_id")...)
 	if err != nil {
 		fail(w, r, h.c, err)
 		return
@@ -295,6 +298,10 @@ func (h *handler) updateVideo(w http.ResponseWriter, r *http.Request) {
 	}
 	if _, ok := raw["checkpoints"]; ok {
 		fail(w, r, h.c, apiErr(errValidation, "检查点用检查点接口处理，不能直接改"))
+		return
+	}
+	if _, ok := raw["topic_id"]; ok {
+		fail(w, r, h.c, apiErr(errValidation, "选题用 PUT /api/video/videos/{id}/topic 挑选或换，不能直接改"))
 		return
 	}
 	old, err := h.getVideo(ctx, id)
@@ -379,6 +386,10 @@ func (h *handler) advance(w http.ResponseWriter, r *http.Request) {
 	i := stageIndex(v.Stage)
 	if Stages[i].Checkpoint {
 		fail(w, r, h.c, apiErr(errConflict, "「%s」是检查点，要通过或跳过才能往下走", Stages[i].Label))
+		return
+	}
+	if v.Stage == "topic" && v.TopicID == nil {
+		fail(w, r, h.c, apiErr(errValidation, "先选一个选题或新建一个"))
 		return
 	}
 	if i == len(Stages)-1 {

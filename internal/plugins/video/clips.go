@@ -315,6 +315,19 @@ func (h *handler) addClip(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	// 同一条 IM 消息只收一份，再收回已有的那条（VID-08b）
+	if c.MessageID != "" {
+		imClipMu.Lock()
+		defer imClipMu.Unlock()
+		if old, ok, err := h.existingIMClip(ctx, c.MessageID); err != nil || ok {
+			if err != nil {
+				fail(w, r, h.c, err)
+				return
+			}
+			writeJSON(w, http.StatusOK, map[string]any{"data": old, "meta": map[string]bool{"existing": true}})
+			return
+		}
+	}
 	c.ID = idgen.Prefixed("cl")
 	now := nowStr()
 	tags, _ := json.Marshal(c.Tags)

@@ -1,0 +1,2 @@
+{"kind": "youtube#channelListResponse", "etag": "etag-test", "pageInfo": {"totalResults": 1, "resultsPerPage": 5},
+ "items": [{"kind": "youtube#channel", "etag": "etag-test", "id": "UCtest000000000000000001", "snippet": {"title": "测试频道", "description": "", "publishedAt": "2024-01-01T00:00:00Z"}}]}

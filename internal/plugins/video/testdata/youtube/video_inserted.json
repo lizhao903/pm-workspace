@@ -1,0 +1,3 @@
+{"kind": "youtube#video", "etag": "etag-test", "id": "Te5tVid0001",
+ "snippet": {"title": "final", "categoryId": "22", "publishedAt": "2026-10-29T08:00:00Z"},
+ "status": {"uploadStatus": "uploaded", "privacyStatus": "private"}}

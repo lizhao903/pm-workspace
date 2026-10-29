@@ -1,5 +1,6 @@
 // 消息抽屉（SPEC-messages-2）：处理状态条、发信人、会话、附件、转任务、快捷回复和回复框。照原型 web-next/src/messages.tsx MessageDrawer。
 // 附件一节是附件面板（SPEC-messages-3，IM-04b）：获取、读内容、加进项目资料。
+// 视频插件在跑时多一节「收进素材箱」（VID-08b，ToClipRow）。
 // 回复经后端适配器发出：发送失败时回复框保留内容，底部红字说原因，消息状态不变（SPEC-messages-2.25）。
 import { useState } from 'react'
 import { errorText, useImAction, type Connector, type ImAction, type ImMessage } from '../../core/data'
@@ -9,6 +10,7 @@ import {
 } from './model'
 import { AttachmentPanel } from './AttachmentPanel'
 import { Caret, ChannelMark, Menu, MentionText } from './parts'
+import { ToClipRow } from './ToClipRow'
 
 export function MessageDrawer({ msg, missing, ch, connectors, sv, photo, onClose, onOpenContact, onSaveContact, onToTask, onFixConnector }: {
   /** 还在加载时为 undefined */
@@ -147,6 +149,8 @@ function DrawerBody({ msg, ch, connectors, sv, photo, onClose, onOpenContact, on
       ) : (
         <div className="im-act-row"><button type="button" className="im-act" onClick={onToTask}>转为任务</button><span className="im-muted">原消息会记在任务里，方便回看</span></div>
       )}
+
+      <ToClipRow msg={msg} who={who} source={`${ch.label} · ${msg.conversation || '私聊'}`} />
 
       <div className="im-section">反馈</div>
       {blocker ? (

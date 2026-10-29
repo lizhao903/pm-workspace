@@ -205,6 +205,7 @@
 | sr | 系列（视频插件） | video_series |
 | pb | 发布记录（视频插件；检查点按视频加阶段认，没有 id） | video_publishes |
 | vaf | 视频产出物（视频插件；验收记录用整数 id） | video_artifacts |
+| pa | 平台账号（视频插件；数据快照没有 id） | video_accounts |
 | bt | 浏览器标签页（浏览器插件） | browser_tabs |
 | deal | 商单（原型先补，后端还没有表） | - |
 | pn | 终端会话（终端插件，128 位随机串，不走 `idgen.Prefixed`，不入库） | - |
@@ -2041,7 +2042,7 @@ TRD-01a。插件 `trade`（`internal/plugins/trade`，清单 `plugin.json`，0.1
 
 ## 视频创作插件 video
 
-VID-01a 起。插件 `video`（`internal/plugins/video`，清单 `plugin.json`，0.4.0），强依赖 `projects`，弱依赖 `im`，权限 `fs:read:project`、`fs:write:project`、`network:media-platforms`、`process:spawn`（前三个是普通级别；`process:spawn` 是高风险，VID-03b 加，技能执行器要它才能让 Claude Code 在工程目录里写文件，0.3.0 升上来要重新确认；产出物路径按 `fs:read:project` 的范围限制在视频工程目录内，登记时不查磁盘；经连接器投稿时读成片和封面，内容平台出网用 `network:media-platforms`，VID-04b 起）。功能模块 key 是 `videos`（同工作台目录和 `ws_video` 模板）。表前缀 `video_`，迁移在插件目录：`migrations/0001_video.sql` 建 `video_series`、`video_videos`、`video_checkpoints`、`video_publishes`，`0002_artifacts.sql`（VID-01b）建 `video_artifacts`、`video_artifact_reviews`，`0003_artifact_ratio.sql`（VID-02a）给产出物加 `ratio`、`lang` 和按封面比例分组的序号、选用列，`0005_runners.sql`（VID-03b）建阶段执行器 `video_runners` 和执行记录 `video_runs`；0.1.0、0.2.0 装过的要走升级（`POST /api/plugins/{id}/upgrade`）应用新迁移，没升级前插件不启动。形状同原型 `web-next/src/videodata.ts`。前端两页是 VID-01c、VID-01d。内容平台连接器（VID-04b）现在只有 B 站 `bilibili`，见下「内容平台」；别的平台的发布记录只能手动登记。插件未安装或停用时本节接口回 `not_found` 404（同「插件路由」），数据不动，再启用照旧。停用 `projects` 时 `video` 在 `dependents` 里（同「插件管理」）。
+VID-01a 起。插件 `video`（`internal/plugins/video`，清单 `plugin.json`，0.4.0），强依赖 `projects`，弱依赖 `im`，权限 `fs:read:project`、`fs:write:project`、`network:media-platforms`、`process:spawn`（前三个是普通级别；`process:spawn` 是高风险，VID-03b 加，技能执行器要它才能让 Claude Code 在工程目录里写文件，0.3.0 升上来要重新确认；产出物路径按 `fs:read:project` 的范围限制在视频工程目录内，登记时不查磁盘；经连接器投稿时读成片和封面，内容平台出网用 `network:media-platforms`，VID-04b 起）。功能模块 key 是 `videos`（同工作台目录和 `ws_video` 模板）。表前缀 `video_`，迁移在插件目录：`migrations/0001_video.sql` 建 `video_series`、`video_videos`、`video_checkpoints`、`video_publishes`，`0002_artifacts.sql`（VID-01b）建 `video_artifacts`、`video_artifact_reviews`，`0003_artifact_ratio.sql`（VID-02a）给产出物加 `ratio`、`lang` 和按封面比例分组的序号、选用列，`0005_runners.sql`（VID-03b）建阶段执行器 `video_runners` 和执行记录 `video_runs`，`0007_video_topic.sql`（VID-09a）给视频加 `topic_id`，`0008_publish_snapshots.sql`（VID-05a）给发布记录加账号、标签、分区、合集和校验结果，建平台账号 `video_accounts`、数据快照 `video_metric_snapshots`；0.1.0、0.2.0 装过的要走升级（`POST /api/plugins/{id}/upgrade`）应用新迁移，没升级前插件不启动。形状同原型 `web-next/src/videodata.ts`。前端两页是 VID-01c、VID-01d。内容平台连接器有 B 站 `bilibili`（VID-04b）、YouTube `youtube`、抖音 `douyin`（VID-04d），见下「内容平台」；视频号、小红书不做连接器，发布记录只登记、回填链接，数据手填。插件未安装或停用时本节接口回 `not_found` 404（同「插件路由」），数据不动，再启用照旧。停用 `projects` 时 `video` 在 `dependents` 里（同「插件管理」）。
 
 | 方法 | 路径 | body / 说明 |
 |---|---|---|
@@ -2051,7 +2052,7 @@ VID-01a 起。插件 `video`（`internal/plugins/video`，清单 `plugin.json`�
 | PATCH | `/api/video/series/{id}` | 只传要改的：`name` / `desc` / `intro` / `outro` / `template` / `stale`，回 `VideoSeries` |
 | DELETE | `/api/video/series/{id}` | `data` 为 `null`；系列里的集变回单集（清掉 `series_id`、`episode` 和待同步，同规格 `SPEC-videos-6.19`） |
 | GET | `/api/video/videos?series_id=&project_id=` | `Video[]` + `meta.total`，不分页，按新建先后；两个筛选都可选 |
-| POST | `/api/video/videos` | `{title?, project_id?, series_id?, episode?, orientations?, root?, chapters?}`，回 201 + `Video`，阶段是 `script`，4 个检查点都是 `pending` |
+| POST | `/api/video/videos` | `{title?, project_id?, series_id?, episode?, orientations?, root?, chapters?}`，回 201 + `Video`，阶段是 `topic`（选题，VID-09a 起，原来是 `script`），4 个检查点都是 `pending` |
 | GET | `/api/video/videos/{id}` | 一个 `Video`；不存在 404 |
 | PATCH | `/api/video/videos/{id}` | 只传要改的，字段同新建；`project_id`、`series_id`、`episode` 传 `null` 清掉，`series_id` 清掉时没给 `episode` 也一起清（移出系列变回单集）；回 `Video` |
 | DELETE | `/api/video/videos/{id}` | `data` 为 `null`；检查点、发布记录、产出物和验收记录一起删 |
@@ -2061,14 +2062,21 @@ VID-01a 起。插件 `video`（`internal/plugins/video`，清单 `plugin.json`�
 | DELETE | `/api/video/videos/{id}/runners/{stage}` | 这个阶段不用执行器了，没配过也回 200；执行记录留着；回 `Video` |
 | POST | `/api/video/videos/{id}/runners/{stage}/run` | 无 body 或 `{}`，用配的执行器跑这个阶段；发起成功 202、发起时就失败 200，都回 `Video`（看 `last_run`），见下「阶段执行器」 |
 | GET | `/api/video/publishes?video_id=` | `VideoPublish[]` + `meta.total`，不分页，按登记先后；`video_id` 可选 |
-| POST | `/api/video/publishes` | `{video_id, platform, variant, title, cover_id?, desc?, status?, scheduled_at?, published_at?, url?, error?, metrics?}`，回 201 + `VideoPublish` |
+| POST | `/api/video/publishes` | `{video_id, platform, variant, title, cover_id?, desc?, status?, scheduled_at?, published_at?, url?, error?, metrics?, account_id?, tags?, category?, collection?}`，回 201 + `VideoPublish` |
 | GET | `/api/video/publishes/{id}` | 一个 `VideoPublish`；不存在 404 |
 | PATCH | `/api/video/publishes/{id}` | 只传要改的，字段同新建，`video_id` 不能换（400）；可选字段传 `null` 清掉；回 `VideoPublish` |
 | DELETE | `/api/video/publishes/{id}` | `data` 为 `null` |
 | GET | `/api/video/platforms` | 平台表 `VideoPlatform[]` + `meta.total`，同原型 `PLATFORMS` 的顺序（VID-04b），见下「内容平台」 |
 | POST | `/api/video/publishes/{id}/submit` | `{connector_id?, file_id?, tags?, category?, collection?}`，经平台连接器上传成片、设封面、投稿；回 `VideoPublish`，`meta` 是 `{connector_id, remote_id}`；平台出错 502 `publish_failed`（VID-04b） |
-| POST | `/api/video/publishes/{id}/sync` | 无 body 或 `{connector_id?}`，查稿件状态、拉数据写回发布记录；回 `VideoPublish`，`meta` 是 `{connector_id, remote_id, remote?, stats?}`；平台出错 502 `sync_failed`（VID-04b） |
-| GET | `/api/video/publishes/{id}/comments?cursor=&connector_id=` | 拉稿件的一页评论 `VideoComment[]`，不落库，`meta` 是 `{total, next, connector_id}`；平台没有评论能力 400，平台出错 502 `fetch_failed`（VID-04b） |
+| POST | `/api/video/publishes/{id}/sync` | 无 body 或 `{connector_id?}`，查稿件状态、拉数据写回发布记录，拉到数据时追加一条快照（VID-05a）；回 `VideoPublish`，`meta` 是 `{connector_id, remote_id, remote?, stats?}`；平台出错 502 `sync_failed`（VID-04b） |
+| GET | `/api/video/publishes/{id}/comments?cursor=&connector_id=` | 拉稿件的一页评论 `VideoComment[]`，不落库，`meta` 是 `{total, next, connector_id}`；平台没有评论能力 400 `unsupported`，平台出错 502 `fetch_failed`（VID-04b） |
+| GET | `/api/video/publishes/{id}/package?file_id=` | 发布包 `VideoPublishPackage`：手动到创作者后台发布要用的东西，只读、不出网（VID-04d），见下「内容平台」 |
+| GET | `/api/video/publishes/{id}/snapshots` | 这条发布的数据快照 `VideoMetricSnapshot[]`，按天、按先后排，不分页；`meta` 是 `{total, days}`，`days` 是按天曲线（同一天取最后一条，VID-05a），见下「平台账号、发布规则和按天快照」 |
+| GET | `/api/video/accounts?platform=` | 平台账号 `VideoAccount[]` + `meta.total`，不分页，按登记先后；`platform` 可选（VID-05a） |
+| POST | `/api/video/accounts` | `{platform, handle?, connector_id?, uid?, role?, caps?, followers?}`，回 201 + `VideoAccount` |
+| GET | `/api/video/accounts/{id}` | 一个 `VideoAccount`；不存在 404 |
+| PATCH | `/api/video/accounts/{id}` | 只传要改的，字段同新建；`connector_id`、`followers` 传 `null` 清掉；回 `VideoAccount` |
+| DELETE | `/api/video/accounts/{id}` | `data` 为 `null`；挂着发布记录的 409 |
 | GET | `/api/video/artifacts?video_id=&kind=&variant=&ratio=&lang=&status=&source_type=&run_id=&session_id=` | `VideoArtifact[]` + `meta.total`，不分页，按登记先后；筛选都可选，`run_id`、`session_id` 用来从一次运行反查它的产出物 |
 | POST | `/api/video/artifacts` | `{video_id, kind, path, name?, variant?, ratio?, option?, lang?, version?, status?, duration?, picked?, source?}`，回 201 + `VideoArtifact` |
 | GET | `/api/video/artifacts/{id}` | 一个 `VideoArtifact`；不存在 404 |
@@ -2076,22 +2084,26 @@ VID-01a 起。插件 `video`（`internal/plugins/video`，清单 `plugin.json`�
 | DELETE | `/api/video/artifacts/{id}` | `data` 为 `null`；只删记录，文件不动；验收记录一起删，用它当封面的发布记录 `cover_id` 清掉 |
 | POST | `/api/video/artifacts/{id}/reviews` | `{ok, comment?}`，追加一条验收记录；回 `VideoArtifact` |
 | POST | `/api/video/artifacts/{id}/bump` | `{from?}`，升版本：版本号加一、状态回到 `draft`，验收记录都留着；回 `VideoArtifact` |
+| GET | `/api/video/artifacts/{id}/content?version=` | 读原文、口播稿、大纲的正文 `VideoArtifactContent`；`version` 可选，读留存的旧版本（VID-09a），见下「选题一步和稿件正文」 |
+| PUT | `/api/video/artifacts/{id}/content` | `{content, new_version?, from?}`，写正文；`new_version` 为 `true` 时存成下一版，旧版本另存；回 `{artifact, content}`（VID-09a） |
+| PUT | `/api/video/videos/{id}/topic` | `{topic_id}`，选定、换掉或（传 `null`）摘下这一集的选题，两边一起回写；回 `{video, topic}`（VID-09a） |
 
 `VideoSeries`：`{id, name, desc, intro, outro, template, stale, created_at, updated_at}`，同原型 `Series` 多时间。`stale` 是改过共用部分还没同步的集（视频 id），按集数排。
 
 - `id` 是 `sr_` 前缀（已登记）。`name` 去首尾空白后必填，最多 100 字；`desc` 最多 1000 字；`intro`、`outro`、`template` 是共用开场、收尾、模板（路径或说明），各最多 500 字。
 - `stale` 整体替换，只能是这个系列的集，别的 400。改共用部分时，前端把用户勾选的受影响的集并进原来的 `stale` 一起传（同原型「影响范围确认」）；「标记已同步」就是传去掉那几集的数组。待同步记在视频上：视频移出或换了系列、被删掉，就不再算待同步。
 
-`Video`：`{id, title, project_id?, series_id?, episode?, orientations, stage, checkpoints, root, chapters, runners, last_run?, created_at, updated_at}`，同原型 `Video`（`target_date` 还没有）；`checkpoints` 是 `{stage, state, at?, note?}[]`。
+`Video`：`{id, title, project_id?, series_id?, episode?, topic_id?, orientations, stage, checkpoints, root, chapters, runners, last_run?, created_at, updated_at}`，同原型 `Video`（`target_date` 还没有）；`checkpoints` 是 `{stage, state, at?, note?}[]`。
 
 - `id` 是 `vd_` 前缀（已登记）。`project_id`、`series_id`、`episode` 没有就不返回这个字段；`checkpoints` 固定 4 个，按 `plan`、`ch1`、`audio`、`distribution` 排，`at`、`note` 没有就不返回。
 - `title` 最多 200 字，可以为空（前端显示「未命名视频」）；`project_id` 要是没删的项目对象，否则 400「项目不存在」；`series_id` 要是存在的系列，否则 400；`episode` 是 1 到 9999 的整数；`root` 是视频项目目录，最多 1000 字，不查磁盘；`chapters` 0 到 999。
 - `orientations` 是 `landscape` / `portrait` / `square` 的数组，去重后按这个顺序存（同原型 `ORIENT`）。**规划检查（`plan`）通过后锁定**：改成不一样的值 409「规划检查已通过，画面比例锁定了，要换比例得新开工程」，传同样的值不算改。
-- `stage` 是 `script`、`plan`、`web`、`ch1`、`chapters`、`audio`、`record`、`distribution` 之一（同原型 `STAGES`），只能用下面两个接口往前推；PATCH 里带 `stage` 或 `checkpoints` 400。不认识的字段 400。
+- `stage` 是 `topic`、`script`、`plan`、`web`、`ch1`、`chapters`、`audio`、`record`、`distribution` 之一（同原型 `STAGES`；`topic` 是 VID-09a 加在最前面的，已有视频的阶段不动），只能用下面两个接口往前推；PATCH 里带 `stage`、`checkpoints` 或 `topic_id` 400。不认识的字段 400。
+- `topic_id` 是这一集来自哪个选题（`VideoTopic.id`），选题那边同时记着 `video_id`；只能用 `PUT /api/video/videos/{id}/topic` 和立项写，选题删掉时清空。没有就不返回。
 
 阶段推进（同原型视频详情的 `advance`、`decide`）：
 
-- `advance`：当前阶段没有检查点（`script`、`web`、`chapters`、`record`）时进下一阶段。当前阶段是检查点 409「要通过或跳过才能往下走」；传了 `from` 且和当前阶段不一致 409（防止重复点）。
+- `advance`：当前阶段没有检查点（`topic`、`script`、`web`、`chapters`、`record`）时进下一阶段；离开 `topic` 要先挂上选题，否则 400「先选一个选题或新建一个」。当前阶段是检查点 409「要通过或跳过才能往下走」；传了 `from` 且和当前阶段不一致 409（防止重复点）。
 - `checkpoints/{stage}`：`stage` 只能是 `plan`、`ch1`、`audio`、`distribution`，别的 400；必须是视频当前所在的阶段，否则 409；已经通过或跳过的 409。`state` 只能是 `passed`、`rejected`、`skipped`，别的 400。
   - `rejected`：**`note` 去空白后必填，不写 400「退回要写意见」**；阶段不动，停在检查点上等修改，可以再通过或再退回。
   - `skipped`：只有 `audio` 能跳过（不合成音频），别的 400。
@@ -2109,31 +2121,61 @@ VID-01a 起。插件 `video`（`internal/plugins/video`，清单 `plugin.json`�
 - 跑成了，同原型 `run` 的收尾把这一阶段的产出物（`script`：口播稿、大纲；`web`、`chapters`：演示工程；`audio`：音频；`record`：成片、字幕；`distribution`：简介、章节时间轴）按比例各一份登记成**待验收**（`status: review`）：已有的取同类型同比例最新一条升版本（版本加一，名称、来源换成这次的，验收记录照留），没有的按原型 `defaultPath` 的默认路径登记第 1 版。来源 `source`：技能是 `{type: skill, label: 技能名, id: sk_video}`，Agent 是 `{type: agent, label/id: ref_id, session_id}`，SOP 是 `{type: sop, label/id: ref_id, run_id: spr_…}`。不查文件在不在。
 - **检查点、阶段都不动**，仍由人用上面的检查点接口处理；跑失败也不动。配执行器、删执行器、登记产出物都刷新视频的 `updated_at`。删视频时执行器和执行记录一起删。
 
-`VideoPublish`：`{id, video_id, platform, variant, cover_id?, title, desc, status, scheduled_at?, published_at?, url?, error?, metrics?, created_at, updated_at}`，同原型 `Publish` 多时间；`metrics` 是 `{views, likes, comments, shares, updated_at}`。
+`VideoPublish`：`{id, video_id, platform, variant, cover_id?, title, desc, status, scheduled_at?, published_at?, url?, error?, metrics?, account_id?, tags?, category?, collection?, checks?, created_at, updated_at}`，同原型 `Publish` 多时间；`metrics` 是 `{views, likes, comments, shares, impressions?, ctr?, avg_watch_sec?, completion?, favorites?, coins?, followers_gained?, updated_at}`，`checks` 是 `{key, ok, text}[]`。
 
 - `id` 是 `pb_` 前缀（已登记）。`video_id` 要是存在的视频，否则 400。`platform` 是 `bilibili` / `youtube` / `douyin` / `channels` / `xiaohongshu`（同原型 `PLATFORMS`），`variant` 是画面比例，`status` 是 `planned`（默认）/ `scheduled` / `published` / `failed`，别的值 400。
 - `title` 去首尾空白后必填，最多 200 字；`desc` 最多 5000 字；`cover_id` 是封面产出物 id（`vaf_`，见 `VideoArtifact`），产出物删掉时清空；`url` 要是 `http://` 或 `https://` 开头；`error` 最多 2000 字。`status` 是 `scheduled` 时要有 `scheduled_at`。
 - 选封面（VID-02a）：登记时带了 `cover_id`，或修改时传了 `cover_id`、`platform`、`variant` 之一，就校验封面，不符 400：封面不存在「封面 x 不存在」、不是这个视频的、不是封面类型、方向和这条发布的 `variant` 不同「封面是横屏的，这条发布是竖屏」、比例不是平台收的「封面比例不符合要求：抖音要 3:4 或 9:16，这次用的是 16:9」。只改别的字段不重新校验。平台收的封面比例放插件代码里的平台表（`data.go` 的 `PlatformCovers`，同原型 `PLATFORMS.cover`，第一个是推荐的）：`bilibili` 16:9、4:3，`youtube` 16:9，`douyin` 3:4、9:16，`channels` 9:16、3:4，`xiaohongshu` 3:4、1:1。
-- 时间是 RFC3339，存成 UTC 到秒。`metrics` 是平台回填的播放数据，四个数都是非负整数，`updated_at` 必填；不认识的键 400。
+- 时间是 RFC3339，存成 UTC 到秒。`metrics` 是平台回填的播放数据，四个数都是非负整数，`updated_at` 必填；不认识的键 400。扩展的几项（VID-05a，同原型 `Metrics`）平台不提供就不传或传 `null`，不返回：`impressions`、`favorites`、`coins` 非负整数，`followers_gained` 是整数（可以是负的），`ctr`、`completion` 是 0 到 1，`avg_watch_sec` 是 0 到 86400 秒。
+- `account_id` 是平台账号（`pa_`，见下），要存在、和这条发布同一个平台，否则 400；`tags` 是字符串数组，去空白、去空串、去重保序，最多 50 个、每个最多 50 字；`category`（分区）最多 100 字，`collection`（合集）最多 200 字；这几个传 `null` 清掉。
+- `checks` 是发布前校验结果，后端每次新建、修改按平台规则算（见下），请求里带了不报错也不用。
 - 可选字段没有就不返回；`cover_id`、`url`、`error` 存的是空串。
+
+### 平台账号、发布规则和按天快照（VID-05a）
+
+形状同原型 `web-next/src/videodata.ts` 的 `PlatformAccount`、`PlatformRule`、`MetricSnapshot`。
+
+`VideoAccount`：`{id, connector_id?, platform, handle, uid, role, caps, followers?, created_at, updated_at}`，同原型 `PlatformAccount` 多时间。
+
+- `id` 是 `pa_` 前缀（已登记）。`platform` 必填，同发布记录；`role` 是 `main`（主号，默认）/ `ab`（A/B 小号）/ `client`（客户号）；`caps` 是 `upload` / `schedule` / `metrics` / `comments` / `reply` / `dm` 的数组，去重后按这个顺序存（同原型 `ContentPlatformCap`），别的值 400；`followers` 是非负整数；`handle`、`uid` 最多 100 字。
+- `connector_id` 是内核连接器实例：要存在、是这个平台的连接器（tool 对得上），否则 400；**一个实例只挂一个账号**，已挂在别的账号上 409。不给 `handle` 时取连接器的 `account`；两边都没有 400「昵称必填」。视频号、小红书没有连接器，手动登记、不带 `connector_id`，数据靠回填。
+- 挂着发布记录的账号不能换平台、不能删，409「这个账号挂了 n 条发布记录…」。
+- 发布记录挂了账号的，投稿、同步、拉评论没给 `connector_id` 时用账号挂的连接器。
+
+发布规则放插件代码里（`rules.go` 的 `PlatformRules`，同原型 `PLATFORM_RULES`），经 `GET /api/video/platforms` 的 `rule` 返回：`{platform, title_max, desc_max, tags_max, allow_link, cover, duration_max_sec?, categories?}`。
+
+- 校验同原型 `checkPublish`，按顺序：`title`、`desc`（去首尾空白后按字符数）、`tags`（个数），平台不许放链接的查 `link`（简介里有 `http://`、`https://`、`www.`），选了封面的查 `cover`（封面比例在不在平台收的里面），平台限时长且有成片的查 `duration`（取同方向最新一版成片的 `duration`）。每项 `{key, ok, text}`，`text` 同原型文案，如「标题超长：抖音最多 30 字，现在 31 字」。
+- 结果存在发布记录的 `checks` 上；**有一项不过就不能是 `scheduled`**：新建或修改成已定时、已定时的改成不过，都 400「发布前校验没通过，不能定时：…」（第一项不过的说明）；计划中的照样能登记、能改。经连接器投稿（`submit`）也先算一遍（标签按这次投的），不过 400，不发请求。
+
+`VideoMetricSnapshot`：`{publish_id, day, source, views, likes, comments, shares, impressions?, ctr?, avg_watch_sec?, completion?, favorites?, coins?, followers_gained?, updated_at, created_at}`，同原型 `MetricSnapshot` 多 `created_at`（落库时间；`updated_at` 是数据本身的时间）。
+
+- 快照没有 id，只追加、不覆盖：回填（新建或 PATCH 带非 `null` 的 `metrics`）记一条 `source: manual`，拉取（`sync` 和后台任务）记一条 `source: connector`；发布记录的 `metrics` 是最新一条。只改别的字段不记。发布记录删掉时快照一起删。
+- `day` 是发布后第几天（同原型 `dayAfter`）：数据时间减 `published_at` 的整天数，最少是 1；没有 `published_at` 按第 1 天。平台不提供的指标存空、不返回。
+- 后台任务 `metrics_daily`（插件 Job，每小时看一遍）：已发布、或已定时且到了定时时间的、有 `url`、平台有 `metrics` 能力的发布记录，当天（按 `day`）还没有 `connector` 快照的拉一次，同 `sync`；单条出错只记日志，接着拉下一条。视频号、小红书没有连接器，不拉，只手填。
 
 ### 内容平台（VID-04b）
 
 插件内的平台适配接口（`internal/plugins/video/platform.go`）：每个平台一个适配器，自带连接器定义（由本插件登记，`source` 是 `video`），声明自己实际能做什么：`upload`（上传成片、设封面、投稿）、`schedule`（投稿时定时公开）、`metrics`（拉单条稿件数据）、`comments`（拉评论），同原型 `ContentPlatformCap` 的前四个。没声明的能力，接口直接 400，不去试。凭证存在连接器的保险箱条目里，调用时经 `Connectors().With` 现取；出网走 `Core.HTTP("media-platforms")`，域名清单见插件出网一节。**投稿会在用户的平台账号下产生稿件**，只在用户点了才发，没有后台自动投稿。
 
-`VideoPlatform`：`{key, label, tool?, caps, covers, connectors}`。`tool` 是平台的连接器 tool，没有连接器的平台不返回、`caps` 是 `[]`；`covers` 同 `PlatformCovers`；`connectors` 是已接入的实例 `{id, name, account, status, error?}[]`，按新建倒序（一个实例一个平台账号）。
+`VideoPlatform`：`{key, label, tool?, caps, covers, creator_url, rule, connectors}`。`tool` 是平台的连接器 tool，没有连接器的平台不返回、`caps` 是 `[]`；`covers` 同 `PlatformCovers`；`creator_url` 是平台创作者后台的发稿页（VID-04d）；`rule` 是平台发布规则（VID-05a），见上「平台账号、发布规则和按天快照」；`connectors` 是已接入的实例 `{id, name, account, status, error?}[]`，按新建倒序（一个实例一个平台账号）。
 
 - B 站 `bilibili`（`bilibili.go`）：能力 `upload`、`metrics`。开放平台没有评论和定时投稿接口，这两项不声明。认证用令牌（`auth: token`）：字段 `client_id`（文本）、`app_secret`、`access_token`（凭证）。开放平台的授权页用 `gourl` 而不是 `redirect_uri`，令牌接口回的也不是标准 OAuth 形状，内核 OAuth 流程接不上，`access_token` 先由用户自己拿到后填进来，真实接通（VID-04c）时再看要不要做专门的授权。连通测试调 `user/account/info`，账号名记成连接器的 `account`。每个开放平台请求带 `x-bili-*` 签名头和 HMAC-SHA256 的 `Authorization`。投稿：`archive/video/init` 拿 `upload_token`，按 8MB 分片传到 `openupos.bilivideo.com`，`archive/video/complete` 合片，`archive/cover/upload` 传封面，`archive/add-by-utoken` 投稿拿 BV 号（自制、禁止转载）；状态 `archive/view`，数据 `data/arc/stat`。接口形状按开放平台文档写，测试对接本机假服务端（响应样例在 `testdata/bilibili`，不含真实账号信息），和真实返回对不上的归 VID-04c 修。
 - 投稿（`submit`）：
-  - 只有 `planned`、`failed` 且没有 `url` 的发布记录能投，已有稿件的 409「这条发布已经有稿件了，不能再投一次」；同一条正在投的 409「这条发布正在投稿」。平台没有 `upload` 能力 400「YouTube还不能经连接器投稿，手动发布后回填链接」。
-  - 标题、简介取发布记录的；`tags` 是字符串数组（去空白、去空串，最多 50 个），`category` 是分区（B 站填分区 id），`collection` 是合集，都只用于这次投稿、不落库（落库归 VID-05a）。`scheduled_at` 在将来的算定时投稿，平台没有 `schedule` 能力 400。
+  - 只有 `planned`、`failed` 且没有 `url` 的发布记录能投，已有稿件的 409「这条发布已经有稿件了，不能再投一次」；同一条正在投的 409「这条发布正在投稿」。平台没有 `upload` 能力 400 `unsupported`「抖音还不能经连接器投稿：用发布包（`GET /api/video/publishes/{id}/package`）到创作者后台发布，再回填链接」。
+  - 标题、简介取发布记录的；`tags` 是字符串数组（去空白、去空串，最多 50 个），`category` 是分区（B 站填分区 id），`collection` 是合集，都只用于这次投稿、不落库（落库归 VID-05a）。`scheduled_at` 在将来的算定时投稿，平台没有 `schedule` 能力 400 `unsupported`。
   - 成片：给了 `file_id` 用它（要是这个视频的成片、方向和这条发布一致），没给取同方向成片里验收过（`final` / `published`）的、版本最新的，都没有 400「这集还没有横屏成片」。封面用发布记录的 `cover_id`。文件路径按视频工程目录解析（同阶段执行器的工作目录：绝对路径直接用，相对路径接在项目工作区目录后面），文件要在、是普通文件、不空，否则 400；插件没有 `fs:read:project` 400。
   - 平台规则在上传前查，不合规 400，不发任何请求。B 站同原型 `PLATFORM_RULES.bilibili`：标题 80 字、简介 2000 字、简介不放外链、标签 1 到 10 个（每个最多 20 字、不带英文逗号）、分区 id 是正整数、封面必填（jpg、png，最大 5MB）；带 `collection` 或定时 400。
   - 连接器：给了 `connector_id` 用它（不存在或不是这个平台的 400），没给时这个平台只接了一个就用它，没接 400「还没接入B 站：到「设置 / 连接器」里接入」，接了多个 400 要指定；暂停、断开的 409。
   - 成功：`status` 是 `published`（定时的是 `scheduled`），`url` 是稿件链接（B 站 `https://www.bilibili.com/video/BV…`），`published_at` 是投稿时间，`error` 清空。平台上还要转码、审核，用 `sync` 看。
   - 失败（平台拒收、令牌失效、连不上）：发布记录 `status` 置为 `failed`，`error` 是原因（凭证原文换成 `***`，最多 2000 字），回 502 `publish_failed`，`error` 里多 `publish_id`、`connector_id`；之后再调一次就是重投。
 - 同步（`sync`）：稿件号从发布记录的 `url` 里认（B 站认 `BV` 加 10 位），认不出 400「这条发布还没有B 站的稿件链接」。平台状态 `reviewing`（转码、审核中）、`published`（开放）、`failed`（退回、锁定、转码失败）：`failed` 时发布记录置为 `failed`、`error` 是平台给的原因（如「B 站：封面与内容不符」）；`published` 时置为 `published`、清空 `error`，没有 `published_at` 的用平台的发布时间；`reviewing` 只清空 `error`。有 `metrics` 能力的再拉数据：播放、点赞、评论、分享写进 `metrics`（`updated_at` 是这次拉的时间），`meta.stats` 另外带 `favorites`、`coins`、`danmaku`（按天快照归 VID-05a）。`meta.remote` 是 `{state, label, reason?, published_at?}`。出错 502 `sync_failed`，发布记录不动。
-- 评论（`comments`）：`VideoComment` 是 `{id, author, text, likes, at, reply_to?}`；`cursor` 用上一页 `meta.next`，`next` 为空串是没有下一页。现在没有平台声明 `comments`（B 站 400）。
+- 评论（`comments`）：`VideoComment` 是 `{id, author, text, likes, at, reply_to?}`；`cursor` 用上一页 `meta.next`，`next` 为空串是没有下一页。YouTube、抖音声明了 `comments`，B 站没有（400 `unsupported`）。
+- YouTube `youtube`（`youtube.go`，VID-04d）：能力 `upload`、`schedule`、`metrics`、`comments`。认证走内核 OAuth（`auth: oauth2`，Google 的授权、令牌地址，`access_type=offline`、`prompt=consent`，范围 `youtube.upload`、`youtube.readonly`、`youtube.force-ssl`，令牌刷新归内核）：字段 `client_id`（文本）、`client_secret`（凭证），是 Google Cloud 的 Web 应用客户端。连通测试调 `channels?mine=true`，频道名记成 `account`。投稿：`videos.insert` 断点续传（先私享，按 32MB 分片 `PUT`，`308` 续传），`thumbnails.set` 设缩略图（封面可不传，jpg、png，最大 2MB），`videos.update` 写标题、简介、标签、分类和公开方式（立即发是 `public`，定时是 `private` 加 `publishAt`，`selfDeclaredMadeForKids` 是 false），给了 `collection`（播放列表 id）再 `playlistItems.insert`。`category` 填分类 id 或 `教育`、`科学和技术`、`人物和博客`，不填是 22。上传前查：标题必填、最多 100 字，简介 5000 字，标题简介标签不带尖括号，标签最多 15 个、合计 500 字。稿件号认 `watch?v=`、`youtu.be/`、`shorts/`、`live/`、Studio 的 `video/` 链接和裸 id（11 位），链接存成 `https://www.youtube.com/watch?v=…`。状态 `videos.list?part=snippet,status`：`uploadStatus` 是 `failed` / `rejected` / `deleted` 为 `failed`（原因如「YouTube：侵犯版权」），稿件不在了也是 `failed`；`processed` 且公开为 `published`；带 `publishAt` 为 `reviewing`「已定时」；其余 `reviewing`。数据 `videos.list?part=statistics`：观看、点赞、评论，Data API 没有分享数（0）。评论 `commentThreads.list`（顶层评论，按时间倒序，每页 50，`cursor` 是 `pageToken`）。401、403 的配额和权限原因（`quotaExceeded`、`insufficientPermissions` 等）、429、5xx 算渠道异常，400 只算这次失败。
+- 抖音 `douyin`（`douyin.go`，VID-04d）：能力 `metrics`、`comments`。开放平台代用户发布（`video.create`）要应用单独申请、过资质审核，个人创作者的应用拿不到，也没有定时发布，所以不声明 `upload`、`schedule`，发布用发布包到创作者后台手动发，发完回填链接。认证用令牌（`auth: token`）：字段 `open_id`（文本）、`access_token`（凭证，15 天过期）；开放平台的 OAuth 用 `client_key`、令牌包在 `data` 里，内核 OAuth 流程接不上，刷新和专门的授权归 VID-04e。请求带 `access-token` 头和 `open_id` 查询参数。连通测试调 `/oauth/userinfo/`，昵称记成 `account`。稿件号认 `douyin.com/video/<作品 id>` 链接、裸作品 id 和开放平台的 `item_id`（`@` 开头）。数据 `video/video_data`（作品 id 用 `video_ids`）：播放、点赞、评论，分享是分享加转发。评论 `item/comment/list`，要加密的 `item_id`，先经数据接口换；每页 20，`cursor` 是数字游标；评论没有昵称，`author` 是评论人的 open_id。`data.error_code`（或 `extra.error_code`）非 0 是出错，令牌失效、过期、没授权能力的码（2190002、2190008、28001003 等）算渠道异常。
+- 视频号、小红书：不做连接器（不开放发布接口），`caps` 是 `[]`，只有 `creator_url`；发布记录只登记、回填链接，数据手填。
+- 接口形状都按官方文档写，测试对接本机假服务端（响应样例在 `testdata/youtube`、`testdata/douyin`，不含真实账号信息），真实接通归 VID-04e。
+- 平台没有某项能力：投稿、定时、同步、评论回 400，`code` 是 `unsupported`，不发任何请求。
+- 发布包（`package`，VID-04d）：`VideoPublishPackage` 是 `{publish_id, platform, label, creator_url, upload, title, desc, tags, category?, collection?, scheduled_at?, video, cover?, checks, steps}`。`upload` 是这个平台能不能经连接器投稿；`video`、`cover` 是 `{artifact_id, path, name, size, ratio?}`，`path` 是本机绝对路径，成片取法同投稿（`file_id` 可指定），封面用 `cover_id`，文件不在、成片没有都 400；`checks` 是按平台规则算的校验（同发布记录的 `checks`），不拦；`steps` 是给人看的几步说明。任何平台都能取；发布记录不存在 404。
 - 渠道异常：令牌失效或没权限（B 站返回 -101 等鉴权错误码、HTTP 401、403）、连不上、平台 5xx 时连接器置为 `error`、`error` 是原因（同 IM 渠道的「记一次同步」）；成功一次回到 `connected`。平台只是不收这次投稿（如标题有敏感词）不动连接器。请求被取消的不记。
 
 `VideoArtifact`：`{id, video_id, kind, name, path, variant?, ratio?, option?, lang?, version, status, duration?, source, reviews, picked?, created_at, updated_at}`，同原型 `Artifact` 多 `updated_at`；`reviews` 是 `{at, ok, comment, version}[]`，同原型 `Review` 多 `version`（验收的是第几版），按先后排；`source` 是 `{type, label, id?, session_id?, run_id?, artifact_id?}`。
@@ -2157,7 +2199,7 @@ VID-01a 起。插件 `video`（`internal/plugins/video`，清单 `plugin.json`�
 
 ### 选题和素材箱（VID-08a）
 
-插件迁移 `migrations/0004_topics.sql` 建 `video_topics`、`video_clips` 和关联表 `video_topic_clips`（选题和素材多对多），形状同原型 `web-next/src/topicdata.ts` 的 `Topic`、`Clip`。0.2.0 装过的要走升级应用。现在只能手动收素材，**拉热榜、收评论不接内容平台**（VID-04 起）。
+插件迁移 `migrations/0004_topics.sql` 建 `video_topics`、`video_clips` 和关联表 `video_topic_clips`（选题和素材多对多），形状同原型 `web-next/src/topicdata.ts` 的 `Topic`、`Clip`。0.2.0 装过的要走升级应用。拉热榜还不接内容平台；收评论见下「评论收件」（VID-08b，迁移 `0009_clip_remote.sql` 给 `video_clips` 加内部列 `remote_id`）。
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
@@ -2174,6 +2216,7 @@ VID-01a 起。插件 `video`（`internal/plugins/video`，清单 `plugin.json`�
 | DELETE | `/api/video/clips/{id}` | `data` 为 `null`；和选题的关联一起删，选题留着 |
 | POST | `/api/video/clips/{id}/topic` | 转为选题，body 可带选题字段（除 `clip_ids`）覆盖默认值；回 201 + `{topic, clip}` |
 | POST | `/api/video/clips/{id}/link` | `{topic_id}`，并入已有选题；回 `{topic, clip}` |
+| POST | `/api/video/clips/comments` | 无 body 或 `{publish_id?}`，立刻从平台拉评论收进素材箱（同原型「收集评论」）；回新收的 `VideoClip[]`，`meta` 是 `{added, duplicates, publishes, skipped}`，见下「评论收件」（VID-08b） |
 
 `VideoTopic`：`{id, title, angle, audience, status, score, tags, series_id?, platforms, outline, clip_ids, planned_at?, video_id?, drop_reason?, created_at, updated_at}`，同原型 `Topic`。
 
@@ -2187,16 +2230,25 @@ VID-01a 起。插件 `video`（`internal/plugins/video`，清单 `plugin.json`�
 立项（`make`，同原型 `makeVideoFromTopic`）：
 
 - 已经有 `video_id` 409「这个选题已经立项了」；`dropped` 409「已放弃的选题不能立项」；`title` 为空 400「先写标题」。`project_id` 同视频接口，要是没删的项目对象，否则 400。
-- 生成的 `Video`：在系列里时 `episode` 接着系列里最大的集数加一、标题是「第 n 集：选题标题」，不在系列里标题就是选题标题；`orientations` 按目标平台的偏好比例（B 站、YouTube 横屏，抖音、视频号、小红书竖屏），没选平台用 `landscape`；`root` 是 `videos/<选题 id>`，`chapters` 是 3，阶段 `script`、4 个检查点 `pending`（同 `POST /api/video/videos`）。
+- 生成的 `Video`：在系列里时 `episode` 接着系列里最大的集数加一、标题是「第 n 集：选题标题」，不在系列里标题就是选题标题；`orientations` 按目标平台的偏好比例（B 站、YouTube 横屏，抖音、视频号、小红书竖屏），没选平台用 `landscape`；`root` 是 `videos/<选题 id>`，`chapters` 是 3，`topic_id` 是这个选题，阶段直接是 `script`（选题一步算已完成，VID-09a）、4 个检查点 `pending`。
 - 然后选题 `video_id` 回写为新视频、`status` 变 `made`。回写时发现别处已经立项或放弃了，删掉刚建的视频，409。
 
 `VideoClip`：`{id, kind, title, content, url?, source, heat?, tags, starred, topic_ids, triaged, publish_id?, message_id?, created_at, updated_at}`，同原型 `Clip` 多来源出处和 `updated_at`。
 
 - `id` 是 `cl_` 前缀（已登记）。`kind` 必填，是 `link` / `note` / `trend` / `comment` / `competitor` / `im`（同原型 `CLIP_KIND`），登记后不能改。
 - `title` 最多 200 字；没给时同原型「收进来」：有 `url` 取去掉协议的前 60 字，否则取 `content` 的前 40 字；三样都没有 400。`content` 最多 5000 字；`url` 要是 `http://` 或 `https://` 开头；`source` 是来源说明（平台名、热榜名、评论所在视频、消息所在群），最多 200 字，不给存「手动添加」；`heat` 是非负整数，传 `null` 清掉；`tags` 同选题。`starred`、`triaged` 是布尔，默认 `false`。
-- **来源出处**，登记后不能改：`publish_id` 只有 `comment` 能带，是这条评论所在的发布记录（`pb_`），要存在，否则 400，发布记录删掉时清空；`message_id` 只有 `im` 能带，是 im 插件的消息 id（`msg_`），只能有字母、数字和 `. _ : -`，最多 100 字，插件读不到 im 的表，**只存不查**。前端从评论跳发布记录再到视频，从 IM 素材跳消息。
+- **来源出处**，登记后不能改：`publish_id` 只有 `comment` 能带，是这条评论所在的发布记录（`pb_`），要存在，否则 400，发布记录删掉时清空；`message_id` 只有 `im` 能带，是 im 插件的消息 id（`msg_`），只能有字母、数字和 `. _ : -`，最多 100 字，插件读不到 im 的表，**只存不查**；同一条消息已经收过时不再新建，回 200 + 已有的那条，`meta.existing` 为 `true`（VID-08b，IM 抽屉「收进素材箱」点两次只收一份）。前端从评论跳发布记录再到视频，从 IM 素材跳消息。
 - `topic_ids` 是归到的选题，按关联先后排，只能用转为选题、并入、选题的 `clip_ids` 改。
 - 列表筛选：`box` 是 `todo`（`triaged` 为 `false`）/ `starred` / `all`（默认），同原型收件箱三栏；`kind` 同上，别的值 400；`topic_id`、`publish_id`、`message_id` 按关联或出处反查；`q` 搜标题、内容、来源、标签（不分大小写，`%`、`_` 按字面）。`meta.todo` 是全部待整理的条数，不受筛选影响（红点用）。
+
+评论收件（VID-08b）：评论进素材箱（`kind: comment`），不进 IM 收件箱（同原型；分析文档建议的「评论走 IM 消息模型」会让联系人表单多出平台渠道，不采用）。只拉不回，在平台上回复评论以后单独做。
+
+- 拉哪些：`status` 是 `published`、有 `url`、平台适配器声明了 `comments` 能力的发布记录。后台任务 `collect_comments` 启用时先跑一轮，之后每 30 分钟一轮，只拉 `published_at` 在 30 天内（或没填）的；`POST /api/video/clips/comments` 不带 `publish_id` 同后台任务，带了只拉这一条、不看时间。后台任务和按钮不同时跑。
+- 连接器按发布记录所在平台挑，同 `submit` 不带 `connector_id`：只接了一个账号就用它。每条稿件一次最多翻 5 页，一页里全是收过的就不往下翻。渠道异常时连接器置为异常，同「内容平台」。
+- 落成的素材：`title` 取评论正文前 40 字，`content` 是正文（最多 5000 字），`heat` 是点赞数，`source` 是「平台名评论 · 发布标题 · 作者」，`publish_id` 是这条发布记录，`triaged` 为 `false`。正文为空或平台没给评论 id 的跳过。**按平台评论 id 去重**：内部列 `remote_id` 存 `<平台>:<评论 id>`，有唯一索引，拉多少次都只落一份；收过的不改（转过选题、改过标题的照旧）。
+- 不带 `publish_id` 时，拉不了的发布记录（没接或接了多个账号、连接器暂停或断开、平台出错）记进 `meta.skipped`（`{publish_id, reason}[]`），别的照拉，回 200；`meta.publishes` 是拉成的条数，`duplicates` 是收过的条数。接入的平台都没有评论能力时 400「接入的平台都还不能经连接器拉评论」（现在的 B 站开放平台没有评论接口）。
+- 带 `publish_id` 时：不存在 404；平台没有评论能力、还没有稿件链接、连接器没接或多个 400，暂停、断开 409；平台出错 502 `fetch_failed`。
+- IM 消息转素材：由 IM 页消息抽屉的「收进素材箱」调 `POST /api/video/clips`（`kind: im`，带 `message_id`），video 插件没在跑时这一节不显示。视频插件不订阅 `im.message_received`（事件只带 id，正文要回 IM 接口取；也不是每条消息都该进素材箱），没装 IM 插件时照常可用。
 
 转为选题和并入（同原型素材收件箱的「转为选题」「归到选题」）：
 
@@ -2204,6 +2256,29 @@ VID-01a 起。插件 `video`（`internal/plugins/video`，清单 `plugin.json`�
 - 并入：`topic_id` 必填，要存在，否则 400；只能并入进行中的选题，`made`、`dropped` 409；已经关联过的不重复记，照样回 200。素材记为已整理，选题刷新 `updated_at`。
 
 - 暂不记审计、不发事件。
+
+### 选题一步和稿件正文（VID-09a）
+
+选题一步（`PUT /api/video/videos/{id}/topic`，同原型视频详情的 `linkTopic`，规格 `SPEC-videos-10.26` 到 `10.30`）：
+
+- `topic_id` 必填，是要挂的选题 id，传 `null` 摘下。选题不存在 400；已经挂在别的视频上（`video_id` 有值）409；已放弃（`dropped`）409。和现在挂的一样直接回 200。
+- 挂上：选题 `video_id` 记成这一集、`status` 变 `made`；视频记 `topic_id`。视频标题还是默认的（空、「新视频」、「第 N 集：」）就换成选题标题（有集数时是「第 N 集：选题标题」）；画面比例没锁定（规划检查没通过）且选题选了平台时，按平台的偏好比例去重（同立项）。
+- 换下来或摘下的选题清掉 `video_id`、`status` 回到 `ready`（可开拍）。已经过了选题一步的集也能换。**阶段不动**：选题一步要用 `advance` 进内容编写。
+- 「新建选题」由前端先 `POST /api/video/topics` 再用本接口挂上。回 `{video, topic}`，`topic` 是挂着的选题，摘下后是 `null`。
+
+稿件正文（`GET/PUT /api/video/artifacts/{id}/content`，同原型 `ScriptText`，规格 `SPEC-videos-10.31` 到 `10.45`）：
+
+- 只认原文 `article`、口播稿 `script`、大纲 `outline` 三类，别的 400。正文就是视频工程目录里 `path` 那个文件：工程目录同技能执行器（`root` 是绝对路径直接用，相对路径接在所属项目的工作区目录后面），读要已确认 `fs:read:project`、写要 `fs:read:project` 和 `fs:write:project`，没确认 400。
+- **只认工程目录内的路径**：`path` 越出工程目录、是绝对路径、符号链接解析后指到外面、放在 `.versions/` 下、是目录，都 400；产出物不存在 404。正文上限 512 KB，超过的（写的内容或磁盘上的文件）400；不是 UTF-8 的文件 400。
+- `VideoArtifactContent`：`{artifact_id, version, path, content, exists, size, modified_at?, versions}`。`version` 是读的第几版；`path` 是读的文件（相对工程目录，旧版本是 `.versions/...`）；`exists` 为 `false` 是文件还没写过，`content` 为空串；`versions` 是留存的旧版本号，从小到大。
+- GET 的 `version` 默认是当前版本，要是 1 到当前版本的整数，否则 400；旧版本没留存 404「第 N 版的正文没有留存」。
+- PUT：`content` 必填（字符串，可以为空）；`from` 给了要和当前版本一致，否则 409。没带 `new_version` 是原地改当前版本的文件（目录不在就建）。`new_version: true` 是「保存为 vN+1」（同原型 `saveText`）：内容去空白后为空 400「稿子是空的，不能存成新版本」；先把当前文件另存成 `.versions/<目录>/<文件名>.v<N><扩展名>`（文件还没写过就不存），再把版本号加一、`status` 回到 `draft`、来源改成 `{type: manual, label: 手写}`，最后写新正文。写文件先写临时文件再改名。都刷新产出物和视频的 `updated_at`。回 `{artifact: VideoArtifact, content: VideoArtifactContent}`。
+
+按选题大纲起草（`SPEC-videos-10.37`，复用上面的「阶段执行器」）：
+
+- 就是 `POST /api/video/videos/{id}/runners/{stage}/run`，`stage` 取 `script`。内容编写没配执行器、视频挂了选题时，用技能 `sk_video`（网页演示做视频）跑，执行器的话是「按 Phase 1 照选题的角度和大纲起草口播稿和大纲」；没配执行器也没挂选题仍是 409。
+- 挂了选题时提示词带上选题的标题、切入角度、受众（没写是「还没写」）和大纲；选题没写大纲记一条失败的执行「选题「…」还没写大纲，Phase 1 要照大纲起草；先在选题里补上大纲再重试」。
+- 发起前把这一集口播稿、大纲的当前版本另存进 `.versions/`（尽力而为，没权限、目录不可用的跳过），跑完照「阶段执行器」的收尾升版本成待验收，旧版本还能用 `?version=` 读出来对比。原型的「初稿对比、采用、丢弃」现在没有单独的初稿存放处，前端用旧版本和新版本对比，丢弃就把旧版本内容用 `new_version` 再存一版。
 
 ### SOP 节点和内置流程（VID-03d）
 

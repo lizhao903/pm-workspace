@@ -1,0 +1,1 @@
+{"error": {"code": 400, "message": "The request metadata specifies an invalid video category.", "errors": [{"message": "invalid category", "domain": "youtube.video", "reason": "invalidCategoryId"}]}}

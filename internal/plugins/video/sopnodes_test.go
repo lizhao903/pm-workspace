@@ -164,6 +164,7 @@ func TestWeeklyFlowStopsAtPlan(t *testing.T) {
 	root := t.TempDir()
 	v := mustCall(t, e.h, "POST", "/api/video/videos", `{"title":"第 28 集：周更流程","orientations":["landscape"],"root":"`+root+`","chapters":2}`, 201)
 	vid := v["id"].(string)
+	atScript(t, e, vid)
 	path := "/api/video/videos/" + vid
 	for _, st := range []string{"script", "web"} {
 		mustCall(t, e.h, "PUT", path+"/runners/"+st, `{"type":"skill","ref_id":"sk_video"}`, 200)
@@ -227,6 +228,7 @@ func TestRunStageNodeFails(t *testing.T) {
 	e.r.SetClaudeRunner(fc)
 	v := mustCall(t, e.h, "POST", "/api/video/videos", `{"title":"失败","orientations":["landscape"],"root":"`+t.TempDir()+`"}`, 201)
 	vid := v["id"].(string)
+	atScript(t, e, vid)
 	flow := func(stage string) string {
 		return mustCall(t, e.h, "POST", "/api/sop/flows", `{"name":"跑 `+stage+`","fields":[{"key":"video_id","label":"视频","type":"text"}],
 			"steps":[{"key":"a","name":"跑","kind":"video_run_stage","config":{"video":"{{video_id}}","stage":"`+stage+`"}}]}`, 201)["id"].(string)
@@ -268,7 +270,7 @@ func TestWaitCheckpointNode(t *testing.T) {
 		"steps":[{"key":"a","name":"等","kind":"video_wait_checkpoint","config":{"video":"{{video_id}}","checkpoint":"ch1"}}]}`, 201)["id"].(string)
 	rid := mustCall(t, e.h, "POST", "/api/sop/flows/"+fid+"/runs", `{"input":{"video_id":"`+vid+`"}}`, 201)["id"].(string)
 	untilStep(t, e, rid, "a", "挂起", waitingStep)
-	if got := mustCall(t, e.h, "GET", "/api/video/videos/"+vid, "", 200); got["stage"] != "script" {
+	if got := mustCall(t, e.h, "GET", "/api/video/videos/"+vid, "", 200); got["stage"] != "topic" {
 		t.Fatalf("中间隔着规划检查，不该推视频：%v", got["stage"])
 	}
 	// 视频删了，步骤失败
@@ -280,6 +282,7 @@ func TestWaitCheckpointNode(t *testing.T) {
 
 	v = mustCall(t, e.h, "POST", "/api/video/videos", `{"title":"已过","orientations":["landscape"]}`, 201)
 	vid = v["id"].(string)
+	atScript(t, e, vid)
 	mustCall(t, e.h, "POST", "/api/video/videos/"+vid+"/advance", `{"from":"script"}`, 200)
 	mustCall(t, e.h, "POST", "/api/video/videos/"+vid+"/checkpoints/plan", `{"state":"passed"}`, 200)
 	fid = mustCall(t, e.h, "POST", "/api/sop/flows", `{"name":"已过","fields":[{"key":"video_id","label":"视频","type":"text"}],

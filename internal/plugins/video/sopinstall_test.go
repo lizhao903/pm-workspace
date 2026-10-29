@@ -24,6 +24,7 @@ func TestWeeklyTemplateInRealSOP(t *testing.T) {
 	e.r.SetClaudeRunner(fc)
 	v := mustCall(t, e.h, "POST", "/api/video/videos", `{"title":"模板","orientations":["portrait"],"root":"`+t.TempDir()+`"}`, 201)
 	vid := v["id"].(string)
+	atScript(t, e, vid)
 	mustCall(t, e.h, "PUT", "/api/video/videos/"+vid+"/runners/script", `{"type":"skill","ref_id":"sk_video"}`, 200)
 	rid := mustCall(t, e.h, "POST", "/api/sop/flows/"+WeeklyFlowID+"/runs", `{"input":{"video_id":"`+vid+`"}}`, 201)["id"].(string)
 	untilStep(t, e, rid, "plan", "停在规划检查", waitingStep)

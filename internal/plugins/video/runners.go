@@ -359,6 +359,11 @@ func (h *handler) startStage(ctx context.Context, id, stage string) (rowID int64
 	if err != nil {
 		return 0, nil, err
 	}
+	if sr == nil && stage == "script" && v.TopicID != nil {
+		// 按选题大纲起草：没配执行器用技能「网页演示做视频」（VID-09a）
+		d := draftRunner
+		sr = &d
+	}
 	if sr == nil {
 		return 0, nil, apiErr(errConflict, "「%s」还没配执行器，先配一个再跑", stageLabel(stage))
 	}
@@ -382,6 +387,9 @@ func (h *handler) startStage(ctx context.Context, id, stage string) (rowID int64
 	if err != nil {
 		return 0, nil, err
 	}
+	if stage == "script" {
+		h.snapshotTexts(ctx, v)
+	}
 	runID, startErr := h.startRunner(ctx, v, *sr)
 	if startErr != nil {
 		if err := h.claimRun(ctx, rowID, "failed", startErr.Error(), ""); err != nil {
@@ -404,6 +412,15 @@ func (h *handler) startRunner(ctx context.Context, v Video, sr StageRunner) (str
 	for _, k := range RunKinds[sr.Stage] {
 		if ak, _ := artifactKind(k); ak.PerVariant && len(v.Orientations) == 0 {
 			return "", errors.New("还没定画面比例，先在规划检查里选好")
+		}
+	}
+	if sr.Stage == "script" {
+		brief, err := h.topicBrief(ctx, v)
+		if err != nil {
+			return "", err
+		}
+		if brief != "" {
+			sr.Prompt = strings.TrimSpace(sr.Prompt + "\n\n" + brief)
 		}
 	}
 	runs := h.c.Runs()
