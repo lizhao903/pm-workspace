@@ -1756,8 +1756,8 @@
     "spec": [
       "web-next/docs/dev-plan.md 4.6 IM-01（先接 Slack 和 Telegram）"
     ],
-    "body": "## 要做什么\n\n- Slack Bot Token 方式，拉取或事件订阅，消息落库；渠道异常时连接器状态改为异常。\n\n## 注意事项\n\n- 迁移只加不改：`internal/db/migrations` 里 0001 到 0013 一行不动，新迁移从当时最新编号的下一个开始，只加新表、旧表只加列。0001 到 0004 没有校验和，更不能碰。开工前先看目录里的最新编号，并行任务撞号时后合入的改号。\n- 先在测试实例（`scripts/dev-instance.sh`）或备份副本的拷贝上演练，不碰 `data/pm.db`，不启动或重启 7777 上的服务。\n- 加了或删了路由要同步 `docs/api-contract.md`（`TestEveryRouteIsInTheContractDoc` / `TestContractDocHasNoDeadRoutes` 双向盯着）；契约文档同一时间只由一个任务改，避免并行冲突。",
-    "acceptance": "- [ ] 测试工作区里发一条消息，几分钟内落库并在接口里看到\n- [ ] Token 失效时连接器状态变为异常"
+    "body": "## 要做什么\n\n- Slack Bot Token 方式，拉取或事件订阅，消息落库；渠道异常时连接器状态改为异常。\n\n## 注意事项\n\n- 迁移只加不改：`internal/db/migrations` 里 0001 到 0013 一行不动，新迁移从当时最新编号的下一个开始，只加新表、旧表只加列。0001 到 0004 没有校验和，更不能碰。开工前先看目录里的最新编号，并行任务撞号时后合入的改号。\n- 先在测试实例（`scripts/dev-instance.sh`）或备份副本的拷贝上演练，不碰 `data/pm.db`，不启动或重启 7777 上的服务。\n- 加了或删了路由要同步 `docs/api-contract.md`（`TestEveryRouteIsInTheContractDoc` / `TestContractDocHasNoDeadRoutes` 双向盯着）；契约文档同一时间只由一个任务改，避免并行冲突。\n\n- Slack：Bot Token（`xoxb-`）方式，优先 Events API（经 `--public-url` 回调，校验签名 Signing Secret），回调不可达时退回定时拉 `conversations.history`；收消息落库走 IM 插件已有的 ingest，认人走 IM 身份；发消息（回复、SOP 发消息节点）走 `chat.postMessage`，连接器 `direction` 是 both。\n\n## 2026-10-29 调整（用户：「把 IM 渠道配置加上先接入 slack，Telegram」）\n\n- 本条先做到：适配器、连接器定义、IM 页「渠道配置」里能新建和配置这个渠道，全部用本机假服务端测通；真实接通由用户自己在测试实例的界面里填 Token（存进保险箱），不再等主会话拿凭证。\n- 「渠道配置」：IM 消息页的按钮现在只跳到连接器设置；改成打开 IM 渠道的配置（只列 IM 类连接器，空状态给「接入 Slack」「接入 Telegram」两个入口），每个渠道显示状态、最近同步时间、出错原因，能测试连接、立即同步、停用。两个渠道共用这一处，Slack 一条先建好框架，Telegram 一条接上自己的表单。\n- 验收里「真实工作区或真实 Bot」那条改成：写清楚用户要做的步骤（去哪建 App 或 Bot、要哪些权限和 scope、Token 填在哪），写进回复和契约。",
+    "acceptance": "- [ ] 假 Slack 服务端上：事件回调签名正确的消息落库，签名不对 401；拉取模式也能落库\n- [ ] Token 失效（假服务端回 invalid_auth）时连接器状态变异常并写原因\n- [ ] IM 页「渠道配置」能新建 Slack 渠道、填 Token 和 Signing Secret（进保险箱、界面只显示脱敏）、测试连接、立即同步\n- [ ] 回复动作经 chat.postMessage 发到假服务端\n- [ ] gofmt、go vet、go test ./...；npm test、typecheck、lint、build、smoke-frontend 通过"
   },
   {
     "key": "IM-01c",
@@ -1774,8 +1774,8 @@
     "spec": [
       "web-next/docs/dev-plan.md 6 节（Telegram 用户账号有封号风险，优先 Bot API）"
     ],
-    "body": "## 要做什么\n\n- Telegram Bot API（getUpdates 或 webhook），不做用户账号接入。\n\n## 注意事项\n\n- 迁移只加不改：`internal/db/migrations` 里 0001 到 0013 一行不动，新迁移从当时最新编号的下一个开始，只加新表、旧表只加列。0001 到 0004 没有校验和，更不能碰。开工前先看目录里的最新编号，并行任务撞号时后合入的改号。\n- 先在测试实例（`scripts/dev-instance.sh`）或备份副本的拷贝上演练，不碰 `data/pm.db`，不启动或重启 7777 上的服务。\n- 加了或删了路由要同步 `docs/api-contract.md`（`TestEveryRouteIsInTheContractDoc` / `TestContractDocHasNoDeadRoutes` 双向盯着）；契约文档同一时间只由一个任务改，避免并行冲突。",
-    "acceptance": "- [ ] 给 Bot 发消息后落库\n- [ ] 重启后不重复入库（记录 offset）"
+    "body": "## 要做什么\n\n- Telegram Bot API（getUpdates 或 webhook），不做用户账号接入。\n\n## 注意事项\n\n- 迁移只加不改：`internal/db/migrations` 里 0001 到 0013 一行不动，新迁移从当时最新编号的下一个开始，只加新表、旧表只加列。0001 到 0004 没有校验和，更不能碰。开工前先看目录里的最新编号，并行任务撞号时后合入的改号。\n- 先在测试实例（`scripts/dev-instance.sh`）或备份副本的拷贝上演练，不碰 `data/pm.db`，不启动或重启 7777 上的服务。\n- 加了或删了路由要同步 `docs/api-contract.md`（`TestEveryRouteIsInTheContractDoc` / `TestContractDocHasNoDeadRoutes` 双向盯着）；契约文档同一时间只由一个任务改，避免并行冲突。\n\n- Telegram：Bot API，默认 `getUpdates` 长轮询（本机没有公网回调也能用），offset 落库保证重启不重复；配置了公网地址时可切 webhook，带 secret_token 校验。发消息走 `sendMessage`，连接器 `direction` 是 both。只做 Bot，不做用户账号。\n\n## 2026-10-29 调整（用户：「把 IM 渠道配置加上先接入 slack，Telegram」）\n\n- 本条先做到：适配器、连接器定义、IM 页「渠道配置」里能新建和配置这个渠道，全部用本机假服务端测通；真实接通由用户自己在测试实例的界面里填 Token（存进保险箱），不再等主会话拿凭证。\n- 「渠道配置」：IM 消息页的按钮现在只跳到连接器设置；改成打开 IM 渠道的配置（只列 IM 类连接器，空状态给「接入 Slack」「接入 Telegram」两个入口），每个渠道显示状态、最近同步时间、出错原因，能测试连接、立即同步、停用。两个渠道共用这一处，Slack 一条先建好框架，Telegram 一条接上自己的表单。\n- 验收里「真实工作区或真实 Bot」那条改成：写清楚用户要做的步骤（去哪建 App 或 Bot、要哪些权限和 scope、Token 填在哪），写进回复和契约。",
+    "acceptance": "- [ ] 假 Telegram 服务端上：getUpdates 拿到的消息落库，重启后不重复入库（offset）\n- [ ] Token 失效（401）时连接器状态变异常并写原因\n- [ ] IM 页「渠道配置」能新建 Telegram 渠道、填 Bot Token（进保险箱、只显示脱敏）、测试连接、立即同步\n- [ ] 回复动作经 sendMessage 发到假服务端\n- [ ] gofmt、go vet、go test ./...；npm test、typecheck、lint、build、smoke-frontend 通过"
   },
   {
     "key": "IM-02a",
