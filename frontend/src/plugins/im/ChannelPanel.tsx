@@ -8,7 +8,7 @@ import {
 } from '../../core/data'
 import { Drawer, ErrorState, LoadingState, cls } from '../../core/ui'
 import { CHANNEL_FORMS } from './channelForms'
-import { addableDefs, ENTRY_TOOLS, imConnectors, imDefs, intervalLabel, STATUS_TEXT, syncErrorText, syncText } from './channelModel'
+import { addableDefs, ENTRY_TOOLS, imConnectors, imDefs, intervalLabel, SELF_NAMES_FIELD, STATUS_TEXT, syncErrorText, syncText } from './channelModel'
 import { timeAgo } from './model'
 import { TELEGRAM_TOOL, telegramModeLabel } from './telegramModel'
 import './channels.css'
@@ -144,6 +144,7 @@ function ChannelCard({ c, def, hasForm, onEdit }: { c: Connector; def?: Connecto
       </div>
       <div className="im-chcard-meta im-muted">
         {c.account && <span>账号 {c.account}</span>}
+        {c.config[SELF_NAMES_FIELD] && <span>我的称呼 {c.config[SELF_NAMES_FIELD]}</span>}
         <span>{c.last_sync_at ? `最近同步 ${timeAgo(c.last_sync_at)}` : '还没同步过'}</span>
         <span>{c.tool === TELEGRAM_TOOL ? telegramModeLabel(c) : intervalLabel(c.interval)}</span>
         <span>{c.direction === 'both' ? '收发' : '只收'}</span>

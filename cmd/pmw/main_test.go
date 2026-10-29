@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/lizhao903/pm-workspace/internal/db"
 )
@@ -28,7 +29,8 @@ func TestStartupMigrationFailureExitsNonZero(t *testing.T) {
 	dbPath := filepath.Join(dir, "pm.db")
 	ctx := context.Background()
 
-	// 跑完全部迁移再删掉最后一条记录：它的表已存在，重新应用必然失败。
+	// 跑完全部迁移再删掉 0036 的记录：它是不带 IF NOT EXISTS 的建表，表已存在，重新应用必然失败。
+	// 不能取最后一条：0041 这类补数据、改名的迁移重跑也成功，子进程就会起服务一直不退出。
 	d, err := db.Open(dbPath)
 	if err != nil {
 		t.Fatalf("open: %v", err)
@@ -37,8 +39,8 @@ func TestStartupMigrationFailureExitsNonZero(t *testing.T) {
 		t.Fatalf("migrate: %v", err)
 	}
 	var last string
-	if err := d.W.QueryRowContext(ctx, `SELECT MAX(version) FROM schema_migrations`).Scan(&last); err != nil {
-		t.Fatalf("max version: %v", err)
+	if err := d.W.QueryRowContext(ctx, `SELECT version FROM schema_migrations WHERE version LIKE '0036_%'`).Scan(&last); err != nil {
+		t.Fatalf("find 0036: %v", err)
 	}
 	if _, err := d.W.ExecContext(ctx, `DELETE FROM schema_migrations WHERE version = ?`, last); err != nil {
 		t.Fatalf("delete: %v", err)
@@ -52,7 +54,10 @@ func TestStartupMigrationFailureExitsNonZero(t *testing.T) {
 	}
 	before := countRows()
 
-	cmd := exec.Command(os.Args[0], "-test.run=^TestStartupMigrationFailureExitsNonZero$")
+	// 子进程要是没失败就会一直跑着服务，给个上限，免得测试挂死
+	runCtx, cancel := context.WithTimeout(ctx, time.Minute)
+	defer cancel()
+	cmd := exec.CommandContext(runCtx, os.Args[0], "-test.run=^TestStartupMigrationFailureExitsNonZero$")
 	cmd.Env = append(os.Environ(),
 		"PMW_TEST_RUN_MAIN=1",
 		"PMW_TEST_ARGS=--db "+dbPath+" --addr 127.0.0.1:0 --vault-keychain=false")

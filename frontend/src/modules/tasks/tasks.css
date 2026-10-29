@@ -60,6 +60,17 @@
     white-space: normal; overflow-wrap: anywhere; line-height: 1.4;
   }
 }
+/* 手机宽度（B-11）：标题完整占一行，优先级、状态、来源标签另起一行；表头不要 */
+@container (max-width: 480px) {
+  .task-table .task-row { grid-template-columns: 22px auto auto minmax(0, 1fr); column-gap: var(--sp-4); row-gap: 6px; padding: var(--sp-5) var(--sp-6); }
+  .task-table .task-th { display: none; }
+  .task-row > .task-main { display: contents; }
+  .task-row > .task-check { grid-row: 1; grid-column: 1; }
+  .task-row .task-title { grid-row: 1; grid-column: 2 / -1; min-width: 0; }
+  .task-row > :nth-child(3) { grid-row: 2; grid-column: 2; display: flex; }
+  .task-row > :nth-child(6) { grid-row: 2; grid-column: 3; display: flex; }
+  .task-row .task-meta { grid-row: 2; grid-column: 4; }
+}
 
 /* ---------- 抽屉 ---------- */
 .task-check { cursor: pointer; padding: 0; background: none; }

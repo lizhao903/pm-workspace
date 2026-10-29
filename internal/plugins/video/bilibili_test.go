@@ -184,7 +184,7 @@ func setupBilibili(t *testing.T, adapters ...PlatformAdapter) biliEnv {
 		b.chunk = 10 // 测试文件小，分片也切小
 		adapters = []PlatformAdapter{b}
 	}
-	for _, p := range []plugin.Plugin{projects.New(), newWith(adapters...)} {
+	for _, p := range append([]plugin.Plugin{projects.New(), newWith(adapters...)}, biliExtra...) {
 		if err := r.Add(p); err != nil {
 			t.Fatal(err)
 		}

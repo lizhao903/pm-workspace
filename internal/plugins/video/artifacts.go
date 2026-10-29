@@ -22,15 +22,18 @@ import (
 const artifactCols = `id, video_id, kind, name, path, variant, ratio, cover_option, lang, version, status, duration, cover_picked,
 	source_type, source_label, source_id, session_id, run_id, core_artifact_id, created_at, updated_at`
 
+// 读的时候多一列 cover_archived（VID-05b，0010），写入另外设，插入语句还用 artifactCols
+const artifactReadCols = artifactCols + `, cover_archived`
+
 // 能改的字段；video_id、kind、version、source、reviews 在 PATCH 里单独报错
-var artifactFields = []string{"name", "path", "variant", "ratio", "option", "lang", "status", "duration", "picked"}
+var artifactFields = []string{"name", "path", "variant", "ratio", "option", "lang", "status", "duration", "picked", "archived"}
 
 func scanArtifact(row plugin.Row) (Artifact, error) {
 	var a Artifact
 	var option, duration *int64
-	var picked int
+	var picked, archived int
 	if err := row.Scan(&a.ID, &a.VideoID, &a.Kind, &a.Name, &a.Path, &a.Variant, &a.Ratio, &option, &a.Lang, &a.Version, &a.Status, &duration, &picked,
-		&a.Source.Type, &a.Source.Label, &a.Source.ID, &a.Source.SessionID, &a.Source.RunID, &a.Source.ArtifactID, &a.CreatedAt, &a.UpdatedAt); err != nil {
+		&a.Source.Type, &a.Source.Label, &a.Source.ID, &a.Source.SessionID, &a.Source.RunID, &a.Source.ArtifactID, &a.CreatedAt, &a.UpdatedAt, &archived); err != nil {
 		return Artifact{}, err
 	}
 	if option != nil {
@@ -42,8 +45,8 @@ func scanArtifact(row plugin.Row) (Artifact, error) {
 		a.Duration = &n
 	}
 	if a.Kind == "cover" {
-		p := picked == 1
-		a.Picked = &p
+		p, ar := picked == 1, archived == 1
+		a.Picked, a.Archived = &p, &ar
 	}
 	a.Reviews = []Review{}
 	return a, nil
@@ -54,7 +57,7 @@ func (h *handler) loadArtifacts(ctx context.Context, where string, args ...any) 
 	if err := h.upgradeLegacy(ctx); err != nil {
 		return nil, err
 	}
-	rows, err := h.c.Store().Query(ctx, `SELECT `+artifactCols+` FROM video_artifacts `+where+` ORDER BY created_at, rowid`, args...)
+	rows, err := h.c.Store().Query(ctx, `SELECT `+artifactReadCols+` FROM video_artifacts `+where+` ORDER BY created_at, rowid`, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -315,6 +318,15 @@ func applyArtifact(a *Artifact, raw map[string]json.RawMessage) error {
 		}
 		a.Picked = &p
 	}
+	if b, ok := raw["archived"]; ok {
+		var ar bool
+		if !isNull(b) {
+			if err := json.Unmarshal(b, &ar); err != nil {
+				return apiErr(errValidation, "archived 必须是布尔值")
+			}
+		}
+		a.Archived = &ar
+	}
 	k, _ := artifactKind(a.Kind)
 	switch {
 	case k.PerVariant && a.Variant == "":
@@ -331,15 +343,23 @@ func applyArtifact(a *Artifact, raw map[string]json.RawMessage) error {
 		return apiErr(errValidation, "只有音频、视频有时长")
 	case a.Kind != "cover" && a.Picked != nil && *a.Picked:
 		return apiErr(errValidation, "只有封面能选用")
+	case a.Kind != "cover" && a.Archived != nil && *a.Archived:
+		return apiErr(errValidation, "只有封面能归档")
+	case a.Picked != nil && *a.Picked && a.Archived != nil && *a.Archived:
+		return apiErr(errValidation, "归档的封面不能选用，先取消归档")
 	case a.Path == "":
 		return apiErr(errValidation, "路径必填")
 	}
 	if a.Kind != "cover" {
-		a.Picked = nil
+		a.Picked, a.Archived = nil, nil
 	} else {
 		if a.Picked == nil {
 			f := false
 			a.Picked = &f
+		}
+		if a.Archived == nil {
+			f := false
+			a.Archived = &f
 		}
 		// 封面没给比例取舞台方向的默认比例（同原型 coverRatioOf）；只换了方向、原比例不是新方向默认出的，回到新方向的默认（同原型新登记表单）
 		_, hasRatio := raw["ratio"]
@@ -361,6 +381,13 @@ func applyArtifact(a *Artifact, raw map[string]json.RawMessage) error {
 
 func pickedCol(a Artifact) int {
 	if a.Picked != nil && *a.Picked {
+		return 1
+	}
+	return 0
+}
+
+func archivedCol(a Artifact) int {
+	if a.Archived != nil && *a.Archived {
 		return 1
 	}
 	return 0
@@ -547,6 +574,12 @@ func (h *handler) addArtifact(w http.ResponseWriter, r *http.Request) {
 		fail(w, r, h.c, uniqueErr(err))
 		return
 	}
+	if archivedCol(a) == 1 {
+		if _, err := h.c.Store().Exec(ctx, `UPDATE video_artifacts SET cover_archived = 1 WHERE id = ?`, a.ID); err != nil {
+			fail(w, r, h.c, err)
+			return
+		}
+	}
 	h.respondArtifact(w, r, http.StatusCreated, a)
 }
 
@@ -605,7 +638,8 @@ func (h *handler) updateArtifact(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if _, err := h.c.Store().Exec(ctx, `UPDATE video_artifacts SET name = ?, path = ?, variant = ?, ratio = ?, cover_option = ?, lang = ?, status = ?, duration = ?,
-		cover_picked = ?, updated_at = ? WHERE id = ?`, a.Name, a.Path, a.Variant, a.Ratio, a.Option, a.Lang, a.Status, a.Duration, pickedCol(a), nowStr(), a.ID); err != nil {
+		cover_picked = ?, cover_archived = ?, updated_at = ? WHERE id = ?`, a.Name, a.Path, a.Variant, a.Ratio, a.Option, a.Lang, a.Status, a.Duration, pickedCol(a),
+		archivedCol(a), nowStr(), a.ID); err != nil {
 		fail(w, r, h.c, uniqueErr(err))
 		return
 	}

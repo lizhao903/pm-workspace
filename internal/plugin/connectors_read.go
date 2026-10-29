@@ -28,6 +28,8 @@ type ConnectorInfo struct {
 	Scope string
 	// AuthorizedAt 是最近一次 OAuth 授权完成的时间，没授权为 nil（BR-01a）
 	AuthorizedAt *time.Time
+	// SelfNames 是配置里用户自己填的「我的称呼」（config.self_names，逗号分隔），没填为空串；IM 插件和 Account 一起认「我」（PR-19）
+	SelfNames string
 }
 
 // OAuthStart 是发起授权的结果：浏览器打开 AuthorizeURL。
@@ -68,7 +70,8 @@ func (c *core) Connectors() ConnectorReader { return connectorReader{c} }
 
 type connectorReader struct{ c *core }
 
-const connectorCols = `SELECT id, tool, name, account, status, error, direction, oauth_scope, oauth_authorized_at, interval FROM connectors`
+const connectorCols = `SELECT id, tool, name, account, status, error, direction, oauth_scope, oauth_authorized_at, interval,
+	CASE WHEN json_valid(config) THEN COALESCE(json_extract(config, '$.self_names'), '') ELSE '' END FROM connectors`
 
 func scanConnector(s interface{ Scan(...any) error }) (ConnectorInfo, error) {
 	var (
@@ -76,7 +79,7 @@ func scanConnector(s interface{ Scan(...any) error }) (ConnectorInfo, error) {
 		at   sql.NullString
 	)
 	if err := s.Scan(&info.ID, &info.Tool, &info.Name, &info.Account, &info.Status, &info.Error, &info.Direction,
-		&info.Scope, &at, &info.Interval); err != nil {
+		&info.Scope, &at, &info.Interval, &info.SelfNames); err != nil {
 		return ConnectorInfo{}, err
 	}
 	if at.Valid {

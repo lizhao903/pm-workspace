@@ -570,7 +570,7 @@ r.Connector(plugin.ConnectorDef{
 | `With(ctx, id, fn)` | 把本插件登记的实例的配置交给回调，见下面「调对方接口时拿配置」（VID-04a） |
 | `RecordSync(ctx, id, syncErr)` | 记本插件登记的实例的一次同步结果，见 2.13.9（IM-01b） |
 
-`ConnectorInfo` 另有 `Interval`（同步间隔，分钟，0 是不定时同步，IM-01b）。
+`ConnectorInfo` 另有 `Interval`（同步间隔，分钟，0 是不定时同步，IM-01b）；`SelfNames`（配置里的 `self_names`，用户自己填的「我的称呼」，逗号分隔，没填为空串，PR-19）：从普通配置读，不经保险箱。
 
 这个句柄暂不按权限收窄：连接器的授权和断开都要用户在界面上点，插件只是替用户转一次（例：浏览器插件的「登录 Google」「退出登录」转给 Google Drive、Google 日历实例，BR-01a）。
 

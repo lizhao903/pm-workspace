@@ -188,7 +188,7 @@ describe('Webhook 页（TASK-04b）', () => {
     const router = renderPage('/tasks/source/manual')
     expect(await screen.findByText('人工创建的任务')).toBeInTheDocument()
     expect(await screen.findByText('导入的任务')).toBeInTheDocument()
-    expect(screen.getByText('导入')).toBeInTheDocument()
+    expect(screen.getAllByText('人工').map((el) => el.getAttribute('title')).sort()).toEqual(['人工', '导入：导入脚本建的任务'].sort())
     expect(calls).toContain('GET /api/objects?source=manual,import')
     router.navigate('/tasks/source/schedule')
     expect(await screen.findByText('定时任务到点会建在这里')).toBeInTheDocument()

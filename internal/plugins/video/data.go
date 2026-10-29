@@ -99,8 +99,10 @@ type Video struct {
 	Chapters     int           `json:"chapters"`
 	Runners      []StageRunner `json:"runners"`
 	LastRun      *LastRun      `json:"last_run,omitempty"`
-	CreatedAt    string        `json:"created_at"`
-	UpdatedAt    string        `json:"updated_at"`
+	// 计划首发日 YYYY-MM-DD（VID-06c），排日历、算进度落后，没有就不返回
+	TargetDate *string `json:"target_date,omitempty"`
+	CreatedAt  string  `json:"created_at"`
+	UpdatedAt  string  `json:"updated_at"`
 }
 
 // StageRunner 同原型 StageRunner：这一阶段交给谁跑（VID-03b），prompt 没有就不返回。
@@ -235,7 +237,7 @@ type ArtifactSource struct {
 	ArtifactID string `json:"artifact_id,omitempty"`
 }
 
-// Artifact 同原型 Artifact，多 updated_at；variant、ratio、option、lang、duration 没有就不返回，picked 只有封面返回。
+// Artifact 同原型 Artifact，多 updated_at；variant、ratio、option、lang、duration 没有就不返回，picked、archived 只有封面返回。
 // ratio 只有封面有，lang 只有字幕有。
 type Artifact struct {
 	ID        string         `json:"id"`
@@ -253,6 +255,7 @@ type Artifact struct {
 	Source    ArtifactSource `json:"source"`
 	Reviews   []Review       `json:"reviews"`
 	Picked    *bool          `json:"picked,omitempty"`
+	Archived  *bool          `json:"archived,omitempty"`
 	CreatedAt string         `json:"created_at"`
 	UpdatedAt string         `json:"updated_at"`
 }

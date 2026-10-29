@@ -59,6 +59,10 @@ export function slackTokenError(token: string, saved: boolean): string | undefin
   return undefined
 }
 
+/** 「我的称呼」（PR-19）：正文里按名字 @ 到这些也算 @我，微信、飞书这类按名字 @ 的渠道要填 */
+export const SELF_NAMES_FIELD = 'self_names'
+export const SELF_NAMES_HINT = '逗号分隔，正文里 @ 到它们也算「@我」；连通测试拿到的账号本来就认，不用重复填。改了只影响之后收到的消息'
+
 /** Member ID：空，或 U、W 开头的编号 */
 export const memberIdError = (s: string) => (!s.trim() || /^[UW][A-Z0-9]{2,}$/.test(s.trim()) ? undefined : 'Member ID 形如 U01ABCDEF，在 Slack 个人资料里「复制成员 ID」')
 

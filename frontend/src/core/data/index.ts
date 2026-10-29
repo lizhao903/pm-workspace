@@ -199,6 +199,10 @@ export {
 export type {
   VideoTopic, VideoTopicInput, VideoTopicStatus, VideoTopicScore, VideoPlatform, VideoClip, VideoClipInput, VideoClipKind,
 } from './videoTopics'
+export {
+  videoDealApi, videoDealKeys, useVideoDeals, useVideoQuoteRef, useCreateDeal, usePatchDeal, useDeleteDeal, useDealReport,
+} from './videoDeals'
+export type { VideoDeal, VideoDealInput, VideoDealStatus, VideoDealCurrency, VideoQuoteRef, VideoDealReport } from './videoDeals'
 
 export { browserKeys } from './browserKeys'
 export { BROWSER_MAX_STORED_TABS, browserApi, useBrowserGoogle, useBrowserGoogleLogin, useBrowserGoogleLogout, useBrowserAllowlist, useAddBrowserAllow } from './browser'

@@ -1,7 +1,9 @@
 // 项目详情的框架（SPEC-projects-2）：顶栏「项目 /」回列表、标志、名称、说明；标签条；各标签的右上按钮。
 // 概览、设置（PJ-01c），干系人、任务、文档（PJ-01d），支持材料（PJ-03b），沟通（PJ-02b），原型（PJ-04b），SOP（PR-10）；其余标签按规格占位，由后续任务补
-import { useEffect, useRef, useState } from 'react'
+// 插件登记的标签（core/plugin 的 projectTabs，视频插件的「商单」）按 after 插进标签条，内容由插件渲染
+import { Suspense, useEffect, useRef, useState } from 'react'
 import { errorText, isApiError, isLiveProject, projectView, useProject } from '../../core/data'
+import { useProjectTabs, type PluginProjectTab } from '../../core/plugin'
 import { Button, EmptyState, ErrorState, LoadingState, PageTitle, cls } from '../../core/ui'
 import { ProjectMarkView } from './Mark'
 import { CommsTab, CommsTabDot } from './CommsTab'
@@ -17,12 +19,14 @@ import { TABS, type ProjectTab } from './model'
 
 export function ProjectPage({ id, tab, onTab, onAll }: {
   id: string
-  tab: ProjectTab
-  onTab: (t: ProjectTab) => void
+  /** 项目自己的标签，或插件登记的标签 key */
+  tab: ProjectTab | string
+  onTab: (t: ProjectTab | string) => void
   /** 回到项目列表 */
   onAll: () => void
 }) {
   const q = useProject(id)
+  const pluginTabs = useProjectTabs()
   const ref = useRef<HTMLDivElement>(null)
   // 文档标签「加文档」的内联表单
   const [docAdding, setDocAdding] = useState(false)
@@ -57,7 +61,9 @@ export function ProjectPage({ id, tab, onTab, onAll }: {
   }
   const o = q.data!
   const p = projectView(o)
-  const cur = TABS.find((t) => t.key === tab)!
+  const tabs = withPluginTabs(pluginTabs)
+  const cur = tabs.find((t) => t.key === tab) ?? TABS[0]
+  const plug = pluginTabs.find((t) => t.key === tab)
   const actions = tab === 'overview' ? <Button variant="outline" onClick={() => onTab('settings')}>项目设置</Button>
     : tab === 'docs' ? <Button variant="primary" disabled={docAdding} onClick={() => setDocAdding(true)}>加文档</Button>
       : tab === 'materials' ? <Button variant="primary" disabled={matAdding} onClick={() => setMatAdding(true)}>加材料</Button>
@@ -68,11 +74,12 @@ export function ProjectPage({ id, tab, onTab, onAll }: {
     <div className="pj-page" ref={ref}>
       <PageTitle parent={back} icon={<ProjectMarkView p={p} size={20} />} desc={p.desc || undefined} actions={actions}>{p.name}</PageTitle>
       <div className="pj-tabs" role="tablist" aria-label="项目标签">
-        {TABS.map((t) => (
+        {tabs.map((t) => (
           <button key={t.key} type="button" role="tab" aria-selected={tab === t.key} className={cls(tab === t.key && 'on')} onClick={() => { setDocAdding(false); setMatAdding(false); setProtoAdding(false); onTab(t.key) }}>
             {t.label}
             {t.key === 'comms' && <CommsTabDot projectId={o.id} />}
             {t.key === 'prototypes' && <ProtoTabLight projectId={o.id} />}
+            {t.badge && <t.badge projectId={o.id} />}
           </button>
         ))}
       </div>
@@ -86,8 +93,22 @@ export function ProjectPage({ id, tab, onTab, onAll }: {
         {tab === 'docs' && <DocsTab key={o.id} projectId={o.id} adding={docAdding} onAdding={setDocAdding} />}
         {tab === 'materials' && <MaterialsTab key={o.id} projectId={o.id} root={p.root} adding={matAdding} onAdding={setMatAdding} />}
         {tab === 'prototypes' && <PrototypesTab key={o.id} projectId={o.id} projectName={p.name} root={p.root} adding={protoAdding} onAdding={setProtoAdding} />}
+        {plug && <Suspense fallback={<LoadingState />}><plug.page key={o.id} projectId={o.id} /></Suspense>}
         {cur.todo && <EmptyState title={`「${cur.label}」还在开发中`} desc={cur.todo} />}
       </div>
     </div>
   )
+}
+
+type TabItem = { key: string; label: string; todo?: string; badge?: PluginProjectTab['badge'] }
+
+/** 插件标签插在 after 指的标签后面，没给或找不到的放在「设置」前面 */
+function withPluginTabs(plugin: readonly PluginProjectTab[]): TabItem[] {
+  const out: TabItem[] = [...TABS]
+  for (const t of plugin) {
+    const i = t.after ? out.findIndex((x) => x.key === t.after) : -1
+    const at = i >= 0 ? i + 1 : out.findIndex((x) => x.key === 'settings')
+    out.splice(at < 0 ? out.length : at, 0, { key: t.key, label: t.label, badge: t.badge })
+  }
+  return out
 }

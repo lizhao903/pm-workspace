@@ -116,6 +116,8 @@ describe('SOP 页面', () => {
     await user.click(await screen.findByRole('button', { name: /客户反馈转需求/ }))
     expect(router.state.location.pathname).toBe('/sop/flows/sop_fb')
     expect(await screen.findByText('客户（必填）')).toBeInTheDocument()
+    // 已经在流程里了，空状态指向右上的「执行」（T-03）
+    expect(screen.getByText('点右上「执行」跑一次')).toBeInTheDocument()
 
     await user.click(screen.getByRole('button', { name: '执行' }))
     const drawer = await screen.findByRole('dialog', { name: '执行 客户反馈转需求' })

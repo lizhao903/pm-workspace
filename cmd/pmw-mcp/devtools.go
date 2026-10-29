@@ -214,7 +214,7 @@ const submitReviewDesc = `【会写入数据】把任务提交给用户验收：
 
 什么时候用：/task 流程的最后一步。代码改完、测试跑过、提交和 PR 已经用 pmw_record_artifact 登记之后调用。
 
-关于状态：工具不会把任务直接改成已完成——完成与否由用户验收决定。它在该类型的状态集里按 key 找待验收类状态（review、in_review、verify、acceptance、qa、testing 等）；内置的待办和需求类型都没有这类状态，这时状态保持不变，只记验收申请，返回里会写明。也可以用 status 显式指定。
+关于状态：工具不会把任务直接改成已完成——完成与否由用户验收决定。它在该类型的状态集里按 key 找待验收类状态（review、in_review、verify、acceptance、qa、testing 等）；内置的任务和需求类型都没有这类状态，这时状态保持不变，只记验收申请，返回里会写明。也可以用 status 显式指定。
 
 summary 要对着验收标准逐条说：哪条做到了、怎么验证的、哪条没做到或有风险。test_results 不能省略，没跑测试就写没跑及原因。
 
@@ -313,7 +313,7 @@ type nextTaskArgs struct {
 	Type    string   `json:"type,omitempty" jsonschema:"类型 id，默认 task"`
 	Project string   `json:"project,omitempty" jsonschema:"只看某个项目下的，传项目的 id 或 ref"`
 	Tags    []string `json:"tags,omitempty" jsonschema:"标签名，多个是「同时具备」"`
-	Status  []string `json:"status,omitempty" jsonschema:"候选状态 key。默认只取该类型的初始状态（待办是 todo），即还没人动过的"`
+	Status  []string `json:"status,omitempty" jsonschema:"候选状态 key。默认只取该类型的初始状态（任务是 todo），即还没人动过的"`
 	Limit   int      `json:"limit,omitempty" jsonschema:"返回几条候选，1-20，默认 5"`
 }
 
@@ -322,7 +322,7 @@ const nextTaskDesc = `【只读】按优先级和到期日挑下一个可以做�
 什么时候用：用户说「找个任务做」「下一个做什么」，或者 /task 没带编号时。
 
 挑选规则：
-- 默认类型 task，默认只看该类型的初始状态（待办是 todo），排除终态、已归档；
+- 默认类型 task，默认只看该类型的初始状态（任务是 todo），排除终态、已归档；
 - 负责人为空、或已经是「Claude Code」的才算可做——派给别人的不碰；
 - 排序：优先级（P0 在前，没设优先级的排最后）→ 到期日（早的在前，没到期日的排后）→ 创建时间（早的在前）。
 

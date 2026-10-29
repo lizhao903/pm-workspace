@@ -8,7 +8,7 @@ const names = (id: string) => (id === 'wh_a' ? 'Sentry 线上告警' : null)
 describe('来源标签', () => {
   it('各来源的文字', () => {
     expect(sourceTag(t('manual'), names)?.text).toBe('人工')
-    expect(sourceTag(t('import'), names)?.text).toBe('导入')
+    expect(sourceTag(t('import'), names)).toEqual({ text: '人工', kind: 'manual', title: '导入：导入脚本建的任务' })
     expect(sourceTag(t('webhook', { hook_id: 'wh_a', delivery_id: 'dl_1' }), names)?.text).toBe('Webhook · Sentry 线上告警')
     expect(sourceTag(t('schedule', { schedule_id: 'sch_1', name: '周会前整理议程' }), names)?.text).toBe('定时 · 周会前整理议程')
     expect(sourceTag(t('im', { message_id: 'm1', channel: '飞书' }), names)?.text).toBe('IM · 飞书')

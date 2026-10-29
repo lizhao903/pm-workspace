@@ -13,6 +13,10 @@ import (
 // 「与我相关」（IM-03）：@我、@所有人、私聊。「我」的称呼不写死，从收这条消息的连接器账号来
 // （连通测试时对方给的 account，经 Core.Connectors() 只读读到），再加上适配器自己给的（Handles，例如渠道里的用户编号）。
 // 到达时算一次存进 relevance；改了连接器账号，之后到的消息按新称呼认，已存的不重算（见 docs/api-contract.md）。
+// 微信、飞书这类按名字 @ 的渠道，账号里未必有名字：渠道配置里可以再填「我的称呼」（self_names，逗号分隔，PR-19），一并算上。
+
+// SelfNamesField 是 IM 连接器定义里「我的称呼」的配置键。
+const SelfNamesField = "self_names"
 
 // allHandles 是 @所有人 的写法，和原型 ALL_HANDLES 一致。
 var allHandles = []string{"所有人", "全体成员", "all", "here", "channel", "everyone"}
@@ -31,7 +35,7 @@ func newSelfHandles(a Adapter) *selfHandles {
 	return s
 }
 
-// forConnector 是这个连接器下「我」的称呼：适配器给的加连接器账号拆出来的。没给连接器、连接器已删时只有适配器给的。
+// forConnector 是这个连接器下「我」的称呼：适配器给的、连接器账号拆出来的、配置里填的「我的称呼」。没给连接器、连接器已删时只有适配器给的。
 func (s *selfHandles) forConnector(ctx context.Context, c plugin.Core, id string) ([]string, error) {
 	if id == "" {
 		return s.adapter, nil
@@ -43,7 +47,7 @@ func (s *selfHandles) forConnector(ctx context.Context, c plugin.Core, id string
 	cn, err := c.Connectors().Get(ctx, id)
 	switch {
 	case err == nil:
-		hs = append(append([]string{}, s.adapter...), accountHandles(cn.Account)...)
+		hs = append(append(append([]string{}, s.adapter...), accountHandles(cn.Account)...), nameHandles(cn.SelfNames)...)
 	case !errors.Is(err, plugin.ErrNoRows):
 		return nil, err
 	}
@@ -75,6 +79,21 @@ func accountHandles(account string) []string {
 				add(w)
 			}
 		}
+	}
+	return out
+}
+
+// nameHandles 把「我的称呼」拆开：逗号、顿号、分号、换行分隔，开头的 @ 去掉，段里的空格保留（Lin Zhao），只差大小写的只留一个。
+func nameHandles(names string) []string {
+	out := []string{}
+	seen := map[string]bool{}
+	for _, p := range strings.FieldsFunc(names, func(r rune) bool { return strings.ContainsRune(",，、;；\n", r) }) {
+		h := strings.TrimSpace(strings.TrimLeft(strings.TrimSpace(p), "@"))
+		if h == "" || seen[strings.ToLower(h)] {
+			continue
+		}
+		seen[strings.ToLower(h)] = true
+		out = append(out, h)
 	}
 	return out
 }

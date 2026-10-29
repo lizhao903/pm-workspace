@@ -43,7 +43,8 @@ export function sourceTag(t: WorkObject, hookName: (id: string) => string | null
     case 'manual':
       return { text: '人工', kind: 'manual' }
     case IMPORT_SOURCE:
-      return { text: '导入', kind: 'manual', title: '导入脚本建的任务' }
+      // 和二级菜单「人工创建」叫法一致，悬停才说明是导入的
+      return { text: '人工', kind: 'manual', title: '导入：导入脚本建的任务' }
     case 'im': {
       const ch = str(ref.channel)
       const who = str(ref.sender)

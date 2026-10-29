@@ -11,7 +11,7 @@ import {
 import { Avatar, Button, EmptyState, ErrorState, Input, LoadingState, SearchSelect, cls } from '../../core/ui'
 import { compareNames, nameInitial } from '../../core/ui/pinyin'
 import { latestByContact, snippet } from './commsModel'
-import { ago, sortStakeholders } from './model'
+import { ago, isKnownRole, sortStakeholders } from './model'
 import { useProjectMessages } from './projectMessages'
 
 /** 关注点停顿多久后保存 */
@@ -149,6 +149,7 @@ function StakeRow({ projectId, s, c, last, onOpen, onOpenMessage, onRemove, remo
   const sent = useRef(s.focus)
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   const role = PROJECT_ROLES.find((r) => r.key === s.role)
+  const known = isKnownRole(s.role)
 
   const save = (p: { role?: ProjectRole; focus?: string }) => {
     setErr('')
@@ -183,8 +184,11 @@ function StakeRow({ projectId, s, c, last, onOpen, onOpenMessage, onRemove, remo
         </span>
       </button>
       <span role="cell">
-        <select className={cls('pj-chip-select', 'pj-role', `pj-role-${s.role}`)} aria-label={`${c.name} 的角色`} value={s.role} title={role?.desc}
+        <select className={cls('pj-chip-select', 'pj-role', known ? `pj-role-${s.role}` : 'pj-role-unknown')} aria-label={`${c.name} 的角色`} value={s.role}
+          title={role?.desc ?? `不认识的角色「${s.role}」，选一个改掉`} aria-invalid={!known || undefined}
           disabled={patch.isPending} onChange={(e) => save({ role: e.target.value as ProjectRole })}>
+          {/* 库里的角色不是五个之一时照原值列出来，不让下拉悄悄停在别的角色上（E-02） */}
+          {!known && <option value={s.role} disabled>{s.role}</option>}
           {PROJECT_ROLES.map((r) => <option key={r.key} value={r.key}>{r.label}</option>)}
         </select>
       </span>

@@ -6,6 +6,7 @@ import {
   type Connector, type ConnectorPatch,
 } from '../../core/data'
 import { Checkbox, Field, Input } from '../../core/ui'
+import { SELF_NAMES_FIELD, SELF_NAMES_HINT } from './channelModel'
 import { TELEGRAM_TOOL, telegramTokenOk, webhookUrlError } from './telegramModel'
 
 export function TelegramForm({ connector, onSaved, onCancel }: {
@@ -21,6 +22,7 @@ export function TelegramForm({ connector, onSaved, onCancel }: {
   const [name, setName] = useState(connector?.name ?? 'Telegram')
   const [token, setToken] = useState('')
   const [webhook, setWebhook] = useState(connector?.config.webhook_url ?? '')
+  const [names, setNames] = useState(connector?.config[SELF_NAMES_FIELD] ?? '')
   const [reply, setReply] = useState((connector?.direction ?? 'both') === 'both')
   const [touched, setTouched] = useState(false)
   const [result, setResult] = useState<{ ok: boolean; text: string } | null>(null)
@@ -35,7 +37,7 @@ export function TelegramForm({ connector, onSaved, onCancel }: {
     setTouched(true)
     setResult(null)
     if (tokenErr || hookErr || busy) return
-    const config = { webhook_url: webhook.trim() }
+    const config = { webhook_url: webhook.trim(), [SELF_NAMES_FIELD]: names.trim() }
     const secrets = token.trim() ? { bot_token: token.trim() } : undefined
     const direction = reply ? 'both' as const : 'receive' as const
     let saved: Connector
@@ -79,6 +81,9 @@ export function TelegramForm({ connector, onSaved, onCancel }: {
       <Field label="公网地址（可选）" error={touched ? hookErr : undefined}
         hint="不填就由本机定时去 Telegram 拉（getUpdates），本机没有公网也能用；填了改用 webhook，Telegram 推到 地址/api/im/callbacks/telegram">
         <Input value={webhook} invalid={touched && !!hookErr} placeholder="https://bro.vip" onChange={(e) => setWebhook(e.target.value)} />
+      </Field>
+      <Field label="我的称呼" hint={SELF_NAMES_HINT}>
+        <Input value={names} placeholder="李钊, Zhao" onChange={(e) => setNames(e.target.value)} />
       </Field>
       <Checkbox checked={reply} onCheckedChange={setReply}>允许从这里回复（经 Bot 发 sendMessage）</Checkbox>
       {saveErr && <div className="im-err" role="alert">没保存：{errorText(saveErr)}</div>}

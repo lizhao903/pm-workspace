@@ -74,6 +74,7 @@ func (t *Telegram) ConnectorDef() plugin.ConnectorDef {
 		Fields: []connector.Field{
 			{Key: "bot_token", Label: "Bot Token", Kind: "secret", Placeholder: "123456789:AA…（BotFather 给的）", Required: true},
 			{Key: "webhook_url", Label: "公网地址（可选，填了改用 webhook）", Kind: "text", Placeholder: "https://bro.vip"},
+			{Key: SelfNamesField, Label: "我的称呼", Kind: "text", Placeholder: "李钊, Zhao，逗号分隔；正文里 @ 到它们也算 @我"},
 		},
 		Test: t.test,
 	}

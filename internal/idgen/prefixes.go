@@ -83,9 +83,10 @@ var Registry = []Entry{
 	{"pb", "publish", "video_publishes", "publish"}, // 视频插件的表（VID-01a），检查点按视频加阶段认，没有 id
 	{"vaf", "videoArtifact", "video_artifacts", ""}, // 视频插件的表（VID-01b），原型的 af 已给内核产物；验收记录用整数 id
 	{"pa", "platformAccount", "video_accounts", ""}, // 视频插件的表（VID-05a），平台账号；数据快照没有 id
+	{"vct", "coverTest", "video_cover_tests", ""},   // 视频插件的表（VID-05b），封面 A/B 测试；分组没有 id
 	{"tp", "topic", "", "topic"},
 	{"cl", "clip", "", "clip"},
-	{"deal", "deal", "", "deal"}, // 商单，原型先补（VID-08p），后端还没有表
+	{"deal", "deal", "video_deals", "deal"}, // 视频插件的表（VID-08d），商单
 	// 交易
 	{"wl", "watchlist", "", "watchlist"},
 	{"al", "alert", "", "alert"},

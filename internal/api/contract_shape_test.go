@@ -170,12 +170,22 @@ var contractSpecs = map[string]contractSpec{
 	"VideoClip":     {v: video.Clip{}},
 	"VideoPlatform": {v: video.PlatformInfo{}},
 
+	// 商单（VID-08d）
+	"VideoDeal": {v: video.Deal{}},
+	"视频创作插件 video / 商单（VID-08d）:reportState": {v: video.DealReportRef{}},
+
 	// 稿件正文（VID-09a）
 	"VideoArtifactContent": {v: video.ArtifactContent{}},
 
 	// 平台账号、按天快照（VID-05a）
 	"VideoAccount":        {v: video.PlatformAccount{}},
 	"VideoMetricSnapshot": {v: video.MetricSnapshot{}},
+
+	// 封面 A/B 测试（VID-05b）
+	"VideoCoverTest": {v: video.CoverTest{}},
+
+	// 内容日历（VID-06c）
+	"VideoCalendarItem": {v: video.CalendarItem{}},
 
 	"BrowserTab":         {v: browser.Tab{}},
 	"BrowserAllowEntry":  {v: browser.AllowEntry{}},

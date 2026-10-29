@@ -18,7 +18,7 @@ import (
 // 不带检查点的阶段时），落一行 video_sop_waits、步骤挂起，人在视频页通过或跳过后由后台任务唤醒。退回不算，接着等。
 // 跑阶段 video_run_stage：用视频这个阶段配的执行器跑一次（同 POST .../runners/{stage}/run，检查口径一样），
 // 挂起等跑完：跑成了唤醒，没跑成让步骤失败。产出物照常进待验收，检查点仍由人确认。
-// 发布到平台 video_publish 归 VID-06c，清单里先占着，这里不登记。
+// 发布到平台 video_publish（VID-06c）在 schedule.go 登记。
 // 内置流程「视频周更」由后台任务写进 SOP（Core.SOP().InstallFlow），写过一次记在 video_sop_templates，用户删了不补回来；
 // 卸载时撤下没改过的，用户复制的副本是另一条流程，不动。
 

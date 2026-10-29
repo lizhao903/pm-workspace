@@ -5,6 +5,8 @@
 // 内容平台适配接口和 B 站连接器（VID-04b）见 platform.go、bilibili.go、remote.go，出网走 Core.HTTP("media-platforms")。
 // 平台账号、平台规则、数据按天快照（VID-05a）见 accounts.go、rules.go、snapshots.go，表 video_accounts、video_metric_snapshots。
 // YouTube、抖音连接器（VID-04d）见 youtube.go、douyin.go，没有上传能力的平台用 package.go 的发布包。
+// 封面 A/B 测试和决胜规则（VID-05b）见 covertests.go，表 video_cover_tests、video_cover_test_arms。
+// 定时发布、内容日历（VID-06c）见 schedule.go。
 // 接口契约见 docs/api-contract.md「视频创作插件 video」。
 package video
 
@@ -116,11 +118,23 @@ func (p *Plugin) Register(r plugin.Registrar) error {
 		m.HandleFunc("POST /api/video/clips/{id}/topic", h.clipToTopic)
 		m.HandleFunc("POST /api/video/clips/{id}/link", h.linkTopic)
 		m.HandleFunc("POST /api/video/clips/comments", h.pullComments)
+		h.registerDeals(m)
+		m.HandleFunc("GET /api/video/calendar", h.listCalendar)
+		m.HandleFunc("GET /api/video/cover-tests", h.listCoverTests)
+		m.HandleFunc("POST /api/video/cover-tests", h.addCoverTest)
+		m.HandleFunc("GET /api/video/cover-tests/{id}", h.showCoverTest)
+		m.HandleFunc("PATCH /api/video/cover-tests/{id}", h.updateCoverTest)
+		m.HandleFunc("DELETE /api/video/cover-tests/{id}", h.removeCoverTest)
+		m.HandleFunc("POST /api/video/cover-tests/{id}/evaluate", h.evaluateCoverTestNow)
 	})
 	r.Subscribe(plugin.RunFinishedEvent, h.onRunFinished)
 	h.registerSOP(r)
+	h.registerSchedule(r)
+	h.registerToday(r)
+	h.registerDealCard(r)
 	r.Job(plugin.Job{Name: "metrics_daily", Every: metricsEvery, Run: h.metricsJob})
 	r.Job(commentJob(h))
+	r.Job(plugin.Job{Name: "cover_tests", Every: coverTestsEvery, Run: h.coverTestsJob})
 	return nil
 }
 
@@ -139,6 +153,8 @@ type handler struct {
 	submitting sync.Map
 	// 收评论一次只跑一轮：后台任务和「收集评论」不同时拉（VID-08b）
 	collectMu sync.Mutex
+	// 定时任务动作 video_publish 交过来、等常驻任务 publish_due 投的发布记录（VID-06c）
+	fire chan string
 }
 
 // 错误分类，对应信封里的 code

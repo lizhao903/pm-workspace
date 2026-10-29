@@ -57,8 +57,8 @@ func TestArtifactFieldsMatchPrototype(t *testing.T) {
 			tags = append(tags, tag)
 		}
 		for _, f := range c.proto {
-			// archived 是 VID-05p 给原型新加的（封面 A/B 输掉后归档），VID-05b 落地时删掉这个例外；Review.by 是 VID-08p 给原型加的，VID-08 后端落地时删掉
-			if !slices.Contains(tags, f) && !(c.name == "Artifact" && f == "archived") && !(c.name == "Review" && f == "by") {
+			// Review.by 是 VID-08p 给原型加的，VID-08 后端落地时删掉
+			if !slices.Contains(tags, f) && !(c.name == "Review" && f == "by") {
 				t.Errorf("%s.%s 原型里有，Go 结构里没有", c.name, f)
 			}
 		}

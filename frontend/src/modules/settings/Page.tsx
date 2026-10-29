@@ -14,9 +14,10 @@ import { AgentsSection } from './agents/AgentsSection'
 import { KbSection } from './kb/KbSection'
 import { SkillsSection } from './skills/SkillsSection'
 import { LocalFsSection } from './localfs/LocalFsSection'
+import { IncidentsSection } from './incidents/IncidentsSection'
 
 // 内核的设置分节，照原型 web-next/src/settings.tsx SECTIONS；内网域名是插件的分节，不在这里。
-// 插件管理（CORE-09）原型里还没有，放在「工作台与模块」（CORE-10b）后面；其余内容还没做，点进去是占位页
+// 插件管理（CORE-09）原型里还没有，放在「工作台与模块」（CORE-10b）后面；运行异常还没有后端，先是空状态（PR-20）
 const KERNEL: SubnavItem<string>[] = [
   { key: 'workspace', label: '工作台与模块', desc: '切换工作台、选功能模块' },
   { key: 'plugins', label: '插件', desc: '安装、启停、卸载功能插件' },
@@ -67,6 +68,7 @@ export default function Page() {
         : kernel!.key === 'kbs' ? <KbSection />
         : kernel!.key === 'skills' ? <SkillsSection />
         : kernel!.key === 'localfs' ? <LocalFsSection />
+        : kernel!.key === 'incidents' ? <IncidentsSection />
         : kernel!.key === 'appearance' ? <AppearanceSection /> : <Placeholder title={kernel!.label} />}
     </>
   )

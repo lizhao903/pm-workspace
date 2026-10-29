@@ -69,7 +69,7 @@ function fakeBackend(rows: WorkObject[], extra: Extra = {}) {
 
 function mount(initial = '/projects') {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-  const router = createMemoryRouter([{ path: '/projects/*', element: <Page /> }], { initialEntries: [initial] })
+  const router = createMemoryRouter([{ path: '/projects/*', element: <Page /> }, { path: '*', element: <div>别的页</div> }], { initialEntries: [initial] })
   render(<QueryClientProvider client={qc}><RouterProvider router={router} /></QueryClientProvider>)
   return router
 }
@@ -161,6 +161,77 @@ describe('项目列表', () => {
     const dir = await screen.findByRole('textbox', { name: '本地项目目录' })
     await userEvent.type(dir, '/tmp/pj')
     await waitFor(() => expect(calls.some((c) => c.method === 'PATCH' && (c.body as { workdir?: string }).workdir === '/tmp/pj')).toBe(true), { timeout: 2000 })
+  })
+
+  // C-05：刚新建、名称没改就离开时问要不要删
+  const newEmpty = async () => {
+    const calls = fakeBackend([obj({ title: '已有' })])
+    const router = mount()
+    await userEvent.click(await screen.findByRole('button', { name: '新建项目' }))
+    await waitFor(() => expect(router.state.location.pathname).toMatch(/^\/projects\/obj_\d+\/settings$/))
+    await screen.findByRole('textbox', { name: '名称' })
+    const id = router.state.location.pathname.split('/')[2]
+    return { calls, router, id }
+  }
+  const ask = () => screen.findByRole('alertdialog', { name: '空项目' })
+
+  it('新建后名称没改就切标签：先问，删掉后回列表', async () => {
+    const { calls, router, id } = await newEmpty()
+    await userEvent.click(screen.getByRole('tab', { name: '概览' }))
+    expect(await ask()).toHaveTextContent('这个项目还是空的（名称还是「新项目」），要删掉吗？')
+    expect(router.state.location.pathname).toBe(`/projects/${id}/settings`)
+    await userEvent.click(screen.getByRole('button', { name: '删掉' }))
+    await waitFor(() => expect(router.state.location.pathname).toBe('/projects'))
+    expect(calls.some((c) => c.method === 'DELETE' && c.path === `/api/objects/${id}`)).toBe(true)
+  })
+
+  it('新建后换到别的模块：删掉后去原本要去的地方', async () => {
+    const { calls, router, id } = await newEmpty()
+    void router.navigate('/contacts?c=x')
+    await ask()
+    await userEvent.click(screen.getByRole('button', { name: '删掉' }))
+    await screen.findByText('别的页')
+    expect(router.state.location.pathname + router.state.location.search).toBe('/contacts?c=x')
+    expect(calls.some((c) => c.method === 'DELETE' && c.path === `/api/objects/${id}`)).toBe(true)
+  })
+
+  it('选「留着」照常离开、不删，再进来不再问', async () => {
+    const { calls, router, id } = await newEmpty()
+    await userEvent.click(screen.getByRole('button', { name: '项目' }))
+    await ask()
+    await userEvent.click(screen.getByRole('button', { name: '留着' }))
+    await waitFor(() => expect(router.state.location.pathname).toBe('/projects'))
+    expect(calls.some((c) => c.method === 'DELETE')).toBe(false)
+    await router.navigate(`/projects/${id}/settings`)
+    await screen.findByRole('textbox', { name: '名称' })
+    await userEvent.click(screen.getByRole('tab', { name: '概览' }))
+    await waitFor(() => expect(router.state.location.pathname).toBe(`/projects/${id}`))
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
+  })
+
+  it('「继续编辑」留在设置、回到名称；改了名称再离开不问', async () => {
+    const { calls, router, id } = await newEmpty()
+    await userEvent.click(screen.getByRole('tab', { name: '概览' }))
+    await ask()
+    await userEvent.click(screen.getByRole('button', { name: '继续编辑' }))
+    const name = screen.getByRole('textbox', { name: '名称' })
+    expect(name).toHaveFocus()
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
+    await userEvent.type(name, '甲')
+    await userEvent.click(screen.getByRole('tab', { name: '概览' }))
+    await waitFor(() => expect(router.state.location.pathname).toBe(`/projects/${id}`))
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
+    expect(calls.some((c) => c.method === 'DELETE')).toBe(false)
+  })
+
+  it('不是刚新建的项目名称叫「新项目」也不问', async () => {
+    const p = obj({ title: '新项目' })
+    fakeBackend([p])
+    const router = mount(`/projects/${p.id}/settings`)
+    await screen.findByRole('textbox', { name: '名称' })
+    await userEvent.click(screen.getByRole('tab', { name: '概览' }))
+    await waitFor(() => expect(router.state.location.pathname).toBe(`/projects/${p.id}`))
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
   })
 
   it('名称清空时不存，离开输入框恢复原名', async () => {

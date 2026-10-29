@@ -12,7 +12,7 @@ import { ErrorState, cls } from '../../core/ui'
 import { awaitingCount, awaitingReply, whoName } from './commsModel'
 import { recentDocsAndMaterials } from './materialModel'
 import { useProjectMessages } from './projectMessages'
-import { STAKE_PEEK, TASK_PEEK, ago, type ProjectTab } from './model'
+import { STAKE_PEEK, TASK_PEEK, ago, isKnownRole, sortStakeholders, type ProjectTab } from './model'
 import { ProtoBlock, ProtoStat } from './PrototypesTab'
 
 const PRIORITY_DICT = 'priority'
@@ -44,8 +44,8 @@ export function Overview({ project, onTab }: { project: WorkObject; onTab: (t: P
   }, [tasks.data, prios.data])
 
   const people = useMemo(() => new Map((contacts.data ?? []).map((c) => [c.id, c])), [contacts.data])
-  const order = (role: string) => PROJECT_ROLES.findIndex((x) => x.key === role)
-  const stakeList = useMemo(() => [...(stakes.data ?? [])].sort((a, b) => order(a.role) - order(b.role) || a.sort_order - b.sort_order), [stakes.data])
+  // 不认识的角色排最后，显示原值并标红（E-02）
+  const stakeList = useMemo(() => sortStakeholders(stakes.data ?? []), [stakes.data])
   const roleLabel = (role: string) => PROJECT_ROLES.find((x) => x.key === role)?.label ?? role
   // 相对时间、稍后到点每分钟重算一次
   const [now, setNow] = useState(() => Date.now())
@@ -103,8 +103,8 @@ export function Overview({ project, onTab }: { project: WorkObject; onTab: (t: P
           {comms}
         </section>
 
-        <section className="pj-block" aria-label="进行中的任务">
-          <div className="pj-block-head"><h2 className="pj-sec-title">进行中的任务</h2><button type="button" className="pj-link" onClick={() => onTab('tasks')}>全部</button></div>
+        <section className="pj-block" aria-label="未完成的任务">
+          <div className="pj-block-head"><h2 className="pj-sec-title">未完成的任务</h2><button type="button" className="pj-link" onClick={() => onTab('tasks')}>全部</button></div>
           {tasks.isError ? <ErrorState compact error={errorText(tasks.error)} onRetry={() => void tasks.refetch()} />
             : tasks.isPending ? <div className="pj-block-empty">加载中</div>
               : openTasks.length ? (
@@ -129,8 +129,11 @@ export function Overview({ project, onTab }: { project: WorkObject; onTab: (t: P
                 <div className="pj-chips">
                   {stakeList.slice(0, STAKE_PEEK).map((x) => {
                     const name = people.get(x.stakeholder_id)?.name ?? '已删除的联系人'
+                    const known = isKnownRole(x.role)
+                    const tip = x.focus ? `${name}：${x.focus}` : name
                     return (
-                      <button key={x.stakeholder_id} type="button" className="tag pj-chip" title={x.focus ? `${name}：${x.focus}` : name}
+                      <button key={x.stakeholder_id} type="button" className={cls('tag pj-chip', !known && 'pj-role-unknown')}
+                        title={known ? tip : `${tip}（不认识的角色「${x.role}」，去干系人标签改一个）`}
                         onClick={() => navigate(`/contacts?c=${encodeURIComponent(x.stakeholder_id)}`)}>
                         {name} · {roleLabel(x.role)}
                       </button>
