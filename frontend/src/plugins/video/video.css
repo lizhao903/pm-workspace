@@ -137,6 +137,23 @@ button.vd-row:hover { background: var(--panel-2); }
 .vd-cp-box { display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; border-radius: var(--r); background: var(--panel-2); border: 1px solid var(--line); }
 .vd-cp-reject { font-size: var(--fs-sm); padding: 8px 10px; border-radius: var(--r-sm); color: color-mix(in srgb, var(--warn) 80%, var(--text)); background: var(--warn-soft); word-break: break-word; }
 .vd-adv { margin-top: 2px; }
+/* 阶段执行器（VID-03c） */
+.vd-runner { display: flex; flex-direction: column; gap: 6px; padding: 8px 10px; border-radius: var(--r); border: 1px dashed var(--line-2); min-width: 0; }
+.vd-runner-failed { border-style: solid; border-color: color-mix(in srgb, var(--warn) 40%, var(--line)); }
+.vd-runner-none { flex-direction: row; align-items: center; flex-wrap: wrap; gap: 8px; }
+.vd-runner-none .vd-muted { white-space: normal; font-size: var(--fs-sm); }
+.vd-runner-edit { border-style: solid; background: var(--panel-2); gap: 10px; }
+.vd-runner-row { display: flex; gap: 12px; flex-wrap: wrap; align-items: flex-start; }
+.vd-runner-row .vd-sort { align-self: flex-start; }
+.vd-runner-pick { flex: 1 1 200px; min-width: 0; }
+.vd-runner-head { display: flex; align-items: center; gap: 8px; min-width: 0; flex-wrap: wrap; }
+.vd-runner-type { font-size: var(--fs-2xs); padding: 0 6px; height: 18px; display: inline-flex; align-items: center; border-radius: 4px; color: var(--accent); background: var(--accent-soft); flex: none; }
+.vd-runner-name { font-weight: 500; max-width: 100%; }
+.vd-runner-prompt { font-size: var(--fs-xs); color: var(--faint); flex: 1 1 120px; }
+.vd-runner-state { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; font-size: var(--fs-sm); color: var(--muted); }
+.vd-runner-state.ok { color: var(--ok); }
+.vd-spin { width: 11px; height: 11px; color: var(--accent); }
+.vd-faint { color: var(--faint); }
 .vd-adv .btn { white-space: normal; text-align: left; height: auto; min-height: 28px; }
 .vd-plan { display: flex; flex-direction: column; gap: 8px; }
 .vd-orients { display: flex; flex-wrap: wrap; gap: 6px; }

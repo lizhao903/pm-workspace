@@ -4,12 +4,15 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type FormEvent, type RefObject } from 'react'
 import { useSearchParams } from 'react-router'
 import { IconButton, LoadingState, cls } from '../../core/ui'
-import { errorText, useBrowserGoogle, useTerminalProtoAction, useTerminalPrototypes, type BrowserGoogleState, type TerminalPrototype } from '../../core/data'
+import {
+  errorText, isApiError, useAddBrowserAllow, useBrowserAllowlist, useBrowserGoogle, useDomainSettings, useTerminalProtoAction, useTerminalPrototypes,
+  type BrowserGoogleState, type TerminalPrototype,
+} from '../../core/data'
 import { FrameView } from './Frame'
 import { AccountButton, LoginDialog, OAuthDone } from './Google'
 import { HomeView } from './Home'
 import { IconBack, IconDown, IconExternal, IconForward, IconPin, IconPlus, IconReload, IconX, KindIcon, TabIcon } from './icons'
-import { KIND_LABEL, MAX_TABS, activeTab, displayUrl, normalize, protoFor, protoUrl, type Tab } from './model'
+import { KIND_LABEL, MAX_TABS, activeTab, displayUrl, frameAllowed, hostOf, normalize, protoFor, protoUrl, type FrameAllow, type Tab } from './model'
 import * as store from './store'
 import './browser.css'
 
@@ -27,6 +30,15 @@ function Browser() {
   const protos = useTerminalPrototypes()
   const protoAction = useTerminalProtoAction()
   const google = useBrowserGoogle()
+  // 能不能嵌入（BR-02a）：白名单走插件接口；内网域名后缀只在设置里开着时带上，内网域名插件没装就没有
+  const allowlist = useBrowserAllowlist()
+  const domains = useDomainSettings()
+  const addAllow = useAddBrowserAllow()
+  const allow: FrameAllow = {
+    hosts: allowlist.data?.map((e) => e.host) ?? [],
+    suffix: domains.data?.enabled ? domains.data.suffix : undefined,
+  }
+  const allowChecking = allowlist.isPending || domains.isPending
   const [loginOpen, setLoginOpen] = useState(false)
   const [ctx, setCtx] = useState<{ id: string; x: number; y: number } | null>(null)
   const [notice, setNotice] = useState('')
@@ -62,9 +74,19 @@ function Browser() {
   }
   const protoError = protos.isError ? `读不到项目原型：${errorText(protos.error)}` : ''
 
+  const allowHost = (url: string) => {
+    const host = hostOf(url)
+    if (!host) return
+    addAllow.mutate({ host }, {
+      // 已经在白名单里（409）不算失败，刷回来就会挂上 iframe
+      onError: (e) => { if (!(isApiError(e) && e.code === 'conflict')) setNotice(`加进白名单失败：${errorText(e)}`) },
+    })
+  }
+  const allowedOf = (t: Tab) => frameAllowed(t.url, allow)
+
   return (
     <div className="br-page">
-      <TabBar tabs={tabs.tabs} active={tab.id} pending={pending} protos={list}
+      <TabBar tabs={tabs.tabs} active={tab.id} pending={pending} protos={list} allowed={allowedOf}
         onContext={(id, x, y) => setCtx({ id, x, y })} />
 
       <Toolbar tab={tab} google={google.data} saveFailed={saveFailed}
@@ -84,8 +106,11 @@ function Browser() {
               <HomeView prototypes={list} protoError={protoError} pendingProto={pending[t.id]} google={google.data} recent={recent}
                 onOpen={(url, title) => store.openHere(url, title, t.id)} onStart={(p) => startProto(p, t.id)} onLogin={() => setLoginOpen(true)} />
             )}
-            {t.kind !== 'home' && (
+            {t.kind !== 'home' && !allowedOf(t) && allowChecking && <LoadingState />}
+            {t.kind !== 'home' && (allowedOf(t) || !allowChecking) && (
               <FrameView tab={t} reloadKey={reloads[t.id] ?? 0} proto={protoFor(t.url, list)} starting={!!pending[t.id]}
+                allowed={allowedOf(t)} adding={addAllow.isPending && addAllow.variables?.host === hostOf(t.url)}
+                onAllow={() => allowHost(t.url)} onExternal={() => store.openExternal(t.url)}
                 onLoaded={() => store.frameLoaded(t.id)} onStart={(p) => startProto(p, t.id)} />
             )}
           </div>
@@ -98,18 +123,19 @@ function Browser() {
   )
 }
 
-/** 原型没在运行、等着启动时 iframe 不挂，也就不转圈 */
-function busyOf(t: Tab, pending: Record<string, string>, protos: readonly TerminalPrototype[]) {
+/** 原型没在运行、等着启动时，或者不在白名单里时 iframe 不挂，也就不转圈 */
+function busyOf(t: Tab, pending: Record<string, string>, protos: readonly TerminalPrototype[], allowed: boolean) {
   if (pending[t.id]) return true
   const p = protoFor(t.url, protos)
-  return t.loading && !(p && p.status !== 'running')
+  return t.loading && allowed && !(p && p.status !== 'running')
 }
 
-function TabBar({ tabs, active, pending, protos, onContext }: {
+function TabBar({ tabs, active, pending, protos, allowed, onContext }: {
   tabs: Tab[]
   active: string
   pending: Record<string, string>
   protos: readonly TerminalPrototype[]
+  allowed: (t: Tab) => boolean
   onContext: (id: string, x: number, y: number) => void
 }) {
   const stripRef = useRef<HTMLDivElement>(null)
@@ -145,7 +171,7 @@ function TabBar({ tabs, active, pending, protos, onContext }: {
             onClick={() => store.activate(t.id)}
             onAuxClick={(e) => { if (e.button === 1 && !t.pinned) store.close(t.id) }}
             onContextMenu={(e) => { e.preventDefault(); onContext(t.id, e.clientX, e.clientY) }}>
-            <TabIcon kind={t.kind} busy={busyOf(t, pending, protos)} />
+            <TabIcon kind={t.kind} busy={busyOf(t, pending, protos, allowed(t))} />
             {!t.pinned && <span className="br-tab-title ellipsis">{t.title}</span>}
             {!t.pinned && (
               <button type="button" className="br-tab-btn br-tab-pin" title="固定标签页" aria-label="固定标签页"

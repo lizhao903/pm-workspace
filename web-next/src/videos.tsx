@@ -6,10 +6,12 @@ import { Subnav } from './subnav'
 import { PageTitle } from './topbar'
 import { cls, timeAgo } from './ui'
 import {
-  ARTIFACT_KIND, ARTIFACT_STATUS, COVER_RATIO, DEFAULT_COVER_RATIOS, ORIENT, STAGES, coverRatioOf, stageIndex, videoState,
+  ARTIFACT_KIND, ARTIFACT_STATUS, COVER_RATIO, DEFAULT_COVER_RATIOS, ORIENT, PLATFORMS, SPEECH_RATE, STAGES, coverRatioOf, draftFromTopic, stageIndex, textStats, videoState,
   type Artifact, type ArtifactKind, type ArtifactStatus, type Checkpoint, type CheckpointState, type CoverRatio, type LastRun, type Orientation, type RunnerType,
-  type Series, type StageKey, type StageRunner, type Video,
+  type ScriptText, type Series, type StageKey, type StageRunner, type TextKind, type Video,
 } from './videodata'
+import { TOPIC_STATUS, topicPriority, type Clip, type Topic } from './topicdata'
+import { PriorityBadge, StatusPill, TopicDrawer } from './topics'
 import { newId } from './ids'
 import { SKILLS, seedAgents } from './agentdata'
 import { SOPS } from './sopflow'
@@ -99,7 +101,7 @@ function runError(v: Video, r: StageRunner, k: StageKey) {
 }
 const defaultName = (kind: ArtifactKind, option?: number) => (kind === 'cover' ? `封面 ${option ?? 1}` : kind === 'video' ? '成片' : ARTIFACT_KIND[kind].label)
 
-/** 阶段进度：8 段小条，做完的绿、当前的蓝（卡在检查点上的橙） */
+/** 阶段进度：一个阶段一段小条，做完的绿、当前的蓝（卡在检查点上的橙） */
 export function StageBar({ v }: { v: Video }) {
   const st = videoState(v)
   return (
@@ -580,8 +582,15 @@ const TABS: { key: DetailTab; label: string }[] = [{ key: 'flow', label: '制作
 
 interface NewArt { kind: ArtifactKind; variant?: Orientation; ratio?: CoverRatio; option?: number; name: string; path: string; duration: string; touched: boolean }
 
-export function VideoDetail({ video, artifacts, series, projects, publishCount, onChange, onArtifacts, onOpenSeries, onOpenPublish, onPreview, onDelete, tabs }: {
+export function VideoDetail({ video, artifacts, series, projects, publishCount, topics, clips, texts, onChange, onArtifacts, onTopics, onClips, onTexts, onOpenSeries, onOpenPublish, onPreview, onDelete, tabs }: {
   video: Video; artifacts: Artifact[]; series: Series[]; projects: { id: string; name: string }[]; publishCount: number
+  /** 选题一步：挑选题、新建选题、在抽屉里改 */
+  topics: Topic[]; clips: Clip[]
+  onTopics: (fn: (xs: Topic[]) => Topic[]) => void
+  onClips: (fn: (xs: Clip[]) => Clip[]) => void
+  /** 内容编写：文稿正文、草稿、执行器起草的初稿 */
+  texts: ScriptText[]
+  onTexts: (fn: (xs: ScriptText[]) => ScriptText[]) => void
   /** 模块标签栏，放在顶栏下面 */
   tabs?: ReactNode
   onChange: (v: Video) => void
@@ -602,9 +611,13 @@ export function VideoDetail({ video, artifacts, series, projects, publishCount, 
   /** 正在配执行器的阶段和草稿 */
   const [runEdit, setRunEdit] = useState<{ stage: StageKey; r: StageRunner } | null>(null)
   const mine = artifacts.filter((a) => a.video_id === v.id)
-  // 执行器是异步跑完的，跑完时要拿最新的视频和产出物，不能用发起时的
-  const latest = useRef({ v, mine })
-  useEffect(() => { latest.current = { v, mine } })
+  const topic = topics.find((t) => t.id === v.topic_id)
+  const [topicOpen, setTopicOpen] = useState(false)
+  /** 内容编写已经过了的集，要点开才显示编辑区 */
+  const [deskOpen, setDeskOpen] = useState(false)
+  // 执行器是异步跑完的，跑完时要拿最新的视频、产出物和选题，不能用发起时的
+  const latest = useRef({ v, mine, topic })
+  useEffect(() => { latest.current = { v, mine, topic } })
   const sr = series.find((s) => s.id === v.series_id)
   const proj = projects.find((p) => p.id === v.project_id)
   const opened = mine.find((a) => a.id === openId)
@@ -708,6 +721,95 @@ export function VideoDetail({ video, artifacts, series, projects, publishCount, 
     }, 1800)
   }
 
+  /* 选题：挑一个、新建一个、换一个；选定的选题记下 video_id、改成已做成，换下来的回到可开拍 */
+  const linkTopic = (t: Topic) => {
+    const at = now()
+    const prev = v.topic_id
+    onTopics((xs) => xs.map((x) => (x.id === t.id ? { ...x, status: 'made' as const, video_id: v.id, updated_at: at }
+      : x.id === prev ? { ...x, status: 'ready' as const, video_id: undefined, updated_at: at } : x)))
+    // 标题还是默认的就用选题标题；比例还没锁定就按选题平台的推荐比例（同立项）
+    const untitled = !v.title.trim() || v.title === '新视频' || /^第 \d+ 集：$/.test(v.title)
+    const orients = [...new Set(t.platforms.map((k) => PLATFORMS.find((p) => p.key === k)!.prefer))]
+    set({
+      topic_id: t.id,
+      title: untitled && t.title.trim() ? (v.episode ? `第 ${v.episode} 集：${t.title.trim()}` : t.title.trim()) : v.title,
+      orientations: !locked && orients.length ? ORIENTS.filter((o) => orients.includes(o)) : v.orientations,
+    })
+  }
+  const newTopic = () => {
+    const at = now()
+    const t: Topic = {
+      id: newId('tp'), title: v.title.replace(/^第 \d+ 集：/, '').replace(/^新视频$/, '').trim(), angle: '', audience: '', status: 'made',
+      score: { demand: 3, fit: 3, effort: 3 }, tags: [], series_id: v.series_id, platforms: [], outline: '', clip_ids: [], video_id: v.id, created_at: at, updated_at: at,
+    }
+    const prev = v.topic_id
+    onTopics((xs) => [t, ...xs.map((x) => (x.id === prev ? { ...x, status: 'ready' as const, video_id: undefined, updated_at: at } : x))])
+    set({ topic_id: t.id })
+    setTopicOpen(true)
+  }
+  const topicOptions = useMemo(() => topics.filter((t) => !t.video_id && t.status !== 'dropped' && t.status !== 'made')
+    .sort((a, b) => topicPriority(b.score) - topicPriority(a.score))
+    .map((t) => ({ value: t.id, label: t.title || '未命名选题', hint: `${TOPIC_STATUS[t.status].label} · ${topicPriority(t.score).toFixed(1)}`, keywords: `${t.angle}${t.tags.join('')}` })), [topics])
+
+  /* 内容编写：草稿边写边存；保存存成这一类产出物的下一版；交给验收把当前版标待验收 */
+  const textKey = (x: ScriptText, kind: TextKind, variant?: Orientation) => x.video_id === v.id && x.kind === kind && x.variant === variant
+  const latestArt = (kind: TextKind, variant?: Orientation) => mine.filter((a) => a.kind === kind && a.variant === variant).sort((a, b) => b.version - a.version)[0]
+  const editText = (kind: TextKind, variant: Orientation | undefined, body: string) => {
+    const art = latestArt(kind, variant)
+    const saved = art && texts.find((x) => textKey(x, kind, variant) && !x.draft && x.version === art.version)
+    const at = now()
+    // 改回和已保存的一样，草稿就不留了
+    onTexts((xs) => {
+      const rest = xs.filter((x) => !(textKey(x, kind, variant) && x.draft === 'mine'))
+      return body === (saved?.body ?? '') ? rest : [...rest, { video_id: v.id, kind, variant, draft: 'mine', body, saved_at: at }]
+    })
+  }
+  const saveText = (kind: TextKind, variant: Orientation | undefined, body: string, status: ArtifactStatus, source: Artifact['source'] = { type: 'manual', label: '手写' }) => {
+    const art = latestArt(kind, variant)
+    const at = now()
+    const version = (art?.version ?? 0) + 1
+    if (art) onArtifacts((xs) => xs.map((x) => (x.id === art.id ? { ...x, version, status, source, created_at: at } : x)))
+    else {
+      const a: Artifact = { id: newId('af'), video_id: v.id, kind, name: defaultName(kind), path: defaultPath(kind, v, variant), variant, version, status, source, reviews: [], created_at: at }
+      onArtifacts((xs) => [...xs, a])
+    }
+    onTexts((xs) => [...xs.filter((x) => !(textKey(x, kind, variant) && x.draft === 'mine')), { video_id: v.id, kind, variant, version, body, saved_at: at }])
+    touch()
+  }
+  const submitText = (kind: TextKind, variant?: Orientation) => {
+    const art = latestArt(kind, variant)
+    if (art) updArt(art.id, (x) => ({ ...x, status: 'review' }))
+  }
+  const adopt = (p: ScriptText) => {
+    saveText(p.kind, p.variant, p.body, 'draft', p.source)
+    onTexts((xs) => xs.filter((x) => x !== p))
+  }
+  const discard = (ps: ScriptText[]) => onTexts((xs) => xs.filter((x) => !ps.includes(x)))
+  /** 按选题大纲起草：交给内容编写的执行器（没配就用技能「网页演示做视频」），跑完出初稿，不直接改产出物 */
+  const scriptRunner: StageRunner = runnerOf('script') ?? { stage: 'script', type: 'skill', ref_id: 'sk_video', prompt: '按 Phase 1 照选题的角度和大纲起草口播稿和大纲' }
+  const draftRun = () => {
+    if (running || !topic) return
+    const r = scriptRunner
+    const id = newId(r.type === 'sop' ? 'run' : 'ar')
+    const start: LastRun = { type: r.type === 'sop' ? 'sop' : 'agent', id, stage: 'script', status: 'running', started_at: now() }
+    set({ last_run: start })
+    window.setTimeout(() => {
+      const { v: cur, topic: tp } = latest.current
+      if (cur.last_run?.id !== id) return
+      const err = !tp ? '这一集的选题被换掉或删掉了，重新选好再起草'
+        : runError(cur, r, 'script') || (!tp.outline.trim() ? `选题「${tp.title || '未命名选题'}」还没写大纲，Phase 1 要照大纲起草；先在选题里补上大纲再重试` : '')
+      if (err || !tp) { onChange({ ...cur, last_run: { ...start, status: 'failed', ended_at: now(), error: err }, updated_at: now() }); return }
+      const at = now()
+      const source: Artifact['source'] = { type: r.type, label: runnerName(r) ?? r.ref_id }
+      const os: Orientation[] = cur.orientations.length ? cur.orientations : ['landscape']
+      const made: ScriptText[] = (['script', 'outline'] as const).flatMap((kind) => os.map((o): ScriptText => ({
+        video_id: cur.id, kind, variant: o, draft: 'proposal', body: draftFromTopic(tp, kind, o, cur.chapters), source, saved_at: at,
+      })))
+      onTexts((xs) => [...xs.filter((x) => !(x.video_id === cur.id && x.draft === 'proposal')), ...made])
+      onChange({ ...cur, last_run: { ...start, status: 'done', ended_at: at, artifact_ids: [] }, updated_at: at })
+    }, 1800)
+  }
+
   const actions = (
     <>
       {publishCount > 0 && <button className="btn btn-outline" onClick={() => onOpenPublish(v.id)}>发布记录<span className="seg-n">{publishCount}</span></button>}
@@ -753,7 +855,7 @@ export function VideoDetail({ video, artifacts, series, projects, publishCount, 
     if (!r) {
       return cur ? (
         <div className="vd-runner vd-runner-none">
-          <span className="run-muted">没配执行器，产出物手动登记</span>
+          <span className="run-muted">{k === 'script' ? '没配执行器，按选题大纲起草时用技能「网页演示做视频」' : '没配执行器，产出物手动登记'}</span>
           <button className="link-btn" onClick={() => setRunEdit({ stage: k, r: { stage: k, type: 'skill', ref_id: 'sk_video' } })}>配执行器</button>
         </div>
       ) : null
@@ -768,20 +870,77 @@ export function VideoDetail({ video, artifacts, series, projects, publishCount, 
           {r.prompt && <span className="ellipsis run-muted vd-runner-prompt">{r.prompt}</span>}
           <span className="spacer" />
           {!busy && <button className="act act-quiet" onClick={() => setRunEdit({ stage: k, r })}>修改</button>}
-          {cur && (
+          {/* 内容编写不在这里运行，在编辑区里「按选题大纲起草」 */}
+          {cur && k !== 'script' && (
             <button className="act act-primary" disabled={running} title={running && !busy ? '另一个阶段正在跑，等它跑完' : undefined} onClick={() => run(k)}>
               {busy ? '运行中…' : last?.status === 'failed' ? '重试' : '运行'}
             </button>
           )}
         </div>
-        {busy && <div className="vd-runner-state"><i className="vd-spin" />正在跑，开始于 {timeAgo(last.started_at)}；跑完产出物会进「待验收」</div>}
-        {last?.status === 'failed' && <div className="vd-cp-reject">运行失败：{last.error ?? '没有返回原因'}{last.ended_at && ` · ${timeAgo(last.ended_at)}`}</div>}
-        {last?.status === 'done' && (
+        {/* 内容编写的起草状态显示在编辑区里 */}
+        {busy && k !== 'script' && <div className="vd-runner-state"><i className="vd-spin" />正在跑，开始于 {timeAgo(last.started_at)}；跑完产出物会进「待验收」</div>}
+        {last?.status === 'failed' && k !== 'script' && <div className="vd-cp-reject">运行失败：{last.error ?? '没有返回原因'}{last.ended_at && ` · ${timeAgo(last.ended_at)}`}</div>}
+        {last?.status === 'done' && k !== 'script' && (
           <div className="vd-runner-state ok">
             {timeAgo(last.ended_at ?? last.started_at)}跑完，{last.artifact_ids?.length ? `登记了 ${last.artifact_ids.length} 个产出物，待验收` : '没有新产出物'}
             {k !== 'web' && STAGES.find((x) => x.key === k)?.checkpoint && <span className="run-muted">；检查点还要你来确认</span>}
           </div>
         )}
+      </div>
+    )
+  }
+  // 选题一步：挂了选题显示它的要点，点了打开选题抽屉；没挂的给「从选题库选一个」「新建选题」
+  const topicPicker = (label: string) => (
+    <SearchSelect value="" placeholder={label} searchPlaceholder="搜标题、角度、标签" disabled={!topicOptions.length}
+      title={topicOptions.length ? `从 ${topicOptions.length} 个还没立项的选题里选，按优先级排` : '选题库里没有还没立项的选题'}
+      options={topicOptions} emptyText="没有还没立项的选题" onChange={(id) => { const t = topics.find((x) => x.id === id); if (t) linkTopic(t) }} />
+  )
+  const topicBox = () => {
+    if (!topic) {
+      return (
+        <div className="vd-topic vd-topic-none">
+          <span className="run-muted">{v.topic_id ? '原来的选题已经删掉了，重新挑一个' : '这一集还没挂选题：讲什么、讲给谁、从哪个角度讲，先在选题里想清楚'}</span>
+          <div className="act-row">
+            {topicPicker('从选题库选一个')}
+            <button className="act" onClick={newTopic}>新建选题</button>
+          </div>
+        </div>
+      )
+    }
+    const outline = topic.outline.split('\n').filter((l) => l.trim())
+    return (
+      <div className="vd-topic">
+        <div className="vd-topic-head">
+          <button className="vd-topic-title" onClick={() => setTopicOpen(true)} title="打开选题">{topic.title || '未命名选题'}</button>
+          <PriorityBadge score={topic.score} />
+          <StatusPill s={topic.status} />
+          <span className="spacer" />
+          {topicPicker('换一个')}
+        </div>
+        <dl className="props vd-topic-props">
+          <dt>角度</dt><dd className={cls(!topic.angle && 'faint')}>{topic.angle || '还没写'}</dd>
+          <dt>受众</dt><dd className={cls(!topic.audience && 'faint')}>{topic.audience || '还没写'}</dd>
+          <dt>打分</dt><dd>需求 {topic.score.demand} · 契合 {topic.score.fit} · 成本 {topic.score.effort}</dd>
+          <dt>大纲</dt><dd>{outline.length ? <ol className="vd-topic-outline">{outline.map((l, i) => <li key={i}>{l.replace(/^\s*(\d+[.、)]|[-*+])\s*/, '')}</li>)}</ol>
+            : <span className="faint">还没写大纲，按大纲起草要先补上。<button className="link-btn" onClick={() => setTopicOpen(true)}>去补</button></span>}</dd>
+        </dl>
+      </div>
+    )
+  }
+  // 规划检查要对齐的文稿：每个比例的口播稿、大纲当前是第几版、什么状态
+  const planDocs = () => {
+    const os = v.orientations.length ? v.orientations : ORIENTS.filter((o) => mine.some((a) => (a.kind === 'script' || a.kind === 'outline') && a.variant === o))
+    const docs = (['article', 'script', 'outline'] as const).flatMap((k) => (k === 'article' ? [latestArt(k)] : os.map((o) => latestArt(k, o)))).filter((a): a is Artifact => !!a)
+    const warns = [
+      ...os.filter((o) => !latestArt('script', o)).map((o) => `${ORIENT[o].label}还没有口播稿`),
+      ...docs.filter((a) => a.kind !== 'article' && a.status === 'draft').map((a) => `${a.variant ? ORIENT[a.variant].label : ''}${ARTIFACT_KIND[a.kind].label} v${a.version} 还是草稿，没交验收`),
+      ...(texts.some((x) => x.video_id === v.id && x.draft === 'mine') ? ['内容编写里还有没保存的草稿，这里看到的是已保存的版本'] : []),
+    ]
+    return (
+      <div className="vd-sub">
+        <div className="field-group-title">要对齐的文稿<span className="field-hint">内容编写里保存的版本</span></div>
+        {docs.length ? docs.map(artLine) : <div className="mount-empty">还没有文稿。<button className="link-btn" onClick={() => setDeskOpen(true)}>去内容编写</button></div>}
+        {warns.map((w) => <div key={w} className="vd-plan-warn">{w}</div>)}
       </div>
     )
   }
@@ -822,6 +981,7 @@ export function VideoDetail({ video, artifacts, series, projects, publishCount, 
             const cur = state === 'current' && !isFinished(v)
             const firstKind = KINDS.find((k) => ARTIFACT_KIND[k].stage === s.key)
             const pres = mine.filter((a) => a.kind === 'presentation')
+            const desk = s.key === 'script' && (cur || deskOpen)
             return (
               <li key={s.key} className={cls('vd-step', `vd-step-${state}`, s.checkpoint && 'vd-step-cp', cur && (cp?.state === 'pending' || cp?.state === 'rejected') && 'vd-step-wait')}>
                 <span className="vd-dot">
@@ -842,6 +1002,9 @@ export function VideoDetail({ video, artifacts, series, projects, publishCount, 
                   <div className="list-sub">{s.desc}</div>
                   {cp?.note && cp.state !== 'rejected' && <div className="vd-cp-note">意见：{cp.note}</div>}
 
+                  {s.key === 'topic' && topicBox()}
+
+                  {s.key === 'plan' && planDocs()}
                   {s.key === 'plan' && (
                     <div className="vd-plan">
                       <div className="field-label">画面比例{locked ? <span className="field-hint">已锁定</span> : <span className="field-hint">可多选，每个比例是一个独立的演示工程</span>}</div>
@@ -868,9 +1031,15 @@ export function VideoDetail({ video, artifacts, series, projects, publishCount, 
                     </div>
                   )}
 
-                  {items.length > 0 && <div className="vd-sub">{items.map(artLine)}</div>}
+                  {items.length > 0 && !desk && <div className="vd-sub">{items.map(artLine)}</div>}
+                  {s.key === 'script' && !desk && <div className="act-row"><button className="link-btn" onClick={() => setDeskOpen(true)}>打开编辑区改文稿</button></div>}
                   {RUNNABLE.includes(s.key) && !isFinished(v) && runnerBox(s.key, cur)}
-                  {cur && !items.length && firstKind && !s.checkpoint && (
+                  {desk && (
+                    <ScriptDesk v={v} mine={mine} texts={texts.filter((x) => x.video_id === v.id)} topic={topic} clips={clips} runner={scriptRunner} busy={running}
+                      onDraft={draftRun} onEdit={editText} onSave={saveText} onSubmit={submitText} onAdopt={adopt} onDiscard={discard} onOpenArt={setOpenId}
+                      onClose={cur ? undefined : () => setDeskOpen(false)} />
+                  )}
+                  {cur && !items.length && firstKind && !s.checkpoint && s.key !== 'script' && (
                     <div className="mount-empty">这一步还没登记产出物。<button className="link-btn" onClick={() => startNew(firstKind)}>登记一个</button></div>
                   )}
 
@@ -897,7 +1066,13 @@ export function VideoDetail({ video, artifacts, series, projects, publishCount, 
                       )}
                     </div>
                   )}
-                  {cur && !s.checkpoint && i < STAGES.length - 1 && (
+                  {cur && s.key === 'topic' && (
+                    <div className="act-row vd-adv">
+                      <button className="act act-primary" disabled={!topic} title={!topic ? '先选一个选题或新建一个' : undefined} onClick={() => advance('topic')}>确认选题，进入「{STAGES[i + 1].label}」</button>
+                      {!topic && <span className="list-sub">先选一个选题或新建一个</span>}
+                    </div>
+                  )}
+                  {cur && !s.checkpoint && s.key !== 'topic' && i < STAGES.length - 1 && (
                     <div className="act-row vd-adv"><button className="act act-primary" onClick={() => advance(s.key)}>这一步做完了，进入「{STAGES[i + 1].label}」</button></div>
                   )}
                 </div>
@@ -1067,6 +1242,20 @@ export function VideoDetail({ video, artifacts, series, projects, publishCount, 
         </div>
       )}
 
+      {topicOpen && topic && (
+        <TopicDrawer key={topic.id} t={topic} clips={clips} series={series} video={v}
+          onClose={() => setTopicOpen(false)}
+          onSave={(t) => onTopics((xs) => xs.map((x) => (x.id === t.id ? { ...t, updated_at: now() } : x)))}
+          onDelete={() => {
+            onClips((xs) => xs.map((c) => ({ ...c, topic_ids: c.topic_ids.filter((x) => x !== topic.id) })))
+            onTopics((xs) => xs.filter((x) => x.id !== topic.id)); set({ topic_id: undefined }); setTopicOpen(false)
+          }}
+          onUnlinkClip={(cid) => {
+            onTopics((xs) => xs.map((x) => (x.id === topic.id ? { ...x, clip_ids: x.clip_ids.filter((c) => c !== cid) } : x)))
+            onClips((xs) => xs.map((c) => (c.id === cid ? { ...c, topic_ids: c.topic_ids.filter((x) => x !== topic.id) } : c)))
+          }}
+          onMake={() => setTopicOpen(false)} onOpenVideo={() => setTopicOpen(false)} />
+      )}
       {opened && (
         <ArtifactDrawer key={opened.id} a={opened} v={v} onClose={() => setOpenId(null)}
           onUpdate={(fn) => updArt(opened.id, fn)}
@@ -1096,6 +1285,197 @@ function ArtRow({ a, v, sel, onOpen }: { a: Artifact; v: Video; sel: boolean; on
         {a.duration !== undefined && <span className="vd-dur">{fmtDuration(a.duration)}</span>}
         {a.reviews.length > 0 && <span className="run-muted">验收 {a.reviews.length} 次</span>}
       </span>
+    </div>
+  )
+}
+
+/* ---------- 内容编写 ---------- */
+
+const TEXT_LABEL: Record<TextKind, string> = { article: '原文', script: '口播稿', outline: '大纲' }
+/** 口播时长：不到一分钟说秒，够一分钟说几分几秒 */
+const speakText = (sec: number) => (sec < 60 ? `${Math.max(1, sec)} 秒` : `${Math.floor(sec / 60)} 分 ${String(sec % 60).padStart(2, '0')} 秒`)
+const URL_RE = /^https?:\/\/[^\s/]+\S*$/
+
+/** 一栏编辑器：显示当前版本的正文或没保存的草稿，字数和按语速估的时长；保存存成下一版，交给验收把当前版标待验收 */
+function TextPane({ v, kind, variant, art, texts, head, onEdit, onSave, onSubmit, onOpenArt }: {
+  v: Video; kind: TextKind; variant?: Orientation; art?: Artifact; texts: ScriptText[]
+  /** 栏头左边：标签、比例切换 */
+  head: ReactNode
+  onEdit: (body: string) => void
+  onSave: (body: string, status: ArtifactStatus) => void
+  onSubmit: () => void
+  onOpenArt: (id: string) => void
+}) {
+  const same = (x: ScriptText) => x.kind === kind && x.variant === variant
+  const saved = art ? texts.find((x) => same(x) && !x.draft && x.version === art.version) : undefined
+  const draft = texts.find((x) => same(x) && x.draft === 'mine')
+  const body = draft?.body ?? saved?.body ?? ''
+  const dirty = !!draft
+  // 执行器或手动登记的版本，正文在视频目录的文件里，原型没有
+  const missing = !!art && !saved
+  const st = textStats(body)
+  const empty = !body.trim() && !(missing && !dirty)
+  const next = (art?.version ?? 0) + 1
+  const submitLabel = dirty ? '保存并交验收' : art?.status === 'review' ? '已在待验收' : art?.status === 'final' || art?.status === 'published' ? '已定稿' : '交给验收'
+  const submitOff = empty || (!dirty && (!art || art.status !== 'draft'))
+  const sections = body.split('\n').filter((l) => /^#{1,3}\s/.test(l)).length
+  return (
+    <div className={cls('vd-pane', dirty && 'dirty')}>
+      <div className="vd-pane-head">
+        {head}
+        <span className="spacer" />
+        {art ? (
+          <button className="vd-pane-art" title="打开产出物" onClick={() => onOpenArt(art.id)}><span className="vd-ver">v{art.version}</span><Pill {...ARTIFACT_STATUS[art.status]} /></button>
+        ) : <span className="faint vd-pane-none">还没保存过</span>}
+      </div>
+      <textarea className="vd-editor" value={body} aria-label={`${TEXT_LABEL[kind]}${variant ? `（${ORIENT[variant].label}）` : ''}`}
+        placeholder={missing ? `v${art!.version} 的正文在 ${v.root ? `${v.root}/` : ''}${art!.path}，原型里看不到；在这里写，保存后存成 v${next}`
+          : kind === 'script' ? (variant === 'portrait' ? '## 第 1 屏\n竖版一屏一句，每屏 40 字以内' : '## 开场\n按章节写，一章一段') : kind === 'outline' ? '# 标题\n\n## 第 1 章 ……\n- 要点' : '粘贴原文，或者从上面的链接导入'}
+        onChange={(e) => onEdit(e.target.value)} />
+      <div className="vd-pane-foot">
+        <span className="vd-pane-stat" title={kind === 'script' ? `按每分钟 ${SPEECH_RATE} 字估` : undefined}>
+          {st.chars} 字{kind === 'script' && st.chars > 0 && ` · 约 ${speakText(st.seconds)}`}{kind === 'outline' && sections > 0 && ` · ${sections} 节`}
+        </span>
+        <span className="vd-pane-save">{dirty ? `草稿已自动保存 · ${timeAgo(draft.saved_at)}` : saved ? `v${saved.version} 已保存 · ${timeAgo(saved.saved_at)}` : ''}</span>
+        <span className="spacer" />
+        <button className="act" disabled={!dirty || !body.trim()} title={!dirty ? '没有改动' : !body.trim() ? '稿子是空的' : `存成 v${next}，状态是草稿`} onClick={() => onSave(body, 'draft')}>保存为 v{next}</button>
+        <button className="act act-primary" disabled={submitOff} title={empty ? '稿子是空的，不能交验收' : !dirty && !art ? '先保存成版本' : undefined}
+          onClick={() => (dirty ? onSave(body, 'review') : onSubmit())}>{submitLabel}</button>
+      </div>
+      {empty && art?.status !== 'review' && <div className="vd-pane-err">稿子是空的，写了才能交验收</div>}
+    </div>
+  )
+}
+
+/** 内容编写的编辑区：口播稿按比例分栏、大纲一栏、原文可选；按选题大纲起草出初稿，对比后采用或丢弃 */
+function ScriptDesk({ v, mine, texts, topic, clips, runner, busy, onDraft, onEdit, onSave, onSubmit, onAdopt, onDiscard, onOpenArt, onClose }: {
+  v: Video; mine: Artifact[]; texts: ScriptText[]; topic?: Topic; clips: Clip[]; runner: StageRunner
+  /** 整集有执行器在跑 */
+  busy: boolean
+  onDraft: () => void
+  onEdit: (kind: TextKind, variant: Orientation | undefined, body: string) => void
+  onSave: (kind: TextKind, variant: Orientation | undefined, body: string, status: ArtifactStatus) => void
+  onSubmit: (kind: TextKind, variant?: Orientation) => void
+  onAdopt: (p: ScriptText) => void
+  onDiscard: (ps: ScriptText[]) => void
+  onOpenArt: (id: string) => void
+  /** 内容编写已经过了，点开看的可以收起 */
+  onClose?: () => void
+}) {
+  const os: Orientation[] = v.orientations.length ? v.orientations : ['landscape']
+  const [ov, setOv] = useState<Orientation>(os[0])
+  const outlineVariant = os.includes(ov) ? ov : os[0]
+  const art = (kind: TextKind, variant?: Orientation) => mine.filter((a) => a.kind === kind && a.variant === variant).sort((a, b) => b.version - a.version)[0]
+  const article = art('article')
+  const [articleOpen, setArticleOpen] = useState(!!article || texts.some((x) => x.kind === 'article'))
+  const [url, setUrl] = useState('')
+  const [importing, setImporting] = useState(false)
+  const [urlErr, setUrlErr] = useState('')
+  const proposals = texts.filter((x) => x.draft === 'proposal')
+  const drafting = v.last_run?.stage === 'script' && v.last_run.status === 'running'
+  const links = topic ? clips.filter((c) => topic.clip_ids.includes(c.id) && c.url) : []
+  const currentBody = (kind: TextKind, variant?: Orientation) => {
+    const a = art(kind, variant)
+    const d = texts.find((x) => x.kind === kind && x.variant === variant && x.draft === 'mine')
+    const s = a && texts.find((x) => x.kind === kind && x.variant === variant && !x.draft && x.version === a.version)
+    return { body: d?.body ?? s?.body ?? '', label: d ? '现在（没保存的草稿）' : a ? `现在（v${a.version}）` : '现在（还没写）', dirty: !!d }
+  }
+  const importUrl = () => {
+    const u = url.trim()
+    if (!URL_RE.test(u)) { setUrlErr('链接格式不对，要 http:// 或 https:// 开头'); return }
+    setUrlErr(''); setImporting(true)
+    window.setTimeout(() => {
+      const host = u.replace(/^https?:\/\//, '').split('/')[0]
+      onEdit('article', undefined, `> 来源：${u}\n\n（原型模拟导入：正式版用内置浏览器抓正文，去掉导航和广告）\n\n${host} 上这篇文章的正文会出现在这里，导入后可以直接改。`)
+      setImporting(false); setUrl('')
+    }, 900)
+  }
+  const pane = (kind: TextKind, variant: Orientation | undefined, head: ReactNode) => (
+    <TextPane key={`${kind}-${variant ?? ''}`} v={v} kind={kind} variant={variant} art={art(kind, variant)} texts={texts} head={head}
+      onEdit={(b) => onEdit(kind, variant, b)} onSave={(b, st) => onSave(kind, variant, b, st)} onSubmit={() => onSubmit(kind, variant)} onOpenArt={onOpenArt} />
+  )
+  const pLabel = (p: ScriptText) => `${p.variant && p.kind !== 'article' ? ORIENT[p.variant].label : ''}${TEXT_LABEL[p.kind]}`
+  return (
+    <div className="vd-desk">
+      <div className="vd-desk-bar">
+        <span className="run-muted vd-desk-hint">{topic ? `可以照选题「${topic.title || '未命名选题'}」的角度和大纲起草，也可以直接写` : '先在「选题」一步挂上选题，才能按大纲起草；也可以直接写'}</span>
+        <span className="spacer" />
+        {onClose && <button className="act act-quiet" onClick={onClose}>收起</button>}
+        <button className="act act-primary" disabled={!topic || busy} title={!topic ? '先选好选题' : busy && !drafting ? '另一个阶段正在跑，等它跑完' : `交给${RUNNER_TYPE[runner.type]}「${runnerName(runner) ?? runner.ref_id}」起草`} onClick={onDraft}>
+          {drafting ? '起草中…' : proposals.length ? '重新起草' : v.last_run?.stage === 'script' && v.last_run.status === 'failed' ? '重试起草' : '按选题大纲起草'}
+        </button>
+      </div>
+
+      {drafting && <div className="vd-runner-state"><i className="vd-spin" />正在起草，开始于 {timeAgo(v.last_run!.started_at)}；跑完出初稿，对比后再决定用不用</div>}
+      {v.last_run?.stage === 'script' && v.last_run.status === 'failed' && (
+        <div className="vd-cp-reject">起草失败：{v.last_run.error ?? '没有返回原因'}{v.last_run.ended_at && ` · ${timeAgo(v.last_run.ended_at)}`}</div>
+      )}
+      {proposals.length > 0 && (
+        <div className="vd-proposal">
+          <div className="vd-proposal-head">
+            <b>初稿 {proposals.length} 份</b>
+            <span className="run-muted">{proposals[0].source ? `${SOURCE_LABEL[proposals[0].source.type]} · ${proposals[0].source.label}` : ''} · {timeAgo(proposals[0].saved_at)}起草；采用的存成新版本</span>
+            <span className="spacer" />
+            <button className="act act-primary" onClick={() => proposals.forEach(onAdopt)}>全部采用</button>
+            <button className="act act-quiet" onClick={() => onDiscard(proposals)}>全部丢弃</button>
+          </div>
+          {proposals.map((p) => {
+            const c = currentBody(p.kind, p.variant)
+            return (
+              <div key={`${p.kind}-${p.variant ?? ''}`} className="vd-cmp">
+                <div className="vd-cmp-head">
+                  <b>{pLabel(p)}</b>
+                  {c.dirty && <span className="vd-plan-warn">采用后，没保存的改动会被初稿替换</span>}
+                  <span className="spacer" />
+                  <button className="act" onClick={() => onAdopt(p)}>采用</button>
+                  <button className="act act-quiet" onClick={() => onDiscard([p])}>丢弃</button>
+                </div>
+                <div className="vd-cmp-cols">
+                  <div className="vd-cmp-col"><div className="vd-cmp-label">{c.label}</div><div className={cls('vd-cmp-text', !c.body && 'faint')}>{c.body || '空'}</div></div>
+                  <div className="vd-cmp-col"><div className="vd-cmp-label">初稿 · {textStats(p.body).chars} 字</div><div className="vd-cmp-text">{p.body}</div></div>
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      )}
+
+      <div className="vd-desk-cols">
+        {os.map((o) => pane('script', o, <span className="vd-pane-title"><OrientShape o={o} />{ORIENT[o].label}口播稿</span>))}
+        {pane('outline', outlineVariant, (
+          <span className="vd-pane-title">大纲
+            {os.length > 1 && (
+              <span className="seg seg-sm">
+                {os.map((o) => <button key={o} className={cls(outlineVariant === o && 'on')} onClick={() => setOv(o)}>{ORIENT[o].label}</button>)}
+              </span>
+            )}
+          </span>
+        ))}
+      </div>
+
+      <section className="vd-article">
+        <button className="vd-article-toggle" aria-expanded={articleOpen} onClick={() => setArticleOpen(!articleOpen)}>
+          <svg viewBox="0 0 16 16" width="10" height="10" style={{ transform: articleOpen ? 'rotate(90deg)' : undefined }}><path d="m6 3.5 4.5 4.5L6 12.5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" /></svg>
+          原文<span className="run-muted">可选；有原文的按原文改写，口播稿和大纲各自存</span>
+          {article && <span className="vd-ver">v{article.version}</span>}
+        </button>
+        {articleOpen && (
+          <div className="vd-article-body">
+            <div className="vd-import">
+              <input className={cls('mono', urlErr && 'bad')} value={url} placeholder="https://… 从链接导入正文" disabled={importing}
+                onChange={(e) => { setUrl(e.target.value); setUrlErr('') }} onKeyDown={(e) => { if (e.key === 'Enter') importUrl() }} />
+              <button className="act" disabled={!url.trim() || importing} onClick={importUrl}>{importing ? '导入中…' : '导入'}</button>
+            </div>
+            {urlErr && <div className="field-err">{urlErr}</div>}
+            {links.length > 0 && (
+              <div className="vd-import-links"><span className="run-muted">选题素材里的链接</span>
+                {links.map((c) => <button key={c.id} className="chip" title={c.url} onClick={() => { setUrl(c.url!); setUrlErr('') }}>{c.title}</button>)}
+              </div>
+            )}
+            {pane('article', undefined, <span className="vd-pane-title">原文</span>)}
+          </div>
+        )}
+      </section>
     </div>
   )
 }

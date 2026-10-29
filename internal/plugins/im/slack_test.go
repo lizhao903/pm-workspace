@@ -25,6 +25,8 @@ import (
 type fakeSlack struct {
 	mu      sync.Mutex
 	token   string
+	team    string           // 空为 T1
+	convs   []map[string]any // Bot 所在的会话，空为 #product、#random 和一个私信
 	revoked bool
 	history map[string][]map[string]any // 会话 -> 消息（正序）
 	posted  []url.Values
@@ -43,6 +45,13 @@ func newFakeSlack() *fakeSlack {
 		"C02": {{"type": "message", "user": "U04LIN", "text": "不监听的频道", "ts": "1761700003.000100"}},
 		"D01": {{"type": "message", "user": "U09ZHOU", "text": "预发好了", "ts": "1761700004.000100"}},
 	}}
+}
+
+func (f *fakeSlack) channels() []map[string]any {
+	if f.convs != nil {
+		return f.convs
+	}
+	return []map[string]any{{"id": "C01", "name": "product"}, {"id": "C02", "name": "random"}, {"id": "D01", "is_im": true, "user": "U09ZHOU"}}
 }
 
 func (f *fakeSlack) add(ch string, m map[string]any) {
@@ -88,14 +97,21 @@ func (f *fakeSlack) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	switch method {
 	case "auth.test":
-		reply(map[string]any{"user_id": "UBOT", "bot_id": "BBOT", "user": "pmw", "team": "Acme", "team_id": "T1", "url": "https://acme.slack.com/"})
+		team := f.team
+		if team == "" {
+			team = "T1"
+		}
+		reply(map[string]any{"user_id": "UBOT", "bot_id": "BBOT", "user": "pmw", "team": "Acme", "team_id": team, "url": "https://acme.slack.com/"})
 	case "users.conversations":
-		reply(map[string]any{"channels": []map[string]any{
-			{"id": "C01", "name": "product"}, {"id": "C02", "name": "random"}, {"id": "D01", "is_im": true, "user": "U09ZHOU"},
-		}})
+		reply(map[string]any{"channels": f.channels()})
 	case "conversations.info":
-		names := map[string]string{"C01": "product", "C02": "random"}
-		reply(map[string]any{"channel": map[string]any{"id": r.Form.Get("channel"), "name": names[r.Form.Get("channel")]}})
+		name := ""
+		for _, cv := range f.channels() {
+			if cv["id"] == r.Form.Get("channel") {
+				name, _ = cv["name"].(string)
+			}
+		}
+		reply(map[string]any{"channel": map[string]any{"id": r.Form.Get("channel"), "name": name}})
 	case "users.info":
 		names := map[string]string{"U04LIN": "Lin Yuan", "U09ZHOU": "Zhou Yu", "UBOT": "pmw", "U07ME": "Broleez"}
 		reply(map[string]any{"user": map[string]any{"name": strings.ToLower(r.Form.Get("user")), "profile": map[string]any{"display_name": names[r.Form.Get("user")]}}})
@@ -138,6 +154,13 @@ type slackEnv struct {
 // setupSlack 在真库上装好 im（带 Slack 适配器、确认 network:im），接上真的连接器 store 和本机假 Slack。
 func setupSlack(t *testing.T) slackEnv {
 	t.Helper()
+	fake := newFakeSlack()
+	return setupSlackOn(t, fake, fake)
+}
+
+// setupSlackOn 同 setupSlack，假 Slack 换成 h（多个工作区时按 Token 分派）。
+func setupSlackOn(t *testing.T, fake *fakeSlack, h http.Handler) slackEnv {
+	t.Helper()
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "pm.db")
 	d, err := db.Open(path)
@@ -160,8 +183,7 @@ func setupSlack(t *testing.T) slackEnv {
 	r.SetConnectors(conns)
 	r.DataDir = t.TempDir()
 	defs.SetPluginDefs(r.ConnectorDefs)
-	fake := newFakeSlack()
-	srv := httptest.NewServer(fake)
+	srv := httptest.NewServer(h)
 	t.Cleanup(srv.Close)
 	u, _ := url.Parse(srv.URL)
 	r.SetHTTPTransport(slackRewrite{u})

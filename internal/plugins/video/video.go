@@ -2,7 +2,7 @@
 // 系列、视频、检查点、发布记录落在插件表 video_series、video_videos、video_checkpoints、video_publishes，
 // 产出物和验收记录（VID-01b）落在 video_artifacts、video_artifact_reviews，形状同原型 web-next/src/videodata.ts。
 // 阶段执行器（VID-03b）落在 video_runners、video_runs，经 Core.Runs 发起技能（本机 Claude Code）、SOP、Agent。
-// 内容平台连接器是 VID-04，本插件现在不访问任何外部服务。
+// 内容平台适配接口和 B 站连接器（VID-04b）见 platform.go、bilibili.go、remote.go，出网走 Core.HTTP("media-platforms")。
 // 接口契约见 docs/api-contract.md「视频创作插件 video」。
 package video
 
@@ -28,9 +28,17 @@ var manifestJSON []byte
 var migrationsFS embed.FS
 
 // Plugin 是视频插件的入口，cmd/pmw 用 Registry.Add 登记。
-type Plugin struct{ m plugin.Manifest }
+type Plugin struct {
+	m plugin.Manifest
+	// 内容平台适配器（VID-04b），按平台 key
+	platforms []PlatformAdapter
+}
 
-func New() *Plugin { return &Plugin{m: plugin.MustParse(manifestJSON)} }
+func New() *Plugin { return newWith(NewBilibili()) }
+
+func newWith(adapters ...PlatformAdapter) *Plugin {
+	return &Plugin{m: plugin.MustParse(manifestJSON), platforms: adapters}
+}
 
 func (p *Plugin) Manifest() plugin.Manifest { return p.m }
 
@@ -44,7 +52,12 @@ func (p *Plugin) Migrations() fs.FS {
 }
 
 func (p *Plugin) Register(r plugin.Registrar) error {
-	h := &handler{c: r.Core()}
+	h := &handler{c: r.Core(), platforms: map[string]PlatformAdapter{}}
+	for _, a := range p.platforms {
+		a.Bind(r.Core())
+		h.platforms[a.Platform()] = a
+		r.Connector(a.ConnectorDef())
+	}
 	r.Routes(func(m plugin.RouteRegistrar) {
 		m.HandleFunc("GET /api/video/series", h.listSeries)
 		m.HandleFunc("POST /api/video/series", h.addSeries)
@@ -66,6 +79,10 @@ func (p *Plugin) Register(r plugin.Registrar) error {
 		m.HandleFunc("GET /api/video/publishes/{id}", h.showPublish)
 		m.HandleFunc("PATCH /api/video/publishes/{id}", h.updatePublish)
 		m.HandleFunc("DELETE /api/video/publishes/{id}", h.removePublish)
+		m.HandleFunc("GET /api/video/platforms", h.listPlatforms)
+		m.HandleFunc("POST /api/video/publishes/{id}/submit", h.submitPublish)
+		m.HandleFunc("POST /api/video/publishes/{id}/sync", h.syncPublish)
+		m.HandleFunc("GET /api/video/publishes/{id}/comments", h.listComments)
 		m.HandleFunc("GET /api/video/artifacts", h.listArtifacts)
 		m.HandleFunc("POST /api/video/artifacts", h.addArtifact)
 		m.HandleFunc("GET /api/video/artifacts/{id}", h.showArtifact)
@@ -88,6 +105,7 @@ func (p *Plugin) Register(r plugin.Registrar) error {
 		m.HandleFunc("POST /api/video/clips/{id}/link", h.linkTopic)
 	})
 	r.Subscribe(plugin.RunFinishedEvent, h.onRunFinished)
+	h.registerSOP(r)
 	return nil
 }
 
@@ -98,6 +116,9 @@ type handler struct {
 	legacyDone bool
 	// 执行收尾一次只收一条：先登记产出物再标 done，读视频的人不会看到「done 了但产出物还是旧的」
 	finishMu sync.Mutex
+	// 内容平台适配器（VID-04b）和正在投稿的发布记录 id
+	platforms  map[string]PlatformAdapter
+	submitting sync.Map
 }
 
 // 错误分类，对应信封里的 code

@@ -53,7 +53,7 @@ func (in *inbox) syncConnector(w http.ResponseWriter, r *http.Request) {
 		fail(w, r, in.c, blocked("connector_disconnected", "连接器「"+cn.Name+"」已断开"))
 		return
 	}
-	res, err := in.pullOnce(ctx, p)
+	res, err := in.pullOnce(ctx, p, id)
 	if err != nil {
 		in.c.Log().Warn("im sync failed", "connector", id, "adapter", p.Key(), "err", err)
 		// 适配器的错误前面有 pull <key>: 前缀，给人看的去掉

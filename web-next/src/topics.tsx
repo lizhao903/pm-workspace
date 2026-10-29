@@ -27,8 +27,8 @@ function useEsc(fn: () => void) {
   }, [fn])
 }
 
-const StatusPill = ({ s }: { s: TopicStatus }) => <span className="pill" style={{ '--c': TOPIC_STATUS[s].color } as React.CSSProperties}><span className="pill-dot" />{TOPIC_STATUS[s].label}</span>
-const PriorityBadge = ({ score }: { score: TopicScore }) => {
+export const StatusPill = ({ s }: { s: TopicStatus }) => <span className="pill" style={{ '--c': TOPIC_STATUS[s].color } as React.CSSProperties}><span className="pill-dot" />{TOPIC_STATUS[s].label}</span>
+export const PriorityBadge = ({ score }: { score: TopicScore }) => {
   const p = topicPriority(score)
   return <span className={cls('tp-prio', p >= 8 ? 'hi' : p >= 6 ? 'mid' : 'lo')} title="按需求度、契合度、制作成本算出的优先级，满分 10">{p.toFixed(1)}</span>
 }
@@ -192,7 +192,8 @@ export function TopicsPage({ topics, clips, series, videos, focus, onTopics, onC
   )
 }
 
-function TopicDrawer({ t, clips, series, video, onClose, onSave, onDelete, onUnlinkClip, onMake, onOpenVideo }: {
+/** 选题抽屉；视频详情的「选题」一步也用它 */
+export function TopicDrawer({ t, clips, series, video, onClose, onSave, onDelete, onUnlinkClip, onMake, onOpenVideo }: {
   t: Topic; clips: Clip[]; series: Series[]; video?: Video
   onClose: () => void; onSave: (t: Topic) => void; onDelete: () => void; onUnlinkClip: (id: string) => void
   onMake: () => void; onOpenVideo: (id: string) => void

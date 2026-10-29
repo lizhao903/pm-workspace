@@ -84,6 +84,8 @@ export type Change =
   | { kind: 'video' }
   /** 浏览器里登录、退出 Google（BR-01b）：账号就是 Drive、日历连接器实例，两边一起刷 */
   | { kind: 'browser-google' }
+  /** 浏览器白名单加了主机（BR-02a） */
+  | { kind: 'browser-allowlist' }
 
 // 对象一变，所有对象列表（任务列表、今日、项目的任务标签页）、单个对象及其进展和修订、
 // 计数（侧栏红点、逾期徽标）都可能变；干系人名册上的任务数也跟着变；今日聚合（待验收、逾期、今天到期、插件卡片）也是。
@@ -199,6 +201,8 @@ export function invalidationsFor(c: Change): QueryKey[] {
       return [videoKeys.all]
     case 'browser-google':
       return [browserKeys.google, dataKeys.connectors.list]
+    case 'browser-allowlist':
+      return [browserKeys.allowlist]
   }
 }
 

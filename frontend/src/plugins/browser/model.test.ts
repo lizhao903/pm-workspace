@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { BrowserTabRecord, TerminalPrototype } from '../../core/data'
 import {
-  HOME_URL, MAX_HISTORY, MAX_TABS, classify, closeOthers, closeTab, displayUrl, fromRecords, go, groupProtos, homeTabs, makeTab, navigate,
+  HOME_URL, MAX_HISTORY, MAX_TABS, classify, closeOthers, closeTab, displayUrl, frameAllowed, fromRecords, go, groupProtos, homeTabs, makeTab, navigate,
   normalize, oauthReturnTo, openOrFocus, openTab, protoMatcher, remember, sameUrl, timeAgo, titleOf, toRecords, togglePin, type Tabs,
 } from './model'
 
@@ -182,6 +182,26 @@ describe('新标签页的原型分组', () => {
     const { hit } = protoMatcher('看板 7790')
     expect(hit(proto({ name: '状态看板', port: 7790 }))).toBe(true)
     expect(hit(proto({ name: '状态看板', port: 7791 }))).toBe(false)
+  })
+})
+
+describe('能不能嵌入（SPEC-browser-3.12）', () => {
+  it('本机地址总能；其余要在白名单里，*. 开头的认子域名', () => {
+    const allow = { hosts: ['127.0.0.1', 'localhost', 'docs.example.com', '*.corp.io'] }
+    expect(frameAllowed('http://127.0.0.1:7778', { hosts: [] })).toBe(true)
+    expect(frameAllowed('http://[::1]:7790', { hosts: [] })).toBe(true)
+    expect(frameAllowed('https://example.com', allow)).toBe(false)
+    expect(frameAllowed('https://Docs.Example.com/a', allow)).toBe(true)
+    expect(frameAllowed('https://a.b.corp.io', allow)).toBe(true)
+    expect(frameAllowed('https://corp.io', allow)).toBe(false)
+    expect(frameAllowed('about:home', allow)).toBe(false)
+  })
+
+  it('内网域名后缀开着时才算：后缀本身和子域名都算，前面的点去掉', () => {
+    expect(frameAllowed('https://wiki.bro.lan', { hosts: [], suffix: '.bro.lan' })).toBe(true)
+    expect(frameAllowed('https://bro.lan', { hosts: [], suffix: 'bro.lan' })).toBe(true)
+    expect(frameAllowed('https://evilbro.lan', { hosts: [], suffix: 'bro.lan' })).toBe(false)
+    expect(frameAllowed('https://wiki.bro.lan', { hosts: [] })).toBe(false)
   })
 })
 

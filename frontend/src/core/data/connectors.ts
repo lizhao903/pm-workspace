@@ -1,4 +1,4 @@
-// 连接器（CONN-01d、CONN-04）：定义列表、实例增删改查、连通测试、拉工具清单、改工具授权。契约见 docs/api-contract.md「连接器 connectors」。
+// 连接器（CONN-01d、CONN-04、CONN-04b）：定义列表、实例增删改查、连通测试、拉工具清单、改工具授权、发起 OAuth 授权。契约见 docs/api-contract.md「连接器 connectors」。
 // 定义在后端代码里登记（不进库），界面按定义渲染认证字段，不写死厂商。凭证只写不读，响应里只有 secret_hints。
 // 测试、拉清单的响应带着最新的实例，先写进列表缓存再按失效规则刷一遍。
 import { useMutation, useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query'
@@ -26,6 +26,32 @@ export type ConnectorField = {
   long?: boolean
 }
 
+/** 定义里的 OAuth 配置：client_id 内置（builtin）或取 client_id_field 指的字段；自定义类的地址、范围也在字段里 */
+export type ConnectorOAuthDef = {
+  auth_url: string
+  token_url: string
+  scopes: string[] | null
+  base_url_field?: string
+  auth_url_field?: string
+  token_url_field?: string
+  scopes_field?: string
+  client_id_field?: string
+  client_secret_field?: string
+  builtin: boolean
+}
+
+/** 实例的授权状态，时间为 null 表示没有；没授权或已断开时 authorized_at 为 null */
+export type ConnectorOAuthState = {
+  authorized_at: string | null
+  expires_at: string | null
+  refreshed_at: string | null
+  refresh_failed_at: string | null
+  scope: string
+}
+
+/** 发起授权：浏览器打开 authorize_url；expires_at 之后这次授权作废 */
+export type ConnectorOAuthStart = { authorize_url: string; redirect_uri: string; expires_at: string }
+
 /** schema 是参数的 JSON Schema，给模型看的，界面不用 */
 export type ConnectorToolDef = { name: string; desc: string; write: boolean; schema?: unknown }
 export type ConnectorTool = ConnectorToolDef & { mode: ConnectorToolMode }
@@ -45,6 +71,8 @@ export type ConnectorDef = {
   tools: ConnectorToolDef[]
   /** core 或插件 id */
   source: string
+  /** auth 不含 oauth2 时为 null；老测试桩里可能没有 */
+  oauth?: ConnectorOAuthDef | null
 }
 
 export type Connector = {
@@ -70,6 +98,8 @@ export type Connector = {
   available: boolean
   /** 自定义分类换的图标（data URL），没换为空串；老数据和测试桩里可能没有 */
   icon?: string
+  /** auth_mode 不是 oauth2 时为 null */
+  oauth?: ConnectorOAuthState | null
   created_at: string
   updated_at: string
 }
@@ -116,6 +146,9 @@ export const connectorsApi = {
     const r = await request<ConnectorRefreshResult>('POST', `${path(id)}/tools/refresh`, { body: {} })
     return { ...r, added: r.added ?? [], removed: r.removed ?? [], connector: normConnector(r.connector) }
   },
+  /** 按已保存的配置发起授权；returnTo 是授权结束后浏览器回到哪 */
+  oauthStart: (id: string, returnTo?: string) =>
+    request<ConnectorOAuthStart>('POST', `${path(id)}/oauth/start`, { body: returnTo ? { return_to: returnTo } : {} }),
   setToolModes: async (id: string, modes: Record<string, ConnectorToolMode>) =>
     normConnector(await request<Connector>('PATCH', `${path(id)}/tools`, { body: { modes } })),
 }
@@ -125,8 +158,9 @@ export function useConnectorDefs() {
   return useQuery({ queryKey: dataKeys.connectors.defs, queryFn: connectorsApi.defs, staleTime: 5 * 60_000 })
 }
 
-export function useConnectors() {
-  return useQuery({ queryKey: dataKeys.connectors.list, queryFn: connectorsApi.list })
+/** poll 给毫秒数时定时重取（等 OAuth 授权完成） */
+export function useConnectors(poll: number | false = false) {
+  return useQuery({ queryKey: dataKeys.connectors.list, queryFn: connectorsApi.list, refetchInterval: poll })
 }
 
 /** 把响应里的最新实例先放进列表缓存，界面不用等重新取 */
@@ -198,4 +232,9 @@ export function useSetConnectorToolModes() {
       return notify({ kind: 'connector' })
     },
   })
+}
+
+/** 发起 OAuth 授权：只拿授权地址，实例要等回调换完令牌才变，不在这里失效 */
+export function useStartConnectorOAuth() {
+  return useMutation({ mutationFn: ({ id, returnTo }: { id: string; returnTo?: string }) => connectorsApi.oauthStart(id, returnTo) })
 }

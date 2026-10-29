@@ -1,4 +1,4 @@
-// 视频类项目：按 web-video-presentation 技能的制作流程管——文稿 → 规划检查 → 网页开发 → 第一章验收 → 其余章节 → 音频 → 录屏 → 分发包
+// 视频类项目：按 web-video-presentation 技能的制作流程管——选题 → 文稿 → 规划检查 → 网页开发 → 第一章验收 → 其余章节 → 音频 → 录屏 → 分发包
 // 一个视频项目可以出横屏、竖屏、方形几个画面比例；每个比例是一个独立的演示工程，共用文稿
 // 产出物（文稿、工程、音频、视频、封面、简介、章节）都登记在这里，带版本、比例、状态、验收记录
 // 发布记录按平台记：用了哪个比例和封面、标题简介、链接，事后回填播放数据
@@ -13,9 +13,10 @@ export const ORIENT: Record<Orientation, { label: string; ratio: string; w: numb
   square: { label: '方形', ratio: '1:1', w: 1, h: 1 },
 }
 
-export type StageKey = 'script' | 'plan' | 'web' | 'ch1' | 'chapters' | 'audio' | 'record' | 'distribution'
+export type StageKey = 'topic' | 'script' | 'plan' | 'web' | 'ch1' | 'chapters' | 'audio' | 'record' | 'distribution'
 export const STAGES: { key: StageKey; label: string; desc: string; checkpoint?: boolean }[] = [
-  { key: 'script', label: '内容编写', desc: '口播稿、大纲，一次产出' },
+  { key: 'topic', label: '选题', desc: '这一集讲什么：从选题库挑一个，或者新建一个' },
+  { key: 'script', label: '内容编写', desc: '口播稿按比例各写一套，加大纲；可以按选题大纲起草，原文可选' },
   { key: 'plan', label: '规划检查', desc: '对齐稿子、大纲、主题、素材、开发方式和画面比例；比例定了就不能改', checkpoint: true },
   { key: 'web', label: '网页开发', desc: '按比例搭演示工程，第 1 章完整做出来' },
   { key: 'ch1', label: '第一章验收', desc: '第 1 章是后面所有章节的样板，必须验收', checkpoint: true },
@@ -355,6 +356,8 @@ export interface Video {
   last_run?: LastRun
   /** 计划首发日 YYYY-MM-DD：排内容日历、算制作进度落不落后 */
   target_date?: string
+  /** 来自哪个选题（topicdata 的 Topic.id）；选题那边记着 video_id */
+  topic_id?: string
   created_at: string
   updated_at: string
 }
@@ -623,6 +626,69 @@ export const seedCoverTests: CoverTest[] = [
     return t
   })(),
 ]
+
+/* ---------- 内容编写 ---------- */
+
+// 口播稿、大纲、原文可以在内容编写里直接写。正文实际落在视频目录的文件里（Artifact.path），原型按版本另存一份
+// 一类（按比例的再分比例）同时最多一份草稿：边写边自动存，保存时存成产出物的下一个版本；执行器按选题大纲起草的初稿也先放这里，对比后采用或丢弃
+export type TextKind = 'article' | 'script' | 'outline'
+export interface ScriptText {
+  video_id: string
+  kind: TextKind
+  /** 口播稿、大纲按比例各一份；原文没有 */
+  variant?: Orientation
+  /** 存成的是产出物的第几版；草稿和初稿没有 */
+  version?: number
+  /** mine 自己写着还没保存的；proposal 执行器起草、等对比的初稿 */
+  draft?: 'mine' | 'proposal'
+  body: string
+  /** 初稿是谁起草的 */
+  source?: Artifact['source']
+  saved_at: string
+}
+
+/** 口播语速：每分钟多少字（汉字按字，英文和数字按词） */
+export const SPEECH_RATE = 240
+/** 去掉 Markdown 记号后数字数，按语速估时长（秒） */
+export function textStats(md: string): { chars: number; seconds: number } {
+  const plain = md.replace(/```[\s\S]*?```/g, ' ').replace(/\]\([^)]*\)/g, ' ').replace(/^\s{0,3}(#{1,6}|>|[-*+]|\d+\.)\s+/gm, '').replace(/[*_`~[\]#>|]/g, ' ')
+  const han = (plain.match(/[\u4e00-\u9fff]/g) ?? []).length
+  const words = (plain.replace(/[\u4e00-\u9fff]/g, ' ').match(/[A-Za-z0-9]+(?:['.-][A-Za-z0-9]+)*/g) ?? []).length
+  const chars = han + words
+  return { chars, seconds: Math.round((chars / SPEECH_RATE) * 60) }
+}
+
+/** 按选题起草要用到的几项（topicdata 的 Topic 的子集） */
+export interface TopicBrief { title: string; angle: string; audience: string; outline: string }
+/** 大纲草稿拆成条目：去掉序号和列表记号 */
+const outlineItems = (md: string) => md.split('\n').map((l) => l.replace(/^\s*(#{1,6}|[-*+]|\d+[.、)])\s*/, '').trim()).filter(Boolean)
+/**
+ * 模拟技能「网页演示做视频」Phase 1：照选题的角度、受众和大纲起草。
+ * 横屏一章一段；竖屏一屏一句，每屏压在 40 字以内；大纲按章节数排
+ */
+export function draftFromTopic(t: TopicBrief, kind: 'script' | 'outline', variant: Orientation, chapters: number): string {
+  const items = outlineItems(t.outline)
+  const title = t.title.trim() || '这一期'
+  if (kind === 'outline') {
+    const chs = Array.from({ length: Math.max(chapters, items.length) }, (_, i) => items[i] ?? `第 ${i + 1} 章（待补）`)
+    return [`# ${title}`, [t.angle && `- 角度：${t.angle}`, t.audience && `- 受众：${t.audience}`].filter(Boolean).join('\n'),
+      ...chs.map((c, i) => `## 第 ${i + 1} 章 ${c}\n- 要讲清楚的一件事\n- 配一个具体例子`)].filter(Boolean).join('\n\n')
+  }
+  if (variant === 'landscape') {
+    return [`## 开场\n这一期讲「${title}」。${t.angle ? `换个角度：${t.angle}。` : ''}${t.audience ? `\n如果你是${t.audience}，这期正好用得上。` : ''}`,
+      ...items.map((it, i) => `## ${i + 1}. ${it}\n先说${it}。这里放一个具体的例子：是什么、为什么、怎么做，讲完停一拍再进下一段。`),
+      '## 收尾\n回顾一下今天的几个要点。觉得有用就关注一下，下期见。'].join('\n\n')
+  }
+  const screens = [`${title}？\n一分钟讲清楚。`, ...items.map((it) => `${it}\n一句话说透，配一个例子。`), '记住这几点就够了。\n关注我，下期见。']
+  return screens.map((x, i) => `## 第 ${i + 1} 屏\n${x}`).join('\n\n')
+}
+
+/** 第 3 集横屏口播稿 v1 是手写的，正文在这里 */
+const vd3Script = seedArtifacts.find((a) => a.video_id === 'vd3' && a.kind === 'script')
+export const seedTexts: ScriptText[] = vd3Script ? [{
+  video_id: 'vd3', kind: 'script', variant: 'landscape', version: vd3Script.version, saved_at: vd3Script.created_at,
+  body: '## 开场\n上一集我们把 SOP 搭起来了，这一集讲 Agent：怎么配，才敢让它替你干活。\n\n## 1. 先划边界\n能读什么、能写什么、能不能出网，三件事先定下来。\n\n## 2. 工具一个个开\n不要一上来全开，用到哪个开哪个。',
+}] : []
 
 /* ---------- 内容日历 ---------- */
 

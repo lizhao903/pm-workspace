@@ -2,10 +2,11 @@
 // 制作流程是 8 个阶段的竖向时间线：没有检查点的阶段点「这一步做完了」往下走；4 个检查点通过、退回（必须写意见）、
 // 音频合成可以跳过；规划检查里选画面比例，通过后锁定。阶段和检查点都由后端校验，冲突（别处推进过）照后端的话提示。
 // VID-02b：每个阶段下面列这一步的产出物（字幕在录屏渲染，封面带封面比例），第一章验收列演示工程；点一条打开抽屉（?a=），登记跳到产出物标签
+// VID-03c：能跑的阶段下面是执行器（Runner.tsx），同一时间只改一个阶段的；有执行在跑时轮询这个视频
 import { useState } from 'react'
 import {
-  errorText, projectView, useAdvanceVideo, useDecideCheckpoint, usePatchVideo, useVideoArtifacts, type Video, type VideoArtifact,
-  type VideoArtifactKind, type VideoCheckpointStage, type VideoCheckpointState, type VideoSeries,
+  errorText, projectView, useAdvanceVideo, useDecideCheckpoint, usePatchVideo, useVideoArtifacts, useWatchVideoRun, type Video, type VideoArtifact,
+  type VideoArtifactKind, type VideoCheckpointStage, type VideoCheckpointState, type VideoSeries, type VideoStageRunner,
 } from '../../core/data'
 import { Button, PageTitle, Pill, Textarea, cls } from '../../core/ui'
 import {
@@ -18,6 +19,9 @@ import { ArtifactDrawer } from './ArtifactDrawer'
 import {
   ARTIFACT_KIND, ARTIFACT_STATUS, KINDS, canPreview, coverRatioOf, kindForStage, newDraft, previewTitle, previewUrl, ratioText, type NewArt,
 } from './artifactModel'
+import { RUNNABLE } from './runnerModel'
+import { RunnerBox } from './Runner'
+import { useRunnerChoices } from './runnerChoices'
 
 export type DetailTab = 'flow' | 'artifacts' | 'settings'
 const TABS: { key: DetailTab; label: string }[] = [{ key: 'flow', label: '制作流程' }, { key: 'artifacts', label: '产出物' }, { key: 'settings', label: '设置' }]
@@ -91,6 +95,10 @@ function Flow({ v, arts, openId, onOpen, onNew }: {
   const patch = usePatchVideo()
   const [rejecting, setRejecting] = useState<VideoCheckpointStage | null>(null)
   const [note, setNote] = useState('')
+  // 正在配执行器的阶段和草稿
+  const [runEdit, setRunEdit] = useState<VideoStageRunner | null>(null)
+  const choices = useRunnerChoices()
+  useWatchVideoRun(v)
   const locked = orientLocked(v)
   const busy = advance.isPending || decide.isPending
   const failed = advance.error ?? decide.error ?? patch.error
@@ -195,6 +203,9 @@ function Flow({ v, arts, openId, onOpen, onNew }: {
                   </div>
                 )}
                 {items.length > 0 && <div className="vd-sub" aria-label={`${s.label}的产出物`}>{items.map(artLine)}</div>}
+                {RUNNABLE.includes(s.key) && !isFinished(v) && (
+                  <RunnerBox v={v} stage={s.key} cur={cur} choices={choices} edit={runEdit?.stage === s.key ? runEdit : null} onEdit={setRunEdit} />
+                )}
                 {arts && cur && !items.length && firstKind && !s.checkpoint && (
                   <div className="vd-col-empty">这一步还没登记产出物。<button type="button" className="vd-link" onClick={() => onNew(firstKind)}>登记一个</button></div>
                 )}

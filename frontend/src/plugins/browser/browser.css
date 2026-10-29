@@ -80,6 +80,8 @@
 .br-notice { display: flex; flex-direction: column; align-items: center; gap: 8px; max-width: 420px; text-align: center; padding: 28px 24px; border: 1px solid var(--line); border-radius: var(--r-lg); background: var(--panel); box-shadow: var(--shadow-sm); }
 .br-notice .btn { margin-top: 8px; }
 .br-notice-title { font-size: var(--fs-lg); font-weight: 600; }
+.br-notice-acts { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; margin-top: 8px; }
+.br-notice-acts .btn { margin-top: 0; }
 .br-notice-err { font-size: var(--fs-xs); color: var(--danger); word-break: break-all; }
 .br-light { width: 8px; height: 8px; border-radius: 50%; flex: none; }
 .br-notice .br-light { width: 12px; height: 12px; }
@@ -88,6 +90,8 @@
 /* 网页大多默认白底，iframe 底色不跟主题 */
 .br-frame-wrap { position: absolute; inset: 0; display: flex; flex-direction: column; background: #fff; }
 .br-frame { flex: 1; width: 100%; min-height: 0; border: 0; background: #fff; }
+/* 白名单内加载超时的卡片盖在 iframe 上面，iframe 照样在后面加载 */
+.br-frame-over { position: absolute; inset: 0; z-index: 1; overflow: auto; background: var(--bg); }
 .br-progress { position: absolute; left: 0; right: 0; top: 0; height: 2px; z-index: 2; overflow: hidden; }
 .br-progress::after { content: ''; position: absolute; top: 0; bottom: 0; width: 40%; background: var(--accent); animation: br-load 1.1s ease-in-out infinite; }
 @keyframes br-load { from { left: -40%; } to { left: 100%; } }

@@ -168,6 +168,7 @@ var contractSpecs = map[string]contractSpec{
 	"VideoArtifact": {v: video.Artifact{}},
 	"VideoTopic":    {v: video.Topic{}},
 	"VideoClip":     {v: video.Clip{}},
+	"VideoPlatform": {v: video.PlatformInfo{}},
 
 	"BrowserTab":         {v: browser.Tab{}},
 	"BrowserAllowEntry":  {v: browser.AllowEntry{}},

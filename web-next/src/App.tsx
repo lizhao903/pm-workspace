@@ -35,7 +35,7 @@ import { EnumsPage, type UsageFn } from './enums'
 import { TopbarContext } from './topbar'
 import { AppearancePage, type ThemePref } from './appearance'
 import { cls } from './ui'
-import { PLATFORMS, PLATFORM_TOOL, STAGES, checkPublish, coverRatioOf, dealReport, seedArtifacts, seedDeals, seedPublishes, seedSeries, seedVideos, videoState, type Deal, type PlatformKey, type Publish, type Video } from './videodata'
+import { PLATFORMS, PLATFORM_TOOL, STAGES, checkPublish, coverRatioOf, dealReport, seedArtifacts, seedDeals, seedPublishes, seedSeries, seedTexts, seedVideos, videoState, type Deal, type PlatformKey, type Publish, type Video } from './videodata'
 import { CalendarPage } from './videocalendar'
 import { DealDrawer, DealsTab, dueDeals, payText } from './videodeals'
 import { VideoDetail, VideosListPage, VideosTabs, type VideoView } from './videos'
@@ -157,6 +157,8 @@ export default function App() {
   const [artifacts, setArtifacts] = useState(seedArtifacts)
   const [series, setSeries] = useState(seedSeries)
   const [publishes, setPublishes] = useState(seedPublishes)
+  // 内容编写里写的文稿正文、草稿和执行器初稿
+  const [videoTexts, setVideoTexts] = useState(seedTexts)
   const [videoView, setVideoView] = useState<VideoView>('all')
   // 打开某一集时记下从哪进来的：从系列进的标签高亮「系列」，否则高亮「全部视频」
   const [videoFrom, setVideoFrom] = useState<VideoView | undefined>()
@@ -859,7 +861,7 @@ export default function App() {
     const ep = t.series_id ? Math.max(0, ...videos.filter((x) => x.series_id === t.series_id).map((x) => x.episode ?? 0)) + 1 : undefined
     const orients = [...new Set(t.platforms.map((k) => PLATFORMS.find((p) => p.key === k)!.prefer))]
     const v: Video = {
-      id: newId('vd'), title: ep ? `第 ${ep} 集：${t.title}` : t.title, series_id: t.series_id, episode: ep, orientations: orients.length ? orients : ['landscape'], stage: 'script',
+      id: newId('vd'), title: ep ? `第 ${ep} 集：${t.title}` : t.title, series_id: t.series_id, episode: ep, orientations: orients.length ? orients : ['landscape'], stage: 'script', topic_id: t.id,
       checkpoints: STAGES.filter((s) => s.checkpoint).map((s) => ({ stage: s.key, state: 'pending' })),
       root: `videos/${t.id}`, chapters: 3, created_at: now, updated_at: now,
     }
@@ -870,7 +872,7 @@ export default function App() {
     const now = new Date().toISOString()
     const ep = seriesId ? Math.max(0, ...videos.filter((x) => x.series_id === seriesId).map((x) => x.episode ?? 0)) + 1 : undefined
     const v: Video = {
-      id: `vd_${Date.now().toString(36)}`, title: ep ? `第 ${ep} 集：` : '新视频', series_id: seriesId, episode: ep, orientations: ['landscape'], stage: 'script',
+      id: `vd_${Date.now().toString(36)}`, title: ep ? `第 ${ep} 集：` : '新视频', series_id: seriesId, episode: ep, orientations: ['landscape'], stage: STAGES[0].key,
       checkpoints: STAGES.filter((s) => s.checkpoint).map((s) => ({ stage: s.key, state: 'pending' })),
       root: `videos/new-${videos.length + 1}`, chapters: 3, created_at: now, updated_at: now,
     }
@@ -1656,6 +1658,7 @@ export default function App() {
             if (!v) return <div className="page"><PageTitle>视频</PageTitle><div className="empty"><div className="empty-title">这个视频已经删除</div></div></div>
             return (
               <VideoDetail key={v.id} video={v} artifacts={artifacts} series={series} projects={projects} tabs={videoTabs}
+                topics={topics} clips={clips} onTopics={setTopics} onClips={setClips} texts={videoTexts} onTexts={setVideoTexts}
                 publishCount={publishes.filter((x) => x.video_id === v.id).length}
                 onChange={(nv) => setVideos((xs) => xs.map((x) => (x.id === nv.id ? nv : x)))}
                 onArtifacts={setArtifacts}

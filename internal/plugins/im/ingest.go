@@ -221,13 +221,14 @@ func (in *inbox) pullJob(p Puller) func(ctx context.Context, c plugin.Core) erro
 		if s, ok := p.(Scheduler); ok && !s.Due(ctx, in.clock()) {
 			return nil
 		}
-		_, err := in.pullOnce(ctx, p)
+		_, err := in.pullOnce(ctx, p, "")
 		return err
 	}
 }
 
 // pullOnce 拉一次：读进度、拉、落库、存进度。同一个适配器一次只跑一个。
-func (in *inbox) pullOnce(ctx context.Context, p Puller) (IngestResult, error) {
+// connectorID 非空且适配器实现了 InstancePuller 时只拉这个实例（立即同步，IM-01d）。
+func (in *inbox) pullOnce(ctx context.Context, p Puller, connectorID string) (IngestResult, error) {
 	res := IngestResult{IDs: []string{}}
 	if mu := in.pullMu[p.Key()]; mu != nil {
 		mu.Lock()
@@ -238,7 +239,15 @@ func (in *inbox) pullOnce(ctx context.Context, p Puller) (IngestResult, error) {
 	if err != nil && !errors.Is(err, plugin.ErrNoRows) {
 		return res, err
 	}
-	msgs, next, err := p.Pull(ctx, cursor)
+	var (
+		msgs []Incoming
+		next string
+	)
+	if ip, ok := p.(InstancePuller); ok && connectorID != "" {
+		msgs, next, err = ip.PullConnector(ctx, connectorID, cursor)
+	} else {
+		msgs, next, err = p.Pull(ctx, cursor)
+	}
 	if err != nil {
 		return res, fmt.Errorf("pull %s: %w", p.Key(), err)
 	}

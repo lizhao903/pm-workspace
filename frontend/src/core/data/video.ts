@@ -26,8 +26,31 @@ export type Video = {
   checkpoints: VideoCheckpoint[]
   root: string
   chapters: number
+  /** 阶段执行器（VID-03b），按阶段先后，没配是 [] */
+  runners?: VideoStageRunner[]
+  /** 最近一次执行，没跑过没有 */
+  last_run?: VideoLastRun
   created_at: string
   updated_at: string
+}
+
+// 阶段执行器（VID-03b 接口，VID-03c 前端）：技能只认 sk_video；SOP、Agent 是 id 或名称，后端只存不查
+export type VideoRunnerType = 'skill' | 'sop' | 'agent'
+export type VideoStageRunner = { stage: VideoStageKey; type: VideoRunnerType; ref_id: string; prompt?: string }
+export type VideoRunStatus = 'running' | 'done' | 'failed'
+export type VideoLastRun = {
+  /** 技能和 Agent 都按 agent 记 */
+  type: 'agent' | 'sop'
+  /** 内核插件运行 id（run_），发起时就失败的为空串 */
+  id: string
+  stage: VideoStageKey
+  status: VideoRunStatus
+  started_at: string
+  ended_at?: string
+  error?: string
+  artifact_ids?: string[]
+  /** Agent 会话 id（ags_）或 SOP 执行 id（spr_） */
+  ref?: string
 }
 
 export type VideoInput = {

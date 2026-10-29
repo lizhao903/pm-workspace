@@ -329,32 +329,41 @@ func (h *handler) runStage(w http.ResponseWriter, r *http.Request) {
 		fail(w, r, h.c, err)
 		return
 	}
-	if err := runnableStage(stage); err != nil {
+	_, startErr, err := h.startStage(ctx, id, stage)
+	if err != nil {
 		fail(w, r, h.c, err)
 		return
+	}
+	if startErr != nil {
+		h.respondVideo(w, r, http.StatusOK, id)
+		return
+	}
+	h.respondVideo(w, r, http.StatusAccepted, id)
+}
+
+// startStage 是 runStage 和 SOP 节点 video_run_stage 共用的发起：检查不过回 err（409 那些）；
+// 发起时就失败的记一条失败的执行，回 startErr；发起成功回执行记录的行 id。
+func (h *handler) startStage(ctx context.Context, id, stage string) (rowID int64, startErr, err error) {
+	if err := runnableStage(stage); err != nil {
+		return 0, nil, err
 	}
 	h.reconcileRuns(ctx)
 	v, err := h.getVideo(ctx, id)
 	if err != nil {
-		fail(w, r, h.c, err)
-		return
+		return 0, nil, err
 	}
 	if err := runBlocked(v, stage); err != nil {
-		fail(w, r, h.c, err)
-		return
+		return 0, nil, err
 	}
 	sr, err := h.runnerOf(ctx, id, stage)
 	if err != nil {
-		fail(w, r, h.c, err)
-		return
+		return 0, nil, err
 	}
 	if sr == nil {
-		fail(w, r, h.c, apiErr(errConflict, "「%s」还没配执行器，先配一个再跑", stageLabel(stage)))
-		return
+		return 0, nil, apiErr(errConflict, "「%s」还没配执行器，先配一个再跑", stageLabel(stage))
 	}
 	if lr := v.LastRun; lr != nil && lr.Status == "running" {
-		fail(w, r, h.c, apiErr(errConflict, "「%s」正在跑，等它跑完再试", stageLabel(lr.Stage)))
-		return
+		return 0, nil, apiErr(errConflict, "「%s」正在跑，等它跑完再试", stageLabel(lr.Stage))
 	}
 	typ := "agent"
 	if sr.Type == "sop" {
@@ -367,32 +376,27 @@ func (h *handler) runStage(w http.ResponseWriter, r *http.Request) {
 		if strings.Contains(err.Error(), "UNIQUE constraint failed") {
 			err = apiErr(errConflict, "这个视频有一个阶段正在跑，等它跑完再试")
 		}
-		fail(w, r, h.c, err)
-		return
+		return 0, nil, err
 	}
-	rowID, err := res.LastInsertId()
+	rowID, err = res.LastInsertId()
 	if err != nil {
-		fail(w, r, h.c, err)
-		return
+		return 0, nil, err
 	}
 	runID, startErr := h.startRunner(ctx, v, *sr)
 	if startErr != nil {
 		if err := h.claimRun(ctx, rowID, "failed", startErr.Error(), ""); err != nil {
-			fail(w, r, h.c, err)
-			return
+			return 0, nil, err
 		}
-		h.respondVideo(w, r, http.StatusOK, id)
-		return
+		return rowID, startErr, nil
 	}
 	if _, err := h.c.Store().Exec(ctx, `UPDATE video_runs SET run_id = ? WHERE id = ?`, runID, rowID); err != nil {
-		fail(w, r, h.c, err)
-		return
+		return 0, nil, err
 	}
 	// 跑得比回写 run_id 还快时，run.finished 已经错过了，这里补收
 	if info, err := h.c.Runs().Get(runID); err == nil && info.Finished {
 		h.finishRun(ctx, rowID, info)
 	}
-	h.respondVideo(w, r, http.StatusAccepted, id)
+	return rowID, nil, nil
 }
 
 // startRunner 按执行器的类型经 Core.Runs 发起，回内核的运行 id。错误的文案直接记进 last_run.error。
