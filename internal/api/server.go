@@ -109,6 +109,7 @@ func New(st store.Store, opts Options) *Server {
 	if opts.AgentRuns != nil {
 		opts.AgentRuns.Prepare = s.agentRunner
 	}
+	s.loadFsRoots()
 	s.h = s.build()
 	return s
 }
@@ -307,6 +308,10 @@ func (s *Server) routes(m routeRegistrar) {
 	m.HandleFunc("GET /api/fs/browse", s.handleFsBrowse)
 	m.HandleFunc("GET /api/fs/shortcuts", s.handleFsShortcuts)
 	m.HandleFunc("POST /api/fs/mkdir", s.handleFsMkdir)
+	// 额外可浏览目录（FS-01）：删除用 ?path=，路径带 /
+	m.HandleFunc("GET /api/fs/roots", s.handleListFsRoots)
+	m.HandleFunc("POST /api/fs/roots", s.handleAddFsRoot)
+	m.HandleFunc("DELETE /api/fs/roots", s.handleRemoveFsRoot)
 	// 读文件（DOC-01a）：只读、同一套允许根，越界 403
 	m.HandleFunc("GET /api/fs/read", s.handleFsRead)
 

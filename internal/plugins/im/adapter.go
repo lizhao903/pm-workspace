@@ -11,11 +11,15 @@ import (
 	"regexp"
 	"sync"
 	"time"
+
+	"github.com/lizhao903/pm-workspace/internal/plugin"
 )
 
 // 适配器（IM-01a）：一个渠道一个，把渠道里的消息翻成 Incoming，落库、认人、发事件由插件统一做。
 // 两种接法：Puller 由插件的后台任务按间隔拉；Receiver 由渠道回调 POST /api/im/callbacks/{key} 推进来，
 // 验签（Slack signing secret、Telegram secret token）是适配器自己的事。一个适配器可以两种都实现。
+// 真实渠道（IM-01b 起）的凭证在连接器实例里：适配器经 Binder 拿到插件句柄，用 Connectors().With 取配置、
+// Core.HTTP("im") 出网，拉完用 Connectors().RecordSync 记同步结果（失败时实例置为异常）。
 
 const defaultPullEvery = 30 * time.Second
 
@@ -76,6 +80,36 @@ type AttachmentRef struct {
 	Kind           string          `json:"kind"`
 	URL            string          `json:"url"`
 	Raw            json.RawMessage `json:"raw"`
+}
+
+// Binder 是可选接口：适配器要用插件句柄（取连接器配置、出网、记同步结果）时实现，插件每次注册时交给它（IM-01b）。
+type Binder interface {
+	Bind(c plugin.Core)
+}
+
+// ConnectorProvider 是可选接口：适配器自带连接器定义（Slack、Telegram），插件注册时经 Registrar.Connector 登记，
+// tool 要写进清单 provides.connectors，并和适配器的渠道同名（IM-01b）。
+type ConnectorProvider interface {
+	ConnectorDef() plugin.ConnectorDef
+}
+
+// Scheduler 是可选接口：拉取型适配器自己决定这一轮拉不拉（按连接器的同步间隔）；立即同步不问它（IM-01b）。
+type Scheduler interface {
+	Due(ctx context.Context, now time.Time) bool
+}
+
+// CallbackReply 是回调不落库、由适配器定响应时 Receive 返回的错误，插件原样写回 Status 和 Body：
+// 握手（Slack 的 url_verification 回 challenge）、验签不对（401）、实例暂停时直接回 200 免得对方重试（IM-01b）。
+type CallbackReply struct {
+	Status int
+	Body   any
+}
+
+func (e *CallbackReply) Error() string { return fmt.Sprintf("callback reply %d", e.Status) }
+
+// Unauthorized 是验签不对的回调响应：401，信封同别的错误。
+func Unauthorized(msg string) *CallbackReply {
+	return &CallbackReply{Status: http.StatusUnauthorized, Body: map[string]any{"error": map[string]string{"code": "unauthorized", "message": msg}}}
 }
 
 // Handles 是可选接口：「我」在这个渠道里的称呼，正文里 @ 到它算 @我。

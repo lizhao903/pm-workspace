@@ -63,7 +63,7 @@ func bootSOP(t *testing.T, st *sqlite.Store, fresh bool) sopEnv {
 		t.Fatal(err)
 	}
 	t.Cleanup(r.Close)
-	for id, perms := range map[string][]string{"sop": {"network:any"}, "im": nil} {
+	for id, perms := range map[string][]string{"sop": {"network:any"}, "im": {"network:im"}} {
 		if !fresh {
 			break
 		}

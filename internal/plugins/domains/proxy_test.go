@@ -266,7 +266,7 @@ func TestPrototypeDomainEndToEnd(t *testing.T) {
 }
 
 // TestAutoRouteRules：中文名用 proto-<端口>，重名接 -<端口>；auto_proto 关着不建；已有手动路由不另建；
-// 删除原型只删自动的，手动的留着；晚到的启动事件不复活已删的原型。
+// 删除原型只删自动的，手动的留着；晚到的启动事件不复活已删的原型；关掉 auto_proto 删掉全部自动路由。
 func TestAutoRouteRules(t *testing.T) {
 	s := setupStack(t)
 	ctx := context.Background()
@@ -316,15 +316,32 @@ func TestAutoRouteRules(t *testing.T) {
 		t.Fatal("晚到的启动事件复活了已删的原型")
 	}
 
-	// auto_proto 关着不建；打开时给在跑的补上
+	// 自动建的改过就转成手动，关掉自动分配时留着
+	data(t, s.api, "PATCH", "/api/domains/routes/"+routeFor(t, s.api, "pt_b")["id"].(string), `{"note":"改过"}`)
+
+	// 关掉 auto_proto：删掉全部自动路由，手动的留着，原来的自动域名回到工作台；关着不建；打开时给在跑的补上
 	data(t, s.api, "PUT", "/api/domains/settings", `{"auto_proto":false}`)
+	for _, rt := range routeList(t, s.api) {
+		if rt["auto"] == true {
+			t.Fatalf("关掉后还有自动路由：%v", rt["host"])
+		}
+	}
+	if hostOf("pt_a") != "" || hostOf("pt_b") != "app" || hostOf("pt_m") != "manual" {
+		t.Fatalf("关掉后：%q %q %q", hostOf("pt_a"), hostOf("pt_b"), hostOf("pt_m"))
+	}
+	if code, text := s.get(t, "proto-5173.bro.vip", "/"); code != 200 || text != "workbench" {
+		t.Fatalf("关掉后原来的自动域名：%d %s", code, text)
+	}
 	pub(evStarted, "pt_d", "Docs", 5177, 0)
 	if hostOf("pt_d") != "" {
 		t.Fatal("auto_proto 关着也建了")
 	}
 	data(t, s.api, "PUT", "/api/domains/settings", `{"auto_proto":true}`)
-	if hostOf("pt_d") != "docs" {
-		t.Fatalf("打开后没补上：%q", hostOf("pt_d"))
+	if hostOf("pt_d") != "docs" || hostOf("pt_a") != "proto-5173" || hostOf("pt_b") != "app" {
+		t.Fatalf("打开后没补上：%q %q %q", hostOf("pt_d"), hostOf("pt_a"), hostOf("pt_b"))
+	}
+	if rt := routeFor(t, s.api, "pt_a"); rt["auto"] != true {
+		t.Fatal("重新建的应该是自动路由")
 	}
 
 	// 在跑但端口上没人听：502 连不上；总开关关了就不接，进工作台

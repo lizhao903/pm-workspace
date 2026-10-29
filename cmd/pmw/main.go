@@ -175,11 +175,16 @@ func run(cfg config) error {
 	if err := plugins.Add(projects.New()); err != nil {
 		return fmt.Errorf("登记插件失败: %w", err)
 	}
-	// IM 消息插件（IM-01a）：真实渠道的适配器从 IM-01b 起加
+	// IM 消息插件（IM-01a）：真实渠道 Slack（IM-01b）、Telegram（IM-01c），另有演练用的假适配器
 	var imAdapters []im.Adapter
 	if cfg.fakeIM {
 		imAdapters = append(imAdapters, im.NewFake("fake", "slack", 5*time.Second, "我"))
 	}
+	// Slack（IM-01b）：Bot Token、Signing Secret 在连接器实例里，出网走 network:im；联调时用 --dev-upstream slack.com=<假服务>
+	imAdapters = append(imAdapters, im.NewSlack(im.SlackOptions{}))
+	// Telegram Bot（IM-01c）：Token 在连接器实例里，出网走 network:im；--dev-upstream 可改投到本机假服务
+	imAdapters = append(imAdapters, im.NewTelegram())
+	applyDevUpstreams(plugins)
 	if err := plugins.Add(im.New(imAdapters...)); err != nil {
 		return fmt.Errorf("登记插件失败: %w", err)
 	}
@@ -247,6 +252,12 @@ func run(cfg config) error {
 	// Google 日历（CONN-01e2），同一套 OAuth
 	if err := connDefs.Register(connector.GoogleCalendar(connector.GoogleCalendarEndpoints{})); err != nil {
 		return err
+	}
+	// 自定义 MCP 服务、OpenAPI 接口（CONN-04）：地址和认证由用户填
+	for _, d := range []connector.Def{connector.CustomMCP(), connector.CustomOpenAPI()} {
+		if err := connDefs.Register(d); err != nil {
+			return err
+		}
 	}
 	if cfg.fakeConnector {
 		for _, d := range []connector.Def{connector.Fake(), connector.FakeOAuth()} {

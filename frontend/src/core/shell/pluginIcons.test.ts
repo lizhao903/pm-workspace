@@ -22,12 +22,13 @@ describe('插件模块的菜单图标', () => {
 
   it('模块归哪个插件按清单 provides.modules', () => {
     expect([...ownersByModule([manifest('alpha', ['alpha', 'alpha_two']), manifest('beta', ['beta'])])]).toEqual([['alpha', 'alpha'], ['alpha_two', 'alpha'], ['beta', 'beta']])
-    expect(['videos', 'markets', 'trading', 'messages', 'browser'].map(bundledOwnerOf)).toEqual(['video', 'trade', 'trade', 'im', undefined])
+    expect(['videos', 'markets', 'trading', 'messages', 'browser', 'nope'].map(bundledOwnerOf)).toEqual(['video', 'trade', 'trade', 'im', 'browser', undefined])
   })
 
   it('项目和 IM 消息用清单里的文件夹和消息图标', () => {
     expect(moduleIconKey('projects')).toBe('folder')
     expect(moduleIconKey('messages')).toBe('message')
+    expect(moduleIconKey('browser')).toBe('globe')
     expect(moduleIconKey('hello')).toBeUndefined()
   })
 })

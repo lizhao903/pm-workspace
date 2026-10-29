@@ -122,7 +122,7 @@ func setup(t *testing.T) env {
 	}
 	t.Cleanup(r.Close)
 	for _, id := range []string{"im", "imwatch"} {
-		if err := r.Install(ctx, id, nil); err != nil {
+		if err := r.Install(ctx, id, imPerms(id)); err != nil {
 			t.Fatal(err)
 		}
 		if err := r.Enable(ctx, id); err != nil {
@@ -140,6 +140,14 @@ func setup(t *testing.T) env {
 		`INSERT INTO conversations (id, channel, external_id, kind, name, created_at, updated_at) VALUES ('cv_prod', 'slack', 'C01', 'group', '#product', 'x', 'x')`,
 	)
 	return e
+}
+
+// imPerms 是安装时确认的权限：im 要 network:im（IM-01b 起），测试插件没有权限。
+func imPerms(id string) []string {
+	if id == "im" {
+		return []string{"network:im"}
+	}
+	return nil
 }
 
 func exec(t *testing.T, d *db.DB, qs ...string) {

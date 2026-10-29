@@ -55,7 +55,7 @@ func setupActions(t *testing.T) actEnv {
 	}
 	t.Cleanup(r.Close)
 	r.SetObjectCreator(st)
-	if err := r.Install(ctx, "im", nil); err != nil {
+	if err := r.Install(ctx, "im", []string{"network:im"}); err != nil {
 		t.Fatal(err)
 	}
 	if err := r.Enable(ctx, "im"); err != nil {

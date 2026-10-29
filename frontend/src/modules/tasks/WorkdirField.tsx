@@ -1,7 +1,8 @@
 // 工作目录：可以手填，也可以用 /api/fs/browse 选；改动后停手片刻就用 /api/agent/workdir/check 校验（SPEC-tasks-4.27）。
 import { useEffect, useId, useState } from 'react'
-import { errorText, useFsBrowse, useFsShortcuts, useWorkdirCheck, workdirUsable } from '../../core/data'
+import { errorText, useWorkdirCheck, workdirUsable } from '../../core/data'
 import { Button, cls } from '../../core/ui'
+import { DirPicker } from '../../core/ui/DirPicker'
 
 // 停手多久再校验
 const CHECK_DELAY = 400
@@ -50,53 +51,10 @@ export function WorkdirField({ value, onChange, inherit }: {
       </div>
       {hint}
       {picking && (
-        <DirPicker start={value.trim() || inherit?.dir || ''}
+        <DirPicker start={value.trim() || inherit?.dir || ''} className="wd-picker"
+          foot={(w) => w === false && <span className="field-hint-line">这个目录不可写</span>}
           onPick={(p) => { onChange(p); setPicking(false) }} onClose={() => setPicking(false)} />
       )}
-    </div>
-  )
-}
-
-function DirPicker({ start, onPick, onClose }: { start: string; onPick: (path: string) => void; onClose: () => void }) {
-  const [path, setPath] = useState(start)
-  const list = useFsBrowse(path, true)
-  const shortcuts = useFsShortcuts(true)
-  const cur = list.data
-  const dirs = cur?.entries.filter((e) => e.is_dir) ?? []
-
-  return (
-    <div className="wd-picker" role="group" aria-label="选择目录"
-      onKeyDown={(e) => { if (e.key === 'Escape') { e.preventDefault(); onClose() } }}>
-      {!!shortcuts.data?.length && (
-        <div className="wd-shortcuts">
-          {shortcuts.data.map((s) => (
-            <Button key={s.path} size="sm" variant="outline" title={s.path} onClick={() => setPath(s.path)}>{s.label}</Button>
-          ))}
-        </div>
-      )}
-      <div className="wd-cur">
-        <Button size="sm" variant="ghost" disabled={!cur?.parent} onClick={() => cur && setPath(cur.parent)}>上一级</Button>
-        <span className="mono ellipsis" title={cur?.path}>{cur?.path ?? (path || '...')}</span>
-      </div>
-      {list.isError
-        ? <div className="field-err">{errorText(list.error)}</div>
-        : (
-          <ul className="wd-list">
-            {list.isPending && <li className="wd-muted">加载中</li>}
-            {cur && !dirs.length && <li className="wd-muted">没有子目录</li>}
-            {dirs.map((d) => (
-              <li key={d.path}>
-                <button type="button" className="wd-item" onClick={() => setPath(d.path)}>{d.name}</button>
-              </li>
-            ))}
-          </ul>
-        )}
-      <div className="wd-foot">
-        {cur && !cur.writable && <span className="field-hint-line">这个目录不可写</span>}
-        <span className="spacer" />
-        <Button size="sm" onClick={onClose}>取消</Button>
-        <Button size="sm" variant="primary" disabled={!cur} onClick={() => cur && onPick(cur.path)}>选这个目录</Button>
-      </div>
     </div>
   )
 }

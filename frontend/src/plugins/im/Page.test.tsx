@@ -165,6 +165,16 @@ describe('IM 消息页', () => {
     await waitFor(() => expect(router.state.location.pathname + router.state.location.search).toBe('/contacts?c=stk_1'))
   })
 
+  it('渠道配置在本页打开 IM 渠道的抽屉，记在地址里（IM-01b）', async () => {
+    fakeBackend([msg()])
+    const router = renderPage()
+    await userEvent.click(await screen.findByRole('button', { name: '渠道配置' }))
+    expect(await screen.findByText('还没接入 IM 渠道')).toBeInTheDocument()
+    expect(router.state.location.search).toBe('?channels=1')
+    await userEvent.click(screen.getByRole('button', { name: '在设置里管理全部连接器' }))
+    await waitFor(() => expect(router.state.location.pathname).toBe('/settings/connectors'))
+  })
+
   it('地址里的消息不存在时说明并只给关闭', async () => {
     fakeBackend([msg()])
     renderPage('/messages?m=msg_gone')

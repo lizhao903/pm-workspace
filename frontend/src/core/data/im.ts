@@ -60,6 +60,9 @@ export type ImAction =
   | { kind: 'snooze'; until: string }
   | { kind: 'reply'; text: string; done: boolean }
 
+/** 立即同步一个渠道的结果（IM-01b）：新落库的消息 id 和已收过的条数 */
+export type ImSyncResult = { connector_id: string; adapter: string; ids: string[]; duplicates: number }
+
 export type ImTaskInput = { title?: string; body?: string; priority?: string; project_id?: string; owner_id?: string; due_at?: string; done?: boolean }
 export type ImTaskResult = { message: ImMessage; task: { id: string; ref: string; title: string; status: string; source: string } }
 
@@ -93,6 +96,11 @@ export const imApi = {
   act: async (id: string, a: ImAction) => {
     const body = a.kind === 'snooze' ? { until: a.until } : a.kind === 'reply' ? { text: a.text, done: a.done } : {}
     return normMessage(await request<ImMessage>('POST', `${path(id)}/${a.kind}`, { body }))
+  },
+  /** 立即同步一个 IM 渠道：渠道出错回 502 sync_failed（连接器已置为异常），暂停、不能同步 409 */
+  syncConnector: async (connectorId: string) => {
+    const r = await request<ImSyncResult>('POST', `/api/im/connectors/${encodeURIComponent(connectorId)}/sync`, { body: {} })
+    return { ...r, ids: r.ids ?? [] }
   },
   toTask: async (id: string, body: ImTaskInput) => {
     const r = await request<ImTaskResult>('POST', `${path(id)}/task`, { body })
@@ -168,5 +176,16 @@ export function useImToTask() {
     },
     // 已经转过（409）时读回消息，拿到那条任务
     onError: (_e, v) => notify({ kind: 'im-message', id: v.id }),
+  })
+}
+
+/** 立即同步一个渠道（IM-01b）：成败都会改连接器的同步时间或状态，消息和连接器都刷一遍 */
+export function useImSyncConnector() {
+  const notify = useNotifyChange()
+  const refresh = () => Promise.all([notify({ kind: 'im-message' }), notify({ kind: 'connector' })])
+  return useMutation({
+    mutationFn: (connectorId: string) => imApi.syncConnector(connectorId),
+    onSuccess: () => refresh(),
+    onError: () => refresh(),
   })
 }

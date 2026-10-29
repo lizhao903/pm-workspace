@@ -46,8 +46,9 @@ type inbox struct {
 	c        plugin.Core
 	adapters []Adapter
 	now      func() time.Time
-	taskMu   sync.Mutex // 转任务串行，同一条消息连点两次不建两条任务
-	fetchMu  sync.Mutex // 获取附件串行，挑文件名和落库不打架（IM-04a）
+	taskMu   sync.Mutex             // 转任务串行，同一条消息连点两次不建两条任务
+	pullMu   map[string]*sync.Mutex // 按适配器 key：定时拉和立即同步不同时跑，进度不打架（IM-01b）
+	fetchMu  sync.Mutex             // 获取附件串行，挑文件名和落库不打架（IM-04a）
 }
 
 func (in *inbox) clock() time.Time {
@@ -214,29 +215,43 @@ func clip(s string, n int) string {
 	return string([]rune(s)[:n])
 }
 
-// pullJob 是一个拉取型适配器的后台任务：读进度、拉、落库、存进度。
+// pullJob 是一个拉取型适配器的后台任务：适配器实现了 Scheduler 的先问这一轮到没到点。
 func (in *inbox) pullJob(p Puller) func(ctx context.Context, c plugin.Core) error {
 	return func(ctx context.Context, _ plugin.Core) error {
-		var cursor string
-		err := in.c.Store().QueryRow(ctx, `SELECT cursor FROM im_cursors WHERE adapter = ?`, p.Key()).Scan(&cursor)
-		if err != nil && !errors.Is(err, plugin.ErrNoRows) {
-			return err
-		}
-		msgs, next, err := p.Pull(ctx, cursor)
-		if err != nil {
-			return fmt.Errorf("pull %s: %w", p.Key(), err)
-		}
-		if len(msgs) > 0 {
-			if _, err := in.ingest(ctx, p, msgs, false); err != nil {
-				return fmt.Errorf("pull %s: %w", p.Key(), err)
-			}
-		}
-		if next == cursor {
+		if s, ok := p.(Scheduler); ok && !s.Due(ctx, in.clock()) {
 			return nil
 		}
-		_, err = in.c.Store().Exec(ctx, `INSERT INTO im_cursors (adapter, cursor, updated_at) VALUES (?, ?, ?)
-			ON CONFLICT (adapter) DO UPDATE SET cursor = excluded.cursor, updated_at = excluded.updated_at`,
-			p.Key(), next, in.clock().UTC().Format(timeLayout))
+		_, err := in.pullOnce(ctx, p)
 		return err
 	}
+}
+
+// pullOnce 拉一次：读进度、拉、落库、存进度。同一个适配器一次只跑一个。
+func (in *inbox) pullOnce(ctx context.Context, p Puller) (IngestResult, error) {
+	res := IngestResult{IDs: []string{}}
+	if mu := in.pullMu[p.Key()]; mu != nil {
+		mu.Lock()
+		defer mu.Unlock()
+	}
+	var cursor string
+	err := in.c.Store().QueryRow(ctx, `SELECT cursor FROM im_cursors WHERE adapter = ?`, p.Key()).Scan(&cursor)
+	if err != nil && !errors.Is(err, plugin.ErrNoRows) {
+		return res, err
+	}
+	msgs, next, err := p.Pull(ctx, cursor)
+	if err != nil {
+		return res, fmt.Errorf("pull %s: %w", p.Key(), err)
+	}
+	if len(msgs) > 0 {
+		if res, err = in.ingest(ctx, p, msgs, false); err != nil {
+			return res, fmt.Errorf("pull %s: %w", p.Key(), err)
+		}
+	}
+	if next == cursor {
+		return res, nil
+	}
+	_, err = in.c.Store().Exec(ctx, `INSERT INTO im_cursors (adapter, cursor, updated_at) VALUES (?, ?, ?)
+		ON CONFLICT (adapter) DO UPDATE SET cursor = excluded.cursor, updated_at = excluded.updated_at`,
+		p.Key(), next, in.clock().UTC().Format(timeLayout))
+	return res, err
 }

@@ -24,7 +24,7 @@ export { REVISION_LIMIT, useObjectRevisions, groupRevisions, rejectText, useReje
 export type { RevisionGroup } from './revisions'
 export { useArtifacts, useObjectArtifacts, useArtifactStats, useArtifactCount, useRecordArtifact } from './artifacts'
 export { runFinished, useTaskRuns, useTaskRun, useCancelRun, streamRun } from './runs'
-export { workdirUsable, useWorkdirCheck, useFsBrowse, useFsShortcuts } from './fs'
+export { workdirUsable, useWorkdirCheck, useFsBrowse, useFsShortcuts, useFsRoots, useAddFsRoot, useRemoveFsRoot, fsCrumbs } from './fs'
 export {
   useAgentProviders, useProviderModels, useAgentSessions, useAgentMessages, useCreateAgentSession, usePatchAgentSession,
   useDeleteAgentSession, streamChat, streamDecision, streamDebugChat, setFirstMessage, firstMessageOf,
@@ -96,8 +96,8 @@ export type {
 } from './connectors'
 export { projectStakeholdersApi, useAddProjectStakeholder, usePatchProjectStakeholder, useRemoveProjectStakeholder } from './projectStakeholders'
 export type { ProjectStakeholderInput, ProjectStakeholderPatch } from './projectStakeholders'
-export { IM_PAGE_MAX, imApi, normMessage, useImMessages, useImMessage, useImAction, useImToTask, useImPendingCount } from './im'
-export type { ImMessage, ImMsgStatus, ImRelevance, ImAttachment, ImReply, ImAction, ImTaskInput, ImTaskResult } from './im'
+export { IM_PAGE_MAX, imApi, normMessage, useImMessages, useImMessage, useImAction, useImToTask, useImPendingCount, useImSyncConnector } from './im'
+export type { ImMessage, ImMsgStatus, ImRelevance, ImAttachment, ImReply, ImAction, ImTaskInput, ImTaskResult, ImSyncResult } from './im'
 export {
   MATERIAL_KINDS, projectMaterialsApi, useProjectMaterials, useAddProjectMaterials, usePatchProjectMaterial, useRemoveProjectMaterial,
 } from './materials'
@@ -186,6 +186,20 @@ export type {
   VideoArtifact, VideoArtifactInput, VideoArtifactKind, VideoArtifactStatus, VideoArtifactReview, VideoArtifactSource, VideoCoverRatio,
   VideoSeriesInput,
 } from './video'
+export {
+  videoTopicApi, useVideoTopics, useVideoClips, useCreateTopic, usePatchTopic, useMakeTopic, useDeleteTopic,
+  useCreateClip, usePatchClip, useClipToTopic, useLinkClip, useDeleteClip,
+} from './videoTopics'
+export type {
+  VideoTopic, VideoTopicInput, VideoTopicStatus, VideoTopicScore, VideoPlatform, VideoClip, VideoClipInput, VideoClipKind,
+} from './videoTopics'
+
+export { browserKeys } from './browserKeys'
+export { BROWSER_MAX_STORED_TABS, browserApi, useBrowserGoogle, useBrowserGoogleLogin, useBrowserGoogleLogout } from './browser'
+export type {
+  BrowserTabKind, BrowserTabRecord, BrowserGoogleConn, BrowserGoogleAccount, BrowserGoogleState, BrowserOAuthStart, BrowserGoogleLogin,
+  BrowserGoogleLogout,
+} from './browser'
 
 // 接口层的纯函数和类型照样给模块用：不发请求，不碰缓存
 export { localDay, focusParams, changedFields, isApiError, isStreamError, ApiError, StreamError } from '../api'

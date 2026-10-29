@@ -3,24 +3,32 @@
 // 和原型不同的地方（后端决定的）：
 // - 测试连接、获取工具清单都按已保存的配置做：新建点「接入」先保存再自动测一次，抽屉留着看结果；有没保存的改动时先保存。
 // - 凭证只显示后端给的脱敏提示，输入框空着保存不改；不是必填的凭证可以单独清掉。
-// - Token 的请求头、前缀由定义决定，不给改；OAuth 授权流程归 CONN-01b，现在选了 OAuth 也测不了。
-import { useState } from 'react'
+// - Token 的请求头、前缀由定义决定（自定义类的定义里有 token_header、token_prefix 字段，就能改）；
+//   OAuth 授权流程归 CONN-01b，现在选了 OAuth 也测不了。
+// - 字段可以只属于某种认证方式（定义的 auth），切换认证方式时跟着显示、隐藏（CONN-04）。
+// - 改了地址、认证或凭证保存后不关抽屉，提示重新测试、重新获取工具清单。
+import { useState, type ChangeEvent } from 'react'
 import {
   errorText, useCreateConnector, useDeleteConnector, usePatchConnector, useRefreshConnectorTools, useSetConnectorToolModes,
   type Connector, type ConnectorDef, type ConnectorField, type ConnectorToolMode,
 } from '../../../core/data'
-import { Button, cls, ConfirmDialog, Drawer, Field, Input, Select } from '../../../core/ui'
+import { Button, cls, ConfirmDialog, Drawer, Field, Input, Select, Textarea } from '../../../core/ui'
 import { AUTH_HINT, AUTH_LABEL, categoryOf, INTERVALS, MODE_LABEL } from './catalog'
 import {
-  ago, bulkModes, createBody, effectiveTools, initialDraft, isIM, missingFields, modesFor, notReady, patchBody, pruneModes, refreshNote,
-  type Bulk, type ConnCheck, type Draft,
+  ago, bulkModes, createBody, effectiveTools, fieldOn, initialDraft, isCustom, isIM, missingFields, modesFor, needsRetest, notReady, patchBody,
+  pruneModes, refreshNote, tokenPreview, type Bulk, type ConnCheck, type Draft,
 } from './model'
 import { ConnBar, ToolLogo } from './parts'
 
-export function ConnectorDrawer({ def, connector: c, check, pending, testError, onTest, onConnect, onDisconnect, onCreated, onClose }: {
+/** 自定义图标上限：data URL 存在库里，后端最多 512KB */
+const MAX_ICON = 256 * 1024
+
+export function ConnectorDrawer({ def, connector: c, taken, check, pending, testError, onTest, onConnect, onDisconnect, onCreated, onClose }: {
   def: ConnectorDef
   /** 没有就是新建 */
   connector?: Connector
+  /** 新建时同一工具已有实例的名字，默认名称按它加序号 */
+  taken?: string[]
   check?: ConnCheck
   /** 正在连通测试（含连接前的启用） */
   pending: boolean
@@ -36,7 +44,7 @@ export function ConnectorDrawer({ def, connector: c, check, pending, testError, 
   const creating = !c
   const im = isIM(def)
   const available = !c || c.available
-  const [draft, setDraft] = useState<Draft>(() => initialDraft(def, c))
+  const [draft, setDraft] = useState<Draft>(() => initialDraft(def, c, taken))
   const [baseline, setBaseline] = useState(draft)
   const [reveal, setReveal] = useState<Record<string, boolean>>({})
   const [tried, setTried] = useState(false)
@@ -46,6 +54,8 @@ export function ConnectorDrawer({ def, connector: c, check, pending, testError, 
   const [fetchNote, setFetchNote] = useState('')
   const [fetchError, setFetchError] = useState<string | null>(null)
   const [q, setQ] = useState('')
+  const [retest, setRetest] = useState(false)
+  const [iconError, setIconError] = useState('')
   const create = useCreateConnector()
   const patch = usePatchConnector()
   const remove = useDeleteConnector()
@@ -64,8 +74,10 @@ export function ConnectorDrawer({ def, connector: c, check, pending, testError, 
   const kw = q.trim().toLowerCase()
   const shown = tools.filter((t) => !kw || `${t.name}${t.desc}`.toLowerCase().includes(kw))
   const autoWrites = tools.filter((t) => t.write && t.mode === 'auto')
-  const plain = def.fields.filter((f) => f.kind !== 'secret')
-  const secret = def.fields.filter((f) => f.kind === 'secret')
+  // 不分认证方式的非凭证字段放上面；属于当前认证方式的和凭证放「认证方式」里
+  const plain = def.fields.filter((f) => f.kind !== 'secret' && !f.auth?.length)
+  const authFields = def.fields.filter((f) => (f.kind === 'secret' || f.auth?.length) && fieldOn(f, draft.authMode))
+  const preview = tokenPreview(def, draft)
 
   const set = (p: Partial<Draft>) => { setDraft({ ...draft, ...p }); setReadyError(null) }
   const setCfg = (k: string, v: string) => set({ config: { ...draft.config, [k]: v } })
@@ -86,6 +98,7 @@ export function ConnectorDrawer({ def, connector: c, check, pending, testError, 
 
   async function fetchTools(x: Connector) {
     setFetchError(null)
+    setRetest(false)
     try {
       const r = await refresh.mutateAsync(x.id)
       setFetchNote(refreshNote(x.tools.length, r))
@@ -113,15 +126,30 @@ export function ConnectorDrawer({ def, connector: c, check, pending, testError, 
         return
       }
       let x = c
+      const changedConn = !!body && !im && available && needsRetest(body)
       if (body && Object.keys(body).length) x = await patch.mutateAsync({ id: c.id, patch: body })
       if (Object.keys(modeChanges).length) x = await setModes.mutateAsync({ id: c.id, modes: modeChanges })
-      if (then === 'close') { onClose(); return }
+      // 改了地址或认证：不关，提示重新测试和刷新工具清单
+      if (then === 'close' && !changedConn) { onClose(); return }
       reset(x)
-      if (then === 'test') onTest(x.id)
-      else await fetchTools(x)
+      if (then === 'test') { setRetest(false); onTest(x.id) }
+      else if (then === 'tools') await fetchTools(x)
+      else setRetest(true)
     } catch (e) {
       setError(`${creating ? '接入' : '保存'}失败：${errorText(e)}`)
     }
+  }
+
+  function pickIcon(e: ChangeEvent<HTMLInputElement>) {
+    const f = e.target.files?.[0]
+    e.target.value = ''
+    if (!f) return
+    if (!f.type.startsWith('image/')) { setIconError('只能用图片'); return }
+    if (f.size > MAX_ICON) { setIconError('图片不能超过 256KB'); return }
+    const r = new FileReader()
+    r.onload = () => { setIconError(''); setDraft((d) => ({ ...d, icon: String(r.result) })) }
+    r.onerror = () => setIconError('读取图片失败')
+    r.readAsDataURL(f)
   }
 
   function clearSecret(f: ConnectorField) {
@@ -146,6 +174,7 @@ export function ConnectorDrawer({ def, connector: c, check, pending, testError, 
     if (readyError) return <span className="danger-text">{readyError}</span>
     if (testError) return <span className="danger-text">测试没发出去：{errorText(testError)}</span>
     if (hasChanges) return <span className="cn-faint">改了配置，保存后才按新配置测</span>
+    if (retest) return <span className="cn-faint">已保存新配置，还没按新配置测</span>
     if (check) return check.ok ? <span className="cn-ok-text">{check.message || '连接正常'}{c.account && ` · ${c.account}`}</span>
       : <span className="danger-text">{check.message}</span>
     if (c.status === 'error') return <span className="danger-text">{c.error || '连接异常'}</span>
@@ -168,7 +197,8 @@ export function ConnectorDrawer({ def, connector: c, check, pending, testError, 
       const opts = f.options ?? []
       const cur = draft.config[f.key] ?? ''
       return (
-        <Field key={f.key} label={f.label} required={f.required} error={bad ? '必填' : undefined}>
+        <Field key={f.key} label={f.label} required={f.required} error={bad ? '必填' : undefined}
+          hint={def.tool === 'custom_mcp' && f.key === 'transport' ? 'stdio（起本机进程）下一步支持' : undefined}>
           <Select value={cur} invalid={bad} onValueChange={(v) => setCfg(f.key, v)}
             options={[...new Set([...(f.required ? [] : ['']), ...(cur ? [cur] : []), ...opts])].map((v) => ({ value: v, label: v || '不选' }))} />
         </Field>
@@ -200,7 +230,10 @@ export function ConnectorDrawer({ def, connector: c, check, pending, testError, 
     }
     return (
       <Field key={f.key} label={f.label} required={f.required} error={bad ? '必填' : undefined}>
-        <Input value={draft.config[f.key] ?? ''} placeholder={f.placeholder} invalid={bad} onChange={(e) => setCfg(f.key, e.target.value)} />
+        {f.long
+          ? <Textarea className="cn-mono" rows={6} value={draft.config[f.key] ?? ''} placeholder={f.placeholder} invalid={bad}
+            onChange={(e) => setCfg(f.key, e.target.value)} />
+          : <Input value={draft.config[f.key] ?? ''} placeholder={f.placeholder} invalid={bad} onChange={(e) => setCfg(f.key, e.target.value)} />}
       </Field>
     )
   }
@@ -312,10 +345,20 @@ export function ConnectorDrawer({ def, connector: c, check, pending, testError, 
         {c && !c.available && <div className="cn-alert" role="alert">提供它的插件已停用：只能改名、启停和删除，测试和工具清单要等插件重新启用。</div>}
 
         <div className="cn-profile">
-          <ToolLogo def={def} size={48} />
+          {isCustom(def) ? (
+            // 自定义类可以换成自己的图标；内置的用品牌标志，不给改
+            <span className="cn-icon-edit">
+              <label className="cn-icon-btn" title="上传图标">
+                <ToolLogo def={def} size={48} src={draft.icon || undefined} />
+                <input type="file" accept="image/*" hidden aria-label="上传图标" onChange={pickIcon} />
+              </label>
+              {draft.icon && <Button size="sm" variant="ghost" onClick={() => set({ icon: '' })}>移除图标</Button>}
+            </span>
+          ) : <ToolLogo def={def} size={48} />}
           <div className="cn-profile-text">
             <h2 className="ellipsis">{draft.name.trim() || def.label}</h2>
             <div className="cn-faint">{categoryOf(def.category).label}{def.desc && ` · ${def.desc}`}</div>
+            {isCustom(def) && <div className="cn-faint">{iconError ? <span className="danger-text">{iconError}</span> : '点标志上传图标，没有图片时用默认图标'}</div>}
           </div>
         </div>
 
@@ -334,7 +377,7 @@ export function ConnectorDrawer({ def, connector: c, check, pending, testError, 
             <section className="cn-group" aria-label="凭证与参数">
               <div className="cn-group-title">凭证与参数</div>
               {authSeg}
-              {def.fields.map(field)}
+              {def.fields.filter((f) => fieldOn(f, draft.authMode)).map(field)}
               {testRow}
             </section>
             <section className="cn-group" aria-label="同步">
@@ -363,9 +406,19 @@ export function ConnectorDrawer({ def, connector: c, check, pending, testError, 
               <section className="cn-group" aria-label="认证方式">
                 <div className="cn-group-title">认证方式</div>
                 {authSeg}
-                {secret.map(field)}
+                {authFields.map(field)}
+                {preview && <div className="cn-faint">{preview}</div>}
                 {testRow}
               </section>
+            )}
+            {retest && c && (
+              <div className="cn-warn cn-retest" role="status">
+                <span>改了地址或认证：重新测试连接，再重新获取工具清单，确认工具还对得上</span>
+                <span className="cn-retest-acts">
+                  <Button size="sm" variant="outline" disabled={busy || pending} onClick={() => { setRetest(false); onTest(c.id) }}>测试连接</Button>
+                  <Button size="sm" variant="outline" disabled={busy || pending || !!lack} onClick={() => void fetchTools(c)}>重新获取工具清单</Button>
+                </span>
+              </div>
             )}
             {available && toolsSection}
             {enabledRow}

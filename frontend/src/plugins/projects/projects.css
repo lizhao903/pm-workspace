@@ -139,14 +139,6 @@
 .pj-path-ico { flex: none; color: var(--faint); }
 .pj-path-pick { flex: none; height: 28px; padding: 0 var(--sp-5); border-radius: calc(var(--r-sm) - 2px); font-size: var(--fs-xs); color: var(--muted); background: var(--panel); border: 1px solid var(--line); cursor: pointer; }
 .pj-path-pick:hover { color: var(--text); border-color: var(--line-2); }
-.pj-picker { display: flex; flex-direction: column; gap: var(--sp-4); padding: var(--sp-5); border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--panel-2); }
-.pj-picker-row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-3); }
-.pj-picker-cur { display: flex; align-items: center; gap: var(--sp-4); min-width: 0; font-size: var(--fs-sm); }
-.pj-picker-list { list-style: none; margin: 0; padding: 0; max-height: 200px; overflow-y: auto; border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--panel); }
-.pj-picker-list li + li { border-top: 1px solid var(--line); }
-.pj-picker-item { display: block; width: 100%; padding: var(--sp-3) var(--sp-5); text-align: left; font: var(--fs-sm) var(--mono); background: none; color: var(--text); }
-.pj-picker-item:hover { background: var(--hover); }
-.pj-picker-muted { padding: var(--sp-3) var(--sp-5); color: var(--faint); font-size: var(--fs-sm); }
 .pj-danger { border-color: color-mix(in srgb, var(--danger) 25%, var(--line)); }
 .pj-act-row { display: flex; align-items: center; gap: var(--sp-4); flex-wrap: wrap; }
 .pj-act-row > span { flex: 1 1 240px; }

@@ -65,6 +65,8 @@ export type RequestOptions = {
   signal?: AbortSignal
   /** 额外的请求头（Webhook 测试推送的签名头） */
   headers?: Record<string, string>
+  /** 页面关掉、刷新时也要发完（浏览器标签页离开前补存） */
+  keepalive?: boolean
 }
 
 type Envelope<T> = { data?: T; meta?: Meta; error?: { code?: string; message?: string } }
@@ -90,6 +92,7 @@ export async function requestEnvelope<T>(
       headers,
       body: opts.body === undefined ? undefined : JSON.stringify(opts.body),
       signal: opts.signal,
+      keepalive: opts.keepalive,
     })
   } catch (e) {
     if (e instanceof DOMException && e.name === 'AbortError') throw e

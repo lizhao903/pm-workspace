@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import type { Connector, ConnectorDef } from '../../../core/data'
-import { bulkModes, createBody, initialDraft, missingFields, modesFor, notReady, patchBody, pruneModes, refreshNote, rowSummary } from './model'
+import {
+  bulkModes, createBody, fieldOn, initialDraft, missingFields, modesFor, needsRetest, nextName, notReady, patchBody, pruneModes, refreshNote, rowSummary,
+  tokenPreview,
+} from './model'
 
 const def: ConnectorDef = {
   tool: 'fake', label: '测试连接器', category: 'dev', color: '#64748b', desc: '', can_send: false, auth: ['token'], source: 'core',
@@ -85,5 +88,59 @@ describe('工具授权', () => {
     expect(refreshNote(2, { added: ['x'], removed: ['y'], connector: c })).toBe('新增 1 个，移除 1 个，其余保留原来的权限')
     expect(rowSummary(def, conn({ tools: [tools[0], { ...tools[1], mode: 'off' }] }), 'Token')).toBe('Token · 1/2 个工具可用')
     expect(rowSummary({ ...def, category: 'im' }, conn({ direction: 'both' }), 'Token')).toBe('收发 · 未同步')
+  })
+})
+
+// 自定义 MCP 的定义（同后端 connector.CustomMCP 的字段），CONN-04
+const mcp: ConnectorDef = {
+  tool: 'custom_mcp', label: 'MCP 服务', category: 'custom', color: '#7a4fd6', desc: '', can_send: false, auth: ['none', 'oauth2', 'token'], source: 'core',
+  fields: [
+    { key: 'url', label: '服务地址', kind: 'text', required: true },
+    { key: 'transport', label: '传输方式', kind: 'select', options: ['Streamable HTTP', 'SSE'], default: 'Streamable HTTP', required: true },
+    { key: 'token', label: 'Token', kind: 'secret', required: true, auth: ['token'] },
+    { key: 'token_header', label: '请求头', kind: 'text', default: 'Authorization', required: false, auth: ['token'] },
+    { key: 'token_prefix', label: '前缀', kind: 'text', default: 'Bearer', required: false, auth: ['token'] },
+    { key: 'oauth_client_id', label: 'Client ID', kind: 'text', required: true, auth: ['oauth2'] },
+  ],
+  tools: [],
+}
+
+describe('自定义连接器（CONN-04）', () => {
+  it('默认名称按已有实例加序号，字段取默认值', () => {
+    expect(nextName('MCP 服务', [])).toBe('MCP 服务')
+    expect(nextName('MCP 服务', ['MCP 服务', 'MCP 服务 2'])).toBe('MCP 服务 3')
+    const d = initialDraft(mcp, undefined, ['MCP 服务'])
+    expect(d.name).toBe('MCP 服务 2')
+    expect(d.config).toMatchObject({ transport: 'Streamable HTTP', token_header: 'Authorization', token_prefix: 'Bearer' })
+  })
+
+  it('必填只算当前认证方式的字段', () => {
+    const d = { ...initialDraft(mcp), config: { ...initialDraft(mcp).config, url: 'http://127.0.0.1:9/mcp' } }
+    expect(missingFields(mcp, d)).toEqual([])
+    expect(missingFields(mcp, { ...d, authMode: 'token' })).toEqual(['token'])
+    expect(missingFields(mcp, { ...d, authMode: 'oauth2' })).toEqual(['oauth_client_id'])
+    expect(fieldOn(mcp.fields[2], 'none')).toBe(false)
+    expect(fieldOn(mcp.fields[0], 'none')).toBe(true)
+  })
+
+  it('图标改了才带；改了地址、认证、凭证要提示重测', () => {
+    const c = conn({ tool: 'custom_mcp', name: 'MCP 服务', auth_mode: 'none', config: { url: 'http://a/mcp', transport: 'SSE' }, secret_hints: {} })
+    const d = initialDraft(mcp, c)
+    expect(patchBody(mcp, d, c)).toEqual({})
+    expect(patchBody(mcp, { ...d, icon: 'data:image/png;base64,AA' }, c)).toEqual({ icon: 'data:image/png;base64,AA' })
+    expect(createBody(mcp, { ...initialDraft(mcp), icon: 'data:image/png;base64,AA' }).icon).toBe('data:image/png;base64,AA')
+    expect(needsRetest({ icon: 'x', name: 'y' })).toBe(false)
+    expect(needsRetest({ config: { url: 'http://b/mcp' } })).toBe(true)
+    expect(needsRetest({ auth_mode: 'token' })).toBe(true)
+    expect(needsRetest({ secrets: { token: 't' } })).toBe(true)
+  })
+
+  it('Token 预览：请求头加前缀，前缀空就只发 Token，放查询参数时写参数名', () => {
+    const d = { ...initialDraft(mcp), authMode: 'token' as const }
+    expect(tokenPreview(mcp, d)).toBe('请求时带上：Authorization: Bearer ••••••')
+    expect(tokenPreview(mcp, { ...d, config: { ...d.config, token_header: 'X-API-Key', token_prefix: '' } })).toBe('请求时带上：X-API-Key: ••••••')
+    expect(tokenPreview(mcp, { ...d, config: { ...d.config, token_header: 'api_key', token_in: '查询参数' } })).toBe('请求时带上查询参数：api_key=••••••')
+    expect(tokenPreview(mcp, { ...d, authMode: 'none' })).toBe('')
+    expect(tokenPreview(def, { ...initialDraft(def) })).toBe('')
   })
 })

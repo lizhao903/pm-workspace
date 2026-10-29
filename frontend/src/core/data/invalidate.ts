@@ -4,6 +4,7 @@ import { useQueryClient, type QueryClient, type QueryKey } from '@tanstack/react
 import { useCallback } from 'react'
 import { agentConfigKeys } from './agentConfigKeys'
 import { agentKeys } from './agentKeys'
+import { browserKeys } from './browserKeys'
 import { domainKeys } from './domainKeys'
 import { dataKeys } from './keys'
 import { queryClient } from './queryClient'
@@ -41,6 +42,8 @@ export type Change =
   | { kind: 'workspace' }
   /** 挂载、移除本地目录（DOC-01b）；顶栏「刷新」也报它，重新读文件清单和打开的文件 */
   | { kind: 'local-dir' }
+  /** 加、删额外可浏览目录（FS-01）：起跳点、目录列表能不能进都跟着变 */
+  | { kind: 'fs-root' }
   /** Webhook 新建、编辑、启停、轮换密钥、删除（TASK-04b） */
   | { kind: 'webhook'; id?: string }
   /** 往收件地址推了一次：多一条投递记录，可能建出一条任务 */
@@ -79,6 +82,8 @@ export type Change =
   | { kind: 'domain-check' }
   /** 视频新建、编辑、删除，阶段推进、检查点通过退回跳过（VID-01c）：列表的分布和待我处理的数字跟着变 */
   | { kind: 'video' }
+  /** 浏览器里登录、退出 Google（BR-01b）：账号就是 Drive、日历连接器实例，两边一起刷 */
+  | { kind: 'browser-google' }
 
 // 对象一变，所有对象列表（任务列表、今日、项目的任务标签页）、单个对象及其进展和修订、
 // 计数（侧栏红点、逾期徽标）都可能变；干系人名册上的任务数也跟着变；今日聚合（待验收、逾期、今天到期、插件卡片）也是。
@@ -136,6 +141,8 @@ export function invalidationsFor(c: Change): QueryKey[] {
       return [dataKeys.workspaces.list]
     case 'local-dir':
       return [dataKeys.localDirs.all]
+    case 'fs-root':
+      return [dataKeys.fs.all]
     case 'webhook':
       // 列表（二级菜单同一份）；删除时投递记录和影响一起没了
       return c.id
@@ -152,7 +159,8 @@ export function invalidationsFor(c: Change): QueryKey[] {
       return [dataKeys.identities.all]
     case 'connector':
       // 只刷实例列表（设置的红点同一份）；定义在代码里登记，不随实例变
-      return [dataKeys.connectors.list]
+      // 浏览器的 Google 账号以 Drive 实例为准，在连接器里断开、删掉时跟着变（SPEC-browser-4.13）
+      return [dataKeys.connectors.list, browserKeys.google]
     case 'project-stakeholder':
       // 只刷这个项目的（概览的干系人块同一份）
       return [dataKeys.projectStakeholders(c.projectId)]
@@ -189,6 +197,8 @@ export function invalidationsFor(c: Change): QueryKey[] {
       return [domainKeys.routes]
     case 'video':
       return [videoKeys.all]
+    case 'browser-google':
+      return [browserKeys.google, dataKeys.connectors.list]
   }
 }
 

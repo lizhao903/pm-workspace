@@ -5,10 +5,11 @@ import { Button, cls } from '../../../core/ui'
 import { OFF_HINT, STATUS } from './catalog'
 import { ago } from './model'
 
-/** 标志：定义给的底色加名称前两个字；没有底色用灰 */
-export function ToolLogo({ def, size = 40 }: { def: Pick<ConnectorDef, 'label' | 'color'>; size?: number }) {
+/** 标志：定义给的底色加名称前两个字；没有底色用灰。src 是自定义分类换的图标（data URL） */
+export function ToolLogo({ def, size = 40, src }: { def: Pick<ConnectorDef, 'label' | 'color'>; size?: number; src?: string }) {
   const short = def.label.slice(0, 2)
   const style = { width: size, height: size, fontSize: size * 0.34, '--c': def.color || 'var(--faint)' } as CSSProperties
+  if (src) return <img className="cn-logo cn-logo-img" style={style} src={src} alt="" aria-hidden="true" />
   return <span className="cn-logo" style={style} aria-hidden="true">{short}</span>
 }
 

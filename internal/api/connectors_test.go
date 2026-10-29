@@ -103,8 +103,12 @@ func TestConnectorLifecycleNoPlaintext(t *testing.T) {
 	if _, ok := c["secrets"]; ok {
 		t.Error("响应里不该有 secrets 字段")
 	}
-	// 一个工具只接一个账号
-	r.call("POST", "/api/connectors", `{"tool":"fake","secrets":{"token":"`+tok+`"}}`, http.StatusConflict)
+	// 同一工具可以再接一个（CONN-04），名称自动加序号；删掉它，后面只看第一个
+	c2 := r.call("POST", "/api/connectors", `{"tool":"fake","secrets":{"token":"`+tok+`"}}`, http.StatusCreated)
+	if c2["name"] == c["name"] {
+		t.Errorf("第二个实例名称应加序号：%v", c2["name"])
+	}
+	r.call("DELETE", "/api/connectors/"+c2["id"].(string), "", http.StatusOK)
 
 	// 明文确实进了保险箱
 	cn, err := r.s.opt.Connectors.Get(ctx, id)
@@ -202,7 +206,8 @@ func TestConnectorLifecycleNoPlaintext(t *testing.T) {
 		}
 		actions[a["action"].(string)]++
 	}
-	if actions["create"] != 1 || actions["update"] < 4 || actions["set_tool_modes"] != 1 {
+	// create 两条：第二个实例接上又删掉了
+	if actions["create"] != 2 || actions["delete"] != 1 || actions["update"] < 4 || actions["set_tool_modes"] != 1 {
 		t.Fatalf("audit actions = %v", actions)
 	}
 
@@ -214,7 +219,7 @@ func TestConnectorLifecycleNoPlaintext(t *testing.T) {
 	if _, err := v.Resolve(ctx, cn.SecretID); err == nil {
 		t.Error("删除后保险箱条目应该一起删掉")
 	}
-	auds = r.call("GET", "/api/audits?target_type=connector&action=delete", "", http.StatusOK)
+	auds = r.call("GET", "/api/audits?target_type=connector&action=delete&target_id="+id, "", http.StatusOK)
 	if len(auds["data"].([]any)) != 1 {
 		t.Fatalf("delete audit = %v", auds)
 	}

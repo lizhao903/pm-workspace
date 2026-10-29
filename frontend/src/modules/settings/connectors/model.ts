@@ -2,7 +2,7 @@
 // 凭证三态：输入框空着就不带（不改），清掉走单独的确认（传空串），填了才覆盖；界面上只显示后端给的 secret_hints。
 // 工具授权的改动先记在草稿里（只记和后端不同的），保存时一次 PATCH /tools。
 import type {
-  Connector, ConnectorAuthMode, ConnectorDef, ConnectorDirection, ConnectorInput, ConnectorPatch, ConnectorTool, ConnectorToolMode,
+  Connector, ConnectorAuthMode, ConnectorDef, ConnectorDirection, ConnectorField, ConnectorInput, ConnectorPatch, ConnectorTool, ConnectorToolMode,
 } from '../../../core/data'
 
 /** 这次打开页面以来最近一次连通测试的结论 */
@@ -20,9 +20,21 @@ export type Draft = {
   enabled: boolean
   /** 改过的工具授权：工具名 -> 新授权 */
   modes: Record<string, ConnectorToolMode>
+  /** 自定义分类的图标（data URL），空串是默认图标 */
+  icon: string
 }
 
 export const isIM = (def: ConnectorDef) => def.category === 'im'
+/** 自定义分类（MCP 服务、OpenAPI 接口）：能换图标 */
+export const isCustom = (def: ConnectorDef) => def.category === 'custom'
+/** 字段在这种认证方式下有没有用：没标 auth 的一直有用 */
+export const fieldOn = (f: ConnectorField, mode: ConnectorAuthMode) => !f.auth?.length || f.auth.includes(mode)
+
+/** 默认名称：没人用就是工具名，用了就加序号「MCP 服务 2」，同后端的规则 */
+export function nextName(base: string, taken: string[]): string {
+  if (!taken.includes(base)) return base
+  for (let i = 2; ; i++) if (!taken.includes(`${base} ${i}`)) return `${base} ${i}`
+}
 const plainFields = (def: ConnectorDef) => def.fields.filter((f) => f.kind !== 'secret')
 const secretFields = (def: ConnectorDef) => def.fields.filter((f) => f.kind === 'secret')
 
@@ -31,18 +43,20 @@ export function fallbackDef(c: Connector): ConnectorDef {
   return { tool: c.tool, label: c.tool, category: 'other', color: '', desc: '提供它的插件已停用', can_send: false, auth: [c.auth_mode], fields: [], tools: [], source: '' }
 }
 
-export function initialDraft(def: ConnectorDef, c?: Connector): Draft {
+/** taken 是同一工具已有实例的名字，新建时默认名称按它加序号 */
+export function initialDraft(def: ConnectorDef, c?: Connector, taken: string[] = []): Draft {
   if (!c) {
     return {
-      name: def.label,
+      name: nextName(def.label, taken),
       authMode: def.auth[0] ?? 'token',
-      // 下拉新建时默认第一项
-      config: Object.fromEntries(plainFields(def).map((f) => [f.key, f.kind === 'select' ? f.options?.[0] ?? '' : ''])),
+      // 有默认值用默认值，下拉没有默认值时选第一项
+      config: Object.fromEntries(plainFields(def).map((f) => [f.key, f.default ?? (f.kind === 'select' ? f.options?.[0] ?? '' : '')])),
       secrets: Object.fromEntries(secretFields(def).map((f) => [f.key, ''])),
       direction: def.can_send ? 'both' : 'receive',
       interval: isIM(def) ? 5 : 0,
       enabled: true,
       modes: {},
+      icon: '',
     }
   }
   return {
@@ -54,13 +68,14 @@ export function initialDraft(def: ConnectorDef, c?: Connector): Draft {
     interval: c.interval,
     enabled: c.status !== 'paused',
     modes: {},
+    icon: c.icon ?? '',
   }
 }
 
-/** 必填没填的字段 key。凭证已经配过（有 hint）就不算没填 */
+/** 必填没填的字段 key。凭证已经配过（有 hint）就不算没填；只属于别的认证方式的不算 */
 export function missingFields(def: ConnectorDef, d: Draft, c?: Connector): string[] {
   return def.fields.filter((f) => {
-    if (!f.required) return false
+    if (!f.required || !fieldOn(f, d.authMode)) return false
     if (f.kind === 'secret') return !d.secrets[f.key]?.trim() && !c?.secret_hints[f.key]
     return !d.config[f.key]?.trim()
   }).map((f) => f.key)
@@ -79,6 +94,7 @@ export function createBody(def: ConnectorDef, d: Draft): ConnectorInput {
     body.direction = d.direction
     body.interval = d.interval
   }
+  if (d.icon) body.icon = d.icon
   return body
 }
 
@@ -101,7 +117,20 @@ export function patchBody(def: ConnectorDef, d: Draft, c: Connector): ConnectorP
     if (d.direction !== c.direction) patch.direction = d.direction
     if (d.interval !== c.interval) patch.interval = d.interval
   }
+  if (d.icon !== (c.icon ?? '')) patch.icon = d.icon
   return patch
+}
+
+/** 改了地址、认证或凭证：保存后要提示重新测试、重新获取工具清单 */
+export const needsRetest = (p: ConnectorPatch) => !!(p.auth_mode || p.secrets || (p.config && Object.keys(p.config).length))
+
+/** Token 请求头的预览：<请求头>: <前缀> ••••••；定义没有 token_header 字段时不显示 */
+export function tokenPreview(def: ConnectorDef, d: Draft): string {
+  if (d.authMode !== 'token' || !def.fields.some((f) => f.key === 'token_header')) return ''
+  const name = d.config.token_header?.trim() || 'Authorization'
+  const prefix = d.config.token_prefix?.trim()
+  if (d.config.token_in === '查询参数') return `请求时带上查询参数：${name}=••••••`
+  return `请求时带上：${name}: ${prefix ? `${prefix} ` : ''}••••••`
 }
 
 /** 只读工具没有「需确认」 */

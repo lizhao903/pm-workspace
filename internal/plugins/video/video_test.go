@@ -22,7 +22,7 @@ import (
 	"github.com/lizhao903/pm-workspace/internal/plugins/projects"
 )
 
-var perms = []string{"fs:read:project", "fs:write:project", "network:media-platforms"}
+var perms = []string{"fs:read:project", "fs:write:project", "network:media-platforms", "process:spawn"}
 
 func TestManifestValid(t *testing.T) {
 	m, err := plugin.Parse(manifestJSON)
@@ -191,10 +191,9 @@ func TestFieldsMatchPrototype(t *testing.T) {
 			t.Fatalf("%s 一个字段都没解析出来", name)
 		}
 		for _, f := range proto {
-			// runners、last_run 是原型为 VID-03（阶段执行器）新加的，后端还没跟上；VID-03 落地时删掉这个例外
 			// target_date 是 VID-06p 给原型加的（内容日历），VID-06b 落地时删掉
 			// Publish 的 account_id、tags、category、collection、checks 是 VID-05p 新加的，VID-05a 落地时删掉
-			if !slices.Contains(tags, f) && !(name == "Video" && (f == "runners" || f == "last_run" || f == "target_date")) && !(name == "Publish" && slices.Contains(pendingPublishFields, f)) {
+			if !slices.Contains(tags, f) && !(name == "Video" && f == "target_date") && !(name == "Publish" && slices.Contains(pendingPublishFields, f)) {
 				t.Errorf("%s.%s 原型里有，Go 结构里没有", name, f)
 			}
 		}

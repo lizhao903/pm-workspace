@@ -1,14 +1,16 @@
 // IM 消息页（SPEC-messages-1）：收件箱，按时间倒序、按天分段，行内能直接处理。照原型 web-next/src/messages.tsx MessagesPage。
 // 打开的消息记在地址 ?m=<id>，刷新、从别的模块跳过来都能直接打开；处理状态都在后端，刷新后保持。
 // 转任务：先确认标题，再由后端建任务，然后打开任务模块登记的任务抽屉（经 core/plugin 的「打开对象」，不 import 任务模块）。
+// 「渠道配置」打开 IM 渠道的配置抽屉（IM-01b，ChannelPanel），记在地址 ?channels=1。
 import { Fragment, Suspense, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { useNavigate, useSearchParams } from 'react-router'
 import {
-  errorText, onServerEvent, useConnectorDefs, useConnectors, useContacts, useDictionaries, useEventsLive, useImAction, useImMessage,
-  useImMessages, useNotifyChange, type ImAction, type ImMessage,
+  errorText, isApiError, onServerEvent, useConnectorDefs, useConnectors, useContacts, useDictionaries, useEventsLive, useImAction, useImMessage,
+  useImMessages, useImSyncConnector, useNotifyChange, type ImAction, type ImMessage,
 } from '../../core/data'
 import { useObjectDrawer } from '../../core/plugin'
 import { Avatar, ErrorState, LoadingState, PageTitle, SearchSelect, cls } from '../../core/ui'
+import { ChannelPanel } from './ChannelPanel'
 import { MessageDrawer } from './MessageDrawer'
 import {
   MSG_STATUS_DICT, PAGE, RELEVANCE, VIEW_SEG_MAX, baseOk, channelOf, channelTable, convOptions, dayLabel, filterRows, inView, isSnoozed,
@@ -29,6 +31,7 @@ export default function Page() {
   const navigate = useNavigate()
   const [params, setParams] = useSearchParams()
   const openId = params.get('m')
+  const channelsOpen = params.get('channels') === '1'
   const live = useEventsLive()
   const messages = useImMessages({ refetchInterval: live ? false : POLL_MS })
   const connectors = useConnectors()
@@ -108,6 +111,15 @@ export default function Page() {
     }, { replace: true })
   }, [setParams])
 
+  const setChannelsOpen = useCallback((on: boolean) => {
+    setParams((p) => {
+      const n = new URLSearchParams(p)
+      if (on) n.set('channels', '1')
+      else n.delete('channels')
+      return n
+    }, { replace: true })
+  }, [setParams])
+
   const run = useCallback((m: ImMessage, a: ImAction) => {
     setRowErr('')
     act.mutate({ id: m.id, action: a }, { onError: (e) => setRowErr(`${whoName(m)} 的消息没处理成：${errorText(e)}`) })
@@ -155,7 +167,8 @@ export default function Page() {
     return () => window.removeEventListener('keydown', onKey)
   }, [rows, openId, opened, limit, sig, setOpen, run, toTask, taskOpen])
 
-  // 立即同步：渠道由后端按连接器的间隔自动拉；这里重新读一遍，告诉你收到了几条新的
+  // 立即同步：渠道由后端按连接器的间隔自动拉；这里让后端马上各拉一次（不能拉取的渠道回 409，跳过），再读一遍，告诉你收到了几条新的
+  const syncOne = useImSyncConnector()
   const [syncNote, setSyncNote] = useState<{ text: string; bad: boolean } | null>(null)
   const [syncing, setSyncing] = useState(false)
   const sync = async () => {
@@ -166,9 +179,10 @@ export default function Page() {
     const before = new Set(list.map((m) => m.id))
     setSyncing(true)
     try {
+      const rs = await Promise.allSettled(active.map((c) => syncOne.mutateAsync(c.id)))
       const r = await messages.refetch()
       const fresh = (r.data ?? []).filter((m) => !before.has(m.id) && (!channel || m.channel === channel)).length
-      const bad = active.filter((c) => c.status === 'error').map((c) => c.name)
+      const bad = active.filter((_, i) => { const x = rs[i]; return x.status === 'rejected' && !isApiError(x.reason, 'conflict') }).map((c) => c.name)
       setSyncNote({ text: `${fresh ? `收到 ${fresh} 条新消息` : '没有新消息'}${bad.length ? `；${bad.join('、')}同步失败` : ''}`, bad: !!bad.length || r.isError })
     } finally {
       setSyncing(false)
@@ -196,7 +210,7 @@ export default function Page() {
             <svg className={cls(syncing && 'im-spin')} viewBox="0 0 16 16" width="13" height="13" aria-hidden="true"><path d="M13 8a5 5 0 1 1-1.5-3.6M13 3v2.5h-2.5" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /></svg>
             <span className="im-tb-label">{syncLabel}</span>
           </button>
-          <button type="button" className="btn btn-ghost btn-outline" onClick={() => navigate(CONNECTORS_PATH)} title="在设置里管理 IM 渠道的连接器" aria-label="渠道配置">
+          <button type="button" className="btn btn-ghost btn-outline" onClick={() => setChannelsOpen(true)} title="接入和管理 IM 渠道：Slack、Telegram" aria-label="渠道配置">
             <Gear /><span className="im-tb-label">渠道配置</span>
             {broken.length > 0 && <span className="im-dot-alert" title={`${broken.length} 个连接器异常`} />}
           </button>
@@ -349,8 +363,9 @@ export default function Page() {
           onOpenContact={(id) => navigate(`/contacts?c=${encodeURIComponent(id)}`)}
           onSaveContact={() => navigate('/contacts')}
           onToTask={() => { if (opened) startToTask(opened) }}
-          onFixConnector={() => navigate(CONNECTORS_PATH)} />
+          onFixConnector={() => { setOpen(null); setChannelsOpen(true) }} />
       )}
+      {channelsOpen && <ChannelPanel onClose={() => setChannelsOpen(false)} onManageAll={() => navigate(CONNECTORS_PATH)} />}
       {toTask && (
         <ToTaskDialog msg={toTask} doneLabel={doneLabel} onCancel={() => setToTask(null)}
           onCreated={(id) => { setToTask(null); setOpen(null); setTaskOpen(id) }}

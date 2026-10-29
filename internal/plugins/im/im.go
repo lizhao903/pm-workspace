@@ -1,13 +1,14 @@
 // Package im 是「IM 消息」插件的后端（IM-01a 起）。清单 plugin.json 只有这一份，前端构建时也读它。
 // 每个渠道一个适配器（拉取或回调，adapter.go），消息落在插件表 im_messages，按 IM 身份 id 认人、按会话 id 归档，
 // 到达时发 im.message_received。接口契约见 docs/api-contract.md「IM 消息插件 im」。
-// 真实渠道的适配器从 IM-01b（Slack）、IM-01c（Telegram）起加；这里只有测试和演练用的假适配器。
+// 真实渠道的适配器：Slack（IM-01b，slack.go）、Telegram（IM-01c）；另有测试和演练用的假适配器。
 package im
 
 import (
 	"embed"
 	"fmt"
 	"io/fs"
+	"sync"
 
 	"github.com/lizhao903/pm-workspace/internal/plugin"
 )
@@ -54,11 +55,23 @@ func (p *Plugin) Register(r plugin.Registrar) error {
 		}
 		seen[k] = true
 	}
-	in := &inbox{c: r.Core(), adapters: p.adapters}
+	in := &inbox{c: r.Core(), adapters: p.adapters, pullMu: map[string]*sync.Mutex{}}
+	for _, a := range p.adapters {
+		in.pullMu[a.Key()] = &sync.Mutex{}
+		// 真实渠道（IM-01b 起）：交插件句柄，登记自带的连接器定义
+		if b, ok := a.(Binder); ok {
+			b.Bind(r.Core())
+		}
+		if cp, ok := a.(ConnectorProvider); ok {
+			r.Connector(cp.ConnectorDef())
+		}
+	}
 	r.Routes(func(m plugin.RouteRegistrar) {
 		m.HandleFunc("GET /api/im/messages", in.list)
 		m.HandleFunc("GET /api/im/adapters", in.listAdapters)
 		m.HandleFunc("POST /api/im/callbacks/{adapter}", in.callback)
+		// 立即同步一个渠道（IM-01b，sync.go）
+		m.HandleFunc("POST /api/im/connectors/{id}/sync", in.syncConnector)
 		// 处理动作（IM-02a，actions.go）
 		m.HandleFunc("GET /api/im/messages/{id}", in.getOne)
 		for _, k := range []string{"done", "ignore", "reopen", "read"} {

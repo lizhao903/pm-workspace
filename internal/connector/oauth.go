@@ -59,7 +59,12 @@ type OAuthSpec struct {
 	TokenURL string   `json:"token_url"`
 	Scopes   []string `json:"scopes"`
 	// BaseURLField 非空时 AuthURL、TokenURL 是以 / 开头的路径，接在这个配置字段的值后面（自建实例用）
-	BaseURLField      string `json:"base_url_field,omitempty"`
+	BaseURLField string `json:"base_url_field,omitempty"`
+	// AuthURLField、TokenURLField、ScopesField 非空时授权地址、令牌地址、范围由用户填在这几个配置字段里
+	// （自定义 MCP、OpenAPI，CONN-04）；范围用空格或逗号隔开
+	AuthURLField      string `json:"auth_url_field,omitempty"`
+	TokenURLField     string `json:"token_url_field,omitempty"`
+	ScopesField       string `json:"scopes_field,omitempty"`
 	ClientIDField     string `json:"client_id_field,omitempty"`
 	ClientSecretField string `json:"client_secret_field,omitempty"`
 	// Builtin 是内置了 client_id，用户只需要点授权；登记时按 ClientID 算出来
@@ -76,17 +81,27 @@ var reservedAuthParams = []string{"response_type", "client_id", "redirect_uri", 
 	"code_challenge", "code_challenge_method"}
 
 func (o *OAuthSpec) check(d *Def) error {
-	if o.AuthURL == "" || o.TokenURL == "" {
-		return errors.New("oauth auth_url and token_url are required")
+	for _, k := range []string{o.AuthURLField, o.TokenURLField, o.ScopesField} {
+		if f := d.field(k); k != "" && (f == nil || f.Kind != "text") {
+			return fmt.Errorf("oauth field %q must be a text field", k)
+		}
 	}
-	if o.BaseURLField != "" {
+	if (o.AuthURLField == "") != (o.TokenURLField == "") || o.AuthURLField != "" && o.BaseURLField != "" {
+		return errors.New("oauth auth_url_field and token_url_field go together, without base_url_field")
+	}
+	switch {
+	case o.AuthURLField != "":
+		// 地址由用户填，登记时没得查
+	case o.AuthURL == "" || o.TokenURL == "":
+		return errors.New("oauth auth_url and token_url are required")
+	case o.BaseURLField != "":
 		if f := d.field(o.BaseURLField); f == nil || f.Kind != "text" {
 			return fmt.Errorf("oauth base_url_field %q must be a text field", o.BaseURLField)
 		}
 		if !strings.HasPrefix(o.AuthURL, "/") || !strings.HasPrefix(o.TokenURL, "/") {
 			return errors.New("oauth urls must be paths starting with / when base_url_field is set")
 		}
-	} else if !isHTTPURL(o.AuthURL) || !isHTTPURL(o.TokenURL) {
+	case !isHTTPURL(o.AuthURL) || !isHTTPURL(o.TokenURL):
 		return errors.New("oauth auth_url and token_url must be http(s) URLs")
 	}
 	if o.ClientID == "" {
@@ -226,6 +241,13 @@ func (s *Store) checkReturnTo(raw string) (string, error) {
 
 // endpoints 是这个实例的授权地址和令牌地址。
 func endpoints(o *OAuthSpec, cfg Config) (authURL, tokenURL string, err error) {
+	if o.AuthURLField != "" {
+		authURL, tokenURL = cfg.Get(o.AuthURLField), cfg.Get(o.TokenURLField)
+		if !isHTTPURL(authURL) || !isHTTPURL(tokenURL) {
+			return "", "", invalid("config.%s and config.%s must be http(s) URLs before authorizing", o.AuthURLField, o.TokenURLField)
+		}
+		return authURL, tokenURL, nil
+	}
 	if o.BaseURLField == "" {
 		return o.AuthURL, o.TokenURL, nil
 	}
@@ -234,6 +256,14 @@ func endpoints(o *OAuthSpec, cfg Config) (authURL, tokenURL string, err error) {
 		return "", "", invalid("config.%s must be an http(s) URL before authorizing", o.BaseURLField)
 	}
 	return base + o.AuthURL, base + o.TokenURL, nil
+}
+
+// scopesOf 是要请求的范围：定义写死的，或 ScopesField 里用户填的（空格或逗号隔开）。
+func scopesOf(o *OAuthSpec, cfg Config) []string {
+	if o.ScopesField == "" {
+		return o.Scopes
+	}
+	return strings.FieldsFunc(cfg.Get(o.ScopesField), func(r rune) bool { return r == ' ' || r == ',' || r == '，' })
 }
 
 func clientCreds(o *OAuthSpec, cfg Config) (id, secret string, err error) {
@@ -293,7 +323,7 @@ func (s *Store) StartOAuth(ctx context.Context, id, returnTo string) (*OAuthStar
 	}
 	state, verifier := randomToken(32), randomToken(48)
 	redirect := s.CallbackURL()
-	scope := strings.Join(o.Scopes, " ")
+	scope := strings.Join(scopesOf(o, cfg), " ")
 	q := u.Query()
 	for k, v := range o.AuthParams {
 		q.Set(k, v)

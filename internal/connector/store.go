@@ -24,8 +24,12 @@ import (
 const timeLayout = "2006-01-02T15:04:05.000Z"
 
 const (
-	maxName     = 100
-	maxValue    = 2000
+	maxName  = 100
+	maxValue = 2000
+	// maxLongValue 是长文本字段（Field.Long，如粘贴的 OpenAPI 文档）的上限
+	maxLongValue = 512 << 10
+	// maxIcon 是自定义图标 data URL 的上限（CONN-04）
+	maxIcon     = 512 << 10
 	maxError    = 300
 	maxInterval = 1440
 	// callTimeout 是连通测试、拉取工具清单等一次对外调用的上限
@@ -69,7 +73,9 @@ type Connector struct {
 	// OAuth 是授权状态，auth_mode 为 oauth2 时才有，否则为 null（CONN-01b，0030）
 	OAuth *OAuthStatus `json:"oauth"`
 	// Available 是定义还在不在（插件提供的定义停用后为 false，测试和拉取工具清单回 409）
-	Available bool      `json:"available"`
+	Available bool `json:"available"`
+	// Icon 是自定义分类换的图标（data:image/ 开头的 data URL），没换为空串（CONN-04，0038）
+	Icon      string    `json:"icon"`
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
 	// SecretID 是保险箱条目 id，只给后端内部用，不出接口
@@ -86,6 +92,7 @@ type Input struct {
 	Enabled   *bool             `json:"enabled"`
 	Direction string            `json:"direction"`
 	Interval  *int              `json:"interval"`
+	Icon      string            `json:"icon"`
 }
 
 // Patch 是修改的字段，nil 为不改。Config、Secrets 按键合并：给了的键覆盖，值为空串表示清掉。
@@ -97,6 +104,8 @@ type Patch struct {
 	Enabled   *bool             `json:"enabled"`
 	Direction *string           `json:"direction"`
 	Interval  *int              `json:"interval"`
+	// Icon 为空串表示换回默认图标
+	Icon *string `json:"icon"`
 }
 
 // TestResult 是一次连通测试的结论。失败不是接口错误，ok 为 false。
@@ -217,8 +226,12 @@ func mergeValues(d *Def, cur, in map[string]string, secret bool) (map[string]str
 		}
 		if !secret {
 			v = strings.TrimSpace(v)
-			if utf8.RuneCountInString(v) > maxValue {
-				return nil, invalid("config.%s is longer than %d characters", k, maxValue)
+			limit := maxValue
+			if f.Long {
+				limit = maxLongValue
+			}
+			if utf8.RuneCountInString(v) > limit {
+				return nil, invalid("config.%s is longer than %d characters", k, limit)
 			}
 			if f.Kind == "select" && v != "" && !slices.Contains(f.Options, v) {
 				return nil, invalid("config.%s must be one of %v", k, f.Options)
@@ -235,9 +248,13 @@ func mergeValues(d *Def, cur, in map[string]string, secret bool) (map[string]str
 	return out, nil
 }
 
-func checkRequired(d *Def, values, secrets map[string]string) error {
+// checkRequired 查必填；只属于别的认证方式的字段不算（Field.Auth）。
+func checkRequired(d *Def, mode AuthMode, values, secrets map[string]string) error {
 	var missing []string
 	for _, f := range d.Fields {
+		if !f.appliesTo(mode) {
+			continue
+		}
 		have := values[f.Key]
 		if f.Kind == "secret" {
 			have = secrets[f.Key]
@@ -249,7 +266,38 @@ func checkRequired(d *Def, values, secrets map[string]string) error {
 	if len(missing) > 0 {
 		return invalid("required fields are missing: %s", strings.Join(missing, ", "))
 	}
+	if d.CheckConfig != nil {
+		if err := d.CheckConfig(values); err != nil {
+			return invalid("%s", err.Error())
+		}
+	}
 	return nil
+}
+
+// checkIcon：只有自定义分类能换图标，值是 data:image/ 开头的 data URL 或空串（换回默认）。
+func checkIcon(d *Def, icon string) error {
+	if icon == "" {
+		return nil
+	}
+	if d.Category != "custom" {
+		return invalid("only custom connectors can change their icon")
+	}
+	if !strings.HasPrefix(icon, "data:image/") || len(icon) > maxIcon {
+		return invalid("icon must be a data:image/ URL of at most %d KB", maxIcon>>10)
+	}
+	return nil
+}
+
+// nextName 是默认名称：没人用就是 base，用了就加序号「base 2」「base 3」…（同一工具可以接多个，CONN-04）。
+func nextName(base string, taken map[string]bool) string {
+	if !taken[base] {
+		return base
+	}
+	for i := 2; ; i++ {
+		if n := fmt.Sprintf("%s %d", base, i); !taken[n] {
+			return n
+		}
+	}
 }
 
 // --- 凭证 ---
@@ -339,19 +387,23 @@ func scrub(msg string, secrets map[string]string) string {
 
 // --- 增删改查 ---
 
-// Create 新建一个实例。一个工具只接一个账号，已经接过回 409。
+// Create 新建一个实例。同一工具可以接多个（CONN-04）：名称没给或就是定义的 label 时，已有同名的自动加序号。
 // 新建后状态是 connecting（还没测过），不启用时是 paused；连通测试走 Test。
 func (s *Store) Create(ctx context.Context, in Input) (*Connector, error) {
 	d, ok := s.defs.Get(strings.TrimSpace(in.Tool))
 	if !ok {
 		return nil, invalid("unknown connector tool %q", in.Tool)
 	}
-	name := in.Name
-	if strings.TrimSpace(name) == "" {
+	name := strings.TrimSpace(in.Name)
+	autoName := name == "" || name == d.Label
+	if name == "" {
 		name = d.Label
 	}
 	name, err := checkName(name)
 	if err != nil {
+		return nil, err
+	}
+	if err := checkIcon(&d, in.Icon); err != nil {
 		return nil, err
 	}
 	mode, err := checkAuthMode(&d, in.AuthMode)
@@ -373,11 +425,17 @@ func (s *Store) Create(ctx context.Context, in Input) (*Connector, error) {
 	if err != nil {
 		return nil, err
 	}
+	// 没给的字段取定义的默认值（如请求头默认 Authorization）
+	for _, f := range d.Fields {
+		if _, given := in.Config[f.Key]; !given && f.Default != "" {
+			values[f.Key] = f.Default
+		}
+	}
 	secrets, err := mergeValues(&d, nil, in.Secrets, true)
 	if err != nil {
 		return nil, err
 	}
-	if err := checkRequired(&d, values, secrets); err != nil {
+	if err := checkRequired(&d, mode, values, secrets); err != nil {
 		return nil, err
 	}
 	status := StatusConnecting
@@ -387,13 +445,15 @@ func (s *Store) Create(ctx context.Context, in Input) (*Connector, error) {
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	var existing string
-	err = s.db.W.QueryRowContext(ctx, `SELECT id FROM connectors WHERE tool = ? LIMIT 1`, d.Tool).Scan(&existing)
-	if err == nil {
-		return nil, conflict("%s is already connected (%s); one account per tool", d.Tool, existing)
-	}
-	if !errors.Is(err, sql.ErrNoRows) {
-		return nil, fmt.Errorf("check connector tool: %w", err)
+	if autoName {
+		taken, err := s.namesOf(ctx, d.Tool)
+		if err != nil {
+			return nil, err
+		}
+		name = nextName(name, taken)
+		if utf8.RuneCountInString(name) > maxName {
+			return nil, invalid("name is longer than %d characters", maxName)
+		}
 	}
 
 	id := idgen.Prefixed("cn")
@@ -404,10 +464,10 @@ func (s *Store) Create(ctx context.Context, in Input) (*Connector, error) {
 	}
 	now := s.stamp()
 	if _, err := s.db.W.ExecContext(ctx, `INSERT INTO connectors
-		(id, tool, name, status, auth_mode, config, secret_id, secret_hints, direction, interval, tools, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '[]', ?, ?)`,
+		(id, tool, name, status, auth_mode, config, secret_id, secret_hints, direction, interval, tools, icon, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '[]', ?, ?, ?)`,
 		id, d.Tool, name, status, string(mode), mustJSON(values), secretID, mustJSON(hintsOf(secrets)),
-		dir, interval, now, now); err != nil {
+		dir, interval, in.Icon, now, now); err != nil {
 		if secretID != "" {
 			_ = s.sec.Delete(context.WithoutCancel(ctx), secretID)
 		}
@@ -416,9 +476,27 @@ func (s *Store) Create(ctx context.Context, in Input) (*Connector, error) {
 	return s.get(ctx, s.db.W, id)
 }
 
+// namesOf 是这个工具已有实例的名字。
+func (s *Store) namesOf(ctx context.Context, tool string) (map[string]bool, error) {
+	rows, err := s.db.W.QueryContext(ctx, `SELECT name FROM connectors WHERE tool = ?`, tool)
+	if err != nil {
+		return nil, fmt.Errorf("list connector names: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+	out := map[string]bool{}
+	for rows.Next() {
+		var n string
+		if err := rows.Scan(&n); err != nil {
+			return nil, err
+		}
+		out[n] = true
+	}
+	return out, rows.Err()
+}
+
 const selectCols = `SELECT id, tool, name, account, status, error, auth_mode, config, secret_id, secret_hints,
 	direction, interval, tools, tools_at, last_tested_at, last_sync_at, created_at, updated_at,
-	oauth_authorized_at, oauth_expires_at, oauth_refreshed_at, oauth_refresh_failed_at, oauth_scope FROM connectors`
+	oauth_authorized_at, oauth_expires_at, oauth_refreshed_at, oauth_refresh_failed_at, oauth_scope, icon FROM connectors`
 
 type scanner interface{ Scan(dest ...any) error }
 
@@ -433,7 +511,7 @@ func (s *Store) scan(r scanner) (*Connector, error) {
 	)
 	if err := r.Scan(&c.ID, &c.Tool, &c.Name, &c.Account, &c.Status, &c.Error, &mode, &cj, &c.SecretID, &hj,
 		&c.Direction, &c.Interval, &tj, &toolsAt, &tested, &synced, &created, &updated,
-		&oAt, &oExp, &oRef, &oFail, &oScope); err != nil {
+		&oAt, &oExp, &oRef, &oFail, &oScope, &c.Icon); err != nil {
 		return nil, err
 	}
 	if AuthMode(mode) == AuthOAuth2 {
@@ -522,8 +600,14 @@ func (s *Store) Update(ctx context.Context, id string, p Patch) (*Connector, err
 		return nil, err
 	}
 	d, ok := s.defs.Get(cur.Tool)
-	if !ok && (p.AuthMode != nil || p.Config != nil || p.Secrets != nil || p.Direction != nil) {
+	if !ok && (p.AuthMode != nil || p.Config != nil || p.Secrets != nil || p.Direction != nil || p.Icon != nil) {
 		return nil, conflict("connector definition %s is not available", cur.Tool)
+	}
+	if p.Icon != nil {
+		if err := checkIcon(&d, *p.Icon); err != nil {
+			return nil, err
+		}
+		cur.Icon = *p.Icon
 	}
 	if p.Name != nil {
 		if cur.Name, err = checkName(*p.Name); err != nil {
@@ -552,7 +636,7 @@ func (s *Store) Update(ctx context.Context, id string, p Patch) (*Connector, err
 		}
 	}
 	secretID, createdSecret := cur.SecretID, false
-	if p.Config != nil || p.Secrets != nil {
+	if p.Config != nil || p.Secrets != nil || p.AuthMode != nil {
 		old, err := s.resolveSecrets(ctx, cur)
 		if err != nil {
 			return nil, err
@@ -561,7 +645,7 @@ func (s *Store) Update(ctx context.Context, id string, p Patch) (*Connector, err
 		if err != nil {
 			return nil, err
 		}
-		if err := checkRequired(&d, cur.Config, secrets); err != nil {
+		if err := checkRequired(&d, cur.AuthMode, cur.Config, secrets); err != nil {
 			return nil, err
 		}
 		if p.Secrets != nil {
@@ -580,9 +664,9 @@ func (s *Store) Update(ctx context.Context, id string, p Patch) (*Connector, err
 		}
 	}
 	_, err = s.db.W.ExecContext(ctx, `UPDATE connectors SET name = ?, status = ?, auth_mode = ?, config = ?,
-		secret_id = ?, secret_hints = ?, direction = ?, interval = ?, updated_at = ? WHERE id = ?`,
+		secret_id = ?, secret_hints = ?, direction = ?, interval = ?, icon = ?, updated_at = ? WHERE id = ?`,
 		cur.Name, cur.Status, string(cur.AuthMode), mustJSON(cur.Config), secretID, mustJSON(cur.SecretHints),
-		cur.Direction, cur.Interval, s.stamp(), id)
+		cur.Direction, cur.Interval, cur.Icon, s.stamp(), id)
 	if err != nil {
 		if createdSecret {
 			_ = s.sec.Delete(context.WithoutCancel(ctx), secretID)

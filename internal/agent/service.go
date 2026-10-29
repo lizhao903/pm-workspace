@@ -208,7 +208,7 @@ func (s *Service) policy(ctx context.Context, a *domain.Agent) (*Policy, error) 
 			cid, tool, conns := c.ID, t.Name, s.Connectors
 			p.Conn = append(p.Conn, ConnTool{
 				Name: ConnToolName(c.Tool, t.Name), Key: key, ConnectorID: c.ID, ConnectorName: c.Name,
-				Tool: t.Name, Desc: t.Desc, Write: t.Write, Mode: mode,
+				Tool: t.Name, Desc: t.Desc, Write: t.Write, Mode: mode, Schema: t.Schema,
 				Call: func(ctx context.Context, args string) (string, error) {
 					out, err := conns.CallTool(ctx, cid, tool, json.RawMessage(args))
 					if err != nil {
@@ -219,6 +219,7 @@ func (s *Service) policy(ctx context.Context, a *domain.Agent) (*Policy, error) 
 			})
 		}
 	}
+	UniqueConnNames(p.Conn)
 	return p, nil
 }
 

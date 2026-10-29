@@ -136,14 +136,6 @@
 .mount-body { display: flex; flex-direction: column; gap: var(--sp-6); min-width: 0; }
 .mount-title { margin: 0; font-size: var(--fs-xl); font-weight: 600; }
 .mount-desc { margin: 0; color: var(--muted); font-size: var(--fs-sm); line-height: 1.6; }
-.mnt-shortcuts { display: flex; flex-wrap: wrap; gap: var(--sp-3); }
-.mnt-cur { display: flex; align-items: center; gap: var(--sp-4); min-width: 0; font-size: var(--fs-sm); }
-.mnt-cur .mono { font-family: var(--mono); min-width: 0; flex: 1; }
-.mnt-list { list-style: none; margin: 0; padding: 0; max-height: 320px; overflow-y: auto; border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--panel); }
-.mnt-list li + li { border-top: 1px solid var(--line); }
-.mnt-item { display: block; width: 100%; padding: var(--sp-3) var(--sp-5); text-align: left; font: var(--fs-sm) var(--mono); background: none; overflow-wrap: anywhere; }
-.mnt-item:hover { background: var(--hover); }
-.mnt-muted { padding: var(--sp-3) var(--sp-5); color: var(--faint); font-size: var(--fs-sm); }
 .mnt-foot { display: flex; align-items: center; gap: var(--sp-3); flex-wrap: wrap; }
 
 /* ---------- 手机：内容树和阅读区二选一（SPEC-library-1.25） ---------- */

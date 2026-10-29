@@ -1,6 +1,6 @@
 // 视频插件的小部件：阶段进度条、状态胶囊、比例标签、模块标签栏、阶段分布条（照原型 videos.tsx 的 StageBar、VideosTabs、StageDist）
 import type { CSSProperties } from 'react'
-import type { Video, VideoCoverRatio, VideoOrientation } from '../../core/data'
+import { useVideoClips, type Video, type VideoCoverRatio, type VideoOrientation } from '../../core/data'
 import { Pill, cls } from '../../core/ui'
 import {
   ORIENT, STAGES, STAGE_FILTERS, TONE_COLOR, needsMe, orientText, stageIndex, stageLabel, stageOf, stepState, videoState, type StageFilter,
@@ -33,19 +33,25 @@ export const OrientTag = ({ o, large }: { o: VideoOrientation; large?: boolean }
   <span className={cls('vd-otag', large && 'vd-otag-lg')} title={orientText(o)}><OrientShape o={o} />{large ? orientText(o) : ORIENT[o].ratio}</span>
 )
 
-export type ModuleTab = 'all' | 'review' | 'series'
-const MODULE_TABS: { key: ModuleTab; label: string }[] = [{ key: 'all', label: '全部视频' }, { key: 'review', label: '待我处理' }, { key: 'series', label: '系列' }]
+export type ModuleTab = 'all' | 'review' | 'topics' | 'clips' | 'series'
+const MODULE_TABS: { key: ModuleTab; label: string }[] = [
+  { key: 'all', label: '全部视频' }, { key: 'review', label: '待我处理' }, { key: 'topics', label: '选题' }, { key: 'clips', label: '素材收件箱' },
+  { key: 'series', label: '系列' },
+]
 
-/** 模块标签栏：放在顶栏下面；「待我处理」后面是停在检查点或被退回的集数，为 0 不显示 */
+/** 模块标签栏：放在顶栏下面；「待我处理」后面是停在检查点或被退回的集数，「素材收件箱」后面是待整理的条数，为 0 不显示 */
 export function VideosTabs({ active, videos, onSelect }: { active: ModuleTab; videos: Video[]; onSelect: (t: ModuleTab) => void }) {
   const review = videos.filter(needsMe).length
+  const todo = (useVideoClips().data ?? []).filter((c) => !c.triaged).length
   return (
     <div className="vd-mtabs" role="tablist" aria-label="视频">
       {MODULE_TABS.map((t) => (
         <button key={t.key} type="button" role="tab" aria-selected={active === t.key} className={cls(active === t.key && 'on')}
-          title={t.key === 'review' && review ? `${review} 集停在检查点或被退回` : undefined} onClick={() => onSelect(t.key)}>
+          title={t.key === 'review' && review ? `${review} 集停在检查点或被退回` : t.key === 'clips' && todo ? `${todo} 条素材待整理` : undefined}
+          onClick={() => onSelect(t.key)}>
           {t.label}
           {t.key === 'review' && review > 0 && <span className="vd-mtab-n" aria-label={`${review} 集待处理`}>{review}</span>}
+          {t.key === 'clips' && todo > 0 && <span className="vd-mtab-n" aria-label={`${todo} 条待整理`}>{todo}</span>}
         </button>
       ))}
     </div>
