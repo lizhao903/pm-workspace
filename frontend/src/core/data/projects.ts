@@ -27,12 +27,18 @@ export type ProjectView = {
   related: RelatedDir[]
   /** props.sop_ids：关联的 SOP 流程 id，按关联先后 */
   sopIds: string[]
+  /** props.agent_ids：项目 Agent，第一个是默认（SPEC-projects-10） */
+  agentIds: string[]
+  /** props.session_ids：在项目里开的会话；后端会话没有 project_id，先记在项目这边（PR-21） */
+  sessionIds: string[]
   created_at: string
   updated_at: string
 }
 
 const isRec = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v)
 const str = (v: unknown) => (typeof v === 'string' ? v : '')
+/** id 列表：只留非空字符串并去重，保持先后 */
+const idList = (v: unknown): string[] => (Array.isArray(v) ? [...new Set(v.filter((x): x is string => typeof x === 'string' && !!x))] : [])
 
 /** props 里的值不可信（后端不校验），取不到的按空值处理 */
 export function projectView(o: WorkObject): ProjectView {
@@ -44,15 +50,15 @@ export function projectView(o: WorkObject): ProjectView {
   const related = Array.isArray(p.related)
     ? p.related.filter(isRec).map((r) => ({ path: str(r.path), label: str(r.label) }))
     : []
-  const sopIds = Array.isArray(p.sop_ids) ? [...new Set(p.sop_ids.filter((x): x is string => typeof x === 'string' && !!x))] : []
+  const sopIds = idList(p.sop_ids)
   return {
     id: o.id, ref: o.ref, name: o.title, desc: o.body, status: o.status, color: str(p.color), mark,
-    root: o.workdir, related, sopIds, created_at: o.created_at, updated_at: o.updated_at,
+    root: o.workdir, related, sopIds, agentIds: idList(p.agent_ids), sessionIds: idList(p.session_ids), created_at: o.created_at, updated_at: o.updated_at,
   }
 }
 
 /** 存在 props 里的几个字段 */
-export type ProjectProps = { color?: string; mark?: ProjectMark; related?: RelatedDir[]; sop_ids?: string[] }
+export type ProjectProps = { color?: string; mark?: ProjectMark; related?: RelatedDir[]; sop_ids?: string[]; agent_ids?: string[]; session_ids?: string[] }
 
 /** 把改动合并进读回来的最新 props，别的 key（agent_ids、sop_ids 等）原样留着 */
 export function mergeProjectProps(current: Record<string, unknown> | null, edit: ProjectProps): Record<string, unknown> {
@@ -66,6 +72,8 @@ export function mergeProjectProps(current: Record<string, unknown> | null, edit:
   }
   if (edit.related !== undefined) out.related = edit.related.map((r) => ({ path: r.path, label: r.label }))
   if (edit.sop_ids !== undefined) out.sop_ids = [...edit.sop_ids]
+  if (edit.agent_ids !== undefined) out.agent_ids = [...edit.agent_ids]
+  if (edit.session_ids !== undefined) out.session_ids = [...edit.session_ids]
   return out
 }
 

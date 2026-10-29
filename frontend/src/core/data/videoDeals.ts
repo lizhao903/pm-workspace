@@ -4,6 +4,8 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { request, requestList } from '../api'
 import { useNotifyChange } from './invalidate'
+import { dataKeys } from './keys'
+import { projectConversationsApi } from './projectConversations'
 import { todayKeys } from './today'
 import type { VideoPlatform } from './videoTopics'
 
@@ -88,6 +90,26 @@ export const videoDealApi = {
 /** 全部商单，按新建先后；按项目筛在前端做 */
 export function useVideoDeals(opts: { enabled?: boolean } = {}) {
   return useQuery({ queryKey: videoDealKeys.list, queryFn: ({ signal }) => videoDealApi.list(signal), enabled: opts.enabled ?? true })
+}
+
+/**
+ * IM 消息转商单时挑项目（SPEC-videos-16.11）：绑了这条消息所在会话的项目，按传进来的先后取第一个；都没绑或没有会话时取第一个项目。
+ * 点「转为商单」时才查各项目绑的会话，查不到的项目跳过
+ */
+export function useDealProjectResolver() {
+  const qc = useQueryClient()
+  return async (conversationId: string | null, projectIds: readonly string[]): Promise<string> => {
+    if (conversationId) {
+      const hits = await Promise.all(projectIds.map((pid) => qc.fetchQuery({
+        queryKey: dataKeys.projectConversations(pid),
+        queryFn: ({ signal }) => projectConversationsApi.list(pid, signal),
+        staleTime: 30_000,
+      }).then((xs) => xs.some((c) => c.conversation_id === conversationId), () => false)))
+      const i = hits.indexOf(true)
+      if (i >= 0) return projectIds[i]
+    }
+    return projectIds[0] ?? ''
+  }
 }
 
 /** 报价参考，平台一变重新取 */

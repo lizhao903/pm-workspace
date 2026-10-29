@@ -117,6 +117,8 @@ export type VideoArtifact = {
   reviews: VideoArtifactReview[]
   /** 只有封面有 */
   picked?: boolean
+  /** 封面在 A/B 测试里输掉后归档（VID-05b），记录和文件都留着 */
+  archived?: boolean
   created_at: string
   updated_at: string
 }

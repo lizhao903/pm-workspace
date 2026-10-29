@@ -1,9 +1,10 @@
 // 项目详情的「商单」标签（SPEC-videos-16.1 到 16.3、16.15，照原型 web-next/src/videodeals.tsx 的 DealsTab）。
 // 经 core/plugin 的 projectTabs 登记，项目插件只负责摆标签。抽屉用查询参数：?deal=<id> 打开一单（今日卡片跳过来也是它），
-// ?new=1 新建，带 &message=<IM 消息 id> 时按这条消息预填（给 IM 消息抽屉「转为商单」留的入口）
-import { useSearchParams } from 'react-router'
+// ?new=1 新建，带 &message=<IM 消息 id> 时按这条消息预填询价人、品牌（IM 消息抽屉「转为商单」跳过来，VID-08e）。
+// 新建的单挂到了别的项目时跳到那个项目的「商单」标签（SPEC-videos-16.12）
+import { useNavigate, useSearchParams } from 'react-router'
 import { useState } from 'react'
-import { errorText, useVideoDeals, useVideos, type VideoDeal } from '../../core/data'
+import { errorText, useContacts, useImMessage, useVideoDeals, useVideos, type Video, type VideoDeal } from '../../core/data'
 import { Button, EmptyState, ErrorState, LoadingState, Pill, cls } from '../../core/ui'
 import { DealDrawer } from './DealDrawer'
 import { DEAL_STATUS, dealStats, money, payText, splitDeals } from './dealModel'
@@ -12,6 +13,7 @@ import './deals.css'
 export default function DealsTab({ projectId }: { projectId: string }) {
   const deals = useVideoDeals()
   const videos = useVideos()
+  const navigate = useNavigate()
   const [params, setParams] = useSearchParams()
   const [showClosed, setShowClosed] = useState(false)
   const openId = params.get('deal')
@@ -21,6 +23,10 @@ export default function DealsTab({ projectId }: { projectId: string }) {
   const setQuery = (next: Record<string, string>) => setParams(next, { replace: true })
   const open = (id: string) => setQuery({ deal: id })
   const close = () => setQuery({})
+  const created = (d: VideoDeal) => {
+    if (d.project_id === projectId) open(d.id)
+    else navigate(`/projects/${encodeURIComponent(d.project_id)}/deals?deal=${encodeURIComponent(d.id)}`, { replace: true })
+  }
 
   if (deals.isPending) return <LoadingState />
   if (deals.isError) return <ErrorState title="商单没加载出来" error={errorText(deals.error)} onRetry={() => void deals.refetch()} />
@@ -75,13 +81,26 @@ export default function DealsTab({ projectId }: { projectId: string }) {
         </div>
       )}
       {creating && (
-        <DealDrawer key={`new-${message}`} deal={null} videos={vs} initial={{ project_id: projectId, source_message_id: message }}
-          onClose={close} onCreated={(d) => open(d.id)} />
+        <NewDeal key={`new-${message}`} projectId={projectId} message={message} videos={vs} onClose={close} onCreated={created} />
       )}
-      {!creating && current && <DealDrawer key={current.id} deal={current} videos={vs} onClose={close} onCreated={(d) => open(d.id)} />}
+      {!creating && current && <DealDrawer key={current.id} deal={current} videos={vs} onClose={close} onCreated={created} />}
       {!creating && openId && !current && (
         <div className="dl-gone" role="status">这条商单不存在或已删除 <Button size="sm" onClick={close}>知道了</Button></div>
       )}
     </div>
+  )
+}
+
+/** 新建抽屉；带来源消息时先取消息和联系人，询价人是发信人认上的联系人，品牌取他的公司。取不到（IM 没在跑、消息删了）就只记来源 */
+function NewDeal({ projectId, message, videos, onClose, onCreated }: {
+  projectId: string; message: string; videos: Video[]; onClose: () => void; onCreated: (d: VideoDeal) => void
+}) {
+  const m = useImMessage(message || null)
+  const contacts = useContacts()
+  if (message && (m.isPending || contacts.isPending)) return null
+  const c = m.data?.stakeholder_id ? contacts.data?.find((x) => x.id === m.data!.stakeholder_id) : undefined
+  return (
+    <DealDrawer deal={null} videos={videos} onClose={onClose} onCreated={onCreated}
+      initial={{ project_id: projectId, source_message_id: message, contact_id: c?.id ?? '', brand: c?.company ?? '' }} />
   )
 }

@@ -59,9 +59,9 @@ function fakeBackend(seed: VideoDeal[]) {
   return { calls, deals }
 }
 
-function setup(url = '/projects/obj_pj/deals') {
+function setup(url = '/projects/obj_pj/deals', projectId = 'obj_pj') {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-  const router = createMemoryRouter([{ path: '*', element: <DealsTab projectId="obj_pj" /> }], { initialEntries: [url] })
+  const router = createMemoryRouter([{ path: '*', element: <DealsTab projectId={projectId} /> }], { initialEntries: [url] })
   render(<QueryClientProvider client={qc}><RouterProvider router={router} /></QueryClientProvider>)
   return router
 }
@@ -86,6 +86,31 @@ describe('商单标签', () => {
     expect(post.body).toMatchObject({ project_id: 'obj_pj', brand: '远川科技', title: '正式报价短片', contact_id: 'stk_a', source_message_id: 'msg_1' })
     await waitFor(() => expect(router.state.location.search).toBe('?deal=deal_new1'))
     expect(await screen.findByRole('dialog', { name: '正式报价短片' })).toBeInTheDocument()
+  })
+
+  it('从 IM 消息转过来（?new=1&message=）：询价人、品牌按消息预填；挂到别的项目时跳过去', async () => {
+    const be = fakeBackend([])
+    const router = setup('/projects/obj_pj/deals?new=1&message=msg_1')
+    const drawer = await screen.findByRole('dialog', { name: '新建商单' })
+    expect(await within(drawer).findByText('采购流程这边需要一份正式的报价')).toBeInTheDocument()
+    expect(within(drawer).getByDisplayValue('远川科技')).toBeInTheDocument()
+    expect(within(drawer).getByRole('button', { name: '询价人' })).toHaveTextContent('梁晚晴')
+    await userEvent.type(within(drawer).getByPlaceholderText('比如：新品上线短片'), '正式报价短片')
+    await userEvent.click(within(drawer).getByRole('button', { name: '创建' }))
+    await waitFor(() => expect(router.state.location.search).toBe('?deal=deal_new1'))
+    expect(be.calls.find((c) => c.method === 'POST')?.body).toMatchObject({ contact_id: 'stk_a', brand: '远川科技', source_message_id: 'msg_1' })
+  })
+
+  it('新建的单挂到别的项目时跳到那个项目的商单标签', async () => {
+    fakeBackend([])
+    const router = setup('/projects/obj_other/deals?new=1', 'obj_other')
+    const drawer = await screen.findByRole('dialog', { name: '新建商单' })
+    await userEvent.type(within(drawer).getByPlaceholderText('比如：远川科技'), '远川科技')
+    await userEvent.type(within(drawer).getByPlaceholderText('比如：新品上线短片'), '短片')
+    await userEvent.click(within(drawer).getByRole('button', { name: '项目' }))
+    await userEvent.click(await screen.findByRole('option', { name: /远川权限改造/ }))
+    await userEvent.click(within(drawer).getByRole('button', { name: '创建' }))
+    await waitFor(() => expect(router.state.location.pathname + router.state.location.search).toBe('/projects/obj_pj/deals?deal=deal_new1'))
   })
 
   it('账期快到的单有提示；发布满 7 天能出结案报告，出过以后能打开', async () => {

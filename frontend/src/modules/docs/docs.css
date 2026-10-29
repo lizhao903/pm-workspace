@@ -184,6 +184,9 @@
 @media (min-width: 761px) and (max-width: 900px) {
   .lib-bar:has(.lib-proj-filter) { gap: var(--sp-4); }
   .lib-bar:has(.lib-proj-filter) .filter-row { min-width: 56px; }
+  /* 标题让出位置，标签下拉也能收窄，否则 768 宽有项目时整栏撑出视口 */
+  .lib-bar:has(.lib-proj-filter) .lib-bar-title { max-width: 26%; }
+  .lib-bar:has(.lib-proj-filter) .lib-tags { flex: 0 1 auto; min-width: 56px; overflow: hidden; }
   .lib-bar:has(.lib-proj-filter) .lib-new-text { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 }
 .lib-bar .lib-tags ~ .lib-proj-filter, .lib-bar .lib-proj-filter ~ .lib-new { margin-left: 0; }

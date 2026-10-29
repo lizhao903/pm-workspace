@@ -7,7 +7,7 @@
 // 规划检查顶上列内容编写里保存的文稿版本，只提醒不拦
 import { useState } from 'react'
 import {
-  errorText, projectView, useAdvanceVideo, useDecideCheckpoint, usePatchVideo, useVideoArtifacts, useVideoClips, useVideoTopics, useWatchVideoRun,
+  errorText, projectView, useAdvanceVideo, useDecideCheckpoint, usePatchVideo, useVideoArtifacts, useVideoClips, useVideoPublishes, useVideoTopics, useWatchVideoRun,
   type Video, type VideoArtifact,
   type VideoArtifactKind, type VideoCheckpointStage, type VideoCheckpointState, type VideoSeries, type VideoStageRunner,
 } from '../../core/data'
@@ -32,7 +32,7 @@ import { planDocs, useDeskStore } from './scriptModel'
 export type DetailTab = 'flow' | 'artifacts' | 'settings'
 const TABS: { key: DetailTab; label: string }[] = [{ key: 'flow', label: '制作流程' }, { key: 'artifacts', label: '产出物' }, { key: 'settings', label: '设置' }]
 
-export function Detail({ video, videos, series, projects, tab, from, openArt, onTab, onOpenArt, onModuleTab, onOpenSeries, onDeleted }: {
+export function Detail({ video, videos, series, projects, tab, from, openArt, onTab, onOpenArt, onModuleTab, onOpenSeries, onOpenPublishes, onDeleted }: {
   video: Video
   videos: Video[]
   series: VideoSeries[]
@@ -46,12 +46,15 @@ export function Detail({ video, videos, series, projects, tab, from, openArt, on
   onOpenArt: (id: string | null) => void
   onModuleTab: (t: ModuleTab) => void
   onOpenSeries: (id: string) => void
+  /** 发布记录只看这一集（SPEC-videos-10.12）；不传不显示按钮 */
+  onOpenPublishes?: (id: string) => void
   onDeleted: () => void
 }) {
   const v = video
   const sr = series.find((s) => s.id === v.series_id)
   const proj = v.project_id ? projects.find((p) => p.id === v.project_id)?.name ?? '已删除的项目' : ''
   const arts = useVideoArtifacts(v.id)
+  const pubCount = (useVideoPublishes({ enabled: !!onOpenPublishes }).data ?? []).filter((p) => p.video_id === v.id).length
   const mine = arts.data ?? []
   // 登记表单的草稿，右上「新增产出物」和标签里的「加一个」「缺」都往这里填
   const [draft, setDraft] = useState<NewArt | null>(null)
@@ -65,9 +68,12 @@ export function Detail({ video, videos, series, projects, tab, from, openArt, on
       <PageTitle
         parent={sr ? <button type="button" className="vd-crumb" onClick={() => onOpenSeries(sr.id)}>{sr.name}</button> : '视频'}
         desc={descText}
-        actions={tab === 'flow' && sr ? <Button variant="outline" onClick={() => onOpenSeries(sr.id)}>查看系列</Button>
-          : tab === 'artifacts' ? <Button variant="primary" disabled={!arts.data} onClick={() => setDraft(newDraft(v, mine, kindForStage(v.stage)))}>新增产出物</Button>
-            : undefined}
+        actions={<>
+          {pubCount > 0 && onOpenPublishes && <Button variant="outline" onClick={() => onOpenPublishes(v.id)}>发布记录<span className="seg-n">{pubCount}</span></Button>}
+          {tab === 'flow' && sr ? <Button variant="outline" onClick={() => onOpenSeries(sr.id)}>查看系列</Button>
+            : tab === 'artifacts' ? <Button variant="primary" disabled={!arts.data} onClick={() => setDraft(newDraft(v, mine, kindForStage(v.stage)))}>新增产出物</Button>
+              : null}
+        </>}
       >{v.title || '未命名视频'}</PageTitle>
       <VideosTabs active={from} videos={videos} onSelect={onModuleTab} />
       <div className="vd-dtabs" role="tablist" aria-label="视频详情">

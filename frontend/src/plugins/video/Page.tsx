@@ -3,7 +3,8 @@
 // /videos/v/<id> 视频详情的制作流程，/videos/v/<id>/settings 设置。打开详情时把来处的标签记在 location.state，标签栏高亮它。
 // VID-01d 加了 /videos/series 系列列表、/videos/v/<id>/artifacts 产出物（?a=<产出物 id> 打开抽屉）；从系列来的详情高亮「系列」。
 // VID-02b：制作流程里也列产出物，同样用 ?a= 打开抽屉。
-// VID-08c 加了 /videos/topics 选题（?t=<选题 id> 打开抽屉）、/videos/clips 素材收件箱；发布记录是后面的任务，到时再加标签
+// VID-08c 加了 /videos/topics 选题（?t=<选题 id> 打开抽屉）、/videos/clips 素材收件箱。
+// VID-05c 加了 /videos/publishes 发布记录（?video= 只看一集，?p= 发布抽屉，?t= 封面测试抽屉）
 import { Navigate, useLocation, useNavigate, useParams, useSearchParams } from 'react-router'
 import { ErrorState, LoadingState, PageTitle } from '../../core/ui'
 import { errorText, isApiError, projectView, useProjects, useVideo, useVideoClips, useVideoSeries, useVideoTopics, useVideos } from '../../core/data'
@@ -12,6 +13,7 @@ import { Detail } from './Detail'
 import { ListPage } from './ListPage'
 import type { ModuleTab } from './parts'
 import { routeOf, tabPath, viewKey, viewPath, type ListView } from './routes'
+import { PublishPage } from './PublishPage'
 import { SeriesPage } from './SeriesPage'
 import { TopicsPage } from './TopicsPage'
 import './video.css'
@@ -39,7 +41,7 @@ export default function Page() {
   const onView = (v: ListView) => go(viewPath(v))
   const openVideo = (id: string, tab: ModuleTab) => go(`/v/${encodeURIComponent(id)}`, { from: tab })
   const openSeries = (id: string) => onView({ kind: 'series', id })
-  const onModuleTab = (t: ModuleTab) => (t === 'series' || t === 'topics' || t === 'clips' ? go(`/${t}`) : onView({ kind: t }))
+  const onModuleTab = (t: ModuleTab) => (t === 'series' || t === 'topics' || t === 'clips' || t === 'publishes' ? go(`/${t}`) : onView({ kind: t }))
 
   const list = videos.data ?? []
   const seriesList = series.data ?? []
@@ -58,6 +60,10 @@ export default function Page() {
 
   if (route.kind === 'series-list') {
     return <SeriesPage series={seriesList} videos={list} onOpenSeries={openSeries} onModuleTab={onModuleTab} />
+  }
+
+  if (route.kind === 'publishes') {
+    return <PublishPage videos={list} onModuleTab={onModuleTab} onOpenVideo={(id) => openVideo(id, 'publishes')} />
   }
 
   if (route.kind === 'topics' || route.kind === 'clips') {
@@ -108,6 +114,7 @@ export default function Page() {
       onTab={(t) => go(`/v/${encodeURIComponent(v.id)}${tabPath(t)}`, { from }, true)}
       openArt={route.tab !== 'settings' ? search.get('a') : null}
       onOpenArt={(id) => setSearch(id ? { a: id } : {}, { replace: true, state: { from } })}
-      onModuleTab={onModuleTab} onOpenSeries={openSeries} onDeleted={() => go('', undefined, true)} />
+      onModuleTab={onModuleTab} onOpenSeries={openSeries} onOpenPublishes={(id) => go(`/publishes?video=${encodeURIComponent(id)}`)}
+      onDeleted={() => go('', undefined, true)} />
   )
 }

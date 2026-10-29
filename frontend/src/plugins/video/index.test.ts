@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { PLUGIN_API_VERSION, deactivatePlugin, discoverPlugins, loadPlugins, moduleStore, sopNodeView } from '../../core/plugin'
+import { PLUGIN_API_VERSION, deactivatePlugin, discoverPlugins, loadPlugins, moduleStore, sopNodeView, todayCardStore } from '../../core/plugin'
 
 describe('视频创作插件', () => {
   it('启用后注册视频模块，停用后撤掉', async () => {
@@ -12,9 +12,17 @@ describe('视频创作插件', () => {
     expect(sopNodeView('video_run_stage')?.label).toBe('跑视频阶段')
     expect(sopNodeView('video_wait_checkpoint')?.fields.find((f) => f.key === 'checkpoint')?.options?.().map((o) => o.value)).toEqual(['plan', 'ch1', 'audio', 'distribution'])
     expect(sopNodeView('video_run_stage')?.fields.find((f) => f.key === 'stage')?.options?.().map((o) => o.label)).not.toContain('规划检查')
+    // 今日卡片：视频三张和商单一张，停用后都撤掉（VID-07b）
+    const cards = () => todayCardStore.ofOwner('video').map((c) => c.key)
+    expect(cards()).toEqual(['video_waiting', 'video_scheduled', 'video_failed', 'video_deal_due'])
     expect(deactivatePlugin('video')).toBe(true)
     expect(moduleStore.ofOwner('video')).toEqual([])
     expect(sopNodeView('video_run_stage')).toBeUndefined()
+    expect(cards()).toEqual([])
+    // 重新启用后又出现
+    await loadPlugins(discoverPlugins(), { enabled: ['projects', 'video'], apiVersion: PLUGIN_API_VERSION })
+    expect(cards()).toHaveLength(4)
+    deactivatePlugin('video')
     deactivatePlugin('projects')
   })
 
