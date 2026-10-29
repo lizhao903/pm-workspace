@@ -1,5 +1,5 @@
 // 会话页的纯函数（AG-01a）：把落库的消息、流里的事件折成界面上的一条条消息，时间分段，提问的解析。
-import type { AgentMessage, Artifact, ChatEvent, QuestionOption } from '../../core/data'
+import type { Agent, AgentMessage, AgentProvider, AgentSession, Artifact, ChatEvent, QuestionOption } from '../../core/data'
 
 /** 新建会话的标题；第一句话发出后改成它的前 20 个字（SPEC-sessions-1.16） */
 export const NEW_TITLE = '新会话'
@@ -22,8 +22,9 @@ const TOOLS: Record<string, { label: string; write?: boolean }> = {
 export const toolLabel = (name: string) => TOOLS[name]?.label ?? name
 export const isWriteTool = (name: string) => !!TOOLS[name]?.write
 
-export type CallState = 'running' | 'done'
-export type CallView = { name: string; args: string; summary?: string; state: CallState }
+/** running 执行中、done 已执行；执行记录里要人确认的还有 pending 等你确认、confirmed 已确认执行、rejected 已拒绝 */
+export type CallState = 'running' | 'done' | 'pending' | 'confirmed' | 'rejected'
+export type CallView = { name: string; args: string; summary?: string; state: CallState; /** 要人确认的调用 id（atc_） */ id?: string }
 export type QuestionView = { id?: string; question: string; options: QuestionOption[]; multi: boolean }
 export type ChatMsgView = {
   id: string
@@ -176,4 +177,69 @@ export function artifactKind(a: Pick<Artifact, 'note' | 'url'>): ArtifactKind {
 export function avatarName(p: { name: string; kind: string } | undefined): string {
   if (!p) return '?'
   return /[A-Za-z][\w-]*/.exec(p.name)?.[0] ?? (p.name || p.kind)
+}
+
+/**
+ * 会话在和谁聊（AG-01b8）：挂了 Agent 的按 Agent（停用的照样返回，只能回看）；Agent 删了是 gone；
+ * Agent 列表还没取回是 pending（先不让发，也不显示成已删除）；不挂 Agent 的旧会话按服务商。
+ */
+export type ChatWho =
+  | { kind: 'agent'; agent: Agent }
+  | { kind: 'gone' }
+  | { kind: 'pending' }
+  | { kind: 'provider'; provider: AgentProvider | undefined }
+
+export function whoOf(
+  s: Pick<AgentSession, 'agent_id' | 'agent_deleted' | 'provider_id'>,
+  agents: readonly Agent[] | undefined,
+  providers: readonly AgentProvider[],
+): ChatWho {
+  if (!s.agent_id) return { kind: 'provider', provider: providers.find((p) => p.id === s.provider_id) }
+  if (s.agent_deleted) return { kind: 'gone' }
+  if (!agents) return { kind: 'pending' }
+  const agent = agents.find((a) => a.id === s.agent_id)
+  return agent ? { kind: 'agent', agent } : { kind: 'gone' }
+}
+
+export const GONE_AGENT = '已删除的 Agent'
+
+/** 列表、头部显示的名字 */
+export function whoName(w: ChatWho): string {
+  switch (w.kind) {
+    case 'agent': return w.agent.name || '未命名'
+    case 'gone': return GONE_AGENT
+    case 'pending': return 'Agent'
+    case 'provider': return w.provider ? w.provider.name || '未命名' : '已删除的服务商'
+  }
+}
+
+/** 能不能发消息；不能时 note 是输入框下面的提示（SPEC-sessions-1.26、1.27） */
+export function whoUsable(w: ChatWho): { usable: boolean; note?: string } {
+  switch (w.kind) {
+    case 'agent': return w.agent.enabled ? { usable: true } : { usable: false, note: '这个 Agent 已停用，只能回看' }
+    case 'gone': return { usable: false, note: '这个 Agent 已删除，只能回看' }
+    case 'pending': return { usable: false }
+    case 'provider':
+      if (!w.provider) return { usable: false, note: '这个服务商已删除，只能回看' }
+      return w.provider.enabled ? { usable: true } : { usable: false, note: '这个服务商已停用，只能回看' }
+  }
+}
+
+/** 会话筛选的取值：Agent id，或者下面两个特殊值 */
+export const FILTER_NO_AGENT = '-'
+export const FILTER_GONE = '~gone'
+
+/** 会话是否落在筛选里：空串全部；FILTER_NO_AGENT 是不挂 Agent 的；FILTER_GONE 是 Agent 已删除的 */
+export function matchAgentFilter(s: Pick<AgentSession, 'agent_id' | 'agent_deleted'>, filter: string): boolean {
+  if (!filter) return true
+  if (filter === FILTER_NO_AGENT) return !s.agent_id
+  if (filter === FILTER_GONE) return !!s.agent_id && !!s.agent_deleted
+  return s.agent_id === filter && !s.agent_deleted
+}
+
+/** 新会话面板的 Agent 顺序：最近聊过的在前，没聊过的保持原顺序（SPEC-sessions-1.6） */
+export function recentAgents(agents: readonly Agent[], sessions: readonly Pick<AgentSession, 'agent_id' | 'updated_at'>[]): Agent[] {
+  const last = new Map<string, string>()
+  for (const s of sessions) if (s.agent_id && (last.get(s.agent_id) ?? '') < s.updated_at) last.set(s.agent_id, s.updated_at)
+  return [...agents].sort((a, b) => (last.get(b.id) ?? '').localeCompare(last.get(a.id) ?? ''))
 }

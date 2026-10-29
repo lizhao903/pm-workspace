@@ -1,11 +1,14 @@
 // 对话面板（SPEC-sessions-1.14 到 1.20、1.26、1.31）：历史消息加正在进行的这一轮，输入框，示例问题，
 // Agent 的提问显示成选项按钮，点选后作为一条普通消息发出（契约「Agent 对话」的 question 事件）。
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { useAgentMessages, type AgentProvider, type AgentSession } from '../../core/data'
-import { Avatar, Button, ErrorState, LoadingState, cls } from '../../core/ui'
+import { useAgentMessages, type AgentSession } from '../../core/data'
+import { Button, ErrorState, LoadingState, cls } from '../../core/ui'
 import { CallCard } from './CallCard'
 import { dismissChat, sendChat, useLiveChat } from './chatLive'
-import { CHAT_EXAMPLES, NEW_TITLE, answerText, avatarName, foldHistory, foldLive, titleFrom, type ChatMsgView, type QuestionView } from './chatModel'
+import {
+  CHAT_EXAMPLES, NEW_TITLE, answerText, foldHistory, foldLive, titleFrom, whoName, whoUsable, type ChatMsgView, type ChatWho, type QuestionView,
+} from './chatModel'
+import { WhoAvatar } from './WhoAvatar'
 
 function QuestionCard({ q, active, onAnswer }: { q: QuestionView; active: boolean; onAnswer: (labels: string[]) => void }) {
   const [picked, setPicked] = useState<string[]>([])
@@ -32,10 +35,10 @@ function QuestionCard({ q, active, onAnswer }: { q: QuestionView; active: boolea
   )
 }
 
-function AgentBubble({ m, avatar, children }: { m: ChatMsgView; avatar: string; children?: ReactNode }) {
+function AgentBubble({ m, avatar, children }: { m: ChatMsgView; avatar: ReactNode; children?: ReactNode }) {
   return (
     <div className="ai-msg ai-ai" data-role="agent">
-      <Avatar name={avatar} size={24} />
+      {avatar}
       <div className="ai-bubble">
         {m.calls.length > 0 && <div className="call-list">{m.calls.map((c, i) => <CallCard key={i} call={c} />)}</div>}
         {m.text && <div className="pre-line">{m.text}</div>}
@@ -48,10 +51,10 @@ function AgentBubble({ m, avatar, children }: { m: ChatMsgView; avatar: string; 
   )
 }
 
-export function ChatPane({ session, provider, head, autoSend, onRetitle }: {
+export function ChatPane({ session, who, head, autoSend, onRetitle }: {
   session: AgentSession
-  /** 会话用的服务商；undefined 表示已删除 */
-  provider: AgentProvider | undefined
+  /** 和谁聊：Agent（停用、删除只能回看），或不挂 Agent 的旧会话的服务商 */
+  who: ChatWho
   head?: ReactNode
   /** 刚建的空会话自动发出去的第一句话，只发一次 */
   autoSend?: string
@@ -63,11 +66,11 @@ export function ChatPane({ session, provider, head, autoSend, onRetitle }: {
   const [text, setText] = useState('')
   const listRef = useRef<HTMLDivElement>(null)
 
-  const agentName = provider?.name || '已删除的服务商'
-  const avatar = avatarName(provider)
-  // 服务商停用、删除后只能回看：按钮、⌘Enter、示例问题、提问选项都从 send 拦
-  const usable = !!provider?.enabled
-  const note = !provider ? '这个服务商已删除，只能回看' : !provider.enabled ? '这个服务商已停用，只能回看' : undefined
+  const agentName = whoName(who)
+  const avatar = <WhoAvatar who={who} size={24} />
+  // Agent（或旧会话的服务商）停用、删除后只能回看：按钮、⌘Enter、示例问题、提问选项都从 send 拦
+  const { usable, note } = whoUsable(who)
+  const hint = who.kind === 'provider' ? '⌘Enter 发送；Agent 的工具会直接执行，提问会给出选项' : '⌘Enter 发送；写操作按权限停下来等你确认'
   const busy = liveRaw?.phase === 'streaming'
 
   const history = useMemo(() => foldHistory(msgs.data ?? []), [msgs.data])
@@ -138,12 +141,12 @@ export function ChatPane({ session, provider, head, autoSend, onRetitle }: {
           </AgentBubble>
         ) : null}
         {busy && !liveMsg?.text && (
-          <div className="ai-msg ai-ai"><Avatar name={avatar} size={24} />
+          <div className="ai-msg ai-ai">{avatar}
             <div className="ai-bubble ai-typing" role="status" aria-label="正在输入"><span /><span /><span /></div>
           </div>
         )}
         {live?.phase === 'failed' && (
-          <div className="ai-msg ai-ai"><Avatar name={avatar} size={24} />
+          <div className="ai-msg ai-ai">{avatar}
             <div className="ai-bubble ai-failed" role="alert">
               <div>回复失败：{live.error}</div>
               <div className="act-row">
@@ -164,13 +167,13 @@ export function ChatPane({ session, provider, head, autoSend, onRetitle }: {
       <div className="ai-input">
         <div className="ai-box">
           <textarea rows={2} value={text} aria-label="消息"
-            placeholder={usable ? `和${agentName}对话…` : '只能回看，不能再发消息'}
+            placeholder={usable ? `和 ${agentName} 对话…` : '只能回看，不能再发消息'}
             onChange={(e) => setText(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && !e.nativeEvent.isComposing) { e.preventDefault(); submit() }
             }} />
           <div className="ai-box-foot">
-            <span className="field-hint-line">{note ?? '⌘Enter 发送；Agent 的工具会直接执行，提问会给出选项'}</span>
+            <span className="field-hint-line">{note ?? hint}</span>
             <Button size="sm" variant="primary" disabled={!text.trim() || busy || !usable} title={note} onClick={submit}>发送</Button>
           </div>
         </div>

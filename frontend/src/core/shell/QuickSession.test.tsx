@@ -22,12 +22,18 @@ const provider = (id: string, name: string, over: Record<string, unknown> = {}) 
   id, name, kind: 'openai', base_url: '', model: name.toLowerCase() + '-model', enabled: true, is_default: false,
   api_key_masked: '', has_api_key: true, extra: {}, created_at: '', updated_at: '', ...over,
 })
+const agent = (id: string, name: string, over: Record<string, unknown> = {}) => ({
+  id, name, desc: name + '的说明', color: '#3d4fd6', avatar: { kind: 'text', value: '' }, provider_id: 'p1', model: 'alpha-model',
+  instructions: '', skills: [], mcps: [], kbs: [], triggers: [], enabled: true, created_at: '', updated_at: '', ...over,
+})
+let agents: unknown[] = []
 const json = (data: unknown, status = 200) => Promise.resolve(new Response(JSON.stringify({ data }), { status }))
 
 let created: unknown[] = []
 function backend(url: RequestInfo | URL, init?: RequestInit): Promise<Response> {
   const u = String(url)
   if (u.includes('/api/workspaces')) return json(null, 500)
+  if (u.includes('/api/agents')) return json(agents)
   if (u.includes('/api/agent-providers')) {
     return json([provider('p1', 'Alpha'), provider('p2', 'Beta', { is_default: true }), provider('p3', 'Off', { enabled: false })])
   }
@@ -35,7 +41,9 @@ function backend(url: RequestInfo | URL, init?: RequestInit): Promise<Response> 
     created.push(JSON.parse(String(init.body)))
     return json({ id: 'ss_new', title: '新会话', object_id: null, provider_id: 'p1', model: 'alpha-model', workdir: '', created_at: '', updated_at: '', message_count: 0 })
   }
-  if (u.includes('/api/agent/sessions')) return json([])
+  if (u.includes('/api/agent/sessions')) {
+    return json([{ id: 'ss_old', title: '旧', object_id: null, provider_id: 'p1', model: 'm', workdir: '', agent_id: 'a2', agent_deleted: false, created_at: '', updated_at: '', message_count: 1 }])
+  }
   return new Promise<Response>(() => {})
 }
 
@@ -55,15 +63,44 @@ function renderShell() {
 describe('快速新建会话', () => {
   beforeEach(() => {
     created = []
+    agents = [agent('a1', '分诊助手'), agent('a2', '周报助手'), agent('a3', '停用的', { enabled: false })]
     vi.stubGlobal('fetch', vi.fn(backend))
     localStorage.clear()
   })
   afterEach(() => vi.unstubAllGlobals())
 
-  it('侧栏按钮打开，默认选默认服务商，停用的不出现；回车建会话、跳到会话页，第一句话留给会话页发', async () => {
+  it('侧栏按钮打开，默认选上次用的 Agent，停用的不出现；回车按 Agent 建会话、跳到会话页（SPEC-sessions-4）', async () => {
     renderShell()
     await userEvent.click(await screen.findByRole('button', { name: '新建会话' }))
     const dialog = await screen.findByRole('dialog', { name: '快速新建会话' })
+    expect(await screen.findByRole('radio', { name: /周报助手/ })).toHaveAttribute('aria-checked', 'true')
+    expect(screen.getByText('周报助手的说明')).toBeInTheDocument()
+    expect(screen.queryByRole('radio', { name: /停用的/ })).not.toBeInTheDocument()
+    await userEvent.click(screen.getByRole('radio', { name: /分诊助手/ }))
+    const input = screen.getByRole('textbox', { name: '第一句话' })
+    expect(input).toHaveFocus()
+    expect(input).toHaveAttribute('placeholder', '问 分诊助手 点什么；留空就只开一个空会话')
+    await userEvent.type(input, '今天谁找我了{Enter}')
+    expect(await screen.findByText('会话页 ss_new')).toBeInTheDocument()
+    expect(dialog).not.toBeInTheDocument()
+    expect(created).toEqual([{ agent_id: 'a1', title: '新会话' }])
+    expect(firstMessageOf('ss_new')).toBe('今天谁找我了')
+  })
+
+  it('所有 Agent 都停用：提示去设置启用，没有输入框（SPEC-sessions-4.9）', async () => {
+    agents = [agent('a3', '停用的', { enabled: false })]
+    renderShell()
+    await userEvent.click(await screen.findByRole('button', { name: '新建会话' }))
+    expect(await screen.findByText('所有 Agent 都停用了，先到「设置 / Agent」里启用一个')).toBeInTheDocument()
+    expect(screen.getByText('没有可用的 Agent')).toBeInTheDocument()
+    expect(screen.queryByRole('textbox', { name: '第一句话' })).not.toBeInTheDocument()
+  })
+
+  it('「更多」里按服务商开：默认选默认服务商，停用的不出现', async () => {
+    renderShell()
+    await userEvent.click(await screen.findByRole('button', { name: '新建会话' }))
+    const dialog = await screen.findByRole('dialog', { name: '快速新建会话' })
+    await userEvent.click(await screen.findByRole('button', { name: '更多：不选 Agent，用服务商' }))
     expect(await screen.findByRole('radio', { name: /Beta/ })).toHaveAttribute('aria-checked', 'true')
     expect(screen.queryByRole('radio', { name: /Off/ })).not.toBeInTheDocument()
     await userEvent.click(screen.getByRole('radio', { name: /Alpha/ }))

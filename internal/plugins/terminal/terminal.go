@@ -96,6 +96,11 @@ func (h *handlers) create(w http.ResponseWriter, r *http.Request) {
 		h.fail(w, r, err)
 		return
 	}
+	// 起 shell 要用户确认过 process:spawn（SEC-01）
+	if err := plugin.Require(h.c, "process:spawn"); err != nil {
+		h.fail(w, r, apiErr(errConflict, "%s", err.Error()))
+		return
+	}
 	cols, rows := 80, 24
 	if in.Cols != nil {
 		cols = *in.Cols
@@ -135,8 +140,9 @@ func (h *handlers) projectRoot(ctx context.Context, id string) (string, error) {
 	return o.Workdir, nil
 }
 
-// checkCwd：空串取用户主目录；否则必须是存在的绝对目录。
+// checkCwd：空串取用户主目录；否则必须是存在的绝对目录。file:// 地址先转成本机路径。
 func checkCwd(cwd string) (string, error) {
+	cwd = plugin.LocalDir(cwd)
 	if strings.TrimSpace(cwd) == "" {
 		home, err := os.UserHomeDir()
 		if err != nil {

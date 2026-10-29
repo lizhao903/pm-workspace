@@ -203,7 +203,7 @@ func TestPluginManagementWithoutRegistry(t *testing.T) {
 	if w.Code != http.StatusOK || len(decodeEnvelope(t, w)["data"].([]any)) != 0 {
 		t.Fatalf("没接注册表时 GET /api/plugins = %d %s", w.Code, w.Body.String())
 	}
-	for _, act := range []string{"install", "enable", "disable", "uninstall"} {
+	for _, act := range []string{"install", "enable", "disable", "uninstall", "upgrade"} {
 		assertError(t, do(s, http.MethodPost, "/api/plugins/demo/"+act, ""), http.StatusNotFound, "not_found")
 	}
 }

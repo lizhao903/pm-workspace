@@ -95,7 +95,7 @@ export function Shell({ modules }: { modules: ModuleDef[] }) {
   const buildItems = (): PaletteItem[] => [
     { id: 'k-theme', group: '操作', title: resolved === 'dark' ? '切换到浅色' : '切换到深色', keywords: '配色 主题 dark light 外观', run: () => setTheme(resolved === 'dark' ? 'light' : 'dark') },
     ...(pref === 'system' ? [] : [{ id: 'k-theme-system', group: '操作', title: '配色跟随系统', keywords: '配色 主题 system 外观', run: () => setTheme('system') }]),
-    ...(convPath ? [{ id: 'k-quick-session', group: '操作', title: '新建会话', sub: '挑个服务商直接开聊（' + modKey() + 'J）', keywords: 'session chat agent 会话 对话 新建', run: openQuick }] : []),
+    ...(convPath ? [{ id: 'k-quick-session', group: '操作', title: '新建会话', sub: '挑个 Agent 直接开聊（' + modKey() + 'J）', keywords: 'session chat agent 会话 对话 新建', run: openQuick }] : []),
     { id: 'k-side', group: '操作', title: collapsed ? '展开左侧菜单' : '收起左侧菜单', keywords: '侧栏 菜单 sidebar', run: () => setCollapsed(!collapsed) },
     ...registeredCommands().map(toItem),
     ...[...menu.groups.flatMap((g) => g.items), ...menu.foot].map((m) => ({

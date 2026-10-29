@@ -53,7 +53,7 @@ export function PluginDrawer({ plugin, list, actions, onClose }: {
           <Row label="版本">
             {plugin.version}
             {plugin.installed && plugin.installed_version && plugin.installed_version !== plugin.version && `（已装 ${plugin.installed_version}）`}
-            {plugin.upgradable && <span className="plg-risk plg-risk-info">可升级，升级入口还没做</span>}
+            {plugin.upgradable && <span className="plg-risk plg-risk-info">可升级</span>}
           </Row>
           {plugin.installed && plugin.installed_at && <Row label="安装时间">{when(plugin.installed_at)}</Row>}
           {plugin.installed && plugin.enabled && !plugin.running && (
@@ -80,6 +80,7 @@ export function PluginDrawer({ plugin, list, actions, onClose }: {
               <Row key={p} label={RISK_LABEL[info.risk]}>
                 {info.text} <code className="plg-code">{p}</code>
                 {plugin.permissions_confirmed.includes(p) && <span className="plg-muted">已确认</span>}
+                {plugin.installed && !plugin.permissions_confirmed.includes(p) && <span className="plg-risk">还没确认，升级时确认</span>}
               </Row>
             )
           })}

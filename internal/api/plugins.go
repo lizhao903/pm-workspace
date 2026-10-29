@@ -19,6 +19,7 @@ func (s *Server) pluginRoutes(m routeRegistrar) {
 	m.HandleFunc("POST /api/plugins/{id}/enable", s.handleEnablePlugin)
 	m.HandleFunc("POST /api/plugins/{id}/disable", s.handleDisablePlugin)
 	m.HandleFunc("POST /api/plugins/{id}/uninstall", s.handleUninstallPlugin)
+	m.HandleFunc("POST /api/plugins/{id}/upgrade", s.handleUpgradePlugin)
 
 	if s.opt.Plugins == nil {
 		return
@@ -215,6 +216,61 @@ func (s *Server) handleDisablePlugin(w http.ResponseWriter, r *http.Request) {
 	s.respondPlugin(w, r, id, nil)
 }
 
+type upgradePluginReq struct {
+	// Permissions 是用户确认过的新增权限，必须覆盖新版本清单里还没确认过的那几条（plugin-api.md 3.2、4.5）
+	Permissions []string `json:"permissions"`
+}
+
+// handleUpgradePlugin：版本变了才能升；新增权限没确认 409 并在 error.permissions 列出；
+// 有待应用的迁移时先打快照再跑迁移，在跑的插件按新版本重新注册（4.5）。
+func (s *Server) handleUpgradePlugin(w http.ResponseWriter, r *http.Request) {
+	id, ok := s.pluginOr404(w, r)
+	if !ok {
+		return
+	}
+	var req upgradePluginReq
+	if err := decodeOptionalBody(r, &req); err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	reg := s.opt.Plugins
+	if err := reg.CheckUpgrade(id, req.Permissions); err != nil {
+		s.pluginFail(w, r, err)
+		return
+	}
+	before, err := reg.Get(id)
+	if err != nil {
+		s.pluginFail(w, r, err)
+		return
+	}
+	var backup *string
+	steps, err := reg.MigrationSteps(r.Context(), id)
+	if err != nil && !errors.Is(err, plugin.ErrNotFound) {
+		s.fail(w, r, err)
+		return
+	}
+	for _, step := range steps {
+		if step.Applied == nil {
+			info, err := s.st.Snapshot(r.Context(), "")
+			if err != nil {
+				s.fail(w, r, err)
+				return
+			}
+			backup = &info.Path
+			break
+		}
+	}
+	if err := reg.Upgrade(r.Context(), id, req.Permissions); err != nil {
+		s.pluginFail(w, r, err)
+		return
+	}
+	s.auditConfig(r, "upgrade", "plugin", id, "升级插件 "+id, map[string]any{
+		"from": before.State.Version, "to": before.Manifest.Version,
+		"permissions": before.NewPermissions(), "backup": backup,
+	})
+	s.respondPlugin(w, r, id, map[string]any{"backup": backup, "from": before.State.Version})
+}
+
 type uninstallPluginReq struct {
 	DeleteData bool `json:"delete_data"`
 	// Confirm 是删数据的二次确认，必须等于插件 id
@@ -268,22 +324,25 @@ type pluginErrBody struct {
 		Code       string   `json:"code"`
 		Message    string   `json:"message"`
 		Dependents []string `json:"dependents,omitempty"`
+		// Permissions 是升级时新增、还没确认的权限
+		Permissions []string `json:"permissions,omitempty"`
 	} `json:"error"`
 }
 
 // pluginFail 把注册表的错误映射成契约错误码：没有这个插件 404，权限没确认 400，
-// 状态不对、被依赖、插件拒绝停用、依赖或版本不满足 409；其余交给 fail。
+// 状态不对、被依赖、插件拒绝停用、依赖或版本不满足、升级新增的权限没确认 409；其余交给 fail。
 func (s *Server) pluginFail(w http.ResponseWriter, r *http.Request, err error) {
 	var de *plugin.DependentsError
 	var ge *plugin.GuardError
 	var ve *plugin.ValidationError
+	var pe *plugin.UpgradePermissionsError
 	status, code := 0, ""
 	switch {
 	case errors.Is(err, plugin.ErrNotFound):
 		status, code = http.StatusNotFound, "not_found"
 	case errors.Is(err, plugin.ErrUnconfirmed):
 		status, code = http.StatusBadRequest, "validation"
-	case errors.As(err, &de), errors.As(err, &ge), errors.As(err, &ve), errors.Is(err, plugin.ErrState):
+	case errors.As(err, &de), errors.As(err, &ge), errors.As(err, &ve), errors.As(err, &pe), errors.Is(err, plugin.ErrState):
 		status, code = http.StatusConflict, "conflict"
 	default:
 		s.fail(w, r, err)
@@ -293,6 +352,9 @@ func (s *Server) pluginFail(w http.ResponseWriter, r *http.Request, err error) {
 	b.Error.Code, b.Error.Message = code, err.Error()
 	if de != nil {
 		b.Error.Dependents = de.Dependents
+	}
+	if pe != nil {
+		b.Error.Permissions = pe.Missing
 	}
 	writeJSON(w, status, b)
 }

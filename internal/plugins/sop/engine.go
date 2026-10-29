@@ -316,6 +316,10 @@ func (r *runner) resume() {
 			r.log(i, t, "服务重启后继续等待，到点时间不变")
 		case kind == "subflow" && s.ChildRunID != "":
 			r.log(i, t, "服务重启后继续等子流程")
+		case isWriteKind(kind):
+			// 写节点按原来那次尝试重跑，写过的按幂等键取回，不重复写（SOP-02a）
+			s.StartedAt = &t
+			r.log(i, t, "服务重启后重跑，这次尝试写过的不再写")
 		default:
 			s.Attempts++
 			s.StartedAt = &t
@@ -519,6 +523,7 @@ func (r *runner) dispatch(ctx context.Context) {
 		r.inflight[i] = inflight{token: token, cancel: cancel}
 		input, keys := clone(s.Input), slices.Clone(keyList(r, i))
 		wake := s.WakeAt
+		wr := writeRun{runID: r.run.ID, flowID: r.run.FlowID, flowName: r.run.FlowName, step: def.Key, attempt: s.Attempts}
 		r.e.wg.Add(1)
 		go func() {
 			defer r.e.wg.Done()
@@ -534,6 +539,8 @@ func (r *runner) dispatch(ctx context.Context) {
 					return
 				}
 				res = nodeResult{output: with(orEmpty(input), "waited", orDefault(def.Config["duration"], "1 小时"))}
+			} else if isWriteKind(def.Kind) {
+				res = runWrite(sctx, r.e.c, wr, def, orEmpty(input))
 			} else {
 				res = execNode(sctx, r.e.c, def, orEmpty(input), keys)
 			}

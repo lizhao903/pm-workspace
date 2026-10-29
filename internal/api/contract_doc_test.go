@@ -16,6 +16,8 @@ import (
 	"github.com/lizhao903/pm-workspace/internal/plugins/projects"
 	"github.com/lizhao903/pm-workspace/internal/plugins/sop"
 	"github.com/lizhao903/pm-workspace/internal/plugins/terminal"
+	"github.com/lizhao903/pm-workspace/internal/plugins/trade"
+	"github.com/lizhao903/pm-workspace/internal/plugins/video"
 )
 
 // recordingMux 收下 routes() 注册的每一条模式，不真的建路由。
@@ -43,6 +45,12 @@ func registeredRoutes(t *testing.T) []string {
 		t.Fatal(err)
 	}
 	if err := plugins.Add(domains.New(domains.Options{})); err != nil {
+		t.Fatal(err)
+	}
+	if err := plugins.Add(trade.New()); err != nil {
+		t.Fatal(err)
+	}
+	if err := plugins.Add(video.New()); err != nil {
 		t.Fatal(err)
 	}
 	(&Server{opt: Options{Plugins: plugins}}).routes(rec)

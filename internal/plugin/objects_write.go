@@ -9,7 +9,7 @@ import (
 	"github.com/lizhao903/pm-workspace/internal/store"
 )
 
-// 插件建内核对象的受限句柄（IM-02a 起）：只能建，不能改、不能删。
+// 插件建内核对象的受限句柄（IM-02a 起）：只能建，不能改、不能删；SOP-02a 加了带操作者和审计的建对象、追加正文（writes.go）。
 // 建对象走 cmd/pmw 交进来的外层 store（审计、事件包装过的），修订、审计、事件和界面上新建的一样；
 // 来源（objects.source）固定写成插件 id，操作者记为插件 id、来源 plugin，插件自己填的来源会被覆盖。
 // 改对象、建关联等更宽的写能力等 plugin-api.md 2.0 的 ObjectService 落地时再加。
@@ -35,8 +35,10 @@ type NewObject struct {
 	ProjectID *string
 	OwnerID   *string
 	DueAt     *time.Time
-	Props     map[string]any
-	Tags      []string
+	// CategoryID 是分类 id（SOP-02a 起，写文档时用），nil 是未分类
+	CategoryID *string
+	Props      map[string]any
+	Tags       []string
 }
 
 // CreatedObject 是建好的对象里插件常用的几项。
@@ -47,11 +49,17 @@ type CreatedObject struct {
 	Title  string
 	Status string
 	Source string
+	// Reused 为真表示按幂等键取回的上次结果，没有再写（CreateAs、AppendBody，writes.go）
+	Reused bool
 }
 
 // ObjectWriter 只建对象。校验失败返回的错误可以用 errors.Is 对 domain.ErrValidation、domain.ErrNotFound 判断。
 type ObjectWriter interface {
 	Create(ctx context.Context, o NewObject) (CreatedObject, error)
+	// CreateAs 建对象，带操作者、幂等键，记审计（SOP-02a，writes.go）
+	CreateAs(ctx context.Context, o NewObject, m WriteMeta) (CreatedObject, error)
+	// AppendBody 在对象正文末尾追加一段，带操作者、幂等键，记审计（SOP-02a，writes.go）
+	AppendBody(ctx context.Context, id, text string, m WriteMeta) (CreatedObject, error)
 }
 
 // objectCreatorBox 包一层，atomic.Pointer 才能放接口值。

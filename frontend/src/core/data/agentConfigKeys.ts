@@ -10,4 +10,8 @@ export const agentConfigKeys = {
   grants: (id: string) => ['agents', 'grants', id] as const,
   /** 执行记录（AG-01b4），列表卡片的等确认数和最近运行 */
   runs: ['agents', 'runs'] as const,
+  /** 会话页的执行记录（AG-01b8）：按条件的一页、按状态的条数、单条详情，都在 runs 前缀下 */
+  runList: (f: Record<string, unknown>) => ['agents', 'runs', 'list', f] as const,
+  runCount: (status: string) => ['agents', 'runs', 'count', status] as const,
+  run: (id: string) => ['agents', 'runs', 'get', id] as const,
 }

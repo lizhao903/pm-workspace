@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net/http"
 	"slices"
+	"sync/atomic"
 	"time"
 )
 
@@ -89,12 +90,16 @@ type Core interface {
 	Identities() IdentityReader
 	// ObjectWriter 建内核对象，只能建、来源记为本插件（IM-02a，objects_write.go）。
 	ObjectWriter() ObjectWriter
+	// ContactWriter 建联系人、按 id 合并字段，带操作者、幂等键，记审计（SOP-02a，writes.go）。
+	ContactWriter() ContactWriter
 	// Connectors 只读查连接器实例（IM-02a，connectors_read.go）。
 	Connectors() ConnectorReader
 	// AttachmentDir 是本机附件目录的绝对路径（IM-04a，datadir.go），没接数据目录时为空串。
 	AttachmentDir() string
 	// Agent 用默认服务商补全、按 Agent 的授权跑一轮、搜指定知识库（SOP-01c，agent.go）。
 	Agent() AgentService
+	// Granted 看用户确认过这项权限没有，只认状态表里确认过的（SEC-01，permissions.go）。
+	Granted(perm string) bool
 }
 
 // Publisher 往事件总线上发事件。payload 按 JSON 序列化；总线没接上时什么都不做。
@@ -118,8 +123,9 @@ type core struct {
 	id     string
 	log    *slog.Logger
 	emits  []string
-	prefix string    // 清单的 table_prefix，Store 只许碰这些表
-	reg    *Registry // 发布时取 reg.Events，cmd/pmw 在 Start 之前接上
+	prefix string                   // 清单的 table_prefix，Store 只许碰这些表
+	reg    *Registry                // 发布时取 reg.Events，cmd/pmw 在 Start 之前接上
+	perms  atomic.Pointer[[]string] // 用户确认过的权限，状态变了由 Registry.setState 换掉
 }
 
 func (c *core) PluginID() string  { return c.id }

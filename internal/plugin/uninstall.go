@@ -80,7 +80,7 @@ func (r *Registry) Uninstall(ctx context.Context, id string, opt UninstallOption
 	if err := r.store.Save(ctx, st); err != nil {
 		return res, err
 	}
-	e.state = st
+	r.setState(e, st)
 	e.core.log.Info("plugin uninstalled", "delete_data", opt.DeleteData)
 	return res, nil
 }

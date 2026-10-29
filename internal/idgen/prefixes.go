@@ -78,9 +78,9 @@ var Registry = []Entry{
 	// 工作台、域名
 	{"dm", "domainRoute", "domains_routes", "domainRoute"}, // 内网域名插件的表（DOM-01a）
 	// 视频
-	{"vd", "video", "", "video"},
-	{"sr", "series", "", "series"},
-	{"pb", "publish", "", "publish"},
+	{"vd", "video", "video_videos", "video"},        // 视频插件的表（VID-01a）
+	{"sr", "series", "video_series", "series"},      // 视频插件的表（VID-01a）
+	{"pb", "publish", "video_publishes", "publish"}, // 视频插件的表（VID-01a），检查点按视频加阶段认，没有 id
 	{"tp", "topic", "", "topic"},
 	{"cl", "clip", "", "clip"},
 	// 交易

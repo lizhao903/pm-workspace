@@ -1,24 +1,28 @@
-// 会话（SPEC-sessions-1）：左边全局会话列表（搜索、按服务商筛、按时间分段），右边当前会话的对话。
-// 当前会话记在 ?s=，别的页面能直接链接到某个会话。
+// 会话（SPEC-sessions-1）：左边全局会话列表（搜索、按 Agent 筛、按时间分段），右边当前会话的对话。
+// 当前会话记在 ?s=，别的页面能直接链接到某个会话。会话挂 Agent（AG-01b8）；0032 之前和「更多」里按服务商开的会话不挂 Agent。
 import { Fragment, useMemo, useState } from 'react'
 import {
-  firstMessageOf, useAgentProviders, useAgentSessions, useArtifacts, useCreateAgentSession, useDeleteAgentSession, usePatchAgentSession,
-  type AgentProvider, type AgentSession, type AgentSessionInput,
+  firstMessageOf, useAgentProviders, useAgentSessions, useAgents, useArtifacts, useCreateAgentSession, useDeleteAgentSession,
+  usePatchAgentSession, type AgentSession, type AgentSessionInput,
 } from '../../core/data'
-import { Avatar, Button, ErrorState, IconSearch, LoadingState, PageTitle, SearchSelect, cls } from '../../core/ui'
+import { Button, ErrorState, IconSearch, LoadingState, PageTitle, SearchSelect, cls } from '../../core/ui'
+import { AgentAvatar } from '../../core/ui/AgentAvatar'
 import { ChatPane } from './ChatPane'
 import { useLiveChat } from './chatLive'
-import { NEW_TITLE, avatarName, timeAgo, whenGroup } from './chatModel'
+import {
+  FILTER_GONE, FILTER_NO_AGENT, GONE_AGENT, NEW_TITLE, matchAgentFilter, recentAgents, timeAgo, whenGroup, whoName, whoOf, type ChatWho,
+} from './chatModel'
 import { NewSession } from './NewSession'
+import { WhoAvatar } from './WhoAvatar'
 
 /** 一次先露多少条，往下点「显示更多」 */
 const PAGE = 50
 // 会话产出列表取一页就够
 const ARTIFACT_LIMIT = 100
 
-function SessionItem({ s, provider, selected, onOpen }: {
+function SessionItem({ s, who, selected, onOpen }: {
   s: AgentSession
-  provider: AgentProvider | undefined
+  who: ChatWho
   selected: boolean
   onOpen: () => void
 }) {
@@ -26,10 +30,13 @@ function SessionItem({ s, provider, selected, onOpen }: {
   const sub = live?.phase === 'streaming' ? '正在回复…' : s.message_count ? `${s.message_count} 条消息` : '还没有消息'
   return (
     <button type="button" className={cls('chat-item', selected && 'sel')} aria-current={selected || undefined} onClick={onOpen}>
-      {provider ? <Avatar name={avatarName(provider)} size={30} /> : <span className="chat-item-noavatar" aria-hidden="true" />}
+      {/* 已删除的 Agent、已删除的服务商不放头像（SPEC-sessions-1.27） */}
+      {who.kind === 'agent' || (who.kind === 'provider' && who.provider)
+        ? <WhoAvatar who={who} size={30} />
+        : who.kind !== 'gone' && <span className="chat-item-noavatar" aria-hidden="true" />}
       <span className="chat-item-text">
         <span className="chat-item-top"><span className="ellipsis chat-item-title">{s.title || NEW_TITLE}</span></span>
-        <span className="ellipsis list-sub">{provider ? provider.name || '未命名' : '已删除的服务商'} · {s.model} · {sub}</span>
+        <span className="ellipsis list-sub">{whoName(who)}{who.kind === 'provider' ? ` · ${s.model}` : ''} · {sub}</span>
       </span>
       <span className="chat-item-time">{timeAgo(s.updated_at)}</span>
     </button>
@@ -63,14 +70,17 @@ function SessionOutputs({ sessionId }: { sessionId: string }) {
   )
 }
 
-export function ChatsView({ current, onOpen, pickRequest = 0 }: {
+export function ChatsView({ current, onOpen, onOpenAgent, pickRequest = 0 }: {
   current: string | null
   onOpen: (id: string | null) => void
+  /** 头部点 Agent 名：去「设置 > Agent」它的配置页（SPEC-sessions-1.12） */
+  onOpenAgent?: (id: string) => void
   /** 二级菜单里点「新会话」时加一，这边打开新会话面板 */
   pickRequest?: number
 }) {
   const sessions = useAgentSessions()
   const providers = useAgentProviders()
+  const agentsQ = useAgents()
   const create = useCreateAgentSession()
   const patch = usePatchAgentSession()
   const del = useDeleteAgentSession()
@@ -92,22 +102,38 @@ export function ChatsView({ current, onOpen, pickRequest = 0 }: {
 
   const all = useMemo(() => sessions.data ?? [], [sessions.data])
   const provs = useMemo(() => providers.data ?? [], [providers.data])
-  const providerOf = (id: string) => provs.find((p) => p.id === id)
+  const agents = agentsQ.data
+  const who = (s: AgentSession) => whoOf(s, agents, provs)
   const kw = q.trim().toLowerCase()
-  // 后端已按 updated_at 倒序；列表接口不带消息，搜索只匹配标题和模型
-  const rows = all.filter((s) => (!filter || s.provider_id === filter) && (!kw || `${s.title} ${s.model}`.toLowerCase().includes(kw)))
+  // 后端已按 updated_at 倒序；列表接口不带消息，搜索匹配标题、Agent 名和模型
+  const rows = all.filter((s) => matchAgentFilter(s, filter) && (!kw || `${s.title} ${whoName(who(s))} ${s.model}`.toLowerCase().includes(kw)))
   const shown = rows.slice(0, limit)
   const setF = (f: () => void) => { f(); setLimit(PAGE) }
 
-  const usage = useMemo(() => {
-    const m = new Map<string, number>()
-    for (const s of all) m.set(s.provider_id, (m.get(s.provider_id) ?? 0) + 1)
-    return m
-  }, [all])
-  const providerOpts = useMemo(() => [...provs].sort((a, b) => (usage.get(b.id) ?? 0) - (usage.get(a.id) ?? 0)).map((p) => ({
-    value: p.id, label: p.name || '未命名', hint: usage.get(p.id) ? `${usage.get(p.id)} 条` : p.enabled ? undefined : '已停用',
-  })), [provs, usage])
-  // 新会话选服务商：最近聊过的在前
+  // Agent 筛选（SPEC-sessions-1.4）：按会话数倒序，右边「N 条」，没有会话又停用的提示「已停用」；
+  // 有 Agent 已删除的会话时多一项「已删除的 Agent」，有不挂 Agent 的会话时多一项「不挂 Agent」
+  const agentOpts = useMemo(() => {
+    const usage = new Map<string, number>()
+    let gone = 0
+    let none = 0
+    for (const s of all) {
+      if (!s.agent_id) none++
+      else if (s.agent_deleted) gone++
+      else usage.set(s.agent_id, (usage.get(s.agent_id) ?? 0) + 1)
+    }
+    const n = (k: number) => (k ? `${k} 条` : undefined)
+    return [
+      ...[...(agents ?? [])].sort((a, b) => (usage.get(b.id) ?? 0) - (usage.get(a.id) ?? 0)).map((a) => ({
+        value: a.id, label: a.name || '未命名', hint: n(usage.get(a.id) ?? 0) ?? (a.enabled ? undefined : '已停用'),
+        icon: <AgentAvatar agent={a} size={16} />,
+      })),
+      ...(gone ? [{ value: FILTER_GONE, label: GONE_AGENT, hint: n(gone) }] : []),
+      ...(none ? [{ value: FILTER_NO_AGENT, label: '不挂 Agent 的会话', hint: n(none) }] : []),
+    ]
+  }, [all, agents])
+  // 新会话选 Agent：最近聊过的在前（SPEC-sessions-1.6）
+  const recentA = useMemo(() => recentAgents(agents ?? [], all), [agents, all])
+  // 「更多」里选服务商：最近聊过的在前
   const recent = useMemo(() => {
     const last = new Map<string, string>()
     for (const s of all) if ((last.get(s.provider_id) ?? '') < s.updated_at) last.set(s.provider_id, s.updated_at)
@@ -120,6 +146,7 @@ export function ChatsView({ current, onOpen, pickRequest = 0 }: {
   const doCreate = (input: AgentSessionInput, text: string) => {
     create.mutate({ ...input, title: NEW_TITLE }, {
       onSuccess: (s) => {
+        // 建好就关面板、清筛选，新会话在最前并打开（SPEC-sessions-1.7）
         setPicking(false)
         setFirst(text ? { sessionId: s.id, text } : null)
         setF(() => { setQ(''); setFilter('') })
@@ -152,19 +179,19 @@ export function ChatsView({ current, onOpen, pickRequest = 0 }: {
           return (
             <Fragment key={s.id}>
               {g !== (i ? whenGroup(shown[i - 1].updated_at) : '') && <div className="menu-label chat-group">{g}</div>}
-              <SessionItem s={s} provider={providerOf(s.provider_id)} selected={s.id === current} onOpen={() => open(s.id)} />
+              <SessionItem s={s} who={who(s)} selected={s.id === current} onOpen={() => open(s.id)} />
             </Fragment>
           )
         })}
         {rows.length > shown.length && (
           <button type="button" className="agent-more" onClick={() => setLimit(limit + PAGE)}>显示更多（还有 {rows.length - shown.length} 条）</button>
         )}
-        {!rows.length && <div className="tree-empty">{kw || filter ? '没有匹配的会话' : '还没有会话，点「新会话」开始聊'}</div>}
+        {!rows.length && <div className="tree-empty">{kw || filter ? '没有匹配的会话' : '还没有会话，点「新会话」和 Agent 聊聊'}</div>}
       </>
     )
   }
 
-  const provider = cur ? providerOf(cur.provider_id) : undefined
+  const curWho = cur ? who(cur) : null
   return (
     <div className="chats">
       <PageTitle parent="会话" count={rows.length} desc="和 Agent 的对话都留在这里，能接着聊，也能回看每次调用了什么工具"
@@ -173,28 +200,28 @@ export function ChatsView({ current, onOpen, pickRequest = 0 }: {
         <div className="chat-list-head">
           <div className="search search-full search-sm">
             <IconSearch />
-            <input placeholder="搜会话标题和模型" value={q} aria-label="搜会话" onChange={(e) => setF(() => setQ(e.target.value))} />
+            <input placeholder="搜会话标题、Agent 和模型" value={q} aria-label="搜会话" onChange={(e) => setF(() => setQ(e.target.value))} />
           </div>
           <div className="chat-filters">
-            <SearchSelect value={filter} noneLabel="全部服务商" placeholder="全部服务商" searchPlaceholder="搜服务商" options={providerOpts}
-              missingLabel={() => '已删除的服务商'} aria-label="按服务商筛选" onChange={(v) => setF(() => setFilter(v))} />
+            <SearchSelect value={filter} noneLabel="全部 Agent" placeholder="全部 Agent" searchPlaceholder="搜 Agent" options={agentOpts}
+              missingLabel={() => GONE_AGENT} aria-label="按 Agent 筛选" onChange={(v) => setF(() => setFilter(v))} />
           </div>
         </div>
         {picking && (
-          <NewSession providers={recent} busy={create.isPending} error={create.error ?? undefined}
+          <NewSession agents={recentA} agentsLoading={agentsQ.isPending} providers={recent} busy={create.isPending} error={create.error ?? undefined}
             onCreate={doCreate} onClose={() => { setPicking(false); create.reset() }} />
         )}
         <div className="chat-items">{list}</div>
       </div>
       <div className="chat-main">
-        {cur ? (
-          <ChatPane key={cur.id} session={cur} provider={provider}
+        {cur && curWho ? (
+          <ChatPane key={cur.id} session={cur} who={curWho}
             autoSend={first?.sessionId === cur.id ? first.text : firstMessageOf(cur.id)}
             onRetitle={(title) => patch.mutate({ id: cur.id, patch: { title } })}
             head={(
               <>
                 <div className="chat-head">
-                  {provider && <Avatar name={avatarName(provider)} size={28} />}
+                  {(curWho.kind === 'agent' || (curWho.kind === 'provider' && curWho.provider)) && <WhoAvatar who={curWho} size={28} />}
                   {editing ? (
                     <input className="chat-title-input" autoFocus defaultValue={cur.title} aria-label="会话标题"
                       onBlur={(e) => rename(cur, e.target.value.trim())}
@@ -205,11 +232,18 @@ export function ChatsView({ current, onOpen, pickRequest = 0 }: {
                   ) : (
                     <button type="button" className="chat-title ellipsis" title="点一下改标题" onClick={() => setEditing(true)}>{cur.title || NEW_TITLE}</button>
                   )}
-                  <span className="list-sub chat-agent ellipsis">{provider ? provider.name || '未命名' : '已删除的服务商'} · {cur.model}</span>
+                  {curWho.kind === 'agent' ? (
+                    <button type="button" className="link-btn chat-agent ellipsis" title={`${curWho.agent.model || cur.model}；点一下去「设置 > Agent」看它的配置`}
+                      onClick={() => onOpenAgent?.(curWho.agent.id)}>
+                      {whoName(curWho)}
+                    </button>
+                  ) : (
+                    <span className="list-sub chat-agent ellipsis">{whoName(curWho)}{curWho.kind === 'provider' ? ` · ${cur.model}` : ''}</span>
+                  )}
                   <span className="spacer" />
                   {confirmDel ? (
                     <>
-                      <span className="danger-text">删除会话？产出的文件、任务不受影响</span>
+                      <span className="danger-text">删除会话？产出的任务、文档不受影响</span>
                       <Button size="sm" onClick={() => setConfirmDel(false)}>取消</Button>
                       <Button size="sm" variant="danger" disabled={del.isPending} onClick={() => doDelete(cur)}>删除</Button>
                     </>

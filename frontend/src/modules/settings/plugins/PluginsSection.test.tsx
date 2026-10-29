@@ -50,6 +50,16 @@ function stub(rows: PluginInfo[]) {
         }
         return ok(set({ enabled: false, running: false }))
       }
+      case 'upgrade': {
+        const cur = rows.find((r) => r.id === id)!
+        const missing = cur.permissions.filter((x) => !cur.permissions_confirmed.includes(x) && !body.permissions.includes(x))
+        if (missing.length) {
+          return new Response(JSON.stringify({ error: { code: 'conflict', message: `插件 ${id} 升级新增了这些权限，要先确认：${missing.join('、')}`, permissions: missing } }), { status: 409 })
+        }
+        const from = cur.installed_version
+        const plugin = set({ installed_version: cur.version, upgradable: false, permissions_confirmed: [...cur.permissions], running: cur.enabled })
+        return ok({ plugin, backup: null, from })
+      }
       case 'uninstall': {
         const plugin = set({ installed: false })
         return ok(body.delete_data
@@ -211,5 +221,45 @@ describe('插件管理', () => {
     const drawer = screen.getByRole('dialog', { name: '插件「项目」' })
     expect(within(drawer).getByRole('button', { name: '卸载' })).toBeDisabled()
     expect(within(drawer).getByText('先卸载「视频创作」')).toBeInTheDocument()
+  })
+
+  it('升级：只列新增的权限，高风险要勾选；确认后带上新增的权限提交，提示版本变化', async () => {
+    const calls = stub([info({ id: 'sop', name: 'SOP', version: '0.3.0', installed_version: '0.2.0', upgradable: true,
+      installed: true, enabled: true, running: true, permissions: ['network:any'], permissions_confirmed: [] })])
+    renderPage()
+    await userEvent.click(await screen.findByRole('button', { name: '查看「SOP」详情' }))
+    const drawer = screen.getByRole('dialog', { name: '插件「SOP」' })
+    expect(within(drawer).getByText('可升级')).toBeInTheDocument()
+    expect(within(drawer).getByText('还没确认，升级时确认')).toBeInTheDocument()
+    await userEvent.click(within(drawer).getByRole('button', { name: '升级' }))
+    const dlg = screen.getByRole('alertdialog', { name: '升级「SOP」' })
+    expect(within(dlg).getByText('从 0.2.0 升级到 0.3.0', { exact: false })).toBeInTheDocument()
+    expect(within(dlg).getByText('访问任意外网地址')).toBeInTheDocument()
+    const confirm = within(dlg).getByRole('button', { name: '确认并升级' })
+    expect(confirm).toBeDisabled()
+    await userEvent.click(within(dlg).getByRole('checkbox', { name: '我了解风险，授予这项权限' }))
+    await userEvent.click(confirm)
+    expect(await screen.findByText('已把「SOP」从 0.2.0 升级到 0.3.0，新增的权限已确认')).toBeInTheDocument()
+    expect(writes(calls)).toEqual([['/api/plugins/sop/upgrade', { permissions: ['network:any'] }]])
+    expect(plugin.activatePlugin).not.toHaveBeenCalled()
+  })
+
+  it('没有新增权限的升级直接确认；启动时没起的插件升级后加载前端', async () => {
+    const calls = stub([info({ id: 'im', name: 'IM', version: '0.4.0', installed_version: '0.3.0', upgradable: true,
+      installed: true, enabled: true, running: false, pending_migrations: 1 })])
+    renderPage()
+    await userEvent.click(within(await cardOf('im')).getByRole('button', { name: '升级' }))
+    const dlg = screen.getByRole('alertdialog', { name: '升级「IM」' })
+    expect(within(dlg).getByText('新版本没有新增权限。')).toBeInTheDocument()
+    expect(within(dlg).getByText('再跑 1 条迁移', { exact: false })).toBeInTheDocument()
+    await userEvent.click(within(dlg).getByRole('button', { name: '升级' }))
+    await vi.waitFor(() => expect(plugin.activatePlugin).toHaveBeenCalledWith('im'))
+    expect(writes(calls)).toEqual([['/api/plugins/im/upgrade', { permissions: [] }]])
+  })
+
+  it('不可升级的插件没有升级按钮', async () => {
+    stub([info({ id: 'projects', name: '项目', installed: true, enabled: true, running: true })])
+    renderPage()
+    expect(within(await cardOf('projects')).queryByRole('button', { name: '升级' })).toBeNull()
   })
 })

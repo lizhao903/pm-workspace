@@ -34,6 +34,8 @@ import (
 	"github.com/lizhao903/pm-workspace/internal/plugins/projects"
 	"github.com/lizhao903/pm-workspace/internal/plugins/sop"
 	"github.com/lizhao903/pm-workspace/internal/plugins/terminal"
+	"github.com/lizhao903/pm-workspace/internal/plugins/trade"
+	"github.com/lizhao903/pm-workspace/internal/plugins/video"
 	"github.com/lizhao903/pm-workspace/internal/schedule"
 	"github.com/lizhao903/pm-workspace/internal/store/sqlite"
 	"github.com/lizhao903/pm-workspace/internal/vault"
@@ -189,6 +191,14 @@ func run(cfg config) error {
 	}
 	// 内网域名插件（DOM-01a）：只读检测 hosts、pf、证书，生成配置和命令，不写系统文件
 	if err := plugins.Add(domains.New(domains.Options{Addr: cfg.addr, TLSAddr: cfg.tlsAddr, TLSCert: cfg.tlsCert})); err != nil {
+		return fmt.Errorf("登记插件失败: %w", err)
+	}
+	// 交易套件插件（TRD-01a）：只做行情、回测、模拟盘；真实行情源在 TRD-01b 接上
+	if err := plugins.Add(trade.New()); err != nil {
+		return fmt.Errorf("登记插件失败: %w", err)
+	}
+	// 视频创作插件（VID-01a）：系列、视频、检查点、发布记录；不接内容平台
+	if err := plugins.Add(video.New()); err != nil {
 		return fmt.Errorf("登记插件失败: %w", err)
 	}
 	if err := plugins.Start(ctx); err != nil {

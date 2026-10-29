@@ -44,6 +44,10 @@ func execNode(ctx context.Context, c plugin.Core, def stepDef, input Json, deps 
 	case "agent":
 		return runAgent(ctx, c.Agent(), def, input)
 	case "http":
+		// 0.3.0 新增的 network:any 没确认前这一步失败（SEC-01）
+		if err := plugin.Require(c, "network:any"); err != nil {
+			return nodeResult{err: err.Error()}
+		}
 		return runHTTP(ctx, def, input)
 	case "code":
 		return nodeResult{err: codeUnsupported}
