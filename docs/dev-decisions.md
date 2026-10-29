@@ -4,6 +4,14 @@
 
 不可逆或对外的事（推送、合并进 main、改真实库、改已应用的迁移、启动 7777、删除用户文件）不在授权范围内，一律记到「待用户决定」，不做。
 
+## 第二十六批：抽屉停靠和 M4 第一批（2026-10-29）
+
+- **第二十五批验收**（6f3b51d）：ALIGN-01、ALIGN-02、ALIGN-03、PLAN-04、PLAN-05 都已提交验收。go test、前端 615 条测试、typecheck、lint、build 通过；7796 嵌新构建后对 7796 本身跑 smoke-frontend，48 次 0 问题。
+- **决策：拆出的任务直接并进 `docs/dev-tasks.json`，删掉 `docs/split/`**，避免两份数据源。合并时做了三处改动：BR-02 改名 BR-02a（7796 上已有同名需求对象）；M5、M6 依赖需求级 key 的换成具体任务（PROTO-04f 换成 PROTO-04f3 或 PROTO-04f4，SOP-01 换成 SOP-01b，SOP-03 换成 SOP-03a、SOP-03b，AG-01b 换成 AG-01b1、AG-01b4）；需求条目保留作上级记录。合并后共 246 条，任务 217 条。
+- **决策：`docs/proto-align.md` 的差异按它的派批建议建成 ALIGN-04 到 ALIGN-15**。ALIGN-04（抽屉停靠）改共用布局，所以单独先做，其余 ALIGN 任务都依赖它。
+- **本批**：ALIGN-04 和 M4 里改动面不重叠的 5 条，分别是 AG-01b1（内核迁移 0032）、SOP-01a、TERM-01a（新增 creack/pty、coder/websocket 两个依赖）、PROTO-04f1、PROTO-04f2。本批只有 ALIGN-04 能重启 7796。
+- **验收口径补一条**：前端任务验收时要对 7796 本身跑冒烟，不能只在 vite dev server 上跑。
+
 ## 第二十五批：对齐原型、拆 M4 到 M6（2026-10-29）
 
 - **起因**：用户指出 7796 和原型不一致。查下来是 `scripts/dev-instance.sh` 编译时只在 dist 为空时放占位页，7796 一直嵌着 10-28 的旧前端 web/；之前的验收都在 vite dev server 上做，没打开过 7796 本身。已修（11ba453），每次 start 先 `make frontend`。7796 上 projects、im 两个插件随后装上并启用（测试实例，可随时卸载）。

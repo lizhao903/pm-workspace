@@ -2015,7 +2015,7 @@
       "web-next/docs/dev-plan.md 第 4 节",
       "docs/dev-decisions.md"
     ],
-    "body": "## 要做什么\n\n按已有任务的拆法（后端 a、前端 b、规格包 PROTO），把 M4 的 13 条需求拆成能直接派给子代理的任务，写到 `docs/split/M4.json`，格式与 `docs/dev-tasks.json` 的 task 条目一致（key、title、milestone、module、priority、estimate、depends_on、workdir、spec、body、acceptance），另外每条加 scope 字段写改动范围。依赖只能指向已有 key 或本文件里的 key；迁移号从 0032 起预分配；需要真实凭证或对外的写进 body 的「需要用户」小节。不改 dev-tasks.json。",
+    "body": "## 要做什么\n\n按已有任务的拆法（后端 a、前端 b、规格包 PROTO），把 M4 的 13 条需求拆成能直接派给子代理的任务，写到 `docs/dev-tasks.json`，格式与 `docs/dev-tasks.json` 的 task 条目一致（key、title、milestone、module、priority、estimate、depends_on、workdir、spec、body、acceptance），另外每条加 scope 字段写改动范围。依赖只能指向已有 key 或本文件里的 key；迁移号从 0032 起预分配；需要真实凭证或对外的写进 body 的「需要用户」小节。不改 dev-tasks.json。",
     "acceptance": "- [ ] 13 条需求全部有对应任务，原需求 key 写进每条任务的 body\n- [ ] 依赖图无环、无悬空 key\n- [ ] 每条都有可验证的验收标准和改动范围"
   },
   {
@@ -2033,8 +2033,225 @@
       "web-next/docs/dev-plan.md 4.10、4.11、第 6 节交易风险",
       "web-next/docs/video-creator-analysis.md"
     ],
-    "body": "## 要做什么\n\n同 PLAN-04，拆 M5 视频 8 条、M6 交易 8 条，写到 `docs/split/M5-M6.json`。交易类涉及真实资金：实盘下单、接入真实交易所 API Key 的任务必须标「需要用户」，默认只做行情、回测和模拟盘。M5、M6 可以依赖 M4 的任务，key 以 PLAN-04 产出的为准（同时在拆，冲突时在回复里列出）。不改 dev-tasks.json。",
+    "body": "## 要做什么\n\n同 PLAN-04，拆 M5 视频 8 条、M6 交易 8 条，写到 `docs/dev-tasks.json`。交易类涉及真实资金：实盘下单、接入真实交易所 API Key 的任务必须标「需要用户」，默认只做行情、回测和模拟盘。M5、M6 可以依赖 M4 的任务，key 以 PLAN-04 产出的为准（同时在拆，冲突时在回复里列出）。不改 dev-tasks.json。",
     "acceptance": "- [ ] 16 条需求全部有对应任务\n- [ ] 涉及真实资金或对外发布的任务都标了需要用户\n- [ ] 依赖图无环"
+  },
+  {
+    "key": "ALIGN-04",
+    "type": "task",
+    "title": "抽屉打开时停靠在右侧，列表收窄重排",
+    "milestone": "M3",
+    "module": "frontend",
+    "priority": "P1",
+    "estimate": "M",
+    "depends_on": [
+      "ALIGN-01",
+      "ALIGN-02"
+    ],
+    "workdir": "frontend",
+    "spec": [
+      "docs/proto-align.md L-01"
+    ],
+    "body": "## 要做什么\n\n按 `docs/proto-align.md` 的 L-01 改，让正式前端和原型一致。\n\n## 注意事项\n\n- 逐条照 `docs/proto-align.md` 对应编号的「建议改法」做，规格编号见各条；原型 7778 对照。\n- 只在 `frontend/` 里写代码（后端改动另行说明），数据走 `frontend/src/core/data`。\n- 验收在 7796 本身看一遍（`scripts/dev-instance.sh` 重启后嵌新前端），不只看 vite dev server。",
+    "acceptance": "- [ ] L-01 逐条对照原型通过（截图看完删掉）\n- [ ] 在 7796 本身打开过\n- [ ] npm test、typecheck、lint、build、smoke-frontend 通过"
+  },
+  {
+    "key": "ALIGN-05",
+    "type": "task",
+    "title": "项目列表按原型分组和卡片统计，加项目汇总接口",
+    "milestone": "M3",
+    "module": "frontend",
+    "priority": "P1",
+    "estimate": "M",
+    "depends_on": [
+      "ALIGN-04"
+    ],
+    "workdir": ".",
+    "spec": [
+      "docs/proto-align.md F-03、L-11"
+    ],
+    "body": "## 要做什么\n\n按 `docs/proto-align.md` 的 F-03、L-11 改，让正式前端和原型一致。\n\n## 注意事项\n\n- 逐条照 `docs/proto-align.md` 对应编号的「建议改法」做，规格编号见各条；原型 7778 对照。\n- 只在 `frontend/` 里写代码（后端改动另行说明），数据走 `frontend/src/core/data`。\n- 验收在 7796 本身看一遍（`scripts/dev-instance.sh` 重启后嵌新前端），不只看 vite dev server。",
+    "acceptance": "- [ ] F-03、L-11 逐条对照原型通过（截图看完删掉）\n- [ ] 在 7796 本身打开过\n- [ ] npm test、typecheck、lint、build、smoke-frontend 通过"
+  },
+  {
+    "key": "ALIGN-06",
+    "type": "task",
+    "title": "项目概览补块、沟通红点、干系人最近沟通",
+    "milestone": "M3",
+    "module": "frontend",
+    "priority": "P1",
+    "estimate": "M",
+    "depends_on": [
+      "ALIGN-04"
+    ],
+    "workdir": "frontend",
+    "spec": [
+      "docs/proto-align.md F-04、F-05、F-07、L-05"
+    ],
+    "body": "## 要做什么\n\n按 `docs/proto-align.md` 的 F-04、F-05、F-07、L-05 改，让正式前端和原型一致。\n\n## 注意事项\n\n- 逐条照 `docs/proto-align.md` 对应编号的「建议改法」做，规格编号见各条；原型 7778 对照。\n- 只在 `frontend/` 里写代码（后端改动另行说明），数据走 `frontend/src/core/data`。\n- 验收在 7796 本身看一遍（`scripts/dev-instance.sh` 重启后嵌新前端），不只看 vite dev server。",
+    "acceptance": "- [ ] F-04、F-05、F-07、L-05 逐条对照原型通过（截图看完删掉）\n- [ ] 在 7796 本身打开过\n- [ ] npm test、typecheck、lint、build、smoke-frontend 通过"
+  },
+  {
+    "key": "ALIGN-07",
+    "type": "task",
+    "title": "项目沟通页布局对齐原型",
+    "milestone": "M3",
+    "module": "frontend",
+    "priority": "P2",
+    "estimate": "S",
+    "depends_on": [
+      "ALIGN-04"
+    ],
+    "workdir": "frontend",
+    "spec": [
+      "docs/proto-align.md L-02、L-03、L-04"
+    ],
+    "body": "## 要做什么\n\n按 `docs/proto-align.md` 的 L-02、L-03、L-04 改，让正式前端和原型一致。\n\n## 注意事项\n\n- 逐条照 `docs/proto-align.md` 对应编号的「建议改法」做，规格编号见各条；原型 7778 对照。\n- 只在 `frontend/` 里写代码（后端改动另行说明），数据走 `frontend/src/core/data`。\n- 验收在 7796 本身看一遍（`scripts/dev-instance.sh` 重启后嵌新前端），不只看 vite dev server。",
+    "acceptance": "- [ ] L-02、L-03、L-04 逐条对照原型通过（截图看完删掉）\n- [ ] 在 7796 本身打开过\n- [ ] npm test、typecheck、lint、build、smoke-frontend 通过"
+  },
+  {
+    "key": "ALIGN-08",
+    "type": "task",
+    "title": "今日页补 IM 分组、连接异常、运行中的原型和待验收说明",
+    "milestone": "M3",
+    "module": "frontend",
+    "priority": "P1",
+    "estimate": "M",
+    "depends_on": [
+      "ALIGN-04"
+    ],
+    "workdir": "frontend",
+    "spec": [
+      "docs/proto-align.md F-01、F-02、T-01"
+    ],
+    "body": "## 要做什么\n\n按 `docs/proto-align.md` 的 F-01、F-02、T-01 改，让正式前端和原型一致。\n\n## 注意事项\n\n- 逐条照 `docs/proto-align.md` 对应编号的「建议改法」做，规格编号见各条；原型 7778 对照。\n- 只在 `frontend/` 里写代码（后端改动另行说明），数据走 `frontend/src/core/data`。\n- 验收在 7796 本身看一遍（`scripts/dev-instance.sh` 重启后嵌新前端），不只看 vite dev server。",
+    "acceptance": "- [ ] F-01、F-02、T-01 逐条对照原型通过（截图看完删掉）\n- [ ] 在 7796 本身打开过\n- [ ] npm test、typecheck、lint、build、smoke-frontend 通过"
+  },
+  {
+    "key": "ALIGN-09",
+    "type": "task",
+    "title": "项目各标签的小样式和文档来源列",
+    "milestone": "M3",
+    "module": "frontend",
+    "priority": "P2",
+    "estimate": "M",
+    "depends_on": [
+      "ALIGN-04"
+    ],
+    "workdir": "frontend",
+    "spec": [
+      "docs/proto-align.md L-06、L-07、L-08、L-09、L-10、F-08、F-11"
+    ],
+    "body": "## 要做什么\n\n按 `docs/proto-align.md` 的 L-06、L-07、L-08、L-09、L-10、F-08、F-11 改，让正式前端和原型一致。\n\n## 注意事项\n\n- 逐条照 `docs/proto-align.md` 对应编号的「建议改法」做，规格编号见各条；原型 7778 对照。\n- 只在 `frontend/` 里写代码（后端改动另行说明），数据走 `frontend/src/core/data`。\n- 验收在 7796 本身看一遍（`scripts/dev-instance.sh` 重启后嵌新前端），不只看 vite dev server。",
+    "acceptance": "- [ ] L-06、L-07、L-08、L-09、L-10、F-08、F-11 逐条对照原型通过（截图看完删掉）\n- [ ] 在 7796 本身打开过\n- [ ] npm test、typecheck、lint、build、smoke-frontend 通过"
+  },
+  {
+    "key": "ALIGN-10",
+    "type": "task",
+    "title": "联系人和会话的细节对齐原型",
+    "milestone": "M3",
+    "module": "frontend",
+    "priority": "P2",
+    "estimate": "S",
+    "depends_on": [
+      "ALIGN-04"
+    ],
+    "workdir": "frontend",
+    "spec": [
+      "docs/proto-align.md L-13、L-14、L-16、T-02"
+    ],
+    "body": "## 要做什么\n\n按 `docs/proto-align.md` 的 L-13、L-14、L-16、T-02 改，让正式前端和原型一致。\n\n## 注意事项\n\n- 逐条照 `docs/proto-align.md` 对应编号的「建议改法」做，规格编号见各条；原型 7778 对照。\n- 只在 `frontend/` 里写代码（后端改动另行说明），数据走 `frontend/src/core/data`。\n- 验收在 7796 本身看一遍（`scripts/dev-instance.sh` 重启后嵌新前端），不只看 vite dev server。",
+    "acceptance": "- [ ] L-13、L-14、L-16、T-02 逐条对照原型通过（截图看完删掉）\n- [ ] 在 7796 本身打开过\n- [ ] npm test、typecheck、lint、build、smoke-frontend 通过"
+  },
+  {
+    "key": "ALIGN-11",
+    "type": "task",
+    "title": "IM 消息工具条和窄屏标题",
+    "milestone": "M3",
+    "module": "frontend",
+    "priority": "P2",
+    "estimate": "S",
+    "depends_on": [
+      "ALIGN-04"
+    ],
+    "workdir": "frontend",
+    "spec": [
+      "docs/proto-align.md L-12、L-17"
+    ],
+    "body": "## 要做什么\n\n按 `docs/proto-align.md` 的 L-12、L-17 改，让正式前端和原型一致。\n\n## 注意事项\n\n- 逐条照 `docs/proto-align.md` 对应编号的「建议改法」做，规格编号见各条；原型 7778 对照。\n- 只在 `frontend/` 里写代码（后端改动另行说明），数据走 `frontend/src/core/data`。\n- 验收在 7796 本身看一遍（`scripts/dev-instance.sh` 重启后嵌新前端），不只看 vite dev server。",
+    "acceptance": "- [ ] L-12、L-17 逐条对照原型通过（截图看完删掉）\n- [ ] 在 7796 本身打开过\n- [ ] npm test、typecheck、lint、build、smoke-frontend 通过"
+  },
+  {
+    "key": "ALIGN-12",
+    "type": "task",
+    "title": "工作台设置的开关和工作台标志",
+    "milestone": "M3",
+    "module": "frontend",
+    "priority": "P2",
+    "estimate": "M",
+    "depends_on": [
+      "ALIGN-04"
+    ],
+    "workdir": "frontend",
+    "spec": [
+      "docs/proto-align.md L-15、F-15"
+    ],
+    "body": "## 要做什么\n\n按 `docs/proto-align.md` 的 L-15、F-15 改，让正式前端和原型一致。\n\n## 注意事项\n\n- 逐条照 `docs/proto-align.md` 对应编号的「建议改法」做，规格编号见各条；原型 7778 对照。\n- 只在 `frontend/` 里写代码（后端改动另行说明），数据走 `frontend/src/core/data`。\n- 验收在 7796 本身看一遍（`scripts/dev-instance.sh` 重启后嵌新前端），不只看 vite dev server。",
+    "acceptance": "- [ ] L-15、F-15 逐条对照原型通过（截图看完删掉）\n- [ ] 在 7796 本身打开过\n- [ ] npm test、typecheck、lint、build、smoke-frontend 通过"
+  },
+  {
+    "key": "ALIGN-13",
+    "type": "task",
+    "title": "产出结果默认页签和类型切换，会话和文档文案",
+    "milestone": "M3",
+    "module": "frontend",
+    "priority": "P2",
+    "estimate": "S",
+    "depends_on": [
+      "ALIGN-04"
+    ],
+    "workdir": "frontend",
+    "spec": [
+      "docs/proto-align.md F-14、T-03、T-04"
+    ],
+    "body": "## 要做什么\n\n按 `docs/proto-align.md` 的 F-14、T-03、T-04 改，让正式前端和原型一致。\n\n## 注意事项\n\n- 逐条照 `docs/proto-align.md` 对应编号的「建议改法」做，规格编号见各条；原型 7778 对照。\n- 只在 `frontend/` 里写代码（后端改动另行说明），数据走 `frontend/src/core/data`。\n- 验收在 7796 本身看一遍（`scripts/dev-instance.sh` 重启后嵌新前端），不只看 vite dev server。",
+    "acceptance": "- [ ] F-14、T-03、T-04 逐条对照原型通过（截图看完删掉）\n- [ ] 在 7796 本身打开过\n- [ ] npm test、typecheck、lint、build、smoke-frontend 通过"
+  },
+  {
+    "key": "ALIGN-14",
+    "type": "task",
+    "title": "实现设置里的枚举值和外观两节",
+    "milestone": "M3",
+    "module": "frontend",
+    "priority": "P2",
+    "estimate": "M",
+    "depends_on": [
+      "ALIGN-04"
+    ],
+    "workdir": "frontend",
+    "spec": [
+      "docs/proto-align.md F-16"
+    ],
+    "body": "## 要做什么\n\n按 `docs/proto-align.md` 的 F-16 改，让正式前端和原型一致。\n\n## 注意事项\n\n- 逐条照 `docs/proto-align.md` 对应编号的「建议改法」做，规格编号见各条；原型 7778 对照。\n- 只在 `frontend/` 里写代码（后端改动另行说明），数据走 `frontend/src/core/data`。\n- 验收在 7796 本身看一遍（`scripts/dev-instance.sh` 重启后嵌新前端），不只看 vite dev server。",
+    "acceptance": "- [ ] F-16 逐条对照原型通过（截图看完删掉）\n- [ ] 在 7796 本身打开过\n- [ ] npm test、typecheck、lint、build、smoke-frontend 通过"
+  },
+  {
+    "key": "ALIGN-15",
+    "type": "task",
+    "title": "把正式前端多出的合理内容补进规格",
+    "milestone": "M3",
+    "module": "proto",
+    "priority": "P3",
+    "estimate": "S",
+    "depends_on": [
+      "ALIGN-03"
+    ],
+    "workdir": "web-next",
+    "spec": [
+      "docs/proto-align.md T-05、F-18"
+    ],
+    "body": "## 要做什么\n\n按 `docs/proto-align.md` 的 T-05、F-18 改，让正式前端和原型一致。",
+    "acceptance": "- [ ] 规格已补，make smoke-proto 通过"
   },
   {
     "key": "PROTO-04f1",
@@ -2056,7 +2273,7 @@
       "web-next/docs/spec/shots/sop/"
     ],
     "body": "## 背景\n\n原需求 PROTO-04f（整理其余模块的规格包）。PROTO-04f 一条要覆盖六个模块，按开工顺序拆成四个规格包：SOP（本条）、终端和浏览器（PROTO-04f2）、视频（PROTO-04f3）、交易（PROTO-04f4）。内网域名已在 SPEC-settings-20 里，由 PROTO-04f2 顺带复核。SOP 在 M4 最先开工，优先级提到 P2。\n\n## 要做什么\n\n- 新建 `web-next/docs/spec/sop.md`，分节：模块概述、流程库、待我处理、执行记录、运行页（步骤状态、确认输入、放行、改输出、选分支、返工、重试、跳过、停止、逐步确认开关）、编辑器（画布、连线、节点面板、节点属性）、AI 协助面板、每种节点类型的配置项。\n- 数据结构表对齐 `sopflow.ts` 的 `Sop`、`SopStepDef`、`SopField`、`SopRun`、`RunStep`、`RunAction`、`StepStatus`、`RunStatus` 和 `nodetypes.tsx` 的 `NodeType`、`ConfigField`。\n- 单独列一张「原型模拟、后端要真做」的表：分类器的命中规则、代码节点不执行、等待统一 2.5 秒、HTTP 和发送消息的失败模拟、AI 协助的固定回复，标出对应的开发任务。\n- 引用本规格的任务：SOP-01a、SOP-01b、SOP-01c、SOP-02a、SOP-02b、SOP-03b、SOP-04a、SOP-04b、SOP-04c；在 `web-next/docs/spec/README.md` 登记一行。\n\n## 注意事项\n\n- 按 PROTO-04a 的模板（`web-next/docs/spec/_template.md`）写：截图（亮暗、1440 和 375）、交互清单、空状态和异常状态、数据结构、联动。\n- 原型只改两种东西：规格本身要改，或原型和规格对不上；工程化的东西不进原型。写规格时发现原型和规格对不上，记下来另开原型修错任务，不在本条里顺手改原型代码。\n- 原型内容保持干净，不放测试数据和调试开关；原型 7778 由用户在跑，不要重启它。截图用 `shots.py`，临时截图看完即删。",
-    "acceptance": "- [ ] `sop.md` 每节有亮暗、桌面和手机宽度截图，图片在 `shots/sop/` 下\n- [ ] 交互清单覆盖运行页每个动作（八种 RunAction）和编辑器每个按钮、空状态、异常状态\n- [ ] 数据结构表与 `sopflow.ts`、`nodetypes.tsx` 字段逐个一致，18 种节点类型的配置项都列出\n- [ ] 「原型模拟、后端要真做」表里每一项都指到一个开发任务 key\n- [ ] 引用任务列表里的 key 都能在 `docs/split/M4.json` 里找到",
+    "acceptance": "- [ ] `sop.md` 每节有亮暗、桌面和手机宽度截图，图片在 `shots/sop/` 下\n- [ ] 交互清单覆盖运行页每个动作（八种 RunAction）和编辑器每个按钮、空状态、异常状态\n- [ ] 数据结构表与 `sopflow.ts`、`nodetypes.tsx` 字段逐个一致，18 种节点类型的配置项都列出\n- [ ] 「原型模拟、后端要真做」表里每一项都指到一个开发任务 key\n- [ ] 引用任务列表里的 key 都能在 `docs/dev-tasks.json` 里找到",
     "scope": [
       "web-next/docs/spec/sop.md（新建）",
       "web-next/docs/spec/shots/sop/",
