@@ -87,10 +87,13 @@ describe('快速新建会话', () => {
     expect(firstMessageOf('ss_new')).toBe('今天谁找我了')
   })
 
-  it('所有 Agent 都停用：提示去设置启用，没有输入框（SPEC-sessions-4.9）', async () => {
+  it('所有 Agent 都停用：直接落到服务商可以聊，改回选 Agent 才提示去设置启用', async () => {
     agents = [agent('a3', '停用的', { enabled: false })]
     renderShell()
     await userEvent.click(await screen.findByRole('button', { name: '新建会话' }))
+    expect(await screen.findByText(/Agent 都停用了，先直接用服务商聊/)).toBeInTheDocument()
+    expect(screen.getByRole('textbox', { name: '第一句话' })).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: '改回选 Agent' }))
     expect(await screen.findByText('所有 Agent 都停用了，先到「设置 / Agent」里启用一个')).toBeInTheDocument()
     expect(screen.getByText('没有可用的 Agent')).toBeInTheDocument()
     expect(screen.queryByRole('textbox', { name: '第一句话' })).not.toBeInTheDocument()

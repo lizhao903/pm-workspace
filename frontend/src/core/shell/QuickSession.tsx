@@ -32,9 +32,12 @@ export function QuickSession({ agents, providers, loading, loadError, lastAgent,
   onCreate: (input: AgentSessionInput, text: string) => void
   onClose: () => void
 }) {
-  const [mode, setMode] = useState<Mode>('agent')
-  const isAgent = mode === 'agent'
   const usableA = agents.filter(usableAgent)
+  // 没选过时：Agent 读完了却一个能用的都没有，直接落到服务商，免得一打开就是「没有可用的 Agent」
+  const [chosen, setMode] = useState<Mode | null>(null)
+  const noAgent = !loading.agents && !loadError?.agents && usableA.length === 0
+  const mode: Mode = chosen ?? (noAgent ? 'provider' : 'agent')
+  const isAgent = mode === 'agent'
   const usableP = providers.filter(usableProvider)
   const choices: Choice[] = isAgent
     ? usableA.map((a) => ({ id: a.id, name: a.name || '未命名', hint: a.desc, avatar: <AgentAvatar agent={a} size={22} /> }))
@@ -130,6 +133,9 @@ export function QuickSession({ agents, providers, loading, loadError, lastAgent,
           <b>新建会话</b>
           <span className="list-sub">{isAgent ? sub : cur ? `${cur.name} · ${cur.hint}` : sub}</span>
         </div>
+        {!isAgent && noAgent && chosen === null && (
+          <div className="qs-note">{agents.length ? 'Agent 都停用了' : '还没有 Agent'}，先直接用服务商聊；要固定指令和工具，到「设置 / Agent」里建一个</div>
+        )}
         {body}
         <div className="qs-foot">
           <button type="button" className="qs-mode" onClick={() => setMode(isAgent ? 'provider' : 'agent')}>
