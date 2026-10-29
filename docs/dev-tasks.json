@@ -3384,6 +3384,28 @@
     "acceptance": "- [ ] 起跳点里能看到 /Volumes 下每个外挂分区，点了直接进\n- [ ] 设置里加一个额外根（例如 scratchpad 下的测试目录）后能浏览和选中，删掉后回到越界提示；加 /etc、/ 被拒并写明原因\n- [ ] 选目录控件能输入路径跳转，面包屑能回到 /Volumes\n- [ ] /api/fs/read 对额外根里的敏感文件照样拦下（Go 测试）\n- [ ] gofmt、go vet、go test ./... 通过；npm test、typecheck、lint、build、smoke-frontend 通过"
   },
   {
+    "key": "CONN-04",
+    "type": "task",
+    "title": "连接器由用户自己添加和编辑：自定义 MCP 服务、OpenAPI 接口，同一工具可接多个",
+    "milestone": "M4",
+    "module": "fullstack",
+    "priority": "P1",
+    "estimate": "L",
+    "depends_on": [
+      "CONN-01a",
+      "CONN-01d",
+      "AG-02a"
+    ],
+    "workdir": ".",
+    "spec": [
+      "web-next/docs/spec/settings.md SPEC-settings-0 的 Tool、Connector（custom 分类 custom_mcp、custom_openapi）、SPEC-settings-3、SPEC-settings-5（5.2、5.4、5.6、5.7、5.13）",
+      "web-next/src/apiconn.tsx",
+      "docs/api-contract.md 连接器一节"
+    ],
+    "body": "## 背景\n\n用户要求：「连接器需要用户可添加，可编辑」。现在连接器只能从后端写死的定义里选（7796 上只有 Google Drive、Google 日历），同一工具只能接一个（POST 同 tool 回 409），用户没法加自己的服务。规格里早就有「自定义」分类：MCP 服务（custom_mcp）和 OpenAPI 接口（custom_openapi），由用户填地址和认证。\n\n## 要做什么\n\n- **自定义 MCP 服务**（custom_mcp）：用户填名称、服务地址、传输方式（先做 Streamable HTTP 和 SSE；stdio 要起本机进程，本条不做，界面上写「下一步」）、认证（无、Bearer Token、自定义请求头、OAuth2 自填应用信息）。测试连接走 MCP initialize；获取工具清单走 tools/list，工具读写属性按 annotations（readOnlyHint）判断，没有标注的当写工具；Agent 调用走 tools/call，照样过 AG-02a 的授权和确认。\n- **自定义 OpenAPI 接口**（custom_openapi）：用户填 OpenAPI 文档地址（或粘贴文档）、接口地址、认证（同上加 API Key 在 header 或 query）。按 operationId 生成工具，GET/HEAD 是只读，其余是写；调用时按参数位置拼请求。只支持 OpenAPI 3.x JSON 和 YAML。\n- **同一工具可以接多个实例**：去掉同 tool 409（内置的也允许，比如两个 GitHub 账号），名称在实例里区分，默认名称自动加序号；契约同步。\n- **编辑**：抽屉里名称、图标（自定义类可上传）、地址、传输方式、认证、请求头、拉取间隔、方向都能改，凭证改动进保险箱、界面只显示脱敏；改了地址或认证后提示重新测试和刷新工具清单。删除沿用影响检查。\n- **前端**：连接器列表右上「添加连接器」，打开按分类的目录（内置的加上「自定义：MCP 服务」「自定义：OpenAPI 接口」），已接过的写「再接一个」。照原型 apiconn.tsx 和 SPEC-settings-5 做。\n- 出网：自定义连接器的请求只发到用户填的地址，不能是数据目录、不能是 file://；回应体有大小上限；凭证不进日志和审计正文。\n\n## 注意事项\n\n- 测试一律用本机假 MCP 服务和假 OpenAPI 服务，不连外网。\n- 需要新表才加内核迁移，用 0038（0037 留给 FS-01）。\n- 改 internal/connector 要同步契约连接器一节。",
+    "acceptance": "- [ ] 在连接器页添加一个自定义 MCP（本机假服务，Streamable HTTP），测试连接通过、拉到工具清单、读写分对；Agent 挂上后能调到一个只读工具（Go 测试）\n- [ ] 添加一个自定义 OpenAPI（本机假服务的文档），生成的工具数和 operationId 一致，GET 是只读\n- [ ] 同一工具接第二个实例成功，名称自动加序号\n- [ ] 编辑名称、地址、认证后保存生效，凭证只显示脱敏，改地址后提示重新测试\n- [ ] gofmt、go vet、go test ./...；npm test、typecheck、lint、build、smoke-frontend 通过"
+  },
+  {
     "key": "QA-05",
     "type": "task",
     "title": "M4 端到端演练：IM 转任务再由 Agent 处理",
