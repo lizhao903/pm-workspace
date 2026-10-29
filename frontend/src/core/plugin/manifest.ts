@@ -31,6 +31,8 @@ export type PluginManifest = {
   description?: string
   // 菜单图标：外壳内置图标的 key，外壳不认识的用默认图标
   icon?: string
+  // 按模块给的菜单图标（模块 id 到图标 key），没给的模块用 icon
+  icons?: Record<string, string>
   version: string
   core: string
   depends?: Record<string, string>
@@ -90,7 +92,7 @@ const kernelEventNamespaces = ['object', 'task', 'run', 'contact']
 export const SHARED_TABLE_PREFIXES: Readonly<Record<string, readonly string[]>> = {}
 
 export const MANIFEST_FIELDS: readonly string[] = [
-  'id', 'name', 'description', 'icon', 'version', 'core', 'depends', 'optional_depends', 'provides',
+  'id', 'name', 'description', 'icon', 'icons', 'version', 'core', 'depends', 'optional_depends', 'provides',
   'emits', 'subscribes', 'adopts', 'permissions', 'migrations', 'table_prefix',
 ]
 
@@ -288,6 +290,20 @@ function check(c: Checker, raw: unknown): PluginManifest | undefined {
     }
   }
 
+  let icons: Record<string, string> | undefined
+  const ic = c.object(raw, 'icons', 'icons', false)
+  if (ic) {
+    icons = {}
+    for (const k of sortedKeys(ic)) {
+      const f = `icons.${k}`
+      const v = ic[k]
+      if (!(provides?.modules ?? []).includes(k)) c.add(f, `不是本插件提供的模块：${k}`)
+      else if (typeof v !== 'string') c.add(f, '必须是字符串')
+      else if (!keyRe.test(v)) c.add(f, `不合法：只能用小写字母、数字、下划线：${v}`)
+      else icons[k] = v
+    }
+  }
+
   const emits = c.strList(raw, 'emits', 'emits', false)
   c.each('emits', emits, (s) => {
     if (!eventRe.test(s)) return '不是合法的事件类型'
@@ -339,6 +355,7 @@ function check(c: Checker, raw: unknown): PluginManifest | undefined {
   const m: PluginManifest = { id, name: name!, version: version!, core: core!, provides: provides!, permissions: permissions! }
   if (description !== undefined) m.description = description
   if (icon !== undefined) m.icon = icon
+  if (icons) m.icons = icons
   if (depends) m.depends = depends
   if (optional) m.optional_depends = optional
   if (emits) m.emits = emits

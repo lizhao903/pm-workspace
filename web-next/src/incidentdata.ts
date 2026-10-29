@@ -120,7 +120,13 @@ export const seedIncidents: Incident[] = [
   },
   {
     id: 'inc8', fingerprint: 'trade:交易账户异常', level: 'warn', module: '交易', title: '交易账户异常',
-    message: 'OKX 合约：API Key 已过期，请到 OKX 重新创建并更新；跑在这个账户上的「永续网格」已挂起',
+    message: 'OKX 合约：API Key 已过期，请到 OKX 重新创建并更新；余额和持仓停在 4 小时前，对账也暂停了',
     context: {}, count: 1, first_at: minsAgo(240), last_at: minsAgo(240), occurrences: times(240), status: 'open',
+  },
+  // 实盘账户对账发现差异（TRD-08），指纹和交易页「重新对账」上报的一致
+  {
+    id: 'inc9', fingerprint: 'trade:交易对账异常', level: 'warn', module: '交易', title: '交易对账异常',
+    message: 'Binance 主账户：ETH/USDT 持仓本地 6.2，交易所 6.1938，差 0.0062（买入手续费按 ETH 扣）',
+    context: { 账户: 'Binance 主账户', 对账项: 3, 差异: 1 }, count: 2, first_at: minsAgo(72), last_at: minsAgo(12), occurrences: times(12, 72), status: 'open',
   },
 ]

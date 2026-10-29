@@ -4,6 +4,7 @@ import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Agent, AgentRun } from '../../core/data'
+import { resetLiveChats } from './chatLive'
 import { RunsView } from './RunsView'
 
 const agent = (id: string, name: string, over: Partial<Agent> = {}): Agent => ({
@@ -22,6 +23,7 @@ const RUNS = [
   run('ar_4', 'ag_gone', 'failed', { summary: '执行失败：模型不可用' }),
 ]
 let urls: string[] = []
+let decided: string[] = []
 
 function backend(input: RequestInfo | URL): Promise<Response> {
   const url = new URL(String(input), 'http://x')
@@ -34,6 +36,17 @@ function backend(input: RequestInfo | URL): Promise<Response> {
     const rows = RUNS.filter((r) => (!a || r.agent_id === a) && (!st || st.includes(r.status)))
     const limit = Number(url.searchParams.get('limit') ?? 50)
     return ok(rows.slice(0, limit), rows.length)
+  }
+  const tc = /^\/api\/agent\/tool-calls\/(.+)\/(confirm|reject)$/.exec(url.pathname)
+  if (tc) {
+    decided.push(`${tc[1]}:${tc[2]}`)
+    const events = [
+      ...(tc[2] === 'confirm' ? [{ type: 'tool_call', name: 'create_object', args: '{}' }] : []),
+      { type: 'tool_result', name: 'create_object', summary: tc[2] === 'confirm' ? '已新建 TSK-0009' : '用户拒绝了：新建「开通试点账号」，没有执行' },
+      { type: 'delta', text: '好的' },
+      { type: 'done', session_id: 'ags_ar_1', message_id: 'm9' },
+    ]
+    return Promise.resolve(new Response(events.map((e) => `data: ${JSON.stringify(e)}\n\n`).join(''), { status: 200, headers: { 'Content-Type': 'text/event-stream' } }))
   }
   const m = /^\/api\/agent-runs\/(.+)$/.exec(url.pathname)
   if (m) {
@@ -65,12 +78,14 @@ const card = (id: string) => document.querySelector<HTMLElement>(`[data-run="${i
 
 beforeEach(() => {
   urls = []
+  decided = []
+  resetLiveChats()
   vi.stubGlobal('fetch', vi.fn(backend))
 })
 afterEach(() => vi.unstubAllGlobals())
 
 describe('执行记录', () => {
-  it('列出执行记录，等确认的默认展开，待确认的调用标「等你确认」并给去会话的入口', async () => {
+  it('列出执行记录，等确认的默认展开，待确认的调用标「等你确认」，有确认、拒绝和去会话的入口', async () => {
     const onOpenSession = show()
     await waitFor(() => expect(card('ar_1')).not.toBeNull())
     expect(screen.getAllByText('收到 slack 消息 · ar_1')).toHaveLength(1)
@@ -78,7 +93,9 @@ describe('执行记录', () => {
     expect(within(waiting).getByRole('button', { expanded: true, name: /分诊助手/ })).toBeInTheDocument()
     expect(await within(waiting).findByText('等你确认')).toBeInTheDocument()
     expect(waiting.querySelector('[data-call="atc_1"]')).not.toBeNull()
-    await userEvent.click(within(waiting).getByRole('button', { name: '去会话里确认' }))
+    expect(within(waiting).getByRole('button', { name: '确认执行' })).toBeEnabled()
+    expect(within(waiting).getByRole('button', { name: '拒绝' })).toBeEnabled()
+    await userEvent.click(within(waiting).getByRole('button', { name: '去会话里看' }))
     expect(onOpenSession).toHaveBeenCalledWith('ags_ar_1')
     // 没动过的已完成默认收起；Agent 删了显示「已删除的 Agent」
     expect(within(card('ar_2')!).getByRole('button', { expanded: false })).toBeInTheDocument()
@@ -113,6 +130,28 @@ describe('执行记录', () => {
     expect(within(c).getByRole('button', { expanded: true })).toBeInTheDocument()
     expect(await within(c).findByText('总结 ar_3')).toBeInTheDocument()
     expect(onFocused).toHaveBeenCalled()
+  })
+
+  it('卡片上点「确认执行」走 tool-calls 的 confirm，跑完不留错误（SPEC-sessions-2.5）', async () => {
+    show()
+    await waitFor(() => expect(card('ar_1')).not.toBeNull())
+    const waiting = card('ar_1')!
+    await userEvent.click(await within(waiting).findByRole('button', { name: '确认执行' }))
+    await waitFor(() => expect(decided).toEqual(['atc_1:confirm']))
+    await waitFor(() => expect(within(waiting).getByRole('button', { name: '确认执行' })).toBeEnabled())
+    expect(within(waiting).queryByRole('alert')).toBeNull()
+  })
+
+  it('Agent 删了的执行记录不给确认', async () => {
+    RUNS.push(run('ar_5', 'ag_gone', 'waiting'))
+    try {
+      show({ focus: 'ar_5' })
+      const c = await waitFor(() => { const x = card('ar_5'); expect(x).not.toBeNull(); return x! })
+      expect(await within(c).findByRole('button', { name: '确认执行' })).toBeDisabled()
+      expect(within(c).getByText(/确认、拒绝都处理不了/)).toBeInTheDocument()
+    } finally {
+      RUNS.pop()
+    }
   })
 
   it('失败的总结写原因', async () => {

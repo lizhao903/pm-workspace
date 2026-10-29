@@ -280,7 +280,7 @@ describe('工作台切换（CORE-10b）', () => {
     await userEvent.click(screen.getByRole('button', { name: '一人之下，当前工作台：甲工作台' }))
     await userEvent.click(screen.getByRole('menuitemradio', { name: /交易工作台/ }))
     const dialog = await screen.findByRole('alertdialog', { name: '「交易工作台」需要的插件还没装好' })
-    expect(dialog).toHaveTextContent('交易套件（行情）：尚未提供')
+    expect(dialog).toHaveTextContent('交易套件：尚未提供')
     // 尚未提供的装不了，不给去插件管理的入口
     expect(within(dialog).queryByRole('button', { name: '去插件管理安装' })).not.toBeInTheDocument()
     await userEvent.click(within(dialog).getByRole('button', { name: '先不装，照样切换' }))

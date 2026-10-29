@@ -40,7 +40,7 @@ export default function Page() {
   }
   const select = (v: View) => navigate(SUBPATH[v] ? `${root}/${SUBPATH[v]}` : root)
   const toSession = (id: string) => navigate(`${root}?s=${encodeURIComponent(id)}`)
-  const openAgent = (id: string) => navigate(`/settings/agents/${encodeURIComponent(id)}`)
+  const openAgent = (id: string, tab?: string) => navigate(`/settings/agents/${encodeURIComponent(id)}${tab ? `?tab=${tab}` : ''}`)
 
   return (
     <div className="conv-mod">

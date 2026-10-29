@@ -103,8 +103,8 @@ func TestExamples(t *testing.T) {
 			}
 		})
 	}
-	if valid != 3 || invalid != 5 {
-		t.Errorf("样例应为 3 个合法、5 个非法，实际 %d、%d", valid, invalid)
+	if valid != 3 || invalid != 6 {
+		t.Errorf("样例应为 3 个合法、6 个非法，实际 %d、%d", valid, invalid)
 	}
 }
 

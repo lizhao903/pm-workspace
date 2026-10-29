@@ -32,12 +32,15 @@ export function errorCode(raw: string | undefined, status: number): ApiErrorCode
 export class ApiError extends Error {
   readonly status: number
   readonly code: ApiErrorCode
+  /** 错误信封里 code、message 以外的字段（如 SOP 保存校验的 issues），没有时为空对象 */
+  readonly extra: Record<string, unknown>
 
-  constructor(status: number, code: ApiErrorCode, message: string) {
+  constructor(status: number, code: ApiErrorCode, message: string, extra: Record<string, unknown> = {}) {
     super(message)
     this.name = 'ApiError'
     this.status = status
     this.code = code
+    this.extra = extra
   }
 }
 
@@ -103,7 +106,10 @@ export async function requestEnvelope<T>(
   if (!res.ok || body?.error) {
     const code = errorCode(body?.error?.code, res.status)
     const message = body?.error?.message || res.statusText || 'HTTP ' + res.status
-    throw new ApiError(res.status, code, message)
+    const extra: Record<string, unknown> = { ...body?.error }
+    delete extra.code
+    delete extra.message
+    throw new ApiError(res.status, code, message, extra)
   }
   if (!body || typeof body !== 'object' || !('data' in body)) {
     throw new ApiError(res.status, 'internal', '响应格式不对：缺少 data')

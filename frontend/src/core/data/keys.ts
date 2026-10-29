@@ -155,6 +155,8 @@ export const dataKeys = {
   sop: {
     all: ['sop'] as const,
     flows: ['sop', 'flows'] as const,
+    /** 单条流程在 flows 前缀下，删改流程时一起刷 */
+    flow: (id: string) => ['sop', 'flows', 'get', id] as const,
     nodeTypes: ['sop', 'node-types'] as const,
     runs: ['sop', 'runs'] as const,
     runList: ['sop', 'runs', 'list'] as const,

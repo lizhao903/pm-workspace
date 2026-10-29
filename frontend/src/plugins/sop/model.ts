@@ -27,11 +27,11 @@ const stepLook = (s: string): Look => STEP_STATUS[s as SopStepStatus] ?? { label
 const runLook = (s: string): Look => RUN_STATUS[s as SopRunStatus] ?? { label: s, color: 'var(--faint)' }
 export { stepLook, runLook }
 
-/** 节点类型的显示名，照原型 nodetypes.tsx 的 NODE_TYPES；颜色在 sop.css 的 .sop-kt-<kind> */
+/** 节点类型的显示名，照原型 nodetypes.tsx 的 NODE_TYPES，另加 SOP-02a 的写节点 doc、contact；颜色在 sop.css 的 .sop-kt-<kind> */
 export const KIND_LABEL: Record<string, string> = {
   auto: '自动执行', ai: 'AI 处理', knowledge: '知识检索', extract: '参数提取', template: '模板转换', aggregate: '变量聚合',
   code: '代码执行', decide: '条件分支', classifier: '问题分类器', iterate: '迭代', wait: '等待', review: '人工检查',
-  http: 'HTTP 请求', notify: '发送消息', task: '创建任务', agent: '调用 Agent', subflow: '子流程', end: '结束',
+  http: 'HTTP 请求', notify: '发送消息', task: '创建任务', doc: '写文档', contact: '写联系人', agent: '调用 Agent', subflow: '子流程', end: '结束',
 }
 export const kindLabel = (k: string) => KIND_LABEL[k] ?? k
 

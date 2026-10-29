@@ -372,6 +372,78 @@ export const SOPS: Sop[] = [
         },
       },
     ],
+  },  {
+    // 视频模块的阶段执行器可以直接选它；检查点对应视频的四个检查点，人放行了才往下走
+    id: 'sop_video_weekly',
+    name: '视频周更',
+    desc: '按 web-video-presentation 技能把一集从原文做到分发包：AI 出稿、Agent 开发第 1 章、并行做其余章节、渲染，四处停下等人检查',
+    trigger: 'manual',
+    fields: [
+      { key: 'video', label: '视频', type: 'text', required: true, default: '第 3 集：Agent 怎么配才放心', placeholder: '哪一集' },
+      { key: 'orient', label: '画面比例', type: 'select', default: 'both', options: [
+        { value: 'both', label: '横屏和竖屏两套' }, { value: 'landscape', label: '只出横屏' }, { value: 'portrait', label: '只出竖屏' },
+      ] },
+      { key: 'chapters', label: '章节数', type: 'text', default: '4' },
+      { key: 'article', label: '原文', type: 'textarea', required: true, default: 'Agent 能做的事越多，越要先想清楚哪些动作要人确认。这一集讲三件事：能力开关怎么配、确认卡片什么时候弹、出了错怎么查运行记录。' },
+    ],
+    steps: [
+      {
+        key: 'script', name: '文稿处理', kind: 'ai', ms: 2200, after: [],
+        desc: '把原文改成口播稿和大纲；双方向的横版、竖版各写一套，竖版每屏压到 40 字以内',
+        config: { output: 'scripts' },
+        run: (i) => {
+          const orients = i.orient === 'both' ? ['landscape', 'portrait'] : [str(i.orient) || 'landscape']
+          const n = Math.max(1, Number(i.chapters) || 4)
+          return {
+            video: i.video, orients, chapters: Array.from({ length: n }, (_, k) => `第 ${k + 1} 章`),
+            scripts: orients.map((o) => ({ variant: o, path: `script-${o}.md`, status: 'review' })),
+            outline: orients.map((o) => ({ variant: o, path: `outline-${o}.md` })),
+          }
+        },
+      },
+      {
+        key: 'plan', name: '规划检查', kind: 'review', ms: 300,
+        desc: '对齐稿子、大纲、主题、素材和画面比例；放行后比例锁定',
+        run: (i) => i,
+      },
+      {
+        key: 'ch1', name: '开发第 1 章', kind: 'agent', ms: 2600,
+        desc: '交给 Agent 按技能搭演示工程，第 1 章做完整，作为后面各章的样板。用前选一个能写文件、开终端的 Agent',
+        config: { prompt: '按 web-video-presentation 技能搭 {{orients}} 的演示工程，第 1 章完整做出来，跑起来截图给我看' },
+        run: (i) => ({ ...i, presentations: ((i.orients as string[]) ?? []).map((o) => ({ variant: o, path: `presentation-${o}`, done: ['第 1 章'] })) }),
+      },
+      {
+        key: 'ch1_review', name: '检查第 1 章', kind: 'review', ms: 300,
+        desc: '第 1 章是样板：版式、节奏、动效都在这里定，不行就退回重做',
+        run: (i) => i,
+      },
+      {
+        key: 'rest', name: '并行开发其余章节', kind: 'iterate', ms: 3000,
+        desc: '第 2 到 N 章照第 1 章的样板各开一路，同时开发',
+        config: { list: 'chapters', action: '照第 1 章的样板开发这一章' },
+        run: (i) => ({ ...i, presentations: ((i.presentations as { variant: string; path: string }[]) ?? []).map((p) => ({ ...p, done: i.chapters })) }),
+      },
+      {
+        key: 'audio', name: '音频检查', kind: 'review', ms: 300,
+        desc: '决定要不要合成口播音频；要的话按章节听一遍，多音字和停顿在这里改',
+        run: (i) => ({ ...i, audio: { path: 'audio/', chapters: ((i.chapters as string[]) ?? []).length } }),
+      },
+      {
+        key: 'render', name: '渲染', kind: 'code', ms: 2400,
+        desc: '逐章程序化录屏，合成 mp4，按章节时间点出字幕',
+        config: { language: 'javascript', code: 'function main(input) {\n  // 每个比例录一遍：playwright 逐章录屏，ffmpeg 拼接并混入口播音频\n  return { videos: input.orients.map((o) => `out/${o}.mp4`) }\n}' },
+        run: (i) => ({
+          ...i,
+          videos: ((i.orients as string[]) ?? []).map((o) => ({ variant: o, path: `out/${o}.mp4` })),
+          subtitles: ((i.orients as string[]) ?? []).map((o) => ({ variant: o, path: `subtitle/${o}.srt`, lang: 'zh' })),
+        }),
+      },
+      {
+        key: 'dist', name: '分发包检查', kind: 'review', ms: 300,
+        desc: '封面（每种封面比例 5 个版本）、简介、章节时间轴都齐了再放行，之后去发布记录按平台发',
+        run: (i) => ({ ...i, covers: ((i.orients as string[]) ?? []).map((o) => ({ variant: o, options: 5 })) }),
+      },
+    ],
   },
 ]
 

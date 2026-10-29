@@ -16,7 +16,7 @@ export {
   fs,
   agentWorkdir,
 } from './resources'
-export { streamPost, runObject, chat, SSEParser, StreamError, isStreamError } from './sse'
+export { streamPost, runObject, chat, decideToolCall, debugChat, SSEParser, StreamError, isStreamError } from './sse'
 export type {
   RunEvent,
   ChatEvent,
@@ -28,5 +28,7 @@ export type {
   StreamOptions,
   RunRequest,
   ChatRequest,
+  DebugChatMessage,
+  DebugChatRequest,
 } from './sse'
 export type * from './types'

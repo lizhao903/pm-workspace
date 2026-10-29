@@ -1,15 +1,16 @@
 // 执行记录（SPEC-sessions-2，AG-01b8）：Agent 被任务、IM 消息、定时任务触发后的每一次执行，接 /api/agent-runs。
 // 状态、Agent 在后端筛，等你确认的在前（后端排序）；卡片展开时取详情看调用。?run= 定位到一条：清掉筛选、展开、滚到中间、高亮约 2 秒。
-// 等确认的调用卡片默认展开；确认、拒绝按钮归 AG-02b，这里给去会话的入口。
-import { useEffect, useMemo, useState } from 'react'
+// 等确认的调用卡片默认展开，卡片上直接「确认执行 / 拒绝」（AG-02b，SPEC-sessions-2.5），接着跑的回复在它的会话里，跑完执行记录的状态重算。
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import {
   AGENT_RUN_STATUS, errorText, useAgentRun, useAgentRunCounts, useAgentRunList, useAgentRuns, useAgents,
   type Agent, type AgentRun, type AgentRunStatus,
 } from '../../core/data'
-import { EmptyState, ErrorState, IconChevronRight, LoadingState, PageTitle, Pill, SearchSelect, cls } from '../../core/ui'
+import { Button, EmptyState, ErrorState, IconChevronRight, LoadingState, PageTitle, Pill, SearchSelect, cls } from '../../core/ui'
 import { AgentAvatar } from '../../core/ui/AgentAvatar'
 import { CallCard } from './CallCard'
-import { GONE_AGENT, timeAgo } from './chatModel'
+import { decideCall, useDeciding, useLiveChat } from './chatLive'
+import { GONE_AGENT, timeAgo, type CallView } from './chatModel'
 import { runCallViews, topAgents } from './runModel'
 
 /** 一次先露多少条，往下点「显示更多」 */
@@ -21,6 +22,27 @@ const SEG: ('' | AgentRunStatus)[] = ['', 'waiting', 'done', 'rejected', 'failed
 const COUNTED: string[] = ['', 'waiting', 'done', 'rejected', 'failed', 'running']
 
 const statusOf = (s: string) => AGENT_RUN_STATUS[s as AgentRunStatus] ?? { label: s, color: undefined }
+
+/** 执行记录里等确认的调用：确认、拒绝走会话的接着跑，失败原因取那个会话这一轮的 */
+function RunConfirm({ call, sessionId, agentOk, goSession }: { call: CallView; sessionId: string | null; agentOk: boolean; goSession: ReactNode }) {
+  const deciding = useDeciding(call.id)
+  const live = useLiveChat(sessionId)
+  const failed = live?.phase === 'failed' && live.decide?.callId === call.id ? live.error : undefined
+  if (!call.id || !sessionId) return <div className="act-row call-confirm-hint">{goSession}</div>
+  const id = call.id
+  const sid = sessionId
+  return (
+    <>
+      <div className="act-row call-confirm">
+        <Button size="sm" variant="primary" disabled={!agentOk || deciding} onClick={() => decideCall(sid, id, true)}>{deciding ? '正在处理' : '确认执行'}</Button>
+        <Button size="sm" disabled={!agentOk || deciding} onClick={() => decideCall(sid, id, false)}>拒绝</Button>
+        {goSession}
+      </div>
+      {!agentOk && <div className="list-sub">Agent 已停用或已删除，确认、拒绝都处理不了；先在「设置 / Agent」里启用</div>}
+      {failed && <div className="field-err" role="alert">没处理成：{failed}</div>}
+    </>
+  )
+}
 
 function RunCard({ run, agent, open, lit, onToggle, onOpenSession }: {
   run: AgentRun
@@ -35,9 +57,9 @@ function RunCard({ run, agent, open, lit, onToggle, onOpenSession }: {
   const calls = useMemo(() => (detail.data ? runCallViews(detail.data.calls, detail.data.tool_calls) : []), [detail.data])
   // 不挂对象的会话在会话页里；任务触发的会话挂在任务下，不在全局会话列表里
   const canOpen = !!run.session_id && run.trigger_kind !== 'task'
-  const goConfirm = canOpen
-    ? <button type="button" className="link-btn" onClick={() => onOpenSession(run.session_id!)}>去会话里确认</button>
-    : <span className="list-sub">在这条任务的 Agent 会话里确认</span>
+  const goSession = canOpen
+    ? <button type="button" className="link-btn" onClick={() => onOpenSession(run.session_id!)}>去会话里看</button>
+    : <span className="list-sub">对话在这条任务的 Agent 会话里</span>
   return (
     <div data-run={run.id} data-status={run.status}
       className={cls('agent-run', run.status === 'waiting' && 'waiting', !open && 'folded', lit && 'lit')}>
@@ -61,7 +83,7 @@ function RunCard({ run, agent, open, lit, onToggle, onOpenSession }: {
               <div className="call-list">
                 {calls.map((c, i) => (
                   <CallCard key={c.id ?? i} call={c}>
-                    {c.state === 'pending' && <div className="act-row call-confirm-hint">{goConfirm}</div>}
+                    {c.state === 'pending' && <RunConfirm call={c} sessionId={run.session_id} agentOk={!!agent?.enabled} goSession={goSession} />}
                   </CallCard>
                 ))}
                 {!calls.length && <div className="list-sub">{run.status === 'running' ? '正在执行，还没有调用' : '这次执行没有调用工具'}</div>}

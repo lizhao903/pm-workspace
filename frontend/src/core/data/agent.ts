@@ -2,7 +2,9 @@
 // 接口见 docs/api-contract.md「Agent 供应商」「Agent 对话」；core/api 里还没有这几个资源，请求函数先放在这里。
 // 写操作报 agent-session，一轮对话收尾报 agent-chat（工具可能建了对象、写了文件）。
 import { useMutation, useQuery } from '@tanstack/react-query'
-import { chat, request, requestList, type ChatDone, type ChatEvent, type ChatRequest, type StreamOptions } from '../api'
+import {
+  chat, debugChat, decideToolCall, request, requestList, type ChatDone, type ChatEvent, type ChatRequest, type DebugChatRequest, type StreamOptions,
+} from '../api'
 import { agentKeys } from './agentKeys'
 import { notifyChange, useNotifyChange } from './invalidate'
 
@@ -158,6 +160,28 @@ export function streamChat(req: ChatRequest, opts: StreamOptions<ChatEvent> = {}
     (d) => notifyChange({ kind: 'agent-chat', sessionId: d.session_id || req.session_id }),
     () => notifyChange({ kind: 'agent-chat', sessionId: req.session_id }),
   )
+  return { done, settled }
+}
+
+/**
+ * 确认或拒绝一次要人确认的调用（AG-02b），读接着跑的流；收尾同 streamChat 按 agent-chat 刷新
+ * （执行记录的状态跟着重算，规则里带着）。sessionId 是调用所在的会话，调试对话里的调用不给。
+ */
+export function streamDecision(
+  callId: string, approve: boolean, sessionId?: string, opts: StreamOptions<ChatEvent> = {},
+): { done: Promise<ChatDone>; settled: Promise<void> } {
+  const done = decideToolCall(callId, approve, opts)
+  const settled = done.then(
+    () => notifyChange({ kind: 'agent-chat', sessionId }),
+    () => notifyChange({ kind: 'agent-chat', sessionId }),
+  )
+  return { done, settled }
+}
+
+/** 调试对话（AG-02c）：不写会话，产出照常落到数据上，收尾按 agent-chat 刷新对象、产出物 */
+export function streamDebugChat(req: DebugChatRequest, opts: StreamOptions<ChatEvent> = {}): { done: Promise<ChatDone>; settled: Promise<void> } {
+  const done = debugChat(req, opts)
+  const settled = done.then(() => notifyChange({ kind: 'agent-chat' }), () => notifyChange({ kind: 'agent-chat' }))
   return { done, settled }
 }
 

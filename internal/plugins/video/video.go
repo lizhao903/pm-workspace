@@ -1,6 +1,7 @@
 // Package video 是「视频创作」插件的后端（VID-01a 起）。清单 plugin.json 只有这一份，前端构建时也读它。
 // 系列、视频、检查点、发布记录落在插件表 video_series、video_videos、video_checkpoints、video_publishes，
-// 形状同原型 web-next/src/videodata.ts。产出物是 VID-01b，内容平台连接器是 VID-04，本插件现在不访问任何外部服务。
+// 产出物和验收记录（VID-01b）落在 video_artifacts、video_artifact_reviews，形状同原型 web-next/src/videodata.ts。
+// 内容平台连接器是 VID-04，本插件现在不访问任何外部服务。
 // 接口契约见 docs/api-contract.md「视频创作插件 video」。
 package video
 
@@ -60,6 +61,13 @@ func (p *Plugin) Register(r plugin.Registrar) error {
 		m.HandleFunc("GET /api/video/publishes/{id}", h.showPublish)
 		m.HandleFunc("PATCH /api/video/publishes/{id}", h.updatePublish)
 		m.HandleFunc("DELETE /api/video/publishes/{id}", h.removePublish)
+		m.HandleFunc("GET /api/video/artifacts", h.listArtifacts)
+		m.HandleFunc("POST /api/video/artifacts", h.addArtifact)
+		m.HandleFunc("GET /api/video/artifacts/{id}", h.showArtifact)
+		m.HandleFunc("PATCH /api/video/artifacts/{id}", h.updateArtifact)
+		m.HandleFunc("DELETE /api/video/artifacts/{id}", h.removeArtifact)
+		m.HandleFunc("POST /api/video/artifacts/{id}/reviews", h.review)
+		m.HandleFunc("POST /api/video/artifacts/{id}/bump", h.bump)
 	})
 	return nil
 }

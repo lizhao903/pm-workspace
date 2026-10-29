@@ -113,3 +113,76 @@ type Publish struct {
 	CreatedAt   string   `json:"created_at"`
 	UpdatedAt   string   `json:"updated_at"`
 }
+
+// ArtifactKind 同原型 ARTIFACT_KIND：PerVariant 是不是每个比例一份。
+type ArtifactKind struct {
+	Key        string
+	Label      string
+	Stage      string
+	PerVariant bool
+}
+
+var ArtifactKinds = []ArtifactKind{
+	{"article", "原文", "script", false},
+	{"script", "口播稿", "script", false},
+	{"outline", "大纲", "script", false},
+	{"presentation", "演示工程", "web", true},
+	{"audio", "音频", "audio", false},
+	{"video", "视频", "record", true},
+	{"cover", "封面", "distribution", true},
+	{"description", "简介", "distribution", false},
+	{"chapters", "章节时间轴", "distribution", false},
+}
+
+func artifactKind(k string) (ArtifactKind, bool) {
+	i := slices.IndexFunc(ArtifactKinds, func(a ArtifactKind) bool { return a.Key == k })
+	if i < 0 {
+		return ArtifactKind{}, false
+	}
+	return ArtifactKinds[i], true
+}
+
+// ArtifactStatuses 同原型 ARTIFACT_STATUS。
+var ArtifactStatuses = []string{"draft", "review", "final", "published"}
+
+// SourceTypes 同原型 Artifact.source.type；SourceLabels 是没给名字时的默认显示。
+var SourceTypes = []string{"manual", "sop", "agent", "skill"}
+
+var SourceLabels = map[string]string{"manual": "手动登记", "sop": "SOP", "agent": "Agent", "skill": "技能"}
+
+// Review 同原型 Review，多一个 version：验收的是第几版。
+type Review struct {
+	At      string `json:"at"`
+	OK      bool   `json:"ok"`
+	Comment string `json:"comment"`
+	Version int    `json:"version"`
+}
+
+// ArtifactSource 同原型 source，多内核产物溯源（AG-03b）的几个 id，没有就不返回。
+type ArtifactSource struct {
+	Type       string `json:"type"`
+	Label      string `json:"label"`
+	ID         string `json:"id,omitempty"`
+	SessionID  string `json:"session_id,omitempty"`
+	RunID      string `json:"run_id,omitempty"`
+	ArtifactID string `json:"artifact_id,omitempty"`
+}
+
+// Artifact 同原型 Artifact，多 updated_at；variant、option、duration 没有就不返回，picked 只有封面返回。
+type Artifact struct {
+	ID        string         `json:"id"`
+	VideoID   string         `json:"video_id"`
+	Kind      string         `json:"kind"`
+	Name      string         `json:"name"`
+	Path      string         `json:"path"`
+	Variant   string         `json:"variant,omitempty"`
+	Option    *int           `json:"option,omitempty"`
+	Version   int            `json:"version"`
+	Status    string         `json:"status"`
+	Duration  *int           `json:"duration,omitempty"`
+	Source    ArtifactSource `json:"source"`
+	Reviews   []Review       `json:"reviews"`
+	Picked    *bool          `json:"picked,omitempty"`
+	CreatedAt string         `json:"created_at"`
+	UpdatedAt string         `json:"updated_at"`
+}

@@ -1,13 +1,14 @@
 // SOP 插件的页面（SPEC-sop-1 到 7）：二级菜单 + 执行记录（默认）、待我处理、流程库、流程详情、运行页，发起执行抽屉。
 // 路由挂在 sop/* 下：/sop 执行记录（?flow= 按流程筛），/sop/waiting，/sop/library，/sop/flows/<id> 流程详情，/sop/runs/<id> 运行页。
-// 编排页（/sop/new、/sop/flows/<id>/edit）归 SOP-04c，这里先放占位。打开运行页时把来处记在 location.state，「返回」回到那里
+// 编排页（SOP-04c）：/sop/new 新建，/sop/flows/<id>/edit 编辑，保存后回流程详情，「测试运行」再打开发起执行抽屉。打开运行页时把来处记在 location.state，「返回」回到那里
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { Navigate, useLocation, useNavigate, useParams, useSearchParams } from 'react-router'
 import {
   QueryState, isApiError, useEventsLive, useSopFlows, useSopNodeTypes, useSopRun, useSopRunAction, useSopRuns, type SopFlow, type SopJson,
   type SopRunBrief,
 } from '../../core/data'
-import { Button, EmptyState, InSubnavHost, PageTitle, Subnav } from '../../core/ui'
+import { Button, EmptyState, InSubnavHost, Subnav } from '../../core/ui'
+import { EditPage } from './EditPage'
 import { FlowDetail } from './FlowDetail'
 import { Library } from './Library'
 import { branchingOf, flowStats, isEnded, isPendingRun, recentFlows, timeAgo } from './model'
@@ -142,17 +143,23 @@ export default function Page() {
         }} />
     )
   } else {
+    const id = route.id
     body = (
-      <div className="sop-page">
-        <PageTitle parent="SOP">{route.id ? '编辑 SOP' : '新建 SOP'}</PageTitle>
-        <EmptyState title="编排页还没上线" desc="画布、节点配置和 AI 协助在后续版本里提供，现在可以执行已有的流程"
-          action={<Button onClick={() => navigate(-1)}>返回</Button>} />
-      </div>
+      <Loaded q={both}>
+        {(fl, rs) => (
+          <EditPage key={id ?? 'new'} id={id} flows={fl} runs={rs}
+            onCancel={() => (id ? openFlow(id) : go(root))}
+            onSaved={(f, thenRun) => {
+              navigate(`${root}/flows/${encodeURIComponent(f.id)}`, { replace: true })
+              if (thenRun) setStart({ flow: f })
+            }} />
+        )}
+      </Loaded>
     )
   }
 
   return (
-    <div className={route.kind === 'run' ? 'sop-mod sop-mod-fill' : 'sop-mod'}>
+    <div className={route.kind === 'run' || route.kind === 'edit' ? 'sop-mod sop-mod-fill' : 'sop-mod'}>
       {subnav}
       {body}
       {start && (

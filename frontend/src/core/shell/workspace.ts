@@ -3,6 +3,7 @@
 import { useSyncExternalStore } from 'react'
 import type { PluginInfo, Workspace } from '../data'
 import type { MenuGroupDef } from './menu'
+import { bundledOwnerOf } from './pluginIcons'
 
 /** 工作台里能放的模块，说明照原型 web-next/src/workspacedata.ts MODULES */
 export const MODULE_CATALOG: readonly { key: string; label: string; desc: string }[] = [
@@ -35,26 +36,32 @@ export const CATALOG_IDS: ReadonlySet<string> = new Set(MODULE_CATALOG.map((m) =
 
 const KERNEL_KEYS = new Set(['today', 'tasks', 'library', 'contacts', 'sessions'])
 
-/** 模块由哪个插件提供；内核模块为 null。和契约一致：messages 由 im 提供，其余插件模块 key 即插件 id */
-export function pluginOfModule(key: string): string | null {
+/** 插件列表里认模块归属只看 provides.modules */
+type ModuleProvider = { id: string; provides?: Record<string, string[] | undefined> }
+
+/**
+ * 模块由哪个插件提供；内核模块为 null。以插件清单的 provides.modules 为准：先看后端插件列表，
+ * 再看构建时打进来的清单；都没有的（例如还没做的浏览器）才把模块 key 当插件 id
+ */
+export function pluginOfModule(key: string, list?: readonly ModuleProvider[]): string | null {
   if (KERNEL_KEYS.has(key)) return null
-  return key === 'messages' ? 'im' : key
+  const id = moduleIdOf(key)
+  return list?.find((p) => p.provides?.modules?.includes(id))?.id ?? bundledOwnerOf(id) ?? key
 }
 
 /** 按模块推出需要的插件，去重保序 */
-export const pluginsForModules = (keys: readonly string[]) =>
-  [...new Set(keys.map(pluginOfModule).filter((p): p is string => !!p))]
+export const pluginsForModules = (keys: readonly string[], list?: readonly ModuleProvider[]) =>
+  [...new Set(keys.map((k) => pluginOfModule(k, list)).filter((p): p is string => !!p))]
+
+/** 工作台记的插件 id 认成真实插件：0023 的预设按模块 key 记（videos、markets 等），这里换成提供它的插件 */
+function resolvePlugin(id: string, list: readonly ModuleProvider[]): string {
+  return list.some((p) => p.id === id) ? id : pluginOfModule(id, list) ?? id
+}
 
 /** 插件清单里没有的插件用这里的名字（还没做出来） */
 const PLUGIN_NAMES: Record<string, string> = {
-  projects: '项目', im: 'IM 消息', sop: 'SOP', terminal: '终端', browser: '浏览器', videos: '视频',
-  markets: '行情', monitor: '盯盘', strategy: '策略与回测', trading: '交易执行',
+  projects: '项目', im: 'IM 消息', sop: 'SOP', terminal: '终端', browser: '浏览器', video: '视频创作', trade: '交易套件',
 }
-
-/** 几个插件合成一个套件：都还没提供时合成一行说 */
-const SUITES: readonly { id: string; name: string; plugins: readonly string[] }[] = [
-  { id: 'trading-suite', name: '交易套件', plugins: ['markets', 'monitor', 'strategy', 'trading'] },
-]
 
 export function moduleLabel(key: string, live?: readonly { id: string; label: string }[]): string {
   return MODULE_CATALOG.find((m) => m.key === key)?.label ?? live?.find((m) => m.id === moduleIdOf(key))?.label ?? key
@@ -75,29 +82,16 @@ export function pluginState(id: string, list: readonly PluginInfo[]): PluginStat
   return p.running ? 'ok' : 'disabled'
 }
 
-/** 缺的插件一行：套件合成的行带 members */
-export type MissingPlugin = { id: string; name: string; state: Exclude<PluginState, 'ok'>; members?: string[] }
+/** 缺的插件一行 */
+export type MissingPlugin = { id: string; name: string; state: Exclude<PluginState, 'ok'> }
 
-/** 工作台需要、现在没在跑的插件。插件清单里没有的算「尚未提供」，同一套件里尚未提供的合成一行 */
+/** 工作台需要、现在没在跑的插件，按插件去重（交易四个模块都算 trade）。插件列表里没有的算「尚未提供」 */
 export function missingPlugins(required: readonly string[], list: readonly PluginInfo[]): MissingPlugin[] {
   const out: MissingPlugin[] = []
-  const suiteRow = new Map<string, MissingPlugin>()
-  for (const id of new Set(required)) {
+  for (const id of new Set(required.map((r) => resolvePlugin(r, list)))) {
     const state = pluginState(id, list)
     if (state === 'ok') continue
-    const name = list.find((x) => x.id === id)?.name || PLUGIN_NAMES[id] || id
-    const suite = state === 'unavailable' ? SUITES.find((s) => s.plugins.includes(id)) : undefined
-    if (!suite) {
-      out.push({ id, name, state })
-      continue
-    }
-    let row = suiteRow.get(suite.id)
-    if (!row) {
-      row = { id: suite.id, name: suite.name, state, members: [] }
-      suiteRow.set(suite.id, row)
-      out.push(row)
-    }
-    row.members!.push(name)
+    out.push({ id, name: list.find((x) => x.id === id)?.name || PLUGIN_NAMES[id] || id, state })
   }
   return out
 }
@@ -105,9 +99,8 @@ export function missingPlugins(required: readonly string[], list: readonly Plugi
 /** 缺的插件里有没有能去插件管理页装上的（尚未提供的装不了） */
 export const canInstallSome = (m: readonly MissingPlugin[]) => m.some((x) => x.state !== 'unavailable')
 
-/** 一行缺插件的文字：「交易套件（行情、盯盘）：尚未提供」 */
-export const missingText = (m: MissingPlugin) =>
-  `${m.name}${m.members && m.members.length ? `（${m.members.join('、')}）` : ''}：${PLUGIN_STATE_TEXT[m.state]}`
+/** 一行缺插件的文字：「交易套件：已安装未启用」 */
+export const missingText = (m: MissingPlugin) => `${m.name}：${PLUGIN_STATE_TEXT[m.state]}`
 
 /** 工作台的分组换成菜单分组：模块 key 换成前端模块 id；分组 id 带上工作台 id，折叠记忆不串 */
 export function workspaceMenuGroups(w: Workspace): MenuGroupDef[] {

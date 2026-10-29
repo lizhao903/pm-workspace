@@ -9,6 +9,7 @@ import { dataKeys } from './keys'
 import { queryClient } from './queryClient'
 import { skillKeys } from './skillKeys'
 import { todayKeys } from './today'
+import { videoKeys } from './videoKeys'
 
 export type Change =
   /** 对象新建、编辑、改状态、删除、恢复，以及带 status 的进展（同一事务改了状态） */
@@ -76,6 +77,8 @@ export type Change =
   | { kind: 'domains' }
   /** 测了一次内网域名：结果另存，只刷路由列表上的 check */
   | { kind: 'domain-check' }
+  /** 视频新建、编辑、删除，阶段推进、检查点通过退回跳过（VID-01c）：列表的分布和待我处理的数字跟着变 */
+  | { kind: 'video' }
 
 // 对象一变，所有对象列表（任务列表、今日、项目的任务标签页）、单个对象及其进展和修订、
 // 计数（侧栏红点、逾期徽标）都可能变；干系人名册上的任务数也跟着变；今日聚合（待验收、逾期、今天到期、插件卡片）也是。
@@ -184,6 +187,8 @@ export function invalidationsFor(c: Change): QueryKey[] {
       return [domainKeys.all]
     case 'domain-check':
       return [domainKeys.routes]
+    case 'video':
+      return [videoKeys.all]
   }
 }
 

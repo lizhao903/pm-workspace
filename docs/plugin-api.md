@@ -43,6 +43,7 @@
 | `name` | string | 是 | 显示名，插件管理页和菜单用 |
 | `description` | string | 否 | 一句话说明，插件管理页用 |
 | `icon` | string | 否 | 本插件功能模块在一级菜单上的图标，外壳内置图标的 key（`^[a-z][a-z0-9_]*$`，如 `folder`、`message`）；外壳不认识的 key 用默认图标 |
+| `icons` | object | 否 | 按模块给的菜单图标：`{ "<模块 id>": "<图标 key>" }`，模块必须在 `provides.modules` 里，图标 key 规则同 `icon`。没给的模块用 `icon`。例：交易套件 `{ "markets": "candles", "monitor": "pulse", "strategy": "chart", "trading": "swap" }` |
 | `version` | string | 是 | 插件自己的版本，semver（`MAJOR.MINOR.PATCH`）。升级判断、依赖匹配都用它 |
 | `core` | string | 是 | 要求的插件 API 版本范围，semver 范围语法（见 1.2）。内核的插件 API 版本不在范围里就拒绝安装和启用 |
 | `depends` | object | 否 | 强依赖：`{ "<插件 id>": "<版本范围>" }`。安装前必须已装且版本匹配；被依赖的插件停用时，本插件跟着停用 |
@@ -227,6 +228,7 @@ type Core interface {
 	Store() Store               // 只能访问 table_prefix 开头的表
 	Agent() AgentService        // 用默认服务商补全、按 Agent 的授权跑一轮、搜指定知识库（SOP-01c）
 	Granted(perm string) bool   // 用户确认过这项权限没有，只认状态表里确认过的（SEC-01，3.3）
+	SOP() SOPService            // 插件登记的 SOP 节点、执行插件节点、唤醒挂起的步骤（SOP-03a，2.7）
 	Log() *slog.Logger
 }
 ```
@@ -574,13 +576,33 @@ export interface SopNodeRegistry { register(def: SopNodeView): Disposable }
 后端：
 
 ```go
+// 已实现（SOP-03a，internal/plugin/sopnode.go）
 type SOPNodeDef struct {
-	Kind string
+	Kind     string         // = provides.sop_nodes 里的一项，以 <id>_ 开头
+	Group    string         // 节点面板分组，空为「插件」
+	Required []SOPNodeField // {Key, Label}，保存时校验的必填配置项
 	// Run 拿到上游输入和节点配置，返回输出字段；返回 ErrWaiting 表示挂起等外部事件（例：等对方回复）。
+	// c 是提供节点的插件自己的 Core。
 	Run func(ctx context.Context, c Core, in SOPNodeInput) (map[string]any, error)
 }
+type SOPNodeInput struct {
+	RunID, FlowID, Step string // Step 是步骤 key，唤醒时用
+	Attempt             int    // 从 1 起，重试、退回重做加 1
+	Input               map[string]any
+	Config              map[string]string
+}
 // Registrar.SOPNode(n SOPNodeDef)
+// Core.SOP() SOPService：Nodes()、Provider(kind)、RunNode(ctx, kind, in)、Resume(ctx, runID, step, output)
 ```
+
+后端的实现情况（SOP-03a）：
+
+- `Registrar.SOPNode` 已实现。登记不对（kind 不在 `provides.sop_nodes`、不以 `<id>_` 开头、没有 `Run`、必填项缺 key 或 label、本插件内重复）时 `Register` 整体失败，插件起不来，错误写明哪一项。
+- 内核只存登记，执行由 SOP 插件经 `Core.SOP()` 取到：`Nodes()` 是在跑的插件登记的节点（`Source` 为插件 id），`RunNode` 用提供方的 Core 跑一次（panic 转成错误），提供方没在跑回 `ErrNodeUnavailable`（「提供这个节点的插件已停用」）。
+- `GET /api/sop/node-types` 在内置节点后面接上插件节点，带 `source`；停用后消失。用到它的流程定义不动，保存照常（不查必填项），执行到这一步失败并写「提供这个节点的插件已停用」。
+- 挂起：`Run` 返回 `ErrWaiting`（可以包一层写原因，如 `fmt.Errorf("等对方回复：%w", plugin.ErrWaiting)`）时步骤停在 `running`，挂起状态落在步骤输出里，服务重启后不重跑、接着等。之后提供节点的插件调 `c.SOP().Resume(ctx, runID, step, output)` 唤醒，这一步 `done`、输出是 `output`，下游接着跑；只能唤醒自己提供的节点，步骤没在等、执行已结束都回错误。SOP 插件没在跑时回 `ErrNoSOPEngine`。`Resume` 要在 `Run` 返回之后调，先存下 `RunID`、`Step`。
+- `Registrar.SOPEngine` 只给 SOP 编排插件用（别的插件登记直接失败），是 `Resume` 的接收方。
+- 前端登记（`SopNodeRegistry`）归 SOP-03b。示例插件 `internal/plugin/plugintest` 登记了 `demo_wait_reply` 用来测试；第一方节点是 SOP-02b 的 IM 发消息。
 
 例子（IM 消息，发消息节点）：
 

@@ -160,9 +160,10 @@ var contractSpecs = map[string]contractSpec{
 	"TradeSource":     {v: trade.SourceInfo{}},
 	"TradeSync":       {v: trade.SyncResult{}},
 
-	"Video":        {v: video.Video{}},
-	"VideoSeries":  {v: video.Series{}},
-	"VideoPublish": {v: video.Publish{}},
+	"Video":         {v: video.Video{}},
+	"VideoSeries":   {v: video.Series{}},
+	"VideoPublish":  {v: video.Publish{}},
+	"VideoArtifact": {v: video.Artifact{}},
 }
 
 // docShape 是从文档里抽出来的一个对象：字段名和（如果有）字段的嵌套对象。

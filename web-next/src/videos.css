@@ -156,6 +156,22 @@
 .vd-sub { display: flex; flex-direction: column; gap: 4px; }
 .vd-sub .field-group-title { margin-bottom: 2px; }
 
+/* 阶段执行器：配了谁、运行、运行中和失败 */
+.vd-runner { display: flex; flex-direction: column; gap: 6px; padding: 8px 10px; border-radius: var(--r); border: 1px dashed var(--line-2); min-width: 0; }
+.vd-runner-failed { border-style: solid; border-color: color-mix(in srgb, var(--warn) 40%, var(--line)); }
+.vd-runner-none { flex-direction: row; align-items: center; flex-wrap: wrap; gap: 8px; font-size: 12.5px; }
+.vd-runner-edit { border-style: solid; background: var(--panel-2); }
+.vd-runner-edit .seg { align-self: flex-start; }
+.vd-runner-edit select, .vd-runner-edit input { height: 32px; }
+.vd-runner-head { display: flex; align-items: center; gap: 8px; min-width: 0; flex-wrap: wrap; }
+.vd-runner-head .act { height: 26px; }
+.vd-runner-type { font-size: 11px; padding: 0 6px; height: 18px; display: inline-flex; align-items: center; border-radius: 4px; color: var(--accent); background: var(--accent-soft); flex: none; }
+.vd-runner-name { font-weight: 500; min-width: 0; max-width: 100%; }
+.vd-runner-prompt { font-size: 12px; flex: 1 1 120px; min-width: 0; }
+.vd-runner-state { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; font-size: 12.5px; color: var(--muted); }
+.vd-runner-state.ok { color: var(--ok); }
+.vd-spin { width: 11px; height: 11px; border-radius: 50%; border: 2px solid var(--accent-soft); border-top-color: var(--accent); animation: spin 0.8s linear infinite; flex: none; }
+
 /* 时间线里的一条产出物 */
 .vd-art-line { display: flex; align-items: center; gap: 8px; min-height: 34px; padding: 4px 8px; border-radius: var(--r-sm); cursor: pointer; min-width: 0; flex-wrap: wrap; }
 .vd-art-line:hover { background: var(--hover); }
@@ -197,6 +213,10 @@
 .vd-cover-miss:hover .vd-thumb-miss { border-color: var(--accent-line); color: var(--accent); }
 .vd-cover-foot { display: flex; align-items: center; justify-content: center; gap: 4px; font-size: 11px; color: var(--muted); white-space: nowrap; overflow: hidden; }
 .vd-cover.picked .vd-cover-foot { color: var(--ok); font-weight: 500; }
+/* 一个方向下按封面比例分组，每组 5 个版本 */
+.vd-cover-group { display: flex; flex-direction: column; gap: 4px; }
+.vd-cover-ratio { display: flex; align-items: baseline; gap: 6px; font-size: 12px; color: var(--muted); }
+.vd-cover-ratio .faint { font-size: 11px; }
 
 /* ---------- 产出物抽屉 ---------- */
 /* 抽屉挂在页面里而不是外壳上，所以任何宽度都浮在右侧 */

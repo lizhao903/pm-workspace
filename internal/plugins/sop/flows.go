@@ -49,9 +49,11 @@ type NodeType struct {
 	Branching    bool          `json:"branching"`
 	DefaultCases []Case        `json:"default_cases,omitempty"`
 	Required     []ConfigField `json:"required"`
+	// Source 是 builtin 或提供节点的插件 id（SOP-03a），只在 GET /api/sop/node-types 里填
+	Source string `json:"source,omitempty"`
 }
 
-// NodeTypes 和原型 NODE_TYPES 同序；加节点类型两边一起加。插件注册的节点归 SOP-03。
+// NodeTypes 和原型 NODE_TYPES 同序；加节点类型两边一起加。插件登记的节点在 nodes_plugin.go（SOP-03a）。
 var NodeTypes = []NodeType{
 	{Kind: "auto", Group: "基础"},
 	{Kind: "ai", Group: "基础"},
@@ -171,7 +173,7 @@ func (h *flows) add(w http.ResponseWriter, r *http.Request) {
 	} else {
 		f.ID = idgen.Prefixed("sop")
 	}
-	if err := apply(&f, raw); err != nil {
+	if err := apply(&f, raw, kindsOf(h.c)); err != nil {
 		fail(w, r, h.c, err)
 		return
 	}
@@ -214,7 +216,7 @@ func (h *flows) update(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	base := f.Version
-	if err := apply(&f, raw); err != nil {
+	if err := apply(&f, raw, kindsOf(h.c)); err != nil {
 		fail(w, r, h.c, err)
 		return
 	}
@@ -262,13 +264,18 @@ func (h *flows) remove(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"data": nil})
 }
 
+// nodeTypes 先是内置的（source 为 builtin），后面接在跑的插件登记的（source 为插件 id），停用的插件不在里面。
 func (h *flows) nodeTypes(w http.ResponseWriter, _ *http.Request) {
-	out := make([]NodeType, len(NodeTypes))
-	for i, t := range NodeTypes {
+	out := make([]NodeType, 0, len(NodeTypes))
+	for _, t := range NodeTypes {
 		if t.Required == nil {
 			t.Required = []ConfigField{}
 		}
-		out[i] = t
+		t.Source = "builtin"
+		out = append(out, t)
+	}
+	for _, n := range h.c.SOP().Nodes() {
+		out = append(out, pluginNodeType(n))
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"data": out, "meta": map[string]int{"total": len(out)}})
 }
@@ -305,7 +312,7 @@ func layoutCol(l json.RawMessage) any {
 }
 
 // apply 把 body 里传了的字段写进 f，再对整条定义做一遍校验；新建和修改同一套口径。
-func apply(f *Flow, raw map[string]json.RawMessage) error {
+func apply(f *Flow, raw map[string]json.RawMessage, kinds kindLookup) error {
 	strField := func(key string, dst *string, limit int) error {
 		v, ok := raw[key]
 		if !ok {
@@ -351,7 +358,7 @@ func apply(f *Flow, raw map[string]json.RawMessage) error {
 			return apiErr(errValidation, "layout 必须是对象或 null")
 		}
 	}
-	if issues := Check(f); len(issues) > 0 {
+	if issues := CheckWith(f, kinds); len(issues) > 0 {
 		return &checkError{issues}
 	}
 	return nil
@@ -400,7 +407,10 @@ var fieldTypes = []string{"text", "textarea", "select"}
 // Check 是保存前的校验，口径同原型编辑器的「检查」（web-next/src/sopedit.tsx 的 checkSop）里拦保存的那几条，
 // 另加原型靠编辑器保证、接口要自己查的：步骤 key 唯一、依赖无环、分支 case 存在、字段和配置的类型。
 // 原型里只是提醒的（没有人工检查点、分支下没有步骤、多个起点）不拦。
-func Check(f *Flow) []Issue {
+func Check(f *Flow) []Issue { return CheckWith(f, nodeType) }
+
+// CheckWith 同 Check，节点类型按 kinds 查，插件登记的节点也认（SOP-03a）。
+func CheckWith(f *Flow, kinds kindLookup) []Issue {
 	var out []Issue
 	add := func(step int, format string, args ...any) {
 		x := Issue{Text: fmt.Sprintf(format, args...)}
@@ -499,7 +509,7 @@ func Check(f *Flow) []Issue {
 		if strings.TrimSpace(s.Name) == "" {
 			add(i, "步骤 %d 没有名称", i+1)
 		}
-		t, known := nodeType(s.Kind)
+		t, known := kinds(s.Kind)
 		if !known {
 			add(i, "「%s」的类型 %s 不存在", label(i), s.Kind)
 		}

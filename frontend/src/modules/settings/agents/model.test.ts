@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import type { Agent, AgentProvider } from '../../../core/data'
+import type { Agent, AgentProvider, Connector } from '../../../core/data'
 import {
-  blankDraft, choiceKey, createBody, defaultChoice, draftChanged, draftOf, draftPatch, editorIssues, hasAll, modelChoices, normDir,
+  blankDraft, choiceKey, createBody, defaultChoice, draftChanged, draftOf, draftPatch, editorIssues, grantsBody, grantsEqual, hasAll, modeOptions,
+  modelChoices, mountableConns, mountGrants, newGrants, normDir, shownMode, toolsOn, unmountGrants,
   triggerHasCondition, triggerSummary,
 } from './model'
 
@@ -107,5 +108,58 @@ describe('问题汇总和显示', () => {
     expect(normDir(' /a/b/ ')).toEqual({ dir: '/a/b', error: '' })
     expect(normDir('a/b').error).toBe('填绝对路径，以 / 开头')
     expect(normDir('/')).toEqual({ dir: '/', error: '' })
+  })
+})
+
+describe('工具与权限（SPEC-settings-9.15 到 9.20）', () => {
+  const conn = (p: Partial<Connector> & { id: string }): Connector => ({
+    tool: 'github', name: p.id, account: '', status: 'connected', error: '', auth_mode: 'token', config: {}, secret_hints: {}, direction: 'both',
+    interval: 5, tools: [], tools_at: '2026-10-29T00:00:00Z', last_tested_at: null, last_sync_at: null, available: true, created_at: '', updated_at: '', ...p,
+  })
+  const gh = conn({
+    id: 'cn_1', name: '公司 GitHub', tools: [
+      { name: 'list_issues', desc: '列 issue', write: false, mode: 'auto' },
+      { name: 'create_issue', desc: '建 issue', write: true, mode: 'confirm' },
+      { name: 'delete_repo', desc: '删仓库', write: true, mode: 'off' },
+    ],
+  })
+
+  it('只读没有需确认；连接器上限为需确认的写工具选不到自动', () => {
+    expect(modeOptions(false)).toEqual(['off', 'auto'])
+    expect(modeOptions(true)).toEqual(['off', 'confirm', 'auto'])
+    expect(modeOptions(true, 'confirm')).toEqual(['off', 'confirm'])
+    expect(modeOptions(false, 'off')).toEqual(['off'])
+    // 存着的超过上限：按能选的最高档显示
+    expect(shownMode('auto', modeOptions(true, 'confirm'))).toBe('confirm')
+    expect(shownMode(undefined, modeOptions(true))).toBe('off')
+  })
+
+  it('可挂的连接器：关掉的工具不列；没拉过清单、暂停、断开、定义不在的不能新挂', () => {
+    const { all, mountable } = mountableConns([
+      gh, conn({ id: 'cn_2', tools_at: null }), conn({ id: 'cn_3', status: 'paused' }), conn({ id: 'cn_4', available: false }),
+      conn({ id: 'cn_5', status: 'error' }),
+    ], (t) => (t === 'github' ? 'GitHub' : t))
+    expect(all[0]).toMatchObject({ kind: 'GitHub', ok: true })
+    expect(all[0].tools.map((t) => [t.key, t.cap])).toEqual([['conn:cn_1:list_issues', 'auto'], ['conn:cn_1:create_issue', 'confirm']])
+    expect([...mountable]).toEqual(['cn_1', 'cn_5'])
+    expect(all[4].ok).toBe(false)
+  })
+
+  it('挂上时只读默认自动、写默认关闭，配过的保留；卸下清掉 conn:<id>:*', () => {
+    const c = mountableConns([gh], (t) => t).all[0]
+    const g = mountGrants({ ...newGrants(), 'conn:cn_1:create_issue': 'confirm' }, c)
+    expect(g['conn:cn_1:list_issues']).toBe('auto')
+    expect(g['conn:cn_1:create_issue']).toBe('confirm')
+    expect(toolsOn(g, [c])).toBe(4)
+    const off = unmountGrants({ ...g, 'conn:cn_10:x': 'auto' }, 'cn_1')
+    expect(Object.keys(off).filter((k) => k.startsWith('conn:'))).toEqual(['conn:cn_10:x'])
+  })
+
+  it('发给后端的只带开着的、还在清单里的；比较按开着的比', () => {
+    const c = mountableConns([gh], (t) => t).all[0]
+    const body = grantsBody({ ...newGrants(), write_tasks: 'confirm', 'conn:cn_1:list_issues': 'auto', 'conn:cn_1:gone': 'auto', 'conn:cn_1:delete_repo': 'auto' }, [c])
+    expect(body).toEqual({ read_tasks: 'auto', read_contacts: 'auto', write_tasks: 'confirm', 'conn:cn_1:list_issues': 'auto' })
+    expect(grantsEqual(newGrants(), { read_tasks: 'auto', read_contacts: 'auto' })).toBe(true)
+    expect(grantsEqual(newGrants(), { read_tasks: 'auto' })).toBe(false)
   })
 })

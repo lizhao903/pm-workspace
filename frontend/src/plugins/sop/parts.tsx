@@ -2,6 +2,7 @@
 import type { SopRunBrief } from '../../core/data'
 import { Pill } from '../../core/ui'
 import { kindLabel, progressText, runDur, runLook, timeAgo } from './model'
+import { nodeInfo } from './nodes'
 
 /** 颜色在 sop.css 的 .sop-kt-<kind> */
 export function KindTag({ kind }: { kind: string }) {
@@ -56,5 +57,19 @@ export function RunRow({ r, onOpen, showFlow = true, now }: { r: SopRunBrief; on
       <span className="sop-run-muted">{timeAgo(r.started_at, now)}</span>
       <span className="sop-run-muted">{runDur(r, now)}</span>
     </button>
+  )
+}
+
+const START_ICON = <path d="M5.5 4v8l6.5-4Z" fill="currentColor" />
+const MANUAL_COLOR = '#b0570b'
+
+/** 节点图标：kind 为 start 是开始节点，manual 是节点选择器里的「人工判断」 */
+export function KindIcon({ kind, size = 22, manual }: { kind: string; size?: number; manual?: boolean }) {
+  const t = kind === 'start' ? null : nodeInfo(kind)
+  const bg = kind === 'start' ? '#2f7d43' : manual ? MANUAL_COLOR : t!.color
+  return (
+    <span className="sop-kind-icon" style={{ width: size, height: size, background: bg }} aria-hidden="true">
+      <svg viewBox="0 0 16 16" width={size * 0.62} height={size * 0.62}>{t?.icon ?? START_ICON}</svg>
+    </span>
   )
 }

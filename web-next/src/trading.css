@@ -196,12 +196,32 @@ button.tr-card-title:hover { color: var(--accent); }
 .tr-rule-input { display: flex; align-items: center; gap: 8px; flex: none; }
 .tr-rule-input .faint { width: 70px; }
 
+/* 交易设置：实盘开关、评审清单、trade:live 申请 */
+.tr-live-head { display: flex; align-items: center; gap: 16px; }
+.tr-sec-live { border-color: color-mix(in srgb, var(--warn) 45%, var(--line)); }
+.tr-check { align-items: flex-start; }
+.tr-check > .tr-dot { margin-top: 5px; }
+.tr-check .tr-rule-input { flex-wrap: wrap; justify-content: flex-end; }
+.tr-apply { display: flex; flex-direction: column; gap: 8px; }
+.tr-apply-input { width: 160px; text-align: left; }
+
+/* 账户卡片上的对账结果和对账抽屉 */
+.tr-recon-link { min-width: 0; padding: 0; font: inherit; font-weight: 500; text-align: right; color: inherit; background: none; }
+.tr-recon-link:hover { text-decoration: underline; }
+.tr-recon-row { align-items: flex-start; }
+.tr-recon-row > .tr-dot { margin-top: 5px; }
+
 .tr-ov-box { container-type: inline-size; }
 @container (max-width: 860px) {
   .tr-ov { grid-template-columns: minmax(0, 1fr); }
 }
 @media (max-width: 560px) {
   .tr-rule { flex-direction: column; align-items: stretch; gap: 8px; }
+  .tr-check { flex-direction: row; flex-wrap: wrap; }
+  .tr-check .tr-rule-text { flex-basis: calc(100% - 24px); }
+  .tr-check .tr-rule-input { width: 100%; }
+  .detail-alert.tr-off-block { flex-wrap: wrap; justify-content: flex-end; }
+  .detail-alert.tr-off-block > span { flex-basis: 100%; }
   .tr-card-nums b { font-size: 14px; }
   .tr-halt { align-items: flex-start; }
 }

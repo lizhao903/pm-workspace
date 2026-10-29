@@ -58,6 +58,15 @@ npx vitest run --project dom               # 只跑组件测试
 npm run test:watch                         # 开发时 watch
 ```
 
+### 新加插件目录后先清缓存
+
+插件清单和入口是 `import.meta.glob` 在构建时收进来的（`src/core/plugin/registry.ts` 的 `discoverPlugins`）。Vitest 的模块缓存会留着 glob 的旧结果，新加 `src/plugins/<id>/` 或 `internal/plugins/<id>/plugin.json` 之后，测试里可能找不到新插件（菜单没有它的模块、`moduleIconKey`、`bundledOwnerOf` 拿不到）。先清一次缓存再跑：
+
+```bash
+npx vitest --clearCache
+npm test
+```
+
 浏览器端到端（Playwright）不在这里，见 QA-02a、QA-02b。
 
 ## 接口层

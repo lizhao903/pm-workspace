@@ -72,8 +72,11 @@ type activation struct {
 	conns    []ConnectorDef
 	impacts  []ConnectorImpactDef
 	skills   []SkillDef
-	cancel   context.CancelFunc
-	done     sync.WaitGroup
+	sopNodes []SOPNodeDef
+	// sopEngine 只有 SOP 编排插件登记（SOP-03a，sopnode.go）
+	sopEngine SOPEngine
+	cancel    context.CancelFunc
+	done      sync.WaitGroup
 }
 
 var (

@@ -81,6 +81,7 @@ var Registry = []Entry{
 	{"vd", "video", "video_videos", "video"},        // 视频插件的表（VID-01a）
 	{"sr", "series", "video_series", "series"},      // 视频插件的表（VID-01a）
 	{"pb", "publish", "video_publishes", "publish"}, // 视频插件的表（VID-01a），检查点按视频加阶段认，没有 id
+	{"vaf", "videoArtifact", "video_artifacts", ""}, // 视频插件的表（VID-01b），原型的 af 已给内核产物；验收记录用整数 id
 	{"tp", "topic", "", "topic"},
 	{"cl", "clip", "", "clip"},
 	// 交易

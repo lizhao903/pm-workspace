@@ -73,8 +73,8 @@ function SessionOutputs({ sessionId }: { sessionId: string }) {
 export function ChatsView({ current, onOpen, onOpenAgent, pickRequest = 0 }: {
   current: string | null
   onOpen: (id: string | null) => void
-  /** 头部点 Agent 名：去「设置 > Agent」它的配置页（SPEC-sessions-1.12） */
-  onOpenAgent?: (id: string) => void
+  /** 头部点 Agent 名：去「设置 > Agent」它的配置页（SPEC-sessions-1.12）；权限没开时带 tab 直接打开工具与权限 */
+  onOpenAgent?: (id: string, tab?: 'tools') => void
   /** 二级菜单里点「新会话」时加一，这边打开新会话面板 */
   pickRequest?: number
 }) {
@@ -218,6 +218,7 @@ export function ChatsView({ current, onOpen, onOpenAgent, pickRequest = 0 }: {
           <ChatPane key={cur.id} session={cur} who={curWho}
             autoSend={first?.sessionId === cur.id ? first.text : firstMessageOf(cur.id)}
             onRetitle={(title) => patch.mutate({ id: cur.id, patch: { title } })}
+            onOpenTools={curWho.kind === 'agent' && onOpenAgent ? () => onOpenAgent(curWho.agent.id, 'tools') : undefined}
             head={(
               <>
                 <div className="chat-head">

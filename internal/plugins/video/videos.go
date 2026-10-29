@@ -333,7 +333,7 @@ func eqPtr(a, b *string) bool {
 	return *a == *b
 }
 
-// removeVideo：检查点、发布记录随外键一起删。
+// removeVideo：检查点、发布记录、产出物和验收记录随外键一起删。
 func (h *handler) removeVideo(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	id := r.PathValue("id")

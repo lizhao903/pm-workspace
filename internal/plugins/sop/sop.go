@@ -78,6 +78,8 @@ func (p *Plugin) Register(r plugin.Registrar) error {
 		m.HandleFunc("POST /api/sop/assist", as.handle)
 	})
 	r.Job(plugin.Job{Name: "engine", Run: e.job})
+	// 别的插件登记的节点挂起后经内核 SOP().Resume 唤醒，交给这个引擎（SOP-03a）
+	r.SOPEngine(e)
 	r.TodayCard(plugin.TodayCardDef{Key: "sop_pending", Title: "SOP 待我处理", Order: 50, Load: pendingCard})
 	return nil
 }

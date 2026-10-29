@@ -10,21 +10,34 @@ export function titleFrom(text: string): string {
   return [...line].slice(0, TITLE_LEN).join('') || NEW_TITLE
 }
 
-// 工具的显示名；没列到的照原名显示。write 为真的是写操作，卡片圆点着色
-const TOOLS: Record<string, { label: string; write?: boolean }> = {
-  search_objects: { label: '查工作对象' },
-  get_object: { label: '读工作对象' },
+// 工具的显示名；没列到的照原名显示。write 为真的是写操作，卡片圆点着色。
+// ability 是它归哪项授权（契约「Agent 工具授权」的内置工具表），权限没开时提示要开哪一项
+const TOOLS: Record<string, { label: string; write?: boolean; ability?: string }> = {
+  search_objects: { label: '查工作对象', ability: '查任务' },
+  get_object: { label: '读工作对象', ability: '查任务' },
   list_types: { label: '查对象类型' },
-  create_object: { label: '新建工作对象', write: true },
-  update_object: { label: '修改工作对象', write: true },
-  write_file: { label: '写文件', write: true },
+  create_object: { label: '新建工作对象', write: true, ability: '新建 / 更新任务' },
+  update_object: { label: '修改工作对象', write: true, ability: '新建 / 更新任务' },
+  write_file: { label: '写文件', write: true, ability: '写文档' },
+  kb_search: { label: '查知识库', ability: '读文档' },
 }
 export const toolLabel = (name: string) => TOOLS[name]?.label ?? name
 export const isWriteTool = (name: string) => !!TOOLS[name]?.write
+/** 权限没开时要开的那一项：内置工具是能力名，连接器工具照原名 */
+export const toolAbility = (name: string) => TOOLS[name]?.ability ?? name
 
 /** running 执行中、done 已执行；执行记录里要人确认的还有 pending 等你确认、confirmed 已确认执行、rejected 已拒绝 */
 export type CallState = 'running' | 'done' | 'pending' | 'confirmed' | 'rejected'
-export type CallView = { name: string; args: string; summary?: string; state: CallState; /** 要人确认的调用 id（atc_） */ id?: string }
+export type CallView = {
+  name: string
+  args: string
+  summary?: string
+  state: CallState
+  /** 要人确认的调用 id（atc_） */
+  id?: string
+  /** 是要人确认的那种（历史里「等待确认：」那条），配 id 时按顺序数它 */
+  asked?: boolean
+}
 export type QuestionView = { id?: string; question: string; options: QuestionOption[]; multi: boolean }
 export type ChatMsgView = {
   id: string
@@ -62,14 +75,34 @@ export function parseQuestion(content: string): { text: string; question: Questi
   return { text: content.slice(0, at).trim(), question: { question: head, options, multi } }
 }
 
+// 要人确认的调用（AG-02a）：后端先记一条「等待确认：…」的 tool 消息，回复里并进一行「【等你确认】…」；
+// 确认、拒绝后再记一条同名同参数的 tool 消息，拒绝的以「用户拒绝了：」开头
+export const WAIT_MARK = '等待确认：'
+const REJECT_MARK = '用户拒绝了：'
+const CONFIRM_LINE = /^【等你确认】.*$\n?/gm
+
+/** 参数比较用：去掉空白差异，空的按 {}（后端 defaultArgs） */
+export function normArgs(args: string | undefined): string {
+  const t = (args ?? '').trim()
+  if (!t) return '{}'
+  try {
+    return JSON.stringify(JSON.parse(t))
+  } catch {
+    return t
+  }
+}
+
 /**
  * 落库的消息折成界面消息：tool 消息挂到它后面那条回复上（卡片在文字上面）；
  * 回复里的提问拆成问题卡。最后一组工具调用后面没有回复（对话中途失败）时单独成一条。
+ * 「等待确认：」的是等你确认的卡片；后面同名同参数的结果合回这张卡片（已确认执行、已拒绝），不另起一张；
+ * 回复里的「【等你确认】」那行有卡片了，不再重复显示。
  */
 export function foldHistory(msgs: readonly AgentMessage[]): ChatMsgView[] {
   const out: ChatMsgView[] = []
   let calls: CallView[] = []
   let firstCall = ''
+  const waiting: CallView[] = []
   const flush = () => {
     if (!calls.length) return
     out.push({ id: firstCall, role: 'agent', text: '', calls })
@@ -77,8 +110,24 @@ export function foldHistory(msgs: readonly AgentMessage[]): ChatMsgView[] {
   }
   for (const m of msgs) {
     if (m.role === 'tool') {
+      const name = m.tool_name || '工具'
+      const args = m.tool_args ?? ''
+      if (m.content.startsWith(WAIT_MARK)) {
+        const c: CallView = { name, args, state: 'pending', asked: true }
+        waiting.push(c)
+        if (!calls.length) firstCall = m.id
+        calls.push(c)
+        continue
+      }
+      const i = waiting.findIndex((w) => w.name === name && normArgs(w.args) === normArgs(args))
+      if (i >= 0) {
+        const w = waiting.splice(i, 1)[0]
+        w.state = m.content.startsWith(REJECT_MARK) ? 'rejected' : 'confirmed'
+        w.summary = m.content
+        continue
+      }
       if (!calls.length) firstCall = m.id
-      calls.push({ name: m.tool_name || '工具', args: m.tool_args ?? '', summary: m.content, state: 'done' })
+      calls.push({ name, args, summary: m.content, state: 'done' })
       continue
     }
     if (m.role === 'user') {
@@ -86,18 +135,27 @@ export function foldHistory(msgs: readonly AgentMessage[]): ChatMsgView[] {
       out.push({ id: m.id, role: 'user', text: m.content, calls: [], at: m.created_at })
       continue
     }
-    const q = parseQuestion(m.content)
-    out.push({ id: m.id, role: 'agent', text: q ? q.text : m.content, calls, question: q?.question, at: m.created_at })
+    const content = m.content.replace(CONFIRM_LINE, '').trim()
+    const q = parseQuestion(content)
+    out.push({ id: m.id, role: 'agent', text: q ? q.text : content, calls, question: q?.question, at: m.created_at })
     calls = []
   }
   flush()
   return out
 }
 
-/** 流里的事件折成正在回复的那条：工具调用和结果按名字依次配对 */
-export function foldLive(events: readonly ChatEvent[]): ChatMsgView & { error?: string } {
+/**
+ * 流里的事件折成正在回复的那条：工具调用和结果按名字依次配对。
+ * decision 为真时是确认、拒绝后接着跑的这一轮：第一对 tool_call / tool_result 是那次调用本身，结果写回原卡片，这里不再列。
+ */
+export function foldLive(events: readonly ChatEvent[], decision = false): ChatMsgView & { error?: string } {
   const msg: ChatMsgView & { error?: string } = { id: 'live', role: 'agent', text: '', calls: [] }
+  let skip = decision
   for (const e of events) {
+    if (skip && (e.type === 'tool_call' || e.type === 'tool_result')) {
+      if (e.type === 'tool_result') skip = false
+      continue
+    }
     switch (e.type) {
       case 'delta':
         msg.text += e.text
@@ -116,6 +174,9 @@ export function foldLive(events: readonly ChatEvent[]): ChatMsgView & { error?: 
         break
       case 'question':
         msg.question = { id: e.id, question: e.question, options: e.options, multi: e.multi }
+        break
+      case 'confirm':
+        msg.calls = [...msg.calls, { name: e.name, args: e.args, state: 'pending', id: e.id }]
         break
       case 'error':
         msg.error = e.message
@@ -242,4 +303,40 @@ export function recentAgents(agents: readonly Agent[], sessions: readonly Pick<A
   const last = new Map<string, string>()
   for (const s of sessions) if (s.agent_id && (last.get(s.agent_id) ?? '') < s.updated_at) last.set(s.agent_id, s.updated_at)
   return [...agents].sort((a, b) => (last.get(b.id) ?? '').localeCompare(last.get(a.id) ?? ''))
+}
+
+/** 已知的要确认调用：confirm 事件里的，或者执行记录详情里的 */
+export type CallRef = { id: string; name: string; args: string }
+/** 点了确认、拒绝还没读回的：先换状态，结果来了写上 */
+export type CallDecision = { approve: boolean; summary?: string }
+
+/**
+ * 历史里等你确认的卡片补上调用 id（按工具名和参数配对，从最近的往前配：已知的 id 总是最近提出的那些），
+ * 点过确认、拒绝的先换状态。配不上 id 的（页面刷新过、不是执行记录的会话）保持等你确认，没有按钮。
+ */
+export function overlayCalls(views: readonly ChatMsgView[], refs: readonly CallRef[], decisions: Readonly<Record<string, CallDecision>>): ChatMsgView[] {
+  const left = [...refs]
+  const ids = new Map<CallView, string>()
+  for (let i = views.length - 1; i >= 0; i--) {
+    const cs = views[i].calls
+    for (let j = cs.length - 1; j >= 0; j--) {
+      const c = cs[j]
+      if (!c.asked) continue
+      // 已经处理过的也占掉它那个 id，前面同样的调用才配得对
+      let k = -1
+      for (let x = left.length - 1; x >= 0; x--) if (left[x].name === c.name && normArgs(left[x].args) === normArgs(c.args)) { k = x; break }
+      if (k >= 0) ids.set(c, left.splice(k, 1)[0].id)
+    }
+  }
+  if (!ids.size) return [...views]
+  return views.map((v) => ({
+    ...v,
+    calls: v.calls.map((c) => {
+      const id = ids.get(c)
+      if (!id) return c
+      const d = c.state === 'pending' ? decisions[id] : undefined
+      if (!d) return { ...c, id }
+      return { ...c, id, state: d.approve ? 'confirmed' : 'rejected', summary: d.summary ?? c.summary }
+    }),
+  }))
 }

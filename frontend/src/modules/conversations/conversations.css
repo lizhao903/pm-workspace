@@ -178,6 +178,9 @@
 .agent-run-summary { color: var(--muted); font-size: var(--fs-sm); line-height: 1.6; white-space: pre-line; overflow-wrap: anywhere; }
 .agent-run .call-list { display: flex; flex-direction: column; gap: var(--sp-3); }
 .call-confirm-hint { margin-top: var(--sp-3); font-size: var(--fs-sm); }
+.call-confirm { margin-top: var(--sp-3); }
+.call-pending .call-state { color: var(--warn); }
+.call-no-grant { margin-top: var(--sp-2); }
 .agent-chip { display: inline-flex; align-items: center; gap: 6px; }
 .agent-chip-name { max-width: 140px; }
 @media (max-width: 760px) {

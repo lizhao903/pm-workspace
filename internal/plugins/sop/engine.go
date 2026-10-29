@@ -312,6 +312,8 @@ func (r *runner) resume() {
 			continue
 		}
 		switch kind := r.defs[i].Kind; {
+		case pluginWaiting(r.defs[i], *s):
+			r.log(i, t, "服务重启后继续等插件唤醒")
 		case kind == "wait" && s.WakeAt != nil:
 			r.log(i, t, "服务重启后继续等待，到点时间不变")
 		case kind == "subflow" && s.ChildRunID != "":
@@ -365,6 +367,14 @@ func (r *runner) loop(ctx context.Context) {
 				r.advance(now())
 				r.dispatch(ctx)
 				r.save(ctx)
+			case resumeMsg:
+				err := r.resumeStep(m)
+				if err == nil {
+					r.advance(now())
+					r.dispatch(ctx)
+				}
+				r.save(ctx)
+				m.reply <- err
 			}
 		}
 	}
@@ -501,6 +511,11 @@ func (r *runner) dispatch(ctx context.Context) {
 			continue
 		}
 		def := r.defs[i]
+		if pluginWaiting(def, *s) {
+			// 挂起的插件节点不起协程，等 Resume
+			r.inflight[i] = inflight{token: -1, cancel: func() {}}
+			continue
+		}
 		switch def.Kind {
 		case "subflow":
 			r.startSubflow(ctx, i)
@@ -541,6 +556,8 @@ func (r *runner) dispatch(ctx context.Context) {
 				res = nodeResult{output: with(orEmpty(input), "waited", orDefault(def.Config["duration"], "1 小时"))}
 			} else if isWriteKind(def.Kind) {
 				res = runWrite(sctx, r.e.c, wr, def, orEmpty(input))
+			} else if isPluginKind(def.Kind) {
+				res = runPluginNode(sctx, r.e.c, wr, def, orEmpty(input))
 			} else {
 				res = execNode(sctx, r.e.c, def, orEmpty(input), keys)
 			}
@@ -634,6 +651,10 @@ func (r *runner) finish(m resultMsg) {
 	switch {
 	case res.err != "":
 		r.fail(m.step, t, res.err)
+	case res.waiting != "":
+		s.Output = waitingMark(def.Kind, res.waiting)
+		r.inflight[m.step] = inflight{token: -1, cancel: func() {}}
+		r.log(m.step, t, "挂起："+res.waiting+"，等插件唤醒")
 	case res.route != "":
 		s.Status, s.Output, s.Route, s.RouteReason, s.EndedAt = stDone, res.output, res.route, res.reason, &t
 		r.log(m.step, t, fmt.Sprintf("判断结果：走「%s」，%s", caseLabel(def, res.route), res.reason))

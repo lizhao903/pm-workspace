@@ -204,6 +204,7 @@
 | vd | 视频（视频插件） | video_videos |
 | sr | 系列（视频插件） | video_series |
 | pb | 发布记录（视频插件；检查点按视频加阶段认，没有 id） | video_publishes |
+| vaf | 视频产出物（视频插件；验收记录用整数 id） | video_artifacts |
 | pn | 终端会话（终端插件，128 位随机串，不走 `idgen.Prefixed`，不入库） | - |
 
 原型 `ids.ts` 和后端不一致的前缀：后端已经上线的不改，原型的前缀保留，不分给别的实体。
@@ -1660,7 +1661,7 @@ SOP-01a 起。插件 `sop`（`internal/plugins/sop`，清单 `plugin.json`，0.3
 | GET | `/api/sop/flows/{id}` | 一条 `SopFlow`；不存在 404 |
 | PATCH | `/api/sop/flows/{id}` | 只传要改的：`name` / `desc` / `trigger` / `fields` / `steps` / `layout`，数组和 `layout` 整体替换，`layout: null` 清掉；可带 `version`，和库里不一致 409。改完对整条定义重新校验，`version` 加 1 |
 | DELETE | `/api/sop/flows/{id}` | 彻底删除，`data` 为 `null`；有进行中的执行（没结束也没终止）409；不存在 404；执行记录不跟着删 |
-| GET | `/api/sop/node-types` | 内置节点类型 `SopNodeType[]` + `meta.total`，和原型 `NODE_TYPES` 同序 |
+| GET | `/api/sop/node-types` | 节点类型 `SopNodeType[]` + `meta.total`：先是内置的，和原型 `NODE_TYPES` 同序；后面接在跑的插件登记的（SOP-03a） |
 
 `SopFlow`：`{id, name, desc, trigger, fields, steps, layout?, version, created_at, updated_at}`。形状同原型 `web-next/src/sopflow.ts` 的 `Sop`：`fields` 是 `SopField[]`，`steps` 是 `SopStepDef[]`，`layout` 是 `{<步骤 key 或 __start>: {x, y}}`，没有就不返回这个字段。
 
@@ -1695,7 +1696,9 @@ SOP-01a 起。插件 `sop`（`internal/plugins/sop`，清单 `plugin.json`，0.3
 
 ### 节点类型
 
-`SopNodeType`：`{kind, group, branching, default_cases?, required}`。`group` 是原型的分组名（`基础`、`知识与数据`、`逻辑`、`人工`、`外部`、`输出`）；`default_cases` 只有分支节点有；`required` 是必填配置项 `[{key, label}]`，`label` 用在校验信息里，没有必填项是 `[]`。节点的名字、说明、颜色、图标和配置项的其余信息仍在前端。插件注册的节点类型归 SOP-03，现在只认内置的 20 种：原型的 18 种，加上 SOP-02a 新加的写节点 `doc`、`contact`（分组 `外部`，排在 `task` 后面，原型里用 `auto` 模拟）。
+`SopNodeType`：`{kind, group, branching, default_cases?, required, source}`。`group` 是原型的分组名（`基础`、`知识与数据`、`逻辑`、`人工`、`外部`、`输出`）；`default_cases` 只有分支节点有；`required` 是必填配置项 `[{key, label}]`，`label` 用在校验信息里，没有必填项是 `[]`。节点的名字、说明、颜色、图标和配置项的其余信息仍在前端。内置的 20 种：原型的 18 种，加上 SOP-02a 新加的写节点 `doc`、`contact`（分组 `外部`，排在 `task` 后面，原型里用 `auto` 模拟）。`source` 内置的是 `builtin`，插件登记的是插件 id。
+
+插件节点（SOP-03a，`docs/plugin-api.md` 2.7）：别的插件用 `Registrar.SOPNode` 登记，`kind` 以 `<插件 id>_` 开头，`branching` 为 `false`，`group` 没写时是 `插件`，`required` 由插件给。提供节点的插件停用后不在这个列表里；保存时用到它的流程照常能存（只是不查必填项），执行到这一步失败，`error` 是 `提供这个节点的插件已停用`，流程定义不动；没有任何插件声明的 kind 照旧报「类型不存在」。插件节点挂起等外部事件时步骤停在 `running`，`output` 是 `{waiting: {kind, reason, since}}`，日志写「挂起：<原因>，等插件唤醒」；服务重启后不重跑，接着等；提供节点的插件经内核句柄 `SOP().Resume` 唤醒后这一步 `done`，`output` 是插件给的输出。
 
 ### AI 协助
 
@@ -1908,7 +1911,7 @@ TRD-01a。插件 `trade`（`internal/plugins/trade`，清单 `plugin.json`，0.1
 
 ## 视频创作插件 video
 
-VID-01a。插件 `video`（`internal/plugins/video`，清单 `plugin.json`，0.1.0），强依赖 `projects`，弱依赖 `im`，权限 `fs:read:project`、`fs:write:project`、`network:media-platforms`（都是普通级别；本条还用不到，产出物 VID-01b、内容平台 VID-04 起用）。功能模块 key 是 `videos`（同工作台目录和 `ws_video` 模板）。表前缀 `video_`，迁移在插件目录 `migrations/0001_video.sql`：`video_series`、`video_videos`、`video_checkpoints`、`video_publishes`。形状同原型 `web-next/src/videodata.ts`。产出物是 VID-01b，前端两页是 VID-01c、VID-01d；**不接任何内容平台**，发布记录只能手动登记。插件未安装或停用时本节接口回 `not_found` 404（同「插件路由」），数据不动，再启用照旧。停用 `projects` 时 `video` 在 `dependents` 里（同「插件管理」）。
+VID-01a 起。插件 `video`（`internal/plugins/video`，清单 `plugin.json`，0.2.0），强依赖 `projects`，弱依赖 `im`，权限 `fs:read:project`、`fs:write:project`、`network:media-platforms`（都是普通级别；产出物路径按 `fs:read:project` 的范围限制在视频工程目录内，现在只登记不读写磁盘，内容平台 VID-04 起用网络权限）。功能模块 key 是 `videos`（同工作台目录和 `ws_video` 模板）。表前缀 `video_`，迁移在插件目录：`migrations/0001_video.sql` 建 `video_series`、`video_videos`、`video_checkpoints`、`video_publishes`，`0002_artifacts.sql`（VID-01b）建 `video_artifacts`、`video_artifact_reviews`；0.1.0 装过的要走升级（`POST /api/plugins/{id}/upgrade`）应用 0002，没升级前插件不启动。形状同原型 `web-next/src/videodata.ts`。前端两页是 VID-01c、VID-01d；**不接任何内容平台**，发布记录只能手动登记。插件未安装或停用时本节接口回 `not_found` 404（同「插件路由」），数据不动，再启用照旧。停用 `projects` 时 `video` 在 `dependents` 里（同「插件管理」）。
 
 | 方法 | 路径 | body / 说明 |
 |---|---|---|
@@ -1921,7 +1924,7 @@ VID-01a。插件 `video`（`internal/plugins/video`，清单 `plugin.json`，0.1
 | POST | `/api/video/videos` | `{title?, project_id?, series_id?, episode?, orientations?, root?, chapters?}`，回 201 + `Video`，阶段是 `script`，4 个检查点都是 `pending` |
 | GET | `/api/video/videos/{id}` | 一个 `Video`；不存在 404 |
 | PATCH | `/api/video/videos/{id}` | 只传要改的，字段同新建；`project_id`、`series_id`、`episode` 传 `null` 清掉，`series_id` 清掉时没给 `episode` 也一起清（移出系列变回单集）；回 `Video` |
-| DELETE | `/api/video/videos/{id}` | `data` 为 `null`；检查点和发布记录一起删 |
+| DELETE | `/api/video/videos/{id}` | `data` 为 `null`；检查点、发布记录、产出物和验收记录一起删 |
 | POST | `/api/video/videos/{id}/advance` | `{from?}`，没有检查点的阶段做完了，进下一阶段；回 `Video` |
 | POST | `/api/video/videos/{id}/checkpoints/{stage}` | `{state, note?}`，处理当前阶段的检查点；回 `Video` |
 | GET | `/api/video/publishes?video_id=` | `VideoPublish[]` + `meta.total`，不分页，按登记先后；`video_id` 可选 |
@@ -1929,6 +1932,13 @@ VID-01a。插件 `video`（`internal/plugins/video`，清单 `plugin.json`，0.1
 | GET | `/api/video/publishes/{id}` | 一个 `VideoPublish`；不存在 404 |
 | PATCH | `/api/video/publishes/{id}` | 只传要改的，字段同新建，`video_id` 不能换（400）；可选字段传 `null` 清掉；回 `VideoPublish` |
 | DELETE | `/api/video/publishes/{id}` | `data` 为 `null` |
+| GET | `/api/video/artifacts?video_id=&kind=&variant=&status=&source_type=&run_id=&session_id=` | `VideoArtifact[]` + `meta.total`，不分页，按登记先后；筛选都可选，`run_id`、`session_id` 用来从一次运行反查它的产出物 |
+| POST | `/api/video/artifacts` | `{video_id, kind, path, name?, variant?, option?, version?, status?, duration?, picked?, source?}`，回 201 + `VideoArtifact` |
+| GET | `/api/video/artifacts/{id}` | 一个 `VideoArtifact`；不存在 404 |
+| PATCH | `/api/video/artifacts/{id}` | 只传要改的：`name` / `path` / `variant` / `option` / `status` / `duration` / `picked`；`variant`、`option`、`duration` 传 `null` 清掉；带 `video_id`、`kind`、`version`、`source`、`reviews` 400；回 `VideoArtifact` |
+| DELETE | `/api/video/artifacts/{id}` | `data` 为 `null`；只删记录，文件不动；验收记录一起删，用它当封面的发布记录 `cover_id` 清掉 |
+| POST | `/api/video/artifacts/{id}/reviews` | `{ok, comment?}`，追加一条验收记录；回 `VideoArtifact` |
+| POST | `/api/video/artifacts/{id}/bump` | `{from?}`，升版本：版本号加一、状态回到 `draft`，验收记录都留着；回 `VideoArtifact` |
 
 `VideoSeries`：`{id, name, desc, intro, outro, template, stale, created_at, updated_at}`，同原型 `Series` 多时间。`stale` 是改过共用部分还没同步的集（视频 id），按集数排。
 
@@ -1954,9 +1964,26 @@ VID-01a。插件 `video`（`internal/plugins/video`，清单 `plugin.json`，0.1
 `VideoPublish`：`{id, video_id, platform, variant, cover_id?, title, desc, status, scheduled_at?, published_at?, url?, error?, metrics?, created_at, updated_at}`，同原型 `Publish` 多时间；`metrics` 是 `{views, likes, comments, shares, updated_at}`。
 
 - `id` 是 `pb_` 前缀（已登记）。`video_id` 要是存在的视频，否则 400。`platform` 是 `bilibili` / `youtube` / `douyin` / `channels` / `xiaohongshu`（同原型 `PLATFORMS`），`variant` 是画面比例，`status` 是 `planned`（默认）/ `scheduled` / `published` / `failed`，别的值 400。
-- `title` 去首尾空白后必填，最多 200 字；`desc` 最多 5000 字；`cover_id` 是产出物 id（VID-01b 起是 `art_`），现在只按字符串存、不查；`url` 要是 `http://` 或 `https://` 开头；`error` 最多 2000 字。`status` 是 `scheduled` 时要有 `scheduled_at`。
+- `title` 去首尾空白后必填，最多 200 字；`desc` 最多 5000 字；`cover_id` 是产出物 id（`vaf_`，见 `VideoArtifact`），现在只按字符串存、不查，产出物删掉时清空；`url` 要是 `http://` 或 `https://` 开头；`error` 最多 2000 字。`status` 是 `scheduled` 时要有 `scheduled_at`。
 - 时间是 RFC3339，存成 UTC 到秒。`metrics` 是平台回填的播放数据，四个数都是非负整数，`updated_at` 必填；不认识的键 400。
 - 可选字段没有就不返回；`cover_id`、`url`、`error` 存的是空串。
+
+`VideoArtifact`：`{id, video_id, kind, name, path, variant?, option?, version, status, duration?, source, reviews, picked?, created_at, updated_at}`，同原型 `Artifact` 多 `updated_at`；`reviews` 是 `{at, ok, comment, version}[]`，同原型 `Review` 多 `version`（验收的是第几版），按先后排；`source` 是 `{type, label, id?, session_id?, run_id?, artifact_id?}`。
+
+- `id` 是 `vaf_` 前缀（原型的 `af` 已归内核产物 `art`）。`video_id` 要是存在的视频，否则 400。
+- `kind` 是 `article` / `script` / `outline` / `presentation` / `audio` / `video` / `cover` / `description` / `chapters`（同原型 `ARTIFACT_KIND`），登记后不能改。`presentation`、`video`、`cover` 按画面比例区分，`variant`（`landscape` / `portrait` / `square`）必填；其余类型带 `variant` 400。`variant` 不查是不是这集选了的比例（同原型「不在本工程比例里」照样显示）。
+- `name` 最多 200 字，不给用类型名（封面带方案序号时是「封面 n」）。`status` 是 `draft`（默认）/ `review` / `final` / `published`（同原型 `ARTIFACT_STATUS`），可以直接改。`version` 只在登记时能给（1 到 9999，默认 1），之后只能用 `bump` 加一。
+- `path` 相对视频的 `root`（工程目录），必填，最多 1000 字。按 `/` 规整（去掉 `.`、多余的 `/`，目录内的 `..` 折掉，结尾的 `/` 保留表示目录）；**绝对路径（`/` 或 `~` 开头、带盘符、`file://` 之类）、规整后越出工程目录（`..` 开头）、工程目录本身、带反斜杠的一律 400**。不查磁盘。
+- `option` 是封面方案序号，1 到 99，只有封面能带；同一视频同一类型同一比例的序号唯一，重复 409「这个比例的第 n 个方案已经登记过了」。`duration` 是秒，0 到 86400，只有 `audio`、`video` 能带。
+- `picked` 只有封面返回（没选是 `false`），非封面传 `true` 400。同一视频同一比例只能选用一张：选用这张时同组其余的自动取消（同原型「选用这张」）。
+- 来源 `source` 同原型 `source`，多内核产物溯源（AG-03b）的几个出处，没有的不返回。只在登记时能给，之后不能改；不给是 `{type: "manual", label: "手动登记"}`。
+  - `type` 是 `manual` / `sop` / `agent` / `skill`；`label` 是当时的名字快照，最多 100 字，不给用 `id`，再没有用「SOP」「Agent」「技能」；`id` 是 Agent id、SOP 流程 id 或技能名。
+  - `session_id` 是 Agent 会话（`ags_`），`run_id` 是这次运行（Agent 执行记录 `ar_`、SOP 执行 `spr_`、开发执行 `run_`），`artifact_id` 是同一件东西在内核产物表里的那一行（`art_`），都只能有字母、数字和 `. _ : -`，最多 100 字。插件读不到内核表，这几个 id **只存不查**；前端按 id 前缀跳到对应的记录：`ar_` 走 `GET /api/agent-runs/{id}`，`spr_` 走 `GET /api/sop/runs/{id}`，`run_` 走 `GET /api/runs/{id}`，只有 `session_id` 时打开那个会话。
+  - `agent` 必须带 `run_id` 或 `session_id`，`sop` 必须带 `run_id`，否则 400；`manual` 带任何出处 400；`skill` 可带可不带。
+- 验收（`reviews`）：`ok` 必填（布尔）；`comment` 最多 2000 字。**退回（`ok: false`）`comment` 去空白后必填，不写 400「退回要写意见」**，状态回到 `draft`；通过没写意见存「通过」，状态变 `final`，已经是 `published` 的保持 `published`。每条记下当时的 `version`。
+- 升版本（`bump`）：在原记录上 `version` 加一、`status` 回到 `draft`（同原型「升版本」），路径、选用不变；**旧版本的验收记录照留**，靠 `version` 区分。传了 `from` 且和当前版本不一致 409（防止重复点）。
+- 登记、修改、验收、升版本、删除产出物都会刷新所属视频的 `updated_at`（同规格 `SPEC-videos-12.3`）。
+- 原型为 VID-02 新加的 `ratio`（封面比例）、`lang`（字幕语言）、`subtitle` 类型和文稿按比例区分，本条还没做。
 
 - 暂不记审计、不发事件。
 

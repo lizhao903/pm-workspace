@@ -1,12 +1,15 @@
 // 对话面板（SPEC-sessions-1.14 到 1.20、1.26、1.31）：历史消息加正在进行的这一轮，输入框，示例问题，
 // Agent 的提问显示成选项按钮，点选后作为一条普通消息发出（契约「Agent 对话」的 question 事件）。
+// 要人确认的调用（AG-02b）：卡片上「确认执行 / 拒绝」，点了接着跑，回复照常流式显示。调用 id 来自 confirm 事件，
+// 执行记录建的会话从执行记录详情里找回；都找不到（页面刷新过）的只显示状态。
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { useAgentMessages, type AgentSession } from '../../core/data'
+import { AGENT_RUN_PAGE_MAX, useAgentMessages, useAgentRun, useAgentRunList, type AgentSession } from '../../core/data'
 import { Button, ErrorState, LoadingState, cls } from '../../core/ui'
 import { CallCard } from './CallCard'
-import { dismissChat, sendChat, useLiveChat } from './chatLive'
+import { decideCall, dismissChat, sendChat, useCallState, useDeciding, useLiveChat } from './chatLive'
 import {
-  CHAT_EXAMPLES, NEW_TITLE, answerText, foldHistory, foldLive, titleFrom, whoName, whoUsable, type ChatMsgView, type ChatWho, type QuestionView,
+  CHAT_EXAMPLES, NEW_TITLE, answerText, foldHistory, foldLive, overlayCalls, titleFrom, toolAbility, whoName, whoUsable, type CallRef, type CallView,
+  type ChatMsgView, type ChatWho, type QuestionView,
 } from './chatModel'
 import { WhoAvatar } from './WhoAvatar'
 
@@ -35,12 +38,34 @@ function QuestionCard({ q, active, onAnswer }: { q: QuestionView; active: boolea
   )
 }
 
-function AgentBubble({ m, avatar, children }: { m: ChatMsgView; avatar: ReactNode; children?: ReactNode }) {
+/** 等你确认的卡片下面的按钮；没有 id 的说明为什么点不了 */
+function ConfirmActions({ call, sessionId, enabled }: { call: CallView; sessionId: string; enabled: boolean }) {
+  const deciding = useDeciding(call.id)
+  if (!call.id) return <div className="list-sub call-confirm-hint">页面刷新过，这里确认不了；可以再说一遍，让它重新提出</div>
+  const id = call.id
+  return (
+    <div className="act-row call-confirm">
+      <Button size="sm" variant="primary" disabled={!enabled || deciding} onClick={() => decideCall(sessionId, id, true)}>确认执行</Button>
+      <Button size="sm" disabled={!enabled || deciding} onClick={() => decideCall(sessionId, id, false)}>拒绝</Button>
+    </div>
+  )
+}
+
+function AgentBubble({ m, avatar, children, renderCall, noGrant }: {
+  m: ChatMsgView
+  avatar: ReactNode
+  children?: ReactNode
+  /** 卡片里多放的东西（确认、拒绝按钮） */
+  renderCall?: (c: CallView) => ReactNode
+  noGrant?: (c: CallView) => ReactNode
+}) {
   return (
     <div className="ai-msg ai-ai" data-role="agent">
       {avatar}
       <div className="ai-bubble">
-        {m.calls.length > 0 && <div className="call-list">{m.calls.map((c, i) => <CallCard key={i} call={c} />)}</div>}
+        {m.calls.length > 0 && (
+          <div className="call-list">{m.calls.map((c, i) => <CallCard key={c.id ?? i} call={c} noGrant={noGrant?.(c)}>{renderCall?.(c)}</CallCard>)}</div>
+        )}
         {m.text && <div className="pre-line">{m.text}</div>}
         {m.files && m.files.length > 0 && (
           <ul className="ai-files">{m.files.map((f) => <li key={f.path}>写出文件 <code>{f.path}</code></li>)}</ul>
@@ -51,7 +76,7 @@ function AgentBubble({ m, avatar, children }: { m: ChatMsgView; avatar: ReactNod
   )
 }
 
-export function ChatPane({ session, who, head, autoSend, onRetitle }: {
+export function ChatPane({ session, who, head, autoSend, onRetitle, onOpenTools }: {
   session: AgentSession
   /** 和谁聊：Agent（停用、删除只能回看），或不挂 Agent 的旧会话的服务商 */
   who: ChatWho
@@ -60,9 +85,12 @@ export function ChatPane({ session, who, head, autoSend, onRetitle }: {
   autoSend?: string
   /** 第一句话发出时改标题 */
   onRetitle: (title: string) => void
+  /** 权限没开时去「设置 / Agent / 工具与权限」（SPEC-sessions-1.18） */
+  onOpenTools?: () => void
 }) {
   const msgs = useAgentMessages(session.id)
   const liveRaw = useLiveChat(session.id)
+  const { refs: liveRefs, decisions } = useCallState(session.id)
   const [text, setText] = useState('')
   const listRef = useRef<HTMLDivElement>(null)
 
@@ -73,14 +101,24 @@ export function ChatPane({ session, who, head, autoSend, onRetitle }: {
   const hint = who.kind === 'provider' ? '⌘Enter 发送；Agent 的工具会直接执行，提问会给出选项' : '⌘Enter 发送；写操作按权限停下来等你确认'
   const busy = liveRaw?.phase === 'streaming'
 
-  const history = useMemo(() => foldHistory(msgs.data ?? []), [msgs.data])
+  const folded = useMemo(() => foldHistory(msgs.data ?? []), [msgs.data])
+  // 执行记录建的会话：等确认的调用 id 在执行记录详情里。只在有配不上 id 的等确认卡片时去找
+  const needRefs = !!session.agent_id && folded.some((v) => v.calls.some((c) => c.asked && c.state === 'pending'))
+  const waitingRuns = useAgentRunList({ status: ['waiting'], limit: AGENT_RUN_PAGE_MAX }, needRefs)
+  const runId = needRefs ? waitingRuns.data?.data.find((r) => r.session_id === session.id)?.id ?? null : null
+  const run = useAgentRun(runId, !!runId)
+  const refs = useMemo<CallRef[]>(() => {
+    const fromRun = (run.data?.tool_calls ?? []).map((t) => ({ id: t.id, name: t.tool, args: t.args }))
+    return [...fromRun, ...liveRefs.filter((r) => !fromRun.some((x) => x.id === r.id))]
+  }, [run.data, liveRefs])
+  const history = useMemo(() => overlayCalls(folded, refs, decisions), [folded, refs, decisions])
   // 收尾后消息读回来、这一轮还没收起的那一下，以读回的为准，不重复显示
   const doneId = liveRaw?.events.find((e) => e.type === 'done')?.message_id
   const live = doneId && history.some((m) => m.id === doneId) ? undefined : liveRaw
-  const liveMsg = useMemo(() => (live ? foldLive(live.events) : null), [live])
+  const liveMsg = useMemo(() => (live ? foldLive(live.events, !!live.decide) : null), [live])
   const last = history[history.length - 1]
   // 失败的这一轮里人说的话后端已经落库了（先存用户消息再跑模型），读回来就不再重复显示
-  const liveUserSaved = !!live && live.phase !== 'streaming' && last?.role === 'user' && last.text === live.text
+  const liveUserSaved = !!live && (!live.text || (live.phase !== 'streaming' && last?.role === 'user' && last.text === live.text))
 
   const send = (t: string) => {
     const msg = t.trim()
@@ -112,6 +150,13 @@ export function ChatPane({ session, who, head, autoSend, onRetitle }: {
   const canAnswer = usable && !busy
   const questionLive = !!liveMsg?.question && live?.phase === 'done'
   const answer = (labels: string[]) => send(answerText(labels))
+  const renderCall = (c: CallView) => (c.state === 'pending' ? <ConfirmActions call={c} sessionId={session.id} enabled={usable && !busy} /> : null)
+  const noGrant = (c: CallView) => (
+    <>
+      这件事要用到「{toolAbility(c.name)}」，这个 Agent 没开这项权限，
+      {onOpenTools ? <button type="button" className="link-btn" onClick={onOpenTools}>可以到「设置 / Agent / 工具与权限」里打开</button> : '可以到「设置 / Agent / 工具与权限」里打开'}
+    </>
+  )
 
   let body: ReactNode
   if (msgs.isPending) body = <LoadingState />
@@ -128,7 +173,7 @@ export function ChatPane({ session, who, head, autoSend, onRetitle }: {
         {history.map((m, i) => (m.role === 'user'
           ? <div key={m.id} className="ai-msg ai-user" data-role="user"><div className="ai-bubble">{m.text}</div></div>
           : (
-            <AgentBubble key={m.id} m={m} avatar={avatar}>
+            <AgentBubble key={m.id} m={m} avatar={avatar} renderCall={renderCall} noGrant={noGrant}>
               {m.question && (
                 <QuestionCard q={m.question} active={canAnswer && !live && i === history.length - 1} onAnswer={answer} />
               )}
@@ -136,7 +181,7 @@ export function ChatPane({ session, who, head, autoSend, onRetitle }: {
           )))}
         {live && !liveUserSaved && <div className="ai-msg ai-user" data-role="user"><div className="ai-bubble">{live.text}</div></div>}
         {live && liveMsg && (liveMsg.text || liveMsg.calls.length || liveMsg.question || liveMsg.files) ? (
-          <AgentBubble m={liveMsg} avatar={avatar}>
+          <AgentBubble m={liveMsg} avatar={avatar} renderCall={renderCall} noGrant={noGrant}>
             {liveMsg.question && <QuestionCard q={liveMsg.question} active={canAnswer && questionLive} onAnswer={answer} />}
           </AgentBubble>
         ) : null}
@@ -148,9 +193,9 @@ export function ChatPane({ session, who, head, autoSend, onRetitle }: {
         {live?.phase === 'failed' && (
           <div className="ai-msg ai-ai">{avatar}
             <div className="ai-bubble ai-failed" role="alert">
-              <div>回复失败：{live.error}</div>
+              <div>{live.decide ? (live.decide.approve ? '确认没成功' : '拒绝没成功') : '回复失败'}：{live.error}</div>
               <div className="act-row">
-                <Button size="sm" variant="outline" disabled={!usable} onClick={() => send(live.text)}>重试</Button>
+                {live.text && <Button size="sm" variant="outline" disabled={!usable} onClick={() => send(live.text)}>重试</Button>}
                 <Button size="sm" onClick={() => dismissChat(session.id)}>收起</Button>
               </div>
             </div>

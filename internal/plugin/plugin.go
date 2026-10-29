@@ -14,7 +14,7 @@ import (
 )
 
 // 后端插件接口（CORE-04a），见 docs/plugin-api.md 2.0、2.1、2.10。
-// 这一版有路由、后台任务、事件订阅、今日卡片、连接器、技能六个扩展点；设置分节、对象类型等随各自的任务加，
+// 这一版有路由、后台任务、事件订阅、今日卡片、连接器、技能、SOP 节点七个扩展点；设置分节、对象类型等随各自的任务加，
 // 加的时候升插件 API 的小版本。
 
 // Plugin 是第一方插件的后端入口，编译进二进制，用 Registry.Add 登记。
@@ -58,6 +58,10 @@ type Registrar interface {
 	ConnectorImpact(d ConnectorImpactDef)
 	// Skill 登记一个技能，ID 必须在清单 provides.skills 里、以 sk_ 开头（2.6，AG-01b2，skill.go）。
 	Skill(s SkillDef)
+	// SOPNode 登记一个 SOP 节点类型，Kind 必须在清单 provides.sop_nodes 里、以 <id>_ 开头（2.7，SOP-03a，sopnode.go）。
+	SOPNode(n SOPNodeDef)
+	// SOPEngine 只给 SOP 编排插件用：登记唤醒挂起步骤的入口（SOP-03a）。
+	SOPEngine(e SOPEngine)
 }
 
 // RouteRegistrar 和 internal/api 里的同名接口一致，*http.ServeMux 天然满足。
@@ -100,6 +104,8 @@ type Core interface {
 	Agent() AgentService
 	// Granted 看用户确认过这项权限没有，只认状态表里确认过的（SEC-01，permissions.go）。
 	Granted(perm string) bool
+	// SOP 查插件登记的 SOP 节点、执行插件节点、唤醒挂起的步骤（SOP-03a，sopnode.go）。
+	SOP() SOPService
 }
 
 // Publisher 往事件总线上发事件。payload 按 JSON 序列化；总线没接上时什么都不做。
