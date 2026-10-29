@@ -93,6 +93,8 @@ export interface Artifact {
   reviews: Review[]
   /** 封面：同一舞台方向、同一封面比例里选用的那张 */
   picked?: boolean
+  /** 封面：A/B 测试输掉的归档，留着不删 */
+  archived?: boolean
   created_at: string
 }
 
@@ -120,7 +122,102 @@ export const PUBLISH_STATUS: Record<PublishStatus, { label: string; color: strin
   failed: { label: '发布失败', color: '#c0352b' },
 }
 
-export interface Metrics { views: number; likes: number; comments: number; shares: number; updated_at: string }
+/** 播放数据：前四个各平台都有；后面的是平台通用的扩展字段，平台不提供的留空 */
+export interface Metrics {
+  views: number; likes: number; comments: number; shares: number
+  /** 曝光 */
+  impressions?: number
+  /** 点击率 0-1 */
+  ctr?: number
+  avg_watch_sec?: number
+  /** 完播率 0-1 */
+  completion?: number
+  favorites?: number
+  /** B 站投币 */
+  coins?: number
+  followers_gained?: number
+  updated_at: string
+}
+/** 每次拉取或回填存一条，不覆盖；Publish.metrics 是最新一条 */
+export interface MetricSnapshot extends Metrics {
+  publish_id: string
+  /** 发布后第几天，满一天算 1 */
+  day: number
+  source: 'manual' | 'connector'
+}
+/** 发布详情曲线上标出的几天 */
+export const SNAPSHOT_DAYS = [1, 3, 7, 30]
+/** 发布后第几天：满一天算 1，不足一天也算 1 */
+export const dayAfter = (published_at: string, at = new Date().toISOString()) => Math.max(1, Math.floor((Date.parse(at) - Date.parse(published_at)) / 86400000))
+
+/** 平台账号：一个平台可以接几个账号，打角色；封面 A/B 用的小号也挂在这里 */
+export type ContentPlatformCap = 'upload' | 'schedule' | 'metrics' | 'comments' | 'reply' | 'dm'
+export type AccountRole = 'main' | 'ab' | 'client'
+export const ACCOUNT_ROLE: Record<AccountRole, { label: string; color: string }> = {
+  main: { label: '主号', color: '#3d4fd6' },
+  ab: { label: 'A/B 小号', color: '#b0570b' },
+  client: { label: '客户号', color: '#2f7d43' },
+}
+export interface PlatformAccount {
+  id: string
+  /** 对应的连接器（data.ts 的 seedConnectors）；没接连接器、手动登记的账号没有 */
+  connector_id?: string
+  platform: PlatformKey
+  /** 平台昵称 / 频道名 */
+  handle: string
+  uid: string
+  role: AccountRole
+  /** 这个账号实际能做什么 */
+  caps: ContentPlatformCap[]
+  followers?: number
+}
+
+/** 平台发布规则：发布前按这个校验，有一项不过就不让发 */
+export interface PlatformRule {
+  platform: PlatformKey
+  title_max: number
+  desc_max: number
+  tags_max: number
+  /** 简介里能不能放外链 */
+  allow_link: boolean
+  cover: CoverRatio[]
+  duration_max_sec?: number
+  /** 分区 / 类别，平台要选的才有 */
+  categories?: string[]
+}
+const coverOf = (k: PlatformKey) => PLATFORMS.find((p) => p.key === k)!.cover
+export const PLATFORM_RULES: Record<PlatformKey, PlatformRule> = {
+  bilibili: { platform: 'bilibili', title_max: 80, desc_max: 2000, tags_max: 10, allow_link: false, cover: coverOf('bilibili'), categories: ['知识', '科技', '生活'] },
+  youtube: { platform: 'youtube', title_max: 100, desc_max: 5000, tags_max: 15, allow_link: true, cover: coverOf('youtube'), categories: ['教育', '科学和技术', '人物和博客'] },
+  douyin: { platform: 'douyin', title_max: 30, desc_max: 1000, tags_max: 5, allow_link: false, cover: coverOf('douyin'), duration_max_sec: 900 },
+  channels: { platform: 'channels', title_max: 30, desc_max: 1000, tags_max: 10, allow_link: false, cover: coverOf('channels'), duration_max_sec: 3600 },
+  xiaohongshu: { platform: 'xiaohongshu', title_max: 20, desc_max: 1000, tags_max: 10, allow_link: false, cover: coverOf('xiaohongshu'), duration_max_sec: 900 },
+}
+export interface PublishCheck { key: string; ok: boolean; text: string }
+/** 按平台规则校验一条待发布的内容；字数按字符算 */
+export function checkPublish(k: PlatformKey, x: { title: string; desc: string; tags: string[]; cover?: CoverRatio; duration?: number }): PublishCheck[] {
+  const r = PLATFORM_RULES[k]
+  const p = PLATFORMS.find((pl) => pl.key === k)!
+  const len = (s: string) => [...s.trim()].length
+  const out: PublishCheck[] = [
+    { key: 'title', ok: len(x.title) <= r.title_max, text: len(x.title) <= r.title_max ? `标题 ${len(x.title)} / ${r.title_max} 字` : `标题超长：${p.label}最多 ${r.title_max} 字，现在 ${len(x.title)} 字` },
+    { key: 'desc', ok: len(x.desc) <= r.desc_max, text: len(x.desc) <= r.desc_max ? `简介 ${len(x.desc)} / ${r.desc_max} 字` : `简介超长：${p.label}最多 ${r.desc_max} 字，现在 ${len(x.desc)} 字` },
+    { key: 'tags', ok: x.tags.length <= r.tags_max, text: x.tags.length <= r.tags_max ? `标签 ${x.tags.length} / ${r.tags_max} 个` : `标签太多：${p.label}最多 ${r.tags_max} 个，现在 ${x.tags.length} 个` },
+  ]
+  if (!r.allow_link) {
+    const link = /https?:\/\/|www\./i.test(x.desc)
+    out.push({ key: 'link', ok: !link, text: link ? `简介带外链：${p.label}不允许放链接` : '简介没有外链' })
+  }
+  if (x.cover) {
+    const ok = r.cover.includes(x.cover)
+    out.push({ key: 'cover', ok, text: ok ? `封面 ${COVER_RATIO[x.cover].label} 符合要求` : `封面比例不对：${p.label}要 ${r.cover.map((c) => COVER_RATIO[c].label).join(' 或 ')}` })
+  }
+  if (r.duration_max_sec && x.duration) {
+    const ok = x.duration <= r.duration_max_sec
+    out.push({ key: 'duration', ok, text: ok ? `时长 ${Math.ceil(x.duration / 60)} 分钟，没超过 ${r.duration_max_sec / 60} 分钟` : `时长超出：${p.label}最长 ${r.duration_max_sec / 60} 分钟` })
+  }
+  return out
+}
 
 export interface Publish {
   id: string
@@ -137,6 +234,66 @@ export interface Publish {
   url?: string
   error?: string
   metrics?: Metrics
+  /** 用哪个平台账号发的（PlatformAccount.id） */
+  account_id?: string
+  tags?: string[]
+  /** 分区 */
+  category?: string
+  /** 合集 / 播放列表 */
+  collection?: string
+  /** 发布前的校验结果，新建时按 PLATFORM_RULES 记下 */
+  checks?: PublishCheck[]
+}
+
+/** 封面 A/B 测试：一次挂 2 到 5 张封面，每张对应一条发布（小号分发）或平台原生测试的一组 */
+export type CoverTestMode = 'native' | 'accounts' | 'utm'
+export const COVER_TEST_MODE: Record<CoverTestMode, { label: string; desc: string }> = {
+  native: { label: '平台原生测试', desc: '同一条发布，平台轮换封面（YouTube 缩略图测试）' },
+  accounts: { label: '小号分发', desc: '主号和 A/B 小号各发一版，每版一张封面' },
+  utm: { label: '分链接', desc: '同一条发布，不同投放链接配不同封面' },
+}
+export type CoverTestStatus = 'running' | 'decided' | 'inconclusive'
+export const COVER_TEST_STATUS: Record<CoverTestStatus, { label: string; color: string }> = {
+  running: { label: '进行中', color: '#3d4fd6' },
+  decided: { label: '已决出', color: '#2f7d43' },
+  inconclusive: { label: '没有结论', color: '#a19d92' },
+}
+export interface CoverTestArm {
+  cover_id: string
+  /** 小号分发：这一版对应的发布；曝光、点击率从它的 metrics 读 */
+  publish_id?: string
+  /** 平台原生测试：平台按封面分开给的曝光、点击率 */
+  impressions?: number
+  ctr?: number
+}
+export interface CoverTest {
+  id: string
+  video_id: string
+  platform: PlatformKey
+  mode: CoverTestMode
+  arms: CoverTestArm[]
+  started_at: string
+  ended_at?: string
+  /** 至少观察几天，默认 7 */
+  min_days: number
+  /** 每张至少多少曝光，默认 10000 */
+  min_impressions: number
+  /** 点击率领先第二名多少才算显著，默认 0.2 */
+  min_gap: number
+  /** 胜出的封面（Artifact id） */
+  winner_id?: string
+  status: CoverTestStatus
+}
+/** 封面 A/B 判定规则（COVER.md Part 7）：每张曝光到线、天数到线、点击率第一领先第二到线 */
+export function coverTestState(t: CoverTest, arms: { cover_id: string; impressions?: number; ctr?: number }[], now = new Date().toISOString()) {
+  const days = dayAfter(t.started_at, t.ended_at ?? now)
+  const ranked = [...arms].filter((a) => a.ctr != null).sort((a, b) => (b.ctr ?? 0) - (a.ctr ?? 0))
+  const gap = ranked.length >= 2 && (ranked[1].ctr ?? 0) > 0 ? (ranked[0].ctr ?? 0) / (ranked[1].ctr ?? 1) - 1 : undefined
+  const reached = arms.filter((a) => (a.impressions ?? 0) >= t.min_impressions).length
+  return {
+    days, gap, reached, leader: ranked[0]?.cover_id,
+    daysOk: days >= t.min_days, impOk: arms.length > 0 && reached === arms.length, gapOk: gap != null && gap >= t.min_gap,
+  }
 }
 
 export interface Series {
@@ -223,6 +380,8 @@ const SPAN: Record<string, Span> = { vd1: [day * 20, day * 7], vd2: [day * 5, 60
 const aiCreated = (ep: number) => day * (70 - ep * 2)
 const aiUpdated = (ep: number) => day * Math.max(0, 33 - ep) + ep * 7
 const AI_DONE = 18
+/** 做过封面 A/B 的那一集 */
+const AB_EP = 15
 
 export const seedSeries: Series[] = [
   {
@@ -303,7 +462,8 @@ export const seedArtifacts: Artifact[] = [
   art('vd1', 'subtitle', '字幕', 'subtitle/ep01-16x9.srt', 'final', { variant: 'landscape', lang: 'zh' }),
   art('vd1', 'subtitle', '字幕', 'subtitle/ep01-9x16.srt', 'final', { variant: 'portrait', lang: 'zh' }),
   ...[1, 2, 3, 4, 5].map((o) => art('vd1', 'cover', `封面 ${o}`, `cover/16x9-${o}.png`, o === 2 ? 'published' : 'final', { variant: 'landscape', ratio: '16x9', option: o, picked: o === 2 })),
-  ...[1, 2, 3, 4, 5].map((o) => art('vd1', 'cover', `封面 ${o}`, `cover/9x16-${o}.png`, o === 1 ? 'published' : 'final', { variant: 'portrait', ratio: '9x16', option: o, picked: o === 1 })),
+  // 竖版第 1 张主号发了视频号，第 3、4 张给两个 A/B 小号发，封面测试还在跑
+  ...[1, 2, 3, 4, 5].map((o) => art('vd1', 'cover', `封面 ${o}`, `cover/9x16-${o}.png`, [1, 3, 4].includes(o) ? 'published' : 'final', { variant: 'portrait', ratio: '9x16', option: o, picked: o === 1 })),
   // 1:1 那张先拿去发了抖音，被打回；之后补了一张 3:4，换上就能重试
   art('vd1', 'cover', '封面 1', 'cover/1x1-1.png', 'final', { variant: 'portrait', ratio: '1x1', option: 1 }),
   art('vd1', 'cover', '封面 1', 'cover/3x4-1.png', 'final', { variant: 'portrait', ratio: '3x4', option: 1, picked: true, created_at: minsAgo(day * 4) }),
@@ -318,32 +478,112 @@ export const seedArtifacts: Artifact[] = [
   art('vd4', 'presentation', '演示工程', 'presentation-landscape', 'final', { variant: 'landscape' }),
   art('vd4', 'audio', '口播音频（3 章）', 'audio/', 'final', { duration: 214 }),
   // AI 系列已完成的集：成片、选用的封面、简介，都已随视频号发布
+  // 第 15 集做过封面 A/B：三张各发一个号，第 2 张胜出成了主封面，另两张归档
   ...seedVideos.filter((v) => v.series_id === 'sr_ai' && (v.episode ?? 0) <= AI_DONE).flatMap((v) => {
     const ep = String(v.episode).padStart(2, '0')
+    const ab = v.episode === AB_EP
     return [
       art(v.id, 'video', '成片', `out/ep${ep}-9x16.mp4`, 'published', { variant: 'portrait', duration: 290 + ((v.episode ?? 0) * 7) % 40 }),
-      art(v.id, 'cover', '封面 1', `cover/9x16-1.png`, 'published', { variant: 'portrait', ratio: '9x16', option: 1, picked: true }),
+      art(v.id, 'cover', '封面 1', `cover/9x16-1.png`, 'published', { variant: 'portrait', ratio: '9x16', option: 1, picked: !ab, archived: ab || undefined }),
+      ...(ab ? [
+        art(v.id, 'cover', '封面 2', `cover/9x16-2.png`, 'published', { variant: 'portrait', ratio: '9x16', option: 2, picked: true }),
+        art(v.id, 'cover', '封面 3', `cover/9x16-3.png`, 'published', { variant: 'portrait', ratio: '9x16', option: 3, archived: true }),
+      ] : []),
       art(v.id, 'description', '简介', 'description-portrait.md', 'final', { variant: 'portrait' }),
     ]
   }),
 ]
+/** 平台账号：主号都挂着设置里的连接器；视频号两个 A/B 小号和远川的客户号是手动登记的，只能回填数据 */
+export const seedAccounts: PlatformAccount[] = [
+  { id: 'pa_bili', connector_id: 'cn_bilibili', platform: 'bilibili', handle: '一人之下官方', uid: '3546721', role: 'main', caps: ['upload', 'schedule', 'metrics', 'comments', 'reply'], followers: 48200 },
+  { id: 'pa_bili_yc', platform: 'bilibili', handle: '远川科技', uid: '1880342', role: 'client', caps: ['metrics'], followers: 12600 },
+  { id: 'pa_yt', connector_id: 'cn_youtube', platform: 'youtube', handle: 'One Below Studio', uid: 'UC7oneBelow', role: 'main', caps: ['upload', 'schedule', 'metrics', 'comments', 'reply'], followers: 3100 },
+  { id: 'pa_dy', connector_id: 'cn_douyin', platform: 'douyin', handle: '一人之下', uid: 'yirenzhixia', role: 'main', caps: ['upload', 'metrics', 'comments', 'reply'], followers: 21500 },
+  { id: 'pa_ch', connector_id: 'cn_channels', platform: 'channels', handle: '一人之下', uid: 'sphAbc01', role: 'main', caps: ['metrics', 'comments'], followers: 9800 },
+  { id: 'pa_ch_a', platform: 'channels', handle: '一人之下·试封面 A', uid: 'sphAbc02', role: 'ab', caps: ['metrics'], followers: 640 },
+  { id: 'pa_ch_b', platform: 'channels', handle: '一人之下·试封面 B', uid: 'sphAbc03', role: 'ab', caps: ['metrics'], followers: 410 },
+]
+
 /** 第 1 集某个封面比例的第几版 */
 const vd1Cover = (ratio: CoverRatio, option: number) => seedArtifacts.find((a) => a.video_id === 'vd1' && a.kind === 'cover' && a.ratio === ratio && a.option === option)?.id
+/** 某一集竖版 9:16 的第几版封面 */
+const aiCover = (videoId: string, option: number) => seedArtifacts.find((a) => a.video_id === videoId && a.kind === 'cover' && a.option === option)?.id
+const abVideo = `ai_${String(AB_EP).padStart(2, '0')}`
+/** 曝光和点击率给定时，播放按两者相乘算 */
+const byCtr = (impressions: number, ctr: number) => ({ impressions, ctr, views: Math.round(impressions * ctr) })
 
 export const seedPublishes: Publish[] = [
-  { id: 'pb1', video_id: 'vd1', platform: 'bilibili', variant: 'landscape', cover_id: vd1Cover('16x9', 2), title: '一人之下 10 分钟上手 01｜今日待办一页清', desc: '把散在各处的待办收到一页……', status: 'published', published_at: minsAgo(day * 6), url: 'https://www.bilibili.com/video/BV1xx', metrics: { views: 12840, likes: 931, comments: 87, shares: 64, updated_at: minsAgo(60 * 5) } },
-  { id: 'pb2', video_id: 'vd1', platform: 'channels', variant: 'portrait', cover_id: vd1Cover('9x16', 1), title: '今日待办一页清', desc: '一页看完今天要处理的事', status: 'published', published_at: minsAgo(day * 5), url: 'https://channels.weixin.qq.com/web/pages/feed?id=ep01today', metrics: { views: 3420, likes: 210, comments: 12, shares: 35, updated_at: minsAgo(60 * 30) } },
-  { id: 'pb3', video_id: 'vd1', platform: 'douyin', variant: 'portrait', cover_id: vd1Cover('1x1', 1), title: '今日待办一页清', desc: '', status: 'failed', error: '封面比例不符合要求：抖音要 3:4 或 9:16，这次用的是 1:1' },
-  { id: 'pb4', video_id: 'vd1', platform: 'youtube', variant: 'landscape', cover_id: vd1Cover('16x9', 2), title: 'One Page for Today', desc: '', status: 'scheduled', scheduled_at: new Date(Date.now() + day * 60000 * 2).toISOString() },
+  { id: 'pb1', video_id: 'vd1', platform: 'bilibili', variant: 'landscape', cover_id: vd1Cover('16x9', 2), title: '一人之下 10 分钟上手 01｜今日待办一页清', desc: '把散在各处的待办收到一页……', status: 'published', published_at: minsAgo(day * 6), url: 'https://www.bilibili.com/video/BV1xx',
+    account_id: 'pa_bili', tags: ['效率工具', '待办', '产品经理'], category: '知识', collection: '一人之下 10 分钟上手',
+    metrics: { views: 12840, likes: 931, comments: 87, shares: 64, impressions: 168900, ctr: 0.076, avg_watch_sec: 318, completion: 0.34, favorites: 612, coins: 248, followers_gained: 386, updated_at: minsAgo(60 * 5) } },
+  { id: 'pb2', video_id: 'vd1', platform: 'channels', variant: 'portrait', cover_id: vd1Cover('9x16', 1), title: '今日待办一页清', desc: '一页看完今天要处理的事', status: 'published', published_at: minsAgo(day * 5), url: 'https://channels.weixin.qq.com/web/pages/feed?id=ep01today',
+    account_id: 'pa_ch', metrics: { views: 3420, likes: 210, comments: 12, shares: 35, impressions: 41200, ctr: 0.083, avg_watch_sec: 141, completion: 0.22, followers_gained: 58, updated_at: minsAgo(60 * 30) } },
+  // 两个 A/B 小号同一时间各发一版，只换封面
+  { id: 'pb2a', video_id: 'vd1', platform: 'channels', variant: 'portrait', cover_id: vd1Cover('9x16', 3), title: '今日待办一页清', desc: '一页看完今天要处理的事', status: 'published', published_at: minsAgo(day * 5), url: 'https://channels.weixin.qq.com/web/pages/feed?id=ep01today-a',
+    account_id: 'pa_ch_a', metrics: { ...byCtr(12600, 0.071), likes: 41, comments: 3, shares: 6, avg_watch_sec: 137, completion: 0.21, updated_at: minsAgo(60 * 30) } },
+  { id: 'pb2b', video_id: 'vd1', platform: 'channels', variant: 'portrait', cover_id: vd1Cover('9x16', 4), title: '今日待办一页清', desc: '一页看完今天要处理的事', status: 'published', published_at: minsAgo(day * 5), url: 'https://channels.weixin.qq.com/web/pages/feed?id=ep01today-b',
+    account_id: 'pa_ch_b', metrics: { ...byCtr(8900, 0.102), likes: 52, comments: 4, shares: 9, avg_watch_sec: 144, completion: 0.23, updated_at: minsAgo(60 * 30) } },
+  { id: 'pb3', video_id: 'vd1', platform: 'douyin', variant: 'portrait', cover_id: vd1Cover('1x1', 1), title: '今日待办一页清', desc: '', status: 'failed', error: '封面比例不符合要求：抖音要 3:4 或 9:16，这次用的是 1:1', account_id: 'pa_dy' },
+  { id: 'pb4', video_id: 'vd1', platform: 'youtube', variant: 'landscape', cover_id: vd1Cover('16x9', 2), title: 'One Page for Today', desc: '', status: 'scheduled', scheduled_at: new Date(Date.now() + day * 60000 * 2).toISOString(), account_id: 'pa_yt', category: '教育' },
   // AI 系列：每集分发包通过后两小时发视频号
   ...seedVideos.filter((v) => v.series_id === 'sr_ai' && (v.episode ?? 0) <= AI_DONE).map((v, i): Publish => {
     const ep = v.episode ?? 0
     const at = SPAN[v.id][1] - 120
     const cover = seedArtifacts.find((a) => a.video_id === v.id && a.kind === 'cover')
+    const views = 2600 + ((ep * 1373) % 5200) + i * 90
+    const ctr = ep === AB_EP ? 0.061 : 0.058 + ((ep * 7) % 5) / 100
     return {
       id: `pb_ai${String(ep).padStart(2, '0')}`, video_id: v.id, platform: 'channels', variant: 'portrait', cover_id: cover?.id, title: `AI 工具 100 讲 ${String(ep).padStart(2, '0')}｜${AI_TOPICS[ep - 1]}`,
       desc: '5 分钟讲一个 AI 工具的真实用法', status: 'published', published_at: minsAgo(at), url: `https://channels.weixin.qq.com/web/pages/feed?id=ai100ep${String(ep).padStart(2, '0')}`,
-      metrics: { views: 2600 + ((ep * 1373) % 5200) + i * 90, likes: 120 + ((ep * 37) % 260), comments: 8 + ((ep * 11) % 40), shares: 15 + ((ep * 13) % 70), updated_at: minsAgo(60 * 2) },
+      account_id: 'pa_ch', collection: 'AI 工具 100 讲',
+      metrics: { views, likes: 120 + ((ep * 37) % 260), comments: 8 + ((ep * 11) % 40), shares: 15 + ((ep * 13) % 70),
+        impressions: Math.round(views / ctr), ctr, avg_watch_sec: 120 + ((ep * 17) % 60), completion: 0.28 + ((ep * 3) % 12) / 100, followers_gained: 20 + ((ep * 19) % 90), updated_at: minsAgo(60 * 2) },
     }
   }),
+]
+// 第 15 集的两个小号版本，和主号同一时间发
+{
+  const main = seedPublishes.find((p) => p.video_id === abVideo)!
+  const arm = (id: string, option: number, account: string, m: ReturnType<typeof byCtr>, likes: number): Publish => ({
+    ...main, id, cover_id: aiCover(abVideo, option), account_id: account, url: `${main.url}-${id.slice(-1)}`,
+    metrics: { ...m, likes, comments: Math.round(likes / 12), shares: Math.round(likes / 6), avg_watch_sec: main.metrics!.avg_watch_sec, completion: main.metrics!.completion, updated_at: main.metrics!.updated_at },
+  })
+  seedPublishes.splice(seedPublishes.indexOf(main) + 1, 0, arm(`pb_ai${AB_EP}a`, 2, 'pa_ch_a', byCtr(21400, 0.092), 96), arm(`pb_ai${AB_EP}b`, 3, 'pa_ch_b', byCtr(18700, 0.058), 47))
+}
+
+/** 按天快照：有数据的发布在第 1、3、7、30 天和最近一次各一条，最近一条就是 Publish.metrics；第 1 集 B 站第 1 天是手动回填的 */
+const grow = (d: number) => 1 - 0.8 * Math.exp(-d / 3.5)
+export const seedSnapshots: MetricSnapshot[] = seedPublishes.filter((p) => p.metrics && p.published_at).flatMap((p) => {
+  const m = p.metrics!
+  const last = dayAfter(p.published_at!, m.updated_at)
+  const days = [...SNAPSHOT_DAYS.filter((d) => d < last), last]
+  return days.map((d): MetricSnapshot => {
+    const f = grow(d) / grow(last)
+    const n = (x?: number) => (x == null ? undefined : Math.round(x * f))
+    return {
+      publish_id: p.id, day: d, source: p.id === 'pb1' && d === 1 ? 'manual' : 'connector',
+      views: n(m.views)!, likes: n(m.likes)!, comments: n(m.comments)!, shares: n(m.shares)!,
+      impressions: n(m.impressions), ctr: m.ctr == null ? undefined : +(m.ctr * (1 + 0.18 * (1 - f))).toFixed(4),
+      avg_watch_sec: m.avg_watch_sec, completion: m.completion == null ? undefined : +(m.completion * (1 + 0.1 * (1 - f))).toFixed(3),
+      favorites: n(m.favorites), coins: n(m.coins), followers_gained: n(m.followers_gained),
+      updated_at: d === last ? m.updated_at : new Date(Date.parse(p.published_at!) + d * day * 60000 + 3600000).toISOString(),
+    }
+  })
+})
+
+/** 封面 A/B：第 1 集视频号三版还在跑（才第 5 天，B 号曝光没到 1 万）；第 15 集已决出，第 2 张胜出 */
+export const seedCoverTests: CoverTest[] = [
+  {
+    id: 'cvt1', video_id: 'vd1', platform: 'channels', mode: 'accounts', started_at: minsAgo(day * 5), min_days: 7, min_impressions: 10000, min_gap: 0.2, status: 'running',
+    arms: [{ cover_id: vd1Cover('9x16', 1)!, publish_id: 'pb2' }, { cover_id: vd1Cover('9x16', 3)!, publish_id: 'pb2a' }, { cover_id: vd1Cover('9x16', 4)!, publish_id: 'pb2b' }],
+  },
+  (() => {
+    const main = seedPublishes.find((p) => p.video_id === abVideo)!
+    const t: CoverTest = {
+      id: 'cvt2', video_id: abVideo, platform: 'channels', mode: 'accounts', started_at: main.published_at!, ended_at: new Date(Date.parse(main.published_at!) + 8 * day * 60000).toISOString(),
+      min_days: 7, min_impressions: 10000, min_gap: 0.2, status: 'decided', winner_id: aiCover(abVideo, 2),
+      arms: [{ cover_id: aiCover(abVideo, 1)!, publish_id: main.id }, { cover_id: aiCover(abVideo, 2)!, publish_id: `pb_ai${AB_EP}a` }, { cover_id: aiCover(abVideo, 3)!, publish_id: `pb_ai${AB_EP}b` }],
+    }
+    return t
+  })(),
 ]

@@ -39,6 +39,8 @@ type Route struct {
 	Check     *Check `json:"check"`
 	CreatedAt string `json:"created_at"`
 	UpdatedAt string `json:"updated_at"`
+
+	protoPort int // 目标是原型且原型在运行时的端口（DOM-02a），不出现在接口里
 }
 
 // fqdn：子域名为空（只有工作台那条可以）时完整域名就是后缀本身。
@@ -81,11 +83,18 @@ func (h *handlers) loadRoutes(ctx context.Context, s Settings) ([]Route, error) 
 	}
 	for i := range out {
 		out[i].FQDN = fqdn(out[i].Host, s.Suffix)
+		h.fillPort(&out[i])
 		if c, ok := checks[out[i].FQDN]; ok {
 			out[i].Check = &c
 		}
 	}
 	return out, nil
+}
+
+func (h *handlers) fillPort(rt *Route) {
+	if rt.Target.Kind == "proto" {
+		rt.protoPort, _ = h.p.protos.running(rt.Target.ProtoID)
+	}
 }
 
 func (h *handlers) loadChecks(ctx context.Context) (map[string]Check, error) {
@@ -115,6 +124,7 @@ func (h *handlers) getRoute(ctx context.Context, id string, s Settings) (Route, 
 		return rt, err
 	}
 	rt.FQDN = fqdn(rt.Host, s.Suffix)
+	h.fillPort(&rt)
 	checks, err := h.loadChecks(ctx)
 	if err != nil {
 		return rt, err
@@ -167,6 +177,7 @@ func (h *handlers) addRoute(w http.ResponseWriter, r *http.Request) {
 		h.fail(w, r, err)
 		return
 	}
+	h.p.snap.invalidate()
 	out, err := h.getRoute(ctx, rt.ID, s)
 	if err != nil {
 		h.fail(w, r, err)
@@ -209,6 +220,7 @@ func (h *handlers) updateRoute(w http.ResponseWriter, r *http.Request) {
 		h.fail(w, r, err)
 		return
 	}
+	h.p.snap.invalidate()
 	out, err := h.getRoute(ctx, id, s)
 	if err != nil {
 		h.fail(w, r, err)
@@ -238,6 +250,7 @@ func (h *handlers) removeRoute(w http.ResponseWriter, r *http.Request) {
 		h.fail(w, r, err)
 		return
 	}
+	h.p.snap.invalidate()
 	writeJSON(w, http.StatusOK, map[string]any{"data": nil})
 }
 

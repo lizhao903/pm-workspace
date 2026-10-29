@@ -83,5 +83,7 @@ func (p *Plugin) Register(r plugin.Registrar) error {
 	}
 	r.Job(plugin.Job{Name: "snooze_wake", Every: snoozeEvery, Run: in.wakeJob})
 	r.ConnectorImpact(plugin.ConnectorImpactDef{Key: "messages", Load: messagesImpact})
+	// SOP 节点：发消息、等回复（SOP-02b，sopnodes.go）
+	in.registerSOPNodes(r)
 	return nil
 }

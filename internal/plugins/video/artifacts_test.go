@@ -11,10 +11,6 @@ import (
 	"testing"
 )
 
-// pendingVID02 是原型为 VID-02（封面比例、横竖两套文稿、字幕）新加、后端还没跟上的：字段、类型和改成按比例区分的类型。
-// VID-02 落地时删掉这里，测试就会盯住它们。
-var pendingVID02 = []string{"ratio", "lang", "subtitle", "script", "outline", "description", "chapters"}
-
 // 原型 videodata.ts 里 Artifact、Review 的字段，Go 结构里都要有；多出的只能是 updated_at 和验收记录的 version
 func TestArtifactFieldsMatchPrototype(t *testing.T) {
 	b, err := os.ReadFile(filepath.Join("..", "..", "..", "web-next", "src", "videodata.ts"))
@@ -61,7 +57,8 @@ func TestArtifactFieldsMatchPrototype(t *testing.T) {
 			tags = append(tags, tag)
 		}
 		for _, f := range c.proto {
-			if !slices.Contains(tags, f) && !slices.Contains(pendingVID02, f) {
+			// archived 是 VID-05p 给原型新加的（封面 A/B 输掉后归档），VID-05b 落地时删掉这个例外
+			if !slices.Contains(tags, f) && !(c.name == "Artifact" && f == "archived") {
 				t.Errorf("%s.%s 原型里有，Go 结构里没有", c.name, f)
 			}
 		}
@@ -79,15 +76,13 @@ func TestArtifactFieldsMatchPrototype(t *testing.T) {
 	}
 	for _, k := range ArtifactKinds {
 		want := fmt.Sprintf("%s/%s/%v", k.Label, k.Stage, k.PerVariant)
-		if got := protoKinds[k.Key]; got != want && !slices.Contains(pendingVID02, k.Key) {
+		if got := protoKinds[k.Key]; got != want {
 			t.Errorf("ARTIFACT_KIND.%s 原型是 %q，后端是 %q", k.Key, got, want)
 		}
 		delete(protoKinds, k.Key)
 	}
 	for k := range protoKinds {
-		if !slices.Contains(pendingVID02, k) {
-			t.Errorf("ARTIFACT_KIND.%s 原型里有，后端没有", k)
-		}
+		t.Errorf("ARTIFACT_KIND.%s 原型里有，后端没有", k)
 	}
 	for _, s := range ArtifactStatuses {
 		if !strings.Contains(src, "  "+s+": { label:") {
@@ -108,13 +103,13 @@ func newVideo(t *testing.T, e env, body string) string {
 func TestArtifactRoundTrip(t *testing.T) {
 	e := setup(t)
 	vd := newVideo(t, e, `{"title":"第 1 集","root":"videos/ep01-today","orientations":["landscape","portrait"]}`)
-	a := mustCall(t, e.h, "POST", "/api/video/artifacts", `{"video_id":"`+vd+`","kind":"script","name":"口播稿","path":"script.md","version":3,"status":"final",
+	a := mustCall(t, e.h, "POST", "/api/video/artifacts", `{"video_id":"`+vd+`","kind":"script","name":"口播稿","path":"pc/script.md","variant":"landscape","version":3,"status":"final",
 		"source":{"type":"skill","label":"web-video-presentation"}}`, 201)
-	if !strings.HasPrefix(a["id"].(string), "vaf_") || a["version"] != 3.0 || a["status"] != "final" || a["path"] != "script.md" ||
+	if !strings.HasPrefix(a["id"].(string), "vaf_") || a["version"] != 3.0 || a["status"] != "final" || a["path"] != "pc/script.md" || a["variant"] != "landscape" ||
 		!reflect.DeepEqual(a["source"], map[string]any{"type": "skill", "label": "web-video-presentation"}) || len(a["reviews"].([]any)) != 0 {
 		t.Fatalf("口播稿：%v", a)
 	}
-	for _, k := range []string{"variant", "option", "duration", "picked"} {
+	for _, k := range []string{"ratio", "option", "lang", "duration", "picked"} {
 		if _, ok := a[k]; ok {
 			t.Fatalf("口播稿不该有 %s：%v", k, a)
 		}
@@ -129,7 +124,7 @@ func TestArtifactRoundTrip(t *testing.T) {
 		t.Fatalf("成片：%v", mv)
 	}
 	// 没给名字用类型名；改名、改路径、改状态、清时长
-	ch := mustCall(t, e.h, "POST", "/api/video/artifacts", `{"video_id":"`+vd+`","kind":"chapters","path":"chapters.md"}`, 201)
+	ch := mustCall(t, e.h, "POST", "/api/video/artifacts", `{"video_id":"`+vd+`","kind":"chapters","variant":"portrait","path":"app/chapters.md"}`, 201)
 	if ch["name"] != "章节时间轴" {
 		t.Fatalf("默认名称：%v", ch)
 	}
@@ -153,7 +148,9 @@ func TestArtifactRoundTrip(t *testing.T) {
 		`{"source":{"type":"manual"}}`: "来源",
 		`{"reviews":[]}`:               "验收接口",
 		`{"video_id":"vd_x"}`:          "不能换视频",
-		`{"variant":"landscape"}`:      "不分画面比例",
+		`{"variant":null}`:             "要选 variant",
+		`{"ratio":"3x4"}`:              "只有封面有封面比例",
+		`{"lang":"zh"}`:                "只有字幕有语言",
 		`{"duration":10}`:              "只有音频、视频有时长",
 		`{"status":"done"}`:            "status 只能是",
 		`{"foo":1}`:                    "不认识的字段",
@@ -164,11 +161,13 @@ func TestArtifactRoundTrip(t *testing.T) {
 		}
 	}
 	for body, want := range map[string]string{
-		`{"video_id":"vd_none","kind":"script","path":"a.md"}`:    "视频不存在",
-		`{"video_id":"` + vd + `","kind":"poster","path":"a.md"}`: "kind 只能是",
-		`{"video_id":"` + vd + `","kind":"video","path":"a.mp4"}`: "要选 variant",
-		`{"video_id":"` + vd + `","kind":"script"}`:               "路径必填",
-		`{"video_id":"` + vd + `","kind":"script","path":"  "}`:   "路径必填",
+		`{"video_id":"vd_none","kind":"script","path":"a.md"}`:                           "视频不存在",
+		`{"video_id":"` + vd + `","kind":"poster","path":"a.md"}`:                        "kind 只能是",
+		`{"video_id":"` + vd + `","kind":"video","path":"a.mp4"}`:                        "要选 variant",
+		`{"video_id":"` + vd + `","kind":"script","variant":"landscape"}`:                "路径必填",
+		`{"video_id":"` + vd + `","kind":"script","variant":"landscape","path":"  "}`:    "路径必填",
+		`{"video_id":"` + vd + `","kind":"script","path":"script.md"}`:                   "口播稿按画面比例区分",
+		`{"video_id":"` + vd + `","kind":"article","variant":"landscape","path":"a.md"}`: "原文不分画面比例",
 	} {
 		code, out := call(t, e.h, "POST", "/api/video/artifacts", body)
 		if code != 400 || !strings.Contains(errMsg(out), want) {
@@ -232,7 +231,7 @@ func TestCoverOptionsAndPick(t *testing.T) {
 		t.Fatalf("取消选用：%v", got)
 	}
 	// 非封面不能选用、不能带序号
-	sc := mustCall(t, e.h, "POST", "/api/video/artifacts", `{"video_id":"`+vd+`","kind":"script","path":"script.md"}`, 201)
+	sc := mustCall(t, e.h, "POST", "/api/video/artifacts", `{"video_id":"`+vd+`","kind":"script","variant":"landscape","path":"script.md"}`, 201)
 	if code, out := call(t, e.h, "PATCH", "/api/video/artifacts/"+sc["id"].(string), `{"picked":true}`); code != 400 || !strings.Contains(errMsg(out), "只有封面") {
 		t.Fatalf("口播稿选用：%d %v", code, out)
 	}
@@ -256,7 +255,7 @@ func TestCoverOptionsAndPick(t *testing.T) {
 func TestReviewAndBump(t *testing.T) {
 	e := setup(t)
 	vd := newVideo(t, e, `{"title":"验收"}`)
-	a := mustCall(t, e.h, "POST", "/api/video/artifacts", `{"video_id":"`+vd+`","kind":"script","path":"script.md","status":"review"}`, 201)
+	a := mustCall(t, e.h, "POST", "/api/video/artifacts", `{"video_id":"`+vd+`","kind":"script","variant":"landscape","path":"script.md","status":"review"}`, 201)
 	id := a["id"].(string)
 	for _, body := range []string{`{"ok":false}`, `{"ok":false,"comment":"   "}`} {
 		code, out := call(t, e.h, "POST", "/api/video/artifacts/"+id+"/reviews", body)
@@ -314,7 +313,7 @@ func TestArtifactProvenance(t *testing.T) {
 	if !reflect.DeepEqual(ag["source"], want) {
 		t.Fatalf("Agent 来源：%v", ag["source"])
 	}
-	sop := mustCall(t, e.h, "POST", "/api/video/artifacts", `{"video_id":"`+vd+`","kind":"description","path":"description.md","source":{"type":"sop","id":"sop_weekly","run_id":"spr_02"}}`, 201)
+	sop := mustCall(t, e.h, "POST", "/api/video/artifacts", `{"video_id":"`+vd+`","kind":"description","variant":"landscape","path":"description.md","source":{"type":"sop","id":"sop_weekly","run_id":"spr_02"}}`, 201)
 	if !reflect.DeepEqual(sop["source"], map[string]any{"type": "sop", "id": "sop_weekly", "label": "sop_weekly", "run_id": "spr_02"}) {
 		t.Fatalf("SOP 来源：%v", sop["source"])
 	}
@@ -335,7 +334,7 @@ func TestArtifactProvenance(t *testing.T) {
 		`{"type":"skill","extra":1}`:           "不认识的字段 extra",
 		`"agent"`:                              "source 必须是对象",
 	} {
-		code, out := call(t, e.h, "POST", "/api/video/artifacts", `{"video_id":"`+vd+`","kind":"script","path":"s.md","source":`+body+`}`)
+		code, out := call(t, e.h, "POST", "/api/video/artifacts", `{"video_id":"`+vd+`","kind":"script","variant":"landscape","path":"s.md","source":`+body+`}`)
 		if code != 400 || !strings.Contains(errMsg(out), want) {
 			t.Errorf("source %s：要 400 含「%s」，实际 %d %s", body, want, code, errMsg(out))
 		}
@@ -350,18 +349,18 @@ func TestArtifactPathStaysInProject(t *testing.T) {
 	e := setup(t)
 	vd := newVideo(t, e, `{"title":"路径","root":"videos/ep01"}`)
 	for _, p := range []string{"../secret.md", "a/../../x.md", "..", "/etc/passwd", "~/x.md", `C:\\x.md`, "C:/x.md", `a\\b.md`, "file:///etc/passwd", ".", "./", "a/.."} {
-		body := fmt.Sprintf(`{"video_id":"%s","kind":"script","path":%q}`, vd, p)
+		body := fmt.Sprintf(`{"video_id":"%s","kind":"script","variant":"landscape","path":%q}`, vd, p)
 		if code, out := call(t, e.h, "POST", "/api/video/artifacts", body); code != 400 {
 			t.Errorf("路径 %q：要 400，实际 %d %v", p, code, out)
 		}
 	}
 	for in, want := range map[string]string{"./script.md": "script.md", "a/../script.md": "script.md", "cover//16x9-1.png": "cover/16x9-1.png", "audio/": "audio/", "...md": "...md"} {
-		a := mustCall(t, e.h, "POST", "/api/video/artifacts", fmt.Sprintf(`{"video_id":"%s","kind":"script","path":%q}`, vd, in), 201)
+		a := mustCall(t, e.h, "POST", "/api/video/artifacts", fmt.Sprintf(`{"video_id":"%s","kind":"script","variant":"landscape","path":%q}`, vd, in), 201)
 		if a["path"] != want {
 			t.Errorf("路径 %q 存成 %v，要 %s", in, a["path"], want)
 		}
 	}
-	a := mustCall(t, e.h, "POST", "/api/video/artifacts", `{"video_id":"`+vd+`","kind":"outline","path":"outline.md"}`, 201)
+	a := mustCall(t, e.h, "POST", "/api/video/artifacts", `{"video_id":"`+vd+`","kind":"outline","variant":"landscape","path":"outline.md"}`, 201)
 	if code, out := call(t, e.h, "PATCH", "/api/video/artifacts/"+a["id"].(string), `{"path":"../../outline.md"}`); code != 400 || !strings.Contains(errMsg(out), "越出") {
 		t.Fatalf("PATCH 越界路径：%d %v", code, out)
 	}

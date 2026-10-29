@@ -47,7 +47,7 @@ func (a Action) Normalize() Action {
 	return a
 }
 
-// Validate 只查必填项；SOP、Agent 的 id 是否存在不查，它们的接口在 M4 之后才有。
+// Validate 只查必填项；SOP、Agent 的 id 是否存在不查，到点执行时找不到记失败（SOP 是插件，可能还没装）。
 func (a Action) Validate() error {
 	switch a.Kind {
 	case ActionTask:

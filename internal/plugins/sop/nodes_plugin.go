@@ -108,16 +108,37 @@ func waitReason(err error) string {
 
 /* ---------- 唤醒 ---------- */
 
-// resumeMsg 是插件唤醒挂起步骤的请求，runner 处理完写库后回 reply。
+// resumeMsg 是插件唤醒挂起步骤的请求，runner 处理完写库后回 reply。fail 非空时这一步失败（SOP-02b）。
 type resumeMsg struct {
 	caller, step string
 	output       Json
+	fail         string
 	reply        chan error
 }
 
 // Resume 实现 plugin.SOPEngine：把唤醒交给这条执行的 runner，等它写完库。
 // 服务刚起来时先等引擎把没结束的执行接着调度上。
 func (e *engine) Resume(ctx context.Context, caller, runID, step string, output map[string]any) error {
+	b, err := json.Marshal(output)
+	if err != nil {
+		return fmt.Errorf("输出不能转成 JSON：%w", err)
+	}
+	var out Json
+	_ = json.Unmarshal(b, &out)
+	return e.wake(ctx, runID, resumeMsg{caller: caller, step: step, output: orEmpty(out)})
+}
+
+// Fail 实现 plugin.SOPEngine：让挂起的步骤失败，原因写进步骤（SOP-02b，例：等回复超时）。
+func (e *engine) Fail(ctx context.Context, caller, runID, step, reason string) error {
+	reason = strings.TrimSpace(reason)
+	if reason == "" {
+		reason = "插件 " + caller + " 结束了这一步"
+	}
+	return e.wake(ctx, runID, resumeMsg{caller: caller, step: step, fail: reason})
+}
+
+// wake 把唤醒或失败交给这条执行的 runner，等它写完库。
+func (e *engine) wake(ctx context.Context, runID string, m resumeMsg) error {
 	if _, err := e.waitReady(ctx); err != nil {
 		return plainErr(err)
 	}
@@ -132,15 +153,10 @@ func (e *engine) Resume(ctx context.Context, caller, runID, step string, output 
 		}
 		return errors.New("这次执行没在调度里，稍后再试")
 	}
-	b, err := json.Marshal(output)
-	if err != nil {
-		return fmt.Errorf("输出不能转成 JSON：%w", err)
-	}
-	var out Json
-	_ = json.Unmarshal(b, &out)
 	reply := make(chan error, 1)
+	m.reply = reply
 	select {
-	case r.inbox <- resumeMsg{caller: caller, step: step, output: orEmpty(out), reply: reply}:
+	case r.inbox <- m:
 	case <-r.done:
 		return errors.New("这次执行已经结束")
 	case <-ctx.Done():
@@ -186,6 +202,10 @@ func (r *runner) resumeStep(m resumeMsg) error {
 	}
 	r.cancelStep(i)
 	t := now()
+	if m.fail != "" {
+		r.fail(i, t, m.fail)
+		return nil
+	}
 	s.Status, s.Output, s.EndedAt = stDone, m.output, &t
 	r.log(i, t, fmt.Sprintf("插件 %s 唤醒，这一步完成", m.caller))
 	return nil

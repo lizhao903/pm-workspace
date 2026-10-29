@@ -119,14 +119,14 @@ describe('视频列表', () => {
     expect(screen.queryByRole('button', { name: /第 2 集/ })).not.toBeInTheDocument()
   })
 
-  it('系列里新建：带上系列和下一集的集数，建好打开详情', async () => {
+  it('系列里新建：标题「第 N 集：」，带上系列和下一集的集数，建好打开详情', async () => {
     const user = userEvent.setup()
     const be = fakeBackend(seed())
     const router = show('/videos/series/sr_a')
     await user.click(await screen.findByRole('button', { name: '新建第 3 集' }))
     await waitFor(() => expect(router.state.location.pathname).toBe('/videos/v/vd_4'))
     expect(be.calls.find((c) => c.method === 'POST')?.body).toEqual({
-      title: '新视频', orientations: ['landscape'], root: 'videos/new-4', chapters: 3, series_id: 'sr_a', episode: 3,
+      title: '第 3 集：', orientations: ['landscape'], root: 'videos/new-4', chapters: 3, series_id: 'sr_a', episode: 3,
     })
     expect(await screen.findByRole('listitem', { name: '内容编写' })).toHaveAttribute('aria-current', 'step')
   })

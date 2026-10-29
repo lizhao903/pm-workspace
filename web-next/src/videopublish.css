@@ -172,3 +172,88 @@ button.vp-cover.on { border-color: var(--accent); box-shadow: 0 0 0 2px var(--ac
 
 /* 平台接入提示 */
 .vp-conn { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: -4px; }
+
+/* ---------- 账号、标签、发布前校验 ---------- */
+.vp-form-2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; }
+.vp-checks { display: flex; flex-direction: column; gap: 4px; margin: 0; padding: 0; list-style: none; font-size: 12.5px; }
+.vp-checks li { display: flex; align-items: baseline; gap: 8px; color: var(--muted); }
+.vp-checks li.bad { color: var(--danger); }
+/* 标题字数超上限时那行提示变红 */
+.field-label .field-hint.danger-text { color: var(--danger); }
+.vp-check-mark { flex: none; min-width: 42px; font-size: 11px; font-weight: 500; color: var(--ok); }
+.vp-checks li.bad .vp-check-mark { color: var(--danger); }
+.vp-tags { gap: 4px; }
+.vp-hint-info { color: var(--accent); background: var(--accent-soft); border-color: var(--accent-line); }
+
+/* ---------- 按天曲线 ---------- */
+.vp-curve { display: flex; flex-direction: column; gap: 4px; }
+.vp-curve-plot { position: relative; height: 128px; border-bottom: 1px solid var(--line-2); }
+.vp-curve-plot svg { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
+.vp-curve-grid { stroke: var(--line); stroke-dasharray: 3 3; }
+.vp-curve-grid.future { opacity: 0.5; }
+.vp-curve-line { fill: none; stroke: var(--accent); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.vp-curve-dot { position: absolute; width: 7px; height: 7px; margin: -3.5px 0 0 -3.5px; border-radius: 50%; background: var(--panel); border: 2px solid var(--accent); }
+.vp-curve-dot.key { width: 9px; height: 9px; margin: -4.5px 0 0 -4.5px; }
+.vp-curve-val { position: absolute; transform: translate(4px, -150%); font-size: 11.5px; font-weight: 600; white-space: nowrap; }
+.vp-curve-ticks { position: relative; height: 14px; font-size: 10.5px; color: var(--faint); }
+.vp-curve-ticks span { position: absolute; transform: translateX(-50%); }
+.vp-curve-ticks span:first-child { transform: none; }
+.vp-curve-ticks span.future { opacity: 0.6; }
+.vp-days { display: flex; flex-direction: column; border: 1px solid var(--line); border-radius: var(--r); overflow: hidden; font-size: 12.5px; }
+.vp-days-row { display: grid; grid-template-columns: 56px repeat(5, minmax(0, 1fr)); gap: 8px; padding: 6px 10px; border-bottom: 1px solid var(--line); font-variant-numeric: tabular-nums; }
+.vp-days-row:last-child { border-bottom: 0; }
+.vp-days-row > span:not(:first-child) { text-align: right; }
+.vp-days-th { background: var(--panel-2); color: var(--faint); font-size: 11.5px; }
+.vp-hist-toggle { align-self: flex-start; }
+.vp-hist { display: flex; flex-direction: column; font-size: 12px; }
+.vp-hist-row { display: grid; grid-template-columns: 56px 72px minmax(0, 1fr) minmax(0, 1fr) 92px; gap: 8px; padding: 5px 0; border-bottom: 1px dashed var(--line); }
+.vp-hist-row > :last-child { text-align: right; }
+
+/* ---------- 封面 A/B ---------- */
+.vp-ab-sec { margin-bottom: 18px; }
+.vp-ab-list { display: flex; flex-direction: column; border: 1px solid var(--line); border-radius: var(--r); overflow: hidden; }
+.vp-ab-row {
+  display: grid; grid-template-columns: auto minmax(160px, 1fr) minmax(0, auto) auto; align-items: center; gap: 12px;
+  padding: 8px 12px; border-bottom: 1px solid var(--line); text-align: left; background: var(--panel); cursor: pointer;
+}
+.vp-ab-row:last-child { border-bottom: 0; }
+.vp-ab-row:hover { background: var(--panel-2); }
+.vp-ab-row .task-meta { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.vp-ab-covers { display: flex; gap: 4px; }
+.vp-ab-prog { min-width: 0; font-size: 12px; }
+.vp-ab-rules { display: flex; flex-wrap: wrap; gap: 4px 6px; }
+.vp-ab-rule {
+  display: inline-flex; align-items: center; height: 20px; padding: 0 7px; border-radius: 5px; font-size: 11.5px; white-space: nowrap;
+  color: var(--warn); background: var(--warn-soft);
+}
+.vp-ab-rule.ok { color: var(--ok); background: color-mix(in srgb, var(--ok) 12%, transparent); }
+.vp-ab-note { font-size: 12px; color: var(--muted); line-height: 1.6; }
+.vp-ab-verdict {
+  display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; border-radius: var(--r); font-size: 12.5px; line-height: 1.6;
+  border: 1px solid var(--line); background: var(--panel-2);
+}
+.vp-ab-verdict.ok { border-color: color-mix(in srgb, var(--ok) 30%, transparent); background: color-mix(in srgb, var(--ok) 8%, var(--panel)); }
+.vp-ab-arms { display: flex; flex-direction: column; gap: 10px; }
+.vp-ab-arm { display: flex; align-items: flex-start; gap: 12px; padding: 10px; border: 1px solid var(--line); border-radius: var(--r); min-width: 0; }
+.vp-ab-arm.won { border-color: color-mix(in srgb, var(--ok) 45%, transparent); }
+.vp-ab-arm.lead { border-color: var(--accent-line); }
+.vp-ab-arm-main { display: flex; flex-direction: column; gap: 5px; flex: 1; min-width: 0; }
+.vp-ab-arm-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 13px; }
+.vp-ab-arm-sub { display: flex; align-items: center; gap: 6px; font-size: 12px; min-width: 0; }
+.vp-ab-arm-nums { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 12px; color: var(--muted); }
+.vp-ab-arm-nums b { color: var(--text); font-weight: 600; }
+.vp-ab-bar { height: 6px; border-radius: 3px; background: var(--panel-2); overflow: hidden; }
+.vp-ab-bar span { display: block; height: 100%; border-radius: 3px; background: var(--accent); }
+.vp-ab-arm.won .vp-ab-bar span { background: var(--ok); }
+.vp-ab-badge { display: inline-flex; align-items: center; height: 18px; padding: 0 6px; border-radius: 4px; font-size: 11px; color: var(--muted); background: var(--hover); }
+.vp-ab-badge.ok { color: var(--ok); background: color-mix(in srgb, var(--ok) 12%, transparent); }
+.vp-ab-badge.lead { color: var(--accent); background: var(--accent-soft); }
+
+@media (max-width: 760px) {
+  .vp-ab-row { grid-template-columns: auto minmax(0, 1fr); }
+  .vp-ab-prog { grid-column: 1 / -1; }
+  .vp-hist-row { grid-template-columns: 52px 64px minmax(0, 1fr) 80px; }
+  .vp-hist-row > :nth-child(4) { display: none; }
+  .vp-days-row { grid-template-columns: 40px repeat(5, minmax(0, 1fr)); gap: 4px; padding: 6px 8px; font-size: 11px; }
+  .vp-drawer .drawer-foot { flex-wrap: wrap; }
+}

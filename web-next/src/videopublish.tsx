@@ -1,9 +1,10 @@
 import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { SearchSelect } from './searchselect'
 import {
-  COVER_RATIO, ORIENT, PLATFORMS, PUBLISH_STATUS, coverRatioOf, videoState,
-  type Artifact, type CoverRatio, type Metrics, type Orientation, type PlatformKey, type Publish, type PublishStatus, type Series, type Video,
+  ACCOUNT_ROLE, COVER_RATIO, ORIENT, PLATFORMS, PLATFORM_RULES, PUBLISH_STATUS, SNAPSHOT_DAYS, checkPublish, coverRatioOf, dayAfter, videoState,
+  type Artifact, type CoverRatio, type CoverTest, type MetricSnapshot, type Metrics, type Orientation, type PlatformKey, type Publish, type PublishStatus, type Series, type Video,
 } from './videodata'
+import { CoverTestDrawer, CoverTestSection, accountOf, accountsOf, grownMetrics, pct, snapshotOf, usePubStore, pubStore } from './covertest'
 import { PageTitle } from './topbar'
 import { SeriesSettingsDrawer, StageDist, isFinished, needsMe } from './videos'
 import { cls, timeAgo } from './ui'
@@ -169,10 +170,12 @@ const tomorrow10 = () => { const d = new Date(); d.setDate(d.getDate() + 1); d.s
 /** 平台的接入情况：ok 已接入能自动发；manual 已接入但平台不开放发布接口；error 接入异常；none 没接入 */
 export type ChannelState = { state: 'ok' | 'manual' | 'error' | 'none'; name?: string; error?: string }
 
-export function PublishPage({ publishes, videos, artifacts, videoId, onPublishes, onOpenVideo, onOpenUrl, onClearFilter, channels, onConnect, tabs }: {
+export function PublishPage({ publishes, videos, artifacts, videoId, onPublishes, onArtifacts, onOpenVideo, onOpenUrl, onClearFilter, channels, onConnect, tabs }: {
   /** 模块标签栏，放在顶栏下面 */
   tabs?: ReactNode
   publishes: Publish[]; videos: Video[]; artifacts: Artifact[]
+  /** 封面 A/B 判定后改封面（胜者设为主封面、其余归档）；不传时只记在测试上 */
+  onArtifacts?: (fn: (xs: Artifact[]) => Artifact[]) => void
   /** 各平台连接器的接入情况，决定能不能自动发布 */
   channels: Record<PlatformKey, ChannelState>
   /** 去设置里接入（或修复）某个平台的连接器 */
@@ -195,6 +198,12 @@ export function PublishPage({ publishes, videos, artifacts, videoId, onPublishes
   const [glimit, setGlimit] = useState(GROUPS)
   // 正在模拟发布的记录
   const [busy, setBusy] = useState<string[]>([])
+  /** 打开的封面测试：测试 id，或 new 新建；和发布抽屉二选一 */
+  const [testOpen, setTestOpen] = useState<string | null>(null)
+  const { snapshots, tests } = usePubStore()
+  const openPub = (id: string | null) => { setTestOpen(null); setOpen(id) }
+  const openTest = (id: string | null) => { setOpen(null); setTestOpen(id) }
+  const testOfPub = (id: string): CoverTest | undefined => tests.find((t) => t.arms.some((a) => a.publish_id === id))
   const pubsRef = useRef(publishes)
   const artsRef = useRef(artifacts)
   useEffect(() => { pubsRef.current = publishes; artsRef.current = artifacts })
@@ -239,7 +248,7 @@ export function PublishPage({ publishes, videos, artifacts, videoId, onPublishes
     const cv = coverOf(p)
     const sending = busy.includes(p.id)
     return (
-      <div key={p.id} className={cls('vp-row', open === p.id && 'sel')} onClick={() => setOpen(p.id)}>
+      <div key={p.id} className={cls('vp-row', open === p.id && 'sel')} onClick={() => openPub(p.id)}>
       <span className="task-main">
         <span className="task-title"><span className="ellipsis">{p.title || '未填标题'}</span></span>
         <span className="task-meta"><span className="ellipsis">{titleOf(p.video_id)}</span></span>
@@ -272,7 +281,7 @@ export function PublishPage({ publishes, videos, artifacts, videoId, onPublishes
   return (
     <div className="page page-fill">
       <PageTitle count={base.length} desc="每个平台发了哪个比例、哪张封面，发出去以后回填播放数据"
-        actions={<button className="btn btn-primary" onClick={() => setOpen('new')}><PlusIcon />新建发布</button>}>发布记录</PageTitle>
+        actions={<button className="btn btn-primary" onClick={() => openPub('new')}><PlusIcon />新建发布</button>}>发布记录</PageTitle>
       {tabs}
 
       {videoId && (
@@ -315,6 +324,8 @@ export function PublishPage({ publishes, videos, artifacts, videoId, onPublishes
           ) : <div className="mount-empty">这一集还没有发布记录</div>}
         </section>
       )}
+
+      <CoverTestSection tests={tests} videos={videos} artifacts={artifacts} publishes={publishes} videoId={videoId} onOpen={openTest} onNew={() => openTest('new')} />
 
       <div className="toolbar vp-filters">
         <div className="search search-sm vp-search">
@@ -370,8 +381,13 @@ export function PublishPage({ publishes, videos, artifacts, videoId, onPublishes
           onCover={(id) => update(current.id, { cover_id: id })}
           onClose={() => setOpen(null)} onOpenVideo={onOpenVideo} onOpenUrl={onOpenUrl}
           onRetry={() => retry(current.id)} onPublishNow={() => { update(current.id, { status: 'planned', scheduled_at: undefined }); runPublish(current.id) }}
-          onMetrics={(m) => update(current.id, { metrics: m })}
+          snapshots={snapshots.filter((s) => s.publish_id === current.id)} test={testOfPub(current.id)} onOpenTest={openTest}
+          onMetrics={(m, source) => { pubStore.addSnapshot(snapshotOf(current, m, source)); update(current.id, { metrics: m }) }}
           onDelete={() => { onPublishes((xs) => xs.filter((x) => x.id !== current.id)); setOpen(null) }} />
+      )}
+      {testOpen && (testOpen === 'new' || tests.some((t) => t.id === testOpen)) && (
+        <CoverTestDrawer key={testOpen} test={tests.find((t) => t.id === testOpen)} videos={videos} artifacts={artifacts} publishes={publishes} defaultVideo={videoId}
+          onClose={() => setTestOpen(null)} onCreated={openTest} onPublishes={onPublishes} onArtifacts={onArtifacts} onOpenPublish={(id) => openPub(id)} />
       )}
     </div>
   )
@@ -398,6 +414,11 @@ function NewPublishDrawer({ videos, artifacts, defaultVideo, channels, onConnect
   const [at, setAt] = useState(tomorrow10)
   const [tried, setTried] = useState(false)
   const [descHint, setDescHint] = useState('')
+  const mainOf = (k: PlatformKey) => (accountsOf(k).find((a) => a.role === 'main') ?? accountsOf(k)[0])?.id
+  const [account, setAccount] = useState<string | undefined>(() => mainOf('bilibili'))
+  const [tagText, setTagText] = useState('')
+  const [category, setCategory] = useState('')
+  const [collection, setCollection] = useState('')
   useEsc(onClose)
 
   const video = videos.find((v) => v.id === vid)
@@ -412,17 +433,28 @@ function NewPublishDrawer({ videos, artifacts, defaultVideo, channels, onConnect
     if (!title.trim() || title === video?.title) setTitle(v?.title ?? '')
     setVid(id); setVariant(pickVariant(v, plat)); setCover(undefined); setDescHint('')
   }
-  const changePlat = (k: PlatformKey) => { setPlat(k); setVariant(pickVariant(video, k)); setCover(undefined) }
+  const changePlat = (k: PlatformKey) => { setPlat(k); setVariant(pickVariant(video, k)); setCover(undefined); setAccount(mainOf(k)); setCategory('') }
   const fillDesc = () => {
     if (!descArt) { setDescHint('这集还没有简介产出物，先在分发包阶段出简介，或者直接手写'); return }
     setDesc(`${video?.title ?? ''}\n\n（取自简介产出物 ${descArt.path}，第 ${descArt.version} 版，${descArt.status === 'final' || descArt.status === 'published' ? '已定稿' : '还没定稿'}）`)
     setDescHint('')
   }
 
+  // 平台规则校验：有一项不过就不让发
+  const rule = PLATFORM_RULES[plat]
+  const tags = [...new Set(tagText.split(/[,，、\s#]+/).map((x) => x.trim()).filter(Boolean))]
+  const coverArt = cover ? artifacts.find((a) => a.id === cover) : undefined
+  const duration = artifacts.find((a) => a.video_id === vid && a.kind === 'video' && a.variant === variant)?.duration
+  const checks = checkPublish(plat, { title, desc, tags, cover: coverArt && coverRatioOf(coverArt), duration })
+  const failed = checks.filter((c) => !c.ok)
+  const titleLen = [...title.trim()].length
+  const accounts = accountsOf(plat)
+
   const when = new Date(at)
   const errors = [
     !video && '先选一个视频',
     !title.trim() && '标题必填',
+    ...failed.map((c) => c.text),
     mode === 'later' && (Number.isNaN(when.getTime()) ? '选一个定时时间' : when.getTime() <= Date.now() ? '定时时间要晚于现在' : ''),
   ].filter(Boolean) as string[]
   const chan = channels[plat]
@@ -433,6 +465,7 @@ function NewPublishDrawer({ videos, artifacts, defaultVideo, channels, onConnect
     const p: Publish = {
       id: newId('pb'), video_id: vid, platform: plat, variant, cover_id: cover, title: title.trim(), desc: desc.trim(),
       status: auto && mode === 'later' ? 'scheduled' : 'planned', scheduled_at: mode === 'later' ? when.toISOString() : undefined,
+      account_id: account, tags: tags.length ? tags : undefined, category: category || undefined, collection: collection.trim() || undefined, checks,
     }
     // 不能自动发的只登记成「计划中」，发完回来填链接
     onCreate(p, auto && mode === 'now')
@@ -463,6 +496,19 @@ function NewPublishDrawer({ videos, artifacts, defaultVideo, channels, onConnect
               </button>
             ))}
           </div>
+        </div>
+
+        <div className="field">
+          <span className="field-label">账号<span className="field-hint">封面 A/B 用小号各发一版</span></span>
+          {accounts.length ? (
+            <div className="vp-chips">
+              {accounts.map((a) => (
+                <button key={a.id} type="button" className={cls('chip', account === a.id && 'chip-on')} onClick={() => setAccount(a.id)}>
+                  {a.handle}<span className="seg-n">{ACCOUNT_ROLE[a.role].label}</span>
+                </button>
+              ))}
+            </div>
+          ) : <div className="mount-empty">还没有{platform.label}账号，这条记录先不挂账号；接入连接器后账号会出现在这里</div>}
         </div>
 
         <div className="field">
@@ -504,8 +550,8 @@ function NewPublishDrawer({ videos, artifacts, defaultVideo, channels, onConnect
         </div>
 
         <label className="field">
-          <span className="field-label">标题<em>*</em></span>
-          <input value={title} className={cls(tried && !title.trim() && 'bad')} onChange={(e) => setTitle(e.target.value)} />
+          <span className="field-label">标题<em>*</em><span className={cls('field-hint', titleLen > rule.title_max && 'danger-text')}>{titleLen} / {rule.title_max} 字</span></span>
+          <input value={title} className={cls(((tried && !title.trim()) || titleLen > rule.title_max) && 'bad')} onChange={(e) => setTitle(e.target.value)} />
         </label>
         <label className="field">
           <span className="field-label vp-label-row">
@@ -515,6 +561,32 @@ function NewPublishDrawer({ videos, artifacts, defaultVideo, channels, onConnect
           <textarea rows={4} value={desc} onChange={(e) => setDesc(e.target.value)} placeholder="平台显示的简介" />
           {descHint && <span className="vp-hint">{descHint}</span>}
         </label>
+        <label className="field">
+          <span className="field-label">标签<span className="field-hint">逗号或空格分开，{platform.label}最多 {rule.tags_max} 个</span></span>
+          <input value={tagText} className={cls(tags.length > rule.tags_max && 'bad')} onChange={(e) => setTagText(e.target.value)} placeholder="效率工具，待办" />
+        </label>
+        <div className="vp-form-2">
+          {rule.categories && (
+            <label className="field">
+              <span className="field-label">分区</span>
+              <select value={category} onChange={(e) => setCategory(e.target.value)}>
+                <option value="">不选</option>
+                {rule.categories.map((c) => <option key={c} value={c}>{c}</option>)}
+              </select>
+            </label>
+          )}
+          <label className="field">
+            <span className="field-label">合集</span>
+            <input value={collection} onChange={(e) => setCollection(e.target.value)} placeholder={video?.series_id ? '比如系列名' : '可空'} />
+          </label>
+        </div>
+
+        <div className="field">
+          <span className="field-label">发布前校验<span className="field-hint">按{platform.label}的规则；有一项不过不能发</span></span>
+          <ul className="vp-checks">
+            {checks.map((c) => <li key={c.key} className={cls(!c.ok && 'bad')}><span className="vp-check-mark">{c.ok ? '通过' : '不通过'}</span>{c.text}</li>)}
+          </ul>
+        </div>
 
         <div className="field">
           <span className="field-label">什么时候发</span>
@@ -527,47 +599,122 @@ function NewPublishDrawer({ videos, artifacts, defaultVideo, channels, onConnect
       </div>
       <div className="drawer-foot">
         <div className="spacer" />
-        {tried && errors.length > 0 && <span className="field-err">{errors[0]}</span>}
+        {(tried || failed.length > 0) && errors.length > 0 && <span className="field-err">{errors[0]}</span>}
         <button className="btn btn-ghost" onClick={onClose}>取消</button>
-        <button className="btn btn-primary" disabled={!videos.length} onClick={submit}>{!auto ? '登记发布记录' : mode === 'now' ? '立即发布' : '定时发布'}</button>
+        <button className="btn btn-primary" disabled={!videos.length || failed.length > 0} title={failed[0]?.text} onClick={submit}>{!auto ? '登记发布记录' : mode === 'now' ? '立即发布' : '定时发布'}</button>
       </div>
     </aside>
   )
 }
 
-function PublishDrawer({ p, video, cover, covers, sending, onClose, onOpenVideo, onOpenUrl, onRetry, onPublishNow, onMetrics, onCover, onDelete }: {
+/** 扩展指标：平台不给的留空，界面上不显示那一格 */
+type ExtKey = 'impressions' | 'ctr' | 'avg_watch_sec' | 'completion' | 'favorites' | 'coins' | 'followers_gained'
+const EXT: { key: ExtKey; label: string; kind: 'int' | 'pct' | 'sec' }[] = [
+  { key: 'impressions', label: '曝光', kind: 'int' }, { key: 'ctr', label: '点击率', kind: 'pct' }, { key: 'avg_watch_sec', label: '平均观看', kind: 'sec' },
+  { key: 'completion', label: '完播率', kind: 'pct' }, { key: 'favorites', label: '收藏', kind: 'int' }, { key: 'coins', label: '投币', kind: 'int' },
+  { key: 'followers_gained', label: '涨粉', kind: 'int' },
+]
+const fmtExt = (kind: 'int' | 'pct' | 'sec', v: number | undefined) => (v == null ? '-' : kind === 'pct' ? pct(v) : kind === 'sec' ? `${Math.floor(v / 60)} 分 ${v % 60} 秒` : num(v))
+/** 曲线能切的指标 */
+type CurveKey = 'views' | 'impressions' | 'ctr' | 'completion'
+const CURVE: { key: CurveKey; label: string; ratio?: boolean }[] = [
+  { key: 'views', label: '播放' }, { key: 'impressions', label: '曝光' }, { key: 'ctr', label: '点击率', ratio: true }, { key: 'completion', label: '完播率', ratio: true },
+]
+/** 同一天有几条快照时取最后一条 */
+const lastPerDay = (xs: MetricSnapshot[]) => {
+  const by = new Map<number, MetricSnapshot>()
+  xs.forEach((s) => by.set(s.day, s))
+  return [...by.values()].sort((a, b) => a.day - b.day)
+}
+
+/** 按天曲线：横轴按对数排，D1、D3、D7、D30 等距一些 */
+function MetricCurve({ snaps, k, today }: { snaps: MetricSnapshot[]; k: CurveKey; today: number }) {
+  const ratio = CURVE.find((c) => c.key === k)?.ratio
+  const pts = snaps.filter((s) => s[k] != null).map((s) => ({ d: s.day, v: s[k] as number }))
+  const maxD = Math.max(30, ...pts.map((p) => p.d))
+  // 位置都按百分比算：线画在拉伸的 svg 里，点、数字、刻度用 HTML 叠上去，窄屏不会缩成看不清
+  const x = (d: number) => 2 + (Math.log(d) / Math.log(maxD)) * 95
+  const maxV = Math.max(ratio ? 0.01 : 1, ...pts.map((p) => p.v)) * 1.15
+  const y = (v: number) => 8 + (1 - v / maxV) * 90
+  const fmt = (v: number) => (ratio ? pct(v) : num(v))
+  const last = pts[pts.length - 1]
+  return (
+    <div className="vp-curve" role="img" aria-label={`按天曲线：${CURVE.find((c) => c.key === k)?.label}`}>
+      <div className="vp-curve-plot">
+        <svg viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
+          {SNAPSHOT_DAYS.map((d) => <line key={d} x1={x(d)} x2={x(d)} y1={0} y2={100} vectorEffect="non-scaling-stroke" className={cls('vp-curve-grid', d > today && 'future')} />)}
+          {pts.length > 1 && <polyline points={pts.map((p) => `${x(p.d)},${y(p.v)}`).join(' ')} vectorEffect="non-scaling-stroke" className="vp-curve-line" />}
+        </svg>
+        {pts.map((p) => <span key={p.d} className={cls('vp-curve-dot', SNAPSHOT_DAYS.includes(p.d) && 'key')} style={{ left: `${x(p.d)}%`, top: `${y(p.v)}%` }} title={`第 ${p.d} 天：${fmt(p.v)}`} />)}
+        {last && <span className="vp-curve-val" style={{ right: `${100 - x(last.d)}%`, top: `${y(last.v)}%` }}>{fmt(last.v)}</span>}
+      </div>
+      <div className="vp-curve-ticks">
+        {SNAPSHOT_DAYS.map((d) => <span key={d} className={cls(d > today && 'future')} style={{ left: `${x(d)}%` }}>D{d}</span>)}
+      </div>
+    </div>
+  )
+}
+
+function PublishDrawer({ p, video, cover, covers, sending, snapshots, test, onClose, onOpenVideo, onOpenUrl, onRetry, onPublishNow, onMetrics, onCover, onDelete, onOpenTest }: {
   p: Publish; video: Video | undefined; cover: Artifact | undefined; sending: boolean
   /** 这条发布能换的封面：同方向、平台收的比例 */
   covers: Artifact[]
+  /** 这条发布的按天快照 */
+  snapshots: MetricSnapshot[]
+  /** 这条发布在哪个封面测试里 */
+  test?: CoverTest
   onCover: (id: string | undefined) => void
   onClose: () => void
   onOpenVideo: (id: string) => void
   onOpenUrl: (url: string, title: string) => void
   onRetry: () => void
   onPublishNow: () => void
-  onMetrics: (m: Metrics) => void
+  /** 回填或拉取：存一条快照，再把最新数据写回发布 */
+  onMetrics: (m: Metrics, source: MetricSnapshot['source']) => void
   onDelete: () => void
+  onOpenTest: (id: string) => void
 }) {
-  const [fill, setFill] = useState<Record<MetricKey, string> | null>(null)
+  const [fill, setFill] = useState<Record<MetricKey | ExtKey, string> | null>(null)
   const [confirmDel, setConfirmDel] = useState(false)
+  const [curve, setCurve] = useState<CurveKey>('views')
+  const [history, setHistory] = useState(false)
   useEsc(onClose)
   const plat = platOf(p.platform)
+  const account = accountOf(p.account_id)
+  const today = p.published_at ? dayAfter(p.published_at) : 0
+  const snaps = lastPerDay(snapshots)
+  const latest = snaps[snaps.length - 1]
+  const curves = CURVE.filter((c) => snaps.some((s) => s[c.key] != null))
+  const exts = EXT.filter((e) => p.metrics?.[e.key] != null)
 
-  const startFill = () => setFill({
-    views: String(p.metrics?.views ?? 0), likes: String(p.metrics?.likes ?? 0), comments: String(p.metrics?.comments ?? 0), shares: String(p.metrics?.shares ?? 0),
-  })
+  // 百分比的格子填 0 到 100，存成 0 到 1；平均观看填秒
+  const toText = (kind: 'int' | 'pct' | 'sec', v: number | undefined) => (v == null ? '' : kind === 'pct' ? String(+(v * 100).toFixed(2)) : String(v))
+  const startFill = () => {
+    const m = p.metrics
+    setFill({
+      views: String(m?.views ?? 0), likes: String(m?.likes ?? 0), comments: String(m?.comments ?? 0), shares: String(m?.shares ?? 0),
+      ...Object.fromEntries(EXT.map((e) => [e.key, toText(e.kind, m?.[e.key])])),
+    } as Record<MetricKey | ExtKey, string>)
+  }
   const bad = (s: string) => !/^\d+$/.test(s.trim())
+  const badExt = (kind: 'int' | 'pct' | 'sec', s: string) => {
+    const t = s.trim()
+    if (!t) return false
+    if (kind === 'pct') return !/^\d+(\.\d+)?$/.test(t) || Number(t) > 100
+    return !/^\d+$/.test(t)
+  }
+  const fillBad = !!fill && (METRICS.some((m) => bad(fill[m.key])) || EXT.some((e) => badExt(e.kind, fill[e.key])))
   const saveFill = () => {
-    if (!fill || METRICS.some((m) => bad(fill[m.key]))) return
-    onMetrics({ views: Number(fill.views), likes: Number(fill.likes), comments: Number(fill.comments), shares: Number(fill.shares), updated_at: new Date().toISOString() })
+    if (!fill || fillBad) return
+    const ext = Object.fromEntries(EXT.map((e) => {
+      const t = fill[e.key].trim()
+      return [e.key, t ? (e.kind === 'pct' ? Number(t) / 100 : Number(t)) : undefined]
+    })) as Partial<Metrics>
+    onMetrics({ views: Number(fill.views), likes: Number(fill.likes), comments: Number(fill.comments), shares: Number(fill.shares), ...ext, updated_at: new Date().toISOString() }, 'manual')
     setFill(null)
   }
-  // 模拟拉取：在现有数字上随机涨一点
-  const pull = () => {
-    const m = p.metrics ?? { views: 0, likes: 0, comments: 0, shares: 0, updated_at: '' }
-    const grow = (n: number, base: number, rate: number) => n + Math.round(base * Math.random() + n * rate * Math.random())
-    onMetrics({ views: grow(m.views, 300, 0.2), likes: grow(m.likes, 25, 0.15), comments: grow(m.comments, 4, 0.12), shares: grow(m.shares, 3, 0.12), updated_at: new Date().toISOString() })
-  }
+  // 模拟拉取：在现有数字上随机涨一点，存一条连接器快照
+  const pull = () => onMetrics(grownMetrics(p.metrics), 'connector')
 
   return (
     <aside className="drawer vp-drawer">
@@ -614,15 +761,22 @@ function PublishDrawer({ p, video, cover, covers, sending, onClose, onOpenVideo,
           <dt>视频</dt>
           <dd>{video ? <button className="link-btn ellipsis" onClick={() => onOpenVideo(video.id)}>{video.title}</button> : <span className="faint">已删除的视频</span>}</dd>
           <dt>平台</dt><dd>{plat.label}<span className="faint">（偏好{ORIENT[plat.prefer].label}）</span></dd>
+          <dt>账号</dt>
+          <dd>{account ? <>{account.handle}<span className="tag">{ACCOUNT_ROLE[account.role].label}</span>{!account.connector_id && <span className="faint">手动登记，数据要回填</span>}</> : <span className="faint">没挂账号</span>}</dd>
           <dt>比例</dt>
           <dd>{ORIENT[p.variant].label} {ORIENT[p.variant].ratio}{p.variant !== plat.prefer && <span className="vp-hint-inline">平台建议{ORIENT[plat.prefer].label}</span>}</dd>
           <dt>封面</dt>
           <dd>{cover ? <><CoverSwatch ratio={coverRatioOf(cover)} option={cover.option} size="sm" /><span className="mono ellipsis">{cover.path}</span>
             {!plat.cover.includes(coverRatioOf(cover)) && <span className="vp-hint-inline">{plat.label}不收 {COVER_RATIO[coverRatioOf(cover)].label}</span>}</> : <span className="faint">没有选封面</span>}</dd>
+          {test && <><dt>封面 A/B</dt><dd><button className="link-btn" onClick={() => onOpenTest(test.id)}>{test.status === 'running' ? '在测试里，进行中' : test.status === 'decided' ? (test.winner_id === p.cover_id ? '测试胜出的一版' : '测试里输掉的一版') : '测试已结束，没有结论'}</button></dd></>}
+          {p.tags?.length ? <><dt>标签</dt><dd className="vp-tags">{p.tags.map((t) => <span key={t} className="tag">{t}</span>)}</dd></> : null}
+          {p.category && <><dt>分区</dt><dd>{p.category}</dd></>}
+          {p.collection && <><dt>合集</dt><dd>{p.collection}</dd></>}
           {p.scheduled_at && <><dt>定时</dt><dd>{new Date(p.scheduled_at).toLocaleString('zh-CN')}</dd></>}
           {p.published_at && <><dt>发布于</dt><dd>{new Date(p.published_at).toLocaleString('zh-CN')}<span className="faint">（{timeAgo(p.published_at)}）</span></dd></>}
           <dt>链接</dt>
           <dd>{p.url ? <span className="mono ellipsis" title={p.url}>{p.url}</span> : <span className="faint">{p.status === 'published' ? '没有记链接' : '发布后生成'}</span>}</dd>
+          {p.checks && <><dt>发布前校验</dt><dd>{p.checks.every((c) => c.ok) ? <span>{p.checks.length} 项全部通过</span> : <span className="danger-text">{p.checks.filter((c) => !c.ok).map((c) => c.text).join('；')}</span>}</dd></>}
         </dl>
 
         <section className="field-group">
@@ -633,12 +787,13 @@ function PublishDrawer({ p, video, cover, covers, sending, onClose, onOpenVideo,
         {p.status === 'published' && (
           <section className="field-group">
             <div className="vp-compare-head">
-              <span className="field-group-title">数据<span className="field-hint">{p.metrics?.updated_at ? `${timeAgo(p.metrics.updated_at)}更新` : '还没回填'}</span></span>
+              <span className="field-group-title">数据<span className="field-hint">{p.metrics?.updated_at ? `${timeAgo(p.metrics.updated_at)}更新，发布后第 ${today} 天` : '还没回填'}</span></span>
               <span className="spacer" />
               {!fill && <><button className="act act-quiet" onClick={pull}>模拟拉取数据</button><button className="act" onClick={startFill}>回填数据</button></>}
             </div>
             {fill ? (
               <>
+                <div className="vp-hint vp-hint-info">记为发布后第 {today} 天，存一条新快照，之前的快照不覆盖</div>
                 <div className="vp-metric-form">
                   {METRICS.map((m) => (
                     <label key={m.key} className="field">
@@ -646,18 +801,74 @@ function PublishDrawer({ p, video, cover, covers, sending, onClose, onOpenVideo,
                       <input inputMode="numeric" value={fill[m.key]} className={cls(bad(fill[m.key]) && 'bad')} onChange={(e) => setFill({ ...fill, [m.key]: e.target.value })} />
                     </label>
                   ))}
+                  {EXT.map((e) => (
+                    <label key={e.key} className="field">
+                      <span className="field-label">{e.label}<span className="field-hint">{e.kind === 'pct' ? '%' : e.kind === 'sec' ? '秒' : '可空'}</span></span>
+                      <input inputMode="decimal" value={fill[e.key]} className={cls(badExt(e.kind, fill[e.key]) && 'bad')} onChange={(ev) => setFill({ ...fill, [e.key]: ev.target.value })} />
+                    </label>
+                  ))}
                 </div>
                 <div className="act-row">
-                  <button className="act act-primary" disabled={METRICS.some((m) => bad(fill[m.key]))} onClick={saveFill}>保存</button>
+                  <button className="act act-primary" disabled={fillBad} onClick={saveFill}>保存</button>
                   <button className="act act-quiet" onClick={() => setFill(null)}>取消</button>
-                  {METRICS.some((m) => bad(fill[m.key])) && <span className="field-err">只能填非负整数</span>}
+                  {fillBad && <span className="field-err">播放、点赞、评论、转发只能填非负整数；百分比填 0 到 100；平台不给的留空</span>}
                 </div>
               </>
             ) : (
-              <div className="vp-metric-grid">
-                {METRICS.map((m) => <div key={m.key} className="vp-metric"><span className="stat-label">{m.label}</span><span className="vp-metric-v">{p.metrics ? num(p.metrics[m.key]) : '-'}</span></div>)}
-              </div>
+              <>
+                <div className="vp-metric-grid">
+                  {METRICS.map((m) => <div key={m.key} className="vp-metric"><span className="stat-label">{m.label}</span><span className="vp-metric-v">{p.metrics ? num(p.metrics[m.key]) : '-'}</span></div>)}
+                  {exts.map((e) => <div key={e.key} className="vp-metric"><span className="stat-label">{e.label}</span><span className="vp-metric-v">{fmtExt(e.kind, p.metrics?.[e.key])}</span></div>)}
+                </div>
+              </>
             )}
+          </section>
+        )}
+
+        {p.status === 'published' && !fill && (
+          <section className="field-group">
+            <div className="vp-compare-head">
+              <span className="field-group-title">按天曲线<span className="field-hint">{snaps.length ? `${snapshots.length} 条快照，最新是第 ${latest.day} 天；同一天取最后一条` : '还没有快照'}</span></span>
+              <span className="spacer" />
+              {curves.length > 1 && (
+                <div className="seg seg-sm">
+                  {curves.map((c) => <button key={c.key} className={cls(curve === c.key && 'on')} onClick={() => setCurve(c.key)}>{c.label}</button>)}
+                </div>
+              )}
+            </div>
+            {snaps.length ? (
+              <>
+                <MetricCurve snaps={snaps} k={curves.some((c) => c.key === curve) ? curve : 'views'} today={today} />
+                <div className="vp-days">
+                  <span className="vp-days-row vp-days-th"><span />{SNAPSHOT_DAYS.map((d) => <span key={d}>D{d}</span>)}<span>最新</span></span>
+                  {curves.map((c) => (
+                    <span key={c.key} className="vp-days-row">
+                      <span className="faint">{c.label}</span>
+                      {SNAPSHOT_DAYS.map((d) => {
+                        const s = snaps.find((x) => x.day === d)
+                        const v = s?.[c.key]
+                        return <span key={d} className={cls(!s && 'faint')}>{d > today ? '未到' : v == null ? '-' : c.ratio ? pct(v) : num(v)}</span>
+                      })}
+                      <span>{latest[c.key] == null ? '-' : c.ratio ? pct(latest[c.key]) : num(latest[c.key])}</span>
+                    </span>
+                  ))}
+                </div>
+                <button className="act act-quiet vp-hist-toggle" onClick={() => setHistory(!history)}>{history ? '收起快照' : `看全部 ${snapshots.length} 条快照`}</button>
+                {history && (
+                  <div className="vp-hist">
+                    {[...snapshots].reverse().map((s, i) => (
+                      <span key={`${s.updated_at}-${i}`} className="vp-hist-row">
+                        <span>第 {s.day} 天</span>
+                        <span className="faint">{s.source === 'manual' ? '手动回填' : '连接器拉取'}</span>
+                        <span>播放 {num(s.views)}</span>
+                        <span>{s.ctr != null ? `点击率 ${pct(s.ctr)}` : ''}</span>
+                        <span className="faint">{fmtTime(s.updated_at)}</span>
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </>
+            ) : <div className="mount-empty">拉取或回填一次就有第一条快照；之后每次都存一条，不覆盖</div>}
           </section>
         )}
       </div>

@@ -13,6 +13,7 @@ import (
 )
 
 // 发布记录：表 video_publishes，接口 /api/video/publishes。现在只能手动登记，不接内容平台（VID-04）。
+// 选了封面的按平台收的封面比例校验（VID-02a，平台表见 data.go 的 PlatformCovers）。
 
 const publishCols = `id, video_id, platform, variant, cover_id, title, description, status, scheduled_at, published_at,
 	url, error, metrics, created_at, updated_at`
@@ -220,6 +221,10 @@ func (h *handler) addPublish(w http.ResponseWriter, r *http.Request) {
 		fail(w, r, h.c, err)
 		return
 	}
+	if err := h.checkPublishCover(ctx, p); err != nil {
+		fail(w, r, h.c, err)
+		return
+	}
 	p.ID = idgen.Prefixed("pb")
 	now := nowStr()
 	if _, err := h.c.Store().Exec(ctx, `INSERT INTO video_publishes (`+publishCols+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -260,6 +265,16 @@ func (h *handler) updatePublish(w http.ResponseWriter, r *http.Request) {
 		fail(w, r, h.c, err)
 		return
 	}
+	// 换了封面、平台或方向才重新校验封面，老记录不动的照旧能改别的字段
+	_, c1 := raw["cover_id"]
+	_, c2 := raw["platform"]
+	_, c3 := raw["variant"]
+	if c1 || c2 || c3 {
+		if err := h.checkPublishCover(ctx, p); err != nil {
+			fail(w, r, h.c, err)
+			return
+		}
+	}
 	if _, err := h.c.Store().Exec(ctx, `UPDATE video_publishes SET platform = ?, variant = ?, cover_id = ?, title = ?, description = ?, status = ?,
 		scheduled_at = ?, published_at = ?, url = ?, error = ?, metrics = ?, updated_at = ? WHERE id = ?`,
 		p.Platform, p.Variant, p.CoverID, p.Title, p.Desc, p.Status, p.ScheduledAt, p.PublishedAt, p.URL, p.Error, metricsCol(p.Metrics), nowStr(), id); err != nil {
@@ -272,6 +287,20 @@ func (h *handler) updatePublish(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"data": out})
+}
+
+// checkPublishCover：选了封面的，封面要存在，并且对得上这条发布的视频、方向和平台要的比例（coverFits）。
+func (h *handler) checkPublishCover(ctx context.Context, p Publish) error {
+	if p.CoverID == "" {
+		return nil
+	}
+	a, err := h.getArtifact(ctx, p.CoverID)
+	if errors.Is(err, errNotFound) {
+		return apiErr(errValidation, "封面 %s 不存在", p.CoverID)
+	} else if err != nil {
+		return err
+	}
+	return coverFits(a, p.VideoID, p.Platform, p.Variant)
 }
 
 func (h *handler) removePublish(w http.ResponseWriter, r *http.Request) {

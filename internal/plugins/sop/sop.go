@@ -1,7 +1,7 @@
 // Package sop 是「SOP 编排」插件的后端（SOP-01a 起）。清单 plugin.json 只有这一份，前端构建时也读它。
 // 流程定义落在插件表 sop_flows，形状同原型 web-next/src/sopflow.ts 的 Sop，保存前校验（flows.go）。
 // 执行引擎（SOP-01b）：运行落在 sop_runs、sop_run_steps，调度见 engine.go，节点执行见 nodes.go。
-// AI 类和外部节点（SOP-01c）、定时任务和 Agent 发起（SOP-01d）后续接上。
+// AI 类和外部节点（SOP-01c）；定时任务和 Agent 经内核钩子发起（SOP-01d，launch.go）。
 // 接口契约见 docs/api-contract.md「SOP 编排插件 sop」。
 package sop
 
@@ -80,6 +80,8 @@ func (p *Plugin) Register(r plugin.Registrar) error {
 	r.Job(plugin.Job{Name: "engine", Run: e.job})
 	// 别的插件登记的节点挂起后经内核 SOP().Resume 唤醒，交给这个引擎（SOP-03a）
 	r.SOPEngine(e)
+	// 定时任务的 sop 动作和 Agent 的 run_sop 经内核钩子发起执行（SOP-01d，launch.go）
+	r.SOPStarter(&starter{c: c, e: e})
 	r.TodayCard(plugin.TodayCardDef{Key: "sop_pending", Title: "SOP 待我处理", Order: 50, Load: pendingCard})
 	return nil
 }
@@ -106,6 +108,14 @@ func (e *checkError) Error() string {
 	return strings.Join(ts, "；")
 }
 
+// blockedError 是删除被拦下（SOP-01d）：409，schedules 是指向它的定时任务 {id, name}，没有是 []。
+type blockedError struct {
+	msg       string
+	schedules []plugin.SOPScheduleRef
+}
+
+func (e *blockedError) Error() string { return e.msg }
+
 const maxBody = 1 << 20
 
 func readBody(r *http.Request) (map[string]json.RawMessage, error) {
@@ -125,6 +135,13 @@ func readBody(r *http.Request) (map[string]json.RawMessage, error) {
 
 // fail 按内核的错误信封写回：{"error":{"code","message"}}，校验没过时多带 issues。
 func fail(w http.ResponseWriter, r *http.Request, c plugin.Core, err error) {
+	var be *blockedError
+	if errors.As(err, &be) {
+		writeJSON(w, http.StatusConflict, map[string]any{"error": map[string]any{
+			"code": "conflict", "message": be.msg, "schedules": be.schedules,
+		}})
+		return
+	}
 	var ce *checkError
 	if errors.As(err, &ce) {
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": map[string]any{

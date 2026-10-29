@@ -253,8 +253,25 @@ func (h *flows) remove(w http.ResponseWriter, r *http.Request) {
 		fail(w, r, h.c, err)
 		return
 	}
+	// 指向它的定时任务也拦（SOP-01d，规格 SPEC-sop-5.7），两条用「；」连
+	refs, err := h.c.SOP().Schedules(ctx, id)
+	if err != nil {
+		fail(w, r, h.c, err)
+		return
+	}
+	var why []string
 	if n > 0 {
-		fail(w, r, h.c, apiErr(errConflict, "这个流程有 %d 个进行中的执行，等它们结束或终止后再删", n))
+		why = append(why, fmt.Sprintf("这个流程有 %d 个进行中的执行，等它们结束或终止后再删", n))
+	}
+	if len(refs) > 0 {
+		names := make([]string, len(refs))
+		for i, x := range refs {
+			names[i] = "「" + x.Name + "」"
+		}
+		why = append(why, fmt.Sprintf("定时任务%s会发起它，先改掉或删掉这些定时任务", strings.Join(names, "、")))
+	}
+	if len(why) > 0 {
+		fail(w, r, h.c, &blockedError{msg: strings.Join(why, "；"), schedules: refs})
 		return
 	}
 	if _, err := h.c.Store().Exec(ctx, `DELETE FROM sop_flows WHERE id = ?`, id); err != nil {

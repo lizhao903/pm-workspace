@@ -2,7 +2,7 @@
 // 供前端列表、标记已读；新通知同时作为 notification.created 推进事件流。
 //
 // 第一版只从两类内核事件生成：任务提交验收（task.review_requested）、执行结束（run.finished）。
-// 消息到达、提醒触发等由对应插件接入后调 Create。
+// 消息到达、提醒触发等由插件经 Core.Notify 发（VID-06b），落到 NotifyFromPlugin。
 package notify
 
 import (
@@ -221,6 +221,12 @@ func (c *Center) Create(ctx context.Context, n Notification) (*Notification, err
 		}
 	}
 	return &n, nil
+}
+
+// NotifyFromPlugin 实现 plugin.Notifier：插件注册表已补好 kind 前缀和 data.source，这里只落库、推送。
+func (c *Center) NotifyFromPlugin(ctx context.Context, n plugin.Notification) error {
+	_, err := c.Create(ctx, Notification{Kind: n.Kind, Level: n.Level, Title: n.Title, Body: n.Body, ObjectID: n.ObjectID, Data: n.Data})
+	return err
 }
 
 // List 最近的在前（同一毫秒按写入倒序）；total 不含 Limit/Offset，unread 是全部未读数。

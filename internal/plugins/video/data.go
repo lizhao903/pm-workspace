@@ -43,6 +43,31 @@ func stageIndex(k string) int {
 // Platforms 是发布平台，同原型 PLATFORMS 的 key。
 var Platforms = []string{"bilibili", "youtube", "douyin", "channels", "xiaohongshu"}
 
+// PlatformLabels 是平台的显示名，报错时用，同原型 PLATFORMS 的 label。
+var PlatformLabels = map[string]string{"bilibili": "B 站", "youtube": "YouTube", "douyin": "抖音", "channels": "视频号", "xiaohongshu": "小红书"}
+
+// PlatformCovers 是平台收的封面比例，第一个是推荐的，同原型 PLATFORMS 的 cover；发布记录选封面时按它校验。
+var PlatformCovers = map[string][]string{
+	"bilibili":    {"16x9", "4x3"},
+	"youtube":     {"16x9"},
+	"douyin":      {"3x4", "9x16"},
+	"channels":    {"9x16", "3x4"},
+	"xiaohongshu": {"3x4", "1x1"},
+}
+
+// CoverRatios 是封面比例，同原型 CoverRatio；CoverRatioLabels 是显示名。
+var CoverRatios = []string{"16x9", "4x3", "9x16", "3x4", "1x1"}
+
+var CoverRatioLabels = map[string]string{"16x9": "16:9", "4x3": "4:3", "9x16": "9:16", "3x4": "3:4", "1x1": "1:1"}
+
+// DefaultCoverRatios 同原型 DEFAULT_COVER_RATIOS：每个舞台方向默认出哪几种封面比例，第一个和舞台同比例。
+// 登记封面没给 ratio 时取第一个，0002 时登记的老封面也按它补。
+var DefaultCoverRatios = map[string][]string{
+	"landscape": {"16x9", "4x3"},
+	"portrait":  {"9x16", "3x4", "1x1"},
+	"square":    {"1x1", "4x3"},
+}
+
 // PublishStatuses 同原型 PUBLISH_STATUS。
 var PublishStatuses = []string{"planned", "scheduled", "published", "failed"}
 
@@ -122,16 +147,18 @@ type ArtifactKind struct {
 	PerVariant bool
 }
 
+// 口播稿、大纲、简介、章节时间轴按比例各一套（技能布局 B，VID-02a）；原文、音频共用。
 var ArtifactKinds = []ArtifactKind{
 	{"article", "原文", "script", false},
-	{"script", "口播稿", "script", false},
-	{"outline", "大纲", "script", false},
+	{"script", "口播稿", "script", true},
+	{"outline", "大纲", "script", true},
 	{"presentation", "演示工程", "web", true},
 	{"audio", "音频", "audio", false},
 	{"video", "视频", "record", true},
+	{"subtitle", "字幕", "record", true},
 	{"cover", "封面", "distribution", true},
-	{"description", "简介", "distribution", false},
-	{"chapters", "章节时间轴", "distribution", false},
+	{"description", "简介", "distribution", true},
+	{"chapters", "章节时间轴", "distribution", true},
 }
 
 func artifactKind(k string) (ArtifactKind, bool) {
@@ -168,7 +195,8 @@ type ArtifactSource struct {
 	ArtifactID string `json:"artifact_id,omitempty"`
 }
 
-// Artifact 同原型 Artifact，多 updated_at；variant、option、duration 没有就不返回，picked 只有封面返回。
+// Artifact 同原型 Artifact，多 updated_at；variant、ratio、option、lang、duration 没有就不返回，picked 只有封面返回。
+// ratio 只有封面有，lang 只有字幕有。
 type Artifact struct {
 	ID        string         `json:"id"`
 	VideoID   string         `json:"video_id"`
@@ -176,7 +204,9 @@ type Artifact struct {
 	Name      string         `json:"name"`
 	Path      string         `json:"path"`
 	Variant   string         `json:"variant,omitempty"`
+	Ratio     string         `json:"ratio,omitempty"`
 	Option    *int           `json:"option,omitempty"`
+	Lang      string         `json:"lang,omitempty"`
 	Version   int            `json:"version"`
 	Status    string         `json:"status"`
 	Duration  *int           `json:"duration,omitempty"`

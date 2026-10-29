@@ -54,6 +54,7 @@ var ToolAbility = map[string]string{
 	"update_object":  "write_tasks",
 	"write_file":     "write_content",
 	toolKbSearch:     KbSearchAbility,
+	toolRunSOP:       RunSOPAbility,
 	toolAskUser:      "",
 }
 
@@ -213,6 +214,8 @@ func (r *Runner) callBrief(call ToolCall) string {
 		return fmt.Sprintf("修改 %s", argStr(args, "ref"))
 	case "write_file":
 		return fmt.Sprintf("写文件 %s", argStr(args, "path"))
+	case toolRunSOP:
+		return fmt.Sprintf("发起 SOP %s", argStr(args, "flow_id"))
 	}
 	return "调用 " + call.Name
 }

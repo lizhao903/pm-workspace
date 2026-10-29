@@ -138,3 +138,4 @@ func TestSOPEngineOnlyFromSOP(t *testing.T) {
 type nopEngine struct{}
 
 func (nopEngine) Resume(context.Context, string, string, string, map[string]any) error { return nil }
+func (nopEngine) Fail(context.Context, string, string, string, string) error           { return nil }

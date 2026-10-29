@@ -18,17 +18,18 @@ import (
 // 产出物：表 video_artifacts、video_artifact_reviews，接口 /api/video/artifacts（VID-01b）。
 // 路径相对视频工程目录，越出去的拒绝（fs:read:project 只管工程目录）；现在只登记，不读写磁盘。
 
-const artifactCols = `id, video_id, kind, name, path, variant, option_no, version, status, duration, picked,
+// 封面的序号和选用读写 0003 的 cover_option、cover_picked，0002 的 option_no、picked 不再写（见 0003 的说明）。
+const artifactCols = `id, video_id, kind, name, path, variant, ratio, cover_option, lang, version, status, duration, cover_picked,
 	source_type, source_label, source_id, session_id, run_id, core_artifact_id, created_at, updated_at`
 
 // 能改的字段；video_id、kind、version、source、reviews 在 PATCH 里单独报错
-var artifactFields = []string{"name", "path", "variant", "option", "status", "duration", "picked"}
+var artifactFields = []string{"name", "path", "variant", "ratio", "option", "lang", "status", "duration", "picked"}
 
 func scanArtifact(row plugin.Row) (Artifact, error) {
 	var a Artifact
 	var option, duration *int64
 	var picked int
-	if err := row.Scan(&a.ID, &a.VideoID, &a.Kind, &a.Name, &a.Path, &a.Variant, &option, &a.Version, &a.Status, &duration, &picked,
+	if err := row.Scan(&a.ID, &a.VideoID, &a.Kind, &a.Name, &a.Path, &a.Variant, &a.Ratio, &option, &a.Lang, &a.Version, &a.Status, &duration, &picked,
 		&a.Source.Type, &a.Source.Label, &a.Source.ID, &a.Source.SessionID, &a.Source.RunID, &a.Source.ArtifactID, &a.CreatedAt, &a.UpdatedAt); err != nil {
 		return Artifact{}, err
 	}
@@ -50,6 +51,9 @@ func scanArtifact(row plugin.Row) (Artifact, error) {
 
 // loadArtifacts 查产出物并带上验收记录（按先后）。
 func (h *handler) loadArtifacts(ctx context.Context, where string, args ...any) ([]Artifact, error) {
+	if err := h.upgradeLegacy(ctx); err != nil {
+		return nil, err
+	}
 	rows, err := h.c.Store().Query(ctx, `SELECT `+artifactCols+` FROM video_artifacts `+where+` ORDER BY created_at, rowid`, args...)
 	if err != nil {
 		return nil, err
@@ -113,7 +117,7 @@ func (h *handler) listArtifacts(w http.ResponseWriter, r *http.Request) {
 	var args []any
 	q := r.URL.Query()
 	for _, f := range []struct{ param, col string }{
-		{"video_id", "video_id"}, {"kind", "kind"}, {"variant", "variant"}, {"status", "status"},
+		{"video_id", "video_id"}, {"kind", "kind"}, {"variant", "variant"}, {"ratio", "ratio"}, {"lang", "lang"}, {"status", "status"},
 		{"source_type", "source_type"}, {"run_id", "run_id"}, {"session_id", "session_id"},
 	} {
 		if s := q.Get(f.param); s != "" {
@@ -172,6 +176,7 @@ func cleanRelPath(s string) (string, error) {
 var (
 	driveRe = regexp.MustCompile(`^[A-Za-z]:`)
 	refIDRe = regexp.MustCompile(`^[A-Za-z0-9._:-]{1,100}$`)
+	langRe  = regexp.MustCompile(`^[a-z]{2,3}(-[A-Za-z0-9]{2,8})*$`)
 )
 
 // parseSource 认 {type, label?, id?, session_id?, run_id?, artifact_id?}。
@@ -257,6 +262,24 @@ func applyArtifact(a *Artifact, raw map[string]json.RawMessage) error {
 			return err
 		}
 	}
+	if b, ok := raw["ratio"]; ok {
+		if isNull(b) || strings.TrimSpace(string(b)) == `""` {
+			a.Ratio = ""
+		} else if err := enumField(raw, "ratio", "ratio", &a.Ratio, CoverRatios); err != nil {
+			return err
+		}
+	}
+	if b, ok := raw["lang"]; ok {
+		a.Lang = ""
+		if !isNull(b) {
+			if err := strField(raw, "lang", "lang", &a.Lang, 20); err != nil {
+				return err
+			}
+			if a.Lang != "" && !langRe.MatchString(a.Lang) {
+				return apiErr(errValidation, "lang 要写成 zh、en、zh-Hans 这样的语言代码")
+			}
+		}
+	}
 	if err := enumField(raw, "status", "status", &a.Status, ArtifactStatuses); err != nil {
 		return err
 	}
@@ -300,6 +323,10 @@ func applyArtifact(a *Artifact, raw map[string]json.RawMessage) error {
 		return apiErr(errValidation, "%s不分画面比例，不能带 variant", k.Label)
 	case a.Kind != "cover" && a.Option != nil:
 		return apiErr(errValidation, "只有封面有方案序号")
+	case a.Kind != "cover" && a.Ratio != "":
+		return apiErr(errValidation, "只有封面有封面比例 ratio，%s的画面比例用 variant", k.Label)
+	case a.Kind != "subtitle" && a.Lang != "":
+		return apiErr(errValidation, "只有字幕有语言 lang")
 	case a.Kind != "audio" && a.Kind != "video" && a.Duration != nil:
 		return apiErr(errValidation, "只有音频、视频有时长")
 	case a.Kind != "cover" && a.Picked != nil && *a.Picked:
@@ -309,9 +336,19 @@ func applyArtifact(a *Artifact, raw map[string]json.RawMessage) error {
 	}
 	if a.Kind != "cover" {
 		a.Picked = nil
-	} else if a.Picked == nil {
-		f := false
-		a.Picked = &f
+	} else {
+		if a.Picked == nil {
+			f := false
+			a.Picked = &f
+		}
+		// 封面没给比例取舞台方向的默认比例（同原型 coverRatioOf）；只换了方向、原比例不是新方向默认出的，回到新方向的默认（同原型新登记表单）
+		_, hasRatio := raw["ratio"]
+		if _, hasVariant := raw["variant"]; hasVariant && !hasRatio && !slices.Contains(DefaultCoverRatios[a.Variant], a.Ratio) {
+			a.Ratio = ""
+		}
+		if a.Ratio == "" {
+			a.Ratio = DefaultCoverRatios[a.Variant][0]
+		}
 	}
 	if a.Name == "" {
 		a.Name = k.Label
@@ -329,25 +366,104 @@ func pickedCol(a Artifact) int {
 	return 0
 }
 
-// checkSlot 看同组的方案序号是不是被别的占了，并在选用这张时先取消同组其余的。
+// checkSlot 看同组（视频 + 方向 + 封面比例）的方案序号是不是被别的占了，并在选用这张时先取消同组其余的。
 func (h *handler) checkSlot(ctx context.Context, a Artifact) error {
+	if err := h.upgradeLegacy(ctx); err != nil {
+		return err
+	}
 	if a.Option != nil {
 		var n int
-		if err := h.c.Store().QueryRow(ctx, `SELECT count(*) FROM video_artifacts WHERE video_id = ? AND kind = ? AND variant = ? AND option_no = ? AND id <> ?`,
-			a.VideoID, a.Kind, a.Variant, *a.Option, a.ID).Scan(&n); err != nil {
+		if err := h.c.Store().QueryRow(ctx, `SELECT count(*) FROM video_artifacts WHERE video_id = ? AND variant = ? AND ratio = ? AND cover_option = ? AND id <> ?`,
+			a.VideoID, a.Variant, a.Ratio, *a.Option, a.ID).Scan(&n); err != nil {
 			return err
 		}
 		if n > 0 {
-			return apiErr(errConflict, "这个比例的第 %d 个方案已经登记过了，换一个序号或者改那一条", *a.Option)
+			return apiErr(errConflict, "%s封面 %s 的第 %d 个方案已经登记过了，换一个序号或者改那一条", orientLabel(a.Variant), CoverRatioLabels[a.Ratio], *a.Option)
 		}
 	}
 	if pickedCol(a) == 1 {
-		if _, err := h.c.Store().Exec(ctx, `UPDATE video_artifacts SET picked = 0, updated_at = ? WHERE video_id = ? AND kind = ? AND variant = ? AND picked = 1 AND id <> ?`,
-			nowStr(), a.VideoID, a.Kind, a.Variant, a.ID); err != nil {
+		if _, err := h.c.Store().Exec(ctx, `UPDATE video_artifacts SET cover_picked = 0, updated_at = ? WHERE video_id = ? AND variant = ? AND ratio = ? AND cover_picked = 1 AND id <> ?`,
+			nowStr(), a.VideoID, a.Variant, a.Ratio, a.ID); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+var orientLabels = map[string]string{"landscape": "横屏", "portrait": "竖屏", "square": "方形"}
+
+func orientLabel(o string) string { return orientLabels[o] }
+
+// upgradeLegacy 把 0002 时登记的产出物补成 0003 的样子，每个进程第一次处理产出物时跑一次（迁移里不能写 UPDATE）：
+// 封面按方向补默认比例，序号和选用挪到新列；口播稿、大纲、简介、章节时间轴当时不分比例，补成视频的第一个比例，
+// 视频还没选比例的补横屏（同原型新登记时的默认）。都是幂等的，补过的不再动。
+func (h *handler) upgradeLegacy(ctx context.Context) error {
+	h.legacyMu.Lock()
+	defer h.legacyMu.Unlock()
+	if h.legacyDone {
+		return nil
+	}
+	st := h.c.Store()
+	if _, err := st.Exec(ctx, `UPDATE video_artifacts SET ratio = CASE variant WHEN 'portrait' THEN ? WHEN 'square' THEN ? ELSE ? END,
+		cover_option = option_no, cover_picked = picked, option_no = NULL, picked = 0 WHERE kind = 'cover' AND ratio = ''`,
+		DefaultCoverRatios["portrait"][0], DefaultCoverRatios["square"][0], DefaultCoverRatios["landscape"][0]); err != nil {
+		return err
+	}
+	if _, err := st.Exec(ctx, `UPDATE video_artifacts SET variant = COALESCE((SELECT json_extract(video_videos.orientations, '$[0]')
+		FROM video_videos WHERE video_videos.id = video_artifacts.video_id), 'landscape')
+		WHERE variant = '' AND kind IN ('script', 'outline', 'description', 'chapters')`); err != nil {
+		return err
+	}
+	h.legacyDone = true
+	return nil
+}
+
+// coverFits 看封面能不能给这条发布记录用：同一个视频、同一个舞台方向，封面比例是平台收的（同原型 coverError）。
+func coverFits(a Artifact, videoID, platform, variant string) error {
+	switch {
+	case a.VideoID != videoID:
+		return apiErr(errValidation, "封面 %s 不是这个视频的", a.ID)
+	case a.Kind != "cover":
+		return apiErr(errValidation, "cover_id 要是封面，%s 是%s", a.ID, kindLabel(a.Kind))
+	case a.Variant != variant:
+		return apiErr(errValidation, "封面是%s的，这条发布是%s，选同一个方向的封面", orientLabel(a.Variant), orientLabel(variant))
+	}
+	rs := PlatformCovers[platform]
+	if slices.Contains(rs, a.Ratio) {
+		return nil
+	}
+	labels := make([]string, 0, len(rs))
+	for _, r := range rs {
+		labels = append(labels, CoverRatioLabels[r])
+	}
+	return apiErr(errValidation, "封面比例不符合要求：%s要 %s，这次用的是 %s", PlatformLabels[platform], strings.Join(labels, " 或 "), CoverRatioLabels[a.Ratio])
+}
+
+func kindLabel(k string) string {
+	if x, ok := artifactKind(k); ok {
+		return x.Label
+	}
+	return k
+}
+
+// checkCoverInUse：封面改了方向或比例，用着它的发布记录要还对得上，对不上 400。
+func (h *handler) checkCoverInUse(ctx context.Context, a Artifact) error {
+	rows, err := h.c.Store().Query(ctx, `SELECT platform, variant FROM video_publishes WHERE cover_id = ? ORDER BY created_at, rowid`, a.ID)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = rows.Close() }()
+	for rows.Next() {
+		var platform, variant string
+		if err := rows.Scan(&platform, &variant); err != nil {
+			return err
+		}
+		if err := coverFits(a, a.VideoID, platform, variant); err != nil {
+			_, msg, _ := strings.Cut(err.Error(), ": ")
+			return apiErr(errValidation, "有%s的发布记录在用这张封面，%s", PlatformLabels[platform], msg)
+		}
+	}
+	return rows.Err()
 }
 
 // uniqueErr 把并发撞上唯一索引的写入转成 409。
@@ -425,8 +541,8 @@ func (h *handler) addArtifact(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	now := nowStr()
-	if _, err := h.c.Store().Exec(ctx, `INSERT INTO video_artifacts (`+artifactCols+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		a.ID, a.VideoID, a.Kind, a.Name, a.Path, a.Variant, a.Option, a.Version, a.Status, a.Duration, pickedCol(a),
+	if _, err := h.c.Store().Exec(ctx, `INSERT INTO video_artifacts (`+artifactCols+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		a.ID, a.VideoID, a.Kind, a.Name, a.Path, a.Variant, a.Ratio, a.Option, a.Lang, a.Version, a.Status, a.Duration, pickedCol(a),
 		a.Source.Type, a.Source.Label, a.Source.ID, a.Source.SessionID, a.Source.RunID, a.Source.ArtifactID, now, now); err != nil {
 		fail(w, r, h.c, uniqueErr(err))
 		return
@@ -473,16 +589,23 @@ func (h *handler) updateArtifact(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	before := a
 	if err := applyArtifact(&a, raw); err != nil {
 		fail(w, r, h.c, err)
 		return
+	}
+	if a.Kind == "cover" && (a.Variant != before.Variant || a.Ratio != before.Ratio) {
+		if err := h.checkCoverInUse(ctx, a); err != nil {
+			fail(w, r, h.c, err)
+			return
+		}
 	}
 	if err := h.checkSlot(ctx, a); err != nil {
 		fail(w, r, h.c, err)
 		return
 	}
-	if _, err := h.c.Store().Exec(ctx, `UPDATE video_artifacts SET name = ?, path = ?, variant = ?, option_no = ?, status = ?, duration = ?, picked = ?,
-		updated_at = ? WHERE id = ?`, a.Name, a.Path, a.Variant, a.Option, a.Status, a.Duration, pickedCol(a), nowStr(), a.ID); err != nil {
+	if _, err := h.c.Store().Exec(ctx, `UPDATE video_artifacts SET name = ?, path = ?, variant = ?, ratio = ?, cover_option = ?, lang = ?, status = ?, duration = ?,
+		cover_picked = ?, updated_at = ? WHERE id = ?`, a.Name, a.Path, a.Variant, a.Ratio, a.Option, a.Lang, a.Status, a.Duration, pickedCol(a), nowStr(), a.ID); err != nil {
 		fail(w, r, h.c, uniqueErr(err))
 		return
 	}

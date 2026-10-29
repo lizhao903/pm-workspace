@@ -761,6 +761,40 @@ def videos_publish(pg, shot):
     shot('发布抽屉_换封面重试成功')
 
 
+def videos_ab(pg, shot):
+    """按天曲线、回填存快照、新建发布标题超长、封面 A/B 进行中和已决出、新建测试（SPEC-videos-8、SPEC-videos-9、SPEC-videos-14）。"""
+    _side(pg, '视频'); _vd_tab(pg, '发布记录')
+    pg.locator('.vp-group-row', has_text='第 1 集').locator('button', has_text='查看全部').click(); pg.wait_for_timeout(200)
+    pg.locator('.vp-row', has_text='一人之下 10 分钟上手 01').first.click(); pg.wait_for_timeout(300)
+    dr = pg.locator('aside.drawer')
+    dr.locator('.vp-curve').evaluate('e => e.scrollIntoView({ block: "center" })'); pg.wait_for_timeout(100)
+    shot('发布抽屉_按天曲线')
+    dr.locator('button', has_text='回填数据').click(); pg.wait_for_timeout(150)
+    dr.locator('.vp-metric-form input').first.fill('13500')
+    dr.locator('button', has_text='保存').click(); pg.wait_for_timeout(150)
+    dr.locator('button', has_text='看全部').click(); pg.wait_for_timeout(150)
+    dr.locator('.vp-hist').evaluate('e => e.scrollIntoView({ block: "end" })'); pg.wait_for_timeout(100)
+    shot('发布抽屉_回填存快照')
+    _esc(pg)
+    pg.locator('.tb-actions button', has_text='新建发布').first.click(); pg.wait_for_timeout(300)
+    dr.locator('.vp-plat-chip', has_text='小红书').click(); pg.wait_for_timeout(150)
+    dr.locator('.field', has_text='标题').locator('input').first.fill('今日待办一页清：把散在各处的待办收到一页上')
+    dr.locator('.vp-checks').evaluate('e => e.scrollIntoView({ block: "center" })'); pg.wait_for_timeout(150)
+    shot('新建发布_标题超长')
+    _esc(pg)
+    pg.locator('.vp-ab-row', has_text='第 1 集').click(); pg.wait_for_timeout(300)
+    shot('封面AB_进行中')
+    _esc(pg)
+    pg.locator('.vp-ab-row', has_text='第 15 集').click(); pg.wait_for_timeout(300)
+    shot('封面AB_已决出')
+    _esc(pg)
+    pg.locator('.vp-ab-sec button', has_text='新建测试').click(); pg.wait_for_timeout(300)
+    for i in (0, 2, 3):
+        dr.locator('.vp-cover-opt button').nth(i).click()
+    pg.wait_for_timeout(150)
+    shot('封面AB_新建')
+
+
 def videos_series(pg, shot):
     """系列详情、编排集数、系列设置的影响范围、新建系列（SPEC-videos-5、SPEC-videos-6）。"""
     _side(pg, '视频'); _vd_tab(pg, '系列')
@@ -1226,7 +1260,7 @@ STEPS = {
     'sop': [sop_run, sop_start, sop_editor_entry, sop_editor_new, sop_editor_edit],
     'terminal': [terminal_split, terminal_proto],
     'browser': [browser_tabs, browser_google, browser_drive],
-    'videos': [videos_detail, videos_detail_states, videos_publish, videos_series, videos_topics, videos_clips],
+    'videos': [videos_detail, videos_detail_states, videos_publish, videos_ab, videos_series, videos_topics, videos_clips],
     'markets': [markets_chart, markets_watch, markets_option],
     'monitor': [monitor_wall, monitor_rules, monitor_drawer],
     'strategy': [strategy_editor, strategy_side, strategy_backtests, strategy_report, strategy_runs],

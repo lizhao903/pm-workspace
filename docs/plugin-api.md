@@ -127,7 +127,7 @@
 
 ## 2. 扩展点
 
-十个扩展点，每个给出前端注册函数、后端注册接口和一个例子。
+十个扩展点，每个给出前端注册函数、后端注册接口和一个例子；另有只在后端的按 Host 分发（2.11）。
 
 ### 2.0 公共部分
 
@@ -206,9 +206,11 @@ type Registrar interface {
 	Skill(s SkillDef)                     // 2.6
 	AgentTool(t AgentToolDef)             // 2.6
 	SOPNode(n SOPNodeDef)                 // 2.7
+	SOPStarter(st SOPStarter)             // 2.7，只给 provides.modules 含 sop 的插件（SOP-01d）
 	TodayCard(c TodayCardDef)             // 2.8
 	SearchProvider(p SearchProviderDef)   // 2.9
 	Subscribe(eventType string, h EventHandler) // 2.10
+	HostHandler(d HostHandlerDef)        // 2.11，只有后端
 }
 
 // Core 是插件能用的全部内核能力。每个方法拿到的都是按本插件 id 和权限收窄过的句柄。
@@ -224,11 +226,12 @@ type Core interface {
 	FS(scope string) (FS, error)             // 只给 fs:<read|write>:<scope> 声明过的范围
 	Process() (ProcessRunner, error)         // 只给声明了 process:spawn 的插件
 	Events() Publisher          // 只能发布清单 emits 里的类型
-	Audit() AuditLog            // CORE-08
+	Audit() AuditLog            // CORE-08；已实现 Note(ctx, AuditNote, WriteMeta)，插件替用户做的对外动作记一条（SOP-02b）
 	Store() Store               // 只能访问 table_prefix 开头的表
 	Agent() AgentService        // 用默认服务商补全、按 Agent 的授权跑一轮、搜指定知识库（SOP-01c）
 	Granted(perm string) bool   // 用户确认过这项权限没有，只认状态表里确认过的（SEC-01，3.3）
-	SOP() SOPService            // 插件登记的 SOP 节点、执行插件节点、唤醒挂起的步骤（SOP-03a，2.7）
+	SOP() SOPService            // 插件登记的 SOP 节点、执行插件节点、唤醒挂起的步骤（SOP-03a）、指向流程的定时任务（SOP-01d），2.7
+	Notify(ctx context.Context, n Notification) error // 以本插件的名义发通知，kind 补插件前缀（VID-06b）
 	Log() *slog.Logger
 }
 ```
@@ -263,6 +266,14 @@ type Core interface {
 | `Contacts().FindByName(ctx, name)` | 只读：按名字找没归档的联系人，重名取最早建的，没有回 `ErrNoRows` |
 
 写内核数据不在 3.1 的权限清单里，暂不按权限收窄；能写哪些类型等 `ObjectService` 落地时按「本插件声明或认领的类型」收。
+
+发通知（已实现，`internal/plugin/notify.go`，VID-06b 加）：插件要提醒人时调 `Core.Notify(ctx, Notification{Kind, Level, Title, Body, ObjectID, Data})`，实现是 `internal/notify` 的 `Center`，`cmd/pmw` 用 `Registry.SetNotifier` 接上；落进通知列表（`GET /api/notifications`），同时照常推 `notification.created`。
+
+- `Kind` 必填，小写字母开头、点分段（`publish_failed`、`alert.price`）；内核统一补成 `<插件 id>.<kind>`，已带本插件前缀的不重复加。插件因此发不出内核的 kind（`task.review_requested` 会变成 `<id>.task.review_requested`）；插件 id 本身是内核事件命名空间（`object`、`task`、`run`、`contact`）或保留字时一律拒绝。
+- `Title` 必填；`Level` 是 `info`、`success`、`error`，空记 `info`。
+- 来源：`Data.source` 由内核写成插件 id，插件自己填的会被覆盖（通知表没有来源列，本批不加迁移）。
+- 插件没在跑（停用了、还没启用）回 `ErrNotifyInactive`；已发的通知保留，不随停用、卸载删。没接通知中心（测试里）回 `ErrNoNotifier`。
+- 发通知不在 3.1 的权限清单里，不按权限收窄。
 
 ### 2.1 功能模块
 
@@ -592,7 +603,7 @@ type SOPNodeInput struct {
 	Config              map[string]string
 }
 // Registrar.SOPNode(n SOPNodeDef)
-// Core.SOP() SOPService：Nodes()、Provider(kind)、RunNode(ctx, kind, in)、Resume(ctx, runID, step, output)
+// Core.SOP() SOPService：Nodes()、Provider(kind)、RunNode(ctx, kind, in)、Resume(ctx, runID, step, output)、Fail(ctx, runID, step, reason)
 ```
 
 后端的实现情况（SOP-03a）：
@@ -601,8 +612,27 @@ type SOPNodeInput struct {
 - 内核只存登记，执行由 SOP 插件经 `Core.SOP()` 取到：`Nodes()` 是在跑的插件登记的节点（`Source` 为插件 id），`RunNode` 用提供方的 Core 跑一次（panic 转成错误），提供方没在跑回 `ErrNodeUnavailable`（「提供这个节点的插件已停用」）。
 - `GET /api/sop/node-types` 在内置节点后面接上插件节点，带 `source`；停用后消失。用到它的流程定义不动，保存照常（不查必填项），执行到这一步失败并写「提供这个节点的插件已停用」。
 - 挂起：`Run` 返回 `ErrWaiting`（可以包一层写原因，如 `fmt.Errorf("等对方回复：%w", plugin.ErrWaiting)`）时步骤停在 `running`，挂起状态落在步骤输出里，服务重启后不重跑、接着等。之后提供节点的插件调 `c.SOP().Resume(ctx, runID, step, output)` 唤醒，这一步 `done`、输出是 `output`，下游接着跑；只能唤醒自己提供的节点，步骤没在等、执行已结束都回错误。SOP 插件没在跑时回 `ErrNoSOPEngine`。`Resume` 要在 `Run` 返回之后调，先存下 `RunID`、`Step`。
+- 挂起后要让步骤失败（例：等回复超时）调 `c.SOP().Fail(ctx, runID, step, reason)`（SOP-02b），这一步 `failed`、`error` 是 `reason`，校验同 `Resume`。
 - `Registrar.SOPEngine` 只给 SOP 编排插件用（别的插件登记直接失败），是 `Resume` 的接收方。
-- 前端登记（`SopNodeRegistry`）归 SOP-03b。示例插件 `internal/plugin/plugintest` 登记了 `demo_wait_reply` 用来测试；第一方节点是 SOP-02b 的 IM 发消息。
+- 前端登记（`SopNodeRegistry`）归 SOP-03b。示例插件 `internal/plugin/plugintest` 登记了 `demo_wait_reply` 用来测试；第一方节点是 SOP-02b 的 IM 发消息 `im_send_message`、等回复 `im_wait_reply`（契约「IM 消息插件 im」的「SOP 节点」）。
+
+**发起 SOP 的钩子（SOP-01d，`internal/plugin/soplaunch.go`）**：SOP 编排是插件，内核不直接调它。定时任务的 `sop` 动作和 Agent 的内置工具 `run_sop` 经这个钩子起执行。
+
+```go
+// 请求和结果的类型定义在 internal/schedule（agent、schedule 不能 import plugin），这里是别名
+type SOPStartRequest = schedule.SOPRequest // {FlowID（也认流程名）, Input, Source（schedule / agent）, SourceID, SourceName}
+type SOPStarted = schedule.SOPStarted      // {RunID, FlowID, FlowName, Status}，不等跑完，Status 是发起时的运行状态
+type SOPStarter interface {
+	StartSOP(ctx context.Context, q SOPStartRequest) (*SOPStarted, error)
+}
+// Registrar.SOPStarter(st SOPStarter)
+// Registry.StartSOP(ctx, q)：交给在跑的登记方；没有回 ErrNoSOPStarter（「SOP 编排插件没启用」，即 schedule.ErrSOPUnavailable）
+// Core.SOP().Schedules(ctx, flowID) ([]SOPScheduleRef, error)：动作 sop 指向这个流程的定时任务 {ID, Name}
+```
+
+- 只有清单 `provides.modules` 含 `sop` 的插件能登记，**同一时间只有一个**：已有在跑的插件登记过时，后启用的那个启用失败（「发起 SOP 的入口已由插件 x 登记，同一时间只能有一个」），先停掉前一个再启用。本插件内重复登记、传 nil 也失败。
+- 登记方的 `StartSOP` 自己负责找流程、补默认值和必填校验，错误文字给人看（定时任务记进执行记录、Agent 回给模型）；panic 转成「发起 SOP 出错」。SOP 编排插件的实现同 `POST /api/sop/flows/{id}/runs`，不逐步确认，人工检查点照常停下。
+- `Schedules` 由内核接上定时任务的查询（`Registry.SetSOPRefs`），没接时回空切片。SOP 插件删流程前用它拦下被定时任务引用的流程（契约「SOP 编排插件 sop」）。
 
 例子（IM 消息，发消息节点）：
 
@@ -747,6 +777,42 @@ r.Subscribe("im.message_received", func(ctx context.Context, c plugin.Core, e pl
 })
 ```
 
+已有的插件事件：
+
+| 类型 | 何时 | 载荷 |
+|---|---|---|
+| `projects.prototype_started` | 原型进程起来了（还没开始监听也发） | `{ id, name, project_id, project_name, port }` |
+| `projects.prototype_stopped` | 原型进程退出：点了停止、自己退出、崩溃都发 | 同上，多 `status`：`stopped` 或 `crashed` |
+| `projects.prototype_deleted` | 原型定义删了 | 同 `started` |
+
+DOM-02a 加。投递是异步的，先后可能乱，订阅方按 `Event.At` 只认更新的（内网域名插件就这么做）。
+
+### 2.11 按 Host 分发（只有后端）
+
+DOM-02a 加（`internal/plugin/host.go`）。插件接管某个域名后缀下的子域名：请求的 `Host` 落在后缀下、插件也认它时，整个请求交给插件，不进接口层。内网域名插件用它做内置代理，把 `<原型>.<后缀>` 转到原型的端口。
+
+```go
+type HostHandlerDef struct {
+	Suffix  func() string           // 现在接的后缀（不带开头的点），空串表示不接；每个请求都调，要快
+	Match   func(host string) bool  // host 已转小写、去掉端口和末尾的点，一定是 Suffix 下的子域名
+	Handler http.Handler            // 拿到的是未经接口层包装的 ResponseWriter，WebSocket 升级可以 Hijack
+}
+// Registrar.HostHandler(d HostHandlerDef)
+```
+
+规则：
+
+- 清单要声明 `network:localhost`，没声明 `Register` 失败；每个插件最多登记一个。用户没确认这项权限、插件停用时不交给它。
+- 内核在接口层外面包一层（`Registry.HostDispatch`，`cmd/pmw` 接上）。这些主机永远进工作台、不问插件：空的、`localhost` 和 `*.localhost`、IP、不带点的、`--public-url` 的主机（默认 `bro.vip`）、后缀本身。
+- 工作台的别名、目标是工作台的路由由插件自己在 `Match` 里排除；多个插件都认同一个主机时按登记顺序取第一个。
+- 交出去的请求不经过接口层的日志、鉴权、错误信封，插件自己回中文说明页。
+
+例子（内网域名插件，`internal/plugins/domains/proxy.go`）：
+
+```go
+r.HostHandler(plugin.HostHandlerDef{Suffix: h.hostSuffix, Match: h.hostMatch, Handler: http.HandlerFunc(h.serveHost)})
+```
+
 ---
 
 ## 3. 权限
@@ -795,6 +861,7 @@ r.Subscribe("im.message_received", func(ctx context.Context, c plugin.Core, e pl
 | `sop` | `network:any` | HTTP 节点发请求前，没确认时这一步失败 |
 | `projects` | `process:spawn` | 原型启动前，409 |
 | `terminal` | `process:spawn` | 新建终端会话前，409 |
+| 登记了 Host 处理器的插件（`domains`） | `network:localhost` | 内核按 Host 分发前查，没确认的不交给它（2.11） |
 
 `Granted` 不拿注册表的锁（后台任务里也会调，停用时等任务退出不能卡在锁上），状态变了由注册表换掉它看的权限集合。新加要高风险权限的代码路径时同样调 `Require`。
 

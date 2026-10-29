@@ -178,9 +178,13 @@ export type {
 export { videoKeys } from './videoKeys'
 export {
   videoApi, useVideos, useVideo, useVideoSeries, useCreateVideo, usePatchVideo, useAdvanceVideo, useDecideCheckpoint, useDeleteVideo,
+  useVideoArtifacts, useCreateArtifact, usePatchArtifact, useReviewArtifact, useBumpArtifact, useDeleteArtifact,
+  useCreateSeries, usePatchSeries, useDeleteSeries,
 } from './video'
 export type {
   Video, VideoInput, VideoSeries, VideoOrientation, VideoStageKey, VideoCheckpoint, VideoCheckpointStage, VideoCheckpointState,
+  VideoArtifact, VideoArtifactInput, VideoArtifactKind, VideoArtifactStatus, VideoArtifactReview, VideoArtifactSource, VideoCoverRatio,
+  VideoSeriesInput,
 } from './video'
 
 // 接口层的纯函数和类型照样给模块用：不发请求，不碰缓存

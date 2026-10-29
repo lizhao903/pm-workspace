@@ -192,7 +192,8 @@ func TestFieldsMatchPrototype(t *testing.T) {
 		}
 		for _, f := range proto {
 			// runners、last_run 是原型为 VID-03（阶段执行器）新加的，后端还没跟上；VID-03 落地时删掉这个例外
-			if !slices.Contains(tags, f) && !(name == "Video" && (f == "runners" || f == "last_run")) {
+			// Publish 的 account_id、tags、category、collection、checks 是 VID-05p 新加的，VID-05a 落地时删掉
+			if !slices.Contains(tags, f) && !(name == "Video" && (f == "runners" || f == "last_run")) && !(name == "Publish" && slices.Contains(pendingPublishFields, f)) {
 				t.Errorf("%s.%s 原型里有，Go 结构里没有", name, f)
 			}
 		}
@@ -259,11 +260,12 @@ func TestPrototypeFieldsRoundTrip(t *testing.T) {
 	}
 
 	// 发布记录：原型 pb1（带数据）、pb3（失败）、pb4（定时）
-	pb1 := mustCall(t, e.h, "POST", "/api/video/publishes", `{"video_id":"`+vid+`","platform":"bilibili","variant":"landscape","cover_id":"af10",
+	af10 := mustCall(t, e.h, "POST", "/api/video/artifacts", `{"video_id":"`+vid+`","kind":"cover","variant":"landscape","ratio":"16x9","option":2,"path":"cover/16x9-2.png","picked":true}`, 201)["id"].(string)
+	pb1 := mustCall(t, e.h, "POST", "/api/video/publishes", `{"video_id":"`+vid+`","platform":"bilibili","variant":"landscape","cover_id":"`+af10+`",
 		"title":"一人之下 10 分钟上手 01｜今日待办一页清","desc":"把散在各处的待办收到一页……","status":"published","published_at":"2026-10-23T08:00:00.123Z",
 		"url":"https://www.bilibili.com/video/BV1xx","metrics":{"views":12840,"likes":931,"comments":87,"shares":64,"updated_at":"2026-10-29T03:00:00Z"}}`, 201)
 	if !strings.HasPrefix(pb1["id"].(string), "pb_") || pb1["video_id"] != vid || pb1["platform"] != "bilibili" || pb1["variant"] != "landscape" ||
-		pb1["cover_id"] != "af10" || pb1["desc"] != "把散在各处的待办收到一页……" || pb1["status"] != "published" ||
+		pb1["cover_id"] != af10 || pb1["desc"] != "把散在各处的待办收到一页……" || pb1["status"] != "published" ||
 		pb1["published_at"] != "2026-10-23T08:00:00Z" || pb1["url"] != "https://www.bilibili.com/video/BV1xx" {
 		t.Fatalf("pb1：%v", pb1)
 	}
@@ -465,3 +467,6 @@ func TestDisableKeepsData(t *testing.T) {
 		t.Fatalf("启用后数据：%v", got)
 	}
 }
+
+// VID-05p 给原型 Publish 新加、后端还没有的字段（VID-05a）
+var pendingPublishFields = []string{"account_id", "tags", "category", "collection", "checks"}

@@ -64,6 +64,8 @@ type Runner struct {
 	Grace    time.Duration
 	// Agents 执行动作 agent（AG-01b4）；为 nil 时记 unsupported
 	Agents AgentStarter
+	// SOPs 执行动作 sop（SOP-01d），接插件注册表；为 nil 或 SOP 插件没启用时记 unsupported
+	SOPs SOPStarter
 
 	mu     sync.Mutex // Tick 串行
 	cancel context.CancelFunc
@@ -205,7 +207,9 @@ func (r *Runner) RunNow(ctx context.Context, id string) (*Run, error) {
 func (r *Runner) execute(ctx context.Context, sc *Schedule, planned time.Time, manual bool) (*Run, error) {
 	switch sc.Action.Kind {
 	case ActionSOP:
-		return r.s.insertRun(ctx, sc.ID, planned, manual, runResult{status: RunUnsupported, text: "没执行：执行 SOP 暂不支持，M4 之后才有"}, 0)
+		if r.SOPs == nil {
+			return r.s.insertRun(ctx, sc.ID, planned, manual, runResult{status: RunUnsupported, text: sopUnavailableText}, 0)
+		}
 	case ActionAgent:
 		if r.Agents == nil {
 			return r.s.insertRun(ctx, sc.ID, planned, manual, runResult{status: RunUnsupported, text: "没执行：让 Agent 去做暂不支持，M4 之后才有"}, 0)
@@ -220,9 +224,12 @@ func (r *Runner) execute(ctx context.Context, sc *Schedule, planned time.Time, m
 		return nil, err
 	}
 	var res runResult
-	if sc.Action.Kind == ActionAgent {
+	switch sc.Action.Kind {
+	case ActionAgent:
 		res = r.startAgent(ctx, sc, run.ID)
-	} else {
+	case ActionSOP:
+		res = r.startSOP(ctx, sc)
+	default:
 		res = r.createTask(ctx, sc, planned)
 	}
 	if err := r.s.finishRun(ctx, run, res); err != nil {

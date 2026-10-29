@@ -1,10 +1,10 @@
-// 视频详情（SPEC-videos-10、13）：制作流程和设置两个标签，产出物标签是 VID-01d。
+// 视频详情（SPEC-videos-10、11、13）：制作流程、产出物（VID-01d）、设置三个标签。
 // 制作流程是 8 个阶段的竖向时间线：没有检查点的阶段点「这一步做完了」往下走；4 个检查点通过、退回（必须写意见）、
 // 音频合成可以跳过；规划检查里选画面比例，通过后锁定。阶段和检查点都由后端校验，冲突（别处推进过）照后端的话提示
 import { useState } from 'react'
 import {
-  errorText, projectView, useAdvanceVideo, useDecideCheckpoint, usePatchVideo, type Video, type VideoCheckpointStage, type VideoCheckpointState,
-  type VideoSeries,
+  errorText, projectView, useAdvanceVideo, useDecideCheckpoint, usePatchVideo, useVideoArtifacts, type Video, type VideoCheckpointStage,
+  type VideoCheckpointState, type VideoSeries,
 } from '../../core/data'
 import { Button, PageTitle, Textarea, cls } from '../../core/ui'
 import {
@@ -12,11 +12,13 @@ import {
 } from './model'
 import { IconCheckSmall, OrientShape, VideosTabs, type ModuleTab } from './parts'
 import { SettingsTab } from './SettingsTab'
+import { ArtifactsTab } from './ArtifactsTab'
+import { kindForStage, newDraft, type NewArt } from './artifactModel'
 
-export type DetailTab = 'flow' | 'settings'
-const TABS: { key: DetailTab; label: string }[] = [{ key: 'flow', label: '制作流程' }, { key: 'settings', label: '设置' }]
+export type DetailTab = 'flow' | 'artifacts' | 'settings'
+const TABS: { key: DetailTab; label: string }[] = [{ key: 'flow', label: '制作流程' }, { key: 'artifacts', label: '产出物' }, { key: 'settings', label: '设置' }]
 
-export function Detail({ video, videos, series, projects, tab, from, onTab, onModuleTab, onOpenSeries, onDeleted }: {
+export function Detail({ video, videos, series, projects, tab, from, openArt, onTab, onOpenArt, onModuleTab, onOpenSeries, onDeleted }: {
   video: Video
   videos: Video[]
   series: VideoSeries[]
@@ -24,7 +26,10 @@ export function Detail({ video, videos, series, projects, tab, from, onTab, onMo
   tab: DetailTab
   /** 从哪个标签点进来的，标签栏高亮它 */
   from: ModuleTab
+  /** 产出物标签里打开抽屉的那一条（地址里的 ?a=） */
+  openArt: string | null
   onTab: (t: DetailTab) => void
+  onOpenArt: (id: string | null) => void
   onModuleTab: (t: ModuleTab) => void
   onOpenSeries: (id: string) => void
   onDeleted: () => void
@@ -32,6 +37,10 @@ export function Detail({ video, videos, series, projects, tab, from, onTab, onMo
   const v = video
   const sr = series.find((s) => s.id === v.series_id)
   const proj = v.project_id ? projects.find((p) => p.id === v.project_id)?.name ?? '已删除的项目' : ''
+  const arts = useVideoArtifacts(v.id)
+  const mine = arts.data ?? []
+  // 登记表单的草稿，右上「新增产出物」和标签里的「加一个」「缺」都往这里填
+  const [draft, setDraft] = useState<NewArt | null>(null)
   const descText = [seriesLine(v, series), proj, v.orientations.map((o) => ORIENT[o].ratio).join(' / ') || '比例未定', videoState(v).label]
     .filter(Boolean).join(' · ')
 
@@ -40,7 +49,9 @@ export function Detail({ video, videos, series, projects, tab, from, onTab, onMo
       <PageTitle
         parent={sr ? <button type="button" className="vd-crumb" onClick={() => onOpenSeries(sr.id)}>{sr.name}</button> : '视频'}
         desc={descText}
-        actions={tab === 'flow' && sr ? <Button variant="outline" onClick={() => onOpenSeries(sr.id)}>查看系列</Button> : undefined}
+        actions={tab === 'flow' && sr ? <Button variant="outline" onClick={() => onOpenSeries(sr.id)}>查看系列</Button>
+          : tab === 'artifacts' ? <Button variant="primary" disabled={!arts.data} onClick={() => setDraft(newDraft(v, mine, kindForStage(v.stage)))}>新增产出物</Button>
+            : undefined}
       >{v.title || '未命名视频'}</PageTitle>
       <VideosTabs active={from} videos={videos} onSelect={onModuleTab} />
       <div className="vd-dtabs" role="tablist" aria-label="视频详情">
@@ -48,12 +59,15 @@ export function Detail({ video, videos, series, projects, tab, from, onTab, onMo
           <button key={t.key} type="button" role="tab" aria-selected={tab === t.key} className={cls(tab === t.key && 'on')} onClick={() => onTab(t.key)}>
             {t.label}
             {t.key === 'flow' && needsMe(v) && <span className="side-dot" title="等你处理" />}
+            {t.key === 'artifacts' && arts.data && <span className="vd-tab-n">{mine.length}</span>}
           </button>
         ))}
       </div>
-      {tab === 'flow'
-        ? <Flow key={v.id} v={v} />
-        : <SettingsTab key={v.id} v={v} series={series} projects={projects} onDeleted={onDeleted} />}
+      {tab === 'flow' && <Flow key={v.id} v={v} />}
+      {tab === 'artifacts' && (
+        <ArtifactsTab key={v.id} v={v} query={arts} draft={draft} onDraft={setDraft} openId={openArt} onOpen={onOpenArt} />
+      )}
+      {tab === 'settings' && <SettingsTab key={v.id} v={v} series={series} projects={projects} onDeleted={onDeleted} />}
     </div>
   )
 }
