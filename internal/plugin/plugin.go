@@ -66,6 +66,8 @@ type Registrar interface {
 	SOPStarter(st SOPStarter)
 	// HostHandler 登记按 Host 分发的处理器，要声明 network:localhost，每个插件最多一个（DOM-02a，host.go）。
 	HostHandler(d HostHandlerDef)
+	// ScheduleAction 登记一种定时任务动作，Kind 必须在清单 provides.schedule_actions 里、以 <id>_ 开头（2.12，VID-06a，scheduleaction.go）。
+	ScheduleAction(d ScheduleActionDef)
 }
 
 // RouteRegistrar 和 internal/api 里的同名接口一致，*http.ServeMux 天然满足。
@@ -114,6 +116,8 @@ type Core interface {
 	Audit() AuditLog
 	// Notify 以本插件的名义发通知：kind 补插件前缀、来源记插件 id，停用后回错误（VID-06b，notify.go）。
 	Notify(ctx context.Context, n Notification) error
+	// Runs 发起 Agent、SOP 运行或交给 Claude Code，回运行 id；跑完给本插件投 run.finished（VID-03a，runs.go）。
+	Runs() RunService
 }
 
 // Publisher 往事件总线上发事件。payload 按 JSON 序列化；总线没接上时什么都不做。
@@ -149,6 +153,9 @@ func (c *core) Events() Publisher { return c }
 func (c *core) Publish(ctx context.Context, eventType string, payload any) error {
 	if !slices.Contains(c.emits, eventType) {
 		return fmt.Errorf("%w: %s", ErrEventNotDeclared, eventType)
+	}
+	if eventType == sopRunStatusEvent {
+		c.reg.watchSOPRun(payload)
 	}
 	if c.reg == nil || c.reg.Events == nil {
 		return nil

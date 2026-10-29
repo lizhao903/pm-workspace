@@ -94,7 +94,7 @@ func get(t *testing.T, h http.Handler, path string) int {
 
 func waitFor(t *testing.T, what string, cond func() bool) {
 	t.Helper()
-	deadline := time.Now().Add(2 * time.Second)
+	deadline := time.Now().Add(10 * time.Second) // 只在要失败时才等满；全量并行跑时起假 claude 进程可能超过 2 秒
 	for !cond() {
 		if time.Now().After(deadline) {
 			t.Fatalf("等不到：%s", what)

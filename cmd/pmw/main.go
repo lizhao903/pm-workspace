@@ -29,6 +29,7 @@ import (
 	"github.com/lizhao903/pm-workspace/internal/localdir"
 	"github.com/lizhao903/pm-workspace/internal/notify"
 	"github.com/lizhao903/pm-workspace/internal/plugin"
+	"github.com/lizhao903/pm-workspace/internal/plugins/browser"
 	"github.com/lizhao903/pm-workspace/internal/plugins/domains"
 	"github.com/lizhao903/pm-workspace/internal/plugins/im"
 	"github.com/lizhao903/pm-workspace/internal/plugins/projects"
@@ -36,6 +37,7 @@ import (
 	"github.com/lizhao903/pm-workspace/internal/plugins/terminal"
 	"github.com/lizhao903/pm-workspace/internal/plugins/trade"
 	"github.com/lizhao903/pm-workspace/internal/plugins/video"
+	"github.com/lizhao903/pm-workspace/internal/runner"
 	"github.com/lizhao903/pm-workspace/internal/schedule"
 	"github.com/lizhao903/pm-workspace/internal/store/sqlite"
 	"github.com/lizhao903/pm-workspace/internal/vault"
@@ -201,6 +203,10 @@ func run(cfg config) error {
 	if err := plugins.Add(video.New()); err != nil {
 		return fmt.Errorf("登记插件失败: %w", err)
 	}
+	// 内置浏览器插件（BR-01a）：标签页、地址白名单；Google 账号用 Google Drive 连接器实例
+	if err := plugins.Add(browser.New()); err != nil {
+		return fmt.Errorf("登记插件失败: %w", err)
+	}
 	if err := plugins.Start(ctx); err != nil {
 		return fmt.Errorf("启动插件失败: %w", err)
 	}
@@ -220,6 +226,8 @@ func run(cfg config) error {
 	defer opts.Notify.Wait(5 * time.Second)
 	// 定时任务的定义（TASK-03a，0020）：规则按本机时区算
 	opts.Schedules = schedule.New(pdb, time.Local)
+	// 插件登记的定时任务动作（VID-06a）：保存时交给插件校验，到点交给插件执行
+	opts.Schedules.SetPluginActions(plugins)
 	// Webhook 配置（TASK-02a，0022）：接收密钥存保险箱，表里只有条目 id
 	opts.Webhooks = webhook.New(pdb, v)
 	// 工作台配置（CORE-10a，0023）
@@ -236,6 +244,10 @@ func run(cfg config) error {
 	if err := connDefs.Register(connector.GoogleDrive(connector.GoogleEndpoints{})); err != nil {
 		return err
 	}
+	// Google 日历（CONN-01e2），同一套 OAuth
+	if err := connDefs.Register(connector.GoogleCalendar(connector.GoogleCalendarEndpoints{})); err != nil {
+		return err
+	}
 	if cfg.fakeConnector {
 		for _, d := range []connector.Def{connector.Fake(), connector.FakeOAuth()} {
 			if err := connDefs.Register(d); err != nil {
@@ -246,6 +258,8 @@ func run(cfg config) error {
 	// 插件登记的连接器定义（CONN-02）：插件停用后它的定义不出现，实例保留、available 为 false
 	connDefs.SetPluginDefs(plugins.ConnectorDefs)
 	opts.Connectors = connector.New(pdb, v, connDefs)
+	// 插件发起连接器授权、断开（BR-01a，浏览器插件的 Google 登录和退出）
+	plugins.SetConnectors(opts.Connectors)
 	if err := opts.Connectors.SetPublicURL(cfg.publicURL); err != nil {
 		return err
 	}
@@ -261,6 +275,9 @@ func run(cfg config) error {
 	plugins.SetObjectCreator(objects)
 	// 插件用模型和 Agent（SOP-01c）：口径同对话接口，Agent 的写操作走外层包装，审计、事件照常
 	plugins.SetAgent(&agent.Service{Store: objects, Connectors: opts.Connectors, PluginSkills: plugins.Skills})
+	// 插件交给 Claude Code（VID-03a）：插件发起的运行只在内存里，退出时最多等 5 秒在途的
+	plugins.SetClaudeRunner(&runner.Runner{Logger: slog.Default()})
+	defer plugins.WaitRuns(5 * time.Second)
 	// Agent 的触发和执行记录（AG-01b4，0036）：任务、IM 事件和定时任务的 agent 动作交给它，跑模型的 Runner 由 api.New 接上。
 	// 退出时最多等 5 秒在途的执行，没跑完的下次启动记为失败
 	opts.AgentRuns = agent.NewDispatcher(objects, slog.Default())

@@ -12,18 +12,22 @@ import { cls, timeAgo } from './ui'
 import { newId } from './ids'
 
 // 任务 > 定时任务：列表 + 抽屉。抽屉里配「什么时候」和「做什么」，下面是执行记录
+// 定时发布由视频的发布记录生成，抽屉里只读：时间去内容日历拖，或在发布记录里改
 
 interface Named { id: string; name: string; enabled?: boolean }
 
-export const actionText = (a: ScheduleAction, sops: Named[], agents: Named[]) => (a.kind === 'task'
+export const actionText = (a: ScheduleAction, sops: Named[], agents: Named[], publishes: Named[] = []) => (a.kind === 'task'
   ? `建任务「${a.title || '未填标题'}」`
   : a.kind === 'sop' ? `执行「${sops.find((s) => s.id === a.sop_id)?.name ?? '已删除的 SOP'}」`
-    : `${agents.find((x) => x.id === a.agent_id)?.name ?? '已删除的 Agent'}：${a.prompt || '未填要求'}`)
+    : a.kind === 'publish' ? `发布「${publishes.find((x) => x.id === a.publish_id)?.name ?? '已删除的发布记录'}」`
+      : `${agents.find((x) => x.id === a.agent_id)?.name ?? '已删除的 Agent'}：${a.prompt || '未填要求'}`)
 
-export function SchedulesPage({ schedules, sops, agents, selected, onOpen, onNew, onToggle }: {
+export function SchedulesPage({ schedules, sops, agents, publishes = [], selected, onOpen, onNew, onToggle }: {
   schedules: Schedule[]
   sops: Named[]
   agents: Named[]
+  /** 定时发布指向的发布记录，name 是「平台 · 标题」 */
+  publishes?: Named[]
   selected: string | null
   onOpen: (id: string) => void
   onNew: () => void
@@ -34,7 +38,7 @@ export function SchedulesPage({ schedules, sops, agents, selected, onOpen, onNew
   // 停用的沉到底部，默认收起
   const [offOpen, setOffOpen] = useState(false)
   const kw = q.trim().toLowerCase()
-  const hit = (s: Schedule) => (!kind || s.action.kind === kind) && (!kw || `${s.name} ${describeRule(s.rule)} ${actionText(s.action, sops, agents)}`.toLowerCase().includes(kw))
+  const hit = (s: Schedule) => (!kind || s.action.kind === kind) && (!kw || `${s.name} ${describeRule(s.rule)} ${actionText(s.action, sops, agents, publishes)}`.toLowerCase().includes(kw))
   const sorted = schedules.filter(hit).sort((a, b) => (nextRun(a.rule)?.getTime() ?? Infinity) - (nextRun(b.rule)?.getTime() ?? Infinity))
   const on = sorted.filter((s) => s.enabled)
   const off = sorted.filter((s) => !s.enabled)
@@ -45,7 +49,7 @@ export function SchedulesPage({ schedules, sops, agents, selected, onOpen, onNew
       <div key={s.id} className={cls('sched-row', selected === s.id && 'sel', !s.enabled && 'is-off')} onClick={() => onOpen(s.id)}>
         <span className="task-main"><span className="task-title"><span className="ellipsis" title={s.name}>{s.name}</span></span></span>
         <span className="run-muted ellipsis">{describeRule(s.rule)}</span>
-        <span className="sched-action"><span className={`sched-kind sk-${s.action.kind}`}>{ACTION_LABEL[s.action.kind]}</span><span className="ellipsis run-muted">{actionText(s.action, sops, agents)}</span></span>
+        <span className="sched-action"><span className={`sched-kind sk-${s.action.kind}`}>{ACTION_LABEL[s.action.kind]}</span><span className="ellipsis run-muted">{actionText(s.action, sops, agents, publishes)}</span></span>
         <span className={cls('run-muted', s.enabled && next && 'sched-next')}>{s.enabled ? whenText(next) : '已停用'}</span>
         <span className={cls('run-muted', last && !last.ok && 'danger-text')} title={last?.text}>{last ? `${timeAgo(last.at)}${last.ok ? '' : ' 失败'}` : '还没执行过'}</span>
         <span onClick={(e) => e.stopPropagation()}>
@@ -56,7 +60,7 @@ export function SchedulesPage({ schedules, sops, agents, selected, onOpen, onNew
   }
   return (
     <div className="page page-fill">
-      <PageTitle parent="任务" count={schedules.length} desc="到点自动建任务、执行 SOP，或者让 Agent 去做；它建的任务来源标为「定时」"
+      <PageTitle parent="任务" count={schedules.length} desc="到点自动建任务、执行 SOP、让 Agent 去做，或者发布视频；它建的任务来源标为「定时」"
         actions={<button className="btn btn-primary" onClick={onNew}>新建定时任务</button>}>定时任务</PageTitle>
       {schedules.length > 0 && (
         <div className="toolbar">
@@ -93,10 +97,15 @@ export function SchedulesPage({ schedules, sops, agents, selected, onOpen, onNew
   )
 }
 
-export function ScheduleDrawer({ schedule, sops, agents, assignees, onClose, onSave, onDelete, onRunNow, openTask }: {
+export function ScheduleDrawer({ schedule, sops, agents, publishes = [], assignees, onClose, onSave, onDelete, onRunNow, openTask, onOpenPublish, onOpenCalendar }: {
   schedule: Schedule | null
   sops: Named[]
   agents: Named[]
+  /** 定时发布指向的发布记录，name 是「平台 · 标题」 */
+  publishes?: Named[]
+  /** 定时发布：打开那条发布记录、去内容日历改时间 */
+  onOpenPublish?: (publishId: string) => void
+  onOpenCalendar?: () => void
   assignees: string[]
   onClose: () => void
   onSave: (s: Schedule) => void
@@ -123,8 +132,10 @@ export function ScheduleDrawer({ schedule, sops, agents, assignees, onClose, onS
       : k === 'sop' ? { kind: 'sop', sop_id: sops[0]?.id ?? '' } : { kind: 'agent', agent_id: agents.find((a) => a.enabled !== false)?.id ?? '', prompt: '' },
   })
   const a = d.action
-  const rErr = ruleError(r)
-  const aErr = a.kind === 'task' ? (!a.title.trim() ? '任务标题必填' : '') : a.kind === 'sop' ? (!a.sop_id ? '选一个 SOP' : '') : (!a.agent_id ? '选一个 Agent' : !a.prompt.trim() ? '写一下要它做什么' : '')
+  // 定时发布只读：规则跟着发布记录，过了时间也不算错
+  const pub = a.kind === 'publish'
+  const rErr = pub ? '' : ruleError(r)
+  const aErr = a.kind === 'task' ? (!a.title.trim() ? '任务标题必填' : '') : a.kind === 'sop' ? (!a.sop_id ? '选一个 SOP' : '') : a.kind === 'publish' ? '' : (!a.agent_id ? '选一个 Agent' : !a.prompt.trim() ? '写一下要它做什么' : '')
   const errors = [!d.name.trim() && '名称必填', rErr, aErr].filter(Boolean) as string[]
   const next = nextRun(r)
   // 列出接下来三次，帮人确认规则是不是自己想的那样
@@ -148,9 +159,26 @@ export function ScheduleDrawer({ schedule, sops, agents, assignees, onClose, onS
       <div className="drawer-body form">
         <label className="field">
           <span className="field-label">名称<em>*</em></span>
-          <input value={d.name} autoFocus={creating} className={cls(tried && !d.name.trim() && 'bad')} placeholder="比如：周会前整理议程" onChange={(e) => setD({ ...d, name: e.target.value })} />
+          <input value={d.name} autoFocus={creating} readOnly={pub} className={cls(tried && !d.name.trim() && 'bad')} placeholder="比如：周会前整理议程" onChange={(e) => setD({ ...d, name: e.target.value })} />
         </label>
 
+        {a.kind === 'publish' ? (
+          <section className="field-group">
+            <div className="field-group-title">发布哪条</div>
+            <div className="sched-pub">
+              <span className="sched-kind sk-publish">{ACTION_LABEL.publish}</span>
+              <span className="ellipsis">{publishes.find((x) => x.id === a.publish_id)?.name ?? '已删除的发布记录'}</span>
+            </div>
+            <div className="sched-preview">
+              <span className="list-sub">{describeRule(r)}，{next ? `下次：${whenText(next)}` : '已经到过点了'}</span>
+            </div>
+            <span className="field-hint-line">这条定时跟着视频的发布记录走：改时间在内容日历里拖，或者在发布记录里改；到点按发布记录发，失败的记进运行异常</span>
+            <div className="act-row">
+              {onOpenPublish && publishes.some((x) => x.id === a.publish_id) && <button className="act" onClick={() => onOpenPublish(a.publish_id)}>打开发布记录</button>}
+              {onOpenCalendar && <button className="act" onClick={onOpenCalendar}>去内容日历</button>}
+            </div>
+          </section>
+        ) : <>
         <section className="field-group">
           <div className="field-group-title">什么时候</div>
           <div className="seg seg-full sched-freq">
@@ -190,7 +218,7 @@ export function ScheduleDrawer({ schedule, sops, agents, assignees, onClose, onS
         <section className="field-group">
           <div className="field-group-title">做什么</div>
           <div className="seg seg-full">
-            {(Object.keys(ACTION_LABEL) as ScheduleAction['kind'][]).map((k) => <button key={k} className={cls(a.kind === k && 'on')} onClick={() => setKind(k)}>{ACTION_LABEL[k]}</button>)}
+            {(Object.keys(ACTION_LABEL) as ScheduleAction['kind'][]).filter((k) => k !== 'publish').map((k) => <button key={k} className={cls(a.kind === k && 'on')} onClick={() => setKind(k)}>{ACTION_LABEL[k]}</button>)}
           </div>
           {a.kind === 'task' && (
             <>
@@ -237,6 +265,7 @@ export function ScheduleDrawer({ schedule, sops, agents, assignees, onClose, onS
             </>
           )}
         </section>
+        </>}
 
         <label className="switch-row">
           <span><span className="field-label">启用</span><span className="switch-hint">{d.enabled && next ? `下次：${whenText(next)}` : '停用后不会自动执行，可以手动执行'}</span></span>

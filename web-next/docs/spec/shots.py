@@ -15,6 +15,7 @@
   这个模块的截图整组不替换（避免只剩一半），退出码 1。宽度默认只截 1440，--step-widths 可以加 375。
 """
 import argparse
+import datetime
 import os
 import re
 import shutil
@@ -761,6 +762,78 @@ def videos_publish(pg, shot):
     shot('发布抽屉_换封面重试成功')
 
 
+def videos_calendar(pg, shot):
+    """日历：进度落后、拖动改日期（手机上改日期框）、周视图（SPEC-videos-15）。"""
+    _side(pg, '视频'); _vd_tab(pg, '日历')
+    late = pg.locator('.vcal-k-target.vcal-t-danger')
+    if not late.count():
+        pg.locator('button[aria-label="下个月"]').click(); pg.wait_for_timeout(200)
+    mobile = pg.viewport_size['width'] < 720
+    if mobile:
+        # 手机上月视图只露色点：点那一天，在下面的列表里选
+        pg.locator('.vcal-cell', has=pg.locator('.vcal-k-target.vcal-t-danger')).first.click(); pg.wait_for_timeout(200)
+        shot('日历_点一天')
+        pg.locator('.vcal-day-list .vcal-k-publish', has_text='SOP 编排').first.click(); pg.wait_for_timeout(200)
+        cur = pg.locator('.vcal-meta input[type=date]').input_value()
+        y, m, d = map(int, cur.split('-'))
+        nxt = (datetime.date(y, m, d) + datetime.timedelta(days=1)).isoformat()
+        pg.locator('.vcal-meta input[type=date]').fill(nxt); pg.wait_for_timeout(200)
+        pg.locator('.vcal-panel').evaluate('e => e.scrollIntoView({ block: "center" })'); pg.wait_for_timeout(100)
+        shot('日历_改日期')
+    else:
+        late.first.click(); pg.wait_for_timeout(200)
+        pg.locator('.vcal-panel').evaluate('e => e.scrollIntoView({ block: "end" })'); pg.wait_for_timeout(100)
+        shot('日历_进度落后')
+        src = pg.locator('.vcal-k-publish.movable', has_text='SOP 编排').filter(has_text='一人之下').first
+        cell = src.locator('xpath=ancestor::div[contains(@class, "vcal-cell")]')
+        date = cell.get_attribute('data-date')
+        nxt = cell.locator('xpath=following-sibling::div[1]')
+        src.drag_to(nxt); pg.wait_for_timeout(300)
+        pg.locator('.vcal-panel').evaluate('e => e.scrollIntoView({ block: "end" })'); pg.wait_for_timeout(100)
+        shot('日历_拖动改日期')
+        assert pg.locator('.vcal-moved').count(), f'从 {date} 拖过去没生效'
+    pg.locator('.vcal-bar .seg button', has_text='周').click(); pg.wait_for_timeout(200)
+    pg.evaluate('window.scrollTo(0, 0)')
+    shot('日历_周视图')
+
+
+videos_calendar.widths = (375, 1440)
+
+
+def videos_deals(pg, shot):
+    """商单：项目里的商单标签、账期提示、客户审核、结案报告、IM 转商单、定时发布（SPEC-videos-16、SPEC-videos-15.12）。"""
+    _side(pg, '项目')
+    pg.locator('.pl-card', has_text='远川科技权限改造').first.click(); pg.wait_for_timeout(300)
+    _vd_dtab(pg, '商单')
+    shot('商单_项目标签')
+    pg.locator('.deal-row', has_text='试点上线短片').click(); pg.wait_for_timeout(300)
+    shot('商单抽屉_账期快到')
+    dr = pg.locator('aside.drawer')
+    dr.locator('.field-group', has_text='结案报告').evaluate('e => e.scrollIntoView({ block: "end" })'); pg.wait_for_timeout(100)
+    shot('商单抽屉_客户审核和结案报告')
+    dr.locator('button', has_text='出结案报告').click(); pg.wait_for_timeout(200)
+    dr.locator('button', has_text='打开结案报告').click(); pg.wait_for_timeout(400)
+    shot('商单_结案报告文档')
+    _side(pg, '项目')
+    pg.locator('.pl-card', has_text='远川科技权限改造').first.click(); pg.wait_for_timeout(300)
+    _vd_dtab(pg, '商单')
+    pg.locator('.deal-row', has_text='权限改造演示片').click(); pg.wait_for_timeout(300)
+    dr = pg.locator('aside.drawer')
+    dr.locator('button', has_text='记一条意见').click(); pg.wait_for_timeout(150)
+    dr.locator('textarea[placeholder="客户原话"]').fill('第 2 章的角色列表字太小，放大一点')
+    dr.locator('.field-group', has=pg.locator('.tools-head', has_text='客户审核')).evaluate('e => e.scrollIntoView({ block: "center" })'); pg.wait_for_timeout(100)
+    shot('商单抽屉_记客户意见')
+    _esc(pg)
+    _side(pg, 'IM 消息')
+    pg.locator('.msg', has_text='正式的报价').first.click(); pg.wait_for_timeout(300)
+    pg.locator('aside.drawer button', has_text='转为商单').click(); pg.wait_for_timeout(300)
+    shot('商单_IM转商单')
+    _esc(pg)
+    _side(pg, '任务'); _sub(pg, '定时任务')
+    pg.locator('.sched-row', has_text='SOP 编排像搭积木').first.click(); pg.wait_for_timeout(300)
+    shot('定时任务_定时发布')
+
+
 def videos_ab(pg, shot):
     """按天曲线、回填存快照、新建发布标题超长、封面 A/B 进行中和已决出、新建测试（SPEC-videos-8、SPEC-videos-9、SPEC-videos-14）。"""
     _side(pg, '视频'); _vd_tab(pg, '发布记录')
@@ -1260,7 +1333,7 @@ STEPS = {
     'sop': [sop_run, sop_start, sop_editor_entry, sop_editor_new, sop_editor_edit],
     'terminal': [terminal_split, terminal_proto],
     'browser': [browser_tabs, browser_google, browser_drive],
-    'videos': [videos_detail, videos_detail_states, videos_publish, videos_ab, videos_series, videos_topics, videos_clips],
+    'videos': [videos_detail, videos_detail_states, videos_publish, videos_ab, videos_series, videos_topics, videos_clips, videos_calendar, videos_deals],
     'markets': [markets_chart, markets_watch, markets_option],
     'monitor': [monitor_wall, monitor_rules, monitor_drawer],
     'strategy': [strategy_editor, strategy_side, strategy_backtests, strategy_report, strategy_runs],

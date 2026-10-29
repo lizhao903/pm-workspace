@@ -15,7 +15,7 @@ import (
 )
 
 // APIVersion 是内核对插件承诺的插件 API 版本，和内核发版号分开记（docs/plugin-api.md 1.3）。
-const APIVersion = "1.0.0"
+const APIVersion = "1.1.0"
 
 // Manifest 是 plugin.json，字段名和清单一致。
 type Manifest struct {
@@ -49,6 +49,8 @@ type Provides struct {
 	TodayCards  []string `json:"today_cards"`
 	Commands    []string `json:"commands"`
 	Search      []string `json:"search"`
+	// ScheduleActions 是定时任务动作（VID-06a）
+	ScheduleActions []string `json:"schedule_actions,omitempty"`
 }
 
 // Adopts 是认领插件化之前就在内核里的东西（docs/plugin-api.md 1.6）。
@@ -127,7 +129,7 @@ var ManifestFields = []string{
 // ExtensionPoints 是 provides 的分组键。
 var ExtensionPoints = []string{
 	"modules", "settings", "object_types", "connectors", "skills",
-	"agent_tools", "sop_nodes", "today_cards", "commands", "search",
+	"agent_tools", "sop_nodes", "today_cards", "commands", "search", "schedule_actions",
 }
 
 var adoptsFields = []string{"object_types", "routes"}
@@ -462,6 +464,7 @@ func (c *checker) manifest(raw any) *Manifest {
 			"skills": &m.Provides.Skills, "agent_tools": &m.Provides.AgentTools,
 			"sop_nodes": &m.Provides.SOPNodes, "today_cards": &m.Provides.TodayCards,
 			"commands": &m.Provides.Commands, "search": &m.Provides.Search,
+			"schedule_actions": &m.Provides.ScheduleActions,
 		}
 		for _, ep := range ExtensionPoints {
 			list, _ := c.strList(p, ep, "provides."+ep, false)
@@ -597,7 +600,7 @@ func providesItem(ep, s, id string, idOK bool) string {
 		if !strings.HasPrefix(s, "sk_") {
 			return "必须以 sk_ 开头"
 		}
-	case "agent_tools", "sop_nodes", "today_cards":
+	case "agent_tools", "sop_nodes", "today_cards", "schedule_actions":
 		if !strings.HasPrefix(s, id+"_") {
 			return "必须以 " + id + "_ 开头"
 		}

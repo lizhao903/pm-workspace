@@ -6,7 +6,7 @@ import type { PluginApi, PluginEntry } from './api'
 import { commandRegistry, disposeCommandsOf, type ShellApi } from './commands'
 import {
   CORE_OWNER, disposeExtensionsOf, moduleRegistry, moduleStore, notImplemented, objectTypeRegistry, registerCoreModules,
-  settingsRegistry, todayCardRegistry,
+  settingsRegistry, sopNodeRegistry, todayCardRegistry,
 } from './extensions'
 import * as data from '../data'
 import { todaySourceRegistry, todaySourceStore } from './todaySources'
@@ -194,7 +194,7 @@ export function pluginApi(m: PluginManifest, reasons: string[], strict: boolean)
     migrations: notImplemented('migrations', '2.4'),
     connectors: notImplemented('connectors', '2.5'),
     agent: notImplemented('agent', '2.6'),
-    sopNodes: notImplemented('sopNodes', '2.7'),
+    sopNodes: sopNodeRegistry(ctx),
     todayCards: todayCardRegistry(ctx),
     todaySources: todaySourceRegistry(m.id),
     commands: commandRegistry(m.id, m.provides, reasons, strict),

@@ -45,6 +45,7 @@ export const ID_PREFIX = {
   publish: 'pb',
   topic: 'tp',
   clip: 'cl',
+  deal: 'deal',
   // 交易
   watchlist: 'wl',
   alert: 'al',

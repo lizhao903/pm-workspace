@@ -2,6 +2,7 @@
 // 路由挂在 videos/* 下：/videos 全部视频，/videos/review 待我处理，/videos/single 单集，/videos/series/<id> 某个系列的集，
 // /videos/v/<id> 视频详情的制作流程，/videos/v/<id>/settings 设置。打开详情时把来处的标签记在 location.state，标签栏高亮它。
 // VID-01d 加了 /videos/series 系列列表、/videos/v/<id>/artifacts 产出物（?a=<产出物 id> 打开抽屉）；从系列来的详情高亮「系列」。
+// VID-02b：制作流程里也列产出物，同样用 ?a= 打开抽屉。
 // 选题、素材收件箱、发布记录是后面的任务，到时再加标签
 import { Navigate, useLocation, useNavigate, useParams, useSearchParams } from 'react-router'
 import { ErrorState, LoadingState, PageTitle } from '../../core/ui'
@@ -81,7 +82,7 @@ export default function Page() {
   return (
     <Detail key={v.id} video={v} videos={list} series={seriesList} projects={projectList} tab={route.tab} from={from}
       onTab={(t) => go(`/v/${encodeURIComponent(v.id)}${tabPath(t)}`, { from }, true)}
-      openArt={route.tab === 'artifacts' ? search.get('a') : null}
+      openArt={route.tab !== 'settings' ? search.get('a') : null}
       onOpenArt={(id) => setSearch(id ? { a: id } : {}, { replace: true, state: { from } })}
       onModuleTab={onModuleTab} onOpenSeries={openSeries} onDeleted={() => go('', undefined, true)} />
   )

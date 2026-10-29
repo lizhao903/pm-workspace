@@ -205,6 +205,8 @@
 | sr | 系列（视频插件） | video_series |
 | pb | 发布记录（视频插件；检查点按视频加阶段认，没有 id） | video_publishes |
 | vaf | 视频产出物（视频插件；验收记录用整数 id） | video_artifacts |
+| bt | 浏览器标签页（浏览器插件） | browser_tabs |
+| deal | 商单（原型先补，后端还没有表） | - |
 | pn | 终端会话（终端插件，128 位随机串，不走 `idgen.Prefixed`，不入库） | - |
 
 原型 `ids.ts` 和后端不一致的前缀：后端已经上线的不改，原型的前缀保留，不分给别的实体。
@@ -975,7 +977,7 @@ CONN-01a。连接器的**定义**（认证方式、配置表单、工具目录�
 - `available` 为 false 表示定义已不在（提供它的插件停用了）：此时测试、拉取工具清单、改 `auth_mode` / `config` / `secrets` / `direction` 回 409，改名、启停和删除照常。
 - **插件提供的连接器**（CONN-02）：插件在 `Register` 里调 `Registrar.Connector(def)` 登记，`tool` 必须在清单 `provides.connectors` 里（不在、定义不合法、重复都让启用失败），`source` 固定为插件 id。定义只在插件在跑时出现：停用后不在 `/api/connectors/defs` 里，同 `tool` 新建回 400（同未知工具）；已接入的实例一行不动，`available` 为 false（规则同上一条）。重新启用后定义回来，实例的配置、凭证、工具授权照旧，`available` 回到 true。和内核定义同 `tool` 时内核的优先，插件的不出现（插件之间的 `tool` 冲突由清单检查在安装时挡掉）。后台令牌刷新照样跳过取不到定义的实例。
 - 保险箱条目被单独删掉（`DELETE /api/secrets/{id}`）时按没填凭证处理，PATCH 一次 `secrets` 新建条目补上。
-- 内置假连接器 `fake`（不联网）和 `fake_oauth` 只在 `pmw --fake-connector` 时登记，给测试和演练用：`fake` 的 `token` 含 `invalid` 或 `expired` 时测试失败，`config.variant` 为 `v2` 时工具清单换一组；`fake_oauth` 走 OAuth，授权、令牌地址是 `config.base_url` 加 `/authorize`、`/token`，连通测试带 access_token 请求 `base_url/userinfo` 取 `login`，要自己起一个假授权服务对接（Go 测试用 `internal/connector/oauthfake`）。正式运行不登记；真实连接器现在登记的有 Google Drive（`gdrive`，见下面「Google」），GitHub 等随 CONN-01c 起陆续登记。
+- 内置假连接器 `fake`（不联网）和 `fake_oauth` 只在 `pmw --fake-connector` 时登记，给测试和演练用：`fake` 的 `token` 含 `invalid` 或 `expired` 时测试失败，`config.variant` 为 `v2` 时工具清单换一组；`fake_oauth` 走 OAuth，授权、令牌地址是 `config.base_url` 加 `/authorize`、`/token`，连通测试带 access_token 请求 `base_url/userinfo` 取 `login`，要自己起一个假授权服务对接（Go 测试用 `internal/connector/oauthfake`）。正式运行不登记；真实连接器现在登记的有 Google Drive（`gdrive`）和 Google 日历（`gcal`），见下面「Google」；GitHub 等随 CONN-01c 起陆续登记。
 - 审计按 `config` 记（不分来源），`target_type` 为 `connector`，`action` 为 `create` / `update` / `delete` / `set_tool_modes`；凭证只记 `detail.secrets` 为 `{<key>: 「已设置」|「已清除」}`，修改只记 `detail.fields`；`set_tool_modes` 记 `detail.tools` 和新的 `detail.modes`（授权是权限配置不是凭证）。OAuth 授权成功记 `oauth_authorize`（`detail.secrets` 为 `{access_token, refresh_token}` 的「已设置」，对方没给 refresh_token 时只有 access_token，另记 `detail.scope`），断开记 `disconnect`（清了令牌时 `detail.secrets` 为「已清除」）。连通测试、拉取工具清单、发起授权、授权失败和令牌刷新（手动、后台）不记，刷新失败写服务日志并置 `error`。
 - 服务没接连接器时这几个接口回 `internal` 500，message 为 `connectors are not configured on this server`。
 
@@ -1024,9 +1026,9 @@ sequenceDiagram
 - **刷新**：后台每分钟查一次，`oauth.expires_at` 在 5 分钟以内的（不含暂停、断开的）用 `refresh_token` 换新令牌；对方轮换了 `refresh_token` 就存新的，没给就沿用旧的。刷新失败（对方拒绝、没有 `refresh_token`、网络错误）把实例置为 `error`，`error` 为「令牌刷新失败：…」（凭证已抹掉），记下 `oauth.refresh_failed_at`；之后 30 分钟内后台不再试，过后再试一次。刷新成功清掉 `refresh_failed_at`，原来是 `error` 的回到 `connected`。手动 `POST /oauth/refresh` 不受退避限制；暂停、断开的实例手动刷新时状态保持不变。
 - `oauth`（`Connector` 上）：`{authorized_at, expires_at, refreshed_at, refresh_failed_at, scope}`，时间为 null 表示没有；没授权或已断开时 `authorized_at` 为 null。令牌本身任何响应里都没有。定义里通过 `Config.AccessToken()` 拿 access_token 调对方。
 
-### Google（CONN-01e1）
+### Google（CONN-01e1、CONN-01e2）
 
-Google 连接器共用一套 OAuth（`internal/connector/google.go`）；现在登记了 Google Drive，日历归 CONN-01e2。
+Google 连接器共用一套 OAuth（`internal/connector/google.go`）；现在登记了 Google Drive 和 Google 日历（`internal/connector/google_calendar.go`），两者各是一个实例、各自授权。
 
 - **OAuth**：授权地址 `https://accounts.google.com/o/oauth2/v2/auth`，令牌地址 `https://oauth2.googleapis.com/token`；`scopes` 是 `openid`、`email` 加各自的范围；`auth_params` 为 `{access_type: offline, prompt: consent}`，这样首次和重新授权都会拿到 `refresh_token`。client_id、client_secret 不内置（`builtin: false`），走配置字段 `client_id`（`text`，必填）和 `client_secret`（`secret`，必填，进保险箱）。
 - **要用户做的**：在 Google Cloud 建一个「Web 应用」类型的 OAuth 客户端，回调地址登记 `https://bro.vip/api/connectors/oauth/callback`；测试实例另登记 `--public-url` 对应的 `<地址>/api/connectors/oauth/callback`。在连接器设置页填 client_id、client_secret 后点授权。
@@ -1041,7 +1043,16 @@ Google 连接器共用一套 OAuth（`internal/connector/google.go`）；现在�
 | `read_file` | `{file_id, max_chars?}` | 读正文：Google 文档、幻灯片导出纯文本，表格导出 CSV（只有第一个工作表），`text/*` 和 JSON、XML 直接下载；别的类型（PDF、图片等）失败。回 `{id, name, mime_type, format, content, truncated}`，`content` 默认最多 20000 字、`max_chars` 最大 100000 |
 
   `page_size` 默认 20、最大 100；`file_id`、`folder_id` 只能是字母、数字、`-`、`_`。对方的错误回「Google 返回 <状态码>：<说明>」，不带请求头。
-- 开发和 Go 测试只对接本机假服务（`internal/connector/oauthfake` 加测试里的假 userinfo、Drive 接口），`connector.GoogleDrive(GoogleEndpoints{...})` 可以换地址；`cmd/pmw` 用零值登记正式地址。真实 Google 账号的连通由用户在测试实例里验收。
+- **Google 日历**（`tool: gcal`，分类 `office`）：范围 `https://www.googleapis.com/auth/calendar.readonly` 加 `https://www.googleapis.com/auth/calendar.events`。工具目录是静态的，实现了 `Call`，结果是 JSON 文本；日程为 `{id, summary, start, end, all_day, status?, description?, location?, organizer?, attendees?, html_link?}`，`start`、`end` 全天日程是 `YYYY-MM-DD`、否则是 RFC3339，`attendees` 是 `名字 <邮箱> (回复状态)` 的文本数组：
+
+| 工具 | 读写 | 参数 | 说明 |
+|---|---|---|---|
+| `list_calendars` | 只读（默认 `auto`） | `{page_size?, page_token?}` | 能看到的日历；回 `{calendars: [{id, summary, primary, access_role, time_zone?, description?}], next_page_token?}` |
+| `list_events` | 只读（默认 `auto`） | `{calendar_id?, time_min?, time_max?, query?, page_size?, page_token?}` | 一段时间里的日程，重复日程展开、按开始时间排；`calendar_id` 默认 `primary`，`time_min` 默认现在，时间要 RFC3339；回 `{events, time_zone?, next_page_token?}` |
+| `create_event` | 写（`write: true`，默认 `confirm`） | `{summary, start, end, calendar_id?, time_zone?, description?, location?, attendees?}` | 新建日程，回建好的日程。`start`、`end` 同为全天日期或同为 RFC3339，`end` 要晚于 `start`（全天日程的 `end` 是结束日的下一天）；`time_zone` 是 IANA 时区名；`attendees` 是邮箱数组（去重，最多 100 个），有参与人时 `sendUpdates=all` 发邀请，没有时 `none` |
+
+  `page_size` 默认 50、最大 250；`calendar_id` 只能是字母、数字和 `. _ @ # + -`（节假日日历带 `#`，进路径前转义）；`summary`、`description`、`location` 各最多 8000 字。错误同 Drive。
+- 开发和 Go 测试只对接本机假服务（`internal/connector/oauthfake` 加测试里的假 userinfo、Drive、日历接口），`connector.GoogleDrive(GoogleEndpoints{...})`、`connector.GoogleCalendar(GoogleCalendarEndpoints{...})` 可以换地址；`cmd/pmw` 用零值登记正式地址。真实 Google 账号的连通由用户在测试实例里验收。
 
 ## 插件 plugins
 
@@ -1222,8 +1233,10 @@ TASK-03a、TASK-03b。定义存在表 `schedules`（0020），执行记录存在
 | `task` | `title`（必填）、`desc`、`priority`、`assignee`、`due_days` | 到点建一条任务；`due_days` 是截止日距执行当天几天，0 到 365 |
 | `sop` | `sop_id`（必填） | 执行一个 SOP |
 | `agent` | `agent_id`（必填）、`prompt` | 让一个 Agent 去做 |
+| `<插件 id>_<动作>` | 插件定的参数，和 `kind` 平铺 | 插件登记的动作（VID-06a，`docs/plugin-api.md` 2.12），例 `video_publish` |
 
 - `sop_id`、`agent_id` 只查非空、不查是否存在（SOP 是插件，可能还没装），到点执行时找不到记 `failed`。
+- 插件动作（VID-06a）：除 `kind` 外的字段原样存、原样回，校验交给声明它的插件，插件的错误回 `validation` 400「action: …」。没有插件声明这个 `kind` 回 400「action.kind must be task / sop / agent or a plugin action, got "…"」；声明它的插件停用时新建、改动作回 400「action.kind video_publish: 提供这个动作的插件没启用：视频（video）」，只改 `name`、`enabled` 照常。
 - 删除按 `delete` 记审计，Agent 来源的新建和修改按 `agent` 记，`target_type` 为 `schedule`。
 - 服务没接定时任务时这几个接口回 `internal` 500，message 为 `schedules are not configured on this server`；没接调度器时 `POST /run` 回 `internal` 500，message 为 `schedule runner is not configured on this server`。
 - `POST /run` 由 Agent 来源发起时按 `agent` 记审计，`action` 为 `run`。
@@ -1238,6 +1251,7 @@ TASK-03a、TASK-03b。定义存在表 `schedules`（0020），执行记录存在
 - 动作 `task`：建一条待办（`type_id=task`），`source` 为 `schedule`，`props.source_ref` 为 `{schedule_id, name}`；标题里的 `{{date}}` 换成计划时刻那天（写成 `2026/10/29`）；`due_at` 是那天往后 `due_days` 天的零点（本地时区）；`assignee` 是干系人 id（`stk_` 开头）时设为负责人，干系人已删时不设负责人、结果文字里注明，其他取值忽略。建任务用的操作者是 `schedule#<定时任务 id>`。
 - 动作 `sop`（SOP-01d）：经内核「发起 SOP」钩子（`docs/plugin-api.md` 2.7）交给 SOP 编排插件起一条执行，同 `POST /api/sop/flows/{id}/runs`：流程当前定义的快照、输入全用字段默认值、不逐步确认，流程里的人工检查点照常停下；不等它跑完。发起了记 `ok`「发起了 SOP「周会纪要」，执行记录 spr_…」；流程不存在、必填字段没有默认值记 `failed`「没执行：流程 sop_x 不存在」「没执行：「客户」必填」。SOP 编排插件没装、停用（没有插件登记发起入口）记 `unsupported`「没执行：SOP 编排插件没启用」。执行的结果看 SOP 运行页。
 - 动作 `agent`（AG-01b4）：交给这个 Agent 跑一次，不等它跑完，不看 Agent 上有没有配 `schedule` 触发。发起了记 `ok`「交给了 Agent「周报助手」，执行记录 ar_…」；Agent 不存在、已停用记 `failed`「没执行：Agent「周报助手」已停用」；执行记录建了但没跑起来（服务商不对等）记 `failed`「Agent「周报助手」没跑起来：…，执行记录 ar_…」。Agent 的结果看「Agent 执行记录」。服务没接 Agent 执行时仍记 `unsupported`「没执行：让 Agent 去做暂不支持，M4 之后才有」。
+- 插件动作（VID-06a）：交给声明它的插件执行，`object_id`、`ref` 是插件给的产出（可以为 `null`）。成功记 `ok`，文字由插件给，没给时为「执行了 <kind>」；插件回错误记 `failed`「没执行：<原因>」；插件停用、卸载记 `failed`「没执行：提供这个动作的插件没启用：<插件名>（<id>）」，定义不动，启用后下次照常。
 
 `ScheduleRun`：`{id, schedule_id, at, status, ok, text, manual, missed, object_id, ref, started_at, finished_at}`，与原型 `ScheduleRun {at, ok, text, ref, manual}` 同名字段同义。
 
@@ -2083,6 +2097,40 @@ VID-01a 起。插件 `video`（`internal/plugins/video`，清单 `plugin.json`�
 - 并入：`topic_id` 必填，要存在，否则 400；只能并入进行中的选题，`made`、`dropped` 409；已经关联过的不重复记，照样回 200。素材记为已整理，选题刷新 `updated_at`。
 
 - 暂不记审计、不发事件。
+
+## 内置浏览器插件 browser
+
+BR-01a。插件 `browser`（`internal/plugins/browser`，清单 `plugin.json`，0.1.0），不依赖别的插件，没有权限（不出网，Google 授权由内核连接器做）。表前缀 `browser_`，迁移在插件目录 `migrations/0001_browser.sql`。清单暂不出模块，一级菜单「浏览器」由 BR-01b 带前端入口时加上。插件未安装或停用时本节接口回 `not_found` 404（同「插件路由」）。
+
+| 方法 | 路径 | body / 说明 |
+|---|---|---|
+| GET | `/api/browser/tabs` | `BrowserTab[]` + `meta.total`，按 `position` |
+| PUT | `/api/browser/tabs` | `{tabs: BrowserTab[]}` 整体替换，顺序就是数组顺序，回替换后的 `BrowserTab[]`；超过 50 个 400，校验见下 |
+| GET | `/api/browser/allowlist` | `AllowEntry[]` + `meta.total`，内置的在前，其余按加入先后 |
+| POST | `/api/browser/allowlist` | `{host, note?}`，回 201 + `BrowserAllowEntry`；已经有了（含内置的）409 |
+| DELETE | `/api/browser/allowlist?host=` | `data` 为 `null`；内置的 409，没有 404 |
+| GET | `/api/browser/google` | `BrowserGoogleState` |
+| POST | `/api/browser/google/login` | body 可空或 `{return_to?}`，转调 Drive 实例的 OAuth 授权，回 `{connector_id, authorize_url, redirect_uri, expires_at, calendar}`；没有 Drive 实例 409「先在设置 / 连接器里配好 Google Drive 的 OAuth 客户端」，实例缺 client_id 等照 `POST /api/connectors/{id}/oauth/start` 的口径回错 |
+| POST | `/api/browser/google/logout` | body 可空，断开这个账号的 Drive 和日历实例，回 `{disconnected: [连接器 id], google: GoogleState}`；没登录时什么都不断 |
+
+`BrowserTab`：`{id, url, title, kind, history, cursor, pinned, position, active, updated_at}`，同原型 `BrowserTab`，多 `position`（从 0 起）、`active`（是否当前标签）和 `updated_at`；原型的 `loading` PUT 带了也不存。
+
+- `id` 是 `bt_` 前缀（已登记），由前端 `newId('bt')` 生成；不给或空串时后端生成。重复 400。
+- `url` 必填，`about:` 开头或 `http(s)` 地址（`javascript:`、`file:` 之类 400），最长 4096；`title` 最多 200 字；`kind` 是 `home` / `proto` / `drive` / `web`。
+- `history` 最多 100 条，每条同 `url` 的规则；不给或空数组时是 `[url]`。`cursor` 要在 `0` 到 `history.length - 1`，不给取最后一条。
+- `active` 为 `true` 的最多一个；一个都没有也行。不认识的字段 400。
+
+`BrowserAllowEntry`：`{host, note, builtin, created_at}`。内置 `127.0.0.1`、`localhost`（`builtin: true`、`created_at: null`，不落表、删不掉）；内网域名后缀由前端带上，插件不读内网域名插件的设置。`host` 给网址也认：去掉协议、路径和端口，转小写；要是 IP 或点隔开的主机名，开头可以是 `*.`（所有子域名）；`note` 最多 200 字。
+
+`BrowserGoogleState`：`{signed_in, configured, account, drive, calendar}`。Google 账号不单独存，以 Google Drive 连接器实例（`tool: "gdrive"`）为准：
+
+- `configured`：有没有 Drive 实例（OAuth 客户端填在实例配置里）。`drive` 取授权着的那个，没有就取最新建的；`signed_in` 是它授权过且没断开。在连接器设置页断开或删掉 Drive 实例，这里就回没登录；日历实例不受影响。
+- `account`：登录着时 `{email, name, scopes, connected_at}`，同原型 `GoogleAccount` 去掉 `avatarColor`（前端按邮箱算）；`email` 是 Drive 实例的账号，`name` 取 `@` 前面，`connected_at` 是授权时间，`scopes` 是 Drive 和同账号日历实例授权范围的并集，换成原型 `GOOGLE_SCOPES` 的 key（`drive.readonly`、`calendar.events` 之类，去掉 `openid`、`email`）。没登录为 `null`。
+- `drive`、`calendar` 是 `BrowserGoogleConn`，没有实例为 `null`。`calendar` 是 Google 日历实例（`tool: "gcal"`，CONN-01e2），登录着时取同一账号的。
+- 登录回的 `calendar`：有日历实例时顺带给它发起一次授权（同 `connector_id`、`authorize_url` 那几项），发起失败为 `null`；前端授权完 Drive 再打开它。
+- 退出断开的是：Drive 用的那个实例，加上账号相同（不分大小写）、还没断开的 Drive、日历实例；Drive 实例没有账号时断开授权着的日历实例。每断一个记一条审计（`action: disconnect`，操作者是插件 `browser`），口径同 `POST /api/connectors/{id}/disconnect`：状态置为 `disconnected`，令牌删掉、授权状态清空。
+
+`BrowserGoogleConn`：`{id, name, status, error, account, scopes, authorized_at}`，`scopes` 同样换成 `GOOGLE_SCOPES` 的 key。
 
 ## 运维 admin
 

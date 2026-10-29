@@ -1,7 +1,7 @@
 // 设置 > 内网域名（DOM-01b），照原型 web-next/src/domains.tsx（SPEC-settings-20）。
 // 正式版多了本机状态（20.29 到 20.32）和分三段的生成配置（20.33）；插件不改系统，要改的都给命令让用户自己执行。
 // 顶栏的标题由外壳给（插件分节的宿主），总开关和说明放在本节第一行
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import {
   errorText, useDomainConfig, useDomainRoutes, useDomainSettings, useDomainStatus, usePutDomainSettings, useTerminalPrototypes,
   QueryState, type DomainSettings, type DomainSettingsPatch,
@@ -9,13 +9,17 @@ import {
 import { Button, cls, Switch } from '../../core/ui'
 import { ConfigBlock } from './ConfigBlock'
 import {
-  PROXY_KIND, RESOLVE_MODE, aliasError, normName, parseAliases, validIPv4, validPort, validSuffix,
+  PROXY_KIND, RESOLVE_MODE, aliasError, awaitingAuto, normName, parseAliases, validIPv4, validPort, validSuffix,
 } from './model'
 import { Commands, CommitInput } from './parts'
 import { useCopy } from './useCopy'
 import { RoutesBlock } from './RoutesBlock'
 import { StatusBlock } from './StatusBlock'
 import './domains.css'
+
+/** 等自动域名：每 2 秒取一次路由，最多 15 次 */
+const AUTO_WAIT_MS = 2000
+const AUTO_WAIT_TRIES = 15
 
 export default function DomainsSection() {
   const settings = useDomainSettings()
@@ -34,6 +38,18 @@ function Body({ s }: { s: DomainSettings }) {
   // 原型列表来自项目插件；项目插件没启用时取不到，当没有原型
   const protos = useTerminalPrototypes().data ?? []
   const { copied, copy } = useCopy()
+  // 原型启动后后端收到事件才建自动域名，有在跑却还没域名的原型时隔一会儿取一次路由，取到或等够了就停
+  const waiting = awaitingAuto(routes.data, protos, s)
+  const refetchRoutes = routes.refetch
+  useEffect(() => {
+    if (!waiting) return
+    let n = 0
+    const t = setInterval(() => {
+      if (++n >= AUTO_WAIT_TRIES) clearInterval(t)
+      void refetchRoutes()
+    }, AUTO_WAIT_MS)
+    return () => clearInterval(t)
+  }, [waiting, refetchRoutes])
   const [howCa, setHowCa] = useState(false)
   // 局域网访问要先有 IPv4：没填地址时打开开关只先展开地址框，填好一起存
   const [wantLan, setWantLan] = useState(false)

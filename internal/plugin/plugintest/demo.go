@@ -11,6 +11,7 @@ import (
 	"io/fs"
 	"net/http"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -37,6 +38,10 @@ type Demo struct {
 
 	core    atomic.Value // plugin.Core，Register 时存下，Resume 用
 	Waiting atomic.Value // plugin.SOPNodeInput，最近一次挂起的节点
+	Actions atomic.Int64 // 定时任务动作 demo_note 执行了几次
+
+	// Finished 是收到 run.finished 后按运行 id 查回来的 plugin.RunInfo（VID-03a），只记本插件发起的
+	Finished sync.Map
 }
 
 // NewDemo 的定时任务间隔是 every；测试里给几毫秒。
@@ -77,13 +82,35 @@ func (d *Demo) Register(r plugin.Registrar) error {
 		d.Events.Add(1)
 		return nil
 	})
+	r.Subscribe(plugin.RunFinishedEvent, d.runFinished)
 	r.TodayCard(plugin.TodayCardDef{Key: "demo_inbox", Title: "示例收件箱", Order: 50, Load: d.inbox})
 	r.Connector(EchoConnector())
 	r.Skill(plugin.SkillDef{ID: SkillID, Name: "示例摘要", Desc: "把示例收件箱整理成三条要点",
 		When: "用户要看示例收件箱的摘要时", Instructions: "每条要点一句话，先写最紧急的。", Tools: []string{"示例回声"}})
 	d.core.Store(r.Core())
 	r.SOPNode(plugin.SOPNodeDef{Kind: SOPNodeKind, Group: "示例", Required: []plugin.SOPNodeField{{Key: "to", Label: "发给"}}, Run: d.waitReply})
+	r.ScheduleAction(plugin.ScheduleActionDef{Kind: ScheduleActionKind, Validate: validateNote, Run: d.runNote})
 	return nil
+}
+
+// ScheduleActionKind 是示例插件登记的定时任务动作：参数 text 必填，执行时把它写进执行记录；text 为 fail 时执行失败。
+const ScheduleActionKind = "demo_note"
+
+func validateNote(_ context.Context, _ plugin.Core, params map[string]any) (map[string]any, error) {
+	text, _ := params["text"].(string)
+	if text = strings.TrimSpace(text); text == "" {
+		return nil, errors.New("text 必填")
+	}
+	return map[string]any{"text": text}, nil
+}
+
+func (d *Demo) runNote(_ context.Context, _ plugin.Core, in plugin.ScheduleActionInput) (*plugin.ScheduleActionResult, error) {
+	d.Actions.Add(1)
+	text, _ := in.Params["text"].(string)
+	if text == "fail" {
+		return nil, errors.New("示例动作按要求失败")
+	}
+	return &plugin.ScheduleActionResult{Text: fmt.Sprintf("示例动作「%s」：%s", in.ScheduleName, text)}, nil
 }
 
 // SOPNodeKind 是示例插件登记的 SOP 节点：配置 mode 为 wait 时挂起，等 Resume；否则把输入和 to 原样回。
@@ -104,6 +131,34 @@ func (d *Demo) Resume(ctx context.Context, runID, step string, output map[string
 		return errors.New("示例插件还没登记")
 	}
 	return c.SOP().Resume(ctx, runID, step, output)
+}
+
+// Runs 以示例插件的身份发起运行（VID-03a）。
+func (d *Demo) Runs() (plugin.RunService, error) {
+	c, ok := d.core.Load().(plugin.Core)
+	if !ok {
+		return nil, errors.New("示例插件还没登记")
+	}
+	return c.Runs(), nil
+}
+
+// runFinished 按运行 id 查回结果记进 Finished；内核任务执行的 run.finished 查不到，跳过。
+func (d *Demo) runFinished(_ context.Context, c plugin.Core, e plugin.Event) error {
+	var p struct {
+		RunID string `json:"run_id"`
+	}
+	if err := json.Unmarshal(e.Payload, &p); err != nil {
+		return err
+	}
+	info, err := c.Runs().Get(p.RunID)
+	if errors.Is(err, plugin.ErrRunNotFound) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	d.Finished.Store(p.RunID, info)
+	return nil
 }
 
 // Notify 以示例插件的身份发一条通知（VID-06b）。

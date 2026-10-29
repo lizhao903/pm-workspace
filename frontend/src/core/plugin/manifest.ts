@@ -16,6 +16,7 @@ export type ExtensionPoint =
   | 'today_cards'
   | 'commands'
   | 'search'
+  | 'schedule_actions'
 
 export type PluginProvides = Partial<Record<ExtensionPoint, string[]>>
 
@@ -98,7 +99,7 @@ export const MANIFEST_FIELDS: readonly string[] = [
 
 export const EXTENSION_POINTS: readonly ExtensionPoint[] = [
   'modules', 'settings', 'object_types', 'connectors', 'skills',
-  'agent_tools', 'sop_nodes', 'today_cards', 'commands', 'search',
+  'agent_tools', 'sop_nodes', 'today_cards', 'commands', 'search', 'schedule_actions',
 ]
 
 const adoptsFields = ['object_types', 'routes']
@@ -230,6 +231,7 @@ function providesItem(ep: ExtensionPoint, s: string, id: string, idOK: boolean):
     case 'agent_tools':
     case 'sop_nodes':
     case 'today_cards':
+    case 'schedule_actions':
       if (!s.startsWith(id + '_')) return `必须以 ${id}_ 开头`
       break
   }

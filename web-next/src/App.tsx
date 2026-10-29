@@ -13,7 +13,7 @@ import { SopEditor, newSopDraft } from './sopedit'
 import { ingest, newTask, seedDeliveries, seedHooks, seedTasks, type TaskStatus, isOpenTask, localDay } from './taskdata'
 import { TaskDrawer, TasksNav, TasksPage, WebhookPage, newHook, type TaskDraft, type TaskView } from './tasks'
 import { ScheduleDrawer, SchedulesPage } from './schedule'
-import { nextRun, seedSchedules, whenText, type Schedule } from './scheduledata'
+import { nextRun, seedSchedules, syncPublishSchedules, whenText, type Schedule } from './scheduledata'
 import { TodayPage, type TodayItem, type TodayLine } from './today'
 import { useDevLoop } from './devloop'
 import { ALL_PROJECTS, EMPTY_DOCK, ProjectDock, ProjectPage, ProjectsListPage, type DockView, type ProjectDockState, type ProjectTab } from './projects'
@@ -35,7 +35,9 @@ import { EnumsPage, type UsageFn } from './enums'
 import { TopbarContext } from './topbar'
 import { AppearancePage, type ThemePref } from './appearance'
 import { cls } from './ui'
-import { PLATFORMS, PLATFORM_TOOL, STAGES, seedArtifacts, seedPublishes, seedSeries, seedVideos, videoState, type Video } from './videodata'
+import { PLATFORMS, PLATFORM_TOOL, STAGES, checkPublish, coverRatioOf, dealReport, seedArtifacts, seedDeals, seedPublishes, seedSeries, seedVideos, videoState, type Deal, type PlatformKey, type Publish, type Video } from './videodata'
+import { CalendarPage } from './videocalendar'
+import { DealDrawer, DealsTab, dueDeals, payText } from './videodeals'
 import { VideoDetail, VideosListPage, VideosTabs, type VideoView } from './videos'
 import { PublishPage, SeriesPage, type ChannelState } from './videopublish'
 import { ClipsPage, TopicsPage } from './topics'
@@ -83,6 +85,8 @@ type DrawerState =
   | { kind: 'provider'; id: string }
   | { kind: 'new-provider'; provider: ProviderKind }
   | { kind: 'new-task'; fromMessage?: string; initial?: Partial<TaskDraft> }
+  | { kind: 'deal'; id: string }
+  | { kind: 'new-deal'; initial?: Partial<Deal> }
   | null
 
 /** 删除前算出的影响：block 有值时拦截不删，impact 列在二次确认里 */
@@ -158,6 +162,22 @@ export default function App() {
   const [videoFrom, setVideoFrom] = useState<VideoView | undefined>()
   const openVideo = (id: string) => { setVideoFrom(videoView); setVideoView(`video:${id}`) }
   const [publishFilter, setPublishFilter] = useState<string | undefined>()
+  // 商单（VID-08p）：挂在项目下，视频挂到商单上
+  const [deals, setDeals] = useState(seedDeals)
+  // 定时发布跟着发布记录走：发布记录定了时间、改了时间、删了，定时任务跟着补、改、删（updater 是纯函数）
+  useEffect(() => { setSchedules((xs) => syncPublishSchedules(xs, publishes)) }, [publishes])
+  // 发布失败进运行异常：发布记录从别的状态变成失败时记一条，指纹按发布记录
+  const prevPubs = useRef(publishes)
+  useEffect(() => {
+    const prev = prevPubs.current
+    prevPubs.current = publishes
+    for (const p of publishes) {
+      if (p.status !== 'failed' || prev.find((x) => x.id === p.id)?.status === 'failed') continue
+      const v = videos.find((x) => x.id === p.video_id)
+      const pl = PLATFORMS.find((x) => x.key === p.platform)?.label ?? p.platform
+      setIncidents((xs) => mergeIncident(xs, { fingerprint: `publish:${p.id}`, level: 'error', module: '发布', title: `${pl}发布失败：${p.title || v?.title || '未填标题'}`, message: p.error ?? '发布失败', context: { 视频: v?.title ?? '已删除的视频', 平台: pl } }))
+    }
+  }, [publishes, videos])
   // 选题和素材收件箱
   const [topics, setTopics] = useState(seedTopics)
   const [clips, setClips] = useState(seedClips)
@@ -456,7 +476,13 @@ export default function App() {
     setDrawer(existing ? { kind: 'task', id: existing.id } : { kind: 'new-task', fromMessage: id, initial: { title: m.text.replace(/\s+/g, ' ').slice(0, 40), desc: '' } })
   }
   const assignees = ['我', ...contacts.filter((c) => c.group === '同事').map((c) => c.name)]
-  // 立即执行一次定时任务：真的建任务 / 发起 SOP / 记一条 Agent 执行，再把结果写进它的执行记录
+  /** 内容平台的接入情况：没接、异常、只能手动登记、能自动发 */
+  const channelOf = (k: PlatformKey): ChannelState => {
+    const c = connectors.find((x) => x.tool === PLATFORM_TOOL[k])
+    const canPublish = TOOLS.find((t) => t.key === PLATFORM_TOOL[k])?.catalog?.some((d) => d.write && /upload|create_video/.test(d.name))
+    return !c ? { state: 'none' } : c.status === 'error' ? { state: 'error', name: c.name, error: c.error } : c.status !== 'connected' ? { state: 'none' } : { state: canPublish ? 'ok' : 'manual', name: c.name }
+  }
+  // 立即执行一次定时任务：真的建任务 / 发起 SOP / 记一条 Agent 执行 / 发布视频，再把结果写进它的执行记录
   const runScheduleNow = (sc: Schedule) => {
     const now = new Date()
     const a = sc.action
@@ -477,6 +503,26 @@ export default function App() {
         setRuns((xs) => [run, ...xs])
         text = `发起了「${sop.name}」`
       }
+    } else if (a.kind === 'publish') {
+      // 按发布记录发：平台没接好或校验不过就失败，失败的由上面的 effect 记进运行异常
+      const p = publishes.find((x) => x.id === a.publish_id)
+      const pl = p ? PLATFORMS.find((x) => x.key === p.platform)?.label ?? p.platform : ''
+      if (!p) text = '没执行：发布记录已删除'
+      else if (p.status === 'published') text = '没执行：已经发布过了'
+      else {
+        const ch = channelOf(p.platform)
+        const cover = artifacts.find((x) => x.id === p.cover_id)
+        const bad = ch.state === 'error' ? `${pl}连接器异常：${ch.error ?? '连不上'}`
+          : ch.state !== 'ok' ? `${pl}没接能自动发布的连接器，只能手动登记`
+            : checkPublish(p.platform, { title: p.title, desc: p.desc, tags: p.tags ?? [], cover: cover ? coverRatioOf(cover) : undefined }).find((c) => !c.ok)?.text
+        if (bad) {
+          setPublishes((xs) => xs.map((x) => (x.id === p.id ? { ...x, status: 'failed', error: bad } : x)))
+          text = `发布失败：${bad}，已记进运行异常`
+        } else {
+          setPublishes((xs) => xs.map((x) => (x.id === p.id ? { ...x, status: 'published', published_at: now.toISOString(), error: undefined, url: x.url ?? `https://example.com/${p.platform}/${p.id}`, metrics: { views: 0, likes: 0, comments: 0, shares: 0, updated_at: now.toISOString() } } : x)))
+          text = `${pl}发布了「${p.title || '未填标题'}」`
+        }
+      }
     } else {
       const ag = agents.find((x) => x.id === a.agent_id)
       if (!ag || !ag.enabled) text = `没执行：${ag ? `${ag.name} 已停用` : 'Agent 已删除'}`
@@ -485,7 +531,7 @@ export default function App() {
         text = `交给了${ag.name}，结果在「会话 / 执行记录」`
       }
     }
-    const entry = { at: now.toISOString(), ok: !text.startsWith('没执行'), text, ref, manual: true }
+    const entry = { at: now.toISOString(), ok: !text.startsWith('没执行') && !text.startsWith('发布失败'), text, ref, manual: true }
     setSchedules((xs) => xs.map((y) => (y.id === sc.id ? { ...sc, history: [entry, ...y.history] } : y)))
   }
 
@@ -624,6 +670,10 @@ export default function App() {
       id: `im-${m.id}`, kind: 'IM 消息', tone: 'info' as const, title: `${m.sender_name}：${m.text}`, sub: m.conversation || '私聊', at: m.at, action: '回复',
       onClick: () => { setPage('messages'); openMessage(m.id) },
     })),
+    ...(!modOn('videos') ? [] : dueDeals(deals)).map((d) => ({
+      id: `deal-${d.id}`, kind: '商单账期', tone: payText(d).tone === 'danger' ? 'danger' as const : 'warn' as const, title: `${d.brand}「${d.title}」${payText(d).text}`,
+      sub: `已交付待收款 · ${d.currency === 'CNY' ? '¥' : '$'}${d.quote.toLocaleString('zh-CN')}`, at: d.updated_at, action: '去看看', onClick: () => setDrawer({ kind: 'deal', id: d.id }),
+    })),
     ...incidents.filter((x) => x.status === 'open' && x.level === 'error').map((x) => ({
       id: `inc-${x.id}`, kind: '运行异常', tone: 'danger' as const, title: x.title, sub: `${x.module} · 共 ${x.count} 次`, at: x.last_at, action: '去看看',
       onClick: () => { go('settings'); setSection('incidents'); setDrawer({ kind: 'incident', id: x.id }) },
@@ -636,7 +686,7 @@ export default function App() {
       id: `pv-${x.id}`, kind: '连接异常', tone: 'danger' as const, title: `模型服务商「${x.name}」异常`, sub: x.error ?? '', action: '去修复',
       onClick: () => { go('settings'); setSection('providers'); setDrawer({ kind: 'provider', id: x.id }) },
     })),
-  ] }, [runs, agentRuns, agents, sessions, messages, incidents, connectors, providers, tasks, dev.progress, projects, bench.modules])
+  ] }, [runs, agentRuns, agents, sessions, messages, incidents, connectors, providers, tasks, dev.progress, projects, bench.modules, deals])
   const todaySchedules: TodayLine[] = useMemo(() => schedules.filter((x) => x.enabled).map((x) => ({ x, n: nextRun(x.rule) }))
     .filter(({ n }) => n && n.toDateString() === new Date().toDateString())
     .map(({ x, n }) => ({ id: x.id, title: x.name, sub: whenText(n).replace('今天 ', ''), onClick: () => { setPage('tasks'); setTaskView('schedules'); setDrawer({ kind: 'schedule', id: x.id }) } })), [schedules])
@@ -863,6 +913,53 @@ export default function App() {
   // 命令面板的条目：跳转、操作、各模块的数据；只放当前工作台开着的模块
   // 只在面板打开那一刻拼一次，平时不拼；工作台切换、原型启停各自一组，输入后才出现
   const has = (p: Page) => MENU.some((m) => m.key === p)
+
+  // 内容日历和商单（VID-06p、VID-08p）
+  /** 定时任务里显示发布记录用的名字：「平台 · 标题」 */
+  const pubNames = useMemo(() => publishes.map((p) => ({ id: p.id, name: `${PLATFORMS.find((x) => x.key === p.platform)?.label ?? p.platform} · ${p.title || videos.find((v) => v.id === p.video_id)?.title || '未填标题'}` })), [publishes, videos])
+  /** 发布记录页只看这一集（发布抽屉在发布记录页里面，从外面打不开具体一条） */
+  const openPublishOf = (p: Publish) => { setPage('videos'); setDrawer(null); setVideoFrom(undefined); setPublishFilter(p.video_id); setVideoView('publish') }
+  /** 日历上把发布挪到另一天：时刻不变；已定时的，定时任务由 syncPublishSchedules 跟着改 */
+  const movePublish = (id: string, date: string) => setPublishes((xs) => xs.map((p) => {
+    if (p.id !== id || !p.scheduled_at) return p
+    const d = new Date(p.scheduled_at)
+    const [y, m, dd] = date.split('-').map(Number)
+    d.setFullYear(y, m - 1, dd)
+    return { ...p, scheduled_at: d.toISOString() }
+  }))
+  const moveTarget = (id: string, date: string) => setVideos((xs) => xs.map((v) => (v.id === id ? { ...v, target_date: date, updated_at: new Date().toISOString() } : v)))
+  const openDeal = (id: string) => setDrawer({ kind: 'deal', id })
+  /** IM 消息转商单：转过的打开，没转过的按发信人预填询价人、品牌（联系人的公司）、项目（消息所在会话挂的项目） */
+  const openDealFromMessage = (mid: string) => {
+    const existing = deals.find((d) => d.source_message_id === mid)
+    if (existing) { setDrawer({ kind: 'deal', id: existing.id }); return }
+    const m = messages.find((x) => x.id === mid)
+    if (!m) return
+    const who = contactFor(m, contacts)
+    const pj = projects.find((x) => projectMessages(x, [m], contacts).length > 0)
+    setDrawer({ kind: 'new-deal', initial: { source_message_id: mid, contact_id: who?.id, brand: who?.company ?? '', project_id: pj?.id ?? projects[0]?.id ?? '' } })
+  }
+  const saveDeal = (d: Deal) => {
+    const creating = !deals.some((y) => y.id === d.id)
+    setDeals((xs) => (xs.some((y) => y.id === d.id) ? xs.map((y) => (y.id === d.id ? d : y)) : [d, ...xs]))
+    // 挂上的视频没有项目的，归到商单的项目
+    setVideos((xs) => xs.map((v) => (d.video_ids.includes(v.id) && !v.project_id ? { ...v, project_id: d.project_id } : v)))
+    // 新建的落到项目的商单标签，抽屉开着
+    if (creating && has('projects')) { setPage('projects'); setProjectId(d.project_id); setProjectTab('deals') }
+    setDrawer({ kind: 'deal', id: d.id })
+  }
+  /** 出结案报告：写一篇文档（重出就覆盖原来那篇），挂进项目文档，商单记下它 */
+  const makeDealReport = (d: Deal) => {
+    const now = new Date().toISOString()
+    const title = `${d.brand} · ${d.title} 结案报告`
+    const body = dealReport(d, videos, publishes)
+    const id = d.report_content_id && content.some((c) => c.id === d.report_content_id) ? d.report_content_id : newId('dc')
+    setContent((xs) => (xs.some((c) => c.id === id) ? xs.map((c) => (c.id === id ? { ...c, body, updated_at: now } : c))
+      : [{ id, category: 'doc', title, body, source: `商单「${d.title}」`, tags: ['商单', '结案报告'], starred: false, updated_at: now }, ...xs]))
+    setProjects((xs) => xs.map((pj) => (pj.id !== d.project_id || pj.docs.some((x) => x.source.type === 'library' && x.source.content_id === id) ? pj
+      : { ...pj, docs: [...pj.docs, { id: newId('pd'), title, kind: '其他', status: 'final', source: { type: 'library', content_id: id }, updated_at: now }] })))
+    setDeals((xs) => xs.map((y) => (y.id === d.id ? { ...y, report_content_id: id, updated_at: now } : y)))
+  }
   const goto = (p: Page) => () => go(p)
   const buildPaletteItems = (): PaletteItem[] => [
     { id: 'c-quick-session', group: '操作', title: '新建会话', sub: '挑个 Agent 直接开聊（⌘J）', keywords: 'session chat agent 会话 对话 新建', run: () => setQuickSession(true) },
@@ -1139,6 +1236,7 @@ export default function App() {
         onOpenContact={(id) => setDrawer({ kind: 'contact', id })}
         onSaveContact={() => setDrawer({ kind: 'new-contact', initial: { name: m.sender_name, im: { [m.channel]: m.sender_id }, group: '其他' } })}
         task={tasks.find((t) => t.source.kind === 'im' && t.source.message_id === m.id)} onToTask={() => openTaskFromMessage(m.id)}
+        deal={deals.find((d) => d.source_message_id === m.id)} onToDeal={has('videos') ? () => openDealFromMessage(m.id) : undefined}
         onFixConnector={() => { const cid = m.connector_id; go('settings'); setSection('connectors'); setDrawer({ kind: 'connector', id: cid }) }}
         projects={projects} msgProjects={projects.filter((pj) => projectMessages(pj, [m], contacts).length > 0).map((pj) => pj.id)}
         onFetchAttachment={(aid) => fetchAttachment(m.id, aid)} onAddAttachment={(aid, pid) => addAttachmentToProject(pid, m.id, aid)} />
@@ -1246,12 +1344,31 @@ export default function App() {
   if (drawer?.kind === 'schedule' || drawer?.kind === 'new-schedule') {
     const sc = drawer.kind === 'schedule' ? schedules.find((x) => x.id === drawer.id) ?? null : null
     if (drawer.kind === 'new-schedule' || sc) drawerEl = (
-      <ScheduleDrawer key={sc?.id ?? 'new'} schedule={sc} sops={sops} agents={agents} assignees={assignees}
+      <ScheduleDrawer key={sc?.id ?? 'new'} schedule={sc} sops={sops} agents={agents} assignees={assignees} publishes={pubNames}
+        onOpenPublish={(id) => { const p = publishes.find((x) => x.id === id); if (p) openPublishOf(p) }}
+        onOpenCalendar={has('videos') ? () => { setPage('videos'); setDrawer(null); setVideoView('calendar') } : undefined}
         onClose={() => setDrawer(null)}
         onSave={(x) => { setSchedules((xs) => (xs.some((y) => y.id === x.id) ? xs.map((y) => (y.id === x.id ? x : y)) : [x, ...xs])); setDrawer({ kind: 'schedule', id: x.id }) }}
         onDelete={() => { setSchedules((xs) => xs.filter((y) => y.id !== sc?.id)); setDrawer(null) }}
         onRunNow={runScheduleNow}
         openTask={(ref) => { const t = tasks.find((x) => x.ref === ref); return t && (() => setDrawer({ kind: 'task', id: t.id })) }} />
+    )
+  }
+
+  if (drawer?.kind === 'deal' || drawer?.kind === 'new-deal') {
+    const dl = drawer.kind === 'deal' ? deals.find((x) => x.id === drawer.id) ?? null : null
+    const init = drawer.kind === 'new-deal' ? drawer.initial : undefined
+    const srcId = dl?.source_message_id ?? init?.source_message_id
+    if (drawer.kind === 'new-deal' || dl) drawerEl = (
+      <DealDrawer key={dl?.id ?? `new-${srcId ?? ''}`} deal={dl} initial={init} projects={projects} contacts={contacts} videos={videos} publishes={publishes} artifacts={artifacts}
+        message={srcId ? messages.find((m) => m.id === srcId) : undefined}
+        onClose={() => setDrawer(null)} onSave={saveDeal}
+        onDelete={() => { setDeals((xs) => xs.filter((y) => y.id !== dl?.id)); setDrawer(null) }}
+        onReport={makeDealReport}
+        onOpenReport={(cid) => { setDrawer(null); setPage('library'); switchWs('builtin'); setReading(cid) }}
+        onOpenVideo={(id) => { setDrawer(null); setPage('videos'); openVideo(id) }}
+        onOpenMessage={has('messages') ? (id) => { setPage('messages'); setDrawer({ kind: 'message', id }) } : undefined}
+        onReview={(aid, r) => setArtifacts((xs) => xs.map((a) => (a.id === aid ? { ...a, reviews: [...a.reviews, r] } : a)))} />
     )
   }
 
@@ -1365,7 +1482,7 @@ export default function App() {
               onStar={(id) => patchContact(id, { starred: !contacts.find((c) => c.id === id)?.starred })} />
           )}
           {page === 'tasks' && taskView === 'schedules' && (
-            <SchedulesPage schedules={schedules} sops={sops} agents={agents} selected={drawer?.kind === 'schedule' ? drawer.id : null}
+            <SchedulesPage schedules={schedules} sops={sops} agents={agents} publishes={pubNames} selected={drawer?.kind === 'schedule' ? drawer.id : null}
               onOpen={(id) => setDrawer({ kind: 'schedule', id })} onNew={() => setDrawer({ kind: 'new-schedule' })}
               onToggle={(id, on) => setSchedules((xs) => xs.map((y) => (y.id === id ? { ...y, enabled: on } : y)))} />
           )}
@@ -1471,6 +1588,9 @@ export default function App() {
                 onOpenDoc={(cid) => { setPage('library'); switchWs('builtin'); setReading(cid) }}
                 onChat={(agentId) => newSession(agentId, pj.id)}
                 onOpenAgent={(id) => { go('settings'); setSection('agents'); setAgentView(id) }}
+                deals={has('videos') ? <DealsTab project={pj} deals={deals} videos={videos} selected={drawer?.kind === 'deal' ? drawer.id : null} onOpen={openDeal}
+                  onNew={() => setDrawer({ kind: 'new-deal', initial: { project_id: pj.id } })} /> : undefined}
+                dealAlert={has('videos') && dueDeals(deals).some((d) => d.project_id === pj.id)}
                 links={{
                   messages, contacts, tasks, sops, runs, sessions,
                   connectors: connectors.filter((c) => TOOLS.find((t) => t.key === c.tool)?.category === 'im'),
@@ -1505,6 +1625,10 @@ export default function App() {
             <VideosListPage view={videoView} videos={videos} artifacts={artifacts} series={series} projects={projects} onOpen={openVideo} onNew={newVideo} onView={setVideoView}
               tabs={videoTabs} onSeries={setSeries} onVideos={setVideos} />
           )}
+          {page === 'videos' && videoView === 'calendar' && (
+            <CalendarPage videos={videos} publishes={publishes} deals={deals} tabs={videoTabs} onMovePublish={movePublish} onMoveTarget={moveTarget}
+              onOpenVideo={openVideo} onOpenPublish={openPublishOf} onOpenDeal={openDeal} />
+          )}
           {page === 'videos' && videoView === 'topics' && (
             <TopicsPage topics={topics} clips={clips} series={series} videos={videos} focus={topicFocus} onTopics={setTopics} onClips={setClips}
               onMakeVideo={makeVideoFromTopic} onOpenVideo={openVideo} tabs={videoTabs} />
@@ -1518,12 +1642,8 @@ export default function App() {
           )}
           {page === 'videos' && videoView === 'publish' && (
             <PublishPage publishes={publishes} videos={videos} artifacts={artifacts} videoId={publishFilter} onPublishes={setPublishes}
-              channels={Object.fromEntries(PLATFORMS.map((pl) => {
-                const c = connectors.find((x) => x.tool === PLATFORM_TOOL[pl.key])
-                const canPublish = TOOLS.find((t) => t.key === PLATFORM_TOOL[pl.key])?.catalog?.some((d) => d.write && /upload|create_video/.test(d.name))
-                const st: ChannelState = !c ? { state: 'none' } : c.status === 'error' ? { state: 'error', name: c.name, error: c.error } : c.status !== 'connected' ? { state: 'none' } : { state: canPublish ? 'ok' : 'manual', name: c.name }
-                return [pl.key, st]
-              })) as Record<(typeof PLATFORMS)[number]['key'], ChannelState>}
+              onArtifacts={setArtifacts}
+              channels={Object.fromEntries(PLATFORMS.map((pl) => [pl.key, channelOf(pl.key)])) as Record<(typeof PLATFORMS)[number]['key'], ChannelState>}
               onConnect={(k) => {
                 const c = connectors.find((x) => x.tool === PLATFORM_TOOL[k])
                 setPage('settings'); setSection('connectors'); setConnCat('media')

@@ -67,7 +67,9 @@ export const ARTIFACT_STATUS: Record<ArtifactStatus, { label: string; color: str
   published: { label: '已发布', color: '#3d4fd6' },
 }
 
-export interface Review { at: string; ok: boolean; comment: string }
+/** 谁验收的：自己，或者外部审核人（商单的客户，联系人 id） */
+export type ReviewBy = { type: 'me' | 'contact'; id?: string }
+export interface Review { at: string; ok: boolean; comment: string; by?: ReviewBy }
 
 export interface Artifact {
   id: string
@@ -351,6 +353,8 @@ export interface Video {
   /** 各阶段配的执行器，一个阶段最多一个 */
   runners?: StageRunner[]
   last_run?: LastRun
+  /** 计划首发日 YYYY-MM-DD：排内容日历、算制作进度落不落后 */
+  target_date?: string
   created_at: string
   updated_at: string
 }
@@ -366,6 +370,15 @@ export function videoState(v: Video): { label: string; tone: 'ok' | 'warn' | 'in
 
 const minsAgo = (m: number) => new Date(Date.now() - m * 60000).toISOString()
 const day = 60 * 24
+const pad2 = (n: number) => String(n).padStart(2, '0')
+/** 本地日期 YYYY-MM-DD */
+export const localYmd = (d: Date) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`
+/** 今天往后第 n 天（负数往前）的本地日期 */
+const daysFromNow = (n: number) => { const d = new Date(); d.setDate(d.getDate() + n); return localYmd(d) }
+/** 今天往后第 n 天本地 hh:mm 的时刻 */
+const atDay = (n: number, hm: string) => { const d = new Date(); d.setDate(d.getDate() + n); const [h, m] = hm.split(':').map(Number); d.setHours(h, m, 0, 0); return d.toISOString() }
+/** 离下一个周三还有几天（今天是周三就算下周三）：AI 系列每周三更 */
+const toWed = ((3 - new Date().getDay() + 7) % 7) || 7
 // 视频时间线：from = 视频创建，to = 最后一个已过阶段的时刻（都写成「多少分钟前」，to 不晚于 updated_at）
 // 检查点按阶段在 from 和 to 之间排开，分发包检查点正好落在 to；产出物落在所属阶段的中段，早于该阶段的检查点
 type Span = [from: number, to: number]
@@ -375,7 +388,7 @@ const cps = (passed: StageKey[], span: Span): Checkpoint[] => STAGES.filter((s) 
   state: passed.includes(s.key) ? 'passed' : 'pending',
   at: passed.includes(s.key) ? stageAt(span, s.key) : undefined,
 }))
-const SPAN: Record<string, Span> = { vd1: [day * 20, day * 7], vd2: [day * 5, 60 * 4], vd3: [day * 1, 60 * 2], vd4: [day * 8, 60 * 21] }
+const SPAN: Record<string, Span> = { vd1: [day * 20, day * 7], vd2: [day * 5, 60 * 4], vd3: [day * 1, 60 * 2], vd4: [day * 8, 60 * 21], vd5: [day * 40, day * 11] }
 // AI 系列：第 ep 集的创建时间和最近更新时间（分钟前）；to 比 updated 早一小时
 const aiCreated = (ep: number) => day * (70 - ep * 2)
 const aiUpdated = (ep: number) => day * Math.max(0, 33 - ep) + ep * 7
@@ -424,6 +437,8 @@ function aiSeries(): Video[] {
     return {
       id, title: `第 ${ep} 集：${t}`, series_id: 'sr_ai', episode: ep, orientations: ['portrait'], stage, checkpoints,
       root: `videos/ai100/ep${String(ep).padStart(2, '0')}`, chapters: 3, runners: ep > AI_DONE ? AI_RUNNERS : undefined, last_run,
+      // 已开工的第 19 到 26 集排好了每周三首发，再往后的还没排
+      target_date: ep >= 19 && ep <= 26 ? daysFromNow(toWed + (ep - 19) * 7) : undefined,
       created_at: minsAgo(aiCreated(ep)), updated_at: minsAgo(aiUpdated(ep)),
     }
   })
@@ -431,11 +446,13 @@ function aiSeries(): Video[] {
 
 export const seedVideos: Video[] = [
   { id: 'vd1', title: '第 1 集：今日待办一页清', project_id: 'pj_pmw', series_id: 'sr_pmw', episode: 1, orientations: ['landscape', 'portrait'], stage: 'distribution', checkpoints: cps(['plan', 'ch1', 'audio', 'distribution'], SPAN.vd1), root: 'videos/ep01-today', chapters: 5, created_at: minsAgo(day * 20), updated_at: minsAgo(day * 6) },
-  { id: 'vd2', title: '第 2 集：SOP 编排像搭积木', project_id: 'pj_pmw', series_id: 'sr_pmw', episode: 2, orientations: ['landscape', 'portrait'], stage: 'ch1', checkpoints: cps(['plan'], SPAN.vd2), root: 'videos/ep02-sop', chapters: 6, created_at: minsAgo(day * 5), updated_at: minsAgo(60 * 3) },
-  { id: 'vd3', title: '第 3 集：Agent 怎么配才放心', project_id: 'pj_pmw', series_id: 'sr_pmw', episode: 3, orientations: ['landscape'], stage: 'script', checkpoints: cps([], SPAN.vd3), root: 'videos/ep03-agent', chapters: 4,
+  { id: 'vd2', title: '第 2 集：SOP 编排像搭积木', project_id: 'pj_pmw', series_id: 'sr_pmw', episode: 2, orientations: ['landscape', 'portrait'], stage: 'ch1', checkpoints: cps(['plan'], SPAN.vd2), root: 'videos/ep02-sop', chapters: 6, target_date: daysFromNow(4), created_at: minsAgo(day * 5), updated_at: minsAgo(60 * 3) },
+  { id: 'vd3', title: '第 3 集：Agent 怎么配才放心', project_id: 'pj_pmw', series_id: 'sr_pmw', episode: 3, orientations: ['landscape'], stage: 'script', checkpoints: cps([], SPAN.vd3), root: 'videos/ep03-agent', chapters: 4, target_date: daysFromNow(16),
     runners: [{ stage: 'script', type: 'sop', ref_id: 'sop_video_weekly', prompt: '从原文出口播稿和大纲，跑到规划检查停下' }], created_at: minsAgo(day * 1), updated_at: minsAgo(90) },
   ...aiSeries(),
-  { id: 'vd4', title: '远川权限改造演示片', project_id: 'pj_perm', orientations: ['landscape'], stage: 'record', checkpoints: cps(['plan', 'ch1', 'audio'], SPAN.vd4), root: 'demo-video', chapters: 3, created_at: minsAgo(day * 8), updated_at: minsAgo(60 * 20) },
+  // 远川的两支商单片：试点上线短片已交付发布，权限改造演示片在录屏
+  { id: 'vd4', title: '远川权限改造演示片', project_id: 'pj_perm', orientations: ['landscape'], stage: 'record', checkpoints: cps(['plan', 'ch1', 'audio'], SPAN.vd4), root: 'demo-video', chapters: 3, target_date: daysFromNow(6), created_at: minsAgo(day * 8), updated_at: minsAgo(60 * 20) },
+  { id: 'vd5', title: '远川科技试点上线短片', project_id: 'pj_perm', orientations: ['landscape'], stage: 'distribution', checkpoints: cps(['plan', 'ch1', 'audio', 'distribution'], SPAN.vd5), root: 'videos/yc-pilot', chapters: 3, target_date: daysFromNow(-10), created_at: minsAgo(day * 40), updated_at: minsAgo(day * 10) },
 ]
 
 let n = 0
@@ -475,7 +492,8 @@ export const seedArtifacts: Artifact[] = [
   art('vd2', 'presentation', '演示工程（第 1 章）', 'presentation-portrait', 'draft', { variant: 'portrait' }),
   art('vd3', 'script', '口播稿', 'script-landscape.md', 'draft', { variant: 'landscape', source: { type: 'manual', label: '手写' } }),
   art('vd4', 'script', '口播稿', 'script-landscape.md', 'final', { variant: 'landscape' }),
-  art('vd4', 'presentation', '演示工程', 'presentation-landscape', 'final', { variant: 'landscape' }),
+  // 演示工程给远川的许知行看过（外部审核人）
+  art('vd4', 'presentation', '演示工程', 'presentation-landscape', 'final', { variant: 'landscape', reviews: [{ at: minsAgo(day * 3), ok: true, comment: '部门自定义角色那段讲清楚了，按这个往下录', by: { type: 'contact', id: 'ct_005' } }] }),
   art('vd4', 'audio', '口播音频（3 章）', 'audio/', 'final', { duration: 214 }),
   // AI 系列已完成的集：成片、选用的封面、简介，都已随视频号发布
   // 第 15 集做过封面 A/B：三张各发一个号，第 2 张胜出成了主封面，另两张归档
@@ -492,6 +510,13 @@ export const seedArtifacts: Artifact[] = [
       art(v.id, 'description', '简介', 'description-portrait.md', 'final', { variant: 'portrait' }),
     ]
   }),
+  // 远川试点上线短片：成片由远川的许知行验收，退回过一次
+  art('vd5', 'script', '口播稿', 'script-landscape.md', 'final', { variant: 'landscape' }),
+  art('vd5', 'presentation', '演示工程', 'presentation-landscape', 'final', { variant: 'landscape' }),
+  art('vd5', 'video', '成片', 'out/yc-pilot-16x9.mp4', 'published', { variant: 'landscape', duration: 186, version: 2,
+    reviews: [{ at: minsAgo(day * 12.5), ok: false, comment: '片尾加上远川的标志和官网地址', by: { type: 'contact', id: 'ct_005' } }, { at: minsAgo(day * 12), ok: true, comment: '可以上线', by: { type: 'contact', id: 'ct_005' } }] }),
+  art('vd5', 'cover', '封面 1', 'cover/16x9-1.png', 'published', { variant: 'landscape', ratio: '16x9', option: 1, picked: true }),
+  art('vd5', 'description', '简介', 'description-landscape.md', 'final', { variant: 'landscape' }),
 ]
 /** 平台账号：主号都挂着设置里的连接器；视频号两个 A/B 小号和远川的客户号是手动登记的，只能回填数据 */
 export const seedAccounts: PlatformAccount[] = [
@@ -523,8 +548,19 @@ export const seedPublishes: Publish[] = [
     account_id: 'pa_ch_a', metrics: { ...byCtr(12600, 0.071), likes: 41, comments: 3, shares: 6, avg_watch_sec: 137, completion: 0.21, updated_at: minsAgo(60 * 30) } },
   { id: 'pb2b', video_id: 'vd1', platform: 'channels', variant: 'portrait', cover_id: vd1Cover('9x16', 4), title: '今日待办一页清', desc: '一页看完今天要处理的事', status: 'published', published_at: minsAgo(day * 5), url: 'https://channels.weixin.qq.com/web/pages/feed?id=ep01today-b',
     account_id: 'pa_ch_b', metrics: { ...byCtr(8900, 0.102), likes: 52, comments: 4, shares: 9, avg_watch_sec: 144, completion: 0.23, updated_at: minsAgo(60 * 30) } },
-  { id: 'pb3', video_id: 'vd1', platform: 'douyin', variant: 'portrait', cover_id: vd1Cover('1x1', 1), title: '今日待办一页清', desc: '', status: 'failed', error: '封面比例不符合要求：抖音要 3:4 或 9:16，这次用的是 1:1', account_id: 'pa_dy' },
+  { id: 'pb3', video_id: 'vd1', platform: 'douyin', variant: 'portrait', cover_id: vd1Cover('1x1', 1), title: '今日待办一页清', desc: '', status: 'failed', scheduled_at: minsAgo(day * 5), error: '封面比例不符合要求：抖音要 3:4 或 9:16，这次用的是 1:1', account_id: 'pa_dy' },
   { id: 'pb4', video_id: 'vd1', platform: 'youtube', variant: 'landscape', cover_id: vd1Cover('16x9', 2), title: 'One Page for Today', desc: '', status: 'scheduled', scheduled_at: new Date(Date.now() + day * 60000 * 2).toISOString(), account_id: 'pa_yt', category: '教育' },
+  // 第 2 集：B 站已定时、视频号计划发，第一章还没验收，日历上标红
+  { id: 'pb5', video_id: 'vd2', platform: 'bilibili', variant: 'landscape', title: '一人之下 10 分钟上手 02｜SOP 编排像搭积木', desc: '把重复的活编成 SOP，一步步跑', status: 'scheduled', scheduled_at: atDay(4, '20:00'),
+    account_id: 'pa_bili', tags: ['效率工具', 'SOP', '自动化'], category: '知识', collection: '一人之下 10 分钟上手' },
+  { id: 'pb6', video_id: 'vd2', platform: 'channels', variant: 'portrait', title: 'SOP 编排像搭积木', desc: '把重复的活编成 SOP', status: 'planned', scheduled_at: atDay(5, '12:00'), account_id: 'pa_ch' },
+  // AI 系列接下来两集：视频号只能手动登记，先排成计划
+  { id: 'pb_ai19', video_id: 'ai_19', platform: 'channels', variant: 'portrait', title: `AI 工具 100 讲 19｜${AI_TOPICS[18]}`, desc: '5 分钟讲一个 AI 工具的真实用法', status: 'planned', scheduled_at: atDay(toWed, '20:00'), account_id: 'pa_ch', collection: 'AI 工具 100 讲' },
+  { id: 'pb_ai20', video_id: 'ai_20', platform: 'channels', variant: 'portrait', title: `AI 工具 100 讲 20｜${AI_TOPICS[19]}`, desc: '5 分钟讲一个 AI 工具的真实用法', status: 'planned', scheduled_at: atDay(toWed + 7, '20:00'), account_id: 'pa_ch', collection: 'AI 工具 100 讲' },
+  // 远川试点上线短片发在远川自己的 B 站号，数据由远川给截图回填
+  { id: 'pb_yc1', video_id: 'vd5', platform: 'bilibili', variant: 'landscape', cover_id: seedArtifacts.find((a) => a.video_id === 'vd5' && a.kind === 'cover')?.id, title: '远川科技｜部门权限试点上线了', desc: '远川科技用一人之下把权限按部门管起来的第一个月', status: 'published', published_at: minsAgo(day * 10), url: 'https://www.bilibili.com/video/BV1yc',
+    account_id: 'pa_bili_yc', tags: ['企业服务', '权限'], category: '科技',
+    metrics: { views: 8640, likes: 402, comments: 37, shares: 51, impressions: 98200, ctr: 0.088, avg_watch_sec: 121, completion: 0.41, favorites: 233, coins: 96, followers_gained: 140, updated_at: minsAgo(60 * 6) } },
   // AI 系列：每集分发包通过后两小时发视频号
   ...seedVideos.filter((v) => v.series_id === 'sr_ai' && (v.episode ?? 0) <= AI_DONE).map((v, i): Publish => {
     const ep = v.episode ?? 0
@@ -586,4 +622,186 @@ export const seedCoverTests: CoverTest[] = [
     }
     return t
   })(),
+]
+
+/* ---------- 内容日历 ---------- */
+
+/** 离计划首发日不到这么多天还没过第一章验收，就算进度落后 */
+export const LATE_DAYS = 7
+const DAY_MS = 86400000
+/** 两个本地日期 YYYY-MM-DD 差几天（b - a） */
+export const daysBetween = (a: string, b: string) => Math.round((new Date(`${b}T00:00`).getTime() - new Date(`${a}T00:00`).getTime()) / DAY_MS)
+
+/** 制作进度落后：排了首发日，离首发日不到 LATE_DAYS 天（或已经过了），第一章验收还没通过 */
+export function isBehind(v: Video, today = localYmd(new Date())): boolean {
+  if (!v.target_date) return false
+  if (v.checkpoints.find((c) => c.stage === 'ch1')?.state === 'passed') return false
+  return daysBetween(today, v.target_date) <= LATE_DAYS
+}
+
+/** 日历格子里的一条：发布、计划首发日、商单交付截止 */
+export interface CalendarItem {
+  /** YYYY-MM-DD，本地日期 */
+  date: string
+  kind: 'publish' | 'target' | 'deal_deadline'
+  ref_id: string
+  label: string
+  tone: 'ok' | 'warn' | 'danger' | 'muted'
+  /** 发布：具体时刻、状态、平台 */
+  at?: string
+  status?: PublishStatus
+  platform?: PlatformKey
+  video_id?: string
+  /** 能不能拖动改日期：计划中、已定时的发布和没完成的首发日能拖，其余只看 */
+  movable: boolean
+}
+
+/** 把发布、首发日、商单截止排成日历条目；没有日期的发布不上日历 */
+export function calendarItems(videos: Video[], publishes: Publish[], deals: Deal[], today = localYmd(new Date())): CalendarItem[] {
+  const out: CalendarItem[] = []
+  for (const p of publishes) {
+    const at = p.status === 'published' ? p.published_at : p.scheduled_at
+    if (!at) continue
+    const v = videos.find((x) => x.id === p.video_id)
+    out.push({
+      date: localYmd(new Date(at)), kind: 'publish', ref_id: p.id, label: p.title || v?.title || '未填标题', at, status: p.status, platform: p.platform, video_id: p.video_id,
+      tone: p.status === 'failed' ? 'danger' : p.status === 'published' ? 'ok' : 'muted', movable: p.status === 'planned' || p.status === 'scheduled',
+    })
+  }
+  for (const v of videos) {
+    if (!v.target_date) continue
+    const done = videoState(v).tone === 'ok'
+    out.push({ date: v.target_date, kind: 'target', ref_id: v.id, label: v.title, video_id: v.id, tone: done ? 'ok' : isBehind(v, today) ? 'danger' : 'muted', movable: !done })
+  }
+  for (const d of deals) {
+    if (!d.deadline || ['delivered', 'paid', 'lost'].includes(d.status)) continue
+    out.push({ date: d.deadline, kind: 'deal_deadline', ref_id: d.id, label: `${d.brand}：${d.title}`, tone: daysBetween(today, d.deadline) <= 3 ? 'warn' : 'muted', movable: false })
+  }
+  return out
+}
+
+/* ---------- 商单 ---------- */
+
+// 商单挂在项目下：客户、对接人、决策人都是项目干系人；视频挂到商单上，发布 7 天后出结案报告存进文档
+export type DealStatus = 'inquiry' | 'quoted' | 'signed' | 'producing' | 'client_review' | 'delivered' | 'paid' | 'lost'
+export const DEAL_STATUS: Record<DealStatus, { label: string; color: string }> = {
+  inquiry: { label: '询价', color: '#a19d92' },
+  quoted: { label: '已报价', color: '#7a4fd6' },
+  signed: { label: '已签约', color: '#3d4fd6' },
+  producing: { label: '制作中', color: '#0f8a8a' },
+  client_review: { label: '客户审核', color: '#b0570b' },
+  delivered: { label: '已交付', color: '#2f7d43' },
+  paid: { label: '已收款', color: '#2f7d43' },
+  lost: { label: '丢单', color: '#c0352b' },
+}
+/** 正常流转的顺序；丢单可以从收款前的任一步进 */
+export const DEAL_FLOW: DealStatus[] = ['inquiry', 'quoted', 'signed', 'producing', 'client_review', 'delivered', 'paid']
+
+export interface Deal {
+  id: string
+  /** 客户、对接人都在项目干系人里 */
+  project_id: string
+  /** 询价人（联系人 id） */
+  contact_id?: string
+  brand: string
+  title: string
+  platforms: PlatformKey[]
+  /** 交付物：1 支横版 + 1 支竖版 + 置顶评论 */
+  deliverables: string
+  quote: number
+  currency: 'CNY' | 'USD'
+  status: DealStatus
+  /** 交付截止 YYYY-MM-DD */
+  deadline?: string
+  /** 账期：最晚收款日 YYYY-MM-DD */
+  pay_due?: string
+  video_ids: string[]
+  /** 从哪条 IM 消息转来的 */
+  source_message_id?: string
+  /** 结案报告：落在文档里的那篇 */
+  report_content_id?: string
+  /** 丢单原因 */
+  lost_reason?: string
+  /** 状态变化记录，新的在前 */
+  history: { status: DealStatus; at: string }[]
+  created_at: string
+  updated_at: string
+}
+
+/** 账期提示：已交付没收款，离最晚收款日不到 7 天提醒，过了标红 */
+export function payState(d: Deal, today = localYmd(new Date())): { days: number; tone: 'warn' | 'danger' } | null {
+  if (d.status !== 'delivered' || !d.pay_due) return null
+  const days = daysBetween(today, d.pay_due)
+  if (days > 7) return null
+  return { days, tone: days < 0 ? 'danger' : 'warn' }
+}
+
+/** 发布满几天出结案报告 */
+export const REPORT_DAYS = 7
+/** 结案报告能不能出：商单视频最早一条已发布的记录满 7 天；还没发布返回 null */
+export function reportState(d: Deal, publishes: Publish[], now = Date.now()): { ready: boolean; left: number } | null {
+  const first = publishes.filter((p) => d.video_ids.includes(p.video_id) && p.status === 'published' && p.published_at).map((p) => Date.parse(p.published_at!)).sort((a, b) => a - b)[0]
+  if (first == null) return null
+  const passed = Math.floor((now - first) / DAY_MS)
+  return { ready: passed >= REPORT_DAYS, left: Math.max(0, REPORT_DAYS - passed) }
+}
+
+/** 报价参考：每千次播放折多少钱（元），乘近 30 天均播 */
+export const QUOTE_CPM = 150
+/** 近 30 天这些平台上已发布记录的平均播放（最新一条快照就是 Publish.metrics） */
+export function avgViews30(publishes: Publish[], platforms: PlatformKey[], now = Date.now()): { avg: number; n: number } {
+  const xs = publishes.filter((p) => p.status === 'published' && p.published_at && p.metrics && (!platforms.length || platforms.includes(p.platform)) && now - Date.parse(p.published_at) <= 30 * DAY_MS)
+  return { avg: xs.length ? Math.round(xs.reduce((s, p) => s + p.metrics!.views, 0) / xs.length) : 0, n: xs.length }
+}
+
+/** 结案报告正文（轻量 Markdown，存进文档） */
+export function dealReport(d: Deal, videos: Video[], publishes: Publish[], now = Date.now()): string {
+  const pubs = publishes.filter((p) => d.video_ids.includes(p.video_id) && p.status === 'published')
+  const sum = (k: 'views' | 'likes' | 'comments' | 'shares') => pubs.reduce((s, p) => s + (p.metrics?.[k] ?? 0), 0)
+  const plat = (k: PlatformKey) => PLATFORMS.find((x) => x.key === k)?.label ?? k
+  const money = `${d.currency === 'CNY' ? '¥' : '$'}${d.quote.toLocaleString('zh-CN')}`
+  // 标题就是文档标题，正文从说明开始；每节一段，节内列表一行一条
+  return [
+    `> 生成于 ${new Date(now).toLocaleString('zh-CN')}，数据取各平台最近一次回填`,
+    '## 合作概况',
+    [`- 品牌：${d.brand}`,
+      `- 交付物：${d.deliverables || '未填'}`,
+      `- 报价：${money}`,
+      `- 投放平台：${d.platforms.map(plat).join('、') || '未填'}`,
+      `- 视频：${d.video_ids.map((id) => videos.find((v) => v.id === id)?.title ?? '已删除的视频').join('、') || '没有关联视频'}`].join('\n'),
+    '## 数据汇总',
+    `- 播放 ${sum('views').toLocaleString('zh-CN')}，点赞 ${sum('likes').toLocaleString('zh-CN')}，评论 ${sum('comments').toLocaleString('zh-CN')}，转发 ${sum('shares').toLocaleString('zh-CN')}`,
+    '## 各平台明细',
+    pubs.map((p) => {
+      const m = p.metrics
+      const ctr = m?.ctr != null ? `，点击率 ${(m.ctr * 100).toFixed(1)}%` : ''
+      const done = m?.completion != null ? `，完播率 ${(m.completion * 100).toFixed(0)}%` : ''
+      return `- ${plat(p.platform)}「${p.title}」：发布 ${dayAfter(p.published_at!, new Date(now).toISOString())} 天，播放 ${(m?.views ?? 0).toLocaleString('zh-CN')}${ctr}${done}${p.url ? `，链接 ${p.url}` : ''}`
+    }).join('\n') || '- 还没有已发布的记录',
+    '## 结论',
+    '- 待补充：客户反馈、是否续约',
+  ].join('\n\n')
+}
+
+export const seedDeals: Deal[] = [
+  {
+    id: 'deal_yc1', project_id: 'pj_perm', contact_id: 'ct_006', brand: '远川科技', title: '试点上线短片', platforms: ['bilibili'],
+    deliverables: '1 支 3 分钟横版，发在远川自己的 B 站号；置顶评论放官网链接', quote: 12000, currency: 'CNY', status: 'delivered',
+    deadline: daysFromNow(-12), pay_due: daysFromNow(3), video_ids: ['vd5'],
+    history: [{ status: 'delivered', at: minsAgo(day * 10) }, { status: 'client_review', at: minsAgo(day * 13) }, { status: 'producing', at: minsAgo(day * 38) }, { status: 'signed', at: minsAgo(day * 40) }, { status: 'quoted', at: minsAgo(day * 41) }, { status: 'inquiry', at: minsAgo(day * 42) }],
+    created_at: minsAgo(day * 42), updated_at: minsAgo(day * 10),
+  },
+  {
+    id: 'deal_yc2', project_id: 'pj_perm', contact_id: 'ct_006', brand: '远川科技', title: '权限改造演示片', platforms: ['bilibili'],
+    deliverables: '1 支横版演示片（3 章），另剪 3 段 30 秒切片', quote: 18000, currency: 'CNY', status: 'producing',
+    deadline: daysFromNow(7), video_ids: ['vd4'],
+    history: [{ status: 'producing', at: minsAgo(day * 8) }, { status: 'signed', at: minsAgo(day * 9) }, { status: 'quoted', at: minsAgo(day * 11) }, { status: 'inquiry', at: minsAgo(day * 12) }],
+    created_at: minsAgo(day * 12), updated_at: minsAgo(day * 8),
+  },
+  {
+    id: 'deal_ba1', project_id: 'pj_beian', contact_id: 'ct_007', brand: '北岸物流', title: '审批流 demo 讲解视频', platforms: ['bilibili', 'channels'],
+    deliverables: '横版 1 支 + 竖版 1 支，讲运营后台审批流和司机端签收', quote: 9000, currency: 'CNY', status: 'quoted', video_ids: [],
+    history: [{ status: 'quoted', at: minsAgo(day * 20) }, { status: 'inquiry', at: minsAgo(day * 25) }],
+    created_at: minsAgo(day * 25), updated_at: minsAgo(day * 20),
+  },
 ]

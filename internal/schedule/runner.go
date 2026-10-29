@@ -216,7 +216,9 @@ func (r *Runner) execute(ctx context.Context, sc *Schedule, planned time.Time, m
 		}
 	case ActionTask:
 	default:
-		return r.s.insertRun(ctx, sc.ID, planned, manual, runResult{status: RunFailed, text: fmt.Sprintf("没执行：不认识的动作 %q", sc.Action.Kind)}, 0)
+		if r.s.plugins == nil {
+			return r.s.insertRun(ctx, sc.ID, planned, manual, runResult{status: RunFailed, text: fmt.Sprintf("没执行：不认识的动作 %q", sc.Action.Kind)}, 0)
+		}
 	}
 	// 先占住这个时刻再建任务：撞上唯一索引说明这一刻已经处理过
 	run, err := r.s.insertRun(ctx, sc.ID, planned, manual, runResult{status: RunRunning}, 0)
@@ -229,8 +231,10 @@ func (r *Runner) execute(ctx context.Context, sc *Schedule, planned time.Time, m
 		res = r.startAgent(ctx, sc, run.ID)
 	case ActionSOP:
 		res = r.startSOP(ctx, sc)
-	default:
+	case ActionTask:
 		res = r.createTask(ctx, sc, planned)
+	default:
+		res = r.runPlugin(ctx, sc, run, planned, manual)
 	}
 	if err := r.s.finishRun(ctx, run, res); err != nil {
 		return nil, err

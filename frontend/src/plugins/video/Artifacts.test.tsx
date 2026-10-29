@@ -220,6 +220,65 @@ describe('视频详情的产出物', () => {
   })
 })
 
+describe('制作流程里的产出物（VID-02b）', () => {
+  it('字幕列在录屏渲染、封面带封面比例，第一章验收列演示工程；点一条打开抽屉', async () => {
+    const user = userEvent.setup()
+    fakeBackend({
+      videos: [vid('ep1', { orientations: ['landscape', 'portrait'], stage: 'distribution' })],
+      artifacts: [
+        art('sub', { kind: 'subtitle', name: '字幕', path: 'subtitle/ep1-9x16.srt', variant: 'portrait', lang: 'zh' }),
+        art('cv', { kind: 'cover', name: '封面 1', path: 'cover/3x4-1.png', variant: 'portrait', ratio: '3x4', option: 1 }),
+        art('pr', { kind: 'presentation', name: '演示工程', path: 'presentation-landscape' }),
+      ],
+    })
+    const router = show('/videos/v/ep1')
+    const rec = await screen.findByRole('listitem', { name: '录屏渲染' })
+    expect(await within(rec).findByRole('button', { name: '字幕 字幕 竖屏 9:16' })).toBeInTheDocument()
+    const dist = screen.getByRole('listitem', { name: '分发包' })
+    expect(within(dist).getByRole('button', { name: '封面 封面 1 竖屏 9:16 封面 3:4' })).toHaveTextContent('封面 3:4')
+    expect(within(dist).getByRole('link', { name: '预览' })).toHaveAttribute('href', 'http://127.0.0.1:7801/videos/ep1/cover/3x4-1.png')
+    const ch1 = screen.getByRole('listitem', { name: '第一章验收' })
+    expect(within(ch1).getByRole('generic', { name: '要验收的演示工程' })).toHaveTextContent('演示工程')
+    await user.click(within(rec).getByRole('button', { name: /^字幕 字幕/ }))
+    expect(router.state.location.search).toBe('?a=sub')
+    expect(screen.getByRole('dialog', { name: '产出物 字幕' })).toHaveTextContent('录屏渲染')
+  })
+
+  it('抖音要的 3:4 封面：在竖屏下登记，再选用，同组其余取消、9:16 那组不动', async () => {
+    const user = userEvent.setup()
+    const be = fakeBackend({
+      videos: [vid('ep1', { orientations: ['portrait'], stage: 'distribution' })],
+      artifacts: [
+        art('a916', { kind: 'cover', name: '封面 1', path: 'cover/9x16-1.png', variant: 'portrait', option: 1, picked: true }),
+        art('a34', { kind: 'cover', name: '封面 1', path: 'cover/3x4-1.png', variant: 'portrait', ratio: '3x4', option: 1, picked: true }),
+      ],
+    })
+    show('/videos/v/ep1/artifacts')
+    await user.click(await screen.findByRole('button', { name: '登记 竖屏 9:16 封面 3:4 第 2 版' }))
+    await user.click(within(screen.getByRole('form', { name: '登记产出物' })).getByRole('button', { name: '登记' }))
+    const cover = screen.getByRole('region', { name: '封面' })
+    await user.click(await within(cover).findByRole('button', { name: '竖屏 9:16 封面 3:4 第 2 版' }))
+    const dr = screen.getByRole('dialog', { name: '产出物 封面 2' })
+    expect(dr).toHaveTextContent('封面 3:4')
+    await user.click(within(dr).getByRole('button', { name: '选用这张' }))
+    await waitFor(() => expect(be.arts.find((a) => a.path === 'cover/3x4-2.png')?.picked).toBe(true))
+    expect(be.arts.find((a) => a.id === 'a34')?.picked).toBe(false)
+    expect(be.arts.find((a) => a.id === 'a916')?.picked).toBe(true)
+    expect(await within(cover).findByRole('button', { name: '竖屏 9:16 封面 3:4 第 2 版' })).toHaveTextContent('选用')
+  })
+
+  it('当前阶段还没产出物，点「登记一个」跳到产出物标签并预填', async () => {
+    const user = userEvent.setup()
+    fakeBackend({ videos: [vid('ep1', { stage: 'record' })] })
+    const router = show('/videos/v/ep1')
+    const rec = await screen.findByRole('listitem', { name: '录屏渲染' })
+    await user.click(await within(rec).findByRole('button', { name: '登记一个' }))
+    expect(router.state.location.pathname).toBe('/videos/v/ep1/artifacts')
+    const form = await screen.findByRole('form', { name: '登记产出物' })
+    expect(within(form).getByRole('combobox', { name: '类型' })).toHaveValue('video')
+  })
+})
+
 describe('系列', () => {
   const S: VideoSeries = { id: 'sr_a', name: 'AI 系列', desc: '', intro: 'shared/intro.tsx', outro: '', template: '', stale: [], created_at: T, updated_at: T }
   const eps = () => [

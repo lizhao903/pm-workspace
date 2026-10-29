@@ -6,6 +6,7 @@ import {
   QueryState, isApiError, useAgents, useCategoryTree, useDictionaries, useKnowledgeBases, useSopFlow, useSopNodeTypes, type Category,
   type SopFlow, type SopRunBrief,
 } from '../../core/data'
+import { useSopNodeViews } from '../../core/plugin'
 import { Button, EmptyState, LoadingState } from '../../core/ui'
 import { catalogOf, newDraft } from './edit'
 import { Editor } from './Editor'
@@ -32,7 +33,10 @@ export function EditPage({ id, flows, runs, onCancel, onSaved }: {
   const kbs = useKnowledgeBases()
   const cats = useCategoryTree('doc')
 
-  const catalog = useMemo(() => catalogOf(types.data), [types.data])
+  // 插件登记、撤掉节点展示时目录换新，节点选择器和画布跟着重画（SOP-03b）
+  const views = useSopNodeViews()
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const catalog = useMemo(() => catalogOf(types.data), [types.data, views])
   const ctx = useMemo<FieldCtx>(() => ({
     flows: flows.map((f) => ({ id: f.id, name: f.name })),
     agents: (agents.data ?? []).map((a) => ({ id: a.id, name: a.name })),

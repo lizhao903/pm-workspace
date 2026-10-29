@@ -1,19 +1,23 @@
 // 视频详情（SPEC-videos-10、11、13）：制作流程、产出物（VID-01d）、设置三个标签。
 // 制作流程是 8 个阶段的竖向时间线：没有检查点的阶段点「这一步做完了」往下走；4 个检查点通过、退回（必须写意见）、
-// 音频合成可以跳过；规划检查里选画面比例，通过后锁定。阶段和检查点都由后端校验，冲突（别处推进过）照后端的话提示
+// 音频合成可以跳过；规划检查里选画面比例，通过后锁定。阶段和检查点都由后端校验，冲突（别处推进过）照后端的话提示。
+// VID-02b：每个阶段下面列这一步的产出物（字幕在录屏渲染，封面带封面比例），第一章验收列演示工程；点一条打开抽屉（?a=），登记跳到产出物标签
 import { useState } from 'react'
 import {
-  errorText, projectView, useAdvanceVideo, useDecideCheckpoint, usePatchVideo, useVideoArtifacts, type Video, type VideoCheckpointStage,
-  type VideoCheckpointState, type VideoSeries,
+  errorText, projectView, useAdvanceVideo, useDecideCheckpoint, usePatchVideo, useVideoArtifacts, type Video, type VideoArtifact,
+  type VideoArtifactKind, type VideoCheckpointStage, type VideoCheckpointState, type VideoSeries,
 } from '../../core/data'
-import { Button, PageTitle, Textarea, cls } from '../../core/ui'
+import { Button, PageTitle, Pill, Textarea, cls } from '../../core/ui'
 import {
   ORIENT, ORIENTS, STAGES, cpOf, isFinished, needsMe, orientLocked, orientText, seriesLine, stepState, timeAgo, videoState,
 } from './model'
 import { IconCheckSmall, OrientShape, VideosTabs, type ModuleTab } from './parts'
 import { SettingsTab } from './SettingsTab'
 import { ArtifactsTab } from './ArtifactsTab'
-import { kindForStage, newDraft, type NewArt } from './artifactModel'
+import { ArtifactDrawer } from './ArtifactDrawer'
+import {
+  ARTIFACT_KIND, ARTIFACT_STATUS, KINDS, canPreview, coverRatioOf, kindForStage, newDraft, previewTitle, previewUrl, ratioText, type NewArt,
+} from './artifactModel'
 
 export type DetailTab = 'flow' | 'artifacts' | 'settings'
 const TABS: { key: DetailTab; label: string }[] = [{ key: 'flow', label: '制作流程' }, { key: 'artifacts', label: '产出物' }, { key: 'settings', label: '设置' }]
@@ -41,6 +45,8 @@ export function Detail({ video, videos, series, projects, tab, from, openArt, on
   const mine = arts.data ?? []
   // 登记表单的草稿，右上「新增产出物」和标签里的「加一个」「缺」都往这里填
   const [draft, setDraft] = useState<NewArt | null>(null)
+  // 制作流程里点「登记」：预填草稿，切到产出物标签
+  const startNew = (kind: VideoArtifactKind) => { setDraft(newDraft(v, mine, kind)); onTab('artifacts') }
   const descText = [seriesLine(v, series), proj, v.orientations.map((o) => ORIENT[o].ratio).join(' / ') || '比例未定', videoState(v).label]
     .filter(Boolean).join(' · ')
 
@@ -63,7 +69,7 @@ export function Detail({ video, videos, series, projects, tab, from, openArt, on
           </button>
         ))}
       </div>
-      {tab === 'flow' && <Flow key={v.id} v={v} />}
+      {tab === 'flow' && <Flow key={v.id} v={v} arts={arts.data} openId={openArt} onOpen={onOpenArt} onNew={startNew} />}
       {tab === 'artifacts' && (
         <ArtifactsTab key={v.id} v={v} query={arts} draft={draft} onDraft={setDraft} openId={openArt} onOpen={onOpenArt} />
       )}
@@ -72,7 +78,14 @@ export function Detail({ video, videos, series, projects, tab, from, openArt, on
   )
 }
 
-function Flow({ v }: { v: Video }) {
+function Flow({ v, arts, openId, onOpen, onNew }: {
+  v: Video
+  /** 还没取回来时不列产出物 */
+  arts: VideoArtifact[] | undefined
+  openId: string | null
+  onOpen: (id: string | null) => void
+  onNew: (kind: VideoArtifactKind) => void
+}) {
   const advance = useAdvanceVideo()
   const decide = useDecideCheckpoint()
   const patch = usePatchVideo()
@@ -81,6 +94,26 @@ function Flow({ v }: { v: Video }) {
   const locked = orientLocked(v)
   const busy = advance.isPending || decide.isPending
   const failed = advance.error ?? decide.error ?? patch.error
+  const mine = arts ?? []
+  const opened = openId ? mine.find((a) => a.id === openId) : undefined
+  const pres = mine.filter((a) => a.kind === 'presentation')
+
+  const artLine = (a: VideoArtifact) => (
+    <div key={a.id} className={cls('vd-art-line', openId === a.id && 'sel')}>
+      <button type="button" className="vd-art-open" aria-label={[ARTIFACT_KIND[a.kind]?.label, a.name, a.variant && orientText(a.variant),
+        a.kind === 'cover' && `封面 ${ratioText(coverRatioOf(a))}`].filter(Boolean).join(' ')} onClick={() => onOpen(a.id)}>
+        <span className="tag">{ARTIFACT_KIND[a.kind]?.label ?? a.kind}</span>
+        <span className="ellipsis vd-art-name">{a.name}</span>
+        {a.variant && <span className="vd-otag"><OrientShape o={a.variant} />{ORIENT[a.variant].ratio}</span>}
+        {a.kind === 'cover' && <span className="vd-otag" title="封面比例">封面 {ratioText(coverRatioOf(a))}</span>}
+        <span className="vd-ver">v{a.version}</span>
+        <Pill {...ARTIFACT_STATUS[a.status]} />
+      </button>
+      {canPreview(a) && a.kind !== 'audio' && (
+        <a className="btn btn-ghost btn-sm" href={previewUrl(v, a)} target="_blank" rel="noreferrer" title={`在新窗口打开：${previewTitle(v, a)}`}>预览</a>
+      )}
+    </div>
+  )
 
   const onDecide = (stage: VideoCheckpointStage, state: Exclude<VideoCheckpointState, 'pending'>, why?: string) => {
     if (busy) return
@@ -115,6 +148,8 @@ function Flow({ v }: { v: Video }) {
           const open = cur && s.checkpoint && cp?.state !== 'passed' && cp?.state !== 'skipped'
           const stage = s.key as VideoCheckpointStage
           const noOrient = s.key === 'plan' && !v.orientations.length
+          const items = mine.filter((a) => ARTIFACT_KIND[a.kind]?.stage === s.key)
+          const firstKind = KINDS.find((k) => ARTIFACT_KIND[k].stage === s.key)
           return (
             <li key={s.key} aria-label={s.label} aria-current={cur ? 'step' : undefined}
               className={cls('vd-step', `vd-step-${state}`, s.checkpoint && 'vd-step-cp', cur && (cp?.state === 'pending' || cp?.state === 'rejected') && 'vd-step-wait')}>
@@ -149,6 +184,19 @@ function Flow({ v }: { v: Video }) {
                     </div>
                     {locked && <div className="vd-step-desc">比例定了不能改，要换比例得新开工程</div>}
                   </div>
+                )}
+
+                {arts && s.key === 'ch1' && (cur || pres.length > 0) && (
+                  <div className="vd-sub" aria-label="要验收的演示工程">
+                    <div className="vd-label">要验收的演示工程<span className="vd-hint">第 1 章是后面所有章节的样板，按比例逐个看</span></div>
+                    {pres.length ? pres.map(artLine) : (
+                      <div className="vd-col-empty">还没登记演示工程。<button type="button" className="vd-link" onClick={() => onNew('presentation')}>去登记</button></div>
+                    )}
+                  </div>
+                )}
+                {items.length > 0 && <div className="vd-sub" aria-label={`${s.label}的产出物`}>{items.map(artLine)}</div>}
+                {arts && cur && !items.length && firstKind && !s.checkpoint && (
+                  <div className="vd-col-empty">这一步还没登记产出物。<button type="button" className="vd-link" onClick={() => onNew(firstKind)}>登记一个</button></div>
                 )}
 
                 {open && (
@@ -187,6 +235,7 @@ function Flow({ v }: { v: Video }) {
           )
         })}
       </ol>
+      {opened && <ArtifactDrawer key={opened.id} a={opened} v={v} onClose={() => onOpen(null)} />}
     </>
   )
 }

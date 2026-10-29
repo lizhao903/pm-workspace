@@ -2,7 +2,8 @@
 // 外壳和页面用 use* 订阅，插件停用、注册撤掉后设置分节、今日卡片、菜单跟着消失。
 import { useMemo, useSyncExternalStore, type ComponentType, type LazyExoticComponent } from 'react'
 import type {
-  Disposable, ObjectTypeRegistry, ObjectTypeView, SettingsRegistry, SettingsSectionDef, TodayCardRegistry, TodayCardView,
+  Disposable, ObjectTypeRegistry, ObjectTypeView, SettingsRegistry, SettingsSectionDef, SopNodeRegistry, SopNodeView, TodayCardRegistry,
+  TodayCardView,
 } from './api'
 import type { ModuleDef } from './index'
 import type { PluginManifest } from './manifest'
@@ -62,11 +63,14 @@ export class OwnedStore<T> {
 export type PluginSettingsSection = SettingsSectionDef & { plugin: string; pluginName: string }
 export type PluginTodayCard = TodayCardView & { plugin: string }
 export type PluginObjectTypeView = ObjectTypeView & { plugin: string }
+export type PluginSopNodeView = SopNodeView & { plugin: string }
 
 export const moduleStore = new OwnedStore<ModuleDef>()
 export const settingsStore = new OwnedStore<PluginSettingsSection>()
 export const todayCardStore = new OwnedStore<PluginTodayCard>()
 export const objectTypeStore = new OwnedStore<PluginObjectTypeView>()
+// SOP 节点的展示（2.7）：谁都能登记，只有 SOP 插件的编辑器读；没装 SOP 插件时没人读，不显示也不报错
+export const sopNodeStore = new OwnedStore<PluginSopNodeView>()
 
 // 启动后被撤掉的插件模块：路由是启动时建好的，菜单和页面靠它判断这个模块还在不在
 const retired = new Set<string>()
@@ -181,6 +185,17 @@ export function objectTypeRegistry(ctx: Ctx): ObjectTypeRegistry {
   }
 }
 
+export function sopNodeRegistry(ctx: Ctx): SopNodeRegistry {
+  return {
+    register(def) {
+      if (!(ctx.manifest.provides.sop_nodes ?? []).includes(def.kind)) return reject(ctx, `注册的 SOP 节点 ${def.kind} 不在清单 provides.sop_nodes 里`)
+      const had = sopNodeStore.find((v) => v.kind === def.kind)
+      if (had) return reject(ctx, `SOP 节点 ${def.kind} 已被插件 ${had.owner} 注册`)
+      return sopNodeStore.add(ctx.owner, { ...def, plugin: ctx.owner })
+    },
+  }
+}
+
 // 还没实现的扩展点：调用任何方法都抛出明确的错误，activate 里用到时插件加载失败并写明原因
 export function notImplemented<T extends object>(name: string, section: string): T {
   return new Proxy({} as T, {
@@ -200,6 +215,7 @@ export function disposeExtensionsOf(owner: string) {
   settingsStore.removeOwner(owner)
   todayCardStore.removeOwner(owner)
   objectTypeStore.removeOwner(owner)
+  sopNodeStore.removeOwner(owner)
 }
 
 export function useSettingsSections(): readonly PluginSettingsSection[] {
@@ -222,6 +238,15 @@ export function objectTypeView(typeId: string): PluginObjectTypeView | undefined
 export function useObjectTypeView(typeId: string): PluginObjectTypeView | undefined {
   const list = useSyncExternalStore(objectTypeStore.subscribe, objectTypeStore.list)
   return list.find((v) => v.typeId === typeId)
+}
+
+export function sopNodeView(kind: string): PluginSopNodeView | undefined {
+  return sopNodeStore.find((v) => v.kind === kind)?.def
+}
+
+// 插件登记的 SOP 节点，登记、撤掉时刷新
+export function useSopNodeViews(): readonly PluginSopNodeView[] {
+  return useSyncExternalStore(sopNodeStore.subscribe, sopNodeStore.list)
 }
 
 // ---- 打开对象（PJ-01d）：内核模块登记某类对象的详情抽屉，插件和别的模块按类型拿，不用 import 模块内部 ----

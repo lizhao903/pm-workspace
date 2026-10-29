@@ -6,7 +6,7 @@ import { useSopRun, type SopField, type SopRunBrief, type SopStepDef } from '../
 import { Button, Checkbox, IconButton, IconClose, Input, Pill, Select, Textarea, cls } from '../../core/ui'
 import { changeKind, childrenOf, isBranching, isRequired, START, type Catalog, type Draft, HIDDEN_KINDS, fieldTypePatch } from './edit'
 import { stepLook, timeAgo } from './model'
-import { nodeInfo, type ConfigField, type FieldCtx } from './nodes'
+import { nodeInfo, useLiveOptions, type ConfigField, type FieldCtx } from './nodes'
 import { KindIcon } from './parts'
 import { DataView } from './RunView'
 
@@ -29,6 +29,7 @@ function ConfigInput({ field, value, ctx, required, bad, onChange }: {
       {field.hint && <span className="sop-field-hint">{field.hint}</span>}
     </span>
   )
+  useLiveOptions(field.live)
   const options = field.options?.(ctx) ?? []
   if (field.type === 'multi') {
     const on = value.split(',').filter(Boolean)

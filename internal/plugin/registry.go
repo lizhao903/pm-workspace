@@ -48,6 +48,11 @@ type Registry struct {
 	sopRefs atomic.Pointer[sopRefsBox]
 	// notifier 是插件发通知用的通知中心（VID-06b，notify.go），SetNotifier 接上
 	notifier atomic.Pointer[notifierBox]
+	// claude 是插件交给 Claude Code 用的执行器，runs 是插件发起的运行（VID-03a，runs.go）
+	claude atomic.Pointer[claudeBox]
+	runs   runTable
+	// connActions 是插件发起连接器授权、断开用的实现（BR-01a，connectors_read.go），SetConnectors 接上
+	connActions atomic.Pointer[connectorsBox]
 
 	mu      sync.Mutex // 串行化生命周期操作，也守着 entry.state
 	order   []string
@@ -87,6 +92,9 @@ type activation struct {
 
 	// host 是按 Host 分发的处理器（DOM-02a，host.go）
 	host *HostHandlerDef
+
+	// scheduleActions 是定时任务动作（VID-06a，scheduleaction.go）
+	scheduleActions []ScheduleActionDef
 }
 
 var (
