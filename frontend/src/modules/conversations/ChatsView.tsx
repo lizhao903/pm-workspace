@@ -1,6 +1,7 @@
 // 会话（SPEC-sessions-1）：左边全局会话列表（搜索、按 Agent 筛、按时间分段），右边当前会话的对话。
 // 当前会话记在 ?s=，别的页面能直接链接到某个会话。会话挂 Agent（AG-01b8）；0032 之前和「更多」里按服务商开的会话不挂 Agent。
-import { Fragment, useMemo, useState } from 'react'
+// 空会话不堆积（B-09）：没有消息的会话只在打开时列出，从它切走时删掉。
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import {
   firstMessageOf, useAgentProviders, useAgentSessions, useAgents, useArtifacts, useCreateAgentSession, useDeleteAgentSession,
   usePatchAgentSession, type AgentSession, type AgentSessionInput,
@@ -8,7 +9,7 @@ import {
 import { Button, ErrorState, IconSearch, LoadingState, PageTitle, SearchSelect, cls } from '../../core/ui'
 import { AgentAvatar } from '../../core/ui/AgentAvatar'
 import { ChatPane } from './ChatPane'
-import { useLiveChat } from './chatLive'
+import { hasLiveChat, useLiveChat } from './chatLive'
 import {
   FILTER_GONE, FILTER_NO_AGENT, GONE_AGENT, NEW_TITLE, matchAgentFilter, recentAgents, timeAgo, whenGroup, whoName, whoOf, type ChatWho,
 } from './chatModel'
@@ -19,6 +20,11 @@ import { WhoAvatar } from './WhoAvatar'
 const PAGE = 50
 // 会话产出列表取一页就够
 const ARTIFACT_LIMIT = 100
+
+/** 还没有消息、也没在发第一句话的会话 */
+function isEmpty(s: AgentSession): boolean {
+  return !s.message_count && !hasLiveChat(s.id) && !firstMessageOf(s.id)
+}
 
 function SessionItem({ s, who, selected, onOpen }: {
   s: AgentSession
@@ -84,6 +90,8 @@ export function ChatsView({ current, onOpen, onOpenAgent, pickRequest = 0 }: {
   const create = useCreateAgentSession()
   const patch = usePatchAgentSession()
   const del = useDeleteAgentSession()
+  // 切走时清掉空会话，和「删除会话」分开，失败不在头部报
+  const drop = useDeleteAgentSession()
 
   const [filter, setFilter] = useState('')
   const [q, setQ] = useState('')
@@ -105,8 +113,9 @@ export function ChatsView({ current, onOpen, onOpenAgent, pickRequest = 0 }: {
   const agents = agentsQ.data
   const who = (s: AgentSession) => whoOf(s, agents, provs)
   const kw = q.trim().toLowerCase()
-  // 后端已按 updated_at 倒序；列表接口不带消息，搜索匹配标题、Agent 名和模型
-  const rows = all.filter((s) => matchAgentFilter(s, filter) && (!kw || `${s.title} ${whoName(who(s))} ${s.model}`.toLowerCase().includes(kw)))
+  // 后端已按 updated_at 倒序；列表接口不带消息，搜索匹配标题、Agent 名和模型。没有消息的只列正打开的那条
+  const rows = all.filter((s) => (s.id === current || !isEmpty(s))
+    && matchAgentFilter(s, filter) && (!kw || `${s.title} ${whoName(who(s))} ${s.model}`.toLowerCase().includes(kw)))
   const shown = rows.slice(0, limit)
   const setF = (f: () => void) => { f(); setLimit(PAGE) }
 
@@ -142,6 +151,20 @@ export function ChatsView({ current, onOpen, onOpenAgent, pickRequest = 0 }: {
 
   const cur = all.find((s) => s.id === current) ?? null
 
+  // 从一个空会话切走（点了别的会话、又新建了一个、从别处链接过来）就删掉它。
+  // 按 current 的变化判断，不放在卸载时：离开会话页留下的空会话只是不列出来
+  const latest = useRef(all)
+  useEffect(() => { latest.current = all })
+  const prevCur = useRef(current)
+  const { mutate: dropSession } = drop
+  useEffect(() => {
+    const prev = prevCur.current
+    prevCur.current = current
+    if (!prev || prev === current) return
+    const s = latest.current.find((x) => x.id === prev)
+    if (s && isEmpty(s) && prev !== first?.sessionId) dropSession(prev)
+  }, [current, first, dropSession])
+
   const open = (id: string | null) => { onOpen(id); setEditing(false); setConfirmDel(false) }
   const doCreate = (input: AgentSessionInput, text: string) => {
     create.mutate({ ...input, title: NEW_TITLE }, {
@@ -158,6 +181,8 @@ export function ChatsView({ current, onOpen, onOpenAgent, pickRequest = 0 }: {
     del.mutate(s.id, {
       onSuccess: () => {
         setConfirmDel(false)
+        // 已经删了，切走时不用再清
+        prevCur.current = null
         const rest = rows.filter((x) => x.id !== s.id)
         open(rest[0]?.id ?? null)
       },

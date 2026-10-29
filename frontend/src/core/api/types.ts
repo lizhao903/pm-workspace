@@ -5,7 +5,7 @@ export type Health = { ok: boolean; version: string }
 
 // ---- 工作对象类型 ----
 
-export type ObjectStatus = { key: string; label: string; color: string; terminal: boolean }
+export type ObjectStatus = { key: string; label: string; color: string; terminal: boolean; /** 给人看的说明，设置的枚举值页里填；老数据没有 */ description?: string }
 
 export type ObjectType = {
   id: string

@@ -1,4 +1,4 @@
-// 姓名的拼音首字母（CT-03a）：联系人按姓名排序、分段用。
+// 姓名的拼音首字母（CT-03a）：联系人按姓名排序、分段用；放在 core 里，插件（项目干系人）也能用。
 // 不引拼音库：常用字表在 pinyinData.ts（GB2312 6763 字，约 20KB），名字的第一个字是姓，
 // 所以多音字一律按姓氏读音处理（单 Shan、解 Xie、曾 Zeng），复姓先认两个字。
 // 表外的字（生僻字、符号、数字、emoji）归到 #。
@@ -54,3 +54,8 @@ export function nameInitial(name: string): string {
 
 /** 索引字母的排位：A 到 Z 依次，# 最后 */
 export const initialRank = (x: string) => (x === '#' ? 99 : x.charCodeAt(0))
+
+const zh = new Intl.Collator('zh-CN')
+
+/** 按姓名排：先按索引字母（A 到 Z，# 最后），同字母再按 zh-CN 排，口径同联系人页「按姓名」 */
+export const compareNames = (a: string, b: string) => initialRank(nameInitial(a)) - initialRank(nameInitial(b)) || zh.compare(a, b)

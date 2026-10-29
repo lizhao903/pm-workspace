@@ -144,6 +144,11 @@ export function useLiveChat(sessionId: string | null): LiveChat | undefined {
   return sessionId ? s.live[sessionId] : undefined
 }
 
+/** 这个会话有没有发过、正在发的一轮（还没落库或落库失败的也算），组件外用 */
+export function hasLiveChat(sessionId: string): boolean {
+  return !!state.live[sessionId]
+}
+
 const NO_REFS: CallRef[] = []
 
 /** 会话里 confirm 事件给过的调用，和点过的确认、拒绝 */

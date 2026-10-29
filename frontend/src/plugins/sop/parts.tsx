@@ -1,12 +1,15 @@
 // SOP 插件的小部件：节点类型标签、执行表格的行、进度条。照原型 sop.tsx 的 RunRow、Progress 和 nodetypes.tsx 的 KindTag
+import type { CSSProperties } from 'react'
 import type { SopRunBrief } from '../../core/data'
+import { sopNodeView } from '../../core/plugin'
 import { Pill } from '../../core/ui'
-import { kindLabel, progressText, runDur, runLook, timeAgo } from './model'
+import { KIND_LABEL, kindLabel, progressText, runDur, runLook, timeAgo } from './model'
 import { nodeInfo } from './nodes'
 
-/** 颜色在 sop.css 的 .sop-kt-<kind> */
+/** 内置节点的颜色在 sop.css 的 .sop-kt-<kind>，插件节点用它登记的颜色 */
 export function KindTag({ kind }: { kind: string }) {
-  return <span className={`sop-kind sop-kt-${kind}`}>{kindLabel(kind)}</span>
+  const c = KIND_LABEL[kind] ? undefined : sopNodeView(kind)?.color
+  return <span className={`sop-kind sop-kt-${kind}`} style={c ? ({ '--c': c } as CSSProperties) : undefined}>{kindLabel(kind)}</span>
 }
 
 export function IconPlus() {

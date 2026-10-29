@@ -1,5 +1,5 @@
 // 编排页的取数（SPEC-sop-8）：节点目录、要编辑的流程、子流程 / Agent / 知识库 / 文档分类的下拉选项、触发方式，都回来了才渲染编辑器。
-// 触发方式：字典里有 sop_trigger 就用（存 key），没有就用内置的几种说法（存文字，契约里 trigger 是给人看的说明）。
+// 触发方式：字典里有 sop_trigger 就用，没有就用内置的四种（同原型 enumdata.ts），都存 key；旧流程存的文字照原样列出（NodePanel）。
 // 字典列表带条目一起取，不直接取 sop_trigger 的条目，免得没有这本字典时控制台报 404
 import { useMemo } from 'react'
 import {
@@ -9,11 +9,12 @@ import {
 import { useSopNodeViews } from '../../core/plugin'
 import { Button, EmptyState, LoadingState } from '../../core/ui'
 import { catalogOf, newDraft } from './edit'
+import { TRIGGER_LABEL } from './model'
 import { Editor } from './Editor'
 import type { TriggerOption } from './NodePanel'
 import type { FieldCtx } from './nodes'
 
-const FALLBACK_TRIGGERS: TriggerOption[] = ['手动', 'IM 消息', '每天 09:00', '每周一 18:00'].map((v) => ({ value: v, label: v }))
+const FALLBACK_TRIGGERS: TriggerOption[] = ['manual', 'im', 'daily', 'weekly'].map((v) => ({ value: v, label: TRIGGER_LABEL[v] }))
 
 const flat = (list: readonly Category[] | undefined, depth = 0): { id: string; name: string }[] =>
   (list ?? []).flatMap((c) => [{ id: c.id, name: `${'　'.repeat(depth)}${c.name}` }, ...flat(c.children, depth + 1)])

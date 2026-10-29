@@ -25,6 +25,8 @@ export type ProjectView = {
   mark: ProjectMark
   root: string
   related: RelatedDir[]
+  /** props.sop_ids：关联的 SOP 流程 id，按关联先后 */
+  sopIds: string[]
   created_at: string
   updated_at: string
 }
@@ -42,14 +44,15 @@ export function projectView(o: WorkObject): ProjectView {
   const related = Array.isArray(p.related)
     ? p.related.filter(isRec).map((r) => ({ path: str(r.path), label: str(r.label) }))
     : []
+  const sopIds = Array.isArray(p.sop_ids) ? [...new Set(p.sop_ids.filter((x): x is string => typeof x === 'string' && !!x))] : []
   return {
     id: o.id, ref: o.ref, name: o.title, desc: o.body, status: o.status, color: str(p.color), mark,
-    root: o.workdir, related, created_at: o.created_at, updated_at: o.updated_at,
+    root: o.workdir, related, sopIds, created_at: o.created_at, updated_at: o.updated_at,
   }
 }
 
 /** 存在 props 里的几个字段 */
-export type ProjectProps = { color?: string; mark?: ProjectMark; related?: RelatedDir[] }
+export type ProjectProps = { color?: string; mark?: ProjectMark; related?: RelatedDir[]; sop_ids?: string[] }
 
 /** 把改动合并进读回来的最新 props，别的 key（agent_ids、sop_ids 等）原样留着 */
 export function mergeProjectProps(current: Record<string, unknown> | null, edit: ProjectProps): Record<string, unknown> {
@@ -62,6 +65,7 @@ export function mergeProjectProps(current: Record<string, unknown> | null, edit:
     out.mark = m
   }
   if (edit.related !== undefined) out.related = edit.related.map((r) => ({ path: r.path, label: r.label }))
+  if (edit.sop_ids !== undefined) out.sop_ids = [...edit.sop_ids]
   return out
 }
 

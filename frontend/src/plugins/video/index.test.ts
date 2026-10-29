@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { PLUGIN_API_VERSION, deactivatePlugin, discoverPlugins, loadPlugins, moduleStore } from '../../core/plugin'
+import { PLUGIN_API_VERSION, deactivatePlugin, discoverPlugins, loadPlugins, moduleStore, sopNodeView } from '../../core/plugin'
 
 describe('视频创作插件', () => {
   it('启用后注册视频模块，停用后撤掉', async () => {
@@ -8,8 +8,13 @@ describe('视频创作插件', () => {
     const video = r.plugins.find((p) => p.id === 'video')!
     expect(video.permissions).toEqual(['fs:read:project', 'fs:write:project', 'network:media-platforms', 'process:spawn'])
     expect(r.modules.filter((m) => m.plugin.id === 'video').map((m) => [m.def.id, m.def.label, m.def.path])).toEqual([['videos', '视频', 'videos']])
+    // SOP 节点的展示：名字给流程图用，阶段、检查点按带不带检查点分开
+    expect(sopNodeView('video_run_stage')?.label).toBe('跑视频阶段')
+    expect(sopNodeView('video_wait_checkpoint')?.fields.find((f) => f.key === 'checkpoint')?.options?.().map((o) => o.value)).toEqual(['plan', 'ch1', 'audio', 'distribution'])
+    expect(sopNodeView('video_run_stage')?.fields.find((f) => f.key === 'stage')?.options?.().map((o) => o.label)).not.toContain('规划检查')
     expect(deactivatePlugin('video')).toBe(true)
     expect(moduleStore.ofOwner('video')).toEqual([])
+    expect(sopNodeView('video_run_stage')).toBeUndefined()
     deactivatePlugin('projects')
   })
 

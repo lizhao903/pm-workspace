@@ -1,7 +1,8 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import type { DictItem, ObjectStatus, WorkObject } from '../../core/data'
 import {
-  ALL, OPEN, dueSeg, dueText, isOverdue, matchStatus, prioText, priorityRank, segment, sortTasks, statusButtons, terminalOf, weekEnd,
+  ALL, OPEN, OWNER_ME, OWNER_NONE, dueSeg, dueText, isOverdue, loadMe, matchOwner, matchQuery, matchStatus, ownerOptions, prioText,
+  priorityRank, saveMe, segment, sortSeg, sortTasks, statusButtons, terminalOf, weekEnd,
 } from './model'
 
 const statuses: ObjectStatus[] = [
@@ -113,5 +114,81 @@ describe('排序', () => {
       task({ ref: 'f', priority: 'P1', due_at: due('2026-10-29') }),
     ], priorityRank(items))
     expect(rows.map((t) => t.ref)).toEqual(['c', 'b', 'f', 'a', 'e', 'd'])
+  })
+})
+
+describe('段内排序（B-06）', () => {
+  const rank = priorityRank([{ key: 'P0', sort_order: 10 }, { key: 'P2', sort_order: 30 }] as DictItem[])
+  const at = (d: string) => `2026-10-${d}T10:00:00Z`
+  const rows = [
+    task({ ref: 'TSK-0001', priority: 'P2', created_at: at('01'), updated_at: at('20'), completed_at: at('21') }),
+    task({ ref: 'TSK-0002', priority: 'P0', created_at: at('03'), updated_at: at('10'), completed_at: null }),
+    task({ ref: 'TSK-0003', priority: 'P2', created_at: at('02'), updated_at: at('25'), completed_at: at('15') }),
+  ]
+  const refs = (r: WorkObject[]) => r.map((t) => t.ref)
+
+  it('默认：已结束按完成时间倒序（没记完成时间的看最近更新），无截止按最近更新，其余按优先级', () => {
+    expect(refs(sortSeg(rows, 'closed', '', rank))).toEqual(['TSK-0001', 'TSK-0003', 'TSK-0002'])
+    expect(refs(sortSeg(rows, 'none', '', rank))).toEqual(['TSK-0003', 'TSK-0001', 'TSK-0002'])
+    expect(refs(sortSeg(rows, 'week', '', rank))).toEqual(['TSK-0002', 'TSK-0001', 'TSK-0003'])
+  })
+
+  it('选了排序方式各段都按它排', () => {
+    expect(refs(sortSeg(rows, 'closed', 'priority', rank))).toEqual(['TSK-0002', 'TSK-0001', 'TSK-0003'])
+    expect(refs(sortSeg(rows, 'week', 'updated', rank))).toEqual(['TSK-0003', 'TSK-0001', 'TSK-0002'])
+    expect(refs(sortSeg(rows, 'none', 'created', rank))).toEqual(['TSK-0002', 'TSK-0003', 'TSK-0001'])
+  })
+
+  it('同一时刻编号大的在前，时间取不到的在后', () => {
+    const r = [task({ ref: 'TSK-0001', updated_at: at('20') }), task({ ref: 'TSK-0002', updated_at: '' }), task({ ref: 'TSK-0003', updated_at: at('20') })]
+    expect(refs(sortSeg(r, 'none', '', rank))).toEqual(['TSK-0003', 'TSK-0001', 'TSK-0002'])
+  })
+})
+
+describe('负责人筛选和搜索（B-07）', () => {
+  const mine = task({ ref: 'TSK-0001', owner_id: 'stk_me', owner_name: '李钊' })
+  const agent = task({ ref: 'TSK-0002', owner_id: 'stk_cc', owner_name: 'Claude Code', title: '接口' })
+  const legacy = task({ ref: 'TSK-0003', owner: '老周' })
+  const none = task({ ref: 'TSK-0004', body: '要导出 Excel' })
+
+  it('未分配不含旧的自由文本负责人；「我」要先选过是哪位干系人', () => {
+    const pick = (f: string, me = '') => [mine, agent, legacy, none].filter((t) => matchOwner(t, f, me)).map((t) => t.ref)
+    expect(pick('')).toHaveLength(4)
+    expect(pick(OWNER_NONE)).toEqual(['TSK-0004'])
+    expect(pick(OWNER_ME)).toEqual([])
+    expect(pick(OWNER_ME, 'stk_me')).toEqual(['TSK-0001'])
+    expect(pick('stk_cc')).toEqual(['TSK-0002'])
+  })
+
+  it('搜索覆盖标题、描述、编号、负责人名，不区分大小写', () => {
+    const hit = (q: string) => [mine, agent, legacy, none].filter((t) => matchQuery(t, q)).map((t) => t.ref)
+    expect(hit('claude')).toEqual(['TSK-0002'])
+    expect(hit('李钊')).toEqual(['TSK-0001'])
+    expect(hit('老周')).toEqual(['TSK-0003'])
+    expect(hit('excel')).toEqual(['TSK-0004'])
+    expect(hit('tsk-0002')).toEqual(['TSK-0002'])
+    expect(hit('  ')).toHaveLength(4)
+  })
+
+  it('负责人选项取列表里出现过的，任务多的在前', () => {
+    expect(ownerOptions([mine, agent, agent, legacy, none])).toEqual([
+      { id: 'stk_cc', name: 'Claude Code', n: 2 }, { id: 'stk_me', name: '李钊', n: 1 },
+    ])
+  })
+
+  it('「我」记在浏览器里，清空就删掉；拿不到存储时当没选', () => {
+    const store = new Map<string, string>()
+    vi.stubGlobal('localStorage', {
+      getItem: (k: string) => store.get(k) ?? null, setItem: (k: string, v: string) => store.set(k, v), removeItem: (k: string) => store.delete(k),
+    })
+    saveMe('stk_me')
+    expect(loadMe()).toBe('stk_me')
+    saveMe('')
+    expect(store.size).toBe(0)
+    const boom = () => { throw new Error('blocked') }
+    vi.stubGlobal('localStorage', { getItem: boom, setItem: boom, removeItem: boom })
+    expect(() => saveMe('stk_me')).not.toThrow()
+    expect(loadMe()).toBe('')
+    vi.unstubAllGlobals()
   })
 })

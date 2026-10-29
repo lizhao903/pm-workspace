@@ -24,5 +24,11 @@ describe('项目字段', () => {
     const cur = { color: '#3d4fd6', agent_ids: ['ag1'], mark: { text: '', icon: 'folder' } }
     expect(mergeProjectProps(cur, { mark: { text: '工' } })).toEqual({ color: '#3d4fd6', agent_ids: ['ag1'], mark: { text: '工' } })
     expect(mergeProjectProps(null, { related: [{ path: '/a', label: '' }] })).toEqual({ related: [{ path: '/a', label: '' }] })
+    expect(mergeProjectProps(cur, { sop_ids: ['sop_a'] })).toEqual({ ...cur, sop_ids: ['sop_a'] })
+  })
+
+  it('sop_ids 只留非空字符串并去重，没有按空数组（PR-10）', () => {
+    expect(projectView(obj({})).sopIds).toEqual([])
+    expect(projectView(obj({ props: { sop_ids: ['sop_a', 3, '', 'sop_a', 'sop_b'] } })).sopIds).toEqual(['sop_a', 'sop_b'])
   })
 })

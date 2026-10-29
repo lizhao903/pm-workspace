@@ -1,6 +1,7 @@
 // 枚举值的草稿模型（SPEC-settings-17），照原型 web-next/src/enumdata.ts、enums.tsx。
 // 后端的字典没有所属模块、默认值、系统值这几个字段：模块和系统值按字典 id 在这里登记，默认值存在条目的 meta.default（任务新建已经在读它）。
-import type { DictItem, Dictionary, DictSavePlan } from '../../../core/data'
+// 任务状态（object_types.statuses）和文档分类（categories）不在字典表里，换成同样的组在这里一起编辑（PR-13）。
+import type { Category, DictItem, Dictionary, DictSavePlan, ObjectType } from '../../../core/data'
 
 export type EnumItem = {
   /** 已保存的条目才有 */
@@ -16,6 +17,9 @@ export type EnumItem = {
   meta: Record<string, unknown>
 }
 
+/** 数据从哪来：字典表、某类对象的状态集、某类对象的一级分类 */
+export type EnumSource = 'dict' | 'status' | 'category'
+
 export type EnumGroup = {
   key: string
   name: string
@@ -24,11 +28,23 @@ export type EnumGroup = {
   builtin: boolean
   default_key?: string
   items: EnumItem[]
+  source: EnumSource
+  /** 状态、分类所属的对象类型 */
+  typeId?: string
+  /** 值不能停用（分类没有停用） */
+  noArchive?: boolean
+  /** 默认值由程序定、这里不能改时的说明 */
+  defaultHint?: string
 }
 
 /** 原型的 MODULES；后端的关联关系、产出物两本字典没有对应模块，分别归到任务、产出物 */
 export const MODULES = ['任务', '联系人', '文档', 'IM 消息', 'SOP', '产出物', '其他', '自定义']
-const MODULE_OF: Record<string, string> = { priority: '任务', link_relation: '任务', artifact_platform: '产出物', artifact_kind: '产出物' }
+const MODULE_OF: Record<string, string> = {
+  priority: '任务', link_relation: '任务', artifact_platform: '产出物', artifact_kind: '产出物', contact_group: '联系人', msg_status: 'IM 消息',
+}
+/** 枚举模块对应的菜单模块：当前工作台没开这个模块时整组不显示；没登记的（其他、自定义）一直显示 */
+const MENU_OF: Record<string, string> = { 任务: 'tasks', 联系人: 'contacts', 文档: 'library', 'IM 消息': 'messages', SOP: 'sop', 产出物: 'videos' }
+export const moduleShown = (module: string, menu: readonly string[] | undefined) => !menu || !MENU_OF[module] || menu.includes(MENU_OF[module])
 
 export const ENUM_COLORS = ['#3d4fd6', '#0c8599', '#2f7d43', '#b0570b', '#c0352b', '#7048e8', '#e8590c', '#a19d92']
 
@@ -38,14 +54,22 @@ export const KEY_HINT = '只能用字母、数字、中文、下划线和中划�
 /** 值超过这么多个时才出搜索框，已停用的沉底并默认收起 */
 export const MANY = 12
 
-/** 后端按 key 写死的值：关联关系只认这五种，产出物认不出来时落到 other */
-const LOCKED: Record<string, string[] | '*'> = { link_relation: '*', artifact_platform: ['other'], artifact_kind: ['other'] }
+/** 字典 id 不会和这两个撞：都带 task_ / doc_ 前缀且后端没有同名字典 */
+export const TASK_STATUS = 'task_status'
+export const DOC_CATEGORY = 'doc_category'
+
+/** 后端按 key 写死的值：关联关系只认这五种，产出物认不出来时落到 other，IM 消息状态是表的约束，联系人没填分组算「其他」 */
+const LOCKED: Record<string, string[] | '*'> = {
+  link_relation: '*', artifact_platform: ['other'], artifact_kind: ['other'], msg_status: '*', contact_group: ['其他'],
+}
 /** 值由程序固定，不能加新值 */
-export const FIXED = new Set(['link_relation'])
+export const FIXED = new Set(['link_relation', 'msg_status', TASK_STATUS])
 /** 后端统计了引用数的字典（dictUsageSourceOf）；其余的「使用中」列为空，删除不用检查 */
-const WIRED = new Set(['priority', 'link_relation'])
-/** 没设默认值时的兜底，和任务新建（tasks/draft.ts）一致 */
-const FALLBACK_DEFAULT: Record<string, string> = { priority: 'P2' }
+const WIRED = new Set(['priority', 'link_relation', 'artifact_platform', 'artifact_kind', 'contact_group', 'msg_status'])
+/** 没设默认值时的兜底，和任务新建（tasks/draft.ts）、联系人（contacts/model.ts 的 DEFAULT_GROUP）一致 */
+const FALLBACK_DEFAULT: Record<string, string> = { priority: 'P2', contact_group: '其他' }
+/** 默认值由程序定的字典 */
+const DEFAULT_HINT: Record<string, string> = { msg_status: '新收到的消息都是待处理' }
 
 const isLocked = (dictId: string, key: string) => {
   const l = LOCKED[dictId]
@@ -63,7 +87,34 @@ export function toGroup(d: Dictionary, items: DictItem[]): EnumGroup {
   const fb = FALLBACK_DEFAULT[d.id]
   return {
     key: d.id, name: d.name, desc: d.description, builtin: d.builtin, module: MODULE_OF[d.id] ?? (d.builtin ? '其他' : '自定义'),
-    default_key: marked ?? (fb && out.some((i) => i.key === fb) ? fb : undefined), items: out,
+    default_key: marked ?? (fb && out.some((i) => i.key === fb) ? fb : undefined), items: out, source: 'dict', defaultHint: DEFAULT_HINT[d.id],
+  }
+}
+
+/** 任务状态：都是系统值（完成率、逾期、验收按 key 判断），能改显示名、颜色、说明和顺序；条目 id 用 key */
+export function statusGroup(t: ObjectType, byStatus: Record<string, number> | undefined): EnumGroup {
+  return {
+    key: TASK_STATUS, name: '任务状态', module: '任务', builtin: true, source: 'status', typeId: t.id,
+    desc: '任务列表的状态筛选和状态标签。都是系统值：完成率、逾期判断依赖它们',
+    defaultHint: '新建任务用排在第一个的状态',
+    items: t.statuses.map((s) => ({
+      id: s.key, key: s.key, label: s.label, color: s.color, desc: s.description ?? '', enabled: true, locked: true,
+      usage: byStatus?.[`${t.id}:${s.key}`] ?? 0, meta: { terminal: s.terminal },
+    })),
+  }
+}
+
+/** 文档分类：文档树的一级分类，key 是 slug；没有停用，被文档用着或下面有子分类时不能删 */
+export function categoryGroup(typeId: string, tree: Category[]): EnumGroup {
+  const top = [...tree].filter((c) => !c.parent_id).sort((a, b) => a.sort_order - b.sort_order || a.name.localeCompare(b.name))
+  return {
+    key: DOC_CATEGORY, name: '文档分类', module: '文档', builtin: true, source: 'category', typeId, noArchive: true,
+    desc: '工作台文档的分类，文档树的一级文件夹和顶栏筛选。子分类在文档页里管',
+    defaultHint: '新建文档放进当前打开的分类，没打开时放进排在第一个的',
+    items: top.map((c, n) => ({
+      id: c.id, key: c.slug, label: c.name, color: c.color || ENUM_COLORS[n % ENUM_COLORS.length], desc: c.description, enabled: true, locked: false,
+      usage: c.total_count ?? 0, meta: { children: c.children?.length ?? 0 },
+    })),
   }
 }
 

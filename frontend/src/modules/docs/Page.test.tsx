@@ -41,7 +41,8 @@ function fakeBackend(rows: WorkObject[]) {
     const body = init?.body ? JSON.parse(String(init.body)) : undefined
     calls.push({ method, path: u.pathname, body })
     if (u.pathname === '/api/objects' && method === 'GET') {
-      const xs = rows.filter((o) => o.type_id === 'doc')
+      const want = (u.searchParams.get('type') ?? 'doc').split(',')
+      const xs = rows.filter((o) => want.includes(o.type_id))
       const off = Number(u.searchParams.get('offset') ?? 0)
       return json(xs.slice(off), 200, { total: xs.length })
     }
@@ -171,5 +172,52 @@ describe('文档的新建和编辑', () => {
     mount('/docs?dir=ld_1&doc=ld_1:a.md&edit=1')
     await screen.findByRole('heading', { name: 'a.md', level: 1 })
     expect(screen.queryByRole('form')).toBeNull()
+  })
+})
+
+describe('文档按项目（C-04）', () => {
+  it('顶栏按项目筛，阅读区显示所属项目，点了去项目的文档标签', async () => {
+    const p = obj({ id: 'obj_p1', type_id: 'project', title: '支付改版' })
+    const gone = 'obj_p9'
+    const a = obj({ title: '支付 PRD', category_id: 'cat_prd', project_id: p.id, project_title: '支付改版', updated_at: '2026-10-03T00:00:00Z' })
+    const b = obj({ title: '散篇', category_id: 'cat_prd', updated_at: '2026-10-02T00:00:00Z' })
+    const c = obj({ title: '老项目的纪要', category_id: 'cat_meet', project_id: gone, project_title: '老项目' })
+    fakeBackend([p, a, b, c])
+    const router = mount(`/docs?doc=${a.id}`)
+    await screen.findByRole('heading', { name: '支付 PRD', level: 1 })
+    // 项目对象不算文档
+    expect(screen.getByRole('button', { name: '全部3' })).toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole('button', { name: '按项目筛选' }))
+    const list = await screen.findByRole('listbox')
+    expect(within(list).getAllByRole('option').map((o) => o.textContent)).toEqual([
+      '全部项目', '支付改版1 篇', '老项目1 篇', '不属于项目1 篇',
+    ])
+    await userEvent.click(within(list).getByRole('option', { name: /不属于项目/ }))
+    await waitFor(() => expect(screen.queryByRole('button', { name: /支付 PRD/ })).toBeNull())
+    await userEvent.click(screen.getByRole('button', { name: /散篇/ }))
+    expect(await screen.findByRole('heading', { name: '散篇', level: 1 })).toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole('button', { name: '按项目筛选' }))
+    await userEvent.click(within(await screen.findByRole('listbox')).getByRole('option', { name: /老项目/ }))
+    await userEvent.click(await screen.findByRole('button', { name: '会议纪要1' }))
+    await userEvent.click(await screen.findByRole('button', { name: /老项目的纪要/ }))
+    expect(await screen.findByRole('heading', { name: '老项目的纪要', level: 1 })).toBeInTheDocument()
+    expect(screen.getByText('老项目（已删除）')).toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole('button', { name: '按项目筛选' }))
+    await userEvent.click(within(await screen.findByRole('listbox')).getByRole('option', { name: /支付改版/ }))
+    await userEvent.click(await screen.findByRole('button', { name: /支付 PRD/ }))
+    await screen.findByRole('heading', { name: '支付 PRD', level: 1 })
+    await userEvent.click(screen.getByRole('button', { name: '支付改版' }))
+    await waitFor(() => expect(router.state.location.pathname).toBe('/projects/obj_p1/docs'))
+  })
+
+  it('没有项目、文档也都不属于项目时不显示项目下拉', async () => {
+    const a = obj({ title: '甲' })
+    fakeBackend([a])
+    mount(`/docs?doc=${a.id}`)
+    await screen.findByRole('heading', { name: '甲', level: 1 })
+    expect(screen.queryByRole('button', { name: '按项目筛选' })).toBeNull()
   })
 })

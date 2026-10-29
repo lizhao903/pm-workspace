@@ -10,7 +10,7 @@ export { errorText, retryable } from './errors'
 export { QueryState } from './QueryState'
 export { useHealth, useObjectTypes, useDictionaries, useDictItems, useStakeholders, useCounts } from './meta'
 export { dictItemsApi, useDictItemsAll, saveDictItems, useSaveDictItems } from './dictionaries'
-export type { DictSavePlan } from './dictionaries'
+export type { DictSavePlan, EnumTarget } from './dictionaries'
 export {
   listAllObjects, useObjects, useAllObjects, useObject, useCreateObject, usePatchObject, useSetStatus, useDeleteObject,
   saveObject, mergeProps, PROP_ACCEPTANCE, PROP_REPO,
@@ -95,8 +95,10 @@ export type {
   ConnectorDirection, ConnectorInput, ConnectorPatch, ConnectorTestResult, ConnectorRefreshResult,
   ConnectorOAuthDef, ConnectorOAuthState, ConnectorOAuthStart,
 } from './connectors'
-export { projectStakeholdersApi, useAddProjectStakeholder, usePatchProjectStakeholder, useRemoveProjectStakeholder } from './projectStakeholders'
-export type { ProjectStakeholderInput, ProjectStakeholderPatch } from './projectStakeholders'
+export {
+  projectStakeholdersApi, useAddProjectStakeholder, useAddProjectStakeholders, usePatchProjectStakeholder, useRemoveProjectStakeholder,
+} from './projectStakeholders'
+export type { ProjectStakeholderInput, ProjectStakeholderPatch, ProjectStakeholdersAdded } from './projectStakeholders'
 export { IM_PAGE_MAX, imApi, normMessage, useImMessages, useImMessage, useImAction, useImBatch, useImToTask, useImPendingCount, useImSyncConnector } from './im'
 export type { ImMessage, ImMsgStatus, ImRelevance, ImAttachment, ImReply, ImAction, ImBatchInput, ImBatchResult, ImTaskInput, ImTaskResult, ImSyncResult } from './im'
 export {

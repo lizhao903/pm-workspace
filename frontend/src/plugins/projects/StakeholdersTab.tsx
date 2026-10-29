@@ -1,13 +1,15 @@
 // 干系人标签（SPEC-projects-6）：人从联系人里挑，按角色顺序（决策人、对接人、负责人、参与、知会）显示，同角色按加入顺序。
 // 增删改走项目插件的 /api/projects/{id}/stakeholders。关注点边输边存（停顿一下或离开输入框就存），存不上留着输入、行内提示。
 // 「最近沟通」是这个人在本项目绑定的会话里最近的一条（SPEC-projects-6.7），和沟通标签同一份项目消息；点了去 IM 消息页打开。
+// 加干系人能多选（B-05）：按姓名、公司、职位、分组、标签搜，候选按姓名拼音排（同联系人页），勾好了「加 N 人」一次加进来。
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router'
 import {
-  PROJECT_ROLES, errorText, useAddProjectStakeholder, useContacts, useIdentities, usePatchProjectStakeholder, useProjectStakeholders,
+  PROJECT_ROLES, errorText, useAddProjectStakeholders, useContacts, useIdentities, usePatchProjectStakeholder, useProjectStakeholders,
   useRemoveProjectStakeholder, type Contact, type ImMessage, type ProjectRole, type ProjectStakeholder,
 } from '../../core/data'
 import { Avatar, Button, EmptyState, ErrorState, Input, LoadingState, SearchSelect, cls } from '../../core/ui'
+import { compareNames, nameInitial } from '../../core/ui/pinyin'
 import { latestByContact, snippet } from './commsModel'
 import { ago, sortStakeholders } from './model'
 import { useProjectMessages } from './projectMessages'
@@ -15,6 +17,8 @@ import { useProjectMessages } from './projectMessages'
 /** 关注点停顿多久后保存 */
 const FOCUS_DELAY = 600
 const MESSAGES_PATH = '/messages'
+/** 加干系人下拉一次最多列多少人；联系人通常几十个，全列出来方便连着勾 */
+const PICK_LIMIT = 500
 
 /** 「最近沟通」列：有消息时是「相对时间 · 正文前 14 字」，否则说明为什么没有 */
 type LastComm = { msg: ImMessage } | { note: string }
@@ -23,17 +27,25 @@ export function StakeholdersTab({ projectId }: { projectId: string }) {
   const navigate = useNavigate()
   const stakes = useProjectStakeholders(projectId)
   const contacts = useContacts()
-  const add = useAddProjectStakeholder(projectId)
+  const add = useAddProjectStakeholders(projectId)
   const remove = useRemoveProjectStakeholder(projectId)
   const [err, setErr] = useState('')
+  // 加干系人下拉里勾选的；加完换 key 让下拉关掉、重新开始
+  const [picked, setPicked] = useState<string[]>([])
+  const [pickKey, setPickKey] = useState(0)
   const pm = useProjectMessages(projectId)
   const identities = useIdentities()
 
   const people = useMemo(() => new Map((contacts.data ?? []).map((c) => [c.id, c])), [contacts.data])
   // 引用的联系人已删的行不显示（SPEC-projects-6.12）
   const rows = useMemo(() => sortStakeholders(stakes.data ?? []).filter((s) => people.has(s.stakeholder_id)), [stakes.data, people])
-  const taken = new Set((stakes.data ?? []).map((s) => s.stakeholder_id))
-  const avail = (contacts.data ?? []).filter((c) => !taken.has(c.id))
+  // 候选：还不是干系人的联系人，按姓名拼音排（同联系人页「按姓名」）
+  const avail = useMemo(() => {
+    const taken = new Set((stakes.data ?? []).map((s) => s.stakeholder_id))
+    return (contacts.data ?? []).filter((c) => !taken.has(c.id)).sort((a, b) => compareNames(a.name, b.name))
+  }, [contacts.data, stakes.data])
+  // 勾选里已经不是候选的（别处加过了）不算
+  const chosen = picked.filter((id) => avail.some((c) => c.id === id))
   const latest = useMemo(() => latestByContact(pm.msgs.data, new Map((identities.data ?? []).map((i) => [i.id, i.stakeholder_id]))),
     [pm.msgs.data, identities.data])
   const lastOf = (id: string): LastComm => {
@@ -46,10 +58,22 @@ export function StakeholdersTab({ projectId }: { projectId: string }) {
     return { note: '本项目会话里没有消息' }
   }
 
-  const onAdd = (id: string) => {
-    if (!id) return
+  const onAdd = () => {
+    // 按候选的顺序加（拼音序），不按勾选的先后
+    const ids = avail.filter((c) => chosen.includes(c.id)).map((c) => c.id)
+    if (!ids.length) return
     setErr('')
-    add.mutate({ stakeholder_id: id, role: 'member', focus: '' }, { onError: (e) => setErr(`没加上：${errorText(e)}`) })
+    add.mutate({ ids, role: 'member' }, {
+      onSuccess: (r) => {
+        setPicked(r.failed.map((f) => f.id))
+        if (!r.failed.length) setPickKey((k) => k + 1)
+        else {
+          const name = (id: string) => people.get(id)?.name ?? id
+          setErr(`${r.failed.length} 人没加上：${r.failed.map((f) => `${name(f.id)}（${errorText(f.error)}）`).join('、')}`)
+        }
+      },
+      onError: (e) => setErr(`没加上：${errorText(e)}`),
+    })
   }
   const onRemove = (s: ProjectStakeholder) => {
     setErr('')
@@ -60,10 +84,19 @@ export function StakeholdersTab({ projectId }: { projectId: string }) {
     <div className="pj-tab-head">
       <span className="pj-muted pj-wrap">谁拍板、谁对接、谁负责，每个人关心什么。人从联系人里挑</span>
       <span className="spacer" />
-      <SearchSelect value="" placeholder="加干系人" searchPlaceholder="搜姓名、公司、职位" align="end" active={false}
-        disabled={!contacts.data || add.isPending}
-        options={avail.map((c) => ({ value: c.id, label: c.name, hint: c.company || undefined, keywords: c.title, icon: <Avatar name={c.name} size={18} src={c.photo || undefined} /> }))}
-        emptyText="联系人都已经加进来了" onChange={onAdd} />
+      <SearchSelect key={pickKey} multiple value={chosen} placeholder="加干系人" searchPlaceholder="搜姓名、公司、职位、分组、标签" align="end"
+        aria-label="加干系人" disabled={!contacts.data || add.isPending} limit={PICK_LIMIT}
+        options={avail.map((c) => ({
+          value: c.id, label: c.name, hint: c.company || undefined, group: nameInitial(c.name),
+          keywords: [c.title, c.group, ...(c.tags ?? [])].filter(Boolean).join(' '),
+          icon: <Avatar name={c.name} size={18} src={c.photo || undefined} />,
+        }))}
+        emptyText="联系人都已经加进来了" onChange={(v) => setPicked(v)}
+        footer={avail.length > 0 && (
+          <Button size="sm" variant="primary" disabled={!chosen.length || add.isPending} onClick={onAdd}>
+            {add.isPending ? '正在加' : chosen.length ? `加 ${chosen.length} 人` : '先勾选要加的人'}
+          </Button>
+        )} />
     </div>
   )
 

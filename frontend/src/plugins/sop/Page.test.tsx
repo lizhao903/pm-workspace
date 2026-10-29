@@ -19,7 +19,7 @@ const FLOW: SopFlow = {
 type Call = { method: string; path: string; body?: Record<string, unknown> }
 
 // 内存里的极简引擎：发起后第一步完成，停在人工检查；放行后跑完
-function fakeBackend(opts: { flows?: SopFlow[]; failAct?: boolean } = {}) {
+function fakeBackend(opts: { flows?: SopFlow[]; failAct?: boolean; workspaces?: unknown[]; plugins?: unknown[] } = {}) {
   const calls: Call[] = []
   const runs: SopRun[] = []
   const flows = opts.flows ?? [FLOW]
@@ -43,7 +43,14 @@ function fakeBackend(opts: { flows?: SopFlow[]; failAct?: boolean } = {}) {
     const method = init?.method ?? 'GET'
     const body = init?.body ? JSON.parse(String(init.body)) : undefined
     calls.push({ method, path: u.pathname, body })
+    if (u.pathname === '/api/sop/flows' && method === 'POST') {
+      const f: SopFlow = { ...body, id: `sop_${flows.length + 1}`, version: 1, created_at: now(), updated_at: now() }
+      flows.push(f)
+      return json(f, 201)
+    }
     if (u.pathname === '/api/sop/flows') return json(flows, 200, { total: flows.length })
+    if (u.pathname === '/api/workspaces' && opts.workspaces) return json(opts.workspaces)
+    if (u.pathname === '/api/plugins' && opts.plugins) return json(opts.plugins)
     if (u.pathname === '/api/sop/node-types') return json([{ kind: 'decide', group: '逻辑', branching: true, required: [] }])
     if (u.pathname === '/api/sop/runs') return json(runs.map(brief), 200, { total: runs.length })
     const start = u.pathname.match(/^\/api\/sop\/flows\/([^/]+)\/runs$/)
@@ -174,6 +181,34 @@ describe('SOP 页面', () => {
     expect(await screen.findByText('这次执行不存在')).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: '返回' }))
     expect(router.state.location.pathname).toBe('/sop')
+  })
+
+  it('详情的触发方式显示中文名；复制出新流程并进它的编排页', async () => {
+    const user = userEvent.setup()
+    const { calls } = fakeBackend({ flows: [{ ...FLOW, trigger: 'manual' }] })
+    const router = renderPage('/sop/flows/sop_fb')
+    expect(await screen.findByText('触发：手动')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: '复制' }))
+    await waitFor(() => expect(router.state.location.pathname).toBe('/sop/flows/sop_2/edit'))
+    const post = calls.find((c) => c.method === 'POST' && c.path === '/api/sop/flows')!.body!
+    expect(post).toMatchObject({ name: '客户反馈转需求 副本', trigger: 'manual', steps: FLOW.steps, fields: FLOW.fields })
+  })
+
+  it('用到当前工作台没开的插件节点的流程：流程库和详情标「需要视频模块」，排在最后', async () => {
+    const user = userEvent.setup()
+    const video: SopFlow = { ...FLOW, id: 'sop_video_weekly', name: '视频周更', steps: [{ key: 'a', name: '文稿处理', kind: 'video_run_stage' }] }
+    fakeBackend({
+      flows: [video, FLOW],
+      workspaces: [{ id: 'ws_pm', name: '产品经理工作台', modules: ['today', 'sop'], plugins: ['sop'], groups: [], home: 'today' }],
+      plugins: [{ id: 'video', name: '视频创作', provides: { modules: ['videos'], sop_nodes: ['video_run_stage'] } }],
+    })
+    const router = renderPage('/sop/library')
+    expect(await screen.findByText('需要视频模块')).toBeInTheDocument()
+    const cards = screen.getAllByRole('button', { name: /客户反馈转需求|视频周更/ })
+    expect(cards.map((c) => c.textContent?.includes('视频周更'))).toEqual([false, true])
+    await user.click(cards[1])
+    expect(router.state.location.pathname).toBe('/sop/flows/sop_video_weekly')
+    expect(await screen.findByText('需要视频模块')).toBeInTheDocument()
   })
 
   it('流程已删除时详情说明', async () => {

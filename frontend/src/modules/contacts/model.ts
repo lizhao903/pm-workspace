@@ -1,6 +1,6 @@
 // 联系人列表的纯函数（SPEC-contacts-1）：分组（可多个）、搜索、排序、分段、相对时间。页面状态和渲染在 Page.tsx。
 import { imOf, type Contact, type DictItem, type Dictionary, type Identity } from '../../core/data'
-import { initialRank, nameInitial } from './pinyin'
+import { initialRank, nameInitial } from '../../core/ui/pinyin'
 
 /** 分组切换里最多放几个分组，其余收进「更多分组」 */
 export const SEG_MAX = 5
@@ -79,17 +79,27 @@ export function toRows(list: Contact[]): Row[] {
   return list.map((c) => ({
     c,
     initial: nameInitial(c.name),
-    hay: [c.name, c.company, c.title, c.phone.replace(/\s/g, ''), c.email, ...c.tags, ...Object.values(c.im ?? {})]
+    // 备注和角色里常写别名、职责（B-04），也一起搜
+    hay: [c.name, c.company, c.title, c.phone.replace(/\s/g, ''), c.email, ...c.tags, ...Object.values(c.im ?? {}), c.role, c.note]
       .filter(Boolean).map((v) => v.toLowerCase()),
   }))
 }
 
-/** 搜索：不区分大小写，任一字段包含即命中；电话忽略空格（输「137 22」也能搜到） */
+/** 搜索：不区分大小写；整串或去掉空格后（电话「137 22」）被某个字段包含即命中，
+ * 否则按空格拆词，每个词都要命中某个字段，可以是不同字段（「XAUE 信用卡」） */
 export function matches(r: Row, q: string): boolean {
   const kw = q.trim().toLowerCase()
   if (!kw) return true
   const tight = kw.replace(/\s/g, '')
-  return r.hay.some((v) => v.includes(kw) || v.includes(tight))
+  if (r.hay.some((v) => v.includes(kw) || v.includes(tight))) return true
+  const words = kw.split(/\s+/)
+  return words.length > 1 && words.every((w) => r.hay.some((v) => v.includes(w)))
+}
+
+/** 默认排序（E-03）：没联系过的人多于一半时按姓名，否则按最近联系；还没有人时按最近联系 */
+export function defaultSort(list: readonly Pick<Contact, 'last_contact_at'>[]): Sort {
+  const never = list.filter((c) => !c.last_contact_at).length
+  return never * 2 > list.length ? 'name' : 'recent'
 }
 
 export type Filter = { q: string; group: string | null; starredOnly: boolean; channel: string; sort: Sort }

@@ -2,10 +2,12 @@
 // 后端的产出物没有「任务 / 文档 / IM 回复」这种类型，类型切换按位置和备注标记分（文件、链接、提交、分支、PR）；
 // Agent 列和筛选按来源（内置 Agent、任务执行、MCP 回写）。手工登记的不算 Agent 产出，不列。
 // 删了会话的产出物还在，来源显示「会话 · 已删除」。
+// 同一次提交登记到多个任务时合并成一行（B-08）：产出显示提交号和说明，来源显示涉及的任务，多个时点开看。
 import { useMemo, useState } from 'react'
 import { useAgentSessions, useArtifacts, type Artifact, type ArtifactSource } from '../../core/data'
 import { ErrorState, LoadingState, PageTitle, EmptyState, cls } from '../../core/ui'
-import { KIND_LABEL, artifactKind, timeAgo, type ArtifactKind } from './chatModel'
+import { KIND_LABEL, timeAgo, type ArtifactKind } from './chatModel'
+import { groupObjects, groupOutputs, type OutputGroup } from './outputsModel'
 
 const PAGE = 50
 // 后端单页上限；类型和 Agent 的筛选、条数在前端按这一页算
@@ -19,27 +21,37 @@ export function OutputsView({ onOpenSession }: { onOpenSession: (id: string) => 
   const [kind, setKind] = useState<'' | ArtifactKind>('')
   const [producer, setProducer] = useState<'' | Producer>('')
   const [limit, setLimit] = useState(PAGE)
+  // 展开看涉及任务的那几行
+  const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set())
   const list = useArtifacts({ limit: LIMIT })
   const sessions = useAgentSessions()
   const titles = useMemo(() => new Map((sessions.data ?? []).map((s) => [s.id, s.title])), [sessions.data])
-  const all = useMemo(() => (list.data?.data ?? []).filter((a) => a.source !== 'manual'), [list.data])
+  // 条数都按合并后的行算
+  const all = useMemo(() => groupOutputs((list.data?.data ?? []).filter((a) => a.source !== 'manual')), [list.data])
   const kindN = useMemo(() => {
     const m = new Map<ArtifactKind, number>()
-    for (const a of all) { const k = artifactKind(a); m.set(k, (m.get(k) ?? 0) + 1) }
+    for (const g of all) m.set(g.kind, (m.get(g.kind) ?? 0) + 1)
     return m
   }, [all])
   // Agent chip 按产出条数排，只列出现过的
   const producers = useMemo(() => {
     const m = new Map<Producer, number>()
-    for (const a of all) { const p = a.source as Producer; m.set(p, (m.get(p) ?? 0) + 1) }
+    for (const g of all) { const p = g.head.source as Producer; m.set(p, (m.get(p) ?? 0) + 1) }
     return [...m.entries()].sort((a, b) => b[1] - a[1]).map(([p]) => p)
   }, [all])
-  const rows = all.filter((a) => (!kind || artifactKind(a) === kind) && (!producer || a.source === producer))
+  const rows = all.filter((g) => (!kind || g.kind === kind) && (!producer || g.head.source === producer))
   const truncated = (list.data?.total ?? 0) > LIMIT
 
   const pickKind = (k: '' | ArtifactKind) => { setKind(k); setLimit(PAGE) }
   // 单选，再点一次取消
   const pickProducer = (p: '' | Producer) => { setProducer(p === producer ? '' : p); setLimit(PAGE) }
+
+  const toggle = (key: string) => {
+    const next = new Set(expanded)
+    if (next.has(key)) next.delete(key)
+    else next.add(key)
+    setExpanded(next)
+  }
 
   const origin = (a: Artifact) => {
     if (a.session_id) {
@@ -55,6 +67,31 @@ export function OutputsView({ onOpenSession }: { onOpenSession: (id: string) => 
     return <span className="list-sub ellipsis" title={a.object_title}>{a.object_ref ? `${a.object_ref} ${a.object_title ?? ''}` : '未归属'}</span>
   }
 
+  // 合并的提交：涉及多个任务时来源是「N 个任务」，点开在下面列出来
+  const groupOrigin = (g: OutputGroup, objs: ReturnType<typeof groupObjects>, open: boolean) => {
+    if (objs.length < 2) return origin(g.head)
+    const first = objs[0]
+    return (
+      <button type="button" className="link-btn link-muted ellipsis output-expand" aria-expanded={open} onClick={() => toggle(g.key)}
+        title={objs.map((o) => `${o.ref} ${o.title}`).join('\n')}>
+        {objs.length} 个任务 · {first.ref} 等
+      </button>
+    )
+  }
+
+  const title = (g: OutputGroup) => {
+    const a = g.head
+    if (a.url) return <a className="link-btn ellipsis" href={a.url} target="_blank" rel="noopener noreferrer" title={a.url}>{a.title || a.url}</a>
+    if (g.sha) {
+      return (
+        <span className="ellipsis" title={a.note}>
+          <span className="mono output-sha">{g.sha}</span>{a.title ? ` ${a.title}` : ''}
+        </span>
+      )
+    }
+    return <span className="ellipsis" title={a.path}>{a.title || a.rel_path || a.path}</span>
+  }
+
   let body
   if (list.isPending) body = <LoadingState />
   else if (list.isError) body = <ErrorState title="产出结果加载失败" error={list.error} onRetry={() => void list.refetch()} />
@@ -64,19 +101,26 @@ export function OutputsView({ onOpenSession }: { onOpenSession: (id: string) => 
     body = (
       <div className="task-table">
         <div className="output-row task-th"><span>类型</span><span>产出</span><span>Agent</span><span>来源</span><span>时间</span></div>
-        {rows.slice(0, limit).map((a) => {
-          const k = artifactKind(a)
+        {rows.slice(0, limit).map((g) => {
+          const a = g.head
+          const objs = groupObjects(g)
+          const open = objs.length > 1 && expanded.has(g.key)
           return (
-            <div key={a.id} className="output-row" data-artifact={a.id}>
-              <span><span className={cls('out-kind', 'out-' + k)}>{KIND_LABEL[k]}</span></span>
-              <span className="output-title">
-                {a.url
-                  ? <a className="link-btn ellipsis" href={a.url} target="_blank" rel="noopener noreferrer" title={a.url}>{a.title || a.url}</a>
-                  : <span className="ellipsis" title={a.path}>{a.title || a.rel_path || a.path}</span>}
-              </span>
-              <span className="ellipsis">{PRODUCER_LABEL[a.source as Producer] ?? a.source}</span>
-              <span className="ellipsis output-origin">{origin(a)}</span>
-              <span className="run-muted">{timeAgo(a.created_at)}</span>
+            <div key={g.key} className={cls('output-item', open && 'open')}>
+              <div className="output-row" data-artifact={a.id} data-count={g.items.length > 1 ? g.items.length : undefined}>
+                <span><span className={cls('out-kind', 'out-' + g.kind)}>{KIND_LABEL[g.kind]}</span></span>
+                <span className="output-title">{title(g)}</span>
+                <span className="ellipsis">{PRODUCER_LABEL[a.source as Producer] ?? a.source}</span>
+                <span className="ellipsis output-origin">{groupOrigin(g, objs, open)}</span>
+                <span className="run-muted">{timeAgo(a.created_at)}</span>
+              </div>
+              {open && (
+                <ul className="output-objs" aria-label="涉及的任务">
+                  {objs.map((o) => (
+                    <li key={o.id}><span className="mono list-sub">{o.ref}</span><span className="ellipsis" title={o.title}>{o.title}</span></li>
+                  ))}
+                </ul>
+              )}
             </div>
           )
         })}

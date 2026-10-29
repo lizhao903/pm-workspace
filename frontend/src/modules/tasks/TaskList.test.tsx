@@ -30,11 +30,13 @@ function task(p: Partial<WorkObject>): WorkObject {
   }
 }
 
+const people = [{ id: 'stk_me', name: '李钊' }, { id: 'stk_cc', name: 'Claude Code' }]
+
 function Harness({ tasks, view = 'all', onOpen = () => {} }: { tasks: WorkObject[]; view?: TaskView; onOpen?: (t: WorkObject) => void }) {
   const [status, setStatus] = useState<StatusFilter>(OPEN)
   const [search, setSearch] = useState('')
   return (
-    <TaskList view={view} tasks={tasks} statuses={statuses} priorities={priorities} projects={[]}
+    <TaskList view={view} tasks={tasks} statuses={statuses} priorities={priorities} projects={[]} people={people}
       status={status} onStatus={setStatus} search={search} onSearch={setSearch} q={search}
       selected={null} onOpen={onOpen} onNew={() => {}} now={now} />
   )
@@ -124,12 +126,59 @@ describe('任务列表', () => {
     await user.click(screen.getByRole('button', { name: '切回「未完成」' }))
     expect(screen.getAllByRole('button', { name: /^TSK-/ })).toHaveLength(1)
     second.unmount()
-    // 后端按 q 过滤后为空
+    // 搜索在本地匹配，没有命中
     render(<Harness tasks={[]} />)
     await user.type(screen.getByRole('searchbox', { name: '搜索任务' }), 'zz')
     expect(screen.getByText('没有匹配的任务')).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: '清掉筛选条件' }))
     expect(screen.getByRole('searchbox', { name: '搜索任务' })).toHaveValue('')
+  })
+
+  it('已结束按完成时间倒序，无截止按最近更新；排序下拉换成创建时间', async () => {
+    const user = userEvent.setup()
+    const at = (d: string) => `2026-10-${d}T10:00:00Z`
+    render(<Harness tasks={[
+      task({ title: '早完成', status: 'done', completed_at: at('10') }),
+      task({ title: '刚完成', status: 'done', completed_at: at('27') }),
+      task({ title: '早建晚改', created_at: at('01'), updated_at: at('26') }),
+      task({ title: '晚建早改', created_at: at('20'), updated_at: at('21') }),
+    ]} />)
+    const titles = (name: string) => rowsIn(screen.getByRole('group', { name })).map((r) => r.querySelector('.ellipsis')?.textContent)
+    expect(titles('无截止')).toEqual(['早建晚改', '晚建早改'])
+    await user.click(screen.getByRole('button', { name: /^全部/ }))
+    expect(titles('已结束')).toEqual(['刚完成', '早完成'])
+    await user.selectOptions(screen.getByRole('combobox', { name: '排序' }), '创建时间')
+    expect(titles('无截止')).toEqual(['晚建早改', '早建晚改'])
+  })
+
+  it('负责人筛选：未分配、我（先选是哪位干系人）、具体的人；搜索搜得到负责人名', async () => {
+    localStorage.removeItem('pmw-tasks-me')
+    const user = userEvent.setup()
+    render(<Harness tasks={[
+      task({ title: '我的事', owner_id: 'stk_me', owner_name: '李钊' }),
+      task({ title: '开发任务', owner_id: 'stk_cc', owner_name: 'Claude Code' }),
+      task({ title: '没人管' }),
+    ]} />)
+    const all = () => screen.queryAllByRole('button', { name: /^TSK-/ }).map((r) => r.querySelector('.ellipsis')?.textContent)
+    const pickOwner = async (label: string) => {
+      await user.click(screen.getByRole('button', { name: '负责人' }))
+      await user.click(screen.getByRole('option', { name: new RegExp(label) }))
+    }
+    await pickOwner('未分配')
+    expect(all()).toEqual(['没人管'])
+    await pickOwner('^我')
+    expect(screen.getByText('还没选你是哪位干系人')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: '我是' }))
+    await user.click(screen.getByRole('option', { name: '我是 李钊' }))
+    expect(all()).toEqual(['我的事'])
+    expect(localStorage.getItem('pmw-tasks-me')).toBe('stk_me')
+    await pickOwner('Claude Code')
+    expect(all()).toEqual(['开发任务'])
+    await user.click(screen.getByRole('button', { name: '负责人' }))
+    await user.click(screen.getByRole('option', { name: '全部负责人' }))
+    await user.type(screen.getByRole('searchbox', { name: '搜索任务' }), 'claude')
+    expect(all()).toEqual(['开发任务'])
+    localStorage.removeItem('pmw-tasks-me')
   })
 
   it('点完成圆圈不打开抽屉，悬停提示按状态区分', async () => {

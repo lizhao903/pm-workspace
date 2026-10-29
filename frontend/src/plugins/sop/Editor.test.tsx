@@ -102,7 +102,8 @@ describe('SOP 编排页', () => {
     await user.click(screen.getByRole('button', { name: '发布' }))
     await waitFor(() => expect(router.state.location.pathname).toBe('/sop/flows/sop_new'))
     const post = calls.find((c) => c.method === 'POST')!.body!
-    expect(post).toMatchObject({ name: '新流程', trigger: '手动', steps: [{ key: 's1', name: '人工检查', kind: 'review', after: [] }] })
+    // 没有 sop_trigger 枚举时用内置的，存 key
+    expect(post).toMatchObject({ name: '新流程', trigger: 'manual', steps: [{ key: 's1', name: '人工检查', kind: 'review', after: [] }] })
     expect(Object.keys(post.layout as object).sort()).toEqual(['__start', 's1'])
   })
 

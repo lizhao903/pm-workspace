@@ -36,9 +36,9 @@ func TestMigrationSeedsBuiltinDictionaries(t *testing.T) {
 	if err != nil {
 		t.Fatalf("list dictionaries: %v", err)
 	}
-	// priority、link_relation、artifact_platform（0012）、artifact_kind（0031）。
-	if len(dicts) != 4 {
-		t.Fatalf("want 4 builtin dictionaries, got %d", len(dicts))
+	// priority、link_relation、artifact_platform（0012）、artifact_kind（0031）、contact_group、msg_status（0041）。
+	if len(dicts) != 6 {
+		t.Fatalf("want 6 builtin dictionaries, got %d", len(dicts))
 	}
 
 	byID := map[string]*domain.Dictionary{}
@@ -444,6 +444,70 @@ func TestDictItemUsageDispatch(t *testing.T) {
 
 	if _, err := s.DictItemUsage(ctx, "dit_ghost"); !errors.Is(err, domain.ErrNotFound) {
 		t.Fatalf("err = %v, want ErrNotFound", err)
+	}
+}
+
+// 0041 的两本字典：联系人分组按「、」拆开计数，没填的算「其他」；IM 插件没装时消息状态引用数为 0。
+func TestContactGroupAndMsgStatusUsage(t *testing.T) {
+	s, ctx := newStore(t)
+
+	base := mustDictItems(t, s, ctx, domain.DictContactGroup, false)
+	if len(base) != 5 {
+		t.Fatalf("contact_group items = %d, want 5", len(base))
+	}
+	if other := findDictItem(base, "其他"); other == nil || other.Meta["default"] != true {
+		t.Fatalf("其他 = %+v, want meta.default", other)
+	}
+	before := findDictItem(base, "其他").Usage
+	for _, g := range []string{"客户、Octok", "Octok，XAUE", "客户", ""} {
+		if _, err := s.CreateStakeholder(ctx, &domain.Stakeholder{Name: "人" + g, Group: g}); err != nil {
+			t.Fatalf("create stakeholder: %v", err)
+		}
+	}
+	items := mustDictItems(t, s, ctx, domain.DictContactGroup, false)
+	if n := findDictItem(items, "客户").Usage; n != 2 {
+		t.Errorf("客户 usage = %d, want 2", n)
+	}
+	if n := findDictItem(items, "其他").Usage; n != before+1 {
+		t.Errorf("其他 usage = %d, want %d", n, before+1)
+	}
+	if n, err := s.DictItemUsage(ctx, findDictItem(items, "合作伙伴").ID); err != nil || n != 0 {
+		t.Errorf("合作伙伴 usage = %d, %v; want 0", n, err)
+	}
+	// 被用过的分组不能删
+	if err := s.DeleteDictItem(ctx, findDictItem(items, "客户").ID); !errors.Is(err, domain.ErrConflict) {
+		t.Errorf("删除在用分组 err = %v, want ErrConflict", err)
+	}
+
+	// 任务状态的说明也是 0041 补的，存在 statuses 的 JSON 里
+	task, err := s.GetObjectType(ctx, "task")
+	if err != nil {
+		t.Fatal(err)
+	}
+	desc := map[string]string{}
+	for _, st := range task.Statuses {
+		desc[st.Key] = st.Description
+	}
+	if desc["review"] == "" || desc["done"] == "" || desc["todo"] != "" {
+		t.Errorf("task status descriptions = %v", desc)
+	}
+
+	msg := mustDictItems(t, s, ctx, domain.DictMsgStatus, false)
+	if len(msg) != 3 || msg[0].Key != "pending" {
+		t.Fatalf("msg_status items = %+v, want pending first of 3", msg)
+	}
+	if n, err := s.DictItemUsage(ctx, msg[0].ID); err != nil || n != 0 {
+		t.Errorf("没有 im_messages 表时 usage = %d, %v; want 0", n, err)
+	}
+	if _, err := s.db.W.ExecContext(ctx, `CREATE TABLE im_messages (id TEXT, status TEXT)`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.db.W.ExecContext(ctx, `INSERT INTO im_messages VALUES ('a','pending'),('b','pending'),('c','done')`); err != nil {
+		t.Fatal(err)
+	}
+	msg = mustDictItems(t, s, ctx, domain.DictMsgStatus, false)
+	if msg[0].Usage != 2 || findDictItem(msg, "done").Usage != 1 {
+		t.Errorf("msg usage = %d/%d, want 2/1", msg[0].Usage, findDictItem(msg, "done").Usage)
 	}
 }
 

@@ -1,26 +1,40 @@
 // 待验收的任务在抽屉里验收通过或退回（DEV-08d，照原型 devloop.tsx 的 ReviewBar）。
 // 验收通过和列表完成圆圈走同一个 useApprove（kind=note、status=done）；退回意见必填，状态回初始状态。
+// 栏里放最近一条提交验收的全文（含改动文件、测试结果）、提交号和验收标准清单（PR-07，SPEC-tasks-5.21），不用滚到底读说明。
 import { useState } from 'react'
 import { errorText, shortSession, useApprove, useProgress, useReject, type ObjectStatus, type WorkObject } from '../../core/data'
-import { Button, Textarea } from '../../core/ui'
+import { Button, Checkbox, Tag, Tags, Textarea } from '../../core/ui'
+import { acceptanceItems } from './mdParse'
+import { Markdown } from './Markdown'
 import { doneKey, reopenKey, timeAgo } from './model'
 import './changes.css'
 
 type Mode = '' | 'pass' | 'back'
 
-export function ReviewBar({ task, statuses, onReviewed }: {
+export function ReviewBar({ task, statuses, acceptance = '', onReviewed }: {
   task: WorkObject
   statuses: ObjectStatus[]
+  /** 任务的验收标准（Markdown），列成勾选清单 */
+  acceptance?: string
   /** 提交成功后的新状态，抽屉据此同步自己的表单 */
   onReviewed: (status: string) => void
 }) {
   const [mode, setMode] = useState<Mode>('')
   const [text, setText] = useState('')
   const [tried, setTried] = useState(false)
+  // 勾选只为自己核对，不保存
+  const [ticks, setTicks] = useState<ReadonlySet<number>>(() => new Set())
   const approve = useApprove()
   const reject = useReject()
   const progress = useProgress(task.id)
   const last = progress.data?.find((p) => p.kind === 'review')
+  const items = acceptanceItems(acceptance)
+  const tick = (i: number, on: boolean) => setTicks((s) => {
+    const n = new Set(s)
+    if (on) n.add(i)
+    else n.delete(i)
+    return n
+  })
 
   const done = doneKey(statuses)
   const initial = reopenKey(statuses)
@@ -66,6 +80,23 @@ export function ReviewBar({ task, statuses, onReviewed }: {
             : '状态是待验收'}
         </span>
       </div>
+      {last && (
+        <div className="rv-text" aria-label="提交说明"><Markdown source={last.text} empty="（没有正文）" /></div>
+      )}
+      {last && last.commits.length > 0 && (
+        <div className="rv-refs" aria-label="提交号">
+          <span className="rv-refs-label">提交</span>
+          <Tags>{last.commits.map((c) => <Tag key={c}><span className="rv-mono" title={c}>{c.slice(0, 10)}</span></Tag>)}</Tags>
+        </div>
+      )}
+      {items.length > 0 && (
+        <div className="rv-checks" role="group" aria-label="对照验收标准">
+          <span className="rv-sub">对照验收标准（勾选只为自己核对，不保存）{ticks.size > 0 && ` · 已勾 ${ticks.size} / ${items.length}`}</span>
+          {items.map((x, i) => (
+            <Checkbox key={i} checked={ticks.has(i)} onCheckedChange={(on) => tick(i, on)}>{x}</Checkbox>
+          ))}
+        </div>
+      )}
       {mode ? (
         <div className="rv-form">
           <Textarea rows={3} value={text} autoFocus invalid={missing} aria-label={mode === 'pass' ? '验收意见' : '退回意见'}

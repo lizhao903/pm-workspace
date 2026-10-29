@@ -80,9 +80,13 @@
 }
 .en-warn { color: var(--warn); }
 
+/* 1440 宽时值表只有六百多像素：说明、使用中要留着（走查 A-05），各列收窄；再窄先藏 Key 和默认 */
 @container en-table (max-width: 820px) {
-  .en-row { grid-template-columns: 54px 30px minmax(100px, 1fr) 96px 54px 40px 54px; }
-  .en-row > :nth-child(5), .en-row > :nth-child(6) { display: none; }
+  .en-row { grid-template-columns: 48px 26px minmax(80px, 1fr) 72px minmax(80px, 1.2fr) 48px 30px 44px 50px; gap: 6px; padding: 6px 10px; }
+}
+@container en-table (max-width: 600px) {
+  .en-row { grid-template-columns: 48px 26px minmax(80px, 1fr) minmax(80px, 1fr) 48px 44px 50px; }
+  .en-row > :nth-child(4), .en-row > :nth-child(7) { display: none; }
 }
 @container en-table (max-width: 560px) {
   .en-row { grid-template-columns: 50px 28px minmax(90px, 1fr) 48px 54px; gap: 8px; padding: 6px 10px; }

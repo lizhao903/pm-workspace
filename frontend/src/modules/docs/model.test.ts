@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import type { Category, LocalDir, WorkObject } from '../../core/data'
 import {
   buildTree, builtinModel, categoryOptions, charCount, defaultCategory, docPatch, docRevisionText, draftOfObject, emptyText, fileSize,
-  folderModel, sameDocDraft, STARRED, UNCATEGORIZED, type Filter,
+  folderModel, NO_PROJECT, projectOptions, sameDocDraft, STARRED, UNCATEGORIZED, type Filter,
 } from './model'
 
 const cat = (id: string, name: string, sort: number, total: number, children: Category[] = []): Category => ({
@@ -127,5 +127,32 @@ describe('新建和编辑', () => {
     expect(docRevisionText({ field: 'category_id', old_value: '', new_value: 'c_b' }, names)).toBe('分类改成「技术方案」')
     expect(docRevisionText({ field: 'status', old_value: 'draft', new_value: 'final' }, names)).toBe('状态从「draft」改成「定稿」')
     expect(docRevisionText({ field: 'project_id', old_value: '', new_value: 'p1' }, names)).toBe('归到项目')
+  })
+})
+
+describe('按项目筛（C-04）', () => {
+  const ds = [
+    obj({ id: 'p1d', title: '甲', category_id: 'c_a', project_id: 'p1', project_title: '支付' }),
+    obj({ id: 'p2d', title: '乙', category_id: 'c_a', project_id: 'p_gone', project_title: '旧项目' }),
+    obj({ id: 'nod', title: '丙', category_id: 'c_a' }),
+  ]
+  it('项目单选，NO_PROJECT 是不属于项目；筛项目后空分类不说「这个分类下还没有内容」', () => {
+    expect(builtinModel(ds, tree, { ...all, project: 'p1' }, starred).rows.map((d) => d.id)).toEqual(['p1d'])
+    expect(builtinModel(ds, tree, { ...all, project: NO_PROJECT }, starred).rows.map((d) => d.id)).toEqual(['nod'])
+    expect(builtinModel(ds, tree, all, starred).rows[0].project).toEqual({ id: 'p1', name: '支付' })
+    const f = { ...all, kind: 'c_b', project: 'p1' }
+    expect(emptyText(builtinModel(ds, tree, f, starred), f)).toBe('没有符合筛选的内容')
+  })
+  it('下拉：在用的项目按名字排带篇数，项目不在了的照列，最后是不属于项目', () => {
+    const m = builtinModel(ds, tree, all, starred)
+    expect(projectOptions(m.docs, [{ id: 'p3', title: '增长' }, { id: 'p1', title: '支付' }])).toEqual([
+      { value: 'p3', label: '增长', hint: '0 篇' }, { value: 'p1', label: '支付', hint: '1 篇' },
+      { value: 'p_gone', label: '旧项目', hint: '1 篇' }, { value: NO_PROJECT, label: '不属于项目', hint: '1 篇' },
+    ])
+  })
+  it('本地目录不按项目筛', () => {
+    const dir: LocalDir = { id: 'dir_1', path: '/tmp/d', name: 'd', position: 0, created_at: '', updated_at: '' }
+    const list = { path: '/tmp/d', files: [{ rel: 'a.md', path: '/tmp/d/a.md', name: 'a.md', ext: 'md', size: 1, modified: '2026-10-01T00:00:00Z' }], skipped: 0, truncated: false }
+    expect(folderModel(dir, list, { ...all, project: 'p1' }).rows).toHaveLength(1)
   })
 })

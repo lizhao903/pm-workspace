@@ -175,3 +175,25 @@
 .lib-rev-actor { flex: none; max-width: 120px; color: var(--muted); }
 .lib-rev-text { min-width: 0; overflow-wrap: anywhere; }
 .lib-revs-note { color: var(--faint); font-size: var(--fs-sm); }
+
+/* ---------- 按项目（SPEC-library-1.51、1.52，C-04） ---------- */
+/* 顶栏放不下时分类 chip 先收（横向滑），收到头了项目下拉再收窄、文字省略 */
+.lib-bar .lib-proj-filter { flex: 0 1 auto; min-width: 56px; overflow: hidden; margin-left: auto; }
+.lib-bar:has(.lib-proj-filter) .filter-row { flex-shrink: 100; }
+/* 桌面窄宽（有二级菜单）放不下：间距收小，「新建文档」只留图标，分类 chip 至少留一个的宽度 */
+@media (min-width: 761px) and (max-width: 900px) {
+  .lib-bar:has(.lib-proj-filter) { gap: var(--sp-4); }
+  .lib-bar:has(.lib-proj-filter) .filter-row { min-width: 56px; }
+  .lib-bar:has(.lib-proj-filter) .lib-new-text { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+}
+.lib-bar .lib-tags ~ .lib-proj-filter, .lib-bar .lib-proj-filter ~ .lib-new { margin-left: 0; }
+.lib-proj { display: inline-flex; align-items: center; gap: 4px; border: 0; max-width: 220px; overflow: hidden; text-overflow: ellipsis; }
+button.lib-proj { cursor: pointer; color: var(--accent); background: var(--accent-soft); }
+button.lib-proj:hover { text-decoration: underline; }
+.lib-proj-gone { color: var(--faint); }
+@media (max-width: 760px) {
+  /* 分类 chip 至少留一个的宽度，其余横向滑 */
+  .lib-bar:has(.lib-proj-filter) { gap: var(--sp-4); }
+  .lib-bar .lib-proj-filter { margin-left: 0; }
+  .lib-bar .filter-row { min-width: 56px; }
+}
