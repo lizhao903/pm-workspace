@@ -56,6 +56,8 @@ export function PublishPage({ videos, onModuleTab, onOpenVideo }: {
   // 发布抽屉和测试抽屉二选一
   const openPub = (id: string | null) => setParams({ p: id ?? '', t: '' }, !!id)
   const openTest = (id: string | null) => setParams({ t: id ?? '', p: '' }, !!id)
+  // 去接入、去修复：带上平台的连接器工具，连接器页直接打开它的抽屉（SHELL-02）
+  const goConnect = (tool: string | undefined) => void navigate(tool ? `/settings/connectors?${new URLSearchParams({ tool })}` : '/settings/connectors')
 
   const queries = [publishes, platforms, accounts, covers, tests]
   const head = (
@@ -240,7 +242,7 @@ export function PublishPage({ videos, onModuleTab, onOpenVideo }: {
         <NewPublishDrawer videos={videos} platforms={plats} accounts={accs} covers={cvs} defaultVideo={video?.id}
           onClose={() => openPub(null)}
           onCreated={(p, now) => { setParams({ p: p.id, t: '' }); if (now) submit.mutate(p.id) }}
-          onConnect={() => void navigate('/settings/connectors')} />
+          onConnect={goConnect} />
       )}
       {current && (
         <PublishDrawer key={current.id} p={current} video={videos.find((v) => v.id === current.video_id)} platform={plats.find((x) => x.key === current.platform)}
@@ -249,7 +251,7 @@ export function PublishPage({ videos, onModuleTab, onOpenVideo }: {
           onSubmit={() => { submit.reset(); submit.mutate(current.id) }}
           onClose={() => openPub(null)} onOpenVideo={onOpenVideo} onOpenTest={openTest}
           onOpenUrl={(url, title) => void navigate(`/browser?${new URLSearchParams({ open: url, title })}`)}
-          onConnect={() => void navigate('/settings/connectors')} />
+          onConnect={() => goConnect(plats.find((x) => x.key === current.platform)?.tool)} />
       )}
       {openP && openP !== 'new' && !current && (
         <div className="vp-gone" role="status">这条发布记录已经删除了<Button size="sm" onClick={() => openPub(null)}>知道了</Button></div>

@@ -1,10 +1,11 @@
 // 视频详情的设置（SPEC-videos-13）：标题、所属项目、系列和集数、章节数、视频目录边输边存（停手 600 毫秒存一次，失焦立刻存），
-// 画面比例只读，删除视频要确认。输入框用本地草稿，存回来不覆盖正在输的内容
+// 画面比例只读，删除视频要确认。输入框用本地草稿，存回来不覆盖正在输的内容。计划首发日（VID-06d）选了就存，排内容日历、算进度落后用
 import { useEffect, useRef, useState } from 'react'
 import { errorText, projectView, useDeleteVideo, usePatchVideo, type Video, type VideoInput, type VideoSeries } from '../../core/data'
 import { Button, ConfirmDialog, Field, Input, SearchSelect, Select } from '../../core/ui'
 import { orientLocked } from './model'
 import { OrientTag } from './parts'
+import './calendar.css'
 
 const SAVE_MS = 600
 
@@ -88,6 +89,14 @@ export function SettingsTab({ v, series, projects, onDeleted }: {
             <Input type="number" min={1} disabled={!v.series_id} value={draft.episode} invalid={episodeBad}
               onChange={(e) => set({ episode: e.target.value })} onBlur={flush} />
           </Field>
+        </div>
+      </section>
+      <section className="vd-sec">
+        <div className="vd-sec-title">计划首发日<span className="vd-hint">排进内容日历；离这天不到 7 天还没过第一章验收的标红</span></div>
+        <div className="vd-target-row">
+          <Input type="date" aria-label="计划首发日" value={v.target_date ?? ''}
+            onChange={(e) => { const x = e.target.value; if (x !== (v.target_date ?? '') && (!x || /^\d{4}-\d{2}-\d{2}$/.test(x))) save({ target_date: x || null }) }} />
+          {v.target_date && <Button size="sm" onClick={() => save({ target_date: null })}>清掉</Button>}
         </div>
       </section>
       <section className="vd-sec">

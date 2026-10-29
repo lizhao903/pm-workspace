@@ -126,6 +126,7 @@ func (p *Plugin) Register(r plugin.Registrar) error {
 		m.HandleFunc("PATCH /api/video/cover-tests/{id}", h.updateCoverTest)
 		m.HandleFunc("DELETE /api/video/cover-tests/{id}", h.removeCoverTest)
 		m.HandleFunc("POST /api/video/cover-tests/{id}/evaluate", h.evaluateCoverTestNow)
+		m.HandleFunc("POST /api/video/cover-tests/{id}/decide", h.decideCoverTest)
 	})
 	r.Subscribe(plugin.RunFinishedEvent, h.onRunFinished)
 	h.registerSOP(r)

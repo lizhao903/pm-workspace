@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { invalidationsFor, videoKeys, type Video, type VideoCheckpoint, type VideoSeries } from '../../core/data'
+import { invalidationsFor, todayKeys, videoKeys, type Video, type VideoCheckpoint, type VideoSeries } from '../../core/data'
 import {
   filterVideos, groupBySeries, isFinished, needsMe, newRoot, nextEpisode, openCheckpoint, orientLocked, peek, sortVideos, stepState, timeAgo,
   videoState,
@@ -95,7 +95,7 @@ describe('路由', () => {
     expect(viewPath({ kind: 'all' })).toBe('')
   })
 
-  it('写视频报 video，整个前缀一起刷', () => {
-    expect(invalidationsFor({ kind: 'video' })).toEqual([videoKeys.all])
+  it('写视频报 video，整个前缀一起刷，今日聚合也刷（视频卡片和菜单红点）', () => {
+    expect(invalidationsFor({ kind: 'video' })).toEqual([videoKeys.all, todayKeys.all])
   })
 })

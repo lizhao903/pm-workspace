@@ -80,7 +80,7 @@ export type Change =
   | { kind: 'domains' }
   /** 测了一次内网域名：结果另存，只刷路由列表上的 check */
   | { kind: 'domain-check' }
-  /** 视频新建、编辑、删除，阶段推进、检查点通过退回跳过（VID-01c）：列表的分布和待我处理的数字跟着变 */
+  /** 视频新建、编辑、删除，阶段推进、检查点通过退回跳过（VID-01c）：列表的分布和待我处理的数字跟着变；今日的视频卡片和菜单红点也是（SHELL-02） */
   | { kind: 'video' }
   /** 浏览器里登录、退出 Google（BR-01b）：账号就是 Drive、日历连接器实例，两边一起刷 */
   | { kind: 'browser-google' }
@@ -198,7 +198,7 @@ export function invalidationsFor(c: Change): QueryKey[] {
     case 'domain-check':
       return [domainKeys.routes]
     case 'video':
-      return [videoKeys.all]
+      return [videoKeys.all, todayKeys.all]
     case 'browser-google':
       return [browserKeys.google, dataKeys.connectors.list]
     case 'browser-allowlist':

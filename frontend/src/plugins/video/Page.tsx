@@ -5,9 +5,11 @@
 // VID-02b：制作流程里也列产出物，同样用 ?a= 打开抽屉。
 // VID-08c 加了 /videos/topics 选题（?t=<选题 id> 打开抽屉）、/videos/clips 素材收件箱。
 // VID-05c 加了 /videos/publishes 发布记录（?video= 只看一集，?p= 发布抽屉，?t= 封面测试抽屉）
+// VID-06d 加了 /videos/calendar 内容日历（?m=week 周视图，?d= 看的那天，?p= 发布抽屉）
 import { Navigate, useLocation, useNavigate, useParams, useSearchParams } from 'react-router'
 import { ErrorState, LoadingState, PageTitle } from '../../core/ui'
 import { errorText, isApiError, projectView, useProjects, useVideo, useVideoClips, useVideoSeries, useVideoTopics, useVideos } from '../../core/data'
+import { CalendarPage } from './CalendarPage'
 import { ClipsPage } from './ClipsPage'
 import { Detail } from './Detail'
 import { ListPage } from './ListPage'
@@ -41,7 +43,7 @@ export default function Page() {
   const onView = (v: ListView) => go(viewPath(v))
   const openVideo = (id: string, tab: ModuleTab) => go(`/v/${encodeURIComponent(id)}`, { from: tab })
   const openSeries = (id: string) => onView({ kind: 'series', id })
-  const onModuleTab = (t: ModuleTab) => (t === 'series' || t === 'topics' || t === 'clips' || t === 'publishes' ? go(`/${t}`) : onView({ kind: t }))
+  const onModuleTab = (t: ModuleTab) => (t === 'series' || t === 'topics' || t === 'clips' || t === 'publishes' || t === 'calendar' ? go(`/${t}`) : onView({ kind: t }))
 
   const list = videos.data ?? []
   const seriesList = series.data ?? []
@@ -60,6 +62,11 @@ export default function Page() {
 
   if (route.kind === 'series-list') {
     return <SeriesPage series={seriesList} videos={list} onOpenSeries={openSeries} onModuleTab={onModuleTab} />
+  }
+
+  if (route.kind === 'calendar') {
+    return <CalendarPage videos={list} onModuleTab={onModuleTab} onOpenVideo={(id) => openVideo(id, 'calendar')}
+      onOpenTest={(id) => go(`/publishes?t=${encodeURIComponent(id)}`)} />
   }
 
   if (route.kind === 'publishes') {

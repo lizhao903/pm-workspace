@@ -18,6 +18,14 @@ describe('menuMarks', () => {
     expect(menuMarks({ imPending: 0 }).messages).toBeUndefined()
   })
 
+  it('视频：待验收、待发布、发布失败有条目才出红点，清掉后消失', () => {
+    const v = (w: number, s: number, f: number): Today => ({ cards: [card('video_waiting', w), card('video_scheduled', s), card('video_failed', f), card('video_deal_due', 4)] })
+    expect(menuMarks({ today: v(0, 0, 0) }).videos).toBeUndefined()
+    expect(menuMarks({ today: v(2, 0, 1) }).videos).toEqual({ alert: true, hint: '2 件视频待验收，1 条发布失败' })
+    expect(menuMarks({ today: v(0, 3, 0) }).videos?.hint).toBe('3 条待发布')
+    expect(menuMarks({ today: today(2, 1) }).videos).toBeUndefined()
+  })
+
   it('设置：后端没连上或连接器出错', () => {
     expect(menuMarks({ backendDown: true, brokenConnectors: 2 }).settings?.hint).toBe('后端未连接，2 个连接器异常')
     expect(menuMarks({ brokenConnectors: 0 }).settings).toBeUndefined()

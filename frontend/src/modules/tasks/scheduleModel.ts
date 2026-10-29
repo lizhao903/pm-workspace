@@ -8,6 +8,18 @@ export const FREQS: ScheduleFreq[] = ['once', 'daily', 'weekdays', 'weekly', 'mo
 export const FREQ_LABEL: Record<ScheduleFreq, string> = { once: '一次', daily: '每天', weekdays: '工作日', weekly: '每周', monthly: '每月', cron: 'Cron 表达式' }
 export const ACTION_KINDS: ScheduleActionKind[] = ['task', 'sop', 'agent']
 export const ACTION_LABEL: Record<ScheduleActionKind, string> = { task: '建一条任务', sop: '执行 SOP', agent: '让 Agent 去做' }
+/** 插件登记的动作（VID-06a）：后端原样回，这里只给认得的起名字，其余显示 kind */
+const PLUGIN_ACTION_LABEL: Record<string, string> = { video_publish: '发布视频' }
+export const actionLabel = (kind: string) => ACTION_LABEL[kind as ScheduleActionKind] ?? PLUGIN_ACTION_LABEL[kind] ?? kind
+/** 不是内核的三种动作 */
+export const isPluginAction = (kind: string) => !(ACTION_KINDS as string[]).includes(kind)
+/** 视频发布动作（video_publish）的发布记录 id */
+export function publishIdOf(a: ScheduleAction): string | undefined {
+  const x = a as unknown as { kind: string; publish_id?: unknown }
+  return x.kind === 'video_publish' && typeof x.publish_id === 'string' && x.publish_id ? x.publish_id : undefined
+}
+/** 动作里引用的东西的名字：发布记录 id 到发布标题；没取到（视频插件没启用）不传 */
+export type ActionNames = { publishes?: Record<string, string> }
 export const WEEK = ['日', '一', '二', '三', '四', '五', '六']
 /** 周一在前 */
 export const WEEK_ORDER = [1, 2, 3, 4, 5, 6, 0]
@@ -74,10 +86,18 @@ export function whenText(iso: string | null | undefined, now: Date = new Date())
   return `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${t}`
 }
 
-/** 列表里「做什么」的文字。SOP、Agent 的接口 M4 之后才有，拿不到名字时显示编号 */
-export function actionText(a: ScheduleAction): string {
+/** 列表里「做什么」的文字。SOP、Agent 的接口 M4 之后才有，拿不到名字时显示编号；视频发布显示发布标题 */
+export function actionText(a: ScheduleAction, names: ActionNames = {}): string {
   if (a.kind === 'task') return `建任务「${a.title || '未填标题'}」`
   if (a.kind === 'sop') return `执行「${a.sop_id || '未选 SOP'}」`
+  const kind = (a as { kind: string }).kind
+  if (kind === 'video_publish') {
+    const id = publishIdOf(a)
+    if (!id) return '发布「未选发布记录」'
+    if (!names.publishes) return `发布记录 ${id}`
+    return names.publishes[id] !== undefined ? `发布「${names.publishes[id]}」` : '发布「已删除的发布记录」'
+  }
+  if (isPluginAction(kind)) return actionLabel(kind)
   return `${a.agent_id || '未选 Agent'}：${a.prompt || '未填要求'}`
 }
 
@@ -132,7 +152,8 @@ export function actionOf(a: ActionDraft): ScheduleAction {
 /** 必填项的错误，按底栏显示的顺序（SPEC-tasks-8.17） */
 export function draftErrors(d: ScheduleDraft, now: Date = new Date()): string[] {
   const a = d.action
-  const aErr = a.kind === 'task' ? (!a.title.trim() ? '任务标题必填' : '')
+  // 插件动作在这里只读，校验交给插件
+  const aErr = isPluginAction(a.kind) ? '' : a.kind === 'task' ? (!a.title.trim() ? '任务标题必填' : '')
     : a.kind === 'sop' ? (!a.sop_id.trim() ? '选一个 SOP' : '')
       : !a.agent_id.trim() ? '选一个 Agent' : !a.prompt.trim() ? '写一下要它做什么' : ''
   return [!d.name.trim() ? '名称必填' : '', ruleError(d.rule, now), aErr].filter(Boolean)
@@ -172,8 +193,8 @@ function ruleKey(r: ScheduleRule): unknown[] {
 }
 
 /** 页面搜索：名称、规则文字、「做什么」文字 */
-export function matchSchedule(s: Schedule, kw: string): boolean {
+export function matchSchedule(s: Schedule, kw: string, names: ActionNames = {}): boolean {
   const q = kw.trim().toLowerCase()
   if (!q) return true
-  return `${s.name} ${describeRule(fullRule(s.rule))} ${actionText(s.action)}`.toLowerCase().includes(q)
+  return `${s.name} ${describeRule(fullRule(s.rule))} ${actionText(s.action, names)}`.toLowerCase().includes(q)
 }

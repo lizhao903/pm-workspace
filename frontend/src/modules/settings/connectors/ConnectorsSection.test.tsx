@@ -1,6 +1,7 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { render, screen, within } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { MemoryRouter, useLocation } from 'react-router'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { Connector, ConnectorDef } from '../../../core/data'
 import { ConnectorsSection } from './ConnectorsSection'
@@ -88,14 +89,48 @@ function stub(defs: ConnectorDef[], rows: Connector[]) {
 
 const writes = (calls: Call[]) => calls.filter((c) => c.method !== 'GET').map((c) => [c.method, c.path, c.body])
 
-function renderPage() {
+function Search() {
+  return <output data-testid="search">{useLocation().search}</output>
+}
+
+function renderPage(url = '/settings/connectors') {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-  render(<QueryClientProvider client={qc}><ConnectorsSection /></QueryClientProvider>)
+  render(
+    <QueryClientProvider client={qc}>
+      <MemoryRouter initialEntries={[url]}><ConnectorsSection /><Search /></MemoryRouter>
+    </QueryClientProvider>,
+  )
 }
 
 afterEach(() => { vi.unstubAllGlobals() })
 
 describe('连接器页', () => {
+  it('带 ?tool= 进来：接过的打开它的抽屉，异常的优先，分类切过去，参数用完就去掉', async () => {
+    stub([github, slack], [conn({ id: 'cn_a', tool: 'github', name: '个人' }), conn({ id: 'cn_b', tool: 'github', name: '公司', status: 'error', error: '凭证失效' })])
+    renderPage('/settings/connectors?tool=github&x=1')
+    const drawer = await screen.findByRole('dialog')
+    expect(within(drawer).getByDisplayValue('公司')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /研发协作/ })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.queryByLabelText('即时通讯')).not.toBeInTheDocument()
+    await waitFor(() => expect(screen.getByTestId('search')).toHaveTextContent('?x=1'))
+  })
+
+  it('带 ?tool= 进来：没接过的打开新建抽屉', async () => {
+    stub([github, slack], [])
+    renderPage('/settings/connectors?tool=slack')
+    const drawer = await screen.findByRole('dialog')
+    expect(within(drawer).getByText('接入 Slack')).toBeInTheDocument()
+    await waitFor(() => expect(screen.getByTestId('search')).toBeEmptyDOMElement())
+  })
+
+  it('带不认识的 ?tool= 进来不开抽屉', async () => {
+    stub([github], [])
+    renderPage('/settings/connectors?tool=nope')
+    await screen.findByLabelText('研发协作')
+    await waitFor(() => expect(screen.getByTestId('search')).toBeEmptyDOMElement())
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  })
+
   it('后端还没登记任何定义时是空状态，统计全为 0', async () => {
     stub([], [])
     renderPage()
@@ -183,7 +218,7 @@ describe('连接器页', () => {
   it('插件停用后它的工具不在分类里、实例归「提供方已停用」，重新启用后回来；缓存里的旧定义进来时重新取（CONN-02）', async () => {
     const echo: ConnectorDef = { ...slack, tool: 'demo_echo', label: '示例连接器', category: 'other', source: 'demo' }
     const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-    const mount = () => render(<QueryClientProvider client={qc}><ConnectorsSection /></QueryClientProvider>)
+    const mount = () => render(<QueryClientProvider client={qc}><MemoryRouter><ConnectorsSection /></MemoryRouter></QueryClientProvider>)
     const row = (available: boolean) => conn({ id: 'cn_e', tool: 'demo_echo', name: '示例实例', available })
 
     stub([github, echo], [row(true)])

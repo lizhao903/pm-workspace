@@ -2193,6 +2193,7 @@ VID-01a 起。插件 `video`（`internal/plugins/video`，清单 `plugin.json`�
 | PATCH | `/api/video/cover-tests/{id}` | 只有进行中的能改，结束了 409；只传要改的：`min_days` / `min_impressions` / `min_gap`，`arms` 是 `{cover_id, impressions?, ctr?}[]`（按 `cover_id` 对上，只改曝光、点击率，传 `null` 清掉；不在测试里的封面 400「分组建好后不能增删」；小号分发 400，数据回填到发布记录上）；改完立刻算一遍，回 `VideoCoverTest` |
 | DELETE | `/api/video/cover-tests/{id}` | `data` 为 `null`；只删测试和分组，封面的选用、归档不回退 |
 | POST | `/api/video/cover-tests/{id}/evaluate` | 无 body，按当前数据马上算一遍；已结束的原样返回；回 `VideoCoverTest` |
+| POST | `/api/video/cover-tests/{id}/decide` | `{winner_id?}`（VID-05d），手动判定，门槛不动：给了 `winner_id` 按它判 `decided`（同下「胜者设为主封面」），要是这次测试里的封面，否则 400；不给（或请求体为空）判 `inconclusive`，封面都不动；都记 `ended_at`。已结束的 409；回 `VideoCoverTest` |
 
 `VideoCoverTest`：`{id, video_id, platform, mode, arms, started_at, ended_at?, min_days, min_impressions, min_gap, winner_id?, status, state, created_at, updated_at}`，同原型 `CoverTest` 多 `state` 和时间；`arms` 是 `{cover_id, publish_id?, impressions?, ctr?}[]`，按登记顺序。
 
@@ -2200,7 +2201,7 @@ VID-01a 起。插件 `video`（`internal/plugins/video`，清单 `plugin.json`�
 - `arms` 2 到 5 组，每组一张这个视频的封面（`kind: cover`），不重复、没归档，否则 400。`accounts` 每组必须带一条本视频、本平台的发布记录 `publish_id`，不重复；发布记录用了封面的要和这组的封面一致；曝光、点击率从发布记录最新一次数据（`metrics.impressions`、`metrics.ctr`）读，组上不能手填。`native`、`utm` 的发布记录可选、可以几组共用一条（要是本视频本平台的），曝光 `impressions`（非负整数）、点击率 `ctr`（0 到 1）记在组上，平台按封面分开给的数手填或经 PATCH 回填。
 - 同一视频同一平台同时只能有一个进行中的测试，再开 409。视频删掉时测试一起删；封面、发布记录删掉时分组照留，读不到就当没有数据。
 - `status` 是 `running`（进行中）/ `decided`（已决出）/ `inconclusive`（没有结论），同原型 `COVER_TEST_STATUS`，不能直接改。`state` 是按当前数据算的判定过程 `{days, gap?, reached, leader?, days_ok, imp_ok, gap_ok, arms, data_incomplete?}`，同原型 `coverTestState` 的返回：`days` 是开始到结束（没结束到现在）第几天，满一天算 1、不足一天也算 1；`leader` 是点击率最高的封面；`gap` 是第一名点击率除以第二名减 1，第二名是 0 或不到两组有点击率时没有；`reached` 是曝光到线的组数；`arms` 是每组实际用的 `{cover_id, impressions?, ctr?}`；有组还没有点击率时 `data_incomplete` 为 `true`。
-- **判定**：进行中的测试在每次快照落库后（回填、`sync`、后台任务 `metrics_daily` 记快照时，算挂着这条发布的）、后台任务 `cover_tests`（插件 Job，启用时先跑一轮，之后每小时一轮，天数到线不一定有新快照）、新建和 PATCH 后重算。天数到线（`days_ok`）、每组曝光都到线（`imp_ok`）且每组都有点击率时出结果：差距到线（`gap_ok`）判 `decided`，`winner_id` 是领先的封面；差距不够判 `inconclusive`，没有 `winner_id`。没到线的照旧 `running`。出结果时记 `ended_at`，之后不再重算、数据再变也不改结果。
+- **判定**：进行中的测试在每次快照落库后（回填、`sync`、后台任务 `metrics_daily` 记快照时，算挂着这条发布的）、后台任务 `cover_tests`（插件 Job，启用时先跑一轮，之后每小时一轮，天数到线不一定有新快照）、新建和 PATCH 后重算。天数到线（`days_ok`）、每组曝光都到线（`imp_ok`）且每组都有点击率时出结果：差距到线（`gap_ok`）判 `decided`，`winner_id` 是领先的封面；差距不够判 `inconclusive`，没有 `winner_id`。没到线的照旧 `running`。出结果时记 `ended_at`，之后不再重算、数据再变也不改结果。条件没满足时「提前采用领先的」「结束，不判胜负」走 `decide`，不看门槛和数据全不全。
 - **胜者设为主封面**：胜者在它那一组（视频 + 方向 + 封面比例）设为选用（`picked: true`，同组原来选用的取消），取消归档；其余各组的封面标归档（`archived: true`）、取消选用。只改产出物记录的这两个标记，记录不删、文件不动。`inconclusive` 时封面都不动。
 
 ### 内容平台（VID-04b）

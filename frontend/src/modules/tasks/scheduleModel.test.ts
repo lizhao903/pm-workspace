@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { DictItem, Schedule } from '../../core/data'
 import {
-  actionText, buildScheduleInput, buildSchedulePatch, describeRule, draftErrors, emptyRule, emptyScheduleDraft, fullRule,
+  actionLabel, actionText, buildScheduleInput, buildSchedulePatch, describeRule, draftErrors, emptyRule, emptyScheduleDraft, fullRule,
   matchSchedule, ruleError, runTone, scheduleDirty, scheduleDraftOf, whenText,
 } from './scheduleModel'
 
@@ -109,5 +109,19 @@ describe('列表的文字', () => {
     expect(runTone({ status: 'ok' })).toBe('ok')
     expect(runTone({ status: 'running' })).toBe('wait')
     for (const status of ['failed', 'skipped', 'unsupported', 'missed'] as const) expect(runTone({ status })).toBe('bad')
+  })
+
+  it('视频发布动作（VID-06d）：类型叫「发布视频」，文字用发布标题，取不到时显示编号；草稿不报动作错误', () => {
+    const a = { kind: 'video_publish', publish_id: 'pb_1' } as unknown as Schedule['action']
+    expect(actionLabel('video_publish')).toBe('发布视频')
+    expect(actionLabel('trade_brief')).toBe('trade_brief')
+    expect(actionText(a, { publishes: { pb_1: 'B 站首发' } })).toBe('发布「B 站首发」')
+    expect(actionText(a, { publishes: {} })).toBe('发布「已删除的发布记录」')
+    expect(actionText(a)).toBe('发布记录 pb_1')
+    const s = { id: 'sch_1', name: '周四发布', enabled: true, rule: { freq: 'once', date: '2099-03-12', time: '10:00' }, action: a } as unknown as Schedule
+    expect(matchSchedule(s, 'B 站', { publishes: { pb_1: 'B 站首发' } })).toBe(true)
+    const d = scheduleDraftOf(s, [prio('P2')], now)
+    expect(draftErrors({ ...d, name: '改个名' }, now)).toEqual([])
+    expect(buildSchedulePatch(d, { ...d, name: '改个名' })).toEqual({ name: '改个名' })
   })
 })
