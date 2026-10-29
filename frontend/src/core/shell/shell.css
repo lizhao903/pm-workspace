@@ -196,6 +196,7 @@
 .qs-keys { font-size: var(--fs-xs); color: var(--faint); }
 .qs-keys kbd { margin: 0 2px; }
 .qs-empty { padding: var(--sp-8) 0; text-align: center; color: var(--faint); }
+.qs-note { margin-bottom: var(--sp-3); font-size: 12px; color: var(--muted); }
 .qs-mode { font-size: var(--fs-sm); color: var(--muted); text-decoration: underline; text-underline-offset: 2px; }
 .qs-mode:hover { color: var(--accent); }
 

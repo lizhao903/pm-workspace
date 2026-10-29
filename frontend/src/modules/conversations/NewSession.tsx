@@ -22,7 +22,9 @@ export function NewSession({ agents, agentsLoading, providers, busy, error, onCr
   onCreate: (input: AgentSessionInput, firstMessage: string) => void
   onClose: () => void
 }) {
-  const [more, setMore] = useState(false)
+  // 没有能用的 Agent 时默认展开服务商方式，不让人先撞上空列表
+  const [moreSel, setMore] = useState<boolean | null>(null)
+  const more = moreSel ?? (!agentsLoading && !agents.some((a) => a.enabled))
   const [q, setQ] = useState('')
   const kw = q.trim().toLowerCase()
   const shown = kw ? agents.filter((a) => `${a.name} ${a.desc}`.toLowerCase().includes(kw)) : agents
