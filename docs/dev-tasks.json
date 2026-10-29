@@ -4692,6 +4692,50 @@
     "acceptance": "- [ ] 有视频待处理时菜单红点亮，清掉后灭\n- [ ] 从视频发布点「去接入」直接打开对应平台的连接器抽屉\n- [ ] npm test、typecheck、lint、build、smoke-frontend 通过"
   },
   {
+    "key": "POL-01",
+    "type": "task",
+    "title": "前端收尾：发布类定时只读、封面 A/B 列表标签、今日连接异常直达",
+    "milestone": "M4",
+    "module": "frontend",
+    "priority": "P3",
+    "estimate": "S",
+    "depends_on": [
+      "VID-06d",
+      "VID-05d",
+      "SHELL-02"
+    ],
+    "workdir": "frontend",
+    "spec": [
+      "web-next/docs/spec/videos.md SPEC-videos-15.13",
+      "web-next/docs/spec/today.md 连接异常组",
+      "docs/dev-decisions.md 第四十一批"
+    ],
+    "body": "## 要做什么\n\n前几批子代理留下的前端小缺口：\n\n- 定时任务抽屉里动作是「发布视频」（video_publish）时，名称和规则只读，把「什么时候」换成「发布哪条」（SPEC-videos-15.13，VID-06d 没做）。\n- 视频发布记录页右侧抽屉打开时，左边「封面 A/B」列表每行的状态标签压在结论文字上（VID-05d 报的）。\n- 今日页「连接异常」的「去修复」现在只跳连接器列表：连接器页加认 `?connector=<id>` 直接打开那个实例的抽屉（SHELL-02 已经做了 `?tool=`），今日、IM、浏览器里跳连接器的入口都带上。",
+    "acceptance": "- [ ] 发布类定时的抽屉名称和规则只读\n- [ ] 封面 A/B 列表在抽屉打开时不压字\n- [ ] 今日连接异常点「去修复」直接打开那个连接器\n- [ ] npm test、typecheck、lint、build、smoke-frontend 通过"
+  },
+  {
+    "key": "POL-02",
+    "type": "task",
+    "title": "后端收尾：SOP 执行器运行中带执行 id、发消息节点重启不重复发",
+    "milestone": "M4",
+    "module": "backend",
+    "priority": "P3",
+    "estimate": "S",
+    "depends_on": [
+      "VID-03c",
+      "SOP-02b"
+    ],
+    "workdir": ".",
+    "spec": [
+      "internal/plugins/video/runners.go",
+      "internal/plugins/sop/engine.go",
+      "internal/plugins/im/sopnodes.go",
+      "docs/dev-decisions.md 第三十三、三十六批记的风险"
+    ],
+    "body": "## 要做什么\n\n- 视频阶段执行器用 SOP 跑时，`last_run.ref` 在运行中就带上 SOP 执行 id（VID-03c 报的：现在要等结束才有，运行中看不到「查看这次执行」）。\n- SOP 里 IM 的「发送消息」节点在服务重启后会被当成新一次尝试重跑，极端情况下重复发送（第三十三批记的风险）。照写节点的做法（SOP-02a 的幂等键：运行 id、步骤 key、尝试次数，重启不加尝试次数），发之前查有没有发过。\n- 契约里对应的说明同步。",
+    "acceptance": "- [ ] Go 测试：SOP 执行器运行中 last_run.ref 有值\n- [ ] Go 测试：发消息步骤发出后、结果落库前重启，重跑不再发第二次\n- [ ] gofmt、go vet、go test ./... 通过"
+  },
+  {
     "key": "VID-08p",
     "type": "task",
     "title": "原型补商单",
