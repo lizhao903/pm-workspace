@@ -257,6 +257,16 @@ describe('文档页的失效（DOC-01b）', () => {
   })
 })
 
+describe('额外可浏览目录的失效（FS-01）', () => {
+  it('加、删额外根：起跳点、目录列表和根清单都刷，挂载目录不动', async () => {
+    const keys = { roots: dataKeys.fs.roots, shortcuts: dataKeys.fs.shortcuts, browse: dataKeys.fs.browse('/opt'), dirs: dataKeys.localDirs.all }
+    const qc = new QueryClient()
+    for (const k of Object.values(keys)) qc.setQueryData(k, {})
+    await applyChange(qc, { kind: 'fs-root' })
+    expect(Object.entries(keys).filter(([, k]) => qc.getQueryState(k)?.isInvalidated).map(([n]) => n)).toEqual(['roots', 'shortcuts', 'browse'])
+  })
+})
+
 describe('Webhook 的失效（TASK-04b）', () => {
   const keys = {
     hooks: dataKeys.webhooks.list,

@@ -13,6 +13,7 @@ import { AppearanceSection } from './appearance/AppearanceSection'
 import { AgentsSection } from './agents/AgentsSection'
 import { KbSection } from './kb/KbSection'
 import { SkillsSection } from './skills/SkillsSection'
+import { LocalFsSection } from './localfs/LocalFsSection'
 
 // 内核的设置分节，照原型 web-next/src/settings.tsx SECTIONS；内网域名是插件的分节，不在这里。
 // 插件管理（CORE-09）原型里还没有，放在「工作台与模块」（CORE-10b）后面；其余内容还没做，点进去是占位页
@@ -25,6 +26,8 @@ const KERNEL: SubnavItem<string>[] = [
   { key: 'kbs', label: '知识库', desc: 'Agent 检索用的资料' },
   { key: 'skills', label: '技能', desc: '可复用的做事方法' },
   { key: 'enums', label: '枚举值', desc: '状态、优先级、分类等选项' },
+  // FS-01：原型没有这一节，选目录能走到哪些地方
+  { key: 'localfs', label: '本机目录', desc: '选目录时能浏览的范围' },
   { key: 'incidents', label: '运行异常', desc: '系统出的问题，可转研发任务' },
   { key: 'appearance', label: '外观', desc: '配色方案、菜单收起' },
 ]
@@ -63,6 +66,7 @@ export default function Page() {
         : kernel!.key === 'agents' ? <AgentsSection />
         : kernel!.key === 'kbs' ? <KbSection />
         : kernel!.key === 'skills' ? <SkillsSection />
+        : kernel!.key === 'localfs' ? <LocalFsSection />
         : kernel!.key === 'appearance' ? <AppearanceSection /> : <Placeholder title={kernel!.label} />}
     </>
   )

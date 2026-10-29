@@ -23,6 +23,7 @@ type ConnectorInfo struct {
 	Status    string // connected / connecting / error / paused / disconnected
 	Error     string // 最近一次失败的说明
 	Direction string // receive / both
+	Interval  int    // 同步间隔（分钟），0 是不定时同步（IM-01b）
 	// Scope 是 OAuth 授权下来的范围，空格分隔；没授权或不是 OAuth 为空串（0030，BR-01a）
 	Scope string
 	// AuthorizedAt 是最近一次 OAuth 授权完成的时间，没授权为 nil（BR-01a）
@@ -43,6 +44,10 @@ type ConnectorReader interface {
 	// Disconnect 断开这个实例，口径同 POST /api/connectors/{id}/disconnect：状态置为 disconnected，
 	// OAuth 令牌删掉、授权状态清空；记一条审计，操作者是插件（BR-01a）。
 	Disconnect(ctx context.Context, id string) (ConnectorInfo, error)
+	// With 把本插件登记的实例解密后的配置交给 fn，fn 返回后即丢；别的插件和内核的实例回 ErrNoRows（VID-04a，connectors_config.go）。
+	With(ctx context.Context, id string, fn func(ConnectorConfig) error) error
+	// RecordSync 记本插件登记的实例的一次同步：syncErr 为 nil 记同步时间、异常的回到已连接，否则置为异常并记原因（IM-01b，connectors_sync.go）。
+	RecordSync(ctx context.Context, id string, syncErr error) (ConnectorInfo, error)
 }
 
 // ConnectorActions 是发起授权和断开的实现，*connector.Store 满足；cmd/pmw 用 SetConnectors 接上。
@@ -63,7 +68,7 @@ func (c *core) Connectors() ConnectorReader { return connectorReader{c} }
 
 type connectorReader struct{ c *core }
 
-const connectorCols = `SELECT id, tool, name, account, status, error, direction, oauth_scope, oauth_authorized_at FROM connectors`
+const connectorCols = `SELECT id, tool, name, account, status, error, direction, oauth_scope, oauth_authorized_at, interval FROM connectors`
 
 func scanConnector(s interface{ Scan(...any) error }) (ConnectorInfo, error) {
 	var (
@@ -71,7 +76,7 @@ func scanConnector(s interface{ Scan(...any) error }) (ConnectorInfo, error) {
 		at   sql.NullString
 	)
 	if err := s.Scan(&info.ID, &info.Tool, &info.Name, &info.Account, &info.Status, &info.Error, &info.Direction,
-		&info.Scope, &at); err != nil {
+		&info.Scope, &at, &info.Interval); err != nil {
 		return ConnectorInfo{}, err
 	}
 	if at.Valid {

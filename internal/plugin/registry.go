@@ -53,6 +53,8 @@ type Registry struct {
 	runs   runTable
 	// connActions 是插件发起连接器授权、断开用的实现（BR-01a，connectors_read.go），SetConnectors 接上
 	connActions atomic.Pointer[connectorsBox]
+	// httpBase 是插件出网的底层 RoundTripper（VID-04a，network.go），测试用 SetHTTPTransport 换成假服务
+	httpBase atomic.Pointer[transportBox]
 
 	mu      sync.Mutex // 串行化生命周期操作，也守着 entry.state
 	order   []string

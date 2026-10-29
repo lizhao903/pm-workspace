@@ -614,7 +614,7 @@ AG-02a。表 `agent_tool_grants`（0035）存每个 Agent 自己的授权，`age
 
   `read_messages`、`reply_message`、`read_contacts`、`write_contacts` 现在没有对应的内置工具，授权先存着。
   `run_sop`（SOP-01d）参数是 `{flow_id, input?}`：`flow_id` 是流程 id，也认流程名；`input` 是输入字段，没给的取默认值。经内核「发起 SOP」钩子起一条执行（同定时任务的 `sop` 动作，来源记 `agent`），不等它跑完，人工检查点照常停下；`summary` 为「发起了 SOP「周会」，执行记录 spr_…」。只给挂了 Agent 的会话，SOP 编排插件没启用时工具结果是「SOP 编排插件没启用……」。确认卡片写「发起 SOP <flow_id>」。
-- **执行时**：给模型的工具列表只有实际档位不是关闭的。连接器工具给模型的名字是 `<连接器定义 tool>__<工具名>`（非字母数字的字符换成 `_`，最长 64）。模型硬调关闭的工具不执行，工具结果是「错误：没有授权……」，`tool_result` 的 `summary` 为「<工具> 没有授权，没有执行」。需确认的发 `confirm` 事件后本轮结束，见「Agent 对话」。
+- **执行时**：给模型的工具列表只有实际档位不是关闭的。连接器工具给模型的名字是 `<连接器定义 tool>__<工具名>`（非字母数字的字符换成 `_`，最长 64）；同一定义挂了多个实例（CONN-04）撞名时，按 `mcps` 的顺序第一个保持原名，后面的在定义 key 后加序号，如 `custom_mcp_2__search`。工具带参数 Schema（`tools[].schema`）时原样给模型，没有时给空对象。模型硬调关闭的工具不执行，工具结果是「错误：没有授权……」，`tool_result` 的 `summary` 为「<工具> 没有授权，没有执行」。需确认的发 `confirm` 事件后本轮结束，见「Agent 对话」。
 - **连接器工具真正调用**：经连接器定义上可选的 `Call` 调对方，参数是模型给的 JSON 原文，对方错误里的凭证原文换成 `***`，单次 15 秒超时。定义没实现 `Call` 时工具结果是「这个连接器的工具还不能调用」。现在只有假连接器 `fake` 实现了：`list_items` 回两条固定条目，`get_item` / `create_item` / `delete_item` 回 `{tool, ok, args}`，`token` 含 `invalid` 时失败。
 - **确认、拒绝**：只有 `pending` 的能处理，已经处理过回 409（两个页面同时点，只有一个执行）。会话删了、Agent 删了或停用回 409；确认时按当前授权再查一次，已经关闭的回 409「…已经没有授权了」，调用保持 `pending`，可以拒绝掉。这些都在开流之前。执行结果（或拒绝说明）记进 `agent_tool_calls.result`。执行记录里的调用（`run_id` 非空）同样记着它的会话，确认、拒绝走这两个接口，在那个会话里接着跑，跑完重算执行记录的状态，见「Agent 执行记录」。
 - **删除连接器**时，挂着它的 Agent 从 `mcps` 里摘掉、`conn:<id>:*` 授权清掉（同一个事务），影响检查里是 `agent_mounts` 一项，见「连接器」一节。
@@ -865,11 +865,19 @@ AG-01b3。字段对齐原型 `web-next/src/agentdata.ts` 的 `KnowledgeBase` 和
 
 只读浏览 + 建目录，范围受允许根限制，越界返回 403。
 
+允许根是默认三块（主目录、`/Volumes`、`/tmp`）加用户在「设置 - 本机目录」里加的额外根（FS-01）。字面量和解析软链后各查一次。
+
 | 方法 | 路径 | body / 说明 |
 |---|---|---|
-| GET | `/api/fs/browse?path=/Users/x` | `FsListing`：目录项、面包屑、是否可写 |
-| GET | `/api/fs/shortcuts` | `FsShortcut[]`，选目录时的起跳点（主目录、桌面、临时目录等） |
+| GET | `/api/fs/browse?path=/Users/x` | `FsListing`：`{path, parent, root, writable, entries}`。`parent` 到了允许根的边界为空串；`root` 是 `path` 所在的最外层允许根（比如 `/Volumes/project/x` 的是 `/Volumes`），界面据此画面包屑 |
+| GET | `/api/fs/shortcuts` | `FsShortcut[]`，选目录时的起跳点：主目录、桌面、文稿、下载、当前项目，`/Volumes` 下每个分区（`外挂分区：<名字>`，只列真实目录，跳过隐藏项和软链，比如指回根盘的「Macintosh HD」；每次请求现读，插拔盘后刷新即变），`/Volumes（全部分区）`，每个额外根（`可浏览目录：<目录名>`），临时目录。不存在的不列 |
 | POST | `/api/fs/mkdir` | `{parent, name}` |
+| GET | `/api/fs/roots` | `{defaults, extra}`：`defaults` 是本机存在的默认根路径，`extra` 是 `FsRoot[]`，按加入先后 |
+| POST | `/api/fs/roots` | `{path}` 加一个额外根，201 回 `FsRoot`（存解析软链后的路径）。必须是存在的绝对目录；`/`，`/etc`、`/System`、`/private`、`/usr`、`/bin`、`/sbin`、`/var`、`/dev`、`/Library` 本身和里面的目录，工作台数据目录和它的上级，回 400，message 写明原因（软链解开后再查一遍）。已经加过、或本来就在默认根里的回 409。最多 50 个 |
+| DELETE | `/api/fs/roots?path=/abs` | 删一个额外根，原样和解开软链两种写法都认，没有这一条回 404。只删这条记录，不动磁盘；挂在它下面的文档目录之后读不了（越界 403），移除挂载照常 |
+
+`FsRoot`：`{path, added_at}`。额外根存在数据目录的 `fs-roots.json` 里（不进库，所以不在快照和导出里；删掉这个文件就回到默认范围），启动时读一次，文件里不合规的条目丢掉并写服务日志。加、删按 `config` 记审计，`target_type` 为 `fs_root`，`target_id` 是路径，`action` 为 `create` / `delete`，`detail.path`；被拒的不记。
+额外根只放宽浏览范围；`/api/fs/read`、文档挂载、知识库目录的拦截规则不变，对额外根里的路径同样适用。
 
 ### 文件读取和挂载目录（DOC-01a，0025）
 
@@ -951,9 +959,9 @@ CONN-01a。连接器的**定义**（认证方式、配置表单、工具目录�
 |---|---|---|
 | GET | `/api/connectors/defs` | `ConnectorDef[]` + `meta.total`，内核的按登记顺序在前，后面是在跑的插件登记的（按插件登记顺序）；停用的插件的定义不在里面 |
 | GET | `/api/connectors` | `Connector[]` + `meta.total`，不分页，新建的在前；`?tool=` 只要某个工具的 |
-| POST | `/api/connectors` | 接入，body `{tool, name?, auth_mode?, config?, secrets?, enabled?, direction?, interval?}`；回 201 + `Connector`。同一工具已经接过回 409 |
+| POST | `/api/connectors` | 接入，body `{tool, name?, auth_mode?, config?, secrets?, enabled?, direction?, interval?, icon?}`；回 201 + `Connector`。同一工具可以接多个（CONN-04） |
 | GET | `/api/connectors/{id}` | 一个 `Connector`；不存在 404 |
-| PATCH | `/api/connectors/{id}` | 只传要改的：`name` / `auth_mode` / `config` / `secrets` / `enabled` / `direction` / `interval`；带 `tool`、`tools`、`status`、`account` 回 400；回 `Connector` |
+| PATCH | `/api/connectors/{id}` | 只传要改的：`name` / `auth_mode` / `config` / `secrets` / `enabled` / `direction` / `interval` / `icon`；带 `tool`、`tools`、`status`、`account` 回 400；回 `Connector` |
 | DELETE | `/api/connectors/{id}` | 彻底删除，保险箱里的凭证一起删；回删掉的那条 `Connector`。不拦，删之前先调下一行看影响 |
 | GET | `/api/connectors/{id}/impact` | 删除前的影响检查（CONN-03），只读：`{connector_id, items, incomplete}`，见「删除前的影响检查」；不存在 404 |
 | POST | `/api/connectors/{id}/test` | 连通测试，回 `{ok, account, message, connector}`。连不上不是接口错误：200 + `ok: false` |
@@ -964,20 +972,21 @@ CONN-01a。连接器的**定义**（认证方式、配置表单、工具目录�
 | POST | `/api/connectors/{id}/oauth/refresh` | 手动用 `refresh_token` 换新令牌，回 `{ok, message, connector}`。刷新失败不是接口错误：200 + `ok: false`，实例置为 `error` |
 | POST | `/api/connectors/{id}/disconnect` | 人主动断开：置为 `disconnected`，配置保留；OAuth 的令牌从保险箱删掉、`oauth` 授权状态清空。回 `Connector` |
 
-`ConnectorDef`：`{tool, label, category, color, desc, can_send, auth, fields, tools, source, oauth}`，与原型 `Tool` 同名字段同义：`auth` 是支持的认证方式（`none` / `oauth2` / `token`），第一个是默认；`fields` 是 `{key, label, kind, placeholder?, options?, required}`，`kind` 为 `text` / `secret` / `select`；`tools` 是静态工具目录 `{name, desc, write}`（原型的 `catalog`）；`source` 是 `core` 或插件 id；`oauth` 是 OAuth 配置，`auth` 不含 `oauth2` 时为 null，见「OAuth 授权」。
+`ConnectorDef`：`{tool, label, category, color, desc, can_send, auth, fields, tools, source, oauth}`，与原型 `Tool` 同名字段同义：`auth` 是支持的认证方式（`none` / `oauth2` / `token`），第一个是默认；`fields` 是 `{key, label, kind, placeholder?, options?, required, auth?, default?, long?}`，`kind` 为 `text` / `secret` / `select`；`auth`（CONN-04）非空时这个字段只属于这几种认证方式，别的方式下前端不显示、后端不算必填；`default` 是新建时没给这个键时取的值（只有 `text`、`select`）；`long` 为 true 是长文本（多行输入，最多 512K 字，如粘贴的 OpenAPI 文档）；`tools` 是静态工具目录 `{name, desc, write, schema?}`（原型的 `catalog`），`schema` 是参数的 JSON Schema，没有时不出这个键；`source` 是 `core` 或插件 id；`oauth` 是 OAuth 配置，`auth` 不含 `oauth2` 时为 null，见「OAuth 授权」。
 
-`Connector`：`{id, tool, name, account, status, error, auth_mode, config, secret_hints, direction, interval, tools, tools_at, last_tested_at, last_sync_at, oauth, available, created_at, updated_at}`，与原型 `Connector` 同名字段同义；原型 `auth` 里的令牌换成 `auth_mode` 加 `secret_hints`，`interval` 是分钟；`oauth` 是授权状态（原型 `auth.oauth` 的 `account`、`expires_at`），`auth_mode` 不是 `oauth2` 时为 null。
+`Connector`：`{id, tool, name, account, status, error, auth_mode, config, secret_hints, direction, interval, tools, tools_at, last_tested_at, last_sync_at, oauth, available, icon, created_at, updated_at}`，与原型 `Connector` 同名字段同义；`icon` 是自定义分类换的图标（0038，见「自定义连接器」），没换为空串；原型 `auth` 里的令牌换成 `auth_mode` 加 `secret_hints`，`interval` 是分钟；`oauth` 是授权状态（原型 `auth.oauth` 的 `account`、`expires_at`），`auth_mode` 不是 `oauth2` 时为 null。
 
 - **凭证明文**：只写不读。`secrets` 是 `{<secret 字段 key>: 明文}`，任何响应里都没有 `secrets` 字段和明文，只有 `secret_hints` `{<key>: hint}`，规则同保险箱的 `hint`。连通测试、拉取工具清单时后端从保险箱取出明文交给定义，对方返回的错误文本里出现凭证原文时换成 `***`，再截到 300 字。
 - `config` 只放非凭证字段（`kind` 为 `text` / `select`），`secrets` 只放 `kind=secret` 的字段，键不对回 400；`select` 的值必须在 `options` 里。PATCH 时两者都按键合并：给了的键覆盖，值为空串表示清掉，没给的键不动。合并后 `required` 字段缺了回 400。值去首尾空白（凭证首尾有空白回 400），`config` 每个值最多 2000 字。
 - `name` 去首尾空白，不给时取定义的 `label`，最多 100 字。`auth_mode` 不给取定义的第一个，不在 `auth` 里回 400。`direction` 为 `receive`（默认）或 `both`，定义 `can_send` 为 false 时只能 `receive`。`interval` 是同步间隔（分钟），0 到 1440，默认 0（不定时同步）。
-- **一个工具只接一个账号**（同原型）：`tool` 已有实例时新建回 409，message 带已有实例的 id。
+- **同一工具可以接多个实例**（CONN-04，内置的也一样，比如两个账号）：不再回 409。`name` 没给、或给的就是定义的 `label` 时，这个工具已有同名实例就自动加序号：`MCP 服务`、`MCP 服务 2`、`MCP 服务 3`；自己填了别的名称就照填的存，不查重。
+- `required` 字段缺了回 400 时只算属于当前 `auth_mode` 的字段（`fields[].auth`）；PATCH 改了 `auth_mode`、`config`、`secrets` 任一项都按合并后的结果再查一遍，比如切到 `token` 没填 Token 回 400。定义可以再校验合并后的 `config`（自定义连接器查地址），不合格回 400。
 - `status`：`connecting`（新建或从暂停、断开重新启用后，还没测过）、`connected`、`error`（`error` 是最近一次失败的说明，含令牌刷新失败）、`paused`（`enabled: false`）、`disconnected`（`POST /disconnect` 人主动断开；PATCH `enabled: true` 回到 `connecting`）。`POST /test` 成功置 `connected` 并记下 `account`，失败置 `error`；暂停中的实例照样测，但状态保持 `paused`。`oauth2` 认证还没授权时测试直接失败（「还没完成 OAuth 授权」），不调对方。
 - **工具授权**：`tools` 是 `[{name, desc, write, mode}]`，`mode` 为 `off`（关闭）/ `confirm`（调用前要人确认）/ `auto`（自动），只读工具（`write: false`）不能设 `confirm`，不在清单里的工具名回 400。拉取工具清单时保留已配过的授权，新出现的按默认（写操作 `confirm`、只读 `auto`），对方删掉的去掉；对方把工具改成只读时 `confirm` 降为 `auto`。`tools_at` 是最近一次拉取时间。这里的授权是 Agent 调用的上限，见「Agent 工具授权」。
 - `available` 为 false 表示定义已不在（提供它的插件停用了）：此时测试、拉取工具清单、改 `auth_mode` / `config` / `secrets` / `direction` 回 409，改名、启停和删除照常。
 - **插件提供的连接器**（CONN-02）：插件在 `Register` 里调 `Registrar.Connector(def)` 登记，`tool` 必须在清单 `provides.connectors` 里（不在、定义不合法、重复都让启用失败），`source` 固定为插件 id。定义只在插件在跑时出现：停用后不在 `/api/connectors/defs` 里，同 `tool` 新建回 400（同未知工具）；已接入的实例一行不动，`available` 为 false（规则同上一条）。重新启用后定义回来，实例的配置、凭证、工具授权照旧，`available` 回到 true。和内核定义同 `tool` 时内核的优先，插件的不出现（插件之间的 `tool` 冲突由清单检查在安装时挡掉）。后台令牌刷新照样跳过取不到定义的实例。
 - 保险箱条目被单独删掉（`DELETE /api/secrets/{id}`）时按没填凭证处理，PATCH 一次 `secrets` 新建条目补上。
-- 内置假连接器 `fake`（不联网）和 `fake_oauth` 只在 `pmw --fake-connector` 时登记，给测试和演练用：`fake` 的 `token` 含 `invalid` 或 `expired` 时测试失败，`config.variant` 为 `v2` 时工具清单换一组；`fake_oauth` 走 OAuth，授权、令牌地址是 `config.base_url` 加 `/authorize`、`/token`，连通测试带 access_token 请求 `base_url/userinfo` 取 `login`，要自己起一个假授权服务对接（Go 测试用 `internal/connector/oauthfake`）。正式运行不登记；真实连接器现在登记的有 Google Drive（`gdrive`）和 Google 日历（`gcal`），见下面「Google」；GitHub 等随 CONN-01c 起陆续登记。
+- 内置假连接器 `fake`（不联网）和 `fake_oauth` 只在 `pmw --fake-connector` 时登记，给测试和演练用：`fake` 的 `token` 含 `invalid` 或 `expired` 时测试失败，`config.variant` 为 `v2` 时工具清单换一组；`fake_oauth` 走 OAuth，授权、令牌地址是 `config.base_url` 加 `/authorize`、`/token`，连通测试带 access_token 请求 `base_url/userinfo` 取 `login`，要自己起一个假授权服务对接（Go 测试用 `internal/connector/oauthfake`）。正式运行不登记；真实连接器现在登记的有 Google Drive（`gdrive`）和 Google 日历（`gcal`），见下面「Google」；用户自己接的自定义 MCP 服务（`custom_mcp`）、OpenAPI 接口（`custom_openapi`）见「自定义连接器」；IM 插件登记 Slack（`slack`）和 Telegram（`telegram`），见「IM 消息插件 im」的「Slack」「Telegram」；GitHub 等随 CONN-01c 起陆续登记。
 - 审计按 `config` 记（不分来源），`target_type` 为 `connector`，`action` 为 `create` / `update` / `delete` / `set_tool_modes`；凭证只记 `detail.secrets` 为 `{<key>: 「已设置」|「已清除」}`，修改只记 `detail.fields`；`set_tool_modes` 记 `detail.tools` 和新的 `detail.modes`（授权是权限配置不是凭证）。OAuth 授权成功记 `oauth_authorize`（`detail.secrets` 为 `{access_token, refresh_token}` 的「已设置」，对方没给 refresh_token 时只有 access_token，另记 `detail.scope`），断开记 `disconnect`（清了令牌时 `detail.secrets` 为「已清除」）。连通测试、拉取工具清单、发起授权、授权失败和令牌刷新（手动、后台）不记，刷新失败写服务日志并置 `error`。
 - 服务没接连接器时这几个接口回 `internal` 500，message 为 `connectors are not configured on this server`。
 
@@ -1018,7 +1027,7 @@ sequenceDiagram
   P-->>B: 302 回 return_to 或结果页
 ```
 
-- **定义里声明**（`ConnectorDef.oauth`）：`{auth_url, token_url, scopes, base_url_field?, client_id_field?, client_secret_field?, builtin}`，有附加授权参数时另带 `auth_params`。`auth_url`、`token_url` 是完整地址；给了 `base_url_field` 时两者是以 `/` 开头的路径，接在该 `text` 字段的值后面（自建实例用）。client_id 从哪来：内置在代码里（`builtin: true`，接口不出值，用户只需点授权）或取 `client_id_field` 指的 `text` 配置字段；client_secret 需要时取 `client_secret_field` 指的 `secret` 字段，和别的凭证一起进保险箱。`scopes` 用空格拼进 `scope` 参数。`auth_params` 是授权地址上额外带的参数（CONN-01e1，如 Google 的 `access_type=offline`、`prompt=consent`），没有时不出这个键；不能是流程自己填的参数（`response_type`、`client_id`、`redirect_uri`、`scope`、`state`、`code_challenge`、`code_challenge_method`），定义带了登记失败。
+- **定义里声明**（`ConnectorDef.oauth`）：`{auth_url, token_url, scopes, base_url_field?, auth_url_field?, token_url_field?, scopes_field?, client_id_field?, client_secret_field?, builtin}`，有附加授权参数时另带 `auth_params`。给了 `auth_url_field`、`token_url_field`（CONN-04，两者一起给，不能和 `base_url_field` 同时给）时授权地址、令牌地址由用户填在这两个 `text` 配置字段里，`auth_url`、`token_url` 为空串，发起授权、换令牌、刷新前两者都必须是 http(s) 地址，否则 400；给了 `scopes_field` 时范围取这个字段的值（空格或逗号隔开），不用 `scopes`。否则 `auth_url`、`token_url` 是完整地址；给了 `base_url_field` 时两者是以 `/` 开头的路径，接在该 `text` 字段的值后面（自建实例用）。client_id 从哪来：内置在代码里（`builtin: true`，接口不出值，用户只需点授权）或取 `client_id_field` 指的 `text` 配置字段；client_secret 需要时取 `client_secret_field` 指的 `secret` 字段，和别的凭证一起进保险箱。`scopes` 用空格拼进 `scope` 参数。`auth_params` 是授权地址上额外带的参数（CONN-01e1，如 Google 的 `access_type=offline`、`prompt=consent`），没有时不出这个键；不能是流程自己填的参数（`response_type`、`client_id`、`redirect_uri`、`scope`、`state`、`code_challenge`、`code_challenge_method`），定义带了登记失败。
 - **回调地址** = `pmw --public-url`（默认 `https://bro.vip`，按 docs/local-domain.md，浏览器经 pf 转到 7443）+ `/api/connectors/oauth/callback`，即 `https://bro.vip/api/connectors/oauth/callback`，要原样登记在对方的 OAuth 应用里；`start` 回的 `redirect_uri` 就是它。`--public-url` 只能是 `scheme://host[:port]`，不带路径。测试实例要带 `--public-url http://127.0.0.1:<端口>`，否则回调会落到 bro.vip（正式服务）上。
 - **state**：每次 `start` 生成一个随机 state（32 字节）和 PKCE 校验码，只存在进程内存里，10 分钟有效、只能用一次；回调时 state 不认识、已用过、过期一律 400，不跳转、不改实例。进程重启后进行中的授权作废，重新点一次即可。同时进行中的授权最多 200 个，超了回 409。
 - **return_to**：可选，授权结束后浏览器回到哪。只放行站内路径（`/` 开头，不能 `//`）、本机地址（`127.0.0.1`、`localhost`、`::1` 的 http(s)）和 `--public-url` 同主机的地址，别的回 400，免得变成开放跳转。跳回时追加 `oauth=ok|error`、`connector=<id>`、`message=<说明>`。
@@ -1053,6 +1062,27 @@ Google 连接器共用一套 OAuth（`internal/connector/google.go`）；现在�
 
   `page_size` 默认 50、最大 250；`calendar_id` 只能是字母、数字和 `. _ @ # + -`（节假日日历带 `#`，进路径前转义）；`summary`、`description`、`location` 各最多 8000 字。错误同 Drive。
 - 开发和 Go 测试只对接本机假服务（`internal/connector/oauthfake` 加测试里的假 userinfo、Drive、日历接口），`connector.GoogleDrive(GoogleEndpoints{...})`、`connector.GoogleCalendar(GoogleCalendarEndpoints{...})` 可以换地址；`cmd/pmw` 用零值登记正式地址。真实 Google 账号的连通由用户在测试实例里验收。
+
+### 自定义连接器（CONN-04）
+
+用户自己接的服务，分类 `custom`，内核登记（`internal/connector/custom*.go`），正式运行就有。照原型 `web-next/src/data.ts` 的 `custom_mcp`、`custom_openapi` 和 `SPEC-settings-5`。
+
+- **认证**（两者共用的字段，`fields[].auth` 标了属于哪种方式）：
+  - `none`：不带凭证。
+  - `token`：`token`（`secret`，必填）、`token_header`（`text`，默认 `Authorization`）、`token_prefix`（`text`，默认 `Bearer`）；请求带 `<token_header>: <token_prefix> <token>`，前缀清空就只发 Token，这就是「自定义请求头」（如 `X-API-Key`）。
+  - `oauth2`：应用信息自己填，`oauth_client_id`（必填）、`oauth_client_secret`（`secret`）、`oauth_auth_url`（必填）、`oauth_token_url`（必填）、`oauth_scopes`（空格或逗号隔开），流程同「OAuth 授权」，请求带 `Authorization: Bearer <access_token>`。
+- **出网**：请求只发到用户填的地址（MCP 的服务地址；OpenAPI 的文档地址和接口地址，接口地址没填时用文档里的 `servers`）。地址只能是带主机的 `http://`、`https://`，不能是 `file://`、本机路径，不能带用户名密码，否则新建、修改回 400；不跟跳转（3xx 按失败处理）；一次回应体最多 4 MB，超了失败；回给模型的结果最多 256 KB，多了截掉。单次 15 秒超时。凭证只在请求头或查询参数里，不进日志和审计，对方错误里出现凭证原文换成 `***`。
+- **图标**：`icon` 只有 `custom` 分类能改，值是 `data:image/` 开头的 data URL（最多 512 KB）或空串（换回默认图标）；别的分类给非空 `icon` 回 400。
+- **MCP 服务**（`tool: custom_mcp`）：`url`（服务地址，必填）、`transport`（`select`：`Streamable HTTP`（默认）/ `SSE`）。stdio 要起本机进程，下一步再做。每次操作新开一个会话（`initialize` 加 `notifications/initialized`），做完关掉：
+  - 连通测试 = 连上并完成 `initialize`，`account` 是对方 `serverInfo` 的 `name version`。
+  - 拉取工具清单 = `tools/list`（按 `nextCursor` 翻页，最多 500 个，同名只留第一个）；`desc` 取 `description`（没有取 `annotations.title`，最多 500 字），`annotations.readOnlyHint` 为 true 的是只读（`write: false`），**没有标注的当写工具**；`schema` 是 `inputSchema`（超过 32 KB 不给）。
+  - Agent 调用 = `tools/call`，参数是模型给的 JSON 对象；结果把 `content` 里的文字按行拼起来（图片、音频、资源写成占位），没有 `content` 时用 `structuredContent` 的 JSON；`isError` 为 true 时按失败处理，说明是对方给的文字。照样过「Agent 工具授权」的实际档位和确认。
+- **OpenAPI 接口**（`tool: custom_openapi`）：`spec_url`（文档地址）和 `spec_text`（粘贴文档，`long`）至少填一个，都填时用粘贴的；`base_url`（接口地址，留空用文档 `servers` 的第一个，变量取默认值，相对地址按文档地址补全，粘贴的文档是相对地址时必须填）。认证多一个 `token_in`（`select`：`请求头`（默认）/ `查询参数`），放查询参数时参数名就是 `token_header`。文档每次测试、拉清单、调用都重新读，不缓存。
+  - 只认 OpenAPI 3.x（`openapi: 3.*`），JSON 或 YAML；参数和请求体只解本文档 `#/components/parameters`、`#/components/requestBodies` 的 `$ref`。
+  - 连通测试 = 读到并解析文档、算得出接口地址，`account` 是 `info.title info.version`。
+  - 工具 = 每个带 `operationId` 的接口（没有 `operationId` 的跳过，重复的只留第一个），按路径、方法排序；`GET`、`HEAD` 是只读，其余是写；`desc` 是 `summary（方法 路径）`；`schema` 按参数拼：每个 path、query、header 参数一个属性（path 参数和 `required` 的列进 `required`），有请求体时多一个 `body`。
+  - 调用：参数是 `{<参数名>: 值, body?: 请求体}`，path 参数转义后替换进路径，query 参数拼进查询串（数组重复参数），header 参数放请求头，`body` 按 JSON 发（`Content-Type: application/json`）；缺 path 参数、必填参数或必填请求体时失败，不发请求。结果是 `HTTP <状态码>` 换行加回应体，没有内容时是 `HTTP <状态码>（没有内容）`；非 2xx 按失败处理，说明是「接口返回 <状态码>：<回应体前 200 字>」。
+- 开发和 Go 测试只对接本机假服务 `internal/connector/customfake`（假 MCP 服务：`/mcp` Streamable HTTP、`/sse` SSE；假 OpenAPI 服务：`/openapi.yaml`、`/openapi.json` 和 `/v1/...` 接口）。
 
 ## 插件 plugins
 
@@ -1510,7 +1540,7 @@ ALIGN-05。项目列表（SPEC-projects-1.5 到 1.11）按「有原型在跑 / �
 
 ## IM 消息插件 im
 
-IM-01a 起。插件 `im`（`internal/plugins/im`，清单 `plugin.json`，0.4.0）。收各 IM 渠道的消息，落在插件表 `im_messages`（插件迁移 `0001_messages.sql`；IM-02a 的处理动作加了 `0002_actions.sql`，回复在 `im_replies`；IM-04a 的附件获取加了 `0003_attachments.sql`，获取状态在 `im_attachments`；SOP-02b 的等回复节点加了 `0004_sop_waits.sql`，挂起中的等待在 `im_sop_waits`；安装插件时应用）。发送人按 IM 身份（见「IM 身份 im-identities」）的 id 认、会话按会话（见「会话 conversations」）的 id 归，**不靠名字**。插件未安装或停用时，本节接口回 `not_found` 404（同「插件路由」）；停用时拉取也停下，数据不动。
+IM-01a 起。插件 `im`（`internal/plugins/im`，清单 `plugin.json`，0.5.0，权限 `network:im`：真实渠道出网，IM-01b 加，0.4.0 升上来要确认；域名清单是 `slack.com`、`*.slack.com`、`api.telegram.org` 等 IM 服务）。收各 IM 渠道的消息，落在插件表 `im_messages`（插件迁移 `0001_messages.sql`；IM-02a 的处理动作加了 `0002_actions.sql`，回复在 `im_replies`；IM-04a 的附件获取加了 `0003_attachments.sql`，获取状态在 `im_attachments`；SOP-02b 的等回复节点加了 `0004_sop_waits.sql`，挂起中的等待在 `im_sop_waits`；安装插件时应用）。发送人按 IM 身份（见「IM 身份 im-identities」）的 id 认、会话按会话（见「会话 conversations」）的 id 归，**不靠名字**。插件未安装或停用时，本节接口回 `not_found` 404（同「插件路由」）；停用时拉取也停下，数据不动。
 
 ### 适配器
 
@@ -1521,7 +1551,7 @@ IM-01a 起。插件 `im`（`internal/plugins/im`，清单 `plugin.json`，0.4.0�
 
 另有两个可选能力：`Replier`（往渠道回消息，见「处理动作」）、`Fetcher`（把附件下载下来，见「附件获取」），没实现的分别回 409 `unsupported`。
 
-真实渠道（Slack、Telegram）从 IM-01b、IM-01c 起加，现在只有演练用的假适配器：`pmw --fake-im` 时登记 `fake`（渠道 `slack`，适配器给的「我」的称呼是 `我`，再加上消息所属连接器的账号），回调 body 是 `{"messages": [Incoming, ...]}`。
+真实渠道：Slack（`slack`，IM-01b）、Telegram（`telegram`，IM-01c），见下面两小节。它们的凭证在连接器实例里（连接器定义由 IM 插件登记，`tool` 和渠道同名，一个工具只接一个账号），拉完经 `Core.Connectors().RecordSync` 把结果记到实例上：成功记 `last_sync_at`，原来 `error`、`connecting` 的回到 `connected`；失败置 `error`、`error` 是原因（不带凭证）。按实例的同步间隔（`interval` 分钟，0 是只收回调和手动同步）决定后台拉不拉的，由适配器实现可选的 `Scheduler`。另有演练用的假适配器：`pmw --fake-im` 时登记 `fake`（渠道 `slack`，适配器给的「我」的称呼是 `我`，再加上消息所属连接器的账号），回调 body 是 `{"messages": [Incoming, ...]}`。
 
 `Incoming`（适配器交给插件的一条，对照原型 `IncomingMessage`）：
 
@@ -1541,13 +1571,51 @@ IM-01a 起。插件 `im`（`internal/plugins/im`，清单 `plugin.json`，0.4.0�
 
 到达时：按 `(渠道, sender_id)` 查 IM 身份、按 `(渠道, conversation_id)` 查会话，查到的存 id；查不到的 id 留空、编号照存，读的时候再按编号认一次（不回写），所以先收消息、后登记身份或会话也能认上。身份、会话删掉时 id 置空，消息保留。
 
+### Slack（IM-01b）
+
+Slack App 的 **Bot Token**（`xoxb-`）方式。适配器 `slack`（`internal/plugins/im/slack.go`，渠道 `slack`），连接器定义 `internal/connector/slack.go`（`tool: slack`，分类 `im`，`source: im`，`can_send: true`，认证 `token`），由 IM 插件登记；出网走 `network:im`，连通测试也走它。
+
+- **字段**：`bot_token`（`secret`，必填，`xoxb-` 开头）、`signing_secret`（`secret`，用事件订阅时必填）进保险箱，界面只有 `secret_hints`；`channels`（`text`，监听频道，`#product, #feedback`，逗号、顿号、空格分隔，`#` 可省，也可以写频道 id；留空只收私信）；`self_user_id`（`text`，「我的 Member ID」，@ 到它算 @我）。
+- **连通测试**：`auth.test`，Token 不是 `xoxb-` 开头的直接失败、不调对方；`account` 是 `Bot 名（Bot 的 Member ID）`。
+- **收的范围**：私信（`im`，`direct`）、多人私信（`mpim`，`group`，`conversation_name` 是「多人私信」）全收；频道只收 `channels` 里列的，Bot 要先被邀请进频道。普通消息、带文件的、串里回复同时发到频道的、`/me` 和别的 Bot 发的收；编辑、删除、进出频道等子类型和 Bot 自己发的跳过。
+- **事件订阅（优先）**：推到回调 `/api/im/callbacks/slack`（即上面的 `{adapter}` 为 `slack`），按 `signing_secret` 校验 `X-Slack-Signature`（`v0=HMAC-SHA256("v0:<时间戳>:<原文>")`），时间戳和本机差 5 分钟以上按重放拒绝；签名不对、没填 Signing Secret、还没接入 Slack 都回 401 `unauthorized`，不落库。`url_verification` 签名对时回 `{challenge}`。实例暂停、断开时回 200 `{data: {ignored}}` 不落库。只处理 `event_callback` 里 `type: message` 的事件（含串里的回复），别的回 200 空结果。Slack 重试同一事件按 `external_id` 去重。收到消息时也记一次同步成功。
+- **拉取（回调不可达时）**：工作台不在公网上时 Slack 推不进来，按实例的 `interval`（分钟，0 不拉）拉：先 `auth.test`（Token 失效在这一步认出），`users.conversations` 列 Bot 所在的会话，逐个 `conversations.history`（`oldest` 是上次拉到的 ts）。一个会话第一次拉只取最近 20 条，不翻全部历史；一次最多翻 5 页，剩下的下一轮接着拉。拉取只看会话里的消息，串里的回复要事件订阅才收得到。进度存在 `im_cursors`（`adapter=slack`，`{connector, team, latest: {<会话 id>: ts}}`），换了实例或工作区从头来。
+- **同步结果**：Token 失效（`invalid_auth`、`token_revoked` 等）时实例置为 `error`，原因例「Slack 拒绝了 Bot Token（invalid_auth），Token 无效或已失效，重新填一个」；缺 scope 时写缺的是哪个；监听频道里有找不到或 Bot 不在的，也记成 `error`（「这些频道找不到或 Bot 没被加进去：#x」），找到的照收。
+- **字段对应**：`external_id` 是 `<会话 id>:<ts>`，`conversation_id` 是会话 id，`conversation_name` 频道是 `#名字`、私信为空；`sender_id` 是 Member ID（别的 Bot 是 `bot_id`），`sender_name` 经 `users.info` 取显示名（查不到留空）；`at` 是 ts。正文里的标记换成能读的：`<@U1>` 换成 `@名字`，`<#C1|product>` 换成 `#product`，`<!here>` 换成 `@here`，`<https://x|说明>` 换成 `说明 (https://x)`，`&lt;` 等还原。@ 到 Bot 或 `self_user_id` 算 `mention: me`，`<!here>` `<!channel>` `<!everyone>` 算 `all`。文件是附件（图片 `kind: image`，其余 `file`），带 `url`（permalink）和 `url_private_download`。
+- **回复**：`chat.postMessage`，频道和多人私信里串在原消息下面（`thread_ts` 是原消息的 ts），私信直接发；渠道回给的编号是 `<会话 id>:<ts>`。SOP 发消息节点同样走它（发到会话，不串）。
+- **附件**：带 Bot Token 下载 `url_private_download`（要 `files:read`）。
+- **要用户做的**：
+  1. 打开 https://api.slack.com/apps ，Create New App，选 From scratch，起名字、选工作区。
+  2. OAuth & Permissions 的 Bot Token Scopes 加：`chat:write`、`channels:read`、`channels:history`、`groups:read`、`groups:history`、`im:read`、`im:history`、`mpim:read`、`mpim:history`、`users:read`、`files:read`，然后 Install to Workspace，复制 Bot User OAuth Token（`xoxb-`）。
+  3. Basic Information 里复制 Signing Secret。
+  4. 在 Slack 里把 Bot 邀请进要监听的频道（频道里 `/invite @Bot 名`）。
+  5. 在测试实例 IM 页「渠道配置」里「接入 Slack」，填 Bot Token、Signing Secret、监听频道（可选填自己的 Member ID：Slack 个人资料里「复制成员 ID」），同步间隔选一个（工作台不在公网上时靠它收消息），保存后自动测试连接。
+  6. 工作台在公网上时可以改用事件订阅：Event Subscriptions 打开，Request URL 填 `<公网地址>/api/im/callbacks/slack`（Slack 会发一次 url_verification），Subscribe to bot events 加 `message.channels`、`message.groups`、`message.im`、`message.mpim`，保存后按提示 Reinstall。本机域名 `bro.vip` 从 Slack 推不进来，那时只用拉取。
+- **联调**：Go 测试和本机联调都对接假 Slack（测试里的 `fakeSlack`），不访问真实 Slack。`pmw --dev-upstream slack.com=http://127.0.0.1:<端口>,files.slack.com=http://127.0.0.1:<端口>` 把插件发往这些域名的请求改投到本机假服务，规则同 Telegram 一节。
+
+### Telegram（IM-01c）
+
+只接 **Bot API**，不接个人账号（有封号风险）。适配器 `telegram`（`internal/plugins/im/telegram.go`，渠道 `telegram`），连接器定义由 IM 插件登记（`tool: telegram`，分类 `im`，`source: im`，`can_send: true`，认证 `token`），出网走 `network:im`（域名清单只有 `api.telegram.org`）。一个工具只接一个账号，所以一个实例就是一个 Bot。
+
+- **字段**：`bot_token`（`secret`，必填，BotFather 给的 `123456789:AA…`，进保险箱，界面只有 `secret_hints`）；`webhook_url`（`text`，可选，`https://域名`，不带路径）。
+- **连通测试**：`getMe`，不是 Bot 或 Token 不对算失败；`account` 写成 `名字（@用户名）`，正文里 `@用户名` 算 @我（见上面「我」的称呼）。没填 `webhook_url` 时如果 Bot 还挂着 webhook 就 `deleteWebhook`（回到拉取）；填了就 `setWebhook` 到 `<webhook_url>/api/im/callbacks/telegram`，带 `secret_token`（由 Token 派生，换 Token 后要重新测试一次）。
+- **拉取（默认）**：`getUpdates` 长轮询（`timeout` 5 秒，两轮之间隔 1 秒），只要 `message`、`channel_post`；本机没有公网回调也能用。进度存在 `im_cursors`（`adapter=telegram`，值是 `{connector, bot, offset}`），整批落库后才写，服务重启后接着拉，已收过的不会再来；换了实例或 Bot（Token 冒号前的数字变了）时从头拉。暂停、断开、填了 `webhook_url` 的实例不拉。失败后后台 30 秒内不再试，「立即同步」（`POST /api/im/connectors/{id}/sync`）不受限。
+- **同步结果**：每次拉完经 `Core.Connectors().RecordSync` 记到实例上：成功记 `last_sync_at`，原来 `error`、`connecting` 的回到 `connected`；失败置 `error`，`error` 是原因，例如 Token 被重置时为「Telegram 返回 401：Unauthorized（Bot Token 无效或已被重置，去 BotFather 重新拿一个填上）」，原因里不带 Token。同一个 Bot 被别处 `getUpdates` 时 Telegram 回 409，原因里提示「同一个 Bot 只能有一处在收消息」。
+- **回调（webhook）**：`POST /api/im/callbacks/{adapter}`，`adapter` 为 `telegram`，body 是 Telegram 的一条 `Update`；请求头 `X-Telegram-Bot-Api-Secret-Token` 不对、实例没填 `webhook_url` 回 401 `unauthorized`，不落库；实例暂停、断开回 200 不落库（免得 Telegram 重推）。
+- **字段对应**：`external_id` 是 `<chat id>:<message_id>`；`conversation_id` 是 chat id（群为负数）；私聊（`private`）是 `direct`，群、超级群、频道是 `group`，`conversation_name` 取群名；`sender_id` 是发送人的用户名（IM 身份里 Telegram 记的就是用户名），没有用户名时用数字 id，频道帖子取频道的用户名或 id；`text` 没有时取图片、文件的 `caption`。回复 Bot 发的消息算 @我（`mention: me`）。Bot 自己发的、没有正文也没有附件的服务消息（进群、改群名等）跳过。
+- **附件**：图片（取最大的一张，`kind: image`）、文件、视频、音频、语音（`kind: file`），带 `file_id`、`size`、`mime_type`；获取经 `getFile` 下载，Bot API 只给 20MB 以内的文件。
+- **回复**：`sendMessage` 发到原消息所在的 chat，带 `reply_parameters` 串回原消息（原消息已删也照发）；渠道回给的编号是 `<chat id>:<message_id>`。
+- **要用户做的**：在 Telegram 里找 `@BotFather` 发 `/newbot`，起名字和用户名（以 `bot` 结尾），拿到 Token；要收群里所有消息，给 BotFather 发 `/setprivacy`、选这个 Bot、选 `Disable`，再把 Bot 拉进群（已在群里的移出再拉一次），不关时只收 @它、回复它和 `/命令`。然后在测试实例 IM 页「渠道配置」里「接入 Telegram」，填 Token 保存（自动测试连接）。同一个 Bot 只能有一处在收：7796 和别的实例别同时接同一个 Bot。
+- **联调**：Go 测试和本机联调都对接假 Bot API，不访问真实 Telegram。`pmw --dev-upstream api.telegram.org=http://127.0.0.1:<端口>` 把插件发往该域名的请求改投到本机假服务（权限和域名检查照常按原地址做），只给测试实例用，正式运行不带。
+
 ### 消息列表
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
 | GET | `/api/im/messages` | `Message[]` + `meta {total, limit, offset}`，按发送时间倒序 |
 | GET | `/api/im/adapters` | `[{key, channel, pull, callback}]` + `meta.total`，二进制里带的适配器 |
-| POST | `/api/im/callbacks/{adapter}` | 回调收消息，body 由适配器定；回 `{ids: [新落库的消息 id], duplicates: 已收过的条数}`。没有这个回调适配器 404 |
+| POST | `/api/im/callbacks/{adapter}` | 回调收消息，body 由适配器定；回 `{ids: [新落库的消息 id], duplicates: 已收过的条数}`。没有这个回调适配器 404。验签不对 401 `unauthorized`；握手（Slack `url_verification`）、实例暂停时由适配器直接回，不落库 |
+| POST | `/api/im/connectors/{id}/sync` | 立即同步一个 IM 渠道（IM-01b，「渠道配置」的「立即同步」）：不等同步间隔，按这个连接器马上拉一次，和后台拉共用进度、不同时跑；回 `{connector_id, adapter, ids, duplicates}`。连接器不在 404；不是能拉取的 IM 渠道（没有 key 等于它 `tool` 的拉取型适配器）409 `reason: unsupported`，暂停、断开 409 `connector_paused` / `connector_disconnected`；渠道出错 502 `sync_failed`（message 是原因），连接器已置为 `error` |
 
 查询参数（都可选，组合是「且」）：
 
@@ -1932,7 +2000,7 @@ DOM-01a。插件 `domains`（`internal/plugins/domains`，清单 `plugin.json`�
 
 不加接口。插件订阅项目插件的 `projects.prototype_started`、`projects.prototype_stopped`、`projects.prototype_deleted`（载荷 `{id, name, project_id, project_name, port, status?}`，见 `docs/plugin-api.md` 2.10），运行中的原型和端口只记在内存（服务重启后原型都会停，从空开始）。
 
-- 自动分配：`auto_proto` 打开时，原型启动后如果还没有指向它的路由（手动的、自动的、停用的都算），建一条 `auto: true` 的路由，子域名按原型 `slugHost`：名字转小写、非字母数字换成连字符、去掉首尾连字符，最长 50 字符，剩不到 2 个字符（比如全是中文）用 `proto-<端口>`；和已有路由或工作台别名重名时接 `-<端口>`，再重名接 `-<端口>-<序号>`。备注是 `自动分配：<项目> / <原型>`。停止不删路由；删除原型时删掉指向它的自动路由，手动的留着。把 `auto_proto` 从关改成开时，给正在运行的原型补上。事件先后乱了按事件时间只认更新的，删除之后晚到的启动事件不会把路由建回来。
+- 自动分配：`auto_proto` 打开时，原型启动后如果还没有指向它的路由（手动的、自动的、停用的都算），建一条 `auto: true` 的路由，子域名按原型 `slugHost`：名字转小写、非字母数字换成连字符、去掉首尾连字符，最长 50 字符，剩不到 2 个字符（比如全是中文）用 `proto-<端口>`；和已有路由或工作台别名重名时接 `-<端口>`，再重名接 `-<端口>-<序号>`。备注是 `自动分配：<项目> / <原型>`。停止不删路由；删除原型时删掉指向它的自动路由，手动的留着。把 `auto_proto` 改成关时删掉全部 `auto: true` 的路由（手动的、自动建后改过转成手动的不动），内置代理、状态和生成的配置里随之没有这些域名；从关改成开时，给正在运行的原型补上。事件先后乱了按事件时间只认更新的，删除之后晚到的启动事件不会把路由建回来。
 - 内置代理：插件登记内核的 Host 处理器（`docs/plugin-api.md` 2.11），`enabled` 为真时接 `<子域名>.<suffix>` 的请求（只接一级子域名；后缀本身、别名、目标是工作台的、停用的路由不接，照常进工作台；`--public-url` 的主机、IP、`localhost` 由内核挡住，永远进工作台）。原型目标转到 `127.0.0.1:<端口>`（连不上再试 `::1`），地址目标只转本机和 `lan_ip`；转发时 `Host` 改成上游地址，原来的域名放在 `X-Forwarded-Host`。WebSocket 升级照转（vite 热更新要用）。
 - 转发不了时回 HTML 中文说明页：原型没在运行 502「原型没在运行」，上游连不上 502「连不上目标」，地址目标不是本机 502「不转发到外部地址」，路由刚好被删 404「没有这个域名」。
 - 设置和路由在插件里有 2 秒的快照，经本插件接口改动时立刻作废。
@@ -1971,7 +2039,7 @@ TRD-01a。插件 `trade`（`internal/plugins/trade`，清单 `plugin.json`，0.1
 
 ## 视频创作插件 video
 
-VID-01a 起。插件 `video`（`internal/plugins/video`，清单 `plugin.json`，0.3.0），强依赖 `projects`，弱依赖 `im`，权限 `fs:read:project`、`fs:write:project`、`network:media-platforms`（都是普通级别；产出物路径按 `fs:read:project` 的范围限制在视频工程目录内，现在只登记不读写磁盘，内容平台 VID-04 起用网络权限）。功能模块 key 是 `videos`（同工作台目录和 `ws_video` 模板）。表前缀 `video_`，迁移在插件目录：`migrations/0001_video.sql` 建 `video_series`、`video_videos`、`video_checkpoints`、`video_publishes`，`0002_artifacts.sql`（VID-01b）建 `video_artifacts`、`video_artifact_reviews`，`0003_artifact_ratio.sql`（VID-02a）给产出物加 `ratio`、`lang` 和按封面比例分组的序号、选用列；0.1.0、0.2.0 装过的要走升级（`POST /api/plugins/{id}/upgrade`）应用新迁移，没升级前插件不启动。形状同原型 `web-next/src/videodata.ts`。前端两页是 VID-01c、VID-01d；**不接任何内容平台**，发布记录只能手动登记。插件未安装或停用时本节接口回 `not_found` 404（同「插件路由」），数据不动，再启用照旧。停用 `projects` 时 `video` 在 `dependents` 里（同「插件管理」）。
+VID-01a 起。插件 `video`（`internal/plugins/video`，清单 `plugin.json`，0.4.0），强依赖 `projects`，弱依赖 `im`，权限 `fs:read:project`、`fs:write:project`、`network:media-platforms`、`process:spawn`（前三个是普通级别；`process:spawn` 是高风险，VID-03b 加，技能执行器要它才能让 Claude Code 在工程目录里写文件，0.3.0 升上来要重新确认；产出物路径按 `fs:read:project` 的范围限制在视频工程目录内，现在只登记不读写磁盘，内容平台 VID-04 起用网络权限）。功能模块 key 是 `videos`（同工作台目录和 `ws_video` 模板）。表前缀 `video_`，迁移在插件目录：`migrations/0001_video.sql` 建 `video_series`、`video_videos`、`video_checkpoints`、`video_publishes`，`0002_artifacts.sql`（VID-01b）建 `video_artifacts`、`video_artifact_reviews`，`0003_artifact_ratio.sql`（VID-02a）给产出物加 `ratio`、`lang` 和按封面比例分组的序号、选用列，`0005_runners.sql`（VID-03b）建阶段执行器 `video_runners` 和执行记录 `video_runs`；0.1.0、0.2.0 装过的要走升级（`POST /api/plugins/{id}/upgrade`）应用新迁移，没升级前插件不启动。形状同原型 `web-next/src/videodata.ts`。前端两页是 VID-01c、VID-01d；**不接任何内容平台**，发布记录只能手动登记。插件未安装或停用时本节接口回 `not_found` 404（同「插件路由」），数据不动，再启用照旧。停用 `projects` 时 `video` 在 `dependents` 里（同「插件管理」）。
 
 | 方法 | 路径 | body / 说明 |
 |---|---|---|
@@ -1987,6 +2055,9 @@ VID-01a 起。插件 `video`（`internal/plugins/video`，清单 `plugin.json`�
 | DELETE | `/api/video/videos/{id}` | `data` 为 `null`；检查点、发布记录、产出物和验收记录一起删 |
 | POST | `/api/video/videos/{id}/advance` | `{from?}`，没有检查点的阶段做完了，进下一阶段；回 `Video` |
 | POST | `/api/video/videos/{id}/checkpoints/{stage}` | `{state, note?}`，处理当前阶段的检查点；回 `Video` |
+| PUT | `/api/video/videos/{id}/runners/{stage}` | `{type, ref_id, prompt?}`，配或换这个阶段的执行器（整条替换）；回 `Video` |
+| DELETE | `/api/video/videos/{id}/runners/{stage}` | 这个阶段不用执行器了，没配过也回 200；执行记录留着；回 `Video` |
+| POST | `/api/video/videos/{id}/runners/{stage}/run` | 无 body 或 `{}`，用配的执行器跑这个阶段；发起成功 202、发起时就失败 200，都回 `Video`（看 `last_run`），见下「阶段执行器」 |
 | GET | `/api/video/publishes?video_id=` | `VideoPublish[]` + `meta.total`，不分页，按登记先后；`video_id` 可选 |
 | POST | `/api/video/publishes` | `{video_id, platform, variant, title, cover_id?, desc?, status?, scheduled_at?, published_at?, url?, error?, metrics?}`，回 201 + `VideoPublish` |
 | GET | `/api/video/publishes/{id}` | 一个 `VideoPublish`；不存在 404 |
@@ -2005,7 +2076,7 @@ VID-01a 起。插件 `video`（`internal/plugins/video`，清单 `plugin.json`�
 - `id` 是 `sr_` 前缀（已登记）。`name` 去首尾空白后必填，最多 100 字；`desc` 最多 1000 字；`intro`、`outro`、`template` 是共用开场、收尾、模板（路径或说明），各最多 500 字。
 - `stale` 整体替换，只能是这个系列的集，别的 400。改共用部分时，前端把用户勾选的受影响的集并进原来的 `stale` 一起传（同原型「影响范围确认」）；「标记已同步」就是传去掉那几集的数组。待同步记在视频上：视频移出或换了系列、被删掉，就不再算待同步。
 
-`Video`：`{id, title, project_id?, series_id?, episode?, orientations, stage, checkpoints, root, chapters, created_at, updated_at}`，同原型 `Video`；`checkpoints` 是 `{stage, state, at?, note?}[]`。
+`Video`：`{id, title, project_id?, series_id?, episode?, orientations, stage, checkpoints, root, chapters, runners, last_run?, created_at, updated_at}`，同原型 `Video`（`target_date` 还没有）；`checkpoints` 是 `{stage, state, at?, note?}[]`。
 
 - `id` 是 `vd_` 前缀（已登记）。`project_id`、`series_id`、`episode` 没有就不返回这个字段；`checkpoints` 固定 4 个，按 `plan`、`ch1`、`audio`、`distribution` 排，`at`、`note` 没有就不返回。
 - `title` 最多 200 字，可以为空（前端显示「未命名视频」）；`project_id` 要是没删的项目对象，否则 400「项目不存在」；`series_id` 要是存在的系列，否则 400；`episode` 是 1 到 9999 的整数；`root` 是视频项目目录，最多 1000 字，不查磁盘；`chapters` 0 到 999。
@@ -2020,6 +2091,17 @@ VID-01a 起。插件 `video`（`internal/plugins/video`，清单 `plugin.json`�
   - `skipped`：只有 `audio` 能跳过（不合成音频），别的 400。
   - `passed`：`plan` 通过前要至少选一个画面比例，否则 400「先选至少一个画面比例」。通过和跳过后进下一阶段；`distribution` 通过后停在 `distribution`，算已完成（同原型 `videoState`）。
   - 每次处理记 `at`（当时时间），`note` 最多 2000 字，通过时也可以写；重新处理时整条覆盖。
+
+阶段执行器（VID-03b，同原型 `StageRunner`、`LastRun` 和视频详情的 `run`）：`Video` 多两个字段 `runners`、`last_run?`。
+
+- `runners` 是 `{stage, type, ref_id, prompt?}[]`，按阶段先后排，没配是 `[]`。能配的阶段同原型 `RUN_KINDS`：`script`、`web`、`chapters`、`audio`、`record`、`distribution`；`plan`、`ch1` 只有人能做，400「「规划检查」只有人能做，不能配执行器」。`type` 是 `skill` / `sop` / `agent`，必填；`ref_id` 必填，最多 100 字：技能是技能 id，现在只认 `sk_video`（网页演示做视频，即本机 Claude Code 的 web-video-presentation 技能），别的 400；SOP 是流程 id 或名称，Agent 是 id 或名称，插件读不到这两张表，**只存不查**，跑的时候才知道在不在。`prompt` 最多 2000 字。
+- `last_run` 是最近一次执行 `{type, id, stage, status, started_at, ended_at?, error?, artifact_ids?, ref?}`，没跑过不返回。`type` 是 `agent`（技能和 Agent 都按 Agent 运行记，同原型）或 `sop`；`id` 是内核插件运行的 id（`run_`，`Core.Runs`，只在进程内存里，没有查询接口），发起时就失败的为空串；`ref` 是原型没有的，Agent 会话 id（`ags_`）或 SOP 执行 id（`spr_`）。`status` 是 `running` / `done` / `failed`；`artifact_ids` 是这次登记或升版的产出物。
+- 跑之前的检查，不过 409 并说明原因，**不记执行**：这个阶段前面的检查点都要通过或跳过，否则 409「「规划检查」还没通过，不能开始「网页开发」」（退回的是「被退回了，改好通过后才能开始……」）；只能跑视频当前所在的阶段（409「视频还在「内容编写」，做到「网页开发」再跑」或「视频已经过了……只能跑当前阶段」）；检查点阶段（`audio`、`distribution`）已经确认过的 409；没配执行器 409；这个视频有执行在跑 409「正在跑，等它跑完再试」（同一视频同一时间只跑一条，靠表上的部分唯一索引，并发时也是 409）。
+- 发起：技能交给本机 Claude Code（`Core.Runs().StartClaudeCode`，放开写文件，产物归属 `video` + 视频 id），工作目录是视频的 `root`：绝对路径直接用；相对路径接在所属项目（`project_id`）的工作区目录后面，不能越出去；提示词写明用 web-video-presentation 技能、这个阶段对应的 Phase（`script` 是 Phase 1，`web` 是 2.1 加 2.2 第 1 章，`chapters` 是 2.3、2.4，`audio` 是 3，`record` 是 4，`distribution` 是 5）、标题、画面比例（两个方向提示布局 B）、章节数、执行器的 `prompt`，并要求做完这一阶段就停。Agent 用 `StartAgent`（提示词同上，工程目录写在提示词里），SOP 用 `StartSOP`，入参 `{video_id, title, stage, root, prompt}`。
+- **发起时就失败的记一条失败的执行，回 200**（同原型 `runError`）：这一阶段的产出物按比例区分但视频还没选比例「还没定画面比例，先在规划检查里选好」、工程目录没填或是相对路径又没挂有工作区目录的项目、目录不存在或不可写（文案同任务执行）、没确认 `process:spawn`、SOP 插件没启用、本机 Claude Code 或 Agent 没接上、流程不存在等。
+- 收尾：运行结束时内核投 `run.finished`（清单 `subscribes` 写了），插件把执行记成 `done` 或 `failed`；错过的（结束得比回写运行 id 还快、插件停用期间结束的）在读视频（列表、详情）和下一次发起时补收；内核查不到的运行（服务重启过）记失败「工作台重启过，这次运行的结果拿不到了，重试一次」，写了执行记录一分钟还没拿到运行 id 的记失败。Agent 停在要确认的调用上、被取消、SOP 被停止都记失败并写明原因。
+- 跑成了，同原型 `run` 的收尾把这一阶段的产出物（`script`：口播稿、大纲；`web`、`chapters`：演示工程；`audio`：音频；`record`：成片、字幕；`distribution`：简介、章节时间轴）按比例各一份登记成**待验收**（`status: review`）：已有的取同类型同比例最新一条升版本（版本加一，名称、来源换成这次的，验收记录照留），没有的按原型 `defaultPath` 的默认路径登记第 1 版。来源 `source`：技能是 `{type: skill, label: 技能名, id: sk_video}`，Agent 是 `{type: agent, label/id: ref_id, session_id}`，SOP 是 `{type: sop, label/id: ref_id, run_id: spr_…}`。不查文件在不在。
+- **检查点、阶段都不动**，仍由人用上面的检查点接口处理；跑失败也不动。配执行器、删执行器、登记产出物都刷新视频的 `updated_at`。删视频时执行器和执行记录一起删。
 
 `VideoPublish`：`{id, video_id, platform, variant, cover_id?, title, desc, status, scheduled_at?, published_at?, url?, error?, metrics?, created_at, updated_at}`，同原型 `Publish` 多时间；`metrics` 是 `{views, likes, comments, shares, updated_at}`。
 
@@ -2100,7 +2182,7 @@ VID-01a 起。插件 `video`（`internal/plugins/video`，清单 `plugin.json`�
 
 ## 内置浏览器插件 browser
 
-BR-01a。插件 `browser`（`internal/plugins/browser`，清单 `plugin.json`，0.1.0），不依赖别的插件，没有权限（不出网，Google 授权由内核连接器做）。表前缀 `browser_`，迁移在插件目录 `migrations/0001_browser.sql`。清单暂不出模块，一级菜单「浏览器」由 BR-01b 带前端入口时加上。插件未安装或停用时本节接口回 `not_found` 404（同「插件路由」）。
+BR-01a。插件 `browser`（`internal/plugins/browser`，清单 `plugin.json`，0.2.0），不依赖别的插件，没有权限（不出网，Google 授权由内核连接器做）。表前缀 `browser_`，迁移在插件目录 `migrations/0001_browser.sql`。清单出模块 `browser`（0.2.0，BR-01b）：一级菜单「浏览器」，前端在 `frontend/src/plugins/browser`。插件未安装或停用时本节接口回 `not_found` 404（同「插件路由」）。
 
 | 方法 | 路径 | body / 说明 |
 |---|---|---|

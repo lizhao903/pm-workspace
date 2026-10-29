@@ -227,7 +227,7 @@ func (s *Server) policyFor(ctx context.Context, a *domain.Agent, grants map[stri
 			cid, tool := c.ID, t.Name
 			p.Conn = append(p.Conn, agent.ConnTool{
 				Name: agent.ConnToolName(c.Tool, t.Name), Key: key, ConnectorID: c.ID, ConnectorName: c.Name,
-				Tool: t.Name, Desc: t.Desc, Write: t.Write, Mode: mode,
+				Tool: t.Name, Desc: t.Desc, Write: t.Write, Mode: mode, Schema: t.Schema,
 				Call: func(ctx context.Context, args string) (string, error) {
 					out, err := s.opt.Connectors.CallTool(ctx, cid, tool, json.RawMessage(args))
 					if err != nil {
@@ -238,6 +238,7 @@ func (s *Server) policyFor(ctx context.Context, a *domain.Agent, grants map[stri
 			})
 		}
 	}
+	agent.UniqueConnNames(p.Conn)
 	return p, nil
 }
 

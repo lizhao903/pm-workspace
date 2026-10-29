@@ -103,6 +103,7 @@ var contractSpecs = map[string]contractSpec{
 	"LocalDir":   {v: localdir.Dir{}},
 	"FsFile":     {v: fsbrowse.FileContent{}},
 	"FsFileList": {v: fsbrowse.FileList{}},
+	"FsRoot":     {v: fsbrowse.ExtraRoot{}},
 
 	"ConnectorDef":       {v: connector.Def{}},
 	"Connector":          {v: connector.Connector{}},

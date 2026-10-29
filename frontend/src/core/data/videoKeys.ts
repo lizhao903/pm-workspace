@@ -6,4 +6,7 @@ export const videoKeys = {
   series: ['video', 'series'] as const,
   /** 一集的产出物（VID-01d） */
   artifacts: (videoId: string) => ['video', 'artifacts', videoId] as const,
+  /** 选题、素材箱（VID-08c），都是一次取完 */
+  topics: ['video', 'topics'] as const,
+  clips: ['video', 'clips'] as const,
 }

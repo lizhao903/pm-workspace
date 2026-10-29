@@ -18,6 +18,8 @@ import type {
   Dictionary,
   FsListing,
   FsShortcut,
+  FsRoot,
+  FsRoots,
   Health,
   LinkInput,
   LinkView,
@@ -166,4 +168,8 @@ export const fs = {
     request<FsListing>('GET', '/api/fs/browse', { query: path ? new URLSearchParams({ path }) : undefined }),
   shortcuts: () => request<FsShortcut[]>('GET', '/api/fs/shortcuts'),
   mkdir: (parent: string, name: string) => request<FsListing>('POST', '/api/fs/mkdir', { body: { parent, name } }),
+  // 额外可浏览目录（FS-01）：被拒回 400 并写明原因，加过或在默认范围里回 409
+  roots: () => request<FsRoots>('GET', '/api/fs/roots'),
+  addRoot: (path: string) => request<FsRoot>('POST', '/api/fs/roots', { body: { path } }),
+  removeRoot: (path: string) => request<null>('DELETE', '/api/fs/roots', { query: new URLSearchParams({ path }) }),
 }

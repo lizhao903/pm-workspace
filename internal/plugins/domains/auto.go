@@ -146,6 +146,15 @@ func (h *handlers) onDeleted(ctx context.Context, _ plugin.Core, e plugin.Event)
 	return err
 }
 
+// deleteAutoRoutes 删掉全部自动路由；和 ensureAuto 同一把锁，读到旧设置建的那条也会被删掉。
+func (h *handlers) deleteAutoRoutes(ctx context.Context) error {
+	h.p.autoMu.Lock()
+	defer h.p.autoMu.Unlock()
+	defer h.p.snap.invalidate()
+	_, err := h.c.Store().Exec(ctx, `DELETE FROM domains_routes WHERE auto = 1`)
+	return err
+}
+
 // ensureAuto：auto_proto 打开、还没有指向这个原型的路由（手动的、自动的、停用的都算）时建一条自动路由。
 // 子域名按 slugHost，重名接 -<端口>，再重名接序号。
 func (h *handlers) ensureAuto(ctx context.Context, ev protoEvent) error {

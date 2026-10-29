@@ -11,6 +11,17 @@ const github: ConnectorDef = {
   fields: [{ key: 'token', label: '个人访问令牌', kind: 'secret', placeholder: 'ghp_…', required: false }],
   tools: [], source: 'core',
 }
+const mcp: ConnectorDef = {
+  tool: 'custom_mcp', label: 'MCP 服务', category: 'custom', color: '#7a4fd6', desc: '接一个 MCP 服务', can_send: false, auth: ['none', 'oauth2', 'token'],
+  fields: [
+    { key: 'url', label: '服务地址', kind: 'text', placeholder: 'https://mcp.example.com/mcp', required: true },
+    { key: 'transport', label: '传输方式', kind: 'select', options: ['Streamable HTTP', 'SSE'], default: 'Streamable HTTP', required: true },
+    { key: 'token', label: 'Token', kind: 'secret', required: true, auth: ['token'] },
+    { key: 'token_header', label: '请求头', kind: 'text', default: 'Authorization', required: false, auth: ['token'] },
+    { key: 'token_prefix', label: '前缀', kind: 'text', default: 'Bearer', required: false, auth: ['token'] },
+  ],
+  tools: [], source: 'core',
+}
 const slack: ConnectorDef = {
   tool: 'slack', label: 'Slack', category: 'im', color: 'purple', desc: '频道与私信', can_send: false, auth: ['token'],
   fields: [{ key: 'bot_token', label: 'Bot Token', kind: 'secret', required: true }], tools: [], source: 'core',
@@ -38,7 +49,7 @@ function stub(defs: ConnectorDef[], rows: Connector[]) {
     if (path === '/api/connectors' && method === 'GET') return new Response(JSON.stringify({ data: rows, meta: { total: rows.length } }))
     if (path === '/api/connectors' && method === 'POST') {
       const hints = Object.fromEntries(Object.keys(body.secrets ?? {}).map((k) => [k, 'ghp…abcd']))
-      const c = conn({ id: 'cn_new', tool: body.tool, name: body.name, auth_mode: body.auth_mode, status: 'connecting', secret_hints: hints })
+      const c = conn({ id: 'cn_new', tool: body.tool, name: body.name, auth_mode: body.auth_mode, status: 'connecting', secret_hints: hints, config: body.config ?? {} })
       rows = [c, ...rows]
       return ok(c, 201)
     }
@@ -54,6 +65,10 @@ function stub(defs: ConnectorDef[], rows: Connector[]) {
         const next = { ...r }
         if (body.name !== undefined) next.name = body.name
         if (body.enabled !== undefined) next.status = body.enabled ? 'connecting' : 'paused'
+        if (body.auth_mode !== undefined) next.auth_mode = body.auth_mode
+        if (body.config !== undefined) next.config = { ...r.config, ...body.config }
+        if (body.icon !== undefined) next.icon = body.icon
+        if (body.secrets !== undefined) next.secret_hints = { ...r.secret_hints, ...Object.fromEntries(Object.keys(body.secrets).map((k) => [k, 'tok…wxyz'])) }
         return next
       })
       return ok(rows.find((r) => r.id === id))
@@ -187,5 +202,53 @@ describe('连接器页', () => {
     mount()
     expect(await within(await screen.findByRole('region', { name: '其他' })).findByText('示例实例')).toBeInTheDocument()
     expect(screen.queryByRole('region', { name: '提供方已停用' })).toBeNull()
+  })
+
+  it('右上「添加连接器」打开目录，接过的写「再接一个」；第二个实例默认名称加序号（CONN-04）', async () => {
+    const calls = stub([github, mcp], [conn({ id: 'cn_m', tool: 'custom_mcp', name: 'MCP 服务', auth_mode: 'none', config: { url: 'http://a/mcp' } })])
+    renderPage()
+    await screen.findByText('MCP 服务', { selector: '.cn-name' })
+    // 卡片上也能再接一个
+    expect(within(screen.getByLabelText('自定义')).getByRole('button', { name: '再接一个' })).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: '添加连接器' }))
+    const cat = screen.getByRole('dialog', { name: '添加连接器' })
+    expect(within(cat).getByRole('button', { name: '接入 GitHub' })).toBeInTheDocument()
+    expect(within(cat).getByText('已接 1 个')).toBeInTheDocument()
+    await userEvent.click(within(cat).getByRole('button', { name: '再接一个 MCP 服务' }))
+    const drawer = screen.getByRole('dialog')
+    expect(within(drawer).getByText('接入 MCP 服务')).toBeInTheDocument()
+    expect(within(drawer).getByDisplayValue('MCP 服务 2')).toBeInTheDocument()
+    expect(drawer).toHaveTextContent('stdio（起本机进程）下一步支持')
+    // 无授权时没有 Token 字段；切到 Token 出现 Token、请求头、前缀和预览
+    expect(within(drawer).queryByText('请求头')).toBeNull()
+    await userEvent.click(within(drawer).getByRole('button', { name: 'Token' }))
+    expect(within(drawer).getByDisplayValue('Authorization')).toBeInTheDocument()
+    expect(drawer).toHaveTextContent('请求时带上：Authorization: Bearer ••••••')
+    await userEvent.click(within(drawer).getByRole('button', { name: '无授权' }))
+    await userEvent.type(within(drawer).getByPlaceholderText('https://mcp.example.com/mcp'), 'http://127.0.0.1:9/mcp')
+    await userEvent.click(within(drawer).getByRole('button', { name: '接入' }))
+    expect(writes(calls)[0]).toEqual(['POST', '/api/connectors', {
+      tool: 'custom_mcp', name: 'MCP 服务 2', auth_mode: 'none', enabled: true,
+      config: { url: 'http://127.0.0.1:9/mcp', transport: 'Streamable HTTP', token_header: 'Authorization', token_prefix: 'Bearer' },
+    }])
+  })
+
+  it('改了地址保存后不关抽屉，提示重新测试；凭证只显示脱敏（CONN-04）', async () => {
+    const calls = stub([mcp], [conn({ id: 'cn_m', tool: 'custom_mcp', name: '笔记', auth_mode: 'token', config: { url: 'http://a/mcp', transport: 'SSE', token_header: 'Authorization', token_prefix: 'Bearer' }, secret_hints: { token: 'tok…abcd' } })])
+    renderPage()
+    await userEvent.click(await screen.findByText('笔记'))
+    const drawer = screen.getByRole('dialog')
+    expect(drawer).toHaveTextContent('当前：tok…abcd')
+    const url = within(drawer).getByDisplayValue('http://a/mcp')
+    await userEvent.clear(url)
+    await userEvent.type(url, 'http://b/mcp')
+    await userEvent.type(within(drawer).getByPlaceholderText('不改就留空'), 'new-token-123456')
+    await userEvent.click(within(drawer).getByRole('button', { name: '保存' }))
+    expect(await within(screen.getByRole('dialog')).findByText(/改了地址或认证/)).toBeInTheDocument()
+    expect(writes(calls)).toEqual([['PATCH', '/api/connectors/cn_m', { config: { url: 'http://b/mcp' }, secrets: { token: 'new-token-123456' } }]])
+    expect(screen.getByRole('dialog')).toHaveTextContent('当前：tok…wxyz')
+    expect(document.body.textContent).not.toContain('new-token-123456')
+    await userEvent.click(within(within(screen.getByRole('dialog')).getByRole('status')).getByRole('button', { name: '测试连接' }))
+    expect(writes(calls).at(-1)).toEqual(['POST', '/api/connectors/cn_m/test', {}])
   })
 })

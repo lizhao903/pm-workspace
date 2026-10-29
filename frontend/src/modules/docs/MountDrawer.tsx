@@ -1,8 +1,9 @@
 // 挂载本地目录（SPEC-library-1.11 的正式版）：用 /api/fs/browse 选目录，POST /api/local-dirs 挂上，存在后端，刷新页面还在。
 // 只读：后端只列文本文件、只读挂载目录里的非隐藏文件；数据目录和包住数据目录的路径不让挂（403）。
 import { useState } from 'react'
-import { errorText, isApiError, useFsBrowse, useFsShortcuts, useMountLocalDir, type LocalDir } from '../../core/data'
+import { errorText, isApiError, useFsBrowse, useMountLocalDir, type LocalDir } from '../../core/data'
 import { Button, Drawer, Field, Input } from '../../core/ui'
+import { DirBrowser } from '../../core/ui/DirPicker'
 
 /** 挂载失败的说法：403 是安全限制，409 是已经挂过 */
 function mountError(e: unknown): string {
@@ -28,13 +29,10 @@ export function MountDrawer({ open, onClose, onMounted, existing }: {
 function MountBody({ onClose, onMounted, existing }: Omit<Parameters<typeof MountDrawer>[0], 'open'>) {
   const [path, setPath] = useState('')
   const [name, setName] = useState('')
+  // 和 DirBrowser 同一个查询键，缓存是同一份
   const list = useFsBrowse(path, true)
-  const shortcuts = useFsShortcuts(true)
   const mount = useMountLocalDir()
-  const cur = list.data
-  const dirs = cur?.entries.filter((e) => e.is_dir) ?? []
-  // 隐藏目录挂不了，列出来也只会 403
-  const visible = dirs.filter((d) => !d.name.startsWith('.'))
+  const cur = list.isError ? undefined : list.data
   const same = cur ? existing.find((d) => d.path === cur.path) : undefined
 
   const submit = () => {
@@ -49,30 +47,8 @@ function MountBody({ onClose, onMounted, existing }: Omit<Parameters<typeof Moun
     <div className="mount-body">
       <h2 className="mount-title">挂载本地目录</h2>
       <p className="mount-desc">只读：列出目录里的文本文件（md、txt、json 等），隐藏文件和 node_modules 这类目录跳过。工作台自己的数据目录不能挂。</p>
-      {!!shortcuts.data?.length && (
-        <div className="mnt-shortcuts">
-          {shortcuts.data.map((s) => (
-            <Button key={s.path} size="sm" variant="outline" title={s.path} onClick={() => setPath(s.path)}>{s.label}</Button>
-          ))}
-        </div>
-      )}
-      <div className="mnt-cur">
-        <Button size="sm" variant="ghost" disabled={!cur?.parent} onClick={() => cur && setPath(cur.parent)}>上一级</Button>
-        <span className="mono ellipsis" title={cur?.path}>{cur?.path ?? (path || '...')}</span>
-      </div>
-      {list.isError
-        ? <div className="field-err" role="alert">{errorText(list.error)}</div>
-        : (
-          <ul className="mnt-list" aria-label="子目录">
-            {list.isPending && <li className="mnt-muted">加载中</li>}
-            {cur && !visible.length && <li className="mnt-muted">没有子目录</li>}
-            {visible.map((d) => (
-              <li key={d.path}>
-                <button type="button" className="mnt-item" onClick={() => setPath(d.path)}>{d.name}</button>
-              </li>
-            ))}
-          </ul>
-        )}
+      {/* 隐藏目录挂不了，列出来也只会 403 */}
+      <DirBrowser path={path} onPath={setPath} hideHidden listHeight={320} />
       <Field label="显示名" hint="留空用目录名">
         <Input value={name} onChange={(e) => setName(e.target.value)} placeholder={cur ? cur.path.split('/').filter(Boolean).pop() : ''} />
       </Field>

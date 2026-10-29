@@ -84,18 +84,42 @@ type Checkpoint struct {
 
 // Video 同原型 Video：project_id、series_id、episode 没有就不返回。
 type Video struct {
-	ID           string       `json:"id"`
-	Title        string       `json:"title"`
-	ProjectID    *string      `json:"project_id,omitempty"`
-	SeriesID     *string      `json:"series_id,omitempty"`
-	Episode      *int         `json:"episode,omitempty"`
-	Orientations []string     `json:"orientations"`
-	Stage        string       `json:"stage"`
-	Checkpoints  []Checkpoint `json:"checkpoints"`
-	Root         string       `json:"root"`
-	Chapters     int          `json:"chapters"`
-	CreatedAt    string       `json:"created_at"`
-	UpdatedAt    string       `json:"updated_at"`
+	ID           string        `json:"id"`
+	Title        string        `json:"title"`
+	ProjectID    *string       `json:"project_id,omitempty"`
+	SeriesID     *string       `json:"series_id,omitempty"`
+	Episode      *int          `json:"episode,omitempty"`
+	Orientations []string      `json:"orientations"`
+	Stage        string        `json:"stage"`
+	Checkpoints  []Checkpoint  `json:"checkpoints"`
+	Root         string        `json:"root"`
+	Chapters     int           `json:"chapters"`
+	Runners      []StageRunner `json:"runners"`
+	LastRun      *LastRun      `json:"last_run,omitempty"`
+	CreatedAt    string        `json:"created_at"`
+	UpdatedAt    string        `json:"updated_at"`
+}
+
+// StageRunner 同原型 StageRunner：这一阶段交给谁跑（VID-03b），prompt 没有就不返回。
+type StageRunner struct {
+	Stage  string `json:"stage"`
+	Type   string `json:"type"`
+	RefID  string `json:"ref_id"`
+	Prompt string `json:"prompt,omitempty"`
+}
+
+// LastRun 同原型 LastRun：最近一次执行。id 是内核插件运行的 id（run_），没起来就失败的为空串；
+// ref 是原型没有的，Agent 会话 id 或 SOP 执行 id，没有就不返回。
+type LastRun struct {
+	Type        string   `json:"type"`
+	ID          string   `json:"id"`
+	Stage       string   `json:"stage"`
+	Status      string   `json:"status"`
+	StartedAt   string   `json:"started_at"`
+	EndedAt     string   `json:"ended_at,omitempty"`
+	Error       string   `json:"error,omitempty"`
+	ArtifactIDs []string `json:"artifact_ids,omitempty"`
+	Ref         string   `json:"ref,omitempty"`
 }
 
 // Series 同原型 Series，多时间。stale 是改过共用部分还没同步的集，按集数排。

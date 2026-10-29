@@ -3406,6 +3406,46 @@
     "acceptance": "- [ ] 在连接器页添加一个自定义 MCP（本机假服务，Streamable HTTP），测试连接通过、拉到工具清单、读写分对；Agent 挂上后能调到一个只读工具（Go 测试）\n- [ ] 添加一个自定义 OpenAPI（本机假服务的文档），生成的工具数和 operationId 一致，GET 是只读\n- [ ] 同一工具接第二个实例成功，名称自动加序号\n- [ ] 编辑名称、地址、认证后保存生效，凭证只显示脱敏，改地址后提示重新测试\n- [ ] gofmt、go vet、go test ./...；npm test、typecheck、lint、build、smoke-frontend 通过"
   },
   {
+    "key": "IM-01d",
+    "type": "task",
+    "title": "IM 渠道支持同一工具接多个实例（两个 Slack 工作区、两个 Bot）",
+    "milestone": "M4",
+    "module": "backend",
+    "priority": "P2",
+    "estimate": "S",
+    "depends_on": [
+      "IM-01b",
+      "IM-01c",
+      "CONN-04"
+    ],
+    "workdir": ".",
+    "spec": [
+      "internal/plugins/im/slack.go instance()",
+      "docs/api-contract.md IM 一节"
+    ],
+    "body": "## 背景\n\nCONN-04 放开了同一工具接多个连接器实例，但 IM 插件的 Slack 适配器 `instance()` 只取 `List(...)[0]`，接两个 Slack 时只有最新的一个会同步；契约 IM 一节也还写着「一个工具只接一个账号」。\n\n## 要做什么\n\n- Slack、Telegram 适配器按实例逐个同步、逐个回调（回调按签名或 secret_token 认实例）、回复走消息所属的实例。\n- 契约 IM 一节同步。",
+    "acceptance": "- [ ] 两个假 Slack 实例各发一条，两条都落库且归到各自连接器\n- [ ] 回复走对应实例\n- [ ] gofmt、go vet、go test ./... 通过"
+  },
+  {
+    "key": "CONN-04b",
+    "type": "task",
+    "title": "自定义连接器的「去授权」在前端接上 OAuth 流程",
+    "milestone": "M4",
+    "module": "frontend",
+    "priority": "P2",
+    "estimate": "S",
+    "depends_on": [
+      "CONN-04"
+    ],
+    "workdir": "frontend",
+    "spec": [
+      "web-next/docs/spec/settings.md SPEC-settings-5.6 到 5.8",
+      "docs/api-contract.md 连接器 OAuth"
+    ],
+    "body": "## 背景\n\nCONN-04 后端已支持自定义 OAuth（用户自填授权地址、令牌地址、范围），前端抽屉的「去授权」还点不了（CONN-01d 起就是这样）。\n\n## 要做什么\n\n- 抽屉里「去 <工具名> 授权」调 `oauth/start`，新窗口打开授权地址，轮询实例状态直到授权完成或失败，失败写原因；没填 Client ID 或授权地址时置灰并说明。",
+    "acceptance": "- [ ] 用本机假 OAuth 服务走通授权，状态变已连接\n- [ ] npm test、typecheck、lint、build、smoke-frontend 通过"
+  },
+  {
     "key": "QA-05",
     "type": "task",
     "title": "M4 端到端演练：IM 转任务再由 Agent 处理",

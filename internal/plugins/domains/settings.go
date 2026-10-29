@@ -128,6 +128,13 @@ func (h *handlers) putSettings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.p.snap.invalidate()
+	// 关掉自动分配：删掉全部自动路由，手动的不动（DOM-02c）
+	if !s.AutoProto {
+		if err := h.deleteAutoRoutes(ctx); err != nil {
+			h.fail(w, r, err)
+			return
+		}
+	}
 	// 刚打开自动分配：给已经在跑的原型补上域名（DOM-02a）
 	if s.AutoProto {
 		for _, ev := range h.p.protos.runningEvents() {

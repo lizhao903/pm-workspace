@@ -37,6 +37,8 @@ type ToolDef struct {
 	Name  string `json:"name"`
 	Desc  string `json:"desc"`
 	Write bool   `json:"write"`
+	// Schema 是参数的 JSON Schema，给模型看；没有时不出这个键（自定义 MCP、OpenAPI 才有，CONN-04）
+	Schema json.RawMessage `json:"schema,omitempty"`
 }
 
 // DefaultMode 是新拉到的工具的授权：写操作需确认，只读自动（同原型 defaultMode）。
@@ -55,7 +57,16 @@ type Field struct {
 	Placeholder string   `json:"placeholder,omitempty"`
 	Options     []string `json:"options,omitempty"`
 	Required    bool     `json:"required"`
+	// Auth 非空时这个字段只属于这几种认证方式：别的方式下不显示、不算必填（CONN-04）
+	Auth []AuthMode `json:"auth,omitempty"`
+	// Default 是新建时没给的默认值（只对 text、select）
+	Default string `json:"default,omitempty"`
+	// Long 是长文本（多行输入，最多 maxLongValue 字），如粘贴的 OpenAPI 文档
+	Long bool `json:"long,omitempty"`
 }
+
+// appliesTo 是这个字段在认证方式 m 下有没有用。
+func (f *Field) appliesTo(m AuthMode) bool { return len(f.Auth) == 0 || slices.Contains(f.Auth, m) }
 
 // Config 是交给定义的一次调用的配置：非凭证字段和解密后的凭证。只在调用期间有效，不要留存或打日志。
 type Config struct {
@@ -102,6 +113,8 @@ type Def struct {
 	// Call 真正调对方的一个工具（AG-02a），args 是参数 JSON 原文，回给模型看的结果文本；
 	// 为 nil 时 Agent 调这个连接器的工具回「这个连接器的工具还不能调用」。
 	Call func(ctx context.Context, cfg Config, tool string, args json.RawMessage) (string, error) `json:"-"`
+	// CheckConfig 在新建、修改时校验合并后的非凭证字段（如地址只能是 http(s)），nil 不查（CONN-04）
+	CheckConfig func(values map[string]string) error `json:"-"`
 }
 
 var (
@@ -135,6 +148,14 @@ func (d *Def) check() error {
 		seen[f.Key] = true
 		if f.Kind != "text" && f.Kind != "secret" && f.Kind != "select" {
 			return fmt.Errorf("connector %s: field %s has unknown kind %q", d.Tool, f.Key, f.Kind)
+		}
+		for _, m := range f.Auth {
+			if !slices.Contains(d.Auth, m) {
+				return fmt.Errorf("connector %s: field %s belongs to auth mode %q that is not supported", d.Tool, f.Key, m)
+			}
+		}
+		if f.Default != "" && (f.Kind == "secret" || f.Kind == "select" && !slices.Contains(f.Options, f.Default)) {
+			return fmt.Errorf("connector %s: field %s has an invalid default", d.Tool, f.Key)
 		}
 	}
 	if slices.Contains(d.Auth, AuthOAuth2) {

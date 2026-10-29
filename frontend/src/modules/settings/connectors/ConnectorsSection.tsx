@@ -1,5 +1,5 @@
 // 设置里的「连接器」分节（CONN-01d），照原型 web-next/src/connectors.tsx ConnectorsSettings（SPEC-settings-3）。
-// 可以接哪些工具由后端定义列表决定，按分类分组；每个工具只接一个账号。
+// 可以接哪些工具由后端定义列表决定，按分类分组；同一工具可以接多个（CONN-04），右上「添加连接器」打开按分类的目录。
 // 和原型不同的地方（后端决定的）：
 // - 连接 = 启用（暂停中的先 PATCH enabled）再做一次连通测试；断开先落成暂停，主动断开（disconnected）归 CONN-01b。
 // - 后端的 connecting 是「接入后还没测过」，行上照样给「连接」。
@@ -9,7 +9,7 @@ import {
   errorText, QueryState, useConnectorDefs, useConnectors, usePatchConnector, useTestConnector,
   type Connector, type ConnectorDef,
 } from '../../../core/data'
-import { Button, cls, EmptyState, PageTitle } from '../../../core/ui'
+import { Button, cls, Drawer, EmptyState, PageTitle } from '../../../core/ui'
 import { AUTH_LABEL, CATEGORIES, categoryOf, OFF_HINT, OTHER } from './catalog'
 import { ConnectorDrawer } from './ConnectorDrawer'
 import { fallbackDef, rowSummary, type ConnCheck } from './model'
@@ -31,6 +31,7 @@ export function ConnectorsSection() {
   const [checks, setChecks] = useState<Record<string, ConnCheck>>({})
   const [testErrors, setTestErrors] = useState<Record<string, unknown>>({})
   const [actionError, setActionError] = useState<string | null>(null)
+  const [catalog, setCatalog] = useState(false)
 
   // 定义随插件启停出现、隐藏（CONN-02），插件管理那边改了不会通知这里：进来时缓存里已有的重新取一次，
   // 免得停用的插件的工具还在、重新启用的还挂在「提供方已停用」里
@@ -45,6 +46,8 @@ export function ConnectorsSection() {
   const defs = defsQ.data ?? []
   const list = listQ.data ?? []
   const defOf = (tool: string) => defs.find((d) => d.tool === tool)
+  const namesOf = (tool: string) => list.filter((c) => c.tool === tool).map((c) => c.name)
+  const add = (tool: string) => { setCatalog(false); setOpen({ mode: 'new', tool }) }
 
   function runTest(id: string) {
     setPending((m) => ({ ...m, [id]: true }))
@@ -94,6 +97,7 @@ export function ConnectorsSection() {
         onClick={() => setOpen({ mode: 'edit', id: c.id })}
         onKeyDown={(e) => { if (e.key === 'Enter' && e.target === e.currentTarget) setOpen({ mode: 'edit', id: c.id }) }}>
         <div className="cn-row-main">
+          {c.icon && <img className="cn-row-icon" src={c.icon} alt="" aria-hidden="true" />}
           <span className="cn-name ellipsis" title={c.name}>{c.name}</span>
           <span className="cn-account ellipsis">{c.account}</span>
           <span className="spacer" />
@@ -133,10 +137,12 @@ export function ConnectorsSection() {
           </div>
         </div>
         {mine.length ? <div className="cn-list">{mine.map((c) => row(c, d))}</div> : <div className="cn-none">还没有接入</div>}
-        {/* 一个工具只接一个账号：接过了就不再给「接入」，改配置点上面那一行 */}
-        {!mine.length && (
-          <div className="cn-card-foot"><Button variant="primary" onClick={() => setOpen({ mode: 'new', tool: d.tool })}>接入</Button></div>
-        )}
+        {/* 同一工具可以接多个：接过了给「再接一个」，改配置点上面那一行 */}
+        <div className="cn-card-foot">
+          {mine.length
+            ? <Button variant="outline" onClick={() => add(d.tool)}>再接一个</Button>
+            : <Button variant="primary" onClick={() => add(d.tool)}>接入</Button>}
+        </div>
       </div>
     )
   }
@@ -146,7 +152,8 @@ export function ConnectorsSection() {
   return (
     <div className="page cn-page">
       <PageTitle parent="设置" count={listQ.data ? `${list.length} 个已接入` : undefined}
-        desc="把外部工具接进工作台，按分类管理；每个工具接一个账号">连接器</PageTitle>
+        desc="把外部工具接进工作台，按分类管理；同一工具可以接多个账号"
+        actions={defs.length > 0 && <Button variant="primary" onClick={() => { setOpen(null); setCatalog(true) }}>添加连接器</Button>}>连接器</PageTitle>
       {actionError && <div className="cn-alert" role="alert">{actionError}</div>}
       <QueryState query={defsQ}>
         {() => (
@@ -197,8 +204,33 @@ export function ConnectorsSection() {
         )}
       </QueryState>
 
+      <Drawer open={catalog} onClose={() => setCatalog(false)} kicker="添加连接器" className="cn-catalog" aria-label="添加连接器">
+        <div className="cn-catalog-body">
+          <div className="cn-faint">选一个工具接入；自己的服务选「自定义」里的 MCP 服务或 OpenAPI 接口，填地址和认证就能用</div>
+          {cats.map((cg) => (
+            <section key={cg.key} className="cn-catalog-group" aria-label={`目录：${cg.label}`}>
+              <div className="cn-group-title">{cg.label}</div>
+              {defs.filter((d) => categoryOf(d.category).key === cg.key).map((d) => {
+                const n = list.filter((c) => c.tool === d.tool).length
+                return (
+                  <div key={d.tool} className="cn-catalog-row" data-tool={d.tool}>
+                    <ToolLogo def={d} size={32} />
+                    <span className="cn-catalog-text">
+                      <span className="cn-tool-name">{d.label}{n > 0 && <span className="cn-group-hint">已接 {n} 个</span>}</span>
+                      <span className="cn-tool-desc">{d.desc}</span>
+                    </span>
+                    <Button size="sm" variant={n ? 'outline' : 'primary'} aria-label={`${n ? '再接一个' : '接入'} ${d.label}`}
+                      onClick={() => add(d.tool)}>{n ? '再接一个' : '接入'}</Button>
+                  </div>
+                )
+              })}
+            </section>
+          ))}
+        </div>
+      </Drawer>
+
       {open && drawerDef && (open.mode === 'new' ? (
-        <ConnectorDrawer key={`new-${open.tool}`} def={drawerDef} pending={false} onTest={runTest}
+        <ConnectorDrawer key={`new-${open.tool}`} def={drawerDef} taken={namesOf(open.tool)} pending={false} onTest={runTest}
           onCreated={(c) => setOpen({ mode: 'edit', id: c.id, slot: `new-${open.tool}` })} onClose={() => setOpen(null)} />
       ) : editing ? (
         <ConnectorDrawer key={open.slot ?? editing.id} def={drawerDef} connector={editing} check={checks[editing.id]}

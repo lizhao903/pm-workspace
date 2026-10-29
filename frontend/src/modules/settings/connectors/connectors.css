@@ -127,3 +127,20 @@
 @media (max-width: 760px) {
   .cn-ability-row { flex-wrap: wrap; }
 }
+
+/* 自定义图标、添加连接器目录、改地址后的提示（CONN-04） */
+.cn-logo-img { object-fit: cover; background: var(--panel-2); }
+.cn-row-icon { width: 16px; height: 16px; flex: none; border-radius: 4px; object-fit: cover; }
+.cn-icon-edit { display: flex; flex-direction: column; align-items: center; gap: var(--sp-2); flex: none; }
+.cn-icon-btn { display: inline-flex; border-radius: 10px; cursor: pointer; }
+.cn-icon-btn:hover { box-shadow: 0 0 0 2px var(--accent-line); }
+.cn-icon-btn:focus-within { outline: 2px solid var(--accent-line); outline-offset: 2px; }
+.cn-retest { display: flex; align-items: center; flex-wrap: wrap; gap: var(--sp-4); }
+.cn-retest > span:first-child { flex: 1; min-width: 200px; }
+.cn-retest-acts { display: flex; gap: var(--sp-3); flex-wrap: wrap; }
+.cn-catalog-body { display: flex; flex-direction: column; gap: var(--sp-8); }
+.cn-catalog-group { display: flex; flex-direction: column; gap: var(--sp-3); }
+.cn-catalog-row { display: flex; align-items: center; gap: var(--sp-5); padding: var(--sp-4) 0; border-bottom: 1px solid var(--line); min-width: 0; }
+.cn-catalog-row:last-child { border-bottom: 0; }
+.cn-catalog-text { display: flex; flex-direction: column; flex: 1; min-width: 0; gap: 1px; }
+.cn-catalog-row .btn { flex: none; }

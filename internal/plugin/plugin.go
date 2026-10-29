@@ -102,8 +102,10 @@ type Core interface {
 	ObjectWriter() ObjectWriter
 	// ContactWriter 建联系人、按 id 合并字段，带操作者、幂等键，记审计（SOP-02a，writes.go）。
 	ContactWriter() ContactWriter
-	// Connectors 只读查连接器实例（IM-02a，connectors_read.go）。
+	// Connectors 只读查连接器实例（IM-02a，connectors_read.go）；With 拿本插件登记的实例的配置（VID-04a）。
 	Connectors() ConnectorReader
+	// HTTP 回只能访问 network:<group> 域名清单的客户端，组要在清单里声明并经用户确认（VID-04a，network.go）。
+	HTTP(group string) (*http.Client, error)
 	// AttachmentDir 是本机附件目录的绝对路径（IM-04a，datadir.go），没接数据目录时为空串。
 	AttachmentDir() string
 	// Agent 用默认服务商补全、按 Agent 的授权跑一轮、搜指定知识库（SOP-01c，agent.go）。

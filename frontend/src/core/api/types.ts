@@ -373,11 +373,18 @@ export type FsListing = {
   path: string
   // 已在根目录时为空串
   parent: string
+  /** 所在的最外层可浏览根，面包屑从它画起（FS-01） */
+  root: string
   writable: boolean
   entries: FsEntry[]
 }
 
 export type FsShortcut = { label: string; path: string }
+
+/** 用户加的额外可浏览目录（FS-01），path 是解开软链后的 */
+export type FsRoot = { path: string; added_at: string }
+
+export type FsRoots = { defaults: string[]; extra: FsRoot[] }
 
 // ---- 任务执行 ----
 

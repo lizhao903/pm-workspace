@@ -224,7 +224,7 @@ type Core interface {
 	Artifacts() ArtifactService // 产出和文件（AG-03）
 	Settings() SettingsStore    // 本插件命名空间下的设置值
 	Secrets() SecretStore       // 只能取 secrets:<scope> 声明过的范围（CORE-06）
-	HTTP(group string) (*http.Client, error) // 只给 network:<group> 声明过的组
+	HTTP(group string) (*http.Client, error) // 只给 network:<group> 声明并确认过的组，每一跳查域名清单（VID-04a，3.1）
 	FS(scope string) (FS, error)             // 只给 fs:<read|write>:<scope> 声明过的范围
 	Process() (ProcessRunner, error)         // 只给声明了 process:spawn 的插件
 	Events() Publisher          // 只能发布清单 emits 里的类型
@@ -535,6 +535,14 @@ r.Connector(plugin.ConnectorDef{
 | `Disconnect(ctx, id)` | 断开这个实例，口径同 `POST /api/connectors/{id}/disconnect`：状态置为 `disconnected`，OAuth 令牌删掉、授权状态清空。记一条审计（`action: disconnect`，`kind` 为 `agent`，操作者是插件 id），回断开后的 `ConnectorInfo` |
 
 这个句柄暂不按权限收窄：连接器的授权和断开都要用户在界面上点，插件只是替用户转一次（例：浏览器插件的「登录 Google」「退出登录」转给 Google Drive、Google 日历实例，BR-01a）。
+
+调对方接口时拿配置（已实现，VID-04a，`internal/plugin/connectors_config.go`，实现是 `connector.Store.WithConfig`）：`Connectors().With(ctx, id, func(cfg plugin.ConnectorConfig) error)`。
+
+- 只开放本插件登记的连接器实例（定义的 `Source` 是本插件 id）；别的插件和内核的实例、没有这个 id、本插件停用后定义不在了，都回 `ErrNoRows`，回调不会被调。没接上实现回 `ErrNoConnectors`。
+- 回调里 `cfg.Get(key)` 取普通字段、`cfg.Secret(key)` 取凭证明文、`cfg.AccessToken()` 取 OAuth 令牌。回调结束即丢，不要把 `cfg` 或里面的值留存、打日志、放进错误。
+- 暂停、断开的实例回冲突；OAuth 实例没授权回冲突。令牌已过期或 5 分钟内到期时先刷新（CONN-01b）；刷新失败时令牌还没过期就先用着，已过期回冲突，失败后 30 分钟内不每次都重刷（同后台刷新的退避）。
+- 回调返回的错误里出现凭证原文时换成 `***`，没有时原样返回，调用方还能 `errors.Is`。
+- 发请求用 `Core.HTTP(def.Network)` 拿的客户端，不用默认客户端（3.3）。
 
 ### 2.6 技能、Agent 工具
 
@@ -912,7 +920,18 @@ r.ScheduleAction(plugin.ScheduleActionDef{Kind: "demo_note", Validate: validateN
 | `process:spawn` | 起子进程（原型、终端） | 高 |
 | `trade:live` | 实盘下单 | 最高 |
 
-`network:<group>` 的域名清单由内核维护（写在 `internal/plugin`），不由插件自己声明，避免插件给自己开口子。
+`network:<group>` 的域名清单由内核维护（写在 `internal/plugin/network.go` 的 `NetworkHosts`，VID-04a），不由插件自己声明，避免插件给自己开口子。只认 http、https，端口不管；`*.example.com` 只配子域名。同一个域名上公开行情和交易接口混在一起时按路径前缀分组。
+
+| 组 | 域名清单 |
+|---|---|
+| `localhost` | 回环地址（127.0.0.0/8、::1）、`localhost`、`*.localhost` |
+| `im` | `slack.com`、`*.slack.com`、`api.telegram.org`、`open.feishu.cn`、`open.larksuite.com`、`qyapi.weixin.qq.com` |
+| `media-platforms` | B 站 `bilibili.com`、`*.bilibili.com`、`*.hdslb.com`、`*.bilivideo.com`；YouTube `youtube.com`、`*.youtube.com`、`youtube.googleapis.com`、`*.googlevideo.com`、`*.ytimg.com`，`www.googleapis.com` 只放 `/youtube/`、`/upload/youtube/`；抖音 `douyin.com`、`*.douyin.com`、`*.douyinpic.com`、`*.douyinvod.com` |
+| `market-data` | Binance `data-api.binance.vision`、`data-stream.binance.vision`，`api.binance.com` 只放公开行情路径（`/api/v3/` 下的 ping、time、exchangeInfo、depth、trades、aggTrades、klines、uiKlines、avgPrice、ticker）；OKX `www.okx.com` 只放 `/api/v5/market/`、`/api/v5/public/`，`ws.okx.com` 只放 `/ws/v5/public`、`/ws/v5/business` |
+| `exchanges` | Binance `api.binance.com`、`api1` 到 `api4.binance.com`、`fapi`、`dapi`、`stream`、`fstream.binance.com`、`testnet.binance.vision`；OKX `www.okx.com`、`ws.okx.com`。先只列域名，实盘（`trade:live`、TRD-08）之前不用 |
+| `any` | 任意 http、https 地址 |
+
+`Core.HTTP(group)`：清单 `permissions` 里没声明 `network:<group>`（或组不存在）回 `ErrNetworkNotDeclared`；声明了但用户没确认回 `*NotGrantedError`（3.3）。拿到的客户端每一跳（含重定向）发出前再查一次确认状态和域名清单，清单外回 `*HostNotAllowedError`（`errors.Is(err, plugin.ErrHostNotAllowed)`，说明里不带查询串），请求不发出去。客户端没设总超时，请求用 `NewRequestWithContext` 带期限。测试用 `Registry.SetHTTPTransport` 把底层换成本机假服务，检查照样在外面。
 
 ### 3.2 安装时确认的规则
 
@@ -925,7 +944,7 @@ r.ScheduleAction(plugin.ScheduleActionDef{Kind: "demo_note", Validate: validateN
 
 ### 3.3 权限怎么生效
 
-权限不是靠插件自觉。插件拿到的所有能力都经过 `Core` 的收窄句柄（2.0）：`HTTP(group)` 只给声明过的组、发请求前检查目标域名；`FS(scope)` 只给声明过的范围、路径越界返回错误；`Secrets()` 只解得开声明过的范围；`Process()` 没声明返回错误。第一方插件和内核同进程，句柄外的路（直接 `os.Open`、`http.DefaultClient`）靠代码评审和静态检查守（CORE-03b 的后端对应规则：`internal/plugins/` 下禁止 import `net/http` 的默认客户端、`os` 的写文件函数、`database/sql`）。进程外插件阶段（M3 之后）改成物理隔离。
+权限不是靠插件自觉。插件拿到的所有能力都经过 `Core` 的收窄句柄（2.0）：`HTTP(group)` 只给声明过的组、发请求前检查目标域名；`FS(scope)` 只给声明过的范围、路径越界返回错误；`Secrets()` 只解得开声明过的范围；`Process()` 没声明返回错误。第一方插件和内核同进程，句柄外的路（直接 `os.Open`、`http.DefaultClient`）靠代码评审和静态检查守（CORE-03b 的后端对应规则：`internal/plugins/` 下禁止 import `net/http` 的默认客户端、`os` 的写文件函数、`database/sql`）。已落地的一条：`internal/plugins/` 下的非测试代码不许用 `http.DefaultClient`、`http.Get`、`http.Post`、`http.PostForm`、`http.Head`，由 `internal/plugin/boundary_test.go` 用语法树扫，`go test ./internal/plugin/...` 里跑（VID-04a）。进程外插件阶段（M3 之后）改成物理隔离。
 
 运行时检查（已实现，SEC-01，`internal/plugin/permissions.go`）：上面的收窄句柄还没全做，先有一个查询句柄 `Core.Granted(perm)`，只认状态表里用户确认过的权限（插件没安装时都是 false）。要高风险权限的代码路径在执行前调 `plugin.Require(c, perm)`，没确认时返回 `*NotGrantedError`（`errors.Is(err, plugin.ErrNotGranted)`），`Error()` 直接给用户看：「插件 <id> 的 <权限> 权限还没确认，到插件管理里升级并确认」。现在检查的地方：
 

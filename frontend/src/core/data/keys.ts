@@ -75,8 +75,10 @@ export const dataKeys = {
   },
   workdir: (path: string) => ['agent', 'workdir', path] as const,
   fs: {
+    all: ['fs'] as const,
     browse: (path: string) => ['fs', 'browse', path] as const,
     shortcuts: ['fs', 'shortcuts'] as const,
+    roots: ['fs', 'roots'] as const,
   },
   plugins: {
     all: ['plugins'] as const,

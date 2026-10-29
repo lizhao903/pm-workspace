@@ -1,6 +1,7 @@
 // Package video 是「视频创作」插件的后端（VID-01a 起）。清单 plugin.json 只有这一份，前端构建时也读它。
 // 系列、视频、检查点、发布记录落在插件表 video_series、video_videos、video_checkpoints、video_publishes，
 // 产出物和验收记录（VID-01b）落在 video_artifacts、video_artifact_reviews，形状同原型 web-next/src/videodata.ts。
+// 阶段执行器（VID-03b）落在 video_runners、video_runs，经 Core.Runs 发起技能（本机 Claude Code）、SOP、Agent。
 // 内容平台连接器是 VID-04，本插件现在不访问任何外部服务。
 // 接口契约见 docs/api-contract.md「视频创作插件 video」。
 package video
@@ -57,6 +58,9 @@ func (p *Plugin) Register(r plugin.Registrar) error {
 		m.HandleFunc("DELETE /api/video/videos/{id}", h.removeVideo)
 		m.HandleFunc("POST /api/video/videos/{id}/advance", h.advance)
 		m.HandleFunc("POST /api/video/videos/{id}/checkpoints/{stage}", h.decide)
+		m.HandleFunc("PUT /api/video/videos/{id}/runners/{stage}", h.putRunner)
+		m.HandleFunc("DELETE /api/video/videos/{id}/runners/{stage}", h.removeRunner)
+		m.HandleFunc("POST /api/video/videos/{id}/runners/{stage}/run", h.runStage)
 		m.HandleFunc("GET /api/video/publishes", h.listPublishes)
 		m.HandleFunc("POST /api/video/publishes", h.addPublish)
 		m.HandleFunc("GET /api/video/publishes/{id}", h.showPublish)
@@ -83,6 +87,7 @@ func (p *Plugin) Register(r plugin.Registrar) error {
 		m.HandleFunc("POST /api/video/clips/{id}/topic", h.clipToTopic)
 		m.HandleFunc("POST /api/video/clips/{id}/link", h.linkTopic)
 	})
+	r.Subscribe(plugin.RunFinishedEvent, h.onRunFinished)
 	return nil
 }
 
@@ -91,6 +96,8 @@ type handler struct {
 	// 0002 时登记的产出物补没补过（VID-02a，artifacts.go 的 upgradeLegacy）
 	legacyMu   sync.Mutex
 	legacyDone bool
+	// 执行收尾一次只收一条：先登记产出物再标 done，读视频的人不会看到「done 了但产出物还是旧的」
+	finishMu sync.Mutex
 }
 
 // 错误分类，对应信封里的 code

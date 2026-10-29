@@ -84,6 +84,8 @@ type ConnTool struct {
 	Desc          string
 	Write         bool
 	Mode          string
+	// Schema 是参数的 JSON Schema（自定义 MCP、OpenAPI 才有），没有时给模型一个空对象
+	Schema json.RawMessage
 	// Call 真正调对方，args 是模型给的参数 JSON 原文
 	Call func(ctx context.Context, args string) (string, error)
 }
@@ -91,13 +93,30 @@ type ConnTool struct {
 var connNameRe = regexp.MustCompile(`[^A-Za-z0-9_-]`)
 
 // ConnToolName 是连接器工具给模型的名字：<连接器定义 key>__<工具名>，各家都只认字母数字、下划线和短横，最长 64。
-// 一个连接器定义只能接一个实例，所以定义 key 加工具名就不会重。
+// 同一定义接了多个实例、或截断后撞名时由 UniqueConnNames 加序号。
 func ConnToolName(defTool, tool string) string {
 	n := connNameRe.ReplaceAllString(defTool+"__"+tool, "_")
 	if len(n) > 64 {
 		n = n[:64]
 	}
 	return n
+}
+
+// UniqueConnNames 让给模型的名字不重（CONN-04，同一工具可以接多个实例）：按挂载顺序，
+// 第一个保持原名，后面撞名的在定义 key 后加序号，如 custom_mcp_2__search。
+func UniqueConnNames(conns []ConnTool) {
+	seen := map[string]bool{}
+	for i := range conns {
+		n := conns[i].Name
+		if seen[n] {
+			head, tail, _ := strings.Cut(n, "__")
+			for k := 2; seen[n]; k++ {
+				n = ConnToolName(fmt.Sprintf("%s_%d", head, k), tail)
+			}
+			conns[i].Name = n
+		}
+		seen[n] = true
+	}
 }
 
 // Policy 是一个 Agent 的工具授权。nil 是没挂 Agent 的老会话：内置工具都能用，没有连接器工具。
@@ -165,10 +184,14 @@ func (p *Policy) Tools(builtin []ToolDef) []ToolDef {
 		if c.Write {
 			desc += "。会改动对方的数据"
 		}
-		out = append(out, ToolDef{
-			Name: c.Name, Description: desc,
-			Parameters: map[string]any{"type": "object", "properties": map[string]any{}},
-		})
+		var params map[string]any
+		if len(c.Schema) > 0 {
+			_ = json.Unmarshal(c.Schema, &params)
+		}
+		if params == nil {
+			params = map[string]any{"type": "object", "properties": map[string]any{}}
+		}
+		out = append(out, ToolDef{Name: c.Name, Description: desc, Parameters: params})
 	}
 	return out
 }

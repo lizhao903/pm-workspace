@@ -99,6 +99,9 @@ func (h *handler) loadVideos(ctx context.Context, where string, args ...any) ([]
 			out[i].Checkpoints = append(out[i].Checkpoints, cp)
 		}
 	}
+	if err := h.attachRuns(ctx, out, idx); err != nil {
+		return nil, err
+	}
 	return out, nil
 }
 
@@ -126,6 +129,7 @@ func (v Video) checkpoint(stage string) Checkpoint {
 func (v Video) orientLocked() bool { return v.checkpoint("plan").State == "passed" }
 
 func (h *handler) listVideos(w http.ResponseWriter, r *http.Request) {
+	h.reconcileRuns(r.Context())
 	var conds []string
 	var args []any
 	q := r.URL.Query()
@@ -148,6 +152,7 @@ func (h *handler) listVideos(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *handler) showVideo(w http.ResponseWriter, r *http.Request) {
+	h.reconcileRuns(r.Context())
 	v, err := h.getVideo(r.Context(), r.PathValue("id"))
 	if err != nil {
 		fail(w, r, h.c, err)

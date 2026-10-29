@@ -816,6 +816,7 @@ type FsEntry struct {
 type FsListing struct {
 	Path     string     `json:"path"`
 	Parent   string     `json:"parent"` // 已在根目录时为空串
+	Root     string     `json:"root"`   // 所在的可浏览根（最外层那个），界面据此画面包屑（FS-01）
 	Writable bool       `json:"writable"`
 	Entries  []*FsEntry `json:"entries"`
 }

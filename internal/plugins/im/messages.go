@@ -312,6 +312,11 @@ func (in *inbox) callback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	msgs, err := rc.Receive(r)
+	var cr *CallbackReply
+	if errors.As(err, &cr) {
+		writeJSON(w, cr.Status, cr.Body)
+		return
+	}
 	if err != nil {
 		if !errors.Is(err, errValidation) {
 			err = apiErr(errValidation, "%v", err)

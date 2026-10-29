@@ -3,15 +3,17 @@
 // /videos/v/<id> 视频详情的制作流程，/videos/v/<id>/settings 设置。打开详情时把来处的标签记在 location.state，标签栏高亮它。
 // VID-01d 加了 /videos/series 系列列表、/videos/v/<id>/artifacts 产出物（?a=<产出物 id> 打开抽屉）；从系列来的详情高亮「系列」。
 // VID-02b：制作流程里也列产出物，同样用 ?a= 打开抽屉。
-// 选题、素材收件箱、发布记录是后面的任务，到时再加标签
+// VID-08c 加了 /videos/topics 选题（?t=<选题 id> 打开抽屉）、/videos/clips 素材收件箱；发布记录是后面的任务，到时再加标签
 import { Navigate, useLocation, useNavigate, useParams, useSearchParams } from 'react-router'
 import { ErrorState, LoadingState, PageTitle } from '../../core/ui'
-import { errorText, isApiError, projectView, useProjects, useVideo, useVideoSeries, useVideos } from '../../core/data'
+import { errorText, isApiError, projectView, useProjects, useVideo, useVideoClips, useVideoSeries, useVideoTopics, useVideos } from '../../core/data'
+import { ClipsPage } from './ClipsPage'
 import { Detail } from './Detail'
 import { ListPage } from './ListPage'
 import type { ModuleTab } from './parts'
 import { routeOf, tabPath, viewKey, viewPath, type ListView } from './routes'
 import { SeriesPage } from './SeriesPage'
+import { TopicsPage } from './TopicsPage'
 import './video.css'
 
 type BackState = { from?: ModuleTab }
@@ -27,6 +29,8 @@ export default function Page() {
   const series = useVideoSeries()
   const projects = useProjects()
   const video = useVideo(route.kind === 'video' ? route.id : null)
+  const topics = useVideoTopics()
+  const clips = useVideoClips()
 
   if (route.kind === 'bad') return <Navigate to={root} replace />
 
@@ -35,7 +39,7 @@ export default function Page() {
   const onView = (v: ListView) => go(viewPath(v))
   const openVideo = (id: string, tab: ModuleTab) => go(`/v/${encodeURIComponent(id)}`, { from: tab })
   const openSeries = (id: string) => onView({ kind: 'series', id })
-  const onModuleTab = (t: ModuleTab) => (t === 'series' ? go('/series') : onView({ kind: t }))
+  const onModuleTab = (t: ModuleTab) => (t === 'series' || t === 'topics' || t === 'clips' ? go(`/${t}`) : onView({ kind: t }))
 
   const list = videos.data ?? []
   const seriesList = series.data ?? []
@@ -54,6 +58,26 @@ export default function Page() {
 
   if (route.kind === 'series-list') {
     return <SeriesPage series={seriesList} videos={list} onOpenSeries={openSeries} onModuleTab={onModuleTab} />
+  }
+
+  if (route.kind === 'topics' || route.kind === 'clips') {
+    const label = route.kind === 'topics' ? '选题' : '素材收件箱'
+    if (topics.isPending || clips.isPending) return <section><PageTitle parent="视频">{label}</PageTitle><LoadingState /></section>
+    if (topics.isError || clips.isError) {
+      return (
+        <section>
+          <PageTitle parent="视频">{label}</PageTitle>
+          <ErrorState title={`${label}没加载出来`} error={errorText(topics.error ?? clips.error)}
+            onRetry={() => { void topics.refetch(); void clips.refetch() }} />
+        </section>
+      )
+    }
+    if (route.kind === 'topics') {
+      return <TopicsPage topics={topics.data} clips={clips.data} series={seriesList} videos={list} onModuleTab={onModuleTab}
+        onOpenVideo={(id) => openVideo(id, 'topics')} />
+    }
+    return <ClipsPage clips={clips.data} topics={topics.data} videos={list} onModuleTab={onModuleTab}
+      onOpenTopic={(id) => go(`/topics?t=${encodeURIComponent(id)}`)} />
   }
 
   if (route.kind === 'list') {
