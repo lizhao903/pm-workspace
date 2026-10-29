@@ -8,6 +8,8 @@ import { ConnectorsSection } from './connectors/ConnectorsSection'
 import { PluginsSection } from './plugins/PluginsSection'
 import { ProvidersSection } from './providers/ProvidersSection'
 import { WorkspacesSection } from './workspaces/WorkspacesSection'
+import { EnumsSection } from './enums/EnumsSection'
+import { AppearanceSection } from './appearance/AppearanceSection'
 
 // 内核的设置分节，照原型 web-next/src/settings.tsx SECTIONS；内网域名是插件的分节，不在这里。
 // 插件管理（CORE-09）原型里还没有，放在「工作台与模块」（CORE-10b）后面；其余内容还没做，点进去是占位页
@@ -51,7 +53,9 @@ export default function Page() {
         : kernel!.key === 'plugins' ? <PluginsSection />
         : kernel!.key === 'providers' ? <ProvidersSection />
         : kernel!.key === 'connectors' ? <ConnectorsSection />
-        : kernel!.key === 'workspace' ? <WorkspacesSection /> : <Placeholder title={kernel!.label} />}
+        : kernel!.key === 'workspace' ? <WorkspacesSection />
+        : kernel!.key === 'enums' ? <EnumsSection />
+        : kernel!.key === 'appearance' ? <AppearanceSection /> : <Placeholder title={kernel!.label} />}
     </>
   )
 }

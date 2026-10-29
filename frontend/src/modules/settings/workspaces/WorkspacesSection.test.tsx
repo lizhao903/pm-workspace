@@ -36,7 +36,7 @@ beforeEach(() => {
     calls.push({ method, url: u, body })
     const ok = (data: unknown, status = 200) => Promise.resolve(new Response(JSON.stringify({ data }), { status }))
     if (method === 'POST' && u.endsWith('/api/workspaces')) return ok({ ...pm, id: 'ws_new', name: body.name, template: body.template }, 201)
-    if (method === 'PATCH') return ok({ ...pm, ...body, modules: body.groups.flatMap((g: { modules: string[] }) => g.modules) })
+    if (method === 'PATCH') return ok({ ...pm, ...body, modules: body.groups ? body.groups.flatMap((g: { modules: string[] }) => g.modules) : pm.modules })
     if (u.includes('/api/workspaces/templates')) return ok(templates)
     if (u.includes('/api/workspaces')) return ok([pm])
     if (u.includes('/api/plugins')) return ok(plugins)
@@ -101,9 +101,37 @@ describe('工作台与模块', () => {
     renderSection()
     const grp = await screen.findByRole('group', { name: '工作' })
     const row = within(grp).getByText('文档').closest('.mod-row') as HTMLElement
-    await userEvent.click(within(row).getByRole('button', { name: '停用' }))
+    await userEvent.click(within(row).getByRole('switch', { name: '启用文档' }))
     const off = await screen.findByRole('region', { name: '未启用的模块' })
     expect(within(off).getByText('文档')).toBeInTheDocument()
     expect(within(screen.getByRole('combobox', { name: '默认打开' })).queryByRole('option', { name: '文档' })).not.toBeInTheDocument()
+  })
+
+  it('「默认折叠」是开关，只在有标题的分组出现；切换写回整组', async () => {
+    renderSection()
+    const sw = await within(await screen.findByRole('group', { name: '工作' })).findByRole('switch', { name: '默认折叠' })
+    expect(sw).not.toBeChecked()
+    expect(within(screen.getByRole('group', { name: '无标题分组' })).queryByRole('switch', { name: '默认折叠' })).not.toBeInTheDocument()
+    await userEvent.click(sw)
+    await vi.waitFor(() => expect(calls.find((c) => c.method === 'PATCH')?.body).toEqual({
+      groups: [groups[0], { ...groups[1], collapsed: true }], plugins: ['projects'],
+    }))
+  })
+
+  it('「删除分组」是灰色文字按钮（悬停才标红）', async () => {
+    renderSection()
+    const dels = await screen.findAllByRole('button', { name: '删除分组' })
+    expect(dels).toHaveLength(2)
+    for (const d of dels) expect(d).toHaveClass('btn-danger-ghost')
+  })
+
+  it('点标志编辑：选图标写回 mark，没设过底色用默认底色；改底色保留图标', async () => {
+    renderSection()
+    await userEvent.click(await screen.findByRole('button', { name: '更换图像' }))
+    const menu = screen.getByRole('dialog', { name: '标志' })
+    await userEvent.click(within(menu).getByRole('button', { name: '火箭' }))
+    await vi.waitFor(() => expect(calls.find((c) => c.method === 'PATCH')?.body).toEqual({ mark: { text: '', color: '#23221e', icon: 'rocket' } }))
+    await userEvent.click(within(menu).getByRole('button', { name: '底色 #3d4fd6' }))
+    await vi.waitFor(() => expect(calls.filter((c) => c.method === 'PATCH')[1]?.body).toEqual({ mark: { text: '', color: '#3d4fd6', icon: 'rocket' } }))
   })
 })

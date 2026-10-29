@@ -53,6 +53,8 @@ type Toolbox struct {
 	// 「还能不能再问」是 ask_user 自己的前置条件，拒绝的话要以工具结果的形式
 	// 回给模型，让它改用「在方案里标成待确认」的方式收场。
 	asked int
+	// kbs 是会话所挂 Agent 的知识库，kb_search 只能搜这些，见 kbsearch.go
+	kbs []string
 }
 
 func NewToolbox(st store.Store, session *domain.AgentSession) *Toolbox {
@@ -62,7 +64,7 @@ func NewToolbox(st store.Store, session *domain.AgentSession) *Toolbox {
 // Defs 返回给模型的工具声明。描述里写清「什么时候用」而不只是「这是什么」——
 // 小模型选错工具，多半是因为描述只讲了功能没讲场景。
 func (tb *Toolbox) Defs() []ToolDef {
-	return []ToolDef{
+	return append([]ToolDef{
 		{
 			Name: "search_objects",
 			Description: "按关键词搜索已有的工作对象。创建任何新对象之前都应该先用它查重，" +
@@ -140,7 +142,7 @@ func (tb *Toolbox) Defs() []ToolDef {
 				"content": str("文件的完整内容"),
 			}, []string{"path", "content"}),
 		},
-	}
+	}, tb.kbDefs()...)
 }
 
 // Invoke 执行一次工具调用。
@@ -169,6 +171,8 @@ func (tb *Toolbox) Invoke(ctx context.Context, call ToolCall) ToolResult {
 		return tb.askUser(args)
 	case "write_file":
 		return tb.writeFile(ctx, args)
+	case toolKbSearch:
+		return tb.kbSearch(ctx, args)
 	default:
 		return failed(call.Name, fmt.Sprintf("没有名为 %s 的工具", call.Name))
 	}

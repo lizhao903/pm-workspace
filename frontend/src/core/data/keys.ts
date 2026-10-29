@@ -27,6 +27,8 @@ export const dataKeys = {
     all: ['dictionaries'] as const,
     list: (withItems = false) => ['dictionaries', 'list', { withItems }] as const,
     items: (dictId: string) => ['dictionaries', dictId, 'items'] as const,
+    /** 含已停用的条目，设置 / 枚举值用（ALIGN-14） */
+    itemsAll: (dictId: string) => ['dictionaries', dictId, 'items', 'all'] as const,
   },
   stakeholders: {
     all: ['stakeholders'] as const,
@@ -149,4 +151,19 @@ export const dataKeys = {
   },
   /** 项目汇总（ALIGN-05）：列表卡片的原型数和绑定的会话，原型启停、会话绑定时刷 */
   projectSummary: ['project-summary'] as const,
+  /** SOP（SOP-04b）：流程、节点类型、执行列表和单次执行，执行都在 runs 前缀下，事件一来一起刷 */
+  sop: {
+    all: ['sop'] as const,
+    flows: ['sop', 'flows'] as const,
+    nodeTypes: ['sop', 'node-types'] as const,
+    runs: ['sop', 'runs'] as const,
+    runList: ['sop', 'runs', 'list'] as const,
+    run: (id: string) => ['sop', 'runs', 'get', id] as const,
+  },
+  /** 终端（TERM-01b）：会话列表；终端页认原型目录用的全部项目的原型，任一项目原型启停都刷 */
+  terminal: {
+    all: ['terminal'] as const,
+    sessions: ['terminal', 'sessions'] as const,
+    prototypes: ['terminal', 'prototypes'] as const,
+  },
 }

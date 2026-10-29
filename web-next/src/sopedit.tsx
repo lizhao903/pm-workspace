@@ -1,16 +1,16 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { PageTitle } from './topbar'
-import { DataView } from './sop'
+import { DataView, triggerLabel } from './sop'
 import { NODE_GROUPS, NODE_TYPES, KindIcon, KindTag, defaultConfig, isBranching, missingFields, typeOf, type ConfigField } from './nodetypes'
 import { STEP_KIND, STEP_STATUS, depsOf, isManualDecide, ranks, type Sop, type SopField, type SopRun, type SopStepDef, type StepKind } from './sopflow'
 import { cls, timeAgo } from './ui'
+import { useEnum } from './enumdata'
 import { newId } from './ids'
 
 // 新建 / 编辑 SOP：编排画布。左边 AI 协助，中间画布（拖动节点、从节点右侧连线或点 + 加下一个节点），右边是选中节点的属性
 // AI 的每次改动都先作为「提案」出现在对话里，看过再点应用；应用过的可以撤销
 // 原型里的 AI 是本地规则：能从一段描述里拆出步骤、判断分支和并行，也能按指令加步骤、删步骤、改并行、检查流程
 
-const TRIGGERS = ['手动', 'IM 消息', '每天 09:00', '每周一 18:00']
 
 /* ---------- 检查 ---------- */
 
@@ -244,7 +244,8 @@ const EXAMPLES = [
   '客户投诉处理：AI 分类投诉，如果是紧急问题就电话回访，否则工单跟进，最后人工确认已解决',
 ]
 
-function AiPanel({ draft, selected, onApply, onUndo, canUndo, onClose }: {
+function AiPanel({ hidden, draft, selected, onApply, onUndo, canUndo, onClose }: {
+  hidden: boolean
   draft: Sop
   selected: number | null
   onApply: (s: Sop) => void
@@ -284,7 +285,7 @@ function AiPanel({ draft, selected, onApply, onUndo, canUndo, onClose }: {
     : []
 
   return (
-    <aside className="ai-panel">
+    <aside className="ai-panel" hidden={hidden}>
       <div className="ai-head">
         <span className="ai-mark">AI</span>
         <span className="ai-title">AI 协助</span>
@@ -512,6 +513,10 @@ function NodePanel({ draft, nodeKey, runs, sopList, tried, onChange, onPatchSop,
   const kids = draft.steps.filter((x) => (nodeKey === START ? !(x.after ?? []).length : x.after?.includes(nodeKey)))
   const addBtn = (caseKey?: string) => (e: React.MouseEvent) => { const r = (e.currentTarget as HTMLElement).getBoundingClientRect(); onAddNext({ x: r.left - 300, y: r.top }, nodeKey, caseKey) }
   const fieldPatch = (i: number, p: Partial<SopField>) => onPatchSop({ fields: draft.fields.map((f, j) => (j === i ? { ...f, ...p } : f)) })
+  // 触发方式读 sop_trigger 枚举，存 key；停用的不再出现，当前用着的照常显示
+  const triggers = useEnum('sop_trigger')
+  const triggerOpts = triggers.filter((t) => t.enabled || t.key === draft.trigger)
+  const optKey = () => `o${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`
 
   const last = useMemo(() => {
     const r = runs.filter((x) => x.sop_id === draft.id).sort((a, b) => b.started_at - a.started_at)
@@ -539,23 +544,45 @@ function NodePanel({ draft, nodeKey, runs, sopList, tried, onChange, onPatchSop,
           <label className="field">
             <span className="field-label">触发方式</span>
             <select value={draft.trigger} onChange={(e) => onPatchSop({ trigger: e.target.value })}>
-              {[...new Set([draft.trigger, ...TRIGGERS])].map((t) => <option key={t} value={t}>{t}</option>)}
+              {!triggerOpts.some((t) => t.key === draft.trigger) && <option value={draft.trigger}>{draft.trigger}</option>}
+              {triggerOpts.map((t) => <option key={t.key} value={t.key}>{t.label}</option>)}
             </select>
           </label>
           <div className="field">
             <span className="field-label">输入字段</span>
             <div className="field-list">
               {draft.fields.map((f, i) => (
-                <div key={f.key} className="field-line">
+                <div key={f.key} className="field-item">
+                <div className="field-line">
                   <input value={f.label} placeholder="字段名称" onChange={(e) => fieldPatch(i, { label: e.target.value })} />
-                  <select value={f.type} onChange={(e) => fieldPatch(i, { type: e.target.value as SopField['type'] })}>
+                  <select value={f.type} onChange={(e) => {
+                    const type = e.target.value as SopField['type']
+                    fieldPatch(i, type === 'select' && !f.options?.length ? { type, options: [{ value: optKey(), label: '' }] } : { type })
+                  }}>
                     <option value="text">单行</option>
                     <option value="textarea">多行</option>
+                    <option value="select">下拉</option>
                   </select>
                   <label className="check"><input type="checkbox" checked={!!f.required} onChange={(e) => fieldPatch(i, { required: e.target.checked })} />必填</label>
                   <button className="icon-btn icon-btn-sm" disabled={draft.fields.length < 2} title="删除" onClick={() => onPatchSop({ fields: draft.fields.filter((_, j) => j !== i) })}>
                     <svg viewBox="0 0 16 16" width="11" height="11"><path d="m4 4 8 8M12 4l-8 8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" /></svg>
                   </button>
+                </div>
+                {/* 下拉字段：逐项编辑选项，选项的值建好就不变，改的只是显示名 */}
+                {f.type === 'select' && (
+                  <div className="field-opts">
+                    {(f.options ?? []).map((o, k) => (
+                      <div key={o.value} className="field-opt">
+                        <input value={o.label} placeholder={`选项 ${k + 1}`} onChange={(e) => fieldPatch(i, { options: f.options!.map((x, j) => (j === k ? { ...x, label: e.target.value } : x)) })} />
+                        <button className="icon-btn icon-btn-sm" disabled={(f.options?.length ?? 0) < 2} title="删除这个选项"
+                          onClick={() => fieldPatch(i, { options: f.options!.filter((_, j) => j !== k), ...(f.default === o.value ? { default: '' } : {}) })}>
+                          <svg viewBox="0 0 16 16" width="11" height="11"><path d="m4 4 8 8M12 4l-8 8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" /></svg>
+                        </button>
+                      </div>
+                    ))}
+                    <button className="act act-quiet case-add" onClick={() => fieldPatch(i, { options: [...(f.options ?? []), { value: optKey(), label: '' }] })}>加一个选项</button>
+                  </div>
+                )}
                 </div>
               ))}
               <button className="act act-quiet case-add" onClick={() => onPatchSop({ fields: [...draft.fields, { key: `f${Date.now().toString(36)}`, label: '', type: 'text' }] })}>加一个字段</button>
@@ -684,7 +711,7 @@ function NextList({ kids, onSelect, onAdd }: { kids: SopStepDef[]; onSelect: (k:
 
 export function newSopDraft(): Sop {
   return {
-    id: newId('sop'), name: '', desc: '', trigger: '手动',
+    id: newId('sop'), name: '', desc: '', trigger: 'manual',
     fields: [{ key: 'input', label: '输入内容', type: 'textarea', required: true, default: '' }],
     steps: [],
   }
@@ -725,9 +752,15 @@ export function SopEditor({ initial, creating, runs, sopList, onCancel, onSave }
   const errors = issues.filter((x) => x.level === 'error')
   const dirty = JSON.stringify(draft) !== savedJson
   const lay = useMemo(() => ({ ...autoLayout(draft), ...(draft.layout ?? {}) }), [draft])
+  const triggers = useEnum('sop_trigger')
 
   const commit = useCallback((next: Sop) => { setPast((p) => [...p.slice(-49), draft]); setFuture([]); setDraft(next) }, [draft])
   const undo = () => { const prev = past[past.length - 1]; if (!prev) return; setFuture((f) => [draft, ...f]); setPast((p) => p.slice(0, -1)); setDraft(prev) }
+  // AI 提案的撤销只撤这次提案：记下应用后的草稿，之后有别的改动就不再给「撤销」
+  const [aiMark, setAiMark] = useState<Sop | null>(null)
+  // 流程名连续输入只记一步撤销
+  const nameEdit = useRef<Sop | null>(null)
+  const rename = (name: string) => { const next = { ...draft, name }; if (nameEdit.current === draft) setDraft(next); else commit(next); nameEdit.current = next }
   const redo = () => { const nx = future[0]; if (!nx) return; setPast((p) => [...p, draft]); setFuture((f) => f.slice(1)); setDraft(nx) }
   const say = (t: string) => { setToast(t); window.setTimeout(() => setToast(''), 2400) }
 
@@ -899,6 +932,7 @@ export function SopEditor({ initial, creating, runs, sopList, onCancel, onSave }
   const applyAi = (s: Sop) => {
     const next = { ...s, name: draft.name.trim() ? draft.name : s.name, layout: undefined }
     commit(next)
+    setAiMark(next)
     setSel(null)
     // AI 整体替换后位置都变了，重新适配一次视口
     fitted.current = false
@@ -908,6 +942,8 @@ export function SopEditor({ initial, creating, runs, sopList, onCancel, onSave }
     if (errors.length) { setShowIssues(true); return }
     const out = { ...draft, layout: lay }
     setSavedJson(JSON.stringify(out))
+    if (aiMark === draft) setAiMark(out)
+    if (nameEdit.current === draft) nameEdit.current = out
     setDraft(out)
     onSave(out, thenRun)
   }
@@ -921,7 +957,9 @@ export function SopEditor({ initial, creating, runs, sopList, onCancel, onSave }
   return (
     <div className={cls('sop-editor', aiOpen && 'with-ai', sel && 'with-panel')}>
       <PageTitle parent="SOP">{creating ? '新建 SOP' : `编排 · ${draft.name || '未命名'}`}</PageTitle>
-      {aiOpen && <AiPanel draft={draft} selected={selStep ? draft.steps.indexOf(selStep) : null} onApply={applyAi} onUndo={undo} canUndo={past.length > 0} onClose={() => setAiOpen(false)} />}
+      {/* 收起只是藏起来，对话和没决定的提案在本次编排页里留着 */}
+      <AiPanel hidden={!aiOpen} draft={draft} selected={selStep ? draft.steps.indexOf(selStep) : null} onApply={applyAi}
+        onUndo={() => { undo(); setAiMark(null) }} canUndo={aiMark !== null && aiMark === draft && past.length > 0} onClose={() => setAiOpen(false)} />
       <div ref={canvasRef} className={cls('canvas', drag.current?.kind === 'pan' && 'panning')}
         style={{ backgroundSize: `${20 * zoom}px ${20 * zoom}px`, backgroundPosition: `${pan.x}px ${pan.y}px` }}
         onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp} onWheel={onWheel}>
@@ -949,7 +987,7 @@ export function SopEditor({ initial, creating, runs, sopList, onCancel, onSave }
 
           {/* 开始节点 */}
           <div className={cls('cv-node', sel === START && 'sel')} data-node={START} style={{ left: lay[START].x, top: lay[START].y, width: NW }}>
-            <div className="cv-node-head"><KindIcon kind="start" /><span className="cv-node-name">开始</span><span className="cv-node-kind">{draft.trigger}</span></div>
+            <div className="cv-node-head"><KindIcon kind="start" /><span className="cv-node-name">开始</span><span className="cv-node-kind">{triggerLabel(triggers, draft.trigger)}</span></div>
             <div className="cv-fields">{draft.fields.map((f) => <span key={f.key} className="cv-field"><span className="mono">{'{x}'}</span>{f.label || '未命名字段'}{f.required && <em>*</em>}</span>)}</div>
             <span className="cv-handle" data-out={START} title="拖动连线，或点击添加下一个节点">+</span>
           </div>
@@ -991,7 +1029,7 @@ export function SopEditor({ initial, creating, runs, sopList, onCancel, onSave }
           <button className="icon-btn" onClick={onCancel} title={creating ? '取消' : '返回'}>
             <svg viewBox="0 0 16 16" width="14" height="14"><path d="M10 3 5 8l5 5" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" /></svg>
           </button>
-          <input className={cls('cv-title', tried && !draft.name.trim() && 'bad')} value={draft.name} placeholder="SOP 名称" onChange={(e) => setDraft({ ...draft, name: e.target.value })} />
+          <input className={cls('cv-title', tried && !draft.name.trim() && 'bad')} value={draft.name} placeholder="SOP 名称" onChange={(e) => rename(e.target.value)} />
           <span className="cv-status">{creating && !savedJson ? '未保存' : dirty ? '有未保存的修改' : '已保存'}</span>
         </div>
         <div className="cv-ui cv-top-right">

@@ -305,6 +305,13 @@ func (s *Server) handleAgentChat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// 工具授权（AG-02a）：没挂 Agent 的会话为 nil，行为不变
+	policy, err := s.agentPolicy(ctx, ag)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+
 	// 从这里开始就是流了。
 	h := w.Header()
 	h.Set("Content-Type", "text/event-stream; charset=utf-8")
@@ -322,7 +329,7 @@ func (s *Server) handleAgentChat(w http.ResponseWriter, r *http.Request) {
 
 	runner := &agent.Runner{
 		Store: s.st, Chat: chat, Model: model, Session: session,
-		Object: object, Agent: ag, Skills: s.agentSkills(ctx, ag),
+		Object: object, Agent: ag, Skills: s.agentSkills(ctx, ag), Policy: policy,
 	}
 	msgID, err := runner.Run(ctx, req.Message, emit)
 	if err != nil {

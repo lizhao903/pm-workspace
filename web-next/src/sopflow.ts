@@ -58,6 +58,7 @@ export interface Sop {
   id: string
   name: string
   desc: string
+  /** sop_trigger 枚举的 key */
   trigger: string
   fields: SopField[]
   steps: SopStepDef[]
@@ -175,7 +176,7 @@ export const SOPS: Sop[] = [
     id: 'sop_feedback',
     name: '客户反馈转需求',
     desc: '把 IM 里的客户反馈提炼成诉求，按功能需求和缺陷分开处理，回复客户并同步研发',
-    trigger: '手动 / IM 消息',
+    trigger: 'im',
     fields: [
       { key: 'customer', label: '客户', type: 'text', required: true, default: '梁晚晴', placeholder: '联系人姓名' },
       { key: 'channel', label: '回复渠道', type: 'select', default: 'lark', options: [
@@ -269,7 +270,7 @@ export const SOPS: Sop[] = [
     id: 'sop_meeting',
     name: '周会纪要整理',
     desc: '转写稿拆开后并行生成纪要、待办和发言统计，校对后同时归档和同步到群里',
-    trigger: '手动 / 每周一 18:00',
+    trigger: 'weekly',
     fields: [
       { key: 'meeting', label: '会议', type: 'text', required: true, default: '产品周会 10/26' },
       { key: 'transcript', label: '转写稿', type: 'textarea', required: true, default: '林予安：权限点清单周三前和后端对齐。\n周屿：导出异步化要先评估存储成本。\n陈若溪：远川的时区问题这周先给临时方案。\n周屿：好，缓存方案我周五前出。' },
@@ -316,7 +317,7 @@ export const SOPS: Sop[] = [
     id: 'sop_contact',
     name: '联系人建档',
     desc: '从签名或名片文字里解析联系方式，查重后由人决定新建还是合并',
-    trigger: '手动',
+    trigger: 'manual',
     fields: [
       { key: 'raw', label: '签名 / 名片文字', type: 'textarea', required: true, default: '梁晚晴 | 采购总监\n远川科技\n手机 136 5566 7788\n邮箱 wanqing.liang@yuanchuan.tech\n飞书 ou_liangwq' },
     ],

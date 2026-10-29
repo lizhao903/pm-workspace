@@ -40,7 +40,7 @@ import { VideoDetail, VideosListPage, VideosTabs, type VideoView } from './video
 import { PublishPage, SeriesPage, type ChannelState } from './videopublish'
 import { ClipsPage, TopicsPage } from './topics'
 import { seedClips, seedTopics, type Topic } from './topicdata'
-import { BrowserPage } from './browser'
+import { BrowserPage, FrameAllowContext } from './browser'
 import { HOME_URL, type GoogleAccount } from './browserdata'
 import { OpenUrlContext, ProtoDomainContext } from './openurl'
 import { DomainsPage } from './domains'
@@ -170,6 +170,8 @@ export default function App() {
   // 内网域名
   const [domainSettings, setDomainSettings] = useState(seedDomainSettings)
   const [domainRoutes, setDomainRoutes] = useState(seedDomainRoutes)
+  /** 浏览器里用户加进白名单的主机，只存内存 */
+  const [frameHosts, setFrameHosts] = useState<string[]>([])
   // 交易：自选、提醒、账户、持仓、委托、策略运行、风控；行情本身是确定性模拟，不进 state
   const [watchlists, setWatchlists] = useState(seedWatchlists)
   const [alerts, setAlerts] = useState(seedAlerts)
@@ -665,10 +667,18 @@ export default function App() {
       return { ...x, auth, status: 'connected', error: undefined, last_sync_at: new Date().toISOString() }
     })), 900)
   }
-  const disconnectConn = (id: string) => setConnectors((xs) => xs.map((x) => (x.id !== id ? x : {
-    ...x, status: 'disconnected', error: undefined,
-    auth: x.auth?.mode === 'oauth2' ? { ...x.auth, oauth: { ...x.auth.oauth!, account: undefined, expires_at: undefined } } : x.auth,
-  })))
+  // 浏览器的 Google 登录以 Drive 连接器为准：断开或删掉这个账号的 Drive 连接器就算退出登录
+  const dropGoogleWith = (id: string) => {
+    const c = connectors.find((x) => x.id === id)
+    if (c?.tool === 'gdrive' && google && c.account === google.email) setGoogle(null)
+  }
+  const disconnectConn = (id: string) => {
+    dropGoogleWith(id)
+    setConnectors((xs) => xs.map((x) => (x.id !== id ? x : {
+      ...x, status: 'disconnected', error: undefined,
+      auth: x.auth?.mode === 'oauth2' ? { ...x.auth, oauth: { ...x.auth.oauth!, account: undefined, expires_at: undefined } } : x.auth,
+    })))
+  }
 
   // 原型启停（模拟）：启动中 1.2 秒后按端口占用决定成功还是失败；停止 0.6 秒
   const patchProto = (protoId: string, f: (x: Project['prototypes'][number], all: Project[]) => Project['prototypes'][number]) =>
@@ -786,6 +796,9 @@ export default function App() {
   const browserStartProto = useStable(startProto)
   const browserLogin = useStable(googleLogin)
   const browserLogout = useStable(googleLogout)
+  const addFrameHost = useStable((h: string) => setFrameHosts((xs) => (xs.includes(h) ? xs : [...xs, h])))
+  const frameAllow = useMemo(() => ({ suffix: domainSettings.enabled ? domainSettings.suffix : null, hosts: frameHosts, onAdd: addFrameHost }),
+    [domainSettings.enabled, domainSettings.suffix, frameHosts, addFrameHost])
   const videoTabs = (
     <VideosTabs view={videoView} from={videoFrom} videos={videos} clips={clips}
       onSelect={(v) => { setVideoView(v); setVideoFrom(undefined); if (v === 'publish') setPublishFilter(undefined); if (v === 'topics') setTopicFocus(null) }} />
@@ -970,6 +983,7 @@ export default function App() {
     ) }
   }
   const deleteConnector = (id: string) => {
+    dropGoogleWith(id)
     setConnectors((xs) => xs.filter((x) => x.id !== id))
     setAgents((xs) => xs.map((a) => {
       const keys = connToolKeys(a, id)
@@ -1262,6 +1276,7 @@ export default function App() {
     <TopbarContext.Provider value={topSlot}>
     <OpenUrlContext.Provider value={openInBrowser}>
     <ProtoDomainContext.Provider value={(id) => protoDomain(id, domainRoutes, domainSettings, protoRefs)}>
+    <FrameAllowContext.Provider value={frameAllow}>
     <div className="shell" data-lib={page === 'library' ? (lib.rows.some((r) => r.id === reading) ? 'reader' : 'tree') : undefined}>
       <aside className={cls('side', collapsed && 'side-collapsed')}>
         <div className="brand-row">
@@ -1660,6 +1675,7 @@ export default function App() {
           onCreate={(agentId, pid, text) => { setQuickSession(false); newSession(agentId, pid, text || undefined) }} />
       )}
     </div>
+    </FrameAllowContext.Provider>
     </ProtoDomainContext.Provider>
     </OpenUrlContext.Provider>
     </TopbarContext.Provider>

@@ -33,9 +33,11 @@
 .ws-sec-head { display: flex; align-items: center; gap: var(--sp-5); }
 .ws-sec-head > .ws-sec-title { flex: 1; min-width: 0; }
 .ws-sec-title { font-size: var(--fs-sm); font-weight: 600; }
+/* 基本信息第一行：标志、名称、角色并排（原型 .name-with-mark） */
+.ws-name-row { display: flex; align-items: flex-end; gap: var(--sp-6); min-width: 0; }
+.ws-name-row > .field { flex: 1; min-width: 0; }
 .ws-act-row { display: flex; align-items: center; flex-wrap: wrap; gap: var(--sp-4); }
 .ws-danger-text { color: var(--danger); font-size: var(--fs-sm); }
-.ws-danger-ghost { color: var(--danger); }
 .ws-needs { display: flex; flex-direction: column; align-items: flex-start; gap: var(--sp-4); font-size: var(--fs-sm); }
 .ws-needs ul { margin: 0; padding-left: 18px; }
 .ws-need-na { color: var(--muted); }
@@ -66,6 +68,8 @@
   .ws-sec-head { flex-wrap: wrap; }
   .grp-head, .mod-row { flex-wrap: wrap; }
   .grp-name { flex: 1 1 120px; width: auto; min-width: 0; }
+  .ws-name-row { flex-wrap: wrap; }
+  .ws-name-row > .field { flex-basis: 140px; }
   .mod-row { gap: var(--sp-4); }
   .mod-text { flex-basis: 100px; }
 }

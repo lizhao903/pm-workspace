@@ -12,6 +12,7 @@ export default defineConfig({
     host: '127.0.0.1',
     port: 7780,
     strictPort: true,
-    proxy: { '/api': { target: api, changeOrigin: true } },
+    // ws：终端插件的收发是 WebSocket（TERM-01b）
+    proxy: { '/api': { target: api, changeOrigin: true, ws: true } },
   },
 })

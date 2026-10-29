@@ -25,6 +25,7 @@ import (
 	"github.com/lizhao903/pm-workspace/internal/plugins/sop"
 	"github.com/lizhao903/pm-workspace/internal/plugins/terminal"
 	"github.com/lizhao903/pm-workspace/internal/schedule"
+	"github.com/lizhao903/pm-workspace/internal/store"
 	"github.com/lizhao903/pm-workspace/internal/webhook"
 	"github.com/lizhao903/pm-workspace/internal/workspace"
 )
@@ -79,6 +80,16 @@ var contractSpecs = map[string]contractSpec{
 	"Agent":                {v: domain.Agent{}},
 	"AgentImpact":          {v: agentImpactResult{}},
 	"Skill":                {v: skillView{}},
+	// Agent 工具授权（AG-02a）：confirm 事件是 SSE 联合结构里的一种
+	"Agent 对话 agent#json2": {v: agent.StreamEvent{}, partial: true},
+	"AgentGrants":          {v: agentGrants{}},
+
+	// 知识库（AG-01b3）
+	"KnowledgeBase":                {v: kbView{}},
+	"知识库 knowledge-bases:settings": {v: kbSettingsView{}},
+	"知识库 knowledge-bases:counts":   {v: store.KbCounts{}},
+	"KbDoc":                        {v: store.KbDoc{}},
+
 	// 溯源字段表只列 0031 补的列
 	"输出产物 artifacts / 溯源字段（AG-03b，0031）#table1": {v: domain.Artifact{}, partial: true},
 

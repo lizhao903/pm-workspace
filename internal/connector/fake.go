@@ -42,7 +42,29 @@ func Fake() Def {
 			}
 			return fakeTools(cfg.Get("variant")), ctx.Err()
 		},
+		Call: fakeCall,
 	}
+}
+
+// fakeCall 是假连接器的工具调用（AG-02a）：不联网，按工具名回一段固定的 JSON，参数原样带回，方便测试断言。
+func fakeCall(ctx context.Context, cfg Config, tool string, args json.RawMessage) (string, error) {
+	if tok := cfg.Secret("token"); strings.Contains(tok, "invalid") {
+		return "", errors.New("401 Unauthorized: token " + tok + " rejected")
+	}
+	var out any
+	switch tool {
+	case "list_items":
+		out = map[string]any{"items": []map[string]any{{"id": "it_1", "title": "第一条"}, {"id": "it_2", "title": "第二条"}}}
+	case "get_item", "create_item", "delete_item":
+		out = map[string]any{"tool": tool, "ok": true, "args": args}
+	default:
+		return "", fmt.Errorf("unknown tool %s", tool)
+	}
+	b, err := json.Marshal(out)
+	if err != nil {
+		return "", err
+	}
+	return string(b), ctx.Err()
 }
 
 func fakeTools(variant string) []ToolDef {

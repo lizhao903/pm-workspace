@@ -111,6 +111,15 @@ function ProtoCard({ p, rows, projectId, projectName, root }: {
   const remove = useRemovePrototype(projectId)
   const [edit, setEdit] = useState(false)
   const [logsOpen, setLogsOpen] = useState(false)
+  // 有没有日志：和日志框同一份缓存，状态一变（启动完成、停下、崩溃）补取一次，收尾的那行不会漏
+  const logs = usePrototypeLogs(projectId, p.id, { enabled: true, live: false })
+  const { refetch: refetchLogs } = logs
+  const seenStatus = useRef(p.status)
+  useEffect(() => {
+    if (seenStatus.current === p.status) return
+    seenStatus.current = p.status
+    void refetchLogs()
+  }, [p.status, refetchLogs])
   // 启动、停止、移除被后端拒绝的原因（409 冲突、400 命令找不到），原样显示，下次操作前清掉
   const [actErr, setActErr] = useState('')
   const status: ProtoView = stop.isPending ? 'stopping' : start.isPending ? 'starting' : p.status
@@ -119,6 +128,8 @@ function ProtoCard({ p, rows, projectId, projectName, root }: {
   const conflict = !live && !busy ? portConflict(p.port, p.id, rows, projectName) : null
   const now = useNow(live ? 30000 : 0)
   const crash = p.status === 'crashed' ? p.last_crash : null
+  // 没有日志时「看日志」置灰（SPEC-projects-12.14）；在跑的随时会有输出，取不到时也不拦着
+  const noLogs = !live && !busy && !!logs.data && !logs.data.lastSeq && !logs.data.lines.length
 
   const act = (m: { mutate: (id: string, o: { onError: (e: Error) => void }) => void }) => { setActErr(''); m.mutate(p.id, { onError: (e) => setActErr(errorText(e)) }) }
 
@@ -153,7 +164,7 @@ function ProtoCard({ p, rows, projectId, projectName, root }: {
         </div>
       )}
       <div className="pj-act-row pj-proto-acts">
-        <Button size="sm" onClick={() => setLogsOpen(!logsOpen)} aria-expanded={logsOpen}>{logsOpen ? '收起日志' : '看日志'}</Button>
+        <Button size="sm" disabled={noLogs && !logsOpen} title={noLogs ? '还没有日志' : undefined} onClick={() => setLogsOpen(!logsOpen)} aria-expanded={logsOpen}>{logsOpen ? '收起日志' : '看日志'}</Button>
         <Button size="sm" disabled={live || busy} title={live ? '先停下来再改' : undefined} onClick={() => setEdit(!edit)}>{edit ? '收起设置' : '修改'}</Button>
         <span className="spacer" />
         <Button size="sm" variant="danger-ghost" disabled={live || busy || remove.isPending} onClick={() => act(remove)}>移除</Button>
@@ -181,9 +192,6 @@ function ProtoLogs({ projectId, p }: { projectId: string; p: ProjectPrototype })
   const logs = usePrototypeLogs(projectId, p.id, { enabled: true, live })
   const box = useRef<HTMLPreElement>(null)
   const stick = useRef(true)
-  const { refetch } = logs
-  // 状态一变（启动完成、停下、崩溃）补取一次，收尾的那行不会漏
-  useEffect(() => { void refetch() }, [p.status, refetch])
   const n = logs.data?.lines.length ?? 0
   useEffect(() => {
     const el = box.current

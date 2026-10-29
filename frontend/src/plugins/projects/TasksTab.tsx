@@ -1,9 +1,9 @@
 // 任务标签（SPEC-projects-7）：按 project_id 列出这个项目的任务。任务抽屉和待验收确认经 core/plugin 的「打开对象」
 // 拿任务模块登记的那一份，插件不 import 任务模块；在这里新建的任务预填所属项目。
-import { Suspense, useMemo, useState, type CSSProperties } from 'react'
+import { Suspense, useMemo, useState } from 'react'
 import { errorText, localDay, useAllObjects, useDictItems, useObjectTypes, useSetStatus, type WorkObject } from '../../core/data'
 import { useObjectDrawer } from '../../core/plugin'
-import { Button, EmptyState, ErrorState, LoadingState, Pill, cls } from '../../core/ui'
+import { Button, EmptyState, ErrorState, LoadingState, Pill, PrioTag, cls } from '../../core/ui'
 import { doneStatus, isOpenStatus, reopenStatus, sortByPriority } from './model'
 
 const PRIORITY_DICT = 'priority'
@@ -81,7 +81,7 @@ export function TasksTab({ projectId }: { projectId: string }) {
               <button type="button" className={cls('pj-check', isDone && 'on')} title={tip} aria-label={`${tip}：${t.ref}`}
                 disabled={t.status === REVIEW && !Approve}
                 onClick={(e) => { e.stopPropagation(); toggle(t) }} onKeyDown={(e) => e.stopPropagation()} />
-              <span className="pj-prio" title={pr?.label} style={{ '--c': pr?.color || 'var(--faint)' } as CSSProperties}>{t.priority || '-'}</span>
+              <PrioTag p={t.priority || '-'} item={pr} />
               <span className="pj-ref">{t.ref}</span>
               <span className="ellipsis pj-task-title">{t.title}</span>
               <span className="pj-muted pj-task-owner">{t.owner_name || '未分配'}</span>

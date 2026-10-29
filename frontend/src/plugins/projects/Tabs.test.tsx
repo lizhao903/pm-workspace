@@ -64,6 +64,7 @@ function fakeBackend(rows: WorkObject[], stakes: { stakeholder_id: string; role:
       return json(stakes.map(row), 200, { total: stakes.length })
     }
     if (u.pathname === '/api/stakeholders') return json(contacts)
+    if (u.pathname === '/api/dictionaries/priority/items') return json([{ id: 'p0', dict_id: 'priority', key: 'P0', label: '紧急', color: '', description: '', sort_order: 10, meta: {}, archived_at: null }])
     if (u.pathname.startsWith('/api/dictionaries')) return json([])
     return json({ error: { code: 'not_found', message: u.pathname } }, 404)
   }))
@@ -95,11 +96,13 @@ afterEach(() => {
 describe('项目的任务标签', () => {
   it('列这个项目的任务，默认未完成；新建任务打开任务抽屉并预填本项目', async () => {
     const p = obj({ type_id: 'project', title: '工作台' })
-    const rows = [p, obj({ title: '做列表', project_id: p.id }), obj({ title: '已做完', project_id: p.id, status: 'done' }), obj({ title: '别的项目' })]
+    const rows = [p, obj({ title: '做列表', project_id: p.id, priority: 'P0' }), obj({ title: '已做完', project_id: p.id, status: 'done' }), obj({ title: '别的项目' })]
     fakeBackend(rows, [])
     mount(`/projects/${p.id}/tasks`)
     const list = await screen.findByRole('list', { name: '项目任务' })
     expect(within(list).getByText('做列表')).toBeInTheDocument()
+    // 优先级标签是编号加字典名称（L-07）
+    expect(await within(list).findByText('P0 紧急')).toBeInTheDocument()
     expect(within(list).queryByText('已做完')).toBeNull()
     expect(within(list).queryByText('别的项目')).toBeNull()
 
@@ -160,6 +163,8 @@ describe('项目的文档标签', () => {
     mount(`/projects/${p.id}/docs`)
     const table = await screen.findByRole('table', { name: '项目文档' })
     expect(within(table).getByText('权限 PRD')).toBeInTheDocument()
+    expect(within(table).getByRole('columnheader', { name: '来源' })).toBeInTheDocument()
+    expect(within(table).getByText('文档库')).toBeInTheDocument()
     expect(within(table).queryByText('别的文档')).toBeNull()
     await userEvent.click(within(table).getByRole('button', { name: '移除' }))
     await waitFor(() => expect(calls.some((c) => c.method === 'PATCH' && c.path === `/api/objects/${d.id}`)).toBe(true))

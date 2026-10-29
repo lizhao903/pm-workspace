@@ -10,7 +10,8 @@ import { IconMenu, IconNewSession, IconSectionChevron, IconSideToggle, ModuleIco
 import { useMenuMarks, type MenuMark } from './marks'
 import { moduleIconKey } from './pluginIcons'
 import { QuickSessionHost } from './QuickSession'
-import { buildMenu, isGroupFolded, readCollapsed, readFolded, toggleId, writeCollapsed, writeFolded } from './menu'
+import { buildMenu, isGroupFolded, readFolded, toggleId, writeFolded } from './menu'
+import { useSideCollapsed } from './sideCollapse'
 import { modKey, type PaletteItem } from './palette'
 import { PluginNotice } from './PluginNotice'
 import { CATALOG_IDS, homeModule, resolveCurrent, useCurrentWorkspaceId, workspaceMenuGroups } from './workspace'
@@ -45,8 +46,8 @@ export function Shell({ modules }: { modules: ModuleDef[] }) {
     if (home) void navigate('/' + home.path)
   })
 
-  const [collapsed, setCollapsed] = useState(readCollapsed)
-  useEffect(() => { writeCollapsed(collapsed) }, [collapsed])
+  // 和设置 / 外观的「收起一级菜单」是同一个状态
+  const [collapsed, setCollapsed] = useSideCollapsed()
   const [folded, setFolded] = useState(readFolded)
   useEffect(() => { writeFolded(folded) }, [folded])
 

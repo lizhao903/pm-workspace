@@ -6,6 +6,7 @@ package connector
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"regexp"
@@ -98,6 +99,9 @@ type Def struct {
 	Test func(ctx context.Context, cfg Config) (account string, err error) `json:"-"`
 	// ListTools 向对方拉工具清单；为 nil 时用 Tools。
 	ListTools func(ctx context.Context, cfg Config) ([]ToolDef, error) `json:"-"`
+	// Call 真正调对方的一个工具（AG-02a），args 是参数 JSON 原文，回给模型看的结果文本；
+	// 为 nil 时 Agent 调这个连接器的工具回「这个连接器的工具还不能调用」。
+	Call func(ctx context.Context, cfg Config, tool string, args json.RawMessage) (string, error) `json:"-"`
 }
 
 var (

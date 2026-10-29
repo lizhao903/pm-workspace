@@ -1,20 +1,21 @@
 // 设置里的「工作台与模块」分节（CORE-10b），照原型 web-next/src/workspaces.tsx WorkspacesPage。
-// 能改名称、角色、默认模块、分组和模块顺序，从模板新建、删除；标识（mark）先不在这里改。
+// 能改标志、名称、角色、默认模块、分组和模块顺序，从模板新建、删除。
 // 改动马上写后端，需要的插件按启用的模块推出来一起存。数据所有工作台共用，这里只改菜单
 import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
 import { useNavigate } from 'react-router'
 import { moduleStore } from '../../../core/plugin'
 import {
   errorText, QueryState, useCreateWorkspace, useDeleteWorkspace, usePatchWorkspace, usePlugins, useWorkspaces, useWorkspaceTemplates,
-  type PluginInfo, type Workspace, type WorkspaceGroup, type WorkspaceTemplate,
+  type PluginInfo, type Workspace, type WorkspaceGroup, type WorkspaceMark, type WorkspaceTemplate,
 } from '../../../core/data'
-import { Button, Checkbox, cls, Field, IconButton, Input, PageTitle, Select } from '../../../core/ui'
+import { Button, cls, Field, IconButton, Input, MARK_COLORS, MarkEditor, PageTitle, Select, Switch, type MarkValue } from '../../../core/ui'
 import {
   CATALOG_IDS, MODULE_CATALOG, missingPlugins, missingText, moduleKeyOf, moduleLabel, PLUGIN_STATE_TEXT, pluginOfModule,
   pluginsForModules, pluginState, resolveCurrent, useCurrentWorkspaceId, type MissingPlugin,
 } from '../../../core/shell/workspace'
 import { MissingPluginsDialog, PLUGINS_PATH } from '../../../core/shell/WorkspacePrompt'
 import { useWorkspaceSwitch } from '../../../core/shell/useWorkspaceSwitch'
+import { WorkspaceMarkView } from '../../../core/shell/WorkspaceSwitcher'
 import './workspaces.css'
 
 type Undo = { ws: string; groups: WorkspaceGroup[]; name: string; into: string; n: number }
@@ -24,6 +25,14 @@ const swap = <T,>(arr: readonly T[], i: number, j: number) => {
   ;[a[i], a[j]] = [a[j], a[i]]
   return a
 }
+
+/** 没设过底色时用的底色（原型 MARK_COLORS[7]） */
+const MARK_BASE = MARK_COLORS[7]
+
+/** 编辑器给回的文字、图标、图片，加上底色拼成工作台的 mark；没有的字段不带 */
+const toMark = (m: MarkValue, color: string): WorkspaceMark => ({
+  text: m.text, color, ...(m.icon && { icon: m.icon }), ...(m.image && { image: m.image }),
+})
 
 let gseq = 0
 const newGroupId = () => `g${Date.now().toString(36)}${(gseq += 1)}`
@@ -177,7 +186,13 @@ function Editor({ list }: { list: Workspace[] }) {
 
         <div className="ws-edit">
           <section className="ws-sec">
-            <div className="field-row">
+            <div className="ws-name-row">
+              <MarkEditor key={`${w.id}-mark`} mark={{ text: w.mark?.text ?? '', icon: w.mark?.icon, image: w.mark?.image }}
+                color={w.mark?.color ?? MARK_BASE} textPlaceholder="一人" hint="显示在左上角；PNG、JPG，1MB 以内"
+                onMark={(m) => save(w.id, { mark: toMark(m, w.mark?.color ?? MARK_BASE) })}
+                onColor={(c) => save(w.id, { mark: toMark({ text: w.mark?.text ?? '', icon: w.mark?.icon, image: w.mark?.image }, c) })}>
+                <WorkspaceMarkView w={w} size={44} />
+              </MarkEditor>
               <TextField key={`${w.id}-name`} label="名称" required value={w.name} onCommit={(name) => save(w.id, { name })} />
               <TextField key={`${w.id}-role`} label="角色" value={w.role} onCommit={(role) => save(w.id, { role })} />
             </div>
@@ -196,7 +211,7 @@ function Editor({ list }: { list: Workspace[] }) {
                   <Button size="sm" onClick={() => setConfirmDel(false)}>取消</Button>
                   <Button size="sm" variant="danger" disabled={remove.isPending} onClick={doDelete}>删除</Button>
                 </>
-              ) : <Button size="sm" className="ws-danger-ghost" onClick={() => setConfirmDel(true)}>删除工作台</Button>)}
+              ) : <Button size="sm" variant="danger-ghost" onClick={() => setConfirmDel(true)}>删除工作台</Button>)}
             </div>
           </section>
 
@@ -231,11 +246,11 @@ function Editor({ list }: { list: Workspace[] }) {
                     <span className="ws-sub">{x.modules.length} 个模块</span>
                     <span className="spacer" />
                     {x.name && (
-                      <Checkbox checked={x.collapsed} onCheckedChange={(c) => patchGroup(x.id, (y) => ({ ...y, collapsed: c }))}
-                        title="侧栏里这组默认收起；在侧栏点分组标题也能随时展开、收起">默认折叠</Checkbox>
+                      <Switch checked={x.collapsed} onCheckedChange={(c) => patchGroup(x.id, (y) => ({ ...y, collapsed: c }))}
+                        title="侧栏里这组默认收起；在侧栏点分组标题也能随时展开、收起">默认折叠</Switch>
                     )}
                     {groups.length > 1 && (
-                      <Button size="sm" className="ws-danger-ghost" title="里面的模块会并到相邻的分组" onClick={() => removeGroup(gi)}>删除分组</Button>
+                      <Button size="sm" variant="danger-ghost" title="里面的模块会并到相邻的分组" onClick={() => removeGroup(gi)}>删除分组</Button>
                     )}
                   </div>
                   {x.modules.length ? x.modules.map((k, mi) => (
@@ -247,8 +262,8 @@ function Editor({ list }: { list: Workspace[] }) {
                         <Select className="grp-move" value={x.id} aria-label={`${moduleLabel(k, live)}移到别的分组`} onValueChange={(to) => toGroup(k, to)}
                           options={groups.map((y) => ({ value: y.id, label: y.name || '（无标题分组）' }))} />
                       )}
-                      <Button size="sm" disabled={w.modules.length === 1} title={w.modules.length === 1 ? '至少留一个模块' : '关掉后放到「未启用」'}
-                        onClick={() => disable(k)}>停用</Button>
+                      <Switch checked disabled={w.modules.length === 1} aria-label={`启用${moduleLabel(k, live)}`}
+                        title={w.modules.length === 1 ? '至少留一个模块' : '关掉后放到「未启用」'} onCheckedChange={() => disable(k)} />
                     </div>
                   )) : <div className="grp-empty">空分组：从别的分组移过来，或者在下面启用模块到这里</div>}
                 </div>

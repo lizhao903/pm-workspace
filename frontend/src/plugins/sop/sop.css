@@ -1,0 +1,214 @@
+/* SOP 插件样式，照原型 web-next/src/styles.css 的「SOP」「SOP 流程图」两段；类名一律加 sop- 前缀，免得和别的模块的全局样式撞上 */
+
+/* 外壳的内容区自带内边距，抵掉它，页面内边距照原型 .page */
+.sop-mod { display: flex; flex-direction: column; min-height: calc(100% + 2 * var(--sp-12)); margin: calc(-1 * var(--sp-12)); }
+.sop-mod-fill { height: calc(100% + 2 * var(--sp-12)); min-height: 0; }
+.sop-body { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.sop-page { padding: var(--sp-10) var(--sp-12) var(--sp-16); display: flex; flex-direction: column; gap: var(--sp-6); min-width: 0; }
+.sop-page > .page-title { margin-bottom: var(--sp-1); }
+@media (max-width: 760px) {
+  .sop-page { padding: var(--sp-8) var(--sp-8) 28px; }
+}
+.sop-subnav .subnav-new { display: flex; flex: 1; align-items: center; justify-content: center; gap: 6px; border: 1px dashed var(--line-2); color: var(--muted); font-size: var(--fs-sm); }
+.sop-subnav .subnav-new:hover { color: var(--accent); border-color: var(--accent-line); background: var(--accent-soft); }
+.sop-muted { color: var(--muted); font-size: var(--fs-sm); }
+
+/* ---------- 工具条 ---------- */
+.sop-toolbar { display: flex; align-items: center; gap: var(--sp-4); flex-wrap: wrap; }
+.sop-toolbar .search { flex: 1 1 160px; width: auto; min-width: 160px; max-width: 280px; }
+.sop-seg { display: flex; padding: 2px; border-radius: var(--r-sm); background: var(--hover); max-width: 100%; overflow-x: auto; }
+.sop-seg button { display: flex; align-items: center; gap: 5px; height: 28px; padding: 0 var(--sp-5); border-radius: 4px; color: var(--muted); font-size: var(--fs-sm); white-space: nowrap; }
+.sop-seg button:hover { color: var(--text); }
+.sop-seg button.on { background: var(--panel); color: var(--text); box-shadow: var(--shadow-sm); font-weight: 500; }
+.sop-seg-sm button { height: 24px; padding: 0 var(--sp-4); }
+
+/* ---------- 节点类型标签：颜色照原型 nodetypes.tsx 的 NODE_TYPES ---------- */
+.sop-kind {
+  --c: var(--faint);
+  display: inline-flex; align-items: center; height: 18px; padding: 0 6px; border-radius: 4px; font-size: var(--fs-2xs); font-weight: 500;
+  white-space: nowrap; flex: none;
+  background: color-mix(in srgb, var(--c) 13%, transparent); color: color-mix(in srgb, var(--c) 82%, var(--text));
+}
+.sop-kt-auto, .sop-kt-subflow { --c: #3d4fd6; }
+.sop-kt-ai, .sop-kt-agent { --c: #7a4fd6; }
+.sop-kt-knowledge, .sop-kt-end { --c: #2f7d43; }
+.sop-kt-extract, .sop-kt-template, .sop-kt-aggregate { --c: #0c8599; }
+.sop-kt-code { --c: #495057; }
+.sop-kt-decide, .sop-kt-classifier, .sop-kt-iterate { --c: #0f8a8a; }
+.sop-kt-wait { --c: #868e96; }
+.sop-kt-review { --c: #b0570b; }
+.sop-kt-http, .sop-kt-notify, .sop-kt-task { --c: #e8590c; }
+
+/* ---------- 执行表格 ---------- */
+.sop-run-table { border: 1px solid var(--line); border-radius: var(--r-lg); background: var(--panel); overflow: hidden; box-shadow: var(--shadow-sm); container-type: inline-size; }
+.sop-run-row {
+  display: grid; align-items: center; width: 100%; text-align: left;
+  grid-template-columns: minmax(200px, 1.4fr) 100px minmax(180px, 1fr) 90px 80px; gap: 14px;
+  min-height: 56px; padding: 8px 16px; border-bottom: 1px solid var(--line);
+}
+.sop-run-row:last-child { border-bottom: 0; }
+button.sop-run-row:hover { background: var(--panel-2); }
+.sop-run-th { min-height: 36px; background: var(--panel-2); font-size: var(--fs-xs); font-weight: 500; color: var(--faint); }
+.sop-run-name { display: flex; flex-direction: column; min-width: 0; line-height: 1.4; font-weight: 500; }
+.sop-run-sub { font-size: var(--fs-xs); color: var(--faint); font-weight: 400; }
+.sop-run-muted { color: var(--muted); font-size: var(--fs-sm); }
+.sop-run-progress { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+.sop-run-progress-text { font-size: var(--fs-xs); color: var(--muted); }
+.sop-steps-bar { display: flex; gap: 3px; }
+.sop-steps-bar span { flex: 1; height: 5px; border-radius: 3px; background: var(--line); }
+.sop-steps-bar .seg-done { background: var(--ok); }
+.sop-steps-bar .seg-skipped { background: var(--line-2); }
+.sop-steps-bar .seg-running { background: var(--accent); animation: sop-pulse 1.2s ease-in-out infinite; }
+.sop-steps-bar .seg-paused, .sop-steps-bar .seg-review { background: var(--warn); }
+.sop-steps-bar .seg-failed { background: var(--danger); }
+@keyframes sop-pulse { 50% { opacity: 0.45; } }
+@container (max-width: 700px) {
+  .sop-run-row { grid-template-columns: minmax(140px, 1fr) 96px minmax(110px, 0.8fr); }
+  .sop-run-row > :nth-child(4), .sop-run-row > :nth-child(5) { display: none; }
+}
+@container (max-width: 440px) {
+  .sop-run-row { grid-template-columns: minmax(0, 1fr) 96px; }
+  .sop-run-row > :nth-child(3) { display: none; }
+}
+
+/* ---------- 流程库 ---------- */
+.sop-lib-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px; }
+.sop-lib-card { display: flex; flex-direction: column; gap: 6px; min-width: 0; padding: 14px 16px; border: 1px solid var(--line); border-radius: var(--r-lg); background: var(--panel); box-shadow: var(--shadow-sm); text-align: left; }
+.sop-lib-card:hover { border-color: var(--accent-line); }
+.sop-lib-head { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.sop-lib-name { flex: 1; min-width: 0; font-weight: 600; }
+.sop-lib-pending { flex: none; height: 18px; padding: 0 6px; border-radius: 4px; font-size: var(--fs-2xs); line-height: 18px; color: var(--warn); background: var(--warn-soft); white-space: nowrap; }
+.sop-lib-desc { font-size: var(--fs-sm); color: var(--muted); line-height: 1.5; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
+.sop-lib-meta { display: flex; flex-wrap: wrap; gap: 2px 12px; font-size: var(--fs-xs); color: var(--faint); }
+
+/* ---------- 流程详情 ---------- */
+.sop-facts { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: var(--fs-sm); color: var(--faint); }
+.sop-section-label { margin: 14px 0 -4px; font-size: var(--fs-xs); color: var(--faint); font-weight: 500; display: flex; align-items: baseline; gap: 8px; }
+.sop-section-hint { font-weight: 400; }
+.sop-fields { display: flex; flex-wrap: wrap; gap: 6px; }
+/* 删除确认条：窄屏换行，按钮始终可见 */
+.sop-confirm { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; padding: 10px 14px; border-radius: var(--r); border: 1px solid color-mix(in srgb, var(--danger) 25%, transparent); background: var(--danger-soft); }
+.sop-confirm .danger-text { min-width: 0; flex: 1 1 260px; overflow-wrap: anywhere; }
+
+/* ---------- 发起执行抽屉 ---------- */
+.sop-start-title { font-size: var(--fs-xl); margin: 0 0 4px; }
+.sop-field-group { display: flex; flex-direction: column; gap: 4px; }
+.sop-check-lg { font-size: var(--fs); color: var(--text); font-weight: 500; }
+.sop-mini-flow { margin: 0; padding-left: 1.4em; display: flex; flex-direction: column; gap: 6px; color: var(--muted); }
+.sop-mini-flow li { display: list-item; }
+.sop-mini-flow li .sop-kind { margin-left: 6px; vertical-align: 1px; }
+
+/* ---------- 流程图 ---------- */
+.sop-flow-card { border: 1px solid var(--line); border-radius: var(--r-lg); background: var(--panel-2); overflow: hidden; }
+.sop-flow-scroll { overflow-x: auto; padding: 4px 8px; }
+.sop-flow { position: relative; margin: 0 auto; }
+.sop-flow-edges { position: absolute; inset: 0; overflow: visible; }
+.sop-edge { fill: none; stroke: var(--line-2); stroke-width: 1.5; }
+.sop-edge-on { stroke: color-mix(in srgb, var(--ok) 70%, var(--line-2)); stroke-width: 2; }
+.sop-edge-off { stroke-dasharray: 4 4; opacity: 0.55; }
+.sop-arr { fill: var(--line-2); }
+.sop-arr-on { fill: color-mix(in srgb, var(--ok) 70%, var(--line-2)); }
+.sop-edge-label {
+  --c: #0f8a8a;
+  position: absolute; transform: translate(-50%, -50%); z-index: 1;
+  padding: 1px 7px; border-radius: 9px; font-size: var(--fs-2xs); white-space: nowrap;
+  background: var(--panel); border: 1px solid color-mix(in srgb, var(--c) 35%, var(--line)); color: color-mix(in srgb, var(--c) 85%, var(--text));
+}
+.sop-edge-label.off { opacity: 0.5; text-decoration: line-through; }
+.sop-flow-par { position: absolute; font-size: var(--fs-2xs); color: var(--faint); font-weight: 500; }
+.sop-fnode {
+  position: absolute; z-index: 2; display: flex; flex-direction: column; justify-content: center; gap: 3px;
+  padding: 7px 10px; border-radius: var(--r); text-align: left;
+  background: var(--panel); border: 1px solid var(--line); box-shadow: var(--shadow-sm);
+}
+.sop-fnode > * { flex: none; }
+.sop-fnode:not(.static):hover { border-color: var(--line-2); }
+.sop-fnode.static { cursor: default; }
+.sop-fnode.sel { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft), var(--shadow-sm); }
+.sop-fnode.fk-decide, .sop-fnode.fk-classifier { border-left: 3px solid color-mix(in srgb, #0f8a8a 60%, var(--line)); }
+.sop-fnode.fk-review { border-left: 3px solid color-mix(in srgb, var(--warn) 55%, var(--line)); }
+.sop-fnode-top { display: flex; align-items: center; gap: 5px; }
+.sop-fnode-join { font-size: var(--fs-2xs); color: var(--faint); }
+.sop-fnode-name { font-weight: 500; font-size: var(--fs); line-height: 1.4; }
+.sop-fnode-st { display: flex; align-items: center; gap: 5px; font-size: var(--fs-xs); color: var(--faint); min-height: 16px; }
+.sop-fnode-st.fst-running { color: var(--accent); }
+.sop-fnode-st.fst-paused, .sop-fnode-st.fst-review { color: var(--warn); font-weight: 500; }
+.sop-fnode-st.fst-failed { color: var(--danger); font-weight: 500; }
+.sop-fnode-st.fst-done { color: var(--ok); }
+.sop-fnode.fn-done { background: color-mix(in srgb, var(--ok) 5%, var(--panel)); }
+.sop-fnode.fn-paused, .sop-fnode.fn-review { border-color: color-mix(in srgb, var(--warn) 55%, var(--line)); background: var(--warn-soft); }
+.sop-fnode.fn-failed { border-color: color-mix(in srgb, var(--danger) 55%, var(--line)); background: var(--danger-soft); }
+.sop-fnode.fn-running { border-color: var(--accent-line); }
+.sop-fnode.fn-bypassed, .sop-fnode.fn-pending { box-shadow: none; }
+.sop-fnode.fn-bypassed { border-style: dashed; background: var(--panel-2); color: var(--faint); }
+.sop-fnode.fn-bypassed .sop-fnode-name, .sop-fnode.fn-bypassed .sop-kind { opacity: 0.55; }
+.sop-fnode.fn-skipped { border-style: dashed; }
+.sop-fnode.sel.fn-paused, .sop-fnode.sel.fn-review, .sop-fnode.sel.fn-failed { border-color: var(--accent); }
+:root[data-theme='dark'] .sop-fnode.fn-paused, :root[data-theme='dark'] .sop-fnode.fn-review { background: color-mix(in srgb, var(--warn) 14%, var(--panel)); }
+:root[data-theme='dark'] .sop-fnode.fn-failed { background: color-mix(in srgb, var(--danger) 14%, var(--panel)); }
+.sop-edited-dot { font-size: 10px; padding: 0 4px; border-radius: 3px; border: 1px solid var(--line-2); color: var(--muted); margin-left: auto; }
+.sop-spinner-xs { width: 9px; height: 9px; border-width: 1.5px; }
+.sop-flow-legend { display: flex; flex-wrap: wrap; gap: 4px 16px; font-size: var(--fs-xs); color: var(--faint); margin-top: -4px; }
+
+/* ---------- 运行页：上面流程图，下面这一步的输入输出 ---------- */
+.sop-run-view { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+.sop-run-head { display: flex; align-items: flex-start; gap: 12px; padding: 14px 24px; border-bottom: 1px solid var(--line); flex: none; }
+.sop-run-back { flex: none; }
+.sop-run-head-text { flex: 1; min-width: 0; }
+.sop-run-head-text .page-title { row-gap: 6px; }
+.sop-run-head-meta { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 12px; margin-top: 4px; font-size: var(--fs-sm); color: var(--faint); }
+.sop-run-head-warn { color: var(--warn); font-weight: 500; }
+.sop-act-error { flex: none; margin: 10px 24px 0; padding: 8px 12px; border-radius: var(--r); background: var(--danger-soft); color: color-mix(in srgb, var(--danger) 75%, var(--text)); font-size: var(--fs-sm); }
+.sop-run-flow { flex: none; max-height: 44vh; overflow: auto; border-bottom: 1px solid var(--line); background: var(--panel-2); }
+.sop-inspector { flex: 1; display: flex; flex-direction: column; min-height: 0; min-width: 0; overflow-y: auto; padding: 20px 28px 28px; gap: 14px; }
+.sop-inspector > * { flex: none; }
+.sop-insp-title { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.sop-insp-title h2 { font-size: var(--fs-xl); margin: 0; }
+.sop-insp-n { font-size: var(--fs-xs); color: var(--faint); }
+.sop-insp-desc { margin-top: 4px; color: var(--muted); font-size: var(--fs-sm); }
+.sop-edited-tag { font-size: var(--fs-xs); padding: 1px 7px; border-radius: 4px; border: 1px dashed var(--line-2); color: var(--muted); }
+.sop-banner { display: flex; flex-direction: column; gap: 10px; padding: 12px 14px; border-radius: var(--r); font-size: var(--fs); line-height: 1.6; }
+.sop-banner b { margin-right: 8px; }
+.sop-banner.warn { background: var(--warn-soft); color: color-mix(in srgb, var(--warn) 70%, var(--text)); border: 1px solid color-mix(in srgb, var(--warn) 25%, transparent); }
+.sop-banner.danger { background: var(--danger-soft); color: color-mix(in srgb, var(--danger) 75%, var(--text)); border: 1px solid color-mix(in srgb, var(--danger) 25%, transparent); }
+.sop-banner.info { flex-direction: row; flex-wrap: wrap; align-items: center; gap: 8px; background: var(--accent-soft); color: var(--accent); }
+.sop-banner.muted { background: var(--hover); color: var(--muted); }
+.sop-act-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.sop-run-bar { flex-basis: 100%; height: 4px; border-radius: 2px; background: color-mix(in srgb, var(--accent) 18%, transparent); overflow: hidden; }
+.sop-run-bar span { display: block; height: 100%; background: var(--accent); transition: width 0.25s linear; }
+.sop-insp-route {
+  --c: #0f8a8a;
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; padding: 10px 14px; border-radius: var(--r); font-weight: 500;
+  background: color-mix(in srgb, var(--c) 9%, transparent); color: color-mix(in srgb, var(--c) 85%, var(--text));
+}
+.sop-insp-route-k { font-size: var(--fs-xs); font-weight: 600; opacity: 0.8; }
+.sop-insp-route-why { font-weight: 400; font-size: var(--fs-sm); color: var(--muted); }
+.sop-insp-tabs { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
+.sop-insp-note { font-size: var(--fs-xs); color: var(--faint); }
+.sop-insp-body { border: 1px solid var(--line); border-radius: var(--r); background: var(--panel); min-height: 160px; }
+.sop-io-fields { margin: 0; }
+.sop-io-field { display: grid; grid-template-columns: 140px minmax(0, 1fr); gap: 12px; padding: 10px 14px; border-bottom: 1px solid var(--line); }
+.sop-io-field:last-child { border-bottom: 0; }
+.sop-io-field dt { font: 12px var(--mono); color: var(--muted); padding-top: 2px; overflow-wrap: anywhere; }
+.sop-io-field dd { margin: 0; min-width: 0; }
+.sop-io-text { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.6; }
+.sop-io-json { margin: 0; font: 12px/1.6 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; color: var(--text); }
+.sop-io-json-full { padding: 14px; }
+.sop-io-empty { padding: 28px 14px; text-align: center; color: var(--faint); font-size: var(--fs-sm); }
+.sop-io-field .sop-io-empty { padding: 0; text-align: left; }
+.sop-io-log { list-style: none; margin: 0; padding: 8px 0; }
+.sop-io-log li { display: flex; gap: 12px; padding: 5px 14px; font-size: var(--fs-sm); }
+.sop-io-log time { font: 12px var(--mono); color: var(--faint); flex: none; }
+.sop-io-edit { display: flex; flex-direction: column; gap: 6px; padding: 10px; }
+.sop-io-edit textarea { min-height: 260px; resize: vertical; padding: 10px 12px; border: 1px solid var(--accent-line); border-radius: var(--r-sm); background: var(--panel-2); color: var(--text); font: 12.5px/1.6 var(--mono); outline: 0; }
+.sop-insp-foot { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: var(--fs-xs); color: var(--faint); }
+
+@media (max-width: 1100px) {
+  .sop-inspector { padding: 18px 20px 24px; }
+}
+@media (max-width: 760px) {
+  .sop-run-head { flex-wrap: wrap; padding: 12px 16px; }
+  .sop-act-error { margin: 10px 16px 0; }
+  .sop-inspector { padding: 16px; }
+  .sop-io-field { grid-template-columns: minmax(0, 1fr); gap: 4px; }
+}

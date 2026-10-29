@@ -41,7 +41,7 @@ export default function Page() {
       <InSubnavHost>
         <Subnav<View> title="会话" active={view} onSelect={select} items={[
           { key: 'chats', label: '会话', desc: '和 Agent 的对话' },
-          { key: 'outputs', label: '产出结果', desc: '写的文件、登记的链接' },
+          { key: 'outputs', label: '产出结果', desc: '建的任务、写的文档、发的回复' },
         ]}>
           <Button className="subnav-new" onClick={() => { if (view !== 'chats') select('chats'); setPickRequest((n) => n + 1) }}><IconPlus />新会话</Button>
         </Subnav>

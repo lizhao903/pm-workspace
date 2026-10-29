@@ -167,6 +167,13 @@ func (s *Server) agentImpact(ctx context.Context, a *domain.Agent) (*agentImpact
 				Text: fmt.Sprintf("定时任务%s交给它执行，先改掉或删掉这些定时任务", strings.Join(names, "、"))})
 		}
 	}
+	// 还在等确认的调用拦删除（AG-02a），执行记录里的归 AG-01b4
+	if p, err := s.st.CountPendingToolCalls(ctx, a.ID); err != nil {
+		return nil, err
+	} else if p > 0 {
+		out.Blocks = append(out.Blocks, agentImpactItem{Key: "pending_calls", Count: p,
+			Text: fmt.Sprintf("还有 %d 处操作等你确认（会话里），先处理完", p)})
+	}
 	n, err := s.st.CountAgentSessions(ctx, a.ID)
 	if err != nil {
 		return nil, err
