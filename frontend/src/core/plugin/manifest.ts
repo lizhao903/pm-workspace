@@ -29,6 +29,8 @@ export type PluginManifest = {
   id: string
   name: string
   description?: string
+  // 菜单图标：外壳内置图标的 key，外壳不认识的用默认图标
+  icon?: string
   version: string
   core: string
   depends?: Record<string, string>
@@ -88,7 +90,7 @@ const kernelEventNamespaces = ['object', 'task', 'run', 'contact']
 export const SHARED_TABLE_PREFIXES: Readonly<Record<string, readonly string[]>> = {}
 
 export const MANIFEST_FIELDS: readonly string[] = [
-  'id', 'name', 'description', 'version', 'core', 'depends', 'optional_depends', 'provides',
+  'id', 'name', 'description', 'icon', 'version', 'core', 'depends', 'optional_depends', 'provides',
   'emits', 'subscribes', 'adopts', 'permissions', 'migrations', 'table_prefix',
 ]
 
@@ -257,6 +259,8 @@ function check(c: Checker, raw: unknown): PluginManifest | undefined {
   const name = c.str(raw, 'name', 'name', true)
   if (name !== undefined && name.trim() === '') c.add('name', '不能为空')
   const description = c.str(raw, 'description', 'description', false)
+  const icon = c.str(raw, 'icon', 'icon', false)
+  if (icon !== undefined && !keyRe.test(icon)) c.add('icon', `不合法：只能用小写字母、数字、下划线：${icon}`)
   const version = c.str(raw, 'version', 'version', true)
   if (version !== undefined && !parseVersion(version)) {
     c.add('version', `不是合法的版本号（MAJOR.MINOR.PATCH）：${version}`)
@@ -334,6 +338,7 @@ function check(c: Checker, raw: unknown): PluginManifest | undefined {
   if (c.issues.length > 0) return undefined
   const m: PluginManifest = { id, name: name!, version: version!, core: core!, provides: provides!, permissions: permissions! }
   if (description !== undefined) m.description = description
+  if (icon !== undefined) m.icon = icon
   if (depends) m.depends = depends
   if (optional) m.optional_depends = optional
   if (emits) m.emits = emits

@@ -7,7 +7,7 @@ import {
   SearchSelect, cls,
 } from '../../core/ui'
 import {
-  ALL, MORE_STEP, OPEN, PAGE, REVIEW, dueText, isOverdue, matchStatus, priorityRank, segment, sortTasks, statusButtons,
+  ALL, MORE_STEP, OPEN, PAGE, REVIEW, dueText, isOverdue, matchStatus, prioText, priorityRank, segment, sortTasks, statusButtons,
   terminalOf, timeAgo, type DueSeg, type StatusFilter,
 } from './model'
 import { SOURCE_VIEW, isSourceKind, type SourceKind } from './sourceModel'
@@ -116,7 +116,7 @@ export function TaskList({
         <span>
           {t.priority && (
             <span className="prio" title={pr?.description || undefined} style={{ '--c': pr?.color || 'var(--faint)' } as CSSProperties}>
-              {pr?.label ?? t.priority}
+              {prioText(t.priority, pr)}
             </span>
           )}
         </span>
@@ -191,7 +191,7 @@ export function TaskList({
         <div className={cls('chip chip-select', prio && 'chip-on')}>
           <select value={prio} aria-label="优先级" onChange={(e) => setPrio(e.target.value)}>
             <option value="">全部优先级</option>
-            {priorities.filter((p) => !p.archived_at || p.key === prio).map((p) => <option key={p.key} value={p.key}>{p.label}</option>)}
+            {priorities.filter((p) => !p.archived_at || p.key === prio).map((p) => <option key={p.key} value={p.key}>{prioText(p.key, p)}</option>)}
           </select>
         </div>
         <SearchSelect value={proj} onChange={setProj} noneLabel="全部项目" placeholder="全部项目" searchPlaceholder="搜项目" aria-label="项目"

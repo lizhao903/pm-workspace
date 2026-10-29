@@ -276,6 +276,8 @@ func TestParseStructure(t *testing.T) {
 		{base + `,"adopts":{"object_types":["project"],"routes":["/x"],"extra":[]}}`, []string{"adopts.extra 是未知字段", "adopts.routes[0] 必须以 /api/ 开头：/x"}},
 		{base + `,"permissions":["secrets:im","secrets:im"]}`, []string{"permissions[1] 重复：secrets:im"}},
 		{base + `,"migrations":"../x","table_prefix":"beta_"}`, []string{"migrations 必须是插件目录内的相对路径：../x", "table_prefix 必须是 alpha_：beta_"}},
+		{base + `,"icon":3}`, []string{"icon 必须是字符串"}},
+		{base + `,"icon":"my-icon"}`, []string{"icon 不合法：只能用小写字母、数字、下划线：my-icon"}},
 	}
 	for _, c := range cases {
 		// base 拼出来的用例会重复 provides、permissions 键，后出现的覆盖前面的，和前端 JSON.parse 一致
@@ -290,6 +292,9 @@ func TestParseValues(t *testing.T) {
 	m := mustParse(t, base+`}`)
 	if m.Permissions == nil || len(m.Permissions) != 0 {
 		t.Errorf("permissions 应当是空切片，得到 %#v", m.Permissions)
+	}
+	if m := mustParse(t, base+`,"icon":"folder"}`); m.Icon != "folder" {
+		t.Errorf("icon 应当是 folder，得到 %q", m.Icon)
 	}
 	b, err := os.ReadFile(filepath.Join(examplesDir, "valid", "im.json"))
 	if err != nil {

@@ -12,7 +12,7 @@ import { DevSlots } from './DevSlots'
 import { HandOffButton } from './HandOff'
 import { buildCreate, buildSave, draftOf, emptyDraft, sameDraft, type TaskDraft } from './draft'
 import { Markdown } from './Markdown'
-import { REVIEW, timeAgo } from './model'
+import { REVIEW, prioText, timeAgo } from './model'
 import { ReviewBar } from './ReviewBar'
 import { WorkdirField } from './WorkdirField'
 
@@ -87,7 +87,7 @@ export function TaskDrawer({ task, statuses, priorities, projects, init, onClose
 
   const statusOpts = withCurrent(statuses.map((s) => ({ key: s.key, label: s.label, title: undefined as string | undefined })), d.status)
   const prioOpts = withCurrent(
-    priorities.filter((p) => !p.archived_at || p.key === d.priority).map((p) => ({ key: p.key, label: p.label, title: p.description || undefined })),
+    priorities.filter((p) => !p.archived_at || p.key === d.priority).map((p) => ({ key: p.key, label: prioText(p.key, p), title: p.description || undefined })),
     d.priority,
   )
   const peopleOpts: SearchOption[] = (people.data ?? []).map((s) => ({ value: s.id, label: s.name, hint: s.role || undefined, keywords: s.email }))

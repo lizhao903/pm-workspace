@@ -2,6 +2,7 @@
   "id": "clips",
   "name": "剪辑",
   "homepage": "https://example.com",
+  "icon": "Folder",
   "version": "1.0",
   "core": "^1.0.0",
   "provides": {

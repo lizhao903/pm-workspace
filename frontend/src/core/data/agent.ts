@@ -155,3 +155,15 @@ export function streamChat(req: ChatRequest, opts: StreamOptions<ChatEvent> = {}
   )
   return { done, settled }
 }
+
+// 快速新建会话（外壳的「新建会话」按钮和 Cmd/Ctrl+J）带的第一句话：外壳建好会话后记在这里，
+// 会话页打开这个会话时当作 autoSend 发出去（ChatPane 只在会话还没有消息时发一次）
+const firstMessages = new Map<string, string>()
+
+export function setFirstMessage(sessionId: string, text: string) {
+  if (text) firstMessages.set(sessionId, text)
+}
+
+export function firstMessageOf(sessionId: string): string | undefined {
+  return firstMessages.get(sessionId)
+}

@@ -43,8 +43,8 @@ export const todayApi = {
     request<Today>('GET', type ? `/api/today?type=${encodeURIComponent(type)}` : '/api/today', { signal }),
 }
 
-export function useToday(type?: string) {
-  return useQuery({ queryKey: todayKeys.of(type), queryFn: ({ signal }) => todayApi.get(type, signal) })
+export function useToday(type?: string, opts: { refetchInterval?: number } = {}) {
+  return useQuery({ queryKey: todayKeys.of(type), queryFn: ({ signal }) => todayApi.get(type, signal), refetchInterval: opts.refetchInterval })
 }
 
 /** 按 key 取一张卡；没有这张卡时 undefined */

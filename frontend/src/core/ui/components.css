@@ -235,6 +235,9 @@
 .subnav-group { padding: var(--sp-7) var(--sp-5) var(--sp-2); font-size: var(--fs-xs); font-weight: 600; color: var(--faint); }
 .subnav-hint { padding: var(--sp-3) var(--sp-5); font-size: var(--fs-xs); line-height: 1.55; color: var(--faint); }
 .subnav-foot { margin-top: auto; flex: none; height: var(--foot-h); display: flex; align-items: center; gap: var(--sp-3); position: sticky; bottom: 0; border-top: 1px solid var(--line); background: var(--panel-2); margin-left: calc(-1 * var(--sp-5)); margin-right: calc(-1 * var(--sp-5)); padding: 0 var(--sp-5); }
+/* 吸底栏里的「新建 …」：虚线框铺满，二级菜单送进外壳后不在模块容器里，所以放公共样式 */
+.subnav-foot .subnav-new { flex: 1; justify-content: center; border: 1px dashed var(--line-2); color: var(--muted); }
+.subnav-foot .subnav-new:hover { color: var(--accent); border-color: var(--accent-line); background: var(--accent-soft); }
 @media (max-width: 760px) {
   .subnav { width: auto; max-width: 100%; flex-direction: row; align-items: center; padding: var(--sp-3) var(--sp-6); border-right: 0; border-bottom: 1px solid var(--line); overflow-x: auto; }
   .subnav-title, .subnav-desc, .subnav-group { display: none; }
