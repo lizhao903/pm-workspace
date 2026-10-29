@@ -79,6 +79,7 @@ func runnerVideo(t *testing.T, e env) (string, string) {
 	root := t.TempDir()
 	v := mustCall(t, e.h, "POST", "/api/video/videos", `{"title":"第 27 集：Ollama 本地跑模型","orientations":["landscape","portrait"],"root":"`+root+`","chapters":3}`, 201)
 	vid := v["id"].(string)
+	atScript(t, e, vid)
 	mustCall(t, e.h, "POST", "/api/video/videos/"+vid+"/advance", `{"from":"script"}`, 200)
 	return vid, root
 }
@@ -216,6 +217,7 @@ func TestRunStartFailure(t *testing.T) {
 	e.r.SetClaudeRunner(&fakeClaude{})
 	v := mustCall(t, e.h, "POST", "/api/video/videos", `{"title":"单集","root":"videos/ep01"}`, 201)
 	vid := v["id"].(string)
+	atScript(t, e, vid)
 	path := "/api/video/videos/" + vid
 	mustCall(t, e.h, "PUT", path+"/runners/script", `{"type":"skill","ref_id":"sk_video"}`, 200)
 	v = mustCall(t, e.h, "POST", path+"/runners/script/run", "", 200)

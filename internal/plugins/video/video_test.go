@@ -169,17 +169,9 @@ func TestFieldsMatchPrototype(t *testing.T) {
 			t.Fatalf("videodata.ts 里找不到 interface %s", name)
 		}
 		var proto []string
-		if name == "Checkpoint" || name == "Metrics" {
-			// 单行的 interface
-			for _, f := range strings.Split(body, ";") {
-				if k, _, ok := strings.Cut(strings.TrimSpace(f), ":"); ok {
-					proto = append(proto, strings.TrimSuffix(k, "?"))
-				}
-			}
-		} else {
-			for _, m := range fieldRe.FindAllStringSubmatch(body, -1) {
-				proto = append(proto, m[1])
-			}
+		// 一行写几个字段的（Checkpoint、Metrics 的前四个）按分号拆成多行
+		for _, m := range fieldRe.FindAllStringSubmatch(strings.ReplaceAll(body, ";", "\n"), -1) {
+			proto = append(proto, m[1])
 		}
 		var tags []string
 		rt := reflect.TypeOf(v)
@@ -191,10 +183,8 @@ func TestFieldsMatchPrototype(t *testing.T) {
 			t.Fatalf("%s 一个字段都没解析出来", name)
 		}
 		for _, f := range proto {
-			// topic_id 是 VID-09p 给原型加的（流程里的选题一步），VID-09a 落地时删掉
 			// target_date 是 VID-06p 给原型加的（内容日历），VID-06b 落地时删掉
-			// Publish 的 account_id、tags、category、collection、checks 是 VID-05p 新加的，VID-05a 落地时删掉
-			if !slices.Contains(tags, f) && !(name == "Video" && (f == "target_date" || f == "topic_id")) && !(name == "Publish" && slices.Contains(pendingPublishFields, f)) {
+			if !slices.Contains(tags, f) && !(name == "Video" && f == "target_date") {
 				t.Errorf("%s.%s 原型里有，Go 结构里没有", name, f)
 			}
 		}
@@ -220,7 +210,7 @@ func TestPrototypeFieldsRoundTrip(t *testing.T) {
 		`","episode":1,"orientations":["portrait","landscape","portrait"],"root":"videos/ep01-today","chapters":5}`, 201)
 	vid := v["id"].(string)
 	if !strings.HasPrefix(vid, "vd_") || v["project_id"] != "obj_pj" || v["series_id"] != srID || v["episode"] != 1.0 ||
-		!reflect.DeepEqual(v["orientations"], []any{"landscape", "portrait"}) || v["stage"] != "script" || v["root"] != "videos/ep01-today" ||
+		!reflect.DeepEqual(v["orientations"], []any{"landscape", "portrait"}) || v["stage"] != "topic" || v["root"] != "videos/ep01-today" ||
 		v["chapters"] != 5.0 || v["created_at"] == "" || v["updated_at"] == "" {
 		t.Fatalf("视频：%v", v)
 	}
@@ -236,6 +226,7 @@ func TestPrototypeFieldsRoundTrip(t *testing.T) {
 	}
 	// 走完整条流程：每个检查点都带上 at，通过时也能写意见
 	path := "/api/video/videos/" + vid
+	pastTopic(t, e, vid)
 	mustCall(t, e.h, "POST", path+"/advance", `{"from":"script"}`, 200)
 	mustCall(t, e.h, "POST", path+"/checkpoints/plan", `{"state":"passed","note":"比例定了"}`, 200)
 	mustCall(t, e.h, "POST", path+"/advance", `{}`, 200)
@@ -341,6 +332,7 @@ func TestCheckpointRules(t *testing.T) {
 	if code, _ := call(t, e.h, "POST", path+"/checkpoints/plan", `{"state":"passed"}`); code != 409 {
 		t.Fatalf("不是当前阶段要 409：%d", code)
 	}
+	pastTopic(t, e, v["id"].(string))
 	mustCall(t, e.h, "POST", path+"/advance", `{}`, 200)
 	// 检查点阶段不能 advance
 	if code, _ := call(t, e.h, "POST", path+"/advance", `{}`); code != 409 {
@@ -468,6 +460,3 @@ func TestDisableKeepsData(t *testing.T) {
 		t.Fatalf("启用后数据：%v", got)
 	}
 }
-
-// VID-05p 给原型 Publish 新加、后端还没有的字段（VID-05a）
-var pendingPublishFields = []string{"account_id", "tags", "category", "collection", "checks"}

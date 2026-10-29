@@ -62,7 +62,8 @@ type RemoteStatus struct {
 	PublishedAt string `json:"published_at,omitempty"`
 }
 
-// RemoteStats 是单条稿件的数据：前四个落到发布记录的 metrics，其余随接口返回，按天的快照归 VID-05a。
+// RemoteStats 是单条稿件的数据，落到发布记录的 metrics 和按天快照（VID-05a）。
+// Favorites、Coins 只有适配器实现了 StatsKeys 并列出来才落库，否则当平台没给；带指针的几项平台不给就留 nil。
 type RemoteStats struct {
 	Views     int `json:"views"`
 	Likes     int `json:"likes"`
@@ -71,6 +72,17 @@ type RemoteStats struct {
 	Favorites int `json:"favorites"`
 	Coins     int `json:"coins"`
 	Danmaku   int `json:"danmaku"`
+
+	Impressions     *int     `json:"impressions,omitempty"`
+	CTR             *float64 `json:"ctr,omitempty"`
+	AvgWatchSec     *float64 `json:"avg_watch_sec,omitempty"`
+	Completion      *float64 `json:"completion,omitempty"`
+	FollowersGained *int     `json:"followers_gained,omitempty"`
+}
+
+// StatsKeys 是适配器的可选接口：Stats 里 Favorites、Coins 哪几项是平台真给的（metrics 的 json key）。
+type StatsKeys interface {
+	StatsKeys() []string
 }
 
 // Comment 是平台上的一条评论。

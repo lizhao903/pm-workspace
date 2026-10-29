@@ -464,7 +464,7 @@ func (h *handler) removeTopic(w http.ResponseWriter, r *http.Request) {
 
 // makeVideo：立项（开始制作），同原型 makeVideoFromTopic。
 // 生成一集视频：在系列里时集数接着系列最大集数往下排、标题带「第 n 集：」；比例按目标平台的偏好，没选平台用横屏；
-// 工程目录 videos/<选题 id>，章节数 3。然后回写 video_id、状态变已做成。
+// 工程目录 videos/<选题 id>，章节数 3，记下 topic_id，阶段直接是内容编写（选题一步算已完成，VID-09a）。然后回写 video_id、状态变已做成。
 func (h *handler) makeVideo(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	id := r.PathValue("id")
@@ -489,7 +489,7 @@ func (h *handler) makeVideo(w http.ResponseWriter, r *http.Request) {
 		fail(w, r, h.c, apiErr(errValidation, "先写标题"))
 		return
 	}
-	v := Video{Title: t.Title, SeriesID: t.SeriesID, Stage: Stages[0].Key, Root: "videos/" + t.ID, Chapters: 3}
+	v := Video{Title: t.Title, SeriesID: t.SeriesID, TopicID: &t.ID, Stage: "script", Root: "videos/" + t.ID, Chapters: 3}
 	// project_id 的校验和视频接口一样
 	if b, ok := raw["project_id"]; ok {
 		if err := h.applyVideo(ctx, &v, map[string]json.RawMessage{"project_id": b}); err != nil {
@@ -525,9 +525,9 @@ func (h *handler) makeVideo(w http.ResponseWriter, r *http.Request) {
 	orients, _ := json.Marshal(v.Orientations)
 	// 列名写全，视频表以后加列（有默认值）不影响这里
 	if _, err := h.c.Store().Exec(ctx, `INSERT INTO video_videos (id, title, project_id, series_id, episode, orientations, stage, root, chapters,
-		created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		v.ID, v.Title, v.ProjectID, v.SeriesID, v.Episode, string(orients), v.Stage, v.Root, v.Chapters, now, now); err != nil {
-		fail(w, r, h.c, err)
+		created_at, updated_at, topic_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		v.ID, v.Title, v.ProjectID, v.SeriesID, v.Episode, string(orients), v.Stage, v.Root, v.Chapters, now, now, v.TopicID); err != nil {
+		fail(w, r, h.c, uniqueErr(err))
 		return
 	}
 	if _, err := h.c.Store().Exec(ctx, `INSERT INTO video_checkpoints (video_id, stage) VALUES (?, 'plan'), (?, 'ch1'), (?, 'audio'), (?, 'distribution')`,

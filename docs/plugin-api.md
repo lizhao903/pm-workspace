@@ -5,7 +5,8 @@
 - 来源：`web-next/docs/dev-plan.md` 2.3 到 2.8、第 6 节；已定决策见 `docs/dev-decisions.md`
 - 任务：CORE-01a（本文档）；类型定义和校验在 CORE-01b，后端注册在 CORE-04a，迁移在 CORE-05
 - 范围：只定第一方插件需要的东西。第三方插件（进程外、走 HTTP 或 MCP）到 M3 之后再开放，到时在本文档上加一版
-- 插件 API 版本：`1.1.0`（M2 起 1.0.0，VID-03a 升到 1.1.0），见第 1.3 节
+- 插件 API 版本：`1.1.0`（M2 起 1.0.0，VID-03a 升到 1.1.0），见第 1.3 节。这几批加的句柄和清单字段按 1.3 本该再升小版本，发布前由用户一起定稿，本文档暂不改版本号
+- 覆盖到：第三十六批（DOC-02 按提交 2775785 的代码逐项核对）。2.0 的代码块和 2.13 的句柄参考是代码里已有的；标了「规划」的还没实现
 
 ## 评审记录
 
@@ -43,7 +44,7 @@
 | `name` | string | 是 | 显示名，插件管理页和菜单用 |
 | `description` | string | 否 | 一句话说明，插件管理页用 |
 | `icon` | string | 否 | 本插件功能模块在一级菜单上的图标，外壳内置图标的 key（`^[a-z][a-z0-9_]*$`，如 `folder`、`message`）；外壳不认识的 key 用默认图标 |
-| `icons` | object | 否 | 按模块给的菜单图标：`{ "<模块 id>": "<图标 key>" }`，模块必须在 `provides.modules` 里，图标 key 规则同 `icon`。没给的模块用 `icon`。例：交易套件 `{ "markets": "candles", "monitor": "pulse", "strategy": "chart", "trading": "swap" }` |
+| `icons` | object | 否 | 按模块给的菜单图标：`{ "<模块 id>": "<图标 key>" }`，模块必须在 `provides.modules` 里，图标 key 规则同 `icon`。没给的模块用 `icon`。例：交易套件 `{ "markets": "candles", "monitor": "pulse", "strategy": "chart", "trading": "swap" }`。前后端怎么校验、怎么取见 2.13.19 |
 | `version` | string | 是 | 插件自己的版本，semver（`MAJOR.MINOR.PATCH`）。升级判断、依赖匹配都用它 |
 | `core` | string | 是 | 要求的插件 API 版本范围，semver 范围语法（见 1.2）。内核的插件 API 版本不在范围里就拒绝安装和启用 |
 | `depends` | object | 否 | 强依赖：`{ "<插件 id>": "<版本范围>" }`。安装前必须已装且版本匹配；被依赖的插件停用时，本插件跟着停用 |
@@ -128,7 +129,7 @@
 
 ## 2. 扩展点
 
-十个扩展点，每个给出前端注册函数、后端注册接口和一个例子；另有只在后端的按 Host 分发（2.11）。
+十个扩展点，每个给出前端注册函数、后端注册接口和一个例子；另有只在后端的按 Host 分发（2.11）、定时任务动作（2.12）。后来加的句柄（2.0 的 `Core`）和不进清单的扩展点（`ConnectorImpact`、前端 `todaySources`）逐项见 2.13。
 
 ### 2.0 公共部分
 
@@ -153,19 +154,22 @@ export interface PluginApi {
   modules: ModuleRegistry          // 2.1
   settings: SettingsRegistry       // 2.2
   objectTypes: ObjectTypeRegistry  // 2.3
-  migrations: MigrationInfo        // 2.4（只读）
-  connectors: ConnectorRegistry    // 2.5
-  agent: AgentRegistry             // 2.6
-  sopNodes: SopNodeRegistry        // 2.7
+  migrations: MigrationInfo        // 2.4（只读；规划，用到就抛「还没实现」）
+  connectors: ConnectorRegistry    // 2.5（规划，同上）
+  agent: AgentRegistry             // 2.6（规划，同上）
+  sopNodes: SopNodeRegistry        // 2.7（SOP-03b，见 2.13.18）
   todayCards: TodayCardRegistry    // 2.8
+  todaySources: TodaySourceRegistry // 今日「需要你处理」「正在运行」的来源（ALIGN-08，见 2.13.17）
   commands: CommandRegistry        // 2.9
-  events: EventRegistry            // 2.10
+  events: EventRegistry            // 2.10（规划，同上）
   /** 内核的数据访问层（CORE-03a）；插件只能通过它读写数据 */
   data: DataClient
-  /** 外壳能力：跳转、抽屉、提示、确认框 */
+  /** 外壳能力：现在只有 navigate(to)；抽屉、提示、确认框是规划 */
   shell: ShellApi
 }
 ```
+
+实现在 `frontend/src/core/plugin/registry.ts` 的 `pluginApi`：标了「规划」的扩展点是 `notImplemented` 占位，`activate` 里一调就抛错，插件按加载失败处理。
 
 规则：
 
@@ -196,46 +200,50 @@ type DisableGuard interface {
 	CanDisable(ctx context.Context, c Core) (ok bool, reason string)
 }
 
+// Registrar 是 Register 拿到的登记入口（internal/plugin/plugin.go）。登记的东西不对时 Register 整体失败，插件不会被启用。
 type Registrar interface {
 	Core() Core
 
-	Routes(fn func(m RouteRegistrar))     // 2.1
-	Job(j Job)                            // 2.1
-	SettingsSection(s SettingsSection)    // 2.2
-	ObjectType(t ObjectTypeDef)           // 2.3
-	Connector(c ConnectorDef)             // 2.5
-	Skill(s SkillDef)                     // 2.6
-	AgentTool(t AgentToolDef)             // 2.6
-	SOPNode(n SOPNodeDef)                 // 2.7
-	SOPStarter(st SOPStarter)             // 2.7，只给 provides.modules 含 sop 的插件（SOP-01d）
-	TodayCard(c TodayCardDef)             // 2.8
-	SearchProvider(p SearchProviderDef)   // 2.9
+	Routes(fn func(m RouteRegistrar))           // 2.1
+	Job(j Job)                                  // 2.1
 	Subscribe(eventType string, h EventHandler) // 2.10
-	HostHandler(d HostHandlerDef)        // 2.11，只有后端
-	ScheduleAction(d ScheduleActionDef)  // 2.12，只有后端（VID-06a）
+	TodayCard(c TodayCardDef)                   // 2.8
+	Connector(d ConnectorDef)                   // 2.5，ConnectorDef = connector.Def（CONN-02，见 2.13.8）
+	ConnectorImpact(d ConnectorImpactDef)       // 删除连接器前的影响检查，不进清单（CONN-03，见 2.13.7）
+	Skill(s SkillDef)                           // 2.6
+	SOPNode(n SOPNodeDef)                       // 2.7
+	SOPEngine(e SOPEngine)                      // 2.7，只给 sop 插件
+	SOPStarter(st SOPStarter)                   // 2.7，只给 provides.modules 含 sop 的插件（SOP-01d）
+	HostHandler(d HostHandlerDef)               // 2.11，只有后端
+	ScheduleAction(d ScheduleActionDef)         // 2.12，只有后端（VID-06a）
+
+	// 规划，还没实现：SettingsSection（2.2）、ObjectType（2.3）、AgentTool（2.6）、SearchProvider（2.9）
 }
 
-// Core 是插件能用的全部内核能力。每个方法拿到的都是按本插件 id 和权限收窄过的句柄。
+// Core 是插件能用的内核能力，每个方法拿到的都是按本插件 id 收窄过的句柄；逐项见 2.13。
 type Core interface {
 	PluginID() string
-	Objects() ObjectService     // 读所有类型；写只限本插件声明或认领的类型
-	Links() LinkService
-	Contacts() ContactService   // 联系人、IM 身份、会话（CT-01、CT-02）
-	Artifacts() ArtifactService // 产出和文件（AG-03）
-	Settings() SettingsStore    // 本插件命名空间下的设置值
-	Secrets() SecretStore       // 只能取 secrets:<scope> 声明过的范围（CORE-06）
-	HTTP(group string) (*http.Client, error) // 只给 network:<group> 声明并确认过的组，每一跳查域名清单（VID-04a，3.1）
-	FS(scope string) (FS, error)             // 只给 fs:<read|write>:<scope> 声明过的范围
-	Process() (ProcessRunner, error)         // 只给声明了 process:spawn 的插件
-	Events() Publisher          // 只能发布清单 emits 里的类型
-	Audit() AuditLog            // CORE-08；已实现 Note(ctx, AuditNote, WriteMeta)，插件替用户做的对外动作记一条（SOP-02b）
-	Store() Store               // 只能访问 table_prefix 开头的表
-	Agent() AgentService        // 用默认服务商补全、按 Agent 的授权跑一轮、搜指定知识库（SOP-01c）
-	Granted(perm string) bool   // 用户确认过这项权限没有，只认状态表里确认过的（SEC-01，3.3）
-	SOP() SOPService            // 插件登记的 SOP 节点、执行插件节点、唤醒挂起的步骤（SOP-03a）、指向流程的定时任务（SOP-01d），2.7
-	Notify(ctx context.Context, n Notification) error // 以本插件的名义发通知，kind 补插件前缀（VID-06b）
-	Runs() RunService           // 发起 Agent、SOP 运行或交给 Claude Code，跑完投 run.finished（VID-03a）
 	Log() *slog.Logger
+	Events() Publisher                       // 只能发布清单 emits 里的类型（2.10）
+	Store() Store                            // 只能访问 table_prefix 开头的表（2.13.1）
+	Objects() ObjectReader                   // 只读：Get(ctx, id) ObjectInfo（下面「内核对象只读句柄」）
+	Contacts() ContactReader                 // 只读：Get、FindByName
+	Conversations() ConversationReader       // 只读：IM 会话（2.13.2）
+	Identities() IdentityReader              // 只读：IM 身份（2.13.3）
+	ObjectWriter() ObjectWriter              // 建对象、追加正文（2.13.4）
+	ContactWriter() ContactWriter            // 建联系人、合并字段（2.13.5）
+	Connectors() ConnectorReader             // 连接器实例：查、授权、断开、取配置、记同步（2.13.6、2.13.9）
+	HTTP(group string) (*http.Client, error) // 只给 network:<group> 声明并确认过的组，每一跳查域名清单（VID-04a，3.1）
+	AttachmentDir() string                   // 数据目录下 attachments/ 的绝对路径，没接数据目录为空串（IM-04a）
+	Agent() AgentService                     // 用默认服务商补全、按 Agent 的授权跑一轮、搜指定知识库（SOP-01c）
+	Granted(perm string) bool                // 用户确认过这项权限没有（SEC-01，2.13.16）
+	SOP() SOPService                         // SOP 节点、唤醒和失败、内置流程、指向流程的定时任务（2.7、2.13.14、2.13.15）
+	Audit() AuditLog                         // 插件替用户做的对外动作记一条（SOP-02b，2.13.12）
+	Notify(ctx context.Context, n Notification) error // 以本插件的名义发通知（VID-06b，2.13.11）
+	Runs() RunService                        // 发起 Agent、SOP 运行或交给 Claude Code（VID-03a，2.13.13）
+
+	// 规划，还没实现：Links()、Artifacts()（AG-03）、Settings()、Secrets()（CORE-06）、FS(scope)、Process()；
+	// 改对象、建关联等更宽的写能力等 ObjectService。现在 fs、process 权限靠 Granted/Require 在代码路径上查
 }
 ```
 
@@ -500,28 +508,53 @@ export interface ConnectorView {
 export interface ConnectorRegistry { register(def: ConnectorView): Disposable }
 ```
 
-后端：
+后端（已实现，CONN-02，`internal/plugin/connector.go`）：`ConnectorDef` 就是内核连接器框架的 `connector.Def`（`internal/connector/def.go`），认证、配置表单、凭证、工具授权都由内核管，插件只给定义和几个适配函数。
 
 ```go
-type ConnectorDef struct {
-	Tool     string
-	Auth     AuthMode            // AuthToken / AuthOAuth2 / AuthNone
-	Network  string              // 用哪个 network 权限组发请求，例 "im"
-	Tools    []ConnectorToolDef  // 工具清单：名字、说明、读或写；Agent 工具授权（AG-02）按它逐项授权
-	// Test 在「测试连接」时调用，返回账号名（「我」的称呼从这里来，IM-03）。
-	Test func(ctx context.Context, cfg ConnectorConfig) (account string, err error)
+type ConnectorDef = connector.Def
+
+type Def struct {
+	Tool     string     // = provides.connectors 里的一项，^[a-z][a-z0-9_]{0,31}$，全局唯一
+	Label    string     // 必填
+	Category string     // im / media / market / dev / other
+	Color    string
+	Desc     string
+	CanSend  bool       // 能往外发（IM 回复）；只收不发的为 false
+	Auth     []AuthMode // 支持的认证方式，至少一个，第一个是默认：AuthNone / AuthOAuth2 / AuthToken
+	Fields   []Field    // 配置表单 {Key, Label, Kind(text/secret/select), Placeholder, Options, Required, Auth, Default, Long}
+	Tools    []ToolDef  // 静态工具目录 {Name, Desc, Write, Schema}；没有 ListTools 时就用它
+	Source   string     // 内核填成插件 id，插件写了也会被覆盖
+	OAuth    *OAuthSpec // Auth 含 oauth2 时必填：AuthURL、TokenURL、Scopes、AuthParams 等
+
+	Test        func(ctx context.Context, cfg Config) (account string, err error) // 必填，连通测试，回对方账号名（「我」从这里来，IM-03）
+	ListTools   func(ctx context.Context, cfg Config) ([]ToolDef, error)          // 可选，向对方拉工具清单
+	Call        func(ctx context.Context, cfg Config, tool string, args json.RawMessage) (string, error) // 可选，Agent 调工具（AG-02a）
+	CheckConfig func(values map[string]string) error                              // 可选，新建、修改时校验非凭证字段（CONN-04）
 }
-// Registrar.Connector(c ConnectorDef)
-// cfg.Secret("bot_token") 经凭证保险箱解密，只在调用期间有效，不落日志。
+// Registrar.Connector(d ConnectorDef)
+// cfg.Get(key) 取普通字段、cfg.Secret(key) 取凭证明文、cfg.AccessToken() 取 OAuth 令牌，只在调用期间有效，不落日志。
 ```
 
-例子（IM 消息，Slack）：
+旧设计里的单个 `Auth` 和 `Network` 字段没有了：认证方式是切片；出网组不写在定义上，适配函数自己用 `Core.HTTP(group)` 拿客户端。
+
+- 谁能调：任何插件，在 `Register` 里。`Tool` 不在 `provides.connectors`、本插件内重复、`connector.Prepare` 校验不过（缺 `Label`、没有认证方式、没有 `Test`、字段 key 不合法或重复、OAuth 配置缺）时 `Register` 整体失败。
+- 权限：登记本身不要权限；适配函数出网要清单声明并经确认的 `network:<group>`（3.1）。
+- 停用后定义从 `GET /api/connectors/defs` 里消失，已接入的实例一行不动、`available` 为 false；重新启用后恢复。和内核定义同 `tool` 时内核的优先（契约「插件提供的连接器」）。
+
+例子（IM 消息，Slack，`internal/connector/slack.go`，IM 插件经适配器的 `ConnectorProvider` 登记，见 2.13.10）：
 
 ```go
 r.Connector(plugin.ConnectorDef{
-	Tool: "slack", Auth: plugin.AuthToken, Network: "im",
-	Tools: []plugin.ConnectorToolDef{{Name: "read_messages", Write: false}, {Name: "post_message", Write: true}},
-	Test:  slack.Test,
+	Tool: "slack", Label: "Slack", Category: "im", Color: "#611f69", CanSend: true,
+	Auth:   []connector.AuthMode{connector.AuthToken},
+	Fields: []connector.Field{{Key: "bot_token", Label: "Bot Token", Kind: "secret", Required: true}},
+	Test: func(ctx context.Context, cfg connector.Config) (string, error) {
+		c, err := core.HTTP("im") // 适配器 Bind 时拿到的 Core
+		if err != nil {
+			return "", err
+		}
+		return slackAuthTest(ctx, c, cfg.Secret("bot_token"))
+	},
 })
 ```
 
@@ -533,6 +566,10 @@ r.Connector(plugin.ConnectorDef{
 | `List(ctx, tool)` | 按工具列实例，新建的在前；`tool` 为空列全部 |
 | `StartOAuth(ctx, id, returnTo)` | 发起这个实例的 OAuth 授权，回 `OAuthStart{AuthorizeURL, RedirectURI, ExpiresAt}`，口径同 `POST /api/connectors/{id}/oauth/start`：`returnTo` 只认站内路径或本机地址，实例不是 OAuth 或缺 client_id 回内核的冲突错误。回调照常落在内核 |
 | `Disconnect(ctx, id)` | 断开这个实例，口径同 `POST /api/connectors/{id}/disconnect`：状态置为 `disconnected`，OAuth 令牌删掉、授权状态清空。记一条审计（`action: disconnect`，`kind` 为 `agent`，操作者是插件 id），回断开后的 `ConnectorInfo` |
+| `With(ctx, id, fn)` | 把本插件登记的实例的配置交给回调，见下面「调对方接口时拿配置」（VID-04a） |
+| `RecordSync(ctx, id, syncErr)` | 记本插件登记的实例的一次同步结果，见 2.13.9（IM-01b） |
+
+`ConnectorInfo` 另有 `Interval`（同步间隔，分钟，0 是不定时同步，IM-01b）。
 
 这个句柄暂不按权限收窄：连接器的授权和断开都要用户在界面上点，插件只是替用户转一次（例：浏览器插件的「登录 Google」「退出登录」转给 Google Drive、Google 日历实例，BR-01a）。
 
@@ -651,8 +688,8 @@ type SOPNodeInput struct {
 - `GET /api/sop/node-types` 在内置节点后面接上插件节点，带 `source`；停用后消失。用到它的流程定义不动，保存照常（不查必填项），执行到这一步失败并写「提供这个节点的插件已停用」。
 - 挂起：`Run` 返回 `ErrWaiting`（可以包一层写原因，如 `fmt.Errorf("等对方回复：%w", plugin.ErrWaiting)`）时步骤停在 `running`，挂起状态落在步骤输出里，服务重启后不重跑、接着等。之后提供节点的插件调 `c.SOP().Resume(ctx, runID, step, output)` 唤醒，这一步 `done`、输出是 `output`，下游接着跑；只能唤醒自己提供的节点，步骤没在等、执行已结束都回错误。SOP 插件没在跑时回 `ErrNoSOPEngine`。`Resume` 要在 `Run` 返回之后调，先存下 `RunID`、`Step`。
 - 挂起后要让步骤失败（例：等回复超时）调 `c.SOP().Fail(ctx, runID, step, reason)`（SOP-02b），这一步 `failed`、`error` 是 `reason`，校验同 `Resume`。
-- `Registrar.SOPEngine` 只给 SOP 编排插件用（别的插件登记直接失败），是 `Resume` 的接收方。
-- 前端登记（`SopNodeRegistry`）归 SOP-03b。示例插件 `internal/plugin/plugintest` 登记了 `demo_wait_reply` 用来测试；第一方节点是 SOP-02b 的 IM 发消息 `im_send_message`、等回复 `im_wait_reply`（契约「IM 消息插件 im」的「SOP 节点」）。
+- `Registrar.SOPEngine` 只给 SOP 编排插件用（别的插件登记直接失败），是 `Resume`、`Fail` 的接收方；另外实现 `SOPFlowInstaller` 才接得住 `InstallFlow`、`RemoveFlow`。
+- 前端登记（`SopNodeRegistry`）SOP-03b 已实现，见 2.13.18。示例插件 `internal/plugin/plugintest` 登记了 `demo_wait_reply` 用来测试；第一方节点是 SOP-02b 的 IM 发消息 `im_send_message`、等回复 `im_wait_reply`（契约「IM 消息插件 im」的「SOP 节点」）。
 - 内置流程（VID-03d，`internal/plugin/sopflow.go`）：插件经 `Core.SOP().InstallFlow(ctx, SOPFlowTemplate)` 把自带的流程写进 SOP，`RemoveFlow(ctx, id)` 撤下。`SOPFlowTemplate` 形状同 `POST /api/sop/flows` 的请求体，id 必须是 `sop_<插件 id>_` 开头（靠前缀认归属，只能写入、撤下自己的）。内核只转交给 SOP 插件登记的执行引擎，引擎另外实现 `SOPFlowInstaller` 才接得住，否则回 `ErrNoSOPFlowInstaller`。写入时已有同 id 的不动、回 `false`；撤下只删还是第 1 版、没有进行中的执行、没被定时任务引用的，别的回 `false` 和原因。第一个用的是视频插件的「视频周更」（契约「视频创作插件 video」的「SOP 节点和内置流程」）。
 
 **发起 SOP 的钩子（SOP-01d，`internal/plugin/soplaunch.go`）**：SOP 编排是插件，内核不直接调它。定时任务的 `sop` 动作和 Agent 的内置工具 `run_sop` 经这个钩子起执行。
@@ -893,6 +930,568 @@ type ScheduleActionResult struct {
 
 ```go
 r.ScheduleAction(plugin.ScheduleActionDef{Kind: "demo_note", Validate: validateNote, Run: d.runNote})
+```
+
+### 2.13 内核句柄和新扩展点逐项参考
+
+DOC-02 补的文档欠账（`docs/dev-decisions.md` 记下的几批），按代码逐项核对过。每项写签名、谁能调、权限要求和一个最小例子；前面各节已经写过的口径（2.0 的「带操作者和审计的写入」「发通知」「发起运行」、2.5 的「调对方接口时拿配置」、2.7 的「后端的实现情况」）不重复，这里只补签名和例子。
+
+通用约定：
+
+- 「谁能调」里的「任何插件」指拿到自己 `Core` 的任何第一方插件：`Register` 里的 `r.Core()`，或后台任务、订阅、今日卡片、SOP 节点等回调传进来的 `c`。句柄都按调用方插件 id 收窄，拿别的插件的 `Core` 冒充做不到。
+- 「权限」写「不要权限」的，是 3.1 的权限清单里没有这一项，暂不按权限收窄；以后收窄时升插件 API 版本。
+- 没接上实现（测试里）时各句柄回自己的 `ErrNoXxx`，生产里 `cmd/pmw` 都接上了。
+
+#### 2.13.1 `Core.Store()` 的收窄规则
+
+```go
+// internal/plugin/store.go
+type Store interface {
+	Exec(ctx context.Context, query string, args ...any) (sql.Result, error)  // 走写连接
+	Query(ctx context.Context, query string, args ...any) (*sql.Rows, error)  // 走读连接
+	QueryRow(ctx context.Context, query string, args ...any) Row              // 检查不通过时 Scan 报错
+}
+type Row interface{ Scan(dest ...any) error }
+var ErrNoRows = sql.ErrNoRows // 插件不 import database/sql，用它判断没查到
+var ErrNoStore                // 注册表没接上数据库
+```
+
+- 谁能调：清单写了 `table_prefix` 的插件。没写前缀的插件每条语句都回「插件没有 table_prefix，不能用 Store」。
+- 权限：不要权限，靠下面的检查收窄。每条语句执行前（`checkStoreSQL`）：
+  1. 一次只能一条语句（按分号拆，字符串里的分号不算），多条回「Store 一次只能执行一条语句」。
+  2. 第一个词是 `ATTACH`、`DETACH`、`PRAGMA`、`VACUUM`、`CREATE`、`DROP`、`ALTER`、`REINDEX` 时拒绝：表结构只能在迁移里改（2.4）。
+  3. 取出字符串字面量以外的全部标识符（引号、反引号、方括号包着的去掉包装），和库里现有的表、视图名比对（不分大小写）：不以本插件前缀开头的表名一律拒绝；`sqlite_` 开头的系统表、`pragma_` 开头的表值函数也拒绝。报错写明是哪个标识符。
+  4. 列名、别名和别的表重名也会被拒（按字符串检查分不出是表还是列），插件的列避开内核表名即可，例：不要把列叫 `objects`、`tasks`。
+- 这是按字符串检查，第一方插件够用；开放第三方插件前要换成更严格的方式（`docs/dev-decisions.md`「插件框架补了数据句柄」）。
+
+例子：
+
+```go
+var n int
+err := c.Store().QueryRow(ctx, `SELECT count(*) FROM im_messages WHERE connector_id = ?`, cn.ID).Scan(&n)
+// c.Store().Exec(ctx, `UPDATE objects SET title = ''`) 回「Store 只能访问 im_ 开头的表，语句里出现了 objects」
+```
+
+#### 2.13.2 `Core.Conversations()`
+
+```go
+// internal/plugin/store.go、identities.go
+type ConversationInfo struct {
+	ID, Channel, ExternalID string
+	Kind                    string // group 或 direct
+	Name                    string
+}
+type ConversationReader interface {
+	Get(ctx context.Context, id string) (ConversationInfo, error)
+	// Find 按渠道和渠道里的会话编号找；编号规整同 imident（telegram 去掉开头的 @），格式不对当查不到
+	Find(ctx context.Context, channel, externalID string) (ConversationInfo, error)
+}
+```
+
+- 谁能调：任何插件。只读，查内核的 IM 会话表（CT-02，`conversations`），不带成员；建会话、改成员走内核 `/api/conversations`。
+- 权限：不要权限。
+- 查不到回 `ErrNoRows`。
+
+例子（IM 插件收到消息时认会话）：
+
+```go
+cv, err := c.Conversations().Find(ctx, "slack", "C0123")
+if errors.Is(err, plugin.ErrNoRows) {
+	// 还没有这个会话，走内核接口建
+}
+```
+
+#### 2.13.3 `Core.Identities()`
+
+```go
+// internal/plugin/identities.go
+type IdentityInfo struct {
+	ID, StakeholderID, Channel, ExternalID, DisplayName string
+}
+type IdentityReader interface {
+	Get(ctx context.Context, id string) (IdentityInfo, error)
+	Find(ctx context.Context, channel, externalID string) (IdentityInfo, error) // 规整规则同 Conversations().Find
+}
+```
+
+- 谁能调：任何插件。只读，查联系人的 IM 身份（CT-01b，`contact_identities`）；收消息时按渠道编号认人，不按名字。写身份走内核 `/api/im-identities`。
+- 权限：不要权限。
+- 查不到、渠道或编号格式不对都回 `ErrNoRows`。
+
+例子：
+
+```go
+id, err := c.Identities().Find(ctx, "telegram", "@alice") // 等价于 "alice"
+if err == nil {
+	contact, _ := c.Contacts().Get(ctx, id.StakeholderID)
+	_ = contact
+}
+```
+
+#### 2.13.4 `Core.ObjectWriter()`
+
+```go
+// internal/plugin/objects_write.go、writes.go
+type NewObject struct {
+	TypeID, Title, Body, Status, Priority string // Status 空取类型的第一个状态
+	ProjectID, OwnerID                     *string
+	DueAt                                  *time.Time
+	CategoryID                             *string // 只有 CreateAs 认，Create 忽略
+	Props                                  map[string]any
+	Tags                                   []string
+}
+type CreatedObject struct {
+	ID, Ref, TypeID, Title, Status, Source string
+	Reused                                 bool // 按幂等键取回的上次结果
+}
+type ObjectWriter interface {
+	Create(ctx context.Context, o NewObject) (CreatedObject, error)                          // IM-02a
+	CreateAs(ctx context.Context, o NewObject, m WriteMeta) (CreatedObject, error)           // SOP-02a
+	AppendBody(ctx context.Context, id, text string, m WriteMeta) (CreatedObject, error)     // SOP-02a
+}
+```
+
+- 谁能调：任何插件。只能建对象、追加正文，不能改字段、删除、建关联。校验同 `POST /api/objects`，错误可以 `errors.Is(err, domain.ErrValidation)`、`domain.ErrNotFound`。没接上回 `ErrNoObjectWriter`，接上的 store 不支持追加正文时回 `ErrWriteUnsupported`。
+- 权限：不要权限；暂不限制能建哪些类型，等 `ObjectService` 落地时按「本插件声明或认领的类型」收。
+- `Create` 和 `CreateAs` 的区别：`Create` 操作者记为插件 id、来源 `plugin`，修订、事件照常，不另记审计、没有幂等；`CreateAs`、`AppendBody` 带 `WriteMeta`，操作者、审计、幂等的口径见 2.0「带操作者和审计的写入」。两者的 `objects.source` 都固定是插件 id。
+
+例子（IM 消息转任务，`internal/plugins/im/actions.go`）：
+
+```go
+task, err := c.ObjectWriter().Create(ctx, plugin.NewObject{TypeID: "task", Title: "回复 Alice 的报价问题", Props: map[string]any{"source_ref": ref}})
+```
+
+#### 2.13.5 `Core.ContactWriter()`
+
+```go
+// internal/plugin/writes.go
+type NewContact struct {
+	Name, Company, Title, Phone, Email, Group, Note string // Name 必填
+	Tags                                           []string
+}
+type ContactPatch struct{ Name, Company, Title, Phone, Email, Group, Note *string } // nil 不改
+type WrittenContact struct {
+	ID, Name string
+	Fields   []string // Merge 改了的字段，新建时为空
+	Reused   bool
+}
+type ContactWriter interface {
+	Create(ctx context.Context, in NewContact, m WriteMeta) (WrittenContact, error)
+	Merge(ctx context.Context, id string, p ContactPatch, m WriteMeta) (WrittenContact, error)
+}
+```
+
+- 谁能调：任何插件，必须带 `WriteMeta`。校验同 `POST /api/stakeholders`、`PATCH /api/stakeholders/{id}`（`ContactPatch` 不含归档）。
+- 权限：不要权限。
+- 每次成功写入记一条审计（`target_type` 为 `stakeholder`，`action` 为 `create` 或 `update`，`detail.fields` 是改了的字段）；`Key` 非空时按审计去重，没有建对象那层 `props` 兜底。找人用只读的 `Contacts().FindByName(ctx, name)`。
+
+例子（SOP 的写联系人节点）：
+
+```go
+meta := plugin.WriteMeta{Session: in.RunID, Key: in.RunID + "/" + in.Step, Detail: map[string]any{"step": in.Step}}
+if old, err := c.Contacts().FindByName(ctx, name); err == nil {
+	_, err = c.ContactWriter().Merge(ctx, old.ID, plugin.ContactPatch{Email: &email}, meta)
+} else if errors.Is(err, plugin.ErrNoRows) {
+	_, err = c.ContactWriter().Create(ctx, plugin.NewContact{Name: name, Email: email}, meta)
+}
+```
+
+#### 2.13.6 `Core.Connectors()`
+
+```go
+// internal/plugin/connectors_read.go、connectors_config.go、connectors_sync.go
+type ConnectorReader interface {
+	Get(ctx context.Context, id string) (ConnectorInfo, error)
+	List(ctx context.Context, tool string) ([]ConnectorInfo, error)            // 新建的在前，tool 空列全部
+	StartOAuth(ctx context.Context, id, returnTo string) (OAuthStart, error)
+	Disconnect(ctx context.Context, id string) (ConnectorInfo, error)
+	With(ctx context.Context, id string, fn func(ConnectorConfig) error) error // ConnectorConfig = connector.Config
+	RecordSync(ctx context.Context, id string, syncErr error) (ConnectorInfo, error)
+}
+```
+
+- 谁能调：
+  - `Get`、`List`、`StartOAuth`、`Disconnect`：任何插件，能看到所有实例（含内核和别的插件的），但拿不到配置和凭证。
+  - `With`、`RecordSync`：只对本插件登记的实例（定义的 `Source` 是本插件 id）；别的实例、没有这个 id、本插件停用后定义不在了，都回 `ErrNoRows`。
+- 权限：不要权限。授权、断开要用户在界面上点，插件只是替用户转一次；`With` 回调里出网仍要 `Core.HTTP(group)`，受 `network:<group>` 管。
+- 各方法的口径见 2.5 的「连接器实例句柄」表和「调对方接口时拿配置」。没接上回 `ErrNoConnectors`。
+
+例子（视频插件调 B 站接口）：
+
+```go
+err := c.Connectors().With(ctx, cn.ID, func(cfg plugin.ConnectorConfig) error {
+	hc, err := c.HTTP("media-platforms")
+	if err != nil {
+		return err
+	}
+	return uploadTo(ctx, hc, cfg.AccessToken())
+})
+```
+
+#### 2.13.7 `Registrar.ConnectorImpact`
+
+```go
+// internal/plugin/impact.go
+type ConnectorRef struct{ ID, Tool string } // 以后加字段只加不改
+type ConnectorImpactDef struct {
+	Key  string // 本插件内唯一，^[a-z][a-z0-9_]*$
+	Load func(ctx context.Context, c Core, cn ConnectorRef) (*ConnectorImpactData, error)
+}
+type ConnectorImpactData struct {
+	Count  int
+	Text   string // 给人看的一句话，Count > 0 时必填
+	Effect string // ImpactKeep / ImpactRevoke / ImpactDetach / ImpactFallback
+}
+const ConnectorImpactTimeout = 2 * time.Second
+```
+
+- 谁能调：任何插件，在 `Register` 里。不进清单 `provides`；`Key` 不合法、没有 `Load`、本插件内重复时 `Register` 失败。
+- 权限：不要权限。
+- 删连接器实例前接口层（`GET /api/connectors/{id}/impact`，契约「删除前的影响检查」）并发问在跑的插件；返回 nil 或 `Count` 为 0 表示没影响；超时（2 秒）、出错、panic、`Text` 空、`Effect` 不在四个值里都记为「没查完」（`Failed`），不当成没有影响。停用的插件不问。删除本身不经过插件，提供者只负责如实说出删除后它的数据会怎样。
+
+例子（IM 插件，`internal/plugins/im/impact.go`）：
+
+```go
+r.ConnectorImpact(plugin.ConnectorImpactDef{Key: "messages", Load: func(ctx context.Context, c plugin.Core, cn plugin.ConnectorRef) (*plugin.ConnectorImpactData, error) {
+	var n int
+	if err := c.Store().QueryRow(ctx, `SELECT count(*) FROM im_messages WHERE connector_id = ?`, cn.ID).Scan(&n); err != nil || n == 0 {
+		return nil, err
+	}
+	return &plugin.ConnectorImpactData{Count: n, Effect: plugin.ImpactKeep, Text: fmt.Sprintf("%d 条 IM 消息会变成「渠道已删除」，只能查看", n)}, nil
+}})
+```
+
+#### 2.13.8 `Registrar.Connector` 的新结构
+
+签名 `Connector(d ConnectorDef)`，`ConnectorDef = connector.Def`，字段、校验、谁能调、权限和例子见 2.5「后端」。和最初设计的差别：
+
+| 设计（CORE-01a） | 现在（CONN-02 起） |
+|---|---|
+| `Auth AuthMode` 单个 | `Auth []AuthMode`，第一个是默认；字段可以用 `Field.Auth` 只属于某几种认证方式（CONN-04） |
+| `Network string` 写在定义上 | 去掉。适配函数自己调 `Core.HTTP(group)`，组要在清单 `permissions` 里声明 |
+| `Tools []ConnectorToolDef{Name, Write}` | `Tools []connector.ToolDef{Name, Desc, Write, Schema}`，另有可选的 `ListTools` 向对方拉、`Call` 真正调用 |
+| 没有 | `Label`、`Category`、`Color`、`Desc`、`CanSend`、`Fields`、`OAuth`、`CheckConfig`；`Source` 由内核填 |
+
+#### 2.13.9 `Connectors().RecordSync`
+
+```go
+RecordSync(ctx context.Context, id string, syncErr error) (ConnectorInfo, error)
+```
+
+- 谁能调：任何插件，只对本插件登记的实例；别的实例、没有这个 id 回 `ErrNoRows`。
+- 权限：不要权限。
+- `syncErr` 为 nil：记同步时间（`last_sync_at`）；状态是 `error`、`connecting` 的回到 `connected`，`error` 时清掉原因；暂停、断开的不动。
+- `syncErr` 非 nil：状态置为 `error`（暂停、断开的不动），原因记成错误文字，里面出现这个实例的凭证原文时换成 `***`，空文字记「同步失败」。实例异常后 IM 插件的回复、取附件随之被拦，界面上显示「渠道异常」。
+- 回记完之后的 `ConnectorInfo`。记失败只影响状态显示，调用方一般只打日志。
+
+例子（IM 插件 Slack 适配器每拉完一个实例记一次，`internal/plugins/im/slack.go`，`err` 是这次拉取的错误）：
+
+```go
+if _, rerr := c.Connectors().RecordSync(ctx, cn.ID, err); rerr != nil {
+	c.Log().Warn("record slack sync failed", "connector", cn.ID, "err", rerr)
+}
+```
+
+#### 2.13.10 IM 适配器的可选接口
+
+这一项不是内核的插件 API，是 IM 插件（`internal/plugins/im/adapter.go`、`instances.go`）给渠道适配器定的接口；新渠道（飞书、企业微信）照它接。适配器在 `im.New(adapters...)` 时给定（`cmd/pmw` 里），启用后不再变。
+
+```go
+type Adapter interface {
+	Key() string     // 本插件内唯一，^[a-z][a-z0-9_]{0,31}$，回调路径和拉取进度用它
+	Channel() string // 渠道 key，和 IM 身份、会话的 channel 同一套
+}
+// 两种接法至少实现一种，可以都实现
+type Puller interface {   // 后台任务 pull_<key> 按 Interval 拉，0 取 30 秒
+	Adapter
+	Interval() time.Duration
+	Pull(ctx context.Context, cursor string) (msgs []Incoming, next string, err error)
+}
+type Receiver interface { // 渠道回调 POST /api/im/callbacks/{key} 推进来，验签是适配器自己的事
+	Adapter
+	Receive(r *http.Request) ([]Incoming, error) // 回 *CallbackReply 时插件原样写回状态码和响应体
+}
+
+// 可选接口，插件用类型断言探测
+type Replier interface {        // 能回消息（IM-02a）；没实现时回复回 409 unsupported
+	Adapter
+	Reply(ctx context.Context, out Outgoing) (externalID string, err error)
+}
+type Fetcher interface {        // 能下载附件（IM-04a）；没实现时获取回 409 unsupported
+	Adapter
+	Fetch(ctx context.Context, ref AttachmentRef) (io.ReadCloser, error)
+}
+type Binder interface{ Bind(c plugin.Core) }                      // 要插件句柄时实现，每次 Register 都交一次（IM-01b）
+type ConnectorProvider interface{ ConnectorDef() plugin.ConnectorDef } // 自带连接器定义，Register 时经 r.Connector 登记（IM-01b）
+type Scheduler interface{ Due(ctx context.Context, now time.Time) bool } // 拉取型自己决定这一轮拉不拉；立即同步不问它（IM-01b）
+type Handles interface{ Handles() []string }                       // 「我」在这个渠道里的称呼，@ 到它算 @我
+type InstancePuller interface {                                   // 立即同步只拉指定实例（IM-01d）
+	PullConnector(ctx context.Context, connectorID, cursor string) (msgs []Incoming, next string, err error)
+}
+```
+
+- 谁能调：只有 IM 插件自己调适配器；适配器拿到的 `plugin.Core` 是 IM 插件的，所以 `Connectors().With`、`RecordSync` 只对 IM 插件登记的实例有效。
+- 权限：适配器出网用 `Core.HTTP("im")`，要 IM 插件清单里的 `network:im` 经用户确认；`ConnectorProvider` 的 `tool` 要写进 IM 清单的 `provides.connectors`，并和适配器的渠道同名。
+- 进度：`cursor` 存在 `im_cursors` 里适配器的一行，一个工具接多个实例时按实例分开存（`{"instances": {<连接器 id>: <进度>}}`），整批落库后才存。
+
+例子（最小的拉取型适配器，示意：飞书还没做，`connector.Lark` 不存在）：
+
+```go
+type Lark struct{ c plugin.Core }
+
+func (l *Lark) Key() string                   { return "lark" }
+func (l *Lark) Channel() string               { return "lark" }
+func (l *Lark) Interval() time.Duration       { return time.Minute }
+func (l *Lark) Bind(c plugin.Core)            { l.c = c }
+func (l *Lark) ConnectorDef() plugin.ConnectorDef { return connector.Lark() }
+func (l *Lark) Pull(ctx context.Context, cursor string) ([]im.Incoming, string, error) {
+	// 用 l.c.Connectors().List(ctx, "lark") 逐个实例拉，拉完 RecordSync
+	return nil, cursor, nil
+}
+```
+
+#### 2.13.11 `Core.Notify`
+
+```go
+// internal/plugin/notify.go
+Notify(ctx context.Context, n Notification) error
+
+type Notification struct {
+	Kind     string // 必填，^[a-z][a-z0-9_]*(\.[a-z0-9_]+)*$，内核补成 <插件 id>.<kind>
+	Level    string // NotifyInfo / NotifySuccess / NotifyError，空记 info
+	Title    string // 必填
+	Body     string
+	ObjectID string
+	Data     map[string]any // source 键由内核写成插件 id
+}
+var ErrNoNotifier, ErrNotifyInactive error
+```
+
+- 谁能调：在跑的插件（停用了、还没启用回 `ErrNotifyInactive`）。插件 id 是内核事件命名空间（`object`、`task`、`run`、`contact`）或 1.4 保留字的一律拒绝；补完前缀后正好是内核事件类型的也拒绝。
+- 权限：不要权限。
+- 口径见 2.0「发通知」。
+
+例子：
+
+```go
+err := c.Notify(ctx, plugin.Notification{Kind: "publish_failed", Level: plugin.NotifyError,
+	Title: "发布失败", Body: "B 站回了 401，到连接器里重新授权", ObjectID: videoID})
+// 通知的 kind 是 video.publish_failed
+```
+
+#### 2.13.12 `Core.Audit`
+
+```go
+// internal/plugin/audit_note.go
+type AuditNote struct {
+	Action     string // 例 send
+	TargetType string // 例 conversation
+	TargetID   string
+	Summary    string
+	Detail     map[string]any
+}
+type AuditLog interface {
+	Note(ctx context.Context, n AuditNote, m WriteMeta)
+}
+```
+
+- 谁能调：任何插件。用在没有内核写入可挂的对外动作上（例：IM 插件在 SOP 里发消息）；建对象、写联系人用 `ObjectWriter().CreateAs`、`ContactWriter()`，它们自己记审计，不用再调。
+- 权限：不要权限。
+- 口径同 2.0「带操作者和审计的写入」：`kind` 为 `agent`、`source` 为 `plugin`，操作者「插件 id#`WriteMeta.Session`」；`n.Detail` 优先，`m.Detail` 里没冲突的键补进去，`m.Key` 记成 `detail.write_key`。没有返回值：写失败只记日志（同 CORE-08），不挡调用方。
+
+例子（`internal/plugins/im/sopnodes.go`）：
+
+```go
+c.Audit().Note(ctx, plugin.AuditNote{Action: "send", TargetType: "conversation", TargetID: cv.ID,
+	Summary: "发消息到 #product", Detail: map[string]any{"status": "sent", "external_id": ext}},
+	plugin.WriteMeta{Session: in.RunID, Key: fmt.Sprintf("%s/%s#%d", in.RunID, in.Step, in.Attempt)})
+```
+
+#### 2.13.13 `Core.Runs`
+
+```go
+// internal/plugin/runs.go
+type RunService interface {
+	StartAgent(ctx context.Context, q AgentRunStart) (string, error)          // {Agent, Prompt, Title}
+	StartSOP(ctx context.Context, q SOPRunStart) (string, error)              // {Flow, Input}
+	StartClaudeCode(ctx context.Context, q ClaudeCodeStart) (string, error)   // {Workdir, Prompt, AllowWrites, ObjectID, ScopeType, ScopeID}
+	Get(runID string) (RunInfo, error)                                       // 只查本插件发起的
+}
+var ErrRunNotFound, ErrNoClaudeRunner, ErrRunInactive error
+```
+
+- 谁能调：在跑的插件（停用期间发起回 `ErrRunInactive`）；`Get` 只认本插件发起的，别的回 `ErrRunNotFound`。
+- 权限：`StartAgent`、`StartSOP` 不要权限；`StartClaudeCode` 默认只读不要权限，`AllowWrites: true` 要用户确认过 `process:spawn`，没确认回 `*NotGrantedError`（`errors.Is(err, plugin.ErrNotGranted)`）。
+- 想收到跑完的通知，清单 `subscribes` 写 `run.finished` 并 `Subscribe`。口径见 2.0「发起运行」。
+
+例子（视频插件交给 Claude Code 写稿）：
+
+```go
+id, err := c.Runs().StartClaudeCode(ctx, plugin.ClaudeCodeStart{Workdir: dir, Prompt: prompt, ScopeType: "video", ScopeID: videoID})
+// 之后在 run.finished 的订阅里：
+r.Subscribe("run.finished", func(ctx context.Context, c plugin.Core, e plugin.Event) error {
+	var p struct{ RunID string `json:"run_id"` }
+	_ = json.Unmarshal(e.Payload, &p)
+	info, err := c.Runs().Get(p.RunID)
+	if errors.Is(err, plugin.ErrRunNotFound) {
+		return nil // 任务执行的那条，或别人的
+	}
+	return saveDraft(ctx, c, info)
+})
+```
+
+#### 2.13.14 `SOP().Fail`
+
+```go
+// internal/plugin/sopnode.go
+Fail(ctx context.Context, runID, step, reason string) error
+```
+
+- 谁能调：提供这个节点的插件（内核把调用方插件 id 交给引擎，引擎只认它自己提供的节点）；要在节点 `Run` 返回 `ErrWaiting` 之后调，先存下 `RunID`、`Step`。
+- 权限：不要权限。
+- 这一步置为 `failed`、`error` 是 `reason`；`reason` 空时记「插件 <id> 结束了这一步」。步骤没在等、执行已结束、不是本插件的节点都回错误；SOP 插件没在跑回 `ErrNoSOPEngine`。要成功唤醒用 `Resume(ctx, runID, step, output)`。
+
+例子（IM 等回复节点超时，`internal/plugins/im/sopnodes.go`）：
+
+```go
+reason := fmt.Sprintf("等了 %s，%s里对方还没回复（超时）", humanDur(d), convLabel(cv))
+if err := c.SOP().Fail(ctx, w.runID, w.step, reason); err != nil {
+	if errors.Is(err, plugin.ErrNoSOPEngine) {
+		continue // SOP 没在跑，下一轮再试
+	}
+	c.Log().Debug("im sop wait timeout fail", "run", w.runID, "step", w.step, "err", err)
+}
+```
+
+#### 2.13.15 `SOP().InstallFlow`、`SOP().RemoveFlow`
+
+```go
+// internal/plugin/sopflow.go
+InstallFlow(ctx context.Context, t SOPFlowTemplate) (created bool, err error)
+RemoveFlow(ctx context.Context, id string) (removed bool, reason string, err error)
+
+type SOPFlowTemplate struct { // 形状同 POST /api/sop/flows 的请求体
+	ID      string          `json:"id"` // sop_<插件 id>_ 开头，后面只能是小写字母、数字、下划线
+	Name    string          `json:"name"`
+	Desc    string          `json:"desc"`
+	Trigger string          `json:"trigger"`
+	Fields  json.RawMessage `json:"fields"`
+	Steps   json.RawMessage `json:"steps"`
+	Layout  json.RawMessage `json:"layout,omitempty"`
+}
+var ErrNoSOPFlowInstaller error
+```
+
+- 谁能调：任何插件，只能写入、撤下 id 以 `sop_<本插件 id>_` 开头的流程（前缀不对直接回错误，不转给引擎）。用户复制出来的副本是新 id，不归插件。
+- 权限：不要权限。
+- SOP 插件没在跑、或它的引擎没实现 `SOPFlowInstaller` 回 `ErrNoSOPFlowInstaller`，调用方下次再试。写入时已有同 id 的不动、回 `false`；撤下只删还是第 1 版、没有进行中的执行、没被定时任务引用的，别的回 `false` 和原因（不算出错）。
+- 插件自己记「写过没有」（视频插件用 `video_sop_templates` 表），用户删掉内置流程后不会被再写回来。
+
+例子（`internal/plugins/video/sopnodes.go`）：
+
+```go
+created, err := c.SOP().InstallFlow(ctx, plugin.SOPFlowTemplate{ID: "sop_video_weekly", Name: "视频周更", Steps: steps})
+if errors.Is(err, plugin.ErrNoSOPFlowInstaller) {
+	return nil // SOP 没在跑，下次再试
+}
+```
+
+#### 2.13.16 `Core.Granted` 和 `plugin.Require`
+
+```go
+// internal/plugin/permissions.go
+Granted(perm string) bool              // Core 的方法
+func Require(c Core, perm string) error // 没确认时回 *NotGrantedError
+type NotGrantedError struct{ ID, Perm string } // errors.Is(err, ErrNotGranted)
+```
+
+- 谁能调：任何插件查自己的权限；没安装时一律 false。不拿注册表的锁，后台任务里随便调。
+- 权限：只认插件状态表里用户确认过的权限，清单里声明了但升级时还没确认的也是 false（3.3、4.5）。
+- 要高风险权限的代码路径执行前调 `Require`，错误文字直接给用户看（「插件 <id> 的 <权限> 权限还没确认，到插件管理里升级并确认」）；接口里一般回 409。现在检查的地方见 3.3 的表，另外视频插件在读项目目录前查 `fs:read:project`、交给 Claude Code 写文件前查 `process:spawn`。
+
+例子（`internal/plugins/projects/procman.go`）：
+
+```go
+if err := plugin.Require(c, "process:spawn"); err != nil {
+	return err // 「插件 projects 的 process:spawn 权限还没确认，到插件管理里升级并确认」
+}
+```
+
+#### 2.13.17 前端扩展点 `todaySources`
+
+```ts
+// frontend/src/core/plugin/todaySources.ts（ALIGN-08）
+export type TodayTone = 'danger' | 'warn' | 'info' | 'ok'
+export type TodayItem = { id: string; tone: TodayTone; title: string; sub: string; at?: string | null; action?: string; to?: string; href?: string }
+export const TODAY_ORDER = { sop: 10, agent: 20, review: 30, im: 40, incident: 50, connection: 60 } as const
+
+export interface TodaySourceDef<T = unknown> {
+  key: string                       // 本插件内唯一
+  slot: 'need' | 'running'          // 「需要你处理」的一组，或「正在运行」的几行
+  label: string                     // 组名；running 用在出错提示里
+  order: number                     // 越小越靠前，见 TODAY_ORDER
+  queryKey: QueryKey                // 放在对应资源的缓存前缀下，资源一变今日跟着刷
+  queryFn: (ctx: { signal: AbortSignal }) => Promise<T>
+  refetchInterval?: number | false
+  select: (data: T) => { total: number; items: TodayItem[] } // total 是全量条数，items 可以只给前几条
+  more?: string                     // 「查看全部」去哪，不给不显示
+}
+export interface TodaySourceRegistry { register<T>(def: TodaySourceDef<T>): Disposable }
+// PluginApi.todaySources
+```
+
+- 谁能调：任何插件，在 `activate` 里调 `api.todaySources.register`。不进清单 `provides`（条目长什么样由内核定，插件只给数据）；同一插件 `key` 重复时抛错。停用插件时按插件 id 撤掉。
+- 权限：不要权限；数据照常走 `api.data` 里的接口。
+- 和今日卡片（2.8）的区别：卡片是插件自己渲染的一块，数据来自今日聚合接口；来源是今日页统一渲染的行，今日页用 `useQueries` 把所有来源一起取，汇总数字跟着相加，取失败的来源单独显示出错和重试。
+
+例子（IM 插件，`frontend/src/plugins/im/index.ts`）：
+
+```ts
+api.todaySources.register({
+  key: 'pending', slot: 'need', label: 'IM 消息', order: TODAY_ORDER.im, more: '/messages',
+  queryKey: dataKeys.im.list,
+  queryFn: ({ signal }) => imApi.all(signal),
+  select: (rows: ImMessage[]) => {
+    const items = rows.filter((m) => m.status === 'pending').map((m) => ({
+      id: m.id, tone: 'info' as const, title: m.text, sub: m.conversation || '私聊', at: m.at, action: '回复', to: `/messages?m=${m.id}`,
+    }))
+    return { total: items.length, items }
+  },
+})
+```
+
+#### 2.13.18 前端扩展点 `sopNodes`
+
+签名见 2.7 前端的 `SopNodeView`、`SopNodeRegistry`（`frontend/src/core/plugin/api.ts`，SOP-03b）。
+
+- 谁能调：任何插件，在 `activate` 里调 `api.sopNodes.register`。`kind` 必须在清单 `provides.sop_nodes` 里，别的插件已经登记过同一个 `kind` 时拒绝（开发环境抛错，生产环境拒绝并记原因，同 2.0 规则）。
+- 权限：不要权限。
+- 只管编辑器里怎么显示（名字、说明、颜色、配置表单）；有没有这种节点、分组、必填项以后端 `GET /api/sop/node-types`（`Registrar.SOPNode`）为准。没装 SOP 插件时没人读，不报错。`options` 在编辑器渲染时调，可以读数据层缓存，缓存变了编辑器会重新调；它抛错时当没有选项。
+
+例子（IM 插件等回复节点，`frontend/src/plugins/im/index.ts`）：
+
+```ts
+api.sopNodes.register({
+  kind: 'im_wait_reply', label: '等待回复', group: '沟通', color: '#0c8599', desc: '等这个会话里对方的下一条消息，超时失败',
+  fields: [{ key: 'conversation', label: '会话', type: 'select', required: true, options: conversationOptions },
+           { key: 'timeout', label: '超时', type: 'text', default: '1 小时', hint: '留空是 1 小时，最多 30 天；也认 90s、1h30m' }],
+})
+```
+
+#### 2.13.19 清单的 `icon` 和 `icons`
+
+```jsonc
+{ "icon": "<图标 key>", "icons": { "<模块 id>": "<图标 key>" } } // 都可选，见 1.1
+```
+
+- 谁能写：任何插件的 `plugin.json`。校验前后端一致（`internal/plugin/manifest.go`、`frontend/src/core/plugin/manifest.ts`）：图标 key 必须是 `^[a-z][a-z0-9_]*$`；`icons` 的键必须是本插件 `provides.modules` 里的模块，值必须是字符串。不合法时清单校验失败：后端第一方插件 `MustParse` 直接 panic（清单写错是编译期问题），前端不加载这个插件。
+- 权限：不要权限。
+- 外壳怎么取（`frontend/src/core/shell/pluginIcons.ts`、`icons.tsx`）：模块的图标 key 取 `icons[模块 id]`，没有取 `icon`；按构建时打进来的清单算，插件启没启用不影响；两个插件给同一模块时取先发现的那个。渲染时内核模块（今日、任务、文档、联系人、会话、设置）的内置图标优先，其次是插件图标集里的 key（现有 `folder`、`message`、`terminal`、`globe`、`video`、`candles`、`pulse`、`chart`、`swap`、`flow`），外壳不认识的 key 用默认图标。加新图标 key 改 `icons.tsx` 的 `PLUGIN_ICONS`。
+
+例子（`internal/plugins/im/plugin.json`）：
+
+```json
+{ "id": "im", "name": "IM 消息", "icon": "message", "provides": { "modules": ["messages"] } }
 ```
 
 ---
@@ -1183,3 +1782,5 @@ stateDiagram-v2
 |---|---|---|
 | 1.0.0 | 2026-10-28 | 初版（CORE-01a） |
 | 1.1.0 | 2026-10-29 | `Core` 加 `Runs()`：发起 Agent、SOP 运行和交给 Claude Code，跑完给发起的插件投 `run.finished`（VID-03a） |
+
+文档补记（不改版本号，DOC-02，2026-10-29）：补写 1.0.0 到 1.1.0 之间各批已经加进代码、文档没跟上的句柄和扩展点（2.13），2.0 的代码块、2.5 的连接器定义按代码改正。这些按 1.3 本该升小版本，发布前由用户定稿版本号时一起写进上表。

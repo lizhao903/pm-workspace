@@ -3,6 +3,8 @@
 // 产出物和验收记录（VID-01b）落在 video_artifacts、video_artifact_reviews，形状同原型 web-next/src/videodata.ts。
 // 阶段执行器（VID-03b）落在 video_runners、video_runs，经 Core.Runs 发起技能（本机 Claude Code）、SOP、Agent。
 // 内容平台适配接口和 B 站连接器（VID-04b）见 platform.go、bilibili.go、remote.go，出网走 Core.HTTP("media-platforms")。
+// 平台账号、平台规则、数据按天快照（VID-05a）见 accounts.go、rules.go、snapshots.go，表 video_accounts、video_metric_snapshots。
+// YouTube、抖音连接器（VID-04d）见 youtube.go、douyin.go，没有上传能力的平台用 package.go 的发布包。
 // 接口契约见 docs/api-contract.md「视频创作插件 video」。
 package video
 
@@ -34,7 +36,7 @@ type Plugin struct {
 	platforms []PlatformAdapter
 }
 
-func New() *Plugin { return newWith(NewBilibili()) }
+func New() *Plugin { return newWith(NewBilibili(), NewYouTube(), NewDouyin()) }
 
 func newWith(adapters ...PlatformAdapter) *Plugin {
 	return &Plugin{m: plugin.MustParse(manifestJSON), platforms: adapters}
@@ -83,6 +85,13 @@ func (p *Plugin) Register(r plugin.Registrar) error {
 		m.HandleFunc("POST /api/video/publishes/{id}/submit", h.submitPublish)
 		m.HandleFunc("POST /api/video/publishes/{id}/sync", h.syncPublish)
 		m.HandleFunc("GET /api/video/publishes/{id}/comments", h.listComments)
+		m.HandleFunc("GET /api/video/publishes/{id}/snapshots", h.listSnapshots)
+		m.HandleFunc("GET /api/video/accounts", h.listAccounts)
+		m.HandleFunc("POST /api/video/accounts", h.addAccount)
+		m.HandleFunc("GET /api/video/accounts/{id}", h.showAccount)
+		m.HandleFunc("PATCH /api/video/accounts/{id}", h.updateAccount)
+		m.HandleFunc("DELETE /api/video/accounts/{id}", h.removeAccount)
+		m.HandleFunc("GET /api/video/publishes/{id}/package", h.publishPackage)
 		m.HandleFunc("GET /api/video/artifacts", h.listArtifacts)
 		m.HandleFunc("POST /api/video/artifacts", h.addArtifact)
 		m.HandleFunc("GET /api/video/artifacts/{id}", h.showArtifact)
@@ -90,12 +99,15 @@ func (p *Plugin) Register(r plugin.Registrar) error {
 		m.HandleFunc("DELETE /api/video/artifacts/{id}", h.removeArtifact)
 		m.HandleFunc("POST /api/video/artifacts/{id}/reviews", h.review)
 		m.HandleFunc("POST /api/video/artifacts/{id}/bump", h.bump)
+		m.HandleFunc("GET /api/video/artifacts/{id}/content", h.showContent)
+		m.HandleFunc("PUT /api/video/artifacts/{id}/content", h.putContent)
 		m.HandleFunc("GET /api/video/topics", h.listTopics)
 		m.HandleFunc("POST /api/video/topics", h.addTopic)
 		m.HandleFunc("GET /api/video/topics/{id}", h.showTopic)
 		m.HandleFunc("PATCH /api/video/topics/{id}", h.updateTopic)
 		m.HandleFunc("DELETE /api/video/topics/{id}", h.removeTopic)
 		m.HandleFunc("POST /api/video/topics/{id}/make", h.makeVideo)
+		m.HandleFunc("PUT /api/video/videos/{id}/topic", h.putVideoTopic)
 		m.HandleFunc("GET /api/video/clips", h.listClips)
 		m.HandleFunc("POST /api/video/clips", h.addClip)
 		m.HandleFunc("GET /api/video/clips/{id}", h.showClip)
@@ -103,9 +115,12 @@ func (p *Plugin) Register(r plugin.Registrar) error {
 		m.HandleFunc("DELETE /api/video/clips/{id}", h.removeClip)
 		m.HandleFunc("POST /api/video/clips/{id}/topic", h.clipToTopic)
 		m.HandleFunc("POST /api/video/clips/{id}/link", h.linkTopic)
+		m.HandleFunc("POST /api/video/clips/comments", h.pullComments)
 	})
 	r.Subscribe(plugin.RunFinishedEvent, h.onRunFinished)
 	h.registerSOP(r)
+	r.Job(plugin.Job{Name: "metrics_daily", Every: metricsEvery, Run: h.metricsJob})
+	r.Job(commentJob(h))
 	return nil
 }
 
@@ -114,11 +129,16 @@ type handler struct {
 	// 0002 时登记的产出物补没补过（VID-02a，artifacts.go 的 upgradeLegacy）
 	legacyMu   sync.Mutex
 	legacyDone bool
+	// 0006 以前立项的视频补没补过 topic_id（VID-09a，videotopic.go 的 upgradeTopicLinks）
+	topicMu   sync.Mutex
+	topicDone bool
 	// 执行收尾一次只收一条：先登记产出物再标 done，读视频的人不会看到「done 了但产出物还是旧的」
 	finishMu sync.Mutex
 	// 内容平台适配器（VID-04b）和正在投稿的发布记录 id
 	platforms  map[string]PlatformAdapter
 	submitting sync.Map
+	// 收评论一次只跑一轮：后台任务和「收集评论」不同时拉（VID-08b）
+	collectMu sync.Mutex
 }
 
 // 错误分类，对应信封里的 code
@@ -126,6 +146,8 @@ var (
 	errValidation = errors.New("validation")
 	errNotFound   = errors.New("not_found")
 	errConflict   = errors.New("conflict")
+	// 平台没有这项能力（VID-04d）：400，code 是 unsupported
+	errUnsupported = errors.New("unsupported")
 )
 
 func apiErr(kind error, format string, args ...any) error {
@@ -170,6 +192,8 @@ func fail(w http.ResponseWriter, r *http.Request, c plugin.Core, err error) {
 		status, code = http.StatusConflict, "conflict"
 	case errors.Is(err, errNotFound):
 		status, code = http.StatusNotFound, "not_found"
+	case errors.Is(err, errUnsupported):
+		status, code = http.StatusBadRequest, "unsupported"
 	case errors.Is(err, errValidation):
 		status, code = http.StatusBadRequest, "validation"
 	default:
