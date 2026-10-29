@@ -2,7 +2,7 @@
 // 当前会话记在 ?s=，别的页面能直接链接到某个会话。
 import { Fragment, useMemo, useState } from 'react'
 import {
-  useAgentProviders, useAgentSessions, useArtifacts, useCreateAgentSession, useDeleteAgentSession, usePatchAgentSession,
+  firstMessageOf, useAgentProviders, useAgentSessions, useArtifacts, useCreateAgentSession, useDeleteAgentSession, usePatchAgentSession,
   type AgentProvider, type AgentSession, type AgentSessionInput,
 } from '../../core/data'
 import { Avatar, Button, ErrorState, IconSearch, LoadingState, PageTitle, SearchSelect, cls } from '../../core/ui'
@@ -189,7 +189,7 @@ export function ChatsView({ current, onOpen, pickRequest = 0 }: {
       <div className="chat-main">
         {cur ? (
           <ChatPane key={cur.id} session={cur} provider={provider}
-            autoSend={first?.sessionId === cur.id ? first.text : undefined}
+            autoSend={first?.sessionId === cur.id ? first.text : firstMessageOf(cur.id)}
             onRetitle={(title) => patch.mutate({ id: cur.id, patch: { title } })}
             head={(
               <>

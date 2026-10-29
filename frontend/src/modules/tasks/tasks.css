@@ -1,16 +1,15 @@
 /* 任务模块样式，照原型 web-next/src/styles.css 的「页面」「任务」两段；颜色全走 tokens.css 的变量 */
 
-/* 外壳的内容区自带内边距，二级菜单要贴边，所以抵掉它（外壳在 CORE-02a 重做后可去掉） */
+/* 二级菜单在外壳的二级菜单位置；页面内边距照原型 .page（20px 24px 32px），所以抵掉外壳内容区自带的那层 */
 .tasks-mod {
-  display: flex; min-height: calc(100% + 2 * var(--sp-12));
+  display: flex; flex-direction: column; min-height: calc(100% + 2 * var(--sp-12));
   margin: calc(-1 * var(--sp-12));
 }
 .tasks-body { flex: 1; min-width: 0; }
-.tasks-page { padding: 26px 32px 48px; display: flex; flex-direction: column; gap: var(--sp-6); }
+.tasks-page { --page-x: var(--sp-12); padding: var(--sp-10) var(--page-x) var(--sp-16); display: flex; flex-direction: column; gap: var(--sp-6); }
 .tasks-page > .page-title { margin-bottom: var(--sp-1); }
 @media (max-width: 760px) {
-  .tasks-mod { flex-direction: column; }
-  .tasks-page { padding: var(--sp-8) var(--sp-8) var(--sp-16); }
+  .tasks-page { --page-x: var(--sp-8); padding: var(--sp-8) var(--page-x) 28px; }
 }
 
 /* ---------- 工具条 ---------- */
@@ -21,6 +20,8 @@
 .seg button.on { background: var(--panel); color: var(--text); box-shadow: var(--shadow-sm); font-weight: 500; }
 .chip-select select { height: 100%; border: 0; outline: 0; background: none; color: inherit; font: inherit; cursor: pointer; max-width: 100%; min-width: 0; text-overflow: ellipsis; }
 .toolbar .search input::-webkit-search-cancel-button { display: none; }
+/* 搜索框和状态页签同一行：放不下时先把搜索框收窄，再换行 */
+.toolbar .search { flex: 1 1 160px; width: auto; min-width: 160px; max-width: 280px; }
 
 /* ---------- 列表 ---------- */
 .run-muted { color: var(--muted); font-size: var(--fs-sm); }
@@ -36,7 +37,7 @@
 .task-check.on { background: var(--ok); border-color: var(--ok); }
 .task-main { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
 .task-title { display: flex; align-items: baseline; gap: var(--sp-4); min-width: 0; font-weight: 500; }
-.task-ref { font: var(--fs-xs) var(--mono); color: var(--faint); flex: none; }
+.task-ref { font: var(--fs-xs) var(--mono); color: var(--accent); flex: none; }
 .task-meta { display: flex; align-items: center; gap: var(--sp-4); font-size: var(--fs-xs); color: var(--faint); min-width: 0; overflow: hidden; }
 .task-meta .src-tag { display: inline-block; line-height: 18px; flex: 0 1 auto; min-width: 0; }
 .task-meta > span:last-child:not(.src-tag) { white-space: nowrap; flex: none; }
@@ -49,7 +50,8 @@
 }
 /* 正文不到 640px 宽：隐藏负责人、截止两列 */
 @container (max-width: 640px) {
-  .task-row { grid-template-columns: 22px minmax(0, 1fr) 48px 80px; }
+  /* 优先级列放得下「P0 最高」这样的编号加名称 */
+  .task-row { grid-template-columns: 22px minmax(0, 1fr) 56px 80px; }
   .task-row > :nth-child(4), .task-row > :nth-child(5) { display: none; }
 }
 

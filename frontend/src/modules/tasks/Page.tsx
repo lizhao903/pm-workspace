@@ -5,7 +5,7 @@
 import { useEffect, useState } from 'react'
 import { Navigate, useLocation, useNavigate, useParams, useSearchParams } from 'react-router'
 import { useApprove, useDictItems, useLastDeliveries, useObjectTypes, useSetStatus, useWebhooks, type WorkObject } from '../../core/data'
-import { Button, ErrorState, LoadingState, Subnav, type SubnavItem } from '../../core/ui'
+import { Button, ErrorState, InSubnavHost, LoadingState, Subnav, type SubnavItem } from '../../core/ui'
 import { timeAgo } from './model'
 import { useProjectOptions, useSourceCounts, useTaskCounts, useTaskList } from './queries'
 import { ApproveDialog } from './ApproveDialog'
@@ -168,34 +168,40 @@ export default function Page() {
 
   return (
     <div className="tasks-mod">
-      <Subnav<View> title="任务" active={navActive} onSelect={selectView} items={[
-        { key: 'all', label: '全部任务', group: '视图' },
-        {
-          key: 'overdue', label: '逾期', group: '视图',
-          // 计数没取到时不显示数字，也不能显示成「没有逾期」
-          desc: overdueN === undefined ? undefined : overdueN ? `${overdueN} 条过了截止日还没完成` : '没有逾期的任务',
-          alert: overdueN ?? 0,
-        },
-        ...SOURCE_KINDS.map((k): SubnavItem<View> => ({
-          key: k, label: SOURCE_VIEW[k].label, group: '来源',
-          // 条数和来源视图「全部」一致：同一个 source 筛选的 total
-          desc: sourceCounts[k] === undefined ? undefined : `${sourceCounts[k]} 条`,
-        })),
-        { key: 'schedules', label: '定时任务', group: '自动化', desc: '到点自动建任务、跑 SOP、叫 Agent' },
-        {
-          key: 'hooks', label: 'Webhook 接入', group: '自动化',
-          desc: hooks.data ? `${hookList.length} 个${failN ? `，${failN} 个最近推送失败` : ''}` : undefined, alert: failN,
-        },
-        ...recent.map((h): SubnavItem<View> => {
-          const at = lastDeliveries[h.id]!.last!.at
-          return {
-            key: `hook:${h.id}`, label: h.name || '未命名', group: '最近推送',
-            desc: `${timeAgo(at)}推送${h.enabled ? '' : ' · 已停用'}`, alert: isFailing(lastDeliveries[h.id]) ? 1 : 0,
-          }
-        }),
-      ]}>
-        <Button className="subnav-new" onClick={() => selectView('hook:new')}>新建 Webhook</Button>
-      </Subnav>
+      {/* 二级菜单送进外壳的二级菜单位置：从页面最上方开始，顶栏只在它右边 */}
+      <InSubnavHost>
+        <Subnav<View> title="任务" active={navActive} onSelect={selectView} items={[
+          { key: 'all', label: '全部任务', group: '视图' },
+          {
+            key: 'overdue', label: '逾期', group: '视图',
+            // 计数没取到时不显示数字，也不能显示成「没有逾期」
+            desc: overdueN === undefined ? undefined : overdueN ? `${overdueN} 条过了截止日还没完成` : '没有逾期的任务',
+            alert: overdueN ?? 0,
+          },
+          ...SOURCE_KINDS.map((k): SubnavItem<View> => ({
+            key: k, label: SOURCE_VIEW[k].label, group: '来源',
+            // 条数和来源视图「全部」一致：同一个 source 筛选的 total
+            desc: sourceCounts[k] === undefined ? undefined : `${sourceCounts[k]} 条`,
+          })),
+          { key: 'schedules', label: '定时任务', group: '自动化', desc: '到点自动建任务、跑 SOP、叫 Agent' },
+          {
+            key: 'hooks', label: 'Webhook 接入', group: '自动化',
+            desc: hooks.data ? `${hookList.length} 个${failN ? `，${failN} 个最近推送失败` : ''}` : undefined, alert: failN,
+          },
+          ...recent.map((h): SubnavItem<View> => {
+            const at = lastDeliveries[h.id]!.last!.at
+            return {
+              key: `hook:${h.id}`, label: h.name || '未命名', group: '最近推送',
+              desc: `${timeAgo(at)}推送${h.enabled ? '' : ' · 已停用'}`, alert: isFailing(lastDeliveries[h.id]) ? 1 : 0,
+            }
+          }),
+        ]}>
+          <Button className="subnav-new" onClick={() => selectView('hook:new')}>
+            <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true"><path d="M8 3v10M3 8h10" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" /></svg>
+            新建 Webhook
+          </Button>
+        </Subnav>
+      </InSubnavHost>
       <div className="tasks-body">{main}</div>
       {opened && taskType && (
         <TaskDrawer

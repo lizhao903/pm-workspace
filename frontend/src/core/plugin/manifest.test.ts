@@ -185,6 +185,8 @@ describe('结构校验', () => {
       { ...base, migrations: '../x', table_prefix: 'beta_' },
       ['migrations 必须是插件目录内的相对路径：../x', 'table_prefix 必须是 alpha_：beta_'],
     ],
+    [{ ...base, icon: 3 }, ['icon 必须是字符串']],
+    [{ ...base, icon: 'my-icon' }, ['icon 不合法：只能用小写字母、数字、下划线：my-icon']],
   ]
 
   it.each(cases)('%j', (input, want) => {
@@ -193,6 +195,7 @@ describe('结构校验', () => {
 
   it('解析结果保留字段，permissions 为空数组', () => {
     expect(mustParse(base).permissions).toEqual([])
+    expect(mustParse({ ...base, icon: 'folder' }).icon).toBe('folder')
     const im = mustParse(JSON.parse(file('valid/im.json')))
     expect(im.optional_depends).toEqual({ projects: '>=0.1.0 <1.0.0' })
     expect(im.table_prefix).toBe('im_')

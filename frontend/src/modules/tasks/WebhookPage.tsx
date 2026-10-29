@@ -8,7 +8,7 @@ import {
   type Delivery, type DictItem, type Webhook, type WebhookMapping,
 } from '../../core/data'
 import { Button, ConfirmDialog, Field, Input, ListSegMore, PageTitle, Pill, Select, Textarea, cls } from '../../core/ui'
-import { timeAgo } from './model'
+import { prioText, timeAgo } from './model'
 import {
   FIELDS, FIELD_LABEL, LOG_PAGE, RESULT, buildCreate, buildPatch, canSign, curlExample, deliveryText, draftError, draftOf, forgetSecret,
   getPath, hmacHex, mapFields, maskSecret, newDraft, parseJson, passFilter, rememberSecret, secretOf, testDeliveryId, asText,
@@ -130,7 +130,7 @@ export function WebhookPage({ hook, priorities, onSaved, onDeleted, onCancel, on
     del.mutate(hook.id, { onSuccess: () => { forgetSecret(hook.id); onDeleted() } })
   }
 
-  const prioOptions = priorities.filter((p) => !p.archived_at || p.key === d.defaults.priority).map((p) => ({ value: p.key, label: p.label }))
+  const prioOptions = priorities.filter((p) => !p.archived_at || p.key === d.defaults.priority).map((p) => ({ value: p.key, label: prioText(p.key, p) }))
   if (!prioOptions.some((o) => o.value === d.defaults.priority)) prioOptions.push({ value: d.defaults.priority, label: d.defaults.priority })
 
   const mine = logs.data?.data ?? []

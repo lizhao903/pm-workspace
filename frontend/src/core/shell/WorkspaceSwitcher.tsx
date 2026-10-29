@@ -1,12 +1,32 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type CSSProperties } from 'react'
 import { createPortal } from 'react-dom'
 import type { Workspace } from '../data'
 import { cls, IconCheck, IconChevronDown } from '../ui'
 import { AppLogo } from './Logo'
+import { MARK_PATHS } from './markIcons'
 
 // 左上角的工作台切换，位置和样子照原型 web-next/src/workspaces.tsx WorkspaceSwitcher。
 // 列表来自 GET /api/workspaces；取不到时只显示默认名字，菜单里只能去设置
 const FALLBACK = '我的工作台'
+
+/** 工作台标识（照原型 BenchMark、imagepick.tsx Mark）：上传的图片 > 内置图标 > 文字；都没有就用产品标志 */
+export function WorkspaceMarkView({ w, size }: { w: Workspace | undefined; size: number }) {
+  const m = w?.mark
+  const path = m?.icon ? MARK_PATHS[m.icon] : undefined
+  if (!m || (!m.image && !m.text && !path)) return <AppLogo size={size} />
+  const style: CSSProperties = { width: size, height: size, background: m.color }
+  if (m.image) return <img className="ws-mark ws-mark-img" src={m.image} alt="" style={style} />
+  if (path) {
+    return (
+      <span className="ws-mark" aria-hidden="true" style={style}>
+        <svg viewBox="0 0 24 24" width={Math.round(size * 0.58)} height={Math.round(size * 0.58)} aria-hidden="true">
+          <path d={path} fill="none" stroke="currentColor" strokeWidth={size < 20 ? 2.6 : 2} strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      </span>
+    )
+  }
+  return <span className="ws-mark" aria-hidden="true" style={{ ...style, fontSize: size * (m.text.length > 1 ? 0.34 : 0.44) }}>{m.text}</span>
+}
 
 export function WorkspaceSwitcher({ list, current, collapsed, onSwitch, onManage }: {
   list: readonly Workspace[]
@@ -56,7 +76,7 @@ export function WorkspaceSwitcher({ list, current, collapsed, onSwitch, onManage
         <AppLogo size={30} />
         <span className="brand-text">
           <span className="brand-name">一人之下</span>
-          <span className="brand-sub ellipsis">{name}</span>
+          <span className="brand-sub"><WorkspaceMarkView w={current} size={14} /><span className="ellipsis">{name}</span></span>
         </span>
         <IconChevronDown className="brand-chev" />
       </button>
@@ -71,6 +91,7 @@ export function WorkspaceSwitcher({ list, current, collapsed, onSwitch, onManage
                 return (
                   <button key={w.id} type="button" role="menuitemradio" aria-checked={on} className={cls('menu-item ws-menu-item', on && 'on')}
                     onClick={() => { setPos(null); if (!on) onSwitch(w) }}>
+                    <WorkspaceMarkView w={w} size={24} />
                     <span className="ws-menu-text">
                       <span className="ellipsis">{w.name}</span>
                       {w.role && <span className="ws-menu-role ellipsis">{w.role}</span>}

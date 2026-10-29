@@ -25,7 +25,7 @@ export { runFinished, useTaskRuns, useTaskRun, useCancelRun, streamRun } from '.
 export { workdirUsable, useWorkdirCheck, useFsBrowse, useFsShortcuts } from './fs'
 export {
   useAgentProviders, useProviderModels, useAgentSessions, useAgentMessages, useCreateAgentSession, usePatchAgentSession,
-  useDeleteAgentSession, streamChat,
+  useDeleteAgentSession, streamChat, setFirstMessage, firstMessageOf,
 } from './agent'
 export type {
   AgentProvider, AgentProviderKind, ProviderTestResult, AgentSession, AgentMessage, AgentMessageRole, AgentSessionInput, AgentSessionPatch,
@@ -93,7 +93,7 @@ export type {
 } from './connectors'
 export { projectStakeholdersApi, useAddProjectStakeholder, usePatchProjectStakeholder, useRemoveProjectStakeholder } from './projectStakeholders'
 export type { ProjectStakeholderInput, ProjectStakeholderPatch } from './projectStakeholders'
-export { IM_PAGE_MAX, imApi, normMessage, useImMessages, useImMessage, useImAction, useImToTask } from './im'
+export { IM_PAGE_MAX, imApi, normMessage, useImMessages, useImMessage, useImAction, useImToTask, useImPendingCount } from './im'
 export type { ImMessage, ImMsgStatus, ImRelevance, ImAttachment, ImReply, ImAction, ImTaskInput, ImTaskResult } from './im'
 export {
   MATERIAL_KINDS, projectMaterialsApi, useProjectMaterials, useAddProjectMaterials, usePatchProjectMaterial, useRemoveProjectMaterial,

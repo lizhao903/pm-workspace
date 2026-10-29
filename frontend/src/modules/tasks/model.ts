@@ -86,6 +86,13 @@ export function statusButtons(statuses: readonly ObjectStatus[]) {
   return { head: items.slice(0, STATUS_HEAD), rest: items.slice(STATUS_HEAD) }
 }
 
+/** 优先级的显示名：编号加名称（「P0 最高」），都取字典项；名称已经带编号的不重复，不在字典里的只显示编号 */
+export function prioText(key: string, item?: { label: string }) {
+  const label = item?.label.trim()
+  if (!label) return key
+  return label === key || label.startsWith(key + ' ') ? label : `${key} ${label}`
+}
+
 /** 优先级的先后：按字典顺序，不在字典里的排最后，再按 key */
 export function priorityRank(items: readonly DictItem[]) {
   const order = [...items].sort((a, b) => a.sort_order - b.sort_order)

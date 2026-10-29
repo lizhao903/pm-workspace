@@ -6,8 +6,10 @@ import {
 } from '../plugin'
 import { cls, DrawerHostContext, IconButton, IconSearch, setTheme, SubnavHostContext, TopbarContext, useTheme } from '../ui'
 import { CommandPalette } from './CommandPalette'
-import { IconMenu, IconSectionChevron, IconSideToggle, ModuleIcon } from './icons'
+import { IconMenu, IconNewSession, IconSectionChevron, IconSideToggle, ModuleIcon } from './icons'
 import { useMenuMarks, type MenuMark } from './marks'
+import { moduleIconKey } from './pluginIcons'
+import { QuickSessionHost } from './QuickSession'
 import { buildMenu, isGroupFolded, readCollapsed, readFolded, toggleId, writeCollapsed, writeFolded } from './menu'
 import { modKey, type PaletteItem } from './palette'
 import { PluginNotice } from './PluginNotice'
@@ -24,9 +26,10 @@ export function Shell({ modules }: { modules: ModuleDef[] }) {
   const navigate = useNavigate()
   const location = useLocation()
   const { resolved, pref } = useTheme()
-  const marks = useMenuMarks()
   // 插件停用后它的模块从菜单里去掉；内核模块一直在
   const live = useActiveModules(modules)
+  const liveIds = useMemo(() => new Set(live.map((m) => m.id)), [live])
+  const marks = useMenuMarks(liveIds)
   // 菜单分组和顺序由当前工作台决定；第一次取工作台时先不出菜单（免得闪一下默认的），取不到就用默认分组
   const workspaces = useWorkspaces()
   const current = resolveCurrent(workspaces.data, useCurrentWorkspaceId())
@@ -68,6 +71,14 @@ export function Shell({ modules }: { modules: ModuleDef[] }) {
   }, [menuOpen, closeMenu])
 
   const [palette, setPalette] = useState<PaletteItem[] | null>(null)
+  // 快速新建会话：侧栏按钮、命令面板、Cmd/Ctrl+J 唤出；建好后跳到会话页，第一句话由会话页自动发出
+  const [quick, setQuick] = useState(false)
+  const openQuick = () => {
+    setMenuOpen(false)
+    setPalette(null)
+    setQuick(true)
+  }
+  const convPath = live.find((m) => m.id === 'conversations')?.path
   const shellApi: ShellApi = useMemo(() => ({ navigate: (to) => { void navigate(to) } }), [navigate])
   // 插件拿到的 api.shell 经这里转给外壳
   useEffect(() => {
@@ -83,6 +94,7 @@ export function Shell({ modules }: { modules: ModuleDef[] }) {
   const buildItems = (): PaletteItem[] => [
     { id: 'k-theme', group: '操作', title: resolved === 'dark' ? '切换到浅色' : '切换到深色', keywords: '配色 主题 dark light 外观', run: () => setTheme(resolved === 'dark' ? 'light' : 'dark') },
     ...(pref === 'system' ? [] : [{ id: 'k-theme-system', group: '操作', title: '配色跟随系统', keywords: '配色 主题 system 外观', run: () => setTheme('system') }]),
+    ...(convPath ? [{ id: 'k-quick-session', group: '操作', title: '新建会话', sub: '挑个服务商直接开聊（' + modKey() + 'J）', keywords: 'session chat agent 会话 对话 新建', run: openQuick }] : []),
     { id: 'k-side', group: '操作', title: collapsed ? '展开左侧菜单' : '收起左侧菜单', keywords: '侧栏 菜单 sidebar', run: () => setCollapsed(!collapsed) },
     ...registeredCommands().map(toItem),
     ...[...menu.groups.flatMap((g) => g.items), ...menu.foot].map((m) => ({
@@ -91,6 +103,7 @@ export function Shell({ modules }: { modules: ModuleDef[] }) {
   ]
   const openPalette = () => {
     setMenuOpen(false)
+    setQuick(false)
     setPalette(buildItems())
   }
   const search = useCallback(async (q: string) => {
@@ -103,17 +116,25 @@ export function Shell({ modules }: { modules: ModuleDef[] }) {
 
   // Cmd/Ctrl+K 开关命令面板。用 ref 拿最新的条目构造，免得每次渲染都重绑监听
   const toggleRef = useRef<() => void>(() => {})
+  const quickRef = useRef<() => void>(() => {})
   useEffect(() => {
     toggleRef.current = () => {
       if (palette) setPalette(null)
       else openPalette()
     }
+    quickRef.current = () => {
+      if (quick) setQuick(false)
+      else if (convPath) openQuick()
+    }
   })
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (!(e.metaKey || e.ctrlKey) || e.altKey || e.key.toLowerCase() !== 'k') return
+      if (!(e.metaKey || e.ctrlKey) || e.altKey) return
+      const k = e.key.toLowerCase()
+      if (k !== 'k' && k !== 'j') return
       e.preventDefault()
-      toggleRef.current()
+      if (k === 'k') toggleRef.current()
+      else quickRef.current()
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
@@ -146,8 +167,13 @@ export function Shell({ modules }: { modules: ModuleDef[] }) {
           <button type="button" className="side-act" onClick={openPalette} title="搜索和命令（Cmd/Ctrl+K）" aria-label="搜索和命令">
             <IconSearch size={15} />
             <span className="side-label">搜索</span>
-            <kbd className="side-kbd">{modKey()}K</kbd>
           </button>
+          {convPath && (
+            <button type="button" className="side-act" onClick={openQuick} title={`新建会话（${modKey()}J）`} aria-label="新建会话">
+              <IconNewSession />
+              <span className="side-label">新建会话</span>
+            </button>
+          )}
         </div>
         <nav className="side-group" aria-label="功能模块">
           {/* 分组名为空只留间距；菜单收起时分组之间画一条线、不显示标题也不折叠 */}
@@ -194,6 +220,10 @@ export function Shell({ modules }: { modules: ModuleDef[] }) {
       <div className="shell-drawer" ref={setDrawerSlot} />
       {switchPrompt}
       {palette && <CommandPalette items={palette} search={search} onClose={() => setPalette(null)} />}
+      {quick && convPath && (
+        <QuickSessionHost onClose={() => setQuick(false)}
+          onOpen={(id) => { setQuick(false); void navigate(`/${convPath}?s=${encodeURIComponent(id)}`) }} />
+      )}
     </div>
     </DrawerHostContext.Provider>
     </SubnavHostContext.Provider>
@@ -212,7 +242,7 @@ function MenuItem({ m, mark, collapsed, hidden, onPick }: {
     <NavLink to={'/' + m.path} onClick={onPick} title={collapsed ? m.label + (mark?.alert ? '：' + mark.hint : '') : undefined}
       aria-label={m.label + (mark?.alert ? '，' + mark.hint : '')}
       className={({ isActive }) => cls('side-item', isActive && 'active', hidden && !isActive && 'side-item-folded')}>
-      <ModuleIcon id={m.id} />
+      <ModuleIcon id={m.id} icon={moduleIconKey(m.id)} />
       <span className="side-label">{m.label}</span>
       {/* 菜单上不放数量，只在有事等你处理时给个红点 */}
       {mark?.alert && <span className="side-dot" title={mark.hint} />}

@@ -22,6 +22,7 @@
     ],
     "invalid/bad-fields.json": [
       "homepage 是未知字段",
+      "icon 不合法：只能用小写字母、数字、下划线：Folder",
       "version 不是合法的版本号（MAJOR.MINOR.PATCH）：1.0",
       "provides.agent_tools[0] 必须以 clips_ 开头：upload_clip",
       "emits[0] 必须是 clips.<事件名>：videos.uploaded",

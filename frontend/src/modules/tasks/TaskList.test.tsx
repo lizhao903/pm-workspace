@@ -56,7 +56,8 @@ describe('任务列表', () => {
     const overdue = screen.getByRole('group', { name: '逾期' })
     expect(within(overdue).getByText('逾期的待验收')).toBeInTheDocument()
     expect(within(overdue).getByText('待验收')).toBeInTheDocument()
-    expect(within(overdue).getByText('最高')).toBeInTheDocument()
+    // 优先级显示编号加名称，都从字典读
+    expect(within(overdue).getByText('P0 最高')).toBeInTheDocument()
     expect(within(overdue).getByText('10-20 逾期')).toBeInTheDocument()
   })
 

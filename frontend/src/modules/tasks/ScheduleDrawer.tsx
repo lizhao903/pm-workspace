@@ -6,7 +6,7 @@ import {
   useSchedulePreview, useStakeholders, type Schedule, type ScheduleActionKind, type ScheduleFreq, type ScheduleRule,
 } from '../../core/data'
 import { Button, Drawer, Field, Input, SearchSelect, Select, Textarea, cls, type SearchOption } from '../../core/ui'
-import { timeAgo } from './model'
+import { prioText, timeAgo } from './model'
 import {
   ACTION_KINDS, ACTION_LABEL, DUE_DAYS, FREQS, FREQ_LABEL, WEEK, WEEK_ORDER, buildScheduleInput, buildSchedulePatch, defaultPriority,
   describeRule, draftErrors, emptyAction, emptyScheduleDraft, ruleError, runTone, scheduleDirty, scheduleDraftOf, whenText,
@@ -126,8 +126,8 @@ export function ScheduleDrawer({ schedule, onClose, onCreated, onOpenTask }: {
 
   const prioItems = (prios.data ?? []).filter((p) => !p.archived_at || p.key === prio)
   const prioOpts = prioItems.some((p) => p.key === prio) || !prio
-    ? prioItems.map((p) => ({ value: p.key, label: p.label }))
-    : [...prioItems.map((p) => ({ value: p.key, label: p.label })), { value: prio, label: `${prio}（已停用）` }]
+    ? prioItems.map((p) => ({ value: p.key, label: prioText(p.key, p) }))
+    : [...prioItems.map((p) => ({ value: p.key, label: prioText(p.key, p) })), { value: prio, label: `${prio}（已停用）` }]
   const peopleOpts: SearchOption[] = (people.data ?? []).map((s) => ({ value: s.id, label: s.name, hint: s.role || undefined, keywords: s.email }))
   const nameBad = tried && !d.name.trim()
   const titleBad = tried && a.kind === 'task' && !a.title.trim()

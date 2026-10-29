@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { DictItem, ObjectStatus, WorkObject } from '../../core/data'
 import {
-  ALL, OPEN, dueSeg, dueText, isOverdue, matchStatus, priorityRank, segment, sortTasks, statusButtons, terminalOf, weekEnd,
+  ALL, OPEN, dueSeg, dueText, isOverdue, matchStatus, prioText, priorityRank, segment, sortTasks, statusButtons, terminalOf, weekEnd,
 } from './model'
 
 const statuses: ObjectStatus[] = [
@@ -86,6 +86,16 @@ describe('状态筛选', () => {
     const { head, rest } = statusButtons(many)
     expect(head.map((s) => s.key)).toEqual(['todo', 'doing', 'review', 'done', 'a'])
     expect(rest.map((s) => s.key)).toEqual(['b'])
+  })
+})
+
+describe('优先级显示名', () => {
+  it('编号加名称，名称已带编号的不重复，不在字典里的只显示编号', () => {
+    expect(prioText('P0', { label: '最高' })).toBe('P0 最高')
+    expect(prioText('P0', { label: 'P0 紧急' })).toBe('P0 紧急')
+    expect(prioText('P1', { label: 'P1' })).toBe('P1')
+    expect(prioText('P9')).toBe('P9')
+    expect(prioText('P2', { label: ' ' })).toBe('P2')
   })
 })
 

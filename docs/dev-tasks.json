@@ -1939,6 +1939,2351 @@
     "acceptance": "- [ ] `make build` 产出的 pmw 嵌的是新前端；`make build FRONTEND=legacy` 嵌旧前端\n- [ ] 用测试实例跑一遍 QA-02b 冒烟通过\n- [ ] README 有回退步骤"
   },
   {
+    "key": "ALIGN-01",
+    "type": "task",
+    "title": "外壳对齐原型：侧栏顶部、工作台标识、插件图标、提醒红点",
+    "milestone": "M3",
+    "module": "frontend",
+    "priority": "P1",
+    "estimate": "M",
+    "depends_on": [
+      "CORE-02a",
+      "CORE-04b"
+    ],
+    "workdir": "frontend",
+    "spec": [
+      "web-next/src/App.tsx 侧栏与外壳",
+      "web-next/docs/spec/README.md",
+      "7778 原型与 7796 测试实例对照"
+    ],
+    "body": "## 要做什么\n\n7796 换上正式前端后和原型 7778 对照，外壳有这些差异，按原型改：\n\n- 侧栏顶部：原型是「搜索」「新建会话」两个并排按钮（用户明确要求过），前端只有一个搜索框。\n- 工作台标识：原型在名称下显示工作台头像加名称，前端显示的是工作台说明。\n- 插件菜单图标：项目、IM 消息用了默认方格图标，原型是文件夹和消息图标；插件清单要能声明图标。\n- 侧栏多出「未分组 / 示例插件」：示例插件 hello 只在开发模式出现。\n- 今日、IM 消息、会话等菜单项的提醒红点，原型有，前端没有。\n\n## 注意事项\n\n- 只在 `frontend/` 里写代码，不 import `web-next` 的任何代码：原型的交互和样式可以照着写、挑着搬。\n- 联调只连测试实例 7796，不连 7777。\n- 组件里不直接 fetch，数据一律走 `frontend/src/core/data`。\n- 状态、类型、优先级从后端读，不写死。",
+    "acceptance": "- [ ] 1440 和 390 宽下侧栏与原型对照一致（截图对比后删掉截图）\n- [ ] 新建会话按钮可用，行为与原型一致\n- [ ] 插件能在清单里声明图标，项目和 IM 消息用上对应图标\n- [ ] 生产构建的侧栏不出现示例插件\n- [ ] 有待处理事项的菜单显示红点，清掉后消失\n- [ ] npm test、typecheck、lint、build、smoke-frontend 通过"
+  },
+  {
+    "key": "ALIGN-02",
+    "type": "task",
+    "title": "带二级栏的页面布局对齐原型，任务页细节对齐",
+    "milestone": "M3",
+    "module": "frontend",
+    "priority": "P1",
+    "estimate": "M",
+    "depends_on": [
+      "CORE-02b",
+      "DEV-07a"
+    ],
+    "workdir": "frontend",
+    "spec": [
+      "web-next/src/App.tsx 二级栏布局",
+      "web-next/docs/spec/tasks.md",
+      "7778 原型与 7796 测试实例对照"
+    ],
+    "body": "## 要做什么\n\n- 原型里二级栏从页面最上方开始，顶部标题行只在二级栏右侧；前端的标题行横跨整页，把二级栏压到下面。改共用布局，所有带二级栏的页面一起生效。\n- 任务页：搜索框和状态页签同一行（原型），前端掉到了第二行；优先级显示成原型的「P0 紧急」样式（编号加名称，都从字典读）；状态页签名称和数量对照原型核对。\n\n## 注意事项\n\n- 只在 `frontend/` 里写代码，不 import `web-next` 的任何代码：原型的交互和样式可以照着写、挑着搬。\n- 联调只连测试实例 7796，不连 7777。\n- 组件里不直接 fetch，数据一律走 `frontend/src/core/data`。\n- 状态、类型、优先级从后端读，不写死。",
+    "acceptance": "- [ ] 任务、设置等带二级栏的页面在 1440 宽下布局与原型一致\n- [ ] 任务页筛选行、优先级标签与原型一致\n- [ ] 390 宽下不出现横向滚动\n- [ ] npm test、typecheck、lint、build、smoke-frontend 通过"
+  },
+  {
+    "key": "ALIGN-03",
+    "type": "task",
+    "title": "逐页对照原型，列出正式前端与原型的全部差异",
+    "milestone": "M3",
+    "module": "qa",
+    "priority": "P1",
+    "estimate": "M",
+    "depends_on": [
+      "QA-02b",
+      "FE-04"
+    ],
+    "workdir": ".",
+    "spec": [
+      "web-next/docs/spec/*.md",
+      "web-next/docs/spec/shots.py"
+    ],
+    "body": "## 要做什么\n\n用带演示数据的临时后端，把正式前端已实现的每个页面（今日、项目列表和详情各页签、文档、IM 消息、联系人、会话、设置各节）和原型逐页对照，产出 `docs/proto-align.md`：每条差异写页面、原型怎样、前端怎样、建议改法、涉及文件，分成「布局」「文案」「缺功能」「数据造成的不同（不用改）」。外壳和任务页由 ALIGN-01、ALIGN-02 在改，不在这次范围。\n\n不改代码。",
+    "acceptance": "- [ ] docs/proto-align.md 覆盖上述全部页面，每条差异可直接拆成任务\n- [ ] 截图看完已删除"
+  },
+  {
+    "key": "PLAN-04",
+    "type": "task",
+    "title": "把 M4 的需求条目拆成开发任务",
+    "milestone": "M4",
+    "module": "plan",
+    "priority": "P1",
+    "estimate": "M",
+    "depends_on": [],
+    "workdir": ".",
+    "spec": [
+      "docs/dev-tasks.json 里 milestone 为 M4 的 requirement 条目",
+      "web-next/docs/dev-plan.md 第 4 节",
+      "docs/dev-decisions.md"
+    ],
+    "body": "## 要做什么\n\n按已有任务的拆法（后端 a、前端 b、规格包 PROTO），把 M4 的 13 条需求拆成能直接派给子代理的任务，写到 `docs/split/M4.json`，格式与 `docs/dev-tasks.json` 的 task 条目一致（key、title、milestone、module、priority、estimate、depends_on、workdir、spec、body、acceptance），另外每条加 scope 字段写改动范围。依赖只能指向已有 key 或本文件里的 key；迁移号从 0032 起预分配；需要真实凭证或对外的写进 body 的「需要用户」小节。不改 dev-tasks.json。",
+    "acceptance": "- [ ] 13 条需求全部有对应任务，原需求 key 写进每条任务的 body\n- [ ] 依赖图无环、无悬空 key\n- [ ] 每条都有可验证的验收标准和改动范围"
+  },
+  {
+    "key": "PLAN-05",
+    "type": "task",
+    "title": "把 M5、M6 的需求条目拆成开发任务",
+    "milestone": "M5",
+    "module": "plan",
+    "priority": "P2",
+    "estimate": "M",
+    "depends_on": [],
+    "workdir": ".",
+    "spec": [
+      "docs/dev-tasks.json 里 milestone 为 M5、M6 的 requirement 条目",
+      "web-next/docs/dev-plan.md 4.10、4.11、第 6 节交易风险",
+      "web-next/docs/video-creator-analysis.md"
+    ],
+    "body": "## 要做什么\n\n同 PLAN-04，拆 M5 视频 8 条、M6 交易 8 条，写到 `docs/split/M5-M6.json`。交易类涉及真实资金：实盘下单、接入真实交易所 API Key 的任务必须标「需要用户」，默认只做行情、回测和模拟盘。M5、M6 可以依赖 M4 的任务，key 以 PLAN-04 产出的为准（同时在拆，冲突时在回复里列出）。不改 dev-tasks.json。",
+    "acceptance": "- [ ] 16 条需求全部有对应任务\n- [ ] 涉及真实资金或对外发布的任务都标了需要用户\n- [ ] 依赖图无环"
+  },
+  {
+    "key": "PROTO-04f1",
+    "type": "task",
+    "title": "整理 SOP 编排模块的规格包",
+    "milestone": "M4",
+    "module": "proto",
+    "priority": "P2",
+    "estimate": "M",
+    "depends_on": [
+      "PROTO-04a"
+    ],
+    "workdir": "web-next",
+    "spec": [
+      "web-next/src/sop.tsx",
+      "web-next/src/sopedit.tsx",
+      "web-next/src/sopflow.ts",
+      "web-next/src/nodetypes.tsx",
+      "web-next/docs/spec/shots/sop/"
+    ],
+    "body": "## 背景\n\n原需求 PROTO-04f（整理其余模块的规格包）。PROTO-04f 一条要覆盖六个模块，按开工顺序拆成四个规格包：SOP（本条）、终端和浏览器（PROTO-04f2）、视频（PROTO-04f3）、交易（PROTO-04f4）。内网域名已在 SPEC-settings-20 里，由 PROTO-04f2 顺带复核。SOP 在 M4 最先开工，优先级提到 P2。\n\n## 要做什么\n\n- 新建 `web-next/docs/spec/sop.md`，分节：模块概述、流程库、待我处理、执行记录、运行页（步骤状态、确认输入、放行、改输出、选分支、返工、重试、跳过、停止、逐步确认开关）、编辑器（画布、连线、节点面板、节点属性）、AI 协助面板、每种节点类型的配置项。\n- 数据结构表对齐 `sopflow.ts` 的 `Sop`、`SopStepDef`、`SopField`、`SopRun`、`RunStep`、`RunAction`、`StepStatus`、`RunStatus` 和 `nodetypes.tsx` 的 `NodeType`、`ConfigField`。\n- 单独列一张「原型模拟、后端要真做」的表：分类器的命中规则、代码节点不执行、等待统一 2.5 秒、HTTP 和发送消息的失败模拟、AI 协助的固定回复，标出对应的开发任务。\n- 引用本规格的任务：SOP-01a、SOP-01b、SOP-01c、SOP-02a、SOP-02b、SOP-03b、SOP-04a、SOP-04b、SOP-04c；在 `web-next/docs/spec/README.md` 登记一行。\n\n## 注意事项\n\n- 按 PROTO-04a 的模板（`web-next/docs/spec/_template.md`）写：截图（亮暗、1440 和 375）、交互清单、空状态和异常状态、数据结构、联动。\n- 原型只改两种东西：规格本身要改，或原型和规格对不上；工程化的东西不进原型。写规格时发现原型和规格对不上，记下来另开原型修错任务，不在本条里顺手改原型代码。\n- 原型内容保持干净，不放测试数据和调试开关；原型 7778 由用户在跑，不要重启它。截图用 `shots.py`，临时截图看完即删。",
+    "acceptance": "- [ ] `sop.md` 每节有亮暗、桌面和手机宽度截图，图片在 `shots/sop/` 下\n- [ ] 交互清单覆盖运行页每个动作（八种 RunAction）和编辑器每个按钮、空状态、异常状态\n- [ ] 数据结构表与 `sopflow.ts`、`nodetypes.tsx` 字段逐个一致，18 种节点类型的配置项都列出\n- [ ] 「原型模拟、后端要真做」表里每一项都指到一个开发任务 key\n- [ ] 引用任务列表里的 key 都能在 `docs/split/M4.json` 里找到",
+    "scope": [
+      "web-next/docs/spec/sop.md（新建）",
+      "web-next/docs/spec/shots/sop/",
+      "web-next/docs/spec/shots.py（只加 SOP 的截图步骤）",
+      "web-next/docs/spec/README.md（只加一行）"
+    ]
+  },
+  {
+    "key": "PROTO-04f2",
+    "type": "task",
+    "title": "整理终端和内置浏览器的规格包，复核内网域名规格",
+    "milestone": "M4",
+    "module": "proto",
+    "priority": "P3",
+    "estimate": "M",
+    "depends_on": [
+      "PROTO-04a"
+    ],
+    "workdir": "web-next",
+    "spec": [
+      "web-next/src/terminal.tsx",
+      "web-next/src/browser.tsx",
+      "web-next/src/browserdata.ts",
+      "web-next/src/domains.tsx",
+      "web-next/src/domaindata.ts",
+      "web-next/docs/spec/projects.md SPEC-projects-14",
+      "web-next/docs/spec/settings.md SPEC-settings-20"
+    ],
+    "body": "## 背景\n\n原需求 PROTO-04f（整理其余模块的规格包）。从 PROTO-04f 拆出的第二个规格包。终端、浏览器在项目里的展开区域已在 SPEC-projects-14（PROTO-05），这里写一级菜单里的两个模块本身。\n\n## 要做什么\n\n- 新建 `terminal.md`：标签、2x2 分屏、焦点、命令历史、运行中的命令、原型启停按钮；数据结构对齐 `TermTab`、`Pane`、`TermLine`。标出原型里模拟、后端要真做的部分（pty、重连、关闭进程）。\n- 新建 `browser.md`：多标签、地址栏、前进后退、原型标签（没运行时的启动提示）、不能嵌入时的提示和「在系统浏览器打开」、Google 账号面板和授权范围；数据结构对齐 `BrowserTab`、`GoogleAccount`、`GOOGLE_SCOPES`。Drive 模拟文件浏览器标注为「正式版不搬，见 BR-01b」。\n- 复核 SPEC-settings-20 是否覆盖 DOM-01a 到 DOM-02b 要用的：真实状态检测的每一项、生成的配置、自动分配的原型域名；缺的只在 SPEC-settings-20 末尾补，不改别的节。\n- 引用本规格的任务：TERM-01a、TERM-01b、BR-01a、BR-01b、BR-02、DOM-01b、DOM-02b；README 登记两行。\n\n## 注意事项\n\n- 按 PROTO-04a 的模板（`web-next/docs/spec/_template.md`）写：截图（亮暗、1440 和 375）、交互清单、空状态和异常状态、数据结构、联动。\n- 原型只改两种东西：规格本身要改，或原型和规格对不上；工程化的东西不进原型。写规格时发现原型和规格对不上，记下来另开原型修错任务，不在本条里顺手改原型代码。\n- 原型内容保持干净，不放测试数据和调试开关；原型 7778 由用户在跑，不要重启它。截图用 `shots.py`，临时截图看完即删。",
+    "acceptance": "- [ ] `terminal.md`、`browser.md` 每节都有亮暗、桌面和手机宽度截图\n- [ ] 交互清单覆盖每个按钮、空状态（没有标签、原型没运行）、异常状态（不能嵌入、Google 没登录）\n- [ ] 数据结构表与 `terminal.tsx`、`browserdata.ts` 的类型字段一致\n- [ ] SPEC-settings-20 的复核结论写在 `browser.md` 末尾的联动表里，补的内容只出现在 SPEC-settings-20 一节",
+    "scope": [
+      "web-next/docs/spec/terminal.md（新建）",
+      "web-next/docs/spec/browser.md（新建）",
+      "web-next/docs/spec/shots/terminal/",
+      "web-next/docs/spec/shots/browser/",
+      "web-next/docs/spec/shots.py（只加这两个模块的步骤）",
+      "web-next/docs/spec/settings.md（只改 SPEC-settings-20 一节）",
+      "web-next/docs/spec/README.md（只加两行）"
+    ]
+  },
+  {
+    "key": "PROTO-04f3",
+    "type": "task",
+    "title": "整理视频创作模块的规格包",
+    "milestone": "M4",
+    "module": "proto",
+    "priority": "P3",
+    "estimate": "M",
+    "depends_on": [
+      "PROTO-04a"
+    ],
+    "workdir": "web-next",
+    "spec": [
+      "web-next/src/videos.tsx",
+      "web-next/src/videodata.ts",
+      "web-next/src/videopublish.tsx",
+      "web-next/src/topics.tsx",
+      "web-next/src/topicdata.ts",
+      "web-next/docs/video-creator-analysis.md"
+    ],
+    "body": "## 背景\n\n原需求 PROTO-04f（整理其余模块的规格包）。从 PROTO-04f 拆出的第三个规格包。视频插件在 M5 开发，规格包按原需求留在 M4，M5 的 VID 系列任务（PLAN-05 在拆）开工前依赖本条，不另建视频规格任务。\n\n## 要做什么\n\n- 新建 `videos.md`：全部视频、待我处理、选题、系列、素材收件箱、发布记录六个标签，视频详情的制作阶段、检查点、产出物，发布弹窗。\n- 数据结构对齐 `videodata.ts`、`topicdata.ts`；联动表写清和项目、SOP、Agent、连接器（内容平台）、今日卡片的关系。\n- 标出视频号、小红书只做「登记加回填链接加拉数据」（开发计划第 6 节），不做自动发布。\n- README 登记一行；引用任务写 VID-01 到 VID-08（以 PLAN-05 拆出的 key 为准，合并时主会话对一遍）。\n\n## 注意事项\n\n- 按 PROTO-04a 的模板（`web-next/docs/spec/_template.md`）写：截图（亮暗、1440 和 375）、交互清单、空状态和异常状态、数据结构、联动。\n- 原型只改两种东西：规格本身要改，或原型和规格对不上；工程化的东西不进原型。写规格时发现原型和规格对不上，记下来另开原型修错任务，不在本条里顺手改原型代码。\n- 原型内容保持干净，不放测试数据和调试开关；原型 7778 由用户在跑，不要重启它。截图用 `shots.py`，临时截图看完即删。",
+    "acceptance": "- [ ] `videos.md` 六个标签和视频详情都有亮暗、桌面和手机宽度截图\n- [ ] 交互清单覆盖每个按钮、空状态、异常状态（平台未连接、发布失败）\n- [ ] 数据结构表与 `videodata.ts`、`topicdata.ts` 字段一致\n- [ ] 联动表里每个对方模块都指到一个规格节",
+    "scope": [
+      "web-next/docs/spec/videos.md（新建）",
+      "web-next/docs/spec/shots/videos/",
+      "web-next/docs/spec/shots.py（只加视频的步骤）",
+      "web-next/docs/spec/README.md（只加一行）"
+    ]
+  },
+  {
+    "key": "PROTO-04f4",
+    "type": "task",
+    "title": "整理交易套件的规格包（行情、盯盘、策略与回测、交易执行）",
+    "milestone": "M4",
+    "module": "proto",
+    "priority": "P3",
+    "estimate": "L",
+    "depends_on": [
+      "PROTO-04a"
+    ],
+    "workdir": "web-next",
+    "spec": [
+      "web-next/src/markets.tsx",
+      "web-next/src/monitor.tsx",
+      "web-next/src/strategy.tsx",
+      "web-next/src/strategyruns.tsx",
+      "web-next/src/trading.tsx",
+      "web-next/src/tradedata.ts",
+      "web-next/src/backtest.ts"
+    ],
+    "body": "## 背景\n\n原需求 PROTO-04f（整理其余模块的规格包）。从 PROTO-04f 拆出的第四个规格包。交易套件在 M6 开发，规格包按原需求留在 M4，M6 的 TRD 系列任务开工前依赖本条。\n\n## 要做什么\n\n- 新建 `markets.md`、`monitor.md`、`strategy.md`、`trading.md` 四个文件，对应交易套件的四个子插件（开发计划 2.8）。\n- 数据结构对齐 `tradedata.ts`、`backtest.ts`；联动表写清子插件之间（行情到盯盘、策略到交易执行的部署）和与连接器（行情源、交易账户）、今日卡片的关系。\n- 所有实盘相关的交互（下单、实盘部署、交易账户写权限）在交互清单里标「实盘，要过 TRD-08 评审，默认只开模拟盘」；风控（仓位上限、日亏损熔断、单笔上限、一键全停）单列一节。\n- README 登记四行；引用任务写 TRD-01 到 TRD-08（以 PLAN-05 拆出的 key 为准）。\n\n## 注意事项\n\n- 按 PROTO-04a 的模板（`web-next/docs/spec/_template.md`）写：截图（亮暗、1440 和 375）、交互清单、空状态和异常状态、数据结构、联动。\n- 原型只改两种东西：规格本身要改，或原型和规格对不上；工程化的东西不进原型。写规格时发现原型和规格对不上，记下来另开原型修错任务，不在本条里顺手改原型代码。\n- 原型内容保持干净，不放测试数据和调试开关；原型 7778 由用户在跑，不要重启它。截图用 `shots.py`，临时截图看完即删。",
+    "acceptance": "- [ ] 四个文件的每节都有亮暗、桌面和手机宽度截图\n- [ ] 交互清单里每个实盘相关的操作都带「要过 TRD-08 评审」标记\n- [ ] 数据结构表与 `tradedata.ts`、`backtest.ts` 字段一致\n- [ ] 风控一节列全四项规则和触发后的界面表现",
+    "scope": [
+      "web-next/docs/spec/markets.md（新建）",
+      "web-next/docs/spec/monitor.md（新建）",
+      "web-next/docs/spec/strategy.md（新建）",
+      "web-next/docs/spec/trading.md（新建）",
+      "web-next/docs/spec/shots/markets/",
+      "web-next/docs/spec/shots/monitor/",
+      "web-next/docs/spec/shots/strategy/",
+      "web-next/docs/spec/shots/trading/",
+      "web-next/docs/spec/shots.py（只加这四个模块的步骤）",
+      "web-next/docs/spec/README.md（只加四行）"
+    ]
+  },
+  {
+    "key": "AG-01b1",
+    "type": "task",
+    "title": "实现 Agent 配置的表和接口，会话挂到 Agent",
+    "milestone": "M4",
+    "module": "backend",
+    "priority": "P2",
+    "estimate": "M",
+    "depends_on": [
+      "CORE-06b",
+      "AG-01a"
+    ],
+    "workdir": ".",
+    "spec": [
+      "web-next/src/agentdata.ts Agent、AgentAvatarConf、AgentTrigger、newAgent",
+      "web-next/docs/spec/settings.md SPEC-settings-8、SPEC-settings-9 数据",
+      "web-next/docs/dev-plan.md 4.4 AG-01",
+      "docs/api-contract.md「Agent 对话 agent」"
+    ],
+    "body": "## 背景\n\n原需求 AG-01b（Agent 配置、技能、知识库接口）。AG-01b 是 L，拆成：Agent 配置（本条）、技能（AG-01b2）、知识库（AG-01b3）、触发和执行记录（AG-01b4）四个后端任务，和配置页（AG-01b5）、技能页（AG-01b6）、知识库页（AG-01b7）、会话页接 Agent（AG-01b8）四个前端任务。工具权限 `abilities` 归 AG-02a，不在本条。\n\n## 要做什么\n\n- 迁移 **0032**：新表 `agents`（id 用 CORE-11 已预留的前缀 `ag`，登记表里补上表名），字段对齐原型 `Agent`：`name`、`desc`、`color`、`avatar`（JSON，`image` 的 data URL 限 1MB）、`provider_id` + `model`、`instructions`、`skills`、`mcps`、`kbs`、`triggers`（JSON 数组，至少一条）、`enabled`、时间戳；`agent_sessions` 只加一列 `agent_id`（可空）。\n- 接口：`GET/POST /api/agents`、`GET/PATCH/DELETE /api/agents/{id}`、`GET /api/agents/{id}/impact`（删除前影响，口径同 SPEC-settings-9.29、9.30：会话和产出保留；有定时任务交给它时拦）。\n- 模型必须带服务商：`provider_id` 必须是存在的服务商，`model` 不校验是否在模型列表里（服务商停用、模型下架由前端标红，不拦保存，同 SPEC-settings-9.27）。\n- 会话：`POST /api/agent/sessions` 可带 `agent_id`，带了就用 Agent 的服务商和模型；对话时把 Agent 的 `instructions` 拼进系统提示词；Agent 停用时发消息回 409「Agent 已停用」；Agent 删了会话保留，响应里 `agent_deleted: true`。不带 `agent_id` 的旧会话行为不变。\n- 配置变更记审计（`target_type` 为 `agent`）；`agents`、`skills`、`knowledge_bases` 加进内核保留字（`docs/plugin-api.md` 1.4、后端 `internal/plugin` 和前端 `core/plugin/manifest.ts` 的保留字表，只加这三项）。\n\n## 注意事项\n\n- 迁移只加不改：`internal/db/migrations` 里 0001 到 0031 一行不动，0001 到 0004 没有校验和更不能碰。内核迁移号由 PLAN-04 预分配（M4 用 0032 到 0039），本条用的号写在「要做什么」里；并行任务撞号时后合入的改号。\n- 先在测试实例（`scripts/dev-instance.sh`）或副本库上演练，不碰 `data/pm.db`，不启动或重启 7777 上的服务；要临时后端就用 `bin/pmw-dev` 跑副本库、在自己的端口起，用完按 pid 关。\n- 加了或删了路由要同步 `docs/api-contract.md`（`TestEveryRouteIsInTheContractDoc` / `TestContractDocHasNoDeadRoutes` 双向盯着）；同一批多个任务改契约时各自只新增自己的一节，改前重新读、小段替换。\n- 新的 id 前缀在 `internal/idgen` 登记（CORE-11 的扫仓测试盯着），契约「id 前缀」表由主会话合并时补。",
+    "acceptance": "- [ ] 新建 Agent 不带 `provider_id` 或服务商不存在回 400；响应里同时有 `provider_id` 和 `model`\n- [ ] 用 `agent_id` 建的会话，对话时系统提示词带上 Agent 指令（Go 测试用假服务商断言请求内容）\n- [ ] 停用的 Agent 发消息回 409；删除 Agent 后会话还在，`agent_deleted` 为 true\n- [ ] 有定时任务的 `action.agent_id` 指向它时，影响检查返回拦截原因，DELETE 回 409\n- [ ] 新建、修改、删除各产生一条审计\n- [ ] gofmt、go vet ./...、go test ./... 通过，契约路由双向测试通过",
+    "scope": [
+      "internal/db/migrations/0032_agents.sql（新建）",
+      "internal/domain（Agent 结构）",
+      "internal/store（agents 读写、agent_sessions.agent_id）",
+      "internal/api（agents 路由、会话接 agent_id）",
+      "internal/agent（系统提示词拼 Agent 指令）",
+      "internal/idgen（ag 补表名）",
+      "internal/plugin（只加保留字）",
+      "frontend/src/core/plugin/manifest.ts（只加保留字）",
+      "docs/api-contract.md（新增「Agent 配置 agents」一节，会话一节加 agent_id）",
+      "docs/plugin-api.md（1.4 保留字）"
+    ]
+  },
+  {
+    "key": "AG-01b2",
+    "type": "task",
+    "title": "实现技能：内置、自定义和插件登记",
+    "milestone": "M4",
+    "module": "backend",
+    "priority": "P2",
+    "estimate": "M",
+    "depends_on": [
+      "AG-01b1",
+      "CORE-01b"
+    ],
+    "workdir": ".",
+    "spec": [
+      "web-next/src/agentdata.ts Skill、SKILLS",
+      "web-next/docs/spec/settings.md SPEC-settings-15、SPEC-settings-16",
+      "docs/plugin-api.md 2.6"
+    ],
+    "body": "## 背景\n\n原需求 AG-01b（Agent 配置、技能、知识库接口）。AG-01b 拆出的技能部分。插件 API 2.6 已定了 `Registrar.Skill`，后端还没实现。\n\n## 要做什么\n\n- 迁移 **0033**：新表 `skills` 只放自定义技能（已预留前缀 `sk`），字段对齐原型 `Skill`：`name`、`desc`、`instructions`、`when`、`uses`。\n- 内置技能在代码里登记（原型 `SKILLS` 里来源为「内置」的几条）；插件在 `Register` 里调 `Registrar.Skill(SkillDef)` 登记，id 必须在清单 `provides.skills` 里、`sk_` 开头，停用插件后它的技能不在列表里。\n- 接口：`GET /api/skills`（`source` 为 `builtin` / `custom` / 插件 id）、`POST /api/skills`（可带 `copy_from` 复制内置技能，SPEC-settings-16 的「复制」）、`PATCH/DELETE /api/skills/{id}` 只对自定义技能，内置和插件的回 409。\n- 删除自定义技能：从挂了它的 Agent 的 `skills` 里摘掉，影响口径按 SPEC-settings-16。\n- 对话时把 Agent 挂载的技能说明按「技能：<名称>」分段拼进系统提示词；提供技能的插件停用时跳过，不报错。\n\n## 注意事项\n\n- 迁移只加不改：`internal/db/migrations` 里 0001 到 0031 一行不动，0001 到 0004 没有校验和更不能碰。内核迁移号由 PLAN-04 预分配（M4 用 0032 到 0039），本条用的号写在「要做什么」里；并行任务撞号时后合入的改号。\n- 先在测试实例（`scripts/dev-instance.sh`）或副本库上演练，不碰 `data/pm.db`，不启动或重启 7777 上的服务；要临时后端就用 `bin/pmw-dev` 跑副本库、在自己的端口起，用完按 pid 关。\n- 加了或删了路由要同步 `docs/api-contract.md`（`TestEveryRouteIsInTheContractDoc` / `TestContractDocHasNoDeadRoutes` 双向盯着）；同一批多个任务改契约时各自只新增自己的一节，改前重新读、小段替换。\n- 新的 id 前缀在 `internal/idgen` 登记（CORE-11 的扫仓测试盯着），契约「id 前缀」表由主会话合并时补。\n- 插件的表带插件前缀，迁移放在插件自己的目录、从 0001 起单独编号（CORE-05），不占内核迁移号。\n- 插件之间互不 import；跨插件只走事件总线和内核句柄（`internal/plugin` 的 Core），需要新句柄时同步 `docs/plugin-api.md` 对应小节。\n- 清单里的权限按 `docs/plugin-api.md` 3.1，高风险权限安装时单独勾选；改清单要升插件版本。",
+    "acceptance": "- [ ] 内置技能改或删回 409；复制内置技能得到一条自定义技能，内容一致、名字带「副本」\n- [ ] 示例插件登记的技能出现在 `GET /api/skills`，停用插件后消失，挂了它的 Agent 对话时不注入\n- [ ] Agent 挂两个技能后，系统提示词里按顺序有两段技能说明（Go 测试断言）\n- [ ] 删除自定义技能后挂了它的 Agent 的 `skills` 里不再有它\n- [ ] gofmt、go vet ./...、go test ./... 通过，契约路由双向测试通过",
+    "scope": [
+      "internal/db/migrations/0033_skills.sql（新建）",
+      "internal/idgen（sk 补表名）",
+      "internal/agent（技能注入）",
+      "internal/plugin（Registrar.Skill）",
+      "internal/store",
+      "internal/api（skills 路由）",
+      "docs/api-contract.md（新增「技能 skills」一节）",
+      "docs/plugin-api.md（2.6 后端标为已实现）"
+    ]
+  },
+  {
+    "key": "AG-01b3",
+    "type": "task",
+    "title": "实现知识库：文档来源、切块和检索",
+    "milestone": "M4",
+    "module": "backend",
+    "priority": "P2",
+    "estimate": "L",
+    "depends_on": [
+      "AG-01b1",
+      "DOC-01a"
+    ],
+    "workdir": ".",
+    "spec": [
+      "web-next/src/kbdata.ts KbDoc、KbSettings、splitChunks、searchKb",
+      "web-next/src/agentdata.ts KnowledgeBase",
+      "web-next/docs/spec/settings.md SPEC-settings-10 到 SPEC-settings-14",
+      "docs/api-contract.md「文件读取和挂载目录」"
+    ],
+    "body": "## 背景\n\n原需求 AG-01b（Agent 配置、技能、知识库接口）。AG-01b 拆出的知识库部分，后端里最重的一块，规模 L。\n\n## 要做什么\n\n- 迁移 **0034**：`knowledge_bases`（已预留前缀 `kb`）、`kb_docs`（已预留 `kd`）、`kb_chunks`；字段对齐原型 `KnowledgeBase`、`KbDoc`、`KbSettings`（切块大小、重叠、返回条数、挂载目录 `dirs`、自动同步）。\n- 文档来源按 `KbDocSource`：`library`（按文档分类取工作台文档）、`dir`（本地目录，复用 DOC-01a 的挂载和敏感文件拦截，不另开读文件的路）、`upload`（存数据目录 `kb/` 下）、`link`（只存地址和用户贴进来的正文，**不联网抓取**）、`note`。\n- 切块按 `splitChunks` 的规则；检索 `POST /api/knowledge-bases/{id}/search` 先做关键词检索，打分口径与 `searchKb` 一致，返回段落、命中词、分数。SQLite 有 FTS5 就用，没有退回逐块匹配。嵌入模型的设置照存，**不做向量检索**（决策：可逆、先不依赖嵌入服务）。\n- 其余接口按 SPEC-settings-10 到 14：列表、新建、改、删，文档加、删、重建索引，目录同步 `POST /api/knowledge-bases/{id}/sync`。\n- 给 Agent 加一个内置工具 `kb_search`：只能搜这个 Agent 挂载的知识库；权限归内置能力 `read_content`（AG-02a 落实检查）。删除知识库时从 Agent 的 `kbs` 里摘掉。\n\n## 注意事项\n\n- 迁移只加不改：`internal/db/migrations` 里 0001 到 0031 一行不动，0001 到 0004 没有校验和更不能碰。内核迁移号由 PLAN-04 预分配（M4 用 0032 到 0039），本条用的号写在「要做什么」里；并行任务撞号时后合入的改号。\n- 先在测试实例（`scripts/dev-instance.sh`）或副本库上演练，不碰 `data/pm.db`，不启动或重启 7777 上的服务；要临时后端就用 `bin/pmw-dev` 跑副本库、在自己的端口起，用完按 pid 关。\n- 加了或删了路由要同步 `docs/api-contract.md`（`TestEveryRouteIsInTheContractDoc` / `TestContractDocHasNoDeadRoutes` 双向盯着）；同一批多个任务改契约时各自只新增自己的一节，改前重新读、小段替换。\n- 新的 id 前缀在 `internal/idgen` 登记（CORE-11 的扫仓测试盯着），契约「id 前缀」表由主会话合并时补。",
+    "acceptance": "- [ ] 工作台文档、本地目录、手写笔记三种来源加进来后状态为 `indexed`，切块数和 `KbSettings` 一致\n- [ ] 本地目录里的密钥证书类文件不会被收进知识库（沿用 DOC-01a 的拦截，Go 测试覆盖）\n- [ ] 检索对一组固定样例的结果与原型 `searchKb` 一致（样例写进测试）\n- [ ] 挂了知识库的 Agent 对话时能调 `kb_search`，搜不到没挂的知识库\n- [ ] 删除知识库后挂了它的 Agent 的 `kbs` 里不再有它\n- [ ] gofmt、go vet ./...、go test ./... 通过，契约路由双向测试通过",
+    "scope": [
+      "internal/db/migrations/0034_knowledge_bases.sql（新建）",
+      "internal/kb（新建包：切块、检索、同步）",
+      "internal/store",
+      "internal/api（knowledge-bases 路由）",
+      "internal/agent（kb_search 工具）",
+      "internal/idgen（kb、kd 补表名）",
+      "docs/api-contract.md（新增「知识库 knowledge-bases」一节）"
+    ]
+  },
+  {
+    "key": "AG-02a",
+    "type": "task",
+    "title": "实现 Agent 工具授权和执行时的强制检查",
+    "milestone": "M4",
+    "module": "backend",
+    "priority": "P2",
+    "estimate": "L",
+    "depends_on": [
+      "AG-01b1",
+      "CONN-01a"
+    ],
+    "workdir": ".",
+    "spec": [
+      "web-next/src/agentdata.ts Ability、AbilityMode、ABILITIES、ToolCall",
+      "web-next/docs/spec/settings.md SPEC-settings-9.15 到 9.20",
+      "web-next/docs/dev-plan.md 4.4 AG-02",
+      "docs/api-contract.md「连接器 connectors」工具授权、删除前的影响检查"
+    ],
+    "body": "## 背景\n\n原需求 AG-02（Agent 工具权限：按连接器工具逐项授权）。AG-02 拆成后端授权和执行检查（本条）、调试对话接口（AG-02c）、前端工具与权限标签和确认卡片（AG-02b）。连接器上的工具授权（CONN-01a 的 `mode`）是全局上限，本条加每个 Agent 自己的授权。\n\n## 要做什么\n\n- 迁移 **0035**：`agent_tool_grants`（`agent_id`、`key`、`mode`），`key` 为内置能力（`ABILITIES` 的 key）或 `conn:<连接器 id>:<工具名>`；`agent_tool_calls` 记需要确认的调用（会话或执行记录、工具、参数、`pending` / `confirmed` / `rejected`、结果）。\n- 接口：`GET/PUT /api/agents/{id}/grants`；`POST /api/agent/tool-calls/{id}/confirm`（SSE，执行后接着跑这一轮）、`POST /api/agent/tool-calls/{id}/reject`（把「用户拒绝了」作为工具结果交回模型继续）。\n- 生效规则：实际档位 = min(Agent 授权, 连接器上限)，顺序 关闭 < 需确认 < 自动；只读工具没有「需确认」。新建 Agent 默认按 `newAgent`（只开 `read_tasks`、`read_contacts`）。现有内置工具和能力的对应关系写成一张表进契约（例：`create_object` 归 `write_tasks`）。\n- Runner：给模型的工具列表里只有实际档位不是关闭的；模型硬调没授权的工具，回工具结果「没有授权」，不执行；需确认的发 `confirm` 事件后本轮结束（同 `question` 的做法）。没有 `agent_id` 的旧会话保持现在的行为。\n- 连接器工具真正调用：在 `connector.Def` 上加可选的 `Call`，先给假连接器 `fake` 实现；没实现的定义回工具结果「这个连接器的工具还不能调用」。\n- 连接器影响检查加一项 `core`/`agent_mounts`（`detach`）：「N 个 Agent 会卸下这个连接器」；删连接器时清掉这些 Agent 的 `mcps` 和 `conn:<id>:*` 授权。确认、拒绝都记审计。\n\n## 注意事项\n\n- 迁移只加不改：`internal/db/migrations` 里 0001 到 0031 一行不动，0001 到 0004 没有校验和更不能碰。内核迁移号由 PLAN-04 预分配（M4 用 0032 到 0039），本条用的号写在「要做什么」里；并行任务撞号时后合入的改号。\n- 先在测试实例（`scripts/dev-instance.sh`）或副本库上演练，不碰 `data/pm.db`，不启动或重启 7777 上的服务；要临时后端就用 `bin/pmw-dev` 跑副本库、在自己的端口起，用完按 pid 关。\n- 加了或删了路由要同步 `docs/api-contract.md`（`TestEveryRouteIsInTheContractDoc` / `TestContractDocHasNoDeadRoutes` 双向盯着）；同一批多个任务改契约时各自只新增自己的一节，改前重新读、小段替换。\n- 新的 id 前缀在 `internal/idgen` 登记（CORE-11 的扫仓测试盯着），契约「id 前缀」表由主会话合并时补。",
+    "acceptance": "- [ ] 关闭的工具不在给模型的工具列表里；假服务商硬调它时不执行，工具结果是「没有授权」\n- [ ] 需确认的写工具调用发出 `confirm` 事件后本轮结束；确认后执行并继续，拒绝后不执行；两种都有审计\n- [ ] 连接器上限为需确认的工具，Agent 设成自动时按需确认处理\n- [ ] 删除连接器后挂了它的 Agent 的 `mcps` 和 `conn:<id>:*` 授权被清掉，删除前影响检查里有 `agent_mounts` 一项\n- [ ] gofmt、go vet ./...、go test ./... 通过，契约路由双向测试通过",
+    "scope": [
+      "internal/db/migrations/0035_agent_tool_grants.sql（新建）",
+      "internal/agent（工具过滤、确认流程）",
+      "internal/connector（Def.Call、fake 实现、影响检查一项）",
+      "internal/store",
+      "internal/api（grants、tool-calls 路由）",
+      "docs/api-contract.md（新增「Agent 工具授权」一节；连接器影响表加一行；agent/chat 的 confirm 事件）"
+    ]
+  },
+  {
+    "key": "AG-02c",
+    "type": "task",
+    "title": "实现 Agent 调试对话接口",
+    "milestone": "M4",
+    "module": "backend",
+    "priority": "P2",
+    "estimate": "S",
+    "depends_on": [
+      "AG-02a",
+      "AG-01b2",
+      "AG-01b3"
+    ],
+    "workdir": ".",
+    "spec": [
+      "web-next/docs/spec/settings.md SPEC-settings-9.31、9.42"
+    ],
+    "body": "## 背景\n\n原需求 AG-02（Agent 工具权限）。配置页右边的调试对话要用「当前没保存的配置」试，不留会话记录（SPEC-settings-9.31），现有 `/api/agent/chat` 只认存过的会话，单独加一个接口。\n\n## 要做什么\n\n- `POST /api/agents/debug/chat`（SSE）：body 带完整的 Agent 配置（同 PATCH 的字段，含 `grants`）和本次调试的消息历史，不写 `agent_sessions`、不写消息。\n- 工具权限按 body 里的配置走 AG-02a 的规则；需确认的调用只存在进程内存里（10 分钟有效），确认、拒绝走 AG-02a 的两个接口，id 带调试前缀区分。\n- 写工具真的执行（SPEC-settings-9.31「产出照常落到数据上」），审计里 `detail` 标 `debug: true`。\n- Agent 停用时调试照常能发（SPEC-settings-9.42）。\n\n## 注意事项\n\n- 迁移只加不改：`internal/db/migrations` 里 0001 到 0031 一行不动，0001 到 0004 没有校验和更不能碰。内核迁移号由 PLAN-04 预分配（M4 用 0032 到 0039），本条用的号写在「要做什么」里；并行任务撞号时后合入的改号。\n- 先在测试实例（`scripts/dev-instance.sh`）或副本库上演练，不碰 `data/pm.db`，不启动或重启 7777 上的服务；要临时后端就用 `bin/pmw-dev` 跑副本库、在自己的端口起，用完按 pid 关。\n- 加了或删了路由要同步 `docs/api-contract.md`（`TestEveryRouteIsInTheContractDoc` / `TestContractDocHasNoDeadRoutes` 双向盯着）；同一批多个任务改契约时各自只新增自己的一节，改前重新读、小段替换。\n- 新的 id 前缀在 `internal/idgen` 登记（CORE-11 的扫仓测试盯着），契约「id 前缀」表由主会话合并时补。",
+    "acceptance": "- [ ] 调试对话前后 `agent_sessions` 和消息表行数不变\n- [ ] body 里把写工具设为需确认时发出 `confirm` 事件，确认后执行；进程重启后这条确认回 404\n- [ ] 调试里执行的写操作审计带 `debug: true`\n- [ ] gofmt、go vet ./...、go test ./... 通过，契约路由双向测试通过",
+    "scope": [
+      "internal/agent",
+      "internal/api（agents/debug 路由）",
+      "docs/api-contract.md（在「Agent 工具授权」一节后新增「调试对话」小节）"
+    ]
+  },
+  {
+    "key": "AG-01b4",
+    "type": "task",
+    "title": "实现 Agent 的触发方式和执行记录",
+    "milestone": "M4",
+    "module": "backend",
+    "priority": "P2",
+    "estimate": "M",
+    "depends_on": [
+      "AG-02a",
+      "TASK-03b",
+      "IM-01a",
+      "CORE-07a"
+    ],
+    "workdir": ".",
+    "spec": [
+      "web-next/src/agentdata.ts AgentTrigger、TriggerKind、AgentRun",
+      "web-next/docs/spec/sessions.md SPEC-sessions-2",
+      "web-next/docs/dev-plan.md 第 3 节 M4 完成标志",
+      "docs/api-contract.md「定时任务 schedules」动作 agent"
+    ],
+    "body": "## 背景\n\n原需求 AG-01b（Agent 配置、技能、知识库接口）。M4 的完成标志是「IM 转任务再由 Agent 处理」端到端跑通，Agent 只能手动对话不够。本条让触发方式真正生效，并把每次自动运行记成执行记录。\n\n## 要做什么\n\n- 迁移 **0036**：`agent_runs`（id 用已预留的前缀 `ar`）：`agent_id`、触发类型和说明、`session_id`、`status`（`done` / `waiting` / `rejected` / `failed`，同原型 `AgentRun`）、摘要、开始和结束时间、触发来源的对象 id。\n- 触发方式在 `detail` 文字之外加结构化的 `match`：`task`（任务负责人是这个 Agent，或标签命中）、`im`（连接器、会话、只看与我相关）、`schedule`（不在 Agent 上配，由定时任务的 `agent` 动作指过来）。前端对 `match` 的编辑由 AG-01b5 做。\n- 订阅事件总线：任务新建或改负责人、IM 消息到达（IM-01a 的事件）；命中的启用中的 Agent 各跑一次：建一条挂在触发对象下的会话、跑一轮、记执行记录；同一事件对同一 Agent 只触发一次（按事件 id 去重）。\n- 定时任务动作 `agent`：把 TASK-03b 里「M4 之后才有」的 `unsupported` 换成真执行，执行记录的 `text` 指到 Agent 执行记录。\n- 需确认的工具调用让执行记录停在 `waiting`，确认后变 `done`，拒绝变 `rejected`。\n- 接口：`GET /api/agent-runs`（按 Agent、状态、时间筛）、`GET /api/agent-runs/{id}`。\n\n## 注意事项\n\n- 迁移只加不改：`internal/db/migrations` 里 0001 到 0031 一行不动，0001 到 0004 没有校验和更不能碰。内核迁移号由 PLAN-04 预分配（M4 用 0032 到 0039），本条用的号写在「要做什么」里；并行任务撞号时后合入的改号。\n- 先在测试实例（`scripts/dev-instance.sh`）或副本库上演练，不碰 `data/pm.db`，不启动或重启 7777 上的服务；要临时后端就用 `bin/pmw-dev` 跑副本库、在自己的端口起，用完按 pid 关。\n- 加了或删了路由要同步 `docs/api-contract.md`（`TestEveryRouteIsInTheContractDoc` / `TestContractDocHasNoDeadRoutes` 双向盯着）；同一批多个任务改契约时各自只新增自己的一节，改前重新读、小段替换。\n- 新的 id 前缀在 `internal/idgen` 登记（CORE-11 的扫仓测试盯着），契约「id 前缀」表由主会话合并时补。",
+    "acceptance": "- [ ] 任务分配给 Agent 后它自动跑一次，执行记录为 `done`，会话挂在这条任务下\n- [ ] 假适配器灌一条 IM 消息，`im` 触发命中的 Agent 跑一次；同一条消息重放不重复触发\n- [ ] 定时任务动作 `agent` 到点执行，定时任务执行记录不再是 `unsupported`\n- [ ] 需确认的工具调用让执行记录停在 `waiting`，确认后变 `done`\n- [ ] 停用的 Agent 不再被触发\n- [ ] gofmt、go vet ./...、go test ./... 通过，契约路由双向测试通过",
+    "scope": [
+      "internal/db/migrations/0036_agent_runs.sql（新建）",
+      "internal/agent（触发、执行记录）",
+      "internal/schedule（agent 动作）",
+      "internal/store",
+      "internal/api（agent-runs 路由）",
+      "internal/idgen（ar 补表名）",
+      "docs/api-contract.md（新增「Agent 执行记录」一节；定时任务一节改 agent 动作的说明）"
+    ]
+  },
+  {
+    "key": "AG-01b5",
+    "type": "task",
+    "title": "实现 Agent 列表和配置页",
+    "milestone": "M4",
+    "module": "frontend",
+    "priority": "P2",
+    "estimate": "M",
+    "depends_on": [
+      "AG-01b1",
+      "AG-01b2",
+      "AG-01b3",
+      "PROTO-04e",
+      "MP-01b"
+    ],
+    "workdir": "frontend",
+    "spec": [
+      "web-next/src/agents.tsx AgentEditor",
+      "web-next/docs/spec/settings.md SPEC-settings-8、SPEC-settings-9"
+    ],
+    "body": "## 背景\n\n原需求 AG-01b（Agent 配置、技能、知识库接口）。Agent 配置的前端。工具与权限标签和调试对话依赖 AG-02a、AG-02c，放到 AG-02b，本条先占位。\n\n## 要做什么\n\n- 设置的二级菜单加「Agent」分节：列表（SPEC-settings-8）、配置页（SPEC-settings-9）。\n- 配置页标签：基本信息（头像、名称、说明、启用）、模型（按服务商分组、超过 6 个折叠、不可用标红）、指令、技能（挂载和卸下）、知识库（挂载、内联新建）、触发方式（含 AG-01b4 的 `match` 编辑）；工具与权限标签占位「下一步开放」。\n- 未保存离开确认、底栏问题汇总、删除确认（可删和被拦两种，读 `/api/agents/{id}/impact`）。\n\n## 注意事项\n\n- 只在 `frontend/` 里写代码，不 import `web-next` 的任何代码：原型的交互和样式可以照着写、挑着搬。\n- 联调只连测试实例（`scripts/dev-instance.sh start`，默认 127.0.0.1:7796），不连 7777，不启动或重启 7777 上的服务。\n- 取数和写数据走数据访问层 `frontend/src/core/data`（插件不 import `core/api`，lint 拦着），写完报 `Change` 由失效规则刷新。\n- 状态、类型、优先级从后端读，不写死；副作用不写进 setState 的 updater。\n- `core/api` 的类型文件和 `core/data` 是共用文件，改前重新读、只加自己的那几项。",
+    "acceptance": "- [ ] 列表、新建、编辑、删除与 SPEC-settings-8、9 的交互清单逐条对照通过（工具与权限、调试对话两项除外）\n- [ ] 模型选择列出各服务商的可用模型，保存后后端记的是 `provider_id` + `model`\n- [ ] 在模型服务商里停用一个服务商后，用它的 Agent 配置页出现「模型不可用」红条\n- [ ] 有改动时离开弹确认，什么都没填的新建不算改动\n- [ ] frontend 的 npm test、typecheck、lint、build 通过，`make smoke-frontend` 0 问题",
+    "scope": [
+      "frontend/src/modules/settings/agents/（新建）",
+      "frontend/src/modules/settings/Page.tsx（只加分节入口）",
+      "frontend/src/core/api（agents、skills、knowledge-bases 的类型和请求）",
+      "frontend/src/core/data（agents 查询和失效规则）"
+    ]
+  },
+  {
+    "key": "AG-01b6",
+    "type": "task",
+    "title": "实现技能列表和技能抽屉",
+    "milestone": "M4",
+    "module": "frontend",
+    "priority": "P2",
+    "estimate": "S",
+    "depends_on": [
+      "AG-01b2",
+      "PROTO-04e"
+    ],
+    "workdir": "frontend",
+    "spec": [
+      "web-next/src/kbskills.tsx 技能部分",
+      "web-next/docs/spec/settings.md SPEC-settings-15、SPEC-settings-16"
+    ],
+    "body": "## 背景\n\n原需求 AG-01b（Agent 配置、技能、知识库接口）。技能的前端，和 AG-01b5、AG-01b7 分开派，各自一个目录。\n\n## 要做什么\n\n- 设置的二级菜单加「技能」分节：列表按来源分组（内置、自定义、插件），抽屉查看、新建、编辑、复制、删除；内置和插件的技能只读，只能复制。\n- 删除前列出挂了它的 Agent。\n\n## 注意事项\n\n- 只在 `frontend/` 里写代码，不 import `web-next` 的任何代码：原型的交互和样式可以照着写、挑着搬。\n- 联调只连测试实例（`scripts/dev-instance.sh start`，默认 127.0.0.1:7796），不连 7777，不启动或重启 7777 上的服务。\n- 取数和写数据走数据访问层 `frontend/src/core/data`（插件不 import `core/api`，lint 拦着），写完报 `Change` 由失效规则刷新。\n- 状态、类型、优先级从后端读，不写死；副作用不写进 setState 的 updater。\n- `core/api` 的类型文件和 `core/data` 是共用文件，改前重新读、只加自己的那几项。",
+    "acceptance": "- [ ] 与 SPEC-settings-15、16 的交互清单逐条对照通过\n- [ ] 内置技能的抽屉没有编辑和删除，只有复制；复制后打开新技能的抽屉\n- [ ] frontend 的 npm test、typecheck、lint、build 通过，`make smoke-frontend` 0 问题",
+    "scope": [
+      "frontend/src/modules/settings/skills/（新建）",
+      "frontend/src/modules/settings/Page.tsx（只加分节入口）",
+      "frontend/src/core/data（skills 查询和失效规则）"
+    ]
+  },
+  {
+    "key": "AG-01b7",
+    "type": "task",
+    "title": "实现知识库列表、详情和抽屉",
+    "milestone": "M4",
+    "module": "frontend",
+    "priority": "P2",
+    "estimate": "M",
+    "depends_on": [
+      "AG-01b3",
+      "PROTO-04e"
+    ],
+    "workdir": "frontend",
+    "spec": [
+      "web-next/src/kbskills.tsx 知识库部分",
+      "web-next/src/kbdata.ts",
+      "web-next/docs/spec/settings.md SPEC-settings-10 到 SPEC-settings-14"
+    ],
+    "body": "## 背景\n\n原需求 AG-01b（Agent 配置、技能、知识库接口）。知识库的前端。\n\n## 要做什么\n\n- 设置的二级菜单加「知识库」分节：列表、新建和编辑抽屉、详情三个标签（文档、检索测试、设置）。\n- 文档标签：按来源加文档（工作台文档、本地目录、上传、链接、笔记）、状态（已索引、待处理、失败）、阅读、删除、重建；检索测试显示命中段落和高亮命中词；设置标签管切块参数、挂载目录、自动同步，显示「挂了这个知识库的 Agent」并能跳过去。\n- 链接来源只填地址和正文，界面写明「不会联网抓取」（AG-01b3 的决策）。\n\n## 注意事项\n\n- 只在 `frontend/` 里写代码，不 import `web-next` 的任何代码：原型的交互和样式可以照着写、挑着搬。\n- 联调只连测试实例（`scripts/dev-instance.sh start`，默认 127.0.0.1:7796），不连 7777，不启动或重启 7777 上的服务。\n- 取数和写数据走数据访问层 `frontend/src/core/data`（插件不 import `core/api`，lint 拦着），写完报 `Change` 由失效规则刷新。\n- 状态、类型、优先级从后端读，不写死；副作用不写进 setState 的 updater。\n- `core/api` 的类型文件和 `core/data` 是共用文件，改前重新读、只加自己的那几项。",
+    "acceptance": "- [ ] 与 SPEC-settings-10 到 14 的交互清单逐条对照通过\n- [ ] 加一个本地目录后文档列表出现目录里的文件，检索测试能搜到其中内容\n- [ ] 设置里改切块大小后重建，文档的切块数随之变化\n- [ ] frontend 的 npm test、typecheck、lint、build 通过，`make smoke-frontend` 0 问题",
+    "scope": [
+      "frontend/src/modules/settings/kb/（新建）",
+      "frontend/src/modules/settings/Page.tsx（只加分节入口）",
+      "frontend/src/core/data（knowledge-bases 查询和失效规则）"
+    ]
+  },
+  {
+    "key": "AG-01b8",
+    "type": "task",
+    "title": "会话页接 Agent：按 Agent 新建会话、执行记录",
+    "milestone": "M4",
+    "module": "frontend",
+    "priority": "P2",
+    "estimate": "M",
+    "depends_on": [
+      "AG-01b1",
+      "AG-01b4",
+      "AG-01a"
+    ],
+    "workdir": "frontend",
+    "spec": [
+      "web-next/src/sessions.tsx",
+      "web-next/src/quicksession.tsx",
+      "web-next/docs/spec/sessions.md SPEC-sessions-1、SPEC-sessions-2、SPEC-sessions-4"
+    ],
+    "body": "## 背景\n\n原需求 AG-01b（Agent 配置、技能、知识库接口）。M3 的会话页（AG-01a）只能选服务商和模型。Agent 有了以后，会话要按 Agent 开，执行记录也要能看。\n\n## 要做什么\n\n- 新建会话和快速新建（SPEC-sessions-4）改为选 Agent；不选 Agent 的旧方式保留在「更多」里。\n- 会话头部显示 Agent 头像和名称；Agent 已停用时不能发送、Agent 已删除时显示「已删除的 Agent」（规格截图「会话_Agent已停用」「会话_Agent已删除」）。\n- 执行记录（SPEC-sessions-2）接 `/api/agent-runs`：按 Agent、状态筛，带 `?run=` 定位到一条，`waiting` 的指向待确认的调用。确认卡片本身由 AG-02b 做。\n\n## 注意事项\n\n- 只在 `frontend/` 里写代码，不 import `web-next` 的任何代码：原型的交互和样式可以照着写、挑着搬。\n- 联调只连测试实例（`scripts/dev-instance.sh start`，默认 127.0.0.1:7796），不连 7777，不启动或重启 7777 上的服务。\n- 取数和写数据走数据访问层 `frontend/src/core/data`（插件不 import `core/api`，lint 拦着），写完报 `Change` 由失效规则刷新。\n- 状态、类型、优先级从后端读，不写死；副作用不写进 setState 的 updater。\n- `core/api` 的类型文件和 `core/data` 是共用文件，改前重新读、只加自己的那几项。",
+    "acceptance": "- [ ] 新建会话选一个 Agent，发消息后回复用的是这个 Agent 的模型\n- [ ] 停用和删除 Agent 后会话页的表现与规格截图一致\n- [ ] 执行记录按 Agent 筛选正确，带 `?run=` 打开时定位并高亮那一条\n- [ ] 与 SPEC-sessions-1、2、4 的交互清单对照通过\n- [ ] frontend 的 npm test、typecheck、lint、build 通过，`make smoke-frontend` 0 问题",
+    "scope": [
+      "frontend/src/modules/conversations/",
+      "frontend/src/core/data（agent-runs 查询和失效规则）",
+      "frontend/src/core/api（agent-runs 的类型和请求）"
+    ]
+  },
+  {
+    "key": "AG-02b",
+    "type": "task",
+    "title": "实现工具与权限标签、调试对话和对话里的确认卡片",
+    "milestone": "M4",
+    "module": "frontend",
+    "priority": "P2",
+    "estimate": "M",
+    "depends_on": [
+      "AG-02a",
+      "AG-02c",
+      "AG-01b5",
+      "AG-01b8"
+    ],
+    "workdir": "frontend",
+    "spec": [
+      "web-next/src/agents.tsx 工具与权限、调试面板",
+      "web-next/docs/spec/settings.md SPEC-settings-9.15 到 9.20、9.31、9.32",
+      "web-next/docs/spec/sessions.md 会话_权限没开"
+    ],
+    "body": "## 背景\n\n原需求 AG-02（Agent 工具权限：按连接器工具逐项授权）。AG-02 的前端部分。\n\n## 要做什么\n\n- 配置页「工具与权限」标签：内置能力按组列，只读「关闭 / 自动」，写「关闭 / 需确认 / 自动」，写设为自动出风险提示；挂载连接器、展开它的工具、档位受连接器上限约束、卸下时清掉 `conn:<id>:*`。\n- 配置页右侧调试对话接 AG-02c：示例问题、⌘Enter 发送、清空；1100px 以下收成一条。\n- 会话里收到 `confirm` 事件时显示「确认执行 / 拒绝」卡片，点了调 AG-02a 的接口并接着显示流式回复；没开权限时按规格「会话_权限没开」提示要开哪一项并能跳到配置页。\n\n## 注意事项\n\n- 只在 `frontend/` 里写代码，不 import `web-next` 的任何代码：原型的交互和样式可以照着写、挑着搬。\n- 联调只连测试实例（`scripts/dev-instance.sh start`，默认 127.0.0.1:7796），不连 7777，不启动或重启 7777 上的服务。\n- 取数和写数据走数据访问层 `frontend/src/core/data`（插件不 import `core/api`，lint 拦着），写完报 `Change` 由失效规则刷新。\n- 状态、类型、优先级从后端读，不写死；副作用不写进 setState 的 updater。\n- `core/api` 的类型文件和 `core/data` 是共用文件，改前重新读、只加自己的那几项。",
+    "acceptance": "- [ ] 工具与权限标签与 SPEC-settings-9.15 到 9.20 对照通过，连接器上限为需确认的工具选不到自动\n- [ ] 调试对话里写工具设为需确认时出现确认卡片，确认后看到执行结果；调试前后会话列表不多一条\n- [ ] 会话里的确认卡片确认、拒绝两种都能接着流式回复\n- [ ] frontend 的 npm test、typecheck、lint、build 通过，`make smoke-frontend` 0 问题",
+    "scope": [
+      "frontend/src/modules/settings/agents/",
+      "frontend/src/modules/conversations/（确认卡片）",
+      "frontend/src/core/api（grants、tool-calls、debug chat 的类型和请求）"
+    ]
+  },
+  {
+    "key": "CONN-01e1",
+    "type": "task",
+    "title": "接通 Google Drive 连接器",
+    "milestone": "M4",
+    "module": "backend",
+    "priority": "P2",
+    "estimate": "M",
+    "depends_on": [
+      "CONN-01b"
+    ],
+    "workdir": ".",
+    "spec": [
+      "web-next/docs/dev-plan.md 4.7 CONN-01",
+      "web-next/src/browserdata.ts GOOGLE_SCOPES、DriveFile",
+      "docs/api-contract.md「OAuth 授权（CONN-01b）」"
+    ],
+    "body": "## 背景\n\n原需求 CONN-01e（接通 Google Drive 和 Google 日历连接器）。CONN-01e 拆成 Drive（本条，含两者共用的 Google OAuth 部分）和日历（CONN-01e2）。\n\n## 要做什么\n\n- 共用的 Google OAuth：授权地址、令牌地址、`openid email` 加各自的范围；为拿到 `refresh_token` 要带 `access_type=offline`、`prompt=consent`，如果 CONN-01b 的定义不支持附加授权参数，在 `ConnectorDef.oauth` 上加一个可选的附加参数表（向后兼容）。client_id、client_secret 走字段（`client_id_field`、`client_secret_field`），不内置。\n- Drive 定义：连通测试取账号邮箱作 `account`；工具清单为只读工具（搜索文件、列目录、取文件信息、导出文档正文），`write: false`。\n- 如果 AG-02a 已经合入，顺带实现 `Call`；没合入就只做连通测试和工具清单，在回复里说明。\n\n## 需要用户\n\n- 在 Google Cloud 建一个 OAuth 客户端（Web 应用），回调地址登记 `https://bro.vip/api/connectors/oauth/callback`；测试实例用 `--public-url` 对应的地址另登记一条。\n- 用户在测试实例的连接器设置页自己填 client_id、client_secret 并点授权。子代理不往保险箱写真实凭证，真实账号连通由用户验收；开发和测试用 `internal/connector/oauthfake`。\n\n## 注意事项\n\n- 迁移只加不改：`internal/db/migrations` 里 0001 到 0031 一行不动，0001 到 0004 没有校验和更不能碰。内核迁移号由 PLAN-04 预分配（M4 用 0032 到 0039），本条用的号写在「要做什么」里；并行任务撞号时后合入的改号。\n- 先在测试实例（`scripts/dev-instance.sh`）或副本库上演练，不碰 `data/pm.db`，不启动或重启 7777 上的服务；要临时后端就用 `bin/pmw-dev` 跑副本库、在自己的端口起，用完按 pid 关。\n- 加了或删了路由要同步 `docs/api-contract.md`（`TestEveryRouteIsInTheContractDoc` / `TestContractDocHasNoDeadRoutes` 双向盯着）；同一批多个任务改契约时各自只新增自己的一节，改前重新读、小段替换。\n- 新的 id 前缀在 `internal/idgen` 登记（CORE-11 的扫仓测试盯着），契约「id 前缀」表由主会话合并时补。",
+    "acceptance": "- [ ] 在假 OAuth 服务上走通授权、令牌刷新、连通测试，`account` 为邮箱（Go 测试）\n- [ ] 授权请求带 `access_type=offline`、`prompt=consent`，旧的连接器定义行为不变\n- [ ] 工具清单拉回来全是只读工具\n- [ ] 令牌和 client_secret 不出现在任何响应和日志里\n- [ ] （需要用户）用真实 Google 账号授权后连通测试通过\n- [ ] gofmt、go vet ./...、go test ./... 通过，契约路由双向测试通过",
+    "scope": [
+      "internal/connector/google.go、google_drive.go（新建）",
+      "internal/connector/oauth.go（只在需要时加附加授权参数）",
+      "cmd/pmw（登记定义）",
+      "docs/api-contract.md（连接器一节加「Google」小节）"
+    ]
+  },
+  {
+    "key": "CONN-01e2",
+    "type": "task",
+    "title": "接通 Google 日历连接器",
+    "milestone": "M4",
+    "module": "backend",
+    "priority": "P2",
+    "estimate": "S",
+    "depends_on": [
+      "CONN-01e1"
+    ],
+    "workdir": ".",
+    "spec": [
+      "web-next/docs/dev-plan.md 4.7 CONN-01"
+    ],
+    "body": "## 背景\n\n原需求 CONN-01e（接通 Google Drive 和 Google 日历连接器）。复用 CONN-01e1 的 Google OAuth 部分。\n\n## 要做什么\n\n- 日历定义：范围 `calendar.readonly` 加 `calendar.events`；连通测试取账号邮箱；工具清单：列日历、查日程（只读）、新建日程（写，默认需确认）。\n- `Call` 的做法同 CONN-01e1。\n\n## 需要用户\n\n- 在 Google Cloud 建一个 OAuth 客户端（Web 应用），回调地址登记 `https://bro.vip/api/connectors/oauth/callback`；测试实例用 `--public-url` 对应的地址另登记一条。\n- 用户在测试实例的连接器设置页自己填 client_id、client_secret 并点授权。子代理不往保险箱写真实凭证，真实账号连通由用户验收；开发和测试用 `internal/connector/oauthfake`。\n\n## 注意事项\n\n- 迁移只加不改：`internal/db/migrations` 里 0001 到 0031 一行不动，0001 到 0004 没有校验和更不能碰。内核迁移号由 PLAN-04 预分配（M4 用 0032 到 0039），本条用的号写在「要做什么」里；并行任务撞号时后合入的改号。\n- 先在测试实例（`scripts/dev-instance.sh`）或副本库上演练，不碰 `data/pm.db`，不启动或重启 7777 上的服务；要临时后端就用 `bin/pmw-dev` 跑副本库、在自己的端口起，用完按 pid 关。\n- 加了或删了路由要同步 `docs/api-contract.md`（`TestEveryRouteIsInTheContractDoc` / `TestContractDocHasNoDeadRoutes` 双向盯着）；同一批多个任务改契约时各自只新增自己的一节，改前重新读、小段替换。\n- 新的 id 前缀在 `internal/idgen` 登记（CORE-11 的扫仓测试盯着），契约「id 前缀」表由主会话合并时补。",
+    "acceptance": "- [ ] 在假 OAuth 服务上走通授权和连通测试（Go 测试）\n- [ ] 工具清单里新建日程是写工具，默认档位为需确认\n- [ ] （需要用户）用真实 Google 账号授权后连通测试通过\n- [ ] gofmt、go vet ./...、go test ./... 通过，契约路由双向测试通过",
+    "scope": [
+      "internal/connector/google_calendar.go（新建）",
+      "cmd/pmw（登记定义）",
+      "docs/api-contract.md（「Google」小节加日历）"
+    ]
+  },
+  {
+    "key": "SOP-01a",
+    "type": "task",
+    "title": "搭 SOP 编排插件的壳和流程定义接口",
+    "milestone": "M4",
+    "module": "backend",
+    "priority": "P2",
+    "estimate": "M",
+    "depends_on": [
+      "CORE-07a",
+      "CORE-04b"
+    ],
+    "workdir": ".",
+    "spec": [
+      "web-next/src/sopflow.ts Sop、SopStepDef、SopField、depsOf、ranks",
+      "web-next/src/nodetypes.tsx NODE_TYPES、missingFields",
+      "web-next/docs/dev-plan.md 2.8、4.8 SOP-01"
+    ],
+    "body": "## 背景\n\n原需求 SOP-01（SOP 执行引擎搬到后端）。SOP-01 是 L，拆成插件壳和流程定义（本条）、执行引擎（SOP-01b）、AI 类和外部节点（SOP-01c）、定时任务和 Agent 发起 SOP（SOP-01d）。按开发计划 2.8，SOP 编排是插件，id `sop`。\n\n## 要做什么\n\n- `internal/plugins/sop`：清单（`provides.modules: [\"sop\"]`，权限此时为空）、注册、迁移目录；插件迁移 `0001_flows`：`sop_flows`（已预留前缀 `sop`，登记表里补上表名）存 `name`、`desc`、`trigger`、`fields`、`steps`、`layout`（JSON，形状同原型 `Sop`）和 `version`。\n- 接口：`GET/POST /api/sop/flows`、`GET/PATCH/DELETE /api/sop/flows/{id}`、`GET /api/sop/node-types`（内置节点的 kind、分组、必填配置项，前端的展示字段仍在前端）。\n- 保存时校验：步骤 key 唯一、`after` 引用存在、依赖无环、`branch.of` 指向分支节点且 `case` 存在、必填配置项（同 `missingFields`）；不合格回 400 并列出全部问题，口径和原型编辑器的「检查」一致。\n- 删除流程：有进行中的运行时回 409；有定时任务指向它时在影响里列出（SOP-01d 接上之后）。\n\n## 注意事项\n\n- 迁移只加不改：`internal/db/migrations` 里 0001 到 0031 一行不动，0001 到 0004 没有校验和更不能碰。内核迁移号由 PLAN-04 预分配（M4 用 0032 到 0039），本条用的号写在「要做什么」里；并行任务撞号时后合入的改号。\n- 先在测试实例（`scripts/dev-instance.sh`）或副本库上演练，不碰 `data/pm.db`，不启动或重启 7777 上的服务；要临时后端就用 `bin/pmw-dev` 跑副本库、在自己的端口起，用完按 pid 关。\n- 加了或删了路由要同步 `docs/api-contract.md`（`TestEveryRouteIsInTheContractDoc` / `TestContractDocHasNoDeadRoutes` 双向盯着）；同一批多个任务改契约时各自只新增自己的一节，改前重新读、小段替换。\n- 新的 id 前缀在 `internal/idgen` 登记（CORE-11 的扫仓测试盯着），契约「id 前缀」表由主会话合并时补。\n- 插件的表带插件前缀，迁移放在插件自己的目录、从 0001 起单独编号（CORE-05），不占内核迁移号。\n- 插件之间互不 import；跨插件只走事件总线和内核句柄（`internal/plugin` 的 Core），需要新句柄时同步 `docs/plugin-api.md` 对应小节。\n- 清单里的权限按 `docs/plugin-api.md` 3.1，高风险权限安装时单独勾选；改清单要升插件版本。",
+    "acceptance": "- [ ] 清单通过 CORE-01b 校验，`GET /api/plugins` 里能看到 sop，停用后 `/api/sop/*` 回 404\n- [ ] 原型 `SOPS` 里的几条流程原样 POST 能存进去、取回来字段一致\n- [ ] 有环、引用不存在、分支 case 不存在、必填项没填各回 400，message 列出全部问题\n- [ ] gofmt、go vet ./...、go test ./... 通过，契约路由双向测试通过",
+    "scope": [
+      "internal/plugins/sop/（新建：plugin.json、sop.go、flows.go、migrations/0001_flows.sql）",
+      "cmd/pmw（登记插件）",
+      "internal/idgen（sop 补表名）",
+      "internal/api 的契约测试里按 cmd/pmw 同样登记",
+      "docs/api-contract.md（新增「SOP 编排插件 sop」一节）"
+    ]
+  },
+  {
+    "key": "SOP-01b",
+    "type": "task",
+    "title": "实现 SOP 执行引擎：DAG、并行、分支、人工检查点、断点续跑",
+    "milestone": "M4",
+    "module": "backend",
+    "priority": "P2",
+    "estimate": "L",
+    "depends_on": [
+      "SOP-01a"
+    ],
+    "workdir": ".",
+    "spec": [
+      "web-next/src/sopflow.ts SopRun、RunStep、StepStatus、RunStatus、startRun、tick、act、RunAction",
+      "web-next/src/nodetypes.tsx",
+      "web-next/docs/dev-plan.md 4.8 SOP-01"
+    ],
+    "body": "## 背景\n\n原需求 SOP-01（SOP 执行引擎搬到后端）。执行语义以原型 `sopflow.ts` 为准，搬到后端并持久化，验收是「后端重启后运行能继续」。\n\n## 要做什么\n\n- 插件迁移 `0002_runs`：`sop_runs`（新登记前缀 `spr`：`run` 已给开发执行用，见 `internal/idgen` 里 run 那行的注释；含开始时的流程快照、输入、逐步确认开关、停止标记）、`sop_run_steps`（状态、输入、输出、分支、原因、尝试次数、`edited`、日志）。\n- 调度：每条运行一个协程、单写者；依赖都结束的步骤并行开跑；没选中的分支 `bypassed`；逐步确认时执行前停在 `paused`；人工检查和人工判断停在 `review`。\n- 动作 `POST /api/sop/runs/{id}/actions`：`confirm-input`、`approve`（可带改过的输出）、`route`、`rework`、`retry`、`skip`、`stop`、`step-through`，语义同原型 `act`；人改过的标 `edited`。\n- 本条实现的节点：`template`、`aggregate`、`decide`（规则先支持「字段 等于 / 包含 值」，规则留空是人工判断，规则写法记进契约）、`review`、`wait`（到点时间落库）、`subflow`（起子运行，等它结束）、`end`、`auto`（后端只透传输入并记日志，真正的写操作在 SOP-02a）。AI 类和外部节点在 SOP-01c，在那之前这些节点执行直接失败并写「这个节点还没接上」。\n- 断点续跑：服务启动时把 `running` 的运行接着调度，停在执行中的步骤重跑一次（`attempts` 加 1，日志写「服务重启后重跑」），`wait` 按原到点时间继续，`paused`、`review` 原样等人。\n- 接口：`POST /api/sop/flows/{id}/runs`、`GET /api/sop/runs`（按流程、状态、待我处理筛）、`GET /api/sop/runs/{id}`；状态变化发事件（清单 `emits`）；登记今日卡片「SOP 待我处理」（TODAY-01b 的扩展点）。\n\n## 注意事项\n\n- 迁移只加不改：`internal/db/migrations` 里 0001 到 0031 一行不动，0001 到 0004 没有校验和更不能碰。内核迁移号由 PLAN-04 预分配（M4 用 0032 到 0039），本条用的号写在「要做什么」里；并行任务撞号时后合入的改号。\n- 先在测试实例（`scripts/dev-instance.sh`）或副本库上演练，不碰 `data/pm.db`，不启动或重启 7777 上的服务；要临时后端就用 `bin/pmw-dev` 跑副本库、在自己的端口起，用完按 pid 关。\n- 加了或删了路由要同步 `docs/api-contract.md`（`TestEveryRouteIsInTheContractDoc` / `TestContractDocHasNoDeadRoutes` 双向盯着）；同一批多个任务改契约时各自只新增自己的一节，改前重新读、小段替换。\n- 新的 id 前缀在 `internal/idgen` 登记（CORE-11 的扫仓测试盯着），契约「id 前缀」表由主会话合并时补。\n- 插件的表带插件前缀，迁移放在插件自己的目录、从 0001 起单独编号（CORE-05），不占内核迁移号。\n- 插件之间互不 import；跨插件只走事件总线和内核句柄（`internal/plugin` 的 Core），需要新句柄时同步 `docs/plugin-api.md` 对应小节。\n- 清单里的权限按 `docs/plugin-api.md` 3.1，高风险权限安装时单独勾选；改清单要升插件版本。",
+    "acceptance": "- [ ] 两路并行的步骤同时开跑，聚合步骤等两路都结束才开始\n- [ ] 分支没选中的步骤为 `bypassed`；人工判断选了分支后按分支继续\n- [ ] 人工检查停在 `review`，带改过的输出放行后继续，这一步标 `edited: output`\n- [ ] Go 测试里运行到一半关掉引擎，用同一个库重新起引擎后运行继续，执行中的那步 `attempts` 加 1\n- [ ] 改了流程定义后，进行中的运行仍按开始时的快照走完\n- [ ] 今日聚合里有「SOP 待我处理」卡片，停用插件后消失\n- [ ] gofmt、go vet ./...、go test ./... 通过，契约路由双向测试通过",
+    "scope": [
+      "internal/plugins/sop/（engine.go、runs.go、nodes.go、migrations/0002_runs.sql 等）",
+      "internal/idgen（登记 spr）",
+      "docs/api-contract.md（「SOP 编排插件 sop」一节内新增「运行」小节）"
+    ]
+  },
+  {
+    "key": "SOP-01c",
+    "type": "task",
+    "title": "实现 SOP 的 AI 类和外部节点：AI 处理、参数提取、分类、迭代、知识检索、调用 Agent、HTTP",
+    "milestone": "M4",
+    "module": "backend",
+    "priority": "P2",
+    "estimate": "M",
+    "depends_on": [
+      "SOP-01b",
+      "AG-01b3",
+      "AG-02a"
+    ],
+    "workdir": ".",
+    "spec": [
+      "web-next/src/nodetypes.tsx ai、extract、classifier、iterate、knowledge、agent、http、code",
+      "docs/plugin-api.md 2.0 Core 句柄"
+    ],
+    "body": "## 背景\n\n原需求 SOP-01（SOP 执行引擎搬到后端）。这些节点要用模型、知识库和 Agent，都是内核的能力，插件经 Core 句柄拿。\n\n## 要做什么\n\n- Core 加 `Agent()` 句柄：用默认服务商补全一段提示词、按 Agent 的授权跑一轮（遇到需确认的工具返回等待）、搜指定知识库；同步写进 `docs/plugin-api.md` 2.0。\n- 节点：`ai`、`extract`（按配置的字段让模型回 JSON，解析失败算失败可重试）、`classifier`（模型返回的类别不在分支里时归第一类并写原因）、`iterate`（对列表每一项按「每一项做什么」调一次模型）、`knowledge`（只搜配置的知识库）、`agent`（Agent 遇到需确认的工具时这一步停在 `review`，日志写「等你在会话里确认」，确认后继续）、`http`。\n- `http` 节点要访问任意地址，插件清单加 `network:any`（高风险，安装时单独勾选），升插件版本；请求和响应体各截 64KB，凭证类请求头在日志里打码。\n- `code` 节点：后端**不执行代码**，执行时失败并写「代码节点暂不支持在后端执行」（决策：不引入脚本运行时，可逆）。\n\n## 注意事项\n\n- 迁移只加不改：`internal/db/migrations` 里 0001 到 0031 一行不动，0001 到 0004 没有校验和更不能碰。内核迁移号由 PLAN-04 预分配（M4 用 0032 到 0039），本条用的号写在「要做什么」里；并行任务撞号时后合入的改号。\n- 先在测试实例（`scripts/dev-instance.sh`）或副本库上演练，不碰 `data/pm.db`，不启动或重启 7777 上的服务；要临时后端就用 `bin/pmw-dev` 跑副本库、在自己的端口起，用完按 pid 关。\n- 加了或删了路由要同步 `docs/api-contract.md`（`TestEveryRouteIsInTheContractDoc` / `TestContractDocHasNoDeadRoutes` 双向盯着）；同一批多个任务改契约时各自只新增自己的一节，改前重新读、小段替换。\n- 新的 id 前缀在 `internal/idgen` 登记（CORE-11 的扫仓测试盯着），契约「id 前缀」表由主会话合并时补。\n- 插件的表带插件前缀，迁移放在插件自己的目录、从 0001 起单独编号（CORE-05），不占内核迁移号。\n- 插件之间互不 import；跨插件只走事件总线和内核句柄（`internal/plugin` 的 Core），需要新句柄时同步 `docs/plugin-api.md` 对应小节。\n- 清单里的权限按 `docs/plugin-api.md` 3.1，高风险权限安装时单独勾选；改清单要升插件版本。",
+    "acceptance": "- [ ] 用假服务商跑 ai、extract、classifier、iterate，输出符合配置；extract 拿到非 JSON 时步骤失败、重试后成功\n- [ ] classifier 拿到不在分支里的类别时走第一类，`route_reason` 写明原因\n- [ ] knowledge 节点只返回配置的知识库里的段落\n- [ ] agent 节点遇到需确认的工具停下，确认后这一步完成、运行继续\n- [ ] http 节点请求本机假服务成功；对方回 500 时步骤失败可重试；code 节点给出明确的不支持提示\n- [ ] gofmt、go vet ./...、go test ./... 通过，契约路由双向测试通过",
+    "scope": [
+      "internal/plugins/sop/（节点实现、plugin.json 权限和版本）",
+      "internal/plugin（Core.Agent 句柄）",
+      "internal/agent（给句柄用的入口）",
+      "docs/plugin-api.md（2.0 Core 句柄）",
+      "docs/api-contract.md（「SOP 编排插件 sop」一节内补节点说明）"
+    ]
+  },
+  {
+    "key": "SOP-01d",
+    "type": "task",
+    "title": "让定时任务和 Agent 能发起 SOP",
+    "milestone": "M4",
+    "module": "backend",
+    "priority": "P2",
+    "estimate": "S",
+    "depends_on": [
+      "SOP-01b",
+      "AG-02a"
+    ],
+    "workdir": ".",
+    "spec": [
+      "docs/api-contract.md「定时任务 schedules」动作 sop",
+      "web-next/src/agentdata.ts ABILITIES run_sop"
+    ],
+    "body": "## 背景\n\n原需求 SOP-01（SOP 执行引擎搬到后端）。定时任务的 `sop` 动作在 TASK-03b 里记为「M4 之后才有」；Agent 的内置能力 `run_sop` 也还没有工具。SOP 是插件，内核不能直接调它。\n\n## 要做什么\n\n- 内核加一个由插件实现的「发起 SOP」钩子（`Registrar` 上登记，只有清单里 `provides.modules` 含 `sop` 的插件能登记，同一时间只有一个）；没登记时定时任务照旧记 `unsupported`，文字改为「没执行：SOP 编排插件没启用」。\n- 定时任务动作 `sop` 走这个钩子起一条运行，定时任务执行记录的 `text` 写运行 id。\n- Agent 内置工具 `run_sop`（写，归能力 `run_sop`）：参数为流程 id 和输入，流程里的人工检查点照常停下。\n- SOP 流程的删除影响里列出指向它的定时任务（SOP-01a 留的口）。\n\n## 注意事项\n\n- 迁移只加不改：`internal/db/migrations` 里 0001 到 0031 一行不动，0001 到 0004 没有校验和更不能碰。内核迁移号由 PLAN-04 预分配（M4 用 0032 到 0039），本条用的号写在「要做什么」里；并行任务撞号时后合入的改号。\n- 先在测试实例（`scripts/dev-instance.sh`）或副本库上演练，不碰 `data/pm.db`，不启动或重启 7777 上的服务；要临时后端就用 `bin/pmw-dev` 跑副本库、在自己的端口起，用完按 pid 关。\n- 加了或删了路由要同步 `docs/api-contract.md`（`TestEveryRouteIsInTheContractDoc` / `TestContractDocHasNoDeadRoutes` 双向盯着）；同一批多个任务改契约时各自只新增自己的一节，改前重新读、小段替换。\n- 新的 id 前缀在 `internal/idgen` 登记（CORE-11 的扫仓测试盯着），契约「id 前缀」表由主会话合并时补。\n- 插件的表带插件前缀，迁移放在插件自己的目录、从 0001 起单独编号（CORE-05），不占内核迁移号。\n- 插件之间互不 import；跨插件只走事件总线和内核句柄（`internal/plugin` 的 Core），需要新句柄时同步 `docs/plugin-api.md` 对应小节。\n- 清单里的权限按 `docs/plugin-api.md` 3.1，高风险权限安装时单独勾选；改清单要升插件版本。",
+    "acceptance": "- [ ] 定时任务动作 `sop` 到点起一条 SOP 运行；停用 SOP 插件后记 `unsupported` 并写明原因\n- [ ] Agent 有 `run_sop` 授权时能发起运行，关闭时调不到\n- [ ] 删除被定时任务引用的流程时，影响里列出这些定时任务\n- [ ] gofmt、go vet ./...、go test ./... 通过，契约路由双向测试通过",
+    "scope": [
+      "internal/plugin（发起 SOP 的钩子）",
+      "internal/schedule（sop 动作）",
+      "internal/agent（run_sop 工具）",
+      "internal/plugins/sop/",
+      "docs/plugin-api.md（新增小节）",
+      "docs/api-contract.md（定时任务一节改 sop 动作的说明）"
+    ]
+  },
+  {
+    "key": "SOP-02a",
+    "type": "task",
+    "title": "实现 SOP 写操作节点：建任务、写文档、写联系人，带审计",
+    "milestone": "M4",
+    "module": "backend",
+    "priority": "P2",
+    "estimate": "M",
+    "depends_on": [
+      "SOP-01b",
+      "CORE-08"
+    ],
+    "workdir": ".",
+    "spec": [
+      "web-next/src/nodetypes.tsx task",
+      "web-next/src/sopflow.ts 联系人建档、客户反馈转需求两条示例流程",
+      "web-next/docs/dev-plan.md 4.8 SOP-02"
+    ],
+    "body": "## 背景\n\n原需求 SOP-02（SOP 写操作节点真落地）。SOP-02 拆成内核对象的写节点（本条）和 IM 发消息节点（SOP-02b）。原需求里的「发布视频」归 M5 的视频插件，按 SOP-03 的机制登记，PLAN-05 拆 VID 时接上，不在 M4 做。\n\n## 要做什么\n\n- 节点 `task`（建任务，`source` 为 `sop`，`props.source_ref` 指运行和步骤）、`doc`（新建或追加文档，对应原型「存为内容摘录」「归档到内容」）、`contact`（新建或按 id 合并联系人），经插件 Core 的对象写入句柄（IM-02a 加的 ObjectWriter）和联系人句柄，缺的句柄在这里补并同步 `docs/plugin-api.md`。\n- `doc`、`contact` 两种节点类型原型里没有单独的 kind（用的是 `auto`），这里新增 kind，节点面板展示字段由 SOP-04c 加；原型对不上的地方记进 PROTO-04f1 的「原型模拟、后端要真做」表。\n- 幂等：同一运行同一步骤同一次尝试只写一次（按「运行 id + 步骤 key + 尝试次数」记在输出里），断点续跑重跑时不重复建。\n- 每次写入记审计：操作者 `sop#<运行 id>`，`detail` 带流程、步骤 key。\n\n## 注意事项\n\n- 迁移只加不改：`internal/db/migrations` 里 0001 到 0031 一行不动，0001 到 0004 没有校验和更不能碰。内核迁移号由 PLAN-04 预分配（M4 用 0032 到 0039），本条用的号写在「要做什么」里；并行任务撞号时后合入的改号。\n- 先在测试实例（`scripts/dev-instance.sh`）或副本库上演练，不碰 `data/pm.db`，不启动或重启 7777 上的服务；要临时后端就用 `bin/pmw-dev` 跑副本库、在自己的端口起，用完按 pid 关。\n- 加了或删了路由要同步 `docs/api-contract.md`（`TestEveryRouteIsInTheContractDoc` / `TestContractDocHasNoDeadRoutes` 双向盯着）；同一批多个任务改契约时各自只新增自己的一节，改前重新读、小段替换。\n- 新的 id 前缀在 `internal/idgen` 登记（CORE-11 的扫仓测试盯着），契约「id 前缀」表由主会话合并时补。\n- 插件的表带插件前缀，迁移放在插件自己的目录、从 0001 起单独编号（CORE-05），不占内核迁移号。\n- 插件之间互不 import；跨插件只走事件总线和内核句柄（`internal/plugin` 的 Core），需要新句柄时同步 `docs/plugin-api.md` 对应小节。\n- 清单里的权限按 `docs/plugin-api.md` 3.1，高风险权限安装时单独勾选；改清单要升插件版本。",
+    "acceptance": "- [ ] 跑一条含建任务步骤的流程，任务列表多一条，来源为 sop，能从任务追到运行\n- [ ] 建任务步骤执行中重启引擎，重跑后任务只有一条\n- [ ] 三种写节点每次写入各有一条审计，操作者为 `sop#<运行 id>`\n- [ ] gofmt、go vet ./...、go test ./... 通过，契约路由双向测试通过",
+    "scope": [
+      "internal/plugins/sop/（写节点）",
+      "internal/plugin（缺的写入句柄）",
+      "docs/plugin-api.md（句柄说明）",
+      "docs/api-contract.md（「SOP 编排插件 sop」一节内补写节点）"
+    ]
+  },
+  {
+    "key": "SOP-03a",
+    "type": "task",
+    "title": "插件登记 SOP 节点类型（后端）",
+    "milestone": "M4",
+    "module": "backend",
+    "priority": "P2",
+    "estimate": "S",
+    "depends_on": [
+      "SOP-01b",
+      "CORE-01b"
+    ],
+    "workdir": ".",
+    "spec": [
+      "docs/plugin-api.md 2.7 SOP 节点",
+      "web-next/docs/dev-plan.md 4.8 SOP-03"
+    ],
+    "body": "## 背景\n\n原需求 SOP-03（插件可以注册 SOP 节点类型）。SOP-03 拆成后端登记和执行（本条）、前端登记和展示（SOP-03b）。\n\n## 要做什么\n\n- 实现 `Registrar.SOPNode(SOPNodeDef)`：kind 必须在清单 `provides.sop_nodes` 里、以 `<插件 id>_` 开头，不合法让启用失败（同 CONN-02 的规矩）。内核只存登记，执行由 SOP 插件经内核取到登记的 Run。\n- `Run` 返回 `ErrWaiting` 时步骤挂起，插件之后经句柄 `SOP().Resume(运行 id, 步骤 key, 输出)` 唤醒（例：等对方回复）；挂起状态落库，重启后仍在等。\n- `GET /api/sop/node-types` 合并插件登记的 kind，带 `source`；提供节点的插件停用后，用到它的步骤执行时失败并写「提供这个节点的插件已停用」，流程定义不动。\n- 用示例插件登记一个节点验证；真正的第一方节点是 SOP-02b 的 IM 发消息。\n\n## 注意事项\n\n- 迁移只加不改：`internal/db/migrations` 里 0001 到 0031 一行不动，0001 到 0004 没有校验和更不能碰。内核迁移号由 PLAN-04 预分配（M4 用 0032 到 0039），本条用的号写在「要做什么」里；并行任务撞号时后合入的改号。\n- 先在测试实例（`scripts/dev-instance.sh`）或副本库上演练，不碰 `data/pm.db`，不启动或重启 7777 上的服务；要临时后端就用 `bin/pmw-dev` 跑副本库、在自己的端口起，用完按 pid 关。\n- 加了或删了路由要同步 `docs/api-contract.md`（`TestEveryRouteIsInTheContractDoc` / `TestContractDocHasNoDeadRoutes` 双向盯着）；同一批多个任务改契约时各自只新增自己的一节，改前重新读、小段替换。\n- 新的 id 前缀在 `internal/idgen` 登记（CORE-11 的扫仓测试盯着），契约「id 前缀」表由主会话合并时补。\n- 插件的表带插件前缀，迁移放在插件自己的目录、从 0001 起单独编号（CORE-05），不占内核迁移号。\n- 插件之间互不 import；跨插件只走事件总线和内核句柄（`internal/plugin` 的 Core），需要新句柄时同步 `docs/plugin-api.md` 对应小节。\n- 清单里的权限按 `docs/plugin-api.md` 3.1，高风险权限安装时单独勾选；改清单要升插件版本。",
+    "acceptance": "- [ ] 示例插件登记的节点出现在 `/api/sop/node-types`，停用后消失\n- [ ] kind 不在清单里或前缀不对时插件启用失败，错误写明原因\n- [ ] 节点返回 `ErrWaiting` 后步骤挂起，重启后调 `Resume` 能接着跑\n- [ ] gofmt、go vet ./...、go test ./... 通过，契约路由双向测试通过",
+    "scope": [
+      "internal/plugin（Registrar.SOPNode、SOP 句柄）",
+      "internal/plugins/sop/（执行插件节点）",
+      "docs/plugin-api.md（2.7 后端标为已实现）"
+    ]
+  },
+  {
+    "key": "SOP-02b",
+    "type": "task",
+    "title": "IM 消息插件登记「发送消息」「等待回复」两个 SOP 节点",
+    "milestone": "M4",
+    "module": "backend",
+    "priority": "P2",
+    "estimate": "S",
+    "depends_on": [
+      "SOP-03a",
+      "IM-02a"
+    ],
+    "workdir": ".",
+    "spec": [
+      "docs/plugin-api.md 2.7 例子（im_send_message）、7.2 IM 清单样例",
+      "web-next/src/nodetypes.tsx notify"
+    ],
+    "body": "## 背景\n\n原需求 SOP-02（SOP 写操作节点真落地）。原需求的「回复消息」。发消息属于 IM 插件，SOP 插件不能直接调它，按 SOP-03 的机制由 IM 插件登记节点。\n\n## 要做什么\n\n- IM 插件登记 `im_send_message`（会话、内容，支持 `{{字段}}`）和 `im_wait_reply`（等这个会话里对方的下一条消息，带超时，用 `ErrWaiting` + `Resume`）；发送走 IM-02a 的回复动作，只能发到 `direction` 为 `both` 的连接器。\n- 决策：原型的内置 `notify` 节点不在 SOP 插件里实现，编辑器里由 `im_send_message` 代替（SOP-04c 隐藏 `notify`），避免 SOP 插件依赖 IM 插件。\n- 发送记审计；清单 `provides.sop_nodes` 加两项，升插件版本。\n\n## 注意事项\n\n- 迁移只加不改：`internal/db/migrations` 里 0001 到 0031 一行不动，0001 到 0004 没有校验和更不能碰。内核迁移号由 PLAN-04 预分配（M4 用 0032 到 0039），本条用的号写在「要做什么」里；并行任务撞号时后合入的改号。\n- 先在测试实例（`scripts/dev-instance.sh`）或副本库上演练，不碰 `data/pm.db`，不启动或重启 7777 上的服务；要临时后端就用 `bin/pmw-dev` 跑副本库、在自己的端口起，用完按 pid 关。\n- 加了或删了路由要同步 `docs/api-contract.md`（`TestEveryRouteIsInTheContractDoc` / `TestContractDocHasNoDeadRoutes` 双向盯着）；同一批多个任务改契约时各自只新增自己的一节，改前重新读、小段替换。\n- 新的 id 前缀在 `internal/idgen` 登记（CORE-11 的扫仓测试盯着），契约「id 前缀」表由主会话合并时补。\n- 插件的表带插件前缀，迁移放在插件自己的目录、从 0001 起单独编号（CORE-05），不占内核迁移号。\n- 插件之间互不 import；跨插件只走事件总线和内核句柄（`internal/plugin` 的 Core），需要新句柄时同步 `docs/plugin-api.md` 对应小节。\n- 清单里的权限按 `docs/plugin-api.md` 3.1，高风险权限安装时单独勾选；改清单要升插件版本。",
+    "acceptance": "- [ ] 用假适配器跑一条含发送消息的流程，消息发到指定会话，有审计\n- [ ] 等待回复步骤挂起，假适配器灌一条对方的回复后流程继续；超时后步骤失败并写原因\n- [ ] 停用 IM 插件后这两个节点从 `/api/sop/node-types` 里消失\n- [ ] gofmt、go vet ./...、go test ./... 通过，契约路由双向测试通过",
+    "scope": [
+      "internal/plugins/im/（sop 节点、plugin.json）",
+      "docs/api-contract.md（「IM 消息插件 im」一节内补 SOP 节点）"
+    ]
+  },
+  {
+    "key": "SOP-04a",
+    "type": "task",
+    "title": "实现 SOP 编辑器的 AI 协助接口",
+    "milestone": "M4",
+    "module": "backend",
+    "priority": "P2",
+    "estimate": "S",
+    "depends_on": [
+      "SOP-01a",
+      "MP-01a"
+    ],
+    "workdir": ".",
+    "spec": [
+      "web-next/src/sopedit.tsx respond、checkSop、summarize",
+      "web-next/docs/spec/sop.md AI 协助面板（PROTO-04f1）"
+    ],
+    "body": "## 背景\n\n原需求 SOP-04（SOP 编辑器和运行页接接口，AI 协助生成流程）。SOP-04 拆成 AI 协助接口（本条）、流程库和运行页（SOP-04b）、编辑器（SOP-04c）。原型的 AI 协助是固定回复（`respond`），这里接真实模型。\n\n## 要做什么\n\n- `POST /api/sop/assist`：body `{message, draft, selected?}`，回 `{text, draft?, notes?}`，口径同原型 `Reply`；不保存，返回的 `draft` 经 SOP-01a 的同一套校验，有问题放进 `notes`。\n- 用默认服务商；提示词里带节点类型目录（`/api/sop/node-types` 的内容）和当前草稿；模型没回合法 JSON 时回 422 并给出原因。\n- 「检查」类请求（`checkSop`）不调模型，直接用校验结果回答。\n\n## 注意事项\n\n- 迁移只加不改：`internal/db/migrations` 里 0001 到 0031 一行不动，0001 到 0004 没有校验和更不能碰。内核迁移号由 PLAN-04 预分配（M4 用 0032 到 0039），本条用的号写在「要做什么」里；并行任务撞号时后合入的改号。\n- 先在测试实例（`scripts/dev-instance.sh`）或副本库上演练，不碰 `data/pm.db`，不启动或重启 7777 上的服务；要临时后端就用 `bin/pmw-dev` 跑副本库、在自己的端口起，用完按 pid 关。\n- 加了或删了路由要同步 `docs/api-contract.md`（`TestEveryRouteIsInTheContractDoc` / `TestContractDocHasNoDeadRoutes` 双向盯着）；同一批多个任务改契约时各自只新增自己的一节，改前重新读、小段替换。\n- 新的 id 前缀在 `internal/idgen` 登记（CORE-11 的扫仓测试盯着），契约「id 前缀」表由主会话合并时补。\n- 插件的表带插件前缀，迁移放在插件自己的目录、从 0001 起单独编号（CORE-05），不占内核迁移号。\n- 插件之间互不 import；跨插件只走事件总线和内核句柄（`internal/plugin` 的 Core），需要新句柄时同步 `docs/plugin-api.md` 对应小节。\n- 清单里的权限按 `docs/plugin-api.md` 3.1，高风险权限安装时单独勾选；改清单要升插件版本。",
+    "acceptance": "- [ ] 用假服务商：「加一个人工检查」返回的草稿多一个 review 步骤且通过校验\n- [ ] 「检查一下」不调模型，返回校验问题或「流程结构没问题」\n- [ ] 模型回非 JSON 时 422\n- [ ] gofmt、go vet ./...、go test ./... 通过，契约路由双向测试通过",
+    "scope": [
+      "internal/plugins/sop/（assist.go）",
+      "docs/api-contract.md（「SOP 编排插件 sop」一节内补 assist）"
+    ]
+  },
+  {
+    "key": "SOP-04b",
+    "type": "task",
+    "title": "实现 SOP 插件前端：流程库、待我处理、执行记录和运行页",
+    "milestone": "M4",
+    "module": "frontend",
+    "priority": "P2",
+    "estimate": "M",
+    "depends_on": [
+      "SOP-01b",
+      "PROTO-04f1",
+      "CORE-07c"
+    ],
+    "workdir": "frontend",
+    "spec": [
+      "web-next/src/sop.tsx",
+      "web-next/docs/spec/sop.md（PROTO-04f1）"
+    ],
+    "body": "## 背景\n\n原需求 SOP-04（SOP 编辑器和运行页接接口）。SOP 插件的前端壳和只读、运行相关的页面；编辑器在 SOP-04c。\n\n## 要做什么\n\n- `frontend/src/plugins/sop`：入口、菜单、路由；有后端记录的插件不加进 `enabled.ts`。\n- 流程库、待我处理、执行记录三个视图；发起运行（按流程 `fields` 填输入、逐步确认开关）。\n- 运行页：步骤列表和图、每步状态、输入输出、日志；八种动作按钮；改过的标「人改过」；状态变化靠事件流刷新，不轮询。\n\n## 注意事项\n\n- 只在 `frontend/` 里写代码，不 import `web-next` 的任何代码：原型的交互和样式可以照着写、挑着搬。\n- 联调只连测试实例（`scripts/dev-instance.sh start`，默认 127.0.0.1:7796），不连 7777，不启动或重启 7777 上的服务。\n- 取数和写数据走数据访问层 `frontend/src/core/data`（插件不 import `core/api`，lint 拦着），写完报 `Change` 由失效规则刷新。\n- 状态、类型、优先级从后端读，不写死；副作用不写进 setState 的 updater。\n- `core/api` 的类型文件和 `core/data` 是共用文件，改前重新读、只加自己的那几项。",
+    "acceptance": "- [ ] 启用 sop 插件后菜单出现「SOP」，停用后消失\n- [ ] 发起一条含人工检查的流程，运行页停在检查步骤，放行后继续到结束，不刷新页面\n- [ ] 与 PROTO-04f1 的流程库、待我处理、执行记录、运行页规格节对照通过\n- [ ] frontend 的 npm test、typecheck、lint、build 通过，`make smoke-frontend` 0 问题",
+    "scope": [
+      "frontend/src/plugins/sop/（新建）",
+      "frontend/src/core/data（sop 查询和失效规则）"
+    ]
+  },
+  {
+    "key": "SOP-04c",
+    "type": "task",
+    "title": "实现 SOP 编辑器：画布、节点配置和 AI 协助",
+    "milestone": "M4",
+    "module": "frontend",
+    "priority": "P2",
+    "estimate": "L",
+    "depends_on": [
+      "SOP-04b",
+      "SOP-04a",
+      "SOP-02a"
+    ],
+    "workdir": "frontend",
+    "spec": [
+      "web-next/src/sopedit.tsx",
+      "web-next/src/nodetypes.tsx",
+      "web-next/docs/spec/sop.md 编辑器、节点配置、AI 协助（PROTO-04f1）"
+    ],
+    "body": "## 背景\n\n原需求 SOP-04（SOP 编辑器和运行页接接口，AI 协助生成流程）。原型最大的一个页面（sopedit.tsx 一千多行），规模 L。\n\n## 要做什么\n\n- 画布：拖动节点、从节点右侧连线、点加号加下一个节点、分支出口、位置存进 `layout`。\n- 节点面板按分组列内置节点和插件节点；属性面板按节点类型的配置项渲染；保存前做和后端一致的检查，后端 400 时把问题逐条标到节点上。\n- 左侧 AI 协助接 SOP-04a：对话、应用草稿、撤销。\n- 节点面板隐藏内置 `notify`（SOP-02b 的决策），加上 SOP-02a 的 `doc`、`contact` 两种节点的展示字段。\n\n## 注意事项\n\n- 只在 `frontend/` 里写代码，不 import `web-next` 的任何代码：原型的交互和样式可以照着写、挑着搬。\n- 联调只连测试实例（`scripts/dev-instance.sh start`，默认 127.0.0.1:7796），不连 7777，不启动或重启 7777 上的服务。\n- 取数和写数据走数据访问层 `frontend/src/core/data`（插件不 import `core/api`，lint 拦着），写完报 `Change` 由失效规则刷新。\n- 状态、类型、优先级从后端读，不写死；副作用不写进 setState 的 updater。\n- `core/api` 的类型文件和 `core/data` 是共用文件，改前重新读、只加自己的那几项。",
+    "acceptance": "- [ ] 新建一条流程：加节点、连线、配分支、保存，刷新后画布位置不变\n- [ ] 保存一条有环的流程，后端拒绝，问题标在对应节点上\n- [ ] AI 协助说「加一个人工检查」后草稿出现新节点，可以撤销\n- [ ] 与 PROTO-04f1 的编辑器、节点配置、AI 协助规格节对照通过\n- [ ] frontend 的 npm test、typecheck、lint、build 通过，`make smoke-frontend` 0 问题",
+    "scope": [
+      "frontend/src/plugins/sop/（编辑器部分）"
+    ]
+  },
+  {
+    "key": "SOP-03b",
+    "type": "task",
+    "title": "插件登记 SOP 节点类型（前端），用 IM 节点验证",
+    "milestone": "M4",
+    "module": "frontend",
+    "priority": "P2",
+    "estimate": "S",
+    "depends_on": [
+      "SOP-03a",
+      "SOP-02b",
+      "SOP-04c"
+    ],
+    "workdir": "frontend",
+    "spec": [
+      "docs/plugin-api.md 2.7 SopNodeView、SopNodeRegistry",
+      "frontend/src/core/plugin/registry.ts sopNodes（现在是未实现）"
+    ],
+    "body": "## 背景\n\n原需求 SOP-03（插件可以注册 SOP 节点类型）。前端 `api.sopNodes.register` 现在抛「还没实现」。\n\n## 要做什么\n\n- 在 `core/plugin` 实现 `sopNodes.register`，校验 kind 在清单里；SOP 插件的编辑器从注册表读插件节点，没装 SOP 插件时别的插件注册的节点不显示也不报错。\n- IM 插件前端注册 `im_send_message`、`im_wait_reply` 的展示（会话下拉、内容、超时）。\n- 改 `extensions.test.ts` 里「还没实现」的断言为真实行为。\n\n## 注意事项\n\n- 只在 `frontend/` 里写代码，不 import `web-next` 的任何代码：原型的交互和样式可以照着写、挑着搬。\n- 联调只连测试实例（`scripts/dev-instance.sh start`，默认 127.0.0.1:7796），不连 7777，不启动或重启 7777 上的服务。\n- 取数和写数据走数据访问层 `frontend/src/core/data`（插件不 import `core/api`，lint 拦着），写完报 `Change` 由失效规则刷新。\n- 状态、类型、优先级从后端读，不写死；副作用不写进 setState 的 updater。\n- `core/api` 的类型文件和 `core/data` 是共用文件，改前重新读、只加自己的那几项。",
+    "acceptance": "- [ ] 启用 IM 插件后编辑器节点面板出现「发消息」「等待回复」，停用后消失\n- [ ] 没装 SOP 插件时 IM 插件照常加载，控制台没有报错\n- [ ] kind 不在清单里时注册抛错，错误写明原因\n- [ ] frontend 的 npm test、typecheck、lint、build 通过，`make smoke-frontend` 0 问题",
+    "scope": [
+      "frontend/src/core/plugin/（registry.ts、extensions.ts 及测试）",
+      "frontend/src/plugins/im/index.ts（只加节点注册）",
+      "frontend/src/plugins/sop/（读注册表）"
+    ]
+  },
+  {
+    "key": "TERM-01a",
+    "type": "task",
+    "title": "实现终端插件后端：pty 和 WebSocket",
+    "milestone": "M4",
+    "module": "backend",
+    "priority": "P3",
+    "estimate": "M",
+    "depends_on": [
+      "PJ-04a",
+      "CORE-04b"
+    ],
+    "workdir": ".",
+    "spec": [
+      "web-next/src/terminal.tsx",
+      "web-next/docs/dev-plan.md 4.9 TERM-01",
+      "web-next/docs/spec/terminal.md（PROTO-04f2）"
+    ],
+    "body": "## 背景\n\n原需求 TERM-01（真终端：后端 pty 加 WebSocket，2x2 分屏）。TERM-01 拆成后端（本条）和前端（TERM-01b）。按开发计划 2.8，终端是插件，id `terminal`，依赖项目插件。\n\n## 要做什么\n\n- 清单：`depends: {projects}`，权限 `process:spawn`（高风险，安装时单独勾选）。\n- 新依赖：`github.com/creack/pty`（pty）、`github.com/coder/websocket`（WebSocket）。决策：都是常用小库，换掉只影响本插件；在回复里列出版本。\n- 接口：`POST /api/terminal/sessions`（`cwd`、`cols`、`rows`，`cwd` 必须是存在的目录，默认项目根目录）、`GET /api/terminal/sessions`、`DELETE /api/terminal/sessions/{id}`、`GET /api/terminal/sessions/{id}/ws`（二进制收发，调整大小用一条 JSON 控制消息）。\n- 安全：WebSocket 只接受本机和 `--public-url` 同源的 Origin；会话 id 不可猜；最多 16 个会话；shell 用用户的 `$SHELL`，进程组单独，删会话、停用插件、服务退出时按进程组结束。\n- 输出留一段环形缓冲，前端刷新后重连能看到之前的输出。\n- 契约测试要能认 WebSocket 路由。\n\n## 注意事项\n\n- 迁移只加不改：`internal/db/migrations` 里 0001 到 0031 一行不动，0001 到 0004 没有校验和更不能碰。内核迁移号由 PLAN-04 预分配（M4 用 0032 到 0039），本条用的号写在「要做什么」里；并行任务撞号时后合入的改号。\n- 先在测试实例（`scripts/dev-instance.sh`）或副本库上演练，不碰 `data/pm.db`，不启动或重启 7777 上的服务；要临时后端就用 `bin/pmw-dev` 跑副本库、在自己的端口起，用完按 pid 关。\n- 加了或删了路由要同步 `docs/api-contract.md`（`TestEveryRouteIsInTheContractDoc` / `TestContractDocHasNoDeadRoutes` 双向盯着）；同一批多个任务改契约时各自只新增自己的一节，改前重新读、小段替换。\n- 新的 id 前缀在 `internal/idgen` 登记（CORE-11 的扫仓测试盯着），契约「id 前缀」表由主会话合并时补。\n- 插件的表带插件前缀，迁移放在插件自己的目录、从 0001 起单独编号（CORE-05），不占内核迁移号。\n- 插件之间互不 import；跨插件只走事件总线和内核句柄（`internal/plugin` 的 Core），需要新句柄时同步 `docs/plugin-api.md` 对应小节。\n- 清单里的权限按 `docs/plugin-api.md` 3.1，高风险权限安装时单独勾选；改清单要升插件版本。",
+    "acceptance": "- [ ] Go 测试经 WebSocket 发 `printf hi` 收到 `hi`；调整大小后 `stty size` 返回新尺寸\n- [ ] 断开 WebSocket 再连，能收到断开前的输出\n- [ ] Origin 不是本机或 public-url 时握手被拒\n- [ ] 删会话、停用插件后对应进程组都已退出（按 pid 查）\n- [ ] gofmt、go vet ./...、go test ./... 通过，契约路由双向测试通过",
+    "scope": [
+      "internal/plugins/terminal/（新建：plugin.json、pty、ws、会话管理）",
+      "cmd/pmw（登记插件）",
+      "go.mod、go.sum（只加两个依赖）",
+      "internal/api 的契约测试（认 WebSocket 路由）",
+      "docs/api-contract.md（新增「终端插件 terminal」一节）"
+    ]
+  },
+  {
+    "key": "TERM-01b",
+    "type": "task",
+    "title": "实现终端页：多标签和 2x2 分屏",
+    "milestone": "M4",
+    "module": "frontend",
+    "priority": "P3",
+    "estimate": "M",
+    "depends_on": [
+      "TERM-01a",
+      "PROTO-04f2"
+    ],
+    "workdir": "frontend",
+    "spec": [
+      "web-next/src/terminal.tsx TerminalPage",
+      "web-next/docs/spec/terminal.md（PROTO-04f2）"
+    ],
+    "body": "## 背景\n\n原需求 TERM-01（真终端：后端 pty 加 WebSocket，2x2 分屏）。终端的前端。项目里的终端展开区域（SPEC-projects-14）等用户定一级菜单终端的去留后再做（见决策记录「待用户决定」），不在本条。\n\n## 要做什么\n\n- `frontend/src/plugins/terminal`：入口、菜单、页面。\n- 新依赖 `@xterm/xterm`、`@xterm/addon-fit`（决策：终端渲染没有更轻的成熟方案）。\n- 多标签，每个标签最多 4 格（横排、竖排、2x2），焦点格高亮，关闭格子结束后端会话；刷新后按会话列表重连。\n- 原型启停按钮调项目插件的接口要经数据访问层，不 import 项目插件的代码。\n\n## 注意事项\n\n- 只在 `frontend/` 里写代码，不 import `web-next` 的任何代码：原型的交互和样式可以照着写、挑着搬。\n- 联调只连测试实例（`scripts/dev-instance.sh start`，默认 127.0.0.1:7796），不连 7777，不启动或重启 7777 上的服务。\n- 取数和写数据走数据访问层 `frontend/src/core/data`（插件不 import `core/api`，lint 拦着），写完报 `Change` 由失效规则刷新。\n- 状态、类型、优先级从后端读，不写死；副作用不写进 setState 的 updater。\n- `core/api` 的类型文件和 `core/data` 是共用文件，改前重新读、只加自己的那几项。",
+    "acceptance": "- [ ] 一个标签分出 4 格 2x2，窗口变化时各格自适应\n- [ ] 在项目根目录跑项目原型命令能看到输出；关掉格子后后端会话也没了\n- [ ] 刷新页面后重连到原来的会话，能看到之前的输出\n- [ ] 与 PROTO-04f2 的终端规格节对照通过\n- [ ] frontend 的 npm test、typecheck、lint、build 通过，`make smoke-frontend` 0 问题",
+    "scope": [
+      "frontend/src/plugins/terminal/（新建）",
+      "frontend/package.json、package-lock.json（只加两个依赖）",
+      "frontend/src/core/data（terminal 会话查询）"
+    ]
+  },
+  {
+    "key": "BR-01a",
+    "type": "task",
+    "title": "实现内置浏览器插件后端：标签页持久化、地址白名单和 Google 账号状态",
+    "milestone": "M4",
+    "module": "backend",
+    "priority": "P3",
+    "estimate": "S",
+    "depends_on": [
+      "CONN-01b",
+      "CONN-01e1",
+      "CORE-04b"
+    ],
+    "workdir": ".",
+    "spec": [
+      "web-next/src/browserdata.ts BrowserTab、GoogleAccount",
+      "web-next/docs/spec/browser.md（PROTO-04f2）"
+    ],
+    "body": "## 背景\n\n原需求 BR-01（浏览器标签页持久化，Google 账号状态存后端）。BR-01 拆成后端（本条）和前端（BR-01b）。按开发计划 2.8，内置浏览器是插件，id `browser`。BR-02 要的地址白名单也存在这里。\n\n## 要做什么\n\n- 插件迁移 `0001_browser`：`browser_tabs`（已预留前缀 `bt`；url、标题、类型、历史、游标、顺序、是否当前）、`browser_allowlist`（主机名、备注）。\n- 接口：`GET/PUT /api/browser/tabs`（整体替换，最多 50 个）、`GET/POST/DELETE /api/browser/allowlist`、`GET /api/browser/google`、`POST /api/browser/google/login`、`POST /api/browser/google/logout`。\n- Google 账号**不单独存**：决策是以 Google Drive 连接器实例作为浏览器的 Google 账号（同一个 OAuth 客户端）。`google` 回实例的账号邮箱、授权范围、状态；`login` 转调该实例的 OAuth 授权；`logout` 断开 Drive 和日历两个实例。需要给插件 Core 的连接器句柄加「发起授权」「断开」两个动作，同步 `docs/plugin-api.md`。\n- 白名单默认带本机地址（`127.0.0.1`、`localhost`）和内网域名后缀（由前端带上，插件之间不互读）。\n\n## 注意事项\n\n- 迁移只加不改：`internal/db/migrations` 里 0001 到 0031 一行不动，0001 到 0004 没有校验和更不能碰。内核迁移号由 PLAN-04 预分配（M4 用 0032 到 0039），本条用的号写在「要做什么」里；并行任务撞号时后合入的改号。\n- 先在测试实例（`scripts/dev-instance.sh`）或副本库上演练，不碰 `data/pm.db`，不启动或重启 7777 上的服务；要临时后端就用 `bin/pmw-dev` 跑副本库、在自己的端口起，用完按 pid 关。\n- 加了或删了路由要同步 `docs/api-contract.md`（`TestEveryRouteIsInTheContractDoc` / `TestContractDocHasNoDeadRoutes` 双向盯着）；同一批多个任务改契约时各自只新增自己的一节，改前重新读、小段替换。\n- 新的 id 前缀在 `internal/idgen` 登记（CORE-11 的扫仓测试盯着），契约「id 前缀」表由主会话合并时补。\n- 插件的表带插件前缀，迁移放在插件自己的目录、从 0001 起单独编号（CORE-05），不占内核迁移号。\n- 插件之间互不 import；跨插件只走事件总线和内核句柄（`internal/plugin` 的 Core），需要新句柄时同步 `docs/plugin-api.md` 对应小节。\n- 清单里的权限按 `docs/plugin-api.md` 3.1，高风险权限安装时单独勾选；改清单要升插件版本。",
+    "acceptance": "- [ ] PUT 标签页后 GET 原样取回；超过 50 个回 400\n- [ ] 浏览器里退出 Google 后，Drive、日历连接器状态为 `disconnected`\n- [ ] 在连接器设置页断开 Drive 后，`GET /api/browser/google` 回未登录\n- [ ] gofmt、go vet ./...、go test ./... 通过，契约路由双向测试通过",
+    "scope": [
+      "internal/plugins/browser/（新建：plugin.json、tabs、allowlist、google、migrations/0001_browser.sql）",
+      "cmd/pmw（登记插件）",
+      "internal/idgen（bt 补表名）",
+      "internal/plugin（连接器句柄加两个动作）",
+      "docs/plugin-api.md（连接器句柄说明）",
+      "docs/api-contract.md（新增「内置浏览器插件 browser」一节）"
+    ]
+  },
+  {
+    "key": "BR-01b",
+    "type": "task",
+    "title": "实现内置浏览器页：多标签、地址栏、原型标签和 Google 账号",
+    "milestone": "M4",
+    "module": "frontend",
+    "priority": "P3",
+    "estimate": "M",
+    "depends_on": [
+      "BR-01a",
+      "PROTO-04f2"
+    ],
+    "workdir": "frontend",
+    "spec": [
+      "web-next/src/browser.tsx BrowserPage",
+      "web-next/docs/spec/browser.md（PROTO-04f2）"
+    ],
+    "body": "## 背景\n\n原需求 BR-01（浏览器标签页持久化，Google 账号状态存后端）。浏览器的前端，标签页存后端（刷新不丢）。\n\n## 要做什么\n\n- `frontend/src/plugins/browser`：入口、菜单、页面。\n- 多标签、地址栏、前进后退、刷新、在系统浏览器打开；原型标签（本机端口）没在运行时显示启动提示。\n- 标签变化防抖后整体 PUT 给后端，启动时恢复。\n- Google 账号面板接 `/api/browser/google`：登录、退出、授权范围。原型里模拟的 Drive 文件浏览器不搬（决策：真实 Drive 列表等连接器工具能调用后再做），Drive 地址按普通网页处理。\n\n## 注意事项\n\n- 只在 `frontend/` 里写代码，不 import `web-next` 的任何代码：原型的交互和样式可以照着写、挑着搬。\n- 联调只连测试实例（`scripts/dev-instance.sh start`，默认 127.0.0.1:7796），不连 7777，不启动或重启 7777 上的服务。\n- 取数和写数据走数据访问层 `frontend/src/core/data`（插件不 import `core/api`，lint 拦着），写完报 `Change` 由失效规则刷新。\n- 状态、类型、优先级从后端读，不写死；副作用不写进 setState 的 updater。\n- `core/api` 的类型文件和 `core/data` 是共用文件，改前重新读、只加自己的那几项。",
+    "acceptance": "- [ ] 开三个标签后刷新，三个标签和各自的前进后退历史都在\n- [ ] 退出 Google 后设置页的 Drive 连接器显示已断开\n- [ ] 与 PROTO-04f2 的浏览器规格节对照通过（Drive 文件浏览器一节除外）\n- [ ] frontend 的 npm test、typecheck、lint、build 通过，`make smoke-frontend` 0 问题",
+    "scope": [
+      "frontend/src/plugins/browser/（新建）",
+      "frontend/src/core/data（browser 查询和失效规则）"
+    ]
+  },
+  {
+    "key": "BR-02a",
+    "type": "task",
+    "title": "内置浏览器处理不能嵌入的站点",
+    "milestone": "M4",
+    "module": "frontend",
+    "priority": "P3",
+    "estimate": "S",
+    "depends_on": [
+      "BR-01b"
+    ],
+    "workdir": "frontend",
+    "spec": [
+      "web-next/src/browser.tsx FrameView",
+      "web-next/docs/spec/browser.md 不能嵌入（PROTO-04f2）"
+    ],
+    "body": "## 背景\n\n原需求 BR-02（内置浏览器处理不能嵌入的站点），原 key 沿用。跨域 iframe 读不到对方的 X-Frame-Options，前端判断不了能不能嵌入。决策：用地址白名单加加载超时，不加后端探测（探测要 `network:any` 高风险权限）。\n\n## 要做什么\n\n- 白名单内（本机地址、内网域名后缀、用户加的主机）才用 iframe；不在白名单的标签直接显示「这个站点不能在这里打开」卡片：「在系统浏览器打开」「加进白名单再试」。\n- 白名单内的 iframe 8 秒没 `load` 时显示同样的卡片，并保留「继续等」。\n- 白名单读写走 BR-01a 的接口。\n\n## 注意事项\n\n- 只在 `frontend/` 里写代码，不 import `web-next` 的任何代码：原型的交互和样式可以照着写、挑着搬。\n- 联调只连测试实例（`scripts/dev-instance.sh start`，默认 127.0.0.1:7796），不连 7777，不启动或重启 7777 上的服务。\n- 取数和写数据走数据访问层 `frontend/src/core/data`（插件不 import `core/api`，lint 拦着），写完报 `Change` 由失效规则刷新。\n- 状态、类型、优先级从后端读，不写死；副作用不写进 setState 的 updater。\n- `core/api` 的类型文件和 `core/data` 是共用文件，改前重新读、只加自己的那几项。",
+    "acceptance": "- [ ] 打开一个不在白名单的外网地址，显示提示卡片而不是空白页，「在系统浏览器打开」能打开\n- [ ] 加进白名单后同一地址改用 iframe 加载\n- [ ] 本机原型地址直接嵌入\n- [ ] frontend 的 npm test、typecheck、lint、build 通过，`make smoke-frontend` 0 问题",
+    "scope": [
+      "frontend/src/plugins/browser/"
+    ]
+  },
+  {
+    "key": "DOM-01a",
+    "type": "task",
+    "title": "实现内网域名插件后端：bro.vip 方案的状态检测和配置生成",
+    "milestone": "M4",
+    "module": "backend",
+    "priority": "P3",
+    "estimate": "M",
+    "depends_on": [
+      "CORE-04b"
+    ],
+    "workdir": ".",
+    "spec": [
+      "web-next/src/domaindata.ts DomainSettings、DomainRoute、renderConfig、validSuffix",
+      "docs/local-domain.md",
+      "web-next/docs/spec/settings.md SPEC-settings-20"
+    ],
+    "body": "## 背景\n\n原需求 DOM-01（内网域名插件接现有 bro.vip 方案）。DOM-01 拆成后端（本条）和设置分节（DOM-01b）。按开发计划 2.8，内网域名是插件，id `domains`。\n\n## 要做什么\n\n- 插件迁移 `0001_domains`：设置（单行，字段同 `DomainSettings`）和路由表（同 `DomainRoute`，已预留前缀 `dm`）。\n- 状态检测（只读）：`/etc/hosts` 里每个启用的域名有没有指到本机；`/etc/pf.anchors/broleez-local` 在不在、规则对不对；80、443 能不能经 Host 头访问到本服务；mkcert 根证书在不在系统钥匙串、`certs/` 下的证书覆盖哪些域名、何时到期。\n- 配置生成：hosts 片段、pf anchor、Caddy、Nginx 片段（同 `renderConfig`），加上要用户自己执行的 sudo 命令；对 bro.vip 生成的内容要和 `docs/local-domain.md` 的现有配置一致。\n- **插件不写任何系统文件、不执行 sudo**。读 `/etc` 和调 `mkcert -CAROOT`、`security` 需要 `fs:read:any`、`process:spawn`（都是高风险，安装时单独勾选）；路径做成可配置，测试指向临时目录。\n- 接口：`GET/PUT /api/domains/settings`、`GET/POST/PATCH/DELETE /api/domains/routes`、`GET /api/domains/status`、`GET /api/domains/config?proxy=`、`POST /api/domains/routes/{id}/check`（解析测试）。后缀用 `.local` 回 400。\n\n## 需要用户\n\n- 本机实际的 hosts、pf、mkcert 是否配好，由用户按生成的命令自己用 sudo 执行；子代理只读不改。\n\n## 注意事项\n\n- 迁移只加不改：`internal/db/migrations` 里 0001 到 0031 一行不动，0001 到 0004 没有校验和更不能碰。内核迁移号由 PLAN-04 预分配（M4 用 0032 到 0039），本条用的号写在「要做什么」里；并行任务撞号时后合入的改号。\n- 先在测试实例（`scripts/dev-instance.sh`）或副本库上演练，不碰 `data/pm.db`，不启动或重启 7777 上的服务；要临时后端就用 `bin/pmw-dev` 跑副本库、在自己的端口起，用完按 pid 关。\n- 加了或删了路由要同步 `docs/api-contract.md`（`TestEveryRouteIsInTheContractDoc` / `TestContractDocHasNoDeadRoutes` 双向盯着）；同一批多个任务改契约时各自只新增自己的一节，改前重新读、小段替换。\n- 新的 id 前缀在 `internal/idgen` 登记（CORE-11 的扫仓测试盯着），契约「id 前缀」表由主会话合并时补。\n- 插件的表带插件前缀，迁移放在插件自己的目录、从 0001 起单独编号（CORE-05），不占内核迁移号。\n- 插件之间互不 import；跨插件只走事件总线和内核句柄（`internal/plugin` 的 Core），需要新句柄时同步 `docs/plugin-api.md` 对应小节。\n- 清单里的权限按 `docs/plugin-api.md` 3.1，高风险权限安装时单独勾选；改清单要升插件版本。",
+    "acceptance": "- [ ] 在本机（已按 docs/local-domain.md 配过 bro.vip）上 `GET /api/domains/status` 显示的 hosts、pf、证书状态与实际一致\n- [ ] 对 bro.vip 生成的 hosts 行和 pf 规则与 docs/local-domain.md 逐行一致\n- [ ] 后缀 `pmw.local` 回 400\n- [ ] 测试里把系统路径指向临时目录，跑完检查真实 `/etc` 下文件的修改时间没变\n- [ ] gofmt、go vet ./...、go test ./... 通过，契约路由双向测试通过",
+    "scope": [
+      "internal/plugins/domains/（新建：plugin.json、status、config、routes、migrations/0001_domains.sql）",
+      "cmd/pmw（登记插件）",
+      "internal/idgen（dm 补表名）",
+      "docs/api-contract.md（新增「内网域名插件 domains」一节）"
+    ]
+  },
+  {
+    "key": "DOM-01b",
+    "type": "task",
+    "title": "实现内网域名设置分节",
+    "milestone": "M4",
+    "module": "frontend",
+    "priority": "P3",
+    "estimate": "M",
+    "depends_on": [
+      "DOM-01a",
+      "PROTO-04e"
+    ],
+    "workdir": "frontend",
+    "spec": [
+      "web-next/src/domains.tsx",
+      "web-next/docs/spec/settings.md SPEC-settings-20"
+    ],
+    "body": "## 背景\n\n原需求 DOM-01（内网域名插件接现有 bro.vip 方案）。内网域名的前端，作为插件登记的设置分节（插件 API 2.2）。\n\n## 要做什么\n\n- `frontend/src/plugins/domains`：入口，登记设置分节「内网域名」。\n- 设置项、路由列表（加、改、删、启停、解析测试）、真实状态（每项一行，异常的写怎么修）、生成的配置（切换 hosts、pf、Caddy、Nginx，复制）。\n\n## 注意事项\n\n- 只在 `frontend/` 里写代码，不 import `web-next` 的任何代码：原型的交互和样式可以照着写、挑着搬。\n- 联调只连测试实例（`scripts/dev-instance.sh start`，默认 127.0.0.1:7796），不连 7777，不启动或重启 7777 上的服务。\n- 取数和写数据走数据访问层 `frontend/src/core/data`（插件不 import `core/api`，lint 拦着），写完报 `Change` 由失效规则刷新。\n- 状态、类型、优先级从后端读，不写死；副作用不写进 setState 的 updater。\n- `core/api` 的类型文件和 `core/data` 是共用文件，改前重新读、只加自己的那几项。",
+    "acceptance": "- [ ] 启用 domains 插件后设置里出现「内网域名」，停用后消失\n- [ ] 状态区显示的每一项与 `GET /api/domains/status` 一致，异常项写了怎么修\n- [ ] 生成的配置可以一键复制\n- [ ] 与 SPEC-settings-20 的交互清单对照通过\n- [ ] frontend 的 npm test、typecheck、lint、build 通过，`make smoke-frontend` 0 问题",
+    "scope": [
+      "frontend/src/plugins/domains/（新建）",
+      "frontend/src/core/data（domains 查询和失效规则）"
+    ]
+  },
+  {
+    "key": "DOM-02a",
+    "type": "task",
+    "title": "原型自动分配域名，内置代理按域名转发",
+    "milestone": "M4",
+    "module": "backend",
+    "priority": "P3",
+    "estimate": "M",
+    "depends_on": [
+      "DOM-01a",
+      "PJ-04a"
+    ],
+    "workdir": ".",
+    "spec": [
+      "web-next/src/domaindata.ts slugHost、allRoutes、protoDomain",
+      "web-next/docs/dev-plan.md 4.9 DOM-02",
+      "docs/plugin-api.md 2.10 事件订阅"
+    ],
+    "body": "## 背景\n\n原需求 DOM-02（原型自动分配域名并写入代理）。DOM-02 拆成后端（本条）和前端（DOM-02b）。内网域名插件要知道原型的启停，但插件之间不能互读，走事件。\n\n## 要做什么\n\n- 项目插件在原型启动、停止、删除时发事件（id、名称、项目、端口），清单加 `emits`、升版本；只加事件，不改原型管理的其他行为。\n- 内网域名插件订阅这些事件，`auto_proto` 打开时按 `slugHost` 建或删自动路由（标 `auto`，跟着原型走）。\n- 内置代理：内核加一个按 Host 分发的口子（`Registrar` 上登记一个 Host 处理器，只接受设置的后缀下的主机，工作台自己的域名和 `--public-url` 永远不交给插件）；命中路由的请求用反向代理转到 `127.0.0.1:<端口>`，WebSocket 升级照转（vite 热更新要用）；目标没在运行时回中文说明页（502）。权限 `network:localhost`。\n- 同步 `docs/plugin-api.md`（新扩展点）和契约。\n\n## 需要用户\n\n- 浏览器里真正打开 `<原型>.pmw.lan` 要 hosts 和 pf 已配好，由用户按 DOM-01a 生成的命令执行；子代理只用 `curl -H 'Host: …'` 验证。\n\n## 注意事项\n\n- 迁移只加不改：`internal/db/migrations` 里 0001 到 0031 一行不动，0001 到 0004 没有校验和更不能碰。内核迁移号由 PLAN-04 预分配（M4 用 0032 到 0039），本条用的号写在「要做什么」里；并行任务撞号时后合入的改号。\n- 先在测试实例（`scripts/dev-instance.sh`）或副本库上演练，不碰 `data/pm.db`，不启动或重启 7777 上的服务；要临时后端就用 `bin/pmw-dev` 跑副本库、在自己的端口起，用完按 pid 关。\n- 加了或删了路由要同步 `docs/api-contract.md`（`TestEveryRouteIsInTheContractDoc` / `TestContractDocHasNoDeadRoutes` 双向盯着）；同一批多个任务改契约时各自只新增自己的一节，改前重新读、小段替换。\n- 新的 id 前缀在 `internal/idgen` 登记（CORE-11 的扫仓测试盯着），契约「id 前缀」表由主会话合并时补。\n- 插件的表带插件前缀，迁移放在插件自己的目录、从 0001 起单独编号（CORE-05），不占内核迁移号。\n- 插件之间互不 import；跨插件只走事件总线和内核句柄（`internal/plugin` 的 Core），需要新句柄时同步 `docs/plugin-api.md` 对应小节。\n- 清单里的权限按 `docs/plugin-api.md` 3.1，高风险权限安装时单独勾选；改清单要升插件版本。",
+    "acceptance": "- [ ] 启动一个测试原型后，`curl -H 'Host: <原型>.<后缀>' http://127.0.0.1:<临时后端端口>/` 拿到原型的内容\n- [ ] 原型停止后同一请求回 502 中文说明页；删除原型后自动路由也没了\n- [ ] Host 为工作台自己的域名时请求照常进工作台，不被插件拦\n- [ ] 经代理的 WebSocket 能连上（Go 测试起一个假 ws 服务）\n- [ ] gofmt、go vet ./...、go test ./... 通过，契约路由双向测试通过",
+    "scope": [
+      "internal/plugins/domains/（订阅、自动路由、代理）",
+      "internal/plugins/projects/（只加事件和清单 emits、版本）",
+      "internal/plugin（Host 处理器扩展点）",
+      "internal/api 或 cmd/pmw（请求进 mux 前按 Host 分发的一处）",
+      "docs/plugin-api.md（新增扩展点）",
+      "docs/api-contract.md（「内网域名插件 domains」一节内补代理）"
+    ]
+  },
+  {
+    "key": "DOM-02b",
+    "type": "task",
+    "title": "内网域名分节显示自动分配的原型域名",
+    "milestone": "M4",
+    "module": "frontend",
+    "priority": "P3",
+    "estimate": "S",
+    "depends_on": [
+      "DOM-02a",
+      "DOM-01b"
+    ],
+    "workdir": "frontend",
+    "spec": [
+      "web-next/src/domains.tsx",
+      "web-next/docs/spec/settings.md SPEC-settings-20"
+    ],
+    "body": "## 背景\n\n原需求 DOM-02（原型自动分配域名并写入代理）。DOM-02 的前端部分。原型卡片上显示域名要项目插件读内网域名插件的数据，插件之间不能互读，这里不做；以后有内核级「对象链接」扩展点再加。\n\n## 要做什么\n\n- 路由列表里自动分配的原型域名单独标「自动」，跟着原型状态显示能不能访问，不能手动删（只能关掉自动分配）。\n- 「自动为项目原型分配域名」开关接后端。\n\n## 注意事项\n\n- 只在 `frontend/` 里写代码，不 import `web-next` 的任何代码：原型的交互和样式可以照着写、挑着搬。\n- 联调只连测试实例（`scripts/dev-instance.sh start`，默认 127.0.0.1:7796），不连 7777，不启动或重启 7777 上的服务。\n- 取数和写数据走数据访问层 `frontend/src/core/data`（插件不 import `core/api`，lint 拦着），写完报 `Change` 由失效规则刷新。\n- 状态、类型、优先级从后端读，不写死；副作用不写进 setState 的 updater。\n- `core/api` 的类型文件和 `core/data` 是共用文件，改前重新读、只加自己的那几项。",
+    "acceptance": "- [ ] 启动一个原型后，内网域名分节出现它的自动域名，标「自动」\n- [ ] 关掉自动分配后自动域名消失\n- [ ] frontend 的 npm test、typecheck、lint、build 通过，`make smoke-frontend` 0 问题",
+    "scope": [
+      "frontend/src/plugins/domains/"
+    ]
+  },
+  {
+    "key": "QA-05",
+    "type": "task",
+    "title": "M4 端到端演练：IM 转任务再由 Agent 处理",
+    "milestone": "M4",
+    "module": "qa",
+    "priority": "P2",
+    "estimate": "S",
+    "depends_on": [
+      "AG-01b4",
+      "AG-02a",
+      "IM-02a",
+      "SOP-01d"
+    ],
+    "workdir": ".",
+    "spec": [
+      "web-next/docs/dev-plan.md 第 3 节 M4 完成标志",
+      "scripts/dev-loop-drill.sh（写法参考）"
+    ],
+    "body": "## 背景\n\n原需求 无单独需求条目，对应 M4 的完成标志；串起 AG-01b4、AG-02a、IM-02a、SOP-01d。M4 的完成标志是「一条 IM 转任务再由 Agent 处理的流程端到端跑通」，各任务自己的测试只覆盖各自一段。\n\n## 要做什么\n\n- 新建 `scripts/m4-drill.sh`：起一个用副本库的临时后端（`bin/pmw-dev --fake-connector`，端口 7794），装上 IM 插件、接假连接器、建一个任务触发的 Agent（假服务商）。\n- 步骤：灌一条 IM 消息，转任务并分配给 Agent，Agent 被触发、调一个需确认的写工具、确认、执行记录变 `done`；再用定时任务发起一条 SOP 跑到结束。每步打印检查结果，最后按 pid 关掉临时后端。\n- 不碰 7777、7796 和 `data/pm.db`。\n\n## 注意事项\n\n- 迁移只加不改：`internal/db/migrations` 里 0001 到 0031 一行不动，0001 到 0004 没有校验和更不能碰。内核迁移号由 PLAN-04 预分配（M4 用 0032 到 0039），本条用的号写在「要做什么」里；并行任务撞号时后合入的改号。\n- 先在测试实例（`scripts/dev-instance.sh`）或副本库上演练，不碰 `data/pm.db`，不启动或重启 7777 上的服务；要临时后端就用 `bin/pmw-dev` 跑副本库、在自己的端口起，用完按 pid 关。\n- 加了或删了路由要同步 `docs/api-contract.md`（`TestEveryRouteIsInTheContractDoc` / `TestContractDocHasNoDeadRoutes` 双向盯着）；同一批多个任务改契约时各自只新增自己的一节，改前重新读、小段替换。\n- 新的 id 前缀在 `internal/idgen` 登记（CORE-11 的扫仓测试盯着），契约「id 前缀」表由主会话合并时补。",
+    "acceptance": "- [ ] `scripts/m4-drill.sh` 从零跑完，每步检查都通过，退出码 0\n- [ ] 跑完临时后端进程已退出，副本库在 scratchpad 或 /tmp 下，没碰 `data/pm.db`\n- [ ] 连续跑两次结果一致",
+    "scope": [
+      "scripts/m4-drill.sh（新建）"
+    ]
+  },
+  {
+    "key": "VID-01a",
+    "type": "task",
+    "title": "搭出视频插件的壳和视频、系列、检查点、发布记录表",
+    "milestone": "M5",
+    "module": "fullstack",
+    "priority": "P3",
+    "estimate": "M",
+    "depends_on": [
+      "CORE-05",
+      "PJ-01b",
+      "CORE-04b"
+    ],
+    "workdir": ".",
+    "spec": [
+      "web-next/src/videodata.ts Video、Series、Checkpoint、StageKey、STAGES、Publish、PlatformKey、PLATFORMS",
+      "web-next/docs/dev-plan.md 4.10 VID-01",
+      "docs/plugin-api.md 1.1 清单、2.4 迁移"
+    ],
+    "body": "## 背景\n\n需求 VID-01 拆成：壳和主表（本条）、产出物（VID-01b）、前端两页（VID-01c、VID-01d）。\n\n## 要做什么\n\n- 后端 `internal/plugins/video`：清单 id `video`、`table_prefix` 为 `video_`，强依赖 `projects`，弱依赖 `im`；权限 `fs:read:project`、`fs:write:project`、`network:media-platforms`。\n- 表：系列（名称、说明、共用开场收尾、模板、待同步的集）、视频（所属项目、系列、集数、画面比例、当前阶段、工程目录、章节数）、检查点（每个视频 4 个，pending、passed、rejected、skipped，带意见和时间）、发布记录（平台、比例、标题、简介、状态、定时、链接、错误）。\n- 接口：系列和视频的增删改查、阶段推进、检查点通过和退回（退回必须写意见，音频可跳过）、规划检查通过后锁定画面比例、改系列共用部分时勾选受影响的集标待同步。\n- 前端 `frontend/src/plugins/video`：清单、注册模块「视频」、空页面。\n\n## 不做什么\n\n- 不做产出物（VID-01b）和页面内容（VID-01c）。\n- 不接任何内容平台。\n\n## 注意事项\n\n- 迁移只加不改：`internal/db/migrations` 里已应用的 0001 到 0031、M4 预分配的 0032 到 0039 一行不动。本条不加内核迁移。\n- 插件表放 `internal/plugins/video/migrations`，本条预分配插件内编号 0001，表名带 `video_` 前缀；并行任务撞号时后合入的改号。\n- 先在测试实例（`scripts/dev-instance.sh`）或备份副本的拷贝上演练，不碰 `data/pm.db`，不启动或重启 7777 上的服务；需要临时后端用 `bin/pmw-dev` 跑副本库，用完按 pid 关掉。\n- 加了或删了路由要同步 `docs/api-contract.md`（`TestEveryRouteIsInTheContractDoc` / `TestContractDocHasNoDeadRoutes` 双向盯着）；契约文档同一时间只由一个任务改，避免并行冲突。\n- 插件只走 `plugin.Core` 的句柄：不直连数据库、不碰内核表和别的插件的表，不用 `http.DefaultClient`（CORE-03b 的边界规则）。",
+    "acceptance": "- [ ] 清单通过 CORE-01b 的校验，`GET /api/plugins` 里能看到 video，强依赖 projects\n- [ ] 原型 `videodata.ts` 里 Video、Series、Checkpoint、Publish 的字段全部能存能读（字段对照表写进进展）\n- [ ] 退回检查点不写意见返回 400；规划检查通过后改画面比例返回 409\n- [ ] 停用插件后 `/api/video/*` 返回 404，启用后数据还在；停用 projects 时提示 video 会跟着停用",
+    "scope": "internal/plugins/video/**、frontend/src/plugins/video/**、cmd/pmw 里登记插件的一行、docs/api-contract.md 的 video 段"
+  },
+  {
+    "key": "VID-01b",
+    "type": "task",
+    "title": "实现视频产出物：版本、验收记录、来源溯源",
+    "milestone": "M5",
+    "module": "backend",
+    "priority": "P3",
+    "estimate": "M",
+    "depends_on": [
+      "VID-01a",
+      "AG-03b"
+    ],
+    "workdir": ".",
+    "spec": [
+      "web-next/src/videodata.ts Artifact、ArtifactKind、ARTIFACT_KIND、ArtifactStatus、Review",
+      "web-next/docs/dev-plan.md 4.10 VID-01",
+      "docs/file-artifact-model.md"
+    ],
+    "body": "## 要做什么\n\n- 产出物表：类型、名称、路径（相对视频工程目录）、比例、方案序号、版本、状态（草稿、待验收、已定稿、已发布）、时长、来源（手动、SOP、Agent、技能）、是否选用。\n- 验收记录：通过或退回，退回必须写意见；升版本保留旧版本的验收记录。\n- 来源是 Agent 或 SOP 时关联内核产物溯源（AG-03b），能从产出物跳到产生它的那次运行。\n- 路径只许在视频工程目录内，越界拒绝（走 `fs:read:project`）。\n\n## 注意事项\n\n- 迁移只加不改：`internal/db/migrations` 里已应用的 0001 到 0031、M4 预分配的 0032 到 0039 一行不动。本条不加内核迁移。\n- 插件表放 `internal/plugins/video/migrations`，本条预分配插件内编号 0002，表名带 `video_` 前缀；并行任务撞号时后合入的改号。\n- 先在测试实例（`scripts/dev-instance.sh`）或备份副本的拷贝上演练，不碰 `data/pm.db`，不启动或重启 7777 上的服务；需要临时后端用 `bin/pmw-dev` 跑副本库，用完按 pid 关掉。\n- 加了或删了路由要同步 `docs/api-contract.md`（`TestEveryRouteIsInTheContractDoc` / `TestContractDocHasNoDeadRoutes` 双向盯着）；契约文档同一时间只由一个任务改，避免并行冲突。\n- 插件只走 `plugin.Core` 的句柄：不直连数据库、不碰内核表和别的插件的表，不用 `http.DefaultClient`（CORE-03b 的边界规则）。",
+    "acceptance": "- [ ] 原型 Artifact 的字段全部落库，同一类型同一比例能存 5 个封面方案并选用其中一个\n- [ ] 退回不写意见返回 400；升版本后旧版本的验收记录仍可查\n- [ ] Agent 产生的产出物能查到对应的运行 id\n- [ ] 路径带 `..` 或绝对路径越出工程目录时返回 400",
+    "scope": "internal/plugins/video/**、docs/api-contract.md 的 video 段"
+  },
+  {
+    "key": "VID-01c",
+    "type": "task",
+    "title": "实现视频列表页和视频详情的制作流程",
+    "milestone": "M5",
+    "module": "frontend",
+    "priority": "P3",
+    "estimate": "M",
+    "depends_on": [
+      "VID-01a",
+      "CORE-03a",
+      "PROTO-04f3"
+    ],
+    "workdir": "frontend",
+    "spec": [
+      "web-next/src/videos.tsx VideosNav、VideosTabs、StageDist、StageBar、VideosListPage、VideoDetail（流程页）",
+      "PROTO-04f 产出的视频规格包"
+    ],
+    "body": "## 要做什么\n\n- 列表：全部、待我验收、单集、按系列，阶段分布筛选；新建视频。\n- 详情的流程页：8 个阶段逐步推进、「这一步做完了」、4 个检查点的通过退回跳过、规划检查通过后锁定比例的提示。\n- 菜单项带「卡在检查点」的数字。\n\n## 注意事项\n\n- 只在 `frontend/` 里写代码，不 import `web-next` 的任何代码：原型的交互和样式可以照着写、挑着搬。\n- 联调只连测试实例（`scripts/dev-instance.sh start`，默认 127.0.0.1:7796），不连 7777，不启动或重启 7777 上的服务。\n- 组件里不直接 fetch，数据一律走数据访问层（CORE-03a）；副作用不写进 setState 的 updater。\n- 状态、类型、优先级从后端读（`/api/object-types`、`/api/dictionaries`），不写死。",
+    "acceptance": "- [ ] 原型列表和流程页的操作全部可用，刷新后状态保持\n- [ ] 退回检查点不写意见按钮不可点\n- [ ] 与 PROTO-04f 规格包的视频一节对照通过",
+    "scope": "frontend/src/plugins/video/**"
+  },
+  {
+    "key": "VID-01d",
+    "type": "task",
+    "title": "实现视频产出物页、产出物抽屉和系列页",
+    "milestone": "M5",
+    "module": "frontend",
+    "priority": "P3",
+    "estimate": "M",
+    "depends_on": [
+      "VID-01b",
+      "VID-01c"
+    ],
+    "workdir": "frontend",
+    "spec": [
+      "web-next/src/videos.tsx 产出物 tab、ArtRow、ArtifactDrawer、SeriesSettingsDrawer",
+      "web-next/src/videopublish.tsx SeriesPage"
+    ],
+    "body": "## 要做什么\n\n- 详情的产出物 tab 按比例分栏，封面格子、选用这张、预览（走内置浏览器或系统浏览器）。\n- 产出物抽屉：通过、退回（必须写意见）、升版本、来源跳转。\n- 系列页和系列设置抽屉：共用开场收尾、改动后勾选受影响的集标待同步。\n\n## 注意事项\n\n- 只在 `frontend/` 里写代码，不 import `web-next` 的任何代码：原型的交互和样式可以照着写、挑着搬。\n- 联调只连测试实例（`scripts/dev-instance.sh start`，默认 127.0.0.1:7796），不连 7777，不启动或重启 7777 上的服务。\n- 组件里不直接 fetch，数据一律走数据访问层（CORE-03a）；副作用不写进 setState 的 updater。\n- 状态、类型、优先级从后端读（`/api/object-types`、`/api/dictionaries`），不写死。",
+    "acceptance": "- [ ] 原型产出物和系列的操作全部可用，刷新后状态保持\n- [ ] 来源是 Agent 的产出物能跳到对应运行\n- [ ] 与 PROTO-04f 规格包对照通过",
+    "scope": "frontend/src/plugins/video/**"
+  },
+  {
+    "key": "VID-02p",
+    "type": "task",
+    "title": "原型补封面比例、横竖两套文稿和字幕产出物",
+    "milestone": "M5",
+    "module": "proto",
+    "priority": "P3",
+    "estimate": "S",
+    "depends_on": [
+      "PROTO-04f3"
+    ],
+    "workdir": "web-next",
+    "spec": [
+      "web-next/docs/video-creator-analysis.md P0-5、P1-6",
+      "web-next/src/videodata.ts ARTIFACT_KIND、PLATFORMS",
+      "web-next/src/videos.tsx 封面格子"
+    ],
+    "body": "## 背景\n\n原型的封面只能按 3 种画面比例登记，表达不了抖音要的 3:4；口播稿只有一套，和 web-video-presentation 技能布局 B 的横竖两套稿矛盾。规格要改，先改原型。\n\n## 要做什么\n\n- `videodata.ts`：加 `CoverRatio`（16x9、4x3、9x16、3x4、1x1）和 `DEFAULT_COVER_RATIOS`，`Artifact.ratio`；script、outline、description、chapters 改 `perVariant: true`；加 `subtitle` 产出物（阶段 record，按比例区分）；`PLATFORMS` 每项加 `cover` 可选比例。\n- `videos.tsx` 封面格子按比例分格；`videopublish.tsx` 新建发布时按平台过滤可选封面。\n- 抖音发布失败的示例数据改成能用 3:4 封面重试成功。\n\n## 注意事项\n\n- 原型是规格：只改本条列出的原型文件，改完跑 `npx tsc -b` 和 `scripts/smoke-proto`（以仓库现有的冒烟脚本为准），0 问题。\n- 示例数据要接得上现有的演示故事线（PROTO-01），不放测试数据。\n- `*data.ts` 是契约文件，本条改契约时不和其他原型任务并行。\n- 原型 dev server 在 7778，不要重启；规格包（PROTO-04f）里对应一节同步补上截图和交互清单。",
+    "acceptance": "- [ ] 原型里能给竖版视频登记 3:4 封面，新建抖音发布时只列出 3:4 和 9:16 封面\n- [ ] 横竖两套口播稿分别验收\n- [ ] smoke-proto 0 问题",
+    "scope": "web-next/src/videodata.ts、web-next/src/videos.tsx、web-next/src/videos.css、web-next/src/videopublish.tsx、web-next/docs/spec 下视频一节"
+  },
+  {
+    "key": "VID-02a",
+    "type": "task",
+    "title": "产出物结构对齐 web-video-presentation 技能：封面比例、横竖两套稿、字幕",
+    "milestone": "M5",
+    "module": "backend",
+    "priority": "P3",
+    "estimate": "S",
+    "depends_on": [
+      "VID-01b",
+      "VID-02p"
+    ],
+    "workdir": ".",
+    "spec": [
+      "VID-02p 改后的 web-next/src/videodata.ts",
+      "web-next/docs/video-creator-analysis.md P0-5、P1-6",
+      "web-next/docs/dev-plan.md 4.10 VID-02"
+    ],
+    "body": "## 要做什么\n\n- 产出物加 `ratio`（只有封面有）、`lang`（字幕用）；按类型校验 perVariant：口播稿、大纲、简介、章节、字幕、封面、成片按比例各一套。\n- 平台可选封面比例放插件代码里的平台表，发布记录选封面时校验比例。\n- 可选：扫描视频工程目录，按技能约定的文件名（`pc/script.md`、`app/script.md`、`cover/*_3x4.png` 等）自动登记产出物草稿；约定以技能当前版本为准，写进进展。\n\n## 注意事项\n\n- 迁移只加不改：`internal/db/migrations` 里已应用的 0001 到 0031、M4 预分配的 0032 到 0039 一行不动。本条不加内核迁移。\n- 插件表放 `internal/plugins/video/migrations`，本条预分配插件内编号 0003，表名带 `video_` 前缀；并行任务撞号时后合入的改号。\n- 先在测试实例（`scripts/dev-instance.sh`）或备份副本的拷贝上演练，不碰 `data/pm.db`，不启动或重启 7777 上的服务；需要临时后端用 `bin/pmw-dev` 跑副本库，用完按 pid 关掉。\n- 加了或删了路由要同步 `docs/api-contract.md`（`TestEveryRouteIsInTheContractDoc` / `TestContractDocHasNoDeadRoutes` 双向盯着）；契约文档同一时间只由一个任务改，避免并行冲突。\n- 插件只走 `plugin.Core` 的句柄：不直连数据库、不碰内核表和别的插件的表，不用 `http.DefaultClient`（CORE-03b 的边界规则）。",
+    "acceptance": "- [ ] 能登记 3:4 封面；抖音发布记录选 16:9 封面返回 400 并说明原因\n- [ ] 双方向视频的横竖两套口播稿分别有版本和验收记录\n- [ ] 字幕产出物能按比例登记",
+    "scope": "internal/plugins/video/**、docs/api-contract.md 的 video 段"
+  },
+  {
+    "key": "VID-02b",
+    "type": "task",
+    "title": "前端封面按比例分格、横竖两套稿和字幕",
+    "milestone": "M5",
+    "module": "frontend",
+    "priority": "P3",
+    "estimate": "S",
+    "depends_on": [
+      "VID-02a",
+      "VID-01d"
+    ],
+    "workdir": "frontend",
+    "spec": [
+      "VID-02p 改后的 web-next/src/videos.tsx 封面格子"
+    ],
+    "body": "## 要做什么\n\n- 产出物 tab 的封面格子按比例分格；横竖两套稿分栏；字幕产出物显示在录制阶段。\n\n## 注意事项\n\n- 只在 `frontend/` 里写代码，不 import `web-next` 的任何代码：原型的交互和样式可以照着写、挑着搬。\n- 联调只连测试实例（`scripts/dev-instance.sh start`，默认 127.0.0.1:7796），不连 7777，不启动或重启 7777 上的服务。\n- 组件里不直接 fetch，数据一律走数据访问层（CORE-03a）；副作用不写进 setState 的 updater。\n- 状态、类型、优先级从后端读（`/api/object-types`、`/api/dictionaries`），不写死。",
+    "acceptance": "- [ ] 抖音要的 3:4 封面能在界面上登记并选用\n- [ ] 与原型对照通过",
+    "scope": "frontend/src/plugins/video/**"
+  },
+  {
+    "key": "VID-03p",
+    "type": "task",
+    "title": "原型补阶段执行器和「视频周更」SOP 模板",
+    "milestone": "M5",
+    "module": "proto",
+    "priority": "P3",
+    "estimate": "S",
+    "depends_on": [
+      "PROTO-04f3"
+    ],
+    "workdir": "web-next",
+    "spec": [
+      "web-next/docs/video-creator-analysis.md P1-3",
+      "web-next/src/videos.tsx 流程页",
+      "web-next/src/sopflow.ts"
+    ],
+    "body": "## 背景\n\n原型的产出物来源只是标签，没有「从这一步发起技能、SOP、Agent」的入口。\n\n## 要做什么\n\n- `videodata.ts` 加 `StageRunner`、`Video.runners`、`Video.last_run`。\n- 流程页每个阶段可配执行器（技能、SOP、Agent），「运行」按钮、运行中和失败状态，产出自动登记为待验收。\n- `sopflow.ts` 加内置模板「视频周更」：文稿处理、规划检查、开发第 1 章、检查、并行章节、音频检查、渲染、分发包检查。\n\n## 注意事项\n\n- 原型是规格：只改本条列出的原型文件，改完跑 `npx tsc -b` 和 `scripts/smoke-proto`（以仓库现有的冒烟脚本为准），0 问题。\n- 示例数据要接得上现有的演示故事线（PROTO-01），不放测试数据。\n- `*data.ts` 是契约文件，本条改契约时不和其他原型任务并行。\n- 原型 dev server 在 7778，不要重启；规格包（PROTO-04f）里对应一节同步补上截图和交互清单。",
+    "acceptance": "- [ ] 原型里规划检查通过后，网页开发阶段能点「运行」并看到产出进入待验收\n- [ ] SOP 模板列表里有「视频周更」\n- [ ] smoke-proto 0 问题",
+    "scope": "web-next/src/videodata.ts、web-next/src/videos.tsx、web-next/src/videos.css、web-next/src/sopflow.ts、web-next/docs/spec 下视频一节"
+  },
+  {
+    "key": "VID-03a",
+    "type": "task",
+    "title": "给插件加发起 Agent、SOP 运行和交给 Claude Code 的句柄",
+    "milestone": "M5",
+    "module": "backend",
+    "priority": "P3",
+    "estimate": "M",
+    "depends_on": [
+      "SOP-01b",
+      "AG-01b1",
+      "AG-01b4",
+      "DEV-09"
+    ],
+    "workdir": ".",
+    "spec": [
+      "docs/plugin-api.md 2.0 Core、2.6 Agent",
+      "internal/plugin/plugin.go Core",
+      "internal/runner"
+    ],
+    "body": "## 背景\n\n插件 Core 现在只有读对象、联系人、会话和建对象，发不起运行。VID-03 和交易的策略都要用。M4 的 SOP-01、AG-01b 如果已经带了等价的句柄，本条只补缺的部分。\n\n## 要做什么\n\n- `Core` 加 `Runs()`：按 Agent id 加提示词发起一次 Agent 运行、按 SOP id 加入参发起一次 SOP 运行、按工作目录和提示词交给 Claude Code（复用 internal/runner），返回运行 id。\n- 运行结束发 `run.finished`，插件按运行 id 订阅结果；产出走内核产物溯源（AG-03b）。\n- 运行的来源记为插件 id，审计里能看到谁发起的。\n- 升插件 API 小版本，`docs/plugin-api.md` 补这一节。\n\n## 注意事项\n\n- 迁移只加不改：`internal/db/migrations` 里已应用的 0001 到 0031、M4 预分配的 0032 到 0039 一行不动。本条确需内核迁移时用预分配号 0040，只加新表、旧表只加列；不需要就不加。\n- 先在测试实例（`scripts/dev-instance.sh`）或备份副本的拷贝上演练，不碰 `data/pm.db`，不启动或重启 7777 上的服务；需要临时后端用 `bin/pmw-dev` 跑副本库，用完按 pid 关掉。\n- 加了或删了路由要同步 `docs/api-contract.md`（`TestEveryRouteIsInTheContractDoc` / `TestContractDocHasNoDeadRoutes` 双向盯着）；契约文档同一时间只由一个任务改，避免并行冲突。",
+    "acceptance": "- [ ] 示例插件（plugintest）能发起三种运行并在 `run.finished` 里拿到结果\n- [ ] 停用插件后它发起的运行仍跑完，但事件不再投给它\n- [ ] `go test ./internal/plugin/...` 通过",
+    "scope": "internal/plugin/**、internal/runner/**（只加导出，不改行为）、cmd/pmw、docs/plugin-api.md、docs/api-contract.md"
+  },
+  {
+    "key": "VID-03b",
+    "type": "task",
+    "title": "实现视频阶段执行器：一键跑某个阶段",
+    "milestone": "M5",
+    "module": "backend",
+    "priority": "P3",
+    "estimate": "M",
+    "depends_on": [
+      "VID-03a",
+      "VID-02a",
+      "VID-03p"
+    ],
+    "workdir": ".",
+    "spec": [
+      "VID-03p 改后的 web-next/src/videodata.ts StageRunner",
+      "web-next/docs/video-creator-analysis.md P1-3",
+      "web-next/docs/dev-plan.md 4.10 VID-03"
+    ],
+    "body": "## 要做什么\n\n- 每个视频每个阶段可配执行器（技能、SOP、Agent）和提示词，存插件表。\n- 运行接口：前置检查点没过时拒绝（例如规划检查没过不能开始网页开发）；发起后记 `last_run`，结束后把产出登记成产出物并推到待验收，检查点仍由人操作。\n- 技能执行器：交给 Claude Code，工作目录是视频工程目录，提示词带上 web-video-presentation 技能的阶段说明。\n\n## 注意事项\n\n- 迁移只加不改：`internal/db/migrations` 里已应用的 0001 到 0031、M4 预分配的 0032 到 0039 一行不动。本条不加内核迁移。\n- 插件表放 `internal/plugins/video/migrations`，本条预分配插件内编号 0004，表名带 `video_` 前缀；并行任务撞号时后合入的改号。\n- 先在测试实例（`scripts/dev-instance.sh`）或备份副本的拷贝上演练，不碰 `data/pm.db`，不启动或重启 7777 上的服务；需要临时后端用 `bin/pmw-dev` 跑副本库，用完按 pid 关掉。\n- 加了或删了路由要同步 `docs/api-contract.md`（`TestEveryRouteIsInTheContractDoc` / `TestContractDocHasNoDeadRoutes` 双向盯着）；契约文档同一时间只由一个任务改，避免并行冲突。\n- 插件只走 `plugin.Core` 的句柄：不直连数据库、不碰内核表和别的插件的表，不用 `http.DefaultClient`（CORE-03b 的边界规则）。",
+    "acceptance": "- [ ] 规划检查通过后调运行接口能直接开始网页开发阶段，运行结束产出物出现在待验收\n- [ ] 规划检查没过时返回 409 并说明原因\n- [ ] 运行失败时 `last_run` 状态为失败，不改检查点",
+    "scope": "internal/plugins/video/**、docs/api-contract.md 的 video 段"
+  },
+  {
+    "key": "VID-03c",
+    "type": "task",
+    "title": "前端阶段执行器配置和运行按钮",
+    "milestone": "M5",
+    "module": "frontend",
+    "priority": "P3",
+    "estimate": "S",
+    "depends_on": [
+      "VID-03b",
+      "VID-01c"
+    ],
+    "workdir": "frontend",
+    "spec": [
+      "VID-03p 改后的 web-next/src/videos.tsx 流程页"
+    ],
+    "body": "## 要做什么\n\n- 流程页每个阶段配执行器、运行、看运行状态，跳到会话里的那次运行。\n\n## 注意事项\n\n- 只在 `frontend/` 里写代码，不 import `web-next` 的任何代码：原型的交互和样式可以照着写、挑着搬。\n- 联调只连测试实例（`scripts/dev-instance.sh start`，默认 127.0.0.1:7796），不连 7777，不启动或重启 7777 上的服务。\n- 组件里不直接 fetch，数据一律走数据访问层（CORE-03a）；副作用不写进 setState 的 updater。\n- 状态、类型、优先级从后端读（`/api/object-types`、`/api/dictionaries`），不写死。",
+    "acceptance": "- [ ] 规划检查通过后能在界面上一键开始网页开发，运行中和失败状态与原型一致",
+    "scope": "frontend/src/plugins/video/**"
+  },
+  {
+    "key": "VID-03d",
+    "type": "task",
+    "title": "视频插件登记 SOP 节点和内置「视频周更」模板",
+    "milestone": "M5",
+    "module": "backend",
+    "priority": "P3",
+    "estimate": "S",
+    "depends_on": [
+      "VID-03b",
+      "SOP-03a",
+      "SOP-03b"
+    ],
+    "workdir": ".",
+    "spec": [
+      "VID-03p 改后的 web-next/src/sopflow.ts",
+      "web-next/docs/dev-plan.md 4.10 SOP-03 验收（视频插件的发布到平台节点）"
+    ],
+    "body": "## 要做什么\n\n- 登记节点 `video_wait_checkpoint`（等某个检查点通过）、`video_run_stage`（跑某个阶段的执行器）。\n- 安装时写入内置模板「视频周更」，用户可复制修改；卸载不删用户改过的副本。\n- 发布到平台的节点 `video_publish` 归 VID-06c，本条只在清单里预留。\n\n## 注意事项\n\n- 迁移只加不改：`internal/db/migrations` 里已应用的 0001 到 0031、M4 预分配的 0032 到 0039 一行不动。本条不加内核迁移。\n- 先在测试实例（`scripts/dev-instance.sh`）或备份副本的拷贝上演练，不碰 `data/pm.db`，不启动或重启 7777 上的服务；需要临时后端用 `bin/pmw-dev` 跑副本库，用完按 pid 关掉。\n- 加了或删了路由要同步 `docs/api-contract.md`（`TestEveryRouteIsInTheContractDoc` / `TestContractDocHasNoDeadRoutes` 双向盯着）；契约文档同一时间只由一个任务改，避免并行冲突。\n- 插件只走 `plugin.Core` 的句柄：不直连数据库、不碰内核表和别的插件的表，不用 `http.DefaultClient`（CORE-03b 的边界规则）。",
+    "acceptance": "- [ ] SOP 编辑器里能看到两种视频节点，停用视频插件后消失\n- [ ] 用模板建的 SOP 能跑到「等规划检查」并停住，检查通过后继续",
+    "scope": "internal/plugins/video/**"
+  },
+  {
+    "key": "VID-04a",
+    "type": "task",
+    "title": "给插件加出网句柄和本插件连接器的调用配置",
+    "milestone": "M5",
+    "module": "backend",
+    "priority": "P3",
+    "estimate": "M",
+    "depends_on": [
+      "CONN-02",
+      "CORE-03b"
+    ],
+    "workdir": ".",
+    "spec": [
+      "docs/plugin-api.md 2.0 HTTP(group)、3.1 network 组、3.3",
+      "internal/plugin/manifest.go 权限表",
+      "internal/connector/def.go Config"
+    ],
+    "body": "## 背景\n\n插件 API 里写了 `HTTP(group)` 但没实现；插件登记的连接器只在连通测试、拉工具清单时拿得到凭证，平时调对方接口拿不到。视频（内容平台）和交易（行情、交易所）都要用。IM-01b、IM-01c 如果先做了等价的句柄，本条只补缺的部分。\n\n## 要做什么\n\n- `Core.HTTP(group)`：只给清单 `permissions` 里声明过的 `network:<group>`，发请求前按内核维护的域名清单检查目标；域名清单补 `media-platforms`（B 站、YouTube、抖音）、`market-data`（Binance、OKX 公开行情）、`exchanges`（交易接口，先只列域名，实盘前不用）。\n- `Connectors().With(ctx, id, fn(Config) error)`：只对本插件登记的连接器实例开放，在回调里拿解密后的配置，回调结束即丢；令牌过期时走 OAuth 刷新（CONN-01b）。\n- CORE-03b 的边界规则补一条：`internal/plugins/` 下禁止 `http.DefaultClient`、`http.Get`。\n\n## 注意事项\n\n- 迁移只加不改：`internal/db/migrations` 里已应用的 0001 到 0031、M4 预分配的 0032 到 0039 一行不动。本条确需内核迁移时用预分配号 0041，只加新表、旧表只加列；不需要就不加。\n- 先在测试实例（`scripts/dev-instance.sh`）或备份副本的拷贝上演练，不碰 `data/pm.db`，不启动或重启 7777 上的服务；需要临时后端用 `bin/pmw-dev` 跑副本库，用完按 pid 关掉。\n- 加了或删了路由要同步 `docs/api-contract.md`（`TestEveryRouteIsInTheContractDoc` / `TestContractDocHasNoDeadRoutes` 双向盯着）；契约文档同一时间只由一个任务改，避免并行冲突。",
+    "acceptance": "- [ ] 没声明 `network:market-data` 的插件拿不到这个组；请求清单外的域名返回错误\n- [ ] 插件拿不到别的插件或内核的连接器配置\n- [ ] `go test ./internal/plugin/...`、lint 边界规则通过",
+    "scope": "internal/plugin/**、internal/connector/**（只加导出）、cmd/pmw、scripts 里的边界规则、docs/plugin-api.md"
+  },
+  {
+    "key": "VID-04b",
+    "type": "task",
+    "title": "定义内容平台适配接口并实现 B 站连接器（假服务端测试）",
+    "milestone": "M5",
+    "module": "backend",
+    "priority": "P3",
+    "estimate": "L",
+    "depends_on": [
+      "VID-04a",
+      "VID-02a"
+    ],
+    "workdir": ".",
+    "spec": [
+      "web-next/docs/dev-plan.md 4.10 VID-04",
+      "web-next/docs/video-creator-analysis.md P0-3",
+      "web-next/src/videodata.ts PLATFORMS"
+    ],
+    "body": "## 要做什么\n\n- 插件内适配接口：上传成片、设封面、标题简介标签分区合集、定时、查发布状态、拉单条稿件数据、拉评论；每个平台声明自己实际能做什么（upload、schedule、metrics、comments）。\n- B 站连接器 `bilibili`：认证方式按 B 站开放平台实际提供的为准（OAuth 或令牌），分片上传、设封面、投稿、查稿件状态、拉播放点赞投币收藏等数据。\n- 全部用 `httptest` 假服务端测试，录下的响应样例放 testdata，不含真实账号信息。\n- 渠道异常时连接器状态改为异常。\n\n## 不做什么\n\n- 不用真实账号发布；真实接通归 VID-04c。\n\n## 注意事项\n\n- 迁移只加不改：`internal/db/migrations` 里已应用的 0001 到 0031、M4 预分配的 0032 到 0039 一行不动。本条不加内核迁移。\n- 先在测试实例（`scripts/dev-instance.sh`）或备份副本的拷贝上演练，不碰 `data/pm.db`，不启动或重启 7777 上的服务；需要临时后端用 `bin/pmw-dev` 跑副本库，用完按 pid 关掉。\n- 加了或删了路由要同步 `docs/api-contract.md`（`TestEveryRouteIsInTheContractDoc` / `TestContractDocHasNoDeadRoutes` 双向盯着）；契约文档同一时间只由一个任务改，避免并行冲突。\n- 插件只走 `plugin.Core` 的句柄：不直连数据库、不碰内核表和别的插件的表，不用 `http.DefaultClient`（CORE-03b 的边界规则）。",
+    "acceptance": "- [ ] 假服务端上能走完上传、设封面、投稿、查状态、拉数据全流程\n- [ ] 令牌失效时连接器状态变为异常\n- [ ] 发布失败时发布记录状态为失败并带原因",
+    "scope": "internal/plugins/video/**、docs/api-contract.md 的 video 段"
+  },
+  {
+    "key": "VID-04c",
+    "type": "task",
+    "title": "B 站真实接通：用测试账号完整走一遍上传和数据拉取",
+    "milestone": "M5",
+    "module": "backend",
+    "priority": "P3",
+    "estimate": "S",
+    "depends_on": [
+      "VID-04b"
+    ],
+    "workdir": ".",
+    "spec": [
+      "web-next/docs/dev-plan.md 4.10 VID-04 验收（至少 B 站完整打通）"
+    ],
+    "body": "## 要做什么\n\n- 用用户提供的 B 站开放平台应用和测试账号，在测试实例上接通连接器，发一条测试稿件（建议设为仅自己可见或草稿），拉回数据。\n- 把和假服务端对不上的地方修掉，更新 testdata。\n\n## 需要用户\n\n- 真实对外发布：会在用户的 B 站账号下产生稿件，必须用户本人同意并在场。\n- 需要用户提供 B 站开放平台应用的凭证和测试账号，在测试实例界面里自己填，代理不往保险箱写凭证。\n\n## 注意事项\n\n- 迁移只加不改：`internal/db/migrations` 里已应用的 0001 到 0031、M4 预分配的 0032 到 0039 一行不动。本条不加内核迁移。\n- 先在测试实例（`scripts/dev-instance.sh`）或备份副本的拷贝上演练，不碰 `data/pm.db`，不启动或重启 7777 上的服务；需要临时后端用 `bin/pmw-dev` 跑副本库，用完按 pid 关掉。\n- 加了或删了路由要同步 `docs/api-contract.md`（`TestEveryRouteIsInTheContractDoc` / `TestContractDocHasNoDeadRoutes` 双向盯着）；契约文档同一时间只由一个任务改，避免并行冲突。\n- 插件只走 `plugin.Core` 的句柄：不直连数据库、不碰内核表和别的插件的表，不用 `http.DefaultClient`（CORE-03b 的边界规则）。",
+    "acceptance": "- [ ] 测试稿件上传成功、封面正确，平台后台能看到\n- [ ] 拉回的播放、点赞数据和平台后台一致\n- [ ] 测试稿件按用户意见删除或保留",
+    "scope": "internal/plugins/video/**"
+  },
+  {
+    "key": "VID-04d",
+    "type": "task",
+    "title": "实现 YouTube 和抖音连接器（假服务端测试）",
+    "milestone": "M5",
+    "module": "backend",
+    "priority": "P3",
+    "estimate": "M",
+    "depends_on": [
+      "VID-04b"
+    ],
+    "workdir": ".",
+    "spec": [
+      "web-next/docs/dev-plan.md 4.10 VID-04",
+      "web-next/docs/video-creator-analysis.md P0-3",
+      "web-next/docs/dev-plan.md 6 节交易风险（视频号、小红书不开放发布接口）"
+    ],
+    "body": "## 要做什么\n\n- YouTube `youtube`：OAuth，上传、设缩略图、定时公开、拉数据和评论。\n- 抖音 `douyin`：按开放平台实际能力，能上传就上传，不能就只拉数据和评论，发布退化为「生成发布包加打开创作者后台」。\n- 视频号、小红书不做连接器：发布记录只登记、回填链接，数据手填（VID-05a）。\n- 全部用假服务端测试。\n\n## 不做什么\n\n- 不用真实账号发布；真实接通归 VID-04e。\n\n## 注意事项\n\n- 迁移只加不改：`internal/db/migrations` 里已应用的 0001 到 0031、M4 预分配的 0032 到 0039 一行不动。本条不加内核迁移。\n- 先在测试实例（`scripts/dev-instance.sh`）或备份副本的拷贝上演练，不碰 `data/pm.db`，不启动或重启 7777 上的服务；需要临时后端用 `bin/pmw-dev` 跑副本库，用完按 pid 关掉。\n- 加了或删了路由要同步 `docs/api-contract.md`（`TestEveryRouteIsInTheContractDoc` / `TestContractDocHasNoDeadRoutes` 双向盯着）；契约文档同一时间只由一个任务改，避免并行冲突。\n- 插件只走 `plugin.Core` 的句柄：不直连数据库、不碰内核表和别的插件的表，不用 `http.DefaultClient`（CORE-03b 的边界规则）。",
+    "acceptance": "- [ ] 假服务端上 YouTube 能走完上传、缩略图、定时、拉数据\n- [ ] 抖音按声明的能力工作，不支持的能力在接口里返回明确的不支持\n- [ ] 连接器设置页能看到两个连接器，停用视频插件后隐藏",
+    "scope": "internal/plugins/video/**"
+  },
+  {
+    "key": "VID-04e",
+    "type": "task",
+    "title": "YouTube、抖音真实接通",
+    "milestone": "M5",
+    "module": "backend",
+    "priority": "P3",
+    "estimate": "S",
+    "depends_on": [
+      "VID-04d"
+    ],
+    "workdir": ".",
+    "spec": [
+      "web-next/docs/dev-plan.md 4.10 VID-04"
+    ],
+    "body": "## 要做什么\n\n- 用用户提供的应用凭证和测试账号接通，各发一条测试视频（YouTube 设为私享），拉回数据，修掉和假服务端对不上的地方。\n\n## 需要用户\n\n- 真实对外发布：会在用户的平台账号下产生内容，必须用户本人同意并在场。\n- 需要用户提供 Google Cloud OAuth 应用、抖音开放平台应用的凭证和测试账号，自己在界面里填。\n\n## 注意事项\n\n- 迁移只加不改：`internal/db/migrations` 里已应用的 0001 到 0031、M4 预分配的 0032 到 0039 一行不动。本条不加内核迁移。\n- 先在测试实例（`scripts/dev-instance.sh`）或备份副本的拷贝上演练，不碰 `data/pm.db`，不启动或重启 7777 上的服务；需要临时后端用 `bin/pmw-dev` 跑副本库，用完按 pid 关掉。\n- 加了或删了路由要同步 `docs/api-contract.md`（`TestEveryRouteIsInTheContractDoc` / `TestContractDocHasNoDeadRoutes` 双向盯着）；契约文档同一时间只由一个任务改，避免并行冲突。\n- 插件只走 `plugin.Core` 的句柄：不直连数据库、不碰内核表和别的插件的表，不用 `http.DefaultClient`（CORE-03b 的边界规则）。",
+    "acceptance": "- [ ] 两个平台的测试视频上传成功，数据和平台后台一致",
+    "scope": "internal/plugins/video/**"
+  },
+  {
+    "key": "VID-05p",
+    "type": "task",
+    "title": "原型补指标扩展、按天曲线、平台账号和封面 A/B",
+    "milestone": "M5",
+    "module": "proto",
+    "priority": "P3",
+    "estimate": "M",
+    "depends_on": [
+      "VID-02p"
+    ],
+    "workdir": "web-next",
+    "spec": [
+      "web-next/docs/video-creator-analysis.md P0-3、P0-4、P1-4、P1-5",
+      "web-next/src/videopublish.tsx PublishPage、PublishDrawer、NewPublishDrawer"
+    ],
+    "body": "## 背景\n\n原型的数据只有当前快照 4 个数，回填直接覆盖；没有曝光、点击率，做不了封面 A/B。\n\n## 要做什么\n\n- `videodata.ts`：`Metrics` 加曝光、点击率、平均观看、完播、收藏、投币、涨粉；`MetricSnapshot`（发布后第几天、来源）；`PlatformAccount`（主号、A/B 小号、客户号）和 `Publish.account_id`；`PlatformRule` 和 `Publish.tags/category/collection/checks`；`CoverTest`。\n- 发布抽屉：D1、D3、D7、D30 曲线，手动回填存快照不覆盖；新建发布选账号、平台规则校验不过不让发布。\n- 封面 A/B 抽屉：2 到 5 张封面、每张的曝光是否到 10K、天数是否到 7、点击率差距是否到 20%，结束后胜者设为主封面、其余归档。\n\n## 注意事项\n\n- 原型是规格：只改本条列出的原型文件，改完跑 `npx tsc -b` 和 `scripts/smoke-proto`（以仓库现有的冒烟脚本为准），0 问题。\n- 示例数据要接得上现有的演示故事线（PROTO-01），不放测试数据。\n- `*data.ts` 是契约文件，本条改契约时不和其他原型任务并行。\n- 原型 dev server 在 7778，不要重启；规格包（PROTO-04f）里对应一节同步补上截图和交互清单。",
+    "acceptance": "- [ ] 原型里能看到一条发布的按天曲线和一个进行中、一个已决出的 A/B 测试\n- [ ] 标题超长时新建发布不能提交\n- [ ] smoke-proto 0 问题",
+    "scope": "web-next/src/videodata.ts、web-next/src/videopublish.tsx、web-next/src/videopublish.css、新建 web-next/src/covertest.tsx、web-next/docs/spec 下视频一节"
+  },
+  {
+    "key": "VID-05a",
+    "type": "task",
+    "title": "发布记录扩展和数据按天存快照",
+    "milestone": "M5",
+    "module": "backend",
+    "priority": "P3",
+    "estimate": "M",
+    "depends_on": [
+      "VID-04b",
+      "VID-05p"
+    ],
+    "workdir": ".",
+    "spec": [
+      "VID-05p 改后的 web-next/src/videodata.ts Metrics、MetricSnapshot、PlatformAccount、PlatformRule",
+      "web-next/docs/dev-plan.md 4.10 VID-05",
+      "web-next/docs/video-creator-analysis.md P0-4"
+    ],
+    "body": "## 要做什么\n\n- 快照表：发布 id、发布后第几天、来源（手动、连接器）、各项指标；回填和拉取都追加，不覆盖。\n- 后台任务每天拉一次已发布记录的数据（插件 Job），平台不提供的指标留空。\n- 平台账号：连接器实例打角色（主号、A/B 小号、客户号），发布记录挂账号。\n- 平台规则：标题、简介、标签字数，能否放链接，封面比例，时长；发布前校验，结果存在发布记录上。\n- 视频号、小红书只登记、回填链接和手填数据。\n\n## 注意事项\n\n- 迁移只加不改：`internal/db/migrations` 里已应用的 0001 到 0031、M4 预分配的 0032 到 0039 一行不动。本条不加内核迁移。\n- 插件表放 `internal/plugins/video/migrations`，本条预分配插件内编号 0005，表名带 `video_` 前缀；并行任务撞号时后合入的改号。\n- 先在测试实例（`scripts/dev-instance.sh`）或备份副本的拷贝上演练，不碰 `data/pm.db`，不启动或重启 7777 上的服务；需要临时后端用 `bin/pmw-dev` 跑副本库，用完按 pid 关掉。\n- 加了或删了路由要同步 `docs/api-contract.md`（`TestEveryRouteIsInTheContractDoc` / `TestContractDocHasNoDeadRoutes` 双向盯着）；契约文档同一时间只由一个任务改，避免并行冲突。\n- 插件只走 `plugin.Core` 的句柄：不直连数据库、不碰内核表和别的插件的表，不用 `http.DefaultClient`（CORE-03b 的边界规则）。",
+    "acceptance": "- [ ] 同一条发布回填三次，能查到三条快照和按天曲线的数据\n- [ ] 后台任务用假服务端拉数据，能按天落快照\n- [ ] 标题超长的发布不能切到已定时",
+    "scope": "internal/plugins/video/**、docs/api-contract.md 的 video 段"
+  },
+  {
+    "key": "VID-05b",
+    "type": "task",
+    "title": "封面 A/B 测试和决胜规则",
+    "milestone": "M5",
+    "module": "backend",
+    "priority": "P3",
+    "estimate": "S",
+    "depends_on": [
+      "VID-05a"
+    ],
+    "workdir": ".",
+    "spec": [
+      "VID-05p 改后的 web-next/src/videodata.ts CoverTest",
+      "web-next/docs/video-creator-analysis.md P1-4"
+    ],
+    "body": "## 要做什么\n\n- A/B 测试表：视频、平台、方式（平台原生、多账号）、2 到 5 个分组（封面、发布记录）、最少天数、最少曝光。\n- 每天快照落库后重算：曝光都到门槛、天数到了、点击率差距到 20% 判出胜者，否则不确定；胜者设为主封面，其余标归档不删。\n\n## 注意事项\n\n- 迁移只加不改：`internal/db/migrations` 里已应用的 0001 到 0031、M4 预分配的 0032 到 0039 一行不动。本条不加内核迁移。\n- 插件表放 `internal/plugins/video/migrations`，本条预分配插件内编号 0006，表名带 `video_` 前缀；并行任务撞号时后合入的改号。\n- 先在测试实例（`scripts/dev-instance.sh`）或备份副本的拷贝上演练，不碰 `data/pm.db`，不启动或重启 7777 上的服务；需要临时后端用 `bin/pmw-dev` 跑副本库，用完按 pid 关掉。\n- 加了或删了路由要同步 `docs/api-contract.md`（`TestEveryRouteIsInTheContractDoc` / `TestContractDocHasNoDeadRoutes` 双向盯着）；契约文档同一时间只由一个任务改，避免并行冲突。\n- 插件只走 `plugin.Core` 的句柄：不直连数据库、不碰内核表和别的插件的表，不用 `http.DefaultClient`（CORE-03b 的边界规则）。",
+    "acceptance": "- [ ] 用快照夹具能判出胜者、判出不确定两种结果\n- [ ] 胜者成为主封面，其余封面状态为归档且文件还在",
+    "scope": "internal/plugins/video/**、docs/api-contract.md 的 video 段"
+  },
+  {
+    "key": "VID-05c",
+    "type": "task",
+    "title": "前端发布页、发布抽屉、数据曲线和封面 A/B",
+    "milestone": "M5",
+    "module": "frontend",
+    "priority": "P3",
+    "estimate": "M",
+    "depends_on": [
+      "VID-05b",
+      "VID-01c"
+    ],
+    "workdir": "frontend",
+    "spec": [
+      "VID-05p 改后的 web-next/src/videopublish.tsx 和 covertest.tsx"
+    ],
+    "body": "## 要做什么\n\n- 发布页：跨平台汇总、按平台条形、失败数；新建发布（选账号、选封面按平台过滤、规则校验）；发布抽屉（重试、回填、曲线）；A/B 测试抽屉。\n\n## 注意事项\n\n- 只在 `frontend/` 里写代码，不 import `web-next` 的任何代码：原型的交互和样式可以照着写、挑着搬。\n- 联调只连测试实例（`scripts/dev-instance.sh start`，默认 127.0.0.1:7796），不连 7777，不启动或重启 7777 上的服务。\n- 组件里不直接 fetch，数据一律走数据访问层（CORE-03a）；副作用不写进 setState 的 updater。\n- 状态、类型、优先级从后端读（`/api/object-types`、`/api/dictionaries`），不写死。",
+    "acceptance": "- [ ] 原型发布页的操作全部可用，刷新不丢\n- [ ] 能在界面上建一个 A/B 测试并看到决胜结果\n- [ ] 与规格包对照通过",
+    "scope": "frontend/src/plugins/video/**"
+  },
+  {
+    "key": "VID-06p",
+    "type": "task",
+    "title": "原型补内容日历",
+    "milestone": "M5",
+    "module": "proto",
+    "priority": "P3",
+    "estimate": "M",
+    "depends_on": [
+      "VID-05p"
+    ],
+    "workdir": "web-next",
+    "spec": [
+      "web-next/docs/video-creator-analysis.md P0-2",
+      "web-next/src/scheduledata.ts ScheduleAction",
+      "web-next/src/schedule.tsx"
+    ],
+    "body": "## 背景\n\n原型没有日历视图，定时发布不走定时任务，今日页也看不到。\n\n## 要做什么\n\n- `videodata.ts`：`Video.target_date`、`CalendarItem`；`scheduledata.ts` 的 `ScheduleAction` 加 `{ kind: 'publish'; publish_id }`。\n- 新页面 `videocalendar.tsx`：月、周视图，格子里是发布（计划、已定时、已发布、失败）和计划首发日；离计划发布日 N 天还没过第一章验收标红；拖动改日期。\n- 定时任务页能显示「发布」动作；发布失败进运行异常（`INCIDENT_MODULES` 加「发布」）。\n\n## 注意事项\n\n- 原型是规格：只改本条列出的原型文件，改完跑 `npx tsc -b` 和 `scripts/smoke-proto`（以仓库现有的冒烟脚本为准），0 问题。\n- 示例数据要接得上现有的演示故事线（PROTO-01），不放测试数据。\n- `*data.ts` 是契约文件，本条改契约时不和其他原型任务并行。\n- 原型 dev server 在 7778，不要重启；规格包（PROTO-04f）里对应一节同步补上截图和交互清单。",
+    "acceptance": "- [ ] 原型日历上能看到排期，拖动改日期后发布记录的定时同步变化\n- [ ] 定时任务页里能看到发布类的定时\n- [ ] smoke-proto 0 问题",
+    "scope": "web-next/src/videodata.ts、web-next/src/scheduledata.ts、web-next/src/schedule.tsx、新建 web-next/src/videocalendar.tsx 和 .css、web-next/src/incidentdata.ts、web-next/src/App.tsx 的视频路由、web-next/docs/spec"
+  },
+  {
+    "key": "VID-06a",
+    "type": "task",
+    "title": "定时任务支持插件登记的动作",
+    "milestone": "M5",
+    "module": "backend",
+    "priority": "P3",
+    "estimate": "M",
+    "depends_on": [
+      "TASK-03b",
+      "CORE-04b"
+    ],
+    "workdir": ".",
+    "spec": [
+      "internal/schedule/action.go",
+      "VID-06p 改后的 web-next/src/scheduledata.ts",
+      "docs/plugin-api.md 2.x 扩展点"
+    ],
+    "body": "## 背景\n\n定时任务的动作只有 task、sop、agent 三种，写死在 `internal/schedule/action.go`。视频的到点发布要加一种，交易以后也可能要（盘前简报），所以做成扩展点而不是硬加 publish。\n\n## 要做什么\n\n- `Registrar.ScheduleAction(kind, validate, run)`：kind 以插件 id 开头（如 `video_publish`），清单 `provides` 里登记。\n- 调度器到点时把动作交给对应插件执行，执行记录照常写；插件停用时这次执行记为失败并写明原因，不丢定义。\n- 定时任务接口接受插件动作，校验交给插件；`docs/plugin-api.md` 补扩展点。\n\n## 注意事项\n\n- 迁移只加不改：`internal/db/migrations` 里已应用的 0001 到 0031、M4 预分配的 0032 到 0039 一行不动。本条确需内核迁移时用预分配号 0042，只加新表、旧表只加列；不需要就不加。\n- 先在测试实例（`scripts/dev-instance.sh`）或备份副本的拷贝上演练，不碰 `data/pm.db`，不启动或重启 7777 上的服务；需要临时后端用 `bin/pmw-dev` 跑副本库，用完按 pid 关掉。\n- 加了或删了路由要同步 `docs/api-contract.md`（`TestEveryRouteIsInTheContractDoc` / `TestContractDocHasNoDeadRoutes` 双向盯着）；契约文档同一时间只由一个任务改，避免并行冲突。",
+    "acceptance": "- [ ] 示例插件登记的动作能被定时任务调起并记执行记录\n- [ ] 插件停用时到点执行记为失败、原因写明，启用后下次照常\n- [ ] 原有三种动作的测试不变",
+    "scope": "internal/schedule/**、internal/plugin/**、cmd/pmw、docs/plugin-api.md、docs/api-contract.md"
+  },
+  {
+    "key": "VID-06b",
+    "type": "task",
+    "title": "给插件加发通知的句柄",
+    "milestone": "M5",
+    "module": "backend",
+    "priority": "P3",
+    "estimate": "S",
+    "depends_on": [
+      "CORE-07b",
+      "CORE-04b"
+    ],
+    "workdir": ".",
+    "spec": [
+      "internal/notify/notify.go",
+      "docs/plugin-api.md 2.0 Core"
+    ],
+    "body": "## 背景\n\n通知中心只从两类内核事件生成通知，注释写着「消息到达、提醒触发等由对应插件接入后调 Create」，但插件拿不到 Center。发布失败（VID-06c）和盯盘提醒（TRD-03a）都要用。\n\n## 要做什么\n\n- `Core.Notify(ctx, Notification)`：kind 自动加插件前缀，来源记插件 id；走现有的 `notification.created` 推送。\n- 插件停用时不再能发；已发的通知保留。\n\n## 注意事项\n\n- 迁移只加不改：`internal/db/migrations` 里已应用的 0001 到 0031、M4 预分配的 0032 到 0039 一行不动。本条确需内核迁移时用预分配号 0043，只加新表、旧表只加列；不需要就不加。\n- 先在测试实例（`scripts/dev-instance.sh`）或备份副本的拷贝上演练，不碰 `data/pm.db`，不启动或重启 7777 上的服务；需要临时后端用 `bin/pmw-dev` 跑副本库，用完按 pid 关掉。\n- 加了或删了路由要同步 `docs/api-contract.md`（`TestEveryRouteIsInTheContractDoc` / `TestContractDocHasNoDeadRoutes` 双向盯着）；契约文档同一时间只由一个任务改，避免并行冲突。",
+    "acceptance": "- [ ] 示例插件发的通知出现在通知列表并推到事件流\n- [ ] kind 带插件前缀，插件不能冒充内核 kind",
+    "scope": "internal/notify/**、internal/plugin/**、cmd/pmw、docs/plugin-api.md"
+  },
+  {
+    "key": "VID-06c",
+    "type": "task",
+    "title": "实现定时发布和内容日历接口",
+    "milestone": "M5",
+    "module": "backend",
+    "priority": "P3",
+    "estimate": "M",
+    "depends_on": [
+      "VID-06a",
+      "VID-06b",
+      "VID-05a"
+    ],
+    "workdir": ".",
+    "spec": [
+      "VID-06p 改后的 web-next/src/videodata.ts CalendarItem",
+      "web-next/docs/dev-plan.md 4.10 VID-06",
+      "web-next/docs/video-creator-analysis.md P0-2"
+    ],
+    "body": "## 要做什么\n\n- 视频加计划首发日；建定时发布时同时建一条定时任务（动作 `video_publish`），改时间同步改定时，删发布同步删定时。\n- 到点调平台适配接口发布；失败时发布记录改为失败、带原因，并发通知。\n- 日历接口：按月或周返回发布、计划首发日，以及「离发布日 N 天还没过第一章验收」的落后标记。\n- SOP 节点 `video_publish`（VID-03d 预留）在这里实现。\n\n## 不做什么\n\n- 不在真实平台上发布：真实到点发布放到 VID-04c、VID-04e 接通之后验证，本条只用假服务端。\n\n## 注意事项\n\n- 迁移只加不改：`internal/db/migrations` 里已应用的 0001 到 0031、M4 预分配的 0032 到 0039 一行不动。本条不加内核迁移。\n- 插件表放 `internal/plugins/video/migrations`，本条预分配插件内编号 0007，表名带 `video_` 前缀；并行任务撞号时后合入的改号。\n- 先在测试实例（`scripts/dev-instance.sh`）或备份副本的拷贝上演练，不碰 `data/pm.db`，不启动或重启 7777 上的服务；需要临时后端用 `bin/pmw-dev` 跑副本库，用完按 pid 关掉。\n- 加了或删了路由要同步 `docs/api-contract.md`（`TestEveryRouteIsInTheContractDoc` / `TestContractDocHasNoDeadRoutes` 双向盯着）；契约文档同一时间只由一个任务改，避免并行冲突。\n- 插件只走 `plugin.Core` 的句柄：不直连数据库、不碰内核表和别的插件的表，不用 `http.DefaultClient`（CORE-03b 的边界规则）。",
+    "acceptance": "- [ ] 用假服务端：建一条两分钟后的定时发布，到点状态变为已发布\n- [ ] 假服务端返回错误时状态变为失败并有一条通知\n- [ ] 日历接口能返回落后标记",
+    "scope": "internal/plugins/video/**、docs/api-contract.md 的 video 段"
+  },
+  {
+    "key": "VID-06d",
+    "type": "task",
+    "title": "前端内容日历页",
+    "milestone": "M5",
+    "module": "frontend",
+    "priority": "P3",
+    "estimate": "M",
+    "depends_on": [
+      "VID-06c",
+      "VID-05c"
+    ],
+    "workdir": "frontend",
+    "spec": [
+      "VID-06p 产出的 web-next/src/videocalendar.tsx"
+    ],
+    "body": "## 要做什么\n\n- 月、周视图，拖动改日期，落后标红，点格子打开发布抽屉或视频详情；定时任务页里视频发布动作显示成可读的标题。\n\n## 注意事项\n\n- 只在 `frontend/` 里写代码，不 import `web-next` 的任何代码：原型的交互和样式可以照着写、挑着搬。\n- 联调只连测试实例（`scripts/dev-instance.sh start`，默认 127.0.0.1:7796），不连 7777，不启动或重启 7777 上的服务。\n- 组件里不直接 fetch，数据一律走数据访问层（CORE-03a）；副作用不写进 setState 的 updater。\n- 状态、类型、优先级从后端读（`/api/object-types`、`/api/dictionaries`），不写死。",
+    "acceptance": "- [ ] 日历上能看到排期，拖动改日期后刷新仍是新日期\n- [ ] 到点发布后格子状态自动更新（事件流）\n- [ ] 与规格包对照通过",
+    "scope": "frontend/src/plugins/video/**、frontend/src/modules/tasks 里定时任务动作的展示（只加 video_publish 的文案）"
+  },
+  {
+    "key": "VID-07a",
+    "type": "task",
+    "title": "视频插件往今日聚合里加卡片",
+    "milestone": "M5",
+    "module": "backend",
+    "priority": "P3",
+    "estimate": "S",
+    "depends_on": [
+      "TODAY-01b",
+      "VID-01b",
+      "VID-05a"
+    ],
+    "workdir": ".",
+    "spec": [
+      "web-next/docs/dev-plan.md 4.10 VID-07",
+      "web-next/docs/video-creator-analysis.md P0-1"
+    ],
+    "body": "## 要做什么\n\n- 登记三张卡片：`video_waiting`（检查点待验收或被退回、产出物待验收）、`video_scheduled`（24 小时内定时的发布）、`video_failed`（发布失败）；每条带跳转目标。\n\n## 注意事项\n\n- 迁移只加不改：`internal/db/migrations` 里已应用的 0001 到 0031、M4 预分配的 0032 到 0039 一行不动。本条不加内核迁移。\n- 先在测试实例（`scripts/dev-instance.sh`）或备份副本的拷贝上演练，不碰 `data/pm.db`，不启动或重启 7777 上的服务；需要临时后端用 `bin/pmw-dev` 跑副本库，用完按 pid 关掉。\n- 加了或删了路由要同步 `docs/api-contract.md`（`TestEveryRouteIsInTheContractDoc` / `TestContractDocHasNoDeadRoutes` 双向盯着）；契约文档同一时间只由一个任务改，避免并行冲突。\n- 插件只走 `plugin.Core` 的句柄：不直连数据库、不碰内核表和别的插件的表，不用 `http.DefaultClient`（CORE-03b 的边界规则）。",
+    "acceptance": "- [ ] 今日聚合接口里有三张卡片，数据和视频接口一致\n- [ ] 停用视频插件后聚合结果里没有它们",
+    "scope": "internal/plugins/video/**"
+  },
+  {
+    "key": "VID-07b",
+    "type": "task",
+    "title": "前端视频今日卡片",
+    "milestone": "M5",
+    "module": "frontend",
+    "priority": "P3",
+    "estimate": "S",
+    "depends_on": [
+      "VID-07a",
+      "VID-01c"
+    ],
+    "workdir": "frontend",
+    "spec": [
+      "web-next/src/today.tsx 需要你处理",
+      "web-next/docs/video-creator-analysis.md P0-1"
+    ],
+    "body": "## 要做什么\n\n- 视频插件用 todayCards 注册三张卡片，点击直达视频详情或发布抽屉；菜单项补待处理数字。\n\n## 注意事项\n\n- 只在 `frontend/` 里写代码，不 import `web-next` 的任何代码：原型的交互和样式可以照着写、挑着搬。\n- 联调只连测试实例（`scripts/dev-instance.sh start`，默认 127.0.0.1:7796），不连 7777，不启动或重启 7777 上的服务。\n- 组件里不直接 fetch，数据一律走数据访问层（CORE-03a）；副作用不写进 setState 的 updater。\n- 状态、类型、优先级从后端读（`/api/object-types`、`/api/dictionaries`），不写死。",
+    "acceptance": "- [ ] 今日页能看到三类视频卡片并能跳转\n- [ ] 停用插件后卡片消失，重新启用后出现",
+    "scope": "frontend/src/plugins/video/**"
+  },
+  {
+    "key": "VID-08a",
+    "type": "task",
+    "title": "实现选题库和素材箱接口",
+    "milestone": "M5",
+    "module": "backend",
+    "priority": "P3",
+    "estimate": "M",
+    "depends_on": [
+      "VID-01a"
+    ],
+    "workdir": ".",
+    "spec": [
+      "web-next/src/topicdata.ts Topic、TopicStatus、TopicScore、Clip、ClipKind",
+      "web-next/docs/dev-plan.md 4.10 VID-08"
+    ],
+    "body": "## 要做什么\n\n- 选题表：标题、角度、受众、状态（想法、调研中、可开拍、已排期、已做成、放弃）、打分、标签、系列、平台、大纲、关联素材、计划日期、视频、放弃原因。\n- 素材表：类型（链接、笔记、热榜、评论、竞品、IM 消息）、标题、内容、链接、来源、热度、星标、关联选题、是否已整理；来源能追溯（评论带发布记录 id，IM 带消息 id）。\n- 动作：素材转选题、并入已有选题；选题「开始制作」建视频并回写 video_id。\n\n## 注意事项\n\n- 迁移只加不改：`internal/db/migrations` 里已应用的 0001 到 0031、M4 预分配的 0032 到 0039 一行不动。本条不加内核迁移。\n- 插件表放 `internal/plugins/video/migrations`，本条预分配插件内编号 0008，表名带 `video_` 前缀；并行任务撞号时后合入的改号。\n- 先在测试实例（`scripts/dev-instance.sh`）或备份副本的拷贝上演练，不碰 `data/pm.db`，不启动或重启 7777 上的服务；需要临时后端用 `bin/pmw-dev` 跑副本库，用完按 pid 关掉。\n- 加了或删了路由要同步 `docs/api-contract.md`（`TestEveryRouteIsInTheContractDoc` / `TestContractDocHasNoDeadRoutes` 双向盯着）；契约文档同一时间只由一个任务改，避免并行冲突。\n- 插件只走 `plugin.Core` 的句柄：不直连数据库、不碰内核表和别的插件的表，不用 `http.DefaultClient`（CORE-03b 的边界规则）。",
+    "acceptance": "- [ ] 原型 Topic、Clip 的字段全部落库\n- [ ] 一条评论素材能转成选题，选题能开始制作成视频，三者互相能跳",
+    "scope": "internal/plugins/video/**、docs/api-contract.md 的 video 段"
+  },
+  {
+    "key": "VID-08b",
+    "type": "task",
+    "title": "评论收件：从平台拉评论、IM 消息转素材",
+    "milestone": "M5",
+    "module": "backend",
+    "priority": "P3",
+    "estimate": "M",
+    "depends_on": [
+      "VID-08a",
+      "VID-04b",
+      "IM-01a"
+    ],
+    "workdir": ".",
+    "spec": [
+      "web-next/docs/dev-plan.md 4.10 VID-08",
+      "web-next/docs/video-creator-analysis.md P1-2",
+      "web-next/src/topics.tsx ClipsPage（收集评论）"
+    ],
+    "body": "## 背景\n\n原型的评论进的是素材箱（`ClipKind` 的 comment），不是 IM 收件箱，按原型做。分析文档 P1-2 建议的「评论走 IM 消息模型」会让联系人表单多出平台渠道，不采用。\n\n## 要做什么\n\n- 后台任务按发布记录用平台适配接口拉新评论，落成评论素材，带发布记录 id，按平台评论 id 去重。\n- IM 消息转素材：弱依赖 im，订阅 `im.message_received` 或在 IM 抽屉加「收进素材箱」动作（选改动小的那个，写进进展）。\n\n## 不做什么\n\n- 不做在平台上回复评论（对外发布，以后单独立项）。\n\n## 注意事项\n\n- 迁移只加不改：`internal/db/migrations` 里已应用的 0001 到 0031、M4 预分配的 0032 到 0039 一行不动。本条不加内核迁移。\n- 插件表放 `internal/plugins/video/migrations`，本条预分配插件内编号 0009，表名带 `video_` 前缀；并行任务撞号时后合入的改号。\n- 先在测试实例（`scripts/dev-instance.sh`）或备份副本的拷贝上演练，不碰 `data/pm.db`，不启动或重启 7777 上的服务；需要临时后端用 `bin/pmw-dev` 跑副本库，用完按 pid 关掉。\n- 加了或删了路由要同步 `docs/api-contract.md`（`TestEveryRouteIsInTheContractDoc` / `TestContractDocHasNoDeadRoutes` 双向盯着）；契约文档同一时间只由一个任务改，避免并行冲突。\n- 插件只走 `plugin.Core` 的句柄：不直连数据库、不碰内核表和别的插件的表，不用 `http.DefaultClient`（CORE-03b 的边界规则）。",
+    "acceptance": "- [ ] 用假服务端拉两次评论，只落一份\n- [ ] 评论素材能转成选题，选题里能看到原评论和对应发布\n- [ ] 没装 IM 插件时视频插件照常可用",
+    "scope": "internal/plugins/video/**、docs/api-contract.md 的 video 段；如需在 IM 抽屉加动作，只加 frontend/src/plugins/im 里的一个入口"
+  },
+  {
+    "key": "VID-08c",
+    "type": "task",
+    "title": "前端选题库和素材箱页",
+    "milestone": "M5",
+    "module": "frontend",
+    "priority": "P3",
+    "estimate": "M",
+    "depends_on": [
+      "VID-08b",
+      "VID-01c"
+    ],
+    "workdir": "frontend",
+    "spec": [
+      "web-next/src/topics.tsx TopicsPage、TopicDrawer、ClipsPage"
+    ],
+    "body": "## 要做什么\n\n- 选题库：按状态分组、打分、抽屉编辑、开始制作；素材箱：待整理和全部、粘贴链接、收集评论、转选题、并入选题。\n\n## 注意事项\n\n- 只在 `frontend/` 里写代码，不 import `web-next` 的任何代码：原型的交互和样式可以照着写、挑着搬。\n- 联调只连测试实例（`scripts/dev-instance.sh start`，默认 127.0.0.1:7796），不连 7777，不启动或重启 7777 上的服务。\n- 组件里不直接 fetch，数据一律走数据访问层（CORE-03a）；副作用不写进 setState 的 updater。\n- 状态、类型、优先级从后端读（`/api/object-types`、`/api/dictionaries`），不写死。",
+    "acceptance": "- [ ] 评论可以转选题（界面上完整走通）\n- [ ] 原型两页的操作全部可用，刷新不丢\n- [ ] 与规格包对照通过",
+    "scope": "frontend/src/plugins/video/**"
+  },
+  {
+    "key": "VID-08p",
+    "type": "task",
+    "title": "原型补商单",
+    "milestone": "M5",
+    "module": "proto",
+    "priority": "P3",
+    "estimate": "M",
+    "depends_on": [
+      "VID-05p"
+    ],
+    "workdir": "web-next",
+    "spec": [
+      "web-next/docs/video-creator-analysis.md P2-1",
+      "web-next/src/projecttabs.tsx",
+      "web-next/src/projectdata.ts 干系人角色"
+    ],
+    "body": "## 背景\n\n商单在分析文档里是 P2，原型里还没有。先在原型里定规格再开发。\n\n## 要做什么\n\n- `videodata.ts` 加 `Deal`、`DealStatus`；`Review` 加外部审核人。\n- 项目里加商单 tab：状态流转（询价、已报价、已签约、制作中、客户审核、已交付、已收款、丢单）、报价参考近 30 天均播、账期到期提示；视频挂到商单，发布 7 天后出结案报告（落在文档）。\n- IM 消息转商单入口。\n\n## 注意事项\n\n- 原型是规格：只改本条列出的原型文件，改完跑 `npx tsc -b` 和 `scripts/smoke-proto`（以仓库现有的冒烟脚本为准），0 问题。\n- 示例数据要接得上现有的演示故事线（PROTO-01），不放测试数据。\n- `*data.ts` 是契约文件，本条改契约时不和其他原型任务并行。\n- 原型 dev server 在 7778，不要重启；规格包（PROTO-04f）里对应一节同步补上截图和交互清单。",
+    "acceptance": "- [ ] 原型里能从一条 IM 询价建商单、关联视频、看结案报告\n- [ ] smoke-proto 0 问题",
+    "scope": "web-next/src/videodata.ts、web-next/src/projecttabs.tsx、新建 web-next/src/deals.tsx 和 .css、web-next/docs/spec"
+  },
+  {
+    "key": "VID-08d",
+    "type": "task",
+    "title": "实现商单",
+    "milestone": "M5",
+    "module": "fullstack",
+    "priority": "P3",
+    "estimate": "L",
+    "depends_on": [
+      "VID-08p",
+      "VID-05a",
+      "PJ-03b"
+    ],
+    "workdir": ".",
+    "spec": [
+      "VID-08p 产出的 web-next/src/deals.tsx、videodata.ts Deal",
+      "web-next/docs/video-creator-analysis.md P2-1"
+    ],
+    "body": "## 要做什么\n\n- 商单表（项目、询价人、品牌、平台、交付物、报价、币种、状态、截止、账期、视频、来源消息、结案报告文档）和接口；状态流转校验。\n- 报价参考读快照算近 30 天均播；结案报告生成一篇文档（走内核建对象）。\n- 前端：项目里的商单 tab 和抽屉；账期到期进今日卡片 `video_deal_due`。\n\n## 不做什么\n\n- 不接收付款、不对接任何支付渠道；金额只是记录。\n\n## 注意事项\n\n- 迁移只加不改：`internal/db/migrations` 里已应用的 0001 到 0031、M4 预分配的 0032 到 0039 一行不动。本条不加内核迁移。\n- 插件表放 `internal/plugins/video/migrations`，本条预分配插件内编号 0010，表名带 `video_` 前缀；并行任务撞号时后合入的改号。\n- 先在测试实例（`scripts/dev-instance.sh`）或备份副本的拷贝上演练，不碰 `data/pm.db`，不启动或重启 7777 上的服务；需要临时后端用 `bin/pmw-dev` 跑副本库，用完按 pid 关掉。\n- 加了或删了路由要同步 `docs/api-contract.md`（`TestEveryRouteIsInTheContractDoc` / `TestContractDocHasNoDeadRoutes` 双向盯着）；契约文档同一时间只由一个任务改，避免并行冲突。\n- 插件只走 `plugin.Core` 的句柄：不直连数据库、不碰内核表和别的插件的表，不用 `http.DefaultClient`（CORE-03b 的边界规则）。\n- 只在 `frontend/` 里写代码，不 import `web-next` 的任何代码：原型的交互和样式可以照着写、挑着搬。\n- 联调只连测试实例（`scripts/dev-instance.sh start`，默认 127.0.0.1:7796），不连 7777，不启动或重启 7777 上的服务。\n- 组件里不直接 fetch，数据一律走数据访问层（CORE-03a）；副作用不写进 setState 的 updater。\n- 状态、类型、优先级从后端读（`/api/object-types`、`/api/dictionaries`），不写死。",
+    "acceptance": "- [ ] 从一条 IM 询价建商单，关联视频，发布 7 天后能生成结案报告文档\n- [ ] 账期到期出现在今日页",
+    "scope": "internal/plugins/video/**、frontend/src/plugins/video/**、frontend/src/plugins/projects 里加 tab 的一个入口、docs/api-contract.md 的 video 段"
+  },
+  {
+    "key": "TRD-01a",
+    "type": "task",
+    "title": "搭出交易套件插件的壳：清单、标的、自选、行情源适配接口",
+    "milestone": "M6",
+    "module": "fullstack",
+    "priority": "P3",
+    "estimate": "M",
+    "depends_on": [
+      "CORE-05",
+      "CONN-02",
+      "CORE-04b"
+    ],
+    "workdir": ".",
+    "spec": [
+      "web-next/src/tradedata.ts Instrument、MarketKey、InstKind、Watchlist",
+      "web-next/docs/dev-plan.md 4.11",
+      "web-next/docs/dev-plan.md 6 节交易风险",
+      "docs/plugin-api.md 1.1、2.4、3.2 trade:live"
+    ],
+    "body": "## 背景\n\n开发计划说交易套件四个子插件（行情、盯盘、策略与回测、交易执行）可以单独装，但插件之间没有跨插件读数据的句柄，拆开要先做内核。先做成一个插件 `trade`、四个功能模块，以后需要单独装时再拆（plugin-api.md 第 8 节「交易套件表前缀放到 M6 定」在这里定为 `trade_`）。\n\n## 要做什么\n\n- 后端 `internal/plugins/trade`：清单 id `trade`、`table_prefix` `trade_`；权限只有 `network:market-data`，不声明 `network:exchanges` 和 `trade:live`。\n- 表：标的（全局 symbol 如 `BINANCE:BTCUSDT`、名称、市场、品种、交易场所、精度、最小下单量、合约乘数、到期、标的、行权价）、自选分组。\n- 行情源适配接口：标的列表、最新价、K 线、盘口、资金费率；每个源声明覆盖哪些市场和品种。\n- 前端 `frontend/src/plugins/trade`：清单、注册行情、盯盘、策略、交易四个模块，空页面。\n\n## 不做什么\n\n- 不接真实数据源（TRD-01b、TRD-01c）。\n\n## 注意事项\n\n- 迁移只加不改：`internal/db/migrations` 里已应用的 0001 到 0031、M4 预分配的 0032 到 0039 一行不动。本条不加内核迁移。\n- 插件表放 `internal/plugins/trade/migrations`，本条预分配插件内编号 0001，表名带 `trade_` 前缀；并行任务撞号时后合入的改号。\n- 先在测试实例（`scripts/dev-instance.sh`）或备份副本的拷贝上演练，不碰 `data/pm.db`，不启动或重启 7777 上的服务；需要临时后端用 `bin/pmw-dev` 跑副本库，用完按 pid 关掉。\n- 加了或删了路由要同步 `docs/api-contract.md`（`TestEveryRouteIsInTheContractDoc` / `TestContractDocHasNoDeadRoutes` 双向盯着）；契约文档同一时间只由一个任务改，避免并行冲突。\n- 插件只走 `plugin.Core` 的句柄：不直连数据库、不碰内核表和别的插件的表，不用 `http.DefaultClient`（CORE-03b 的边界规则）。\n- 涉及资金：本条只做行情、回测、模拟盘；不写任何向交易所下单、撤单、划转、提币的代码路径，不申请也不使用提币权限。\n- 不往测试实例的保险箱里写真实交易所凭证，测试一律用假服务端（`httptest`）。",
+    "acceptance": "- [ ] `GET /api/plugins` 里能看到 trade，权限里没有 `trade:live` 和 `network:exchanges`\n- [ ] 自选分组增删改查可用\n- [ ] 启用后菜单出现四个模块，停用后消失",
+    "scope": "internal/plugins/trade/**、frontend/src/plugins/trade/**、cmd/pmw 里登记插件的一行、docs/api-contract.md 的 trade 段"
+  },
+  {
+    "key": "TRD-01b",
+    "type": "task",
+    "title": "接入 Binance 公开行情",
+    "milestone": "M6",
+    "module": "backend",
+    "priority": "P3",
+    "estimate": "M",
+    "depends_on": [
+      "TRD-01a",
+      "VID-04a"
+    ],
+    "workdir": ".",
+    "spec": [
+      "web-next/docs/dev-plan.md 4.11 TRD-01",
+      "web-next/docs/dev-plan.md 6 节交易风险"
+    ],
+    "body": "## 要做什么\n\n- Binance 现货和 U 本位永续的公开接口：标的列表、最新价、K 线、盘口、资金费率；走 `HTTP(\"market-data\")`，不需要 API Key。\n- 登记连接器 `binance_market`（认证方式 none），状态和错误进连接器页；限频按交易所文档留余量，429 时退避。\n- 单测用录下的响应（testdata）；另写一个默认跳过的对照测试（环境变量打开），直连交易所比对。\n\n## 注意事项\n\n- 迁移只加不改：`internal/db/migrations` 里已应用的 0001 到 0031、M4 预分配的 0032 到 0039 一行不动。本条不加内核迁移。\n- 先在测试实例（`scripts/dev-instance.sh`）或备份副本的拷贝上演练，不碰 `data/pm.db`，不启动或重启 7777 上的服务；需要临时后端用 `bin/pmw-dev` 跑副本库，用完按 pid 关掉。\n- 加了或删了路由要同步 `docs/api-contract.md`（`TestEveryRouteIsInTheContractDoc` / `TestContractDocHasNoDeadRoutes` 双向盯着）；契约文档同一时间只由一个任务改，避免并行冲突。\n- 插件只走 `plugin.Core` 的句柄：不直连数据库、不碰内核表和别的插件的表，不用 `http.DefaultClient`（CORE-03b 的边界规则）。\n- 涉及资金：本条只做行情、回测、模拟盘；不写任何向交易所下单、撤单、划转、提币的代码路径，不申请也不使用提币权限。\n- 不往测试实例的保险箱里写真实交易所凭证，测试一律用假服务端（`httptest`）。",
+    "acceptance": "- [ ] BTCUSDT、ETHUSDT 的 1m、1h、1d K 线、前 10 档盘口、永续资金费率与交易所网页一致（对照测试输出写进进展）\n- [ ] 限频或断网时连接器状态变为异常，恢复后自动回到正常",
+    "scope": "internal/plugins/trade/**"
+  },
+  {
+    "key": "TRD-01c",
+    "type": "task",
+    "title": "接入 OKX 公开行情",
+    "milestone": "M6",
+    "module": "backend",
+    "priority": "P3",
+    "estimate": "M",
+    "depends_on": [
+      "TRD-01a",
+      "VID-04a"
+    ],
+    "workdir": ".",
+    "spec": [
+      "web-next/docs/dev-plan.md 4.11 TRD-01",
+      "web-next/docs/dev-plan.md 6 节交易风险"
+    ],
+    "body": "## 要做什么\n\n- OKX 现货和永续的公开接口，同 TRD-01b 的范围；连接器 `okx_market`。\n- symbol 映射：`OKX:BTC-USDT-SWAP` 这类写法和 OKX 的 instId 互转，写进进展。\n\n## 不做什么\n\n- 富途 OpenD、Tushare、Polygon 后接，需要用户的账号或 Key，不在本条。\n\n## 注意事项\n\n- 迁移只加不改：`internal/db/migrations` 里已应用的 0001 到 0031、M4 预分配的 0032 到 0039 一行不动。本条不加内核迁移。\n- 先在测试实例（`scripts/dev-instance.sh`）或备份副本的拷贝上演练，不碰 `data/pm.db`，不启动或重启 7777 上的服务；需要临时后端用 `bin/pmw-dev` 跑副本库，用完按 pid 关掉。\n- 加了或删了路由要同步 `docs/api-contract.md`（`TestEveryRouteIsInTheContractDoc` / `TestContractDocHasNoDeadRoutes` 双向盯着）；契约文档同一时间只由一个任务改，避免并行冲突。\n- 插件只走 `plugin.Core` 的句柄：不直连数据库、不碰内核表和别的插件的表，不用 `http.DefaultClient`（CORE-03b 的边界规则）。\n- 涉及资金：本条只做行情、回测、模拟盘；不写任何向交易所下单、撤单、划转、提币的代码路径，不申请也不使用提币权限。\n- 不往测试实例的保险箱里写真实交易所凭证，测试一律用假服务端（`httptest`）。",
+    "acceptance": "- [ ] BTC-USDT 现货和永续的 K 线、盘口、资金费率与交易所网页一致\n- [ ] 异常时连接器状态变为异常",
+    "scope": "internal/plugins/trade/**"
+  },
+  {
+    "key": "TRD-02a",
+    "type": "task",
+    "title": "实现行情缓存和推送",
+    "milestone": "M6",
+    "module": "backend",
+    "priority": "P3",
+    "estimate": "M",
+    "depends_on": [
+      "TRD-01b"
+    ],
+    "workdir": ".",
+    "spec": [
+      "web-next/docs/dev-plan.md 4.11 TRD-02",
+      "web-next/src/tradedata.ts Quote、Bar、BarInterval"
+    ],
+    "body": "## 要做什么\n\n- K 线落库按需补齐（查过的区间不重复拉）；最新价、盘口放内存，按自选和正在被订阅的标的定时刷新。\n- 推送：插件路由 `GET /api/trade/stream?symbols=...` 用 SSE（和内核事件流同一套写法），不走事件总线，避免高频行情把总线挤满。\n- 上游先用 REST 轮询（1 到 2 秒），交易所 WebSocket 等仓库里有了 WebSocket 依赖（M4 TERM-01）再换，换的时候接口不变。\n- 没有数据源的市场（A 股、港股、美股、期权）返回「数据源未接」，不造模拟价。\n\n## 注意事项\n\n- 迁移只加不改：`internal/db/migrations` 里已应用的 0001 到 0031、M4 预分配的 0032 到 0039 一行不动。本条不加内核迁移。\n- 插件表放 `internal/plugins/trade/migrations`，本条预分配插件内编号 0002，表名带 `trade_` 前缀；并行任务撞号时后合入的改号。\n- 先在测试实例（`scripts/dev-instance.sh`）或备份副本的拷贝上演练，不碰 `data/pm.db`，不启动或重启 7777 上的服务；需要临时后端用 `bin/pmw-dev` 跑副本库，用完按 pid 关掉。\n- 加了或删了路由要同步 `docs/api-contract.md`（`TestEveryRouteIsInTheContractDoc` / `TestContractDocHasNoDeadRoutes` 双向盯着）；契约文档同一时间只由一个任务改，避免并行冲突。\n- 插件只走 `plugin.Core` 的句柄：不直连数据库、不碰内核表和别的插件的表，不用 `http.DefaultClient`（CORE-03b 的边界规则）。\n- 涉及资金：本条只做行情、回测、模拟盘；不写任何向交易所下单、撤单、划转、提币的代码路径，不申请也不使用提币权限。\n- 不往测试实例的保险箱里写真实交易所凭证，测试一律用假服务端（`httptest`）。",
+    "acceptance": "- [ ] 订阅两个标的后 SSE 每秒左右推一次最新价\n- [ ] 同一区间的 K 线第二次查询不再请求交易所（用计数验证）\n- [ ] 未接数据源的标的返回明确的未接状态",
+    "scope": "internal/plugins/trade/**、docs/api-contract.md 的 trade 段"
+  },
+  {
+    "key": "TRD-02b",
+    "type": "task",
+    "title": "前端行情页接真实数据",
+    "milestone": "M6",
+    "module": "frontend",
+    "priority": "P3",
+    "estimate": "M",
+    "depends_on": [
+      "TRD-02a",
+      "CORE-03a",
+      "PROTO-04f4"
+    ],
+    "workdir": "frontend",
+    "spec": [
+      "web-next/src/markets.tsx MarketsPage、WatchPanel、KChart、SymbolHead、BookPanel、OptionBoard",
+      "web-next/src/symbolpick.tsx"
+    ],
+    "body": "## 要做什么\n\n- 自选、K 线、盘口、标的头部接 SSE 和 K 线接口；未接数据源的市场和期权板显示「数据源未接」，不显示假价格。\n- 从行情页新建提醒、去下单（跳盯盘和交易，交易只到模拟盘）。\n\n## 注意事项\n\n- 只在 `frontend/` 里写代码，不 import `web-next` 的任何代码：原型的交互和样式可以照着写、挑着搬。\n- 联调只连测试实例（`scripts/dev-instance.sh start`，默认 127.0.0.1:7796），不连 7777，不启动或重启 7777 上的服务。\n- 组件里不直接 fetch，数据一律走数据访问层（CORE-03a）；副作用不写进 setState 的 updater。\n- 状态、类型、优先级从后端读（`/api/object-types`、`/api/dictionaries`），不写死。",
+    "acceptance": "- [ ] 行情页不再用模拟价格：断开数据源后价格停住并提示，而不是继续跳\n- [ ] 原型行情页的操作全部可用\n- [ ] 与规格包对照通过",
+    "scope": "frontend/src/plugins/trade/**"
+  },
+  {
+    "key": "TRD-03a",
+    "type": "task",
+    "title": "盯盘提醒放后端定时检查，触发走事件总线和通知",
+    "milestone": "M6",
+    "module": "backend",
+    "priority": "P3",
+    "estimate": "M",
+    "depends_on": [
+      "TRD-02a",
+      "CORE-07a",
+      "VID-06b"
+    ],
+    "workdir": ".",
+    "spec": [
+      "web-next/src/tradedata.ts PriceAlert、AlertCond、AlertEvent",
+      "web-next/src/monitor.tsx checkAlerts、condFits、fundingRate",
+      "web-next/docs/dev-plan.md 4.11 TRD-03"
+    ],
+    "body": "## 要做什么\n\n- 提醒和触发记录两张表；条件和原型一致（价格上下穿、涨跌幅、放量、资金费率、隐含波动率、接近涨跌停），品种不适用的条件拒绝保存。\n- 插件 Job 每几秒检查一次，用行情缓存；只提醒一次或冷却后重复。\n- 触发时发 `trade.alert_fired` 事件、写通知；选了推 IM 的，弱依赖 im 时调 IM 的发送（没有发送能力时只记一条说明）。\n- 把原型 `checkAlerts` 的判定移植成 Go，用同一组夹具对拍。\n\n## 注意事项\n\n- 迁移只加不改：`internal/db/migrations` 里已应用的 0001 到 0031、M4 预分配的 0032 到 0039 一行不动。本条不加内核迁移。\n- 插件表放 `internal/plugins/trade/migrations`，本条预分配插件内编号 0003，表名带 `trade_` 前缀；并行任务撞号时后合入的改号。\n- 先在测试实例（`scripts/dev-instance.sh`）或备份副本的拷贝上演练，不碰 `data/pm.db`，不启动或重启 7777 上的服务；需要临时后端用 `bin/pmw-dev` 跑副本库，用完按 pid 关掉。\n- 加了或删了路由要同步 `docs/api-contract.md`（`TestEveryRouteIsInTheContractDoc` / `TestContractDocHasNoDeadRoutes` 双向盯着）；契约文档同一时间只由一个任务改，避免并行冲突。\n- 插件只走 `plugin.Core` 的句柄：不直连数据库、不碰内核表和别的插件的表，不用 `http.DefaultClient`（CORE-03b 的边界规则）。\n- 涉及资金：本条只做行情、回测、模拟盘；不写任何向交易所下单、撤单、划转、提币的代码路径，不申请也不使用提币权限。\n- 不往测试实例的保险箱里写真实交易所凭证，测试一律用假服务端（`httptest`）。",
+    "acceptance": "- [ ] 前端页面关着时，价格穿过阈值几秒内产生一条通知\n- [ ] 冷却时间内不重复提醒\n- [ ] 和原型 checkAlerts 用同一组夹具结果一致",
+    "scope": "internal/plugins/trade/**、docs/api-contract.md 的 trade 段"
+  },
+  {
+    "key": "TRD-03b",
+    "type": "task",
+    "title": "前端盯盘页接接口",
+    "milestone": "M6",
+    "module": "frontend",
+    "priority": "P3",
+    "estimate": "M",
+    "depends_on": [
+      "TRD-03a",
+      "TRD-02b"
+    ],
+    "workdir": "frontend",
+    "spec": [
+      "web-next/src/monitor.tsx MonitorPage、Wall、AlertDrawer、RulesPanel、SessionCards"
+    ],
+    "body": "## 要做什么\n\n- 盯盘墙、提醒规则、提醒抽屉、触发记录全部接接口；触发记录用事件流实时更新，前端不再自己判定。\n\n## 注意事项\n\n- 只在 `frontend/` 里写代码，不 import `web-next` 的任何代码：原型的交互和样式可以照着写、挑着搬。\n- 联调只连测试实例（`scripts/dev-instance.sh start`，默认 127.0.0.1:7796），不连 7777，不启动或重启 7777 上的服务。\n- 组件里不直接 fetch，数据一律走数据访问层（CORE-03a）；副作用不写进 setState 的 updater。\n- 状态、类型、优先级从后端读（`/api/object-types`、`/api/dictionaries`），不写死。",
+    "acceptance": "- [ ] 原型盯盘页的操作全部可用，刷新不丢\n- [ ] 后端触发的提醒实时出现在触发记录里",
+    "scope": "frontend/src/plugins/trade/**"
+  },
+  {
+    "key": "TRD-04a",
+    "type": "task",
+    "title": "把回测引擎移植到 Go，和原型对拍",
+    "milestone": "M6",
+    "module": "backend",
+    "priority": "P3",
+    "estimate": "M",
+    "depends_on": [
+      "TRD-01a"
+    ],
+    "workdir": ".",
+    "spec": [
+      "web-next/src/backtest.ts runBacktest、series、applyParams、codeKindOf、sweep",
+      "web-next/src/tradedata.ts Strategy、Rule、RuleGroup、Operand、BacktestConfig、BacktestResult"
+    ],
+    "body": "## 要做什么\n\n- 策略表：规则模式（入场、出场规则组）、代码模式（原型只识别网格、期现基差、双均线三类，照搬，不执行用户代码）、止损止盈、仓位、参数。\n- 引擎纯函数：给 K 线和策略算资金曲线、成交、统计（总收益、年化、最大回撤、夏普、胜率、盈亏比、基准）、扫参。\n- 用原型 `backtest.ts` 在同一组固定 K 线上跑出结果做黄金文件，Go 结果逐项对拍（浮点给容差）。\n\n## 不做什么\n\n- 不执行用户写的代码（代码模式只按原型的三类识别）。\n\n## 注意事项\n\n- 迁移只加不改：`internal/db/migrations` 里已应用的 0001 到 0031、M4 预分配的 0032 到 0039 一行不动。本条不加内核迁移。\n- 插件表放 `internal/plugins/trade/migrations`，本条预分配插件内编号 0004，表名带 `trade_` 前缀；并行任务撞号时后合入的改号。\n- 先在测试实例（`scripts/dev-instance.sh`）或备份副本的拷贝上演练，不碰 `data/pm.db`，不启动或重启 7777 上的服务；需要临时后端用 `bin/pmw-dev` 跑副本库，用完按 pid 关掉。\n- 加了或删了路由要同步 `docs/api-contract.md`（`TestEveryRouteIsInTheContractDoc` / `TestContractDocHasNoDeadRoutes` 双向盯着）；契约文档同一时间只由一个任务改，避免并行冲突。\n- 插件只走 `plugin.Core` 的句柄：不直连数据库、不碰内核表和别的插件的表，不用 `http.DefaultClient`（CORE-03b 的边界规则）。\n- 涉及资金：本条只做行情、回测、模拟盘；不写任何向交易所下单、撤单、划转、提币的代码路径，不申请也不使用提币权限。\n- 不往测试实例的保险箱里写真实交易所凭证，测试一律用假服务端（`httptest`）。",
+    "acceptance": "- [ ] 三条示例策略在固定 K 线上的统计与原型一致（容差写进测试）\n- [ ] 扫参结果与原型一致",
+    "scope": "internal/plugins/trade/**、web-next 下只读，生成黄金文件的脚本放 internal/plugins/trade/testdata"
+  },
+  {
+    "key": "TRD-04b",
+    "type": "task",
+    "title": "回测任务落库、用真实历史数据跑",
+    "milestone": "M6",
+    "module": "backend",
+    "priority": "P3",
+    "estimate": "M",
+    "depends_on": [
+      "TRD-04a",
+      "TRD-02a"
+    ],
+    "workdir": ".",
+    "spec": [
+      "web-next/src/tradedata.ts Backtest、BacktestStatus",
+      "web-next/docs/dev-plan.md 4.11 TRD-04"
+    ],
+    "body": "## 要做什么\n\n- 回测记录：配置、状态（排队、运行中、完成、失败）、进度、策略快照、结果；后台跑，进度走插件 SSE 或轮询。\n- 历史数据从 K 线缓存取，缺的先补齐；数据不够时失败并写明缺哪段。\n- 重跑、对比、删除接口。\n\n## 注意事项\n\n- 迁移只加不改：`internal/db/migrations` 里已应用的 0001 到 0031、M4 预分配的 0032 到 0039 一行不动。本条不加内核迁移。\n- 插件表放 `internal/plugins/trade/migrations`，本条预分配插件内编号 0005，表名带 `trade_` 前缀；并行任务撞号时后合入的改号。\n- 先在测试实例（`scripts/dev-instance.sh`）或备份副本的拷贝上演练，不碰 `data/pm.db`，不启动或重启 7777 上的服务；需要临时后端用 `bin/pmw-dev` 跑副本库，用完按 pid 关掉。\n- 加了或删了路由要同步 `docs/api-contract.md`（`TestEveryRouteIsInTheContractDoc` / `TestContractDocHasNoDeadRoutes` 双向盯着）；契约文档同一时间只由一个任务改，避免并行冲突。\n- 插件只走 `plugin.Core` 的句柄：不直连数据库、不碰内核表和别的插件的表，不用 `http.DefaultClient`（CORE-03b 的边界规则）。\n- 涉及资金：本条只做行情、回测、模拟盘；不写任何向交易所下单、撤单、划转、提币的代码路径，不申请也不使用提币权限。\n- 不往测试实例的保险箱里写真实交易所凭证，测试一律用假服务端（`httptest`）。",
+    "acceptance": "- [ ] 回测记录刷新不丢，后端重启后已完成的结果还在、运行中的标为失败可重跑\n- [ ] 用 Binance 真实 1h K 线跑一条示例策略能出结果",
+    "scope": "internal/plugins/trade/**、docs/api-contract.md 的 trade 段"
+  },
+  {
+    "key": "TRD-04c",
+    "type": "task",
+    "title": "前端策略、回测页接接口",
+    "milestone": "M6",
+    "module": "frontend",
+    "priority": "P3",
+    "estimate": "L",
+    "depends_on": [
+      "TRD-04b",
+      "TRD-02b"
+    ],
+    "workdir": "frontend",
+    "spec": [
+      "web-next/src/strategy.tsx StrategyNav、StrategyListPage、StrategyEditor、BacktestsPage、BacktestReport、SweepPanel、CompareView"
+    ],
+    "body": "## 要做什么\n\n- 策略列表、编辑器（规则和代码两种模式）、回测列表、回测报告（资金曲线、回撤、热力图、扫参、成交）、对比，全部接接口；前端不再跑回测。\n\n## 注意事项\n\n- 只在 `frontend/` 里写代码，不 import `web-next` 的任何代码：原型的交互和样式可以照着写、挑着搬。\n- 联调只连测试实例（`scripts/dev-instance.sh start`，默认 127.0.0.1:7796），不连 7777，不启动或重启 7777 上的服务。\n- 组件里不直接 fetch，数据一律走数据访问层（CORE-03a）；副作用不写进 setState 的 updater。\n- 状态、类型、优先级从后端读（`/api/object-types`、`/api/dictionaries`），不写死。",
+    "acceptance": "- [ ] 原型策略和回测页的操作全部可用，刷新不丢\n- [ ] 与规格包对照通过",
+    "scope": "frontend/src/plugins/trade/**"
+  },
+  {
+    "key": "TRD-05a",
+    "type": "task",
+    "title": "实现模拟盘账户、委托和撮合",
+    "milestone": "M6",
+    "module": "backend",
+    "priority": "P3",
+    "estimate": "L",
+    "depends_on": [
+      "TRD-02a"
+    ],
+    "workdir": ".",
+    "spec": [
+      "web-next/src/tradedata.ts TradeAccount（paper）、Position、Order、OrderType、OrderStatus",
+      "web-next/src/trading.tsx 模拟撮合",
+      "web-next/docs/dev-plan.md 4.11 TRD-05"
+    ],
+    "body": "## 要做什么\n\n- 模拟盘账户（paper 恒为真）、持仓、委托、成交表；市价、限价、止损、止损限价，仅减仓。\n- 撮合 Job 按行情缓存扫未完成委托，手续费和滑点可配；合约算杠杆和强平价。\n- 下单接口只接受模拟盘账户；账户的 paper 字段建好后不能改。\n- 模拟盘账本（余额、持仓、成交、手续费）用定点存储（按精度放大的整数或十进制字符串），不用 float64 累加记账；回测统计可以用 float64。\n\n## 不做什么\n\n- 不做实盘账户和实盘下单。\n\n## 注意事项\n\n- 迁移只加不改：`internal/db/migrations` 里已应用的 0001 到 0031、M4 预分配的 0032 到 0039 一行不动。本条不加内核迁移。\n- 插件表放 `internal/plugins/trade/migrations`，本条预分配插件内编号 0006，表名带 `trade_` 前缀；并行任务撞号时后合入的改号。\n- 先在测试实例（`scripts/dev-instance.sh`）或备份副本的拷贝上演练，不碰 `data/pm.db`，不启动或重启 7777 上的服务；需要临时后端用 `bin/pmw-dev` 跑副本库，用完按 pid 关掉。\n- 加了或删了路由要同步 `docs/api-contract.md`（`TestEveryRouteIsInTheContractDoc` / `TestContractDocHasNoDeadRoutes` 双向盯着）；契约文档同一时间只由一个任务改，避免并行冲突。\n- 插件只走 `plugin.Core` 的句柄：不直连数据库、不碰内核表和别的插件的表，不用 `http.DefaultClient`（CORE-03b 的边界规则）。\n- 涉及资金：本条只做行情、回测、模拟盘；不写任何向交易所下单、撤单、划转、提币的代码路径，不申请也不使用提币权限。\n- 不往测试实例的保险箱里写真实交易所凭证，测试一律用假服务端（`httptest`）。",
+    "acceptance": "- [ ] 限价单价格到了才成交，市价单按最新价加滑点成交，手续费计入\n- [ ] 对实盘账户或不存在的账户下单返回 400\n- [ ] 账本对账：任意时刻权益等于初始资金加已实现加未实现盈亏减手续费",
+    "scope": "internal/plugins/trade/**、docs/api-contract.md 的 trade 段"
+  },
+  {
+    "key": "TRD-05b",
+    "type": "task",
+    "title": "实现策略部署到模拟盘账户",
+    "milestone": "M6",
+    "module": "backend",
+    "priority": "P3",
+    "estimate": "L",
+    "depends_on": [
+      "TRD-05a",
+      "TRD-04a"
+    ],
+    "workdir": ".",
+    "spec": [
+      "web-next/src/tradedata.ts StrategyRun、RunStatus",
+      "web-next/src/strategyruns.tsx",
+      "web-next/docs/dev-plan.md 4.11 TRD-05（「部署」与 SOP「执行」分开建模）"
+    ],
+    "body": "## 背景\n\n「部署」是策略在账户上长期跑，和 SOP 的「执行」（一次跑完）分开建模，不复用 SOP 运行表。原型 PR-08 已经按这个拆开。\n\n## 要做什么\n\n- 部署表：策略、账户、标的、参数、资金上限、状态（运行中、暂停、停止、异常）、盈亏、日志。\n- 部署 Job 按 K 线收盘计算信号、经同一个下单入口下模拟盘委托（风控在 TRD-06a 接到这个入口上）。\n- 后端重启后运行中的部署继续跑，期间错过的 K 线补算信号但不补下单，写进日志。\n- 只能部署到模拟盘账户。\n\n## 注意事项\n\n- 迁移只加不改：`internal/db/migrations` 里已应用的 0001 到 0031、M4 预分配的 0032 到 0039 一行不动。本条不加内核迁移。\n- 插件表放 `internal/plugins/trade/migrations`，本条预分配插件内编号 0007，表名带 `trade_` 前缀；并行任务撞号时后合入的改号。\n- 先在测试实例（`scripts/dev-instance.sh`）或备份副本的拷贝上演练，不碰 `data/pm.db`，不启动或重启 7777 上的服务；需要临时后端用 `bin/pmw-dev` 跑副本库，用完按 pid 关掉。\n- 加了或删了路由要同步 `docs/api-contract.md`（`TestEveryRouteIsInTheContractDoc` / `TestContractDocHasNoDeadRoutes` 双向盯着）；契约文档同一时间只由一个任务改，避免并行冲突。\n- 插件只走 `plugin.Core` 的句柄：不直连数据库、不碰内核表和别的插件的表，不用 `http.DefaultClient`（CORE-03b 的边界规则）。\n- 涉及资金：本条只做行情、回测、模拟盘；不写任何向交易所下单、撤单、划转、提币的代码路径，不申请也不使用提币权限。\n- 不往测试实例的保险箱里写真实交易所凭证，测试一律用假服务端（`httptest`）。",
+    "acceptance": "- [ ] 部署一条双均线策略到模拟盘，信号、委托、成交、日志能对上\n- [ ] 重启后部署继续，日志里有补算说明\n- [ ] 部署到实盘账户返回 400",
+    "scope": "internal/plugins/trade/**、docs/api-contract.md 的 trade 段"
+  },
+  {
+    "key": "TRD-05c",
+    "type": "task",
+    "title": "前端交易页接模拟盘",
+    "milestone": "M6",
+    "module": "frontend",
+    "priority": "P3",
+    "estimate": "L",
+    "depends_on": [
+      "TRD-05b",
+      "TRD-04c"
+    ],
+    "workdir": "frontend",
+    "spec": [
+      "web-next/src/trading.tsx TradingNav、TradingPage、Overview、PositionsView、OrdersView、OrderDrawer、RunsView、RunDrawer",
+      "web-next/src/strategyruns.tsx StrategyRunsPanel、StrategyRunsPage"
+    ],
+    "body": "## 要做什么\n\n- 交易总览、持仓、委托、下单抽屉、策略运行、运行抽屉，全部接接口；页面上明确标「模拟盘」。\n- 从回测报告「部署」跳到部署抽屉。\n\n## 注意事项\n\n- 只在 `frontend/` 里写代码，不 import `web-next` 的任何代码：原型的交互和样式可以照着写、挑着搬。\n- 联调只连测试实例（`scripts/dev-instance.sh start`，默认 127.0.0.1:7796），不连 7777，不启动或重启 7777 上的服务。\n- 组件里不直接 fetch，数据一律走数据访问层（CORE-03a）；副作用不写进 setState 的 updater。\n- 状态、类型、优先级从后端读（`/api/object-types`、`/api/dictionaries`），不写死。",
+    "acceptance": "- [ ] 原型交易页的模拟盘操作全部可用，刷新不丢，撮合不在前端跑\n- [ ] 与规格包对照通过",
+    "scope": "frontend/src/plugins/trade/**"
+  },
+  {
+    "key": "TRD-05d",
+    "type": "task",
+    "title": "模拟盘连续跑两周的运行检查",
+    "milestone": "M6",
+    "module": "backend",
+    "priority": "P3",
+    "estimate": "S",
+    "depends_on": [
+      "TRD-06a"
+    ],
+    "workdir": ".",
+    "spec": [
+      "web-next/docs/dev-plan.md 4.11 TRD-05 验收",
+      "web-next/docs/dev-plan.md 3 节 M6 完成标志"
+    ],
+    "body": "## 要做什么\n\n- 准备一份检查脚本：每天汇总部署状态、错误日志、撮合延迟、账本对账结果，写到 `docs/trade-paper-run-log.md`。\n- 两周后汇总异常，有问题的拆成修复任务。\n\n## 需要用户\n\n- 需要一个连续运行两周的实例：用 7777 还是一个长期测试实例由用户定（7777 属于真实服务，代理不启动）。\n- 不涉及真实资金，但占用用户机器两周，开始和结束由用户确认。\n\n## 注意事项\n\n- 迁移只加不改：`internal/db/migrations` 里已应用的 0001 到 0031、M4 预分配的 0032 到 0039 一行不动。本条不加内核迁移。\n- 先在测试实例（`scripts/dev-instance.sh`）或备份副本的拷贝上演练，不碰 `data/pm.db`，不启动或重启 7777 上的服务；需要临时后端用 `bin/pmw-dev` 跑副本库，用完按 pid 关掉。\n- 加了或删了路由要同步 `docs/api-contract.md`（`TestEveryRouteIsInTheContractDoc` / `TestContractDocHasNoDeadRoutes` 双向盯着）；契约文档同一时间只由一个任务改，避免并行冲突。\n- 插件只走 `plugin.Core` 的句柄：不直连数据库、不碰内核表和别的插件的表，不用 `http.DefaultClient`（CORE-03b 的边界规则）。\n- 涉及资金：本条只做行情、回测、模拟盘；不写任何向交易所下单、撤单、划转、提币的代码路径，不申请也不使用提币权限。\n- 不往测试实例的保险箱里写真实交易所凭证，测试一律用假服务端（`httptest`）。",
+    "acceptance": "- [ ] 连续 14 天每天一条检查记录，部署无非预期停止，账本对账全部一致",
+    "scope": "scripts 下新建检查脚本、docs/trade-paper-run-log.md"
+  },
+  {
+    "key": "TRD-06a",
+    "type": "task",
+    "title": "风控在后端强制：仓位上限、日亏损熔断、单笔上限、一键全停",
+    "milestone": "M6",
+    "module": "backend",
+    "priority": "P3",
+    "estimate": "M",
+    "depends_on": [
+      "TRD-05b",
+      "CORE-08"
+    ],
+    "workdir": ".",
+    "spec": [
+      "web-next/src/tradedata.ts RiskRules",
+      "web-next/src/trading.tsx riskBlocks、killAll、HaltBar、RiskView",
+      "web-next/docs/dev-plan.md 4.11 TRD-06"
+    ],
+    "body": "## 要做什么\n\n- 风控规则表：单标的仓位上限、单日亏损上限、单笔金额上限、合约最大杠杆、二次确认阈值、熔断状态。\n- 所有委托（手动和部署）都走同一个下单入口，入口里逐笔检查，不通过直接拒绝并写原因；熔断中只许平仓减仓。\n- 日亏损 Job：当日亏损到上限自动熔断。\n- 一键全停接口：停所有部署、撤所有挂单、进入熔断，返回执行结果；解除熔断要单独调用并写原因。\n- 所有风控拦截、熔断、全停、解除写审计日志（CORE-08）。\n- 超过二次确认阈值的委托要带确认标记，没有就拒绝。\n\n## 注意事项\n\n- 迁移只加不改：`internal/db/migrations` 里已应用的 0001 到 0031、M4 预分配的 0032 到 0039 一行不动。本条不加内核迁移。\n- 插件表放 `internal/plugins/trade/migrations`，本条预分配插件内编号 0008，表名带 `trade_` 前缀；并行任务撞号时后合入的改号。\n- 先在测试实例（`scripts/dev-instance.sh`）或备份副本的拷贝上演练，不碰 `data/pm.db`，不启动或重启 7777 上的服务；需要临时后端用 `bin/pmw-dev` 跑副本库，用完按 pid 关掉。\n- 加了或删了路由要同步 `docs/api-contract.md`（`TestEveryRouteIsInTheContractDoc` / `TestContractDocHasNoDeadRoutes` 双向盯着）；契约文档同一时间只由一个任务改，避免并行冲突。\n- 插件只走 `plugin.Core` 的句柄：不直连数据库、不碰内核表和别的插件的表，不用 `http.DefaultClient`（CORE-03b 的边界规则）。\n- 涉及资金：本条只做行情、回测、模拟盘；不写任何向交易所下单、撤单、划转、提币的代码路径，不申请也不使用提币权限。\n- 不往测试实例的保险箱里写真实交易所凭证，测试一律用假服务端（`httptest`）。",
+    "acceptance": "- [ ] 前端绕不过风控：直接 curl 下单超单笔上限、熔断中开新仓、超杠杆都被拒绝\n- [ ] 当日亏损到上限后自动熔断，部署全部停止\n- [ ] 一键全停后没有运行中的部署、没有挂单，审计里有记录",
+    "scope": "internal/plugins/trade/**、docs/api-contract.md 的 trade 段"
+  },
+  {
+    "key": "TRD-06b",
+    "type": "task",
+    "title": "前端风控页和一键全停",
+    "milestone": "M6",
+    "module": "frontend",
+    "priority": "P3",
+    "estimate": "S",
+    "depends_on": [
+      "TRD-06a",
+      "TRD-05c"
+    ],
+    "workdir": "frontend",
+    "spec": [
+      "web-next/src/trading.tsx RiskView、HaltBar、TradingNav 一键全停、OrderDrawer 风控提示"
+    ],
+    "body": "## 要做什么\n\n- 风控页编辑规则、熔断记录；顶部熔断条；一键全停二次确认；下单抽屉显示后端返回的拦截原因（前端的预检查只做提示，不代替后端）。\n\n## 注意事项\n\n- 只在 `frontend/` 里写代码，不 import `web-next` 的任何代码：原型的交互和样式可以照着写、挑着搬。\n- 联调只连测试实例（`scripts/dev-instance.sh start`，默认 127.0.0.1:7796），不连 7777，不启动或重启 7777 上的服务。\n- 组件里不直接 fetch，数据一律走数据访问层（CORE-03a）；副作用不写进 setState 的 updater。\n- 状态、类型、优先级从后端读（`/api/object-types`、`/api/dictionaries`），不写死。",
+    "acceptance": "- [ ] 原型风控页的操作全部可用\n- [ ] 后端拦截的原因原样显示在下单抽屉里",
+    "scope": "frontend/src/plugins/trade/**"
+  },
+  {
+    "key": "TRD-07a",
+    "type": "task",
+    "title": "交易账户接入：交易所账户连接器、只读同步、拒绝带提币权限的 Key（假服务端）",
+    "milestone": "M6",
+    "module": "backend",
+    "priority": "P3",
+    "estimate": "M",
+    "depends_on": [
+      "TRD-01a",
+      "VID-04a",
+      "CORE-06a"
+    ],
+    "workdir": ".",
+    "spec": [
+      "web-next/src/tradedata.ts TradeAccount（api_hint、permissions）",
+      "web-next/src/trading.tsx AccountsView、AccountDrawer",
+      "web-next/docs/dev-plan.md 4.11 TRD-07",
+      "web-next/docs/dev-plan.md 6 节交易风险"
+    ],
+    "body": "## 要做什么\n\n- 连接器 `binance_account`、`okx_account`：令牌认证，字段 API Key、Secret（OKX 加 Passphrase），凭证经连接器框架进保险箱，对外只有后四位提示。\n- 连通测试时查这把 Key 的权限：带提币权限的直接拒绝接入并提示去交易所关掉；带交易权限的也只按只读用，交易权限单独开启归 TRD-08。\n- 只读同步：余额、持仓、挂单、成交历史，定时拉；实盘账户在本插件里标 paper 为假，下单入口对它一律拒绝。\n- 清单加 `network:exchanges` 权限（插件升级时让用户确认），只用于只读接口。\n- 全部用假服务端测试，签名算法用交易所文档里的公开样例校验。\n\n## 不做什么\n\n- 不写下单、撤单、划转、提币的任何代码路径。\n\n## 注意事项\n\n- 迁移只加不改：`internal/db/migrations` 里已应用的 0001 到 0031、M4 预分配的 0032 到 0039 一行不动。本条不加内核迁移。\n- 插件表放 `internal/plugins/trade/migrations`，本条预分配插件内编号 0009，表名带 `trade_` 前缀；并行任务撞号时后合入的改号。\n- 先在测试实例（`scripts/dev-instance.sh`）或备份副本的拷贝上演练，不碰 `data/pm.db`，不启动或重启 7777 上的服务；需要临时后端用 `bin/pmw-dev` 跑副本库，用完按 pid 关掉。\n- 加了或删了路由要同步 `docs/api-contract.md`（`TestEveryRouteIsInTheContractDoc` / `TestContractDocHasNoDeadRoutes` 双向盯着）；契约文档同一时间只由一个任务改，避免并行冲突。\n- 插件只走 `plugin.Core` 的句柄：不直连数据库、不碰内核表和别的插件的表，不用 `http.DefaultClient`（CORE-03b 的边界规则）。\n- 涉及资金：本条只做行情、回测、模拟盘；不写任何向交易所下单、撤单、划转、提币的代码路径，不申请也不使用提币权限。\n- 不往测试实例的保险箱里写真实交易所凭证，测试一律用假服务端（`httptest`）。",
+    "acceptance": "- [ ] 永不申请提币权限：假服务端返回带提币权限时接入失败，提示明确\n- [ ] 只读同步出的余额和持仓与假服务端一致\n- [ ] 对实盘账户调下单接口返回 403\n- [ ] 日志、错误、接口响应里不出现 Secret 明文",
+    "scope": "internal/plugins/trade/**、docs/api-contract.md 的 trade 段"
+  },
+  {
+    "key": "TRD-07b",
+    "type": "task",
+    "title": "前端交易账户页",
+    "milestone": "M6",
+    "module": "frontend",
+    "priority": "P3",
+    "estimate": "S",
+    "depends_on": [
+      "TRD-07a",
+      "TRD-05c"
+    ],
+    "workdir": "frontend",
+    "spec": [
+      "web-next/src/trading.tsx AccountsView、AccountDrawer"
+    ],
+    "body": "## 要做什么\n\n- 账户列表区分模拟盘和实盘（只读），接入走连接器表单；显示 Key 后四位、权限、同步状态和错误；实盘账户的下单按钮不可用并说明要过实盘评审。\n\n## 注意事项\n\n- 只在 `frontend/` 里写代码，不 import `web-next` 的任何代码：原型的交互和样式可以照着写、挑着搬。\n- 联调只连测试实例（`scripts/dev-instance.sh start`，默认 127.0.0.1:7796），不连 7777，不启动或重启 7777 上的服务。\n- 组件里不直接 fetch，数据一律走数据访问层（CORE-03a）；副作用不写进 setState 的 updater。\n- 状态、类型、优先级从后端读（`/api/object-types`、`/api/dictionaries`），不写死。",
+    "acceptance": "- [ ] 原型账户页的操作全部可用\n- [ ] 实盘账户上看不到可用的下单入口",
+    "scope": "frontend/src/plugins/trade/**"
+  },
+  {
+    "key": "TRD-07c",
+    "type": "task",
+    "title": "用真实只读 API Key 接通账户同步",
+    "milestone": "M6",
+    "module": "backend",
+    "priority": "P3",
+    "estimate": "S",
+    "depends_on": [
+      "TRD-07a"
+    ],
+    "workdir": ".",
+    "spec": [
+      "web-next/docs/dev-plan.md 4.11 TRD-07",
+      "web-next/docs/dev-plan.md 6 节交易风险"
+    ],
+    "body": "## 要做什么\n\n- 用户在交易所建一把只读 Key（不开交易、不开提币，建议绑定 IP），在测试实例界面里填进去，验证只读同步。\n- 修掉和假服务端对不上的地方。\n\n## 需要用户\n\n- 涉及真实资金账户：Key 由用户本人创建并填写，代理不接触明文、不往保险箱写。\n- 确认 Key 只有读取权限；验证完成后由用户决定是否删除这把 Key。\n\n## 注意事项\n\n- 迁移只加不改：`internal/db/migrations` 里已应用的 0001 到 0031、M4 预分配的 0032 到 0039 一行不动。本条不加内核迁移。\n- 先在测试实例（`scripts/dev-instance.sh`）或备份副本的拷贝上演练，不碰 `data/pm.db`，不启动或重启 7777 上的服务；需要临时后端用 `bin/pmw-dev` 跑副本库，用完按 pid 关掉。\n- 加了或删了路由要同步 `docs/api-contract.md`（`TestEveryRouteIsInTheContractDoc` / `TestContractDocHasNoDeadRoutes` 双向盯着）；契约文档同一时间只由一个任务改，避免并行冲突。\n- 插件只走 `plugin.Core` 的句柄：不直连数据库、不碰内核表和别的插件的表，不用 `http.DefaultClient`（CORE-03b 的边界规则）。\n- 涉及资金：本条只做行情、回测、模拟盘；不写任何向交易所下单、撤单、划转、提币的代码路径，不申请也不使用提币权限。\n- 不往测试实例的保险箱里写真实交易所凭证，测试一律用假服务端（`httptest`）。",
+    "acceptance": "- [ ] 真实账户的余额、持仓与交易所网页一致\n- [ ] 用带提币权限的 Key 接入被拒绝（用户自己在交易所临时开关验证，或跳过此项）",
+    "scope": "internal/plugins/trade/**"
+  },
+  {
+    "key": "TRD-08p",
+    "type": "task",
+    "title": "原型补实盘评审闸门和对账视图",
+    "milestone": "M6",
+    "module": "proto",
+    "priority": "P3",
+    "estimate": "S",
+    "depends_on": [
+      "PROTO-04f4"
+    ],
+    "workdir": "web-next",
+    "spec": [
+      "web-next/docs/dev-plan.md 4.11 TRD-08",
+      "docs/plugin-api.md 3.2 trade:live",
+      "web-next/src/trading.tsx RunsView、AccountsView、RiskView"
+    ],
+    "body": "## 背景\n\n原型的实盘只有「确认后才能启动」，没有评审闸门、`trade:live` 申请和对账。\n\n## 要做什么\n\n- 交易设置里加「实盘」一节：评审清单（审计、对账、异常处理、全停演练、模拟盘两周记录）、`trade:live` 申请（二次确认输入插件名）、开关在评审通过前不可用并说明原因。\n- 账户抽屉加对账结果（本地和交易所的差异）；运行异常里加交易对账异常。\n- 插件管理页停用交易插件时，有运行中的部署或挂单就拦住并给「一键全停」入口。\n\n## 注意事项\n\n- 原型是规格：只改本条列出的原型文件，改完跑 `npx tsc -b` 和 `scripts/smoke-proto`（以仓库现有的冒烟脚本为准），0 问题。\n- 示例数据要接得上现有的演示故事线（PROTO-01），不放测试数据。\n- `*data.ts` 是契约文件，本条改契约时不和其他原型任务并行。\n- 原型 dev server 在 7778，不要重启；规格包（PROTO-04f）里对应一节同步补上截图和交互清单。",
+    "acceptance": "- [ ] 原型里实盘开关在评审未通过时不可点并说明原因\n- [ ] 停用交易插件时被拦住\n- [ ] smoke-proto 0 问题",
+    "scope": "web-next/src/trading.tsx、web-next/src/trading.css、web-next/src/tradedata.ts、web-next/src/incidentdata.ts、web-next/docs/spec"
+  },
+  {
+    "key": "TRD-08a",
+    "type": "task",
+    "title": "交易审计和停用前强制全停",
+    "milestone": "M6",
+    "module": "backend",
+    "priority": "P3",
+    "estimate": "M",
+    "depends_on": [
+      "TRD-06a",
+      "CORE-08"
+    ],
+    "workdir": ".",
+    "spec": [
+      "docs/plugin-api.md 2.7 生命周期（交易插件停用前必须先一键全停）",
+      "internal/plugin/plugin.go DisableGuard",
+      "web-next/docs/dev-plan.md 4.11 TRD-08"
+    ],
+    "body": "## 要做什么\n\n- 每笔委托、撤单、成交、部署启停、风控变更写审计日志，带来源（手动、部署 id）。\n- 实现 `DisableGuard`：有运行中的部署或挂单时拒绝停用，原因里列出数量；卸载同样拦。\n- 审计查询接口按账户、部署、时间筛选。\n\n## 注意事项\n\n- 迁移只加不改：`internal/db/migrations` 里已应用的 0001 到 0031、M4 预分配的 0032 到 0039 一行不动。本条不加内核迁移。\n- 插件表放 `internal/plugins/trade/migrations`，本条预分配插件内编号 0010，表名带 `trade_` 前缀；并行任务撞号时后合入的改号。\n- 先在测试实例（`scripts/dev-instance.sh`）或备份副本的拷贝上演练，不碰 `data/pm.db`，不启动或重启 7777 上的服务；需要临时后端用 `bin/pmw-dev` 跑副本库，用完按 pid 关掉。\n- 加了或删了路由要同步 `docs/api-contract.md`（`TestEveryRouteIsInTheContractDoc` / `TestContractDocHasNoDeadRoutes` 双向盯着）；契约文档同一时间只由一个任务改，避免并行冲突。\n- 插件只走 `plugin.Core` 的句柄：不直连数据库、不碰内核表和别的插件的表，不用 `http.DefaultClient`（CORE-03b 的边界规则）。\n- 涉及资金：本条只做行情、回测、模拟盘；不写任何向交易所下单、撤单、划转、提币的代码路径，不申请也不使用提币权限。\n- 不往测试实例的保险箱里写真实交易所凭证，测试一律用假服务端（`httptest`）。",
+    "acceptance": "- [ ] 有运行中的部署时停用插件返回拒绝和原因，一键全停后可以停用\n- [ ] 一笔模拟委托从下单到成交的每一步都能在审计里查到",
+    "scope": "internal/plugins/trade/**、docs/api-contract.md 的 trade 段"
+  },
+  {
+    "key": "TRD-08b",
+    "type": "task",
+    "title": "对账和异常处理",
+    "milestone": "M6",
+    "module": "backend",
+    "priority": "P3",
+    "estimate": "M",
+    "depends_on": [
+      "TRD-08a",
+      "TRD-07a"
+    ],
+    "workdir": ".",
+    "spec": [
+      "web-next/docs/dev-plan.md 4.11 TRD-08",
+      "TRD-08p 改后的原型对账视图"
+    ],
+    "body": "## 要做什么\n\n- 对账 Job：本地记录的持仓、挂单和交易所只读接口拉到的对比，差异落库并发通知。\n- 异常处理：数据源断开、交易所接口连续失败、对账差异超阈值时自动熔断（复用 TRD-06a），写审计。\n- 全部用假服务端测试差异、断线、恢复三种情况。\n\n## 注意事项\n\n- 迁移只加不改：`internal/db/migrations` 里已应用的 0001 到 0031、M4 预分配的 0032 到 0039 一行不动。本条不加内核迁移。\n- 插件表放 `internal/plugins/trade/migrations`，本条预分配插件内编号 0011，表名带 `trade_` 前缀；并行任务撞号时后合入的改号。\n- 先在测试实例（`scripts/dev-instance.sh`）或备份副本的拷贝上演练，不碰 `data/pm.db`，不启动或重启 7777 上的服务；需要临时后端用 `bin/pmw-dev` 跑副本库，用完按 pid 关掉。\n- 加了或删了路由要同步 `docs/api-contract.md`（`TestEveryRouteIsInTheContractDoc` / `TestContractDocHasNoDeadRoutes` 双向盯着）；契约文档同一时间只由一个任务改，避免并行冲突。\n- 插件只走 `plugin.Core` 的句柄：不直连数据库、不碰内核表和别的插件的表，不用 `http.DefaultClient`（CORE-03b 的边界规则）。\n- 涉及资金：本条只做行情、回测、模拟盘；不写任何向交易所下单、撤单、划转、提币的代码路径，不申请也不使用提币权限。\n- 不往测试实例的保险箱里写真实交易所凭证，测试一律用假服务端（`httptest`）。",
+    "acceptance": "- [ ] 假服务端造出持仓差异时产生对账记录和通知，并按阈值熔断\n- [ ] 断线恢复后不会自动解除熔断，必须人工解除",
+    "scope": "internal/plugins/trade/**、docs/api-contract.md 的 trade 段"
+  },
+  {
+    "key": "TRD-08c",
+    "type": "task",
+    "title": "实盘开关闸门：评审通过前不可用",
+    "milestone": "M6",
+    "module": "fullstack",
+    "priority": "P3",
+    "estimate": "M",
+    "depends_on": [
+      "TRD-08b",
+      "TRD-08p",
+      "TRD-06b"
+    ],
+    "workdir": ".",
+    "spec": [
+      "TRD-08p 改后的原型实盘设置",
+      "docs/plugin-api.md 3.2 trade:live"
+    ],
+    "body": "## 要做什么\n\n- 评审记录表：清单每一项的证据链接（审计、对账、异常演练、全停演练、模拟盘两周记录）、评审结论、评审人。\n- 实盘开关接口：评审没通过或没授予 `trade:live` 时一律 403 并说明缺什么；`trade:live` 申请走插件权限流程，二次确认输入插件名。\n- 前端交易设置的实盘一节：清单、申请、开关（不可用时说明原因）。\n- 本条不实现实盘下单：开关就算打开，下单入口对实盘账户仍拒绝，直到 TRD-08d。\n\n## 不做什么\n\n- 不写实盘下单代码，不改 TRD-07a 的只读限制。\n\n## 注意事项\n\n- 迁移只加不改：`internal/db/migrations` 里已应用的 0001 到 0031、M4 预分配的 0032 到 0039 一行不动。本条不加内核迁移。\n- 插件表放 `internal/plugins/trade/migrations`，本条预分配插件内编号 0012，表名带 `trade_` 前缀；并行任务撞号时后合入的改号。\n- 先在测试实例（`scripts/dev-instance.sh`）或备份副本的拷贝上演练，不碰 `data/pm.db`，不启动或重启 7777 上的服务；需要临时后端用 `bin/pmw-dev` 跑副本库，用完按 pid 关掉。\n- 加了或删了路由要同步 `docs/api-contract.md`（`TestEveryRouteIsInTheContractDoc` / `TestContractDocHasNoDeadRoutes` 双向盯着）；契约文档同一时间只由一个任务改，避免并行冲突。\n- 插件只走 `plugin.Core` 的句柄：不直连数据库、不碰内核表和别的插件的表，不用 `http.DefaultClient`（CORE-03b 的边界规则）。\n- 只在 `frontend/` 里写代码，不 import `web-next` 的任何代码：原型的交互和样式可以照着写、挑着搬。\n- 联调只连测试实例（`scripts/dev-instance.sh start`，默认 127.0.0.1:7796），不连 7777，不启动或重启 7777 上的服务。\n- 组件里不直接 fetch，数据一律走数据访问层（CORE-03a）；副作用不写进 setState 的 updater。\n- 状态、类型、优先级从后端读（`/api/object-types`、`/api/dictionaries`），不写死。\n- 涉及资金：本条只做行情、回测、模拟盘；不写任何向交易所下单、撤单、划转、提币的代码路径，不申请也不使用提币权限。\n- 不往测试实例的保险箱里写真实交易所凭证，测试一律用假服务端（`httptest`）。",
+    "acceptance": "- [ ] 评审通过前实盘开关不可用（界面和接口都验证）\n- [ ] 评审记录只能由用户在界面上确认，接口不接受代理会话标识提交的评审结论",
+    "scope": "internal/plugins/trade/**、frontend/src/plugins/trade/**、docs/api-contract.md 的 trade 段"
+  },
+  {
+    "key": "TRD-08d",
+    "type": "task",
+    "title": "实盘下单适配和实盘评审",
+    "milestone": "M6",
+    "module": "backend",
+    "priority": "P3",
+    "estimate": "L",
+    "depends_on": [
+      "TRD-08c",
+      "TRD-07c",
+      "TRD-05d"
+    ],
+    "workdir": ".",
+    "spec": [
+      "web-next/docs/dev-plan.md 4.11 TRD-08",
+      "web-next/docs/dev-plan.md 6 节交易风险",
+      "web-next/docs/dev-plan.md 6 节第 2 条（建议 M6 只到模拟盘，实盘单独立项）"
+    ],
+    "body": "## 背景\n\n开发计划建议 M6 只到模拟盘，实盘单独立项。本条只是占位，等用户决定实盘要不要做、什么时候做。\n\n## 要做什么\n\n- 用户同意后：实现交易所下单、撤单接口（只走风控后的同一个入口），交易权限单独开启；先用交易所测试网，再小额实盘。\n- 按 TRD-08c 的清单逐项过评审。\n\n## 需要用户\n\n- 涉及真实资金：是否做、何时做、用哪个账户、额度多少，全部由用户决定。\n- 需要用户提供开了交易权限（不开提币）的 API Key，并亲自完成评审、授予 `trade:live`。\n- 每一笔实盘委托都会产生真实盈亏，联调必须用户在场。\n\n## 注意事项\n\n- 迁移只加不改：`internal/db/migrations` 里已应用的 0001 到 0031、M4 预分配的 0032 到 0039 一行不动。本条不加内核迁移。\n- 先在测试实例（`scripts/dev-instance.sh`）或备份副本的拷贝上演练，不碰 `data/pm.db`，不启动或重启 7777 上的服务；需要临时后端用 `bin/pmw-dev` 跑副本库，用完按 pid 关掉。\n- 加了或删了路由要同步 `docs/api-contract.md`（`TestEveryRouteIsInTheContractDoc` / `TestContractDocHasNoDeadRoutes` 双向盯着）；契约文档同一时间只由一个任务改，避免并行冲突。\n- 插件只走 `plugin.Core` 的句柄：不直连数据库、不碰内核表和别的插件的表，不用 `http.DefaultClient`（CORE-03b 的边界规则）。\n- 默认不派给子代理：没有用户的明确指示不开工。",
+    "acceptance": "- [ ] 测试网上下单、撤单、成交、风控拦截、一键全停全部通过\n- [ ] 实盘评审通过后由用户本人打开开关",
+    "scope": "internal/plugins/trade/**、frontend/src/plugins/trade/**、docs/api-contract.md 的 trade 段"
+  },
+  {
     "key": "AG-01b",
     "type": "requirement",
     "title": "Agent 配置、技能、知识库接口",

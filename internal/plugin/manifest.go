@@ -22,6 +22,7 @@ type Manifest struct {
 	ID              string            `json:"id"`
 	Name            string            `json:"name"`
 	Description     string            `json:"description,omitempty"`
+	Icon            string            `json:"icon,omitempty"`
 	Version         string            `json:"version"`
 	Core            string            `json:"core"`
 	Depends         map[string]string `json:"depends,omitempty"`
@@ -118,7 +119,7 @@ var SharedTablePrefixes = map[string][]string{}
 
 // ManifestFields 是清单的顶层字段，顺序同 docs/plugin-api.md 1.1。
 var ManifestFields = []string{
-	"id", "name", "description", "version", "core", "depends", "optional_depends", "provides",
+	"id", "name", "description", "icon", "version", "core", "depends", "optional_depends", "provides",
 	"emits", "subscribes", "adopts", "permissions", "migrations", "table_prefix",
 }
 
@@ -424,6 +425,13 @@ func (c *checker) manifest(raw any) *Manifest {
 		m.Name = name
 	}
 	m.Description, _ = c.str(obj, "description", "description", false)
+	// 菜单图标：外壳内置图标的 key，外壳不认识的 key 用默认图标
+	if v, ok := c.str(obj, "icon", "icon", false); ok {
+		if !keyRe.MatchString(v) {
+			c.add("icon", "不合法：只能用小写字母、数字、下划线：%s", v)
+		}
+		m.Icon = v
+	}
 	if v, ok := c.str(obj, "version", "version", true); ok {
 		if _, ok := ParseVersion(v); !ok {
 			c.add("version", "不是合法的版本号（MAJOR.MINOR.PATCH）：%s", v)

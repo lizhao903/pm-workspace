@@ -113,6 +113,20 @@ export function useImMessages(opts: { refetchInterval?: number | false } = {}) {
   })
 }
 
+/** 待处理（不含稍后、还没到点的）的条数，侧栏红点用；只取一条，读 meta.total。在 im 前缀下，消息一变跟着刷 */
+export function useImPendingCount(opts: { enabled?: boolean; refetchInterval?: number } = {}) {
+  return useQuery({
+    queryKey: [...dataKeys.im.all, 'pending-count'] as const,
+    queryFn: async ({ signal }) => {
+      const query = new URLSearchParams({ status: 'pending', snoozed: 'false', limit: '1' })
+      return (await requestList<ImMessage>('/api/im/messages', { query, signal })).total
+    },
+    enabled: opts.enabled ?? true,
+    retry: noRetry404,
+    refetchInterval: opts.refetchInterval,
+  })
+}
+
 /** 单条；列表里没有（太旧、别处打开）时用它 */
 export function useImMessage(id: string | null) {
   return useQuery({
