@@ -4521,6 +4521,96 @@
     "acceptance": "- [ ] 文档筛选条能按项目筛，阅读区显示所属项目并能跳过去\n- [ ] 改到的 Go 跑 gofmt、go vet、go test ./...；前端 npm test、typecheck、lint、build、smoke-frontend 通过"
   },
   {
+    "key": "PR-16",
+    "type": "task",
+    "title": "窄屏下任务、联系人、项目概览排版",
+    "milestone": "M4",
+    "module": "frontend",
+    "priority": "P2",
+    "estimate": "S",
+    "depends_on": [
+      "ALIGN-16"
+    ],
+    "workdir": "frontend",
+    "spec": [
+      "docs/product-review.md B-11"
+    ],
+    "body": "## 要做什么\n\n按 `docs/product-review.md` 的 B-11 改：逐条照「建议改法」做，规格编号见各条。\n\n只改 CSS 和少量结构；任务模块 PR-17、项目插件 PR-18 也在改，改前重新读。\n\n## 注意事项\n\n- 规格要改的（web-next/docs/spec）同步改，原型代码只在规格和原型对不上时改。",
+    "acceptance": "- [ ] 375 宽任务行标题完整一行、标签另起一行；联系人分组不压字；项目概览数字卡两列\n- [ ] 改到的 Go 跑 gofmt、go vet、go test ./...；前端 npm test、typecheck、lint、build、smoke-frontend 通过"
+  },
+  {
+    "key": "PR-17",
+    "type": "task",
+    "title": "任务来源叫法统一、规格补受阻状态",
+    "milestone": "M4",
+    "module": "frontend",
+    "priority": "P3",
+    "estimate": "S",
+    "depends_on": [
+      "ALIGN-16"
+    ],
+    "workdir": "frontend",
+    "spec": [
+      "docs/product-review.md A-07、A-08"
+    ],
+    "body": "## 要做什么\n\n按 `docs/product-review.md` 的 A-07、A-08 改：逐条照「建议改法」做，规格编号见各条。\n\n## 注意事项\n\n- 规格要改的（web-next/docs/spec）同步改，原型代码只在规格和原型对不上时改。",
+    "acceptance": "- [ ] 行上来源和二级菜单叫法一致\n- [ ] SPEC-tasks-0 有受阻\n- [ ] 改到的 Go 跑 gofmt、go vet、go test ./...；前端 npm test、typecheck、lint、build、smoke-frontend 通过"
+  },
+  {
+    "key": "PR-18",
+    "type": "task",
+    "title": "项目小问题：新建空项目、标题说明、未完成任务块、干系人角色校验",
+    "milestone": "M4",
+    "module": "fullstack",
+    "priority": "P2",
+    "estimate": "S",
+    "depends_on": [
+      "ALIGN-16"
+    ],
+    "workdir": "fullstack",
+    "spec": [
+      "docs/product-review.md C-05、T-01、T-02、E-02"
+    ],
+    "body": "## 要做什么\n\n按 `docs/product-review.md` 的 C-05、T-01、T-02、E-02 改：逐条照「建议改法」做，规格编号见各条。\n\nE-02 后端校验角色只能是五个 key；插件版本需要时只升一次。\n\n## 注意事项\n\n- 规格要改的（web-next/docs/spec）同步改，原型代码只在规格和原型对不上时改。",
+    "acceptance": "- [ ] 新建项目名称没改就离开时提示删掉\n- [ ] 项目列表说明、概览块名改对\n- [ ] 干系人接口写入未知角色回 400，前端未知值显示原值标红\n- [ ] 改到的 Go 跑 gofmt、go vet、go test ./...；前端 npm test、typecheck、lint、build、smoke-frontend 通过"
+  },
+  {
+    "key": "PR-19",
+    "type": "task",
+    "title": "IM 渠道配置里填「我的称呼」，按名字 @ 也算 @我",
+    "milestone": "M4",
+    "module": "fullstack",
+    "priority": "P3",
+    "estimate": "S",
+    "depends_on": [
+      "ALIGN-16"
+    ],
+    "workdir": "fullstack",
+    "spec": [
+      "docs/product-review.md B-12"
+    ],
+    "body": "## 要做什么\n\n按 `docs/product-review.md` 的 B-12 改：逐条照「建议改法」做，规格编号见各条。\n\n## 注意事项\n\n- 规格要改的（web-next/docs/spec）同步改，原型代码只在规格和原型对不上时改。",
+    "acceptance": "- [ ] 在渠道配置里填「李钊」后，「@李钊 …」算 @我（Go 测试）\n- [ ] 改到的 Go 跑 gofmt、go vet、go test ./...；前端 npm test、typecheck、lint、build、smoke-frontend 通过"
+  },
+  {
+    "key": "PR-20",
+    "type": "task",
+    "title": "运行异常设置页、SOP 空状态、对象类型改叫「任务」",
+    "milestone": "M4",
+    "module": "fullstack",
+    "priority": "P3",
+    "estimate": "S",
+    "depends_on": [
+      "ALIGN-16"
+    ],
+    "workdir": "fullstack",
+    "spec": [
+      "docs/product-review.md A-09、T-03、T-04"
+    ],
+    "body": "## 要做什么\n\n按 `docs/product-review.md` 的 A-09、T-03、T-04 改：逐条照「建议改法」做，规格编号见各条。\n\nT-04 改内置对象类型名称：已应用迁移不能改，用新迁移 0042 更新名称（UPDATE 内置类型的显示名，只动 label，不动 key），MCP 的 pmw_list_types 跟着变。\n\n## 注意事项\n\n- 规格要改的（web-next/docs/spec）同步改，原型代码只在规格和原型对不上时改。",
+    "acceptance": "- [ ] 设置的运行异常不再写「待开发」\n- [ ] SOP 流程详情空状态文案对\n- [ ] /api/object-types 里任务类型叫「任务」\n- [ ] 改到的 Go 跑 gofmt、go vet、go test ./...；前端 npm test、typecheck、lint、build、smoke-frontend 通过"
+  },
+  {
     "key": "VID-08p",
     "type": "task",
     "title": "原型补商单",
