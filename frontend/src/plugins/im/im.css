@@ -11,6 +11,13 @@
 .im-sync-note.bad { color: var(--danger); }
 .im-dot-alert { width: 7px; height: 7px; border-radius: 50%; background: var(--danger); }
 .im-spin { animation: im-spin 0.9s linear infinite; }
+/* 顶栏窄时按钮只留图标，标题不被挤成省略号（同 SPEC-projects-14.1）：
+   375 宽照常带字（顶栏是容器，宽度按去掉内边距算）；有同步结果或按渠道同步（字更长）时才收；再窄一律收 */
+@container (max-width: 460px) {
+  .tb-actions:has(.im-sync-note) .im-tb-label, .tb-actions .im-sync-ch .im-tb-label { display: none; }
+  .tb-actions .im-sync-note { max-width: 120px; }
+}
+@container (max-width: 300px) { .tb-actions .im-tb-label { display: none; } }
 @keyframes im-spin { to { transform: rotate(360deg); } }
 
 /* ---------- 工具条 ---------- */
@@ -21,7 +28,8 @@
 .im-seg button.on { background: var(--panel); color: var(--text); box-shadow: var(--shadow-sm); font-weight: 500; }
 .im-toolbar .chip-select select { height: 100%; border: 0; outline: 0; background: none; color: inherit; font: inherit; cursor: pointer; max-width: 100%; min-width: 0; text-overflow: ellipsis; }
 .im-mention-n { font-size: var(--fs-2xs); font-weight: 600; color: var(--accent-ink); background: var(--accent); border-radius: 8px; padding: 0 6px; margin-right: 6px; line-height: 16px; }
-.im-channels { display: flex; gap: 4px; flex-wrap: wrap; }
+/* 渠道切换在工具条下面单独一行，从左排起 */
+.im-channels { display: flex; gap: 4px; flex-wrap: wrap; flex-basis: 100%; }
 .im-ch { display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 10px; border-radius: 99px; border: 1px solid var(--line); color: var(--muted); font-size: var(--fs-sm); }
 .im-ch:hover { color: var(--text); border-color: var(--line-2); }
 .im-ch.on { color: var(--text); border-color: var(--text); font-weight: 500; }
@@ -88,12 +96,7 @@
   .im-actions { padding-left: 0; }
 }
 @media (max-width: 760px) {
-  .im-channels { width: 100%; }
   .im-toolbar .search { flex: 1 1 100%; }
-}
-/* 抽屉停靠后内容区变窄：渠道切换照窄屏规则单独一行（搜索框不撑满，同原型） */
-@container shell-content (max-width: 760px) {
-  .im-channels { width: 100%; }
 }
 
 /* ---------- 抽屉 ---------- */

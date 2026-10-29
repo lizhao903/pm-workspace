@@ -1,5 +1,5 @@
 // 支持材料标签的纯函数（SPEC-projects-11）：路径补全、选文件时的目录前缀、标签拆分、筛选。
-import type { MaterialKind, ProjectMaterial } from '../../core/data'
+import { MATERIAL_KINDS, type MaterialKind, type ProjectMaterial, type WorkObject } from '../../core/data'
 
 /** 没填路径时选文件放在项目目录的 materials 下（同原型 dirOf） */
 export const DEFAULT_DIR = 'materials'
@@ -48,3 +48,19 @@ export function matchMaterial(m: ProjectMaterial, f: MaterialFilter): boolean {
 export const newestFirst = (rows: ProjectMaterial[]) => [...rows].reverse()
 
 export const isPathKind = (k: MaterialKind) => k === 'file' || k === 'folder'
+
+// ---- 概览「最近的文档和材料」（SPEC-projects-3.8） ----
+
+/** 露几条 */
+export const RECENT_PEEK = 5
+
+type Recent = { key: string; tag: string; title: string; at: string }
+
+/** 文档和支持材料合在一起按时间倒序；文档按更新时间，材料按加入时间（同原型 added_at） */
+export function recentDocsAndMaterials(docs: readonly WorkObject[], mats: readonly ProjectMaterial[], n = RECENT_PEEK): Recent[] {
+  const kind = (k: string) => MATERIAL_KINDS.find((x) => x.key === k)?.label ?? k
+  return [
+    ...docs.map((d) => ({ key: `d${d.id}`, tag: d.category_name || '文档', title: d.title || '未命名', at: d.updated_at })),
+    ...mats.map((m) => ({ key: `m${m.id}`, tag: m.category || kind(m.kind), title: m.name || m.value, at: m.created_at })),
+  ].sort((a, b) => b.at.localeCompare(a.at)).slice(0, n)
+}

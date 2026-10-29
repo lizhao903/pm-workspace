@@ -7,7 +7,7 @@ import { errorText, identitiesByContact, useContacts, useDictionaries, useIdenti
 import { Avatar, Button, ErrorState, IconClose, IconSearch, LoadingState, PageTitle, SearchSelect, cls } from '../../core/ui'
 import { ContactForm } from './ContactForm'
 import { ContactView } from './ContactView'
-import { GroupPill, ImBadges, Star } from './parts'
+import { GroupPill, IconPlus, ImBadges, Star } from './parts'
 import {
   DEFAULT_GROUP, IM_CHANNELS, PAGE, ago, applyFilter, blankDraft, draftOf, groupItems, groupOf, groupView, hasImField, sectionCounts,
   sectionOf, toRows, mergeIm, type Sort,
@@ -63,7 +63,7 @@ export default function Page() {
   const nameOf = (id: string) => list.find((c) => c.id === id)?.name ?? '另一个联系人'
   const title = (
     <PageTitle count={contacts.data ? list.length : undefined} desc="客户、合作伙伴、同事和供应商，按最近联系排序"
-      actions={<Button variant="primary" size="sm" onClick={() => setForm('create')}>新建联系人</Button>}>联系人</PageTitle>
+      actions={<Button variant="primary" size="sm" onClick={() => setForm('create')}><IconPlus />新建联系人</Button>}>联系人</PageTitle>
   )
   if (contacts.isPending) return <div className="ct-page">{title}<LoadingState /></div>
   if (contacts.isError && !contacts.data) {
@@ -81,7 +81,7 @@ export default function Page() {
       <div className="toolbar ct-toolbar">
         <div className="search">
           <IconSearch />
-          <input type="search" placeholder="搜索姓名、公司、电话、邮箱、标签" aria-label="搜索联系人" value={q}
+          <input type="search" placeholder="搜索姓名、公司、电话、邮箱、IM 编号" aria-label="搜索联系人" value={q}
             onChange={(e) => setQ(e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Escape' && q) { e.preventDefault(); setQ('') } }} />
           {q && <button type="button" className="search-clear" aria-label="清空" title="清空" onClick={() => setQ('')}><IconClose size={10} /></button>}

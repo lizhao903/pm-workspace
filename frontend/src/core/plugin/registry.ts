@@ -9,6 +9,7 @@ import {
   settingsRegistry, todayCardRegistry,
 } from './extensions'
 import * as data from '../data'
+import { todaySourceRegistry, todaySourceStore } from './todaySources'
 import { checkManifest, formatIssue, parseManifest, PLUGIN_API_VERSION, type PluginManifest } from './manifest'
 import { enabledPlugins } from '../../plugins/enabled'
 import { requestList } from '../api'
@@ -195,6 +196,7 @@ export function pluginApi(m: PluginManifest, reasons: string[], strict: boolean)
     agent: notImplemented('agent', '2.6'),
     sopNodes: notImplemented('sopNodes', '2.7'),
     todayCards: todayCardRegistry(ctx),
+    todaySources: todaySourceRegistry(m.id),
     commands: commandRegistry(m.id, m.provides, reasons, strict),
     events: notImplemented('events', '2.10'),
     data,
@@ -209,6 +211,7 @@ const manifests = new Map<string, PluginManifest>()
 function disposeAll(owner: string) {
   disposeCommandsOf(owner)
   disposeExtensionsOf(owner)
+  todaySourceStore.removeOwner(owner)
 }
 
 // 停用插件（docs/plugin-api.md 4.3 的前端部分）：撤掉它的全部注册，再调 deactivate。

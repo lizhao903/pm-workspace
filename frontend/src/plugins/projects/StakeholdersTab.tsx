@@ -1,17 +1,23 @@
 // 干系人标签（SPEC-projects-6）：人从联系人里挑，按角色顺序（决策人、对接人、负责人、参与、知会）显示，同角色按加入顺序。
 // 增删改走项目插件的 /api/projects/{id}/stakeholders。关注点边输边存（停顿一下或离开输入框就存），存不上留着输入、行内提示。
-// 「最近沟通」要等沟通渠道绑定（PJ-02），现在只显示还没绑定。
+// 「最近沟通」是这个人在本项目绑定的会话里最近的一条（SPEC-projects-6.7），和沟通标签同一份项目消息；点了去 IM 消息页打开。
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router'
 import {
-  PROJECT_ROLES, errorText, useAddProjectStakeholder, useContacts, usePatchProjectStakeholder, useProjectStakeholders,
-  useRemoveProjectStakeholder, type Contact, type ProjectRole, type ProjectStakeholder,
+  PROJECT_ROLES, errorText, useAddProjectStakeholder, useContacts, useIdentities, usePatchProjectStakeholder, useProjectStakeholders,
+  useRemoveProjectStakeholder, type Contact, type ImMessage, type ProjectRole, type ProjectStakeholder,
 } from '../../core/data'
 import { Avatar, Button, EmptyState, ErrorState, Input, LoadingState, SearchSelect, cls } from '../../core/ui'
-import { sortStakeholders } from './model'
+import { latestByContact, snippet } from './commsModel'
+import { ago, sortStakeholders } from './model'
+import { useProjectMessages } from './projectMessages'
 
 /** 关注点停顿多久后保存 */
 const FOCUS_DELAY = 600
+const MESSAGES_PATH = '/messages'
+
+/** 「最近沟通」列：有消息时是「相对时间 · 正文前 14 字」，否则说明为什么没有 */
+type LastComm = { msg: ImMessage } | { note: string }
 
 export function StakeholdersTab({ projectId }: { projectId: string }) {
   const navigate = useNavigate()
@@ -20,12 +26,25 @@ export function StakeholdersTab({ projectId }: { projectId: string }) {
   const add = useAddProjectStakeholder(projectId)
   const remove = useRemoveProjectStakeholder(projectId)
   const [err, setErr] = useState('')
+  const pm = useProjectMessages(projectId)
+  const identities = useIdentities()
 
   const people = useMemo(() => new Map((contacts.data ?? []).map((c) => [c.id, c])), [contacts.data])
   // 引用的联系人已删的行不显示（SPEC-projects-6.12）
   const rows = useMemo(() => sortStakeholders(stakes.data ?? []).filter((s) => people.has(s.stakeholder_id)), [stakes.data, people])
   const taken = new Set((stakes.data ?? []).map((s) => s.stakeholder_id))
   const avail = (contacts.data ?? []).filter((c) => !taken.has(c.id))
+  const latest = useMemo(() => latestByContact(pm.msgs.data, new Map((identities.data ?? []).map((i) => [i.id, i.stakeholder_id]))),
+    [pm.msgs.data, identities.data])
+  const lastOf = (id: string): LastComm => {
+    const m = latest.get(id)
+    if (m) return { msg: m }
+    if (pm.binds.isPending || pm.pluginsPending || pm.msgs.isPending) return { note: '' }
+    if (!pm.bound.length) return { note: '还没绑定沟通渠道' }
+    if (pm.noIm) return { note: 'IM 消息插件没在跑' }
+    if (pm.msgs.isError && !pm.msgs.data.length) return { note: '消息没加载出来' }
+    return { note: '本项目会话里没有消息' }
+  }
 
   const onAdd = (id: string) => {
     if (!id) return
@@ -62,8 +81,9 @@ export function StakeholdersTab({ projectId }: { projectId: string }) {
           <span role="columnheader">最近沟通</span><span role="columnheader" aria-label="操作" />
         </div>
         {rows.map((s) => (
-          <StakeRow key={s.stakeholder_id} projectId={projectId} s={s} c={people.get(s.stakeholder_id)!}
+          <StakeRow key={s.stakeholder_id} projectId={projectId} s={s} c={people.get(s.stakeholder_id)!} last={lastOf(s.stakeholder_id)}
             onOpen={() => navigate(`/contacts?c=${encodeURIComponent(s.stakeholder_id)}`)}
+            onOpenMessage={(m) => navigate(`${MESSAGES_PATH}?m=${encodeURIComponent(m.id)}`)}
             onRemove={() => onRemove(s)} removing={remove.isPending && remove.variables === s.stakeholder_id} />
         ))}
       </div>
@@ -79,11 +99,13 @@ export function StakeholdersTab({ projectId }: { projectId: string }) {
   )
 }
 
-function StakeRow({ projectId, s, c, onOpen, onRemove, removing }: {
+function StakeRow({ projectId, s, c, last, onOpen, onOpenMessage, onRemove, removing }: {
   projectId: string
   s: ProjectStakeholder
   c: Contact
+  last: LastComm
   onOpen: () => void
+  onOpenMessage: (m: ImMessage) => void
   onRemove: () => void
   removing: boolean
 }) {
@@ -138,7 +160,11 @@ function StakeRow({ projectId, s, c, onOpen, onRemove, removing }: {
           value={focus} placeholder="他关心什么" maxLength={500} onChange={(e) => onFocusChange(e.target.value)} onBlur={flush} />
         {err && <span className="pj-err">{err}<button type="button" className="pj-link" onClick={() => save({ focus })}>重试</button></span>}
       </span>
-      <span role="cell" className="pj-muted">还没绑定沟通渠道</span>
+      <span role="cell" className="pj-last">
+        {'msg' in last
+          ? <button type="button" className="pj-last-btn ellipsis" title={last.msg.text} onClick={() => onOpenMessage(last.msg)}>{ago(last.msg.at)} · {snippet(last.msg.text)}</button>
+          : <span className="pj-muted">{last.note}</span>}
+      </span>
       <span role="cell"><Button size="sm" disabled={removing} onClick={onRemove}>移除</Button></span>
     </div>
   )

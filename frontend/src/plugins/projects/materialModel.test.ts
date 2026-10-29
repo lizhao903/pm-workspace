@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import type { ProjectMaterial } from '../../core/data'
-import { allTags, dirOf, joinPath, matchMaterial, newestFirst, resolvePath, splitTags } from './materialModel'
+import type { ProjectMaterial, WorkObject } from '../../core/data'
+import { allTags, dirOf, joinPath, matchMaterial, newestFirst, recentDocsAndMaterials, resolvePath, splitTags } from './materialModel'
 
 const mat = (p: Partial<ProjectMaterial>): ProjectMaterial => ({
   id: 'mt_1', project_id: 'obj_p', kind: 'file', name: '访谈', value: '/x/a.md', category: '', status: '', tags: [], source: 'manual',
@@ -52,5 +52,18 @@ describe('支持材料的标签和筛选', () => {
     expect(matchMaterial(m, { q: '', kind: 'file', tag: '' })).toBe(false)
     expect(matchMaterial(m, { q: '', kind: '', tag: '访谈' })).toBe(false)
     expect(matchMaterial(m, { q: '没有', kind: '', tag: '' })).toBe(false)
+  })
+})
+
+describe('概览的最近的文档和材料', () => {
+  it('文档和材料合在一起按时间倒序取前 5 条，标签是文档类别或材料种类', () => {
+    const doc = (id: string, at: string, category_name = '') => ({ id, title: `文档${id}`, category_name, updated_at: at }) as WorkObject
+    const docs = [doc('d1', '2026-10-05T00:00:00Z', 'PRD'), doc('d2', '2026-10-01T00:00:00Z')]
+    const mats = [1, 2, 3, 4].map((i) => mat({ id: `m${i}`, name: `材料${i}`, kind: i === 1 ? 'link' : 'file', created_at: `2026-10-0${i + 1}T00:00:00Z` }))
+    const got = recentDocsAndMaterials(docs, mats)
+    expect(got.map((x) => x.title)).toEqual(['文档d1', '材料4', '材料3', '材料2', '材料1'])
+    expect(got[0].tag).toBe('PRD')
+    expect(got[4].tag).toBe('链接')
+    expect(recentDocsAndMaterials([docs[1]], []).map((x) => x.tag)).toEqual(['文档'])
   })
 })

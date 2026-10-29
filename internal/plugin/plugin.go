@@ -13,7 +13,7 @@ import (
 )
 
 // 后端插件接口（CORE-04a），见 docs/plugin-api.md 2.0、2.1、2.10。
-// 这一版有路由、后台任务、事件订阅、今日卡片、连接器五个扩展点；设置分节、对象类型等随各自的任务加，
+// 这一版有路由、后台任务、事件订阅、今日卡片、连接器、技能六个扩展点；设置分节、对象类型等随各自的任务加，
 // 加的时候升插件 API 的小版本。
 
 // Plugin 是第一方插件的后端入口，编译进二进制，用 Registry.Add 登记。
@@ -55,6 +55,8 @@ type Registrar interface {
 	Connector(d ConnectorDef)
 	// ConnectorImpact 登记一项删除连接器前的影响检查，Key 本插件内唯一（CONN-03，impact.go）。
 	ConnectorImpact(d ConnectorImpactDef)
+	// Skill 登记一个技能，ID 必须在清单 provides.skills 里、以 sk_ 开头（2.6，AG-01b2，skill.go）。
+	Skill(s SkillDef)
 }
 
 // RouteRegistrar 和 internal/api 里的同名接口一致，*http.ServeMux 天然满足。

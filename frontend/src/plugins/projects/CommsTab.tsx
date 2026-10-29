@@ -1,51 +1,61 @@
 // 沟通标签（SPEC-projects-4，PJ-02b）：左边是项目绑定的群聊和私聊，右边只显示这些会话里的消息。
 // 绑定按会话 id 存在项目插件里（PJ-02a），候选从内核会话表列（含还没收到消息的群）；消息按绑定的会话逐个取（IM-01a）。
 // IM 消息插件没装或停用时消息区提示去插件管理，绑定照常能增删。点消息跳到 IM 消息页打开抽屉（插件间不 import 抽屉）。
-// 顶上是消息里的附件（SPEC-projects-5，IM-04b，AttachmentInbox），IM 插件没在跑时不显示。
+// 右栏消息列表上面是消息里的附件（SPEC-projects-4.13、5，AttachmentInbox），IM 插件没在跑时不显示。
+// 项目消息（绑定、IM 插件状态、按会话取的消息）抽成 useProjectMessages，概览、标签红点、干系人用同一份缓存。
 import { useEffect, useMemo, useState, type KeyboardEvent } from 'react'
 import { useNavigate } from 'react-router'
 import {
-  errorText, onServerEvent, useBindProjectConversation, useConnectorDefs, useContacts, useConversationMessages, useConversations,
-  useDictionaries, useEventsLive, useIdentities, useAllImMessages, useNotifyChange, usePlugins, useProjectConversations,
-  useUnbindProjectConversation, type ImAttachment, type ImMessage,
+  ATTACH_KIND, errorText, onServerEvent, useBindProjectConversation, useConnectorDefs, useContacts, useConversations,
+  useDictionaries, useIdentities, useAllImMessages, useNotifyChange, useUnbindProjectConversation, type ImAttachment, type ImMessage,
 } from '../../core/data'
 import { Avatar, Button, EmptyState, ErrorState, IconButton, IconClose, IconSearch, LoadingState, cls } from '../../core/ui'
 import {
-  DM_PEEK, IM_PLUGIN, MSG_PAGE, awaitingReply, channelLabeler, convLabel, directCandidates, groupCandidates, isDirect, isSnoozed,
+  DM_PEEK, MSG_PAGE, awaitingCount, awaitingReply, channelLabeler, fmtSize, convLabel, directCandidates, groupCandidates, isDirect, isSnoozed,
   lastMessageAt, mentionParts, peopleOf, pendingByConversation, statusLabeler, whoName,
 } from './commsModel'
 import { ago } from './model'
-import { AttachmentInbox } from './AttachmentInbox'
+import { AttIcon, AttachmentInbox } from './AttachmentInbox'
+import { useProjectMessages } from './projectMessages'
 
 const PLUGINS_PATH = '/settings/plugins'
 const MESSAGES_PATH = '/messages'
 const MSG_STATUS_DICT = 'msg_status'
-/** 事件流断开时轮询 */
-const POLL_MS = 30_000
 
 function MentionText({ text }: { text: string }) {
   return <>{mentionParts(text).map((p, i) => (typeof p === 'string' ? p : <span key={i} className={cls('pj-mention', p.hot && 'pj-mention-hot')}>@{p.name}</span>))}</>
 }
 
-const ATT_KIND: Record<string, string> = { file: '文件', image: '图片', link: '链接' }
-
-/** 附件小标签，最多 3 个；只展示 */
+/** 附件小标签，最多 3 个；种类图标加名字，悬停「种类 · 大小」（SPEC-messages-1.16）；只展示 */
 function AttachmentChips({ atts }: { atts: readonly ImAttachment[] }) {
   if (!atts.length) return null
   return (
     <span className="pj-att-chips">
-      {atts.slice(0, 3).map((a) => <span key={a.id} className="pj-att-chip" title={ATT_KIND[a.kind] ?? a.kind}>{a.name}</span>)}
+      {atts.slice(0, 3).map((a) => (
+        <span key={a.id} className={cls('pj-att-chip', `pj-att-${a.kind}`)} title={[ATTACH_KIND[a.kind] ?? a.kind, fmtSize(a.size)].filter(Boolean).join(' · ')}>
+          <AttIcon kind={a.kind} /><span className="ellipsis">{a.name}</span>
+        </span>
+      ))}
       {atts.length > 3 && <span className="pj-att-chip">另外 {atts.length - 3} 个</span>}
     </span>
   )
 }
 
+/**
+ * 标签条「沟通」上的红点：有待回复（不含稍后）时显示（SPEC-projects-2.3）。
+ * 项目详情里一直挂着，所以新消息事件在这里订一次，沟通标签、概览、干系人跟着刷
+ */
+export function CommsTabDot({ projectId }: { projectId: string }) {
+  const notify = useNotifyChange()
+  const { msgs, noIm } = useProjectMessages(projectId)
+  useEffect(() => onServerEvent('im.message_received', () => void notify({ kind: 'im-message' })), [notify])
+  const n = noIm ? 0 : awaitingCount(msgs.data)
+  return n ? <span className="side-dot pj-tab-dot" title={`${n} 条待回复`} /> : null
+}
+
 export function CommsTab({ projectId }: { projectId: string }) {
   const navigate = useNavigate()
-  const notify = useNotifyChange()
-  const live = useEventsLive()
-  const plugins = usePlugins()
-  const binds = useProjectConversations(projectId)
+  const { binds, bound, boundIds, msgs, noIm, imOn } = useProjectMessages(projectId)
   const convs = useConversations()
   const identities = useIdentities()
   const contacts = useContacts()
@@ -55,13 +65,6 @@ export function CommsTab({ projectId }: { projectId: string }) {
   const bind = useBindProjectConversation(projectId)
   const unbind = useUnbindProjectConversation(projectId)
 
-  // 插件列表读不出来时照样去取消息，404 再当没装
-  const imInfo = plugins.data?.find((p) => p.id === IM_PLUGIN)
-  const imOn = plugins.isError || !!imInfo?.running
-  const bound = useMemo(() => binds.data ?? [], [binds.data])
-  const boundIds = useMemo(() => bound.map((b) => b.conversation_id), [bound])
-  const msgs = useConversationMessages(boundIds, { enabled: imOn, refetchInterval: live ? false : POLL_MS })
-  const noIm = (!!plugins.data && !imInfo?.running) || msgs.noPlugin
 
   const [filter, setFilter] = useState('')
   const [adding, setAdding] = useState(false)
@@ -71,8 +74,7 @@ export function CommsTab({ projectId }: { projectId: string }) {
   const [lim, setLim] = useState({ filter, n: MSG_PAGE })
   const limit = lim.filter === filter ? lim.n : MSG_PAGE
 
-  // 新消息到达就刷新；事件流断开时退回轮询
-  useEffect(() => onServerEvent('im.message_received', () => void notify({ kind: 'im-message' })), [notify])
+  // 新消息事件由标签条的 CommsTabDot 订阅；事件流断开时 useProjectMessages 退回轮询
   // 相对时间、稍后到点每分钟重算一次
   const [now, setNow] = useState(() => Date.now())
   useEffect(() => {
@@ -214,12 +216,14 @@ export function CommsTab({ projectId }: { projectId: string }) {
                   <b className="ellipsis">{who}</b>
                   <span className="pj-muted ellipsis">{chLabel(m.channel)} · {m.conversation || '私聊'}</span>
                   <span className="spacer" />
-                  <span className="pj-muted" title={m.at}>{ago(m.at, now)}</span>
+                  <span className="pj-msg-side">
+                    <span className="pj-muted" title={m.at}>{ago(m.at, now)}</span>
+                    {snoozed ? <span className="pj-muted">稍后提醒</span> : waiting ? <span className="pj-msg-go">回复</span> : <span className="pj-muted">{stLabel(m.status)}</span>}
+                  </span>
                 </span>
                 <span className="pj-msg-text"><MentionText text={m.text} /></span>
                 <AttachmentChips atts={m.attachments} />
               </span>
-              {snoozed ? <span className="pj-muted">稍后提醒</span> : waiting ? <span className="pj-msg-go">回复</span> : <span className="pj-muted">{stLabel(m.status)}</span>}
             </button>
           )
         })}
@@ -237,20 +241,17 @@ export function CommsTab({ projectId }: { projectId: string }) {
   )
 
   return (
-    <>
-    {inbox}
     <div className="pj-comms">
       <div className="pj-chats">
         <div className="pj-chats-head">
           <h2 className="pj-sec-title">项目沟通渠道</h2>
-          <button type="button" className="pj-link" aria-expanded={adding} onClick={togglePanel}>{adding ? '收起' : '绑定'}</button>
+          <Button size="sm" variant="outline" aria-expanded={adding} onClick={togglePanel}>{adding ? '收起' : '绑定'}</Button>
         </div>
         {panel}
         {err && <div className="pj-err" role="alert">{err}</div>}
         {list}
       </div>
-      <div className="pj-msgs" aria-label="项目消息">{body}</div>
+      <div className="pj-msgs" aria-label="项目消息">{inbox}{body}</div>
     </div>
-    </>
   )
 }

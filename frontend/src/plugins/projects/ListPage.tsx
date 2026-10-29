@@ -1,21 +1,32 @@
-// 项目列表（SPEC-projects-1）：卡片网格，可搜索、按状态筛选，按最近打开或名称排序；没筛选、没搜索时按状态分组。
-// 状态是项目类型自己的状态集（/api/object-types），原型的「有原型在跑 / 有待回复」要等原型进程（PJ-04）和项目沟通（PJ-02）
+// 项目列表（SPEC-projects-1）：卡片网格，可搜索、按「有原型在跑 / 有待回复 / 其他」筛选（ALIGN-05），按最近打开或名称排序；
+// 没筛选、没搜索时按这三段分组。原型数、绑定的会话来自项目汇总（/api/projects/summary），待回复数按会话对上待处理消息。
+// 项目类型自己的状态（筹备中、已暂停……）不再分组，常态「进行中」以外的在卡片上标一个小标签
 import { useMemo, useState } from 'react'
 import {
-  PROJECT_TYPE, errorText, projectView, useAllObjects, useCreateProject, useObjectTypes, useProjects, type ProjectView,
+  EMPTY_STAT, PROJECT_TYPE, errorText, projectStats, projectView, useAllObjects, useCreateProject, useObjectTypes, usePendingImMessages,
+  usePlugins, useProjectSummary, useProjects, type ProjectView,
 } from '../../core/data'
 import { Button, ErrorState, IconClose, IconSearch, LoadingState, PageTitle, Pill, cls } from '../../core/ui'
+import { IM_PLUGIN } from './commsModel'
 import { ProjectMarkView } from './Mark'
 import { NEW_PROJECT_ICON } from './markIcons'
-import { GROUP_PEEK, dirName, groupByStatus, loadRecent, matchQuery, nextColor, openTaskCounts, sortProjects, type Sort } from './model'
+import {
+  ACTIVITY_GROUPS, GROUP_PEEK, activityOf, dirName, groupByActivity, loadRecent, matchQuery, nextColor, openTaskCounts, showStatusTag, sortProjects,
+  type Activity, type Sort,
+} from './model'
 
 export function ListPage({ onOpen }: { onOpen: (id: string, tab?: 'settings') => void }) {
   const projects = useProjects()
   const types = useObjectTypes()
   const openTasks = useAllObjects({ type: ['task'], not_terminal: true })
+  const summary = useProjectSummary()
+  const plugins = usePlugins()
+  // IM 插件没在跑时消息接口 404，不发请求，待回复都按 0；插件列表取不到时照常去取
+  const imOn = plugins.isError || !!plugins.data?.find((p) => p.id === IM_PLUGIN)?.running
+  const pending = usePendingImMessages(imOn)
   const create = useCreateProject()
   const [q, setQ] = useState('')
-  const [status, setStatus] = useState('')
+  const [filter, setFilter] = useState<Activity>('')
   const [sort, setSort] = useState<Sort>('recent')
   const [expanded, setExpanded] = useState<string[]>([])
   // 进列表时读一次；打开项目会离开列表页，回来再读
@@ -24,11 +35,12 @@ export function ListPage({ onOpen }: { onOpen: (id: string, tab?: 'settings') =>
   const statuses = useMemo(() => types.data?.find((t) => t.id === PROJECT_TYPE)?.statuses ?? [], [types.data])
   const all = useMemo(() => (projects.data?.data ?? []).map(projectView), [projects.data])
   const taskN = useMemo(() => openTaskCounts(openTasks.data?.data ?? []), [openTasks.data])
-  const rows = useMemo(
-    () => sortProjects(all.filter((p) => (!status || p.status === status) && matchQuery(p, q)), sort, recent),
-    [all, status, q, sort, recent],
-  )
-  const statusN = (k: string) => all.filter((p) => p.status === k).length
+  const stats = useMemo(() => projectStats(summary.data ?? [], pending.data ?? []), [summary.data, pending.data])
+  const stat = (p: ProjectView) => stats.get(p.id) ?? EMPTY_STAT
+  const groupOf = (p: ProjectView) => activityOf(stats.get(p.id))
+  const rows = sortProjects(all.filter((p) => (!filter || groupOf(p) === filter) && matchQuery(p, q)), sort, recent)
+  // 数字是全部项目里的个数，不受搜索影响（SPEC-projects-1.5）
+  const groupN = (k: Activity) => all.filter((p) => groupOf(p) === k).length
   const statusOf = (k: string) => statuses.find((s) => s.key === k)
 
   const newProject = () => {
@@ -50,23 +62,33 @@ export function ListPage({ onOpen }: { onOpen: (id: string, tab?: 'settings') =>
 
   const card = (p: ProjectView) => {
     const n = taskN.get(p.id) ?? 0
-    const st = statusOf(p.status)
+    const s = stat(p)
+    const st = showStatusTag(p.status) ? statusOf(p.status) : undefined
     const dir = dirName(p.root)
     return (
       <button key={p.id} type="button" className="pj-card" title={p.name} onClick={() => onOpen(p.id)}>
-        <span className="pj-card-head"><ProjectMarkView p={p} size={28} /><b className="pj-card-name">{p.name}</b></span>
+        <span className="pj-card-head">
+          <ProjectMarkView p={p} size={28} /><b className="pj-card-name">{p.name}</b>
+          {st && <Pill label={st.label} color={st.color} className="pj-card-status" />}
+        </span>
         <span className="pj-card-desc">{p.desc || <span className="faint">没有说明</span>}</span>
         <span className="pj-card-meta">
-          {st && status === '' && q.trim() !== '' && <Pill label={st.label} color={st.color} />}
+          {s.protoTotal > 0 && (
+            <span className={cls(s.protoRunning > 0 && 'pj-ok')}>
+              <span className={cls('pj-proto-light', s.protoRunning > 0 && 'pj-pl-running')} />原型 {s.protoRunning}/{s.protoTotal}
+            </span>
+          )}
+          {s.pending > 0 && <span className="pj-warn">{s.pending} 条待回复</span>}
           <span>{openTasks.data ? (n ? `${n} 个未完成任务` : '没有未完成任务') : '任务数加载中'}</span>
-          <span className="pj-mono ellipsis" title={p.root || undefined}>{dir || '未设目录'}</span>
+          <span className="pj-card-dir pj-mono ellipsis" title={p.root || undefined}>{dir || '未设目录'}</span>
         </span>
       </button>
     )
   }
 
   let body
-  if (projects.isPending) body = <LoadingState />
+  // 分组要等汇总和待处理消息，不然先全落在「其他」再跳
+  if (projects.isPending || summary.isPending || (imOn && pending.isPending)) body = <LoadingState />
   else if (projects.isError && !projects.data) {
     body = <ErrorState title="项目没加载出来" error={errorText(projects.error)} onRetry={() => void projects.refetch()} />
   } else if (!all.length) {
@@ -84,10 +106,10 @@ export function ListPage({ onOpen }: { onOpen: (id: string, tab?: 'settings') =>
         <div className="empty-desc">换个关键词，或清掉状态筛选</div>
       </div>
     )
-  } else if (!status && !q.trim()) {
+  } else if (!filter && !q.trim()) {
     body = (
       <div className="pj-groups">
-        {groupByStatus(rows, statuses).map((g) => {
+        {groupByActivity(rows, groupOf).map((g) => {
           const open = expanded.includes(g.key)
           return (
             <section key={g.key} className="pj-group" aria-label={g.label}>
@@ -113,6 +135,12 @@ export function ListPage({ onOpen }: { onOpen: (id: string, tab?: 'settings') =>
     <div className="pj-page">
       {title}
       {create.isError && <div className="pj-err" role="alert">项目没建成：{errorText(create.error)}</div>}
+      {summary.isError && (
+        <div className="pj-err" role="alert">
+          原型和沟通的统计没取到，分组先按没有算：{errorText(summary.error)}
+          <Button size="sm" onClick={() => void summary.refetch()}>重试</Button>
+        </div>
+      )}
       {all.length > 0 && (
         <div className="pj-toolbar">
           <div className="search">
@@ -123,12 +151,12 @@ export function ListPage({ onOpen }: { onOpen: (id: string, tab?: 'settings') =>
             {q && <button type="button" className="search-clear" aria-label="清空" title="清空" onClick={() => setQ('')}><IconClose size={10} /></button>}
           </div>
           <div className="pj-seg" role="group" aria-label="状态">
-            <button type="button" className={cls(!status && 'on')} aria-pressed={!status} onClick={() => setStatus('')}>
+            <button type="button" className={cls(!filter && 'on')} aria-pressed={!filter} onClick={() => setFilter('')}>
               全部<span className="seg-n">{all.length}</span>
             </button>
-            {statuses.map((s) => (
-              <button key={s.key} type="button" className={cls(status === s.key && 'on')} aria-pressed={status === s.key} onClick={() => setStatus(s.key)}>
-                {s.label}<span className="seg-n">{statusN(s.key)}</span>
+            {ACTIVITY_GROUPS.map((g) => (
+              <button key={g.key} type="button" className={cls(filter === g.key && 'on')} aria-pressed={filter === g.key} onClick={() => setFilter(g.key)}>
+                {g.label}<span className="seg-n">{groupN(g.key)}</span>
               </button>
             ))}
           </div>

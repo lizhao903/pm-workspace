@@ -75,8 +75,13 @@ func (d *Demo) Register(r plugin.Registrar) error {
 	})
 	r.TodayCard(plugin.TodayCardDef{Key: "demo_inbox", Title: "示例收件箱", Order: 50, Load: d.inbox})
 	r.Connector(EchoConnector())
+	r.Skill(plugin.SkillDef{ID: SkillID, Name: "示例摘要", Desc: "把示例收件箱整理成三条要点",
+		When: "用户要看示例收件箱的摘要时", Instructions: "每条要点一句话，先写最紧急的。", Tools: []string{"示例回声"}})
 	return nil
 }
+
+// SkillID 是示例插件登记的技能。
+const SkillID = "sk_demo_digest"
 
 // EchoTool 是示例插件登记的连接器。
 const EchoTool = "demo_echo"

@@ -7,7 +7,7 @@ import {
   useProject, useProjectMaterials, useSkipAttachment, type ImAttachmentFile, type ImMessage,
 } from '../../core/data'
 import { cls } from '../../core/ui'
-import { whoName } from './commsModel'
+import { fmtSize, whoName } from './commsModel'
 import { ago } from './model'
 
 /** 待决定的超过这么多个就折叠，展开后也先露这么多个 */
@@ -15,14 +15,13 @@ export const PEEK = 3
 
 type Row = { m: ImMessage; a: ImAttachmentFile }
 
-function AttIcon({ kind }: { kind: ImAttachmentFile['kind'] }) {
+/** 附件种类图标；沟通标签消息行的附件小标签也用（SPEC-messages-1.16） */
+export function AttIcon({ kind }: { kind: ImAttachmentFile['kind'] }) {
   const d = kind === 'link' ? 'M6.5 9.5 9.5 6.5M7 4.5l1-1a2.5 2.5 0 0 1 3.5 3.5l-1 1M9 11.5l-1 1A2.5 2.5 0 0 1 4.5 9l1-1'
     : kind === 'image' ? 'M3 3.5h10v9H3zM3 10.5l3-3 2.5 2.5L10 8.5l3 3' : 'M4 2.5h5l3 3v8H4zM9 2.5v3h3'
   return <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path d={d} fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" /></svg>
 }
 
-const fmtSize = (n?: number) => (n === undefined || n === null ? ''
-  : n < 1024 ? `${n} B` : n < 1024 * 1024 ? `${Math.round(n / 1024)} KB` : `${(n / 1024 / 1024).toFixed(1)} MB`)
 
 function statusLine(a: ImAttachmentFile, fetching: boolean, localErr: string) {
   if (a.kind === 'link') return a.url ?? ''

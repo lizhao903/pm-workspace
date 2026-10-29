@@ -147,4 +147,6 @@ export const dataKeys = {
     list: (projectId: string) => ['project-prototypes', projectId, 'list'] as const,
     logs: (projectId: string, protoId: string) => ['project-prototypes', projectId, 'logs', protoId] as const,
   },
+  /** 项目汇总（ALIGN-05）：列表卡片的原型数和绑定的会话，原型启停、会话绑定时刷 */
+  projectSummary: ['project-summary'] as const,
 }

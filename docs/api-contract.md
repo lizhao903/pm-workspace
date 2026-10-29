@@ -193,6 +193,8 @@
 | msg | IM 消息（IM 插件） | im_messages |
 | ag | Agent 配置 | agents |
 | sop | SOP 流程（SOP 插件） | sop_flows |
+| spr | SOP 运行（SOP 插件；`sop_run_steps` 跟着运行 id，不另发前缀） | sop_runs |
+| sk | 自定义技能（内置和插件技能的 id 也是 `sk_` 开头，不入库） | skills |
 | pn | 终端会话（终端插件，128 位随机串，不走 `idgen.Prefixed`，不入库） | - |
 
 原型 `ids.ts` 和后端不一致的前缀：后端已经上线的不改，原型的前缀保留，不分给别的实体。
@@ -560,6 +562,30 @@ AG-01b1。表 `agents`（0032），id 前缀 `ag`，字段对齐原型 `web-next
 - 原型里另外两项后端还没有数据：「还有 N 处操作等你确认」（执行记录和会话里的待确认调用，AG-01b4、AG-02a）拦删除，「会从项目 X 里摘掉」（项目挂 Agent）是影响，等对应任务补。
 - 影响检查不记审计。服务没接定时任务时不查 `schedules`。
 - 审计按 `config` 记，`target_type` 为 `agent`，`action` 为 `create` / `update` / `delete`：新建、删除记 `detail.name`、`provider_id`、`model`（新建另记 `enabled`），修改只记 `detail.fields`（改了启停时另记新的 `detail.enabled`）。被拦下的删除不记。
+
+## 技能 skills
+
+AG-01b2。字段对齐原型 `web-next/src/agentdata.ts` 的 `Skill`（`SPEC-settings-15`、`SPEC-settings-16`）。三种来源：内置技能写在代码里（`internal/agent`，原型 `SKILLS` 里来源为「内置」的 10 条），自定义技能存在表 `skills`（0033，id 前缀 `sk`），插件技能由插件在 `Register` 里调 `Registrar.Skill` 登记（`plugin-api.md` 2.6）。内置和插件技能只读。全量导出暂不含这张表。
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| GET | `/api/skills?source=` | `Skill[]` + `meta.total`，不分页；顺序是内置（原型顺序）、在跑的插件（按插件登记顺序）、自定义（新建的在前）。`source` 为 `builtin` / `custom` / 插件 id 时只给这一种，不给是全部 |
+| POST | `/api/skills` | 新建自定义技能，body 是 `{name, desc?, instructions, when?, uses?, copy_from?}`；回 201 + `Skill` |
+| GET | `/api/skills/{id}` | 一个 `Skill`；不存在、插件已停用 404 |
+| PATCH | `/api/skills/{id}` | 只对自定义技能，只传要改的字段，`null` 等于没传，不认的键（`id`、`source`、`agents`）忽略；内置、插件技能回 409 |
+| DELETE | `/api/skills/{id}` | 只对自定义技能，内置、插件技能回 409；从挂着它的 Agent 的 `skills` 里摘掉，回删掉的那条 `Skill`，`agents` 是被摘掉它的 Agent |
+
+`Skill`：`{id, name, desc, source, uses, instructions, when, agents}`，自定义技能另有 `created_at`、`updated_at`。
+
+- `source` 为 `builtin`（内置）、`custom`（自定义）或提供它的插件 id。前端按 `source` 显示来源标签，`builtin` 和插件 id 都按只读处理（`SPEC-settings-16.2`）。
+- `agents` 是挂着它的 Agent `{id, name}[]`，按 Agent 新建的在前，没有是 `[]`（`SPEC-settings-15.5`「在用的 Agent」、`16.8`）。删除确认框的「<Agent 名> 挂着它，删除后会自动卸下」用它拼（`16.11`）。
+- `created_at`、`updated_at` 只有自定义技能有，内置和插件技能的响应里不出现这两个键。
+- 校验：`name` 去首尾空白、必填、最多 100 字；`instructions`（怎么做）必填、最多 20000 字；`desc` 最多 500 字；`when` 最多 500 字；`uses` 去空白、去空串、去重，最多 50 个、每个最多 100 字，只是说明，不校验工具是否存在。校验失败回 400，message 是中文整句（如「名称还没填」「怎么做还没填」）。
+- **复制**（`SPEC-settings-16.9`）：带 `copy_from` 时，body 里没给的字段从那个技能复制，`name` 默认是原名加「（副本）」；给了的字段以 body 为准（前端要按原型写「（我的）」就自己传 `name`）。任何来源的技能都能复制，结果都是自定义技能；`copy_from` 不存在回 400。
+- 删除不影响会话：已经跑过的对话不改，之后对话不再注入它。Agent 的 `updated_at` 跟着更新。
+- **对话注入**：会话挂了 Agent 时，`POST /api/agent/chat` 按 Agent `skills` 的顺序把每个技能拼成一段「技能：<名称>」（说明、什么时候用、用到的工具、怎么做），放在 Agent 指令后面。取不到的技能（插件停用、技能已删）跳过，不报错。
+- 插件技能的 id 必须在清单 `provides.skills` 里、以 `sk_` 开头，不能和内置技能重复（登记时检查，不对插件起不来）；两个插件登记同一个 id 时列表里只留先登记的那个。
+- 审计按 `config` 记，`target_type` 为 `skill`，`action` 为 `create` / `update` / `delete`：新建记 `detail.name`（复制时另记 `copy_from`），修改只记 `detail.fields`，删除记 `detail.name` 和 `detached_agents`（被摘掉它的 Agent id）。被拦下的改、删不记。
 
 ## 输出产物 artifacts
 
@@ -1264,6 +1290,21 @@ PJ-04a。表 `projects_prototypes`、`projects_prototype_crashes`（插件迁移
 - `{id}` 不是项目、不存在或在回收站里 404；原型不在这个项目里 404。硬删项目时定义和崩溃记录一起删（外键 `ON DELETE CASCADE`）；软删项目不动。
 - 暂不记审计、不发事件，同项目干系人。
 
+### 项目汇总
+
+ALIGN-05。项目列表（SPEC-projects-1.5 到 1.11）按「有原型在跑 / 有待回复 / 其他」分组，卡片上要原型数和待回复数，一次取齐，不用每个项目各发请求。不加表、不加迁移。
+
+| 方法 | 路径 | body / 说明 |
+|---|---|---|
+| GET | `/api/projects/summary` | `ProjectSummary[]` + `meta.total`，不分页 |
+
+`ProjectSummary`：`{project_id, prototypes: {total, running}, conversations: [{id, channel, external_id}]}`。
+
+- 只列有原型或绑了会话的项目；不在里面的项目原型和会话都是 0。不看项目是否在回收站，前端按自己的项目列表对上。顺序：先有原型的项目（按第一个原型的添加先后），再只绑了会话的项目。
+- `running` 只数 `status=running` 的原型（端口能连上），`starting` 不算，和原型标签上的绿灯一致。
+- 待回复数不在这里：消息在 IM 插件的表里，项目插件读不到，也不加跨插件依赖。前端拿一次 `GET /api/im/messages?status=pending&snoozed=false`（翻页拉完），按 `conversations` 对上项目：消息的 `conversation_id` 等于会话 `id`，或消息没认上会话（`conversation_id` 为 `null`）时 `channel`、`conversation_external_id` 等于会话的 `channel`、`external_id`（同 `/api/im/messages?conversation_id=` 的口径）。一个会话绑了几个项目，它的消息就算进每个项目。IM 插件没装或停用时消息接口 404，待回复都按 0。
+- 原型状态在内存里，不发事件；启停原型、绑定解绑会话后前端重新取。
+
 ## IM 消息插件 im
 
 IM-01a 起。插件 `im`（`internal/plugins/im`，清单 `plugin.json`，0.3.0）。收各 IM 渠道的消息，落在插件表 `im_messages`（插件迁移 `0001_messages.sql`；IM-02a 的处理动作加了 `0002_actions.sql`，回复在 `im_replies`；IM-04a 的附件获取加了 `0003_attachments.sql`，获取状态在 `im_attachments`；安装插件时应用）。发送人按 IM 身份（见「IM 身份 im-identities」）的 id 认、会话按会话（见「会话 conversations」）的 id 归，**不靠名字**。插件未安装或停用时，本节接口回 `not_found` 404（同「插件路由」）；停用时拉取也停下，数据不动。
@@ -1441,7 +1482,7 @@ IM-04a，口径照原型 `App.tsx` 的 `fetchAttachment`、`messages.tsx` 的 `f
 
 ## SOP 编排插件 sop
 
-SOP-01a 起。插件 `sop`（`internal/plugins/sop`，清单 `plugin.json`，0.1.0，权限为空）。流程定义落在插件表 `sop_flows`（插件迁移 `0001_flows.sql`，安装插件时应用），id 前缀 `sop`。执行引擎（SOP-01b）、AI 类和外部节点（SOP-01c）、定时任务和 Agent 发起（SOP-01d）后续接上。插件未安装或停用时，本节接口回 `not_found` 404（同「插件路由」），数据不动。
+SOP-01a 起。插件 `sop`（`internal/plugins/sop`，清单 `plugin.json`，0.2.0，权限为空）。流程定义落在插件表 `sop_flows`（插件迁移 `0001_flows.sql`，安装插件时应用），id 前缀 `sop`；执行（SOP-01b）落在 `sop_runs`、`sop_run_steps`（插件迁移 `0002_runs.sql`），id 前缀 `spr`。AI 类和外部节点（SOP-01c）、定时任务和 Agent 发起（SOP-01d）后续接上。插件未安装或停用时，本节接口回 `not_found` 404（同「插件路由」），数据不动。
 
 ### 流程定义
 
@@ -1451,7 +1492,7 @@ SOP-01a 起。插件 `sop`（`internal/plugins/sop`，清单 `plugin.json`，0.1
 | POST | `/api/sop/flows` | `{name, desc?, trigger?, fields?, steps, layout?, id?}`，校验通过回 201 + `SopFlow` |
 | GET | `/api/sop/flows/{id}` | 一条 `SopFlow`；不存在 404 |
 | PATCH | `/api/sop/flows/{id}` | 只传要改的：`name` / `desc` / `trigger` / `fields` / `steps` / `layout`，数组和 `layout` 整体替换，`layout: null` 清掉；可带 `version`，和库里不一致 409。改完对整条定义重新校验，`version` 加 1 |
-| DELETE | `/api/sop/flows/{id}` | 彻底删除，`data` 为 `null`；有进行中的执行 409（执行引擎 SOP-01b 接上前不会出现）；不存在 404 |
+| DELETE | `/api/sop/flows/{id}` | 彻底删除，`data` 为 `null`；有进行中的执行（没结束也没终止）409；不存在 404；执行记录不跟着删 |
 | GET | `/api/sop/node-types` | 内置节点类型 `SopNodeType[]` + `meta.total`，和原型 `NODE_TYPES` 同序 |
 
 `SopFlow`：`{id, name, desc, trigger, fields, steps, layout?, version, created_at, updated_at}`。形状同原型 `web-next/src/sopflow.ts` 的 `Sop`：`fields` 是 `SopField[]`，`steps` 是 `SopStepDef[]`，`layout` 是 `{<步骤 key 或 __start>: {x, y}}`，没有就不返回这个字段。
@@ -1488,6 +1529,59 @@ SOP-01a 起。插件 `sop`（`internal/plugins/sop`，清单 `plugin.json`，0.1
 ### 节点类型
 
 `SopNodeType`：`{kind, group, branching, default_cases?, required}`。`group` 是原型的分组名（`基础`、`知识与数据`、`逻辑`、`人工`、`外部`、`输出`）；`default_cases` 只有分支节点有；`required` 是必填配置项 `[{key, label}]`，`label` 用在校验信息里，没有必填项是 `[]`。节点的名字、说明、颜色、图标和配置项的其余信息仍在前端。插件注册的节点类型归 SOP-03，现在只认内置的 18 种。
+
+### 运行
+
+SOP-01b 起。执行语义同原型 `web-next/src/sopflow.ts` 的 `startRun`、`advance`、`tick`、`act`（规格 `web-next/docs/spec/sop.md`「执行语义」）。后端每条没结束的执行一个协程、单写者调度；依赖都结束的步骤同时放出（并行），依赖多于一步的等几路都结束（汇合）；没选中的分支 `bypassed`；逐步确认时执行前停在 `paused`；人工检查、人工判断停在 `review`。原型的 `ms` 不进后端，按真实耗时。
+
+| 方法 | 路径 | body / 说明 |
+|---|---|---|
+| POST | `/api/sop/flows/{id}/runs` | `{input?, step_through?}`，用流程当前定义的快照发起一次执行，回 201 + `SopRun`；没传的字段取 `default`，`required` 的空着 400（`「客户」必填`）；流程不存在 404 |
+| GET | `/api/sop/runs` | `SopRunBrief[]` + `meta.total`，按开始时间倒序；`flow_id=` 按流程，`status=` 按运行状态（逗号隔开多个），`mine=true` 待我处理（`waiting` 加 `failed`），`limit=` 默认 200、最多 500 |
+| GET | `/api/sop/runs/{id}` | 一条 `SopRun`，带快照和每步的输入输出、日志；不存在 404 |
+| POST | `/api/sop/runs/{id}/actions` | 一个动作 `SopRunAction`，做完回 `SopRun`；见下表 |
+
+`SopRun`：`{id, flow_id, flow_name, flow_version, flow, title, input, step_through, stopped, status, parent_run_id?, parent_step?, started_at, ended_at?, updated_at, steps}`。对照原型 `SopRun`：`sop_id`、`sop` 改叫 `flow_id`、`flow`（`flow` 是开始执行时的整条 `SopFlow` 快照，之后改了流程，进行中的执行仍按它走完；流程删了执行记录照留，`flow_name` 照常显示）。`title` 同原型：`流程名 · 第一个输入值的第一行`（按换行或 `|` 切，前 16 个字，取不到就只有流程名）。`status` 是 `RunStatus`（`running` `waiting` `done` `failed` `stopped`），由步骤算出，口径同原型 `runStatus`。`parent_run_id`、`parent_step` 只有子流程起的子执行有。时间都是 RFC3339 UTC，精确到毫秒。
+
+`SopRunStep`：`{key, status, input, output, route?, route_reason?, started_at?, ended_at?, error?, edited?, attempts, log, wake_at?, child_run_id?}`，顺序同快照的 `steps`。`status` 同原型 `StepStatus`；`input`、`output` 没有时为 `null`；`edited` 是 `input` / `output` / `route`；`log` 是 `{at, text}[]`；`wake_at` 是等待节点的到点时间，`child_run_id` 是子流程节点起的子执行。
+
+`SopRunBrief`（列表行）：`{id, flow_id, flow_name, flow_version, title, step_through, stopped, status, parent_run_id?, started_at, ended_at?, updated_at, focus, steps}`，`steps` 是 `{key, name, kind, status}[]`，不带快照和每步的输入输出、日志；`focus` 是界面默认看的步骤下标（同原型 `focusIndex`）。
+
+`SopRunAction`：`{kind, step?, input?, output?, route?, on?}`，`step` 是步骤下标（从 0 起）或步骤 key。执行已结束或被终止 409（`这次执行已经结束`）；步骤状态不对 409；`kind` 不认、`step` 不存在、`route` 不在分支里 400。
+
+| `kind` | 什么时候能做 | 效果 |
+|---|---|---|
+| `confirm-input` | 步骤 `paused` | 转 `running`，`attempts` 加 1；带 `input` 时替换输入、标 `edited: input` |
+| `approve` | 人工检查步骤 `review` | 转 `done`；带 `output` 时替换输出、标 `edited: output`；放出下游 |
+| `route` | 人工判断步骤 `review` | 转 `done`，`route` 为选中分支、`route_reason` 为「人工判断」、标 `edited: route`；没选中的分支下游 `bypassed` |
+| `rework` | 人工检查步骤 `review`，且有走到的上游 | 这一步回到 `pending`；上游（没走到的分支除外）重新执行，`attempts` 加 1、清掉 `edited` |
+| `retry` | 步骤 `failed` | 转 `running`，清掉错误，`attempts` 加 1 |
+| `skip` | 步骤 `failed`；或 `paused` 且不是分支节点 | 转 `skipped`，输出等于输入，放出下游 |
+| `stop` | 执行没结束 | `stopped`、写 `ended_at`；`running`、`paused`、`review` 的步骤回到 `pending`；子流程起的子执行一起终止 |
+| `step-through` | 执行没结束，带 `on` | 改逐步确认，只影响之后放出的步骤 |
+
+节点执行（本条实现的几种，其余在 SOP-01c 之前执行直接失败，`error` 为 `这个节点还没接上`，可重试、可跳过）：
+
+| 节点 | 后端怎么执行 |
+|---|---|
+| `auto` | 只透传输入、记一行日志，不做写操作（写节点在 SOP-02a） |
+| `template` | `config.template` 里的 `{{字段}}` 换成输入里的值（`a.b[0].c` 写法，取不到留空，对象转 JSON），写到 `config.output`（默认 `text`） |
+| `aggregate` | `config.mode`：`merge`（默认，按依赖顺序字段合并，后面的覆盖前面的）、`group`（原样）、`first`（第一个非空的上游） |
+| `decide` | 有 `rule` 时按规则判断，规则留空是人工判断（停在 `review`）。规则写法见下 |
+| `review` | 输出等于输入，停在 `review` 等放行、改输出或退回 |
+| `wait` | `config.duration`（默认 `1 小时`）：`30 分钟`、`2 小时`、`1 天`、`10 秒`、`1 周`，也认 `90s`、`1h30m`；到点时间落在 `wake_at`；写法不认时失败 |
+| `subflow` | `config.sop` 是流程 id（也认流程名）；用这一步的输入起一条子执行（补默认值，必填空着就失败），等它结束：完成时输出加 `subflow: {run_id, flow_id, sop, status, output}`（`output` 是子执行没有下游的那几步的输出，只有一步时就是它的输出），子执行被终止时这一步失败；最多嵌套 5 层 |
+| `end` | `config.outputs`（逗号隔开）只留这些字段，取不到为 `null`；留空原样 |
+
+条件分支规则（`SopStepDef.rule`，一行）：`字段 等于 值`、`字段 包含 值`，另有 `不等于`、`不包含`。字段写法同模板；值可以加引号（`"…"`、`'…'`、`「…」`）。`等于` 按文字比；`包含` 对文字是子串，对列表是有一项等于这个值。成立走第一个分支（`cases[0]`），不成立走第二个（`cases[1]`），`route_reason` 是 `规则「…」成立` / `不成立`。写法不认时这一步失败。
+
+断点续跑：服务启动（或插件启用）时，没结束也没终止的执行接着调度。停在 `running` 的步骤重跑一次，`attempts` 加 1、日志「服务重启后重跑」；`wait` 按原来的 `wake_at` 继续（日志「服务重启后继续等待，到点时间不变」），`subflow` 接着等已经起了的子执行；`paused`、`review`、`failed` 原样等人。
+
+事件（清单 `emits`）：`sop.run_status_changed` `{run_id, flow_id, from, to}`（发起时 `from` 为空串）、`sop.step_status_changed` `{run_id, step, from, to, attempts}`，写库后发。
+
+今日卡片：`sop_pending`「SOP 待我处理」（`order` 50），`total` 是 `waiting` 加 `failed` 的执行数，`items` 是最近开始的 5 条 `{id, title, flow_id, flow_name, status, step_key, step_name, step_status, started_at, updated_at}`（`step_*` 是该看的那一步）；没有就不出卡片，插件停用后消失。
+
+- 步骤失败暂不记运行异常（规格「执行语义」第 9 条），等内核给插件开运行异常句柄；暂不记审计。
 
 ## 终端插件 terminal
 

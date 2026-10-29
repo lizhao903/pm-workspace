@@ -93,6 +93,8 @@ type fakeStore struct {
 
 	// agents 懒初始化，方法在 fakestore_agents_test.go。
 	agents map[string]*domain.Agent
+	// skills 懒初始化，方法在 fakestore_skills_test.go。
+	skills map[string]*store.Skill
 }
 
 func newFakeStore() *fakeStore {

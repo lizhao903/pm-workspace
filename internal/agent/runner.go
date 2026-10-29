@@ -102,6 +102,8 @@ type Runner struct {
 	Object *domain.Object
 	// Agent 是会话挂的 Agent，可以为 nil；它的指令拼进系统提示词，见 agentSection。
 	Agent *domain.Agent
+	// Skills 是 Agent 挂的技能，按挂载顺序，取不到的已经跳过；拼在 Agent 指令后面，见 skillSection。
+	Skills []store.Skill
 }
 
 // Run 处理一条用户消息，返回最终落库的 assistant 消息 id。
@@ -302,7 +304,7 @@ func (r *Runner) buildHistory(ctx context.Context, types []*domain.ObjectType) (
 
 	out := []Message{{
 		Role:    RoleSystem,
-		Content: BuildSystemPrompt(types, time.Now(), r.Object) + agentSection(r.Agent),
+		Content: BuildSystemPrompt(types, time.Now(), r.Object) + agentSection(r.Agent) + skillSection(r.Skills),
 	}}
 	for _, m := range past {
 		switch m.Role {

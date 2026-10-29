@@ -1,20 +1,52 @@
 // 今日（SPEC-today-1、TODAY-02）：今天要处理的事集中在一页。内核部分走 GET /api/today?type=task，
 // 插件卡片走不带 type 的聚合（PluginCards）。只有完成圆圈在本页直接改数据，点任务在本页打开任务抽屉。
+// ALIGN-08 起「需要你处理」按来源分组：任务待验收、插件贡献的组（IM 消息）、连接异常；「正在运行」先列插件贡献的（运行中的原型）。
 import { Suspense, useState, type CSSProperties } from 'react'
 import { useNavigate } from 'react-router'
 import {
   dueTodayCard, errorText, localDay, overdueCard, reviewCard, runningCard, schedulesToday, useAllObjects, useApprove,
-  useDictItems, useObject, useObjectTypes, useSchedules, useSetStatus, useToday, type WorkObject,
+  useConnectors, useDictItems, useObject, useObjectTypes, useProgress, useSchedules, useSetStatus, useToday, type WorkObject,
 } from '../../core/data'
+import { TODAY_ORDER, useTodaySourceData, useTodaySources, type TodayItem } from '../../core/plugin'
 import { Button, ErrorState, LoadingState, PageTitle, cls } from '../../core/ui'
 import { ApproveDialog, REVIEW, TaskDrawer, doneKey, dueDay, timeAgo } from '../tasks'
-import { LINE_SHOW, NEED_SHOW, TASK_SHOW, clock, dateText, dayRows, greet, hotLevels, pickHot } from './model'
+import {
+  LINE_SHOW, NEED_SHOW, TASK_SHOW, clock, connectorNeeds, dateText, dayRows, greet, hotLevels, lastReview, needGroups, pickHot, reviewSub,
+} from './model'
 import { PluginCards } from './PluginCards'
 import './today.css'
 
 // 优先级字典的 id（/api/dictionaries）
 const PRIORITY_DICT = 'priority'
 const TASKS = '/tasks'
+const PROJECTS = '/projects'
+
+/** 「需要你处理」的一条（SPEC-today-1.5）：圆点、标题、说明、相对时间、动作 */
+function NeedRow({ item: it, now, onGo }: { item: TodayItem; now: Date; onGo: (it: TodayItem) => void }) {
+  return (
+    <button type="button" className="today-need" onClick={() => onGo(it)}>
+      <span className={cls('today-dot', `td-${it.tone}`)} />
+      <span className="today-need-text">
+        <span className="ellipsis today-need-title">{it.title}</span>
+        {it.sub && <span className="ellipsis today-need-sub">{it.sub}</span>}
+      </span>
+      {it.at && <span className="today-at">{timeAgo(it.at, now)}</span>}
+      {it.action && <span className="today-go">{it.action}</span>}
+    </button>
+  )
+}
+
+/** 任务待验收的一条（SPEC-today-1.25）：说明和时间取这条任务最近一次提交验收的进展 */
+function ReviewRow({ task: t, project, now, onOpen }: { task: WorkObject; project?: string; now: Date; onOpen: (id: string) => void }) {
+  const prog = useProgress(t.id)
+  const last = lastReview(prog.data)
+  return (
+    <NeedRow now={now} onGo={() => onOpen(t.id)} item={{
+      id: t.id, tone: 'warn', title: `${t.ref} ${t.title}`, action: '去验收',
+      sub: prog.isPending ? project ?? '' : reviewSub(last, project), at: last?.created_at ?? t.updated_at,
+    }} />
+  )
+}
 
 export default function Page() {
   const navigate = useNavigate()
@@ -27,6 +59,8 @@ export default function Page() {
   const hotQ = useAllObjects({ type: ['task'], priority: levels.filter((x): x is string => !!x), not_terminal: true }, { enabled: !!levels[0] })
   const setStatus = useSetStatus()
   const approve = useApprove()
+  const sources = useTodaySourceData(useTodaySources())
+  const connectors = useConnectors()
 
   // 打开的任务：先在页面已有的数据里找，找不到（点的是运行中的执行）再单独取
   const [openId, setOpenId] = useState<string | null>(null)
@@ -51,7 +85,30 @@ export default function Page() {
   // 逾期、今天到期每张最多给 50 条，剩余条数按 total 算
   const restTasks = (overdue?.total ?? 0) + (due?.total ?? 0) + hot.length - hidden.size - Math.min(rows.length, TASK_SHOW)
   const reviewItems = (review?.items ?? []).filter((t) => !hidden.has(t.id))
-  const needN = review?.total ?? 0
+  const needSrc = sources.filter((x) => x.def.slot === 'need')
+  const runSrc = sources.filter((x) => x.def.slot === 'running').sort((a, b) => a.def.order - b.def.order)
+  const conn = connectorNeeds(connectors.data ?? [])
+  const groups = needGroups([
+    { key: 'review', label: '任务待验收', order: TODAY_ORDER.review, total: review?.total ?? 0, items: [], more: `${TASKS}?status=${REVIEW}`, moreAlways: true },
+    ...needSrc.map((x) => ({
+      key: `${x.def.plugin}:${x.def.key}`, label: x.def.label, order: x.def.order, total: x.total, items: x.items, more: x.def.more,
+      error: x.error, retry: x.refetch,
+    })),
+    {
+      key: 'connection', label: '连接异常', order: TODAY_ORDER.connection, total: conn.length, items: conn, more: '/settings/connectors',
+      error: connectors.isError, retry: () => void connectors.refetch(),
+    },
+  ])
+  const needN = groups.reduce((n, g) => n + g.total, 0)
+  // 正在运行：先插件贡献的（运行中的原型），再是任务执行；汇总数字是全量
+  const runItems = runSrc.flatMap((x) => x.items)
+  const runMiss = runSrc.filter((x) => x.error)
+  const runN = runSrc.reduce((n, x) => n + x.total, 0) + (running?.total ?? 0)
+  const runLines = [...runItems.map((r) => ({ item: r })), ...(running?.items ?? []).map((r) => ({ run: r }))].slice(0, LINE_SHOW)
+  const go = (it: TodayItem) => {
+    if (it.href) window.open(it.href, '_blank', 'noopener')
+    else if (it.to) void navigate(it.to)
+  }
   const todaySch = schedulesToday(schedules.data ?? [], now)
   const projName = (id: string | null) => (id ? projects.data?.data.find((p) => p.id === id)?.title : undefined)
 
@@ -131,37 +188,30 @@ export default function Page() {
             <div className={cls('today-num', (overdue?.total ?? 0) > 0 && 'bad')}><b>{overdue?.total ?? 0}</b><span>个任务逾期</span></div>
             <div className="today-num"><b>{due?.total ?? 0}</b><span>个任务今天截止</span></div>
             <div className="today-num"><b>{schedules.isError ? '-' : todaySch.length}</b><span>个定时任务今天会跑</span></div>
-            <div className="today-num ok"><b>{running?.total ?? 0}</b><span>个在运行</span></div>
+            <div className="today-num ok"><b>{runN}</b><span>个在运行</span></div>
           </div>
 
           <div className="today-grid">
             <section className="today-sec" aria-label="需要你处理">
               <div className="today-title">需要你处理<span className="today-hint">按来源分组，点一条直接去处理</span></div>
-              {needN > 0 ? (
-                <div className="today-group">
+              {groups.length ? groups.map((g) => (
+                <div key={g.key} className="today-group" data-group={g.key}>
                   <div className="today-group-head">
-                    <div className="today-group-name">任务待验收<span className="today-group-n"> {needN}</span></div>
-                    {/* 任务待验收不多也给入口：去任务列表带上待验收筛选 */}
-                    <button type="button" className="today-link today-more" onClick={() => void navigate(`${TASKS}?status=${REVIEW}`)}>
-                      {needN > NEED_SHOW ? `查看全部 ${needN} 条` : '查看全部'}
-                    </button>
-                  </div>
-                  {reviewItems.slice(0, NEED_SHOW).map((t) => {
-                    const pn = projName(t.project_id)
-                    return (
-                      <button key={t.id} type="button" className="today-need" onClick={() => setOpenId(t.id)}>
-                        <span className="today-dot td-warn" />
-                        <span className="today-need-text">
-                          <span className="ellipsis today-need-title">{t.ref} {t.title}</span>
-                          <span className="ellipsis today-need-sub">{pn ? `等你验收 · ${pn}` : '等你验收'}</span>
-                        </span>
-                        <span className="today-at">{timeAgo(t.updated_at, now)}</span>
-                        <span className="today-go">去验收</span>
+                    <div className="today-group-name">{g.label}{g.total > 0 && <span className="today-group-n"> {g.total}</span>}</div>
+                    {/* 任务待验收不多也给入口：去任务列表带上待验收筛选；其余组超过 3 条才有 */}
+                    {g.more && (g.moreAlways || g.total > NEED_SHOW) && (
+                      <button type="button" className="today-link today-more" onClick={() => void navigate(g.more!)}>
+                        {g.total > NEED_SHOW ? `查看全部 ${g.total} 条` : '查看全部'}
                       </button>
-                    )
-                  })}
+                    )}
+                  </div>
+                  {g.error ? (
+                    <div className="today-miss" role="alert">这部分没取到<Button size="sm" onClick={g.retry}>重试</Button></div>
+                  ) : g.key === 'review' ? reviewItems.slice(0, NEED_SHOW).map((t) => (
+                    <ReviewRow key={t.id} task={t} project={projName(t.project_id)} now={now} onOpen={setOpenId} />
+                  )) : g.items.slice(0, NEED_SHOW).map((it) => <NeedRow key={it.id} item={it} now={now} onGo={go} />)}
                 </div>
-              ) : <div className="today-clear">都处理完了</div>}
+              )) : <div className="today-clear">都处理完了</div>}
             </section>
 
             <div className="today-side">
@@ -200,14 +250,28 @@ export default function Page() {
               </section>
 
               <section className="today-sec" aria-label="正在运行">
-                <div className="today-head"><div className="today-title">正在运行</div></div>
-                {running?.items.length ? running.items.slice(0, LINE_SHOW).map((r) => (
-                  <button key={r.id} type="button" className="today-line" onClick={() => setOpenId(r.object_id)}>
-                    <span className={cls('today-light', r.status !== 'running' && 'wait')} />
-                    <span className="ellipsis">{r.object_ref} {r.object_title}</span>
-                    <span className="today-line-sub">{r.status === 'running' ? '执行中' : '排队中'}</span>
+                <div className="today-head">
+                  <div className="today-title">正在运行</div>
+                  {runN > LINE_SHOW && runItems.length > 0 && (
+                    <button type="button" className="today-link" onClick={() => void navigate(PROJECTS)}>全部 {runN} 个</button>
+                  )}
+                </div>
+                {runMiss.map((x) => (
+                  <div key={x.def.key} className="today-miss" role="alert">{x.def.label}没取到<Button size="sm" onClick={x.refetch}>重试</Button></div>
+                ))}
+                {runLines.length ? runLines.map((l) => 'item' in l ? (
+                  <a key={l.item.id} className="today-line" href={l.item.href} target="_blank" rel="noreferrer">
+                    <span className={cls('today-light', l.item.tone !== 'ok' && 'wait')} />
+                    <span className="ellipsis">{l.item.title}</span>
+                    <span className="today-line-sub">{l.item.sub}</span>
+                  </a>
+                ) : (
+                  <button key={l.run.id} type="button" className="today-line" onClick={() => setOpenId(l.run.object_id)}>
+                    <span className={cls('today-light', l.run.status !== 'running' && 'wait')} />
+                    <span className="ellipsis">{l.run.object_ref} {l.run.object_title}</span>
+                    <span className="today-line-sub">{l.run.status === 'running' ? '执行中' : '排队中'}</span>
                   </button>
-                )) : <div className="today-empty">没有在运行的原型或流程</div>}
+                )) : !runMiss.length && <div className="today-empty">没有在运行的原型或流程</div>}
               </section>
             </div>
           </div>

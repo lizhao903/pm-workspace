@@ -25,8 +25,10 @@ const types = [{
   ],
 }]
 
-// 内存里的对象表：POST、PATCH 改了再取就是新的
-function fakeBackend(rows: WorkObject[]) {
+type Extra = { summary?: unknown[]; pending?: unknown[] }
+
+// 内存里的对象表：POST、PATCH 改了再取就是新的；extra 给项目汇总和待处理消息（没给时汇总为空、IM 插件没装）
+function fakeBackend(rows: WorkObject[], extra: Extra = {}) {
   const calls: { method: string; path: string; body?: unknown }[] = []
   const json = (data: unknown, status = 200, meta?: unknown) =>
     new Response(JSON.stringify(status < 300 ? { data, meta } : data), { status })
@@ -55,6 +57,9 @@ function fakeBackend(rows: WorkObject[]) {
       return json(o)
     }
     if (u.pathname === '/api/object-types') return json(types)
+    if (u.pathname === '/api/projects/summary') return json(extra.summary ?? [], 200, { total: extra.summary?.length ?? 0 })
+    if (u.pathname === '/api/plugins') return json(extra.pending ? [{ id: 'im', running: true }] : [])
+    if (u.pathname === '/api/im/messages' && extra.pending) return json(extra.pending, 200, { total: extra.pending.length })
     if (/^\/api\/projects\/[^/]+\/stakeholders$/.test(u.pathname)) return json([], 200, { total: 0 })
     if (u.pathname === '/api/stakeholders' || u.pathname.startsWith('/api/dictionaries')) return json([])
     return json({ error: { code: 'not_found', message: u.pathname } }, 404)
@@ -78,27 +83,55 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllGlobals())
 
 describe('项目列表', () => {
-  it('按状态分组；搜索和状态筛选后不分组；数字不受搜索影响', async () => {
-    fakeBackend([
-      obj({ title: '工作台', status: 'active', workdir: '/Volumes/project/pm-workspace' }),
-      obj({ title: '交易台', status: 'planning', body: '行情和下单' }),
-      obj({ title: '视频号', status: 'active' }),
-    ])
+  it('按有原型在跑、有待回复、其他分组；卡片有原型数、待回复数；搜索和筛选后不分组，数字不受搜索影响', async () => {
+    const a = obj({ title: '工作台', status: 'active', workdir: '/Volumes/project/pm-workspace' })
+    const b = obj({ title: '交易台', status: 'planning', body: '行情和下单' })
+    const c = obj({ title: '视频号', status: 'active' })
+    const d = obj({ title: '博客', status: 'active' })
+    const msg = (id: string, x: object) => ({ id, channel: 'slack', status: 'pending', conversation_id: null, conversation_external_id: '', at: '2026-10-29T00:00:00Z', ...x })
+    fakeBackend([a, b, c, d], {
+      summary: [
+        { project_id: a.id, prototypes: { total: 2, running: 1 }, conversations: [{ id: 'cv_g', channel: 'slack', external_id: 'C01' }] },
+        { project_id: b.id, prototypes: { total: 1, running: 0 }, conversations: [{ id: 'cv_g', channel: 'slack', external_id: 'C01' }] },
+        { project_id: c.id, prototypes: { total: 0, running: 0 }, conversations: [{ id: 'cv_d', channel: 'slack', external_id: 'D09' }] },
+      ],
+      // 两条认上了会话，一条没认上、按渠道和会话编号对上私聊
+      pending: [msg('m1', { conversation_id: 'cv_g' }), msg('m2', { conversation_id: 'cv_g' }), msg('m3', { conversation_external_id: 'D09' })],
+    })
     mount()
     await screen.findByTitle('工作台')
-    expect(screen.getAllByRole('region').map((r) => r.getAttribute('aria-label'))).toEqual(['筹备中', '进行中'])
+    expect(screen.getAllByRole('region').map((r) => r.getAttribute('aria-label'))).toEqual(['有原型在跑', '有待回复', '其他'])
+    const card = (t: string) => screen.getByTitle(t)
+    expect(card('工作台')).toHaveTextContent('原型 1/2')
+    expect(card('工作台')).toHaveTextContent('2 条待回复')
+    expect(card('交易台')).toHaveTextContent('原型 0/1')
+    expect(card('交易台')).toHaveTextContent('筹备中')
+    expect(card('视频号')).toHaveTextContent('1 条待回复')
+    expect(card('视频号')).not.toHaveTextContent('原型')
+    expect(card('博客')).not.toHaveTextContent('待回复')
+    // 常态「进行中」不标
+    expect(card('工作台')).not.toHaveTextContent('进行中')
+    expect(within(screen.getByRole('region', { name: '有待回复' })).getAllByRole('button').map((x) => x.getAttribute('title'))).toEqual(['交易台', '视频号'])
     expect(screen.getByText('pm-workspace')).toBeInTheDocument()
-    expect(screen.getAllByText('未设目录')).toHaveLength(2)
+    expect(screen.getAllByText('未设目录')).toHaveLength(3)
 
     await userEvent.type(screen.getByRole('searchbox', { name: '搜索项目' }), '下单')
     expect(cardNames()).toEqual(['交易台'])
     expect(screen.queryByRole('region')).toBeNull()
     const seg = screen.getByRole('group', { name: '状态' })
-    expect(within(seg).getByRole('button', { name: /进行中/ })).toHaveTextContent('进行中2')
+    expect(within(seg).getByRole('button', { name: /有待回复/ })).toHaveTextContent('有待回复2')
 
     await userEvent.click(screen.getByRole('button', { name: '清空' }))
-    await userEvent.click(within(seg).getByRole('button', { name: /进行中/ }))
-    expect(cardNames()).toEqual(['工作台', '视频号'])
+    await userEvent.click(within(seg).getByRole('button', { name: /其他/ }))
+    expect(cardNames()).toEqual(['博客'])
+  })
+
+  it('IM 插件没装时待回复按 0，原型照汇总分组', async () => {
+    const a = obj({ title: '工作台' })
+    fakeBackend([a, obj({ title: '交易台' })], { summary: [{ project_id: a.id, prototypes: { total: 1, running: 1 }, conversations: [] }] })
+    mount()
+    await screen.findByTitle('工作台')
+    expect(screen.getAllByRole('region').map((r) => r.getAttribute('aria-label'))).toEqual(['有原型在跑', '其他'])
   })
 
   it('打开过的项目排在前面；点进详情后顶栏「项目」回到列表', async () => {

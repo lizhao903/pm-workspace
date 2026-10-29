@@ -69,6 +69,7 @@ type activation struct {
 	cards    []TodayCardDef
 	conns    []ConnectorDef
 	impacts  []ConnectorImpactDef
+	skills   []SkillDef
 	cancel   context.CancelFunc
 	done     sync.WaitGroup
 }

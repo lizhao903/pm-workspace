@@ -4,6 +4,11 @@ import { Pill, cls } from '../../core/ui'
 import type { Contact } from '../../core/data'
 import { IM_CHANNELS, groupColor, type GroupItem, type ImChannel } from './model'
 
+/** 新建按钮前的加号，和项目列表「新建项目」一致 */
+export function IconPlus() {
+  return <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path d="M8 3v10M3 8h10" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" /></svg>
+}
+
 /** 行首和抽屉里的星标：点了只切星标，不打开抽屉 */
 export function Star({ on, name, onToggle }: { on: boolean; name: string; onToggle: () => void }) {
   const label = on ? `取消星标：${name}` : `加星标：${name}`
@@ -54,7 +59,7 @@ export function CopyButton({ text, label }: { text: string; label: string }) {
     navigator.clipboard.writeText(text).then(() => setState('ok'), () => setState('fail'))
   }
   return (
-    <button type="button" className={cls('ct-copy', state === 'fail' && 'ct-copy-fail')} aria-label={`复制${label}`} onClick={copy}>
+    <button type="button" className={cls('ct-copy', state !== 'idle' && 'ct-copy-busy', state === 'fail' && 'ct-copy-fail')} aria-label={`复制${label}`} onClick={copy}>
       {state === 'ok' ? '已复制' : state === 'fail' ? '复制失败' : '复制'}
     </button>
   )

@@ -139,10 +139,10 @@ export function invalidationsFor(c: Change): QueryKey[] {
       return [dataKeys.projectMaterials(c.projectId)]
     case 'project-conversation':
       // 绑定列表变了，绑了哪些会话的消息由组件按新列表去取
-      return [dataKeys.projectConversations(c.projectId)]
+      return [dataKeys.projectConversations(c.projectId), dataKeys.projectSummary]
     case 'project-prototype':
       // 列表和打开着的日志（启动时后端先记两行、停止时记一行）
-      return [dataKeys.projectPrototypes.of(c.projectId)]
+      return [dataKeys.projectPrototypes.of(c.projectId), dataKeys.projectSummary]
   }
 }
 

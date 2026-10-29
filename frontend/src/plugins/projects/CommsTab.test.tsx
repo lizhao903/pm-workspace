@@ -3,8 +3,10 @@ import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { Conversation, ImMessage } from '../../core/data'
-import { CommsTab } from './CommsTab'
+import type { Conversation, ImMessage, WorkObject } from '../../core/data'
+import { CommsTab, CommsTabDot } from './CommsTab'
+import { Overview } from './Overview'
+import { StakeholdersTab } from './StakeholdersTab'
 
 let imRunning = true
 let bound: string[] = []
@@ -51,6 +53,9 @@ function fakeBackend() {
       const cid = u.searchParams.get('conversation_id')
       return json(cid ? MSGS.filter((m) => m.conversation_id === cid) : MSGS)
     }
+    if (p === '/api/projects/obj_p/stakeholders') {
+      return json([{ project_id: 'obj_p', stakeholder_id: 'stk_lin', role: 'contact', focus: '', sort_order: 0, created_at: '', updated_at: '' }])
+    }
     const m = p.match(/^\/api\/projects\/obj_p\/conversations(?:\/([^/]+))?$/)
     if (!m) return notFound()
     const row = (id: string) => {
@@ -69,16 +74,18 @@ function Where() {
   return <div data-testid="where">{l.pathname}{l.search}</div>
 }
 
-function renderTab() {
+function renderTab(el = <CommsTab projectId="obj_p" />) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return render(
     <QueryClientProvider client={qc}>
       <MemoryRouter initialEntries={['/projects/obj_p/comms']}>
-        <Routes><Route path="*" element={<><CommsTab projectId="obj_p" /><Where /></>} /></Routes>
+        <Routes><Route path="*" element={<>{el}<Where /></>} /></Routes>
       </MemoryRouter>
     </QueryClientProvider>,
   )
 }
+
+const PROJECT = { id: 'obj_p', ref: 'P-1', type_id: 'project', title: '工作台', body: '', status: 'active', props: null, workdir: '' } as unknown as WorkObject
 
 beforeEach(() => { imRunning = true; bound = []; calls = []; fakeBackend() })
 afterEach(() => { vi.unstubAllGlobals() })
@@ -168,3 +175,72 @@ describe('沟通标签', () => {
     expect(screen.getByTestId('where')).toHaveTextContent('/settings/plugins')
   })
 })
+
+describe('沟通标签的布局（ALIGN-07）', () => {
+  it('附件在右栏消息列表上面；时间和「回复」在同一行；「绑定」是描边小按钮；附件标签带种类和大小', async () => {
+    bound = ['cv_prod']
+    const att = { id: 'att_1', name: '权限点清单.xlsx', kind: 'file' as const, size: 2048 }
+    MSGS[0].attachments = [att]
+    try {
+      renderTab()
+      const msgs = await screen.findByLabelText('项目消息')
+      expect(await within(msgs).findByRole('region', { name: '消息里的附件' })).toBeInTheDocument()
+      const row = screen.getAllByRole('button', { name: /权限点清单整理了一版/ }).find((b) => b.classList.contains('pj-msg'))!
+      const side = within(row).getByText('回复').parentElement!
+      expect(side).toHaveClass('pj-msg-side')
+      expect(within(side).getByText(/前|刚刚|-/)).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: '绑定' })).toHaveClass('btn-outline', 'btn-sm')
+      expect(within(row).getByTitle('文件 · 2 KB')).toHaveTextContent('权限点清单.xlsx')
+    } finally {
+      MSGS[0].attachments = []
+    }
+  })
+})
+
+describe('项目消息在别处的用法', () => {
+  it('标签红点：有待回复时显示，没绑定时不显示', async () => {
+    bound = ['cv_prod']
+    const { unmount } = renderTab(<CommsTabDot projectId="obj_p" />)
+    expect(await screen.findByTitle('1 条待回复')).toBeInTheDocument()
+    unmount()
+    bound = []
+    renderTab(<CommsTabDot projectId="obj_p" />)
+    await waitFor(() => expect(calls.some((c) => c.path === '/api/projects/obj_p/conversations')).toBe(true))
+    expect(screen.queryByTitle(/条待回复/)).not.toBeInTheDocument()
+  })
+
+  it('概览：待回复数、最新沟通点开消息，没绑定时去绑定', async () => {
+    bound = ['cv_prod', 'cv_dm']
+    const onTab = vi.fn()
+    const { unmount } = renderTab(<Overview project={PROJECT} onTab={onTab} />)
+    const block = await screen.findByRole('region', { name: '最新沟通' })
+    expect(await within(block).findByText('私聊里问进度')).toBeInTheDocument()
+    expect(within(block).queryByText('不该出现的运维群消息')).not.toBeInTheDocument()
+    const stat = screen.getByRole('button', { name: /待回复消息/ })
+    expect(stat).toHaveTextContent('待回复消息2')
+    await userEvent.click(within(block).getByText('私聊里问进度'))
+    expect(screen.getByTestId('where')).toHaveTextContent('/messages?m=msg_4')
+    expect(screen.getByRole('region', { name: '项目 Agent' })).toHaveTextContent('还没设置。去设置')
+    unmount()
+
+    bound = []
+    renderTab(<Overview project={PROJECT} onTab={onTab} />)
+    const empty = await screen.findByRole('button', { name: '去绑定' })
+    await userEvent.click(empty)
+    expect(onTab).toHaveBeenCalledWith('comms')
+  })
+
+  it('干系人：最近沟通是这个人在本项目会话里最近的一条，没绑定时说还没绑定', async () => {
+    bound = ['cv_prod']
+    const { unmount } = renderTab(<StakeholdersTab projectId="obj_p" />)
+    const last = await screen.findByRole('button', { name: /· @我 权限点清单整理了一版/ })
+    expect(last).toHaveAttribute('title', '@我 权限点清单整理了一版')
+    await userEvent.click(last)
+    expect(screen.getByTestId('where')).toHaveTextContent('/messages?m=msg_1')
+    unmount()
+    bound = []
+    renderTab(<StakeholdersTab projectId="obj_p" />)
+    expect(await screen.findByText('还没绑定沟通渠道')).toBeInTheDocument()
+  })
+})
+

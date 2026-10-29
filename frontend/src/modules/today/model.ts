@@ -1,7 +1,7 @@
 // 今日页的纯函数：问候语、今天的任务、插件卡片合并。规格见 web-next/docs/spec/today.md SPEC-today-1。
 import type { ComponentType } from 'react'
-import type { PluginTodayCard } from '../../core/plugin'
-import type { DictItem, TodayCard, WorkObject } from '../../core/data'
+import type { PluginTodayCard, TodayItem, TodayTone } from '../../core/plugin'
+import type { Connector, DictItem, Progress, TodayCard, WorkObject } from '../../core/data'
 
 /** 每组需要处理的事露几条，今天的任务露几条，自动执行、正在运行各露几条 */
 export const NEED_SHOW = 3
@@ -103,4 +103,55 @@ export function clock(iso: string): string {
   const d = new Date(iso)
   const pad = (n: number) => String(n).padStart(2, '0')
   return `${pad(d.getHours())}:${pad(d.getMinutes())}`
+}
+
+/** 组内排序（SPEC-today-1.4、1.20）：异常在前，同级按时间新的在前，没时间的放最后 */
+const TONE_RANK: Record<TodayTone, number> = { danger: 0, warn: 1, info: 2, ok: 3 }
+export function byUrgency(a: TodayItem, b: TodayItem): number {
+  return TONE_RANK[a.tone] - TONE_RANK[b.tone] || (b.at ?? '').localeCompare(a.at ?? '')
+}
+
+/** 「需要你处理」的一组。review 是内核的任务待验收，条目另行渲染 */
+export type NeedGroup = {
+  key: string
+  label: string
+  order: number
+  total: number
+  items: TodayItem[]
+  /** 「查看全部」去哪；没有不显示 */
+  more?: string
+  /** 不到 NEED_SHOW 条也显示「查看全部」（任务待验收） */
+  moreAlways?: boolean
+  /** 这一组没取到 */
+  error?: boolean
+  retry?: () => void
+}
+
+/** 没条目的组不出现，没取到的组留着显示重试；按来源顺序排，同序按传进来的顺序 */
+export function needGroups(groups: readonly NeedGroup[]): NeedGroup[] {
+  return groups.map((g, i) => [g, i] as const).filter(([g]) => g.total > 0 || g.error)
+    .sort((a, b) => a[0].order - b[0].order || a[1] - b[1]).map(([g]) => ({ ...g, items: [...g.items].sort(byUrgency) }))
+}
+
+/** 连接异常（SPEC-today-1.4）：连接器 status=error；没有时间，点了去设置的连接器 */
+export function connectorNeeds(rows: readonly Connector[]): TodayItem[] {
+  return rows.filter((c) => c.status === 'error').map((c) => ({
+    id: c.id, tone: 'danger', title: `连接器「${c.name}」异常`, sub: c.error, action: '去修复', to: '/settings/connectors',
+  }))
+}
+
+/** 操作者显示名：Claude Code 的 actor_name 是 claude-code */
+export function actorText(name: string): string {
+  return name === 'claude-code' ? 'Claude Code' : name
+}
+
+/** 最近一条提交验收的进展；接口给的是新的在前 */
+export function lastReview(rows: readonly Progress[] | undefined): Progress | undefined {
+  return rows?.find((p) => p.kind === 'review')
+}
+
+/** 任务待验收的说明（SPEC-today-1.25）：「操作者 提交验收 · 项目名」，没有提交验收的进展时「等你验收」 */
+export function reviewSub(last: Progress | undefined, project?: string): string {
+  const who = last ? `${actorText(last.actor_name) || '有人'} 提交验收` : '等你验收'
+  return project ? `${who} · ${project}` : who
 }
