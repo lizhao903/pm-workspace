@@ -403,3 +403,17 @@ a.pj-att-name:hover { text-decoration: underline; }
   .pj-sop-text { flex-basis: 100%; }
   .pj-sop-run { grid-template-columns: minmax(0, 1fr) auto 64px; gap: var(--sp-4); padding: var(--sp-4) var(--sp-6); }
 }
+
+/* Agent 标签（PR-21） */
+.pj-agent-def { margin-left: var(--sp-3); }
+.pj-agent-chat { display: grid; grid-template-columns: 20px minmax(0, 1fr) minmax(0, 140px) 80px; align-items: center; gap: var(--sp-5); width: 100%; min-height: 42px; padding: 0 var(--sp-7); background: none; color: var(--text); text-align: left; font-size: var(--fs-sm); cursor: pointer; }
+.pj-agent-chat:hover { background: var(--hover); }
+.pj-agent-chat > .pj-muted:last-child { text-align: right; }
+.pj-agent-noav { width: 20px; height: 20px; }
+.pj-ov-agent { display: flex; align-items: center; gap: var(--sp-5); min-width: 0; }
+.pj-ov-agent-text { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0; font-size: var(--fs-sm); }
+@media (max-width: 760px) {
+  .pj-agent .pj-sop-text { flex-basis: calc(100% - 32px - var(--sp-5)); }
+  .pj-agent-chat { grid-template-columns: 20px minmax(0, 1fr) 64px; gap: var(--sp-4); padding: var(--sp-4) var(--sp-6); }
+  .pj-agent-chat > .pj-muted.ellipsis { display: none; }
+}

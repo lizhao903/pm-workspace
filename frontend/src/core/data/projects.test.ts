@@ -31,4 +31,13 @@ describe('项目字段', () => {
     expect(projectView(obj({})).sopIds).toEqual([])
     expect(projectView(obj({ props: { sop_ids: ['sop_a', 3, '', 'sop_a', 'sop_b'] } })).sopIds).toEqual(['sop_a', 'sop_b'])
   })
+
+  it('agent_ids、session_ids 同样整理，合并时整体替换（PR-21）', () => {
+    const v = projectView(obj({ props: { agent_ids: ['ag2', 'ag1', 'ag2', null], session_ids: 'x' } }))
+    expect(v.agentIds).toEqual(['ag2', 'ag1'])
+    expect(v.sessionIds).toEqual([])
+    const cur = { color: '#3d4fd6', agent_ids: ['ag1'], session_ids: ['ags_1'] }
+    expect(mergeProjectProps(cur, { agent_ids: ['ag2', 'ag1'] })).toEqual({ ...cur, agent_ids: ['ag2', 'ag1'] })
+    expect(mergeProjectProps(cur, { session_ids: ['ags_2', 'ags_1'] })).toEqual({ ...cur, session_ids: ['ags_2', 'ags_1'] })
+  })
 })

@@ -1,14 +1,17 @@
 // 概览（SPEC-projects-3）：五个数字卡片和七个摘要块，每块都能点进对应标签。
 // 待回复、最新沟通用沟通标签同一份项目消息（useProjectMessages）；产品文档数和文档标签同一个查询；
-// 项目 Agent 等 AG 系列，先放「还没设置。去设置」空状态
+// 项目 Agent 显示默认 Agent（agent_ids 里第一个还在的），「和它对话」同 Agent 标签的「对话」（PR-21）
 import { Suspense, useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router'
 import {
-  PROJECT_ROLES, errorText, projectView, useAllObjects, useContacts, useDictItems, useProjectMaterials, useProjectStakeholders,
+  PROJECT_ROLES, errorText, projectView, useAgents, useAllObjects, useContacts, useDictItems, useProjectMaterials, useProjectStakeholders,
   type ImMessage, type WorkObject,
 } from '../../core/data'
 import { useObjectDrawer } from '../../core/plugin'
-import { ErrorState, cls } from '../../core/ui'
+import { Button, ErrorState, cls } from '../../core/ui'
+import { AgentAvatar } from '../../core/ui/AgentAvatar'
+import { useProjectChat } from './projectChat'
+import { defaultAgent } from './agentModel'
 import { awaitingCount, awaitingReply, whoName } from './commsModel'
 import { recentDocsAndMaterials } from './materialModel'
 import { useProjectMessages } from './projectMessages'
@@ -156,7 +159,7 @@ export function Overview({ project, onTab }: { project: WorkObject; onTab: (t: P
 
         <section className="pj-block" aria-label="项目 Agent">
           <div className="pj-block-head"><h2 className="pj-sec-title">项目 Agent</h2><button type="button" className="pj-link" onClick={() => onTab('agents')}>全部</button></div>
-          <div className="pj-block-empty">还没设置。<button type="button" className="pj-link" onClick={() => onTab('agents')}>去设置</button></div>
+          <AgentBlock project={project} onTab={onTab} />
         </section>
 
         <ProtoBlock projectId={p.id} projectName={p.name} onAll={() => onTab('prototypes')} />
@@ -181,5 +184,29 @@ export function Overview({ project, onTab }: { project: WorkObject; onTab: (t: P
         {openId && drawer && <drawer.drawer key={openId} objectId={openId} onClose={() => setOpenId(null)} />}
       </Suspense>
     </div>
+  )
+}
+
+/** 概览的「项目 Agent」（SPEC-projects-3.6）：默认 Agent 的头像、名称、说明和「和它对话」，停用时置灰 */
+function AgentBlock({ project, onTab }: { project: WorkObject; onTab: (t: ProjectTab) => void }) {
+  const p = projectView(project)
+  const agents = useAgents()
+  const chat = useProjectChat(project)
+  const none = <div className="pj-block-empty">还没设置。<button type="button" className="pj-link" onClick={() => onTab('agents')}>去设置</button></div>
+  // 没配 Agent 时不用等 Agent 列表
+  if (!p.agentIds.length) return none
+  if (agents.isError) return <ErrorState compact error={errorText(agents.error)} onRetry={() => void agents.refetch()} />
+  if (agents.isPending) return <div className="pj-block-empty">加载中</div>
+  const a = defaultAgent(p.agentIds, agents.data)
+  if (!a) return none
+  return (
+    <>
+      <div className="pj-ov-agent">
+        <AgentAvatar agent={a} size={36} />
+        <span className="pj-ov-agent-text"><b className="ellipsis">{a.name || '未命名'}</b><span className="pj-muted pj-wrap">{a.enabled ? a.desc : '已停用'}</span></span>
+        <Button variant="primary" size="sm" disabled={!a.enabled || chat.pending} onClick={() => chat.start(a.id)}>和它对话</Button>
+      </div>
+      {chat.err && <div className="pj-err" role="alert">{chat.err}</div>}
+    </>
   )
 }
