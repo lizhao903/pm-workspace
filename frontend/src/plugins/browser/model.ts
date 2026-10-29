@@ -322,6 +322,9 @@ export const GOOGLE_SCOPES: { key: string; label: string; desc: string; conn: 'd
   { key: 'calendar.events', label: '查看和编辑 Google 日历日程', desc: '把日程同步到工作台的日程页，也允许助手建日程', conn: 'calendar' },
 ]
 
+/** Google Drive 连接器的工具 key（后端 internal/connector GoogleDriveTool），没有实例时「去配置」用它打开新建抽屉 */
+export const GDRIVE_TOOL = 'gdrive'
+
 /** OAuth 回调回到的地址：本机打开时给完整地址（回到当前这个前端），否则给站内路径 */
 export function oauthReturnTo(loc: Pick<Location, 'origin' | 'hostname'> = globalThis.location): string {
   const local = LOCAL_HOSTS.has(loc.hostname) || loc.hostname === '::1'

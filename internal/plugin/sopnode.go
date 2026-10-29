@@ -47,7 +47,7 @@ type SOPNodeInput struct {
 	RunID   string
 	FlowID  string
 	Step    string // 步骤 key
-	Attempt int    // 第几次尝试，从 1 起，重试、退回重做会加 1
+	Attempt int    // 第几次尝试，从 1 起，重试、退回重做会加 1；服务重启后重跑同一次尝试不加，节点可按它去重
 	Input   map[string]any
 	Config  map[string]string
 }

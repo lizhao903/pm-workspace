@@ -302,7 +302,7 @@ func (r *runner) log(i int, t time.Time, text string) {
 
 func (r *runner) deps(i int) []int { return depsOf(r.defs, r.idx, i) }
 
-// resume 是服务重启后接着调度前的整理：执行中的步骤重跑一次（attempts 加 1）；
+// resume 是服务重启后接着调度前的整理：执行中的步骤重跑一次（attempts 加 1，写节点、插件节点不加）；
 // 等待节点按原到点时间继续，子流程节点接着等已经起了的子执行；paused、review 原样等人。
 func (r *runner) resume() {
 	t := now()
@@ -322,6 +322,10 @@ func (r *runner) resume() {
 			// 写节点按原来那次尝试重跑，写过的按幂等键取回，不重复写（SOP-02a）
 			s.StartedAt = &t
 			r.log(i, t, "服务重启后重跑，这次尝试写过的不再写")
+		case isPluginKind(kind):
+			// 插件节点也按原来那次尝试重跑，由插件按运行 id、步骤 key、尝试次数去重（POL-02，例：发消息不重复发）
+			s.StartedAt = &t
+			r.log(i, t, "服务重启后重跑同一次尝试")
 		default:
 			s.Attempts++
 			s.StartedAt = &t

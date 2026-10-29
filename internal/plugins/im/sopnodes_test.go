@@ -232,6 +232,71 @@ func TestSOPWaitReplyAcrossRestart(t *testing.T) {
 	}
 }
 
+// TestSOPSendAcrossRestart：发出、记完审计后结果还没落库就重启，重跑同一次尝试按审计取回，不再发第二次；
+// 退回重做是新的一次尝试，会再发（POL-02）。
+func TestSOPSendAcrossRestart(t *testing.T) {
+	e := setupSOP(t)
+	e.push(t, `{"external_id":"C01:1","connector_id":"cn_ok","conversation_id":"C01","conversation_name":"#product","sender_id":"U04LIN","text":"在吗"}`)
+	entered := make(chan struct{}, 1)
+	afterSend = func(c context.Context, _ string) error {
+		select {
+		case entered <- struct{}{}:
+		default:
+		}
+		<-c.Done()
+		return c.Err()
+	}
+	t.Cleanup(func() { afterSend = nil })
+	id := e.flow(t, `{"name":"只发一次","steps":[
+		{"key":"say","name":"发消息","kind":"im_send_message","config":{"conversation":"cv_prod","text":"周报发出来了"}},
+		{"key":"chk","name":"检查","kind":"review","after":["say"]}]}`)
+	rid := e.start(t, id, `{"input":{"k":"v"}}`)
+	<-entered
+	if n := len(e.fake.Sent()); n != 1 {
+		t.Fatalf("重启前发出 %d 条", n)
+	}
+	e.r.Close()
+	var st string
+	if err := e.st.DB().R.QueryRow(`SELECT status FROM sop_run_steps WHERE run_id = ? AND step_key = 'say'`, rid).Scan(&st); err != nil || st != "running" {
+		t.Fatalf("关掉后 say=%s %v", st, err)
+	}
+
+	afterSend = nil
+	e2 := bootSOP(t, e.st, false)
+	run := e2.until(t, rid, "重跑后停在检查", func(r map[string]any) bool { return sopStep(r, "say")["status"] == "done" })
+	say := sopStep(run, "say")
+	out := say["output"].(map[string]any)
+	sent, _ := out["sent"].(map[string]any)
+	if say["attempts"] != float64(1) || !stepLogged(say, "服务重启后重跑同一次尝试") || out["k"] != "v" ||
+		sent["external_id"] != "C01:reply1" || sent["text"] != "周报发出来了" || sent["conversation_id"] != "cv_prod" || sent["reused"] != true {
+		t.Fatalf("重跑：attempts=%v log=%v output=%v", say["attempts"], say["log"], out)
+	}
+	if n := len(e2.fake.Sent()); n != 0 {
+		t.Fatalf("重启后不该再发：%+v", e2.fake.Sent())
+	}
+	count := func() int {
+		var n int
+		if err := e.st.DB().R.QueryRow(`SELECT count(*) FROM audits WHERE action = 'send' AND actor = ?`, "im#"+rid).Scan(&n); err != nil {
+			t.Fatal(err)
+		}
+		return n
+	}
+	if n := count(); n != 1 {
+		t.Fatalf("审计应当只有一条，got %d", n)
+	}
+	// 退回重做是新的一次尝试，再发一条
+	e2.until(t, rid, "停在检查", func(r map[string]any) bool { return sopStep(r, "chk")["status"] == "review" })
+	if code, out := call(t, e2.h, "POST", "/api/sop/runs/"+rid+"/actions", `{"kind":"rework","step":"chk"}`); code != 200 {
+		t.Fatalf("退回 %d %v", code, out)
+	}
+	e2.until(t, rid, "第二次尝试发出", func(r map[string]any) bool {
+		return sopStep(r, "say")["attempts"] == float64(2) && sopStep(r, "say")["status"] == "done"
+	})
+	if n := len(e2.fake.Sent()); n != 1 || count() != 2 {
+		t.Fatalf("退回重做后：发出 %d 条，审计 %d 条", n, count())
+	}
+}
+
 func TestSOPWaitReplyTimeout(t *testing.T) {
 	e := setupSOP(t)
 	id := e.flow(t, `{"name":"等超时","steps":[

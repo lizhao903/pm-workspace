@@ -159,7 +159,7 @@ button.vp-row:hover { background: var(--panel-2); }
 .vp-hist-row > :last-child { text-align: right; }
 
 /* ---------- 封面 A/B ---------- */
-.vp-ab-list { display: flex; flex-direction: column; border: 1px solid var(--line); border-radius: var(--r); overflow: hidden; }
+.vp-ab-list { display: flex; flex-direction: column; border: 1px solid var(--line); border-radius: var(--r); overflow: hidden; container-type: inline-size; }
 .vp-ab-row {
   display: grid; grid-template-columns: auto minmax(160px, 1fr) minmax(0, auto) auto; align-items: center; gap: 12px;
   padding: 8px 12px; border: 0; border-bottom: 1px solid var(--line); text-align: left; background: var(--panel); color: var(--text); cursor: pointer; width: 100%;
@@ -170,6 +170,11 @@ button.vp-row:hover { background: var(--panel-2); }
 .vp-ab-covers { display: flex; gap: 4px; }
 .vp-ab-prog { min-width: 0; font-size: var(--fs-xs); }
 .vp-ab-rules { display: flex; flex-wrap: wrap; gap: 4px 6px; }
+/* 列表变窄（右侧抽屉打开、手机）时进度换到第二行占满，状态标签留在第一行最右，不压字（POL-01） */
+@container (max-width: 640px) {
+  .vp-ab-row { grid-template-columns: auto minmax(0, 1fr) auto; }
+  .vp-ab-prog { grid-column: 1 / -1; grid-row: 2; }
+}
 .vp-ab-rule { display: inline-flex; align-items: center; height: 20px; padding: 0 7px; border-radius: 5px; font-size: var(--fs-xs); white-space: nowrap; color: var(--warn); background: var(--warn-soft); }
 .vp-ab-rule.ok { color: var(--ok); background: color-mix(in srgb, var(--ok) 12%, transparent); }
 .vp-ab-note { font-size: var(--fs-xs); color: var(--muted); line-height: 1.6; }
@@ -195,8 +200,6 @@ button.vp-row:hover { background: var(--panel-2); }
 @media (max-width: 760px) {
   .vp-metric-grid, .vp-metric-form { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .vp-bar-row { grid-template-columns: 72px minmax(0, 1fr) 60px; gap: 8px; }
-  .vp-ab-row { grid-template-columns: auto minmax(0, 1fr); }
-  .vp-ab-prog { grid-column: 1 / -1; }
   .vp-hist-row { grid-template-columns: 52px 64px minmax(0, 1fr) 80px; }
   .vp-hist-row > :nth-child(4) { display: none; }
   .vp-days-row { grid-template-columns: 40px repeat(5, minmax(0, 1fr)); gap: 4px; padding: 6px 8px; font-size: var(--fs-2xs); }

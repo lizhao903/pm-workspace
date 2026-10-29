@@ -1,6 +1,7 @@
 // 渠道配置（IM-01b）：IM 消息页右上角「渠道配置」打开的抽屉，只列 IM 类连接器。
 // 每个渠道显示状态、账号、最近同步时间、出错原因，能测试连接、立即同步、停用和启用、改配置；
-// 没接过时给「接入 Slack」「接入 Telegram」两个入口。各渠道的表单在 channelForms.ts 里登记，没登记的去设置里的连接器页配。
+// 没接过时给「接入 Slack」「接入 Telegram」两个入口。各渠道的表单在 channelForms.ts 里登记，没登记的去设置里的连接器页配，
+// 跳过去时带上实例或工具，那边直接打开对应的抽屉（POL-01）。
 import { useState, type CSSProperties } from 'react'
 import {
   errorText, useConnectorDefs, useConnectors, useImSyncConnector, usePatchConnector, useTestConnector,
@@ -17,7 +18,10 @@ type Note = { ok: boolean; text: string }
 /** 抽屉里正在看的：列表，或某个渠道的表单（connector 为空是新建） */
 type View = { kind: 'list' } | { kind: 'form'; tool: string; connector: Connector | null }
 
-export function ChannelPanel({ onClose, onManageAll }: { onClose: () => void; onManageAll: () => void }) {
+/** 去设置里的连接器页：connector 打开那个实例，tool 打开这个工具的，都不给是整页 */
+export type ManageTarget = { connector?: string; tool?: string }
+
+export function ChannelPanel({ onClose, onManageAll }: { onClose: () => void; onManageAll: (to?: ManageTarget) => void }) {
   const defs = useConnectorDefs()
   const connectors = useConnectors()
   const [view, setView] = useState<View>({ kind: 'list' })
@@ -65,18 +69,18 @@ export function ChannelPanel({ onClose, onManageAll }: { onClose: () => void; on
             <div className="im-chlist" role="list" aria-label="IM 渠道">
               {list.map((c) => (
                 <ChannelCard key={c.id} c={c} def={defOf(c.tool)} hasForm={!!CHANNEL_FORMS[c.tool]}
-                  onEdit={() => (CHANNEL_FORMS[c.tool] ? open(c.tool, c) : onManageAll())} />
+                  onEdit={() => (CHANNEL_FORMS[c.tool] ? open(c.tool, c) : onManageAll({ connector: c.id }))} />
               ))}
             </div>
             {add.length > 0 && (
               <div className="im-chmore">
                 <span className="im-muted">接入更多渠道</span>
-                {add.map((d) => <EntryButton key={d.tool} tool={d.tool} def={d} onOpen={() => (CHANNEL_FORMS[d.tool] ? open(d.tool, null) : onManageAll())} />)}
+                {add.map((d) => <EntryButton key={d.tool} tool={d.tool} def={d} onOpen={() => (CHANNEL_FORMS[d.tool] ? open(d.tool, null) : onManageAll({ tool: d.tool }))} />)}
               </div>
             )}
           </>
         )}
-        <button type="button" className="im-chlink" onClick={onManageAll}>在设置里管理全部连接器</button>
+        <button type="button" className="im-chlink" onClick={() => onManageAll()}>在设置里管理全部连接器</button>
       </div>
     )
   }

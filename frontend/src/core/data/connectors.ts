@@ -132,6 +132,12 @@ export const normConnector = (c: Connector): Connector => ({
 
 const path = (id: string) => `/api/connectors/${encodeURIComponent(id)}`
 
+/** 设置里的连接器页；带 connector 直接打开那个实例的抽屉，带 tool 打开这个工具的（POL-01、SHELL-02） */
+export function connectorsPagePath(to: { connector?: string; tool?: string } = {}): string {
+  const q: Record<string, string> | null = to.connector ? { connector: to.connector } : to.tool ? { tool: to.tool } : null
+  return q ? `/settings/connectors?${new URLSearchParams(q)}` : '/settings/connectors'
+}
+
 export const connectorsApi = {
   defs: async () => (await requestList<ConnectorDef>('/api/connectors/defs')).data.map(normDef),
   list: async () => (await requestList<Connector>('/api/connectors')).data.map(normConnector),

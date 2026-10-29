@@ -6,6 +6,7 @@
 // - 删除前的影响检查归 CONN-03，现在只确认删除。
 // - OAuth 授权回调回到这一页（带 ?oauth=）时只显示结果，那是授权弹出的窗口（CONN-04b）。
 // - 别处带 ?tool=<工具 key> 跳来（SHELL-02）：分类切到这个工具的分类，接过的打开它的抽屉（有异常的优先），没接过的打开新建抽屉；用过就从地址上去掉。
+// - 带 ?connector=<实例 id>（POL-01，今日、IM 的「去修复」）：直接打开这个实例的抽屉，分类切到它的分类；不认识的只去掉参数。
 import { useEffect, useRef, useState, type MouseEvent } from 'react'
 import { useSearchParams } from 'react-router'
 import {
@@ -44,6 +45,7 @@ function Connectors() {
   const [catalog, setCatalog] = useState(false)
   const [search, setSearch] = useSearchParams()
   const toolParam = search.get('tool')
+  const connParam = search.get('connector')
 
   // 定义随插件启停出现、隐藏（CONN-02），插件管理那边改了不会通知这里：进来时缓存里已有的重新取一次，
   // 免得停用的插件的工具还在、重新启用的还挂在「提供方已停用」里
@@ -69,12 +71,26 @@ function Connectors() {
       setOpen(pick ? { mode: 'edit', id: pick.id } : { mode: 'new', tool: def.tool })
     }
   }
+  const [usedConn, setUsedConn] = useState<string | null>(null)
+  if (!connParam && usedConn) setUsedConn(null)
+  if (connParam && connParam !== usedConn && defsQ.data && listQ.data) {
+    setUsedConn(connParam)
+    const c = listQ.data.find((x) => x.id === connParam)
+    if (c) {
+      const def = c.available ? defsQ.data.find((d) => d.tool === c.tool) : undefined
+      setCatalog(false)
+      // 提供方停用的只在「全部分类」下面列出来
+      setCat(def ? categoryOf(def.category).key : '')
+      setOpen({ mode: 'edit', id: c.id })
+    }
+  }
   useEffect(() => {
-    if (!toolParam || toolParam !== usedTool) return
+    const drop = [toolParam && toolParam === usedTool && 'tool', connParam && connParam === usedConn && 'connector'].filter((k): k is string => !!k)
+    if (!drop.length) return
     const next = new URLSearchParams(search)
-    next.delete('tool')
+    for (const k of drop) next.delete(k)
     setSearch(next, { replace: true })
-  }, [toolParam, usedTool, search, setSearch])
+  }, [toolParam, usedTool, connParam, usedConn, search, setSearch])
 
   const defs = defsQ.data ?? []
   const list = listQ.data ?? []

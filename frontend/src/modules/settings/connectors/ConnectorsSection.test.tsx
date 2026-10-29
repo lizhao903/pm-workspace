@@ -131,6 +131,23 @@ describe('连接器页', () => {
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
   })
 
+  it('带 ?connector= 进来（POL-01）：打开这个实例的抽屉，分类切过去，参数用完就去掉', async () => {
+    stub([github, slack], [conn({ id: 'cn_a', tool: 'github', name: '个人', status: 'error', error: '凭证失效' }), conn({ id: 'cn_b', tool: 'github', name: '公司' })])
+    renderPage('/settings/connectors?connector=cn_b&x=1')
+    const drawer = await screen.findByRole('dialog')
+    expect(within(drawer).getByDisplayValue('公司')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /研发协作/ })).toHaveAttribute('aria-pressed', 'true')
+    await waitFor(() => expect(screen.getByTestId('search')).toHaveTextContent('?x=1'))
+  })
+
+  it('带不认识的 ?connector= 进来不开抽屉，只去掉参数', async () => {
+    stub([github], [conn({ id: 'cn_a', tool: 'github', name: '个人' })])
+    renderPage('/settings/connectors?connector=cn_gone')
+    await screen.findByLabelText('研发协作')
+    await waitFor(() => expect(screen.getByTestId('search')).toBeEmptyDOMElement())
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  })
+
   it('后端还没登记任何定义时是空状态，统计全为 0', async () => {
     stub([], [])
     renderPage()

@@ -146,7 +146,34 @@ describe('定时任务页（TASK-04a）', () => {
     expect(screen.queryByRole('button', { name: '周会' })).not.toBeInTheDocument()
     await user.click(row)
     const d = await screen.findByRole('dialog')
-    expect(within(d).getByText(/这条定时跟着视频的发布记录走/)).toBeInTheDocument()
+    expect(within(d).getByText(/这条定时跟着视频的发布记录走.*失败的记进运行异常/)).toBeInTheDocument()
     expect(within(d).getByRole('button', { name: '去内容日历' })).toBeInTheDocument()
+    expect(within(d).getByRole('button', { name: '打开发布记录' })).toBeInTheDocument()
+    // SPEC-videos-15.13：名称只读，「什么时候」「做什么」换成「发布哪条」
+    expect(within(d).queryByDisplayValue('周四定时发布')).not.toBeInTheDocument()
+    expect(within(d).getByText('周四定时发布')).toBeInTheDocument()
+    expect(within(d).queryByRole('region', { name: '什么时候' })).not.toBeInTheDocument()
+    expect(within(d).queryByRole('region', { name: '做什么' })).not.toBeInTheDocument()
+    const target = within(d).getByRole('region', { name: '发布哪条' })
+    expect(await within(target).findByText('B 站 · B 站首发')).toBeInTheDocument()
+    expect(within(target).getByText(/^每周一 09:00，下次：/)).toBeInTheDocument()
+  })
+
+  it('视频发布动作：时间已过的一次性定时不挡停用和立即执行', async () => {
+    const a = { kind: 'video_publish', publish_id: 'pb_1' } as unknown as Schedule['action']
+    const calls = fakeBackend([sch('sch_2', '定时发布：B 站「首发」', {
+      action: a, next_run_at: null, rule: { freq: 'once', time: '20:00', weekdays: [], day: 1, date: '2026-01-01', cron: '' },
+    })])
+    const user = userEvent.setup()
+    renderPage('/tasks/schedules?open=sch_2')
+    const d = await screen.findByRole('dialog')
+    // 发布记录列表里没有这一条
+    expect(await within(d).findByText('已删除的发布记录')).toBeInTheDocument()
+    await user.click(within(d).getByRole('button', { name: '立即执行一次' }))
+    await waitFor(() => expect(calls).toContain('POST /api/schedules/sch_2/run'))
+    expect(calls).not.toContain('POST /api/schedules/preview')
+    await user.click(within(d).getByRole('checkbox', { name: '启用' }))
+    await user.click(within(d).getByRole('button', { name: '保存' }))
+    await waitFor(() => expect(calls).toContain('PATCH /api/schedules/sch_2'))
   })
 })

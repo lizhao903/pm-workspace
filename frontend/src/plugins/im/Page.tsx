@@ -6,7 +6,7 @@
 import { Fragment, Suspense, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { useNavigate, useSearchParams } from 'react-router'
 import {
-  errorText, isApiError, onServerEvent, useConnectorDefs, useConnectors, useContacts, useDictionaries, useEventsLive, useImAction, useImBatch, useImMessage,
+  connectorsPagePath, errorText, isApiError, onServerEvent, useConnectorDefs, useConnectors, useContacts, useDictionaries, useEventsLive, useImAction, useImBatch, useImMessage,
   useImMessages, useImSyncConnector, useNotifyChange, type ImAction, type ImMessage,
 } from '../../core/data'
 import { useObjectDrawer } from '../../core/plugin'
@@ -23,7 +23,6 @@ import './im.css'
 
 const POLL_MS = 30_000
 const SYNC_NOTE_MS = 6_000
-const CONNECTORS_PATH = '/settings/connectors'
 
 /** 状态小标签按状态颜色上色 */
 const stateStyle = (c: string) => ({ color: c, background: `color-mix(in srgb, ${c} 12%, transparent)` })
@@ -413,7 +412,7 @@ export default function Page() {
           onToTask={() => { if (opened) startToTask(opened) }}
           onFixConnector={() => { setOpen(null); setChannelsOpen(true) }} />
       )}
-      {channelsOpen && <ChannelPanel onClose={() => setChannelsOpen(false)} onManageAll={() => navigate(CONNECTORS_PATH)} />}
+      {channelsOpen && <ChannelPanel onClose={() => setChannelsOpen(false)} onManageAll={(to) => navigate(connectorsPagePath(to))} />}
       {toTask && (
         <ToTaskDialog msg={toTask} doneLabel={doneLabel} onCancel={() => setToTask(null)}
           onCreated={(id) => { setToTask(null); setOpen(null); setTaskOpen(id) }}

@@ -397,11 +397,14 @@ func (h *handler) startStage(ctx context.Context, id, stage string) (rowID int64
 		}
 		return rowID, startErr, nil
 	}
-	if _, err := h.c.Store().Exec(ctx, `UPDATE video_runs SET run_id = ? WHERE id = ?`, runID, rowID); err != nil {
+	// SOP 发起时就有执行 id，运行中也能「查看这次执行」（POL-02）；Agent 的会话 id 要跑完才有
+	info, infoErr := h.c.Runs().Get(runID)
+	if _, err := h.c.Store().Exec(ctx, `UPDATE video_runs SET run_id = ?, ref = CASE WHEN ? = '' THEN ref ELSE ? END WHERE id = ?`,
+		runID, info.Ref, info.Ref, rowID); err != nil {
 		return 0, nil, err
 	}
 	// 跑得比回写 run_id 还快时，run.finished 已经错过了，这里补收
-	if info, err := h.c.Runs().Get(runID); err == nil && info.Finished {
+	if infoErr == nil && info.Finished {
 		h.finishRun(ctx, rowID, info)
 	}
 	return rowID, nil, nil

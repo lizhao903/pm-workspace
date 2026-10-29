@@ -1,17 +1,18 @@
 // 定时任务抽屉（SPEC-tasks-8）：配「什么时候」和「做什么」，下面是执行记录和「立即执行一次」。
 // 接下来几次由后端预览（POST /api/schedules/preview）；立即执行按已保存的配置跑，有没保存的改动时先保存再执行。
+// 视频发布动作（SPEC-videos-15.13）跟着发布记录走：名称和规则只读，两段换成「发布哪条」，不预览也不校验规则。
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router'
 import {
   errorText, isApiError, useCreateSchedule, useDeleteSchedule, useDictItems, usePatchSchedule, useRunSchedule, useScheduleRuns,
-  useSchedulePreview, useStakeholders, type Schedule, type ScheduleActionKind, type ScheduleFreq, type ScheduleRule,
+  useSchedulePreview, useStakeholders, useVideoPlatforms, useVideoPublishes, type Schedule, type ScheduleActionKind, type ScheduleFreq, type ScheduleRule,
 } from '../../core/data'
 import { Button, Drawer, Field, Input, SearchSelect, Select, Textarea, cls, type SearchOption } from '../../core/ui'
 import { prioText, timeAgo } from './model'
 import {
   ACTION_KINDS, ACTION_LABEL, DUE_DAYS, FREQS, FREQ_LABEL, WEEK, WEEK_ORDER, buildScheduleInput, buildSchedulePatch, defaultPriority,
-  actionLabel, describeRule, draftErrors, emptyAction, emptyScheduleDraft, isPluginAction, publishIdOf, ruleError, runTone, scheduleDirty, scheduleDraftOf, whenText,
-  type ScheduleDraft,
+  actionLabel, describeRule, draftErrors, emptyAction, emptyScheduleDraft, isPluginAction, publishIdOf, publishName, ruleError, runTone, scheduleDirty, scheduleDraftOf, whenText,
+  type ActionNames, type ScheduleDraft,
 } from './scheduleModel'
 
 // 优先级字典的 id（/api/dictionaries）
@@ -61,23 +62,30 @@ export function ScheduleDrawer({ schedule, onClose, onCreated, onOpenTask }: {
   const r = d.rule
   const a = d.action
   const navigate = useNavigate()
-  // 视频发布动作（VID-06d）的发布记录，抽屉里给跳转
+  // 视频发布动作（VID-06d）的发布记录，抽屉里给跳转；这种定时名称、规则只读（SPEC-videos-15.13）
   const pubId = schedule ? publishIdOf(schedule.action) : undefined
-  const clientErr = ruleError(r, now)
+  const locked = (schedule?.action.kind as string | undefined) === 'video_publish'
+  const pubs = useVideoPublishes({ enabled: !!pubId })
+  const plats = useVideoPlatforms({ enabled: !!pubId })
+  const pubNames: ActionNames = pubs.data
+    ? { publishes: Object.fromEntries(pubs.data.map((p) => [p.id, `${plats.data?.find((x) => x.key === p.platform)?.label ?? p.platform} · ${p.title || '未填标题'}`])) }
+    : {}
+  // 只读的规则不在前端校验：已发出去的一次性定时时间早过了，照样要能停用、立即执行
+  const clientErr = locked ? '' : ruleError(r, now)
   // 规则停手一会儿再预览，cron 一个字一个字敲时不连发
-  const [previewRule, setPreviewRule] = useState<ScheduleRule | null>(clientErr ? null : r)
+  const [previewRule, setPreviewRule] = useState<ScheduleRule | null>(clientErr || locked ? null : r)
   useEffect(() => {
-    const next = clientErr ? null : r
+    const next = clientErr || locked ? null : r
     const id = setTimeout(() => setPreviewRule(next), PREVIEW_DELAY)
     return () => clearTimeout(id)
-  }, [r, clientErr])
+  }, [r, clientErr, locked])
   const preview = useSchedulePreview(previewRule)
   // 后端校验的说明带着「validation failed:」前缀，去掉只留原因
   const serverErr = previewRule && preview.isError ? `规则不对：${errorText(preview.error).replace(/^validation failed:\s*/, '')}` : ''
   const ruleErr = clientErr || serverErr
   const upcoming = !clientErr && preview.data ? preview.data.next_runs : null
 
-  const errors = draftErrors(d, now)
+  const errors = locked ? [] : draftErrors(d, now)
   const dirty = scheduleDirty(base, d)
   const setRule = (p: Partial<ScheduleRule>) => setD((x) => ({ ...x, rule: { ...x.rule, ...p } }))
   const setAction = (p: Partial<ScheduleDraft['action']>) => setD((x) => ({ ...x, action: { ...x.action, ...p } }))
@@ -140,127 +148,134 @@ export function ScheduleDrawer({ schedule, onClose, onCreated, onOpenTask }: {
 
   const body = (
     <div className="form sched-form">
-      <Field label="名称" required error={nameBad ? '必填' : undefined}>
-        <Input value={d.name} autoFocus={creating} invalid={nameBad} placeholder="比如：周会前整理议程"
-          onChange={(e) => setD((x) => ({ ...x, name: e.target.value }))} />
-      </Field>
+      {locked ? (
+        <Field label="名称" hint="名称跟着发布记录生成，这里不能改" wrap={false}>
+          <div className="sched-readonly">{d.name}</div>
+        </Field>
+      ) : (
+        <Field label="名称" required error={nameBad ? '必填' : undefined}>
+          <Input value={d.name} autoFocus={creating} invalid={nameBad} placeholder="比如：周会前整理议程"
+            onChange={(e) => setD((x) => ({ ...x, name: e.target.value }))} />
+        </Field>
+      )}
 
-      <section className="field-group" aria-label="什么时候">
-        <div className="field-group-title">什么时候</div>
-        <div className="seg seg-full sched-freq" role="radiogroup" aria-label="频率">
-          {FREQS.map((f: ScheduleFreq) => (
-            <button key={f} type="button" role="radio" aria-checked={r.freq === f} className={cls(r.freq === f && 'on')}
-              onClick={() => setRule({ freq: f })}>{FREQ_LABEL[f]}</button>
-          ))}
-        </div>
-        {r.freq === 'weekly' && (
-          <div className="week-pick" role="group" aria-label="周几">
-            {WEEK_ORDER.map((w) => {
-              const on = r.weekdays.includes(w)
+      {locked ? (
+        <section className="field-group" aria-label="发布哪条">
+          <div className="field-group-title">发布哪条</div>
+          <div className="sched-pub-name">{pubId ? publishName(pubId, pubNames) : '未选发布记录'}</div>
+          <div className="list-sub">{describeRule(r)}，{d.enabled ? `下次：${whenText(schedule?.next_run_at, now)}` : '已停用，不会自动执行'}</div>
+          <div className="list-sub">这条定时跟着视频的发布记录走：改时间在内容日历里拖，或者在发布记录里改；到点按发布记录发，失败的记进运行异常</div>
+          <div className="sched-plugin-acts">
+            {pubId && <Button size="sm" onClick={() => void navigate(`/videos/publishes?p=${encodeURIComponent(pubId)}`)}>打开发布记录</Button>}
+            <Button size="sm" onClick={() => void navigate('/videos/calendar')}>去内容日历</Button>
+          </div>
+        </section>
+      ) : (
+        <>
+        <section className="field-group" aria-label="什么时候">
+          <div className="field-group-title">什么时候</div>
+          <div className="seg seg-full sched-freq" role="radiogroup" aria-label="频率">
+            {FREQS.map((f: ScheduleFreq) => (
+              <button key={f} type="button" role="radio" aria-checked={r.freq === f} className={cls(r.freq === f && 'on')}
+                onClick={() => setRule({ freq: f })}>{FREQ_LABEL[f]}</button>
+            ))}
+          </div>
+          {r.freq === 'weekly' && (
+            <div className="week-pick" role="group" aria-label="周几">
+              {WEEK_ORDER.map((w) => {
+                const on = r.weekdays.includes(w)
+                return (
+                  <button key={w} type="button" aria-pressed={on} aria-label={`周${WEEK[w]}`} className={cls('week-day', on && 'on')}
+                    onClick={() => setRule({ weekdays: on ? r.weekdays.filter((x) => x !== w) : [...r.weekdays, w].sort() })}>{WEEK[w]}</button>
+                )
+              })}
+            </div>
+          )}
+          <div className="field-row">
+            {r.freq === 'once' && (
+              <Field label="日期"><Input type="date" value={r.date} onChange={(e) => setRule({ date: e.target.value })} /></Field>
+            )}
+            {r.freq === 'monthly' && (
+              <Field label="几号">
+                <Select value={String(r.day)} onValueChange={(v) => setRule({ day: Number(v) })}
+                  options={Array.from({ length: 31 }, (_, i) => ({ value: String(i + 1), label: i === 30 ? '31（小月按月底） 号' : `${i + 1} 号` }))} />
+              </Field>
+            )}
+            {r.freq === 'cron' ? (
+              <Field label={<>Cron 表达式<span className="field-hint">分 时 日 月 周</span></>}>
+                <Input className="mono-input" value={r.cron} placeholder="0 9 * * 1" invalid={!!ruleErr}
+                  onChange={(e) => setRule({ cron: e.target.value })} />
+              </Field>
+            ) : (
+              <Field label="时间"><Input type="time" value={r.time} onChange={(e) => setRule({ time: e.target.value })} /></Field>
+            )}
+          </div>
+          {ruleErr ? <div className="field-err" role="alert">{ruleErr}</div> : (
+            <div className="sched-preview" aria-live="polite">
+              <span className="list-sub">{describeRule(r)}，接下来：</span>
+              {upcoming ? (upcoming.length
+                ? upcoming.map((u) => <span key={u} className="tag">{whenText(u, now)}</span>)
+                : <span className="list-sub">不会再执行</span>) : <span className="list-sub">正在算</span>}
+            </div>
+          )}
+        </section>
+
+        <section className="field-group" aria-label="做什么">
+          <div className="field-group-title">做什么</div>
+          <div className="seg seg-full" role="radiogroup" aria-label="动作类型">
+            {ACTION_KINDS.map((k) => {
+              // SOP、Agent 的接口 M4 之后才有：没法选，已经是这种类型的照样显示
+              const off = k !== 'task' && a.kind !== k
               return (
-                <button key={w} type="button" aria-pressed={on} aria-label={`周${WEEK[w]}`} className={cls('week-day', on && 'on')}
-                  onClick={() => setRule({ weekdays: on ? r.weekdays.filter((x) => x !== w) : [...r.weekdays, w].sort() })}>{WEEK[w]}</button>
+                <button key={k} type="button" role="radio" aria-checked={a.kind === k} className={cls(a.kind === k && 'on')} disabled={off}
+                  title={off ? 'SOP、Agent 的接口 M4 之后才有，现在只能建任务' : undefined} onClick={() => setKind(k)}>{ACTION_LABEL[k]}</button>
               )
             })}
           </div>
-        )}
-        <div className="field-row">
-          {r.freq === 'once' && (
-            <Field label="日期"><Input type="date" value={r.date} onChange={(e) => setRule({ date: e.target.value })} /></Field>
-          )}
-          {r.freq === 'monthly' && (
-            <Field label="几号">
-              <Select value={String(r.day)} onValueChange={(v) => setRule({ day: Number(v) })}
-                options={Array.from({ length: 31 }, (_, i) => ({ value: String(i + 1), label: i === 30 ? '31（小月按月底） 号' : `${i + 1} 号` }))} />
-            </Field>
-          )}
-          {r.freq === 'cron' ? (
-            <Field label={<>Cron 表达式<span className="field-hint">分 时 日 月 周</span></>}>
-              <Input className="mono-input" value={r.cron} placeholder="0 9 * * 1" invalid={!!ruleErr}
-                onChange={(e) => setRule({ cron: e.target.value })} />
-            </Field>
-          ) : (
-            <Field label="时间"><Input type="time" value={r.time} onChange={(e) => setRule({ time: e.target.value })} /></Field>
-          )}
-        </div>
-        {ruleErr ? <div className="field-err" role="alert">{ruleErr}</div> : (
-          <div className="sched-preview" aria-live="polite">
-            <span className="list-sub">{describeRule(r)}，接下来：</span>
-            {upcoming ? (upcoming.length
-              ? upcoming.map((u) => <span key={u} className="tag">{whenText(u, now)}</span>)
-              : <span className="list-sub">不会再执行</span>) : <span className="list-sub">正在算</span>}
-          </div>
-        )}
-      </section>
-
-      <section className="field-group" aria-label="做什么">
-        <div className="field-group-title">做什么</div>
-        <div className="seg seg-full" role="radiogroup" aria-label="动作类型">
-          {ACTION_KINDS.map((k) => {
-            // SOP、Agent 的接口 M4 之后才有：没法选，已经是这种类型的照样显示
-            const off = k !== 'task' && a.kind !== k
-            return (
-              <button key={k} type="button" role="radio" aria-checked={a.kind === k} className={cls(a.kind === k && 'on')} disabled={off}
-                title={off ? 'SOP、Agent 的接口 M4 之后才有，现在只能建任务' : undefined} onClick={() => setKind(k)}>{ACTION_LABEL[k]}</button>
-            )
-          })}
-        </div>
-        {a.kind === 'task' && (
-          <>
-            <Field label={<>任务标题<span className="field-hint">可以写 {'{{date}}'}，执行时换成当天日期</span></>} required
-              error={titleBad ? '必填' : undefined}>
-              <Input value={a.title} invalid={titleBad} placeholder="比如：整理 {{date}} 周会议程" onChange={(e) => setAction({ title: e.target.value })} />
-            </Field>
-            <Field label="描述"><Textarea rows={2} value={a.desc} onChange={(e) => setAction({ desc: e.target.value })} /></Field>
-            <div className="field-row">
-              <Field label="优先级">
-                <Select value={prio} options={prioOpts} onValueChange={(v) => setAction({ priority: v })} />
+          {a.kind === 'task' && (
+            <>
+              <Field label={<>任务标题<span className="field-hint">可以写 {'{{date}}'}，执行时换成当天日期</span></>} required
+                error={titleBad ? '必填' : undefined}>
+                <Input value={a.title} invalid={titleBad} placeholder="比如：整理 {{date}} 周会议程" onChange={(e) => setAction({ title: e.target.value })} />
               </Field>
-              <Field label="负责人" wrap={false}>
-                <SearchSelect variant="field" aria-label="负责人" value={a.assignee} noneLabel="不指定" placeholder="不指定"
-                  searchPlaceholder="搜干系人" options={peopleOpts} emptyText={people.isPending ? '加载中' : '名册里还没有人'}
-                  missingLabel={() => '已归档的干系人'} onChange={(v) => setAction({ assignee: v })} />
-              </Field>
-              <Field label="截止">
-                <Select value={String(a.due_days)} onValueChange={(v) => setAction({ due_days: Number(v) })}
-                  options={[...new Set([...DUE_DAYS, a.due_days])].sort((x, y) => x - y)
-                    .map((n) => ({ value: String(n), label: n === 0 ? '当天' : `${n} 天后` }))} />
-              </Field>
-            </div>
-          </>
-        )}
-        {a.kind === 'sop' && (
-          <Field label="执行哪个 SOP" hint="SOP 的接口 M4 之后才有，现在到点只记一条「暂不支持」">
-            <Input className="mono-input" value={a.sop_id} placeholder="SOP 编号" onChange={(e) => setAction({ sop_id: e.target.value })} />
-          </Field>
-        )}
-        {isPluginAction(a.kind) && (
-          <>
-            <div className="list-sub">
-              {(a.kind as string) === 'video_publish'
-                ? '这条定时跟着视频的发布记录走：改时间在内容日历里拖，或者在发布记录里改；到点按发布记录发'
-                : `${actionLabel(a.kind)}：这种动作由插件登记，这里只读`}
-            </div>
-            {pubId && (
-              <div className="sched-plugin-acts">
-                <Button size="sm" onClick={() => void navigate(`/videos/publishes?p=${encodeURIComponent(pubId)}`)}>打开发布记录</Button>
-                <Button size="sm" onClick={() => void navigate('/videos/calendar')}>去内容日历</Button>
+              <Field label="描述"><Textarea rows={2} value={a.desc} onChange={(e) => setAction({ desc: e.target.value })} /></Field>
+              <div className="field-row">
+                <Field label="优先级">
+                  <Select value={prio} options={prioOpts} onValueChange={(v) => setAction({ priority: v })} />
+                </Field>
+                <Field label="负责人" wrap={false}>
+                  <SearchSelect variant="field" aria-label="负责人" value={a.assignee} noneLabel="不指定" placeholder="不指定"
+                    searchPlaceholder="搜干系人" options={peopleOpts} emptyText={people.isPending ? '加载中' : '名册里还没有人'}
+                    missingLabel={() => '已归档的干系人'} onChange={(v) => setAction({ assignee: v })} />
+                </Field>
+                <Field label="截止">
+                  <Select value={String(a.due_days)} onValueChange={(v) => setAction({ due_days: Number(v) })}
+                    options={[...new Set([...DUE_DAYS, a.due_days])].sort((x, y) => x - y)
+                      .map((n) => ({ value: String(n), label: n === 0 ? '当天' : `${n} 天后` }))} />
+                </Field>
               </div>
-            )}
-          </>
-        )}
-        {a.kind === 'agent' && (
-          <>
-            <Field label="交给哪个 Agent" hint="Agent 的接口 M4 之后才有，现在到点只记一条「暂不支持」">
-              <Input className="mono-input" value={a.agent_id} placeholder="Agent 编号" onChange={(e) => setAction({ agent_id: e.target.value })} />
+            </>
+          )}
+          {a.kind === 'sop' && (
+            <Field label="执行哪个 SOP" hint="SOP 的接口 M4 之后才有，现在到点只记一条「暂不支持」">
+              <Input className="mono-input" value={a.sop_id} placeholder="SOP 编号" onChange={(e) => setAction({ sop_id: e.target.value })} />
             </Field>
-            <Field label="要它做什么" required error={tried && !a.prompt.trim() ? '必填' : undefined}>
-              <Textarea rows={3} value={a.prompt} invalid={tried && !a.prompt.trim()} placeholder="比如：汇总这周的任务，写成周报草稿"
-                onChange={(e) => setAction({ prompt: e.target.value })} />
-            </Field>
-          </>
-        )}
-      </section>
+          )}
+          {isPluginAction(a.kind) && <div className="list-sub">{actionLabel(a.kind)}：这种动作由插件登记，这里只读</div>}
+          {a.kind === 'agent' && (
+            <>
+              <Field label="交给哪个 Agent" hint="Agent 的接口 M4 之后才有，现在到点只记一条「暂不支持」">
+                <Input className="mono-input" value={a.agent_id} placeholder="Agent 编号" onChange={(e) => setAction({ agent_id: e.target.value })} />
+              </Field>
+              <Field label="要它做什么" required error={tried && !a.prompt.trim() ? '必填' : undefined}>
+                <Textarea rows={3} value={a.prompt} invalid={tried && !a.prompt.trim()} placeholder="比如：汇总这周的任务，写成周报草稿"
+                  onChange={(e) => setAction({ prompt: e.target.value })} />
+              </Field>
+            </>
+          )}
+        </section>
+        </>
+      )}
 
       <label className="switch-row">
         <span><span className="field-label">启用</span><span className="switch-hint">{nextText}</span></span>

@@ -19,6 +19,7 @@ import (
 //
 // 发消息：会话是内核会话 id，内容支持 {{字段}}；连接器和适配器按这个会话最近收到的一条消息找，
 // 拦截口径同回复（IM-02a 的 replyBlocker：连接器异常、暂停、断开、只收的都发不出），发出后记一条审计。
+// 幂等键是「运行 id/步骤 key#尝试次数」（同 SOP 写节点）：服务重启后重跑同一次尝试时按审计查，发过的不再发（POL-02）。
 // 等回复：落一行 im_sop_waits、步骤挂起；后台任务 sop_waits 看会话里有没有对方在挂起之后发的消息，
 // 有就唤醒（Core.SOP().Resume），到点还没有就让步骤失败（Core.SOP().Fail）。「对方」是发送人不是「我」的称呼。
 
@@ -33,6 +34,9 @@ const (
 
 // waitEvery 是多久看一次挂起中的等待；测试里调小。
 var waitEvery = 3 * time.Second
+
+// afterSend 在发出、记完审计之后，结果发回之前调，测试用它模拟发完还没落库时进程退出。
+var afterSend func(ctx context.Context, step string) error
 
 func (in *inbox) registerSOPNodes(r plugin.Registrar) {
 	r.SOPNode(plugin.SOPNodeDef{Kind: NodeSendMessage, Group: "沟通",
@@ -83,6 +87,12 @@ func (in *inbox) sendNode(ctx context.Context, c plugin.Core, n plugin.SOPNodeIn
 	if utf8.RuneCountInString(text) > maxReply {
 		return nil, fmt.Errorf("要发的内容超过 %d 字", maxReply)
 	}
+	meta := plugin.WriteMeta{Session: n.RunID, Key: fmt.Sprintf("%s/%s#%d", n.RunID, n.Step, n.Attempt), Detail: map[string]any{
+		"run_id": n.RunID, "flow_id": n.FlowID, "step": n.Step, "attempt": n.Attempt,
+	}}
+	if out, ok, err := sentBefore(ctx, c, text, n.Input, meta); ok {
+		return out, err
+	}
 	// 用会话里最近收到的一条消息定连接器和适配器
 	last, err := in.query(ctx, `SELECT `+messageCols+` FROM im_messages WHERE `+convCond+` ORDER BY sent_at DESC, rowid DESC LIMIT 1`,
 		convArgs(cv.ID, cv.Channel, cv.ExternalID)...)
@@ -105,9 +115,6 @@ func (in *inbox) sendNode(ctx context.Context, c plugin.Core, n plugin.SOPNodeIn
 	ext, sendErr := rp.Reply(sendCtx, out)
 	cancel()
 	at := in.clock().UTC().Format(timeLayout)
-	meta := plugin.WriteMeta{Session: n.RunID, Key: fmt.Sprintf("%s/%s#%d", n.RunID, n.Step, n.Attempt), Detail: map[string]any{
-		"run_id": n.RunID, "flow_id": n.FlowID, "step": n.Step, "attempt": n.Attempt,
-	}}
 	detail := map[string]any{"channel": cv.Channel, "connector_id": m.ConnectorID, "adapter": rp.Key(),
 		"conversation": cv.Name, "text": clip(text, auditTextMax)}
 	if sendErr != nil {
@@ -121,10 +128,36 @@ func (in *inbox) sendNode(ctx context.Context, c plugin.Core, n plugin.SOPNodeIn
 	detail["status"], detail["external_id"] = "sent", ext
 	c.Audit().Note(ctx, plugin.AuditNote{Action: "send", TargetType: "conversation", TargetID: cv.ID,
 		Summary: "发消息到" + convLabel(cv), Detail: detail}, meta)
+	if h := afterSend; h != nil {
+		if err := h(ctx, n.Step); err != nil {
+			return nil, err
+		}
+	}
 	return with(n.Input, "sent", map[string]any{
 		"conversation_id": cv.ID, "conversation": cv.Name, "channel": cv.Channel, "connector_id": m.ConnectorID,
 		"text": text, "external_id": ext, "at": at,
 	}), nil
+}
+
+// sentBefore 查这次尝试有没有发过（审计里有同一幂等键的 send）：发成了回上次的输出，发失败了回上次的错误，都不再发；
+// ok 为假时照常发。查不了审计时也照常发，只记日志。
+func sentBefore(ctx context.Context, c plugin.Core, text string, input map[string]any, meta plugin.WriteMeta) (map[string]any, bool, error) {
+	a, found, ferr := c.Audit().Find(ctx, "send", "conversation", meta)
+	if ferr != nil {
+		c.Log().Warn("im sop send dedupe lookup failed", "key", meta.Key, "err", ferr)
+		return nil, false, nil
+	}
+	if !found {
+		return nil, false, nil
+	}
+	str := func(k string) string { s, _ := a.Detail[k].(string); return s }
+	if str("status") != "sent" {
+		return nil, true, errors.New("发送失败：" + str("error"))
+	}
+	return with(input, "sent", map[string]any{
+		"conversation_id": a.TargetID, "conversation": str("conversation"), "channel": str("channel"),
+		"connector_id": str("connector_id"), "text": text, "external_id": str("external_id"), "at": a.At, "reused": true,
+	}), true, nil
 }
 
 // with 同原型 {...input, key: v}。

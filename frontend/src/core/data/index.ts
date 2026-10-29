@@ -87,7 +87,7 @@ export {
 } from './identities'
 export type { Identity, IdentityInput, IdentityOp, IdentityFailure } from './identities'
 export {
-  connectorsApi, normConnector, useConnectorDefs, useConnectors, useCreateConnector, usePatchConnector, useDeleteConnector,
+  connectorsApi, connectorsPagePath, normConnector, useConnectorDefs, useConnectors, useCreateConnector, usePatchConnector, useDeleteConnector,
   useTestConnector, useRefreshConnectorTools, useSetConnectorToolModes, useStartConnectorOAuth,
 } from './connectors'
 export type {

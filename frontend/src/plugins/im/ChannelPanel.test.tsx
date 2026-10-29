@@ -19,7 +19,7 @@ function conn(p: Partial<Connector> = {}): Connector {
 
 type Call = { method: string; path: string; body?: Record<string, unknown> }
 
-function backend(opts: { list?: Connector[]; syncFails?: string } = {}) {
+function backend(opts: { list?: Connector[]; syncFails?: string; defs?: ConnectorDef[] } = {}) {
   const calls: Call[] = []
   let list = opts.list ?? []
   const json = (data: unknown, status = 200) => new Response(JSON.stringify(status < 300 ? { data } : data), { status })
@@ -28,7 +28,7 @@ function backend(opts: { list?: Connector[]; syncFails?: string } = {}) {
     const method = init?.method ?? 'GET'
     const body = init?.body ? JSON.parse(String(init.body)) : undefined
     calls.push({ method, path: u.pathname, body })
-    if (u.pathname === '/api/connectors/defs') return json(DEFS)
+    if (u.pathname === '/api/connectors/defs') return json(opts.defs ?? DEFS)
     if (u.pathname === '/api/connectors' && method === 'GET') return json(list)
     if (u.pathname === '/api/connectors' && method === 'POST') {
       const c = conn({ id: 'cn_new', name: body.name, status: 'connecting', config: body.config, interval: body.interval, last_sync_at: null,
@@ -66,6 +66,17 @@ function renderPanel() {
 afterEach(() => { vi.unstubAllGlobals() })
 
 describe('渠道配置', () => {
+  it('没登记表单的渠道去设置里配：已接的带实例 id，没接的带工具（POL-01）', async () => {
+    backend({ defs: [...DEFS, def('lark', '飞书')], list: [conn({ id: 'cn_lk', tool: 'lark', name: '飞书' })] })
+    const { onManageAll } = renderPanel()
+    const user = userEvent.setup()
+    const card = await screen.findByRole('listitem', { name: '飞书' })
+    await user.click(within(card).getByRole('button', { name: '去设置里配置' }))
+    expect(onManageAll).toHaveBeenLastCalledWith({ connector: 'cn_lk' })
+    await user.click(screen.getByRole('button', { name: '在设置里管理全部连接器' }))
+    expect(onManageAll).toHaveBeenLastCalledWith()
+  })
+
   it('空状态给接入 Slack、Telegram 两个入口；接入 Slack 填 Token 和 Signing Secret，保存后自动测试', async () => {
     const calls = backend()
     renderPanel()
