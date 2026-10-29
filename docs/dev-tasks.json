@@ -4359,6 +4359,168 @@
     "acceptance": "- [ ] 文档页能新建、编辑、保存一篇文档，修订里有记录\n- [ ] 项目文档标签能新建一篇并归到本项目\n- [ ] 本机目录挂载的文件仍是只读\n- [ ] 改到的 Go 跑 gofmt、go vet、go test ./...；前端 npm test、typecheck、lint、build、smoke-frontend 通过"
   },
   {
+    "key": "PR-07",
+    "type": "task",
+    "title": "任务抽屉待验收时验收区在前、编辑收起",
+    "milestone": "M4",
+    "module": "frontend",
+    "priority": "P2",
+    "estimate": "M",
+    "depends_on": [
+      "ALIGN-16"
+    ],
+    "workdir": "frontend",
+    "spec": [
+      "docs/product-review.md A-04、C-02"
+    ],
+    "body": "## 要做什么\n\n按 `docs/product-review.md` 的 A-04、C-02 改：逐条照「建议改法」做，规格编号见各条。\n\n只改 TaskDrawer、DevSlots、ReviewBar 一侧的文件；任务列表（TaskList、model 的排序筛选）归 PR-08。\n\n## 注意事项\n\n- 规格要改的（web-next/docs/spec）同步改，原型代码只在规格和原型对不上时改。",
+    "acceptance": "- [ ] 待验收任务打开抽屉，顶上是提交说明、测试结果、提交号和验收标准清单，然后是改动、产出物、进展，任务字段收进「编辑任务」\n- [ ] 改到的 Go 跑 gofmt、go vet、go test ./...；前端 npm test、typecheck、lint、build、smoke-frontend 通过"
+  },
+  {
+    "key": "PR-08",
+    "type": "task",
+    "title": "任务列表排序和负责人筛选",
+    "milestone": "M4",
+    "module": "frontend",
+    "priority": "P2",
+    "estimate": "S",
+    "depends_on": [
+      "ALIGN-16"
+    ],
+    "workdir": "frontend",
+    "spec": [
+      "docs/product-review.md B-06、B-07"
+    ],
+    "body": "## 要做什么\n\n按 `docs/product-review.md` 的 B-06、B-07 改：逐条照「建议改法」做，规格编号见各条。\n\n只改 TaskList、Page、model；抽屉归 PR-07。\n\n## 注意事项\n\n- 规格要改的（web-next/docs/spec）同步改，原型代码只在规格和原型对不上时改。",
+    "acceptance": "- [ ] 已完成视图按完成时间倒序；可按优先级、最近更新、创建时间排\n- [ ] 负责人筛选含「未分配」「我」，搜索覆盖负责人名\n- [ ] 改到的 Go 跑 gofmt、go vet、go test ./...；前端 npm test、typecheck、lint、build、smoke-frontend 通过"
+  },
+  {
+    "key": "PR-09",
+    "type": "task",
+    "title": "项目干系人批量添加和拼音排序，项目沟通筛选和行内已处理",
+    "milestone": "M4",
+    "module": "frontend",
+    "priority": "P2",
+    "estimate": "M",
+    "depends_on": [
+      "ALIGN-16"
+    ],
+    "workdir": "frontend",
+    "spec": [
+      "docs/product-review.md B-05、B-10"
+    ],
+    "body": "## 要做什么\n\n按 `docs/product-review.md` 的 B-05、B-10 改：逐条照「建议改法」做，规格编号见各条。\n\n拼音排序挪进 core（插件不能 import 模块）；PR-11 也在改联系人模块，pinyin.ts 挪动时只做挪动和改 import。\n\n## 注意事项\n\n- 规格要改的（web-next/docs/spec）同步改，原型代码只在规格和原型对不上时改。",
+    "acceptance": "- [ ] 加干系人能按分组、标签搜，多选一次加 N 人，顺序和联系人页一致\n- [ ] 项目沟通能按与我相关筛选和搜索，行内能标已处理\n- [ ] 改到的 Go 跑 gofmt、go vet、go test ./...；前端 npm test、typecheck、lint、build、smoke-frontend 通过"
+  },
+  {
+    "key": "PR-10",
+    "type": "task",
+    "title": "项目详情的 SOP 标签",
+    "milestone": "M4",
+    "module": "fullstack",
+    "priority": "P1",
+    "estimate": "M",
+    "depends_on": [
+      "ALIGN-16"
+    ],
+    "workdir": "fullstack",
+    "spec": [
+      "docs/product-review.md A-03"
+    ],
+    "body": "## 要做什么\n\n按 `docs/product-review.md` 的 A-03 改：逐条照「建议改法」做，规格编号见各条。\n\nAgent 标签不在本条（等后续）。\n\n## 注意事项\n\n- 规格要改的（web-next/docs/spec）同步改，原型代码只在规格和原型对不上时改。",
+    "acceptance": "- [ ] 项目 SOP 标签能关联流程、执行、取消关联，列出最近执行\n- [ ] 改到的 Go 跑 gofmt、go vet、go test ./...；前端 npm test、typecheck、lint、build、smoke-frontend 通过"
+  },
+  {
+    "key": "PR-11",
+    "type": "task",
+    "title": "联系人搜索覆盖备注和标签、默认排序更合理",
+    "milestone": "M4",
+    "module": "frontend",
+    "priority": "P2",
+    "estimate": "S",
+    "depends_on": [
+      "ALIGN-16"
+    ],
+    "workdir": "frontend",
+    "spec": [
+      "docs/product-review.md B-04、E-03"
+    ],
+    "body": "## 要做什么\n\n按 `docs/product-review.md` 的 B-04、E-03 改：逐条照「建议改法」做，规格编号见各条。\n\nE-03 先做前端那半：没有最近联系的人多于一半时默认按姓名排；收消息回写最近联系不在本条。\n\n## 注意事项\n\n- 规格要改的（web-next/docs/spec）同步改，原型代码只在规格和原型对不上时改。",
+    "acceptance": "- [ ] 搜「Randy」「fleetent」能出人，多词跨字段匹配\n- [ ] 全员未联系时默认按姓名排\n- [ ] 改到的 Go 跑 gofmt、go vet、go test ./...；前端 npm test、typecheck、lint、build、smoke-frontend 通过"
+  },
+  {
+    "key": "PR-12",
+    "type": "task",
+    "title": "会话产出结果按提交合并、空会话不堆积",
+    "milestone": "M4",
+    "module": "fullstack",
+    "priority": "P2",
+    "estimate": "M",
+    "depends_on": [
+      "ALIGN-16"
+    ],
+    "workdir": "fullstack",
+    "spec": [
+      "docs/product-review.md B-08、B-09"
+    ],
+    "body": "## 要做什么\n\n按 `docs/product-review.md` 的 B-08、B-09 改：逐条照「建议改法」做，规格编号见各条。\n\n## 注意事项\n\n- 规格要改的（web-next/docs/spec）同步改，原型代码只在规格和原型对不上时改。",
+    "acceptance": "- [ ] 产出结果同一提交合并一行，展开看涉及的任务\n- [ ] 新建会话不发消息时不会在列表里留一条空会话\n- [ ] 改到的 Go 跑 gofmt、go vet、go test ./...；前端 npm test、typecheck、lint、build、smoke-frontend 通过"
+  },
+  {
+    "key": "PR-13",
+    "type": "task",
+    "title": "设置枚举值补齐字典和说明、在用列",
+    "milestone": "M4",
+    "module": "fullstack",
+    "priority": "P2",
+    "estimate": "M",
+    "depends_on": [
+      "ALIGN-16"
+    ],
+    "workdir": "fullstack",
+    "spec": [
+      "docs/product-review.md A-05"
+    ],
+    "body": "## 要做什么\n\n按 `docs/product-review.md` 的 A-05 改：逐条照「建议改法」做，规格编号见各条。\n\n补字典要加数据时用内核迁移 0041（只加不改）。\n\n## 注意事项\n\n- 规格要改的（web-next/docs/spec）同步改，原型代码只在规格和原型对不上时改。",
+    "acceptance": "- [ ] 枚举值里有任务状态、联系人分组、文档分类、消息状态，值表有说明和「N 条在用」\n- [ ] 改到的 Go 跑 gofmt、go vet、go test ./...；前端 npm test、typecheck、lint、build、smoke-frontend 通过"
+  },
+  {
+    "key": "PR-14",
+    "type": "task",
+    "title": "SOP 节点显示中文名、流程能复制、内置模板按工作台过滤",
+    "milestone": "M4",
+    "module": "frontend",
+    "priority": "P2",
+    "estimate": "S",
+    "depends_on": [
+      "ALIGN-16"
+    ],
+    "workdir": "frontend",
+    "spec": [
+      "docs/product-review.md A-06、C-06"
+    ],
+    "body": "## 要做什么\n\n按 `docs/product-review.md` 的 A-06、C-06 改：逐条照「建议改法」做，规格编号见各条。\n\n## 注意事项\n\n- 规格要改的（web-next/docs/spec）同步改，原型代码只在规格和原型对不上时改。",
+    "acceptance": "- [ ] 流程详情节点显示中文名，触发方式是中文\n- [ ] 流程详情能复制成新流程\n- [ ] 产品经理工作台的流程库不出现视频周更（或标需要视频模块）\n- [ ] 改到的 Go 跑 gofmt、go vet、go test ./...；前端 npm test、typecheck、lint、build、smoke-frontend 通过"
+  },
+  {
+    "key": "PR-15",
+    "type": "task",
+    "title": "文档按项目筛选、阅读区显示所属项目",
+    "milestone": "M4",
+    "module": "frontend",
+    "priority": "P2",
+    "estimate": "S",
+    "depends_on": [
+      "ALIGN-16"
+    ],
+    "workdir": "frontend",
+    "spec": [
+      "docs/product-review.md C-04"
+    ],
+    "body": "## 要做什么\n\n按 `docs/product-review.md` 的 C-04 改：逐条照「建议改法」做，规格编号见各条。\n\nPR-06 刚改过文档模块（新建和编辑），改前重新读。\n\n## 注意事项\n\n- 规格要改的（web-next/docs/spec）同步改，原型代码只在规格和原型对不上时改。",
+    "acceptance": "- [ ] 文档筛选条能按项目筛，阅读区显示所属项目并能跳过去\n- [ ] 改到的 Go 跑 gofmt、go vet、go test ./...；前端 npm test、typecheck、lint、build、smoke-frontend 通过"
+  },
+  {
     "key": "VID-08p",
     "type": "task",
     "title": "原型补商单",
