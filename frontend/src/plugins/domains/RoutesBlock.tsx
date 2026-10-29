@@ -1,5 +1,6 @@
 // 域名表（SPEC-settings-20.8 到 20.19、20.22 到 20.27）：加、改启停、删、测试、复制；手动配的一块，项目原型自动分配的按项目分组。
-// 自动分配的行由 DOM-02a 建，这里只显示；改了某一条后端就把它转成手动配置
+// 自动分配的行由 DOM-02a 建，这里只显示（DOM-02b）：标「自动」、跟着原型状态写能不能访问、不能删，只能关掉自动分配；
+// 改了某一条后端就把它转成手动配置
 import { Fragment, useMemo, useState } from 'react'
 import {
   errorText, useAddDomainRoute, useCheckDomainRoute, useDeleteDomainRoute, usePatchDomainRoute,
@@ -7,7 +8,7 @@ import {
 } from '../../core/data'
 import { Button, cls, IconButton, IconChevronRight, IconClose, IconSearch, SearchSelect, Switch } from '../../core/ui'
 import {
-  conflicts, domainUrl, groupAuto, hostError, matchRoute, protoDown, targetLabel, timeAgo, normName,
+  PROTO_ACCESS, conflicts, domainUrl, groupAuto, hostError, matchRoute, protoAccess, targetLabel, timeAgo, normName, visibleRoutes,
 } from './model'
 
 type Kind = DomainTarget['kind']
@@ -23,7 +24,8 @@ export function RoutesBlock({ s, query, protos, suffixBad, copied, onCopy, onAut
   onCopy: (key: string, text: string) => void
   onAutoProto: (v: boolean) => void
 }) {
-  const all = useMemo(() => query.data ?? [], [query.data])
+  const every = useMemo(() => query.data ?? [], [query.data])
+  const all = useMemo(() => visibleRoutes(every, s), [every, s])
   const add = useAddDomainRoute()
   const patch = usePatchDomainRoute()
   const del = useDeleteDomainRoute()
@@ -46,7 +48,8 @@ export function RoutesBlock({ s, query, protos, suffixBad, copied, onCopy, onAut
   const groups = groupAuto(autoAll.filter(hit), protos, dup)
   // 总数 12 个以内默认全展开；否则有问题的组、搜索命中的组展开
   const groupOpen = (g: { name: string; bad: number }) => toggled[g.name] ?? (!!kw || g.bad > 0 || autoAll.length <= 12)
-  const hostErr = hostError(draft.host, all)
+  // 重名按后端的全部路由算，关掉自动分配后藏起来的也占着名字
+  const hostErr = hostError(draft.host, every)
   const canAdd = !!draft.host && !hostErr && !add.isPending && (draft.kind !== 'proto' || !!draft.proto)
     && (draft.kind !== 'url' || /^https?:\/\/.+/.test(draft.url.trim()))
 
@@ -82,18 +85,23 @@ export function RoutesBlock({ s, query, protos, suffixBad, copied, onCopy, onAut
     const bad = r.enabled && dup.has(r.fqdn)
     const c = r.check
     const busy = checking.has(r.id)
-    const clickable = s.enabled && r.enabled
+    const access = protoAccess(r, protos)
+    const clickable = s.enabled && r.enabled && (access === null || access === 'up')
     return (
       <div key={r.id} className={cls('dm-row', !r.enabled && 'dm-row-off', bad && 'bad')} role="listitem" data-id={r.id}>
         <Switch checked={r.enabled} onCheckedChange={(v) => toggle(r, v)} aria-label={`启用 ${r.fqdn}`} title={r.enabled ? '停用' : '启用'} />
         <span className="dm-host">
           {clickable
             ? <a className="dm-link mono ellipsis" href={domainUrl(r, s)} target="_blank" rel="noreferrer">{r.fqdn}</a>
-            : <span className="dm-link off mono ellipsis">{r.fqdn}</span>}
+            : <span className="dm-link off mono ellipsis" title={access && access !== 'up' ? PROTO_ACCESS[access] : undefined}>{r.fqdn}</span>}
           <span className="dm-hint ellipsis">
-            {r.auto && <span className="tag dm-tag">自动</span>}{r.note}
+            {r.auto && <span className="tag dm-tag">自动</span>}
+            {/* 能不能访问放在备注前面，窄了先截掉备注 */}
+            {access && access !== 'gone' && (
+              <span className={cls('dm-access', access === 'up' ? 'dm-up' : 'dm-faint')} data-access={access}>{PROTO_ACCESS[access]}</span>
+            )}
+            {r.note}
             {bad && <span className="danger-text"> 和另一条同名</span>}
-            {protoDown(r, protos) && <span className="dm-faint"> 原型没在运行</span>}
           </span>
         </span>
         <span className="dm-target ellipsis mono" title={label(r)}>{label(r)}</span>
@@ -175,7 +183,7 @@ export function RoutesBlock({ s, query, protos, suffixBad, copied, onCopy, onAut
 
       {s.auto_proto && (
         <>
-          <div className="dm-label-row">项目原型自动分配 {autoAll.length}<span className="dm-title-hint">跟着原型走，不用手动维护；改了某一条就转成手动配置</span></div>
+          <div className="dm-label-row">项目原型自动分配 {autoAll.length}<span className="dm-title-hint">跟着原型走，不用手动维护；改了某一条就转成手动配置；不能删，不要了就关掉自动分配</span></div>
           {groups.length ? (
             <div className="dm-table" role="list" aria-label="项目原型自动分配">
               {groups.map((g) => {

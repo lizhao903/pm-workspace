@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import type { DomainRoute, DomainSettings, TerminalPrototype } from '../../core/data'
 import {
-  aliasError, conflicts, groupAuto, hostError, matchRoute, parseAliases, protoDown, targetLabel, timeAgo, validHost, validIPv4, validSuffix,
+  aliasError, awaitingAuto, conflicts, groupAuto, hostError, matchRoute, parseAliases, protoAccess, protoDown, targetLabel, timeAgo, validHost,
+  validIPv4, validSuffix, visibleRoutes,
 } from './model'
 
 const S: DomainSettings = {
@@ -96,5 +97,32 @@ describe('显示', () => {
     expect(timeAgo('2026-10-29T07:00:00Z', now)).toBe('3 小时前')
     expect(timeAgo('2026-10-27T10:00:00Z', now)).toBe('2 天前')
     expect(timeAgo('bad', now)).toBe('')
+  })
+})
+
+describe('自动分配的原型域名（DOM-02b）', () => {
+  const auto = route({ id: 'a', host: 'demo', auto: true, target: { kind: 'proto', proto_id: 'p1' } })
+  const app = route({ id: 'app', host: '', target: { kind: 'app' } })
+
+  it('跟着原型状态写能不能访问', () => {
+    expect(protoAccess(auto, [proto('p1', 'Demo', '官网')])).toBe('up')
+    expect(protoAccess(auto, [proto('p1', 'Demo', '官网', 'starting')])).toBe('starting')
+    expect(protoAccess(auto, [proto('p1', 'Demo', '官网', 'crashed')])).toBe('down')
+    expect(protoAccess(auto, [])).toBe('gone')
+    expect(protoAccess(app, [])).toBeNull()
+    expect(protoDown(auto, [])).toBe(false)
+  })
+
+  it('关掉自动分配后自动行不显示', () => {
+    expect(visibleRoutes([app, auto], S).map((r) => r.id)).toEqual(['app', 'a'])
+    expect(visibleRoutes([app, auto], { ...S, auto_proto: false }).map((r) => r.id)).toEqual(['app'])
+  })
+
+  it('在跑却还没域名的原型才等；关掉自动分配、路由没取到时不等', () => {
+    const protos = [proto('p1', 'Demo', '官网'), proto('p2', 'B', '官网'), proto('p3', 'C', '官网', 'stopped')]
+    expect(awaitingAuto([app, auto], protos, S)).toBe('p2')
+    expect(awaitingAuto([app], protos, S)).toBe('p1,p2')
+    expect(awaitingAuto([app], protos, { ...S, auto_proto: false })).toBe('')
+    expect(awaitingAuto(undefined, protos, S)).toBe('')
   })
 })

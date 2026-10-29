@@ -169,6 +169,7 @@ stateDiagram-v2
 | `task` | 建一条任务 | `title: string`（可写 `{{date}}`，执行时换成当天日期）、`desc: string`、`priority: Priority`、`assignee: string`、`due_days: number`（截止是执行日加几天，可选 0 / 1 / 2 / 3 / 5 / 7） | 建任务「标题」，没填时「未填标题」 |
 | `sop` | 执行 SOP | `sop_id: string` | 执行「SOP 名」，SOP 已删时「已删除的 SOP」 |
 | `agent` | 让 Agent 去做 | `agent_id: string`、`prompt: string` | 「Agent 名：要求」，Agent 已删时「已删除的 Agent」，没填要求时「未填要求」 |
+| `publish` | 发布视频 | `publish_id: string`（视频的发布记录） | 发布「<平台> · <标题>」，发布记录已删时「已删除的发布记录」。这种定时任务不能手建，跟着发布记录自动生成和改（`publishSchedule`、`syncPublishSchedules`，id `sc_pub_<发布 id>`），见 `SPEC-videos-15.12`（VID-06p） |
 
 `ScheduleRun`（`scheduledata.ts`）：`{ at: string; ok: boolean; text: string; ref?: string; manual?: boolean }`。`text` 是给人看的结果（「建了任务 T-005」「没执行：已停用」）；`ref` 是建出的任务编号；`manual` 为 `true` 表示「立即执行一次」手动触发。
 
@@ -615,9 +616,9 @@ stateDiagram-v2
 
 | 编号 | 元素 | 操作 | 结果 |
 |---|---|---|---|
-| SPEC-tasks-7.1 | 页面标题 | 展示 | 面包屑「任务 /」「定时任务」，带总数；说明「到点自动建任务、执行 SOP，或者让 Agent 去做；它建的任务来源标为「定时」」 |
+| SPEC-tasks-7.1 | 页面标题 | 展示 | 面包屑「任务 /」「定时任务」，带总数；说明「到点自动建任务、执行 SOP、让 Agent 去做，或者发布视频；它建的任务来源标为「定时」」 |
 | SPEC-tasks-7.2 | 右上「新建定时任务」 | 点击 | 打开新建抽屉（`SPEC-tasks-8`） |
-| SPEC-tasks-7.3 | 动作类型筛选（分段按钮） | 点击 | 全部 / 建一条任务 / 执行 SOP / 让 Agent 去做，各带条数 |
+| SPEC-tasks-7.3 | 动作类型筛选（分段按钮） | 点击 | 全部 / 建一条任务 / 执行 SOP / 让 Agent 去做 / 发布视频，各带条数 |
 | SPEC-tasks-7.4 | 搜索框 | 输入 | 按名称、规则文字、「做什么」文字匹配 |
 | SPEC-tasks-7.5 | 列表行 | 展示 | 列：名称、什么时候（`describeRule`，如「每周一 09:00」「Cron：0 18 * * 1」）、做什么（动作类型标签加 `actionText`）、下次执行（`whenText`：「今天 09:00」「明天 09:00」「周三 18:00」「11-15 09:00」，算不出时「不再执行」；停用的显示「已停用」）、上次（「N 天前」，失败的红字加「失败」，悬停显示结果；没执行过「还没执行过」）、启用开关。启用的按下次执行时间排，近的在前 |
 | SPEC-tasks-7.6 | 列表行 | 点击 | 打开该定时任务的抽屉，当前行高亮 |
@@ -667,7 +668,7 @@ stateDiagram-v2
 | SPEC-tasks-8.4 | 每周：周几 | 点击 | 一到日 7 个按钮，可多选 |
 | SPEC-tasks-8.5 | 日期 / 几号 / 时间 / Cron | 输入 | 一次：日期；每月：几号（1 到 31，「31（小月按月底）」）；Cron：表达式（提示「分 时 日 月 周」）；其余：时间 |
 | SPEC-tasks-8.6 | 规则预览 | 展示 | 规则有效时显示「规则描述，接下来：」加接下来三次执行（`whenText`）；不会再执行时「不会再执行」 |
-| SPEC-tasks-8.7 | 「做什么」动作类型 | 点击 | 建一条任务 / 执行 SOP / 让 Agent 去做；切换时清空该动作的字段，SOP 默认选第一个，Agent 默认选第一个启用的 |
+| SPEC-tasks-8.7 | 「做什么」动作类型 | 点击 | 建一条任务 / 执行 SOP / 让 Agent 去做；切换时清空该动作的字段，SOP 默认选第一个，Agent 默认选第一个启用的。「发布视频」不在这里选：打开的是定时发布时，名称只读，「什么时候」「做什么」换成「发布哪条」，见 `SPEC-videos-15.13`，立即执行见 `SPEC-videos-15.14` |
 | SPEC-tasks-8.8 | 建一条任务 | 输入 | 任务标题（必填，提示可以写 `{{date}}`）、描述、优先级（默认取枚举默认值）、负责人（候选同任务抽屉）、截止（当天 / N 天后） |
 | SPEC-tasks-8.9 | 执行 SOP | 选择 | 可搜索选 SOP；提示「用 SOP 输入字段的默认值执行；流程里的人工检查点照常停下等你」 |
 | SPEC-tasks-8.10 | 让 Agent 去做 | 选择、输入 | 可搜索选 Agent，停用的显示「已停用」且不能选；「要它做什么」必填；提示「执行结果在「会话 / 执行记录」里，写操作按 Agent 的权限等你确认」 |

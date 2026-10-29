@@ -41,6 +41,7 @@ export const PROVIDES_LABEL: Record<string, string> = {
   today_cards: '今日卡片',
   commands: '命令面板命令',
   search: '搜索',
+  schedule_actions: '定时任务动作',
 }
 
 export function providedGroups(p: PluginInfo): { key: string; label: string; items: string[] }[] {

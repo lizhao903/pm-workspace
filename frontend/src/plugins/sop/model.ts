@@ -1,6 +1,7 @@
 // SOP 插件的纯函数：状态和节点类型的显示、流程图分列、执行列表的筛选排序和进度文字。口径照原型 web-next/src/sopflow.ts、sop.tsx。
 // 运行状态由后端算好给（SopRun.status），这里不重算；节点是不是分支节点从 GET /api/sop/node-types 读，名字在前端
 import type { SopFlow, SopJson, SopNodeType, SopRun, SopRunBrief, SopRunStatus, SopRunStep, SopStepDef, SopStepStatus } from '../../core/data'
+import { sopNodeView } from '../../core/plugin'
 
 type Look = { label: string; color: string }
 
@@ -33,7 +34,7 @@ export const KIND_LABEL: Record<string, string> = {
   code: '代码执行', decide: '条件分支', classifier: '问题分类器', iterate: '迭代', wait: '等待', review: '人工检查',
   http: 'HTTP 请求', notify: '发送消息', task: '创建任务', doc: '写文档', contact: '写联系人', agent: '调用 Agent', subflow: '子流程', end: '结束',
 }
-export const kindLabel = (k: string) => KIND_LABEL[k] ?? k
+export const kindLabel = (k: string) => KIND_LABEL[k] ?? sopNodeView(k)?.label ?? k
 
 const FINISHED: readonly SopStepStatus[] = ['done', 'skipped', 'bypassed']
 export const isFinished = (s: SopStepStatus) => FINISHED.includes(s)

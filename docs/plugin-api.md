@@ -5,7 +5,7 @@
 - 来源：`web-next/docs/dev-plan.md` 2.3 到 2.8、第 6 节；已定决策见 `docs/dev-decisions.md`
 - 任务：CORE-01a（本文档）；类型定义和校验在 CORE-01b，后端注册在 CORE-04a，迁移在 CORE-05
 - 范围：只定第一方插件需要的东西。第三方插件（进程外、走 HTTP 或 MCP）到 M3 之后再开放，到时在本文档上加一版
-- 插件 API 版本：`1.0.0`（M2 起），见第 1.3 节
+- 插件 API 版本：`1.1.0`（M2 起 1.0.0，VID-03a 升到 1.1.0），见第 1.3 节
 
 ## 评审记录
 
@@ -105,6 +105,7 @@
 | `today_cards` | 2.8 今日卡片 | 卡片 key，以 `<id>_` 开头 |
 | `commands` | 2.9 命令面板命令 | 命令 id，`<id>.<动作>` |
 | `search` | 2.9 命令面板数据源 | 搜索数据源 key |
+| `schedule_actions` | 2.12 定时任务动作（只有后端） | 动作 kind，以 `<id>_` 开头，例 `video_publish`（VID-06a） |
 
 数据迁移（2.4）用顶层的 `migrations` 和 `table_prefix`，事件订阅（2.10）用顶层的 `emits` 和 `subscribes`，不放进 `provides`。
 
@@ -211,6 +212,7 @@ type Registrar interface {
 	SearchProvider(p SearchProviderDef)   // 2.9
 	Subscribe(eventType string, h EventHandler) // 2.10
 	HostHandler(d HostHandlerDef)        // 2.11，只有后端
+	ScheduleAction(d ScheduleActionDef)  // 2.12，只有后端（VID-06a）
 }
 
 // Core 是插件能用的全部内核能力。每个方法拿到的都是按本插件 id 和权限收窄过的句柄。
@@ -232,6 +234,7 @@ type Core interface {
 	Granted(perm string) bool   // 用户确认过这项权限没有，只认状态表里确认过的（SEC-01，3.3）
 	SOP() SOPService            // 插件登记的 SOP 节点、执行插件节点、唤醒挂起的步骤（SOP-03a）、指向流程的定时任务（SOP-01d），2.7
 	Notify(ctx context.Context, n Notification) error // 以本插件的名义发通知，kind 补插件前缀（VID-06b）
+	Runs() RunService           // 发起 Agent、SOP 运行或交给 Claude Code，跑完投 run.finished（VID-03a）
 	Log() *slog.Logger
 }
 ```
@@ -274,6 +277,22 @@ type Core interface {
 - 来源：`Data.source` 由内核写成插件 id，插件自己填的会被覆盖（通知表没有来源列，本批不加迁移）。
 - 插件没在跑（停用了、还没启用）回 `ErrNotifyInactive`；已发的通知保留，不随停用、卸载删。没接通知中心（测试里）回 `ErrNoNotifier`。
 - 发通知不在 3.1 的权限清单里，不按权限收窄。
+
+发起运行（已实现，`internal/plugin/runs.go`，VID-03a 加）：插件要让 Agent、SOP 或本机 Claude Code 替它干活时用 `Core.Runs()`。三个发起方法都不等跑完，先回运行 id（`run_` 开头），跑完给发起的插件投一条 `run.finished`，插件按运行 id 认是哪次、用 `Get` 取结果。
+
+| 方法 | 做什么 |
+|---|---|
+| `StartAgent(ctx, AgentRunStart{Agent, Prompt, Title})` | 在后台调 `Agent().RunAgent` 跑一轮（口径同上面的 `RunAgent`），上限 10 分钟。Agent 不存在、停用、服务商不对在结束时报（`status: failed`）；停在要确认的调用上记 `waiting` 并算结束，`Error` 是待确认的那句话，确认后接着跑由会话管，用 `Agent().AgentState(Ref)` 查 |
+| `StartSOP(ctx, SOPRunStart{Flow, Input})` | 经 `Registry.StartSOP` 交给 SOP 插件起一条执行（口径同定时任务的 sop 动作，发起方记 `plugin`、插件 id）。SOP 插件没启用回 `ErrNoSOPStarter`，流程不存在、必填空着同步回错误。内核看 SOP 插件发的 `sop.run_status_changed`，到 `done`、`failed`、`stopped` 算结束；人工检查点停着（`waiting`）不算 |
+| `StartClaudeCode(ctx, ClaudeCodeStart{Workdir, Prompt, AllowWrites, ObjectID, ScopeType, ScopeID})` | 用 `internal/runner` 在 `Workdir`（绝对路径，校验同任务执行）里跑一次 claude，提示词原样交过去。默认只读；`AllowWrites` 要用户确认过 `process:spawn`，没确认回 `ErrNotGranted`。跑完按执行前后的目录快照登记改动的文件（同任务执行）：来源 `run`、产出者 `run` 加插件 id、`props.plugin_run_id` 是运行 id，挂到 `ObjectID`（可空）和 `ScopeType`/`ScopeID`（可空，要同时给）。不写 `task_runs`：那张表要挂对象，接口层的取消和残留收尾也认不得这里起的进程 |
+| `Get(runID)` | 本插件发起的运行 `RunInfo{ID, Kind, Source, Status, OK, Ref, Output, Error, ExitCode, Artifacts, Finished, StartedAt, FinishedAt}`；别的插件发起的、不存在的回 `ErrRunNotFound` |
+
+- `Kind` 是 `agent`、`sop`、`claude_code`；`Status` 是 `done`、`failed`、`waiting`（Agent）、`canceled`（Claude Code）、`stopped`（SOP），只有 `done` 时 `OK` 为真。`Ref` 是 Agent 会话 id 或 SOP 执行 id；`Output` 是 Agent 最新回复或 Claude Code 的过程记录，SOP 为空。
+- `run.finished` 只投给发起插件当前在跑的订阅，不上总线：总线上的 `run.finished` 是任务执行的（2.10），通知中心和事件流按任务执行认。载荷 `{ run_id, kind, source, status, ok, ref }`，插件照常在清单 `subscribes` 里写 `run.finished`、用 `Subscribe` 登记；任务执行的那条也会收到，`Get` 回 `ErrRunNotFound` 跳过即可。
+- 插件停用后它发起的运行照样跑完、`Get` 照样查得到，只是 `run.finished` 不再投给它；停用期间不能发起（回 `ErrRunInactive`）。
+- 每次发起记一条审计：`kind` 为 `agent`、`action` 为 `run`、`target_type` 为 `plugin_run`、`target_id` 是运行 id，操作者是插件 id、来源 `plugin`，`detail` 带种类和 Agent、流程或目录。
+- 运行记录只在进程内存里，最多留 500 条跑完的；重启后查不到，在途的 Agent、Claude Code 运行退出时最多等 5 秒。没接实现时回 `ErrNoAgent`、`ErrNoClaudeRunner`（`cmd/pmw` 用 `Registry.SetClaudeRunner` 接上）。
+- 发起 Agent、SOP 不在 3.1 的权限清单里，不按权限收窄，同上面的 Agent 句柄。
 
 ### 2.1 功能模块
 
@@ -505,6 +524,17 @@ r.Connector(plugin.ConnectorDef{
 	Test:  slack.Test,
 })
 ```
+
+连接器实例句柄（已实现，`internal/plugin/connectors_read.go`，IM-02a 加只读，BR-01a 加两个动作）：`Core.Connectors()` 拿实例的状态，不给凭证和配置；建、改、删实例仍走内核 `/api/connectors`。发起授权和断开的实现是内核的 `connector.Store`，`cmd/pmw` 用 `Registry.SetConnectors` 接上；没接上时这两个方法回 `ErrNoConnectors`。
+
+| 方法 | 做什么 |
+|---|---|
+| `Get(ctx, id)` | 一个实例的 `ConnectorInfo{ID, Tool, Name, Account, Status, Error, Direction, Scope, AuthorizedAt}`，没有这个 id 回 `ErrNoRows`。`Scope` 是 OAuth 授权下来的范围（空格分隔），`AuthorizedAt` 是最近一次授权完成的时间，没授权为 nil |
+| `List(ctx, tool)` | 按工具列实例，新建的在前；`tool` 为空列全部 |
+| `StartOAuth(ctx, id, returnTo)` | 发起这个实例的 OAuth 授权，回 `OAuthStart{AuthorizeURL, RedirectURI, ExpiresAt}`，口径同 `POST /api/connectors/{id}/oauth/start`：`returnTo` 只认站内路径或本机地址，实例不是 OAuth 或缺 client_id 回内核的冲突错误。回调照常落在内核 |
+| `Disconnect(ctx, id)` | 断开这个实例，口径同 `POST /api/connectors/{id}/disconnect`：状态置为 `disconnected`，OAuth 令牌删掉、授权状态清空。记一条审计（`action: disconnect`，`kind` 为 `agent`，操作者是插件 id），回断开后的 `ConnectorInfo` |
+
+这个句柄暂不按权限收窄：连接器的授权和断开都要用户在界面上点，插件只是替用户转一次（例：浏览器插件的「登录 Google」「退出登录」转给 Google Drive、Google 日历实例，BR-01a）。
 
 ### 2.6 技能、Agent 工具
 
@@ -743,7 +773,7 @@ api.commands.register({ id: 'projects.new', group: '操作', title: '新建项�
 | `object.status_changed` | 状态变化 | `{ id, type_id, from, to }` |
 | `object.progress_appended` | 记了一条进展（领取、普通进展、提交验收都发） | `{ id, kind }` |
 | `task.review_requested` | 任务提交验收 | `{ id }` |
-| `run.finished` | 执行结束 | `{ run_id, object_id, ok }` |
+| `run.finished` | 执行结束 | `{ run_id, object_id, ok }`；插件发起的运行不上总线，只投给发起的插件，载荷见 2.0「发起运行」 |
 | `contact.identity_merged` | 两个 IM 身份合到一个联系人 | `{ contact_id, identity_ids }` |
 
 插件事件以 `<id>.` 开头，在清单 `emits` 里声明，例 `im.message_received`。
@@ -811,6 +841,49 @@ type HostHandlerDef struct {
 
 ```go
 r.HostHandler(plugin.HostHandlerDef{Suffix: h.hostSuffix, Match: h.hostMatch, Handler: http.HandlerFunc(h.serveHost)})
+```
+
+### 2.12 定时任务动作（只有后端）
+
+VID-06a 加（`internal/plugin/scheduleaction.go`）。定时任务内核只认 `task`、`sop`、`agent` 三种动作，插件用这个扩展点加别的：视频的到点发布（`video_publish`），以后交易的盘前简报也走这里。
+
+```go
+type ScheduleActionDef struct {
+	Kind string // = 清单 provides.schedule_actions 里的一项，以 <插件 id>_ 开头
+	// 新建、修改定时任务时校验参数（不含 kind），返回要存的参数；为 nil 时原样存
+	Validate func(ctx context.Context, c Core, params map[string]any) (map[string]any, error)
+	// 到点执行一次
+	Run func(ctx context.Context, c Core, in ScheduleActionInput) (*ScheduleActionResult, error)
+}
+// Registrar.ScheduleAction(d ScheduleActionDef)
+
+type ScheduleActionInput struct {
+	Kind, ScheduleID, ScheduleName string
+	RunID  string         // 这次执行记录的 id，按它去重
+	At     time.Time      // 计划时刻，手动执行为点按钮的时刻
+	Manual bool
+	Params map[string]any // Validate 返回的参数
+}
+type ScheduleActionResult struct {
+	Text     string // 写进执行记录，空时写「执行了 <kind>」
+	ObjectID string // 产出的对象，可以空
+	Ref      string
+}
+```
+
+规则：
+
+- 动作的参数和 `kind` 平铺在定时任务的 `action` 里（同原型 `ScheduleAction`，例 `{"kind":"video_publish","publish_id":"pb_…"}`），内核原样存、原样回，不认识字段。
+- 校验交给插件：`Validate` 回错误时定时任务接口回 `validation` 400，文字是 `action: <错误文字>`。没有插件声明这个 kind 时回「`action.kind must be task / sop / agent or a plugin action`」；声明它的插件没在跑时也回 400（「提供这个动作的插件没启用：视频（video）」），只改名字、启停不重新校验动作。
+- 到点由调度器交给插件，执行记录照常写（先记 `running`，同一时刻不重复，错过不补跑）：成功记 `ok`，`Run` 回错误记 `failed`「没执行：<错误文字>」。插件停用、没启动起来时记 `failed`「没执行：提供这个动作的插件没启用：<插件名>（<id>）」，定时任务的定义不动，插件启用后下次照常；插件卸载后同样记 `failed`。
+- `Validate`、`Run` panic 时转成错误（「校验动作 <kind> 出错」「动作 <kind> 执行出错」），不带垮调度器。
+- `Run` 不要等很久：调度器串行处理到点的定时任务，要长时间跑的事（上传视频）起一条插件自己的执行记录、后台任务里做，`Run` 只回「开始发布，记录 …」。
+- 前端只认清单里的 `provides.schedule_actions`（清单校验、插件管理页的分组），定时任务页还没认插件动作（名字、参数表单），随用到它的插件一起加。
+
+例子（示例插件，`internal/plugin/plugintest/demo.go`）：
+
+```go
+r.ScheduleAction(plugin.ScheduleActionDef{Kind: "demo_note", Validate: validateNote, Run: d.runNote})
 ```
 
 ---
@@ -1089,3 +1162,4 @@ stateDiagram-v2
 | 插件 API 版本 | 日期 | 变化 |
 |---|---|---|
 | 1.0.0 | 2026-10-28 | 初版（CORE-01a） |
+| 1.1.0 | 2026-10-29 | `Core` 加 `Runs()`：发起 Agent、SOP 运行和交给 Claude Code，跑完给发起的插件投 `run.finished`（VID-03a） |

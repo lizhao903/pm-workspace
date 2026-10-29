@@ -385,7 +385,7 @@ export function MessagesPage({ messages, contacts, connectors, selected, onOpen,
 
 /* ---------- 抽屉：会话 + 处理 + 反馈 ---------- */
 
-export function MessageDrawer({ msg, contact, connector, onClose, onAct, onOpenContact, onSaveContact, task, onToTask, onFixConnector, projects, msgProjects, onFetchAttachment, onAddAttachment }: {
+export function MessageDrawer({ msg, contact, connector, onClose, onAct, onOpenContact, onSaveContact, task, onToTask, deal, onToDeal, onFixConnector, projects, msgProjects, onFetchAttachment, onAddAttachment }: {
   /** 附件：获取到本地、加进项目支持材料；msgProjects 是这条消息所在的项目 */
   projects: Project[]; msgProjects: string[]
   onFetchAttachment: (attId: string) => void; onAddAttachment: (attId: string, projectId: string) => void
@@ -395,6 +395,8 @@ export function MessageDrawer({ msg, contact, connector, onClose, onAct, onOpenC
   onOpenContact: (id: string) => void; onSaveContact: () => void
   /** 这条消息转出来的任务；onToTask 没转过就新建，转过就打开 */
   task?: { ref: string; title: string }; onToTask: () => void
+  /** 品牌询价转商单（视频模块开着才有，VID-08p）：没转过就新建，转过就打开 */
+  deal?: { title: string; brand: string }; onToDeal?: () => void
 }) {
   const msgEnum = useEnumView('msg_status')
   const ch = channelOf(msg.channel)
@@ -483,6 +485,17 @@ export function MessageDrawer({ msg, contact, connector, onClose, onAct, onOpenC
           <div className="act-row"><span className="muted">已转为任务 {task.ref} {task.title}</span><button className="act" onClick={onToTask}>打开任务</button></div>
         ) : (
           <div className="act-row"><button className="act" onClick={onToTask}>转为任务</button><span className="muted">原消息会记在任务里，方便回看</span></div>
+        )}
+
+        {onToDeal && (
+          <>
+            <div className="section-label">转商单</div>
+            {deal ? (
+              <div className="act-row"><span className="muted">已转为商单 {deal.brand} · {deal.title}</span><button className="act" onClick={onToDeal}>打开商单</button></div>
+            ) : (
+              <div className="act-row"><button className="act" onClick={onToDeal}>转为商单</button><span className="muted">品牌来问报价时用：询价人、品牌、项目按这条消息预填</span></div>
+            )}
+          </>
         )}
 
         <div className="section-label">反馈</div>

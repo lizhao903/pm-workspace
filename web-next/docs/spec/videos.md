@@ -4,8 +4,8 @@
 |---|---|
 | 模块 key | `videos` |
 | 原型入口 | 一级菜单「视频」，http://127.0.0.1:7778 |
-| 源码 | `web-next/src/videos.tsx`（`VideosTabs`、`VideosListPage`、`StageDist`、`SeriesSettingsDrawer`、`VideoDetail`、`ArtifactDrawer`）、`web-next/src/videopublish.tsx`（`SeriesPage`、`PublishPage`、`NewPublishDrawer`、`PublishDrawer`）、`web-next/src/topics.tsx`（`TopicsPage`、`TopicDrawer`、`ClipsPage`）；接线在 `web-next/src/App.tsx`（`videoView`、`videoFrom`、`makeVideoFromTopic`、`newVideo`、`PublishPage` 的 `channels`） |
-| 数据文件 | `web-next/src/videodata.ts`（视频、系列、检查点、产出物、发布记录）、`web-next/src/topicdata.ts`（选题、素材） |
+| 源码 | `web-next/src/videos.tsx`（`VideosTabs`、`VideosListPage`、`StageDist`、`SeriesSettingsDrawer`、`VideoDetail`、`ArtifactDrawer`）、`web-next/src/videopublish.tsx`（`SeriesPage`、`PublishPage`、`NewPublishDrawer`、`PublishDrawer`）、`web-next/src/topics.tsx`（`TopicsPage`、`TopicDrawer`、`ClipsPage`）、`web-next/src/videocalendar.tsx`（`CalendarPage`）、`web-next/src/videodeals.tsx`（`DealsTab`、`DealDrawer`）；接线在 `web-next/src/App.tsx`（`videoView`、`videoFrom`、`makeVideoFromTopic`、`newVideo`、`channelOf`、`movePublish`、`moveTarget`、`saveDeal`、`makeDealReport`、`openDealFromMessage`，定时发布同步和发布失败上报两个 effect） |
+| 数据文件 | `web-next/src/videodata.ts`（视频、系列、检查点、产出物、发布记录、日历条目、商单）、`web-next/src/topicdata.ts`（选题、素材）；定时发布在 `web-next/src/scheduledata.ts`（`ScheduleAction` 的 `publish`），发布失败在 `web-next/src/incidentdata.ts`（模块「发布」） |
 | 截图 | [`shots/videos/`](shots/videos/) |
 | 负责任务 | PROTO-04f3 |
 | 对应开发任务 | 见下表「引用本规格的开发任务」 |
@@ -26,16 +26,16 @@
 | VID-03p、VID-03a 到 VID-03d | 阶段执行器（一键跑某个阶段）、SOP 节点和「视频周更」模板 | `SPEC-videos-0` 的 `StageRunner`、`LastRun`；`SPEC-videos-10.19` 到 `10.25`；模板见 `SPEC-sop` 流程库（原型已补，VID-03p） |
 | VID-04a 到 VID-04e | 内容平台连接器（B 站、YouTube、抖音） | `SPEC-videos-8`（平台接入情况 `SPEC-videos-8.6` 到 `8.9`）、`SPEC-videos-9` |
 | VID-05p、VID-05a 到 VID-05c | 发布记录扩展、按天快照、平台账号、发布前校验、封面 A/B | `SPEC-videos-0` 的 `Metrics`、`MetricSnapshot`、`PlatformAccount`、`PlatformRule`、`CoverTest`；`SPEC-videos-7.15`、`SPEC-videos-8.24` 到 `8.29`、`SPEC-videos-9.19` 到 `9.25`、`SPEC-videos-14`（原型已补，VID-05p） |
-| VID-06p、VID-06a 到 VID-06d | 内容日历和到点发布 | `SPEC-videos-8.15`（定时发布）、`SPEC-videos-9.6` |
+| VID-06p、VID-06a 到 VID-06d | 内容日历和到点发布 | `SPEC-videos-0` 的 `Video.target_date`、`CalendarItem`；`SPEC-videos-15`；定时发布 `SPEC-videos-15.12` 到 `15.16`、`SPEC-tasks-0` 的 `ScheduleAction`；`SPEC-videos-8.15`、`SPEC-videos-9.6`（原型已补，VID-06p） |
 | VID-07a、VID-07b | 今日卡片：待验收、待发布、发布失败 | `SPEC-videos-0` 联动总表「今日」一行，原型未做 |
 | VID-08a 到 VID-08c | 选题库、素材箱、评论收件 | `SPEC-videos-3`、`SPEC-videos-4` |
-| VID-08p、VID-08d | 商单 | 原型未做，补完后加新节 |
+| VID-08p、VID-08d | 商单 | `SPEC-videos-0` 的 `Deal`、`DealStatus`、`Review.by`；`SPEC-videos-16`（原型已补，VID-08p） |
 
 ## SPEC-videos-0 模块概述
 
 给视频博主用：按 web-video-presentation 技能的制作流程管一集视频（文稿、规划检查、网页开发、第一章验收、其余章节、音频、录屏、分发包），四个检查点要人确认；每一步的产出物带比例、版本和验收记录；多集归成系列共用开场收尾；做完按平台登记发布并回填数据。前面还有选题和素材收件箱两页，负责「做什么」。
 
-模块没有二级菜单，顶栏下面一排六个标签（`VideosTabs`）：全部视频、待我处理、选题、素材收件箱、系列、发布记录。「待我处理」和「素材收件箱」标签后面带数字（停在检查点或被退回的集数、待整理的素材数），一级菜单「视频」在有待处理的集时亮红点。打开某一集时标签栏还在，高亮按从哪进来的算：从系列进来高亮「系列」，其余高亮「全部视频」。
+模块没有二级菜单，顶栏下面一排七个标签（`VideosTabs`）：全部视频、待我处理、日历、选题、素材收件箱、系列、发布记录。商单不在视频模块的标签里，在项目详情的「商单」标签（视频模块开着才有），见 `SPEC-videos-16`。「待我处理」和「素材收件箱」标签后面带数字（停在检查点或被退回的集数、待整理的素材数），一级菜单「视频」在有待处理的集时亮红点。打开某一集时标签栏还在，高亮按从哪进来的算：从系列进来高亮「系列」，其余高亮「全部视频」。
 
 ### 页面清单
 
@@ -55,6 +55,8 @@
 | [SPEC-videos-12](#spec-videos-12-产出物抽屉) | 产出物抽屉 | 点一个产出物 | 改名称路径、状态、选用封面、验收、升版本、预览 |
 | [SPEC-videos-13](#spec-videos-13-视频详情设置) | 视频详情：设置 | 视频详情标签「设置」 | 标题、项目、系列和集数、目录、比例、删除 |
 | [SPEC-videos-14](#spec-videos-14-封面-ab-测试) | 封面 A/B 测试 | 发布记录「封面 A/B」一节 | 2 到 5 张封面比点击率，按曝光、天数、点击率差距判胜负；新建测试 |
+| [SPEC-videos-15](#spec-videos-15-日历) | 日历 | 标签「日历」 | 月、周视图：发布、计划首发日、商单交付；进度落后标红；拖动改日期，定时发布跟着改 |
+| [SPEC-videos-16](#spec-videos-16-商单) | 商单 | 项目详情标签「商单」；IM 消息抽屉「转为商单」 | 商单列表、商单抽屉：状态流转、报价参考、账期、挂视频、客户审核、结案报告 |
 
 ### 共用数据结构
 
@@ -76,6 +78,7 @@
 | `chapters` | `number` | 是 | 章节数，至少 1 | `6` |
 | `runners` | `StageRunner[]` | 否 | 各阶段配的执行器，一个阶段最多一条 | 见下 |
 | `last_run` | `LastRun` | 否 | 最近一次执行，整集只记一条 | 见下 |
+| `target_date` | `string` | 否 | 计划首发日，本地日期 `YYYY-MM-DD`；排日历、算进度落不落后（VID-06p） | `2026-11-02` |
 | `created_at` | `string` | 是 | 创建时间 | |
 | `updated_at` | `string` | 是 | 最后更新；改视频、改产出物都会刷新 | |
 
@@ -156,7 +159,7 @@
 | `picked` | `boolean` | 否 | 封面：同一方向、同一封面比例里选用的那张；没标过的，已发布的那张算选用（`isPicked`） | `true` |
 | `created_at` | `string` | 是 | 登记时间 | |
 
-`Review`：`at: string` 时间、`ok: boolean` 通过或退回、`comment: string` 意见（通过没写意见存「通过」）。
+`Review`：`at: string` 时间、`ok: boolean` 通过或退回、`comment: string` 意见（通过没写意见存「通过」）、`by?: ReviewBy` 谁验收的（VID-08p）。`ReviewBy`：`{ type: 'me' | 'contact'; id?: string }`，没有 `by` 的就是自己；`contact` 是外部审核人（商单的客户），`id` 是联系人 id。演示数据：远川的许知行（`ct_005`）验收过 `vd4` 的演示工程、`vd5` 的成片（退回一次再通过）。
 
 `ArtifactKind` 和 `ARTIFACT_KIND`（`stage` 是归在哪个阶段，`perVariant` 是不是每个比例一份）
 
@@ -327,7 +330,56 @@
 
 `TREND_POOL`、`COMMENT_POOL`：原型模拟「拉取热榜」「收集评论」用的两批假数据（`Omit<Clip, 'id' | 'created_at'>[][]`），每点一次取下一批，取完就没有新的。正式版由内容平台连接器拉（VID-08b）。
 
-`VideoView`（原型未定义成数据类型，写在 `videos.tsx`）：`all` 全部视频 / `review` 待我处理 / `single` 单集 / `sr:<系列 id>` 系列详情 / `video:<视频 id>` 视频详情 / `series` 系列 / `publish` 发布记录 / `topics` 选题 / `clips` 素材收件箱。
+`VideoView`（原型未定义成数据类型，写在 `videos.tsx`）：`all` 全部视频 / `review` 待我处理 / `single` 单集 / `sr:<系列 id>` 系列详情 / `video:<视频 id>` 视频详情 / `series` 系列 / `publish` 发布记录 / `topics` 选题 / `clips` 素材收件箱 / `calendar` 日历。
+
+`CalendarItem` 日历上的一条（`calendarItems(videos, publishes, deals, today)` 算出来，不存）
+
+| 字段 | 类型 | 必填 | 说明 | 取值 / 示例 |
+|---|---|---|---|---|
+| `date` | `string` | 是 | 落在哪天，本地日期 `YYYY-MM-DD`；发布取 `published_at`（已发布）或 `scheduled_at`（其余），没有时间的发布不上日历 | `2026-11-02` |
+| `kind` | `'publish' \| 'target' \| 'deal_deadline'` | 是 | 发布 / 计划首发日（`Video.target_date`）/ 商单交付截止（`Deal.deadline`，已交付、已收款、丢单的不上） | `publish` |
+| `ref_id` | `string` | 是 | 发布 id、视频 id 或商单 id | `pb5` |
+| `label` | `string` | 是 | 发布标题（空的用视频标题）、视频标题、「品牌：商单名」 | |
+| `tone` | `'ok' \| 'warn' \| 'danger' \| 'muted'` | 是 | 发布：失败 `danger`、已发布 `ok`、其余 `muted`；首发日：已完成 `ok`、进度落后 `danger`、其余 `muted`；商单截止：3 天内 `warn` | |
+| `at` | `string` | 否 | 发布的具体时刻 | |
+| `status` | `PublishStatus` | 否 | 发布的状态 | `scheduled` |
+| `platform` | `PlatformKey` | 否 | 发布的平台 | `bilibili` |
+| `video_id` | `string` | 否 | 发布和首发日所属的视频 | `vd2` |
+| `movable` | `boolean` | 是 | 能不能拖：计划中、已定时的发布和没完成的首发日能拖；已发布、失败的发布和商单截止不能 | |
+
+进度落后 `isBehind(video, today)`：排了 `target_date`，离它不到 `LATE_DAYS`（7）天或已经过了，第一章验收检查点还没 `passed`。日期工具：`localYmd(date)` 本地日期，`daysBetween(a, b)` 两个本地日期差几天。
+
+`Deal` 商单（`seedDeals`，VID-08p）
+
+| 字段 | 类型 | 必填 | 说明 | 取值 / 示例 |
+|---|---|---|---|---|
+| `id` | `string` | 是 | `newId('deal')`；演示数据 `deal_yc1`、`deal_yc2`、`deal_ba1` | `deal_yc1` |
+| `project_id` | `string` | 是 | 挂在哪个项目；客户、对接人、决策人都用项目干系人 | `pj_perm` |
+| `contact_id` | `string` | 否 | 询价人（联系人 id）；IM 转来的默认是发信人 | `ct_006` |
+| `brand` | `string` | 是 | 品牌；IM 转来的默认取联系人的公司 | `远川科技` |
+| `title` | `string` | 是 | 商单名称 | `试点上线短片` |
+| `platforms` | `PlatformKey[]` | 是 | 投放平台，可以空 | `['bilibili']` |
+| `deliverables` | `string` | 是 | 交付物，可以空串 | `1 支 3 分钟横版……` |
+| `quote` | `number` | 是 | 报价，不小于 0 | `12000` |
+| `currency` | `'CNY' \| 'USD'` | 是 | 币种 | `CNY` |
+| `status` | `DealStatus` | 是 | 状态 | 见下 |
+| `deadline` | `string` | 否 | 交付截止，`YYYY-MM-DD` | |
+| `pay_due` | `string` | 否 | 账期，最晚收款日 `YYYY-MM-DD` | |
+| `video_ids` | `string[]` | 是 | 挂上的视频；保存时没有项目的视频归到商单的项目 | `['vd5']` |
+| `source_message_id` | `string` | 否 | 从哪条 IM 消息转来的；一条消息只转一个商单 | `msg_008` |
+| `report_content_id` | `string` | 否 | 结案报告，指向「文档」里的一篇 `ContentItem` | |
+| `lost_reason` | `string` | 否 | 丢单原因，状态是丢单时必填 | |
+| `history` | `{ status: DealStatus; at: string }[]` | 是 | 状态变化，新的在前；新建时一条「询价」 | |
+| `created_at`、`updated_at` | `string` | 是 | | |
+
+`DealStatus` 和 `DEAL_STATUS`：`inquiry` 询价 `#a19d92`、`quoted` 已报价 `#7a4fd6`、`signed` 已签约 `#3d4fd6`、`producing` 制作中 `#0f8a8a`、`client_review` 客户审核 `#b0570b`、`delivered` 已交付 `#2f7d43`、`paid` 已收款 `#2f7d43`、`lost` 丢单 `#c0352b`。`DEAL_FLOW` 是前七个的顺序；状态可以点任一步，不强制按顺序，丢单在已收款后不能点。
+
+商单的几个算法（`videodata.ts`）：
+
+- `payState(deal, today)`：已交付、填了账期、离账期不到 7 天时返回 `{ days, tone }`，过了是 `danger`，其余 `warn`；别的情况 `null`。
+- `avgViews30(publishes, platforms)`：近 30 天这些平台（空就是全部）已发布、有数据的记录的平均播放（`Publish.metrics` 就是最新一条快照）。报价参考 = 均播 / 1000 x `QUOTE_CPM`（150 元），取整到百，写作「投放价值」，制作费另算。
+- `reportState(deal, publishes)`：挂上的视频最早一条已发布记录满 `REPORT_DAYS`（7）天才 `ready`，没满给 `left`（还差几天），还没发布返回 `null`。
+- `dealReport(deal, videos, publishes)`：结案报告正文（轻量 Markdown）：合作概况、数据汇总、各平台明细（发布天数、播放、点击率、完播率、链接）、结论（待补充）。
 
 ### 联动总表
 
@@ -342,6 +394,12 @@
 | 进来 | Agent（技能） | 产出物的来源 | 技能列表里有内置的「网页演示做视频」（`sk_video`，web-video-presentation）和「视频数据复盘」（`sk_video_review`）；产出物 `source.type` 可以是 `skill`、`agent`、`sop`。制作流程里每个阶段可以配技能或 Agent 当执行器，跑完的产出物来源记成它（VID-03p，`SPEC-videos-10.19`） | `SPEC-settings-15`、`SPEC-settings-16`、`SPEC-videos-12.2` |
 | 出去 | SOP | 制作阶段交给 SOP 跑、SOP 里的「发布到平台」节点 | 原型：阶段执行器可以选 SOP，流程库里有内置的「视频周更」（`sop_video_weekly`，8 步：文稿处理、规划检查、开发第 1 章、检查第 1 章、并行开发其余章节、音频检查、渲染、分发包检查），SOP 产出的产出物 `source.type = 'sop'`。原型里执行器选 SOP 只模拟跑完，不真的发起一次 SOP 执行；「发布到平台」节点原型未做。正式版：视频插件登记 SOP 节点和模板（VID-03d），节点类型的登记方式按 SOP 的插件节点 | `SPEC-sop-11`、`SPEC-sop-0` |
 | 出去 | 今日 | 待验收的视频、待发布、发布失败 | 原型未做：今日页没有视频的分组。正式版（VID-07a、VID-07b）往今日聚合里加一组，点一条跳到对应视频的制作流程或发布记录抽屉；视频插件停用后整组消失 | `SPEC-today-1.4`、`SPEC-today-1.23` |
+| 出去 | 任务（定时任务） | 发布记录定了时间、在日历上挪了日期、改成立即发布、删掉 | 定时任务跟着补、改、停用、删：一条已定时的发布对一条「只执行一次」的定时任务，动作 `publish`，id `sc_pub_<发布 id>`；定时任务里只读 | `SPEC-videos-15.12`、`SPEC-tasks-7`、`SPEC-tasks-8` |
+| 改动 | 运行异常 | 发布记录变成发布失败（到点发、立即执行、重试都算） | 记一条错误级异常，模块「发布」，指纹 `publish:<发布 id>`，同一条合并次数；种子里抖音那条已经记了 `inc10` | `SPEC-videos-15.14`、`SPEC-settings-18` |
+| 出去 | 项目 | 项目详情「商单」标签 | 视频模块开着才有这个标签；商单挂在项目下，挂上的视频归到这个项目；有账期快到的单时标签上亮红点 | `SPEC-videos-16`、`SPEC-projects-2` |
+| 进来 | IM 消息 | 消息抽屉「转为商单」 | 打开新建商单抽屉，按发信人预填询价人、品牌、项目；转过的打开那个商单 | `SPEC-videos-16.11`、`SPEC-messages-2` |
+| 出去 | 文档 | 商单「出结案报告」 | 「文档」里新建一篇（分类文档，标签「商单」「结案报告」），同时挂进项目的文档；重出覆盖原来那篇 | `SPEC-videos-16.9` |
+| 出去 | 今日 | 商单账期快到 | 「需要你处理」里一条「商单账期」，点了打开商单抽屉；视频模块关掉就没有 | `SPEC-videos-16.4`、`SPEC-today-1` |
 | 进来 | IM 消息 | 素材类型「IM 消息」 | 原型里只有演示数据（`cl_06`），没有从 IM 消息转素材的入口。正式版 VID-08b 加「转为素材」 | `SPEC-messages-2` |
 
 ### 发现的原型问题（待另开修错任务，本条不改原型）
@@ -1075,7 +1133,7 @@
 | SPEC-videos-14.14 | 没有出了两张以上封面的视频 | 视频下拉写「还没有出了几版封面的视频」且不可点，「开始测试」不可点 | 先去出封面 |
 | SPEC-videos-14.15 | 这集没有平台收的比例的封面 | 「这集还没有 <平台>收的比例的封面」 | 换平台 |
 | SPEC-videos-14.16 | 封面或视频被删 | 「已删除的封面」「已删除的视频」 | 无 |
-| SPEC-videos-14.17 | 采用胜者后改封面 | 原型限制：`App.tsx` 还没给发布页传 `onArtifacts`，判定结果只记在测试上，视频详情里的封面选用和归档不变（演示数据里第 15 集已经按决出结果摆好）。接线后按 `SPEC-videos-14.5` 改产出物 | 无 |
+| SPEC-videos-14.17 | 采用胜者后改封面 | `App.tsx` 已给发布页传 `onArtifacts`（VID-06p 顺带接上），采用胜者后视频详情里的封面选用和归档按 `SPEC-videos-14.5` 跟着变 | 无 |
 
 ### 数据
 
@@ -1088,3 +1146,120 @@
 | 进来 | 本模块 | 发布记录（`metrics` 的曝光、点击率） | 小号分发的数据从发布读 | `SPEC-videos-9` |
 | 改动 | 本模块 | 采用胜者 | 产出物封面的 `picked`、`archived` | `SPEC-videos-11`、`SPEC-videos-12` |
 | 进来 | 设置（连接器，内容平台） | 平台账号 | 主号挂连接器；A/B 小号原型是手动登记的，正式版每个小号一条连接器（VID-04） | `SPEC-settings-5` |
+
+## SPEC-videos-15 日历
+
+这周发什么、来不来得及。格子里是发布（计划中、已定时、已发布、发布失败）、每集的计划首发日和商单交付截止；离首发 7 天内还没过第一章验收的标红。计划中、已定时的发布和没完成的首发日能拖到别的日子，已定时的发布挪了日期，它的定时任务跟着改。
+
+### 截图
+
+| | 亮 | 暗 |
+|---|---|---|
+| 桌面 1440 | ![](shots/videos/标签_日历-1440-light.png) | ![](shots/videos/标签_日历-1440-dark.png) |
+| 手机 375 | ![](shots/videos/标签_日历-375-light.png) | ![](shots/videos/标签_日历-375-dark.png) |
+| 进度落后（第 2 集） | ![](shots/videos/日历_进度落后-1440-light.png) | ![](shots/videos/日历_进度落后-1440-dark.png) |
+| 拖动改日期 | ![](shots/videos/日历_拖动改日期-1440-light.png) | ![](shots/videos/日历_拖动改日期-1440-dark.png) |
+| 周视图 | ![](shots/videos/日历_周视图-1440-light.png) | ![](shots/videos/日历_周视图-1440-dark.png) |
+| 手机：点一天 | ![](shots/videos/日历_点一天-375-light.png) | ![](shots/videos/日历_点一天-375-dark.png) |
+| 手机：改日期框 | ![](shots/videos/日历_改日期-375-light.png) | ![](shots/videos/日历_改日期-375-dark.png) |
+| 手机：周视图 | ![](shots/videos/日历_周视图-375-light.png) | ![](shots/videos/日历_周视图-375-dark.png) |
+| 定时任务里的定时发布 | ![](shots/videos/定时任务_定时发布-1440-light.png) | ![](shots/videos/定时任务_定时发布-1440-dark.png) |
+
+### 交互
+
+| 编号 | 元素 | 操作 | 结果 |
+|---|---|---|---|
+| SPEC-videos-15.1 | 页面标题 | 展示 | 「视频 / 日历」，说明「这周发什么、来不来得及：发布排期、计划首发日和商单交付；离首发 7 天内还没过第一章验收的标红，拖动改日期」 |
+| SPEC-videos-15.2 | 月 / 周 | 点击 | 默认月视图。月视图从本月 1 号所在周的周一画到月底所在周的周日，不属于本月的格子变淡；周视图是选中那天所在的一周（周一到周日）。切到周视图时跳到选中那天的那一周 |
+| SPEC-videos-15.3 | 上一个 / 下一个、「今天」 | 点击 | 按月或按周翻；「今天」回到今天所在的月或周，选中今天 |
+| SPEC-videos-15.4 | 汇总 | 展示 | 当前月（或周）里：发布 N、已定时 N、失败 N（有才显示，红字）、首发 N；全部视频里进度落后的集数「进度落后 N 集」（红字，悬停列出标题） |
+| SPEC-videos-15.5 | 图例 | 展示 | 四种发布状态的颜色、计划首发（虚线框）、进度落后（红框）、商单交付（蓝框） |
+| SPEC-videos-15.6 | 格子 | 展示 | 日期（每月 1 号写「M/1」，今天是实心圆）；条目按「失败和落后的、商单交付、首发日、发布按时间」排。月视图每格最多露 3 条，多的写「+N 条」，点了切到那一周的周视图。周视图每条带时刻 |
+| SPEC-videos-15.7 | 条目 | 展示 | 发布：左边一道状态色，平台色点，标题；首发日：虚线框，「首发」加视频标题，落后的整条标红；商单交付：「交付」加「品牌：商单名」，3 天内到期的标橙。悬停写全「种类 · 平台 时刻：标题（状态）」，能拖的加「可以拖到别的日子」 |
+| SPEC-videos-15.8 | 格子 | 点击 | 选中这一天，下面的详情列出这天的全部条目；空的写「这天空着」和「没有排发布，也没有首发日；把别的日子的发布拖过来，或者去发布记录新建」 |
+| SPEC-videos-15.9 | 条目 | 点击 | 选中这一条，下面的详情换成这条：种类、标题、日期（能改的是日期框）、时刻、离今天几天；发布还有平台和状态、失败原因；有视频的写视频标题和进度（`videoState`），发布另写计划首发日；商单交付写品牌和商单状态。进度落后的视频给提示「离计划首发 <日期> 只剩 N 天（或已经过了），第一章还在等验收」或「第一章验收还没过，现在在「<阶段>」」。按钮：「打开视频」、「看发布记录」（发布记录页只看这一集）、「打开商单」。「看这一天」回到选中那天的列表 |
+| SPEC-videos-15.10 | 条目 | 拖到另一个格子 | 能拖的条目可以拖；拖过的格子高亮。放下后：发布的 `scheduled_at` 换成那天、时刻不变；首发日改 `Video.target_date`。详情选中这一条，写「已改到 <日期>」，已定时的发布加「，定时任务跟着改了」。不能拖的（已发布、失败的发布，已完成的首发日，商单交付）拖不起来 |
+| SPEC-videos-15.11 | 详情里的日期框 | 改日期 | 和拖动一样，手机上没法拖时用它 |
+| SPEC-videos-15.12 | 定时发布 | 自动 | 一条已定时（`scheduled`、有 `scheduled_at`）的发布对一条定时任务：只执行一次，日期时刻取 `scheduled_at`，名称「定时发布：<平台>「<标题>」」，动作 `{ kind: 'publish', publish_id }`，id `sc_pub_<发布 id>`。发布记录新建成已定时、挪了日期就补上或改时间（改时间时重新启用）；改成立即发布、已发出去，还没到点的停用；发布记录删了就删掉；已发布、失败的留着看执行记录（`syncPublishSchedules`） |
+| SPEC-videos-15.13 | 定时任务里的定时发布 | 展示 | 列表「做什么」是「发布视频」和「发布「<平台> · <标题>」」，动作筛选多一项「发布视频」。抽屉里名称只读，「什么时候」「做什么」换成「发布哪条」：发布记录名、规则一句话和下次执行，说明「这条定时跟着视频的发布记录走：改时间在内容日历里拖，或者在发布记录里改；到点按发布记录发，失败的记进运行异常」，按钮「打开发布记录」「去内容日历」。新建定时任务不能选「发布视频」 |
+| SPEC-videos-15.14 | 定时发布「立即执行一次」 | 点击 | 按发布记录发：平台连接器异常写「<平台>连接器异常：<原因>」、没有能自动发布的连接器写「<平台>没接能自动发布的连接器，只能手动登记」、平台规则校验不过写校验那一句，这三种发布记录变成发布失败，执行记录写「发布失败：<原因>，已记进运行异常」并标失败，运行异常记一条（`publish:<发布 id>`）；都过了就变成已发布，执行记录写「<平台>发布了「<标题>」」。发布记录已删「没执行：发布记录已删除」，已经发过「没执行：已经发布过了」 |
+
+### 空状态和异常状态
+
+| 编号 | 场景 | 显示 | 可做的操作 |
+|---|---|---|---|
+| SPEC-videos-15.15 | 这个月一条都没有 | 格子都空，汇总都是 0；选中的那天「这天空着」 | 翻月，去发布记录新建 |
+| SPEC-videos-15.16 | 发布失败 | 红色条目，汇总「失败 N」；详情写失败原因和「发布失败的要先在发布记录里重试，再排日子」 | 看发布记录 |
+| SPEC-videos-15.17 | 已发布 | 绿色条目，不能拖；详情写「已经发出去了，日期不能改」 | 看发布记录 |
+| SPEC-videos-15.18 | 手机宽度 | 月视图格子只露日期和最多 4 个色点（发布按状态色，落后红色），点一天在下面看列表、选一条用日期框改；周视图竖着排，每天一段 | 同桌面 |
+
+### 数据
+
+见 `SPEC-videos-0` 的 `CalendarItem`、`isBehind`、`Video.target_date`、`Publish`、`Deal.deadline`；`SPEC-tasks-0` 的 `ScheduleAction`。演示数据接 PROTO-01：第 2 集（`vd2`，停在第一章验收）计划 4 天后首发，B 站那条（`pb5`）已定时在首发日 20:00，所以首发日标红；视频号那条（`pb6`）计划在第二天中午。第 1 集 YouTube（`pb4`）两天后定时，抖音（`pb3`）5 天前到点发布失败。AI 系列第 19 到 26 集每周三首发，第 19、20 集的视频号已排成计划。第 3 集 16 天后首发。远川权限改造演示片 6 天后首发，商单 7 天后交付；远川试点上线短片 10 天前已经发在远川的 B 站号。
+
+### 联动
+
+| 方向 | 对方模块 | 触发 | 结果 | 见 |
+|---|---|---|---|---|
+| 改动 | 本模块 | 拖发布、改首发日 | 发布记录的 `scheduled_at`、视频的 `target_date` | `SPEC-videos-7`、`SPEC-videos-13` |
+| 出去 | 本模块 | 「打开视频」「看发布记录」 | 视频详情；发布记录只看这一集（发布抽屉在发布记录页里，原型从外面打不开具体一条） | `SPEC-videos-10`、`SPEC-videos-7.9` |
+| 改动 | 任务（定时任务） | 已定时的发布挪了日期 | 定时发布的日期时刻跟着改 | `SPEC-videos-15.12`、`SPEC-tasks-7` |
+| 出去 | 项目（商单） | 「打开商单」 | 打开商单抽屉 | `SPEC-videos-16` |
+| 改动 | 运行异常 | 定时发布失败 | 记一条，模块「发布」 | `SPEC-videos-15.14` |
+
+## SPEC-videos-16 商单
+
+品牌来问报价，转成商单挂在项目下；按询价、已报价、已签约、制作中、客户审核、已交付、已收款流转，也可以丢单。报价参考近 30 天均播；视频挂到商单上，客户的审核意见记进产出物验收；已交付没收款的提示账期；发布满 7 天出结案报告存进「文档」。商单在项目详情的「商单」标签，视频模块开着才有这个标签。
+
+### 截图
+
+| | 亮 | 暗 |
+|---|---|---|
+| 项目里的商单标签 | ![](shots/videos/商单_项目标签-1440-light.png) | ![](shots/videos/商单_项目标签-1440-dark.png) |
+| 商单抽屉：账期快到 | ![](shots/videos/商单抽屉_账期快到-1440-light.png) | ![](shots/videos/商单抽屉_账期快到-1440-dark.png) |
+| 客户审核和结案报告 | ![](shots/videos/商单抽屉_客户审核和结案报告-1440-light.png) | ![](shots/videos/商单抽屉_客户审核和结案报告-1440-dark.png) |
+| 记客户意见 | ![](shots/videos/商单抽屉_记客户意见-1440-light.png) | ![](shots/videos/商单抽屉_记客户意见-1440-dark.png) |
+| 结案报告（文档） | ![](shots/videos/商单_结案报告文档-1440-light.png) | ![](shots/videos/商单_结案报告文档-1440-dark.png) |
+| IM 消息转商单 | ![](shots/videos/商单_IM转商单-1440-light.png) | ![](shots/videos/商单_IM转商单-1440-dark.png) |
+
+### 交互
+
+| 编号 | 元素 | 操作 | 结果 |
+|---|---|---|---|
+| SPEC-videos-16.1 | 项目详情「商单」标签 | 展示 | 在「任务」后面；视频模块不在当前工作台时没有这个标签。有账期快到的单时标签上亮红点 |
+| SPEC-videos-16.2 | 汇总和「新建商单」 | 展示 / 点击 | 进行中 N、进行中金额（人民币的报价合计）、已收款金额、「N 单账期快到了」（有才显示，橙字）；「新建商单」打开新建抽屉，项目默认是这个项目 |
+| SPEC-videos-16.3 | 商单列表 | 展示 / 点击 | 一行一单：名称、品牌和交付物、状态、报价、交付 / 账期（`payText`：账期 7 天内「N 天后到账期」橙字、过了「账期已过 N 天」红字、今天「今天到账期」；没交付的写「<截止> 交付」；已交付写「<账期> 前收款」；已收款写「已收款」）、挂的视频标题。已收款、丢单的折在下面「展开已收款、丢单的 N 单」。点一行打开商单抽屉，这一行高亮。手机宽度只留名称和状态 |
+| SPEC-videos-16.4 | 抽屉顶部提示 | 展示 | 账期快到或过了：「N 天后到账期：已交付还没收款，记得跟 <询价人> 确认付款」（过了是红色）；从 IM 转来的另有一块来源：发信人、会话、时间、原话，「打开这条消息」 |
+| SPEC-videos-16.5 | 基本信息 | 输入 | 品牌、商单名称（都必填）；项目（必填，搜索下拉）；询价人（搜索下拉，这个项目的干系人排前面、带角色，其余联系人在后面，可以不填） |
+| SPEC-videos-16.6 | 状态 | 点击 | 七步加「丢单」一排按钮，当前那步实心，之前的绿色；点哪步就改成哪步，记一条状态变化；下面一行最近四次变化「<状态> <多久前>」。丢单要填原因（必填），已收款后不能点丢单 |
+| SPEC-videos-16.7 | 报价和交付 | 输入 | 投放平台（五个平台多选）、交付物、报价（整数，步长 100）、币种（人民币、美元）、交付截止、账期（最晚收款日）。报价参考：「近 30 天 <平台>均播 N（M 条发布）」「按每千次播放 ¥150 算，投放价值约 ¥X，制作费另算」，人民币时有「填入」；没数据时「近 30 天各平台都没有已发布的数据，报价参考不出来」 |
+| SPEC-videos-16.8 | 视频 | 展示 / 选择 | 挂上的视频：标题（点了打开视频详情）、比例、进度、「移除」；「挂一个视频」搜索下拉，这个项目的视频排前面标「本项目」。保存时没有项目的视频归到商单的项目 |
+| SPEC-videos-16.9 | 结案报告 | 点击 | 挂上的视频还没发出去：「挂上的视频还没有发出去；发布满 7 天后可以出结案报告」；没满：「最早一条发布还差 N 天满 7 天」；满了：「出结案报告」，在「文档」里新建一篇「<品牌> · <名称> 结案报告」（分类文档，来源「商单「<名称>」」，标签「商单」「结案报告」），挂进项目的文档（类型其他、定稿）。出过以后「打开结案报告」（跳到文档阅读）、「按最新数据重出」（覆盖原来那篇） |
+| SPEC-videos-16.10 | 客户审核 | 点击 | 列出挂上的视频的产出物里外部审核人留下的验收记录：通过 / 要改、审核人、意见、产出物和版本、时间。「记一条意见」：选产出物（待验收、已定稿、已发布的）、审核人（项目里的决策人、对接人）、通过或要改、客户原话（必填），「记下」写进那个产出物的验收记录，`by: { type: 'contact', id }`；不改产出物状态 |
+| SPEC-videos-16.11 | IM 消息抽屉「转为商单」 | 点击 | 视频模块开着才有这一节。没转过：打开新建商单抽屉，来源是这条消息，询价人是发信人对上的联系人，品牌取他的公司，项目取这条消息所在会话挂的项目（都对不上取第一个项目）；转过：「已转为商单 <品牌> · <名称>」和「打开商单」 |
+| SPEC-videos-16.12 | 「创建」「保存」 | 点击 | 校验（底部红字，只显示第一条）：品牌必填、商单名称必填、选一个项目、写一下丢单原因。新建的跳到这个项目的「商单」标签，抽屉换成这一单 |
+| SPEC-videos-16.13 | 「删除」 | 点击 | 换成确认条「删除后视频和结案报告保留，只删这条商单」「取消」「删除」 |
+| SPEC-videos-16.14 | 今日 | 展示 | 账期快到的单在「需要你处理」里一条「商单账期」：「<品牌>「<名称>」N 天后到账期」，「已交付待收款 · <报价>」，「去看看」打开商单抽屉 |
+
+### 空状态和异常状态
+
+| 编号 | 场景 | 显示 | 可做的操作 |
+|---|---|---|---|
+| SPEC-videos-16.15 | 这个项目没有商单 | 「这个项目还没有商单」「品牌在 IM 里问报价时，在消息抽屉里点「转为商单」；或者点右上「新建商单」」 | 新建商单 |
+| SPEC-videos-16.16 | 还没挂视频 | 视频一节「还没挂视频」；客户审核「挂上视频、有了待验收的产出物后，可以记客户的审核意见」；结案报告「挂上的视频还没有发出去」 | 挂视频 |
+| SPEC-videos-16.17 | 视频、联系人、项目被删 | 「已删除的视频」「已删除的联系人」「已删除的项目」 | 换一个 |
+
+### 数据
+
+见 `SPEC-videos-0` 的 `Deal`、`DealStatus`、`payState`、`avgViews30`、`reportState`、`dealReport`、`Review.by`。演示数据接 PROTO-01 的远川和北岸两个项目：远川（`pj_perm`）两单，「试点上线短片」（`deal_yc1`）已交付，视频 `vd5` 10 天前发在远川的 B 站号（客户号 `pa_bili_yc`），成片由许知行退回一次再通过，账期 3 天后，能出结案报告；「权限改造演示片」（`deal_yc2`）制作中，视频 `vd4` 在录屏，演示工程许知行看过，7 天后交付。北岸物流（`pj_beian`）「审批流 demo 讲解视频」（`deal_ba1`）已报价，还没挂视频。远川项目群里梁晚晴「采购流程这边需要一份正式的报价……」那条可以拿来演示 IM 转商单。
+
+### 联动
+
+| 方向 | 对方模块 | 触发 | 结果 | 见 |
+|---|---|---|---|---|
+| 进来 | IM 消息 | 「转为商单」 | 新建商单，带来源消息 | `SPEC-videos-16.11`、`SPEC-messages-2` |
+| 进来 | 项目 | 干系人 | 询价人、审核人的候选 | `SPEC-projects-6` |
+| 改动 | 本模块 | 挂视频、记客户意见 | 视频的 `project_id`、产出物的验收记录 | `SPEC-videos-13`、`SPEC-videos-12` |
+| 出去 | 文档 | 「出结案报告」「打开结案报告」 | 新建或覆盖一篇文档，挂进项目文档；跳到文档阅读 | `SPEC-library-1`、`SPEC-projects-8` |
+| 出去 | 今日 | 账期快到 | 一条「商单账期」 | `SPEC-today-1` |
+| 出去 | 本模块（日历） | 交付截止 | 日历上一条「交付」 | `SPEC-videos-15` |

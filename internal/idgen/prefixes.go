@@ -84,6 +84,7 @@ var Registry = []Entry{
 	{"vaf", "videoArtifact", "video_artifacts", ""}, // 视频插件的表（VID-01b），原型的 af 已给内核产物；验收记录用整数 id
 	{"tp", "topic", "", "topic"},
 	{"cl", "clip", "", "clip"},
+	{"deal", "deal", "", "deal"}, // 商单，原型先补（VID-08p），后端还没有表
 	// 交易
 	{"wl", "watchlist", "", "watchlist"},
 	{"al", "alert", "", "alert"},
@@ -96,7 +97,7 @@ var Registry = []Entry{
 	{"od", "order", "", "order"},
 	{"rn", "strategyRun", "", "strategyRun"},
 	// 浏览器与终端
-	{"bt", "browserTab", "", "browserTab"},
+	{"bt", "browserTab", "browser_tabs", "browserTab"}, // 浏览器插件的表（BR-01a）
 	{"tb", "termTab", "", "termTab"},
 	{"pn", "termPane", "", "termPane"},
 }

@@ -124,8 +124,8 @@ export function invalidationsFor(c: Change): QueryKey[] {
         agentConfigKeys.runs,
       ]
     case 'plugin':
-      // 插件停用后它的今日卡片从聚合里消失，它登记的连接器定义、技能也跟着出现或消失（CONN-02、AG-01b6）
-      return [dataKeys.plugins.all, dataKeys.objectTypes, todayKeys.all, dataKeys.connectors.all, skillKeys.all]
+      // 插件停用后它的今日卡片从聚合里消失，它登记的连接器定义、技能、SOP 节点也跟着出现或消失（CONN-02、AG-01b6、SOP-03b）
+      return [dataKeys.plugins.all, dataKeys.objectTypes, todayKeys.all, dataKeys.connectors.all, skillKeys.all, dataKeys.sop.nodeTypes]
     case 'schedule':
       // 列表（今日的「今天还会自动执行」同一份）；删除时执行记录一起没了
       return c.id ? [todayKeys.schedules, dataKeys.schedules.runsOf(c.id)] : [todayKeys.schedules, dataKeys.schedules.all]

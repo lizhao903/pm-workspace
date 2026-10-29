@@ -12,7 +12,7 @@ export const INCIDENT_STATUS: Record<IncidentStatus, { label: string; color: str
   resolved: { label: '已解决', color: '#2f7d43' },
 }
 
-export const INCIDENT_MODULES = ['连接器', '模型服务商', 'Webhook', 'SOP', '项目原型', 'Agent', 'IM 消息', '交易', '前端'] as const
+export const INCIDENT_MODULES = ['连接器', '模型服务商', 'Webhook', 'SOP', '项目原型', 'Agent', 'IM 消息', '交易', '发布', '前端'] as const
 export type IncidentModule = (typeof INCIDENT_MODULES)[number]
 
 export interface Incident {
@@ -128,5 +128,11 @@ export const seedIncidents: Incident[] = [
     id: 'inc9', fingerprint: 'trade:交易对账异常', level: 'warn', module: '交易', title: '交易对账异常',
     message: 'Binance 主账户：ETH/USDT 持仓本地 6.2，交易所 6.1938，差 0.0062（买入手续费按 ETH 扣）',
     context: { 账户: 'Binance 主账户', 对账项: 3, 差异: 1 }, count: 2, first_at: minsAgo(72), last_at: minsAgo(12), occurrences: times(12, 72), status: 'open',
+  },
+  // 第 1 集抖音那条定时发布到点失败（VID-06），指纹和发布失败时上报的一致：publish:<发布记录 id>
+  {
+    id: 'inc10', fingerprint: 'publish:pb3', level: 'error', module: '发布', title: '抖音发布失败：今日待办一页清',
+    message: '封面比例不符合要求：抖音要 3:4 或 9:16，这次用的是 1:1', context: { 视频: '第 1 集：今日待办一页清', 平台: '抖音', 账号: '一人之下', 定时任务: '定时发布：抖音「今日待办一页清」' },
+    count: 1, first_at: minsAgo(60 * 24 * 5), last_at: minsAgo(60 * 24 * 5), occurrences: times(60 * 24 * 5), status: 'open',
   },
 ]

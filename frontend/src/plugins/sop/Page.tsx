@@ -7,6 +7,7 @@ import {
   QueryState, isApiError, useEventsLive, useSopFlows, useSopNodeTypes, useSopRun, useSopRunAction, useSopRuns, type SopFlow, type SopJson,
   type SopRunBrief,
 } from '../../core/data'
+import { useSopNodeViews } from '../../core/plugin'
 import { Button, EmptyState, InSubnavHost, Subnav } from '../../core/ui'
 import { EditPage } from './EditPage'
 import { FlowDetail } from './FlowDetail'
@@ -51,6 +52,8 @@ export default function Page() {
   const flows = useSopFlows({ refetchInterval: live ? false : POLL_MS })
   const runs = useSopRuns({ refetchInterval: live ? false : POLL_MS })
   const types = useSopNodeTypes()
+  // 插件节点的名字、颜色在注册表里，登记变了重画
+  useSopNodeViews()
   const branching = useMemo(() => branchingOf(types.data), [types.data])
   const [start, setStart] = useState<{ flow: SopFlow; initial?: SopJson | null } | null>(null)
 

@@ -1,5 +1,5 @@
 import { useOpenUrl, useProtoDomain } from './openurl'
-import { useMemo, useState } from 'react'
+import { useMemo, useState, type ReactNode } from 'react'
 import type { Agent, Session } from './agentdata'
 import { AgentAvatar } from './agents'
 import type { Connector, Contact, ContentItem, Message } from './data'
@@ -24,9 +24,9 @@ import { newId } from './ids'
 // 项目：把一个产品相关的东西串起来——沟通（私聊、群聊）、干系人、任务、文档、SOP、Agent、支持材料、原型、目录
 // 任务和会话本身记着属于哪个项目（project_id），其余是项目这边记的关联
 
-export type ProjectTab = 'overview' | 'comms' | 'stakeholders' | 'tasks' | 'docs' | 'sop' | 'agents' | 'materials' | 'prototypes' | 'settings'
+export type ProjectTab = 'overview' | 'comms' | 'stakeholders' | 'tasks' | 'deals' | 'docs' | 'sop' | 'agents' | 'materials' | 'prototypes' | 'settings'
 const TABS: { key: ProjectTab; label: string }[] = [
-  { key: 'overview', label: '概览' }, { key: 'comms', label: '沟通' }, { key: 'stakeholders', label: '干系人' }, { key: 'tasks', label: '任务' },
+  { key: 'overview', label: '概览' }, { key: 'comms', label: '沟通' }, { key: 'stakeholders', label: '干系人' }, { key: 'tasks', label: '任务' }, { key: 'deals', label: '商单' },
   { key: 'docs', label: '文档' }, { key: 'sop', label: 'SOP' }, { key: 'agents', label: 'Agent' },
   { key: 'materials', label: '支持材料' }, { key: 'prototypes', label: '原型' }, { key: 'settings', label: '设置' },
 ]
@@ -276,7 +276,7 @@ export interface ProjectLinks {
   onAddAttachment: (projectId: string, msgId: string, attId: string) => void
 }
 
-export function ProjectPage({ project, projects, agents, content, tab, onTab, onChange, onDelete, onStart, onStop, onOpenDoc, onChat, onOpenAgent, links, delImpact, onAll, dock, onDock }: {
+export function ProjectPage({ project, projects, agents, content, tab, onTab, onChange, onDelete, onStart, onStop, onOpenDoc, onChat, onOpenAgent, links, delImpact, onAll, dock, onDock, deals, dealAlert }: {
   /** 顶栏「项目」点回项目列表 */
   onAll?: () => void
   /** 这个项目已打开的终端、网页数量，和展开区域当前显示的是哪个（收起时为 null） */
@@ -299,6 +299,9 @@ export function ProjectPage({ project, projects, agents, content, tab, onTab, on
   onOpenDoc: (contentId: string) => void
   onChat: (agentId: string) => void
   onOpenAgent: (agentId: string) => void
+  /** 商单标签的内容（视频模块开着才有，VID-08p）；不传就没有这个标签。dealAlert：有账期快到的单 */
+  deals?: ReactNode
+  dealAlert?: boolean
 }) {
   const p = project
   const set = (x: Partial<Project>) => onChange({ ...p, ...x })
@@ -335,7 +338,7 @@ export function ProjectPage({ project, projects, agents, content, tab, onTab, on
 
   const actions = {
     overview: <button className="btn btn-outline" onClick={() => onTab('settings')}>项目设置</button>,
-    comms: null, stakeholders: null, tasks: null, sop: null, agents: null,
+    comms: null, stakeholders: null, tasks: null, deals: null, sop: null, agents: null,
     materials: <button className="btn btn-primary" onClick={() => setNewMat({ name: '', kind: 'file', value: '', tags: [] })}>加材料</button>,
     docs: <button className="btn btn-primary" onClick={() => setNewDoc({ title: '', kind: 'PRD', type: 'library', ref: content[0]?.id ?? '' })}>加文档</button>,
     prototypes: <button className="btn btn-primary" onClick={() => setNewProto({ name: '', dir: '', command: 'npm run dev', port: freePort() })}>加原型</button>,
@@ -357,11 +360,12 @@ export function ProjectPage({ project, projects, agents, content, tab, onTab, on
     <div className="page page-fill project-page">
       <PageTitle parent={onAll ? <button className="tb-parent-btn tb-parent-keep" onClick={onAll} title="回到项目列表">项目</button> : '项目'} desc={p.desc} actions={dockBtns ? <>{actions}{dockBtns}</> : actions} icon={<ProjectMark p={p} size={20} />}>{p.name}</PageTitle>
       <div className="project-tabs np-tabs">
-        {TABS.map((t) => (
+        {TABS.filter((t) => t.key !== 'deals' || deals).map((t) => (
           <button key={t.key} className={cls(tab === t.key && 'on')} onClick={() => onTab(t.key)}>
             {t.label}
             {t.key === 'prototypes' && running(p) > 0 && <span className="proto-light pl-running" />}
             {t.key === 'comms' && waiting > 0 && <span className="side-dot" />}
+            {t.key === 'deals' && dealAlert && <span className="side-dot" />}
           </button>
         ))}
       </div>
@@ -446,6 +450,7 @@ export function ProjectPage({ project, projects, agents, content, tab, onTab, on
       {tab === 'comms' && <CommsTab p={p} messages={L.messages} contacts={L.contacts} connectors={L.connectors} onChange={set} onOpenMessage={L.onOpenMessage}
         onFetchAttachment={L.onFetchAttachment} onAddAttachment={(mid, aid) => L.onAddAttachment(p.id, mid, aid)} />}
       {tab === 'stakeholders' && <StakeholdersTab p={p} contacts={L.contacts} messages={L.messages} onChange={set} onOpenContact={L.onOpenContact} onOpenMessage={L.onOpenMessage} />}
+      {tab === 'deals' && deals}
       {tab === 'tasks' && <ProjectTasksTab p={p} tasks={L.tasks} onNew={L.onNewTask} onOpen={L.onOpenTask} onStatus={L.onTaskStatus} onApprove={L.onApproveTask} />}
       {tab === 'sop' && <ProjectSopTab p={p} sops={L.sops} runs={L.runs} onChange={set} onStart={L.onStartSop} onOpenRun={L.onOpenRun} onOpenSop={L.onOpenSop} />}
       {tab === 'agents' && <ProjectAgentTab p={p} agents={agents} sessions={L.sessions} onChange={set} onChat={onChat} onOpenAgent={onOpenAgent} onOpenSession={L.onOpenSession} onAllSessions={L.onAllSessions} />}

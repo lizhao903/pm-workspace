@@ -230,7 +230,7 @@ func TestCheckCoreAndCycle(t *testing.T) {
 	g := mustParse(t, `{"id":"gamma","name":"G","version":"1.0.0","core":"^1.0.0","depends":{"alpha":"^1.0.0"},"provides":{},"permissions":[]}`)
 	got := issueStrings(Check(a, Env{Plugins: []*Manifest{b, g}}))
 	want := []string{
-		"core 不包含当前插件 API 版本 1.0.0：>=2.0.0",
+		"core 不包含当前插件 API 版本 " + APIVersion + "：>=2.0.0",
 		"depends 形成循环依赖：alpha -> beta -> gamma -> alpha",
 	}
 	if !slices.Equal(got, want) {

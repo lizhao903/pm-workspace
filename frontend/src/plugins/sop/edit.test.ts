@@ -1,9 +1,11 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import type { SopNodeType, SopStepDef } from '../../core/data'
+import { sopNodeStore } from '../../core/plugin'
 import {
   START, autoLayout, catalogOf, changeKind, checkDraft, connect, explicit, insertAfter, makeStep, mergeIssues, newDraft, paletteItems,
   removeEdge, removeStep, serverIssuesOf, topo, type Draft,
 } from './edit'
+import { EMPTY_CTX, nodeInfo } from './nodes'
 
 const TYPES: SopNodeType[] = [
   { kind: 'auto', group: '基础', branching: false, required: [] },
@@ -26,6 +28,23 @@ describe('节点目录', () => {
     expect(items.find((x) => x.id === 'manual')).toMatchObject({ kind: 'decide', group: '人工', label: '人工判断' })
     expect(items.find((x) => x.id === 'doc')?.label).toBe('写文档')
     expect(items.find((x) => x.id === 'demo_ping')?.label).toBe('demo_ping')
+  })
+
+  it('插件登记了展示的节点用登记的名字、说明和配置项，撤掉后回到 kind', () => {
+    const d = sopNodeStore.add('demo', {
+      kind: 'demo_ping', label: '探活', group: '外部', desc: '敲一下', color: '#123456', plugin: 'demo',
+      fields: [{ key: 'to', label: '目标', type: 'text', default: 'a' }, { key: 'who', label: '谁', type: 'select', options: () => { throw new Error('坏了') } }],
+    })
+    try {
+      expect(paletteItems(cat).find((x) => x.id === 'demo_ping')).toMatchObject({ label: '探活', desc: '敲一下' })
+      expect(makeStep(draft([]), cat, 'demo_ping', '探活', []).config).toEqual({ to: 'a' })
+      const err = vi.spyOn(console, 'error').mockImplementation(() => {})
+      expect(nodeInfo('demo_ping').fields[1].options?.(EMPTY_CTX)).toEqual([])
+      err.mockRestore()
+    } finally {
+      d.dispose()
+    }
+    expect(paletteItems(cat).find((x) => x.id === 'demo_ping')?.label).toBe('demo_ping')
   })
 
   it('新节点带默认配置；分支节点带目录里的默认分支', () => {

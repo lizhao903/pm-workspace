@@ -75,10 +75,36 @@ export function targetLabel(r: DomainRoute, s: DomainSettings, protos: readonly 
 
 /** 目标原型没在跑（原型已删的不算，那条写「已删除的原型」） */
 export function protoDown(r: DomainRoute, protos: readonly TerminalPrototype[]) {
-  if (r.target.kind !== 'proto') return false
+  const a = protoAccess(r, protos)
+  return a === 'starting' || a === 'down'
+}
+
+export type ProtoAccess = 'up' | 'starting' | 'down' | 'gone'
+
+/** 目标是原型时跟着原型状态：在跑能访问，启动中、停着、崩了访问不了，原型删了另说；目标不是原型回 null */
+export function protoAccess(r: DomainRoute, protos: readonly TerminalPrototype[]): ProtoAccess | null {
+  if (r.target.kind !== 'proto') return null
   const id = r.target.proto_id
   const p = protos.find((x) => x.id === id)
-  return !!p && p.status !== 'running'
+  if (!p) return 'gone'
+  return p.status === 'running' ? 'up' : p.status === 'starting' ? 'starting' : 'down'
+}
+
+export const PROTO_ACCESS: Record<ProtoAccess, string> = {
+  up: '原型在运行，可以访问',
+  starting: '原型启动中',
+  down: '原型没在运行',
+  gone: '原型已删除',
+}
+
+/** 自动分配关掉后自动行不显示（后端关掉时删掉全部自动行，SPEC-settings-20.37） */
+export const visibleRoutes = (routes: readonly DomainRoute[], s: DomainSettings) => (s.auto_proto ? [...routes] : routes.filter((r) => !r.auto))
+
+/** 自动分配开着、在跑却还没有指向它的路由的原型 id（后端收到启动事件后才建，排好序拼成一个键，变了就重新等） */
+export function awaitingAuto(routes: readonly DomainRoute[] | undefined, protos: readonly TerminalPrototype[], s: DomainSettings) {
+  if (!s.auto_proto || !routes) return ''
+  const has = new Set(routes.flatMap((r) => (r.target.kind === 'proto' ? [r.target.proto_id] : [])))
+  return protos.filter((p) => p.status === 'running' && !has.has(p.id)).map((p) => p.id).sort().join(',')
 }
 
 /** 启用的里重名的完整域名（含和工作台别名撞的） */

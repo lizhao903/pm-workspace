@@ -19,6 +19,8 @@
 .dm-sub { margin-top: var(--sp-7); }
 .dm-hint { font-size: var(--fs-xs); color: var(--faint); }
 .dm-faint { color: var(--faint); }
+.dm-up { color: var(--ok); }
+.dm-access { margin-right: var(--sp-3); }
 .dm-label { font-size: var(--fs); font-weight: 500; color: var(--text); }
 .dm-label-row { margin: var(--sp-5) 0 0; font-size: var(--fs-xs); font-weight: 500; color: var(--faint); }
 .dm-label-row .dm-title-hint { font-weight: 400; }

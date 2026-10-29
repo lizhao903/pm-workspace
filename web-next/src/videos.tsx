@@ -17,7 +17,7 @@ import { SOPS } from './sopflow'
 // 视频：按 web-video-presentation 的流程管一集视频——阶段时间线、检查点、产出物（带比例、版本、验收）、设置
 // 数据约定在 videodata.ts；这里只读它的类型和常量
 
-export type VideoView = 'all' | 'review' | 'single' | `sr:${string}` | `video:${string}` | 'series' | 'publish' | 'topics' | 'clips'
+export type VideoView = 'all' | 'review' | 'single' | `sr:${string}` | `video:${string}` | 'series' | 'publish' | 'topics' | 'clips' | 'calendar'
 
 const Pill = ({ label, color }: { label: string; color: string }) => <span className="pill" style={{ '--c': color } as React.CSSProperties}><span className="pill-dot" />{label}</span>
 const now = () => new Date().toISOString()
@@ -166,9 +166,9 @@ export function VideosNav({ videos, series, view, onSelect, onNew, pendingClips 
 
 /* ---------- 标签栏 ---------- */
 
-type ModuleTab = 'all' | 'review' | 'topics' | 'clips' | 'series' | 'publish'
+type ModuleTab = 'all' | 'review' | 'calendar' | 'topics' | 'clips' | 'series' | 'publish'
 const MODULE_TABS: { key: ModuleTab; label: string }[] = [
-  { key: 'all', label: '全部视频' }, { key: 'review', label: '待我处理' }, { key: 'topics', label: '选题' },
+  { key: 'all', label: '全部视频' }, { key: 'review', label: '待我处理' }, { key: 'calendar', label: '日历' }, { key: 'topics', label: '选题' },
   { key: 'clips', label: '素材收件箱' }, { key: 'series', label: '系列' }, { key: 'publish', label: '发布记录' },
 ]
 const fromSeries = (v?: VideoView) => v === 'series' || !!v?.startsWith('sr:')

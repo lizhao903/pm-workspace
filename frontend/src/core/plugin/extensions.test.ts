@@ -4,7 +4,7 @@ import { definePlugin, type PluginApi } from './api'
 import { registeredCommands } from './commands'
 import {
   defineCoreModule, disposeExtensionsOf, moduleStore, notImplemented, objectTypeView, registerCoreModules, retiredModules,
-  settingsStore, sortCards, todayCardStore, type PluginTodayCard,
+  settingsStore, sopNodeStore, sopNodeView, sortCards, todayCardStore, type PluginTodayCard,
 } from './extensions'
 import { PLUGIN_API_VERSION, type PluginManifest } from './manifest'
 import { activatePlugin, activePlugins, deactivatePlugin, discoverPlugins, initPlugins, loadPlugins, pluginApi } from './registry'
@@ -22,7 +22,7 @@ function manifest(extra: Partial<PluginManifest> = {}): PluginManifest {
 }
 
 afterEach(() => {
-  for (const id of ['aa', 'bb', 'hello']) deactivatePlugin(id)
+  for (const id of ['aa', 'bb', 'hello', 'im']) deactivatePlugin(id)
   for (const id of ['aa', 'bb']) disposeExtensionsOf(id)
 })
 
@@ -74,6 +74,46 @@ describe('扩展点注册', () => {
   })
 })
 
+describe('SOP 节点（2.7）', () => {
+  const node = (kind: string) => ({ kind, label: '发消息', group: '沟通', desc: '往会话里发一条', color: '#0f8a8a', fields: [] })
+
+  it('按清单检查，带上插件来源；dispose、停用插件后撤掉', () => {
+    const api = pluginApi(manifest({ provides: { sop_nodes: ['aa_send'] } }), [], true)
+    const d = api.sopNodes.register(node('aa_send'))
+    expect(sopNodeView('aa_send')).toMatchObject({ label: '发消息', plugin: 'aa' })
+    d.dispose()
+    expect(sopNodeView('aa_send')).toBeUndefined()
+    api.sopNodes.register(node('aa_send'))
+    disposeExtensionsOf('aa')
+    expect(sopNodeStore.list()).toEqual([])
+  })
+
+  it('kind 不在清单里：严格模式抛错写明原因，否则拒绝并记原因', () => {
+    const strict = pluginApi(manifest({ provides: { sop_nodes: ['aa_send'] } }), [], true)
+    expect(() => strict.sopNodes.register(node('aa_wait'))).toThrow('注册的 SOP 节点 aa_wait 不在清单 provides.sop_nodes 里')
+    const reasons: string[] = []
+    pluginApi(manifest({ provides: {} }), reasons, false).sopNodes.register(node('aa_send'))
+    expect(reasons).toEqual(['注册的 SOP 节点 aa_send 不在清单 provides.sop_nodes 里'])
+    expect(sopNodeStore.list()).toEqual([])
+  })
+
+  it('同一个 kind 不能注册两次', () => {
+    const api = pluginApi(manifest({ provides: { sop_nodes: ['aa_send'] } }), [], true)
+    api.sopNodes.register(node('aa_send'))
+    expect(() => api.sopNodes.register(node('aa_send'))).toThrow('SOP 节点 aa_send 已被插件 aa 注册')
+  })
+
+  it('真实的 IM 插件登记发消息、等待回复，不依赖 SOP 插件；停用后消失', async () => {
+    const r = await loadPlugins(discoverPlugins(), state(['im']))
+    expect(r.problems).toEqual([])
+    expect(sopNodeStore.list().map((v) => [v.kind, v.label, v.plugin])).toEqual([['im_send_message', '发消息', 'im'], ['im_wait_reply', '等待回复', 'im']])
+    expect(sopNodeView('im_send_message')?.fields.map((f) => f.key)).toEqual(['conversation', 'text'])
+    expect(sopNodeView('im_wait_reply')?.fields.map((f) => f.key)).toEqual(['conversation', 'timeout'])
+    deactivatePlugin('im')
+    expect(sopNodeStore.list()).toEqual([])
+  })
+})
+
 describe('没实现的扩展点', () => {
   it('调用就抛出明确的错误，不当 thenable', () => {
     const api = pluginApi(manifest(), [], true)
@@ -81,7 +121,6 @@ describe('没实现的扩展点', () => {
       .toThrow('插件 API 的 connectors.register 还没实现（docs/plugin-api.md 2.5）')
     expect(() => api.events.on('object.created', () => {})).toThrow('插件 API 的 events.on 还没实现（docs/plugin-api.md 2.10）')
     expect(() => api.agent.registerToolView({ name: 'aa_x', label: 'x' })).toThrow('agent.registerToolView 还没实现')
-    expect(() => api.sopNodes.register({ kind: 'aa_x', label: '', group: '', desc: '', color: '', fields: [] })).toThrow('sopNodes.register 还没实现')
     expect(() => api.migrations.list()).toThrow('migrations.list 还没实现（docs/plugin-api.md 2.4）')
     expect((notImplemented<object>('x', '2.0') as { then?: unknown }).then).toBeUndefined()
   })

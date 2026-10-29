@@ -47,7 +47,8 @@
           "uniqueItems": true,
           "items": { "$ref": "#/$defs/event" }
         },
-        "search": { "$ref": "#/$defs/keys" }
+        "search": { "$ref": "#/$defs/keys" },
+        "schedule_actions": { "description": "定时任务动作，以 <id>_ 开头", "$ref": "#/$defs/keys" }
       }
     },
     "emits": {

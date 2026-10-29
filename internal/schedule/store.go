@@ -57,6 +57,8 @@ type Store struct {
 	db  *db.DB
 	loc *time.Location
 	now func() time.Time
+	// plugins 校验、执行插件登记的动作（VID-06a），SetPluginActions 接上
+	plugins PluginActions
 }
 
 // New 建一个定时任务表的读写。loc 是规则里墙上时间所在的时区，nil 为 time.Local。
@@ -115,8 +117,11 @@ func checkName(name string) (string, error) {
 	return name, nil
 }
 
-func checkAction(a Action) (Action, error) {
+func (s *Store) checkAction(ctx context.Context, a Action) (Action, error) {
 	a = a.Normalize()
+	if !builtinKind(a.Kind) {
+		return s.checkPluginAction(ctx, a)
+	}
 	return a, a.Validate()
 }
 
@@ -130,7 +135,7 @@ func (s *Store) Create(ctx context.Context, in Input) (*Schedule, error) {
 	if err != nil {
 		return nil, err
 	}
-	action, err := checkAction(in.Action)
+	action, err := s.checkAction(ctx, in.Action)
 	if err != nil {
 		return nil, err
 	}
@@ -224,7 +229,7 @@ func (s *Store) Update(ctx context.Context, id string, p Patch) (*Schedule, erro
 		}
 	}
 	if p.Action != nil {
-		if cur.Action, err = checkAction(*p.Action); err != nil {
+		if cur.Action, err = s.checkAction(ctx, *p.Action); err != nil {
 			return nil, err
 		}
 	}

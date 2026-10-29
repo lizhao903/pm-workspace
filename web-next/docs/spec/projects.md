@@ -155,7 +155,7 @@ SOP、Agent 标签（`SPEC-projects-9`、`SPEC-projects-10`）目前没有对应
 
 正式产品按 PJ-04a：保留端口还要加上 7796（测试实例）、7778（原型），并检查本机真实的端口占用。
 
-`ProjectTab`：`'overview' | 'comms' | 'stakeholders' | 'tasks' | 'docs' | 'sop' | 'agents' | 'materials' | 'prototypes' | 'settings'`，标签顺序和显示名：概览、沟通、干系人、任务、文档、SOP、Agent、支持材料、原型、设置。
+`ProjectTab`：`'overview' | 'comms' | 'stakeholders' | 'tasks' | 'deals' | 'docs' | 'sop' | 'agents' | 'materials' | 'prototypes' | 'settings'`，标签顺序和显示名：概览、沟通、干系人、任务、商单、文档、SOP、Agent、支持材料、原型、设置。「商单」只在视频模块开着时出现，内容由视频模块给（`ProjectPage` 的 `deals`、`dealAlert`），规格见 `SPEC-videos-16`（VID-08p）。
 
 `ALL_PROJECTS = ':all'`：停在列表页时当前项目 id 用这个值。
 
@@ -257,7 +257,7 @@ SOP、Agent 标签（`SPEC-projects-9`、`SPEC-projects-10`）目前没有对应
 |---|---|---|---|
 | SPEC-projects-2.1 | 顶栏 | 显示 | 「项目 /」+ 项目标志（20）+ 项目名 + 说明 |
 | SPEC-projects-2.2 | 顶栏「项目」 | 点击 | 回到项目列表，悬停「回到项目列表」 |
-| SPEC-projects-2.3 | 标签条 | 点击 | 切换标签（顺序见 `ProjectTab`）；切换时页面滚回顶部。「沟通」上有待回复消息（不含稍后）时带红点；「原型」上有运行中的原型时带绿灯 |
+| SPEC-projects-2.3 | 标签条 | 点击 | 切换标签（顺序见 `ProjectTab`）；切换时页面滚回顶部。「沟通」上有待回复消息（不含稍后）时带红点；「原型」上有运行中的原型时带绿灯；「商单」上有账期快到的单时带红点（`SPEC-videos-16.1`） |
 | SPEC-projects-2.4 | 右上按钮 | 显示 | 随标签变：概览「项目设置」（切到设置标签）；文档「加文档」；支持材料「加材料」；原型「加原型」；其余标签没有。这些按钮右边固定跟着「终端」「浏览器」两个按钮，所有标签都有，见 `SPEC-projects-14` |
 | SPEC-projects-2.5 | 手机宽度 | 显示 | 标签条横向滚动；顶栏照样留「项目 /」（回列表的入口），说明收起。抽屉打开、顶栏挤窄时也留着 |
 | SPEC-projects-2.6 | 再次进入 | 一级菜单点「项目」 | 回到列表；从列表重新打开时回到概览标签 |

@@ -181,6 +181,13 @@ button.vd-row:hover { background: var(--panel-2); }
 .vd-art-row.sel { background: var(--accent-soft); box-shadow: inset 3px 0 0 var(--accent); }
 .vd-art-main { display: flex; flex-direction: column; gap: 2px; flex: 1 1 200px; min-width: 0; }
 .vd-art-name { font-weight: 500; }
+/* 制作流程里的一条产出物 */
+.vd-sub { display: flex; flex-direction: column; gap: 4px; }
+.vd-art-line { display: flex; align-items: center; gap: 8px; min-height: 34px; padding: 0 8px 0 0; border-radius: var(--r-sm); min-width: 0; }
+.vd-art-line:hover { background: var(--hover); }
+.vd-art-line.sel { background: var(--accent-soft); box-shadow: inset 3px 0 0 var(--accent); }
+.vd-art-open { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0; flex-wrap: wrap; padding: 4px 8px; background: none; border: 0; color: var(--text); text-align: left; cursor: pointer; }
+.vd-art-line .vd-art-name { flex: 1 1 120px; }
 .vd-art-meta { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-width: 0; }
 .vd-src-tag { max-width: 200px; height: 20px; padding: 0 6px; border-radius: 4px; font-size: var(--fs-2xs); line-height: 20px; color: var(--muted); background: var(--hover); }
 .vd-cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(300px, 100%), 1fr)); gap: 12px; }

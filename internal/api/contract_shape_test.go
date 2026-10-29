@@ -20,6 +20,7 @@ import (
 	"github.com/lizhao903/pm-workspace/internal/imident"
 	"github.com/lizhao903/pm-workspace/internal/localdir"
 	"github.com/lizhao903/pm-workspace/internal/notify"
+	"github.com/lizhao903/pm-workspace/internal/plugins/browser"
 	"github.com/lizhao903/pm-workspace/internal/plugins/domains"
 	"github.com/lizhao903/pm-workspace/internal/plugins/im"
 	"github.com/lizhao903/pm-workspace/internal/plugins/projects"
@@ -166,6 +167,11 @@ var contractSpecs = map[string]contractSpec{
 	"VideoArtifact": {v: video.Artifact{}},
 	"VideoTopic":    {v: video.Topic{}},
 	"VideoClip":     {v: video.Clip{}},
+
+	"BrowserTab":         {v: browser.Tab{}},
+	"BrowserAllowEntry":  {v: browser.AllowEntry{}},
+	"BrowserGoogleState": {v: browser.GoogleState{}},
+	"BrowserGoogleConn":  {v: browser.ConnRef{}},
 }
 
 // docShape 是从文档里抽出来的一个对象：字段名和（如果有）字段的嵌套对象。

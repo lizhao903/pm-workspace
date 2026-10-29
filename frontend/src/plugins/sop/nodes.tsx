@@ -1,8 +1,10 @@
 // 节点的展示信息（SPEC-sop-11）：名称、说明、颜色、图标、配置项、画布上的一行摘要。照原型 web-next/src/nodetypes.tsx 的 NODE_TYPES。
 // 有哪些节点、分组、是不是分支节点、哪些配置项必填，以后端 GET /api/sop/node-types 为准（目录见 edit.ts 的 catalogOf）；
-// 这里只管怎么显示。后端给了这里没有的 kind（插件登记的节点）时用 fallbackInfo，照常能加、能配名称和说明。
-// doc、contact 是 SOP-02a 新加的写节点，原型里没有；notify 由 IM 插件的节点代替（SOP-02b），编辑器不列
-import type { ReactNode } from 'react'
+// 这里只管怎么显示。插件节点的显示由插件经 api.sopNodes 登记（SOP-03b，pluginInfo）；后端给了前端没登记的 kind 时
+// 用 fallbackInfo，照常能加、能配名称和说明。doc、contact 是 SOP-02a 新加的写节点，原型里没有；notify 由 IM 插件的节点代替（SOP-02b），编辑器不列
+import { useSyncExternalStore, type ReactNode } from 'react'
+import { queryClient } from '../../core/data'
+import { sopNodeView } from '../../core/plugin'
 import { KIND_LABEL } from './model'
 
 export type ConfigField = {
@@ -13,6 +15,8 @@ export type ConfigField = {
   placeholder?: string
   hint?: string
   default?: string
+  /** 插件登记的配置项：选项从数据层缓存算，缓存变了要重新算 */
+  live?: boolean
 }
 
 /** 配置项选项的上下文：子流程可选的流程（不含正在编辑的）、Agent、知识库、文档分类，都从后端读 */
@@ -221,12 +225,48 @@ const INFO: Record<string, NodeInfo> = {
   },
 }
 
-/** 前端不认识的 kind（插件登记的节点）：名字就是 kind，没有配置项 */
+const PLUGIN_ICON = <><rect x="3" y="3" width="10" height="10" rx="2.5" fill="none" stroke="currentColor" strokeWidth="1.5" /><circle cx="8" cy="8" r="1.8" fill="currentColor" /></>
+
+/** 插件经 api.sopNodes 登记的节点；选项函数出错时当没有选项，不让编辑器崩 */
+function pluginInfo(kind: string): NodeInfo | undefined {
+  const v = sopNodeView(kind)
+  if (!v) return undefined
+  return {
+    label: v.label || kind, desc: v.desc, color: v.color || '#868e96', icon: PLUGIN_ICON,
+    fields: v.fields.map((f) => ({
+      key: f.key, label: f.label, type: f.type, hint: f.hint, default: f.default, live: true,
+      options: f.options && (() => {
+        try {
+          return f.options!()
+        } catch (e) {
+          console.error(`SOP 节点 ${kind} 的 ${f.key} 选项出错`, e)
+          return []
+        }
+      }),
+    })),
+  }
+}
+
+let cacheTick = 0
+const noSub = () => () => {}
+const subCache = (fn: () => void) => queryClient.getQueryCache().subscribe((e) => {
+  if (e.type === 'updated' || e.type === 'added' || e.type === 'removed') {
+    cacheTick += 1
+    fn()
+  }
+})
+
+/** 插件配置项订阅数据层缓存，选项依赖的数据取回来后重新渲染 */
+export function useLiveOptions(live: boolean | undefined) {
+  useSyncExternalStore(live ? subCache : noSub, () => (live ? cacheTick : 0))
+}
+
+/** 前端不认识的 kind（后端有、前端没登记的插件节点）：名字就是 kind，没有配置项 */
 export function fallbackInfo(kind: string): NodeInfo {
   return { label: kind, desc: '插件提供的节点', color: '#868e96', icon: <circle cx="8" cy="8" r="3" fill="currentColor" />, fields: [] }
 }
 
-export const nodeInfo = (kind: string): NodeInfo => INFO[kind] ?? fallbackInfo(kind)
+export const nodeInfo = (kind: string): NodeInfo => INFO[kind] ?? pluginInfo(kind) ?? fallbackInfo(kind)
 export const hasInfo = (kind: string) => kind in INFO
 
 /** 新建节点时的默认配置 */

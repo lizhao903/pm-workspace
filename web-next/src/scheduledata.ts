@@ -1,7 +1,9 @@
 // 定时任务：按规则到点自动做一件事——建一条任务、执行一个 SOP、或者让一个 Agent 去做
 // 原型里没有真的后台计时，「下次执行」按规则算出来展示；「立即执行一次」会真的跑一遍动作并留记录
+// 定时发布（publish）跟着视频的发布记录走：发布记录定了时间就有一条，时间在日历或发布记录里改，这里只读
 
 import type { Priority } from './taskdata'
+import { PLATFORMS, seedPublishes, type Publish } from './videodata'
 
 export type Freq = 'once' | 'daily' | 'weekdays' | 'weekly' | 'monthly' | 'cron'
 export const FREQ_LABEL: Record<Freq, string> = { once: '只执行一次', daily: '每天', weekdays: '工作日', weekly: '每周', monthly: '每月', cron: 'Cron 表达式' }
@@ -24,7 +26,8 @@ export type ScheduleAction =
   | { kind: 'task'; title: string; desc: string; priority: Priority; assignee: string; due_days: number }
   | { kind: 'sop'; sop_id: string }
   | { kind: 'agent'; agent_id: string; prompt: string }
-export const ACTION_LABEL: Record<ScheduleAction['kind'], string> = { task: '建一条任务', sop: '执行 SOP', agent: '让 Agent 去做' }
+  | { kind: 'publish'; publish_id: string }
+export const ACTION_LABEL: Record<ScheduleAction['kind'], string> = { task: '建一条任务', sop: '执行 SOP', agent: '让 Agent 去做', publish: '发布视频' }
 
 export interface ScheduleRun { at: string; ok: boolean; text: string; ref?: string; manual?: boolean }
 
@@ -111,6 +114,46 @@ export const emptyRule = (): ScheduleRule => ({ freq: 'weekly', time: '09:00', w
 
 const minsAgo = (m: number) => new Date(Date.now() - m * 60000).toISOString()
 
+/** 定时发布的 id 跟着发布记录走，一条发布最多一条定时 */
+export const publishScheduleId = (publishId: string) => `sc_pub_${publishId}`
+/** 一条已定时的发布对应的定时任务：只执行一次，日期时间取 scheduled_at */
+export function publishSchedule(p: Publish, old?: Schedule): Schedule {
+  const at = new Date(p.scheduled_at!)
+  const platform = PLATFORMS.find((x) => x.key === p.platform)?.label ?? p.platform
+  return {
+    id: publishScheduleId(p.id), name: `定时发布：${platform}「${p.title || '未填标题'}」`, enabled: old?.enabled ?? true,
+    rule: { ...(old?.rule ?? emptyRule()), freq: 'once', date: ymd(at), time: `${pad(at.getHours())}:${pad(at.getMinutes())}` },
+    action: { kind: 'publish', publish_id: p.id }, history: old?.history ?? [], created_at: old?.created_at ?? new Date().toISOString(),
+  }
+}
+/** 按发布记录同步定时发布：已定时的补上或改时间，不再定时的停掉，发布记录删了的跟着删；已发布、失败的留着看执行记录。没变化时原样返回 */
+export function syncPublishSchedules(list: Schedule[], publishes: Publish[]): Schedule[] {
+  let changed = false
+  const out = list.filter((s) => {
+    const keep = s.action.kind !== 'publish' || publishes.some((p) => s.action.kind === 'publish' && p.id === s.action.publish_id)
+    if (!keep) changed = true
+    return keep
+  }).map((s) => {
+    if (s.action.kind !== 'publish') return s
+    const id = s.action.publish_id
+    const p = publishes.find((x) => x.id === id)
+    if (!p) return s
+    if (p.status === 'scheduled' && p.scheduled_at) {
+      const next = publishSchedule(p, s)
+      if (next.rule.date === s.rule.date && next.rule.time === s.rule.time && next.name === s.name && s.rule.freq === 'once') return s
+      // 改了时间就重新启用
+      changed = true
+      return { ...next, enabled: true }
+    }
+    // 不再是定时（改成立即发布、已发出去）：还没到点的停掉，免得到点再发一次
+    if (s.enabled && nextRun(s.rule)) { changed = true; return { ...s, enabled: false } }
+    return s
+  })
+  const fresh = publishes.filter((p) => p.status === 'scheduled' && p.scheduled_at && !out.some((s) => s.id === publishScheduleId(p.id))).map((p) => publishSchedule(p))
+  if (fresh.length) changed = true
+  return changed ? [...fresh, ...out] : list
+}
+
 export const seedSchedules: Schedule[] = [
   {
     id: 'sc_weekly_agenda', name: '周会前整理议程', enabled: true, created_at: minsAgo(60 * 24 * 40),
@@ -135,5 +178,11 @@ export const seedSchedules: Schedule[] = [
     rule: { ...emptyRule(), freq: 'monthly', time: '10:00', day: 25 },
     action: { kind: 'task', title: '确认下月机柜续费', desc: '', priority: 'P3', assignee: '我', due_days: 3 },
     history: [{ at: minsAgo(60 * 24 * 33), ok: false, text: '没执行：已停用' }],
+  },
+  // 视频的定时发布：抖音那条 5 天前到点发布失败了（封面比例不对），其余还在等
+  ...seedPublishes.filter((p) => p.status === 'scheduled' && p.scheduled_at).map((p) => publishSchedule(p, { created_at: minsAgo(60 * 24 * 3) } as Schedule)),
+  {
+    ...publishSchedule({ ...seedPublishes.find((p) => p.id === 'pb3')! }, { created_at: minsAgo(60 * 24 * 6) } as Schedule),
+    history: [{ at: seedPublishes.find((p) => p.id === 'pb3')!.scheduled_at!, ok: false, text: '发布失败：封面比例不符合要求，已记进运行异常' }],
   },
 ]

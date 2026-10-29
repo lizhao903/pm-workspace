@@ -1,5 +1,5 @@
 // 插件入口和插件 API（docs/plugin-api.md 2.0）。CORE-02b 接通功能模块、设置分节、今日卡片、命令面板命令、
-// 对象类型渲染器五个扩展点；数据迁移、连接器、技能和 Agent 工具、SOP 节点、事件订阅只有类型，调用时抛「还没实现」
+// 对象类型渲染器五个扩展点，SOP-03b 接通 SOP 节点；数据迁移、连接器、技能和 Agent 工具、事件订阅只有类型，调用时抛「还没实现」
 import type { ComponentType, LazyExoticComponent } from 'react'
 import type { WorkObject } from '../api/types'
 import type * as DataLayer from '../data'
@@ -86,7 +86,7 @@ export interface AgentRegistry {
   registerSkillView(def: { id: string; icon: string; group?: string }): Disposable
 }
 
-// 2.7 SOP 节点
+// 2.7 SOP 节点：只管编辑器里怎么显示；有没有这种节点、分组、必填项以后端 GET /api/sop/node-types 为准
 export interface SopNodeView {
   // = provides.sop_nodes 里的一项
   kind: string
@@ -101,6 +101,7 @@ export interface SopNodeView {
     required?: boolean
     default?: string
     hint?: string
+    // 编辑器渲染时调；可以读数据层缓存，缓存变了编辑器会重新调
     options?: () => { value: string; label: string }[]
   }[]
 }
@@ -139,7 +140,7 @@ export interface PluginApi {
   migrations: MigrationInfo // 2.4（未实现）
   connectors: ConnectorRegistry // 2.5（未实现）
   agent: AgentRegistry // 2.6（未实现）
-  sopNodes: SopNodeRegistry // 2.7（未实现）
+  sopNodes: SopNodeRegistry // 2.7
   todayCards: TodayCardRegistry // 2.8
   // 今日「需要你处理」「正在运行」的来源（ALIGN-08）
   todaySources: TodaySourceRegistry
