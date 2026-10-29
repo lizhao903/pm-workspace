@@ -20,6 +20,11 @@
       "provides.today_card 是未知扩展点",
       "provides.widgets 是未知扩展点"
     ],
+    "invalid/bad-icons.json": [
+      "icons.boards 不是本插件提供的模块：boards",
+      "icons.charts 不合法：只能用小写字母、数字、下划线：Chart",
+      "icons.notes 必须是字符串"
+    ],
     "invalid/bad-fields.json": [
       "homepage 是未知字段",
       "icon 不合法：只能用小写字母、数字、下划线：Folder",

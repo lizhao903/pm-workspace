@@ -3,7 +3,7 @@ import type { PluginInfo, Workspace } from '../data'
 import type { ModuleDef } from '../plugin'
 import { buildMenu, isGroupFolded } from './menu'
 import {
-  CATALOG_IDS, homeModule, missingPlugins, missingText, moduleIdOf, moduleKeyOf, pluginsForModules, resolveCurrent, workspaceMenuGroups,
+  CATALOG_IDS, homeModule, missingPlugins, missingText, moduleIdOf, moduleKeyOf, pluginOfModule, pluginsForModules, resolveCurrent, workspaceMenuGroups,
 } from './workspace'
 
 const plugin = (id: string, over: Partial<PluginInfo> = {}) => ({ id, name: id === 'projects' ? '项目' : id, installed: false, running: false, ...over }) as PluginInfo
@@ -24,11 +24,20 @@ const trader = {
 } as Workspace
 
 describe('缺哪些插件', () => {
-  it('交易工作台：交易套件还没有这个插件，合成一行「尚未提供」', () => {
-    const m = missingPlugins(trader.plugins, [plugin('projects')])
-    expect(m[0]).toEqual({ id: 'trading-suite', name: '交易套件', state: 'unavailable', members: ['行情', '盯盘', '策略与回测', '交易执行'] })
-    expect(missingText(m[0])).toBe('交易套件（行情、盯盘、策略与回测、交易执行）：尚未提供')
-    expect(m.map((x) => x.id)).toEqual(['trading-suite', 'im', 'browser', 'terminal'])
+  it('交易工作台：0023 按模块 key 记的四个交易模块认成插件 trade，合成一行', () => {
+    const m = missingPlugins(trader.plugins, [plugin('projects'), plugin('trade', { name: '交易套件', installed: true })])
+    expect(m[0]).toEqual({ id: 'trade', name: '交易套件', state: 'disabled' })
+    expect(missingText(m[0])).toBe('交易套件：已安装未启用')
+    expect(m.map((x) => x.id)).toEqual(['trade', 'im', 'browser', 'terminal'])
+  })
+
+  it('视频、交易插件在跑时不算缺；后端插件列表里没有的才算尚未提供', () => {
+    const list = [
+      plugin('video', { installed: true, running: true, provides: { modules: ['videos'] } }),
+      plugin('trade', { installed: true, running: true, provides: { modules: ['markets', 'monitor', 'strategy', 'trading'] } }),
+    ]
+    expect(missingPlugins(['videos', 'markets', 'monitor', 'strategy', 'trading', 'video', 'trade'], list)).toEqual([])
+    expect(missingPlugins(['markets', 'browser'], []).map(missingText)).toEqual(['交易套件：尚未提供', '浏览器：尚未提供'])
   })
 
   it('清单里有的按装没装、在没在跑分；在跑的不算缺', () => {
@@ -39,8 +48,11 @@ describe('缺哪些插件', () => {
 })
 
 describe('模块和插件', () => {
-  it('需要的插件按模块推：内核模块不要插件，IM 消息要 im', () => {
+  it('需要的插件按清单 provides.modules 推：内核模块不要插件，IM 消息要 im，视频要 video，交易四个模块都要 trade', () => {
     expect(pluginsForModules(['today', 'tasks', 'library', 'messages', 'projects', 'sessions', 'contacts', 'projects'])).toEqual(['im', 'projects'])
+    expect(pluginsForModules(['videos', 'markets', 'monitor', 'strategy', 'trading', 'browser'])).toEqual(['video', 'trade', 'browser'])
+    expect(pluginOfModule('markets', [plugin('quotes', { provides: { modules: ['markets'] } })])).toBe('quotes')
+    expect(pluginOfModule('today')).toBeNull()
   })
 
   it('后端的 library、sessions 对应前端的文档、会话', () => {

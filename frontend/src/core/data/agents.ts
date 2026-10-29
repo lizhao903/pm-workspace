@@ -81,6 +81,9 @@ export const agentsApi = {
   remove: async (id: string) => normAgent(await request<Agent>('DELETE', path(id))),
   impact: (id: string, signal?: AbortSignal) => request<AgentImpact>('GET', `${path(id)}/impact`, { signal }),
   grants: (id: string, signal?: AbortSignal) => request<AgentGrants>('GET', `${path(id)}/grants`, { signal }),
+  /** 整组换掉，没给的 key 就是关闭（AG-02b） */
+  putGrants: (id: string, grants: Record<string, AgentGrantMode>) =>
+    request<AgentGrants>('PUT', `${path(id)}/grants`, { body: { grants } }),
   /** 执行记录，等确认的在前、其余按开始时间倒序 */
   runs: (limit: number, signal?: AbortSignal) =>
     requestList<AgentRunBrief>('/api/agent-runs', { query: new URLSearchParams({ limit: String(limit) }), signal }),
@@ -143,6 +146,15 @@ export function usePatchAgent() {
   const notify = useNotifyChange()
   return useMutation({
     mutationFn: ({ id, patch }: { id: string; patch: AgentPatch }) => agentsApi.patch(id, patch),
+    onSuccess: (_, { id }) => notify({ kind: 'agent', id }),
+  })
+}
+
+/** 保存工具授权（整组），写完报 agent：卡片上的能力标签、配置页的数量跟着变 */
+export function usePutAgentGrants() {
+  const notify = useNotifyChange()
+  return useMutation({
+    mutationFn: ({ id, grants }: { id: string; grants: Record<string, AgentGrantMode> }) => agentsApi.putGrants(id, grants),
     onSuccess: (_, { id }) => notify({ kind: 'agent', id }),
   })
 }

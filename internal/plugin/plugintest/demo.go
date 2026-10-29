@@ -7,6 +7,7 @@ import (
 	"embed"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io/fs"
 	"net/http"
 	"strings"
@@ -33,6 +34,9 @@ type Demo struct {
 	Ticks    atomic.Int64
 	Events   atomic.Int64
 	Starts   atomic.Int64 // 常驻任务被起过几次，重新启用后应该加一
+
+	core    atomic.Value // plugin.Core，Register 时存下，Resume 用
+	Waiting atomic.Value // plugin.SOPNodeInput，最近一次挂起的节点
 }
 
 // NewDemo 的定时任务间隔是 every；测试里给几毫秒。
@@ -77,7 +81,29 @@ func (d *Demo) Register(r plugin.Registrar) error {
 	r.Connector(EchoConnector())
 	r.Skill(plugin.SkillDef{ID: SkillID, Name: "示例摘要", Desc: "把示例收件箱整理成三条要点",
 		When: "用户要看示例收件箱的摘要时", Instructions: "每条要点一句话，先写最紧急的。", Tools: []string{"示例回声"}})
+	d.core.Store(r.Core())
+	r.SOPNode(plugin.SOPNodeDef{Kind: SOPNodeKind, Group: "示例", Required: []plugin.SOPNodeField{{Key: "to", Label: "发给"}}, Run: d.waitReply})
 	return nil
+}
+
+// SOPNodeKind 是示例插件登记的 SOP 节点：配置 mode 为 wait 时挂起，等 Resume；否则把输入和 to 原样回。
+const SOPNodeKind = "demo_wait_reply"
+
+func (d *Demo) waitReply(_ context.Context, _ plugin.Core, in plugin.SOPNodeInput) (map[string]any, error) {
+	if in.Config["mode"] == "wait" {
+		d.Waiting.Store(in)
+		return nil, fmt.Errorf("等 %s 回复：%w", in.Config["to"], plugin.ErrWaiting)
+	}
+	return map[string]any{"to": in.Config["to"], "input": in.Input}, nil
+}
+
+// Resume 以示例插件的身份唤醒挂起的步骤。
+func (d *Demo) Resume(ctx context.Context, runID, step string, output map[string]any) error {
+	c, ok := d.core.Load().(plugin.Core)
+	if !ok {
+		return errors.New("示例插件还没登记")
+	}
+	return c.SOP().Resume(ctx, runID, step, output)
 }
 
 // SkillID 是示例插件登记的技能。

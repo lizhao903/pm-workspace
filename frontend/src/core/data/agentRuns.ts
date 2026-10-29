@@ -102,11 +102,12 @@ const normFilter = (f: AgentRunFilter) => {
   return out
 }
 
-/** 一页执行记录（按 Agent、状态在后端筛）；换条件时先留着上一页，列表不闪 */
-export function useAgentRunList(f: AgentRunFilter) {
+/** 一页执行记录（按 Agent、状态在后端筛）；换条件时先留着上一页，列表不闪。enabled 为假时不取（会话页找回调用 id 时按需取） */
+export function useAgentRunList(f: AgentRunFilter, enabled = true) {
   return useQuery({
     queryKey: agentConfigKeys.runList(normFilter(f)),
     queryFn: ({ signal }) => agentRunsApi.list(f, signal),
+    enabled,
     placeholderData: keepPreviousData,
     refetchInterval: (q) => (q.state.data?.data.some((r) => r.status === 'running') ? RUNNING_POLL_MS : false),
   })

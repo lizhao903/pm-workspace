@@ -30,6 +30,9 @@ export type ChatEvent =
   | { type: 'artifact'; path: string; size: number }
   // 发出后本轮就结束（后面跟 done），回答走下一条普通 chat 消息
   | { type: 'question'; id: string; question: string; options: QuestionOption[]; multi: boolean }
+  // 要人确认的调用（AG-02a）：没执行，发出后本轮结束；id 会话里是 atc_，调试对话里是 dbg_
+  | { type: 'confirm'; id: string; name: string; args: string; summary: string }
+  // 调试对话的 done 没有 session_id、message_id
   | { type: 'done'; session_id: string; message_id: string }
   // 对话出错时后端只发 error 不发 done
   | { type: 'error'; message: string }
@@ -236,4 +239,33 @@ export function runObject(id: string, req: RunRequest = {}, opts?: StreamOptions
 
 export function chat(req: ChatRequest, opts?: StreamOptions<ChatEvent>): Promise<ChatDone> {
   return streamPost<ChatEvent>('/api/agent/chat', req, opts)
+}
+
+// 确认或拒绝一次要人确认的调用（AG-02a），事件同 chat：确认先执行再接着跑，拒绝把「用户拒绝了」交回模型接着跑。
+// 已经处理过、Agent 停用或删了、授权已关是开流前的 409；调试里的 dbg_ 过期是 404。
+export function decideToolCall(id: string, approve: boolean, opts?: StreamOptions<ChatEvent>): Promise<ChatDone> {
+  return streamPost<ChatEvent>(`/api/agent/tool-calls/${encodeURIComponent(id)}/${approve ? 'confirm' : 'reject'}`, {}, opts)
+}
+
+export type DebugChatMessage = { role: 'user' | 'assistant'; content: string }
+
+// 调试对话（AG-02c）：用没保存的配置跑，不写会话和消息。Agent 字段同 PATCH /api/agents/{id}，
+// grants 不给时用 agent_id 存着的；messages 是整段对话，最后一条是这次要发的 user
+export type DebugChatRequest = {
+  agent_id?: string
+  name?: string
+  desc?: string
+  provider_id?: string
+  model?: string
+  instructions?: string
+  skills?: string[]
+  mcps?: string[]
+  kbs?: string[]
+  grants?: Record<string, 'off' | 'confirm' | 'auto'>
+  workdir?: string
+  messages: DebugChatMessage[]
+}
+
+export function debugChat(req: DebugChatRequest, opts?: StreamOptions<ChatEvent>): Promise<ChatDone> {
+  return streamPost<ChatEvent>('/api/agents/debug/chat', req, opts)
 }

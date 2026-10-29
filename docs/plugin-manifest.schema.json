@@ -15,6 +15,11 @@
     "name": { "description": "显示名", "type": "string", "minLength": 1 },
     "description": { "description": "一句话说明", "type": "string" },
     "icon": { "description": "菜单图标，外壳内置图标的 key，不认识的用默认图标", "type": "string", "pattern": "^[a-z][a-z0-9_]*$" },
+    "icons": {
+      "description": "按模块给的菜单图标：provides.modules 里的模块 id 到图标 key，没给的模块用 icon",
+      "type": "object",
+      "additionalProperties": { "type": "string", "pattern": "^[a-z][a-z0-9_]*$" }
+    },
     "version": { "description": "插件版本，MAJOR.MINOR.PATCH", "$ref": "#/$defs/version" },
     "core": { "description": "要求的插件 API 版本范围", "$ref": "#/$defs/range" },
     "depends": { "description": "强依赖：插件 id 到版本范围", "$ref": "#/$defs/deps" },

@@ -1,0 +1,12 @@
+{
+  "id": "charts",
+  "name": "图表",
+  "icon": "chart",
+  "icons": { "charts": "Chart", "boards": "pulse", "notes": 1, "charts_live": "pulse" },
+  "version": "0.1.0",
+  "core": "^1.0.0",
+  "provides": {
+    "modules": ["charts", "charts_live", "notes"]
+  },
+  "permissions": []
+}

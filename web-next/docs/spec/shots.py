@@ -681,6 +681,11 @@ def videos_detail_states(pg, shot):
     pg.locator('.vd-cover.picked').first.click(); pg.wait_for_timeout(300)
     shot('产出物抽屉_封面')
     _esc(pg)
+    pg.locator('.vd-cover-group', has_text='封面 3:4').first.evaluate('e => e.scrollIntoView({ block: "center" })'); pg.wait_for_timeout(100)
+    shot('视频详情_封面比例')
+    pg.locator('[aria-label="登记 3:4 封面第 2 版"]').click(); pg.wait_for_timeout(200)
+    shot('视频详情_登记竖版封面')
+    pg.locator('.inline-form button', has_text='取消').click(); pg.wait_for_timeout(150)
     pg.locator('.vd-art-row', has_text='口播稿').first.click(); pg.wait_for_timeout(300)
     shot('产出物抽屉_验收记录')
     pg.locator('aside.drawer .drawer-foot button', has_text='删除').click(); pg.wait_for_timeout(150)
@@ -698,6 +703,24 @@ def videos_detail_states(pg, shot):
     pg.locator('button', has_text='删除视频').click(); pg.wait_for_timeout(150)
     pg.locator('.danger-zone').evaluate('e => e.scrollIntoView({ block: "center" })'); pg.wait_for_timeout(100)
     shot('视频详情_删除确认')
+    # 阶段执行器：规划检查通过后跑网页开发，跑完产出进待验收；第 27 集是跑失败的样子
+    _vd_open(pg, '第 28 集', '待我处理')
+    pg.locator('.vd-step').nth(1).locator('.vd-cp-box button', has_text='通过').click(); pg.wait_for_timeout(200)
+    web = pg.locator('.vd-step').nth(2)
+    web.evaluate('e => e.scrollIntoView({ block: "center" })'); pg.wait_for_timeout(100)
+    shot('视频详情_执行器')
+    web.locator('.vd-runner button', has_text='运行').click(); pg.wait_for_timeout(200)
+    shot('视频详情_执行器运行中')
+    pg.wait_for_timeout(2000)
+    shot('视频详情_执行器跑完')
+    _vd_tab(pg, '全部视频')
+    pg.locator('.vd-search input').fill('Descript'); pg.wait_for_timeout(200)
+    pg.locator('.vd-row', has_text='第 27 集').first.click(); pg.wait_for_timeout(400)
+    web = pg.locator('.vd-step').nth(2)
+    web.evaluate('e => e.scrollIntoView({ block: "center" })'); pg.wait_for_timeout(100)
+    shot('视频详情_执行器失败')
+    web.locator('.vd-runner button', has_text='修改').click(); pg.wait_for_timeout(150)
+    shot('视频详情_配执行器')
 
 
 def videos_publish(pg, shot):
@@ -729,6 +752,13 @@ def videos_publish(pg, shot):
     _vd_open(pg, '第 1 集：今日待办')
     pg.locator('button', has_text='发布记录').first.click(); pg.wait_for_timeout(300)
     shot('发布记录_只看一集')
+    # 抖音那条用了 1:1 封面被打回：换成 3:4 再重试
+    pg.locator('.vp-row', has_text='发布失败').first.click(); pg.wait_for_timeout(300)
+    dr = pg.locator('aside.drawer')
+    dr.locator('.vp-cover-opt', has_text='3:4').first.locator('button').click(); pg.wait_for_timeout(150)
+    shot('发布抽屉_换封面')
+    dr.locator('.detail-alert button', has_text='重试').click(); pg.wait_for_timeout(1600)
+    shot('发布抽屉_换封面重试成功')
 
 
 def videos_series(pg, shot):
@@ -1020,7 +1050,8 @@ trading_positions.widths = (375, 1440)
 def trading_orders(pg, shot):
     """委托：改价、历史委托里的被拒原因（SPEC-trading-4）。"""
     _tr(pg, '委托')
-    pg.locator('.tr-ord-wrap', has_text='BTC/USDT').first.locator('button', has_text='改价').click(); pg.wait_for_timeout(150)
+    # 实盘开关没开时实盘账户的委托只读，改价用模拟盘的那笔
+    pg.locator('.tr-ord-wrap', has_text='Apple').first.locator('button', has_text='改价').click(); pg.wait_for_timeout(150)
     shot('委托_改价')
     pg.locator('.toolbar .seg button', has_text='历史委托').click(); pg.wait_for_timeout(200)
     shot('委托_历史')
@@ -1039,10 +1070,10 @@ def trading_order_drawer(pg, shot):
     qty.fill('1'); pg.wait_for_timeout(200)
     _into(dr.locator('.tr-block'), 'center'); pg.wait_for_timeout(100)
     shot('下单抽屉_风控拦截')
-    # 实盘账户上 0.2 BTC 会超单标的仓位上限，换模拟盘才走到二次确认
-    dr.locator('.tr-acct-opt', has_text='模拟盘').click()
+    # 模拟盘已有 0.4 BTC，再买 0.2 会超单标的仓位上限；卖出 0.2 是减仓，金额超过二次确认线
+    dr.locator('.tr-side-seg button', has_text='卖出').click()
     qty.fill('0.2')
-    dr.locator('.drawer-foot button', has_text='买入').click(); pg.wait_for_timeout(200)
+    dr.locator('.drawer-foot button', has_text='卖出').click(); pg.wait_for_timeout(200)
     shot('下单抽屉_二次确认')
     _esc(pg)
     _side(pg, '行情')
@@ -1072,15 +1103,14 @@ trading_runs.widths = (375, 1440)
 
 
 def trading_deploy(pg, shot):
-    """从策略点部署：默认选模拟盘；换成实盘账户要勾确认（SPEC-trading-7）。"""
+    """从策略点部署：默认选模拟盘；实盘未开启时实盘账户不可选（SPEC-trading-7）。实盘确认见 trading_live。"""
     _st_open(pg, 'RSI 超卖反弹')
     pg.locator('button.btn-outline', has_text='部署').first.click(); pg.wait_for_timeout(500)
     dr = pg.locator('aside.drawer')
     shot('部署抽屉_模拟盘')
-    dr.locator('.tr-acct-opt', has_text='富途').click(); pg.wait_for_timeout(150)
-    dr.locator('.drawer-foot .btn-primary').click(); pg.wait_for_timeout(150)
-    _into(dr.locator('.tr-ack'), 'center'); pg.wait_for_timeout(100)
-    shot('部署抽屉_实盘确认')
+    dr.locator('.tr-acct-more').click(); pg.wait_for_timeout(150)
+    _into(dr.locator('.tr-acct-more'), 'center'); pg.wait_for_timeout(100)
+    shot('部署抽屉_实盘未开启')
 
 
 trading_deploy.widths = (375, 1440)
@@ -1135,6 +1165,57 @@ def trading_risk(pg, shot):
 trading_risk.widths = (375, 1440)
 
 
+def trading_live(pg, shot):
+    """交易设置：评审未通过、停用被拦、对账抽屉；走完评审打开实盘，再看实盘部署和恢复的确认（SPEC-trading-11、SPEC-trading-12）。"""
+    _tr(pg, '交易设置')
+    shot('交易设置_实盘未开启')
+    pg.locator('button', has_text='停用交易插件').click(); pg.wait_for_timeout(150)
+    _into(pg.locator('.hook-sec', has_text='停用插件'), 'center'); pg.wait_for_timeout(100)
+    shot('交易设置_停用被拦')
+    # 对账：OKX 重新连接后重新对账，Binance 的差异按交易所修正
+    _sub(pg, '交易账户')
+    okx = pg.locator('.tr-card', has_text='OKX 合约').first
+    okx.locator('button', has_text='重新连接').click(); pg.wait_for_timeout(1000)
+    pg.locator('.tr-card', has_text='Binance 主账户').first.locator('.tr-recon-link').click(); pg.wait_for_timeout(300)
+    dr = pg.locator('aside.drawer')
+    shot('对账抽屉_有差异')
+    dr.locator('button', has_text='按交易所修正').click(); pg.wait_for_timeout(150)
+    _esc(pg)
+    okx.locator('.tr-recon-link').click(); pg.wait_for_timeout(300)
+    dr.locator('button', has_text='重新对账').click(); pg.wait_for_timeout(1000)
+    _esc(pg)
+    # 全停演练：一键全停再解除
+    pg.locator('.tr-kill').first.click(); pg.locator('.tr-kill', has_text='确认全停').click(); pg.wait_for_timeout(300)
+    pg.locator('.tr-halt button', has_text='解除熔断').click(); pg.locator('.tr-halt button', has_text='确认解除').click(); pg.wait_for_timeout(300)
+    _sub(pg, '交易设置')
+    while pg.locator('.tr-check button:enabled', has_text='确认通过').count():
+        pg.locator('.tr-check button:enabled', has_text='确认通过').first.click(); pg.wait_for_timeout(100)
+    pg.locator('button', has_text='申请 trade:live').click(); pg.wait_for_timeout(150)
+    _into(pg.locator('.tr-apply'), 'center'); pg.wait_for_timeout(100)
+    shot('交易设置_申请确认')
+    pg.locator('.tr-apply-input').fill('交易套件')
+    pg.locator('button', has_text='确认申请').click(); pg.wait_for_timeout(150)
+    pg.locator('.tr-live-head .switch-line').click(); pg.wait_for_timeout(200)
+    shot('交易设置_实盘已开启')
+    # 实盘部署要勾确认
+    _st_open(pg, 'RSI 超卖反弹')
+    pg.locator('button.btn-outline', has_text='部署').first.click(); pg.wait_for_timeout(500)
+    dr.locator('.tr-acct-opt', has_text='富途').click(); pg.wait_for_timeout(150)
+    dr.locator('.drawer-foot .btn-primary').click(); pg.wait_for_timeout(150)
+    _into(dr.locator('.tr-ack'), 'center'); pg.wait_for_timeout(100)
+    shot('部署抽屉_实盘确认')
+    dr.locator('.tr-ack input').check()
+    dr.locator('.drawer-foot .btn-primary').click(); pg.wait_for_timeout(300)
+    card = pg.locator('.tr-card', has_text='富途').first
+    card.locator('button', has_text='暂停').click(); pg.wait_for_timeout(100)
+    card.locator('button', has_text='恢复').click(); pg.wait_for_timeout(150)
+    _into(card, 'center'); pg.wait_for_timeout(100)
+    shot('策略运行_实盘恢复确认')
+
+
+trading_live.widths = (375, 1440)
+
+
 STEPS = {
     'tasks': [tasks_devloop, tasks_unsaved, tasks_schedule],
     'messages': [messages_drawer, messages_fetch_paused],
@@ -1150,7 +1231,7 @@ STEPS = {
     'monitor': [monitor_wall, monitor_rules, monitor_drawer],
     'strategy': [strategy_editor, strategy_side, strategy_backtests, strategy_report, strategy_runs],
     'trading': [trading_kill, trading_positions, trading_orders, trading_order_drawer, trading_runs, trading_deploy, trading_accounts,
-                trading_account_drawer, trading_risk],
+                trading_account_drawer, trading_risk, trading_live],
 }
 
 

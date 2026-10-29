@@ -1,8 +1,8 @@
 import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { SearchSelect } from './searchselect'
 import {
-  ORIENT, PLATFORMS, PUBLISH_STATUS, videoState,
-  type Artifact, type Metrics, type Orientation, type PlatformKey, type Publish, type PublishStatus, type Series, type Video,
+  COVER_RATIO, ORIENT, PLATFORMS, PUBLISH_STATUS, coverRatioOf, videoState,
+  type Artifact, type CoverRatio, type Metrics, type Orientation, type PlatformKey, type Publish, type PublishStatus, type Series, type Video,
 } from './videodata'
 import { PageTitle } from './topbar'
 import { SeriesSettingsDrawer, StageDist, isFinished, needsMe } from './videos'
@@ -14,6 +14,19 @@ import './videopublish.css'
 const Pill = ({ label, color }: { label: string; color: string }) => <span className="pill" style={{ '--c': color } as React.CSSProperties}><span className="pill-dot" />{label}</span>
 const num = (n: number | undefined) => (n ?? 0).toLocaleString('zh-CN')
 const platOf = (k: PlatformKey) => PLATFORMS.find((p) => p.key === k)!
+const ratiosText = (rs: CoverRatio[]) => rs.map((r) => COVER_RATIO[r].label).join('、')
+/** 一集某个方向下平台收的封面，推荐的比例排前面 */
+const coversFor = (arts: Artifact[], videoId: string, variant: Orientation, k: PlatformKey) => {
+  const rs = platOf(k).cover
+  return arts.filter((a) => a.video_id === videoId && a.kind === 'cover' && a.variant === variant && rs.includes(coverRatioOf(a)))
+    .sort((a, b) => rs.indexOf(coverRatioOf(a)) - rs.indexOf(coverRatioOf(b)) || (a.option ?? 0) - (b.option ?? 0))
+}
+/** 平台收不收这张封面；不收就返回失败原因 */
+const coverError = (k: PlatformKey, cover?: Artifact) => {
+  const p = platOf(k)
+  if (!cover || p.cover.includes(coverRatioOf(cover))) return ''
+  return `封面比例不符合要求：${p.label}要 ${p.cover.map((r) => COVER_RATIO[r].label).join(' 或 ')}，这次用的是 ${COVER_RATIO[coverRatioOf(cover)].label}`
+}
 const fmtTime = (iso: string) => new Date(iso).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
 const CloseIcon = () => <svg viewBox="0 0 16 16" width="14" height="14"><path d="m4 4 8 8M12 4l-8 8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" /></svg>
 const PlusIcon = () => <svg viewBox="0 0 16 16" width="12" height="12"><path d="M8 3v10M3 8h10" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" /></svg>
@@ -34,11 +47,11 @@ export const PlatformTag = ({ k }: { k: PlatformKey }) => {
   return <span className="vp-plat" style={{ '--c': p.color } as React.CSSProperties}><i />{p.label}</span>
 }
 
-/** 封面缩略色块：按比例画，色调跟着第几个版本走 */
-export function CoverSwatch({ variant, option, size = 'md', on, onClick, title }: {
-  variant: Orientation; option?: number; size?: 'sm' | 'md'; on?: boolean; onClick?: () => void; title?: string
+/** 封面缩略色块：按封面比例画，色调跟着第几个版本走 */
+export function CoverSwatch({ ratio, option, size = 'md', on, onClick, title }: {
+  ratio: CoverRatio; option?: number; size?: 'sm' | 'md'; on?: boolean; onClick?: () => void; title?: string
 }) {
-  const o = ORIENT[variant]
+  const o = COVER_RATIO[ratio]
   const style = { aspectRatio: `${o.w} / ${o.h}`, '--h': ((option ?? 0) * 67 + 200) % 360 } as React.CSSProperties
   const body = <span className="vp-cover-n">{option ?? '-'}</span>
   if (onClick) return <button type="button" className={cls('vp-cover', `vp-cover-${size}`, on && 'on')} style={style} onClick={onClick} title={title}>{body}</button>
@@ -183,7 +196,8 @@ export function PublishPage({ publishes, videos, artifacts, videoId, onPublishes
   // 正在模拟发布的记录
   const [busy, setBusy] = useState<string[]>([])
   const pubsRef = useRef(publishes)
-  useEffect(() => { pubsRef.current = publishes })
+  const artsRef = useRef(artifacts)
+  useEffect(() => { pubsRef.current = publishes; artsRef.current = artifacts })
 
   const titleOf = (id: string) => videos.find((v) => v.id === id)?.title ?? '已删除的视频'
   const video = videoId ? videos.find((v) => v.id === videoId) : undefined
@@ -204,6 +218,9 @@ export function PublishPage({ publishes, videos, artifacts, videoId, onPublishes
       setBusy((xs) => xs.filter((x) => x !== id))
       const cur = pubsRef.current.find((x) => x.id === id)
       if (!cur || cur.status !== 'planned') return
+      // 平台按封面比例把关：不收的比例直接打回
+      const err = coverError(cur.platform, cur.cover_id ? artsRef.current.find((a) => a.id === cur.cover_id) : undefined)
+      if (err) { onPublishes((xs) => xs.map((x) => (x.id === id ? { ...x, status: 'failed', error: err } : x))); return }
       const done = { status: 'published' as const, published_at: new Date().toISOString(), url: fakeUrl(cur.platform), error: undefined,
         metrics: { views: 0, likes: 0, comments: 0, shares: 0, updated_at: new Date().toISOString() } }
       onPublishes((xs) => xs.map((x) => (x.id === id ? { ...x, ...done } : x)))
@@ -230,7 +247,7 @@ export function PublishPage({ publishes, videos, artifacts, videoId, onPublishes
       <span><PlatformTag k={p.platform} /></span>
       <span className="vp-var">
         <span className="tag">{ORIENT[p.variant].label}</span>
-        {cv ? <CoverSwatch variant={p.variant} option={cv.option} size="sm" title={cv.name} /> : <span className="faint">无封面</span>}
+        {cv ? <CoverSwatch ratio={coverRatioOf(cv)} option={cv.option} size="sm" title={`${cv.name} · ${COVER_RATIO[coverRatioOf(cv)].label}`} /> : <span className="faint">无封面</span>}
       </span>
       <span>{sending ? <Pill label="发布中…" color={PUBLISH_STATUS.scheduled.color} /> : <Pill {...PUBLISH_STATUS[p.status]} />}</span>
       <span className="run-muted vp-time">
@@ -349,6 +366,8 @@ export function PublishPage({ publishes, videos, artifacts, videoId, onPublishes
       )}
       {current && (
         <PublishDrawer key={current.id} p={current} video={videos.find((v) => v.id === current.video_id)} cover={coverOf(current)} sending={busy.includes(current.id)}
+          covers={coversFor(artifacts, current.video_id, current.variant, current.platform)}
+          onCover={(id) => update(current.id, { cover_id: id })}
           onClose={() => setOpen(null)} onOpenVideo={onOpenVideo} onOpenUrl={onOpenUrl}
           onRetry={() => retry(current.id)} onPublishNow={() => { update(current.id, { status: 'planned', scheduled_at: undefined }); runPublish(current.id) }}
           onMetrics={(m) => update(current.id, { metrics: m })}
@@ -384,7 +403,7 @@ function NewPublishDrawer({ videos, artifacts, defaultVideo, channels, onConnect
   const video = videos.find((v) => v.id === vid)
   const vOptions = useMemo(() => videoOptions(videos), [videos])
   const platform = platOf(plat)
-  const covers = artifacts.filter((a) => a.video_id === vid && a.kind === 'cover' && a.variant === variant).sort((a, b) => (a.option ?? 0) - (b.option ?? 0))
+  const covers = coversFor(artifacts, vid, variant, plat)
   const descArt = artifacts.filter((a) => a.video_id === vid && a.kind === 'description').sort((a, b) => b.version - a.version)[0]
   const missPrefer = video && !video.orientations.includes(platform.prefer)
 
@@ -471,17 +490,17 @@ function NewPublishDrawer({ videos, artifacts, defaultVideo, channels, onConnect
         )}
 
         <div className="field">
-          <span className="field-label">封面<span className="field-hint">{ORIENT[variant].label}封面产出物，共 {covers.length} 个版本</span></span>
+          <span className="field-label">封面<span className="field-hint">{platform.label}收 {ratiosText(platform.cover)} 的封面；这集{ORIENT[variant].label}有 {covers.length} 张</span></span>
           {covers.length ? (
             <div className="vp-covers">
               {covers.map((a) => (
                 <span key={a.id} className="vp-cover-opt">
-                  <CoverSwatch variant={variant} option={a.option} on={cover === a.id} title={`${a.name} · ${a.path}`} onClick={() => setCover(cover === a.id ? undefined : a.id)} />
-                  <span className={cls('vp-cover-cap', a.status === 'published' && 'used')}>{a.status === 'published' ? '用过' : `版本 ${a.option ?? '-'}`}</span>
+                  <CoverSwatch ratio={coverRatioOf(a)} option={a.option} on={cover === a.id} title={`${a.name} · ${COVER_RATIO[coverRatioOf(a)].label} · ${a.path}`} onClick={() => setCover(cover === a.id ? undefined : a.id)} />
+                  <span className={cls('vp-cover-cap', a.status === 'published' && 'used')}>{COVER_RATIO[coverRatioOf(a)].label} · {a.status === 'published' ? '用过' : `版本 ${a.option ?? '-'}`}</span>
                 </span>
               ))}
             </div>
-          ) : <div className="mount-empty">这集还没有{ORIENT[variant].label}封面，先在分发包阶段出封面；不选也能发</div>}
+          ) : <div className="mount-empty">这集还没有 {ratiosText(platform.cover)} 的{ORIENT[variant].label}封面，先在分发包阶段出封面；不选也能发</div>}
         </div>
 
         <label className="field">
@@ -516,8 +535,11 @@ function NewPublishDrawer({ videos, artifacts, defaultVideo, channels, onConnect
   )
 }
 
-function PublishDrawer({ p, video, cover, sending, onClose, onOpenVideo, onOpenUrl, onRetry, onPublishNow, onMetrics, onDelete }: {
+function PublishDrawer({ p, video, cover, covers, sending, onClose, onOpenVideo, onOpenUrl, onRetry, onPublishNow, onMetrics, onCover, onDelete }: {
   p: Publish; video: Video | undefined; cover: Artifact | undefined; sending: boolean
+  /** 这条发布能换的封面：同方向、平台收的比例 */
+  covers: Artifact[]
+  onCover: (id: string | undefined) => void
   onClose: () => void
   onOpenVideo: (id: string) => void
   onOpenUrl: (url: string, title: string) => void
@@ -571,6 +593,22 @@ function PublishDrawer({ p, video, cover, sending, onClose, onOpenVideo, onOpenU
             <button className="act" disabled={sending} onClick={onRetry}>重试</button>
           </div>
         )}
+        {/* 没发出去之前都能换封面；只列平台收的比例 */}
+        {(p.status === 'failed' || p.status === 'planned' || p.status === 'scheduled') && !sending && (
+          <div className="field">
+            <span className="field-label">换封面<span className="field-hint">{plat.label}收 {ratiosText(plat.cover)}，推荐 {COVER_RATIO[plat.cover[0]].label}</span></span>
+            {covers.length ? (
+              <div className="vp-covers">
+                {covers.map((a) => (
+                  <span key={a.id} className="vp-cover-opt">
+                    <CoverSwatch ratio={coverRatioOf(a)} option={a.option} on={cover?.id === a.id} title={`${a.name} · ${COVER_RATIO[coverRatioOf(a)].label} · ${a.path}`} onClick={() => onCover(cover?.id === a.id ? undefined : a.id)} />
+                    <span className="vp-cover-cap">{COVER_RATIO[coverRatioOf(a)].label} · 版本 {a.option ?? '-'}</span>
+                  </span>
+                ))}
+              </div>
+            ) : <div className="mount-empty">这集还没有 {ratiosText(plat.cover)} 的{ORIENT[p.variant].label}封面，去视频的产出物里登记一张</div>}
+          </div>
+        )}
 
         <dl className="props vp-props">
           <dt>视频</dt>
@@ -579,7 +617,8 @@ function PublishDrawer({ p, video, cover, sending, onClose, onOpenVideo, onOpenU
           <dt>比例</dt>
           <dd>{ORIENT[p.variant].label} {ORIENT[p.variant].ratio}{p.variant !== plat.prefer && <span className="vp-hint-inline">平台建议{ORIENT[plat.prefer].label}</span>}</dd>
           <dt>封面</dt>
-          <dd>{cover ? <><CoverSwatch variant={cover.variant ?? p.variant} option={cover.option} size="sm" /><span className="mono ellipsis">{cover.path}</span></> : <span className="faint">没有选封面</span>}</dd>
+          <dd>{cover ? <><CoverSwatch ratio={coverRatioOf(cover)} option={cover.option} size="sm" /><span className="mono ellipsis">{cover.path}</span>
+            {!plat.cover.includes(coverRatioOf(cover)) && <span className="vp-hint-inline">{plat.label}不收 {COVER_RATIO[coverRatioOf(cover)].label}</span>}</> : <span className="faint">没有选封面</span>}</dd>
           {p.scheduled_at && <><dt>定时</dt><dd>{new Date(p.scheduled_at).toLocaleString('zh-CN')}</dd></>}
           {p.published_at && <><dt>发布于</dt><dd>{new Date(p.published_at).toLocaleString('zh-CN')}<span className="faint">（{timeAgo(p.published_at)}）</span></dd></>}
           <dt>链接</dt>

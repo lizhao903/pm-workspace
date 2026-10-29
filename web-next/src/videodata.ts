@@ -22,21 +22,41 @@ export const STAGES: { key: StageKey; label: string; desc: string; checkpoint?: 
   { key: 'chapters', label: '其余章节', desc: '第 2 到 N 章：逐章、顺序或并行开发' },
   { key: 'audio', label: '音频合成', desc: '决定要不要合成口播音频，按章节出音频', checkpoint: true },
   { key: 'record', label: '录屏渲染', desc: '程序化录屏，合成 mp4' },
-  { key: 'distribution', label: '分发包', desc: '封面（每个比例 5 个版本）、简介、章节时间轴', checkpoint: true },
+  { key: 'distribution', label: '分发包', desc: '封面（每种封面比例 5 个版本）、简介、章节时间轴', checkpoint: true },
 ]
 export const stageIndex = (k: StageKey) => STAGES.findIndex((s) => s.key === k)
 
-export type ArtifactKind = 'article' | 'script' | 'outline' | 'presentation' | 'audio' | 'video' | 'cover' | 'description' | 'chapters'
+// 封面比例和舞台方向分开：竖屏视频的封面可以是 9:16、3:4 或 1:1，平台各有要求（抖音主页要 3:4）
+export type CoverRatio = '16x9' | '4x3' | '9x16' | '3x4' | '1x1'
+export const COVER_RATIO: Record<CoverRatio, { label: string; w: number; h: number }> = {
+  '16x9': { label: '16:9', w: 16, h: 9 },
+  '4x3': { label: '4:3', w: 4, h: 3 },
+  '9x16': { label: '9:16', w: 9, h: 16 },
+  '3x4': { label: '3:4', w: 3, h: 4 },
+  '1x1': { label: '1:1', w: 1, h: 1 },
+}
+/** 每个舞台方向默认出哪几种封面比例；第一个是和舞台同比例的那种 */
+export const DEFAULT_COVER_RATIOS: Record<Orientation, CoverRatio[]> = {
+  landscape: ['16x9', '4x3'],
+  portrait: ['9x16', '3x4', '1x1'],
+  square: ['1x1', '4x3'],
+}
+/** 封面的比例：老数据没记 ratio 的，按舞台方向算 */
+export const coverRatioOf = (a: { ratio?: CoverRatio; variant?: Orientation }): CoverRatio => a.ratio ?? DEFAULT_COVER_RATIOS[a.variant ?? 'landscape'][0]
+
+// 口播稿、大纲、简介、章节时间轴按比例各一套（技能布局 B：横版、竖版各写各的、各自验收）；原文和音频共用
+export type ArtifactKind = 'article' | 'script' | 'outline' | 'presentation' | 'audio' | 'video' | 'subtitle' | 'cover' | 'description' | 'chapters'
 export const ARTIFACT_KIND: Record<ArtifactKind, { label: string; stage: StageKey; perVariant: boolean }> = {
   article: { label: '原文', stage: 'script', perVariant: false },
-  script: { label: '口播稿', stage: 'script', perVariant: false },
-  outline: { label: '大纲', stage: 'script', perVariant: false },
+  script: { label: '口播稿', stage: 'script', perVariant: true },
+  outline: { label: '大纲', stage: 'script', perVariant: true },
   presentation: { label: '演示工程', stage: 'web', perVariant: true },
   audio: { label: '音频', stage: 'audio', perVariant: false },
   video: { label: '视频', stage: 'record', perVariant: true },
+  subtitle: { label: '字幕', stage: 'record', perVariant: true },
   cover: { label: '封面', stage: 'distribution', perVariant: true },
-  description: { label: '简介', stage: 'distribution', perVariant: false },
-  chapters: { label: '章节时间轴', stage: 'distribution', perVariant: false },
+  description: { label: '简介', stage: 'distribution', perVariant: true },
+  chapters: { label: '章节时间轴', stage: 'distribution', perVariant: true },
 }
 
 export type ArtifactStatus = 'draft' | 'review' | 'final' | 'published'
@@ -56,10 +76,14 @@ export interface Artifact {
   name: string
   /** 相对视频项目目录的路径 */
   path: string
-  /** 按比例区分的产出（演示工程、视频、封面）才有 */
+  /** 按比例区分的产出（文稿、演示工程、视频、字幕、封面、简介、章节时间轴）才有 */
   variant?: Orientation
-  /** 封面这种一个比例出好几个版本的：第几个版本 */
+  /** 封面：封面本身的比例，和舞台方向分开；没记的按 variant 的默认比例算（coverRatioOf） */
+  ratio?: CoverRatio
+  /** 封面这种一个比例出好几个版本的：同一封面比例里第几个版本 */
   option?: number
+  /** 字幕：语言 */
+  lang?: string
   version: number
   status: ArtifactStatus
   /** 音频、视频：秒 */
@@ -67,7 +91,7 @@ export interface Artifact {
   /** 是谁产出的 */
   source: { type: 'manual' | 'sop' | 'agent' | 'skill'; label: string }
   reviews: Review[]
-  /** 封面：同一比例里选用的那张 */
+  /** 封面：同一舞台方向、同一封面比例里选用的那张 */
   picked?: boolean
   created_at: string
 }
@@ -76,12 +100,13 @@ export type CheckpointState = 'pending' | 'passed' | 'rejected' | 'skipped'
 export interface Checkpoint { stage: StageKey; state: CheckpointState; at?: string; note?: string }
 
 export type PlatformKey = 'bilibili' | 'youtube' | 'douyin' | 'channels' | 'xiaohongshu'
-export const PLATFORMS: { key: PlatformKey; label: string; color: string; prefer: Orientation }[] = [
-  { key: 'bilibili', label: 'B 站', color: '#fb7299', prefer: 'landscape' },
-  { key: 'youtube', label: 'YouTube', color: '#ff0033', prefer: 'landscape' },
-  { key: 'douyin', label: '抖音', color: '#161823', prefer: 'portrait' },
-  { key: 'channels', label: '视频号', color: '#07c160', prefer: 'portrait' },
-  { key: 'xiaohongshu', label: '小红书', color: '#ff2442', prefer: 'portrait' },
+/** cover：平台收的封面比例，第一个是推荐的；新建发布只列这些比例的封面，发布时不符合就失败 */
+export const PLATFORMS: { key: PlatformKey; label: string; color: string; prefer: Orientation; cover: CoverRatio[] }[] = [
+  { key: 'bilibili', label: 'B 站', color: '#fb7299', prefer: 'landscape', cover: ['16x9', '4x3'] },
+  { key: 'youtube', label: 'YouTube', color: '#ff0033', prefer: 'landscape', cover: ['16x9'] },
+  { key: 'douyin', label: '抖音', color: '#161823', prefer: 'portrait', cover: ['3x4', '9x16'] },
+  { key: 'channels', label: '视频号', color: '#07c160', prefer: 'portrait', cover: ['9x16', '3x4'] },
+  { key: 'xiaohongshu', label: '小红书', color: '#ff2442', prefer: 'portrait', cover: ['3x4', '1x1'] },
 ]
 
 /** 发布平台对应的连接器（data.ts 的工具 key）；没接入的平台只能手动登记 */
@@ -126,6 +151,32 @@ export interface Series {
   stale: string[]
 }
 
+/** 阶段执行器：这一步交给谁跑（技能、SOP、Agent）；检查点仍由人确认，执行器只把产出物推到待验收 */
+export type RunnerType = 'skill' | 'sop' | 'agent'
+export interface StageRunner {
+  stage: StageKey
+  type: RunnerType
+  /** 技能 id（agentdata 的 SKILLS）、SOP id（sopflow 的 SOPS）或 Agent id（agentdata 的 seedAgents） */
+  ref_id: string
+  /** 交代给它的话 */
+  prompt?: string
+}
+export type RunState = 'running' | 'done' | 'failed'
+/** 最近一次执行：技能和 Agent 都按 Agent 运行记，SOP 按 SOP 执行记录 */
+export interface LastRun {
+  type: 'agent' | 'sop'
+  /** 指向 AgentRun 或 SopRun */
+  id: string
+  stage: StageKey
+  status: RunState
+  started_at: string
+  ended_at?: string
+  /** 失败原因 */
+  error?: string
+  /** 这次登记或升版的产出物 */
+  artifact_ids?: string[]
+}
+
 export interface Video {
   id: string
   title: string
@@ -140,6 +191,9 @@ export interface Video {
   root: string
   /** 章节数 */
   chapters: number
+  /** 各阶段配的执行器，一个阶段最多一个 */
+  runners?: StageRunner[]
+  last_run?: LastRun
   created_at: string
   updated_at: string
 }
@@ -186,6 +240,13 @@ const AI_TOPICS = ['ChatGPT 写周报', 'Claude 读长文档', 'Cursor 改代码
   '剪映 AI 字幕', 'Runway 生成空镜', 'Suno 写片头音乐', 'Gamma 做演示', 'Napkin 画图解', 'Whisper 转写访谈', 'DeepSeek 写 SQL', '通义听悟记笔记',
   'Copilot 写单测', 'v0 出界面', 'Bolt 搭原型', 'Dify 编工作流', 'Coze 做机器人', 'Ollama 本地跑模型', 'LM Studio 对比模型', 'Raycast AI 快捷指令',
   'Arc 浏览器 AI', 'Granola 会议纪要', 'Descript 剪口播', 'HeyGen 数字人', 'ElevenLabs 克隆声音', 'Recraft 做图标', 'Krea 实时出图', 'NotebookLM 做播客']
+// 还没做完的集配好执行器：每一步都交给 web-video-presentation 技能跑，人只管检查点
+const AI_RUNNERS: StageRunner[] = [
+  { stage: 'script', type: 'skill', ref_id: 'sk_video', prompt: '按 Phase 1 出竖版口播稿和大纲' },
+  { stage: 'web', type: 'skill', ref_id: 'sk_video', prompt: '套 templates/ai100 搭竖屏演示工程，第 1 章做完整' },
+  { stage: 'chapters', type: 'skill', ref_id: 'sk_video', prompt: '照第 1 章的样板并行做第 2 到 N 章' },
+  { stage: 'record', type: 'skill', ref_id: 'sk_video', prompt: '程序化录屏合成 mp4，按章节时间点出字幕' },
+]
 function aiSeries(): Video[] {
   return AI_TOPICS.map((t, i) => {
     const ep = i + 1
@@ -196,9 +257,15 @@ function aiSeries(): Video[] {
     const checkpoints = cps(passed, SPAN[id])
     // 第 25 集第一章被退回
     if (ep === 25) checkpoints.find((c) => c.stage === 'ch1')!.state = 'rejected'
+    // 第 27 集网页开发跑失败了：预览端口被占，等人处理后重试
+    const last_run: LastRun | undefined = ep === 27 ? {
+      type: 'agent', id: 'ar_ai27web', stage: 'web', status: 'failed', started_at: minsAgo(aiUpdated(ep) + 6), ended_at: minsAgo(aiUpdated(ep) + 4),
+      error: '预览端口 7801 被占用，演示工程起不来；关掉占用端口的进程后重试',
+    } : undefined
     return {
       id, title: `第 ${ep} 集：${t}`, series_id: 'sr_ai', episode: ep, orientations: ['portrait'], stage, checkpoints,
-      root: `videos/ai100/ep${String(ep).padStart(2, '0')}`, chapters: 3, created_at: minsAgo(aiCreated(ep)), updated_at: minsAgo(aiUpdated(ep)),
+      root: `videos/ai100/ep${String(ep).padStart(2, '0')}`, chapters: 3, runners: ep > AI_DONE ? AI_RUNNERS : undefined, last_run,
+      created_at: minsAgo(aiCreated(ep)), updated_at: minsAgo(aiUpdated(ep)),
     }
   })
 }
@@ -206,7 +273,8 @@ function aiSeries(): Video[] {
 export const seedVideos: Video[] = [
   { id: 'vd1', title: '第 1 集：今日待办一页清', project_id: 'pj_pmw', series_id: 'sr_pmw', episode: 1, orientations: ['landscape', 'portrait'], stage: 'distribution', checkpoints: cps(['plan', 'ch1', 'audio', 'distribution'], SPAN.vd1), root: 'videos/ep01-today', chapters: 5, created_at: minsAgo(day * 20), updated_at: minsAgo(day * 6) },
   { id: 'vd2', title: '第 2 集：SOP 编排像搭积木', project_id: 'pj_pmw', series_id: 'sr_pmw', episode: 2, orientations: ['landscape', 'portrait'], stage: 'ch1', checkpoints: cps(['plan'], SPAN.vd2), root: 'videos/ep02-sop', chapters: 6, created_at: minsAgo(day * 5), updated_at: minsAgo(60 * 3) },
-  { id: 'vd3', title: '第 3 集：Agent 怎么配才放心', project_id: 'pj_pmw', series_id: 'sr_pmw', episode: 3, orientations: ['landscape'], stage: 'script', checkpoints: cps([], SPAN.vd3), root: 'videos/ep03-agent', chapters: 4, created_at: minsAgo(day * 1), updated_at: minsAgo(90) },
+  { id: 'vd3', title: '第 3 集：Agent 怎么配才放心', project_id: 'pj_pmw', series_id: 'sr_pmw', episode: 3, orientations: ['landscape'], stage: 'script', checkpoints: cps([], SPAN.vd3), root: 'videos/ep03-agent', chapters: 4,
+    runners: [{ stage: 'script', type: 'sop', ref_id: 'sop_video_weekly', prompt: '从原文出口播稿和大纲，跑到规划检查停下' }], created_at: minsAgo(day * 1), updated_at: minsAgo(90) },
   ...aiSeries(),
   { id: 'vd4', title: '远川权限改造演示片', project_id: 'pj_perm', orientations: ['landscape'], stage: 'record', checkpoints: cps(['plan', 'ch1', 'audio'], SPAN.vd4), root: 'demo-video', chapters: 3, created_at: minsAgo(day * 8), updated_at: minsAgo(60 * 20) },
 ]
@@ -216,25 +284,37 @@ const art = (video_id: string, kind: ArtifactKind, name: string, path: string, s
   id: `af${(n += 1)}`, video_id, kind, name, path, status, version: 1, source: { type: 'skill', label: 'web-video-presentation' }, reviews: [], created_at: stageAt(SPAN[video_id], ARTIFACT_KIND[kind].stage, 0.5), ...extra,
 })
 
+// 双方向的集：文稿、简介、章节时间轴横竖各一套，各自验收；封面按封面比例分开登记
+const both = (video_id: string, kind: ArtifactKind, name: string, ext: string, status: ArtifactStatus, extra: Partial<Record<Orientation, Partial<Artifact>>> = {}) =>
+  (['landscape', 'portrait'] as Orientation[]).map((o) => art(video_id, kind, name, `${kind}-${o}.${ext}`, status, { variant: o, ...extra[o] }))
+
 export const seedArtifacts: Artifact[] = [
   art('vd1', 'article', '原文', 'article.md', 'final'),
-  art('vd1', 'script', '口播稿', 'script.md', 'final', { version: 3, reviews: [{ at: minsAgo(day * 18.5), ok: false, comment: '第 3 段太长，拆成两屏' }, { at: minsAgo(day * 18), ok: true, comment: '可以' }] }),
-  art('vd1', 'outline', '大纲', 'outline.md', 'final'),
+  ...both('vd1', 'script', '口播稿', 'md', 'final', {
+    landscape: { version: 3, reviews: [{ at: minsAgo(day * 18.5), ok: false, comment: '第 3 段太长，拆成两屏' }, { at: minsAgo(day * 18), ok: true, comment: '可以' }] },
+    portrait: { version: 2, reviews: [{ at: minsAgo(day * 18.4), ok: false, comment: '竖版一屏字太多，每屏压到 40 字以内' }, { at: minsAgo(day * 17.9), ok: true, comment: '可以' }] },
+  }),
+  ...both('vd1', 'outline', '大纲', 'md', 'final'),
   art('vd1', 'presentation', '演示工程', 'presentation-landscape', 'final', { variant: 'landscape' }),
   art('vd1', 'presentation', '演示工程', 'presentation-portrait', 'final', { variant: 'portrait' }),
   art('vd1', 'audio', '口播音频（5 章）', 'audio/', 'final', { duration: 598 }),
   art('vd1', 'video', '成片', 'out/ep01-16x9.mp4', 'published', { variant: 'landscape', duration: 602 }),
   art('vd1', 'video', '成片', 'out/ep01-9x16.mp4', 'published', { variant: 'portrait', duration: 602 }),
-  ...[1, 2, 3, 4, 5].map((o) => art('vd1', 'cover', `封面 ${o}`, `cover/16x9-${o}.png`, o === 2 ? 'published' : 'final', { variant: 'landscape', option: o, picked: o === 2 })),
-  ...[1, 2, 3, 4, 5].map((o) => art('vd1', 'cover', `封面 ${o}`, `cover/9x16-${o}.png`, o === 1 ? 'published' : 'final', { variant: 'portrait', option: o, picked: o === 1 })),
-  art('vd1', 'description', '简介', 'description.md', 'final'),
-  art('vd1', 'chapters', '章节时间轴', 'chapters.md', 'final'),
-  art('vd2', 'script', '口播稿', 'script.md', 'final', { version: 2 }),
-  art('vd2', 'outline', '大纲', 'outline.md', 'final'),
+  art('vd1', 'subtitle', '字幕', 'subtitle/ep01-16x9.srt', 'final', { variant: 'landscape', lang: 'zh' }),
+  art('vd1', 'subtitle', '字幕', 'subtitle/ep01-9x16.srt', 'final', { variant: 'portrait', lang: 'zh' }),
+  ...[1, 2, 3, 4, 5].map((o) => art('vd1', 'cover', `封面 ${o}`, `cover/16x9-${o}.png`, o === 2 ? 'published' : 'final', { variant: 'landscape', ratio: '16x9', option: o, picked: o === 2 })),
+  ...[1, 2, 3, 4, 5].map((o) => art('vd1', 'cover', `封面 ${o}`, `cover/9x16-${o}.png`, o === 1 ? 'published' : 'final', { variant: 'portrait', ratio: '9x16', option: o, picked: o === 1 })),
+  // 1:1 那张先拿去发了抖音，被打回；之后补了一张 3:4，换上就能重试
+  art('vd1', 'cover', '封面 1', 'cover/1x1-1.png', 'final', { variant: 'portrait', ratio: '1x1', option: 1 }),
+  art('vd1', 'cover', '封面 1', 'cover/3x4-1.png', 'final', { variant: 'portrait', ratio: '3x4', option: 1, picked: true, created_at: minsAgo(day * 4) }),
+  ...both('vd1', 'description', '简介', 'md', 'final'),
+  ...both('vd1', 'chapters', '章节时间轴', 'md', 'final'),
+  ...both('vd2', 'script', '口播稿', 'md', 'final', { landscape: { version: 2 } }),
+  ...both('vd2', 'outline', '大纲', 'md', 'final'),
   art('vd2', 'presentation', '演示工程（第 1 章）', 'presentation-landscape', 'review', { variant: 'landscape', source: { type: 'skill', label: 'web-video-presentation' } }),
   art('vd2', 'presentation', '演示工程（第 1 章）', 'presentation-portrait', 'draft', { variant: 'portrait' }),
-  art('vd3', 'script', '口播稿', 'script.md', 'draft', { source: { type: 'manual', label: '手写' } }),
-  art('vd4', 'script', '口播稿', 'script.md', 'final'),
+  art('vd3', 'script', '口播稿', 'script-landscape.md', 'draft', { variant: 'landscape', source: { type: 'manual', label: '手写' } }),
+  art('vd4', 'script', '口播稿', 'script-landscape.md', 'final', { variant: 'landscape' }),
   art('vd4', 'presentation', '演示工程', 'presentation-landscape', 'final', { variant: 'landscape' }),
   art('vd4', 'audio', '口播音频（3 章）', 'audio/', 'final', { duration: 214 }),
   // AI 系列已完成的集：成片、选用的封面、简介，都已随视频号发布
@@ -242,17 +322,19 @@ export const seedArtifacts: Artifact[] = [
     const ep = String(v.episode).padStart(2, '0')
     return [
       art(v.id, 'video', '成片', `out/ep${ep}-9x16.mp4`, 'published', { variant: 'portrait', duration: 290 + ((v.episode ?? 0) * 7) % 40 }),
-      art(v.id, 'cover', '封面 1', `cover/9x16-1.png`, 'published', { variant: 'portrait', option: 1, picked: true }),
-      art(v.id, 'description', '简介', 'description.md', 'final'),
+      art(v.id, 'cover', '封面 1', `cover/9x16-1.png`, 'published', { variant: 'portrait', ratio: '9x16', option: 1, picked: true }),
+      art(v.id, 'description', '简介', 'description-portrait.md', 'final', { variant: 'portrait' }),
     ]
   }),
 ]
+/** 第 1 集某个封面比例的第几版 */
+const vd1Cover = (ratio: CoverRatio, option: number) => seedArtifacts.find((a) => a.video_id === 'vd1' && a.kind === 'cover' && a.ratio === ratio && a.option === option)?.id
 
 export const seedPublishes: Publish[] = [
-  { id: 'pb1', video_id: 'vd1', platform: 'bilibili', variant: 'landscape', cover_id: 'af10', title: '一人之下 10 分钟上手 01｜今日待办一页清', desc: '把散在各处的待办收到一页……', status: 'published', published_at: minsAgo(day * 6), url: 'https://www.bilibili.com/video/BV1xx', metrics: { views: 12840, likes: 931, comments: 87, shares: 64, updated_at: minsAgo(60 * 5) } },
-  { id: 'pb2', video_id: 'vd1', platform: 'channels', variant: 'portrait', cover_id: 'af14', title: '今日待办一页清', desc: '一页看完今天要处理的事', status: 'published', published_at: minsAgo(day * 5), url: 'https://channels.weixin.qq.com/web/pages/feed?id=ep01today', metrics: { views: 3420, likes: 210, comments: 12, shares: 35, updated_at: minsAgo(60 * 30) } },
-  { id: 'pb3', video_id: 'vd1', platform: 'douyin', variant: 'portrait', title: '今日待办一页清', desc: '', status: 'failed', error: '封面尺寸不符合要求（需要 3:4）' },
-  { id: 'pb4', video_id: 'vd1', platform: 'youtube', variant: 'landscape', cover_id: 'af10', title: 'One Page for Today', desc: '', status: 'scheduled', scheduled_at: new Date(Date.now() + day * 60000 * 2).toISOString() },
+  { id: 'pb1', video_id: 'vd1', platform: 'bilibili', variant: 'landscape', cover_id: vd1Cover('16x9', 2), title: '一人之下 10 分钟上手 01｜今日待办一页清', desc: '把散在各处的待办收到一页……', status: 'published', published_at: minsAgo(day * 6), url: 'https://www.bilibili.com/video/BV1xx', metrics: { views: 12840, likes: 931, comments: 87, shares: 64, updated_at: minsAgo(60 * 5) } },
+  { id: 'pb2', video_id: 'vd1', platform: 'channels', variant: 'portrait', cover_id: vd1Cover('9x16', 1), title: '今日待办一页清', desc: '一页看完今天要处理的事', status: 'published', published_at: minsAgo(day * 5), url: 'https://channels.weixin.qq.com/web/pages/feed?id=ep01today', metrics: { views: 3420, likes: 210, comments: 12, shares: 35, updated_at: minsAgo(60 * 30) } },
+  { id: 'pb3', video_id: 'vd1', platform: 'douyin', variant: 'portrait', cover_id: vd1Cover('1x1', 1), title: '今日待办一页清', desc: '', status: 'failed', error: '封面比例不符合要求：抖音要 3:4 或 9:16，这次用的是 1:1' },
+  { id: 'pb4', video_id: 'vd1', platform: 'youtube', variant: 'landscape', cover_id: vd1Cover('16x9', 2), title: 'One Page for Today', desc: '', status: 'scheduled', scheduled_at: new Date(Date.now() + day * 60000 * 2).toISOString() },
   // AI 系列：每集分发包通过后两小时发视频号
   ...seedVideos.filter((v) => v.series_id === 'sr_ai' && (v.episode ?? 0) <= AI_DONE).map((v, i): Publish => {
     const ep = v.episode ?? 0

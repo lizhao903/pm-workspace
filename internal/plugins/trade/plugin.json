@@ -3,6 +3,7 @@
   "name": "交易套件",
   "description": "行情、盯盘、策略与回测、交易执行：数币、A 股、港股、美股，默认只做行情、回测和模拟盘",
   "icon": "candles",
+  "icons": { "markets": "candles", "monitor": "pulse", "strategy": "chart", "trading": "swap" },
   "version": "0.1.0",
   "core": ">=1.0.0 <2.0.0",
   "depends": {},

@@ -105,6 +105,25 @@ export type SopRunAction =
 
 export type SopStartInput = { input?: Record<string, string>; step_through?: boolean }
 
+/** 编排页的草稿：形状同 SopFlow 去掉版本和时间，可以没保存过、可以不合格 */
+export type SopDraft = Pick<SopFlow, 'name' | 'desc' | 'trigger' | 'fields' | 'steps' | 'layout'> & { id?: string }
+/** 保存校验的一条问题；step 是步骤下标（从 0 起），整条流程的问题没有 */
+export type SopIssue = { text: string; step?: number }
+/** 新建、修改流程的 body；layout 为 null 时清掉手动位置 */
+type SopFlowBody = Omit<SopDraft, 'id' | 'layout'> & { layout: SopFlow['layout'] | null }
+/** AI 协助的回复；draft 是改好的整条草稿，不带 layout */
+export type SopAssistReply = { text: string; draft?: SopDraft; notes?: string[] }
+export type SopAssistInput = { message: string; draft?: SopDraft; selected?: number }
+
+/** 保存被后端拒绝（validation 400）时的逐条问题；不是校验错误回空数组 */
+export function sopIssuesOf(e: unknown): SopIssue[] {
+  if (!isApiError(e, 'validation')) return []
+  const raw = e.extra.issues
+  if (!Array.isArray(raw)) return []
+  return raw.filter((x): x is SopIssue => !!x && typeof x === 'object' && typeof (x as SopIssue).text === 'string')
+    .map((x) => (typeof x.step === 'number' ? { text: x.text, step: x.step } : { text: x.text }))
+}
+
 /** 列表一次最多 500 条（契约上限） */
 export const SOP_RUNS_MAX = 500
 
@@ -123,6 +142,10 @@ export const sopApi = {
   flows: async (signal?: AbortSignal) => (await requestList<SopFlow>('/api/sop/flows', { signal })).data.map(normFlow),
   flow: async (id: string, signal?: AbortSignal) => normFlow(await request<SopFlow>('GET', flowPath(id), { signal })),
   deleteFlow: (id: string) => request<null>('DELETE', flowPath(id)),
+  createFlow: async (body: SopFlowBody) => normFlow(await request<SopFlow>('POST', '/api/sop/flows', { body })),
+  /** 整条覆盖；version 和库里不一致 409 */
+  patchFlow: async (id: string, body: SopFlowBody & { version?: number }) => normFlow(await request<SopFlow>('PATCH', flowPath(id), { body })),
+  assist: (body: SopAssistInput, signal?: AbortSignal) => request<SopAssistReply>('POST', '/api/sop/assist', { body, signal }),
   nodeTypes: async (signal?: AbortSignal) => (await requestList<SopNodeType>('/api/sop/node-types', { signal })).data,
   runs: async (signal?: AbortSignal) => {
     const query = new URLSearchParams({ limit: String(SOP_RUNS_MAX) })
@@ -192,6 +215,39 @@ export function useSopRunAction() {
     // 别处已经处理过（409）等：按最新状态读回
     onError: (_e, v) => notify({ kind: 'sop-run', id: v.runId }),
   })
+}
+
+/** 新建（没有 id）或整条覆盖保存；成功后把流程写进缓存再报 sop-flow */
+export function useSaveSopFlow() {
+  const qc = useQueryClient()
+  const notify = useNotifyChange()
+  return useMutation({
+    mutationFn: ({ id, draft, version }: { id?: string; draft: SopDraft; version?: number }) => {
+      const body: SopFlowBody = { name: draft.name, desc: draft.desc, trigger: draft.trigger, fields: draft.fields, steps: draft.steps, layout: draft.layout ?? null }
+      return id ? sopApi.patchFlow(id, { ...body, version }) : sopApi.createFlow(body)
+    },
+    onSuccess: (f) => {
+      // 列表先换上新的，回流程详情时不用等重新取（新建的不然会先显示「已经删除」）
+      qc.setQueryData(dataKeys.sop.flow(f.id), f)
+      qc.setQueryData<SopFlow[]>(dataKeys.sop.flows, (list) => list && (list.some((x) => x.id === f.id) ? list.map((x) => (x.id === f.id ? f : x)) : [...list, f]))
+      void notify({ kind: 'sop-flow', id: f.id })
+    },
+  })
+}
+
+/** 一条流程（编排页用）；不存在 404 不重试 */
+export function useSopFlow(id: string | null) {
+  return useQuery({
+    queryKey: dataKeys.sop.flow(id ?? ''),
+    queryFn: ({ signal }) => sopApi.flow(id!, signal),
+    enabled: !!id,
+    retry: noRetry404,
+  })
+}
+
+/** AI 协助：不保存，草稿要前端应用后照常保存 */
+export function useSopAssist() {
+  return useMutation({ mutationFn: (body: SopAssistInput) => sopApi.assist(body) })
 }
 
 export function useDeleteSopFlow() {

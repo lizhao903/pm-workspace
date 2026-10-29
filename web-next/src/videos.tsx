@@ -6,10 +6,13 @@ import { Subnav } from './subnav'
 import { PageTitle } from './topbar'
 import { cls, timeAgo } from './ui'
 import {
-  ARTIFACT_KIND, ARTIFACT_STATUS, ORIENT, STAGES, stageIndex, videoState,
-  type Artifact, type ArtifactKind, type ArtifactStatus, type Checkpoint, type CheckpointState, type Orientation, type Series, type StageKey, type Video,
+  ARTIFACT_KIND, ARTIFACT_STATUS, COVER_RATIO, DEFAULT_COVER_RATIOS, ORIENT, STAGES, coverRatioOf, stageIndex, videoState,
+  type Artifact, type ArtifactKind, type ArtifactStatus, type Checkpoint, type CheckpointState, type CoverRatio, type LastRun, type Orientation, type RunnerType,
+  type Series, type StageKey, type StageRunner, type Video,
 } from './videodata'
 import { newId } from './ids'
+import { SKILLS, seedAgents } from './agentdata'
+import { SOPS } from './sopflow'
 
 // 视频：按 web-video-presentation 的流程管一集视频——阶段时间线、检查点、产出物（带比例、版本、验收）、设置
 // 数据约定在 videodata.ts；这里只读它的类型和常量
@@ -59,15 +62,40 @@ function seriesLine(v: Video, series: Series[]) {
   return v.episode ? `${s.name} · 第 ${v.episode} 集` : s.name
 }
 
-function defaultPath(kind: ArtifactKind, v: Video, variant?: Orientation, option?: number) {
+function defaultPath(kind: ArtifactKind, v: Video, variant?: Orientation, option?: number, ratio?: CoverRatio) {
   const base = v.root.split('/').filter(Boolean).pop() || 'video'
   switch (kind) {
     case 'presentation': return `presentation-${variant ?? 'landscape'}`
     case 'audio': return 'audio/'
     case 'video': return `out/${base}-${ratioSlug(variant ?? 'landscape')}.mp4`
-    case 'cover': return `cover/${ratioSlug(variant ?? 'landscape')}-${option ?? 1}.png`
-    default: return `${kind}.md`
+    case 'subtitle': return `subtitle/${base}-${ratioSlug(variant ?? 'landscape')}.srt`
+    case 'cover': return `cover/${ratio ?? DEFAULT_COVER_RATIOS[variant ?? 'landscape'][0]}-${option ?? 1}.png`
+    default: return ARTIFACT_KIND[kind].perVariant ? `${kind}-${variant ?? 'landscape'}.md` : `${kind}.md`
   }
+}
+/** 这个方向下要显示的封面比例：默认的几种，加上已经登记过的 */
+const coverRatios = (o: Orientation, xs: Artifact[]) => [...new Set([...DEFAULT_COVER_RATIOS[o], ...xs.map(coverRatioOf)])]
+const ratioText = (r: CoverRatio) => COVER_RATIO[r].label
+
+/* ---------- 阶段执行器 ---------- */
+
+const RUNNER_TYPE: Record<RunnerType, string> = { skill: '技能', sop: 'SOP', agent: 'Agent' }
+/** 能配执行器的阶段：有产出物的阶段，加上「其余章节」（给演示工程升版本）；规划检查、第一章验收只有人能做 */
+const RUNNABLE = STAGES.filter((s) => s.key === 'chapters' || Object.values(ARTIFACT_KIND).some((k) => k.stage === s.key)).map((s) => s.key)
+const runnerChoices = (t: RunnerType) => (t === 'skill' ? SKILLS.map((x) => ({ id: x.id, name: x.name }))
+  : t === 'sop' ? SOPS.map((x) => ({ id: x.id, name: x.name })) : seedAgents.map((x) => ({ id: x.id, name: x.name || '未命名 Agent' })))
+const runnerName = (r: StageRunner) => runnerChoices(r.type).find((x) => x.id === r.ref_id)?.name
+/** 每个阶段跑完登记哪些产出物；按比例区分的每个比例一份 */
+const RUN_KINDS: Partial<Record<StageKey, ArtifactKind[]>> = {
+  script: ['script', 'outline'], web: ['presentation'], chapters: ['presentation'], audio: ['audio'], record: ['video', 'subtitle'], distribution: ['description', 'chapters'],
+}
+const runName = (k: StageKey, kind: ArtifactKind, v: Video) => (kind === 'presentation' ? (k === 'web' ? '演示工程（第 1 章）' : '演示工程')
+  : kind === 'audio' ? `口播音频（${v.chapters} 章）` : defaultName(kind))
+/** 执行器跑之前能看出来的失败；原型里其余情况都算成功 */
+function runError(v: Video, r: StageRunner, k: StageKey) {
+  if (!runnerName(r)) return `找不到${RUNNER_TYPE[r.type]}「${r.ref_id}」，可能已经删掉了，换一个再跑`
+  if ((RUN_KINDS[k] ?? []).some((x) => ARTIFACT_KIND[x].perVariant) && !v.orientations.length) return '还没定画面比例，先在规划检查里选好'
+  return ''
 }
 const defaultName = (kind: ArtifactKind, option?: number) => (kind === 'cover' ? `封面 ${option ?? 1}` : kind === 'video' ? '成片' : ARTIFACT_KIND[kind].label)
 
@@ -550,7 +578,7 @@ export function SeriesSettingsDrawer({ series, videos, onClose, onSave }: {
 type DetailTab = 'flow' | 'artifacts' | 'settings'
 const TABS: { key: DetailTab; label: string }[] = [{ key: 'flow', label: '制作流程' }, { key: 'artifacts', label: '产出物' }, { key: 'settings', label: '设置' }]
 
-interface NewArt { kind: ArtifactKind; variant?: Orientation; option?: number; name: string; path: string; duration: string; touched: boolean }
+interface NewArt { kind: ArtifactKind; variant?: Orientation; ratio?: CoverRatio; option?: number; name: string; path: string; duration: string; touched: boolean }
 
 export function VideoDetail({ video, artifacts, series, projects, publishCount, onChange, onArtifacts, onOpenSeries, onOpenPublish, onPreview, onDelete, tabs }: {
   video: Video; artifacts: Artifact[]; series: Series[]; projects: { id: string; name: string }[]; publishCount: number
@@ -571,7 +599,12 @@ export function VideoDetail({ video, artifacts, series, projects, publishCount, 
   const [rejecting, setRejecting] = useState<StageKey | null>(null)
   const [note, setNote] = useState('')
   const [confirmDel, setConfirmDel] = useState(false)
+  /** 正在配执行器的阶段和草稿 */
+  const [runEdit, setRunEdit] = useState<{ stage: StageKey; r: StageRunner } | null>(null)
   const mine = artifacts.filter((a) => a.video_id === v.id)
+  // 执行器是异步跑完的，跑完时要拿最新的视频和产出物，不能用发起时的
+  const latest = useRef({ v, mine })
+  useEffect(() => { latest.current = { v, mine } })
   const sr = series.find((s) => s.id === v.series_id)
   const proj = projects.find((p) => p.id === v.project_id)
   const opened = mine.find((a) => a.id === openId)
@@ -593,44 +626,86 @@ export function VideoDetail({ video, artifacts, series, projects, publishCount, 
   }
   const advance = (k: StageKey) => { const i = stageIndex(k); if (i < STAGES.length - 1) set({ stage: STAGES[i + 1].key }) }
 
-  const freeOption = (variant?: Orientation) => {
-    for (let o = 1; o <= COVER_OPTIONS; o += 1) if (!mine.some((a) => a.kind === 'cover' && a.variant === variant && a.option === o)) return o
+  // 封面版本号按「方向 + 封面比例」各自从 1 数到 5
+  const freeOption = (variant?: Orientation, ratio?: CoverRatio) => {
+    const r = ratio ?? DEFAULT_COVER_RATIOS[variant ?? 'landscape'][0]
+    for (let o = 1; o <= COVER_OPTIONS; o += 1) if (!mine.some((a) => a.kind === 'cover' && a.variant === variant && coverRatioOf(a) === r && a.option === o)) return o
     return COVER_OPTIONS
   }
-  const startNew = (kind: ArtifactKind, variant?: Orientation, option?: number) => {
+  const startNew = (kind: ArtifactKind, variant?: Orientation, option?: number, ratio?: CoverRatio) => {
     const per = ARTIFACT_KIND[kind].perVariant
     const vr = per ? variant ?? v.orientations[0] ?? 'landscape' : undefined
-    const op = kind === 'cover' ? option ?? freeOption(vr) : undefined
-    setDraft({ kind, variant: vr, option: op, name: defaultName(kind, op), path: defaultPath(kind, v, vr, op), duration: '', touched: false })
+    const rt = kind === 'cover' ? ratio ?? DEFAULT_COVER_RATIOS[vr ?? 'landscape'][0] : undefined
+    const op = kind === 'cover' ? option ?? freeOption(vr, rt) : undefined
+    setDraft({ kind, variant: vr, ratio: rt, option: op, name: defaultName(kind, op), path: defaultPath(kind, v, vr, op, rt), duration: '', touched: false })
     setTab('artifacts')
   }
   // 改类型、比例、版本号时，名称和路径跟着变；手动改过路径就不再覆盖
   const patchDraft = (x: Partial<NewArt>) => {
     if (!draft) return
     const d = { ...draft, ...x }
-    if (x.kind) {
-      d.variant = ARTIFACT_KIND[d.kind].perVariant ? d.variant ?? v.orientations[0] ?? 'landscape' : undefined
-      d.option = d.kind === 'cover' ? d.option ?? freeOption(d.variant) : undefined
+    if (x.kind) d.variant = ARTIFACT_KIND[d.kind].perVariant ? d.variant ?? v.orientations[0] ?? 'landscape' : undefined
+    if (d.kind !== 'cover') { d.ratio = undefined; d.option = undefined } else {
+      // 换了方向，封面比例回到这个方向的默认；换了方向或封面比例，版本号重新找空位
+      if (x.kind || x.variant) d.ratio = x.ratio ?? (d.ratio && DEFAULT_COVER_RATIOS[d.variant ?? 'landscape'].includes(d.ratio) ? d.ratio : DEFAULT_COVER_RATIOS[d.variant ?? 'landscape'][0])
+      if (x.kind || x.variant || x.ratio) d.option = x.option ?? freeOption(d.variant, d.ratio)
     }
-    if (x.kind || x.option !== undefined) d.name = defaultName(d.kind, d.option)
-    if (!d.touched && (x.kind || x.variant || x.option !== undefined)) d.path = defaultPath(d.kind, v, d.variant, d.option)
+    if (x.kind || x.option !== undefined || x.ratio) d.name = defaultName(d.kind, d.option)
+    if (!d.touched && (x.kind || x.variant || x.ratio || x.option !== undefined)) d.path = defaultPath(d.kind, v, d.variant, d.option, d.ratio)
     setDraft(d)
   }
   const addArt = () => {
     if (!draft) return
     const a: Artifact = {
       id: newId('af'), video_id: v.id, kind: draft.kind, name: draft.name.trim() || defaultName(draft.kind, draft.option), path: draft.path.trim(),
-      variant: draft.variant, option: draft.option, version: 1, status: 'draft',
+      variant: draft.variant, ratio: draft.ratio, option: draft.option, lang: draft.kind === 'subtitle' ? 'zh' : undefined, version: 1, status: 'draft',
       duration: draft.kind === 'audio' || draft.kind === 'video' ? parseDuration(draft.duration) : undefined,
       source: { type: 'manual', label: '手动登记' }, reviews: [], created_at: now(),
     }
     onArtifacts((xs) => [...xs, a]); touch()
     setDraft(null)
   }
+  // 同一方向、同一封面比例里只选一张
   const pickCover = (a: Artifact) => {
     const on = !isPicked(a)
-    onArtifacts((xs) => xs.map((x) => (x.video_id === a.video_id && x.kind === 'cover' && x.variant === a.variant ? { ...x, picked: x.id === a.id ? on : false } : x)))
+    const r = coverRatioOf(a)
+    onArtifacts((xs) => xs.map((x) => (x.video_id === a.video_id && x.kind === 'cover' && x.variant === a.variant && coverRatioOf(x) === r ? { ...x, picked: x.id === a.id ? on : false } : x)))
     touch()
+  }
+
+  /* 执行器：配置、运行；跑完把产出物登记或升版成「待验收」，检查点仍由人确认 */
+  const runnerOf = (k: StageKey) => v.runners?.find((r) => r.stage === k)
+  const saveRunner = (r: StageRunner) => { set({ runners: [...(v.runners ?? []).filter((x) => x.stage !== r.stage), r] }); setRunEdit(null) }
+  const removeRunner = (k: StageKey) => { set({ runners: (v.runners ?? []).filter((x) => x.stage !== k) }); setRunEdit(null) }
+  const running = v.last_run?.status === 'running'
+  const run = (k: StageKey) => {
+    const r = runnerOf(k)
+    if (!r || running) return
+    const id = newId(r.type === 'sop' ? 'run' : 'ar')
+    const start: LastRun = { type: r.type === 'sop' ? 'sop' : 'agent', id, stage: k, status: 'running', started_at: now() }
+    set({ last_run: start })
+    window.setTimeout(() => {
+      const { v: cur, mine: arts } = latest.current
+      // 期间又跑了一次或者被清掉了，这次的结果作废
+      if (cur.last_run?.id !== id) return
+      const err = runError(cur, r, k)
+      if (err) { onChange({ ...cur, last_run: { ...start, status: 'failed', ended_at: now(), error: err }, updated_at: now() }); return }
+      const source: Artifact['source'] = { type: r.type, label: runnerName(r) ?? r.ref_id }
+      const bump: Record<string, string> = {}
+      const add: Artifact[] = []
+      for (const kind of RUN_KINDS[k] ?? []) {
+        const variants: (Orientation | undefined)[] = ARTIFACT_KIND[kind].perVariant ? cur.orientations : [undefined]
+        for (const o of variants) {
+          const old = arts.filter((a) => a.kind === kind && a.variant === o).sort((a, b) => b.version - a.version)[0]
+          if (old) bump[old.id] = runName(k, kind, cur)
+          else add.push({ id: newId('af'), video_id: cur.id, kind, name: runName(k, kind, cur), path: defaultPath(kind, cur, o), variant: o, lang: kind === 'subtitle' ? 'zh' : undefined,
+            version: 1, status: 'review', source, reviews: [], created_at: now() })
+        }
+      }
+      const at = now()
+      onArtifacts((xs) => [...xs.map((x) => (bump[x.id] ? { ...x, name: bump[x.id], version: x.version + 1, status: 'review' as const, source, created_at: at } : x)), ...add])
+      onChange({ ...cur, last_run: { ...start, status: 'done', ended_at: at, artifact_ids: [...Object.keys(bump), ...add.map((a) => a.id)] }, updated_at: at })
+    }, 1800)
   }
 
   const actions = (
@@ -640,6 +715,76 @@ export function VideoDetail({ video, artifacts, series, projects, publishCount, 
       {tab === 'flow' && sr && <button className="btn btn-outline" onClick={() => onOpenSeries(sr.id)}>查看系列</button>}
     </>
   )
+  // 一个阶段的执行器：配了就显示是谁、能不能跑、上次跑的结果；没配就给个入口
+  const runnerBox = (k: StageKey, cur: boolean) => {
+    const r = runnerOf(k)
+    const last = v.last_run?.stage === k ? v.last_run : undefined
+    const edit = runEdit?.stage === k ? runEdit.r : null
+    if (edit) {
+      const choices = runnerChoices(edit.type)
+      return (
+        <div className="vd-runner vd-runner-edit">
+          <div className="field-row">
+            <div className="field"><span className="field-label">交给谁跑</span>
+              <div className="seg seg-sm">
+                {(Object.keys(RUNNER_TYPE) as RunnerType[]).map((t) => (
+                  <button key={t} className={cls(edit.type === t && 'on')} onClick={() => setRunEdit({ stage: k, r: { ...edit, type: t, ref_id: runnerChoices(t)[0]?.id ?? '' } })}>{RUNNER_TYPE[t]}</button>
+                ))}
+              </div>
+            </div>
+            <label className="field"><span className="field-label">{RUNNER_TYPE[edit.type]}</span>
+              <select value={edit.ref_id} onChange={(e) => setRunEdit({ stage: k, r: { ...edit, ref_id: e.target.value } })}>
+                {!choices.some((c) => c.id === edit.ref_id) && <option value={edit.ref_id}>{edit.ref_id ? '已删除的' + RUNNER_TYPE[edit.type] : '选一个'}</option>}
+                {choices.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+              </select>
+            </label>
+          </div>
+          <label className="field"><span className="field-label">交代给它的话<span className="field-hint">可不填</span></span>
+            <input value={edit.prompt ?? ''} placeholder="比如：按 Phase 1 出横竖两套口播稿" onChange={(e) => setRunEdit({ stage: k, r: { ...edit, prompt: e.target.value } })} />
+          </label>
+          <div className="act-row">
+            <button className="act act-primary" disabled={!choices.some((c) => c.id === edit.ref_id)} onClick={() => saveRunner({ ...edit, prompt: edit.prompt?.trim() || undefined })}>保存</button>
+            <button className="act act-quiet" onClick={() => setRunEdit(null)}>取消</button>
+            {r && <><span className="spacer" /><button className="act act-quiet btn-danger-ghost" onClick={() => removeRunner(k)}>不用执行器</button></>}
+          </div>
+        </div>
+      )
+    }
+    if (!r) {
+      return cur ? (
+        <div className="vd-runner vd-runner-none">
+          <span className="run-muted">没配执行器，产出物手动登记</span>
+          <button className="link-btn" onClick={() => setRunEdit({ stage: k, r: { stage: k, type: 'skill', ref_id: 'sk_video' } })}>配执行器</button>
+        </div>
+      ) : null
+    }
+    const name = runnerName(r)
+    const busy = last?.status === 'running'
+    return (
+      <div className={cls('vd-runner', last?.status === 'failed' && 'vd-runner-failed')}>
+        <div className="vd-runner-head">
+          <span className="vd-runner-type">{RUNNER_TYPE[r.type]}</span>
+          <span className={cls('ellipsis vd-runner-name', !name && 'faint')} title={r.prompt}>{name ?? `已删除的${RUNNER_TYPE[r.type]}`}</span>
+          {r.prompt && <span className="ellipsis run-muted vd-runner-prompt">{r.prompt}</span>}
+          <span className="spacer" />
+          {!busy && <button className="act act-quiet" onClick={() => setRunEdit({ stage: k, r })}>修改</button>}
+          {cur && (
+            <button className="act act-primary" disabled={running} title={running && !busy ? '另一个阶段正在跑，等它跑完' : undefined} onClick={() => run(k)}>
+              {busy ? '运行中…' : last?.status === 'failed' ? '重试' : '运行'}
+            </button>
+          )}
+        </div>
+        {busy && <div className="vd-runner-state"><i className="vd-spin" />正在跑，开始于 {timeAgo(last.started_at)}；跑完产出物会进「待验收」</div>}
+        {last?.status === 'failed' && <div className="vd-cp-reject">运行失败：{last.error ?? '没有返回原因'}{last.ended_at && ` · ${timeAgo(last.ended_at)}`}</div>}
+        {last?.status === 'done' && (
+          <div className="vd-runner-state ok">
+            {timeAgo(last.ended_at ?? last.started_at)}跑完，{last.artifact_ids?.length ? `登记了 ${last.artifact_ids.length} 个产出物，待验收` : '没有新产出物'}
+            {k !== 'web' && STAGES.find((x) => x.key === k)?.checkpoint && <span className="run-muted">；检查点还要你来确认</span>}
+          </div>
+        )}
+      </div>
+    )
+  }
   const descText = [seriesLine(v, series), proj?.name, v.orientations.map((o) => ORIENT[o].ratio).join(' / ') || '比例未定', videoState(v).label].filter(Boolean).join(' · ')
 
   const artLine = (a: Artifact) => (
@@ -647,6 +792,7 @@ export function VideoDetail({ video, artifacts, series, projects, publishCount, 
       <span className="tag">{ARTIFACT_KIND[a.kind].label}</span>
       <span className="ellipsis vd-art-name">{a.name}</span>
       {a.variant && <span className="vd-otag"><OrientShape o={a.variant} />{ORIENT[a.variant].ratio}</span>}
+      {a.kind === 'cover' && <span className="vd-otag" title="封面比例">封面 {ratioText(coverRatioOf(a))}</span>}
       <span className="vd-ver">v{a.version}</span>
       <Pill {...ARTIFACT_STATUS[a.status]} />
       {(a.kind === 'presentation' || a.kind === 'video' || a.kind === 'cover') && <button className="act act-quiet" onClick={(e) => { e.stopPropagation(); preview(a) }}>预览</button>}
@@ -723,6 +869,7 @@ export function VideoDetail({ video, artifacts, series, projects, publishCount, 
                   )}
 
                   {items.length > 0 && <div className="vd-sub">{items.map(artLine)}</div>}
+                  {RUNNABLE.includes(s.key) && !isFinished(v) && runnerBox(s.key, cur)}
                   {cur && !items.length && firstKind && !s.checkpoint && (
                     <div className="mount-empty">这一步还没登记产出物。<button className="link-btn" onClick={() => startNew(firstKind)}>登记一个</button></div>
                   )}
@@ -773,7 +920,14 @@ export function VideoDetail({ video, artifacts, series, projects, publishCount, 
                 {ARTIFACT_KIND[draft.kind].perVariant && (
                   <div className="field"><span className="field-label">比例</span>
                     <div className="seg seg-sm">
-                      {(v.orientations.length ? v.orientations : ORIENTS).map((o) => <button key={o} className={cls(draft.variant === o && 'on')} onClick={() => patchDraft({ variant: o, option: draft.kind === 'cover' ? freeOption(o) : undefined })}>{orientText(o)}</button>)}
+                      {(v.orientations.length ? v.orientations : ORIENTS).map((o) => <button key={o} className={cls(draft.variant === o && 'on')} onClick={() => patchDraft({ variant: o })}>{orientText(o)}</button>)}
+                    </div>
+                  </div>
+                )}
+                {draft.kind === 'cover' && draft.variant && (
+                  <div className="field"><span className="field-label">封面比例<span className="field-hint">平台各有要求，抖音要 3:4</span></span>
+                    <div className="seg seg-sm">
+                      {DEFAULT_COVER_RATIOS[draft.variant].map((r) => <button key={r} className={cls(draft.ratio === r && 'on')} onClick={() => patchDraft({ ratio: r })}>{ratioText(r)}</button>)}
                     </div>
                   </div>
                 )}
@@ -825,24 +979,30 @@ export function VideoDetail({ video, artifacts, series, projects, publishCount, 
                       return (
                         <div key={o} className="vd-col">
                           <div className="vd-col-head"><OrientShape o={o} />{orientText(o)}{!v.orientations.includes(o) && <span className="faint">（不在本工程比例里）</span>}</div>
-                          {k === 'cover' ? (
-                            <div className="vd-covers">
-                              {Array.from({ length: Math.max(COVER_OPTIONS, ...xs.map((a) => a.option ?? 0)) }, (_, j) => j + 1).map((op) => {
-                                const a = xs.find((x) => x.option === op)
-                                return a ? (
-                                  <button key={op} className={cls('vd-cover', openId === a.id && 'sel', isPicked(a) && 'picked')} title={`${a.name} · ${ARTIFACT_STATUS[a.status].label}`} onClick={() => setOpenId(a.id)}>
-                                    <CoverThumb o={o} op={op} />
-                                    <span className="vd-cover-foot"><i className="pill-dot" style={{ '--c': ARTIFACT_STATUS[a.status].color } as React.CSSProperties} />{isPicked(a) ? '选用' : `v${a.version}`}</span>
-                                  </button>
-                                ) : (
-                                  <button key={op} className="vd-cover vd-cover-miss" title={`还没有第 ${op} 版，点一下登记`} onClick={() => startNew('cover', o, op)}>
-                                    <span className="vd-thumb vd-thumb-miss" style={{ aspectRatio: `${ORIENT[o].w} / ${ORIENT[o].h}` }}>{op}</span>
-                                    <span className="vd-cover-foot faint">缺</span>
-                                  </button>
-                                )
-                              })}
-                            </div>
-                          ) : xs.length ? (
+                          {k === 'cover' ? coverRatios(o, xs).map((r) => {
+                            const rs = xs.filter((a) => coverRatioOf(a) === r)
+                            return (
+                              <div key={r} className="vd-cover-group">
+                                <div className="vd-cover-ratio">封面 {ratioText(r)}<span className="faint">{rs.length} / {COVER_OPTIONS}</span></div>
+                                <div className="vd-covers">
+                                  {Array.from({ length: Math.max(COVER_OPTIONS, ...rs.map((a) => a.option ?? 0)) }, (_, j) => j + 1).map((op) => {
+                                    const a = rs.find((x) => x.option === op)
+                                    return a ? (
+                                      <button key={op} className={cls('vd-cover', openId === a.id && 'sel', isPicked(a) && 'picked')} title={`${a.name} · ${ratioText(r)} · ${ARTIFACT_STATUS[a.status].label}`} onClick={() => setOpenId(a.id)}>
+                                        <CoverThumb r={r} op={op} />
+                                        <span className="vd-cover-foot"><i className="pill-dot" style={{ '--c': ARTIFACT_STATUS[a.status].color } as React.CSSProperties} />{isPicked(a) ? '选用' : `v${a.version}`}</span>
+                                      </button>
+                                    ) : (
+                                      <button key={op} className="vd-cover vd-cover-miss" title={`${ratioText(r)} 还没有第 ${op} 版，点一下登记`} aria-label={`登记 ${ratioText(r)} 封面第 ${op} 版`} onClick={() => startNew('cover', o, op, r)}>
+                                        <span className="vd-thumb vd-thumb-miss" style={{ aspectRatio: `${COVER_RATIO[r].w} / ${COVER_RATIO[r].h}` }}>{op}</span>
+                                        <span className="vd-cover-foot faint">缺</span>
+                                      </button>
+                                    )
+                                  })}
+                                </div>
+                              </div>
+                            )
+                          }) : xs.length ? (
                             <div className="vd-list">{xs.map((a) => <ArtRow key={a.id} a={a} v={v} sel={openId === a.id} onOpen={() => setOpenId(a.id)} />)}</div>
                           ) : <div className="mount-empty">这个比例还没有{K.label}。<button className="link-btn" onClick={() => startNew(k, o)}>登记</button></div>}
                         </div>
@@ -918,8 +1078,8 @@ export function VideoDetail({ video, artifacts, series, projects, publishCount, 
   )
 }
 
-const CoverThumb = ({ o, op, big }: { o: Orientation; op: number; big?: boolean }) => (
-  <span className={cls('vd-thumb', big && 'vd-thumb-big')} style={{ aspectRatio: `${ORIENT[o].w} / ${ORIENT[o].h}`, '--h': COVER_HUE[(op - 1) % COVER_HUE.length] } as React.CSSProperties}>{op}</span>
+const CoverThumb = ({ r, op, big }: { r: CoverRatio; op: number; big?: boolean }) => (
+  <span className={cls('vd-thumb', big && 'vd-thumb-big')} style={{ aspectRatio: `${COVER_RATIO[r].w} / ${COVER_RATIO[r].h}`, '--h': COVER_HUE[(op - 1) % COVER_HUE.length] } as React.CSSProperties}>{op}</span>
 )
 
 function ArtRow({ a, v, sel, onOpen }: { a: Artifact; v: Video; sel: boolean; onOpen: () => void }) {
@@ -968,7 +1128,7 @@ function ArtifactDrawer({ a, v, onClose, onUpdate, onPick, onPreview, onRemove }
   return (
     <aside className="drawer vd-drawer">
       <div className="drawer-head">
-        <span className="drawer-kicker">{K.label}{a.variant && ` · ${orientText(a.variant)}`}{a.option && ` · 第 ${a.option} 版`}</span>
+        <span className="drawer-kicker">{K.label}{a.variant && ` · ${orientText(a.variant)}`}{a.kind === 'cover' && ` · 封面 ${ratioText(coverRatioOf(a))}`}{a.option && ` · 第 ${a.option} 版`}</span>
         <div className="spacer" />
         <button className="icon-btn" onClick={onClose} title="关闭 (Esc)">
           <svg viewBox="0 0 16 16" width="14" height="14"><path d="m4 4 8 8M12 4l-8 8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" /></svg>
@@ -976,7 +1136,7 @@ function ArtifactDrawer({ a, v, onClose, onUpdate, onPick, onPreview, onRemove }
       </div>
       <div className="drawer-body form">
         <div className="vd-dr-head">
-          {a.kind === 'cover' && a.variant && <span className={cls('vd-dr-cover', a.variant === 'portrait' && 'tall')}><CoverThumb o={a.variant} op={a.option ?? 1} big /></span>}
+          {a.kind === 'cover' && <span className={cls('vd-dr-cover', COVER_RATIO[coverRatioOf(a)].h > COVER_RATIO[coverRatioOf(a)].w && 'tall')}><CoverThumb r={coverRatioOf(a)} op={a.option ?? 1} big /></span>}
           <div className="profile-text">
             <h2 className="vd-dr-title">{a.name}<span className="vd-ver">v{a.version}</span></h2>
             <div className="list-sub">{STAGES[stageIndex(K.stage)].label} · {timeAgo(a.created_at)}登记</div>
@@ -988,6 +1148,8 @@ function ArtifactDrawer({ a, v, onClose, onUpdate, onPick, onPreview, onRemove }
           <dt>完整路径</dt><dd><code className="vd-path">{v.root ? `${v.root}/` : ''}{a.path}</code></dd>
           <dt>来源</dt><dd>{SOURCE_LABEL[a.source.type]} · {a.source.label}</dd>
           {a.variant && <><dt>比例</dt><dd><span className="vd-otag"><OrientShape o={a.variant} />{orientText(a.variant)}</span></dd></>}
+          {a.kind === 'cover' && <><dt>封面比例</dt><dd>{ratioText(coverRatioOf(a))}</dd></>}
+          {a.lang && <><dt>语言</dt><dd>{a.lang === 'zh' ? '中文' : a.lang}</dd></>}
           {a.duration !== undefined && <><dt>时长</dt><dd className="vd-dur">{fmtDuration(a.duration)}</dd></>}
         </dl>
 
@@ -1005,7 +1167,7 @@ function ArtifactDrawer({ a, v, onClose, onUpdate, onPick, onPreview, onRemove }
 
         {a.kind === 'cover' && (
           <div className="field">
-            <span className="field-label">选用<span className="field-hint">同一比例只选一张，发布时默认用它</span></span>
+            <span className="field-label">选用<span className="field-hint">同一方向、同一封面比例只选一张，发布时默认用它</span></span>
             <div className="act-row">
               <button className={cls('act', !isPicked(a) && 'act-primary')} onClick={onPick}>{isPicked(a) ? '取消选用' : '选用这张'}</button>
               {isPicked(a) && <span className="vd-cp-res ok">已选用</span>}

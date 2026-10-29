@@ -98,6 +98,13 @@ describe('Agent 列表（SPEC-settings-8）', () => {
     expect(await screen.findByText('还没有 Agent')).toBeInTheDocument()
   })
 
+  it('别处用 ?agent=<id> 跳过来时打开这个 Agent 的配置页', async () => {
+    fakeBackend({ providers: [prov({ id: 'apv_a' })], agents: [agent({ id: 'ag_1', name: '分诊' })] })
+    const router = show('/settings/agents?agent=ag_1')
+    await waitFor(() => expect(router.state.location.pathname).toBe('/settings/agents/ag_1'))
+    expect(router.state.location.search).toBe('')
+  })
+
   it('卡片上的开关直接启停，不进配置页；服务商停用时模型红字不可用', async () => {
     const calls = fakeBackend({ providers: [prov({ id: 'apv_a', enabled: false })], agents: [agent({ id: 'ag_1', name: '分诊' })] })
     const router = show('/settings/agents')

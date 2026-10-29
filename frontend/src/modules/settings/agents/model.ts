@@ -1,7 +1,7 @@
 // Agent 列表和配置页的纯函数（AG-01b5），照原型 web-next/src/agents.tsx、agentdata.ts、App.tsx 的 modelChoices。
 // 色值写在这里（.tsx 里不出现色值），单元测试盯着模型可选项、草稿改动和问题汇总。
 import type {
-  Agent, AgentInput, AgentPatch, AgentProvider, AgentTrigger, AgentTriggerKind, AgentTriggerMatch, ProviderCheck,
+  Agent, AgentGrantMode, AgentInput, AgentPatch, AgentProvider, AgentTrigger, AgentTriggerKind, AgentTriggerMatch, Connector, ProviderCheck,
 } from '../../../core/data'
 import { kindOf, splitIds, uiKindOf } from '../providers/catalog'
 
@@ -18,17 +18,17 @@ export const TRIGGER_PLACEHOLDER: Record<AgentTriggerKind, string> = {
 }
 export const triggerLabel = (k: string) => TRIGGER_LABEL[k as AgentTriggerKind] ?? k
 
-/** 内置能力（契约「Agent 工具授权」的 key），列表卡片的能力标签按这个顺序 */
-export const ABILITIES: { key: string; label: string; write: boolean }[] = [
-  { key: 'read_messages', label: '读 IM 消息', write: false },
-  { key: 'reply_message', label: '回复 IM 消息', write: true },
-  { key: 'read_contacts', label: '查联系人', write: false },
-  { key: 'write_contacts', label: '新建 / 修改联系人', write: true },
-  { key: 'read_tasks', label: '查任务', write: false },
-  { key: 'write_tasks', label: '新建 / 更新任务', write: true },
-  { key: 'read_content', label: '读文档', write: false },
-  { key: 'write_content', label: '写文档', write: true },
-  { key: 'run_sop', label: '发起 SOP', write: true },
+/** 内置能力（契约「Agent 工具授权」的 key），列表卡片的能力标签、工具与权限标签按这个顺序；group、desc 照原型 ABILITIES */
+export const ABILITIES: { key: string; label: string; write: boolean; group: string; desc: string }[] = [
+  { key: 'read_messages', label: '读 IM 消息', write: false, group: 'IM 消息', desc: '查看各渠道收到的消息' },
+  { key: 'reply_message', label: '回复 IM 消息', write: true, group: 'IM 消息', desc: '通过连接器发出回复' },
+  { key: 'read_contacts', label: '查联系人', write: false, group: '联系人', desc: '按姓名、公司、IM 账号查人' },
+  { key: 'write_contacts', label: '新建 / 修改联系人', write: true, group: '联系人', desc: '' },
+  { key: 'read_tasks', label: '查任务', write: false, group: '任务', desc: '按状态、负责人、截止时间查任务' },
+  { key: 'write_tasks', label: '新建 / 更新任务', write: true, group: '任务', desc: '' },
+  { key: 'read_content', label: '读文档', write: false, group: '文档', desc: '只能读挂载的知识库里的资料' },
+  { key: 'write_content', label: '写文档', write: true, group: '文档', desc: '新建笔记、摘录' },
+  { key: 'run_sop', label: '发起 SOP', write: true, group: 'SOP', desc: '按标准流程执行，流程里的人工检查点照常停下' },
 ]
 
 /** 空格隔开的词都要命中，不分大小写 */
@@ -177,4 +177,89 @@ export const triggerSummary = (ts: AgentTrigger[]) =>
 export function normDir(s: string): { dir: string; error: string } {
   const dir = s.trim().replace(/(.)\/+$/, '$1')
   return { dir, error: dir && !dir.startsWith('/') ? '填绝对路径，以 / 开头' : '' }
+}
+
+// ---- 工具与权限（AG-02b，SPEC-settings-9.15 到 9.20） ----
+
+export type Grants = Record<string, AgentGrantMode>
+export const MODE_LABEL: Record<AgentGrantMode, string> = { off: '关闭', confirm: '需确认', auto: '自动' }
+/** 关闭 < 需确认 < 自动；连接器工具的档位不能超过连接器那边的上限 */
+export const RANK: Record<AgentGrantMode, number> = { off: 0, confirm: 1, auto: 2 }
+
+/** 新建 Agent 的授权，同后端 newAgent：只开查任务、查联系人 */
+export const newGrants = (): Grants => ({ ...Object.fromEntries(ABILITIES.map((a) => [a.key, 'off' as AgentGrantMode])), read_tasks: 'auto', read_contacts: 'auto' })
+
+export const connPrefix = (connId: string) => `conn:${connId}:`
+export const connKey = (connId: string, tool: string) => `${connPrefix(connId)}${tool}`
+
+/** 一个可挂的连接器：工具只列连接器那边没关的，cap 是上限 */
+export type MountableConn = {
+  id: string
+  name: string
+  /** 工具名（连接器定义的 label），挂载下拉按它分组 */
+  kind: string
+  ok: boolean
+  tools: { key: string; name: string; desc: string; write: boolean; cap: AgentGrantMode }[]
+}
+
+/**
+ * 连接器换成挂载用的形状。mountable 是能新挂的：获取过工具清单、没暂停、没断开、定义还在；
+ * 已经挂着的不管状态都列出来（卡片上要能看到、能卸下）。
+ */
+export function mountableConns(conns: readonly Connector[], label: (tool: string) => string): { all: MountableConn[]; mountable: Set<string> } {
+  const all: MountableConn[] = conns.map((c) => ({
+    id: c.id, name: c.name, kind: label(c.tool), ok: c.status !== 'error',
+    tools: c.tools.filter((t) => t.mode !== 'off').map((t) => ({ key: connKey(c.id, t.name), name: t.name, desc: t.desc, write: t.write, cap: t.mode })),
+  }))
+  const mountable = new Set(conns.filter((c) => !!c.tools_at && c.available && c.status !== 'paused' && c.status !== 'disconnected').map((c) => c.id))
+  return { all, mountable }
+}
+
+/** 一个工具能选的档位：只读没有需确认，且不超过上限 */
+export function modeOptions(write: boolean, cap: AgentGrantMode = 'auto'): AgentGrantMode[] {
+  return (write ? (['off', 'confirm', 'auto'] as AgentGrantMode[]) : (['off', 'auto'] as AgentGrantMode[])).filter((m) => RANK[m] <= RANK[cap])
+}
+
+/** 显示的档位：存着的超过了能选的（上限后来收紧了），按能选的最高档显示 */
+export function shownMode(cur: AgentGrantMode | undefined, opts: AgentGrantMode[]): AgentGrantMode {
+  const m = cur ?? 'off'
+  if (opts.includes(m)) return m
+  return opts.filter((o) => RANK[o] <= RANK[m]).pop() ?? 'off'
+}
+
+/** 挂上连接器：只读工具默认自动、写工具默认关闭；已经配过的保留 */
+export function mountGrants(g: Grants, c: MountableConn): Grants {
+  const defaults: Grants = Object.fromEntries(c.tools.map((t) => [t.key, t.write ? 'off' : 'auto']))
+  return { ...defaults, ...g }
+}
+
+/** 卸下连接器时清掉它的 conn:<id>:* 授权，免得以后挂回来带着旧权限 */
+export const unmountGrants = (g: Grants, connId: string): Grants =>
+  Object.fromEntries(Object.entries(g).filter(([k]) => !k.startsWith(connPrefix(connId))))
+
+/**
+ * 发给后端的授权（PUT 整组换掉、没给的就是关闭）：只发开着的；连接器工具只发还在清单里的
+ * （后端对不存在的连接器、工具回 400），只读的需确认按自动发。
+ */
+export function grantsBody(g: Grants, conns: readonly MountableConn[]): Grants {
+  const out: Grants = {}
+  const writeOf = new Map<string, boolean>(ABILITIES.map((a) => [a.key, a.write]))
+  for (const c of conns) for (const t of c.tools) writeOf.set(t.key, t.write)
+  for (const [k, m] of Object.entries(g)) {
+    if (m === 'off' || !writeOf.has(k)) continue
+    out[k] = m === 'confirm' && !writeOf.get(k) ? 'auto' : m
+  }
+  return out
+}
+
+/** 两份授权一样不一样：按开着的比 */
+export function grantsEqual(a: Grants, b: Grants): boolean {
+  const on = (g: Grants) => JSON.stringify(Object.entries(g).filter(([, m]) => m !== 'off').sort(([x], [y]) => x.localeCompare(y)))
+  return on(a) === on(b)
+}
+
+/** 标签上的数量：开着的内置能力加挂着的连接器里开着的工具 */
+export function toolsOn(g: Grants, mounted: readonly MountableConn[]): number {
+  return ABILITIES.filter((a) => (g[a.key] ?? 'off') !== 'off').length
+    + mounted.reduce((n, c) => n + c.tools.filter((t) => (g[t.key] ?? 'off') !== 'off').length, 0)
 }

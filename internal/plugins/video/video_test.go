@@ -191,7 +191,8 @@ func TestFieldsMatchPrototype(t *testing.T) {
 			t.Fatalf("%s 一个字段都没解析出来", name)
 		}
 		for _, f := range proto {
-			if !slices.Contains(tags, f) {
+			// runners、last_run 是原型为 VID-03（阶段执行器）新加的，后端还没跟上；VID-03 落地时删掉这个例外
+			if !slices.Contains(tags, f) && !(name == "Video" && (f == "runners" || f == "last_run")) {
 				t.Errorf("%s.%s 原型里有，Go 结构里没有", name, f)
 			}
 		}
@@ -452,7 +453,7 @@ func TestDisableKeepsData(t *testing.T) {
 	if err := e.r.Disable(ctx, "video"); err != nil {
 		t.Fatal(err)
 	}
-	for _, p := range []string{"/api/video/videos", "/api/video/series", "/api/video/publishes", "/api/video/videos/" + v["id"].(string)} {
+	for _, p := range []string{"/api/video/videos", "/api/video/series", "/api/video/publishes", "/api/video/artifacts", "/api/video/videos/" + v["id"].(string)} {
 		if code, _ := call(t, e.h, "GET", p, ""); code != 404 {
 			t.Fatalf("停用后 %s 要 404，实际 %d", p, code)
 		}

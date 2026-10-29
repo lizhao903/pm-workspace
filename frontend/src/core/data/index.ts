@@ -27,7 +27,7 @@ export { runFinished, useTaskRuns, useTaskRun, useCancelRun, streamRun } from '.
 export { workdirUsable, useWorkdirCheck, useFsBrowse, useFsShortcuts } from './fs'
 export {
   useAgentProviders, useProviderModels, useAgentSessions, useAgentMessages, useCreateAgentSession, usePatchAgentSession,
-  useDeleteAgentSession, streamChat, setFirstMessage, firstMessageOf,
+  useDeleteAgentSession, streamChat, streamDecision, streamDebugChat, setFirstMessage, firstMessageOf,
 } from './agent'
 export type {
   AgentProvider, AgentProviderKind, ProviderTestResult, AgentSession, AgentMessage, AgentMessageRole, AgentSessionInput, AgentSessionPatch,
@@ -130,10 +130,11 @@ export {
 export type { TerminalSession, TerminalSessionInput, TerminalPrototype } from './terminal'
 export {
   SOP_RUNS_MAX, sopApi, useSopFlows, useSopNodeTypes, useSopRuns, useSopRun, useStartSopRun, useSopRunAction, useDeleteSopFlow,
+  useSopFlow, useSaveSopFlow, useSopAssist, sopIssuesOf,
 } from './sop'
 export type {
   SopJson, SopField, SopFieldOption, SopCase, SopStepDef, SopFlow, SopNodeType, SopStepStatus, SopRunStatus, SopRunStep, SopRun,
-  SopRunBrief, SopRunAction, SopStartInput,
+  SopRunBrief, SopRunAction, SopStartInput, SopDraft, SopIssue, SopAssistReply, SopAssistInput,
 } from './sop'
 
 export { skillKeys } from './skillKeys'
@@ -151,7 +152,7 @@ export type {
 export { agentConfigKeys } from './agentConfigKeys'
 export {
   AGENT_RUNS_LIMIT, agentsApi, useAgents, useAgent, useAgentImpact, useAgentGrants, useAgentRuns, useCreateAgent, usePatchAgent,
-  useDeleteAgent,
+  useDeleteAgent, usePutAgentGrants,
 } from './agents'
 export type {
   Agent, AgentAvatar, AgentTrigger, AgentTriggerKind, AgentTriggerMatch, AgentInput, AgentPatch, AgentImpact, AgentImpactItem,
@@ -174,10 +175,19 @@ export type {
   DomainRoutePatch, DomainFix, DomainStatusState, DomainStatusItem, DomainStatus, DomainConfigSection, DomainConfig,
 } from './domains'
 
+export { videoKeys } from './videoKeys'
+export {
+  videoApi, useVideos, useVideo, useVideoSeries, useCreateVideo, usePatchVideo, useAdvanceVideo, useDecideCheckpoint, useDeleteVideo,
+} from './video'
+export type {
+  Video, VideoInput, VideoSeries, VideoOrientation, VideoStageKey, VideoCheckpoint, VideoCheckpointStage, VideoCheckpointState,
+} from './video'
+
 // 接口层的纯函数和类型照样给模块用：不发请求，不碰缓存
 export { localDay, focusParams, changedFields, isApiError, isStreamError, ApiError, StreamError } from '../api'
 export type { Focus, ApiErrorCode, ListResult } from '../api'
 export type * from '../api/types'
 export type {
   RunEvent, ChatEvent, StreamEvent, RunDone, ChatDone, QuestionOption, StreamErrorKind, StreamOptions, RunRequest, ChatRequest,
+  DebugChatMessage, DebugChatRequest,
 } from '../api'

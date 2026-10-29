@@ -66,7 +66,7 @@ func (h *assist) handle(w http.ResponseWriter, r *http.Request) {
 		fail(w, r, h.c, apiErr(errValidation, "message 最多 %d 字", maxMessage))
 		return
 	}
-	draft, issues, err := readDraft(raw["draft"])
+	draft, issues, err := readDraft(raw["draft"], kindsOf(h.c))
 	if err != nil {
 		fail(w, r, h.c, err)
 		return
@@ -98,7 +98,7 @@ func (h *assist) handle(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadGateway, map[string]any{"error": map[string]string{"code": "model_failed", "message": err.Error()}})
 		return
 	}
-	reply, err := parseReply(out, draft)
+	reply, err := parseReply(out, draft, kindsOf(h.c))
 	if err != nil {
 		writeJSON(w, http.StatusUnprocessableEntity, map[string]any{"error": map[string]string{"code": "bad_model_reply", "message": err.Error()}})
 		return
@@ -107,11 +107,11 @@ func (h *assist) handle(w http.ResponseWriter, r *http.Request) {
 }
 
 // readDraft 读请求里的草稿：字段类型不对回 400；保存校验没过不算错，问题一并返回。
-func readDraft(v json.RawMessage) (Flow, []Issue, error) {
+func readDraft(v json.RawMessage, kinds kindLookup) (Flow, []Issue, error) {
 	f := Flow{Fields: json.RawMessage(`[]`), Steps: json.RawMessage(`[]`)}
 	v = bytes.TrimSpace(v)
 	if len(v) == 0 || string(v) == "null" {
-		return f, Check(&f), nil
+		return f, CheckWith(&f, kinds), nil
 	}
 	var raw map[string]json.RawMessage
 	if json.Unmarshal(v, &raw) != nil || raw == nil {
@@ -120,7 +120,7 @@ func readDraft(v json.RawMessage) (Flow, []Issue, error) {
 	if id, ok := raw["id"]; ok {
 		_ = json.Unmarshal(id, &f.ID)
 	}
-	issues, err := applyDraft(&f, raw)
+	issues, err := applyDraft(&f, raw, kinds)
 	if err != nil {
 		_, reason, _ := strings.Cut(err.Error(), ": ")
 		return f, nil, apiErr(errValidation, "draft 格式不对：%s", reason)
@@ -129,8 +129,8 @@ func readDraft(v json.RawMessage) (Flow, []Issue, error) {
 }
 
 // applyDraft 把 raw 写进 f 并校验，校验问题单独返回，其余错误照常返回。
-func applyDraft(f *Flow, raw map[string]json.RawMessage) ([]Issue, error) {
-	err := apply(f, raw)
+func applyDraft(f *Flow, raw map[string]json.RawMessage, kinds kindLookup) ([]Issue, error) {
+	err := apply(f, raw, kinds)
 	var ce *checkError
 	if errors.As(err, &ce) {
 		return ce.issues, nil
@@ -333,7 +333,7 @@ func assistPrompt(f Flow, steps []stepDef, selected int) string {
 var fenceRe = regexp.MustCompile("(?s)^```[a-zA-Z]*\\s*(.*?)\\s*```$")
 
 // parseReply 解析模型的回复，回不出合法 JSON、或草稿字段类型不对时返回原因（接口回 422）。
-func parseReply(out string, base Flow) (Reply, error) {
+func parseReply(out string, base Flow, kinds kindLookup) (Reply, error) {
 	s := strings.TrimSpace(out)
 	if m := fenceRe.FindStringSubmatch(s); m != nil {
 		s = m[1]
@@ -383,7 +383,7 @@ func parseReply(out string, base Flow) (Reply, error) {
 	if base.Name != "" {
 		delete(raw, "name")
 	}
-	issues, err := applyDraft(&f, raw)
+	issues, err := applyDraft(&f, raw, kinds)
 	if err != nil {
 		_, reason, _ := strings.Cut(err.Error(), ": ")
 		return Reply{}, fmt.Errorf("模型回的草稿格式不对：%s", reason)

@@ -1,23 +1,27 @@
 // Agent 配置页，照原型 web-next/src/agents.tsx AgentEditor（SPEC-settings-9）。
 // 和原型不同的地方：
-// - 工具与权限归 AG-02b，这里先占位；右边的调试对话也归 AG-02b，本页先不放。
+// - 工具与权限（AG-02b）存在单独的授权接口：草稿里另记一份，保存时先存 Agent 再整组 PUT 授权。
+// - 右边的调试对话接 AG-02c，用当前没保存的配置（含授权）跑。?tab=tools 直接打开工具与权限（会话里权限没开时跳过来）。
 // - 离开确认用路由的 useBlocker：返回按钮、切二级菜单、侧栏换模块都先在底栏确认。
 // - 模型存服务商加模型名（provider_id + model）；新建时模型空着表示用第一个可用的，保存时才定。
 import { useEffect, useRef, useState } from 'react'
-import { useBlocker, useLocation, useNavigate } from 'react-router'
+import { useBlocker, useLocation, useNavigate, useSearchParams } from 'react-router'
 import {
-  errorText, useAgentGrants, useAgentImpact, useCategoryTree, useConnectors, useCreateAgent, useCreateKb, useDeleteAgent,
-  useKnowledgeBases, usePatchAgent, useSkills, type Agent, type KnowledgeBase, type Skill,
+  errorText, useAgentGrants, useAgentImpact, useCategoryTree, useConnectorDefs, useConnectors, useCreateAgent, useCreateKb, useDeleteAgent,
+  useKnowledgeBases, usePatchAgent, usePutAgentGrants, useSkills, type Agent, type AgentGrantMode, type KnowledgeBase, type Skill,
 } from '../../../core/data'
 import { Button, Checkbox, cls, Input, PageTitle, Switch, Tag, Textarea } from '../../../core/ui'
+import { AgentAvatar } from '../../../core/ui/AgentAvatar'
+import { DebugChat } from './DebugChat'
 import { timeAgo } from '../providers/model'
 import { AvatarEditor } from './AgentAvatar'
 import { MountPicker } from './MountPicker'
 import {
-  blankDraft, choiceKey, createBody, defaultChoice, draftOf, draftPatch, EDITOR_TABS, editorIssues, hasAll, MANY_MODELS, normDir,
-  type AgentDraft, type EditorTab, type ModelChoice,
+  blankDraft, choiceKey, createBody, defaultChoice, draftOf, draftPatch, EDITOR_TABS, editorIssues, grantsBody, grantsEqual, hasAll, MANY_MODELS,
+  mountableConns, mountGrants, newGrants, normDir, toolsOn, unmountGrants, type AgentDraft, type EditorTab, type Grants, type ModelChoice,
 } from './model'
 import { MiniSearch, Unmount } from './parts'
+import { ToolsTab } from './ToolsTab'
 import { TriggersTab } from './Triggers'
 
 /** 每个 Agent 上次看的标签，只在内存里记 */
@@ -25,32 +29,51 @@ const lastTab = new Map<string, EditorTab>()
 
 const SKILL_SOURCE: Record<string, string> = { builtin: '内置', custom: '自定义' }
 const skillSource = (s: Skill) => SKILL_SOURCE[s.source] ?? '插件'
+const isTab = (t: string | null): t is EditorTab => EDITOR_TABS.some((x) => x.key === t)
+// 调试面板叠在编辑区下面（1100px 以下）时默认收起，编辑区留够高度
+const narrow = () => typeof window !== 'undefined' && !!window.matchMedia?.('(max-width: 1100px)').matches
 
 export function AgentEditor({ agent, models }: { agent: Agent | null; models: ModelChoice[] }) {
   const navigate = useNavigate()
   const location = useLocation()
+  const [params] = useSearchParams()
   const creating = !agent
   const [base, setBase] = useState<AgentDraft>(() => (agent ? draftOf(agent) : blankDraft()))
   const [d, setD] = useState<AgentDraft>(base)
-  const [tab, setTab] = useState<EditorTab>(() => (agent ? lastTab.get(agent.id) ?? 'basic' : 'basic'))
+  const [tab, setTab] = useState<EditorTab>(() => {
+    const want = params.get('tab')
+    if (agent && isTab(want)) return want
+    return agent ? lastTab.get(agent.id) ?? 'basic' : 'basic'
+  })
   const [tried, setTried] = useState(false)
   // 新建保存后换成这个 Agent 的配置页，「已保存」带过来
   const [saved, setSaved] = useState(() => !!(location.state as { saved?: boolean } | null)?.saved)
-  const [saveErr, setSaveErr] = useState<string | null>(null)
+  const [saveErr, setSaveErr] = useState<string | null>(() => {
+    const e = (location.state as { grantsError?: string } | null)?.grantsError
+    return e ? `Agent 已创建，工具权限没存上：${e}` : null
+  })
   const [confirmDel, setConfirmDel] = useState(false)
   const [pickModel, setPickModel] = useState(false)
   const [modelQ, setModelQ] = useState('')
+  const [openConn, setOpenConn] = useState<string | null>(null)
+  const [debugFolded, setDebugFolded] = useState(narrow)
 
   const create = useCreateAgent()
   const patch = usePatchAgent()
+  const putGrants = usePutAgentGrants()
   const del = useDeleteAgent()
   const impact = useAgentImpact(agent?.id ?? null, confirmDel)
   const grants = useAgentGrants(agent ? [agent.id] : [])[agent?.id ?? '']
   const skills = useSkills().data ?? []
   const kbs = useKnowledgeBases().data ?? []
   const conns = useConnectors().data ?? []
+  const defs = useConnectorDefs().data ?? []
+  // 工具授权：新建按 newAgent，已有的等授权取回来（取回前不算改动、不让存授权）
+  const [gBase, setGBase] = useState<Grants | null>(() => (agent ? null : newGrants()))
+  const [g, setG] = useState<Grants>(() => newGrants())
 
-  const changed = Object.keys(draftPatch(base, d)).length > 0
+  const grantsChanged = !!gBase && !grantsEqual(gBase, g)
+  const changed = Object.keys(draftPatch(base, d)).length > 0 || grantsChanged
   // 保存、删除后自己跳走时不拦
   const leaving = useRef(false)
   const changedRef = useRef(changed)
@@ -67,6 +90,16 @@ export function AgentEditor({ agent, models }: { agent: Agent | null; models: Mo
     setBase(next)
     setD(next)
   }, [serverDraft])
+
+  // 授权取回来、保存后读回：没有未保存的授权改动就跟上。渲染时对一下上次看到的，不用 effect 再渲染一遍
+  const serverGrants = grants ? JSON.stringify(grants.grants) : ''
+  const [seenGrants, setSeenGrants] = useState('')
+  if (serverGrants && serverGrants !== seenGrants) {
+    setSeenGrants(serverGrants)
+    const next = JSON.parse(serverGrants) as Grants
+    if (!gBase || grantsEqual(gBase, g)) setG(next)
+    setGBase(next)
+  }
 
   useEffect(() => {
     if (!saved) return
@@ -86,13 +119,38 @@ export function AgentEditor({ agent, models }: { agent: Agent | null; models: Mo
   const mountedKbs = d.kbs.map((id) => kbs.find((k) => k.id === id)).filter((k): k is KnowledgeBase => !!k)
   const badConns = conns.filter((c) => d.mcps.includes(c.id) && c.status === 'error').map((c) => c.name)
   const issues = editorIssues(d, curModel, badConns)
-  const toolsOn = grants ? Object.values(grants.effective).filter((m) => m !== 'off').length : undefined
+  // 连接器：挂着的按 mcps 顺序（删掉的不列），能挂的是还没挂、获取过工具清单、没暂停没断开的
+  const defLabel = (tool: string) => defs.find((x) => x.tool === tool)?.label ?? tool
+  const { all: allConns, mountable } = mountableConns(conns, defLabel)
+  const mountedConns = d.mcps.map((id) => allConns.find((c) => c.id === id)).filter((c) => !!c)
+  const candidates = allConns.filter((c) => mountable.has(c.id) && !d.mcps.includes(c.id))
   const counts: Partial<Record<EditorTab, number>> = {
-    skills: mountedSkills.length, tools: toolsOn, kbs: mountedKbs.length, triggers: d.triggers.length,
+    skills: mountedSkills.length, tools: gBase ? toolsOn(g, mountedConns) : undefined, kbs: mountedKbs.length, triggers: d.triggers.length,
   }
   const issueText = Object.values(issues).filter(Boolean).join('；')
-  const busy = create.isPending || patch.isPending
+  const busy = create.isPending || patch.isPending || putGrants.isPending
   const dirty = creating || changed
+
+  const setGrants = (next: Grants) => { setG(next); setSaveErr(null); setSaved(false) }
+  const setMode = (key: string, m: AgentGrantMode) => setGrants({ ...g, [key]: m })
+  const mountConn = (id: string) => {
+    const c = allConns.find((x) => x.id === id)
+    if (!c) return
+    setD({ ...d, mcps: [...d.mcps, id] })
+    setGrants(mountGrants(g, c))
+    setOpenConn(id)
+  }
+  const unmountConn = (id: string) => {
+    setD({ ...d, mcps: d.mcps.filter((x) => x !== id) })
+    setGrants(unmountGrants(g, id))
+    if (openConn === id) setOpenConn(null)
+  }
+  // 调试用当前（没保存的）配置：服务商没选时用默认的那个
+  const pick = d.provider_id ? { provider_id: d.provider_id, model: d.model } : { provider_id: fallback?.providerId ?? '', model: fallback?.model ?? '' }
+  const debugConfig = {
+    agent_id: agent?.id, name: d.name.trim(), desc: d.desc, ...pick, instructions: d.instructions, skills: d.skills, mcps: d.mcps, kbs: d.kbs,
+    grants: grantsBody(g, allConns),
+  }
 
   const save = () => {
     setTried(true)
@@ -103,21 +161,37 @@ export function AgentEditor({ agent, models }: { agent: Agent | null; models: Mo
         onSuccess: (a) => {
           lastTab.set(a.id, tab)
           leaving.current = true
-          void navigate(`/settings/agents/${encodeURIComponent(a.id)}`, { replace: true, state: { saved: true } })
+          const open = () => void navigate(`/settings/agents/${encodeURIComponent(a.id)}`, { replace: true, state: { saved: true } })
+          // 授权和后端新建的默认一样就不用再存
+          if (grantsEqual(g, newGrants())) { open(); return }
+          putGrants.mutate({ id: a.id, grants: grantsBody(g, allConns) }, {
+            onSuccess: open,
+            onError: (e) => void navigate(`/settings/agents/${encodeURIComponent(a.id)}`, { replace: true, state: { grantsError: errorText(e) } }),
+          })
         },
         onError: (e) => setSaveErr(`创建失败：${errorText(e)}`),
       })
       return
     }
     const p = draftPatch(base, d)
-    if (!Object.keys(p).length) return
+    if (!Object.keys(p).length && !grantsChanged) return
     if (p.name !== undefined) p.name = d.name.trim()
+    // 先存 Agent（挂载变了授权的实际档位才对得上），再整组存授权
+    const saveGrants = () => {
+      if (!grantsChanged) { setSaved(true); return }
+      const body = grantsBody(g, allConns)
+      putGrants.mutate({ id: agent.id, grants: body }, {
+        onSuccess: (r) => { setGBase(r.grants); setG(r.grants); setSaved(true) },
+        onError: (e) => setSaveErr(`工具权限保存失败：${errorText(e)}`),
+      })
+    }
+    if (!Object.keys(p).length) { saveGrants(); return }
     patch.mutate({ id: agent.id, patch: p }, {
       onSuccess: (a) => {
         const next = draftOf(a)
         setBase(next)
         setD(next)
-        setSaved(true)
+        saveGrants()
       },
       onError: (e) => setSaveErr(`保存失败：${errorText(e)}`),
     })
@@ -132,6 +206,7 @@ export function AgentEditor({ agent, models }: { agent: Agent | null; models: Mo
   }
 
   return (
+    <div className={cls('ag-editor-grid', debugFolded && 'debug-folded')}>
     <div className="ag-editor">
       <PageTitle parent="Agent" desc={d.desc || undefined}>{creating ? '新建 Agent' : d.name || '未命名'}</PageTitle>
       <div className="ag-editor-head">
@@ -216,12 +291,10 @@ export function AgentEditor({ agent, models }: { agent: Agent | null; models: Mo
           </section>
         )}
 
-        {tab === 'tools' && (
-          <section className="ag-sec">
-            <div className="ag-sec-title">工具与权限</div>
-            <div className="ag-mount-empty">下一步开放：内置工具的权限、挂载 MCP 和连接器在这里配</div>
-          </section>
-        )}
+        {tab === 'tools' && (gBase ? (
+          <ToolsTab grants={g} mounted={mountedConns} candidates={candidates} open={openConn} onOpen={setOpenConn} onMode={setMode}
+            onMount={mountConn} onUnmount={unmountConn} onGoConnectors={() => void navigate('/settings/connectors')} />
+        ) : <div className="ag-mount-empty">正在读工具权限</div>)}
 
         {tab === 'kbs' && <KbTab mounted={mountedKbs} all={kbs} mountedIds={d.kbs} onToggle={(id) => toggleId('kbs', id)}
           onCreated={(kb) => setD((x) => ({ ...x, kbs: x.kbs.includes(kb.id) ? x.kbs : [...x.kbs, kb.id] }))} />}
@@ -252,6 +325,8 @@ export function AgentEditor({ agent, models }: { agent: Agent | null; models: Mo
           </>
         )}
       </div>
+    </div>
+    <DebugChat config={debugConfig} name={d.name.trim()} avatar={<AgentAvatar agent={d} size={22} />} folded={debugFolded} onFold={setDebugFolded} onGoTools={() => go('tools')} />
     </div>
   )
 }

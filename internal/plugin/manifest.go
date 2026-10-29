@@ -23,6 +23,7 @@ type Manifest struct {
 	Name            string            `json:"name"`
 	Description     string            `json:"description,omitempty"`
 	Icon            string            `json:"icon,omitempty"`
+	Icons           map[string]string `json:"icons,omitempty"`
 	Version         string            `json:"version"`
 	Core            string            `json:"core"`
 	Depends         map[string]string `json:"depends,omitempty"`
@@ -119,7 +120,7 @@ var SharedTablePrefixes = map[string][]string{}
 
 // ManifestFields 是清单的顶层字段，顺序同 docs/plugin-api.md 1.1。
 var ManifestFields = []string{
-	"id", "name", "description", "icon", "version", "core", "depends", "optional_depends", "provides",
+	"id", "name", "description", "icon", "icons", "version", "core", "depends", "optional_depends", "provides",
 	"emits", "subscribes", "adopts", "permissions", "migrations", "table_prefix",
 }
 
@@ -466,6 +467,24 @@ func (c *checker) manifest(raw any) *Manifest {
 			list, _ := c.strList(p, ep, "provides."+ep, false)
 			*lists[ep] = list
 			c.each("provides."+ep, list, func(s string) string { return providesItem(ep, s, id, idOK) })
+		}
+	}
+	// 按模块给的菜单图标，没给的模块用 icon
+	if o, ok := c.object(obj, "icons", "icons", false); ok {
+		m.Icons = map[string]string{}
+		for _, k := range sortedKeys(o) {
+			f := "icons." + k
+			v, isStr := o[k].(string)
+			switch {
+			case !slices.Contains(m.Provides.Modules, k):
+				c.add(f, "不是本插件提供的模块：%s", k)
+			case !isStr:
+				c.add(f, "必须是字符串")
+			case !keyRe.MatchString(v):
+				c.add(f, "不合法：只能用小写字母、数字、下划线：%s", v)
+			default:
+				m.Icons[k] = v
+			}
 		}
 	}
 

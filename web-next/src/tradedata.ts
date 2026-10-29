@@ -551,23 +551,23 @@ export interface RiskRules {
 }
 
 export const seedAccounts: TradeAccount[] = [
-  { id: 'ac_bn', name: 'Binance 主账户', broker: 'Binance', kind: 'exchange', markets: ['crypto'], paper: false, currency: 'USDT', equity: 128450, available: 61230, margin_used: 22180, status: 'connected', api_hint: '****7Q2c', permissions: ['read', 'trade'], updated_at: minsAgo(1) },
+  { id: 'ac_bn', name: 'Binance 主账户', broker: 'Binance', kind: 'exchange', markets: ['crypto'], paper: false, currency: 'USDT', equity: 128450, available: 61230, margin_used: 0, status: 'connected', api_hint: '****7Q2c', permissions: ['read', 'trade'], updated_at: minsAgo(1) },
   { id: 'ac_okx', name: 'OKX 合约', broker: 'OKX', kind: 'exchange', markets: ['crypto'], paper: false, currency: 'USDT', equity: 40210, available: 18800, margin_used: 9600, status: 'error', error: 'API Key 已过期，请到 OKX 重新创建并更新', api_hint: '****m9Lk', permissions: ['read', 'trade'], updated_at: minsAgo(240) },
   { id: 'ac_futu', name: '富途 港美股', broker: '富途', kind: 'broker', markets: ['hk', 'us'], paper: false, currency: 'USD', equity: 86300, available: 30120, margin_used: 0, status: 'connected', api_hint: 'OpenD 127.0.0.1:11111', permissions: ['read', 'trade'], updated_at: minsAgo(2) },
   { id: 'ac_ht', name: '华泰 A 股', broker: '华泰证券', kind: 'broker', markets: ['cn'], paper: false, currency: 'CNY', equity: 512000, available: 188400, margin_used: 0, status: 'connected', api_hint: 'QMT ****1203', permissions: ['read'], updated_at: minsAgo(5) },
-  { id: 'ac_paper', name: '模拟盘（全市场）', broker: '模拟', kind: 'exchange', markets: ['crypto', 'cn', 'hk', 'us'], paper: true, currency: 'USD', equity: 100000, available: 100000, margin_used: 0, status: 'connected', api_hint: '本地模拟撮合', permissions: ['read', 'trade'], updated_at: minsAgo(0) },
+  { id: 'ac_paper', name: '模拟盘（全市场）', broker: '模拟', kind: 'exchange', markets: ['crypto', 'cn', 'hk', 'us'], paper: true, currency: 'USD', equity: 100000, available: 70252, margin_used: 4068, status: 'connected', api_hint: '本地模拟撮合', permissions: ['read', 'trade'], updated_at: minsAgo(0) },
 ]
 
 // 运行启动时刻，持仓和日志都按它往后排
-const RN1_START = daysAgo(6)
-const RN1_OPEN = minsAgo(1440 * 6 - 240)
+const RN1_START = daysAgo(16)
+const RN1_OPEN = minsAgo(1440 * 16 - 240)
 const RN2_START = daysAgo(1)
 const RN2_OPEN = minsAgo(1440 - 90)
 const ETH_BUY = daysAgo(14)
 
 export const seedPositions: Position[] = [
-  { id: 'ps1', account_id: 'ac_bn', symbol: 'BINANCE:BTCUSDT', side: 'long', qty: 0.75, avg_price: 64200, run_id: 'rn1', opened_at: RN1_OPEN },
-  { id: 'ps2', account_id: 'ac_bn', symbol: 'BINANCE:BTCUSDT.P', side: 'short', qty: 0.3, avg_price: 67800, leverage: 5, liq_price: 80100, run_id: 'rn2', opened_at: RN2_OPEN },
+  { id: 'ps1', account_id: 'ac_paper', symbol: 'BINANCE:BTCUSDT', side: 'long', qty: 0.4, avg_price: 64200, run_id: 'rn1', opened_at: RN1_OPEN },
+  { id: 'ps2', account_id: 'ac_paper', symbol: 'BINANCE:BTCUSDT.P', side: 'short', qty: 0.3, avg_price: 67800, leverage: 5, liq_price: 80100, run_id: 'rn2', opened_at: RN2_OPEN },
   { id: 'ps3', account_id: 'ac_bn', symbol: 'BINANCE:ETHUSDT', side: 'long', qty: 6.2, avg_price: 3280, opened_at: ETH_BUY },
   { id: 'ps4', account_id: 'ac_futu', symbol: 'NASDAQ:NVDA', side: 'long', qty: 120, avg_price: 168.5, opened_at: daysAgo(20) },
   { id: 'ps5', account_id: 'ac_futu', symbol: 'HKEX:00700', side: 'long', qty: 300, avg_price: 452, opened_at: daysAgo(35) },
@@ -576,26 +576,87 @@ export const seedPositions: Position[] = [
 
 export const seedOrders: Order[] = [
   { id: 'od1', account_id: 'ac_bn', symbol: 'BINANCE:BTCUSDT', side: 'buy', type: 'limit', qty: 0.1, price: 63500, filled: 0, status: 'open', created_at: minsAgo(40), updated_at: minsAgo(40) },
-  { id: 'od2', account_id: 'ac_bn', symbol: 'BINANCE:BTCUSDT.P', side: 'sell', type: 'limit', qty: 0.05, price: 68200, filled: 0, status: 'open', run_id: 'rn2', reduce_only: false, created_at: minsAgo(15), updated_at: minsAgo(15) },
+  { id: 'od2', account_id: 'ac_paper', symbol: 'BINANCE:BTCUSDT.P', side: 'sell', type: 'limit', qty: 0.05, price: 68200, filled: 0, status: 'open', run_id: 'rn2', reduce_only: false, created_at: minsAgo(15), updated_at: minsAgo(15) },
   { id: 'od3', account_id: 'ac_futu', symbol: 'NASDAQ:NVDA', side: 'sell', type: 'stop', qty: 120, stop_price: 160, filled: 0, status: 'open', created_at: daysAgo(3), updated_at: daysAgo(3) },
   { id: 'od4', account_id: 'ac_bn', symbol: 'BINANCE:ETHUSDT', side: 'buy', type: 'market', qty: 6.2, filled: 6.2, avg_fill: 3280, status: 'filled', created_at: ETH_BUY, updated_at: ETH_BUY },
   { id: 'od5', account_id: 'ac_ht', symbol: 'SZSE:300750', side: 'buy', type: 'limit', qty: 200, price: 240, filled: 0, status: 'rejected', reject_reason: '账户只开了只读权限，不能下单', created_at: daysAgo(1), updated_at: daysAgo(1) },
+  { id: 'od6', account_id: 'ac_paper', symbol: 'NASDAQ:AAPL', side: 'buy', type: 'limit', qty: 50, price: 200, filled: 0, status: 'open', created_at: minsAgo(90), updated_at: minsAgo(90) },
 ]
 
 export const seedRuns: StrategyRun[] = [
-  { id: 'rn1', strategy_id: 'st_macross', account_id: 'ac_bn', symbols: ['BINANCE:BTCUSDT'], params: { fast: 12, slow: 48 }, capital: 50000, status: 'running', pnl: 2100.4, started_at: RN1_START,
-    logs: [{ at: RN1_START, level: 'info', text: '启动：EMA12 / EMA48，4 小时线' }, { at: RN1_OPEN, level: 'info', text: 'EMA12 上穿 EMA48，开多 0.75 BTC @ 64200' }, { at: minsAgo(30), level: 'info', text: '持仓中，无新信号' }] },
-  { id: 'rn2', strategy_id: 'st_grid', account_id: 'ac_bn', symbols: ['BINANCE:BTCUSDT.P'], params: { lower: 62000, upper: 72000, grids: 20, qty: 0.01 }, capital: 30000, status: 'running', pnl: -412.3, started_at: RN2_START,
-    logs: [{ at: RN2_START, level: 'info', text: '网格启动：62000 - 72000，20 格' }, { at: RN2_OPEN, level: 'info', text: '价格上穿 67800 格线，开空 0.3 @ 67800' }, { at: minsAgo(15), level: 'info', text: '挂卖 0.05 @ 68200' }, { at: minsAgo(8), level: 'warn', text: '资金费率 0.061% 偏高，空单在收费率' }] },
-  { id: 'rn3', strategy_id: 'st_rsi', account_id: 'ac_paper', symbols: ['NASDAQ:NVDA', 'NASDAQ:AAPL'], params: { rsi: 14, low: 30, high: 65 }, capital: 40000, status: 'paused', pnl: 1210, started_at: daysAgo(12),
+  { id: 'rn1', strategy_id: 'st_macross', account_id: 'ac_paper', symbols: ['BINANCE:BTCUSDT'], params: { fast: 12, slow: 48 }, capital: 30000, status: 'running', pnl: 2100.4, started_at: RN1_START,
+    logs: [{ at: RN1_START, level: 'info', text: '模拟盘启动：EMA12 / EMA48，4 小时线' }, { at: RN1_OPEN, level: 'info', text: 'EMA12 上穿 EMA48，开多 0.4 BTC @ 64200' }, { at: minsAgo(30), level: 'info', text: '持仓中，无新信号' }] },
+  { id: 'rn2', strategy_id: 'st_grid', account_id: 'ac_paper', symbols: ['BINANCE:BTCUSDT.P'], params: { lower: 62000, upper: 72000, grids: 20, qty: 0.01 }, capital: 20000, status: 'running', pnl: -412.3, started_at: RN2_START,
+    logs: [{ at: RN2_START, level: 'info', text: '模拟盘网格启动：62000 - 72000，20 格' }, { at: RN2_OPEN, level: 'info', text: '价格上穿 67800 格线，开空 0.3 @ 67800' }, { at: minsAgo(15), level: 'info', text: '挂卖 0.05 @ 68200' }, { at: minsAgo(8), level: 'warn', text: '资金费率 0.061% 偏高，空单在收费率' }] },
+  { id: 'rn3', strategy_id: 'st_rsi', account_id: 'ac_paper', symbols: ['NASDAQ:NVDA', 'NASDAQ:AAPL'], params: { rsi: 14, low: 30, high: 65 }, capital: 30000, status: 'paused', pnl: 1210, started_at: daysAgo(12),
     logs: [{ at: daysAgo(12), level: 'info', text: '模拟盘启动' }, { at: daysAgo(2), level: 'info', text: '手动暂停' }] },
   { id: 'rn4', strategy_id: 'st_macross', account_id: 'ac_paper', symbols: ['BINANCE:ETHUSDT'], params: { fast: 9, slow: 36 }, capital: 30000, status: 'stopped', pnl: -846.2, started_at: daysAgo(28), stopped_at: daysAgo(16), stop_reason: '模拟盘跑了 12 天回撤超过 5%，手动停掉换参数',
     logs: [{ at: daysAgo(28), level: 'info', text: '模拟盘启动：EMA9 / EMA36' }, { at: daysAgo(22), level: 'info', text: 'EMA9 上穿 EMA36，开多 4.2 ETH @ 3190' }, { at: daysAgo(18), level: 'warn', text: '回撤 5.2%，超过预设 5%' }, { at: daysAgo(16), level: 'info', text: '手动停止，平仓 4.2 ETH @ 3010' }] },
-  { id: 'rn5', strategy_id: 'st_grid', account_id: 'ac_okx', symbols: ['OKX:ETH-USDT-SWAP'], params: { lower: 3000, upper: 3800, grids: 16, qty: 0.1 }, capital: 15000, status: 'error', error: 'OKX API Key 已过期，下单被拒', pnl: 312.8, started_at: daysAgo(9),
-    logs: [{ at: daysAgo(9), level: 'info', text: '网格启动：3000 - 3800，16 格' }, { at: minsAgo(240), level: 'error', text: '下单失败：API Key 已过期（50113），运行已挂起' }] },
+  { id: 'rn5', strategy_id: 'st_grid', account_id: 'ac_paper', symbols: ['OKX:ETH-USDT-SWAP'], params: { lower: 3000, upper: 3800, grids: 16, qty: 0.1 }, capital: 15000, status: 'error', error: 'OKX 行情推送断开超过 5 分钟，网格已挂起', pnl: 312.8, started_at: daysAgo(9),
+    logs: [{ at: daysAgo(9), level: 'info', text: '模拟盘网格启动：3000 - 3800，16 格' }, { at: minsAgo(240), level: 'error', text: 'OKX 行情推送断开超过 5 分钟，运行已挂起' }] },
 ]
 
 export const seedRisk: RiskRules = { max_position_pct: 35, daily_loss_pct: 3, max_order_value: 50000, max_leverage: 10, confirm_above: 10000, halted: false }
+
+/* ---------- 实盘评审和对账（TRD-08） ---------- */
+
+/** 实盘评审清单：五项都由用户本人确认后，才能申请 trade:live、打开实盘开关 */
+export type LiveCheckKey = 'audit' | 'recon' | 'incident' | 'drill' | 'paper'
+export const LIVE_CHECKS: { key: LiveCheckKey; label: string; desc: string }[] = [
+  { key: 'audit', label: '审计日志', desc: '一笔委托从下单、报单、成交到撤单的每一步都能查到，风控拦截和熔断也记' },
+  { key: 'recon', label: '对账', desc: '实盘账户定时和交易所对余额、持仓、挂单，差异都处理完' },
+  { key: 'incident', label: '异常处理', desc: '账户异常、委托被拒、风控拦截、熔断、对账差异都记运行异常并通知' },
+  { key: 'drill', label: '全停演练', desc: '手动按一次一键全停，确认策略全停、挂单全撤、进入熔断，再解除' },
+  { key: 'paper', label: '模拟盘两周记录', desc: '至少一个部署在模拟盘连续跑满 14 天' },
+]
+
+export interface LiveReview {
+  /** 每项评审用户确认通过的时间；没确认的没有 */
+  confirmed: Partial<Record<LiveCheckKey, string>>
+  /** trade:live 权限授予的时间；没申请或已收回的没有 */
+  granted_at?: string
+  /** 实盘开关：开了实盘账户才能下单、部署 */
+  enabled: boolean
+  enabled_at?: string
+}
+export const seedLiveReview: LiveReview = { confirmed: { audit: daysAgo(3), incident: daysAgo(3) }, enabled: false }
+
+/** 对账的一处差异：本地记的和交易所返回的对不上 */
+export interface ReconItem {
+  id: string
+  kind: 'balance' | 'position' | 'order'
+  /** 给人看的对象：「ETH/USDT 持仓」「USDT 可用」 */
+  label: string
+  local: string
+  remote: string
+  /** 差异可能的原因 */
+  note?: string
+  /** 持仓差异：按交易所修正时把这个持仓的数量改成 remote_qty */
+  position_id?: string
+  remote_qty?: number
+  /** 已处理的时间和方式 */
+  resolved_at?: string
+  resolution?: string
+}
+/** 一个实盘账户最近一次对账；模拟盘本地撮合，不对账 */
+export interface Reconciliation {
+  account_id: string
+  at: string
+  status: 'ok' | 'diff' | 'failed'
+  /** 失败原因 */
+  error?: string
+  /** 这次对了多少项（余额、每个持仓、每笔挂单各算一项） */
+  checked: number
+  items: ReconItem[]
+}
+export const seedRecons: Reconciliation[] = [
+  { account_id: 'ac_bn', at: minsAgo(12), status: 'diff', checked: 3, items: [
+    { id: 'rc1', kind: 'position', label: 'ETH/USDT 持仓', local: '6.2', remote: '6.1938', note: '买入手续费按 ETH 扣了 0.0062，本地记的是委托数量', position_id: 'ps3', remote_qty: 6.1938 },
+  ] },
+  { account_id: 'ac_okx', at: minsAgo(240), status: 'failed', error: 'API Key 已过期，拉不到交易所数据', checked: 0, items: [] },
+  { account_id: 'ac_futu', at: minsAgo(15), status: 'ok', checked: 4, items: [] },
+  { account_id: 'ac_ht', at: minsAgo(30), status: 'ok', checked: 2, items: [] },
+]
 
 /** 持仓浮盈：按当前价现算 */
 export function positionPnl(p: Position, at = Date.now()) {

@@ -66,10 +66,10 @@ describe('共用样例', () => {
     .filter((k) => k.startsWith('valid/') || k.startsWith('invalid/'))
     .sort()
 
-  it('样例文件和 expected.json 一一对应，3 个合法、5 个非法', () => {
+  it('样例文件和 expected.json 一一对应，3 个合法、6 个非法', () => {
     expect(Object.keys(expected.cases).sort()).toEqual(files)
     expect(files.filter((f) => f.startsWith('valid/'))).toHaveLength(3)
-    expect(files.filter((f) => f.startsWith('invalid/'))).toHaveLength(5)
+    expect(files.filter((f) => f.startsWith('invalid/'))).toHaveLength(6)
     for (const f of files) expect(expected.cases[f].length === 0).toBe(f.startsWith('valid/'))
   })
 
