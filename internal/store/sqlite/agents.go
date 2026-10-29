@@ -381,7 +381,39 @@ func checkTriggers(in []domain.AgentTrigger) ([]domain.AgentTrigger, error) {
 		if utf8.RuneCountInString(t.Detail) > agentTriggerMax {
 			return nil, agentInvalid("触发条件最多 %d 字", agentTriggerMax)
 		}
+		m, err := checkTriggerMatch(t.Kind, t.Match)
+		if err != nil {
+			return nil, err
+		}
+		t.Match = m
 		out = append(out, t)
 	}
 	return out, nil
+}
+
+// checkTriggerMatch 按 kind 只留自己的字段（AG-01b4）；manual、schedule 没有条件，给了也丢掉。
+func checkTriggerMatch(kind string, m *domain.TriggerMatch) (*domain.TriggerMatch, error) {
+	if m == nil {
+		return nil, nil
+	}
+	switch kind {
+	case domain.TriggerTask:
+		tags := []string{}
+		for _, t := range m.Tags {
+			if t = strings.TrimSpace(t); t != "" && !slices.Contains(tags, t) {
+				tags = append(tags, t)
+			}
+		}
+		if len(tags) > agentListMax {
+			return nil, agentInvalid("任务触发的标签最多 %d 个", agentListMax)
+		}
+		if !m.Assigned && len(tags) == 0 {
+			return nil, agentInvalid("任务触发至少要选「分配给它」或者填标签")
+		}
+		return &domain.TriggerMatch{Assigned: m.Assigned, Tags: tags}, nil
+	case domain.TriggerIM:
+		return &domain.TriggerMatch{Tags: []string{}, ConnectorID: strings.TrimSpace(m.ConnectorID),
+			Channel: strings.TrimSpace(m.Channel), ConversationID: strings.TrimSpace(m.ConversationID), OnlyMe: m.OnlyMe}, nil
+	}
+	return nil, nil
 }

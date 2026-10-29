@@ -20,6 +20,7 @@ import (
 	"github.com/lizhao903/pm-workspace/internal/imident"
 	"github.com/lizhao903/pm-workspace/internal/localdir"
 	"github.com/lizhao903/pm-workspace/internal/notify"
+	"github.com/lizhao903/pm-workspace/internal/plugins/domains"
 	"github.com/lizhao903/pm-workspace/internal/plugins/im"
 	"github.com/lizhao903/pm-workspace/internal/plugins/projects"
 	"github.com/lizhao903/pm-workspace/internal/plugins/sop"
@@ -83,6 +84,9 @@ var contractSpecs = map[string]contractSpec{
 	// Agent 工具授权（AG-02a）：confirm 事件是 SSE 联合结构里的一种
 	"Agent 对话 agent#json2": {v: agent.StreamEvent{}, partial: true},
 	"AgentGrants":          {v: agentGrants{}},
+	// Agent 执行记录（AG-01b4）：字段表只列要说明的几个
+	"AgentRun":                     {v: store.AgentRun{}},
+	"Agent 执行记录 agent-runs#table1": {v: store.AgentRun{}, partial: true},
 
 	// 知识库（AG-01b3）
 	"KnowledgeBase":                {v: kbView{}},
@@ -134,14 +138,20 @@ var contractSpecs = map[string]contractSpec{
 	"IM 消息插件 im / 处理动作#json1": {skip: "错误附加字段来自 map，无结构"},
 	"IM 消息插件 im / 事件#json1":   {v: im.Received{}},
 
-	"SopFlow":      {v: sop.Flow{}},
-	"SopNodeType":  {v: sop.NodeType{}},
-	"SopRun":       {v: sop.Run{}},
-	"SopRunStep":   {v: sop.RunStep{}},
-	"SopRunBrief":  {v: sop.RunBrief{}},
-	"SopRunAction": {v: sop.Action{}},
+	"SopFlow":        {v: sop.Flow{}},
+	"SopNodeType":    {v: sop.NodeType{}},
+	"SopRun":         {v: sop.Run{}},
+	"SopRunStep":     {v: sop.RunStep{}},
+	"SopRunBrief":    {v: sop.RunBrief{}},
+	"SopRunAction":   {v: sop.Action{}},
+	"SopAssistReply": {v: sop.Reply{}},
 
 	"TerminalSession": {v: terminal.Session{}},
+
+	"DomainSettings": {v: domains.Settings{}},
+	"DomainRoute":    {v: domains.Route{}},
+	"DomainStatus":   {v: domains.Status{}},
+	"DomainConfig":   {v: domains.Config{}},
 }
 
 // docShape 是从文档里抽出来的一个对象：字段名和（如果有）字段的嵌套对象。

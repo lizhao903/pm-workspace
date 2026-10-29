@@ -22,7 +22,8 @@ func TestManifestValid(t *testing.T) {
 	if err != nil {
 		t.Fatalf("清单不合法：%v", err)
 	}
-	if m.ID != "sop" || m.TablePrefix != "sop_" || len(m.Permissions) != 0 {
+	// HTTP 节点要访问任意地址（SOP-01c），高风险，安装时单独勾选
+	if m.ID != "sop" || m.TablePrefix != "sop_" || !reflect.DeepEqual(m.Permissions, []string{"network:any"}) {
 		t.Fatalf("id=%s table_prefix=%s permissions=%v", m.ID, m.TablePrefix, m.Permissions)
 	}
 	if !reflect.DeepEqual(m.Provides.Modules, []string{"sop"}) {
@@ -61,7 +62,7 @@ func setup(t *testing.T, p *Plugin) (*plugin.Registry, http.Handler) {
 		t.Fatal(err)
 	}
 	t.Cleanup(r.Close)
-	if err := r.Install(ctx, "sop", nil); err != nil {
+	if err := r.Install(ctx, "sop", []string{"network:any"}); err != nil {
 		t.Fatal(err)
 	}
 	if err := r.Enable(ctx, "sop"); err != nil {

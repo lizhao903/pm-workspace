@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/lizhao903/pm-workspace/internal/plugin"
+	"github.com/lizhao903/pm-workspace/internal/plugins/domains"
 	"github.com/lizhao903/pm-workspace/internal/plugins/im"
 	"github.com/lizhao903/pm-workspace/internal/plugins/projects"
 	"github.com/lizhao903/pm-workspace/internal/plugins/sop"
@@ -39,6 +40,9 @@ func registeredRoutes(t *testing.T) []string {
 		t.Fatal(err)
 	}
 	if err := plugins.Add(terminal.New("")); err != nil {
+		t.Fatal(err)
+	}
+	if err := plugins.Add(domains.New(domains.Options{})); err != nil {
 		t.Fatal(err)
 	}
 	(&Server{opt: Options{Plugins: plugins}}).routes(rec)

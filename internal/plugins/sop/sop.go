@@ -32,6 +32,8 @@ type Plugin struct {
 	activeRuns func(ctx context.Context, id string) (int, error)
 	// stepHook 在每个节点执行前调，测试用它卡住执行
 	stepHook func(ctx context.Context, runID, step string) error
+	// complete 是 AI 协助调模型的入口（SOP-04a，assist.go），nil 时用默认服务商
+	complete completer
 }
 
 func New() *Plugin { return &Plugin{m: plugin.MustParse(manifestJSON)} }
@@ -58,6 +60,10 @@ func (p *Plugin) Register(r plugin.Registrar) error {
 	e := newEngine(c)
 	e.hook = p.stepHook
 	rn := &runs{c: c, e: e}
+	as := &assist{c: c, complete: p.complete}
+	if as.complete == nil {
+		as.complete = coreCompleter(c)
+	}
 	r.Routes(func(m plugin.RouteRegistrar) {
 		m.HandleFunc("GET /api/sop/flows", f.list)
 		m.HandleFunc("POST /api/sop/flows", f.add)
@@ -69,6 +75,7 @@ func (p *Plugin) Register(r plugin.Registrar) error {
 		m.HandleFunc("GET /api/sop/runs", rn.list)
 		m.HandleFunc("GET /api/sop/runs/{id}", rn.show)
 		m.HandleFunc("POST /api/sop/runs/{id}/actions", rn.act)
+		m.HandleFunc("POST /api/sop/assist", as.handle)
 	})
 	r.Job(plugin.Job{Name: "engine", Run: e.job})
 	r.TodayCard(plugin.TodayCardDef{Key: "sop_pending", Title: "SOP 待我处理", Order: 50, Load: pendingCard})

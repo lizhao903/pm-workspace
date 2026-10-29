@@ -160,6 +160,15 @@ export const dataKeys = {
     runList: ['sop', 'runs', 'list'] as const,
     run: (id: string) => ['sop', 'runs', 'get', id] as const,
   },
+  /** 知识库（AG-01b7）：列表、每个库的文档、还没收进来的篇目、检索结果、Agent 列表，增删改一起刷 */
+  knowledgeBases: {
+    all: ['knowledge-bases'] as const,
+    list: ['knowledge-bases', 'list'] as const,
+    docs: (id: string) => ['knowledge-bases', 'docs', id] as const,
+    missing: (id: string) => ['knowledge-bases', 'missing', id] as const,
+    search: (id: string, q: string) => ['knowledge-bases', 'search', id, q] as const,
+    agents: ['knowledge-bases', 'agents'] as const,
+  },
   /** 终端（TERM-01b）：会话列表；终端页认原型目录用的全部项目的原型，任一项目原型启停都刷 */
   terminal: {
     all: ['terminal'] as const,

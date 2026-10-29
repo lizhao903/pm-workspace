@@ -551,6 +551,19 @@ type AgentAvatar struct {
 type AgentTrigger struct {
 	Kind   string `json:"kind"`
 	Detail string `json:"detail"`
+	// Match 是结构化的条件（AG-01b4），只有 task、im 有；nil 按默认条件，见 TriggerMatch。
+	Match *TriggerMatch `json:"match,omitempty"`
+}
+
+// TriggerMatch 是触发条件。task：Assigned 是任务分配给这个 Agent（props.agent_id），Tags 是标签命中任一，
+// 两者任一满足即可；nil 时只看分配。im：ConnectorID、Channel、ConversationID 空串不限，OnlyMe 只看与我相关的消息。
+type TriggerMatch struct {
+	Assigned       bool     `json:"assigned"`
+	Tags           []string `json:"tags"`
+	ConnectorID    string   `json:"connector_id"`
+	Channel        string   `json:"channel"`
+	ConversationID string   `json:"conversation_id"`
+	OnlyMe         bool     `json:"only_me"`
 }
 
 const (

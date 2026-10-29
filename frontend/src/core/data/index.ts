@@ -135,6 +135,28 @@ export type {
   SopRunBrief, SopRunAction, SopStartInput,
 } from './sop'
 
+export { skillKeys } from './skillKeys'
+export { skillsApi, skillReadonly, useSkills, useCreateSkill, usePatchSkill, useDeleteSkill } from './skills'
+export type { Skill, SkillSource, SkillInput, SkillPatch } from './skills'
+export {
+  knowledgeBasesApi, useKnowledgeBases, useKbDocs, useKbDocsOf, useKbMissing, useKbSearch, useKbAgents, useCreateKb, usePatchKb,
+  useDeleteKb, useAddKbDocs, usePatchKbDoc, useRemoveKbDoc, useReindexKb, useSyncKb,
+} from './knowledgeBases'
+export type {
+  KnowledgeBase, KbDoc, KbDocSource, KbDocStatus, KbDir, KbEmbed, KbSettings, KbCounts, KbAddInput, KbSettingsInput, KbInput, KbPatch,
+  KbDocPatch, KbMissing, KbSyncResult, KbHit, KbSearchResult, KbAgent,
+} from './knowledgeBases'
+
+export { agentConfigKeys } from './agentConfigKeys'
+export {
+  AGENT_RUNS_LIMIT, agentsApi, useAgents, useAgent, useAgentImpact, useAgentGrants, useAgentRuns, useCreateAgent, usePatchAgent,
+  useDeleteAgent,
+} from './agents'
+export type {
+  Agent, AgentAvatar, AgentTrigger, AgentTriggerKind, AgentTriggerMatch, AgentInput, AgentPatch, AgentImpact, AgentImpactItem,
+  AgentGrants, AgentGrantMode, AgentRunBrief, AgentRunStatus,
+} from './agents'
+
 // 接口层的纯函数和类型照样给模块用：不发请求，不碰缓存
 export { localDay, focusParams, changedFields, isApiError, isStreamError, ApiError, StreamError } from '../api'
 export type { Focus, ApiErrorCode, ListResult } from '../api'

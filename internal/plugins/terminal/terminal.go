@@ -71,9 +71,10 @@ func (h *handlers) list(w http.ResponseWriter, _ *http.Request) {
 }
 
 type createIn struct {
-	Cwd  string `json:"cwd"`
-	Cols *int   `json:"cols"`
-	Rows *int   `json:"rows"`
+	Cwd       string `json:"cwd"`
+	ProjectID string `json:"project_id"`
+	Cols      *int   `json:"cols"`
+	Rows      *int   `json:"rows"`
 }
 
 func (h *handlers) create(w http.ResponseWriter, r *http.Request) {
@@ -81,6 +82,14 @@ func (h *handlers) create(w http.ResponseWriter, r *http.Request) {
 	if err := decode(r, &in); err != nil {
 		h.fail(w, r, err)
 		return
+	}
+	if strings.TrimSpace(in.Cwd) == "" && strings.TrimSpace(in.ProjectID) != "" {
+		root, err := h.projectRoot(r.Context(), strings.TrimSpace(in.ProjectID))
+		if err != nil {
+			h.fail(w, r, err)
+			return
+		}
+		in.Cwd = root
 	}
 	cwd, err := checkCwd(in.Cwd)
 	if err != nil {
@@ -112,6 +121,18 @@ func (h *handlers) remove(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"data": nil})
+}
+
+// projectRoot 取项目的 root（对象的 workdir）；项目没设时返回空串，按没给 cwd 处理。
+func (h *handlers) projectRoot(ctx context.Context, id string) (string, error) {
+	o, err := h.c.Objects().Get(ctx, id)
+	if errors.Is(err, plugin.ErrNoRows) || (err == nil && (o.Deleted || o.Type != "project")) {
+		return "", apiErr(errValidation, "项目 %s 不存在", id)
+	}
+	if err != nil {
+		return "", err
+	}
+	return o.Workdir, nil
 }
 
 // checkCwd：空串取用户主目录；否则必须是存在的绝对目录。

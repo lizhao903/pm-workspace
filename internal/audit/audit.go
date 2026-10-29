@@ -102,6 +102,13 @@ func ActorFrom(ctx context.Context) store.Actor {
 	return store.DefaultActor
 }
 
+type detailKey struct{}
+
+// WithDetail 给 ctx 里之后记的审计都补上这些 detail 字段，已有的键不覆盖；Agent 调试对话标 debug: true 用（AG-02c）。
+func WithDetail(ctx context.Context, extra map[string]any) context.Context {
+	return context.WithValue(ctx, detailKey{}, extra)
+}
+
 // --- 写 ---
 
 // Record 落一条审计。e.Actor、e.Source 为空时取 ctx 里的操作者。
@@ -122,6 +129,13 @@ func (l *Log) Record(ctx context.Context, e Entry) error {
 	}
 	if e.Detail == nil {
 		e.Detail = map[string]any{}
+	}
+	if extra, ok := ctx.Value(detailKey{}).(map[string]any); ok {
+		for k, v := range extra {
+			if _, has := e.Detail[k]; !has {
+				e.Detail[k] = v
+			}
+		}
 	}
 	raw, err := json.Marshal(e.Detail)
 	if err != nil {

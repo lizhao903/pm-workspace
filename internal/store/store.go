@@ -189,6 +189,9 @@ type Store interface {
 	// Agent 工具授权和要人确认的调用（AG-02a，0035），见 toolgrants.go。
 	ToolGrantStore
 
+	// Agent 执行记录（AG-01b4，0036），见 agentruns.go。
+	AgentRunStore
+
 	// ListAgentMessages 返回**最近** limit 条消息，但按时间正序（最旧在前）排列，
 	// 这样前端拿到就能直接从上往下渲染。limit <= 0 表示全部。
 	// 取最早 N 条是错的：对话框要的是「最近说了什么」，而不是「这个会话最开始说了什么」。
