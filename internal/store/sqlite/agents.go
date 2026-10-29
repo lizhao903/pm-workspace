@@ -2,6 +2,7 @@ package sqlite
 
 import (
 	"context"
+	"database/sql"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -133,9 +134,15 @@ func (s *Store) CreateAgent(ctx context.Context, in domain.AgentInput) (*domain.
 	if err != nil {
 		return nil, err
 	}
-	if _, err := s.db.W.ExecContext(ctx, `INSERT INTO agents (`+agentCols+`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-		append(append([]any{a.ID}, args...), now, now)...); err != nil {
-		return nil, fmt.Errorf("insert agent: %w", err)
+	// 工具授权按原型 newAgent 的默认值，和 Agent 同一个事务（AG-02a）
+	if err := s.withTx(ctx, func(tx *sql.Tx) error {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO agents (`+agentCols+`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+			append(append([]any{a.ID}, args...), now, now)...); err != nil {
+			return fmt.Errorf("insert agent: %w", err)
+		}
+		return replaceGrants(ctx, tx, a.ID, newAgentGrants)
+	}); err != nil {
+		return nil, err
 	}
 	return s.GetAgent(ctx, a.ID)
 }
@@ -179,6 +186,10 @@ func (s *Store) DeleteAgent(ctx context.Context, id string) (*domain.Agent, erro
 	}
 	if n, _ := res.RowsAffected(); n == 0 {
 		return nil, notFound("agent")
+	}
+	// 授权跟着 Agent 走；要人确认的调用留着，会话回放要用
+	if _, err := s.db.W.ExecContext(ctx, `DELETE FROM agent_tool_grants WHERE agent_id = ?`, id); err != nil {
+		return nil, fmt.Errorf("delete agent grants: %w", err)
 	}
 	return a, nil
 }

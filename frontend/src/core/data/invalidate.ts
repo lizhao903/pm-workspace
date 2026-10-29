@@ -57,6 +57,12 @@ export type Change =
   | { kind: 'project-conversation'; projectId: string }
   /** 项目原型加、改、移除、启动、停止（PJ-04b） */
   | { kind: 'project-prototype'; projectId: string }
+  /** SOP 流程删除（SOP-04b）；新建、编辑归 SOP-04c */
+  | { kind: 'sop-flow'; id?: string }
+  /** SOP 执行发起、动作、事件流报的状态变化（SOP-04b） */
+  | { kind: 'sop-run'; id?: string }
+  /** 终端会话新建、结束（TERM-01b） */
+  | { kind: 'terminal-session' }
 
 // 对象一变，所有对象列表（任务列表、今日、项目的任务标签页）、单个对象及其进展和修订、
 // 计数（侧栏红点、逾期徽标）都可能变；干系人名册上的任务数也跟着变；今日聚合（待验收、逾期、今天到期、插件卡片）也是。
@@ -140,9 +146,16 @@ export function invalidationsFor(c: Change): QueryKey[] {
     case 'project-conversation':
       // 绑定列表变了，绑了哪些会话的消息由组件按新列表去取
       return [dataKeys.projectConversations(c.projectId), dataKeys.projectSummary]
+    case 'sop-flow':
+      return [dataKeys.sop.flows]
+    case 'sop-run':
+      // 列表（流程库统计、菜单「最近用过」同一份）和单次执行；今日的「SOP 待我处理」卡片也跟着变
+      return [dataKeys.sop.runs, todayKeys.all]
     case 'project-prototype':
       // 列表和打开着的日志（启动时后端先记两行、停止时记一行）
-      return [dataKeys.projectPrototypes.of(c.projectId), dataKeys.projectSummary]
+      return [dataKeys.projectPrototypes.of(c.projectId), dataKeys.projectSummary, dataKeys.terminal.prototypes]
+    case 'terminal-session':
+      return [dataKeys.terminal.sessions]
   }
 }
 

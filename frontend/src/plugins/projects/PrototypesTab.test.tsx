@@ -149,6 +149,23 @@ describe('原型标签', () => {
     expect(calls.find((c) => c.method === 'PATCH')!.body).toEqual({ dir: `${ROOT}/site`, port: 8200 })
   })
 
+  it('停着且没有日志时「看日志」置灰；有日志就能点', async () => {
+    fakeBackend([pt({})])
+    mount()
+    const card = await screen.findByRole('group', { name: '看板' })
+    await waitFor(() => expect(within(card).getByRole('button', { name: '看日志' })).toBeDisabled())
+  })
+
+  it('停着但有上次的日志时「看日志」能点', async () => {
+    const calls = fakeBackend([pt({})], { logs: ['上次的输出'] })
+    mount()
+    const card = await screen.findByRole('group', { name: '看板' })
+    await waitFor(() => expect(calls.some((c) => c.path.endsWith('/logs'))).toBe(true))
+    expect(within(card).getByRole('button', { name: '看日志' })).toBeEnabled()
+    await userEvent.click(within(card).getByRole('button', { name: '看日志' }))
+    expect(await within(card).findByLabelText('日志')).toHaveTextContent('上次的输出')
+  })
+
   it('已停止多于 6 个时折叠成一行', async () => {
     fakeBackend(Array.from({ length: 7 }, (_, i) => pt({ id: `pt_${i}`, name: `原型${i}`, port: 8100 + i })))
     mount()

@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"sort"
@@ -140,6 +141,12 @@ func (s *Server) handleDeleteConnector(w http.ResponseWriter, r *http.Request) {
 	detail := map[string]any{"tool": c.Tool, "name": c.Name}
 	if c.SecretID != "" {
 		detail["secrets"] = audit.SecretCleared
+	}
+	// 挂着它的 Agent 卸下，conn:<id>:* 授权清掉（AG-02a）；实例已经删了，失败只记日志
+	if ids, err := s.st.DetachConnector(context.WithoutCancel(r.Context()), c.ID); err != nil {
+		s.log.Error("connector deleted but agents were not detached", "connector", c.ID, "err", err)
+	} else if len(ids) > 0 {
+		detail["agents"] = ids
 	}
 	s.auditConfig(r, "delete", "connector", c.ID, "删除连接器「"+c.Name+"」", detail)
 	respondData(w, http.StatusOK, c)

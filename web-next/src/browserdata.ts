@@ -108,7 +108,7 @@ export function parseDrive(url: string): DriveRoute {
   return { view: 'my' }
 }
 
-function hostOf(url: string): string {
+export function hostOf(url: string): string {
   try { return new URL(url).hostname } catch { return '' }
 }
 

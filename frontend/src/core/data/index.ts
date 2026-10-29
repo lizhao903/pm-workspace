@@ -9,6 +9,8 @@ export type { ServerEvent, EventStreamStatus } from './events'
 export { errorText, retryable } from './errors'
 export { QueryState } from './QueryState'
 export { useHealth, useObjectTypes, useDictionaries, useDictItems, useStakeholders, useCounts } from './meta'
+export { dictItemsApi, useDictItemsAll, saveDictItems, useSaveDictItems } from './dictionaries'
+export type { DictSavePlan } from './dictionaries'
 export {
   listAllObjects, useObjects, useAllObjects, useObject, useCreateObject, usePatchObject, useSetStatus, useDeleteObject,
   saveObject, mergeProps, PROP_ACCEPTANCE, PROP_REPO,
@@ -120,6 +122,18 @@ export {
 export type {
   ImAttachmentFile, ImAttachmentStorage, AttachmentRef, AddAttachmentInput, AddAttachmentResult, AttachmentProject, AttachmentTargets,
 } from './attachments'
+export {
+  TERMINAL_MAX_SESSIONS, TERMINAL_PROTO_IDLE_MS, terminalApi, terminalSocketUrl, useTerminalSessions, useTerminalPrototypes,
+  useTerminalProtoAction,
+} from './terminal'
+export type { TerminalSession, TerminalSessionInput, TerminalPrototype } from './terminal'
+export {
+  SOP_RUNS_MAX, sopApi, useSopFlows, useSopNodeTypes, useSopRuns, useSopRun, useStartSopRun, useSopRunAction, useDeleteSopFlow,
+} from './sop'
+export type {
+  SopJson, SopField, SopFieldOption, SopCase, SopStepDef, SopFlow, SopNodeType, SopStepStatus, SopRunStatus, SopRunStep, SopRun,
+  SopRunBrief, SopRunAction, SopStartInput,
+} from './sop'
 
 // 接口层的纯函数和类型照样给模块用：不发请求，不碰缓存
 export { localDay, focusParams, changedFields, isApiError, isStreamError, ApiError, StreamError } from '../api'

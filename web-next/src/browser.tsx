@@ -1,11 +1,10 @@
-import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent, type MouseEvent as ReactMouseEvent } from 'react'
+import { createContext, memo, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent, type MouseEvent as ReactMouseEvent } from 'react'
 import './browser.css'
 import {
   DRIVE_HOME, DRIVE_RECENT, DRIVE_SHARED, GOOGLE_SCOPES, HOME_URL,
-  avatarColorFor, classify, displayUrl, driveUrl, normalize, parseDrive, portOf, sameUrl, seedDriveFiles,
+  avatarColorFor, classify, displayUrl, driveUrl, hostOf, normalize, parseDrive, portOf, sameUrl, seedDriveFiles,
   type BrowserTab, type DriveFile, type DriveMime, type DriveRoute, type GoogleAccount, type TabKind,
 } from './browserdata'
-import { PageTitle } from './topbar'
 import { cls, timeAgo } from './ui'
 import { newId } from './ids'
 
@@ -21,6 +20,17 @@ const isFrame = (k: TabKind) => k === 'web' || k === 'proto'
 const protoUrl = (p: ProtoEntry) => `http://127.0.0.1:${p.port}`
 const openExternal = (url: string) => { if (classify(url) !== 'home') window.open(url, '_blank', 'noopener') }
 const KIND_LABEL: Record<TabKind, string> = { home: '新标签页', proto: '原型', drive: 'Google Drive', web: '网页' }
+
+/** 能嵌进来的地址：本机地址（原型标签）、内网域名后缀、用户加的主机；别的网页直接给卡片，不挂 iframe */
+export interface FrameAllow { suffix: string | null; hosts: string[]; onAdd: (host: string) => void }
+export const FrameAllowContext = createContext<FrameAllow>({ suffix: null, hosts: [], onAdd: () => {} })
+const FRAME_TIMEOUT = 8000
+function frameAllowed(url: string, allow: FrameAllow) {
+  if (classify(url) !== 'web') return true
+  const h = hostOf(url)
+  if (allow.suffix && (h === allow.suffix || h.endsWith(`.${allow.suffix}`))) return true
+  return allow.hosts.includes(h)
+}
 const STATUS_LABEL: Record<ProtoEntry['status'], string> = { running: '运行中', stopped: '未运行', starting: '启动中', stopping: '停止中', error: '启动失败' }
 
 function protoFor(url: string, protos: ProtoEntry[]) {
@@ -88,8 +98,9 @@ export const BrowserPage = memo(function BrowserPage({ openRequest, prototypes, 
   const [loginOpen, setLoginOpen] = useState(false)
   const [ctx, setCtx] = useState<{ id: string; x: number; y: number } | null>(null)
   const tab = tabs.find((t) => t.id === active) ?? tabs[0]
-  /** 原型没在运行：iframe 不挂，也就不该转圈 */
-  const idleProto = (t: BrowserTab) => { const p = protoFor(t.url, prototypes); return !!p && p.status !== 'running' }
+  const allow = useContext(FrameAllowContext)
+  /** 原型没在运行、网页不在白名单：iframe 不挂，也就不该转圈 */
+  const idleProto = (t: BrowserTab) => { const p = protoFor(t.url, prototypes); return (!!p && p.status !== 'running') || !frameAllowed(t.url, allow) }
 
   const patch = (id: string, f: (t: BrowserTab) => BrowserTab) => setTabs((ts) => ts.map((t) => (t.id === id ? f(t) : t)))
   const remember = (url: string, title: string) => {
@@ -206,10 +217,6 @@ export const BrowserPage = memo(function BrowserPage({ openRequest, prototypes, 
 
   return (
     <div className={cls('br-page', embedded && 'br-embedded')}>
-      {!embedded && <PageTitle desc={tab.title} actions={
-        <button className="btn btn-outline" disabled={tab.kind === 'home'} onClick={() => openExternal(tab.url)}>在系统浏览器打开</button>
-      }>浏览器</PageTitle>}
-
       <div className="br-tabbar">
       <div className="br-tabs" role="tablist" ref={stripRef}>
         {tabs.map((t) => (
@@ -255,6 +262,7 @@ export const BrowserPage = memo(function BrowserPage({ openRequest, prototypes, 
             )}
             {isFrame(t.kind) && (
               <FrameView tab={t} reloadKey={reloads[t.id] ?? 0} proto={protoFor(t.url, prototypes)} starting={!!pending[t.id]}
+                allowed={frameAllowed(t.url, allow)} onAllow={() => { allow.onAdd(hostOf(t.url)); patch(t.id, (x) => ({ ...x, loading: true })) }}
                 onLoaded={() => patch(t.id, (x) => ({ ...x, loading: false }))}
                 onStart={(p) => { if (p.status === 'stopped' || p.status === 'error') onStartProto(p.id) }} />
             )}
@@ -342,6 +350,9 @@ function Toolbar({ tab, google, onBack, onForward, onReload, onSubmit, onLogin, 
           onBlur={() => setEditing(false)}
           onKeyDown={(e) => { if (e.key === 'Escape') { setAddr(displayUrl(tab.url)); inputRef.current?.blur() } }} />
       </form>
+      <button className="icon-btn" disabled={tab.kind === 'home'} onClick={() => openExternal(tab.url)} title="在系统浏览器打开" aria-label="在系统浏览器打开">
+        <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M9 2.5h4.5V7M13.5 2.5 7.5 8.5M11.5 9.5v3a1 1 0 0 1-1 1h-7a1 1 0 0 1-1-1v-7a1 1 0 0 1 1-1h3" /></svg>
+      </button>
       <AccountButton google={google} onLogin={onLogin} onLogout={onLogout} />
     </div>
   )
@@ -608,14 +619,41 @@ function HomeView({ prototypes, pendingProto, google, recent, open, onToggle, on
 
 /* ---------- 原型 / 网页 ---------- */
 
-function FrameView({ tab, reloadKey, proto, starting, onLoaded, onStart }: {
+function FrameView({ tab, reloadKey, proto, starting, allowed, onAllow, onLoaded, onStart }: {
   tab: BrowserTab
   reloadKey: number
   proto?: ProtoEntry
   starting: boolean
+  /** 在白名单里才挂 iframe */
+  allowed: boolean
+  onAllow: () => void
   onLoaded: () => void
   onStart: (p: ProtoEntry) => void
 }) {
+  // 白名单内的 iframe 8 秒没 load 就给卡片；「继续等」再等 8 秒
+  const [slow, setSlow] = useState(false)
+  const [waits, setWaits] = useState(0)
+  const framed = allowed && !(tab.kind === 'proto' && proto && proto.status !== 'running')
+  useEffect(() => {
+    setSlow(false)
+    if (!framed || !tab.loading) return
+    const t = window.setTimeout(() => setSlow(true), FRAME_TIMEOUT)
+    return () => window.clearTimeout(t)
+  }, [framed, tab.loading, tab.url, reloadKey, waits])
+  const blockedCard = (timeout: boolean) => (
+    <div className="br-center">
+      <div className="br-notice">
+        <div className="br-notice-title">这个站点不能在这里打开</div>
+        <div className="muted">{timeout ? `${hostOf(tab.url)} 8 秒还没加载完，可能不允许嵌入显示` : `${hostOf(tab.url)} 不在白名单里，多数网站不允许嵌入显示`}</div>
+        <div className="br-notice-acts">
+          <button className="btn btn-primary" onClick={() => openExternal(tab.url)}>在系统浏览器打开</button>
+          {timeout ? <button className="btn btn-outline" onClick={() => setWaits((n) => n + 1)}>继续等</button>
+            : <button className="btn btn-outline" onClick={onAllow}>加进白名单再试</button>}
+        </div>
+      </div>
+    </div>
+  )
+  if (!allowed) return blockedCard(false)
   if (tab.kind === 'proto' && proto && proto.status !== 'running') {
     const busy = starting || proto.status === 'starting' || proto.status === 'stopping'
     return (
@@ -635,12 +673,7 @@ function FrameView({ tab, reloadKey, proto, starting, onLoaded, onStart }: {
   return (
     <div className="br-frame-wrap">
       {tab.loading && <div className="br-progress" />}
-      {tab.kind === 'web' && (
-        <div className="br-hint">
-          <span className="ellipsis">部分网站不允许嵌入显示，可以用系统浏览器打开</span>
-          <button className="act act-quiet" onClick={() => openExternal(tab.url)}>在系统浏览器打开</button>
-        </div>
-      )}
+      {slow && <div className="br-frame-over">{blockedCard(true)}</div>}
       <iframe key={reloadKey} className="br-frame" src={tab.url} title={tab.title} onLoad={onLoaded}
         sandbox="allow-scripts allow-same-origin allow-forms allow-popups" />
     </div>
@@ -1007,6 +1040,11 @@ function LoginModal({ onClose, onDone }: { onClose: () => void; onDone: (acc: Go
                 <button type="submit" className="btn btn-primary">下一步</button>
               </div>
             </form>
+          )}
+          {!custom && (
+            <div className="br-modal-foot">
+              <button className="btn btn-ghost" onClick={onClose}>取消</button>
+            </div>
           )}
           <div className="faint br-modal-note">这是原型里的模拟登录，不会把账号信息发给 Google。</div>
         </>}

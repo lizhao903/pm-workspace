@@ -8,6 +8,8 @@ import { Button, EmptyState, ErrorState, LoadingState, SearchSelect } from '../.
 import { ago } from './model'
 
 const DOC = 'doc'
+/** 来源列：现在只关联工作台文档；项目目录里的文件等「项目资料与文档合并」（P-2）再加，到时显示路径 */
+const LIBRARY = '文档库'
 
 export function DocsTab({ projectId, adding, onAdding }: {
   projectId: string
@@ -66,7 +68,7 @@ export function DocsTab({ projectId, adding, onAdding }: {
     body = (
       <div className="pj-table" role="table" aria-label="项目文档">
         <div className="pj-doc pj-th" role="row">
-          <span role="columnheader">文档</span><span role="columnheader">类型</span><span role="columnheader">状态</span>
+          <span role="columnheader">文档</span><span role="columnheader">类型</span><span role="columnheader">来源</span><span role="columnheader">状态</span>
           <span role="columnheader">更新</span><span role="columnheader" aria-label="操作" />
         </div>
         {rows.map((d) => {
@@ -77,8 +79,9 @@ export function DocsTab({ projectId, adding, onAdding }: {
                 <button type="button" className="pj-link pj-doc-title" title="在「文档」里打开" onClick={() => navigate(`/docs?doc=${encodeURIComponent(d.id)}`)}>{d.title || '未命名'}</button>
               </span>
               <span role="cell"><span className="tag">{d.category_name || '未分类'}</span></span>
+              <span role="cell" className="pj-doc-src ellipsis">{LIBRARY}</span>
               <span role="cell">
-                <select className="pj-doc-status" aria-label={`${d.title} 的状态`} value={d.status}
+                <select className="pj-chip-select pj-doc-status" aria-label={`${d.title} 的状态`} value={d.status}
                   style={{ '--c': st?.color || 'var(--faint)' } as CSSProperties} onChange={(e) => changeStatus(d, e.target.value)}>
                   {!st && <option value={d.status}>{d.status}</option>}
                   {statuses.map((s) => <option key={s.key} value={s.key}>{s.label}</option>)}

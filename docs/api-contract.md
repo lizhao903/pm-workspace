@@ -195,6 +195,9 @@
 | sop | SOP 流程（SOP 插件） | sop_flows |
 | spr | SOP 运行（SOP 插件；`sop_run_steps` 跟着运行 id，不另发前缀） | sop_runs |
 | sk | 自定义技能（内置和插件技能的 id 也是 `sk_` 开头，不入库） | skills |
+| kb | 知识库 | knowledge_bases |
+| kd | 知识库来源（切块 `kb_chunks` 用整数 id） | kb_docs |
+| atc | 要人确认的 Agent 工具调用 | agent_tool_calls |
 | pn | 终端会话（终端插件，128 位随机串，不走 `idgen.Prefixed`，不入库） | - |
 
 原型 `ids.ts` 和后端不一致的前缀：后端已经上线的不改，原型的前缀保留，不分给别的实体。
@@ -516,6 +519,14 @@ chat 带了不同的 `object_id` 也不会让已有会话搬家——搬走会�
 模型仍然通过 `get_object` 工具去取正文，指代和取数是两件事。
 
 发出 `question` 后**本轮就结束**（后面跟 `done`），流不会挂在那里等。
+
+挂了 Agent 的会话还有一种 **`confirm`**（AG-02a）：模型要调的工具实际档位是「需确认」，不执行，先记一条待确认的调用，
+发出这条事件后本轮结束（后面跟 `done`），同 `question`。`id` 是待确认调用的 id，`args` 是参数 JSON 原文，`summary` 是给人看的一句话。
+用户点确认、拒绝走 `POST /api/agent/tool-calls/{id}/confirm` / `reject`，见「Agent 工具授权」。
+
+```json
+{"type":"confirm","id":"atc_...","name":"create_object","args":"{\"type_id\":\"task\",\"title\":\"开通试点账号\"}","summary":"新建「开通试点账号」"}
+```
 用户的回答走下一条普通 `POST /api/agent/chat` 消息，没有单独的应答接口——
 这样即使前端没渲染成按钮，问题也仍然是一段看得懂的文字，回答仍然是一句普通的话。
 
@@ -558,10 +569,44 @@ AG-01b1。表 `agents`（0032），id 前缀 `ag`，字段对齐原型 `web-next
 |---|---|---|---|
 | `blocks` | `schedules` | 有定时任务的 `action.kind` 为 `agent` 且 `action.agent_id` 是它 | `定时任务「周报」交给它执行，先改掉或删掉这些定时任务` |
 | `items` | `sessions` | 有会话挂在它上面（`effect` 为 `keep`） | `2 个会话和它们的产出保留，显示为已删除的 Agent` |
+| `blocks` | `pending_calls` | 会话里还有它等确认的调用（AG-02a） | `还有 1 处操作等你确认（会话里），先处理完` |
 
-- 原型里另外两项后端还没有数据：「还有 N 处操作等你确认」（执行记录和会话里的待确认调用，AG-01b4、AG-02a）拦删除，「会从项目 X 里摘掉」（项目挂 Agent）是影响，等对应任务补。
+- 原型里还有两项后端没有数据：执行记录里的待确认调用（AG-01b4）拦删除，「会从项目 X 里摘掉」（项目挂 Agent）是影响，等对应任务补。删 Agent 时它的工具授权一起删，待确认调用的记录留着。
 - 影响检查不记审计。服务没接定时任务时不查 `schedules`。
 - 审计按 `config` 记，`target_type` 为 `agent`，`action` 为 `create` / `update` / `delete`：新建、删除记 `detail.name`、`provider_id`、`model`（新建另记 `enabled`），修改只记 `detail.fields`（改了启停时另记新的 `detail.enabled`）。被拦下的删除不记。
+
+## Agent 工具授权 agent-grants
+
+AG-02a。表 `agent_tool_grants`（0035）存每个 Agent 自己的授权，`agent_tool_calls`（0035，id 前缀 `atc`）存要人确认的调用。连接器实例上的工具授权（「连接器」一节的 `tools[].mode`）是全局上限。
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| GET | `/api/agents/{id}/grants` | `AgentGrants`；Agent 不存在 404 |
+| PUT | `/api/agents/{id}/grants` | body `{grants: {<key>: "off" \| "confirm" \| "auto"}}`，**整组换掉**，没给的 key 就是关闭；回 `AgentGrants` |
+| POST | `/api/agent/tool-calls/{id}/confirm` | 确认一次待确认的调用，**SSE**：先执行，发 `tool_call`、`tool_result`，再让模型接着跑这一轮，事件同 `/api/agent/chat` |
+| POST | `/api/agent/tool-calls/{id}/reject` | 拒绝，**SSE**：不执行，把「用户拒绝了」作为工具结果交回模型接着跑，先发一条 `tool_result`（`summary` 为「用户拒绝了：…，没有执行」） |
+
+`AgentGrants`：`{agent_id, grants, effective}`。`grants` 是 Agent 自己的授权，含全部内置能力（没开的为 `off`）和存着的连接器工具；`effective` 是实际档位，key 是 `grants` 的加上挂着的连接器的全部工具。
+
+- **key**：内置能力是原型 `ABILITIES` 的 key（`read_messages`、`reply_message`、`read_contacts`、`write_contacts`、`read_tasks`、`write_tasks`、`read_content`、`write_content`、`run_sop`）；连接器工具是 `conn:<连接器 id>:<工具名>`，连接器必须存在、工具必须在它的清单里（不要求已挂载，先配授权再挂也行）。别的 key、别的档位回 400。只读的（内置能力 `write: false`、连接器工具 `write: false`）设 `confirm` 回 400。
+- **实际档位** = min(Agent 授权, 连接器上限)，顺序 关闭 < 需确认 < 自动；只读工具没有「需确认」，算出来是需确认的按自动。连接器工具只算挂着的（`mcps` 里有）、没暂停没断开、定义还在的实例，其余都是关闭。例：连接器上限是需确认、Agent 设成自动，按需确认处理。
+- **新建 Agent** 按原型 `newAgent` 只开 `read_tasks`、`read_contacts`（自动）；0035 之前建的 Agent 迁移时同样补上这两项。没挂 Agent 的会话（`agent_id` 为 null）不受授权约束，行为不变。
+- **内置工具归哪项能力**：
+
+| 内置工具 | 能力 |
+|---|---|
+| `search_objects`、`get_object` | `read_tasks` |
+| `create_object`、`update_object` | `write_tasks` |
+| `write_file` | `write_content` |
+| `kb_search` | `read_content` |
+| `ask_user`、`list_types` | 不需要授权（反问用户；只列类型和状态 key） |
+
+  `read_messages`、`reply_message`、`read_contacts`、`write_contacts`、`run_sop` 现在没有对应的内置工具，授权先存着。
+- **执行时**：给模型的工具列表只有实际档位不是关闭的。连接器工具给模型的名字是 `<连接器定义 tool>__<工具名>`（非字母数字的字符换成 `_`，最长 64）。模型硬调关闭的工具不执行，工具结果是「错误：没有授权……」，`tool_result` 的 `summary` 为「<工具> 没有授权，没有执行」。需确认的发 `confirm` 事件后本轮结束，见「Agent 对话」。
+- **连接器工具真正调用**：经连接器定义上可选的 `Call` 调对方，参数是模型给的 JSON 原文，对方错误里的凭证原文换成 `***`，单次 15 秒超时。定义没实现 `Call` 时工具结果是「这个连接器的工具还不能调用」。现在只有假连接器 `fake` 实现了：`list_items` 回两条固定条目，`get_item` / `create_item` / `delete_item` 回 `{tool, ok, args}`，`token` 含 `invalid` 时失败。
+- **确认、拒绝**：只有 `pending` 的能处理，已经处理过回 409（两个页面同时点，只有一个执行）。会话删了、Agent 删了或停用回 409；确认时按当前授权再查一次，已经关闭的回 409「…已经没有授权了」，调用保持 `pending`，可以拒绝掉。这些都在开流之前。执行结果（或拒绝说明）记进 `agent_tool_calls.result`。执行记录里的调用（`run_id`，AG-01b4）现在还没有，处理它回 409。
+- **删除连接器**时，挂着它的 Agent 从 `mcps` 里摘掉、`conn:<id>:*` 授权清掉（同一个事务），影响检查里是 `agent_mounts` 一项，见「连接器」一节。
+- 审计：PUT 按 `config` 记，`target_type` 为 `agent`，`action` 为 `set_tool_grants`，`detail.changed` 是改了的 `{<key>: 新档位}`（改成关闭记 `off`），没有改动不记。确认、拒绝按 `agent` 记，`target_type` 为 `agent_tool_call`，`action` 为 `confirm` / `reject`，`detail` 为 `{agent_id, session_id, tool, grant_key}`。
 
 ## 技能 skills
 
@@ -586,6 +631,51 @@ AG-01b2。字段对齐原型 `web-next/src/agentdata.ts` 的 `Skill`（`SPEC-set
 - **对话注入**：会话挂了 Agent 时，`POST /api/agent/chat` 按 Agent `skills` 的顺序把每个技能拼成一段「技能：<名称>」（说明、什么时候用、用到的工具、怎么做），放在 Agent 指令后面。取不到的技能（插件停用、技能已删）跳过，不报错。
 - 插件技能的 id 必须在清单 `provides.skills` 里、以 `sk_` 开头，不能和内置技能重复（登记时检查，不对插件起不来）；两个插件登记同一个 id 时列表里只留先登记的那个。
 - 审计按 `config` 记，`target_type` 为 `skill`，`action` 为 `create` / `update` / `delete`：新建记 `detail.name`（复制时另记 `copy_from`），修改只记 `detail.fields`，删除记 `detail.name` 和 `detached_agents`（被摘掉它的 Agent id）。被拦下的改、删不记。
+
+## 知识库 knowledge-bases
+
+AG-01b3。字段对齐原型 `web-next/src/agentdata.ts` 的 `KnowledgeBase` 和 `web-next/src/kbdata.ts` 的 `KbDoc`、`KbSettings`（`SPEC-settings-10` 到 `14`）。表 `knowledge_bases`（id 前缀 `kb`）、`kb_docs`（id 前缀 `kd`）、`kb_chunks`（0034）。检索只做关键词，打分口径和原型 `searchKb` 一致；嵌入模型的设置照存，**不做向量检索**。全量导出暂不含这几张表。
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| GET | `/api/knowledge-bases` | `KnowledgeBase[]` + `meta.total`，不分页，新建的在前 |
+| POST | `/api/knowledge-bases` | `{name, desc?, sources?, settings?}`，回 201 + `KnowledgeBase`；选了的分类、挂了的目录里的文档当场收进来并索引 |
+| GET | `/api/knowledge-bases/{id}` | 一个 `KnowledgeBase` |
+| PATCH | `/api/knowledge-bases/{id}` | 只传要改的字段，`settings` 里也只传要改的；`settings.dirs` 整组替换：移除的目录连同从它收进来的文件一起移出，新挂的当场同步；`sources` 加了分类时把新分类里的文档收进来。改切分设置不自动重新索引（`SPEC-settings-13.11`） |
+| DELETE | `/api/knowledge-bases/{id}` | 连同文档、切块、上传的原文件一起删，从挂着它的 Agent 的 `kbs` 里摘掉；回删掉的那条，`agents` 是被摘掉它的 Agent |
+| GET | `/api/knowledge-bases/{id}/docs` | `KbDoc[]` + `meta.total`，新加的在前，带正文 |
+| POST | `/api/knowledge-bases/{id}/docs` | 加一篇（见下），当场索引，回 201 + `KbDoc[]` |
+| PATCH | `/api/knowledge-bases/{id}/docs/{doc_id}` | `{excluded?, title?, text?}`：排除或恢复；`title`、`text` 只有笔记和网页链接能改，改了当场重新索引，其他来源回 400 |
+| DELETE | `/api/knowledge-bases/{id}/docs/{doc_id}` | 从库里移除这篇，原文档、目录里的文件不动，上传的原文件一起删；回删掉的那篇 |
+| GET | `/api/knowledge-bases/{id}/missing` | 来源分类里还没收进来的工作台文档 `{id, ref, title, category_id}[]`（`SPEC-settings-11.5` 的提示） |
+| POST | `/api/knowledge-bases/{id}/reindex` | `{doc_ids?}` 重新索引，不给是全部；工作台文档、目录文件重新取正文，按当前切分设置切；回索引后的 `KbDoc[]` |
+| POST | `/api/knowledge-bases/{id}/sync` | `{path?}` 同步来源，回 `{result, knowledge_base}`；`path` 给了只同步这个目录（不在设置里回 404），不给是文档分类加全部目录 |
+| POST | `/api/knowledge-bases/{id}/search` | `{q, top?}` 关键词检索，回 `{terms, hits, scope}`；`q` 为空回 400，`top` 默认取设置里的 `top`，1 到 20 |
+
+`KnowledgeBase`：`{id, name, desc, sources, settings, counts, agents, created_at, updated_at}`。
+- `sources` 是文档分类 id（`categories` 里 `type_id` 为 `doc` 的，原型用的是 `content_category` 枚举的 key），不存在或不是文档分类回 400。
+- `settings`：`{auto_sync, dirs, chunk_size, overlap, top, embed}`。`chunk_size` 只能是 200、300、500、800、1200，`overlap` 只能是 0、30、50、100 且不超过段长一半，`top` 是检索返回几段（1 到 20），`embed` 是 `{provider_id, model}`，只存不用。新建默认 `auto_sync: true`、没有目录、300 字、重叠 50、`top` 5、`embed` 两个空串（原型默认 `pv_ollama` 的 `bge-m3`，后端没有这个服务商）。
+- `settings.dirs`：`{path, auto_sync, synced_at?, files}[]`，`files` 是从这个目录收进来的篇数，`synced_at` 由同步写，传进来的忽略。新挂的目录边界和 `POST /api/local-dirs` 同一套：必须是绝对路径（否则 400「填绝对路径，以 / 开头」）、允许根内存在的目录（不存在 400「找不到这个目录」，没权限 400「没有读权限」），路径里有隐藏段、是或包住了工作台的数据目录、越出允许根回 **403** `forbidden`；存解析软链后的路径，去掉末尾斜杠；同一目录挂两次 400。
+- `counts`：`{docs, indexed, pending, failed, excluded, searchable, chunks, last_doc_at}`，`searchable`、`chunks` 是已索引且没排除的篇数和段数，`last_doc_at` 是最近一篇的更新时间（没有文档为 `null`）。
+- `agents` 是挂着它的 Agent `{id, name}[]`，按 Agent 新建的在前。
+- `auto_sync`（来源分类有新文档时自动收进来）和目录的 `auto_sync` 只存：后端没有后台监听，收进来靠新建、改分类、挂目录时的同步和 `POST .../sync`。
+
+`KbDoc`：`{id, kb_id, title, source: {type, ref?}, text, chunks, status, excluded, error?, created_at, updated_at}`。`status` 为 `indexed` / `pending` / `failed`，`error` 是失败原因；`chunks` 是上次索引的段数。加文档的 body：
+
+| `type` | 字段 | 规则 |
+|---|---|---|
+| `library` | `ref`（对象 id）或 `refs`（多篇） | 只能是工作台文档（`type_id` 为 `doc`、没删的），标题和正文取自文档，重新索引时重新取；已在库里回 409；`refs` 先全部校验，有一篇不对就一篇都不加 |
+| `upload` | `ref`（文件名）、`data`（base64）、`title?` | 扩展名只收 md、markdown、txt、csv、pdf、docx，原文件最多 1MB（请求体整体限 2MB），存在数据目录 `kb/<知识库 id>/<文档 id>/` 下。文本类按 UTF-8 读正文；pdf、docx 不提取，收进来后状态 `failed`，`error` 写原因 |
+| `link` | `ref`（http 或 https 网址）、`title?`、`text?` | **不联网抓取**，正文是用户贴进来的；`title` 留空用网址；没有正文时状态 `failed` |
+| `note` | `title`、`text` | 都必填 |
+| `dir` | | 不能直接加，回 400：目录里的文件由挂目录和同步收进来 |
+
+- 目录同步：用 `fsbrowse` 列目录（规则同 `GET /api/local-dirs/{id}/files`：跳过隐藏项和依赖目录，软链不跟，最多 1000 个文件），只收 md、markdown、txt、text；库文件和密钥证书类文件（`vault.key`、`.db`、`.db-wal`、`.db-shm`、`.sqlite`、`.key`、`.pem`、`.p12`、`.pfx`）、数据目录里的文件和 `/api/fs/read` 一样拦下，不收。新文件收进来，内容变了的重新索引，不在了的移出。`result` 是 `{added, updated, removed, unchanged, failed, errors}`，`errors` 是同步不了的目录 -> 原因。
+- 切块按原型 `splitChunks`：每段 `chunk_size` 字，尽量在段长 60% 之后的换行、句号、分号处断开，相邻两段重叠 `overlap` 字；位置按字符（rune）算，原型按 UTF-16，只在 emoji 这类字符上有差别。
+- 检索按原型 `searchKb`：问题拆词（英文按 `[a-z0-9][a-z0-9.-]+` 取词，中文两字一组，去掉停用的组合），每段的分数是命中词占比，标题命中任何一个词加 0.08，封顶 1，低于 0.15 不算；只算已索引、没排除的；分数相同按文档新加的在前、段序号。SQLite 有 FTS5 时用它（表 `kb_chunks_fts`，第一次用到时由代码建、补齐已有切块，不在迁移里）预筛含任一检索词的段，没有就逐块匹配，打分都在代码里，两条路结果一样。
+- `hits`：`{kb_id, doc_id, title, source, index, start, end, text, score, terms}[]`，`index` 从 0 起，`start`、`end` 是正文里的字符位置，`terms` 是这段命中的词；`terms`（顶层）是问题拆出的检索词。`scope` 是 `{searchable, skipped}`：参与检索的篇数，和待索引、失败、已排除的篇数（`SPEC-settings-12.2`）。
+- **Agent 工具 `kb_search`**：会话挂的 Agent 有 `kbs` 时，对话里给模型这个工具，参数 `{query, kb_id?, limit?}`，只搜这个 Agent 挂的知识库，`kb_id` 不在 `kbs` 里回失败说明；`limit` 默认 5、最多 10。权限归内置能力 `read_content`。
+- 审计按 `config` 记：`target_type` 为 `knowledge_base`，`action` 为 `create`（`detail.name`、`sources`、`dirs` 个数）/ `update`（`detail.fields`）/ `delete`（`detail.name`、`detached_agents`）；加文档记 `target_type` 为 `kb_doc`、`action` 为 `create`、`target_id` 为知识库 id（`detail.source`、`docs`），移除记 `delete`、`target_id` 为文档 id。同步、重新索引、排除不记。
 
 ## 输出产物 artifacts
 
@@ -810,7 +900,7 @@ CONN-01a。连接器的**定义**（认证方式、配置表单、工具目录�
 - `name` 去首尾空白，不给时取定义的 `label`，最多 100 字。`auth_mode` 不给取定义的第一个，不在 `auth` 里回 400。`direction` 为 `receive`（默认）或 `both`，定义 `can_send` 为 false 时只能 `receive`。`interval` 是同步间隔（分钟），0 到 1440，默认 0（不定时同步）。
 - **一个工具只接一个账号**（同原型）：`tool` 已有实例时新建回 409，message 带已有实例的 id。
 - `status`：`connecting`（新建或从暂停、断开重新启用后，还没测过）、`connected`、`error`（`error` 是最近一次失败的说明，含令牌刷新失败）、`paused`（`enabled: false`）、`disconnected`（`POST /disconnect` 人主动断开；PATCH `enabled: true` 回到 `connecting`）。`POST /test` 成功置 `connected` 并记下 `account`，失败置 `error`；暂停中的实例照样测，但状态保持 `paused`。`oauth2` 认证还没授权时测试直接失败（「还没完成 OAuth 授权」），不调对方。
-- **工具授权**：`tools` 是 `[{name, desc, write, mode}]`，`mode` 为 `off`（关闭）/ `confirm`（调用前要人确认）/ `auto`（自动），只读工具（`write: false`）不能设 `confirm`，不在清单里的工具名回 400。拉取工具清单时保留已配过的授权，新出现的按默认（写操作 `confirm`、只读 `auto`），对方删掉的去掉；对方把工具改成只读时 `confirm` 降为 `auto`。`tools_at` 是最近一次拉取时间。Agent 按授权调用工具归 AG-02。
+- **工具授权**：`tools` 是 `[{name, desc, write, mode}]`，`mode` 为 `off`（关闭）/ `confirm`（调用前要人确认）/ `auto`（自动），只读工具（`write: false`）不能设 `confirm`，不在清单里的工具名回 400。拉取工具清单时保留已配过的授权，新出现的按默认（写操作 `confirm`、只读 `auto`），对方删掉的去掉；对方把工具改成只读时 `confirm` 降为 `auto`。`tools_at` 是最近一次拉取时间。这里的授权是 Agent 调用的上限，见「Agent 工具授权」。
 - `available` 为 false 表示定义已不在（提供它的插件停用了）：此时测试、拉取工具清单、改 `auth_mode` / `config` / `secrets` / `direction` 回 409，改名、启停和删除照常。
 - **插件提供的连接器**（CONN-02）：插件在 `Register` 里调 `Registrar.Connector(def)` 登记，`tool` 必须在清单 `provides.connectors` 里（不在、定义不合法、重复都让启用失败），`source` 固定为插件 id。定义只在插件在跑时出现：停用后不在 `/api/connectors/defs` 里，同 `tool` 新建回 400（同未知工具）；已接入的实例一行不动，`available` 为 false（规则同上一条）。重新启用后定义回来，实例的配置、凭证、工具授权照旧，`available` 回到 true。和内核定义同 `tool` 时内核的优先，插件的不出现（插件之间的 `tool` 冲突由清单检查在安装时挡掉）。后台令牌刷新照样跳过取不到定义的实例。
 - 保险箱条目被单独删掉（`DELETE /api/secrets/{id}`）时按没填凭证处理，PATCH 一次 `secrets` 新建条目补上。
@@ -829,9 +919,10 @@ CONN-01a。连接器的**定义**（认证方式、配置表单、工具目录�
 | source | key | effect | 删除时怎么处理 | text 例 |
 |---|---|---|---|---|
 | `core` | `tool_grants` | `revoke` | 实例上 `mode` 不是 `off` 的工具授权随实例一起删掉，Agent 不能再调这些工具；只数开着的 | `2 个 Agent 工具授权会一并撤销：post_message、read_messages` |
+| `core` | `agent_mounts` | `detach` | 挂着它（`mcps` 里有）或有开着的 `conn:<id>:*` 授权的 Agent：从 `mcps` 里摘掉、`conn:<id>:*` 授权清掉，Agent 本身保留（AG-02a） | `2 个 Agent 会卸下这个连接器：「消息分诊助手」（失去 create_item、list_items 工具）、「周报助手」` |
 | `im` | `messages` | `keep` | IM 插件 `im_messages` 里 `connector_id` 是它的消息原样保留，`connector_id` 不动（不建外键，0001），前端按实例已不在显示「渠道已删除」，只能查看 | `3 条 IM 消息会变成「渠道已删除」，只能查看` |
 
-- 原型里的「盯盘提醒改为只在应用内提醒」（`fallback`）和「Agent 卸下这个连接器」随交易套件、Agent 工具授权（AG-02）各自登记，现在后端还没有这些数据。
+- 原型里的「盯盘提醒改为只在应用内提醒」（`fallback`）随交易套件登记，现在后端还没有这项数据。
 - **插件登记**：插件在 `Register` 里调 `Registrar.ConnectorImpact({Key, Load})`，`key` 本插件内唯一（小写字母、数字、下划线），不用写进清单；`Load(ctx, core, {id, tool})` 返回 `{count, text, effect}`，nil 或 `count` 为 0 表示没有影响。只问在跑的插件：停用的插件不出现，它的数据照它自己的规则留着。删除本身不经过插件，提供者只负责如实说出删除后它的数据会怎样。
 - 影响检查不记审计。
 

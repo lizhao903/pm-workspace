@@ -150,7 +150,7 @@ function StakeRow({ projectId, s, c, last, onOpen, onOpenMessage, onRemove, remo
         </span>
       </button>
       <span role="cell">
-        <select className={cls('pj-role', `pj-role-${s.role}`)} aria-label={`${c.name} 的角色`} value={s.role} title={role?.desc}
+        <select className={cls('pj-chip-select', 'pj-role', `pj-role-${s.role}`)} aria-label={`${c.name} 的角色`} value={s.role} title={role?.desc}
           disabled={patch.isPending} onChange={(e) => save({ role: e.target.value as ProjectRole })}>
           {PROJECT_ROLES.map((r) => <option key={r.key} value={r.key}>{r.label}</option>)}
         </select>

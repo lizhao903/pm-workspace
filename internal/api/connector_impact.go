@@ -58,6 +58,12 @@ func (s *Server) handleConnectorImpact(w http.ResponseWriter, r *http.Request) {
 	}
 	out := connectorImpact{ConnectorID: c.ID, Items: []connectorImpactItem{}, Incomplete: []connectorImpactRef{}}
 	out.Items = append(out.Items, coreConnectorImpact(c)...)
+	mounts, err := s.agentMountImpact(r.Context(), c)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	out.Items = append(out.Items, mounts...)
 	if s.opt.Plugins != nil {
 		for _, x := range s.opt.Plugins.ConnectorImpacts(r.Context(), plugin.ConnectorRef{ID: c.ID, Tool: c.Tool}) {
 			if x.Failed {

@@ -104,6 +104,8 @@ type Runner struct {
 	Agent *domain.Agent
 	// Skills 是 Agent 挂的技能，按挂载顺序，取不到的已经跳过；拼在 Agent 指令后面，见 skillSection。
 	Skills []store.Skill
+	// Policy 是 Agent 的工具授权（AG-02a），nil 是没挂 Agent 的老会话，行为不变，见 grants.go。
+	Policy *Policy
 }
 
 // Run 处理一条用户消息，返回最终落库的 assistant 消息 id。
@@ -111,7 +113,18 @@ type Runner struct {
 // emit 会被同步调用，调用方负责往 SSE 里写并 Flush。这里不并发调用 emit，
 // 所以调用方不需要加锁。
 func (r *Runner) Run(ctx context.Context, userText string, emit func(StreamEvent)) (string, error) {
+	return r.run(ctx, userText, nil, emit)
+}
+
+// Resume 接着跑被确认卡片打断的那一轮：先执行（确认）或回绝（拒绝）那次调用，再让模型接着说。
+// 不落新的用户消息；d.Result 回来时是给人看的执行结果。
+func (r *Runner) Resume(ctx context.Context, d *Decision, emit func(StreamEvent)) (string, error) {
+	return r.run(ctx, "", d, emit)
+}
+
+func (r *Runner) run(ctx context.Context, userText string, dec *Decision, emit func(StreamEvent)) (string, error) {
 	tb := NewToolbox(r.Store, r.Session)
+	tb.withAgentKBs(r.Agent)
 
 	types, err := r.Store.ListObjectTypes(ctx)
 	if err != nil {
@@ -120,17 +133,29 @@ func (r *Runner) Run(ctx context.Context, userText string, emit func(StreamEvent
 
 	// 先把用户这条消息落库，再开始跑模型：中途失败或用户关掉页面时，
 	// 至少「我说过这句话」是留下来的。
-	if _, err := r.Store.AppendAgentMessage(ctx, &domain.AgentMessage{
-		SessionID: r.Session.ID,
-		Role:      domain.RoleUser,
-		Content:   userText,
-	}); err != nil {
-		return "", fmt.Errorf("保存用户消息失败")
+	if dec == nil {
+		if _, err := r.Store.AppendAgentMessage(ctx, &domain.AgentMessage{
+			SessionID: r.Session.ID,
+			Role:      domain.RoleUser,
+			Content:   userText,
+		}); err != nil {
+			return "", fmt.Errorf("保存用户消息失败")
+		}
+	}
+
+	var note string
+	if dec != nil {
+		if note, err = r.applyDecision(ctx, tb, dec, emit); err != nil {
+			return "", err
+		}
 	}
 
 	msgs, err := r.buildHistory(ctx, types)
 	if err != nil {
 		return "", err
+	}
+	if note != "" {
+		msgs = append(msgs, Message{Role: RoleSystem, Content: note})
 	}
 
 	var finalText strings.Builder
@@ -146,7 +171,7 @@ func (r *Runner) Run(ctx context.Context, userText string, emit func(StreamEvent
 		err := r.Chat.Stream(ctx, Request{
 			Model:    r.Model,
 			Messages: msgs,
-			Tools:    tb.Defs(),
+			Tools:    r.Policy.Tools(tb.Defs()),
 		}, func(ev Event) {
 			switch ev.Kind {
 			case EventDelta:
@@ -185,15 +210,36 @@ func (r *Runner) Run(ctx context.Context, userText string, emit func(StreamEvent
 			finalText.WriteString("\n")
 		}
 
-		asked := false
+		asked, confirming := false, false
 		for _, call := range calls {
+			// 需确认的不执行：记下来、发 confirm 事件，本轮结束后等人点（AG-02a）
+			mode, key := r.Policy.ModeOf(call.Name)
+			if mode == store.GrantConfirm {
+				brief, err := r.requestConfirm(ctx, call, key, emit)
+				if err != nil {
+					return "", err
+				}
+				confirming = true
+				finalText.WriteString(renderConfirm(brief))
+				msgs = append(msgs, Message{
+					Role: domain.RoleTool, Content: "已交给用户确认，确认前不会执行。",
+					ToolCallID: call.ID, ToolName: call.Name,
+				})
+				continue
+			}
+
 			// ask_user 不走 tool_call：它不是一次数据操作，界面上该出现的是一张问题卡，
 			// 不是「正在 ask_user…」那一行转圈后面再跟一张写着「已提问」的工具卡。
 			if call.Name != toolAskUser {
 				emit(StreamEvent{Type: "tool_call", Name: call.Name, Args: call.Args})
 			}
 
-			res := tb.Invoke(ctx, call)
+			var res ToolResult
+			if mode == store.GrantOff {
+				res = deniedResult(call.Name)
+			} else {
+				res = r.invoke(ctx, tb, call)
+			}
 
 			// ask_user 被打回（选项缺 detail、问题写成了开场白……）时，这条结果是给**模型**的
 			// 重填指令，不是给用户看的东西。放它走普通路径的话，界面上会冒出一张
@@ -260,7 +306,7 @@ func (r *Runner) Run(ctx context.Context, userText string, emit func(StreamEvent
 
 		// 问出口了就收工。不在这里等回答是有意的：答案走用户的下一条普通消息，
 		// 流挂着等的话，用户切个页面或者关掉抽屉，这个连接就永远悬在那里了。
-		if asked {
+		if asked || confirming {
 			break
 		}
 

@@ -51,10 +51,9 @@
 .today-task-title { flex: 1; min-width: 0; }
 .today-check { width: 18px; height: 18px; flex: none; padding: 0; border-radius: 50%; border: 1.5px solid var(--line-2); background: none; cursor: pointer; }
 .today-check:not(:disabled):hover { border-color: var(--ok); }
-.today-prio { display: inline-flex; align-items: center; height: 20px; padding: 0 6px; border-radius: 4px; flex: none; font: 600 var(--fs-xs) var(--mono); white-space: nowrap; color: color-mix(in srgb, var(--c) 85%, var(--text)); background: color-mix(in srgb, var(--c) 12%, transparent); }
 .today-due { font-size: var(--fs-xs); color: var(--muted); flex: none; }
 .today-due.bad { color: var(--danger); font-weight: 500; }
-.today-ref { font: var(--fs-xs) var(--mono); color: var(--faint); flex: none; }
+.today-ref { font: var(--fs-xs) var(--mono); color: var(--accent); flex: none; }
 .today-rest { padding: var(--sp-4) var(--sp-2); font-size: var(--fs-sm); color: var(--accent); text-align: left; }
 .today-rest:hover { background: var(--panel-2); }
 .today-err { font-size: var(--fs-sm); color: var(--danger); }

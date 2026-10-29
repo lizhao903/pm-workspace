@@ -8,6 +8,7 @@ import { KindTag, isBranching } from './nodetypes'
 import { Subnav } from './subnav'
 import { cls, timeAgo } from './ui'
 import { SearchSelect } from './searchselect'
+import { useEnum } from './enumdata'
 import { ListSegHead, ListSegMore } from './tasks'
 
 /** SOP 页的二级菜单 key；library：流程库（全部 SOP 的卡片列表） */
@@ -223,8 +224,9 @@ function SopLibraryPage({ sops, runs, onOpen, onNew }: { sops: Sop[]; runs: SopR
   }, [runs])
   const pass = (s: Sop, k: LibFilter) => !k || (k === 'pending' ? (stat.get(s.id)?.pending ?? 0) > 0 : !last.has(s.id))
   const kw = q.trim().toLowerCase()
+  const triggers = useEnum('sop_trigger')
   // 有待处理的在前，其余按最近执行时间，没执行过的按名字排在最后
-  const rows = sops.filter((s) => pass(s, f) && (!kw || `${s.name} ${s.desc} ${s.trigger}`.toLowerCase().includes(kw)))
+  const rows = sops.filter((s) => pass(s, f) && (!kw || `${s.name} ${s.desc} ${triggerLabel(triggers, s.trigger)}`.toLowerCase().includes(kw)))
     .sort((a, b) => Number((stat.get(b.id)?.pending ?? 0) > 0) - Number((stat.get(a.id)?.pending ?? 0) > 0) || (last.get(b.id) ?? 0) - (last.get(a.id) ?? 0) || a.name.localeCompare(b.name))
   return (
     <div className="page page-fill">
@@ -279,6 +281,9 @@ function SopLibraryPage({ sops, runs, onOpen, onNew }: { sops: Sop[]; runs: SopR
 
 /* ---------- 流程详情 ---------- */
 
+/** 触发方式存 sop_trigger 枚举的 key；枚举里找不到时原样显示 */
+export const triggerLabel = (items: { key: string; label: string }[], key: string) => items.find((i) => i.key === key)?.label ?? key
+
 export function SopDetailPage({ sop, runs, onStart, onOpen, onEdit, onDelete, delPlan, onAllRuns }: {
   sop: Sop; runs: SopRun[]; onStart: () => void; onOpen: (id: string) => void; onEdit: () => void
   onDelete?: () => void
@@ -293,15 +298,17 @@ export function SopDetailPage({ sop, runs, onStart, onOpen, onEdit, onDelete, de
   const reviews = sop.steps.filter((s) => s.kind === 'review' || isManualDecide(s)).length
   const decides = sop.steps.filter((s) => isBranching(s.kind)).length
   const RECENT = 10
+  const triggers = useEnum('sop_trigger')
+  const delText = delPlan?.block ? `不能删除：${delPlan.block}` : delPlan?.impact.length ? `删除后${delPlan.impact.join('；')}` : '删除后不能恢复'
+  const delActs = <>
+    <button className="btn btn-ghost" onClick={() => setConfirmDel(false)}>{delPlan?.block ? '知道了' : '取消'}</button>
+    {!delPlan?.block && <button className="btn btn-danger" onClick={onDelete}>删除</button>}
+  </>
   return (
     <div className="page page-fill">
       <PageTitle parent="SOP" desc={sop.desc} actions={<>
         {onDelete && (confirmDel ? (
-          <>
-            <span className="danger-text">{delPlan?.block ? `不能删除：${delPlan.block}` : delPlan?.impact.length ? `删除后${delPlan.impact.join('；')}` : '删除后不能恢复'}</span>
-            <button className="btn btn-ghost" onClick={() => setConfirmDel(false)}>{delPlan?.block ? '知道了' : '取消'}</button>
-            {!delPlan?.block && <button className="btn btn-danger" onClick={onDelete}>删除</button>}
-          </>
+          <span className="sop-del-top"><span className="danger-text">{delText}</span>{delActs}</span>
         ) : <button className="btn btn-ghost btn-danger-ghost" onClick={() => setConfirmDel(true)}>删除</button>)}
         <button className="btn btn-outline" onClick={onEdit}>编辑</button>
         <button className="btn btn-primary" onClick={onStart}>
@@ -309,8 +316,10 @@ export function SopDetailPage({ sop, runs, onStart, onOpen, onEdit, onDelete, de
           执行
         </button>
       </>}>{sop.name}</PageTitle>
+      {/* 窄屏时确认条从标题行挪到这里，文字换行，按钮不会被挤出去 */}
+      {confirmDel && <div className="sop-del-bar" role="alert"><span className="danger-text">{delText}</span><span className="act-row">{delActs}</span></div>}
       <div className="sop-facts sop-facts-top">
-        <span>触发：{sop.trigger}</span>
+        <span>触发：{triggerLabel(triggers, sop.trigger)}</span>
         <span>{sop.steps.length} 个步骤</span>
         <span>{decides} 个分支节点</span>
         <span>{reviews} 个需要人处理的节点</span>

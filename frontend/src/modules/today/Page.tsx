@@ -1,14 +1,14 @@
 // 今日（SPEC-today-1、TODAY-02）：今天要处理的事集中在一页。内核部分走 GET /api/today?type=task，
 // 插件卡片走不带 type 的聚合（PluginCards）。只有完成圆圈在本页直接改数据，点任务在本页打开任务抽屉。
 // ALIGN-08 起「需要你处理」按来源分组：任务待验收、插件贡献的组（IM 消息）、连接异常；「正在运行」先列插件贡献的（运行中的原型）。
-import { Suspense, useState, type CSSProperties } from 'react'
+import { Suspense, useState } from 'react'
 import { useNavigate } from 'react-router'
 import {
   dueTodayCard, errorText, localDay, overdueCard, reviewCard, runningCard, schedulesToday, useAllObjects, useApprove,
   useConnectors, useDictItems, useObject, useObjectTypes, useProgress, useSchedules, useSetStatus, useToday, type WorkObject,
 } from '../../core/data'
 import { TODAY_ORDER, useTodaySourceData, useTodaySources, type TodayItem } from '../../core/plugin'
-import { Button, ErrorState, LoadingState, PageTitle, cls } from '../../core/ui'
+import { Button, ErrorState, LoadingState, PageTitle, PrioTag, cls } from '../../core/ui'
 import { ApproveDialog, REVIEW, TaskDrawer, doneKey, dueDay, timeAgo } from '../tasks'
 import {
   LINE_SHOW, NEED_SHOW, TASK_SHOW, clock, connectorNeeds, dateText, dayRows, greet, hotLevels, lastReview, needGroups, pickHot, reviewSub,
@@ -169,7 +169,7 @@ export default function Page() {
           onClick={(e) => { e.stopPropagation(); void markDone(t) }}
           onKeyDown={(e) => e.stopPropagation()} />
         {t.priority && (
-          <span className="today-prio" title={pr?.label} style={{ '--c': pr?.color || 'var(--faint)' } as CSSProperties}>{t.priority}</span>
+          <PrioTag p={t.priority} item={pr} />
         )}
         <span className="ellipsis today-task-title">{t.title}</span>
         {tag && <span className={cls('today-due', bad && 'bad')}>{tag}</span>}

@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
 import type { Project, Prototype } from './projectdata'
-import { PageTitle } from './topbar'
 import { cls } from './ui'
 import { newId } from './ids'
 
@@ -126,11 +125,6 @@ export function TerminalPage({ tabs, active, onTabs, onActive, projects, onStart
 
   return (
     <div className={cls('term-page', embedded && 'term-embedded')}>
-      {!embedded && <PageTitle desc="模拟终端；在项目原型目录里 npm run dev 会启动对应原型" actions={tab && <>
-        <button className="btn btn-outline" disabled={tab.panes.length >= 4} onClick={() => split('row')} title="向右拆分 (⌘D)">向右拆分</button>
-        <button className="btn btn-outline" disabled={tab.panes.length >= 4} onClick={() => split('col')} title="向下拆分 (⇧⌘D)">向下拆分</button>
-        <button className="btn btn-primary" onClick={addTab}>新标签页</button>
-      </>}>终端</PageTitle>}
       <div className="term-tabs" role="tablist">
         {tabs.map((t) => {
           const run = t.panes.some((p) => p.running)
@@ -203,7 +197,8 @@ function TermPane({ pane, focused, canSplit, projects, onFocus, onPane, onSplit,
   const seen = useRef(0)
   useEffect(() => {
     if (!runningProto) { seen.current = 0; return }
-    const fresh = runningProto.logs.slice(seen.current).filter((l) => !l.startsWith('$ '))
+    // 格子自己已回显过命令和 ^C，日志里的这两种行不再接
+    const fresh = runningProto.logs.slice(seen.current).filter((l) => !l.startsWith('$ ') && l !== '^C')
     if (fresh.length) { seen.current = runningProto.logs.length; onPane((p) => ({ ...p, lines: [...p.lines, ...fresh.map((t) => ({ kind: (/Error|失败/.test(t) ? 'err' : 'out') as TermLine['kind'], text: t }))] })) }
     if (runningProto.status === 'stopped' || runningProto.status === 'error') {
       seen.current = 0
@@ -305,7 +300,7 @@ function TermPane({ pane, focused, canSplit, projects, onFocus, onPane, onSplit,
       if (hits.length === 1) setInput([...parts, last.slice(0, last.lastIndexOf('/') + 1) + hits[0]].join(' '))
       else if (hits.length > 1) print([{ kind: 'in', text: input, cwd: pane.cwd }, out(hits.join('    '))])
     }
-    if (e.key === 'd' && e.metaKey && canSplit) { e.preventDefault(); onSplit(e.shiftKey ? 'col' : 'row') }
+    if (e.key.toLowerCase() === 'd' && e.metaKey && canSplit) { e.preventDefault(); onSplit(e.shiftKey ? 'col' : 'row') }
   }
 
   return (

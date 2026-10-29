@@ -134,7 +134,7 @@ export function Settings({ project, onDeleted }: { project: WorkObject; onDelete
         ) : (
           <div className="pj-act-row">
             <span className="pj-muted">本地目录和文件不会被删</span>
-            <Button size="sm" variant="danger-ghost" onClick={() => { del.reset(); setConfirmDel(true) }}>删除项目</Button>
+            <Button size="sm" variant="outline" className="pj-del-btn" onClick={() => { del.reset(); setConfirmDel(true) }}>删除项目</Button>
           </div>
         )}
         {del.isError && <span className="field-err" role="alert">没删成：{errorText(del.error)}</span>}

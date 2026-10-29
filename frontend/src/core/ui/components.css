@@ -180,6 +180,12 @@
   background: color-mix(in srgb, var(--c) 12%, transparent);
 }
 .pill-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--c); flex: none; }
+/* 优先级标签（PrioTag）：编号 + 名称，字典颜色铺底 */
+.prio-tag {
+  display: inline-flex; align-items: center; flex: none; height: 20px; padding: 0 6px; border-radius: 4px;
+  font: 600 var(--fs-xs) var(--mono); white-space: nowrap;
+  color: color-mix(in srgb, var(--c) 85%, var(--text)); background: color-mix(in srgb, var(--c) 12%, transparent);
+}
 .tag {
   display: inline-flex; align-items: center; gap: var(--sp-2); flex: none; max-width: 100%;
   height: 22px; padding: 0 var(--sp-4); border-radius: 5px;

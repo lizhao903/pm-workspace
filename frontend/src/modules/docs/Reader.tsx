@@ -11,6 +11,10 @@ const SIZE_KEY = 'pmw-reader-size'
 const SIZE_LABEL: Record<FontSize, string> = { sm: '小', md: '中', lg: '大' }
 /** 标题 id 的前缀，免得和页面上别的 id 撞 */
 const HEAD_ID = 'doc-h'
+// 工作台文档来源的显示名（任务来源见契约「任务来源」）；空的老数据不显示，不认识的原样显示
+const DOC_SOURCE: Record<string, string> = {
+  manual: '手动', import: '导入', im: 'IM 消息', webhook: 'Webhook', schedule: '定时', incident: '运行异常', agent: 'Agent', mcp: 'MCP 回写',
+}
 
 function readSize(): FontSize {
   try {
@@ -101,6 +105,7 @@ export function LibraryReader({ model, current, statusLabel, onBack, onStar, sta
           </Button>
           <div className="reader-toolbar">
             <span className="lib-cat">{current.kindLabel}</span>
+            {current.status && <span className="lib-cat">{statusLabel(current.status)}</span>}
             {current.dirs.length > 0 && (folder || current.dirs.length > 1) && (
               <span className="reader-crumb ellipsis" title={current.dirs.join(' / ')}>{current.dirs.join(' / ')}</span>
             )}
@@ -135,8 +140,9 @@ export function LibraryReader({ model, current, statusLabel, onBack, onStar, sta
           </div>
           <h1 className="reader-title">{current.title}</h1>
           <div className="reader-meta">
-            {current.meta.map((m) => <span key={m} className="reader-meta-item">{m}</span>)}
-            {current.status && <span>{statusLabel(current.status)}</span>}
+            {/* 本地文件的 meta 是路径和大小；工作台文档的是来源 key，换成显示名 */}
+            {(current.path ? current.meta : current.meta.map((m) => DOC_SOURCE[m] ?? m)).filter(Boolean)
+              .map((m) => <span key={m} className="reader-meta-item">{m}</span>)}
             <span>{folder ? '修改于' : '更新于'} {timeAgo(updated)}</span>
             {body !== undefined && !loaded?.binary && <span>{charCount(body)} 字</span>}
           </div>
