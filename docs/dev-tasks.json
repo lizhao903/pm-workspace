@@ -3364,6 +3364,26 @@
     "acceptance": "- [ ] 关掉后 GET 路由里没有 auto 行，按 Host 访问原来的自动域名回到工作台\n- [ ] 再打开后在跑的原型重新有自动域名\n- [ ] gofmt、go vet、go test ./... 通过，契约路由双向测试通过"
   },
   {
+    "key": "FS-01",
+    "type": "task",
+    "title": "选目录能到更多地方：列出外挂分区，可加额外的可浏览目录",
+    "milestone": "M4",
+    "module": "fullstack",
+    "priority": "P1",
+    "estimate": "M",
+    "depends_on": [
+      "DOC-01a"
+    ],
+    "workdir": ".",
+    "spec": [
+      "internal/fsbrowse/bounds.go defaultRoots、shortcuts",
+      "docs/api-contract.md /api/fs/browse、/api/fs/shortcuts",
+      "frontend/src/modules/tasks/WorkdirField.tsx、frontend/src/plugins/projects/PathInput.tsx、frontend/src/modules/docs/MountDrawer.tsx"
+    ],
+    "body": "## 背景\n\n用户要求：「我需要能选择更多的文件目录，包括外挂的分区」。现在：\n\n- `GET /api/fs/shortcuts` 只有主目录、桌面、文稿、下载、当前项目、临时目录，外挂分区（/Volumes/antalpha、docs、project、sandbox 等）不出现，要知道路径才能进。\n- 可浏览范围写死成主目录、/Volumes、/tmp，别处一律回「不在可浏览范围内」，没有办法放开。\n\n## 要做什么\n\n- 起跳点：`/api/fs/shortcuts` 按当前挂载情况列出 /Volumes 下每个分区（只列真实目录，跳过指回根盘的软链如「Macintosh HD」），标「外挂分区：<名字>」，再加一条「/Volumes（全部分区）」。插拔盘后刷新即变。\n- 额外可浏览目录：设置里新增一处（放在「设置」现有合适的分节，没有就新建「本机目录」分节）让用户加、删额外根目录，后端持久化（优先用现有的设置或键值存储；确实要新表才加内核迁移，用 0037）。`fsbrowse` 的可浏览范围等于默认三块加这些额外根。\n- 额外根的校验：必须是存在的绝对目录，解开软链后再查；拒绝 `/`、`/etc`、`/System`、`/private`、`/usr`、`/bin`、`/sbin`、`/var`、`/dev`、`/Library`、数据目录及其上级，报错写明原因。加、删记审计。\n- 前端选目录的控件（任务工作目录、项目目录、文档挂载、知识库挂目录等共用的那个）：侧边起跳点显示分区；面包屑能一路回到所在根（含 /Volumes）；支持直接输入或粘贴绝对路径跳转；越界时显示后端的中文原因。\n- `/api/fs/read` 的规则不变（只读已挂载目录、拦敏感文件），文档挂载、知识库挂目录对额外根同样适用这些拦截。\n\n## 注意事项\n\n- 契约 `/api/fs/*` 一节同步更新；改共用文件改前重新读、小范围替换。",
+    "acceptance": "- [ ] 起跳点里能看到 /Volumes 下每个外挂分区，点了直接进\n- [ ] 设置里加一个额外根（例如 scratchpad 下的测试目录）后能浏览和选中，删掉后回到越界提示；加 /etc、/ 被拒并写明原因\n- [ ] 选目录控件能输入路径跳转，面包屑能回到 /Volumes\n- [ ] /api/fs/read 对额外根里的敏感文件照样拦下（Go 测试）\n- [ ] gofmt、go vet、go test ./... 通过；npm test、typecheck、lint、build、smoke-frontend 通过"
+  },
+  {
     "key": "QA-05",
     "type": "task",
     "title": "M4 端到端演练：IM 转任务再由 Agent 处理",
@@ -4036,14 +4056,14 @@
     "priority": "P3",
     "estimate": "M",
     "depends_on": [
-      "VID-08b",
+      "VID-08a",
       "VID-01c"
     ],
     "workdir": "frontend",
     "spec": [
       "web-next/src/topics.tsx TopicsPage、TopicDrawer、ClipsPage"
     ],
-    "body": "## 要做什么\n\n- 选题库：按状态分组、打分、抽屉编辑、开始制作；素材箱：待整理和全部、粘贴链接、收集评论、转选题、并入选题。\n\n## 注意事项\n\n- 只在 `frontend/` 里写代码，不 import `web-next` 的任何代码：原型的交互和样式可以照着写、挑着搬。\n- 联调只连测试实例（`scripts/dev-instance.sh start`，默认 127.0.0.1:7796），不连 7777，不启动或重启 7777 上的服务。\n- 组件里不直接 fetch，数据一律走数据访问层（CORE-03a）；副作用不写进 setState 的 updater。\n- 状态、类型、优先级从后端读（`/api/object-types`、`/api/dictionaries`），不写死。",
+    "body": "## 要做什么\n\n- 选题库：按状态分组、打分、抽屉编辑、开始制作；素材箱：待整理和全部、粘贴链接、收集评论、转选题、并入选题。\n\n## 注意事项\n\n- 只在 `frontend/` 里写代码，不 import `web-next` 的任何代码：原型的交互和样式可以照着写、挑着搬。\n- 联调只连测试实例（`scripts/dev-instance.sh start`，默认 127.0.0.1:7796），不连 7777，不启动或重启 7777 上的服务。\n- 组件里不直接 fetch，数据一律走数据访问层（CORE-03a）；副作用不写进 setState 的 updater。\n- 状态、类型、优先级从后端读（`/api/object-types`、`/api/dictionaries`），不写死。\n\n（2026-10-29 用户把现有 94 条选题导进了系统，要能看到；评论收件依赖的内容平台还早，所以这条不再等 VID-08b：评论来源的素材没有时照常显示空状态。）",
     "acceptance": "- [ ] 评论可以转选题（界面上完整走通）\n- [ ] 原型两页的操作全部可用，刷新不丢\n- [ ] 与规格包对照通过",
     "scope": "frontend/src/plugins/video/**"
   },
