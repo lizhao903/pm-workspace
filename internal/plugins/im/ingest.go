@@ -14,7 +14,7 @@ import (
 	"github.com/lizhao903/pm-workspace/internal/plugin"
 )
 
-// 收消息（IM-01a）：规整、认人、认会话、算「与我相关」、去重落库，新落库的发 im.message_received。
+// 收消息（IM-01a）：规整、认人、认会话（没登记的登记上，PR-02）、算「与我相关」、去重落库，新落库的发 im.message_received。
 
 // timeLayout 定长毫秒 UTC，字符串比较即时间比较。
 const timeLayout = "2006-01-02T15:04:05.000Z"
@@ -88,6 +88,7 @@ func (in *inbox) ingest(ctx context.Context, a Adapter, msgs []Incoming, strict 
 		rows = append(rows, r)
 	}
 	for _, r := range rows {
+		in.register(ctx, &r)
 		ok, err := in.insert(ctx, r)
 		if err != nil {
 			return res, err
@@ -175,7 +176,7 @@ func (in *inbox) prepare(ctx context.Context, ch string, self []string, m Incomi
 	}
 	r.sentAt = at.UTC().Format(timeLayout)
 
-	// 按编号认发送人和会话；没登记的留空，读的时候再补认
+	// 按编号认发送人和会话；没登记的发送人留空、读的时候再补认，没登记的会话落库前登记（register）
 	if idn, err := in.c.Identities().Find(ctx, ch, r.senderExt); err == nil {
 		r.identityID, r.stakeholderID = &idn.ID, &idn.StakeholderID
 	} else if !errors.Is(err, plugin.ErrNoRows) {
@@ -190,6 +191,67 @@ func (in *inbox) prepare(ctx context.Context, ch string, self []string, m Incomi
 	}
 	r.relevance = relevance(m.Mention, r.text, self, r.convKind)
 	return r, nil
+}
+
+// register 会话还没登记时登记上（渠道、编号、群名、类型，私聊带上对方的身份），项目绑定面板才列得出来（PR-02）。
+// 登记失败只记日志，消息照常落库，读的时候再按编号补认。
+func (in *inbox) register(ctx context.Context, r *row) {
+	if r.convID != nil || r.convExt == "" {
+		return
+	}
+	nc := plugin.NewConversation{Channel: r.channel, ExternalID: r.convExt, Kind: r.convKind, Name: r.convName}
+	if r.convKind == "direct" && r.identityID != nil {
+		nc.Members = []string{*r.identityID}
+	}
+	cv, _, err := in.c.ConversationWriter().Ensure(ctx, nc)
+	if err != nil {
+		in.c.Log().Warn("register im conversation failed", "channel", r.channel, "conversation", r.convExt, "err", err)
+		return
+	}
+	r.convID, r.convKind = &cv.ID, cv.Kind
+}
+
+// registerJob 启用时跑一次：之前收到、会话还没登记的消息补登记会话并回写会话 id（PR-02）。
+// 只在启用时跑，用户删掉的会话不会被定时补回来；之后再收到这个会话的消息会重新登记。
+func (in *inbox) registerJob(ctx context.Context, _ plugin.Core) error {
+	rows, err := in.c.Store().Query(ctx, `SELECT channel, conversation_external_id, conversation_kind, conversation_name,
+		sender_external_id, MAX(sent_at) FROM im_messages
+		WHERE conversation_id IS NULL AND conversation_external_id <> '' GROUP BY channel, conversation_external_id`)
+	if err != nil {
+		return err
+	}
+	var todo []row
+	for rows.Next() {
+		var r row
+		var at string
+		if err := rows.Scan(&r.channel, &r.convExt, &r.convKind, &r.convName, &r.senderExt, &at); err != nil {
+			_ = rows.Close()
+			return err
+		}
+		todo = append(todo, r)
+	}
+	err = rows.Err()
+	_ = rows.Close()
+	if err != nil {
+		return err
+	}
+	for _, r := range todo {
+		// 私聊的成员取最近一条的发送人
+		if r.convKind == "direct" {
+			if idn, err := in.c.Identities().Find(ctx, r.channel, r.senderExt); err == nil {
+				r.identityID = &idn.ID
+			}
+		}
+		in.register(ctx, &r)
+		if r.convID == nil {
+			continue
+		}
+		if _, err := in.c.Store().Exec(ctx, `UPDATE im_messages SET conversation_id = ?
+			WHERE conversation_id IS NULL AND channel = ? AND conversation_external_id = ?`, *r.convID, r.channel, r.convExt); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // insert 落一条，同一渠道的同一消息编号已在时跳过，返回 false。

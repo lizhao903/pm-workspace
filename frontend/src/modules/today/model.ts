@@ -105,10 +105,10 @@ export function clock(iso: string): string {
   return `${pad(d.getHours())}:${pad(d.getMinutes())}`
 }
 
-/** 组内排序（SPEC-today-1.4、1.20）：异常在前，同级按时间新的在前，没时间的放最后 */
+/** 组内排序（SPEC-today-1.4、1.20）：异常在前，同级先按来源给的 rank，再按时间新的在前，没时间的放最后 */
 const TONE_RANK: Record<TodayTone, number> = { danger: 0, warn: 1, info: 2, ok: 3 }
 export function byUrgency(a: TodayItem, b: TodayItem): number {
-  return TONE_RANK[a.tone] - TONE_RANK[b.tone] || (b.at ?? '').localeCompare(a.at ?? '')
+  return TONE_RANK[a.tone] - TONE_RANK[b.tone] || (a.rank ?? 0) - (b.rank ?? 0) || (b.at ?? '').localeCompare(a.at ?? '')
 }
 
 /** 「需要你处理」的一组。review 是内核的任务待验收，条目另行渲染 */

@@ -40,8 +40,9 @@ export function statusLabeler(items: readonly DictItem[] | undefined): (key: str
 export const isSnoozed = (m: Pick<ImMessage, 'status' | 'snooze_until'>, now = Date.now()) =>
   m.status === 'pending' && !!m.snooze_until && new Date(m.snooze_until).getTime() > now
 
-/** 项目里的「待回复」：待处理且不在稍后里，和 IM 消息页的待处理同一口径 */
-export const awaitingReply = (m: Pick<ImMessage, 'status' | 'snooze_until'>, now = Date.now()) => m.status === 'pending' && !isSnoozed(m, now)
+/** 项目里的「待回复」：与我相关（@我、@所有人、私聊）、待处理且不在稍后里；其余群消息只在 IM 消息页处理（B-01） */
+export const awaitingReply = (m: Pick<ImMessage, 'status' | 'snooze_until' | 'relevance'>, now = Date.now()) =>
+  !!m.relevance && m.status === 'pending' && !isSnoozed(m, now)
 
 /** 发信人：联系人姓名，认不上时 sender_name */
 export const whoName = (m: Pick<ImMessage, 'contact_name' | 'sender_name'>) => m.contact_name || m.sender_name
@@ -88,7 +89,11 @@ export function convLabel(c: ProjectConversation['conversation'], full: Conversa
 // ---- 绑定面板的候选（SPEC-projects-4.4 到 4.6） ----
 
 export type GroupCand = { conv: Conversation; label: string; channel: string; lastAt: string }
-export type DirectCand = { conv: Conversation; label: string; channel: string; contact?: Contact }
+/**
+ * 私聊候选是联系人的一个 IM 身份：conv 是这个身份已有的私聊会话，没有时绑定前按身份建一个。
+ * 联系人一个 IM 身份都没有时 identity 为空，这一项置灰
+ */
+export type DirectCand = { key: string; label: string; contact: Contact; identity?: Identity; channel: string; conv?: Conversation }
 export type BindPool<T> = {
   /** 露出来的 */
   shown: T[]
@@ -115,17 +120,63 @@ export function groupCandidates(convs: readonly Conversation[], bound: ReadonlyS
   return { shown: matched.slice(0, q.trim() ? SEARCH_MAX : DM_PEEK), pool: pool.length, matched: matched.length }
 }
 
-/** 私聊：去掉已绑的，按联系人姓名、公司、职位搜；没搜按最近联系倒序露 DM_PEEK 个 */
-export function directCandidates(convs: readonly Conversation[], bound: ReadonlySet<string>, people: People, q: string): BindPool<DirectCand> {
-  const pool = convs.filter((c) => isDirect(c.kind) && !bound.has(c.id)).map((c) => {
-    const contact = directContact(c, people)
-    return { conv: c, label: contact?.name || c.name || c.external_id, channel: c.channel, contact }
-  })
-  const matched = q.trim()
-    ? pool.filter((x) => matchOption({ label: x.label, hint: x.contact?.company, keywords: x.contact?.title }, q))
-    : [...pool].sort((a, b) => (b.contact?.last_contact_at ?? '').localeCompare(a.contact?.last_contact_at ?? ''))
-  return { shown: matched.slice(0, q.trim() ? SEARCH_MAX : DM_PEEK), pool: pool.length, matched: matched.length }
+/** 私聊候选的整体情况，空状态按它写（E-01） */
+export type DirectPool = BindPool<DirectCand> & {
+  /** 联系人总数 */
+  contacts: number
+  /** 能绑的（有 IM 身份）候选数 */
+  bindable: number
 }
+
+/**
+ * 私聊（SPEC-projects-4.5）：按联系人列，每个 IM 身份一项，私聊会话已绑的去掉；没填 IM 编号的联系人一项、置灰。
+ * 按姓名、公司、职位搜；能绑的在前，同类里按最近联系倒序；没搜露 DM_PEEK 个
+ */
+export function directCandidates(contacts: readonly Contact[], identities: readonly Identity[], convs: readonly Conversation[],
+  bound: ReadonlySet<string>, q: string): DirectPool {
+  // 身份 -> 私聊会话：成员里有它的，没有时按编号对（对方的私聊编号就是身份编号，如 Telegram）
+  const dmByMember = new Map<string, Conversation>()
+  const dmByExt = new Map<string, Conversation>()
+  for (const c of convs) {
+    if (!isDirect(c.kind)) continue
+    for (const m of c.members) if (!dmByMember.has(m)) dmByMember.set(m, c)
+    dmByExt.set(`${c.channel}\u0000${c.external_id}`, c)
+  }
+  const byOwner = new Map<string, Identity[]>()
+  for (const i of identities) byOwner.set(i.stakeholder_id, [...(byOwner.get(i.stakeholder_id) ?? []), i])
+  const pool: DirectCand[] = []
+  for (const contact of contacts) {
+    const ids = byOwner.get(contact.id) ?? []
+    if (!ids.length) {
+      pool.push({ key: `none:${contact.id}`, label: contact.name, contact, channel: '' })
+      continue
+    }
+    for (const identity of ids) {
+      const conv = dmByMember.get(identity.id) ?? dmByExt.get(`${identity.channel}\u0000${identity.external_id}`)
+      if (conv && bound.has(conv.id)) continue
+      pool.push({ key: `idn:${identity.id}`, label: contact.name, contact, identity, channel: identity.channel, conv })
+    }
+  }
+  const recent = (a: DirectCand, b: DirectCand) =>
+    Number(!a.identity) - Number(!b.identity) || (b.contact.last_contact_at ?? '').localeCompare(a.contact.last_contact_at ?? '')
+  const matched = (q.trim() ? pool.filter((x) => matchOption({ label: x.label, hint: x.contact.company, keywords: x.contact.title }, q)) : pool)
+    .sort(recent)
+  return {
+    shown: matched.slice(0, q.trim() ? SEARCH_MAX : DM_PEEK), pool: pool.length, matched: matched.length,
+    contacts: contacts.length, bindable: pool.filter((x) => x.identity).length,
+  }
+}
+
+/** 私聊没有能露的候选时写什么（SPEC-projects-4.18）；有候选但都没填 IM 编号时另写一行提示 */
+export function directEmptyText(p: Pick<DirectPool, 'shown' | 'contacts' | 'pool'>, searching: boolean): string {
+  if (p.shown.length) return ''
+  if (searching) return '没有匹配的联系人'
+  if (!p.contacts) return '还没有联系人'
+  return '联系人都已经绑过了'
+}
+
+/** 私聊候选没填 IM 编号时的说明 */
+export const NO_IDENTITY_HINT = '先在联系人里填 IM 编号'
 
 // ---- 正文里的 @，口径同 IM 消息页 ----
 

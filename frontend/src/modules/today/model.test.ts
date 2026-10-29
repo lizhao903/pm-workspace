@@ -57,6 +57,15 @@ describe('今日页的纯函数', () => {
     expect(gs[0].items.map((x) => x.id)).toEqual(['d', 'b', 'a'])
   })
 
+  it('同级先按 rank（IM 消息组的 @我 在前），再按时间', () => {
+    const gs = needGroups([{ key: 'im', label: 'IM 消息', order: 40, total: 3, items: [
+      { id: 'all', tone: 'info', rank: 1, title: '', sub: '', at: '2026-10-03' },
+      { id: 'me', tone: 'info', rank: 0, title: '', sub: '', at: '2026-10-01' },
+      { id: 'warn', tone: 'warn', rank: 1, title: '', sub: '', at: '2026-09-01' },
+    ] }])
+    expect(gs[0].items.map((x) => x.id)).toEqual(['warn', 'me', 'all'])
+  })
+
   it('连接异常只算 status=error 的连接器', () => {
     const rows = [{ id: '1', name: '甲', status: 'error', error: '凭证失效' }, { id: '2', name: '乙', status: 'paused', error: '' }] as Connector[]
     expect(connectorNeeds(rows)).toEqual([{ id: '1', tone: 'danger', title: '连接器「甲」异常', sub: '凭证失效', action: '去修复', to: '/settings/connectors' }])

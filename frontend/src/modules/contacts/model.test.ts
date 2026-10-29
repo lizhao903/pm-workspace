@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { Contact, Dictionary } from '../../core/data'
 import {
-  DEFAULT_GROUP, GONE_COLOR, SEG_MAX, ago, blankDraft, deleteBlock, groupOptions, mergeIm, validate, applyFilter, groupItems, groupOf, groupView, hasImField, recentBucket, sectionCounts,
+  DEFAULT_GROUP, GONE_COLOR, SEG_MAX, ago, blankDraft, deleteBlock, groupOptions, mergeIm, validate, applyFilter, groupItems, groupsOf, groupView, joinGroups, toggleGroup, hasImField, recentBucket, sectionCounts,
   sectionOf, toRows, type Filter, type GroupItem,
 } from './model'
 
@@ -50,8 +50,25 @@ describe('筛选', () => {
     expect(names(applyFilter(rows, { ...F, channel: 'qq' }))).toEqual([])
   })
   it('没分组的按默认分组「其他」算', () => {
-    expect(groupOf(rows[2].c)).toBe(DEFAULT_GROUP)
+    expect(groupsOf(rows[2].c)).toEqual([DEFAULT_GROUP])
     expect(names(applyFilter(rows, { ...F, group: '其他' }))).toEqual(['C'])
+  })
+  it('一人多个分组：「、」拆开，按包含匹配，两边都能筛到（B-03）', () => {
+    const rs = toRows([
+      ct({ name: '甲', group: 'Octok' }),
+      ct({ name: '乙', group: 'XAUE' }),
+      ct({ name: '丙', group: 'Octok、XAUE' }),
+      ct({ name: '丁', group: ' XAUE , Octok，XAUE ' }),
+    ])
+    expect(groupsOf(rs[2].c)).toEqual(['Octok', 'XAUE'])
+    expect(groupsOf(rs[3].c)).toEqual(['XAUE', 'Octok'])
+    expect(names(applyFilter(rs, { ...F, group: 'Octok', sort: 'name' }))).toEqual(['丙', '丁', '甲'])
+    expect(names(applyFilter(rs, { ...F, group: 'XAUE', sort: 'name' }))).toEqual(['丙', '丁', '乙'])
+    expect(applyFilter(rs, { ...F, group: 'Octok、XAUE' })).toEqual([])
+    const v = groupView([], rs.map((r) => r.c))
+    expect(v.seg.map((g) => g.key)).toEqual(['Octok', 'XAUE'])
+    expect([v.countOf('Octok'), v.countOf('XAUE')]).toEqual([3, 3])
+    expect(joinGroups(['Octok', 'XAUE'])).toBe('Octok、XAUE')
   })
   it('接口没有 im 字段时不显示渠道', () => {
     expect(hasImField(rows.map((r) => r.c))).toBe(true)
@@ -163,9 +180,17 @@ describe('抽屉（CT-03b）', () => {
 
   it('分组选项：启用的加上当前值（停用或字典里没有的也留着）', () => {
     const items = [{ key: '客户', label: '客户', color: '#000', enabled: true }, { key: '旧', label: '旧', color: '#000', enabled: false }]
-    expect(groupOptions(items, '客户').map((g) => g.key)).toEqual(['客户'])
-    expect(groupOptions(items, '旧').map((g) => g.key)).toEqual(['客户', '旧'])
-    expect(groupOptions(items, '没了').map((g) => g.key)).toEqual(['客户', '没了'])
+    expect(groupOptions(items, ['客户']).map((g) => g.key)).toEqual(['客户'])
+    expect(groupOptions(items, ['旧']).map((g) => g.key)).toEqual(['客户', '旧'])
+    expect(groupOptions(items, ['没了']).map((g) => g.key)).toEqual(['客户', '没了'])
+    expect(groupOptions(items, ['旧', '没了']).map((g) => g.key)).toEqual(['客户', '旧', '没了'])
+  })
+
+  it('点分组：多选，按选项顺序排，最后一个去不掉', () => {
+    const opts = ['客户', '同事', '其他'].map((k) => ({ key: k, label: k, color: '#000', enabled: true }))
+    expect(toggleGroup(opts, ['其他'], '客户')).toEqual(['客户', '其他'])
+    expect(toggleGroup(opts, ['客户', '其他'], '客户')).toEqual(['其他'])
+    expect(toggleGroup(opts, ['其他'], '其他')).toEqual(['其他'])
   })
 
   it('身份合进联系人：接口不能用时 im 保持 undefined', () => {

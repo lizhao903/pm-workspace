@@ -92,12 +92,16 @@ describe('联系人抽屉', () => {
     await userEvent.type(within(form).getByRole('textbox', { name: '微信编号' }), 'xuzhixing')
     await userEvent.type(within(form).getByRole('textbox', { name: 'Telegram编号' }), '@xuzx')
     await userEvent.type(within(form).getByRole('textbox', { name: '添加标签' }), '试点{Enter}')
+    // 分组可多选：默认「其他」，再点「客户」两个都选上
+    const seg = within(form).getByRole('group', { name: '分组' })
+    await userEvent.click(within(seg).getByRole('button', { name: '客户' }))
+    expect(within(seg).getByRole('button', { name: '其他' })).toHaveAttribute('aria-pressed', 'true')
     await userEvent.click(within(form).getByRole('button', { name: '创建' }))
 
     const view = await screen.findByRole('dialog', { name: '联系人 许知行' })
     const created = be.rows.find((r) => r.name === '许知行')!
     expect(created.tags).toEqual(['试点'])
-    expect(created.group).toBe('其他')
+    expect(created.group).toBe('客户、其他')
     expect(be.ids.map((i) => [i.stakeholder_id, i.channel, i.external_id])).toEqual([
       [created.id, 'wechat', 'xuzhixing'], [created.id, 'telegram', 'xuzx'],
     ])

@@ -150,3 +150,28 @@
   .lib-bar .lib-tags { margin-left: 0; }
   .ws-remove { visibility: visible; }
 }
+
+/* ---------- 新建和编辑（SPEC-library-1.40 起） ---------- */
+.lib-bar .lib-new { flex: none; margin-left: auto; }
+.lib-bar .lib-tags ~ .lib-new { margin-left: 0; }
+.lib-editor { display: flex; flex-direction: column; gap: var(--sp-5); }
+.lib-editor .reader-toolbar { margin-bottom: 0; }
+.lib-editor .lib-file-note { margin-top: 0; }
+.lib-editor-head { display: flex; gap: var(--sp-4); align-items: center; flex-wrap: wrap; }
+.lib-editor-title { flex: 1 1 260px; min-width: 0; height: 40px; font-size: var(--fs-xl); font-weight: 600; }
+.lib-editor-cat { flex: 0 1 200px; min-width: 120px; }
+.lib-editor-bad { margin-top: calc(-1 * var(--sp-3)); color: var(--danger); font-size: var(--fs-sm); }
+.lib-editor-body { display: flex; flex-direction: column; gap: var(--sp-3); }
+.lib-editor .md-head { display: flex; align-items: center; gap: var(--sp-4); }
+.lib-editor-text { width: 100%; min-height: 360px; font-family: var(--mono); font-size: var(--fs-sm); line-height: 1.7; resize: vertical; }
+.lib-editor-preview { min-height: 360px; padding: var(--sp-6) var(--sp-8); border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--panel-2); }
+
+/* 修订记录（SPEC-library-1.47） */
+.lib-revs { margin-top: 28px; padding-top: 16px; border-top: 1px solid var(--line); }
+.lib-revs-title { font-size: var(--fs-sm); font-weight: 600; color: var(--muted); margin: 0 0 8px; }
+.lib-revs-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.lib-rev { display: flex; gap: var(--sp-5); font-size: var(--fs-sm); line-height: 1.6; }
+.lib-rev-at { flex: none; width: 92px; color: var(--faint); font-variant-numeric: tabular-nums; }
+.lib-rev-actor { flex: none; max-width: 120px; color: var(--muted); }
+.lib-rev-text { min-width: 0; overflow-wrap: anywhere; }
+.lib-revs-note { color: var(--faint); font-size: var(--fs-sm); }

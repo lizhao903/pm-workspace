@@ -26,7 +26,7 @@ const NO_PROJECT = '-'
 
 export function TaskList({
   view, tasks, loading, error, onRetry, statuses, priorities, projects,
-  status, onStatus, search, onSearch, q, selected, onOpen, onNew, onToggleDone, now: nowProp, hookName = noHook, onGoHooks,
+  status, onStatus, search, onSearch, q, selected, drawerOpen, onOpen, onNew, onToggleDone, now: nowProp, hookName = noHook, onGoHooks,
 }: {
   view: TaskView
   tasks: WorkObject[]
@@ -44,6 +44,8 @@ export function TaskList({
   /** 已经发给后端的搜索词（防抖后） */
   q: string
   selected: string | null
+  /** 抽屉开着：列表窄时改成窄列（标题两行，不显示来源、负责人、截止） */
+  drawerOpen?: boolean
   onOpen: (t: WorkObject) => void
   onNew: () => void
   /** 点完成圆圈：未完成的标为完成、已完成的改回待办、待验收的先确认（由上层处理） */
@@ -150,7 +152,7 @@ export function TaskList({
     }
   } else {
     body = (
-      <div className="task-table">
+      <div className={cls('task-table', drawerOpen && 'task-table-docked')}>
         <div className="task-row task-th" aria-hidden="true"><span /><span>任务</span><span>优先级</span><span>负责人</span><span>截止</span><span>状态</span></div>
         {segs.map((s) => {
           const open = !closed.has(s.key)

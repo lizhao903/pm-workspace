@@ -38,6 +38,12 @@
 .ct-star { display: grid; place-items: center; width: 24px; height: 24px; border-radius: 5px; color: var(--line-2); flex: none; }
 .ct-star:hover { color: var(--faint); background: var(--hover); }
 .ct-star.on { color: var(--warn); }
+/* 分组：一人可在多个分组，标签排一行，放不下的截断，悬停看全部（B-03） */
+.ct-group-cell { min-width: 0; overflow: hidden; }
+.ct-groups { display: flex; align-items: center; gap: 3px; min-width: 0; max-width: 100%; }
+.ct-pill { min-width: 0; max-width: 100%; flex: 0 1 auto; }
+.ct-groups-more { flex: none; color: var(--faint); font-size: var(--fs-xs); }
+.ct-kv .ct-groups { flex-wrap: wrap; }
 .ct-im { display: inline-flex; flex-wrap: wrap; gap: 3px; }
 .ct-im-mark {
   display: inline-grid; place-items: center; height: 20px; padding: 0 5px; border-radius: 5px; font-size: var(--fs-2xs); font-weight: 600;

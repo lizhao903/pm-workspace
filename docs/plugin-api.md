@@ -229,6 +229,7 @@ type Core interface {
 	Objects() ObjectReader                   // 只读：Get(ctx, id) ObjectInfo（下面「内核对象只读句柄」）
 	Contacts() ContactReader                 // 只读：Get、FindByName
 	Conversations() ConversationReader       // 只读：IM 会话（2.13.2）
+	ConversationWriter() ConversationWriter  // 登记 IM 会话，只建不改（PR-02，2.13.5 后）
 	Identities() IdentityReader              // 只读：IM 身份（2.13.3）
 	ObjectWriter() ObjectWriter              // 建对象、追加正文（2.13.4）
 	ContactWriter() ContactWriter            // 建联系人、合并字段（2.13.5）
@@ -1095,6 +1096,22 @@ if old, err := c.Contacts().FindByName(ctx, name); err == nil {
 	_, err = c.ContactWriter().Create(ctx, plugin.NewContact{Name: name, Email: email}, meta)
 }
 ```
+
+#### `Core.ConversationWriter()`（PR-02）
+
+```go
+// internal/plugin/conversations_write.go
+type NewConversation struct {
+	Channel, ExternalID, Kind, Name string // Kind 是 group 或 direct；群没有名字时用编号，超过 100 字截断
+	Members                         []string // IM 身份 id，私聊放对方的身份
+}
+type ConversationWriter interface {
+	Ensure(ctx context.Context, in NewConversation) (info ConversationInfo, created bool, err error)
+}
+```
+
+- 谁能调：任何插件，IM 插件收消息时用。按渠道和编号找，有了原样返回（不改名字和成员），没有就建；校验同 `POST /api/conversations`，并发建撞上时取已有的。
+- 权限：不要权限。不记审计（和界面上建会话一致），建了记一行日志。
 
 #### 2.13.6 `Core.Connectors()`
 

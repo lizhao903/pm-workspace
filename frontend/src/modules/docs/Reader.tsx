@@ -1,9 +1,11 @@
 // 阅读区（SPEC-library-1.15 到 1.24）：工具条（类型、路径、目录下拉、字号、复制、星标）、标题、元信息、标签、正文、右侧目录。
 // 写法照原型 library.tsx 的 LibraryReader。本地文件打开时才读内容（/api/fs/read）。
+// 工作台文档多「编辑」「修订」（SPEC-library-1.41、1.47）；本地文件只读，没有这两个。
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { errorText, isApiError, useLocalFile, type LocalFile } from '../../core/data'
 import { Button, cls, Markdown, mdHeadings, Tag } from '../../core/ui'
 import { charCount, timeAgo, type Doc, type LibraryModel } from './model'
+import { DocRevisions } from './Revisions'
 import { StarIcon } from './Tree'
 
 type FontSize = 'sm' | 'md' | 'lg'
@@ -32,23 +34,28 @@ function fileError(e: unknown): string {
   return `读取失败：${errorText(e)}`
 }
 
-export function LibraryReader({ model, current, statusLabel, onBack, onStar, starring }: {
+export function LibraryReader({ model, current, statusLabel, catName, onBack, onStar, starring, onEdit }: {
   model: LibraryModel
   current: Doc | null
   /** 工作台文档的状态显示名，从对象类型读 */
   statusLabel: (key: string) => string
+  /** 分类 id 的显示名，修订记录用 */
+  catName: (id: string) => string
   onBack: () => void
   onStar: (doc: Doc) => void
   starring: boolean
+  onEdit: (doc: Doc) => void
 }) {
   const { rows, folder } = model
   const [size, setSize] = useState<FontSize>(readSize)
   // 「已复制」和目录下拉只对当时那篇有效，换文档自然复原（SPEC-library-1.24）
   const [copiedOf, setCopiedOf] = useState<{ id: string; ok: boolean } | null>(null)
   const [tocOf, setTocOf] = useState<string | null>(null)
+  const [revOf, setRevOf] = useState<string | null>(null)
   const id = current?.id ?? ''
   const copied = copiedOf?.id === id ? (copiedOf.ok ? 'ok' : 'fail') : ''
   const tocOpen = tocOf === id
+  const revOpen = revOf === id
   const setCopied = (ok: boolean) => setCopiedOf({ id, ok })
   const setTocOpen = (open: boolean) => setTocOf(open ? id : null)
   const readerRef = useRef<HTMLDivElement>(null)
@@ -137,6 +144,12 @@ export function LibraryReader({ model, current, statusLabel, onBack, onStar, sta
                 <StarIcon size={15} on={current.starred} />
               </button>
             )}
+            {!current.path && (
+              <>
+                <button type="button" className="act" aria-expanded={revOpen} onClick={() => setRevOf(revOpen ? null : id)}>修订</button>
+                <button type="button" className="act" onClick={() => onEdit(current)}>编辑</button>
+              </>
+            )}
           </div>
           <h1 className="reader-title">{current.title}</h1>
           <div className="reader-meta">
@@ -149,6 +162,7 @@ export function LibraryReader({ model, current, statusLabel, onBack, onStar, sta
           {current.tags.length > 0 && <div className="tags reader-tags">{current.tags.map((t) => <Tag key={t}>{t}</Tag>)}</div>}
           {loaded?.truncated && <div className="lib-file-note">文件超过 {Math.round(loaded.limit / 1024 / 1024)} MB，只显示开头</div>}
           <div className="reader-body">{content}</div>
+          {revOpen && !current.path && <DocRevisions id={current.id} catName={catName} statusLabel={statusLabel} />}
         </article>
         {headings.length > 1 && (
           <aside className="toc" aria-label="标题导航">

@@ -3,7 +3,7 @@
   "name": "项目",
   "description": "项目目录、沟通渠道绑定、项目资料、原型启停",
   "icon": "folder",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "core": ">=1.0.0 <2.0.0",
   "depends": {},
   "optional_depends": {},
@@ -17,7 +17,7 @@
     "sop_nodes": [],
     "today_cards": [],
     "commands": [],
-    "search": []
+    "search": ["projects"]
   },
   "emits": ["projects.prototype_started", "projects.prototype_stopped", "projects.prototype_deleted"],
   "subscribes": [],

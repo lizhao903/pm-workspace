@@ -89,7 +89,7 @@
 .im-menu-note { margin-left: auto; padding-left: var(--sp-6); font-size: var(--fs-2xs); color: var(--ok); }
 @container (max-width: 720px) {
   .im-msg { flex-wrap: wrap; }
-  .im-actions { width: 100%; padding-left: 46px; flex-wrap: wrap; row-gap: 6px; }
+  .im-actions { width: 100%; padding-left: 74px; flex-wrap: wrap; row-gap: 6px; }
 }
 /* 手机宽度：按钮不再缩进到头像右边；再窄就换行，不裁掉 */
 @container (max-width: 460px) {
@@ -98,6 +98,18 @@
 @media (max-width: 760px) {
   .im-toolbar .search { flex: 1 1 100%; }
 }
+
+/* ---------- 批量（PR-03） ---------- */
+.im-pick { flex: none; width: 16px; height: 16px; margin: 9px 0 0; accent-color: var(--accent); cursor: pointer; }
+span.im-pick { visibility: hidden; }
+.im-msg.picked { background: var(--accent-soft); }
+.im-conv-bar { display: flex; align-items: center; flex-wrap: wrap; gap: var(--sp-3) var(--sp-4); font-size: var(--fs-sm); color: var(--muted); }
+.im-conv-bar-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.im-bulk {
+  position: sticky; bottom: var(--sp-4); z-index: 2; display: flex; align-items: center; flex-wrap: wrap; gap: var(--sp-3);
+  padding: 10px 14px; border: 1px solid var(--line); border-radius: var(--r-lg); background: var(--panel); box-shadow: var(--shadow);
+}
+.im-bulk-n { font-size: var(--fs-sm); font-weight: 600; }
 
 /* ---------- 抽屉 ---------- */
 .im-kicker { display: inline-flex; align-items: center; gap: 6px; min-width: 0; }

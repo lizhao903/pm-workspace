@@ -218,11 +218,16 @@ func TestCallbackResolvesAndFilters(t *testing.T) {
 	if a := m["attachments"].([]any); len(a) != 1 {
 		t.Fatalf("附件原样存：%v", m["attachments"])
 	}
-	if dm := got["D09:1"]; dm["relevance"] != "dm" || dm["identity_id"] != nil || dm["conversation_id"] != nil || dm["conversation"] != "" {
+	// 没登记的会话收到时登记上（PR-02）
+	if dm := got["D09:1"]; dm["relevance"] != "dm" || dm["identity_id"] != nil || dm["conversation_id"] == nil || dm["conversation"] != "" || dm["conversation_kind"] != "direct" {
 		t.Fatalf("没登记的私聊：%v", dm)
 	}
-	if ops := got["C99:1"]; ops["relevance"] != "all" || ops["conversation_id"] != nil || ops["conversation"] != "#ops" || ops["identity_id"] != "idn_lin" {
+	if ops := got["C99:1"]; ops["relevance"] != "all" || ops["conversation_id"] == nil || ops["conversation"] != "#ops" || ops["identity_id"] != "idn_lin" {
 		t.Fatalf("没登记的群、@所有人：%v", ops)
+	}
+	var kind, name string
+	if err := e.d.R.QueryRow(`SELECT kind, name FROM conversations WHERE channel = 'slack' AND external_id = 'C99'`).Scan(&kind, &name); err != nil || kind != "group" || name != "#ops" {
+		t.Fatalf("#ops 应登记成群：%s %s %v", kind, name, err)
 	}
 	// 按时间倒序
 	_, raw := call(t, e.h, "GET", "/api/im/messages", "")
@@ -282,27 +287,84 @@ func TestCallbackResolvesAndFilters(t *testing.T) {
 	exec(t, e.d,
 		`INSERT INTO stakeholders (id, name, created_at, updated_at) VALUES ('stk_zhou', '周宇', 'x', 'x')`,
 		`INSERT INTO contact_identities (id, stakeholder_id, channel, external_id, created_at, updated_at) VALUES ('idn_zhou', 'stk_zhou', 'slack', 'U09ZHOU', 'x', 'x')`,
-		`INSERT INTO conversations (id, channel, external_id, kind, name, created_at, updated_at) VALUES ('cv_ops', 'slack', 'C99', 'group', '#ops-new', 'x', 'x')`,
+		`UPDATE conversations SET name = '#ops-new' WHERE channel = 'slack' AND external_id = 'C99'`,
 		`UPDATE conversations SET name = '#product-v2' WHERE id = 'cv_prod'`,
 	)
+	var opsID string
+	if err := e.d.R.QueryRow(`SELECT id FROM conversations WHERE channel = 'slack' AND external_id = 'C99'`).Scan(&opsID); err != nil {
+		t.Fatal(err)
+	}
 	_, got = list(t, e.h, "")
 	if dm := got["D09:1"]; dm["identity_id"] != "idn_zhou" || dm["contact_name"] != "周宇" {
 		t.Fatalf("补认发送人：%v", dm)
 	}
-	if ops := got["C99:1"]; ops["conversation_id"] != "cv_ops" || ops["conversation"] != "#ops-new" {
-		t.Fatalf("补认会话：%v", ops)
+	if ops := got["C99:1"]; ops["conversation_id"] != opsID || ops["conversation"] != "#ops-new" {
+		t.Fatalf("改群名后显示新名字：%v", ops)
 	}
 	if got["C01:1"]["conversation"] != "#product-v2" {
 		t.Fatalf("改群名不断：%v", got["C01:1"])
 	}
-	if n, got := list(t, e.h, "?conversation_id=cv_ops"); n != 1 || got["C99:1"] == nil {
-		t.Fatalf("按会话筛时算上到达时没认上的：%d", n)
+	if n, got := list(t, e.h, "?conversation_id="+opsID); n != 1 || got["C99:1"] == nil {
+		t.Fatalf("按会话筛：%d", n)
 	}
 
 	// 删身份：消息保留，id 置空
 	exec(t, e.d, `DELETE FROM contact_identities WHERE id = 'idn_lin'`)
 	if _, got := list(t, e.h, ""); got["C01:1"]["identity_id"] != nil || got["C01:1"]["sender_id"] != "U04LIN" {
 		t.Fatalf("删身份后：%v", got["C01:1"])
+	}
+}
+
+// 启用时补登记之前没登记的会话，回写会话 id；私聊带上对方的身份（PR-02）
+func TestRegisterJobBackfills(t *testing.T) {
+	e := setup(t)
+	ctx := context.Background()
+	for _, id := range []string{"imwatch", "im"} {
+		if err := e.r.Disable(ctx, id); err != nil {
+			t.Fatal(err)
+		}
+	}
+	exec(t, e.d,
+		`INSERT INTO im_messages (id, channel, external_id, conversation_external_id, conversation_kind, conversation_name, sender_external_id, sent_at, received_at)
+			VALUES ('msg_a', 'slack', 'C77:1', 'C77', 'group', '#old', 'U04LIN', '2026-10-29T01:00:00.000Z', 'x')`,
+		`INSERT INTO im_messages (id, channel, external_id, conversation_external_id, conversation_kind, conversation_name, sender_external_id, sent_at, received_at)
+			VALUES ('msg_b', 'slack', 'C77:2', 'C77', 'group', '#old-renamed', 'U04LIN', '2026-10-29T02:00:00.000Z', 'x')`,
+		`INSERT INTO im_messages (id, channel, external_id, conversation_external_id, conversation_kind, sender_external_id, sent_at, received_at)
+			VALUES ('msg_c', 'slack', 'D77:1', 'D77', 'direct', 'U04LIN', '2026-10-29T01:00:00.000Z', 'x')`,
+		`INSERT INTO im_messages (id, channel, external_id, conversation_external_id, conversation_kind, conversation_name, sender_external_id, sent_at, received_at)
+			VALUES ('msg_d', 'slack', 'C01:9', 'C01', 'group', '#product', 'U04LIN', '2026-10-29T01:00:00.000Z', 'x')`,
+	)
+	if err := e.r.Enable(ctx, "im"); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		var n int
+		_ = e.d.R.QueryRow(`SELECT count(*) FROM im_messages WHERE conversation_id IS NULL`).Scan(&n)
+		if n == 0 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("还有 %d 条没回写会话 id", n)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	var name string
+	if err := e.d.R.QueryRow(`SELECT name FROM conversations WHERE channel = 'slack' AND external_id = 'C77' AND kind = 'group'`).Scan(&name); err != nil || name != "#old-renamed" {
+		t.Fatalf("群名取最近一条：%q %v", name, err)
+	}
+	var member string
+	if err := e.d.R.QueryRow(`SELECT m.identity_id FROM conversation_members m JOIN conversations c ON c.id = m.conversation_id
+		WHERE c.external_id = 'D77' AND c.kind = 'direct'`).Scan(&member); err != nil || member != "idn_lin" {
+		t.Fatalf("私聊成员是对方的身份：%q %v", member, err)
+	}
+	var cid string
+	if err := e.d.R.QueryRow(`SELECT conversation_id FROM im_messages WHERE id = 'msg_d'`).Scan(&cid); err != nil || cid != "cv_prod" {
+		t.Fatalf("已登记的会话只回写 id：%q %v", cid, err)
+	}
+	var n int
+	if err := e.d.R.QueryRow(`SELECT count(*) FROM conversations`).Scan(&n); err != nil || n != 3 {
+		t.Fatalf("应有 3 个会话：%d %v", n, err)
 	}
 }
 

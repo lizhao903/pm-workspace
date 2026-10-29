@@ -201,6 +201,10 @@
 .qs-mode:hover { color: var(--accent); }
 
 /* ---------- 抽屉位置 ---------- */
+/* 抽屉停靠时，带 subnav-fold 的二级菜单自动收起，把宽度让给列表；关掉抽屉恢复（任务页，C-01） */
+@media (min-width: 1101px) {
+  .shell:has(> .shell-drawer:not(:empty)) > .shell-subnav:has(> .subnav-fold) { display: none; }
+}
 @media (max-width: 1100px) {
   .shell-drawer { position: fixed; top: 0; right: 0; bottom: 0; width: min(var(--drawer-w), 100%); z-index: 40; box-shadow: var(--shadow-lg); }
 }

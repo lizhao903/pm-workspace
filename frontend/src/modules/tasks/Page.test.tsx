@@ -52,14 +52,23 @@ function fakeBackend(rows: WorkObject[]) {
   return calls
 }
 
-function renderPage() {
+function renderPage(entry = '/tasks') {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-  const router = createMemoryRouter([{ path: '/tasks/*', element: <Page /> }], { initialEntries: ['/tasks'] })
-  return render(<QueryClientProvider client={qc}><RouterProvider router={router} /></QueryClientProvider>)
+  const router = createMemoryRouter([{ path: '/tasks/*', element: <Page /> }], { initialEntries: [entry] })
+  render(<QueryClientProvider client={qc}><RouterProvider router={router} /></QueryClientProvider>)
+  return router
 }
 
 describe('任务页走数据访问层', () => {
   afterEach(() => vi.unstubAllGlobals())
+
+  it('地址带 ?t=<id>（命令面板打开）：打开那条任务的抽屉，参数从地址里去掉', async () => {
+    fakeBackend([task('obj_0001', '第一条'), task('obj_0002', '命令面板搜到的')])
+    const router = renderPage('/tasks?t=obj_0002')
+    const drawer = await screen.findByRole('dialog')
+    expect(within(drawer).getByDisplayValue('命令面板搜到的')).toBeInTheDocument()
+    await waitFor(() => expect(router.state.location.search).toBe(''))
+  })
 
   it('在抽屉里改状态保存后，不刷新页面，列表分段和逾期徽标都更新', async () => {
     const calls = fakeBackend([task('obj_0001', '过期没做的', { due_at: yesterday }), task('obj_0002', '没截止的')])

@@ -80,6 +80,8 @@ func (p *Plugin) Register(r plugin.Registrar) error {
 		m.HandleFunc("POST /api/im/messages/{id}/snooze", in.snooze)
 		m.HandleFunc("POST /api/im/messages/{id}/reply", in.reply)
 		m.HandleFunc("POST /api/im/messages/{id}/task", in.toTask)
+		// 批量处理完、忽略（PR-03，actions.go）
+		m.HandleFunc("POST /api/im/messages/batch", in.batch)
 		// 附件获取（IM-04a，attachments.go）
 		m.HandleFunc("POST /api/im/messages/{id}/attachments/{attachment_id}/fetch", in.fetch)
 		m.HandleFunc("GET /api/im/attachments", in.attachmentsInfo)
@@ -95,6 +97,8 @@ func (p *Plugin) Register(r plugin.Registrar) error {
 		}
 	}
 	r.Job(plugin.Job{Name: "snooze_wake", Every: snoozeEvery, Run: in.wakeJob})
+	// 补登记之前没登记的会话，启用时跑一次（PR-02）
+	r.Job(plugin.Job{Name: "register_conversations", Run: in.registerJob})
 	r.ConnectorImpact(plugin.ConnectorImpactDef{Key: "messages", Load: messagesImpact})
 	// SOP 节点：发消息、等回复（SOP-02b，sopnodes.go）
 	in.registerSOPNodes(r)

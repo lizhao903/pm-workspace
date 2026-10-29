@@ -27,11 +27,15 @@ const msg = (p: Partial<ImMessage>): ImMessage => ({
   adapter: 'fake', task_id: null, task_ref: '', replies: [], reply_error: '', ...p,
 })
 const MSGS = [
-  msg({ id: 'msg_1', text: '@我 权限点清单整理了一版', at: '2026-10-29T03:00:00Z' }),
+  msg({ id: 'msg_1', text: '@我 权限点清单整理了一版', relevance: 'me', at: '2026-10-29T03:00:00Z' }),
   msg({ id: 'msg_2', text: '已处理的一条', status: 'done', at: '2026-10-29T02:00:00Z' }),
   msg({ id: 'msg_3', conversation_id: 'cv_ops', conversation: '#ops', text: '不该出现的运维群消息' }),
-  msg({ id: 'msg_4', conversation_id: 'cv_dm', conversation: '', conversation_kind: 'direct', text: '私聊里问进度', at: '2026-10-29T00:30:00Z' }),
+  msg({ id: 'msg_4', conversation_id: 'cv_dm', conversation: '', conversation_kind: 'direct', text: '私聊里问进度', relevance: 'dm', at: '2026-10-29T00:30:00Z' }),
+  // 群里和我无关的一句，照常列出但不算待回复（B-01）
+  msg({ id: 'msg_5', text: '好的收到', at: '2026-10-29T00:10:00Z' }),
 ]
+let contacts = [{ id: 'stk_lin', name: '林予安', company: '星河', title: 'PM', photo: '', last_contact_at: null }]
+let identities = [{ id: 'idn_lin', stakeholder_id: 'stk_lin', channel: 'slack', external_id: 'U1' }]
 
 function fakeBackend() {
   const json = (data: unknown, status = 200, total?: number) =>
@@ -44,9 +48,14 @@ function fakeBackend() {
     calls.push({ method, path: u.pathname, query: u.search, body })
     const p = u.pathname
     if (p === '/api/plugins') return json([{ id: 'im', running: imRunning }, { id: 'projects', running: true }])
+    if (p === '/api/conversations' && method === 'POST') {
+      const c = conv({ id: 'cv_new', channel: String(body?.channel), external_id: String(body?.external_id), kind: 'direct', name: '', members: body?.members as string[] })
+      CONVS.push(c)
+      return json(c, 201)
+    }
     if (p === '/api/conversations') return json(CONVS)
-    if (p === '/api/im-identities') return json([{ id: 'idn_lin', stakeholder_id: 'stk_lin', channel: 'slack', external_id: 'U1' }])
-    if (p === '/api/stakeholders') return json([{ id: 'stk_lin', name: '林予安', company: '星河', title: 'PM', photo: '', last_contact_at: null }])
+    if (p === '/api/im-identities') return json(identities)
+    if (p === '/api/stakeholders') return json(contacts)
     if (p.startsWith('/api/connectors') || p.startsWith('/api/dictionaries')) return json([])
     if (p === '/api/im/messages') {
       if (!imRunning) return notFound()
@@ -87,7 +96,14 @@ function renderTab(el = <CommsTab projectId="obj_p" />) {
 
 const PROJECT = { id: 'obj_p', ref: 'P-1', type_id: 'project', title: '工作台', body: '', status: 'active', props: null, workdir: '' } as unknown as WorkObject
 
-beforeEach(() => { imRunning = true; bound = []; calls = []; fakeBackend() })
+const BASE_CONVS = [...CONVS]
+const BASE_CONTACTS = [...contacts]
+const BASE_IDENTITIES = [...identities]
+beforeEach(() => {
+  imRunning = true; bound = []; calls = []
+  CONVS.splice(0, CONVS.length, ...BASE_CONVS); contacts = [...BASE_CONTACTS]; identities = [...BASE_IDENTITIES]
+  fakeBackend()
+})
 afterEach(() => { vi.unstubAllGlobals() })
 
 describe('沟通标签', () => {
@@ -109,10 +125,13 @@ describe('沟通标签', () => {
     // 私聊按成员认出联系人
     expect(screen.getByRole('button', { name: /私聊\s*林予安/ })).toBeInTheDocument()
     // 待回复的右侧「回复」，已处理的显示状态名
+    // 和我无关的群消息不算待回复，显示状态名（B-01）
     const rows = screen.getAllByRole('button', { name: /林予安/ }).filter((b) => b.classList.contains('pj-msg'))
-    expect(rows).toHaveLength(3)
+    expect(rows).toHaveLength(4)
     expect(within(rows[0]).getByText('回复')).toBeInTheDocument()
     expect(within(rows[1]).getByText('已处理')).toBeInTheDocument()
+    expect(within(rows[3]).getByText('待处理')).toBeInTheDocument()
+    expect(rows[3]).not.toHaveClass('pending')
   })
 
   it('点渠道只看这个渠道；点消息跳到 IM 消息页', async () => {
@@ -138,6 +157,52 @@ describe('沟通标签', () => {
     await waitFor(() => expect(screen.queryByRole('textbox', { name: '搜群名、联系人' })).not.toBeInTheDocument())
     expect(calls.find((c) => c.method === 'POST')?.body).toEqual({ conversation_id: 'cv_ops' })
     expect(await screen.findByText('不该出现的运维群消息')).toBeInTheDocument()
+  })
+
+  it('私聊候选按联系人列：有私聊会话的直接绑，没有的按 IM 身份建会话再绑，没填 IM 编号的置灰（PR-02）', async () => {
+    contacts = [...BASE_CONTACTS, { id: 'stk_xu', name: '许知行', company: '', title: '', photo: '', last_contact_at: null }]
+    identities = [...BASE_IDENTITIES, { id: 'idn_lin_tg', stakeholder_id: 'stk_lin', channel: 'telegram', external_id: '42' }]
+    bound = ['cv_dm']
+    renderTab()
+    await screen.findByText('私聊里问进度')
+    await userEvent.click(screen.getByRole('button', { name: '绑定' }))
+    const panel = screen.getByRole('textbox', { name: '搜群名、联系人' }).closest('.pj-bind') as HTMLElement
+    // Slack 私聊已绑，只剩 Telegram 一项；许知行置灰写原因
+    const xu = within(panel).getByRole('button', { name: /许知行/ })
+    expect(xu).toBeDisabled()
+    expect(xu).toHaveTextContent('先在联系人里填 IM 编号')
+    const lin = within(panel).getAllByRole('button', { name: /林予安/ })
+    expect(lin).toHaveLength(1)
+    expect(lin[0]).toHaveTextContent('星河 · Telegram')
+    await userEvent.click(lin[0])
+    await waitFor(() => expect(bound).toContain('cv_new'))
+    expect(calls.find((c) => c.method === 'POST' && c.path === '/api/conversations')?.body)
+      .toEqual({ channel: 'telegram', external_id: '42', kind: 'direct', members: ['idn_lin_tg'] })
+  })
+
+  it('私聊空状态按原因写：没有联系人 / 都绑过了 / 都没填 IM 编号', async () => {
+    contacts = []
+    const { unmount } = renderTab()
+    await screen.findByText(/还没绑定/)
+    await userEvent.click(screen.getByRole('button', { name: '绑定' }))
+    expect(await screen.findByText('还没有联系人')).toBeInTheDocument()
+    unmount()
+
+    contacts = [...BASE_CONTACTS]
+    bound = ['cv_dm']
+    const r2 = renderTab()
+    await screen.findByText('私聊里问进度')
+    await userEvent.click(screen.getByRole('button', { name: '绑定' }))
+    expect(await screen.findByText('联系人都已经绑过了')).toBeInTheDocument()
+    r2.unmount()
+
+    identities = []
+    bound = []
+    renderTab()
+    await screen.findByText(/还没绑定/)
+    await userEvent.click(screen.getByRole('button', { name: '绑定' }))
+    expect(await screen.findByText('联系人都没填 IM 编号，先在联系人里填')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /林予安/ })).toBeDisabled()
   })
 
   it('搜不到时提示，Esc 先清空再收起', async () => {

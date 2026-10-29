@@ -31,6 +31,12 @@ function fakeBackend(rows: ImMessage[], opts: { connectors?: Connector[]; replyF
     const body = init?.body ? JSON.parse(String(init.body)) : undefined
     calls.push({ method, path: u.pathname, body })
     if (u.pathname === '/api/im/messages') return json(rows, 200, { total: rows.length, limit: 200, offset: 0 })
+    if (u.pathname === '/api/im/messages/batch') {
+      const st = body.action === 'done' ? 'done' : 'ignored'
+      const hit = rows.filter((r) => r.status === 'pending' && (body.ids ? body.ids.includes(r.id) : r.conversation_id === body.conversation_id && r.at <= body.before))
+      for (const r of hit) Object.assign(r, { status: st, snooze_until: null, read: true })
+      return json({ action: body.action, ids: hit.map((r) => r.id), count: hit.length })
+    }
     const m = u.pathname.match(/^\/api\/im\/messages\/([^/]+)(?:\/([a-z]+))?$/)
     if (m) {
       const r = rows.find((x) => x.id === m[1])
@@ -90,6 +96,57 @@ describe('IM 消息页', () => {
     await userEvent.click(within(screen.getByRole('group', { name: '状态' })).getByRole('button', { name: /^已处理/ }))
     await userEvent.click(within(screen.getByRole('listitem', { name: /第一条/ })).getByRole('button', { name: '重新打开' }))
     await waitFor(() => expect(posts(calls)).toEqual(['done', 'reopen']))
+  })
+
+  it('勾选多条，底栏一次标为已处理（PR-03）', async () => {
+    const rows = [msg({ text: '第一条' }), msg({ text: '第二条' }), msg({ text: '第三条' })]
+    const calls = fakeBackend(rows)
+    renderPage()
+    await screen.findByText('3 条待处理')
+    await userEvent.click(within(screen.getByRole('listitem', { name: /第一条/ })).getByRole('checkbox'))
+    await userEvent.click(within(screen.getByRole('listitem', { name: /第二条/ })).getByRole('checkbox'))
+    const bar = screen.getByRole('toolbar', { name: '批量处理' })
+    expect(within(bar).getByText('已选 2 条')).toBeInTheDocument()
+    await userEvent.click(within(bar).getByRole('button', { name: '标为已处理' }))
+    await waitFor(() => expect(screen.getByText('1 条待处理')).toBeInTheDocument())
+    expect(calls.find((c) => c.path === '/api/im/messages/batch')?.body).toEqual({ action: 'done', ids: [rows[0].id, rows[1].id] })
+    expect(screen.queryByRole('toolbar', { name: '批量处理' })).not.toBeInTheDocument()
+    expect(screen.getByText('已把 2 条标为已处理')).toBeInTheDocument()
+  })
+
+  it('全选后忽略；勾选不打开抽屉', async () => {
+    const rows = [msg({ text: '甲' }), msg({ text: '乙' }), msg({ text: '丙', status: 'done' })]
+    const calls = fakeBackend(rows)
+    const router = renderPage()
+    await screen.findByText('2 条待处理')
+    await userEvent.click(within(screen.getByRole('listitem', { name: /甲/ })).getByRole('checkbox'))
+    expect(router.state.location.search).toBe('')
+    const bar = screen.getByRole('toolbar', { name: '批量处理' })
+    await userEvent.click(within(bar).getByRole('button', { name: '全选 2 条' }))
+    expect(within(bar).getByText('已选 2 条')).toBeInTheDocument()
+    await userEvent.click(within(bar).getByRole('button', { name: '忽略' }))
+    expect(await screen.findByText('待处理的消息都清完了')).toBeInTheDocument()
+    expect(calls.find((c) => c.path === '/api/im/messages/batch')?.body).toEqual({ action: 'ignore', ids: [rows[0].id, rows[1].id] })
+  })
+
+  it('选了会话：这个会话全部标为已处理（PR-03）', async () => {
+    const old = new Date(Date.now() - 3600_000).toISOString()
+    const rows = [
+      msg({ text: '群里一', conversation_id: 'cv_1', at: old }), msg({ text: '群里二', conversation_id: 'cv_1' }),
+      msg({ text: '别的群', conversation_id: 'cv_2', conversation: '#ops', conversation_external_id: 'C02' }),
+    ]
+    const calls = fakeBackend(rows)
+    renderPage()
+    await screen.findByText('3 条待处理')
+    expect(screen.queryByRole('button', { name: '这个会话全部标为已处理' })).not.toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: '只看某个会话' }))
+    await userEvent.click(await screen.findByRole('option', { name: /#product/ }))
+    expect(await screen.findByText('「#product」还有 2 条待处理')).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: '这个会话全部标为已处理' }))
+    await waitFor(() => expect(calls.find((c) => c.path === '/api/im/messages/batch')?.body)
+      .toEqual({ action: 'done', conversation_id: 'cv_1', before: rows[1].at }))
+    await waitFor(() => expect(screen.queryByRole('button', { name: '这个会话全部标为已处理' })).not.toBeInTheDocument())
+    expect(rows[2].status).toBe('pending')
   })
 
   it('只看 @我', async () => {

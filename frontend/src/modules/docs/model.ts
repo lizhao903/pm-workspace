@@ -198,3 +198,67 @@ export function buildTree(rows: Doc[], order?: string[]): TreeDir {
 
 /** 一个文件夹的各级父路径，含自己：a/b/c 得到 a、a/b、a/b/c */
 export const ancestors = (dirs: string[]) => dirs.map((_, i) => dirs.slice(0, i + 1).join('/'))
+
+// ---------- 新建和编辑（SPEC-library-1.40 起，C-03） ----------
+
+/** 编辑表单：标题、分类、正文 */
+export interface DocDraft { title: string; category: string; body: string }
+
+/** 分类下拉：分类树摊平，子分类显示「父 / 子」，按树里的顺序；最后是「未分类」（值为空串） */
+export function categoryOptions(tree: Category[]): { value: string; label: string }[] {
+  const out: { value: string; label: string }[] = []
+  const walk = (cs: Category[], names: string[]) => {
+    const sorted = [...cs].sort((a, b) => a.sort_order - b.sort_order || a.name.localeCompare(b.name))
+    for (const c of sorted) {
+      const path = [...names, c.name]
+      out.push({ value: c.id, label: path.join(' / ') })
+      if (c.children?.length) walk(c.children, path)
+    }
+  }
+  walk(tree, [])
+  out.push({ value: '', label: UNCATEGORIZED_LABEL })
+  return out
+}
+
+/** 新建默认分类：当前筛选是一个分类就用它，否则取排在最前的分类，没有分类就空 */
+export function defaultCategory(tree: Category[], kind: string): string {
+  if (kind && kind !== STARRED && kind !== UNCATEGORIZED && indexCategories(tree).has(kind)) return kind
+  return [...tree].sort((a, b) => a.sort_order - b.sort_order || a.name.localeCompare(b.name))[0]?.id ?? ''
+}
+
+export const draftOfObject = (o: WorkObject): DocDraft => ({ title: o.title, category: o.category_id ?? '', body: o.body ?? '' })
+
+export const sameDocDraft = (a: DocDraft, b: DocDraft) => a.title === b.title && a.category === b.category && a.body === b.body
+
+/** 编辑保存只带改过的字段；标题去首尾空白 */
+export function docPatch(base: DocDraft, d: DocDraft): { title?: string; body?: string; category_id?: string | null } {
+  const p: { title?: string; body?: string; category_id?: string | null } = {}
+  if (d.title.trim() !== base.title) p.title = d.title.trim()
+  if (d.body !== base.body) p.body = d.body
+  if (d.category !== base.category) p.category_id = d.category || null
+  return p
+}
+
+/** 修订记录里一行的说法（SPEC-library-1.47）；正文不贴全文，只说字数变化 */
+export function docRevisionText(
+  r: { field: string; old_value: string; new_value: string },
+  names: { cat: (id: string) => string; status: (key: string) => string },
+): string {
+  switch (r.field) {
+    case 'created': return '新建'
+    case 'deleted': return '删除'
+    case 'restored': return '恢复'
+    case 'title': return `标题从「${r.old_value}」改成「${r.new_value}」`
+    case 'body': {
+      const n = charCount(r.new_value) - charCount(r.old_value)
+      return `改了正文（${n > 0 ? `多 ${n} 字` : n < 0 ? `少 ${-n} 字` : '字数没变'}）`
+    }
+    case 'category_id': return `分类改成「${r.new_value ? names.cat(r.new_value) : UNCATEGORIZED_LABEL}」`
+    case 'status': return `状态从「${r.old_value ? names.status(r.old_value) : '空'}」改成「${names.status(r.new_value)}」`
+    case 'tags': return `标签改成「${r.new_value || '无'}」`
+    case 'project_id': return r.new_value ? '归到项目' : '移出项目'
+    case 'props': return '改了附加属性（星标等）'
+    case 'archived': return r.new_value ? '归档' : '取消归档'
+    default: return `改了 ${r.field}`
+  }
+}

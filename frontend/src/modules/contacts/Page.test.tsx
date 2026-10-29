@@ -69,20 +69,25 @@ describe('联系人列表', () => {
       ct({ name: '许知行', company: '远川科技', phone: '137 2233 4405', group: '客户', last_contact_at: today, starred: true }),
       ct({ name: '周岚', group: '同事' }),
       ct({ name: 'Bob', group: '' }),
+      ct({ name: '常乐', group: '客户、同事' }),
     ])
     mount()
     await screen.findByText('许知行')
     expect(sections()).toEqual(['今天', '未联系'])
     const seg = screen.getByRole('group', { name: '分组' })
-    expect(within(seg).getByRole('button', { name: /全部\s*3/ })).toHaveAttribute('aria-pressed', 'true')
+    expect(within(seg).getByRole('button', { name: /全部\s*4/ })).toHaveAttribute('aria-pressed', 'true')
+    // 多个分组的人在每个分组里各算一次，标签悬停看全部
+    expect(within(seg).getByRole('button', { name: /同事\s*2/ })).toBeInTheDocument()
+    const cl = screen.getAllByRole('row').find((r) => r.getAttribute('aria-label') === '常乐')!
+    expect(within(cl).getByTitle('客户、同事')).toBeInTheDocument()
 
     await userEvent.type(screen.getByRole('searchbox', { name: '搜索联系人' }), '13722')
     expect(rowNames()).toEqual(['许知行'])
     await userEvent.click(screen.getByRole('button', { name: '清空' }))
-    expect(rowNames()).toHaveLength(3)
+    expect(rowNames()).toHaveLength(4)
 
     await userEvent.click(within(seg).getByRole('button', { name: /同事/ }))
-    expect(rowNames()).toEqual(['周岚'])
+    expect(rowNames()).toEqual(['周岚', '常乐'].sort((x, y) => x.localeCompare(y, 'zh-CN')))
     // 没分组的算「其他」
     await userEvent.click(within(seg).getByRole('button', { name: /其他/ }))
     expect(rowNames()).toEqual(['Bob'])

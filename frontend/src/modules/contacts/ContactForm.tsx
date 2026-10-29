@@ -6,7 +6,7 @@ import {
 } from '../../core/data'
 import { Avatar, Button, Drawer, Field, Input, SearchSelect, Tag, Textarea, cls } from '../../core/ui'
 import {
-  IM_CHANNELS, SEG_MAX, dupNameText, groupOptions, validate, type Draft, type GroupItem,
+  IM_CHANNELS, SEG_MAX, dupNameText, groupOptions, joinGroups, toggleGroup, validate, type Draft, type GroupItem,
 } from './model'
 import { ImMark, PhotoPicker } from './parts'
 
@@ -55,7 +55,7 @@ export function ContactForm({ contact, initial, groups, identities, nameOf, onSa
     const im = Object.fromEntries(Object.entries(draft.im).map(([k, v]) => [k, v.trim()]).filter(([, v]) => v))
     const fields = {
       name: draft.name.trim(), company: draft.company.trim(), title: draft.title.trim(), phone: draft.phone.trim(),
-      email: draft.email.trim(), group: draft.group, tags, photo: draft.photo, note: draft.note,
+      email: draft.email.trim(), group: joinGroups(draft.group), tags, photo: draft.photo, note: draft.note,
     }
     setFailText([])
     save.mutate({ id: savedId ?? undefined, fields, im, before: mine }, {
@@ -125,16 +125,16 @@ export function ContactForm({ contact, initial, groups, identities, nameOf, onSa
           {text('company', '公司', '所在单位')}
           {text('title', '职位', '例如 IT 总监')}
         </div>
-        <Field label="分组" wrap={false}>
+        <Field label={<>分组<span className="field-hint">可多选</span></>} wrap={false}>
           {opts.length > SEG_MAX + 1 ? (
-            <SearchSelect variant="field" value={draft.group} searchPlaceholder="搜分组" aria-label="分组"
+            <SearchSelect multiple variant="field" value={draft.group} searchPlaceholder="搜分组" aria-label="分组"
               options={opts.map((g) => ({ value: g.key, label: g.label, hint: g.enabled ? undefined : '已停用' }))}
-              onChange={(v) => { if (v) set('group', v) }} />
+              onChange={(v) => { if (v.length) set('group', v) }} />
           ) : (
             <div className="seg seg-full ct-seg" role="group" aria-label="分组">
               {opts.map((g) => (
-                <button key={g.key} type="button" className={cls(draft.group === g.key && 'on')} aria-pressed={draft.group === g.key}
-                  title={g.enabled ? undefined : '已停用'} onClick={() => set('group', g.key)}>{g.label}</button>
+                <button key={g.key} type="button" className={cls(draft.group.includes(g.key) && 'on')} aria-pressed={draft.group.includes(g.key)}
+                  title={g.enabled ? undefined : '已停用'} onClick={() => set('group', toggleGroup(opts, draft.group, g.key))}>{g.label}</button>
               ))}
             </div>
           )}

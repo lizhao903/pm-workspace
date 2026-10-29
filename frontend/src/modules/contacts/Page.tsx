@@ -7,9 +7,9 @@ import { errorText, identitiesByContact, useContacts, useDictionaries, useIdenti
 import { Avatar, Button, ErrorState, IconClose, IconSearch, LoadingState, PageTitle, SearchSelect, cls } from '../../core/ui'
 import { ContactForm } from './ContactForm'
 import { ContactView } from './ContactView'
-import { GroupPill, IconPlus, ImBadges, Star } from './parts'
+import { GroupPills, IconPlus, ImBadges, Star } from './parts'
 import {
-  DEFAULT_GROUP, IM_CHANNELS, PAGE, ago, applyFilter, blankDraft, draftOf, groupItems, groupOf, groupView, hasImField, sectionCounts,
+  DEFAULT_GROUP, IM_CHANNELS, PAGE, ago, applyFilter, blankDraft, draftOf, groupItems, groupsOf, groupView, hasImField, sectionCounts,
   sectionOf, toRows, mergeIm, type Sort,
 } from './model'
 import './contacts.css'
@@ -164,7 +164,7 @@ export default function Page() {
                     </span>
                   </span>
                   <span role="cell" className="ellipsis">{c.company || <span className="faint">-</span>}</span>
-                  <span role="cell"><GroupPill items={items} g={groupOf(c)} /></span>
+                  <span role="cell" className="ct-group-cell"><GroupPills compact items={items} gs={groupsOf(c)} /></span>
                   <span role="cell" className="ct-mono ellipsis">{c.phone || <span className="faint">-</span>}</span>
                   {withIm && <span role="cell"><ImBadges im={c.im ?? {}} /></span>}
                   <span role="cell" className="ellipsis">{c.email || <span className="faint">-</span>}</span>

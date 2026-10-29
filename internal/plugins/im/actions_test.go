@@ -335,3 +335,55 @@ func TestToTaskWithoutWriter(t *testing.T) {
 		t.Fatalf("没接建对象时应 500：%d", code)
 	}
 }
+
+func TestBatch(t *testing.T) {
+	e := setupActions(t)
+	exec(t, e.st.DB(),
+		`INSERT INTO conversations (id, channel, external_id, kind, name, created_at, updated_at) VALUES ('cv_prod', 'slack', 'C01', 'group', '#product', 'x', 'x')`)
+	msg := func(ext, conv, at string) string {
+		return e.push(t, "fake", `{"external_id":"`+ext+`","conversation_id":"`+conv+`","conversation_name":"#g","sender_id":"U04LIN","text":"x","at":"`+at+`"}`)
+	}
+	a := msg("C01:1", "C01", "2026-10-01T08:00:00Z")
+	b := msg("C01:2", "C01", "2026-10-01T09:00:00Z")
+	c := msg("C01:3", "C01", "2026-10-01T10:00:00Z")
+	s := msg("C01:4", "C01", "2026-10-01T07:00:00Z")
+	o := msg("C02:1", "C02", "2026-10-01T08:00:00Z")
+	later := time.Now().Add(time.Hour).UTC().Format(time.RFC3339)
+	call(t, e.h, "POST", "/api/im/messages/"+s+"/snooze", `{"until":"`+later+`"}`)
+	status := func(id string) string {
+		_, out := call(t, e.h, "GET", "/api/im/messages/"+id, "")
+		return data(out)["status"].(string)
+	}
+
+	for _, body := range []string{`{}`, `{"action":"reopen","ids":["x"]}`, `{"action":"done"}`, `{"action":"done","ids":["x"],"conversation_id":"cv_prod","before":"` + later + `"}`,
+		`{"action":"done","conversation_id":"cv_prod"}`, `{"action":"done","conversation_id":"cv_none","before":"` + later + `"}`} {
+		if code, _ := call(t, e.h, "POST", "/api/im/messages/batch", body); code != 400 {
+			t.Errorf("%s 应 400：%d", body, code)
+		}
+	}
+
+	// 按 id：已处理的、不存在的跳过；挑中的稍后也处理
+	call(t, e.h, "POST", "/api/im/messages/"+a+"/done", "")
+	code, out := call(t, e.h, "POST", "/api/im/messages/batch", `{"action":"ignore","ids":["`+a+`","`+o+`","`+s+`","msg_none"]}`)
+	if d := data(out); code != 200 || d["count"] != float64(2) || d["action"] != "ignore" {
+		t.Fatalf("按 id：%d %v", code, out)
+	}
+	if status(a) != "done" || status(o) != "ignored" || status(s) != "ignored" {
+		t.Fatalf("按 id 后状态不对：%s %s %s", status(a), status(o), status(s))
+	}
+
+	// 按会话 + 时间点之前：c 晚于时间点不动
+	call(t, e.h, "POST", "/api/im/messages/"+s+"/reopen", "")
+	call(t, e.h, "POST", "/api/im/messages/"+s+"/snooze", `{"until":"`+later+`"}`)
+	code, out = call(t, e.h, "POST", "/api/im/messages/batch", `{"action":"done","conversation_id":"cv_prod","before":"2026-10-01T09:00:00Z"}`)
+	if d := data(out); code != 200 || d["count"] != float64(1) || d["ids"].([]any)[0] != b {
+		t.Fatalf("按会话：%d %v", code, out)
+	}
+	if status(b) != "done" || status(c) != "pending" || status(s) != "pending" {
+		t.Fatalf("按会话后状态不对：b=%s c=%s s=%s", status(b), status(c), status(s))
+	}
+	_, out = call(t, e.h, "GET", "/api/im/messages/"+b, "")
+	if m := data(out); m["read"] != true {
+		t.Fatalf("批量处理完要标已读：%v", m)
+	}
+}

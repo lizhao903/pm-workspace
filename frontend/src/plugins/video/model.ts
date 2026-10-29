@@ -5,7 +5,8 @@ import type { Video, VideoCheckpoint, VideoCheckpointStage, VideoOrientation, Vi
 export type Stage = { key: VideoStageKey; label: string; checkpoint: boolean; desc: string }
 
 export const STAGES: Stage[] = [
-  { key: 'script', label: '内容编写', checkpoint: false, desc: '口播稿、大纲，一次产出' },
+  { key: 'topic', label: '选题', checkpoint: false, desc: '这一集讲什么：从选题库挑一个，或者新建一个' },
+  { key: 'script', label: '内容编写', checkpoint: false, desc: '口播稿按比例各写一套，加大纲；可以按选题大纲起草，原文可选' },
   { key: 'plan', label: '规划检查', checkpoint: true, desc: '对齐稿子、大纲、主题、素材、开发方式和画面比例；比例定了就不能改' },
   { key: 'web', label: '网页开发', checkpoint: false, desc: '按比例搭演示工程，第 1 章完整做出来' },
   { key: 'ch1', label: '第一章验收', checkpoint: true, desc: '第 1 章是后面所有章节的样板，必须验收' },

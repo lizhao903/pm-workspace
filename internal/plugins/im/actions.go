@@ -464,3 +464,107 @@ func nonEmpty(s *string) *string {
 	v := strings.TrimSpace(*s)
 	return &v
 }
+
+// maxBatch 是批量处理一次最多带几个 id。
+const maxBatch = 500
+
+// batch 批量处理完或忽略（PR-03）：按 id 列表，或按会话 + 时间点之前。只改待处理的，别的跳过。
+// 按 id 列表时含稍后的（是挑出来的）；按会话时不含还没到点的稍后，同「待处理」视图。
+func (in *inbox) batch(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	var body struct {
+		Action         string   `json:"action"`
+		IDs            []string `json:"ids"`
+		ConversationID string   `json:"conversation_id"`
+		Before         string   `json:"before"`
+	}
+	if err := decode(r, &body, 64<<10); err != nil {
+		fail(w, r, in.c, err)
+		return
+	}
+	var set string
+	switch body.Action {
+	case "done":
+		set = `status = 'done', snooze_until = NULL, is_read = 1`
+	case "ignore":
+		set = `status = 'ignored', snooze_until = NULL, is_read = 1`
+	default:
+		fail(w, r, in.c, apiErr(errValidation, "action must be done or ignore"))
+		return
+	}
+	cid := strings.TrimSpace(body.ConversationID)
+	where := []string{"status = 'pending'"}
+	var args []any
+	switch {
+	case len(body.IDs) > 0 && cid != "":
+		fail(w, r, in.c, apiErr(errValidation, "ids and conversation_id cannot be used together"))
+		return
+	case len(body.IDs) > 0:
+		if len(body.IDs) > maxBatch {
+			fail(w, r, in.c, apiErr(errValidation, "ids must be at most %d", maxBatch))
+			return
+		}
+		ph := make([]string, len(body.IDs))
+		for i, id := range body.IDs {
+			ph[i] = "?"
+			args = append(args, id)
+		}
+		where = append(where, "id IN ("+strings.Join(ph, ",")+")")
+	case cid != "":
+		before, err := time.Parse(time.RFC3339, strings.TrimSpace(body.Before))
+		if err != nil {
+			fail(w, r, in.c, apiErr(errValidation, "before must be an RFC3339 time"))
+			return
+		}
+		cv, err := in.c.Conversations().Get(ctx, cid)
+		switch {
+		case errors.Is(err, plugin.ErrNoRows):
+			fail(w, r, in.c, apiErr(errValidation, "conversation %s not found", cid))
+			return
+		case err != nil:
+			fail(w, r, in.c, err)
+			return
+		}
+		// 会话口径同列表的 conversation_id 筛选：没认上会话的按渠道编号算进来
+		where = append(where, "(conversation_id = ? OR (conversation_id IS NULL AND channel = ? AND conversation_external_id = ?))",
+			"sent_at <= ?", "(snooze_until IS NULL OR snooze_until <= ?)")
+		args = append(args, cv.ID, cv.Channel, cv.ExternalID, before.UTC().Format(timeLayout), in.clock().UTC().Format(timeLayout))
+	default:
+		fail(w, r, in.c, apiErr(errValidation, "ids or conversation_id is required"))
+		return
+	}
+	cond := strings.Join(where, " AND ")
+	rows, err := in.c.Store().Query(ctx, `SELECT id FROM im_messages WHERE `+cond+` ORDER BY sent_at DESC, rowid DESC`, args...)
+	if err != nil {
+		fail(w, r, in.c, err)
+		return
+	}
+	ids := []string{}
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			_ = rows.Close()
+			fail(w, r, in.c, err)
+			return
+		}
+		ids = append(ids, id)
+	}
+	err = rows.Err()
+	_ = rows.Close()
+	if err != nil {
+		fail(w, r, in.c, err)
+		return
+	}
+	if len(ids) > 0 {
+		ph := make([]string, len(ids))
+		idArgs := make([]any, len(ids))
+		for i, id := range ids {
+			ph[i], idArgs[i] = "?", id
+		}
+		if _, err := in.c.Store().Exec(ctx, `UPDATE im_messages SET `+set+` WHERE status = 'pending' AND id IN (`+strings.Join(ph, ",")+`)`, idArgs...); err != nil {
+			fail(w, r, in.c, err)
+			return
+		}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"data": map[string]any{"action": body.Action, "ids": ids, "count": len(ids)}})
+}

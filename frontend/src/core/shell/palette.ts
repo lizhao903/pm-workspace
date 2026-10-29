@@ -37,3 +37,17 @@ export function filterPalette(items: readonly PaletteItem[], q: string): Palette
   const groups = [...new Set(ranked.map((x) => x.group))]
   return groups.flatMap((g) => ranked.filter((x) => x.group === g).slice(0, words.length ? MAX_PER_GROUP : MAX_IDLE))
 }
+
+// 数据源搜到的结果按这几组排（A-01）；别的组接在后面，按第一次出现的顺序
+export const SEARCH_GROUPS: readonly string[] = ['项目', '任务', '联系人', '消息']
+
+// 数据源各自返回、先后不定：按组归拢、组内保持数据源给的顺序，每组最多 MAX_PER_GROUP 条
+export function arrangeFound(items: readonly PaletteItem[]): PaletteItem[] {
+  const rank = (g: string) => {
+    const i = SEARCH_GROUPS.indexOf(g)
+    return i < 0 ? SEARCH_GROUPS.length : i
+  }
+  const groups = [...new Set(items.map((x) => x.group))]
+  const order = groups.map((g, i) => ({ g, i })).sort((a, b) => rank(a.g) - rank(b.g) || a.i - b.i).map((x) => x.g)
+  return order.flatMap((g) => items.filter((x) => x.group === g).slice(0, MAX_PER_GROUP))
+}

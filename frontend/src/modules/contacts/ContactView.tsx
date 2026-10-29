@@ -3,8 +3,8 @@
 import { useState, type ReactNode } from 'react'
 import { errorText, isApiError, useDeleteContact, useUpdateContact, type Contact } from '../../core/data'
 import { Avatar, Button, Drawer, IconButton, Tag, Tags, cls } from '../../core/ui'
-import { IM_CHANNELS, ago, deleteBlock, groupOf, type GroupItem } from './model'
-import { CopyButton, GroupPill, ImMark, PhotoPicker } from './parts'
+import { IM_CHANNELS, ago, deleteBlock, groupsOf, type GroupItem } from './model'
+import { CopyButton, GroupPills, ImMark, PhotoPicker } from './parts'
 
 type Foot =
   | { kind: 'idle' }
@@ -118,7 +118,7 @@ export function ContactView({ contact, groups, star, imCount, onEdit, onClose }:
       </div>
       {update.isError && foot.kind !== 'blocked' && <div className="ct-err" role="alert">没改成：{errorText(update.error)}</div>}
       <dl className="ct-kv">
-        <dt>分组</dt><dd><GroupPill items={groups} g={groupOf(c)} /></dd>
+        <dt>分组</dt><dd><GroupPills items={groups} gs={groupsOf(c)} /></dd>
         <dt>电话</dt><dd>{c.phone ? <><span className="ct-mono">{c.phone}</span><CopyButton text={c.phone} label="电话" /></> : none}</dd>
         <dt>邮箱</dt><dd>{c.email ? <>{c.email}<CopyButton text={c.email} label="邮箱" /></> : none}</dd>
         <dt>标签</dt><dd>{c.tags.length ? <Tags>{c.tags.map((t) => <Tag key={t}>{t}</Tag>)}</Tags> : none}</dd>
