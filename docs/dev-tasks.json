@@ -3345,6 +3345,25 @@
     ]
   },
   {
+    "key": "DOM-02c",
+    "type": "task",
+    "title": "关掉自动分配时删掉全部自动域名",
+    "milestone": "M4",
+    "module": "backend",
+    "priority": "P3",
+    "estimate": "S",
+    "depends_on": [
+      "DOM-02a"
+    ],
+    "workdir": ".",
+    "spec": [
+      "web-next/docs/spec/settings.md SPEC-settings-20.37",
+      "internal/plugins/domains/settings.go putSettings"
+    ],
+    "body": "## 背景\n\nDOM-02b 发现：`putSettings` 只在打开 `auto_proto` 时补建自动路由，关掉时不删。前端已经隐藏，但内置代理、本机状态和生成的配置里还有这些自动域名。规格 SPEC-settings-20.37 写的是关掉时删掉全部自动行。\n\n## 要做什么\n\n- 关掉 `auto_proto` 时删除全部 `auto` 路由，手动路由不动；再打开时按在跑的原型重新建。\n- 契约「内网域名插件」一节写明关掉时的行为。\n\n## 注意事项\n\n- 不改真实系统文件，不执行 sudo。",
+    "acceptance": "- [ ] 关掉后 GET 路由里没有 auto 行，按 Host 访问原来的自动域名回到工作台\n- [ ] 再打开后在跑的原型重新有自动域名\n- [ ] gofmt、go vet、go test ./... 通过，契约路由双向测试通过"
+  },
+  {
     "key": "QA-05",
     "type": "task",
     "title": "M4 端到端演练：IM 转任务再由 Agent 处理",
