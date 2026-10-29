@@ -86,6 +86,12 @@ export function whenText(iso: string | null | undefined, now: Date = new Date())
   return `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${t}`
 }
 
+/** 发布记录名「平台 · 标题」；发布记录取到了但没有这一条时「已删除的发布记录」，没取到时显示编号 */
+export function publishName(id: string, names: ActionNames): string {
+  if (!names.publishes) return `发布记录 ${id}`
+  return names.publishes[id] ?? '已删除的发布记录'
+}
+
 /** 列表里「做什么」的文字。SOP、Agent 的接口 M4 之后才有，拿不到名字时显示编号；视频发布显示发布标题 */
 export function actionText(a: ScheduleAction, names: ActionNames = {}): string {
   if (a.kind === 'task') return `建任务「${a.title || '未填标题'}」`
@@ -93,9 +99,7 @@ export function actionText(a: ScheduleAction, names: ActionNames = {}): string {
   const kind = (a as { kind: string }).kind
   if (kind === 'video_publish') {
     const id = publishIdOf(a)
-    if (!id) return '发布「未选发布记录」'
-    if (!names.publishes) return `发布记录 ${id}`
-    return names.publishes[id] !== undefined ? `发布「${names.publishes[id]}」` : '发布「已删除的发布记录」'
+    return id ? (names.publishes ? `发布「${publishName(id, names)}」` : `发布记录 ${id}`) : '发布「未选发布记录」'
   }
   if (isPluginAction(kind)) return actionLabel(kind)
   return `${a.agent_id || '未选 Agent'}：${a.prompt || '未填要求'}`

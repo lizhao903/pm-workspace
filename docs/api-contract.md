@@ -1781,6 +1781,7 @@ SOP-02b。IM 插件经 SOP 节点扩展点（`docs/plugin-api.md` 2.7）登记�
 - `conversation` 是会话 id（见「会话 conversations」），可以写 `{{conversation_id}}` 从输入里取；会话不存在时步骤失败，`error` 是 `会话 cv_x 不存在`。
 - **发消息**：内容按输入替换 `{{字段}}`（取不到的留空，写法同 SOP 的模板），替换后为空失败（`要发的内容是空的`），最多 4000 字。连接器和适配器按这个会话最近收到的一条消息定：一条都没收到过时失败（`「#product」里还没收到过消息，不知道用哪个连接器发`）；拦截口径同「处理动作」的回复，只能发到 `direction` 为 `both` 的连接器，被拦时 `error` 是那张表里的 `message`（如 `连接器「Slack 只收」设置为只收消息`）。发给渠道的是会话编号，不串在某条消息下面；私聊另带对方编号。发送超时 15 秒；渠道发送失败时步骤失败，`error` 是 `发送失败：<渠道给的原因>`，不重试。成功时输出是输入加上 `sent: {conversation_id, conversation, channel, connector_id, text, external_id, at}`。发送不记在消息的回复里。
 - **发送记审计**：成功、失败各记一条，`kind: "agent"`、`action: "send"`、`target_type: "conversation"`、`target_id` 是会话 id，操作者 `im#<运行 id>`、`source: "plugin"`；`summary` 例 `发消息到「#product」`、`发消息到「#product」失败`；`detail` 有 `status`（`sent` / `failed`）、`channel`、`connector_id`、`adapter`、`conversation`、`text`（前 500 字）、`external_id` 或 `error`，以及 `run_id`、`flow_id`、`step`、`attempt`、`write_key`。
+- **重启不重复发**（POL-02）：`write_key` 是 `<运行 id>/<步骤 key>#<尝试次数>`（同写节点）。发之前按这个键查本插件记过的 `send` 审计：这次尝试已经发成过（服务重启后重跑同一次尝试）就不再发，输出取回上次的，`sent` 里 `at` 是上次发出的时间、另带 `reused: true`；发失败过就回上次的 `发送失败：…`，也不再发。重试、退回重做是新的一次尝试，会再发。渠道已经发出、审计还没落下的那一瞬间退出时仍可能重发。
 - **等回复**：步骤挂起（`running`，日志 `挂起：等「#product」里对方回复，最多等 1 小时，等插件唤醒`），等待落在 `im_sop_waits`，服务重启后接着等。插件后台任务（约每 3 秒）看这个会话里挂起之后发的消息（按 `at`），发送人的编号或名字是「我」的称呼的不算（口径同「与我相关」：适配器给的加连接器账号拆出来的）。收到对方的消息时唤醒，这一步 `done`，输出是输入加上 `reply: {message_id, conversation_id, conversation, channel, text, sender_id, sender_name, stakeholder_id, contact_name, at}`。
 - `timeout` 写法同等待节点：`30 分钟`、`1 小时`、`2 天`，也认 `90s`、`1h30m`；留空是 1 小时，最多 30 天，写错或超过时步骤失败。到点还没等到时步骤失败，`error` 例 `等了 1 小时，「#product」里对方还没回复（超时）`。失败走内核句柄 `SOP().Fail`（SOP-02b 新加，和 `Resume` 一样只能结束自己提供的、挂起中的步骤）。
 - 唤醒没成（执行还没调度上、SOP 插件没在跑）的留到下一轮再试；到点后不管成没成都删掉这条等待。重试、退回重做后再挂起，按新的一次重新计时。
@@ -1929,7 +1930,7 @@ SOP-01b 起。执行语义同原型 `web-next/src/sopflow.ts` 的 `startRun`、`
 
 条件分支规则（`SopStepDef.rule`，一行）：`字段 等于 值`、`字段 包含 值`，另有 `不等于`、`不包含`。字段写法同模板；值可以加引号（`"…"`、`'…'`、`「…」`）。`等于` 按文字比；`包含` 对文字是子串，对列表是有一项等于这个值。成立走第一个分支（`cases[0]`），不成立走第二个（`cases[1]`），`route_reason` 是 `规则「…」成立` / `不成立`。写法不认时这一步失败。
 
-断点续跑：服务启动（或插件启用）时，没结束也没终止的执行接着调度。停在 `running` 的步骤重跑一次，`attempts` 加 1、日志「服务重启后重跑」；写节点按原来那次尝试重跑，`attempts` 不变、日志「服务重启后重跑，这次尝试写过的不再写」；`wait` 按原来的 `wake_at` 继续（日志「服务重启后继续等待，到点时间不变」），`subflow` 接着等已经起了的子执行；`paused`、`review`、`failed` 原样等人。
+断点续跑：服务启动（或插件启用）时，没结束也没终止的执行接着调度。停在 `running` 的步骤重跑一次，`attempts` 加 1、日志「服务重启后重跑」；写节点按原来那次尝试重跑，`attempts` 不变、日志「服务重启后重跑，这次尝试写过的不再写」；插件节点（没在挂起的）也按原来那次尝试重跑，`attempts` 不变、日志「服务重启后重跑同一次尝试」，由插件按运行 id、步骤 key、尝试次数去重（POL-02）；`wait` 按原来的 `wake_at` 继续（日志「服务重启后继续等待，到点时间不变」），`subflow` 接着等已经起了的子执行；`paused`、`review`、`failed` 原样等人。
 
 事件（清单 `emits`）：`sop.run_status_changed` `{run_id, flow_id, from, to}`（发起时 `from` 为空串）、`sop.step_status_changed` `{run_id, step, from, to, attempts}`，写库后发。
 
@@ -2141,7 +2142,7 @@ VID-01a 起。插件 `video`（`internal/plugins/video`，清单 `plugin.json`�
 阶段执行器（VID-03b，同原型 `StageRunner`、`LastRun` 和视频详情的 `run`）：`Video` 多两个字段 `runners`、`last_run?`。
 
 - `runners` 是 `{stage, type, ref_id, prompt?}[]`，按阶段先后排，没配是 `[]`。能配的阶段同原型 `RUN_KINDS`：`script`、`web`、`chapters`、`audio`、`record`、`distribution`；`plan`、`ch1` 只有人能做，400「「规划检查」只有人能做，不能配执行器」。`type` 是 `skill` / `sop` / `agent`，必填；`ref_id` 必填，最多 100 字：技能是技能 id，现在只认 `sk_video`（网页演示做视频，即本机 Claude Code 的 web-video-presentation 技能），别的 400；SOP 是流程 id 或名称，Agent 是 id 或名称，插件读不到这两张表，**只存不查**，跑的时候才知道在不在。`prompt` 最多 2000 字。
-- `last_run` 是最近一次执行 `{type, id, stage, status, started_at, ended_at?, error?, artifact_ids?, ref?}`，没跑过不返回。`type` 是 `agent`（技能和 Agent 都按 Agent 运行记，同原型）或 `sop`；`id` 是内核插件运行的 id（`run_`，`Core.Runs`，只在进程内存里，没有查询接口），发起时就失败的为空串；`ref` 是原型没有的，Agent 会话 id（`ags_`）或 SOP 执行 id（`spr_`）。`status` 是 `running` / `done` / `failed`；`artifact_ids` 是这次登记或升版的产出物。
+- `last_run` 是最近一次执行 `{type, id, stage, status, started_at, ended_at?, error?, artifact_ids?, ref?}`，没跑过不返回。`type` 是 `agent`（技能和 Agent 都按 Agent 运行记，同原型）或 `sop`；`id` 是内核插件运行的 id（`run_`，`Core.Runs`，只在进程内存里，没有查询接口），发起时就失败的为空串；`ref` 是原型没有的，Agent 会话 id（`ags_`）或 SOP 执行 id（`spr_`）：SOP 发起成功时就写上，运行中也能查这次执行（POL-02）；Agent 的会话 id 跑完才有。`status` 是 `running` / `done` / `failed`；`artifact_ids` 是这次登记或升版的产出物。
 - 跑之前的检查，不过 409 并说明原因，**不记执行**：这个阶段前面的检查点都要通过或跳过，否则 409「「规划检查」还没通过，不能开始「网页开发」」（退回的是「被退回了，改好通过后才能开始……」）；只能跑视频当前所在的阶段（409「视频还在「内容编写」，做到「网页开发」再跑」或「视频已经过了……只能跑当前阶段」）；检查点阶段（`audio`、`distribution`）已经确认过的 409；没配执行器 409；这个视频有执行在跑 409「正在跑，等它跑完再试」（同一视频同一时间只跑一条，靠表上的部分唯一索引，并发时也是 409）。
 - 发起：技能交给本机 Claude Code（`Core.Runs().StartClaudeCode`，放开写文件，产物归属 `video` + 视频 id），工作目录是视频的 `root`：绝对路径直接用；相对路径接在所属项目（`project_id`）的工作区目录后面，不能越出去；提示词写明用 web-video-presentation 技能、这个阶段对应的 Phase（`script` 是 Phase 1，`web` 是 2.1 加 2.2 第 1 章，`chapters` 是 2.3、2.4，`audio` 是 3，`record` 是 4，`distribution` 是 5）、标题、画面比例（两个方向提示布局 B）、章节数、执行器的 `prompt`，并要求做完这一阶段就停。Agent 用 `StartAgent`（提示词同上，工程目录写在提示词里），SOP 用 `StartSOP`，入参 `{video_id, title, stage, root, prompt}`。
 - **发起时就失败的记一条失败的执行，回 200**（同原型 `runError`）：这一阶段的产出物按比例区分但视频还没选比例「还没定画面比例，先在规划检查里选好」、工程目录没填或是相对路径又没挂有工作区目录的项目、目录不存在或不可写（文案同任务执行）、没确认 `process:spawn`、SOP 插件没启用、本机 Claude Code 或 Agent 没接上、流程不存在等。

@@ -68,7 +68,7 @@ describe('今日页的纯函数', () => {
 
   it('连接异常只算 status=error 的连接器', () => {
     const rows = [{ id: '1', name: '甲', status: 'error', error: '凭证失效' }, { id: '2', name: '乙', status: 'paused', error: '' }] as Connector[]
-    expect(connectorNeeds(rows)).toEqual([{ id: '1', tone: 'danger', title: '连接器「甲」异常', sub: '凭证失效', action: '去修复', to: '/settings/connectors' }])
+    expect(connectorNeeds(rows)).toEqual([{ id: '1', tone: 'danger', title: '连接器「甲」异常', sub: '凭证失效', action: '去修复', to: '/settings/connectors?connector=1' }])
   })
 
   it('任务待验收的说明：操作者提交验收，带项目名；没有提交验收的进展时等你验收', () => {

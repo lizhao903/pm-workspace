@@ -1,7 +1,7 @@
 // 今日页的纯函数：问候语、今天的任务、插件卡片合并。规格见 web-next/docs/spec/today.md SPEC-today-1。
 import type { ComponentType } from 'react'
 import type { PluginTodayCard, TodayItem, TodayTone } from '../../core/plugin'
-import type { Connector, DictItem, Progress, TodayCard, WorkObject } from '../../core/data'
+import { connectorsPagePath, type Connector, type DictItem, type Progress, type TodayCard, type WorkObject } from '../../core/data'
 
 /** 每组需要处理的事露几条，今天的任务露几条，自动执行、正在运行各露几条 */
 export const NEED_SHOW = 3
@@ -133,10 +133,10 @@ export function needGroups(groups: readonly NeedGroup[]): NeedGroup[] {
     .sort((a, b) => a[0].order - b[0].order || a[1] - b[1]).map(([g]) => ({ ...g, items: [...g.items].sort(byUrgency) }))
 }
 
-/** 连接异常（SPEC-today-1.4）：连接器 status=error；没有时间，点了去设置的连接器 */
+/** 连接异常（SPEC-today-1.4）：连接器 status=error；没有时间，点了去设置的连接器并打开这个实例的抽屉 */
 export function connectorNeeds(rows: readonly Connector[]): TodayItem[] {
   return rows.filter((c) => c.status === 'error').map((c) => ({
-    id: c.id, tone: 'danger', title: `连接器「${c.name}」异常`, sub: c.error, action: '去修复', to: '/settings/connectors',
+    id: c.id, tone: 'danger', title: `连接器「${c.name}」异常`, sub: c.error, action: '去修复', to: connectorsPagePath({ connector: c.id }),
   }))
 }
 

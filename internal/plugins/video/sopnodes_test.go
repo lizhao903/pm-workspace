@@ -456,3 +456,28 @@ func TestWeeklyTemplateWaitsForSOP(t *testing.T) {
 		t.Fatal("没有 SOP 插件不该记写过")
 	}
 }
+
+// SOP 执行器运行中 last_run.ref 就是 SOP 执行 id，能直接查这次执行（POL-02）
+func TestSOPRunnerRefWhileRunning(t *testing.T) {
+	fastSOP(t)
+	e := setupWith(t, sop.New())
+	v := mustCall(t, e.h, "POST", "/api/video/videos", `{"title":"第 29 集：执行中","orientations":["landscape"],"root":"`+t.TempDir()+`","chapters":2}`, 201)
+	vid := v["id"].(string)
+	atScript(t, e, vid)
+	fid := mustCall(t, e.h, "POST", "/api/sop/flows", `{"name":"人工把关","steps":[{"key":"chk","name":"检查","kind":"review"}]}`, 201)["id"].(string)
+	path := "/api/video/videos/" + vid
+	mustCall(t, e.h, "PUT", path+"/runners/script", `{"type":"sop","ref_id":"`+fid+`"}`, 200)
+	got := mustCall(t, e.h, "POST", path+"/runners/script/run", "", 202)
+	lr, _ := got["last_run"].(map[string]any)
+	ref, _ := lr["ref"].(string)
+	if lr["status"] != "running" || lr["type"] != "sop" || !strings.HasPrefix(ref, "spr") {
+		t.Fatalf("运行中的 last_run：%v", lr)
+	}
+	run := untilStep(t, e, ref, "chk", "停在检查", func(s map[string]any) bool { return s["status"] == "review" })
+	if run["flow_id"] != fid || run["status"] == "done" {
+		t.Fatalf("last_run.ref 指向的执行：%v", run)
+	}
+	if lr := mustCall(t, e.h, "GET", path, "", 200)["last_run"].(map[string]any); lr["status"] != "running" || lr["ref"] != ref {
+		t.Fatalf("读视频时的 last_run：%v", lr)
+	}
+}

@@ -674,7 +674,7 @@ type SOPNodeDef struct {
 }
 type SOPNodeInput struct {
 	RunID, FlowID, Step string // Step 是步骤 key，唤醒时用
-	Attempt             int    // 从 1 起，重试、退回重做加 1
+	Attempt             int    // 从 1 起，重试、退回重做加 1；服务重启后重跑同一次尝试不加（POL-02）
 	Input               map[string]any
 	Config              map[string]string
 }
@@ -688,6 +688,7 @@ type SOPNodeInput struct {
 - 内核只存登记，执行由 SOP 插件经 `Core.SOP()` 取到：`Nodes()` 是在跑的插件登记的节点（`Source` 为插件 id），`RunNode` 用提供方的 Core 跑一次（panic 转成错误），提供方没在跑回 `ErrNodeUnavailable`（「提供这个节点的插件已停用」）。
 - `GET /api/sop/node-types` 在内置节点后面接上插件节点，带 `source`；停用后消失。用到它的流程定义不动，保存照常（不查必填项），执行到这一步失败并写「提供这个节点的插件已停用」。
 - 挂起：`Run` 返回 `ErrWaiting`（可以包一层写原因，如 `fmt.Errorf("等对方回复：%w", plugin.ErrWaiting)`）时步骤停在 `running`，挂起状态落在步骤输出里，服务重启后不重跑、接着等。之后提供节点的插件调 `c.SOP().Resume(ctx, runID, step, output)` 唤醒，这一步 `done`、输出是 `output`，下游接着跑；只能唤醒自己提供的节点，步骤没在等、执行已结束都回错误。SOP 插件没在跑时回 `ErrNoSOPEngine`。`Resume` 要在 `Run` 返回之后调，先存下 `RunID`、`Step`。
+- 重启重跑（POL-02）：没在挂起、停在 `running` 的插件节点，服务重启后按原来那次尝试重跑，`Attempt` 不变（同写节点）。有对外副作用的节点按「运行 id/步骤 key#尝试次数」去重，例：IM 发消息先 `Core.Audit().Find` 查这次尝试发过没有（2.13.12）。
 - 挂起后要让步骤失败（例：等回复超时）调 `c.SOP().Fail(ctx, runID, step, reason)`（SOP-02b），这一步 `failed`、`error` 是 `reason`，校验同 `Resume`。
 - `Registrar.SOPEngine` 只给 SOP 编排插件用（别的插件登记直接失败），是 `Resume`、`Fail` 的接收方；另外实现 `SOPFlowInstaller` 才接得住 `InstallFlow`、`RemoveFlow`。
 - 前端登记（`SopNodeRegistry`）SOP-03b 已实现，见 2.13.18。示例插件 `internal/plugin/plugintest` 登记了 `demo_wait_reply` 用来测试；第一方节点是 SOP-02b 的 IM 发消息 `im_send_message`、等回复 `im_wait_reply`（契约「IM 消息插件 im」的「SOP 节点」）。
@@ -1307,14 +1308,21 @@ type AuditNote struct {
 	Summary    string
 	Detail     map[string]any
 }
+type NotedAudit struct {
+	TargetID, Summary, At string // At 同库里的写法（UTC，到毫秒）
+	Detail                map[string]any
+}
 type AuditLog interface {
 	Note(ctx context.Context, n AuditNote, m WriteMeta)
+	// Find 按幂等键查本插件、同一会话记过的同一动作，取最早一条；没有或 m.Key 为空回 false（POL-02）
+	Find(ctx context.Context, action, targetType string, m WriteMeta) (NotedAudit, bool, error)
 }
 ```
 
 - 谁能调：任何插件。用在没有内核写入可挂的对外动作上（例：IM 插件在 SOP 里发消息）；建对象、写联系人用 `ObjectWriter().CreateAs`、`ContactWriter()`，它们自己记审计，不用再调。
 - 权限：不要权限。
 - 口径同 2.0「带操作者和审计的写入」：`kind` 为 `agent`、`source` 为 `plugin`，操作者「插件 id#`WriteMeta.Session`」；`n.Detail` 优先，`m.Detail` 里没冲突的键补进去，`m.Key` 记成 `detail.write_key`。没有返回值：写失败只记日志（同 CORE-08），不挡调用方。
+- `Find`（POL-02）：按 `m.Session` 拼出的操作者、`action`、`target_type`、`detail.write_key = m.Key` 查。用来让对外动作在服务重启后不重复做：SOP 插件节点重启后按原来那次尝试重跑（`Attempt` 不变），节点先查这次尝试记过没有，记过就取回上次的结果（例：IM 发消息）。
 
 例子（`internal/plugins/im/sopnodes.go`）：
 

@@ -19,6 +19,8 @@
 .sk-agent { background: var(--hover); color: var(--muted); }
 /* 视频插件的到点发布（VID-06d） */
 .sched-plugin-acts { display: flex; flex-wrap: wrap; gap: 8px; }
+.sched-readonly { color: var(--text); line-height: 1.6; overflow-wrap: anywhere; }
+.sched-pub-name { color: var(--text); font-weight: 500; overflow-wrap: anywhere; }
 .sk-video_publish { background: color-mix(in srgb, var(--warn) 12%, transparent); color: var(--warn); }
 .sched-next { color: var(--text); font-weight: 500; }
 .sched-alert { display: flex; align-items: center; gap: var(--sp-4); }

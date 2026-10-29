@@ -1,7 +1,7 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { MemoryRouter } from 'react-router'
+import { MemoryRouter, useLocation } from 'react-router'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { BrowserGoogleState, BrowserTabRecord } from '../../core/data'
 import Page from './Page'
@@ -65,9 +65,14 @@ function fakeBackend(opts: { tabs?: BrowserTabRecord[]; google?: BrowserGoogleSt
   return { calls, st }
 }
 
+function Loc() {
+  const l = useLocation()
+  return <output data-testid="loc">{l.pathname + l.search}</output>
+}
+
 function renderPage(path = '/browser') {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-  return render(<QueryClientProvider client={qc}><MemoryRouter initialEntries={[path]}><Page /></MemoryRouter></QueryClientProvider>)
+  return render(<QueryClientProvider client={qc}><MemoryRouter initialEntries={[path]}><Page /><Loc /></MemoryRouter></QueryClientProvider>)
 }
 
 const tabs = () => screen.getAllByRole('tab')
@@ -185,7 +190,9 @@ describe('浏览器页', () => {
     await user.click(screen.getAllByRole('button', { name: '登录 Google' })[0])
     const dlg = await screen.findByRole('dialog', { name: '登录 Google' })
     await waitFor(() => expect(within(dlg).getByText(/先在设置 \/ 连接器里配好 Google Drive 的 OAuth 客户端/)).toBeInTheDocument())
-    expect(within(dlg).getByRole('button', { name: '去配置' })).toBeInTheDocument()
+    await user.click(within(dlg).getByRole('button', { name: '去配置' }))
+    // 没有 Drive 实例时按工具打开新建抽屉（POL-01）
+    await waitFor(() => expect(screen.getByTestId('loc')).toHaveTextContent('/settings/connectors?tool=gdrive'))
   })
 
   it('登录：允许后新窗口打开授权页，轮询到授权完成就关弹窗换成头像', async () => {

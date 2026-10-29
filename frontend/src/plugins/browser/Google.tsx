@@ -6,10 +6,10 @@ import { useEffect, useRef, useState, type MouseEvent as ReactMouseEvent } from 
 import { useNavigate } from 'react-router'
 import { Avatar, Button, Checkbox, cls } from '../../core/ui'
 import {
-  errorText, isApiError, useBrowserGoogle, useBrowserGoogleLogin, useBrowserGoogleLogout, useNotifyChange,
+  connectorsPagePath, errorText, isApiError, useBrowserGoogle, useBrowserGoogleLogin, useBrowserGoogleLogout, useNotifyChange,
   type BrowserGoogleLogin, type BrowserGoogleState,
 } from '../../core/data'
-import { GOOGLE_SCOPES, oauthReturnTo, timeAgo } from './model'
+import { GDRIVE_TOOL, GOOGLE_SCOPES, oauthReturnTo, timeAgo } from './model'
 
 /** 等授权完成时多久看一次 */
 export const GOOGLE_POLL_MS = 2000
@@ -115,6 +115,8 @@ export function LoginDialog({ google, onClose }: { google: BrowserGoogleState | 
   const g = state.data ?? google
   const hasCalendar = !!g?.calendar
   const notConfigured = !!g && !g.configured
+  // 「去配置」直接打开 Drive 实例的抽屉，还没有实例时打开新建（POL-01）
+  const configure = () => { onClose(); void navigate(connectorsPagePath(g?.drive ? { connector: g.drive.id } : { tool: GDRIVE_TOOL })) }
 
   const finish = () => {
     void notify({ kind: 'browser-google' })
@@ -189,7 +191,7 @@ export function LoginDialog({ google, onClose }: { google: BrowserGoogleState | 
           <div className="br-modal-foot">
             <Button onClick={onClose}>取消</Button>
             <span className="spacer" />
-            <Button variant="primary" onClick={() => { onClose(); void navigate('/settings/connectors') }}>去配置</Button>
+            <Button variant="primary" onClick={configure}>去配置</Button>
           </div>
         </>}
 
@@ -248,7 +250,7 @@ export function LoginDialog({ google, onClose }: { google: BrowserGoogleState | 
             <Button onClick={onClose}>取消</Button>
             <span className="spacer" />
             {error === NOT_CONFIGURED
-              ? <Button variant="primary" onClick={() => { onClose(); void navigate('/settings/connectors') }}>去配置</Button>
+              ? <Button variant="primary" onClick={configure}>去配置</Button>
               : <Button variant="primary" onClick={() => setStep('consent')}>重试</Button>}
           </div>
         </>}
