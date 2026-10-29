@@ -2314,6 +2314,28 @@
     "acceptance": "- [ ] 新增权限没确认时 http 节点失败并给出上面的错误，确认后成功（Go 测试）\n- [ ] upgrade 不带权限回 409 列出新增项，带上后 installed_version 更新\n- [ ] 已确认 process:spawn 的 projects、terminal 行为不变\n- [ ] `file://` 开头的项目根目录在终端和原型启动里能用\n- [ ] gofmt、go vet、go test ./... 通过；改了前端就跑 npm test、typecheck、lint、build"
   },
   {
+    "key": "SHELL-01",
+    "type": "task",
+    "title": "外壳按模块认插件和图标，补几处跨模块跳转",
+    "milestone": "M4",
+    "module": "frontend",
+    "priority": "P1",
+    "estimate": "S",
+    "depends_on": [
+      "VID-01a",
+      "TRD-01a",
+      "AG-01b5",
+      "AG-01b7"
+    ],
+    "workdir": "frontend",
+    "spec": [
+      "frontend/src/core/shell/workspace.ts pluginOfModule",
+      "web-next/src/App.tsx 菜单图标"
+    ],
+    "body": "## 背景\n\n第三十批 VID-01a、TRD-01a 报的外壳问题：\n\n- 0023 的 `ws_video` 模板写的模块是 `videos`，插件 id 是 `video`；交易套件四个模块 markets、monitor、strategy、trading 都属于插件 `trade`。`workspace.ts` 按模块 key 推插件 id，切到视频或交易工作台会提示「尚未提供」。\n- 菜单图标按插件取，交易四个模块都显示 candles，原型是 candles、pulse、chart、swap。\n- 知识库页点 Agent 跳 `/settings/agents?agent=<id>`，要确认 Agent 配置页认这个参数。\n- vitest 的模块缓存会留着 `import.meta.glob` 的旧结果，新加插件目录后测试找不到插件，要写进 frontend/README。\n\n## 要做什么\n\n- 模块到插件的对应以插件清单 `provides.modules` 为准，不再从模块 key 推；切工作台的缺插件提示按这个认。\n- 插件清单的 `icon` 支持按模块给（例如 `icons: {markets: \"candles\", ...}`，只加不改），没给的模块用插件的 icon。\n- Agent 配置页认 `?agent=` 打开对应 Agent。\n- frontend/README 加一节：新加插件目录后先 `npx vitest --clearCache`。\n\n## 注意事项\n\n- 迁移 0023 不能改。\n- 改清单结构要前后端两套校验一起改，同步 plugin-api.md。",
+    "acceptance": "- [ ] 切到视频创作、交易工作台不再提示「尚未提供」（插件启用时）\n- [ ] 交易四个模块菜单图标和原型一致\n- [ ] 知识库页点 Agent 能打开对应 Agent 的配置页\n- [ ] npm test、typecheck、lint、build、smoke-frontend 通过；改了后端就跑 go test"
+  },
+  {
     "key": "PROTO-04f1",
     "type": "task",
     "title": "整理 SOP 编排模块的规格包",
