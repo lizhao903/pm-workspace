@@ -2294,6 +2294,26 @@
     "acceptance": "- [ ] 带 project_id 建会话、不传 cwd 时 pwd 是项目根目录\n- [ ] gofmt、go vet、go test 通过"
   },
   {
+    "key": "SEC-01",
+    "type": "task",
+    "title": "插件权限在运行时强制：升级新增的权限没确认时不能用",
+    "milestone": "M4",
+    "module": "backend",
+    "priority": "P1",
+    "estimate": "M",
+    "depends_on": [
+      "SOP-01c",
+      "CORE-04b"
+    ],
+    "workdir": ".",
+    "spec": [
+      "docs/plugin-api.md 权限一节、4.5 升级（「升级时新增了权限，用户不确认就停在旧版本」）",
+      "internal/plugins/sop/nodes_ai.go 的 http 节点"
+    ],
+    "body": "## 背景\n\n第二十九批 sop 升到 0.3.0，新增高风险权限 `network:any`。7796 上 sop 显示 `installed_version 0.2.0`、`upgradable: true`、`permissions_confirmed: []`，但插件编译进二进制，跑的已经是 0.3.0 的代码，HTTP 节点不用确认就能出网。规格说的「停在旧版本」在编译进二进制的插件上做不到。\n\n## 要做什么\n\n- 内核给插件一个查询句柄（例如 `Core.Granted(perm) bool`），只认 `permissions_confirmed` 里的。\n- 需要高风险权限的代码路径在执行前检查：sop 的 http 节点没确认 `network:any` 时这一步失败，错误写「插件 sop 的 network:any 权限还没确认，到插件管理里升级并确认」；projects、terminal 的 `process:spawn` 同样检查（它们安装时已确认，行为不变）。\n- `POST /api/plugins/{id}/upgrade` 带 `permissions` 确认新增权限，不确认回 409 并列出新增的；确认后 `installed_version` 更新。插件管理页如果还没有升级入口，在前端插件管理页加上（只加升级按钮和确认新增权限）。\n- plugin-api.md 4.5 改写：编译进二进制的插件升级时，新增权限的代码路径在确认前被拦，其余功能照常。\n- 顺带修 TERM-01c 记的：项目根目录存成 `file://` 地址时去掉前缀再用（终端和原型启动都要认）。\n\n## 注意事项\n\n- 不加内核迁移，除非权限确认状态现在不落库。\n- 改 `internal/plugin` 要同步 `docs/plugin-api.md`。",
+    "acceptance": "- [ ] 新增权限没确认时 http 节点失败并给出上面的错误，确认后成功（Go 测试）\n- [ ] upgrade 不带权限回 409 列出新增项，带上后 installed_version 更新\n- [ ] 已确认 process:spawn 的 projects、terminal 行为不变\n- [ ] `file://` 开头的项目根目录在终端和原型启动里能用\n- [ ] gofmt、go vet、go test ./... 通过；改了前端就跑 npm test、typecheck、lint、build"
+  },
+  {
     "key": "PROTO-04f1",
     "type": "task",
     "title": "整理 SOP 编排模块的规格包",
