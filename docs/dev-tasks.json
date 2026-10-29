@@ -4130,6 +4130,68 @@
     "scope": "frontend/src/plugins/video/**"
   },
   {
+    "key": "VID-09p",
+    "type": "task",
+    "title": "原型补视频流程的「选题」一步和「内容编写」的操作区",
+    "milestone": "M5",
+    "module": "proto",
+    "priority": "P1",
+    "estimate": "M",
+    "depends_on": [
+      "VID-03p"
+    ],
+    "workdir": "web-next",
+    "spec": [
+      "web-next/src/videodata.ts STAGES、Video、Artifact",
+      "web-next/src/videos.tsx 视频详情的制作流程",
+      "web-next/src/topics.tsx",
+      "web-next/docs/spec/videos.md"
+    ],
+    "body": "## 背景\n\n用户 2026-10-29 反馈：「现在视频制作流程少了选题和内容编写过程，没有可以操作的入口」。现在流程第一步就是「内容编写」，而且这一步只能登记产出物路径；选题和视频之间也只有选题抽屉里「立项」这一个方向。\n\n## 要做什么\n\n- 流程最前面加「选题」一步（不是检查点）：显示这一集来自哪个选题（标题、角度、受众、打分、大纲，点了打开选题抽屉）；没有选题的视频给「从选题库选一个」「新建选题」两个入口，选定后回写选题的 video_id、状态改「已做成」；能换选题。确认选题后进入内容编写。从选题立项建出来的视频直接停在内容编写，选题一步标已完成。\n- 「内容编写」做成能直接写的地方：口播稿按画面比例分横竖两栏（只有一个比例就一栏）、大纲一栏，用编辑器直接写（markdown），显示字数和按语速估的时长；「按选题大纲起草」把选题的角度和大纲交给执行器（技能「网页演示做视频」Phase 1）生成初稿，生成后能对比、采用或丢弃；保存就是存成这一类产出物的新版本（同一版本内自动保存草稿）；「交给验收」把当前版本标待验收。原文（article）可选，能粘贴或从链接导入。\n- 空状态、异常（执行器失败、稿子为空不能交验收）、和规划检查的联动（规划检查要看到这里定稿的版本）。\n- 规格包 videos.md 同步：STAGES 表、Video 字段（topic_id）、新增交互编号，截图重截视频一节。\n\n## 注意事项\n\n- 原型 7778 由用户在跑，不要重启（vite 会热更新）；原型里不放测试数据；改完跑 make smoke-proto；临时截图看完删掉。",
+    "acceptance": "- [ ] 新建视频后流程第一步是「选题」，能从选题库选一个或新建，选完回写选题\n- [ ] 内容编写里能直接写横竖两套口播稿和大纲，保存成新版本，能按选题大纲起草并采用\n- [ ] 规格 videos.md 同步，make smoke-proto 0 问题"
+  },
+  {
+    "key": "VID-09a",
+    "type": "task",
+    "title": "视频后端：选题一步和稿件内容读写",
+    "milestone": "M5",
+    "module": "backend",
+    "priority": "P1",
+    "estimate": "M",
+    "depends_on": [
+      "VID-09p",
+      "VID-03d",
+      "VID-04b"
+    ],
+    "workdir": ".",
+    "spec": [
+      "web-next/docs/spec/videos.md（VID-09p 更新后的选题、内容编写两节）",
+      "internal/plugins/video"
+    ],
+    "body": "## 背景\n\n用户 2026-10-29 反馈：「现在视频制作流程少了选题和内容编写过程，没有可以操作的入口」。\n\n## 要做什么\n\n- Stages 最前面加 `topic`，新建视频从 topic 开始；从选题立项的视频直接到 script。已有视频的阶段值不动。\n- Video 加 `topic_id`（插件迁移顺延编号）；`PUT /api/video/videos/{id}/topic` 选定或换选题（回写选题 video_id 和状态，换走的选题清掉 video_id、状态回 ready）。\n- 稿件内容：`GET/PUT /api/video/artifacts/{id}/content` 读写 article、script、outline 三类文本产出物的文件内容（在视频工程目录里，用已确认的 fs:read/write:project；大小上限、只认工程目录内的路径）；PUT 带 `new_version` 时升版本。\n- 「按选题大纲起草」复用 VID-03b 的执行器，prompt 带上选题角度和大纲。\n- 契约 video 一节同步。",
+    "acceptance": "- [ ] 新建视频阶段是 topic，选定选题后回写选题、进入 script\n- [ ] 稿件内容读写落在工程目录，越界路径 400，升版本后旧版本还在\n- [ ] gofmt、go vet、go test ./... 通过"
+  },
+  {
+    "key": "VID-09b",
+    "type": "task",
+    "title": "视频前端：流程里的选题一步和内容编写编辑区",
+    "milestone": "M5",
+    "module": "frontend",
+    "priority": "P1",
+    "estimate": "M",
+    "depends_on": [
+      "VID-09a",
+      "VID-03c"
+    ],
+    "workdir": "frontend",
+    "spec": [
+      "web-next/docs/spec/videos.md（VID-09p 更新后的选题、内容编写两节）",
+      "frontend/src/plugins/video"
+    ],
+    "body": "## 背景\n\n用户 2026-10-29 反馈：「现在视频制作流程少了选题和内容编写过程，没有可以操作的入口」。\n\n## 要做什么\n\n照 VID-09p 改好的原型和规格，把选题一步和内容编写编辑区做进视频详情的制作流程；选题抽屉复用 VID-08c 的 TopicDrawer。",
+    "acceptance": "- [ ] 选题一步能选、换、新建选题\n- [ ] 内容编写能写横竖口播稿和大纲、保存新版本、按选题起草、交给验收\n- [ ] npm test、typecheck、lint、build、smoke-frontend 通过"
+  },
+  {
     "key": "VID-08p",
     "type": "task",
     "title": "原型补商单",
