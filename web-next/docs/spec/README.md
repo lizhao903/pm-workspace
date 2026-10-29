@@ -69,11 +69,11 @@
 | SOP | `sop` | [`sop.md`](sop.md) | [shots/sop](shots/sop) | PROTO-04f1（流程库、待我处理、执行记录、流程详情、发起执行、运行页、编排页、AI 协助、18 种节点的配置项、原型模拟清单） | 已整理（发现的 6 处原型问题记在 `SPEC-sop-0`，待另开修错任务） |
 | 终端 | `terminal` | `terminal.md` | [shots/terminal](shots/terminal) | PROTO-04f2 | 已整理 |
 | 浏览器 | `browser` | `browser.md` | [shots/browser](shots/browser) | PROTO-04f2 | 已整理 |
-| 视频 | `videos` | `videos.md` | [shots/videos](shots/videos) | PROTO-04f | 待整理 |
-| 行情 | `markets` | `markets.md` | [shots/markets](shots/markets) | PROTO-04f | 待整理 |
-| 盯盘 | `monitor` | `monitor.md` | [shots/monitor](shots/monitor) | PROTO-04f | 待整理 |
-| 策略 | `strategy` | `strategy.md` | [shots/strategy](shots/strategy) | PROTO-04f | 待整理 |
-| 交易 | `trading` | `trading.md` | [shots/trading](shots/trading) | PROTO-04f | 待整理 |
+| 视频 | `videos` | [`videos.md`](videos.md) | [shots/videos](shots/videos) | PROTO-04f3（六个标签、系列详情、新建发布、发布记录抽屉、视频详情的制作流程和检查点、产出物和产出物抽屉、设置；引用任务 VID-01a 到 VID-08d） | 已整理（发现的 7 处原型问题记在 `SPEC-videos-0`，待另开修错任务） |
+| 行情 | `markets` | [`markets.md`](markets.md) | [shots/markets](shots/markets) | PROTO-04f4（看盘、自选、期权 T 型报价、确定性行情和行情源；引用任务 TRD-01a 到 TRD-02b） | 已整理（发现的 3 处原型问题记在 `SPEC-markets-0`，待另开修错任务） |
+| 盯盘 | `monitor` | [`monitor.md`](monitor.md) | [shots/monitor](shots/monitor) | PROTO-04f4（市场时段、盯盘墙、提醒规则和触发记录、提醒抽屉、提醒判定；引用任务 TRD-03a、TRD-03b） | 已整理（发现的 3 处原型问题记在 `SPEC-monitor-0`，待另开修错任务） |
+| 策略 | `strategy` | [`strategy.md`](strategy.md) | [shots/strategy](shots/strategy) | PROTO-04f4（策略库、编辑页、快速回测、回测记录和对比、回测报告和扫参、运行记录、回测引擎约定；引用任务 TRD-04a 到 TRD-05c） | 已整理（发现的 3 处原型问题记在 `SPEC-strategy-0`，待另开修错任务） |
+| 交易 | `trading` | [`trading.md`](trading.md) | [shots/trading](shots/trading) | PROTO-04f4（总览、持仓、委托、下单、策略运行和部署、交易账户、风控单列一节、实盘标记、今日卡片口径；引用任务 TRD-05a 到 TRD-08d） | 已整理（发现的 8 处原型问题记在 `SPEC-trading-0`，0.1 到 0.4 归 TRD-08p，其余待另开修错任务） |
 
 状态：待整理 / 整理中 / 已整理（已和原型逐条对照）。规格文件写好后把文件名改成链接，并把这一行的状态改掉。
 

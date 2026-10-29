@@ -336,7 +336,7 @@ func applyPrototype(p *Prototype, in protoInput, self int) error {
 		return apiErr(errValidation, "pass either command or argv, not both")
 	}
 	if in.Dir != nil {
-		d := strings.TrimSpace(*in.Dir)
+		d := strings.TrimSpace(plugin.LocalDir(*in.Dir))
 		if d == "" || strings.ContainsRune(d, 0) || !filepath.IsAbs(d) {
 			return apiErr(errValidation, "dir must be an absolute path")
 		}

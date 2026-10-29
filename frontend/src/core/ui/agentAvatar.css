@@ -1,0 +1,4 @@
+/* Agent 头像：圆角方块，白字白图标，底色是 Agent 的 color */
+.agent-av { display: inline-grid; place-items: center; border-radius: 30%; color: var(--accent-ink); font-weight: 700; flex: none; line-height: 1; }
+.agent-av svg { color: var(--accent-ink); }
+.agent-av-img { border-radius: 30%; object-fit: cover; flex: none; display: block; }

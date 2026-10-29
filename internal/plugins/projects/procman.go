@@ -195,6 +195,11 @@ func (m *manager) start(pt Prototype, projectName string, selfPort int) error {
 	if why := reservedReason(pt.Port, selfPort); why != "" {
 		return apiErr(errConflict, "%s", why)
 	}
+	// 起原型要用户确认过 process:spawn（SEC-01）；早先存下的 file:// 目录转成本机路径
+	if err := plugin.Require(m.c, "process:spawn"); err != nil {
+		return apiErr(errConflict, "%s", err.Error())
+	}
+	pt.Dir = plugin.LocalDir(pt.Dir)
 	if st, err := os.Stat(pt.Dir); err != nil || !st.IsDir() {
 		return apiErr(errValidation, "工作目录 %s 不存在或不是文件夹", pt.Dir)
 	}

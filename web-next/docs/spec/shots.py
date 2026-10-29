@@ -639,6 +639,502 @@ def browser_drive(pg, shot):
 browser_drive.widths = (375, 1440)
 
 
+def _vd_tab(pg, label):
+    pg.locator('.vd-mtabs button', has_text=label).first.click(); pg.wait_for_timeout(300)
+
+
+def _vd_open(pg, title, tab='全部视频'):
+    _side(pg, '视频'); _vd_tab(pg, tab)
+    pg.locator('.vd-row', has_text=title).first.click(); pg.wait_for_timeout(400)
+
+
+def _vd_dtab(pg, label):
+    pg.locator('.project-tabs button', has_text=label).first.click(); pg.wait_for_timeout(300)
+
+
+def videos_detail(pg, shot):
+    """视频详情三个标签、检查点退回、登记产出物（SPEC-videos-10、SPEC-videos-11、SPEC-videos-13）。"""
+    _vd_open(pg, '第 2 集：SOP')
+    shot('视频详情_制作流程')
+    box = pg.locator('.vd-cp-box')
+    box.locator('button', has_text='退回').click(); pg.wait_for_timeout(150)
+    box.evaluate('e => e.scrollIntoView({ block: "center" })'); pg.wait_for_timeout(100)
+    shot('视频详情_退回检查点')
+    _vd_dtab(pg, '产出物')
+    shot('视频详情_产出物')
+    pg.locator('.tb-actions button', has_text='新增产出物').first.click(); pg.wait_for_timeout(200)
+    shot('视频详情_登记产出物')
+    _vd_dtab(pg, '设置')
+    shot('视频详情_设置')
+
+
+videos_detail.widths = (375, 1440)
+
+
+def videos_detail_states(pg, shot):
+    """封面、产出物抽屉、规划检查选比例、被退回、删除确认（SPEC-videos-10 到 SPEC-videos-13）。"""
+    _vd_open(pg, '第 1 集：今日待办')
+    shot('视频详情_已完成')
+    _vd_dtab(pg, '产出物')
+    pg.locator('.vd-cover.picked').first.evaluate('e => e.scrollIntoView({ block: "center" })'); pg.wait_for_timeout(100)
+    shot('视频详情_封面')
+    pg.locator('.vd-cover.picked').first.click(); pg.wait_for_timeout(300)
+    shot('产出物抽屉_封面')
+    _esc(pg)
+    pg.locator('.vd-art-row', has_text='口播稿').first.click(); pg.wait_for_timeout(300)
+    shot('产出物抽屉_验收记录')
+    pg.locator('aside.drawer .drawer-foot button', has_text='删除').click(); pg.wait_for_timeout(150)
+    shot('产出物抽屉_删除确认')
+    _esc(pg)
+    _vd_open(pg, '第 3 集：Agent')
+    shot('视频详情_非检查点阶段')
+    pg.locator('.vd-adv button').click(); pg.wait_for_timeout(300)
+    pg.locator('.vd-orient', has_text='横屏').click(); pg.wait_for_timeout(150)
+    shot('视频详情_规划检查没选比例')
+    _vd_open(pg, '第 25 集', '待我处理')
+    pg.locator('.vd-step-wait').first.evaluate('e => e.scrollIntoView({ block: "center" })'); pg.wait_for_timeout(100)
+    shot('视频详情_已退回')
+    _vd_dtab(pg, '设置')
+    pg.locator('button', has_text='删除视频').click(); pg.wait_for_timeout(150)
+    pg.locator('.danger-zone').evaluate('e => e.scrollIntoView({ block: "center" })'); pg.wait_for_timeout(100)
+    shot('视频详情_删除确认')
+
+
+def videos_publish(pg, shot):
+    """发布抽屉：失败、已发布、回填数据、只看一集；新建发布四种平台接入情况和校验（SPEC-videos-7 到 SPEC-videos-9）。"""
+    _side(pg, '视频'); _vd_tab(pg, '发布记录')
+    pg.locator('.vp-row', has_text='发布失败').first.click(); pg.wait_for_timeout(300)
+    shot('发布抽屉_发布失败')
+    _esc(pg)
+    pg.locator('.vp-row', has_text='今日待办一页清').filter(has_text='已发布').first.click(); pg.wait_for_timeout(300)
+    shot('发布抽屉_已发布')
+    pg.locator('aside.drawer button', has_text='回填数据').click(); pg.wait_for_timeout(150)
+    pg.locator('aside.drawer .vp-metric-form input').first.fill('12k')
+    shot('发布抽屉_回填数据格式不对')
+    _esc(pg)
+    pg.locator('.tb-actions button', has_text='新建发布').first.click(); pg.wait_for_timeout(300)
+    dr = pg.locator('aside.drawer')
+    shot('新建发布_已接入')
+    for plat, name in (('视频号', '新建发布_不开放发布接口'), ('抖音', '新建发布_连接异常'), ('小红书', '新建发布_未接入')):
+        dr.locator('.vp-plat-chip', has_text=plat).click(); pg.wait_for_timeout(150)
+        shot(name)
+    dr.locator('.field', has_text='标题').locator('input').first.fill('')
+    dr.locator('.drawer-foot .btn-primary').click(); pg.wait_for_timeout(150)
+    shot('新建发布_标题没填')
+    dr.locator('.field', has_text='标题').locator('input').first.fill('今日待办一页清')
+    dr.locator('.vp-plat-chip', has_text='视频号').click(); pg.wait_for_timeout(150)
+    dr.locator('.drawer-foot .btn-primary').click(); pg.wait_for_timeout(300)
+    shot('发布抽屉_计划中')
+    _esc(pg)
+    _vd_open(pg, '第 1 集：今日待办')
+    pg.locator('button', has_text='发布记录').first.click(); pg.wait_for_timeout(300)
+    shot('发布记录_只看一集')
+
+
+def videos_series(pg, shot):
+    """系列详情、编排集数、系列设置的影响范围、新建系列（SPEC-videos-5、SPEC-videos-6）。"""
+    _side(pg, '视频'); _vd_tab(pg, '系列')
+    pg.locator('button', has_text='新建系列').first.click(); pg.wait_for_timeout(200)
+    pg.locator('aside.drawer .drawer-foot .btn-primary').click(); pg.wait_for_timeout(150)
+    shot('新建系列_名称没填')
+    _esc(pg)
+    pg.locator('.vp-series', has_text='一人之下 10 分钟上手').first.click(); pg.wait_for_timeout(300)
+    shot('系列详情')
+    pg.locator('.chip', has_text='编排集数').click(); pg.wait_for_timeout(200)
+    shot('系列详情_编排集数')
+    pg.locator('.chip', has_text='完成编排').click(); pg.wait_for_timeout(150)
+    pg.locator('button', has_text='系列设置').first.click(); pg.wait_for_timeout(300)
+    dr = pg.locator('aside.drawer')
+    dr.locator('.field', has_text='共用开场').locator('input').fill('shared/intro-v3.tsx（3 秒标志动画）')
+    shot('系列设置_已改')
+    dr.locator('.drawer-foot .btn-primary').click(); pg.wait_for_timeout(200)
+    shot('系列设置_影响范围')
+
+
+def videos_topics(pg, shot):
+    """选题抽屉、已放弃、表格视图（SPEC-videos-3）。"""
+    _side(pg, '视频'); _vd_tab(pg, '选题')
+    pg.locator('.tp-card', has_text='Cursor 和 Claude Code').first.click(); pg.wait_for_timeout(300)
+    shot('选题抽屉')
+    _esc(pg)
+    pg.locator('.chip', has_text='显示已放弃').click(); pg.wait_for_timeout(150)
+    pg.locator('.tp-card', has_text='老照片').first.click(); pg.wait_for_timeout(300)
+    shot('选题抽屉_已放弃')
+    _esc(pg)
+    pg.locator('.seg button', has_text='表格').click(); pg.wait_for_timeout(200)
+    shot('选题_表格')
+
+
+def videos_clips(pg, shot):
+    """归到选题、拉取热榜、待整理清空（SPEC-videos-4）。"""
+    _side(pg, '视频'); _vd_tab(pg, '素材收件箱')
+    pg.locator('.tp-clip', has_text='一天写完一个 App').locator('button', has_text='归到选题').click(); pg.wait_for_timeout(150)
+    shot('素材_归到选题')
+    pg.keyboard.press('Escape'); pg.locator('.tp-add input').click(); pg.wait_for_timeout(100)
+    pg.locator('button', has_text='拉取热榜').click(); pg.wait_for_timeout(1300)
+    shot('素材_拉取热榜')
+    while pg.locator('.tp-clip button', has_text='看过了').count():
+        pg.locator('.tp-clip button', has_text='看过了').first.click(); pg.wait_for_timeout(80)
+    pg.wait_for_timeout(150)
+    shot('素材_待整理为空')
+
+
+def _into(loc, block='start'):
+    # 只滚内容区：盯盘页的文档本身也能滚（原型问题，见 monitor.md），滚完把文档拉回顶上
+    loc.evaluate('(e, b) => { e.scrollIntoView({ block: b }); document.scrollingElement.scrollTop = 0 }', block)
+
+
+def _mk_watch(pg):
+    # 手机宽度下自选是左侧抽屉，先打开
+    t = pg.locator('.mk-list-toggle')
+    if t.is_visible():
+        t.click(); pg.wait_for_timeout(200)
+
+
+def _mk_pick(pg, group, name):
+    _mk_watch(pg)
+    pg.locator('.mk-groups .chip', has_text=group).first.click(); pg.wait_for_timeout(150)
+    pg.locator('.mk-row', has_text=name).first.click(); pg.wait_for_timeout(400)
+
+
+def markets_chart(pg, shot):
+    """看盘：永续合约带资金费率、BOLL 和 MACD 副图，A 股带涨跌停（SPEC-markets-1）。"""
+    _side(pg, '行情')
+    _mk_pick(pg, '数币合约', 'BTC 永续')
+    pg.locator('.mk-tg', has_text='BOLL').click()
+    pg.locator('.mk-tools .seg button', has_text='MACD').click(); pg.wait_for_timeout(300)
+    shot('看盘_永续合约')
+    _mk_pick(pg, 'A 股与股指', '贵州茅台')
+    pg.locator('.mk-tools .seg button', has_text='RSI').click(); pg.wait_for_timeout(300)
+    shot('看盘_A股')
+
+
+markets_chart.widths = (375, 1440)
+
+
+def markets_watch(pg, shot):
+    """自选：搜标的加入当前组、改名、新建空组（SPEC-markets-2）。"""
+    _side(pg, '行情')
+    _mk_watch(pg)
+    box = pg.locator('.mk-search-wrap input')
+    box.fill('港交所'); pg.wait_for_timeout(200)
+    shot('自选_搜索')
+    box.fill('')
+    pg.locator('.mk-groups .icon-btn[title="重命名当前组"]').click(); pg.wait_for_timeout(150)
+    shot('自选_改名')
+    pg.locator('.mk-rename button', has_text='取消').click()
+    pg.locator('.mk-groups .icon-btn[title="新建自选组"]').click(); pg.wait_for_timeout(200)
+    shot('自选_新建组')
+
+
+markets_watch.widths = (375, 1440)
+
+
+def markets_option(pg, shot):
+    """期权 T 型报价、点一格看详情（SPEC-markets-3）。"""
+    _side(pg, '行情')
+    pg.locator('.mk-top .seg button', has_text='期权').click(); pg.wait_for_timeout(400)
+    shot('期权_T型报价')
+    pg.locator('.mk-tq tbody tr.mk-atm td.mk-tq-px').first.click(); pg.wait_for_timeout(300)
+    _into(pg.locator('.mk-od'), 'start'); pg.wait_for_timeout(150)
+    shot('期权_详情')
+
+
+markets_option.widths = (375, 1440)
+
+
+def monitor_wall(pg, shot):
+    """盯盘墙换 4x4，空位（SPEC-monitor-1）。"""
+    _side(pg, '盯盘')
+    pg.locator('.mo-section .seg button', has_text='4x4').click(); pg.wait_for_timeout(300)
+    _into(pg.locator('.mo-wall'), 'start'); pg.wait_for_timeout(150)
+    shot('盯盘墙_4x4')
+
+
+monitor_wall.widths = (375, 1440)
+
+
+def monitor_rules(pg, shot):
+    """提醒规则筛已触发、搜不到，触发记录（SPEC-monitor-2）。"""
+    _side(pg, '盯盘')
+    rules = pg.locator('.mo-rules')
+    rules.locator('.seg button', has_text='已触发').click(); pg.wait_for_timeout(200)
+    _into(rules, 'start'); pg.wait_for_timeout(150)
+    shot('提醒规则_已触发')
+    rules.locator('.mo-rules-search input').fill('没有这个'); pg.wait_for_timeout(200)
+    shot('提醒规则_没有匹配')
+    _into(pg.locator('.mo-events'), 'start'); pg.wait_for_timeout(150)
+    shot('触发记录')
+
+
+monitor_rules.widths = (375, 1440)
+
+
+def monitor_drawer(pg, shot):
+    """提醒抽屉：新建、勾 IM 和重复、编辑时删除确认（SPEC-monitor-3）。"""
+    _side(pg, '盯盘')
+    pg.locator('button.btn-primary', has_text='新建提醒').first.click(); pg.wait_for_timeout(300)
+    dr = pg.locator('aside.drawer')
+    shot('提醒抽屉_新建')
+    dr.locator('label.check', has_text='IM').locator('input').check()
+    dr.locator('.seg button', has_text='重复').click(); pg.wait_for_timeout(150)
+    _into(dr.locator('.field-group').nth(1), 'center'); pg.wait_for_timeout(100)
+    shot('提醒抽屉_IM和重复')
+    _esc(pg)
+    pg.locator('.mo-rrow', has_text='突破前高').first.click(); pg.wait_for_timeout(300)
+    dr.locator('.drawer-foot button', has_text='删除').click(); pg.wait_for_timeout(150)
+    shot('提醒抽屉_编辑和删除确认')
+
+
+monitor_drawer.widths = (375, 1440)
+
+
+def _st_open(pg, name):
+    _side(pg, '策略'); _sub(pg, '策略库')
+    pg.locator('.sg-row', has_text=name).first.click(); pg.wait_for_timeout(400)
+
+
+def _st_backtest(pg, name):
+    _st_open(pg, name)
+    pg.locator('.sg-side button.act-primary', has_text='开始回测').click(); pg.wait_for_timeout(2000)
+
+
+def strategy_editor(pg, shot):
+    """编辑页：选标的、删除确认、新建的空策略（SPEC-strategy-3）。"""
+    _st_open(pg, '双均线趋势')
+    pg.locator('.sg-pick input').fill('ETH'); pg.wait_for_timeout(200)
+    _into(pg.locator('.sg-pick'), 'start'); pg.wait_for_timeout(100)
+    shot('编辑页_选标的')
+    pg.locator('.sg-pick input').fill('')
+    pg.locator('.hook-foot button', has_text='删除策略').click(); pg.wait_for_timeout(150)
+    _into(pg.locator('.hook-foot'), 'end'); pg.wait_for_timeout(100)
+    shot('编辑页_删除确认')
+    pg.locator('.hook-foot button', has_text='取消').click()
+    pg.locator('.subnav-new').first.click(); pg.wait_for_timeout(400)
+    shot('编辑页_新建')
+
+
+strategy_editor.widths = (375, 1440)
+
+
+def strategy_side(pg, shot):
+    """右侧：快速回测参数覆盖、回测完成后的最近一次回测（SPEC-strategy-5）。"""
+    _st_open(pg, 'RSI 超卖反弹')
+    side = pg.locator('.sg-side')
+    side.locator('.sg-over-item').first.locator('input').fill('20'); pg.wait_for_timeout(150)
+    _into(side, 'start'); pg.wait_for_timeout(100)
+    shot('编辑页_参数覆盖')
+    side.locator('button.act-primary', has_text='开始回测').click(); pg.wait_for_timeout(2000)
+    _into(side.locator('.hook-sec').nth(1), 'start'); pg.wait_for_timeout(100)
+    shot('编辑页_回测完成')
+
+
+strategy_side.widths = (375, 1440)
+
+
+def strategy_backtests(pg, shot):
+    """回测记录有记录、勾两条对比（SPEC-strategy-6）。"""
+    _st_backtest(pg, '双均线趋势')
+    _st_backtest(pg, 'RSI 超卖反弹')
+    _sub(pg, '回测记录')
+    shot('回测记录_有记录')
+    for k in range(2):
+        pg.locator('.bt-row:not(.sg-th) .sg-check').nth(k).check()
+    pg.locator('button.btn-primary', has_text='对比').click(); pg.wait_for_timeout(400)
+    shot('回测记录_对比')
+
+
+strategy_backtests.widths = (375, 1440)
+
+
+def strategy_report(pg, shot):
+    """回测报告：统计和资金曲线、参数扫描、代码策略的近似说明、重新回测进行中（SPEC-strategy-7）。"""
+    _st_backtest(pg, '双均线趋势')
+    pg.locator('.sg-side button', has_text='查看报告').click(); pg.wait_for_timeout(400)
+    shot('回测报告')
+    form = pg.locator('.bt-sweep-form')
+    _into(form, 'start')
+    pg.locator('button.act-primary', has_text='开始扫描').click(); pg.wait_for_timeout(800)
+    _into(form, 'start'); pg.wait_for_timeout(100)
+    shot('回测报告_参数扫描')
+    _st_backtest(pg, '永续网格')
+    pg.locator('.sg-side button', has_text='查看报告').click(); pg.wait_for_timeout(400)
+    shot('回测报告_代码策略')
+    pg.locator('button.btn-outline', has_text='重新回测').click(); pg.wait_for_timeout(350)
+    shot('回测报告_进行中')
+
+
+strategy_report.widths = (375, 1440)
+
+
+def strategy_runs(pg, shot):
+    """运行记录展开一条异常、展开已停止的（SPEC-strategy-8）。"""
+    _side(pg, '策略'); _sub(pg, '运行记录')
+    pg.locator('.sr-row', has_text='OKX').first.locator('.sr-head').click(); pg.wait_for_timeout(200)
+    shot('运行记录_展开异常')
+    pg.locator('.sr-more').click(); pg.wait_for_timeout(200)
+    _into(pg.locator('.sr-more'), 'end'); pg.wait_for_timeout(100)
+    shot('运行记录_已停止')
+
+
+strategy_runs.widths = (375, 1440)
+
+
+def _tr(pg, label):
+    _side(pg, '交易'); _sub(pg, label)
+
+
+def trading_kill(pg, shot):
+    """一键全停：确认、熔断条、风控页熔断中、解除确认（SPEC-trading-1、SPEC-trading-10）。"""
+    _side(pg, '交易')
+    pg.locator('.tr-kill').first.click(); pg.wait_for_timeout(150)
+    shot('一键全停确认')
+    pg.locator('.tr-kill', has_text='确认全停').click(); pg.wait_for_timeout(400)
+    shot('熔断中_总览')
+    _sub(pg, '风控')
+    shot('风控_熔断中')
+    pg.locator('.tr-halt button', has_text='解除熔断').click(); pg.wait_for_timeout(150)
+    shot('解除熔断确认')
+    pg.locator('.tr-halt button', has_text='取消').click()
+    _sub(pg, '策略运行')
+    shot('策略运行_熔断中')
+
+
+trading_kill.widths = (375, 1440)
+
+
+def trading_positions(pg, shot):
+    """持仓：平仓确认、加止损（SPEC-trading-3）。"""
+    _tr(pg, '持仓')
+    row = pg.locator('.tr-pos-wrap', has_text='BTC/USDT').first
+    row.locator('button', has_text='平仓').click(); pg.wait_for_timeout(150)
+    shot('持仓_平仓确认')
+    row.locator('button', has_text='取消').click()
+    row.locator('button', has_text='加止损').click(); pg.wait_for_timeout(150)
+    shot('持仓_加止损')
+
+
+trading_positions.widths = (375, 1440)
+
+
+def trading_orders(pg, shot):
+    """委托：改价、历史委托里的被拒原因（SPEC-trading-4）。"""
+    _tr(pg, '委托')
+    pg.locator('.tr-ord-wrap', has_text='BTC/USDT').first.locator('button', has_text='改价').click(); pg.wait_for_timeout(150)
+    shot('委托_改价')
+    pg.locator('.toolbar .seg button', has_text='历史委托').click(); pg.wait_for_timeout(200)
+    shot('委托_历史')
+
+
+trading_orders.widths = (375, 1440)
+
+
+def trading_order_drawer(pg, shot):
+    """下单抽屉：默认、风控拦截、二次确认、从行情来的合约单（SPEC-trading-5）。"""
+    _tr(pg, '总览')
+    pg.locator('button.btn-primary', has_text='下单').first.click(); pg.wait_for_timeout(300)
+    dr = pg.locator('aside.drawer')
+    shot('下单抽屉')
+    qty = dr.locator('.field', has_text='数量').locator('input')
+    qty.fill('1'); pg.wait_for_timeout(200)
+    _into(dr.locator('.tr-block'), 'center'); pg.wait_for_timeout(100)
+    shot('下单抽屉_风控拦截')
+    # 实盘账户上 0.2 BTC 会超单标的仓位上限，换模拟盘才走到二次确认
+    dr.locator('.tr-acct-opt', has_text='模拟盘').click()
+    qty.fill('0.2')
+    dr.locator('.drawer-foot button', has_text='买入').click(); pg.wait_for_timeout(200)
+    shot('下单抽屉_二次确认')
+    _esc(pg)
+    _side(pg, '行情')
+    _mk_pick(pg, '数币合约', 'BTC 永续')
+    pg.locator('.mk-sell').first.click(); pg.wait_for_timeout(400)
+    dr.locator('.tr-acct-more').click(); pg.wait_for_timeout(150)
+    _into(dr.locator('.field-group', has_text='合约设置'), 'center'); pg.wait_for_timeout(100)
+    shot('下单抽屉_合约')
+
+
+trading_order_drawer.widths = (375, 1440)
+
+
+def trading_runs(pg, shot):
+    """策略运行：停止确认、展开已停止的（SPEC-trading-6）。"""
+    _tr(pg, '策略运行')
+    card = pg.locator('.tr-card', has_text='双均线趋势').first
+    card.locator('button', has_text='停止').click(); pg.wait_for_timeout(150)
+    shot('策略运行_停止确认')
+    card.locator('button', has_text='取消').click()
+    pg.locator('.tr-more', has_text='已停止').click(); pg.wait_for_timeout(200)
+    _into(pg.locator('.tr-more'), 'end'); pg.wait_for_timeout(100)
+    shot('策略运行_含已停止')
+
+
+trading_runs.widths = (375, 1440)
+
+
+def trading_deploy(pg, shot):
+    """从策略点部署：默认选模拟盘；换成实盘账户要勾确认（SPEC-trading-7）。"""
+    _st_open(pg, 'RSI 超卖反弹')
+    pg.locator('button.btn-outline', has_text='部署').first.click(); pg.wait_for_timeout(500)
+    dr = pg.locator('aside.drawer')
+    shot('部署抽屉_模拟盘')
+    dr.locator('.tr-acct-opt', has_text='富途').click(); pg.wait_for_timeout(150)
+    dr.locator('.drawer-foot .btn-primary').click(); pg.wait_for_timeout(150)
+    _into(dr.locator('.tr-ack'), 'center'); pg.wait_for_timeout(100)
+    shot('部署抽屉_实盘确认')
+
+
+trading_deploy.widths = (375, 1440)
+
+
+def trading_accounts(pg, shot):
+    """交易账户：删除被拦、断开确认（SPEC-trading-8）。"""
+    _tr(pg, '交易账户')
+    card = pg.locator('.tr-card', has_text='Binance 主账户').first
+    card.locator('button', has_text='删除账户').click(); pg.wait_for_timeout(150)
+    shot('交易账户_删除被拦')
+    card.locator('button', has_text='知道了').click()
+    card.locator('button', has_text='断开连接').click(); pg.wait_for_timeout(150)
+    shot('交易账户_断开确认')
+
+
+trading_accounts.widths = (375, 1440)
+
+
+def trading_account_drawer(pg, shot):
+    """新增账户抽屉：默认、测试失败、测试通过（SPEC-trading-9）。"""
+    _tr(pg, '交易账户')
+    pg.locator('button.btn-outline', has_text='新增账户').click(); pg.wait_for_timeout(300)
+    dr = pg.locator('aside.drawer')
+    shot('新增账户')
+    dr.locator('button', has_text='测试连接').click(); pg.wait_for_timeout(1100)
+    _into(dr.locator('.act-row', has_text='测试连接'), 'center'); pg.wait_for_timeout(100)
+    shot('新增账户_测试失败')
+    dr.locator('.field', has_text='API Key').locator('input').fill('demoKey7Q2c')
+    dr.locator('.field', has_text='API Secret').locator('input').fill('demo-secret')
+    dr.locator('button', has_text='测试连接').click(); pg.wait_for_timeout(1100)
+    _into(dr.locator('.act-row', has_text='测试连接'), 'center'); pg.wait_for_timeout(100)
+    shot('新增账户_测试通过')
+
+
+trading_account_drawer.widths = (375, 1440)
+
+
+def trading_risk(pg, shot):
+    """风控页：规则填错、一键全停确认（SPEC-trading-10）。"""
+    _tr(pg, '风控')
+    inp = pg.locator('.tr-rule', has_text='单笔最大金额').locator('input')
+    inp.fill('0'); pg.wait_for_timeout(100)
+    _into(pg.locator('.tr-rules'), 'start'); pg.wait_for_timeout(100)
+    shot('风控_规则填错')
+    inp.fill('50000'); inp.blur()
+    pg.locator('.tr-risk button.btn-danger', has_text='一键全停').click(); pg.wait_for_timeout(150)
+    _into(pg.locator('.tr-sec-bad').last, 'center'); pg.wait_for_timeout(100)
+    shot('风控_一键全停确认')
+
+
+trading_risk.widths = (375, 1440)
+
+
 STEPS = {
     'tasks': [tasks_devloop, tasks_unsaved, tasks_schedule],
     'messages': [messages_drawer, messages_fetch_paused],
@@ -649,6 +1145,12 @@ STEPS = {
     'sop': [sop_run, sop_start, sop_editor_entry, sop_editor_new, sop_editor_edit],
     'terminal': [terminal_split, terminal_proto],
     'browser': [browser_tabs, browser_google, browser_drive],
+    'videos': [videos_detail, videos_detail_states, videos_publish, videos_series, videos_topics, videos_clips],
+    'markets': [markets_chart, markets_watch, markets_option],
+    'monitor': [monitor_wall, monitor_rules, monitor_drawer],
+    'strategy': [strategy_editor, strategy_side, strategy_backtests, strategy_report, strategy_runs],
+    'trading': [trading_kill, trading_positions, trading_orders, trading_order_drawer, trading_runs, trading_deploy, trading_accounts,
+                trading_account_drawer, trading_risk],
 }
 
 

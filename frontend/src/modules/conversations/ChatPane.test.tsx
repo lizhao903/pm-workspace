@@ -4,8 +4,9 @@ import { QueryClientProvider } from '@tanstack/react-query'
 import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { queryClient, type AgentMessage, type AgentProvider, type AgentSession, type ChatEvent } from '../../core/data'
+import { queryClient, type Agent, type AgentMessage, type AgentProvider, type AgentSession, type ChatEvent } from '../../core/data'
 import { ChatPane } from './ChatPane'
+import type { ChatWho } from './chatModel'
 import { resetLiveChats } from './chatLive'
 
 const now = new Date().toISOString()
@@ -45,11 +46,16 @@ function stub(rounds: { events: ChatEvent[]; after: AgentMessage[] }[], initial:
   return chats
 }
 
-function renderPane(p: Partial<{ provider: AgentProvider | undefined; session: AgentSession; onRetitle: (t: string) => void }> = {}) {
+const agent: Agent = {
+  id: 'ag_1', name: '周报助手', desc: '', color: '#3d4fd6', avatar: { kind: 'text', value: '' }, provider_id: 'apv_1', model: 'qwen3.5:4b',
+  instructions: '', skills: [], mcps: [], kbs: [], triggers: [], enabled: true, created_at: now, updated_at: now,
+}
+
+function renderPane(p: Partial<{ provider: AgentProvider | undefined; who: ChatWho; session: AgentSession; onRetitle: (t: string) => void }> = {}) {
   const onRetitle = p.onRetitle ?? vi.fn()
   render(
     <QueryClientProvider client={queryClient}>
-      <ChatPane session={p.session ?? session} provider={'provider' in p ? p.provider : provider} onRetitle={onRetitle} />
+      <ChatPane session={p.session ?? session} who={p.who ?? { kind: 'provider', provider: 'provider' in p ? p.provider : provider }} onRetitle={onRetitle} />
     </QueryClientProvider>,
   )
   return onRetitle
@@ -176,5 +182,36 @@ describe('对话面板', () => {
     stub([])
     renderPane({ provider: undefined })
     expect(await screen.findByText('这个服务商已删除，只能回看')).toBeInTheDocument()
+  })
+
+  it('挂了 Agent：占位写 Agent 名，提示写操作按权限等确认', async () => {
+    stub([])
+    renderPane({ who: { kind: 'agent', agent } })
+    const box = await screen.findByRole('textbox', { name: '消息' })
+    expect(box).toHaveAttribute('placeholder', '和 周报助手 对话…')
+    expect(screen.getByText('⌘Enter 发送；写操作按权限停下来等你确认')).toBeInTheDocument()
+  })
+
+  it('Agent 停用后只能回看：发送、⌘Enter、示例问题都发不出去（SPEC-sessions-1.26）', async () => {
+    const chats = stub([])
+    renderPane({ who: { kind: 'agent', agent: { ...agent, enabled: false } } })
+    const user = userEvent.setup()
+    expect(await screen.findByText('这个 Agent 已停用，只能回看')).toBeInTheDocument()
+    const box = screen.getByRole('textbox', { name: '消息' })
+    expect(box).toHaveAttribute('placeholder', '只能回看，不能再发消息')
+    await user.type(box, '还能发吗')
+    await user.keyboard('{Meta>}{Enter}{/Meta}')
+    expect(screen.getByRole('button', { name: '发送' })).toBeDisabled()
+    await user.click(screen.getByRole('button', { name: '我现在有哪些任务最急？' }))
+    expect(chats).toEqual([])
+  })
+
+  it('Agent 已删除：历史照常回看，提示已删除（SPEC-sessions-1.27）', async () => {
+    const chats = stub([], [m('m1', 'user', '你好'), m('m2', 'assistant', '你好！')])
+    renderPane({ who: { kind: 'gone' }, session: { ...session, title: '打过招呼', message_count: 2 } })
+    expect(await screen.findByText('你好！')).toBeInTheDocument()
+    expect(screen.getByText('这个 Agent 已删除，只能回看')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '发送' })).toBeDisabled()
+    expect(chats).toEqual([])
   })
 })

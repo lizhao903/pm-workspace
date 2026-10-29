@@ -1,0 +1,27 @@
+{
+  "id": "trade",
+  "name": "交易套件",
+  "description": "行情、盯盘、策略与回测、交易执行：数币、A 股、港股、美股，默认只做行情、回测和模拟盘",
+  "icon": "candles",
+  "version": "0.1.0",
+  "core": ">=1.0.0 <2.0.0",
+  "depends": {},
+  "optional_depends": {},
+  "provides": {
+    "modules": ["markets", "monitor", "strategy", "trading"],
+    "settings": [],
+    "object_types": [],
+    "connectors": [],
+    "skills": [],
+    "agent_tools": [],
+    "sop_nodes": [],
+    "today_cards": [],
+    "commands": [],
+    "search": []
+  },
+  "emits": [],
+  "subscribes": [],
+  "permissions": ["network:market-data"],
+  "migrations": "migrations",
+  "table_prefix": "trade_"
+}

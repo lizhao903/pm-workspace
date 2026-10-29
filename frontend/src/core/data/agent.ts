@@ -36,6 +36,10 @@ export type AgentSession = {
   provider_id: string
   model: string
   workdir: string
+  /** 挂的 Agent（AG-01b1）；null 是不挂 Agent、按服务商和模型开的会话。建的时候定下，改不了 */
+  agent_id?: string | null
+  /** 挂了 Agent 但 Agent 已删除：只能回看 */
+  agent_deleted?: boolean
   created_at: string
   updated_at: string
   message_count: number
@@ -54,7 +58,8 @@ export type AgentMessage = {
   created_at: string
 }
 
-export type AgentSessionInput = { title?: string; provider_id?: string; model?: string; workdir?: string }
+// 带 agent_id 时后端用这个 Agent 的服务商和模型，provider_id、model 忽略
+export type AgentSessionInput = { title?: string; provider_id?: string; model?: string; workdir?: string; agent_id?: string }
 // 改不了 object_id
 export type AgentSessionPatch = { title?: string; provider_id?: string; model?: string; workdir?: string }
 

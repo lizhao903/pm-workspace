@@ -4,6 +4,7 @@ import { useQueryClient, type QueryClient, type QueryKey } from '@tanstack/react
 import { useCallback } from 'react'
 import { agentConfigKeys } from './agentConfigKeys'
 import { agentKeys } from './agentKeys'
+import { domainKeys } from './domainKeys'
 import { dataKeys } from './keys'
 import { queryClient } from './queryClient'
 import { skillKeys } from './skillKeys'
@@ -71,6 +72,10 @@ export type Change =
   | { kind: 'skill' }
   /** Agent 新建、编辑（含启停）、删除（AG-01b5）；删除时挂着它的会话显示为已删除的 Agent */
   | { kind: 'agent'; id?: string }
+  /** 内网域名的设置、路由增删改（DOM-01b）：完整域名、本机状态、生成的配置都跟着变 */
+  | { kind: 'domains' }
+  /** 测了一次内网域名：结果另存，只刷路由列表上的 check */
+  | { kind: 'domain-check' }
 
 // 对象一变，所有对象列表（任务列表、今日、项目的任务标签页）、单个对象及其进展和修订、
 // 计数（侧栏红点、逾期徽标）都可能变；干系人名册上的任务数也跟着变；今日聚合（待验收、逾期、今天到期、插件卡片）也是。
@@ -112,6 +117,8 @@ export function invalidationsFor(c: Change): QueryKey[] {
       return [
         c.sessionId ? agentKeys.sessions.messages(c.sessionId) : agentKeys.sessions.all,
         agentKeys.sessions.unscoped, dataKeys.artifacts.all, ...objectWide,
+        // 在会话里确认、拒绝执行记录的调用后，执行记录的状态会重算（AG-01b8）
+        agentConfigKeys.runs,
       ]
     case 'plugin':
       // 插件停用后它的今日卡片从聚合里消失，它登记的连接器定义、技能也跟着出现或消失（CONN-02、AG-01b6）
@@ -173,6 +180,10 @@ export function invalidationsFor(c: Change): QueryKey[] {
     case 'agent':
       // 技能、知识库上的「在用的 Agent」，会话上的 Agent 名和已删除标记跟着变
       return [agentConfigKeys.all, skillKeys.all, dataKeys.knowledgeBases.all, agentKeys.sessions.all]
+    case 'domains':
+      return [domainKeys.all]
+    case 'domain-check':
+      return [domainKeys.routes]
   }
 }
 

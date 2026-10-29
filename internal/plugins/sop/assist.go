@@ -43,6 +43,7 @@ var kindLabels = map[string]string{
 	"auto": "自动执行", "ai": "AI 处理", "knowledge": "知识检索", "extract": "参数提取", "template": "模板转换",
 	"aggregate": "变量聚合", "code": "代码执行", "decide": "条件分支", "classifier": "问题分类器", "iterate": "迭代",
 	"wait": "等待", "review": "人工检查", "http": "HTTP 请求", "notify": "发送消息", "task": "创建任务",
+	"doc": "写文档", "contact": "写联系人",
 	"agent": "调用 Agent", "subflow": "子流程", "end": "结束",
 }
 

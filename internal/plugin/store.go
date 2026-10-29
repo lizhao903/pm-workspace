@@ -56,6 +56,8 @@ type ContactInfo struct {
 // ContactReader 只读查联系人（干系人名册）。没有这个 id 返回 ErrNoRows。
 type ContactReader interface {
 	Get(ctx context.Context, id string) (ContactInfo, error)
+	// FindByName 按名字找没归档的，重名取最早建的（SOP-02a，writes.go）。
+	FindByName(ctx context.Context, name string) (ContactInfo, error)
 }
 
 // ConversationInfo 是 IM 会话（CT-02，0028）里插件常用的几项，不带成员。

@@ -34,8 +34,9 @@ export type {
 } from './agent'
 export {
   usePlugins, useInstallPlugin, useEnablePlugin, useDisablePlugins, useUninstallPlugin, enabledDependents, installedDependents,
+  useUpgradePlugin, newPermissions,
 } from './plugins'
-export type { PluginInfo, PluginInstallResult, PluginUninstallResult } from './plugins'
+export type { PluginInfo, PluginInstallResult, PluginUninstallResult, PluginUpgradeResult } from './plugins'
 export {
   todayKeys, useToday, todayCard, reviewCard, overdueCard, dueTodayCard, runningCard, pluginTodayCards, schedulesToday,
   KERNEL_TODAY_CARDS, TODAY_REVIEW, TODAY_OVERDUE, TODAY_DUE, TODAY_RUNNING,
@@ -156,6 +157,22 @@ export type {
   Agent, AgentAvatar, AgentTrigger, AgentTriggerKind, AgentTriggerMatch, AgentInput, AgentPatch, AgentImpact, AgentImpactItem,
   AgentGrants, AgentGrantMode, AgentRunBrief, AgentRunStatus,
 } from './agents'
+export {
+  AGENT_RUN_STATUS, AGENT_RUN_PAGE_MAX, TOOL_CALL_STATE, agentRunsApi, useAgentRunList, useAgentRunCounts, useAgentRun,
+} from './agentRuns'
+export type {
+  AgentRun, AgentRunCall, AgentRunDetail, AgentRunFilter, AgentRunTriggerKind, AgentToolCall, AgentToolCallState,
+} from './agentRuns'
+
+export { domainKeys } from './domainKeys'
+export {
+  domainsApi, useDomainSettings, useDomainRoutes, useDomainStatus, useDomainConfig, usePutDomainSettings, useAddDomainRoute,
+  usePatchDomainRoute, useDeleteDomainRoute, useCheckDomainRoute,
+} from './domains'
+export type {
+  DomainSettings, DomainSettingsPatch, DomainResolve, DomainProxy, DomainTarget, DomainCheck, DomainRoute, DomainRouteInput,
+  DomainRoutePatch, DomainFix, DomainStatusState, DomainStatusItem, DomainStatus, DomainConfigSection, DomainConfig,
+} from './domains'
 
 // 接口层的纯函数和类型照样给模块用：不发请求，不碰缓存
 export { localDay, focusParams, changedFields, isApiError, isStreamError, ApiError, StreamError } from '../api'

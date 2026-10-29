@@ -13,7 +13,7 @@ import (
 
 // 节点执行（SOP-01b）：按类型和配置算输出，口径同原型 web-next/src/nodetypes.tsx 里各类型的 run。
 // 这里是 template、aggregate、decide、review、wait、subflow、end、auto；AI 类和外部节点（SOP-01c）在 nodes_ai.go，
-// 写节点归 SOP-02，在那之前执行直接失败。wait、subflow 要等，由引擎（engine.go）处理，这里只算到点时间和子执行的输入。
+// 写节点 task、doc、contact 在 nodes_write.go（SOP-02a），notify 归 SOP-02b，在那之前执行直接失败。wait、subflow 要等，由引擎（engine.go）处理，这里只算到点时间和子执行的输入。
 
 // Json 是步骤的输入输出、执行参数，同原型的 Json。
 type Json = map[string]any

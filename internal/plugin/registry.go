@@ -181,7 +181,7 @@ func (r *Registry) Start(ctx context.Context) error {
 	for _, id := range r.depOrder() {
 		e := r.entries[id]
 		if st, ok := states[id]; ok {
-			e.state = st
+			r.setState(e, st)
 		}
 		if !e.state.Installed || !e.state.Enabled {
 			continue
@@ -249,7 +249,7 @@ func (r *Registry) Install(ctx context.Context, id string, confirmed []string) e
 	if err := r.store.Save(ctx, st); err != nil {
 		return err
 	}
-	e.state = st
+	r.setState(e, st)
 	return nil
 }
 
@@ -321,7 +321,7 @@ func (r *Registry) Enable(ctx context.Context, id string) error {
 	if err := r.store.Save(ctx, st); err != nil {
 		return err
 	}
-	e.state = st
+	r.setState(e, st)
 	r.start(e, a)
 	return nil
 }
@@ -351,7 +351,7 @@ func (r *Registry) Disable(ctx context.Context, id string) error {
 	if err := r.store.Save(ctx, st); err != nil {
 		return err
 	}
-	e.state = st
+	r.setState(e, st)
 	r.stop(e)
 	return nil
 }

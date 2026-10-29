@@ -226,13 +226,14 @@ type Core interface {
 	Audit() AuditLog            // CORE-08
 	Store() Store               // 只能访问 table_prefix 开头的表
 	Agent() AgentService        // 用默认服务商补全、按 Agent 的授权跑一轮、搜指定知识库（SOP-01c）
+	Granted(perm string) bool   // 用户确认过这项权限没有，只认状态表里确认过的（SEC-01，3.3）
 	Log() *slog.Logger
 }
 ```
 
 `RouteRegistrar` 沿用 `internal/api/server.go` 里的同名接口（`HandleFunc(pattern, handler)`），路径必须以 `/api/<id>/` 开头；内核在外面包一层，停用时整组返回 404。加了路由照旧要写进 `docs/api-contract.md`（契约测试双向检查）。
 
-内核对象只读句柄（已实现，`internal/plugin/store.go`）：`Objects().Get(ctx, id)` 返回 `ObjectInfo{ID, Type, Title, Workdir, Deleted}`，没有这个 id 返回 `ErrNoRows`。`Workdir` 是对象自身的 `workdir` 列，对项目就是 `root`，没设为空串，不往所属项目继承（TERM-01c 加）。
+内核对象只读句柄（已实现，`internal/plugin/store.go`）：`Objects().Get(ctx, id)` 返回 `ObjectInfo{ID, Type, Title, Workdir, Deleted}`，没有这个 id 返回 `ErrNoRows`。`Workdir` 是对象自身的 `workdir` 列，对项目就是 `root`，没设为空串，不往所属项目继承（TERM-01c 加）。项目根目录可能存成了 `file://` 地址，拿来当目录用之前过一遍 `plugin.LocalDir`（SEC-01 加：去掉前缀、按 URL 解码，不是 `file://` 的原样返回）。
 
 模型和 Agent 句柄（已实现，`internal/plugin/agent.go`，SOP-01c 加）：实现是 `internal/agent` 的 `Service`，`cmd/pmw` 用 `Registry.SetAgent` 接上；没接上时每个方法回 `ErrNoAgent`。服务商、授权、技能的口径和对话接口（`/api/agent/chat`）一致。
 
@@ -244,6 +245,22 @@ type Core interface {
 | `SearchKB(ctx, kbIDs, query, top)` | 只在给的知识库里检索，回前 `top` 段（`KBHit` 即 `kb.SearchHit`）；`kbIDs` 为空直接报错，不搜全部 |
 
 这个句柄暂不按权限收窄：调模型、跑 Agent 不在 3.1 的权限清单里，Agent 能做什么由它自己的工具授权管。
+
+带操作者和审计的写入（已实现，`internal/plugin/writes.go`，SOP-02a 加）：插件替用户自动写内核数据时用，例 SOP 的写节点。和只能建对象的 `ObjectWriter().Create`（IM-02a，`objects_write.go`）走同一个外层包装过的 store（`Registry.SetObjectCreator`），修订、事件照常，不用另外接线。每个方法都带 `WriteMeta{Session, Key, Detail}`：
+
+- 操作者记为 `<插件 id>#<Session>`（`Session` 空时就是插件 id），来源 `plugin`；对象的 `source` 固定是插件 id。
+- 每次成功写入记一条审计：`kind` 为 `agent`、`source` 为 `plugin`，`detail` 补上 `Detail` 的键和 `write_key`。失败的写不记，审计写失败只记日志（同 CORE-08）。
+- `Key` 非空时同一个键只写一次，再调回第一次的结果、`Reused` 为真。按同一操作者、`detail.write_key` 相同的审计查；建对象另外把 `props.source_ref.write_key` 写成 `Key` 并按它查，写成了但审计没落下时也认得出。追加正文、写联系人只按审计查。
+
+| 方法 | 做什么 |
+|---|---|
+| `ObjectWriter().CreateAs(ctx, NewObject, WriteMeta)` | 建对象，校验同 `POST /api/objects`；`NewObject.CategoryID` 是分类 id（可空） |
+| `ObjectWriter().AppendBody(ctx, id, text, WriteMeta)` | 在对象正文末尾追加一段，和原文空一行；对象不存在或已删除回 `domain.ErrNotFound` |
+| `ContactWriter().Create(ctx, NewContact, WriteMeta)` | 建联系人（干系人名册），`Name` 必填，校验同 `POST /api/stakeholders` |
+| `ContactWriter().Merge(ctx, id, ContactPatch, WriteMeta)` | 把非 nil 的字段写进已有联系人，回 `WrittenContact{ID, Name, Fields}`，`Fields` 是改了的字段 |
+| `Contacts().FindByName(ctx, name)` | 只读：按名字找没归档的联系人，重名取最早建的，没有回 `ErrNoRows` |
+
+写内核数据不在 3.1 的权限清单里，暂不按权限收窄；能写哪些类型等 `ObjectService` 落地时按「本插件声明或认领的类型」收。
 
 ### 2.1 功能模块
 
@@ -741,13 +758,23 @@ r.Subscribe("im.message_received", func(ctx context.Context, c plugin.Core, e pl
 - 安装前，插件管理页列出清单里的全部权限，每条带一句人话说明（来自上表）；用户点「确认并安装」才继续。确认结果（权限列表、时间）记进插件状态表和审计日志
 - 高风险权限（`fs:*:any`、`network:exchanges`、`network:any`、`process:spawn`）单独一行、单独勾选，不勾不能装
 - `trade:live` 安装时不授予：交易插件装好后只有模拟盘。要开实盘，在交易插件的设置里单独申请，过二次确认（输入插件名），并且要过 TRD-08 评审。默认只开模拟盘
-- 升级时新增了权限：列出新增的那几条要求确认；用户不确认就停在旧版本，旧版本继续可用
+- 升级时新增了权限：列出新增的那几条要求确认；用户不确认，状态表里的版本和权限都不变，要新增权限的代码路径在运行时被拦（3.3、4.5），其余功能照常
 - 升级时减少了权限：直接收回，不用确认
 - 第一方插件也走确认流程，不因为是第一方就跳过；内核模块不需要确认
 
 ### 3.3 权限怎么生效
 
 权限不是靠插件自觉。插件拿到的所有能力都经过 `Core` 的收窄句柄（2.0）：`HTTP(group)` 只给声明过的组、发请求前检查目标域名；`FS(scope)` 只给声明过的范围、路径越界返回错误；`Secrets()` 只解得开声明过的范围；`Process()` 没声明返回错误。第一方插件和内核同进程，句柄外的路（直接 `os.Open`、`http.DefaultClient`）靠代码评审和静态检查守（CORE-03b 的后端对应规则：`internal/plugins/` 下禁止 import `net/http` 的默认客户端、`os` 的写文件函数、`database/sql`）。进程外插件阶段（M3 之后）改成物理隔离。
+
+运行时检查（已实现，SEC-01，`internal/plugin/permissions.go`）：上面的收窄句柄还没全做，先有一个查询句柄 `Core.Granted(perm)`，只认状态表里用户确认过的权限（插件没安装时都是 false）。要高风险权限的代码路径在执行前调 `plugin.Require(c, perm)`，没确认时返回 `*NotGrantedError`（`errors.Is(err, plugin.ErrNotGranted)`），`Error()` 直接给用户看：「插件 <id> 的 <权限> 权限还没确认，到插件管理里升级并确认」。现在检查的地方：
+
+| 插件 | 权限 | 检查的地方 |
+|---|---|---|
+| `sop` | `network:any` | HTTP 节点发请求前，没确认时这一步失败 |
+| `projects` | `process:spawn` | 原型启动前，409 |
+| `terminal` | `process:spawn` | 新建终端会话前，409 |
+
+`Granted` 不拿注册表的锁（后台任务里也会调，停用时等任务退出不能卡在锁上），状态变了由注册表换掉它看的权限集合。新加要高风险权限的代码路径时同样调 `Require`。
 
 ---
 
@@ -815,12 +842,16 @@ stateDiagram-v2
 
 换了新二进制、插件的 `version` 变了时，启动后插件管理页标「可升级」；不自动升级。
 
+第一方插件编译在二进制里，换了二进制跑的就是新代码，「停在旧版本」做不到。所以升级之前：已启用的插件照常起来、旧功能照常用；新版本新增的权限在确认之前一律当没授予，要它的代码路径执行时被 `Require` 拦下（3.3），用户到插件管理里升级并确认后才放行。启动时因有待应用的迁移没起来的插件，升级跑完迁移后起来。
+
 | 步骤 | 后端 | 前端 |
 |---|---|---|
-| 检查 | 新版本的 `core` 范围、`depends` 仍满足；依赖本插件的插件对新版本的版本范围仍满足，不满足就拒绝并列出 | 展示版本变化、新增权限、待跑的迁移 |
-| 确认 | 无 | 新增权限按 3.2 确认 |
-| 备份、迁移 | 先快照，再跑新迁移；任一失败用快照恢复，插件停在旧版本，错误记运行异常（REL-02） | 显示进度和结果 |
-| 生效 | 已启用的插件：先按 4.3 撤掉旧注册，再按 4.2 注册新版本；状态表写新版本；记审计日志 | 重新加载插件入口 |
+| 检查 | 已安装、版本变了；新版本的 `core` 范围、`depends` 仍满足；依赖本插件的已装插件对新版本的版本范围仍满足，不满足就拒绝并列出；新增权限（新清单里有、状态表里没确认过的）都在请求的 `permissions` 里，不在就 409、`error.permissions` 列出 | 展示版本变化、新增权限、待跑的迁移 |
+| 确认 | 无 | 新增权限按 3.2 确认，高风险的逐条勾选 |
+| 备份、迁移 | 有待跑的迁移时先快照，再跑新迁移；任一失败时状态表不动（仍是旧版本），已提交的迁移用快照恢复（REL-02） | 显示进度和结果 |
+| 生效 | 状态表写新版本和新清单的权限（减少的直接收回）；已启用的插件按 4.3 撤掉旧注册、按 4.2 注册新版本；记审计日志（`plugin` / `upgrade`） | 刷新插件列表；插件入口随整页重新加载换新 |
+
+接口是 `POST /api/plugins/{id}/upgrade`，body `{ "permissions": [...] }`，见 `docs/api-contract.md`「插件管理」。
 
 降级不支持：新版本的迁移已经改了表，旧代码不一定认识。要回退只能从升级前的快照恢复。
 

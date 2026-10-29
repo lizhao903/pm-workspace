@@ -68,6 +68,9 @@ var NodeTypes = []NodeType{
 	{Kind: "http", Group: "外部", Required: []ConfigField{{"url", "地址"}}},
 	{Kind: "notify", Group: "外部", Required: []ConfigField{{"to", "发给"}, {"content", "内容"}}},
 	{Kind: "task", Group: "外部", Required: []ConfigField{{"title", "标题"}}},
+	// doc、contact 原型里没有（原型用 auto 模拟），SOP-02a 新加，排在 task 后面
+	{Kind: "doc", Group: "外部"},
+	{Kind: "contact", Group: "外部"},
 	{Kind: "agent", Group: "外部", Required: []ConfigField{{"agent", "Agent"}}},
 	{Kind: "subflow", Group: "外部", Required: []ConfigField{{"sop", "执行哪个 SOP"}}},
 	{Kind: "end", Group: "输出"},

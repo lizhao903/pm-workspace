@@ -1,4 +1,4 @@
-// 插件管理（CORE-09）：读插件列表，安装、启用、停用、卸载。契约见 docs/api-contract.md「插件管理」。
+// 插件管理（CORE-09）：读插件列表，安装、启用、停用、卸载、升级（SEC-01）。契约见 docs/api-contract.md「插件管理」。
 // 写完报 { kind: 'plugin' }，插件列表和对象类型一起刷新。前端的插件加载和撤销由设置页调 core/plugin 做，这里只管接口。
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { request, requestList } from '../api'
@@ -35,6 +35,7 @@ export type PluginInfo = {
 }
 
 export type PluginInstallResult = { plugin: PluginInfo; backup: string | null }
+export type PluginUpgradeResult = { plugin: PluginInfo; backup: string | null; from: string }
 export type PluginUninstallResult = { plugin: PluginInfo; data_deleted: boolean; backup: string | null; dropped_tables: string[] }
 
 const path = (id: string, action: string) => `/api/plugins/${encodeURIComponent(id)}/${action}`
@@ -44,6 +45,8 @@ export const pluginsApi = {
   install: (id: string, permissions: string[]) => request<PluginInstallResult>('POST', path(id, 'install'), { body: { permissions } }),
   enable: (id: string) => request<PluginInfo>('POST', path(id, 'enable'), { body: {} }),
   disable: (id: string) => request<PluginInfo>('POST', path(id, 'disable'), { body: {} }),
+  /** permissions 要覆盖新版本新增的权限，没覆盖时 409，error.permissions 列出缺的 */
+  upgrade: (id: string, permissions: string[]) => request<PluginUpgradeResult>('POST', path(id, 'upgrade'), { body: { permissions } }),
   /** 删数据时 confirm 必须等于插件 id */
   uninstall: (id: string, opts: { deleteData: boolean }) =>
     request<PluginUninstallResult>('POST', path(id, 'uninstall'), { body: { delete_data: opts.deleteData, confirm: opts.deleteData ? id : '' } }),
@@ -73,6 +76,12 @@ export function enabledDependents(id: string, list: readonly PluginInfo[]): Plug
   }
   visit(id)
   return out
+}
+
+/** 升级新增的权限：新版本清单里有、还没确认过的（docs/plugin-api.md 4.5） */
+export function newPermissions(p: PluginInfo): string[] {
+  const done = new Set(p.permissions_confirmed ?? [])
+  return (p.permissions ?? []).filter((x) => !done.has(x))
 }
 
 /** 卸载前要先卸掉的插件：已安装（不论是否启用）、强依赖它的 */
@@ -113,6 +122,14 @@ export function useDisablePlugins() {
       for (const id of ids) done.push(await pluginsApi.disable(id))
       return done
     },
+    onSettled: () => notify({ kind: 'plugin' }),
+  })
+}
+
+export function useUpgradePlugin() {
+  const notify = useNotifyChange()
+  return useMutation({
+    mutationFn: ({ id, permissions }: { id: string; permissions: string[] }) => pluginsApi.upgrade(id, permissions),
     onSettled: () => notify({ kind: 'plugin' }),
   })
 }

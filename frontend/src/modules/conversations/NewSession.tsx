@@ -1,17 +1,68 @@
-// 新会话面板（SPEC-sessions-1.6、1.7，SPEC-sessions-4 的第一句话）：会话还没有 Agent，
-// 按契约用「服务商 + 模型」代替。选服务商（最近聊过的在前，停用的置灰），选模型，可选产物目录和第一句话。
+// 新会话面板（SPEC-sessions-1.6、1.7）：「和哪个 Agent 聊」，最近聊过的在前，停用的置灰；点一个就建会话并打开。
+// 不选 Agent、按「服务商 + 模型」开的旧方式收在「更多」里（AG-01b8），可选产物目录和第一句话。
 import { useState } from 'react'
 import {
-  errorText, useProviderModels, useWorkdirCheck, workdirUsable, type AgentProvider, type AgentSessionInput,
+  errorText, useProviderModels, useWorkdirCheck, workdirUsable, type Agent, type AgentProvider, type AgentSessionInput,
 } from '../../core/data'
 import { Avatar, Button, Input, SearchSelect, Textarea, cls } from '../../core/ui'
+import { AgentAvatar } from '../../core/ui/AgentAvatar'
 import { avatarName } from './chatModel'
 
-// 服务商多于这个数时出搜索框
+// 多于这个数时出搜索框
 const MANY = 6
 
-export function NewSession({ providers, busy, error, onCreate, onClose }: {
+export function NewSession({ agents, agentsLoading, providers, busy, error, onCreate, onClose }: {
   /** 已按最近聊过的排好 */
+  agents: Agent[]
+  agentsLoading?: boolean
+  /** 已按最近聊过的排好 */
+  providers: AgentProvider[]
+  busy: boolean
+  error?: unknown
+  onCreate: (input: AgentSessionInput, firstMessage: string) => void
+  onClose: () => void
+}) {
+  const [more, setMore] = useState(false)
+  const [q, setQ] = useState('')
+  const kw = q.trim().toLowerCase()
+  const shown = kw ? agents.filter((a) => `${a.name} ${a.desc}`.toLowerCase().includes(kw)) : agents
+  const pick = (a: Agent) => { if (a.enabled && !busy) onCreate({ agent_id: a.id }, '') }
+
+  return (
+    <div className="agent-pick" role="dialog" aria-label="新会话"
+      onKeyDown={(e) => { if (e.key === 'Escape' && !document.querySelector('.ss-menu')) { e.stopPropagation(); onClose() } }}>
+      <div className="menu-label">和哪个 Agent 聊</div>
+      {agents.length > MANY && (
+        <div className="search search-sm agent-pick-search">
+          <input autoFocus placeholder="搜 Agent，最近聊过的在前" value={q} aria-label="搜 Agent" onChange={(e) => setQ(e.target.value)}
+            onKeyDown={(e) => { const a = shown.find((x) => x.enabled); if (e.key === 'Enter' && a) pick(a) }} />
+        </div>
+      )}
+      <div className="agent-pick-list" aria-label="Agent">
+        {shown.map((a) => (
+          <button key={a.id} type="button" className="menu-item" disabled={!a.enabled || busy} title={a.desc || undefined} onClick={() => pick(a)}>
+            <AgentAvatar agent={a} size={20} />
+            <span className="ellipsis">{a.name || '未命名'}</span>
+            {!a.enabled && <span className="list-sub">已停用</span>}
+          </button>
+        ))}
+        {!shown.length && (
+          <div className="io-empty">
+            {agentsLoading ? '正在读 Agent' : agents.length ? '没有匹配的 Agent' : '还没有 Agent，先到「设置 / Agent」里建一个'}
+          </div>
+        )}
+      </div>
+      {!more && error !== undefined && error !== null && <span className="field-err">建会话失败：{errorText(error)}</span>}
+      <button type="button" className="link-btn link-muted agent-pick-more" aria-expanded={more} onClick={() => setMore(!more)}>
+        {more ? '收起' : '更多：不选 Agent，直接用服务商和模型'}
+      </button>
+      {more && <ProviderForm providers={providers} busy={busy} error={error} onCreate={onCreate} onClose={onClose} />}
+    </div>
+  )
+}
+
+/** 旧方式：选服务商（停用的置灰）、模型，可选产物目录和第一句话 */
+function ProviderForm({ providers, busy, error, onCreate, onClose }: {
   providers: AgentProvider[]
   busy: boolean
   error?: unknown
@@ -29,9 +80,6 @@ export function NewSession({ providers, busy, error, onCreate, onClose }: {
   const check = useWorkdirCheck(wd)
   const badDir = !!wd && !!check.data && !workdirUsable(check.data)
   const [text, setText] = useState('')
-  const [q, setQ] = useState('')
-  const kw = q.trim().toLowerCase()
-  const shown = kw ? providers.filter((p) => `${p.name} ${p.model} ${p.kind}`.toLowerCase().includes(kw)) : providers
 
   const ready = !!provider?.enabled && !!model.trim() && !badDir && !busy
   const submit = () => {
@@ -44,17 +92,10 @@ export function NewSession({ providers, busy, error, onCreate, onClose }: {
     .map((m) => ({ value: m, label: m }))
 
   return (
-    <div className="agent-pick" role="dialog" aria-label="新会话"
-      onKeyDown={(e) => { if (e.key === 'Escape' && !document.querySelector('.ss-menu')) { e.stopPropagation(); onClose() } }}>
+    <>
       <div className="menu-label">用哪个服务商聊</div>
-      {providers.length > MANY && (
-        <div className="search search-sm agent-pick-search">
-          <input autoFocus placeholder="搜服务商，最近聊过的在前" value={q} aria-label="搜服务商" onChange={(e) => setQ(e.target.value)}
-            onKeyDown={(e) => { const p = shown.find((x) => x.enabled); if (e.key === 'Enter' && p) setPid(p.id) }} />
-        </div>
-      )}
       <div className="agent-pick-list" role="radiogroup" aria-label="服务商">
-        {shown.map((p) => (
+        {providers.map((p) => (
           <button key={p.id} type="button" role="radio" aria-checked={p.id === pid} className={cls('menu-item', p.id === pid && 'on')}
             disabled={!p.enabled} onClick={() => setPid(p.id)}>
             <Avatar name={avatarName(p)} size={20} />
@@ -62,7 +103,7 @@ export function NewSession({ providers, busy, error, onCreate, onClose }: {
             <span className="list-sub">{p.enabled ? p.model || p.kind : '已停用'}</span>
           </button>
         ))}
-        {!shown.length && <div className="io-empty">{providers.length ? '没有匹配的服务商' : '还没有服务商，先到「设置」里配一个'}</div>}
+        {!providers.length && <div className="io-empty">还没有服务商，先到「设置」里配一个</div>}
       </div>
       {provider?.enabled && (
         <div className="agent-pick-form">
@@ -93,6 +134,6 @@ export function NewSession({ providers, busy, error, onCreate, onClose }: {
           </div>
         </div>
       )}
-    </div>
+    </>
   )
 }

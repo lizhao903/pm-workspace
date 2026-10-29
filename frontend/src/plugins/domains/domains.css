@@ -1,0 +1,136 @@
+/* 设置 > 内网域名，照原型 web-next/src/styles.css 的 dm-* 一段（hook-sec、seg、model-opt、mount-head 改成本插件的 dm- 前缀）；
+   本机状态、命令块是正式版新加的 */
+.dm-page { display: flex; flex-direction: column; gap: var(--sp-7); min-width: 0; container: dm-page / inline-size; }
+.dm-page .mono { font-family: var(--mono); }
+.dm-head { display: flex; align-items: center; gap: var(--sp-6); flex-wrap: wrap; }
+.dm-head-desc { flex: 1; min-width: 0; color: var(--muted); font-size: var(--fs-sm); }
+.dm-err { padding: var(--sp-4) var(--sp-5); border-radius: var(--r); background: var(--danger-soft); color: var(--danger); font-size: var(--fs-sm); }
+
+.dm-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(340px, 100%), 1fr)); gap: var(--sp-7); }
+.dm-off { opacity: 0.55; }
+.dm-sec {
+  display: flex; flex-direction: column; gap: var(--sp-5); padding: var(--sp-8); min-width: 0;
+  border: 1px solid var(--line); border-radius: var(--r-lg); background: var(--panel);
+}
+.dm-sec-head { display: flex; align-items: center; gap: var(--sp-6); }
+.dm-sec-head .dm-title { flex: 1; min-width: 0; }
+.dm-title { font-size: 12px; font-weight: 600; color: var(--muted); }
+.dm-title-hint { margin-left: var(--sp-3); font-weight: 400; color: var(--faint); }
+.dm-sub { margin-top: var(--sp-7); }
+.dm-hint { font-size: var(--fs-xs); color: var(--faint); }
+.dm-faint { color: var(--faint); }
+.dm-label { font-size: var(--fs); font-weight: 500; color: var(--text); }
+.dm-label-row { margin: var(--sp-5) 0 0; font-size: var(--fs-xs); font-weight: 500; color: var(--faint); }
+.dm-label-row .dm-title-hint { font-weight: 400; }
+.dm-empty {
+  padding: var(--sp-7); text-align: center; color: var(--faint); font-size: var(--fs-sm);
+  border: 1px dashed var(--line-2); border-radius: var(--r);
+}
+
+.dm-suffix {
+  display: flex; align-items: center; gap: var(--sp-2); height: 36px; padding: 0 var(--sp-5); min-width: 0;
+  border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--panel-2);
+}
+.dm-suffix:focus-within { border-color: var(--accent-line); background: var(--panel); box-shadow: 0 0 0 3px var(--accent-soft); }
+.dm-suffix.bad { border-color: var(--danger); }
+.dm-suffix input { flex: 1; min-width: 0; border: 0; outline: 0; background: transparent; color: var(--text); font-size: var(--fs); }
+
+.dm-opts { display: flex; flex-direction: column; gap: var(--sp-3); }
+.dm-opt { display: flex; gap: var(--sp-5); align-items: flex-start; padding: var(--sp-5) var(--sp-6); border: 1px solid var(--line); border-radius: var(--r); cursor: pointer; }
+.dm-opt input { accent-color: var(--accent); margin-top: 3px; }
+.dm-opt > span { display: flex; flex-direction: column; gap: var(--sp-1); min-width: 0; overflow-wrap: anywhere; }
+.dm-opt.on { border-color: var(--accent-line); background: var(--accent-soft); }
+
+.dm-seg { display: flex; padding: 2px; border-radius: var(--r-sm); background: var(--hover); max-width: 100%; overflow-x: auto; }
+.dm-seg button { display: flex; align-items: center; height: 26px; padding: 0 var(--sp-5); border-radius: 4px; color: var(--muted); font-size: 12px; white-space: nowrap; }
+.dm-seg button:hover { color: var(--text); }
+.dm-seg button.on { background: var(--panel); color: var(--text); box-shadow: var(--shadow-sm); font-weight: 500; }
+.dm-seg-full { width: 100%; }
+.dm-seg-full button { flex: 1; justify-content: center; height: 28px; }
+
+.dm-switch-row { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-6); }
+.dm-switch-row > span { display: flex; flex-direction: column; gap: var(--sp-1); min-width: 0; }
+.dm-ports { display: flex; align-items: center; gap: var(--sp-4); flex-wrap: wrap; }
+.dm-port { width: 84px; }
+.dm-ca { display: flex; align-items: center; gap: var(--sp-5); justify-content: space-between; padding: var(--sp-4) var(--sp-5); border-radius: var(--r); font-size: var(--fs-sm); }
+.dm-ca.warn { background: var(--warn-soft); color: var(--warn); }
+.dm-ca.ok { background: color-mix(in srgb, var(--ok) 10%, var(--panel)); color: var(--ok); }
+.dm-how { display: flex; flex-direction: column; gap: var(--sp-4); }
+.dm-ip { display: flex; align-items: center; gap: var(--sp-4); flex-wrap: wrap; }
+.dm-ip .input { width: 160px; }
+.dm-warn-inline { flex-basis: 100%; font-size: 12px; color: var(--warn); }
+
+.dm-search { width: 220px; }
+.dm-add {
+  display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-4); padding: var(--sp-5);
+  border: 1px dashed var(--line-2); border-radius: var(--r);
+}
+.dm-add .dm-suffix { width: 240px; }
+.dm-grow { flex: 1 1 180px; min-width: 0; }
+
+.dm-table { display: flex; flex-direction: column; border: 1px solid var(--line); border-radius: var(--r); overflow: hidden; container-type: inline-size; }
+.dm-row {
+  display: grid; grid-template-columns: 40px minmax(180px, 1.2fr) minmax(160px, 1fr) 120px 170px; gap: var(--sp-6);
+  align-items: center; padding: var(--sp-4) var(--sp-6); border-bottom: 1px solid var(--line); background: var(--panel);
+}
+.dm-row:last-child { border-bottom: 0; }
+.dm-row.bad { background: color-mix(in srgb, var(--danger) 5%, var(--panel)); }
+.dm-row-off .dm-host, .dm-row-off .dm-target { opacity: 0.5; }
+.dm-row > * { min-width: 0; }
+.dm-host { display: flex; flex-direction: column; min-width: 0; }
+.dm-link { font-size: var(--fs); color: var(--accent); text-decoration: none; }
+.dm-link:hover { text-decoration: underline; }
+.dm-link.off { color: var(--text); }
+.dm-tag { margin-right: var(--sp-2); }
+.dm-target { font-size: 12px; color: var(--muted); }
+.dm-check { font-size: 12px; color: var(--faint); }
+.dm-check.ok { color: var(--ok); }
+.dm-check.warn { color: var(--warn); }
+.dm-check-msg { grid-column: 2 / -1; font-size: 12px; color: var(--warn); overflow-wrap: anywhere; }
+.dm-acts { display: flex; align-items: center; gap: var(--sp-1); justify-content: flex-end; }
+.dm-chev { display: inline-grid; transition: transform 0.15s; }
+.dm-chev.open { transform: rotate(90deg); }
+
+.dm-st-row {
+  display: grid; grid-template-columns: 72px minmax(120px, 220px) 72px minmax(0, 1fr); gap: var(--sp-6);
+  align-items: baseline; padding: var(--sp-4) var(--sp-6); border-bottom: 1px solid var(--line); background: var(--panel);
+}
+.dm-st-row:last-child { border-bottom: 0; }
+.dm-st-row.problem { background: color-mix(in srgb, var(--warn) 6%, var(--panel)); }
+.dm-st-row > * { min-width: 0; }
+.dm-st-group { font-size: var(--fs-xs); color: var(--faint); }
+.dm-st-name { font-size: var(--fs-sm); }
+.dm-st-state { font-size: 12px; font-weight: 500; }
+.dm-st-state.ok { color: var(--ok); }
+.dm-st-state.problem { color: var(--warn); }
+.dm-st-state.unknown { color: var(--faint); }
+.dm-st-msg { font-size: var(--fs-sm); color: var(--muted); overflow-wrap: anywhere; }
+.dm-st-fix { grid-column: 2 / -1; display: flex; flex-direction: column; gap: var(--sp-3); }
+
+.dm-cmds { display: flex; flex-direction: column; gap: var(--sp-3); }
+.dm-cmds-head { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-4); font-size: var(--fs-xs); color: var(--muted); }
+.dm-pre {
+  margin: 0; padding: var(--sp-5) var(--sp-6); border-radius: var(--r); background: var(--panel-2); border: 1px solid var(--line);
+  font-family: var(--mono); font-size: 12px; line-height: 1.6; white-space: pre-wrap; word-break: break-all; max-height: 320px; overflow: auto;
+}
+
+@container (max-width: 640px) {
+  .dm-row { grid-template-columns: 40px minmax(0, 1fr) auto; }
+  .dm-target, .dm-check { display: none; }
+  .dm-check-msg { grid-column: 1 / -1; }
+  .dm-st-row { grid-template-columns: minmax(0, 1fr) auto; }
+  .dm-st-group { display: none; }
+  .dm-st-msg, .dm-st-fix { grid-column: 1 / -1; }
+}
+@container (max-width: 360px) {
+  .dm-row { grid-template-columns: 40px minmax(0, 1fr); }
+  .dm-acts { grid-column: 2 / -1; justify-content: flex-start; flex-wrap: wrap; }
+}
+/* 窄屏：标题栏、添加表单换行 */
+@container dm-page (max-width: 640px) {
+  .dm-sec-head { flex-wrap: wrap; }
+  .dm-search { width: 100%; }
+  .dm-add .dm-suffix { width: 100%; }
+  .dm-ip .input { flex: 1 1 120px; width: auto; min-width: 0; }
+  .dm-sec { padding: var(--sp-6); }
+}

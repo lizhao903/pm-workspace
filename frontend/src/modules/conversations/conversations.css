@@ -158,3 +158,29 @@
   .chat-head { padding: var(--sp-4) var(--sp-6); }
   .conv-page { padding: var(--sp-8) var(--sp-8) var(--sp-16); }
 }
+
+/* ---------- 新会话面板的「更多」（AG-01b8） ---------- */
+.agent-pick-more { display: block; margin: var(--sp-2) var(--sp-3) 0; font-size: var(--fs-sm); }
+.call-pending { border-color: color-mix(in srgb, var(--warn) 55%, var(--line)); }
+.call-pending .call-state { color: var(--warn); }
+
+/* ---------- 执行记录（AG-01b8，照原型 agent-run 一段） ---------- */
+.agent-runs { display: flex; flex-direction: column; gap: var(--sp-5); }
+.agent-run { display: flex; flex-direction: column; gap: var(--sp-4); padding: 14px; border: 1px solid var(--line); border-radius: var(--r-lg); background: var(--panel); min-width: 0; }
+.agent-run.folded { padding: 10px 14px; }
+.agent-run.waiting { border-color: color-mix(in srgb, var(--warn) 45%, var(--line)); }
+.agent-run.lit { border-color: var(--accent-line); box-shadow: 0 0 0 3px var(--accent-soft); transition: box-shadow 0.3s; }
+.agent-run-head { display: flex; align-items: center; gap: var(--sp-5); width: 100%; min-width: 0; text-align: left; }
+.agent-run-head .agent-run-agent { flex: none; max-width: 180px; font-weight: 600; font-size: var(--fs-sm); }
+.agent-run-head .agent-run-trigger { min-width: 0; flex: 0 1 auto; font-weight: 500; font-size: var(--fs-sm); }
+.agent-run-head .pill, .agent-run-n, .agent-run-head .call-chev { flex: none; }
+.agent-run-wait { color: var(--warn); font-size: var(--fs-sm); }
+.agent-run-summary { color: var(--muted); font-size: var(--fs-sm); line-height: 1.6; white-space: pre-line; overflow-wrap: anywhere; }
+.agent-run .call-list { display: flex; flex-direction: column; gap: var(--sp-3); }
+.call-confirm-hint { margin-top: var(--sp-3); font-size: var(--fs-sm); }
+.agent-chip { display: inline-flex; align-items: center; gap: 6px; }
+.agent-chip-name { max-width: 140px; }
+@media (max-width: 760px) {
+  .agent-run-head { flex-wrap: wrap; row-gap: 4px; }
+  .agent-run-head .agent-run-trigger { flex-basis: 100%; order: 9; }
+}

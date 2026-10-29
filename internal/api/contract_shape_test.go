@@ -25,6 +25,8 @@ import (
 	"github.com/lizhao903/pm-workspace/internal/plugins/projects"
 	"github.com/lizhao903/pm-workspace/internal/plugins/sop"
 	"github.com/lizhao903/pm-workspace/internal/plugins/terminal"
+	"github.com/lizhao903/pm-workspace/internal/plugins/trade"
+	"github.com/lizhao903/pm-workspace/internal/plugins/video"
 	"github.com/lizhao903/pm-workspace/internal/schedule"
 	"github.com/lizhao903/pm-workspace/internal/store"
 	"github.com/lizhao903/pm-workspace/internal/webhook"
@@ -152,6 +154,15 @@ var contractSpecs = map[string]contractSpec{
 	"DomainRoute":    {v: domains.Route{}},
 	"DomainStatus":   {v: domains.Status{}},
 	"DomainConfig":   {v: domains.Config{}},
+
+	"TradeInstrument": {v: trade.Instrument{}},
+	"TradeWatchlist":  {v: trade.Watchlist{}},
+	"TradeSource":     {v: trade.SourceInfo{}},
+	"TradeSync":       {v: trade.SyncResult{}},
+
+	"Video":        {v: video.Video{}},
+	"VideoSeries":  {v: video.Series{}},
+	"VideoPublish": {v: video.Publish{}},
 }
 
 // docShape 是从文档里抽出来的一个对象：字段名和（如果有）字段的嵌套对象。

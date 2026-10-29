@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -313,18 +314,20 @@ func TestNodeTypesAlignedWithPrototype(t *testing.T) {
 	body := src[start:end]
 	// 每个节点以 kind: '...' 开头，到下一个 kind 之前都是它的配置
 	parts := strings.Split(body, "kind: '")[1:]
-	if len(parts) != len(NodeTypes) {
-		t.Fatalf("原型 %d 种节点，后端 %d 种", len(parts), len(NodeTypes))
+	// doc、contact 是后端新加的写节点（SOP-02a），原型里用 auto 模拟，不比
+	types := slices.DeleteFunc(slices.Clone(NodeTypes), func(n NodeType) bool { return n.Kind == "doc" || n.Kind == "contact" })
+	if len(parts) != len(types) || len(types) != len(NodeTypes)-2 {
+		t.Fatalf("原型 %d 种节点，后端 %d 种（另有 doc、contact）", len(parts), len(types))
 	}
 	for i, part := range parts {
 		kind := part[:strings.Index(part, "'")]
-		if kind != NodeTypes[i].Kind {
-			t.Fatalf("第 %d 种：原型 %s，后端 %s", i+1, kind, NodeTypes[i].Kind)
+		if kind != types[i].Kind {
+			t.Fatalf("第 %d 种：原型 %s，后端 %s", i+1, kind, types[i].Kind)
 		}
-		if !strings.Contains(part, "group: '"+NodeTypes[i].Group+"'") {
+		if !strings.Contains(part, "group: '"+types[i].Group+"'") {
 			t.Errorf("%s 的分组和原型不一致", kind)
 		}
-		if strings.Contains(part, "branching: true") != NodeTypes[i].Branching {
+		if strings.Contains(part, "branching: true") != types[i].Branching {
 			t.Errorf("%s 是否分支和原型不一致", kind)
 		}
 		var req []string
@@ -335,7 +338,7 @@ func TestNodeTypesAlignedWithPrototype(t *testing.T) {
 			}
 		}
 		var have []string
-		for _, cf := range NodeTypes[i].Required {
+		for _, cf := range types[i].Required {
 			have = append(have, cf.Key)
 		}
 		if !reflect.DeepEqual(req, have) {

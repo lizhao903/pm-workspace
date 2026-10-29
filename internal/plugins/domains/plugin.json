@@ -9,7 +9,7 @@
   "optional_depends": {},
   "provides": {
     "modules": [],
-    "settings": [],
+    "settings": ["domains"],
     "object_types": [],
     "connectors": [],
     "skills": [],

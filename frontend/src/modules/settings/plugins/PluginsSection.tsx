@@ -5,16 +5,16 @@ import { useEffect, useState, type ReactNode } from 'react'
 import { activatePlugin, deactivatePlugin, discoverPlugins, parseManifest } from '../../../core/plugin'
 import {
   enabledDependents, errorText, installedDependents, QueryState, useDisablePlugins, useEnablePlugin, useInstallPlugin, usePlugins,
-  useUninstallPlugin, type PluginInfo,
+  useUninstallPlugin, useUpgradePlugin, type PluginInfo,
 } from '../../../core/data'
 import { Button, cls, EmptyState, PageTitle, Pill } from '../../../core/ui'
-import { DisableDialog, InstallDialog, UninstallDialog } from './dialogs'
+import { DisableDialog, InstallDialog, UninstallDialog, UpgradeDialog } from './dialogs'
 import { nameOf, pluginStatus, quoteNames, STATUS_VIEW } from './labels'
 import { PluginDrawer, PluginLogo } from './PluginDrawer'
 import './plugins.css'
 
 type Notice = { tone: 'ok' | 'danger'; text: ReactNode }
-type Dialog = { kind: 'install' | 'disable' | 'uninstall'; id: string }
+type Dialog = { kind: 'install' | 'disable' | 'uninstall' | 'upgrade'; id: string }
 
 // 整页重新加载后还要看到的提示，放 sessionStorage；拿不到存储就算了
 const NOTICE_KEY = 'pmw-plugin-notice'
@@ -60,7 +60,8 @@ export function PluginsSection({ reload = () => window.location.reload() }: {
   const enable = useEnablePlugin()
   const disable = useDisablePlugins()
   const uninstall = useUninstallPlugin()
-  const busy = install.isPending || enable.isPending || disable.isPending || uninstall.isPending
+  const upgrade = useUpgradePlugin()
+  const busy = install.isPending || enable.isPending || disable.isPending || uninstall.isPending || upgrade.isPending
 
   const list = q.data ?? []
 
@@ -118,6 +119,20 @@ export function PluginsSection({ reload = () => window.location.reload() }: {
     })
   }
 
+  // 升级后：原来没在跑（迁移没跑、启动时没起）现在跑起来了，按启用加载前端；否则只提示
+  function onUpgrade(p: PluginInfo, permissions: string[]) {
+    upgrade.mutate({ id: p.id, permissions }, {
+      onSuccess: (r) => {
+        setDialog(null)
+        const backup = r.backup ? `升级前已备份数据库：${r.backup}。` : ''
+        const text = `${backup}已把「${p.name}」从 ${r.from} 升级到 ${r.plugin.installed_version}`
+        if (r.plugin.running && !p.running) void afterEnabled(r.plugin, `${text}，`)
+        else setNotice({ tone: 'ok', text: permissions.length ? `${text}，新增的权限已确认` : text })
+      },
+      onError: (e) => { setDialog(null); fail(`升级「${p.name}」`, e) },
+    })
+  }
+
   function onUninstall(p: PluginInfo, deleteData: boolean) {
     uninstall.mutate({ id: p.id, deleteData }, {
       onSuccess: (r) => {
@@ -156,6 +171,10 @@ export function PluginsSection({ reload = () => window.location.reload() }: {
         </>
       )
     }
+    // 换了二进制、版本变了：已安装的都给升级入口
+    const up = p.upgradable && (
+      <Button size={size} variant="primary" disabled={busy} onClick={() => setDialog({ kind: 'upgrade', id: p.id })}>升级</Button>
+    )
     if (st === 'disabled') {
       const blockers = installedDependents(p.id, list)
       return (
@@ -166,6 +185,7 @@ export function PluginsSection({ reload = () => window.location.reload() }: {
           {where === 'drawer' && blockers.length > 0 && <span className="plg-hint">先卸载{quoteNames(blockers.map((b) => b.name))}</span>}
           {needDeps}
           <div className="spacer" />
+          {up}
           <Button size={size} variant="primary" disabled={busy || missing.length > 0} onClick={() => onEnable(p)}>启用</Button>
         </>
       )
@@ -175,6 +195,7 @@ export function PluginsSection({ reload = () => window.location.reload() }: {
       <>
         {deps.length > 0 && <span className="plg-hint">被{quoteNames(deps.map((d) => d.name))}依赖</span>}
         <div className="spacer" />
+        {up}
         <Button size={size} variant="outline" disabled={busy} onClick={() => setDialog({ kind: 'disable', id: p.id })}>停用</Button>
       </>
     )
@@ -235,6 +256,9 @@ export function PluginsSection({ reload = () => window.location.reload() }: {
 
       {dialog?.kind === 'install' && target && (
         <InstallDialog plugin={target} busy={install.isPending} onConfirm={(perms) => onInstall(target, perms)} onCancel={() => setDialog(null)} />
+      )}
+      {dialog?.kind === 'upgrade' && target && (
+        <UpgradeDialog plugin={target} busy={upgrade.isPending} onConfirm={(perms) => onUpgrade(target, perms)} onCancel={() => setDialog(null)} />
       )}
       {dialog?.kind === 'disable' && target && (
         <DisableDialog plugin={target} deps={enabledDependents(target.id, list)} busy={disable.isPending}

@@ -1,6 +1,7 @@
-// 插件管理的三个确认弹窗：安装（列权限、高风险单独勾选）、停用（被依赖时列出要一起停的）、卸载（保留或删除数据，删除要二次确认）
+// 插件管理的确认弹窗：安装（列权限、高风险单独勾选）、升级（只列新增的权限，同样勾选）、停用（被依赖时列出要一起停的）、
+// 卸载（保留或删除数据，删除要二次确认）
 import { useState } from 'react'
-import type { PluginInfo } from '../../../core/data'
+import { newPermissions, type PluginInfo } from '../../../core/data'
 import { Checkbox, ConfirmDialog, Field, Input } from '../../../core/ui'
 import { permissionInfo, quoteNames, RISK_LABEL } from './labels'
 
@@ -48,6 +49,62 @@ export function InstallDialog({ plugin, busy, onConfirm, onCancel }: {
           })}
           {!ready && <div className="plg-muted">高风险权限要逐条勾选后才能安装。</div>}
         </div>
+      )}
+    </ConfirmDialog>
+  )
+}
+
+/** 升级（docs/plugin-api.md 3.2、4.5）：只列新增的权限，高风险的逐条勾选；清单里去掉的直接收回，列出来告知 */
+export function UpgradeDialog({ plugin, busy, onConfirm, onCancel }: {
+  plugin: PluginInfo
+  busy?: boolean
+  onConfirm: (permissions: string[]) => void
+  onCancel: () => void
+}) {
+  const [granted, setGranted] = useState<ReadonlySet<string>>(new Set())
+  const added = newPermissions(plugin)
+  const dropped = (plugin.permissions_confirmed ?? []).filter((p) => !(plugin.permissions ?? []).includes(p))
+  const risky = added.filter((p) => permissionInfo(p).risk !== 'normal')
+  const ready = risky.every((p) => granted.has(p))
+  const toggle = (p: string, on: boolean) => {
+    const next = new Set(granted)
+    if (on) next.add(p)
+    else next.delete(p)
+    setGranted(next)
+  }
+  return (
+    <ConfirmDialog open title={`升级「${plugin.name}」`} confirmLabel={busy ? '正在升级' : added.length ? '确认并升级' : '升级'} busy={busy || !ready}
+      onConfirm={() => onConfirm(added)} onCancel={onCancel}>
+      <p className="plg-dialog-p">
+        从 {plugin.installed_version} 升级到 {plugin.version}
+        {plugin.pending_migrations > 0 ? `，升级前会先备份数据库，再跑 ${plugin.pending_migrations} 条迁移` : ''}。
+      </p>
+      {added.length === 0 ? (
+        <p className="plg-dialog-p plg-muted">新版本没有新增权限。</p>
+      ) : (
+        <div className="plg-perms" aria-label="新增的权限">
+          <div className="plg-perms-title">新增的权限</div>
+          <p className="plg-dialog-p plg-muted">确认前，「{plugin.name}」里要用这些权限的功能会被拦下，其余功能照常。</p>
+          {added.map((p) => {
+            const info = permissionInfo(p)
+            return (
+              <div key={p} className="plg-perm" data-risk={info.risk}>
+                <div className="plg-perm-main">
+                  <span>{info.text}</span>
+                  <code className="plg-code">{p}</code>
+                  {info.risk !== 'normal' && <span className="plg-risk">{RISK_LABEL[info.risk]}</span>}
+                </div>
+                {info.risk !== 'normal' && (
+                  <Checkbox checked={granted.has(p)} onCheckedChange={(v) => toggle(p, v)}>我了解风险，授予这项权限</Checkbox>
+                )}
+              </div>
+            )
+          })}
+          {!ready && <div className="plg-muted">高风险权限要逐条勾选后才能升级。</div>}
+        </div>
+      )}
+      {dropped.length > 0 && (
+        <p className="plg-dialog-p plg-muted">新版本不再需要，会收回：{dropped.map((p) => permissionInfo(p).text).join('、')}。</p>
       )}
     </ConfirmDialog>
   )
