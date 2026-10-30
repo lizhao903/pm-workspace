@@ -29,6 +29,7 @@ type fakeSlack struct {
 	convs   []map[string]any // Bot 所在的会话，空为 #product、#random 和一个私信
 	revoked bool
 	history map[string][]map[string]any // 会话 -> 消息（正序）
+	broken  map[string]bool             // 读历史回 channel_not_found 的会话
 	posted  []url.Values
 	calls   map[string]int
 }
@@ -116,6 +117,10 @@ func (f *fakeSlack) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		names := map[string]string{"U04LIN": "Lin Yuan", "U09ZHOU": "Zhou Yu", "UBOT": "pmw", "U07ME": "Broleez"}
 		reply(map[string]any{"user": map[string]any{"name": strings.ToLower(r.Form.Get("user")), "profile": map[string]any{"display_name": names[r.Form.Get("user")]}}})
 	case "conversations.history":
+		if f.broken[r.Form.Get("channel")] {
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": "channel_not_found"})
+			return
+		}
 		oldest, _ := strconv.ParseFloat(r.Form.Get("oldest"), 64)
 		limit, _ := strconv.Atoi(r.Form.Get("limit"))
 		var out []map[string]any
@@ -354,6 +359,35 @@ func TestSlackPullAndReply(t *testing.T) {
 	code, out = call(t, e.h, "POST", "/api/im/messages/"+ch["id"].(string)+"/attachments/F1/fetch", "")
 	if code != 200 || out["data"].(map[string]any)["attachments"].([]any)[0].(map[string]any)["fetch"] != "done" {
 		t.Fatalf("附件获取：%d %v", code, out)
+	}
+}
+
+// 列出来的会话里有读不到历史的：私信跳过、不置异常；监听频道读不到记成异常并写明是哪个。别的会话照收。
+func TestSlackUnreadableConversation(t *testing.T) {
+	e := setupSlack(t)
+	e.fake.convs = []map[string]any{{"id": "C01", "name": "product"}, {"id": "D01", "is_im": true, "user": "U09ZHOU"},
+		{"id": "D02", "is_im": true, "user": "U00GONE"}}
+	e.fake.broken = map[string]bool{"D02": true}
+	c := e.connect(t, 5)
+	ctx := context.Background()
+	code, out := call(t, e.h, "POST", "/api/im/connectors/"+c.ID+"/sync", "")
+	if code != 200 || len(out["data"].(map[string]any)["ids"].([]any)) != 2 {
+		t.Fatalf("私信读不到时同步：%d %v", code, out)
+	}
+	if cn, _ := e.conns.Get(ctx, c.ID); cn.Status != "connected" || cn.Error != "" {
+		t.Fatalf("私信读不到不该置异常：%+v", cn)
+	}
+
+	e.fake.mu.Lock()
+	e.fake.broken["C01"] = true
+	e.fake.history["D01"] = append(e.fake.history["D01"], map[string]any{"type": "message", "user": "U09ZHOU", "text": "再一条", "ts": "1761700500.000100"})
+	e.fake.mu.Unlock()
+	code, out = call(t, e.h, "POST", "/api/im/connectors/"+c.ID+"/sync", "")
+	if code != 200 || len(out["data"].(map[string]any)["ids"].([]any)) != 1 {
+		t.Fatalf("频道读不到时别的会话照收：%d %v", code, out)
+	}
+	if cn, _ := e.conns.Get(ctx, c.ID); cn.Status != "error" || !strings.Contains(cn.Error, "#product（C01）") {
+		t.Fatalf("监听频道读不到应记异常并写明频道：%+v", cn)
 	}
 }
 
