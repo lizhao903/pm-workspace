@@ -161,6 +161,14 @@ func (c slackConv) title() string {
 	return "#" + c.Name
 }
 
+// label 是报错里指认会话用的名字：私信 title 为空，换成「私信」。
+func (c slackConv) label() string {
+	if c.IsIM {
+		return "私信"
+	}
+	return c.title()
+}
+
 // slackMsg 是 conversations.history 和事件里的一条消息。
 type slackMsg struct {
 	Type     string      `json:"type"`
@@ -303,10 +311,20 @@ func (s *Slack) pullInstance(ctx context.Context, cn plugin.ConnectorInfo, raw j
 			warn = fmt.Errorf("这些频道找不到或 Bot 没被加进去：%s", strings.Join(missing, "、"))
 		}
 		var got []slackMsg
+		var convWarn []string
 		for _, cv := range convs {
 			ms, latest, err := s.history(ctx, hc, token, cv.ID, cur.Latest[cv.ID])
 			if err != nil {
-				return err
+				// 单个会话拉取失败不阻断整实例，继续拉别的会话。私信、多人私信是 Slack 自己列出来的，
+				// 读不到（对方已停用、跨工作区的 Slack Connect 私信等）用户也没法处理，只记日志不置异常；
+				// 监听频道读不到才记成异常，写明是哪个
+				var se *connector.SlackError
+				if (cv.IsIM || cv.MPIM) && errors.As(err, &se) && (se.Code == "channel_not_found" || se.Code == "not_in_channel") {
+					c.Log().Warn("slack conversation unreadable, skipped", "connector", cn.ID, "conversation", cv.ID, "code", se.Code)
+					continue
+				}
+				convWarn = append(convWarn, fmt.Sprintf("%s（%s）：%v", cv.label(), cv.ID, err))
+				continue
 			}
 			if latest != "" {
 				cur.Latest[cv.ID] = latest
@@ -315,6 +333,9 @@ func (s *Slack) pullInstance(ctx context.Context, cn plugin.ConnectorInfo, raw j
 				ms[i].Channel = cv.ID
 			}
 			got = append(got, ms...)
+		}
+		if warn == nil && len(convWarn) > 0 {
+			warn = fmt.Errorf("部分会话没拉到：%s", strings.Join(convWarn, "；"))
 		}
 		s.lookupUsers(ctx, hc, token, got)
 		for _, m := range got {
