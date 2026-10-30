@@ -52,7 +52,8 @@
 .im-main { flex: 1; min-width: 0; }
 .im-top { display: flex; align-items: center; gap: 8px; min-width: 0; margin-bottom: 3px; flex-wrap: wrap; row-gap: 2px; }
 .im-who { font-weight: 500; white-space: nowrap; }
-.im-stranger { font-size: var(--fs-2xs); color: var(--warn); background: var(--warn-soft); padding: 1px 6px; border-radius: 4px; white-space: nowrap; }
+.im-stranger { font-size: var(--fs-2xs); color: var(--warn); background: var(--warn-soft); padding: 1px 6px; border-radius: 4px; white-space: nowrap; border: 0; cursor: pointer; line-height: inherit; }
+.im-stranger:hover { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--warn) 40%, transparent); }
 .im-conv { color: var(--faint); font-size: var(--fs-xs); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 .im-time { color: var(--faint); font-size: var(--fs-xs); white-space: nowrap; }
 .im-text { color: var(--text); line-height: 1.6; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
@@ -136,6 +137,9 @@ span.im-pick { visibility: hidden; }
 .im-sender { display: flex; align-items: center; gap: 12px; padding-bottom: 16px; margin: 4px 0 16px; border-bottom: 1px solid var(--line); }
 .im-sender-text { min-width: 0; }
 .im-sender-name { font-weight: 600; font-size: var(--fs-lg); }
+.im-sender-acts { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+.im-sender:has(.im-sender-acts) { flex-wrap: wrap; row-gap: 8px; }
+.im-link-note { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: -8px 0 14px; padding: 8px 10px; border-radius: var(--r); background: color-mix(in srgb, var(--ok) 10%, var(--panel)); color: var(--ok); font-size: var(--fs-sm); }
 .im-thread { display: flex; flex-direction: column; gap: 10px; }
 .im-bubble { max-width: 86%; padding: 10px 13px; border-radius: 14px; line-height: 1.65; font-size: var(--fs-md); overflow-wrap: anywhere; white-space: pre-wrap; }
 .im-bubble-in { align-self: flex-start; background: var(--panel-2); border: 1px solid var(--line); border-top-left-radius: 4px; }
@@ -160,6 +164,20 @@ span.im-pick { visibility: hidden; }
 .im-totask { display: flex; flex-direction: column; gap: var(--sp-6); min-width: 0; }
 .im-totask .input { width: 100%; }
 .im-totask-src blockquote { margin: 4px 0 0; padding: 6px 10px; border-left: 3px solid var(--accent-line); background: var(--panel-2); border-radius: 0 var(--r-sm) var(--r-sm) 0; color: var(--muted); max-height: 120px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
+
+/* ---------- 认人：关联、新建、改挂（IM-05） ---------- */
+.im-link { display: flex; flex-direction: column; gap: var(--sp-5); min-width: 0; }
+.im-link .input, .im-link .select { width: 100%; }
+.im-link-list { display: flex; flex-direction: column; border: 1px solid var(--line); border-radius: var(--r); max-height: 300px; overflow: auto; }
+.im-link-opt { display: flex; align-items: center; gap: 8px; min-height: 36px; padding: 4px 10px; text-align: left; border: 0; border-bottom: 1px solid var(--line); background: none; color: var(--text); cursor: pointer; min-width: 0; }
+.im-link-opt:last-child { border-bottom: 0; }
+.im-link-opt:hover { background: var(--hover); }
+.im-link-opt[aria-selected="true"] { background: var(--accent-soft); box-shadow: inset 3px 0 0 var(--accent); }
+.im-link-name { font-weight: 500; white-space: nowrap; }
+.im-link-more { padding: 6px 10px; }
+.im-link-err { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; color: var(--danger); font-size: var(--fs-sm); }
+.im-link-switch { align-self: flex-start; padding: 0; border: 0; background: none; color: var(--accent); font-size: var(--fs-sm); cursor: pointer; }
+.im-link-switch:hover { text-decoration: underline; }
 
 /* ---------- 附件面板（IM-04b），照原型 .att-row .att-ico .att-main .att-acts .att-in ---------- */
 .im-att-list { display: flex; flex-direction: column; gap: 6px; }
