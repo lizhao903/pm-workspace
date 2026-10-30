@@ -82,8 +82,10 @@ export {
 export type { ProjectView, ProjectMark, RelatedDir, ProjectProps, ProjectCreate, ProjectSave, ProjectRole, ProjectStakeholder } from './projects'
 export { useSaveContact, useUpdateContact, useDeleteContact } from './contacts'
 export type { ContactInput, ContactUpdate, ContactSave, ContactSaved } from './contacts'
+export { CONTACT_GROUP_DICT, DEFAULT_CONTACT_GROUP, contactGroupOptions, useCreateContactLinked } from './contacts'
+export type { ContactQuick, ContactLinked } from './contacts'
 export {
-  identitiesApi, useIdentities, normExternalId, identitiesByContact, imOf, identityOwner, identityPlan, applyIdentityPlan,
+  identitiesApi, useIdentities, useCreateIdentity, useRelinkIdentity, useDeleteIdentity, normExternalId, identitiesByContact, imOf, identityOwner, identityPlan, applyIdentityPlan,
 } from './identities'
 export type { Identity, IdentityInput, IdentityOp, IdentityFailure } from './identities'
 export {

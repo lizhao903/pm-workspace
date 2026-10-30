@@ -2,9 +2,9 @@
 // 缓存键挂在 stakeholders 前缀下，干系人一变（含对象改动带来的任务数变化）联系人列表一起刷。
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { request } from '../api'
-import type { Stakeholder } from '../api'
+import type { Dictionary, Stakeholder } from '../api'
 import { useNotifyChange } from './invalidate'
-import { applyIdentityPlan, identityPlan, type Identity, type IdentityFailure } from './identities'
+import { applyIdentityPlan, identitiesApi, identityPlan, type Identity, type IdentityFailure, type IdentityInput } from './identities'
 import { dataKeys } from './keys'
 
 export type Contact = Stakeholder & {
@@ -109,5 +109,40 @@ export function useDeleteContact() {
   return useMutation({
     mutationFn: (id: string) => request<null>('DELETE', path(id)),
     onSuccess: () => Promise.all([notify({ kind: 'stakeholder' }), notify({ kind: 'im-identity' })]),
+  })
+}
+
+// ---- 从 IM 消息就地新建（IM-05）：只填姓名、公司、分组，建好接着挂身份 ----
+
+/** 联系人分组字典和默认分组；没有字典时用内置五组（SPEC-contacts-0） */
+export const CONTACT_GROUP_DICT = 'contact_group'
+export const DEFAULT_CONTACT_GROUP = '其他'
+const BUILTIN_GROUPS = ['客户', '合作伙伴', '同事', '供应商', '其他']
+
+/** 能选的分组：字典里没停用的，按 sort_order */
+export function contactGroupOptions(dicts: Dictionary[] | undefined): { value: string; label: string }[] {
+  const items = dicts?.find((d) => d.id === CONTACT_GROUP_DICT)?.items
+  if (!items?.length) return BUILTIN_GROUPS.map((g) => ({ value: g, label: g }))
+  return [...items].filter((i) => !i.archived_at).sort((a, b) => a.sort_order - b.sort_order).map((i) => ({ value: i.key, label: i.label }))
+}
+
+export type ContactQuick = Pick<ContactInput, 'name' | 'company' | 'group'>
+
+/** 联系人一定建成了才返回；身份没挂上时 identity 为 null，原因在 error */
+export type ContactLinked = { contact: Contact; identity: Identity | null; error?: unknown }
+
+/** 先建联系人（撞名 409 整体报错），再挂身份；身份失败不回滚联系人，交给界面说清楚 */
+export function useCreateContactLinked() {
+  const notify = useNotifyChange()
+  return useMutation({
+    mutationFn: async ({ fields, identity }: { fields: ContactQuick; identity: Omit<IdentityInput, 'stakeholder_id'> }): Promise<ContactLinked> => {
+      const contact = await request<Contact>('POST', '/api/stakeholders', { body: fields })
+      try {
+        return { contact, identity: await identitiesApi.create({ ...identity, stakeholder_id: contact.id }) }
+      } catch (error) {
+        return { contact, identity: null, error }
+      }
+    },
+    onSettled: () => Promise.all([notify({ kind: 'stakeholder' }), notify({ kind: 'im-identity' })]),
   })
 }

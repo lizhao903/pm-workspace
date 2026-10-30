@@ -3,6 +3,7 @@
 // 转任务：先确认标题，再由后端建任务，然后打开任务模块登记的任务抽屉（经 core/plugin 的「打开对象」，不 import 任务模块）。
 // 「渠道配置」打开 IM 渠道的配置抽屉（IM-01b，ChannelPanel），记在地址 ?channels=1。
 // 批量（PR-03）：待处理的行能勾选，底栏批量标已处理、忽略；选了会话时列表上方能把这个会话全部标为已处理。
+// 认人（IM-05）：行上「未存联系人」和抽屉里的入口打开同一个弹窗（ContactLink），做完打开这条消息的抽屉说结果。
 import { Fragment, Suspense, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { useNavigate, useSearchParams } from 'react-router'
 import {
@@ -12,6 +13,7 @@ import {
 import { useObjectDrawer } from '../../core/plugin'
 import { Avatar, ErrorState, LoadingState, PageTitle, SearchSelect, cls } from '../../core/ui'
 import { ChannelPanel } from './ChannelPanel'
+import { ContactLinkDialog, type ContactLinkMode, type ContactLinkResult } from './ContactLink'
 import { MessageDrawer } from './MessageDrawer'
 import {
   BATCH_MAX, MSG_STATUS_DICT, PAGE, RELEVANCE, VIEW_SEG_MAX, baseOk, canPick, channelOf, channelTable, convBatch, convOptions, dayLabel, filterRows,
@@ -79,6 +81,8 @@ export default function Page() {
   const [q, setQ] = useState('')
   const [conv, setConv] = useState('')
   const [toTask, setToTask] = useState<ImMessage | null>(null)
+  const [linking, setLinking] = useState<{ msg: ImMessage; mode: ContactLinkMode } | null>(null)
+  const [linkNote, setLinkNote] = useState<(ContactLinkResult & { msgId: string }) | null>(null)
   const [taskOpen, setTaskOpen] = useState<string | null>(null)
   const [rowErr, setRowErr] = useState('')
   const [sel, setSel] = useState<ReadonlySet<string>>(() => new Set())
@@ -156,7 +160,7 @@ export default function Page() {
     const onKey = (e: KeyboardEvent) => {
       const t = e.target as HTMLElement
       if (t.closest?.('input, textarea, select, [contenteditable="true"]') || e.metaKey || e.ctrlKey || e.altKey) return
-      if (toTask || taskOpen) return
+      if (toTask || taskOpen || linking) return
       const i = rows.findIndex((r) => r.id === openId)
       if (e.key === 'j' && rows.length) {
         const n = Math.min(i + 1, rows.length - 1)
@@ -171,7 +175,7 @@ export default function Page() {
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [rows, openId, opened, limit, sig, setOpen, run, toTask, taskOpen])
+  }, [rows, openId, opened, limit, sig, setOpen, run, toTask, taskOpen, linking])
 
   // 立即同步：渠道由后端按连接器的间隔自动拉；这里让后端马上各拉一次（不能拉取的渠道回 409，跳过），再读一遍，告诉你收到了几条新的
   const syncOne = useImSyncConnector()
@@ -276,7 +280,10 @@ export default function Page() {
                 <div className="im-main">
                   <div className="im-top">
                     <span className="im-who">{who}</span>
-                    {!m.stakeholder_id && <span className="im-stranger">未存联系人</span>}
+                    {!m.stakeholder_id && (
+                      <button type="button" className="im-stranger" title="关联到已有联系人，或新建联系人"
+                        onClick={(e) => { e.stopPropagation(); setLinking({ msg: m, mode: 'link' }) }} onKeyDown={(e) => e.stopPropagation()}>未存联系人</button>
+                    )}
                     <ChannelMark ch={ch} />
                     {conn?.status === 'error' && <span className="im-state im-state-bad" title={conn.error}>渠道异常</span>}
                     <span className="im-conv">{m.conversation || '私聊'}</span>
@@ -406,11 +413,23 @@ export default function Page() {
       {openId && (
         <MessageDrawer msg={opened} missing={missing} ch={channelOf(channels, opened?.channel ?? '')} connectors={connectors.data} sv={sv}
           photo={(opened?.stakeholder_id && photos.get(opened.stakeholder_id)) || undefined}
-          onClose={() => setOpen(null)}
+          note={linkNote && linkNote.msgId === opened?.id ? linkNote : undefined}
+          onClose={() => { setOpen(null); setLinkNote(null) }}
           onOpenContact={(id) => navigate(`/contacts?c=${encodeURIComponent(id)}`)}
-          onSaveContact={() => navigate('/contacts')}
+          onLinkContact={(mode) => { if (opened) setLinking({ msg: opened, mode }) }}
           onToTask={() => { if (opened) startToTask(opened) }}
           onFixConnector={() => { setOpen(null); setChannelsOpen(true) }} />
+      )}
+      {linking && (
+        <ContactLinkDialog msg={linking.msg} mode={linking.mode} chLabel={channelOf(channels, linking.msg.channel).label} connectors={connectors.data}
+          onCancel={() => setLinking(null)}
+          onOpenContact={(id) => { setLinking(null); navigate(`/contacts?c=${encodeURIComponent(id)}`) }}
+          onDone={(r) => {
+            const id = linking.msg.id
+            setLinking(null)
+            setLinkNote({ ...r, msgId: id })
+            setOpen(id)
+          }} />
       )}
       {channelsOpen && <ChannelPanel onClose={() => setChannelsOpen(false)} onManageAll={(to) => navigate(connectorsPagePath(to))} />}
       {toTask && (

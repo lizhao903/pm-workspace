@@ -1,5 +1,6 @@
 // IM 消息页的纯函数：视图、会话键、按天分段、稍后选项、回不了的原因、@ 解析、渠道显示。照原型 web-next/src/messages.tsx。
 import type { Connector, ConnectorDef, DictItem, ImMessage, ImMsgStatus } from '../../core/data'
+import { matchOption } from '../../core/ui/searchMatch'
 
 export type View = 'pending' | 'snoozed' | 'done' | 'ignored' | 'all'
 /** '' 全部；mine 与我相关（@我、@所有人、私聊）；at 只看 @我 */
@@ -283,3 +284,30 @@ export function fmtSize(n?: number) {
   if (n < 1024 * 1024) return `${Math.round(n / 1024)} KB`
   return `${(n / 1024 / 1024).toFixed(1)} MB`
 }
+
+// ---- 认人（IM-05）：把发信人关联到联系人 ----
+
+type Candidate = { id: string; name: string; company: string; title: string }
+
+/** 名字和发信人有多像：0 一样、1 互相包含、2 有一个词对上、3 不像 */
+export function nameCloseness(name: string, sender: string): number {
+  const n = name.trim().toLowerCase()
+  const s = sender.trim().toLowerCase()
+  if (!n || !s) return 3
+  if (n === s) return 0
+  if (n.includes(s) || s.includes(n)) return 1
+  const words = s.split(/[\s._\-@()（）]+/).filter((w) => w.length >= 2)
+  return words.some((w) => n.includes(w)) ? 2 : 3
+}
+
+/** 候选联系人：按搜索词筛（姓名、公司、职位），和发信人名字相近的排前，同样近的按姓名；exclude 是现在挂着的人 */
+export function contactCandidates<C extends Candidate>(list: C[], sender: string, q: string, exclude?: string | null): C[] {
+  return list
+    .filter((c) => c.id !== exclude && matchOption({ label: c.name, hint: `${c.company} ${c.title}` }, q))
+    .map((c) => ({ c, k: nameCloseness(c.name, sender) }))
+    .sort((a, b) => a.k - b.k || a.c.name.localeCompare(b.c.name, 'zh-CN'))
+    .map((x) => x.c)
+}
+
+/** 挂身份时的昵称、账号：后端限 100 字 */
+export const clip100 = (s: string) => Array.from(s.trim()).slice(0, 100).join('')

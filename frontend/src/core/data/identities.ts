@@ -1,7 +1,8 @@
 // IM 身份（CT-03b）：联系人在各渠道的编号，CT-01b 的 /api/im-identities。契约见 docs/api-contract.md「IM 身份 im-identities」。
 // 一次拉全，前端按联系人分组合进 Contact.im；一个渠道多个身份时界面只显示、只改第一个，其余原样保留。
-import { useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery } from '@tanstack/react-query'
 import { isApiError, request } from '../api'
+import { useNotifyChange } from './invalidate'
 import { dataKeys } from './keys'
 
 export type Identity = {
@@ -32,6 +33,34 @@ export function useIdentities() {
     queryKey: dataKeys.identities.list,
     queryFn: ({ signal }) => identitiesApi.list(signal),
     retry: (n, e) => !isApiError(e, 'not_found') && n < 2,
+  })
+}
+
+// ---- 单个身份的挂、改挂、解除（IM-05：IM 消息里认人）；成败都刷：409 时可能是别处刚挂上，读回最新的 ----
+
+export function useCreateIdentity() {
+  const notify = useNotifyChange()
+  return useMutation({
+    mutationFn: (body: IdentityInput) => identitiesApi.create(body),
+    onSettled: () => notify({ kind: 'im-identity' }),
+  })
+}
+
+/** 改挂到另一个联系人；撞上那人已有的同一编号回 409 */
+export function useRelinkIdentity() {
+  const notify = useNotifyChange()
+  return useMutation({
+    mutationFn: ({ id, stakeholderId }: { id: string; stakeholderId: string }) => identitiesApi.patch(id, { stakeholder_id: stakeholderId }),
+    onSettled: () => notify({ kind: 'im-identity' }),
+  })
+}
+
+/** 只删身份，联系人不动 */
+export function useDeleteIdentity() {
+  const notify = useNotifyChange()
+  return useMutation({
+    mutationFn: (id: string) => identitiesApi.delete(id),
+    onSettled: () => notify({ kind: 'im-identity' }),
   })
 }
 

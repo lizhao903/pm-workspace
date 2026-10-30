@@ -157,8 +157,8 @@ export function invalidationsFor(c: Change): QueryKey[] {
       // 列表（会话里的服务商下拉同一份）；在用的模型下拉跟着按新配置重新测
       return [agentKeys.providers]
     case 'im-identity':
-      // 联系人列表的 IM 列由身份合出来，身份列表一刷就跟着变
-      return [dataKeys.identities.all]
+      // 联系人列表的 IM 列由身份合出来，身份列表一刷就跟着变；消息读取时按身份认人（IM-05），消息一起刷
+      return [dataKeys.identities.all, dataKeys.im.all]
     case 'connector':
       // 只刷实例列表（设置的红点同一份）；定义在代码里登记，不随实例变
       // 浏览器的 Google 账号以 Drive 实例为准，在连接器里断开、删掉时跟着变（SPEC-browser-4.13）

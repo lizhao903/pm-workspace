@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import type { Connector, ImMessage } from '../../core/data'
 import {
   BATCH_MAX, channelTable, convBatch, convKey, pickAll, pickedRows, togglePick, convOptions, dayLabel, filterRows, fmtSize, inView, mentionParts, nextWake, replyBlocker, snoozeOptions, statusItems,
-  taskTitleOf,
+  taskTitleOf, clip100, contactCandidates, nameCloseness,
 } from './model'
 
 let seq = 0
@@ -150,5 +150,33 @@ describe('批量处理（PR-03）', () => {
     expect(convBatch([loose], convKey(loose), NOW)).toEqual({ n: 1, input: { ids: [loose.id] } })
     expect(convBatch(xs, '', NOW)).toBeNull()
     expect(convBatch([xs[3]], 'cv:cv_1', NOW)).toBeNull()
+  })
+})
+
+describe('认人的候选联系人（IM-05）', () => {
+  const c = (id: string, name: string, company = '', title = '') => ({ id, name, company, title })
+  const list = [c('a', '王五'), c('b', 'Lin Yuan', 'XAUE'), c('c', 'Yuan Li', 'Octok', '产品'), c('d', '林予安')]
+
+  it('名字相近程度：一样、包含、有一个词对上、不像', () => {
+    expect(nameCloseness('Lin Yuan', 'lin yuan')).toBe(0)
+    expect(nameCloseness('Lin Yuan', 'Lin')).toBe(1)
+    expect(nameCloseness('Yuan Li', 'Lin Yuan')).toBe(2)
+    expect(nameCloseness('王五', 'Lin Yuan')).toBe(3)
+    expect(nameCloseness('王五', '')).toBe(3)
+  })
+
+  it('没输入时相近的排前，同样近的按姓名（拼音序）；排除现在挂着的人', () => {
+    expect(contactCandidates(list, 'Lin Yuan', '').map((x) => x.id)).toEqual(['b', 'c', 'd', 'a'])
+    expect(contactCandidates(list, 'Lin Yuan', '', 'b').map((x) => x.id)).toEqual(['c', 'd', 'a'])
+  })
+
+  it('搜姓名、公司、职位', () => {
+    expect(contactCandidates(list, '', 'octok').map((x) => x.id)).toEqual(['c'])
+    expect(contactCandidates(list, '', '产品').map((x) => x.id)).toEqual(['c'])
+    expect(contactCandidates(list, '', '林').map((x) => x.id)).toEqual(['d'])
+  })
+
+  it('昵称、账号截到 100 字', () => {
+    expect(clip100(` ${'字'.repeat(120)} `)).toHaveLength(100)
   })
 })

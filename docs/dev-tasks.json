@@ -1566,6 +1566,27 @@
     "acceptance": "- [ ] 启动后状态从启动中变为运行中，日志实时显示\n- [ ] 与 PROTO-04d 的规格节对照通过"
   },
   {
+    "key": "PJ-04c",
+    "type": "task",
+    "title": "原型站点能登记进项目，认出外部已在运行的原型",
+    "milestone": "M3",
+    "module": "fullstack",
+    "priority": "P1",
+    "estimate": "M",
+    "depends_on": [
+      "PJ-04b",
+      "DOM-02a"
+    ],
+    "workdir": ".",
+    "spec": [
+      "docs/api-contract.md「项目原型」一节",
+      "web-next/docs/spec/projects.md SPEC-projects-12",
+      "internal/plugins/projects/procman.go 保留端口"
+    ],
+    "body": "【任务来源】用户在主会话里说「现在项目原型需要加到一人之下控制台项目的原型中，检查系统功能是否需要调整，把原型配置进去」。主会话检查后发现两处要调整，建了这条任务，这就是你要做的事；配置原型本身由主会话在你做完后做。\n\n## 背景\n\n用户要把本仓库的原型站点 web-next（`npm run dev`，vite 固定 7778，strictPort）配进 7796 上的项目「一人之下控制台」。现在：\n\n- 7778 在保留端口表里（`procman.go`：「原型站点（web-next）」），新增原型直接 400，正是要登记的这个原型登记不进来。\n- 7778 上的原型是在外面起的（用户自己的 vite），项目里点启动会 409「本机别的程序已在这个端口监听」，列表一直显示「已停止」，看不出它其实在跑。\n\n## 要做什么\n\n- 保留端口表去掉 7778；7777（正式服务）、7796（测试实例）、7780（正式前端开发服务）、当前服务自己的端口照旧保留。契约同步。\n- 新增状态 `external`（外部运行中）：原型不是本插件起的（没有本次的进程），但它的端口在 127.0.0.1 或 ::1 上能连上。列表和单条读取时探测（短超时，探测结果可以缓存几秒，别让列表变慢）；`external` 的原型 `url` 照常给，`pid` 为 0。启动回 409 并说明「这个端口已经有程序在跑（不是这里启动的），直接打开就行」；停止不发任何信号，回 200 且状态不变（不能去杀别人的进程）。\n- 项目汇总 `GET /api/projects/summary` 的 `running` 把 `external` 也算上（绿灯）；今日页「正在运行」、终端里认原型的地方、浏览器的原型标签、内网域名自动分配（DOM-02a 的事件只在本插件启动时发，外部运行的不分配域名，写明即可）都按「在跑」处理。\n- 前端原型卡片：`external` 显示「运行中（外部启动）」绿灯，「打开」可用，「启动」「停止」置灰并悬停说明；规格 SPEC-projects-12 补这个状态。\n- 插件版本升一次，不加权限。\n\n## 注意事项\n\n- 不要动用户在 7778 上跑着的 vite，不要对它发信号；测试里用自己起的临时监听端口模拟外部进程。",
+    "acceptance": "- [ ] 能新增端口 7778 的原型；7777、7796、7780 仍被拒\n- [ ] 端口已被外部程序监听时，原型状态是 external，url 可用，启动回 409 说明原因，停止不发信号（Go 测试）\n- [ ] 项目列表、今日页把 external 当在跑；原型卡片显示「运行中（外部启动）」\n- [ ] gofmt、go vet、go test ./...；npm test、typecheck、lint、build、smoke-frontend 通过"
+  },
+  {
     "key": "CONN-01a",
     "type": "task",
     "title": "实现连接器框架的数据模型与接口",
@@ -1873,6 +1894,29 @@
     ],
     "body": "## 要做什么\n\n- 消息抽屉的附件面板（获取、加进项目资料）；项目里待收的附件。\n\n## 注意事项\n\n- 只在 `frontend/` 里写代码，不 import `web-next` 的任何代码：原型的交互和样式可以照着写、挑着搬。\n- 联调只连测试实例（`scripts/dev-instance.sh start`，默认 127.0.0.1:7796），不连 7777，不启动或重启 7777 上的服务。\n- 组件里不直接 fetch，数据一律走 `frontend/src/core/api`（FE-02a）；有数据访问层（CORE-03a）之后走数据访问层。\n- 状态、类型、优先级从后端读（`/api/object-types`、`/api/dictionaries`），不写死。",
     "acceptance": "- [ ] 获取附件后可一键加进项目资料\n- [ ] 与 PROTO-04d 的规格节对照通过"
+  },
+  {
+    "key": "IM-05",
+    "type": "task",
+    "title": "IM 未存联系人：关联到已有联系人或就地新建",
+    "milestone": "M3",
+    "module": "frontend",
+    "priority": "P1",
+    "estimate": "M",
+    "depends_on": [
+      "IM-02b",
+      "CT-01b"
+    ],
+    "workdir": "frontend",
+    "spec": [
+      "web-next/docs/spec/messages.md SPEC-messages-2.12",
+      "web-next/docs/spec/contacts.md SPEC-contacts-3.13",
+      "docs/api-contract.md「IM 身份 im-identities」一节",
+      "frontend/src/plugins/im/MessageDrawer.tsx",
+      "frontend/src/core/data/identities.ts、contacts.ts"
+    ],
+    "body": "【任务来源】用户在主会话里说「IM 消息未存联系人需要可以关联存储到指定联系人或直接创建新的联系人」。主会话据此建了这条任务，这就是你要做的事。\n\n## 背景\n\nIM 消息发信人对不上联系人时，列表行显示「未存联系人」，消息抽屉只有一个「存为联系人」，点了跳到联系人页新建（SPEC-messages-2.12）。发信人其实是已有联系人在另一个渠道或另一个号上的身份时，没有办法把这个编号挂到他身上，只能新建出一个重复的人。\n\n后端已经够用：`POST /api/im-identities` `{stakeholder_id, channel, external_id, display_name?, account?}` 给联系人加身份，同一渠道同一编号已挂在别人身上回 409；消息列表在读取时按渠道和编号实时认人（`internal/plugins/im/messages.go` 的 resolver），所以挂上身份后，这个人以前和以后的消息都会认上。\n\n## 要做什么\n\n- 消息抽屉里对不上联系人时，把「存为联系人」换成两个入口：\n  - 「关联到联系人」：弹出联系人选择（可搜索姓名、公司，默认按和发信人名字相近排前，已归档的不列），选中后建身份 `{stakeholder_id, channel, external_id: sender_id, display_name: sender_name}`，`account` 填收这条消息的连接器账号（拿得到就填）。成功后提示「已关联到 XX，他在这个渠道的消息都会显示为 XX」，消息列表、抽屉立刻刷新成联系人名和头像。\n  - 「新建联系人」：就地弹一个简短表单（姓名预填 sender_name，公司、分组默认「其他」可改），创建联系人后接着建身份，一步完成，不跳走；需要填更多资料的给一个「去联系人页补全」链接打开那个人的抽屉。\n- 409（这个编号已经挂在别人身上）要把后端 message 原样显示，并给「去看这个人」。\n- 列表行的「未存联系人」标签可点，打开同一个选择（或打开抽屉并定位到这两个按钮，二选一，跟同屏邻居的做法一致）。\n- 认错人能改：已认上的消息抽屉里「查看联系人」旁加一个次要的「不是这个人」，把这个身份改挂到别人（PATCH `stakeholder_id`）或解除（DELETE 身份，联系人不动），删除前确认。\n- 规格同步：SPEC-messages-2.12 改写，新增必要的条目；SPEC-contacts 里「进来」表的 IM 一行同步。\n- 插件之间不 import，联系人数据走 core/data（`contacts.ts`、`identities.ts`），失效刷新接上 IM 消息的 query key。",
+    "acceptance": "- [ ] 未存联系人的消息能选一个已有联系人关联，关联后同一发信人的消息都显示联系人名\n- [ ] 能就地新建联系人并挂上身份，不离开 IM 页\n- [ ] 编号已挂在别人身上时显示后端原因\n- [ ] 认错人能改挂或解除\n- [ ] 组件测试覆盖关联、新建、409、改挂；npm test、typecheck、lint、build、smoke-frontend 通过"
   },
   {
     "key": "QA-02b",

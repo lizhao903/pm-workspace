@@ -354,6 +354,7 @@ describe('IM 身份的失效（CT-03b）', () => {
     identities: dataKeys.identities.list,
     contacts: dataKeys.contacts.list,
     types: dataKeys.objectTypes,
+    msgs: dataKeys.im.list,
   } satisfies Record<string, QueryKey>
   async function stale(c: Change) {
     const qc = new QueryClient()
@@ -362,8 +363,8 @@ describe('IM 身份的失效（CT-03b）', () => {
     return (Object.keys(keys) as (keyof typeof keys)[]).filter((n) => qc.getQueryState(keys[n])?.isInvalidated)
   }
 
-  it('身份增删改只刷身份列表，联系人资料不动', async () => {
-    expect(await stale({ kind: 'im-identity' })).toEqual(['identities'])
+  it('身份增删改刷身份列表和 IM 消息（发信人按身份认），联系人资料不动', async () => {
+    expect(await stale({ kind: 'im-identity' })).toEqual(['identities', 'msgs'])
   })
 
   it('改联系人资料不动身份', async () => {
