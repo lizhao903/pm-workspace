@@ -1919,6 +1919,70 @@
     "acceptance": "- [ ] 未存联系人的消息能选一个已有联系人关联，关联后同一发信人的消息都显示联系人名\n- [ ] 能就地新建联系人并挂上身份，不离开 IM 页\n- [ ] 编号已挂在别人身上时显示后端原因\n- [ ] 认错人能改挂或解除\n- [ ] 组件测试覆盖关联、新建、409、改挂；npm test、typecheck、lint、build、smoke-frontend 通过"
   },
   {
+    "key": "INC-01a",
+    "type": "task",
+    "title": "运行异常后端：异常表、上报接口、插件句柄、定时巡检建 Claude Code 修复任务",
+    "milestone": "M4",
+    "module": "backend",
+    "priority": "P1",
+    "estimate": "L",
+    "depends_on": [
+      "PR-20",
+      "SOP-02b"
+    ],
+    "workdir": ".",
+    "spec": [
+      "web-next/docs/spec/settings.md SPEC-settings-18、19",
+      "web-next/src/incidentdata.ts",
+      "docs/api-contract.md（新增「运行异常」一节）",
+      "internal/schedule/plugin_action.go"
+    ],
+    "body": "【任务来源】用户在主会话里说：「出错了 Cannot read properties of undefined (reading 'label') …很多页面第一次点击会报错，返回再进入才正常展示」，接着说「出现类似的错误需要记录到系统运行异常，创建定时任务来启动检查是否有系统运行异常需要处理修复，如有，则创建需要 claude code 修复的 issue」，又说「修改需求的时候，如果涉及到 UX 的调整，连同原型项目一并修改」。主会话据此建了 INC-01a、INC-01b，这条就是你要做的事。\n\n## 背景\n\n规格（SPEC-settings-18、19）和原型早就有「运行异常」，正式产品还没有后端，契约里多处写着「运行异常模块还没有后端，先只记日志」。这次用户遇到页面报错「出错了」，要求这类错误记成运行异常，并由定时任务巡检，把要修的建成给 Claude Code 修的任务。\n\n## 接口约定（INC-01a 实现，INC-01b 照着用；两边都以此为准，有出入先在回复里说）\n\n- 内核表 `incidents`（新迁移 0043，id 前缀 `inc` 登记进 idgen，同原型 ids.ts）：字段对照原型 `web-next/src/incidentdata.ts` 的 `Incident`：`id, fingerprint(唯一), level(error|warn), module, title, message, context(JSON), stack, status(open|tasked|ignored|resolved), note, count, first_at, last_at, occurrences(最近 20 次时间), task_id, source(frontend|backend|plugin:<id>)`。\n- 同一 `fingerprint` 合并：次数加一、更新 last_at、occurrences 只留最近 20 个；已忽略、已解决的再出现变回 open（有 task_id 的回 tasked）并写 note「标为已解决后又出现了」。\n- `GET /api/incidents?status=&level=&module=`、`GET /api/incidents/{id}`、`PATCH /api/incidents/{id}` `{status}`、`POST /api/incidents/{id}/task` `{title?, body?, priority?, assignee_id?}` 建任务（来源为异常，`props.source_ref` 指向异常，建关联），异常变 tasked。\n- `POST /api/incidents/report` 前端上报：`{level, module, title, message, stack?, context?, url?, fingerprint?}`；fingerprint 省略时后端按 module + title + 堆栈第一帧算；单条 32KB 上限，按 fingerprint 每分钟最多记一次（其余只加次数），整体每分钟最多 60 次，超了 429。\n- 插件句柄 `Core().Incidents().Record(ctx, plugin.Incident{...})`，fingerprint 必填；`docs/plugin-api.md` 补上。\n- 事件 `incident` 走现有事件流，前端按它刷新。\n\n## 要做什么\n\n- 上面的表、接口、句柄、事件；契约新增「运行异常」一节，`docs/api-contract.md` 里写着「运行异常还没有后端」的几处改成实际记录：项目原型崩溃、IM 同步失败和附件取不到（连接器异常时）、SOP 步骤失败、连接器鉴权失败，按规格写的级别、模块、标题和 fingerprint 记上。\n- 定时任务新增动作「运行异常巡检」（key `incident_sweep`，内核动作，不属于插件），配置 `{min_level: error|warn（默认 error）, min_count（默认 1）}`：到点把满足条件、状态 open、还没有任务的异常各建一条任务，交给 Claude Code 修——标题「[异常] <模块>：<标题>」，正文照 SPEC-settings-19.6 的 taskDesc（现象、频率、上下文、报错、期望），再加「怎么复现」「改完怎么验收」两段；标签 `claude-code`，优先级按 SPEC-settings-19.7；同一条异常不会重复建。运行结果（建了几条、跳过几条）记进定时任务的执行记录。\n- 首次启动时如果还没有这个定时任务，**不要**自动建；建不建由用户在定时任务页决定（INC-01b 在运行异常页给入口）。\n- 写操作记审计（转任务、改状态、巡检建任务）。",
+    "acceptance": "- [ ] 迁移 0043 只新增；前缀 inc 登记\n- [ ] 上报合并、限流、再出现重新打开有 Go 测试\n- [ ] 转任务建出来源为异常的任务并关联\n- [ ] 巡检动作按条件建任务、不重复建，有 Go 测试\n- [ ] 原型崩溃、IM 同步失败等真的记成异常\n- [ ] 契约、plugin-api 同步；gofmt、go vet、go test ./... 通过"
+  },
+  {
+    "key": "INC-01b",
+    "type": "task",
+    "title": "运行异常前端：设置页列表和抽屉、页面报错自动上报、巡检定时入口，原型同步",
+    "milestone": "M4",
+    "module": "frontend",
+    "priority": "P1",
+    "estimate": "L",
+    "depends_on": [
+      "INC-01a"
+    ],
+    "workdir": "frontend",
+    "spec": [
+      "web-next/docs/spec/settings.md SPEC-settings-18、19、1.3",
+      "web-next/docs/spec/today.md 运行异常待办",
+      "web-next/src/settings 里运行异常页、incidentdata.ts",
+      "frontend/src/core/shell/RouteError.tsx、staleBuild.ts"
+    ],
+    "body": "【任务来源】用户在主会话里说：「出错了 Cannot read properties of undefined (reading 'label') …很多页面第一次点击会报错，返回再进入才正常展示」，接着说「出现类似的错误需要记录到系统运行异常，创建定时任务来启动检查是否有系统运行异常需要处理修复，如有，则创建需要 claude code 修复的 issue」，又说「修改需求的时候，如果涉及到 UX 的调整，连同原型项目一并修改」。主会话据此建了 INC-01a、INC-01b，这条就是你要做的事。\n\n## 接口约定（INC-01a 实现，INC-01b 照着用；两边都以此为准，有出入先在回复里说）\n\n- 内核表 `incidents`（新迁移 0043，id 前缀 `inc` 登记进 idgen，同原型 ids.ts）：字段对照原型 `web-next/src/incidentdata.ts` 的 `Incident`：`id, fingerprint(唯一), level(error|warn), module, title, message, context(JSON), stack, status(open|tasked|ignored|resolved), note, count, first_at, last_at, occurrences(最近 20 次时间), task_id, source(frontend|backend|plugin:<id>)`。\n- 同一 `fingerprint` 合并：次数加一、更新 last_at、occurrences 只留最近 20 个；已忽略、已解决的再出现变回 open（有 task_id 的回 tasked）并写 note「标为已解决后又出现了」。\n- `GET /api/incidents?status=&level=&module=`、`GET /api/incidents/{id}`、`PATCH /api/incidents/{id}` `{status}`、`POST /api/incidents/{id}/task` `{title?, body?, priority?, assignee_id?}` 建任务（来源为异常，`props.source_ref` 指向异常，建关联），异常变 tasked。\n- `POST /api/incidents/report` 前端上报：`{level, module, title, message, stack?, context?, url?, fingerprint?}`；fingerprint 省略时后端按 module + title + 堆栈第一帧算；单条 32KB 上限，按 fingerprint 每分钟最多记一次（其余只加次数），整体每分钟最多 60 次，超了 429。\n- 插件句柄 `Core().Incidents().Record(ctx, plugin.Incident{...})`，fingerprint 必填；`docs/plugin-api.md` 补上。\n- 事件 `incident` 走现有事件流，前端按它刷新。\n\n## 要做什么\n\n- 设置「运行异常」照 SPEC-settings-18、19 做列表和抽屉（筛选、同类合并、转研发任务、忽略、标为已解决、重新打开），替换现在「还没有运行异常记录」的占位；二级菜单红点、今日「运行异常」待办接上。\n- 页面报错自动上报：`RouteError`（换版本自动刷新的检查之后仍是错误的才报）、全局 `error` 和 `unhandledrejection`、分包加载失败但不是换版本的情况，都调 `POST /api/incidents/report`（level error，module 取当前路由所属模块，title 取错误信息，带堆栈、地址、构建入口文件名）；同一错误一次会话只报一次；上报失败静默。「出错了」页面提示「这个错误已记到设置 / 运行异常」并给链接。\n- 运行异常页顶栏加「自动巡检」：显示有没有动作为「运行异常巡检」的定时任务；没有时给「开启自动巡检」，点了按默认（每天 9:00，只看错误）建一条定时任务，可去定时任务页改。\n- 定时任务抽屉里能选「运行异常巡检」这个动作并配置最低级别、最少次数。\n- **原型同步（用户要求）**：web-next 里运行异常页加「自动巡检」入口，定时任务加「运行异常巡检」动作，转出的任务带 `claude-code` 标签；对应规格条目更新。原型数据保持干净，不要加演示数据；不要重启 7778 上的 vite，靠 HMR。",
+    "acceptance": "- [ ] 运行异常列表和抽屉照规格能用，红点和今日待办接上\n- [ ] 页面报错自动记成运行异常，同一错误不刷屏（组件测试）\n- [ ] 能一键开启自动巡检，定时任务能选这个动作\n- [ ] 原型 web-next 同步并能演示，规格更新\n- [ ] npm test、typecheck、lint、build、smoke-frontend 通过；web-next 的 typecheck、build 通过"
+  },
+  {
+    "key": "IM-06",
+    "type": "task",
+    "title": "Slack 连接器可选「以我本人身份」：用户 Token 读取和回复",
+    "milestone": "M3",
+    "module": "fullstack",
+    "priority": "P1",
+    "estimate": "M",
+    "depends_on": [
+      "IM-01d",
+      "IM-05"
+    ],
+    "workdir": ".",
+    "spec": [
+      "web-next/docs/spec/settings.md 连接器 Slack 部分",
+      "web-next/docs/spec/messages.md 回复相关条目",
+      "internal/plugins/im/slack.go、internal/connector/slack.go"
+    ],
+    "body": "【任务来源】用户在主会话里说「我需要 slack 的链接可以增加按照用户的角色读取内容和回复信息」，又说「修改需求的时候，如果涉及到 UX 的调整，连同原型项目一并修改」。主会话据此建了 IM-06，这条就是你要做的事。\n\n## 背景\n\n现在 Slack 连接器只收 Bot Token（`xoxb-`），填 `xoxp-` 会被拦「这是用户 Token，要填 Bot User OAuth Token」。Bot 只看得到被拉进去的频道和发给 Bot 的私信，回复也以 Bot 名义发出。用户要的是按自己的角色：用自己的身份读能看到的频道和私信、以自己的名义回复。\n\n## 要做什么\n\n- 连接器加「身份」：`Bot`（默认，现状）/ `我本人（用户 Token）`。选本人时收 `xoxp-` 的 User OAuth Token，校验和提示随之改；所需 User Token Scopes 列出来（channels/groups/im/mpim 的 history 和 read、users:read、chat:write、files:read）。旧连接器不填就是 Bot，不用迁移。\n- 本人模式：`auth.test` 拿到的就是本人 user_id，自动当 `self_user_id`；`users.conversations` 列本人所在的会话，私信全收，频道仍按「监听频道」；本人自己发的消息不当成新消息收进来（可以记成这条会话里「已回复」，做不到就跳过并写明）；@我 按本人 id 判。\n- 回复：本人模式下 chat.postMessage 用用户 Token，以本人名义发出；抽屉回复框和发送按钮写明「以 <本人名> 身份发送」，Bot 模式写「以 Bot <名> 发送」。\n- 回调（Events API）在本人模式下照常验签；没有公网回调时按间隔拉。\n- **原型同步（用户要求）**：web-next 连接器抽屉加「身份」选择和对应提示，IM 回复框加「以 XX 身份发送」；规格对应条目更新。原型数据保持干净；不要重启 7778 上的 vite。\n- 契约连接器和 IM 两节同步；im 插件版本升一次；不新增插件权限（network:im 已覆盖 slack.com）。\n\n## 注意事项\n\n- 测试一律用本机假 Slack（`slack_test.go` 的 fakeSlack 加用户 Token 场景），不访问真实 Slack。",
+    "acceptance": "- [ ] 连接器能选本人身份并保存 xoxp- Token，Bot 模式不受影响\n- [ ] 本人模式拉到本人所在会话的消息，本人自己发的不进待处理（Go 测试）\n- [ ] 本人模式回复以本人名义发出，界面写明身份\n- [ ] 原型 web-next 同步并能演示，规格更新\n- [ ] gofmt、go vet、go test ./...；npm test、typecheck、lint、build、smoke-frontend 通过"
+  },
+  {
     "key": "QA-02b",
     "type": "task",
     "title": "为正式前端固定 Playwright 冒烟测试",
