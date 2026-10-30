@@ -78,7 +78,7 @@ func TestPrototypesAPI(t *testing.T) {
 	for body, want := range map[string]string{
 		`{"dir":"` + dir + `","command":"sleep 1","port":7777}`:             "真实数据的工作台服务",
 		`{"dir":"` + dir + `","command":"sleep 1","port":7796}`:             "测试实例",
-		`{"dir":"` + dir + `","command":"sleep 1","port":7778}`:             "原型站点",
+		`{"dir":"` + dir + `","command":"sleep 1","port":7780}`:             "正式前端的开发服务",
 		`{"dir":"` + dir + `","command":"sleep 1","port":80}`:               "1024 到 65535",
 		`{"dir":"` + dir + `","command":"npm run dev | tee x","port":5173}`: "sh -c",
 		`{"dir":"` + dir + `","command":"echo $HOME","port":5173}`:          "不经 shell",
@@ -147,7 +147,7 @@ func TestPrototypesAPI(t *testing.T) {
 		t.Fatalf("停两次照样 200：%d", code)
 	}
 
-	// 端口被本机别的程序占着
+	// 端口被本机别的程序占着（能连上，按外部运行说明原因）
 	l, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
@@ -155,7 +155,7 @@ func TestPrototypesAPI(t *testing.T) {
 	busy := l.Addr().(*net.TCPAddr).Port
 	_, out = call(t, h, "POST", base, argvBody(t, "占用", dir, busy, "sleep", "30"))
 	busyPath := base + "/" + out["data"].(map[string]any)["id"].(string)
-	if code, out := call(t, h, "POST", busyPath+"/start", ""); code != 409 || !strings.Contains(out["error"].(map[string]any)["message"].(string), "别的程序") {
+	if code, out := call(t, h, "POST", busyPath+"/start", ""); code != 409 || !strings.Contains(out["error"].(map[string]any)["message"].(string), "不是这里启动的") {
 		t.Fatalf("端口被占应 409：%d %v", code, out)
 	}
 	_ = l.Close()
@@ -256,6 +256,80 @@ func TestPrototypesAPI(t *testing.T) {
 	if code, _ := call(t, h, "GET", crashPath, ""); code != 404 {
 		t.Fatalf("删后应 404：%d", code)
 	}
+}
+
+// 7778（原型站点 web-next）不再保留，能登记成原型（PJ-04c）；只登记不启动，不碰那个端口上的进程
+func TestPrototypePort7778Allowed(t *testing.T) {
+	_, h, _ := setup(t)
+	base := "/api/projects/obj_p1/prototypes"
+	code, out := call(t, h, "POST", base, `{"name":"原型站点","dir":"`+t.TempDir()+`","command":"npm run dev","port":7778}`)
+	if code != 201 || out["data"].(map[string]any)["port"] != 7778.0 {
+		t.Fatalf("7778 应能新增：%d %v", code, out)
+	}
+	if code, _ := call(t, h, "DELETE", base+"/"+out["data"].(map[string]any)["id"].(string), ""); code != 200 {
+		t.Fatalf("删：%d", code)
+	}
+}
+
+// 端口被别的程序（这里是测试自己开的监听）占着：状态 external，url 照给、pid 为 0；
+// 启动 409 说明原因，停止 200 不发信号、状态不变；汇总算在跑。监听关掉后缓存过期回到 stopped（PJ-04c）
+func TestPrototypeExternal(t *testing.T) {
+	_, h, _ := setup(t)
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = l.Close() }()
+	go func() {
+		for {
+			c, err := l.Accept()
+			if err != nil {
+				return
+			}
+			_ = c.Close()
+		}
+	}()
+	port := l.Addr().(*net.TCPAddr).Port
+	base := "/api/projects/obj_p1/prototypes"
+	code, out := call(t, h, "POST", base, argvBody(t, "外部站", t.TempDir(), port, "sleep", "30"))
+	if code != 201 {
+		t.Fatalf("新增：%d %v", code, out)
+	}
+	p := out["data"].(map[string]any)
+	path := base + "/" + p["id"].(string)
+	if p["status"] != "external" || p["pid"] != 0.0 || p["started_at"] != nil || p["url"] != "http://127.0.0.1:"+strconv.Itoa(port) {
+		t.Fatalf("新增后应是 external：%v", p)
+	}
+	_, out = call(t, h, "GET", base, "")
+	if rows := out["data"].([]any); len(rows) != 1 || rows[0].(map[string]any)["status"] != "external" {
+		t.Fatalf("列表里应是 external：%v", out)
+	}
+
+	code, out = call(t, h, "POST", path+"/start", "")
+	if msg, _ := out["error"].(map[string]any)["message"].(string); code != 409 || !strings.Contains(msg, "不是这里启动的") || !strings.Contains(msg, "直接打开") {
+		t.Fatalf("外部在跑时启动应 409 并说明：%d %v", code, out)
+	}
+	code, out = call(t, h, "POST", path+"/stop", "")
+	if code != 200 || out["data"].(map[string]any)["status"] != "external" || out["data"].(map[string]any)["pid"] != 0.0 {
+		t.Fatalf("停止应 200 且状态不变：%d %v", code, out)
+	}
+	// 停止没动监听：还能连上
+	c, err := net.DialTimeout("tcp", l.Addr().String(), time.Second)
+	if err != nil {
+		t.Fatalf("停止后外部监听应还在：%v", err)
+	}
+	_ = c.Close()
+	_, out = call(t, h, "GET", "/api/projects/summary", "")
+	if pt := out["data"].([]any)[0].(map[string]any)["prototypes"].(map[string]any); pt["total"] != 1.0 || pt["running"] != 1.0 {
+		t.Fatalf("汇总应把 external 算在跑：%v", pt)
+	}
+	_, out = call(t, h, "GET", path+"/logs", "")
+	if out["meta"].(map[string]any)["status"] != "external" {
+		t.Fatalf("日志 meta 的状态：%v", out)
+	}
+
+	_ = l.Close()
+	waitProto(t, h, path, func(p map[string]any) bool { return p["status"] == "stopped" })
 }
 
 // 服务关闭（注册表 Close）时也停掉原型

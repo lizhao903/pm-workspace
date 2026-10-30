@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { Connector, ImMessage } from '../../core/data'
 import {
-  BATCH_MAX, channelTable, convBatch, convKey, pickAll, pickedRows, togglePick, convOptions, dayLabel, filterRows, fmtSize, inView, mentionParts, nextWake, replyBlocker, snoozeOptions, statusItems,
+  BATCH_MAX, channelTable, convBatch, convKey, pickAll, pickedRows, togglePick, convOptions, dayLabel, filterRows, fmtSize, inView, mentionParts, nextWake, replyBlocker, replyWarning, snoozeOptions, statusItems,
   taskTitleOf, clip100, contactCandidates, nameCloseness,
 } from './model'
 
@@ -96,6 +96,9 @@ describe('其它', () => {
     expect(replyBlocker(msg({ connector_id: 'cn_1' }), [conn({ status: 'paused' })])).toBe('连接器「Slack 工作区」已暂停')
     expect(replyBlocker(msg({ connector_id: 'cn_1' }), [conn({ direction: 'receive' })])).toBe('连接器「Slack 工作区」设置为只收消息')
     expect(replyBlocker(msg({ connector_id: 'cn_1' }), [conn({})])).toBeNull()
+    expect(replyBlocker(msg({ connector_id: 'cn_1' }), [conn({ status: 'error', error: '409 Conflict' })])).toBeNull()
+    expect(replyWarning(msg({ connector_id: 'cn_1' }), [conn({ status: 'error', error: '409 Conflict' })])).toContain('409 Conflict')
+    expect(replyWarning(msg({ connector_id: 'cn_1' }), [conn({})])).toBeNull()
   })
 
   it('@ 解析：已知称呼整串匹配，英文名带一个空格', () => {

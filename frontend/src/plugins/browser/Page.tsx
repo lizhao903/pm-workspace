@@ -5,7 +5,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState, type FormEve
 import { useSearchParams } from 'react-router'
 import { IconButton, LoadingState, cls } from '../../core/ui'
 import {
-  errorText, isApiError, useAddBrowserAllow, useBrowserAllowlist, useBrowserGoogle, useDomainSettings, useTerminalProtoAction, useTerminalPrototypes,
+  errorText, isApiError, prototypeUp, useAddBrowserAllow, useBrowserAllowlist, useBrowserGoogle, useDomainSettings, useTerminalProtoAction, useTerminalPrototypes,
   type BrowserGoogleState, type TerminalPrototype,
 } from '../../core/data'
 import { FrameView } from './Frame'
@@ -60,7 +60,7 @@ function Browser() {
 
   const startProto = (p: TerminalPrototype, tabId?: string) => {
     if (tabId) {
-      if (p.status === 'running') { store.openHere(protoUrl(p), undefined, tabId); return }
+      if (prototypeUp(p.status)) { store.openHere(protoUrl(p), undefined, tabId); return }
       store.waitFor(tabId, p.id)
     }
     if (p.status === 'stopped' || p.status === 'crashed') {
@@ -127,7 +127,7 @@ function Browser() {
 function busyOf(t: Tab, pending: Record<string, string>, protos: readonly TerminalPrototype[], allowed: boolean) {
   if (pending[t.id]) return true
   const p = protoFor(t.url, protos)
-  return t.loading && allowed && !(p && p.status !== 'running')
+  return t.loading && allowed && !(p && !prototypeUp(p.status))
 }
 
 function TabBar({ tabs, active, pending, protos, allowed, onContext }: {

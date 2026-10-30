@@ -2,7 +2,7 @@
 // 每格一个后端 pty 会话。格子目录是项目原型目录时，格子头上能启停那个原型（经 core/data 调项目插件的接口）。
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { cls } from '../../core/ui'
-import { errorText, useFsShortcuts, useProjects, useTerminalProtoAction, useTerminalPrototypes, type TerminalPrototype } from '../../core/data'
+import { PROTOTYPE_EXTERNAL_STOP, errorText, prototypeUp, useFsShortcuts, useProjects, useTerminalProtoAction, useTerminalPrototypes, type TerminalPrototype } from '../../core/data'
 import {
   MAX_PANES, activeTab, layoutClass, protoForCwd, shortPath, tabName, type Pane, type TermTab,
 } from './model'
@@ -40,7 +40,7 @@ export default function TerminalPage() {
   }, [projectsSettled, defaultCwd])
 
   const tab = activeTab(layout)
-  const running = (p: Pane) => { const x = protoForCwd(protos.data, p.cwd); return x?.status === 'running' ? x : undefined }
+  const running = (p: Pane) => { const x = protoForCwd(protos.data, p.cwd); return x && prototypeUp(x.status) ? x : undefined }
 
   // 关格、关标签时停掉从这一格启动、还在跑的原型
   const stopStarted = (panes: Pane[]) => {
@@ -98,17 +98,24 @@ export default function TerminalPage() {
         <div key={t.id} className={cls('term-grid', layoutClass(t))} hidden={t.id !== tab?.id}>
           {t.panes.map((p) => {
             const x = protoForCwd(protos.data, p.cwd)
+            // 外部启动的（PJ-04c）也亮灯，但这里起不了也停不了，按钮置灰说明
+            const external = x?.status === 'external'
             const live = x && (x.status === 'running' || x.status === 'starting')
             return (
               <div key={p.id} className={cls('term-pane', p.id === t.focus && 'focus')} onMouseDown={() => focusTerminalPane(p.id)}>
                 <div className="term-pane-head">
                   <span className="term-cwd term-ellipsis" title={p.cwd}>{shortPath(p.cwd, home)}</span>
-                  {x && live && (
-                    <span className={cls('term-run', x.status === 'starting' && 'starting')}>
-                      <span className="term-dot" />{x.name} :{x.port}
+                  {x && (live || external) && (
+                    <span className={cls('term-run', x.status === 'starting' && 'starting')} title={external ? '外部启动的，不是这里起的' : undefined}>
+                      <span className="term-dot" />{x.name} :{x.port}{external && ' · 外部启动'}
                     </span>
                   )}
-                  {x && (
+                  {x && external && (
+                    <button type="button" className="term-act term-proto-btn" disabled title={PROTOTYPE_EXTERNAL_STOP}>
+                      <IconStop />停止原型
+                    </button>
+                  )}
+                  {x && !external && (
                     <button type="button" className="term-act term-proto-btn" disabled={protoAction.isPending}
                       title={live ? `停止「${x.project_title} / ${x.name}」` : `启动「${x.project_title} / ${x.name}」（${x.command}）`}
                       onClick={(e) => { e.stopPropagation(); onProto(p, x, live ? 'stop' : 'start') }}>

@@ -19,7 +19,7 @@ type ProjectSummary struct {
 	Conversations []SummaryConversation `json:"conversations"`
 }
 
-// ProtoCount 是原型总数和运行中（status=running）的个数。
+// ProtoCount 是原型总数和在跑的个数：status 为 running 或 external（外部启动、端口能连上，PJ-04c）都算。
 type ProtoCount struct {
 	Total   int `json:"total"`
 	Running int `json:"running"`
@@ -38,7 +38,7 @@ type summary struct {
 }
 
 func (h *summary) list(w http.ResponseWriter, r *http.Request) {
-	out, err := buildSummary(r.Context(), h.c, func(id string) string { return h.m.runtime(id).Status })
+	out, err := buildSummary(r.Context(), h.c, func(id string, port int) string { return h.m.status(id, port).Status })
 	if err != nil {
 		h.fail(w, r, err)
 		return
@@ -48,7 +48,7 @@ func (h *summary) list(w http.ResponseWriter, r *http.Request) {
 
 // buildSummary 按项目汇总；status 给原型当前的运行状态，测试里可以换掉。
 // 顺序：先有原型的项目（按第一个原型的添加先后），再只绑了会话的项目。
-func buildSummary(ctx context.Context, c plugin.Core, status func(id string) string) ([]ProjectSummary, error) {
+func buildSummary(ctx context.Context, c plugin.Core, status func(id string, port int) string) ([]ProjectSummary, error) {
 	out := []ProjectSummary{}
 	at := map[string]int{}
 	get := func(pid string) *ProjectSummary {
@@ -61,9 +61,12 @@ func buildSummary(ctx context.Context, c plugin.Core, status func(id string) str
 		return &out[i]
 	}
 
-	type pair struct{ pid, id string }
+	type pair struct {
+		pid, id string
+		port    int
+	}
 	var protos, convs []pair
-	scan := func(q string, dst *[]pair) error {
+	scan := func(q string, out *[]pair, withPort bool) error {
 		rows, err := c.Store().Query(ctx, q)
 		if err != nil {
 			return err
@@ -71,24 +74,28 @@ func buildSummary(ctx context.Context, c plugin.Core, status func(id string) str
 		defer func() { _ = rows.Close() }()
 		for rows.Next() {
 			var x pair
-			if err := rows.Scan(&x.pid, &x.id); err != nil {
+			dst := []any{&x.pid, &x.id}
+			if withPort {
+				dst = append(dst, &x.port)
+			}
+			if err := rows.Scan(dst...); err != nil {
 				return err
 			}
-			*dst = append(*dst, x)
+			*out = append(*out, x)
 		}
 		return rows.Err()
 	}
-	if err := scan(`SELECT project_id, id FROM projects_prototypes ORDER BY created_at, rowid`, &protos); err != nil {
+	if err := scan(`SELECT project_id, id, port FROM projects_prototypes ORDER BY created_at, rowid`, &protos, true); err != nil {
 		return nil, err
 	}
-	if err := scan(`SELECT project_id, conversation_id FROM projects_conversations ORDER BY created_at, rowid`, &convs); err != nil {
+	if err := scan(`SELECT project_id, conversation_id FROM projects_conversations ORDER BY created_at, rowid`, &convs, false); err != nil {
 		return nil, err
 	}
 
 	for _, x := range protos {
 		s := get(x.pid)
 		s.Prototypes.Total++
-		if status(x.id) == statusRunning {
+		if st := status(x.id, x.port); st == statusRunning || st == statusExternal {
 			s.Prototypes.Running++
 		}
 	}

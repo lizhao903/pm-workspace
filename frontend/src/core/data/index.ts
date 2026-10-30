@@ -114,7 +114,7 @@ export {
 } from './projectConversations'
 export type { ProjectConversation, ConversationMessages } from './projectConversations'
 export {
-  PROTOTYPE_STATUS, PROTOTYPE_LOG_MAX, prototypesApi, prototypesPollMs, mergeLogs, useProjectPrototypes, usePrototypeLogs, useAddPrototype,
+  PROTOTYPE_STATUS, PROTOTYPE_LOG_MAX, PROTOTYPE_EXTERNAL_START, PROTOTYPE_EXTERNAL_STOP, prototypeUp, prototypesApi, prototypesPollMs, mergeLogs, useProjectPrototypes, usePrototypeLogs, useAddPrototype,
   usePatchPrototype, useRemovePrototype, useStartPrototype, useStopPrototype,
 } from './prototypes'
 export type { PrototypeStatus, ProjectPrototype, PrototypeCrash, PrototypeLogLine, PrototypeLogs, PrototypeInput, PrototypePatch } from './prototypes'

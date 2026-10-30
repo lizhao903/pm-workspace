@@ -112,6 +112,23 @@ describe('原型标签', () => {
     expect(within(card).getByRole('button', { name: '停止' })).toBeEnabled()
   })
 
+  it('外部启动：显示「运行中（外部启动）」，能打开，启动和停止置灰并说明，修改和移除可用', async () => {
+    const calls = fakeBackend([pt({ status: 'external', port: 7778, url: 'http://127.0.0.1:7778' })])
+    mount()
+    const card = await screen.findByRole('group', { name: '看板' })
+    expect(within(card).getByText('运行中（外部启动）')).toBeInTheDocument()
+    expect(within(card).getByRole('link', { name: '打开 :7778' })).toHaveAttribute('href', 'http://127.0.0.1:7778')
+    const start = within(card).getByRole('button', { name: '启动' })
+    const stop = within(card).getByRole('button', { name: '停止' })
+    expect(start).toBeDisabled()
+    expect(start).toHaveAttribute('title', expect.stringContaining('不是这里启动的'))
+    expect(stop).toBeDisabled()
+    expect(stop).toHaveAttribute('title', expect.stringContaining('这里停不了'))
+    expect(within(card).getByRole('button', { name: '修改' })).toBeEnabled()
+    expect(within(card).getByRole('button', { name: '移除' })).toBeEnabled()
+    expect(calls.some((c) => c.path.endsWith('/start') || c.path.endsWith('/stop'))).toBe(false)
+  })
+
   it('崩溃：显示原因、退出码和最后的输出，按钮是「重新启动」', async () => {
     const crash = { id: 1, prototype_id: 'pt_1', project_id: 'obj_p', exit_code: 3, signal: '', reason: '进程意外退出：退出码 3', log: ['boom'], started_at: '', exited_at: new Date().toISOString() }
     fakeBackend([pt({ status: 'crashed', error: '进程意外退出：退出码 3', last_crash: crash })])

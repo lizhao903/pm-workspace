@@ -235,6 +235,8 @@ func (in *inbox) adapterFor(m Message) Adapter {
 }
 
 // replyBlocker 是回不了的原因，口径和原型 messages.tsx 的 replyBlocker 一致，再加上适配器不在、不支持回复两种。
+// 连接器「异常」不拦：异常多半是收消息那一侧的（Telegram 别处也在 getUpdates、某个频道读不到），发消息照样能发；
+// 真发不出去（凭证失效等）走发送失败，记一行 failed 并把原因写到消息上。
 func (in *inbox) replyBlocker(ctx context.Context, m Message) (Replier, error) {
 	if m.ConnectorID != "" {
 		cn, err := in.c.Connectors().Get(ctx, m.ConnectorID)
@@ -245,8 +247,6 @@ func (in *inbox) replyBlocker(ctx context.Context, m Message) (Replier, error) {
 			return nil, err
 		}
 		switch cn.Status {
-		case "error":
-			return nil, blocked("connector_error", fmt.Sprintf("连接器「%s」异常，修好之前发不出去", cn.Name))
 		case "paused":
 			return nil, blocked("connector_paused", fmt.Sprintf("连接器「%s」已暂停", cn.Name))
 		case "disconnected":

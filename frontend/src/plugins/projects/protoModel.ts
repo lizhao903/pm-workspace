@@ -16,9 +16,9 @@ export const PORT_TO = 7899
 /** 界面上的状态：多一个「停止中」，是点了停止、接口还没返回的那一会儿 */
 export type ProtoView = ProjectPrototype['status'] | 'stopping'
 
-const RANK: Record<ProtoView, number> = { running: 0, crashed: 1, starting: 2, stopping: 2, stopped: 3 }
+const RANK: Record<ProtoView, number> = { running: 0, external: 0, crashed: 1, starting: 2, stopping: 2, stopped: 3 }
 
-/** 运行中、崩溃、启停中、已停止；同状态按加入顺序（接口按添加先后返回，sort 稳定） */
+/** 运行中（含外部启动）、崩溃、启停中、已停止；同状态按加入顺序（接口按添加先后返回，sort 稳定） */
 export const sortProtos = <T extends { status: ProtoView }>(rows: readonly T[]): T[] => [...rows].sort((a, b) => RANK[a.status] - RANK[b.status])
 
 /** 默认端口：PORT_FROM 到 PORT_TO 里第一个本项目原型没用着的，都占满时给 PORT_TO */
