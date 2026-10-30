@@ -140,7 +140,7 @@ function ProtoCard({ p, rows, projectId, projectName, root }: {
       <div className="pj-proto-head">
         <span className={cls('pj-proto-light', `pj-pl-${status}`)} />
         <span className="pj-proto-name">{p.name}</span>
-        <Pill label={PROTOTYPE_STATUS[status].label} color={PROTOTYPE_STATUS[status].color} />
+        <Pill label={PROTOTYPE_STATUS[status]?.label ?? status} color={PROTOTYPE_STATUS[status]?.color ?? 'var(--faint)'} />
         <span className="spacer" />
         {(live || external) && <a className="btn btn-outline btn-sm" href={p.url} target="_blank" rel="noreferrer" title="在新窗口打开">打开 :{p.port}</a>}
         {external ? (

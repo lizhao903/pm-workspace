@@ -1,4 +1,4 @@
-export { api, request, requestEnvelope, requestList, setApiBase, isApiError, codeForStatus, ApiError } from './client'
+export { api, request, requestEnvelope, requestList, setApiBase, isApiError, codeForStatus, ApiError, fetchAppIndex } from './client'
 export type { Meta, Method, RequestOptions, ListResult, ApiErrorCode } from './client'
 export { objectListQuery, artifactListQuery, focusParams, localDay, changedFields } from './query'
 export type { Focus } from './query'

@@ -50,6 +50,13 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	info, err := fs.Stat(h.files, name)
+	if (err != nil || info.IsDir()) && strings.HasPrefix(name, "assets/") {
+		// 带 hash 的产物找不到，多半是开着旧版页面、服务已经换了新构建：回 404 让前端认出来刷新，
+		// 回 index.html 会被当成脚本加载，报出来的错让人看不懂。
+		w.Header().Set("Cache-Control", "no-store")
+		http.NotFound(w, r)
+		return
+	}
 	if err != nil || info.IsDir() {
 		// 命中不了真实文件就当成前端路由，交给 index.html 自己 render。
 		h.serveIndex(w, r)

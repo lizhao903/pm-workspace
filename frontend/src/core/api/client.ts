@@ -143,3 +143,13 @@ export const api = {
 
 // 路径段里的 id 一律转义，防止带斜杠的值拼出别的路由。
 export const seg = encodeURIComponent
+
+/** 取一次页面入口 index.html 的文本（看服务是不是换了新构建用），取不到回 null */
+export async function fetchAppIndex(): Promise<string | null> {
+  try {
+    const res = await fetch('/', { cache: 'no-store' })
+    return res.ok ? await res.text() : null
+  } catch {
+    return null
+  }
+}
