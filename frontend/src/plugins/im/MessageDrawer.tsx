@@ -3,6 +3,7 @@
 // 视频插件在跑时多一节「收进素材箱」（VID-08b，ToClipRow）和「转为商单」（VID-08e，ToDealRow）。
 // 回复经后端适配器发出：发送失败时回复框保留内容，底部红字说原因，消息状态不变（SPEC-messages-2.25）。
 // 发信人对不上联系人时给「关联到联系人」「新建联系人」，认上了的给「不是这个人」（IM-05，弹窗在 ContactLink）。
+// Slack 的回复框写明以谁的身份发出（IM-06）：我本人身份「以 <本人名> 身份发送」，Bot 身份「以 Bot <名> 发送」。
 import { useState } from 'react'
 import { errorText, useImAction, type Connector, type ImAction, type ImMessage } from '../../core/data'
 import { Avatar, Button, Checkbox, Drawer, cls } from '../../core/ui'
@@ -10,6 +11,7 @@ import {
   QUICK_REPLIES, RELEVANCE, isSnoozed, replyBlocker, replyWarning, shortTime, snoozeOptions, timeAgo, whoName, type Channel, type StatusView,
 } from './model'
 import { AttachmentPanel } from './AttachmentPanel'
+import { sendAsText } from './channelModel'
 import { Caret, ChannelMark, Menu, MentionText } from './parts'
 import { ToClipRow } from './ToClipRow'
 import { ToDealRow } from './ToDealRow'
@@ -61,6 +63,7 @@ function DrawerBody({ msg, ch, connectors, sv, photo, note, onClose, onOpenConta
   const warning = replyWarning(msg, connectors)
   const who = whoName(msg)
   const doneLabel = sv.label('done')
+  const sendAs = blocker ? null : sendAsText(conn)
 
   const run = (a: ImAction) => act.mutate({ id: msg.id, action: a })
   const send = (t: string, done: boolean, fromBox: boolean) => {
@@ -88,7 +91,9 @@ function DrawerBody({ msg, ch, connectors, sv, photo, note, onClose, onOpenConta
           <div className="im-reply-bar">
             <Checkbox checked={alsoDone} disabled={!!blocker} onCheckedChange={setAlsoDone}>发送后标为{doneLabel}</Checkbox>
             <span className="spacer" />
-            <Button variant="primary" disabled={!!blocker || !text.trim() || reply.isPending} onClick={() => send(text, alsoDone, true)}>
+            {sendAs && <span className="im-muted im-send-as">{sendAs}</span>}
+            <Button variant="primary" disabled={!!blocker || !text.trim() || reply.isPending} title={sendAs ?? undefined}
+              onClick={() => send(text, alsoDone, true)}>
               {reply.isPending ? '发送中…' : '发送'}
             </Button>
           </div>

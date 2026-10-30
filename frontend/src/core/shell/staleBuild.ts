@@ -12,7 +12,8 @@ export function entryOf(html: string): string | null {
   return m ? m[1] : null
 }
 
-function currentEntry(): string | null {
+/** 当前页面的入口脚本；开发服务器下为 null。上报运行异常时也带上它（INC-01b） */
+export function currentEntry(): string | null {
   const el = document.querySelector<HTMLScriptElement>('script[type="module"][src*="/assets/"]')
   return el ? new URL(el.src, location.href).pathname : null
 }

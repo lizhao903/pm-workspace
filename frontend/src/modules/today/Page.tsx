@@ -1,17 +1,17 @@
 // 今日（SPEC-today-1、TODAY-02）：今天要处理的事集中在一页。内核部分走 GET /api/today?type=task，
 // 插件卡片走不带 type 的聚合（PluginCards）。只有完成圆圈在本页直接改数据，点任务在本页打开任务抽屉。
-// ALIGN-08 起「需要你处理」按来源分组：任务待验收、插件贡献的组（IM 消息）、连接异常；「正在运行」先列插件贡献的（运行中的原型）。
+// ALIGN-08 起「需要你处理」按来源分组：任务待验收、插件贡献的组（IM 消息）、运行异常（INC-01b）、连接异常；「正在运行」先列插件贡献的（运行中的原型）。
 import { Suspense, useState } from 'react'
 import { useNavigate } from 'react-router'
 import {
   dueTodayCard, errorText, localDay, overdueCard, reviewCard, runningCard, schedulesToday, useAllObjects, useApprove,
-  useConnectors, useDictItems, useObject, useObjectTypes, useProgress, useSchedules, useSetStatus, useToday, type WorkObject,
+  useConnectors, useDictItems, useIncidents, useObject, useObjectTypes, useProgress, useSchedules, useSetStatus, useToday, type WorkObject,
 } from '../../core/data'
 import { TODAY_ORDER, useTodaySourceData, useTodaySources, type TodayItem } from '../../core/plugin'
 import { Button, ErrorState, LoadingState, PageTitle, PrioTag, cls } from '../../core/ui'
 import { ApproveDialog, REVIEW, TaskDrawer, doneKey, dueDay, timeAgo } from '../tasks'
 import {
-  LINE_SHOW, NEED_SHOW, TASK_SHOW, clock, connectorNeeds, dateText, dayRows, greet, hotLevels, lastReview, needGroups, pickHot, reviewSub,
+  LINE_SHOW, NEED_SHOW, TASK_SHOW, clock, connectorNeeds, dateText, dayRows, greet, hotLevels, incidentNeeds, lastReview, needGroups, pickHot, reviewSub,
 } from './model'
 import { PluginCards } from './PluginCards'
 import './today.css'
@@ -61,6 +61,7 @@ export default function Page() {
   const approve = useApprove()
   const sources = useTodaySourceData(useTodaySources())
   const connectors = useConnectors()
+  const incidents = useIncidents()
 
   // 打开的任务：先在页面已有的数据里找，找不到（点的是运行中的执行）再单独取
   const [openId, setOpenId] = useState<string | null>(null)
@@ -88,12 +89,18 @@ export default function Page() {
   const needSrc = sources.filter((x) => x.def.slot === 'need')
   const runSrc = sources.filter((x) => x.def.slot === 'running').sort((a, b) => a.def.order - b.def.order)
   const conn = connectorNeeds(connectors.data ?? [])
+  const inc = incidentNeeds(incidents.data ?? [])
   const groups = needGroups([
     { key: 'review', label: '任务待验收', order: TODAY_ORDER.review, total: review?.total ?? 0, items: [], more: `${TASKS}?status=${REVIEW}`, moreAlways: true },
     ...needSrc.map((x) => ({
       key: `${x.def.plugin}:${x.def.key}`, label: x.def.label, order: x.def.order, total: x.total, items: x.items, more: x.def.more,
       error: x.error, retry: x.refetch,
     })),
+    // 运行异常（INC-01b）：在设置里，一直有
+    {
+      key: 'incident', label: '运行异常', order: TODAY_ORDER.incident, total: inc.length, items: inc, more: '/settings/incidents',
+      error: incidents.isError, retry: () => void incidents.refetch(),
+    },
     {
       key: 'connection', label: '连接异常', order: TODAY_ORDER.connection, total: conn.length, items: conn, more: '/settings/connectors',
       error: connectors.isError, retry: () => void connectors.refetch(),

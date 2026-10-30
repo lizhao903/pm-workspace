@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { SearchSelect } from './searchselect'
 import { ListSegHead } from './tasks'
 import {
-  ACTION_LABEL, FREQ_LABEL, WEEK, describeRule, emptyRule, nextRun, ruleError, whenText,
+  ACTION_LABEL, FREQ_LABEL, SWEEP_LEVEL_LABEL, WEEK, describeRule, emptyRule, nextRun, ruleError, sweepText, whenText,
   type Freq, type Schedule, type ScheduleAction,
 } from './scheduledata'
 import type { Priority } from './taskdata'
@@ -20,6 +20,7 @@ export const actionText = (a: ScheduleAction, sops: Named[], agents: Named[], pu
   ? `建任务「${a.title || '未填标题'}」`
   : a.kind === 'sop' ? `执行「${sops.find((s) => s.id === a.sop_id)?.name ?? '已删除的 SOP'}」`
     : a.kind === 'publish' ? `发布「${publishes.find((x) => x.id === a.publish_id)?.name ?? '已删除的发布记录'}」`
+      : a.kind === 'incident_sweep' ? `巡检运行异常：${sweepText(a)}，建任务交给 Claude Code`
       : `${agents.find((x) => x.id === a.agent_id)?.name ?? '已删除的 Agent'}：${a.prompt || '未填要求'}`)
 
 export function SchedulesPage({ schedules, sops, agents, publishes = [], selected, onOpen, onNew, onToggle }: {
@@ -129,13 +130,15 @@ export function ScheduleDrawer({ schedule, sops, agents, publishes = [], assigne
   const setRule = (p: Partial<typeof r>) => setD({ ...d, rule: { ...r, ...p } })
   const setKind = (k: ScheduleAction['kind']) => setD({
     ...d, action: k === 'task' ? { kind: 'task', title: '', desc: '', priority: defPrio, assignee: '我', due_days: 0 }
-      : k === 'sop' ? { kind: 'sop', sop_id: sops[0]?.id ?? '' } : { kind: 'agent', agent_id: agents.find((a) => a.enabled !== false)?.id ?? '', prompt: '' },
+      : k === 'sop' ? { kind: 'sop', sop_id: sops[0]?.id ?? '' }
+        : k === 'incident_sweep' ? { kind: 'incident_sweep', min_level: 'error', min_count: 1 }
+          : { kind: 'agent', agent_id: agents.find((a) => a.enabled !== false)?.id ?? '', prompt: '' },
   })
   const a = d.action
   // 定时发布只读：规则跟着发布记录，过了时间也不算错
   const pub = a.kind === 'publish'
   const rErr = pub ? '' : ruleError(r)
-  const aErr = a.kind === 'task' ? (!a.title.trim() ? '任务标题必填' : '') : a.kind === 'sop' ? (!a.sop_id ? '选一个 SOP' : '') : a.kind === 'publish' ? '' : (!a.agent_id ? '选一个 Agent' : !a.prompt.trim() ? '写一下要它做什么' : '')
+  const aErr = a.kind === 'task' ? (!a.title.trim() ? '任务标题必填' : '') : a.kind === 'sop' ? (!a.sop_id ? '选一个 SOP' : '') : a.kind === 'publish' || a.kind === 'incident_sweep' ? '' : (!a.agent_id ? '选一个 Agent' : !a.prompt.trim() ? '写一下要它做什么' : '')
   const errors = [!d.name.trim() && '名称必填', rErr, aErr].filter(Boolean) as string[]
   const next = nextRun(r)
   // 列出接下来三次，帮人确认规则是不是自己想的那样
@@ -241,6 +244,21 @@ export function ScheduleDrawer({ schedule, sops, agents, publishes = [], assigne
                   </select>
                 </label>
               </div>
+            </>
+          )}
+          {a.kind === 'incident_sweep' && (
+            <>
+              <div className="field-row">
+                <div className="field"><span className="field-label">最低级别</span>
+                  <div className="seg seg-full">{(['error', 'warn'] as const).map((lv) => <button key={lv} className={cls(a.min_level === lv && 'on')} onClick={() => setD({ ...d, action: { ...a, min_level: lv } })}>{SWEEP_LEVEL_LABEL[lv]}</button>)}</div>
+                </div>
+                <label className="field"><span className="field-label">最少次数</span>
+                  <select value={a.min_count} onChange={(e) => setD({ ...d, action: { ...a, min_count: Number(e.target.value) } })}>
+                    {[1, 2, 3, 5, 10].map((n) => <option key={n} value={n}>{n === 1 ? '出现过就算' : `至少 ${n} 次`}</option>)}
+                  </select>
+                </label>
+              </div>
+              <span className="field-hint-line">到点把满足条件、未处理、还没有任务的运行异常各建一条任务，带 claude-code 标签交给 Claude Code 修；同一条异常不会重复建。结果记在下面的执行记录里</span>
             </>
           )}
           {a.kind === 'sop' && (

@@ -626,6 +626,28 @@ func (r *runner) fail(i int, t time.Time, msg string) {
 	s := &r.run.Steps[i]
 	s.Status, s.Error, s.EndedAt = stFailed, msg, &t
 	r.log(i, t, "失败："+msg)
+	r.noteIncident(i, msg)
+}
+
+// noteIncident 步骤失败记一条运行异常（INC-01a，规格「执行语义」第 9 条）：错误级、模块 SOP，
+// 指纹 sop:<流程 id>:<步骤 key>，同一步再失败按指纹合并；上下文带 SOP、步骤、执行、第几次、输入。记不上只记日志。
+func (r *runner) noteIncident(i int, msg string) {
+	def, s := r.defs[i], r.run.Steps[i]
+	name := orDefault(def.Name, def.Key)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	err := r.e.c.Incidents().Record(ctx, plugin.Incident{
+		Fingerprint: "sop:" + r.run.FlowID + ":" + def.Key,
+		Level:       "error",
+		Module:      "SOP",
+		Title:       "「" + r.run.FlowName + "」" + name + "失败",
+		Message:     msg,
+		Context: map[string]any{"SOP": r.run.FlowName, "步骤": name, "执行": orDefault(r.run.Title, r.run.ID),
+			"执行 id": r.run.ID, "第几次": s.Attempts, "输入": map[string]any(s.Input)},
+	})
+	if err != nil {
+		r.e.c.Log().Warn("sop step failure incident not recorded", "run", r.run.ID, "step", def.Key, "err", err)
+	}
 }
 
 // finish 同原型 tick 里一步出结果：失败、分支节点自动判断、人工判断、人工检查、其余完成。

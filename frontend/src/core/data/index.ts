@@ -73,6 +73,11 @@ export {
   providersApi, useProviderChecks, useCreateProvider, usePatchProvider, useDeleteProvider, useSetDefaultProvider, useTestProvider,
 } from './providers'
 export type { ProviderProtocol, ProviderInput, ProviderPatch, ProviderCheck } from './providers'
+export {
+  INCIDENT_MODULES, INCIDENT_STATUS, incidentsApi, incidentsPagePath, normIncident, openErrors, useIncidents, useIncidentToTask,
+  useSetIncidentStatus,
+} from './incidents'
+export type { Incident, IncidentLevel, IncidentReport, IncidentStatus, IncidentTaskInput, IncidentTaskResult } from './incidents'
 export { contactsApi, useContacts, useSetContactStarred } from './contacts'
 export type { Contact, ContactPatch } from './contacts'
 export {

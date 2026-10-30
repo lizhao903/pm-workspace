@@ -142,6 +142,8 @@ type Store struct {
 	mu sync.Mutex
 	// OAuth 授权和令牌刷新（oauth.go）
 	oauth oauthRuntime
+	// incidents 记连接失败、同步失败的运行异常（INC-01a，incidents.go），SetIncidents 接上
+	incidents IncidentRecorder
 }
 
 // New 建实例表的读写；sec 为 nil 时写凭证报错，defs 为 nil 时没有任何定义。
@@ -759,6 +761,9 @@ func (s *Store) Test(ctx context.Context, id string) (*TestResult, error) {
 	}
 	if res.Connector, err = s.get(ctx, s.db.W, id); err != nil {
 		return nil, err
+	}
+	if terr != nil {
+		s.noteIncident(ctx, cur, "auth", res.Message)
 	}
 	return res, nil
 }

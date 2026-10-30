@@ -29,5 +29,8 @@ describe('menuMarks', () => {
   it('设置：后端没连上或连接器出错', () => {
     expect(menuMarks({ backendDown: true, brokenConnectors: 2 }).settings?.hint).toBe('后端未连接，2 个连接器异常')
     expect(menuMarks({ brokenConnectors: 0 }).settings).toBeUndefined()
+    // 未处理的运行错误（INC-01b）
+    expect(menuMarks({ openIncidents: 3 }).settings?.hint).toBe('3 个运行错误未处理')
+    expect(menuMarks({ openIncidents: 0 }).settings).toBeUndefined()
   })
 })

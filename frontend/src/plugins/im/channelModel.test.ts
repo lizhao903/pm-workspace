@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Connector, ConnectorDef } from '../../core/data'
-import { addableDefs, callbackUrl, imConnectors, memberIdError, slackTokenError, syncText } from './channelModel'
+import { accountName, addableDefs, callbackUrl, imConnectors, memberIdError, SLACK_AS_USER, slackAs, slackTokenError, sendAsText, syncText } from './channelModel'
 
 const def = (tool: string, category = 'im'): ConnectorDef => ({ tool, label: tool, category, color: '', desc: '', can_send: true, auth: ['token'], fields: [], tools: [], source: 'im' })
 const conn = (id: string, tool: string): Connector => ({
@@ -26,6 +26,26 @@ describe('渠道配置的纯函数', () => {
     expect(memberIdError('')).toBeUndefined()
     expect(memberIdError('U01ABCDEF')).toBeUndefined()
     expect(memberIdError('@lin')).toMatch(/Member ID/)
+  })
+
+  it('Slack 身份（IM-06）：我本人要 xoxp-，Bot 要 xoxb-；没填身份按 Bot', () => {
+    expect(slackTokenError('xoxp-123', false, SLACK_AS_USER)).toBeUndefined()
+    expect(slackTokenError('xoxb-123', false, SLACK_AS_USER)).toMatch(/这是 Bot Token.*xoxp-/)
+    expect(slackTokenError('abc', false, SLACK_AS_USER)).toMatch(/xoxp-/)
+    expect(slackTokenError('xoxp-123', false)).toMatch(/改成「我本人」/)
+    expect(slackAs({ config: {} })).toBe('Bot')
+    expect(slackAs({ config: { identity: SLACK_AS_USER } })).toBe(SLACK_AS_USER)
+  })
+
+  it('回复框写的发送身份：Slack 我本人「以 名 身份发送」，Bot「以 Bot 名 发送」，别的渠道不写', () => {
+    const slack = { ...conn('cn_1', 'slack'), name: '公司 Slack', account: 'broleez（U07ME）' }
+    expect(accountName('broleez（U07ME）')).toBe('broleez')
+    expect(accountName('pmw')).toBe('pmw')
+    expect(sendAsText({ ...slack, config: { identity: SLACK_AS_USER } })).toBe('以 broleez 身份发送')
+    expect(sendAsText({ ...slack, account: 'pmw（UBOT）' })).toBe('以 Bot pmw 发送')
+    expect(sendAsText({ ...slack, account: '' })).toBe('以 Bot 公司 Slack 发送')
+    expect(sendAsText(conn('cn_2', 'telegram'))).toBeNull()
+    expect(sendAsText(undefined)).toBeNull()
   })
 
   it('同步结果和回调地址', () => {

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { Connector, ConnectorDef } from '../../../core/data'
 import {
+  fieldHint,
   bulkModes, createBody, fieldOn, initialDraft, missingFields, modesFor, needsRetest, nextName, notReady, oauthLack, oauthReturnTo, oauthState, patchBody,
   pruneModes, refreshNote, rowSummary, tokenPreview,
 } from './model'
@@ -187,5 +188,17 @@ describe('OAuth 授权（CONN-04b）', () => {
     expect(oauthResult('')).toBeNull()
     expect(oauthResult('?oauth=ok&connector=cn_a&message=%E6%8E%88%E6%9D%83%E5%AE%8C%E6%88%90')).toEqual({ ok: true, connector: 'cn_a', message: '授权完成' })
     expect(oauthResult('?oauth=error&connector=cn_a')).toEqual({ ok: false, connector: 'cn_a', message: '' })
+  })
+})
+
+describe('字段说明（IM-06）', () => {
+  it('Slack 的身份和 Token 按选的身份说要填哪种 Token；别的工具没有', () => {
+    const slack = { tool: 'slack' }
+    expect(fieldHint(slack, { key: 'bot_token' }, {})).toMatch(/xoxb-/)
+    expect(fieldHint(slack, { key: 'bot_token' }, { identity: '我本人（用户 Token）' })).toMatch(/xoxp-.*User Token Scopes/)
+    expect(fieldHint(slack, { key: 'identity' }, { identity: '我本人（用户 Token）' })).toMatch(/你的名义/)
+    expect(fieldHint(slack, { key: 'channels' }, {})).toBeUndefined()
+    expect(fieldHint({ tool: 'github' }, { key: 'bot_token' }, {})).toBeUndefined()
+    expect(fieldHint({ tool: 'custom_mcp' }, { key: 'transport' }, {})).toMatch(/stdio/)
   })
 })

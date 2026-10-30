@@ -26,6 +26,8 @@ import (
 // 回调不可达时（工作台不在公网上）按连接器的同步间隔拉 conversations.history，进度存在 im_cursors。
 // 可以接多个工作区（IM-01d）：每个实例各拉各的、各记各的同步结果，回调按签名认实例，回复走消息所属的实例。
 // 收的范围：私信和多人私信，加上「监听频道」里列的频道（Bot 要先被加进频道）。
+// 身份（IM-06）：连接器选「我本人」时 Token 是本人的 User Token（xoxp-），auth.test 回的就是本人：列的是本人所在的会话，
+// @本人 算 @我（不用填 Member ID），回复以本人名义发出；本人自己发的不进待处理，记成那条会话里最近一条消息的回复（FromSelf）。
 // 出网走 Core.HTTP("im")（域名清单里有 slack.com、*.slack.com）。回复走 chat.postMessage，附件按 url_private_download 下载。
 
 const (
@@ -295,7 +297,8 @@ func (s *Slack) pullInstance(ctx context.Context, cn plugin.ConnectorInfo, raw j
 			return err
 		}
 		token := cfg.Secret("bot_token")
-		me, err := connector.SlackAuthTest(ctx, hc, s.api, token)
+		as := connector.SlackAs(cfg.Get(connector.SlackIdentityField))
+		me, err := connector.SlackAuthTest(ctx, hc, s.api, as, token)
 		if err != nil {
 			return err
 		}
@@ -308,7 +311,11 @@ func (s *Slack) pullInstance(ctx context.Context, cn plugin.ConnectorInfo, raw j
 			return err
 		}
 		if len(missing) > 0 {
-			warn = fmt.Errorf("这些频道找不到或 Bot 没被加进去：%s", strings.Join(missing, "、"))
+			who := "Bot 没被加进去"
+			if as == connector.SlackAsUser {
+				who = "你不在里面"
+			}
+			warn = fmt.Errorf("这些频道找不到或%s：%s", who, strings.Join(missing, "、"))
 		}
 		var got []slackMsg
 		var convWarn []string
@@ -340,7 +347,7 @@ func (s *Slack) pullInstance(ctx context.Context, cn plugin.ConnectorInfo, raw j
 		s.lookupUsers(ctx, hc, token, got)
 		for _, m := range got {
 			cv, known := s.conv(m.Channel)
-			if in, ok := s.toIncoming(cn.ID, me, cfg.Get("self_user_id"), cv, known, m); ok {
+			if in, ok := s.toIncoming(cn.ID, me, as, cfg.Get("self_user_id"), cv, known, m); ok {
 				msgs = append(msgs, in)
 			}
 		}
@@ -366,7 +373,7 @@ func (s *Slack) pullInstance(ctx context.Context, cn plugin.ConnectorInfo, raw j
 	return msgs, next, nil
 }
 
-// conversations 列 Bot 所在的会话：私信、多人私信全收，频道只收 channels 里列的（名字或编号，# 可带可不带）。
+// conversations 列 Token 身份（Bot 或本人）所在的会话：私信、多人私信全收，频道只收 channels 里列的（名字或编号，# 可带可不带）。
 // 回列出来的会话和没找到的频道。
 func (s *Slack) conversations(ctx context.Context, hc *http.Client, token, channels string) ([]slackConv, []string, error) {
 	want := splitChannels(channels)
@@ -566,12 +573,14 @@ func (s *Slack) lookupUsers(ctx context.Context, hc *http.Client, token string, 
 	}
 }
 
-// toIncoming 把一条 Slack 消息翻成 Incoming；Bot 自己发的、不收的子类型、没有发送人的跳过。
-func (s *Slack) toIncoming(connID string, me connector.SlackIdentity, self string, cv slackConv, known bool, m slackMsg) (Incoming, bool) {
+// toIncoming 把一条 Slack 消息翻成 Incoming；不收的子类型、没有发送人的跳过。Bot 身份时 Bot 自己发的跳过；
+// 我本人身份（as 为 SlackAsUser）时本人发的标成 FromSelf，插件不把它当新消息，记成会话里的回复。
+func (s *Slack) toIncoming(connID string, me connector.SlackIdentity, as, self string, cv slackConv, known bool, m slackMsg) (Incoming, bool) {
 	if !slices.Contains(slackSubtypes, m.Subtype) || m.TS == "" || m.Channel == "" {
 		return Incoming{}, false
 	}
-	if (me.UserID != "" && m.User == me.UserID) || (me.BotID != "" && m.BotID == me.BotID) {
+	mine := me.UserID != "" && m.User == me.UserID
+	if (mine && as != connector.SlackAsUser) || (me.BotID != "" && m.BotID == me.BotID) {
 		return Incoming{}, false
 	}
 	sender, name := m.User, s.userName(m.User)
@@ -589,7 +598,8 @@ func (s *Slack) toIncoming(connID string, me connector.SlackIdentity, self strin
 		ExternalID: m.Channel + ":" + m.TS, ConnectorID: connID,
 		ConversationID: m.Channel, ConversationKind: cv.kind(), ConversationName: cv.title(),
 		SenderID: sender, SenderName: name, Text: s.plainText(m.Text), At: tsTime(m.TS),
-		Mention: slackMention(m.Text, me.UserID, strings.TrimSpace(self)),
+		Mention:  slackMention(m.Text, me.UserID, strings.TrimSpace(self)),
+		FromSelf: mine,
 	}
 	if cv.IsIM {
 		in.ConversationName = ""
@@ -735,7 +745,7 @@ func (s *Slack) Receive(r *http.Request) ([]Incoming, error) {
 				return nil
 			}
 			if active > 1 && head.TeamID != "" {
-				if team := s.teamOf(ctx, x.ID, cfg.Secret("bot_token")); team != "" && team != head.TeamID {
+				if team := s.teamOf(ctx, x.ID, connector.SlackAs(cfg.Get(connector.SlackIdentityField)), cfg.Secret("bot_token")); team != "" && team != head.TeamID {
 					other = true
 					return nil
 				}
@@ -806,9 +816,10 @@ func (s *Slack) handleEvent(ctx context.Context, cn plugin.ConnectorInfo, cfg pl
 			return nil
 		}
 	}
-	me := s.botIdentity(ctx, hc, token)
+	as := connector.SlackAs(cfg.Get(connector.SlackIdentityField))
+	me := s.identity(ctx, hc, as, token)
 	s.lookupUsers(ctx, hc, token, []slackMsg{m})
-	if in, ok := s.toIncoming(cn.ID, me, cfg.Get("self_user_id"), cv, known, m); ok {
+	if in, ok := s.toIncoming(cn.ID, me, as, cfg.Get("self_user_id"), cv, known, m); ok {
 		*msgs = append(*msgs, in)
 	}
 	return nil
@@ -827,7 +838,7 @@ func (s *Slack) lookupConv(ctx context.Context, hc *http.Client, token, id strin
 }
 
 // teamOf 是实例所在的工作区编号：拉取时记下，没记过现查一次 auth.test；查不到为空。
-func (s *Slack) teamOf(ctx context.Context, id, token string) string {
+func (s *Slack) teamOf(ctx context.Context, id, as, token string) string {
 	s.mu.Lock()
 	team := s.teams[id]
 	s.mu.Unlock()
@@ -838,7 +849,7 @@ func (s *Slack) teamOf(ctx context.Context, id, token string) string {
 	if err != nil {
 		return ""
 	}
-	me := s.botIdentity(ctx, hc, token)
+	me := s.identity(ctx, hc, as, token)
 	s.setTeam(id, me.TeamID)
 	return me.TeamID
 }
@@ -852,15 +863,16 @@ func (s *Slack) setTeam(id, team string) {
 	s.mu.Unlock()
 }
 
-// botIdentity 是 Bot 自己的身份，用来跳过自己发的消息、认 @Bot；查不到时为空，不拦收消息。
-func (s *Slack) botIdentity(ctx context.Context, hc *http.Client, token string) connector.SlackIdentity {
-	id, _ := connector.SlackAuthTest(ctx, hc, s.api, token)
+// identity 是 Token 自己的身份（Bot 或本人），用来认自己发的消息、认 @我；查不到时为空，不拦收消息。
+func (s *Slack) identity(ctx context.Context, hc *http.Client, as, token string) connector.SlackIdentity {
+	id, _ := connector.SlackAuthTest(ctx, hc, s.api, as, token)
 	return id
 }
 
 // --- 回复、附件 ---
 
-// Reply 经 chat.postMessage 用消息所属的实例发出去：频道里串在原消息下面（thread_ts），私信直接发；
+// Reply 经 chat.postMessage 用消息所属的实例发出去（Bot 身份以 Bot 名义，我本人身份用 User Token 以本人名义）：
+// 频道里串在原消息下面（thread_ts），私信直接发；
 // 没有会话编号时发给对方的 Member ID。消息没记实例（旧数据）时用最新建的实例。
 func (s *Slack) Reply(ctx context.Context, out Outgoing) (string, error) {
 	c := s.core()
@@ -909,7 +921,7 @@ func (s *Slack) Reply(ctx context.Context, out Outgoing) (string, error) {
 	return res.Channel + ":" + res.TS, nil
 }
 
-// Fetch 带 Bot Token 下载附件（url_private_download，要 files:read）。
+// Fetch 带实例的 Token 下载附件（url_private_download，要 files:read）。
 func (s *Slack) Fetch(ctx context.Context, ref AttachmentRef) (io.ReadCloser, error) {
 	c := s.core()
 	if c == nil {

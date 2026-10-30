@@ -26,6 +26,7 @@ import (
 	"github.com/lizhao903/pm-workspace/internal/db"
 	"github.com/lizhao903/pm-workspace/internal/events"
 	"github.com/lizhao903/pm-workspace/internal/imident"
+	"github.com/lizhao903/pm-workspace/internal/incident"
 	"github.com/lizhao903/pm-workspace/internal/localdir"
 	"github.com/lizhao903/pm-workspace/internal/notify"
 	"github.com/lizhao903/pm-workspace/internal/plugin"
@@ -229,6 +230,12 @@ func run(cfg config) error {
 	// 插件发通知（VID-06b）：kind 带插件前缀、data.source 记插件 id，同样推 notification.created
 	plugins.SetNotifier(opts.Notify)
 	defer opts.Notify.Wait(5 * time.Second)
+	// 运行异常（INC-01a，0043）：写成功发 incident 事件，转任务、改状态、巡检建任务记审计；建任务的 store 在下面接上
+	opts.Incidents = incident.New(pdb, slog.Default())
+	opts.Incidents.Events = bus
+	opts.Incidents.Audit = opts.Audit
+	// 插件记运行异常（原型崩溃、附件取不到、SOP 步骤失败）
+	plugins.SetIncidents(opts.Incidents)
 	// 定时任务的定义（TASK-03a，0020）：规则按本机时区算
 	opts.Schedules = schedule.New(pdb, time.Local)
 	// 插件登记的定时任务动作（VID-06a）：保存时交给插件校验，到点交给插件执行
@@ -269,6 +276,8 @@ func run(cfg config) error {
 	// 插件登记的连接器定义（CONN-02）：插件停用后它的定义不出现，实例保留、available 为 false
 	connDefs.SetPluginDefs(plugins.ConnectorDefs)
 	opts.Connectors = connector.New(pdb, v, connDefs)
+	// 连接失败、同步失败记运行异常（INC-01a）
+	opts.Connectors.SetIncidents(opts.Incidents)
 	// 插件发起连接器授权、断开（BR-01a，浏览器插件的 Google 登录和退出）
 	plugins.SetConnectors(opts.Connectors)
 	if err := opts.Connectors.SetPublicURL(cfg.publicURL); err != nil {
@@ -282,6 +291,8 @@ func run(cfg config) error {
 		opts.UI = webui.Handler()
 	}
 	objects := events.WrapStore(audit.WrapStore(st, opts.Audit), bus)
+	// 运行异常转任务、巡检建任务走外层包装，修订、事件、审计照常
+	opts.Incidents.Tasks = objects
 	// 插件建内核对象（IM-02a 转任务）走同一个外层包装，修订、审计、事件照常；来源记为插件 id
 	plugins.SetObjectCreator(objects)
 	// 插件用模型和 Agent（SOP-01c）：口径同对话接口，Agent 的写操作走外层包装，审计、事件照常
@@ -300,6 +311,8 @@ func run(cfg config) error {
 	// 调度器（TASK-03b，0021）：到点执行定时任务，建任务走外层包装，事件和审计照常；退出时先停调度再关库
 	opts.ScheduleRunner = schedule.NewRunner(opts.Schedules, objects, slog.Default())
 	opts.ScheduleRunner.Agents = opts.AgentRuns
+	// 运行异常巡检（INC-01a）：定时任务动作 incident_sweep，不自动建这个定时任务，由用户在定时任务页决定
+	opts.ScheduleRunner.Incidents = opts.Incidents
 	// 发起 SOP（SOP-01d）：定时任务的 sop 动作和 Agent 的 run_sop 经插件注册表的钩子交给 SOP 插件；删流程前查指向它的定时任务
 	opts.ScheduleRunner.SOPs = plugins
 	agent.SetSOPStarter(plugins)

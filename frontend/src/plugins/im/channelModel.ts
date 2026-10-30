@@ -50,13 +50,42 @@ export function syncErrorText(e: unknown) {
   return errorText(e).replace(/^同步失败：/, '') || '同步失败'
 }
 
-/** Slack Bot Token：新建必填；已存过的留空不改；填了要以 xoxb- 开头（后端同样检查） */
-export function slackTokenError(token: string, saved: boolean): string | undefined {
+/** Slack 连接器的「身份」（IM-06）：字段 identity，值就是界面文字，同后端 connector.SlackAsBot / SlackAsUser；没填是 Bot */
+export const SLACK_IDENTITY_FIELD = 'identity'
+export const SLACK_AS_BOT = 'Bot'
+export const SLACK_AS_USER = '我本人（用户 Token）'
+export type SlackAs = typeof SLACK_AS_BOT | typeof SLACK_AS_USER
+export const slackAs = (c: Pick<Connector, 'config'> | null | undefined): SlackAs =>
+  c?.config[SLACK_IDENTITY_FIELD]?.trim() === SLACK_AS_USER ? SLACK_AS_USER : SLACK_AS_BOT
+
+/** 以本人身份要加的 User Token Scopes，和 Bot 的同一组，加在 User Token Scopes 下 */
+export const SLACK_USER_SCOPES = SLACK_SCOPES
+
+/** Slack Token：新建必填；已存过的留空不改；填了要和身份对上：Bot 要 xoxb-，我本人要 xoxp-（后端同样检查） */
+export function slackTokenError(token: string, saved: boolean, as: SlackAs = SLACK_AS_BOT): string | undefined {
   const v = token.trim()
   if (!v) return saved ? undefined : '必填'
-  if (v.startsWith('xoxp-') || v.startsWith('xoxe')) return '这是用户 Token，要填 Bot User OAuth Token（xoxb- 开头）'
+  if (as === SLACK_AS_USER) {
+    if (v.startsWith('xoxp-')) return undefined
+    if (v.startsWith('xoxb-')) return '这是 Bot Token；身份是「我本人」时要填 User OAuth Token（xoxp- 开头），或把身份改回 Bot'
+    return '要以 xoxp- 开头：Slack App 设置里 OAuth & Permissions 页的 User OAuth Token'
+  }
+  if (v.startsWith('xoxp-') || v.startsWith('xoxe')) return '这是用户 Token；身份是 Bot 时要填 Bot User OAuth Token（xoxb- 开头），想以本人身份收发就把身份改成「我本人」'
   if (!v.startsWith('xoxb-')) return '要以 xoxb- 开头：Slack App 设置里 OAuth & Permissions 页的 Bot User OAuth Token'
   return undefined
+}
+
+/** 账号「名字（Member ID）」里的名字；没有括号时原样 */
+export const accountName = (account: string) => account.replace(/[（(][^）)]*[）)]\s*$/, '').trim()
+
+/**
+ * 回复框上写的发送身份（IM-06）：Slack 我本人身份「以 <本人名> 身份发送」，Bot 身份「以 Bot <名> 发送」；
+ * 名字取连接器账号括号前的部分，还没测过连接时用连接器名称。别的渠道不写，为 null。
+ */
+export function sendAsText(conn: Pick<Connector, 'tool' | 'name' | 'account' | 'config'> | null | undefined): string | null {
+  if (!conn || conn.tool !== 'slack') return null
+  const name = accountName(conn.account ?? '') || conn.name
+  return slackAs(conn) === SLACK_AS_USER ? `以 ${name} 身份发送` : `以 Bot ${name} 发送`
 }
 
 /** 「我的称呼」（PR-19）：正文里按名字 @ 到这些也算 @我，微信、飞书这类按名字 @ 的渠道要填 */

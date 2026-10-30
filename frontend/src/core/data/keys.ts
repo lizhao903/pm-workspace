@@ -173,6 +173,11 @@ export const dataKeys = {
     search: (id: string, q: string) => ['knowledge-bases', 'search', id, q] as const,
     agents: ['knowledge-bases', 'agents'] as const,
   },
+  /** 运行异常（INC-01b）：一次拉全，设置页、二级菜单红点、今日待办共用 */
+  incidents: {
+    all: ['incidents'] as const,
+    list: ['incidents', 'list'] as const,
+  },
   /** 终端（TERM-01b）：会话列表；终端页认原型目录用的全部项目的原型，任一项目原型启停都刷 */
   terminal: {
     all: ['terminal'] as const,

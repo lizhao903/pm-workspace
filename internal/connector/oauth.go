@@ -596,6 +596,7 @@ func (s *Store) RefreshOAuth(ctx context.Context, id string) (*OAuthResult, erro
 			return nil, fmt.Errorf("record connector refresh: %w", err)
 		}
 		s.log.Warn("connector token refresh failed", "connector", id, "tool", cur.Tool, "reason", res.Message)
+		s.noteIncident(ctx, cur, "auth", res.Message)
 	} else {
 		cur, err = s.get(ctx, s.db.W, id)
 		if err != nil {

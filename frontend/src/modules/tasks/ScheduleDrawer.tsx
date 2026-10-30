@@ -10,7 +10,7 @@ import {
 import { Button, Drawer, Field, Input, SearchSelect, Select, Textarea, cls, type SearchOption } from '../../core/ui'
 import { prioText, timeAgo } from './model'
 import {
-  ACTION_KINDS, ACTION_LABEL, DUE_DAYS, FREQS, FREQ_LABEL, WEEK, WEEK_ORDER, buildScheduleInput, buildSchedulePatch, defaultPriority,
+  ACTION_KINDS, ACTION_LABEL, DUE_DAYS, FREQS, FREQ_LABEL, SWEEP_COUNTS, SWEEP_LEVEL_LABEL, WEEK, WEEK_ORDER, buildScheduleInput, buildSchedulePatch, defaultPriority,
   actionLabel, describeRule, draftErrors, emptyAction, emptyScheduleDraft, isPluginAction, publishIdOf, publishName, ruleError, runTone, scheduleDirty, scheduleDraftOf, whenText,
   type ActionNames, type ScheduleDraft,
 } from './scheduleModel'
@@ -224,8 +224,8 @@ export function ScheduleDrawer({ schedule, onClose, onCreated, onOpenTask }: {
           <div className="field-group-title">做什么</div>
           <div className="seg seg-full" role="radiogroup" aria-label="动作类型">
             {ACTION_KINDS.map((k) => {
-              // SOP、Agent 的接口 M4 之后才有：没法选，已经是这种类型的照样显示
-              const off = k !== 'task' && a.kind !== k
+              // SOP、Agent 的接口 M4 之后才有：没法选，已经是这种类型的照样显示；运行异常巡检是内核动作（INC-01b），能选
+              const off = (k === 'sop' || k === 'agent') && a.kind !== k
               return (
                 <button key={k} type="button" role="radio" aria-checked={a.kind === k} className={cls(a.kind === k && 'on')} disabled={off}
                   title={off ? 'SOP、Agent 的接口 M4 之后才有，现在只能建任务' : undefined} onClick={() => setKind(k)}>{ACTION_LABEL[k]}</button>
@@ -260,6 +260,25 @@ export function ScheduleDrawer({ schedule, onClose, onCreated, onOpenTask }: {
             <Field label="执行哪个 SOP" hint="SOP 的接口 M4 之后才有，现在到点只记一条「暂不支持」">
               <Input className="mono-input" value={a.sop_id} placeholder="SOP 编号" onChange={(e) => setAction({ sop_id: e.target.value })} />
             </Field>
+          )}
+          {a.kind === 'incident_sweep' && (
+            <>
+              <div className="field-row">
+                <Field label="最低级别" wrap={false}>
+                  <div className="seg seg-full" role="radiogroup" aria-label="最低级别">
+                    {(['error', 'warn'] as const).map((lv) => (
+                      <button key={lv} type="button" role="radio" aria-checked={a.min_level === lv} className={cls(a.min_level === lv && 'on')}
+                        onClick={() => setAction({ min_level: lv })}>{SWEEP_LEVEL_LABEL[lv]}</button>
+                    ))}
+                  </div>
+                </Field>
+                <Field label="最少次数">
+                  <Select value={String(a.min_count)} onValueChange={(v) => setAction({ min_count: Number(v) })}
+                    options={[...new Set([...SWEEP_COUNTS, a.min_count])].sort((x, y) => x - y).map((n) => ({ value: String(n), label: n === 1 ? '出现过就算' : `至少 ${n} 次` }))} />
+                </Field>
+              </div>
+              <div className="list-sub">到点把满足条件、未处理、还没有任务的运行异常各建一条任务，带 claude-code 标签交给 Claude Code 修；同一条异常不会重复建。结果记在下面的执行记录里</div>
+            </>
           )}
           {isPluginAction(a.kind) && <div className="list-sub">{actionLabel(a.kind)}：这种动作由插件登记，这里只读</div>}
           {a.kind === 'agent' && (

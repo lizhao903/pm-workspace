@@ -17,6 +17,7 @@
 .sk-task { background: var(--accent-soft); color: var(--accent); }
 .sk-sop { background: var(--warn-soft); color: var(--warn); }
 .sk-agent { background: var(--hover); color: var(--muted); }
+.sk-incident_sweep { background: var(--danger-soft); color: var(--danger); }
 /* 视频插件的到点发布（VID-06d） */
 .sched-plugin-acts { display: flex; flex-wrap: wrap; gap: 8px; }
 .sched-readonly { color: var(--text); line-height: 1.6; overflow-wrap: anywhere; }

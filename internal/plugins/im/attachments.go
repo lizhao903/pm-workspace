@@ -185,7 +185,7 @@ func findAttachment(m Message, id string) (AttachmentRef, bool) {
 }
 
 // fetchBlocker 是取不到附件的原因：连接器口径同 replyBlocker（只收不发不拦，下载属于收），文案照原型 fetchBlocker；
-// incident 为真的是连接器异常，原型里记运行异常，这里记一条 warn 日志。
+// incident 为真的是连接器异常，要另记一条运行异常（noteFetchIncident）。
 func (in *inbox) fetchBlocker(ctx context.Context, m Message) (f Fetcher, reason, msg string, incident bool, err error) {
 	if m.ConnectorID != "" {
 		cn, err := in.c.Connectors().Get(ctx, m.ConnectorID)
@@ -266,6 +266,7 @@ func (in *inbox) fetch(w http.ResponseWriter, r *http.Request) {
 	if fe == nil {
 		if incident {
 			in.c.Log().Warn("im attachment fetch blocked", "message", m.ID, "attachment", attID, "connector", m.ConnectorID, "reason", reason)
+			in.noteFetchIncident(ctx, m, ref)
 		}
 		if err := in.markFailed(ctx, m.ID, attID, prev.local, msg); err != nil {
 			fail(w, r, in.c, err)
@@ -515,4 +516,24 @@ func (in *inbox) download(w http.ResponseWriter, r *http.Request) {
 	h.Set("Content-Security-Policy", "sandbox")
 	h.Set("Cache-Control", "private, no-cache")
 	http.ServeContent(w, r, "", fi.ModTime(), f)
+}
+
+// noteFetchIncident 连接器异常时附件取不到，记一条运行异常（INC-01a，SPEC-messages-3.5）：
+// warn、模块「IM 消息」、标题「附件获取失败」、内容「「<附件名>」没取到：连接器「<连接器名>」异常」，指纹 att:<连接器 id>。记不上只记日志。
+func (in *inbox) noteFetchIncident(ctx context.Context, m Message, ref AttachmentRef) {
+	name := m.ConnectorID
+	if cn, err := in.c.Connectors().Get(ctx, m.ConnectorID); err == nil {
+		name = cn.Name
+	}
+	err := in.c.Incidents().Record(ctx, plugin.Incident{
+		Fingerprint: "att:" + m.ConnectorID,
+		Level:       "warn",
+		Module:      "IM 消息",
+		Title:       "附件获取失败",
+		Message:     fmt.Sprintf("「%s」没取到：连接器「%s」异常", ref.Name, name),
+		Context:     map[string]any{"连接器": name, "附件": ref.Name, "消息": m.ID, "渠道": m.Channel},
+	})
+	if err != nil {
+		in.c.Log().Warn("im attachment incident not recorded", "message", m.ID, "err", err)
+	}
 }

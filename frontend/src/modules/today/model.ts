@@ -1,7 +1,7 @@
 // 今日页的纯函数：问候语、今天的任务、插件卡片合并。规格见 web-next/docs/spec/today.md SPEC-today-1。
 import type { ComponentType } from 'react'
 import type { PluginTodayCard, TodayItem, TodayTone } from '../../core/plugin'
-import { connectorsPagePath, type Connector, type DictItem, type Progress, type TodayCard, type WorkObject } from '../../core/data'
+import { connectorsPagePath, incidentsPagePath, openErrors, type Connector, type DictItem, type Incident, type Progress, type TodayCard, type WorkObject } from '../../core/data'
 
 /** 每组需要处理的事露几条，今天的任务露几条，自动执行、正在运行各露几条 */
 export const NEED_SHOW = 3
@@ -137,6 +137,13 @@ export function needGroups(groups: readonly NeedGroup[]): NeedGroup[] {
 export function connectorNeeds(rows: readonly Connector[]): TodayItem[] {
   return rows.filter((c) => c.status === 'error').map((c) => ({
     id: c.id, tone: 'danger', title: `连接器「${c.name}」异常`, sub: c.error, action: '去修复', to: connectorsPagePath({ connector: c.id }),
+  }))
+}
+
+/** 运行异常（SPEC-today-1.4 表）：未处理的错误级异常；说明「模块 · 共 N 次」，时间是最近一次，点了打开异常抽屉 */
+export function incidentNeeds(rows: readonly Incident[]): TodayItem[] {
+  return openErrors(rows).map((x) => ({
+    id: `inc-${x.id}`, tone: 'danger', title: x.title, sub: `${x.module} · 共 ${x.count} 次`, at: x.last_at, action: '去看看', to: incidentsPagePath(x.id),
   }))
 }
 

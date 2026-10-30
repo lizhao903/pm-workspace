@@ -68,7 +68,13 @@ func (in *inbox) ingest(ctx context.Context, a Adapter, msgs []Incoming, strict 
 	}
 	me := newSelfHandles(a)
 	rows := make([]row, 0, len(msgs))
+	var mine []Incoming
 	for i, m := range msgs {
+		if m.FromSelf {
+			// 等这一批别人的消息落完再记，回的可能就是同一批里的
+			mine = append(mine, m)
+			continue
+		}
 		self, err := me.forConnector(ctx, in.c, strings.TrimSpace(m.ConnectorID))
 		if err != nil {
 			return res, err
@@ -104,7 +110,53 @@ func (in *inbox) ingest(ctx context.Context, a Adapter, msgs []Incoming, strict 
 			in.c.Log().Warn("publish im event failed", "message", r.id, "err", err)
 		}
 	}
+	for _, m := range mine {
+		if err := in.recordSelf(ctx, ch, m); err != nil {
+			return res, err
+		}
+	}
 	return res, nil
+}
+
+// recordSelf 把「我」自己在渠道里发的一条（FromSelf，IM-06）记成回复：挂在同渠道、同连接器、同会话里
+// 发送时间不晚于它的最近一条消息上，状态 sent，时间用它的发送时间，那条标为已读，处理状态不动（要不要算处理完由人定）。
+// 同一外部编号已记过（在工作台里回复的，拉回来时又看到）、没有会话编号、会话里还没收过消息的跳过。
+func (in *inbox) recordSelf(ctx context.Context, ch string, m Incoming) error {
+	ext, conv := strings.TrimSpace(m.ExternalID), strings.TrimSpace(m.ConversationID)
+	if ext == "" || conv == "" {
+		return nil
+	}
+	convExt, err := imident.NormalizeExternalID(ch, conv)
+	if err != nil {
+		return nil
+	}
+	var n int
+	if err := in.c.Store().QueryRow(ctx, `SELECT COUNT(*) FROM im_replies WHERE external_id = ?`, ext).Scan(&n); err != nil {
+		return err
+	}
+	if n > 0 {
+		return nil
+	}
+	at := m.At
+	if at.IsZero() {
+		at = in.clock()
+	}
+	sentAt := at.UTC().Format(timeLayout)
+	var msgID string
+	err = in.c.Store().QueryRow(ctx, `SELECT id FROM im_messages WHERE channel = ? AND connector_id = ? AND conversation_external_id = ?
+		AND sent_at <= ? ORDER BY sent_at DESC LIMIT 1`, ch, strings.TrimSpace(m.ConnectorID), convExt, sentAt).Scan(&msgID)
+	if errors.Is(err, plugin.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if _, err := in.c.Store().Exec(ctx, `INSERT INTO im_replies (id, message_id, text, status, external_id, created_at) VALUES (?, ?, ?, 'sent', ?, ?)`,
+		idgen.Prefixed("rp"), msgID, clip(m.Text, maxText), ext, sentAt); err != nil {
+		return fmt.Errorf("record self reply: %w", err)
+	}
+	_, err = in.c.Store().Exec(ctx, `UPDATE im_messages SET is_read = 1 WHERE id = ?`, msgID)
+	return err
 }
 
 // row 是规整好、待插入的一条。

@@ -241,6 +241,19 @@ describe('IM 消息页', () => {
     expect(screen.getByLabelText('回复内容')).toBeDisabled()
   })
 
+  it('Slack 回复框写明以谁的身份发送（IM-06）', async () => {
+    const c: Connector = {
+      id: 'cn_1', tool: 'slack', name: 'Slack 工作区', account: 'broleez（U07ME）', status: 'connected', error: '', auth_mode: 'token',
+      config: { identity: '我本人（用户 Token）' }, secret_hints: {}, direction: 'both', interval: 5, tools: [], tools_at: null, last_tested_at: null,
+      last_sync_at: null, available: true, created_at: '', updated_at: '',
+    }
+    fakeBackend([msg({ connector_id: 'cn_1' })], { connectors: [c] })
+    renderPage()
+    await userEvent.click(await screen.findByRole('listitem', { name: /权限点/ }))
+    expect(await screen.findByText('以 broleez 身份发送')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '发送' })).toHaveAttribute('title', '以 broleez 身份发送')
+  })
+
   it('转任务：标题预填正文，确认后调后端并顺带标为已处理', async () => {
     const rows = [msg({ text: '  导出按钮\n在 Safari 下没反应 ' })]
     const calls = fakeBackend(rows)

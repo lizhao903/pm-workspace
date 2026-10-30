@@ -510,3 +510,14 @@ describe('项目原型的失效（PJ-04b）', () => {
     expect(await stale({ kind: 'project-material', projectId: 'obj_p1' })).toEqual(['mats'])
   })
 })
+
+describe('运行异常的失效（INC-01b）', () => {
+  it('改状态只刷异常列表；转任务连任务列表、计数、今日一起刷', () => {
+    expect(invalidationsFor({ kind: 'incident', id: 'inc_1' })).toEqual([dataKeys.incidents.all])
+    const t = invalidationsFor({ kind: 'incident-task', id: 'inc_1' })
+    expect(t).toContainEqual(dataKeys.incidents.all)
+    expect(t).toContainEqual(dataKeys.objects.all)
+    expect(t).toContainEqual(dataKeys.counts.all)
+    expect(t).toContainEqual(todayKeys.all)
+  })
+})

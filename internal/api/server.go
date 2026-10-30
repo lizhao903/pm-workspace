@@ -17,6 +17,7 @@ import (
 	"github.com/lizhao903/pm-workspace/internal/conversation"
 	"github.com/lizhao903/pm-workspace/internal/events"
 	"github.com/lizhao903/pm-workspace/internal/imident"
+	"github.com/lizhao903/pm-workspace/internal/incident"
 	"github.com/lizhao903/pm-workspace/internal/localdir"
 	"github.com/lizhao903/pm-workspace/internal/notify"
 	"github.com/lizhao903/pm-workspace/internal/plugin"
@@ -82,6 +83,9 @@ type Options struct {
 
 	// Connectors 是连接器的定义和实例（CONN-01a，0029），凭证在保险箱里；为 nil 时 /api/connectors 回 500。
 	Connectors *connector.Store
+
+	// Incidents 是运行异常（INC-01a，0043）；为 nil 时 /api/incidents 回 500。
+	Incidents *incident.Store
 
 	// DataDir 是库文件所在目录（含 vault.key、backups/），读文件和挂载一律不许进去；空串表示不限制。
 	DataDir string
@@ -351,6 +355,13 @@ func (s *Server) routes(m routeRegistrar) {
 	m.HandleFunc("DELETE /api/schedules/{id}", s.handleDeleteSchedule)
 	m.HandleFunc("GET /api/schedules/{id}/runs", s.handleListScheduleRuns)
 	m.HandleFunc("POST /api/schedules/{id}/run", s.handleRunSchedule)
+
+	// 运行异常（INC-01a）。report 是字面量，比 {id} 更具体；{id}/task 多一段，不会被吃掉。
+	m.HandleFunc("GET /api/incidents", s.handleListIncidents)
+	m.HandleFunc("POST /api/incidents/report", s.handleReportIncident)
+	m.HandleFunc("GET /api/incidents/{id}", s.handleGetIncident)
+	m.HandleFunc("PATCH /api/incidents/{id}", s.handleUpdateIncident)
+	m.HandleFunc("POST /api/incidents/{id}/task", s.handleIncidentTask)
 
 	// Webhook 配置。{id}/usage、{id}/rotate-secret 比 {id} 多一段，不会被吃掉。
 	m.HandleFunc("GET /api/webhooks", s.handleListWebhooks)

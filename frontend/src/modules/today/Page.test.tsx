@@ -41,6 +41,8 @@ type Backend = {
   progress?: Record<string, unknown[]>
   /** GET /api/connectors */
   connectors?: unknown[]
+  /** GET /api/incidents */
+  incidents?: unknown[]
 }
 
 // 内存里的后端：聚合、列表都按当前数据现算，改了状态之后再取就是新的
@@ -88,6 +90,7 @@ function fakeBackend(b: Backend) {
     }
     if (m?.[2]) return json(b.progress?.[m[1]] ?? [], { total: 0 })
     if (u.pathname === '/api/connectors') return json(b.connectors ?? [], { total: (b.connectors ?? []).length })
+    if (u.pathname === '/api/incidents') return json(b.incidents ?? [], { total: (b.incidents ?? []).length })
     if (m) return json(b.rows.find((r) => r.id === m[1]))
     if (u.pathname === '/api/artifacts/stats') return json({ total: 0 })
     if (u.pathname.startsWith('/api/agent/workdir')) return json({ path: '', exists: false, is_dir: false, writable: false, message: '' })
@@ -102,6 +105,7 @@ function renderPage() {
     { path: '/today', element: <Page /> },
     { path: '/tasks/*', element: <div>任务页</div> },
     { path: '/messages', element: <div>消息页</div> },
+    { path: '/settings/*', element: <div>设置页</div> },
   ], { initialEntries: ['/today'] })
   render(<QueryClientProvider client={qc}><RouterProvider router={router} /></QueryClientProvider>)
   return { qc, router }
@@ -220,6 +224,29 @@ describe('今日页', () => {
     await userEvent.click(within(needs).getByText('张三：在吗'))
     expect(router.state.location.pathname).toBe('/messages')
     expect(router.state.location.search).toBe('?m=m1')
+  })
+
+  it('未处理的运行错误进「运行异常」组，排在连接异常前面；警告和已处理的不算；点了打开异常抽屉（INC-01b）', async () => {
+    const inc = (id: string, over: Record<string, unknown>) => ({
+      id, fingerprint: `front:tasks:route:${id}`, level: 'error', module: '任务', title: `报错 ${id}`, message: '', context: {}, stack: '',
+      status: 'open', note: '', count: 2, first_at: ago, last_at: ago, occurrences: [ago], task_id: null, source: 'frontend', ...over,
+    })
+    fakeBackend({
+      rows: [], pluginCards: [], plugins: [],
+      connectors: [{ id: 'con_1', tool: 'slack', name: 'Slack 工作区', status: 'error', error: '凭证已失效' }],
+      incidents: [inc('inc_a', {}), inc('inc_b', { level: 'warn' }), inc('inc_c', { status: 'tasked', task_id: 'obj_1' })],
+    })
+    const { router } = renderPage()
+    const needs = await screen.findByRole('region', { name: '需要你处理' })
+    await within(needs).findByText('报错 inc_a')
+    expect(within(needs).getByText('任务 · 共 2 次')).toBeInTheDocument()
+    expect(within(needs).queryByText('报错 inc_b')).not.toBeInTheDocument()
+    expect(within(needs).queryByText('报错 inc_c')).not.toBeInTheDocument()
+    const order = [...needs.querySelectorAll('[data-group]')].map((g) => g.getAttribute('data-group'))
+    expect(order).toEqual(['incident', 'connection'])
+    await userEvent.click(within(needs).getByText('报错 inc_a'))
+    expect(router.state.location.pathname).toBe('/settings/incidents')
+    expect(router.state.location.search).toBe('?open=inc_a')
   })
 
   it('正在运行先列运行中的原型，点了新窗口打开端口', async () => {

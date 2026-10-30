@@ -2,7 +2,7 @@ import { Navigate, useNavigate, useParams } from 'react-router'
 import { Placeholder } from '../../core/shell/Placeholder'
 import { PluginSettingsPage } from '../../core/shell/extensionHosts'
 import { useSettingsSections } from '../../core/plugin'
-import { useConnectors } from '../../core/data'
+import { openErrors, useConnectors, useIncidents } from '../../core/data'
 import { InSubnavHost, Subnav, type SubnavItem } from '../../core/ui'
 import { ConnectorsSection } from './connectors/ConnectorsSection'
 import { PluginsSection } from './plugins/PluginsSection'
@@ -17,7 +17,7 @@ import { LocalFsSection } from './localfs/LocalFsSection'
 import { IncidentsSection } from './incidents/IncidentsSection'
 
 // 内核的设置分节，照原型 web-next/src/settings.tsx SECTIONS；内网域名是插件的分节，不在这里。
-// 插件管理（CORE-09）原型里还没有，放在「工作台与模块」（CORE-10b）后面；运行异常还没有后端，先是空状态（PR-20）
+// 插件管理（CORE-09）原型里还没有，放在「工作台与模块」（CORE-10b）后面
 const KERNEL: SubnavItem<string>[] = [
   { key: 'workspace', label: '工作台与模块', desc: '切换工作台、选功能模块' },
   { key: 'plugins', label: '插件', desc: '安装、启停、卸载功能插件' },
@@ -44,8 +44,11 @@ export default function Page() {
   const sections = useSettingsSections()
   // 连接器异常的数量挂在二级菜单的红点上（SPEC-settings-1.3）
   const connErrors = (useConnectors().data ?? []).filter((c) => c.status === 'error').length
+  // 运行异常的红点只算未处理的错误，警告不算（SPEC-settings-18.12），和运行异常页顶栏的「M 个是错误」对得上
+  const incErrors = openErrors(useIncidents().data ?? []).length
+  const alertOf = (k: string) => (k === 'connectors' ? connErrors : k === 'incidents' ? incErrors : 0)
   const items: SubnavItem<string>[] = [
-    ...KERNEL.map((k) => (k.key === 'connectors' && connErrors ? { ...k, alert: connErrors } : k)),
+    ...KERNEL.map((k) => (alertOf(k.key) ? { ...k, alert: alertOf(k.key) } : k)),
     ...sections.map((s) => ({ key: pluginKey(s.plugin, s.key), label: s.label, desc: s.desc, group: s.group ?? '插件' })),
   ]
   const kernel = KERNEL.find((k) => k.key === active)

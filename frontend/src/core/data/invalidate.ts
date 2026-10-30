@@ -86,6 +86,10 @@ export type Change =
   | { kind: 'browser-google' }
   /** 浏览器白名单加了主机（BR-02a） */
   | { kind: 'browser-allowlist' }
+  /** 运行异常改状态、新记一条或合并（事件流 incident）（INC-01b） */
+  | { kind: 'incident'; id?: string }
+  /** 运行异常转了研发任务：多一条任务，异常变已转任务 */
+  | { kind: 'incident-task'; id: string }
 
 // 对象一变，所有对象列表（任务列表、今日、项目的任务标签页）、单个对象及其进展和修订、
 // 计数（侧栏红点、逾期徽标）都可能变；干系人名册上的任务数也跟着变；今日聚合（待验收、逾期、今天到期、插件卡片）也是。
@@ -203,6 +207,12 @@ export function invalidationsFor(c: Change): QueryKey[] {
       return [browserKeys.google, dataKeys.connectors.list]
     case 'browser-allowlist':
       return [browserKeys.allowlist]
+    case 'incident':
+      // 列表（设置的红点、今日的「运行异常」待办同一份）
+      return [dataKeys.incidents.all]
+    case 'incident-task':
+      // 建出来的任务要进任务列表、来源视图条数、计数和今日
+      return [dataKeys.incidents.all, ...objectWide]
   }
 }
 

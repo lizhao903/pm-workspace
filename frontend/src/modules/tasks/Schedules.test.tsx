@@ -109,6 +109,24 @@ describe('定时任务页（TASK-04a）', () => {
     expect(await screen.findByRole('button', { name: '写周报' })).toBeInTheDocument()
   })
 
+  it('运行异常巡检（INC-01b）：动作能选，配最低级别和最少次数；列表写成一句话', async () => {
+    const rows: Schedule[] = []
+    fakeBackend(rows)
+    renderPage()
+    await userEvent.click(await screen.findByRole('button', { name: '新建定时任务' }))
+    const drawer = await screen.findByRole('dialog', { name: '新建定时任务' })
+    await userEvent.type(within(drawer).getByPlaceholderText('比如：周会前整理议程'), '巡检')
+    const kind = within(drawer).getByRole('radio', { name: '运行异常巡检' })
+    expect(kind).toBeEnabled()
+    await userEvent.click(kind)
+    expect(within(drawer).getByText(/带 claude-code 标签交给 Claude Code 修/)).toBeInTheDocument()
+    await userEvent.click(within(drawer).getByRole('radio', { name: '错误和警告' }))
+    await userEvent.selectOptions(within(drawer).getByLabelText('最少次数'), '3')
+    await userEvent.click(within(drawer).getByRole('button', { name: '创建' }))
+    await waitFor(() => expect(rows[0]?.action).toEqual({ kind: 'incident_sweep', min_level: 'warn', min_count: 3 }))
+    expect(await screen.findByText('巡检运行异常：错误和警告，至少 3 次，建任务交给 Claude Code')).toBeInTheDocument()
+  })
+
   it('立即执行一次：执行记录多一条带「手动」，建出的任务编号可点', async () => {
     const calls = fakeBackend([sch('sch_a', '周会前整理议程')])
     renderPage('/tasks/schedules?open=sch_a')

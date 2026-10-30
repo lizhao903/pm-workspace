@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import { PageTitle } from './topbar'
-import { ALL_HANDLES, IM_CHANNELS, MY_HANDLES, QUICK_REPLIES, TOOLS, type Connector, type Contact, type Message } from './data'
+import { ALL_HANDLES, IM_CHANNELS, MY_HANDLES, QUICK_REPLIES, TOOLS, sendAsText, type Connector, type Contact, type Message } from './data'
 import { Avatar, ImMark, cls, timeAgo } from './ui'
 import { AttachmentChips, AttachmentPanel } from './attachments'
 import type { Project } from './projectdata'
@@ -401,6 +401,8 @@ export function MessageDrawer({ msg, contact, connector, onClose, onAct, onOpenC
   const msgEnum = useEnumView('msg_status')
   const ch = channelOf(msg.channel)
   const blocker = replyBlocker(connector)
+  // 以谁的身份发出去（IM-06）：Slack 按连接器的身份写，别的渠道不写
+  const sendAs = blocker ? null : sendAsText(connector)
   const [text, setText] = useState('')
   const [alsoDone, setAlsoDone] = useState(true)
   const send = (t: string, done: boolean) => {
@@ -519,7 +521,8 @@ export function MessageDrawer({ msg, contact, connector, onClose, onAct, onOpenC
         <div className="reply-bar">
           <label className="check"><input type="checkbox" checked={alsoDone} onChange={(e) => setAlsoDone(e.target.checked)} disabled={!!blocker} />发送后标为{msgEnum.label('done')}</label>
           <div className="spacer" />
-          <button className="btn btn-primary" disabled={!!blocker || !text.trim()} onClick={() => send(text, alsoDone)}>发送</button>
+          {sendAs && <span className="send-as">{sendAs}</span>}
+          <button className="btn btn-primary" disabled={!!blocker || !text.trim()} title={sendAs ?? undefined} onClick={() => send(text, alsoDone)}>发送</button>
         </div>
       </div>
     </aside>

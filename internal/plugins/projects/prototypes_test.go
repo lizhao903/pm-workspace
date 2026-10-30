@@ -53,7 +53,7 @@ func alive(pid int) bool {
 }
 
 func TestPrototypesAPI(t *testing.T) {
-	r, h, _ := setup(t)
+	r, h, d := setup(t)
 	base := "/api/projects/obj_p1/prototypes"
 	dir := t.TempDir()
 
@@ -170,6 +170,24 @@ func TestPrototypesAPI(t *testing.T) {
 	lc, _ := p["last_crash"].(map[string]any)
 	if lc == nil || lc["exit_code"] != 3.0 || !strings.Contains(p["error"].(string), "退出码 3") {
 		t.Fatalf("崩溃信息：%v", p)
+	}
+	// 崩溃记一条运行异常（INC-01a）：warn、模块项目原型、指纹 proto:<id>:crash，上下文带命令
+	protoID := strings.TrimPrefix(crashPath, base+"/")
+	var lvl, module, title, ctxJSON string
+	incDeadline := time.Now().Add(5 * time.Second)
+	for {
+		err := d.R.QueryRow(`SELECT level, module, title, context FROM incidents WHERE fingerprint = ?`, "proto:"+protoID+":crash").
+			Scan(&lvl, &module, &title, &ctxJSON)
+		if err == nil {
+			break
+		}
+		if time.Now().After(incDeadline) {
+			t.Fatalf("崩溃没记运行异常：%v", err)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if lvl != "warn" || module != "项目原型" || title != "「会崩」启动失败" || !strings.Contains(ctxJSON, "/bin/sh") {
+		t.Fatalf("崩溃的运行异常：%s %s %s %s", lvl, module, title, ctxJSON)
 	}
 	logText := strings.Join(toStrings(lc["log"].([]any)), "\n")
 	if !strings.Contains(logText, "hi") || !strings.Contains(logText, "oops") || !strings.Contains(logText, "$ /bin/sh -c") {

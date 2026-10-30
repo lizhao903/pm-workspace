@@ -133,6 +133,9 @@ type Incoming struct {
 	// Mention 是渠道明确告诉的提及：me 或 all（Slack 的 <@U..>、<!channel>）；空时按正文里的 @ 判断
 	Mention     string          `json:"mention"`
 	Attachments json.RawMessage `json:"attachments"` // 原型 MsgAttachment 数组，原样存
+	// FromSelf 是「我」在渠道里自己发的（Slack 以本人身份接入时，IM-06）：不当新消息落库，
+	// 记成同一连接器、同一会话里在它之前最近一条消息的回复（已记过的同编号回复不重复记），那条标为已读，处理状态不动
+	FromSelf bool `json:"from_self,omitempty"`
 }
 
 // Fake 是测试和演练用的假适配器，不联网：Push 进队列等拉取，也接回调 {"messages":[Incoming...]}。

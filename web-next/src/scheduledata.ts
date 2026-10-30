@@ -3,6 +3,7 @@
 // 定时发布（publish）跟着视频的发布记录走：发布记录定了时间就有一条，时间在日历或发布记录里改，这里只读
 
 import type { Priority } from './taskdata'
+import type { IncidentLevel } from './incidentdata'
 import { PLATFORMS, seedPublishes, type Publish } from './videodata'
 
 export type Freq = 'once' | 'daily' | 'weekdays' | 'weekly' | 'monthly' | 'cron'
@@ -27,7 +28,17 @@ export type ScheduleAction =
   | { kind: 'sop'; sop_id: string }
   | { kind: 'agent'; agent_id: string; prompt: string }
   | { kind: 'publish'; publish_id: string }
-export const ACTION_LABEL: Record<ScheduleAction['kind'], string> = { task: '建一条任务', sop: '执行 SOP', agent: '让 Agent 去做', publish: '发布视频' }
+  /** 运行异常巡检（INC-01）：到点把满足条件、未处理、还没有任务的异常各建一条任务交给 Claude Code 修 */
+  | { kind: 'incident_sweep'; min_level: IncidentLevel; min_count: number }
+export const ACTION_LABEL: Record<ScheduleAction['kind'], string> = { task: '建一条任务', sop: '执行 SOP', agent: '让 Agent 去做', publish: '发布视频', incident_sweep: '运行异常巡检' }
+export const SWEEP_LEVEL_LABEL: Record<IncidentLevel, string> = { error: '只看错误', warn: '错误和警告' }
+/** 「只看错误」「错误和警告，至少 3 次」 */
+export const sweepText = (a: { min_level: IncidentLevel; min_count: number }) => `${SWEEP_LEVEL_LABEL[a.min_level]}${a.min_count > 1 ? `，至少 ${a.min_count} 次` : ''}`
+/** 运行异常页「开启自动巡检」建的那条：每天 9:00，只看错误 */
+export const sweepSchedule = (id: string): Schedule => ({
+  id, name: '运行异常巡检', enabled: true, rule: { ...emptyRule(), freq: 'daily', time: '09:00' },
+  action: { kind: 'incident_sweep', min_level: 'error', min_count: 1 }, history: [], created_at: new Date().toISOString(),
+})
 
 export interface ScheduleRun { at: string; ok: boolean; text: string; ref?: string; manual?: boolean }
 

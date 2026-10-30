@@ -23,13 +23,16 @@ export type ScheduleRule = {
   cron: string
 }
 
-export type ScheduleActionKind = 'task' | 'sop' | 'agent'
+/** incident_sweep：运行异常巡检（INC-01a），内核动作，不属于插件 */
+export type ScheduleActionKind = 'task' | 'sop' | 'agent' | 'incident_sweep'
 
 /** 后端按 kind 只输出自己的字段 */
 export type ScheduleAction =
   | { kind: 'task'; title: string; desc: string; priority: string; assignee: string; due_days: number }
   | { kind: 'sop'; sop_id: string }
   | { kind: 'agent'; agent_id: string; prompt: string }
+  /** 到点把满足条件、未处理、还没有任务的运行异常各建一条交给 Claude Code 修的任务 */
+  | { kind: 'incident_sweep'; min_level: 'error' | 'warn'; min_count: number }
 
 export type Schedule = {
   id: string

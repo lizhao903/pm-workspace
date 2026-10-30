@@ -1,6 +1,7 @@
 import { Fragment, useState } from 'react'
 import { INCIDENT_MODULES, INCIDENT_STATUS, levelPriority, taskDesc, type Incident, type IncidentStatus } from './incidentdata'
 import type { Priority, Task } from './taskdata'
+import { describeRule, sweepText, type Schedule } from './scheduledata'
 import { useEnumView } from './enumdata'
 import { PageTitle } from './topbar'
 import { cls, timeAgo } from './ui'
@@ -17,7 +18,27 @@ const MERGE_MIN = 5
 const fpKind = (x: Incident) => x.fingerprint.split(':')[0]
 type Entry = { kind: 'one'; x: Incident } | { kind: 'group'; key: string; xs: Incident[] }
 
-export function IncidentsPage({ incidents, tasks, selected, onOpen }: { incidents: Incident[]; tasks: Task[]; selected: string | null; onOpen: (id: string) => void }) {
+/** 顶栏「自动巡检」（INC-01）：有动作为「运行异常巡检」的定时任务时写规则和条件、去定时任务页改；没有时一键开启 */
+function SweepBar({ sweep, onEnable, onOpen }: { sweep?: Schedule; onEnable: () => void; onOpen: (id: string) => void }) {
+  if (!sweep || sweep.action.kind !== 'incident_sweep') {
+    return <button className="btn btn-ghost" title="建一条定时任务：每天 9:00 把未处理的错误各建一条任务交给 Claude Code 修，可以去定时任务页改" onClick={onEnable}>开启自动巡检</button>
+  }
+  return (
+    <span className="inc-sweep">
+      <span className={cls('inc-sweep-dot', sweep.enabled && 'on')} />
+      <span className="ellipsis">自动巡检：{sweep.enabled ? `${describeRule(sweep.rule)}，${sweepText(sweep.action)}` : '已停用'}</span>
+      <button className="act act-quiet" onClick={() => onOpen(sweep.id)}>去定时任务改</button>
+    </span>
+  )
+}
+
+export function IncidentsPage({ incidents, tasks, selected, onOpen, sweep, onEnableSweep, onOpenSweep }: {
+  incidents: Incident[]; tasks: Task[]; selected: string | null; onOpen: (id: string) => void
+  /** 动作为「运行异常巡检」的定时任务（启用的优先） */
+  sweep?: Schedule
+  onEnableSweep: () => void
+  onOpenSweep: (id: string) => void
+}) {
   const [st, setSt] = useState<Filter>('open')
   const [mod, setMod] = useState('')
   const [level, setLevel] = useState<'' | 'error' | 'warn'>('')
@@ -78,7 +99,8 @@ export function IncidentsPage({ incidents, tasks, selected, onOpen }: { incident
         const open = incidents.filter((x) => x.status === 'open')
         const errs = open.filter((x) => x.level === 'error').length
         return `${open.length} 个未处理${errs && errs < open.length ? `，${errs} 个是错误` : ''}`
-      })()} desc="系统运行中出的问题，同一个问题合并记次数；能转成研发任务去优化">运行异常</PageTitle>
+      })()} desc="系统运行中出的问题，同一个问题合并记次数；能转成研发任务去优化"
+        actions={<SweepBar sweep={sweep} onEnable={onEnableSweep} onOpen={onOpenSweep} />}>运行异常</PageTitle>
       <div className="toolbar">
         <div className="seg">
           {([['open', '未处理'], ['tasked', '已转任务'], ['resolved', '已解决'], ['ignored', '已忽略'], ['all', '全部']] as [Filter, string][]).map(([k, l]) => (
@@ -101,7 +123,7 @@ export function IncidentsPage({ incidents, tasks, selected, onOpen }: { incident
         </div>
       </div>
       {!rows.length ? (
-        <div className="empty"><div className="empty-title">{st === 'open' ? '没有未处理的异常' : '没有匹配的异常'}</div><div className="list-sub">连接器、模型服务商、Webhook、SOP、原型和页面本身出的问题都会记在这里</div></div>
+        <div className="empty"><div className="empty-title">{st === 'open' && !level && !mod && !kw ? '没有未处理的异常' : '没有匹配的异常'}</div><div className="list-sub">连接器、模型服务商、Webhook、SOP、原型和页面本身出的问题都会记在这里</div></div>
       ) : (
         <div className="task-table">
           <div className="inc-row task-th"><span /><span>异常</span><span>模块</span><span>次数</span><span>最近一次</span><span>状态</span></div>

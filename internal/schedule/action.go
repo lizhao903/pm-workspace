@@ -10,6 +10,15 @@ const (
 	ActionTask  = "task"
 	ActionSOP   = "sop"
 	ActionAgent = "agent"
+	// ActionIncidentSweep 是运行异常巡检（INC-01a），内核动作，见 incident_sweep.go
+	ActionIncidentSweep = "incident_sweep"
+)
+
+// 运行异常巡检的默认值。
+const (
+	DefaultSweepLevel = "error"
+	DefaultSweepCount = 1
+	maxSweepCount     = 1000000
 )
 
 // Action 与原型 ScheduleAction 同形，三种 kind 的字段放在一起，用不到的省略。
@@ -32,6 +41,10 @@ type Action struct {
 	AgentID string `json:"agent_id"`
 	Prompt  string `json:"prompt"`
 
+	// kind = incident_sweep：MinLevel 是 error（只看错误）或 warn（警告和错误都看），MinCount 是次数下限
+	MinLevel string `json:"min_level"`
+	MinCount int    `json:"min_count"`
+
 	// 插件动作：除 kind 外的全部字段，校验交给插件
 	Params map[string]any `json:"-"`
 }
@@ -47,6 +60,15 @@ func (a Action) Normalize() Action {
 		return Action{Kind: a.Kind, SOPID: strings.TrimSpace(a.SOPID)}
 	case ActionAgent:
 		return Action{Kind: a.Kind, AgentID: strings.TrimSpace(a.AgentID), Prompt: a.Prompt}
+	case ActionIncidentSweep:
+		lv, n := strings.TrimSpace(a.MinLevel), a.MinCount
+		if lv == "" {
+			lv = DefaultSweepLevel
+		}
+		if n == 0 {
+			n = DefaultSweepCount
+		}
+		return Action{Kind: a.Kind, MinLevel: lv, MinCount: n}
 	}
 	return Action{Kind: a.Kind, Params: a.Params}
 }
@@ -69,6 +91,13 @@ func (a Action) Validate() error {
 		if a.AgentID == "" {
 			return invalid("action.agent_id is required for kind agent")
 		}
+	case ActionIncidentSweep:
+		if a.MinLevel != "error" && a.MinLevel != "warn" {
+			return invalid("action.min_level must be error or warn, got %q", a.MinLevel)
+		}
+		if a.MinCount < 1 || a.MinCount > maxSweepCount {
+			return invalid("action.min_count must be 1..%d, got %d", maxSweepCount, a.MinCount)
+		}
 	default:
 		return invalid("action.kind must be task / sop / agent, got %q", a.Kind)
 	}
@@ -85,6 +114,8 @@ func (a Action) MarshalJSON() ([]byte, error) {
 		m["sop_id"] = a.SOPID
 	case ActionAgent:
 		m["agent_id"], m["prompt"] = a.AgentID, a.Prompt
+	case ActionIncidentSweep:
+		m["min_level"], m["min_count"] = a.MinLevel, a.MinCount
 	default:
 		for k, v := range a.Params {
 			if k != "kind" {
@@ -95,7 +126,7 @@ func (a Action) MarshalJSON() ([]byte, error) {
 	return json.Marshal(m)
 }
 
-// UnmarshalJSON 按 kind 读：内核的三种读进各自字段，其余的除 kind 外全部放进 Params。
+// UnmarshalJSON 按 kind 读：内核的几种读进各自字段，其余的除 kind 外全部放进 Params。
 func (a *Action) UnmarshalJSON(b []byte) error {
 	var head struct {
 		Kind string `json:"kind"`

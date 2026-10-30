@@ -18,6 +18,7 @@ func (s *Store) RecordSync(ctx context.Context, id, source string, syncErr error
 	if d, ok := s.defs.Get(cur.Tool); source != "" && (!ok || d.Source != source) {
 		return nil, fmt.Errorf("%w: %s", ErrNotOwned, id)
 	}
+	msg := ""
 	q := `UPDATE connectors SET last_sync_at = ?, error = CASE WHEN status = 'error' THEN '' ELSE error END,
 		status = CASE WHEN status IN ('error', 'connecting') THEN 'connected' ELSE status END WHERE id = ?`
 	args := []any{s.stamp(), id}
@@ -26,7 +27,7 @@ func (s *Store) RecordSync(ctx context.Context, id, source string, syncErr error
 		if err != nil {
 			return nil, err
 		}
-		msg := scrub(syncErr.Error(), secrets)
+		msg = scrub(syncErr.Error(), secrets)
 		if msg == "" {
 			msg = "同步失败"
 		}
@@ -38,6 +39,9 @@ func (s *Store) RecordSync(ctx context.Context, id, source string, syncErr error
 	defer s.mu.Unlock()
 	if _, err := s.db.W.ExecContext(ctx, q, args...); err != nil {
 		return nil, fmt.Errorf("record connector sync: %w", err)
+	}
+	if syncErr != nil {
+		s.noteIncident(ctx, cur, "sync", msg)
 	}
 	return s.get(ctx, s.db.W, id)
 }

@@ -31,3 +31,13 @@
 .im-chform-steps code, .im-chform-note code { font-family: var(--mono); font-size: var(--fs-xs); background: var(--hover); padding: 0 4px; border-radius: 3px; word-break: break-all; }
 .im-chform-note { line-height: 1.6; }
 .im-chform-actions { display: flex; justify-content: flex-end; gap: var(--sp-4); }
+
+/* Slack 表单的「身份」切换（IM-06），样式同连接器抽屉的 cn-seg cn-seg-full；
+   不用 im-seg：那是 IM 页状态切换的类（im.css），两份全局样式会互相覆盖 */
+.im-chform-seg { display: flex; padding: 2px; border-radius: var(--r-sm); background: var(--hover); }
+.im-chform-seg button {
+  flex: 1; display: flex; align-items: center; justify-content: center; height: 28px; padding: 0 var(--sp-5); border: 0; border-radius: 4px;
+  background: none; color: var(--muted); font: inherit; font-size: var(--fs-sm); white-space: nowrap; cursor: pointer;
+}
+.im-chform-seg button:hover { color: var(--text); }
+.im-chform-seg button.on { background: var(--panel); color: var(--text); box-shadow: var(--shadow-sm); font-weight: 500; }

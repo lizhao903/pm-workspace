@@ -8,6 +8,9 @@ describe('事件到改动', () => {
 
   it('内核事件各走各的失效规则', () => {
     expect(changesFor(ev('object.created', { id: 'obj_a', type_id: 'task' }))).toEqual([{ kind: 'object', id: 'obj_a' }])
+    // 运行异常（INC-01b）：incident 和以后可能细分的 incident.xxx 都刷异常列表
+    expect(changesFor(ev('incident', { id: 'inc_a' }))).toEqual([{ kind: 'incident', id: 'inc_a' }])
+    expect(changesFor(ev('incident.recorded', { id: 'inc_a' }))).toEqual([{ kind: 'incident', id: 'inc_a' }])
     expect(changesFor(ev('object.updated', { id: 'obj_a', fields: ['status'] }))).toEqual([{ kind: 'object', id: 'obj_a' }])
     expect(changesFor(ev('task.review_requested', { id: 'obj_a' }))).toEqual([{ kind: 'progress', id: 'obj_a' }])
     expect(changesFor(ev('object.progress_appended', { id: 'obj_a', kind: 'note' }))).toEqual([{ kind: 'progress', id: 'obj_a' }])
