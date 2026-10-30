@@ -40,10 +40,10 @@ export async function reloadIfStale(): Promise<boolean> {
   return true
 }
 
-/** 分包加载失败（vite 的 preloadError）时先看是不是换了版本 */
+/**
+ * 分包加载失败（vite 的 preloadError）时先看是不是换了版本。不拦这个错误：
+ * 没换版本时（网络抖了一下等）照样抛给路由，「出错了」页显示原因，不静默地缺样式
+ */
 export function watchStaleBuild() {
-  window.addEventListener('vite:preloadError', (e) => {
-    e.preventDefault()
-    void reloadIfStale()
-  })
+  window.addEventListener('vite:preloadError', () => { void reloadIfStale() })
 }
