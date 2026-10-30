@@ -72,7 +72,8 @@ func setupActions(t *testing.T) actEnv {
 		`INSERT INTO connectors (id, tool, name, status, direction, created_at, updated_at) VALUES
 		  ('cn_ok', 'slack', 'Slack 工作区', 'connected', 'both', 'x', 'x'),
 		  ('cn_paused', 'slack', 'Slack 备用', 'paused', 'both', 'x', 'x'),
-		  ('cn_recv', 'slack', 'Slack 只收', 'connected', 'receive', 'x', 'x')`,
+		  ('cn_recv', 'slack', 'Slack 只收', 'connected', 'receive', 'x', 'x'),
+		  ('cn_rxerr', 'fake', '收消息冲突', 'error', 'both', 'x', 'x')`,
 	)
 	return e
 }
@@ -249,7 +250,12 @@ func TestReply(t *testing.T) {
 			t.Errorf("%s：%d %v", c.reason, code, out)
 		}
 	}
-	mid := e.push(t, "tg", `{"external_id":"9:1","conversation_id":"9","conversation_kind":"direct","sender_id":"@zhou","text":"在吗"}`)
+	// 连接器异常（多是收消息那侧的问题）不拦回复，照常发
+	mid := e.push(t, "fake", `{"external_id":"C01:5","connector_id":"cn_rxerr","conversation_id":"C01","sender_id":"U04LIN","text":"x"}`)
+	if code, out := call(t, e.h, "POST", "/api/im/messages/"+mid+"/reply", `{"text":"好"}`); code != 200 {
+		t.Fatalf("连接器异常时应照发：%d %v", code, out)
+	}
+	mid = e.push(t, "tg", `{"external_id":"9:1","conversation_id":"9","conversation_kind":"direct","sender_id":"@zhou","text":"在吗"}`)
 	code, out = call(t, e.h, "POST", "/api/im/messages/"+mid+"/reply", `{"text":"在"}`)
 	if er := errOf(out); code != 409 || er["reason"] != "unsupported" || er["message"] != "渠道 telegram 不支持回复" {
 		t.Fatalf("渠道不支持回复：%d %v", code, out)
@@ -258,7 +264,7 @@ func TestReply(t *testing.T) {
 	if m := data(out); len(m["replies"].([]any)) != 0 || m["reply_error"] != "" {
 		t.Fatalf("被拦下的回复不记：%v", m)
 	}
-	if len(e.fake.Sent()) != 2 {
+	if len(e.fake.Sent()) != 3 {
 		t.Fatalf("被拦的不该发出去：%d", len(e.fake.Sent()))
 	}
 }

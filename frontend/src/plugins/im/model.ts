@@ -187,12 +187,18 @@ export function nextWake(list: readonly ImMessage[], now = Date.now()): number |
   return min
 }
 
-/** 回不了的原因；null 表示能回。connector_id 为空（演练用的假适配器）时不查连接器，由后端判 */
+/** 连接器异常时回复框上方的提示：异常多半是收消息那侧的，照样能发，发不出去会记成发送失败 */
+export function replyWarning(m: Pick<ImMessage, 'connector_id'>, connectors: readonly Connector[] | undefined): string | null {
+  const conn = m.connector_id ? connectors?.find((c) => c.id === m.connector_id) : undefined
+  if (conn?.status !== 'error') return null
+  return `连接器「${conn.name}」异常${conn.error ? `：${conn.error}` : ''}。仍可尝试发送，发不出去会显示原因`
+}
+
+/** 回不了的原因；null 表示能回。连接器异常不算（见 replyWarning）。connector_id 为空（演练用的假适配器）时不查连接器，由后端判 */
 export function replyBlocker(m: Pick<ImMessage, 'connector_id'>, connectors: readonly Connector[] | undefined): string | null {
   if (!m.connector_id || !connectors) return null
   const conn = connectors.find((c) => c.id === m.connector_id)
   if (!conn) return '渠道已删除，这条消息只能查看'
-  if (conn.status === 'error') return `连接器「${conn.name}」异常，修好之前发不出去`
   if (conn.status === 'paused') return `连接器「${conn.name}」已暂停`
   if (conn.status === 'disconnected') return `连接器「${conn.name}」已断开，去设置里重新连接`
   if (conn.status === 'connecting') return `连接器「${conn.name}」正在连接`

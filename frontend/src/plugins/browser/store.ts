@@ -2,7 +2,7 @@
 // 启动时读回，变化后防抖整体 PUT，页面关掉、刷新前再补存一次。存不上不打断浏览，地址栏右边提示，下次变化时再试（SPEC-browser-1.19）。
 // 副作用都在这里的动作函数里，不进 setState。
 import { useSyncExternalStore } from 'react'
-import { browserApi, type TerminalPrototype } from '../../core/data'
+import { browserApi, prototypeUp, type TerminalPrototype } from '../../core/data'
 import * as m from './model'
 import type { Recent, Tabs } from './model'
 
@@ -177,7 +177,7 @@ export function syncPrototypes(list: readonly TerminalPrototype[]) {
     const p = list.find((x) => x.id === protoId)
     const alive = state.tabs.tabs.some((t) => t.id === tabId)
     if (!p || !alive || p.status === 'crashed') { delete pending[tabId]; changed = true; continue }
-    if (p.status === 'running') {
+    if (prototypeUp(p.status)) {
       delete pending[tabId]
       changed = true
       openHere(m.protoUrl(p), undefined, tabId)

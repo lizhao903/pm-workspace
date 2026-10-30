@@ -1,6 +1,6 @@
 // 内置浏览器的纯函数（SPEC-browser-0 到 3）：地址转换、标签种类、标题、标签的增删改和前进后退、和后端记录互转。
 // 不发请求，store.ts 调它们。Drive 地址按普通网页处理（BR-01b 决策：真实 Drive 列表等连接器工具能调用后再做）
-import { PROTOTYPE_STATUS, type BrowserTabKind, type BrowserTabRecord, type TerminalPrototype } from '../../core/data'
+import { PROTOTYPE_STATUS, prototypeUp, type BrowserTabKind, type BrowserTabRecord, type TerminalPrototype } from '../../core/data'
 
 export type TabKind = Exclude<BrowserTabKind, 'drive'>
 
@@ -280,8 +280,9 @@ export const PROTO_SEARCH_MIN = 8
 export const PROTO_GROUP_SHOW = 6
 export const PROTO_MATCH_LIMIT = 60
 
-const RANK: Record<string, number> = { running: 0, starting: 1, crashed: 2, stopped: 3 }
-export const isLive = (p: Pick<TerminalPrototype, 'status'>) => p.status === 'running' || p.status === 'starting'
+const RANK: Record<string, number> = { running: 0, external: 0, starting: 1, crashed: 2, stopped: 3 }
+/** 在跑或启动中；外部启动的（PJ-04c）也算在跑 */
+export const isLive = (p: Pick<TerminalPrototype, 'status'>) => prototypeUp(p.status) || p.status === 'starting'
 
 export type ProtoGroup = { key: string; name: string; items: TerminalPrototype[]; running: number; failed: number; live: boolean }
 
@@ -297,7 +298,7 @@ export function groupProtos(protos: readonly TerminalPrototype[]): ProtoGroup[] 
     .map((g) => ({
       ...g,
       items: [...g.items].sort((a, b) => (RANK[a.status] ?? 9) - (RANK[b.status] ?? 9)),
-      running: g.items.filter((p) => p.status === 'running').length,
+      running: g.items.filter((p) => prototypeUp(p.status)).length,
       failed: g.items.filter((p) => p.status === 'crashed').length,
       live: g.items.some(isLive),
     }))

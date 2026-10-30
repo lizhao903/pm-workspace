@@ -7,7 +7,7 @@ import { useState } from 'react'
 import { errorText, useImAction, type Connector, type ImAction, type ImMessage } from '../../core/data'
 import { Avatar, Button, Checkbox, Drawer, cls } from '../../core/ui'
 import {
-  QUICK_REPLIES, RELEVANCE, isSnoozed, replyBlocker, shortTime, snoozeOptions, timeAgo, whoName, type Channel, type StatusView,
+  QUICK_REPLIES, RELEVANCE, isSnoozed, replyBlocker, replyWarning, shortTime, snoozeOptions, timeAgo, whoName, type Channel, type StatusView,
 } from './model'
 import { AttachmentPanel } from './AttachmentPanel'
 import { Caret, ChannelMark, Menu, MentionText } from './parts'
@@ -58,6 +58,7 @@ function DrawerBody({ msg, ch, connectors, sv, photo, note, onClose, onOpenConta
   const [alsoDone, setAlsoDone] = useState(true)
   const conn = connectors?.find((c) => c.id === msg.connector_id)
   const blocker = replyBlocker(msg, connectors)
+  const warning = replyWarning(msg, connectors)
   const who = whoName(msg)
   const doneLabel = sv.label('done')
 
@@ -174,6 +175,7 @@ function DrawerBody({ msg, ch, connectors, sv, photo, note, onClose, onOpenConta
       <ToDealRow msg={msg} />
 
       <div className="im-section">反馈</div>
+      {warning && !blocker && <div className="im-banner-warn">{warning}</div>}
       {blocker ? (
         <div className="im-banner-warn">{blocker}</div>
       ) : (

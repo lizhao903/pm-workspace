@@ -9,6 +9,11 @@ describe('原型排序', () => {
     const rows = [proto('a', 'stopped'), proto('b', 'running'), proto('c', 'starting'), proto('d', 'crashed'), proto('e', 'running')]
     expect(sortProtos(rows).map((p) => p.id)).toEqual(['b', 'e', 'd', 'c', 'a'])
   })
+
+  it('外部启动的和运行中排在一起', () => {
+    const rows = [proto('a', 'stopped'), proto('b', 'crashed'), proto('c', 'external'), proto('d', 'running')]
+    expect(sortProtos(rows).map((p) => p.id)).toEqual(['c', 'd', 'b', 'a'])
+  })
 })
 
 describe('默认端口', () => {

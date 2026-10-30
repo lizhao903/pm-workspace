@@ -2,7 +2,7 @@
 // 原型列表和状态读项目插件的接口（经 core/data），浏览器插件不存原型。Drive 的文件浏览正式版不搬，卡片里只给账号状态和打开 Drive 网页
 import { useState } from 'react'
 import { Button, cls } from '../../core/ui'
-import type { BrowserGoogleState, TerminalPrototype } from '../../core/data'
+import { prototypeUp, type BrowserGoogleState, type TerminalPrototype } from '../../core/data'
 import { IconChev, IconX, KindIcon } from './icons'
 import {
   PROTO_GROUP_SHOW, PROTO_MATCH_LIMIT, PROTO_SEARCH_MIN, displayUrl, groupProtos, protoMatcher, protoStatusColor, protoStatusLabel, protoUrl,
@@ -27,7 +27,7 @@ export function HomeView({ prototypes, protoError, pendingProto, google, recent,
   const [open, setOpen] = useState<Record<string, boolean>>({})
   const { words, hit } = protoMatcher(q)
   const groups = groupProtos(prototypes)
-  const running = prototypes.filter((p) => p.status === 'running').length
+  const running = prototypes.filter((p) => prototypeUp(p.status)).length
   const shown = words.length ? groups.map((g) => ({ ...g, items: g.items.filter(hit) })).filter((g) => g.items.length) : groups
   const matched = shown.reduce((n, g) => n + g.items.length, 0)
   // 每组露哪几条：搜索时命中的全展开、总数封顶；不搜索时按展开收起，展开的先露 6 条
@@ -51,7 +51,7 @@ export function HomeView({ prototypes, protoError, pendingProto, google, recent,
           <div className="ellipsis br-proto-name">{p.name}</div>
           <div className="faint ellipsis">127.0.0.1:{p.port} · {protoStatusLabel(p)}</div>
         </div>
-        {p.status === 'running' ? (
+        {prototypeUp(p.status) ? (
           <Button size="sm" variant="primary" onClick={() => onOpen(protoUrl(p))}>打开</Button>
         ) : waiting || p.status === 'starting' ? (
           <Button size="sm" variant="outline" disabled>{waiting ? '启动后自动打开' : '启动中'}</Button>

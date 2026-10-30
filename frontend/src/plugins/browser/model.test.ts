@@ -178,6 +178,17 @@ describe('新标签页的原型分组', () => {
     expect(g[1].failed).toBe(1)
   })
 
+  it('外部启动的算在跑：组排前、计入运行数', () => {
+    const g = groupProtos([
+      proto({ id: 'a', project_id: 'p1', project_title: '甲', status: 'stopped' }),
+      proto({ id: 'b', project_id: 'p2', project_title: '乙', status: 'stopped' }),
+      proto({ id: 'c', project_id: 'p2', project_title: '乙', status: 'external' }),
+    ])
+    expect(g.map((x) => x.name)).toEqual(['乙', '甲'])
+    expect(g[0].items.map((p) => p.id)).toEqual(['c', 'b'])
+    expect(g[0]).toMatchObject({ running: 1, live: true })
+  })
+
   it('搜索按名字、项目、端口，多个词都要命中', () => {
     const { hit } = protoMatcher('看板 7790')
     expect(hit(proto({ name: '状态看板', port: 7790 }))).toBe(true)

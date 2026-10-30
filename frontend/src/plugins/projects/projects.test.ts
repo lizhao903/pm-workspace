@@ -28,3 +28,13 @@ describe('项目插件', () => {
     expect(r.modules).toEqual([])
   })
 })
+
+describe('今日「正在运行」的原型行', () => {
+  it('外部启动的也列出来，端口后面注明；本插件起的只写端口', async () => {
+    const { todayProtoItem } = await import('./index')
+    expect(todayProtoItem('一人之下控制台', { id: 'pt_1', name: '原型站点', port: 7778, status: 'external' })).toEqual({
+      id: 'pt_1', tone: 'ok', title: '一人之下控制台 / 原型站点', sub: ':7778 · 外部启动', href: 'http://127.0.0.1:7778',
+    })
+    expect(todayProtoItem('甲', { id: 'pt_2', name: '看板', port: 8101, status: 'running' }).sub).toBe(':8101')
+  })
+})

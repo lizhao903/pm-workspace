@@ -7,14 +7,18 @@ import { request, requestEnvelope, requestList } from '../api'
 import { useNotifyChange } from './invalidate'
 import { dataKeys } from './keys'
 
-/** 契约里的四种；停止是同步等进程退出的，「停止中」只是界面上等接口返回的那一会儿 */
-export type PrototypeStatus = 'stopped' | 'starting' | 'running' | 'crashed'
+/**
+ * 契约里的五种；停止是同步等进程退出的，「停止中」只是界面上等接口返回的那一会儿。
+ * external（PJ-04c）：不是这里起的，但端口能连上（比如自己在终端里跑的 dev server）；能打开，这里启停不了
+ */
+export type PrototypeStatus = 'stopped' | 'starting' | 'running' | 'crashed' | 'external'
 
 /** 显示名和颜色，顺序同原型 PROTO_STATUS；stopping 只在界面上用 */
 export const PROTOTYPE_STATUS: Record<PrototypeStatus | 'stopping', { label: string; color: string }> = {
   stopped: { label: '已停止', color: 'var(--faint)' },
   starting: { label: '启动中', color: 'var(--accent)' },
   running: { label: '运行中', color: 'var(--ok)' },
+  external: { label: '运行中（外部启动）', color: 'var(--ok)' },
   stopping: { label: '停止中', color: 'var(--warn)' },
   crashed: { label: '崩溃', color: 'var(--danger)' },
 }
@@ -50,6 +54,13 @@ export type ProjectPrototype = {
   created_at: string
   updated_at: string
 }
+
+/** 端口能连上、能打开：本插件起的 running 和外部起的 external 都算在跑（绿灯、正在运行、汇总） */
+export const prototypeUp = (s: PrototypeStatus | 'stopping' | '' | undefined) => s === 'running' || s === 'external'
+
+/** 外部运行时「启动」「停止」置灰的说明 */
+export const PROTOTYPE_EXTERNAL_START = '这个端口已经有程序在跑（不是这里启动的），直接打开就行'
+export const PROTOTYPE_EXTERNAL_STOP = '不是这里启动的，这里停不了；到启动它的终端里停'
 
 export type PrototypeLogLine = { seq: number; at: string; text: string }
 
@@ -88,11 +99,11 @@ export const prototypesApi = {
   },
 }
 
-/** 原型列表该多久再取：有启动中的每秒，有运行中的每 3 秒，都停着不轮询 */
+/** 原型列表该多久再取：有启动中的每秒，有运行中（含外部启动，看得到它停掉）的每 3 秒，都停着不轮询 */
 export function prototypesPollMs(rows: readonly ProjectPrototype[] | undefined): number | false {
   if (!rows?.length) return false
   if (rows.some((p) => p.status === 'starting')) return PROTOTYPE_POLL_STARTING_MS
-  if (rows.some((p) => p.status === 'running')) return PROTOTYPE_POLL_RUNNING_MS
+  if (rows.some((p) => prototypeUp(p.status))) return PROTOTYPE_POLL_RUNNING_MS
   return false
 }
 

@@ -27,6 +27,9 @@ const (
 	statusStarting = "starting"
 	statusRunning  = "running"
 	statusCrashed  = "crashed"
+	// statusExternal 不是本插件起的（这次没有进程），但端口在回环地址上能连上（PJ-04c）。
+	// 不发启动事件，内网域名插件不会给它分配域名；启动回 409，停止不发信号。
+	statusExternal = "external"
 )
 
 const (
@@ -36,13 +39,14 @@ const (
 	stopGrace    = 5 * time.Second // SIGTERM 后等多久再 SIGKILL
 	waitDelay    = 2 * time.Second // 进程退出后等子进程关掉输出管道的上限
 	probeEvery   = 200 * time.Millisecond
+	extTimeout   = 150 * time.Millisecond // 认外部运行时每个回环地址的连接超时
+	extCacheTTL  = 3 * time.Second        // 认外部运行的探测结果缓存多久，免得列表每次都去连
 )
 
 // reservedPorts 是不许原型占的端口，原因给用户看。服务自己的端口按请求现取，另查。
 var reservedPorts = map[int]string{
 	7777: "真实数据的工作台服务",
 	7796: "测试实例",
-	7778: "原型站点（web-next）",
 	7780: "正式前端的开发服务",
 }
 
@@ -112,9 +116,20 @@ type manager struct {
 	mu     sync.Mutex
 	closed bool
 	procs  map[string]*proc
+
+	extMu  sync.Mutex
+	extAt  map[int]extProbe // 端口 -> 最近一次探测
+	listen func(port int, timeout time.Duration) bool
 }
 
-func newManager(c plugin.Core) *manager { return &manager{c: c, procs: map[string]*proc{}} }
+type extProbe struct {
+	up bool
+	at time.Time
+}
+
+func newManager(c plugin.Core) *manager {
+	return &manager{c: c, procs: map[string]*proc{}, extAt: map[int]extProbe{}, listen: listeningWithin}
+}
 
 func (m *manager) runtime(id string) Runtime {
 	m.mu.Lock()
@@ -130,6 +145,53 @@ func (m *manager) runtime(id string) Runtime {
 		rt.StartedAt = &t
 	}
 	return rt
+}
+
+// status 是给接口看的运行状态：本插件起的照 runtime；没在跑、端口却被别的程序在回环地址上监听着的
+// 回 external（pid 为 0、没有启动时间）。端口正被本插件起的另一个原型占着的不算外部。
+func (m *manager) status(id string, port int) Runtime {
+	rt := m.runtime(id)
+	if rt.Status != statusStopped && rt.Status != statusCrashed {
+		return rt
+	}
+	if port <= 0 || m.portOwned(port) || !m.externalUp(port) {
+		return rt
+	}
+	return Runtime{Status: statusExternal}
+}
+
+// portOwned 看端口是不是被本插件起的某个原型占着。
+func (m *manager) portOwned(port int) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, p := range m.procs {
+		if p.port == port && (p.status == statusStarting || p.status == statusRunning) {
+			return true
+		}
+	}
+	return false
+}
+
+// externalUp 探测端口在回环地址上能不能连上，结果缓存 extCacheTTL。
+func (m *manager) externalUp(port int) bool {
+	m.extMu.Lock()
+	if e, ok := m.extAt[port]; ok && time.Since(e.at) < extCacheTTL {
+		m.extMu.Unlock()
+		return e.up
+	}
+	m.extMu.Unlock()
+	up := m.listen(port, extTimeout)
+	m.extMu.Lock()
+	m.extAt[port] = extProbe{up: up, at: time.Now()}
+	m.extMu.Unlock()
+	return up
+}
+
+// forgetProbe 丢掉端口的探测缓存，本插件启停原型后调，免得刚停掉的端口还被当成外部在跑。
+func (m *manager) forgetProbe(port int) {
+	m.extMu.Lock()
+	delete(m.extAt, port)
+	m.extMu.Unlock()
 }
 
 func (m *manager) active(id string) bool {
@@ -180,9 +242,11 @@ func portBusy(port int) bool {
 }
 
 // listening 看原型是不是已经在端口上监听（IPv4 或 IPv6 回环任一能连上）。
-func listening(port int) bool {
+func listening(port int) bool { return listeningWithin(port, 300*time.Millisecond) }
+
+func listeningWithin(port int, timeout time.Duration) bool {
 	for _, host := range []string{"127.0.0.1", "::1"} {
-		if c, err := net.DialTimeout("tcp", net.JoinHostPort(host, strconv.Itoa(port)), 300*time.Millisecond); err == nil {
+		if c, err := net.DialTimeout("tcp", net.JoinHostPort(host, strconv.Itoa(port)), timeout); err == nil {
 			_ = c.Close()
 			return true
 		}
@@ -216,6 +280,10 @@ func (m *manager) start(pt Prototype, projectName string, selfPort int) error {
 		if o.id != pt.ID && o.port == pt.Port && (o.status == statusStarting || o.status == statusRunning) {
 			return apiErr(errConflict, "%d 端口被「%s / %s」占着", pt.Port, o.projectName, o.name)
 		}
+	}
+	if m.listen(pt.Port, extTimeout) {
+		m.forgetProbe(pt.Port)
+		return apiErr(errConflict, "%d 端口已经有程序在跑（不是这里启动的），直接打开就行", pt.Port)
 	}
 	if portBusy(pt.Port) {
 		return apiErr(errConflict, "%d 端口已经被本机别的程序占着，先关掉它或换一个端口", pt.Port)
@@ -323,6 +391,7 @@ func (m *manager) wait(p *proc, cmd *exec.Cmd, pgid int, done chan struct{}) {
 	rec := Crash{PrototypeID: p.id, ProjectID: p.projectID, ExitCode: code, Signal: sig, Reason: p.errMsg,
 		Log: tail, StartedAt: p.startedAt, ExitedAt: time.Now().UTC()}
 	p.pid = 0
+	m.forgetProbe(p.port)
 	ev := protoEvent{ID: p.id, Name: p.name, ProjectID: p.projectID, ProjectName: p.projectName, Port: p.port, Status: p.status}
 	close(done)
 	m.mu.Unlock()

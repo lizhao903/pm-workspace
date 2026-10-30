@@ -4,7 +4,7 @@
 // 「打开」在新窗口开原型地址；项目内的浏览器（SPEC-projects-14）另做。内网域名还没有后端，卡片上不显示。
 import { useEffect, useRef, useState } from 'react'
 import {
-  PROTOTYPE_STATUS, errorText, useAddPrototype, usePatchPrototype, usePrototypeLogs, useProjectPrototypes, useRemovePrototype,
+  PROTOTYPE_EXTERNAL_START, PROTOTYPE_EXTERNAL_STOP, PROTOTYPE_STATUS, errorText, prototypeUp, useAddPrototype, usePatchPrototype, usePrototypeLogs, useProjectPrototypes, useRemovePrototype,
   useStartPrototype, useStopPrototype, type ProjectPrototype, type PrototypePatch,
 } from '../../core/data'
 import { Button, EmptyState, ErrorState, Field, Input, LoadingState, Pill, cls } from '../../core/ui'
@@ -125,7 +125,9 @@ function ProtoCard({ p, rows, projectId, projectName, root }: {
   const status: ProtoView = stop.isPending ? 'stopping' : start.isPending ? 'starting' : p.status
   const busy = status === 'starting' || status === 'stopping'
   const live = status === 'running'
-  const conflict = !live && !busy ? portConflict(p.port, p.id, rows, projectName) : null
+  // 外部启动的（PJ-04c）：能打开，启动、停止置灰；不是这里的进程，改、删不拦
+  const external = status === 'external'
+  const conflict = !live && !busy && !external ? portConflict(p.port, p.id, rows, projectName) : null
   const now = useNow(live ? 30000 : 0)
   const crash = p.status === 'crashed' ? p.last_crash : null
   // 没有日志时「看日志」置灰（SPEC-projects-12.14）；在跑的随时会有输出，取不到时也不拦着
@@ -140,8 +142,13 @@ function ProtoCard({ p, rows, projectId, projectName, root }: {
         <span className="pj-proto-name">{p.name}</span>
         <Pill label={PROTOTYPE_STATUS[status].label} color={PROTOTYPE_STATUS[status].color} />
         <span className="spacer" />
-        {live && <a className="btn btn-outline btn-sm" href={p.url} target="_blank" rel="noreferrer" title="在新窗口打开">打开 :{p.port}</a>}
-        {live || status === 'stopping'
+        {(live || external) && <a className="btn btn-outline btn-sm" href={p.url} target="_blank" rel="noreferrer" title="在新窗口打开">打开 :{p.port}</a>}
+        {external ? (
+          <>
+            <Button size="sm" variant="primary" disabled title={PROTOTYPE_EXTERNAL_START}>启动</Button>
+            <Button size="sm" disabled title={PROTOTYPE_EXTERNAL_STOP}>停止</Button>
+          </>
+        ) : live || status === 'stopping'
           ? <Button size="sm" disabled={busy} onClick={() => act(stop)}>{status === 'stopping' ? '停止中…' : '停止'}</Button>
           : <Button size="sm" variant="primary" disabled={busy || !!conflict} title={conflict ?? undefined} onClick={() => act(start)}>{startLabel(status)}</Button>}
       </div>
@@ -254,7 +261,7 @@ function EditForm({ p, rows, projectId, projectName, root, onClose }: {
 /** 标签条「原型」上的绿灯：有运行中的原型时亮（SPEC-projects-2.3） */
 export function ProtoTabLight({ projectId }: { projectId: string }) {
   const list = useProjectPrototypes(projectId)
-  const n = (list.data ?? []).filter((p) => p.status === 'running').length
+  const n = (list.data ?? []).filter((p) => prototypeUp(p.status)).length
   return n ? <span className="pj-tab-light" title={`${n} 个原型在运行`} /> : null
 }
 
@@ -265,7 +272,7 @@ export function ProtoStat({ projectId, onOpen }: { projectId: string; onOpen: ()
   return (
     <button type="button" className="pj-stat" onClick={onOpen}>
       <span className="pj-stat-label">原型运行中</span>
-      <span className="pj-stat-value ok">{rows ? `${rows.filter((p) => p.status === 'running').length} / ${rows.length}` : '-'}</span>
+      <span className="pj-stat-value ok">{rows ? `${rows.filter((p) => prototypeUp(p.status)).length} / ${rows.length}` : '-'}</span>
     </button>
   )
 }
@@ -297,7 +304,7 @@ function ProtoLine({ p, rows, projectId, projectName }: { p: ProjectPrototype; r
   const [err, setErr] = useState('')
   const status: ProtoView = stop.isPending ? 'stopping' : start.isPending ? 'starting' : p.status
   const busy = status === 'starting' || status === 'stopping'
-  const conflict = status !== 'running' && !busy ? portConflict(p.port, p.id, rows, projectName) : null
+  const conflict = !prototypeUp(status) && !busy ? portConflict(p.port, p.id, rows, projectName) : null
   const onErr = { onError: (e: Error) => setErr(errorText(e)) }
   return (
     <div className="pj-proto-line" title={err || undefined}>
@@ -305,7 +312,12 @@ function ProtoLine({ p, rows, projectId, projectName }: { p: ProjectPrototype; r
       <span className="ellipsis">{p.name}</span><code>:{p.port}</code>
       {err && <span className="pj-err ellipsis" role="alert">{err}</span>}
       <span className="spacer" />
-      {status === 'running' ? (
+      {status === 'external' ? (
+        <>
+          <a className="btn btn-ghost btn-sm" href={p.url} target="_blank" rel="noreferrer" title={`外部启动的，在新窗口打开。${PROTOTYPE_EXTERNAL_STOP}`}>打开</a>
+          <Button size="sm" variant="outline" disabled title={PROTOTYPE_EXTERNAL_STOP}>停止</Button>
+        </>
+      ) : status === 'running' ? (
         <>
           <a className="btn btn-ghost btn-sm" href={p.url} target="_blank" rel="noreferrer" title="在新窗口打开">打开</a>
           <Button size="sm" variant="outline" onClick={() => { setErr(''); stop.mutate(p.id, onErr) }}>停止</Button>

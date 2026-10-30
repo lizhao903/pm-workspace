@@ -265,7 +265,7 @@ func (h *prototypes) logs(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	lines, last := h.m.logs(p.ID, after, limit)
-	writeJSON(w, http.StatusOK, map[string]any{"data": lines, "meta": map[string]any{"last_seq": last, "status": h.m.runtime(p.ID).Status}})
+	writeJSON(w, http.StatusOK, map[string]any{"data": lines, "meta": map[string]any{"last_seq": last, "status": h.m.status(p.ID, p.Port).Status}})
 }
 
 // crashes 回崩溃记录，新的在前，最多 50 条。
@@ -293,7 +293,7 @@ func (h *prototypes) reply(w http.ResponseWriter, r *http.Request, status int, p
 
 // fill 拼上运行状态和最近一次崩溃。
 func (h *prototypes) fill(ctx context.Context, p *Prototype) error {
-	p.Runtime = h.m.runtime(p.ID)
+	p.Runtime = h.m.status(p.ID, p.Port)
 	cs, err := listCrashes(ctx, h.c.Store(), p.ID, 1)
 	if err != nil {
 		return err
