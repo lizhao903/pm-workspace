@@ -69,3 +69,11 @@ func TestMethodNotAllowed(t *testing.T) {
 		t.Fatalf("状态码 = %d", w.Code)
 	}
 }
+
+// 旧版页面要的旧产物找不到时回 404，不回 index.html。
+func TestMissingAssetIs404(t *testing.T) {
+	w := get(handlerFor(testFS()), "/assets/Page-old999.js")
+	if w.Code != http.StatusNotFound || strings.Contains(w.Body.String(), "<title>app</title>") || w.Header().Get("Cache-Control") != "no-store" {
+		t.Fatalf("-> %d %q %q", w.Code, w.Header().Get("Cache-Control"), w.Body.String())
+	}
+}
