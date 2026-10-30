@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { PageTitle } from './topbar'
-import { AUTH_LABEL, IM_CHANNELS, TOOL_CATEGORIES, TOOLS, type ConnStatus, type Connector, type Tool } from './data'
+import { AUTH_LABEL, IM_CHANNELS, TOOL_CATEGORIES, TOOLS, fieldView, testedAccount, tokenProblem, type ConnStatus, type Connector, type Tool } from './data'
 import { cls, timeAgo } from './ui'
 
 const STATUS: Record<ConnStatus, { label: string; tone: string }> = {
@@ -194,12 +194,16 @@ export function ConnectorDrawer({ tool, connector, onClose, onSave, onDelete, on
   const missing = tool.fields.filter((f) => f.required && !d.config[f.key]?.trim())
   const setCfg = (k: string, v: string) => { setD((x) => ({ ...x, config: { ...x.config, [k]: v } })); setTest(null) }
 
+  // Slack 的 Token 和身份对不上（IM-06）：测试不调对方直接失败，保存后连接器是异常
+  const problem = tokenProblem(tool.key, d.config)
+
   // 原型里的「测试连接」只校验必填项。wechat 的 secret 填成 expired 时模拟一次失败，方便看失败态
   const runTest = () => {
     setTesting(true); setTest(null)
     window.setTimeout(() => {
       setTesting(false)
       if (missing.length) setTest({ ok: false, text: `缺少必填项：${missing.map((f) => f.label).join('、')}` })
+      else if (problem) setTest({ ok: false, text: problem })
       else if (Object.values(d.config).includes('expired')) setTest({ ok: false, text: '对方平台返回凭证无效（40001），请重新获取后再试' })
       else setTest({ ok: true, text: `连接成功，能读到 ${tool.label} 的会话列表` })
     }, 700)
@@ -208,13 +212,15 @@ export function ConnectorDrawer({ tool, connector, onClose, onSave, onDelete, on
   const save = () => {
     setTried(true)
     if (missing.length || !d.name.trim()) return
-    const bad = Object.values(d.config).includes('expired')
+    const bad = Object.values(d.config).includes('expired') || !!problem
+    // 换了 Slack 身份：账号跟着换成 Bot 或我本人（原型里模拟连通测试的结果）
+    const reTest = connector && tool.key === 'slack' && connector.config.identity !== d.config.identity
     onSave({
       tool: tool.key,
       name: d.name.trim(),
-      account: connector?.account ?? '待首次同步',
+      account: reTest ? testedAccount(tool.key, d.config, connector.account) : connector?.account ?? '待首次同步',
       status: !d.enabled ? 'paused' : bad ? 'error' : 'connected',
-      error: bad ? connector?.error ?? '凭证无效' : undefined,
+      error: bad ? problem ?? connector?.error ?? '凭证无效' : undefined,
       config: d.config,
       direction: d.direction,
       interval: d.interval,
@@ -249,16 +255,16 @@ export function ConnectorDrawer({ tool, connector, onClose, onSave, onDelete, on
 
         <div className="field-group">
           <div className="field-group-title">凭证与参数</div>
-          {tool.fields.map((f) => (
+          {tool.fields.map((f) => { const v = fieldView(tool.key, f, d.config); return (
             <label key={f.key} className="field">
-              <span className="field-label">{f.label}{f.required && <em>*</em>}</span>
+              <span className="field-label">{v.label}{f.required && <em>*</em>}</span>
               {f.kind === 'select' ? (
                 <select className="select" value={d.config[f.key] ?? ''} onChange={(e) => setCfg(f.key, e.target.value)}>
                   {f.options!.map((o) => <option key={o}>{o}</option>)}
                 </select>
               ) : (
                 <div className="secret">
-                  <input type={f.kind === 'secret' && !reveal[f.key] ? 'password' : 'text'} value={d.config[f.key] ?? ''} placeholder={f.placeholder}
+                  <input type={f.kind === 'secret' && !reveal[f.key] ? 'password' : 'text'} value={d.config[f.key] ?? ''} placeholder={v.placeholder}
                     className={cls(tried && f.required && !d.config[f.key]?.trim() && 'bad', f.kind === 'secret' && 'mono')}
                     onChange={(e) => setCfg(f.key, e.target.value)} />
                   {f.kind === 'secret' && (
@@ -268,8 +274,9 @@ export function ConnectorDrawer({ tool, connector, onClose, onSave, onDelete, on
                   )}
                 </div>
               )}
+              {v.hint && <span className="field-hint-line">{v.hint}</span>}
             </label>
-          ))}
+          ) })}
           <div className="test-row">
             <button className="btn btn-ghost btn-outline" onClick={runTest} disabled={testing}>{testing ? '测试中…' : '测试连接'}</button>
             {test && <span className={test.ok ? 'test-ok' : 'test-bad'}>{test.text}</span>}

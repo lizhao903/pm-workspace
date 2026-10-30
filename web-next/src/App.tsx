@@ -13,7 +13,7 @@ import { SopEditor, newSopDraft } from './sopedit'
 import { ingest, newTask, seedDeliveries, seedHooks, seedTasks, type TaskStatus, isOpenTask, localDay } from './taskdata'
 import { TaskDrawer, TasksNav, TasksPage, WebhookPage, newHook, type TaskDraft, type TaskView } from './tasks'
 import { ScheduleDrawer, SchedulesPage } from './schedule'
-import { nextRun, seedSchedules, syncPublishSchedules, whenText, type Schedule } from './scheduledata'
+import { nextRun, seedSchedules, sweepSchedule, syncPublishSchedules, whenText, type Schedule } from './scheduledata'
 import { TodayPage, type TodayItem, type TodayLine } from './today'
 import { useDevLoop } from './devloop'
 import { ALL_PROJECTS, EMPTY_DOCK, ProjectDock, ProjectPage, ProjectsListPage, type DockView, type ProjectDockState, type ProjectTab } from './projects'
@@ -23,7 +23,7 @@ import { IncidentDrawer, IncidentsPage } from './incidents'
 import { WorkspaceSwitcher, WorkspacesPage } from './workspaces'
 import { loadWorkspaces, saveWorkspaces, type Workbench } from './workspacedata'
 import { KbDrawer, KnowledgePage, SkillDrawer, SkillsPage } from './kbskills'
-import { mergeIncident, seedIncidents, type IncidentReport } from './incidentdata'
+import { SWEEP_TAG, levelPriority, mergeIncident, seedIncidents, sweepHeldCount, sweepPick, sweepTaskDesc, type IncidentReport } from './incidentdata'
 import { SopDetailPage, SopNav, SopRunView, SopRunsPage, SopStartDrawer, type SopView } from './sop'
 import { EnumContext, seedEnums } from './enumdata'
 import { SKILLS, newAgent, seedAgentRuns, seedAgents, seedKBs, seedOutputs, seedSessions, type AgentOutput, type OutputKind, type Session, type ToolCall } from './agentdata'
@@ -505,6 +505,27 @@ export default function App() {
         setRuns((xs) => [run, ...xs])
         text = `发起了「${sop.name}」`
       }
+    } else if (a.kind === 'incident_sweep') {
+      // 运行异常巡检（INC-01）：满足条件、未处理、还没有任务的各建一条任务交给 Claude Code 修，带 claude-code 标签；同一条不重复建
+      const pick = sweepPick(incidents, a)
+      const held = sweepHeldCount(incidents, a)
+      // 跳过的：未处理、没任务，但级别或次数不够（和正式产品的执行记录口径一致）
+      const skipped = incidents.filter((x) => x.status === 'open' && !x.task_id).length - pick.length - held
+      let list = tasks
+      const made = pick.map((x) => {
+        const t = newTask(list, {
+          title: `[异常] ${x.module}：${x.title}`, desc: sweepTaskDesc(x), priority: levelPriority(x), assignee: '',
+          source: { kind: 'incident', incident_id: x.id, title: x.title }, tags: [SWEEP_TAG],
+        })
+        list = [t, ...list]
+        return { x, t }
+      })
+      if (made.length) {
+        setTasks(list)
+        setIncidents((xs) => xs.map((x) => { const m = made.find((y) => y.x.id === x.id); return m ? { ...x, status: 'tasked', task_id: m.t.id, note: undefined } : x }))
+      }
+      text = [made.length ? `建了 ${made.length} 条修复任务 ${made.map((m) => m.t.ref).join('、')}` : '没有要处理的运行异常', held > 0 && `${held} 条留给你处理（修复任务被删过，或是 Claude Code 执行失败）`, skipped > 0 && `跳过 ${skipped} 条（级别或次数不够）`].filter(Boolean).join('，')
+      ref = made[0]?.t.ref
     } else if (a.kind === 'publish') {
       // 按发布记录发：平台没接好或校验不过就失败，失败的由上面的 effect 记进运行异常
       const p = publishes.find((x) => x.id === a.publish_id)
@@ -1760,7 +1781,10 @@ export default function App() {
             <SkillsPage skills={skills} agents={agents} selected={drawer?.kind === 'skill' ? drawer.id : null} onOpen={(id) => setDrawer({ kind: 'skill', id })} onNew={() => setDrawer({ kind: 'new-skill' })} />
           )}
           {page === 'settings' && section === 'incidents' && (
-            <IncidentsPage incidents={incidents} tasks={tasks} selected={drawer?.kind === 'incident' ? drawer.id : null} onOpen={(id) => setDrawer({ kind: 'incident', id })} />
+            <IncidentsPage incidents={incidents} tasks={tasks} selected={drawer?.kind === 'incident' ? drawer.id : null} onOpen={(id) => setDrawer({ kind: 'incident', id })}
+              sweep={(() => { const xs = schedules.filter((x) => x.action.kind === 'incident_sweep'); return xs.find((x) => x.enabled) ?? xs[0] })()}
+              onEnableSweep={() => setSchedules((xs) => [sweepSchedule(newId('sc')), ...xs])}
+              onOpenSweep={(id) => { setPage('tasks'); setTaskView('schedules'); setDrawer({ kind: 'schedule', id }) }} />
           )}
           {page === 'settings' && section === 'domains' && (
             <DomainsPage settings={domainSettings} routes={domainRoutes} protos={protoRefs} onSettings={setDomainSettings} onRoutes={setDomainRoutes} onOpenUrl={openInBrowser} />

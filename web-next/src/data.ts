@@ -137,6 +137,50 @@ export interface Tool {
   catalog?: ToolDef[]
 }
 
+/** Slack 连接器的「身份」（IM-06）：Bot 只看得到被拉进去的频道和发给它的私信、以 Bot 名义回复；我本人用 User Token（xoxp-），
+ * 读我能看到的私信和频道、以我的名义回复，我自己发的不进待处理。没填按 Bot */
+export const SLACK_AS_BOT = 'Bot'
+export const SLACK_AS_USER = '我本人（用户 Token）'
+export const SLACK_USER_SCOPES = 'channels:history channels:read groups:history groups:read im:history im:read mpim:history mpim:read users:read chat:write files:read'
+const slackUser = (config: Record<string, string>) => config.identity === SLACK_AS_USER
+
+/** Slack 字段按身份换的标签、占位和说明；别的工具、别的字段原样 */
+export function fieldView(tool: string, f: ToolField, config: Record<string, string>): { label: string; placeholder?: string; hint?: string } {
+  if (tool !== 'slack') return { label: f.label, placeholder: f.placeholder }
+  const user = slackUser(config)
+  if (f.key === 'identity') {
+    return { label: f.label, hint: user ? '用你自己的 Slack 账号读你能看到的私信和频道，回复以你的名义发出；你自己发的不进待处理' : 'Bot 只看得到被拉进去的频道和发给它的私信，回复以 Bot 名义发出' }
+  }
+  if (f.key === 'bot_token') {
+    return user
+      ? { label: 'User Token', placeholder: 'xoxp-', hint: `OAuth & Permissions 页的 User OAuth Token；User Token Scopes 要有 ${SLACK_USER_SCOPES}` }
+      : { label: 'Bot Token', placeholder: 'xoxb-', hint: 'OAuth & Permissions 页的 Bot User OAuth Token' }
+  }
+  if (f.key === 'channels') return { label: f.label, placeholder: f.placeholder, hint: user ? '只收你在里面的频道' : 'Bot 要先被邀请进这些频道' }
+  return { label: f.label, placeholder: f.placeholder }
+}
+
+/** Slack Token 和身份对不上的原因；对得上或不是 Slack 为 null */
+export function tokenProblem(tool: string, config: Record<string, string>): string | null {
+  const t = config.bot_token?.trim() ?? ''
+  if (tool !== 'slack' || !t) return null
+  if (slackUser(config)) return t.startsWith('xoxp-') ? null : t.startsWith('xoxb-') ? '这是 Bot Token；身份是「我本人」时要填 User OAuth Token（xoxp- 开头），或把身份改回 Bot' : 'User Token 要以 xoxp- 开头'
+  return t.startsWith('xoxb-') ? null : t.startsWith('xoxp-') ? '这是用户 Token；身份是 Bot 时要填 Bot User OAuth Token（xoxb- 开头），想以本人身份收发就把身份改成「我本人」' : 'Bot Token 要以 xoxb- 开头'
+}
+
+/** 回复框上写的发送身份：Slack 我本人「以 <本人名> 身份发送」，Bot「以 Bot <名> 发送」，名字取账号括号前的部分；别的渠道为 null */
+export function sendAsText(conn: Pick<Connector, 'tool' | 'name' | 'account' | 'config'> | undefined): string | null {
+  if (!conn || conn.tool !== 'slack') return null
+  const name = conn.account.replace(/（[^）]*）$/, '').trim() || conn.name
+  return slackUser(conn.config) ? `以 ${name} 身份发送` : `以 Bot ${name} 发送`
+}
+
+/** 原型里模拟连通测试拿到的账号：Slack 按身份是 Bot 或我本人 */
+export function testedAccount(tool: string, config: Record<string, string>, prev: string): string {
+  if (tool !== 'slack') return prev
+  return slackUser(config) ? 'Broleez（U07BROLEEZ）' : 'pmw（U0BOT）'
+}
+
 const imTool = (key: string, desc: string, canSend: boolean, fields: ToolField[]): Tool => {
   const ch = IM_CHANNELS.find((c) => c.key === key)!
   // IM 类工具的 key 与 IM 渠道 key 相同：消息、联系人的渠道编号、连接器三者靠它对上
@@ -156,8 +200,9 @@ export const TOOLS: Tool[] = [
     { key: 'app_secret', label: 'App Secret', kind: 'secret', required: true },
     { key: 'verify_token', label: '事件订阅 Verification Token', kind: 'secret' },
   ]),
-  imTool('slack', 'Slack App，监听指定频道与私信', true, [
-    { key: 'bot_token', label: 'Bot Token', kind: 'secret', placeholder: 'xoxb-', required: true },
+  imTool('slack', 'Slack App，监听指定频道与私信；可以 Bot 身份，也可以我本人身份', true, [
+    { key: 'identity', label: '身份', kind: 'select', options: [SLACK_AS_BOT, SLACK_AS_USER], required: true },
+    { key: 'bot_token', label: 'Token', kind: 'secret', placeholder: 'xoxb-', required: true },
     { key: 'signing_secret', label: 'Signing Secret', kind: 'secret', required: true },
     { key: 'channels', label: '监听频道', kind: 'text', placeholder: '#product, #feedback，逗号分隔；留空 = 只收私信' },
   ]),
@@ -352,8 +397,8 @@ export const seedConnectors: Connector[] = [
     auth: { mode: 'oauth2', oauth: { client_id: '', client_secret: '', auth_url: '', token_url: '', scopes: 'video.create, video.data', account: '一人之下', expires_at: daysAgo(1) } }, tools: catalogOf('douyin'), tools_at: daysAgo(18) },
   { id: 'cn_binance_md', tool: 'binance_md', name: 'Binance 行情', account: '公开接口', status: 'connected', direction: 'receive', interval: 0, config: {}, last_sync_at: minsAgo(0), created_at: daysAgo(10), auth: { mode: 'none' }, tools: catalogOf('binance_md'), tools_at: daysAgo(10) },
   { id: 'cn_futu_opend', tool: 'futu_opend', name: '富途 OpenD', account: '127.0.0.1:11111', status: 'connected', direction: 'receive', interval: 0, config: { host: '127.0.0.1:11111' }, last_sync_at: minsAgo(1), created_at: daysAgo(10), auth: { mode: 'none' }, tools: catalogOf('futu_opend'), tools_at: daysAgo(10) },
-  { id: 'cn_slack', tool: 'slack', name: '公司 Slack', account: 'acme.slack.com', status: 'connected', direction: 'both', interval: 5,
-    config: { bot_token: 'xoxb-1234-demo', signing_secret: 'demo-signing', channels: '#product, #feedback, #release, #pmw-beta' }, last_sync_at: minsAgo(2), created_at: daysAgo(40) },
+  { id: 'cn_slack', tool: 'slack', name: '公司 Slack', account: 'pmw（U0BOT）', status: 'connected', direction: 'both', interval: 5,
+    config: { identity: SLACK_AS_BOT, bot_token: 'xoxb-1234-demo', signing_secret: 'demo-signing', channels: '#product, #feedback, #release, #pmw-beta' }, last_sync_at: minsAgo(2), created_at: daysAgo(40) },
   { id: 'cn_tg', tool: 'telegram', name: '个人 Telegram', account: '@broleez', status: 'connected', direction: 'both', interval: 5,
     config: { mode: '用户账号（API ID）', api_id: '2040123', api_hash: 'demo-hash', phone: '+86 138 0000 0000' }, last_sync_at: minsAgo(4), created_at: daysAgo(30) },
   { id: 'cn_lark', tool: 'lark', name: '飞书工作区', account: '远川科技 x 本公司', status: 'connected', direction: 'receive', interval: 15,

@@ -441,6 +441,8 @@ Agent、知识库、技能、枚举值、运行异常、内网域名几节目前
 | SPEC-settings-4.5 | 状态条「连接」/「重新连接」 | 点击 | 断开、暂停时「连接」，异常时「重新连接」，同 `SPEC-settings-3.8`；连接中不显示按钮 |
 | SPEC-settings-4.6 | 连接器名称 | 输入 | 必填；新建时默认是工具名，占位「例如 公司 Slack」 |
 | SPEC-settings-4.7 | 凭证与参数 | 输入、选择 | 按工具的 `fields` 列出：文本框、密码框（旁边「显示 / 隐藏」）、下拉（新建默认第一项）；必填项带星号；改了任一项，测试结果清掉 |
+| SPEC-settings-4.7a | Slack「身份」（IM-06） | 选择 | 下拉 `Bot` / `我本人（用户 Token）`，新建默认 Bot；没有这个值的旧连接器按 Bot。下面一行说明：Bot「Bot 只看得到被拉进去的频道和发给它的私信，回复以 Bot 名义发出」；我本人「用你自己的 Slack 账号读你能看到的私信和频道，回复以你的名义发出；你自己发的不进待处理」。Token 一栏跟着身份变（`fieldView`）：Bot 叫「Bot Token」、占位 `xoxb-`、说明「OAuth & Permissions 页的 Bot User OAuth Token」；我本人叫「User Token」、占位 `xoxp-`、说明列出要加的 User Token Scopes（`channels:history channels:read groups:history groups:read im:history im:read mpim:history mpim:read users:read chat:write files:read`）。监听频道的说明 Bot「Bot 要先被邀请进这些频道」、我本人「只收你在里面的频道」。正式产品里 IM 页「渠道配置」的 Slack 表单用分段按钮切身份，我本人时不显示「我的 Member ID」（连通测试拿到的本人编号就是「我」），接入步骤换成 User Token Scopes 那一套 |
+| SPEC-settings-4.7b | Slack Token 和身份对不上 | 测试、保存 | `tokenProblem`：Bot 填了 `xoxp-`「这是用户 Token；身份是 Bot 时要填 Bot User OAuth Token（xoxb- 开头），想以本人身份收发就把身份改成「我本人」」，我本人填了 `xoxb-`「这是 Bot Token；身份是「我本人」时要填 User OAuth Token（xoxp- 开头），或把身份改回 Bot」，前缀都不对时说要什么开头。测试连接直接显示这句红字；仍保存时连接器是异常，原因是这句。换了身份保存后账号跟着换（原型模拟：Bot `pmw（U0BOT）`，我本人 `Broleez（U07BROLEEZ）`；正式产品是连通测试 `auth.test` 回的「名字（Member ID）」） |
 | SPEC-settings-4.8 | 「测试连接」 | 点击 | 按钮变「测试中…」，0.7 秒后：有必填没填 →「缺少必填项：…」；值里有 `expired` →「对方平台返回凭证无效（40001），请重新获取后再试」；否则「连接成功，能读到 <工具名> 的会话列表」。成功绿字、失败红字 |
 | SPEC-settings-4.9 | 消息方向 | 点击 | 「只收消息」/「收发（可在工作台回复）」；平台不能发消息（`canSend` 为 false）时收发置灰；新建默认能发就收发 |
 | SPEC-settings-4.10 | 拉取间隔 | 选择 | 每 1、5、10、15、30、60 分钟；新建默认 5 |
@@ -1333,15 +1335,17 @@ store（原型）：`{ docs: KbDoc[]; settings: KbSettings[]; busy: string[] }`�
 | SPEC-settings-18.7 | 合并组 | 看、点击 | 同模块、同指纹前缀（如 `conn`）的异常到 5 条合并成一行：「<模块> · N 条」「最近：<标题>」、次数合计、「N 条未处理」；点击展开 / 收起，展开后组里每条缩进列出；选中的那条在组里时组自动展开 |
 | SPEC-settings-18.8 | 异常行 | 点击 | 打开异常抽屉（`SPEC-settings-19`），这一行高亮 |
 | SPEC-settings-18.9 | 「显示更多」 | 点击 | 一次先露 50 行，「显示更多（还有 N 条）」再露 50 行；改筛选后回到 50 行 |
+| SPEC-settings-18.14 | 顶栏「自动巡检」 | 看、点击 | 有动作为「运行异常巡检」的定时任务（启用的优先）时：绿点（停用时灰点）+「自动巡检：<规则>，<条件>」（如「自动巡检：每天 09:00，只看错误」，停用时「自动巡检：已停用」）+「去定时任务改」（打开那条定时任务的抽屉）。没有时一个按钮「开启自动巡检」：按默认建一条定时任务（名称「运行异常巡检」、每天 09:00、只看错误、出现过就算），建好后变成上面的样子。巡检到点做什么见 `SPEC-tasks-8.22`（INC-01）。服务启动时不会自己建这条定时任务，建不建由你定 |
+| SPEC-settings-18.15 | 页面本身的报错 | 自动 | 正式产品（INC-01）：「出错了」页（先查过不是服务换了新版本）、全局未捕获的异常、没人处理的 Promise、不是换版本的分包加载失败，都自动记一条错误级异常：模块是当前页面所属的模块（认不出时「前端」），标题是报错第一行，带堆栈、页面地址、构建入口文件名；指纹 `front:<模块路径>:<route / rejection / chunk>:<报错第一行>`。同一个错误一次会话只报一次；上报失败不提示。记上了的「出错了」页多一行「这个错误已记到 设置 / 运行异常，可以在那里转成研发任务」，链接打开这条异常的抽屉。原型只记全局 error 和 unhandledrejection，模块都是「前端」 |
 
 ### 空状态和异常状态
 
 | 编号 | 场景 | 显示 | 可做的操作 |
 |---|---|---|---|
 | SPEC-settings-18.10 | 未处理为空 | 「没有未处理的异常」「连接器、模型服务商、Webhook、SOP、原型和页面本身出的问题都会记在这里」 | 切到其他状态 |
-| SPEC-settings-18.11 | 其他筛选为空 | 「没有匹配的异常」，同样的说明 | 改筛选 |
+| SPEC-settings-18.11 | 其他筛选为空 | 「没有匹配的异常」，同样的说明；停在「未处理」但按级别、模块、搜索筛空了也算这种 | 改筛选 |
 | SPEC-settings-18.12 | 有未处理的错误 | 二级菜单「运行异常」红点（警告不算）；今日出现「运行异常」待办 | |
-| SPEC-settings-18.13 | 后端还没做（原型没有这种情况） | 正式产品（PR-20）：顶栏照 `SPEC-settings-18.1` 的说明，正文「还没有运行异常记录」，同样的说明；不写「待开发」。菜单项保留，今日和任务来源还会跳到这里 | |
+| SPEC-settings-18.13 | 列表没取到（原型没有这种情况） | 正式产品（INC-01 起有后端，PR-20 的「还没有运行异常记录」占位已去掉）：正文是加载失败和「重试」；二级菜单红点、今日「运行异常」组按取不到处理（今日那一组显示没取到和重试） | 重试 |
 
 ### 数据
 
@@ -1352,7 +1356,7 @@ store（原型）：`{ docs: KbDoc[]; settings: KbSettings[]; busy: string[] }`�
 | `id` | `string` | 是 | 编号 | `inc1` |
 | `fingerprint` | `string` | 是 | 指纹：模块前缀 + 对象 + 错误类型，用来合并；第一段用来分组 | `conn:cn_wechat:auth` |
 | `level` | `IncidentLevel` | 是 | 级别 | `error` 错误 / `warn` 警告 |
-| `module` | `IncidentModule` | 是 | 模块 | `连接器`、`模型服务商`、`Webhook`、`SOP`、`项目原型`、`Agent`、`IM 消息`、`交易`、`前端` |
+| `module` | `IncidentModule` | 是 | 模块 | `连接器`、`模型服务商`、`Webhook`、`SOP`、`项目原型`、`Agent`、`Claude Code`、`IM 消息`、`交易`、`前端` |
 | `title` | `string` | 是 | 标题 | `企业微信连接器凭证失效` |
 | `message` | `string` | 是 | 描述 | |
 | `stack` | `string` | 否 | 堆栈或原始报错 | |
@@ -1367,7 +1371,7 @@ store（原型）：`{ docs: KbDoc[]; settings: KbSettings[]; busy: string[] }`�
 
 `IncidentReport = Pick<Incident, 'fingerprint' | 'level' | 'module' | 'title' | 'message' | 'stack' | 'context'>`。`mergeIncident(list, r)`：指纹相同就合并（次数加 1、更新最近时间、时间线加一条），已解决、已忽略的再次出现重新打开并写 `note`；指纹没见过就新建一条未处理。
 
-原型里会记异常的地方（`App.tsx` 的 `report`）：连接器连接失败 `conn:<id>:auth`（错误）、同步失败 `conn:<id>:sync`（警告）；模型服务商测试或保存失败 `provider:<id>:<错误码>`（错误）；SOP 步骤失败 `sop:<sop>:<步骤>`（错误）；页面报错 `front:<message>`、未处理的 Promise `front:rejection:<原因>`（错误）；附件获取失败 `att:<连接器>`（警告）；原型启动端口冲突 `proto:<id>:port`（警告）；回测失败 `bt:<策略>`（错误）；交易异常 `trade:<标题>`（警告）；Webhook 推送没建成任务 `webhook:<id>:<原因>`（警告）。
+原型里会记异常的地方（`App.tsx` 的 `report`）：连接器连接失败 `conn:<id>:auth`（错误）、同步失败 `conn:<id>:sync`（警告）；模型服务商测试或保存失败 `provider:<id>:<错误码>`（错误）；SOP 步骤失败 `sop:<sop>:<步骤>`（错误）；页面报错 `front:<message>`、未处理的 Promise `front:rejection:<原因>`（错误）；附件获取失败 `att:<连接器>`（警告）；原型启动端口冲突 `proto:<id>:port`（警告）；回测失败 `bt:<策略>`（错误）；交易异常 `trade:<标题>`（警告）；Webhook 推送没建成任务 `webhook:<id>:<原因>`（警告）；正式产品（INC-01）另有 Claude Code 执行失败 `claude:<任务 id>:failed`（模块「Claude Code」，堆栈放输出最后 40 行）。
 
 ### 联动
 
@@ -1375,6 +1379,8 @@ store（原型）：`{ docs: KbDoc[]; settings: KbSettings[]; busy: string[] }`�
 |---|---|---|---|---|
 | 进来 | 连接器、模型服务商、SOP、IM 消息、项目、交易、任务（Webhook）、前端 | 出问题 | 记一条或合并 | 上面的列表 |
 | 进来 | 今日 | 「运行异常」待办「去看看」 | 打开异常抽屉 | `SPEC-today-1` |
+| 进来 | 外壳 | 「出错了」页「设置 / 运行异常」链接 | 打开这条异常的抽屉 | `SPEC-settings-18.15` |
+| 出去 | 定时任务 | 「开启自动巡检」「去定时任务改」 | 建一条巡检定时任务、打开它的抽屉 | `SPEC-tasks-8.22` |
 
 ## SPEC-settings-19 运行异常抽屉
 
@@ -1399,7 +1405,7 @@ store（原型）：`{ docs: KbDoc[]; settings: KbSettings[]; busy: string[] }`�
 | SPEC-settings-19.3 | 状态说明 | 看 | 有 `note` 时显示，如「标为已解决后又出现了」 |
 | SPEC-settings-19.4 | 描述 | 看 | `message` 原文 |
 | SPEC-settings-19.5 | 「转为研发任务」 | 点击 | 只在未处理或已转任务、还没有关联任务时出现；展开表单 |
-| SPEC-settings-19.6 | 转任务表单 | 输入 | 提示「描述里已经带上现象、频率、上下文和报错，研发拿到就能查」；标题预填「[异常] <模块>：<标题>」；描述预填（`taskDesc`：现象、频率、上下文、报错、期望「系统能自己处理这种情况，或者给出明确的修复指引。」）；负责人默认「我」，可选同事 |
+| SPEC-settings-19.6 | 转任务表单 | 输入 | 提示「描述里已经带上现象、频率、上下文和报错，研发拿到就能查」；标题预填「[异常] <模块>：<标题>」；描述预填（`taskDesc`：现象、频率、上下文、报错、期望「系统能自己处理这种情况，或者给出明确的修复指引。」）；负责人默认「我」，可选同事（正式产品默认「未分配」，可选干系人，同任务抽屉）。手动转的不带标签；巡检自动转的带 `claude-code`（`SPEC-tasks-8.22`） |
 | SPEC-settings-19.7 | 优先级 | 点击 | 「任务优先级」枚举的选项（加当前值）；按级别和次数预填：错误 5 次以上 P0、错误 P1、警告 P2 |
 | SPEC-settings-19.8 | 「建任务」 | 点击 | 标题为空置灰；新建任务（来源为「异常」，带异常 id 和标题），异常变已转任务并关联任务；「取消」收起表单 |
 | SPEC-settings-19.9 | 已转任务卡片 | 看、点击 | 「已转为研发任务 <编号> <标题>」+「打开任务」（打开任务抽屉）；任务已完成而异常没解决时「任务已经完成了，确认问题不再出现就可以标为已解决」+「标为已解决」 |

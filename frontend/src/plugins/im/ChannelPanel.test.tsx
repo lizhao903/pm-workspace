@@ -101,6 +101,28 @@ describe('渠道配置', () => {
     expect(screen.getByText(/已保存（xoxb…test）/)).toBeInTheDocument()
   })
 
+  it('Slack 选「我本人」身份（IM-06）：要 xoxp- 的 User Token，不用填 Member ID，步骤换成 User Token Scopes', async () => {
+    const calls = backend()
+    renderPanel()
+    const user = userEvent.setup()
+    await user.click(await screen.findByRole('button', { name: /接入 Slack/ }))
+    const form = screen.getByRole('form', { name: 'Slack 渠道配置' })
+    expect(within(form).getByRole('button', { name: 'Bot' })).toHaveAttribute('aria-pressed', 'true')
+    await user.click(within(form).getByRole('button', { name: '我本人（用户 Token）' }))
+    expect(within(form).getByText(/User Token Scopes/)).toBeInTheDocument()
+    expect(within(form).queryByLabelText(/我的 Member ID/)).toBeNull()
+    await user.type(within(form).getByLabelText(/User Token/), 'xoxb-bot')
+    await user.click(within(form).getByRole('button', { name: '接入并测试' }))
+    expect(within(form).getByText(/这是 Bot Token/)).toBeInTheDocument()
+    expect(calls.some((c) => c.method === 'POST' && c.path === '/api/connectors')).toBe(false)
+    await user.clear(within(form).getByLabelText(/User Token/))
+    await user.type(within(form).getByLabelText(/User Token/), 'xoxp-me')
+    await user.click(within(form).getByRole('button', { name: '接入并测试' }))
+    await screen.findByText(/已连上/)
+    const post = calls.find((c) => c.method === 'POST' && c.path === '/api/connectors')
+    expect(post?.body).toMatchObject({ tool: 'slack', config: { identity: '我本人（用户 Token）', self_user_id: '' }, secrets: { bot_token: 'xoxp-me' } })
+  })
+
   it('渠道卡片：状态、账号、最近同步、出错原因；立即同步、测试连接、停用', async () => {
     const calls = backend({ list: [conn({ status: 'error', error: 'Slack 拒绝了 Bot Token（invalid_auth）', config: { channels: '#product', self_names: '李钊, Zhao' } })] })
     renderPanel()

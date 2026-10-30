@@ -122,6 +122,8 @@ type Core interface {
 	Notify(ctx context.Context, n Notification) error
 	// Runs 发起 Agent、SOP 运行或交给 Claude Code，回运行 id；跑完给本插件投 run.finished（VID-03a，runs.go）。
 	Runs() RunService
+	// Incidents 记运行异常，来源记为 plugin:<插件 id>，按指纹合并（INC-01a，incidents.go）。
+	Incidents() IncidentService
 }
 
 // Publisher 往事件总线上发事件。payload 按 JSON 序列化；总线没接上时什么都不做。

@@ -18,6 +18,7 @@ import (
 	"github.com/lizhao903/pm-workspace/internal/domain"
 	"github.com/lizhao903/pm-workspace/internal/fsbrowse"
 	"github.com/lizhao903/pm-workspace/internal/imident"
+	"github.com/lizhao903/pm-workspace/internal/incident"
 	"github.com/lizhao903/pm-workspace/internal/localdir"
 	"github.com/lizhao903/pm-workspace/internal/notify"
 	"github.com/lizhao903/pm-workspace/internal/plugins/browser"
@@ -115,8 +116,11 @@ var contractSpecs = map[string]contractSpec{
 
 	"Audit":        {v: audit.Entry{}},
 	"Notification": {v: notify.Notification{}},
-	"Schedule":     {v: schedule.Schedule{}},
-	"ScheduleRun":  {v: schedule.Run{}},
+	// 运行异常（INC-01a）
+	"Incident":       {v: incident.Incident{}},
+	"IncidentReport": {v: incidentReport{}},
+	"Schedule":       {v: schedule.Schedule{}},
+	"ScheduleRun":    {v: schedule.Run{}},
 	// 字段表只解释了部分字段
 	"定时任务 schedules / 调度和执行记录#table1": {v: schedule.Run{}, partial: true},
 	"Webhook":  {v: webhook.Webhook{}},

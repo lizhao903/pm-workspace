@@ -89,6 +89,7 @@ func (r *ring) after(n int64, limit int) []LogLine {
 type proc struct {
 	id, projectID       string
 	name, projectName   string
+	dir, command        string // 这次启动的目录和命令，崩溃记运行异常时带上
 	port                int
 	status              string
 	errMsg              string
@@ -297,6 +298,7 @@ func (m *manager) start(pt Prototype, projectName string, selfPort int) error {
 		m.procs[pt.ID] = p
 	}
 	p.projectID, p.name, p.projectName, p.port = pt.ProjectID, pt.Name, projectName, pt.Port
+	p.dir, p.command = pt.Dir, pt.Command
 	p.errMsg, p.stopping, p.partial, p.exitCode, p.exitSignal, p.exitMsg = "", false, nil, nil, "", ""
 	p.runFrom = p.logs.next + 1
 	p.logs.add("$ cd " + pt.Dir)
@@ -393,6 +395,7 @@ func (m *manager) wait(p *proc, cmd *exec.Cmd, pgid int, done chan struct{}) {
 	p.pid = 0
 	m.forgetProbe(p.port)
 	ev := protoEvent{ID: p.id, Name: p.name, ProjectID: p.projectID, ProjectName: p.projectName, Port: p.port, Status: p.status}
+	inc := crashIncident(p, tail)
 	close(done)
 	m.mu.Unlock()
 	m.publish(evStopped, ev)
@@ -403,6 +406,28 @@ func (m *manager) wait(p *proc, cmd *exec.Cmd, pgid int, done chan struct{}) {
 		if err := saveCrash(ctx, m.c.Store(), rec); err != nil {
 			m.c.Log().Warn("prototype crash not recorded", "prototype", p.id, "err", err)
 		}
+		// 崩溃同时记一条运行异常（INC-01a，SPEC-projects-12.23）：同一个原型崩溃按指纹合并
+		if err := m.c.Incidents().Record(ctx, inc); err != nil {
+			m.c.Log().Warn("prototype crash incident not recorded", "prototype", p.id, "err", err)
+		}
+	}
+}
+
+// crashIncident 是原型崩溃的运行异常：warn、模块「项目原型」、标题「「<原型名>」启动失败」（同原型启动失败的口径），
+// 内容是崩溃原因，上下文带项目、原型、目录、命令、端口，堆栈位置放最后几行日志。调用时持有 m.mu。
+func crashIncident(p *proc, tail []string) plugin.Incident {
+	if len(tail) > 20 {
+		tail = tail[len(tail)-20:]
+	}
+	return plugin.Incident{
+		Fingerprint: "proto:" + p.id + ":crash",
+		Level:       "warn",
+		Module:      "项目原型",
+		Title:       "「" + p.name + "」启动失败",
+		Message:     p.errMsg,
+		Stack:       strings.Join(tail, "\n"),
+		Context: map[string]any{"项目": p.projectName, "原型": p.name, "目录": p.dir, "命令": p.command,
+			"端口": p.port, "退出": p.exitMsg},
 	}
 }
 

@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/lizhao903/pm-workspace/internal/db"
+	"github.com/lizhao903/pm-workspace/internal/incident"
 	"github.com/lizhao903/pm-workspace/internal/plugin"
 )
 
@@ -79,6 +80,8 @@ func setup(t *testing.T) (*plugin.Registry, http.Handler, *db.DB) {
 	}
 	r := plugin.NewRegistry(plugin.NewSQLStateStore(d), slog.New(slog.NewTextHandler(io.Discard, nil)))
 	r.Migrations = plugin.NewSQLMigrationStore(d)
+	// 原型崩溃记运行异常（INC-01a）
+	r.SetIncidents(incident.New(d, slog.New(slog.NewTextHandler(io.Discard, nil))))
 	if err := r.Add(New()); err != nil {
 		t.Fatal(err)
 	}

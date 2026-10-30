@@ -38,12 +38,16 @@ export function changesFor(e: Pick<ServerEvent, 'type' | 'payload'>): Change[] {
       const id = str(p.id)
       return id ? [{ kind: 'progress', id }] : [{ kind: 'object' }]
     }
+    case 'incident':
+      // 运行异常新记、合并、改状态、转任务（INC-01a）：只带 id，列表整份重取
+      return [{ kind: 'incident', id: str(p.id) }]
     case 'run.finished': {
       const objectId = str(p.object_id)
       return objectId ? [{ kind: 'run-settled', objectId }] : [{ kind: 'run-canceled' }]
     }
   }
   // 以后新增的对象类内核事件（带对象 id）按对象改动刷新；插件事件不动缓存，由订阅方自己处理
+  if (e.type.startsWith('incident.')) return [{ kind: 'incident', id: str(p.id) }]
   const id = str(p.id)
   if (id && (e.type.startsWith('object.') || e.type.startsWith('task.'))) return [{ kind: 'object', id }]
   return []

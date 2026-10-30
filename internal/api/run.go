@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/lizhao903/pm-workspace/internal/domain"
+	"github.com/lizhao903/pm-workspace/internal/incident"
 	"github.com/lizhao903/pm-workspace/internal/runner"
 	"github.com/lizhao903/pm-workspace/internal/store"
 )
@@ -91,7 +92,26 @@ func (s *Server) reapStale(ctx context.Context, runs []*domain.TaskRun) {
 			continue
 		}
 		*run = *out
+		var obj *domain.Object
+		if o, err := s.st.GetObject(ctx, run.ObjectID); err == nil {
+			obj = o
+		}
+		s.noteRunFailed(ctx, out, obj, false, -1, out.Error, out.Output)
 	}
+}
+
+// noteRunFailed Claude Code 执行失败记一条运行异常（INC-01a）；取消不记。没接运行异常时什么都不做。
+func (s *Server) noteRunFailed(ctx context.Context, run *domain.TaskRun, obj *domain.Object, allowWrites bool,
+	exitCode int, errMsg, output string) {
+	if s.opt.Incidents == nil || run == nil {
+		return
+	}
+	c := incident.ClaudeRun{RunID: run.ID, ObjectID: run.ObjectID, Workdir: run.Workdir, ExitCode: exitCode,
+		Error: errMsg, Output: output, AllowWrites: allowWrites, Via: "task"}
+	if obj != nil {
+		c.ObjectRef, c.ObjectTitle = obj.Ref, obj.Title
+	}
+	s.opt.Incidents.Note(ctx, incident.ClaudeRunReport(c))
 }
 
 // handleCancelTaskRun 停掉一次正在跑的执行。
@@ -232,6 +252,7 @@ func (s *Server) handleRunObject(w http.ResponseWriter, r *http.Request) {
 		// 进程根本没起来。记录必须收尾，否则它会永远停在 running。
 		s.log.Warn("task run failed to start", "run", run.ID, "object", objID, "err", err)
 		s.finishRun(bg, run.ID, domain.RunFailed, -1, "", err.Error())
+		s.noteRunFailed(bg, run, obj, req.AllowWrites, -1, err.Error(), "")
 		emit(runner.Event{Type: runner.EventError, Message: err.Error()})
 		emit(runner.Event{Type: runner.EventDone, RunID: run.ID, ExitCode: -1})
 		return
@@ -243,6 +264,9 @@ func (s *Server) handleRunObject(w http.ResponseWriter, r *http.Request) {
 		emit(runner.Event{Type: runner.EventError, Message: "执行已结束，但记录落库失败：" + ferr.Error()})
 	} else if res.Error != "" {
 		emit(runner.Event{Type: runner.EventError, Message: res.Error})
+	}
+	if res.Status == domain.RunFailed {
+		s.noteRunFailed(bg, run, obj, req.AllowWrites, res.ExitCode, res.Error, res.Output)
 	}
 
 	// 产物登记在 done 之前：done 的语义是「这次执行的一切都已留痕」。

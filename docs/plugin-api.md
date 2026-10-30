@@ -88,7 +88,7 @@
 
 插件 id 不能是这些（它们是内核的接口路径段或模块 key）：
 
-`api` `admin` `agent` `agent_providers` `agents` `artifacts` `audits` `categories` `connectors` `contacts` `conversations` `core` `counts` `dict_items` `dictionaries` `events` `fs` `health` `hooks` `kernel` `knowledge_bases` `library` `links` `notifications` `objects` `object_types` `plugins` `revisions` `runs` `schedules` `sessions` `settings` `shortcut_groups` `shortcuts` `skills` `stakeholders` `stats` `tags` `tasks` `today` `webhooks` `workspaces`
+`api` `admin` `agent` `agent_providers` `agents` `artifacts` `audits` `categories` `connectors` `contacts` `conversations` `core` `counts` `dict_items` `dictionaries` `events` `fs` `health` `hooks` `incident` `incidents` `kernel` `knowledge_bases` `library` `links` `notifications` `objects` `object_types` `plugins` `revisions` `runs` `schedules` `sessions` `settings` `shortcut_groups` `shortcuts` `skills` `stakeholders` `stats` `tags` `tasks` `today` `webhooks` `workspaces`
 
 内核以后加新的一级路径时同步这张表；已发布插件的 id 和新路径冲突时，内核让路（换内核路径），不改插件 id。
 
@@ -242,6 +242,7 @@ type Core interface {
 	Audit() AuditLog                         // 插件替用户做的对外动作记一条（SOP-02b，2.13.12）
 	Notify(ctx context.Context, n Notification) error // 以本插件的名义发通知（VID-06b，2.13.11）
 	Runs() RunService                        // 发起 Agent、SOP 运行或交给 Claude Code（VID-03a，2.13.13）
+	Incidents() IncidentService              // 记运行异常，按指纹合并（INC-01a，2.13.20）
 
 	// 规划，还没实现：Links()、Artifacts()（AG-03）、Settings()、Secrets()（CORE-06）、FS(scope)、Process()；
 	// 改对象、建关联等更宽的写能力等 ObjectService。现在 fs、process 权限靠 Granted/Require 在代码路径上查
@@ -893,7 +894,7 @@ r.HostHandler(plugin.HostHandlerDef{Suffix: h.hostSuffix, Match: h.hostMatch, Ha
 
 ### 2.12 定时任务动作（只有后端）
 
-VID-06a 加（`internal/plugin/scheduleaction.go`）。定时任务内核只认 `task`、`sop`、`agent` 三种动作，插件用这个扩展点加别的：视频的到点发布（`video_publish`），以后交易的盘前简报也走这里。
+VID-06a 加（`internal/plugin/scheduleaction.go`）。定时任务内核只认 `task`、`sop`、`agent` 三种动作（INC-01a 起另有内核动作 `incident_sweep` 运行异常巡检，不走这个扩展点），插件用这个扩展点加别的：视频的到点发布（`video_publish`），以后交易的盘前简报也走这里。
 
 ```go
 type ScheduleActionDef struct {
@@ -1520,6 +1521,48 @@ api.sopNodes.register({
 ```
 
 ---
+
+#### 2.13.20 `Core.Incidents()`
+
+INC-01a 加（`internal/plugin/incidents.go`）。插件运行中出了要人处理的问题（原型崩溃、附件取不到、SOP 步骤失败）记一条运行异常，进「设置 / 运行异常」，能转研发任务，定时任务的运行异常巡检会把它建成交给 Claude Code 修的任务。口径见 `docs/api-contract.md`「运行异常 incidents」。
+
+```go
+// internal/plugin/incidents.go
+type Incident struct {
+	Fingerprint string         // 必填，同一个问题同一个指纹，例 proto:<原型 id>:crash
+	Level       string         // error / warn，空记 error
+	Module      string         // 运行异常页的模块名：项目原型、IM 消息、SOP……
+	Title       string         // 必填
+	Message     string
+	Stack       string         // 堆栈或原始报错，可空
+	Context     map[string]any // 出事时的上下文，键用给人看的中文，值可以是对象
+}
+type IncidentService interface {
+	Record(ctx context.Context, in Incident) error
+}
+var ErrNoIncidents error
+// Registry.SetIncidents(rec IncidentRecorder)，cmd/pmw 接 internal/incident 的 Store
+```
+
+- 谁能调：任何插件。实现是 `internal/incident` 的 `Store`，`cmd/pmw` 用 `Registry.SetIncidents` 接上；没接上（测试里）回 `ErrNoIncidents`。
+- 权限：不要权限。
+- 内核自己也会以插件的名义记一种：插件经 `Core.Runs().StartClaudeCode` 发起的运行失败（取消不算），指纹 `claude:<ObjectID>:failed`（没给 `ObjectID` 时 `claude:<插件 id>:failed`），模块 Claude Code，来源 `plugin:<插件 id>`，插件不用自己记。
+- 来源记为 `plugin:<插件 id>`；同一指纹合并（次数加一、更新最近时间，一分钟内只加次数）；已忽略、已解决的再出现会重新打开。`Fingerprint` 空回错误，其余校验（级别、模块、标题）同前端上报，不合法回错误。
+- 记异常不该挡住插件自己的业务：调用方拿到错误只记日志。写库用的 ctx 去掉了取消（请求结束也照样写完）。
+- 指纹建议「<对象前缀>:<对象 id>:<错误类型>」，第一段用来在运行异常页分组；已用的：项目 `proto:<原型 id>:crash`，IM `att:<连接器 id>`，SOP `sop:<流程 id>:<步骤 key>`。
+
+例子（`internal/plugins/sop/engine.go`）：
+
+```go
+err := c.Incidents().Record(ctx, plugin.Incident{
+	Fingerprint: "sop:" + run.FlowID + ":" + step.Key, Level: "error", Module: "SOP",
+	Title: "「" + run.FlowName + "」" + step.Name + "失败", Message: msg,
+	Context: map[string]any{"SOP": run.FlowName, "步骤": step.Name, "执行 id": run.ID},
+})
+if err != nil {
+	c.Log().Warn("sop step failure incident not recorded", "err", err)
+}
+```
 
 ## 3. 权限
 

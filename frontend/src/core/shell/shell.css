@@ -148,6 +148,9 @@
 /* ---------- 占位页 ---------- */
 .shell-placeholder p { margin: 0; color: var(--muted); }
 .shell-placeholder h1 { margin: 0 0 var(--sp-4); font-size: var(--fs-2xl); }
+.shell-placeholder .shell-placeholder-note { margin: var(--sp-4) 0; }
+.shell-placeholder-note a { color: var(--accent); }
+.shell-placeholder-note a:hover { text-decoration: underline; }
 
 /* ---------- 命令面板 ---------- */
 .pal-mask {

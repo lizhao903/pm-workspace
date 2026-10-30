@@ -198,3 +198,4 @@ a.im-att-name:hover { text-decoration: underline; }
 .im-att-proj.ss-trigger { height: 28px; max-width: 160px; }
 .im-att-in { flex-basis: 100%; font-size: var(--fs-2xs); color: var(--ok); padding-left: 38px; }
 .im-att-in.im-err { color: var(--danger); }
+.im-send-as { font-size: var(--fs-xs); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }

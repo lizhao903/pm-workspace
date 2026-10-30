@@ -66,6 +66,8 @@ type Runner struct {
 	Agents AgentStarter
 	// SOPs 执行动作 sop（SOP-01d），接插件注册表；为 nil 或 SOP 插件没启用时记 unsupported
 	SOPs SOPStarter
+	// Incidents 执行动作 incident_sweep（INC-01a），接 internal/incident；为 nil 时记 unsupported
+	Incidents IncidentSweeper
 
 	mu     sync.Mutex // Tick 串行
 	cancel context.CancelFunc
@@ -214,6 +216,10 @@ func (r *Runner) execute(ctx context.Context, sc *Schedule, planned time.Time, m
 		if r.Agents == nil {
 			return r.s.insertRun(ctx, sc.ID, planned, manual, runResult{status: RunUnsupported, text: "没执行：让 Agent 去做暂不支持，M4 之后才有"}, 0)
 		}
+	case ActionIncidentSweep:
+		if r.Incidents == nil {
+			return r.s.insertRun(ctx, sc.ID, planned, manual, runResult{status: RunUnsupported, text: incidentUnavailableText}, 0)
+		}
 	case ActionTask:
 	default:
 		if r.s.plugins == nil {
@@ -233,6 +239,8 @@ func (r *Runner) execute(ctx context.Context, sc *Schedule, planned time.Time, m
 		res = r.startSOP(ctx, sc)
 	case ActionTask:
 		res = r.createTask(ctx, sc, planned)
+	case ActionIncidentSweep:
+		res = r.sweepIncidents(ctx, sc, run)
 	default:
 		res = r.runPlugin(ctx, sc, run, planned, manual)
 	}

@@ -16,7 +16,7 @@ import {
 import { Button, cls, ConfirmDialog, Drawer, Field, Input, Select, Textarea } from '../../../core/ui'
 import { AUTH_HINT, AUTH_LABEL, categoryOf, INTERVALS, MODE_LABEL } from './catalog'
 import {
-  ago, bulkModes, createBody, effectiveTools, fieldOn, initialDraft, isCustom, isIM, missingFields, modesFor, needsRetest, notReady, oauthLack,
+  ago, bulkModes, createBody, effectiveTools, fieldHint, fieldOn, initialDraft, isCustom, isIM, missingFields, modesFor, needsRetest, notReady, oauthLack,
   oauthReturnTo, oauthState, patchBody, pruneModes, refreshNote, tokenPreview, type Bulk, type ConnCheck, type Draft,
 } from './model'
 import { listenOAuth, OAUTH_POLL_MS, openBlank } from './oauth'
@@ -261,17 +261,17 @@ export function ConnectorDrawer({ def, connector: c, taken, check, pending, test
       const opts = f.options ?? []
       const cur = draft.config[f.key] ?? ''
       return (
-        <Field key={f.key} label={f.label} required={f.required} error={bad ? '必填' : undefined}
-          hint={def.tool === 'custom_mcp' && f.key === 'transport' ? 'stdio（起本机进程）下一步支持' : undefined}>
+        <Field key={f.key} label={f.label} required={f.required} error={bad ? '必填' : undefined} hint={fieldHint(def, f, draft.config)}>
           <Select value={cur} invalid={bad} onValueChange={(v) => setCfg(f.key, v)}
-            options={[...new Set([...(f.required ? [] : ['']), ...(cur ? [cur] : []), ...opts])].map((v) => ({ value: v, label: v || '不选' }))} />
+            options={[...new Set([...(f.required ? [] : ['']), ...(cur ? [cur] : []), ...opts])]
+              .map((v) => ({ value: v, label: v || (f.default ? `${f.default}（默认）` : '不选') }))} />
         </Field>
       )
     }
     if (f.kind === 'secret') {
       const hint = c?.secret_hints[f.key]
       return (
-        <Field key={f.key} label={f.label} required={f.required && !hint} error={bad ? '必填' : undefined}>
+        <Field key={f.key} label={f.label} required={f.required && !hint} error={bad ? '必填' : undefined} hint={fieldHint(def, f, draft.config)}>
           <span className="cn-secret">
             <Input type={reveal[f.key] ? 'text' : 'password'} className="cn-mono" autoComplete="off" invalid={bad}
               value={draft.secrets[f.key] ?? ''} placeholder={hint ? '不改就留空' : f.placeholder || 'API Key 或个人访问令牌'}

@@ -170,6 +170,15 @@ func (d *Demo) Notify(ctx context.Context, n plugin.Notification) error {
 	return c.Notify(ctx, n)
 }
 
+// RecordIncident 以示例插件的身份记一条运行异常（INC-01a）。
+func (d *Demo) RecordIncident(ctx context.Context, in plugin.Incident) error {
+	c, ok := d.core.Load().(plugin.Core)
+	if !ok {
+		return errors.New("示例插件还没登记")
+	}
+	return c.Incidents().Record(ctx, in)
+}
+
 // SkillID 是示例插件登记的技能。
 const SkillID = "sk_demo_digest"
 

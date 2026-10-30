@@ -6,12 +6,15 @@ import type {
 
 export const FREQS: ScheduleFreq[] = ['once', 'daily', 'weekdays', 'weekly', 'monthly', 'cron']
 export const FREQ_LABEL: Record<ScheduleFreq, string> = { once: '一次', daily: '每天', weekdays: '工作日', weekly: '每周', monthly: '每月', cron: 'Cron 表达式' }
-export const ACTION_KINDS: ScheduleActionKind[] = ['task', 'sop', 'agent']
-export const ACTION_LABEL: Record<ScheduleActionKind, string> = { task: '建一条任务', sop: '执行 SOP', agent: '让 Agent 去做' }
+export const ACTION_KINDS: ScheduleActionKind[] = ['task', 'sop', 'agent', 'incident_sweep']
+export const ACTION_LABEL: Record<ScheduleActionKind, string> = { task: '建一条任务', sop: '执行 SOP', agent: '让 Agent 去做', incident_sweep: '运行异常巡检' }
+/** 运行异常巡检（INC-01b）：最低级别、最少次数 */
+export const SWEEP_LEVEL_LABEL = { error: '只看错误', warn: '错误和警告' } as const
+export const SWEEP_COUNTS = [1, 2, 3, 5, 10]
 /** 插件登记的动作（VID-06a）：后端原样回，这里只给认得的起名字，其余显示 kind */
 const PLUGIN_ACTION_LABEL: Record<string, string> = { video_publish: '发布视频' }
 export const actionLabel = (kind: string) => ACTION_LABEL[kind as ScheduleActionKind] ?? PLUGIN_ACTION_LABEL[kind] ?? kind
-/** 不是内核的三种动作 */
+/** 不是内核的四种动作 */
 export const isPluginAction = (kind: string) => !(ACTION_KINDS as string[]).includes(kind)
 /** 视频发布动作（video_publish）的发布记录 id */
 export function publishIdOf(a: ScheduleAction): string | undefined {
@@ -96,6 +99,7 @@ export function publishName(id: string, names: ActionNames): string {
 export function actionText(a: ScheduleAction, names: ActionNames = {}): string {
   if (a.kind === 'task') return `建任务「${a.title || '未填标题'}」`
   if (a.kind === 'sop') return `执行「${a.sop_id || '未选 SOP'}」`
+  if (a.kind === 'incident_sweep') return `巡检运行异常：${SWEEP_LEVEL_LABEL[a.min_level] ?? SWEEP_LEVEL_LABEL.error}${a.min_count > 1 ? `，至少 ${a.min_count} 次` : ''}，建任务交给 Claude Code`
   const kind = (a as { kind: string }).kind
   if (kind === 'video_publish') {
     const id = publishIdOf(a)
@@ -123,6 +127,9 @@ export type ActionDraft = {
   sop_id: string
   agent_id: string
   prompt: string
+  /** 运行异常巡检 */
+  min_level: 'error' | 'warn'
+  min_count: number
 }
 
 export type ScheduleDraft = { name: string; enabled: boolean; rule: ScheduleRule; action: ActionDraft }
@@ -134,7 +141,7 @@ export function defaultPriority(priorities: readonly DictItem[]): string {
 }
 
 export function emptyAction(kind: ScheduleActionKind, priority: string): ActionDraft {
-  return { kind, title: '', desc: '', priority, assignee: '', due_days: 0, sop_id: '', agent_id: '', prompt: '' }
+  return { kind, title: '', desc: '', priority, assignee: '', due_days: 0, sop_id: '', agent_id: '', prompt: '', min_level: 'error', min_count: 1 }
 }
 
 export function emptyScheduleDraft(priorities: readonly DictItem[], now: Date = new Date()): ScheduleDraft {
@@ -150,6 +157,7 @@ export function scheduleDraftOf(s: Schedule, priorities: readonly DictItem[], no
 export function actionOf(a: ActionDraft): ScheduleAction {
   if (a.kind === 'sop') return { kind: 'sop', sop_id: a.sop_id.trim() }
   if (a.kind === 'agent') return { kind: 'agent', agent_id: a.agent_id.trim(), prompt: a.prompt.trim() }
+  if (a.kind === 'incident_sweep') return { kind: 'incident_sweep', min_level: a.min_level, min_count: a.min_count }
   return { kind: 'task', title: a.title.trim(), desc: a.desc.trim(), priority: a.priority, assignee: a.assignee, due_days: a.due_days }
 }
 
@@ -159,6 +167,7 @@ export function draftErrors(d: ScheduleDraft, now: Date = new Date()): string[] 
   // 插件动作在这里只读，校验交给插件
   const aErr = isPluginAction(a.kind) ? '' : a.kind === 'task' ? (!a.title.trim() ? '任务标题必填' : '')
     : a.kind === 'sop' ? (!a.sop_id.trim() ? '选一个 SOP' : '')
+      : a.kind === 'incident_sweep' ? (Number.isInteger(a.min_count) && a.min_count >= 1 ? '' : '最少次数要是 1 以上的整数')
       : !a.agent_id.trim() ? '选一个 Agent' : !a.prompt.trim() ? '写一下要它做什么' : ''
   return [!d.name.trim() ? '名称必填' : '', ruleError(d.rule, now), aErr].filter(Boolean)
 }

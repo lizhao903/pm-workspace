@@ -12,7 +12,7 @@ export const INCIDENT_STATUS: Record<IncidentStatus, { label: string; color: str
   resolved: { label: '已解决', color: '#2f7d43' },
 }
 
-export const INCIDENT_MODULES = ['连接器', '模型服务商', 'Webhook', 'SOP', '项目原型', 'Agent', 'IM 消息', '交易', '发布', '前端'] as const
+export const INCIDENT_MODULES = ['连接器', '模型服务商', 'Webhook', 'SOP', '项目原型', 'Agent', 'Claude Code', 'IM 消息', '交易', '发布', '前端'] as const
 export type IncidentModule = (typeof INCIDENT_MODULES)[number]
 
 export interface Incident {
@@ -51,7 +51,8 @@ export function mergeIncident(list: Incident[], r: IncidentReport, at = new Date
   const next: Incident = {
     ...old, ...r, count: old.count + 1, last_at: at, occurrences: [at, ...old.occurrences].slice(0, 20),
     status: reopened ? 'open' : old.status,
-    note: reopened ? `${old.status === 'resolved' ? '标为已解决' : '忽略'}后又出现了` : old.note,
+    // 修复任务删了以后又出现：清掉「关联的任务已删除」，巡检重新算它
+    note: reopened ? `${old.status === 'resolved' ? '标为已解决' : '忽略'}后又出现了` : old.note === '关联的任务已删除' ? undefined : old.note,
   }
   return [next, ...list.filter((_, j) => j !== i)]
 }
@@ -70,6 +71,35 @@ export function taskDesc(x: Incident): string {
     '期望：系统能自己处理这种情况，或者给出明确的修复指引。',
   ].filter(Boolean).join('\n\n')
 }
+
+/** 巡检（定时任务「运行异常巡检」）建任务时的描述：taskDesc 再加怎么复现、改完怎么验收，交给 Claude Code 修（INC-01） */
+export function sweepTaskDesc(x: Incident): string {
+  const page = typeof x.context['页面'] === 'string' ? x.context['页面'] : ''
+  return [
+    taskDesc(x),
+    `怎么复现：${page ? `打开 ${page}，` : ''}按上面的上下文重做一遍出事时的操作，看能不能再报出同样的错误；复现不了先看报错里的文件和行号。`,
+    '改完怎么验收：同样的操作不再报错；补一条能盯住这个问题的测试；回到「设置 / 运行异常」把这条标为已解决，之后再出现会自动重新打开。',
+  ].join('\n\n')
+}
+
+export type SweepConfig = { min_level: IncidentLevel; min_count: number }
+
+/** 巡检够格的：未处理、还没有任务、级别够、次数够 */
+const sweepEligible = (x: Incident, c: SweepConfig) => x.status === 'open' && !x.task_id
+  && (c.min_level === 'warn' || x.level === 'error') && x.count >= c.min_count
+
+/**
+ * 够格但留给用户自己处理、不自动建的：修复任务被删过的（删任务就是先不修，再出现时 note 清掉才重新算）；
+ * Claude Code 执行失败的（指纹 claude: 开头，修复任务本身又失败，自动再建会一层套一层）
+ */
+export const sweepHeld = (x: Incident) => x.note === '关联的任务已删除' || x.fingerprint.startsWith('claude:')
+
+/** 巡检要建任务的：够格且不留给用户；同一条不会重复建 */
+export const sweepPick = (list: Incident[], c: SweepConfig) => list.filter((x) => sweepEligible(x, c) && !sweepHeld(x))
+export const sweepHeldCount = (list: Incident[], c: SweepConfig) => list.filter((x) => sweepEligible(x, c) && sweepHeld(x)).length
+
+/** 巡检建出来的任务带这个标签，交给 Claude Code 修 */
+export const SWEEP_TAG = 'claude-code'
 
 const minsAgo = (m: number) => new Date(Date.now() - m * 60000).toISOString()
 const times = (...m: number[]) => m.map(minsAgo)

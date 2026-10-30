@@ -448,6 +448,7 @@ export function TaskDrawer({ task, initial, fromMessage, hooks, deliveries, assi
             <div className="src-card-head">
               <span className="field-group-title">来自运行异常</span>
               <span className="muted">{src.title}</span>
+              {task?.tags?.includes('claude-code') && <span className="tag" title="运行异常巡检建的，交给 Claude Code 修">claude-code</span>}
               <span className="spacer" />
               {onOpenIncident && <button className="act act-quiet" onClick={() => onOpenIncident(src.incident_id)}>查看异常</button>}
             </div>

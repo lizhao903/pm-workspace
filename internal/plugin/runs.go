@@ -13,6 +13,7 @@ import (
 
 	"github.com/lizhao903/pm-workspace/internal/domain"
 	"github.com/lizhao903/pm-workspace/internal/idgen"
+	"github.com/lizhao903/pm-workspace/internal/incident"
 	"github.com/lizhao903/pm-workspace/internal/runner"
 )
 
@@ -305,14 +306,23 @@ func (s runService) StartClaudeCode(ctx context.Context, q ClaudeCodeStart) (str
 		before := runner.TakeSnapshot(workdir)
 		res, err := safeClaude(cr, runner.Request{RunID: info.ID, Workdir: workdir, Prompt: q.Prompt, AllowWrites: q.AllowWrites})
 		arts := s.recordArtifacts(info.ID, workdir, q, before)
+		var failed *incident.ClaudeRun
 		r.finishRun(info.ID, func(i *RunInfo) {
 			i.Artifacts = arts
 			if err != nil {
 				i.Status, i.Error, i.ExitCode = RunFailed, err.Error(), -1
-				return
+			} else {
+				i.Status, i.Output, i.Error, i.ExitCode = res.Status, res.Output, res.Error, res.ExitCode
 			}
-			i.Status, i.Output, i.Error, i.ExitCode = res.Status, res.Output, res.Error, res.ExitCode
+			if i.Status == RunFailed {
+				failed = &incident.ClaudeRun{RunID: i.ID, ObjectID: q.ObjectID, Workdir: workdir, ExitCode: i.ExitCode,
+					Error: i.Error, Output: i.Output, AllowWrites: q.AllowWrites, Via: s.c.id, Source: incident.SourcePlugin + s.c.id}
+			}
 		})
+		// 失败记运行异常（INC-01a），取消不记；记不上只记日志
+		if failed != nil {
+			s.noteClaudeFailed(*failed)
+		}
 	}()
 	return info.ID, nil
 }
@@ -496,4 +506,26 @@ func (r *Registry) endSOP(sopRunID, status string) {
 			i.Error = "SOP 执行" + map[string]string{RunFailed: "失败", RunStopped: "被停止"}[status]
 		}
 	})
+}
+
+// noteClaudeFailed 插件交给 Claude Code 的运行失败，记一条运行异常，来源 plugin:<插件 id>；有对象时带上编号和标题。
+func (s runService) noteClaudeFailed(c incident.ClaudeRun) {
+	r := s.c.reg
+	if r == nil {
+		return
+	}
+	b := r.incidents.Load()
+	if b == nil || b.r == nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if c.ObjectID != "" {
+		if o, err := s.c.Objects().Get(ctx, c.ObjectID); err == nil {
+			c.ObjectTitle = o.Title
+		}
+	}
+	if _, err := b.r.Record(ctx, incident.ClaudeRunReport(c)); err != nil {
+		s.c.log.Warn("claude code run incident not recorded", "run", c.RunID, "err", err)
+	}
 }

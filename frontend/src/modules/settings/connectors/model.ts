@@ -43,6 +43,29 @@ export function fallbackDef(c: Connector): ConnectorDef {
   return { tool: c.tool, label: c.tool, category: 'other', color: '', desc: '提供它的插件已停用', can_send: false, auth: [c.auth_mode], fields: [], tools: [], source: '' }
 }
 
+/** Slack 的「身份」（IM-06，同后端 connector.SlackAsUser）；没填是 Bot */
+const SLACK_AS_USER = '我本人（用户 Token）'
+
+/**
+ * 字段下面的说明：自定义 MCP 的传输方式；Slack 的身份和 Token 按选的身份说要填哪种 Token（IM-06）。没有为 undefined。
+ */
+export function fieldHint(def: Pick<ConnectorDef, 'tool'>, f: Pick<ConnectorField, 'key'>, config: Record<string, string>): string | undefined {
+  if (def.tool === 'custom_mcp' && f.key === 'transport') return 'stdio（起本机进程）下一步支持'
+  if (def.tool !== 'slack') return undefined
+  const user = config.identity === SLACK_AS_USER
+  if (f.key === 'identity') {
+    return user
+      ? '用你自己的 Slack 账号读你能看到的私信和频道，回复以你的名义发出；你自己发的不进待处理'
+      : 'Bot 只看得到被拉进去的频道和发给它的私信，回复以 Bot 名义发出'
+  }
+  if (f.key === 'bot_token') {
+    return user
+      ? 'OAuth & Permissions 页的 User OAuth Token（xoxp-）；User Token Scopes 要有 channels/groups/im/mpim 的 history 和 read、users:read、chat:write、files:read。换身份要重填'
+      : 'OAuth & Permissions 页的 Bot User OAuth Token（xoxb-）。换身份要重填'
+  }
+  return undefined
+}
+
 /** taken 是同一工具已有实例的名字，新建时默认名称按它加序号 */
 export function initialDraft(def: ConnectorDef, c?: Connector, taken: string[] = []): Draft {
   if (!c) {

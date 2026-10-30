@@ -15,6 +15,8 @@ const withStyles = () => import('./tasks.css')
 export const TaskDrawer = lazy(() => Promise.all([import('./TaskDrawer'), withStyles()]).then(([m]) => ({ default: m.TaskDrawer })))
 export const ApproveDialog = lazy(() => Promise.all([import('./ApproveDialog'), withStyles()]).then(([m]) => ({ default: m.ApproveDialog })))
 export { REVIEW, doneKey, dueDay, priorityRank, terminalOf, timeAgo } from './model'
+// 运行异常页的「自动巡检」写定时规则（INC-01b）
+export { describeRule, fullRule } from './scheduleModel'
 
 // 插件打开任务抽屉（PJ-01d）：登记到 core/plugin 的「打开对象」，插件按类型拿，不 import 这里
 const objectDrawer = () => import('./ObjectDrawer')

@@ -48,6 +48,8 @@ type Registry struct {
 	sopRefs atomic.Pointer[sopRefsBox]
 	// notifier 是插件发通知用的通知中心（VID-06b，notify.go），SetNotifier 接上
 	notifier atomic.Pointer[notifierBox]
+	// incidents 是插件记运行异常用的（INC-01a，incidents.go），SetIncidents 接上
+	incidents atomic.Pointer[incidentsBox]
 	// claude 是插件交给 Claude Code 用的执行器，runs 是插件发起的运行（VID-03a，runs.go）
 	claude atomic.Pointer[claudeBox]
 	runs   runTable

@@ -51,6 +51,8 @@ export interface Task {
   workdir?: string
   /** 开发任务：关联仓库，远端地址或本机绝对路径，只放一个（对应 props.repo） */
   repo?: string
+  /** 标签；运行异常巡检建的任务带 claude-code，交给 Claude Code 修（INC-01） */
+  tags?: string[]
   created_at: string
   updated_at: string
 }
