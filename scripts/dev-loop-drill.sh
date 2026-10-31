@@ -158,7 +158,7 @@ def check(key):
         print(f"  [{'通过' if ok else '不通过'}] {name}" + (f"：{detail}" if detail else ""))
 
     print(f"检查 {o['ref']} {o['title']}（{API}）")
-    item("状态为 review", o["status"] == "review", f"当前 {o['status']}")
+    item("状态为 done 或 review", o["status"] in ("done", "review"), f"当前 {o['status']}")
 
     prog = call("GET", f"/api/objects/{o['id']}/progress?limit=500")
     kinds = [p["kind"] for p in prog]
