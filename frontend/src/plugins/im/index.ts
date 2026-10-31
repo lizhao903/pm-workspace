@@ -70,5 +70,21 @@ export default definePlugin({
         { key: 'timeout', label: '超时', type: 'text', default: '1 小时', hint: '留空是 1 小时，最多 30 天；也认 90s、1h30m' },
       ],
     })
+    // 来消息自动分诊（SOP-05）：触发方式是 IM 的流程输入里有 message_id，这两个节点留空就用它
+    api.sopNodes.register({
+      kind: 'im_get_message', label: '读取消息', group: '沟通', color: '#1971c2', desc: '取出这条消息的正文、发信人和会话，交给后面的步骤',
+      fields: [
+        { key: 'message', label: '消息', type: 'text', hint: '消息 id，支持 {{字段}}；留空用输入里的 message_id' },
+      ],
+    })
+    api.sopNodes.register({
+      kind: 'im_mark_message', label: '标记消息', group: '沟通', color: '#5c7cfa', desc: '把消息标成已处理、忽略或已读',
+      fields: [
+        { key: 'state', label: '标记为', type: 'select', required: true, default: 'ignore', options: () => [
+          { value: 'ignore', label: '忽略' }, { value: 'done', label: '已处理' }, { value: 'read', label: '已读（仍待处理）' }, { value: 'reopen', label: '改回待处理' },
+        ] },
+        { key: 'message', label: '消息', type: 'text', hint: '消息 id，支持 {{字段}}；留空用输入里的 message_id' },
+      ],
+    })
   },
 })

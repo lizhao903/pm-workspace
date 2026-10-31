@@ -45,7 +45,89 @@ func (in *inbox) registerSOPNodes(r plugin.Registrar) {
 	r.SOPNode(plugin.SOPNodeDef{Kind: NodeWaitReply, Group: "沟通",
 		Required: []plugin.SOPNodeField{{Key: "conversation", Label: "会话"}},
 		Run:      in.waitNode})
+	r.SOPNode(plugin.SOPNodeDef{Kind: NodeGetMessage, Group: "沟通", Required: []plugin.SOPNodeField{}, Run: in.getMessageNode})
+	r.SOPNode(plugin.SOPNodeDef{Kind: NodeMarkMessage, Group: "沟通",
+		Required: []plugin.SOPNodeField{{Key: "state", Label: "标记为"}}, Run: in.markMessageNode})
 	r.Job(plugin.Job{Name: "sop_waits", Every: waitEvery, Run: in.waitJob})
+}
+
+/* ---------- 读取消息、标记消息（SOP-05） ---------- */
+
+// 读取消息：config.message 是消息 id（支持 {{字段}}，留空取输入的 message_id，IM 触发的流程输入里就有），
+// 输出加 message：正文、发信人（认上联系人时 sender 是联系人名）、会话、和我的关系、当前状态。
+// 标记消息：config.state 为 done（已处理）、ignore（忽略）、read（已读）、reopen（改回待处理），口径同消息页的处理动作；
+// 改的是本插件自己的表，重跑同一次尝试结果一样，不另做幂等。输出加 marked: {message_id, state, status}。
+
+const (
+	NodeGetMessage  = "im_get_message"
+	NodeMarkMessage = "im_mark_message"
+)
+
+// relevanceLabel 同原型 RELEVANCE，给模型看的是字面意思；无关为「无关」。
+func relevanceLabel(r string) string {
+	if s, ok := map[string]string{"me": "@我", "all": "@所有人", "dm": "私聊"}[r]; ok {
+		return s
+	}
+	return "无关"
+}
+
+func deref(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return *s
+}
+
+func (in *inbox) messageOf(ctx context.Context, cfg map[string]string, input map[string]any) (Message, error) {
+	tpl := cfg["message"]
+	if strings.TrimSpace(tpl) == "" {
+		tpl = "{{message_id}}"
+	}
+	id := strings.TrimSpace(render(tpl, input))
+	if id == "" {
+		return Message{}, errors.New("没有指定消息：配置里填消息 id，或者输入里要有 message_id")
+	}
+	m, err := in.get(ctx, id)
+	if errors.Is(err, errNotFound) {
+		return m, fmt.Errorf("消息 %s 不存在", id)
+	}
+	return m, err
+}
+
+func (in *inbox) getMessageNode(ctx context.Context, _ plugin.Core, n plugin.SOPNodeInput) (map[string]any, error) {
+	m, err := in.messageOf(ctx, n.Config, n.Input)
+	if err != nil {
+		return nil, err
+	}
+	sender := m.ContactName
+	if sender == "" {
+		sender = m.SenderName
+	}
+	kind := map[string]string{"direct": "私聊", "group": "群聊"}[m.ConversationKind]
+	return with(n.Input, "message", map[string]any{
+		"id": m.ID, "text": m.Text, "sender": sender, "sender_name": m.SenderName, "contact_id": deref(m.StakeholderID),
+		"channel": m.Channel, "conversation": m.Conversation, "conversation_kind": kind,
+		"relevance": relevanceLabel(m.Relevance), "status": m.Status, "at": m.At,
+	}), nil
+}
+
+func (in *inbox) markMessageNode(ctx context.Context, _ plugin.Core, n plugin.SOPNodeInput) (map[string]any, error) {
+	state := strings.TrimSpace(n.Config["state"])
+	set, ok := stateSet[state]
+	if !ok {
+		return nil, fmt.Errorf("标记为「%s」不认，只能是 done、ignore、read、reopen", state)
+	}
+	m, err := in.messageOf(ctx, n.Config, n.Input)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := in.c.Store().Exec(ctx, `UPDATE im_messages SET `+set+` WHERE id = ?`, m.ID); err != nil {
+		return nil, err
+	}
+	if m, err = in.get(ctx, m.ID); err != nil {
+		return nil, err
+	}
+	return with(n.Input, "marked", map[string]any{"message_id": m.ID, "state": state, "status": m.Status}), nil
 }
 
 // conversationOf 按配置找会话（内核会话 id，支持 {{字段}}）。
