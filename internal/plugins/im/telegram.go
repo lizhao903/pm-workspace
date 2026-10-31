@@ -37,6 +37,7 @@ const (
 	telegramLongPoll  = 5 * time.Second  // getUpdates 的 timeout；立即同步要排在它后面，所以不设太长
 	telegramBackoff   = 30 * time.Second // 失败后后台多久再试；立即同步不受限
 	telegramRecordGap = time.Minute      // 没收到消息时多久记一次同步时间
+	telegramMissLimit = 3                // 后台拉连续几次超时、连不上才记成同步失败：偶发的网络抖动、休眠醒来不算异常
 	telegramMaxFile   = 20 << 20         // Bot API 只能下载 20MB 以内的文件
 	telegramSecretHdr = "X-Telegram-Bot-Api-Secret-Token"
 )
@@ -53,14 +54,20 @@ type Telegram struct {
 	mu         sync.Mutex
 	failedAt   map[string]time.Time // 连接器 id -> 上次失败的时间
 	recordedAt map[string]time.Time // 连接器 id -> 最近一次记成功的时间：后台拉没新消息、状态正常时一分钟记一次就够
+	misses     map[string]int       // 连接器 id -> 后台拉连续超时、连不上的次数，成功或别的失败清零
 	background bool                 // Due 放行的这一轮是后台拉；立即同步每次都记
 }
 
 // NewTelegram 建 Telegram 适配器。
 func NewTelegram() *Telegram {
 	return &Telegram{poll: telegramLongPoll, every: telegramPollEvery, callback: "/api/im/callbacks/" + TelegramTool,
-		failedAt: map[string]time.Time{}, recordedAt: map[string]time.Time{}}
+		failedAt: map[string]time.Time{}, recordedAt: map[string]time.Time{}, misses: map[string]int{}}
 }
+
+// tgTransient 是网络层的失败（超时、连不上）：通常下一轮自己就好，后台拉时连续 telegramMissLimit 次才记成同步失败。
+type tgTransient struct{ msg string }
+
+func (e *tgTransient) Error() string { return e.msg }
 
 func (t *Telegram) Key() string        { return TelegramTool }
 func (t *Telegram) Channel() string    { return TelegramTool }
@@ -120,7 +127,7 @@ func netErr(err error) error {
 	if errors.As(err, &ue) {
 		err = ue.Err
 	}
-	return fmt.Errorf("连不上 Telegram：%v", err)
+	return &tgTransient{fmt.Sprintf("连不上 Telegram：%v", err)}
 }
 
 // call 调一个 Bot API 方法，params 发 JSON，result 解进 out。
@@ -554,6 +561,10 @@ func (t *Telegram) pullInstance(ctx context.Context, cn plugin.ConnectorInfo, ra
 		defer cancel()
 		var ups []tgUpdate
 		if err := t.call(cctx, token, "getUpdates", params, &ups); err != nil {
+			if errors.Is(err, context.DeadlineExceeded) && ctx.Err() == nil {
+				return &tgTransient{fmt.Sprintf("Telegram %d 秒没响应（网络不稳，或电脑刚从休眠醒来），会自动重试；一直这样就检查网络或代理",
+					int((t.poll+15*time.Second)/time.Second))}
+			}
 			return err
 		}
 		for _, u := range ups {
@@ -576,6 +587,16 @@ func (t *Telegram) pullInstance(ctx context.Context, cn plugin.ConnectorInfo, ra
 	now := time.Now()
 	t.mu.Lock()
 	record := !background || err != nil || len(msgs) > 0 || cn.Status != "connected" || now.Sub(t.recordedAt[cn.ID]) >= telegramRecordGap
+	var tr *tgTransient
+	if background && errors.As(err, &tr) {
+		t.misses[cn.ID]++
+		if t.misses[cn.ID] < telegramMissLimit {
+			record = false
+			t.c.Log().Warn("telegram pull transient failure", "connector", cn.ID, "misses", t.misses[cn.ID], "err", err)
+		}
+	} else {
+		delete(t.misses, cn.ID)
+	}
 	if err != nil {
 		t.failedAt[cn.ID] = now
 		delete(t.recordedAt, cn.ID)

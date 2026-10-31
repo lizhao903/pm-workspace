@@ -3,6 +3,7 @@ package im
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -37,6 +38,7 @@ type fakeSlack struct {
 	calls    map[string]int
 	onPost   func() // chat.postMessage 回结果之前调（不持锁），模拟回复还没落库时事件已经推过来
 	postTS   string // chat.postMessage 回的 ts，空为 1761709999.000100
+	limitAt  int    // conversations.history 累计调到第几次之后回 429；0 为不限流
 }
 
 func newFakeSlack() *fakeSlack {
@@ -128,6 +130,11 @@ func (f *fakeSlack) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		names := map[string]string{"U04LIN": "Lin Yuan", "U09ZHOU": "Zhou Yu", "UBOT": "pmw", "U07ME": "Broleez"}
 		reply(map[string]any{"user": map[string]any{"name": strings.ToLower(r.Form.Get("user")), "profile": map[string]any{"display_name": names[r.Form.Get("user")]}}})
 	case "conversations.history":
+		if f.limitAt > 0 && f.calls[method] > f.limitAt {
+			w.Header().Set("Retry-After", "10")
+			w.WriteHeader(http.StatusTooManyRequests)
+			return
+		}
 		if f.broken[r.Form.Get("channel")] {
 			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": "channel_not_found"})
 			return
@@ -574,5 +581,64 @@ func TestSlackUserIdentity(t *testing.T) {
 	// 身份只能是两项之一
 	if _, err := e.conns.Update(ctx, c.ID, connector.Patch{Config: map[string]string{"identity": "admin"}}); err == nil {
 		t.Fatal("身份写错应拒绝")
+	}
+}
+
+// 本人身份一列几百个私信（TSK-0304）：不活跃的私信每轮至多查 slackIdleBudget 个、按上次查过的时间轮流，
+// 几轮下来都查到；被限流时这一轮停下，不置异常、不记「部分会话没拉到」，下一轮接着拉。
+func TestSlackManyConversationsAndRateLimit(t *testing.T) {
+	fake := newFakeSlack()
+	const n = 30
+	fake.convs = nil
+	fake.history = map[string][]map[string]any{}
+	for i := range n {
+		id := fmt.Sprintf("D%03d", i)
+		fake.convs = append(fake.convs, map[string]any{"id": id, "is_im": true, "user": "U09ZHOU"})
+		fake.history[id] = []map[string]any{{"type": "message", "user": "U09ZHOU", "text": "很久以前的 " + id, "ts": fmt.Sprintf("1761700%03d.000100", i)}}
+	}
+	e := setupSlackOn(t, fake, fake)
+	ctx := context.Background()
+	every := 0
+	c, err := e.conns.Create(ctx, connector.Input{Tool: connector.SlackTool, Direction: "both", Interval: &every,
+		Config:  map[string]string{"identity": connector.SlackAsUser},
+		Secrets: map[string]string{"bot_token": "xoxp-me", "signing_secret": "sig-secret"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	history := func() int {
+		fake.mu.Lock()
+		defer fake.mu.Unlock()
+		return fake.calls["conversations.history"]
+	}
+	sync := func(round string) {
+		t.Helper()
+		if code, out := call(t, e.h, "POST", "/api/im/connectors/"+c.ID+"/sync", ""); code != 200 {
+			t.Fatalf("%s 同步：%d %v", round, code, out)
+		}
+		if cn, _ := e.conns.Get(ctx, c.ID); cn.Status == connector.StatusError {
+			t.Fatalf("%s 不该置为异常：%q", round, cn.Error)
+		}
+	}
+
+	sync("第一轮")
+	if got := history(); got != slackIdleBudget {
+		t.Fatalf("第一轮不活跃私信应只查 %d 个，实际 %d", slackIdleBudget, got)
+	}
+	sync("第二轮")
+	if got, _ := list(t, e.h, ""); got != n {
+		t.Fatalf("两轮下来 %d 个私信都该查到（没查过的先查），实际收到 %d 条", n, got)
+	}
+
+	// 第三轮读到第 5 个会话时限流：停下，不再往下读，连接器照常
+	before := history()
+	fake.mu.Lock()
+	fake.limitAt = before + 4
+	fake.mu.Unlock()
+	sync("限流那轮")
+	if got := history() - before; got != 5 {
+		t.Fatalf("限流后应停下，这一轮共读 5 次（第 5 次 429），实际 %d", got)
+	}
+	if cn, _ := e.conns.Get(ctx, c.ID); cn.Error != "" {
+		t.Fatalf("限流不该记原因：%q", cn.Error)
 	}
 }

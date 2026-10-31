@@ -123,10 +123,13 @@ type SlackError struct {
 	Method string
 	Code   string
 	Needed string // missing_scope 时缺的 scope
+	Retry  string // ratelimited（HTTP 429）时的 Retry-After 秒数，可能为空
 }
 
 func (e *SlackError) Error() string {
 	switch {
+	case e.RateLimited():
+		return fmt.Sprintf("Slack 限流（%s），%s 秒后再试", e.Method, cmp.Or(e.Retry, "稍等几"))
 	case e.Auth():
 		return fmt.Sprintf("Slack 拒绝了 Token（%s），Token 无效或已失效，重新填一个", e.Code)
 	case e.Code == "missing_scope":
@@ -138,6 +141,9 @@ func (e *SlackError) Error() string {
 }
 
 var slackAuthCodes = []string{"invalid_auth", "not_authed", "token_revoked", "token_expired", "account_inactive", "no_permission"}
+
+// RateLimited 是不是被限流（HTTP 429）：等一会儿自己就好，不是连接器的毛病。
+func (e *SlackError) RateLimited() bool { return e.Code == "ratelimited" }
 
 // Auth 是不是凭证本身的问题（Token 无效、被吊销、过期）。
 func (e *SlackError) Auth() bool { return slices.Contains(slackAuthCodes, e.Code) }
@@ -178,7 +184,7 @@ func SlackAuthTest(ctx context.Context, c *http.Client, base, as, token string) 
 }
 
 // SlackCall 带 Token 以表单 POST 调一个 Web API 方法，ok 时把响应按 JSON 解进 out（可为 nil）。
-// ok=false 回 *SlackError；限流（429）回带 Retry-After 的说明。错误里不带请求头和 Token。
+// ok=false 回 *SlackError；限流（429）回 Code 为 ratelimited 的 *SlackError，带 Retry-After。错误里不带请求头和 Token。
 func SlackCall(ctx context.Context, c *http.Client, base, token, method string, params url.Values, out any) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, strings.TrimRight(base, "/")+"/"+method, strings.NewReader(params.Encode()))
 	if err != nil {
@@ -192,7 +198,7 @@ func SlackCall(ctx context.Context, c *http.Client, base, token, method string, 
 	}
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode == http.StatusTooManyRequests {
-		return fmt.Errorf("Slack 限流（%s），%s 秒后再试", method, cmp.Or(resp.Header.Get("Retry-After"), "稍等几"))
+		return &SlackError{Method: method, Code: "ratelimited", Retry: resp.Header.Get("Retry-After")}
 	}
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("Slack %s 返回 HTTP %d", method, resp.StatusCode)

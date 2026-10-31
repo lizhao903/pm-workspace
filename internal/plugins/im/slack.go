@@ -39,6 +39,10 @@ const (
 	slackMaxBody     = 1 << 20
 	slackNameCacheN  = 2000
 	slackLookupLimit = 50 // 一次同步最多查几个人名，查不到的先用编号
+	// 本人身份一列就是几百个私信，每轮都逐个读历史必撞限流（conversations.history 约每分钟 50 次）。
+	// 监听频道和这段时间里有过消息的会话每轮都拉；其余的按上次查过的时间轮流查，每轮至多 slackIdleBudget 个
+	slackActiveWindow = 7 * 24 * time.Hour
+	slackIdleBudget   = 20
 )
 
 // Slack 是 Slack 适配器，cmd/pmw 交给 New。每个 slack 连接器实例是一个工作区的 Bot（IM-01d）。
@@ -135,6 +139,29 @@ type slackCursor struct {
 	Connector string            `json:"connector"`
 	Team      string            `json:"team"`
 	Latest    map[string]string `json:"latest"`
+	Checked   map[string]int64  `json:"checked,omitempty"` // 会话 -> 上次读过历史的时间（Unix 秒），轮流查不活跃会话用
+}
+
+// pullOrder 排这一轮要读历史的会话：监听频道和 slackActiveWindow 里有过消息的全拉，其余按上次查过的时间
+// 从早到晚取至多 slackIdleBudget 个（从没查过的最先）。
+func (cur slackCursor) pullOrder(convs []slackConv, now time.Time) []slackConv {
+	var active, idle []slackConv
+	for _, cv := range convs {
+		l := cur.Latest[cv.ID]
+		if !(cv.IsIM || cv.MPIM) || (l != "" && now.Sub(tsTime(l)) < slackActiveWindow) {
+			active = append(active, cv)
+			continue
+		}
+		idle = append(idle, cv)
+	}
+	sort.SliceStable(idle, func(i, j int) bool { return cur.Checked[idle[i].ID] < cur.Checked[idle[j].ID] })
+	return append(active, idle[:min(len(idle), slackIdleBudget)]...)
+}
+
+// slackRateLimited 是不是被 Slack 限流：等一会儿自己就好，这一轮停下，剩下的下一轮接着拉，不记成异常。
+func slackRateLimited(err error) bool {
+	var se *connector.SlackError
+	return errors.As(err, &se) && se.RateLimited()
 }
 
 // slackConv 是一个会话：im 是私信，mpim 是多人私信，别的是频道。
@@ -306,6 +333,9 @@ func (s *Slack) pullInstance(ctx context.Context, cn plugin.ConnectorInfo, raw j
 		if cur.Connector != cn.ID || cur.Team != me.TeamID || cur.Latest == nil {
 			cur = slackCursor{Connector: cn.ID, Team: me.TeamID, Latest: map[string]string{}}
 		}
+		if cur.Checked == nil {
+			cur.Checked = map[string]int64{}
+		}
 		convs, missing, err := s.conversations(ctx, hc, token, cfg.Get("channels"))
 		if err != nil {
 			return err
@@ -319,8 +349,13 @@ func (s *Slack) pullInstance(ctx context.Context, cn plugin.ConnectorInfo, raw j
 		}
 		var got []slackMsg
 		var convWarn []string
-		for _, cv := range convs {
+		now := time.Now()
+		for _, cv := range cur.pullOrder(convs, now) {
 			ms, latest, err := s.history(ctx, hc, token, cv.ID, cur.Latest[cv.ID])
+			if slackRateLimited(err) {
+				c.Log().Info("slack rate limited, rest of conversations next round", "connector", cn.ID, "conversation", cv.ID, "err", err)
+				break
+			}
 			if err != nil {
 				// 单个会话拉取失败不阻断整实例，继续拉别的会话。私信、多人私信是 Slack 自己列出来的，
 				// 读不到（对方已停用、跨工作区的 Slack Connect 私信等）用户也没法处理，只记日志不置异常；
@@ -336,6 +371,7 @@ func (s *Slack) pullInstance(ctx context.Context, cn plugin.ConnectorInfo, raw j
 			if latest != "" {
 				cur.Latest[cv.ID] = latest
 			}
+			cur.Checked[cv.ID] = now.Unix()
 			for i := range ms {
 				ms[i].Channel = cv.ID
 			}
@@ -358,6 +394,11 @@ func (s *Slack) pullInstance(ctx context.Context, cn plugin.ConnectorInfo, raw j
 		return nil, nil, ctx.Err()
 	}
 	if errors.Is(err, plugin.ErrNoRows) {
+		return nil, nil, nil
+	}
+	if slackRateLimited(err) {
+		// auth.test、列会话就被限流：这一轮什么都没拉，进度和连接器状态都不动
+		c.Log().Info("slack rate limited, skip this round", "connector", cn.ID, "err", err)
 		return nil, nil, nil
 	}
 	rec := err
