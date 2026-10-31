@@ -35,6 +35,8 @@ type fakeSlack struct {
 	posted   []url.Values
 	postedBy []string // 每次 chat.postMessage 用的 Token
 	calls    map[string]int
+	onPost   func() // chat.postMessage 回结果之前调（不持锁），模拟回复还没落库时事件已经推过来
+	postTS   string // chat.postMessage 回的 ts，空为 1761709999.000100
 }
 
 func newFakeSlack() *fakeSlack {
@@ -144,7 +146,16 @@ func (f *fakeSlack) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case "chat.postMessage":
 		f.posted = append(f.posted, r.Form)
 		f.postedBy = append(f.postedBy, tok)
-		reply(map[string]any{"channel": r.Form.Get("channel"), "ts": "1761709999.000100"})
+		if hook := f.onPost; hook != nil {
+			f.mu.Unlock()
+			hook()
+			f.mu.Lock()
+		}
+		ts := f.postTS
+		if ts == "" {
+			ts = "1761709999.000100"
+		}
+		reply(map[string]any{"channel": r.Form.Get("channel"), "ts": ts})
 	default:
 		_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": "unknown_method"})
 	}
@@ -529,6 +540,27 @@ func TestSlackUserIdentity(t *testing.T) {
 	_, got = list(t, e.h, "")
 	if rps := got["C01:1761700000.000100"]["replies"].([]any); len(got) != 3 || len(rps) != 2 {
 		t.Fatalf("回调里本人发的应记成回复：%v", got)
+	}
+
+	// 工作台回复发出后、落库前，本人这条已经经回调推回来：只记一条，记在被回复的那条上
+	e.fake.postTS = "1761710500.000100"
+	e.fake.onPost = func() {
+		e.signed(t, `{"type":"event_callback","event":{"type":"message","channel":"D01","channel_type":"im","user":"U07ME","text":"再确认下","ts":"1761710500.000100"}}`, "")
+	}
+	code, out = call(t, e.h, "POST", "/api/im/messages/"+dm["id"].(string)+"/reply", `{"text":"再确认下"}`)
+	e.fake.onPost, e.fake.postTS = nil, ""
+	if code != 200 {
+		t.Fatalf("回复：%d %v", code, out)
+	}
+	_, got = list(t, e.h, "")
+	same := 0
+	for _, rp := range got["D01:1761700004.000100"]["replies"].([]any) {
+		if rp.(map[string]any)["external_id"] == "D01:1761710500.000100" {
+			same++
+		}
+	}
+	if same != 1 {
+		t.Fatalf("回复和推回来的本人消息是同一条，应只记一次：%v", got["D01:1761700004.000100"]["replies"])
 	}
 
 	// 身份是我本人却填了 Bot Token：不调对方，提示要 xoxp-

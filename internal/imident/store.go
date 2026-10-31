@@ -67,6 +67,12 @@ func invalid(format string, a ...any) error {
 	return fmt.Errorf("%w: %s", domain.ErrValidation, fmt.Sprintf(format, a...))
 }
 
+// conflict 是给人看的 409：message 原样进界面（SPEC-messages-2.29），不带 "conflict: " 前缀。
+type conflict struct{ msg string }
+
+func (e *conflict) Error() string { return e.msg }
+func (e *conflict) Unwrap() error { return domain.ErrConflict }
+
 func notFound(id string) error {
 	return fmt.Errorf("%w: im identity %s", domain.ErrNotFound, id)
 }
@@ -196,14 +202,13 @@ func (s *Store) taken(ctx context.Context, ch, ext, want string) error {
 	err := s.db.W.QueryRowContext(ctx, `SELECT ci.stakeholder_id, COALESCE(s.name, '')
 		FROM contact_identities ci LEFT JOIN stakeholders s ON s.id = ci.stakeholder_id
 		WHERE ci.channel = ? AND ci.external_id = ?`, ch, ext).Scan(&owner, &name)
-	if err != nil {
-		return fmt.Errorf("%w: %s identity %s already belongs to another contact", domain.ErrConflict, ch, ext)
+	if err != nil || name == "" {
+		return &conflict{fmt.Sprintf("%s 编号 %s 已经挂在别的联系人身上，一个编号只能属于一个联系人", ch, ext)}
 	}
 	if owner == want {
-		return fmt.Errorf("%w: %s identity %s already exists on this contact", domain.ErrConflict, ch, ext)
+		return &conflict{fmt.Sprintf("%s 已经有 %s 编号 %s 了", name, ch, ext)}
 	}
-	return fmt.Errorf("%w: %s identity %s already belongs to %s (%s); one identity can only belong to one contact",
-		domain.ErrConflict, ch, ext, name, owner)
+	return &conflict{fmt.Sprintf("%s 编号 %s 已经挂在 %s 身上，一个编号只能属于一个联系人", ch, ext, name)}
 }
 
 func (s *Store) checkStakeholder(ctx context.Context, id string) error {
