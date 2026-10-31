@@ -642,3 +642,24 @@ func TestSlackManyConversationsAndRateLimit(t *testing.T) {
 		t.Fatalf("限流不该记原因：%q", cn.Error)
 	}
 }
+
+// 活跃会话多到一轮读不完时（限流总在同一处截断），上一轮没轮到的这一轮排前面，不会有会话永远拉不到。
+func TestSlackPullOrderRotatesActive(t *testing.T) {
+	now := time.Now()
+	recent := fmt.Sprintf("%d.000100", now.Add(-time.Hour).Unix())
+	cur := slackCursor{Latest: map[string]string{}, Checked: map[string]int64{}}
+	var convs []slackConv
+	for i := range 5 {
+		id := fmt.Sprintf("D%d", i)
+		convs = append(convs, slackConv{ID: id, IsIM: true})
+		cur.Latest[id] = recent
+	}
+	cur.Checked["D0"], cur.Checked["D1"], cur.Checked["D2"] = now.Unix(), now.Unix(), now.Unix() // 上一轮读到 D2 被限流
+	var got []string
+	for _, cv := range cur.pullOrder(convs, now) {
+		got = append(got, cv.ID)
+	}
+	if strings.Join(got, ",") != "D3,D4,D0,D1,D2" {
+		t.Fatalf("上一轮没轮到的应排前面：%v", got)
+	}
+}
