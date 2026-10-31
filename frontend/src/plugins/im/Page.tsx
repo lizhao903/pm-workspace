@@ -4,6 +4,7 @@
 // 「渠道配置」打开 IM 渠道的配置抽屉（IM-01b，ChannelPanel），记在地址 ?channels=1。
 // 批量（PR-03）：待处理的行能勾选，底栏批量标已处理、忽略；选了会话时列表上方能把这个会话全部标为已处理。
 // 认人（IM-05）：行上「未存联系人」和抽屉里的入口打开同一个弹窗（ContactLink），做完打开这条消息的抽屉说结果。
+// 已过期（IM-07）：状态切换多一个「已过期」；已过期的行能标已处理、忽略、重新打开，也能勾选批量处理。过期天数在渠道配置里改。
 import { Fragment, Suspense, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { useNavigate, useSearchParams } from 'react-router'
 import {
@@ -17,7 +18,7 @@ import { ContactLinkDialog, type ContactLinkMode, type ContactLinkResult } from 
 import { MessageDrawer } from './MessageDrawer'
 import {
   BATCH_MAX, MSG_STATUS_DICT, PAGE, RELEVANCE, VIEW_SEG_MAX, baseOk, canPick, channelOf, channelTable, convBatch, convOptions, dayLabel, filterRows,
-  inView, isSnoozed, nextWake, pickAll, pickedRows, togglePick, replyBlocker, shortTime, snoozeOptions, statusItems, statusView, timeAgo, usedChannels, viewsOf, whoName, type Mine, type View,
+  inView, isOpen, isSnoozed, nextWake, pickAll, pickedRows, togglePick, replyBlocker, shortTime, snoozeOptions, statusItems, statusView, timeAgo, usedChannels, viewsOf, whoName, type Mine, type View,
 } from './model'
 import { AttachmentChips, Caret, ChannelMark, Gear, Menu, MentionText, QuickReplyItems } from './parts'
 import { ToTaskDialog } from './ToTaskDialog'
@@ -155,7 +156,7 @@ export default function Page() {
     setToTask(m)
   }, [setOpen])
 
-  // 键盘：J K 上下，E 标已处理；输入框聚焦或按着 Cmd、Ctrl 时不管
+  // 键盘：J K 上下，E 标已处理（待处理和已过期的）；输入框聚焦或按着 Cmd、Ctrl 时不管
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const t = e.target as HTMLElement
@@ -169,7 +170,7 @@ export default function Page() {
         setOpen(rows[n].id)
       } else if (e.key === 'k' && rows.length) {
         setOpen(rows[Math.max(i - 1, 0)].id)
-      } else if (e.key === 'e' && opened && opened.status === 'pending') {
+      } else if (e.key === 'e' && opened && isOpen(opened)) {
         run(opened, { kind: 'done' })
       }
     }
@@ -289,7 +290,10 @@ export default function Page() {
                     <span className="im-conv">{m.conversation || '私聊'}</span>
                     {rel && rel !== 'dm' && <span className={cls('im-rel', rel === 'me' && 'im-rel-me')}>{RELEVANCE[rel]}</span>}
                     <span className="spacer" />
-                    {m.status !== 'pending' && <span className="im-state" style={stateStyle(sv.color(m.status))}>{sv.label(m.status)}</span>}
+                    {m.status !== 'pending' && (
+                      <span className="im-state" style={stateStyle(sv.color(m.status))}
+                        title={m.status === 'expired' && m.expired_at ? `${shortTime(m.expired_at)} 超期没处理，标为${sv.label('expired')}` : undefined}>{sv.label(m.status)}</span>
+                    )}
                     {isSnoozed(m, now) && <span className="im-state im-state-snooze">{shortTime(m.snooze_until!)} 提醒</span>}
                     {sent > 0 && <span className="im-state">已回复 {sent}</span>}
                     {m.reply_error && <span className="im-state im-state-bad" title={m.reply_error}>回复失败</span>}
@@ -315,6 +319,12 @@ export default function Page() {
                         ))}
                       </Menu>
                       {!m.task_id && <button type="button" className="im-act" onClick={() => startToTask(m)}>转任务</button>}
+                      <button type="button" className="im-act im-act-quiet" onClick={() => run(m, { kind: 'ignore' })}>忽略</button>
+                    </>
+                  ) : m.status === 'expired' ? (
+                    <>
+                      <button type="button" className="im-act im-act-primary" onClick={() => run(m, { kind: 'done' })} title={`标为${doneLabel} (E)`}>{doneLabel}</button>
+                      <button type="button" className="im-act" onClick={() => run(m, { kind: 'reopen' })} title={`回到${pendingLabel}，重新计算过期`}>重新打开</button>
                       <button type="button" className="im-act im-act-quiet" onClick={() => run(m, { kind: 'ignore' })}>忽略</button>
                     </>
                   ) : (

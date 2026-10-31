@@ -137,6 +137,8 @@ export const dataKeys = {
     conversation: (conversationId: string) => ['im', 'conversation', conversationId] as const,
     /** 附件目录和大小上限（IM-04b） */
     attachmentStorage: ['im', 'attachment-storage'] as const,
+    /** 插件设置：过期天数（IM-07） */
+    settings: ['im', 'settings'] as const,
   },
   /** IM 会话（PJ-02b）：项目绑定时从这里挑 */
   conversations: {

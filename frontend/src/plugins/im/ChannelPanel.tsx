@@ -2,12 +2,13 @@
 // 每个渠道显示状态、账号、最近同步时间、出错原因，能测试连接、立即同步、停用和启用、改配置；
 // 没接过时给「接入 Slack」「接入 Telegram」两个入口。各渠道的表单在 channelForms.ts 里登记，没登记的去设置里的连接器页配，
 // 跳过去时带上实例或工具，那边直接打开对应的抽屉（POL-01）。
+// 列表下面是 IM 插件自己的设置：超过几天没处理的消息标为已过期（IM-07），0 为不过期。
 import { useState, type CSSProperties } from 'react'
 import {
-  errorText, useConnectorDefs, useConnectors, useImSyncConnector, usePatchConnector, useTestConnector,
+  IM_EXPIRE_DAYS_MAX, errorText, useConnectorDefs, useConnectors, useImSettings, useImSyncConnector, usePatchConnector, usePatchImSettings, useTestConnector,
   type Connector, type ConnectorDef,
 } from '../../core/data'
-import { Drawer, ErrorState, LoadingState, cls } from '../../core/ui'
+import { Drawer, ErrorState, Field, Input, LoadingState, cls } from '../../core/ui'
 import { CHANNEL_FORMS } from './channelForms'
 import { addableDefs, ENTRY_TOOLS, imConnectors, imDefs, intervalLabel, SELF_NAMES_FIELD, STATUS_TEXT, syncErrorText, syncText } from './channelModel'
 import { timeAgo } from './model'
@@ -81,6 +82,7 @@ export function ChannelPanel({ onClose, onManageAll }: { onClose: () => void; on
           </>
         )}
         <button type="button" className="im-chlink" onClick={() => onManageAll()}>在设置里管理全部连接器</button>
+        <ExpirySetting />
       </div>
     )
   }
@@ -166,5 +168,51 @@ function ChannelCard({ c, def, hasForm, onEdit }: { c: Connector; def?: Connecto
         <button type="button" className="btn btn-ghost btn-sm" disabled={busy} onClick={onEdit}>{hasForm ? '配置' : '去设置里配置'}</button>
       </div>
     </div>
+  )
+}
+
+/** 过期天数（IM-07）：整数 0..365，0 为不过期；前端只挡不是整数的，超出范围交给后端，原样显示它的 400 */
+function ExpirySetting() {
+  const settings = useImSettings()
+  const save = usePatchImSettings()
+  const days = settings.data?.expire_days
+  // 没改过时跟着后端的值走
+  const [draft, setDraft] = useState<string | null>(null)
+  const [note, setNote] = useState<Note | null>(null)
+  const value = draft ?? (days === undefined ? '' : String(days))
+  const n = Number(value)
+  const bad = /^\d+$/.test(value.trim()) ? undefined : '填 0 或正整数'
+  const changed = days !== undefined && !bad && n !== days
+
+  const submit = () => {
+    setNote(null)
+    if (bad || !changed || save.isPending) return
+    save.mutate({ expire_days: n }, {
+      onSuccess: (r) => { setDraft(null); setNote({ ok: true, text: r.expire_days ? `已保存：超过 ${r.expire_days} 天没处理的消息标为已过期` : '已保存：消息不再过期' }) },
+      onError: (e) => setNote({ ok: false, text: `没保存：${errorText(e)}` }),
+    })
+  }
+
+  return (
+    <form className="im-chexpire" aria-label="消息过期" noValidate onSubmit={(e) => { e.preventDefault(); submit() }}>
+      <div className="im-chexpire-title">消息过期</div>
+      {settings.isError ? (
+        <div className="im-err" role="alert">设置没加载出来：{errorText(settings.error)}</div>
+      ) : (
+        <>
+          <Field label="过期天数" wrap={false} error={draft !== null ? bad : undefined}
+            hint="超过 N 天没处理的消息标为已过期，0 为不过期。从收到（或重新打开）时算起，设了稍后还没到点的不算">
+            <div className="im-chexpire-row">
+              <Input type="number" min={0} max={IM_EXPIRE_DAYS_MAX} step={1} inputMode="numeric" className="im-chexpire-input" aria-label="过期天数"
+                value={value} disabled={settings.isPending} invalid={draft !== null && !!bad}
+                onChange={(e) => { setDraft(e.target.value); setNote(null) }} />
+              <span className="im-muted">天</span>
+              <button type="submit" className="btn btn-outline btn-sm" disabled={!changed || save.isPending}>{save.isPending ? '保存中…' : '保存'}</button>
+            </div>
+          </Field>
+          {note && <div className={note.ok ? 'im-ok' : 'im-err'} role={note.ok ? 'status' : 'alert'}>{note.text}</div>}
+        </>
+      )}
+    </form>
   )
 }

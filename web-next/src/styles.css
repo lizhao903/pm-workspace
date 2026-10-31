@@ -536,6 +536,11 @@ kbd {
 .tool-section { margin-bottom: 26px; }
 .tool-section-head { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 12px; margin-bottom: 10px; }
 .tool-section-head h2 { font-size: 15px; white-space: nowrap; }
+/* 即时通讯分类下的消息过期设置（IM-07） */
+.im-expiry { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 10px; margin-bottom: 12px; padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--panel); font-size: 13px; }
+.im-expiry-label { font-weight: 600; }
+.im-expiry input { width: 72px; height: 28px; padding: 0 8px; border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--panel); color: var(--text); font: inherit; }
+.im-expiry input.bad { border-color: var(--danger); }
 .tool-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(300px, 100%), 1fr)); gap: 12px; }
 .tool-card { display: flex; flex-direction: column; gap: 12px; padding: 16px; border-radius: var(--r-lg); background: var(--panel); border: 1px solid var(--line); box-shadow: var(--shadow-sm); }
 .tool-card-bad { border-color: color-mix(in srgb, var(--danger) 45%, var(--line)); }

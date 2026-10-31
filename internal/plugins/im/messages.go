@@ -17,8 +17,22 @@ import (
 // 消息列表和回调（IM-01a）：GET /api/im/messages、GET /api/im/adapters、POST /api/im/callbacks/{adapter}，
 // 契约见 docs/api-contract.md「IM 消息插件 im」。
 
-// Statuses 是消息状态，和原型 MsgStatus 一致。
-var Statuses = []string{"pending", "done", "ignored"}
+// Statuses 是消息状态，和原型 MsgStatus 一致；expired（IM-07）在库里是待处理加 expired_at，见 statusCond。
+var Statuses = []string{"pending", "done", "ignored", "expired"}
+
+// statusCol 是接口上的状态：待处理且标了过期的显示为 expired。
+const statusCol = `CASE WHEN status = 'pending' AND expired_at IS NOT NULL THEN 'expired' ELSE status END`
+
+// statusCond 是按接口状态筛的条件。
+func statusCond(s string) string {
+	switch s {
+	case "pending":
+		return "status = 'pending' AND expired_at IS NULL"
+	case "expired":
+		return "status = 'pending' AND expired_at IS NOT NULL"
+	}
+	return "status = '" + s + "'"
+}
 
 const (
 	defaultLimit = 50
@@ -56,11 +70,13 @@ type Message struct {
 	TaskRef    string  `json:"task_ref"`
 	Replies    []Reply `json:"replies"`
 	ReplyError string  `json:"reply_error"`
+	// ExpiredAt 是被标成已过期的时间（IM-07），不是已过期为 null
+	ExpiredAt *string `json:"expired_at"`
 }
 
 const messageCols = `id, channel, connector_id, external_id, conversation_id, conversation_external_id, conversation_kind,
-	conversation_name, sender_identity_id, sender_external_id, sender_name, text, attachments, relevance, status,
-	is_read, snooze_until, sent_at, received_at, adapter, task_id, task_ref, reply_error`
+	conversation_name, sender_identity_id, sender_external_id, sender_name, text, attachments, relevance, ` + statusCol + `,
+	is_read, snooze_until, sent_at, received_at, adapter, task_id, task_ref, reply_error, expired_at`
 
 func (in *inbox) list(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
@@ -72,7 +88,7 @@ func (in *inbox) list(w http.ResponseWriter, r *http.Request) {
 			fail(w, r, in.c, apiErr(errValidation, "status must be one of %s", strings.Join(Statuses, ", ")))
 			return
 		}
-		where, args = append(where, "status = ?"), append(args, s)
+		where = append(where, statusCond(s))
 	}
 	if s := strings.ToLower(strings.TrimSpace(q.Get("channel"))); s != "" {
 		where, args = append(where, "channel = ?"), append(args, s)
@@ -104,7 +120,7 @@ func (in *inbox) list(w http.ResponseWriter, r *http.Request) {
 	switch q.Get("snoozed") {
 	case "":
 	case "true", "1":
-		where, args = append(where, "status = 'pending' AND snooze_until > ?"), append(args, in.clock().UTC().Format(timeLayout))
+		where, args = append(where, statusCond("pending")+" AND snooze_until > ?"), append(args, in.clock().UTC().Format(timeLayout))
 	case "false", "0":
 		where, args = append(where, "(snooze_until IS NULL OR snooze_until <= ?)"), append(args, in.clock().UTC().Format(timeLayout))
 	default:
@@ -174,7 +190,7 @@ func (in *inbox) query(ctx context.Context, sql string, args ...any) ([]Message,
 		var read int
 		if err := rows.Scan(&m.ID, &m.Channel, &m.ConnectorID, &m.ExternalID, &m.ConversationID, &m.ConversationExternalID,
 			&m.ConversationKind, &convName, &m.IdentityID, &m.SenderID, &m.SenderName, &m.Text, &attachments, &m.Relevance,
-			&m.Status, &read, &m.SnoozeUntil, &m.At, &m.ReceivedAt, &m.Adapter, &m.TaskID, &m.TaskRef, &m.ReplyError); err != nil {
+			&m.Status, &read, &m.SnoozeUntil, &m.At, &m.ReceivedAt, &m.Adapter, &m.TaskID, &m.TaskRef, &m.ReplyError, &m.ExpiredAt); err != nil {
 			_ = rows.Close()
 			return nil, err
 		}

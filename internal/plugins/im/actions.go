@@ -136,9 +136,9 @@ func (in *inbox) fillActions(ctx context.Context, ms []Message) error {
 // setState 是处理完、忽略、重新打开、已读四个动作：照原型改状态、清稍后、标已读。
 // stateSet 是处理动作改哪些列；SOP 的标记消息节点（im_mark_message）同用这一份。
 var stateSet = map[string]string{
-	"done":   `status = 'done', snooze_until = NULL, is_read = 1`,
-	"ignore": `status = 'ignored', snooze_until = NULL, is_read = 1`,
-	"reopen": `status = 'pending', snooze_until = NULL`,
+	"done":   `status = 'done', snooze_until = NULL, is_read = 1, expired_at = NULL`,
+	"ignore": `status = 'ignored', snooze_until = NULL, is_read = 1, expired_at = NULL`,
+	"reopen": `status = 'pending', snooze_until = NULL, expired_at = NULL, expire_from = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')`,
 	"read":   `is_read = 1`,
 }
 
@@ -338,7 +338,7 @@ func (in *inbox) reply(w http.ResponseWriter, r *http.Request) {
 	}
 	set := `reply_error = '', is_read = 1`
 	if body.Done {
-		set += `, status = 'done', snooze_until = NULL`
+		set += `, status = 'done', snooze_until = NULL, expired_at = NULL`
 	}
 	in.update(w, r, set)
 }
@@ -431,8 +431,8 @@ func (in *inbox) toTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	set := `task_id = ?, task_ref = ?`
-	if body.Done && m.Status == "pending" {
-		set += `, status = 'done', snooze_until = NULL, is_read = 1`
+	if body.Done && (m.Status == "pending" || m.Status == "expired") {
+		set += `, status = 'done', snooze_until = NULL, is_read = 1, expired_at = NULL`
 	}
 	if _, err := in.c.Store().Exec(ctx, `UPDATE im_messages SET `+set+` WHERE id = ?`, task.ID, task.Ref, m.ID); err != nil {
 		fail(w, r, in.c, err)
@@ -476,7 +476,7 @@ func nonEmpty(s *string) *string {
 // maxBatch 是批量处理一次最多带几个 id。
 const maxBatch = 500
 
-// batch 批量处理完或忽略（PR-03）：按 id 列表，或按会话 + 时间点之前。只改待处理的，别的跳过。
+// batch 批量处理完或忽略（PR-03）：按 id 列表，或按会话 + 时间点之前。只改待处理的（含已过期，IM-07），别的跳过。
 // 按 id 列表时含稍后的（是挑出来的）；按会话时不含还没到点的稍后，同「待处理」视图。
 func (in *inbox) batch(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
@@ -492,10 +492,8 @@ func (in *inbox) batch(w http.ResponseWriter, r *http.Request) {
 	}
 	var set string
 	switch body.Action {
-	case "done":
-		set = `status = 'done', snooze_until = NULL, is_read = 1`
-	case "ignore":
-		set = `status = 'ignored', snooze_until = NULL, is_read = 1`
+	case "done", "ignore":
+		set = stateSet[body.Action]
 	default:
 		fail(w, r, in.c, apiErr(errValidation, "action must be done or ignore"))
 		return

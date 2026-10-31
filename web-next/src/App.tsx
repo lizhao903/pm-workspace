@@ -4,7 +4,7 @@ import { ApiConnectorDrawer } from './apiconn'
 import { ContactDrawer, ContactsPage, type Draft as ContactDraft } from './contacts'
 import { LibraryBar, LibraryReader, LibraryTree, libraryModel, type Workspace } from './library'
 import { pickFolder, readHandle, type LocalFolder } from './localdir'
-import { seedConnectors, seedContacts, seedContent, seedMessages, TOOLS, type Connector, type Contact, type Message } from './data'
+import { IM_EXPIRE_DAYS_DEFAULT, seedConnectors, seedContacts, seedContent, seedMessages, TOOLS, type Connector, type Contact, type Message } from './data'
 import { MessageDrawer, MessagesPage, contactFor, fetchBlocker, gear, type MsgAction } from './messages'
 import { SECTIONS, SettingsNav, type Section } from './settings'
 import { CommandPalette, type PaletteItem } from './palette'
@@ -270,6 +270,8 @@ export default function App() {
   const [connCat, setConnCat] = useState('')
   const [contacts, setContacts] = useState(seedContacts)
   const [messages, setMessages] = useState(seedMessages)
+  /** 超过几天没处理的消息标为已过期（IM-07），0 为不过期；在设置的连接器页即时通讯分类里改 */
+  const [imExpireDays, setImExpireDays] = useState(IM_EXPIRE_DAYS_DEFAULT)
   const [connectors, setConnectors] = useState(seedConnectors)
   const [drawer, setDrawer] = useState<DrawerState>(null)
   const [palette, setPalette] = useState(false)
@@ -369,7 +371,7 @@ export default function App() {
         if (i >= batches.length) return []
         syncCursor.current[c.id] = i + 1
         return batches[i].map((m): Message => ({
-          ...m, id: newId('msg'), channel: c.tool, connector_id: c.id, at: now, read: false, status: 'pending', snooze_until: null, replies: [],
+          ...m, id: newId('msg'), channel: c.tool, connector_id: c.id, at: now, read: false, status: 'pending', snooze_until: null, expired_at: null, replies: [],
           attachments: m.attachments?.map((a) => ({ ...a, id: newId('att') })),
         }))
       })
@@ -424,9 +426,10 @@ export default function App() {
     const m = messages.find((x) => x.id === id)
     if (!m) return
     switch (a.kind) {
-      case 'done': patchMsg(id, { status: 'done', snooze_until: null, read: true }); break
-      case 'ignore': patchMsg(id, { status: 'ignored', snooze_until: null, read: true }); break
-      case 'reopen': patchMsg(id, { status: 'pending', snooze_until: null }); break
+      case 'done': patchMsg(id, { status: 'done', snooze_until: null, expired_at: null, read: true }); break
+      case 'ignore': patchMsg(id, { status: 'ignored', snooze_until: null, expired_at: null, read: true }); break
+      // 重新打开：过期从现在重新算（IM-07）
+      case 'reopen': patchMsg(id, { status: 'pending', snooze_until: null, expired_at: null, expire_from: new Date().toISOString() }); break
       case 'read': patchMsg(id, { read: true }); break
       case 'snooze': patchMsg(id, { snooze_until: a.until, read: true }); break
       case 'reply': {
@@ -434,7 +437,7 @@ export default function App() {
         patchMsg(id, {
           read: true,
           replies: [...m.replies, { id: `r_${Date.now().toString(36)}`, text: a.text, at: now }],
-          ...(a.done ? { status: 'done', snooze_until: null } : {}),
+          ...(a.done ? { status: 'done', snooze_until: null, expired_at: null } : {}),
         })
         // 回了消息就算联系过一次，联系人的「最近联系」跟着走
         const who = contactFor(m, contacts)
@@ -456,6 +459,26 @@ export default function App() {
     }, Math.min(Math.max(nextWake - Date.now(), 0) + 200, 2 ** 31 - 1))
     return () => window.clearTimeout(t)
   }, [nextWake])
+
+  // 过期（IM-07）：待处理、没在稍后里的，从收到（或重新打开）起超过 imExpireDays 天就标为已过期；在最早的到期时间触发。
+  // 天数改短时到期时间已过，马上标；改长不会把已过期的改回来。正式产品由后端定时标
+  const expireAt = (m: Message) => new Date(m.expire_from ?? m.at).getTime() + imExpireDays * 86400_000
+  const nextExpire = imExpireDays <= 0 ? Infinity : messages.reduce((n, m) => {
+    const t = m.status === 'pending' && !(m.snooze_until && new Date(m.snooze_until).getTime() > Date.now()) ? expireAt(m) : Infinity
+    return t < n ? t : n
+  }, Infinity)
+  useEffect(() => {
+    if (nextExpire === Infinity) return
+    const t = window.setTimeout(() => {
+      const now = Date.now()
+      const iso = new Date(now).toISOString()
+      setMessages((xs) => xs.map((m) => (m.status === 'pending' && !(m.snooze_until && new Date(m.snooze_until).getTime() > now) && expireAt(m) <= now
+        ? { ...m, status: 'expired', expired_at: iso } : m)))
+    }, Math.min(Math.max(nextExpire - Date.now(), 0) + 200, 2 ** 31 - 1))
+    return () => window.clearTimeout(t)
+    // expireAt 只依赖 imExpireDays
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [nextExpire, imExpireDays])
 
   const pending = messages.filter((m) => m.status === 'pending' && !(m.snooze_until && new Date(m.snooze_until).getTime() > Date.now())).length
   const brokenConnectors = connectors.filter((c) => c.status === 'error').length
@@ -1797,6 +1820,7 @@ export default function App() {
           )}
           {page === 'settings' && section === 'connectors' && (
             <ConnectorsSettings key={connCat} initialCat={connCat} connectors={connectors} messageCount={messageCount} onConnect={connectConn} onDisconnect={disconnectConn}
+              imExpireDays={imExpireDays} onImExpireDays={setImExpireDays}
               onConfigure={(id) => setDrawer({ kind: 'connector', id })} onAdd={(tool) => setDrawer({ kind: 'new-connector', tool })} />
           )}
         </main>

@@ -6,7 +6,8 @@ import { isApiError, request, requestList } from '../api'
 import { useNotifyChange } from './invalidate'
 import { dataKeys } from './keys'
 
-export type ImMsgStatus = 'pending' | 'done' | 'ignored'
+/** expired 已过期（IM-07）：待处理超过设置的天数没处理，后台标的；不算待处理 */
+export type ImMsgStatus = 'pending' | 'done' | 'ignored' | 'expired'
 /** 与我相关的原因：@我、@所有人、私聊；无关为空串 */
 export type ImRelevance = 'me' | 'all' | 'dm' | ''
 
@@ -45,6 +46,8 @@ export type ImMessage = {
   status: ImMsgStatus
   read: boolean
   snooze_until: string | null
+  /** 标为已过期的时间（IM-07）；不是已过期时为 null */
+  expired_at: string | null
   at: string
   received_at: string
   adapter: string
@@ -63,11 +66,16 @@ export type ImAction =
 /** 立即同步一个渠道的结果（IM-01b）：新落库的消息 id 和已收过的条数 */
 export type ImSyncResult = { connector_id: string; adapter: string; ids: string[]; duplicates: number }
 
-/** 批量处理完或忽略（PR-03）：按 id 列表，或按会话 + 时间点之前；只改待处理的 */
+/** 批量处理完或忽略（PR-03）：按 id 列表，或按会话 + 时间点之前；只改待处理的，按 id 时已过期的也改（IM-07） */
 export type ImBatchInput =
   | { action: 'done' | 'ignore'; ids: string[] }
   | { action: 'done' | 'ignore'; conversation_id: string; before: string }
 export type ImBatchResult = { action: 'done' | 'ignore'; ids: string[]; count: number }
+
+/** IM 插件的设置（IM-07）：expire_days 是多少天没处理算已过期，0 为不过期 */
+export type ImSettings = { expire_days: number }
+/** 过期天数的取值范围（同后端校验） */
+export const IM_EXPIRE_DAYS_MAX = 365
 
 export type ImTaskInput = { title?: string; body?: string; priority?: string; project_id?: string; owner_id?: string; due_at?: string; done?: boolean }
 export type ImTaskResult = { message: ImMessage; task: { id: string; ref: string; title: string; status: string; source: string } }
@@ -78,7 +86,7 @@ export const IM_PAGE_MAX = 200
 // 后端的空数组可能是 null，这里一次补齐
 export const normMessage = (m: ImMessage): ImMessage => ({
   ...m, attachments: m.attachments ?? [], replies: m.replies ?? [], conversation: m.conversation ?? '', contact_name: m.contact_name ?? '',
-  reply_error: m.reply_error ?? '', task_ref: m.task_ref ?? '', relevance: m.relevance ?? '',
+  reply_error: m.reply_error ?? '', task_ref: m.task_ref ?? '', relevance: m.relevance ?? '', expired_at: m.expired_at ?? null,
 })
 
 const path = (id: string) => `/api/im/messages/${encodeURIComponent(id)}`
@@ -112,6 +120,9 @@ export const imApi = {
     const r = await request<ImBatchResult>('POST', '/api/im/messages/batch', { body: input })
     return { ...r, ids: r.ids ?? [] }
   },
+  settings: (signal?: AbortSignal) => request<ImSettings>('GET', '/api/im/settings', { signal }),
+  /** 天数不在 0..365 回 400 validation；改短了后端马上把超期的标为已过期 */
+  patchSettings: (patch: Partial<ImSettings>) => request<ImSettings>('PATCH', '/api/im/settings', { body: patch }),
   toTask: async (id: string, body: ImTaskInput) => {
     const r = await request<ImTaskResult>('POST', `${path(id)}/task`, { body })
     return { ...r, message: normMessage(r.message) }
@@ -206,5 +217,27 @@ export function useImSyncConnector() {
     mutationFn: (connectorId: string) => imApi.syncConnector(connectorId),
     onSuccess: () => refresh(),
     onError: () => refresh(),
+  })
+}
+
+/** IM 插件的设置（IM-07） */
+export function useImSettings() {
+  return useQuery({
+    queryKey: dataKeys.im.settings,
+    queryFn: ({ signal }) => imApi.settings(signal),
+    retry: noRetry404,
+  })
+}
+
+/** 改设置：响应写回缓存；过期天数改短时后端当场标了一批已过期，消息跟着刷 */
+export function usePatchImSettings() {
+  const qc = useQueryClient()
+  const notify = useNotifyChange()
+  return useMutation({
+    mutationFn: (patch: Partial<ImSettings>) => imApi.patchSettings(patch),
+    onSuccess: (r) => {
+      qc.setQueryData(dataKeys.im.settings, r)
+      return notify({ kind: 'im-message' })
+    },
   })
 }

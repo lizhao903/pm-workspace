@@ -60,8 +60,9 @@ export const seedEnums: EnumGroup[] = [
   },
   {
     key: 'msg_status', name: 'IM 消息状态', module: 'IM 消息', builtin: true, default_key: 'pending',
-    desc: 'IM 消息的处理状态。三个都是系统值',
-    items: [it('pending', '待处理', '#b0570b', '', true), it('done', '已处理', '#2f7d43', '', true), it('ignored', '已忽略', '#a19d92', '', true)],
+    desc: 'IM 消息的处理状态。四个都是系统值',
+    items: [it('pending', '待处理', '#b0570b', '', true), it('done', '已处理', '#2f7d43', '', true), it('ignored', '已忽略', '#a19d92', '', true),
+      it('expired', '已过期', '#868e96', '超过设置的天数没处理，不再提醒', true)],
   },
   {
     key: 'sop_trigger', name: 'SOP 触发方式', module: 'SOP', builtin: true, default_key: 'manual',

@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { render, screen, within } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { Connector, ConnectorDef } from '../../core/data'
@@ -22,6 +22,7 @@ type Call = { method: string; path: string; body?: Record<string, unknown> }
 function backend(opts: { list?: Connector[]; syncFails?: string; defs?: ConnectorDef[] } = {}) {
   const calls: Call[] = []
   let list = opts.list ?? []
+  let expireDays = 7
   const json = (data: unknown, status = 200) => new Response(JSON.stringify(status < 300 ? { data } : data), { status })
   vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const u = new URL(String(input), 'http://x')
@@ -46,6 +47,14 @@ function backend(opts: { list?: Connector[]; syncFails?: string; defs?: Connecto
       const c = { ...list.find((x) => x.id === m[1])!, status: body.enabled === false ? 'paused' as const : 'connecting' as const }
       list = list.map((x) => (x.id === c.id ? c : x))
       return json(c)
+    }
+    // IM 插件设置（IM-07）：0..365，超出范围 400
+    if (u.pathname === '/api/im/settings') {
+      if (method === 'PATCH') {
+        if (body.expire_days < 0 || body.expire_days > 365) return json({ error: { code: 'validation', message: '过期天数要在 0 到 365 之间' } }, 400)
+        expireDays = body.expire_days
+      }
+      return json({ expire_days: expireDays })
     }
     if (u.pathname.endsWith('/sync')) {
       if (opts.syncFails) return json({ error: { code: 'sync_failed', message: `同步失败：${opts.syncFails}` } }, 502)
@@ -145,6 +154,29 @@ describe('渠道配置', () => {
     expect(await within(card).findByText('已停用')).toBeInTheDocument()
     expect(calls.find((c) => c.method === 'PATCH')?.body).toEqual({ enabled: false })
     expect(within(card).getByRole('button', { name: '立即同步' })).toBeDisabled()
+  })
+
+  it('消息过期天数（IM-07）：读出现值，改了才能保存；超出范围原样显示后端的原因', async () => {
+    const calls = backend({ list: [conn()] })
+    renderPanel()
+    const form = await screen.findByRole('form', { name: '消息过期' })
+    const input = within(form).getByLabelText('过期天数')
+    await waitFor(() => expect(input).toHaveValue(7))
+    expect(within(form).getByText(/超过 N 天没处理的消息标为已过期，0 为不过期/)).toBeInTheDocument()
+    const save = within(form).getByRole('button', { name: '保存' })
+    expect(save).toBeDisabled()
+    const user = userEvent.setup()
+    await user.clear(input)
+    await user.type(input, '400')
+    await user.click(save)
+    expect(await within(form).findByText('没保存：过期天数要在 0 到 365 之间')).toBeInTheDocument()
+    await user.clear(input)
+    await user.type(input, '0')
+    await user.click(save)
+    expect(await within(form).findByText('已保存：消息不再过期')).toBeInTheDocument()
+    expect(calls.filter((c) => c.path === '/api/im/settings' && c.method === 'PATCH').map((c) => c.body)).toEqual([{ expire_days: 400 }, { expire_days: 0 }])
+    expect(input).toHaveValue(0)
+    expect(save).toBeDisabled()
   })
 
   it('同步失败写出原因；配置打开已有实例的表单', async () => {

@@ -493,8 +493,8 @@ func TestContactGroupAndMsgStatusUsage(t *testing.T) {
 	}
 
 	msg := mustDictItems(t, s, ctx, domain.DictMsgStatus, false)
-	if len(msg) != 3 || msg[0].Key != "pending" {
-		t.Fatalf("msg_status items = %+v, want pending first of 3", msg)
+	if len(msg) != 4 || msg[0].Key != "pending" || msg[3].Key != "expired" || msg[3].Label != "已过期" {
+		t.Fatalf("msg_status items = %+v, want pending first, expired last of 4", msg)
 	}
 	if n, err := s.DictItemUsage(ctx, msg[0].ID); err != nil || n != 0 {
 		t.Errorf("没有 im_messages 表时 usage = %d, %v; want 0", n, err)
@@ -508,6 +508,21 @@ func TestContactGroupAndMsgStatusUsage(t *testing.T) {
 	msg = mustDictItems(t, s, ctx, domain.DictMsgStatus, false)
 	if msg[0].Usage != 2 || findDictItem(msg, "done").Usage != 1 {
 		t.Errorf("msg usage = %d/%d, want 2/1", msg[0].Usage, findDictItem(msg, "done").Usage)
+	}
+	// im 0005 起有 expired_at：待处理且标了过期的算到「已过期」（IM-07）；没这一列时（插件还没升级）照上面的旧口径
+	if _, err := s.db.W.ExecContext(ctx, `ALTER TABLE im_messages ADD COLUMN expired_at TEXT`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.db.W.ExecContext(ctx, `UPDATE im_messages SET expired_at = 'x' WHERE id = 'b'`); err != nil {
+		t.Fatal(err)
+	}
+	msg = mustDictItems(t, s, ctx, domain.DictMsgStatus, false)
+	expired := findDictItem(msg, "expired")
+	if msg[0].Usage != 1 || expired.Usage != 1 {
+		t.Errorf("加了 expired_at 后 pending/expired usage = %d/%d, want 1/1", msg[0].Usage, expired.Usage)
+	}
+	if n, err := s.DictItemUsage(ctx, expired.ID); err != nil || n != 1 {
+		t.Errorf("expired 单条 usage = %d, %v; want 1", n, err)
 	}
 }
 

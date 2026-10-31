@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { Connector, ImMessage } from '../../core/data'
 import {
-  BATCH_MAX, channelTable, convBatch, convKey, pickAll, pickedRows, togglePick, convOptions, dayLabel, filterRows, fmtSize, inView, mentionParts, nextWake, replyBlocker, replyWarning, snoozeOptions, statusItems,
+  BATCH_MAX, channelTable, convBatch, convKey, pickAll, pickedRows, togglePick, convOptions, dayLabel, filterRows, fmtSize, inView, mentionParts, nextWake, replyBlocker, replyWarning, snoozeOptions, statusItems, statusView, viewsOf,
   taskTitleOf, clip100, contactCandidates, nameCloseness,
 } from './model'
 
@@ -13,7 +13,7 @@ function msg(p: Partial<ImMessage> = {}): ImMessage {
     conversation_kind: 'group', conversation: '#product', sender_id: 'U1', sender_name: 'Lin Yuan', identity_id: null, stakeholder_id: null,
     contact_name: '', text: '你好', attachments: [], relevance: '', status: 'pending', read: false, snooze_until: null,
     at: '2026-10-29T01:00:00.000Z', received_at: '2026-10-29T01:00:00.000Z', adapter: 'fake', task_id: null, task_ref: '', replies: [],
-    reply_error: '', ...p,
+    reply_error: '', expired_at: null, ...p,
   }
 }
 
@@ -32,6 +32,15 @@ describe('视图', () => {
     expect(inView(later, 'snoozed', NOW)).toBe(true)
     expect(inView(passed, 'pending', NOW)).toBe(true)
     expect(inView(msg({ status: 'done', snooze_until: later.snooze_until }), 'snoozed', NOW)).toBe(false)
+  })
+
+  it('已过期（IM-07）单独一个视图，不算待处理也不算稍后', () => {
+    const x = msg({ status: 'expired', expired_at: '2026-10-29T01:00:00.000Z' })
+    expect(inView(x, 'expired', NOW)).toBe(true)
+    expect(inView(x, 'pending', NOW)).toBe(false)
+    expect(inView(x, 'snoozed', NOW)).toBe(false)
+    expect(inView(x, 'ignored', NOW)).toBe(false)
+    expect(inView(x, 'all', NOW)).toBe(true)
   })
 
   it('筛选：渠道、会话、与我相关、未读、搜索（含联系人姓名），按时间倒序', () => {
@@ -113,8 +122,10 @@ describe('其它', () => {
       { key: 'done', label: '搞定', color: '', sort_order: 1, archived_at: null },
       { key: 'pending', label: '待办', color: 'red', sort_order: 2, archived_at: null },
     ] as never)
-    expect(items.map((i) => [i.key, i.label])).toEqual([['done', '搞定'], ['pending', '待办'], ['ignored', '已忽略']])
-    expect(statusItems(undefined).map((i) => i.key)).toEqual(['pending', 'done', 'ignored'])
+    expect(items.map((i) => [i.key, i.label])).toEqual([['done', '搞定'], ['pending', '待办'], ['ignored', '已忽略'], ['expired', '已过期']])
+    expect(statusItems(undefined).map((i) => i.key)).toEqual(['pending', 'done', 'ignored', 'expired'])
+    // 字典里还没有已过期（后端 0041 只有三项）时补在已忽略后面；视图里排在已忽略后
+    expect(viewsOf(statusView(statusItems(undefined))).map(([v]) => v)).toEqual(['pending', 'snoozed', 'done', 'ignored', 'expired'])
   })
 
   it('渠道：连接器定义优先，没有时用内置表', () => {
@@ -131,8 +142,8 @@ describe('其它', () => {
 })
 
 describe('批量处理（PR-03）', () => {
-  it('勾选只算还在列表里的待处理', () => {
-    const a = msg(), b = msg({ status: 'done' }), c = msg()
+  it('勾选只算还在列表里的待处理和已过期', () => {
+    const a = msg(), b = msg({ status: 'done' }), c = msg({ status: 'expired' })
     let sel = togglePick(new Set(), a.id)
     sel = togglePick(sel, b.id)
     sel = togglePick(sel, 'msg_gone')
