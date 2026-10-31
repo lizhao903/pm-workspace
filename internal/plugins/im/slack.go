@@ -142,8 +142,8 @@ type slackCursor struct {
 	Checked   map[string]int64  `json:"checked,omitempty"` // 会话 -> 上次读过历史的时间（Unix 秒），轮流查不活跃会话用
 }
 
-// pullOrder 排这一轮要读历史的会话：监听频道和 slackActiveWindow 里有过消息的全拉，其余按上次查过的时间
-// 从早到晚取至多 slackIdleBudget 个（从没查过的最先）。
+// pullOrder 排这一轮要读历史的会话：监听频道和 slackActiveWindow 里有过消息的全拉，其余取至多 slackIdleBudget 个。
+// 两组都按上次查过的时间从早到晚（从没查过的最先）：限流总在第几十个截断，固定顺序会让排在后面的永远轮不到。
 func (cur slackCursor) pullOrder(convs []slackConv, now time.Time) []slackConv {
 	var active, idle []slackConv
 	for _, cv := range convs {
@@ -154,7 +154,11 @@ func (cur slackCursor) pullOrder(convs []slackConv, now time.Time) []slackConv {
 		}
 		idle = append(idle, cv)
 	}
-	sort.SliceStable(idle, func(i, j int) bool { return cur.Checked[idle[i].ID] < cur.Checked[idle[j].ID] })
+	byChecked := func(cs []slackConv) {
+		sort.SliceStable(cs, func(i, j int) bool { return cur.Checked[cs[i].ID] < cur.Checked[cs[j].ID] })
+	}
+	byChecked(active)
+	byChecked(idle)
 	return append(active, idle[:min(len(idle), slackIdleBudget)]...)
 }
 
