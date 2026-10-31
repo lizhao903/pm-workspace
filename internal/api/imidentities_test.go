@@ -68,11 +68,16 @@ func TestIdentityOneOwnerPerChannelID(t *testing.T) {
 	// 挂到另一个联系人：409，message 写明在谁身上
 	w = do(s, "POST", "/api/im-identities", `{"stakeholder_id":"`+zhou+`","channel":"WeChat","external_id":"linyuan_fe"}`)
 	mustCode(t, w, http.StatusConflict, "same identity on another contact")
-	if !strings.Contains(w.Body.String(), "林予安") {
-		t.Errorf("409 message 应写明身份在谁身上: %s", w.Body.String())
+	// message 原样进界面（SPEC-messages-2.29）：中文、不带 "conflict:" 前缀
+	if !strings.Contains(w.Body.String(), `"message":"wechat 编号 linyuan_fe 已经挂在 林予安 身上，一个编号只能属于一个联系人"`) {
+		t.Errorf("409 message 应是中文并写明身份在谁身上: %s", w.Body.String())
 	}
 	// 同一人再挂一次也是 409
-	mustCode(t, do(s, "POST", "/api/im-identities", `{"stakeholder_id":"`+lin+`","channel":"wechat","external_id":"linyuan_fe"}`), http.StatusConflict, "duplicate on same contact")
+	w = do(s, "POST", "/api/im-identities", `{"stakeholder_id":"`+lin+`","channel":"wechat","external_id":"linyuan_fe"}`)
+	mustCode(t, w, http.StatusConflict, "duplicate on same contact")
+	if !strings.Contains(w.Body.String(), `"message":"林予安 已经有 wechat 编号 linyuan_fe 了"`) {
+		t.Errorf("同一人重复挂的 409 message: %s", w.Body.String())
+	}
 	// 同一编号在别的渠道不算撞
 	mustCode(t, do(s, "POST", "/api/im-identities", `{"stakeholder_id":"`+zhou+`","channel":"qq","external_id":"linyuan_fe"}`), http.StatusCreated, "same id other channel")
 

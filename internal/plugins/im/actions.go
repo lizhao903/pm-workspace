@@ -328,6 +328,15 @@ func (in *inbox) reply(w http.ResponseWriter, r *http.Request) {
 		fail(w, r, in.c, err)
 		return
 	}
+	// 发出后、落库前，拉取或回调可能已把这条当「本人发的」记过（IM-06）：以这里记的为准，清掉那一条
+	if ext != "" {
+		if _, err := in.c.Store().Exec(ctx, `DELETE FROM im_replies WHERE id <> ? AND id IN (`+
+			strings.Replace(sameReplySQL, "SELECT 1", "SELECT rp.id", 1)+`)`,
+			rid, ext, m.Channel, m.ConnectorID, m.ConversationExternalID); err != nil {
+			fail(w, r, in.c, err)
+			return
+		}
+	}
 	set := `reply_error = '', is_read = 1`
 	if body.Done {
 		set += `, status = 'done', snooze_until = NULL`

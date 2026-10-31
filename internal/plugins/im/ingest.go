@@ -118,6 +118,11 @@ func (in *inbox) ingest(ctx context.Context, a Adapter, msgs []Incoming, strict 
 	return res, nil
 }
 
+// sameReplySQL 找同渠道、同连接器、同会话里已记过的同一外部编号的回复；参数依次是 external_id、channel、connector_id、
+// conversation_external_id。外部编号只在会话内唯一（Telegram 的 message_id），所以按会话圈。
+const sameReplySQL = `SELECT 1 FROM im_replies rp JOIN im_messages mm ON mm.id = rp.message_id
+	WHERE rp.external_id = ? AND mm.channel = ? AND mm.connector_id = ? AND mm.conversation_external_id = ?`
+
 // recordSelf 把「我」自己在渠道里发的一条（FromSelf，IM-06）记成回复：挂在同渠道、同连接器、同会话里
 // 发送时间不晚于它的最近一条消息上，状态 sent，时间用它的发送时间，那条标为已读，处理状态不动（要不要算处理完由人定）。
 // 同一外部编号已记过（在工作台里回复的，拉回来时又看到）、没有会话编号、会话里还没收过消息的跳过。
@@ -128,13 +133,6 @@ func (in *inbox) recordSelf(ctx context.Context, ch string, m Incoming) error {
 	}
 	convExt, err := imident.NormalizeExternalID(ch, conv)
 	if err != nil {
-		return nil
-	}
-	var n int
-	if err := in.c.Store().QueryRow(ctx, `SELECT COUNT(*) FROM im_replies WHERE external_id = ?`, ext).Scan(&n); err != nil {
-		return err
-	}
-	if n > 0 {
 		return nil
 	}
 	at := m.At
@@ -151,9 +149,15 @@ func (in *inbox) recordSelf(ctx context.Context, ch string, m Incoming) error {
 	if err != nil {
 		return err
 	}
-	if _, err := in.c.Store().Exec(ctx, `INSERT INTO im_replies (id, message_id, text, status, external_id, created_at) VALUES (?, ?, ?, 'sent', ?, ?)`,
-		idgen.Prefixed("rp"), msgID, clip(m.Text, maxText), ext, sentAt); err != nil {
+	// 查重和插入在同一条语句里：工作台回复正在落库时不会插进第二条；回复那边后落库的话由它清掉这一条（见 reply）
+	res, err := in.c.Store().Exec(ctx, `INSERT INTO im_replies (id, message_id, text, status, external_id, created_at)
+		SELECT ?, ?, ?, 'sent', ?, ? WHERE NOT EXISTS (`+sameReplySQL+`)`,
+		idgen.Prefixed("rp"), msgID, clip(m.Text, maxText), ext, sentAt, ext, ch, strings.TrimSpace(m.ConnectorID), convExt)
+	if err != nil {
 		return fmt.Errorf("record self reply: %w", err)
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return nil
 	}
 	_, err = in.c.Store().Exec(ctx, `UPDATE im_messages SET is_read = 1 WHERE id = ?`, msgID)
 	return err

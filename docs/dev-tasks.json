@@ -6096,5 +6096,44 @@
     ],
     "body": "## 要做什么\n\n按规格修 PROTO-04e 列出的 19 处，重点：\n- Agent 配置页挂知识库时篇数显示成「· 篇」（读了已不用的 `KnowledgeBase.docs`）。\n- 对自动分配的域名点「测试」会把它变成手动配置。\n- 服务商名称清空后保存没有提示，名称也没标必填。\n- 连接器列表的「断开」和抽屉里一样先确认。\n- Agent、技能一个都没有时不显示「换个关键词试试」。\n- Agent 配置页有未保存改动时返回列表先确认（和任务抽屉同样的做法）。\n- 知识库本地目录两种挂法数据要通。\n- 附带：今日「任务待验收」加「查看全部」（today.md 第 4 条）。\n\n再用 shots.py 的 STEPS 给设置补抽屉和子页截图（连接器、服务商、知识库、技能、异常的抽屉，Agent 配置页，知识库详情三个标签），填进 settings.md 对应节。\n\n## 注意事项\n\n- 原型只当规格和演示；改动只为让原型和规格一致，示例数据保持一条前后对得上的演示故事线。\n- 原型 7778 由用户在跑，不要重启它；验证截图看完即删；改完 `cd web-next && npx tsc -b` 0 错误，`make smoke-proto` 通过。",
     "acceptance": "- [ ] settings.md 末尾 P-1 到 P-19 逐条修好或写明不修的理由，标为已修\n- [ ] settings.md 里的抽屉和子页都有 1440 亮暗截图\n- [ ] today.md 第 4 条标为已修\n- [ ] `make smoke-proto` 通过"
+  },
+  {
+    "type": "task",
+    "milestone": "M3",
+    "module": "backend",
+    "priority": "P2",
+    "estimate": "S",
+    "workdir": ".",
+    "key": "IM-05b",
+    "title": "IM 身份冲突提示改中文：编号已挂在别人身上时界面原样显示",
+    "depends_on": [
+      "IM-05"
+    ],
+    "spec": [
+      "web-next/docs/spec/messages.md SPEC-messages-2.29",
+      "docs/api-contract.md「IM 身份 im-identities」",
+      "internal/imident/store.go taken"
+    ],
+    "body": "【任务来源】第四十三批决策记录：IM-05 后端 409 的 message 是英文，界面原样显示，待另开任务改中文。用户 2026-10-31 说「把这个项目待办安排处理」，主会话据此补做。\n\n## 要做什么\n\n- `internal/imident` 的冲突提示改成中文、不带 `conflict:` 前缀（照 runner 的写法），三种情况：挂在别人身上写明是谁；挂在本人身上说已有；查不到主人时说挂在别的联系人身上。\n- 契约 im-identities 一行写明 message 是中文、界面原样显示。",
+    "acceptance": "- [ ] 关联到联系人撞上已挂在别人身上的编号，红字是中文并写明是谁\n- [ ] 同一联系人重复挂，提示是中文\n- [ ] Go 测试断言完整中文原句\n- [ ] gofmt、go vet、go test ./... 通过"
+  },
+  {
+    "type": "task",
+    "milestone": "M3",
+    "module": "backend",
+    "priority": "P2",
+    "estimate": "S",
+    "workdir": ".",
+    "key": "IM-06b",
+    "title": "Slack 本人身份：工作台回复和推回来的本人消息只记一次",
+    "depends_on": [
+      "IM-06"
+    ],
+    "spec": [
+      "internal/plugins/im/ingest.go recordSelf",
+      "internal/plugins/im/actions.go reply"
+    ],
+    "body": "【任务来源】第四十四批决策记录：IM-06 后台拉取和工作台回复同时发生时可能记两次，未处理。用户 2026-10-31 说「把这个项目待办安排处理」，主会话据此补做。\n\n## 要做什么\n\n- 工作台回复发出后、落库前，拉取或回调把本人这条当「本人发的」先记了：回复落库后清掉同会话同编号的那条，以回复为准。\n- recordSelf 查重和插入合成一条语句，按同渠道、同连接器、同会话圈（外部编号只在会话内唯一）。\n- 不加唯一索引、不加迁移。im 升 0.7.1。",
+    "acceptance": "- [ ] 假 Slack 在 chat.postMessage 返回前经回调推回本人消息，回复只记一条\n- [ ] 原有本人身份测试照过\n- [ ] gofmt、go vet、go test ./... 通过"
   }
 ]
