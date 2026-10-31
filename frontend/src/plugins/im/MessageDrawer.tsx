@@ -4,6 +4,7 @@
 // 回复经后端适配器发出：发送失败时回复框保留内容，底部红字说原因，消息状态不变（SPEC-messages-2.25）。
 // 发信人对不上联系人时给「关联到联系人」「新建联系人」，认上了的给「不是这个人」（IM-05，弹窗在 ContactLink）。
 // Slack 的回复框写明以谁的身份发出（IM-06）：我本人身份「以 <本人名> 身份发送」，Bot 身份「以 Bot <名> 发送」。
+// 已过期（IM-07）的状态条写何时标的，给「标为已处理」「重新打开」「忽略」；不能稍后。
 import { useState } from 'react'
 import { errorText, useImAction, type Connector, type ImAction, type ImMessage } from '../../core/data'
 import { Avatar, Button, Checkbox, Drawer, cls } from '../../core/ui'
@@ -111,6 +112,7 @@ function DrawerBody({ msg, ch, connectors, sv, photo, note, onClose, onOpenConta
         <span className="im-strip-dot" style={snoozed ? undefined : { background: sv.color(msg.status) }} />
         <b>{snoozed ? '稍后提醒' : sv.label(msg.status)}</b>
         {snoozed && <span className="im-strip-sub">{shortTime(msg.snooze_until!)} 再提醒</span>}
+        {msg.status === 'expired' && msg.expired_at && <span className="im-strip-sub">{shortTime(msg.expired_at)} 超期没处理</span>}
         {rel && rel !== 'dm' && <span className="im-strip-sub">{RELEVANCE[rel]}</span>}
         {sent > 0 && <span className="im-strip-sub">已回复 {sent} 次</span>}
         <span className="spacer" />
@@ -122,6 +124,12 @@ function DrawerBody({ msg, ch, connectors, sv, photo, note, onClose, onOpenConta
                 <button key={o.label} type="button" role="menuitem" className="menu-item" onClick={() => { run({ kind: 'snooze', until: o.until.toISOString() }); close() }}>{o.label}</button>
               ))}
             </Menu>
+            <button type="button" className="im-strip-act" disabled={act.isPending} onClick={() => run({ kind: 'ignore' })}>忽略</button>
+          </>
+        ) : msg.status === 'expired' ? (
+          <>
+            <button type="button" className="im-strip-act im-strip-primary" disabled={act.isPending} onClick={() => run({ kind: 'done' })}>标为{doneLabel}</button>
+            <button type="button" className="im-strip-act" disabled={act.isPending} onClick={() => run({ kind: 'reopen' })}>重新打开</button>
             <button type="button" className="im-strip-act" disabled={act.isPending} onClick={() => run({ kind: 'ignore' })}>忽略</button>
           </>
         ) : <button type="button" className="im-strip-act" disabled={act.isPending} onClick={() => run({ kind: 'reopen' })}>重新打开</button>}

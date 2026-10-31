@@ -16,7 +16,7 @@ const MSG: ImMessage = {
   id: 'msg_1', channel: 'slack', connector_id: '', external_id: 'x', conversation_id: 'cv_prod', conversation_external_id: 'C1', conversation_kind: 'group',
   conversation: '#product', sender_id: 'U1', sender_name: 'Lin', identity_id: null, stakeholder_id: null, contact_name: '',
   text: '', relevance: '', status: 'pending', read: false, snooze_until: null, at: '2026-10-29T01:00:00Z', received_at: '2026-10-29T01:00:00Z',
-  adapter: 'fake', task_id: null, task_ref: '', replies: [], reply_error: '',
+  adapter: 'fake', task_id: null, task_ref: '', replies: [], reply_error: '', expired_at: null,
   attachments: [{ id: 'a1', name: '清单.xlsx', kind: 'file', size: 2048, fetch: 'idle' }, { id: 'a2', name: 'Figma', kind: 'link', url: LINK }],
 }
 const PROJECTS = [

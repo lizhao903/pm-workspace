@@ -14,7 +14,7 @@ function msg(p: Partial<ImMessage> = {}): ImMessage {
     conversation_kind: 'group', conversation: '#product', sender_id: 'U1', sender_name: 'Lin Yuan', identity_id: null, stakeholder_id: null,
     contact_name: '', text: '权限点清单看下', attachments: [], relevance: '', status: 'pending', read: true, snooze_until: null,
     at: new Date().toISOString(), received_at: new Date().toISOString(), adapter: 'fake', task_id: null, task_ref: '', replies: [],
-    reply_error: '', ...p,
+    reply_error: '', expired_at: null, ...p,
   }
 }
 
@@ -77,8 +77,10 @@ function fakeBackend(rows: ImMessage[], opts: {
     }
     if (u.pathname === '/api/im/messages/batch') {
       const st = body.action === 'done' ? 'done' : 'ignored'
-      const hit = rows.filter((r) => r.status === 'pending' && (body.ids ? body.ids.includes(r.id) : r.conversation_id === body.conversation_id && r.at <= body.before))
-      for (const r of hit) Object.assign(r, { status: st, snooze_until: null, read: true })
+      // 按 id 时已过期的也改（IM-07）
+      const hit = rows.filter((r) => (r.status === 'pending' || (body.ids && r.status === 'expired'))
+        && (body.ids ? body.ids.includes(r.id) : r.conversation_id === body.conversation_id && r.at <= body.before))
+      for (const r of hit) Object.assign(r, { status: st, snooze_until: null, read: true, expired_at: null })
       return json({ action: body.action, ids: hit.map((r) => r.id), count: hit.length })
     }
     const m = u.pathname.match(/^\/api\/im\/messages\/([^/]+)(?:\/([a-z]+))?$/)
@@ -86,8 +88,8 @@ function fakeBackend(rows: ImMessage[], opts: {
       const r = rows.find((x) => x.id === m[1])
       if (!r) return json({ error: { code: 'not_found', message: '消息不存在' } }, 404)
       const a = m[2]
-      if (a === 'done' || a === 'ignore') Object.assign(r, { status: a === 'done' ? 'done' : 'ignored', snooze_until: null, read: true })
-      if (a === 'reopen') Object.assign(r, { status: 'pending', snooze_until: null })
+      if (a === 'done' || a === 'ignore') Object.assign(r, { status: a === 'done' ? 'done' : 'ignored', snooze_until: null, read: true, expired_at: null })
+      if (a === 'reopen') Object.assign(r, { status: 'pending', snooze_until: null, expired_at: null })
       if (a === 'read') r.read = true
       if (a === 'snooze') Object.assign(r, { snooze_until: body.until, read: true })
       if (a === 'reply') {
@@ -140,6 +142,56 @@ describe('IM 消息页', () => {
     await userEvent.click(within(screen.getByRole('group', { name: '状态' })).getByRole('button', { name: /^已处理/ }))
     await userEvent.click(within(screen.getByRole('listitem', { name: /第一条/ })).getByRole('button', { name: '重新打开' }))
     await waitFor(() => expect(posts(calls)).toEqual(['done', 'reopen']))
+  })
+
+  it('已过期（IM-07）：单独一个状态，不算待处理；行内能标已处理、重新打开，排在已忽略后面', async () => {
+    const at = new Date(Date.now() - 8 * 86400_000).toISOString()
+    const rows = [msg({ text: '新的' }), msg({ text: '放久了', status: 'expired', expired_at: new Date().toISOString(), at }), msg({ text: '也放久了', status: 'expired', expired_at: at, at })]
+    const calls = fakeBackend(rows)
+    renderPage()
+    expect(await screen.findByText('1 条待处理')).toBeInTheDocument()
+    expect(screen.queryByRole('listitem', { name: /放久了/ })).not.toBeInTheDocument()
+    const seg = screen.getByRole('group', { name: '状态' })
+    expect(within(seg).getAllByRole('button').map((b) => b.textContent)).toEqual(['待处理1', '稍后0', '已处理0', '已忽略0', '已过期2', '全部3'])
+    await userEvent.click(within(seg).getByRole('button', { name: /^已过期/ }))
+    const row = screen.getByRole('listitem', { name: /：放久了/ })
+    expect(within(row).getByText('已过期')).toBeInTheDocument()
+    expect(within(row).queryByRole('button', { name: /稍后/ })).not.toBeInTheDocument()
+    await userEvent.click(within(row).getByRole('button', { name: '重新打开' }))
+    await waitFor(() => expect(screen.getByText('2 条待处理')).toBeInTheDocument())
+    await userEvent.click(within(screen.getByRole('listitem', { name: /也放久了/ })).getByRole('button', { name: '已处理' }))
+    await waitFor(() => expect(posts(calls)).toEqual(['reopen', 'done']))
+    expect(await screen.findByText('这里没有消息')).toBeInTheDocument()
+  })
+
+  it('已过期的能勾选，底栏批量忽略（IM-07）', async () => {
+    const rows = [msg({ text: '过期一', status: 'expired' }), msg({ text: '过期二', status: 'expired' })]
+    const calls = fakeBackend(rows)
+    renderPage()
+    await screen.findByText('0 条待处理')
+    await userEvent.click(within(screen.getByRole('group', { name: '状态' })).getByRole('button', { name: /^已过期/ }))
+    await userEvent.click(within(screen.getByRole('listitem', { name: /过期一/ })).getByRole('checkbox'))
+    const bar = screen.getByRole('toolbar', { name: '批量处理' })
+    await userEvent.click(within(bar).getByRole('button', { name: '全选 2 条' }))
+    await userEvent.click(within(bar).getByRole('button', { name: '忽略' }))
+    await waitFor(() => expect(calls.find((c) => c.path === '/api/im/messages/batch')?.body).toEqual({ action: 'ignore', ids: [rows[0].id, rows[1].id] }))
+    expect(await screen.findByText('已把 2 条标为已忽略')).toBeInTheDocument()
+  })
+
+  it('已过期的抽屉：写明何时标的，给标为已处理、重新打开、忽略，没有稍后（IM-07）', async () => {
+    const rows = [msg({ text: '放久了', status: 'expired', expired_at: '2026-10-20T01:00:00.000Z' })]
+    const calls = fakeBackend(rows)
+    renderPage(`/messages?m=${rows[0].id}`)
+    const drawer = await screen.findByRole('dialog', { name: '消息详情' })
+    expect(within(drawer).getByText('已过期')).toBeInTheDocument()
+    expect(within(drawer).getByText(/超期没处理/)).toBeInTheDocument()
+    expect(within(drawer).queryByRole('button', { name: /^稍后$/ })).not.toBeInTheDocument()
+    expect(within(drawer).getByRole('button', { name: '重新打开' })).toBeInTheDocument()
+    expect(within(drawer).getByRole('button', { name: '忽略' })).toBeInTheDocument()
+    await userEvent.click(within(drawer).getByRole('button', { name: '标为已处理' }))
+    await waitFor(() => expect(posts(calls)).toEqual(['done']))
+    expect(await within(drawer).findByText('已处理')).toBeInTheDocument()
+    expect(within(drawer).queryByRole('button', { name: '忽略' })).not.toBeInTheDocument()
   })
 
   it('勾选多条，底栏一次标为已处理（PR-03）', async () => {

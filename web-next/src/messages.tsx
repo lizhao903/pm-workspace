@@ -12,7 +12,7 @@ export type MsgAction =
   | { kind: 'snooze'; until: string }
   | { kind: 'reply'; text: string; done: boolean }
 
-type View = 'pending' | 'snoozed' | 'done' | 'ignored' | 'all'
+type View = 'pending' | 'snoozed' | 'done' | 'ignored' | 'expired' | 'all'
 
 /* ---------- 与我相关：@我、@所有人、私聊 ---------- */
 
@@ -139,6 +139,9 @@ const caret = <svg viewBox="0 0 16 16" width="10" height="10"><path d="m4 6 4 4 
 
 /* ---------- 列表 ---------- */
 
+/** M/D HH:mm */
+const fmtMD = (iso: string) => new Date(iso).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+
 /** 状态小标签按枚举颜色上色，和原来「已处理」的绿色标签同一种做法 */
 const stateStyle = (c: string): React.CSSProperties => ({ color: c, background: `color-mix(in srgb, ${c} 12%, transparent)` })
 
@@ -244,8 +247,9 @@ export function MessagesPage({ messages, contacts, connectors, selected, onOpen,
         onOpen(rows[n].id)
       }
       if (e.key === 'k' && rows.length) onOpen(rows[Math.max(i - 1, 0)].id)
-      // 只对待处理（含稍后）的生效，已处理、已忽略的不动
-      if (e.key === 'e' && selected && messages.find((m) => m.id === selected)?.status === 'pending') onAct(selected, { kind: 'done' })
+      // 只对还没处理的（待处理含稍后、已过期）生效，已处理、已忽略的不动
+      const st = selected ? messages.find((m) => m.id === selected)?.status : undefined
+      if (e.key === 'e' && selected && (st === 'pending' || st === 'expired')) onAct(selected, { kind: 'done' })
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
@@ -340,7 +344,10 @@ export function MessagesPage({ messages, contacts, connectors, selected, onOpen,
                     <span className="msg-conv">{m.conversation || '私聊'}</span>
                     {rel && rel !== 'dm' && <span className={cls('rel-tag', rel === 'me' && 'rel-me')}>{RELEVANCE[rel]}</span>}
                     <span className="spacer" />
-                    {m.status !== 'pending' && <span className="state" style={stateStyle(msgEnum.color(m.status))}>{msgEnum.label(m.status)}</span>}
+                    {m.status !== 'pending' && (
+                      <span className="state" style={stateStyle(msgEnum.color(m.status))}
+                        title={m.status === 'expired' && m.expired_at ? `${fmtMD(m.expired_at)} 超期没处理，标为${msgEnum.label('expired')}` : undefined}>{msgEnum.label(m.status)}</span>
+                    )}
                     {isSnoozed(m) && <span className="state state-snooze">{new Date(m.snooze_until!).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })} 提醒</span>}
                     {m.replies.length > 0 && <span className="state">已回复 {m.replies.length}</span>}
                     {task && <button className="state state-task state-link" onClick={(e) => { e.stopPropagation(); onToTask(m.id) }} onKeyDown={(e) => e.stopPropagation()} title="打开这条任务">已转任务 {task}</button>}
@@ -362,6 +369,13 @@ export function MessagesPage({ messages, contacts, connectors, selected, onOpen,
                         ))}
                       </Menu>
                       {!task && <button className="act" onClick={() => onToTask(m.id)}>转任务</button>}
+                      <button className="act act-quiet" onClick={() => onAct(m.id, { kind: 'ignore' })}>忽略</button>
+                    </>
+                  ) : m.status === 'expired' ? (
+                    // 已过期（IM-07）：还没处理，能标已处理、忽略；重新打开回到待处理，过期重新算。不能稍后
+                    <>
+                      <button className="act act-primary" onClick={() => onAct(m.id, { kind: 'done' })} title={`标为${msgEnum.label('done')} (E)`}>{msgEnum.label('done')}</button>
+                      <button className="act" onClick={() => onAct(m.id, { kind: 'reopen' })} title={`回到${msgEnum.label('pending')}，重新计算过期`}>重新打开</button>
                       <button className="act act-quiet" onClick={() => onAct(m.id, { kind: 'ignore' })}>忽略</button>
                     </>
                   ) : (
@@ -438,6 +452,7 @@ export function MessageDrawer({ msg, contact, connector, onClose, onAct, onOpenC
               <span className="ms-dot" style={snoozed ? undefined : { background: msgEnum.color(msg.status) }} />
               <b>{snoozed ? '稍后提醒' : msgEnum.label(msg.status)}</b>
               {snoozed && <span className="ms-sub">{new Date(msg.snooze_until!).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })} 再提醒</span>}
+              {msg.status === 'expired' && msg.expired_at && <span className="ms-sub">{fmtMD(msg.expired_at)} 超期没处理</span>}
               {rel && rel !== 'dm' && <span className="ms-sub">{RELEVANCE[rel]}</span>}
               {msg.replies.length > 0 && <span className="ms-sub">已回复 {msg.replies.length} 次</span>}
               <span className="spacer" />
@@ -449,6 +464,12 @@ export function MessageDrawer({ msg, contact, connector, onClose, onAct, onOpenC
                       <button key={o.label} className="menu-item" onClick={() => { onAct({ kind: 'snooze', until: o.until.toISOString() }); close() }}>{o.label}</button>
                     ))}
                   </Menu>
+                  <button className="ms-act" onClick={() => onAct({ kind: 'ignore' })}>忽略</button>
+                </>
+              ) : msg.status === 'expired' ? (
+                <>
+                  <button className="ms-act ms-primary" onClick={() => onAct({ kind: 'done' })}>标为{msgEnum.label('done')}</button>
+                  <button className="ms-act" onClick={() => onAct({ kind: 'reopen' })}>重新打开</button>
                   <button className="ms-act" onClick={() => onAct({ kind: 'ignore' })}>忽略</button>
                 </>
               ) : <button className="ms-act" onClick={() => onAct({ kind: 'reopen' })}>重新打开</button>}

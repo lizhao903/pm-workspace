@@ -24,7 +24,7 @@ const msg = (p: Partial<ImMessage>): ImMessage => ({
   id: 'msg_x', channel: 'slack', connector_id: '', external_id: 'x', conversation_id: 'cv_prod', conversation_external_id: 'C1', conversation_kind: 'group',
   conversation: '#product', sender_id: 'U1', sender_name: 'Lin Yuan', identity_id: 'idn_lin', stakeholder_id: 'stk_lin', contact_name: '林予安',
   text: '', attachments: [], relevance: '', status: 'pending', read: false, snooze_until: null, at: '2026-10-29T01:00:00Z', received_at: '2026-10-29T01:00:00Z',
-  adapter: 'fake', task_id: null, task_ref: '', replies: [], reply_error: '', ...p,
+  adapter: 'fake', task_id: null, task_ref: '', replies: [], reply_error: '', expired_at: null, ...p,
 })
 const MSGS = [
   msg({ id: 'msg_1', text: '@我 权限点清单整理了一版', relevance: 'me', at: '2026-10-29T03:00:00Z' }),

@@ -426,7 +426,10 @@ export const seedConnectors: Connector[] = [
 
 /* ---------- IM 消息 ---------- */
 
-export type MsgStatus = 'pending' | 'done' | 'ignored'
+/** expired 已过期（IM-07）：待处理超过设置的天数没处理，自动标的；不算待处理 */
+export type MsgStatus = 'pending' | 'done' | 'ignored' | 'expired'
+/** 过期天数默认值（IM-07），0 为不过期 */
+export const IM_EXPIRE_DAYS_DEFAULT = 7
 export interface Reply { id: string; text: string; at: string }
 /** 消息里带的附件；文件和图片要先「获取」（从 IM 平台下载到本地）才能加进项目资料，链接不用 */
 export type AttachmentKind = 'file' | 'image' | 'link'
@@ -460,14 +463,18 @@ export interface Message {
   status: MsgStatus
   /** 稍后提醒到点前不出现在「待处理」里 */
   snooze_until: string | null
+  /** 标为已过期的时间（IM-07）；不是已过期时为 null */
+  expired_at: string | null
+  /** 从什么时候起算过期，不存时按 at；重新打开时设成当时，免得刚改回来又过期（原型自己的字段，正式产品在后端） */
+  expire_from?: string
   replies: Reply[]
   attachments?: MsgAttachment[]
 }
 
 let mseq = 0
-const m = (p: Omit<Message, 'id' | 'read' | 'status' | 'snooze_until' | 'replies'> & Partial<Message>): Message => {
+const m = (p: Omit<Message, 'id' | 'read' | 'status' | 'snooze_until' | 'expired_at' | 'replies'> & Partial<Message>): Message => {
   mseq += 1
-  return { id: `msg_${mseq.toString().padStart(3, '0')}`, read: false, status: 'pending', snooze_until: null, replies: [], ...p }
+  return { id: `msg_${mseq.toString().padStart(3, '0')}`, read: false, status: 'pending', snooze_until: null, expired_at: null, replies: [], ...p }
 }
 
 export const seedMessages: Message[] = [

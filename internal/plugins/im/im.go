@@ -86,6 +86,9 @@ func (p *Plugin) Register(r plugin.Registrar) error {
 		m.HandleFunc("POST /api/im/messages/{id}/attachments/{attachment_id}/fetch", in.fetch)
 		m.HandleFunc("GET /api/im/attachments", in.attachmentsInfo)
 		m.HandleFunc("GET /api/im/attachments/{channel}/{name}", in.download)
+		// 过期天数（IM-07，expiry.go）
+		m.HandleFunc("GET /api/im/settings", in.getSettings)
+		m.HandleFunc("PATCH /api/im/settings", in.patchSettings)
 	})
 	for _, a := range p.adapters {
 		if pl, ok := a.(Puller); ok {
@@ -97,6 +100,7 @@ func (p *Plugin) Register(r plugin.Registrar) error {
 		}
 	}
 	r.Job(plugin.Job{Name: "snooze_wake", Every: snoozeEvery, Run: in.wakeJob})
+	r.Job(plugin.Job{Name: "expire", Every: expireEvery, Run: in.expireJob})
 	// 补登记之前没登记的会话，启用时跑一次（PR-02）
 	r.Job(plugin.Job{Name: "register_conversations", Run: in.registerJob})
 	r.ConnectorImpact(plugin.ConnectorImpactDef{Key: "messages", Load: messagesImpact})

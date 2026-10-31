@@ -13,7 +13,7 @@ const MSG: ImMessage = {
   id: 'msg_1', channel: 'slack', connector_id: '', external_id: 'x', conversation_id: 'cv_prod', conversation_external_id: 'C1', conversation_kind: 'group',
   conversation: '#product', sender_id: 'U1', sender_name: 'Lin', identity_id: null, stakeholder_id: null, contact_name: '',
   text: '周报能不能全自动生成', relevance: '', status: 'pending', read: false, snooze_until: null, at: '2026-10-29T01:00:00Z', received_at: '2026-10-29T01:00:00Z',
-  adapter: 'fake', task_id: null, task_ref: '', replies: [], reply_error: '', attachments: [],
+  adapter: 'fake', task_id: null, task_ref: '', replies: [], reply_error: '', expired_at: null, attachments: [],
 }
 
 function fakeBackend() {

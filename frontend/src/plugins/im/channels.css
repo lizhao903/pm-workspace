@@ -26,6 +26,12 @@
 .im-chlink:hover, .im-chback:hover { text-decoration: underline; }
 .im-chform-title { display: flex; align-items: center; gap: var(--sp-4); font-weight: 600; }
 
+/* 消息过期（IM-07）：渠道列表下面一节，和渠道无关，用分隔线隔开 */
+.im-chexpire { display: flex; flex-direction: column; gap: var(--sp-4); border-top: 1px solid var(--line); padding-top: var(--sp-6); }
+.im-chexpire-title { font-weight: 600; }
+.im-chexpire-row { display: flex; align-items: center; gap: var(--sp-3); }
+.im-chexpire-input { width: 88px; }
+
 .im-chform { display: flex; flex-direction: column; gap: var(--sp-6); }
 .im-chform-steps { margin: 0; padding-left: 1.4em; display: flex; flex-direction: column; gap: var(--sp-2); line-height: 1.6; }
 .im-chform-steps code, .im-chform-note code { font-family: var(--mono); font-size: var(--fs-xs); background: var(--hover); padding: 0 4px; border-radius: 3px; word-break: break-all; }

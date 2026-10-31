@@ -2,7 +2,7 @@
 import type { Connector, ConnectorDef, DictItem, ImMessage, ImMsgStatus } from '../../core/data'
 import { matchOption } from '../../core/ui/searchMatch'
 
-export type View = 'pending' | 'snoozed' | 'done' | 'ignored' | 'all'
+export type View = 'pending' | 'snoozed' | 'done' | 'ignored' | 'expired' | 'all'
 /** '' 全部；mine 与我相关（@我、@所有人、私聊）；at 只看 @我 */
 export type Mine = '' | 'mine' | 'at'
 
@@ -29,10 +29,12 @@ const BUILTIN_STATUS: StatusItem[] = [
   { key: 'pending', label: '待处理', color: 'var(--warn)' },
   { key: 'done', label: '已处理', color: 'var(--ok)' },
   { key: 'ignored', label: '已忽略', color: 'var(--faint)' },
+  // IM-07：后台按过期天数标的；字典里还没有这一项时补在最后
+  { key: 'expired', label: '已过期', color: '#868e96' },
 ]
-const MSG_STATUSES: readonly ImMsgStatus[] = ['pending', 'done', 'ignored']
+const MSG_STATUSES: readonly ImMsgStatus[] = ['pending', 'done', 'ignored', 'expired']
 
-/** 字典条目只认三个内置 key（后端的状态集是固定的），顺序和名字、颜色跟字典走；缺的按内置补在后面 */
+/** 字典条目只认四个内置 key（后端的状态集是固定的），顺序和名字、颜色跟字典走；缺的按内置补在后面 */
 export function statusItems(dict: DictItem[] | undefined): StatusItem[] {
   const live = (dict ?? [])
     .filter((i) => !i.archived_at && (MSG_STATUSES as readonly string[]).includes(i.key))
@@ -126,8 +128,11 @@ export function convOptions(list: readonly ImMessage[], channel: string, now = D
 /** 后端一次最多带的 id 数 */
 export const BATCH_MAX = 500
 
-/** 能勾选的：待处理（含稍后）的才有批量动作 */
-export const canPick = (m: Pick<ImMessage, 'status'>) => m.status === 'pending'
+/** 还没处理的：待处理（含稍后）和已过期（IM-07），能标已处理、忽略 */
+export const isOpen = (m: Pick<ImMessage, 'status'>) => m.status === 'pending' || m.status === 'expired'
+
+/** 能勾选的：还没处理的才有批量动作（后端按 id 批量时已过期的也改） */
+export const canPick = isOpen
 
 /** 勾选里还在当前列表、还能处理的；筛选一变、处理掉的自然不算 */
 export const pickedRows = (rows: readonly ImMessage[], sel: ReadonlySet<string>) => rows.filter((m) => sel.has(m.id) && canPick(m))

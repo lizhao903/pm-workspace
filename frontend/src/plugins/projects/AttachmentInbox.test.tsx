@@ -13,7 +13,7 @@ const msg = (id: string, at: string, attachments: ImAttachment[]): ImMessage => 
   id, channel: 'slack', connector_id: '', external_id: id, conversation_id: 'cv_prod', conversation_external_id: 'C1', conversation_kind: 'group',
   conversation: '#product', sender_id: 'U1', sender_name: 'Lin Yuan', identity_id: null, stakeholder_id: null, contact_name: '林予安',
   text: `正文 ${id}`, attachments, relevance: '', status: 'pending', read: false, snooze_until: null, at, received_at: at,
-  adapter: 'fake', task_id: null, task_ref: '', replies: [], reply_error: '',
+  adapter: 'fake', task_id: null, task_ref: '', replies: [], reply_error: '', expired_at: null,
 })
 const LINK = 'https://www.figma.com/design/roles-v4'
 const LOCAL = '/d/attachments/slack/清单.xlsx'

@@ -29,7 +29,7 @@ export function channelLabeler(defs: readonly ConnectorDef[] | undefined): (key:
 
 // ---- 处理状态：名字跟字典 msg_status 走，没有时按内置兜底 ----
 
-const STATUS_LABELS: Record<string, string> = { pending: '待处理', done: '已处理', ignored: '已忽略' }
+const STATUS_LABELS: Record<string, string> = { pending: '待处理', done: '已处理', ignored: '已忽略', expired: '已过期' }
 
 export function statusLabeler(items: readonly DictItem[] | undefined): (key: string) => string {
   const live = new Map((items ?? []).filter((i) => !i.archived_at).map((i) => [i.key, i.label]))

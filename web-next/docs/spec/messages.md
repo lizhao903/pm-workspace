@@ -5,10 +5,10 @@
 | 模块 key | `messages` |
 | 原型入口 | 一级菜单「IM 消息」，http://127.0.0.1:7778 |
 | 源码 | `web-next/src/messages.tsx`（列表页 `MessagesPage`、抽屉 `MessageDrawer`、`relevance`、`replyBlocker`、`fetchBlocker`、`isSnoozed`、`contactIndex`）、`web-next/src/attachments.tsx`（`AttachmentChips`、`AttachmentPanel`）；接线在 `web-next/src/App.tsx`（`actOnMessage`、`syncMessages`、`fetchAttachment`、`addAttachmentToProject`、`openTaskFromMessage`） |
-| 数据文件 | `web-next/src/data.ts`（`Message`、`MsgStatus`、`Reply`、`MsgAttachment`、`AttachmentKind`、`Connector`、`ConnStatus`、`MY_HANDLES`、`ALL_HANDLES`、`QUICK_REPLIES`、`SYNC_POOL`、`ATTACH_DIR`）、`web-next/src/enumdata.ts`（`msg_status` 枚举） |
+| 数据文件 | `web-next/src/data.ts`（`Message`、`MsgStatus`、`IM_EXPIRE_DAYS_DEFAULT`、`Reply`、`MsgAttachment`、`AttachmentKind`、`Connector`、`ConnStatus`、`MY_HANDLES`、`ALL_HANDLES`、`QUICK_REPLIES`、`SYNC_POOL`、`ATTACH_DIR`）、`web-next/src/enumdata.ts`（`msg_status` 枚举） |
 | 截图 | [`shots/messages/`](shots/messages/) |
 | 负责任务 | PROTO-04d |
-| 对应开发任务 | IM-02b 实现 IM 消息页和消息抽屉：与 `SPEC-messages-1`、`SPEC-messages-2` 对照；IM-04b 实现附件面板和项目附件收件：与 `SPEC-messages-3`、`SPEC-projects-5` 对照（数据结构见 `SPEC-messages-0`） |
+| 对应开发任务 | IM-02b 实现 IM 消息页和消息抽屉：与 `SPEC-messages-1`、`SPEC-messages-2` 对照；IM-07 已过期状态和过期天数：与 `SPEC-messages-1.43`~`1.46`、`SPEC-messages-2.32` 对照；IM-04b 实现附件面板和项目附件收件：与 `SPEC-messages-3`、`SPEC-projects-5` 对照（数据结构见 `SPEC-messages-0`） |
 | 状态 | 已整理 |
 | 最后对照 | 2026-10-28，原型提交 `932555b` |
 
@@ -39,20 +39,25 @@
 | `text` | `string` | 是 | 正文，可含 @ | |
 | `at` | `string` | 是 | 收到时间，ISO 8601 | |
 | `read` | `boolean` | 是 | 已读；打开抽屉、处理、稍后、回复都会置为 `true` | `false` |
-| `status` | `MsgStatus` | 是 | 处理状态 | `pending` 待处理 / `done` 已处理 / `ignored` 已忽略 |
+| `status` | `MsgStatus` | 是 | 处理状态 | `pending` 待处理 / `done` 已处理 / `ignored` 已忽略 / `expired` 已过期（IM-07） |
 | `snooze_until` | `string \| null` | 是 | 稍后提醒到点时间，ISO 8601；到点前不出现在「待处理」里 | `null` |
+| `expired_at` | `string \| null` | 是 | 标为已过期的时间，ISO 8601（IM-07）；不是已过期时为 `null`；处理完、忽略、重新打开时清空 | `null` |
+| `expire_from` | `string` | 否 | 从什么时候起算过期，不存时按 `at`；重新打开时设成当时。原型自己的字段，正式产品在后端，接口不出 | |
 | `replies` | `Reply[]` | 是 | 我发出的回复，按时间先后 | `[]` |
 | `attachments` | `MsgAttachment[]` | 否 | 附件；没有附件时不存或为空 | |
 
 `Reply`：`{ id: string; text: string; at: string }`，`at` 为发送时间 ISO 8601。
 
-`MsgStatus`：`'pending' | 'done' | 'ignored'`。显示名和颜色读 `msg_status` 枚举（`web-next/src/enumdata.ts`），三个都是系统值（`locked`），`default_key` 为 `pending`：
+`MsgStatus`：`'pending' | 'done' | 'ignored' | 'expired'`。显示名和颜色读 `msg_status` 枚举（`web-next/src/enumdata.ts`），四个都是系统值（`locked`），`default_key` 为 `pending`：
 
 | key | label | color |
 |---|---|---|
 | `pending` | 待处理 | `#b0570b` |
 | `done` | 已处理 | `#2f7d43` |
 | `ignored` | 已忽略 | `#a19d92` |
+| `expired` | 已过期 | `#868e96` |
+
+「已过期」（IM-07）：待处理、没在稍后里的消息，从收到时间 `at`（重新打开过的从重新打开时）起超过「过期天数」没处理，自动标为 `expired` 并记 `expired_at`。已过期不算待处理：不进「待处理」、标题和一级菜单的待处理数、今日「需要你处理」、项目沟通的待回复数；但还算没处理，能标已处理、忽略、重新打开、回复，能勾选批量处理，不能稍后。过期天数默认 7（`IM_EXPIRE_DAYS_DEFAULT`），0 到 365 的整数，0 为不过期，在「渠道配置」里改（`SPEC-messages-1.46`）；改短时到期的马上标，改长不会把已过期的改回来。原型在最早的到期时间到点时标（`App.tsx` 的 `nextExpire`）；正式产品由后端定时标（约每 10 分钟）。
 
 「稍后」不是状态：`status === 'pending'` 且 `snooze_until` 晚于现在的消息算「稍后」（`isSnoozed`），到点后自动回到「待处理」：原型在最早的提醒时间到点时清掉 `snooze_until`，列表、今日、项目的计数跟着变；正式产品按 IM-02a 由后端到点改回。
 
@@ -75,12 +80,12 @@
 
 | `kind` | 额外字段 | 效果 |
 |---|---|---|
-| `done` | | `status = 'done'`，`snooze_until = null`，`read = true` |
-| `ignore` | | `status = 'ignored'`，`snooze_until = null`，`read = true` |
-| `reopen` | | `status = 'pending'`，`snooze_until = null`；回复记录保留 |
+| `done` | | `status = 'done'`，`snooze_until = null`，`expired_at = null`，`read = true`；已过期的也能 |
+| `ignore` | | `status = 'ignored'`，`snooze_until = null`，`expired_at = null`，`read = true`；已过期的也能 |
+| `reopen` | | `status = 'pending'`，`snooze_until = null`，`expired_at = null`，`expire_from` 设为现在（过期重新算）；回复记录保留 |
 | `read` | | `read = true` |
 | `snooze` | `until: string` | `snooze_until = until`，`read = true`；状态不变 |
-| `reply` | `text: string; done: boolean` | 追加一条 `Reply`，`read = true`；`done` 为真时同时 `status = 'done'`、清掉 `snooze_until`；能对上联系人时，该联系人的 `last_contact_at` 改成回复时间 |
+| `reply` | `text: string; done: boolean` | 追加一条 `Reply`，`read = true`；`done` 为真时同时 `status = 'done'`、清掉 `snooze_until` 和 `expired_at`；能对上联系人时，该联系人的 `last_contact_at` 改成回复时间 |
 
 `Relevance`（`web-next/src/messages.tsx`）：`'me' | 'all' | 'dm'`，显示名 `RELEVANCE = { me: '@我', all: '@所有人', dm: '私聊' }`。`relevance(m)` 的规则：
 
@@ -149,6 +154,7 @@
 | 改动 | 设置 / 运行异常 | 同步失败、附件获取失败 | 记一条 `warn` 级运行异常 | `SPEC-settings`（运行异常节） |
 | 被引用 | 联系人 | 显示发信人 | 按「渠道 + 编号」匹配联系人 | `SPEC-contacts-0` |
 | 被引用 | 项目 | 沟通渠道绑定 | 项目只看绑定的群和私聊里的消息 | `SPEC-projects-4` |
+| 被改动 | 设置 / 连接器 | 即时通讯分类「消息过期」改天数（正式产品在「渠道配置」抽屉里，IM-07） | 改短时到期的待处理马上标为已过期，各处计数跟着变 | `SPEC-messages-1.46` |
 | 被改动 | 设置 / 枚举值 | 改 `msg_status` 的显示名、颜色、顺序 | 状态切换、状态标签、按钮文字（「标为已处理」等）跟着变 | `SPEC-settings`（枚举值节） |
 | 显示 | 一级菜单 | 始终 | 「IM 消息」角标是待处理数（不含稍后），大于 0 时显示红点 | 全局 |
 
@@ -172,8 +178,8 @@
 | SPEC-messages-1.3 | 同步结果 | 同步结束 | 按钮左边显示结果 6 秒后消失：「收到 N 条新消息」或「没有新消息」；有异常连接器时加「；<名字、名字>同步失败」，文字变红。新消息插到列表最前，未读、待处理 |
 | SPEC-messages-1.4 | 同步规则 | 同步 | 只同步 `connected` 和 `error` 的 IM 连接器：`connected` 的取下一批新消息并更新 `last_sync_at`；`error` 的同步失败并记一条运行异常（级别 `warn`、模块「连接器」、标题「<连接器名>同步失败」、内容为连接器的 `error`）；`paused`、`disconnected` 的跳过。原型模拟 1 秒出结果 |
 | SPEC-messages-1.5 | 右上「渠道配置」 | 点击 | 打开设置的连接器页，定位到即时通讯分类。有 IM 连接器异常时按钮上带红点，悬停「N 个连接器异常」。渠道异常不在列表顶上铺横幅 |
-| SPEC-messages-1.6 | 状态切换 | 点击 | 「待处理 N / 稍后 N / 已处理 N / 已忽略 N / 全部 N」单选，默认待处理。顺序和名字跟 `msg_status` 枚举走，「稍后」固定插在「待处理」后面。数字是当前渠道、会话、与我相关筛选下的条数，不受搜索和「只看未读」影响。待处理不含稍后；稍后是 `pending` 且没到点的 |
-| SPEC-messages-1.7 | 「更多状态 N」下拉 | 选择 | 状态超过 5 个（不算「全部」）时出现：切换里只放前 4 个，其余收进可搜索下拉，每项提示「N 条」；清空选择回到待处理。内置只有 4 个状态，不出现 |
+| SPEC-messages-1.6 | 状态切换 | 点击 | 「待处理 N / 稍后 N / 已处理 N / 已忽略 N / 已过期 N / 全部 N」单选，默认待处理。顺序和名字跟 `msg_status` 枚举走，「稍后」固定插在「待处理」后面。数字是当前渠道、会话、与我相关筛选下的条数，不受搜索和「只看未读」影响。待处理不含稍后；稍后是 `pending` 且没到点的 |
+| SPEC-messages-1.7 | 「更多状态 N」下拉 | 选择 | 状态超过 5 个（不算「全部」）时出现：切换里只放前 4 个，其余收进可搜索下拉，每项提示「N 条」；清空选择回到待处理。内置只有 5 个状态（含稍后、已过期），不出现 |
 | SPEC-messages-1.8 | 搜索框 | 输入 | 占位「搜索内容、发信人、群名」；实时过滤，不区分大小写，匹配正文、`sender_name`、群名和对上的联系人姓名；没有清空按钮 |
 | SPEC-messages-1.9 | 「与我相关」下拉 | 选择 | 「全部消息」/「与我相关」（@我、@所有人和私聊）/「只看 @我（N 条待处理）」，N 为 0 时不显示括号。选了非「全部消息」时下拉高亮。规则见 `SPEC-messages-0` `Relevance` |
 | SPEC-messages-1.10 | 「@N」角标 | 显示 | 选「全部消息」且有 @我 的待处理消息时，下拉右侧显示「@N」，悬停「N 条 @我 的消息待处理」 |
@@ -193,12 +199,16 @@
 | SPEC-messages-1.24 | 弹出菜单 | 点菜单外 | 收起；点菜单和按钮不会触发行点击 |
 | SPEC-messages-1.25 | 「加载更多 还有 N 条」 | 点击 | 先渲染 50 条，每点一次多 50 条；状态、渠道、会话、未读、与我相关、搜索任一变化就回到前 50 条 |
 | SPEC-messages-1.26 | 键盘 J / K | 按键 | 在当前筛选结果里打开下一条 / 上一条；还没打开过时 J 和 K 都打开第一条；J 走到已渲染的末尾会自动再加载一页。输入框、文本框、下拉聚焦时，或按着 Cmd / Ctrl 时不生效 |
-| SPEC-messages-1.27 | 键盘 E | 按键 | 当前打开的消息是待处理（含稍后）时标为已处理；已处理、已忽略的不动；条件同 1.26 |
+| SPEC-messages-1.27 | 键盘 E | 按键 | 当前打开的消息是待处理（含稍后）或已过期时标为已处理；已处理、已忽略的不动；条件同 1.26 |
 | SPEC-messages-1.28 | 键盘 Esc | 抽屉打开时按 | 关闭抽屉 |
 | SPEC-messages-1.29 | 手机宽度 | 显示 | 工具条换行：状态切换、搜索、与我相关和只看未读、会话、渠道各占一行；行内操作按钮排到正文下面，列表宽度不到 460 时不再缩进到头像右边，一行放不下就换行，不裁掉 |
 | SPEC-messages-1.40 | 行首勾选框 | 点击 | 只在待处理（含稍后）的行上有，在头像左边；勾选不打开抽屉，勾上的行底色变浅。原型未做，正式产品按产品走查 B-02（PR-03）加 |
 | SPEC-messages-1.41 | 底栏批量处理 | 勾了至少一条时出现 | 浮在列表底部：「已选 N 条」、没全选时「全选 M 条」（当前筛选结果里的待处理，最多 500 条）、「标为已处理」、「忽略」、「取消选择」。处理后清掉勾选，右上提示「已把 N 条标为已处理 / 已忽略」。切筛选后不在列表里的勾选不算；「标为已处理」和提示里的状态名跟枚举的显示名 |
 | SPEC-messages-1.42 | 「这个会话全部标为已处理」 | 选了会话、这个会话有待处理时出现在列表上方 | 「「群名」还有 N 条待处理」+ 按钮；N 不受与我相关、搜索、只看未读影响，不含稍后。点了把这个会话里发送时间不晚于最近一条的待处理都标为已处理，之后新到的不动 |
+| SPEC-messages-1.43 | 「已过期」状态（IM-07） | 点击 | 状态切换里排在「已忽略」后面，数字口径同 1.6；只列已过期的。已过期的行整体变淡，状态标签「已过期」（枚举颜色），悬停「M/D HH:mm 超期没处理，标为已过期」 |
+| SPEC-messages-1.44 | 已过期行的操作（IM-07） | 点击 | 代替「重新打开」一个按钮，给「已处理」（悬停「标为已处理 (E)」）、「重新打开」（悬停「回到待处理，重新计算过期」，回到待处理，过期从现在重新算）、「忽略」；没有「回复」「稍后」「转任务」菜单，要回复打开抽屉 |
+| SPEC-messages-1.45 | 已过期行的勾选（IM-07） | 点击 | 已过期的行也有勾选框，底栏「全选 M 条」把已过期的算进去，批量「标为已处理」「忽略」对已过期的同样生效（原型未做勾选，同 1.40）。「这个会话全部标为已处理」只管待处理，不含已过期 |
+| SPEC-messages-1.46 | 消息过期天数（IM-07） | 改数字后点「保存」或回车 | 原型在设置的连接器页「即时通讯」分类标题下一行：「消息过期 [N] 天 保存」+ 提示「超过 N 天没处理的消息标为已过期，0 为不过期。从收到（或重新打开）时算起，设了稍后还没到点的不算」。正式产品在本页「渠道配置」抽屉的渠道列表下面一节「消息过期」，同样的输入框、「保存」和提示。默认 7；数字没变时「保存」置灰；不是 0 或正整数时红字「填 0 或正整数」不提交；超过 365 原型红字「过期天数要在 0 到 365 之间」，正式产品交给后端，红字「没保存：<后端原因>」。保存后绿字「已保存：超过 N 天没处理的消息标为已过期」，0 时「已保存：消息不再过期」；改短时到期的待处理马上标为已过期 |
 
 ### 空状态和异常状态
 
@@ -221,7 +231,7 @@
 
 | 字段 | 类型 | 说明 | 取值 |
 |---|---|---|---|
-| `view` | `View` | 状态筛选 | `pending` / `snoozed` / `done` / `ignored` / `all`，默认 `pending` |
+| `view` | `View` | 状态筛选 | `pending` / `snoozed` / `done` / `ignored` / `expired` / `all`，默认 `pending` |
 | `channel` | `string` | 渠道筛选，空串为全部 | 渠道 key |
 | `unreadOnly` | `boolean` | 只看未读 | |
 | `mine` | `'' \| 'mine' \| 'at'` | 与我相关 | `''` 全部消息 / `mine` 与我相关 / `at` 只看 @我 |
@@ -230,6 +240,7 @@
 | `VIEW_SEG_MAX` | 常量 | 状态切换里最多放几个状态 | `4` |
 | `PAGE` | 常量 | 一次渲染条数 | `50` |
 | `syncResult` | `{ at: string; text: string; bad: boolean } \| null` | 最近一次同步结果（`App.tsx`） | |
+| `imExpireDays` | `number` | 过期天数（`App.tsx`，IM-07），传给设置的连接器页 `ConnectorsSettings` | 0 到 365，默认 7，0 为不过期 |
 
 `MessagesPage` 的回调：`onOpen(id)`、`onAct(id, MsgAction)`、`onSync(channel?)`、`onGoConnectors()`、`onToTask(id)`、`taskOf(id)`（返回转出来的任务编号）。
 
@@ -271,6 +282,7 @@
 | SPEC-messages-2.7 | 状态条「稍后」菜单 | 点击 | 选项同 `SPEC-messages-1.20` |
 | SPEC-messages-2.8 | 状态条「忽略」 | 点击 | 标为已忽略，抽屉不关 |
 | SPEC-messages-2.9 | 状态条「重新打开」 | 点击 | 已处理、已忽略时代替上面三个；回到待处理 |
+| SPEC-messages-2.32 | 已过期的状态条（IM-07） | 显示 / 点击 | 状态名「已过期」（枚举颜色）+「M/D HH:mm 超期没处理」；右边「标为已处理」「重新打开」「忽略」，没有「稍后」；点了抽屉不关。重新打开回到待处理，过期从现在重新算。回复照常能发，勾着「发送后标为已处理」时发完标为已处理 |
 | SPEC-messages-2.10 | 发信人 | 显示 | 头像、姓名（联系人姓名，否则 `sender_name`）、「<渠道名> · <sender_id>」（等宽） |
 | SPEC-messages-2.11 | 「查看联系人」 | 点击 | 对上联系人时显示；打开该联系人的抽屉（`SPEC-contacts-2`，替换消息抽屉） |
 | SPEC-messages-2.12 | 「关联到联系人」「新建联系人」 | 显示 | 对不上联系人时显示这两个（原型是一个「存为联系人」，跳到联系人页新建；正式产品按 IM-05 改成就地认人，不离开 IM 页）。「关联到联系人」打开认人弹窗的关联页（2.27），「新建联系人」打开新建页（2.28）。认人就是给联系人挂一个 IM 身份 `{stakeholder_id, channel, external_id: sender_id, display_name: sender_name, account: 收这条消息的连接器账号（取不到留空）}`；消息读取时按渠道和编号认人，这个人以前和以后在这个渠道的消息都会认上 |

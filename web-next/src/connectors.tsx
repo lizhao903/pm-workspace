@@ -56,9 +56,39 @@ export function StatusDot({ s }: { s: ConnStatus }) {
   return <span className={`conn-status conn-${STATUS[s].tone}`}><i />{STATUS[s].label}</span>
 }
 
+/* ---------- IM 消息过期（IM-07）：即时通讯分类下的一行设置，和具体渠道无关 ---------- */
+
+/** 过期天数：整数 0..365，0 为不过期；改了才能保存，超出范围红字说明（正式产品显示后端 400 的原因） */
+function ImExpiry({ days, onSave }: { days: number; onSave: (n: number) => void }) {
+  const [txt, setTxt] = useState(String(days))
+  const [note, setNote] = useState<{ ok: boolean; text: string } | null>(null)
+  const n = Number(txt)
+  const bad = !/^\d+$/.test(txt.trim()) ? '填 0 或正整数' : n > 365 ? '过期天数要在 0 到 365 之间' : null
+  const changed = !bad && n !== days
+  const save = () => {
+    if (bad) { setNote({ ok: false, text: `没保存：${bad}` }); return }
+    if (!changed) return
+    onSave(n)
+    setNote({ ok: true, text: n ? `已保存：超过 ${n} 天没处理的消息标为已过期` : '已保存：消息不再过期' })
+  }
+  return (
+    <div className="im-expiry">
+      <span className="im-expiry-label">消息过期</span>
+      <input type="number" min={0} max={365} step={1} inputMode="numeric" aria-label="过期天数" className={cls(note && !note.ok && 'bad')}
+        value={txt} onChange={(e) => { setTxt(e.target.value); setNote(null) }} onKeyDown={(e) => e.key === 'Enter' && save()} />
+      <span className="muted">天</span>
+      <button className="btn btn-outline" disabled={txt.trim() === String(days)} onClick={save}>保存</button>
+      {note ? <span className={note.ok ? 'ok-text' : 'field-err'}>{note.text}</span>
+        : <span className="field-hint-line">超过 N 天没处理的消息标为已过期，0 为不过期。从收到（或重新打开）时算起，设了稍后还没到点的不算</span>}
+    </div>
+  )
+}
+
 /* ---------- 列表（设置页里的一个分项） ---------- */
 
-export function ConnectorsSettings({ connectors, messageCount, initialCat = '', onConfigure, onAdd, onConnect, onDisconnect }: {
+export function ConnectorsSettings({ connectors, messageCount, initialCat = '', onConfigure, onAdd, onConnect, onDisconnect, imExpireDays, onImExpireDays }: {
+  /** IM 消息过期天数（IM-07），显示在即时通讯分类下面；0 为不过期 */
+  imExpireDays: number; onImExpireDays: (n: number) => void
   onConnect: (id: string) => void
   onDisconnect: (id: string) => void
   connectors: Connector[]
@@ -104,6 +134,7 @@ export function ConnectorsSettings({ connectors, messageCount, initialCat = '', 
             <h2>{c.label}</h2>
             <span className="muted">{c.desc}</span>
           </div>
+          {c.key === 'im' && <ImExpiry days={imExpireDays} onSave={onImExpireDays} />}
           <div className="tool-grid">
             {TOOLS.filter((t) => t.category === c.key).map((t) => {
               const mine = connectors.filter((x) => x.tool === t.key)

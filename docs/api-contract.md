@@ -355,7 +355,7 @@
 | `artifact_platform` | 0012 | `artifacts.platform` | 产物数 |
 | `artifact_kind` | 0031 | `artifacts.kind` | 产物数 |
 | `contact_group` | 0041 | `stakeholders.contact_group` | 联系人数（含已归档）。分组按「、」（也认逗号、斜杠、分号）拆开各算一次，没填的算 `其他`；key 就是显示名，内置客户、合作伙伴、同事、供应商、其他（默认） |
-| `msg_status` | 0041 | im 插件的 `im_messages.status` | 消息数；im 插件没装（表不存在）时为 0。`pending`（默认）、`done`、`ignored` 由表的约束定死 |
+| `msg_status` | 0041、0044 | im 插件的 `im_messages.status` | 消息数；im 插件没装（表不存在）时为 0。`pending`（默认）、`done`、`ignored` 由表的约束定死；`expired`（0044，IM-07）是待处理加 `expired_at`，按它单算，插件还没升级到有这一列时按旧口径算（都在 `pending` 里） |
 
 任务状态（对象类型的 `statuses`）和文档分类（`/api/categories`）不进字典表，设置的枚举值页直接读写它们各自的接口。
 
@@ -1633,7 +1633,7 @@ ALIGN-05。项目列表（SPEC-projects-1.5 到 1.11）按「有原型在跑 / �
 
 ## IM 消息插件 im
 
-IM-01a 起。插件 `im`（`internal/plugins/im`，清单 `plugin.json`，0.8.0（IM-06 加 Slack 本人身份；0.7.1 回复和推回来的本人消息只记一次；0.7.2 Slack 限流不算同步失败、不活跃私信轮流查，Telegram 后台连续 3 次连不上才算同步失败；0.8.0 加 SOP 节点读取消息、标记消息），权限 `network:im`：真实渠道出网，IM-01b 加，0.4.0 升上来要确认；域名清单是 `slack.com`、`*.slack.com`、`api.telegram.org` 等 IM 服务）。收各 IM 渠道的消息，落在插件表 `im_messages`（插件迁移 `0001_messages.sql`；IM-02a 的处理动作加了 `0002_actions.sql`，回复在 `im_replies`；IM-04a 的附件获取加了 `0003_attachments.sql`，获取状态在 `im_attachments`；SOP-02b 的等回复节点加了 `0004_sop_waits.sql`，挂起中的等待在 `im_sop_waits`；安装插件时应用）。发送人按 IM 身份（见「IM 身份 im-identities」）的 id 认、会话按会话（见「会话 conversations」）的 id 归，**不靠名字**。插件未安装或停用时，本节接口回 `not_found` 404（同「插件路由」）；停用时拉取也停下，数据不动。
+IM-01a 起。插件 `im`（`internal/plugins/im`，清单 `plugin.json`，0.9.0（IM-06 加 Slack 本人身份；0.7.1 回复和推回来的本人消息只记一次；0.7.2 Slack 限流不算同步失败、不活跃私信轮流查，Telegram 后台连续 3 次连不上才算同步失败；0.8.0 加 SOP 节点读取消息、标记消息；0.9.0 加已过期和设置，插件迁移 `0005_expiry.sql`），权限 `network:im`：真实渠道出网，IM-01b 加，0.4.0 升上来要确认；域名清单是 `slack.com`、`*.slack.com`、`api.telegram.org` 等 IM 服务）。收各 IM 渠道的消息，落在插件表 `im_messages`（插件迁移 `0001_messages.sql`；IM-02a 的处理动作加了 `0002_actions.sql`，回复在 `im_replies`；IM-04a 的附件获取加了 `0003_attachments.sql`，获取状态在 `im_attachments`；SOP-02b 的等回复节点加了 `0004_sop_waits.sql`，挂起中的等待在 `im_sop_waits`；安装插件时应用）。发送人按 IM 身份（见「IM 身份 im-identities」）的 id 认、会话按会话（见「会话 conversations」）的 id 归，**不靠名字**。插件未安装或停用时，本节接口回 `not_found` 404（同「插件路由」）；停用时拉取也停下，数据不动。
 
 ### 适配器
 
@@ -1719,7 +1719,7 @@ Slack App 的 **Bot Token**（`xoxb-`）方式，或（IM-06）以**我本人**�
 
 | 参数 | 说明 |
 |---|---|
-| `status` | `pending` / `done` / `ignored`，和原型 `MsgStatus` 一致；别的值 400 |
+| `status` | `pending` / `done` / `ignored` / `expired`，和原型 `MsgStatus` 一致；`pending` 不含已过期的；别的值 400 |
 | `channel` | 渠道 key，不分大小写 |
 | `conversation_id` | 会话 id（`cv_`）；到达时还没登记、后来登记了的会话的消息也算进来。会话不存在 400 |
 | `mine` | 与我相关：`any` 是 @我、@所有人、私聊，`at` 只看 @我（同原型筛选）；别的值 400 |
@@ -1739,7 +1739,7 @@ Slack App 的 **Bot Token**（`xoxb-`）方式，或（IM-06）以**我本人**�
   "at": "2026-10-29T01:00:00.000Z", "received_at": "2026-10-29T01:00:02.000Z",
   "adapter": "slack", "task_id": "obj_..." | null, "task_ref": "TSK-0012",
   "replies": [{ "id": "rp_...", "text": "收到，我今天看。", "status": "sent", "error": "", "external_id": "C01:1712.40", "at": "..." }],
-  "reply_error": "" }
+  "reply_error": "", "expired_at": null }
 ```
 
 - `conversation` 是群名：认上会话的取会话表现在的名字（改群名不断），没认上的取到达时的快照；私聊为空串（原型用空串表示私聊）。
@@ -1748,6 +1748,7 @@ Slack App 的 **Bot Token**（`xoxb-`）方式，或（IM-06）以**我本人**�
 - 「我」的称呼（IM-03）：收这条消息的连接器（`connector_id`）的 `account` 拆出来的几种，加上适配器自己给的（例如渠道里的用户编号）。`account` 按括号、逗号、顿号、斜杠、竖线分段，每段和整串都算，开头的 `@` 去掉，段里 `@` 开头的词也单算，例 `Lin Zhao（@zhaoli，U07ME）` 认 `@Lin Zhao`、`@zhaoli`、`@U07ME`。另加连接器配置里用户自己填的「我的称呼」`config.self_names`（PR-19，微信、飞书这类按名字 @ 的渠道要填）：按逗号、顿号、分号、换行分开，开头的 `@` 去掉，段里的空格保留，例 `李钊, Zhao` 认 `@李钊`、`@Zhao`；改了之后到的消息按新称呼认，已存的不重算（同 `account`）。没给 `connector_id` 或连接器已删时只认适配器给的。
 - 连接器的 `account` 变了（重新连通测试时由对方给），之后到的消息按新称呼认；已存的 `relevance` 不重算：那些消息到达时确实是 @ 当时的我，而且渠道给的 `mention` 没有落库，重算会把它丢掉。
 - `status`、`read`、`snooze_until` 到达时是 `pending`、未读、无，用下面的处理动作改。
+- `expired` 和 `expired_at`（IM-07）：待处理的消息超过设置的天数没处理，后台任务（约每 10 分钟）标成已过期，`status` 为 `expired`、`expired_at` 是标的时间，不是已过期为 `null`。从发送时间算，改回待处理过的从改回的时候算；稍后提醒还没到点的不过期。已过期不算待处理（不进 `status=pending`、`snoozed=true`），库里仍是 `pending` 加 `expired_at`（插件迁移 `0005_expiry.sql`）。天数见下「设置」。
 - `adapter` 是收这条消息的适配器 key，回复时按它找适配器；0.2.0 之前收的为空串，回复时按渠道找。
 - `task_id`、`task_ref` 是这条消息转成的任务；任务删了（含软删）读出来为 `null` 和空串，可以再转。
 - `replies` 按时间正序，含发送失败的（`status: "failed"`，`error` 是原因）；`reply_error` 是最近一次发送失败的原因，再发成功后清空。
@@ -1760,14 +1761,16 @@ IM-02a，口径照原型 `App.tsx` 的 `actOnMessage`。除单条读取外都是
 | 方法 | 路径 | 说明 |
 |---|---|---|
 | GET | `/api/im/messages/{id}` | 单条 `Message` |
-| POST | `/api/im/messages/{id}/done` | 处理完：`status=done`，清掉稍后，标已读 |
-| POST | `/api/im/messages/{id}/ignore` | 忽略：`status=ignored`，清掉稍后，标已读 |
-| POST | `/api/im/messages/{id}/reopen` | 重新打开：`status=pending`，清掉稍后，已读不变 |
+| POST | `/api/im/messages/{id}/done` | 处理完：`status=done`，清掉稍后，标已读；已过期的也能处理完 |
+| POST | `/api/im/messages/{id}/ignore` | 忽略：`status=ignored`，清掉稍后，标已读；已过期的也能忽略 |
+| POST | `/api/im/messages/{id}/reopen` | 重新打开：`status=pending`，清掉稍后，已读不变；已过期的改回待处理，过期从现在重新算 |
 | POST | `/api/im/messages/{id}/read` | 标已读 |
 | POST | `/api/im/messages/{id}/snooze` | 稍后提醒，body `{until}`（RFC 3339，必须在将来、一年以内，否则 400）；只有待处理的能设，别的 409 `conflict`。状态仍是 `pending`，标已读 |
 | POST | `/api/im/messages/{id}/reply` | 回复，body `{text, done}`：`text` 必填、最多 4000 字；`done` 为真且发成功时顺带标成处理完。经适配器发出，见下 |
 | POST | `/api/im/messages/{id}/task` | 转任务，body 可省略，见下；成功 201 |
-| POST | `/api/im/messages/batch` | 批量处理完或忽略（PR-03），见下 |
+| POST | `/api/im/messages/batch` | 批量处理完或忽略（PR-03），见下；按 id 列表时含已过期的 |
+| GET | `/api/im/settings` | 本插件的设置（IM-07）：`{expire_days}`，没设过是 7 |
+| PATCH | `/api/im/settings` | 改设置，body `{expire_days}`：0 到 365 的整数，0 为不过期，别的 400；改完马上按新天数标一次（调短的立刻生效，调长不会把已过期的改回来），天数变了记一条审计；回改后的设置 |
 
 批量处理（PR-03）：body `{action, ids}` 或 `{action, conversation_id, before}`，二选一，都给或都没给 400。
 
