@@ -539,6 +539,10 @@ IM 里的群聊和私聊（CT-02，0028，表 `conversations`、`conversation_me
  "multi":false}
 ```
 
+**一轮对话和连接脱钩。**页面刷新、切走、关掉对话框导致流断开时，这一轮照样跑完（最长 10 分钟）、回复照常落库，
+重新打开会话就看得到；`POST /api/agent/tool-calls/{id}/confirm`、`reject` 接着跑的那一轮同样。这一轮出错时除了 `error` 事件，
+还落一条 assistant 消息「这一轮没跑完：<原因>。上面已经执行的工具调用不会撤回……」，翻历史时看得出为什么停了。
+
 **会话的归属一经创建不再改写。**`PATCH /api/agent/sessions/{id}` 改不了 `object_id`，
 chat 带了不同的 `object_id` 也不会让已有会话搬家——搬走会让它从原来那个列表里消失，
 而用户并没有要求移动它。换对象就换一条会话。
