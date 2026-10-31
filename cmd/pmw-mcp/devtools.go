@@ -214,7 +214,7 @@ const submitReviewDesc = `【会写入数据】把任务提交给用户验收：
 
 什么时候用：/task 流程的最后一步。代码改完、测试跑过、提交和 PR 已经用 pmw_record_artifact 登记之后调用。
 
-关于状态：工具不会把任务直接改成已完成——完成与否由用户验收决定。它在该类型的状态集里按 key 找待验收类状态（review、in_review、verify、acceptance、qa、testing 等）；内置的任务和需求类型都没有这类状态，这时状态保持不变，只记验收申请，返回里会写明。也可以用 status 显式指定。
+关于状态：不传 status 时它在该类型的状态集里按 key 找待验收类状态（review、in_review、verify、acceptance、qa、testing 等）；内置的任务和需求类型都没有这类状态，这时状态保持不变，只记验收申请，返回里会写明。也可以用 status 显式指定；/task 流程在验收标准全部做到、测试通过时传 status=done 直接完成（用户 2026-10-31 定的规矩）。
 
 summary 要对着验收标准逐条说：哪条做到了、怎么验证的、哪条没做到或有风险。test_results 不能省略，没跑测试就写没跑及原因。
 

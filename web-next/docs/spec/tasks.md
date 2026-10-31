@@ -562,7 +562,7 @@ stateDiagram-v2
 
 | 方向 | 对方模块 | 触发 | 结果 | 见 |
 |---|---|---|---|---|
-| 进来 | Claude Code（MCP） | `pmw_claim_task`、`pmw_append_progress`、`pmw_record_artifact`、`pmw_submit_review` | 进展、产出物多出对应记录；提交验收后任务停在 `review`。原型用演示数据和 `SPEC-tasks-5.26` 模拟 | `docs/mcp.md` |
+| 进来 | Claude Code（MCP） | `pmw_claim_task`、`pmw_append_progress`、`pmw_record_artifact`、`pmw_submit_review` | 进展、产出物多出对应记录；`/task` 做完且测试通过时带 `status=done` 直接完成，否则提交验收后停在 `review`。原型用演示数据和 `SPEC-tasks-5.26` 模拟 | `docs/mcp.md` |
 | 改动 | 任务列表、今日 | 验收通过 / 退回 | 状态变为 `done` / `todo`；今日「任务待验收」组少一条 | `SPEC-tasks-2`、`SPEC-today-1.4` |
 | 进来 | 今日 | 「任务待验收」一条的「去验收」 | 在今日页上打开任务抽屉，顶部是等你验收栏 | `SPEC-today-1.25` |
 

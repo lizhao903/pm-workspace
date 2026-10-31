@@ -94,7 +94,7 @@ make build         # 构建前端 + pmw + pmw-mcp
 ### 开发任务的固定流程
 
 `pmw_get_object` 读任务和验收标准 → `pmw_claim_task` 领取 → 在工作目录里改代码、跑测试，期间多次 `pmw_append_progress` →
-`pmw_record_artifact` 登记 commit / branch / pr → `pmw_submit_review` 提交验收。不要自己把任务改成已完成，完成与否由用户验收决定。
+`pmw_record_artifact` 登记 commit / branch / pr → `pmw_submit_review` 带 `status=done` 标为完成（验收标准全部做到、测试通过时；否则不传 status，停在待验收）。不要用 `pmw_update_object` 改状态。
 底下对应的 HTTP 接口见 `docs/api-contract.md` 的「进展与领取」一节。
 
 ### 几条 Agent 容易踩的约定
@@ -186,7 +186,7 @@ check 的各项：状态为 review；进展至少 3 条且含 claim 和 review�
 - **变更可追溯但不可回滚**。所有经由 MCP 的写入都带 `X-Actor-Source: agent` 和会话标识，在 `revisions` 表里留痕，`pmw_recent_changes` 能看到「哪些是 Agent 改的、哪个会话改的」。但审计不等于回滚，工作台目前不提供按 revision 还原。
 - **有删除能力的接口没有暴露**。`DELETE /api/objects/{id}`、删分类、删类型这些都没有对应的 MCP 工具，Agent 删不掉东西。`pmw_update_object` 只提供 `archived` 归档，归档后对象仍可检索。
 - **开发闭环的写工具也不删东西**。`pmw_claim_task` 默认拒绝接手别人的任务，`takeover=true` 只该在用户明确要求时使用；
-  `pmw_submit_review` 不会把任务改成终态，完成与否由用户验收决定。
+  `pmw_submit_review` 不传 `status` 时不会把任务改成终态；`/task` 流程做完且测试通过时显式传 `status=done`。
 - **正文会进模型上下文**。`pmw_get_object` 返回完整正文，`pmw_search` 返回标题。工作台里放了敏感信息（密钥、客户名单、未公开的商业条款）就要意识到它可能被发送给模型。
 - **别把工作台暴露到 0.0.0.0**。一旦监听公网地址，等于把一个无鉴权的读写接口开了出去。
 
