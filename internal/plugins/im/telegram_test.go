@@ -317,6 +317,48 @@ func TestTelegramInvalidTokenMarksError(t *testing.T) {
 	}
 }
 
+// 后台拉连不上（网络抖动、休眠醒来）：连续 telegramMissLimit 次才置为异常，之前只记日志；立即同步一次就记。
+func TestTelegramTransientFailureTolerated(t *testing.T) {
+	drop := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		conn, _, _ := w.(http.Hijacker).Hijack()
+		_ = conn.Close()
+	})
+	e := setupTelegramOn(t, "", &fakeTelegram{}, drop)
+	c := e.addBot(t, tgToken, nil)
+	ctx := context.Background()
+	status := func() *connector.Connector {
+		cn, _ := e.conns.Get(ctx, c.ID)
+		return cn
+	}
+	info := func() plugin.ConnectorInfo {
+		cn, err := e.tg.c.Connectors().Get(ctx, c.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return cn
+	}
+	for i := 1; i < telegramMissLimit; i++ {
+		if _, _, err := e.tg.pullInstance(ctx, info(), nil, true); err == nil {
+			t.Fatalf("第 %d 次应连不上", i)
+		}
+		if cn := status(); cn.Status == connector.StatusError {
+			t.Fatalf("第 %d 次偶发连不上不该置为异常：%s %q", i, cn.Status, cn.Error)
+		}
+	}
+	_, _, _ = e.tg.pullInstance(ctx, info(), nil, true)
+	if cn := status(); cn.Status != connector.StatusError || !strings.Contains(cn.Error, "连不上 Telegram") {
+		t.Fatalf("连续 %d 次连不上应置为异常：%s %q", telegramMissLimit, cn.Status, cn.Error)
+	}
+
+	// 立即同步不容忍：换一个新实例，一次就记
+	c2 := e.addBot(t, "987654321:AAAnotherFakeTokenForTests_abcd", nil)
+	cn2, _ := e.tg.c.Connectors().Get(ctx, c2.ID)
+	_, _, _ = e.tg.pullInstance(ctx, cn2, nil, false)
+	if cn, _ := e.conns.Get(ctx, c2.ID); cn.Status != connector.StatusError {
+		t.Fatalf("立即同步连不上应马上置为异常：%s", cn.Status)
+	}
+}
+
 func TestTelegramReplyAndFetch(t *testing.T) {
 	fake := &fakeTelegram{}
 	e := setupTelegram(t, "", fake)
