@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/lizhao903/pm-workspace/internal/events"
 	"github.com/lizhao903/pm-workspace/internal/plugin"
 	"github.com/lizhao903/pm-workspace/internal/plugins/sop"
 	"github.com/lizhao903/pm-workspace/internal/store/sqlite"
@@ -376,5 +377,70 @@ func TestParseTimeout(t *testing.T) {
 		if _, err := parseTimeout(in); err == nil {
 			t.Errorf("%q 应当报错", in)
 		}
+	}
+}
+
+// 来消息自动分诊（SOP-05）：触发方式是 im 的流程收到新消息自动发起，「读取消息」取正文和发信人，
+// 判断走哪一路，「标记消息」把消息标成忽略或已读。接上真的事件总线，和线上一样异步投递。
+func TestSOPAutoTriageMarksMessage(t *testing.T) {
+	e := setupSOP(t)
+	e.r.Events = events.New(e.r, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	id := e.flow(t, `{"name":"消息分诊","trigger":"im","fields":[{"key":"message_id","label":"消息","type":"text","required":true}],"steps":[
+		{"key":"read","name":"读取消息","kind":"im_get_message","after":[]},
+		{"key":"route","name":"要处理吗","kind":"decide","after":["read"],"rule":"message.text 包含 帮忙","cases":[{"key":"handle","label":"要处理"},{"key":"skip","label":"忽略"}]},
+		{"key":"seen","name":"标已读","kind":"im_mark_message","after":["route"],"branch":{"of":"route","case":"handle"},"config":{"state":"read"}},
+		{"key":"drop","name":"标忽略","kind":"im_mark_message","after":["route"],"branch":{"of":"route","case":"skip"},"config":{"state":"ignore"}}]}`)
+
+	e.push(t, `{"external_id":"C01:t1","connector_id":"cn_ok","conversation_id":"C01","conversation_name":"#product","sender_id":"U04LIN","sender_name":"林原","text":"大家早"}`)
+	e.push(t, `{"external_id":"C01:t2","connector_id":"cn_ok","conversation_id":"C01","conversation_name":"#product","sender_id":"U04LIN","sender_name":"林原","text":"@Broleez 帮忙看下权限点"}`)
+
+	byText := map[string]map[string]any{}
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		_, out := call(t, e.h, "GET", "/api/im/messages", "")
+		for _, m := range out["data"].([]any) {
+			mm := m.(map[string]any)
+			byText[mm["text"].(string)] = mm
+		}
+		if byText["大家早"]["status"] == "ignored" && byText["@Broleez 帮忙看下权限点"]["read"] == true {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("等了 5 秒，分诊没把消息标好：%v", byText)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if byText["@Broleez 帮忙看下权限点"]["status"] != "pending" {
+		t.Fatalf("要处理的只标已读、仍待处理：%v", byText["@Broleez 帮忙看下权限点"])
+	}
+	_, out := call(t, e.h, "GET", "/api/sop/runs", "")
+	runs := out["data"].([]any)
+	if len(runs) != 2 {
+		t.Fatalf("两条消息各发起一次：%d", len(runs))
+	}
+	run := e.until(t, runs[0].(map[string]any)["id"].(string), "跑完", func(r map[string]any) bool { return r["status"] == "done" })
+	msg := sopStep(run, "read")["output"].(map[string]any)["message"].(map[string]any)
+	if msg["sender"] != "林原" || msg["conversation"] != "#product" || msg["conversation_kind"] != "群聊" || msg["text"] == "" {
+		t.Fatalf("读取消息的输出：%v", msg)
+	}
+	_ = id
+}
+
+// 标记消息：标记为写错了、消息不存在时这一步失败，给人看得懂的原因。
+func TestSOPMarkMessageErrors(t *testing.T) {
+	e := setupSOP(t)
+	id := e.flow(t, `{"name":"标错","fields":[{"key":"message_id","label":"消息","type":"text"}],"steps":[
+		{"key":"m","name":"标记","kind":"im_mark_message","after":[],"config":{"state":"archive"}}]}`)
+	rid := e.start(t, id, `{"input":{"message_id":"msg_x"}}`)
+	run := e.until(t, rid, "失败", func(r map[string]any) bool { return sopStep(r, "m")["status"] == "failed" })
+	if err, _ := sopStep(run, "m")["error"].(string); !strings.Contains(err, "标记为「archive」不认") {
+		t.Fatalf("写错标记：%q", err)
+	}
+	id = e.flow(t, `{"name":"没这条","fields":[{"key":"message_id","label":"消息","type":"text"}],"steps":[
+		{"key":"m","name":"读","kind":"im_get_message","after":[]}]}`)
+	rid = e.start(t, id, `{"input":{"message_id":"msg_none"}}`)
+	run = e.until(t, rid, "失败", func(r map[string]any) bool { return sopStep(r, "m")["status"] == "failed" })
+	if err, _ := sopStep(run, "m")["error"].(string); !strings.Contains(err, "消息 msg_none 不存在") {
+		t.Fatalf("消息不存在：%q", err)
 	}
 }

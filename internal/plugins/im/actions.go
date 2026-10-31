@@ -134,18 +134,17 @@ func (in *inbox) fillActions(ctx context.Context, ms []Message) error {
 }
 
 // setState 是处理完、忽略、重新打开、已读四个动作：照原型改状态、清稍后、标已读。
+// stateSet 是处理动作改哪些列；SOP 的标记消息节点（im_mark_message）同用这一份。
+var stateSet = map[string]string{
+	"done":   `status = 'done', snooze_until = NULL, is_read = 1`,
+	"ignore": `status = 'ignored', snooze_until = NULL, is_read = 1`,
+	"reopen": `status = 'pending', snooze_until = NULL`,
+	"read":   `is_read = 1`,
+}
+
 func (in *inbox) setState(kind string) http.HandlerFunc {
-	var set string
-	switch kind {
-	case "done":
-		set = `status = 'done', snooze_until = NULL, is_read = 1`
-	case "ignore":
-		set = `status = 'ignored', snooze_until = NULL, is_read = 1`
-	case "reopen":
-		set = `status = 'pending', snooze_until = NULL`
-	case "read":
-		set = `is_read = 1`
-	default:
+	set, ok := stateSet[kind]
+	if !ok {
 		panic("unknown message action " + kind)
 	}
 	return func(w http.ResponseWriter, r *http.Request) {

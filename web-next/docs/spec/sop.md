@@ -58,7 +58,7 @@ SOP 是标准工作流：把反复做的事编排成一张有向图（自动步�
 | `id` | `string` | 是 | 编号；新建用 `newId('sop')` | `sop_feedback` |
 | `name` | `string` | 是 | 流程名；保存时不能为空 | `客户反馈转需求` |
 | `desc` | `string` | 是 | 一句话说明，可为空串 | `把 IM 里的客户反馈提炼成诉求…` |
-| `trigger` | `string` | 是 | 触发方式，存 `sop_trigger` 枚举的 key，显示时换成枚举的显示名，枚举里找不到时原样显示（原型只记录，不真触发） | `manual`、`im`、`weekly` |
+| `trigger` | `string` | 是 | 触发方式，存 `sop_trigger` 枚举的 key，显示时换成枚举的显示名，枚举里找不到时原样显示（原型只记录，不真触发；正式产品里 `im` 是来消息自动发起，见 `docs/api-contract.md`「IM 触发」，SOP-05） | `manual`、`im`、`weekly` |
 | `fields` | `SopField[]` | 是 | 执行时要填的输入；新建默认一个「输入内容」 | |
 | `steps` | `SopStepDef[]` | 是 | 步骤，按依赖排好的顺序（编排页改连线后 `topo` 重排）；保存时至少一个 | |
 | `layout` | `Record<string, { x: number; y: number }>` | 否 | 编排画布上的节点位置，key 是步骤 key，`__start` 是开始节点；没有就按依赖自动排 | `{ "__start": { "x": 60, "y": 180 } }` |

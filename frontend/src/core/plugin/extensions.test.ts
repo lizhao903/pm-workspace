@@ -103,12 +103,16 @@ describe('SOP 节点（2.7）', () => {
     expect(() => api.sopNodes.register(node('aa_send'))).toThrow('SOP 节点 aa_send 已被插件 aa 注册')
   })
 
-  it('真实的 IM 插件登记发消息、等待回复，不依赖 SOP 插件；停用后消失', async () => {
+  it('真实的 IM 插件登记发消息、等待回复、读取消息、标记消息，不依赖 SOP 插件；停用后消失', async () => {
     const r = await loadPlugins(discoverPlugins(), state(['im']))
     expect(r.problems).toEqual([])
-    expect(sopNodeStore.list().map((v) => [v.kind, v.label, v.plugin])).toEqual([['im_send_message', '发消息', 'im'], ['im_wait_reply', '等待回复', 'im']])
+    expect(sopNodeStore.list().map((v) => [v.kind, v.label, v.plugin])).toEqual([
+      ['im_send_message', '发消息', 'im'], ['im_wait_reply', '等待回复', 'im'], ['im_get_message', '读取消息', 'im'], ['im_mark_message', '标记消息', 'im'],
+    ])
     expect(sopNodeView('im_send_message')?.fields.map((f) => f.key)).toEqual(['conversation', 'text'])
     expect(sopNodeView('im_wait_reply')?.fields.map((f) => f.key)).toEqual(['conversation', 'timeout'])
+    expect(sopNodeView('im_get_message')?.fields.map((f) => f.key)).toEqual(['message'])
+    expect(sopNodeView('im_mark_message')?.fields.map((f) => [f.key, f.required ?? false])).toEqual([['state', true], ['message', false]])
     deactivatePlugin('im')
     expect(sopNodeStore.list()).toEqual([])
   })

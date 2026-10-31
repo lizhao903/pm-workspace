@@ -1633,7 +1633,7 @@ ALIGN-05。项目列表（SPEC-projects-1.5 到 1.11）按「有原型在跑 / �
 
 ## IM 消息插件 im
 
-IM-01a 起。插件 `im`（`internal/plugins/im`，清单 `plugin.json`，0.7.2（IM-06 加 Slack 本人身份；0.7.1 回复和推回来的本人消息只记一次；0.7.2 Slack 限流不算同步失败、不活跃私信轮流查，Telegram 后台连续 3 次连不上才算同步失败），权限 `network:im`：真实渠道出网，IM-01b 加，0.4.0 升上来要确认；域名清单是 `slack.com`、`*.slack.com`、`api.telegram.org` 等 IM 服务）。收各 IM 渠道的消息，落在插件表 `im_messages`（插件迁移 `0001_messages.sql`；IM-02a 的处理动作加了 `0002_actions.sql`，回复在 `im_replies`；IM-04a 的附件获取加了 `0003_attachments.sql`，获取状态在 `im_attachments`；SOP-02b 的等回复节点加了 `0004_sop_waits.sql`，挂起中的等待在 `im_sop_waits`；安装插件时应用）。发送人按 IM 身份（见「IM 身份 im-identities」）的 id 认、会话按会话（见「会话 conversations」）的 id 归，**不靠名字**。插件未安装或停用时，本节接口回 `not_found` 404（同「插件路由」）；停用时拉取也停下，数据不动。
+IM-01a 起。插件 `im`（`internal/plugins/im`，清单 `plugin.json`，0.8.0（IM-06 加 Slack 本人身份；0.7.1 回复和推回来的本人消息只记一次；0.7.2 Slack 限流不算同步失败、不活跃私信轮流查，Telegram 后台连续 3 次连不上才算同步失败；0.8.0 加 SOP 节点读取消息、标记消息），权限 `network:im`：真实渠道出网，IM-01b 加，0.4.0 升上来要确认；域名清单是 `slack.com`、`*.slack.com`、`api.telegram.org` 等 IM 服务）。收各 IM 渠道的消息，落在插件表 `im_messages`（插件迁移 `0001_messages.sql`；IM-02a 的处理动作加了 `0002_actions.sql`，回复在 `im_replies`；IM-04a 的附件获取加了 `0003_attachments.sql`，获取状态在 `im_attachments`；SOP-02b 的等回复节点加了 `0004_sop_waits.sql`，挂起中的等待在 `im_sop_waits`；安装插件时应用）。发送人按 IM 身份（见「IM 身份 im-identities」）的 id 认、会话按会话（见「会话 conversations」）的 id 归，**不靠名字**。插件未安装或停用时，本节接口回 `not_found` 404（同「插件路由」）；停用时拉取也停下，数据不动。
 
 ### 适配器
 
@@ -1855,7 +1855,10 @@ SOP-02b。IM 插件经 SOP 节点扩展点（`docs/plugin-api.md` 2.7）登记�
 |---|---|---|---|
 | `im_send_message` | `conversation` 会话、`text` 内容 | | 往会话里发一条消息，两项都支持 `{{字段}}` |
 | `im_wait_reply` | `conversation` 会话 | `timeout` 最多等多久 | 等这个会话里对方的下一条消息，挂起到收到或超时 |
+| `im_get_message` | | `message` 消息 id | 读取消息（SOP-05）：输出加 `message: {id, text, sender, sender_name, contact_id, channel, conversation, conversation_kind, relevance, status, at}`；`sender` 认上联系人时是联系人名，`conversation_kind` 是 私聊 / 群聊，`relevance` 是 @我 / @所有人 / 私聊 / 无关 |
+| `im_mark_message` | `state` 标记为 | `message` 消息 id | 标记消息（SOP-05）：`state` 为 `done`（已处理）、`ignore`（忽略）、`read`（已读，仍待处理）、`reopen`（改回待处理），改法同「处理动作」的同名接口；输出加 `marked: {message_id, state, status}`；`state` 不认时失败（`标记为「x」不认，只能是 done、ignore、read、reopen`） |
 
+- `message` 是消息 id，支持 `{{字段}}`，留空取输入里的 `message_id`（IM 触发的流程输入里就有）；消息不存在时失败（`消息 msg_x 不存在`），取不到 id 时失败（`没有指定消息：…`）。
 - `conversation` 是会话 id（见「会话 conversations」），可以写 `{{conversation_id}}` 从输入里取；会话不存在时步骤失败，`error` 是 `会话 cv_x 不存在`。
 - **发消息**：内容按输入替换 `{{字段}}`（取不到的留空，写法同 SOP 的模板），替换后为空失败（`要发的内容是空的`），最多 4000 字。连接器和适配器按这个会话最近收到的一条消息定：一条都没收到过时失败（`「#product」里还没收到过消息，不知道用哪个连接器发`）；拦截口径同「处理动作」的回复，只能发到 `direction` 为 `both` 的连接器，被拦时 `error` 是那张表里的 `message`（如 `连接器「Slack 只收」设置为只收消息`）。发给渠道的是会话编号，不串在某条消息下面；私聊另带对方编号。发送超时 15 秒；渠道发送失败时步骤失败，`error` 是 `发送失败：<渠道给的原因>`，不重试。成功时输出是输入加上 `sent: {conversation_id, conversation, channel, connector_id, text, external_id, at}`。发送不记在消息的回复里。
 - **发送记审计**：成功、失败各记一条，`kind: "agent"`、`action: "send"`、`target_type: "conversation"`、`target_id` 是会话 id，操作者 `im#<运行 id>`、`source: "plugin"`；`summary` 例 `发消息到「#product」`、`发消息到「#product」失败`；`detail` 有 `status`（`sent` / `failed`）、`channel`、`connector_id`、`adapter`、`conversation`、`text`（前 500 字）、`external_id` 或 `error`，以及 `run_id`、`flow_id`、`step`、`attempt`、`write_key`。
@@ -1877,7 +1880,7 @@ SOP-02b。IM 插件经 SOP 节点扩展点（`docs/plugin-api.md` 2.7）登记�
 
 ## SOP 编排插件 sop
 
-SOP-01a 起。插件 `sop`（`internal/plugins/sop`，清单 `plugin.json`，0.3.0，权限 `network:any`：HTTP 节点要访问任意地址，高风险，安装时在 `permissions` 里单独确认）。流程定义落在插件表 `sop_flows`（插件迁移 `0001_flows.sql`，安装插件时应用），id 前缀 `sop`；执行（SOP-01b）落在 `sop_runs`、`sop_run_steps`（插件迁移 `0002_runs.sql`），id 前缀 `spr`。AI 类和外部节点 SOP-01c 起；定时任务的 `sop` 动作和 Agent 的 `run_sop` 工具经内核「发起 SOP」钩子发起执行（SOP-01d）。插件未安装或停用时，本节接口回 `not_found` 404（同「插件路由」），数据不动。
+SOP-01a 起。插件 `sop`（`internal/plugins/sop`，清单 `plugin.json`，0.4.0（SOP-05 加 IM 触发，可选依赖 `im`、订阅 `im.message_received`），权限 `network:any`：HTTP 节点要访问任意地址，高风险，安装时在 `permissions` 里单独确认）。流程定义落在插件表 `sop_flows`（插件迁移 `0001_flows.sql`，安装插件时应用），id 前缀 `sop`；执行（SOP-01b）落在 `sop_runs`、`sop_run_steps`（插件迁移 `0002_runs.sql`），id 前缀 `spr`。AI 类和外部节点 SOP-01c 起；定时任务的 `sop` 动作和 Agent 的 `run_sop` 工具经内核「发起 SOP」钩子发起执行（SOP-01d）。插件未安装或停用时，本节接口回 `not_found` 404（同「插件路由」），数据不动。
 
 ### 流程定义
 
@@ -1920,6 +1923,15 @@ SOP-01a 起。插件 `sop`（`internal/plugins/sop`，清单 `plugin.json`，0.3
 | 字段类型不对（如 `config` 的值不是字符串、`ms` 不是数字）、`layout` 的位置缺 `x` 或 `y` | `步骤 1 格式不对：config 应该是 字符串` 等 |
 
 原型里只是提醒的（没有人工检查点、某个分支下没有步骤、有多个起点）不拦，前端自己提示。
+
+### IM 触发
+
+SOP-05。触发方式（`trigger`）是 `im` 的流程，来一条新消息自动发起一次执行；别的触发方式仍只是标记（定时、Agent 经内核钩子发起）。SOP 插件订阅 IM 插件的 `im.message_received`（清单 `optional_depends: {im}`，IM 没装或停用时不触发，SOP 照常可用）。
+
+- 输入是事件里的归类：`message_id`、`channel`、`connector_id`、`conversation_id`、`stakeholder_id`、`relevance`（`me` / `all` / `dm` / 空串）、`at`，没有的为空串。正文不在事件里，流程里用 IM 插件的 `im_get_message` 按 `message_id` 取（见 IM 插件「SOP 节点」）。
+- 补默认值同 `POST /api/sop/flows/{id}/runs`；必填字段补不齐的这条流程跳过，记一行日志，不报运行异常。不逐步确认，人工检查照常停下。
+- 只发起发送时间（`at`）在 24 小时以内的：连接器第一次同步会带进每个会话最近的若干条历史，不逐条跑。
+- 同一条流程、同一条消息只发起一次（按执行输入里的 `message_id` 查）。事件总线最多投一次，服务停着时到的消息不补发起。
 
 ### 节点类型
 
