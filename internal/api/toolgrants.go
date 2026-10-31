@@ -336,29 +336,25 @@ func (s *Server) decideToolCall(w http.ResponseWriter, r *http.Request, approved
 		flusher.Flush()
 	}
 
+	runCtx, cancel := agentRunCtx(ctx)
+	defer cancel()
 	dec := &agent.Decision{Call: tc, Approved: approved}
-	msgID, err := runner.Resume(ctx, dec, emit)
+	msgID, err := runner.Resume(runCtx, dec, emit)
 	if dec.Result != "" {
 		// 和流解耦：用户关掉页面时结果也要记下
-		if e := s.st.SetAgentToolCallResult(context.WithoutCancel(ctx), tc.ID, dec.Result); e != nil {
+		if e := s.st.SetAgentToolCallResult(runCtx, tc.ID, dec.Result); e != nil {
 			s.log.Warn("save tool call result failed", "call", tc.ID, "err", e)
 		}
 	}
-	// 执行记录按这次处理重算状态（AG-01b4）；客户端断开不算执行失败
+	// 执行记录按这次处理重算状态（AG-01b4）；连接断了也照样跑完，按真实结果算
 	if tc.RunID != nil {
-		runErr := err
-		if ctx.Err() != nil {
-			runErr = nil
-		}
-		if e := agent.SettleRun(context.WithoutCancel(ctx), s.st, *tc.RunID, runErr); e != nil {
+		if e := agent.SettleRun(runCtx, s.st, *tc.RunID, err); e != nil {
 			s.log.Warn("settle agent run failed", "run", *tc.RunID, "err", e)
 		}
 	}
 	if err != nil {
-		if ctx.Err() != nil {
-			return
-		}
 		s.log.Warn("agent resume failed", "session", session.ID, "call", tc.ID, "err", err)
+		s.noteAgentFailure(runCtx, session.ID, err)
 		emit(agent.StreamEvent{Type: "error", Message: err.Error()})
 		return
 	}

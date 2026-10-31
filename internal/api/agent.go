@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/lizhao903/pm-workspace/internal/agent"
 	"github.com/lizhao903/pm-workspace/internal/domain"
@@ -331,18 +332,36 @@ func (s *Server) handleAgentChat(w http.ResponseWriter, r *http.Request) {
 		Store: s.st, Chat: chat, Model: model, Session: session,
 		Object: object, Agent: ag, Skills: s.agentSkills(ctx, ag), Policy: policy,
 	}
-	msgID, err := runner.Run(ctx, req.Message, emit)
+	runCtx, cancel := agentRunCtx(ctx)
+	defer cancel()
+	msgID, err := runner.Run(runCtx, req.Message, emit)
 	if err != nil {
-		// 客户端主动断开不算错误，也没人还在听，不用再写了。
-		if ctx.Err() != nil {
-			return
-		}
 		s.log.Warn("agent chat failed",
 			"session", session.ID, "provider", provider.ID, "kind", provider.Kind, "err", err)
+		s.noteAgentFailure(runCtx, session.ID, err)
 		emit(agent.StreamEvent{Type: "error", Message: err.Error()})
 		return
 	}
 	emit(agent.StreamEvent{Type: "done", SessionID: session.ID, MessageID: msgID})
+}
+
+// agentRunTimeout 是一轮对话（含工具调用）最长跑多久。
+const agentRunTimeout = 10 * time.Minute
+
+// agentRunCtx 让一轮对话和浏览器连接脱钩：页面刷新、切走、关掉对话框时照样跑完并存下回复。
+// 原来绑在请求上，连接一断就取消、什么都不存，历史里只剩已经执行了的工具调用，后面没有下文。
+// 连接断了以后写流只是写不出去，不影响执行。
+func agentRunCtx(ctx context.Context) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.WithoutCancel(ctx), agentRunTimeout)
+}
+
+// noteAgentFailure 这一轮没跑完时存一条说明：流里的 error 事件只有当时开着页面的人看得到，
+// 不存的话回头翻历史只看到工具调用、看不出为什么停了。存失败只记日志。
+func (s *Server) noteAgentFailure(ctx context.Context, sessionID string, err error) {
+	msg := "这一轮没跑完：" + err.Error() + "。上面已经执行的工具调用不会撤回，可以把要求再发一次接着做。"
+	if _, e := s.st.AppendAgentMessage(ctx, &domain.AgentMessage{SessionID: sessionID, Role: domain.RoleAssistant, Content: msg}); e != nil {
+		s.log.Warn("save agent failure note failed", "session", sessionID, "err", e)
+	}
 }
 
 // currentObject 取出「用户此刻打开的那一条」。

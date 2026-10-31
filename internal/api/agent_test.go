@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -467,6 +468,58 @@ func TestAgentChatUpstreamFailureBecomesErrorEvent(t *testing.T) {
 	}
 	if msg, _ := evs[len(evs)-1]["message"].(string); msg == "" {
 		t.Error("error 事件要带上可读的原因")
+	}
+	// 流里的 error 只有开着页面的人看得到：历史里也要留一条说明，不然回头翻只看到一句话没下文
+	sessions, _ := f.ListAgentSessions(t.Context(), domain.AgentSessionFilter{Unscoped: true})
+	if len(sessions) != 1 {
+		t.Fatalf("会话数 = %d", len(sessions))
+	}
+	msgs, _ := f.ListAgentMessages(t.Context(), sessions[0].ID, 0)
+	if last := msgs[len(msgs)-1]; last.Role != domain.RoleAssistant || !strings.Contains(last.Content, "这一轮没跑完") {
+		t.Fatalf("失败要在历史里留说明：%+v", last)
+	}
+}
+
+// 页面刷新、切走、关掉对话框时连接会断：模型调完工具、正在写下一轮时断开，这一轮要照样跑完、回复存进库。
+// 原来执行绑在请求上，一断就取消且什么都不存，历史里只剩工具调用、没有下文。
+func TestAgentChatFinishesAfterClientDisconnects(t *testing.T) {
+	ctx, disconnect := context.WithCancel(context.Background())
+	var turn int
+	up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		turn++
+		w.Header().Set("Content-Type", "application/x-ndjson")
+		if turn == 1 {
+			_, _ = io.WriteString(w, `{"message":{"role":"assistant","content":"","tool_calls":[{"function":{"name":"create_object","arguments":{"type_id":"task","title":"和财务对账单口径"}}}]},"done":true}`+"\n")
+			return
+		}
+		disconnect() // 工具已经执行，模型写第二轮时浏览器断开
+		_, _ = io.WriteString(w, `{"message":{"role":"assistant","content":"已经记好了。"},"done":true}`+"\n")
+	}))
+	t.Cleanup(up.Close)
+
+	f := newFakeStore()
+	f.putProvider(&domain.AgentProvider{
+		ID: "apv_local", Kind: domain.ProviderOllama, BaseURL: up.URL, Model: "m", Enabled: true, IsDefault: true,
+	}, "")
+	f.types["task"] = &domain.ObjectType{ID: "task", Name: "待办", RefPrefix: "TSK",
+		Statuses: []domain.Status{{Key: "todo", Label: "未开工"}}}
+	s := newTestServer(f)
+
+	r := httptest.NewRequest(http.MethodPost, "/api/agent/chat", strings.NewReader(`{"message":"记一个待办"}`)).WithContext(ctx)
+	r.Header.Set("Content-Type", "application/json")
+	s.ServeHTTP(httptest.NewRecorder(), r)
+
+	sessions, _ := f.ListAgentSessions(t.Context(), domain.AgentSessionFilter{Unscoped: true})
+	if len(sessions) != 1 {
+		t.Fatalf("会话数 = %d", len(sessions))
+	}
+	msgs, _ := f.ListAgentMessages(t.Context(), sessions[0].ID, 0)
+	var roles []string
+	for _, m := range msgs {
+		roles = append(roles, m.Role)
+	}
+	if last := msgs[len(msgs)-1]; last.Role != domain.RoleAssistant || last.Content != "已经记好了。" {
+		t.Fatalf("断开后应照样跑完并存下回复，实际消息：%v，最后一条 %+v", roles, last)
 	}
 }
 
