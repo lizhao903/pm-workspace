@@ -1,10 +1,10 @@
 {
   "mcpServers": {
     "pm-workspace": {
-      "command": "./bin/pmw-mcp",
+      "command": "./bin/pmw-mcp-dev",
       "args": [
         "--api",
-        "http://broleez.vip"
+        "http://127.0.0.1:7796"
       ],
       "env": {}
     }
