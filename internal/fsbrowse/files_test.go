@@ -145,13 +145,14 @@ func TestListFiles(t *testing.T) {
 	for _, f := range l.Files {
 		rels = append(rels, f.Rel)
 	}
-	if got := strings.Join(rels, ","); got != "b.md,sub/a.txt" {
+	// png 现在也列（图片），按 WalkDir 顺序：同层按名字
+	if got := strings.Join(rels, ","); got != "b.md,img.png,sub/a.txt" {
 		t.Fatalf("files = %s", got)
 	}
-	if l.Skipped != 1 || l.Truncated {
-		t.Fatalf("skipped=%d truncated=%v", l.Skipped, l.Truncated)
+	if l.Skipped != 0 || l.Truncated || l.Reason != "" {
+		t.Fatalf("skipped=%d truncated=%v reason=%q", l.Skipped, l.Truncated, l.Reason)
 	}
-	if l.Files[1].Path != filepath.Join(root, "sub", "a.txt") {
-		t.Fatalf("path = %s", l.Files[1].Path)
+	if l.Files[2].Path != filepath.Join(root, "sub", "a.txt") || l.Files[1].Kind != KindImage || l.Files[0].Kind != KindText {
+		t.Fatalf("got %+v %+v", l.Files[1], l.Files[2])
 	}
 }

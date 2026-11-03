@@ -1,12 +1,34 @@
 // 文档页的视图模型（SPEC-library-0）：工作台文档（type=doc 的对象）和挂载目录里的文件都转成 Doc，
 // 内容树、筛选、空状态文案都在这里算，纯函数，有单测。
-import type { Category, LocalDir, LocalFileEntry, LocalFileList, WorkObject } from '../../core/data'
+import type { Category, LocalDir, LocalFileEntry, LocalFileKind, LocalFileList, WorkObject } from '../../core/data'
 
 /** 工作目录：工作台文档，或者一个挂载的本地目录（dir:<LocalDir.id>） */
 export type Workspace = 'builtin' | `dir:${string}`
 
 export const BUILTIN: Workspace = 'builtin'
 export const dirWs = (id: string): Workspace => `dir:${id}`
+
+/**
+ * 默认工作目录（SPEC-library-1.53）：在切换菜单里「设为默认」的那个，之后从别处进文档模块（地址里没带 ?dir、?doc）就停在它。
+ * 存在本机浏览器里，读写失败（隐私模式、禁了存储）就当没设，回到工作台文档。
+ */
+const DEFAULT_WS_KEY = 'docs.defaultWs'
+export function readDefaultWs(): Workspace {
+  try {
+    const v = localStorage.getItem(DEFAULT_WS_KEY)
+    return v && v.startsWith('dir:') ? (v as Workspace) : BUILTIN
+  } catch {
+    return BUILTIN
+  }
+}
+export function writeDefaultWs(w: Workspace) {
+  try {
+    if (w === BUILTIN) localStorage.removeItem(DEFAULT_WS_KEY)
+    else localStorage.setItem(DEFAULT_WS_KEY, w)
+  } catch {
+    // 存不了就算了，下次进来回工作台文档
+  }
+}
 export const wsDirId = (ws: Workspace) => (ws === BUILTIN ? null : ws.slice(4))
 
 /** 没挂分类的文档放在这个一级文件夹里，排在分类后面 */
@@ -37,6 +59,11 @@ export interface Doc {
   starred?: boolean
   /** 本地文件的绝对路径，读内容用 */
   path?: string
+  /** 本地文件的种类：文本读正文，PDF、图片原样预览，Office 不预览（全部文档） */
+  fileKind?: LocalFileKind
+  /** 本地文件的扩展名和大小 */
+  ext?: string
+  size?: number
   status?: string
   /** 所属项目（C-04）；name 是对象上带的项目标题，项目进了回收站也还在 */
   project?: { id: string; name: string }
@@ -85,12 +112,26 @@ export function fromObject(o: WorkObject, cats: CategoryIndex, starred: boolean)
 
 export const isMarkdown = (ext: string) => MD_EXT.has(ext.toLowerCase())
 
+/** 本地文件的种类筛选项，按这个顺序；只列出现过的 */
+export const FILE_KINDS: { key: LocalFileKind; label: string }[] = [
+  { key: 'text', label: '文本' }, { key: 'pdf', label: 'PDF' }, { key: 'image', label: '图片' }, { key: 'office', label: 'Office 文档' },
+]
+
+/** 文件清单里的一项转成 Doc；按清单项缓存，几千个文件每敲一个字不用重新转（关键词匹配的缓存也跟着 Doc 走） */
+const docOf = new WeakMap<LocalFileEntry, { dir: LocalDir; doc: Doc }>()
+
 export function fromLocalFile(dir: LocalDir, f: LocalFileEntry): Doc {
-  return {
-    id: `${dir.id}:${f.rel}`, title: f.name, markdown: isMarkdown(f.ext), kind: f.ext, kindLabel: (f.ext || '无扩展名').toUpperCase(),
+  const hit = docOf.get(f)
+  if (hit && hit.dir === dir) return hit.doc
+  const fileKind: LocalFileKind = f.kind ?? 'text'
+  const doc: Doc = {
+    id: `${dir.id}:${f.rel}`, title: f.name, markdown: fileKind === 'text' && isMarkdown(f.ext), kind: fileKind,
+    kindLabel: (f.ext || '无扩展名').toUpperCase(),
     updated: new Date(f.modified).getTime(), meta: [`${dir.name}/${f.rel}`, fileSize(f.size)],
-    dirs: f.rel.split('/').slice(0, -1), tags: [], path: f.path,
+    dirs: f.rel.split('/').slice(0, -1), tags: [], path: f.path, fileKind, ext: f.ext, size: f.size,
   }
+  docOf.set(f, { dir, doc })
+  return doc
 }
 
 export interface Kind { key: string; label: string; count: number }
@@ -115,7 +156,7 @@ export interface LibraryModel {
   order?: string[]
 }
 
-/** 关键词匹配用的小写文本，按 Doc 缓存，1000 篇每敲一个字不用重新拼 */
+/** 关键词匹配用的小写文本，按 Doc 缓存，几千篇每敲一个字不用重新拼 */
 const hay = new WeakMap<Doc, string>()
 function haystack(d: Doc) {
   let h = hay.get(d)
@@ -155,12 +196,33 @@ export function builtinModel(objects: WorkObject[], tree: Category[], f: Filter,
   return { folder: null, title: '工作台文档', docs, kinds, rows: filterDocs(docs, f), kind: f.kind, order }
 }
 
-/** 本地目录：实际出现过的扩展名，按字母序；文件按清单顺序（rel 排序） */
+/** 本地目录：筛选项是出现过的文件种类（文本、PDF、图片、Office 文档）；文件按清单顺序（目录走查顺序） */
 export function folderModel(dir: LocalDir, list: LocalFileList | undefined, f: Filter): LibraryModel {
   const docs = (list?.files ?? []).map((x) => fromLocalFile(dir, x))
-  const kinds = [...new Set(docs.map((d) => d.kind))].sort()
-    .map((k) => ({ key: k, label: (k || '无扩展名').toUpperCase(), count: docs.filter((d) => d.kind === k).length }))
+  const n = new Map<string, number>()
+  for (const d of docs) n.set(d.kind, (n.get(d.kind) ?? 0) + 1)
+  const kinds = FILE_KINDS.filter((k) => n.has(k.key)).map((k) => ({ key: k.key, label: k.label, count: n.get(k.key) ?? 0 }))
   return { folder: dir, title: dir.name, docs, kinds, rows: filterDocs(docs, { ...f, tags: [], project: '' }), kind: f.kind }
+}
+
+/** 文件清单状态的一句话（工作目录按钮上的小字和提示）：还在列、跳过了几个不认的、触到了上限 */
+export function listNote(list: LocalFileList | undefined): { text: string; title: string } | undefined {
+  if (!list) return undefined
+  const parts: string[] = []
+  const tips: string[] = []
+  if (list.loading) {
+    parts.push(`已列 ${list.files.length} 个，还在列`)
+    tips.push('目录比较大，正在一页页列出，列完前搜索只覆盖已列出的文件')
+  }
+  if (list.truncated) {
+    parts.push('没列全')
+    tips.push(list.reason === 'depth' ? '有子目录太深（超过 32 层），没有往下列' : `目录太大，走了 ${(list.visited ?? 0).toLocaleString('zh-CN')} 项后停下，后面的没有列出`)
+  }
+  if (list.skipped > 0) {
+    parts.push(`跳过 ${list.skipped} 个`)
+    tips.push(`跳过了 ${list.skipped} 个不认得的文件（不是文本、PDF、图片或 Office 文档，比如压缩包、程序、脚本）`)
+  }
+  return parts.length ? { text: parts.join(' · '), title: tips.join('；') } : undefined
 }
 
 /** 项目下拉（C-04）：在用的项目按名字排，带篇数；文档上挂着、项目已不在（回收站）的照列；最后是「不属于项目」 */
@@ -183,7 +245,7 @@ export function projectOptions(docs: Doc[], projects: { id: string; title: strin
 /** 内容树为空时说清是哪种空：搜不到、一篇都没有、这个分类下没有、筛选后没有 */
 export function emptyText(model: LibraryModel, f: Filter): string {
   if (f.q.trim()) return '没有匹配的内容'
-  if (!model.docs.length) return model.folder ? '这个目录下没有可读的文本文件' : '还没有文档'
+  if (!model.docs.length) return model.folder ? '这个目录下没有认得的文档' : '还没有文档'
   const narrowed = f.tags.length > 0 || !!(f.project && !model.folder)
   if (model.kind === STARRED && !narrowed) return '还没有加星标的文档'
   if (model.kind && !model.folder && !narrowed) return '这个分类下还没有内容'
@@ -219,6 +281,24 @@ export function buildTree(rows: Doc[], order?: string[]): TreeDir {
   }
   sort(root, 0)
   return root
+}
+
+/** 内容树摊平后的一行：文件夹或文件 */
+export type TreeRow = { t: 'dir'; d: TreeDir; depth: number; open: boolean } | { t: 'file'; f: Doc; depth: number }
+
+/** 按展开状态把树摊成行（虚拟滚动用）：每层文件夹在前、文件在后 */
+export function flattenTree(tree: TreeDir, isOpen: (path: string) => boolean): TreeRow[] {
+  const out: TreeRow[] = []
+  const walk = (dir: TreeDir, depth: number) => {
+    for (const d of dir.dirs) {
+      const open = isOpen(d.path)
+      out.push({ t: 'dir', d, depth, open })
+      if (open) walk(d, depth + 1)
+    }
+    for (const f of dir.files) out.push({ t: 'file', f, depth })
+  }
+  walk(tree, 0)
+  return out
 }
 
 /** 一个文件夹的各级父路径，含自己：a/b/c 得到 a、a/b、a/b/c */

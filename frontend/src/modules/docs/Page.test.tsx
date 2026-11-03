@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { render, screen, waitFor, within } from '@testing-library/react'
+import { cleanup, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { createMemoryRouter, RouterProvider } from 'react-router'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -219,5 +219,27 @@ describe('文档按项目（C-04）', () => {
     mount(`/docs?doc=${a.id}`)
     await screen.findByRole('heading', { name: '甲', level: 1 })
     expect(screen.queryByRole('button', { name: '按项目筛选' })).toBeNull()
+  })
+})
+
+describe('默认工作目录（SPEC-library-1.53）', () => {
+  afterEach(() => { localStorage.removeItem('docs.defaultWs') })
+
+  it('在菜单里设为默认后，再从别处进文档就停在这个目录；地址里指定了的照地址', async () => {
+    fakeBackend([obj({ title: '甲' })])
+    const r1 = mount('/docs')
+    await userEvent.click(await screen.findByRole('button', { name: /工作目录/ }))
+    await userEvent.click(await screen.findByRole('button', { name: /^设为默认/ }))
+    expect(localStorage.getItem('docs.defaultWs')).toBe('dir:ld_1')
+    expect(r1.state.location.search).toBe('')
+    cleanup()
+
+    const r2 = mount('/docs')
+    await waitFor(() => expect(r2.state.location.search).toBe('?dir=ld_1'))
+    cleanup()
+
+    const r3 = mount('/docs?doc=obj_1')
+    await new Promise((r) => setTimeout(r, 50))
+    expect(r3.state.location.search).toBe('?doc=obj_1')
   })
 })

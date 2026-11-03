@@ -3,10 +3,12 @@
 // - 本地目录存不存在、有没有读权限由后端判，挂上时报「找不到这个目录」「没有读权限」，不加进来。
 // - 后端只做关键词检索，向量化模型只存不用，换模型不会让文档变待索引。
 // - 改切分不自动重新索引，段数会变的文档给「重新索引这 N 篇」。
+// - 大目录同步分批跑，同步（含挂上新目录时的同步）没回来前每秒查一次进度，显示在那个目录下。
 import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router'
 import {
-  errorText, useAgentProviders, useKbAgents, usePatchKb, useProviderChecks, useSyncKb, type KbDoc, type KbSettingsInput, type KnowledgeBase,
+  errorText, useAgentProviders, useKbAgents, useKbSyncProgress, usePatchKb, useProviderChecks, useSyncKb, type KbDoc, type KbSettingsInput,
+  type KbSyncProgress, type KnowledgeBase,
 } from '../../../core/data'
 import { Avatar, Button, cls, Input, SearchSelect, Select, Switch } from '../../../core/ui'
 import { statusOf } from '../providers/model'
@@ -24,9 +26,11 @@ export function KbSettingsTab({ kb, docs, editing, onEdit, onReindex }: {
   const s = kb.settings
   const patch = usePatchKb()
   const sync = useSyncKb()
+  const progressQ = useKbSyncProgress(kb.id, sync.isPending || patch.isPending)
+  const progress = sync.isPending || patch.isPending ? progressQ.data ?? null : null
   const providersQ = useAgentProviders()
   const providers = useMemo(() => providersQ.data ?? [], [providersQ.data])
-  const checks = useProviderChecks(providers.map((p) => p.id))
+  const checks = useProviderChecks(providers)
   const agentsQ = useKbAgents()
   const [dir, setDir] = useState('')
   const [dirErr, setDirErr] = useState('')
@@ -99,6 +103,7 @@ export function KbSettingsTab({ kb, docs, editing, onEdit, onReindex }: {
                 <span className="kbx-dir-main">
                   <code className="ellipsis" title={d.path}>{d.path}</code>
                   <span className="kb-muted">{d.files} 个文件{d.synced_at && ` · ${ago(d.synced_at)}同步`}</span>
+                  {progress?.dir === d.path && <span className="kb-muted kbx-dir-progress" role="status">{progressText(progress)}</span>}
                 </span>
                 {confirmDir === d.path ? (
                   <span className="kbx-dir-ops">
@@ -110,7 +115,7 @@ export function KbSettingsTab({ kb, docs, editing, onEdit, onReindex }: {
                   <span className="kbx-dir-ops">
                     <Switch checked={d.auto_sync} title="目录里的文件有变动时自动重新索引"
                       onCheckedChange={(v) => set({ dirs: dirsBody(s.dirs.map((x) => (x.path === d.path ? { ...x, auto_sync: v } : x))) })}>自动同步</Switch>
-                    <Button size="sm" disabled={sync.isPending} onClick={() => syncDir(d.path)}>立即同步</Button>
+                    <Button size="sm" disabled={sync.isPending} onClick={() => syncDir(d.path)}>{sync.isPending && sync.variables?.path === d.path ? '同步中…' : '立即同步'}</Button>
                     <Button size="sm" onClick={() => setConfirmDir(d.path)}>移除</Button>
                   </span>
                 )}
@@ -118,6 +123,9 @@ export function KbSettingsTab({ kb, docs, editing, onEdit, onReindex }: {
             ))}
           </div>
         ) : <div className="kbx-empty">还没挂本地目录</div>}
+        {progress && !s.dirs.some((d) => d.path === progress.dir) && (
+          <div className="kb-muted kbx-dir-progress" role="status">{progress.dir ? `${progress.dir} · ` : '文档分类 · '}{progressText(progress)}</div>
+        )}
         <div className="kbx-search-line">
           <Input className="kb-mono" value={dir} invalid={!!dirErr} aria-label="本地目录" placeholder="/Volumes/docs/客户/远川科技"
             onChange={(e) => { setDir(e.target.value); setDirErr('') }} onKeyDown={(e) => { if (e.key === 'Enter' && dir.trim()) addDir() }} />
@@ -198,4 +206,10 @@ export function KbSettingsTab({ kb, docs, editing, onEdit, onReindex }: {
       </section>
     </div>
   )
+}
+
+/** 同步进度的一句话：还在列时总数还会涨 */
+function progressText(p: KbSyncProgress): string {
+  if (!p.listed && p.listing) return '正在列目录…'
+  return `正在同步：已处理 ${p.done} / ${p.listed}${p.listing ? '+' : ''} 个文件`
 }

@@ -2,8 +2,12 @@ package api
 
 import (
 	"errors"
+	"mime"
 	"net/http"
+	"os/exec"
 	"path/filepath"
+	"runtime"
+	"strconv"
 	"strings"
 
 	"github.com/lizhao903/pm-workspace/internal/fsbrowse"
@@ -243,20 +247,117 @@ func (s *Server) handleDeleteLocalDir(w http.ResponseWriter, r *http.Request) {
 	respondData(w, http.StatusOK, nil)
 }
 
-// handleListLocalDirFiles 列挂载目录下的文本文件。每次都重新校验边界，目录被移走了回 404。
+// handleListLocalDirFiles 分页列挂载目录下认得的文件（文本、PDF、图片、Office 等），?cursor=&limit=。
+// 每次都重新校验边界，目录被移走了回 404。客户端一页页拉到 next_cursor 为空就是全量。
 func (s *Server) handleListLocalDirFiles(w http.ResponseWriter, r *http.Request) {
 	if !s.localDirsConfigured(w) {
 		return
+	}
+	q := r.URL.Query()
+	limit := 0
+	if v := q.Get("limit"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil || n < 1 {
+			s.fail(w, r, validationf("limit 要是正整数，最大 %d", fsbrowse.MaxPageSize))
+			return
+		}
+		limit = n
 	}
 	d, err := s.opt.LocalDirs.Get(r.Context(), r.PathValue("id"))
 	if err != nil {
 		s.fail(w, r, err)
 		return
 	}
-	list, err := fsbrowse.ListFiles(d.Path)
+	list, err := fsbrowse.ListFilesPage(d.Path, q.Get("cursor"), limit)
 	if err != nil {
 		s.failFsRead(w, r, err)
 		return
 	}
 	respondData(w, http.StatusOK, list)
+}
+
+// checkMountedFile 是读原文件、用本机应用打开共用的边界：同 /api/fs/read，只认已挂载目录里的非隐藏文件，
+// 数据目录和库文件、密钥证书类文件拦下。不过回 false 时已经写好了响应。
+func (s *Server) checkMountedFile(w http.ResponseWriter, r *http.Request, p string) bool {
+	if !s.localDirsConfigured(w) {
+		return false
+	}
+	if ok, err := s.insideMountedDir(r, p); err != nil {
+		s.fail(w, r, err)
+		return false
+	} else if !ok {
+		writeJSON(w, http.StatusForbidden, errBody{Error: errPayload{Code: "forbidden",
+			Message: "只能读已挂载目录里的非隐藏文件：" + p}})
+		return false
+	}
+	return true
+}
+
+// handleFsRaw 原样回一个能预览的文件（PDF、图片），给阅读区的 iframe、img 用；别的类型回 400。
+// 边界同 /api/fs/read。SVG 能带脚本，加 CSP sandbox，直接打开这个地址也跑不了脚本；
+// PDF 不加 sandbox（Chrome 的 PDF 查看器在 sandbox 下不工作），内容类型固定、nosniff。
+func (s *Server) handleFsRaw(w http.ResponseWriter, r *http.Request) {
+	p := r.URL.Query().Get("path")
+	if !s.checkMountedFile(w, r, p) {
+		return
+	}
+	f, fi, ctype, err := fsbrowse.OpenPreview(p)
+	if err != nil {
+		s.failFsRead(w, r, err)
+		return
+	}
+	defer func() { _ = f.Close() }()
+	h := w.Header()
+	h.Set("Content-Type", ctype)
+	h.Set("X-Content-Type-Options", "nosniff")
+	h.Set("Cache-Control", "private, no-cache")
+	h.Set("Content-Disposition", mime.FormatMediaType("inline", map[string]string{"filename": fi.Name()}))
+	if ctype == "image/svg+xml" {
+		h.Set("Content-Security-Policy", "default-src 'none'; img-src data:; style-src 'unsafe-inline'; sandbox")
+	}
+	http.ServeContent(w, r, fi.Name(), fi.ModTime(), f)
+}
+
+// openLocal 用本机默认应用打开文件，reveal 为 true 时在访达里选中它。做成变量只为测试不真去开。
+var openLocal = func(path string, reveal bool) error {
+	if runtime.GOOS != "darwin" {
+		return errors.New("只有 macOS 上能用本机应用打开")
+	}
+	args := []string{path}
+	if reveal {
+		args = []string{"-R", path}
+	}
+	return exec.Command("open", args...).Run()
+}
+
+// handleFsOpen 用本机应用打开挂载目录里的文件，或在访达中显示（「全部文档」里不能预览的 Office 文件）。
+// 边界同 /api/fs/read；打开只认清单里认得的文档种类（文本、PDF、图片、Office），
+// 免得借它运行目录里的脚本、程序（.command、.app 交给 open 就是执行）。在访达中显示不执行任何东西，认得的种类之外也可以。
+func (s *Server) handleFsOpen(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Path   string `json:"path"`
+		Reveal bool   `json:"reveal"`
+	}
+	if err := decodeBody(r, &req); err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	if !s.checkMountedFile(w, r, req.Path) {
+		return
+	}
+	real, err := fsbrowse.StatFile(req.Path)
+	if err != nil {
+		s.failFsRead(w, r, err)
+		return
+	}
+	if !req.Reveal && fsbrowse.KindOf(strings.TrimPrefix(filepath.Ext(real), ".")) == "" {
+		writeJSON(w, http.StatusForbidden, errBody{Error: errPayload{Code: "forbidden",
+			Message: "这类文件不能直接打开，可以在访达中显示：" + filepath.Base(real)}})
+		return
+	}
+	if err := openLocal(real, req.Reveal); err != nil {
+		s.fail(w, r, validationf("打不开：%s", err.Error()))
+		return
+	}
+	respondData(w, http.StatusOK, map[string]any{"path": real, "reveal": req.Reveal})
 }

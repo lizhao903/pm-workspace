@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { CONTENT_CATEGORIES, type ContentCategory, type ContentItem } from './data'
-import { isMarkdown, type LocalFolder } from './localdir'
+import { isMarkdown, MAX_DEPTH, MAX_VISITED, type FileKind, type LocalFolder } from './localdir'
 import { Star, cls, timeAgo } from './ui'
 import { useEnumView } from './enumdata'
 
@@ -87,7 +87,18 @@ export interface Doc {
   dirs: string[]
   tags: string[]
   starred?: boolean
+  /** 本地文件的种类、预览地址、大小（全部文档）；工作台文档没有 */
+  fileKind?: FileKind
+  url?: string
+  size?: number
+  path?: string
+  truncated?: boolean
 }
+
+/** 本地文件的种类筛选项，按这个顺序，只列出现过的 */
+const FILE_KINDS: { key: FileKind; label: string }[] = [
+  { key: 'text', label: '文本' }, { key: 'pdf', label: 'PDF' }, { key: 'image', label: '图片' }, { key: 'office', label: 'Office 文档' },
+]
 
 const fromItem = (i: ContentItem): Doc => ({
   id: i.id, title: i.title, body: i.body, markdown: true, kind: i.category, kindLabel: categoryLabel(i.category),
@@ -95,9 +106,10 @@ const fromItem = (i: ContentItem): Doc => ({
 })
 
 const fromFolder = (f: LocalFolder): Doc[] => f.files.map((file) => ({
-  id: `${f.id}:${file.path}`, title: file.name, body: file.text, markdown: isMarkdown(file.ext),
-  kind: file.ext, kindLabel: file.ext.toUpperCase(), updated: file.modified,
+  id: `${f.id}:${file.path}`, title: file.name, body: file.text, markdown: file.kind === 'text' && isMarkdown(file.ext),
+  kind: file.kind, kindLabel: (file.ext || '无扩展名').toUpperCase(), updated: file.modified,
   meta: [`${f.name}/${file.path}`, fileSize(file.size)], dirs: file.path.split('/').slice(0, -1), tags: [],
+  fileKind: file.kind, url: file.url, size: file.size, path: `${f.name}/${file.path}`, truncated: file.truncated,
 }))
 
 export interface LibraryModel {
@@ -117,9 +129,9 @@ export function libraryModel(ws: Workspace, items: ContentItem[], folders: Local
   const folder = ws === 'builtin' ? null : folders.find((f) => `dir:${f.id}` === ws) ?? null
   const docs = folder ? fromFolder(folder) : items.map(fromItem).sort((a, b) => b.updated - a.updated)
   const count = (k: string) => docs.filter((d) => d.kind === k).length
-  // 工作台固定列出全部分类（空的也列，说明有这一类），本地目录只列实际出现的扩展名
+  // 工作台固定列出全部分类（空的也列，说明有这一类），本地目录只列实际出现的文件种类（文本、PDF、图片、Office 文档）
   const kinds = folder
-    ? [...new Set(docs.map((d) => d.kind))].sort().map((k) => ({ key: k, label: k.toUpperCase(), count: count(k) }))
+    ? FILE_KINDS.filter((k) => docs.some((d) => d.kind === k.key)).map((k) => ({ key: k.key as string, label: k.label, count: count(k.key) }))
     : [{ key: 'starred', label: '星标', count: docs.filter((d) => d.starred).length },
       ...CONTENT_CATEGORIES.map((c) => ({ key: c.key as string, label: c.label, count: count(c.key) }))]
   const kw = q.trim().toLowerCase()
@@ -186,7 +198,7 @@ export function LibraryBar({ model, kind, onKind, onRefresh }: {
 /** 内容树为空时说清是哪种空：搜不到、一篇都没有、这个分类下没有、筛选后没有 */
 function emptyText(model: LibraryModel, q: string) {
   if (q.trim()) return '没有匹配的内容'
-  if (!model.docs.length) return model.folder ? '这个目录下没有可读的文本文件' : '还没有文档'
+  if (!model.docs.length) return model.folder ? '这个目录下没有认得的文档' : '还没有文档'
   if (model.kind === 'starred') return '还没有加星标的文档'
   if (model.kind && !model.folder) return '这个分类下还没有内容'
   return '没有符合筛选的内容'
@@ -221,7 +233,9 @@ const chevron = <svg viewBox="0 0 16 16" width="10" height="10"><path d="m6 3.5 
 const fileIcon = <svg viewBox="0 0 16 16" width="13" height="13"><path d="M4 1.8h5.5L12.5 5v9.2H4Z" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" /><path d="M9.3 2v3.2h3" fill="none" stroke="currentColor" strokeWidth="1.3" /></svg>
 const folderIcon = <svg viewBox="0 0 16 16" width="13" height="13"><path d="M1.8 4.2c0-.6.4-1 1-1h3.4l1.5 1.6h5.5c.6 0 1 .4 1 1v6.9c0 .6-.4 1-1 1H2.8c-.6 0-1-.4-1-1Z" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" /></svg>
 
-export function LibraryTree({ ws, model, items, folders, selected, onSelect, onSwitch, onAddFolder, onRemoveFolder, q, onQ, adding, error }: {
+export function LibraryTree({ ws, model, items, folders, selected, onSelect, onSwitch, onAddFolder, onRemoveFolder, q, onQ, adding, error, defaultWs = 'builtin', onSetDefault }: {
+  /** 默认工作目录（SPEC-library-1.53）：菜单里标「默认」，目录行有设为默认的星标 */
+  defaultWs?: Workspace; onSetDefault?: (ws: Workspace) => void
   ws: Workspace
   model: LibraryModel
   items: ContentItem[]
@@ -266,31 +280,68 @@ export function LibraryTree({ ws, model, items, folders, selected, onSelect, onS
   // 缩进最多 4 层，再深的文件夹前面用「…/」表示省略的上层
   const indent = (depth: number) => 8 + Math.min(depth, MAX_INDENT) * 14
 
-  const renderDir = (dir: TreeDir, depth: number): ReactNode => (
-    <>
-      {dir.dirs.map((d) => {
+  // 展开的树摊成一行行（每行 30px）；行多时只渲染滚动到的一段（虚拟滚动），几千上万个文件、搜索时全部展开也不卡
+  const rows = useMemo(() => {
+    const out: ({ t: 'dir'; d: TreeDir; depth: number; open: boolean } | { t: 'file'; f: Doc; depth: number })[] = []
+    const walk = (dir: TreeDir, depth: number) => {
+      for (const d of dir.dirs) {
         const open = searching || opened.has(d.path)
-        return (
-          <div key={d.path} role="group">
-            <button className="tree-row tree-dir" style={{ paddingLeft: indent(depth) }} onClick={() => toggle(d.path)} aria-expanded={open} title={depth > MAX_INDENT ? d.path : undefined}>
-              <span className={cls('tree-chev', open && 'open')}>{chevron}</span>
-              <span className="tree-icon">{folderIcon}</span>
-              <span className="ellipsis tree-label">{depth > MAX_INDENT && <span className="tree-elide">…/</span>}{d.name}</span>
-              <span className="tree-count">{d.count}</span>
-            </button>
-            {open && renderDir(d, depth + 1)}
-          </div>
-        )
-      })}
-      {dir.files.map((f) => (
-        <button key={f.id} className={cls('tree-row tree-file', selected === f.id && 'sel')} style={{ paddingLeft: indent(depth) + 16 }} onClick={() => onSelect(f.id)} title={f.title}>
-          <span className="tree-icon">{fileIcon}</span>
-          <span className="ellipsis tree-label">{f.title}</span>
-          {f.starred && <span className="lib-star" aria-label="星标"><svg viewBox="0 0 16 16" width="10" height="10"><path d="m8 1.8 1.9 3.9 4.3.6-3.1 3 .7 4.3L8 11.6l-3.8 2 .7-4.3-3.1-3 4.3-.6Z" fill="currentColor" /></svg></span>}
-        </button>
-      ))}
-    </>
+        out.push({ t: 'dir', d, depth, open })
+        if (open) walk(d, depth + 1)
+      }
+      for (const f of dir.files) out.push({ t: 'file', f, depth })
+    }
+    walk(tree, 0)
+    return out
+  }, [tree, searching, opened])
+  const scroller = useRef<HTMLDivElement>(null)
+  const [view, setView] = useState({ top: 0, height: 0 })
+  const measure = useCallback(() => {
+    const el = scroller.current
+    if (el) setView((v) => (v.top === el.scrollTop && v.height === el.clientHeight ? v : { top: el.scrollTop, height: el.clientHeight }))
+  }, [])
+  useLayoutEffect(() => {
+    measure()
+    const el = scroller.current
+    if (!el) return
+    const ro = new ResizeObserver(measure)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [measure])
+  const ROW_H = 30
+  const virtual = rows.length > 200
+  const from = virtual ? Math.max(0, Math.floor(view.top / ROW_H) - 12) : 0
+  const to = virtual ? Math.min(rows.length, Math.ceil((view.top + (view.height || 800)) / ROW_H) + 12) : rows.length
+  const renderRow = (r: (typeof rows)[number]): ReactNode => r.t === 'dir' ? (
+    <button key={`d:${r.d.path}`} className="tree-row tree-dir" style={{ paddingLeft: indent(r.depth) }} onClick={() => toggle(r.d.path)} aria-expanded={r.open} title={r.depth > MAX_INDENT ? r.d.path : undefined}>
+      <span className={cls('tree-chev', r.open && 'open')}>{chevron}</span>
+      <span className="tree-icon">{folderIcon}</span>
+      <span className="ellipsis tree-label">{r.depth > MAX_INDENT && <span className="tree-elide">…/</span>}{r.d.name}</span>
+      <span className="tree-count">{r.d.count}</span>
+    </button>
+  ) : (
+    <button key={r.f.id} className={cls('tree-row tree-file', selected === r.f.id && 'sel')} style={{ paddingLeft: indent(r.depth) + 16 }} onClick={() => onSelect(r.f.id)} title={r.f.title} data-kind={r.f.fileKind}>
+      <span className="tree-icon">{fileIcon}</span>
+      <span className="ellipsis tree-label">{r.f.title}</span>
+      {r.f.starred && <span className="lib-star" aria-label="星标"><svg viewBox="0 0 16 16" width="10" height="10"><path d="m8 1.8 1.9 3.9 4.3.6-3.1 3 .7 4.3L8 11.6l-3.8 2 .7-4.3-3.1-3 4.3-.6Z" fill="currentColor" /></svg></span>}
+    </button>
   )
+  const treeBody = virtual ? (
+    <div style={{ height: rows.length * ROW_H, position: 'relative' }}>
+      <div style={{ position: 'absolute', top: from * ROW_H, left: 0, right: 0 }}>{rows.slice(from, to).map(renderRow)}</div>
+    </div>
+  ) : rows.map(renderRow)
+
+  // 工作目录小字：跳过了几个不认的、没列全
+  const note = model.folder ? [
+    model.folder.truncated && '没列全',
+    model.folder.skipped > 0 && `跳过 ${model.folder.skipped} 个`,
+  ].filter(Boolean).join(' · ') : ''
+  const noteTitle = model.folder ? [
+    model.folder.truncated === 'visited' && `目录太大，走了 ${MAX_VISITED.toLocaleString('zh-CN')} 项后停下，后面的没有列出`,
+    model.folder.truncated === 'depth' && `有子目录太深（超过 ${MAX_DEPTH} 层），没有往下列`,
+    model.folder.skipped > 0 && `跳过了 ${model.folder.skipped} 个不认得的文件（不是文本、PDF、图片或 Office 文档，比如压缩包、程序、脚本）`,
+  ].filter(Boolean).join('；') : ''
 
   const pick = (w: Workspace) => { setMenu(false); onSwitch(w) }
 
@@ -302,10 +353,10 @@ export function LibraryTree({ ws, model, items, folders, selected, onSelect, onS
           <input placeholder={model.folder ? '搜索文件名、路径、正文' : '搜索标题、正文、标签'} value={q} onChange={(e) => onQ(e.target.value)} />
         </div>
       </div>
-      <div className="tree" role="tree">
+      <div className="tree" role="tree" ref={scroller} onScroll={measure}>
         {model.rows.length === 0
           ? <div className="tree-empty">{emptyText(model, q)}</div>
-          : renderDir(tree, 0)}
+          : treeBody}
       </div>
 
       <div className="ws-switch" ref={menuRef}>
@@ -321,7 +372,15 @@ export function LibraryTree({ ws, model, items, folders, selected, onSelect, onS
                 <button className="ws-pick" onClick={() => pick(`dir:${f.id}`)} title={f.handle ? f.name : `${f.name}（只读快照，看新改动需重新选择）`}>
                   <span className="tree-icon">{folderIcon}</span>
                   <span className="ellipsis">{f.name}</span>
+                  {defaultWs === `dir:${f.id}` && <span className="ws-default">默认</span>}
                 </button>
+                {onSetDefault && (
+                  <button className={cls('ws-pin', defaultWs === `dir:${f.id}` && 'on')}
+                    title={defaultWs === `dir:${f.id}` ? '取消默认：进文档时回到工作台文档' : '设为默认：之后进文档就停在这个目录'}
+                    onClick={() => onSetDefault(defaultWs === `dir:${f.id}` ? 'builtin' : `dir:${f.id}`)}>
+                    <svg viewBox="0 0 16 16" width="12" height="12"><path d="M8 2.5l1.7 3.5 3.8.5-2.8 2.6.7 3.8L8 11.1l-3.4 1.8.7-3.8L2.5 6.5l3.8-.5Z" fill={defaultWs === `dir:${f.id}` ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" /></svg>
+                  </button>
+                )}
                 <button className="ws-remove" title="从列表移除，不动本地文件" onClick={() => onRemoveFolder(f.id)}>
                   <svg viewBox="0 0 16 16" width="11" height="11"><path d="m4 4 8 8M12 4l-8 8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" /></svg>
                 </button>
@@ -338,7 +397,7 @@ export function LibraryTree({ ws, model, items, folders, selected, onSelect, onS
         <button className={cls('ws-btn', menu && 'open')} onClick={() => setMenu(!menu)} aria-haspopup="menu" aria-expanded={menu}>
           <span className="tree-icon">{folderIcon}</span>
           <span className="ws-btn-text">
-            <span className="ws-btn-kicker" title={model.folder?.skipped ? `跳过了 ${model.folder.skipped} 个非文本或过大的文件` : undefined}>工作目录{model.folder && model.folder.skipped > 0 && ` · 跳过 ${model.folder.skipped} 个`}</span>
+            <span className="ws-btn-kicker" title={noteTitle || undefined}>工作目录{note && ` · ${note}`}</span>
             <span className="ellipsis">{adding ? '正在读取…' : model.title}</span>
           </span>
           <svg className="ws-btn-chev" viewBox="0 0 16 16" width="12" height="12"><path d="m4 10 4-4 4 4" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" /></svg>
@@ -365,6 +424,8 @@ export function LibraryReader({ model, selected, onSelect, onStar }: {
   })
   const [copied, setCopied] = useState(false)
   const [tocOpen, setTocOpen] = useState(false)
+  // 原型没有后端，「用本机应用打开」「在访达中显示」只说明正式产品的做法
+  const [openNote, setOpenNote] = useState('')
   const readerRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -376,7 +437,7 @@ export function LibraryReader({ model, selected, onSelect, onStar }: {
   useEffect(() => {
     if (!current && rows.length && window.matchMedia('(min-width: 761px)').matches) onSelect(rows[0].id)
   }, [current, rows, onSelect])
-  useEffect(() => { readerRef.current?.scrollTo({ top: 0 }); setCopied(false); setTocOpen(false) }, [current?.id])
+  useEffect(() => { readerRef.current?.scrollTo({ top: 0 }); setCopied(false); setTocOpen(false); setOpenNote('') }, [current?.id])
   const jump = (id: string) => { document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' }); setTocOpen(false) }
 
   const md = useMemo(() => (current?.markdown ? renderMarkdown(current.body) : null), [current])
@@ -416,22 +477,43 @@ export function LibraryReader({ model, selected, onSelect, onStar }: {
                   )}
                 </div>
               )}
-              <div className="seg seg-sm" title="正文字号">
+              {(!current.fileKind || current.fileKind === 'text') && <div className="seg seg-sm" title="正文字号">
                 {(['sm', 'md', 'lg'] as FontSize[]).map((s) => (
                   <button key={s} className={cls(size === s && 'on')} onClick={() => setSize(s)}>{{ sm: '小', md: '中', lg: '大' }[s]}</button>
                 ))}
-              </div>
-              <button className="act" onClick={copy}>{copied ? '已复制' : '复制全文'}</button>
+              </div>}
+              {(!current.fileKind || current.fileKind === 'text') && <button className="act" onClick={copy}>{copied ? '已复制' : '复制全文'}</button>}
+              {(current.fileKind === 'pdf' || current.fileKind === 'image') && <button className="act" onClick={() => setOpenNote('正式产品用本机默认应用打开这个文件（原型里不能打开本机文件）')}>本机打开</button>}
+              {current.fileKind && current.fileKind !== 'office' && <button className="act" onClick={() => setOpenNote('正式产品在访达中选中这个文件（原型里不能打开本机文件）')}>在访达中显示</button>}
               {current.starred !== undefined && <Star on={current.starred} onClick={() => onStar(current.id)} />}
             </div>
             <h1 className="reader-title">{current.title}</h1>
             <div className="reader-meta">
               {current.meta.map((m) => <span key={m} className="reader-meta-item">{m}</span>)}
               <span>{folder ? '修改于' : '更新于'} {timeAgo(new Date(current.updated).toISOString())}</span>
-              <span>{charCount(current.body)} 字</span>
+              {(!current.fileKind || current.fileKind === 'text') && <span>{charCount(current.body)} 字</span>}
             </div>
+            {openNote && <div className="lib-file-note">{openNote}</div>}
+            {current.truncated && <div className="lib-file-note">文件超过 1 MB，只显示开头</div>}
             {current.tags.length > 0 && <div className="tags reader-tags">{current.tags.map((t) => <span key={t} className="tag">{t}</span>)}</div>}
-            {md ? <div className="md">{md.nodes}</div> : <pre className="md plain-text">{current.body}</pre>}
+            {current.fileKind === 'pdf' ? <iframe className="lib-pdf" src={current.url} title={`预览 ${current.title}`} />
+              : current.fileKind === 'image' ? <div className="lib-img-wrap"><img className="lib-img" src={current.url} alt={current.title} /></div>
+              : current.fileKind === 'office' ? (
+                <div className="lib-file-card">
+                  <div className="lib-file-card-name">{current.title}</div>
+                  <dl>
+                    <dt>类型</dt><dd>{current.kindLabel} 文档</dd>
+                    <dt>大小</dt><dd>{current.size ? fileSize(current.size) : '未知'}</dd>
+                    <dt>位置</dt><dd className="lib-file-card-path">{current.path}</dd>
+                  </dl>
+                  <p className="lib-file-note">这类文件不能在这里预览，用本机应用打开查看。</p>
+                  <div className="lib-file-card-acts">
+                    <button className="btn btn-primary" onClick={() => setOpenNote('正式产品用本机默认应用打开这个文件（原型里不能打开本机文件）')}>用本机应用打开</button>
+                    <button className="btn" onClick={() => setOpenNote('正式产品在访达中选中这个文件（原型里不能打开本机文件）')}>在访达中显示</button>
+                  </div>
+                </div>
+              )
+              : md ? <div className="md">{md.nodes}</div> : <pre className="md plain-text">{current.body}</pre>}
           </article>
           {headings.length > 1 && (
             <aside className="toc">
