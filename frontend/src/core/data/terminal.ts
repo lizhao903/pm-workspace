@@ -1,7 +1,7 @@
 // 终端（TERM-01b）：终端插件 terminal 的会话接口，契约见 docs/api-contract.md「终端插件 terminal」（TERM-01a）。
 // 会话只在服务进程内存里：新建、结束报 { kind: 'terminal-session' }；收发走 WebSocket，地址由 terminalSocketUrl 拼。
 // 终端页要按目录认出项目原型，原型列表跨全部项目取一份，启停经这里调项目插件的接口（终端不 import 项目插件）。
-import { useMutation, useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { request, requestList } from '../api'
 import { apiBase } from '../api/client'
 import { useNotifyChange } from './invalidate'
@@ -27,7 +27,19 @@ export type TerminalSession = {
   exited_at: string | null
 }
 
-export type TerminalSessionInput = { cwd?: string; cols?: number; rows?: number }
+export type TerminalSessionInput = {
+  cwd?: string
+  cols?: number
+  rows?: number
+  /** 交给 Claude Code「切换到终端」：shell 起来后执行设置里的启动命令（终端插件 0.2.0） */
+  claude?: { prompt_file: string; mcp_config: string; workdir: string }
+}
+
+/** 新建会话的响应：带了 claude 时多一个 command，是写进终端执行的那条命令 */
+export type TerminalSessionCreated = TerminalSession & { command?: string }
+
+/** 终端插件设置（0.2.0）：claude_command 是启动命令模板，没配过是 default_claude_command */
+export type TerminalSettings = { claude_command: string; default_claude_command: string }
 
 /** 后端同时最多这么多个 running 的会话，再建 409 */
 export const TERMINAL_MAX_SESSIONS = 16
@@ -36,8 +48,24 @@ const base = '/api/terminal/sessions'
 
 export const terminalApi = {
   list: async (signal?: AbortSignal) => (await requestList<TerminalSession>(base, { signal })).data,
-  create: (body: TerminalSessionInput) => request<TerminalSession>('POST', base, { body }),
+  create: (body: TerminalSessionInput) => request<TerminalSessionCreated>('POST', base, { body }),
   remove: (id: string) => request<null>('DELETE', `${base}/${encodeURIComponent(id)}`),
+  settings: (signal?: AbortSignal) => request<TerminalSettings>('GET', '/api/terminal/settings', { signal }),
+  patchSettings: (patch: { claude_command: string }) => request<TerminalSettings>('PATCH', '/api/terminal/settings', { body: patch }),
+}
+
+/** 终端插件设置 */
+export function useTerminalSettings() {
+  return useQuery({ queryKey: dataKeys.terminal.settings, queryFn: ({ signal }) => terminalApi.settings(signal) })
+}
+
+/** 改设置：响应是改后的整份设置，直接写回缓存 */
+export function usePatchTerminalSettings() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (patch: { claude_command: string }) => terminalApi.patchSettings(patch),
+    onSuccess: (s) => qc.setQueryData(dataKeys.terminal.settings, s),
+  })
 }
 
 /** WebSocket 地址：跟着接口地址走（默认同源）；after 是已收到的字节位置，只补发这之后的输出 */

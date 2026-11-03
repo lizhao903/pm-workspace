@@ -68,6 +68,8 @@ type Registrar interface {
 	HostHandler(d HostHandlerDef)
 	// ScheduleAction 登记一种定时任务动作，Kind 必须在清单 provides.schedule_actions 里、以 <id>_ 开头（2.12，VID-06a，scheduleaction.go）。
 	ScheduleAction(d ScheduleActionDef)
+	// ProjectPrototypes 登记「列出项目原型目录」的入口，只有 provides.modules 含 projects 的插件能登记（projectprotos.go）。
+	ProjectPrototypes(fn ProjectPrototypeLister)
 }
 
 // RouteRegistrar 和 internal/api 里的同名接口一致，*http.ServeMux 天然满足。

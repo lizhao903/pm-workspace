@@ -11,6 +11,10 @@ export const MATERIAL_KINDS: { key: MaterialKind; label: string }[] = [
   { key: 'file', label: '文件' }, { key: 'folder', label: '文件夹' }, { key: 'link', label: '链接' }, { key: 'note', label: '笔记' },
 ]
 export type MaterialStatus = '' | 'draft' | 'review' | 'final'
+/** 笔记正文最多这么多字（契约 note 上限），新建、编辑、IM 消息转笔记同一个数 */
+export const MATERIAL_NOTE_MAX = 5000
+/** 编辑时能互换的种类（项目插件 0.9.1）：笔记和链接、文件和文件夹 */
+export const MATERIAL_KIND_GROUPS: MaterialKind[][] = [['note', 'link'], ['file', 'folder']]
 
 export type ProjectMaterial = {
   id: string
@@ -28,7 +32,8 @@ export type ProjectMaterial = {
 }
 
 export type ProjectMaterialInput = { kind: MaterialKind; value: string; name?: string; category?: string; status?: MaterialStatus; tags?: string[] }
-export type ProjectMaterialPatch = { name?: string; value?: string; category?: string; status?: MaterialStatus; tags?: string[] }
+/** kind 只能在 MATERIAL_KIND_GROUPS 的同一组里换，换了值按新种类校验 */
+export type ProjectMaterialPatch = { kind?: MaterialKind; name?: string; value?: string; category?: string; status?: MaterialStatus; tags?: string[] }
 
 const base = (id: string) => `/api/projects/${encodeURIComponent(id)}/materials`
 const one = (id: string, mid: string) => `${base(id)}/${encodeURIComponent(mid)}`

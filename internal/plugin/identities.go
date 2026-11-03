@@ -23,6 +23,8 @@ type IdentityReader interface {
 	Get(ctx context.Context, id string) (IdentityInfo, error)
 	// Find 按渠道和编号找，编号的规整规则同 imident（telegram 去掉开头的 @）。
 	Find(ctx context.Context, channel, externalID string) (IdentityInfo, error)
+	// List 列一个渠道的全部身份，按编号排序；渠道格式不对回空（IM 插件从渠道资料补联系人邮箱时用）。
+	List(ctx context.Context, channel string) ([]IdentityInfo, error)
 }
 
 func (c *core) Identities() IdentityReader { return identityReader{c} }
@@ -55,6 +57,31 @@ func (r identityReader) Find(ctx context.Context, channel, externalID string) (I
 		return IdentityInfo{}, ErrNoRows
 	}
 	return scanIdentity(d.R.QueryRowContext(ctx, identityCols+` WHERE channel = ? AND external_id = ?`, ch, ext))
+}
+
+func (r identityReader) List(ctx context.Context, channel string) ([]IdentityInfo, error) {
+	d := r.c.db()
+	if d == nil {
+		return nil, ErrNoStore
+	}
+	ch, err := imident.NormalizeChannel(channel)
+	if err != nil {
+		return nil, nil
+	}
+	rows, err := d.R.QueryContext(ctx, identityCols+` WHERE channel = ? ORDER BY external_id, id`, ch)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	var out []IdentityInfo
+	for rows.Next() {
+		var info IdentityInfo
+		if err := rows.Scan(&info.ID, &info.StakeholderID, &info.Channel, &info.ExternalID, &info.DisplayName); err != nil {
+			return nil, err
+		}
+		out = append(out, info)
+	}
+	return out, rows.Err()
 }
 
 // Find 按渠道和会话编号找会话，规整规则同 IM 身份。

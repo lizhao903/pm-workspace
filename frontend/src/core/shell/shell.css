@@ -243,3 +243,16 @@
   .shell-side, .side-sec-chev { transition: none; }
   .pal-mask, .shell-scrim, .qs-mask { animation: none; }
 }
+
+/* 提醒弹窗（定时任务动作 remind）：右下角叠起来，点「知道了」或「打开任务」才收 */
+/* 底边让出抽屉底栏的高度，不挡「保存」 */
+.shell-reminders { position: fixed; right: var(--sp-8); bottom: calc(var(--foot-h) + var(--sp-8)); z-index: 60; width: min(340px, calc(100vw - 2 * var(--sp-8))); display: flex; flex-direction: column; gap: var(--sp-4); }
+.shell-reminder { padding: var(--sp-6) var(--sp-7); border-radius: var(--r); border: 1px solid var(--accent-line); background: var(--panel); box-shadow: var(--shadow); display: flex; flex-direction: column; gap: var(--sp-3); }
+.shell-reminder-head { display: flex; align-items: center; gap: var(--sp-4); }
+.shell-reminder-kicker { flex: 1; font-size: var(--fs-xs); color: var(--accent); font-weight: 500; }
+.shell-reminder-x { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; border: 0; border-radius: var(--r-sm); background: none; color: var(--faint); cursor: pointer; }
+.shell-reminder-x:hover { background: var(--hover); color: var(--text); }
+.shell-reminder-title { font-size: var(--fs-md); font-weight: 600; color: var(--text); word-break: break-word; }
+.shell-reminder-body { font-size: var(--fs-sm); color: var(--muted); white-space: pre-wrap; word-break: break-word; max-height: 8em; overflow: auto; }
+.shell-reminder-acts { display: flex; gap: var(--sp-4); justify-content: flex-end; }
+.shell-reminder-more { display: flex; align-items: center; gap: var(--sp-4); justify-content: space-between; padding: var(--sp-4) var(--sp-7); border-radius: var(--r); background: var(--panel); border: 1px solid var(--line); box-shadow: var(--shadow-sm); font-size: var(--fs-sm); color: var(--muted); }

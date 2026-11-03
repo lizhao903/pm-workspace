@@ -1,0 +1,32 @@
+/* 监听频道的列表选择（ChannelPicker.tsx）：设置里的连接器抽屉和 IM 页 Slack 表单共用 */
+.chan { display: flex; flex-direction: column; gap: var(--sp-3); min-width: 0; }
+.chan-faint { color: var(--faint); font-size: var(--fs-xs); }
+.chan-mono { font-family: var(--mono); }
+.chan-picked { display: flex; flex-wrap: wrap; gap: var(--sp-2); min-height: 26px; align-items: center; }
+.chan-chip {
+  display: inline-flex; align-items: center; gap: 4px; max-width: 100%; padding: 1px 4px 1px 8px; border-radius: 12px;
+  background: var(--panel-2); border: 1px solid var(--line); font-size: var(--fs-sm); overflow-wrap: anywhere;
+}
+.chan-chip em { font-style: normal; font-size: var(--fs-2xs); color: var(--warn); }
+.chan-chip.missing { border-style: dashed; color: var(--faint); }
+.chan-chip button { border: 0; background: none; color: var(--faint); cursor: pointer; padding: 0 4px; font-size: var(--fs); line-height: 1; }
+.chan-chip button:hover { color: var(--text); }
+.chan-bar { display: flex; align-items: center; gap: var(--sp-4); flex-wrap: wrap; }
+.chan-search { width: 200px; max-width: 100%; height: 30px; }
+.chan-list { display: flex; flex-direction: column; max-height: 280px; overflow-y: auto; border: 1px solid var(--line); border-radius: var(--r); }
+.chan.bad .chan-list { border-color: var(--danger); }
+.chan-row { display: flex; align-items: center; gap: var(--sp-4); padding: 5px var(--sp-6); border-bottom: 1px solid var(--line); cursor: pointer; min-width: 0; font-size: var(--fs); }
+.chan-row:last-child { border-bottom: 0; }
+.chan-row:hover { background: var(--panel-2); }
+.chan-row.on .chan-name { font-weight: 600; }
+.chan-name { min-width: 0; }
+.chan-tag { flex: none; font-size: var(--fs-2xs); padding: 0 5px; border-radius: 3px; background: var(--panel-2); color: var(--faint); }
+.chan-tag.warn { background: var(--warn-soft); color: var(--warn); }
+.chan-empty { padding: var(--sp-12) var(--sp-7); text-align: center; color: var(--faint); font-size: var(--fs-sm); }
+.chan-more { padding: var(--sp-3) var(--sp-6); }
+.chan-warn { padding: var(--sp-3) var(--sp-5); border-radius: var(--r); background: var(--warn-soft); color: var(--warn); font-size: var(--fs-sm); }
+.chan-note { display: flex; align-items: center; gap: var(--sp-3); flex-wrap: wrap; }
+.chan-note > span:first-child { flex: 1; min-width: 200px; }
+@media (max-width: 760px) {
+  .chan-row code { display: none; }
+}

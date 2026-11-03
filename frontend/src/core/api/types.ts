@@ -401,7 +401,26 @@ export type TaskRun = {
   error: string
   started_at: string
   finished_at: string | null
+  /** 执行方式（0048）：stream 工作台起进程流式回推；terminal 在终端里交互执行，靠 MCP 回写或手动标记结束 */
+  mode: RunMode
 }
+
+export type RunMode = 'stream' | 'terminal'
+
+/** POST /api/objects/{id}/run/terminal 的请求和响应（0048） */
+export type TerminalRunRequest = { workdir?: string; extra_prompt?: string }
+export type TerminalHandoff = {
+  run: TaskRun
+  workdir: string
+  /** 数据目录 tmp/handoff/<执行 id>/ 下的提示词和 MCP 配置，交给终端插件 */
+  prompt_file: string
+  mcp_config: string
+}
+/** 终端执行收尾：终端里的 claude 经 MCP 或界面上的「标记结束」 */
+export type FinishRunInput = { status: 'done' | 'failed' | 'canceled'; summary?: string }
+/** GET /api/objects/{id}/run/prompt 的参数和响应 */
+export type RunPromptParams = { mode?: RunMode; workdir?: string; extra_prompt?: string }
+export type RunPrompt = { prompt: string; workdir: string }
 
 // ---- 侧栏计数 ----
 

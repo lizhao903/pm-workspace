@@ -1,12 +1,13 @@
 // 消息附件（IM-04b）：获取到本地、读内容的地址、加进项目资料、项目里选了「不加入」的记录。
 // 契约见 docs/api-contract.md「IM 消息插件 im」的「附件获取」（IM-04a）。插件之间不能互调，加进资料由这里组合两次请求：
 // 文件、图片还没获取的先 POST .../fetch，再 POST /api/projects/{id}/materials（value 填 local，链接填 url，打「消息附件」标签）。
-// 资料上不记来源消息，「已加入」按 value 认（契约：同一附件重复加由前端按 value 去重）。
+// 「已加入」按 value 认（契约：同一附件重复加由前端按 value 去重）。加上后再调 POST /api/im/materials 记出处（0009，kind=attachment），
+// 项目资料页据此显示「来自 <发信人>（<群名或私聊>）的消息」；记出处失败不影响已加上的资料。
 // 获取的响应是改后的整条消息，先写回缓存再报 im-message；加进资料报 project-material，清掉不加入记录时另报 object。
 import { useMutation, useQueries, useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query'
-import { isApiError, objects, request, type WorkObject } from '../api'
+import { isApiError, objects, readRawText, request, type WorkObject } from '../api'
 import { apiBase } from '../api/client'
-import { normMessage, type ImAttachment, type ImMessage } from './im'
+import { imApi, normMessage, type ImAttachment, type ImMessage } from './im'
 import { useNotifyChange } from './invalidate'
 import { dataKeys } from './keys'
 import { projectMaterialsApi, type ProjectMaterial, type ProjectMaterialInput } from './materials'
@@ -33,8 +34,55 @@ export const attachmentsApi = {
   storage: (signal?: AbortSignal) => request<ImAttachmentStorage>('GET', '/api/im/attachments', { signal }),
 }
 
+/** 附件大小写成 B、KB、MB；没有时为空串 */
+export const fmtBytes = (n?: number | null) => (n === undefined || n === null ? ''
+  : n < 1024 ? `${n} B` : n < 1024 ** 2 ? `${Math.round(n / 1024)} KB` : `${(n / 1024 ** 2).toFixed(1)} MB`)
+
 /** 文件、图片要先获取；链接不用 */
 export const needsFetch = (a: ImAttachment) => a.kind !== 'link' && a.fetch !== 'done'
+
+/** 预览方式：按扩展名定；none 是不能在页面里看，只能下载 */
+export type PreviewKind = 'image' | 'pdf' | 'video' | 'audio' | 'text' | 'none'
+
+const PREVIEW_EXT: Record<string, PreviewKind> = {
+  png: 'image', jpg: 'image', jpeg: 'image', gif: 'image', webp: 'image', bmp: 'image', avif: 'image',
+  pdf: 'pdf',
+  mp4: 'video', webm: 'video', mov: 'video', m4v: 'video',
+  mp3: 'audio', wav: 'audio', m4a: 'audio', ogg: 'audio', aac: 'audio', flac: 'audio',
+  txt: 'text', log: 'text', md: 'text', csv: 'text', tsv: 'text', json: 'text', yaml: 'text', yml: 'text', xml: 'text', ini: 'text', conf: 'text',
+}
+
+/** 附件能怎么预览：链接不在这里看；图片类附件没认出扩展名时也按图片试 */
+export function previewKind(a: ImAttachment): PreviewKind {
+  if (a.kind === 'link') return 'none'
+  const ext = a.name.includes('.') ? a.name.split('.').pop()!.toLowerCase() : ''
+  return PREVIEW_EXT[ext] ?? (a.kind === 'image' ? 'image' : 'none')
+}
+
+/**
+ * 预览用的地址：图片、PDF、音视频带 ?inline=1（后端只对这几类按 inline 回，SVG、HTML 照旧下载）；
+ * 文本用普通地址由前端读出来显示。没获取的回 null
+ */
+export function attachmentPreviewHref(a: ImAttachmentFile): string | null {
+  const href = attachmentHref(a)
+  if (!href || a.kind === 'link') return null
+  const k = previewKind(a)
+  return k === 'image' || k === 'pdf' || k === 'video' || k === 'audio' ? `${href}${href.includes('?') ? '&' : '?'}inline=1` : href
+}
+
+/** 文本预览最多读这么多字节，再多提示下载看全文 */
+export const TEXT_PREVIEW_MAX = 512 * 1024
+
+/** 文本附件的内容（预览用），读前 TEXT_PREVIEW_MAX 字节；src 为空时不取 */
+export function useAttachmentText(src: string | null) {
+  return useQuery({
+    queryKey: ['im-attachment-text', src ?? ''],
+    queryFn: ({ signal }) => readRawText(src ?? '', TEXT_PREVIEW_MAX, signal),
+    enabled: !!src,
+    staleTime: Infinity,
+    retry: false,
+  })
+}
 
 /** 读内容的地址：获取过的文件、图片才有 */
 export function attachmentHref(a: ImAttachmentFile): string | null {
@@ -62,13 +110,16 @@ export function attachmentMaterial(a: ImAttachment): ProjectMaterialInput | null
   return { kind: 'file', value: a.local, name: a.name, tags: [ATTACHMENT_TAG] }
 }
 
-/** 这个附件已经在这份资料里：按 value 认，文件比 local、链接比 url */
-export function attachmentAdded(materials: readonly ProjectMaterial[] | undefined, a: ImAttachment): boolean {
+/** 这个附件加进去的那条资料：按 value 认，文件比 local、链接比 url；没加过返回 undefined */
+export function attachmentAddedAs(materials: readonly ProjectMaterial[] | undefined, a: ImAttachment): ProjectMaterial | undefined {
   const v = a.kind === 'link' ? a.url : a.fetch === 'done' ? a.local : ''
-  if (!v || !materials) return false
+  if (!v || !materials) return undefined
   const kind = a.kind === 'link' ? 'link' : 'file'
-  return materials.some((m) => m.kind === kind && m.value === v)
+  return materials.find((m) => m.kind === kind && m.value === v)
 }
+
+/** 这个附件已经在这份资料里 */
+export const attachmentAdded = (materials: readonly ProjectMaterial[] | undefined, a: ImAttachment): boolean => !!attachmentAddedAs(materials, a)
 
 /** 「不加入」记录的键：消息 id + 附件 id（渠道给的附件 id 只在一条消息里唯一） */
 export const skipKey = (messageId: string, attachmentId: string) => `${messageId}:${attachmentId}`
@@ -79,13 +130,13 @@ export function skippedAttachments(o: WorkObject | undefined): string[] {
   return Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : []
 }
 
-/** 读回最新 props 改「不加入」记录，别的 key 原样留着；没变化返回 null */
-async function saveSkipped(projectId: string, key: string, skip: boolean): Promise<WorkObject | null> {
+/** 读回最新 props 改「不加入」记录（一次可改多个），别的 key 原样留着；没变化返回 null */
+async function saveSkipped(projectId: string, keys: string | readonly string[], skip: boolean): Promise<WorkObject | null> {
   const fresh = await objects.get(projectId)
   const cur = skippedAttachments(fresh)
-  const has = cur.includes(key)
-  if (has === skip) return null
-  const next = skip ? [...cur, key] : cur.filter((x) => x !== key)
+  const want = new Set(typeof keys === 'string' ? [keys] : keys)
+  const next = skip ? [...cur, ...[...want].filter((k) => !cur.includes(k))] : cur.filter((x) => !want.has(x))
+  if (next.length === cur.length) return null
   return objects.patch(projectId, { props: { ...(fresh.props ?? {}), [PROP_SKIPPED_ATTACHMENTS]: next } })
 }
 
@@ -130,35 +181,45 @@ export function useFetchAttachment() {
 export type AddAttachmentInput = { message: ImMessage; attachmentId: string; projectId: string }
 export type AddAttachmentResult = { material: ProjectMaterial; message: ImMessage }
 
+type Notify = ReturnType<typeof useNotifyChange>
+
 /**
- * 加进项目资料：没获取的先获取，成功后再加，失败则不加（SPEC-messages-3.8）；
- * 这个附件在该项目里标过「不加入」的，记录一并清掉（SPEC-messages-3.9）。
+ * 加进项目资料的一次完整操作，附件面板和「转项目资料」共用：没获取的先获取，成功后再加，失败则不加（SPEC-messages-3.8）；
+ * 这个附件在该项目里标过「不加入」的，记录一并清掉（SPEC-messages-3.9）；加上后记出处（0009），记不上不算失败。
+ * 刷新项目资料由调用方做（一次加几条时只刷一回）
  */
+export async function addAttachmentToProject(qc: QueryClient, notify: Notify, { message, attachmentId, projectId }: AddAttachmentInput): Promise<AddAttachmentResult> {
+  let msg = message
+  let a = msg.attachments.find((x) => x.id === attachmentId)
+  if (!a) throw new Error('这条消息里没有这个附件')
+  if (needsFetch(a)) {
+    try {
+      msg = await attachmentsApi.fetch(msg.id, attachmentId)
+    } finally {
+      void notify({ kind: 'im-message', id: msg.id })
+    }
+    putMessage(qc, msg)
+    a = msg.attachments.find((x) => x.id === attachmentId)
+  }
+  const input = a && attachmentMaterial(a)
+  if (!input) throw new Error('附件还没获取到本地')
+  const material = await projectMaterialsApi.add(projectId, input)
+  if (await saveSkipped(projectId, skipKey(msg.id, attachmentId), false).catch(() => null)) {
+    await notify({ kind: 'object', id: projectId })
+  }
+  const linked = await imApi.linkMaterial({
+    material_id: material.id, project_id: projectId, message_ids: [msg.id], kind: 'attachment', attachment_id: attachmentId, title: material.name,
+  }).then(() => true, () => false)
+  if (linked) void notify({ kind: 'im-message', id: msg.id })
+  return { material, message: msg }
+}
+
+/** 附件面板的「加入资料」：见 addAttachmentToProject */
 export function useAddAttachmentToProject() {
   const qc = useQueryClient()
   const notify = useNotifyChange()
   return useMutation({
-    mutationFn: async ({ message, attachmentId, projectId }: AddAttachmentInput): Promise<AddAttachmentResult> => {
-      let msg = message
-      let a = msg.attachments.find((x) => x.id === attachmentId)
-      if (!a) throw new Error('这条消息里没有这个附件')
-      if (needsFetch(a)) {
-        try {
-          msg = await attachmentsApi.fetch(msg.id, attachmentId)
-        } finally {
-          void notify({ kind: 'im-message', id: msg.id })
-        }
-        putMessage(qc, msg)
-        a = msg.attachments.find((x) => x.id === attachmentId)
-      }
-      const input = a && attachmentMaterial(a)
-      if (!input) throw new Error('附件还没获取到本地')
-      const material = await projectMaterialsApi.add(projectId, input)
-      if (await saveSkipped(projectId, skipKey(msg.id, attachmentId), false).catch(() => null)) {
-        await notify({ kind: 'object', id: projectId })
-      }
-      return { material, message: msg }
-    },
+    mutationFn: (input: AddAttachmentInput) => addAttachmentToProject(qc, notify, input),
     onSettled: (_r, _e, v) => notify({ kind: 'project-material', projectId: v.projectId }),
   })
 }
@@ -170,6 +231,43 @@ export function useSkipAttachment(projectId: string) {
     mutationFn: ({ messageId, attachmentId, skip }: AttachmentRef & { skip: boolean }) =>
       saveSkipped(projectId, skipKey(messageId, attachmentId), skip),
     onSuccess: () => notify({ kind: 'object', id: projectId }),
+  })
+}
+
+/** 项目附件标签的批量「不加入」/「撤销不加入」：一次读回、一次写 props */
+export function useSkipAttachments(projectId: string) {
+  const notify = useNotifyChange()
+  return useMutation({
+    mutationFn: ({ refs, skip }: { refs: readonly AttachmentRef[]; skip: boolean }) =>
+      saveSkipped(projectId, refs.map((r) => skipKey(r.messageId, r.attachmentId)), skip),
+    onSuccess: () => notify({ kind: 'object', id: projectId }),
+  })
+}
+
+export type AddAttachmentsResult = { added: AddAttachmentResult[]; failed: { input: AddAttachmentInput; error: unknown }[] }
+
+/**
+ * 项目附件标签的批量「加入资料」：逐个走 addAttachmentToProject（没获取的先获取），一个失败不挡后面的；
+ * 全部跑完刷一回项目资料
+ */
+export function useAddAttachmentsToProject() {
+  const qc = useQueryClient()
+  const notify = useNotifyChange()
+  return useMutation({
+    mutationFn: async (inputs: readonly AddAttachmentInput[]): Promise<AddAttachmentsResult> => {
+      const out: AddAttachmentsResult = { added: [], failed: [] }
+      for (const input of inputs) {
+        try {
+          out.added.push(await addAttachmentToProject(qc, notify, input))
+        } catch (error) {
+          out.failed.push({ input, error })
+        }
+      }
+      return out
+    },
+    onSettled: (_r, _e, v) => {
+      for (const pid of new Set(v.map((x) => x.projectId))) void notify({ kind: 'project-material', projectId: pid })
+    },
   })
 }
 

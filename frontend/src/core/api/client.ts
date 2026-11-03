@@ -144,6 +144,18 @@ export const api = {
 // 路径段里的 id 一律转义，防止带斜杠的值拼出别的路由。
 export const seg = encodeURIComponent
 
+/**
+ * 读一个文件地址的原始内容当文本（附件预览用）：最多 max 字节，超了截断、cut 为真。
+ * 不是 JSON 接口，不走 request；失败抛 ApiError 之外的 Error（带 HTTP 状态）
+ */
+export async function readRawText(url: string, max: number, signal?: AbortSignal): Promise<{ text: string; cut: boolean }> {
+  const res = await fetch(url, { signal, credentials: 'same-origin' })
+  if (!res.ok) throw new Error(`HTTP ${res.status}`)
+  const buf = await res.arrayBuffer()
+  const cut = buf.byteLength > max
+  return { text: new TextDecoder().decode(cut ? buf.slice(0, max) : buf), cut }
+}
+
 /** 取一次页面入口 index.html 的文本（看服务是不是换了新构建用），取不到回 null */
 export async function fetchAppIndex(): Promise<string | null> {
   try {

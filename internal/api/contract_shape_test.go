@@ -145,6 +145,9 @@ var contractSpecs = map[string]contractSpec{
 	// 两种错误的附加字段是 actionError.extra 这个 map 拼出来的，没有可比的结构
 	"IM 消息插件 im / 处理动作#json1": {skip: "错误附加字段来自 map，无结构"},
 	"IM 消息插件 im / 事件#json1":   {v: im.Received{}},
+	"MaterialSource":          {v: im.MaterialSource{}},
+	"OutboxItem":              {v: im.OutboxItem{}},
+	"IM 消息插件 im / 从 Slack 补联系人邮箱#table1": {v: im.EmailBackfillResult{}},
 
 	"SopFlow":        {v: sop.Flow{}},
 	"SopNodeType":    {v: sop.NodeType{}},

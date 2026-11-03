@@ -48,8 +48,8 @@ interface SearchSelectBase<V extends string> {
   missingLabel?: (value: V) => string
   /** 最多渲染多少条匹配项，默认 50 */
   limit?: number
-  /** chip：工具条筛选；field：表单输入框，宽度撑满。默认 chip */
-  variant?: 'chip' | 'field'
+  /** chip：工具条筛选；field：表单输入框，宽度撑满；plain：没有边框底色，字号跟着外面（标题里的切换菜单）。默认 chip */
+  variant?: 'chip' | 'field' | 'plain'
   /** chip 外观是否高亮；默认有值就高亮 */
   active?: boolean
   disabled?: boolean
@@ -244,7 +244,7 @@ export function SearchSelect<V extends string = string>(props: SearchSelectProps
   return (
     <>
       <button ref={btnRef} type="button" disabled={disabled}
-        className={cls('ss-trigger', variant === 'field' ? 'ss-field' : 'chip chip-select', variant === 'chip' && isActive && 'chip-on', open && 'open', className)}
+        className={cls('ss-trigger', variant === 'field' ? 'ss-field' : variant === 'plain' ? 'ss-plain' : 'chip chip-select', variant === 'chip' && isActive && 'chip-on', open && 'open', className)}
         title={title ?? (empty ? undefined : text)} aria-label={props['aria-label']}
         aria-haspopup="listbox" aria-expanded={open} aria-controls={open ? listId : undefined}
         onClick={() => (open ? close() : show())}

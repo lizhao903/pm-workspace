@@ -168,3 +168,12 @@
   .br-recent-title { flex: 1; max-width: none; }
   .br-modal { padding: 22px 18px 18px; }
 }
+
+/* ---------- 会话旁边的浏览器：会话里的链接（SPEC-sessions-1.36） ---------- */
+.br-links { display: flex; align-items: center; gap: 8px; padding: 6px 12px; border-bottom: 1px solid var(--line); background: var(--panel-2); flex: none; min-width: 0; font-size: var(--fs-sm); }
+.br-links-label { flex: none; color: var(--muted); }
+.br-links-list { display: flex; gap: 6px; min-width: 0; overflow-x: auto; scrollbar-width: none; }
+.br-links-list::-webkit-scrollbar { display: none; }
+.br-link { display: inline-flex; align-items: center; max-width: 240px; height: 24px; padding: 0 8px; border: 1px solid var(--line-2); border-radius: 99px; color: var(--text); background: var(--panel); flex: none; }
+.br-link:hover { border-color: var(--accent-line); color: var(--accent); }
+.br-link.on { border-color: var(--accent-line); background: var(--accent-soft); color: var(--accent); }

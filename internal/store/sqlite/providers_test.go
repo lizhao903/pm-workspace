@@ -434,3 +434,54 @@ func TestListProvidersOrdersDefaultFirst(t *testing.T) {
 		t.Fatalf("列表首位 = %v, 期望默认供应商 %s 排最前", list, b.ID)
 	}
 }
+
+// TestProviderLastTestPersists：测试结论落库（0046），读列表、读单条都带回；
+// 只改名称、默认模型不清，改地址、密钥、启停就清；测试不动 updated_at。
+func TestProviderLastTestPersists(t *testing.T) {
+	s, ctx := newStore(t)
+	p := mustProvider(t, s, ctx, "NewAPI", domain.ProviderOllama, "")
+
+	if p.LastTest != nil {
+		t.Fatalf("新建的服务商不该有测试结论：%+v", p.LastTest)
+	}
+	if _, err := s.RecordProviderTest(ctx, p.ID, domain.ProviderTestResult{OK: true, Latency: 105, Message: "连接成功", Models: []string{"m1"}}); err != nil {
+		t.Fatalf("记测试结论: %v", err)
+	}
+	got, err := s.GetProvider(ctx, p.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.LastTest == nil || !got.LastTest.OK || got.LastTest.Latency != 105 || len(got.LastTest.Models) != 1 || got.LastTest.At.IsZero() {
+		t.Fatalf("读回的测试结论不对：%+v", got.LastTest)
+	}
+	if !got.UpdatedAt.Equal(p.UpdatedAt) {
+		t.Errorf("测试不该改 updated_at：%v -> %v", p.UpdatedAt, got.UpdatedAt)
+	}
+	list, err := s.ListProviders(ctx)
+	if err != nil || len(list) != 1 || list[0].LastTest == nil {
+		t.Fatalf("列表里应带测试结论：%v %+v", err, list)
+	}
+
+	name, model := "改个名", "qwen3.5:4b"
+	if got, err = s.UpdateProvider(ctx, p.ID, domain.AgentProviderInput{Name: &name, Model: &model}); err != nil {
+		t.Fatal(err)
+	}
+	if got.LastTest == nil {
+		t.Fatal("只改名称和默认模型不该清掉测试结论")
+	}
+
+	base := "http://127.0.0.1:11435"
+	if got, err = s.UpdateProvider(ctx, p.ID, domain.AgentProviderInput{BaseURL: &base}); err != nil {
+		t.Fatal(err)
+	}
+	if got.LastTest != nil {
+		t.Fatal("改了地址应清掉测试结论")
+	}
+	if again, _ := s.GetProvider(ctx, p.ID); again.LastTest != nil {
+		t.Fatal("库里的测试结论也应清掉")
+	}
+
+	if _, err := s.RecordProviderTest(ctx, "apv_nope", domain.ProviderTestResult{}); !errors.Is(err, domain.ErrNotFound) {
+		t.Errorf("服务商不存在应回 ErrNotFound，得到 %v", err)
+	}
+}

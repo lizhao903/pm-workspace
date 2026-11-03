@@ -1,12 +1,13 @@
 // Agent 会话的读写（AG-01a）：服务商、全局会话、消息、对话的流。
 // 接口见 docs/api-contract.md「Agent 供应商」「Agent 对话」；core/api 里还没有这几个资源，请求函数先放在这里。
 // 写操作报 agent-session，一轮对话收尾报 agent-chat（工具可能建了对象、写了文件）。
-import { useMutation, useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   chat, debugChat, decideToolCall, request, requestList, type ChatDone, type ChatEvent, type ChatRequest, type DebugChatRequest, type StreamOptions,
 } from '../api'
 import { agentKeys } from './agentKeys'
 import { notifyChange, useNotifyChange } from './invalidate'
+import { queryClient } from './queryClient'
 
 // ---- 类型（形状以 internal/domain 为准） ----
 
@@ -26,6 +27,8 @@ export type AgentProvider = {
   extra: Record<string, unknown>
   created_at: string
   updated_at: string
+  /** 最近一次测试连接的结论（后端 0046 落库）；没测过或改了连接配置后为 null */
+  last_test?: (ProviderTestResult & { at: string }) | null
 }
 
 export type ProviderTestResult = { ok: boolean; latency_ms: number; message: string; models?: string[] }
@@ -42,6 +45,10 @@ export type AgentSession = {
   agent_id?: string | null
   /** 挂了 Agent 但 Agent 已删除：只能回看 */
   agent_deleted?: boolean
+  /** 会话的来源（0047）：从哪条记录发起的，建的时候给、之后不改；不是从别的记录发起的没有这个键。
+   * kind 说是哪种记录（im_message 是 IM 消息），label 是给人看的一句，其余由发起方定；
+   * 会话里 Agent 新建的对象缺省把它记进 props.source_ref，有 project_id 时缺省挂到这个项目 */
+  source_ref?: SessionSourceRef | null
   created_at: string
   updated_at: string
   message_count: number
@@ -61,7 +68,9 @@ export type AgentMessage = {
 }
 
 // 带 agent_id 时后端用这个 Agent 的服务商和模型，provider_id、model 忽略
-export type AgentSessionInput = { title?: string; provider_id?: string; model?: string; workdir?: string; agent_id?: string }
+export type AgentSessionInput = { title?: string; provider_id?: string; model?: string; workdir?: string; agent_id?: string; source_ref?: SessionSourceRef }
+/** 会话来源（0047），JSON 对象，最多 16KB */
+export type SessionSourceRef = { kind?: string; label?: string; project_id?: string } & Record<string, unknown>
 // 改不了 object_id
 export type AgentSessionPatch = { title?: string; provider_id?: string; model?: string; workdir?: string }
 
@@ -77,6 +86,10 @@ export const agentApi = {
   createSession: (input: AgentSessionInput) => request<AgentSession>('POST', '/api/agent/sessions', { body: input }),
   patchSession: (id: string, patch: AgentSessionPatch) => request<AgentSession>('PATCH', sessionPath(id), { body: patch }),
   deleteSession: (id: string) => request<null>('DELETE', sessionPath(id)),
+  /** 停掉会话里正在跑的一轮（含确认后接着跑），已执行的工具调用不撤回 */
+  stopSession: (id: string) => request<{ session_id: string; stopped: number }>('POST', sessionPath(id) + '/stop', { body: {} }),
+  /** 正在跑的会话 id */
+  running: (signal?: AbortSignal) => request<{ session_ids: string[] }>('GET', '/api/agent/running', { signal }),
   messages: (id: string, signal?: AbortSignal) => requestList<AgentMessage>(sessionPath(id) + '/messages', { signal }),
 }
 
@@ -101,6 +114,25 @@ export function useProviderModels(providerId: string, enabled = true) {
     select: (r) => r.models ?? [],
   })
 }
+
+/**
+ * 服务商的可选模型，不发请求：设置的模型、手填的模型 ID、本次会话测试连接拉回的列表，去重。
+ * 给不能用 hook 的地方（SOP 节点的下拉选项），配合 loadProviderModels 和缓存订阅用。
+ */
+export function providerModelIds(p: AgentProvider): string[] {
+  const manual = typeof p.extra?.model_ids === 'string' ? p.extra.model_ids.split(/[\s,，]+/).filter(Boolean) : []
+  const tested = queryClient.getQueryData<ProviderTestResult>(agentKeys.models(p.id))?.models ?? []
+  return [...new Set([...(p.model ? [p.model] : []), ...manual, ...tested])]
+}
+
+/** 拉一次服务商的模型列表进缓存（同 useProviderModels 的那份），已经有了或正在拉就不重复 */
+export function loadProviderModels(providerId: string) {
+  if (!providerId) return
+  void queryClient.prefetchQuery({ queryKey: agentKeys.models(providerId), queryFn: () => agentApi.testProvider(providerId), staleTime: 5 * 60_000, retry: false })
+}
+
+/** 默认服务商，同后端：标了默认且启用的，没有取第一个启用的 */
+export const defaultProvider = (list: readonly AgentProvider[]) => list.find((p) => p.is_default && p.enabled) ?? list.find((p) => p.enabled)
 
 /** 全局会话，最近更新的在前（后端排序） */
 export function useAgentSessions() {
@@ -136,6 +168,29 @@ export function usePatchAgentSession() {
   return useMutation({
     mutationFn: ({ id, patch }: { id: string; patch: AgentSessionPatch }) => agentApi.patchSession(id, patch),
     onSuccess: () => notify({ kind: 'agent-session' }),
+  })
+}
+
+/** 正在跑的会话（停止按钮用）：有在跑的每 3 秒刷一次，没有时 15 秒 */
+export function useRunningAgentSessions() {
+  return useQuery({
+    queryKey: ['agent-sessions', 'running'],
+    queryFn: ({ signal }) => agentApi.running(signal),
+    select: (r) => (Array.isArray(r?.session_ids) ? r.session_ids : []),
+    refetchInterval: (q) => ((Array.isArray(q.state.data?.session_ids) && q.state.data.session_ids.length > 0) ? 3000 : 15000),
+    retry: false,
+  })
+}
+
+/** 停止会话里正在跑的一轮；停完刷新消息（会多一句「已手动停止」）和在跑列表 */
+export function useStopAgentSession() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (id: string) => agentApi.stopSession(id),
+    onSettled: (_d, _e, id) => {
+      void qc.invalidateQueries({ queryKey: ['agent-sessions', 'running'] })
+      void qc.invalidateQueries({ queryKey: agentKeys.sessions.messages(id) })
+    },
   })
 }
 

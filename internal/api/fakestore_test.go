@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"path/filepath"
 	"sort"
@@ -93,6 +94,8 @@ type fakeStore struct {
 
 	// agents 懒初始化，方法在 fakestore_agents_test.go。
 	agents map[string]*domain.Agent
+	// agentSettings 懒初始化（0045 agent_settings）
+	agentSettings map[string]json.RawMessage
 	// skills 懒初始化，方法在 fakestore_skills_test.go。
 	skills map[string]*store.Skill
 }
@@ -834,6 +837,18 @@ func (f *fakeStore) ListProviders(context.Context) ([]*domain.AgentProvider, err
 	return out, nil
 }
 
+func (f *fakeStore) RecordProviderTest(_ context.Context, id string, res domain.ProviderTestResult) (*domain.ProviderLastTest, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	p, ok := f.providers[id]
+	if !ok {
+		return nil, domain.ErrNotFound
+	}
+	lt := &domain.ProviderLastTest{OK: res.OK, Latency: res.Latency, Message: res.Message, Models: res.Models, At: time.Now().UTC()}
+	p.LastTest = lt
+	return lt, nil
+}
+
 func (f *fakeStore) GetProvider(_ context.Context, id string) (*domain.AgentProvider, error) {
 	if f.errGetProvider != nil {
 		return nil, f.errGetProvider
@@ -1503,6 +1518,9 @@ func (f *fakeStore) CreateTaskRun(_ context.Context, in *domain.TaskRun) (*domai
 	if c.Status == "" {
 		c.Status = domain.RunPending
 	}
+	if c.Mode == "" {
+		c.Mode = domain.RunModeStream
+	}
 	c.StartedAt = time.Now()
 	c.FinishedAt = nil
 	f.runsMap()[c.ID] = &c
@@ -1525,6 +1543,20 @@ func (f *fakeStore) FinishTaskRun(_ context.Context, id, status string, exitCode
 	r.Status, r.ExitCode, r.Output, r.Error, r.FinishedAt = status, exitCode, output, errMsg, &now
 	c := *r
 	return &c, nil
+}
+
+func (f *fakeStore) SetTaskRunPrompt(_ context.Context, id, prompt string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	r, ok := f.runsMap()[id]
+	if !ok {
+		return domain.ErrNotFound
+	}
+	if r.FinishedAt != nil {
+		return domain.ErrConflict
+	}
+	r.Prompt = prompt
+	return nil
 }
 
 // ---- 干系人名册 ----

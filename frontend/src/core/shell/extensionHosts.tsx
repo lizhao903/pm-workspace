@@ -1,7 +1,7 @@
-// 插件扩展点在内核页面里的宿主位置（CORE-02b）：今日页的插件卡片、设置页的插件分节。
+// 插件扩展点在内核页面里的宿主位置（CORE-02b）：今日页的插件卡片、设置页的插件分节，对象详情的插件区块（SOP-06）。
 // 每块包一层出错边界，一个插件渲染出错只影响它自己那一块
 import { Component, Suspense, type ReactNode } from 'react'
-import { sortCards, useTodayCards, type PluginSettingsSection } from '../plugin'
+import { sortCards, useObjectSections, useTodayCards, type ObjectSectionProps, type ObjectSectionTab, type PluginSettingsSection } from '../plugin'
 import { ErrorState, LoadingState, PageTitle } from '../ui'
 import './extensions.css'
 
@@ -59,4 +59,49 @@ export function PluginSettingsPage({ section }: { section: PluginSettingsSection
       </Boundary>
     </section>
   )
+}
+
+/**
+ * 对象详情里插件登记的区块（SOP-06），按 order 摆；每块单独出错边界，加载时不占位。
+ * tab 给了只摆这个标签里的区块，给 null 只摆没登记标签的；不给全摆
+ */
+export function ObjectSections({ object, returnTo, focus, tab }: ObjectSectionProps & { tab?: string | null }) {
+  const all = useObjectSections(object.type_id)
+  const secs = tab === undefined ? all : all.filter((s) => (s.tab?.key ?? null) === tab)
+  if (!secs.length) return null
+  return (
+    <>
+      {secs.map((s) => {
+        const Section = s.section
+        return (
+          <Boundary key={`${s.plugin}/${s.key}`} what="插件区块">
+            <Suspense fallback={null}>
+              <Section object={object} returnTo={returnTo} focus={focus} />
+            </Suspense>
+          </Boundary>
+        )
+      })}
+    </>
+  )
+}
+
+/** 插件标签名后面的计数或状态点；出错、加载时什么都不显示，不影响标签本身 */
+export function ObjectSectionBadge({ badge: Badge, object }: { badge: NonNullable<ObjectSectionTab['badge']>; object: ObjectSectionProps['object'] }) {
+  return (
+    <Quiet>
+      <Suspense fallback={null}><Badge object={object} /></Suspense>
+    </Quiet>
+  )
+}
+
+class Quiet extends Component<{ children: ReactNode }, { error: boolean }> {
+  state = { error: false }
+
+  static getDerivedStateFromError() {
+    return { error: true }
+  }
+
+  render() {
+    return this.state.error ? null : this.props.children
+  }
 }

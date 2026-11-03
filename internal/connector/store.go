@@ -328,6 +328,9 @@ func (s *Store) resolveSecrets(ctx context.Context, c *Connector) (map[string]st
 	if errors.Is(err, domain.ErrNotFound) {
 		return out, nil // 保险箱条目被单独删了：当作没填，重新填一次就补上
 	}
+	if errors.Is(err, vault.ErrKeyMismatch) {
+		return nil, fmt.Errorf("连接器「%s」的凭证是用另一把主密钥加密的，已经解不开（vault.key 换过或丢了），把 Token 等凭证全部重新填一遍再保存：%w", c.Name, err)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -640,6 +643,10 @@ func (s *Store) Update(ctx context.Context, id string, p Patch) (*Connector, err
 	secretID, createdSecret := cur.SecretID, false
 	if p.Config != nil || p.Secrets != nil || p.AuthMode != nil {
 		old, err := s.resolveSecrets(ctx, cur)
+		if errors.Is(err, vault.ErrKeyMismatch) && p.Secrets != nil {
+			// 旧凭证解不开（主密钥换过）：这次在重填，按整组重填处理；必填的没给由 checkRequired 挡下
+			old, err = map[string]string{}, nil
+		}
 		if err != nil {
 			return nil, err
 		}

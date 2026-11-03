@@ -461,6 +461,18 @@ type AgentProvider struct {
 	Extra     map[string]any `json:"extra"` // temperature / timeout / 组织 ID 之类
 	CreatedAt time.Time      `json:"created_at"`
 	UpdatedAt time.Time      `json:"updated_at"`
+
+	// LastTest 是最近一次「测试连接」的结论（0046），没测过或改了连接配置后为 nil。
+	LastTest *ProviderLastTest `json:"last_test"`
+}
+
+// ProviderLastTest 是落库的测试结论：ProviderTestResult 加上测试时间。
+type ProviderLastTest struct {
+	OK      bool      `json:"ok"`
+	Latency int64     `json:"latency_ms"`
+	Message string    `json:"message"`
+	Models  []string  `json:"models,omitempty"`
+	At      time.Time `json:"at"`
 }
 
 // AgentProviderInput 的 APIKey 是写入侧字段，指针语义：nil 不改、空串清除。
@@ -522,6 +534,11 @@ type AgentSession struct {
 	// AgentDeleted：挂了 Agent 但 Agent 已删除，会话照常能看、不能再发消息。
 	AgentDeleted bool `json:"agent_deleted"`
 
+	// SourceRef 是会话的来源（0047）：从哪条记录发起的，JSON 对象，建的时候给、之后不改；
+	// 不是从别的记录发起的为 nil，响应里不带这个键。会话里 Agent 新建的对象缺省把它记进 props.source_ref，
+	// 里面有 project_id 时对象缺省挂到这个项目。
+	SourceRef map[string]any `json:"source_ref,omitempty"`
+
 	MessageCount int `json:"message_count"`
 }
 
@@ -542,9 +559,11 @@ type Agent struct {
 	MCPs         []string       `json:"mcps"`
 	KBs          []string       `json:"kbs"`
 	Triggers     []AgentTrigger `json:"triggers"`
-	Enabled      bool           `json:"enabled"`
-	CreatedAt    time.Time      `json:"created_at"`
-	UpdatedAt    time.Time      `json:"updated_at"`
+	// Thinking 是调模型时的思考档位：default（不传，交给模型默认）/ off / low / medium / high，见 0045
+	Thinking  string    `json:"thinking"`
+	Enabled   bool      `json:"enabled"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
 }
 
 // AgentAvatar 对应原型 AgentAvatarConf：Kind 为 text / icon / image，image 的 Value 是 data URL。
@@ -596,8 +615,21 @@ type AgentInput struct {
 	MCPs         *[]string       `json:"mcps"`
 	KBs          *[]string       `json:"kbs"`
 	Triggers     *[]AgentTrigger `json:"triggers"`
+	Thinking     *string         `json:"thinking"`
 	Enabled      *bool           `json:"enabled"`
 }
+
+// 思考档位（Agent.Thinking）。default 是请求里不带任何思考参数，交给模型自己的默认。
+const (
+	ThinkingDefault = "default"
+	ThinkingOff     = "off"
+	ThinkingLow     = "low"
+	ThinkingMedium  = "medium"
+	ThinkingHigh    = "high"
+)
+
+// ThinkingLevels 是 Agent.Thinking 的可选值，按界面下拉的顺序。
+var ThinkingLevels = []string{ThinkingDefault, ThinkingOff, ThinkingLow, ThinkingMedium, ThinkingHigh}
 
 // AgentSessionFilter 决定列出哪一批会话。
 //
@@ -843,6 +875,13 @@ const (
 	RunCanceled = "canceled"
 )
 
+// 执行方式（0048）。stream 是工作台起子进程、流式回推；terminal 是在工作台的终端里开交互式会话，
+// 进程不归工作台管，结束和结论由终端里的 claude 经 MCP 回写（POST /api/runs/{id}/finish），或用户手动标记。
+const (
+	RunModeStream   = "stream"
+	RunModeTerminal = "terminal"
+)
+
 // TaskRun 是一次「把某个工作对象交给本机 claude 去做」的执行记录。
 // 留存完整输出而不只是成功失败：这类执行的价值在过程，事后要能复查它到底改了什么。
 type TaskRun struct {
@@ -856,6 +895,8 @@ type TaskRun struct {
 	Error      string     `json:"error"`
 	StartedAt  time.Time  `json:"started_at"`
 	FinishedAt *time.Time `json:"finished_at"`
+	// Mode 是执行方式 RunModeStream / RunModeTerminal（0048），老记录都是 stream
+	Mode string `json:"mode"`
 }
 
 // ---- 开发任务闭环：进展、领取、会话标识 ----

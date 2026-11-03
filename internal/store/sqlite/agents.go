@@ -20,7 +20,7 @@ import (
 // --- Agent 配置（AG-01b1，0032） ---
 
 const agentCols = `id, name, description, color, avatar, provider_id, model, instructions,
-	skills, mcps, kbs, triggers, enabled, created_at, updated_at`
+	skills, mcps, kbs, triggers, thinking, enabled, created_at, updated_at`
 
 // agentColors 同原型 AGENT_COLORS，新建没给颜色时随机挑一个。
 var agentColors = []string{"#3d4fd6", "#7a4fd6", "#0f8a8a", "#b0570b", "#2f7d43", "#c0352b", "#e8590c", "#23221e"}
@@ -53,7 +53,7 @@ func scanAgent(sc rowScanner) (*domain.Agent, error) {
 	var a domain.Agent
 	var avatar, skills, mcps, kbs, triggers, created, updated string
 	if err := sc.Scan(&a.ID, &a.Name, &a.Desc, &a.Color, &avatar, &a.ProviderID, &a.Model, &a.Instructions,
-		&skills, &mcps, &kbs, &triggers, &a.Enabled, &created, &updated); err != nil {
+		&skills, &mcps, &kbs, &triggers, &a.Thinking, &a.Enabled, &created, &updated); err != nil {
 		return nil, err
 	}
 	// 列是自己写的 JSON，解析失败按空值处理，不让一行坏数据拖垮整个列表
@@ -64,6 +64,9 @@ func scanAgent(sc rowScanner) (*domain.Agent, error) {
 	_ = json.Unmarshal([]byte(triggers), &a.Triggers)
 	if a.Avatar.Kind == "" {
 		a.Avatar.Kind = domain.AvatarText
+	}
+	if !slices.Contains(domain.ThinkingLevels, a.Thinking) {
+		a.Thinking = domain.ThinkingDefault
 	}
 	a.Skills, a.MCPs, a.KBs = nonNilStrs(a.Skills), nonNilStrs(a.MCPs), nonNilStrs(a.KBs)
 	if a.Triggers == nil {
@@ -117,6 +120,7 @@ func (s *Store) CreateAgent(ctx context.Context, in domain.AgentInput) (*domain.
 		MCPs:     []string{},
 		KBs:      []string{},
 		Triggers: []domain.AgentTrigger{{Kind: domain.TriggerManual}},
+		Thinking: domain.ThinkingDefault,
 		Enabled:  true,
 	}
 	if in.ProviderID == nil || strings.TrimSpace(*in.ProviderID) == "" {
@@ -136,7 +140,7 @@ func (s *Store) CreateAgent(ctx context.Context, in domain.AgentInput) (*domain.
 	}
 	// 工具授权按原型 newAgent 的默认值，和 Agent 同一个事务（AG-02a）
 	if err := s.withTx(ctx, func(tx *sql.Tx) error {
-		if _, err := tx.ExecContext(ctx, `INSERT INTO agents (`+agentCols+`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		if _, err := tx.ExecContext(ctx, `INSERT INTO agents (`+agentCols+`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 			append(append([]any{a.ID}, args...), now, now)...); err != nil {
 			return fmt.Errorf("insert agent: %w", err)
 		}
@@ -164,7 +168,7 @@ func (s *Store) UpdateAgent(ctx context.Context, id string, in domain.AgentInput
 		return nil, err
 	}
 	res, err := s.db.W.ExecContext(ctx, `UPDATE agents SET name=?, description=?, color=?, avatar=?, provider_id=?, model=?,
-		instructions=?, skills=?, mcps=?, kbs=?, triggers=?, enabled=?, updated_at=? WHERE id=?`,
+		instructions=?, skills=?, mcps=?, kbs=?, triggers=?, thinking=?, enabled=?, updated_at=? WHERE id=?`,
 		append(args, agentTime(), id)...)
 	if err != nil {
 		return nil, fmt.Errorf("update agent: %w", err)
@@ -202,7 +206,7 @@ func (s *Store) CountAgentSessions(ctx context.Context, agentID string) (int, er
 	return n, nil
 }
 
-// agentArgs 是 name 到 enabled 这 12 列的参数，顺序同 agentCols 去掉 id 和时间戳。
+// agentArgs 是 name 到 enabled 这 13 列的参数，顺序同 agentCols 去掉 id 和时间戳。
 func agentArgs(a *domain.Agent) ([]any, error) {
 	enc := func(v any) (string, error) {
 		b, err := json.Marshal(v)
@@ -223,7 +227,7 @@ func agentArgs(a *domain.Agent) ([]any, error) {
 		}
 		out = append(out, j)
 	}
-	return append(out, a.Enabled), nil
+	return append(out, a.Thinking, a.Enabled), nil
 }
 
 // applyAgentInput 把给了的字段校验后写到 a 上。
@@ -308,6 +312,16 @@ func (s *Store) applyAgentInput(ctx context.Context, a *domain.Agent, in domain.
 			return err
 		}
 		a.Triggers = ts
+	}
+	if in.Thinking != nil {
+		t := strings.TrimSpace(*in.Thinking)
+		if t == "" {
+			t = domain.ThinkingDefault
+		}
+		if !slices.Contains(domain.ThinkingLevels, t) {
+			return agentInvalid("思考只能是 default / off / low / medium / high，给的是 %q", t)
+		}
+		a.Thinking = t
 	}
 	if in.Enabled != nil {
 		a.Enabled = *in.Enabled
@@ -416,4 +430,30 @@ func checkTriggerMatch(kind string, m *domain.TriggerMatch) (*domain.TriggerMatc
 			Channel: strings.TrimSpace(m.Channel), ConversationID: strings.TrimSpace(m.ConversationID), OnlyMe: m.OnlyMe}, nil
 	}
 	return nil, nil
+}
+
+// --- Agent 这一块的小设置（0045 agent_settings） ---
+
+func (s *Store) AgentSetting(ctx context.Context, key string) (json.RawMessage, error) {
+	var v string
+	err := s.db.R.QueryRowContext(ctx, `SELECT value FROM agent_settings WHERE key = ?`, key).Scan(&v)
+	if noRows(err) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("get agent setting: %w", err)
+	}
+	return json.RawMessage(v), nil
+}
+
+func (s *Store) SetAgentSetting(ctx context.Context, key string, value json.RawMessage) error {
+	if !json.Valid(value) {
+		return agentInvalid("设置 %s 的值不是合法的 JSON", key)
+	}
+	if _, err := s.db.W.ExecContext(ctx, `INSERT INTO agent_settings (key, value, updated_at) VALUES (?,?,?)
+		ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
+		key, string(value), agentTime()); err != nil {
+		return fmt.Errorf("set agent setting: %w", err)
+	}
+	return nil
 }

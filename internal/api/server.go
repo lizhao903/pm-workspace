@@ -18,6 +18,7 @@ import (
 	"github.com/lizhao903/pm-workspace/internal/events"
 	"github.com/lizhao903/pm-workspace/internal/imident"
 	"github.com/lizhao903/pm-workspace/internal/incident"
+	"github.com/lizhao903/pm-workspace/internal/kb"
 	"github.com/lizhao903/pm-workspace/internal/localdir"
 	"github.com/lizhao903/pm-workspace/internal/notify"
 	"github.com/lizhao903/pm-workspace/internal/plugin"
@@ -42,6 +43,11 @@ type Options struct {
 	// 测试靠 ClaudeBin 指向一个假的 CLI，不必装真的 claude 也不联网。
 	ClaudeBin  string
 	RunTimeout time.Duration
+
+	// MCPBin / PublicURL 只给「切换到终端」执行用（0048，runterminal.go）：生成接回本工作台的 MCP 配置，
+	// command 是 MCPBin，--api 是 PublicURL。MCPBin 为空或文件不在时发起终端执行回 409。
+	MCPBin    string
+	PublicURL string
 
 	// Vault 是凭证保险箱；为 nil 时 /api/secrets 一律回 500 并说明未配置。
 	Vault SecretVault
@@ -99,10 +105,14 @@ type Server struct {
 	// run 持有所有正在跑的 claude 进程，取消要靠它。它必须是 Server 级的单例：
 	// 每次请求新建一个的话，取消接口就找不到别的请求起的那个进程了。
 	run *runner.Runner
+	// kbSync 记知识库正在跑的同步和进度，同一个知识库同时只跑一次；和 run 一样要是 Server 级的
+	kbSync *kb.Tracker
+	// turns 记会话里正在跑的一轮对话，「停止」靠它（agentstop.go）
+	turns activeTurns
 }
 
 func New(st store.Store, opts Options) *Server {
-	s := &Server{st: st, opt: opts, log: opts.Logger}
+	s := &Server{st: st, opt: opts, log: opts.Logger, kbSync: kb.NewTracker()}
 	if s.log == nil {
 		s.log = slog.Default()
 	}
@@ -260,12 +270,16 @@ func (s *Server) routes(m routeRegistrar) {
 	m.HandleFunc("GET /api/agent/sessions/{id}/artifacts", s.handleListAgentArtifacts)
 	m.HandleFunc("PATCH /api/agent/sessions/{id}", s.handleUpdateAgentSession)
 	m.HandleFunc("DELETE /api/agent/sessions/{id}", s.handleDeleteAgentSession)
+	m.HandleFunc("POST /api/agent/sessions/{id}/stop", s.handleStopAgentSession)
+	m.HandleFunc("GET /api/agent/running", s.handleRunningAgentSessions)
 	m.HandleFunc("POST /api/agent/workdir/check", s.handleCheckWorkdir)
 	m.HandleFunc("POST /api/agent/chat", s.handleAgentChat)
 
 	// Agent 配置（AG-01b1，0032）
 	m.HandleFunc("GET /api/agents", s.handleListAgents)
 	m.HandleFunc("POST /api/agents", s.handleCreateAgent)
+	m.HandleFunc("GET /api/agents/scenarios", s.handleListAgentScenarios)
+	m.HandleFunc("PATCH /api/agents/scenarios", s.handlePatchAgentScenarios)
 	m.HandleFunc("GET /api/agents/{id}", s.handleGetAgent)
 	m.HandleFunc("PATCH /api/agents/{id}", s.handleUpdateAgent)
 	m.HandleFunc("DELETE /api/agents/{id}", s.handleDeleteAgent)
@@ -297,6 +311,7 @@ func (s *Server) routes(m routeRegistrar) {
 	m.HandleFunc("GET /api/knowledge-bases/{id}/missing", s.handleKbMissing)
 	m.HandleFunc("POST /api/knowledge-bases/{id}/reindex", s.handleReindexKb)
 	m.HandleFunc("POST /api/knowledge-bases/{id}/sync", s.handleSyncKb)
+	m.HandleFunc("GET /api/knowledge-bases/{id}/sync", s.handleKbSyncProgress)
 	m.HandleFunc("POST /api/knowledge-bases/{id}/search", s.handleSearchKb)
 
 	// 输出产物。/api/artifacts/stats 是字面量，比 /api/artifacts/{id} 更具体，
@@ -318,6 +333,9 @@ func (s *Server) routes(m routeRegistrar) {
 	m.HandleFunc("DELETE /api/fs/roots", s.handleRemoveFsRoot)
 	// 读文件（DOC-01a）：只读、同一套允许根，越界 403
 	m.HandleFunc("GET /api/fs/read", s.handleFsRead)
+	// 原样读能预览的文件（PDF、图片）、用本机应用打开或在访达中显示（全部文档），边界同 read
+	m.HandleFunc("GET /api/fs/raw", s.handleFsRaw)
+	m.HandleFunc("POST /api/fs/open", s.handleFsOpen)
 
 	// 文档挂载的本机目录。reorder 是字面量，比 {id} 更具体；{id}/files 多一段，不会被吃掉。
 	m.HandleFunc("GET /api/local-dirs", s.handleListLocalDirs)
@@ -334,6 +352,10 @@ func (s *Server) routes(m routeRegistrar) {
 	m.HandleFunc("POST /api/objects/{id}/run", s.handleRunObject)
 	m.HandleFunc("GET /api/runs/{id}", s.handleGetTaskRun)
 	m.HandleFunc("POST /api/runs/{id}/cancel", s.handleCancelTaskRun)
+	// 交给 Claude Code 的另一种方式：切换到终端（0048，runterminal.go）
+	m.HandleFunc("GET /api/objects/{id}/run/prompt", s.handleRunPrompt)
+	m.HandleFunc("POST /api/objects/{id}/run/terminal", s.handleRunTerminal)
+	m.HandleFunc("POST /api/runs/{id}/finish", s.handleFinishTaskRun)
 
 	m.HandleFunc("GET /api/revisions", s.handleRecentRevisions)
 

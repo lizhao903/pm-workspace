@@ -72,6 +72,8 @@ export const dataKeys = {
     all: ['runs'] as const,
     list: (objectId: string) => ['runs', 'list', objectId] as const,
     detail: (id: string) => ['runs', 'get', id] as const,
+    /** 提示词预览（0048），参数是 { mode, workdir, extra_prompt } */
+    prompt: (objectId: string, params: object) => ['runs', 'prompt', objectId, params] as const,
   },
   workdir: (path: string) => ['agent', 'workdir', path] as const,
   fs: {
@@ -135,10 +137,22 @@ export const dataKeys = {
     detail: (id: string) => ['im', 'message', id] as const,
     /** 一个会话里的消息（PJ-02b 项目沟通），也在 im 前缀下，消息一变跟着刷 */
     conversation: (conversationId: string) => ['im', 'conversation', conversationId] as const,
+    /** 归到一个项目的消息（消息分流），项目沟通里和绑定会话的消息合在一起 */
+    project: (projectId: string) => ['im', 'project', projectId] as const,
+    /** 项目里来自消息的资料的出处（0009），在 im 前缀下，消息一变跟着刷 */
+    materials: (projectId: string) => ['im', 'materials', projectId] as const,
     /** 附件目录和大小上限（IM-04b） */
     attachmentStorage: ['im', 'attachment-storage'] as const,
     /** 插件设置：过期天数（IM-07） */
     settings: ['im', 'settings'] as const,
+    /** 群组默认归属的项目（会话 id -> 项目），消息一变跟着刷 */
+    conversationProjects: ['im', 'conversation-projects'] as const,
+    /** 群组管理的会话统计（0.15.0），消息一变跟着刷 */
+    conversationSummary: (channel: string) => ['im', 'conversation-summary', channel] as const,
+    /** 一个会话主动发出的消息（0.17.0），在 im 前缀下 */
+    sent: (conversationId: string) => ['im', 'sent', conversationId] as const,
+    /** 一个会话的 @ 候选（0.18.0），在 im 前缀下 */
+    members: (conversationId: string) => ['im', 'members', conversationId] as const,
   },
   /** IM 会话（PJ-02b）：项目绑定时从这里挑 */
   conversations: {
@@ -165,6 +179,10 @@ export const dataKeys = {
     runs: ['sop', 'runs'] as const,
     runList: ['sop', 'runs', 'list'] as const,
     run: (id: string) => ['sop', 'runs', 'get', id] as const,
+    /** 关联到某个工作对象的执行（SOP-06，任务详情用） */
+    objectRuns: (objectId: string) => ['sop', 'runs', 'object', objectId] as const,
+    /** 插件设置（SOP-07）：放在 runs 前缀下，执行一变跟着刷在调模型、排队的个数 */
+    settings: ['sop', 'runs', 'settings'] as const,
   },
   /** 知识库（AG-01b7）：列表、每个库的文档、还没收进来的篇目、检索结果、Agent 列表，增删改一起刷 */
   knowledgeBases: {
@@ -173,6 +191,8 @@ export const dataKeys = {
     docs: (id: string) => ['knowledge-bases', 'docs', id] as const,
     missing: (id: string) => ['knowledge-bases', 'missing', id] as const,
     search: (id: string, q: string) => ['knowledge-bases', 'search', id, q] as const,
+    /** 正在跑的同步的进度，同步请求没回来时轮询 */
+    syncProgress: (id: string) => ['knowledge-bases', 'sync-progress', id] as const,
     agents: ['knowledge-bases', 'agents'] as const,
   },
   /** 运行异常（INC-01b）：一次拉全，设置页、二级菜单红点、今日待办共用 */
@@ -185,5 +205,7 @@ export const dataKeys = {
     all: ['terminal'] as const,
     sessions: ['terminal', 'sessions'] as const,
     prototypes: ['terminal', 'prototypes'] as const,
+    /** 插件设置（Claude Code 启动命令，终端插件 0.2.0） */
+    settings: ['terminal', 'settings'] as const,
   },
 }

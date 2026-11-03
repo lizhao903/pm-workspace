@@ -8,12 +8,14 @@
 //   轮询实例等 oauth.authorized_at 变了算完成（后端换完令牌会测一次），回调窗口报回的失败写在授权框里。
 // - 字段可以只属于某种认证方式（定义的 auth），切换认证方式时跟着显示、隐藏（CONN-04）。
 // - 改了地址、认证或凭证保存后不关抽屉，提示重新测试、重新获取工具清单。
+// - 字段带 picker=im_channels（Slack 监听频道）时用列表勾选，列表按已保存的 Token 现查；新建还没保存时是文本框。
 import { useEffect, useState, type ChangeEvent } from 'react'
 import {
   errorText, useConnectors, useCreateConnector, useDeleteConnector, usePatchConnector, useRefreshConnectorTools, useSetConnectorToolModes,
   useStartConnectorOAuth, type Connector, type ConnectorDef, type ConnectorField, type ConnectorToolMode,
 } from '../../../core/data'
 import { Button, cls, ConfirmDialog, Drawer, Field, Input, Select, Textarea } from '../../../core/ui'
+import { ChannelPicker } from '../../../core/ui/ChannelPicker'
 import { AUTH_HINT, AUTH_LABEL, categoryOf, INTERVALS, MODE_LABEL } from './catalog'
 import {
   ago, bulkModes, createBody, effectiveTools, fieldHint, fieldOn, initialDraft, isCustom, isIM, missingFields, modesFor, needsRetest, notReady, oauthLack,
@@ -289,6 +291,15 @@ export function ConnectorDrawer({ def, connector: c, taken, check, pending, test
               )}
             </span>
           )}
+        </Field>
+      )
+    }
+    if (f.picker === 'im_channels') {
+      // 监听频道：从已保存连接器的 Token 列出的会话里勾选；新建、插件停用时退回文本框
+      return (
+        <Field key={f.key} wrap={false} label={f.label} required={f.required} error={bad ? '必填' : undefined}>
+          <ChannelPicker label={f.label} placeholder={f.placeholder} connectorId={c && available ? c.id : undefined} value={draft.config[f.key] ?? ''} invalid={bad}
+            onChange={(v) => setCfg(f.key, v)} />
         </Field>
       )
     }

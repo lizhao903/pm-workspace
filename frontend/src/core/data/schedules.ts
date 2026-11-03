@@ -23,8 +23,8 @@ export type ScheduleRule = {
   cron: string
 }
 
-/** incident_sweep：运行异常巡检（INC-01a），内核动作，不属于插件 */
-export type ScheduleActionKind = 'task' | 'sop' | 'agent' | 'incident_sweep'
+/** incident_sweep：运行异常巡检（INC-01a），内核动作，不属于插件；remind：到点在工作台里弹一条提醒通知 */
+export type ScheduleActionKind = 'task' | 'sop' | 'agent' | 'incident_sweep' | 'remind'
 
 /** 后端按 kind 只输出自己的字段 */
 export type ScheduleAction =
@@ -33,6 +33,8 @@ export type ScheduleAction =
   | { kind: 'agent'; agent_id: string; prompt: string }
   /** 到点把满足条件、未处理、还没有任务的运行异常各建一条交给 Claude Code 修的任务 */
   | { kind: 'incident_sweep'; min_level: 'error' | 'warn'; min_count: number }
+  /** 到点在工作台里发一条通知（不外发 IM）；object_id 是关联的对象（任务），点通知打开它，空串为不关联 */
+  | { kind: 'remind'; title: string; body: string; object_id: string }
 
 export type Schedule = {
   id: string
@@ -76,6 +78,9 @@ const path = (id: string) => `/api/schedules/${encodeURIComponent(id)}`
 
 export const schedulesApi = {
   list: (signal?: AbortSignal) => requestList<Schedule>('/api/schedules', { signal }).then((r) => r.data),
+  /** 关联这个对象的提醒（动作 remind），停用的、已提醒过的也在 */
+  byObject: (objectId: string, signal?: AbortSignal) =>
+    requestList<Schedule>('/api/schedules', { query: new URLSearchParams({ object_id: objectId }), signal }).then((r) => r.data),
   create: (body: ScheduleInput) => request<Schedule>('POST', '/api/schedules', { body }),
   patch: (id: string, body: SchedulePatch) => request<Schedule>('PATCH', path(id), { body }),
   delete: (id: string) => request<null>('DELETE', path(id)),
@@ -89,6 +94,15 @@ export const schedulesApi = {
 /** 全部定时任务，不分页；下次执行早的在前，不再执行的排最后（后端排好） */
 export function useSchedules() {
   return useQuery({ queryKey: todayKeys.schedules, queryFn: ({ signal }) => schedulesApi.list(signal) })
+}
+
+/** 任务抽屉里「提醒」：关联这条任务的提醒。键挂在列表键下面，新建、改、删定时任务时跟着刷新 */
+export function useObjectReminders(objectId: string | null) {
+  return useQuery({
+    queryKey: [...todayKeys.schedules, 'object', objectId ?? ''] as const,
+    queryFn: ({ signal }) => schedulesApi.byObject(objectId!, signal),
+    enabled: !!objectId,
+  })
 }
 
 /** 一个定时任务的执行记录，计划时刻新的在前。调度器到点执行不发事件，打开着的时候隔一阵自己再取 */

@@ -8,6 +8,8 @@ export const agentConfigKeys = {
   impact: (id: string) => ['agents', 'impact', id] as const,
   /** 工具授权（AG-02a），列表卡片的能力标签用 */
   grants: (id: string) => ['agents', 'grants', id] as const,
+  /** 场景默认 Agent（0045） */
+  scenarios: ['agents', 'scenarios'] as const,
   /** 执行记录（AG-01b4），列表卡片的等确认数和最近运行 */
   runs: ['agents', 'runs'] as const,
   /** 会话页的执行记录（AG-01b8）：按条件的一页、按状态的条数、单条详情，都在 runs 前缀下 */

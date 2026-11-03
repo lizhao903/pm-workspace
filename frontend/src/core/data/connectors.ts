@@ -24,6 +24,11 @@ export type ConnectorField = {
   default?: string
   /** 长文本，多行输入（如粘贴的 OpenAPI 文档） */
   long?: boolean
+  /**
+   * 非空时用对应的选择器填（只对 text），存的仍是文本；不认识的值照旧给文本框。
+   * im_channels：从 IM 插件列出的会话里勾选，存逗号分隔的会话编号（Slack「监听频道」）
+   */
+  picker?: 'im_channels' | (string & {})
 }
 
 /** 定义里的 OAuth 配置：client_id 内置（builtin）或取 client_id_field 指的字段；自定义类的地址、范围也在字段里 */

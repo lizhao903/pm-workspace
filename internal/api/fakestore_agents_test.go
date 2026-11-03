@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"sort"
 
 	"github.com/lizhao903/pm-workspace/internal/domain"
@@ -94,10 +95,29 @@ func applyFakeAgent(a *domain.Agent, in domain.AgentInput) {
 	set(&a.ProviderID, in.ProviderID)
 	set(&a.Model, in.Model)
 	set(&a.Instructions, in.Instructions)
+	if in.Thinking != nil {
+		a.Thinking = *in.Thinking
+	}
 	if in.Enabled != nil {
 		a.Enabled = *in.Enabled
 	}
 	if in.Triggers != nil {
 		a.Triggers = *in.Triggers
 	}
+}
+
+func (f *fakeStore) AgentSetting(_ context.Context, key string) (json.RawMessage, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.agentSettings[key], nil
+}
+
+func (f *fakeStore) SetAgentSetting(_ context.Context, key string, v json.RawMessage) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.agentSettings == nil {
+		f.agentSettings = map[string]json.RawMessage{}
+	}
+	f.agentSettings[key] = v
+	return nil
 }

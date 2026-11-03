@@ -77,7 +77,8 @@ func (s *Server) handleGetTaskRun(w http.ResponseWriter, r *http.Request) {
 // 那条记录），代价只是多一次写。
 func (s *Server) reapStale(ctx context.Context, runs []*domain.TaskRun) {
 	for _, run := range runs {
-		if run == nil || run.FinishedAt != nil || s.run.Running(run.ID) {
+		// 终端执行（0048）的进程本来就不归工作台管，收尾靠 MCP 回写或手动标记，不在这里判失败。
+		if run == nil || run.FinishedAt != nil || run.Mode == domain.RunModeTerminal || s.run.Running(run.ID) {
 			continue
 		}
 		if time.Since(run.StartedAt) < staleRunGrace {
@@ -127,6 +128,18 @@ func (s *Server) handleCancelTaskRun(w http.ResponseWriter, r *http.Request) {
 	}
 	if run.FinishedAt != nil {
 		s.fail(w, r, conflictf("这次执行已经结束了，无需取消"))
+		return
+	}
+	if run.Mode == domain.RunModeTerminal {
+		// 终端里的进程不归工作台管：只把记录标成取消，终端标签和里面的 claude 照旧，用户自己关。
+		out, err := s.st.FinishTaskRun(r.Context(), id, domain.RunCanceled, -1, run.Output,
+			"在终端里执行的会话不归工作台管，记录已标记为取消；终端标签需要自己关")
+		if err != nil {
+			s.fail(w, r, err)
+			return
+		}
+		s.dropHandoff(id)
+		respondData(w, http.StatusOK, out)
 		return
 	}
 	if s.run.Cancel(id) {
@@ -189,12 +202,14 @@ func (s *Server) handleRunObject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	prompt := runner.BuildPrompt(s.taskOf(ctx, obj, workdir, req.ExtraPrompt))
+	// 提示词带上所属项目（文档、原型在哪里操作），和预览同一套拼法（runterminal.go）
+	prompt := s.promptFor(ctx, obj, workdir, req.ExtraPrompt, domain.RunModeStream, "")
 	run, err := s.st.CreateTaskRun(ctx, &domain.TaskRun{
 		ObjectID: objID,
 		Workdir:  workdir,
 		Prompt:   prompt,
 		Status:   domain.RunRunning,
+		Mode:     domain.RunModeStream,
 	})
 	if err != nil {
 		s.fail(w, r, err)
