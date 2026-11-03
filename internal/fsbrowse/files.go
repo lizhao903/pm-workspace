@@ -7,7 +7,6 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -24,18 +23,6 @@ const MaxReadBytes = 1 << 20
 // sniffBytes 是判断二进制时看的前缀长度，和 git 判断二进制的做法一样看前 8000 字节有没有 NUL。
 const sniffBytes = 8000
 
-// 文件清单的上限：挂一个大目录（比如整个主目录）时不能无限走下去。
-const (
-	maxListFiles   = 1000
-	maxListVisited = 20000
-)
-
-// TextExt 是文件清单里收的扩展名，和原型 web-next/src/localdir.ts 的 TEXT_EXT 一致。
-var TextExt = []string{"md", "markdown", "txt", "text", "log", "csv", "json", "yaml", "yml", "toml", "xml", "html", "sql"}
-
-// skipDirs 是不往下走的目录，和原型 SKIP_DIRS 一致：依赖和版本库目录里的文本没人想看。
-var skipDirs = map[string]bool{"node_modules": true, ".git": true, "dist": true, "build": true, ".venv": true, "__pycache__": true}
-
 // FileContent 是读一个文件的结果。Binary 为 true 时 Content 为空，只给元信息。
 type FileContent struct {
 	Path      string    `json:"path"`
@@ -47,25 +34,6 @@ type FileContent struct {
 	Truncated bool      `json:"truncated"`
 	Limit     int       `json:"limit"`
 	Content   string    `json:"content"`
-}
-
-// FileItem 是文件清单里的一项。Rel 是相对挂载目录的路径，分隔符统一用 /。
-type FileItem struct {
-	Rel      string    `json:"rel"`
-	Path     string    `json:"path"`
-	Name     string    `json:"name"`
-	Ext      string    `json:"ext"`
-	Size     int64     `json:"size"`
-	Modified time.Time `json:"modified"`
-}
-
-// FileList 是一个目录下的文本文件清单。Skipped 是不是文本被跳过的文件数；
-// Truncated 表示文件太多或目录太大，没走完。
-type FileList struct {
-	Path      string      `json:"path"`
-	Files     []*FileItem `json:"files"`
-	Skipped   int         `json:"skipped"`
-	Truncated bool        `json:"truncated"`
 }
 
 // ResolveDir 校验 path 是允许根内、存在的目录，返回解析软链后的真实路径。挂载目录用它。
@@ -146,78 +114,5 @@ func ReadFile(path string) (*FileContent, error) {
 		return out, nil
 	}
 	out.Content = string(buf)
-	return out, nil
-}
-
-// ListFiles 递归列出目录下的文本文件，规则和原型一致：跳过隐藏项和 skipDirs，只收 TextExt。
-// 软链一律不跟：跟进去就可能走出允许根。
-func ListFiles(path string) (*FileList, error) {
-	dir, err := ResolveDir(path)
-	if err != nil {
-		return nil, err
-	}
-	text := map[string]bool{}
-	for _, e := range TextExt {
-		text[e] = true
-	}
-	out := &FileList{Path: dir, Files: []*FileItem{}}
-	visited := 0
-	stop := errors.New("stop")
-	err = filepath.WalkDir(dir, func(p string, d fs.DirEntry, err error) error {
-		if p == dir {
-			return err
-		}
-		if err != nil {
-			// 子目录没权限之类的，跳过这一支，不让整个清单失败
-			if d != nil && d.IsDir() {
-				return filepath.SkipDir
-			}
-			return nil
-		}
-		if visited++; visited > maxListVisited {
-			out.Truncated = true
-			return stop
-		}
-		name := d.Name()
-		if strings.HasPrefix(name, ".") {
-			if d.IsDir() {
-				return filepath.SkipDir
-			}
-			return nil
-		}
-		if d.IsDir() {
-			if skipDirs[name] {
-				return filepath.SkipDir
-			}
-			return nil
-		}
-		if !d.Type().IsRegular() {
-			return nil
-		}
-		ext := extOf(name)
-		if !text[ext] {
-			out.Skipped++
-			return nil
-		}
-		if len(out.Files) >= maxListFiles {
-			out.Skipped++
-			out.Truncated = true
-			return nil
-		}
-		info, err := d.Info()
-		if err != nil {
-			return nil
-		}
-		rel, _ := filepath.Rel(dir, p)
-		out.Files = append(out.Files, &FileItem{
-			Rel: filepath.ToSlash(rel), Path: p, Name: name, Ext: ext,
-			Size: info.Size(), Modified: info.ModTime().UTC(),
-		})
-		return nil
-	})
-	if err != nil && !errors.Is(err, stop) {
-		return nil, statErr(err, dir)
-	}
-	sort.Slice(out.Files, func(i, j int) bool { return out.Files[i].Rel < out.Files[j].Rel })
 	return out, nil
 }

@@ -21,7 +21,7 @@ import (
 
 // kbService 读本地文件的拦截和 /api/fs/read 一致：库文件、密钥证书、数据目录里的不收。
 func (s *Server) kbService() *kb.Service {
-	return &kb.Service{St: s.st, DataDir: s.opt.DataDir, Allow: func(p string) bool {
+	return &kb.Service{St: s.st, DataDir: s.opt.DataDir, Tracker: s.kbSync, Allow: func(p string) bool {
 		real := realPath(p)
 		return !sensitiveFile(real) && !s.inDataDir(real)
 	}}
@@ -585,7 +585,8 @@ func (s *Server) handleSyncKb(w http.ResponseWriter, r *http.Request) {
 	if len(p) > 1 {
 		p = strings.TrimRight(p, "/")
 	}
-	res, err := s.kbService().Sync(ctx, k, p)
+	// 大目录同步要一阵子：和浏览器连接脱钩，页面关了、刷新了也照样跑完（进度看 GET .../sync）
+	res, err := s.kbService().Sync(context.WithoutCancel(ctx), k, p)
 	if err != nil {
 		s.fail(w, r, err)
 		return
@@ -600,6 +601,15 @@ func (s *Server) handleSyncKb(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	respondData(w, http.StatusOK, map[string]any{"result": res, "knowledge_base": v})
+}
+
+// handleKbSyncProgress 回这个知识库正在跑的同步的进度，没在同步回 null。界面在同步请求没回来时轮询它。
+func (s *Server) handleKbSyncProgress(w http.ResponseWriter, r *http.Request) {
+	k := s.kbOf(w, r)
+	if k == nil {
+		return
+	}
+	respondData(w, http.StatusOK, s.kbSync.Get(k.ID))
 }
 
 // handleSearchKb 关键词检索，打分和原型 searchKb 一致（SPEC-settings-12）。

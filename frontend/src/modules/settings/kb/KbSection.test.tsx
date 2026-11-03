@@ -42,6 +42,8 @@ beforeEach(() => {
       ] })
     }
     if (method === 'POST' && u.endsWith('/reindex')) return ok(docs)
+    // 同步一直没回来（大目录），进度可查
+    if (method === 'GET' && u.endsWith('/kb_a/sync')) return ok({ kb_id: 'kb_a', dir: '/v/docs', listed: 800, done: 120, listing: true, started_at: '2026-11-03T00:00:00Z' })
     if (method === 'PATCH') return ok({ ...kb, settings: { ...settings, ...body.settings } })
     if (u.endsWith('/api/knowledge-bases/kb_a/docs')) return ok(docs)
     if (u.includes('/docs')) return ok([])
@@ -148,6 +150,15 @@ describe('知识库详情', () => {
     expect(calls.find((c) => c.method === 'PATCH')?.body).toEqual({ settings: { chunk_size: 200, overlap: 50 } })
     await user.click(screen.getByRole('button', { name: '重新索引这 1 篇' }))
     expect(calls.find((c) => c.url.endsWith('/reindex'))?.body).toEqual({ doc_ids: ['kd_1'] })
+  })
+
+  it('同步大目录：请求没回来时按秒查进度，显示在那个目录下', async () => {
+    const user = userEvent.setup()
+    renderAt('/settings/kbs?kb=kb_a&tab=settings')
+    await user.click(await screen.findByRole('button', { name: '立即同步' }))
+    expect(calls.find((c) => c.method === 'POST' && c.url.endsWith('/sync'))?.body).toEqual({ path: '/v/docs' })
+    expect(await screen.findByText('正在同步：已处理 120 / 800+ 个文件')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '同步中…' })).toBeDisabled()
   })
 
   it('挂目录：相对路径、挂过的就地报错，不发请求', async () => {

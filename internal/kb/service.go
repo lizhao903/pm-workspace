@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -34,6 +35,8 @@ type Service struct {
 	St      Store
 	DataDir string // 上传的原文件存在 <DataDir>/kb/<知识库 id>/<文档 id>/ 下；空串不存
 	Allow   func(path string) bool
+	// Tracker 记正在跑的同步和进度；nil 不记，也不拦同一个知识库同时同步
+	Tracker *Tracker
 }
 
 // Store 是 Service 用到的存储：知识库一组，加上读工作台文档。
@@ -306,6 +309,12 @@ func (r *SyncResult) count(before, after *store.KbDoc) {
 // Sync 同步来源：path 为空时同步文档分类和全部目录，否则只同步这个目录。
 // 目录：新文件收进来，内容变了的重新索引，不在了的移出；文档分类：没收进来的收进来，改过的重新索引。
 func (sv *Service) Sync(ctx context.Context, k *store.KnowledgeBase, path string) (*SyncResult, error) {
+	if sv.Tracker != nil {
+		if !sv.Tracker.begin(k.ID) {
+			return nil, conflict("这个知识库正在同步，等这次同步完再试")
+		}
+		defer sv.Tracker.end(k.ID)
+	}
 	res := &SyncResult{Errors: map[string]string{}}
 	docs, err := sv.St.ListKbDocs(ctx, k.ID)
 	if err != nil {
@@ -418,36 +427,75 @@ func (sv *Service) Missing(ctx context.Context, k *store.KnowledgeBase) ([]*doma
 	return out, nil
 }
 
+// syncPage 是目录同步一批列多少个文件：列一批、索引一批、记一次进度。
+const syncPage = 500
+
+// syncDir 分批同步一个目录：一页页列（不再有 1000 个文件的上限），每页里的文本文件新收或重新索引。
+// 文件的修改时间不晚于这篇上次取到正文的时间、且已索引的，内容没变，跳过不重读（大目录再同步主要省在这里）；
+// 改切分设置后要整篇重切，走「重新索引」。
+// 列表触到防爆保护（目录太大、太深）时没列到的文件不知道还在不在，不移出，在 errors 里说明。
 func (sv *Service) syncDir(ctx context.Context, k *store.KnowledgeBase, dir string, docs []*store.KbDoc, res *SyncResult) error {
-	list, err := fsbrowse.ListFiles(dir)
-	if err != nil {
-		return err
-	}
 	have := map[string]*store.KbDoc{}
 	for _, d := range docs {
 		if InDir(d, dir) {
 			have[d.Source.Ref] = d
 		}
 	}
+	sv.Tracker.update(k.ID, func(p *SyncProgress) { p.Dir, p.Listing, p.Listed, p.Done = dir, true, 0, 0 })
 	seen := map[string]bool{}
-	for _, f := range list.Files {
-		if !dirExt[f.Ext] || !sv.allow(f.Path) || dirOf(k, f.Path) == "" {
-			continue
+	truncated := ""
+	for cur := ""; ; {
+		if err := ctx.Err(); err != nil {
+			return err
 		}
-		seen[f.Path] = true
-		before := have[f.Path]
-		d := before
-		if d == nil {
-			if d, err = sv.St.CreateKbDoc(ctx, &store.KbDoc{KbID: k.ID, Title: f.Name,
-				Source: store.KbSource{Type: store.KbSrcDir, Ref: f.Path}}); err != nil {
-				return err
-			}
-		}
-		after, err := sv.Index(ctx, k, d)
+		list, err := fsbrowse.ListFilesPage(dir, cur, syncPage)
 		if err != nil {
 			return err
 		}
-		res.count(before, after)
+		if list.Truncated {
+			truncated = list.Reason
+		}
+		var batch []*fsbrowse.FileItem
+		for _, f := range list.Files {
+			if dirExt[f.Ext] && sv.allow(f.Path) && dirOf(k, f.Path) != "" {
+				batch = append(batch, f)
+			}
+		}
+		sv.Tracker.update(k.ID, func(p *SyncProgress) { p.Listed += len(batch); p.Listing = list.NextCursor != "" })
+		for _, f := range batch {
+			seen[f.Path] = true
+			before := have[f.Path]
+			if before != nil && before.Status == store.KbIndexed && before.Title == f.Name && !f.Modified.After(before.UpdatedAt) {
+				res.Unchanged++
+				sv.Tracker.update(k.ID, func(p *SyncProgress) { p.Done++ })
+				continue
+			}
+			d := before
+			if d == nil {
+				if d, err = sv.St.CreateKbDoc(ctx, &store.KbDoc{KbID: k.ID, Title: f.Name,
+					Source: store.KbSource{Type: store.KbSrcDir, Ref: f.Path}}); err != nil {
+					return err
+				}
+			}
+			after, err := sv.Index(ctx, k, d)
+			if err != nil {
+				return err
+			}
+			res.count(before, after)
+			sv.Tracker.update(k.ID, func(p *SyncProgress) { p.Done++ })
+		}
+		if list.NextCursor == "" {
+			break
+		}
+		cur = list.NextCursor
+	}
+	if truncated != "" {
+		why := "目录太大，走了 " + strconv.Itoa(fsbrowse.MaxListVisited) + " 项还没走完"
+		if truncated == fsbrowse.TruncDepth {
+			why = "有子目录超过 " + strconv.Itoa(fsbrowse.MaxListDepth) + " 层，没往下走"
+		}
+		res.Errors[dir] = why + "；收进了列到的 " + strconv.Itoa(len(seen)) + " 个文件，没列到的不移出"
+		return nil
 	}
 	var gone []string
 	for ref, d := range have {

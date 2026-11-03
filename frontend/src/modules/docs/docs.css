@@ -30,7 +30,6 @@
 .tree-row:hover { background: var(--hover); }
 .tree-dir { color: var(--muted); font-weight: 500; }
 .tree-file.sel { background: var(--panel); box-shadow: var(--shadow-sm), inset 2px 0 0 var(--accent); }
-.tree-more { color: var(--accent); font-size: var(--fs-xs); }
 .lib-tree .tree-chev { display: inline-grid; place-items: center; width: 10px; color: var(--faint); transition: transform 0.12s; }
 .lib-tree .tree-chev.open { transform: rotate(90deg); }
 .tree-icon { display: inline-grid; place-items: center; color: var(--faint); flex: none; }
@@ -57,6 +56,12 @@
 .ws-remove { display: grid; place-items: center; width: 28px; height: 28px; border-radius: 5px; color: var(--faint); visibility: hidden; flex: none; }
 .ws-item:hover .ws-remove, .ws-remove:focus-visible { visibility: visible; }
 .ws-remove:hover { background: var(--danger-soft); color: var(--danger); }
+/* 默认工作目录（SPEC-library-1.53）：菜单里「默认」小标和设为默认的星标按钮 */
+.ws-default { flex: none; margin-left: auto; padding: 0 6px; border-radius: 999px; font-size: var(--fs-xs); color: var(--accent); background: var(--accent-soft); }
+.ws-pin { display: grid; place-items: center; width: 28px; height: 28px; border-radius: 5px; color: var(--faint); visibility: hidden; flex: none; }
+.ws-item:hover .ws-pin, .ws-pin:focus-visible, .ws-pin.on { visibility: visible; }
+.ws-pin.on { color: var(--accent); }
+.ws-pin:hover { background: var(--panel-2); color: var(--accent); }
 
 /* ---------- 阅读区 ---------- */
 .lib-reader { flex: 1; min-width: 0; height: 100%; overflow-y: auto; container-type: inline-size; }
@@ -148,7 +153,7 @@
   .lib-bar-title { max-width: 45%; }
   .lib-bar-title h1 { font-size: var(--fs-md); }
   .lib-bar .lib-tags { margin-left: 0; }
-  .ws-remove { visibility: visible; }
+  .ws-remove, .ws-pin { visibility: visible; }
 }
 
 /* ---------- 新建和编辑（SPEC-library-1.40 起） ---------- */
@@ -199,4 +204,19 @@ button.lib-proj:hover { text-decoration: underline; }
   .lib-bar:has(.lib-proj-filter) { gap: var(--sp-4); }
   .lib-bar .lib-proj-filter { margin-left: 0; }
   .lib-bar .filter-row { min-width: 56px; }
+}
+
+/* 全部文档：PDF 内嵌预览、图片、不能预览的文件信息卡 */
+.lib-pdf { display: block; width: 100%; height: calc(100vh - 220px); min-height: 420px; border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--panel); }
+.lib-img-wrap { display: flex; justify-content: center; padding: var(--sp-4) 0; }
+.lib-img { max-width: 100%; max-height: calc(100vh - 240px); object-fit: contain; border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--panel-2); }
+.lib-file-card { max-width: 520px; padding: var(--sp-6); border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--panel-2); }
+.lib-file-card-name { font-weight: 600; margin-bottom: var(--sp-4); word-break: break-all; }
+.lib-file-card dl { display: grid; grid-template-columns: auto 1fr; gap: 6px 14px; margin: 0 0 var(--sp-4); font-size: var(--fs-sm); }
+.lib-file-card dt { color: var(--faint); }
+.lib-file-card dd { margin: 0; color: var(--text); }
+.lib-file-card-path { font-family: var(--mono); font-size: var(--fs-xs); word-break: break-all; }
+.lib-file-card-acts { display: flex; gap: var(--sp-3); flex-wrap: wrap; margin-top: var(--sp-4); }
+@media (max-width: 760px) {
+  .lib-pdf { height: 70vh; }
 }

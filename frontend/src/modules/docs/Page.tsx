@@ -3,7 +3,7 @@
 // 当前工作目录和正在读的文档放在地址里（?dir=<挂载 id>&doc=<文档 id>），别的模块可以直接链过来；筛选、搜索是页面状态。
 // 工作台文档能按所属项目筛，阅读区显示所属项目、点了去项目的文档标签（C-04）。
 // 工作台文档可以新建、编辑（C-03）：?edit=new 新建，?doc=<id>&edit=1 编辑这篇；有没保存的改动时离开先确认（SPEC-library-1.46）。
-import { useCallback, useDeferredValue, useEffect, useMemo, useState } from 'react'
+import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router'
 import {
   errorText, isApiError, isStarred, useAllObjects, useCategoryTree, useLocalDirFiles, useLocalDirs, useNotifyChange, useObjectTypes,
@@ -13,7 +13,8 @@ import { Button, ConfirmDialog, InSubnavHost, LoadingState } from '../../core/ui
 import { LibraryBar } from './Bar'
 import { DocEditor } from './Editor'
 import {
-  builtinModel, BUILTIN, defaultCategory, dirWs, folderModel, indexCategories, projectOptions, timeAgo, UNCATEGORIZED_LABEL, type Doc, type Filter, type Workspace,
+  builtinModel, BUILTIN, defaultCategory, dirWs, folderModel, indexCategories, listNote, projectOptions, readDefaultWs, timeAgo, UNCATEGORIZED_LABEL, writeDefaultWs,
+  type Doc, type Filter, type Workspace,
 } from './model'
 import { MountDrawer } from './MountDrawer'
 import { LibraryReader } from './Reader'
@@ -91,9 +92,25 @@ export default function Page() {
     if (gone) update({ dir: null, doc: null })
   }, [gone, update])
 
+  // 默认工作目录（SPEC-library-1.53）：进来时地址里没指定目录、文档、编辑，就切到设为默认的那个挂载；只在进来时做一次，
+  // 之后在页面里切回工作台文档不会被拉回去。默认的挂载已经移除了就当没设。
+  const [defaultWs, setDefaultWs] = useState<Workspace>(readDefaultWs)
+  const [entered] = useState(() => !params.get('dir') && !params.get('doc') && !params.get('edit'))
+  const appliedDefault = useRef(false)
+  useEffect(() => {
+    // 目录列表一到就定下来，只看进来那一刻的默认；之后在菜单里改默认不跳
+    if (appliedDefault.current || !dirs.data) return
+    appliedDefault.current = true
+    if (!entered || defaultWs === BUILTIN) return
+    const id = defaultWs.slice(4)
+    if (dirs.data.some((d) => d.id === id)) update({ dir: id })
+  }, [entered, defaultWs, dirs.data, update])
+  const setDefault = (w: Workspace) => { writeDefaultWs(w); setDefaultWs(w) }
+
   // 当前阅读的不在筛选结果里就落到第一条；宽屏下右侧不留空，手机上留在内容树（SPEC-library-1.15）
   const current: Doc | null = model.rows.find((r) => r.id === reading) ?? null
-  const ready = dir ? !!files.data : !!docs.data
+  // 本地目录要等全部页拉完：地址里指定的文件可能在后面的页里，没拉完就落到第一条会把它顶掉
+  const ready = dir ? !!files.data && !files.data.loading : !!docs.data
   // 编辑状态只对工作台文档：新建，或当前阅读的这篇能在对象列表里找到
   const editParam = dir ? null : params.get('edit')
   const creating = editParam === 'new'
@@ -146,15 +163,11 @@ export default function Page() {
       : <LoadingState />
   }
 
-  const kicker = dir && files.data && (files.data.skipped > 0 || files.data.truncated)
-    ? {
-      text: files.data.truncated ? '只列了前 1000 个' : `跳过 ${files.data.skipped} 个`,
-      title: [
-        files.data.skipped ? `跳过了 ${files.data.skipped} 个非文本文件` : '',
-        files.data.truncated ? '文件太多，超出的没有列出' : '',
-      ].filter(Boolean).join('；'),
-    }
-    : undefined
+  // 大目录一页页列：第一页还没有文件（走得慢先交回来）时照样显示加载中
+  else if (dir && files.data?.loading && !model.rows.length && !filter.q.trim()) status = <LoadingState />
+  const kicker = dir ? listNote(files.data) : undefined
+  // 后面的页拉失败了：前面列到的照常显示，树底下给重试
+  const pageError = dir && files.pageError ? `后面的文件没列完：${errorText(files.pageError)}` : ''
 
   const removeDir = (id: string) => {
     setDirError('')
@@ -177,7 +190,8 @@ export default function Page() {
         <LibraryTree ws={ws} model={model} filter={filter} dirs={dirs.data ?? []} selected={creating ? null : reading}
           onSelect={(id) => guard(() => update({ doc: id, edit: null }))} onSwitch={(w) => guard(() => switchWs(w))}
           onAddFolder={() => { setDirError(''); setMounting(true) }} onRemoveFolder={removeDir}
-          q={q} onQ={setQ} status={status} kicker={kicker} error={dirError} mode={mode} />
+          q={q} onQ={setQ} status={status} kicker={kicker} error={dirError} mode={mode} defaultWs={defaultWs} onSetDefault={setDefault}
+          pageError={pageError} onRetryPage={files.retryPage} />
       </InSubnavHost>
       {editing ? (
         <DocEditor key={editObj?.id ?? 'new'} doc={editObj} cats={cats.data ?? []} defaultCat={defaultCategory(cats.data ?? [], kind)}

@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import type { Category, LocalDir, WorkObject } from '../../core/data'
+import { mergeFilePages, type Category, type LocalDir, type LocalFileEntry, type LocalFileKind, type LocalFileList, type WorkObject } from '../../core/data'
 import {
   buildTree, builtinModel, categoryOptions, charCount, defaultCategory, docPatch, docRevisionText, draftOfObject, emptyText, fileSize,
-  folderModel, NO_PROJECT, projectOptions, sameDocDraft, STARRED, UNCATEGORIZED, type Filter,
+  flattenTree, folderModel, listNote, NO_PROJECT, projectOptions, sameDocDraft, STARRED, UNCATEGORIZED, type Filter,
 } from './model'
 
 const cat = (id: string, name: string, sort: number, total: number, children: Category[] = []): Category => ({
@@ -70,9 +70,10 @@ describe('本地目录的视图模型', () => {
   const f = (rel: string, ext: string) => ({ rel, path: `/tmp/d/${rel}`, name: rel.split('/').pop() ?? rel, ext, size: 10, modified: '2026-10-01T00:00:00Z' })
   const list = { path: '/tmp/d', files: [f('README.md', 'md'), f('docs/a/b/c/d/e/deep.md', 'md'), f('notes.txt', 'txt')], skipped: 2, truncated: false }
 
-  it('筛选项是出现过的扩展名，大写、按字母序；Markdown 只认 md、markdown', () => {
+  it('老后端没有 kind 时按文本；筛选项是出现过的文件种类；Markdown 只认 md、markdown', () => {
     const m = folderModel(dir, list, all)
-    expect(m.kinds.map((k) => [k.key, k.label, k.count])).toEqual([['md', 'MD', 2], ['txt', 'TXT', 1]])
+    expect(m.kinds.map((k) => [k.key, k.label, k.count])).toEqual([['text', '文本', 3]])
+    expect(m.docs.map((d) => d.kindLabel)).toEqual(['MD', 'MD', 'TXT'])
     expect(m.docs.map((d) => d.markdown)).toEqual([true, true, false])
     expect(m.docs[1].dirs).toEqual(['docs', 'a', 'b', 'c', 'd', 'e'])
     expect(m.docs[0].meta).toEqual(['d/README.md', '10 B'])
@@ -81,7 +82,60 @@ describe('本地目录的视图模型', () => {
   it('按文件名、路径搜；空目录说没有可读的文本文件', () => {
     expect(folderModel(dir, list, { ...all, q: 'deep' }).rows.map((d) => d.title)).toEqual(['deep.md'])
     const empty = folderModel(dir, { ...list, files: [] }, all)
-    expect(emptyText(empty, all)).toBe('这个目录下没有可读的文本文件')
+    expect(emptyText(empty, all)).toBe('这个目录下没有认得的文档')
+  })
+
+  const k = (rel: string, kind: LocalFileKind): LocalFileEntry => ({ ...f(rel, rel.split('.').pop() ?? ''), kind })
+  const mixed = [k('a.md', 'text'), k('b/r.pdf', 'pdf'), k('b/p.png', 'image'), k('c.docx', 'office'), k('d.xlsx', 'office'), k('e.pptx', 'office')]
+
+  it('全部文档：种类按 文本、PDF、图片、Office 排，按种类筛；只有文本 md 按 Markdown 渲染', () => {
+    const m = folderModel(dir, { path: '/tmp/d', files: mixed, skipped: 0, truncated: false }, all)
+    expect(m.kinds.map((x) => [x.key, x.label, x.count])).toEqual([['text', '文本', 1], ['pdf', 'PDF', 1], ['image', '图片', 1], ['office', 'Office 文档', 3]])
+    expect(m.docs.map((d) => d.fileKind)).toEqual(['text', 'pdf', 'image', 'office', 'office', 'office'])
+    expect(m.docs.map((d) => d.markdown)).toEqual([true, false, false, false, false, false])
+    const office = folderModel(dir, { path: '/tmp/d', files: mixed, skipped: 0, truncated: false }, { ...all, kind: 'office' })
+    expect(office.rows.map((d) => d.title)).toEqual(['c.docx', 'd.xlsx', 'e.pptx'])
+  })
+
+  it('分页合起来是全量：文件按页顺序接上，skipped 累加，任一页截断就算截断', () => {
+    const page = (files: LocalFileEntry[], p: Partial<LocalFileList>): LocalFileList => ({ path: '/tmp/d', files, skipped: 0, truncated: false, ...p })
+    const pages = [page(mixed.slice(0, 2), { skipped: 3, next_cursor: 'c1' }), page(mixed.slice(2, 5), { skipped: 1, next_cursor: 'c2' }),
+      page(mixed.slice(5), { skipped: 0, truncated: true, reason: 'depth', visited: 99 })]
+    const m = mergeFilePages(pages, false)
+    expect(m?.files.map((x) => x.rel)).toEqual(mixed.map((x) => x.rel))
+    expect([m?.skipped, m?.truncated, m?.reason, m?.visited, m?.loading]).toEqual([4, true, 'depth', 99, false])
+    expect(mergeFilePages([], false)).toBeUndefined()
+    expect(mergeFilePages(pages.slice(0, 1), true)?.loading).toBe(true)
+  })
+
+  it('搜索覆盖全量：几千个文件里按文件名、路径搜', () => {
+    const many = Array.from({ length: 5000 }, (_, i) => k(`dir${i % 50}/sub/file-${i}.md`, 'text'))
+    many.push(k('深处/很深/季度复盘.pdf', 'pdf'))
+    const m = folderModel(dir, { path: '/tmp/d', files: many, skipped: 0, truncated: false }, { ...all, q: '季度 复盘' })
+    expect(m.rows.map((d) => d.title)).toEqual(['季度复盘.pdf'])
+    expect(folderModel(dir, { path: '/tmp/d', files: many, skipped: 0, truncated: false }, { ...all, q: 'dir7/sub/file-4957' }).rows).toHaveLength(1)
+    // 同一份清单再算一遍，Doc 是同一个对象（缓存住了）
+    const a = folderModel(dir, { path: '/tmp/d', files: many, skipped: 0, truncated: false }, all).docs[0]
+    expect(folderModel(dir, { path: '/tmp/d', files: many, skipped: 0, truncated: false }, all).docs[0]).toBe(a)
+  })
+
+  it('工作目录小字：还在列、跳过、没列全', () => {
+    expect(listNote(undefined)).toBeUndefined()
+    expect(listNote({ path: '', files: [], skipped: 0, truncated: false })).toBeUndefined()
+    expect(listNote({ path: '', files: mixed, skipped: 0, truncated: false, loading: true })?.text).toBe('已列 6 个，还在列')
+    const n = listNote({ path: '', files: mixed, skipped: 12, truncated: true, reason: 'visited', visited: 200000 })
+    expect(n?.text).toBe('没列全 · 跳过 12 个')
+    expect(n?.title).toContain('200,000 项')
+    expect(listNote({ path: '', files: [], skipped: 0, truncated: true, reason: 'depth' })?.title).toContain('太深')
+  })
+
+  it('内容树摊平：收起的文件夹不展开，展开的里面文件夹在前、文件在后', () => {
+    const m = folderModel(dir, { path: '/tmp/d', files: mixed, skipped: 0, truncated: false }, all)
+    const t = buildTree(m.rows)
+    const shut = flattenTree(t, () => false).map((r) => (r.t === 'dir' ? `d:${r.d.name}` : r.f.title))
+    expect(shut).toEqual(['d:b', 'a.md', 'c.docx', 'd.xlsx', 'e.pptx'])
+    const open = flattenTree(t, () => true).map((r) => (r.t === 'dir' ? `d:${r.d.name}:${r.depth}` : `${r.f.title}:${r.depth}`))
+    expect(open).toEqual(['d:b:0', 'r.pdf:1', 'p.png:1', 'a.md:0', 'c.docx:0', 'd.xlsx:0', 'e.pptx:0'])
   })
 })
 

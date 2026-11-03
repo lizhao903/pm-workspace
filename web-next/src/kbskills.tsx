@@ -526,9 +526,22 @@ function KbSettingsTab({ kb, docs, settings: s, agents, providers, editing, onEd
     set({ dirs: [...s.dirs, { path: p, auto_sync: true, synced_at: new Date().toISOString() }] })
     setDir(''); setDirErr('')
   }
+  // 立即同步（模拟）：正式产品大目录分批同步，请求没回来时每秒查一次进度，显示在那个目录下「正在同步：已处理 N / M 个文件」
+  const [syncing, setSyncing] = useState<{ path: string; done: number; listed: number } | null>(null)
   const syncDir = (path: string) => {
-    set({ dirs: s.dirs.map((d) => (d.path === path ? { ...d, synced_at: new Date().toISOString() } : d)) })
-    onReindex(docs.filter((d) => inDir(d, path)).map((d) => d.id))
+    const ids = docs.filter((d) => inDir(d, path)).map((d) => d.id)
+    const listed = Math.max(ids.length, 1)
+    let done = 0
+    setSyncing({ path, done, listed })
+    const timer = window.setInterval(() => {
+      done = Math.min(listed, done + Math.ceil(listed / 4))
+      setSyncing({ path, done, listed })
+      if (done < listed) return
+      window.clearInterval(timer)
+      setSyncing(null)
+      set({ dirs: s.dirs.map((d) => (d.path === path ? { ...d, synced_at: new Date().toISOString() } : d)) })
+      onReindex(ids)
+    }, 300)
   }
   return (
     <div className="kbx-settings">
@@ -554,6 +567,7 @@ function KbSettingsTab({ kb, docs, settings: s, agents, providers, editing, onEd
                   <span className="kbx-dir-main">
                     <code className="ellipsis" title={d.path}>{d.path}</code>
                     <span className="run-muted">{n} 个文件{d.synced_at && ` · ${timeAgo(d.synced_at)}同步`}</span>
+                    {syncing?.path === d.path && <span className="run-muted" style={{ color: 'var(--accent)' }}>正在同步：已处理 {syncing.done} / {syncing.listed} 个文件</span>}
                   </span>
                   {confirmDir === d.path ? (
                     <span className="kbx-dir-ops">
@@ -567,7 +581,7 @@ function KbSettingsTab({ kb, docs, settings: s, agents, providers, editing, onEd
                         <input type="checkbox" checked={d.auto_sync} onChange={(e) => set({ dirs: s.dirs.map((x) => (x.path === d.path ? { ...x, auto_sync: e.target.checked } : x)) })} />
                         <span className="switch" />自动同步
                       </label>
-                      <button className="act act-quiet" onClick={() => syncDir(d.path)}>立即同步</button>
+                      <button className="act act-quiet" disabled={!!syncing} onClick={() => syncDir(d.path)}>{syncing?.path === d.path ? '同步中…' : '立即同步'}</button>
                       <button className="act act-quiet" onClick={() => setConfirmDir(d.path)}>移除</button>
                     </span>
                   )}

@@ -2,10 +2,12 @@
 // 写法照原型 library.tsx 的 LibraryReader。本地文件打开时才读内容（/api/fs/read）。
 // 工作台文档多「编辑」「修订」（SPEC-library-1.41、1.47）；本地文件只读，没有这两个。
 // 归到项目的工作台文档，工具条上显示所属项目，点了去项目的文档标签（SPEC-library-1.52，C-04）。
+// 本地目录的「全部文档」：PDF 内嵌预览、图片直接显示（/api/fs/raw），Office 等不能预览的给文件信息和「用本机应用打开」；
+// 本地文件都能「在访达中显示」。
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { errorText, isApiError, useLocalFile, type LocalFile } from '../../core/data'
+import { errorText, isApiError, localRawUrl, useLocalFile, useOpenLocalFile, type LocalFile } from '../../core/data'
 import { Button, cls, Markdown, mdHeadings, Tag } from '../../core/ui'
-import { charCount, timeAgo, type Doc, type LibraryModel } from './model'
+import { charCount, fileSize, timeAgo, type Doc, type LibraryModel } from './model'
 import { DocRevisions } from './Revisions'
 import { StarIcon } from './Tree'
 
@@ -63,7 +65,12 @@ export function LibraryReader({ model, current, statusLabel, catName, onBack, on
   const setCopied = (ok: boolean) => setCopiedOf({ id, ok })
   const setTocOpen = (open: boolean) => setTocOf(open ? id : null)
   const readerRef = useRef<HTMLDivElement>(null)
-  const file = useLocalFile(current?.path ?? null)
+  // 只有文本才读正文；PDF、图片走原文件地址，Office 不读
+  const textFile = !!current?.path && (current.fileKind ?? 'text') === 'text'
+  const file = useLocalFile(textFile ? current?.path ?? null : null)
+  const opener = useOpenLocalFile()
+  // 打开失败的提示只对当时那篇
+  const [openErr, setOpenErr] = useState<{ id: string; msg: string } | null>(null)
   // keepPreviousData 下换文件的一瞬间还是上一个文件的内容，按路径对上才用
   const loaded: LocalFile | undefined = file.data && file.data.path === current?.path ? file.data : undefined
 
@@ -72,7 +79,7 @@ export function LibraryReader({ model, current, statusLabel, catName, onBack, on
   }, [size])
   useEffect(() => { readerRef.current?.scrollTo?.({ top: 0 }) }, [id])
 
-  const body = current?.path ? loaded?.content : current?.body
+  const body = current?.path ? (textFile ? loaded?.content : undefined) : current?.body
   const markdown = !!current?.markdown && !loaded?.binary
   const headings = useMemo(() => (markdown && body ? mdHeadings(body, HEAD_ID) : []), [markdown, body])
   const jump = (id: string) => { document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' }); setTocOpen(false) }
@@ -93,8 +100,34 @@ export function LibraryReader({ model, current, statusLabel, catName, onBack, on
   }
 
   const updated = current.path && loaded ? new Date(loaded.modified).getTime() : current.updated
+  const openLocal = (reveal: boolean) => {
+    if (!current.path) return
+    setOpenErr(null)
+    opener.mutate({ path: current.path, reveal }, { onError: (e) => setOpenErr({ id, msg: `${reveal ? '显示' : '打开'}失败：${errorText(e)}` }) })
+  }
   let content
-  if (current.path && !loaded) {
+  if (current.path && current.fileKind === 'pdf') {
+    content = <iframe className="lib-pdf" src={localRawUrl(current.path)} title={`预览 ${current.title}`} />
+  } else if (current.path && current.fileKind === 'image') {
+    content = <div className="lib-img-wrap"><img className="lib-img" src={localRawUrl(current.path)} alt={current.title} /></div>
+  } else if (current.path && current.fileKind === 'office') {
+    content = (
+      <div className="lib-file-card">
+        <div className="lib-file-card-name">{current.title}</div>
+        <dl>
+          <dt>类型</dt><dd>{current.kindLabel} 文档</dd>
+          <dt>大小</dt><dd>{current.size ? fileSize(current.size) : '未知'}</dd>
+          <dt>修改于</dt><dd>{timeAgo(current.updated)}</dd>
+          <dt>位置</dt><dd className="lib-file-card-path">{current.path}</dd>
+        </dl>
+        <p className="lib-file-note">这类文件不能在这里预览，用本机应用打开查看。</p>
+        <div className="lib-file-card-acts">
+          <Button variant="primary" size="sm" onClick={() => openLocal(false)} disabled={opener.isPending}>用本机应用打开</Button>
+          <Button size="sm" onClick={() => openLocal(true)} disabled={opener.isPending}>在访达中显示</Button>
+        </div>
+      </div>
+    )
+  } else if (current.path && !loaded) {
     content = file.isError
       ? <div className="lib-file-note lib-file-err" role="alert">{fileError(file.error)} <Button size="sm" onClick={() => void file.refetch()}>重试</Button></div>
       : <div className="lib-file-note">正在读取…</div>
@@ -135,14 +168,25 @@ export function LibraryReader({ model, current, statusLabel, catName, onBack, on
                 )}
               </div>
             )}
-            <div className="seg seg-sm" role="radiogroup" aria-label="正文字号">
-              {(['sm', 'md', 'lg'] as FontSize[]).map((s) => (
-                <button type="button" key={s} role="radio" aria-checked={size === s} className={cls(size === s && 'on')} onClick={() => setSize(s)}>{SIZE_LABEL[s]}</button>
-              ))}
-            </div>
-            <button type="button" className="act" onClick={copy} disabled={body === undefined}>
-              {copied === 'ok' ? '已复制' : copied === 'fail' ? '复制失败' : '复制全文'}
-            </button>
+            {(!current.path || textFile) && (
+              <div className="seg seg-sm" role="radiogroup" aria-label="正文字号">
+                {(['sm', 'md', 'lg'] as FontSize[]).map((s) => (
+                  <button type="button" key={s} role="radio" aria-checked={size === s} className={cls(size === s && 'on')} onClick={() => setSize(s)}>{SIZE_LABEL[s]}</button>
+                ))}
+              </div>
+            )}
+            {(!current.path || textFile) && (
+              <button type="button" className="act" onClick={copy} disabled={body === undefined}>
+                {copied === 'ok' ? '已复制' : copied === 'fail' ? '复制失败' : '复制全文'}
+              </button>
+            )}
+            {current.path && (current.fileKind === 'pdf' || current.fileKind === 'image') && (
+              <button type="button" className="act" onClick={() => openLocal(false)} disabled={opener.isPending} title="用本机默认应用打开">本机打开</button>
+            )}
+            {/* Office 的文件信息卡里已经有这两个按钮 */}
+            {current.path && current.fileKind !== 'office' && (
+              <button type="button" className="act" onClick={() => openLocal(true)} disabled={opener.isPending} title="在访达中选中这个文件">在访达中显示</button>
+            )}
             {current.starred !== undefined && (
               <button type="button" className={cls('star-btn', current.starred && 'on')} onClick={() => onStar(current)} disabled={starring}
                 aria-pressed={current.starred} aria-label={current.starred ? '取消星标' : '加星标'} title={current.starred ? '取消星标' : '加星标'}>
@@ -165,6 +209,7 @@ export function LibraryReader({ model, current, statusLabel, catName, onBack, on
             {body !== undefined && !loaded?.binary && <span>{charCount(body)} 字</span>}
           </div>
           {current.tags.length > 0 && <div className="tags reader-tags">{current.tags.map((t) => <Tag key={t}>{t}</Tag>)}</div>}
+          {openErr?.id === id && <div className="lib-file-note lib-file-err" role="alert">{openErr.msg}</div>}
           {loaded?.truncated && <div className="lib-file-note">文件超过 {Math.round(loaded.limit / 1024 / 1024)} MB，只显示开头</div>}
           <div className="reader-body">{content}</div>
           {revOpen && !current.path && <DocRevisions id={current.id} catName={catName} statusLabel={statusLabel} />}
