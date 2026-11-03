@@ -35,7 +35,7 @@
 | `company` | `string` | 是 | 公司，可为空串 | `远川科技` |
 | `title` | `string` | 是 | 职位，可为空串 | `IT 总监` |
 | `phone` | `string` | 是 | 电话，可为空串，可含空格 | `137 2233 4405` |
-| `email` | `string` | 是 | 邮箱，可为空串；非空时要符合格式 | `xu.zx@yuanchuan.example` |
+| `email` | `string` | 是 | 邮箱，可为空串；非空时要符合格式。有 Slack 身份的联系人可以从 Slack 资料补（只填空的，见 `SPEC-settings-4.7d`） | `xu.zx@yuanchuan.example` |
 | `group` | `Group` | 是 | 分组，存枚举 key；可多个，用「、」连接存成一个字符串 | 内置 `客户` / `合作伙伴` / `同事` / `供应商` / `其他`，设置里可新增。正式产品：一人可在多个分组（如 `Octok、XAUE`），读时按「、」拆开（也认逗号、斜杠、分号），原型只有单个 |
 | `tags` | `string[]` | 是 | 标签，可为空数组 | `['试点', '决策人']` |
 | `im` | `Record<string, string>` | 是 | 渠道 key 到该渠道账号编号；没填的渠道不存 key | `{ wechat: 'xuzhixing', lark: 'ou_xuzx' }` |

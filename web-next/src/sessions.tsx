@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useMemo, useState } from 'react'
+import { Fragment, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { OUTPUT_KIND, type Agent, type AgentOutput, type AgentRun, type ChatMsg, type OutputKind, type Session, type ToolCall } from './agentdata'
 import { AgentAvatar, CHAT_EXAMPLES, CallCard, ChatPane, Pill, RUN_STATUS, type Ctx } from './agents'
 import { SearchSelect } from './searchselect'
@@ -73,16 +73,64 @@ function whenGroup(iso: string) {
 /** 已删除的 Agent 的占位：停用、没有权限，只用来回看会话 */
 const goneAgent = (id: string): Agent => ({
   id, name: '已删除的 Agent', desc: '', color: 'var(--faint)', model: '', instructions: '', abilities: {}, avatar: { kind: 'icon', value: 'robot' },
-  skills: [], mcps: [], kbs: [], triggers: [], enabled: false, created_at: '',
+  skills: [], mcps: [], kbs: [], triggers: [], thinking: 'default', enabled: false, created_at: '',
 })
 
 const More = ({ left, onMore }: { left: number; onMore: () => void }) => (left > 0 ? <button className="agent-more" onClick={onMore}>显示更多（还有 {left} 条）</button> : null)
 
 /* ---------- 会话 ---------- */
 
-export function ChatsView({ agents, sessions, current, ctx, pickRequest, onOpen, onNew, onMsgs, onRename, onDelete, onExecute, onOpenAgent, firstMessage, projects, initialProject }: {
-  /** 传了就多一个「项目」筛选 */
-  projects?: { id: string; name: string }[]
+/* ---------- 会话旁边的终端、浏览器（SPEC-sessions-1.34 到 1.38） ---------- */
+
+export type SessionTool = 'term' | 'browser'
+const TOOL_LABEL: Record<SessionTool, string> = { term: '终端', browser: '浏览器' }
+const TOOL_ICON: Record<SessionTool, ReactNode> = {
+  term: <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"><rect x="1.8" y="2.8" width="12.4" height="10.4" rx="1.6" /><path d="m4.6 6.4 2 1.6-2 1.6M8.4 10h3" /></svg>,
+  browser: <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.4"><circle cx="8" cy="8" r="6" /><path d="M2 8h12M8 2c1.8 1.8 2.6 3.8 2.6 6S9.8 12.2 8 14M8 2C6.2 3.8 5.4 5.8 5.4 8s.8 4.2 2.6 6" /></svg>,
+}
+/** 会话旁边的工具：哪些模块开着才有入口，面板内容和「整页打开」由 App 接（终端、浏览器的状态在 App 里） */
+export interface SessionTools {
+  /** 开着的模块；终端、浏览器模块都没开就没有入口 */
+  available: SessionTool[]
+  /** 从头部入口打开（每次都调）：终端据此定位到会话目录的标签，没有就新开 */
+  onOpen: (t: SessionTool, s: { workdir: string; links: string[] }) => void
+  render: (t: SessionTool, s: { workdir: string; links: string[]; hidden: boolean }) => ReactNode
+  /** 「整页打开」：去一级菜单的终端、浏览器 */
+  onPage: (t: SessionTool) => void
+}
+
+/** 会话里出现过的链接：Agent 回复和工具结果里的 http/https 地址（人说的不算），新的在前、去重，最多 8 个 */
+export function sessionLinks(msgs: ChatMsg[], limit = 8): string[] {
+  const re = /https?:\/\/[^\s<>"'`\u3000-\u303f\uff08\uff09\uff0c\uff1a\uff1b\uff01\uff1f\u4e00-\u9fff]+/gi
+  const out: string[] = []
+  const seen = new Set<string>()
+  for (let i = msgs.length - 1; i >= 0 && out.length < limit; i--) {
+    const m = msgs[i]
+    if (m.role === 'user') continue
+    const text = [m.text, ...(m.calls ?? []).map((c) => (c.output === undefined ? '' : JSON.stringify(c.output)))].join('\n')
+    for (const raw of text.match(re) ?? []) {
+      const u = raw.replace(/[.,;:!?)\]}]+$/, '')
+      const key = u.replace(/\/+$/, '')
+      if (seen.has(key)) continue
+      seen.add(key)
+      out.push(u)
+      if (out.length >= limit) break
+    }
+  }
+  return out
+}
+
+interface DockState { open: SessionTool | null; mounted: SessionTool[] }
+
+export function ChatsView({ agents, sessions, current, ctx, pickRequest, onOpen, onNew, onMsgs, onRename, onDelete, onExecute, onOpenAgent, firstMessage, projects, initialProject, tools, onOpenSource, onOpenRuns, onOpenOutputs, runsWaiting = 0 }: {
+  /** 会话清单底部两个并排按钮（SPEC-sessions-0.1）：去执行记录、产出结果；runsWaiting 是等你确认的执行记录数，「执行记录」上的红点 */
+  onOpenRuns?: () => void; onOpenOutputs?: () => void; runsWaiting?: number
+  /** 会话来源（SPEC-sessions-1.42）：点「来源」回到那条 IM 消息 */
+  onOpenSource?: (messageId: string) => void
+  /** 会话旁边的终端、浏览器；不传就没有入口 */
+  tools?: SessionTools
+  /** 传了就多一个「项目」筛选；root 是会话旁边终端的目录 */
+  projects?: { id: string; name: string; root?: string }[]
   /** 从项目页跳过来时预先按这个项目筛 */
   initialProject?: string
   /** 快速新建会话带来的第一句话：打开对应会话时自动发出 */
@@ -134,8 +182,24 @@ export function ChatsView({ agents, sessions, current, ctx, pickRequest, onOpen,
   const agent = cur && !found ? goneAgent(cur.agent_id) : found
   const pending = (s: Session) => s.messages.some((m) => m.calls?.some((c) => c.state === 'pending'))
 
+  // 会话旁边的工具：入口在会话头部右上角，面板在对话右边；打开过的一直挂着，收起只是藏起来，切会话不收起
+  const [dock, setDock] = useState<DockState>({ open: null, mounted: [] })
+  const avail = tools?.available ?? []
+  // 原型的会话没有工作目录字段，用它所属项目的目录；正式版用会话的 workdir
+  const workdir = (cur?.project_id && projects?.find((x) => x.id === cur.project_id)?.root) || ''
+  const links = useMemo(() => sessionLinks(cur?.messages ?? []), [cur?.messages])
+  const openTool = cur && dock.open && avail.includes(dock.open) ? dock.open : null
+  const toggleTool = (t: SessionTool) => {
+    if (dock.open === t) { setDock({ ...dock, open: null }); return }
+    setDock({ open: t, mounted: dock.mounted.includes(t) ? dock.mounted : [...dock.mounted, t] })
+    tools?.onOpen(t, { workdir, links })
+  }
+  const switchTool = (t: SessionTool) => (dock.mounted.includes(t) ? setDock({ ...dock, open: t }) : toggleTool(t))
+
   return (
-    <div className="chats">
+    // chats-host 只为了按会话区的宽度（不是窗口宽度）决定面板展开时要不要藏会话列表
+    <div className="chats-host">
+    <div className={cls('chats', openTool && 'with-dock')}>
       <PageTitle parent="会话" count={rows.length} desc="和 Agent 的对话都留在这里，能接着聊，也能回看每次调用了什么工具"
         actions={<button className="btn btn-primary" onClick={() => setPicking(!picking)}>新会话</button>}>会话</PageTitle>
       <div className="chat-list">
@@ -196,6 +260,12 @@ export function ChatsView({ agents, sessions, current, ctx, pickRequest, onOpen,
           <More left={rows.length - shown.length} onMore={() => setLimit(limit + PAGE)} />
           {!rows.length && <div className="tree-empty">{kw || filter || proj ? '没有匹配的会话' : '还没有会话，点「新会话」和 Agent 聊聊'}</div>}
         </div>
+        {(onOpenRuns || onOpenOutputs) && (
+          <div className="chat-list-foot">
+            {onOpenRuns && <button className="btn btn-outline" onClick={onOpenRuns} title="Agent 被消息、定时、任务触发后的每一次执行">执行记录{runsWaiting > 0 && <span className="chat-foot-dot" />}</button>}
+            {onOpenOutputs && <button className="btn btn-outline" onClick={onOpenOutputs} title="建的任务、写的文档、发的回复">产出结果</button>}
+          </div>
+        )}
       </div>
       <div className="chat-main">
         {cur && agent ? (
@@ -205,6 +275,7 @@ export function ChatsView({ agents, sessions, current, ctx, pickRequest, onOpen,
             placeholderNote={!found ? '这个 Agent 已删除，只能回看' : agent.enabled ? undefined : '这个 Agent 已停用，只能回看'}
             permHint="可以到「设置 / Agent / 工具与权限」里打开"
             head={(
+              <>
               <div className="chat-head">
                 {found && <AgentAvatar agent={agent} size={28} />}
                 {editing ? (
@@ -216,6 +287,17 @@ export function ChatsView({ agents, sessions, current, ctx, pickRequest, onOpen,
                 )}
                 {found ? <button className="link-btn chat-agent" onClick={() => onOpenAgent(agent.id)}>{agent.name}</button> : <span className="list-sub">已删除的 Agent</span>}
                 <span className="spacer" />
+                {!confirmDel && avail.length > 0 && (
+                  <span className="chat-tools">
+                    {avail.map((t) => (
+                      <button key={t} className={cls('act chat-tool-btn', dock.open === t && 'on')} aria-pressed={dock.open === t}
+                        title={dock.open === t ? `收起${TOOL_LABEL[t]}` : t === 'term' ? `在对话旁边打开终端，目录：${workdir || '没设工作目录，用终端的默认目录'}` : `在对话旁边打开浏览器${links.length ? `，会话里出现过 ${links.length} 个链接` : ''}`}
+                        onClick={() => toggleTool(t)}>
+                        {TOOL_ICON[t]}<span className="chat-tool-label">{TOOL_LABEL[t]}</span>
+                      </button>
+                    ))}
+                  </span>
+                )}
                 {confirmDel ? (
                   <>
                     <span className="danger-text">删除会话？产出的任务、文档不受影响</span>
@@ -224,18 +306,51 @@ export function ChatsView({ agents, sessions, current, ctx, pickRequest, onOpen,
                   </>
                 ) : <button className="act act-quiet" onClick={() => setConfirmDel(true)}>删除会话</button>}
               </div>
+              {cur.source && (
+                <div className="chat-source">
+                  <span className="list-sub">来源</span>
+                  <button className="link-btn ellipsis" title="回到 IM 消息页打开这条消息" onClick={() => onOpenSource?.(cur.source!.message_ids[cur.source!.message_ids.length - 1])}>{cur.source.label}</button>
+                </div>
+              )}
+              </>
             )} />
         ) : (
           <div className="lib-reader-empty">{sessions.length ? '从左边选一个会话' : '还没有会话'}</div>
         )}
       </div>
+      {tools && dock.mounted.some((t) => avail.includes(t)) && (
+        <section className="chat-dock" hidden={!openTool} aria-label={openTool ? `会话旁边的${TOOL_LABEL[openTool]}` : undefined}>
+          <div className="chat-dock-head">
+            <div className="seg seg-sm chat-dock-seg">
+              {avail.map((t) => (
+                <button key={t} className={cls(openTool === t && 'on')} aria-pressed={openTool === t} onClick={() => switchTool(t)}>{TOOL_ICON[t]}{TOOL_LABEL[t]}</button>
+              ))}
+            </div>
+            <span className="spacer" />
+            {openTool && <button className="act act-quiet" title={`去一级菜单「${TOOL_LABEL[openTool]}」整页看，标签和这里是同一套`} onClick={() => tools.onPage(openTool)}>整页打开</button>}
+            <button className="icon-btn" title="收起（终端和网页都留着）" onClick={() => setDock({ ...dock, open: null })}>
+              <svg viewBox="0 0 16 16" width="14" height="14"><path d="m4 4 8 8M12 4l-8 8" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" /></svg>
+            </button>
+          </div>
+          <div className="chat-dock-body">
+            {dock.mounted.filter((t) => avail.includes(t)).map((t) => (
+              <div key={t} className="chat-dock-pane" hidden={openTool !== t}>
+                {tools.render(t, { workdir, links, hidden: openTool !== t })}
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+    </div>
     </div>
   )
 }
 
 /* ---------- 执行记录 ---------- */
 
-export function RunsView({ agents, runs, onSettle, focus, onFocused }: {
+export function RunsView({ agents, runs, onSettle, focus, onFocused, onBack }: {
+  /** 标题上的「会话」点了回会话页（SPEC-sessions-0.1） */
+  onBack?: () => void
   agents: Agent[]
   runs: AgentRun[]
   onSettle: (runId: string, i: number, ok: boolean) => void
@@ -273,7 +388,7 @@ export function RunsView({ agents, runs, onSettle, focus, onFocused }: {
   const used = useMemo(() => runs.map((r) => r.agent_id), [runs])
   return (
     <div className="page page-fill">
-      <PageTitle parent="会话" count={rows.length} desc="Agent 被消息、定时、任务触发后的每一次执行；写操作等你确认的在这里处理">执行记录</PageTitle>
+      <PageTitle parent={onBack ? <button className="link-btn" onClick={onBack}>会话</button> : '会话'} count={rows.length} desc="Agent 被消息、定时、任务触发后的每一次执行；写操作等你确认的在这里处理">执行记录</PageTitle>
       <div className="toolbar">
         <div className="seg">
           {([['', '全部'], ['waiting', '等你确认'], ['done', '已完成'], ['rejected', '已拒绝'], ['failed', '失败']] as const).map(([k, l]) => (
@@ -320,7 +435,8 @@ export function RunsView({ agents, runs, onSettle, focus, onFocused }: {
 
 /* ---------- 产出结果 ---------- */
 
-export function OutputsView({ agents, outputs, sessions, runs, onOpenTarget, onOpenOrigin }: {
+export function OutputsView({ agents, outputs, sessions, runs, onOpenTarget, onOpenOrigin, onBack }: {
+  onBack?: () => void
   agents: Agent[]
   outputs: AgentOutput[]
   sessions: Session[]
@@ -343,7 +459,7 @@ export function OutputsView({ agents, outputs, sessions, runs, onOpenTarget, onO
     : `执行记录 · ${runs.find((r) => r.id === o.origin.id)?.trigger ?? '已删除'}`)
   return (
     <div className="page page-fill">
-      <PageTitle parent="会话" count={rows.length} desc="Agent 真正落到数据上的东西，点标题直接打开，点来源回到当时的对话或执行">产出结果</PageTitle>
+      <PageTitle parent={onBack ? <button className="link-btn" onClick={onBack}>会话</button> : '会话'} count={rows.length} desc="Agent 真正落到数据上的东西，点标题直接打开，点来源回到当时的对话或执行">产出结果</PageTitle>
       <div className="toolbar">
         <div className="seg">
           <button className={cls(!kind && 'on')} onClick={() => { setKind(''); setLimit(PAGE) }}>全部<span className="seg-n">{outputs.length}</span></button>

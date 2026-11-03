@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { PageTitle } from './topbar'
 import { DataView, triggerLabel } from './sop'
 import { NODE_GROUPS, NODE_TYPES, KindIcon, KindTag, defaultConfig, isBranching, missingFields, typeOf, type ConfigField } from './nodetypes'
-import { STEP_KIND, STEP_STATUS, depsOf, isManualDecide, ranks, type Sop, type SopField, type SopRun, type SopStepDef, type StepKind } from './sopflow'
+import { STEP_KIND, depsOf, stepLook, isManualDecide, ranks, type Sop, type SopField, type SopRun, type SopStepDef, type StepKind } from './sopflow'
 import { cls, timeAgo } from './ui'
 import { useEnum } from './enumdata'
 import { newId } from './ids'
@@ -458,7 +458,7 @@ function Palette({ at, onPick, onClose }: { at: { x: number; y: number }; onPick
 /* ---------- 右侧属性面板 ---------- */
 
 /** 节点配置项：按字段类型渲染，值统一存成字符串 */
-function ConfigInput({ field, value, ctx, bad, onChange }: { field: ConfigField; value: string; ctx: { sops: { id: string; name: string }[] }; bad?: boolean; onChange: (v: string) => void }) {
+function ConfigInput({ field, value, cfg, ctx, bad, onChange }: { field: ConfigField; value: string; cfg: Record<string, string>; ctx: { sops: { id: string; name: string }[] }; bad?: boolean; onChange: (v: string) => void }) {
   const label = <span className="field-label">{field.label}{field.required && <em>*</em>}{field.hint && <span className="field-hint">{field.hint}</span>}</span>
   if (field.type === 'multi') {
     const on = value.split(',').filter(Boolean)
@@ -466,7 +466,7 @@ function ConfigInput({ field, value, ctx, bad, onChange }: { field: ConfigField;
       <div className="field">
         {label}
         <div className="dep-list">
-          {field.options!(ctx).map((o) => (
+          {field.options!(ctx, cfg).map((o) => (
             <label key={o.value} className={cls('dep-chip', on.includes(o.value) && 'on')}>
               <input type="checkbox" checked={on.includes(o.value)} onChange={() => onChange((on.includes(o.value) ? on.filter((x) => x !== o.value) : [...on, o.value]).join(','))} />{o.label}
             </label>
@@ -480,8 +480,8 @@ function ConfigInput({ field, value, ctx, bad, onChange }: { field: ConfigField;
       {label}
       {field.type === 'select' ? (
         <select value={value} className={cls(bad && 'bad')} onChange={(e) => onChange(e.target.value)}>
-          {!field.options!(ctx).some((o) => o.value === '') && <option value="">请选择</option>}
-          {field.options!(ctx).map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+          {!field.options!(ctx, cfg).some((o) => o.value === '') && <option value="">请选择</option>}
+          {field.options!(ctx, cfg).map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
         </select>
       ) : field.type === 'textarea' || field.type === 'code' ? (
         <textarea rows={field.type === 'code' ? 5 : 3} className={cls(field.type === 'code' && 'code-input', bad && 'bad')} spellCheck={field.type !== 'code'} value={value} placeholder={field.placeholder} onChange={(e) => onChange(e.target.value)} />
@@ -622,9 +622,9 @@ function NodePanel({ draft, nodeKey, runs, sopList, tried, onChange, onPatchSop,
               ))}
             </select>
           </label>
-          {(typeOf(s.kind).fields ?? []).map((f) => (
-            <ConfigInput key={f.key} field={f} value={s.config?.[f.key] ?? ''} ctx={{ sops: sopList }} bad={tried && f.required && !s.config?.[f.key]?.trim()}
-              onChange={(v) => onChange({ config: { ...(s.config ?? {}), [f.key]: v } })} />
+          {(typeOf(s.kind).fields ?? []).filter((f) => !f.hidden?.(s.config ?? {})).map((f) => (
+            <ConfigInput key={f.key} field={f} value={s.config?.[f.key] ?? ''} cfg={s.config ?? {}} ctx={{ sops: sopList }} bad={tried && f.required && !s.config?.[f.key]?.trim()}
+              onChange={(v) => onChange({ config: { ...(s.config ?? {}), ...Object.fromEntries((f.clears ?? []).map((k) => [k, ''])), [f.key]: v } })} />
           ))}
           <label className="field">
             <span className="field-label">{typeOf(s.kind).descLabel ?? '说明'}</span>
@@ -676,7 +676,7 @@ function NodePanel({ draft, nodeKey, runs, sopList, tried, onChange, onPatchSop,
           {last ? (
             <div className="np-last">
               <div className="np-last-head">
-                <span className="pill" style={{ '--c': STEP_STATUS[last.step.status].color } as React.CSSProperties}><span className="pill-dot" />{STEP_STATUS[last.step.status].label}</span>
+                <span className="pill" style={{ '--c': stepLook(last.step).color } as React.CSSProperties}><span className="pill-dot" />{stepLook(last.step).label}</span>
                 <span className="list-sub">{last.run.title} · {timeAgo(new Date(last.run.started_at).toISOString())}</span>
               </div>
               {last.step.route && <div className="insp-route">走「{s.cases?.find((c) => c.key === last.step.route)?.label ?? last.step.route}」分支</div>}

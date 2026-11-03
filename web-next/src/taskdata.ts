@@ -25,7 +25,8 @@ export const PRIORITIES: Priority[] = ['P0', 'P1', 'P2', 'P3']
 
 export type TaskSource =
   | { kind: 'manual' }
-  | { kind: 'im'; message_id: string; channel: string; sender: string; text: string }
+  /** session_id：从消息发起的会话里 Agent 拆出来的任务（SPEC-messages-5.6），转任务建的没有 */
+  | { kind: 'im'; message_id: string; channel: string; sender: string; text: string; session_id?: string }
   | { kind: 'webhook'; hook_id: string; delivery_id: string }
   | { kind: 'schedule'; schedule_id: string; name: string }
   | { kind: 'incident'; incident_id: string; title: string }
@@ -297,6 +298,10 @@ export interface TaskRun {
   task_id: string
   /** 后端按「有没有工具调用成功过」判定，不看 exit_code */
   status: 'running' | 'done' | 'failed' | 'cancelled'
+  /** 执行方式：stream 工作台里流式执行（缺省），terminal 在终端里交互执行（0048 的 task_runs.mode） */
+  mode?: 'stream' | 'terminal'
+  /** 终端执行的结论摘要：终端里的 claude 经 MCP pmw_finish_run 回写，或手动「标记结束」时填 */
+  summary?: string
   workdir: string
   allow_writes: boolean
   extra_prompt: string
@@ -382,6 +387,12 @@ export const seedRuns: TaskRun[] = [
     events: [ev.t('t1', 'pmw_claim_task', 'T-017'), ev.r('t1'), ev.t('t2', 'Edit', 'server/authz/cache.go'), ev.r('t2'), ev.t('t3', 'Bash', 'go test ./authz/...'), ev.r('t3'),
       ev.t('t4', 'Bash', 'hey -c 500 -n 50000 /authz/check'), ev.r('t4'), ev.d('p99 14ms，截图已登记。已提交验收。')],
   },
+  {
+    // 切换到终端执行的（SPEC-tasks-5.30）：没有流式事件，结论是终端里的 claude 经 MCP pmw_finish_run 回写的
+    id: 'run_d5', task_id: 'tk_dev2', mode: 'terminal', status: 'done', workdir: `${PMW}/web`, allow_writes: false, extra_prompt: '先只改设置页',
+    summary: '设置页三处保存失败改成字段下方提示，顶部横幅去掉；npm run build 通过。还剩连接器页同样的横幅没改。',
+    session_id: SS_C, started_at: minsAgo(30), ended_at: minsAgo(12), pending: [], events: [],
+  },
 ]
 
 /** 「交给 Claude Code」模拟执行的过程：只读时写文件那一步被权限挡下 */
@@ -401,7 +412,8 @@ export function runScript(task: Task, allow: boolean, extra: string, files: stri
 
 /** 吐出下一个事件；吐完按工具调用结果定状态 */
 export function stepRun(r: TaskRun, at = new Date().toISOString()): TaskRun {
-  if (r.status !== 'running') return r
+  // 终端执行不归这里推进：结束由终端里的 claude 经 MCP 回写，或手动标记
+  if (r.status !== 'running' || r.mode === 'terminal') return r
   const [e, ...rest] = r.pending
   const events = e ? [...r.events, e] : r.events
   if (rest.length) return { ...r, events, pending: rest }

@@ -4,7 +4,7 @@
 |---|---|
 | 模块 key | `projects` |
 | 原型入口 | 一级菜单「项目」，http://127.0.0.1:7778 |
-| 源码 | `web-next/src/projects.tsx`（列表页 `ProjectsListPage`、详情页 `ProjectPage`，含概览、文档、支持材料、原型、设置标签和 `ProtoCard`）、`web-next/src/projecttabs.tsx`（沟通 `CommsTab`、干系人 `StakeholdersTab`、任务 `ProjectTasksTab`、SOP `ProjectSopTab`、Agent `ProjectAgentTab`、`projectMessages`）、`web-next/src/attachments.tsx`（`ProjectAttachmentInbox`）；项目里的终端和浏览器 `ProjectDock` 在 `projects.tsx`，复用 `terminal.tsx` 的 `TerminalPage` 和 `browser.tsx` 的 `BrowserPage`（`embedded` 模式）；接线在 `web-next/src/App.tsx`（`newProject`、`projectPlan`、`deleteProject`、`startProto`、`stopProto`、`recentProjects`、`docks`、`showDock`、`closeDock`） |
+| 源码 | `web-next/src/projects.tsx`（列表页 `ProjectsListPage`、详情页 `ProjectPage`，含概览、文档、支持材料、原型、设置标签和 `ProtoCard`）、`web-next/src/projecttabs.tsx`（沟通 `CommsTab`、干系人 `StakeholdersTab`、任务 `ProjectTasksTab`、SOP `ProjectSopTab`、Agent `ProjectAgentTab`、`projectMessages`）、`web-next/src/attachments.tsx`（附件标签 `ProjectAttachmentsTab`、沟通里的入口 `AttachmentsHint`）；项目里的终端和浏览器 `ProjectDock` 在 `projects.tsx`，复用 `terminal.tsx` 的 `TerminalPage` 和 `browser.tsx` 的 `BrowserPage`（`embedded` 模式）；接线在 `web-next/src/App.tsx`（`newProject`、`projectPlan`、`deleteProject`、`startProto`、`stopProto`、`recentProjects`、`docks`、`showDock`、`closeDock`） |
 | 数据文件 | `web-next/src/projectdata.ts`（`Project`、`ProjectChat`、`Stakeholder`、`StakeRole`、`Material`、`MaterialKind`、`ProjectDoc`、`DocStatus`、`DOC_KINDS`、`Prototype`、`ProtoStatus`、`RelatedDir`、`RESERVED_PORTS`、`portConflict`） |
 | 截图 | [`shots/projects/`](shots/projects/) |
 | 负责任务 | PROTO-04d |
@@ -21,7 +21,7 @@
 | PJ-02b | 项目沟通页 | `SPEC-projects-4` |
 | PJ-03b | 项目资料页 | `SPEC-projects-11`（支持材料）、`SPEC-projects-8`（文档）；两者合并成「项目资料」的口径见 `SPEC-projects-11` 末尾 |
 | PJ-04b | 项目原型卡片的启停与日志 | `SPEC-projects-12` |
-| IM-04b | 附件面板和项目附件收件 | `SPEC-projects-5`（消息抽屉一侧见 `SPEC-messages-3`） |
+| IM-04b | 附件面板和项目附件收件 | `SPEC-projects-5`（消息抽屉一侧见 `SPEC-messages-3`）；收件块已改成独立的「附件」标签（附件独立管理，2026-11-02） |
 | PR-09 | 干系人多选和拼音排序，项目沟通筛选和行内已处理 | `SPEC-projects-6.2`、`SPEC-projects-4.22` 到 `SPEC-projects-4.25` |
 
 SOP 标签（`SPEC-projects-9`）由 PR-10 做；Agent 标签（`SPEC-projects-10`）目前没有对应的开发任务，归 Agent 相关任务时再引用。
@@ -38,7 +38,7 @@ SOP 标签（`SPEC-projects-9`）由 PR-10 做；Agent 标签（`SPEC-projects-1
 | [SPEC-projects-2](#spec-projects-2-项目详情的框架) | 项目详情的框架 | 列表里点卡片；命令面板搜项目名 | 顶栏、标签条、各标签的右上按钮 |
 | [SPEC-projects-3](#spec-projects-3-概览) | 概览 | 标签「概览」（默认） | 数字卡片和七个摘要块 |
 | [SPEC-projects-4](#spec-projects-4-沟通) | 沟通 | 标签「沟通」 | 绑定群聊和私聊，只看这些会话里的消息 |
-| [SPEC-projects-5](#spec-projects-5-消息里的附件) | 消息里的附件 | 沟通标签顶部 | 逐个决定附件要不要进支持材料 |
+| [SPEC-projects-5](#spec-projects-5-附件) | 附件 | 标签「附件」（IM 消息开着才有） | 项目消息里的全部附件：筛选、预览、加入资料或不加入，能批量 |
 | [SPEC-projects-6](#spec-projects-6-干系人) | 干系人 | 标签「干系人」 | 从联系人里挑人，标角色和关注点 |
 | [SPEC-projects-7](#spec-projects-7-任务) | 任务 | 标签「任务」 | 这个项目的任务 |
 | [SPEC-projects-8](#spec-projects-8-文档) | 文档 | 标签「文档」 | 产品文档：关联文档库或指向项目目录里的文件 |
@@ -61,10 +61,12 @@ SOP 标签（`SPEC-projects-9`）由 PR-10 做；Agent 标签（`SPEC-projects-1
 | `color` | `string` | 是 | 标志底色；新建时按 `PROJECT_COLORS` 轮流取 | `#3d4fd6` |
 | `mark` | `{ text: string; image?: string; icon?: string }` | 否 | 标志：内置图标 key、上传图片（data URL）或文字；都没有时取名称第一个字，名称也空时为「项」 | `{ text: '', icon: 'layout' }` |
 | `root` | `string` | 是 | 本地项目目录，绝对路径，可为空串；原型、文件类材料和文档的路径都相对它 | `/Volumes/project/0xBroleez/pm-workspace` |
-| `related` | `RelatedDir[]` | 是 | 关联目录 | |
+| `related` | `RelatedDir[]` | 是 | 关联目录。SOP 节点「写进项目目录」（`local_append`，`SPEC-sop-11`）只能写进这里列的目录，按顺序（从 1 起）或名称选，默认第一个 | |
 | `agent_ids` | `string[]` | 是 | 项目 Agent，第一个是默认 | `['ag_weekly', 'ag_sop']` |
 | `chats` | `ProjectChat[]` | 是 | 绑定的沟通渠道 | |
-| `skipped_attachments` | `string[]` | 否 | 沟通里选了「不加入」的附件 id，不再提示 | `['att5']` |
+| `skipped_attachments` | `string[]` | 否 | 附件标签里选了「不加入」的附件 id（`SPEC-projects-5`） | `['att5']` |
+| `tabs_hidden` | `string[]` | 否 | 这个项目详情页不显示的标签（`ProjectTab` 或插件标签的 key），概览、设置不认；没有时全部显示，以后新加的标签默认也显示（`SPEC-projects-13.19`）。正式产品存在项目对象的 `props.tabs_hidden` | `['sop', 'agents']` |
+| `tabs_order` | `string[]` | 否 | 这个项目详情页标签的先后（`ProjectTab` 或插件标签的 key），不含概览、设置（固定一头一尾，写了也不认）；没有或空数组时按默认顺序；认不出的 key（插件没开）跳过但保留；没列进来的标签（以后新加的、插件后来开的）按默认位置插入，即跟在默认顺序里它前一个标签后面（`SPEC-projects-13.20`）。正式产品存在项目对象的 `props.tabs_order` | `['prototypes', 'tasks', 'comms', 'attachments', 'stakeholders', 'docs', 'sop', 'agents', 'materials']` |
 | `stakeholders` | `Stakeholder[]` | 是 | 干系人 | |
 | `sop_ids` | `string[]` | 是 | 关联的 SOP | `['sop_meeting']` |
 | `materials` | `Material[]` | 是 | 支持材料，新加的在前 | |
@@ -83,7 +85,7 @@ SOP 标签（`SPEC-projects-9`）由 PR-10 做；Agent 标签（`SPEC-projects-1
 | `group` | `id: string; channel: string; conversation: string` | 群聊，按「渠道 + 群名」认。正式产品按 PJ-02：按 `conversation_id` 绑，改群名后绑定不断 |
 | `dm` | `id: string; contact_id: string` | 私聊，按联系人认：这个联系人在任一渠道上发给我的私聊都算 |
 
-消息属于项目：`projectMessages(p, messages, contacts)` 把每条消息换成键（群聊 `g:<渠道>|<群名>`，私聊 `d:<联系人 id>`，私聊对不上联系人时不算），和项目 `chats` 的键比对。项目没有绑定任何渠道时一条也没有。
+消息属于项目：`projectMessages(p, messages, contacts)` 把每条消息换成键（群聊 `g:<渠道>|<群名>`，私聊 `d:<联系人 id>`，私聊对不上联系人时不算），和项目 `chats` 的键比对；另外 `project_id` 是这个项目的消息（消息分流：SOP 节点「消息归到项目」或消息抽屉里手动归的，见 `SPEC-messages-2.33`）也算，同一条只算一次。项目没有绑定任何渠道、也没有归过来的消息时一条也没有。正式产品：绑定会话的按会话逐个取 `GET /api/im/messages?conversation_id=`，归过来的取 `GET /api/im/messages?project_id=`，按消息 id 去重。
 
 项目里的「待回复」：`awaitingReply(m)` = `status === 'pending'`、不在稍后里（`isSnoozed`，见 `SPEC-messages-0`），且与我相关（`relevance` 非空：@我、@所有人、私聊）。群里其余的待处理消息照常在沟通标签里列出（右侧显示状态名），但不算待回复，只在 IM 消息页里处理（B-01，决策见 `docs/dev-decisions.md` 第三十七批）。列表卡片、概览数字、沟通标签红点和渠道红点都按它算。
 
@@ -156,7 +158,7 @@ SOP 标签（`SPEC-projects-9`）由 PR-10 做；Agent 标签（`SPEC-projects-1
 
 正式产品按 PJ-04a：保留端口还要加上 7796（测试实例）、7778（原型），并检查本机真实的端口占用。
 
-`ProjectTab`：`'overview' | 'comms' | 'stakeholders' | 'tasks' | 'deals' | 'docs' | 'sop' | 'agents' | 'materials' | 'prototypes' | 'settings'`，标签顺序和显示名：概览、沟通、干系人、任务、商单、文档、SOP、Agent、支持材料、原型、设置。「商单」只在视频模块开着时出现，内容由视频模块给（`ProjectPage` 的 `deals`、`dealAlert`），规格见 `SPEC-videos-16`（VID-08p）。
+`ProjectTab`：`'overview' | 'comms' | 'attachments' | 'stakeholders' | 'tasks' | 'deals' | 'docs' | 'sop' | 'agents' | 'materials' | 'prototypes' | 'settings'`，默认的标签顺序和显示名（每个项目可在设置里调，`SPEC-projects-13.20`）：概览、沟通、附件、干系人、任务、商单、文档、SOP、Agent、支持材料、原型、设置。「附件」只在 IM 消息模块开着时出现（`ProjectLinks.imOn`），见 `SPEC-projects-5`。「商单」只在视频模块开着时出现，内容由视频模块给（`ProjectPage` 的 `deals`、`dealAlert`），规格见 `SPEC-videos-16`（VID-08p）。
 
 `ALL_PROJECTS = ':all'`：停在列表页时当前项目 id 用这个值。
 
@@ -176,7 +178,7 @@ SOP 标签（`SPEC-projects-9`）由 PR-10 做；Agent 标签（`SPEC-projects-1
 | 出去 | 设置 / Agent | 点 Agent | 设置的 Agent 页打开该 Agent | `SPEC-settings`（Agent 节） |
 | 出去 | 浏览器 | 原型「打开」 | 开了浏览器模块时在内置浏览器开，否则系统浏览器新窗口 | `SPEC-browser` |
 | 改动 | 设置 / 运行异常 | 原型启动失败 | 记一条 `warn` 级运行异常 | `SPEC-settings`（运行异常节） |
-| 被改动 | IM 消息 | 附件「加入资料」 | 支持材料多一条 | `SPEC-messages-3` |
+| 被改动 | IM 消息 | 附件「加入资料」 | 支持材料多一条，附件标签里这个附件变「已加入资料」 | `SPEC-messages-3`、`SPEC-projects-5` |
 | 被改动 | 联系人 | 删除联系人 | 从干系人里移除，和 TA 的私聊绑定解除 | `SPEC-contacts-2.12` |
 | 被改动 | 任务、会话 | 任务、会话选了所属项目 | 任务标签、Agent 标签的会话列表里多一条 | `SPEC-tasks-4`、`SPEC-sessions-1` |
 | 改动 | 任务、会话、视频、内网域名 | 删除项目 | 任务、会话、视频移出项目（任务上留「原属项目已删除」）；指向本项目原型的域名一起删 | `SPEC-projects-13.11` |
@@ -256,12 +258,14 @@ SOP 标签（`SPEC-projects-9`）由 PR-10 做；Agent 标签（`SPEC-projects-1
 
 | 编号 | 元素 | 操作 | 结果 |
 |---|---|---|---|
-| SPEC-projects-2.1 | 顶栏 | 显示 | 「项目 /」+ 项目标志（20）+ 项目名 + 说明 |
+| SPEC-projects-2.1 | 顶栏 | 显示 | 「项目 /」+ 项目标志 + 项目名 + 说明；标志和项目名一起是切换项目的菜单按钮（`SPEC-projects-2.9`） |
 | SPEC-projects-2.2 | 顶栏「项目」 | 点击 | 回到项目列表，悬停「回到项目列表」 |
-| SPEC-projects-2.3 | 标签条 | 点击 | 切换标签（顺序见 `ProjectTab`）；切换时页面滚回顶部。「沟通」上有待回复消息（与我相关、不含稍后）时带红点；「原型」上有运行中的原型时带绿灯；「商单」上有账期快到的单时带红点（`SPEC-videos-16.1`） |
+| SPEC-projects-2.3 | 标签条 | 点击 | 切换标签（默认顺序见 `ProjectTab`，项目设置里排过的按排的顺序，`SPEC-projects-13.20`），项目设置里勾掉的不显示（`SPEC-projects-2.10`）；切换时页面滚回顶部。「沟通」上有待回复消息（与我相关、不含稍后）时带红点；「附件」后面带待决定的附件个数（`SPEC-projects-5.1`）；「原型」上有运行中的原型时带绿灯；「商单」上有账期快到的单时带红点（`SPEC-videos-16.1`） |
 | SPEC-projects-2.4 | 右上按钮 | 显示 | 随标签变：概览「项目设置」（切到设置标签）；文档「加文档」；支持材料「加材料」；原型「加原型」；其余标签没有。这些按钮右边固定跟着「终端」「浏览器」两个按钮，所有标签都有，见 `SPEC-projects-14` |
 | SPEC-projects-2.5 | 手机宽度 | 显示 | 标签条横向滚动；顶栏照样留「项目 /」（回列表的入口），说明收起。抽屉打开、顶栏挤窄时也留着 |
 | SPEC-projects-2.6 | 再次进入 | 一级菜单点「项目」 | 回到列表；从列表重新打开时回到概览标签 |
+| SPEC-projects-2.9 | 顶栏项目名 | 点击 | 悬停「切换项目」，右边带下拉箭头，按钮没有边框，悬停时浅底。弹出可搜索的项目菜单（同全站的 `SearchSelect`，宽 300）：列全部没删的项目，每项是项目标志 + 名称，当前项目打勾；最近打开的在前（顺序同项目列表的「最近打开」），没打开过的按名称；搜名称、说明、目录。键盘：按钮上按上下键打开，菜单里上下选、回车切、Esc 关并回到按钮。选了别的项目就切过去，停在同一个标签；那个项目藏了这个标签（2.10）或没有这个标签时回概览。切过去算一次打开，记进最近打开 |
+| SPEC-projects-2.10 | 被藏掉的标签 | 显示 | 项目设置「显示哪些标签」（`SPEC-projects-13.19`）里勾掉的标签不在标签条上；概览、设置一直在。停在一个被藏掉的标签上（刚在设置里勾掉、从别的项目切过来、地址直接打开）时回概览。「附件」在 IM 消息没开时本来就不显示，「商单」在视频模块没开时本来就不显示，这两条照旧，和勾选叠加。没藏的标签按项目设置里排的顺序（`SPEC-projects-13.20`）；概览固定第一、设置固定最后 |
 
 ### 空状态和异常状态
 
@@ -334,7 +338,7 @@ SOP 标签（`SPEC-projects-9`）由 PR-10 做；Agent 标签（`SPEC-projects-1
 
 ## SPEC-projects-4 沟通
 
-左边是项目绑定的群聊和私聊，右边只显示这些会话里的消息。
+左边是项目绑定的群聊和私聊，右边显示这些会话里的消息，加上归到这个项目的消息（消息分流，`SPEC-messages-2.33`）。
 
 ### 截图
 
@@ -342,6 +346,7 @@ SOP 标签（`SPEC-projects-9`）由 PR-10 做；Agent 标签（`SPEC-projects-1
 |---|---|---|
 | 桌面 1440 | ![](shots/projects/第一个项目_标签_沟通-1440-light.png) | ![](shots/projects/第一个项目_标签_沟通-1440-dark.png) |
 | 手机 375 | ![](shots/projects/第一个项目_标签_沟通-375-light.png) | ![](shots/projects/第一个项目_标签_沟通-375-dark.png) |
+| 绑定面板 1440 | ![](shots/projects/沟通_绑定-1440-light.png) | ![](shots/projects/沟通_绑定-1440-dark.png) |
 
 ### 交互
 
@@ -350,18 +355,18 @@ SOP 标签（`SPEC-projects-9`）由 PR-10 做；Agent 标签（`SPEC-projects-1
 | SPEC-projects-4.1 | 「项目沟通渠道」右侧「绑定」/「收起」 | 点击 | 展开或收起绑定面板，展开时清空面板里的搜索 |
 | SPEC-projects-4.2 | 绑定面板搜索框 | 输入 | 自动聚焦，占位「搜群名、联系人」；群按群名、渠道名搜，私聊按联系人姓名、公司、职位搜 |
 | SPEC-projects-4.3 | 绑定面板搜索框 | 按 Esc | 有内容时先清空；没内容时收起面板。不会关掉别的抽屉 |
-| SPEC-projects-4.4 | 绑定面板「群聊」 | 显示和点击 | 候选是现有消息里出现过的群，加上 IM 连接器配置里监听的频道（`config.channels`，逗号分隔），去掉已绑的（按「渠道 + 群名」去重）。正式产品从会话表列：收到没登记过的群的消息时自动登记会话（渠道、编号、群名），所以消息里出现过的群都在；最近有消息的在前，还没收到消息的排最后并注「还没收到消息」；没搜时只露 8 个，标题为「群聊 · 最近有消息的 8 个」（不多于 8 个时只写「群聊」），搜了最多列 50 个。每项是渠道标签 + 群名。点一项绑定并收起面板 |
+| SPEC-projects-4.4 | 绑定面板「群聊」 | 显示和点击 | 候选是现有消息里出现过的群，加上 IM 连接器配置里监听的频道（`config.channels`，逗号分隔的会话编号或名字；编号按连接器的会话列表换成 `#名字`，对不上的照原文，见 `SPEC-settings-4.7c`），去掉已绑的（按「渠道 + 群名」去重）。正式产品从会话表列：收到没登记过的群的消息时自动登记会话（渠道、编号、群名），所以消息里出现过的群都在；最近有消息的在前，还没收到消息的排最后并注「还没收到消息」；没搜时只露 8 个，标题为「群聊 · 最近有消息的 8 个」（不多于 8 个时只写「群聊」），搜了最多列 50 个。每项是渠道标签 + 群名。点一项绑定并收起面板 |
 | SPEC-projects-4.5 | 绑定面板「私聊」 | 显示和点击 | 候选是还没绑的联系人：没搜时按最近联系倒序露 8 个（标题「私聊 · 最近联系的 8 个」），搜了最多列 50 个。每项是头像、姓名、公司，悬停「姓名 · 公司」。点一项绑定并收起。正式产品按会话 id 绑：联系人在某个渠道有 IM 身份时，取这个身份的私聊会话，没有就按身份编号建一个再绑；有几个渠道的身份就列几项，私聊已绑的那个身份不再列；公司后面带渠道名（「公司 · 渠道」）。联系人一个 IM 身份都没有时这一项置灰，悬停和公司位置写「先在联系人里填 IM 编号」，排在能绑的后面 |
 | SPEC-projects-4.6 | 绑定面板的超出提示 | 显示 | 候选多于露出的数量时，列表下面写「共 N 个群，输入群名搜」/「共 N 个联系人，输入名字或公司搜」；搜了还有更多时写「还有 N 个，继续输入筛选」 |
-| SPEC-projects-4.7 | 渠道列表「全部」 | 点击 | 显示全部项目消息，右侧是总条数 |
+| SPEC-projects-4.7 | 渠道列表「全部」 | 点击 | 显示全部项目消息（绑定会话里的加上归到这个项目的，去重），右侧是总条数。归过来的消息所在会话没绑定时，只在「全部」里看得到 |
 | SPEC-projects-4.8 | 渠道列表的一项 | 显示和点击 | 群聊：渠道标签 + 群名；私聊：「私聊」标签 + 联系人姓名。有待回复消息（与我相关、不含稍后）时带红点，悬停「N 条待回复」。点了只看这个渠道的消息 |
 | SPEC-projects-4.9 | 渠道项上的 x | 点击 | 悬停「解绑（不删消息）」；立即解绑，不确认；正在看这个渠道时回到「全部」。消息本身不动，IM 消息页里照常能看到 |
 | SPEC-projects-4.10 | 消息行 | 显示 | 头像、姓名（联系人姓名，否则 `sender_name`）、「渠道 · 群名或私聊」、相对时间、正文（@ 高亮，同 `SPEC-messages-1.15`，复用 `MentionText`）、附件小标签（同 `SPEC-messages-1.16`）；待回复的行左边有色条，右侧「回复」；稍后的右侧「稍后提醒」；其余右侧显示状态名。按时间倒序 |
 | SPEC-projects-4.11 | 消息行 | 点击 | 打开消息抽屉（`SPEC-messages-2`），不离开项目 |
 | SPEC-projects-4.12 | 「加载更早的消息 还有 N 条」 | 点击 | 先渲染 50 条，每点一次多 50 条；切换渠道筛选、与我相关、搜索时回到前 50 条 |
-| SPEC-projects-4.13 | 消息里的附件 | 显示 | 消息列表上方，见 `SPEC-projects-5` |
+| SPEC-projects-4.13 | 附件入口 | 显示和点击 | 附件挪到了独立的「附件」标签（`SPEC-projects-5`），沟通里不再列。项目消息里有待决定的附件时，右栏最上面一行「消息里有 N 个附件待决定要不要放进支持材料」+ 右侧「去附件标签」，点整行切到附件标签；没有待决定的时这一行不出现 |
 | SPEC-projects-4.14 | 手机宽度 | 显示 | 渠道列表在上，消息在下 |
-| SPEC-projects-4.22 | 消息搜索框 | 输入 | 有项目消息时才有筛选条，在附件下面、消息列表上面；占位「搜索内容、发信人、群名」，匹配正文、发信人、联系人姓名、群名，按空格切词、每个词都要命中，不区分大小写；有内容时右侧 x 清空，Esc 清空。和渠道筛选叠加；不影响左边渠道的数字和上面的附件（B-10） |
+| SPEC-projects-4.22 | 消息搜索框 | 输入 | 有项目消息时才有筛选条，在附件入口那一行下面、消息列表上面；占位「搜索内容、发信人、群名」，匹配正文、发信人、联系人姓名、群名，按空格切词、每个词都要命中，不区分大小写；有内容时右侧 x 清空，Esc 清空。和渠道筛选叠加；不影响左边渠道的数字和上面的附件入口（B-10） |
 | SPEC-projects-4.23 | 「全部消息 / 与我相关 / 只看 @我」下拉 | 选择 | 同 IM 消息页（`SPEC-messages-1`）：与我相关是 @我、@所有人和私聊，只看 @我 后面带「（N 条待回复）」；不是「全部消息」时高亮；筛了以后筛选条右边写「N 条」（B-10） |
 | SPEC-projects-4.24 | 消息行「已处理」 | 点击 | 待处理（含稍后）的行悬停或键盘聚焦时，右上出现「已处理」（名字跟字典 `msg_status`），触屏上常驻；点了只把这一条标为已处理，不打开抽屉，口径同 IM 消息页的「已处理」。已处理、已忽略的行没有（B-10） |
 
@@ -369,7 +374,7 @@ SOP 标签（`SPEC-projects-9`）由 PR-10 做；Agent 标签（`SPEC-projects-1
 
 | 编号 | 场景 | 显示 | 可做的操作 |
 |---|---|---|---|
-| SPEC-projects-4.15 | 还没绑定任何渠道 | 渠道列表下「还没绑定。把项目群、对接人的私聊绑过来，项目里就只看这些消息」；右侧「没有消息」+「绑定的群和私聊里收到消息后会出现在这里」 | 「绑定」 |
+| SPEC-projects-4.15 | 还没绑定任何渠道 | 渠道列表下「还没绑定。把项目群、对接人的私聊绑过来，项目里就只看这些消息」；右侧「没有消息」+「绑定的群和私聊里的消息、归到这个项目的消息会出现在这里」 | 「绑定」 |
 | SPEC-projects-4.16 | 绑了但没有消息，或筛选的渠道没有消息 | 右侧同上 | 换渠道 |
 | SPEC-projects-4.17 | 没有可绑的群 | 面板「群聊」下「没有可绑的群」；搜了没结果时「没有匹配的群」 | |
 | SPEC-projects-4.18 | 私聊没有可绑的 | 按原因写：没有联系人时「还没有联系人」；有联系人但都已绑过时「联系人都已经绑过了」；搜了没结果时「没有匹配的联系人」。联系人都没填 IM 编号时候选照常列出（置灰，见 `SPEC-projects-4.5`），列表下写「联系人都没填 IM 编号，先在联系人里填」 | 去联系人填 IM 编号 |
@@ -389,60 +394,75 @@ SOP 标签（`SPEC-projects-9`）由 PR-10 做；Agent 标签（`SPEC-projects-1
 | 方向 | 对方模块 | 触发 | 结果 | 见 |
 |---|---|---|---|---|
 | 出去 | IM 消息 | 点消息 | 消息抽屉 | `SPEC-messages-2` |
-| 读取 | IM 消息、联系人 | 显示 | 按绑定过滤消息，私聊按联系人的各渠道编号认 | `SPEC-messages-0`、`SPEC-contacts-0` |
+| 读取 | IM 消息、联系人 | 显示 | 按绑定过滤消息，私聊按联系人的各渠道编号认；再并上 `project_id` 是这个项目的消息 | `SPEC-messages-0`、`SPEC-contacts-0` |
+| 被改动 | IM 消息、SOP | 消息抽屉「项目」改、清除；SOP 节点「消息归到项目」 | 这条消息出现在或离开本项目的沟通 | `SPEC-messages-2.33`、`SPEC-sop-12.36` |
 | 改动 | 本模块 | 绑定、解绑 | 概览的待回复数、标签红点、列表页的分组跟着变 | `SPEC-projects-1`、`SPEC-projects-3` |
 
-## SPEC-projects-5 消息里的附件
+## SPEC-projects-5 附件
 
-沟通标签顶部的一块：项目消息里还没决定要不要放进支持材料的附件，一条条选「加入」或「不加入」。
+标签「附件」：项目沟通消息里的全部附件集中管理——待决定的、已加入支持材料的、选了不加入的都列出来，能筛、能搜、能批量处理。原来是沟通标签顶部的「消息里的附件」收件块（逐个决定），挪成了独立标签；沟通标签只留一行入口（`SPEC-projects-4.13`）。
 
 ### 截图
 
-在沟通标签的截图顶部（「消息里的附件 4 个还没决定要不要放进支持材料」）。展开后的样子按 `shots.py` 的步骤截：项目「产品工作台新版」，沟通标签，点「逐个决定」；绑定面板再点「绑定」。
+按 `shots.py` 的步骤截：项目「产品工作台新版」，附件标签，切到「全部」；再回「待决定」勾两个。截图要在原型跑着时重新生成（`shots.py --only projects`）。
 
 | | 亮 | 暗 |
 |---|---|---|
-| 桌面 1440 | ![](shots/projects/第一个项目_标签_沟通-1440-light.png) | ![](shots/projects/第一个项目_标签_沟通-1440-dark.png) |
-| 手机 375 | ![](shots/projects/第一个项目_标签_沟通-375-light.png) | ![](shots/projects/第一个项目_标签_沟通-375-dark.png) |
-| 逐个决定 1440 | ![](shots/projects/沟通_附件逐个决定-1440-light.png) | ![](shots/projects/沟通_附件逐个决定-1440-dark.png) |
-| 绑定面板 1440 | ![](shots/projects/沟通_绑定-1440-light.png) | ![](shots/projects/沟通_绑定-1440-dark.png) |
+| 全部 1440 | ![](shots/projects/附件_全部-1440-light.png) | ![](shots/projects/附件_全部-1440-dark.png) |
+| 批量操作 1440 | ![](shots/projects/附件_批量-1440-light.png) | ![](shots/projects/附件_批量-1440-dark.png) |
 
 ### 交互
 
 | 编号 | 元素 | 操作 | 结果 |
 |---|---|---|---|
-| SPEC-projects-5.1 | 出现条件 | 显示 | 项目消息里有附件就显示（不受渠道筛选影响，按全部项目消息算）；一个附件都没有时整块不显示 |
-| SPEC-projects-5.2 | 标题 | 显示 | 「消息里的附件」+「N 个还没决定要不要放进支持材料」，都决定完了为「都处理过了」 |
-| SPEC-projects-5.3 | 折叠 | 显示 | 待决定的多于 3 个时默认整块折成一行，只有标题和「逐个决定」；不多于 3 个时直接全列出 |
-| SPEC-projects-5.4 | 「逐个决定」/「收起」 | 点击 | 展开时先露 3 个；收起回到一行 |
-| SPEC-projects-5.5 | 「还有 N 个」 | 点击 | 展开后待决定的多于 3 个时出现；列出全部 |
-| SPEC-projects-5.6 | 附件行 | 显示 | 同 `SPEC-messages-3.2`；按消息时间倒序 |
-| SPEC-projects-5.7 | 「<发信人> · <相对时间>」 | 点击 | 悬停显示消息正文；打开那条消息的抽屉 |
-| SPEC-projects-5.8 | 「获取」/「重试」 | 点击 | 文件和图片没获取、也不在获取中时才有；同 `SPEC-messages-3.4`、`SPEC-messages-3.5` |
-| SPEC-projects-5.9 | 「加入支持材料」/「获取并加入」 | 点击 | 加进本项目的支持材料，规则同 `SPEC-messages-3.8`、`SPEC-messages-3.9`；获取中置灰。加完这一行从待决定里消失 |
-| SPEC-projects-5.10 | 「不加入」 | 点击 | 附件 id 记进 `skipped_attachments`，这一行从待决定里消失 |
-| SPEC-projects-5.11 | 「看不加入的 N 个」/「收起不加入的」 | 点击 | 有选了不加入的、且没折叠时出现；列出这些附件，每行「<发信人> · 选了不加入」+「恢复」 |
-| SPEC-projects-5.12 | 「恢复」 | 点击 | 从 `skipped_attachments` 里去掉，回到待决定 |
+| SPEC-projects-5.1 | 标签「附件」 | 显示 | 在「沟通」后面。IM 消息模块（正式产品是 IM 消息插件）没开着时不显示；正式产品里直接打开这个标签的地址时提示「需要 IM 消息插件」+「去插件管理」。标签名后面带数字：待决定的附件个数，为 0 不显示（同视频的「素材收件箱」） |
+| SPEC-projects-5.2 | 范围 | 显示 | 全部项目消息里的附件（同沟通标签「全部」：绑定会话里的、归到这个项目的，含群组默认归属），不受沟通标签的渠道筛选影响。一个附件一行，按消息时间倒序；同一条消息的同一个附件只算一次 |
+| SPEC-projects-5.3 | 去向 | 显示 | 三种：「已加入资料」（这个附件已经在本项目的支持材料里）、「不加入」（记在 `skipped_attachments`）、「待决定」（其余）。既加过资料又记着不加入时算已加入 |
+| SPEC-projects-5.4 | 分段「待决定 / 已加入资料 / 不加入 / 全部」 | 点击 | 默认「待决定」；每段后面带个数，个数跟着种类和搜索变 |
+| SPEC-projects-5.5 | 种类下拉 | 选择 | 「全部种类 / 图片（N）/ 文件（N）/ 链接（N）」，N 跟着分段和搜索变；选了以后高亮 |
+| SPEC-projects-5.6 | 搜索框 | 输入 | 占位「搜文件名、发信人、群名」；匹配附件名、发信人（联系人姓名和平台上的名字）、群名，按空格切词、每个词都要命中，不区分大小写；Esc 清空 |
+| SPEC-projects-5.7 | 附件行 | 显示 | 勾选框、种类图标、名字（链接是超链接）、「种类 · 大小」（链接是「链接 · 地址」，已获取的文件后面带本地路径）、来自（发信人 + 群名或「私聊」）、相对时间、获取状态（没获取 / 获取中 / 已获取 / 获取失败；链接写「不用获取」；失败悬停看原因）、去向、操作。宽屏是表格，表头「附件 / 来自 / 时间 / 获取 / 去向 / 操作」；窄屏表头收起，每行折成三行 |
+| SPEC-projects-5.8 | 「来自」 | 点击 | 悬停「打开来源消息：<正文>」；打开那条消息的抽屉 |
+| SPEC-projects-5.9 | 去向「已加入资料」 | 点击 | 悬停「到支持材料里看这一条」；切到支持材料标签，高亮并滚到那一条（同 `SPEC-projects-11.23`） |
+| SPEC-projects-5.10 | 「获取」/「重试」 | 点击 | 文件和图片没获取、也不在获取中时才有；同 `SPEC-messages-3.4`、`SPEC-messages-3.5` |
+| SPEC-projects-5.11 | 「预览」 | 点击 | 文件和图片才有；打开附件预览弹窗（同 `SPEC-messages-3.16`：图片、PDF、音视频、文本在页面里看，没获取的「获取并预览」）；← → 在当前筛选出的附件之间切（可以跨消息，链接跳过） |
+| SPEC-projects-5.12 | 「下载」/「打开」 | 点击 | 已获取的文件、图片有「下载」，下载到浏览器；链接有「打开」，新窗口打开 |
+| SPEC-projects-5.13 | 「加入资料」/「获取并加入」 | 点击 | 待决定和不加入的才有；加进本项目的支持材料，规则同 `SPEC-messages-3.8`、`SPEC-messages-3.9`（没获取的先获取，获取失败就不加；不加入记录一并清掉）；获取中置灰。加完去向变「已加入资料」 |
+| SPEC-projects-5.14 | 「不加入」 | 点击 | 待决定的才有；记进 `skipped_attachments`，去向变「不加入」 |
+| SPEC-projects-5.15 | 「撤销不加入」 | 点击 | 不加入的才有；从 `skipped_attachments` 去掉，回到待决定 |
+| SPEC-projects-5.16 | 勾选 | 点击 | 已加入资料的不能勾。表头的勾选框全选（取消全选）当前页能勾的。勾了以后表格上方出一条「已选 N 个」+「加入资料」「不加入」「取消选择」；换分段、种类、搜索后，看不见的不算在已选里 |
+| SPEC-projects-5.17 | 批量「加入资料」 | 点击 | 逐个加（没获取的先获取），一个失败不挡后面的；全部跑完，成功的从已选里去掉，失败的留着勾，上方红字「N 个没加进去：<名字>（<原因>）…」 |
+| SPEC-projects-5.18 | 批量「不加入」 | 点击 | 只对选中里待决定的生效（选中的都不是待决定的时置灰，悬停说明）；一次写进 `skipped_attachments` |
+| SPEC-projects-5.19 | 「再显示 N 个」 | 点击 | 先渲染 50 行，每点一次多 50 行；换分段、种类、搜索时回到前 50 行 |
 
 ### 空状态和异常状态
 
 | 编号 | 场景 | 显示 | 可做的操作 |
 |---|---|---|---|
-| SPEC-projects-5.13 | 全都加入或不加入了 | 标题「都处理过了」；已加入的不再列出，不加入的收在「看不加入的 N 个」里 | 恢复 |
-| SPEC-projects-5.14 | 获取失败 | 行标红显示原因，按钮「重试」；同 `SPEC-messages-3.11` | 重试 |
-| SPEC-projects-5.15 | 附件已经从消息抽屉加进本项目 | 不出现在待决定里 | |
+| SPEC-projects-5.20 | 项目消息里一个附件都没有 | 「消息里还没有附件」+「绑定的群和私聊里、归到这个项目的消息带的文件、图片、链接会出现在这里，逐个决定要不要放进支持材料」 | 去沟通标签绑定 |
+| SPEC-projects-5.21 | 「待决定」是空的 | 「都处理过了」+「看全部」 | 看全部 |
+| SPEC-projects-5.22 | 别的分段是空的 | 「没有已加入资料的附件」/「没有不加入的附件」+「看全部」 | 看全部 |
+| SPEC-projects-5.23 | 种类或搜索筛完没有 | 「没有匹配的附件」+「换个关键词，或清掉种类筛选」 | 「清掉筛选」 |
+| SPEC-projects-5.24 | 获取失败 | 获取状态红字「获取失败」，悬停看原因；按钮「重试」；同 `SPEC-messages-3.11` | 重试 |
+| SPEC-projects-5.25 | 加入、不加入没写成 | 行下或表格上方红字「没加进去：<原因>」/「没改成：<原因>」 | 再点一次 |
+| SPEC-projects-5.26 | 加载失败 | 原型未做；正式产品：消息没加载出来时显示错误和「重试」；支持材料没加载出来时显示「支持材料没加载出来，判断不了哪些已加入」+「重试」（判断去向要用） | 重试 |
 
 ### 数据
 
-用到 `SPEC-projects-0` `Project` 的 `materials[].from.attachment_id`（判断已加入）和 `skipped_attachments`（不加入）；附件见 `SPEC-messages-0` `MsgAttachment`。常量 `PEEK = 3`。组件状态：`open`（展开）、`all`（全部列出）、`showSkipped`（看不加入的）。
+用到 `SPEC-projects-0` `Project` 的 `materials[].from.attachment_id`（判断已加入）和 `skipped_attachments`（不加入）；附件见 `SPEC-messages-0` `MsgAttachment`。原型的附件 id 全局唯一，`skipped_attachments` 记附件 id；正式产品渠道给的附件 id 只在一条消息里唯一，记「消息 id:附件 id」，已加入按资料的 `value` 认（文件比本地路径、链接比地址）。组件状态：`seg`（`'todo' | 'added' | 'skipped' | ''`，默认 `todo`）、`kind`（`'' | 'image' | 'file' | 'link'`）、`q`、`sel`（勾选的附件）、`preview`（预览中的附件）；常量每页 50 行。
+
+正式产品全在前端：消息来源同沟通标签（项目插件 `projectMessages`），获取、加入、不加入用 `core/data` 的 attachments（和 IM 消息抽屉的附件面板同一套），预览弹窗放在 `core/ui`（插件之间不 import），不加新接口。
 
 ### 联动
 
 | 方向 | 对方模块 | 触发 | 结果 | 见 |
 |---|---|---|---|---|
 | 改动 | 本模块 | 加入 | 支持材料标签多一条，带出处 | `SPEC-projects-11` |
-| 出去 | IM 消息 | 点发信人 | 消息抽屉 | `SPEC-messages-2` |
-| 共用 | IM 消息 | 获取、加入 | 和消息抽屉附件面板同一套动作 | `SPEC-messages-3` |
+| 出去 | 本模块 | 去向「已加入资料」 | 支持材料标签高亮那一条 | `SPEC-projects-11.23` |
+| 出去 | IM 消息 | 点「来自」 | 消息抽屉 | `SPEC-messages-2` |
+| 共用 | IM 消息 | 获取、加入、预览 | 和消息抽屉附件面板同一套动作和预览弹窗 | `SPEC-messages-3` |
+| 被改动 | IM 消息 | 消息抽屉里「加入资料」、「转项目资料…」带了附件 | 这个附件的去向变「已加入资料」，标签上的数字跟着减 | `SPEC-messages-3`、`SPEC-messages-6` |
+| 进来 | 本模块 | 沟通标签「去附件标签」 | 打开附件标签 | `SPEC-projects-4.13` |
 
 ## SPEC-projects-6 干系人
 
@@ -684,7 +704,7 @@ SOP 标签（`SPEC-projects-9`）由 PR-10 做；Agent 标签（`SPEC-projects-1
 | 桌面 1440 | ![](shots/projects/第一个项目_标签_支持材料-1440-light.png) | ![](shots/projects/第一个项目_标签_支持材料-1440-dark.png) |
 | 手机 375 | ![](shots/projects/第一个项目_标签_支持材料-375-light.png) | ![](shots/projects/第一个项目_标签_支持材料-375-dark.png) |
 
-加材料的表单截图脚本截不到，操作：支持材料标签右上「加材料」。来自消息附件的材料：先在沟通标签「逐个决定」里加入一个。
+加材料的表单截图脚本截不到，操作：支持材料标签右上「加材料」。来自消息附件的材料：先在附件标签里加入一个。来自 IM 消息的笔记：IM 消息页一行「更多」→「转项目资料…」存一条。
 
 ### 交互
 
@@ -693,7 +713,7 @@ SOP 标签（`SPEC-projects-9`）由 PR-10 做；Agent 标签（`SPEC-projects-1
 | SPEC-projects-11.1 | 右上「加材料」 | 点击 | 在列表上方展开内联表单，种类默认「文件」 |
 | SPEC-projects-11.2 | 种类切换 | 点击 | 文件、文件夹、链接、笔记；下面的输入框随种类变，已填的值保留 |
 | SPEC-projects-11.3 | 名称 | 输入 | 占位「名称，比如：客户访谈纪要 10/20」 |
-| SPEC-projects-11.4 | 值：笔记 | 输入 | 三行文本框，占位「内容」 |
+| SPEC-projects-11.4 | 值：笔记 | 输入 | 三行文本框，占位「内容」；右下角「N / 5000」，超过 5000 字（按字数，去首尾空白）红字「超过 5000 字（现在 N 字），删掉一些」，「加上」置灰 |
 | SPEC-projects-11.5 | 值：链接 | 输入 | 等宽，占位「https://…」；不校验格式 |
 | SPEC-projects-11.6 | 值：文件 / 文件夹 | 输入 | 等宽，占位「相对项目目录的路径，比如 materials/interview.md」或「…比如 materials/screenshots」；下面说明「浏览器只拿得到文件名（或文件夹名），路径按项目目录下的相对路径拼：<项目目录>/…；选多个文件会各加一条」，没设项目目录时省掉冒号后面 |
 | SPEC-projects-11.7 | 「选择文件…」 | 选择 | 系统文件选择，可多选。路径前缀取输入框里已有路径的目录部分（没有填时默认 `materials`）。选一个：填进路径，名称为空时用文件名。选多个：每个文件直接加一条材料（标签沿用表单里的），表单收起 |
@@ -704,9 +724,14 @@ SOP 标签（`SPEC-projects-9`）由 PR-10 做；Agent 标签（`SPEC-projects-1
 | SPEC-projects-11.12 | 搜索框 | 输入 | 有材料时才有工具条；占位「搜名称、路径、链接、内容」，匹配名称、值、标签，不区分大小写；有内容时右侧 x 清空 |
 | SPEC-projects-11.13 | 种类切换（工具条） | 点击 | 「全部 N」+ 项目里出现过的种类「<种类> N」，单选 |
 | SPEC-projects-11.14 | 标签筛选 | 点击 | 有标签时出现一排：「全部标签」+ 各标签；点已选中的标签回到全部 |
-| SPEC-projects-11.15 | 材料卡片 | 显示 | 种类标记、名称；笔记显示正文（保留换行）；`http(s)` 开头的链接显示为新窗口打开的超链接；其它（文件、文件夹、非 http 的链接）显示等宽路径，文件和文件夹前面拼上项目目录（来自消息附件的不拼），文件夹末尾加 `/`。下面一行：「#标签 … <相对时间>加入」 |
+| SPEC-projects-11.15 | 材料卡片 | 显示 | 种类标记、名称；笔记显示正文（保留换行），超过 9 行时先露前 8 行，下面「展开全部（还有 N 行）」，展开后变「收起」；`http(s)` 开头的链接显示为新窗口打开的超链接；其它（文件、文件夹、非 http 的链接）显示等宽路径，文件和文件夹前面拼上项目目录（来自消息附件的不拼），文件夹末尾加 `/`。下面一行：「#标签 … <相对时间>加入」 |
 | SPEC-projects-11.16 | 「来自 <发信人>（<群名或私聊>）的消息」 | 点击 | 来自消息附件的材料才有；打开那条消息的抽屉 |
-| SPEC-projects-11.17 | 卡片右上 x | 点击 | 悬停「移除」；立即移除，不确认；本地文件不动 |
+| SPEC-projects-11.22 | 「来自 IM 消息：…」 | 显示 / 点击 | 消息正文转成的笔记（`SPEC-messages-6`）才有：「来自 IM 消息：群「<群名>」 · N 条」，私聊写「和 <姓名> 的私聊」，只有一条时写「<姓名> 的一条」；悬停「打开这组里最新的一条」，点了打开那条消息的抽屉（正式产品切到 IM 消息页 `?m=<id>`）。正式产品的出处由 IM 插件记，IM 插件没在运行时 11.16 和这一条都不显示 |
+| SPEC-projects-11.23 | 高亮的材料 | 显示 | 从消息上「已转资料」、转项目资料弹窗的「打开已有的」「去看资料」、附件标签的去向「已加入资料」（`SPEC-projects-5.9`）跳过来时，那条材料卡片描边高亮并滚到视野中间（正式产品地址带 `?mt=<材料 id>`）；换标签后不再高亮 |
+| SPEC-projects-11.17 | 卡片右上 x | 点击 | 悬停「移除」；立即移除，不确认；本地文件不动。来自 IM 消息的（11.16、11.22）一并清掉出处，消息上的「已转资料」跟着没 |
+| SPEC-projects-11.24 | 卡片右上「编辑」 | 点击 | 在 x 左边，四种材料都有。卡片就地展开编辑表单（同原型卡片的「修改」，一次只开一张），焦点在名称上：种类（见 11.25）、名称、值、标签，「保存」「取消」，Esc 同取消。值按种类：笔记是六行文本框，带字数和 5000 字上限（同 11.4）；链接是等宽输入框；文件、文件夹是路径输入（正式产品带「选择」，相对路径按项目目录补全，没设项目目录时要填绝对路径）。名称清空保存时按内容取默认名（同新建）。标签整体替换，中英文逗号分隔。只把改了的字段发出去，什么都没改时直接收起。来自 IM 消息的笔记（11.22）改了标题、正文、标签，出处照样在；正式产品在卡片时间后面加「· <相对时间>改过」 |
+| SPEC-projects-11.25 | 编辑表单的「种类」 | 点击 | 笔记和链接之间、文件和文件夹之间能互换，表单里只列同组的两个，下面写「笔记和链接之间能互换」/「文件和文件夹之间能互换」；路径类和笔记、链接不能互换（要换就删了重加）。换了种类按新种类校验值：链接要以 `http://` 或 `https://` 开头，笔记不超过 5000 字。来自消息附件的材料（11.16）种类和路径都不能改（附件标签按路径认它已加入），表单里没有种类，路径只读，写「来自消息附件，种类和路径不能改」，名称和标签照样能改 |
+| SPEC-projects-11.26 | 编辑「保存」 | 点击 | 校验不过时表单里红字写原因（「链接要以 http:// 或 https:// 开头」「超过 5000 字（现在 N 字）」「没设项目目录，路径要填绝对路径…」），不发请求；种类和值都没动时不校验值（早先存下的不合规矩的值，只改名字、标签照样能存）；保存成功收起表单，卡片和概览「最近的文档和材料」跟着变；保存失败留着表单，红字「没保存：<原因>」 |
 
 ### 空状态和异常状态
 
@@ -715,11 +740,15 @@ SOP 标签（`SPEC-projects-9`）由 PR-10 做；Agent 标签（`SPEC-projects-1
 | SPEC-projects-11.18 | 没有材料（且没开表单） | 「还没有支持材料」+「访谈纪要、竞品截图、需求原文、参考链接都可以放这里」；没有工具条 | 「加材料」 |
 | SPEC-projects-11.19 | 筛选后没有结果 | 「没有匹配的材料」+「换个关键词，或清掉类型和标签筛选」 | 手动清筛选 |
 | SPEC-projects-11.20 | 文件或文件夹在本地不存在 | 原型不检查；正式产品在卡片上标「找不到文件」 | 移除或改路径 |
-| SPEC-projects-11.21 | 保存失败 | 原型未做；正式产品保留表单，底部红字提示原因 | 重试 |
+| SPEC-projects-11.21 | 保存失败 | 原型未做；正式产品保留表单，底部红字提示原因；编辑表单同 11.26 | 重试 |
 
 ### 数据
 
-见 SPEC-projects-0 的 `Material`、`MaterialKind`、`MATERIAL_KIND`。表单状态 `newMat: Omit<Material, 'id' | 'added_at'> | null`；筛选状态 `matQ`、`matKind`（`MaterialKind | ''`）、`matTag`。新材料 `id` 用 `mt` 前缀现生成。
+见 SPEC-projects-0 的 `Material`、`MaterialKind`、`MATERIAL_KIND`。表单状态 `newMat: Omit<Material, 'id' | 'added_at'> | null`；编辑中的材料 `editMat: string | null`（编辑表单 `MaterialEdit`，能互换的种类 `KIND_GROUPS`，笔记上限 `NOTE_MAX = 5000`）；筛选状态 `matQ`、`matKind`（`MaterialKind | ''`）、`matTag`。新材料 `id` 用 `mt` 前缀现生成。
+
+来自 IM 消息的出处（`SPEC-messages-6`）：原型记在材料的 `from` 上，消息正文转的笔记多 `message_ids`；正式产品由 IM 插件记（`GET /api/im/materials?project_id=` 回 `{material_id, kind: messages|attachment, attachment_id, channel, conversation, senders, message_ids, first_at, last_at, ...}[]`，`message_ids` 按时间正序、已被清理的排在最前），项目插件的 `ProjectMaterial` 不变；移除材料时前端调 `DELETE /api/im/materials/{material_id}` 清掉出处。出处按材料 id 记，编辑材料（`PATCH /api/projects/{id}/materials/{material_id}`）不动出处。
+
+编辑走项目插件已有的 `PATCH /api/projects/{id}/materials/{material_id}`（只传改了的 `name` / `value` / `tags`）；换种类是项目插件 0.9.1 放开的：`kind` 只能在笔记和链接、文件和文件夹之间换，换了值按新种类校验，跨组 400，没有迁移。
 
 正式产品的口径（PJ-03、PJ-03b）：支持材料和产品文档（`SPEC-projects-8`）合并成「项目资料」，附件、文件、文件夹、链接、笔记统一管理，落在 AG-03 的 file 和 artifact 上。原型还是两个标签（见 P-2）。PJ-03b 照本节做资料页的列表、添加和筛选，文档的来源、状态和类型字段照 `SPEC-projects-8` 带过去；合并后的页面在原型补上之前，以本节加 `SPEC-projects-8` 的并集为准。
 
@@ -728,9 +757,11 @@ SOP 标签（`SPEC-projects-9`）由 PR-10 做；Agent 标签（`SPEC-projects-1
 | 方向 | 对方模块 | 触发 | 结果 | 见 |
 |---|---|---|---|---|
 | 被改动 | IM 消息 | 附件加入 | 多一条带出处的材料 | `SPEC-messages-3`、`SPEC-projects-5` |
-| 出去 | IM 消息 | 点出处 | 消息抽屉 | `SPEC-messages-2` |
+| 被改动 | IM 消息 | 「转项目资料」 | 多一条笔记（消息对话记录，标签「IM 消息」），带出处 | `SPEC-messages-6` |
+| 进来 | IM 消息 | 消息上「已转资料」、弹窗「打开已有的」「去看资料」 | 切到这个项目的支持材料，高亮那一条 | `SPEC-projects-11.23` |
+| 出去 | IM 消息 | 点出处（11.16、11.22） | 消息抽屉 | `SPEC-messages-2` |
 | 读取 | 会话 | 项目 Agent 读材料 | 会话里能读这个项目的材料 | `SPEC-sessions-1` |
-| 改动 | 本模块 | 增删 | 概览「最近的文档和材料」跟着变 | `SPEC-projects-3.8` |
+| 改动 | 本模块 | 增删改 | 概览「最近的文档和材料」跟着变 | `SPEC-projects-3.8` |
 
 ## SPEC-projects-12 原型
 
@@ -824,6 +855,8 @@ SOP 标签（`SPEC-projects-9`）由 PR-10 做；Agent 标签（`SPEC-projects-1
 | SPEC-projects-13.10 | 删除影响 | 显示 | 按实际数据列出，分号隔开：「N 个任务、N 个会话、N 个视频会移出项目，记录保留」「运行中的原型 <名字> 会停掉」「域名 <host.后缀> 会一起删除」；没有影响时只有前一句 |
 | SPEC-projects-13.11 | 确认「删除」 | 点击 | 删掉项目；任务 `project_id` 清空并记 `project_removed = 项目名`（任务上提示原属项目已删除）；会话、视频的 `project_id` 清空；指向本项目原型的内网域名删除；回到项目列表 |
 | SPEC-projects-13.12 | 确认「取消」 | 点击 | 回到「删除项目」按钮 |
+| SPEC-projects-13.19 | 「显示哪些标签」 | 勾选 | 在关联目录下面、删除项目上面；标题旁说明「不勾的标签在这个项目的详情页里不显示，数据不动；拖动或用上移、下移调整顺序；概览和设置一直显示、固定一头一尾」。按标签条的顺序（`SPEC-projects-13.20`）列出全部标签（含插件给的「商单」），每个一个勾选框，默认全勾；概览、设置勾着且置灰（悬停「一直显示」）；「附件」悬停「IM 消息模块没开时本来就不显示」。勾掉、勾上立即生效、立即保存，标签条跟着变。存的是「不显示的」（`tabs_hidden`）：以后新加的标签默认显示，不用回来补勾。列表一行一个：拖动把手、勾选框和名称、上移下移两个按钮；概览、设置那行没有把手和按钮，右边注「固定第一」「固定最后」 |
+| SPEC-projects-13.20 | 「显示哪些标签」排序 | 拖动 / 点击 | 同一块里调标签先后，标签条跟着变，立即保存到 `tabs_order`（存的是除概览、设置以外的全部 key 的顺序）。**拖动**：除概览、设置外每行都能拖（悬停「拖动调整顺序」），拖到哪一行就占那一行的位置——往下拖落在它后面、往上拖落在它前面，经过的行用上/下边线提示落点；拖到概览上就是第一个、拖到设置上就是最后一个（概览、设置本身不动）。**键盘**：每行「上移「<标签名>」」「下移「<标签名>」」两个图标按钮（悬停同名），第一个能排的上移置灰、最后一个下移置灰；挪完焦点留在同一行的同一个按钮上，到头了换到另一个按钮；读屏念「「<标签名>」移到第 N 个」（N 从概览算起）。被勾掉的标签照样在列表里、照样能排，开回来时就在排好的位置；插件给的「商单」、IM 的「附件」也参与排序，插件没开时它们的位置保留着，再开时回到原位。列表下方「恢复默认顺序」：已经是默认顺序时置灰，点了清空 `tabs_order`（回到 `ProjectTab` 的顺序），不动勾选。概览、设置固定的理由：概览是进项目的默认标签，设置是唯一能把藏掉的标签开回来的地方，两头固定才找得到 |
 
 ### 空状态和异常状态
 

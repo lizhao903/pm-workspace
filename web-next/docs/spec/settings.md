@@ -52,6 +52,7 @@ Agent、知识库、技能、枚举值、运行异常、内网域名几节目前
 | [SPEC-settings-19](#spec-settings-19-运行异常抽屉) | 运行异常抽屉 | 点异常行 | 转研发任务、忽略、标为已解决 |
 | [SPEC-settings-20](#spec-settings-20-内网域名) | 内网域名 | 二级菜单「内网域名」 | 后缀、解析、代理、域名表、生成的配置 |
 | [SPEC-settings-21](#spec-settings-21-外观) | 外观 | 二级菜单「外观」 | 配色方案、收起一级菜单 |
+| [SPEC-settings-22](#spec-settings-22-终端) | 终端 | 二级菜单「终端」（正式产品：设置 > 插件 > 终端） | Claude Code 启动命令：任务「切换到终端」时执行的命令 |
 
 ### 共用数据结构
 
@@ -91,7 +92,7 @@ Agent、知识库、技能、枚举值、运行异常、内网域名几节目前
 | `oauth` | `{ auth_url: string; token_url: string; scopes: string; builtin: boolean }` | 否 | 内置的 OAuth 应用信息；`builtin` 为 `false` 时（自定义 MCP、OpenAPI）用户自己填 | |
 | `catalog` | `ToolDef[]` | 否 | 获取工具清单时对方报回来的工具（原型写死） | |
 
-`ToolField`：`{ key: string; label: string; kind: 'text' | 'secret' | 'select'; placeholder?: string; options?: string[]; required?: boolean }`。`select` 新建时默认选 `options[0]`；`secret` 显示成密码框，旁边有「显示 / 隐藏」。
+`ToolField`：`{ key: string; label: string; kind: 'text' | 'secret' | 'select'; placeholder?: string; options?: string[]; required?: boolean; picker?: 'im_channels' }`。`select` 新建时默认选 `options[0]`；`secret` 显示成密码框，旁边有「显示 / 隐藏」；`picker` 非空的 `text` 用列表选择器填，值仍是文本（`im_channels` 见 `SPEC-settings-4.7c`）。
 
 `ToolCategory`：`{ key: string; label: string; desc: string }`，`TOOL_CATEGORIES` 依次为：
 
@@ -441,8 +442,10 @@ Agent、知识库、技能、枚举值、运行异常、内网域名几节目前
 | SPEC-settings-4.5 | 状态条「连接」/「重新连接」 | 点击 | 断开、暂停时「连接」，异常时「重新连接」，同 `SPEC-settings-3.8`；连接中不显示按钮 |
 | SPEC-settings-4.6 | 连接器名称 | 输入 | 必填；新建时默认是工具名，占位「例如 公司 Slack」 |
 | SPEC-settings-4.7 | 凭证与参数 | 输入、选择 | 按工具的 `fields` 列出：文本框、密码框（旁边「显示 / 隐藏」）、下拉（新建默认第一项）；必填项带星号；改了任一项，测试结果清掉 |
-| SPEC-settings-4.7a | Slack「身份」（IM-06） | 选择 | 下拉 `Bot` / `我本人（用户 Token）`，新建默认 Bot；没有这个值的旧连接器按 Bot。下面一行说明：Bot「Bot 只看得到被拉进去的频道和发给它的私信，回复以 Bot 名义发出」；我本人「用你自己的 Slack 账号读你能看到的私信和频道，回复以你的名义发出；你自己发的不进待处理」。Token 一栏跟着身份变（`fieldView`）：Bot 叫「Bot Token」、占位 `xoxb-`、说明「OAuth & Permissions 页的 Bot User OAuth Token」；我本人叫「User Token」、占位 `xoxp-`、说明列出要加的 User Token Scopes（`channels:history channels:read groups:history groups:read im:history im:read mpim:history mpim:read users:read chat:write files:read`）。监听频道的说明 Bot「Bot 要先被邀请进这些频道」、我本人「只收你在里面的频道」。正式产品里 IM 页「渠道配置」的 Slack 表单用分段按钮切身份，我本人时不显示「我的 Member ID」（连通测试拿到的本人编号就是「我」），接入步骤换成 User Token Scopes 那一套 |
+| SPEC-settings-4.7a | Slack「身份」（IM-06） | 选择 | 下拉 `Bot` / `我本人（用户 Token）`，新建默认 Bot；没有这个值的旧连接器按 Bot。下面一行说明：Bot「Bot 只看得到被拉进去的频道和发给它的私信，回复以 Bot 名义发出」；我本人「用你自己的 Slack 账号读你能看到的私信和频道，回复以你的名义发出；你自己发的不进待处理」。Token 一栏跟着身份变（`fieldView`）：Bot 叫「Bot Token」、占位 `xoxb-`、说明「OAuth & Permissions 页的 Bot User OAuth Token」；我本人叫「User Token」、占位 `xoxp-`、说明列出要加的 User Token Scopes（`channels:history channels:read groups:history groups:read im:history im:read mpim:history mpim:read users:read users:read.email chat:write files:read`，`users:read.email` 给 4.7d 补联系人邮箱用）。监听频道的说明 Bot「Bot 要先被邀请进这些频道」、我本人「只收你在里面的频道」。正式产品里 IM 页「渠道配置」的 Slack 表单用分段按钮切身份，我本人时不显示「我的 Member ID」（连通测试拿到的本人编号就是「我」），接入步骤换成 User Token Scopes 那一套 |
 | SPEC-settings-4.7b | Slack Token 和身份对不上 | 测试、保存 | `tokenProblem`：Bot 填了 `xoxp-`「这是用户 Token；身份是 Bot 时要填 Bot User OAuth Token（xoxb- 开头），想以本人身份收发就把身份改成「我本人」」，我本人填了 `xoxb-`「这是 Bot Token；身份是「我本人」时要填 User OAuth Token（xoxp- 开头），或把身份改回 Bot」，前缀都不对时说要什么开头。测试连接直接显示这句红字；仍保存时连接器是异常，原因是这句。换了身份保存后账号跟着换（原型模拟：Bot `pmw（U0BOT）`，我本人 `Broleez（U07BROLEEZ）`；正式产品是连通测试 `auth.test` 回的「名字（Member ID）」） |
+| SPEC-settings-4.7c | Slack「监听频道」列表选择（`channelpick.tsx`） | 搜索、勾选 | 字段带 `picker: 'im_channels'`。编辑已保存的连接器时，列出这个连接器 Token 看得到的群组会话（公开频道、私有频道、多人私信，含已归档；私信不列，私信本来就全收）。上面一行是已选的：频道显示 `#名字`，多人私信显示成「a、b、c」（由 `mpdm-a--b--c-1` 拆出），每个带「×」移除；值里有但列表对不上的（Token 看不到、改了名、列表没列全）显示原文加「未找到」、虚线框，悬停说明原因；一个都没选时写「还没选，只收私信和多人私信」。下面是搜索框（认名字、显示名、编号，`#` 可带可不带）、「已选 N · 共 M 个」、「刷新」，再下面是可滚动的勾选列表：已选的排前面，其余按频道在前、多人私信在后、名字排序；每行勾选框、显示名、非公开的标「私有频道 / 多人私信」、已归档的标「已归档」、最右是编号；最多画 200 行，多了写「还有 N 个没显示，搜索缩小范围」。列表底下一行说明「列的是 Token 所在的会话；私信、多人私信本来就全收，勾多人私信不影响。不在列表里的可以手动填」，旁边「手动填写」展开原来的文本框（逗号分隔，编号或 `#名字`），和列表改的是同一个值。存回的仍是 `config.channels` 这段文本：勾上追加会话编号（改名也不丢），取消时把对得上的编号和名字一起去掉，别的项（包括旧值里的 `#名字`）原样保留。旧值 `#product, #feedback` 不用迁移，按名字（不分大小写）对上列表就显示成已选。原型的列表是 `data.ts` 的 `IM_CONVERSATIONS` 种子；正式产品调 `GET /api/im/connectors/{id}/conversations`（Slack `users.conversations`，打开抽屉时取一次，缓存 5 分钟，点「刷新」重取）；IM 页「渠道配置」的 Slack 表单用同一个选择器 |
+| SPEC-settings-4.7d | 「从 Slack 补联系人邮箱」 | 点击 | 只在已接入的 Slack 连接器抽屉里，「凭证与参数」下面一节「联系人邮箱」，说明「按联系人关联的 Slack 身份（Member ID）查 Slack 资料里的邮箱，只填联系人邮箱为空的，不覆盖已有的。之后收到新身份、新消息时也会顺带补。」；停用、断开时按钮置灰（悬停「停用、断开时不查」）。点了按钮变「正在查 Slack…」，0.7 秒后旁边一行结果（`emailBackfillText`）：「查了 N 个 Slack 身份，补上 X 个邮箱，Y 个和名册里不一样（没改）」，没有要补的写「没有要补的」，没有关联 Slack 的联系人写「还没有关联到 Slack 的联系人：先在联系人里加 Slack 身份（Member ID）」。下面列补上的「姓名：邮箱」（灰字），再列不一样的「姓名：名册里是 a，Slack 里是 b（没改，要换去联系人里改）」。只填空的：已有邮箱的一律不改，大小写不同算一致。缺 `users:read.email` 不算失败：结果写「没补：拿不到 Slack 资料里的邮箱」，下面橙色提示「Slack 应用要加 users:read.email 权限并重新安装：OAuth & Permissions 里 Bot Token Scopes（身份是我本人时加在 User Token Scopes）加上 users:read.email，再点 Reinstall to Workspace」。原型用 `slackemail.ts` 的一份 Slack 资料种子模拟（陈若溪资料里的邮箱和名册不一样），Token 里带 `noemail` 时模拟缺权限；种子联系人都有邮箱，要看「补上」先清掉某个有 Slack 身份的联系人的邮箱。正式产品：按钮在 IM 页「渠道配置」里 Slack 渠道卡片下面（`frontend/src/plugins/im/EmailBackfill.tsx`），调 `POST /api/im/connectors/{id}/backfill-emails`，回 `{checked, filled, skipped, conflicts, filled_contacts, missing_scope, hint, pending}`；Slack 侧取 `users.info` 的 `profile.email`，先看 `auth.test` 响应头 `X-OAuth-Scopes` 有没有 `users:read.email`，没有就不逐个查；补上的写联系人时操作者记 `im#email_backfill` 并记审计；被限流没查完的记进 `pending`，结果写「还有 N 个没查完，稍后再点一次」。后台每 2 分钟顺带补一次：只查邮箱为空、一天内没查过的身份，每个实例每轮至多 20 个，缺权限的实例 6 小时内不再自动查 |
 | SPEC-settings-4.8 | 「测试连接」 | 点击 | 按钮变「测试中…」，0.7 秒后：有必填没填 →「缺少必填项：…」；值里有 `expired` →「对方平台返回凭证无效（40001），请重新获取后再试」；否则「连接成功，能读到 <工具名> 的会话列表」。成功绿字、失败红字 |
 | SPEC-settings-4.9 | 消息方向 | 点击 | 「只收消息」/「收发（可在工作台回复）」；平台不能发消息（`canSend` 为 false）时收发置灰；新建默认能发就收发 |
 | SPEC-settings-4.10 | 拉取间隔 | 选择 | 每 1、5、10、15、30、60 分钟；新建默认 5 |
@@ -461,6 +464,8 @@ Agent、知识库、技能、枚举值、运行异常、内网域名几节目前
 | SPEC-settings-4.18 | 连接器异常 | 状态条红色，写错误原因，按钮「重新连接」 | 改凭证、测试、保存或重新连接 |
 | SPEC-settings-4.19 | 对一个已接过的工具发起接入 | 直接打开它现有的连接器（一个工具只接一个账号） | |
 | SPEC-settings-4.20 | 保存或删除失败 | 原型未做；正式产品抽屉不关，底部红字写原因 | 重试 |
+| SPEC-settings-4.21 | 监听频道拿不到列表 | 退回文本框（同原来的逗号分隔输入），下面写原因：新建还没保存「先保存并测试连接后可从列表选择」；连接器暂停、断开「连接器已暂停 / 已断开，连接后才能从列表选择；可以直接填编号或 #名字」；读取失败（Token 失效、没填 Token、渠道出错）红字「没能读取频道列表：<原因>；可以直接填编号或 #名字」，正式产品旁边有「重试」；正在读取时写「正在读取频道列表…」 | 直接填文本；保存并测试后重开抽屉；重试 |
+| SPEC-settings-4.22 | 监听频道列表不完整 | 会话太多（正式产品最多翻 25 页、每页 200 个）或翻页中途被 Slack 限流时，列表照常显示已拿到的，底下黄条写原因，如「Slack 限流，只列出了前 N 个，稍后再刷新」「会话太多，只列出了前 N 个；没列出的可以在文本框里直接填编号或 #名字」 | 稍后「刷新」；「手动填写」补上 |
 
 ### 数据
 
@@ -555,7 +560,7 @@ Agent、知识库、技能、枚举值、运行异常、内网域名几节目前
 | 编号 | 元素 | 操作 | 结果 |
 |---|---|---|---|
 | SPEC-settings-6.1 | 顶栏 | 看 | 「设置 / 模型服务商」，「N 个已接入」，说明「配好 API Key 和地址、测通之后，勾选要启用的模型，Agent 和 SOP 就能选用」 |
-| SPEC-settings-6.2 | 「已接入」卡片 | 看 | 标志、名称（悬停全名）、第二行「<类型名> · 启用数/总数 个模型启用」，右边状态（连接正常 / 连接异常 / 未测试 / 已停用）和「<时间>检查」；当前打开的卡片高亮 |
+| SPEC-settings-6.2 | 「已接入」卡片 | 看 | 标志、名称（悬停全名）、第二行「<类型名> · 启用数/总数 个模型启用」，右边状态（连接正常 / 连接异常 / 未测试 / 已停用）和「<时间>检查」，是最近一次测试连接的结论，刷新、离开设置页后仍在；改了地址、协议、API Key、扩展配置或启停时回到未测试，只改名称、默认模型不变；当前打开的卡片高亮 |
 | SPEC-settings-6.3 | 「已接入」卡片 | 点击 | 打开服务商抽屉（`SPEC-settings-7`） |
 | SPEC-settings-6.4 | 「添加服务商 · <分组>」 | 看 | 按 国际、国内、聚合网关、本地与自部署、自定义 分组列目录里的全部服务商：标志、名称、说明（没有说明时写「N 个模型」或「模型 ID 自己填」），右边「接入」，已经接过同类型的写「再接一个」 |
 | SPEC-settings-6.5 | 添加卡片 | 点击 | 打开新建抽屉；同一类型可以接多个（与连接器不同） |
@@ -662,6 +667,8 @@ Agent、知识库、技能、枚举值、运行异常、内网域名几节目前
 | SPEC-settings-8.7 | 卡片说明 | 看 | 说明，空写「还没有说明」 |
 | SPEC-settings-8.8 | 能力标签 | 看 | 开着的内置工具，最多 5 个，其余「+N」；需确认的标签样式不同 |
 | SPEC-settings-8.9 | 卡片底部 | 看 | 触发方式（手动写「手动」，其余写条件，没条件写类型名，用 · 隔开）；有等确认的执行记录时「N 条等确认」；最近一次运行「<时间>运行」或「还没运行过」 |
+| SPEC-settings-8.13 | 卡片头的思考档位 | 看 | 思考不是「模型默认」时，模型名后面写「· 思考：<档位>」（不思考 / 浅 / 中 / 深），见 `SPEC-settings-9.44` |
+| SPEC-settings-8.14 | 卡片下方「场景默认 Agent」 | 看、选 | 标题「场景默认 Agent」，提示「没指定 Agent 的模型调用用谁：用它的模型、思考和指令；不指定就用默认服务商」。每个场景一行：场景名、说明、一个下拉（「不指定（用默认服务商）」加全部 Agent，停用的写「（已停用）」）；选了立即保存。场景两个：「SOP 编排助手」（流程编辑器里的助手，`SPEC-sop`）、「其他后台调用」（插件在后台调模型又没指定 Agent 的地方，包括没选 Agent 的 SOP 调模型节点）。Agent 会话、SOP 的 Agent 节点本来就挂着 Agent，不在这里 |
 
 ### 空状态和异常状态
 
@@ -670,10 +677,11 @@ Agent、知识库、技能、枚举值、运行异常、内网域名几节目前
 | SPEC-settings-8.10 | 搜索没有结果 | 「没有匹配的 Agent」「换个关键词试试」 | 改关键词 |
 | SPEC-settings-8.11 | 一个 Agent 都没有 | 「还没有 Agent」「点右上角「新建 Agent」」；有 Agent 但搜不到时才写「没有匹配的 Agent」「换个关键词试试」 | 新建 |
 | SPEC-settings-8.12 | 模型不可用 | 卡片模型红字 | 进配置页换模型 |
+| SPEC-settings-8.15 | 场景选的 Agent 删了或停用了 | 下拉下面红字「选的 Agent 已删除，现在用默认服务商，换一个」/「「<名称>」已停用，现在用默认服务商」；删了的下拉里补一项「已删除的 Agent」。调用照常走默认服务商，不报错 | 换一个或选「不指定」 |
 
 ### 数据
 
-见 `SPEC-settings-9` 的 `Agent`。等确认数、最近运行来自 `AgentRun`（`agent_id`、`at`、`status`，见 `SPEC-sessions`）。模型名和可用性来自 `modelChoices`（`ModelChoice`：`{ key: string; label: string; note: string; ok: boolean; group?: string }`，由 `ModelConf` 和 `usable` 算出，`ok` 为 false 时 `note` 是不可用原因）。
+见 `SPEC-settings-9` 的 `Agent`。场景默认 Agent 是 `AgentScenario`（`web-next/src/agentdata.ts`，`seedScenarios`）：`{ key: string; label: string; desc: string; agent_id: string }`，`key` 为 `sop_assist` / `background`，`agent_id` 空串是没选；正式产品存在内核 `agent_settings`（0045），接口 `GET /api/agents/scenarios`、`PATCH /api/agents/scenarios`（body `{ "<场景>": "<Agent id 或空串>" }`）。等确认数、最近运行来自 `AgentRun`（`agent_id`、`at`、`status`，见 `SPEC-sessions`）。模型名和可用性来自 `modelChoices`（`ModelChoice`：`{ key: string; label: string; note: string; ok: boolean; group?: string }`，由 `ModelConf` 和 `usable` 算出，`ok` 为 false 时 `note` 是不可用原因）。
 
 ### 联动
 
@@ -714,6 +722,7 @@ Agent、知识库、技能、枚举值、运行异常、内网域名几节目前
 | SPEC-settings-9.9 | 「换模型」 | 点击 | 展开选择器：搜索框（搜模型或服务商）、按服务商分组的单选列表、「收起」；选中后收起 |
 | SPEC-settings-9.10 | 模型搜索没结果 | 看 | 「没有匹配的模型」 |
 | SPEC-settings-9.11 | 模型不可用 | 看 | 标签红点；顶部红条「<问题>，Agent 调用会失败，换一个可用的模型。」（没选时「还没选模型」，不可用时「<模型名> 当前不可用」） |
+| SPEC-settings-9.44 | 模型标签下方「思考」 | 选 | 下拉：模型默认（不传思考参数，交给模型）/ 不思考 / 浅 / 中 / 深，提示「调模型时要不要先想、想多深；本机模型想得越多越慢」，下面一行写所选档位的说明和「模型不支持时自动按模型默认跑」。这个 Agent 在会话、调试、触发、SOP 的 Agent 节点和选了它的 SOP 调模型节点、场景默认里都按这个档位调模型。新建默认「模型默认」 |
 | SPEC-settings-9.12 | 指令 | 输入 | 多行文本，提示「告诉它是谁、负责什么、按什么规矩做事」，带示例占位 |
 | SPEC-settings-9.13 | 技能：「挂载技能」 | 点击 | 下拉列出还没挂的技能，按来源（内置 / 自定义）分组；超过 8 个时顶部有搜索（回车挑第一个，Esc 关闭）；点一个挂上，下拉关闭 |
 | SPEC-settings-9.14 | 技能卡片 | 看、卸下 | 名称、来源标签、怎么做、「用到：…」；右边叉号「卸下」 |
@@ -770,10 +779,13 @@ Agent、知识库、技能、枚举值、运行异常、内网域名几节目前
 | `mcps` | `string[]` | 是 | 挂载的 MCP / 连接器 id | `['cn_github']` |
 | `kbs` | `string[]` | 是 | 挂载的知识库 id | `['kb_feedback']` |
 | `triggers` | `AgentTrigger[]` | 是 | `{ kind: TriggerKind; detail: string }`，至少一条 | |
+| `thinking` | `AgentThinking` | 是 | 思考档位，`default` / `off` / `low` / `medium` / `high`（`THINKING_OPTIONS`），新建 `default` | `off` |
 | `enabled` | `boolean` | 是 | 启用 | |
 | `created_at` | `string` | 是 | 创建时间 | |
 
 `AbilityMode`：`off` 关闭 / `confirm` 需确认 / `auto` 自动；读操作只有关闭和自动。
+
+`AgentThinking` 翻成各家请求参数（正式产品 `internal/agent/thinking.go`）：`default` 什么都不带；Anthropic 用 `thinking` + `output_config.effort`（老模型用 `budget_tokens`），`off` 先 `{type: disabled}`、关不掉的退成 `effort: low`；OpenAI 兼容用 `reasoning_effort`，`off` 先 `none` 再 `minimal`；Ollama 用 `think`（gpt-oss 用 `"low"`/`"medium"`/`"high"`，关不掉时 `off` 给 `"low"`）；Gemini 用 `generationConfig.thinkingConfig.thinkingBudget`，`off` 是 0。模型不认（上游 400）时按顺序换写法，最后去掉思考参数按 `default` 跑，记一行日志，调用不失败。
 
 `TriggerKind`：`manual` 手动对话 / `im` 收到 IM 消息 / `schedule` 定时 / `task` 任务分配给它（`TRIGGER_KIND`）。
 
@@ -988,7 +1000,7 @@ store（原型）：`{ docs: KbDoc[]; settings: KbSettings[]; busy: string[] }`�
 | SPEC-settings-13.3 | 「分类里新加的文档自动收进来」 | 切换 | 说明「关掉后只收手动加的；「文档」页顶上会提示还没收进来的篇目」 |
 | SPEC-settings-13.4 | 本地目录列表 | 看 | 标题旁「只收 .md、.txt 文件」；每行路径、「N 个文件 · <时间>同步」 |
 | SPEC-settings-13.5 | 目录「自动同步」开关 | 切换 | 目录里的文件有变动时自动重新索引 |
-| SPEC-settings-13.6 | 目录「立即同步」 | 点击 | 更新同步时间，目录下的文件重新索引 |
+| SPEC-settings-13.6 | 目录「立即同步」 | 点击 | 更新同步时间，目录下的文件重新索引。目录里的文件不限个数（原来最多 1000 个），分批同步：一批列 500 个文件、索引完再列下一批；修改时间不晚于上次取正文、已索引的文件内容没变，跳过不重读。同步期间按钮变「同步中…」且所有「立即同步」置灰，目录行下面蓝字「正在同步：已处理 N / M 个文件」（还在往下列时 M 后带「+」，还没列出文件时「正在列目录…」），正式产品在同步请求没回来时每秒查一次 `GET /api/knowledge-bases/{id}/sync`；挂上新目录时的同步也显示（目录行还没出来时显示在目录列表下面「<目录> · 正在同步…」）。同一个知识库同时只能同步一次，再点回「这个知识库正在同步，等这次同步完再试」。同步和浏览器连接脱钩，关了页面也跑完。目录太大或太深触到防爆保护（走查 20 万项、深 32 层）时，列到的收进来、没列到的不移出，结果里说明。类型规则不变：只收 md、markdown、txt、text |
 | SPEC-settings-13.7 | 目录「移除」 | 点击 | 变成确认「目录里的 N 篇会一起移出」（没有文件时「移除这个目录」）+「移除」「取消」；确认后目录和从它收进来的文件一起移出 |
 | SPEC-settings-13.8 | 挂目录输入框 + 「挂上目录」 | 输入、回车或点击 | 去掉末尾斜杠后加进来，自动同步默认开；空时按钮置灰。Agent 配置页内联新建知识库时填的目录也在这里（`SPEC-settings-9.22`），本地目录只有这一种挂法 |
 | SPEC-settings-13.9 | 每段多少字 | 选择 | 200、300、500、800、1200 字；改小时重叠自动压到不超过一半 |
@@ -1589,6 +1601,43 @@ PROTO-04f2 复核时补的：原型里没有、但 DOM-01a 到 DOM-02b 要做的
 | 方向 | 对方模块 | 触发 | 结果 | 见 |
 |---|---|---|---|---|
 | 改动 | 全局 | 配色、收起 | 全部页面换配色；一级菜单只显示图标 | |
+
+## SPEC-settings-22 终端
+
+终端插件登记的设置分节（正式产品路径 `/settings/plugins/terminal/terminal`，在「插件」分组里；原型放在二级菜单「SOP 编排」下面，名称「终端」，说明「Claude Code 启动命令」）。只有一项：任务「交给 Claude Code」选「切换到终端」（`SPEC-tasks-6.15`）时，在新开的终端标签里执行的命令。原型是 `web-next/src/terminalsettings.tsx` 的 `TerminalSettingsPage`，渲染规则在 `web-next/src/handoff.ts` 的 `renderClaudeCommand`。
+
+### 截图
+
+暂缺：等 `shots.py` 补「设置 > 终端」的步骤。
+
+### 交互
+
+| 编号 | 元素 | 操作 | 结果 |
+|---|---|---|---|
+| SPEC-settings-22.1 | 「Claude Code 启动命令」输入框 | 输入，回车或「保存」 | 等宽单行，默认 `gogogo`（用户本机的 shell 别名，展开是 `cd /Volumes/docs/Know\ Me && claude --dangerously-skip-permissions`）。保存后提示「已保存，下次「在终端中打开」生效」；和已存的一样时「保存」不可点。留空保存等于恢复默认，提示「留空等于默认值，已恢复成 gogogo」 |
+| SPEC-settings-22.2 | 「恢复默认」 | 点击 | 存成 `gogogo`；已经是默认时不可点 |
+| SPEC-settings-22.3 | 输入框下的说明 | 看 | 「任务里「交给 Claude Code」选「切换到终端」时，在新开的终端标签里执行这行命令。终端是登录 shell，会加载 ~/.zshrc，所以 shell 别名可以直接用。默认 gogogo；留空保存等于恢复默认」 |
+| SPEC-settings-22.4 | 「占位符」 | 看 | `{{prompt_file}}` 工作台写好的提示词文件路径（任务内容、所属项目的文档和原型位置、回写要求）；`{{mcp_config}}` 工作台生成的 MCP 配置文件路径：server 名 pm-workspace，接回当前这个工作台，claude 用它回写进展和结论；`{{workdir}}` 这次执行的工作目录（终端标签也开在这里）。占位符会换成已经加好引号的路径（单引号，值里的单引号转义），不用再自己加引号；自己包了一层引号的（`"{{workdir}}"`）也认，去掉那层 |
+| SPEC-settings-22.5 | 自动补参数 | 渲染 | 没写 `{{prompt_file}}` 就在末尾补 `"$(cat {{prompt_file}})"`，没写 `{{mcp_config}}` 再补 `--mcp-config {{mcp_config}}`。提示词放在 `--mcp-config` 前面：`--mcp-config` 能接多个值，写在它后面的参数会被它吞掉。默认的 `gogogo` 渲染成 `gogogo "$(cat '<数据目录>/tmp/handoff/<执行 id>/prompt.md')" --mcp-config '<数据目录>/tmp/handoff/<执行 id>/mcp.json'`，别名展开后参数落在 claude 上 |
+| SPEC-settings-22.6 | 「示例」 | 看 | `gogogo`（默认）；`cd {{workdir}} && claude --mcp-config {{mcp_config}} -- "$(cat {{prompt_file}})"`；`claude "$(cat {{prompt_file}})" --mcp-config {{mcp_config}}`（和上一条等价，不切目录） |
+| SPEC-settings-22.7 | 「实际执行的命令（预览）」 | 看 | 按输入框当前内容、用示例路径实时渲染出的整行命令 |
+
+### 空状态和异常状态
+
+| 编号 | 场景 | 显示 | 可做的操作 |
+|---|---|---|---|
+| SPEC-settings-22.8 | 终端插件没启用 | 正式产品这个分节不出现（插件登记的分节随插件停用撤掉）；任务弹窗里「切换到终端」置灰（`SPEC-tasks-6.11`） | 到设置 > 插件启用终端 |
+| SPEC-settings-22.9 | 保存失败 | 原型未做；正式产品在输入框下红字写后端返回的原因 | 重试 |
+
+### 数据
+
+原型：`App.tsx` 的 state `claudeCommand`（默认 `CLAUDE_COMMAND_DEFAULT = 'gogogo'`），刷新复原。正式产品：终端插件的表 `terminal_settings`（key / value，插件迁移），接口 `GET / PATCH /api/terminal/settings` `{claude_command}`；提示词文件和 MCP 配置由内核写在工作台数据目录下的临时子目录 `tmp/handoff/<执行 id>/`（原型示例路径 `/Users/me/pm-workspace/data/tmp/handoff/`），不进仓库，用完可清理。MCP 配置的 server 名 `pm-workspace`，`command` 是本机工作台的 MCP 二进制，`--api` 指向当前工作台地址，都由服务自己推出来。
+
+### 联动
+
+| 方向 | 对方模块 | 触发 | 结果 | 见 |
+|---|---|---|---|---|
+| 出去 | 任务、终端 | 「在终端中打开」 | 按这里的命令在新终端标签里开 claude 会话 | `SPEC-tasks-6.15`、`SPEC-terminal-1.17` |
 
 ## 原型和规格对不上的地方
 
