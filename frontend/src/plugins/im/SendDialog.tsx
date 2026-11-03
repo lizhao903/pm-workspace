@@ -1,7 +1,7 @@
 // 主动发消息的弹窗（IM 插件 0.17.0，SPEC-messages-8）：消息页标题行「发消息」打开时先选渠道 → 渠道有多个实例时选实例 → 选会话（可搜，群和私聊，
 // Slack 还列出账号所在、还没收过消息的频道）→ 写内容 → 发送；群组管理每行「发消息」打开时会话已带上，只写内容。
 // 写明以谁的身份发（同回复框，sendAsText）。内容框和回复框同一套 @（0.18.0，MentionBox）：候选是所选会话里发过言的人 + 联系人里
-// 在这个渠道有 IM 身份的人；还没收过消息的频道没有候选，手打的 @ 照原样发。主动发消息不默认 @ 谁。不串在哪条消息下面；发出的（含失败的）记下来，消息页选中这个会话时能看到（SentStrip）。
+// 在这个渠道有 IM 身份的人；还没收过消息的频道没有候选，手打的 @ 照原样发。主动发消息不默认 @ 谁。不挂在哪条消息的消息列里；发出的（含失败的）记下来，消息页选中这个会话时能看到（SentStrip）。
 import { useMemo, useState } from 'react'
 import {
   IM_SEND_MAX, errorText, useConnectorDefs, useConnectors, useImConversationSummary, useImConversations, useImMembers, useImSendToConversation,
@@ -105,7 +105,7 @@ export function SendDialog({ conversationId, onCancel, onSent }: {
         <Field label="内容" wrap={false} hint={len > IM_SEND_MAX ? <span className="im-err">超过 {IM_SEND_MAX} 字</span> : `${len} / ${IM_SEND_MAX}`}>
           <MentionBox value={text} onChange={setText} label="内容" rows={6} textareaClass="textarea" below autoFocus={!!preset}
             members={target?.kind === 'cv' ? members.data : undefined} membersLoading={members.isLoading} onPick={ment.pick}
-            placeholder="不串在哪条消息下面，直接发到会话里；输入 @ 提到会话里的人"
+            placeholder="不挂在哪条消息的消息列里，直接发到会话里；输入 @ 提到会话里的人"
             onKeyDown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); submit() } }} />
         </Field>
         {sendAs && <div className="im-muted im-send-as">{sendAs}</div>}

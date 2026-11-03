@@ -66,5 +66,5 @@ export function sentReplyTitle(m: Pick<ImMessage, 'replied_sent'>, now = Date.no
   const r = m.replied_sent
   if (!r) return ''
   const text = r.text.replace(/\s+/g, ' ')
-  return `${r.via === 'thread' ? '在串里回复了' : '回复了'}我 ${timeAgo(r.at, now)}发出的「${text.length > 40 ? `${text.slice(0, 40)}…` : text}」`
+  return `${r.via === 'thread' ? '在消息列里回复了' : '回复了'}我 ${timeAgo(r.at, now)}发出的「${text.length > 40 ? `${text.slice(0, 40)}…` : text}」`
 }

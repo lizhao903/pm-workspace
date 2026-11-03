@@ -4,7 +4,7 @@ import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Agent, AgentRun } from '../../core/data'
-import { resetLiveChats } from './chatLive'
+import { resetLiveChats } from '../../core/chat/chatLive'
 import { RunsView } from './RunsView'
 
 const agent = (id: string, name: string, over: Partial<Agent> = {}): Agent => ({

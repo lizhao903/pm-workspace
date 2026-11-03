@@ -40,6 +40,7 @@ import (
 	"github.com/lizhao903/pm-workspace/internal/plugins/video"
 	"github.com/lizhao903/pm-workspace/internal/runner"
 	"github.com/lizhao903/pm-workspace/internal/schedule"
+	"github.com/lizhao903/pm-workspace/internal/selfupdate"
 	"github.com/lizhao903/pm-workspace/internal/store/sqlite"
 	"github.com/lizhao903/pm-workspace/internal/vault"
 	"github.com/lizhao903/pm-workspace/internal/webhook"
@@ -91,11 +92,27 @@ func main() {
 
 	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo})))
 
-	if err := run(cfg); err != nil {
+	err := run(cfg)
+	// 版本更新（SYS-UPD）换好二进制后要求重启：run 已经收完尾（关监听、关库、停插件），在这里原地换成新程序，
+	// 参数、环境、进程号都不变（pid 文件、数据目录、vault.key 跟着不变）
+	var re *restartRequest
+	if errors.As(err, &re) {
+		slog.Info("版本更新：原地重启", "exe", re.exe)
+		if xerr := syscall.Exec(re.exe, os.Args, os.Environ()); xerr != nil {
+			slog.Error("重启失败，新程序没起来；旧程序留在 .prev，手动换回再启动", "exe", re.exe, "err", xerr)
+			os.Exit(1)
+		}
+	}
+	if err != nil {
 		slog.Error("fatal", "err", err)
 		os.Exit(1)
 	}
 }
+
+// restartRequest 是 run 收尾后要求原地换成 exe 重启
+type restartRequest struct{ exe string }
+
+func (r *restartRequest) Error() string { return "restart into " + r.exe }
 
 func run(cfg config) error {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
@@ -223,6 +240,22 @@ func run(cfg config) error {
 	defer bus.Wait(5 * time.Second)
 
 	opts := api.Options{Version: version, Dev: cfg.dev, Vault: v, Plugins: plugins}
+	// 版本更新（SYS-UPD）：按正在跑的二进制找源码目录；换好二进制后经 restartCh 让下面的 select 收尾、main 原地重启
+	restartCh := make(chan string, 1)
+	if exe, err := os.Executable(); err == nil {
+		opts.Updater = selfupdate.New(exe, version, func(ctx context.Context) (string, error) {
+			info, err := st.Snapshot(ctx, "")
+			if err != nil {
+				return "", err
+			}
+			return info.Path, nil
+		}, func(exe string) {
+			select {
+			case restartCh <- exe:
+			default:
+			}
+		})
+	}
 	// 审计日志（CORE-08，0018）：删除和 Agent 写操作在 store 外层记，配置类在 handler 里记
 	opts.Audit = audit.New(pdb, slog.Default())
 	// 事件流和通知（CORE-07b，0019）：内核内部订阅总线，不经插件注册表；退出时先关流，SSE 连接不拖住 Shutdown
@@ -432,10 +465,13 @@ func run(cfg config) error {
 		openBrowser(urls[len(urls)-1])
 	}
 
+	var restartExe string
 	select {
 	case err := <-errCh:
 		return err
 	case <-ctx.Done():
+	case restartExe = <-restartCh:
+		fmt.Println("\n版本更新：收尾后重启…")
 	}
 
 	// 优雅退出：先停止收新请求，给在途请求 5 秒收尾，再关库。
@@ -447,6 +483,9 @@ func run(cfg config) error {
 			slog.Warn("shutdown 超时，强制关闭", "err", err)
 			_ = srv.Close()
 		}
+	}
+	if restartExe != "" {
+		return &restartRequest{exe: restartExe}
 	}
 	return nil
 }

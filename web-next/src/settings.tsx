@@ -2,7 +2,7 @@ import type { ReactNode } from 'react'
 import { Subnav, type SubnavItem } from './subnav'
 
 // 设置分项从这里加：Section 加一个 key，SECTIONS 加一行，App 里按 key 渲染内容
-export type Section = 'workspace' | 'connectors' | 'providers' | 'agents' | 'kbs' | 'skills' | 'enums' | 'incidents' | 'domains' | 'sop' | 'terminal' | 'appearance'
+export type Section = 'workspace' | 'connectors' | 'providers' | 'agents' | 'kbs' | 'skills' | 'enums' | 'incidents' | 'domains' | 'sop' | 'terminal' | 'appearance' | 'update'
 
 export const SECTIONS: { key: Section; label: string; desc: string }[] = [
   { key: 'workspace', label: '工作台与模块', desc: '切换工作台、选功能模块' },
@@ -19,6 +19,8 @@ export const SECTIONS: { key: Section; label: string; desc: string }[] = [
   // SPEC-settings-22：正式产品是终端插件登记的设置分节（/settings/plugins/terminal/terminal）
   { key: 'terminal', label: '终端', desc: 'Claude Code 启动命令' },
   { key: 'appearance', label: '外观', desc: '配色方案、菜单收起' },
+  // SPEC-settings-23（SYS-UPD）：把工作台更新到源码目录里的最新代码
+  { key: 'update', label: '版本更新', desc: '更新到最新版本并重启' },
 ]
 
 export function SettingsNav({ active, onSelect, alerts, extra = [], children }: {

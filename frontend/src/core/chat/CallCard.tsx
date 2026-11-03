@@ -2,8 +2,9 @@
 // 会话里只有执行中和已执行；执行记录里要人确认的调用多三种状态，等你确认的默认展开（AG-01b8）。
 // 确认、拒绝按钮由用的地方放进 children（AG-02b）；权限没开时 noGrant 是提示要开哪项、去哪里开。
 import { useState, type ReactNode } from 'react'
-import { cls, IconChevronRight } from '../../core/ui'
+import { cls, IconChevronRight } from '../ui'
 import { isWriteTool, prettyArgs, toolLabel, type CallView } from './chatModel'
+import './chat.css'
 
 const STATE_LABEL = { running: '执行中', done: '已执行', pending: '等你确认', confirmed: '已确认执行', rejected: '已拒绝' } as const
 // 授权关了的工具，后端的结果是「<工具> 没有授权，没有执行」（SPEC-sessions-1.18）

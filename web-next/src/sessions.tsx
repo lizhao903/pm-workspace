@@ -71,7 +71,7 @@ function whenGroup(iso: string) {
 }
 
 /** 已删除的 Agent 的占位：停用、没有权限，只用来回看会话 */
-const goneAgent = (id: string): Agent => ({
+export const goneAgent = (id: string): Agent => ({
   id, name: '已删除的 Agent', desc: '', color: 'var(--faint)', model: '', instructions: '', abilities: {}, avatar: { kind: 'icon', value: 'robot' },
   skills: [], mcps: [], kbs: [], triggers: [], thinking: 'default', enabled: false, created_at: '',
 })

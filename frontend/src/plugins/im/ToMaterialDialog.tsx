@@ -3,8 +3,10 @@
 // 可选「连附件一起加入资料」：走附件面板同一条路径（没获取的先获取，已在这个项目资料里的跳过）。
 // 以前整组转过的先提示，能打开已有的，也能「再转一份」；只有一部分转过的提一句条数。
 // 都加上了直接关掉；附件有没加上的、出处没记上的，留在弹窗里说清楚，笔记已经存了。
+// 这些消息在消息列里（有回复，或本身是回复）时可以勾「带上消息列」（默认勾上）：消息列里的消息按时间并进对话记录，附件、出处也算上；
+// 「存好后标为已处理」只管选中的这几条，不动带上的消息列。
 // 「存好后标为已处理」默认勾上（同回复框的「发送后标为已处理」）：笔记存上后把这些消息里还没处理的批量标为已处理；没标成的也留在弹窗里说。
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import {
   IM_NOTE_MAX, errorText, needsFetch, useImBatch, useImToMaterial, usePlugins, useProjects, type ImMessage, type ImToMaterialResult,
 } from '../../core/data'
@@ -14,11 +16,13 @@ import { attachmentsOf, materialBody, materialHint, materialTitle, priorMaterial
 
 const PROJECTS_PLUGIN = 'projects'
 
-export function ToMaterialDialog({ messages, chLabel, doneLabel = '已处理', onCancel, onDone, onOpenMaterial }: {
+export function ToMaterialDialog({ messages: picked, thread = [], chLabel, doneLabel = '已处理', onCancel, onDone, onOpenMaterial }: {
   /** 「已处理」在设置里的叫法 */
   doneLabel?: string
   /** 这条消息，或合并显示的一组 */
   messages: readonly ImMessage[]
+  /** 这些消息所在消息列里、不在 messages 里的消息（threadForMany）；空的不出「带上消息列」 */
+  thread?: readonly ImMessage[]
   chLabel: string
   onCancel: () => void
   /** 存好了（附件都加上、出处也记上） */
@@ -30,20 +34,23 @@ export function ToMaterialDialog({ messages, chLabel, doneLabel = '已处理', o
   const projects = useProjects()
   const save = useImToMaterial()
   const batch = useImBatch()
-  const openIds = messages.filter(isOpen).map((m) => m.id)
+  const [withThread, setWithThread] = useState(true)
+  // 实际存进资料的消息：选中的，勾了「带上消息列」再加上消息列里的
+  const messages = useMemo(() => (withThread && thread.length ? [...picked, ...thread] : picked), [picked, thread, withThread])
+  const openIds = picked.filter(isOpen).map((m) => m.id)
   const [alsoDone, setAlsoDone] = useState(true)
   const [doneErr, setDoneErr] = useState<unknown>(null)
-  const def = projectOf(messages)
+  const def = projectOf(picked)
   const [pid, setPid] = useState(def?.id ?? '')
-  const [title, setTitle] = useState(() => materialTitle(messages))
+  const [title, setTitle] = useState(() => materialTitle(picked))
   const auto = materialBody(messages, chLabel)
   const [edited, setEdited] = useState<string | null>(null)
   const body = edited ?? auto
   const atts = attachmentsOf(messages)
   const [withAtts, setWithAtts] = useState(false)
   const [result, setResult] = useState<ImToMaterialResult | null>(null)
-  const prior = priorMaterials(messages)
-  const many = messages.length > 1
+  const prior = priorMaterials(picked)
+  const many = picked.length > 1
 
   const live = (projects.data?.data ?? []).filter((p) => !p.deleted_at)
   const options = live.map((p) => ({ value: p.id, label: p.title, hint: p.id === def?.id ? '消息归到的项目' : undefined }))
@@ -118,7 +125,12 @@ export function ToMaterialDialog({ messages, chLabel, doneLabel = '已处理', o
         <Field label="标题">
           <Input value={title} aria-label="标题" maxLength={200} onChange={(e) => setTitle(e.target.value)} />
         </Field>
-        <Field label={`正文（${many ? `${messages.length} 条消息` : '这条消息'}，按时间拼成一段对话记录）`} wrap={false}
+        {thread.length > 0 && (
+          <Checkbox checked={withThread} onCheckedChange={setWithThread}>
+            带上消息列（另外 {thread.length} 条），按时间并进对话记录{edited !== null ? '（正文改过，要按新的范围重拼点「恢复默认」）' : ''}
+          </Checkbox>
+        )}
+        <Field label={`正文（${messages.length > 1 ? `${messages.length} 条消息` : '这条消息'}，按时间拼成一段对话记录）`} wrap={false}
           error={over ? <>超过 {IM_NOTE_MAX} 字（现在 {len} 字），删掉一些，或分几次转{restore}</> : undefined}
           hint={<>{len} / {IM_NOTE_MAX} 字，存成项目资料里的笔记，能改{restore}</>}>
           <Textarea rows={10} value={body} aria-label="正文" invalid={over} onChange={(e) => setEdited(e.target.value)} />
@@ -144,7 +156,7 @@ export function ToMaterialDialog({ messages, chLabel, doneLabel = '已处理', o
         )}
         {openIds.length > 0 && (
           <Checkbox checked={alsoDone} onCheckedChange={setAlsoDone}>
-            存好后标为{doneLabel}{many && openIds.length < messages.length ? `（还没处理的 ${openIds.length} 条）` : ''}
+            存好后标为{doneLabel}{many && openIds.length < picked.length ? `（还没处理的 ${openIds.length} 条）` : ''}
           </Checkbox>
         )}
         {save.isError && <div className="im-err" role="alert">没存上：{errorText(save.error)}</div>}

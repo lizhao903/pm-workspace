@@ -4,7 +4,7 @@ import { QueryClientProvider } from '@tanstack/react-query'
 import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { queryClient, type Agent, type AgentMessage, type AgentProvider, type AgentSession, type ChatEvent } from '../../core/data'
+import { queryClient, type Agent, type AgentMessage, type AgentProvider, type AgentSession, type ChatEvent } from '../data'
 import { ChatPane } from './ChatPane'
 import type { ChatWho } from './chatModel'
 import { resetLiveChats } from './chatLive'
@@ -213,5 +213,38 @@ describe('对话面板', () => {
     expect(screen.getByText('这个 Agent 已删除，只能回看')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '发送' })).toBeDisabled()
     expect(chats).toEqual([])
+  })
+})
+
+describe('移除历史消息（SPEC-sessions-1.43）', () => {
+  it('悬停出「移除」，就地确认后按气泡的原始消息 id 调接口，读回后气泡没了；取消不调', async () => {
+    let messages = [m('u1', 'user', '第一句'), m('t1', 'tool', '查到 3 条', { tool_name: 'search_objects', tool_args: '{}' }), m('a1', 'assistant', '回答一'), m('u2', 'user', '第二句')]
+    const removed: string[][] = []
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      if (url.endsWith('/api/agent/sessions/ags_1/messages/remove')) {
+        const ids = JSON.parse(String(init?.body)).ids as string[]
+        removed.push(ids)
+        messages = messages.filter((x) => !ids.includes(x.id))
+        return new Response(JSON.stringify({ data: { session_id: 'ags_1', removed: ids.length } }), { status: 200 })
+      }
+      if (/\/api\/agent\/sessions\/ags_1\/messages$/.test(url)) {
+        return new Response(JSON.stringify({ data: messages, meta: { total: messages.length } }), { status: 200 })
+      }
+      return new Response(JSON.stringify({ data: [], meta: { total: 0 } }), { status: 200 })
+    }))
+    renderPane({ session: { ...session, message_count: 4 } })
+    await screen.findByText('回答一')
+    const btns = screen.getAllByRole('button', { name: '移除' })
+    expect(btns).toHaveLength(3)
+    await userEvent.click(btns[1])
+    const ask = screen.getByRole('group', { name: '确认移除' })
+    await userEvent.click(within(ask).getByRole('button', { name: '取消' }))
+    expect(removed).toEqual([])
+    await userEvent.click(screen.getAllByRole('button', { name: '移除' })[1])
+    await userEvent.click(within(screen.getByRole('group', { name: '确认移除' })).getByRole('button', { name: '移除' }))
+    await waitFor(() => expect(screen.queryByText('回答一')).toBeNull())
+    expect(removed).toEqual([['a1', 't1']])
+    expect(screen.getByText('第一句')).toBeInTheDocument()
   })
 })

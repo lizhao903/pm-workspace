@@ -237,7 +237,7 @@ function GroupRow({ s, chLabel, picked, busy, options, projectsLoading, projects
           <button type="button" className="im-ga-name" title={`看「${name}」的消息`} onClick={onOpen}>{name}</button>
           <span className="spacer" />
           <button type="button" className="im-act im-ga-send" disabled={!s.total} aria-label={`发消息到 ${name}`}
-            title={s.total ? '直接发到这个会话，不串在哪条消息下面' : '这个会话还没收到过消息，不知道用哪个账号发'} onClick={onSend}>发消息</button>
+            title={s.total ? '直接发到这个会话，不挂在哪条消息的消息列里' : '这个会话还没收到过消息，不知道用哪个账号发'} onClick={onSend}>发消息</button>
         </div>
         <div className="im-ga-sub">
           {sub && <span className="im-ga-who" title={sub}>{sub}</span>}

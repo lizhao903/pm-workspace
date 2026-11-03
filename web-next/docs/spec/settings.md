@@ -4,7 +4,7 @@
 |---|---|
 | 模块 key | `settings`（不是 `MODULES` 里的模块，总在一级菜单左下角） |
 | 原型入口 | 一级菜单左下「设置」，http://127.0.0.1:7778 |
-| 源码 | `web-next/src/settings.tsx`（`SECTIONS`、`SettingsNav`）、`web-next/src/workspaces.tsx`（`WorkspaceSwitcher`、`WorkspacesPage`）、`web-next/src/connectors.tsx`（`ConnectorsSettings`、`ConnectorDrawer`、`ConnBar`）、`web-next/src/apiconn.tsx`（`ApiConnectorDrawer`）、`web-next/src/models.tsx`（`ProvidersPage`、`ProviderDrawer`）、`web-next/src/agents.tsx`（`AgentsPage`、`AgentEditor`）、`web-next/src/kbskills.tsx`（`KnowledgePage`、`KbDrawer`、`SkillsPage`、`SkillDrawer`）、`web-next/src/enums.tsx`（`EnumsPage`）、`web-next/src/incidents.tsx`（`IncidentsPage`、`IncidentDrawer`）、`web-next/src/domains.tsx`（`DomainsPage`）、`web-next/src/appearance.tsx`（`AppearancePage`）；接线在 `web-next/src/App.tsx`（`section`、菜单红点、`connectConn`、`disconnectConn`、`connPlan`、`providerPlan`、`agentPlan`、`enumUsage`、`migrateEnum`、`modelChoices`、`mountableConns`、`report`） |
+| 源码 | `web-next/src/settings.tsx`（`SECTIONS`、`SettingsNav`）、`web-next/src/workspaces.tsx`（`WorkspaceSwitcher`、`WorkspacesPage`）、`web-next/src/connectors.tsx`（`ConnectorsSettings`、`ConnectorDrawer`、`ConnBar`）、`web-next/src/apiconn.tsx`（`ApiConnectorDrawer`）、`web-next/src/models.tsx`（`ProvidersPage`、`ProviderDrawer`）、`web-next/src/agents.tsx`（`AgentsPage`、`AgentEditor`）、`web-next/src/kbskills.tsx`（`KnowledgePage`、`KbDrawer`、`SkillsPage`、`SkillDrawer`）、`web-next/src/enums.tsx`（`EnumsPage`）、`web-next/src/incidents.tsx`（`IncidentsPage`、`IncidentDrawer`）、`web-next/src/domains.tsx`（`DomainsPage`）、`web-next/src/appearance.tsx`（`AppearancePage`）、`web-next/src/update.tsx`（`UpdatePage`）；接线在 `web-next/src/App.tsx`（`section`、菜单红点、`connectConn`、`disconnectConn`、`connPlan`、`providerPlan`、`agentPlan`、`enumUsage`、`migrateEnum`、`modelChoices`、`mountableConns`、`report`） |
 | 数据文件 | `web-next/src/workspacedata.ts`、`web-next/src/data.ts`（连接器部分：`Tool`、`ToolField`、`ToolCategory`、`AuthMode`、`ConnAuth`、`ToolDef`、`ConnTool`、`ToolMode`、`Connector`、`ConnStatus`）、`web-next/src/modeldata.ts`、`web-next/src/agentdata.ts`（`Agent`、`Skill`、`KnowledgeBase`）、`web-next/src/kbdata.ts`、`web-next/src/enumdata.ts`、`web-next/src/incidentdata.ts`、`web-next/src/domaindata.ts`；外观的 `ThemePref` 在 `appearance.tsx` |
 | 截图 | [`shots/settings/`](shots/settings/) |
 | 负责任务 | PROTO-04e（整理）、PROTO-11（修原型、补抽屉和子页截图） |
@@ -53,6 +53,7 @@ Agent、知识库、技能、枚举值、运行异常、内网域名几节目前
 | [SPEC-settings-20](#spec-settings-20-内网域名) | 内网域名 | 二级菜单「内网域名」 | 后缀、解析、代理、域名表、生成的配置 |
 | [SPEC-settings-21](#spec-settings-21-外观) | 外观 | 二级菜单「外观」 | 配色方案、收起一级菜单 |
 | [SPEC-settings-22](#spec-settings-22-终端) | 终端 | 二级菜单「终端」（正式产品：设置 > 插件 > 终端） | Claude Code 启动命令：任务「切换到终端」时执行的命令 |
+| [SPEC-settings-23](#spec-settings-23-版本更新) | 版本更新 | 二级菜单「版本更新」 | 正在运行和源码目录的版本、新提交，更新到最新版本并重启 |
 
 ### 共用数据结构
 
@@ -60,7 +61,7 @@ Agent、知识库、技能、枚举值、运行异常、内网域名几节目前
 
 #### 分项
 
-`Section`（`web-next/src/settings.tsx`）：`'workspace' | 'connectors' | 'providers' | 'agents' | 'kbs' | 'skills' | 'enums' | 'incidents' | 'domains' | 'appearance'`。`SECTIONS` 按这个顺序给出 `{ key, label, desc }`：
+`Section`（`web-next/src/settings.tsx`）：`'workspace' | 'connectors' | 'providers' | 'agents' | 'kbs' | 'skills' | 'enums' | 'incidents' | 'domains' | 'sop' | 'terminal' | 'appearance' | 'update'`。`SECTIONS` 按这个顺序给出 `{ key, label, desc }`：
 
 | key | label | desc |
 |---|---|---|
@@ -74,6 +75,7 @@ Agent、知识库、技能、枚举值、运行异常、内网域名几节目前
 | `incidents` | 运行异常 | 系统出的问题，可转研发任务 |
 | `domains` | 内网域名 | 给本机服务配好记的域名 |
 | `appearance` | 外观 | 配色方案、菜单收起 |
+| `update` | 版本更新 | 更新到最新版本并重启 |
 
 #### 连接器（`web-next/src/data.ts`）
 
@@ -666,7 +668,7 @@ Agent、知识库、技能、枚举值、运行异常、内网域名几节目前
 | SPEC-settings-8.6 | 卡片启用开关 | 切换 | 直接启停，不进配置页；悬停「停用后不再被触发」/「启用」；停用的卡片变淡 |
 | SPEC-settings-8.7 | 卡片说明 | 看 | 说明，空写「还没有说明」 |
 | SPEC-settings-8.8 | 能力标签 | 看 | 开着的内置工具，最多 5 个，其余「+N」；需确认的标签样式不同 |
-| SPEC-settings-8.9 | 卡片底部 | 看 | 触发方式（手动写「手动」，其余写条件，没条件写类型名，用 · 隔开）；有等确认的执行记录时「N 条等确认」；最近一次运行「<时间>运行」或「还没运行过」 |
+| SPEC-settings-8.9 | 卡片底部 | 看 | 触发方式（手动写「手动」，其余写条件，没条件写类型名，用 · 隔开）。不放执行情况（「N 条等确认」「<时间>运行」「还没运行过」都去掉）：执行记录只算任务、IM、定时触发的，会话里手动对话不算，显示「还没运行过」会误导；执行记录、等确认的在「会话」菜单的执行记录里看 |
 | SPEC-settings-8.13 | 卡片头的思考档位 | 看 | 思考不是「模型默认」时，模型名后面写「· 思考：<档位>」（不思考 / 浅 / 中 / 深），见 `SPEC-settings-9.44` |
 | SPEC-settings-8.14 | 卡片下方「场景默认 Agent」 | 看、选 | 标题「场景默认 Agent」，提示「没指定 Agent 的模型调用用谁：用它的模型、思考和指令；不指定就用默认服务商」。每个场景一行：场景名、说明、一个下拉（「不指定（用默认服务商）」加全部 Agent，停用的写「（已停用）」）；选了立即保存。场景两个：「SOP 编排助手」（流程编辑器里的助手，`SPEC-sop`）、「其他后台调用」（插件在后台调模型又没指定 Agent 的地方，包括没选 Agent 的 SOP 调模型节点）。Agent 会话、SOP 的 Agent 节点本来就挂着 Agent，不在这里 |
 
@@ -1638,6 +1640,55 @@ PROTO-04f2 复核时补的：原型里没有、但 DOM-01a 到 DOM-02b 要做的
 | 方向 | 对方模块 | 触发 | 结果 | 见 |
 |---|---|---|---|---|
 | 出去 | 任务、终端 | 「在终端中打开」 | 按这里的命令在新终端标签里开 claude 会话 | `SPEC-tasks-6.15`、`SPEC-terminal-1.17` |
+
+## SPEC-settings-23 版本更新
+
+把工作台更新到最新版本并自动重启（SYS-UPD）。「最新版本」只有一个来源：本机源码目录里的当前代码，含未提交的改动；仓库没有远端，不拉代码。源码目录是正在跑的二进制所在 `bin/` 的上一级（有 `go.mod` 和 `cmd/pmw/main.go`）。原型 `web-next/src/update.tsx` 的 `UpdatePage` 用演示数据模拟；正式产品 `frontend/src/modules/settings/update/UpdateSection.tsx`，数据层 `frontend/src/core/data/update.ts`，后端 `internal/selfupdate`，接口 `GET / POST /api/admin/update`（见 `docs/api-contract.md`「运维 admin」）。
+
+### 截图
+
+暂缺：等 `shots.py` 补「设置 > 版本更新」的步骤。
+
+### 交互
+
+| 编号 | 元素 | 操作 | 结果 |
+|---|---|---|---|
+| SPEC-settings-23.1 | 顶栏 | 看 | 「设置 / 版本更新」，说明「把工作台更新到本机源码目录里的最新代码，并自动重启」 |
+| SPEC-settings-23.2 | 「正在运行」卡片 | 看 | 提交短 sha（前 7 位；读不到时「未知提交」），编译时带未提交改动的再标「编译时带未提交改动」；下一行「版本 <版本号> · 提交于 <M/D HH:mm>」（是那次提交的时间，不是编译时间）；最下面程序路径（等宽小字） |
+| SPEC-settings-23.3 | 「源码目录」卡片 | 看 | 最新提交短 sha + 提交说明；下一行「分支 <分支> · 提交于 <时间>」，有未提交的改动时加「 · N 个文件有未提交的改动」；最下面仓库路径。找不到源码目录时只写原因（同 23.11） |
+| SPEC-settings-23.4 | 「新提交 N 条」 | 看 | 正在运行的提交之后源码里多出来的提交，新的在前，每行短 sha、说明（一行截断）、时间；最多列 30 条，多了下面「还有 N 条更早的」；没有新提交时这块不出现。正在运行的提交不在当前分支历史里（换过分支、改过历史）时不列，写「正在运行的提交不在当前分支的历史里（换过分支或改过历史），列不出新提交，更新后以源码目录为准」 |
+| SPEC-settings-23.5 | 「更新到最新版本」 | 点击 | 打开确认弹窗（23.6）。不能更新（23.11、23.12）时置灰，旁边灰字写原因；源码和正在运行的一样（HEAD 就是正在运行的提交、没有未提交的改动、正在运行的也不是带改动编的）时置灰，旁边「已经是最新版本」；更新进行中写「正在更新…」并置灰；上次失败后按钮叫「重新更新」 |
+| SPEC-settings-23.6 | 确认弹窗 | 看 / 点击 | 标题「更新到最新版本」，正文「构建要几分钟，期间工作台照常能用。」，「会发生什么」五条：先备份数据库到数据目录的 backups/；用源码目录里的当前代码重新构建前端、后端和 MCP（有未提交的改动时加「（含 N 个文件的未提交改动）」）；构建、自检都过了才替换程序（旧的留成 .prev），然后重启工作台，页面会断开几秒；正在跑的 Agent 对话、任务执行、终端会话会中断；任何一步失败都不替换，旧版本照常在跑。按钮「取消」「开始更新」 |
+| SPEC-settings-23.7 | 更新进度 | 看 | 开始后出现，五步依次：备份数据库、构建前端、构建后端和 MCP、自检新版本、替换并重启。每步一个圆点（等待灰、进行中主色闪烁、完成绿、失败红）+ 名称 + 「等待 / 进行中 / 完成 / 失败」，有附注的接在后面（备份写快照路径，失败写原因，最后一步「正在重启」）。正式产品每 1.5 秒轮询一次 |
+| SPEC-settings-23.8 | 重启中 | 看 | 最后一步换好程序后进度上方横条「新版本已经换上，工作台正在重启，几秒后自动连上…」；这几秒请求会失败，照样接着轮询，不报错 |
+| SPEC-settings-23.9 | 更新好了 | 看 | 新进程起来（轮询拿到的状态里没有这次更新的进度了）后横条换成「已更新到 <新提交短 sha>，正在刷新页面…」+「现在刷新」，2 秒后自动刷新页面换上新前端。原型不真的刷新，只显示「已更新」，卡片换成新提交、新提交列表清空 |
+| SPEC-settings-23.10 | 「查看构建日志」 | 点击 | 进度下面的链接，展开构建命令的输出（等宽，最多 360px 高可滚，只留最后 16KB），再点「收起构建日志」 |
+
+### 空状态和异常状态
+
+| 编号 | 场景 | 显示 | 可做的操作 |
+|---|---|---|---|
+| SPEC-settings-23.11 | 找不到源码目录（不是从源码仓库的 bin/ 里跑起来的） | 源码目录卡片和按钮旁写「没找到源码目录：工作台不是从源码仓库的 bin/ 里跑起来的，没法就地更新」，按钮置灰 | 手动构建部署 |
+| SPEC-settings-23.12 | 缺构建工具 | 「构建要用的 go 找不到（PATH 里没有，也不在常见安装位置）」（npm、make 同理），按钮置灰。正式产品除了 PATH 还找 /opt/homebrew/bin、/usr/local/bin、/usr/local/go/bin、~/go/bin、~/.local/bin（LaunchAgent 起的进程 PATH 只有系统目录） | 装好工具 |
+| SPEC-settings-23.13 | 某一步失败 | 那一步红点「失败 · <原因>」，下面红字「更新没成：<原因>。正在跑的旧版本没有动。」；构建出的半成品删掉，程序不替换；按钮变「重新更新」。原型勾「演示：让第二步失败」可以看到这个状态 | 看构建日志、修好后「重新更新」 |
+| SPEC-settings-23.14 | 已经在更新时再点（别的窗口） | 正式产品接口回 409「已经在更新了」，按钮旁红字「没开始：<原因>」 | 等这次结束 |
+| SPEC-settings-23.15 | 版本信息没取到 | 「版本信息没取到」+ 原因 +「重试」 | 重试 |
+| SPEC-settings-23.16 | 新进程没起来 | 横条一直停在「正在重启」；旧程序留在 `<程序>.prev`，要在终端里手动换回再启动 | 手动回退 |
+
+### 数据
+
+接口 `GET /api/admin/update` 回 `{running, source, available, blocked?, job}`：`running` 是正在运行的 `{version, commit, modified, commit_at, binary}`（取 Go 编译时记的 `vcs.*`）；`source` 是 `{repo, branch, head: {sha, subject, at}, dirty, ahead: [{sha, subject, at}], ahead_total, diverged}`，找不到源码目录为 `null`；`available` 见 23.5；`blocked` 是不能更新的原因；`job` 是这个进程最近一次更新 `{state: running | failed | restarting, steps: [{key, label, state, note?}], error?, log, started_at, ended_at?}`，没更新过为 `null`。`POST /api/admin/update` 开始一次，马上回 202 和状态。
+
+更新步骤（后端）：`backup` 用 VACUUM INTO 快照（同「立即备份」）；`frontend` 在源码目录跑 `make frontend`；`backend` 用 `go build -ldflags "-X main.version=<正在运行的版本号>"` 编到 `<程序>.new`，MCP 一起编（`bin/pmw` 配 `bin/pmw-mcp`，`bin/pmw-dev` 配 `bin/pmw-mcp-dev`）；`check` 新程序 `-h` 能跑；`swap` 旧程序改名 `.prev`、新程序换上，然后进程收尾（停监听、关库、停插件）后原地 exec 新程序，参数、环境、进程号不变，数据目录和 `vault.key` 跟着不变。同一时间只跑一次。开始更新记一条审计。
+
+原型：`UpdatePage` 自带演示数据（正在运行 `8d9ff0c`，源码多 3 条提交、3 个文件未提交），每步 0.9 秒，不连 `App.tsx` 的 state。
+
+### 联动
+
+| 方向 | 对方模块 | 触发 | 结果 | 见 |
+|---|---|---|---|---|
+| 改动 | 全局 | 更新完成 | 整个工作台换成新版本，页面自动刷新；正在跑的 Agent 对话、任务执行、终端会话中断 | |
+| 改动 | 数据 | 开始更新 | 数据目录 backups/ 多一份快照 | |
 
 ## 原型和规格对不上的地方
 

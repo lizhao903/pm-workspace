@@ -169,8 +169,8 @@ export function CallCard({ call, onConfirm, onReject }: { call: ToolCall; onConf
 
 /* ---------- 列表 ---------- */
 
-export function AgentsPage({ agents, runs, models, onOpen, onNew, onToggle, scenarios, onScenario }: {
-  agents: Agent[]; runs: AgentRun[]; models: ModelChoice[]
+export function AgentsPage({ agents, models, onOpen, onNew, onToggle, scenarios, onScenario }: {
+  agents: Agent[]; models: ModelChoice[]
   onOpen: (id: string) => void; onNew: () => void; onToggle: (id: string, on: boolean) => void
   /** 场景默认 Agent，列在卡片下面 */
   scenarios: AgentScenario[]; onScenario: (key: string, agentId: string) => void
@@ -193,12 +193,10 @@ export function AgentsPage({ agents, runs, models, onOpen, onNew, onToggle, scen
       {!rows.length && (agents.length
         ? <div className="empty"><div className="empty-title">没有匹配的 Agent</div><div className="list-sub">换个关键词试试</div></div>
         : <div className="empty"><div className="empty-title">还没有 Agent</div><div className="list-sub">点右上角「新建 Agent」</div></div>)}
-      {/* 等确认的操作标在对应 Agent 的卡片上，点进去默认打开运行记录 */}
+      {/* 卡片上不放执行情况：执行记录只算任务、IM、定时触发的，会话里手动对话不算，显示「还没运行过」会误导 */}
       <div className="agent-grid">
         {rows.map((a) => {
-          const mine = runs.filter((r) => r.agent_id === a.id)
           const on = ABILITIES.filter((x) => a.abilities[x.key] && a.abilities[x.key] !== 'off')
-          const wait = mine.filter((r) => r.status === 'waiting').length
           return (
             <div key={a.id} role="button" tabIndex={0} className={cls('agent-card', !a.enabled && 'off')} onClick={() => onOpen(a.id)}
               onKeyDown={(e) => e.key === 'Enter' && e.target === e.currentTarget && onOpen(a.id)}>
@@ -223,9 +221,6 @@ export function AgentsPage({ agents, runs, models, onOpen, onNew, onToggle, scen
               </div>
               <div className="agent-foot">
                 <span>{a.triggers.map((t) => (t.kind === 'manual' ? '手动' : t.detail || TRIGGER_KIND[t.kind])).join(' · ')}</span>
-                <span className="spacer" />
-                {wait > 0 && <span className="state state-snooze">{wait} 条等确认</span>}
-                <span>{mine[0] ? `${timeAgo(mine[0].at)}运行` : '还没运行过'}</span>
               </div>
             </div>
           )
@@ -335,6 +330,29 @@ function reply(agent: Agent, text: string, ctx: Ctx, permHint = PERM_HINT): { te
 }
 
 /** 对话面板：消息由外面管（会话要存下来，调试不存），工具调用按权限执行或等确认 */
+/**
+ * 历史气泡旁的「移除」（SPEC-sessions-1.32）：悬停出现（触屏常显），点了就地确认；移除后不再作为上下文发给模型，
+ * 已经执行的操作不撤回。原型一个气泡就是一条消息（工具调用挂在消息上），移除就是从会话消息里拿掉这一条。这一轮在跑时置灰
+ */
+function RemoveAction({ disabled, onRemove }: { disabled: boolean; onRemove: () => void }) {
+  const [asking, setAsking] = useState(false)
+  if (!asking) {
+    return (
+      <button className="ai-msg-act" disabled={disabled} title={disabled ? '这一轮还在跑，跑完再移除' : '从会话里移除这条，之后不再作为上下文发给模型'}
+        onClick={() => setAsking(true)}>移除</button>
+    )
+  }
+  return (
+    <div className="ai-msg-confirm" role="group" aria-label="确认移除">
+      <span>移除这条？之后不再作为上下文发给模型，已经执行的操作不会撤回</span>
+      <span className="act-row">
+        <button className="act act-danger" disabled={disabled} onClick={() => { setAsking(false); onRemove() }}>移除</button>
+        <button className="act" onClick={() => setAsking(false)}>取消</button>
+      </span>
+    </div>
+  )
+}
+
 export function ChatPane({ agent, msgs, onMsgs, ctx, onExecute, head, examples, placeholderNote, autoSend, permHint }: {
   /** 权限没开时回复里指向哪里打开，默认是配置页左边的「工具与权限」 */
   permHint?: string
@@ -398,6 +416,7 @@ export function ChatPane({ agent, msgs, onMsgs, ctx, onExecute, head, examples, 
         )}
         {msgs.map((m) => (
           <div key={m.id} className={cls('ai-msg', m.role === 'user' ? 'ai-user' : 'ai-ai')}>
+            {m.role === 'user' && <RemoveAction disabled={thinking} onRemove={() => onMsgs((xs) => xs.filter((x) => x.id !== m.id))} />}
             {m.role === 'agent' && <AgentAvatar agent={agent} size={24} />}
             <div className="ai-bubble">
               {m.calls && m.calls.length > 0 && (
@@ -405,6 +424,7 @@ export function ChatPane({ agent, msgs, onMsgs, ctx, onExecute, head, examples, 
               )}
               <div className="pre-line">{m.text}</div>
             </div>
+            {m.role === 'agent' && <RemoveAction disabled={thinking} onRemove={() => onMsgs((xs) => xs.filter((x) => x.id !== m.id))} />}
           </div>
         ))}
         {thinking && <div className="ai-msg ai-ai"><AgentAvatar agent={agent} size={24} /><div className="ai-bubble ai-typing"><span /><span /><span /></div></div>}

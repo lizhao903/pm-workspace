@@ -15,6 +15,7 @@ import { TaskSopBlock } from './tasksop'
 import { TaskReminders, type ReminderForm } from './taskreminders'
 import type { Schedule } from './scheduledata'
 import { buildPrompt, projectContext } from './handoff'
+import { threadTaskBody } from './msggroup'
 import type { Project } from './projectdata'
 
 /** 任务页的二级菜单 key */
@@ -368,7 +369,7 @@ const TASK_TABS: { key: TaskTab; label: string }[] = [
   { key: 'info', label: '基础信息' }, { key: 'dev', label: '开发任务' }, { key: 'sop', label: 'SOP' }, { key: 'runs', label: '执行记录' },
 ]
 
-export function TaskDrawer({ task, initial, fromMessage, hooks, deliveries, assignees, projects, onClose, onSave, onDelete, onOpenMessage, onOpenHook, onOpenSchedule, onOpenIncident, delImpact, dev, sop, handoff, reminders, tab: initialTab, focusRun, focusSopRun }: {
+export function TaskDrawer({ task, initial, fromMessage, fromThread = [], threadWho, hooks, deliveries, assignees, projects, onClose, onSave, onDelete, onOpenMessage, onOpenHook, onOpenSchedule, onOpenIncident, delImpact, dev, sop, handoff, reminders, tab: initialTab, focusRun, focusSopRun }: {
   /** 打开时停在哪个标签；不给时待验收的停在开发任务，其余基础信息。正式产品记在地址 ?tab= 上 */
   tab?: TaskTab
   /** 跳到某次执行（正式产品 ?run=）：切到执行记录并定位 */
@@ -383,6 +384,10 @@ export function TaskDrawer({ task, initial, fromMessage, hooks, deliveries, assi
   initial?: Partial<TaskDraft>
   /** IM 消息转任务时传进来 */
   fromMessage?: Message
+  /** 转任务时这条消息所在消息列里的其它消息（threadForTask），按时间正序；有时出「附上消息列」（SPEC-messages-2.15） */
+  fromThread?: Message[]
+  /** 消息列里的发信人怎么叫（联系人名优先） */
+  threadWho?: (m: Message) => string
   hooks: Webhook[]
   deliveries: Delivery[]
   assignees: string[]
@@ -431,13 +436,22 @@ export function TaskDrawer({ task, initial, fromMessage, hooks, deliveries, assi
   const sopMine = task && sop ? sop.runs.filter((r) => r.object_id === task.id) : []
   const runningId = dev && mine(dev.runs).find((r) => r.status === 'running')?.id
   const [markDone, setMarkDone] = useState(true)
+  // 转任务附上消息列：默认勾上，存时拼进描述后面
+  const [withThread, setWithThread] = useState(true)
+  const threadBody = useMemo(() => threadTaskBody(fromThread, threadWho), [fromThread, threadWho])
   const [tried, setTried] = useState(false)
   const [confirmDel, setConfirmDel] = useState(false)
   const [showPayload, setShowPayload] = useState(false)
   const src = task?.source ?? (fromMessage ? { kind: 'im' as const, message_id: fromMessage.id, channel: fromMessage.channel, sender: fromMessage.sender_name, text: fromMessage.text } : { kind: 'manual' as const })
   const delivery = src.kind === 'webhook' ? deliveries.find((x) => x.id === src.delivery_id) : undefined
   const hook = src.kind === 'webhook' ? hooks.find((h) => h.id === src.hook_id) : undefined
-  const save = () => { setTried(true); if (d.title.trim()) onSave({ ...d, title: d.title.trim() }, markDone); else pick('info') }
+  const save = () => {
+    setTried(true)
+    if (!d.title.trim()) { pick('info'); return }
+    const extra = creating && fromMessage && withThread ? threadBody : ''
+    const desc = extra ? (d.desc.trim() ? `${d.desc.trim()}\n\n${extra}` : extra) : d.desc
+    onSave({ ...d, title: d.title.trim(), desc }, markDone)
+  }
   // 未保存的改动：已有任务跟它现在的值比（验收、交给 Claude Code 已经直接改了任务，不算），新建跟打开时比
   const [blank] = useState(d)
   const dirty = !sameDraft(d, task ? draftOf(task) : blank)
@@ -567,6 +581,19 @@ export function TaskDrawer({ task, initial, fromMessage, hooks, deliveries, assi
           <>
             {fields}
             <DevFields d={d} inheritDir={inheritDir} onChange={(p) => setD((x) => ({ ...x, ...p }))} />
+            {fromMessage && fromThread.length > 0 && (
+              <div className="totask-thread">
+                <label className="check"><input type="checkbox" checked={withThread} onChange={(e) => setWithThread(e.target.checked)} />附上消息列（{fromThread.length} 条），写进任务正文</label>
+                {withThread && (
+                  <ul className="totask-thread-list" aria-label="附上的消息列">
+                    {fromThread.slice(-3).map((x) => (
+                      <li key={x.id}><b>{threadWho ? threadWho(x) : x.sender_name}</b>{!x.thread && <span className="list-sub">（原消息）</span>}<span className="list-sub">{timeAgo(x.at)}</span>：<span className="ellipsis">{x.text || '（没有正文）'}</span></li>
+                    ))}
+                    {fromThread.length > 3 && <li className="list-sub">前面还有 {fromThread.length - 3} 条，一起附上</li>}
+                  </ul>
+                )}
+              </div>
+            )}
             {fromMessage && fromMessage.status === 'pending' && (
               <label className="check"><input type="checkbox" checked={markDone} onChange={(e) => setMarkDone(e.target.checked)} />建好后把这条消息标为{msgEnum.label('done')}</label>
             )}

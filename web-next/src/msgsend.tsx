@@ -116,7 +116,7 @@ export function SendDialog({ messages, contacts, connectors, preset, onCancel, o
         )}
         <label className="msg-start-field"><span className="list-sub">内容 {len} / {SEND_MAX}</span>
           <MentionBox className="input" rows={6} value={text} onChange={setText} onPick={(p) => setPicked((x) => [...x, p])} members={members} below label="内容"
-            placeholder="不串在哪条消息下面，直接发到会话里；输入 @ 提到会话里的人"
+            placeholder="不挂在哪条消息的消息列里，直接发到会话里；输入 @ 提到会话里的人"
             onKeyDown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); submit() } }} />
         </label>
         {sendAs && <div className="muted">{sendAs}</div>}
@@ -138,7 +138,7 @@ export function SentStrip({ sent, onSend, onResend }: { sent: Sent[]; onSend: ()
   const list = [...sent].sort((a, b) => b.at.localeCompare(a.at))
   return (
     <div className="msg-group-bar sent-strip">
-      <button className="btn btn-outline" onClick={onSend} title="直接发到这个会话，不串在哪条消息下面">发消息</button>
+      <button className="btn btn-outline" onClick={onSend} title="直接发到这个会话，不挂在哪条消息的消息列里">发消息</button>
       {list.length > 0 && <button className={cls('btn btn-ghost', open && 'on')} onClick={() => setOpen(!open)}>我发出的 {list.length} 条{list.some((x) => x.status === 'failed') && <span className="danger-text">（有失败）</span>}</button>}
       {open && list.length > 0 && (
         <div className="sent-list">

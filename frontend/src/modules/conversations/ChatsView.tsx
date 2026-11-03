@@ -12,15 +12,15 @@ import {
 import { useSessionSource, useSessionTools } from '../../core/plugin'
 import { Button, ErrorState, IconSearch, LoadingState, PageTitle, SearchSelect, cls } from '../../core/ui'
 import { AgentAvatar } from '../../core/ui/AgentAvatar'
-import { ChatPane } from './ChatPane'
-import { hasLiveChat, useLiveChat } from './chatLive'
+import { ChatPane } from '../../core/chat/ChatPane'
+import { hasLiveChat, useLiveChat } from '../../core/chat/chatLive'
 import {
   FILTER_GONE, FILTER_NO_AGENT, GONE_AGENT, NEW_TITLE, matchAgentFilter, recentAgents, sessionLinks, timeAgo, whenGroup, whoName, whoOf, type ChatWho,
-} from './chatModel'
+} from '../../core/chat/chatModel'
 import { EMPTY_DOCK, switchTool, toggleTool } from './dockModel'
 import { NewSession } from './NewSession'
 import { ToolButtons, ToolDock } from './ToolDock'
-import { WhoAvatar } from './WhoAvatar'
+import { WhoAvatar } from '../../core/chat/WhoAvatar'
 
 /** 一次先露多少条，往下点「显示更多」 */
 const PAGE = 50

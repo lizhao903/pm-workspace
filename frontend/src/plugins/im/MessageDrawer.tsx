@@ -12,8 +12,8 @@
 // 「分诊建议」一节（SOP 插件在跑时才有）放在正文下面，由消息页传进来（TriageAdvice 的 TriageSection）。
 // 回复框带 @（0.18.0，MentionBox）：群聊回复底部有「回复时 @ 对方」开关（默认打开、记在本机，快捷回复也跟着它），
 // 输入 @ 弹出联系人和会话里发过言的人；私聊没有开关、不加 @。工作台里显示自己发出的回复仍是「@名字」。
-// 串里的回复（0010）：串里回复的抽屉在正文上面写「回复 谁：原消息」，能打开原消息；原消息的抽屉在正文下面按时间列出整个串，
-// 每条能单独标已处理、忽略、重新打开，点开看那一条。回复框回串里的消息时发到同一个串（后端带父消息的 thread_ts）。
+// 消息列回复（0010）：消息列回复的抽屉在正文上面写「回复 谁：原消息」，能打开原消息；原消息的抽屉在正文下面按时间列出整个消息列，
+// 每条能单独标已处理、忽略、重新打开，点开看那一条（列表上不列这些回复，只在原消息行上标未读数，详情都在这里看）。回复框回消息列里的消息时发到同一个消息列（后端带父消息的 thread_ts）。
 import { useState, type ReactNode } from 'react'
 import { errorText, useImAction, useImMembers, useProjects, type Connector, type ImAction, type ImMessage, type ImSessionIntent } from '../../core/data'
 import { Avatar, Button, Checkbox, Drawer, SearchSelect, cls } from '../../core/ui'
@@ -43,11 +43,11 @@ type AgentProps = {
   /** 转项目资料（0009）：打开弹窗；转过的资料点过去 */
   onToMaterial: () => void
   onOpenMaterial: (projectId: string, materialId: string) => void
-  /** 这条作为原消息时整个串里的回复（按时间正序）；不是原消息为空 */
+  /** 这条作为原消息时整个消息列的回复（按时间正序）；不是原消息为空 */
   thread?: ImMessage[]
-  /** 这条是串里回复时，它的原消息（收到了的才有） */
+  /** 这条是消息列回复时，它的原消息（收到了的才有） */
   threadParent?: ImMessage
-  /** 打开另一条消息（原消息、串里的某一条） */
+  /** 打开另一条消息（原消息、消息列里的某一条） */
   onOpenMessage?: (id: string) => void
 }
 
@@ -129,7 +129,7 @@ function DrawerBody({ msg, ch, connectors, sv, photo, note, triage, onClose, onO
         <div className="im-reply-box">
           <MentionBox value={text} onChange={setText} disabled={!!blocker} label="回复内容"
             members={members.data} membersLoading={members.isLoading} onPick={ment.pick}
-            placeholder={blocker ? '这个会话现在不能回复' : `回复 ${who}${msg.thread ? '（发到同一个串）' : ''}，输入 @ 提到别人，⌘ Enter 发送`}
+            placeholder={blocker ? '这个会话现在不能回复' : `回复 ${who}${msg.thread ? '（发到同一个消息列）' : ''}，输入 @ 提到别人，⌘ Enter 发送`}
             onKeyDown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); send(text, alsoDone, true) } }} />
           {reply.isError && <div className="im-err" role="alert">没发出去：{errorText(reply.error)}</div>}
           <div className="im-reply-bar">
@@ -198,7 +198,7 @@ function DrawerBody({ msg, ch, connectors, sv, photo, note, triage, onClose, onO
 
       {msg.thread && (
         <div className="im-thread-from">
-          <span className="im-thread-tag">串里回复</span>
+          <span className="im-thread-tag">消息列回复</span>
           <span className="im-muted ellipsis">{threadHint(msg, threadParent)}</span>
           {threadParent && onOpenMessage && <button type="button" className="im-act" onClick={() => onOpenMessage(threadParent.id)}>打开原消息</button>}
         </div>
@@ -269,14 +269,14 @@ function DrawerBody({ msg, ch, connectors, sv, photo, note, triage, onClose, onO
   )
 }
 
-/** 原消息抽屉里的整个串：按时间列，每条能单独处理；点一条打开它 */
+/** 原消息抽屉里的整个消息列：按时间列，每条能单独处理；点一条打开它 */
 function ThreadList({ replies, sv, onOpen }: { replies: ImMessage[]; sv: StatusView; onOpen?: (id: string) => void }) {
   const act = useImAction()
   const doneLabel = sv.label('done')
   return (
     <>
-      <div className="im-section">串里的回复 <span className="seg-n">{replies.length}</span></div>
-      <div className="im-thread-list" role="list" aria-label="串里的回复">
+      <div className="im-section">消息列回复 <span className="seg-n">{replies.length}</span></div>
+      <div className="im-thread-list" role="list" aria-label="消息列回复">
         {replies.map((m) => {
           const open = m.status === 'pending' || m.status === 'expired'
           return (

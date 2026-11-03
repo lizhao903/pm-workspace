@@ -8,9 +8,9 @@ export const BURST_GAP_MS = 10 * 60_000
 export const DUP_WINDOW_MS = 24 * 3600_000
 
 export type GroupKind = 'single' | 'dm' | 'burst' | 'dup'
-/** threads 是挂在这一行下面的串；faded 是原消息不在筛选结果里、只为挂串里的回复才显示的一行（变淡） */
+/** threads 是归到这一行的消息列（列表上不显示回复，只在行上标「消息列 N 条（未读）回复」）；faded 是原消息不在筛选结果里、只因消息列有新回复才显示的一行（变淡） */
 export type MsgRow = { key: string; kind: GroupKind; head: Message; items: Message[]; all: Message[]; threads?: ThreadBlock[]; faded?: boolean }
-/** 一个串：原消息和这一行要显示的串里回复（筛得出来的，按时间正序） */
+/** 一个消息列：原消息和归到这一行的消息列回复（筛得出来的，按时间正序） */
 export type ThreadBlock = { parent: Message; replies: Message[] }
 
 const norm = (t: string) => t.replace(/\s+/g, ' ').trim()
@@ -23,7 +23,7 @@ export function clusterMessages(list: readonly Message[]) {
   const of = new Map<string, string>()
   const byKey = new Map<string, { key: string; kind: GroupKind; all: Message[] }>()
   for (const m of list) {
-    // 串里的回复不参与连发、重复合并，各自一条，由 nestThreads 挂到原消息下面
+    // 消息列回复不参与连发、重复合并，各自一条，由 nestThreads 归到原消息那一行
     if (m.thread) { byKey.set(`grp:${m.id}`, { key: `grp:${m.id}`, kind: 'single', all: [m] }); of.set(m.id, `grp:${m.id}`); continue }
     byConv.set(convOf(m), [...(byConv.get(convOf(m)) ?? []), m])
   }
@@ -114,11 +114,11 @@ export function sessionPrompt(xs: readonly Message[], intent: SessionIntent, opt
   return lines.join('\n')
 }
 
-// ---- 串里的回复（SPEC-messages-1.62 起，正式产品同口径见 frontend/src/plugins/im/groupModel.ts） ----
+// ---- 消息列回复（SPEC-messages-1.62 起，正式产品同口径见 frontend/src/plugins/im/groupModel.ts） ----
 
 /**
- * 把串里的回复挂到原消息那一行下面：原消息在某一行里（合并的一组里也算）就挂那一行；原消息不在筛选结果里时补一行变淡的原消息；
- * 原消息没收到的回复照普通行留着。行按「行里最新一条（含挂的回复）」重新排
+ * 把消息列回复归到原消息那一行（列表上不显示回复本身）：原消息在某一行里（合并的一组里也算）就归那一行；原消息不在筛选结果里时补一行变淡的原消息；
+ * 原消息没收到的回复照普通行留着。行按「行里最新一条（含归来的回复）」重新排，老话题来了新回复被顶上来
  */
 export function nestThreads(rows: readonly MsgRow[], all: readonly Message[]): MsgRow[] {
   const byId = new Map(all.map((m) => [m.id, m]))
@@ -147,21 +147,63 @@ export function rowTime(r: MsgRow): string {
   return at || r.head.at
 }
 
-/** 串里回复少（不超过 3 条）时全列；多了只列最近 2 条，加「还有 N 条回复」，点开展开 */
-export function threadShown(b: ThreadBlock, open: boolean) {
-  if (open || b.replies.length <= 3) return { shown: b.replies, hidden: 0 }
-  return { shown: b.replies.slice(-2), hidden: b.replies.length - 2 }
-}
-
-/** 原消息的整个串，按时间正序（原消息抽屉里列） */
+/** 原消息的整个消息列，按时间正序（原消息抽屉里列） */
 export const threadOf = (parent: Message, all: readonly Message[]) =>
   all.filter((m) => m.thread?.parent_id === parent.id).sort((a, b) => a.at.localeCompare(b.at))
 
-/** 串里回复的灰字：「回复 <原消息发信人>：<原消息前 40 字>」 */
+/** 消息列回复的灰字：「回复 <原消息发信人>：<原消息前 40 字>」 */
 export function threadHint(m: Message, parent?: Message, who?: string): string {
   if (!m.thread) return ''
   const name = who || parent?.sender_name || m.thread.parent_sender || '原消息'
   const text = norm(parent?.text ?? m.thread.parent_text)
   const cut = [...text].length > 40 ? `${[...text].slice(0, 40).join('')}…` : text
   return cut ? `回复 ${name}：${cut}` : `回复 ${name}`
+}
+
+// ---- 转任务、转项目资料带上消息列（SPEC-messages-2.15、6；正式产品同口径见 frontend/src/plugins/im/groupModel.ts） ----
+
+/**
+ * 这条消息所在消息列里除它以外的消息，按时间正序：是原消息时是它的全部回复；是回复时是原消息（收到了的）加同一消息列里的别的回复。
+ * 原型的回复只按 parent_id 认，原消息没收到（parent_id 为空）的认不出同伴，为空
+ */
+export function threadForTask(m: Message, all: readonly Message[]): Message[] {
+  const pid = m.thread ? m.thread.parent_id : m.id
+  if (!pid) return []
+  const parent = m.thread ? all.find((x) => x.id === pid) : undefined
+  const replies = all.filter((x) => x.id !== m.id && x.thread?.parent_id === pid).sort((a, b) => a.at.localeCompare(b.at))
+  return parent ? [parent, ...replies] : replies
+}
+
+/** 一组消息各自所在消息列里、不在这组里的消息，去重，按时间正序（转项目资料带上消息列用） */
+export function threadForMany(ms: readonly Message[], all: readonly Message[]): Message[] {
+  const have = new Set(ms.map((m) => m.id))
+  const out = new Map<string, Message>()
+  for (const m of ms) for (const x of threadForTask(m, all)) if (!have.has(x.id)) out.set(x.id, x)
+  return [...out.values()].sort((a, b) => a.at.localeCompare(b.at))
+}
+
+/** 附上的消息列正文最多这么多字（正式产品转任务请求体限 64KB，留足余量） */
+export const THREAD_TASK_MAX = 12000
+
+/** M/D HH:mm */
+const threadTime = (iso: string) => new Date(iso).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+
+/**
+ * 附上的消息列拼成任务正文（Markdown）：「## 消息列（N 条）」，一条一行「- **发信人**（原消息） 时间：正文」，多行正文缩进两格；
+ * 太长时后面的不附，末尾写「还有 K 条没附上，在原消息里看」
+ */
+export function threadTaskBody(xs: readonly Message[], who: (m: Message) => string = (m) => m.sender_name, time: (iso: string) => string = threadTime): string {
+  if (!xs.length) return ''
+  const lines: string[] = []
+  let len = 0
+  let cut = 0
+  for (const [i, x] of xs.entries()) {
+    const text = (x.text.trim() || '（没有正文）').split(/\r?\n/).map((l, j) => (j ? `  ${l}` : l)).join('\n')
+    const line = `- **${who(x)}**${x.thread ? '' : '（原消息）'} ${time(x.at)}：${text}`
+    if (len + line.length > THREAD_TASK_MAX && lines.length) { cut = xs.length - i; break }
+    lines.push(line)
+    len += line.length + 1
+  }
+  const tail = cut ? `\n\n还有 ${cut} 条没附上，在原消息里看` : ''
+  return `## 消息列（${xs.length} 条）\n\n${lines.join('\n')}${tail}`
 }

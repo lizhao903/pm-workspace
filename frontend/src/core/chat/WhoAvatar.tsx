@@ -1,6 +1,6 @@
 // 会话里「和谁聊」的头像：Agent 用 Agent 头像，已删除的用灰色机器人，旧会话用服务商的字母头像。
-import { Avatar } from '../../core/ui'
-import { AgentAvatar, type AgentAvatarSource } from '../../core/ui/AgentAvatar'
+import { Avatar } from '../ui'
+import { AgentAvatar, type AgentAvatarSource } from '../ui/AgentAvatar'
 import { GONE_AGENT, avatarName, type ChatWho } from './chatModel'
 
 // 已删除的 Agent：灰色机器人（SPEC-sessions-1.27）

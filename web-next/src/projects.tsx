@@ -274,6 +274,11 @@ export interface ProjectLinks {
   onOpenSession: (id: string) => void
   /** 去会话页看这个项目的全部会话（会话页按项目筛）；不传就在项目里就地展开 */
   onAllSessions?: () => void
+  /** 在 Agent 标签里就地打开的会话（SPEC-projects-10.13）；null 是没打开。传了 onChatOpen、renderChat 就就地打开，不跳会话页 */
+  chatOpen?: string | null
+  onChatOpen?: (id: string | null) => void
+  /** 对话面板：会话和面板头部（返回、标题、Agent 名、在会话页打开） */
+  renderChat?: (s: Session, head: ReactNode) => ReactNode
   onFetchAttachment: (msgId: string, attId: string) => void
   onAddAttachment: (projectId: string, msgId: string, attId: string) => void
   /** 附件标签里「已加入资料」点了去支持材料，高亮那一条 */
@@ -489,7 +494,8 @@ export function ProjectPage({ project, projects, agents, content, tab, onTab, on
       {tab === 'deals' && deals}
       {tab === 'tasks' && <ProjectTasksTab p={p} tasks={L.tasks} onNew={L.onNewTask} onOpen={L.onOpenTask} onStatus={L.onTaskStatus} onApprove={L.onApproveTask} />}
       {tab === 'sop' && <ProjectSopTab p={p} sops={L.sops} runs={L.runs} onChange={set} onStart={L.onStartSop} onOpenRun={L.onOpenRun} onOpenSop={L.onOpenSop} />}
-      {tab === 'agents' && <ProjectAgentTab p={p} agents={agents} sessions={L.sessions} onChange={set} onChat={onChat} onOpenAgent={onOpenAgent} onOpenSession={L.onOpenSession} onAllSessions={L.onAllSessions} />}
+      {tab === 'agents' && <ProjectAgentTab p={p} agents={agents} sessions={L.sessions} onChange={set} onChat={onChat} onOpenAgent={onOpenAgent} onOpenSession={L.onOpenSession} onAllSessions={L.onAllSessions}
+        chatOpen={L.chatOpen ?? null} onChatOpen={L.onChatOpen} renderChat={L.renderChat} />}
       {tab === 'materials' && (
         <>
           {newMat && (
