@@ -35,6 +35,8 @@ type engine struct {
 	c plugin.Core
 	// hook 在每个节点执行前调，测试用它卡住执行；返回错误就不出结果（等取消）
 	hook func(ctx context.Context, runID, step string) error
+	// gate 限制整个插件同时调模型的步骤数（SOP-07，gate.go）
+	gate *modelGate
 
 	mu    sync.Mutex
 	ctx   context.Context // 后台任务的 ctx，ready 关闭后才有
@@ -44,7 +46,7 @@ type engine struct {
 }
 
 func newEngine(c plugin.Core) *engine {
-	return &engine{c: c, runs: map[string]*runner{}, ready: make(chan struct{})}
+	return &engine{c: c, runs: map[string]*runner{}, ready: make(chan struct{}), gate: newModelGate(defaultModelConcurrency)}
 }
 
 // job 是常驻后台任务：接着调度没结束的执行，然后等取消，取消后等全部协程退出。
@@ -53,6 +55,16 @@ func (e *engine) job(ctx context.Context, _ plugin.Core) error {
 	e.mu.Lock()
 	e.ctx = ctx
 	e.mu.Unlock()
+	// 先按设置定好并发上限，再接着调度没结束的执行（排队的步骤重新进队）
+	if n, err := modelConcurrency(ctx, e.c.Store()); err != nil {
+		e.c.Log().Warn("sop model concurrency not loaded, using default", "err", err)
+	} else {
+		e.gate.setLimit(n)
+	}
+	// 补记已重跑的失败执行、修好上次重跑到一半停了的占位（runbatch.go）；之后的重跑请求等 ready 才占位
+	if err := backfillRelaunched(ctx, e.c.Store()); err != nil {
+		e.c.Log().Warn("sop relaunched not backfilled", "err", err)
+	}
 	ids, err := unfinishedRuns(ctx, e.c.Store())
 	if err != nil {
 		close(e.ready)
@@ -122,8 +134,16 @@ func (e *engine) remove(r *runner) {
 	}
 }
 
+// origin 是一次执行从哪来（SOP-06）：父执行和步骤（子流程）、关联的工作对象、发起来源。
+type origin struct {
+	ParentRun, ParentStep string
+	ObjectID              string
+	Source                string // 见 sources
+	SourceRef, SourceName string
+}
+
 // create 按流程当前定义的快照建一次执行，放出起点步骤，写库，交给新的 runner。
-func (e *engine) create(ctx context.Context, f Flow, input Json, stepThrough bool, parentRun, parentStep string) (*Run, error) {
+func (e *engine) create(ctx context.Context, f Flow, input Json, stepThrough bool, o origin) (*Run, error) {
 	ectx, err := e.waitReady(ctx)
 	if err != nil {
 		return nil, err
@@ -131,7 +151,8 @@ func (e *engine) create(ctx context.Context, f Flow, input Json, stepThrough boo
 	t := now()
 	snap := f
 	run := &Run{ID: newRunID(), FlowID: f.ID, FlowName: f.Name, FlowVersion: f.Version, Flow: &snap, Title: runTitle(f, input),
-		Input: input, StepThrough: stepThrough, ParentRunID: parentRun, ParentStep: parentStep, StartedAt: t, UpdatedAt: t}
+		Input: input, StepThrough: stepThrough, ParentRunID: o.ParentRun, ParentStep: o.ParentStep, ObjectID: o.ObjectID,
+		Source: o.Source, SourceRef: o.SourceRef, SourceName: o.SourceName, StartedAt: t, UpdatedAt: t}
 	defs, err := parseSteps(&snap)
 	if err != nil {
 		return nil, err
@@ -229,6 +250,13 @@ type actReply struct {
 type resultMsg struct {
 	step, token int
 	res         nodeResult
+}
+
+// gateMsg 是调模型的步骤排上队、排到了时发回的通知，runner 记日志、发事件；token 对不上就丢掉。
+type gateMsg struct {
+	step, token int
+	queued      bool
+	ahead       int
 }
 
 // childMsg 是子执行结束时发给父执行的通知。
@@ -366,6 +394,8 @@ func (r *runner) loop(ctx context.Context) {
 				r.advance(now())
 				r.dispatch(ctx)
 				r.save(ctx)
+			case gateMsg:
+				r.gateNote(ctx, m)
 			case childMsg:
 				r.childEnded(ctx, m.child)
 				r.advance(now())
@@ -543,10 +573,28 @@ func (r *runner) dispatch(ctx context.Context) {
 		input, keys := clone(s.Input), slices.Clone(keyList(r, i))
 		wake := s.WakeAt
 		wr := writeRun{runID: r.run.ID, flowID: r.run.FlowID, flowName: r.run.FlowName, step: def.Key, attempt: s.Attempts}
+		root := r.rootStart()
 		r.e.wg.Add(1)
 		go func() {
 			defer r.e.wg.Done()
 			defer cancel()
+			release := func() {}
+			if isModelKind(def.Kind) {
+				// 名额满了就排队，步骤仍是 running；取消（终止、退回、重试、停用）时直接退出
+				waited := false
+				rel, err := r.e.gate.acquire(sctx, root, r.run.ID, def.Key, func(ahead int) {
+					waited = true
+					r.note(sctx, gateMsg{step: i, token: token, queued: true, ahead: ahead})
+				})
+				if err != nil {
+					return
+				}
+				release = rel
+				defer rel()
+				if waited {
+					r.note(sctx, gateMsg{step: i, token: token})
+				}
+			}
 			if h := r.e.hook; h != nil {
 				if err := h(sctx, r.run.ID, def.Key); err != nil {
 					return
@@ -565,12 +613,52 @@ func (r *runner) dispatch(ctx context.Context) {
 			} else {
 				res = execNode(sctx, r.e.c, def, orEmpty(input), keys)
 			}
+			// 调完模型马上还名额，不等 runner 收结果
+			release()
 			select {
 			case r.inbox <- resultMsg{step: i, token: token, res: res}:
 			case <-sctx.Done():
 			}
 		}()
 	}
+}
+
+// note 把排队通知投给自己的 runner；步骤被取消了就不投。
+func (r *runner) note(ctx context.Context, m gateMsg) {
+	select {
+	case r.inbox <- m:
+	case <-ctx.Done():
+	}
+}
+
+// gateNote 记排队、排到了的日志并写库；状态没变（仍是 running），另发一条步骤事件让界面刷新排队标记。
+func (r *runner) gateNote(ctx context.Context, m gateMsg) {
+	f, ok := r.inflight[m.step]
+	if !ok || f.token != m.token || r.run.Steps[m.step].Status != stRunning {
+		return
+	}
+	s := r.run.Steps[m.step]
+	if m.queued {
+		r.log(m.step, now(), fmt.Sprintf("排队等模型（前面还有 %d 个）", m.ahead))
+	} else {
+		r.log(m.step, now(), "排到了，开始调模型")
+	}
+	r.save(ctx)
+	r.e.publish(ctx, EventStepStatus, map[string]any{"run_id": r.run.ID, "step": s.Key, "from": stRunning, "to": stRunning,
+		"attempts": s.Attempts, "queued": m.queued})
+}
+
+// rootStart 是排队用的先后：顶层执行的发起时间，子流程沿父执行往上找（父执行不在调度里就用自己的）。
+func (r *runner) rootStart() time.Time {
+	t, parent := r.run.StartedAt, r.run.ParentRunID
+	for depth := 0; parent != "" && depth <= maxSubflowDepth; depth++ {
+		p := r.e.runner(parent)
+		if p == nil {
+			break
+		}
+		t, parent = p.run.StartedAt, p.run.ParentRunID
+	}
+	return t
 }
 
 // watchAgents 给停下等确认的 agent 步骤起协程看会话，出了新回复按结果发回来（服务重启后也接着看）。
@@ -742,7 +830,8 @@ func (r *runner) startSubflow(ctx context.Context, i int) {
 		r.fail(i, t, "子流程的输入不全："+msg)
 		return
 	}
-	child, err := r.e.create(ctx, f, input, r.run.StepThrough, r.run.ID, r.defs[i].Key)
+	child, err := r.e.create(ctx, f, input, r.run.StepThrough, origin{ParentRun: r.run.ID, ParentStep: r.defs[i].Key, ObjectID: r.run.ObjectID,
+		Source: SourceSubflow, SourceRef: r.run.ID, SourceName: r.run.Title})
 	if err != nil {
 		r.fail(i, t, "起子流程失败："+err.Error())
 		return

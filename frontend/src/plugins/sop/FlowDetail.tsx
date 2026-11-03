@@ -5,8 +5,9 @@ import { useState } from 'react'
 import { errorText, useDeleteSopFlow, useSaveSopFlow, type SopFlow, type SopRunBrief, type SopStepDef } from '../../core/data'
 import { Button, EmptyState, PageTitle } from '../../core/ui'
 import { FlowGraph, FlowLegend } from './FlowGraph'
-import { isManualDecide } from './model'
+import { isManualDecide, isPendingRun } from './model'
 import { IconPlay, RunHead, RunRow } from './parts'
+import { useSourceText } from './source'
 import { needsText } from './scope'
 
 const RECENT = 10
@@ -28,10 +29,12 @@ export function FlowDetail({ flow, runs, branching, needs = [], trigger, onStart
   now: number
 }) {
   const [confirm, setConfirm] = useState(false)
+  const sourceOf = useSourceText()
   const del = useDeleteSopFlow()
   const save = useSaveSopFlow()
   const mine = runs.filter((r) => r.flow_id === flow.id).sort((a, b) => Date.parse(b.started_at) - Date.parse(a.started_at))
-  const live = mine.filter((r) => r.status === 'running' || r.status === 'waiting' || r.status === 'failed').length
+  // 已重跑过的失败执行算处理完了（同后端删流程前的检查）
+  const live = mine.filter((r) => r.status === 'running' || isPendingRun(r)).length
   const block = live ? `还有 ${live} 次执行没走完（执行中、等人处理或失败待重试），先处理完或停掉` : ''
   const reviews = flow.steps.filter((s) => s.kind === 'review' || isManualDecide(s)).length
   const decides = flow.steps.filter(branching).length
@@ -90,7 +93,7 @@ export function FlowDetail({ flow, runs, branching, needs = [], trigger, onStart
       ) : (
         <div className="sop-run-table">
           <RunHead />
-          {mine.slice(0, RECENT).map((r) => <RunRow key={r.id} r={r} onOpen={onOpenRun} showFlow={false} now={now} />)}
+          {mine.slice(0, RECENT).map((r) => <RunRow key={r.id} r={r} onOpen={onOpenRun} showFlow={false} now={now} source={sourceOf(r)} />)}
           {mine.length > RECENT && (
             <button type="button" className="list-seg-more" onClick={onAllRuns}>在执行记录里看全部 {mine.length} 次</button>
           )}

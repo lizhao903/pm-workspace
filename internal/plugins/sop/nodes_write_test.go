@@ -43,7 +43,7 @@ func newWriteEnv(t *testing.T) writeEnv {
 		}
 		if !installed {
 			installed = true
-			if err := r.Install(ctx, "sop", []string{"network:any"}); err != nil {
+			if err := r.Install(ctx, "sop", sopPerms); err != nil {
 				t.Fatal(err)
 			}
 			if err := r.Enable(ctx, "sop"); err != nil {

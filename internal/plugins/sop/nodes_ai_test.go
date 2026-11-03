@@ -101,7 +101,7 @@ func TestAINodesWithFakeModel(t *testing.T) {
 	}}
 	h := setupAgent(t, fa)
 	id := newFlow(t, h, `{"name":"AI 节点","fields":[{"key":"text","label":"原文","type":"textarea"}],"steps":[
-		{"key":"a","name":"写摘要","kind":"ai","desc":"把 {{text}} 写成一句话","after":[],"config":{"model":"m-x","output":"summary"}},
+		{"key":"a","name":"写摘要","kind":"ai","desc":"把 {{text}} 写成一句话","after":[],"config":{"provider":"pv-x","model":"m-x","output":"summary"}},
 		{"key":"x","name":"提取","kind":"extract","after":["a"],"config":{"fields":"客户名, 金额","from":"text"}},
 		{"key":"c","name":"分类","kind":"classifier","after":["x"],"cases":[{"key":"bug","label":"缺陷"},{"key":"req","label":"需求"}],"config":{"from":"text"}},
 		{"key":"i","name":"逐条处理","kind":"iterate","after":["c"],"branch":{"of":"c","case":"bug"},"config":{"list":"items","action":"建一条任务"}},
@@ -142,7 +142,7 @@ func TestAINodesWithFakeModel(t *testing.T) {
 	fa.mu.Lock()
 	first := fa.reqs[0]
 	fa.mu.Unlock()
-	if first.Model != "m-x" || !strings.Contains(first.Prompt, "把 星河科技反馈登录报错，合同金额 3 万 写成一句话") {
+	if first.Model != "m-x" || first.Provider != "pv-x" || !strings.Contains(first.Prompt, "把 星河科技反馈登录报错，合同金额 3 万 写成一句话") {
 		t.Fatalf("ai 请求 %+v", first)
 	}
 }

@@ -3,7 +3,7 @@
 import { useEffect, useRef } from 'react'
 import type { SopFlow, SopRun, SopStepDef } from '../../core/data'
 import { cls } from '../../core/ui'
-import { EDITED_LABEL, STEP_STATUS, depsOf, isFinished, isManualDecide, ranks } from './model'
+import { EDITED_LABEL, depsOf, isFinished, isManualDecide, isQueued, ranks, runStepLook } from './model'
 import { KindTag } from './parts'
 
 const W = 184
@@ -89,9 +89,9 @@ export function FlowGraph({ flow, run, selected, onSelect, branching }: {
               </span>
               <span className="sop-fnode-name ellipsis" title={def.name}>{def.name}</span>
               {rs ? (
-                <span className={`sop-fnode-st fst-${rs.status}`}>
-                  {rs.status === 'running' && <span className="spinner sop-spinner-xs" aria-hidden="true" />}
-                  {route ? `走「${route}」` : STEP_STATUS[rs.status]?.label ?? rs.status}
+                <span className={cls('sop-fnode-st', `fst-${rs.status}`, isQueued(rs) && 'fst-queued')}>
+                  {rs.status === 'running' && !isQueued(rs) && <span className="spinner sop-spinner-xs" aria-hidden="true" />}
+                  {route ? `走「${route}」` : runStepLook(rs).label}
                 </span>
               ) : <span className="sop-fnode-st">{idle}</span>}
             </>
@@ -100,7 +100,7 @@ export function FlowGraph({ flow, run, selected, onSelect, branching }: {
           const style = { left: pos[i].x, top: pos[i].y, width: W, height: H }
           return onSelect ? (
             <button key={def.key} type="button" className={className} style={style} onClick={() => onSelect(i)}
-              aria-pressed={selected === i} aria-label={`步骤 ${i + 1} ${def.name}${rs ? `，${STEP_STATUS[rs.status]?.label ?? rs.status}` : ''}`}>
+              aria-pressed={selected === i} aria-label={`步骤 ${i + 1} ${def.name}${rs ? `，${runStepLook(rs).label}` : ''}`}>
               {body}
             </button>
           ) : <div key={def.key} className={className} style={style}>{body}</div>

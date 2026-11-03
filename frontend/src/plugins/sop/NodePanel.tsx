@@ -1,7 +1,7 @@
-// 节点属性面板（SPEC-sop-9）：开始节点（触发方式、输入字段、下一步）和步骤节点（设置 / 上次运行）。
+// 节点属性面板（SPEC-sop-13）：开始节点（触发方式、输入字段、下一步）和步骤节点（设置 / 上次运行）。
 // 所有改动交给编排页进撤销历史；配置项按 nodes.tsx 的 fields 渲染，必填以后端节点目录为准。
 // 上次运行：这个流程最近一次走到这一步（不是 pending）的执行，详情按需取
-import { useMemo, useState, type MouseEvent, type ReactNode } from 'react'
+import { useEffect, useMemo, useState, type MouseEvent, type ReactNode } from 'react'
 import { useSopRun, type SopField, type SopRunBrief, type SopStepDef } from '../../core/data'
 import { Button, Checkbox, IconButton, IconClose, Input, Pill, Select, Textarea, cls } from '../../core/ui'
 import { changeKind, childrenOf, isBranching, isRequired, START, type Catalog, type Draft, HIDDEN_KINDS, fieldTypePatch } from './edit'
@@ -14,10 +14,14 @@ type AddAt = (at: { x: number; y: number }, from: string, caseKey?: string) => v
 
 export type TriggerOption = { value: string; label: string }
 
+const NO_CFG: Record<string, string> = {}
+
 /** 配置项：按字段类型渲染，值一律存成字符串（数字、多选也是） */
-function ConfigInput({ field, value, ctx, required, bad, onChange }: {
+function ConfigInput({ field, value, cfg, ctx, required, bad, onChange }: {
   field: ConfigField
   value: string
+  /** 这个节点的整份配置，选项依赖别的配置项时用 */
+  cfg: Record<string, string>
   ctx: FieldCtx
   required: boolean
   bad: boolean
@@ -30,7 +34,9 @@ function ConfigInput({ field, value, ctx, required, bad, onChange }: {
     </span>
   )
   useLiveOptions(field.live)
-  const options = field.options?.(ctx) ?? []
+  const { load } = field
+  useEffect(() => { load?.(ctx, cfg) }, [load, ctx, cfg])
+  const options = field.options?.(ctx, cfg) ?? []
   if (field.type === 'multi') {
     const on = value.split(',').filter(Boolean)
     return (
@@ -216,11 +222,11 @@ export function NodePanel({ draft, nodeKey, catalog, ctx, tried, triggers, flowI
               ))}
             </select>
           </label>
-          {info.fields.map((f) => {
+          {info.fields.filter((f) => !f.hidden?.(s.config ?? NO_CFG)).map((f) => {
             const req = isRequired(catalog, s.kind, f.key)
             return (
-              <ConfigInput key={f.key} field={f} value={s.config?.[f.key] ?? ''} ctx={ctx} required={req} bad={tried && req && !s.config?.[f.key]?.trim()}
-                onChange={(v) => onChange({ config: { ...(s.config ?? {}), [f.key]: v } })} />
+              <ConfigInput key={f.key} field={f} value={s.config?.[f.key] ?? ''} cfg={s.config ?? NO_CFG} ctx={ctx} required={req} bad={tried && req && !s.config?.[f.key]?.trim()}
+                onChange={(v) => onChange({ config: { ...(s.config ?? {}), ...Object.fromEntries((f.clears ?? []).map((k) => [k, ''])), [f.key]: v } })} />
             )
           })}
           <label className="field">

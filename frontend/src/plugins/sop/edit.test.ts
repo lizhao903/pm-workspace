@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import type { SopNodeType, SopStepDef } from '../../core/data'
+import type { AgentProvider, SopNodeType, SopStepDef } from '../../core/data'
 import { sopNodeStore } from '../../core/plugin'
 import {
   START, autoLayout, catalogOf, changeKind, checkDraft, connect, explicit, insertAfter, makeStep, mergeIssues, newDraft, paletteItems,
@@ -39,7 +39,7 @@ describe('节点目录', () => {
       expect(paletteItems(cat).find((x) => x.id === 'demo_ping')).toMatchObject({ label: '探活', desc: '敲一下' })
       expect(makeStep(draft([]), cat, 'demo_ping', '探活', []).config).toEqual({ to: 'a' })
       const err = vi.spyOn(console, 'error').mockImplementation(() => {})
-      expect(nodeInfo('demo_ping').fields[1].options?.(EMPTY_CTX)).toEqual([])
+      expect(nodeInfo('demo_ping').fields[1].options?.(EMPTY_CTX, {})).toEqual([])
       err.mockRestore()
     } finally {
       d.dispose()
@@ -160,5 +160,54 @@ describe('保存前检查', () => {
     expect(all).toContainEqual({ level: 'error', text: '整条流程的问题' })
     const gone = removeStep(moved, 'a')
     expect(mergeIssues([], server, gone).map((x) => x.text)).toEqual(['还没有名称', '整条流程的问题'])
+  })
+})
+
+// AI 节点的服务商、模型从 设置 → 模型服务商 来，不再写死
+describe('AI 节点的服务商和模型', () => {
+  const pv = (id: string, name: string, model: string, more: Partial<AgentProvider> = {}): AgentProvider => ({
+    id, name, kind: 'openai', base_url: '', model, enabled: true, is_default: false, api_key_masked: '', has_api_key: true, extra: {},
+    created_at: '', updated_at: '', ...more,
+  })
+  const ctx = {
+    ...EMPTY_CTX,
+    providers: [pv('p1', '甲', 'a-1', { extra: { model_ids: 'a-2, a-3' } }), pv('p2', '乙', 'b-1', { is_default: true }), pv('p3', '丙', 'c-1', { enabled: false })],
+  }
+  // 前面还有 Agent（0045），按 key 取
+  const [provider, model] = ['provider', 'model'].map((k) => nodeInfo('ai').fields.find((f) => f.key === k)!)
+
+  it('服务商列启用的，跟随默认写出默认的是谁；选着的停用了照样列出', () => {
+    expect(provider.clears).toEqual(['model'])
+    expect(provider.options?.(ctx, {})).toEqual([{ value: '', label: '跟随默认（乙）' }, { value: 'p1', label: '甲' }, { value: 'p2', label: '乙' }])
+    expect(provider.options?.(ctx, { provider: 'p3' }).map((o) => o.label)).toContain('丙（已停用）')
+  })
+
+  it('模型跟着服务商走：没选服务商列默认服务商的', () => {
+    expect(model.options?.(ctx, {}).map((o) => o.value)).toEqual(['', 'b-1'])
+    expect(model.options?.(ctx, { provider: 'p1' })).toEqual([
+      { value: '', label: '服务商设置的模型（a-1）' }, { value: 'a-1', label: 'a-1' }, { value: 'a-2', label: 'a-2' }, { value: 'a-3', label: 'a-3' },
+    ])
+  })
+
+  it('画布摘要写服务商和模型', () => {
+    expect(nodeInfo('ai').summary?.({ provider: 'p1', model: 'a-2' }, ctx)).toBe('甲 · a-2')
+    expect(nodeInfo('ai').summary?.({}, ctx)).toBe('')
+  })
+})
+
+describe('建任务、写进项目目录的项目下拉（消息分流）', () => {
+  const ctx = { ...EMPTY_CTX, projects: [{ id: 'obj_octok', name: 'Octok' }, { id: 'obj_xaue', name: 'XAUE' }] }
+  const field = (kind: string, key: string) => nodeInfo(kind).fields.find((f) => f.key === key)!
+
+  it('选项是项目列表，能取输入里的 project_id；建任务多一项「不挂项目」；存着的值不在列表里时照样列出', () => {
+    expect(field('local_append', 'project').options?.(ctx, {}).map((o) => o.value)).toEqual(['{{project_id}}', 'obj_octok', 'obj_xaue'])
+    expect(field('task', 'project').options?.(ctx, {}).map((o) => o.label)).toEqual(['不挂项目', '取输入里的 project_id', 'Octok', 'XAUE'])
+    expect(field('local_append', 'project').options?.(ctx, { project: 'PRJ-0009' }).at(-1)).toEqual({ value: 'PRJ-0009', label: 'PRJ-0009' })
+  })
+
+  it('画布摘要写项目名和路径', () => {
+    expect(nodeInfo('local_append').summary?.({ project: 'obj_octok', path: 'IM收件/{{date}}.md' }, ctx)).toBe('Octok / IM收件/{{date}}.md')
+    expect(nodeInfo('local_append').summary?.({ project: 'obj_octok' }, ctx)).toBe('')
+    expect(nodeInfo('task').summary?.({ title: '跟进', project: 'obj_xaue' }, ctx)).toBe('P2 跟进 · XAUE')
   })
 })

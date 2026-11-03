@@ -49,6 +49,10 @@ func TestIMTriggerStartsFlows(t *testing.T) {
 		t.Fatalf("只该给触发方式是 im、必填补得齐的流程发起一次：%v", list)
 	}
 	run := waitStatus(t, h, list[0].(map[string]any)["id"].(string), "waiting")
+	// 来源（SOP-06）：IM 消息，source_ref 是消息 id；列表行也带
+	if run["source"] != "im" || run["source_ref"] != "msg_1" || list[0].(map[string]any)["source"] != "im" {
+		t.Fatalf("来源 = %v %v", run["source"], run["source_ref"])
+	}
 	if got := step(run, "check")["output"].(map[string]any)["text"]; got != "msg_1|slack|dm|" {
 		t.Fatalf("输入应带上事件里的归类，没有的为空串：%v", got)
 	}

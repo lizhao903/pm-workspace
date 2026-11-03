@@ -1,9 +1,10 @@
 // 节点的展示信息（SPEC-sop-11）：名称、说明、颜色、图标、配置项、画布上的一行摘要。照原型 web-next/src/nodetypes.tsx 的 NODE_TYPES。
 // 有哪些节点、分组、是不是分支节点、哪些配置项必填，以后端 GET /api/sop/node-types 为准（目录见 edit.ts 的 catalogOf）；
 // 这里只管怎么显示。插件节点的显示由插件经 api.sopNodes 登记（SOP-03b，pluginInfo）；后端给了前端没登记的 kind 时
-// 用 fallbackInfo，照常能加、能配名称和说明。doc、contact 是 SOP-02a 新加的写节点，原型里没有；notify 由 IM 插件的节点代替（SOP-02b），编辑器不列
+// 用 fallbackInfo，照常能加、能配名称和说明。doc、contact 是 SOP-02a 新加的写节点，原型里没有；notify 由 IM 插件的节点代替（SOP-02b），编辑器不列。
+// local_append（写进项目目录）是消息分流加的，原型同步有
 import { useSyncExternalStore, type ReactNode } from 'react'
-import { queryClient } from '../../core/data'
+import { defaultProvider, loadProviderModels, providerModelIds, queryClient, type AgentProvider } from '../../core/data'
 import { sopNodeView } from '../../core/plugin'
 import { KIND_LABEL } from './model'
 
@@ -11,22 +12,32 @@ export type ConfigField = {
   key: string
   label: string
   type: 'text' | 'textarea' | 'code' | 'select' | 'number' | 'multi'
-  options?: (ctx: FieldCtx) => { value: string; label: string }[]
+  /** cfg 是这个节点当前的配置，选项随别的配置项变时用（AI 节点的模型跟着服务商走） */
+  options?: (ctx: FieldCtx, cfg: Record<string, string>) => { value: string; label: string }[]
+  /** 显示时按需取选项要的数据（进数据层缓存），配合 live 重新算选项 */
+  load?: (ctx: FieldCtx, cfg: Record<string, string>) => void
+  /** 这一项改了要一起清空的配置项（换了服务商，原来选的模型不作数） */
+  clears?: string[]
   placeholder?: string
   hint?: string
   default?: string
   /** 插件登记的配置项：选项从数据层缓存算，缓存变了要重新算 */
   live?: boolean
+  /** 按当前配置不显示这一项（选了 Agent 的 AI 节点不显示服务商和模型） */
+  hidden?: (cfg: Record<string, string>) => boolean
 }
 
-/** 配置项选项的上下文：子流程可选的流程（不含正在编辑的）、Agent、知识库、文档分类，都从后端读 */
+/** 配置项选项的上下文：子流程可选的流程（不含正在编辑的）、Agent、知识库、文档分类、模型服务商、项目，都从后端读 */
 export type FieldCtx = {
   flows: { id: string; name: string }[]
   agents: { id: string; name: string }[]
   kbs: { id: string; name: string }[]
   docCats: { id: string; name: string }[]
+  providers: AgentProvider[]
+  /** 建任务、写进项目目录挑项目（消息分流） */
+  projects: { id: string; name: string }[]
 }
-export const EMPTY_CTX: FieldCtx = { flows: [], agents: [], kbs: [], docCats: [] }
+export const EMPTY_CTX: FieldCtx = { flows: [], agents: [], kbs: [], docCats: [], providers: [], projects: [] }
 
 export type NodeInfo = {
   label: string
@@ -44,6 +55,49 @@ export type NodeInfo = {
 const line = (d: string) => <path d={d} fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
 const nameOf = (list: { id: string; name: string }[], id: string) => list.find((x) => x.id === id)?.name ?? id
 const opts = (vals: string[]) => vals.map((v) => ({ value: v, label: v }))
+/** 项目下拉：值是项目 id，也可以取输入里的字段；选着的项目删了照样列出（后端还认编号和名字） */
+const projectOpts = (ctx: FieldCtx, cfg: Record<string, string>, key: string, none?: string) => {
+  const list = [
+    ...(none !== undefined ? [{ value: '', label: none }] : []),
+    { value: '{{project_id}}', label: '取输入里的 project_id' },
+    ...ctx.projects.map((p) => ({ value: p.id, label: p.name })),
+  ]
+  const cur = cfg[key]
+  return cur && !list.some((o) => o.value === cur) ? [...list, { value: cur, label: cur }] : list
+}
+
+/** AI 节点实际用的服务商：选了用选的（删了就没有），没选用默认的 */
+const aiProvider = (ctx: FieldCtx, cfg: Record<string, string>) => (cfg.provider ? ctx.providers.find((p) => p.id === cfg.provider) : defaultProvider(ctx.providers))
+
+/** AI 节点的服务商下拉：跟随默认加启用的服务商；选着的停用了照样列出、标上 */
+function providerOptions(ctx: FieldCtx, cfg: Record<string, string>) {
+  const def = defaultProvider(ctx.providers)
+  const list = ctx.providers.filter((p) => p.enabled || p.id === cfg.provider)
+  return [
+    { value: '', label: def ? `跟随默认（${def.name}）` : '跟随默认（还没有可用的服务商）' },
+    ...list.map((p) => ({ value: p.id, label: p.enabled ? p.name : `${p.name}（已停用）` })),
+  ]
+}
+
+/** AI 节点的模型下拉：这个服务商设置的模型、手填的模型 ID、测试连接拉回的列表 */
+function modelOptions(ctx: FieldCtx, cfg: Record<string, string>) {
+  const p = aiProvider(ctx, cfg)
+  if (!p) return [{ value: '', label: '服务商设置的模型' }]
+  return [{ value: '', label: p.model ? `服务商设置的模型（${p.model}）` : '服务商设置的模型（还没设置）' }, ...opts(providerModelIds(p))]
+}
+
+/** 调模型的节点（ai、extract、classifier、iterate）可以选一个 Agent：用它的服务商、模型、思考档位，它的指令拼在节点提示前。
+ * 不选时按「设置 / Agent」里「其他后台调用」的默认 Agent，那里也没选用默认服务商。选着的 Agent 删了照样列出、标上 */
+function agentOptions(ctx: FieldCtx, cfg: Record<string, string>) {
+  const list = [{ value: '', label: '不选（用场景默认）' }, ...ctx.agents.map((a) => ({ value: a.id, label: a.name }))]
+  return cfg.agent && !ctx.agents.some((a) => a.id === cfg.agent) ? [...list, { value: cfg.agent, label: '已删除的 Agent' }] : list
+}
+const agentField: ConfigField = {
+  key: 'agent', label: 'Agent', type: 'select', default: '', options: agentOptions,
+  hint: '用它的模型、思考和指令；要不要思考到 设置 → Agent 里改',
+}
+const withAgent = (cfg: Record<string, string>) => !!cfg.agent
+const agentSummary = (c: Record<string, string>, ctx: FieldCtx) => (c.agent ? nameOf(ctx.agents, c.agent) : '')
 
 const INFO: Record<string, NodeInfo> = {
   auto: {
@@ -55,13 +109,16 @@ const INFO: Record<string, NodeInfo> = {
     descHint: '比如：按客户的语气起草一条回复，告知已记录和大致排期。可以引用上游输出的字段',
     icon: <path d="M8 2.5 9.3 6.7 13.5 8 9.3 9.3 8 13.5 6.7 9.3 2.5 8 6.7 6.7Z" fill="currentColor" />,
     fields: [
+      agentField,
+      // 服务商和模型都从 设置 → 模型服务商 来；换服务商清掉模型，免得拿着别家的模型名去调。选了 Agent 不显示、执行时也不看
+      { key: 'provider', label: '服务商', type: 'select', default: '', options: providerOptions, clears: ['model'], hidden: withAgent },
       {
-        key: 'model', label: '模型', type: 'select', default: '', hint: '留空用默认服务商的模型',
-        options: () => [{ value: '', label: '跟随默认' }, { value: 'claude-opus-5-5', label: 'Claude Opus 5.5' }, { value: 'claude-sonnet-5-5', label: 'Claude Sonnet 5.5' }, { value: 'claude-haiku-5-5', label: 'Claude Haiku 5.5' }],
+        key: 'model', label: '模型', type: 'select', default: '', hint: '没列出来的到 设置 → 模型服务商 填模型 ID', live: true, options: modelOptions,
+        load: (ctx, cfg) => loadProviderModels(aiProvider(ctx, cfg)?.id ?? ''), hidden: withAgent,
       },
       { key: 'output', label: '输出字段名', type: 'text', placeholder: 'result', default: 'result' },
     ],
-    summary: (c) => (c.model ? c.model.replace('claude-', 'Claude ').replace(/-5-5$/, ' 5.5') : ''),
+    summary: (c, ctx) => (c.agent ? agentSummary(c, ctx) : [c.provider ? nameOf(ctx.providers, c.provider) : '', c.model].filter(Boolean).join(' · ')),
   },
   knowledge: {
     label: KIND_LABEL.knowledge, desc: '在知识库里按问题找相关段落', color: '#2f7d43',
@@ -80,6 +137,7 @@ const INFO: Record<string, NodeInfo> = {
     fields: [
       { key: 'fields', label: '要提取的字段', type: 'text', placeholder: '客户名, 金额, 日期', hint: '逗号隔开' },
       { key: 'from', label: '从哪个字段里提', type: 'text', placeholder: '留空自动找最长的那段文字' },
+      agentField,
     ],
     summary: (c) => (c.fields ? `提取：${c.fields}` : ''),
   },
@@ -120,7 +178,9 @@ const INFO: Record<string, NodeInfo> = {
     fields: [
       { key: 'from', label: '要分类的字段', type: 'text', placeholder: '留空自动找最长的那段文字' },
       { key: 'hint', label: '分类说明', type: 'textarea', placeholder: '每一类的判断依据，比如：提到报错、打不开的算「缺陷」' },
+      agentField,
     ],
+    summary: agentSummary,
   },
   iterate: {
     label: KIND_LABEL.iterate, desc: '对一个列表里的每一项做同样的事', color: '#0f8a8a',
@@ -128,6 +188,7 @@ const INFO: Record<string, NodeInfo> = {
     fields: [
       { key: 'list', label: '列表字段', type: 'text', placeholder: 'demands', hint: '输入里哪个字段是列表' },
       { key: 'action', label: '每一项做什么', type: 'textarea', placeholder: '比如：为每条诉求建一条任务' },
+      agentField,
     ],
     summary: (c) => (c.list ? `遍历 ${c.list}` : ''),
   },
@@ -170,9 +231,21 @@ const INFO: Record<string, NodeInfo> = {
       { key: 'title', label: '标题', type: 'text', placeholder: '{{demands[0].title}}', hint: '支持 {{字段}}' },
       { key: 'priority', label: '优先级', type: 'select', default: 'P2', options: () => opts(['P0', 'P1', 'P2', 'P3']) },
       { key: 'assignee', label: '负责人', type: 'text', default: '我', hint: '联系人 id 或名字，「我」不指派' },
+      { key: 'project', label: '所属项目', type: 'select', default: '', options: (ctx, cfg) => projectOpts(ctx, cfg, 'project', '不挂项目'), hint: '认不出项目时这一步失败' },
       { key: 'body', label: '正文', type: 'textarea', placeholder: '支持 {{字段}}' },
     ],
-    summary: (c) => (c.title ? `${c.priority || 'P2'} ${c.title}` : ''),
+    summary: (c, ctx) => (c.title ? `${c.priority || 'P2'} ${c.title}${c.project ? ` · ${nameOf(ctx.projects, c.project)}` : ''}` : ''),
+  },
+  local_append: {
+    label: KIND_LABEL.local_append, desc: '把一段文字写进项目关联的本地目录，文件已有就追加', color: '#e8590c',
+    icon: <>{line('M2.5 4.5h4l1.2 1.5h5.8v6.5h-11zM8 8v3M6.5 9.5h3')}</>,
+    fields: [
+      { key: 'project', label: '项目', type: 'select', options: (ctx, cfg) => projectOpts(ctx, cfg, 'project') },
+      { key: 'dir', label: '写进哪个目录', type: 'text', placeholder: '留空是第一个关联目录', hint: '填第几个（从 1 起）或目录的名称' },
+      { key: 'path', label: '文件路径', type: 'text', placeholder: 'IM收件/{{date}}.md', hint: '项目目录下的相对路径，不能有 ..；支持 {{字段}}、{{date}}' },
+      { key: 'content', label: '内容', type: 'textarea', placeholder: '{{message.sender}}：{{message.text}}', hint: '支持 {{字段}}，一次最多 64 KB' },
+    ],
+    summary: (c, ctx) => (c.path ? `${c.project ? `${nameOf(ctx.projects, c.project)} / ` : ''}${c.path}` : ''),
   },
   doc: {
     label: KIND_LABEL.doc, desc: '新建一篇文档，或把内容追加到已有文档末尾', color: '#e8590c',
@@ -244,6 +317,14 @@ function pluginInfo(kind: string): NodeInfo | undefined {
         }
       }),
     })),
+    summary: v.summary && ((cfg) => {
+      try {
+        return v.summary!(cfg)
+      } catch (e) {
+        console.error(`SOP 节点 ${kind} 的摘要出错`, e)
+        return ''
+      }
+    }),
   }
 }
 

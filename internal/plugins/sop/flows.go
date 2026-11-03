@@ -73,6 +73,8 @@ var NodeTypes = []NodeType{
 	// doc、contact 原型里没有（原型用 auto 模拟），SOP-02a 新加，排在 task 后面
 	{Kind: "doc", Group: "外部"},
 	{Kind: "contact", Group: "外部"},
+	// 写进项目目录：把文字追加到项目关联的本地目录下的文件（nodes_local.go），原型同步加了
+	{Kind: "local_append", Group: "外部", Required: []ConfigField{{"project", "项目"}, {"path", "文件路径"}, {"content", "内容"}}},
 	{Kind: "agent", Group: "外部", Required: []ConfigField{{"agent", "Agent"}}},
 	{Kind: "subflow", Group: "外部", Required: []ConfigField{{"sop", "执行哪个 SOP"}}},
 	{Kind: "end", Group: "输出"},

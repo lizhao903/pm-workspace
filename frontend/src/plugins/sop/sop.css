@@ -71,6 +71,37 @@ button.sop-run-row:hover { background: var(--panel-2); }
   .sop-run-row > :nth-child(3) { display: none; }
 }
 
+/* ---------- 失败执行批量重跑：勾选框、底部批量条（照 IM 消息页 .im-bulk）、确认框、结果提示 ---------- */
+.sop-run-pick { display: flex; align-items: center; border-bottom: 1px solid var(--line); }
+.sop-run-pick:last-child { border-bottom: 0; }
+.sop-run-pick > .sop-run-row { flex: 1; min-width: 0; border-bottom: 0; padding-left: 10px; }
+.sop-run-pick.picked { background: var(--accent-soft); }
+.sop-run-pick-th { background: var(--panel-2); }
+/* 失败行右边的「重试」、已重跑行的「新执行」：有这两种行时每行都留这一格，列对齐 */
+.sop-run-act { flex: 0 0 76px; display: flex; justify-content: center; padding-right: 12px; }
+.sop-run-nopick > .sop-run-row { padding-left: 16px; }
+.sop-pick { flex: none; width: 16px; height: 16px; margin: 0 0 0 16px; accent-color: var(--accent); cursor: pointer; }
+.sop-bulk {
+  position: sticky; bottom: var(--sp-4); z-index: 2; display: flex; align-items: center; flex-wrap: wrap; gap: var(--sp-3);
+  padding: 10px 14px; border: 1px solid var(--line); border-radius: var(--r-lg); background: var(--panel); box-shadow: var(--shadow);
+}
+.sop-bulk-n { font-size: var(--fs-sm); font-weight: 600; }
+.sop-bulk-hint { font-size: var(--fs-xs); color: var(--muted); }
+.sop-rerun { display: flex; flex-direction: column; gap: 10px; }
+.sop-rerun-opts { display: flex; flex-direction: column; gap: 8px; }
+.sop-rerun-opt { display: flex; align-items: flex-start; gap: 10px; padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--r); cursor: pointer; line-height: 1.5; }
+.sop-rerun-opt.on { border-color: var(--accent-line); background: var(--accent-soft); }
+.sop-rerun-opt input { flex: none; margin: 4px 0 0; accent-color: var(--accent); }
+.sop-rerun-opt b { display: block; font-weight: 600; }
+.sop-rerun-desc { display: block; font-size: var(--fs-sm); color: var(--muted); }
+.sop-rerun-hint { font-size: var(--fs-sm); color: var(--muted); line-height: 1.6; }
+.sop-rerun .sop-rerun-err { margin: 0; }
+.sop-rerun-note { display: flex; align-items: center; gap: var(--sp-3); padding: 8px 12px; border-radius: var(--r); background: var(--accent-soft); font-size: var(--fs-sm); line-height: 1.6; }
+.sop-rerun-note > span { flex: 1; min-width: 0; }
+.sop-run-origin { color: var(--accent); }
+.sop-run-origin:hover { text-decoration: underline; }
+.sop-rerun-note.bad { background: var(--warn-soft); }
+
 /* ---------- 流程库 ---------- */
 .sop-lib-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px; }
 .sop-lib-card { display: flex; flex-direction: column; gap: 6px; min-width: 0; padding: 14px 16px; border: 1px solid var(--line); border-radius: var(--r-lg); background: var(--panel); box-shadow: var(--shadow-sm); text-align: left; }
@@ -136,6 +167,7 @@ button.sop-run-row:hover { background: var(--panel-2); }
 .sop-fnode-name { font-weight: 500; font-size: var(--fs); line-height: 1.4; }
 .sop-fnode-st { display: flex; align-items: center; gap: 5px; font-size: var(--fs-xs); color: var(--faint); min-height: 16px; }
 .sop-fnode-st.fst-running { color: var(--accent); }
+.sop-fnode-st.fst-running.fst-queued { color: var(--muted); }
 .sop-fnode-st.fst-paused, .sop-fnode-st.fst-review { color: var(--warn); font-weight: 500; }
 .sop-fnode-st.fst-failed { color: var(--danger); font-weight: 500; }
 .sop-fnode-st.fst-done { color: var(--ok); }
@@ -178,6 +210,7 @@ button.sop-run-row:hover { background: var(--panel-2); }
 .sop-banner.info { flex-direction: row; flex-wrap: wrap; align-items: center; gap: 8px; background: var(--accent-soft); color: var(--accent); }
 .sop-banner.muted { background: var(--hover); color: var(--muted); }
 .sop-act-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.sop-banner-note { font-size: var(--fs-sm); }
 .sop-run-bar { flex-basis: 100%; height: 4px; border-radius: 2px; background: color-mix(in srgb, var(--accent) 18%, transparent); overflow: hidden; }
 .sop-run-bar span { display: block; height: 100%; background: var(--accent); transition: width 0.25s linear; }
 .sop-insp-route {
@@ -408,3 +441,36 @@ button.sop-run-row:hover { background: var(--panel-2); }
   .sop-cv-top-right { top: 64px; flex-wrap: wrap; justify-content: flex-end; max-width: calc(100% - 24px); }
   .sop-cv-error { top: 110px; left: 12px; max-width: none; }
 }
+
+/* ---------- 任务详情里的 SOP 执行（SOP-06，SPEC-sop-13） ---------- */
+.sop-obj { display: flex; flex-direction: column; gap: var(--sp-3); padding-top: var(--sp-4); border-top: 1px solid var(--line); }
+.sop-obj-head { display: flex; align-items: center; gap: var(--sp-4); flex-wrap: wrap; }
+.sop-obj-title { font-size: var(--fs-sm); font-weight: 600; color: var(--muted); }
+.sop-obj-hint { color: var(--faint); font-size: var(--fs-xs); }
+.sop-obj-empty { color: var(--faint); font-size: var(--fs-sm); }
+.sop-obj-list { display: flex; flex-direction: column; border: 1px solid var(--line); border-radius: var(--r); overflow: hidden; container-type: inline-size; }
+.sop-obj-run {
+  display: grid; grid-template-columns: minmax(0, 1fr) 96px auto 84px; align-items: center; gap: 12px;
+  width: 100%; text-align: left; padding: 8px 12px; border-bottom: 1px solid var(--line); min-height: 52px;
+}
+.sop-obj-run:last-child { border-bottom: 0; }
+.sop-obj-run:hover { background: var(--panel-2); }
+/* 从别处跳过来定位的那次执行 */
+.sop-obj-run.lit { background: var(--accent-soft); box-shadow: inset 3px 0 0 var(--accent); }
+.sop-obj-name { display: flex; flex-direction: column; min-width: 0; line-height: 1.4; font-weight: 500; }
+.sop-obj-progress { font-size: var(--fs-xs); color: var(--faint); font-weight: 400; }
+.sop-obj-at { font-size: var(--fs-xs); color: var(--faint); text-align: right; white-space: nowrap; }
+@container (max-width: 460px) {
+  .sop-obj-run { grid-template-columns: minmax(0, 1fr) auto; }
+  .sop-obj-bar, .sop-obj-at { display: none; }
+}
+.sop-start-object { margin-top: 6px; font-size: var(--fs-sm); color: var(--muted); }
+
+/* 设置 > 插件 > SOP 编排（SOP-07） */
+.sop-settings { display: flex; flex-direction: column; gap: var(--sp-4); max-width: 640px; }
+.sop-settings-title { font-weight: 600; }
+.sop-settings-row { display: flex; align-items: center; gap: var(--sp-3); }
+.sop-settings-input { width: 88px; }
+.sop-settings-muted, .sop-settings-now { color: var(--muted); font-size: var(--fs-sm); }
+.sop-settings-ok { color: var(--ok); font-size: var(--fs-sm); }
+.sop-settings-err { color: var(--danger); font-size: var(--fs-sm); }
