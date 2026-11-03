@@ -12,7 +12,7 @@ import (
 	"github.com/lizhao903/pm-workspace/internal/store"
 )
 
-const taskRunCols = `id, object_id, workdir, prompt, status, exit_code, output, error, started_at, finished_at`
+const taskRunCols = `id, object_id, workdir, prompt, status, exit_code, output, error, started_at, finished_at, mode`
 
 // runTimeLayout 与 agent 三张表用的是同一套格式：带固定 9 位小数的 RFC3339。
 //
@@ -32,7 +32,7 @@ func scanTaskRun(sc rowScanner) (*domain.TaskRun, error) {
 		finished sql.NullString
 	)
 	if err := sc.Scan(&r.ID, &r.ObjectID, &r.Workdir, &r.Prompt, &r.Status,
-		&r.ExitCode, &r.Output, &r.Error, &started, &finished); err != nil {
+		&r.ExitCode, &r.Output, &r.Error, &started, &finished, &r.Mode); err != nil {
 		return nil, err
 	}
 	r.StartedAt = parseTime(started)
@@ -115,6 +115,13 @@ func (s *Store) CreateTaskRun(ctx context.Context, in *domain.TaskRun) (*domain.
 	if r.Status == "" {
 		r.Status = domain.RunPending
 	}
+	switch r.Mode {
+	case "":
+		r.Mode = domain.RunModeStream
+	case domain.RunModeStream, domain.RunModeTerminal:
+	default:
+		return nil, validation("mode", "must be stream or terminal")
+	}
 
 	// 先确认对象存在：外键失败回的是一条驱动层的字符串，映射成 500，
 	// 而「这个对象不存在」显然该是 404。
@@ -130,8 +137,8 @@ func (s *Store) CreateTaskRun(ctx context.Context, in *domain.TaskRun) (*domain.
 	r.ID = idgen.Prefixed("run")
 	now := nowRun()
 	if _, err := s.db.W.ExecContext(ctx,
-		`INSERT INTO task_runs (`+taskRunCols+`) VALUES (?,?,?,?,?,?,?,?,?,?)`,
-		r.ID, r.ObjectID, r.Workdir, r.Prompt, r.Status, r.ExitCode, r.Output, r.Error, now, nil,
+		`INSERT INTO task_runs (`+taskRunCols+`) VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
+		r.ID, r.ObjectID, r.Workdir, r.Prompt, r.Status, r.ExitCode, r.Output, r.Error, now, nil, r.Mode,
 	); err != nil {
 		return nil, fmt.Errorf("insert task run: %w", err)
 	}
@@ -182,4 +189,20 @@ func (s *Store) FinishTaskRun(ctx context.Context, id, status string, exitCode i
 		return nil, err
 	}
 	return out, nil
+}
+
+// SetTaskRunPrompt 见 store.Store。
+func (s *Store) SetTaskRunPrompt(ctx context.Context, id, prompt string) error {
+	res, err := s.db.W.ExecContext(ctx,
+		`UPDATE task_runs SET prompt = ? WHERE id = ? AND finished_at IS NULL`, prompt, id)
+	if err != nil {
+		return fmt.Errorf("set task run prompt: %w", err)
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		if _, err := s.GetTaskRun(ctx, id); err != nil {
+			return err
+		}
+		return conflict("这次执行已经结束了")
+	}
+	return nil
 }

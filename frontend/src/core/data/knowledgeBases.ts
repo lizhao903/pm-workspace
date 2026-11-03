@@ -100,6 +100,9 @@ export type KbSyncResult = {
   errors: Record<string, string> | null
 }
 
+/** 正在跑的同步到了哪一步：dir 空串是在收文档分类；listing 为 true 时还在往下列，listed 还会涨 */
+export type KbSyncProgress = { kb_id: string; dir: string; listed: number; done: number; listing: boolean; started_at: string }
+
 export type KbHit = {
   kb_id: string
   doc_id: string
@@ -137,6 +140,7 @@ export const knowledgeBasesApi = {
   reindex: (id: string, docIds?: string[]) => request<KbDoc[]>('POST', `${one(id)}/reindex`, { body: docIds ? { doc_ids: docIds } : {} }),
   sync: (id: string, path?: string) =>
     request<{ result: KbSyncResult; knowledge_base: KnowledgeBase }>('POST', `${one(id)}/sync`, { body: path ? { path } : {} }),
+  syncProgress: (id: string, signal?: AbortSignal) => request<KbSyncProgress | null>('GET', `${one(id)}/sync`, { signal }),
   search: (id: string, q: string, signal?: AbortSignal) => request<KbSearchResult>('POST', `${one(id)}/search`, { body: { q }, signal }),
   agents: async (signal?: AbortSignal) => (await requestList<KbAgent>('/api/agents', { signal })).data,
 }
@@ -178,6 +182,17 @@ export function useKbSearch(id: string, q: string) {
     queryKey: dataKeys.knowledgeBases.search(id, q),
     queryFn: ({ signal }) => knowledgeBasesApi.search(id, q, signal),
     enabled: !!q.trim(),
+    retry: false,
+  })
+}
+
+/** 同步进度：on 为 true（同步请求还没回来）时每秒查一次；没在同步回 null */
+export function useKbSyncProgress(id: string, on: boolean) {
+  return useQuery({
+    queryKey: dataKeys.knowledgeBases.syncProgress(id),
+    queryFn: ({ signal }) => knowledgeBasesApi.syncProgress(id, signal),
+    enabled: on && !!id,
+    refetchInterval: on ? 1000 : false,
     retry: false,
   })
 }

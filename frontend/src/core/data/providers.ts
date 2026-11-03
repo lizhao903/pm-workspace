@@ -36,8 +36,12 @@ export const providersApi = {
 /** 测试结果和测试时间；没测过是 undefined */
 export type ProviderCheck = { result: ProviderTestResult; at: number }
 
-/** 各服务商本次会话里最近一次的测试结果。只读缓存，不会自己去测 */
-export function useProviderChecks(ids: readonly string[]): Record<string, ProviderCheck | undefined> {
+/**
+ * 各服务商最近一次的测试结果。只读，不会自己去测：本次打开页面测过的用内存里的那份（更新），
+ * 没测过的用后端存的上一次结论（last_test），离开设置页或刷新后不再回到「未测试」。
+ */
+export function useProviderChecks(providers: readonly Pick<AgentProvider, 'id' | 'last_test'>[]): Record<string, ProviderCheck | undefined> {
+  const ids = providers.map((p) => p.id)
   const qs = useQueries({
     queries: ids.map((id) => ({
       queryKey: agentKeys.models(id),
@@ -47,9 +51,10 @@ export function useProviderChecks(ids: readonly string[]): Record<string, Provid
     })),
   })
   const out: Record<string, ProviderCheck | undefined> = {}
-  ids.forEach((id, i) => {
+  providers.forEach((p, i) => {
     const q = qs[i]
-    out[id] = q?.data ? { result: q.data, at: q.dataUpdatedAt } : undefined
+    const saved = p.last_test ? { result: p.last_test, at: Date.parse(p.last_test.at) } : undefined
+    out[p.id] = q?.data && (!saved || q.dataUpdatedAt >= saved.at) ? { result: q.data, at: q.dataUpdatedAt } : saved
   })
   return out
 }

@@ -3,6 +3,7 @@ package store
 
 import (
 	"context"
+	"encoding/json"
 
 	"github.com/lizhao903/pm-workspace/internal/domain"
 )
@@ -117,6 +118,8 @@ type Store interface {
 	// Agent 供应商
 	ListProviders(ctx context.Context) ([]*domain.AgentProvider, error)
 	GetProvider(ctx context.Context, id string) (*domain.AgentProvider, error)
+	// RecordProviderTest 存下最近一次测试连接的结论（0046），不动 updated_at。
+	RecordProviderTest(ctx context.Context, id string, res domain.ProviderTestResult) (*domain.ProviderLastTest, error)
 	CreateProvider(ctx context.Context, p *domain.AgentProvider, apiKey string) (*domain.AgentProvider, error)
 	UpdateProvider(ctx context.Context, id string, in domain.AgentProviderInput) (*domain.AgentProvider, error)
 	DeleteProvider(ctx context.Context, id string) error
@@ -148,6 +151,9 @@ type Store interface {
 	CreateTaskRun(ctx context.Context, r *domain.TaskRun) (*domain.TaskRun, error)
 	// FinishTaskRun 落最终状态与完整输出。输出可能很大，由调用方自行截断。
 	FinishTaskRun(ctx context.Context, id, status string, exitCode int, output, errMsg string) (*domain.TaskRun, error)
+	// SetTaskRunPrompt 补写执行记录的提示词。终端执行（0048）的提示词里要写执行 id，
+	// 只能先建记录拿到 id 再补；只改没收尾的记录，已收尾回 conflict。
+	SetTaskRunPrompt(ctx context.Context, id, prompt string) error
 	// ResolveWorkdir 取对象的有效工作区：自身没设时回退到所属项目的，都没有返回空串。
 	ResolveWorkdir(ctx context.Context, objectID string) (string, error)
 
@@ -174,6 +180,10 @@ type Store interface {
 	DeleteAgent(ctx context.Context, id string) (*domain.Agent, error)
 	// CountAgentSessions 数挂在这个 Agent 上的会话，删除前的影响检查用。
 	CountAgentSessions(ctx context.Context, agentID string) (int, error)
+	// AgentSetting / SetAgentSetting 读写 Agent 这一块的小设置（0045 agent_settings），value 是 JSON 原文；
+	// 没有这一行时 AgentSetting 回 nil、不报错。场景默认 Agent 存在 scenario:<场景> 下，见 internal/agent/scenario.go。
+	AgentSetting(ctx context.Context, key string) (json.RawMessage, error)
+	SetAgentSetting(ctx context.Context, key string, value json.RawMessage) error
 
 	// 自定义技能（AG-01b2，0033）。内置和插件技能不在库里，由接口层合进列表，见 skills.go。
 	// ListSkills 新建的在前。DeleteSkill 回删掉的那条和被摘掉它的 Agent id（按 Agent 新建的在前）。

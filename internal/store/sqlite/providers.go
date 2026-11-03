@@ -31,7 +31,7 @@ const providerInsertCols = `id, name, kind, base_url, model, api_key, api_key_se
 // providerCols 连带保险箱条目的脱敏提示一起读：hint 为 NULL 表示条目不存在。
 // 老行的 api_key 仍要读出来，没迁移之前脱敏要看它；scanProvider 拿到后立刻折掉。
 const providerCols = `p.id, p.name, p.kind, p.base_url, p.model, p.api_key, v.hint,
-	p.enabled, p.is_default, p.extra, p.created_at, p.updated_at`
+	p.enabled, p.is_default, p.extra, p.created_at, p.updated_at, p.last_test`
 
 const providerFrom = ` FROM agent_providers p
 	LEFT JOIN vault_secrets v ON p.api_key_secret_id <> '' AND v.id = p.api_key_secret_id`
@@ -331,6 +331,8 @@ func (s *Store) UpdateProvider(ctx context.Context, id string, in domain.AgentPr
 		}
 		secretID, hasKey := oldSecretID, cur.HasAPIKey
 
+		// 连接相关的配置变了，上次的测试结论不再作数（同前端 touchesConnection）
+		connChanged := in.Kind != nil || in.BaseURL != nil || in.APIKey != nil || in.Extra != nil || in.Enabled != nil
 		kindChanged := false
 		if in.Kind != nil {
 			kind := strings.TrimSpace(*in.Kind)
@@ -389,6 +391,12 @@ func (s *Store) UpdateProvider(ctx context.Context, id string, in domain.AgentPr
 			cur.Name, cur.Kind, cur.BaseURL, cur.Model, legacyKey, secretID,
 			boolInt(cur.Enabled), extraJSON, now, id); err != nil {
 			return fmt.Errorf("update provider: %w", err)
+		}
+		if connChanged {
+			if _, err := tx.ExecContext(ctx, `UPDATE agent_providers SET last_test=NULL WHERE id=?`, id); err != nil {
+				return fmt.Errorf("clear provider last test: %w", err)
+			}
+			cur.LastTest = nil
 		}
 
 		cur.HasAPIKey = hasKey
@@ -481,11 +489,17 @@ func clearDefaultTx(ctx context.Context, tx *sql.Tx) error {
 func scanProvider(sc rowScanner) (*domain.AgentProvider, error) {
 	var p domain.AgentProvider
 	var apiKey, extra, created, updated string
-	var hint sql.NullString
+	var hint, lastTest sql.NullString
 	var enabled, isDefault int
 	if err := sc.Scan(&p.ID, &p.Name, &p.Kind, &p.BaseURL, &p.Model, &apiKey, &hint,
-		&enabled, &isDefault, &extra, &created, &updated); err != nil {
+		&enabled, &isDefault, &extra, &created, &updated, &lastTest); err != nil {
 		return nil, err
+	}
+	if lastTest.Valid && lastTest.String != "" {
+		var lt domain.ProviderLastTest
+		if json.Unmarshal([]byte(lastTest.String), &lt) == nil {
+			p.LastTest = &lt
+		}
 	}
 	p.Enabled, p.IsDefault = enabled != 0, isDefault != 0
 	// 明文到此为止：老行只留折出来的掩码，搬进保险箱的用保险箱的脱敏提示。
@@ -554,4 +568,21 @@ func decodeProviderExtra(raw string) map[string]any {
 		return map[string]any{}
 	}
 	return out
+}
+
+// RecordProviderTest 存下最近一次测试连接的结论，不动 updated_at（测试不算改配置）。
+func (s *Store) RecordProviderTest(ctx context.Context, id string, res domain.ProviderTestResult) (*domain.ProviderLastTest, error) {
+	lt := domain.ProviderLastTest{OK: res.OK, Latency: res.Latency, Message: res.Message, Models: res.Models, At: parseTime(nowStr())}
+	b, err := json.Marshal(lt)
+	if err != nil {
+		return nil, err
+	}
+	r, err := s.db.W.ExecContext(ctx, `UPDATE agent_providers SET last_test=? WHERE id=?`, string(b), id)
+	if err != nil {
+		return nil, fmt.Errorf("record provider test: %w", err)
+	}
+	if n, _ := r.RowsAffected(); n == 0 {
+		return nil, domain.ErrNotFound
+	}
+	return &lt, nil
 }

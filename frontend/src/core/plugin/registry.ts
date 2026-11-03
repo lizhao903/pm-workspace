@@ -11,6 +11,10 @@ import {
 import * as data from '../data'
 import { todaySourceRegistry, todaySourceStore } from './todaySources'
 import { projectTabRegistry, projectTabStore } from './projectTabs'
+import { objectSectionRegistry, objectSectionStore } from './objectSections'
+import { sessionToolRegistry, sessionToolStore } from './sessionTools'
+import { terminalLauncherRegistry, terminalLauncherStore } from './terminalLaunch'
+import { sessionSourceRegistry, sessionSourceStore } from './sessionSources'
 import { checkManifest, formatIssue, parseManifest, PLUGIN_API_VERSION, type PluginManifest } from './manifest'
 import { enabledPlugins } from '../../plugins/enabled'
 import { requestList } from '../api'
@@ -199,6 +203,10 @@ export function pluginApi(m: PluginManifest, reasons: string[], strict: boolean)
     todayCards: todayCardRegistry(ctx),
     todaySources: todaySourceRegistry(m.id),
     projectTabs: projectTabRegistry(m.id),
+    objectSections: objectSectionRegistry(m.id),
+    sessionTools: sessionToolRegistry(m.id),
+    sessionSources: sessionSourceRegistry(m.id),
+    terminalLauncher: terminalLauncherRegistry(m.id),
     commands: commandRegistry(m.id, m.provides, reasons, strict),
     events: notImplemented('events', '2.10'),
     data,
@@ -215,6 +223,10 @@ function disposeAll(owner: string) {
   disposeExtensionsOf(owner)
   todaySourceStore.removeOwner(owner)
   projectTabStore.removeOwner(owner)
+  objectSectionStore.removeOwner(owner)
+  sessionToolStore.removeOwner(owner)
+  sessionSourceStore.removeOwner(owner)
+  terminalLauncherStore.removeOwner(owner)
 }
 
 // 停用插件（docs/plugin-api.md 4.3 的前端部分）：撤掉它的全部注册，再调 deactivate。

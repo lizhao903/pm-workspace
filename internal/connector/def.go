@@ -63,7 +63,13 @@ type Field struct {
 	Default string `json:"default,omitempty"`
 	// Long 是长文本（多行输入，最多 maxLongValue 字），如粘贴的 OpenAPI 文档
 	Long bool `json:"long,omitempty"`
+	// Picker 非空时界面用对应的选择器填这个字段，存的仍是 text（只对 kind=text）；不认识的界面照旧给文本框。
+	// 目前只有 PickerIMChannels：从 IM 插件列出的会话里勾选，存逗号分隔的会话编号
+	Picker string `json:"picker,omitempty"`
 }
+
+// PickerIMChannels：从 GET /api/im/connectors/{id}/conversations 列出的频道里勾选（Slack「监听频道」）。
+const PickerIMChannels = "im_channels"
 
 // appliesTo 是这个字段在认证方式 m 下有没有用。
 func (f *Field) appliesTo(m AuthMode) bool { return len(f.Auth) == 0 || slices.Contains(f.Auth, m) }
@@ -153,6 +159,9 @@ func (d *Def) check() error {
 			if !slices.Contains(d.Auth, m) {
 				return fmt.Errorf("connector %s: field %s belongs to auth mode %q that is not supported", d.Tool, f.Key, m)
 			}
+		}
+		if f.Picker != "" && (f.Kind != "text" || f.Long || f.Picker != PickerIMChannels) {
+			return fmt.Errorf("connector %s: field %s has an invalid picker %q", d.Tool, f.Key, f.Picker)
 		}
 		if f.Default != "" && (f.Kind == "secret" || f.Kind == "select" && !slices.Contains(f.Options, f.Default)) {
 			return fmt.Errorf("connector %s: field %s has an invalid default", d.Tool, f.Key)

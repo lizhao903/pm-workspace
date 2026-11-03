@@ -319,7 +319,7 @@ func (r contactReader) FindByName(ctx context.Context, name string) (ContactInfo
 		return ContactInfo{}, ErrNoStore
 	}
 	var info ContactInfo
-	err := d.R.QueryRowContext(ctx, `SELECT id, name FROM stakeholders WHERE name = ? AND archived_at IS NULL ORDER BY created_at, id LIMIT 1`,
-		strings.TrimSpace(name)).Scan(&info.ID, &info.Name)
+	err := d.R.QueryRowContext(ctx, `SELECT id, name, email FROM stakeholders WHERE name = ? AND archived_at IS NULL ORDER BY created_at, id LIMIT 1`,
+		strings.TrimSpace(name)).Scan(&info.ID, &info.Name, &info.Email)
 	return info, err
 }

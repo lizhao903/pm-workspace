@@ -11,7 +11,8 @@ import (
 // 实现是 internal/agent 的 Service，cmd/pmw 用 SetAgent 接上；没接上时每个方法回 ErrNoAgent。
 
 type (
-	// CompleteRequest 是一次不带工具的补全，Model 为空用默认服务商的模型。
+	// CompleteRequest 是一次不带工具的补全，Provider 为空用默认服务商，Model 为空用服务商设置的模型；
+	// Agent 给了就用这个 Agent 的服务商、模型、思考档位和指令，Provider / Model 忽略。
 	CompleteRequest = agent.CompleteRequest
 	// AgentRunRequest 让一个 Agent（id 或名称）在新会话里跑一轮。
 	AgentRunRequest = agent.AgentRunRequest
@@ -19,6 +20,12 @@ type (
 	AgentRunResult = agent.AgentRunResult
 	// KBHit 是知识库检索命中的一段。
 	KBHit = agent.KBHit
+)
+
+// 场景默认 Agent（CompleteRequest.Scenario）：没指定 Agent 和服务商时按场景找设置里选的 Agent，没选用默认服务商。
+const (
+	ScenarioSOPAssist  = agent.ScenarioSOPAssist
+	ScenarioBackground = agent.ScenarioBackground
 )
 
 // AgentService 是插件用模型和 Agent 的入口。

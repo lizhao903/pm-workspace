@@ -6,6 +6,10 @@ import type * as DataLayer from '../data'
 import type { CommandRegistry, ShellApi } from './commands'
 import type { ModuleDef } from './index'
 import type { PluginManifest } from './manifest'
+import type { ObjectSectionRegistry } from './objectSections'
+import type { SessionToolRegistry } from './sessionTools'
+import type { TerminalLauncherRegistry } from './terminalLaunch'
+import type { SessionSourceRegistry } from './sessionSources'
 import type { ProjectTabRegistry } from './projectTabs'
 import type { TodaySourceRegistry } from './todaySources'
 
@@ -105,6 +109,8 @@ export interface SopNodeView {
     // 编辑器渲染时调；可以读数据层缓存，缓存变了编辑器会重新调
     options?: () => { value: string; label: string }[]
   }[]
+  // 画布节点上的一行配置摘要；不给时显示节点说明。可以读数据层缓存
+  summary?: (config: Record<string, string>) => string
 }
 export interface SopNodeRegistry {
   register(def: SopNodeView): Disposable
@@ -147,6 +153,14 @@ export interface PluginApi {
   todaySources: TodaySourceRegistry
   // 项目详情的插件标签（VID-08d）
   projectTabs: ProjectTabRegistry
+  // 对象详情的插件区块（SOP-06）
+  objectSections: ObjectSectionRegistry
+  // 会话头部右上角的工具入口和面板（SPEC-sessions-1.34）
+  sessionTools: SessionToolRegistry
+  // 从别的记录发起的会话，头部「来源」怎么显示、跳到哪（内核 0047）
+  sessionSources: SessionSourceRegistry
+  // 在终端里开 Claude Code 的入口，任务「交给 Claude Code」选「切换到终端」时用（内核 0048）
+  terminalLauncher: TerminalLauncherRegistry
   commands: CommandRegistry // 2.9
   events: EventRegistry // 2.10（未实现）
   data: DataClient

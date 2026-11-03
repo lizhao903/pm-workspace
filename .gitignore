@@ -5,6 +5,8 @@
 # 而它不匹配任何一条规则——一次 `git add -A` 就会把它连同密钥写进 git 历史，
 # 而 git 历史是很难干净清掉的。列举要排除的东西，总会漏掉明天才出现的那个。
 /data/
+# 测试实例 7796 的库、附件、备份、日志（scripts/dev-instance.sh），同样是真实数据，不入库
+/data-dev/
 /bin/
 /web/node_modules/
 # 前端构建产物不入库，但 //go:embed all:dist 要求目录至少有一个文件，

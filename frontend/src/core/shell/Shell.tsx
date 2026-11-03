@@ -14,6 +14,7 @@ import { buildMenu, isGroupFolded, readFolded, toggleId, writeFolded } from './m
 import { useSideCollapsed } from './sideCollapse'
 import { arrangeFound, modKey, type PaletteItem } from './palette'
 import { PluginNotice } from './PluginNotice'
+import { ReminderPopups } from './ReminderPopups'
 import { CATALOG_IDS, homeModule, resolveCurrent, useCurrentWorkspaceId, workspaceMenuGroups } from './workspace'
 import { useWorkspaceSwitch } from './useWorkspaceSwitch'
 import { WorkspaceSwitcher } from './WorkspaceSwitcher'
@@ -80,6 +81,7 @@ export function Shell({ modules }: { modules: ModuleDef[] }) {
     setQuick(true)
   }
   const convPath = live.find((m) => m.id === 'conversations')?.path
+  const tasksPath = live.find((m) => m.id === 'tasks')?.path
   const shellApi: ShellApi = useMemo(() => ({ navigate: (to) => { void navigate(to) } }), [navigate])
   // 插件拿到的 api.shell 经这里转给外壳
   useEffect(() => {
@@ -222,6 +224,8 @@ export function Shell({ modules }: { modules: ModuleDef[] }) {
       <div className="shell-drawer" ref={setDrawerSlot} />
       {switchPrompt}
       {palette && <CommandPalette items={palette} search={search} onClose={() => setPalette(null)} />}
+      {/* 定时任务的提醒到点在右下角弹出；关联了任务的点了打开它 */}
+      <ReminderPopups onOpenTask={tasksPath ? (id) => { void navigate(`/${tasksPath}?t=${encodeURIComponent(id)}`) } : undefined} />
       {quick && convPath && (
         <QuickSessionHost onClose={() => setQuick(false)}
           onOpen={(id) => { setQuick(false); void navigate(`/${convPath}?s=${encodeURIComponent(id)}`) }} />

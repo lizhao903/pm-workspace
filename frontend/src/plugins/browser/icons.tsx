@@ -32,3 +32,5 @@ export function KindIcon({ kind }: { kind: TabKind }) {
 export function TabIcon({ kind, busy }: { kind: TabKind; busy: boolean }) {
   return busy ? <span className="br-spin" aria-label="加载中" /> : <KindIcon kind={kind} />
 }
+/** 会话头部「浏览器」入口用，和原型项目标题行的「浏览器」按钮同一个 */
+export const IconGlobe = () => svg(14, <><circle cx="8" cy="8" r="6" /><path d="M2 8h12M8 2c1.8 1.8 2.6 3.8 2.6 6S9.8 12.2 8 14M8 2C6.2 3.8 5.4 5.8 5.4 8s.8 4.2 2.6 6" /></>, { fill: 'none', stroke: 'currentColor', strokeWidth: 1.4 })

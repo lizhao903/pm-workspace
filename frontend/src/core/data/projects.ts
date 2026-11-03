@@ -5,7 +5,8 @@ import { useMutation, useQuery } from '@tanstack/react-query'
 import { objects, request, type ObjectPatch, type WorkObject } from '../api'
 import { useNotifyChange } from './invalidate'
 import { dataKeys } from './keys'
-import { useAllObjects, useObject } from './objects'
+import { listAllObjects, useAllObjects, useObject, type ObjectFilter } from './objects'
+import { queryClient } from './queryClient'
 
 export const PROJECT_TYPE = 'project'
 
@@ -58,7 +59,13 @@ export function projectView(o: WorkObject): ProjectView {
 }
 
 /** 存在 props 里的几个字段 */
-export type ProjectProps = { color?: string; mark?: ProjectMark; related?: RelatedDir[]; sop_ids?: string[]; agent_ids?: string[]; session_ids?: string[] }
+export type ProjectProps = {
+  color?: string; mark?: ProjectMark; related?: RelatedDir[]; sop_ids?: string[]; agent_ids?: string[]; session_ids?: string[]
+  /** 详情页不显示的标签 key（SPEC-projects-13.19）；没有这个 key 时全部显示，以后新加的标签默认也显示 */
+  tabs_hidden?: string[]
+  /** 详情页标签的先后（SPEC-projects-13.20）：标签 key 的顺序，不含概览、设置（固定一头一尾）；没有或空时按默认顺序，没列进来的新标签按默认位置插入 */
+  tabs_order?: string[]
+}
 
 /** 把改动合并进读回来的最新 props，别的 key（agent_ids、sop_ids 等）原样留着 */
 export function mergeProjectProps(current: Record<string, unknown> | null, edit: ProjectProps): Record<string, unknown> {
@@ -74,12 +81,30 @@ export function mergeProjectProps(current: Record<string, unknown> | null, edit:
   if (edit.sop_ids !== undefined) out.sop_ids = [...edit.sop_ids]
   if (edit.agent_ids !== undefined) out.agent_ids = [...edit.agent_ids]
   if (edit.session_ids !== undefined) out.session_ids = [...edit.session_ids]
+  if (edit.tabs_hidden !== undefined) out.tabs_hidden = [...edit.tabs_hidden]
+  if (edit.tabs_order !== undefined) out.tabs_order = [...edit.tabs_order]
   return out
 }
 
+const PROJECTS_FILTER: ObjectFilter = { type: [PROJECT_TYPE], sort: '-updated_at' }
+
 /** 全部项目（不含回收站里的） */
 export function useProjects() {
-  return useAllObjects({ type: [PROJECT_TYPE], sort: '-updated_at' })
+  return useAllObjects(PROJECTS_FILTER)
+}
+
+/**
+ * 项目下拉的选项（值是项目 id），给不在组件里的地方用（插件登记的 SOP 节点配置项）：读项目列表的缓存，
+ * 还没取过就取一次（失败了不反复取）；和 useProjects 同一份缓存，调用方订阅缓存变化后重新调
+ */
+export function projectOptions(): { value: string; label: string }[] {
+  const key = dataKeys.objects.listAll(PROJECTS_FILTER)
+  const st = queryClient.getQueryState(key)
+  if (!st || (st.status === 'pending' && st.fetchStatus === 'idle')) {
+    void queryClient.prefetchQuery({ queryKey: key, queryFn: ({ signal }) => listAllObjects(PROJECTS_FILTER, signal) })
+  }
+  const list = queryClient.getQueryData<{ data: WorkObject[] }>(key)?.data ?? []
+  return list.filter((o) => !o.deleted_at).map((o) => ({ value: o.id, label: o.title }))
 }
 
 /** 单个项目；不是项目或已进回收站的，界面按「不存在」处理 */

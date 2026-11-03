@@ -99,6 +99,9 @@ type activation struct {
 
 	// scheduleActions 是定时任务动作（VID-06a，scheduleaction.go）
 	scheduleActions []ScheduleActionDef
+
+	// projectPrototypes 是项目原型的查询入口（projectprotos.go）
+	projectPrototypes ProjectPrototypeLister
 }
 
 var (

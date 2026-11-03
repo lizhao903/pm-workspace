@@ -231,8 +231,8 @@ func (v *Vault) Resolve(ctx context.Context, id string) (string, error) {
 		return "", fmt.Errorf("read secret: %w", err)
 	}
 	if keyID != v.keyID {
-		return "", fmt.Errorf("secret %s was encrypted with master key %s, current key is %s "+
-			"(keychain entry or %s replaced?)", id, keyID, v.keyID, KeyFileName)
+		return "", &vaultErr{sentinel: ErrKeyMismatch, msg: fmt.Sprintf("secret %s was encrypted with master key %s, current key is %s "+
+			"(keychain entry or %s replaced?)", id, keyID, v.keyID, KeyFileName)}
 	}
 	plain, err := v.aead.Open(nil, nonce, ct, aad(id, ver))
 	if err != nil {
@@ -327,6 +327,10 @@ type vaultErr struct {
 
 func (e *vaultErr) Error() string { return e.msg }
 func (e *vaultErr) Unwrap() error { return e.sentinel }
+
+// ErrKeyMismatch：条目是用另一把主密钥加密的（vault.key 或钥匙串条目换过、丢过），这把密钥解不开。
+// 算冲突（409）：数据还在，但要用户重新填一遍凭证才能用。
+var ErrKeyMismatch = fmt.Errorf("%w: secret was encrypted with another master key", domain.ErrConflict)
 
 func validation(msg string) error { return &vaultErr{msg: msg, sentinel: domain.ErrValidation} }
 

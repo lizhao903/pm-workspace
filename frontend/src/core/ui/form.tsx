@@ -1,4 +1,4 @@
-import type { ComponentProps, ReactNode } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useState, type ComponentProps, type ReactNode, type Ref } from 'react'
 import { cls } from './cls'
 
 /**
@@ -29,8 +29,70 @@ export function Input({ invalid, className, ...rest }: ComponentProps<'input'> &
   return <input className={cls('input', invalid && 'bad', className)} aria-invalid={invalid || undefined} {...rest} />
 }
 
-export function Textarea({ invalid, className, rows = 4, ...rest }: ComponentProps<'textarea'> & { invalid?: boolean }) {
-  return <textarea rows={rows} className={cls('textarea', invalid && 'bad', className)} aria-invalid={invalid || undefined} {...rest} />
+/**
+ * 多行输入。autoGrow 时高度随内容撑开、不出内部滚动条（粘贴长文也跟着长），rows 是最小高度；
+ * 宽度变了（抽屉拉宽、窗口缩放）重新量一次
+ */
+export function Textarea({ invalid, className, rows = 4, autoGrow, ref, ...rest }: ComponentProps<'textarea'> & {
+  invalid?: boolean
+  autoGrow?: boolean
+}) {
+  const [el, setEl] = useState<HTMLTextAreaElement | null>(null)
+  useAutoGrow(autoGrow ? el : null, rest.value)
+  const setRef = useCallback((x: HTMLTextAreaElement | null) => {
+    setEl(x)
+    assignRef(ref, x)
+  }, [ref])
+  return (
+    <textarea ref={setRef} rows={rows} className={cls('textarea', autoGrow && 'grow', invalid && 'bad', className)}
+      aria-invalid={invalid || undefined} {...rest}
+      onInput={(e) => { rest.onInput?.(e); if (autoGrow) fitHeight(e.currentTarget) }} />
+  )
+}
+
+function assignRef<T>(ref: Ref<T> | undefined, v: T | null) {
+  if (typeof ref === 'function') ref(v)
+  else if (ref) ref.current = v
+}
+
+/** 最近的会滚动的祖先：量高度时先把高度设回 auto，内容会短一下，滚动位置要还原，不然输入时抽屉会跳 */
+function scrollParent(el: HTMLElement): HTMLElement | null {
+  for (let p = el.parentElement; p; p = p.parentElement) {
+    const y = getComputedStyle(p).overflowY
+    if (y === 'auto' || y === 'scroll') return p
+  }
+  return null
+}
+
+/** 把高度设成正好装下内容：auto 时的高度就是 rows 那么高，scrollHeight 取内容和 rows 里大的那个 */
+function fitHeight(el: HTMLTextAreaElement) {
+  const box = scrollParent(el)
+  const top = box?.scrollTop
+  el.style.height = 'auto'
+  const cs = getComputedStyle(el)
+  const extra = cs.boxSizing === 'border-box'
+    ? (parseFloat(cs.borderTopWidth) || 0) + (parseFloat(cs.borderBottomWidth) || 0)
+    : -((parseFloat(cs.paddingTop) || 0) + (parseFloat(cs.paddingBottom) || 0))
+  el.style.height = `${el.scrollHeight + extra}px`
+  if (box && top !== undefined) box.scrollTop = top
+}
+
+/** el 给了就跟着内容量高度；值变了（打字、粘贴、外面改了值）、宽度变了（折行变了）都重新量 */
+function useAutoGrow(el: HTMLTextAreaElement | null, value: unknown) {
+  useLayoutEffect(() => {
+    if (el) fitHeight(el)
+  }, [el, value])
+  useEffect(() => {
+    if (!el || typeof ResizeObserver === 'undefined') return
+    let w = el.clientWidth
+    const ro = new ResizeObserver(() => {
+      if (el.clientWidth === w) return
+      w = el.clientWidth
+      fitHeight(el)
+    })
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [el])
 }
 
 export interface SelectOption {

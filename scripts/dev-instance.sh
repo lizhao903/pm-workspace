@@ -20,7 +20,8 @@
 #      测试实例用 bin/pmw-dev，测试 MCP 用 bin/pmw-mcp-dev。
 #
 # 可用环境变量覆盖：
-#   PMW_DEV_DIR   副本库、pid、日志所在目录（默认 $TMPDIR/pmw-devinst）
+#   PMW_DEV_DIR   副本库、附件、备份、pid、日志所在目录（默认 <仓库>/data-dev，不入库）。
+#                 不要指到 $TMPDIR 或 Claude 的临时目录：7796 上是日常在用的数据，附件（IM 截图）也落在这里，临时目录会被清掉
 #   PMW_DEV_ADDR  监听地址（默认 127.0.0.1:7796）
 #   PMW_SRC_DB    被复制的真实库（默认 <仓库>/data/pm.db）
 #   PMW_DEV_SKIP_UI=1  编译时不重建正式前端（默认每次 start 都 make frontend 再嵌进去）
@@ -28,7 +29,7 @@
 set -euo pipefail
 
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
-DEV_DIR="${PMW_DEV_DIR:-${TMPDIR:-/tmp}/pmw-devinst}"
+DEV_DIR="${PMW_DEV_DIR:-$REPO/data-dev}"
 DEV_DIR="${DEV_DIR%/}"
 ADDR="${PMW_DEV_ADDR:-127.0.0.1:7796}"
 SRC_DB="${PMW_SRC_DB:-$REPO/data/pm.db}"
@@ -51,6 +52,8 @@ guard() {
   [ "$src_real" != "$db_real" ] || die "副本路径和真实库是同一个文件：$db_real"
   case "$db_real" in
     "$REPO/data/"*) die "副本不能放在 $REPO/data/ 下" ;;
+    /tmp/*|/private/tmp/*|/private/var/folders/*|/var/folders/*)
+      [ "${PMW_DEV_ALLOW_TMP:-}" = "1" ] || die "副本目录在临时目录里（$DEV_DIR），会被系统或会话清掉；用默认的 $REPO/data-dev，确实要临时实例时加 PMW_DEV_ALLOW_TMP=1" ;;
   esac
 }
 

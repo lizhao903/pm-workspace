@@ -60,7 +60,7 @@ export function fieldHint(def: Pick<ConnectorDef, 'tool'>, f: Pick<ConnectorFiel
   }
   if (f.key === 'bot_token') {
     return user
-      ? 'OAuth & Permissions 页的 User OAuth Token（xoxp-）；User Token Scopes 要有 channels/groups/im/mpim 的 history 和 read、users:read、chat:write、files:read。换身份要重填'
+      ? 'OAuth & Permissions 页的 User OAuth Token（xoxp-）；User Token Scopes 要有 channels/groups/im/mpim 的 history 和 read、users:read、users:read.email（补联系人邮箱）、chat:write、files:read。换身份要重填'
       : 'OAuth & Permissions 页的 Bot User OAuth Token（xoxb-）。换身份要重填'
   }
   return undefined

@@ -26,11 +26,20 @@ func TestRegistry(t *testing.T) {
 		{Tool: "x", Label: "x", Auth: []AuthMode{AuthNone}},
 		{Tool: "x", Label: "x", Auth: []AuthMode{AuthNone}, Test: Fake().Test, Fields: []Field{{Key: "a", Kind: "file"}}},
 		{Tool: "x", Label: "x", Auth: []AuthMode{AuthNone}, Test: Fake().Test, Tools: []ToolDef{{Name: "a"}, {Name: "a"}}},
+		// 选择器只给 text，且得是认识的
+		{Tool: "x", Label: "x", Auth: []AuthMode{AuthNone}, Test: Fake().Test, Fields: []Field{{Key: "a", Kind: "select", Options: []string{"1"}, Picker: PickerIMChannels}}},
+		{Tool: "x", Label: "x", Auth: []AuthMode{AuthNone}, Test: Fake().Test, Fields: []Field{{Key: "a", Kind: "text", Picker: "colors"}}},
 	}
 	for i, d := range bad {
 		if err := r.Register(d); err == nil {
 			t.Errorf("bad[%d] 应该登记失败", i)
 		}
+	}
+	if err := r.Register(Slack(SlackEndpoints{})); err != nil {
+		t.Fatalf("Slack 定义（监听频道带选择器）应能登记：%v", err)
+	}
+	if d, _ := r.Get(SlackTool); d.field("channels").Picker != PickerIMChannels {
+		t.Error("Slack 的监听频道应该用 im_channels 选择器")
 	}
 	ok2 := Def{Tool: "plain", Label: "x", Auth: []AuthMode{AuthNone}, Test: Fake().Test}
 	if err := r.Register(ok2); err != nil {

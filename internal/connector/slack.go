@@ -44,7 +44,7 @@ func SlackAs(v string) string {
 // SlackUserScopes 是「我本人」身份要在 App 的 User Token Scopes 里加的权限；Bot 身份的同名 scope 加在 Bot Token Scopes。
 var SlackUserScopes = []string{
 	"channels:history", "channels:read", "groups:history", "groups:read", "im:history", "im:read", "mpim:history", "mpim:read",
-	"users:read", "chat:write", "files:read",
+	"users:read", "users:read.email", "chat:write", "files:read",
 }
 
 const (
@@ -79,7 +79,7 @@ func Slack(e SlackEndpoints) Def {
 			{Key: SlackIdentityField, Label: "身份", Kind: "select", Options: []string{SlackAsBot, SlackAsUser}, Default: SlackAsBot},
 			{Key: "bot_token", Label: "Token", Kind: "secret", Placeholder: "身份选 Bot 填 xoxb-，选我本人填 xoxp-", Required: true},
 			{Key: "signing_secret", Label: "Signing Secret", Kind: "secret", Placeholder: "用事件订阅（Events API）回调时必填"},
-			{Key: "channels", Label: "监听频道", Kind: "text", Placeholder: "#product, #feedback，逗号分隔；留空 = 只收私信"},
+			{Key: "channels", Label: "监听频道", Kind: "text", Picker: PickerIMChannels, Placeholder: "#product, #feedback，逗号分隔；留空 = 只收私信"},
 			{Key: "self_user_id", Label: "我的 Member ID", Kind: "text", Placeholder: "U 开头；@ 到它算 @我，留空只认 @Bot；身份是我本人时自动取"},
 			{Key: "self_names", Label: "我的称呼", Kind: "text", Placeholder: "李钊, Zhao，逗号分隔；正文里 @ 到它们也算 @我"},
 		},

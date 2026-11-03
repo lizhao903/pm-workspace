@@ -2,8 +2,11 @@
 // 契约见 docs/api-contract.md「分类 categories」「标签 tags」「文件读取和挂载目录」。
 // 文档本身是 type=doc 的对象，列表走 objects.ts 的 useAllObjects；星标改的是对象，报 { kind: 'object' }。
 // 挂载、移除目录报 { kind: 'local-dir' }，刷新挂载列表、文件清单和读过的文件。
-import { keepPreviousData, useMutation, useQuery } from '@tanstack/react-query'
+// 文件清单分页（「全部文档」）：一页页拉到 next_cursor 为空，拉一页显示一页，合起来是全量。
+import { keepPreviousData, useInfiniteQuery, useMutation, useQuery } from '@tanstack/react-query'
+import { useEffect, useMemo } from 'react'
 import { objects, request, requestList, type WorkObject } from '../api'
+import { apiBase } from '../api/client'
 import { useNotifyChange } from './invalidate'
 import { dataKeys } from './keys'
 
@@ -31,6 +34,9 @@ export type TagInfo = { id: string; name: string; color: string; count: number; 
 
 export type LocalDir = { id: string; path: string; name: string; position: number; created_at: string; updated_at: string }
 
+/** 文件种类：text 直接读正文，pdf、image 原样预览（/api/fs/raw），office 不预览、给「用本机应用打开」 */
+export type LocalFileKind = 'text' | 'pdf' | 'image' | 'office'
+
 export type LocalFileEntry = {
   /** 相对挂载目录，分隔符 / */
   rel: string
@@ -38,11 +44,30 @@ export type LocalFileEntry = {
   path: string
   name: string
   ext: string
+  /** 老后端没有这个字段，按文本处理 */
+  kind?: LocalFileKind
   size: number
   modified: string
 }
 
-export type LocalFileList = { path: string; files: LocalFileEntry[]; skipped: number; truncated: boolean }
+/** 截断原因：visited 是目录太大（走查项数到上限），depth 是有子目录太深没往下走 */
+export type LocalListReason = 'visited' | 'depth' | ''
+
+/**
+ * 文件清单。接口回的是一页；useLocalDirFiles 把各页合起来：skipped 累加，truncated 任一页触到保护就为 true，
+ * loading 为 true 表示后面还有页在拉。
+ */
+export type LocalFileList = {
+  path: string
+  files: LocalFileEntry[]
+  skipped: number
+  truncated: boolean
+  reason?: LocalListReason
+  next_cursor?: string
+  /** 累计走查的项数（文件、目录都算） */
+  visited?: number
+  loading?: boolean
+}
 
 export type LocalFile = {
   path: string
@@ -67,8 +92,34 @@ export const docsApi = {
   localDirs: (signal?: AbortSignal) => requestList<LocalDir>('/api/local-dirs', { signal }).then((r) => r.data),
   mount: (body: { path: string; name?: string }) => request<LocalDir>('POST', '/api/local-dirs', { body }),
   unmount: (id: string) => request<null>('DELETE', dirPath(id)),
-  files: (id: string, signal?: AbortSignal) => request<LocalFileList>('GET', `${dirPath(id)}/files`, { signal }),
+  /** 一页文件清单；cursor 是上一页的 next_cursor，不给从头列 */
+  files: (id: string, cursor = '', signal?: AbortSignal, limit?: number) => {
+    const query = new URLSearchParams()
+    if (cursor) query.set('cursor', cursor)
+    if (limit) query.set('limit', String(limit))
+    return request<LocalFileList>('GET', `${dirPath(id)}/files`, { query, signal })
+  },
   read: (path: string, signal?: AbortSignal) => request<LocalFile>('GET', '/api/fs/read', { query: new URLSearchParams({ path }), signal }),
+  /** 用本机默认应用打开，reveal 为 true 时在访达中显示 */
+  open: (body: { path: string; reveal?: boolean }) => request<{ path: string; reveal: boolean }>('POST', '/api/fs/open', { body }),
+}
+
+/** 原样读文件的地址（PDF、图片预览用，给 iframe、img 的 src），边界同 /api/fs/read */
+export const localRawUrl = (path: string) => `${apiBase()}/api/fs/raw?${new URLSearchParams({ path })}`
+
+/** 把各页清单合成一份 */
+export function mergeFilePages(pages: LocalFileList[], more: boolean): LocalFileList | undefined {
+  if (!pages.length) return undefined
+  const last = pages[pages.length - 1]
+  const truncated = pages.some((p) => p.truncated)
+  // visited（目录太大）比 depth 要紧，有就报它
+  const reason: LocalListReason = pages.some((p) => p.reason === 'visited') ? 'visited' : (pages.find((p) => p.reason)?.reason ?? '')
+  return {
+    path: pages[0].path,
+    files: pages.length === 1 ? pages[0].files : pages.flatMap((p) => p.files),
+    skipped: pages.reduce((n, p) => n + (p.skipped ?? 0), 0),
+    truncated, reason, visited: last.visited, next_cursor: last.next_cursor, loading: more,
+  }
 }
 
 /** 某类对象的分类树，带数量 */
@@ -86,14 +137,38 @@ export function useLocalDirs() {
   return useQuery({ queryKey: dataKeys.localDirs.list, queryFn: ({ signal }) => docsApi.localDirs(signal) })
 }
 
-/** 挂载目录下的文本文件清单；null 不查。目录被删了回 404，不重试 */
+/**
+ * 挂载目录下认得的文件（文本、PDF、图片、Office 等）全量清单；null 不查。目录被删了回 404，不重试。
+ * 第一页到了就有 data，后面的页自动接着拉（data.loading 为 true 时还没拉完），合起来是全量。
+ */
 export function useLocalDirFiles(id: string | null) {
-  return useQuery({
+  const q = useInfiniteQuery({
     queryKey: dataKeys.localDirs.files(id ?? ''),
-    queryFn: ({ signal }) => docsApi.files(id ?? '', signal),
+    queryFn: ({ signal, pageParam }) => docsApi.files(id ?? '', pageParam, signal),
+    initialPageParam: '',
+    getNextPageParam: (last: LocalFileList) => last.next_cursor || undefined,
     enabled: !!id,
     retry: false,
   })
+  const { hasNextPage, isFetchingNextPage, isError, fetchNextPage } = q
+  // 页数也放进依赖：一页拉完时「正在拉下一页」可能没在某次渲染里露出来，只看它会停在半路
+  const loaded = q.data?.pages.length ?? 0
+  useEffect(() => {
+    if (hasNextPage && !isFetchingNextPage && !isError) void fetchNextPage({ cancelRefetch: false })
+  }, [hasNextPage, isFetchingNextPage, isError, fetchNextPage, loaded])
+  const data = useMemo(() => (q.data ? mergeFilePages(q.data.pages, !!hasNextPage) : undefined), [q.data, hasNextPage])
+  return {
+    data, isError: q.isError && !data, error: q.error, isFetching: q.isFetching, dataUpdatedAt: q.dataUpdatedAt,
+    refetch: q.refetch,
+    /** 后面的页拉失败了（前面的页还在） */
+    pageError: q.isError && !!data ? q.error : null,
+    retryPage: () => void fetchNextPage(),
+  }
+}
+
+/** 用本机应用打开、在访达中显示 */
+export function useOpenLocalFile() {
+  return useMutation({ mutationFn: docsApi.open })
 }
 
 /** 读一个挂载目录里的文件；null 不读。403（不在挂载目录、隐藏项）和 404 都不重试 */

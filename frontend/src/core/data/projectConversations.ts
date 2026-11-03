@@ -1,6 +1,7 @@
 // 项目绑定的会话（PJ-02b）：项目插件的 /api/projects/{id}/conversations（PJ-02a），按会话 id 绑，改群名不断。
 // 项目里的消息按绑定的会话逐个取 /api/im/messages?conversation_id=（IM-01a），只取绑定会话的，不拉全部消息再筛。
 // 绑定、解绑报 { kind: 'project-conversation' }；消息的键挂在 im 前缀下，消息一变（im-message）跟着刷。
+// 归到项目的消息（消息分流）另取 /api/im/messages?project_id=，和绑定会话的消息按 id 去重合在一起。
 import { useMutation, useQueries, useQuery } from '@tanstack/react-query'
 import { isApiError, request, requestList } from '../api'
 import { IM_PAGE_MAX, imApi, normMessage, type ImMessage } from './im'
@@ -22,15 +23,20 @@ export const projectConversationsApi = {
   bind: (id: string, conversationId: string) => request<ProjectConversation>('POST', base(id), { body: { conversation_id: conversationId } }),
   unbind: (id: string, conversationId: string) => request<null>('DELETE', `${base(id)}/${encodeURIComponent(conversationId)}`),
   /** 一个会话里的消息，按页拉完，按发送时间倒序 */
-  messages: async (conversationId: string, signal?: AbortSignal) => {
-    const out: ImMessage[] = []
-    for (let offset = 0; ; offset += IM_PAGE_MAX) {
-      const query = new URLSearchParams({ conversation_id: conversationId, limit: String(IM_PAGE_MAX), offset: String(offset) })
-      const r = await requestList<ImMessage>('/api/im/messages', { query, signal })
-      out.push(...r.data.map(normMessage))
-      if (!r.data.length || out.length >= r.total) return out
-    }
-  },
+  messages: (conversationId: string, signal?: AbortSignal) => allMessages({ conversation_id: conversationId }, signal),
+  /** 归到这个项目的消息，按页拉完 */
+  projectMessages: (projectId: string, signal?: AbortSignal) => allMessages({ project_id: projectId }, signal),
+}
+
+/** 按条件把消息按页拉完，按发送时间倒序 */
+async function allMessages(filter: Record<string, string>, signal?: AbortSignal) {
+  const out: ImMessage[] = []
+  for (let offset = 0; ; offset += IM_PAGE_MAX) {
+    const query = new URLSearchParams({ ...filter, limit: String(IM_PAGE_MAX), offset: String(offset) })
+    const r = await requestList<ImMessage>('/api/im/messages', { query, signal })
+    out.push(...r.data.map(normMessage))
+    if (!r.data.length || out.length >= r.total) return out
+  }
 }
 
 /** 项目绑定的会话，按绑定先后 */
@@ -73,17 +79,28 @@ export type ConversationMessages = {
 /** 插件没装或停用时接口 404，不重试 */
 const noRetry404 = (n: number, e: unknown) => !isApiError(e, 'not_found') && n < 2
 
-/** 几个会话里的消息；enabled=false（IM 插件没在跑）时不发请求 */
-export function useConversationMessages(conversationIds: readonly string[], opts: { enabled?: boolean; refetchInterval?: number | false } = {}): ConversationMessages {
+/** 几个会话里的消息；给了 projectId 时再并上归到这个项目的消息。enabled=false（IM 插件没在跑）时不发请求 */
+export function useConversationMessages(conversationIds: readonly string[],
+  opts: { enabled?: boolean; refetchInterval?: number | false; projectId?: string } = {}): ConversationMessages {
   const enabled = opts.enabled ?? true
+  const pid = opts.projectId
   return useQueries({
-    queries: conversationIds.map((id) => ({
-      queryKey: dataKeys.im.conversation(id),
-      queryFn: ({ signal }: { signal: AbortSignal }) => projectConversationsApi.messages(id, signal),
-      enabled,
-      retry: noRetry404,
-      refetchInterval: opts.refetchInterval,
-    })),
+    queries: [
+      ...conversationIds.map((id) => ({
+        queryKey: dataKeys.im.conversation(id) as readonly unknown[],
+        queryFn: ({ signal }: { signal: AbortSignal }) => projectConversationsApi.messages(id, signal),
+        enabled,
+        retry: noRetry404,
+        refetchInterval: opts.refetchInterval,
+      })),
+      ...(pid ? [{
+        queryKey: dataKeys.im.project(pid) as readonly unknown[],
+        queryFn: ({ signal }: { signal: AbortSignal }) => projectConversationsApi.projectMessages(pid, signal),
+        enabled,
+        retry: noRetry404,
+        refetchInterval: opts.refetchInterval,
+      }] : []),
+    ],
     combine: (rs) => {
       const seen = new Set<string>()
       const data: ImMessage[] = []

@@ -1,7 +1,7 @@
 // 内置浏览器页（BR-01b，SPEC-browser-1 到 4）：整页没有顶栏，最上面一排标签，下面一行工具栏（后退、前进、刷新、地址栏、
 // 在系统浏览器打开、账号），再下面是当前标签的内容。标签存后端，刷新后恢复（store.ts）。
 // 别的模块要在这里打开地址时跳 /browser?open=<地址>&title=<标题>，处理完从地址栏去掉。
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type FormEvent, type RefObject } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type FormEvent, type ReactNode, type RefObject } from 'react'
 import { useSearchParams } from 'react-router'
 import { IconButton, LoadingState, cls } from '../../core/ui'
 import {
@@ -21,10 +21,14 @@ export default function BrowserPage() {
   const oauth = params.get('oauth')
   // 授权回调回到的窗口：不碰标签，只显示结果
   if (oauth) return <OAuthDone ok={oauth === 'ok'} connector={params.get('connector') ?? ''} message={params.get('message') ?? ''} />
-  return <Browser />
+  return <BrowserView />
 }
 
-function Browser() {
+/**
+ * 标签栏、工具栏和内容。一级菜单整页用它；会话旁边的浏览器（SPEC-sessions-1.36）也用它，和一级菜单是同一套标签。
+ * bar：工具栏下面多放的一行（会话里的链接）
+ */
+export function BrowserView({ bar }: { bar?: ReactNode }) {
   const { tabs, ready, saveFailed, recent, reloads, pending } = store.useBrowserState()
   const [params, setParams] = useSearchParams()
   const protos = useTerminalPrototypes()
@@ -91,6 +95,8 @@ function Browser() {
 
       <Toolbar tab={tab} google={google.data} saveFailed={saveFailed}
         onLogin={() => setLoginOpen(true)} onSubmit={(url) => store.openHere(url)} />
+
+      {bar}
 
       {notice && (
         <div className="br-notice-bar" role="status">

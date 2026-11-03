@@ -3,6 +3,7 @@ package plugin
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -33,23 +34,30 @@ type Row interface{ Scan(dest ...any) error }
 
 // ObjectInfo 是内核对象里插件常用的几项；软删的 Deleted 为 true。
 // Workdir 是对象自身的 workdir 列（项目的 root），没设为空串，不往所属项目继承（TERM-01c）。
+// Ref 是给人看的编号（REQ-0001），Props 是对象的自定义字段（JSON 解出来的，解不开为空 map）。
 type ObjectInfo struct {
 	ID      string
 	Type    string
+	Ref     string
 	Title   string
 	Workdir string
+	Props   map[string]any
 	Deleted bool
 }
 
 // ObjectReader 只读查内核对象。没有这个 id 返回 ErrNoRows。
 type ObjectReader interface {
 	Get(ctx context.Context, id string) (ObjectInfo, error)
+	// Find 在某个类型里按 id、ref（不分大小写）、标题（完全相同）依次找一个没删的对象，标题重名取最早建的；
+	// 都找不到返回 ErrNoRows（SOP 节点按「项目 id、ref 或名字」认项目用）。
+	Find(ctx context.Context, typeID, key string) (ObjectInfo, error)
 }
 
 // ContactInfo 是干系人名册里的一个人；已归档的 Archived 为 true。
 type ContactInfo struct {
 	ID       string
 	Name     string
+	Email    string // 联系人的邮箱，没填为空串（IM 插件从渠道资料补邮箱时看它空不空）
 	Archived bool
 }
 
@@ -252,16 +260,43 @@ func (o objectReader) Get(ctx context.Context, id string) (ObjectInfo, error) {
 	if d == nil {
 		return ObjectInfo{}, ErrNoStore
 	}
+	return scanObject(d.R.QueryRowContext(ctx, `SELECT `+objectInfoCols+` FROM objects WHERE id = ?`, id))
+}
+
+const objectInfoCols = `id, type_id, ref, title, workdir, props, deleted_at`
+
+func scanObject(row *sql.Row) (ObjectInfo, error) {
 	var info ObjectInfo
 	var deleted sql.NullString
-	err := d.R.QueryRowContext(ctx, `SELECT id, type_id, title, workdir, deleted_at FROM objects WHERE id = ?`, id).
-		Scan(&info.ID, &info.Type, &info.Title, &info.Workdir, &deleted)
-	if err != nil {
+	var props string
+	if err := row.Scan(&info.ID, &info.Type, &info.Ref, &info.Title, &info.Workdir, &props, &deleted); err != nil {
 		return ObjectInfo{}, err
 	}
 	info.Workdir = strings.TrimSpace(info.Workdir)
 	info.Deleted = deleted.Valid
+	if json.Unmarshal([]byte(props), &info.Props) != nil || info.Props == nil {
+		info.Props = map[string]any{}
+	}
 	return info, nil
+}
+
+func (o objectReader) Find(ctx context.Context, typeID, key string) (ObjectInfo, error) {
+	d := o.c.db()
+	if d == nil {
+		return ObjectInfo{}, ErrNoStore
+	}
+	key = strings.TrimSpace(key)
+	if key == "" {
+		return ObjectInfo{}, ErrNoRows
+	}
+	for _, cond := range []string{"id = ?", "ref = ? COLLATE NOCASE", "title = ?"} {
+		info, err := scanObject(d.R.QueryRowContext(ctx, `SELECT `+objectInfoCols+` FROM objects
+			WHERE type_id = ? AND deleted_at IS NULL AND `+cond+` ORDER BY created_at, id LIMIT 1`, typeID, key))
+		if !errors.Is(err, sql.ErrNoRows) {
+			return info, err
+		}
+	}
+	return ObjectInfo{}, ErrNoRows
 }
 
 type contactReader struct{ c *core }
@@ -273,8 +308,8 @@ func (r contactReader) Get(ctx context.Context, id string) (ContactInfo, error) 
 	}
 	var info ContactInfo
 	var archived sql.NullString
-	err := d.R.QueryRowContext(ctx, `SELECT id, name, archived_at FROM stakeholders WHERE id = ?`, id).
-		Scan(&info.ID, &info.Name, &archived)
+	err := d.R.QueryRowContext(ctx, `SELECT id, name, email, archived_at FROM stakeholders WHERE id = ?`, id).
+		Scan(&info.ID, &info.Name, &info.Email, &archived)
 	if err != nil {
 		return ContactInfo{}, err
 	}

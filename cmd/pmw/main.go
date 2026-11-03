@@ -68,6 +68,8 @@ type config struct {
 	fakeIM bool
 	// publicURL：浏览器访问工作台的地址，OAuth 回调地址 = 它 + /api/connectors/oauth/callback
 	publicURL string
+	// mcpBin：「切换到终端」执行时写进 MCP 配置的 MCP 程序；空串时按本程序的位置推（mcpBinFor）
+	mcpBin string
 }
 
 func main() {
@@ -84,6 +86,7 @@ func main() {
 	flag.BoolVar(&cfg.fakeConnector, "fake-connector", false, "登记内置的假连接器 fake 和 fake_oauth（只用于演练连接器框架）")
 	flag.BoolVar(&cfg.fakeIM, "fake-im", false, "IM 插件带上假适配器 fake，可用 POST /api/im/callbacks/fake 灌消息（只用于演练）")
 	flag.StringVar(&cfg.publicURL, "public-url", connector.DefaultPublicURL, "浏览器访问工作台的地址，OAuth 回调地址由它拼出（见 docs/local-domain.md）")
+	flag.StringVar(&cfg.mcpBin, "mcp-bin", "", "交给 Claude Code「切换到终端」时接回工作台的 MCP 程序；留空按本程序位置推：bin/pmw 配 bin/pmw-mcp，bin/pmw-dev 配 bin/pmw-mcp-dev")
 	flag.Parse()
 
 	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo})))
@@ -238,6 +241,8 @@ func run(cfg config) error {
 	plugins.SetIncidents(opts.Incidents)
 	// 定时任务的定义（TASK-03a，0020）：规则按本机时区算
 	opts.Schedules = schedule.New(pdb, time.Local)
+	// 提醒（动作 remind）保存时查关联的对象在不在
+	opts.Schedules.SetObjects(st)
 	// 插件登记的定时任务动作（VID-06a）：保存时交给插件校验，到点交给插件执行
 	opts.Schedules.SetPluginActions(plugins)
 	// Webhook 配置（TASK-02a，0022）：接收密钥存保险箱，表里只有条目 id
@@ -287,6 +292,14 @@ func run(cfg config) error {
 	opts.Connectors.StartRefresher(ctx)
 	defer opts.Connectors.StopRefresher()
 	opts.DataDir = filepath.Dir(cfg.dbPath)
+	// 切换到终端执行（0048）：MCP 配置接回本实例
+	opts.PublicURL = cfg.publicURL
+	opts.MCPBin = cfg.mcpBin
+	if opts.MCPBin == "" {
+		if exe, err := os.Executable(); err == nil {
+			opts.MCPBin = mcpBinFor(exe, fileExists)
+		}
+	}
 	if !cfg.dev {
 		opts.UI = webui.Handler()
 	}
@@ -313,6 +326,8 @@ func run(cfg config) error {
 	opts.ScheduleRunner.Agents = opts.AgentRuns
 	// 运行异常巡检（INC-01a）：定时任务动作 incident_sweep，不自动建这个定时任务，由用户在定时任务页决定
 	opts.ScheduleRunner.Incidents = opts.Incidents
+	// 提醒：定时任务动作 remind 到点在工作台里发一条通知，只进通知列表和事件流，不外发 IM
+	opts.ScheduleRunner.Reminders = opts.Notify
 	// 发起 SOP（SOP-01d）：定时任务的 sop 动作和 Agent 的 run_sop 经插件注册表的钩子交给 SOP 插件；删流程前查指向它的定时任务
 	opts.ScheduleRunner.SOPs = plugins
 	agent.SetSOPStarter(plugins)

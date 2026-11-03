@@ -36,6 +36,11 @@ import type {
   StakeholderInput,
   StakeholderPatch,
   TaskRun,
+  TerminalHandoff,
+  TerminalRunRequest,
+  FinishRunInput,
+  RunPrompt,
+  RunPromptParams,
   WorkdirCheck,
   WorkObject,
 } from './types'
@@ -148,12 +153,30 @@ export const artifacts = {
   delete: (id: string) => request<null>('DELETE', `/api/artifacts/${seg(id)}`),
 }
 
+function runPromptQuery(p: RunPromptParams): URLSearchParams {
+  const q = new URLSearchParams()
+  if (p.mode) q.set('mode', p.mode)
+  if (p.workdir?.trim()) q.set('workdir', p.workdir.trim())
+  if (p.extra_prompt?.trim()) q.set('extra_prompt', p.extra_prompt.trim())
+  return q
+}
+
 export const runs = {
   // 最近的在前；limit 省略取 20，上限 100
   list: (objectId: string, opts: { limit?: number } = {}) =>
     request<TaskRun[]>('GET', `/api/objects/${seg(objectId)}/runs`, { query: limitQuery(opts.limit) }),
   get: (id: string) => request<TaskRun>('GET', `/api/runs/${seg(id)}`),
   cancel: (id: string) => request<TaskRun>('POST', `/api/runs/${seg(id)}/cancel`),
+  // 交给 Claude Code「切换到终端」（0048）：建执行记录、写好提示词和 MCP 配置，不起进程
+  terminal: (objectId: string, body: TerminalRunRequest) =>
+    request<TerminalHandoff>('POST', `/api/objects/${seg(objectId)}/run/terminal`, { body }),
+  // 终端执行收尾；流式执行回 409
+  finish: (id: string, body: FinishRunInput) => request<TaskRun>('POST', `/api/runs/${seg(id)}/finish`, { body }),
+  // 提示词预览，和发起时同一套拼法；目录不校验
+  prompt: (objectId: string, params: RunPromptParams, signal?: AbortSignal) =>
+    request<RunPrompt>('GET', `/api/objects/${seg(objectId)}/run/prompt`, {
+      query: runPromptQuery(params), signal,
+    }),
 }
 
 // 不可用也是 200，看返回的字段，message 说明原因

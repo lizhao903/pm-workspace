@@ -22,6 +22,8 @@ export type AgentTriggerMatch = {
   only_me: boolean
 }
 
+export type AgentThinking = 'default' | 'off' | 'low' | 'medium' | 'high'
+
 export type AgentTrigger = { kind: AgentTriggerKind | (string & {}); detail: string; match?: AgentTriggerMatch }
 
 export type Agent = {
@@ -38,6 +40,8 @@ export type Agent = {
   mcps: string[]
   kbs: string[]
   triggers: AgentTrigger[]
+  /** 调模型时的思考档位：default 不传、交给模型默认；off 不思考；low / medium / high 越来越深（0045）；老后端没有，按 default */
+  thinking?: AgentThinking
   enabled: boolean
   created_at: string
   updated_at: string
@@ -50,6 +54,9 @@ export type AgentPatch = Partial<AgentInput>
 export type AgentImpactItem = { key: string; count: number; text: string; effect?: string }
 /** blocks 有内容时不能删；text 前端原样显示 */
 export type AgentImpact = { agent_id: string; blocks: AgentImpactItem[]; items: AgentImpactItem[] }
+
+/** 场景默认 Agent（0045）：没指定 Agent 的模型调用按场景用它的服务商、模型、思考和指令；没选用默认服务商 */
+export type AgentScenario = { key: string; label: string; desc: string; agent_id: string }
 
 export type AgentGrantMode = 'off' | 'confirm' | 'auto'
 /** grants 是 Agent 自己的授权，effective 是和连接器上限取小之后的实际档位 */
@@ -68,6 +75,7 @@ const normAgent = (a: Agent): Agent => ({
   mcps: a.mcps ?? [],
   kbs: a.kbs ?? [],
   triggers: a.triggers ?? [],
+  thinking: a.thinking ?? 'default',
 })
 const path = (id: string) => `/api/agents/${encodeURIComponent(id)}`
 
@@ -84,6 +92,11 @@ export const agentsApi = {
   /** 整组换掉，没给的 key 就是关闭（AG-02b） */
   putGrants: (id: string, grants: Record<string, AgentGrantMode>) =>
     request<AgentGrants>('PUT', `${path(id)}/grants`, { body: { grants } }),
+  /** 场景默认 Agent：SOP 编排助手、其他后台调用各选一个，agent_id 空串是没选 */
+  scenarios: async (signal?: AbortSignal) => (await requestList<AgentScenario>('/api/agents/scenarios', { signal })).data,
+  /** 只改给了的场景，值是 Agent id 或空串；回改完后的全部场景 */
+  patchScenarios: async (patch: Record<string, string>) =>
+    (await request<AgentScenario[] | null>('PATCH', '/api/agents/scenarios', { body: patch })) ?? [],
   /** 执行记录，等确认的在前、其余按开始时间倒序 */
   runs: (limit: number, signal?: AbortSignal) =>
     requestList<AgentRunBrief>('/api/agent-runs', { query: new URLSearchParams({ limit: String(limit) }), signal }),
@@ -162,4 +175,17 @@ export function usePutAgentGrants() {
 export function useDeleteAgent() {
   const notify = useNotifyChange()
   return useMutation({ mutationFn: (id: string) => agentsApi.remove(id), onSuccess: (_, id) => notify({ kind: 'agent', id }) })
+}
+
+/** 场景默认 Agent 列表 */
+export function useAgentScenarios() {
+  return useQuery({ queryKey: agentConfigKeys.scenarios, queryFn: ({ signal }) => agentsApi.scenarios(signal) })
+}
+
+export function usePatchAgentScenarios() {
+  const notify = useNotifyChange()
+  return useMutation({
+    mutationFn: (patch: Record<string, string>) => agentsApi.patchScenarios(patch),
+    onSuccess: () => notify({ kind: 'agent' }),
+  })
 }

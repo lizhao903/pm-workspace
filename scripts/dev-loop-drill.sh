@@ -9,7 +9,7 @@
 # 标准库 Python（/usr/bin/python3），不装任何依赖。
 #
 # 测试实例由 scripts/dev-instance.sh 管，环境变量和它一致，原样传过去：
-#   PMW_DEV_DIR   副本库、pid、日志、沙箱、演练状态所在目录（默认 $TMPDIR/pmw-devinst）
+#   PMW_DEV_DIR   副本库、pid、日志、沙箱、演练状态所在目录（默认 <仓库>/data-dev，同 dev-instance.sh）
 #   PMW_DEV_ADDR  测试实例监听地址（默认 127.0.0.1:7796）
 #   PMW_SRC_DB    被复制的源库（dev-instance.sh 的默认值是正式库，只读复制）
 #
@@ -23,7 +23,7 @@
 set -euo pipefail
 
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
-DEV_DIR="${PMW_DEV_DIR:-${TMPDIR:-/tmp}/pmw-devinst}"
+DEV_DIR="${PMW_DEV_DIR:-$(cd "$(dirname "$0")/.." && pwd)/data-dev}"
 DEV_DIR="${DEV_DIR%/}"
 ADDR="${PMW_DEV_ADDR:-127.0.0.1:7796}"
 PORT="${ADDR##*:}"
