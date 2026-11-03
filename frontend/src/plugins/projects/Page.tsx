@@ -17,7 +17,7 @@ export default function Page() {
   const root = pathname.slice(0, pathname.length - rest.length).replace(/\/+$/, '')
   const [id, tabSeg, ...extra] = rest.split('/').filter(Boolean).map(decodeURIComponent)
 
-  const open = (pid: string, tab?: ProjectTab) => {
+  const open = (pid: string, tab?: ProjectTab | string) => {
     touchRecent(pid)
     navigate(`${root}/${encodeURIComponent(pid)}${tab && tab !== 'overview' ? `/${tab}` : ''}`)
   }
@@ -26,6 +26,7 @@ export default function Page() {
   if (!tab || extra.length) return <Navigate to={`${root}/${encodeURIComponent(id)}`} replace />
   return (
     <ProjectPage id={id} tab={tab} onAll={() => navigate(root)}
-      onTab={(t) => navigate(`${root}/${encodeURIComponent(id)}${t === 'overview' ? '' : `/${t}`}`, { replace: true })} />
+      onTab={(t) => navigate(`${root}/${encodeURIComponent(id)}${t === 'overview' ? '' : `/${t}`}`, { replace: true })}
+      onSwitch={(pid) => open(pid, tab)} />
   )
 }

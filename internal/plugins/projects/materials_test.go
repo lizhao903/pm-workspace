@@ -116,6 +116,27 @@ func TestMaterialsAPI(t *testing.T) {
 	if code, _ := call(t, h, "PATCH", base+"/"+ids["note"], `{"kind":"note","name":"反馈"}`); code != 200 {
 		t.Fatalf("带同样的 kind：%d", code)
 	}
+	// 换种类（0.9.1）：笔记和链接互换、文件和文件夹互换，值按新种类校验；跨组 400
+	_, out = call(t, h, "POST", base, `{"kind":"note","value":"https://example.com/spec"}`)
+	nid := out["data"].(map[string]any)["id"].(string)
+	if code, out := call(t, h, "PATCH", base+"/"+nid, `{"kind":"link"}`); code != 200 || out["data"].(map[string]any)["kind"] != "link" ||
+		out["data"].(map[string]any)["value"] != "https://example.com/spec" {
+		t.Fatalf("笔记改成链接：%d %v", code, out)
+	}
+	if code, out := call(t, h, "PATCH", base+"/"+nid, `{"kind":"note","value":"改回笔记\n第二行"}`); code != 200 || out["data"].(map[string]any)["kind"] != "note" {
+		t.Fatalf("链接改成笔记：%d %v", code, out)
+	}
+	if code, out := call(t, h, "PATCH", base+"/"+ids["file"], `{"kind":"folder"}`); code != 200 || out["data"].(map[string]any)["kind"] != "folder" {
+		t.Fatalf("文件改成文件夹：%d %v", code, out)
+	}
+	if code, _ := call(t, h, "PATCH", base+"/"+ids["file"], `{"kind":"file"}`); code != 200 {
+		t.Fatalf("文件夹改回文件：%d", code)
+	}
+	for _, c := range []string{`{"kind":"file","value":"/tmp/a"}`, `{"kind":"folder"}`, `{"kind":"x"}`} {
+		if code, _ := call(t, h, "PATCH", base+"/"+nid, c); code != 400 {
+			t.Fatalf("%s 应 400：%d", c, code)
+		}
+	}
 	// 别的项目的资料用本项目路径改不到
 	if code, _ := call(t, h, "PATCH", base+"/mt_none", `{"name":"x"}`); code != 404 {
 		t.Fatalf("改不存在的资料应 404：%d", code)

@@ -2,8 +2,8 @@
 // 绑定按会话 id 存在项目插件里（PJ-02a），群聊候选从内核会话表列（含还没收到消息的群，收到消息的群 IM 插件会登记）；
 // 私聊候选按联系人的 IM 身份列，还没有私聊会话的绑定前按身份建一个，没填 IM 编号的置灰（PR-02）。消息按绑定的会话逐个取（IM-01a）。
 // IM 消息插件没装或停用时消息区提示去插件管理，绑定照常能增删。点消息跳到 IM 消息页打开抽屉（插件间不 import 抽屉）。
-// 右栏消息列表上面是消息里的附件（SPEC-projects-4.13、5，AttachmentInbox），IM 插件没在跑时不显示。
-// 附件下面是筛选条：搜索、与我相关，口径同 IM 消息页（B-10）；待处理的行悬停出「已处理」，不用再去 IM 消息页点。
+// 消息里的附件挪到了独立的「附件」标签（SPEC-projects-5）；右栏顶上只留一行「N 个附件待决定」去那边（SPEC-projects-4.13），IM 插件没在跑时不显示。
+// 下面是筛选条：搜索、与我相关，口径同 IM 消息页（B-10）；待处理的行悬停出「已处理」，不用再去 IM 消息页点。
 // 项目消息（绑定、IM 插件状态、按会话取的消息）抽成 useProjectMessages，概览、标签红点、干系人用同一份缓存。
 import { useEffect, useMemo, useState, type KeyboardEvent } from 'react'
 import { useNavigate } from 'react-router'
@@ -18,7 +18,8 @@ import {
   whoName, type DirectCand, type Mine,
 } from './commsModel'
 import { ago } from './model'
-import { AttIcon, AttachmentInbox } from './AttachmentInbox'
+import { AttachmentKindIcon } from '../../core/ui/AttachmentPreview'
+import { AttachmentsHint } from './AttachmentsTab'
 import { useProjectMessages } from './projectMessages'
 
 const PLUGINS_PATH = '/settings/plugins'
@@ -36,7 +37,7 @@ function AttachmentChips({ atts }: { atts: readonly ImAttachment[] }) {
     <span className="pj-att-chips">
       {atts.slice(0, 3).map((a) => (
         <span key={a.id} className={cls('pj-att-chip', `pj-att-${a.kind}`)} title={[ATTACH_KIND[a.kind] ?? a.kind, fmtSize(a.size)].filter(Boolean).join(' · ')}>
-          <AttIcon kind={a.kind} /><span className="ellipsis">{a.name}</span>
+          <AttachmentKindIcon kind={a.kind} /><span className="ellipsis">{a.name}</span>
         </span>
       ))}
       {atts.length > 3 && <span className="pj-att-chip">另外 {atts.length - 3} 个</span>}
@@ -56,7 +57,11 @@ export function CommsTabDot({ projectId }: { projectId: string }) {
   return n ? <span className="side-dot pj-tab-dot" title={`${n} 条待回复`} /> : null
 }
 
-export function CommsTab({ projectId }: { projectId: string }) {
+export function CommsTab({ projectId, onAttachments }: {
+  projectId: string
+  /** 去「附件」标签；不传时不显示那一行入口 */
+  onAttachments?: () => void
+}) {
   const navigate = useNavigate()
   const { binds, bound, boundIds, msgs, noIm, imOn } = useProjectMessages(projectId)
   const convs = useConversations()
@@ -234,7 +239,7 @@ export function CommsTab({ projectId }: { projectId: string }) {
       <EmptyState title="没有匹配的消息" desc={mine ? '换个关键词，或改成「全部消息」' : '换个关键词'}
         action={<Button onClick={() => { setQ(''); setMine('') }}>清掉筛选</Button>} />
     )
-  } else if (!rows.length) body = <EmptyState title="没有消息" desc="绑定的群和私聊里收到消息后会出现在这里" />
+  } else if (!rows.length) body = <EmptyState title="没有消息" desc="绑定的群和私聊里的消息、归到这个项目的消息会出现在这里" />
   else {
     body = (
       <>
@@ -303,9 +308,7 @@ export function CommsTab({ projectId }: { projectId: string }) {
     </div>
   )
 
-  const inbox = !noIm && !msgs.isPending && all.length > 0 && (
-    <AttachmentInbox projectId={projectId} messages={all} now={now} onOpenMessage={openMessage} />
-  )
+  const inbox = !noIm && !msgs.isPending && all.length > 0 && onAttachments && <AttachmentsHint projectId={projectId} onGo={onAttachments} />
 
   return (
     <div className="pj-comms">

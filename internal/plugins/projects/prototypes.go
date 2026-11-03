@@ -530,3 +530,25 @@ func joinCommand(argv []string) string {
 	}
 	return strings.Join(parts, " ")
 }
+
+// prototypeDirs 是内核「项目原型目录」钩子的实现（docs/plugin-api.md 2.13）：
+// 交给 Claude Code 时把项目登记的原型目录写进提示词。只读名字和目录，按登记先后。
+func prototypeDirs(c plugin.Core) plugin.ProjectPrototypeLister {
+	return func(ctx context.Context, projectID string) ([]plugin.ProjectPrototype, error) {
+		rows, err := c.Store().Query(ctx, `SELECT name, dir FROM projects_prototypes
+			WHERE project_id = ? ORDER BY created_at, rowid`, projectID)
+		if err != nil {
+			return nil, err
+		}
+		defer func() { _ = rows.Close() }()
+		out := []plugin.ProjectPrototype{}
+		for rows.Next() {
+			var p plugin.ProjectPrototype
+			if err := rows.Scan(&p.Name, &p.Dir); err != nil {
+				return nil, err
+			}
+			out = append(out, p)
+		}
+		return out, rows.Err()
+	}
+}

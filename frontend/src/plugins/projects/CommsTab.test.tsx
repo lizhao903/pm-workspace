@@ -24,7 +24,7 @@ const msg = (p: Partial<ImMessage>): ImMessage => ({
   id: 'msg_x', channel: 'slack', connector_id: '', external_id: 'x', conversation_id: 'cv_prod', conversation_external_id: 'C1', conversation_kind: 'group',
   conversation: '#product', sender_id: 'U1', sender_name: 'Lin Yuan', identity_id: 'idn_lin', stakeholder_id: 'stk_lin', contact_name: '林予安',
   text: '', attachments: [], relevance: '', status: 'pending', read: false, snooze_until: null, at: '2026-10-29T01:00:00Z', received_at: '2026-10-29T01:00:00Z',
-  adapter: 'fake', task_id: null, task_ref: '', replies: [], reply_error: '', expired_at: null, ...p,
+  adapter: 'fake', task_id: null, task_ref: '', replies: [], reply_error: '', expired_at: null, project_id: null, project_name: '', project_source: '', sessions: [], split_tasks: [], materials: [], thread: null, reply_count: 0, ...p,
 })
 const MSGS = [
   msg({ id: 'msg_1', text: '@我 权限点清单整理了一版', relevance: 'me', at: '2026-10-29T03:00:00Z' }),
@@ -66,8 +66,11 @@ function fakeBackend() {
     if (p === '/api/im/messages') {
       if (!imRunning) return notFound()
       const cid = u.searchParams.get('conversation_id')
-      return json(cid ? MSGS.filter((m) => m.conversation_id === cid) : MSGS)
+      const pid = u.searchParams.get('project_id')
+      return json(cid ? MSGS.filter((m) => m.conversation_id === cid) : pid ? MSGS.filter((m) => m.project_id === pid) : MSGS)
     }
+    if (p === '/api/objects/obj_p') return json({ id: 'obj_p', type_id: 'project', title: '工作台', body: '', status: 'active', props: {}, workdir: '', deleted_at: null })
+    if (p === '/api/projects/obj_p/materials') return json([])
     if (p === '/api/projects/obj_p/stakeholders') {
       return json([{ project_id: 'obj_p', stakeholder_id: 'stk_lin', role: 'contact', focus: '', sort_order: 0, created_at: '', updated_at: '' }])
     }
@@ -115,11 +118,29 @@ beforeEach(() => {
 afterEach(() => { vi.unstubAllGlobals() })
 
 describe('沟通标签', () => {
-  it('没绑定时是空状态，不去取消息', async () => {
+  it('没绑定时是空状态，只取归到项目的消息', async () => {
     renderTab()
     expect(await screen.findByText(/还没绑定。把项目群/)).toBeInTheDocument()
-    expect(screen.getByText('没有消息')).toBeInTheDocument()
-    expect(calls.some((c) => c.path === '/api/im/messages')).toBe(false)
+    expect(await screen.findByText('没有消息')).toBeInTheDocument()
+    const qs = calls.filter((c) => c.path === '/api/im/messages').map((c) => new URLSearchParams(c.query))
+    expect(qs.every((q) => !q.get('conversation_id') && q.get('project_id') === 'obj_p')).toBe(true)
+  })
+
+  it('归到项目的消息（消息分流）并进来：没绑的会话也显示，和绑定会话的去重', async () => {
+    bound = ['cv_prod']
+    const ops = MSGS.find((m) => m.id === 'msg_3')!
+    const first = MSGS.find((m) => m.id === 'msg_1')!
+    ops.project_id = 'obj_p'
+    first.project_id = 'obj_p'
+    try {
+      renderTab()
+      expect(await screen.findByText('不该出现的运维群消息')).toBeInTheDocument()
+      expect(screen.getAllByText('权限点清单整理了一版', { exact: false })).toHaveLength(1)
+      expect(screen.getByRole('button', { name: /全部/ })).toHaveTextContent('4')
+    } finally {
+      ops.project_id = null
+      first.project_id = null
+    }
   })
 
   it('只显示绑定会话里的消息，按会话 id 取', async () => {
@@ -128,7 +149,7 @@ describe('沟通标签', () => {
     expect(await screen.findByText('权限点清单整理了一版', { exact: false })).toBeInTheDocument()
     expect(screen.getByText('私聊里问进度')).toBeInTheDocument()
     expect(screen.queryByText('不该出现的运维群消息')).not.toBeInTheDocument()
-    const qs = calls.filter((c) => c.path === '/api/im/messages').map((c) => new URLSearchParams(c.query).get('conversation_id'))
+    const qs = calls.filter((c) => c.path === '/api/im/messages').map((c) => new URLSearchParams(c.query).get('conversation_id')).filter(Boolean)
     expect(qs.sort()).toEqual(['cv_dm', 'cv_prod'])
     // 私聊按成员认出联系人
     expect(screen.getByRole('button', { name: /私聊\s*林予安/ })).toBeInTheDocument()
@@ -250,14 +271,18 @@ describe('沟通标签', () => {
 })
 
 describe('沟通标签的布局（ALIGN-07）', () => {
-  it('附件在右栏消息列表上面；时间和「回复」在同一行；「绑定」是描边小按钮；附件标签带种类和大小', async () => {
+  it('附件不在沟通里列，右栏顶上一行去附件标签；时间和「回复」在同一行；「绑定」是描边小按钮；附件标签带种类和大小', async () => {
     bound = ['cv_prod']
     const att = { id: 'att_1', name: '权限点清单.xlsx', kind: 'file' as const, size: 2048 }
     MSGS[0].attachments = [att]
+    const onGo = vi.fn()
     try {
-      renderTab()
+      renderTab(<CommsTab projectId="obj_p" onAttachments={onGo} />)
       const msgs = await screen.findByLabelText('项目消息')
-      expect(await within(msgs).findByRole('region', { name: '消息里的附件' })).toBeInTheDocument()
+      const hint = await within(msgs).findByRole('button', { name: /消息里有 1 个附件待决定/ })
+      expect(within(msgs).queryByRole('region', { name: '消息里的附件' })).not.toBeInTheDocument()
+      await userEvent.click(hint)
+      expect(onGo).toHaveBeenCalled()
       const row = screen.getAllByRole('button', { name: /权限点清单整理了一版/ }).find((b) => b.classList.contains('pj-msg'))!
       const side = within(row).getByText('回复').parentElement!
       expect(side).toHaveClass('pj-msg-side')

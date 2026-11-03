@@ -1,5 +1,6 @@
 // 项目列表和设置的纯函数：搜索、状态筛选和分组、排序、最近打开、底色、关联目录的保存口径。
 import { PROJECT_ROLES, localDay, projectView, type DictItem, type ObjectStatus, type ProjectMark, type ProjectProps, type ProjectSave, type ProjectStakeholder, type ProjectView, type RelatedDir, type WorkObject } from '../../core/data'
+import type { PluginProjectTab } from '../../core/plugin'
 import { PROJECT_COLORS } from './markIcons'
 
 /** 每组先露几个，多的点「显示全部」（SPEC-projects-1.8） */
@@ -84,11 +85,11 @@ export const sameRelated = (a: RelatedDir[], b: RelatedDir[]) =>
 
 // ---- 设置：边改边保存，和上次存下的比 ----
 
-export type Form = { name: string; desc: string; status: string; root: string; color: string; mark: ProjectMark; related: RelatedDir[] }
+export type Form = { name: string; desc: string; status: string; root: string; color: string; mark: ProjectMark; related: RelatedDir[]; hidden: string[]; order: string[] }
 
 export const formOf = (o: WorkObject): Form => {
   const p = projectView(o)
-  return { name: p.name, desc: p.desc, status: p.status, root: p.root, color: p.color, mark: p.mark, related: p.related }
+  return { name: p.name, desc: p.desc, status: p.status, root: p.root, color: p.color, mark: p.mark, related: p.related, hidden: hiddenTabsOf(o), order: tabsOrderOf(o) }
 }
 export const sameMark = (a: ProjectMark, b: ProjectMark) => a.text === b.text && (a.icon ?? '') === (b.icon ?? '') && (a.image ?? '') === (b.image ?? '')
 
@@ -104,6 +105,8 @@ export function diffForm(f: Form, saved: Form): { patch: NonNullable<ProjectSave
   if (!sameMark(f.mark, saved.mark)) props.mark = f.mark
   const rel = relatedToSave(f.related)
   if (!sameRelated(rel, relatedToSave(saved.related))) props.related = rel
+  if (f.hidden.join('\u0000') !== saved.hidden.join('\u0000')) props.tabs_hidden = f.hidden
+  if (f.order.join('\u0000') !== saved.order.join('\u0000')) props.tabs_order = f.order
   return { patch, props }
 }
 
@@ -118,11 +121,12 @@ export const unmarkFresh = (id: string) => { fresh.delete(id) }
 
 // ---- 详情的标签（顺序和显示名见 SPEC-projects-0 ProjectTab）；todo 是还没做的标签由谁补 ----
 
-export type ProjectTab = 'overview' | 'comms' | 'stakeholders' | 'tasks' | 'docs' | 'sop' | 'agents' | 'materials' | 'prototypes' | 'settings'
+export type ProjectTab = 'overview' | 'comms' | 'attachments' | 'stakeholders' | 'tasks' | 'docs' | 'sop' | 'agents' | 'materials' | 'prototypes' | 'settings'
 
 export const TABS: { key: ProjectTab; label: string; todo?: string }[] = [
   { key: 'overview', label: '概览' },
   { key: 'comms', label: '沟通' },
+  { key: 'attachments', label: '附件' },
   { key: 'stakeholders', label: '干系人' },
   { key: 'tasks', label: '任务' },
   { key: 'docs', label: '文档' },
@@ -132,6 +136,89 @@ export const TABS: { key: ProjectTab; label: string; todo?: string }[] = [
   { key: 'prototypes', label: '原型' },
   { key: 'settings', label: '设置' },
 ]
+
+export type TabItem = { key: string; label: string; todo?: string; badge?: PluginProjectTab['badge'] }
+
+/** 插件标签插在 after 指的标签后面，没给或找不到的放在「设置」前面 */
+export function withPluginTabs(plugin: readonly PluginProjectTab[]): TabItem[] {
+  const out: TabItem[] = [...TABS]
+  for (const t of plugin) {
+    const i = t.after ? out.findIndex((x) => x.key === t.after) : -1
+    const at = i >= 0 ? i + 1 : out.findIndex((x) => x.key === 'settings')
+    out.splice(at < 0 ? out.length : at, 0, { key: t.key, label: t.label, badge: t.badge })
+  }
+  return out
+}
+
+/** 标题里切换项目的菜单（SPEC-projects-2.9）：没删的项目，最近打开的在前，其余按名称 */
+export function switchOrder(list: readonly WorkObject[], recent: readonly string[]): ProjectView[] {
+  const views = list.filter((o) => o.type_id === 'project' && !o.deleted_at).map(projectView)
+  return sortProjects(sortProjects(views, 'name', []), 'recent', [...recent])
+}
+
+/** 概览和设置一直显示：概览是默认标签，设置里才能把藏掉的标签开回来 */
+export const ALWAYS_TABS: readonly string[] = ['overview', 'settings']
+
+/** 项目 props.tabs_hidden：详情页不显示的标签；不是字符串数组时按空，概览、设置不认 */
+export function hiddenTabsOf(o: Pick<WorkObject, 'props'> | undefined): string[] {
+  const v = o?.props?.tabs_hidden
+  return Array.isArray(v) ? [...new Set(v.filter((x): x is string => typeof x === 'string' && !ALWAYS_TABS.includes(x)))] : []
+}
+
+/** 项目 props.tabs_order：标签的先后（key 列表，SPEC-projects-13.20）；不是字符串数组时按空（默认顺序），概览、设置不认，去重 */
+export function tabsOrderOf(o: Pick<WorkObject, 'props'> | undefined): string[] {
+  const v = o?.props?.tabs_order
+  return Array.isArray(v) ? [...new Set(v.filter((x): x is string => typeof x === 'string' && !!x && !ALWAYS_TABS.includes(x)))] : []
+}
+
+/**
+ * 把 ref 里有、keys 里没有的补进 keys：每个补进来的放在它在 ref 里前一个已在结果里的 key 后面，前面一个都没有就放最前。
+ * 按 ref 的顺序逐个补，所以连着的几个新 key 保持 ref 里的先后
+ */
+export function weaveKeys(keys: readonly string[], ref: readonly string[]): string[] {
+  const out = [...keys]
+  ref.forEach((k, i) => {
+    if (out.includes(k)) return
+    let at = 0
+    for (let j = i - 1; j >= 0; j -= 1) {
+      const prev = out.indexOf(ref[j])
+      if (prev >= 0) { at = prev + 1; break }
+    }
+    out.splice(at, 0, k)
+  })
+  return out
+}
+
+/**
+ * 按项目存的顺序排标签：概览固定第一、设置固定最后，不参与排序；存的顺序里认不出的 key（插件没在跑）跳过；
+ * 存的顺序里没有的标签（后来加的、插件新登记的）放回它在默认顺序里的位置（跟在默认顺序里前一个标签后面）。order 为空就是默认顺序
+ */
+export function orderTabs<T extends { key: string }>(all: readonly T[], order: readonly string[]): T[] {
+  const first = all.filter((t) => t.key === 'overview')
+  const last = all.filter((t) => t.key === 'settings')
+  const mid = all.filter((t) => !ALWAYS_TABS.includes(t.key))
+  if (!order.length) return [...first, ...mid, ...last]
+  const known = new Set(mid.map((t) => t.key))
+  const keys = weaveKeys(order.filter((k) => known.has(k)), mid.map((t) => t.key))
+  const byKey = new Map(mid.map((t) => [t.key, t]))
+  return [...first, ...keys.map((k) => byKey.get(k)!), ...last]
+}
+
+/**
+ * 把 key 挪到 visible（当前列出的可排序标签，已按顺序）里的第 to 位，返回要存的顺序：
+ * 存的顺序里有、但这会儿没列出来的 key（插件没在跑时的「商单」）按原来的邻居放回去，插件再开时位置不丢
+ */
+export function moveTab(visible: readonly string[], saved: readonly string[], key: string, to: number): string[] {
+  const from = visible.indexOf(key)
+  if (from < 0) return weaveKeys(visible, saved)
+  const next = visible.filter((k) => k !== key)
+  next.splice(Math.max(0, Math.min(to, next.length)), 0, key)
+  return weaveKeys(next, saved)
+}
+
+/** 现在的顺序是不是默认顺序（「恢复默认顺序」置灰用） */
+export const isDefaultOrder = (all: readonly { key: string }[], order: readonly string[]) =>
+  orderTabs(all, order).map((t) => t.key).join('\u0000') === orderTabs(all, []).map((t) => t.key).join('\u0000')
 
 export const tabOf = (s: string | undefined): ProjectTab | null =>
   !s ? 'overview' : TABS.some((t) => t.key === s) ? (s as ProjectTab) : null

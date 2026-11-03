@@ -64,6 +64,8 @@ func (p *Plugin) Register(r plugin.Registrar) error {
 		sm := &summary{h, pm}
 		m.HandleFunc("GET /api/projects/summary", sm.list)
 	})
+	// 交给 Claude Code 时内核经这个入口取项目登记的原型目录
+	r.ProjectPrototypes(prototypeDirs(r.Core()))
 	// 常驻任务只等取消：插件停用、服务关闭时停掉这次启用起的全部原型进程
 	r.Job(plugin.Job{Name: "prototypes", Run: func(ctx context.Context, _ plugin.Core) error {
 		<-ctx.Done()

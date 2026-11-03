@@ -1,8 +1,9 @@
 import { useOpenUrl, useProtoDomain } from './openurl'
-import { useMemo, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 import type { Agent, Session } from './agentdata'
 import { AgentAvatar } from './agents'
 import type { Connector, Contact, ContentItem, Message } from './data'
+import { ProjectAttachmentsTab, projectAttachmentRows } from './attachments'
 import { CommsTab, ProjectAgentTab, ProjectSopTab, ProjectTasksTab, StakeholdersTab, projectMessages } from './projecttabs'
 import { contactIndex, isSnoozed, senderKey } from './messages'
 import { SearchSelect } from './searchselect'
@@ -14,6 +15,7 @@ import {
   type DocStatus, type Material, type MaterialKind, type Project, type ProjectDoc, type Prototype, type StakeRole,
 } from './projectdata'
 import { Mark, MarkEditor } from './imagepick'
+import { ALWAYS_TABS, TabPicks, orderTabs } from './tabpicks'
 import { BrowserPage, type ProtoEntry } from './browser'
 import type { GoogleAccount } from './browserdata'
 import { TerminalPage, type TermTab } from './terminal'
@@ -24,9 +26,9 @@ import { newId } from './ids'
 // 项目：把一个产品相关的东西串起来——沟通（私聊、群聊）、干系人、任务、文档、SOP、Agent、支持材料、原型、目录
 // 任务和会话本身记着属于哪个项目（project_id），其余是项目这边记的关联
 
-export type ProjectTab = 'overview' | 'comms' | 'stakeholders' | 'tasks' | 'deals' | 'docs' | 'sop' | 'agents' | 'materials' | 'prototypes' | 'settings'
+export type ProjectTab = 'overview' | 'comms' | 'attachments' | 'stakeholders' | 'tasks' | 'deals' | 'docs' | 'sop' | 'agents' | 'materials' | 'prototypes' | 'settings'
 const TABS: { key: ProjectTab; label: string }[] = [
-  { key: 'overview', label: '概览' }, { key: 'comms', label: '沟通' }, { key: 'stakeholders', label: '干系人' }, { key: 'tasks', label: '任务' }, { key: 'deals', label: '商单' },
+  { key: 'overview', label: '概览' }, { key: 'comms', label: '沟通' }, { key: 'attachments', label: '附件' }, { key: 'stakeholders', label: '干系人' }, { key: 'tasks', label: '任务' }, { key: 'deals', label: '商单' },
   { key: 'docs', label: '文档' }, { key: 'sop', label: 'SOP' }, { key: 'agents', label: 'Agent' },
   { key: 'materials', label: '支持材料' }, { key: 'prototypes', label: '原型' }, { key: 'settings', label: '设置' },
 ]
@@ -274,9 +276,19 @@ export interface ProjectLinks {
   onAllSessions?: () => void
   onFetchAttachment: (msgId: string, attId: string) => void
   onAddAttachment: (projectId: string, msgId: string, attId: string) => void
+  /** 附件标签里「已加入资料」点了去支持材料，高亮那一条 */
+  onOpenMaterial?: (materialId: string) => void
+  /** IM 消息插件在不在：不在时不显示「附件」标签（附件都来自 IM 消息） */
+  imOn?: boolean
+  /** 从消息上「已转资料」跳过来时高亮的那条材料（SPEC-projects-11.23） */
+  focusMaterial?: string | null
 }
 
-export function ProjectPage({ project, projects, agents, content, tab, onTab, onChange, onDelete, onStart, onStop, onOpenDoc, onChat, onOpenAgent, links, delImpact, onAll, dock, onDock, deals, dealAlert }: {
+export function ProjectPage({ project, projects, agents, content, tab, onTab, onChange, onDelete, onStart, onStop, onOpenDoc, onChat, onOpenAgent, links, delImpact, onAll, dock, onDock, deals, dealAlert, recent = [], onSwitch }: {
+  /** 最近打开的项目 id，新的在前：标题里的切换菜单排在前面（SPEC-projects-2.9） */
+  recent?: string[]
+  /** 标题里的项目名点开选了别的项目：切过去，停在同一个标签（那边藏了这个标签就回概览） */
+  onSwitch?: (id: string) => void
   /** 顶栏「项目」点回项目列表 */
   onAll?: () => void
   /** 这个项目已打开的终端、网页数量，和展开区域当前显示的是哪个（收起时为 null） */
@@ -305,15 +317,22 @@ export function ProjectPage({ project, projects, agents, content, tab, onTab, on
 }) {
   const p = project
   const set = (x: Partial<Project>) => onChange({ ...p, ...x })
+  // 项目设置里勾掉的标签（SPEC-projects-13.19）；停在被藏掉的标签上时回概览。标签条按设置里排的顺序（tabs_order，SPEC-projects-13.20）
+  const hiddenTabs = (p.tabs_hidden ?? []).filter((k) => !ALWAYS_TABS.includes(k))
+  const onHidden = hiddenTabs.includes(tab)
+  useEffect(() => { if (onHidden) onTab('overview') }, [onHidden, onTab])
   const agent = agents.find((a) => a.id === p.agent_ids[0])
   const openUrl = useOpenUrl()
   const L = links
   const people = useMemo(() => contactIndex(L.contacts), [L.contacts])
   const pmsgs = projectMessages(p, L.messages, L.contacts, people)
   const waiting = pmsgs.filter(awaitingReply).length
+  const attTodo = L.imOn === false ? 0 : projectAttachmentRows(p, pmsgs).filter((r) => r.state === 'todo').length
   const ptasks = L.tasks.filter((t) => t.project_id === p.id)
   const openTasks = ptasks.filter((t) => isOpenTask(t.status))
   const [newMat, setNewMat] = useState<Omit<Material, 'id' | 'added_at'> | null>(null)
+  // 支持材料卡片上「编辑」就地展开的那一条（SPEC-projects-11.24）
+  const [editMat, setEditMat] = useState<string | null>(null)
   const [matTag, setMatTag] = useState('')
   const [newDoc, setNewDoc] = useState<{ title: string; kind: string; type: 'library' | 'file'; ref: string } | null>(null)
   const [newProto, setNewProto] = useState<{ name: string; dir: string; command: string; port: number } | null>(null)
@@ -327,6 +346,8 @@ export function ProjectPage({ project, projects, agents, content, tab, onTab, on
   const matKw = matQ.trim().toLowerCase()
   const matOk = (m: Material) => (!matTag || m.tags.includes(matTag)) && (!matKind || m.kind === matKind) && (!matKw || `${m.name} ${m.value} ${m.tags.join(' ')}`.toLowerCase().includes(matKw))
   const mats = p.materials.filter(matOk)
+  // 高亮的那条材料滚到视野里；引用稳定，只在换了高亮的材料时滚一次
+  const focusRef = useCallback((el: HTMLDivElement | null) => { el?.scrollIntoView({ block: 'center' }) }, [L.focusMaterial])
   // 原型：运行中、启动失败、启停中的排前面
   const protoRank = (x: Prototype) => (x.status === 'running' ? 0 : x.status === 'error' ? 1 : x.status === 'stopped' ? 3 : 2)
   const protos = [...p.prototypes].sort((a, b) => protoRank(a) - protoRank(b))
@@ -338,7 +359,7 @@ export function ProjectPage({ project, projects, agents, content, tab, onTab, on
 
   const actions = {
     overview: <button className="btn btn-outline" onClick={() => onTab('settings')}>项目设置</button>,
-    comms: null, stakeholders: null, tasks: null, deals: null, sop: null, agents: null,
+    comms: null, attachments: null, stakeholders: null, tasks: null, deals: null, sop: null, agents: null,
     materials: <button className="btn btn-primary" onClick={() => setNewMat({ name: '', kind: 'file', value: '', tags: [] })}>加材料</button>,
     docs: <button className="btn btn-primary" onClick={() => setNewDoc({ title: '', kind: 'PRD', type: 'library', ref: content[0]?.id ?? '' })}>加文档</button>,
     prototypes: <button className="btn btn-primary" onClick={() => setNewProto({ name: '', dir: '', command: 'npm run dev', port: freePort() })}>加原型</button>,
@@ -358,13 +379,25 @@ export function ProjectPage({ project, projects, agents, content, tab, onTab, on
 
   return (
     <div className="page page-fill project-page">
-      <PageTitle parent={onAll ? <button className="tb-parent-btn tb-parent-keep" onClick={onAll} title="回到项目列表">项目</button> : '项目'} desc={p.desc} actions={dockBtns ? <>{actions}{dockBtns}</> : actions} icon={<ProjectMark p={p} size={20} />}>{p.name}</PageTitle>
+      <PageTitle parent={onAll ? <button className="tb-parent-btn tb-parent-keep" onClick={onAll} title="回到项目列表">项目</button> : '项目'} desc={p.desc} actions={dockBtns ? <>{actions}{dockBtns}</> : actions}
+        icon={onSwitch ? undefined : <ProjectMark p={p} size={20} />}>
+        {onSwitch ? (
+          // 项目名点开是切换项目的菜单（SPEC-projects-2.9）：最近打开的在前，其余按名称，可搜；上下选、回车切、Esc 关
+          <SearchSelect variant="plain" className="proj-switch" value={p.id} title="切换项目" aria-label="切换项目" searchPlaceholder="搜项目" noMatchText="没有匹配的项目" menuWidth={300}
+            onChange={(id) => { if (id && id !== p.id) onSwitch(id) }}
+            options={[...projects].sort((a, b) => {
+              const ra = recent.indexOf(a.id), rb = recent.indexOf(b.id)
+              return (ra < 0 ? Infinity : ra) - (rb < 0 ? Infinity : rb) || a.name.localeCompare(b.name, 'zh-CN')
+            }).map((x) => ({ value: x.id, label: x.name, keywords: `${x.desc} ${x.root}`, icon: <ProjectMark p={x} size={18} /> }))} />
+        ) : p.name}
+      </PageTitle>
       <div className="project-tabs np-tabs">
-        {TABS.filter((t) => t.key !== 'deals' || deals).map((t) => (
+        {orderTabs(TABS, p.tabs_order).filter((t) => (t.key !== 'deals' || deals) && (t.key !== 'attachments' || L.imOn !== false) && !hiddenTabs.includes(t.key)).map((t) => (
           <button key={t.key} className={cls(tab === t.key && 'on')} onClick={() => onTab(t.key)}>
             {t.label}
             {t.key === 'prototypes' && running(p) > 0 && <span className="proto-light pl-running" />}
             {t.key === 'comms' && waiting > 0 && <span className="side-dot" />}
+            {t.key === 'attachments' && attTodo > 0 && <span className="seg-n" title={`${attTodo} 个附件待决定`}>{attTodo}</span>}
             {t.key === 'deals' && dealAlert && <span className="side-dot" />}
           </button>
         ))}
@@ -448,7 +481,10 @@ export function ProjectPage({ project, projects, agents, content, tab, onTab, on
       )}
 
       {tab === 'comms' && <CommsTab p={p} messages={L.messages} contacts={L.contacts} connectors={L.connectors} onChange={set} onOpenMessage={L.onOpenMessage}
-        onFetchAttachment={L.onFetchAttachment} onAddAttachment={(mid, aid) => L.onAddAttachment(p.id, mid, aid)} />}
+        onGoAttachments={L.imOn !== false ? () => onTab('attachments') : undefined} />}
+      {tab === 'attachments' && <ProjectAttachmentsTab p={p} messages={pmsgs} onFetch={L.onFetchAttachment} onAdd={(mid, aid) => L.onAddAttachment(p.id, mid, aid)}
+        onOpenMessage={L.onOpenMessage} onOpenMaterial={(id) => (L.onOpenMaterial ? L.onOpenMaterial(id) : onTab('materials'))}
+        onSkip={(ids, skip) => set({ skipped_attachments: skip ? [...new Set([...(p.skipped_attachments ?? []), ...ids])] : (p.skipped_attachments ?? []).filter((x) => !ids.includes(x)) })} />}
       {tab === 'stakeholders' && <StakeholdersTab p={p} contacts={L.contacts} messages={L.messages} onChange={set} onOpenContact={L.onOpenContact} onOpenMessage={L.onOpenMessage} />}
       {tab === 'deals' && deals}
       {tab === 'tasks' && <ProjectTasksTab p={p} tasks={L.tasks} onNew={L.onNewTask} onOpen={L.onOpenTask} onStatus={L.onTaskStatus} onApprove={L.onApproveTask} />}
@@ -461,7 +497,7 @@ export function ProjectPage({ project, projects, agents, content, tab, onTab, on
               <div className="seg seg-sm">{(Object.keys(MATERIAL_KIND) as MaterialKind[]).map((k) => <button key={k} className={cls(newMat.kind === k && 'on')} onClick={() => setNewMat({ ...newMat, kind: k })}>{MATERIAL_KIND[k]}</button>)}</div>
               <input value={newMat.name} placeholder="名称，比如：客户访谈纪要 10/20" onChange={(e) => setNewMat({ ...newMat, name: e.target.value })} />
               {newMat.kind === 'note' ? (
-                <textarea rows={3} value={newMat.value} placeholder="内容" onChange={(e) => setNewMat({ ...newMat, value: e.target.value })} />
+                <NoteBox rows={3} value={newMat.value} onChange={(v) => setNewMat({ ...newMat, value: v })} />
               ) : newMat.kind === 'link' ? (
                 <input className="mono" value={newMat.value} placeholder="https://…" onChange={(e) => setNewMat({ ...newMat, value: e.target.value })} />
               ) : (
@@ -486,7 +522,7 @@ export function ProjectPage({ project, projects, agents, content, tab, onTab, on
               )}
               <input value={newMat.tags.join(', ')} placeholder="标签，逗号隔开" onChange={(e) => setNewMat({ ...newMat, tags: e.target.value.split(/[,，]/).map((x) => x.trim()).filter(Boolean) })} />
               <div className="act-row">
-                <button className="act act-primary" disabled={!newMat.name.trim() || !newMat.value.trim()} onClick={() => { set({ materials: [{ ...newMat, id: newId('mt'), added_at: new Date().toISOString() }, ...p.materials] }); setNewMat(null) }}>加上</button>
+                <button className="act act-primary" disabled={!newMat.name.trim() || !newMat.value.trim() || (newMat.kind === 'note' && Array.from(newMat.value.trim()).length > NOTE_MAX)} onClick={() => { set({ materials: [{ ...newMat, id: newId('mt'), added_at: new Date().toISOString() }, ...p.materials] }); setNewMat(null) }}>加上</button>
                 <button className="act act-quiet" onClick={() => setNewMat(null)}>取消</button>
               </div>
             </div>
@@ -514,19 +550,28 @@ export function ProjectPage({ project, projects, agents, content, tab, onTab, on
           )}
           <div className="mat-list">
             {mats.map((m) => (
-              <div key={m.id} className="mount-card">
+              <div key={m.id} className={cls('mount-card', L.focusMaterial === m.id && 'mat-hit')}
+                ref={L.focusMaterial === m.id ? focusRef : undefined}>
                 <span className={`mat-kind mk-${m.kind}`}>{MATERIAL_KIND[m.kind]}</span>
+                {editMat === m.id ? (
+                  <MaterialEdit m={m} root={p.root} onCancel={() => setEditMat(null)}
+                    onSave={(x) => { set({ materials: p.materials.map((y) => (y.id === m.id ? { ...y, ...x } : y)) }); setEditMat(null) }} />
+                ) : <>
                 <span className="mount-text">
                   <b>{m.name}</b>
-                  {m.kind === 'note' ? <span className="list-sub pre-line">{m.value}</span>
+                  {m.kind === 'note' ? <NoteText value={m.value} />
                     : m.kind === 'link' && /^https?:/.test(m.value) ? <a className="link-btn ellipsis mat-link" href={m.value} target="_blank" rel="noreferrer" title={m.value}>{m.value}</a>
                       : <code className="mat-path">{(m.kind === 'file' || m.kind === 'folder') && p.root && !m.from ? `${p.root}/` : ''}{m.value}{m.kind === 'folder' ? '/' : ''}</code>}
                   <span className="mount-uses">{m.tags.map((t) => `#${t}`).join(' ')} {timeAgo(m.added_at)}加入
-                    {m.from && <> · 来自 <button className="link-btn" onClick={() => L.onOpenMessage(m.from!.message_id)}>{m.from.sender}（{m.from.conversation}）的消息</button></>}</span>
+                    {m.from && !m.from.message_ids && <> · 来自 <button className="link-btn" onClick={() => L.onOpenMessage(m.from!.message_id)}>{m.from.sender}（{m.from.conversation}）的消息</button></>}
+                    {m.from?.message_ids && <> · <button className="link-btn" title="打开这组里最新的一条" onClick={() => L.onOpenMessage(m.from!.message_id)}>
+                      来自 IM 消息：{m.from.conversation === '私聊' ? `和 ${m.from.sender} 的私聊` : `群「${m.from.conversation}」`} · {m.from.message_ids.length > 1 ? `${m.from.message_ids.length} 条` : `${m.from.sender} 的一条`}</button></>}</span>
                 </span>
+                <button className="act act-quiet" onClick={() => setEditMat(m.id)}>编辑</button>
                 <button className="icon-btn icon-btn-sm" title="移除" onClick={() => set({ materials: p.materials.filter((x) => x.id !== m.id) })}>
                   <svg viewBox="0 0 16 16" width="11" height="11"><path d="m4 4 8 8M12 4l-8 8" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" /></svg>
                 </button>
+                </>}
               </div>
             ))}
             {p.materials.length > 0 && !mats.length && (
@@ -673,6 +718,11 @@ export function ProjectPage({ project, projects, agents, content, tab, onTab, on
             ))}
             {!p.related.length && <div className="mount-empty">没有关联目录</div>}
           </section>
+          <section className="hook-sec">
+            <div className="field-group-title">显示哪些标签<span className="field-hint">不勾的标签在这个项目的详情页里不显示，数据不动；拖动或用上移、下移调整顺序；概览和设置一直显示、固定一头一尾</span></div>
+            <TabPicks tabs={TABS.filter((t) => t.key !== 'deals' || deals)} hidden={hiddenTabs} order={p.tabs_order}
+              onHidden={(tabs_hidden) => set({ tabs_hidden })} onOrder={(tabs_order) => set({ tabs_order })} />
+          </section>
           <section className="hook-sec danger-zone">
             <div className="field-group-title">删除项目</div>
             {confirmDel ? (
@@ -771,5 +821,77 @@ export function ProjectDock({ project, projects, state, hidden, prototypes, goog
         </div>
       </div>
     </section>
+  )
+}
+
+/** 笔记正文：超过 9 行先露 8 行，点「展开全部」看全（消息转成的对话记录常常很长，SPEC-projects-11.15） */
+function NoteText({ value }: { value: string }) {
+  const [open, setOpen] = useState(false)
+  const lines = value.split('\n')
+  const fold = lines.length > 9
+  return (
+    <>
+      <span className="list-sub pre-line">{fold && !open ? lines.slice(0, 8).join('\n') : value}</span>
+      {fold && <button className="link-btn mat-fold" onClick={() => setOpen(!open)}>{open ? '收起' : `展开全部（还有 ${lines.length - 8} 行）`}</button>}
+    </>
+  )
+}
+
+/** 笔记正文最多这么多字，新建、编辑、IM 消息转笔记同一个数（SPEC-messages-6） */
+const NOTE_MAX = 5000
+
+/** 笔记正文：带字数，超了红字 */
+function NoteBox({ value, rows, onChange }: { value: string; rows: number; onChange: (v: string) => void }) {
+  const n = Array.from(value.trim()).length
+  return (
+    <>
+      <textarea rows={rows} value={value} placeholder="内容" onChange={(e) => onChange(e.target.value)} />
+      <span className={cls('list-sub note-n', n > NOTE_MAX && 'err-text')}>{n > NOTE_MAX ? `超过 ${NOTE_MAX} 字（现在 ${n} 字），删掉一些` : `${n} / ${NOTE_MAX}`}</span>
+    </>
+  )
+}
+
+/** 能互换的种类：笔记和链接、文件和文件夹（SPEC-projects-11.25） */
+const KIND_GROUPS: MaterialKind[][] = [['note', 'link'], ['file', 'folder']]
+
+/**
+ * 支持材料卡片里就地展开的编辑表单（SPEC-projects-11.24）：名称、内容、标签；同组里换种类，值按新种类校验。
+ * 消息附件加进来的（from.attachment_id 有值）种类和路径不能改；来自 IM 消息的笔记改了出处照样在
+ */
+function MaterialEdit({ m, root, onSave, onCancel }: { m: Material; root: string; onSave: (x: Partial<Material>) => void; onCancel: () => void }) {
+  const [d, setD] = useState({ kind: m.kind, name: m.name, value: m.value, tags: m.tags.join('，') })
+  const [err, setErr] = useState('')
+  const locked = !!m.from?.attachment_id
+  const kinds = locked ? [m.kind] : KIND_GROUPS.find((g) => g.includes(m.kind)) ?? [m.kind]
+  const save = () => {
+    const v = d.value.trim()
+    // 种类和值都没动时不校验值（早先存的不合新规矩的值，只改名字、标签照样能存）
+    const touched = d.kind !== m.kind || v !== m.value
+    if (!v) { setErr('内容不能为空'); return }
+    if (touched && d.kind === 'note' && Array.from(v).length > NOTE_MAX) { setErr(`超过 ${NOTE_MAX} 字`); return }
+    if (touched && d.kind === 'link' && !/^https?:\/\/\S/.test(v)) { setErr('链接要以 http:// 或 https:// 开头'); return }
+    onSave({ kind: d.kind, name: d.name.trim() || m.name, value: v, tags: [...new Set(d.tags.split(/[,，]/).map((x) => x.trim()).filter(Boolean))] })
+  }
+  return (
+    <div className="inline-form mat-edit" onKeyDown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); onCancel() } }}>
+      {kinds.length > 1 && (
+        <div className="mat-edit-kind">
+          <div className="seg seg-sm">{kinds.map((k) => <button key={k} className={cls(d.kind === k && 'on')} onClick={() => setD({ ...d, kind: k })}>{MATERIAL_KIND[k]}</button>)}</div>
+          <span className="list-sub">{kinds.map((k) => MATERIAL_KIND[k]).join('和')}之间能互换</span>
+        </div>
+      )}
+      <input autoFocus value={d.name} placeholder="名称" onChange={(e) => setD({ ...d, name: e.target.value })} />
+      {d.kind === 'note' ? <NoteBox rows={6} value={d.value} onChange={(v) => setD({ ...d, value: v })} />
+        : locked ? <><code className="mat-path">{m.value}</code><span className="list-sub">来自消息附件，种类和路径不能改</span></>
+          : d.kind === 'link' ? <input className="mono" value={d.value} placeholder="https://…" onChange={(e) => setD({ ...d, value: e.target.value })} />
+            : <><input className="mono" value={d.value} placeholder="相对项目目录的路径" onChange={(e) => setD({ ...d, value: e.target.value })} />
+              <span className="list-sub">路径按项目目录下的相对路径拼{root ? `：${root}/…` : ''}</span></>}
+      <input value={d.tags} placeholder="标签，逗号隔开" onChange={(e) => setD({ ...d, tags: e.target.value })} />
+      {err && <span className="err-text">{err}</span>}
+      <div className="act-row">
+        <button className="act act-primary" onClick={save}>保存</button>
+        <button className="act act-quiet" onClick={onCancel}>取消</button>
+      </div>
+    </div>
   )
 }
