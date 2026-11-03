@@ -75,9 +75,12 @@ func (tb *Toolbox) runSOP(ctx context.Context, args map[string]any) ToolResult {
 	if err != nil {
 		return failed(toolRunSOP, err.Error())
 	}
-	got, err := st.StartSOP(ctx, schedule.SOPRequest{
-		FlowID: flow, Input: input, Source: "agent", SourceID: tb.sopAgent.ID, SourceName: tb.sopAgent.Name,
-	})
+	// 会话挂在工作对象上（任务分配给 Agent 触发的、在任务详情里对话的）时，这次执行关联到那个对象（SOP-06），任务详情里能看到
+	req := schedule.SOPRequest{FlowID: flow, Input: input, Source: "agent", SourceID: tb.sopAgent.ID, SourceName: tb.sopAgent.Name}
+	if tb.session != nil && tb.session.ObjectID != nil {
+		req.ObjectID = *tb.session.ObjectID
+	}
+	got, err := st.StartSOP(ctx, req)
 	if errors.Is(err, schedule.ErrSOPUnavailable) {
 		return failed(toolRunSOP, "SOP 编排插件没启用，发起不了，告诉用户先在设置里启用它")
 	}

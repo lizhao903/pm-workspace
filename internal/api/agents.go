@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/lizhao903/pm-workspace/internal/agent"
 	"github.com/lizhao903/pm-workspace/internal/domain"
 	"github.com/lizhao903/pm-workspace/internal/plugin"
 	"github.com/lizhao903/pm-workspace/internal/schedule"
@@ -85,7 +86,7 @@ func (s *Server) handleUpdateAgent(w http.ResponseWriter, r *http.Request) {
 // agentFields 是 PATCH 认的字段，审计只记这些名字；其余键（比如前端带上的 id、abilities）忽略。
 var agentFields = map[string]bool{
 	"name": true, "desc": true, "color": true, "avatar": true, "provider_id": true, "model": true,
-	"instructions": true, "skills": true, "mcps": true, "kbs": true, "triggers": true, "enabled": true,
+	"instructions": true, "skills": true, "mcps": true, "kbs": true, "triggers": true, "thinking": true, "enabled": true,
 }
 
 func (s *Server) handleDeleteAgent(w http.ResponseWriter, r *http.Request) {
@@ -174,6 +175,21 @@ func (s *Server) agentImpact(ctx context.Context, a *domain.Agent) (*agentImpact
 		out.Blocks = append(out.Blocks, agentImpactItem{Key: "pending_calls", Count: p,
 			Text: fmt.Sprintf("还有 %d 处操作等你确认（会话里），先处理完", p)})
 	}
+	// 被选作场景默认 Agent 的，删了场景退回默认服务商（0045）
+	scenes, err := agent.ListScenarios(ctx, s.st)
+	if err != nil {
+		return nil, err
+	}
+	var used []string
+	for _, sc := range scenes {
+		if sc.AgentID == a.ID {
+			used = append(used, "「"+sc.Label+"」")
+		}
+	}
+	if len(used) > 0 {
+		out.Items = append(out.Items, agentImpactItem{Key: "scenarios", Count: len(used), Effect: plugin.ImpactFallback,
+			Text: fmt.Sprintf("%s的默认 Agent 是它，删了改回用默认服务商和模型", strings.Join(used, "、"))})
+	}
 	n, err := s.st.CountAgentSessions(ctx, a.ID)
 	if err != nil {
 		return nil, err
@@ -200,4 +216,58 @@ func (s *Server) chatAgent(ctx context.Context, id string) (*domain.Agent, error
 		return nil, conflictf("Agent 已停用")
 	}
 	return a, nil
+}
+
+// --- 场景默认 Agent（0045）：SOP 编排助手、其他后台调用各选一个 Agent，见 internal/agent/scenario.go ---
+
+func (s *Server) handleListAgentScenarios(w http.ResponseWriter, r *http.Request) {
+	list, err := agent.ListScenarios(r.Context(), s.st)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	respondList(w, list, Meta{Total: len(list)})
+}
+
+// handlePatchAgentScenarios 收 {"<场景>": "<Agent id 或空串>"}，只改给了的场景；回改完后的全部场景。
+func (s *Server) handlePatchAgentScenarios(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	var in map[string]*string
+	if err := decodeBody(r, &in); err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	if len(in) == 0 {
+		s.fail(w, r, validationf("没有要改的场景"))
+		return
+	}
+	for k, v := range in {
+		if !agent.IsScenario(k) {
+			s.fail(w, r, validationf("没有这个场景：%s", k))
+			return
+		}
+		if v == nil {
+			s.fail(w, r, validationf("场景 %s 的值要是 Agent id 或空串", k))
+			return
+		}
+		if id := strings.TrimSpace(*v); id != "" {
+			if _, err := s.st.GetAgent(ctx, id); errors.Is(err, domain.ErrNotFound) {
+				s.fail(w, r, validationf("Agent %s 不存在", id))
+				return
+			} else if err != nil {
+				s.fail(w, r, err)
+				return
+			}
+		}
+	}
+	detail := map[string]any{}
+	for k, v := range in {
+		if err := agent.SetScenarioAgent(ctx, s.st, k, *v); err != nil {
+			s.fail(w, r, err)
+			return
+		}
+		detail[k] = strings.TrimSpace(*v)
+	}
+	s.auditConfig(r, "update", "agent_scenarios", "scenarios", "修改场景默认 Agent", detail)
+	s.handleListAgentScenarios(w, r)
 }

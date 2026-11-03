@@ -81,6 +81,8 @@
 .ag-body > * { max-width: 860px; }
 .ag-sec { display: flex; flex-direction: column; gap: 10px; }
 .ag-sec-title { font-weight: 600; font-size: var(--fs); }
+.ag-thinking { display: flex; flex-direction: column; gap: 6px; padding-top: 6px; border-top: 1px solid var(--line); }
+.ag-thinking-select { max-width: 240px; }
 .ag-ident { display: flex; gap: 16px; align-items: flex-start; }
 .ag-ident-fields { flex: 1; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
 .ag-title-input {
@@ -236,3 +238,9 @@
   .ag-trigger-more { padding-left: 0; }
   .ag-ident { flex-direction: column; }
 }
+
+/* 场景默认 Agent（0045） */
+.ag-scenes { display: flex; flex-direction: column; gap: 8px; margin-top: 22px; padding-top: 14px; border-top: 1px solid var(--line); }
+.ag-scene { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 8px 0; }
+.ag-scene-text { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 220px; }
+.ag-scene-pick { display: flex; flex-direction: column; gap: 4px; width: 260px; max-width: 100%; }

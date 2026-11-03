@@ -201,6 +201,10 @@ func (s *Server) handleTestProvider(w http.ResponseWriter, r *http.Request) {
 	if !res.OK {
 		s.log.Warn("provider test failed", "provider", p.ID, "kind", p.Kind, "reason", res.Message)
 	}
+	// 结论落库（0046），离开设置页、刷新后卡片仍显示；存失败不影响这次的结果。
+	if _, err := s.st.RecordProviderTest(r.Context(), p.ID, *res); err != nil {
+		s.log.Warn("provider test not recorded", "provider", p.ID, "err", err)
+	}
 	respondData(w, http.StatusOK, res)
 }
 

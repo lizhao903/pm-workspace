@@ -98,7 +98,9 @@ function RunCard({ run, agent, open, lit, onToggle, onOpenSession }: {
   )
 }
 
-export function RunsView({ focus, onOpenSession, onFocused }: {
+export function RunsView({ focus, onOpenSession, onFocused, onBack }: {
+  /** 标题上的「会话」点了回会话页 */
+  onBack?: () => void
   /** ?run= 带来的那一条 */
   focus?: string | null
   onOpenSession: (sessionId: string) => void
@@ -189,7 +191,7 @@ export function RunsView({ focus, onOpenSession, onFocused }: {
 
   return (
     <div className="conv-page">
-      <PageTitle parent="会话" count={list.isSuccess ? total : undefined}
+      <PageTitle parent={onBack ? <button type="button" className="link-btn tb-back" onClick={onBack}>会话</button> : '会话'} count={list.isSuccess ? total : undefined}
         desc="Agent 被消息、定时、任务触发后的每一次执行；写操作等你确认的在这里处理">执行记录</PageTitle>
       <div className="toolbar">
         <div className="seg" role="tablist" aria-label="状态">

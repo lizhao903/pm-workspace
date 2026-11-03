@@ -8,9 +8,9 @@ import { useEffect, useRef, useState } from 'react'
 import { useBlocker, useLocation, useNavigate, useSearchParams } from 'react-router'
 import {
   errorText, useAgentGrants, useAgentImpact, useCategoryTree, useConnectorDefs, useConnectors, useCreateAgent, useCreateKb, useDeleteAgent,
-  useKnowledgeBases, usePatchAgent, usePutAgentGrants, useSkills, type Agent, type AgentGrantMode, type KnowledgeBase, type Skill,
+  useKnowledgeBases, usePatchAgent, usePutAgentGrants, useSkills, type Agent, type AgentGrantMode, type AgentThinking, type KnowledgeBase, type Skill,
 } from '../../../core/data'
-import { Button, Checkbox, cls, Input, PageTitle, Switch, Tag, Textarea } from '../../../core/ui'
+import { Button, Checkbox, cls, Input, PageTitle, Select, Switch, Tag, Textarea } from '../../../core/ui'
 import { AgentAvatar } from '../../../core/ui/AgentAvatar'
 import { DebugChat } from './DebugChat'
 import { timeAgo } from '../providers/model'
@@ -18,7 +18,7 @@ import { AvatarEditor } from './AgentAvatar'
 import { MountPicker } from './MountPicker'
 import {
   blankDraft, choiceKey, createBody, defaultChoice, draftOf, draftPatch, EDITOR_TABS, editorIssues, grantsBody, grantsEqual, hasAll, MANY_MODELS,
-  mountableConns, mountGrants, newGrants, normDir, toolsOn, unmountGrants, type AgentDraft, type EditorTab, type Grants, type ModelChoice,
+  mountableConns, mountGrants, newGrants, normDir, THINKING_OPTIONS, toolsOn, unmountGrants, type AgentDraft, type EditorTab, type Grants, type ModelChoice,
 } from './model'
 import { MiniSearch, Unmount } from './parts'
 import { ToolsTab } from './ToolsTab'
@@ -252,6 +252,7 @@ export function AgentEditor({ agent, models }: { agent: Agent | null; models: Mo
 
         {tab === 'model' && (
           <ModelTab models={models} curKey={curKey} issue={issues.model} pick={pickModel} q={modelQ}
+            thinking={d.thinking ?? 'default'} onThinking={(t) => set({ thinking: t })}
             onPick={(open) => { setPickModel(open); setModelQ('') }} onQ={setModelQ}
             onSelect={(m) => { set({ provider_id: m.providerId, model: m.model }); setPickModel(false) }} />
         )}
@@ -331,7 +332,9 @@ export function AgentEditor({ agent, models }: { agent: Agent | null; models: Mo
   )
 }
 
-function ModelTab({ models, curKey, issue, pick, q, onPick, onQ, onSelect }: {
+function ModelTab({ models, curKey, issue, pick, q, onPick, onQ, onSelect, thinking, onThinking }: {
+  thinking: AgentThinking
+  onThinking: (t: AgentThinking) => void
   models: ModelChoice[]
   curKey: string | undefined
   issue: string | undefined
@@ -386,6 +389,12 @@ function ModelTab({ models, curKey, issue, pick, q, onPick, onQ, onSelect }: {
       <div className="ag-sec-title">模型</div>
       {issue && <div className="ag-banner ag-banner-danger" role="alert">{issue}，Agent 调用会失败，换一个可用的模型。</div>}
       {body}
+      <div className="ag-thinking">
+        <label className="ag-sec-title" htmlFor="ag-thinking">思考<span className="ag-hint">调模型时要不要先想、想多深；本机模型想得越多越慢</span></label>
+        <Select id="ag-thinking" className="ag-thinking-select" value={thinking} options={THINKING_OPTIONS}
+          onValueChange={(v) => onThinking(v as AgentThinking)} />
+        <span className="ag-sub">{THINKING_OPTIONS.find((o) => o.value === thinking)?.hint}。模型不支持时自动按模型默认跑。</span>
+      </div>
     </section>
   )
 }

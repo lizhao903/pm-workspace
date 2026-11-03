@@ -10,6 +10,11 @@
 .chats { display: grid; grid-template-columns: 300px minmax(0, 1fr); height: 100%; min-height: 0; }
 .chat-list { display: flex; flex-direction: column; min-height: 0; border-right: 1px solid var(--line); background: var(--panel-2); }
 .chat-list-head { display: flex; flex-direction: column; gap: var(--sp-3); padding: var(--sp-6) var(--sp-5) var(--sp-4); }
+/* 会话清单底部：执行记录、产出结果两个并排按钮（原来的二级菜单） */
+.chat-list-foot { flex: none; display: grid; grid-template-columns: 1fr 1fr; gap: var(--sp-3); padding: var(--sp-4) var(--sp-5); border-top: 1px solid var(--line); background: var(--panel-2); }
+.chat-list-foot .btn { position: relative; justify-content: center; }
+.chat-foot-dot { position: absolute; top: 5px; right: 6px; width: 6px; height: 6px; border-radius: 50%; background: var(--danger, #c0352b); }
+.tb-back { font: inherit; color: inherit; }
 .chat-filters { display: flex; flex-wrap: wrap; gap: var(--sp-3); min-width: 0; }
 .chat-filters .ss-trigger { flex: 1 1 0; max-width: 100%; }
 .chat-group { padding: var(--sp-5) var(--sp-4) var(--sp-2); }
@@ -51,6 +56,8 @@
 .chat-agent { font-size: var(--fs-sm); min-width: 0; }
 .chat-head-err { padding: var(--sp-3) var(--sp-8); }
 .chat-outputs { flex: none; padding: var(--sp-3) var(--sp-8); border-bottom: 1px solid var(--line); background: var(--panel-2); font-size: var(--fs-sm); }
+.chat-source { flex: none; display: flex; gap: var(--sp-4); align-items: baseline; min-width: 0; padding: var(--sp-3) var(--sp-8); border-bottom: 1px solid var(--line); font-size: var(--fs-sm); }
+.chat-source .ellipsis { min-width: 0; max-width: 100%; text-align: left; }
 .chat-outputs-head { color: var(--muted); }
 .chat-outputs-head:hover { color: var(--accent); }
 .chat-outputs-list { list-style: none; margin: var(--sp-3) 0 0; padding: 0; display: flex; flex-direction: column; gap: var(--sp-2); }
@@ -198,4 +205,39 @@
 @media (max-width: 760px) {
   .agent-run-head { flex-wrap: wrap; row-gap: 4px; }
   .agent-run-head .agent-run-trigger { flex-basis: 100%; order: 9; }
+}
+
+/* ---------- 会话旁边的终端、浏览器（SPEC-sessions-1.34 到 1.38） ---------- */
+/* 入口和原型项目标题行的「终端」「浏览器」一样：图标 + 名字，展开着的高亮；头部窄时只留图标 */
+.chat-tools { display: inline-flex; gap: var(--sp-3); flex: none; }
+.chat-tool-btn { gap: 6px; }
+.chat-tool-btn svg { flex: none; }
+.chat-tool-btn.on { border-color: var(--accent-line); background: var(--accent-soft); color: var(--accent); }
+/* 展开面板后对话变窄，入口只留图标 */
+.chats.with-dock .chat-tool-label { display: none; }
+.chats.with-dock .chat-tool-btn { padding: 0 var(--sp-4); }
+
+/* 展开时右边多一列：放得下就三列（列表 300、对话至少 360、面板至少 480）；放不下先藏会话列表，收起面板列表就回来 */
+.conv-mod { container-type: inline-size; }
+.chats.with-dock { grid-template-columns: 300px minmax(360px, 1fr) minmax(480px, 1.2fr); }
+.chat-dock { display: flex; flex-direction: column; min-width: 0; min-height: 0; border-left: 1px solid var(--line-2); background: var(--panel); }
+.chat-dock[hidden] { display: none; }
+.chat-dock-head { display: flex; align-items: center; gap: var(--sp-4); height: 40px; padding: 0 var(--sp-3) 0 var(--sp-5); flex: none; border-bottom: 1px solid var(--line); min-width: 0; }
+.chat-dock-seg { display: inline-flex; padding: 2px; border-radius: var(--r-sm); background: var(--hover); flex: none; }
+.chat-dock-seg button { display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 var(--sp-5); border-radius: calc(var(--r-sm) - 2px); color: var(--muted); font-size: var(--fs-sm); }
+.chat-dock-seg button:hover { color: var(--text); }
+.chat-dock-seg button.on { background: var(--panel); color: var(--text); box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08); font-weight: 600; }
+.chat-dock-body { flex: 1; min-height: 0; position: relative; }
+.chat-dock-pane { position: absolute; inset: 0; display: flex; flex-direction: column; min-width: 0; }
+.chat-dock-pane[hidden] { display: none; }
+.chat-dock-pane > .term-page, .chat-dock-pane > .br-page { flex: 1; min-height: 0; height: auto; }
+
+@container (max-width: 1160px) {
+  .chats.with-dock { grid-template-columns: minmax(340px, 1fr) minmax(0, 1.3fr); }
+  .chats.with-dock .chat-list { display: none; }
+}
+/* 手机宽度：面板盖满对话区 */
+@media (max-width: 760px) {
+  .chats.with-dock { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); position: relative; }
+  .chats.with-dock .chat-dock { position: absolute; inset: 0; z-index: 20; }
 }

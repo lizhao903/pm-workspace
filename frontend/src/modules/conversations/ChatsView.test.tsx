@@ -1,6 +1,7 @@
 // 空会话不堆积（B-09）：没有消息的会话只在打开时列出，从它切走时删掉；有消息的、删除会话后切走的不再删。
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AgentSession } from '../../core/data'
 import { resetLiveChats } from './chatLive'
@@ -63,5 +64,20 @@ describe('空会话（B-09）', () => {
     rerender(null)
     await new Promise((r) => setTimeout(r, 20))
     expect(deleted).toEqual(['ags_e', 'ags_e2'])
+  })
+})
+
+describe('会话清单底部：执行记录、产出结果（原二级菜单）', () => {
+  it('两个并排按钮，点了各自跳过去；有等确认的执行记录时带红点', async () => {
+    const onRuns = vi.fn()
+    const onOutputs = vi.fn()
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    render(<QueryClientProvider client={client}><ChatsView current={null} onOpen={vi.fn()} onOpenRuns={onRuns} onOpenOutputs={onOutputs} runsWaiting={2} /></QueryClientProvider>)
+    const foot = await screen.findByRole('group', { name: '执行记录和产出结果' })
+    await userEvent.click(within(foot).getByRole('button', { name: /执行记录/ }))
+    await userEvent.click(within(foot).getByRole('button', { name: '产出结果' }))
+    expect(onRuns).toHaveBeenCalledTimes(1)
+    expect(onOutputs).toHaveBeenCalledTimes(1)
+    expect(within(foot).getByLabelText('2 条等你确认')).toBeInTheDocument()
   })
 })

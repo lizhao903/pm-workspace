@@ -17,7 +17,7 @@ type Producer = Exclude<ArtifactSource, 'manual'>
 const PRODUCER_LABEL: Record<Producer, string> = { agent: '内置 Agent', run: '任务执行', mcp: 'MCP 回写' }
 const KINDS = Object.keys(KIND_LABEL) as ArtifactKind[]
 
-export function OutputsView({ onOpenSession }: { onOpenSession: (id: string) => void }) {
+export function OutputsView({ onOpenSession, onBack }: { onOpenSession: (id: string) => void; onBack?: () => void }) {
   const [kind, setKind] = useState<'' | ArtifactKind>('')
   const [producer, setProducer] = useState<'' | Producer>('')
   const [limit, setLimit] = useState(PAGE)
@@ -133,7 +133,7 @@ export function OutputsView({ onOpenSession }: { onOpenSession: (id: string) => 
 
   return (
     <div className="conv-page">
-      <PageTitle parent="会话" count={list.isSuccess ? rows.length : undefined} desc="Agent 真正落到数据上的东西，点标题直接打开，点来源回到当时的对话或执行">产出结果</PageTitle>
+      <PageTitle parent={onBack ? <button type="button" className="link-btn tb-back" onClick={onBack}>会话</button> : '会话'} count={list.isSuccess ? rows.length : undefined} desc="Agent 真正落到数据上的东西，点标题直接打开，点来源回到当时的对话或执行">产出结果</PageTitle>
       {all.length > 0 && (
         <div className="toolbar">
           <div className="seg" role="tablist" aria-label="类型">

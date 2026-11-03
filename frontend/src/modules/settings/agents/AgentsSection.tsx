@@ -15,7 +15,7 @@ export function AgentsSection() {
   // 别的页面（知识库挂的 Agent）用 /settings/agents?agent=<id> 跳过来，换成配置页
   const linked = useSearchParams()[0].get('agent')
   const providers = useAgentProviders().data ?? []
-  const checks = useProviderChecks(providers.map((p) => p.id))
+  const checks = useProviderChecks(providers)
   // 正在用的模型不在服务商的模型列表里也要列出来，免得卡片上看不到名字
   const agents = useAgents().data ?? []
   const models = modelChoices(providers, checks, agents.map((a) => ({ provider_id: a.provider_id, model: a.model })))

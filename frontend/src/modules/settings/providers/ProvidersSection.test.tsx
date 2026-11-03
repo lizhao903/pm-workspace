@@ -159,6 +159,19 @@ describe('模型服务商页', () => {
     expect(writes(calls)).toEqual([['PATCH', '/api/agent-providers/apv_o', { api_key: '' }]])
   })
 
+  it('后端存着上次的测试结论时，刚打开页面就显示它，不回到「未测试」', async () => {
+    const at = new Date(Date.now() - 3 * 3600_000).toISOString()
+    stub([
+      prov({ id: 'apv_ok', name: 'NewAPI', has_api_key: true, last_test: { ok: true, latency_ms: 105, message: '连接成功', models: ['m1'], at } }),
+      prov({ id: 'apv_bad', name: '坏的', has_api_key: true, last_test: { ok: false, latency_ms: 0, message: 'API Key 无效', at } }),
+      prov({ id: 'apv_new', name: '没测过', has_api_key: true, last_test: null }),
+    ])
+    renderPage()
+    expect(await screen.findByRole('button', { name: /NewAPI.*连接正常.*3 小时前/ })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /坏的.*连接异常/ })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /没测过.*未测试/ })).toBeInTheDocument()
+  })
+
   it('必须有 Key 的类型不能清空；Azure 暂未支持', async () => {
     stub([prov({ id: 'apv_a', name: 'Anthropic', kind: 'anthropic', base_url: 'https://api.anthropic.com', has_api_key: true, api_key_masked: 'sk-…9999' })])
     renderPage()

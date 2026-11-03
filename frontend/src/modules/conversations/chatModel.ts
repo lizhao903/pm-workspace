@@ -340,3 +340,39 @@ export function overlayCalls(views: readonly ChatMsgView[], refs: readonly CallR
     }),
   }))
 }
+
+/** 会话旁边的浏览器最多列几个链接（SPEC-sessions-1.36） */
+export const SESSION_LINK_LIMIT = 8
+// 地址到空白、引号、尖括号、反引号、中文标点和汉字为止；末尾的英文标点、不成对的右括号另外去掉
+const URL_RE = /https?:\/\/[^\s<>"'`　-〿（），：；！？一-鿿]+/gi
+
+function trimUrl(raw: string): string {
+  let u = raw.replace(/[.,;:!?*_~]+$/, '')
+  for (const [open, close] of [['(', ')'], ['[', ']'], ['{', '}']]) {
+    while (u.endsWith(close) && u.split(open).length < u.split(close).length) u = u.slice(0, -1).replace(/[.,;:!?]+$/, '')
+  }
+  return u
+}
+
+/**
+ * 会话里出现过的链接（SPEC-sessions-1.36）：Agent 回复和工具结果里的 http/https 地址，人说的话不算。
+ * 新的在前，同一地址只留一次（忽略末尾斜杠），最多 limit 个
+ */
+export function sessionLinks(msgs: readonly Pick<AgentMessage, 'role' | 'content'>[], limit = SESSION_LINK_LIMIT): string[] {
+  const out: string[] = []
+  const seen = new Set<string>()
+  for (let i = msgs.length - 1; i >= 0 && out.length < limit; i--) {
+    const m = msgs[i]
+    if (m.role === 'user') continue
+    const found = [...m.content.matchAll(URL_RE)].map((x) => trimUrl(x[0]))
+    // 同一条消息里按出现顺序
+    for (const u of found) {
+      const key = u.replace(/\/+$/, '')
+      if (!/^https?:\/\/[^/]+/i.test(u) || seen.has(key)) continue
+      seen.add(key)
+      out.push(u)
+      if (out.length >= limit) break
+    }
+  }
+  return out
+}
