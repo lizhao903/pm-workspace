@@ -385,6 +385,16 @@ func (c *client) getRun(ctx context.Context, id string) (*domain.TaskRun, error)
 	return &out, nil
 }
 
+// finishRun 给终端执行收尾（POST /api/runs/{id}/finish）。
+func (c *client) finishRun(ctx context.Context, id, status, summary string) (*domain.TaskRun, error) {
+	var out domain.TaskRun
+	body := map[string]any{"status": status, "summary": strings.TrimSpace(summary)}
+	if _, err := c.do(ctx, http.MethodPost, "/api/runs/"+url.PathEscape(id)+"/finish", nil, body, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
 func (c *client) createStakeholder(ctx context.Context, body map[string]any) (*domain.Stakeholder, error) {
 	var out domain.Stakeholder
 	if _, err := c.do(ctx, http.MethodPost, "/api/stakeholders", nil, body, &out); err != nil {

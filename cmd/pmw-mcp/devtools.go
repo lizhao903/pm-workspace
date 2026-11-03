@@ -45,6 +45,7 @@ func registerDevTools(s *mcp.Server, c *client) {
 	addCreateSubtasks(s, c)
 	addListRuns(s, c)
 	addGetRun(s, c)
+	addFinishRun(s, c)
 }
 
 // resolveObject 接受 id 或 ref，返回对象本身。所有开发工具都先走这里，
@@ -578,10 +579,18 @@ const listRunsDesc = `【只读】列出某条任务在工作台后端的执行�
 
 注意这里只有后端发起的执行。你在当前 Claude Code 会话里做的事不在这里，在进展（pmw_get_object 末尾）和变更记录（pmw_recent_changes）里。
 
-返回：每行「run id  状态  开始时间  耗时  工作目录  错误摘要」，最近的在前。要看完整输出用 pmw_get_run。`
+返回：每行「run id  状态  方式（流式 / 终端）  开始时间  耗时  工作目录  错误摘要」，最近的在前。要看完整输出用 pmw_get_run。`
+
+// runModeText 是执行方式的中文名；老记录没有 mode 按流式算。
+func runModeText(mode string) string {
+	if mode == domain.RunModeTerminal {
+		return "终端"
+	}
+	return "流式"
+}
 
 func runLine(r *domain.TaskRun) string {
-	parts := []string{r.ID, r.Status, formatDateTime(r.StartedAt)}
+	parts := []string{r.ID, r.Status, runModeText(r.Mode), formatDateTime(r.StartedAt)}
 	if r.FinishedAt != nil {
 		parts = append(parts, "耗时 "+r.FinishedAt.Sub(r.StartedAt).Round(time.Second).String())
 	} else {
@@ -668,4 +677,46 @@ func clip(s string, n int) string {
 		return s
 	}
 	return string(rs[:n]) + "\n…（已截断）"
+}
+
+// --- pmw_finish_run ---
+
+type finishRunArgs struct {
+	RunID   string `json:"run_id" jsonschema:"执行记录 id，交给你的提示词「回写到工作台」一节里写着，形如 run_…"`
+	Status  string `json:"status" jsonschema:"结果：done（做完了）、failed（做不下去）或 canceled（用户让你停下）"`
+	Summary string `json:"summary,omitempty" jsonschema:"结论摘要，Markdown：做了什么、产出在哪、还剩什么没做。failed 时写清卡在哪"`
+}
+
+const finishRunDesc = `【会写入数据】给一次「切换到终端」的执行收尾：记下结果和结论摘要，工作台任务抽屉的执行记录里这条从「进行中」变成完成 / 失败 / 取消，摘要显示为这次执行的输出。
+
+什么时候用：用户在工作台把任务「交给 Claude Code」并选了「切换到终端」，你就在那个终端里。提示词的「回写到工作台」一节写了执行记录 id。做完、做不下去、或用户让你停下时调一次，只调一次。
+
+只收终端执行：用户点「流式执行」起的那种由工作台自己收尾，调了会被拒绝（conflict）。已经收尾的也会被拒绝。
+
+这个工具只管执行记录。任务本身的状态用 pmw_update_object 改，产出用 pmw_record_artifact（带 run_id）登记，过程用 pmw_append_progress 记。
+
+返回：收尾后的执行记录一行。`
+
+func addFinishRun(s *mcp.Server, c *client) {
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "pmw_finish_run",
+		Description: finishRunDesc,
+		Annotations: writes("执行收尾", false),
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, in finishRunArgs) (*mcp.CallToolResult, any, error) {
+		id := strings.TrimSpace(in.RunID)
+		if id == "" {
+			return nil, nil, fmt.Errorf("run_id 不能为空，提示词「回写到工作台」一节里有")
+		}
+		status := strings.ToLower(strings.TrimSpace(in.Status))
+		switch status {
+		case domain.RunDone, domain.RunFailed, domain.RunCanceled:
+		default:
+			return nil, nil, fmt.Errorf("status 只能是 done、failed 或 canceled")
+		}
+		r, err := c.finishRun(ctx, id, status, in.Summary)
+		if err != nil {
+			return nil, nil, err
+		}
+		return textResult("已收尾：\n" + runLine(r)), nil, nil
+	})
 }

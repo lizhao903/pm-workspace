@@ -2,7 +2,8 @@
 // 每格一个后端 pty 会话。格子目录是项目原型目录时，格子头上能启停那个原型（经 core/data 调项目插件的接口）。
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { cls } from '../../core/ui'
-import { PROTOTYPE_EXTERNAL_STOP, errorText, prototypeUp, useFsShortcuts, useProjects, useTerminalProtoAction, useTerminalPrototypes, type TerminalPrototype } from '../../core/data'
+import { PROTOTYPE_EXTERNAL_STOP, errorText, prototypeUp, useTerminalProtoAction, useTerminalPrototypes, type TerminalPrototype } from '../../core/data'
+import { useTerminalDefaults } from './defaults'
 import {
   MAX_PANES, activeTab, layoutClass, protoForCwd, shortPath, tabName, type Pane, type TermTab,
 } from './model'
@@ -22,22 +23,24 @@ const IconPlay = () => svg(10, <path d="M5 3.5v9l7-4.5z" fill="currentColor" />)
 const IconStop = () => svg(10, <rect x="4" y="4" width="8" height="8" rx="1" fill="currentColor" />)
 
 export default function TerminalPage() {
+  return <TerminalView />
+}
+
+/**
+ * 终端的标签栏和格子。一级菜单整页用它；会话旁边的终端（SPEC-sessions-1.35）也用它，和一级菜单是同一套标签，
+ * 那边由面板调 openTerminalAt 做第一次打开，autoInit 关掉
+ */
+export function TerminalView({ autoInit = true }: { autoInit?: boolean }) {
   const { layout, ready, busy, notice } = useTerminalState()
-  const projects = useProjects()
-  const shortcuts = useFsShortcuts(true)
+  const { home, defaultCwd, settled: projectsSettled } = useTerminalDefaults()
   const protos = useTerminalPrototypes()
   const protoAction = useTerminalProtoAction()
   const [renaming, setRenaming] = useState<string | null>(null)
   const cancelRename = useRef(false)
 
-  const home = shortcuts.data?.find((s) => s.label === '主目录')?.path ?? ''
-  // 新标签的目录：第一个有目录的项目，都没有用主目录（后端收到空串就是主目录）
-  const defaultCwd = projects.data?.data.find((p) => p.workdir?.startsWith('/'))?.workdir ?? ''
-  const projectsSettled = !projects.isPending
-
   useEffect(() => {
-    if (projectsSettled) void initTerminal(defaultCwd)
-  }, [projectsSettled, defaultCwd])
+    if (autoInit && projectsSettled) void initTerminal(defaultCwd)
+  }, [autoInit, projectsSettled, defaultCwd])
 
   const tab = activeTab(layout)
   const running = (p: Pane) => { const x = protoForCwd(protos.data, p.cwd); return x && prototypeUp(x.status) ? x : undefined }

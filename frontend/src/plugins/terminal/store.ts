@@ -2,8 +2,9 @@
 // 会话的新建、结束走 core/data 的 terminalApi，完了报 terminal-session。副作用都在这里的动作函数里，不进 setState。
 import { useSyncExternalStore } from 'react'
 import { errorText, isApiError, notifyChange, terminalApi, TERMINAL_MAX_SESSIONS } from '../../core/data'
+import type { TerminalLaunchRequest } from '../../core/plugin'
 import {
-  EMPTY_LAYOUT, FIRST_TAB_NAME, MAX_PANES, activeTab, addPane, addTab, findPane, focusPane, newPane, newTab, parseLayout, patchPane,
+  EMPTY_LAYOUT, FIRST_TAB_NAME, MAX_PANES, activeTab, addPane, addTab, findPane, findPaneByCwd, focusPane, newPane, newTab, parseLayout, patchPane,
   reconcile, removePane, removeTab, renameTab, setActive, setFocus, type Layout, type Pane,
 } from './model'
 
@@ -85,9 +86,15 @@ async function withBusy(f: () => Promise<void>) {
 }
 
 let initing: Promise<void> | null = null
+/** 别处（会话旁边的终端）触发的第一次打开新开的那一格；openTerminalAt 用一次就清 */
+let firstPane = ''
 
-/** 第一次打开：读回本机存的布局，对上会话列表；一个标签都没有就开一个。只做一次 */
-export function initTerminal(defaultCwd: string): Promise<void> {
+/**
+ * 第一次打开：读回本机存的布局，对上会话列表；一个标签都没有就开一个。只做一次。
+ * firstCwd：别处要在某个目录打开时传，第一个标签直接开在那里（不先开「工作台」）；
+ * 传 null 是调用方自己马上开标签（交给 Claude Code 的终端执行），这里一个都不开
+ */
+export function initTerminal(defaultCwd: string, firstCwd?: string | null): Promise<void> {
   initing ??= (async () => {
     let saved = EMPTY_LAYOUT
     try {
@@ -102,9 +109,40 @@ export function initTerminal(defaultCwd: string): Promise<void> {
       showNotice(`读终端会话失败：${errorText(e)}`)
     }
     set({ layout, ready: true })
-    if (!layout.tabs.length) await newTerminalTab(defaultCwd, FIRST_TAB_NAME)
+    if (layout.tabs.length || firstCwd === null) return
+    if (firstCwd === undefined) { await newTerminalTab(defaultCwd, FIRST_TAB_NAME); return }
+    await newTerminalTab(firstCwd)
+    firstPane = activeTab(state.layout)?.focus ?? ''
   })()
   return initing
+}
+
+/**
+ * 在某个目录打开终端（SPEC-sessions-1.35）：已经有格子停在这个目录（当前标签优先）就切过去、把焦点给它；
+ * 没有就新开一个标签。终端页还没打开过、一个标签都没有时，第一个标签直接开在这个目录
+ */
+export async function openTerminalAt(cwd: string, defaultCwd: string) {
+  await initTerminal(defaultCwd, cwd)
+  const first = firstPane
+  firstPane = ''
+  const hit = findPaneByCwd(state.layout, cwd) ?? (first ? findPane(state.layout, first) : undefined)
+  if (hit) {
+    set({ layout: setFocus(setActive(state.layout, hit.tab.id), hit.pane.id) })
+    return
+  }
+  await newTerminalTab(cwd)
+}
+
+/**
+ * 交给 Claude Code「切换到终端」（终端插件 0.2.0）：新开一个标签，名字是任务编号，shell 起来后执行设置里的启动命令。
+ * 不走 withBusy：这是用户在任务弹窗里点的，正好赶上终端页在新建也不能被吞掉；失败照常抛给调用方
+ */
+export async function launchClaudeTab(req: TerminalLaunchRequest): Promise<{ command: string }> {
+  await initTerminal('', null)
+  const s = await terminalApi.create({ cwd: req.cwd, claude: req.claude })
+  notifyChange({ kind: 'terminal-session' })
+  set({ layout: addTab(state.layout, newTab([newPane(s)], req.title)) })
+  return { command: s.command ?? '' }
 }
 
 export function newTerminalTab(cwd: string, name = '') {
@@ -174,6 +212,7 @@ export function markStarted(paneId: string, protoId: string, on: boolean) {
 /** 测试用：回到没打开过的样子 */
 export function resetTerminalStore() {
   initing = null
+  firstPane = ''
   clearTimeout(noticeTimer)
   state = { layout: EMPTY_LAYOUT, ready: false, busy: false, notice: '' }
   for (const f of listeners) f()

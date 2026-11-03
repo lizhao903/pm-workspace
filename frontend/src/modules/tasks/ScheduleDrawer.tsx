@@ -4,13 +4,13 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router'
 import {
-  errorText, isApiError, useCreateSchedule, useDeleteSchedule, useDictItems, usePatchSchedule, useRunSchedule, useScheduleRuns,
+  errorText, isApiError, useCreateSchedule, useDeleteSchedule, useDictItems, useObject, usePatchSchedule, useRunSchedule, useScheduleRuns,
   useSchedulePreview, useStakeholders, useVideoPlatforms, useVideoPublishes, type Schedule, type ScheduleActionKind, type ScheduleFreq, type ScheduleRule,
 } from '../../core/data'
 import { Button, Drawer, Field, Input, SearchSelect, Select, Textarea, cls, type SearchOption } from '../../core/ui'
 import { prioText, timeAgo } from './model'
 import {
-  ACTION_KINDS, ACTION_LABEL, DUE_DAYS, FREQS, FREQ_LABEL, SWEEP_COUNTS, SWEEP_LEVEL_LABEL, WEEK, WEEK_ORDER, buildScheduleInput, buildSchedulePatch, defaultPriority,
+  ACTION_KINDS, ACTION_LABEL, DUE_DAYS, FREQS, FREQ_LABEL, REMIND_BODY_MAX, REMIND_TITLE_MAX, SWEEP_COUNTS, SWEEP_LEVEL_LABEL, WEEK, WEEK_ORDER, buildScheduleInput, buildSchedulePatch, defaultPriority,
   actionLabel, describeRule, draftErrors, emptyAction, emptyScheduleDraft, isPluginAction, publishIdOf, publishName, ruleError, runTone, scheduleDirty, scheduleDraftOf, whenText,
   type ActionNames, type ScheduleDraft,
 } from './scheduleModel'
@@ -142,7 +142,7 @@ export function ScheduleDrawer({ schedule, onClose, onCreated, onOpenTask }: {
     : [...prioItems.map((p) => ({ value: p.key, label: prioText(p.key, p) })), { value: prio, label: `${prio}（已停用）` }]
   const peopleOpts: SearchOption[] = (people.data ?? []).map((s) => ({ value: s.id, label: s.name, hint: s.role || undefined, keywords: s.email }))
   const nameBad = tried && !d.name.trim()
-  const titleBad = tried && a.kind === 'task' && !a.title.trim()
+  const titleBad = tried && (a.kind === 'task' || a.kind === 'remind') && !a.title.trim()
   const history = runs.data ?? []
   const nextText = d.enabled && upcoming?.length ? `下次：${whenText(upcoming[0], now)}` : d.enabled ? '启用后到点自动执行' : '停用后不会自动执行，可以手动执行'
 
@@ -280,6 +280,8 @@ export function ScheduleDrawer({ schedule, onClose, onCreated, onOpenTask }: {
               <div className="list-sub">到点把满足条件、未处理、还没有任务的运行异常各建一条任务，带 claude-code 标签交给 Claude Code 修；同一条异常不会重复建。结果记在下面的执行记录里</div>
             </>
           )}
+          {a.kind === 'remind' && <RemindFields title={a.title} body={a.body} objectId={a.object_id} titleBad={titleBad} dirty={dirty}
+            onChange={setAction} onOpenTask={onOpenTask} />}
           {isPluginAction(a.kind) && <div className="list-sub">{actionLabel(a.kind)}：这种动作由插件登记，这里只读</div>}
           {a.kind === 'agent' && (
             <>
@@ -370,5 +372,42 @@ export function ScheduleDrawer({ schedule, onClose, onCreated, onOpenTask }: {
       )}>
       {body}
     </Drawer>
+  )
+}
+
+/** 动作「提醒」：标题、内容，关联了任务时显示是哪条（任务抽屉里「设个提醒」建的），可以解除关联 */
+function RemindFields({ title, body, objectId, titleBad, dirty, onChange, onOpenTask }: {
+  title: string
+  body: string
+  objectId: string
+  titleBad: boolean
+  dirty: boolean
+  onChange: (p: { title?: string; body?: string; object_id?: string }) => void
+  onOpenTask?: (objectId: string) => void
+}) {
+  const task = useObject(objectId || null)
+  const gone = !!objectId && (isApiError(task.error, 'not_found') || !!task.data?.deleted_at)
+  return (
+    <>
+      <Field label="提醒标题" required error={titleBad ? '必填' : title.trim().length > REMIND_TITLE_MAX ? `最多 ${REMIND_TITLE_MAX} 字` : undefined}>
+        <Input value={title} invalid={titleBad} placeholder="比如：给客户回电话" onChange={(e) => onChange({ title: e.target.value })} />
+      </Field>
+      <Field label="内容" hint={body.trim().length > REMIND_BODY_MAX ? `最多 ${REMIND_BODY_MAX} 字` : '可以不填；关联了任务时不填就显示任务标题'}>
+        <Textarea rows={2} value={body} onChange={(e) => onChange({ body: e.target.value })} />
+      </Field>
+      {objectId && (
+        <div className="sched-remind-obj">
+          <span className="list-sub">关联任务：</span>
+          {gone ? <span className="danger-text">已删除的任务</span>
+            : task.data ? (
+              <button type="button" className="link-btn" disabled={dirty || !onOpenTask} title={dirty ? '先保存或放弃改动再打开任务' : '打开这条任务'}
+                onClick={() => onOpenTask?.(objectId)}>{task.data.ref} {task.data.title}</button>
+            ) : <span className="list-sub">{objectId}</span>}
+          <span className="spacer" />
+          <Button size="sm" onClick={() => onChange({ object_id: '' })}>解除关联</Button>
+        </div>
+      )}
+      <div className="list-sub">到点在工作台右下角弹一条提醒，不发到 IM；关联了任务的，点提醒打开这条任务。只提醒一次的到点后自动停用</div>
+    </>
   )
 }

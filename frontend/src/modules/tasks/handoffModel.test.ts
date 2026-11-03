@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { TaskRun } from '../../core/data'
-import { defaultWorkdir, runRequest, runningOf } from './handoffModel'
+import { TERMINAL_OFF_HINT, defaultWorkdir, launchFailSummary, modeHint, runRequest, runningOf, submitLabel, terminalRequest } from './handoffModel'
 import type { LiveRun } from './runLive'
 
 const row = (p: Partial<TaskRun>) => ({ id: 'run_1', status: 'done', ...p }) as TaskRun
@@ -26,5 +26,17 @@ describe('交给 Claude Code', () => {
     expect(runningOf('obj_1', [], [live({ runId: 'run_2' })])).toBe('run_2')
     expect(runningOf('obj_1', [], [live({ phase: 'done', runId: 'run_2' })])).toBeUndefined()
     expect(runningOf('obj_1', [], [live({ objectId: 'obj_2' })])).toBeUndefined()
+  })
+
+  it('两种方式：按钮文案、说明、终端请求体没有 allow_writes', () => {
+    expect(submitLabel('stream', { typing: false, allow: false, busy: false })).toBe('开始执行（只读）')
+    expect(submitLabel('stream', { typing: false, allow: true, busy: false })).toBe('开始执行（允许写入）')
+    expect(submitLabel('terminal', { typing: false, allow: true, busy: false })).toBe('在终端中打开')
+    expect(submitLabel('terminal', { typing: false, allow: false, busy: true })).toBe('正在打开终端')
+    expect(submitLabel('terminal', { typing: true, allow: false, busy: false })).toBe('正在校验目录')
+    expect(modeHint('terminal', false)).toBe(TERMINAL_OFF_HINT)
+    expect(modeHint('terminal', true)).toContain('MCP 回写')
+    expect(terminalRequest(' /w ', ' 只改文档 ')).toEqual({ workdir: '/w', extra_prompt: '只改文档' })
+    expect(launchFailSummary('x')).toBe('终端没打开：x')
   })
 })

@@ -10,7 +10,7 @@ const at = new Date(Date.now() - 5 * 60_000).toISOString()
 function run(p: Partial<TaskRun>): TaskRun {
   return {
     id: 'run_' + Math.random().toString(36).slice(2, 12), object_id: 'obj_1', workdir: '/tmp/w', prompt: '## 任务\n\n## 约束\n',
-    status: 'done', exit_code: 0, output: '', error: '', started_at: at, finished_at: new Date().toISOString(), ...p,
+    status: 'done', exit_code: 0, output: '', error: '', started_at: at, finished_at: new Date().toISOString(), mode: 'stream', ...p,
   }
 }
 const task = { id: 'obj_1', ref: 'TSK-0001', title: '任务' } as WorkObject
@@ -21,6 +21,13 @@ function stub(rows: TaskRun[]) {
   vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input)
     calls.push((init?.method ?? 'GET') + ' ' + url.replace(/^https?:\/\/[^/]+/, ''))
+    const finish = /\/api\/runs\/([^/]+)\/finish$/.exec(url)
+    if (finish) {
+      const body = JSON.parse(String(init?.body)) as { status: TaskRun['status']; summary: string }
+      calls.push('BODY ' + JSON.stringify(body))
+      rows = rows.map((x) => (x.id === finish[1] ? { ...x, status: body.status, output: body.summary, finished_at: new Date().toISOString() } : x))
+      return new Response(JSON.stringify({ data: rows.find((x) => x.id === finish[1]) }), { status: 200 })
+    }
     const cancel = /\/api\/runs\/([^/]+)\/cancel$/.exec(url)
     if (cancel) {
       const r = rows.find((x) => x.id === cancel[1])!
@@ -117,5 +124,37 @@ describe('流式输出', () => {
     expect(within(t2).getByText('被权限挡下')).toBeInTheDocument()
     expect(within(t3).getByText('执行中')).toBeInTheDocument()
     expect(screen.getByRole('status', { name: '输出中' })).toBeInTheDocument()
+  })
+
+  it('标方式：流式和终端；终端执行的结论按 Markdown 显示', async () => {
+    stub([
+      run({ id: 'run_term00001', mode: 'terminal', output: '写完了 PRD，放在 **Octok项目/需求**' }),
+      run({ id: 'run_strm00002' }),
+    ])
+    renderBlock()
+    const user = userEvent.setup()
+    const term = (await screen.findByText('终端')).closest('[data-run]') as HTMLElement
+    expect(term).toHaveAttribute('data-mode', 'terminal')
+    expect(within(screen.getByText('流式').closest('[data-run]') as HTMLElement).getByText('完成')).toBeInTheDocument()
+    await user.click(within(term).getByRole('button', { name: /完成/ }))
+    expect(within(term).getByText('Octok项目/需求')).toBeInTheDocument()
+  })
+
+  it('进行中的终端执行：没有取消，有「标记结束」，选结果写结论后收尾', async () => {
+    const calls = stub([run({ id: 'run_term00003', mode: 'terminal', status: 'running', finished_at: null })])
+    renderBlock()
+    const user = userEvent.setup()
+    const item = (await screen.findByText('终端')).closest('[data-run]') as HTMLElement
+    expect(within(item).queryByRole('button', { name: '取消执行' })).not.toBeInTheDocument()
+    expect(within(item).getByText(/结束和结论由终端里的 Claude Code 经工作台 MCP 回写/)).toBeInTheDocument()
+    await user.click(within(item).getByRole('button', { name: '标记结束' }))
+    const dlg = await screen.findByRole('alertdialog', { name: '标记结束' })
+    await user.selectOptions(within(dlg).getByRole('combobox', { name: '结果' }), 'failed')
+    await user.type(within(dlg).getByRole('textbox'), '卡在权限')
+    await user.click(within(dlg).getByRole('button', { name: '标记结束' }))
+    await waitFor(() => expect(calls).toContain('POST /api/runs/run_term00003/finish'))
+    expect(calls).toContain('BODY {"status":"failed","summary":"卡在权限"}')
+    await waitFor(() => expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument())
+    expect(await screen.findByText('失败')).toBeInTheDocument()
   })
 })

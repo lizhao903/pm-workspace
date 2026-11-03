@@ -6,10 +6,16 @@ import {
   FIELD_LABEL, HOOK_BASE, getPath, mapFields, passFilter,
   type Delivery, type Ingest, type Json, type Priority, type Task, type TaskStatus, type Webhook, isOpenTask, localDay,
 } from './taskdata'
-import { cls, timeAgo } from './ui'
+import { GrowArea, cls, timeAgo } from './ui'
 import { SearchSelect } from './searchselect'
 import { useEnumView } from './enumdata'
 import { ApproveConfirm, ArtifactsBlock, DevFields, ProgressBlock, ReviewBar, RunDialog, RunsBlock, isDevTask, type DevLoop } from './devloop'
+import { runStatus, type Sop, type SopRun } from './sopflow'
+import { TaskSopBlock } from './tasksop'
+import { TaskReminders, type ReminderForm } from './taskreminders'
+import type { Schedule } from './scheduledata'
+import { buildPrompt, projectContext } from './handoff'
+import type { Project } from './projectdata'
 
 /** 任务页的二级菜单 key */
 /** schedule：定时任务建出来的任务；schedules：定时任务本身的管理页；due：逾期未完成；hooks：Webhook 列表 */
@@ -356,7 +362,21 @@ const draftOf = (t: Task): TaskDraft => ({ title: t.title, desc: t.desc, status:
 /** 两份草稿内容一样：空串、null、undefined 都当没填 */
 const sameDraft = (a: TaskDraft, b: TaskDraft) => (Object.keys({ ...a, ...b }) as (keyof TaskDraft)[]).every((k) => (a[k] || '') === (b[k] || ''))
 
-export function TaskDrawer({ task, initial, fromMessage, hooks, deliveries, assignees, projects, onClose, onSave, onDelete, onOpenMessage, onOpenHook, onOpenSchedule, onOpenIncident, delImpact, dev }: {
+/** 任务详情的标签（SPEC-tasks-4.35）：基础信息、开发任务、SOP（插件在跑才有）、执行记录 */
+export type TaskTab = 'info' | 'dev' | 'sop' | 'runs'
+const TASK_TABS: { key: TaskTab; label: string }[] = [
+  { key: 'info', label: '基础信息' }, { key: 'dev', label: '开发任务' }, { key: 'sop', label: 'SOP' }, { key: 'runs', label: '执行记录' },
+]
+
+export function TaskDrawer({ task, initial, fromMessage, hooks, deliveries, assignees, projects, onClose, onSave, onDelete, onOpenMessage, onOpenHook, onOpenSchedule, onOpenIncident, delImpact, dev, sop, handoff, reminders, tab: initialTab, focusRun, focusSopRun }: {
+  /** 打开时停在哪个标签；不给时待验收的停在开发任务，其余基础信息。正式产品记在地址 ?tab= 上 */
+  tab?: TaskTab
+  /** 跳到某次执行（正式产品 ?run=）：切到执行记录并定位 */
+  focusRun?: string
+  /** 跳到某次 SOP 执行（正式产品 ?sop_run=）：切到 SOP 并定位，从 SOP 运行页返回时用 */
+  focusSopRun?: string
+  /** 任务抽屉里的「提醒」：关联这条任务的提醒、设一个、取消（SPEC-tasks-4.30） */
+  reminders?: { list: Schedule[]; onAdd: (f: ReminderForm) => void; onCancel: (id: string) => void }
   onOpenIncident?: (id: string) => void
   onOpenSchedule?: (id: string) => void
   task: Task | null
@@ -367,7 +387,7 @@ export function TaskDrawer({ task, initial, fromMessage, hooks, deliveries, assi
   deliveries: Delivery[]
   assignees: string[]
   /** 可选的所属项目；root 是任务没设工作目录时继承的目录 */
-  projects: { id: string; name: string; root?: string }[]
+  projects: (Pick<Project, 'id' | 'name' | 'root'> & Partial<Pick<Project, 'related' | 'prototypes'>>)[]
   onClose: () => void
   onSave: (d: TaskDraft, markMessageDone: boolean) => void
   onDelete: () => void
@@ -377,6 +397,10 @@ export function TaskDrawer({ task, initial, fromMessage, hooks, deliveries, assi
   delImpact?: string[]
   /** 开发闭环：进展、产出物、执行记录、验收 */
   dev?: DevLoop
+  /** 关联到这条任务的 SOP 执行和「执行 SOP」（SOP-06）；SOP 插件没开时不给 */
+  sop?: { runs: SopRun[]; sops: Sop[]; onStart: (sopId: string) => void; onOpenRun: (runId: string) => void }
+  /** 交给 Claude Code 的「切换到终端」（SPEC-tasks-6.10）：终端插件在跑才有 terminalOn；onTerminal 在终端页新开标签执行启动命令 */
+  handoff?: { terminalOn: boolean; onTerminal: (o: { task: Task; runId: string; workdir: string; prompt: string }) => void }
 }) {
   const statusEnum = useEnumView('task_status')
   const prioEnum = useEnumView('task_priority')
@@ -390,8 +414,21 @@ export function TaskDrawer({ task, initial, fromMessage, hooks, deliveries, assi
   }))
   const [runOpen, setRunOpen] = useState(false)
   const inheritDir = projects.find((x) => x.id === d.project_id)?.root
+  const proj = projects.find((x) => x.id === d.project_id)
+  const projectCtx = proj ? projectContext({ name: proj.name, root: proj.root ?? '', related: proj.related ?? [], prototypes: proj.prototypes ?? [] }) : undefined
   const mine = <T extends { task_id: string }>(xs: T[]) => (task ? xs.filter((x) => x.task_id === task.id) : [])
-  const devOn = !!(task && dev && isDevTask(task, dev))
+  // 基础信息里点了「设为开发任务」
+  const [devOpened, setDevOpened] = useState(false)
+  const devOn = !!(task && dev && (isDevTask(task, dev) || devOpened || task.status === 'review' || d.acceptance || d.workdir || d.repo))
+  const [tab, setTab] = useState<TaskTab>(() => initialTab ?? (focusRun ? 'runs' : focusSopRun ? 'sop' : task?.status === 'review' ? 'dev' : 'info'))
+  // 定位只在打开时用一次，切过标签就不再高亮
+  const [focus, setFocus] = useState({ run: focusRun, sop: focusSopRun })
+  const pick = (k: TaskTab) => { setTab(k); setFocus({ run: undefined, sop: undefined }) }
+  // 标签条：开发任务和执行记录只在开发任务上有，SOP 只在插件在跑时有；停在没有的标签上回基础信息
+  const tabShown = (k: TaskTab) => k === 'info' || ((k === 'dev' || k === 'runs') && devOn) || (k === 'sop' && !!sop) || k === tab && k !== 'sop'
+  const cur: TaskTab = tabShown(tab) ? tab : 'info'
+  const runsN = dev ? mine(dev.runs).length : 0
+  const sopMine = task && sop ? sop.runs.filter((r) => r.object_id === task.id) : []
   const runningId = dev && mine(dev.runs).find((r) => r.status === 'running')?.id
   const [markDone, setMarkDone] = useState(true)
   const [tried, setTried] = useState(false)
@@ -400,7 +437,7 @@ export function TaskDrawer({ task, initial, fromMessage, hooks, deliveries, assi
   const src = task?.source ?? (fromMessage ? { kind: 'im' as const, message_id: fromMessage.id, channel: fromMessage.channel, sender: fromMessage.sender_name, text: fromMessage.text } : { kind: 'manual' as const })
   const delivery = src.kind === 'webhook' ? deliveries.find((x) => x.id === src.delivery_id) : undefined
   const hook = src.kind === 'webhook' ? hooks.find((h) => h.id === src.hook_id) : undefined
-  const save = () => { setTried(true); if (d.title.trim()) onSave({ ...d, title: d.title.trim() }, markDone) }
+  const save = () => { setTried(true); if (d.title.trim()) onSave({ ...d, title: d.title.trim() }, markDone); else pick('info') }
   // 未保存的改动：已有任务跟它现在的值比（验收、交给 Claude Code 已经直接改了任务，不算），新建跟打开时比
   const [blank] = useState(d)
   const dirty = !sameDraft(d, task ? draftOf(task) : blank)
@@ -421,6 +458,56 @@ export function TaskDrawer({ task, initial, fromMessage, hooks, deliveries, assi
     window.addEventListener('keydown', onKey, true)
     return () => window.removeEventListener('keydown', onKey, true)
   }, [])
+
+  const removedProject = task?.project_removed
+  const fields = (
+    <>
+      <label className="field">
+        <span className="field-label">标题<em>*</em></span>
+        <input value={d.title} autoFocus={creating} className={cls(tried && !d.title.trim() && 'bad')} onChange={(e) => setD({ ...d, title: e.target.value })} placeholder="要做的事" />
+        {tried && !d.title.trim() && <span className="field-err">必填</span>}
+      </label>
+      <label className="field">
+        <span className="field-label">描述</span>
+        <GrowArea rows={6} value={d.desc} onChange={(e) => setD({ ...d, desc: e.target.value })} />
+      </label>
+      <div className="field">
+        <span className="field-label">状态</span>
+        <div className="seg seg-full">
+          {statusEnum.optionsWith(d.status).map((s) => <button key={s.key} className={cls(d.status === s.key && 'on')} title={s.desc || undefined} onClick={() => setD({ ...d, status: s.key as TaskStatus })}>{s.label}</button>)}
+        </div>
+      </div>
+      <div className="field">
+        <span className="field-label">优先级</span>
+        <div className="seg seg-full">
+          {prioEnum.optionsWith(d.priority).map((p) => <button key={p.key} className={cls(d.priority === p.key && 'on')} title={p.desc || undefined} onClick={() => setD({ ...d, priority: p.key as Priority })}>{p.label}</button>)}
+        </div>
+      </div>
+      <div className="field-row">
+        <label className="field">
+          <span className="field-label">负责人</span>
+          <input list="task-assignees" value={d.assignee} onChange={(e) => setD({ ...d, assignee: e.target.value })} />
+          <datalist id="task-assignees">{assignees.map((a) => <option key={a} value={a} />)}</datalist>
+        </label>
+        <label className="field">
+          <span className="field-label">截止日期</span>
+          <input type="date" value={d.due ?? ''} onChange={(e) => setD({ ...d, due: e.target.value || null })} />
+        </label>
+      </div>
+      <div className="field">
+        <span className="field-label">所属项目</span>
+        <SearchSelect variant="field" value={d.project_id ?? ''} noneLabel="不属于项目" searchPlaceholder="搜项目" aria-label="所属项目"
+          options={projects.map((x) => ({ value: x.id, label: x.name }))} missingLabel={() => '已删除的项目'}
+          onChange={(v) => setD({ ...d, project_id: v || undefined })} />
+        {!d.project_id && removedProject && <span className="list-sub">原属项目「{removedProject}」已删除</span>}
+      </div>
+    </>
+  )
+  const devFields = (
+    <DevFields d={d} inheritDir={inheritDir} onChange={(p) => setD((x) => ({ ...x, ...p }))}
+      onRun={task && dev ? () => setRunOpen(true) : undefined} runningId={runningId}
+      onShowRun={(id) => { setTab('runs'); setFocus({ run: id, sop: undefined }) }} />
+  )
 
   return (
     <aside className="drawer">
@@ -476,71 +563,73 @@ export function TaskDrawer({ task, initial, fromMessage, hooks, deliveries, assi
             {showPayload && delivery && <pre className="io-json src-payload">{JSON.stringify(delivery.payload, null, 2)}</pre>}
           </div>
         )}
-        {task && dev && task.status === 'review' && (
-          <ReviewBar task={task} progress={mine(dev.progress)} onReview={(ok, c) => {
-            dev.review(task.id, ok, c)
-            setD((x) => ({ ...x, status: ok ? 'done' : 'todo' }))
-          }} />
-        )}
-        <label className="field">
-          <span className="field-label">标题<em>*</em></span>
-          <input value={d.title} autoFocus={creating} className={cls(tried && !d.title.trim() && 'bad')} onChange={(e) => setD({ ...d, title: e.target.value })} placeholder="要做的事" />
-          {tried && !d.title.trim() && <span className="field-err">必填</span>}
-        </label>
-        <label className="field">
-          <span className="field-label">描述</span>
-          <textarea rows={4} value={d.desc} onChange={(e) => setD({ ...d, desc: e.target.value })} />
-        </label>
-        <div className="field">
-          <span className="field-label">状态</span>
-          <div className="seg seg-full">
-            {statusEnum.optionsWith(d.status).map((s) => <button key={s.key} className={cls(d.status === s.key && 'on')} title={s.desc || undefined} onClick={() => setD({ ...d, status: s.key as TaskStatus })}>{s.label}</button>)}
-          </div>
-        </div>
-        <div className="field">
-          <span className="field-label">优先级</span>
-          <div className="seg seg-full">
-            {prioEnum.optionsWith(d.priority).map((p) => <button key={p.key} className={cls(d.priority === p.key && 'on')} title={p.desc || undefined} onClick={() => setD({ ...d, priority: p.key as Priority })}>{p.label}</button>)}
-          </div>
-        </div>
-        <div className="field-row">
-          <label className="field">
-            <span className="field-label">负责人</span>
-            <input list="task-assignees" value={d.assignee} onChange={(e) => setD({ ...d, assignee: e.target.value })} />
-            <datalist id="task-assignees">{assignees.map((a) => <option key={a} value={a} />)}</datalist>
-          </label>
-          <label className="field">
-            <span className="field-label">截止日期</span>
-            <input type="date" value={d.due ?? ''} onChange={(e) => setD({ ...d, due: e.target.value || null })} />
-          </label>
-        </div>
-        <div className="field">
-          <span className="field-label">所属项目</span>
-          <SearchSelect variant="field" value={d.project_id ?? ''} noneLabel="不属于项目" searchPlaceholder="搜项目" aria-label="所属项目"
-            options={projects.map((x) => ({ value: x.id, label: x.name }))} missingLabel={() => '已删除的项目'}
-            onChange={(v) => setD({ ...d, project_id: v || undefined })} />
-          {!d.project_id && task?.project_removed && <span className="list-sub">原属项目「{task.project_removed}」已删除</span>}
-        </div>
-        <DevFields d={d} inheritDir={inheritDir} onChange={(p) => setD((x) => ({ ...x, ...p }))}
-          onRun={task && dev ? () => setRunOpen(true) : undefined} runningId={runningId} />
-        {devOn && task && dev && (
+        {creating ? (
           <>
-            <ProgressBlock items={mine(dev.progress)} onAppend={(text) => dev.append(task.id, text)} />
-            <ArtifactsBlock items={mine(dev.artifacts)} onAdd={(a) => dev.addArtifact(task.id, a)} />
-            <RunsBlock runs={mine(dev.runs)} onCancel={dev.cancel} />
+            {fields}
+            <DevFields d={d} inheritDir={inheritDir} onChange={(p) => setD((x) => ({ ...x, ...p }))} />
+            {fromMessage && fromMessage.status === 'pending' && (
+              <label className="check"><input type="checkbox" checked={markDone} onChange={(e) => setMarkDone(e.target.checked)} />建好后把这条消息标为{msgEnum.label('done')}</label>
+            )}
+          </>
+        ) : (
+          <>
+            <div className="task-head-title">{d.title.trim() || task.title}</div>
+            <div className="np-tabs task-tabs" role="tablist" aria-label="任务详情">
+              {TASK_TABS.filter((t) => tabShown(t.key)).map((t) => (
+                <button key={t.key} role="tab" aria-selected={cur === t.key} className={cls(cur === t.key && 'on')} onClick={() => pick(t.key)}>
+                  {t.label}
+                  {t.key === 'dev' && task.status === 'review' && <span className="side-dot" title="等你验收" />}
+                  {t.key === 'sop' && sopMine.length > 0 && <span className="seg-n" title={`${sopMine.length} 次 SOP 执行`}>{sopMine.length}</span>}
+                  {t.key === 'sop' && (sopMine.some((r) => ['waiting', 'failed'].includes(runStatus(r)))
+                    ? <span className="side-dot" title="有执行等你处理" />
+                    : sopMine.some((r) => runStatus(r) === 'running') && <span className="proto-light pl-running" title="有执行还没结束" />)}
+                  {t.key === 'runs' && runsN > 0 && <span className="seg-n" title={`${runsN} 次执行`}>{runsN}</span>}
+                  {t.key === 'runs' && runningId && <span className="proto-light pl-running" title="有执行在跑" />}
+                </button>
+              ))}
+            </div>
+            {cur === 'info' && (
+              <>
+                {fields}
+                {reminders && <TaskReminders task={task} {...reminders} />}
+                {!devOn && dev && (
+                  <button className="act act-quiet dev-open" onClick={() => { setDevOpened(true); pick('dev') }}>+ 设为开发任务：验收标准、工作目录，交给 Claude Code 做</button>
+                )}
+                <div className="list-sub">{timeAgo(task.created_at)}创建 · {timeAgo(task.updated_at)}更新</div>
+              </>
+            )}
+            {cur === 'dev' && dev && (
+              <>
+                {task.status === 'review' && (
+                  <ReviewBar task={task} progress={mine(dev.progress)} onReview={(ok, c) => {
+                    dev.review(task.id, ok, c)
+                    setD((x) => ({ ...x, status: ok ? 'done' : 'todo' }))
+                  }} />
+                )}
+                {task.status !== 'review' && devFields}
+                <ProgressBlock items={mine(dev.progress)} onAppend={(text) => dev.append(task.id, text)} />
+                <ArtifactsBlock items={mine(dev.artifacts)} onAdd={(a) => dev.addArtifact(task.id, a)} />
+                {task.status === 'review' && devFields}
+              </>
+            )}
+            {cur === 'sop' && sop && <TaskSopBlock task={task} runs={sop.runs} sops={sop.sops} onStart={sop.onStart} onOpenRun={sop.onOpenRun} focus={focus.sop} />}
+            {cur === 'runs' && dev && <RunsBlock runs={mine(dev.runs)} onCancel={dev.cancel} onFinish={dev.finish} focus={focus.run} />}
           </>
         )}
-        {creating && fromMessage && fromMessage.status === 'pending' && (
-          <label className="check"><input type="checkbox" checked={markDone} onChange={(e) => setMarkDone(e.target.checked)} />建好后把这条消息标为{msgEnum.label('done')}</label>
-        )}
-        {task && <div className="list-sub">{timeAgo(task.created_at)}创建 · {timeAgo(task.updated_at)}更新</div>}
       </div>
       {runOpen && task && dev && (
-        <RunDialog task={{ ...task, workdir: d.workdir }} inheritDir={inheritDir} onClose={() => setRunOpen(false)}
+        <RunDialog task={{ ...task, workdir: d.workdir }} inheritDir={inheritDir} project={projectCtx} terminalOn={!!handoff?.terminalOn} onClose={() => setRunOpen(false)}
           onStart={(o) => {
-            dev.start(task, o)
+            const runId = dev.start(task, o)
+            if (o.mode === 'terminal') {
+              setRunOpen(false)
+              handoff?.onTerminal({ task, runId, workdir: o.workdir, prompt: buildPrompt({ task, workdir: o.workdir, extra: o.extra_prompt, mode: 'terminal', project: projectCtx, runId }) })
+              return
+            }
             if (o.allow_writes) setD((x) => ({ ...x, status: 'doing', assignee: 'Claude Code' }))
             setRunOpen(false)
+            // 流式执行发起后切到执行记录看输出（SPEC-tasks-4.41）
+            pick('runs')
           }} />
       )}
       <div className="drawer-foot">

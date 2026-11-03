@@ -1,5 +1,6 @@
 // 任务模块（SPEC-tasks-1、SPEC-tasks-2）：二级菜单 + 列表。路由挂在 tasks/* 下：
 // /tasks 全部任务，/tasks/overdue 逾期；状态筛选记在 ?status=，可以直接链接到「待验收」这类视图；?t=<id> 打开某条任务的抽屉。
+// 抽屉的标签记在 ?tab=，?run= / ?sop_run= 定位某次执行（drawerTabs.ts）；从列表换一条任务、新建时清掉，新打开的从默认标签开始。
 // /tasks/schedules 定时任务（SPEC-tasks-7、8，TASK-04a），二级菜单「自动化」组。
 // /tasks/source/<来源> 来源视图（SPEC-tasks-3），/tasks/webhooks Webhook 接入、/tasks/webhooks/<id|new> 配置页（SPEC-tasks-9、10，TASK-04b）。
 import { useEffect, useState } from 'react'
@@ -14,6 +15,7 @@ import { ApproveDialog } from './ApproveDialog'
 import { OPEN, REVIEW, doneKey, reopenKey, terminalOf, type StatusFilter } from './model'
 import { SchedulesView } from './Schedules'
 import { TaskDrawer } from './TaskDrawer'
+import { useTaskTabParams } from './drawerTabs'
 import { TaskList, type TaskView } from './TaskList'
 import { SOURCE_KINDS, SOURCE_VIEW, isSourceKind } from './sourceModel'
 import { LAST_DELIVERY_POLL_MS, WebhooksView } from './Webhooks'
@@ -66,6 +68,7 @@ export default function Page() {
   // 待验收任务点完成圆圈时的确认
   const [approving, setApproving] = useState<WorkObject | null>(null)
   const setTaskStatus = useSetStatus()
+  const drawerTab = useTaskTabParams()
   const approve = useApprove()
 
   // 命令面板打开某条任务（A-01）：?t=<id>，取到就打开抽屉，再把参数从地址里去掉
@@ -171,8 +174,8 @@ export default function Page() {
         q={q}
         selected={sel}
         drawerOpen={!!opened}
-        onOpen={(t) => setOpened({ kind: 'task', task: t })}
-        onNew={() => setOpened({ kind: 'new' })}
+        onOpen={(t) => { if (opened?.kind !== 'task' || opened.task.id !== t.id) drawerTab.clear(); setOpened({ kind: 'task', task: t }) }}
+        onNew={() => { drawerTab.clear(); setOpened({ kind: 'new' }) }}
         hookName={hookName}
         onGoHooks={() => selectView('hooks')}
       />
@@ -233,6 +236,8 @@ export default function Page() {
           statuses={statuses}
           priorities={prios.data ?? []}
           projects={projects.data?.data ?? []}
+          // 插件区块（SOP 执行）去运行页后「返回」回到这里并重新打开这条任务（?t=）
+          returnTo={openTask ? `${pathname}?${withTask(params, openTask.id)}` : undefined}
           onClose={() => setOpened(null)}
           onCreated={(t) => setOpened({ kind: 'task', task: t })}
         />
@@ -246,4 +251,11 @@ export default function Page() {
       )}
     </div>
   )
+}
+
+/** 当前查询参数加上 t=<任务 id>：从别处返回时 ?t= 重新打开这条任务 */
+function withTask(params: URLSearchParams, id: string) {
+  const next = new URLSearchParams(params)
+  next.set('t', id)
+  return next.toString()
 }

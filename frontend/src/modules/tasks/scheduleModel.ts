@@ -6,15 +6,18 @@ import type {
 
 export const FREQS: ScheduleFreq[] = ['once', 'daily', 'weekdays', 'weekly', 'monthly', 'cron']
 export const FREQ_LABEL: Record<ScheduleFreq, string> = { once: '一次', daily: '每天', weekdays: '工作日', weekly: '每周', monthly: '每月', cron: 'Cron 表达式' }
-export const ACTION_KINDS: ScheduleActionKind[] = ['task', 'sop', 'agent', 'incident_sweep']
-export const ACTION_LABEL: Record<ScheduleActionKind, string> = { task: '建一条任务', sop: '执行 SOP', agent: '让 Agent 去做', incident_sweep: '运行异常巡检' }
+export const ACTION_KINDS: ScheduleActionKind[] = ['task', 'remind', 'sop', 'agent', 'incident_sweep']
+export const ACTION_LABEL: Record<ScheduleActionKind, string> = { task: '建一条任务', remind: '提醒', sop: '执行 SOP', agent: '让 Agent 去做', incident_sweep: '运行异常巡检' }
+/** 提醒的字数上限，和后端一致 */
+export const REMIND_TITLE_MAX = 100
+export const REMIND_BODY_MAX = 2000
 /** 运行异常巡检（INC-01b）：最低级别、最少次数 */
 export const SWEEP_LEVEL_LABEL = { error: '只看错误', warn: '错误和警告' } as const
 export const SWEEP_COUNTS = [1, 2, 3, 5, 10]
 /** 插件登记的动作（VID-06a）：后端原样回，这里只给认得的起名字，其余显示 kind */
 const PLUGIN_ACTION_LABEL: Record<string, string> = { video_publish: '发布视频' }
 export const actionLabel = (kind: string) => ACTION_LABEL[kind as ScheduleActionKind] ?? PLUGIN_ACTION_LABEL[kind] ?? kind
-/** 不是内核的四种动作 */
+/** 不是内核的五种动作 */
 export const isPluginAction = (kind: string) => !(ACTION_KINDS as string[]).includes(kind)
 /** 视频发布动作（video_publish）的发布记录 id */
 export function publishIdOf(a: ScheduleAction): string | undefined {
@@ -98,6 +101,7 @@ export function publishName(id: string, names: ActionNames): string {
 /** 列表里「做什么」的文字。SOP、Agent 的接口 M4 之后才有，拿不到名字时显示编号；视频发布显示发布标题 */
 export function actionText(a: ScheduleAction, names: ActionNames = {}): string {
   if (a.kind === 'task') return `建任务「${a.title || '未填标题'}」`
+  if (a.kind === 'remind') return `提醒「${a.title || '未填标题'}」${a.object_id ? '，关联任务' : ''}`
   if (a.kind === 'sop') return `执行「${a.sop_id || '未选 SOP'}」`
   if (a.kind === 'incident_sweep') return `巡检运行异常：${SWEEP_LEVEL_LABEL[a.min_level] ?? SWEEP_LEVEL_LABEL.error}${a.min_count > 1 ? `，至少 ${a.min_count} 次` : ''}，建任务交给 Claude Code`
   const kind = (a as { kind: string }).kind
@@ -107,6 +111,20 @@ export function actionText(a: ScheduleAction, names: ActionNames = {}): string {
   }
   if (isPluginAction(kind)) return actionLabel(kind)
   return `${a.agent_id || '未选 Agent'}：${a.prompt || '未填要求'}`
+}
+
+/**
+ * 列表「下次执行」一列：启用的按 next_run_at；一次性的提醒到点后自动停用，提醒了写「已提醒」、错过了写「已错过」；
+ * 其余停用的「已停用」。lastRun 是最近一条执行记录，没取到时一次性提醒看不出结果，按时间已过写「已提醒」。
+ */
+export function nextCellText(s: Pick<Schedule, 'enabled' | 'next_run_at' | 'rule' | 'action'>, lastRun: Pick<ScheduleRun, 'status'> | null | undefined, now: Date = new Date()): string {
+  if (s.enabled) return whenText(s.next_run_at, now)
+  if (s.action.kind === 'remind' && s.rule.freq === 'once' && s.rule.date && new Date(`${s.rule.date}T${s.rule.time}`) <= now) {
+    if (lastRun?.status === 'missed') return '已错过'
+    if (lastRun?.status === 'skipped' || lastRun === null) return '已停用'
+    return '已提醒'
+  }
+  return '已停用'
 }
 
 /** 执行记录一条的样子：成功绿点，执行中灰点，其余（失败、停用跳过、暂不支持、错过）红点 */
@@ -130,6 +148,9 @@ export type ActionDraft = {
   /** 运行异常巡检 */
   min_level: 'error' | 'warn'
   min_count: number
+  /** 提醒：标题用 title，内容 body，关联的任务 object_id */
+  body: string
+  object_id: string
 }
 
 export type ScheduleDraft = { name: string; enabled: boolean; rule: ScheduleRule; action: ActionDraft }
@@ -141,7 +162,7 @@ export function defaultPriority(priorities: readonly DictItem[]): string {
 }
 
 export function emptyAction(kind: ScheduleActionKind, priority: string): ActionDraft {
-  return { kind, title: '', desc: '', priority, assignee: '', due_days: 0, sop_id: '', agent_id: '', prompt: '', min_level: 'error', min_count: 1 }
+  return { kind, title: '', desc: '', priority, assignee: '', due_days: 0, sop_id: '', agent_id: '', prompt: '', min_level: 'error', min_count: 1, body: '', object_id: '' }
 }
 
 export function emptyScheduleDraft(priorities: readonly DictItem[], now: Date = new Date()): ScheduleDraft {
@@ -158,6 +179,7 @@ export function actionOf(a: ActionDraft): ScheduleAction {
   if (a.kind === 'sop') return { kind: 'sop', sop_id: a.sop_id.trim() }
   if (a.kind === 'agent') return { kind: 'agent', agent_id: a.agent_id.trim(), prompt: a.prompt.trim() }
   if (a.kind === 'incident_sweep') return { kind: 'incident_sweep', min_level: a.min_level, min_count: a.min_count }
+  if (a.kind === 'remind') return { kind: 'remind', title: a.title.trim(), body: a.body.trim(), object_id: a.object_id }
   return { kind: 'task', title: a.title.trim(), desc: a.desc.trim(), priority: a.priority, assignee: a.assignee, due_days: a.due_days }
 }
 
@@ -166,10 +188,19 @@ export function draftErrors(d: ScheduleDraft, now: Date = new Date()): string[] 
   const a = d.action
   // 插件动作在这里只读，校验交给插件
   const aErr = isPluginAction(a.kind) ? '' : a.kind === 'task' ? (!a.title.trim() ? '任务标题必填' : '')
+    : a.kind === 'remind' ? remindError(a.title, a.body)
     : a.kind === 'sop' ? (!a.sop_id.trim() ? '选一个 SOP' : '')
       : a.kind === 'incident_sweep' ? (Number.isInteger(a.min_count) && a.min_count >= 1 ? '' : '最少次数要是 1 以上的整数')
       : !a.agent_id.trim() ? '选一个 Agent' : !a.prompt.trim() ? '写一下要它做什么' : ''
   return [!d.name.trim() ? '名称必填' : '', ruleError(d.rule, now), aErr].filter(Boolean)
+}
+
+/** 提醒的标题、内容：标题必填，都有字数上限 */
+export function remindError(title: string, body: string): string {
+  if (!title.trim()) return '提醒标题必填'
+  if (title.trim().length > REMIND_TITLE_MAX) return `提醒标题最多 ${REMIND_TITLE_MAX} 字`
+  if (body.trim().length > REMIND_BODY_MAX) return `提醒内容最多 ${REMIND_BODY_MAX} 字`
+  return ''
 }
 
 export function buildScheduleInput(d: ScheduleDraft): ScheduleInput {

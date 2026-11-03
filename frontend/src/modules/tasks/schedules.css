@@ -18,6 +18,10 @@
 .sk-sop { background: var(--warn-soft); color: var(--warn); }
 .sk-agent { background: var(--hover); color: var(--muted); }
 .sk-incident_sweep { background: var(--danger-soft); color: var(--danger); }
+.sk-remind { background: color-mix(in srgb, var(--ok) 12%, transparent); color: var(--ok); }
+/* 提醒关联的任务 */
+.sched-remind-obj { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.sched-remind-obj .link-btn { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* 视频插件的到点发布（VID-06d） */
 .sched-plugin-acts { display: flex; flex-wrap: wrap; gap: 8px; }
 .sched-readonly { color: var(--text); line-height: 1.6; overflow-wrap: anywhere; }

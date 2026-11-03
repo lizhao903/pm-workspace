@@ -89,3 +89,21 @@
   .dev-art-at { display: none; }
   .dev-run-head .ellipsis { display: none; }
 }
+
+/* 交给 Claude Code 的两种方式（SPEC-tasks-11.15 起） */
+.src-tag.dev-term { color: var(--accent); background: var(--accent-soft, var(--hover)); }
+.seg button:disabled { opacity: .45; cursor: not-allowed; }
+.dev-preview { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; }
+.dev-preview-body { flex: 1 1 100%; max-height: 260px; overflow: auto; margin: 0; padding: 8px 10px; border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--hover); font-size: 11.5px; line-height: 1.55; white-space: pre-wrap; word-break: break-word; }
+.dev-finish { max-width: 460px; }
+
+/* ---------- 任务详情的标签（SPEC-tasks-4.35 到 4.41） ---------- */
+.task-head-title { font-size: 16px; font-weight: 600; line-height: 1.4; word-break: break-word; }
+.task-tabs { position: sticky; top: -22px; z-index: 2; margin: -6px -20px 0; padding: 0 20px; background: var(--panel); overflow-x: auto; scrollbar-width: none; }
+.task-tabs button { flex: none; display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.task-tabs .side-dot { margin-left: 0; }
+/* 从别处跳过来定位的那一条 */
+.dev-run.lit { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 16%, transparent); }
+.task-sop-run.lit { background: color-mix(in srgb, var(--accent) 10%, transparent); box-shadow: inset 3px 0 0 var(--accent); }
+/* 高度随内容撑开的多行输入（GrowArea） */
+textarea.grow-area { resize: none; overflow-y: hidden; }

@@ -9,7 +9,7 @@ import {
 import { Button, EmptyState, ErrorState, IconClose, IconSearch, ListSegHead, LoadingState, PageTitle, cls } from '../../core/ui'
 import { timeAgo } from './model'
 import { ScheduleDrawer } from './ScheduleDrawer'
-import { ACTION_KINDS, actionLabel, actionText, describeRule, fullRule, isPluginAction, matchSchedule, publishIdOf, whenText, type ActionNames } from './scheduleModel'
+import { ACTION_KINDS, actionLabel, actionText, describeRule, fullRule, isPluginAction, matchSchedule, nextCellText, publishIdOf, type ActionNames } from './scheduleModel'
 import { TaskDrawer } from './TaskDrawer'
 import './schedules.css'
 
@@ -155,7 +155,7 @@ export function SchedulesPage({ schedules, loading, error, onRetry, selected, on
           <span className={`sched-kind sk-${s.action.kind}`}>{actionLabel(s.action.kind)}</span>
           <span className="ellipsis run-muted" title={actionText(s.action, names)}>{actionText(s.action, names)}</span>
         </span>
-        <span className={cls('run-muted', s.enabled && s.next_run_at && 'sched-next')}>{s.enabled ? whenText(s.next_run_at, now) : '已停用'}</span>
+        <span className={cls('run-muted', s.enabled && s.next_run_at && 'sched-next')}>{nextCellText(s, lr, now)}</span>
         <LastCell run={lr} now={now} />
         <span onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>
           <label className="switch-line" title={enabled ? '停用' : '启用'}>
@@ -195,7 +195,7 @@ export function SchedulesPage({ schedules, loading, error, onRetry, selected, on
   return (
     <div className="tasks-page">
       <PageTitle parent="任务" count={ready ? schedules.length : undefined}
-        desc="到点自动建任务、执行 SOP，或者让 Agent 去做；它建的任务来源标为「定时」"
+        desc="到点自动建任务、提醒你、执行 SOP，或者让 Agent 去做；它建的任务来源标为「定时」"
         actions={<Button variant="primary" onClick={onNew}>新建定时任务</Button>}>
         定时任务
       </PageTitle>

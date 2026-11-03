@@ -18,3 +18,17 @@
 
 /* 按钮上的运行中指示灯 */
 .ho-light { display: inline-block; width: 7px; height: 7px; margin-right: var(--sp-3); border-radius: 50%; background: var(--accent); animation: run-blink 1s steps(2) infinite; }
+
+/* 执行方式（0048）：两个并排的选项，置灰的悬停说原因 */
+.ho-mode { display: flex; flex-direction: column; gap: var(--sp-2); margin: 0; padding: 0; border: 0; min-width: 0; }
+.ho-mode-label { padding: 0; margin-bottom: var(--sp-2); font-weight: 500; }
+.ho-mode-opts { display: flex; gap: var(--sp-3); flex-wrap: wrap; }
+.ho-mode-opt { display: inline-flex; align-items: center; gap: var(--sp-2); padding: 6px 12px; border: 1px solid var(--line); border-radius: var(--r-md, 6px); cursor: pointer; font-size: var(--fs); }
+.ho-mode-opt.on { border-color: var(--accent); color: var(--accent); }
+.ho-mode-opt.off { opacity: 0.5; cursor: not-allowed; }
+.ho-mode-opt input { margin: 0; }
+
+/* 提示词预览 */
+.ho-preview summary { cursor: pointer; color: var(--muted); font-size: var(--fs-sm); }
+.ho-prompt { margin: var(--sp-3) 0 0; max-height: 280px; overflow: auto; padding: var(--sp-3) var(--sp-4); border: 1px solid var(--line); border-radius: 6px; white-space: pre-wrap; word-break: break-word; font: var(--fs-sm) var(--mono); }
+.ho-prompt[aria-busy='true'] { opacity: 0.7; }

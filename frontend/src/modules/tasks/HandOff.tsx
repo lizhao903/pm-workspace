@@ -1,12 +1,20 @@
 // 交给 Claude Code（DEV-09，照原型 devloop.tsx 的 RunDialog 和 quicksession.tsx 的弹窗样式）。
-// 弹窗里选工作目录、只读或允许写入、附加说明；默认只读，勾「允许写入」先二次确认。
-// 发起走 runLive.startRun，输出在执行记录里流式显示；同一任务有执行在跑时按钮变成「查看运行中」。
+// 弹窗里选执行方式（0048）、工作目录、附加说明，能展开看将要发出的提示词。
+// 流式执行：只读或允许写入（勾「允许写入」先二次确认），走 runLive.startRun，输出在执行记录里流式显示。
+// 切换到终端：后端建执行记录、写好提示词和 MCP 配置，经终端插件登记的入口在终端里新开标签执行启动命令，开好后去终端页；
+// 终端插件没在跑时这个方式置灰。同一任务有执行在跑时按钮变成「查看运行中」。
 import { useEffect, useId, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { useTaskRuns, useWorkdirCheck, workdirUsable, type WorkObject } from '../../core/data'
+import { useNavigate } from 'react-router'
+import {
+  errorText, finishTerminalRun, startTerminalRun, useRunPrompt, useTaskRuns, useWorkdirCheck, workdirUsable, type RunMode, type WorkObject,
+} from '../../core/data'
+import { useTerminalLauncher } from '../../core/plugin'
 import { Button, Checkbox, ConfirmDialog, Field, IconButton, IconClose, Textarea } from '../../core/ui'
 import { restoreFocus, trapTab } from '../../core/ui/focus'
-import { defaultWorkdir, runRequest, runningOf } from './handoffModel'
+import {
+  MODE_LABEL, defaultWorkdir, launchFailSummary, modeHint, runRequest, runningOf, submitLabel, terminalRequest,
+} from './handoffModel'
 import { startRun, useLiveRuns } from './runLive'
 import { WorkdirField } from './WorkdirField'
 import './handoff.css'
@@ -22,12 +30,18 @@ function scrollToRun(taskId: string, runId?: string) {
   el?.scrollIntoView?.({ block: 'center', behavior: 'smooth' })
 }
 
-export function HandOffButton({ task, workdir, inherit }: {
+export function HandOffButton({ task, workdir, inherit, onShowRun }: {
   task: WorkObject
   /** 抽屉里当前填的工作目录（可能还没保存） */
   workdir: string
   inherit?: { project: string; dir: string }
+  /**
+   * 执行记录在别的标签里时由抽屉切过去（「查看运行中」、流式执行刚发起）；runId 没拿到时不给。
+   * 不传时原地滚到执行记录
+   */
+  onShowRun?: (runId?: string) => void
 }) {
+  const show = (runId?: string) => (onShowRun ? onShowRun(runId) : scrollToRun(task.id, runId))
   const [open, setOpen] = useState(false)
   const rows = useTaskRuns(task.id)
   const live = useLiveRuns()
@@ -35,7 +49,7 @@ export function HandOffButton({ task, workdir, inherit }: {
 
   if (running !== undefined) {
     return (
-      <Button size="sm" variant="outline" onClick={() => scrollToRun(task.id, running)}>
+      <Button size="sm" variant="outline" onClick={() => show(running || undefined)}>
         <span className="ho-light" aria-hidden="true" />查看运行中
       </Button>
     )
@@ -47,7 +61,8 @@ export function HandOffButton({ task, workdir, inherit }: {
         <RunDialog task={task} workdir={workdir} inherit={inherit} onClose={() => setOpen(false)}
           onStart={() => {
             setOpen(false)
-            requestAnimationFrame(() => scrollToRun(task.id))
+            if (onShowRun) onShowRun()
+            else requestAnimationFrame(() => scrollToRun(task.id))
           }} />
       )}
     </>
@@ -63,14 +78,25 @@ export function RunDialog({ task, workdir, inherit, onStart, onClose }: {
   onClose: () => void
 }) {
   const init = defaultWorkdir(workdir, inherit?.dir)
+  const launcher = useTerminalLauncher()
+  const navigate = useNavigate()
+  const [mode, setMode] = useState<RunMode>('stream')
   const [dir, setDir] = useState(init.dir)
   const [allow, setAllow] = useState(false)
   const [asking, setAsking] = useState(false)
   const [extra, setExtra] = useState('')
   const [checked, setChecked] = useState(init.dir)
+  // 预览跟着附加说明变，也停手片刻再取
+  const [extraSettled, setExtraSettled] = useState('')
+  const [preview, setPreview] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const [failed, setFailed] = useState('')
   const ref = useRef<HTMLDivElement>(null)
   const id = useId()
   const [prev] = useState(() => document.activeElement)
+  // 终端插件在弹窗开着时被停用：退回流式
+  const terminalOn = !!launcher
+  const effMode: RunMode = mode === 'terminal' && !terminalOn ? 'stream' : mode
 
   useEffect(() => {
     const p = dir.trim()
@@ -78,6 +104,12 @@ export function RunDialog({ task, workdir, inherit, onStart, onClose }: {
     const t = setTimeout(() => setChecked(p), CHECK_DELAY)
     return () => clearTimeout(t)
   }, [dir, checked])
+  useEffect(() => {
+    if (extra === extraSettled) return
+    const t = setTimeout(() => setExtraSettled(extra), CHECK_DELAY)
+    return () => clearTimeout(t)
+  }, [extra, extraSettled])
+  const prompt = useRunPrompt(task.id, { mode: effMode, workdir: checked, extra_prompt: extraSettled }, preview)
   const check = useWorkdirCheck(checked)
   const typing = dir.trim() !== checked
 
@@ -111,7 +143,7 @@ export function RunDialog({ task, workdir, inherit, onStart, onClose }: {
   let dirErr = ''
   if (!dir.trim()) dirErr = '选一个工作目录，任务和所属项目都没设'
   const usable = !typing && !!check.data && workdirUsable(check.data)
-  const ready = !dirErr && usable && !asking
+  const ready = !dirErr && usable && !asking && !busy
 
   let source = '这次执行用的目录'
   if (init.from === 'task' && dir.trim() === init.dir) source = '任务上设的'
@@ -119,8 +151,36 @@ export function RunDialog({ task, workdir, inherit, onStart, onClose }: {
 
   const submit = () => {
     if (!ready) return
-    startRun(task.id, runRequest(dir, extra, allow))
-    onStart()
+    if (effMode === 'stream') {
+      startRun(task.id, runRequest(dir, extra, allow))
+      onStart()
+      return
+    }
+    void openInTerminal()
+  }
+
+  // 先让后端建记录、写临时文件，再让终端插件开标签执行；终端没开出来时把这条记录记成失败，弹窗留着说原因
+  const openInTerminal = async () => {
+    if (!launcher) return
+    setBusy(true)
+    setFailed('')
+    let runId = ''
+    try {
+      const h = await startTerminalRun(task.id, terminalRequest(dir, extra))
+      runId = h.run.id
+      await launcher.launch({
+        cwd: h.workdir, title: task.ref || task.title,
+        claude: { prompt_file: h.prompt_file, mcp_config: h.mcp_config, workdir: h.workdir },
+      })
+      setBusy(false)
+      onStart()
+      navigate(launcher.page)
+    } catch (e) {
+      const msg = errorText(e)
+      if (runId) void finishTerminalRun(runId, task.id, { status: 'failed', summary: launchFailSummary(msg) }).catch(() => undefined)
+      setFailed(runId ? launchFailSummary(msg) : `没发起：${msg}`)
+      setBusy(false)
+    }
   }
 
   return createPortal(
@@ -133,13 +193,31 @@ export function RunDialog({ task, workdir, inherit, onStart, onClose }: {
             <span className="spacer" />
             <IconButton label="关闭 (Esc)" onClick={onClose}><IconClose /></IconButton>
           </div>
+          <fieldset className="ho-mode">
+            <legend className="ho-mode-label">执行方式</legend>
+            <div className="ho-mode-opts">
+              {(['stream', 'terminal'] as const).map((m) => {
+                const off = m === 'terminal' && !terminalOn
+                return (
+                  <label key={m} className={`ho-mode-opt${effMode === m ? ' on' : ''}${off ? ' off' : ''}`}
+                    title={off ? modeHint(m, false) : undefined}>
+                    <input type="radio" name={`${id}-mode`} value={m} checked={effMode === m} disabled={off || busy}
+                      onChange={() => { setMode(m); setFailed('') }} />
+                    {MODE_LABEL[m]}
+                  </label>
+                )
+              })}
+            </div>
+            <span className="field-hint-line">{modeHint(effMode, terminalOn)}</span>
+            {!terminalOn && <span className="field-hint-line">切换到终端：{modeHint('terminal', false)}</span>}
+          </fieldset>
           <div className="ho-dir">
             <WorkdirField value={dir} onChange={setDir} />
             {dirErr
               ? <span className="field-err" role="alert">{dirErr}</span>
               : <span className="field-hint-line">{source}</span>}
           </div>
-          <div className="ho-perm">
+          {effMode === 'stream' && <div className="ho-perm">
             <Checkbox className="ho-check" checked={allow}
               onCheckedChange={(v) => { if (v) setAsking(true); else setAllow(false) }}>
               允许写入
@@ -147,18 +225,29 @@ export function RunDialog({ task, workdir, inherit, onStart, onClose }: {
             <span className="field-hint-line">
               {allow ? '会以 acceptEdits 权限模式运行：可以直接改工作目录里的文件' : '默认只读：只跑一遍看它打算怎么做，不改文件'}
             </span>
-          </div>
+          </div>}
           <Field label="附加说明">
             <Textarea rows={3} value={extra} autoFocus
               placeholder="可选：这次要特别注意的事，会接在任务内容后面发给 Claude Code"
               onChange={(e) => setExtra(e.target.value)} />
           </Field>
+          <details className="ho-preview" open={preview} onToggle={(e) => setPreview(e.currentTarget.open)}>
+            <summary>提示词预览</summary>
+            {preview && (
+              prompt.isError
+                ? <span className="field-err" role="alert">取不到预览：{errorText(prompt.error)}</span>
+                : <pre className="ho-prompt" aria-label="提示词预览" aria-busy={prompt.isFetching}>{prompt.data?.prompt ?? '正在生成…'}</pre>
+            )}
+          </details>
+          {failed && <span className="field-err" role="alert">{failed}</span>}
           <div className="ho-foot">
-            <span className="field-hint-line">执行过程会流式显示在任务的执行记录里</span>
+            <span className="field-hint-line">
+              {effMode === 'stream' ? '执行过程会流式显示在任务的执行记录里' : '执行记录里会记一条「终端」，结束后由 Claude Code 回写结论'}
+            </span>
             <span className="spacer" />
             <Button variant="ghost" onClick={onClose}>取消</Button>
             <Button variant="primary" disabled={!ready} onClick={submit}>
-              {typing && !dirErr ? '正在校验目录' : allow ? '开始执行（允许写入）' : '开始执行（只读）'}
+              {submitLabel(effMode, { typing: typing && !dirErr, allow, busy })}
             </Button>
           </div>
         </div>

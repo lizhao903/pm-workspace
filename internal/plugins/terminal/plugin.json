@@ -3,13 +3,13 @@
   "name": "终端",
   "description": "本机真终端：pty 加 WebSocket，分屏，能跑项目原型命令",
   "icon": "terminal",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "core": ">=1.0.0 <2.0.0",
   "depends": { "projects": ">=0.5.0 <1.0.0" },
   "optional_depends": {},
   "provides": {
     "modules": ["terminal"],
-    "settings": [],
+    "settings": ["terminal"],
     "object_types": [],
     "connectors": [],
     "skills": [],
@@ -21,5 +21,7 @@
   },
   "emits": [],
   "subscribes": [],
-  "permissions": ["process:spawn"]
+  "permissions": ["process:spawn"],
+  "migrations": "migrations",
+  "table_prefix": "terminal_"
 }

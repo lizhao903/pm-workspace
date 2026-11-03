@@ -1,0 +1,16 @@
+/* 任务抽屉里的「提醒」和右下角的提醒弹窗 */
+.task-reminder-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.task-reminder-list li { display: flex; align-items: center; gap: 8px; padding: 6px 0; border-top: 1px solid var(--line); min-width: 0; }
+.task-reminder-list li:first-child { border-top: 0; }
+.task-reminder-list li.is-off .ellipsis { color: var(--faint); }
+.task-reminder-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.task-reminder-form { display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; border-radius: var(--r); background: var(--panel-2); border: 1px solid var(--line); }
+.sk-remind { background: color-mix(in srgb, var(--ok) 12%, transparent); color: var(--ok); }
+.reminder-pops { position: fixed; right: 16px; bottom: 72px; z-index: 60; width: min(340px, calc(100vw - 32px)); display: flex; flex-direction: column; gap: 8px; }
+.reminder-pop { padding: 12px 14px; border-radius: var(--r); border: 1px solid var(--accent-line); background: var(--panel); box-shadow: var(--shadow); display: flex; flex-direction: column; gap: 6px; }
+.reminder-pop-head { display: flex; align-items: center; gap: 8px; }
+.reminder-pop-kicker { flex: 1; font-size: 11.5px; color: var(--accent); font-weight: 500; }
+.reminder-pop-title { font-size: 14px; font-weight: 600; word-break: break-word; }
+.reminder-pop-body { font-size: 12.5px; color: var(--muted); white-space: pre-wrap; word-break: break-word; max-height: 8em; overflow: auto; }
+.reminder-pop-acts { justify-content: flex-end; }
+.reminder-pop-more { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 14px; border-radius: var(--r); background: var(--panel); border: 1px solid var(--line); font-size: 12.5px; color: var(--muted); }

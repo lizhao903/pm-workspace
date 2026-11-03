@@ -22,6 +22,8 @@ type SOPRequest struct {
 	Source     string // 谁发起的：schedule / agent
 	SourceID   string // 定时任务 id、Agent id
 	SourceName string
+	// ObjectID 是这次执行关联的工作对象（SOP-06）：Agent 在挂着任务的会话里发起时是那条任务，没有为空。
+	ObjectID string
 }
 
 // SOPStarted 是发起的结果，不等它跑完。Status 是发起时的运行状态，人工检查点等人时是 waiting。

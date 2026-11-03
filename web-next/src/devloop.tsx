@@ -6,7 +6,8 @@ import {
 } from './taskdata'
 import { useEnumView } from './enumdata'
 import { useOpenUrl } from './openurl'
-import { cls, timeAgo } from './ui'
+import { GrowArea, cls, timeAgo } from './ui'
+import { buildPrompt, type HandoffMode, type ProjectContext } from './handoff'
 
 // 开发任务闭环：交给 Claude Code 做，它领取、记进展、登记产出、提交验收；你在任务抽屉里验收通过或退回
 // 时序见 web-next/docs/dev-plan.md 4.0，字段见 docs/api-contract.md 进展与领取、输出产物、任务执行
@@ -32,11 +33,12 @@ export function useDevLoop(patchTask: (id: string, p: Partial<Task>) => void) {
     setProgress((xs) => [...xs, { id: newId('pg'), task_id: r.task_id, kind: 'note', text: '执行完成：改了文件，测试通过。', commits: [], files, actor_name: 'claude-code', session_id: r.session_id, source: 'agent', at }])
     setArtifacts((xs) => [...xs, ...files.map((f) => ({ id: newId('af'), task_id: r.task_id, note: '执行时改动的文件', path: `${r.workdir}/${f}`, rel_path: f, source: 'run' as const, at }))])
   }
-  const running = runs.some((r) => r.status === 'running')
+  // 只推进流式执行；终端执行等 MCP 回写或手动标记结束
+  const running = runs.some((r) => r.status === 'running' && r.mode !== 'terminal')
   useEffect(() => {
     if (!running) return
     const h = window.setInterval(() => {
-      const ending = runsRef.current.filter((r) => r.status === 'running' && r.pending.length <= 1)
+      const ending = runsRef.current.filter((r) => r.status === 'running' && r.mode !== 'terminal' && r.pending.length <= 1)
       setRuns((xs) => xs.map((r) => stepRun(r)))
       for (const r of ending) finishRef.current(stepRun(r))
     }, 450)
@@ -57,17 +59,27 @@ export function useDevLoop(patchTask: (id: string, p: Partial<Task>) => void) {
     },
     addArtifact: (task_id: string, a: Pick<TaskArtifact, 'note' | 'url' | 'path'>) =>
       setArtifacts((xs) => [...xs, { id: newId('af'), task_id, source: 'manual', at: new Date().toISOString(), ...a }]),
-    start: (task: Task, o: { workdir: string; allow_writes: boolean; extra_prompt: string }) => {
+    /** 发起一次执行，返回执行 id。终端方式只记一条进行中的执行（开始时间 = 发起时），过程在终端里 */
+    start: (task: Task, o: { workdir: string; allow_writes: boolean; extra_prompt: string; mode?: HandoffMode }): string => {
       const sid = newSession()
-      const files = progress.filter((p) => p.task_id === task.id).flatMap((p) => p.files)
+      const id = newId('run')
       const at = new Date().toISOString()
-      setRuns((xs) => [{ id: newId('run'), task_id: task.id, status: 'running', session_id: sid, started_at: at, events: [], pending: runScript(task, o.allow_writes, o.extra_prompt, files), ...o }, ...xs])
+      if (o.mode === 'terminal') {
+        setRuns((xs) => [{ id, task_id: task.id, status: 'running', session_id: sid, started_at: at, events: [], pending: [], ...o, allow_writes: false, mode: 'terminal' }, ...xs])
+        return id
+      }
+      const files = progress.filter((p) => p.task_id === task.id).flatMap((p) => p.files)
+      setRuns((xs) => [{ id, task_id: task.id, status: 'running', session_id: sid, started_at: at, events: [], pending: runScript(task, o.allow_writes, o.extra_prompt, files), ...o, mode: 'stream' }, ...xs])
       // 允许写入时 Claude Code 先领取任务
       if (o.allow_writes) {
         add(task.id, { kind: 'claim', text: '领取了任务', status: 'doing', actor_name: 'claude-code', session_id: sid, source: 'agent' })
         patchTask(task.id, { status: 'doing', assignee: 'Claude Code' })
       }
+      return id
     },
+    /** 终端执行收尾：终端里的 claude 经 MCP pmw_finish_run 回写，或者用户手动「标记结束」；已经结束的不再改 */
+    finish: (id: string, status: 'done' | 'failed' | 'cancelled', summary: string) => setRuns((xs) => xs.map((r) => (r.id === id && r.status === 'running'
+      ? { ...r, status, summary: summary.trim() || undefined, ended_at: new Date().toISOString() } : r))),
     cancel: (id: string) => setRuns((xs) => xs.map((r) => (r.id === id && r.status === 'running' ? { ...r, status: 'cancelled', pending: [], error: '已取消', ended_at: new Date().toISOString() } : r))),
   }
 }
@@ -159,13 +171,15 @@ export function ApproveConfirm({ task, onApprove, onOpen, onClose }: { task: Tas
 
 export interface DevDraft { acceptance?: string; workdir?: string; repo?: string }
 
-export function DevFields({ d, onChange, inheritDir, onRun, runningId }: {
+export function DevFields({ d, onChange, inheritDir, onRun, runningId, onShowRun }: {
   d: DevDraft; onChange: (p: DevDraft) => void
   /** 所属项目的根目录，任务没设工作目录时继承 */
   inheritDir?: string
   /** 只有已存在的任务能交给 Claude Code */
   onRun?: () => void
   runningId?: string
+  /** 「查看运行中」：执行记录在另一个标签里，由抽屉切过去并定位（SPEC-tasks-4.39） */
+  onShowRun?: (runId: string) => void
 }) {
   const filled = !!(d.acceptance || d.workdir || d.repo)
   const [open, setOpen] = useState(filled || !!onRun)
@@ -176,12 +190,12 @@ export function DevFields({ d, onChange, inheritDir, onRun, runningId }: {
         <span className="field-group-title">开发</span>
         <span className="spacer" />
         {onRun && (runningId
-          ? <button className="act" onClick={() => document.getElementById(`run-${runningId}`)?.scrollIntoView({ block: 'center', behavior: 'smooth' })}><span className="proto-light pl-running" />查看运行中</button>
+          ? <button className="act" onClick={() => (onShowRun ? onShowRun(runningId) : document.getElementById(`run-${runningId}`)?.scrollIntoView({ block: 'center', behavior: 'smooth' }))}><span className="proto-light pl-running" />查看运行中</button>
           : <button className="act act-primary" onClick={onRun}>交给 Claude Code</button>)}
       </div>
       <label className="field">
         <span className="field-label">验收标准</span>
-        <textarea rows={4} className="mono-area" value={d.acceptance ?? ''} placeholder={'- [ ] 一条一行，写成能检查的样子'} onChange={(e) => onChange({ acceptance: e.target.value || undefined })} />
+        <GrowArea rows={4} className="mono-area" value={d.acceptance ?? ''} placeholder={'- [ ] 一条一行，写成能检查的样子'} onChange={(e) => onChange({ acceptance: e.target.value || undefined })} />
       </label>
       <div className="field-row">
         <label className="field">
@@ -371,8 +385,59 @@ export function RunOutput({ events, live }: { events: RunEvent[]; live: boolean 
   )
 }
 
-export function RunsBlock({ runs, onCancel }: { runs: TaskRun[]; onCancel: (id: string) => void }) {
-  const [open, setOpen] = useState<string | null>(null)
+const FINISH_OPTS: { key: 'done' | 'failed' | 'cancelled'; label: string }[] = [
+  { key: 'done', label: '完成' }, { key: 'failed', label: '失败' }, { key: 'cancelled', label: '取消' },
+]
+
+/** 终端执行的兜底收尾：选结果、写结论摘要（可空） */
+function FinishRunDialog({ onFinish, onClose }: { onFinish: (status: 'done' | 'failed' | 'cancelled', summary: string) => void; onClose: () => void }) {
+  const [st, setSt] = useState<'done' | 'failed' | 'cancelled'>('done')
+  const [summary, setSummary] = useState('')
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') { e.stopPropagation(); onClose() } }
+    window.addEventListener('keydown', onKey, true)
+    return () => window.removeEventListener('keydown', onKey, true)
+  }, [onClose])
+  return (
+    <div className="qs-mask" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose() }}>
+      <div className="qs dev-finish" role="dialog" aria-label="标记结束">
+        <div className="qs-head">
+          <b>标记结束</b>
+          <span className="list-sub">终端里的 Claude Code 没有回写结果时，手动给这次执行收尾</span>
+          <span className="spacer" />
+          <button className="icon-btn" onClick={onClose} title="关闭 (Esc)">{closeIcon}</button>
+        </div>
+        <div className="field">
+          <span className="field-label">结果</span>
+          <div className="seg">{FINISH_OPTS.map((o) => <button key={o.key} className={cls(st === o.key && 'on')} onClick={() => setSt(o.key)}>{o.label}</button>)}</div>
+        </div>
+        <label className="field">
+          <span className="field-label">结论摘要</span>
+          <textarea className="qs-input" rows={3} value={summary} autoFocus placeholder="可选：做了什么、产出在哪、还剩什么没做" onChange={(e) => setSummary(e.target.value)} />
+        </label>
+        <div className="qs-foot">
+          <span className="list-sub">只改执行记录，终端标签不会被关掉</span>
+          <span className="spacer" />
+          <button className="btn btn-ghost" onClick={onClose}>取消</button>
+          <button className="btn btn-primary" onClick={() => onFinish(st, summary)}>确认</button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+export function RunsBlock({ runs, onCancel, onFinish, focus }: {
+  runs: TaskRun[]; onCancel: (id: string) => void
+  /** 终端执行的手动收尾（SPEC-tasks-5.31） */
+  onFinish?: (id: string, status: 'done' | 'failed' | 'cancelled', summary: string) => void
+  /** 从别处跳过来定位的那一条：展开、高亮、滚到可见处（SPEC-tasks-4.39） */
+  focus?: string
+}) {
+  const [open, setOpen] = useState<string | null>(focus ?? null)
+  useEffect(() => {
+    if (focus) document.getElementById(`run-${focus}`)?.scrollIntoView({ block: 'center' })
+  }, [focus])
+  const [finishing, setFinishing] = useState<string | null>(null)
   const xs = [...runs].sort((a, b) => b.started_at.localeCompare(a.started_at))
   return (
     <section className="dev-sec">
@@ -380,42 +445,64 @@ export function RunsBlock({ runs, onCancel }: { runs: TaskRun[]; onCancel: (id: 
       {!xs.length && <div className="mount-empty">还没有执行过</div>}
       {xs.map((r) => {
         const s = RUN_STATUS[r.status]
+        const term = r.mode === 'terminal'
         const expanded = r.status === 'running' || open === r.id
         return (
-          <div key={r.id} id={`run-${r.id}`} className={cls('dev-run', expanded && 'open')}>
+          <div key={r.id} id={`run-${r.id}`} className={cls('dev-run', expanded && 'open', focus === r.id && 'lit')}>
             <button className="dev-run-head" onClick={() => setOpen(open === r.id ? null : r.id)} aria-expanded={expanded}>
-              <span className={cls('dev-run-st', `st-${s.tone}`)}>{s.label}</span>
-              <span className={cls('src-tag', r.allow_writes && 'dev-write')}>{r.allow_writes ? '允许写入' : '只读'}</span>
+              <span className={cls('dev-run-st', `st-${s.tone}`)}>{term && r.status === 'running' ? '进行中' : s.label}</span>
+              <span className={cls('src-tag', term && 'dev-term')}>{term ? '终端' : '流式'}</span>
+              {!term && <span className={cls('src-tag', r.allow_writes && 'dev-write')}>{r.allow_writes ? '允许写入' : '只读'}</span>}
               <span className="ellipsis list-sub">{r.extra_prompt || '没有附加说明'}</span>
               <span className="spacer" />
               <span className="list-sub dev-run-at">{timeAgo(r.started_at)} · {dur(r.started_at, r.ended_at)}</span>
             </button>
+            {r.summary && r.status !== 'running' && <div className="dev-run-note pre-line">结论：{r.summary}</div>}
             {r.error && r.status !== 'running' && <div className={cls('dev-run-note', r.status === 'failed' ? 'danger-text' : 'muted')}>{r.status === 'done' ? `保留意见：${r.error}` : r.error}</div>}
             {expanded && (
               <div className="dev-run-body">
-                <div className="list-sub mono">{r.workdir} · 会话 {short(r.session_id)}{r.exit_code !== undefined ? ` · exit ${r.exit_code}` : ''}</div>
-                <RunOutput events={r.events} live={r.status === 'running'} />
-                {r.status === 'running' && <div className="act-row"><button className="act act-danger" onClick={() => onCancel(r.id)}>取消执行</button></div>}
+                <div className="list-sub mono">{r.workdir}{term ? '' : ` · 会话 ${short(r.session_id)}`}{r.exit_code !== undefined ? ` · exit ${r.exit_code}` : ''}</div>
+                {term
+                  ? <div className="list-sub">在终端里交互执行，过程看终端标签。结束和结论由终端里的 Claude Code 经工作台 MCP（pmw_finish_run）回写{r.status === 'running' ? '；它没回写时用「标记结束」收尾' : ''}。</div>
+                  : <RunOutput events={r.events} live={r.status === 'running'} />}
+                {r.status === 'running' && (
+                  <div className="act-row">
+                    {term
+                      ? <button className="act" onClick={() => setFinishing(r.id)} disabled={!onFinish}>标记结束</button>
+                      : <button className="act act-danger" onClick={() => onCancel(r.id)}>取消执行</button>}
+                  </div>
+                )}
               </div>
             )}
           </div>
         )
       })}
+      {finishing && onFinish && (
+        <FinishRunDialog onClose={() => setFinishing(null)} onFinish={(st, summary) => { onFinish(finishing, st, summary); setFinishing(null) }} />
+      )}
     </section>
   )
 }
 
 /* ---------- 交给 Claude Code ---------- */
 
-export function RunDialog({ task, inheritDir, onStart, onClose }: {
+const TERMINAL_OFF = '终端插件没启用，到 设置 > 插件 里启用后可用'
+
+export function RunDialog({ task, inheritDir, project, terminalOn, onStart, onClose }: {
   task: Task; inheritDir?: string
-  onStart: (o: { workdir: string; allow_writes: boolean; extra_prompt: string }) => void
+  /** 任务所属项目的上下文，提示词里的「所属项目」一节 */
+  project?: ProjectContext
+  /** 终端插件在跑：「切换到终端」才能选 */
+  terminalOn: boolean
+  onStart: (o: { workdir: string; allow_writes: boolean; extra_prompt: string; mode: HandoffMode }) => void
   onClose: () => void
 }) {
   const [dir, setDir] = useState(task.workdir ?? inheritDir ?? '')
+  const [mode, setMode] = useState<HandoffMode>('stream')
   const [allow, setAllow] = useState(false)
   const [asking, setAsking] = useState(false)
   const [extra, setExtra] = useState('')
+  const [preview, setPreview] = useState(false)
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') { e.stopPropagation(); onClose() } }
     window.addEventListener('keydown', onKey, true)
@@ -423,6 +510,8 @@ export function RunDialog({ task, inheritDir, onStart, onClose }: {
   }, [onClose])
   // 原型只校验写法；正式产品用 POST /api/agent/workdir/check
   const dirErr = !dir.trim() ? '选一个工作目录，任务和所属项目都没设' : !dir.trim().startsWith('/') ? '要写本机绝对路径' : ''
+  const term = mode === 'terminal'
+  const prompt = buildPrompt({ task, workdir: dir.trim(), extra, mode, project })
   return (
     <div className="qs-mask" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose() }}>
       <div className="qs" role="dialog" aria-label="交给 Claude Code">
@@ -432,36 +521,57 @@ export function RunDialog({ task, inheritDir, onStart, onClose }: {
           <span className="spacer" />
           <button className="icon-btn" onClick={onClose} title="关闭 (Esc)">{closeIcon}</button>
         </div>
+        <div className="field">
+          <span className="field-label">执行方式</span>
+          <div className="seg seg-full" role="radiogroup" aria-label="执行方式">
+            <button role="radio" aria-checked={!term} className={cls(!term && 'on')} onClick={() => setMode('stream')}>流式执行</button>
+            <button role="radio" aria-checked={term} className={cls(term && 'on')} disabled={!terminalOn} title={terminalOn ? undefined : TERMINAL_OFF}
+              onClick={() => { setMode('terminal'); setAsking(false) }}>切换到终端</button>
+          </div>
+          <span className="list-sub">{!terminalOn ? TERMINAL_OFF
+            : term ? '在终端里新开一个标签，按设置里的「Claude Code 启动命令」开一个交互式会话；它经工作台 MCP 回写进展和结论'
+              : '在工作台里直接跑，实时输出显示在任务的执行记录里'}</span>
+        </div>
         <label className="field">
           <span className="field-label">工作目录</span>
           <input className={cls('mono-input', dirErr && 'bad')} value={dir} onChange={(e) => setDir(e.target.value)} />
-          {dirErr ? <span className="field-err">{dirErr}</span> : <span className="list-sub">{task.workdir ? '任务上设的' : inheritDir && dir === inheritDir ? '继承自所属项目' : '这次执行用的目录'}</span>}
+          {dirErr ? <span className="field-err">{dirErr}</span> : <span className="list-sub">{task.workdir ? '任务上设的' : inheritDir && dir === inheritDir ? '继承自所属项目' : '这次执行用的目录'}{term ? '，终端标签开在这里' : ''}</span>}
         </label>
-        <div className="dev-perm">
-          <label className="check check-lg">
-            <input type="checkbox" checked={allow} onChange={(e) => { if (e.target.checked) setAsking(true); else setAllow(false) }} />
-            允许写入
-          </label>
-          <span className="list-sub">{allow ? '会以 acceptEdits 权限模式运行：可以直接改工作目录里的文件' : '默认只读：只跑一遍看它打算怎么做，不改文件'}</span>
-          {asking && (
-            <div className="dev-perm-ask">
-              <span>允许写入后，Claude Code 可以不经确认直接改「{dir || '工作目录'}」里的文件。其他需要权限的操作仍会被挡下，任何情况下都不会跳过权限确认。</span>
-              <div className="act-row">
-                <button className="act act-warn" onClick={() => { setAllow(true); setAsking(false) }}>确认允许写入</button>
-                <button className="act act-quiet" onClick={() => setAsking(false)}>算了，只读</button>
+        {!term && (
+          <div className="dev-perm">
+            <label className="check check-lg">
+              <input type="checkbox" checked={allow} onChange={(e) => { if (e.target.checked) setAsking(true); else setAllow(false) }} />
+              允许写入
+            </label>
+            <span className="list-sub">{allow ? '会以 acceptEdits 权限模式运行：可以直接改工作目录里的文件' : '默认只读：只跑一遍看它打算怎么做，不改文件'}</span>
+            {asking && (
+              <div className="dev-perm-ask">
+                <span>允许写入后，Claude Code 可以不经确认直接改「{dir || '工作目录'}」里的文件。其他需要权限的操作仍会被挡下，任何情况下都不会跳过权限确认。</span>
+                <div className="act-row">
+                  <button className="act act-warn" onClick={() => { setAllow(true); setAsking(false) }}>确认允许写入</button>
+                  <button className="act act-quiet" onClick={() => setAsking(false)}>算了，只读</button>
+                </div>
               </div>
-            </div>
-          )}
-        </div>
+            )}
+          </div>
+        )}
         <label className="field">
           <span className="field-label">附加说明</span>
           <textarea className="qs-input" rows={3} value={extra} placeholder="可选：这次要特别注意的事，会接在任务内容后面发给 Claude Code" onChange={(e) => setExtra(e.target.value)} />
         </label>
+        <div className="dev-preview">
+          <button className="link-btn" aria-expanded={preview} onClick={() => setPreview(!preview)}>{preview ? '收起提示词预览' : '提示词预览'}</button>
+          {!preview && <span className="list-sub">{project ? `带上所属项目「${project.name}」的文档和原型位置` : '任务没挂在项目下，不带项目信息'}</span>}
+          {preview && <pre className="dev-preview-body mono">{prompt}</pre>}
+        </div>
         <div className="qs-foot">
-          <span className="list-sub">执行过程会流式显示在任务的执行记录里</span>
+          <span className="list-sub">{term ? '会跳到终端页，执行记录里记一条进行中的终端执行' : '执行过程会流式显示在任务的执行记录里'}</span>
           <span className="spacer" />
           <button className="btn btn-ghost" onClick={onClose}>取消</button>
-          <button className="btn btn-primary" disabled={!!dirErr || asking} onClick={() => onStart({ workdir: dir.trim(), allow_writes: allow, extra_prompt: extra.trim() })}>{allow ? '开始执行（允许写入）' : '开始执行（只读）'}</button>
+          <button className="btn btn-primary" disabled={!!dirErr || (!term && asking) || (term && !terminalOn)}
+            onClick={() => onStart({ workdir: dir.trim(), allow_writes: !term && allow, extra_prompt: extra.trim(), mode })}>
+            {term ? '在终端中打开' : allow ? '开始执行（允许写入）' : '开始执行（只读）'}
+          </button>
         </div>
       </div>
     </div>
