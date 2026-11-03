@@ -5,6 +5,8 @@
 # 而它不匹配任何一条规则——一次 `git add -A` 就会把它连同密钥写进 git 历史，
 # 而 git 历史是很难干净清掉的。列举要排除的东西，总会漏掉明天才出现的那个。
 /data/
+# 测试实例 7796 的库、附件、备份、日志（scripts/dev-instance.sh），同样是真实数据，不入库
+/data-dev/
 /bin/
 /web/node_modules/
 # 前端构建产物不入库，但 //go:embed all:dist 要求目录至少有一个文件，
@@ -13,7 +15,7 @@
 # 不留 index.html：vite 每次构建都会重写它，里面引用的是带 hash 的 assets 文件名，
 # 而那些文件本身不入库。提交它等于在仓库里放一个指向不存在资源的页面——
 # 新克隆 go build 会成功，跑起来却是白屏，而「构建通过」看上去一切正常。
-# 现在没有 index.html 时 webui 会回一句「前端尚未构建，执行 make web」，是句实话。
+# 现在没有 index.html 时 webui 会回一句「前端尚未构建，执行 make ui」，是句实话。
 # vite build 会清空 outDir，把 .gitkeep 一起删掉——所以 web/package.json 的
 # build 脚本在 vite 之后把它补回来。少了那一步，「新克隆能 build」这条会在
 # 下一次构建之后悄悄失效，而且只有新克隆的人才撞得到。

@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -100,6 +101,29 @@ type Runner struct {
 	// Object 是用户此刻打开的工作对象，可以为 nil。只用来告诉模型「这个/这条」指谁；
 	// 正文一律由它自己调 get_object 现取，理由见 currentObjectSection。
 	Object *domain.Object
+	// Agent 是会话挂的 Agent，可以为 nil；它的指令拼进系统提示词，见 agentSection。
+	Agent *domain.Agent
+	// Skills 是 Agent 挂的技能，按挂载顺序，取不到的已经跳过；拼在 Agent 指令后面，见 skillSection。
+	Skills []store.Skill
+	// Policy 是 Agent 的工具授权（AG-02a），nil 是没挂 Agent 的老会话，行为不变，见 grants.go。
+	Policy *Policy
+	// RunID 是这一轮属于哪条执行记录（AG-01b4），空串是人在会话里聊；要确认的调用记上它
+	RunID string
+	// Debug 非 nil 是调试对话（AG-02c）：不写会话和消息，历史从它来，见 debug.go。
+	Debug *Debug
+	// Thinking 是思考档位，空串时取 Agent.Thinking，都没有按 default（不带思考参数），见 thinking.go。
+	Thinking string
+}
+
+// thinking 是这一轮用的思考档位：显式给的优先，再看挂的 Agent。
+func (r *Runner) thinking() string {
+	if r.Thinking != "" {
+		return r.Thinking
+	}
+	if r.Agent != nil {
+		return r.Agent.Thinking
+	}
+	return ""
 }
 
 // Run 处理一条用户消息，返回最终落库的 assistant 消息 id。
@@ -107,7 +131,19 @@ type Runner struct {
 // emit 会被同步调用，调用方负责往 SSE 里写并 Flush。这里不并发调用 emit，
 // 所以调用方不需要加锁。
 func (r *Runner) Run(ctx context.Context, userText string, emit func(StreamEvent)) (string, error) {
+	return r.run(ctx, userText, nil, emit)
+}
+
+// Resume 接着跑被确认卡片打断的那一轮：先执行（确认）或回绝（拒绝）那次调用，再让模型接着说。
+// 不落新的用户消息；d.Result 回来时是给人看的执行结果。
+func (r *Runner) Resume(ctx context.Context, d *Decision, emit func(StreamEvent)) (string, error) {
+	return r.run(ctx, "", d, emit)
+}
+
+func (r *Runner) run(ctx context.Context, userText string, dec *Decision, emit func(StreamEvent)) (string, error) {
 	tb := NewToolbox(r.Store, r.Session)
+	tb.withAgentKBs(r.Agent)
+	tb.withAgentSOP(r.Agent)
 
 	types, err := r.Store.ListObjectTypes(ctx)
 	if err != nil {
@@ -116,17 +152,29 @@ func (r *Runner) Run(ctx context.Context, userText string, emit func(StreamEvent
 
 	// 先把用户这条消息落库，再开始跑模型：中途失败或用户关掉页面时，
 	// 至少「我说过这句话」是留下来的。
-	if _, err := r.Store.AppendAgentMessage(ctx, &domain.AgentMessage{
-		SessionID: r.Session.ID,
-		Role:      domain.RoleUser,
-		Content:   userText,
-	}); err != nil {
-		return "", fmt.Errorf("保存用户消息失败")
+	if dec == nil {
+		if _, err := r.record(ctx, &domain.AgentMessage{
+			SessionID: r.Session.ID,
+			Role:      domain.RoleUser,
+			Content:   userText,
+		}); err != nil {
+			return "", fmt.Errorf("保存用户消息失败")
+		}
+	}
+
+	var note string
+	if dec != nil {
+		if note, err = r.applyDecision(ctx, tb, dec, emit); err != nil {
+			return "", err
+		}
 	}
 
 	msgs, err := r.buildHistory(ctx, types)
 	if err != nil {
 		return "", err
+	}
+	if note != "" {
+		msgs = append(msgs, Message{Role: RoleSystem, Content: note})
 	}
 
 	var finalText strings.Builder
@@ -138,13 +186,17 @@ func (r *Runner) Run(ctx context.Context, userText string, emit func(StreamEvent
 	for turn := 0; turn < maxTurns; turn++ {
 		var text strings.Builder
 		var calls []ToolCall
+		var thinking []json.RawMessage
 
 		err := r.Chat.Stream(ctx, Request{
 			Model:    r.Model,
 			Messages: msgs,
-			Tools:    tb.Defs(),
+			Tools:    r.Policy.Tools(tb.Defs()),
+			Thinking: r.thinking(),
 		}, func(ev Event) {
 			switch ev.Kind {
+			case EventThinkingBlock:
+				thinking = append(thinking, ev.Raw)
 			case EventDelta:
 				text.WriteString(ev.Text)
 				emit(StreamEvent{Type: "delta", Text: ev.Text})
@@ -175,21 +227,43 @@ func (r *Runner) Run(ctx context.Context, userText string, emit func(StreamEvent
 			Role:      domain.RoleAssistant,
 			Content:   text.String(),
 			ToolCalls: calls,
+			Thinking:  thinking,
 		})
 		if t := strings.TrimSpace(text.String()); t != "" {
 			finalText.WriteString(t)
 			finalText.WriteString("\n")
 		}
 
-		asked := false
+		asked, confirming := false, false
 		for _, call := range calls {
+			// 需确认的不执行：记下来、发 confirm 事件，本轮结束后等人点（AG-02a）
+			mode, key := r.Policy.ModeOf(call.Name)
+			if mode == store.GrantConfirm {
+				brief, err := r.requestConfirm(ctx, call, key, emit)
+				if err != nil {
+					return "", err
+				}
+				confirming = true
+				finalText.WriteString(renderConfirm(brief))
+				msgs = append(msgs, Message{
+					Role: domain.RoleTool, Content: "已交给用户确认，确认前不会执行。",
+					ToolCallID: call.ID, ToolName: call.Name,
+				})
+				continue
+			}
+
 			// ask_user 不走 tool_call：它不是一次数据操作，界面上该出现的是一张问题卡，
 			// 不是「正在 ask_user…」那一行转圈后面再跟一张写着「已提问」的工具卡。
 			if call.Name != toolAskUser {
 				emit(StreamEvent{Type: "tool_call", Name: call.Name, Args: call.Args})
 			}
 
-			res := tb.Invoke(ctx, call)
+			var res ToolResult
+			if mode == store.GrantOff {
+				res = deniedResult(call.Name)
+			} else {
+				res = r.invoke(ctx, tb, call)
+			}
 
 			// ask_user 被打回（选项缺 detail、问题写成了开场白……）时，这条结果是给**模型**的
 			// 重填指令，不是给用户看的东西。放它走普通路径的话，界面上会冒出一张
@@ -224,7 +298,7 @@ func (r *Runner) Run(ctx context.Context, userText string, emit func(StreamEvent
 			}
 
 			// 工具调用连同参数一起落库，界面据此回放「Agent 当时做了什么」。
-			if _, err := r.Store.AppendAgentMessage(ctx, &domain.AgentMessage{
+			if _, err := r.record(ctx, &domain.AgentMessage{
 				SessionID: r.Session.ID,
 				Role:      domain.RoleTool,
 				Content:   res.Summary,
@@ -239,8 +313,11 @@ func (r *Runner) Run(ctx context.Context, userText string, emit func(StreamEvent
 				Summary: res.Summary, ObjectID: res.ObjectID,
 			})
 			if a := res.Artifact; a != nil {
+				// 发相对路径，不是 a.Path。0012 之后 Path 存的是绝对路径，
+				// 直接发出去会让对话里出现一长串 /Users/…/ 前缀——而用户刚刚
+				// 就是在这个目录里让它写的文件，前缀对他没有任何信息量。
 				size := a.Size
-				emit(StreamEvent{Type: "artifact", Path: a.Path, Size: &size})
+				emit(StreamEvent{Type: "artifact", Path: a.RelPath, Size: &size})
 			}
 
 			msgs = append(msgs, Message{
@@ -253,7 +330,7 @@ func (r *Runner) Run(ctx context.Context, userText string, emit func(StreamEvent
 
 		// 问出口了就收工。不在这里等回答是有意的：答案走用户的下一条普通消息，
 		// 流挂着等的话，用户切个页面或者关掉抽屉，这个连接就永远悬在那里了。
-		if asked {
+		if asked || confirming {
 			break
 		}
 
@@ -273,7 +350,7 @@ func (r *Runner) Run(ctx context.Context, userText string, emit func(StreamEvent
 		emit(StreamEvent{Type: "delta", Text: final})
 	}
 
-	saved, err := r.Store.AppendAgentMessage(ctx, &domain.AgentMessage{
+	saved, err := r.record(ctx, &domain.AgentMessage{
 		SessionID: r.Session.ID,
 		Role:      domain.RoleAssistant,
 		Content:   final,
@@ -281,7 +358,24 @@ func (r *Runner) Run(ctx context.Context, userText string, emit func(StreamEvent
 	if err != nil {
 		return "", fmt.Errorf("保存回复失败")
 	}
+	if r.Debug != nil {
+		// 确认后接着跑要带上这一轮的回复
+		for _, id := range r.Debug.held {
+			r.Debug.Calls.setHistory(id, r.debugTranscript())
+		}
+	}
 	return saved.ID, nil
+}
+
+// record 落一条消息；调试对话不落库，只记进内存，回的消息没有 id。
+func (r *Runner) record(ctx context.Context, m *domain.AgentMessage) (*domain.AgentMessage, error) {
+	if r.Debug == nil {
+		return r.Store.AppendAgentMessage(ctx, m)
+	}
+	if h, ok := historyMessage(m); ok {
+		r.Debug.log = append(r.Debug.log, h)
+	}
+	return m, nil
 }
 
 // buildHistory 拼出送给模型的消息列表：系统提示词 + 最近若干轮对话。
@@ -290,30 +384,24 @@ func (r *Runner) Run(ctx context.Context, userText string, emit func(StreamEvent
 // 落库时只存了 Summary，而且对后续轮次来说「上次建了 TSK-0009」这个信息量已经够了，
 // 不值得为了完整回放再单独存一份模型视角的内容。
 func (r *Runner) buildHistory(ctx context.Context, types []*domain.ObjectType) ([]Message, error) {
+	out := []Message{{
+		Role:    RoleSystem,
+		Content: BuildSystemPrompt(types, time.Now(), r.Object) + sourceSection(r.Session) + agentSection(r.Agent) + skillSection(r.Skills),
+	}}
+	if r.Debug != nil {
+		past := r.debugTranscript()
+		if len(past) > historyLimit {
+			past = past[len(past)-historyLimit:]
+		}
+		return append(out, past...), nil
+	}
 	past, err := r.Store.ListAgentMessages(ctx, r.Session.ID, historyLimit)
 	if err != nil {
 		return nil, fmt.Errorf("读取历史消息失败")
 	}
-
-	out := []Message{{
-		Role:    RoleSystem,
-		Content: BuildSystemPrompt(types, time.Now(), r.Object),
-	}}
 	for _, m := range past {
-		switch m.Role {
-		case domain.RoleUser:
-			out = append(out, Message{Role: domain.RoleUser, Content: m.Content})
-		case domain.RoleAssistant:
-			if strings.TrimSpace(m.Content) != "" {
-				out = append(out, Message{Role: domain.RoleAssistant, Content: m.Content})
-			}
-		case domain.RoleTool:
-			// 转述成 user 视角的一句事实：历史里的 tool 消息已经没有配对的 tool_call 了，
-			// 直接按 tool 角色塞回去，OpenAI 会因为「找不到对应的 tool_call_id」而拒绝整个请求。
-			out = append(out, Message{
-				Role:    domain.RoleUser,
-				Content: fmt.Sprintf("（系统记录：之前 %s）", m.Content),
-			})
+		if h, ok := historyMessage(m); ok {
+			out = append(out, h)
 		}
 	}
 	return out, nil

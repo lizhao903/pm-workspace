@@ -2,6 +2,7 @@ package api
 
 import (
 	"net/http"
+	"time"
 
 	"github.com/lizhao903/pm-workspace/internal/domain"
 )
@@ -33,6 +34,16 @@ type createStakeholderReq struct {
 	Note      string `json:"note"`
 	Color     string `json:"color"`
 	SortOrder int    `json:"sort_order"`
+
+	// 联系人字段（0026）
+	Group         string     `json:"group"`
+	Company       string     `json:"company"`
+	Title         string     `json:"title"`
+	Phone         string     `json:"phone"`
+	Tags          []string   `json:"tags"`
+	Photo         string     `json:"photo"`
+	Starred       bool       `json:"starred"`
+	LastContactAt *time.Time `json:"last_contact_at"`
 }
 
 func (s *Server) handleCreateStakeholder(w http.ResponseWriter, r *http.Request) {
@@ -50,6 +61,15 @@ func (s *Server) handleCreateStakeholder(w http.ResponseWriter, r *http.Request)
 		Note:      req.Note,
 		Color:     req.Color,
 		SortOrder: req.SortOrder,
+
+		Group:         req.Group,
+		Company:       req.Company,
+		Title:         req.Title,
+		Phone:         req.Phone,
+		Tags:          req.Tags,
+		Photo:         req.Photo,
+		Starred:       req.Starred,
+		LastContactAt: req.LastContactAt,
 	})
 	if err != nil {
 		s.fail(w, r, err)
@@ -105,6 +125,31 @@ func parseStakeholderPatch(body []byte) (domain.StakeholderPatch, error) {
 		return p, err
 	}
 	if p.Archived, err = patchField[bool](raw, "archived", "a boolean"); err != nil {
+		return p, err
+	}
+	if p.Group, err = patchField[string](raw, "group", "a string"); err != nil {
+		return p, err
+	}
+	if p.Company, err = patchField[string](raw, "company", "a string"); err != nil {
+		return p, err
+	}
+	if p.Title, err = patchField[string](raw, "title", "a string"); err != nil {
+		return p, err
+	}
+	if p.Phone, err = patchField[string](raw, "phone", "a string"); err != nil {
+		return p, err
+	}
+	if p.Tags, err = patchField[[]string](raw, "tags", "an array of strings"); err != nil {
+		return p, err
+	}
+	if p.Photo, err = patchField[string](raw, "photo", "a string"); err != nil {
+		return p, err
+	}
+	if p.Starred, err = patchField[bool](raw, "starred", "a boolean"); err != nil {
+		return p, err
+	}
+	// last_contact_at 传 null 清空，回到「没联系过」
+	if p.LastContactAt, err = patchNullable[time.Time](raw, "last_contact_at", "an RFC3339 string"); err != nil {
 		return p, err
 	}
 	return p, nil

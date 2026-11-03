@@ -5,8 +5,8 @@
 // Agent 用的绝对路径，只能由服务端来列目录。
 //
 // 因为是服务端在读本机磁盘，这个包的重点不是「功能」而是「边界」：
-//   - 只列目录，不列文件，永不读文件内容。这是个选路径的接口，不是文件管理器。
-//   - 只允许主目录、/Volumes、/tmp 三块地方，其余一律拒绝。
+//   - 目录浏览只列目录不列文件；读文件只给文档挂载用（files.go），只读、有大小上限。
+//   - 只允许主目录、/Volumes、/tmp 三块地方，加上用户在设置里加的额外根（extra.go），其余一律拒绝。
 //   - 字面量和解析软链后各查一道边界，两道都过才放行。
 package fsbrowse
 
@@ -82,7 +82,7 @@ func rootForms() []string {
 		seen[p] = true
 		out = append(out, p)
 	}
-	for _, r := range rootsFn() {
+	for _, r := range append(rootsFn(), extraPaths()...) {
 		if r == "" || !filepath.IsAbs(r) {
 			continue
 		}
@@ -118,10 +118,11 @@ func outOfBounds(shown string) error {
 		areas = append(areas, "主目录（"+h+"）")
 	}
 	areas = append(areas, "/Volumes（外接盘与项目卷）", "/tmp")
+	areas = append(areas, extraPaths()...)
 	return &PathError{
 		Kind: ErrForbidden,
 		Msg: shown + " 不在可浏览范围内。可选的范围是：" + strings.Join(areas, "、") +
-			"。要用别处的目录，请先把它移到（或软链到）这几个位置之一。",
+			"。要用别处的目录，请在「设置 - 本机目录」里把它加为可浏览目录。",
 	}
 }
 

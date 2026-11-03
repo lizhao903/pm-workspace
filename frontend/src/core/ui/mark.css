@@ -1,0 +1,21 @@
+/* 标志编辑（Mark.tsx），从项目插件 projects.css 的「标志」挪来，类名换成 mk- 免得和插件的撞 */
+.mk-edit { position: relative; flex: none; }
+.mk-btn { position: relative; display: block; border-radius: 28%; padding: 0; background: none; }
+.mk-btn:focus-visible { outline: 2px solid var(--accent-line); outline-offset: 2px; }
+.mk-tip {
+  position: absolute; inset: 0; display: grid; place-items: center; border-radius: 28%;
+  background: color-mix(in srgb, black 45%, transparent); color: white; font-size: var(--fs-2xs); opacity: 0; transition: opacity 0.12s;
+}
+.mk-btn:hover .mk-tip, .mk-btn:focus-visible .mk-tip { opacity: 1; }
+.mk-menu { top: calc(100% + 6px); left: 0; width: min(320px, calc(100vw - 32px)); padding: var(--sp-4); display: flex; flex-direction: column; gap: var(--sp-2); }
+.mk-sub { margin-left: var(--sp-4); font-weight: 400; color: var(--faint); }
+.mk-icon-pick { display: grid; grid-template-columns: repeat(auto-fill, minmax(30px, 1fr)); gap: 4px; padding: 0 var(--sp-2); }
+.mk-icon-btn { display: grid; place-items: center; height: 30px; border-radius: var(--r-sm); color: var(--muted); background: none; }
+.mk-icon-btn:hover { background: var(--hover); color: var(--text); }
+.mk-icon-btn.on { background: var(--accent-soft); color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent-line); }
+.mk-row { display: flex; align-items: center; gap: var(--sp-4); flex-wrap: wrap; padding: 0 var(--sp-2); }
+.mk-row .input { width: 64px; flex: none; }
+.mk-row .mk-sub { margin-left: 0; font-size: var(--fs-xs); }
+.mk-colors { display: flex; flex-wrap: wrap; gap: 6px; padding: 0 var(--sp-2); }
+.mk-color { width: 22px; height: 22px; border-radius: 50%; border: 2px solid var(--panel); box-shadow: 0 0 0 1px var(--line); }
+.mk-color.on { box-shadow: 0 0 0 2px var(--text); }

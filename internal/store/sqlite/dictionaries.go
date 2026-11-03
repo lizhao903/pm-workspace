@@ -364,6 +364,9 @@ func (s *Store) DictItemUsage(ctx context.Context, id string) (int, error) {
 	if !ok {
 		return 0, nil
 	}
+	if live, err := src.present(ctx, s.db.R); err != nil || !live {
+		return 0, err
+	}
 	var n int
 	if err := s.db.R.QueryRowContext(ctx, src.countOne, it.Key).Scan(&n); err != nil {
 		return 0, fmt.Errorf("count dict item usage: %w", err)
@@ -462,13 +465,65 @@ func scanDictItem(sc rowScanner) (*domain.DictItem, error) {
 //
 // 新增字典时在 dictUsageSourceOf 里加一个 case；没登记的字典引用数一律为 0，
 // 不报错——新字典还没接入任何业务表是正常状态，不该把设置页打挂。
-// 目前两个内置字典都是 global scope，所以统计不带 type_id 条件；
+// 目前内置字典都是 global scope，所以统计不带 type_id 条件；
 // 将来接 type-scoped 字典时，这里要按 type 再切一刀。
 type dictUsageSource struct {
 	noun     string // 计数单位，进 409 的 message
 	countOne string // 统计单个 key，参数为 key
 	countAll string // 一次统计整个字典，返回 (key, n)
+	// table 非空表示业务表属于插件，插件没装时表不存在，引用数按 0 算
+	table string
+	// column 非空时表里要有这一列才用 countOne / countAll，没有（插件新版本的迁移还没跑）时用 oldOne / oldAll
+	column, oldOne, oldAll string
 }
+
+// ready 报告业务表在不在，并按表里有没有 column 选用统计语句。
+func (src dictUsageSource) ready(ctx context.Context, q rowQueryer) (dictUsageSource, bool, error) {
+	live, err := src.present(ctx, q)
+	if err != nil || !live || src.column == "" {
+		return src, live, err
+	}
+	var n int
+	if err := q.QueryRowContext(ctx, `SELECT COUNT(*) FROM pragma_table_info(?) WHERE name = ?`, src.table, src.column).Scan(&n); err != nil {
+		return src, false, fmt.Errorf("check usage column: %w", err)
+	}
+	if n == 0 {
+		src.countOne, src.countAll = src.oldOne, src.oldAll
+	}
+	return src, true, nil
+}
+
+type rowQueryer interface {
+	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
+}
+
+// present 报告业务表在不在；内核自己的表恒在。
+func (src dictUsageSource) present(ctx context.Context, q rowQueryer) (bool, error) {
+	if src.table == "" {
+		return true, nil
+	}
+	var n int
+	if err := q.QueryRowContext(ctx, `SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=?`, src.table).Scan(&n); err != nil {
+		return false, fmt.Errorf("check usage table: %w", err)
+	}
+	return n > 0, nil
+}
+
+// msgStatusExpr 同 im 插件的 statusCol：待处理且标了过期的算 expired。
+const msgStatusExpr = `CASE WHEN status = 'pending' AND expired_at IS NOT NULL THEN 'expired' ELSE status END`
+
+// contactGroupSplit 把 stakeholders.contact_group 拆成 (id, part)：多个分组用「、」连，
+// 也认逗号、斜杠、分号（同前端 contacts/model.ts 的 groupsOf）；没填的算「其他」。
+const contactGroupSplit = `WITH RECURSIVE g(id, rest) AS (
+  SELECT id, CASE WHEN trim(contact_group) = '' THEN '其他' ELSE
+    replace(replace(replace(replace(replace(replace(contact_group, ',', '、'), '，', '、'), '/', '、'), '／', '、'), ';', '、'), '；', '、') END || '、'
+  FROM stakeholders
+), parts(id, part, rest) AS (
+  SELECT id, NULL, rest FROM g
+  UNION ALL
+  SELECT id, trim(substr(rest, 1, instr(rest, '、') - 1)), substr(rest, instr(rest, '、') + 1) FROM parts WHERE rest <> ''
+)
+`
 
 func dictUsageSourceOf(dictID string) (dictUsageSource, bool) {
 	switch dictID {
@@ -484,6 +539,36 @@ func dictUsageSourceOf(dictID string) (dictUsageSource, bool) {
 			countOne: `SELECT COUNT(*) FROM links WHERE relation = ?`,
 			countAll: `SELECT relation, COUNT(*) FROM links GROUP BY relation`,
 		}, true
+	case domain.DictArtifactPlatform:
+		return dictUsageSource{
+			noun:     "artifacts",
+			countOne: `SELECT COUNT(*) FROM artifacts WHERE platform = ?`,
+			countAll: `SELECT platform, COUNT(*) FROM artifacts GROUP BY platform`,
+		}, true
+	case domain.DictArtifactKind:
+		return dictUsageSource{
+			noun:     "artifacts",
+			countOne: `SELECT COUNT(*) FROM artifacts WHERE kind = ?`,
+			countAll: `SELECT kind, COUNT(*) FROM artifacts GROUP BY kind`,
+		}, true
+	case domain.DictContactGroup:
+		// 一个联系人可以在几个组里，各算一次；含已归档的，它们的分组值还在
+		return dictUsageSource{
+			noun:     "contacts",
+			countOne: contactGroupSplit + `SELECT COUNT(DISTINCT id) FROM parts WHERE part = ?`,
+			countAll: contactGroupSplit + `SELECT part, COUNT(DISTINCT id) FROM parts WHERE part <> '' GROUP BY part`,
+		}, true
+	case domain.DictMsgStatus:
+		// 已过期（im 0005，IM-07）在库里是待处理加 expired_at，按接口上的状态算
+		return dictUsageSource{
+			noun:     "messages",
+			countOne: `SELECT COUNT(*) FROM im_messages WHERE ` + msgStatusExpr + ` = ?`,
+			countAll: `SELECT ` + msgStatusExpr + ` AS s, COUNT(*) FROM im_messages GROUP BY s`,
+			table:    "im_messages",
+			column:   "expired_at",
+			oldOne:   `SELECT COUNT(*) FROM im_messages WHERE status = ?`,
+			oldAll:   `SELECT status, COUNT(*) FROM im_messages GROUP BY status`,
+		}, true
 	}
 	return dictUsageSource{}, false
 }
@@ -492,6 +577,10 @@ func dictUsageTx(ctx context.Context, tx *sql.Tx, dictID, key string) (int, stri
 	src, ok := dictUsageSourceOf(dictID)
 	if !ok {
 		return 0, "records", nil
+	}
+	src, live, err := src.ready(ctx, tx)
+	if err != nil || !live {
+		return 0, src.noun, err
 	}
 	var n int
 	if err := tx.QueryRowContext(ctx, src.countOne, key).Scan(&n); err != nil {
@@ -505,6 +594,10 @@ func (s *Store) dictUsageByKey(ctx context.Context, dictID string) (map[string]i
 	src, ok := dictUsageSourceOf(dictID)
 	if !ok {
 		return map[string]int{}, nil
+	}
+	src, live, err := src.ready(ctx, s.db.R)
+	if err != nil || !live {
+		return map[string]int{}, err
 	}
 	rows, err := s.db.R.QueryContext(ctx, src.countAll)
 	if err != nil {

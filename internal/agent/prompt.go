@@ -163,6 +163,50 @@ func currentObjectSection(o *domain.Object) string {
 	return b.String()
 }
 
+// sourceSection 告诉模型这个会话是从哪条记录发起的（会话来源，0047）。
+// 只说「新建的对象会自动记上来源、挂到项目」，免得模型自己去找项目、或者把来源写进正文；
+// 来源的内容（消息原文等）由发起方放在第一条消息里，这里不重复。
+func sourceSection(sess *domain.AgentSession) string {
+	if sess == nil || len(sess.SourceRef) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("\n## 这个会话的来源\n\n")
+	label, _ := sess.SourceRef["label"].(string)
+	if label = strings.TrimSpace(label); label != "" {
+		fmt.Fprintf(&b, "这个会话是从%s发起的，内容见用户的第一条消息。\n", label)
+	} else {
+		b.WriteString("这个会话是从一条别处的记录发起的，内容见用户的第一条消息。\n")
+	}
+	b.WriteString("你在这个会话里用 create_object 新建的对象会自动记上这个来源，不用写进正文")
+	if pid, _ := sess.SourceRef["project_id"].(string); strings.TrimSpace(pid) != "" {
+		b.WriteString("；没有别的说法时也会自动挂到来源所属的项目下，不用另外指定项目")
+	}
+	b.WriteString("。\n")
+	return b.String()
+}
+
+// agentSection 把会话挂的 Agent 的名称、说明和指令拼在系统提示词最后。
+// 放在最后是让 Agent 的规矩压过前面的通用说法；没挂 Agent 或指令为空时只写身份。
+func agentSection(a *domain.Agent) string {
+	if a == nil {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("\n## 你在这个会话里的身份\n\n")
+	fmt.Fprintf(&b, "你是 Agent「%s」。", a.Name)
+	if d := strings.TrimSpace(a.Desc); d != "" {
+		fmt.Fprintf(&b, "%s。", strings.TrimRight(d, "。"))
+	}
+	b.WriteString("\n")
+	if ins := strings.TrimSpace(a.Instructions); ins != "" {
+		b.WriteString("\n下面是用户给你定的指令，和上面的通用说法冲突时以这里为准：\n\n")
+		b.WriteString(ins)
+		b.WriteString("\n")
+	}
+	return b.String()
+}
+
 func weekdayCN(d time.Weekday) string {
 	names := [...]string{"周日", "周一", "周二", "周三", "周四", "周五", "周六"}
 	return names[int(d)%7]

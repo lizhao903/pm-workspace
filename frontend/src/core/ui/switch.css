@@ -1,0 +1,14 @@
+/* 开关（Switch.tsx），和 providers.css 的 .pv-switch 同一套尺寸和颜色 */
+.sw-line { display: inline-flex; align-items: center; gap: var(--sp-4); flex: none; color: var(--muted); font-size: var(--fs-sm); cursor: pointer; }
+.sw-box { position: relative; display: inline-flex; flex: none; }
+.sw-box input { position: absolute; inset: 0; opacity: 0; margin: 0; cursor: pointer; }
+.sw { position: relative; width: 32px; height: 18px; border-radius: 9px; background: var(--line-2); transition: background 0.15s; pointer-events: none; }
+.sw::after {
+  content: ''; position: absolute; top: 2px; left: 2px; width: 14px; height: 14px; border-radius: 50%;
+  background: var(--panel); box-shadow: var(--shadow-sm); transition: transform 0.15s;
+}
+.sw-box input:checked + .sw { background: var(--ok); }
+.sw-box input:checked + .sw::after { transform: translateX(14px); }
+.sw-box input:focus-visible + .sw { outline: 2px solid var(--accent-line); outline-offset: 2px; }
+.sw-line:has(input:disabled) { opacity: 0.5; cursor: not-allowed; }
+.sw-box input:disabled { cursor: not-allowed; }

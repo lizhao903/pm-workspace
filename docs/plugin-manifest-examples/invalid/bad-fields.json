@@ -1,0 +1,16 @@
+{
+  "id": "clips",
+  "name": "剪辑",
+  "homepage": "https://example.com",
+  "icon": "Folder",
+  "version": "1.0",
+  "core": "^1.0.0",
+  "provides": {
+    "modules": ["clips"],
+    "agent_tools": ["upload_clip"]
+  },
+  "emits": ["videos.uploaded"],
+  "subscribes": ["projects.prototype_started", "object.deleted"],
+  "permissions": [],
+  "migrations": "migrations"
+}

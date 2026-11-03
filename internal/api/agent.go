@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/lizhao903/pm-workspace/internal/agent"
 	"github.com/lizhao903/pm-workspace/internal/domain"
@@ -56,6 +57,30 @@ type createSessionReq struct {
 	// 这是前端显式指定的归属，猜错了会话就出现在错误的地方。
 	// （/api/agent/chat 里的同名字段是另一回事，见 sessionForChat。）
 	ObjectID string `json:"object_id"`
+	// AgentID 给了就用这个 Agent 的服务商和模型，provider_id / model 忽略；Agent 不存在 404。
+	AgentID string `json:"agent_id"`
+	// SourceRef 是会话的来源（0047），JSON 对象，最多 sourceRefMax 字节；null 和不给一样。
+	// 只在 POST /api/agent/sessions 认，chat 里新建会话不带。
+	SourceRef json.RawMessage `json:"source_ref"`
+}
+
+// sourceRefMax 是会话来源 JSON 的上限：来源只放定位用的几项和一段摘录，不放全文
+const sourceRefMax = 16 << 10
+
+// parseSourceRef 校验会话来源：不给、null 为 nil；不是对象、太长 400。
+func parseSourceRef(raw json.RawMessage) (map[string]any, error) {
+	t := strings.TrimSpace(string(raw))
+	if t == "" || t == "null" {
+		return nil, nil
+	}
+	if len(t) > sourceRefMax {
+		return nil, validationf("source_ref 太长了，最多 %d 字节", sourceRefMax)
+	}
+	var out map[string]any
+	if !strings.HasPrefix(t, "{") || json.Unmarshal([]byte(t), &out) != nil {
+		return nil, validationf("source_ref 必须是 JSON 对象")
+	}
+	return out, nil
 }
 
 func (s *Server) handleCreateAgentSession(w http.ResponseWriter, r *http.Request) {
@@ -76,7 +101,15 @@ func (s *Server) handleCreateAgentSession(w http.ResponseWriter, r *http.Request
 // newSession 建会话，并在 provider_id / model 缺省时补上默认值。
 func (s *Server) newSession(ctx context.Context, req createSessionReq) (*domain.AgentSession, error) {
 	providerID, model := strings.TrimSpace(req.ProviderID), strings.TrimSpace(req.Model)
-	if providerID == "" || model == "" {
+	var agentID *string
+	if v := strings.TrimSpace(req.AgentID); v != "" {
+		ag, err := s.st.GetAgent(ctx, v)
+		if err != nil {
+			return nil, err
+		}
+		agentID, providerID, model = &ag.ID, ag.ProviderID, ag.Model
+	}
+	if agentID == nil && (providerID == "" || model == "") {
 		p, err := s.resolveProvider(ctx, providerID)
 		if err != nil {
 			return nil, err
@@ -90,12 +123,18 @@ func (s *Server) newSession(ctx context.Context, req createSessionReq) (*domain.
 	if v := strings.TrimSpace(req.ObjectID); v != "" {
 		objectID = &v
 	}
+	sourceRef, err := parseSourceRef(req.SourceRef)
+	if err != nil {
+		return nil, err
+	}
 	return s.st.CreateAgentSession(ctx, &domain.AgentSession{
 		Title:      req.Title,
 		ObjectID:   objectID,
 		ProviderID: providerID,
 		Model:      model,
 		Workdir:    strings.TrimSpace(req.Workdir),
+		AgentID:    agentID,
+		SourceRef:  sourceRef,
 	})
 }
 
@@ -168,7 +207,10 @@ func (s *Server) handleListAgentArtifacts(w http.ResponseWriter, r *http.Request
 		s.fail(w, r, err)
 		return
 	}
-	items, err := s.st.ListAgentArtifacts(r.Context(), id)
+	// 产物已经统一到 artifacts 表，这里按会话过滤。路由保持原样是因为
+	// 「这个会话产出了什么」仍然是对话框侧栏的一个真实读法；
+	// 它现在只是同一份数据的一个切片，而不是另一份数据。
+	items, _, err := s.st.ListArtifacts(r.Context(), domain.ArtifactFilter{SessionID: id})
 	if err != nil {
 		s.fail(w, r, err)
 		return
@@ -199,7 +241,9 @@ type chatReq struct {
 	Workdir    string `json:"workdir"`
 	// ObjectID 是用户此刻打开的工作对象。可以不传（全局对话框里没选中任何东西时）。
 	ObjectID string `json:"object_id"`
-	Message  string `json:"message"`
+	// AgentID 只在没给 session_id、要新建会话时用，同 POST /api/agent/sessions。
+	AgentID string `json:"agent_id"`
+	Message string `json:"message"`
 }
 
 // handleAgentChat 是唯一的流式接口。
@@ -231,11 +275,37 @@ func (s *Server) handleAgentChat(w http.ResponseWriter, r *http.Request) {
 	// 选中态最多让这条会话落成全局的，不会把整条流打断。
 	object := s.currentObject(ctx, req.ObjectID)
 
+	// 要新建挂 Agent 的会话时先查 Agent，停用的不留一条空会话
+	if strings.TrimSpace(req.SessionID) == "" && strings.TrimSpace(req.AgentID) != "" {
+		if _, err := s.st.GetAgent(ctx, strings.TrimSpace(req.AgentID)); err != nil {
+			s.fail(w, r, err)
+			return
+		}
+		if _, err := s.chatAgent(ctx, strings.TrimSpace(req.AgentID)); err != nil {
+			s.fail(w, r, err)
+			return
+		}
+	}
+
 	// 准备阶段的失败仍然可以走普通 JSON 错误，因为还没写过任何响应。
 	session, err := s.sessionForChat(ctx, req, object)
 	if err != nil {
 		s.fail(w, r, err)
 		return
+	}
+	// 挂了 Agent 的会话按 Agent 当前的服务商和模型跑，并把快照写回会话；删了或停用了回 409
+	var ag *domain.Agent
+	if session.AgentID != nil {
+		if ag, err = s.chatAgent(ctx, *session.AgentID); err != nil {
+			s.fail(w, r, err)
+			return
+		}
+		if ag.ProviderID != session.ProviderID || ag.Model != session.Model {
+			if session, err = s.st.UpdateAgentSession(ctx, session.ID, nil, nil, &ag.ProviderID, &ag.Model); err != nil {
+				s.fail(w, r, err)
+				return
+			}
+		}
 	}
 	provider, err := s.resolveProvider(ctx, session.ProviderID)
 	if err != nil {
@@ -263,6 +333,13 @@ func (s *Server) handleAgentChat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// 工具授权（AG-02a）：没挂 Agent 的会话为 nil，行为不变
+	policy, err := s.agentPolicy(ctx, ag)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+
 	// 从这里开始就是流了。
 	h := w.Header()
 	h.Set("Content-Type", "text/event-stream; charset=utf-8")
@@ -280,20 +357,53 @@ func (s *Server) handleAgentChat(w http.ResponseWriter, r *http.Request) {
 
 	runner := &agent.Runner{
 		Store: s.st, Chat: chat, Model: model, Session: session,
-		Object: object,
+		Object: object, Agent: ag, Skills: s.agentSkills(ctx, ag), Policy: policy,
 	}
-	msgID, err := runner.Run(ctx, req.Message, emit)
+	baseCtx, cancel := agentRunCtx(ctx)
+	defer cancel()
+	runCtx, done := s.turns.start(baseCtx, session.ID)
+	defer done()
+	msgID, err := runner.Run(runCtx, req.Message, emit)
+	if err != nil && stoppedByUser(runCtx) {
+		s.noteAgentStopped(baseCtx, session.ID)
+		emit(agent.StreamEvent{Type: "error", Message: "已手动停止"})
+		return
+	}
 	if err != nil {
-		// 客户端主动断开不算错误，也没人还在听，不用再写了。
-		if ctx.Err() != nil {
-			return
-		}
 		s.log.Warn("agent chat failed",
 			"session", session.ID, "provider", provider.ID, "kind", provider.Kind, "err", err)
+		s.noteAgentFailure(baseCtx, session.ID, err)
 		emit(agent.StreamEvent{Type: "error", Message: err.Error()})
 		return
 	}
 	emit(agent.StreamEvent{Type: "done", SessionID: session.ID, MessageID: msgID})
+}
+
+// agentRunTimeout 是一轮对话（含工具调用）最长跑多久。
+const agentRunTimeout = 10 * time.Minute
+
+// agentRunCtx 让一轮对话和浏览器连接脱钩：页面刷新、切走、关掉对话框时照样跑完并存下回复。
+// 原来绑在请求上，连接一断就取消、什么都不存，历史里只剩已经执行了的工具调用，后面没有下文。
+// 连接断了以后写流只是写不出去，不影响执行。
+func agentRunCtx(ctx context.Context) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.WithoutCancel(ctx), agentRunTimeout)
+}
+
+// noteAgentStopped 手动停止时存一句说明，和出错区分开。
+func (s *Server) noteAgentStopped(ctx context.Context, sessionID string) {
+	msg := "已手动停止这一轮。上面已经执行的工具调用不会撤回，要接着做可以再发一句。"
+	if _, e := s.st.AppendAgentMessage(ctx, &domain.AgentMessage{SessionID: sessionID, Role: domain.RoleAssistant, Content: msg}); e != nil {
+		s.log.Warn("save agent stop note failed", "session", sessionID, "err", e)
+	}
+}
+
+// noteAgentFailure 这一轮没跑完时存一条说明：流里的 error 事件只有当时开着页面的人看得到，
+// 不存的话回头翻历史只看到工具调用、看不出为什么停了。存失败只记日志。
+func (s *Server) noteAgentFailure(ctx context.Context, sessionID string, err error) {
+	msg := "这一轮没跑完：" + err.Error() + "。上面已经执行的工具调用不会撤回，可以把要求再发一次接着做。"
+	if _, e := s.st.AppendAgentMessage(ctx, &domain.AgentMessage{SessionID: sessionID, Role: domain.RoleAssistant, Content: msg}); e != nil {
+		s.log.Warn("save agent failure note failed", "session", sessionID, "err", e)
+	}
 }
 
 // currentObject 取出「用户此刻打开的那一条」。
@@ -338,6 +448,7 @@ func (s *Server) sessionForChat(ctx context.Context, req chatReq, object *domain
 			ProviderID: req.ProviderID,
 			Model:      req.Model,
 			Workdir:    req.Workdir,
+			AgentID:    req.AgentID,
 		})
 	}
 
@@ -350,10 +461,11 @@ func (s *Server) sessionForChat(ctx context.Context, req chatReq, object *domain
 	if v := strings.TrimSpace(req.Workdir); v != "" && v != sess.Workdir {
 		workdir = &v
 	}
-	if v := strings.TrimSpace(req.ProviderID); v != "" && v != sess.ProviderID {
+	// 挂了 Agent 的会话，服务商和模型跟 Agent 走，请求里带的不认
+	if v := strings.TrimSpace(req.ProviderID); v != "" && v != sess.ProviderID && sess.AgentID == nil {
 		providerID = &v
 	}
-	if v := strings.TrimSpace(req.Model); v != "" && v != sess.Model {
+	if v := strings.TrimSpace(req.Model); v != "" && v != sess.Model && sess.AgentID == nil {
 		model = &v
 	}
 	if workdir == nil && providerID == nil && model == nil {

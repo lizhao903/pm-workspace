@@ -1,0 +1,148 @@
+/* 视频 > 日历、项目 > 商单、定时任务里的「发布视频」。颜色只引用 styles.css 的变量，亮暗两套主题都能用 */
+
+/* 定时任务：发布动作的标签 */
+.sk-publish { background: color-mix(in srgb, #b0570b 12%, transparent); color: color-mix(in srgb, #b0570b 85%, var(--text)); }
+.sched-pub { display: flex; align-items: center; gap: 8px; min-width: 0; padding: 8px 10px; border: 1px solid var(--line); border-radius: var(--r); background: var(--panel-2); }
+
+/* ---------- 工具条 ---------- */
+.vcal-bar { gap: 6px 8px; }
+.vcal-title { min-width: 0; font-size: 14px; font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.vcal-today { height: 28px; padding: 0 10px; font-size: 12.5px; }
+.vcal-sum { display: flex; align-items: center; gap: 4px 12px; flex-wrap: wrap; font-size: 12.5px; color: var(--muted); }
+.vcal-sum b { color: inherit; font-weight: 600; font-variant-numeric: tabular-nums; }
+.vcal-sum span:not(.danger-text) b { color: var(--text); }
+.vcal-legend { display: flex; flex-wrap: wrap; gap: 4px 14px; margin: -4px 0 10px; font-size: 11.5px; color: var(--muted); }
+.vcal-legend span { display: inline-flex; align-items: center; gap: 5px; }
+.vcal-legend i { width: 10px; height: 10px; border-radius: 3px; background: var(--c, var(--faint)); }
+.vcal-legend .vcal-lg-target { background: transparent; border: 1.5px dashed var(--muted); }
+.vcal-legend .vcal-lg-late { background: var(--danger-soft); border: 1.5px solid var(--danger); }
+.vcal-legend .vcal-lg-deal { background: color-mix(in srgb, #3d4fd6 14%, transparent); border: 1.5px solid #3d4fd6; }
+
+/* ---------- 网格 ---------- */
+.vcal { min-width: 0; border: 1px solid var(--line); border-radius: var(--r-lg); background: var(--panel); overflow: hidden; }
+.vcal-head, .vcal-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); }
+.vcal-head { border-bottom: 1px solid var(--line); background: var(--panel-2); }
+.vcal-head span { padding: 6px 8px; font-size: 11.5px; color: var(--muted); text-align: left; }
+.vcal-cell {
+  display: flex; flex-direction: column; gap: 4px; min-width: 0; min-height: 104px; padding: 6px;
+  border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); cursor: pointer;
+}
+.vcal-cell:nth-child(7n) { border-right: 0; }
+.vcal-cell:hover { background: var(--panel-2); }
+.vcal-cell.out { background: color-mix(in srgb, var(--panel-2) 60%, transparent); }
+.vcal-cell.out .vcal-dn { color: var(--faint); }
+.vcal-cell.past .vcal-dn { color: var(--faint); }
+.vcal-cell.on { box-shadow: inset 0 0 0 2px var(--accent-line); }
+.vcal-cell.over { background: var(--accent-soft); box-shadow: inset 0 0 0 2px var(--accent); }
+.vcal-date { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.vcal-dn { font-size: 12.5px; font-weight: 600; font-variant-numeric: tabular-nums; color: var(--text); }
+.vcal-wd { display: none; font-size: 11.5px; color: var(--muted); }
+.vcal-cell.today .vcal-dn {
+  display: inline-grid; place-items: center; min-width: 22px; height: 22px; padding: 0 5px; border-radius: 11px;
+  color: var(--accent-ink); background: var(--accent);
+}
+.vcal-dots { display: none; gap: 3px; margin-left: auto; }
+.vcal-dots i { width: 6px; height: 6px; border-radius: 50%; background: var(--faint); }
+.vcal-dots i.vcal-t-ok { background: var(--ok); }
+.vcal-dots i.vcal-t-danger { background: var(--danger); }
+.vcal-dots i.vcal-t-warn { background: var(--warn); }
+.vcal-items { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.vcal-week .vcal-cell { min-height: 300px; }
+
+/* 一条：左边一道状态色，发布带平台色点，首发日是虚线框，落后的标红 */
+.vcal-chip {
+  display: flex; align-items: center; gap: 5px; width: 100%; min-width: 0; height: 22px; padding: 0 6px;
+  border-radius: 5px; font-size: 11.5px; text-align: left; color: var(--text);
+  background: color-mix(in srgb, var(--c, var(--faint)) 12%, var(--panel)); border-left: 3px solid var(--c, var(--faint));
+}
+.vcal-chip.movable { cursor: grab; }
+.vcal-chip:hover { filter: brightness(0.97); }
+.vcal-chip.on { box-shadow: 0 0 0 2px var(--accent-line); }
+.vcal-chip.dragging { opacity: 0.45; }
+.vcal-chip-mark { flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--p, transparent); }
+.vcal-chip-time { flex: none; color: var(--muted); font-variant-numeric: tabular-nums; }
+.vcal-chip-k { flex: none; font-size: 10.5px; font-weight: 600; color: var(--muted); }
+.vcal-chip-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vcal-k-target { --c: var(--muted); background: transparent; border: 1px dashed var(--line-2); border-left: 3px solid var(--muted); }
+.vcal-k-target .vcal-chip-mark { display: none; }
+.vcal-k-target.vcal-t-ok { --c: var(--ok); }
+.vcal-k-target.vcal-t-danger, .vcal-k-publish.vcal-t-danger { color: var(--danger); background: var(--danger-soft); border-color: color-mix(in srgb, var(--danger) 35%, transparent); border-left-color: var(--danger); }
+.vcal-k-target.vcal-t-danger .vcal-chip-k { color: var(--danger); }
+.vcal-k-deal_deadline .vcal-chip-mark { display: none; }
+.vcal-k-deal_deadline.vcal-t-warn { color: var(--warn); border-left-color: var(--warn); }
+.vcal-k-publish.vcal-t-ok { color: var(--muted); }
+.vcal-more { align-self: flex-start; padding: 0 4px; font-size: 11.5px; color: var(--accent); }
+.vcal-more:hover { text-decoration: underline; }
+
+/* ---------- 下面的详情 ---------- */
+.vcal-panel { display: flex; flex-direction: column; gap: 10px; margin-top: 14px; padding: 14px 16px; border: 1px solid var(--line); border-radius: var(--r-lg); background: var(--panel); }
+.vcal-panel-head { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.vcal-panel-title { min-width: 0; font-size: 14px; font-weight: 600; }
+.vcal-kind { flex: none; padding: 2px 7px; border-radius: 4px; font-size: 11px; color: var(--muted); background: var(--hover); }
+.vcal-kind.vcal-t-danger { color: var(--danger); background: var(--danger-soft); }
+.vcal-day-list { display: flex; flex-direction: column; gap: 4px; }
+.vcal-day-list .vcal-chip { height: 28px; font-size: 12.5px; }
+.vcal-meta { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 6px 14px; margin: 0; font-size: 12.5px; }
+.vcal-meta dt { color: var(--muted); }
+.vcal-meta dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+.vcal-meta input[type='date'] { height: 28px; padding: 0 8px; }
+.vcal-moved { font-size: 12.5px; color: var(--ok); }
+.page .vcal-late { margin: 0; }
+
+/* 手机宽度：月视图格子只露日期和色点，点一天在下面看；周视图竖着排 */
+@media (max-width: 720px) {
+  .vcal-month .vcal-cell { min-height: 52px; padding: 4px; }
+  .vcal-month .vcal-items { display: none; }
+  .vcal-month .vcal-dots { display: flex; margin-left: 0; }
+  .vcal-month .vcal-date { flex-direction: column; align-items: flex-start; gap: 3px; }
+  .vcal-week .vcal-head { display: none; }
+  .vcal-week .vcal-wd { display: inline; }
+  .vcal-week .vcal-grid { grid-template-columns: minmax(0, 1fr); }
+  .vcal-week .vcal-cell { min-height: 0; border-right: 0; }
+  .vcal-sum { width: 100%; }
+}
+
+/* ---------- 商单 ---------- */
+.deal-list { display: flex; flex-direction: column; border: 1px solid var(--line); border-radius: var(--r-lg); background: var(--panel); overflow: hidden; }
+.deal-row {
+  display: grid; grid-template-columns: minmax(0, 2.2fr) minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1.2fr) minmax(0, 1.1fr); align-items: center; gap: 12px;
+  padding: 10px 14px; border-bottom: 1px solid var(--line); cursor: pointer;
+}
+.deal-row:last-child { border-bottom: 0; }
+.deal-row:hover { background: var(--panel-2); }
+.deal-row.sel { background: var(--accent-soft); }
+.deal-row.deal-th { cursor: default; font-size: 11.5px; color: var(--muted); background: var(--panel-2); }
+.deal-main { display: flex; flex-direction: column; min-width: 0; }
+.deal-title { font-weight: 600; }
+.deal-money { font-variant-numeric: tabular-nums; font-weight: 600; }
+.deal-due { font-size: 12px; }
+.deal-due.warn { color: var(--warn); }
+.deal-due.danger { color: var(--danger); }
+.deal-stats { display: flex; flex-wrap: wrap; gap: 6px 16px; margin-bottom: 12px; font-size: 12.5px; color: var(--muted); }
+.deal-stats b { color: var(--text); font-variant-numeric: tabular-nums; }
+
+/* 抽屉：状态流转 */
+.deal-flow { display: flex; flex-wrap: wrap; gap: 4px; }
+.deal-step {
+  display: inline-flex; align-items: center; gap: 5px; height: 26px; padding: 0 9px; border-radius: 13px;
+  font-size: 12px; color: var(--muted); border: 1px solid var(--line); background: var(--panel);
+}
+.deal-step.done { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 30%, transparent); }
+.deal-step.cur { color: var(--accent-ink); background: var(--accent); border-color: var(--accent); }
+.deal-step.lost { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 35%, transparent); background: var(--danger-soft); }
+.deal-step:not(:disabled):not(.cur):hover { border-color: var(--line-2); color: var(--text); }
+.deal-ref { display: flex; flex-direction: column; gap: 2px; padding: 8px 10px; border-radius: var(--r); background: var(--panel-2); font-size: 12.5px; color: var(--muted); }
+.deal-ref b { color: var(--text); font-variant-numeric: tabular-nums; }
+.deal-videos { display: flex; flex-direction: column; gap: 4px; }
+.deal-video { display: flex; align-items: center; gap: 8px; min-width: 0; padding: 6px 10px; border: 1px solid var(--line); border-radius: var(--r); }
+.deal-reviews { display: flex; flex-direction: column; gap: 6px; margin: 0; padding: 0; list-style: none; font-size: 12.5px; }
+.deal-reviews li { display: flex; gap: 8px; align-items: baseline; min-width: 0; }
+.deal-reviews .ok { color: var(--ok); }
+.deal-reviews .bad { color: var(--danger); }
+.deal-src { padding: 8px 10px; border-left: 3px solid var(--line-2); background: var(--panel-2); border-radius: 0 var(--r) var(--r) 0; font-size: 12.5px; color: var(--muted); }
+
+@media (max-width: 720px) {
+  .deal-row { grid-template-columns: minmax(0, 1fr) auto; }
+  .deal-row > :nth-child(n + 3) { display: none; }
+  .deal-row.deal-th { display: none; }
+}

@@ -1,0 +1,9 @@
+/* 任务抽屉里的「提醒」（TaskReminders） */
+.task-reminders { display: flex; flex-direction: column; gap: 8px; }
+.task-reminder-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.task-reminder-list li { display: flex; align-items: center; gap: 8px; padding: 6px 0; border-top: 1px solid var(--line); min-width: 0; }
+.task-reminder-list li:first-child { border-top: 0; }
+.task-reminder-list li.is-off .ellipsis { color: var(--faint); }
+.task-reminder-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.task-reminder-form { display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; border-radius: var(--r-sm); background: var(--panel-2); border: 1px solid var(--line); }
+.task-reminder-acts { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }

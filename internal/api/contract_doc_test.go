@@ -1,12 +1,24 @@
 package api
 
 import (
+	"log/slog"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"regexp"
 	"sort"
 	"strings"
 	"testing"
+
+	"github.com/lizhao903/pm-workspace/internal/plugin"
+	"github.com/lizhao903/pm-workspace/internal/plugins/browser"
+	"github.com/lizhao903/pm-workspace/internal/plugins/domains"
+	"github.com/lizhao903/pm-workspace/internal/plugins/im"
+	"github.com/lizhao903/pm-workspace/internal/plugins/projects"
+	"github.com/lizhao903/pm-workspace/internal/plugins/sop"
+	"github.com/lizhao903/pm-workspace/internal/plugins/terminal"
+	"github.com/lizhao903/pm-workspace/internal/plugins/trade"
+	"github.com/lizhao903/pm-workspace/internal/plugins/video"
 )
 
 // recordingMux 收下 routes() 注册的每一条模式，不真的建路由。
@@ -19,7 +31,33 @@ func (r *recordingMux) HandleFunc(pattern string, _ func(http.ResponseWriter, *h
 func registeredRoutes(t *testing.T) []string {
 	t.Helper()
 	rec := &recordingMux{}
-	(&Server{}).routes(rec)
+	// 编译进二进制的第一方插件的路由也要写进契约，和 cmd/pmw 登记的插件保持一致
+	plugins := plugin.NewRegistry(plugin.NewMemStateStore(), slog.New(slog.DiscardHandler))
+	if err := plugins.Add(projects.New()); err != nil {
+		t.Fatal(err)
+	}
+	if err := plugins.Add(im.New()); err != nil {
+		t.Fatal(err)
+	}
+	if err := plugins.Add(sop.New()); err != nil {
+		t.Fatal(err)
+	}
+	if err := plugins.Add(terminal.New("")); err != nil {
+		t.Fatal(err)
+	}
+	if err := plugins.Add(domains.New(domains.Options{})); err != nil {
+		t.Fatal(err)
+	}
+	if err := plugins.Add(trade.New()); err != nil {
+		t.Fatal(err)
+	}
+	if err := plugins.Add(video.New()); err != nil {
+		t.Fatal(err)
+	}
+	if err := plugins.Add(browser.New()); err != nil {
+		t.Fatal(err)
+	}
+	(&Server{opt: Options{Plugins: plugins}}).routes(rec)
 	if len(rec.patterns) == 0 {
 		t.Fatal("一条路由都没收到——routes() 的签名或实现变了，本测试已经失效")
 	}
@@ -97,5 +135,62 @@ func TestContractDocHasNoDeadRoutes(t *testing.T) {
 		sort.Strings(dead)
 		t.Errorf("文档里写了但代码里不存在的路由（照着它写调用会拿 404）：\n  %s",
 			strings.Join(dead, "\n  "))
+	}
+}
+
+// TestWebSocketRoutesInContractDoc：WebSocket 路由按 GET 记进契约（握手就是一个 GET），
+// 路径以 /ws 结尾，说明里要写明 WebSocket，前端照文档不会拿 fetch 去调它。
+func TestWebSocketRoutesInContractDoc(t *testing.T) {
+	body, err := os.ReadFile("../../docs/api-contract.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var ws []string
+	for _, pat := range registeredRoutes(t) {
+		if strings.HasSuffix(pat, "/ws") {
+			ws = append(ws, pat)
+		}
+	}
+	if len(ws) == 0 {
+		t.Fatal("一条 WebSocket 路由都没收到——终端插件没登记进 registeredRoutes")
+	}
+	for _, pat := range ws {
+		method, path, _ := strings.Cut(pat, " ")
+		if method != "GET" {
+			t.Errorf("WebSocket 路由要用 GET：%s", pat)
+			continue
+		}
+		found := false
+		for _, line := range strings.Split(string(body), "\n") {
+			if strings.Contains(line, "`"+path+"`") && strings.Contains(line, "| GET |") && strings.Contains(line, "WebSocket") {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("契约文档里 %s 那一行要写明 WebSocket", pat)
+		}
+	}
+}
+
+// TestLoggingKeepsHijacker：日志中间件包过的 ResponseWriter 要能升级 WebSocket。
+func TestLoggingKeepsHijacker(t *testing.T) {
+	s := &Server{log: slog.New(slog.DiscardHandler)}
+	srv := httptest.NewServer(s.logging(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		conn, _, err := http.NewResponseController(w).Hijack()
+		if err != nil {
+			t.Errorf("拿不到 Hijacker：%v", err)
+			return
+		}
+		_, _ = conn.Write([]byte("HTTP/1.1 204 No Content\r\n\r\n"))
+		_ = conn.Close()
+	})))
+	defer srv.Close()
+	res, err := http.Get(srv.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = res.Body.Close()
+	if res.StatusCode != http.StatusNoContent {
+		t.Fatalf("状态：%d", res.StatusCode)
 	}
 }

@@ -23,6 +23,7 @@ func TestCreateProviderFillsDefaultBaseURL(t *testing.T) {
 
 	cases := []struct{ kind, key, want string }{
 		{domain.ProviderOpenAI, "sk-test-0001-abcd", "https://api.openai.com/v1"},
+		{domain.ProviderAnthropic, "sk-ant-test-0001-abcd", "https://api.anthropic.com"},
 		{domain.ProviderGemini, "AIza-test-0001-abcd", "https://generativelanguage.googleapis.com/v1beta"},
 		{domain.ProviderOllama, "", "http://localhost:11434"},
 	}
@@ -42,6 +43,47 @@ func TestCreateProviderFillsDefaultBaseURL(t *testing.T) {
 	}
 	if p.BaseURL != "https://llm.internal/v1" {
 		t.Errorf("base_url = %q, 期望去掉末尾斜杠后的 https://llm.internal/v1", p.BaseURL)
+	}
+}
+
+// TestProviderPresetDefaultBaseURL：DeepSeek 是 openai 协议加 extra.preset，
+// 不填 base_url 时补 DeepSeek 的端点；不认识的 preset 回落到 kind 的默认端点。
+func TestProviderPresetDefaultBaseURL(t *testing.T) {
+	s, ctx := newStore(t)
+	ds, err := s.CreateProvider(ctx, &domain.AgentProvider{
+		Name: "DeepSeek", Kind: domain.ProviderOpenAI, Enabled: true,
+		Extra: map[string]any{"preset": domain.ProviderPresetDeepSeek},
+	}, "sk-deepseek-0001")
+	if err != nil {
+		t.Fatalf("创建 DeepSeek: %v", err)
+	}
+	if ds.BaseURL != "https://api.deepseek.com" || ds.Kind != domain.ProviderOpenAI {
+		t.Errorf("kind=%s base_url=%q", ds.Kind, ds.BaseURL)
+	}
+	if ds.Extra["preset"] != domain.ProviderPresetDeepSeek {
+		t.Errorf("extra.preset 应原样保留，得到 %v", ds.Extra)
+	}
+
+	other, err := s.CreateProvider(ctx, &domain.AgentProvider{
+		Name: "未知厂商", Kind: domain.ProviderOpenAI, Enabled: true, Extra: map[string]any{"preset": "nope"},
+	}, "sk-other-0001")
+	if err != nil {
+		t.Fatalf("创建: %v", err)
+	}
+	if other.BaseURL != "https://api.openai.com/v1" {
+		t.Errorf("未知 preset 应回落到 openai 默认端点，得到 %q", other.BaseURL)
+	}
+
+	// 从 anthropic 换成 openai + deepseek preset，没给 base_url 时跟着换成 DeepSeek 的端点。
+	p := mustProvider(t, s, ctx, "换协议", domain.ProviderAnthropic, "sk-ant-0001-abcd")
+	kind := domain.ProviderOpenAI
+	extra := map[string]any{"preset": domain.ProviderPresetDeepSeek}
+	got, err := s.UpdateProvider(ctx, p.ID, domain.AgentProviderInput{Kind: &kind, Extra: &extra})
+	if err != nil {
+		t.Fatalf("更新: %v", err)
+	}
+	if got.BaseURL != "https://api.deepseek.com" {
+		t.Errorf("换 kind 后 base_url = %q", got.BaseURL)
 	}
 }
 
@@ -68,7 +110,7 @@ func TestCreateProviderKeyRequirementByKind(t *testing.T) {
 
 func TestCreateProviderRejectsUnknownKind(t *testing.T) {
 	s, ctx := newStore(t)
-	for _, kind := range []string{"", "anthropic", "OpenAI"} {
+	for _, kind := range []string{"", "bedrock", "OpenAI"} {
 		_, err := s.CreateProvider(ctx,
 			&domain.AgentProvider{Name: "野 kind", Kind: kind, Enabled: true}, "sk-x-0001-abcd")
 		if !errors.Is(err, domain.ErrValidation) {
@@ -260,7 +302,8 @@ func TestUpdateProviderAPIKeyTriState(t *testing.T) {
 	if err != nil {
 		t.Fatalf("update without api_key: %v", err)
 	}
-	if !out.HasAPIKey || out.APIKeyMasked != "sk-…1111" {
+	// 18 位的密钥按保险箱的脱敏规则只留后 4。
+	if !out.HasAPIKey || out.APIKeyMasked != "…1111" {
 		t.Errorf("不传 api_key 时掩码 = %q has=%v, 期望保留原密钥", out.APIKeyMasked, out.HasAPIKey)
 	}
 	if plain, _ := s.ProviderAPIKey(ctx, p.ID); plain != "sk-old-000000-1111" {
@@ -273,8 +316,8 @@ func TestUpdateProviderAPIKeyTriState(t *testing.T) {
 	if err != nil {
 		t.Fatalf("update with api_key: %v", err)
 	}
-	if out.APIKeyMasked != "sk-…9999" {
-		t.Errorf("覆盖后掩码 = %q, 期望 sk-…9999", out.APIKeyMasked)
+	if out.APIKeyMasked != "…9999" {
+		t.Errorf("覆盖后掩码 = %q, 期望 …9999", out.APIKeyMasked)
 	}
 	if plain, _ := s.ProviderAPIKey(ctx, p.ID); plain != newKey {
 		t.Errorf("覆盖后明文 = %q, 期望 %q", plain, newKey)
@@ -335,7 +378,7 @@ func TestUpdateProviderValidatesAndNotFound(t *testing.T) {
 	if _, err := s.UpdateProvider(ctx, p.ID, domain.AgentProviderInput{Name: &blank}); !errors.Is(err, domain.ErrValidation) {
 		t.Errorf("空 name 应报 ErrValidation, got %v", err)
 	}
-	bad := "anthropic"
+	bad := "bedrock"
 	if _, err := s.UpdateProvider(ctx, p.ID, domain.AgentProviderInput{Kind: &bad}); !errors.Is(err, domain.ErrValidation) {
 		t.Errorf("非法 kind 应报 ErrValidation, got %v", err)
 	}
@@ -389,5 +432,56 @@ func TestListProvidersOrdersDefaultFirst(t *testing.T) {
 	}
 	if len(list) != 2 || list[0].ID != b.ID {
 		t.Fatalf("列表首位 = %v, 期望默认供应商 %s 排最前", list, b.ID)
+	}
+}
+
+// TestProviderLastTestPersists：测试结论落库（0046），读列表、读单条都带回；
+// 只改名称、默认模型不清，改地址、密钥、启停就清；测试不动 updated_at。
+func TestProviderLastTestPersists(t *testing.T) {
+	s, ctx := newStore(t)
+	p := mustProvider(t, s, ctx, "NewAPI", domain.ProviderOllama, "")
+
+	if p.LastTest != nil {
+		t.Fatalf("新建的服务商不该有测试结论：%+v", p.LastTest)
+	}
+	if _, err := s.RecordProviderTest(ctx, p.ID, domain.ProviderTestResult{OK: true, Latency: 105, Message: "连接成功", Models: []string{"m1"}}); err != nil {
+		t.Fatalf("记测试结论: %v", err)
+	}
+	got, err := s.GetProvider(ctx, p.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.LastTest == nil || !got.LastTest.OK || got.LastTest.Latency != 105 || len(got.LastTest.Models) != 1 || got.LastTest.At.IsZero() {
+		t.Fatalf("读回的测试结论不对：%+v", got.LastTest)
+	}
+	if !got.UpdatedAt.Equal(p.UpdatedAt) {
+		t.Errorf("测试不该改 updated_at：%v -> %v", p.UpdatedAt, got.UpdatedAt)
+	}
+	list, err := s.ListProviders(ctx)
+	if err != nil || len(list) != 1 || list[0].LastTest == nil {
+		t.Fatalf("列表里应带测试结论：%v %+v", err, list)
+	}
+
+	name, model := "改个名", "qwen3.5:4b"
+	if got, err = s.UpdateProvider(ctx, p.ID, domain.AgentProviderInput{Name: &name, Model: &model}); err != nil {
+		t.Fatal(err)
+	}
+	if got.LastTest == nil {
+		t.Fatal("只改名称和默认模型不该清掉测试结论")
+	}
+
+	base := "http://127.0.0.1:11435"
+	if got, err = s.UpdateProvider(ctx, p.ID, domain.AgentProviderInput{BaseURL: &base}); err != nil {
+		t.Fatal(err)
+	}
+	if got.LastTest != nil {
+		t.Fatal("改了地址应清掉测试结论")
+	}
+	if again, _ := s.GetProvider(ctx, p.ID); again.LastTest != nil {
+		t.Fatal("库里的测试结论也应清掉")
+	}
+
+	if _, err := s.RecordProviderTest(ctx, "apv_nope", domain.ProviderTestResult{}); !errors.Is(err, domain.ErrNotFound) {
+		t.Errorf("服务商不存在应回 ErrNotFound，得到 %v", err)
 	}
 }

@@ -1,0 +1,58 @@
+/* 设置里的「插件」分节。卡片、分组照原型 web-next/src/styles.css 的 tool-section、tool-card、field-group；颜色全走 tokens.css 的变量 */
+.plg-page { display: flex; flex-direction: column; gap: var(--sp-8); min-width: 0; }
+.plg-muted { color: var(--muted); font-size: var(--fs-sm); }
+.plg-code { font: var(--fs-xs) var(--mono); padding: 1px 5px; border-radius: 4px; background: var(--hover); color: var(--text); white-space: nowrap; }
+.plg-path { white-space: normal; word-break: break-all; margin-left: var(--sp-2); }
+.plg-hint { color: var(--muted); font-size: var(--fs-xs); }
+
+.plg-notice {
+  display: flex; align-items: center; gap: var(--sp-6); padding: var(--sp-5) var(--sp-6);
+  border: 1px solid var(--accent-line); border-radius: var(--r); background: var(--accent-soft); font-size: var(--fs-sm);
+}
+.plg-notice-danger { border-color: color-mix(in srgb, var(--danger) 45%, var(--line)); background: var(--danger-soft); }
+.plg-notice-text { flex: 1; min-width: 0; }
+
+.plg-section-head { display: flex; align-items: baseline; flex-wrap: wrap; gap: var(--sp-2) var(--sp-6); margin-bottom: var(--sp-5); }
+.plg-section-head h2 { margin: 0; font-size: var(--fs-md); white-space: nowrap; }
+.plg-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(300px, 100%), 1fr)); gap: var(--sp-6); }
+.plg-card {
+  display: flex; flex-direction: column; gap: var(--sp-6); padding: var(--sp-8); min-width: 0;
+  border-radius: var(--r-lg); background: var(--panel); border: 1px solid var(--line); box-shadow: var(--shadow-sm);
+}
+.plg-card-bad { border-color: color-mix(in srgb, var(--warn) 45%, var(--line)); }
+.plg-card-top { display: flex; gap: var(--sp-6); cursor: pointer; border-radius: var(--r-sm); }
+.plg-card-top:hover .plg-name { color: var(--accent); }
+.plg-card-text { min-width: 0; }
+.plg-name { display: flex; align-items: baseline; gap: var(--sp-3); font-weight: 600; font-size: var(--fs-md); }
+.plg-version { font: var(--fs-xs) var(--mono); color: var(--faint); font-weight: 400; }
+.plg-desc { color: var(--muted); font-size: var(--fs-sm); line-height: 1.55; }
+.plg-card-foot { margin-top: auto; display: flex; align-items: center; flex-wrap: wrap; gap: var(--sp-4); }
+.plg-logo {
+  display: inline-flex; align-items: center; justify-content: center; flex: none;
+  border-radius: var(--r); background: var(--accent-soft); color: var(--accent-ink); font-weight: 600;
+}
+
+/* 抽屉 */
+.plg-profile { display: flex; align-items: center; gap: var(--sp-7); }
+.plg-profile-text { min-width: 0; }
+.plg-profile h2 { margin: 0; font-size: var(--fs-xl); }
+.plg-group { display: flex; flex-direction: column; gap: var(--sp-4); padding: var(--sp-7); border: 1px solid var(--line); border-radius: var(--r); }
+.plg-group-title { font-size: var(--fs-sm); font-weight: 600; color: var(--muted); }
+.plg-row { display: grid; grid-template-columns: 76px minmax(0, 1fr); gap: var(--sp-6); align-items: baseline; font-size: var(--fs-sm); }
+.plg-row-label { color: var(--faint); white-space: nowrap; }
+.plg-row-value { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--sp-2) var(--sp-3); min-width: 0; }
+
+/* 弹窗 */
+.plg-dialog-p { margin: 0 0 var(--sp-5); }
+.plg-perms { display: flex; flex-direction: column; gap: var(--sp-4); }
+.plg-perms-title { font-size: var(--fs-sm); font-weight: 600; color: var(--muted); }
+.plg-perm { display: flex; flex-direction: column; gap: var(--sp-3); padding: var(--sp-4) var(--sp-5); border: 1px solid var(--line); border-radius: var(--r-sm); }
+.plg-perm[data-risk='high'], .plg-perm[data-risk='highest'] { border-color: color-mix(in srgb, var(--danger) 40%, var(--line)); }
+.plg-perm-main { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--sp-2) var(--sp-4); }
+.plg-risk { font-size: var(--fs-xs); font-weight: 600; color: var(--danger); }
+.plg-risk-info { color: var(--accent); margin-left: var(--sp-3); }
+.plg-choices { display: flex; flex-direction: column; gap: var(--sp-4); }
+.plg-choice { display: flex; gap: var(--sp-5); align-items: flex-start; padding: var(--sp-5); border: 1px solid var(--line); border-radius: var(--r-sm); cursor: pointer; }
+.plg-choice:has(input:checked) { border-color: var(--accent-line); background: var(--accent-soft); }
+.plg-choice input { margin: 3px 0 0; accent-color: var(--accent); }
+.plg-choice > span { display: flex; flex-direction: column; gap: var(--sp-1); }

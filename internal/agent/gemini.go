@@ -48,13 +48,19 @@ func (c *geminiChat) Stream(ctx context.Context, req Request, on func(Event)) er
 		}
 		body["tools"] = []map[string]any{{"functionDeclarations": decls}}
 	}
+	level := thinkingLevel(req.Thinking)
+	return streamThinking("gemini", req.Model, level, body, geminiThinking(level),
+		func(b map[string]any, on func(Event)) error { return c.post(ctx, req.Model, b, on) }, on)
+}
+
+func (c *geminiChat) post(ctx context.Context, model string, body map[string]any, on func(Event)) error {
 	raw, err := json.Marshal(body)
 	if err != nil {
 		return fmt.Errorf("编码请求体失败: %w", err)
 	}
 
 	endpoint := fmt.Sprintf("%s/models/%s:streamGenerateContent?%s",
-		strings.TrimRight(c.baseURL, "/"), url.PathEscape(req.Model),
+		strings.TrimRight(c.baseURL, "/"), url.PathEscape(model),
 		url.Values{"alt": {"sse"}, "key": {c.apiKey}}.Encode())
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(raw))
 	if err != nil {

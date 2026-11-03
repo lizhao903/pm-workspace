@@ -96,8 +96,8 @@ func objectLine(cat *catalog, o *domain.Object) string {
 	if o.DueAt != nil {
 		tail = append(tail, "到期 "+formatDate(*o.DueAt))
 	}
-	if o.Owner != "" {
-		tail = append(tail, "负责人 "+o.Owner)
+	if n := ownerText(o); n != "" {
+		tail = append(tail, "负责人 "+n)
 	}
 	if len(o.Tags) > 0 {
 		tail = append(tail, "标签 "+strings.Join(o.Tags, ","))
@@ -109,6 +109,24 @@ func objectLine(cat *catalog, o *domain.Object) string {
 		tail = append(tail, "已删除")
 	}
 	return head + "  " + o.Title + " | " + joinNonEmpty(" | ", tail...)
+}
+
+// ownerText 取负责人的显示名。0010 之后负责人是干系人引用，名字在 OwnerName 里；
+// Owner 是迁移前的自由文本，只在 OwnerName 为空时兜底（store 已经兜过一次，这里防老后端）。
+func ownerText(o *domain.Object) string {
+	if o.OwnerName != "" {
+		return o.OwnerName
+	}
+	return o.Owner
+}
+
+// propStr 取 props 里的字符串字段，不是字符串（或没有）时返回空串。
+func propStr(o *domain.Object, key string) string {
+	if o == nil || o.Props == nil {
+		return ""
+	}
+	v, _ := o.Props[key].(string)
+	return strings.TrimSpace(v)
 }
 
 // objectDetail 是单对象全文：结构化摘要 + 正文。
@@ -129,7 +147,7 @@ func objectDetail(cat *catalog, o *domain.Object) string {
 	kv("类型", cat.typeText(o.TypeID))
 	kv("状态", cat.statusText(o.TypeID, o.Status))
 	kv("优先级", o.Priority)
-	kv("负责人", o.Owner)
+	kv("负责人", ownerText(o))
 	if o.CategoryID != nil {
 		// CategoryPath 是 slug 路径（/product/cloud/），给人看不如中文名直观，
 		// 但它能看出层级，所以放在括号里作补充。
@@ -166,9 +184,15 @@ func objectDetail(cat *catalog, o *domain.Object) string {
 	}
 	kv("创建于", formatDateTime(o.CreatedAt))
 	kv("更新于", formatDateTime(o.UpdatedAt))
+	kv("工作目录", o.Workdir)
+	kv("关联仓库", propStr(o, domain.PropRepo))
 	if len(o.Props) > 0 {
 		keys := make([]string, 0, len(o.Props))
 		for k := range o.Props {
+			// 开发任务的约定字段单独展示，不混在自定义属性里。
+			if k == domain.PropAcceptance || k == domain.PropRepo {
+				continue
+			}
 			keys = append(keys, k)
 		}
 		sort.Strings(keys)
@@ -177,6 +201,12 @@ func objectDetail(cat *catalog, o *domain.Object) string {
 			pairs = append(pairs, fmt.Sprintf("%s=%v", k, o.Props[k]))
 		}
 		kv("自定义属性", strings.Join(pairs, ", "))
+	}
+	if ac := propStr(o, domain.PropAcceptance); ac != "" {
+		b.WriteString("\n--- 验收标准 ---\n" + ac)
+		if !strings.HasSuffix(ac, "\n") {
+			b.WriteString("\n")
+		}
 	}
 
 	b.WriteString("\n--- 正文 ---\n")
@@ -360,6 +390,10 @@ func renderRevisions(revs []*domain.Revision, titles map[string]string, scope st
 func describeChange(r *domain.Revision) string {
 	if r.Field == "created" {
 		return "新建：" + truncate(r.NewValue, 60)
+	}
+	// 进展行的 old_value 是元数据 JSON 不是旧值，按「旧 → 新」渲染会读成乱码。
+	if r.Field == domain.FieldProgress {
+		return "进展：" + truncate(r.NewValue, 80)
 	}
 	old, new := truncate(r.OldValue, 40), truncate(r.NewValue, 40)
 	switch {

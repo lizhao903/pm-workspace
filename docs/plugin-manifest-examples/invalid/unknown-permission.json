@@ -1,0 +1,8 @@
+{
+  "id": "kanban",
+  "name": "看板",
+  "version": "0.1.0",
+  "core": "^1.0.0",
+  "provides": { "modules": ["kanban"] },
+  "permissions": ["fs:read:project", "network:internet", "secrets:Media"]
+}

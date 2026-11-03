@@ -1,0 +1,21 @@
+/* /_dev/components 演示页，只在 dev 构建里加载 */
+.cp-page { max-width: 1080px; margin: 0 auto; padding: var(--sp-12) var(--sp-8) var(--sp-16); display: flex; flex-direction: column; gap: var(--sp-12); min-width: 0; }
+.cp-head { display: flex; align-items: flex-start; justify-content: space-between; flex-wrap: wrap; gap: var(--sp-8); }
+.cp-head h1 { font-size: var(--fs-2xl); margin-bottom: var(--sp-2); }
+.cp-head p { margin: 0; }
+.cp-section { min-width: 0; }
+.cp-section > h2 { font-size: var(--fs-lg); margin-bottom: var(--sp-2); }
+.cp-section > p { margin: 0 0 var(--sp-5); }
+.cp-card { padding: var(--sp-8); background: var(--panel); border: 1px solid var(--line); border-radius: var(--r); min-width: 0; }
+.cp-card-flush { padding: 0; overflow: hidden; }
+.cp-row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-5); min-width: 0; }
+.cp-row + .cp-row { margin-top: var(--sp-6); }
+.cp-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(240px, 100%), 1fr)); gap: var(--sp-8); }
+.cp-label { font-size: var(--fs-xs); color: var(--faint); min-width: 64px; }
+.cp-subnav { display: flex; height: 380px; border: 1px solid var(--line); border-radius: var(--r); overflow: hidden; background: var(--bg); }
+.cp-subnav-main { flex: 1; min-width: 0; padding: var(--sp-10); }
+.cp-list-row { display: flex; align-items: center; gap: var(--sp-5); height: 40px; padding: 0 var(--sp-8); border-bottom: 1px solid var(--line); min-width: 0; }
+.cp-list-row:last-child { border-bottom: 0; }
+@media (max-width: 760px) {
+  .cp-subnav { flex-direction: column; height: auto; }
+}

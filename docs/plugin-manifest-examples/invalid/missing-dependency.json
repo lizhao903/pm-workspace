@@ -1,0 +1,9 @@
+{
+  "id": "kanban",
+  "name": "看板",
+  "version": "0.1.0",
+  "core": "^1.0.0",
+  "depends": { "projects": "^0.1.0", "notes": "^1.0.0", "im": "^1.0.0" },
+  "provides": { "modules": ["kanban"] },
+  "permissions": []
+}

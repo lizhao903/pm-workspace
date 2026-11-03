@@ -1,0 +1,59 @@
+/* 渠道配置抽屉（IM-01b）和各渠道表单（Slack、Telegram 共用） */
+.im-chhead { margin: 0 0 var(--sp-6); font-size: var(--fs-lg); font-weight: 600; }
+.im-chpanel { display: flex; flex-direction: column; gap: var(--sp-6); }
+.im-ok { color: var(--ok); font-size: var(--fs-sm); }
+
+.im-chlist { display: flex; flex-direction: column; gap: var(--sp-5); }
+.im-chcard { border: 1px solid var(--line); border-radius: var(--r); padding: var(--sp-6); display: flex; flex-direction: column; gap: var(--sp-3); background: var(--panel); }
+.im-chcard.bad { border-color: color-mix(in srgb, var(--danger) 45%, var(--line)); }
+.im-chcard.off .im-chcard-name { color: var(--muted); }
+.im-chcard-top { display: flex; align-items: center; gap: var(--sp-4); }
+.im-chcard-top .im-ch-dot { width: 8px; height: 8px; }
+.im-chcard-name { font-weight: 600; }
+.im-chcard-meta { display: flex; flex-wrap: wrap; gap: var(--sp-2) var(--sp-6); }
+.im-chcard-error { color: var(--danger); background: var(--danger-soft); border-radius: var(--r-sm); padding: var(--sp-3) var(--sp-4); font-size: var(--fs-sm); word-break: break-word; }
+.im-chcard-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-3); margin-top: var(--sp-2); }
+.im-chstatus { font-size: var(--fs-2xs); padding: 1px 7px; border-radius: 4px; white-space: nowrap; }
+.im-chstatus-ok { color: var(--ok); background: color-mix(in srgb, var(--ok) 12%, transparent); }
+.im-chstatus-bad { color: var(--danger); background: var(--danger-soft); font-weight: 500; }
+.im-chstatus-muted { color: var(--muted); background: var(--hover); }
+.im-chstatus-info { color: var(--accent); background: var(--accent-soft); }
+
+.im-chentry { display: flex; flex-wrap: wrap; justify-content: center; gap: var(--sp-4); margin-top: var(--sp-5); }
+.im-chentry .btn, .im-chmore .btn { margin-top: 0; display: inline-flex; align-items: center; gap: var(--sp-3); }
+.im-chmore { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-4); border-top: 1px dashed var(--line); padding-top: var(--sp-6); }
+.im-chlink, .im-chback { align-self: flex-start; background: none; border: 0; padding: 0; color: var(--accent); font-size: var(--fs-sm); cursor: pointer; }
+.im-chlink:hover, .im-chback:hover { text-decoration: underline; }
+.im-chform-title { display: flex; align-items: center; gap: var(--sp-4); font-weight: 600; }
+
+/* 消息过期（IM-07）：渠道列表下面一节，和渠道无关，用分隔线隔开 */
+.im-chexpire { display: flex; flex-direction: column; gap: var(--sp-4); border-top: 1px solid var(--line); padding-top: var(--sp-6); }
+.im-chexpire-title { font-weight: 600; }
+.im-chexpire-row { display: flex; align-items: center; gap: var(--sp-3); }
+.im-chexpire-input { width: 88px; }
+.im-qrset { display: flex; flex-direction: column; gap: var(--sp-3); }
+.im-qrset-item { display: flex; flex-direction: column; gap: var(--sp-1); }
+.im-qrset-row { display: flex; align-items: center; gap: var(--sp-3); }
+.im-qrset-row > :first-child { flex: 1; min-width: 0; }
+
+.im-chform { display: flex; flex-direction: column; gap: var(--sp-6); }
+.im-chform-steps { margin: 0; padding-left: 1.4em; display: flex; flex-direction: column; gap: var(--sp-2); line-height: 1.6; }
+.im-chform-steps code, .im-chform-note code { font-family: var(--mono); font-size: var(--fs-xs); background: var(--hover); padding: 0 4px; border-radius: 3px; word-break: break-all; }
+.im-chform-note { line-height: 1.6; }
+.im-chform-actions { display: flex; justify-content: flex-end; gap: var(--sp-4); }
+
+/* Slack 表单的「身份」切换（IM-06），样式同连接器抽屉的 cn-seg cn-seg-full；
+   不用 im-seg：那是 IM 页状态切换的类（im.css），两份全局样式会互相覆盖 */
+.im-chform-seg { display: flex; padding: 2px; border-radius: var(--r-sm); background: var(--hover); }
+.im-chform-seg button {
+  flex: 1; display: flex; align-items: center; justify-content: center; height: 28px; padding: 0 var(--sp-5); border: 0; border-radius: 4px;
+  background: none; color: var(--muted); font: inherit; font-size: var(--fs-sm); white-space: nowrap; cursor: pointer;
+}
+.im-chform-seg button:hover { color: var(--text); }
+.im-chform-seg button.on { background: var(--panel); color: var(--text); box-shadow: var(--shadow-sm); font-weight: 500; }
+
+/* 从 Slack 补联系人邮箱（EmailBackfill.tsx） */
+.im-chmail { display: flex; flex-direction: column; gap: var(--sp-2); border-top: 1px dashed var(--line); padding-top: var(--sp-3); margin-top: var(--sp-2); }
+.im-chmail-row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-3); font-size: var(--fs-sm); }
+.im-chmail-hint { color: var(--warn); background: var(--warn-soft); border-radius: var(--r-sm); padding: var(--sp-3) var(--sp-4); font-size: var(--fs-sm); word-break: break-word; }
+.im-chmail-list { margin: 0; padding-left: var(--sp-6); font-size: var(--fs-sm); word-break: break-word; }

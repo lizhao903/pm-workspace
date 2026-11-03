@@ -1,0 +1,242 @@
+// Package terminal 是「终端」插件的后端（TERM-01a）：本机 pty 加 WebSocket，前端（TERM-01b）用 xterm 接。
+// 会话和输出只在服务进程内存里，接口和收发协议见 docs/api-contract.md「终端插件 terminal」。
+package terminal
+
+import (
+	"context"
+	"embed"
+	"encoding/json"
+	"errors"
+	"io"
+	"io/fs"
+	"net/http"
+	"os"
+	"path/filepath"
+	"strings"
+
+	"github.com/lizhao903/pm-workspace/internal/plugin"
+)
+
+//go:embed plugin.json
+var manifestJSON []byte
+
+//go:embed migrations/*.sql
+var migrationsFS embed.FS
+
+// Plugin 是终端插件的入口，cmd/pmw 用 Registry.Add 登记。
+type Plugin struct {
+	m         plugin.Manifest
+	publicURL string // --public-url，WebSocket 握手时认它的 Origin
+	// 测试用：换 shell 和参数、追加环境变量
+	shell     string
+	shellArgs []string
+	env       []string
+}
+
+// New 的 publicURL 是浏览器访问工作台的地址（--public-url），空串时只认本机 Origin。
+func New(publicURL string) *Plugin {
+	return &Plugin{m: plugin.MustParse(manifestJSON), publicURL: publicURL}
+}
+
+func (p *Plugin) Manifest() plugin.Manifest { return p.m }
+
+// Migrations 是 migrations/ 下的 .sql（0.2.0 起有设置表 terminal_settings），安装、升级时由内核按文件名顺序应用。
+func (p *Plugin) Migrations() fs.FS {
+	sub, err := fs.Sub(migrationsFS, "migrations")
+	if err != nil {
+		panic(err)
+	}
+	return sub
+}
+
+func (p *Plugin) Register(r plugin.Registrar) error {
+	m := newManager() // 每次启用一个，只建结构不起进程
+	m.shell, m.shellArgs, m.env = p.shell, p.shellArgs, p.env
+	h := &handlers{c: r.Core(), m: m, origins: newOriginCheck(p.publicURL)}
+	r.Routes(func(rr plugin.RouteRegistrar) {
+		rr.HandleFunc("GET /api/terminal/sessions", h.list)
+		rr.HandleFunc("POST /api/terminal/sessions", h.create)
+		rr.HandleFunc("DELETE /api/terminal/sessions/{id}", h.remove)
+		rr.HandleFunc("GET /api/terminal/sessions/{id}/ws", h.ws)
+		rr.HandleFunc("GET /api/terminal/settings", h.getSettings)
+		rr.HandleFunc("PATCH /api/terminal/settings", h.patchSettings)
+	})
+	// 常驻任务只等取消：插件停用、服务关闭时结束这次启用起的全部会话
+	r.Job(plugin.Job{Name: "sessions", Run: func(ctx context.Context, _ plugin.Core) error {
+		<-ctx.Done()
+		m.closeAll()
+		return nil
+	}})
+	return nil
+}
+
+type handlers struct {
+	c       plugin.Core
+	m       *manager
+	origins originCheck
+}
+
+func (h *handlers) list(w http.ResponseWriter, _ *http.Request) {
+	all := h.m.list()
+	writeJSON(w, http.StatusOK, map[string]any{"data": all, "meta": map[string]any{"total": len(all)}})
+}
+
+type createIn struct {
+	Cwd       string `json:"cwd"`
+	ProjectID string `json:"project_id"`
+	Cols      *int   `json:"cols"`
+	Rows      *int   `json:"rows"`
+	// Claude 不为空时，shell 起来后执行设置里的 Claude Code 启动命令（launch.go）
+	Claude *ClaudeLaunch `json:"claude"`
+}
+
+// created 是新建会话的响应：带了 claude 时多一个 command，是写进终端执行的那条命令。
+type created struct {
+	Session
+	Command string `json:"command,omitempty"`
+}
+
+func (h *handlers) create(w http.ResponseWriter, r *http.Request) {
+	var in createIn
+	if err := decode(r, &in); err != nil {
+		h.fail(w, r, err)
+		return
+	}
+	if strings.TrimSpace(in.Cwd) == "" && strings.TrimSpace(in.ProjectID) != "" {
+		root, err := h.projectRoot(r.Context(), strings.TrimSpace(in.ProjectID))
+		if err != nil {
+			h.fail(w, r, err)
+			return
+		}
+		in.Cwd = root
+	}
+	cwd, err := checkCwd(in.Cwd)
+	if err != nil {
+		h.fail(w, r, err)
+		return
+	}
+	// 起 shell 要用户确认过 process:spawn（SEC-01）
+	if err := plugin.Require(h.c, "process:spawn"); err != nil {
+		h.fail(w, r, apiErr(errConflict, "%s", err.Error()))
+		return
+	}
+	cols, rows := 80, 24
+	if in.Cols != nil {
+		cols = *in.Cols
+	}
+	if in.Rows != nil {
+		rows = *in.Rows
+	}
+	if cols < minSize || cols > maxSize || rows < minSize || rows > maxSize {
+		h.fail(w, r, apiErr(errValidation, "cols 和 rows 要在 %d 到 %d 之间", minSize, maxSize))
+		return
+	}
+	command := ""
+	if in.Claude != nil {
+		if err := checkLaunch(in.Claude); err != nil {
+			h.fail(w, r, err)
+			return
+		}
+		tmpl, err := claudeCommand(r.Context(), h.c.Store())
+		if err != nil {
+			h.fail(w, r, err)
+			return
+		}
+		command = RenderClaudeCommand(tmpl, *in.Claude)
+	}
+	s, err := h.m.start(cwd, cols, rows)
+	if err != nil {
+		h.fail(w, r, err)
+		return
+	}
+	if command != "" {
+		// shell 还在读启动文件时写进去也不丢：pty 先缓着，shell 准备好了再读到。
+		if err := s.write([]byte(command + "\r")); err != nil {
+			h.c.Log().Warn("write claude command failed", "session", s.id, "err", err)
+		}
+	}
+	writeJSON(w, http.StatusCreated, map[string]any{"data": created{Session: s.view(), Command: command}})
+}
+
+func (h *handlers) remove(w http.ResponseWriter, r *http.Request) {
+	if err := h.m.remove(r.PathValue("id")); err != nil {
+		h.fail(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"data": nil})
+}
+
+// projectRoot 取项目的 root（对象的 workdir）；项目没设时返回空串，按没给 cwd 处理。
+func (h *handlers) projectRoot(ctx context.Context, id string) (string, error) {
+	o, err := h.c.Objects().Get(ctx, id)
+	if errors.Is(err, plugin.ErrNoRows) || (err == nil && (o.Deleted || o.Type != "project")) {
+		return "", apiErr(errValidation, "项目 %s 不存在", id)
+	}
+	if err != nil {
+		return "", err
+	}
+	return o.Workdir, nil
+}
+
+// checkCwd：空串取用户主目录；否则必须是存在的绝对目录。file:// 地址先转成本机路径。
+func checkCwd(cwd string) (string, error) {
+	cwd = plugin.LocalDir(cwd)
+	if strings.TrimSpace(cwd) == "" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return "", apiErr(errValidation, "没给 cwd，也取不到用户主目录")
+		}
+		cwd = home
+	}
+	if !filepath.IsAbs(cwd) {
+		return "", apiErr(errValidation, "cwd 要是绝对路径：%s", cwd)
+	}
+	cwd = filepath.Clean(cwd)
+	if st, err := os.Stat(cwd); err != nil || !st.IsDir() {
+		return "", apiErr(errValidation, "目录 %s 不存在或不是文件夹", cwd)
+	}
+	return cwd, nil
+}
+
+func decode(r *http.Request, v any) error {
+	body, err := io.ReadAll(io.LimitReader(r.Body, 64<<10+1))
+	if err != nil {
+		return apiErr(errValidation, "read body: %v", err)
+	}
+	if len(body) > 64<<10 {
+		return apiErr(errValidation, "body too large")
+	}
+	if len(strings.TrimSpace(string(body))) == 0 {
+		return nil // 全用默认值
+	}
+	if err := json.Unmarshal(body, v); err != nil {
+		return apiErr(errValidation, "invalid json: %v", err)
+	}
+	return nil
+}
+
+// fail 按内核的错误信封写回：{"error":{"code","message"}}。
+func (h *handlers) fail(w http.ResponseWriter, r *http.Request, err error) {
+	status, code, msg := http.StatusInternalServerError, "internal", err.Error()
+	switch {
+	case errors.Is(err, errNotFound):
+		status, code = http.StatusNotFound, "not_found"
+	case errors.Is(err, errConflict):
+		status, code = http.StatusConflict, "conflict"
+	case errors.Is(err, errValidation):
+		status, code = http.StatusBadRequest, "validation"
+	default:
+		h.c.Log().Error("request failed", "method", r.Method, "path", r.URL.Path, "err", err)
+		msg = "internal server error"
+	}
+	if code != "internal" {
+		_, msg, _ = strings.Cut(msg, ": ")
+	}
+	writeJSON(w, status, map[string]any{"error": map[string]string{"code": code, "message": msg}})
+}
+
+func writeJSON(w http.ResponseWriter, status int, v any) {
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(v)
+}

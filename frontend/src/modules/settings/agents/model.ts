@@ -1,0 +1,295 @@
+// Agent 列表和配置页的纯函数（AG-01b5），照原型 web-next/src/agents.tsx、agentdata.ts、App.tsx 的 modelChoices。
+// 色值写在这里（.tsx 里不出现色值），单元测试盯着模型可选项、草稿改动和问题汇总。
+import type {
+  Agent, AgentGrantMode, AgentInput, AgentPatch, AgentProvider, AgentThinking, AgentTrigger, AgentTriggerKind, AgentTriggerMatch, Connector,
+  ProviderCheck,
+} from '../../../core/data'
+import { kindOf, splitIds, uiKindOf } from '../providers/catalog'
+
+/** 头像底色，同后端不给 color 时随机挑的那组（原型 AGENT_COLORS） */
+export const AGENT_COLORS = ['#3d4fd6', '#7a4fd6', '#0f8a8a', '#b0570b', '#2f7d43', '#c0352b', '#e8590c', '#23221e'] as const
+export const AVATAR_ICONS = ['robot', 'chat', 'doc', 'chart', 'flow', 'search', 'mail', 'calendar', 'shield', 'spark'] as const
+/** 头像图片上限，同后端 */
+export const AVATAR_MAX_BYTES = 1024 * 1024
+
+export const TRIGGER_KINDS: AgentTriggerKind[] = ['manual', 'im', 'schedule', 'task']
+export const TRIGGER_LABEL: Record<AgentTriggerKind, string> = { manual: '手动对话', im: '收到 IM 消息', schedule: '定时', task: '任务分配给它' }
+export const TRIGGER_PLACEHOLDER: Record<AgentTriggerKind, string> = {
+  manual: '', im: '哪些渠道、群还是私聊', schedule: '比如：每周五 16:00', task: '比如：标签含「Agent」的任务',
+}
+export const triggerLabel = (k: string) => TRIGGER_LABEL[k as AgentTriggerKind] ?? k
+
+/** 内置能力（契约「Agent 工具授权」的 key），列表卡片的能力标签、工具与权限标签按这个顺序；group、desc 照原型 ABILITIES */
+export const ABILITIES: { key: string; label: string; write: boolean; group: string; desc: string }[] = [
+  { key: 'read_messages', label: '读 IM 消息', write: false, group: 'IM 消息', desc: '查看各渠道收到的消息' },
+  { key: 'reply_message', label: '回复 IM 消息', write: true, group: 'IM 消息', desc: '通过连接器发出回复' },
+  { key: 'read_contacts', label: '查联系人', write: false, group: '联系人', desc: '按姓名、公司、IM 账号查人' },
+  { key: 'write_contacts', label: '新建 / 修改联系人', write: true, group: '联系人', desc: '' },
+  { key: 'read_tasks', label: '查任务', write: false, group: '任务', desc: '按状态、负责人、截止时间查任务' },
+  { key: 'write_tasks', label: '新建 / 更新任务', write: true, group: '任务', desc: '' },
+  { key: 'read_content', label: '读文档', write: false, group: '文档', desc: '只能读挂载的知识库里的资料' },
+  { key: 'write_content', label: '写文档', write: true, group: '文档', desc: '新建笔记、摘录' },
+  { key: 'run_sop', label: '发起 SOP', write: true, group: 'SOP', desc: '按标准流程执行，流程里的人工检查点照常停下' },
+]
+
+/** 空格隔开的词都要命中，不分大小写 */
+export function hasAll(hay: string, q: string): boolean {
+  const h = hay.toLowerCase()
+  return q.trim().toLowerCase().split(/\s+/).filter(Boolean).every((w) => h.includes(w))
+}
+
+// ---- 模型 ----
+
+/** 一个可选模型：服务商加模型名；ok 为 false 时 note 是不可用原因 */
+export type ModelChoice = { key: string; providerId: string; model: string; label: string; note: string; ok: boolean; group: string }
+
+export const choiceKey = (providerId: string, model: string) => `${providerId}\u0000${model}`
+
+/** 服务商能不能用：启用、该有的 API Key 有、最近一次测试没失败（没测过按能用） */
+export function providerProblem(p: AgentProvider, check?: ProviderCheck): string | undefined {
+  if (!p.enabled) return `${p.name} 已停用`
+  // Ollama 不要求 API Key（后端 providerNeedsKey）
+  if (p.kind !== 'ollama' && !p.has_api_key) return `${p.name} 还没配 API Key`
+  if (check && !check.result.ok) return `${p.name} 连接异常`
+  return undefined
+}
+
+/**
+ * 各服务商的模型：测通了用实际返回的列表，没测过用手填的模型 ID 或内置目录，默认模型总在里面。
+ * keep 是要保留的当前选择（Agent 正在用的），不在列表里也补进来；服务商删了的单独列成不可用。
+ */
+export function modelChoices(
+  providers: AgentProvider[],
+  checks: Record<string, ProviderCheck | undefined> = {},
+  keep: { provider_id: string; model: string }[] = [],
+): ModelChoice[] {
+  const out: ModelChoice[] = []
+  for (const p of providers) {
+    const def = kindOf(uiKindOf(p))
+    const check = checks[p.id]
+    const tested = check?.result.ok && check.result.models?.length ? check.result.models : null
+    const manual = typeof p.extra?.model_ids === 'string' ? splitIds(p.extra.model_ids) : []
+    const ids = tested ?? (manual.length ? manual : def.catalog.map((m) => m.id))
+    const kept = keep.filter((k) => k.provider_id === p.id && k.model).map((k) => k.model)
+    const all = [...new Set([...(p.model ? [p.model] : []), ...ids, ...kept])]
+    const why = providerProblem(p, check)
+    for (const id of all) {
+      const known = def.catalog.find((m) => m.id === id)
+      const label = known?.name ?? id
+      const note = why ?? (known?.context ? `${p.name} · ${known.context}K 上下文` : p.name)
+      out.push({ key: choiceKey(p.id, id), providerId: p.id, model: id, label, note, ok: !why, group: p.name })
+    }
+  }
+  for (const k of keep) {
+    if (!k.model || providers.some((p) => p.id === k.provider_id)) continue
+    const key = choiceKey(k.provider_id, k.model)
+    if (!out.some((m) => m.key === key)) {
+      out.push({ key, providerId: k.provider_id, model: k.model, label: k.model, note: '服务商已删除', ok: false, group: '不可用' })
+    }
+  }
+  return out
+}
+
+/** 新建时默认的模型：第一个能用的，没有能用的取第一个 */
+export const defaultChoice = (choices: ModelChoice[]) => choices.find((m) => m.ok) ?? choices[0]
+
+/** 可选模型多于这个数时，只露当前选中的，点「换模型」再展开 */
+export const MANY_MODELS = 6
+
+// ---- 草稿 ----
+
+export type AgentDraft = AgentInput
+
+const randomColor = () => AGENT_COLORS[Math.floor(Math.random() * AGENT_COLORS.length)]
+
+/** 新建的空草稿：服务商和模型空着，表示用默认的那个（保存时再定），这样什么都没填不算改动 */
+export function blankDraft(color: string = randomColor()): AgentDraft {
+  return {
+    name: '', desc: '', color, avatar: { kind: 'text', value: '' }, provider_id: '', model: '', instructions: '',
+    skills: [], mcps: [], kbs: [], triggers: [{ kind: 'manual', detail: '' }], thinking: 'default', enabled: true,
+  }
+}
+
+export function draftOf(a: Agent): AgentDraft {
+  return {
+    name: a.name, desc: a.desc, color: a.color, avatar: a.avatar, provider_id: a.provider_id, model: a.model, instructions: a.instructions,
+    skills: a.skills, mcps: a.mcps, kbs: a.kbs, triggers: a.triggers, thinking: a.thinking ?? 'default', enabled: a.enabled,
+  }
+}
+
+/** 思考档位（0045），和后端 domain.ThinkingLevels 一致。模型不支持时后端自动按「模型默认」跑，不会失败 */
+export const THINKING_OPTIONS: { value: AgentThinking; label: string; hint: string }[] = [
+  { value: 'default', label: '模型默认', hint: '不传思考参数，交给模型自己决定' },
+  { value: 'off', label: '不思考', hint: '最快，适合分类、提取这类简单活' },
+  { value: 'low', label: '浅', hint: '想一点，速度和质量折中' },
+  { value: 'medium', label: '中', hint: '想得多一些' },
+  { value: 'high', label: '深', hint: '最慢，适合复杂的分析和写作' },
+]
+export const thinkingLabel = (t: string | undefined) => THINKING_OPTIONS.find((o) => o.value === t)?.label ?? '模型默认'
+
+const DRAFT_KEYS = Object.keys(blankDraft('#000000')) as (keyof AgentDraft)[]
+
+/** 和原值比改了的字段；名称按去首尾空白比，后端也是这么存的 */
+export function draftPatch(base: AgentDraft, d: AgentDraft): AgentPatch {
+  const out: AgentPatch = {}
+  for (const k of DRAFT_KEYS) {
+    const a = k === 'name' ? base.name.trim() : base[k]
+    const b = k === 'name' ? d.name.trim() : d[k]
+    if (JSON.stringify(a) !== JSON.stringify(b)) (out as Record<string, unknown>)[k] = b
+  }
+  return out
+}
+
+export const draftChanged = (base: AgentDraft, d: AgentDraft) => Object.keys(draftPatch(base, d)).length > 0
+
+/** 新建的请求体：服务商和模型没选时用默认的 */
+export function createBody(d: AgentDraft, fallback?: ModelChoice): AgentInput {
+  const pick = d.provider_id ? { provider_id: d.provider_id, model: d.model } : { provider_id: fallback?.providerId ?? '', model: fallback?.model ?? '' }
+  return { ...d, ...pick, name: d.name.trim() }
+}
+
+// ---- 问题汇总 ----
+
+export type EditorTab = 'basic' | 'model' | 'instructions' | 'skills' | 'tools' | 'kbs' | 'triggers'
+export const EDITOR_TABS: { key: EditorTab; label: string }[] = [
+  { key: 'basic', label: '基本信息' }, { key: 'model', label: '模型' }, { key: 'instructions', label: '指令' }, { key: 'skills', label: '技能' },
+  { key: 'tools', label: '工具与权限' }, { key: 'kbs', label: '知识库' }, { key: 'triggers', label: '触发方式' },
+]
+
+/** 各标签的问题：名称没填、模型没选或不可用、挂的连接器异常、非手动触发没填条件 */
+export function editorIssues(d: AgentDraft, model: ModelChoice | undefined, badConns: string[] = []): Partial<Record<EditorTab, string>> {
+  return {
+    basic: !d.name.trim() ? '名称还没填' : undefined,
+    model: !model ? '还没选模型' : !model.ok ? `${model.label} 当前不可用` : undefined,
+    tools: badConns.length ? `${badConns.join('、')} 连接异常` : undefined,
+    triggers: d.triggers.some((t) => !triggerHasCondition(t)) ? '有触发方式没填条件' : undefined,
+  }
+}
+
+/** 空的结构化条件：后端按 kind 只留自己的字段 */
+export const emptyMatch = (): AgentTriggerMatch => ({ assigned: false, tags: [], connector_id: '', channel: '', conversation_id: '', only_me: false })
+
+/** 任务触发没给 match 时后端按「分配给它」处理 */
+export const taskMatchOf = (t: AgentTrigger): AgentTriggerMatch => t.match ?? { ...emptyMatch(), assigned: true }
+
+/** 手动不用条件；任务触发总有结构化条件（默认分配给它）；IM 填了说明或选了连接器、会话、只看与我相关都算 */
+export function triggerHasCondition(t: AgentTrigger): boolean {
+  if (t.kind === 'manual' || t.kind === 'task') return true
+  if (t.detail.trim()) return true
+  const m = t.match
+  return t.kind === 'im' && !!m && (!!m.connector_id || !!m.conversation_id || !!m.channel || m.only_me)
+}
+
+/** 卡片底部的触发方式：手动写「手动」，其余写条件，没条件写类型名 */
+export const triggerSummary = (ts: AgentTrigger[]) =>
+  ts.map((t) => (t.kind === 'manual' ? '手动' : t.detail.trim() || triggerLabel(t.kind))).join(' · ')
+
+/** 本地目录必须是绝对路径；去掉末尾斜杠 */
+export function normDir(s: string): { dir: string; error: string } {
+  const dir = s.trim().replace(/(.)\/+$/, '$1')
+  return { dir, error: dir && !dir.startsWith('/') ? '填绝对路径，以 / 开头' : '' }
+}
+
+// ---- 工具与权限（AG-02b，SPEC-settings-9.15 到 9.20） ----
+
+export type Grants = Record<string, AgentGrantMode>
+export const MODE_LABEL: Record<AgentGrantMode, string> = { off: '关闭', confirm: '需确认', auto: '自动' }
+/** 关闭 < 需确认 < 自动；连接器工具的档位不能超过连接器那边的上限 */
+export const RANK: Record<AgentGrantMode, number> = { off: 0, confirm: 1, auto: 2 }
+
+/** 新建 Agent 的授权，同后端 newAgent：只开查任务、查联系人 */
+export const newGrants = (): Grants => ({ ...Object.fromEntries(ABILITIES.map((a) => [a.key, 'off' as AgentGrantMode])), read_tasks: 'auto', read_contacts: 'auto' })
+
+export const connPrefix = (connId: string) => `conn:${connId}:`
+export const connKey = (connId: string, tool: string) => `${connPrefix(connId)}${tool}`
+
+/** 一个可挂的连接器：工具只列连接器那边没关的，cap 是上限 */
+export type MountableConn = {
+  id: string
+  name: string
+  /** 工具名（连接器定义的 label），挂载下拉按它分组 */
+  kind: string
+  ok: boolean
+  tools: { key: string; name: string; desc: string; write: boolean; cap: AgentGrantMode }[]
+}
+
+/**
+ * 连接器换成挂载用的形状。mountable 是能新挂的：获取过工具清单、没暂停、没断开、定义还在；
+ * 已经挂着的不管状态都列出来（卡片上要能看到、能卸下）。
+ */
+export function mountableConns(conns: readonly Connector[], label: (tool: string) => string): { all: MountableConn[]; mountable: Set<string> } {
+  const all: MountableConn[] = conns.map((c) => ({
+    id: c.id, name: c.name, kind: label(c.tool), ok: c.status !== 'error',
+    tools: c.tools.filter((t) => t.mode !== 'off').map((t) => ({ key: connKey(c.id, t.name), name: t.name, desc: t.desc, write: t.write, cap: t.mode })),
+  }))
+  const mountable = new Set(conns.filter((c) => !!c.tools_at && c.available && c.status !== 'paused' && c.status !== 'disconnected').map((c) => c.id))
+  return { all, mountable }
+}
+
+/** 一个工具能选的档位：只读没有需确认，且不超过上限 */
+export function modeOptions(write: boolean, cap: AgentGrantMode = 'auto'): AgentGrantMode[] {
+  return (write ? (['off', 'confirm', 'auto'] as AgentGrantMode[]) : (['off', 'auto'] as AgentGrantMode[])).filter((m) => RANK[m] <= RANK[cap])
+}
+
+/** 显示的档位：存着的超过了能选的（上限后来收紧了），按能选的最高档显示 */
+export function shownMode(cur: AgentGrantMode | undefined, opts: AgentGrantMode[]): AgentGrantMode {
+  const m = cur ?? 'off'
+  if (opts.includes(m)) return m
+  return opts.filter((o) => RANK[o] <= RANK[m]).pop() ?? 'off'
+}
+
+/** 挂上连接器：只读工具默认自动、写工具默认关闭；已经配过的保留 */
+export function mountGrants(g: Grants, c: MountableConn): Grants {
+  const defaults: Grants = Object.fromEntries(c.tools.map((t) => [t.key, t.write ? 'off' : 'auto']))
+  return { ...defaults, ...g }
+}
+
+/** 卸下连接器时清掉它的 conn:<id>:* 授权，免得以后挂回来带着旧权限 */
+export const unmountGrants = (g: Grants, connId: string): Grants =>
+  Object.fromEntries(Object.entries(g).filter(([k]) => !k.startsWith(connPrefix(connId))))
+
+/**
+ * 发给后端的授权（PUT 整组换掉、没给的就是关闭）：只发开着的；连接器工具只发还在清单里的
+ * （后端对不存在的连接器、工具回 400），只读的需确认按自动发。
+ */
+export function grantsBody(g: Grants, conns: readonly MountableConn[]): Grants {
+  const out: Grants = {}
+  const writeOf = new Map<string, boolean>(ABILITIES.map((a) => [a.key, a.write]))
+  for (const c of conns) for (const t of c.tools) writeOf.set(t.key, t.write)
+  for (const [k, m] of Object.entries(g)) {
+    if (m === 'off' || !writeOf.has(k)) continue
+    out[k] = m === 'confirm' && !writeOf.get(k) ? 'auto' : m
+  }
+  return out
+}
+
+/** 两份授权一样不一样：按开着的比 */
+export function grantsEqual(a: Grants, b: Grants): boolean {
+  const on = (g: Grants) => JSON.stringify(Object.entries(g).filter(([, m]) => m !== 'off').sort(([x], [y]) => x.localeCompare(y)))
+  return on(a) === on(b)
+}
+
+/** 标签上的数量：开着的内置能力加挂着的连接器里开着的工具 */
+export function toolsOn(g: Grants, mounted: readonly MountableConn[]): number {
+  return ABILITIES.filter((a) => (g[a.key] ?? 'off') !== 'off').length
+    + mounted.reduce((n, c) => n + c.tools.filter((t) => (g[t.key] ?? 'off') !== 'off').length, 0)
+}
+
+// ---- 场景默认 Agent（0045） ----
+
+/** 场景下拉：不指定 + 全部 Agent（停用的标出来）；选的 Agent 已删除时补一项占位，免得下拉显示成别的 */
+export function scenarioOptions(current: string, agents: Agent[]): { value: string; label: string }[] {
+  const out = [{ value: '', label: '不指定（用默认服务商）' }]
+  for (const a of agents) out.push({ value: a.id, label: `${a.name || '未命名'}${a.enabled ? '' : '（已停用）'}` })
+  if (current && !agents.some((a) => a.id === current)) out.push({ value: current, label: '已删除的 Agent' })
+  return out
+}
+
+/** 选的 Agent 用不了时的说明：删了、停用了都退回默认服务商 */
+export function scenarioProblem(current: string, agents: Agent[]): string | undefined {
+  if (!current) return undefined
+  const a = agents.find((x) => x.id === current)
+  if (!a) return '选的 Agent 已删除，现在用默认服务商，换一个'
+  if (!a.enabled) return `「${a.name || '未命名'}」已停用，现在用默认服务商`
+  return undefined
+}

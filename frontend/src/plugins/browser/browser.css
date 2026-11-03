@@ -1,0 +1,179 @@
+/* 内置浏览器插件样式，照原型 web-next/src/browser.css（Drive 文件浏览和预览不搬）。铺满内容区：标签栏 + 工具栏 + 内容 */
+
+/* 浏览器页不要顶栏，内容区不留内边距 */
+.shell-main:has(> .shell-content > .br-page) > .topbar { display: none; }
+.shell-content:has(> .br-page) { padding: 0; overflow: hidden; }
+
+.br-page { display: flex; flex-direction: column; height: 100%; min-height: 0; min-width: 0; overflow: hidden; background: var(--bg); position: relative; }
+
+/* ---------- 标签栏 ---------- */
+/* 标签区自己横向滚，「+」和「全部标签」在滚动区外面固定在右边 */
+.br-tabbar { position: relative; z-index: 6; display: flex; align-items: stretch; gap: 2px; padding: 6px 8px 0; background: var(--side); border-bottom: 1px solid var(--line); flex: none; min-width: 0; }
+.br-tabs { position: relative; display: flex; align-items: stretch; gap: 2px; flex: 0 1 auto; overflow-x: auto; scrollbar-width: none; min-width: 0; }
+.br-tabs::-webkit-scrollbar { display: none; }
+/* 先压缩再滚动；窄到一定程度藏掉固定按钮，再窄只有当前标签留关闭按钮 */
+.br-tab { display: flex; align-items: center; gap: 6px; height: 32px; padding: 0 6px 0 10px; width: 190px; min-width: 72px; flex: 0 1 190px; border-radius: 8px 8px 0 0; color: var(--muted); font-size: var(--fs-sm); cursor: pointer; user-select: none; container-type: inline-size; }
+.br-tab:hover { background: var(--hover); color: var(--text); }
+.br-tab.on { background: var(--panel); color: var(--text); box-shadow: inset 0 2px 0 var(--accent); }
+.br-tab-pinned { width: 38px; min-width: 38px; flex: none; justify-content: center; padding: 0; }
+.br-tab-title { flex: 1; }
+.br-tab-btn { width: 18px; height: 18px; display: grid; place-items: center; border-radius: 4px; color: var(--faint); flex: none; }
+.br-tab-btn:hover { background: var(--line); color: var(--text); }
+.br-tab-pin { visibility: hidden; }
+.br-tab:hover .br-tab-pin, .br-tab.on .br-tab-pin { visibility: visible; }
+@container (max-width: 120px) { .br-tab .br-tab-pin { display: none; } }
+@container (max-width: 92px) { .br-tab:not(.on) .br-tab-btn { display: none; } }
+.br-tab-add { width: 30px; height: 32px; display: grid; place-items: center; color: var(--muted); border-radius: 6px; flex: none; }
+.br-tab-add:hover:not(:disabled) { background: var(--hover); color: var(--text); }
+.br-tab-add:disabled { opacity: 0.4; cursor: default; }
+.br-tab-all-wrap { position: relative; flex: none; margin-left: auto; }
+.br-all-menu { width: 280px; max-width: calc(100vw - 32px); max-height: 60vh; overflow-y: auto; }
+.br-all-menu .menu-item .ellipsis { flex: 1; min-width: 0; text-align: left; }
+.br-all-menu .menu-item.on { background: var(--accent-soft); color: var(--accent); }
+
+.br-kicon { flex: none; color: var(--faint); }
+.br-kicon-proto { color: var(--ok); }
+.br-kicon-web { color: var(--accent); }
+.br-spin { width: 12px; height: 12px; flex: none; border-radius: 50%; border: 1.6px solid var(--line-2); border-top-color: var(--accent); animation: ui-spin 0.7s linear infinite; }
+.br-spin-lg { width: 26px; height: 26px; border-width: 2.5px; }
+
+/* ---------- 工具栏 ---------- */
+/* 账号面板从工具栏往下弹，要盖住内容区 */
+.br-bar { position: relative; z-index: 5; display: flex; align-items: center; gap: 4px; padding: 6px 10px; background: var(--panel); border-bottom: 1px solid var(--line); flex: none; min-width: 0; }
+.br-addr { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; height: 32px; padding: 0 10px 0 6px; margin: 0 6px; border-radius: 99px; background: var(--panel-2); border: 1px solid var(--line); }
+.br-addr:focus-within { border-color: var(--accent-line); box-shadow: 0 0 0 3px var(--accent-soft); background: var(--panel); }
+.br-addr input { flex: 1; min-width: 0; border: 0; outline: 0; background: none; color: var(--text); font-size: var(--fs); padding-left: 4px; }
+.br-addr input:focus-visible { outline: 0; }
+.br-kind { display: inline-flex; align-items: center; gap: 4px; height: 22px; padding: 0 8px 0 6px; border-radius: 99px; font-size: var(--fs-xs); white-space: nowrap; flex: none; color: var(--muted); background: var(--hover); }
+.br-kind-proto { color: var(--ok); background: color-mix(in srgb, var(--ok) 12%, transparent); }
+.br-kind-web { color: var(--accent); background: var(--accent-soft); }
+.br-kind .br-kicon { color: inherit; }
+.br-save-warn { display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 10px; border-radius: 99px; font-size: var(--fs-xs); white-space: nowrap; flex: none; color: var(--warn); background: var(--warn-soft); }
+.br-save-retry { text-decoration: underline; }
+
+.br-login-btn { gap: 6px; flex: none; }
+.br-g { display: grid; place-items: center; width: 16px; height: 16px; border-radius: 50%; font-size: var(--fs-2xs); font-weight: 700; color: var(--accent-ink); background: var(--accent); }
+.br-acc-wrap { position: relative; flex: none; }
+.br-acc { display: grid; place-items: center; width: 34px; height: 34px; border-radius: 50%; flex: none; }
+.br-acc:hover { background: var(--hover); }
+.br-acc-menu { width: 290px; max-width: calc(100vw - 24px); padding: 8px; }
+.br-acc-head { display: flex; align-items: center; gap: 10px; padding: 4px 6px; }
+.br-acc-text { display: flex; flex-direction: column; min-width: 0; line-height: 1.45; text-align: left; flex: 1; }
+.br-acc-name { font-weight: 600; }
+.br-acc-scopes { display: flex; flex-direction: column; gap: 2px; padding: 0 10px 4px; }
+.br-acc-err { padding: 4px 10px; font-size: var(--fs-xs); color: var(--danger); }
+.br-scope-line { display: flex; align-items: center; gap: 8px; font-size: var(--fs-sm); min-width: 0; }
+.br-scope-line.off { color: var(--faint); }
+.br-scope-mark { flex: none; font-size: var(--fs-2xs); padding: 0 6px; border-radius: 4px; color: var(--ok); background: color-mix(in srgb, var(--ok) 12%, transparent); }
+.br-scope-line.off .br-scope-mark { color: var(--faint); background: var(--hover); }
+.br-danger-item { color: var(--danger); }
+.br-ctx { position: fixed; right: auto; min-width: 180px; z-index: 80; }
+
+.br-notice-bar { display: flex; align-items: center; gap: 8px; padding: 6px 12px; font-size: var(--fs-sm); color: var(--danger); background: var(--danger-soft); border-bottom: 1px solid var(--line); flex: none; min-width: 0; }
+.br-notice-bar .ellipsis { flex: 1; min-width: 0; }
+
+/* ---------- 内容区 ---------- */
+.br-body { flex: 1; min-height: 0; min-width: 0; position: relative; }
+.br-view { position: absolute; inset: 0; overflow: auto; }
+.br-view[hidden] { display: none; }
+.br-center { min-height: 100%; display: grid; place-items: center; padding: 24px 16px; }
+.br-notice { display: flex; flex-direction: column; align-items: center; gap: 8px; max-width: 420px; text-align: center; padding: 28px 24px; border: 1px solid var(--line); border-radius: var(--r-lg); background: var(--panel); box-shadow: var(--shadow-sm); }
+.br-notice .btn { margin-top: 8px; }
+.br-notice-title { font-size: var(--fs-lg); font-weight: 600; }
+.br-notice-acts { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; margin-top: 8px; }
+.br-notice-acts .btn { margin-top: 0; }
+.br-notice-err { font-size: var(--fs-xs); color: var(--danger); word-break: break-all; }
+.br-light { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+.br-notice .br-light { width: 12px; height: 12px; }
+.br-none { padding: 18px 4px; color: var(--faint); font-size: var(--fs-sm); }
+
+/* 网页大多默认白底，iframe 底色不跟主题 */
+.br-frame-wrap { position: absolute; inset: 0; display: flex; flex-direction: column; background: #fff; }
+.br-frame { flex: 1; width: 100%; min-height: 0; border: 0; background: #fff; }
+/* 白名单内加载超时的卡片盖在 iframe 上面，iframe 照样在后面加载 */
+.br-frame-over { position: absolute; inset: 0; z-index: 1; overflow: auto; background: var(--bg); }
+.br-progress { position: absolute; left: 0; right: 0; top: 0; height: 2px; z-index: 2; overflow: hidden; }
+.br-progress::after { content: ''; position: absolute; top: 0; bottom: 0; width: 40%; background: var(--accent); animation: br-load 1.1s ease-in-out infinite; }
+@keyframes br-load { from { left: -40%; } to { left: 100%; } }
+
+/* ---------- 新标签页 ---------- */
+.br-home { max-width: 860px; margin: 0 auto; padding: 28px 20px 40px; display: flex; flex-direction: column; gap: 16px; }
+.br-card { padding: 14px 16px; border: 1px solid var(--line); border-radius: var(--r-lg); background: var(--panel); box-shadow: var(--shadow-sm); min-width: 0; }
+.br-card-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 6px; min-width: 0; }
+.br-card-head h2 { font-size: var(--fs-md); margin: 0; flex: none; }
+.br-card-head-wrap { flex-wrap: wrap; align-items: center; row-gap: 8px; }
+.br-card-sub { flex: 1; min-width: 0; }
+.br-proto-search { width: 220px; max-width: 100%; }
+.br-pgroups { display: flex; flex-direction: column; }
+.br-pgroup { border-top: 1px solid var(--line); min-width: 0; }
+.br-pgroup:first-child { border-top: 0; }
+.br-pgroup-head { display: flex; align-items: center; gap: 8px; width: 100%; height: 38px; padding: 0 8px; margin: 0 -8px; box-sizing: content-box; border-radius: var(--r-sm); text-align: left; min-width: 0; }
+.br-pgroup-head:hover:not(:disabled) { background: var(--hover); }
+.br-pgroup-head:disabled { cursor: default; color: inherit; opacity: 1; }
+.br-chev { flex: none; color: var(--faint); transition: transform 0.12s; }
+.br-chev.on { transform: rotate(90deg); }
+.br-pgroup-name { flex: 1; min-width: 0; font-weight: 500; }
+.br-pgroup-meta { flex: none; font-size: var(--fs-xs); color: var(--faint); }
+.br-pgroup-meta.on { color: var(--ok); }
+.br-pgroup-bad { color: var(--danger); }
+.br-pgroup .br-protos { padding: 0 0 6px 20px; }
+.br-pgroup-rest { align-self: flex-start; padding: 6px 0; font-size: var(--fs-sm); color: var(--accent); }
+.br-pgroup-rest:hover { text-decoration: underline; }
+.br-protos, .br-recent { display: flex; flex-direction: column; }
+.br-proto { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-top: 1px solid var(--line); min-width: 0; }
+.br-proto:first-child { border-top: 0; }
+.br-proto-text { flex: 1; min-width: 0; line-height: 1.45; }
+.br-proto-name { font-weight: 500; }
+.br-proto .btn { flex: none; }
+.br-drive-guest { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 6px 0; }
+.br-drive-guest > span { flex: 1; min-width: 200px; }
+.br-recent-row { display: flex; align-items: center; gap: 10px; width: 100%; height: 36px; padding: 0 8px; margin: 0 -8px; border-radius: var(--r-sm); min-width: 0; box-sizing: content-box; }
+.br-recent-row:hover { background: var(--hover); }
+.br-recent-title { flex: 0 1 auto; max-width: 45%; }
+.br-recent-url { flex: 1; font-size: var(--fs-xs); text-align: left; }
+.br-recent-at { flex: none; font-size: var(--fs-2xs); }
+
+/* ---------- Google 登录 ---------- */
+.br-g-word { font-weight: 600; font-size: var(--fs-xl); letter-spacing: -0.01em; color: var(--text); }
+.br-modal { gap: 0; }
+.br-modal .br-g-word { margin-bottom: 14px; }
+.br-modal-title { font-size: var(--fs-xl); font-weight: 500; line-height: 1.4; margin: 0 0 6px; }
+.br-modal-sub { margin: 0 0 14px; }
+.br-modal-note { font-size: var(--fs-xs); margin-top: 14px; line-height: 1.6; }
+.br-modal-foot { display: flex; align-items: center; gap: 8px; margin-top: 18px; }
+.br-scope-list { display: flex; flex-direction: column; border-top: 1px solid var(--line); }
+.br-scope { display: flex; align-items: flex-start; gap: 10px; padding: 10px 2px; border-bottom: 1px solid var(--line); }
+.br-scope .check { margin-top: 2px; flex: none; }
+.br-scope-text { display: flex; flex-direction: column; min-width: 0; line-height: 1.5; font-size: var(--fs-sm); }
+.br-scope-label { font-size: var(--fs-md); color: var(--text); }
+.br-scope.off .br-scope-label { color: var(--faint); }
+.br-scope-key { font-family: var(--mono); font-size: var(--fs-2xs); color: var(--faint); }
+.br-working { display: flex; flex-direction: column; align-items: center; gap: 14px; padding: 28px 0 12px; color: var(--muted); text-align: center; }
+.br-login-err { padding: 8px 10px; border-radius: var(--r-sm); color: var(--danger); background: var(--danger-soft); font-size: var(--fs-sm); word-break: break-word; }
+
+/* ---------- 窄屏 ---------- */
+@media (max-width: 760px) {
+  /* 窄屏标签不再压缩，标签栏自己横向滚；固定按钮只留给当前标签 */
+  .br-tab { width: 140px; min-width: 140px; flex: none; }
+  .br-proto-search { width: 100%; }
+  .br-tab:not(.on) .br-tab-pin { display: none; }
+  .br-bar { padding: 6px; gap: 2px; }
+  .br-addr { margin: 0 4px; }
+  .br-kind { display: none; }
+  .br-login-text { display: none; }
+  .br-login-btn { padding: 0 7px; }
+  .br-save-warn { max-width: 96px; overflow: hidden; text-overflow: ellipsis; }
+  .br-home { padding: 16px 12px 32px; }
+  .br-recent-url { display: none; }
+  .br-recent-title { flex: 1; max-width: none; }
+  .br-modal { padding: 22px 18px 18px; }
+}
+
+/* ---------- 会话旁边的浏览器：会话里的链接（SPEC-sessions-1.36） ---------- */
+.br-links { display: flex; align-items: center; gap: 8px; padding: 6px 12px; border-bottom: 1px solid var(--line); background: var(--panel-2); flex: none; min-width: 0; font-size: var(--fs-sm); }
+.br-links-label { flex: none; color: var(--muted); }
+.br-links-list { display: flex; gap: 6px; min-width: 0; overflow-x: auto; scrollbar-width: none; }
+.br-links-list::-webkit-scrollbar { display: none; }
+.br-link { display: inline-flex; align-items: center; max-width: 240px; height: 24px; padding: 0 8px; border: 1px solid var(--line-2); border-radius: 99px; color: var(--text); background: var(--panel); flex: none; }
+.br-link:hover { border-color: var(--accent-line); color: var(--accent); }
+.br-link.on { border-color: var(--accent-line); background: var(--accent-soft); color: var(--accent); }

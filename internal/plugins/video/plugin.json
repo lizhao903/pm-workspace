@@ -1,0 +1,28 @@
+{
+  "id": "video",
+  "name": "视频创作",
+  "description": "视频制作流程、检查点、系列和多平台发布记录",
+  "icon": "video",
+  "version": "0.7.0",
+  "core": ">=1.0.0 <2.0.0",
+  "depends": { "projects": ">=0.5.0 <1.0.0" },
+  "optional_depends": { "im": ">=0.3.0 <1.0.0" },
+  "provides": {
+    "modules": ["videos"],
+    "settings": [],
+    "object_types": [],
+    "connectors": ["bilibili", "youtube", "douyin"],
+    "skills": [],
+    "agent_tools": [],
+    "sop_nodes": ["video_wait_checkpoint", "video_run_stage", "video_publish"],
+    "today_cards": ["video_waiting", "video_scheduled", "video_failed", "video_deal_due"],
+    "commands": [],
+    "schedule_actions": ["video_publish"],
+    "search": []
+  },
+  "emits": [],
+  "subscribes": ["run.finished"],
+  "permissions": ["fs:read:project", "fs:write:project", "network:media-platforms", "process:spawn"],
+  "migrations": "migrations",
+  "table_prefix": "video_"
+}

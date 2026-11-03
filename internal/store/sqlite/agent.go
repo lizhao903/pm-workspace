@@ -3,6 +3,7 @@ package sqlite
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -11,7 +12,10 @@ import (
 	"github.com/lizhao903/pm-workspace/internal/idgen"
 )
 
-const sessionCols = `id, title, object_id, provider_id, model, workdir, created_at, updated_at`
+const sessionCols = `id, title, object_id, provider_id, model, workdir, created_at, updated_at, agent_id, source_ref`
+
+// sessionAgentDeleted 算 agent_deleted：挂了 Agent 但 agents 里已经没有它（0032 不建外键，会话保留）。
+const sessionAgentDeleted = `(agent_sessions.agent_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM agents a WHERE a.id = agent_sessions.agent_id))`
 
 // agentTimeLayout 是这三张表专用的时间格式：带固定 9 位小数的 RFC3339。
 //
@@ -59,6 +63,7 @@ func (s *Store) ListAgentSessions(ctx context.Context, f domain.AgentSessionFilt
 
 	rows, err := s.db.R.QueryContext(ctx, `
 		SELECT s.id, s.title, s.object_id, s.provider_id, s.model, s.workdir, s.created_at, s.updated_at,
+		       s.agent_id, s.source_ref, `+strings.ReplaceAll(sessionAgentDeleted, "agent_sessions.", "s.")+`,
 		       COUNT(m.id)
 		  FROM agent_sessions s
 		  LEFT JOIN agent_messages m ON m.session_id = s.id
@@ -84,6 +89,7 @@ func (s *Store) ListAgentSessions(ctx context.Context, f domain.AgentSessionFilt
 func (s *Store) GetAgentSession(ctx context.Context, id string) (*domain.AgentSession, error) {
 	row := s.db.R.QueryRowContext(ctx, `
 		SELECT s.id, s.title, s.object_id, s.provider_id, s.model, s.workdir, s.created_at, s.updated_at,
+		       s.agent_id, s.source_ref, `+strings.ReplaceAll(sessionAgentDeleted, "agent_sessions.", "s.")+`,
 		       (SELECT COUNT(*) FROM agent_messages WHERE session_id = s.id)
 		  FROM agent_sessions s WHERE s.id = ?`, id)
 	sess, err := scanSession(row, true)
@@ -133,11 +139,23 @@ func (s *Store) CreateAgentSession(ctx context.Context, in *domain.AgentSession)
 		}
 	}
 
+	// source_ref（0047）：空对象和 nil 一样当没有来源
+	sourceRef := ""
+	if len(sess.SourceRef) == 0 {
+		sess.SourceRef = nil
+	} else {
+		b, err := json.Marshal(sess.SourceRef)
+		if err != nil {
+			return nil, validation("source_ref", "must be a JSON object")
+		}
+		sourceRef = string(b)
+	}
+
 	sess.ID = idgen.Prefixed("ags")
 	now := nowAgent()
 	if _, err := s.db.W.ExecContext(ctx,
-		`INSERT INTO agent_sessions (`+sessionCols+`) VALUES (?,?,?,?,?,?,?,?)`,
-		sess.ID, sess.Title, objectID, sess.ProviderID, sess.Model, sess.Workdir, now, now); err != nil {
+		`INSERT INTO agent_sessions (`+sessionCols+`) VALUES (?,?,?,?,?,?,?,?,?,?)`,
+		sess.ID, sess.Title, objectID, sess.ProviderID, sess.Model, sess.Workdir, now, now, ptrArg(sess.AgentID), sourceRef); err != nil {
 		return nil, fmt.Errorf("insert agent session: %w", err)
 	}
 	sess.CreatedAt, sess.UpdatedAt = parseTime(now), parseTime(now)
@@ -150,7 +168,7 @@ func (s *Store) CreateAgentSession(ctx context.Context, in *domain.AgentSession)
 func (s *Store) UpdateAgentSession(ctx context.Context, id string, title, workdir, providerID, model *string) (*domain.AgentSession, error) {
 	var out *domain.AgentSession
 	err := s.withTx(ctx, func(tx *sql.Tx) error {
-		row := tx.QueryRowContext(ctx, `SELECT `+sessionCols+` FROM agent_sessions WHERE id = ?`, id)
+		row := tx.QueryRowContext(ctx, `SELECT `+sessionCols+`, `+sessionAgentDeleted+` FROM agent_sessions WHERE id = ?`, id)
 		cur, err := scanSession(row, false)
 		if noRows(err) {
 			return notFound("agent session")
@@ -300,101 +318,15 @@ func (s *Store) AppendAgentMessage(ctx context.Context, in *domain.AgentMessage)
 	return &m, nil
 }
 
-// --- 产物 ---
-
-func (s *Store) ListAgentArtifacts(ctx context.Context, sessionID string) ([]*domain.AgentArtifact, error) {
-	if err := s.assertSession(ctx, sessionID); err != nil {
-		return nil, err
-	}
-	rows, err := s.db.R.QueryContext(ctx,
-		`SELECT id, session_id, path, size, created_at FROM agent_artifacts
-		  WHERE session_id = ? ORDER BY created_at DESC, rowid DESC`, sessionID)
-	if err != nil {
-		return nil, fmt.Errorf("list agent artifacts: %w", err)
-	}
-	defer func() { _ = rows.Close() }()
-
-	out := []*domain.AgentArtifact{}
-	for rows.Next() {
-		var a domain.AgentArtifact
-		var created string
-		if err := rows.Scan(&a.ID, &a.SessionID, &a.Path, &a.Size, &created); err != nil {
-			return nil, err
-		}
-		a.CreatedAt = parseTime(created)
-		out = append(out, &a)
-	}
-	return out, rows.Err()
-}
-
-// RecordAgentArtifact 对 (session_id, path) upsert：同一个文件被改写多次只留一条。
-// Path 必须是相对 workdir 的路径，绝对路径一律拒——库里存绝对路径的话，
-// 用户换一次产物目录，整张表就全指向不存在的位置了。
-func (s *Store) RecordAgentArtifact(ctx context.Context, in *domain.AgentArtifact) (*domain.AgentArtifact, error) {
-	if in == nil {
-		return nil, validation("artifact", "is required")
-	}
-	a := *in
-	a.Path = strings.TrimSpace(a.Path)
-	if strings.TrimSpace(a.SessionID) == "" {
-		return nil, validation("session_id", "is required")
-	}
-	if a.Path == "" {
-		return nil, validation("path", "is required")
-	}
-	if strings.HasPrefix(a.Path, "/") {
-		return nil, validation("path", "must be relative to the session workdir")
-	}
-
-	now := nowAgent()
-	err := s.withTx(ctx, func(tx *sql.Tx) error {
-		var exists int
-		err := tx.QueryRowContext(ctx, `SELECT 1 FROM agent_sessions WHERE id = ?`, a.SessionID).Scan(&exists)
-		if noRows(err) {
-			return notFound("agent session")
-		}
-		if err != nil {
-			return fmt.Errorf("get agent session: %w", err)
-		}
-
-		// 先查已有记录，命中就复用它的 id：前端可能已经拿这个 id 做了列表 key。
-		var id string
-		err = tx.QueryRowContext(ctx,
-			`SELECT id FROM agent_artifacts WHERE session_id = ? AND path = ?`, a.SessionID, a.Path).Scan(&id)
-		switch {
-		case noRows(err):
-			a.ID = idgen.Prefixed("aga")
-			if _, err := tx.ExecContext(ctx,
-				`INSERT INTO agent_artifacts (id, session_id, path, size, created_at) VALUES (?,?,?,?,?)`,
-				a.ID, a.SessionID, a.Path, a.Size, now); err != nil {
-				return fmt.Errorf("insert agent artifact: %w", err)
-			}
-		case err != nil:
-			return fmt.Errorf("get agent artifact: %w", err)
-		default:
-			a.ID = id
-			if _, err := tx.ExecContext(ctx,
-				`UPDATE agent_artifacts SET size = ?, created_at = ? WHERE id = ?`, a.Size, now, id); err != nil {
-				return fmt.Errorf("update agent artifact: %w", err)
-			}
-		}
-		return nil
-	})
-	if err != nil {
-		return nil, err
-	}
-	a.CreatedAt = parseTime(now)
-	return &a, nil
-}
-
 // --- 辅助 ---
 
 func scanSession(sc rowScanner, withCount bool) (*domain.AgentSession, error) {
 	var s domain.AgentSession
 	var created, updated string
 	// object_id 可空，必须过一层 NullString——直接扫进 *string 会在 NULL 上报错。
-	var objectID sql.NullString
-	dest := []any{&s.ID, &s.Title, &objectID, &s.ProviderID, &s.Model, &s.Workdir, &created, &updated}
+	var objectID, agentID sql.NullString
+	var sourceRef string
+	dest := []any{&s.ID, &s.Title, &objectID, &s.ProviderID, &s.Model, &s.Workdir, &created, &updated, &agentID, &sourceRef, &s.AgentDeleted}
 	if withCount {
 		dest = append(dest, &s.MessageCount)
 	}
@@ -404,6 +336,11 @@ func scanSession(sc rowScanner, withCount bool) (*domain.AgentSession, error) {
 	if objectID.Valid {
 		id := objectID.String
 		s.ObjectID = &id
+	}
+	s.AgentID = strPtr(agentID)
+	if sourceRef != "" {
+		// 读不出来的来源当没有，不拦整条会话
+		_ = json.Unmarshal([]byte(sourceRef), &s.SourceRef)
 	}
 	s.CreatedAt, s.UpdatedAt = parseTime(created), parseTime(updated)
 	return &s, nil

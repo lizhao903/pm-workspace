@@ -3,6 +3,7 @@ package sqlite
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -11,7 +12,8 @@ import (
 )
 
 const stakeholderCols = `s.id, s.name, s.role, s.email, s.note, s.color, s.sort_order,
-	s.archived_at, s.created_at, s.updated_at`
+	s.archived_at, s.created_at, s.updated_at,
+	s.contact_group, s.company, s.title, s.phone, s.tags, s.photo, s.starred, s.last_contact_at`
 
 // stakeholderSelect 把两个引用数一起带出来，不让调用方逐个回查（那就是 N+1，
 // 而名册页一次就要展示全部人）。用相关子查询而不是两次 LEFT JOIN + GROUP BY：
@@ -30,17 +32,67 @@ const stakeholderSelect = `SELECT ` + stakeholderCols + `,
 
 func scanStakeholder(sc rowScanner) (*domain.Stakeholder, error) {
 	var (
-		sh               domain.Stakeholder
-		archived         sql.NullString
-		created, updated string
+		sh                    domain.Stakeholder
+		archived, lastContact sql.NullString
+		created, updated      string
+		tags                  string
 	)
 	if err := sc.Scan(&sh.ID, &sh.Name, &sh.Role, &sh.Email, &sh.Note, &sh.Color, &sh.SortOrder,
-		&archived, &created, &updated, &sh.OwnedCount, &sh.ParticipatingCount); err != nil {
+		&archived, &created, &updated,
+		&sh.Group, &sh.Company, &sh.Title, &sh.Phone, &tags, &sh.Photo, &sh.Starred, &lastContact,
+		&sh.OwnedCount, &sh.ParticipatingCount); err != nil {
 		return nil, err
 	}
 	sh.ArchivedAt = parseNullTime(archived)
+	sh.LastContactAt = parseNullTime(lastContact)
 	sh.CreatedAt, sh.UpdatedAt = parseTime(created), parseTime(updated)
+	// tags 坏了不让整个名册读不出来，按空处理
+	if err := json.Unmarshal([]byte(tags), &sh.Tags); err != nil || sh.Tags == nil {
+		sh.Tags = []string{}
+	}
 	return &sh, nil
+}
+
+// maxStakeholderPhoto 和工作台图标的图片上限一致：原型限 1MB 文件，转成 data URL 约 1.37MB。
+const maxStakeholderPhoto = 1_400_000
+
+func checkStakeholderPhoto(photo string) error {
+	if photo == "" {
+		return nil
+	}
+	if !strings.HasPrefix(photo, "data:image/") {
+		return validation("photo", "must be a data:image/ URL")
+	}
+	if len(photo) > maxStakeholderPhoto {
+		return validation("photo", "is larger than 1MB")
+	}
+	return nil
+}
+
+// cleanTags 去首尾空白、去空、去重，保留顺序。
+func cleanTags(tags []string) []string {
+	out := make([]string, 0, len(tags))
+	seen := map[string]bool{}
+	for _, t := range tags {
+		t = strings.TrimSpace(t)
+		if t == "" || seen[t] {
+			continue
+		}
+		seen[t] = true
+		out = append(out, t)
+	}
+	return out
+}
+
+func tagsJSON(tags []string) string {
+	b, _ := json.Marshal(cleanTags(tags))
+	return string(b)
+}
+
+// nameTaken 是撞名时的 409 文案：name 全局唯一，提示加区分而不是只说已存在。
+func nameTaken(name string) error {
+	return conflict("stakeholder " + name + " already exists; add a qualifier to tell them apart, e.g. " +
+		name + "（公司）")
 }
 
 // ListStakeholders 的 includeArchived=false 只返回在岗的（选人时用），
@@ -89,6 +141,9 @@ func (s *Store) CreateStakeholder(ctx context.Context, sh *domain.Stakeholder) (
 	if name == "" {
 		return nil, validation("name", "is required")
 	}
+	if err := checkStakeholderPhoto(sh.Photo); err != nil {
+		return nil, err
+	}
 	id := sh.ID
 	if id == "" {
 		id = idgen.Prefixed("stk")
@@ -96,13 +151,16 @@ func (s *Store) CreateStakeholder(ctx context.Context, sh *domain.Stakeholder) (
 	now := nowStr()
 
 	_, err := s.db.W.ExecContext(ctx, `INSERT INTO stakeholders
-		(id, name, role, email, note, color, sort_order, archived_at, created_at, updated_at)
-		VALUES (?,?,?,?,?,?,?,NULL,?,?)`,
-		id, name, sh.Role, sh.Email, sh.Note, sh.Color, sh.SortOrder, now, now)
+		(id, name, role, email, note, color, sort_order, archived_at, created_at, updated_at,
+		 contact_group, company, title, phone, tags, photo, starred, last_contact_at)
+		VALUES (?,?,?,?,?,?,?,NULL,?,?,?,?,?,?,?,?,?,?)`,
+		id, name, sh.Role, sh.Email, sh.Note, sh.Color, sh.SortOrder, now, now,
+		strings.TrimSpace(sh.Group), sh.Company, sh.Title, sh.Phone, tagsJSON(sh.Tags), sh.Photo,
+		sh.Starred, timeArg(sh.LastContactAt))
 	// 同名唯一由 0010 的唯一索引兜底：干系人靠名字辨认，出现两个「李钊」时用户无从选择，
 	// 而错选的后果是任务分配到了另一个人身上。
 	if isUnique(err) {
-		return nil, conflict("stakeholder " + name + " already exists")
+		return nil, nameTaken(name)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("insert stakeholder: %w", err)
@@ -144,6 +202,33 @@ func (s *Store) UpdateStakeholder(ctx context.Context, id string, p domain.Stake
 	if p.SortOrder != nil {
 		add("sort_order", *p.SortOrder)
 	}
+	if p.Group != nil {
+		add("contact_group", strings.TrimSpace(*p.Group))
+	}
+	if p.Company != nil {
+		add("company", *p.Company)
+	}
+	if p.Title != nil {
+		add("title", *p.Title)
+	}
+	if p.Phone != nil {
+		add("phone", *p.Phone)
+	}
+	if p.Tags != nil {
+		add("tags", tagsJSON(*p.Tags))
+	}
+	if p.Photo != nil {
+		if err := checkStakeholderPhoto(*p.Photo); err != nil {
+			return nil, err
+		}
+		add("photo", *p.Photo)
+	}
+	if p.Starred != nil {
+		add("starred", *p.Starred)
+	}
+	if p.LastContactAt != nil {
+		add("last_contact_at", timeArg(*p.LastContactAt))
+	}
 	if p.Archived != nil {
 		// 已归档的再归档不刷新时间戳：archived_at 记的是「什么时候离开的」，
 		// 重复提交不该把它推到今天。
@@ -163,7 +248,7 @@ func (s *Store) UpdateStakeholder(ctx context.Context, id string, p domain.Stake
 	_, err = s.db.W.ExecContext(ctx,
 		`UPDATE stakeholders SET `+strings.Join(sets, ", ")+` WHERE id = ?`, args...)
 	if isUnique(err) {
-		return nil, conflict("stakeholder " + strings.TrimSpace(*p.Name) + " already exists")
+		return nil, nameTaken(strings.TrimSpace(*p.Name))
 	}
 	if err != nil {
 		return nil, fmt.Errorf("update stakeholder: %w", err)

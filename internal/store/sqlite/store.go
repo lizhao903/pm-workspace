@@ -22,6 +22,8 @@ var _ store.Store = (*Store)(nil)
 
 type Store struct {
 	db *db.DB
+	// keys 存模型服务商的 api_key，启动时 AttachVault 设一次，之后只读
+	keys ProviderKeyVault
 }
 
 // Open 打开数据库并跑完迁移，返回可直接使用的 Store。
@@ -38,6 +40,10 @@ func Open(ctx context.Context, path string) (*Store, error) {
 }
 
 func (s *Store) Close() error { return s.db.Close() }
+
+// DB 返回底层连接，给同进程里要直接读写内核表的组件（插件状态表、插件迁移）复用，
+// 不另开一组连接。关库仍由 Store.Close 负责。
+func (s *Store) DB() *db.DB { return s.db }
 
 func (s *Store) Ping(ctx context.Context) error { return s.db.Ping(ctx) }
 

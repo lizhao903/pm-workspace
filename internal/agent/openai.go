@@ -30,6 +30,12 @@ func (c *openAIChat) Stream(ctx context.Context, req Request, on func(Event)) er
 	if len(req.Tools) > 0 {
 		body["tools"] = openAITools(req.Tools)
 	}
+	level := thinkingLevel(req.Thinking)
+	return streamThinking("openai", req.Model, level, body, openAIThinking(level),
+		func(b map[string]any, on func(Event)) error { return c.post(ctx, b, on) }, on)
+}
+
+func (c *openAIChat) post(ctx context.Context, body map[string]any, on func(Event)) error {
 	raw, err := json.Marshal(body)
 	if err != nil {
 		return fmt.Errorf("编码请求体失败: %w", err)

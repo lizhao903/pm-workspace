@@ -1,0 +1,1 @@
+{"kind": "youtube#playlistItem", "etag": "etag-test", "id": "PLItemTest0001", "snippet": {"playlistId": "PLtest0000000001", "resourceId": {"kind": "youtube#video", "videoId": "Te5tVid0001"}}}

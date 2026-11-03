@@ -1,0 +1,12 @@
+/* 视频今日卡片（VID-07b），类名 vt- 前缀，颜色走 tokens.css；只在今日页用，不依赖视频页自己的样式 */
+.vt-line { text-decoration: none; }
+.vt-line:hover { background: var(--panel-2); }
+.vt-dot { flex: none; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
+.vt-dot.warn { background: var(--warn); }
+.vt-dot.danger { background: var(--danger); }
+/* 标题优先，副标题先被挤掉 */
+.today-line.vt-line .vt-title { flex: 0 1 auto; max-width: 100%; }
+.today-line.vt-line .vt-sub { flex: 1 1 0; color: var(--faint); font-size: var(--fs-xs); }
+.vt-tag { flex: none; font-size: var(--fs-sm); color: var(--muted); }
+.vt-tag.warn { color: var(--warn); }
+.vt-tag.danger { color: var(--danger); }

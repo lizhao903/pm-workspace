@@ -1,0 +1,31 @@
+{
+  "id": "projects",
+  "name": "项目",
+  "description": "项目目录、沟通渠道绑定、项目资料、原型启停",
+  "icon": "folder",
+  "version": "0.10.0",
+  "core": ">=1.0.0 <2.0.0",
+  "depends": {},
+  "optional_depends": {},
+  "provides": {
+    "modules": ["projects"],
+    "settings": [],
+    "object_types": [],
+    "connectors": [],
+    "skills": [],
+    "agent_tools": [],
+    "sop_nodes": [],
+    "today_cards": [],
+    "commands": [],
+    "search": ["projects"]
+  },
+  "emits": ["projects.prototype_started", "projects.prototype_stopped", "projects.prototype_deleted"],
+  "subscribes": [],
+  "adopts": {
+    "object_types": ["project"],
+    "routes": []
+  },
+  "permissions": ["process:spawn"],
+  "migrations": "migrations",
+  "table_prefix": "projects_"
+}

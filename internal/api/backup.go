@@ -3,33 +3,77 @@ package api
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
-	"github.com/lizhao903/pm-workspace/internal/domain"
+	"github.com/lizhao903/pm-workspace/internal/plugin"
 )
 
 // checksumPrefix 是 checksum 在界面上显示的长度。
 const checksumPrefix = 8
 
-// handleMigrations 返回 schema_migrations，供设置页展示库的 schema 状态。
+// migrationRow 是 /api/admin/migrations 的一行。内核行和原来一样（version、checksum、applied_at）；
+// 插件行多 plugin 和 plugin_version，version 是插件内的文件名；待应用的 applied_at 为 null、pending 为 true。
+type migrationRow struct {
+	Version       string     `json:"version"`
+	Checksum      string     `json:"checksum"`
+	AppliedAt     *time.Time `json:"applied_at"`
+	Plugin        string     `json:"plugin,omitempty"`
+	PluginVersion string     `json:"plugin_version,omitempty"`
+	Pending       bool       `json:"pending,omitempty"`
+}
+
+// handleMigrations 返回 schema_migrations 和插件迁移，供设置页展示库的 schema 状态。
+// 不带参数：内核的全部记录在前，插件已应用的在后；?plugin=<id>：只给这个插件的，含待应用的。
 func (s *Server) handleMigrations(w http.ResponseWriter, r *http.Request) {
-	items, err := s.st.Migrations(r.Context())
-	if err != nil {
-		s.fail(w, r, err)
+	pluginID := r.URL.Query().Get("plugin")
+	out := []migrationRow{}
+	if pluginID == "" {
+		items, err := s.st.Migrations(r.Context())
+		if err != nil {
+			s.fail(w, r, err)
+			return
+		}
+		for _, m := range items {
+			at := m.AppliedAt
+			out = append(out, migrationRow{Version: m.Version, Checksum: shortChecksum(m.Checksum), AppliedAt: &at})
+		}
+	}
+	if s.opt.Plugins != nil {
+		steps, err := s.opt.Plugins.MigrationSteps(r.Context(), pluginID)
+		if errors.Is(err, plugin.ErrNotFound) {
+			s.fail(w, r, notFoundf("no such plugin: %s", pluginID))
+			return
+		}
+		if err != nil {
+			s.fail(w, r, err)
+			return
+		}
+		for _, st := range steps {
+			row := migrationRow{Version: st.File, Checksum: shortChecksum(st.Checksum), Plugin: st.Plugin, Pending: st.Applied == nil}
+			if st.Applied != nil {
+				at := st.Applied.AppliedAt
+				row.AppliedAt, row.PluginVersion = &at, st.Applied.PluginVersion
+			}
+			out = append(out, row)
+		}
+	} else if pluginID != "" {
+		s.fail(w, r, notFoundf("no such plugin: %s", pluginID))
 		return
 	}
-	// checksum 在这一层截短：设置页只拿它做「文件有没有被换过」的目视比对，
-	// 完整的 64 位 hash 铺满一整行反而看不出差异。store 那边仍返回完整值。
-	out := make([]domain.MigrationRecord, 0, len(items))
-	for _, m := range items {
-		if len(m.Checksum) > checksumPrefix {
-			m.Checksum = m.Checksum[:checksumPrefix]
-		}
-		out = append(out, m)
-	}
 	respondList(w, out, Meta{Total: len(out)})
+}
+
+// shortChecksum 在这一层截短：设置页只拿它做「文件有没有被换过」的目视比对，
+// 完整的 64 位 hash 铺满一整行反而看不出差异。store 那边仍返回完整值。
+func shortChecksum(sum string) string {
+	if len(sum) > checksumPrefix {
+		return sum[:checksumPrefix]
+	}
+	return sum
 }
 
 type snapshotReq struct {
