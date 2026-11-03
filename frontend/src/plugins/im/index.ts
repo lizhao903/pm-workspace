@@ -1,8 +1,9 @@
 // IM 消息插件（IM-02b 起）：清单在后端 internal/plugins/im/plugin.json，这里只有入口。
 // 模块 key 是 messages（工作台和菜单按它认，见 core/shell/workspace.ts）；页面是收件箱加消息抽屉，没有二级菜单
 import { TODAY_ORDER, definePlugin } from '../../core/plugin'
-import { conversationsApi, dataKeys, imApi, queryClient, type Conversation, type ImMessage } from '../../core/data'
+import { conversationsApi, dataKeys, imApi, projectOptions, queryClient, type Conversation, type ImMessage } from '../../core/data'
 import { messageTitle, searchMessages } from './search'
+import { SOURCE_KIND } from './sessionModel'
 
 // 今日「需要你处理」的 IM 消息组（SPEC-today-1.4）：与我相关（@我、@所有人、私聊）、待处理且不在稍后提醒中的，
 // 其余群消息只在消息页（B-01）；@我 的排在同组前面。和消息页共用一份缓存
@@ -40,6 +41,15 @@ export default definePlugin({
       path: 'messages',
       load: () => import('./Page'),
     })
+    // 从消息发起的会话（0008）：会话页头部「来源」点回这条消息（合并的一组点回最新一条）
+    api.sessionSources.register({
+      kind: SOURCE_KIND,
+      describe: (ref) => {
+        const id = typeof ref.message_id === 'string' ? ref.message_id : ''
+        const label = typeof ref.label === 'string' && ref.label ? ref.label : 'IM 消息'
+        return { label, to: id ? `/messages?m=${encodeURIComponent(id)}` : '', title: '回到 IM 消息页打开这条消息' }
+      },
+    })
     // 命令面板搜消息：和消息页共用一份缓存，半分钟内不重取；回车打开消息抽屉
     api.commands.provide('im_messages', async (q) => {
       const rows = await queryClient.fetchQuery({ queryKey: dataKeys.im.list, queryFn: ({ signal }) => imApi.all(signal), staleTime: 30_000 })
@@ -72,7 +82,7 @@ export default definePlugin({
     })
     // 来消息自动分诊（SOP-05）：触发方式是 IM 的流程输入里有 message_id，这两个节点留空就用它
     api.sopNodes.register({
-      kind: 'im_get_message', label: '读取消息', group: '沟通', color: '#1971c2', desc: '取出这条消息的正文、发信人和会话，交给后面的步骤',
+      kind: 'im_get_message', label: '读取消息', group: '沟通', color: '#1971c2', desc: '取出这条消息的正文、发信人、会话和归到的项目（含群组默认项目），交给后面的步骤',
       fields: [
         { key: 'message', label: '消息', type: 'text', hint: '消息 id，支持 {{字段}}；留空用输入里的 message_id' },
       ],
@@ -85,6 +95,21 @@ export default definePlugin({
         ] },
         { key: 'message', label: '消息', type: 'text', hint: '消息 id，支持 {{字段}}；留空用输入里的 message_id' },
       ],
+    })
+    // 消息分流：项目消息先归到项目，项目「沟通」里就能看到
+    api.sopNodes.register({
+      kind: 'im_set_project', label: '消息归到项目', group: '沟通', color: '#2f9e44', desc: '把消息归到一个项目，项目的沟通里能看到它',
+      fields: [
+        { key: 'project', label: '项目', type: 'select', required: true, options: () => [
+          { value: '{{project_id}}', label: '取输入里的 project_id' }, ...projectOptions(),
+        ] },
+        { key: 'message', label: '消息', type: 'text', hint: '消息 id，支持 {{字段}}；留空用读取消息的结果或输入里的 message_id' },
+      ],
+      summary: (c) => {
+        if (!c.project) return ''
+        const p = projectOptions().find((o) => o.value === c.project)
+        return `归到 ${p?.label ?? c.project}`
+      },
     })
   },
 })

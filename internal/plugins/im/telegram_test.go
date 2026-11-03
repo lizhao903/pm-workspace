@@ -389,6 +389,20 @@ func TestTelegramReplyAndFetch(t *testing.T) {
 	if rp, _ := fake.sent[0]["reply_parameters"].(map[string]any); rp["message_id"] != float64(7) {
 		t.Fatalf("应串回原消息：%v", fake.sent[0])
 	}
+	// @（0.18.0）：有用户名的换成 @用户名；没有用户名（编号是数字）的文字不变，加 text_mention 实体
+	code, out = e.do(t, http.MethodPost, "/api/im/messages/"+id+"/reply",
+		`{"text":"@林原 @阿青 看下","mentions":[{"external_id":"linyuan","name":"林原"},{"external_id":"555","name":"阿青"}]}`)
+	if code != http.StatusOK || len(fake.sent) != 2 || fake.sent[1]["text"] != "@linyuan @阿青 看下" {
+		t.Fatalf("@ 渲染：%d %v %v", code, out, fake.sent)
+	}
+	ents, _ := fake.sent[1]["entities"].([]any)
+	if len(ents) != 1 {
+		t.Fatalf("text_mention：%v", fake.sent[1])
+	}
+	if en := ents[0].(map[string]any); en["type"] != "text_mention" || en["offset"] != float64(9) || en["length"] != float64(3) ||
+		en["user"].(map[string]any)["id"] != float64(555) {
+		t.Fatalf("text_mention：%v", en)
+	}
 	rd, err := e.tg.Fetch(context.Background(), AttachmentRef{ConnectorID: c.ID, Raw: json.RawMessage(`{"file_id":"big"}`)})
 	if err != nil {
 		t.Fatal(err)

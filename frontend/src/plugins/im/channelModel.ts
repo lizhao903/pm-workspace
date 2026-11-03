@@ -1,5 +1,5 @@
 // 渠道配置（IM-01b）的纯函数：哪些是 IM 渠道、状态文案、同步结果的说明、Slack 表单的校验。面板见 ChannelPanel.tsx。
-import { errorText, isApiError, type Connector, type ConnectorDef, type ConnectorStatus, type ImSyncResult } from '../../core/data'
+import { errorText, isApiError, type Connector, type ConnectorDef, type ConnectorStatus, type ImEmailBackfillResult, type ImSyncResult } from '../../core/data'
 
 /** 空状态给的入口，按这个顺序；后端没登记的定义显示成不可用 */
 export const ENTRY_TOOLS = ['slack', 'telegram'] as const
@@ -12,10 +12,10 @@ export const STATUS_TEXT: Record<ConnectorStatus, { label: string; tone: 'ok' | 
   disconnected: { label: '已断开', tone: 'muted' },
 }
 
-/** Slack App 要的 Bot Token Scopes：收频道、私有频道、私信、多人私信，查人名，回复，下载附件 */
+/** Slack App 要的 Bot Token Scopes：收频道、私有频道、私信、多人私信，查人名和邮箱（补联系人邮箱），回复，下载附件 */
 export const SLACK_SCOPES = [
   'channels:read', 'channels:history', 'groups:read', 'groups:history', 'im:read', 'im:history', 'mpim:read', 'mpim:history',
-  'users:read', 'chat:write', 'files:read',
+  'users:read', 'users:read.email', 'chat:write', 'files:read',
 ]
 
 /** 同步间隔（分钟）；0 是不定时，只收回调和手动同步 */
@@ -97,3 +97,22 @@ export const memberIdError = (s: string) => (!s.trim() || /^[UW][A-Z0-9]{2,}$/.t
 
 /** 事件订阅的回调地址：浏览器当前访问的地址 + 回调路径 */
 export const callbackUrl = (tool: string, origin = typeof window === 'undefined' ? '' : window.location.origin) => `${origin}/api/im/callbacks/${tool}`
+
+/** 缺 users:read.email 时的提示，后端没给 hint 时用 */
+export const SLACK_EMAIL_SCOPE_HINT = 'Slack 应用要加 users:read.email 权限并重新安装'
+
+/** 从 Slack 补联系人邮箱的结果说明（一行）；缺权限时由界面另外显示 hint */
+export function emailBackfillText(r: ImEmailBackfillResult) {
+  if (r.missing_scope) return '没补：拿不到 Slack 资料里的邮箱'
+  if (!r.checked) return '还没有关联到 Slack 的联系人：先在联系人里加 Slack 身份（Member ID）'
+  const parts = [`查了 ${r.checked} 个 Slack 身份`, r.filled ? `补上 ${r.filled} 个邮箱` : '没有要补的']
+  if (r.conflicts.length) parts.push(`${r.conflicts.length} 个和名册里不一样（没改）`)
+  if (r.pending) parts.push(`还有 ${r.pending} 个没查完，稍后再点一次`)
+  return parts.join('，')
+}
+
+/** 补邮箱失败的说明：渠道出错是 502，去掉后端的前缀 */
+export function emailBackfillErrorText(e: unknown) {
+  if (isApiError(e, 'conflict')) return errorText(e)
+  return errorText(e).replace(/^补邮箱失败：/, '') || '补邮箱失败'
+}

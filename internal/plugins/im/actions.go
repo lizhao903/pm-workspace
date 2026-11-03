@@ -270,11 +270,14 @@ func (in *inbox) replyBlocker(ctx context.Context, m Message) (Replier, error) {
 
 // reply 经适配器发出去。发送失败也记一行（status=failed）并把原因写到消息上，回 502 send_failed。
 // done 为真且发成功时顺带标成处理完，同原型的「并处理」。
+// mentions（0.18.0，mention.go）是正文里要真正 @ 到的人：群聊默认 @ 原发信人由前端放进正文和 mentions，后端不自己加。
+// 记下的回复正文是「@名字」原文，不是渠道写法。
 func (in *inbox) reply(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	var body struct {
-		Text string `json:"text"`
-		Done bool   `json:"done"`
+		Text     string         `json:"text"`
+		Done     bool           `json:"done"`
+		Mentions []mentionInput `json:"mentions"`
 	}
 	if err := decode(r, &body, 64<<10); err != nil {
 		fail(w, r, in.c, err)
@@ -294,13 +297,21 @@ func (in *inbox) reply(w http.ResponseWriter, r *http.Request) {
 		fail(w, r, in.c, err)
 		return
 	}
+	mentions, err := in.resolveMentions(ctx, m.Channel, body.Mentions)
+	if err != nil {
+		fail(w, r, in.c, err)
+		return
+	}
 	rp, err := in.replyBlocker(ctx, m)
 	if err != nil {
 		fail(w, r, in.c, err)
 		return
 	}
 	out := Outgoing{ConnectorID: m.ConnectorID, ConversationID: m.ConversationExternalID, ConversationKind: m.ConversationKind,
-		RecipientID: m.SenderID, ReplyTo: m.ExternalID, Text: text}
+		RecipientID: m.SenderID, ReplyTo: m.ExternalID, Text: text, Mentions: mentions}
+	if m.Thread != nil {
+		out.ThreadOf = m.Thread.ParentExternalID
+	}
 	sendCtx, cancel := context.WithTimeout(ctx, replyTimeout)
 	ext, sendErr := rp.Reply(sendCtx, out)
 	cancel()

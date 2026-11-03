@@ -1,5 +1,5 @@
 // 渠道配置里的 Slack 表单（IM-01b）：Slack App 的 Bot Token（xoxb-）和 Signing Secret 进保险箱，界面只显示脱敏提示；
-// 监听频道、我的 Member ID、同步间隔是普通配置。保存后自动做一次连通测试，账号写成「Bot 名（Member ID）」。
+// 监听频道（已保存的从列表勾选，core/ui/ChannelPicker）、我的 Member ID、同步间隔是普通配置。保存后自动做一次连通测试，账号写成「Bot 名（Member ID）」。
 // 工作台不在公网上时 Slack 的事件推不进来，靠同步间隔定时拉；在公网上可以再配事件订阅，回调地址见表单底部。
 // 身份（IM-06）：Bot（默认）或我本人。我本人填同一个 App 的 User OAuth Token（xoxp-），以本人身份读本人能看到的会话、
 // 以本人名义回复；本人的 Member ID 由连通测试拿到，不用填。
@@ -9,6 +9,7 @@ import {
   type Connector, type ConnectorPatch,
 } from '../../core/data'
 import { Checkbox, Field, Input, Select } from '../../core/ui'
+import { ChannelPicker } from '../../core/ui/ChannelPicker'
 import {
   callbackUrl, intervalLabel, memberIdError, SELF_NAMES_FIELD, SELF_NAMES_HINT, SLACK_AS_BOT, SLACK_AS_USER, SLACK_IDENTITY_FIELD, SLACK_SCOPES,
   SLACK_USER_SCOPES, slackAs, slackTokenError, SYNC_INTERVALS, type SlackAs,
@@ -125,8 +126,9 @@ export function SlackForm({ connector, onSaved, onCancel }: {
         <Input type="password" autoComplete="off" value={signing} placeholder={signingHint ? '不改留空' : 'Basic Information 页的 Signing Secret'}
           onChange={(e) => setSigning(e.target.value)} />
       </Field>
-      <Field label="监听频道" hint={`逗号分隔，# 可省，也可以写频道 id；留空只收私信。${user ? '只收你在里面的频道' : 'Bot 要先被邀请进这些频道'}`}>
-        <Input value={channels} placeholder="#product, #feedback" onChange={(e) => setChannels(e.target.value)} />
+      {/* 已保存的连接器从 Token 看得到的会话里勾选；新建或拿不到列表时是文本框（逗号分隔，# 可省，也可以写频道 id） */}
+      <Field label="监听频道" wrap={false} hint={`留空只收私信。${user ? '只收你在里面的频道' : 'Bot 要先被邀请进这些频道'}`}>
+        <ChannelPicker label="监听频道" placeholder="#product, #feedback，逗号分隔" connectorId={connector?.id} value={channels} onChange={setChannels} />
       </Field>
       {!user && (
         <Field label="我的 Member ID" error={touched ? selfErr : undefined} hint="@ 到它的消息算「@我」；留空只认 @Bot">

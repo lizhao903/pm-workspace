@@ -101,6 +101,10 @@ func (in *inbox) ingest(ctx context.Context, a Adapter, msgs []Incoming, strict 
 		}
 		if !ok {
 			res.Duplicates++
+			// 早先当普通消息收进来的（串里回复同时发到频道的，0010 之前不记串），补上属于哪个串
+			if err := in.fillThread(ctx, r); err != nil {
+				return res, err
+			}
 			continue
 		}
 		res.IDs = append(res.IDs, r.id)
@@ -125,7 +129,7 @@ const sameReplySQL = `SELECT 1 FROM im_replies rp JOIN im_messages mm ON mm.id =
 
 // recordSelf 把「我」自己在渠道里发的一条（FromSelf，IM-06）记成回复：挂在同渠道、同连接器、同会话里
 // 发送时间不晚于它的最近一条消息上，状态 sent，时间用它的发送时间，那条标为已读，处理状态不动（要不要算处理完由人定）。
-// 同一外部编号已记过（在工作台里回复的，拉回来时又看到）、没有会话编号、会话里还没收过消息的跳过。
+// 同一外部编号已记过（在工作台里回复的，拉回来时又看到）、是工作台主动发出的（im_outbox）、没有会话编号、会话里还没收过消息的跳过。
 func (in *inbox) recordSelf(ctx context.Context, ch string, m Incoming) error {
 	ext, conv := strings.TrimSpace(m.ExternalID), strings.TrimSpace(m.ConversationID)
 	if ext == "" || conv == "" {
@@ -140,9 +144,22 @@ func (in *inbox) recordSelf(ctx context.Context, ch string, m Incoming) error {
 		at = in.clock()
 	}
 	sentAt := at.UTC().Format(timeLayout)
+	// 工作台主动发出去的（0.17.0，outbox.go）已在发件记录里，不再记成回复
+	if dup, err := in.sentOutside(ctx, ch, strings.TrimSpace(m.ConnectorID), ext); err != nil || dup {
+		return err
+	}
 	var msgID string
-	err = in.c.Store().QueryRow(ctx, `SELECT id FROM im_messages WHERE channel = ? AND connector_id = ? AND conversation_external_id = ?
-		AND sent_at <= ? ORDER BY sent_at DESC LIMIT 1`, ch, strings.TrimSpace(m.ConnectorID), convExt, sentAt).Scan(&msgID)
+	err = plugin.ErrNoRows
+	if tp := strings.TrimSpace(m.ThreadParentID); tp != "" {
+		// 串里的回复（0010）：记在这个串里在它之前最近一条（父消息或更早的回复）上；串里一条都没收过再按会话找
+		err = in.c.Store().QueryRow(ctx, `SELECT id FROM im_messages WHERE channel = ? AND connector_id = ?
+			AND (external_id = ? OR thread_parent_external_id = ?) AND sent_at <= ? ORDER BY sent_at DESC LIMIT 1`,
+			ch, strings.TrimSpace(m.ConnectorID), tp, tp, sentAt).Scan(&msgID)
+	}
+	if errors.Is(err, plugin.ErrNoRows) {
+		err = in.c.Store().QueryRow(ctx, `SELECT id FROM im_messages WHERE channel = ? AND connector_id = ? AND conversation_external_id = ?
+			AND sent_at <= ? ORDER BY sent_at DESC LIMIT 1`, ch, strings.TrimSpace(m.ConnectorID), convExt, sentAt).Scan(&msgID)
+	}
 	if errors.Is(err, plugin.ErrNoRows) {
 		return nil
 	}
@@ -173,6 +190,8 @@ type row struct {
 	attachments, relevance               string
 	sentAt, receivedAt                   string
 	adapter                              string
+	// 串里的回复（0010）：父消息的 external_id 和到达时的父消息快照
+	threadParent, threadSender, threadText string
 }
 
 // badInput 是一条消息本身不合法（和查库出错区分开）。
@@ -246,7 +265,51 @@ func (in *inbox) prepare(ctx context.Context, ch string, self []string, m Incomi
 		}
 	}
 	r.relevance = relevance(m.Mention, r.text, self, r.convKind)
+	if tp := strings.TrimSpace(m.ThreadParentID); tp != "" && tp != r.externalID {
+		r.threadParent = tp
+		r.threadSender = clip(strings.TrimSpace(m.ThreadParentSender), maxName)
+		r.threadText = clip(strings.TrimSpace(m.ThreadParentText), threadTextMax)
+		// 我发起的串（父消息是我发的）里别人的回复算与我相关，记 me；@所有人、无关的升上来，私聊本来就相关不动
+		if r.relevance == "" || r.relevance == "all" {
+			mine := m.ThreadParentMine
+			if !mine {
+				if mine, err = in.parentIsMine(ctx, ch, r.connectorID, tp); err != nil {
+					return r, err
+				}
+			}
+			if mine {
+				r.relevance = "me"
+			}
+		}
+	}
 	return r, nil
+}
+
+// threadTextMax 是父消息正文快照的字数（0010）。
+const threadTextMax = 80
+
+// parentIsMine 父消息是不是我发的：我发的不落成消息，记成了回复（工作台回复、本人身份拉到的自己发的，im_replies.external_id）。
+func (in *inbox) parentIsMine(ctx context.Context, ch, connID, parent string) (bool, error) {
+	var x int
+	err := in.c.Store().QueryRow(ctx, `SELECT 1 FROM im_replies rp JOIN im_messages mm ON mm.id = rp.message_id
+		WHERE rp.external_id = ? AND rp.status = 'sent' AND mm.channel = ? AND mm.connector_id = ? LIMIT 1`, parent, ch, connID).Scan(&x)
+	if errors.Is(err, plugin.ErrNoRows) {
+		return false, nil
+	}
+	return err == nil, err
+}
+
+// fillThread 已收过的消息补上属于哪个串（只补没记过的），不改别的。
+func (in *inbox) fillThread(ctx context.Context, r row) error {
+	if r.threadParent == "" {
+		return nil
+	}
+	_, err := in.c.Store().Exec(ctx, `UPDATE im_messages SET thread_parent_external_id = ?,
+		thread_parent_sender = CASE WHEN thread_parent_sender = '' THEN ? ELSE thread_parent_sender END,
+		thread_parent_text = CASE WHEN thread_parent_text = '' THEN ? ELSE thread_parent_text END
+		WHERE channel = ? AND external_id = ? AND (thread_parent_external_id = '' OR thread_parent_external_id = ?)`,
+		r.threadParent, r.threadSender, r.threadText, r.channel, r.externalID, r.threadParent)
+	return err
 }
 
 // register 会话还没登记时登记上（渠道、编号、群名、类型，私聊带上对方的身份），项目绑定面板才列得出来（PR-02）。
@@ -314,11 +377,13 @@ func (in *inbox) registerJob(ctx context.Context, _ plugin.Core) error {
 func (in *inbox) insert(ctx context.Context, r row) (bool, error) {
 	res, err := in.c.Store().Exec(ctx, `INSERT INTO im_messages (id, channel, connector_id, external_id,
 		conversation_id, conversation_external_id, conversation_kind, conversation_name,
-		sender_identity_id, sender_external_id, sender_name, text, attachments, relevance, sent_at, received_at, adapter)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		sender_identity_id, sender_external_id, sender_name, text, attachments, relevance, sent_at, received_at, adapter,
+		thread_parent_external_id, thread_parent_sender, thread_parent_text)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT (channel, external_id) DO NOTHING`,
 		r.id, r.channel, r.connectorID, r.externalID, r.convID, r.convExt, r.convKind, r.convName,
-		r.identityID, r.senderExt, r.senderName, r.text, r.attachments, r.relevance, r.sentAt, r.receivedAt, r.adapter)
+		r.identityID, r.senderExt, r.senderName, r.text, r.attachments, r.relevance, r.sentAt, r.receivedAt, r.adapter,
+		r.threadParent, r.threadSender, r.threadText)
 	if err != nil {
 		return false, fmt.Errorf("insert im message: %w", err)
 	}

@@ -1,17 +1,19 @@
 // 渠道配置（IM-01b）：IM 消息页右上角「渠道配置」打开的抽屉，只列 IM 类连接器。
-// 每个渠道显示状态、账号、最近同步时间、出错原因，能测试连接、立即同步、停用和启用、改配置；
+// 每个渠道显示状态、账号、最近同步时间、出错原因，能测试连接、立即同步、停用和启用、改配置；Slack 渠道还能从 Slack 补联系人邮箱（EmailBackfill.tsx）；
 // 没接过时给「接入 Slack」「接入 Telegram」两个入口。各渠道的表单在 channelForms.ts 里登记，没登记的去设置里的连接器页配，
 // 跳过去时带上实例或工具，那边直接打开对应的抽屉（POL-01）。
 // 列表下面是 IM 插件自己的设置：超过几天没处理的消息标为已过期（IM-07），0 为不过期。
 import { useState, type CSSProperties } from 'react'
 import {
-  IM_EXPIRE_DAYS_MAX, errorText, useConnectorDefs, useConnectors, useImSettings, useImSyncConnector, usePatchConnector, usePatchImSettings, useTestConnector,
-  type Connector, type ConnectorDef,
+  IM_EXPIRE_DAYS_MAX, IM_QUICK_REPLIES_MAX, IM_QUICK_REPLY_TEXT_MAX, errorText, useConnectorDefs, useConnectors, useImSettings, useImSyncConnector, usePatchConnector, usePatchImSettings, useTestConnector,
+  type Connector, type ConnectorDef, type ImQuickReply,
 } from '../../core/data'
-import { Drawer, ErrorState, Field, Input, LoadingState, cls } from '../../core/ui'
+import { Button, Checkbox, Drawer, ErrorState, Field, IconButton, IconClose, Input, LoadingState, cls } from '../../core/ui'
 import { CHANNEL_FORMS } from './channelForms'
+import { EmailBackfill } from './EmailBackfill'
 import { addableDefs, ENTRY_TOOLS, imConnectors, imDefs, intervalLabel, SELF_NAMES_FIELD, STATUS_TEXT, syncErrorText, syncText } from './channelModel'
 import { timeAgo } from './model'
+import { SLACK_TOOL } from './SlackForm'
 import { TELEGRAM_TOOL, telegramModeLabel } from './telegramModel'
 import './channels.css'
 
@@ -83,6 +85,7 @@ export function ChannelPanel({ onClose, onManageAll }: { onClose: () => void; on
         )}
         <button type="button" className="im-chlink" onClick={() => onManageAll()}>在设置里管理全部连接器</button>
         <ExpirySetting />
+        <QuickReplySetting />
       </div>
     )
   }
@@ -167,6 +170,7 @@ function ChannelCard({ c, def, hasForm, onEdit }: { c: Connector; def?: Connecto
         <span className="spacer" />
         <button type="button" className="btn btn-ghost btn-sm" disabled={busy} onClick={onEdit}>{hasForm ? '配置' : '去设置里配置'}</button>
       </div>
+      {c.tool === SLACK_TOOL && <EmailBackfill c={c} disabled={off || !c.available} />}
     </div>
   )
 }
@@ -210,6 +214,83 @@ function ExpirySetting() {
               <button type="submit" className="btn btn-outline btn-sm" disabled={!changed || save.isPending}>{save.isPending ? '保存中…' : '保存'}</button>
             </div>
           </Field>
+          {note && <div className={note.ok ? 'im-ok' : 'im-err'} role={note.ok ? 'status' : 'alert'}>{note.text}</div>}
+        </>
+      )}
+    </form>
+  )
+}
+
+/**
+ * 快捷回复：消息抽屉「反馈」和列表行「回复」菜单里的那几条。逐条改文字、勾「并处理」（发完同时标为已处理）、
+ * 上移、删除、加一条；保存时整组替换。空的、重复的、超长的前端先挡，其余以后端校验为准
+ */
+function QuickReplySetting() {
+  const settings = useImSettings()
+  const save = usePatchImSettings()
+  const saved = settings.data?.quick_replies
+  const [draft, setDraft] = useState<ImQuickReply[] | null>(null)
+  const [note, setNote] = useState<Note | null>(null)
+  const list = draft ?? saved ?? []
+  const edit = (next: ImQuickReply[]) => { setDraft(next); setNote(null) }
+  const patch = (i: number, p: Partial<ImQuickReply>) => edit(list.map((q, j) => (j === i ? { ...q, ...p } : q)))
+  const move = (i: number) => edit(list.map((q, j) => (j === i - 1 ? list[i] : j === i ? list[i - 1] : q)))
+
+  const texts = list.map((q) => q.text.trim())
+  const issue = (i: number) => {
+    const t = texts[i]
+    if (!t) return '不能为空'
+    if (t.length > IM_QUICK_REPLY_TEXT_MAX) return `最多 ${IM_QUICK_REPLY_TEXT_MAX} 字`
+    if (texts.indexOf(t) !== i) return '和上面的重复了'
+    return undefined
+  }
+  const bad = list.some((_, i) => issue(i))
+  const changed = draft !== null && JSON.stringify(draft.map((q) => ({ text: q.text.trim(), done: q.done }))) !== JSON.stringify(saved ?? [])
+
+  const submit = () => {
+    setNote(null)
+    if (bad || !changed || save.isPending) return
+    save.mutate({ quick_replies: list.map((q) => ({ text: q.text.trim(), done: q.done })) }, {
+      onSuccess: (r) => { setDraft(null); setNote({ ok: true, text: r.quick_replies.length ? `已保存：${r.quick_replies.length} 条快捷回复` : '已保存：不用快捷回复' }) },
+      onError: (e) => setNote({ ok: false, text: `没保存：${errorText(e)}` }),
+    })
+  }
+
+  return (
+    <form className="im-chexpire" aria-label="快捷回复" noValidate onSubmit={(e) => { e.preventDefault(); submit() }}>
+      <div className="im-chexpire-title">快捷回复</div>
+      {settings.isError ? (
+        <div className="im-err" role="alert">设置没加载出来：{errorText(settings.error)}</div>
+      ) : (
+        <>
+          <div className="im-muted">消息详情的「反馈」和列表的「回复」菜单里用。勾「并处理」的，发完同时把消息标为已处理。</div>
+          <div className="im-qrset">
+            {list.map((q, i) => {
+              const err = draft !== null ? issue(i) : undefined
+              return (
+                <div key={i} className="im-qrset-item">
+                  <div className="im-qrset-row">
+                    <Input value={q.text} placeholder="回复内容" aria-label={`第 ${i + 1} 条快捷回复`} invalid={!!err}
+                      maxLength={IM_QUICK_REPLY_TEXT_MAX + 20} onChange={(e) => patch(i, { text: e.target.value })} />
+                    <Checkbox checked={q.done} onCheckedChange={(c) => patch(i, { done: c })}>并处理</Checkbox>
+                    <IconButton label="上移" size="sm" disabled={i === 0} onClick={() => move(i)}>
+                      <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path d="M8 12.5v-9M4 7.5l4-4 4 4" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /></svg>
+                    </IconButton>
+                    <IconButton label="删除这条" size="sm" onClick={() => edit(list.filter((_, j) => j !== i))}><IconClose /></IconButton>
+                  </div>
+                  {err && <span className="field-err">{err}</span>}
+                </div>
+              )
+            })}
+            {!list.length && <div className="im-muted">还没有快捷回复。</div>}
+          </div>
+          <div className="im-chexpire-row">
+            <Button size="sm" disabled={list.length >= IM_QUICK_REPLIES_MAX || settings.isPending}
+              onClick={() => edit([...list, { text: '', done: false }])}>{list.length >= IM_QUICK_REPLIES_MAX ? `最多 ${IM_QUICK_REPLIES_MAX} 条` : '加一条'}</Button>
+            <span className="spacer" />
+            {draft !== null && <Button size="sm" variant="ghost" onClick={() => { setDraft(null); setNote(null) }}>撤销改动</Button>}
+            <button type="submit" className="btn btn-outline btn-sm" disabled={!changed || bad || save.isPending}>{save.isPending ? '保存中…' : '保存'}</button>
+          </div>
           {note && <div className={note.ok ? 'im-ok' : 'im-err'} role={note.ok ? 'status' : 'alert'}>{note.text}</div>}
         </>
       )}

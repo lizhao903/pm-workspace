@@ -689,7 +689,12 @@ func (t *Telegram) Reply(ctx context.Context, out Outgoing) (string, error) {
 	if out.ConnectorID == "" || chat == "" {
 		return "", errors.New("不知道发到哪个 Telegram 会话")
 	}
-	params := map[string]any{"chat_id": chat, "text": out.Text}
+	// 正文里的「@名字」：有用户名的换成 @用户名，只有数字编号的加 text_mention 实体（mention.go）
+	text, ents := renderTelegramMentions(out.Text, out.Mentions)
+	params := map[string]any{"chat_id": chat, "text": text}
+	if len(ents) > 0 {
+		params["entities"] = ents
+	}
 	if _, mid, ok := strings.Cut(out.ReplyTo, ":"); ok {
 		mid, _, _ = strings.Cut(mid, "@")
 		if n, err := strconv.ParseInt(mid, 10, 64); err == nil {
