@@ -80,7 +80,7 @@ func (s *starter) onIMMessage(ctx context.Context, _ plugin.Core, ev plugin.Even
 			s.c.Log().Warn("sop im trigger skipped", "flow", f.ID, "message", m.MessageID, "err", err)
 			continue
 		}
-		run, err := s.e.create(ctx, f, input, false, "", "")
+		run, err := s.e.create(ctx, f, input, false, origin{Source: SourceIM, SourceRef: m.MessageID})
 		if err != nil {
 			s.c.Log().Warn("sop im trigger failed", "flow", f.ID, "message", m.MessageID, "err", err)
 			continue

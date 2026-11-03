@@ -25,7 +25,10 @@ type writeRun struct {
 // afterWrite 在写入之后、结果发回之前调，测试用它模拟写完还没落库时进程退出。
 var afterWrite func(ctx context.Context, step string) error
 
-func isWriteKind(kind string) bool { return kind == "task" || kind == "doc" || kind == "contact" }
+// local_append 写的是本机文件（nodes_local.go），也按写节点的口径重跑、去重。
+func isWriteKind(kind string) bool {
+	return kind == "task" || kind == "doc" || kind == "contact" || kind == localAppendKind
+}
 
 func (w writeRun) key() string { return fmt.Sprintf("%s/%s#%d", w.runID, w.step, w.attempt) }
 
@@ -49,6 +52,8 @@ func runWrite(ctx context.Context, c plugin.Core, w writeRun, def stepDef, input
 		res = writeDoc(ctx, c, w, def, input)
 	case "contact":
 		res = writeContact(ctx, c, w, def, input)
+	case localAppendKind:
+		res = writeLocal(ctx, c, w, def, input)
 	default:
 		return nodeResult{err: notWired}
 	}
@@ -102,9 +107,18 @@ func writeTask(ctx context.Context, c plugin.Core, w writeRun, def stepDef, inpu
 		assignee = "我"
 	}
 	body := render(cfg["body"], input)
+	// 项目认 id、ref 或名字（同写进项目目录），认不出来不建，免得建出一条没挂上项目的任务
 	var project *string
+	projectName := ""
 	if p := strings.TrimSpace(render(cfg["project"], input)); p != "" {
-		project = &p
+		info, err := c.Objects().Find(ctx, "project", p)
+		if errors.Is(err, plugin.ErrNoRows) {
+			return nodeResult{err: fmt.Sprintf("项目「%s」不存在：填项目 id、编号或名字，已删除的项目不算", p)}
+		}
+		if err != nil {
+			return nodeResult{err: "读项目失败：" + err.Error()}
+		}
+		project, projectName = &info.ID, info.Title
 	}
 	t, err := c.ObjectWriter().CreateAs(ctx, plugin.NewObject{
 		TypeID: "task", Title: title, Body: body, Priority: priority, OwnerID: owner, ProjectID: project,
@@ -116,6 +130,7 @@ func writeTask(ctx context.Context, c plugin.Core, w writeRun, def stepDef, inpu
 	logs = append(logs, reuseLog(t.Reused, fmt.Sprintf("建了任务 %s %s", t.Ref, t.Title)))
 	return nodeResult{output: with(input, "task", map[string]any{
 		"id": t.ID, "ref": t.Ref, "title": t.Title, "priority": priority, "assignee": assignee, "status": t.Status,
+		"project_id": deref(project), "project": projectName,
 	}), log: strings.Join(logs, "；")}
 }
 

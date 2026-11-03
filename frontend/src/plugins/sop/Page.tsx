@@ -156,6 +156,7 @@ export default function Page() {
   } else if (route.kind === 'run') {
     body = (
       <RunPage id={route.id} live={live} branching={branching} onBack={() => navigate(fromState.back ?? root)}
+        onOpenRun={(rid) => openRun(rid, fromState.nav)}
         onRerun={(flowId, input) => {
           const flow = flowList.find((f) => f.id === flowId)
           if (flow) setStart({ flow, initial: input })
@@ -221,8 +222,9 @@ function Gone({ title, onBack, backLabel }: { title: string; onBack: () => void;
   )
 }
 
-function RunPage({ id, live, branching, onBack, onRerun }: {
+function RunPage({ id, live, branching, onBack, onOpenRun, onRerun }: {
   id: string
+  onOpenRun: (id: string) => void
   live: boolean
   branching: ReturnType<typeof branchingOf>
   onBack: () => void
@@ -238,7 +240,7 @@ function RunPage({ id, live, branching, onBack, onRerun }: {
       {(r) => (
         <>
           {gone && <div className="sop-act-error" role="alert">这个 SOP 已删除，不能再执行</div>}
-          <RunView run={r} branching={branching} busy={act.isPending} actError={act.error} onBack={onBack}
+          <RunView run={r} branching={branching} busy={act.isPending} actError={act.error} onBack={onBack} onOpenRun={onOpenRun}
             onAct={(a) => act.mutateAsync({ runId: r.id, action: a }).catch(() => undefined)}
             onRerun={() => setGone(!onRerun(r.flow_id, r.input))} />
         </>

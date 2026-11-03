@@ -1,6 +1,6 @@
 // SOP 插件的小部件：节点类型标签、执行表格的行、进度条。照原型 sop.tsx 的 RunRow、Progress 和 nodetypes.tsx 的 KindTag
 import type { CSSProperties } from 'react'
-import type { SopRunBrief } from '../../core/data'
+import { sopRunShow, type SopRunBrief } from '../../core/data'
 import { sopNodeView } from '../../core/plugin'
 import { Pill } from '../../core/ui'
 import { KIND_LABEL, kindLabel, progressText, runDur, runLook, timeAgo } from './model'
@@ -46,16 +46,16 @@ export function RunHead() {
   )
 }
 
-export function RunRow({ r, onOpen, showFlow = true, now }: { r: SopRunBrief; onOpen: (id: string) => void; showFlow?: boolean; now: number }) {
+/** source：发起来源的文字（SOP-06，source.ts），以前的执行为空串不显示 */
+export function RunRow({ r, onOpen, showFlow = true, now, source = '' }: { r: SopRunBrief; onOpen: (id: string) => void; showFlow?: boolean; now: number; source?: string }) {
+  const sub = [showFlow ? r.flow_name : '', source, r.step_through ? '逐步确认' : ''].filter(Boolean).join(' · ')
   return (
     <button type="button" className="sop-run-row" onClick={() => onOpen(r.id)}>
       <span className="sop-run-name">
         <span className="ellipsis" title={r.title}>{r.title}</span>
-        {showFlow
-          ? <span className="sop-run-sub ellipsis">{r.flow_name}{r.step_through ? ' · 逐步确认' : ''}</span>
-          : r.step_through && <span className="sop-run-sub ellipsis">逐步确认</span>}
+        {sub && <span className="sop-run-sub ellipsis">{sub}</span>}
       </span>
-      <span><RunPill status={r.status} /></span>
+      <span><RunPill status={sopRunShow(r)} /></span>
       <Progress run={r} />
       <span className="sop-run-muted">{timeAgo(r.started_at, now)}</span>
       <span className="sop-run-muted">{runDur(r, now)}</span>

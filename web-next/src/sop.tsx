@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { PageTitle } from './topbar'
 import {
-  RUN_STATUS, SOPS, STEP_STATUS, depsOf, focusIndex, isFinished, isManualDecide, needsMe, ranks, runStatus,
-  type Json, type RunAction, type RunStep, type Sop, type SopRun,
+  MODEL_CONCURRENCY_MAX, RERUN_MAX, RUN_STATUS, SOPS, depsOf, flowChanged, sourceText, focusIndex, isFinished, isManualDecide, isModelKind, isQueued, needsMe, ranks,
+  RERUN_REASON_RELAUNCHED, runShow, runStatus, stepLook,
+  type Json, type RerunAction, type RerunResult, type RunAction, type RunStep, type Sop, type SopRun,
 } from './sopflow'
 import { KindTag, isBranching } from './nodetypes'
 import { Subnav } from './subnav'
@@ -30,7 +31,8 @@ const lastRunAt = (runs: SopRun[]) => {
   for (const r of runs) if (r.started_at > (m.get(r.sop_id) ?? 0)) m.set(r.sop_id, r.started_at)
   return m
 }
-const isPending = (r: SopRun) => ['waiting', 'failed'].includes(runStatus(r))
+// 已重跑过的失败执行不算（SPEC-sop-4.21）
+const isPending = (r: SopRun) => ['waiting', 'failed'].includes(runShow(r))
 
 export function SopNav({ sops, runs, view, onSelect, onNew }: { sops: Sop[]; runs: SopRun[]; view: SopView; onSelect: (v: SopView) => void; onNew: () => void }) {
   const waiting = runs.filter(isPending).length
@@ -75,12 +77,16 @@ function Progress({ run }: { run: SopRun }) {
 }
 
 function RunRow({ r, onOpen, showSop }: { r: SopRun; onOpen: (id: string) => void; showSop: boolean }) {
-  const st = runStatus(r)
+  const st = runShow(r)
   return (
     <button className="run-row" onClick={() => onOpen(r.id)}>
       <span className="run-name">
         <span className="ellipsis" title={r.title}>{r.title}</span>
-        {showSop && <span className="run-sop ellipsis">{r.sop.name}{r.step_through ? ' · 逐步确认' : ''}</span>}
+        {(() => {
+          // 流程名、来源（SOP-06）、逐步确认
+          const sub = [showSop ? r.sop.name : '', sourceText(r), r.step_through ? '逐步确认' : ''].filter(Boolean).join(' · ')
+          return sub && <span className="run-sop ellipsis">{sub}</span>
+        })()}
       </span>
       <span><Pill {...RUN_STATUS[st]} /></span>
       <Progress run={r} />
@@ -106,7 +112,7 @@ function RunRows({ runs, onOpen, showSop = true }: { runs: SopRun[]; onOpen: (id
   )
 }
 
-const ORDER = { waiting: 0, failed: 1, running: 2, done: 3, stopped: 4 }
+const ORDER = { waiting: 0, failed: 1, running: 2, done: 3, stopped: 4, relaunched: 5 }
 const PAGE = 30
 
 /** 按开始日期分段：今天 / 昨天 / 本周 / 更早 */
@@ -121,8 +127,10 @@ function daySegOf() {
   return (t: number): DaySeg => (t >= today ? 'today' : t >= yesterday ? 'yesterday' : t >= week ? 'week' : 'older')
 }
 
-export function SopRunsPage({ runs, view, onOpen, sops, sop, onOpenSop, onNew }: {
+export function SopRunsPage({ runs, view, onOpen, sops, sop, onOpenSop, onNew, onRerun }: {
   runs: SopRun[]; view: 'runs' | 'waiting' | 'library'; onOpen: (id: string) => void
+  /** 失败页批量重跑（SPEC-sop-4.13~4.19），回各几条 */
+  onRerun?: (ids: string[], action: RerunAction) => RerunResult
   /** 流程库（view = library）用的全部 SOP；不传用 sopflow 里的 SOPS（App 增删时会同步它） */
   sops?: Sop[]
   /** 打开时预先按这个 SOP 筛（从流程详情「在执行记录里看全部」跳过来） */
@@ -132,17 +140,74 @@ export function SopRunsPage({ runs, view, onOpen, sops, sop, onOpenSop, onNew }:
   onNew?: () => void
 }) {
   if (view === 'library') return <SopLibraryPage sops={sops ?? SOPS} runs={runs} onOpen={onOpenSop} onNew={onNew} />
-  return <RunList runs={runs} view={view} onOpen={onOpen} sops={sops ?? SOPS} initialSop={sop} />
+  return <RunList runs={runs} view={view} onOpen={onOpen} sops={sops ?? SOPS} initialSop={sop} onRerun={onRerun} />
 }
 
-function RunList({ runs, view, onOpen, sops, initialSop }: { runs: SopRun[]; view: 'runs' | 'waiting'; onOpen: (id: string) => void; sops?: Sop[]; initialSop?: string }) {
+/** 两种重跑的说明，确认框里二选一 */
+const RERUN_OPTIONS: { key: RerunAction; label: string; desc: string }[] = [
+  { key: 'retry', label: '重试失败的步骤', desc: '在原执行里从失败的那一步接着跑，已完成的步骤不重做；沿用发起时的流程版本，流程后来改过的地方不生效' },
+  { key: 'relaunch', label: '按最新流程重新发起', desc: '用原来的输入、流程现在的定义新起一条执行，从头跑；原失败执行标成「已重跑」，移出「失败」，在「全部」里能点到新执行。子流程里失败的会重新发起它所在的整条顶层执行，同一条只发起一次，已重跑过的不再重复发起' },
+]
+
+function rerunNote(action: RerunAction, r: RerunResult) {
+  const parts = [action === 'retry' ? `重试了 ${r.done.length} 条` : `新发起 ${r.done.length} 条`]
+  if (r.skipped.length) parts.push(`跳过 ${r.skipped.length} 条`)
+  if (r.failed.length) parts.push(`失败 ${r.failed.length} 条`)
+  let text = parts.join('、')
+  if (r.done.length) text += '。要调模型的步骤按同时调模型的上限排队，排到了自动开始'
+  const why = [...new Set([...r.failed.map((x) => x.error), ...r.skipped.map((x) => x.reason)])].slice(0, 2)
+  if (why.length) text += `。原因：${why.join('；')}`
+  // 重复点击被挡掉的（已重跑过）不标红（SPEC-sop-4.22）
+  const repeatOnly = r.skipped.length > 0 && r.skipped.every((x) => x.reason === RERUN_REASON_RELAUNCHED)
+  return { text, bad: r.failed.length > 0 || (!r.done.length && !repeatOnly) }
+}
+
+/** 批量重跑确认框：流程发起后改过的有一条就默认「按最新流程」，否则默认「重试」 */
+function RerunDialog({ runs, onCancel, onConfirm }: { runs: SopRun[]; onCancel: () => void; onConfirm: (a: RerunAction) => void }) {
+  const stale = runs.filter(flowChanged).length
+  const [action, setAction] = useState<RerunAction>(stale ? 'relaunch' : 'retry')
+  return (
+    <div className="qs-mask" onMouseDown={(e) => { if (e.target === e.currentTarget) onCancel() }}>
+      <div className="qs" role="dialog" aria-label="批量重跑">
+        <div className="qs-head"><b>批量重跑 {runs.length} 条失败的执行</b></div>
+        <div className="rerun-opts" role="radiogroup" aria-label="重跑方式">
+          {RERUN_OPTIONS.map((o) => (
+            <label key={o.key} className={cls('rerun-opt', action === o.key && 'on')}>
+              <input type="radio" name="rerun" checked={action === o.key} onChange={() => setAction(o.key)} />
+              <span><b>{o.label}</b><span className="list-sub">{o.desc}</span></span>
+            </label>
+          ))}
+        </div>
+        <div className="list-sub">
+          {stale ? `其中 ${stale} 条的流程在发起后改过，照旧版本重试多半还会原样失败，所以默认按最新流程重新发起` : '这些执行的流程发起后都没改过，默认在原执行里重试，不重做已完成的步骤'}
+        </div>
+        <div className="list-sub">要调模型的步骤按同时调模型的上限排队，排到了自动开始</div>
+        <div className="act-row">
+          <span className="spacer" />
+          <button className="act act-quiet" onClick={onCancel}>取消</button>
+          <button className="act act-primary" autoFocus onClick={() => onConfirm(action)}>{action === 'retry' ? `重试 ${runs.length} 条` : '重新发起'}</button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function RunList({ runs, view, onOpen, sops, initialSop, onRerun }: {
+  runs: SopRun[]; view: 'runs' | 'waiting'; onOpen: (id: string) => void; sops?: Sop[]; initialSop?: string
+  onRerun?: (ids: string[], action: RerunAction) => RerunResult
+}) {
   const [st, setSt] = useState<'' | 'running' | 'waiting' | 'done' | 'failed'>('')
   const [sopF, setSopF] = useState(initialSop ?? '')
   const [q, setQ] = useState('')
   const [closed, setClosed] = useState<Set<DaySeg>>(new Set())
   const [more, setMore] = useState<Partial<Record<DaySeg, number>>>({})
+  // 失败页多选批量重跑
+  const [sel, setSel] = useState<Set<string>>(new Set())
+  const [confirming, setConfirming] = useState(false)
+  const [note, setNote] = useState<{ text: string; bad: boolean } | null>(null)
   const kw = q.trim().toLowerCase()
   useEffect(() => { setMore({}) }, [st, sopF, kw])
+  useEffect(() => { setSel(new Set()) }, [st])
   // 流程筛选的选项：传了 sops 用它，否则按执行记录里出现过的流程
   const sopOptions = useMemo(() => {
     const m = new Map<string, string>()
@@ -153,12 +218,49 @@ function RunList({ runs, view, onOpen, sops, initialSop }: { runs: SopRun[]; vie
     return [...m].map(([value, label]) => ({ value, label, hint: `${n.get(value) ?? 0} 次` }))
   }, [sops, runs])
   const base = (view === 'waiting' ? runs.filter(isPending) : runs).filter((r) => (!sopF || r.sop_id === sopF) && (!kw || `${r.title} ${r.sop.name}`.toLowerCase().includes(kw)))
-  const rows = base.filter((r) => !st || runStatus(r) === st)
-    .sort((a, b) => ORDER[runStatus(a)] - ORDER[runStatus(b)] || b.started_at - a.started_at)
+  // 按显示状态筛：已重跑的失败执行不在「失败」里，只在「全部」里（SPEC-sop-4.21）
+  const rows = base.filter((r) => !st || runShow(r) === st)
+    .sort((a, b) => ORDER[runShow(a)] - ORDER[runShow(b)] || b.started_at - a.started_at)
   const segOf = daySegOf()
   const segs = DAY_SEGS.map((s) => ({ ...s, xs: rows.filter((r) => segOf(r.started_at) === s.key) })).filter((s) => s.xs.length)
   const toggle = (k: DaySeg) => setClosed((s) => { const n = new Set(s); if (n.has(k)) n.delete(k); else n.add(k); return n })
   const filtered = !!(st || sopF || kw)
+  const picking = view === 'runs' && st === 'failed' && !!onRerun
+  const ordered = segs.flatMap((s) => s.xs)
+  const picked = picking ? ordered.filter((r) => sel.has(r.id)) : []
+  const allN = Math.min(ordered.length, RERUN_MAX)
+  const allPicked = picked.length > 0 && picked.length >= allN
+  const pickAll = () => setSel(new Set(ordered.slice(0, RERUN_MAX).map((r) => r.id)))
+  const togglePick = (id: string) => setSel((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n })
+  // 失败行右边的「重试」（SPEC-sop-4.20）：流程发起后改过就按最新流程重跑，否则在原执行里重试；有失败行时每行留一格对齐
+  // 已重跑的行同一格放「新执行」
+  const hasFailed = !!onRerun && rows.some((r) => runShow(r) === 'failed' || runShow(r) === 'relaunched')
+  const retryOne = (r: SopRun) => {
+    const a: RerunAction = flowChanged(r) ? 'relaunch' : 'retry'
+    setNote(rerunNote(a, onRerun!([r.id], a)))
+  }
+  const rowOf = (r: SopRun) => {
+    if (!picking && !hasFailed) return <RunRow key={r.id} r={r} onOpen={onOpen} showSop />
+    const a = flowChanged(r) ? '重跑' : '重试'
+    return (
+      <div key={r.id} className={cls('run-pick', !picking && 'run-nopick', sel.has(r.id) && 'picked')}>
+        {picking && <input type="checkbox" className="run-pick-box" checked={sel.has(r.id)} aria-label={`选中 ${r.title}`} onChange={() => togglePick(r.id)} />}
+        <RunRow r={r} onOpen={onOpen} showSop />
+        {hasFailed && (
+          <span className="run-act">
+            {runShow(r) === 'failed' && (
+              <button className="act" aria-label={`${a} ${r.title}`} onClick={() => retryOne(r)}
+                title={a === '重试' ? '在原执行里从失败的那一步接着跑，已完成的步骤不重做' : '流程发起后改过：用原来的输入按流程现在的定义新起一条执行，原执行标成「已重跑」移出失败'}>{a}</button>
+            )}
+            {runShow(r) === 'relaunched' && (
+              <button className="act act-quiet" aria-label={`看 ${r.title} 重跑出来的新执行`} title="这条失败的执行已按最新流程重跑，打开重跑出来的新执行"
+                onClick={() => onOpen(r.relaunched_to!)}>新执行</button>
+            )}
+          </span>
+        )}
+      </div>
+    )
+  }
   return (
     <div className="page page-fill">
       <PageTitle parent="SOP" count={rows.length} desc={view === 'waiting' ? '这些执行停下来等你：检查输出、确认输入，或处理失败的步骤' : '每一步都留着输入和输出，点进去可以逐步查看'}>{view === 'waiting' ? '待我处理' : '执行记录'}</PageTitle>
@@ -167,7 +269,7 @@ function RunList({ runs, view, onOpen, sops, initialSop }: { runs: SopRun[]; vie
           <div className="seg">
             {([['', '全部'], ['running', '执行中'], ['waiting', '待我处理'], ['failed', '失败'], ['done', '已完成']] as const).map(([k, l]) => (
               <button key={k} className={cls(st === k && 'on')} onClick={() => setSt(k)}>
-                {l}<span className="seg-n">{k ? base.filter((r) => runStatus(r) === k).length : base.length}</span>
+                {l}<span className="seg-n">{k ? base.filter((r) => runShow(r) === k).length : base.length}</span>
               </button>
             ))}
           </div>
@@ -179,6 +281,12 @@ function RunList({ runs, view, onOpen, sops, initialSop }: { runs: SopRun[]; vie
           <input placeholder="搜索执行标题、流程名" value={q} onChange={(e) => setQ(e.target.value)} />
         </div>
       </div>
+      {note && (
+        <div className={cls('rerun-note', note.bad && 'bad')} role="status">
+          <span>{note.text}</span>
+          <button className="act act-quiet" onClick={() => setNote(null)}>知道了</button>
+        </div>
+      )}
       {!rows.length ? (
         <div className="empty">
           <div className="empty-title">{filtered ? '没有匹配的执行记录' : view === 'waiting' ? '没有等你处理的执行' : '没有执行记录'}</div>
@@ -186,19 +294,50 @@ function RunList({ runs, view, onOpen, sops, initialSop }: { runs: SopRun[]; vie
         </div>
       ) : (
         <div className="run-table">
-          <RunHead />
+          {picking || hasFailed ? (
+            <div className={cls('run-pick run-pick-th', !picking && 'run-nopick')}>
+              {picking && (
+                <input type="checkbox" className="run-pick-box" checked={allPicked} aria-label={`全选当前筛选结果（最多 ${RERUN_MAX} 条）`}
+                  ref={(el) => { if (el) el.indeterminate = picked.length > 0 && !allPicked }}
+                  onChange={() => (allPicked ? setSel(new Set()) : pickAll())} />
+              )}
+              <RunHead />
+              {hasFailed && <span className="run-act" />}
+            </div>
+          ) : <RunHead />}
           {segs.map((s) => {
             const open = !closed.has(s.key)
             const n = PAGE + (more[s.key] ?? 0)
             return (
               <div key={s.key} role="group" aria-label={s.label}>
                 <ListSegHead label={s.label} n={s.xs.length} open={open} onToggle={() => toggle(s.key)} />
-                {open && s.xs.slice(0, n).map((r) => <RunRow key={r.id} r={r} onOpen={onOpen} showSop />)}
+                {open && s.xs.slice(0, n).map(rowOf)}
                 {open && <ListSegMore n={s.xs.length - n} onMore={() => setMore((m) => ({ ...m, [s.key]: (m[s.key] ?? 0) + 100 }))} />}
               </div>
             )
           })}
         </div>
+      )}
+      {picked.length > 0 && (
+        <div className="run-bulk" role="toolbar" aria-label="批量重跑">
+          <b>已选 {picked.length} 条</b>
+          {picked.length < allN && <button className="act act-quiet" onClick={pickAll}>全选当前筛选结果 {allN} 条</button>}
+          {ordered.length > RERUN_MAX && picked.length >= RERUN_MAX && (
+            <span className="list-sub" role="note">当前筛选结果有 {ordered.length} 条，一次最多重跑 {RERUN_MAX} 条，已选列表里的前 {RERUN_MAX} 条</span>
+          )}
+          <span className="spacer" />
+          <button className="act act-primary" onClick={() => setConfirming(true)}>批量重跑</button>
+          <button className="act act-quiet" onClick={() => setSel(new Set())}>取消选择</button>
+        </div>
+      )}
+      {confirming && onRerun && (
+        <RerunDialog runs={picked.slice(0, RERUN_MAX)} onCancel={() => setConfirming(false)}
+          onConfirm={(a) => {
+            const r = onRerun(picked.slice(0, RERUN_MAX).map((x) => x.id), a)
+            setConfirming(false)
+            setSel(new Set())
+            setNote(rerunNote(a, r))
+          }} />
       )}
     </div>
   )
@@ -347,9 +486,11 @@ export function SopDetailPage({ sop, runs, onStart, onOpen, onEdit, onDelete, de
 
 /* ---------- 发起执行 ---------- */
 
-export function SopStartDrawer({ sop, initial, onClose, onStart }: {
+export function SopStartDrawer({ sop, initial, object, onClose, onStart }: {
   sop: Sop
   initial?: Json
+  /** 在任务上发起（SOP-06）：抽屉上写明关联的任务，输入已按任务字段预填 */
+  object?: { ref: string; title: string }
   onClose: () => void
   onStart: (input: Json, stepThrough: boolean) => void
 }) {
@@ -371,6 +512,7 @@ export function SopStartDrawer({ sop, initial, onClose, onStart }: {
         <div>
           <h2 className="sop-start-title">{sop.name}</h2>
           <div className="list-sub">{sop.desc}</div>
+          {object && <div className="sop-start-object">关联任务 {object.ref} {object.title}，输入已按任务字段预填，可以改</div>}
         </div>
         {sop.fields.map((f) => {
           const bad = tried && missing.includes(f)
@@ -488,9 +630,9 @@ export function FlowGraph({ sop, run, selected, onSelect }: {
               </span>
               <span className="fnode-name ellipsis">{def.name}</span>
               {rs ? (
-                <span className={`fnode-st fst-${rs.status}`}>
-                  {rs.status === 'running' && <span className="spinner spinner-xs" />}
-                  {route ? `走「${route}」` : STEP_STATUS[rs.status].label}
+                <span className={cls('fnode-st', `fst-${rs.status}`, isQueued(rs) && 'fst-queued')}>
+                  {rs.status === 'running' && !isQueued(rs) && <span className="spinner spinner-xs" />}
+                  {route ? `走「${route}」` : stepLook(rs).label}
                 </span>
               ) : (
                 <span className="fnode-st">{isBranching(def.kind) ? (def.kind === 'classifier' ? 'AI 分类' : isManualDecide(def) ? '人工判断' : '按规则判断') : `约 ${Math.max(1, Math.round(def.ms / 1000))} 秒`}</span>
@@ -537,7 +679,7 @@ export function DataView({ data }: { data: Json }) {
 
 type Tab = 'input' | 'output' | 'log'
 
-function Inspector({ run, index, onAct }: { run: SopRun; index: number; onAct: (a: RunAction) => void }) {
+function Inspector({ run, index, onAct, onOpenSettings }: { run: SopRun; index: number; onAct: (a: RunAction) => void; onOpenSettings?: () => void }) {
   const sop = run.sop
   const def = sop.steps[index]
   const step: RunStep = run.steps[index]
@@ -585,7 +727,7 @@ function Inspector({ run, index, onAct }: { run: SopRun; index: number; onAct: (
           <span className="insp-n">步骤 {index + 1}</span>
           <h2>{def.name}</h2>
           <KindTag kind={def.kind} />
-          <Pill {...STEP_STATUS[step.status]} />
+          <Pill {...stepLook(step)} />
           {step.edited && <span className="edited-tag">{{ input: '输入被人工修改', output: '输出被人工修改', route: '分支由人选择' }[step.edited]}</span>}
         </div>
         <div className="insp-desc">
@@ -650,13 +792,22 @@ function Inspector({ run, index, onAct }: { run: SopRun; index: number; onAct: (
       {!run.stopped && step.status === 'failed' && (
         <div className="insp-banner danger">
           <b>执行失败</b>{step.error}
-          <div className="act-row">
-            <button className="act act-primary" onClick={() => onAct({ kind: 'retry', step: index })}>重试</button>
-            <button className="act act-quiet" onClick={() => onAct({ kind: 'skip', step: index })}>跳过这一步</button>
-          </div>
+          {/* 已按最新流程重跑过的不能再重试、跳过（SPEC-sop-7.43） */}
+          {run.relaunched_to ? <div>这次执行已按最新流程重跑，不能再重试或跳过，到新执行里处理</div> : (
+            <div className="act-row">
+              <button className="act act-primary" onClick={() => onAct({ kind: 'retry', step: index })}>重试</button>
+              <button className="act act-quiet" onClick={() => onAct({ kind: 'skip', step: index })}>跳过这一步</button>
+            </div>
+          )}
         </div>
       )}
-      {step.status === 'running' && (
+      {isQueued(step) && (
+        <div className="insp-banner muted">
+          <div><b>排队中</b>在等模型名额，前面还有 {step.queue!.ahead} 个。同时调模型的步骤数有上限，多出来的按先来后到排队，排到了自动开始。</div>
+          {onOpenSettings && <div className="act-row"><button className="act act-quiet" onClick={onOpenSettings}>调整同时调模型的步骤数</button></div>}
+        </div>
+      )}
+      {step.status === 'running' && !isQueued(step) && (
         <div className="insp-banner info">
           <span className="spinner" />正在执行{def.kind === 'ai' ? '，AI 生成中' : ''}…
           <div className="run-bar"><span style={{ width: `${Math.min(100, ((Date.now() - (step.started_at ?? Date.now())) / def.ms) * 100)}%` }} /></div>
@@ -714,14 +865,18 @@ function Inspector({ run, index, onAct }: { run: SopRun; index: number; onAct: (
   )
 }
 
-export function SopRunView({ run, onBack, onAct, onRerun }: {
+export function SopRunView({ run, onBack, onAct, onRerun, onOpenSettings, onOpenRun }: {
   run: SopRun
   onBack: () => void
   onAct: (a: RunAction) => void
   onRerun: () => void
+  /** 排队中的步骤带「调整同时调模型的步骤数」，去设置 > SOP 编排（SOP-07） */
+  onOpenSettings?: () => void
+  /** 批量重跑新发起的执行点「重跑自原执行」打开原执行（SPEC-sop-7.40） */
+  onOpenRun?: (id: string) => void
 }) {
   const sop = run.sop
-  const st = runStatus(run)
+  const st = runShow(run)
   const focus = focusIndex(run)
   // 没手动点过就跟着需要处理 / 正在执行的步骤走；点过别的步骤就停在那，给个「回到当前步骤」
   const [picked, setPicked] = useState<number | null>(null)
@@ -752,6 +907,9 @@ export function SopRunView({ run, onBack, onAct, onRerun }: {
           <div className="run-head-meta">
             <Pill {...RUN_STATUS[st]} />
             <span>{sop.name}</span>
+            {sourceText(run) && <span>来源：{sourceText(run)}</span>}
+            {run.source === 'manual' && run.source_ref && onOpenRun && <button className="run-origin" onClick={() => onOpenRun(run.source_ref!)}>重跑自原执行</button>}
+            {run.relaunched_to && onOpenRun && <button className="run-origin" onClick={() => onOpenRun(run.relaunched_to!)}>已重跑，看新执行</button>}
             <span>开始于 {timeAgo(iso(run.started_at))}</span>
             <span>{ended ? '共' : '已'}用时 {runDur(run)}</span>
             {waiting > 1 && <span className="run-head-warn">{waiting} 个步骤等你处理</span>}
@@ -761,7 +919,53 @@ export function SopRunView({ run, onBack, onAct, onRerun }: {
       <div className="run-flow">
         <FlowGraph sop={sop} run={run} selected={index} onSelect={(i) => setPicked(i === focus ? null : i)} />
       </div>
-      <Inspector key={index} run={run} index={index} onAct={act} />
+      <Inspector key={index} run={run} index={index} onAct={act} onOpenSettings={onOpenSettings} />
+    </div>
+  )
+}
+
+/* ---------- 设置 > SOP 编排（SOP-07）：同时调模型的步骤数 ---------- */
+
+/**
+ * 整个 SOP 跨所有执行同时调模型的步骤数，1..16，默认 2；改了立即生效：调大马上放排队的进来，调小时正在调的不打断。
+ * 正式产品存在插件设置里（GET / PATCH /api/sop/settings），超出范围显示后端 400 的原因
+ */
+export function SopSettingsPage({ value, runs, onSave }: { value: number; runs: SopRun[]; onSave: (n: number) => void }) {
+  const [txt, setTxt] = useState(String(value))
+  const [note, setNote] = useState<{ ok: boolean; text: string } | null>(null)
+  const n = Number(txt)
+  const bad = !/^\d+$/.test(txt.trim()) ? '填 1 到 16 的整数' : n < 1 || n > MODEL_CONCURRENCY_MAX ? `同时调模型的步骤数要在 1 到 ${MODEL_CONCURRENCY_MAX} 之间` : null
+  const save = () => {
+    if (bad) { setNote({ ok: false, text: `没保存：${bad}` }); return }
+    if (n === value) return
+    onSave(n)
+    setNote({ ok: true, text: `已保存：最多同时 ${n} 个步骤调模型，立即生效` })
+  }
+  let running = 0
+  let queued = 0
+  for (const r of runs) {
+    if (r.stopped) continue
+    r.steps.forEach((s, i) => {
+      if (s.status !== 'running' || !isModelKind(r.sop.steps[i].kind)) return
+      if (s.queue) queued++
+      else running++
+    })
+  }
+  return (
+    <div className="sop-settings">
+      <div className="sop-settings-title">执行并发</div>
+      <div className="field">
+        <span className="field-label">同时调模型的步骤数</span>
+        <div className="sop-settings-row">
+          <input type="number" min={1} max={MODEL_CONCURRENCY_MAX} step={1} inputMode="numeric" aria-label="同时调模型的步骤数" className={cls(note && !note.ok && 'bad')}
+            value={txt} onChange={(e) => { setTxt(e.target.value); setNote(null) }} onKeyDown={(e) => e.key === 'Enter' && save()} />
+          <span className="muted">个</span>
+          <button className="btn btn-outline" disabled={txt.trim() === String(value)} onClick={save}>保存</button>
+        </div>
+        {note ? <span className={note.ok ? 'ok-text' : 'field-err'}>{note.text}</span>
+          : <span className="field-hint-line">本机推理慢时调小，消息多时多出来的步骤排队。AI、提取、分类、逐项处理、Agent 节点算在内，跨所有执行一起算；改了立即生效，调小时正在调的不打断</span>}
+      </div>
+      <div className="sop-settings-now muted">此刻 {running} 个步骤在调模型{queued ? `，${queued} 个在排队` : '，没有排队的'}</div>
     </div>
   )
 }

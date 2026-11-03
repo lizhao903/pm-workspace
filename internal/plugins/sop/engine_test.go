@@ -357,7 +357,7 @@ func TestResumeAfterRestart(t *testing.T) {
 	p1 := New()
 	p1.stepHook = g.hook
 	r1, h1 := boot(p1)
-	if err := r1.Install(ctx, "sop", []string{"network:any"}); err != nil {
+	if err := r1.Install(ctx, "sop", sopPerms); err != nil {
 		t.Fatal(err)
 	}
 	if err := r1.Enable(ctx, "sop"); err != nil {

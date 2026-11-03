@@ -60,6 +60,7 @@ func (p *Plugin) Register(r plugin.Registrar) error {
 	e := newEngine(c)
 	e.hook = p.stepHook
 	rn := &runs{c: c, e: e}
+	sg := &settings{c: c, e: e}
 	as := &assist{c: c, complete: p.complete}
 	if as.complete == nil {
 		as.complete = coreCompleter(c)
@@ -72,10 +73,16 @@ func (p *Plugin) Register(r plugin.Registrar) error {
 		m.HandleFunc("DELETE /api/sop/flows/{id}", f.remove)
 		m.HandleFunc("GET /api/sop/node-types", f.nodeTypes)
 		m.HandleFunc("POST /api/sop/flows/{id}/runs", rn.start)
+		// 批量发起（IM 页批量分诊，batch.go）
+		m.HandleFunc("POST /api/sop/flows/{id}/runs/batch", rn.startBatch)
 		m.HandleFunc("GET /api/sop/runs", rn.list)
 		m.HandleFunc("GET /api/sop/runs/{id}", rn.show)
 		m.HandleFunc("POST /api/sop/runs/{id}/actions", rn.act)
+		// 失败执行批量重跑（执行记录「失败」页，runbatch.go）
+		m.HandleFunc("POST /api/sop/runs/batch-actions", rn.batchAct)
 		m.HandleFunc("POST /api/sop/assist", as.handle)
+		m.HandleFunc("GET /api/sop/settings", sg.get)
+		m.HandleFunc("PATCH /api/sop/settings", sg.patch)
 	})
 	r.Job(plugin.Job{Name: "engine", Run: e.job})
 	// 别的插件登记的节点挂起后经内核 SOP().Resume 唤醒，交给这个引擎（SOP-03a）

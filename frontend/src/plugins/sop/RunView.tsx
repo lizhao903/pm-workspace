@@ -1,14 +1,16 @@
 // 运行页（SPEC-sop-7）：上方流程图标出每步状态，下方检查器看选中步骤的输入、输出、日志，做八种动作。
 // 状态变化靠事件流刷新（插件入口订阅 sop.* 事件报 sop-run）；动作的响应先写回缓存。没手动点过步骤时检查器跟着 focusIndex 走。
 import { useEffect, useState } from 'react'
-import { errorText, type SopJson, type SopRun, type SopRunAction, type SopStepDef } from '../../core/data'
+import { useNavigate } from 'react-router'
+import { errorText, sopRunShow, type SopJson, type SopRun, type SopRunAction, type SopStepDef } from '../../core/data'
 import { Button, Checkbox, PageTitle, Pill, cls } from '../../core/ui'
 import { FlowGraph } from './FlowGraph'
 import {
-  EDITED_LABEL, clock, defaultTab, depsOf, dur, focusIndex, isEnded, isManualDecide, needsMe, parseJsonObject, runDur, runLook, stepLook,
-  timeAgo, upstreamOf, type Tab,
+  EDITED_LABEL, SOP_SETTINGS_PATH, clock, defaultTab, depsOf, dur, focusIndex, isEnded, isManualDecide, isQueued, needsMe, parseJsonObject, runDur,
+  runLook, runStepLook, timeAgo, upstreamOf, type Tab,
 } from './model'
 import { IconBack, KindTag } from './parts'
+import { useSourceText } from './source'
 
 /** 字段视图：短文本直接显示，长文本保留换行，数组和对象缩进成 JSON，空串显示「空」 */
 export function DataView({ data }: { data: SopJson }) {
@@ -66,7 +68,9 @@ function Inspector({ run, index, onAct, busy, now, branching }: {
     // 剪贴板不可用时没反应，不报错
     navigator.clipboard?.writeText(JSON.stringify(data ?? {}, null, 2)).then(() => setCopied(true), () => {})
   }
-  const look = stepLook(step.status)
+  const look = runStepLook(step)
+  const queued = isQueued(step)
+  const navigate = useNavigate()
   const started = step.started_at ? Date.parse(step.started_at) : 0
 
   return (
@@ -140,13 +144,26 @@ function Inspector({ run, index, onAct, busy, now, branching }: {
       {!run.stopped && step.status === 'failed' && (
         <div className="sop-banner danger">
           <div><b>执行失败</b>{step.error}</div>
+          {/* 已按最新流程重跑过的不能再重试、跳过（后端 409），去新执行里处理 */}
+          {run.relaunched_to ? (
+            <div className="sop-banner-note">这次执行已按最新流程重跑，不能再重试或跳过，到新执行里处理</div>
+          ) : (
+            <div className="sop-act-row">
+              <Button variant="primary" size="sm" disabled={busy} onClick={() => onAct({ kind: 'retry', step: index })}>重试</Button>
+              <Button size="sm" disabled={busy} onClick={() => onAct({ kind: 'skip', step: index })}>跳过这一步</Button>
+            </div>
+          )}
+        </div>
+      )}
+      {queued && (
+        <div className="sop-banner muted">
+          <div><b>排队中</b>在等模型名额，前面还有 {step.queue!.ahead} 个。同时调模型的步骤数有上限，多出来的按先来后到排队，排到了自动开始。</div>
           <div className="sop-act-row">
-            <Button variant="primary" size="sm" disabled={busy} onClick={() => onAct({ kind: 'retry', step: index })}>重试</Button>
-            <Button size="sm" disabled={busy} onClick={() => onAct({ kind: 'skip', step: index })}>跳过这一步</Button>
+            <Button size="sm" onClick={() => { void navigate(SOP_SETTINGS_PATH) }}>调整同时调模型的步骤数</Button>
           </div>
         </div>
       )}
-      {step.status === 'running' && (
+      {step.status === 'running' && !queued && (
         <div className="sop-banner info">
           <span className="spinner" aria-hidden="true" />正在执行{def.kind === 'ai' ? '，AI 生成中' : ''}…
           {typeof def.ms === 'number' && def.ms > 0 && started > 0 && (
@@ -207,12 +224,14 @@ function Inspector({ run, index, onAct, busy, now, branching }: {
   )
 }
 
-export function RunView({ run, onBack, onAct, onRerun, busy, actError, branching }: {
+export function RunView({ run, onBack, onAct, onRerun, onOpenRun, busy, actError, branching }: {
   run: SopRun
   onBack: () => void
   /** 请求结束（成功或失败）时 resolve */
   onAct: (a: SopRunAction) => Promise<unknown>
   onRerun: () => void
+  /** 打开另一次执行（批量重跑新发起的看原执行） */
+  onOpenRun?: (id: string) => void
   busy: boolean
   /** 动作提交失败的原因（SPEC-sop-7.38），已按最新状态读回 */
   actError?: unknown
@@ -240,8 +259,9 @@ export function RunView({ run, onBack, onAct, onRerun, busy, actError, branching
     return () => window.clearInterval(t)
   }, [ended])
 
-  const look = runLook(run.status)
+  const look = runLook(sopRunShow(run))
   const step = run.steps[index]
+  const source = useSourceText()(run)
   return (
     <div className="sop-run-view">
       <div className="sop-run-head">
@@ -259,6 +279,15 @@ export function RunView({ run, onBack, onAct, onRerun, busy, actError, branching
           <div className="sop-run-head-meta">
             <Pill label={look.label} color={look.color} />
             <span>{run.flow_name}</span>
+            {source && <span>来源：{source}</span>}
+            {/* 批量重跑新发起的记着原执行（source_ref），点了打开原执行 */}
+            {run.source === 'manual' && run.source_ref && onOpenRun && (
+              <button type="button" className="sop-run-origin" onClick={() => onOpenRun(run.source_ref!)}>重跑自原执行</button>
+            )}
+            {/* 失败后已按最新流程重跑过的，点了打开重跑出来的新执行 */}
+            {run.relaunched_to && onOpenRun && (
+              <button type="button" className="sop-run-origin" onClick={() => onOpenRun(run.relaunched_to!)}>已重跑，看新执行</button>
+            )}
             <span>开始于 {timeAgo(run.started_at, now)}</span>
             <span>{ended ? '共' : '已'}用时 {runDur(run, now)}</span>
             {waiting > 1 && <span className="sop-run-head-warn">{waiting} 个步骤等你处理</span>}

@@ -41,7 +41,7 @@ func bootWith(t *testing.T, d *db.DB, fresh bool) world {
 		t.Fatal(err)
 	}
 	if fresh {
-		if err := r.Install(ctx, "sop", []string{"network:any"}); err != nil {
+		if err := r.Install(ctx, "sop", sopPerms); err != nil {
 			t.Fatal(err)
 		}
 		if err := r.Enable(ctx, "sop"); err != nil {
@@ -223,7 +223,7 @@ func TestResumeOnlyByProvider(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer r.Close()
-	for id, perms := range map[string][]string{"sop": {"network:any"}, "demo": {"network:localhost"}} {
+	for id, perms := range map[string][]string{"sop": sopPerms, "demo": {"network:localhost"}} {
 		if err := r.Install(ctx, id, perms); err != nil {
 			t.Fatal(err)
 		}

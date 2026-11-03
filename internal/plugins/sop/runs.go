@@ -31,6 +31,16 @@ const (
 	stBypassed = "bypassed"
 )
 
+// 发起来源（SOP-06，迁移 0003）；以前的执行是空串。
+const (
+	SourceManual   = "manual"   // 界面上手动发起：SOP 页、任务详情；失败页批量重跑新起的 source_ref 是原执行 id（runbatch.go）
+	SourceAgent    = "agent"    // Agent 的 run_sop，source_ref 是 Agent id
+	SourceSchedule = "schedule" // 定时任务的 sop 动作，source_ref 是定时任务 id
+	SourceIM       = "im"       // 触发方式是 IM 的流程来消息自动发起，source_ref 是消息 id
+	SourceSubflow  = "subflow"  // 子流程节点，source_ref 是父执行 id
+	SourcePlugin   = "plugin"   // 别的插件经内核运行句柄发起，source_ref 是插件 id
+)
+
 // 运行状态，同原型 RunStatus；由步骤算出，存一份只为了按状态筛。
 var runStatuses = []string{"running", "waiting", "done", "failed", "stopped"}
 
@@ -58,22 +68,40 @@ type RunStep struct {
 	Log         []LogLine  `json:"log"`
 	WakeAt      *time.Time `json:"wake_at,omitempty"`
 	ChildRunID  string     `json:"child_run_id,omitempty"`
+	// Queue 是在排队等模型名额（SOP-07，gate.go）：只在接口回执行时按内存里的队列标上，不落库
+	Queue *StepQueue `json:"queue,omitempty"`
+}
+
+// StepQueue 是排队中的步骤前面还有几个（全插件的队列里）。
+type StepQueue struct {
+	Ahead int `json:"ahead"`
 }
 
 // Run 是一次执行，形状同原型 SopRun：sop_id、sop 改叫 flow_id、flow，多运行状态和父执行。
 type Run struct {
-	ID          string     `json:"id"`
-	FlowID      string     `json:"flow_id"`
-	FlowName    string     `json:"flow_name"`
-	FlowVersion int        `json:"flow_version"`
-	Flow        *Flow      `json:"flow,omitempty"`
-	Title       string     `json:"title"`
-	Input       Json       `json:"input"`
-	StepThrough bool       `json:"step_through"`
-	Stopped     bool       `json:"stopped"`
-	Status      string     `json:"status"`
-	ParentRunID string     `json:"parent_run_id,omitempty"`
-	ParentStep  string     `json:"parent_step,omitempty"`
+	ID          string `json:"id"`
+	FlowID      string `json:"flow_id"`
+	FlowName    string `json:"flow_name"`
+	FlowVersion int    `json:"flow_version"`
+	Flow        *Flow  `json:"flow,omitempty"`
+	Title       string `json:"title"`
+	Input       Json   `json:"input"`
+	StepThrough bool   `json:"step_through"`
+	Stopped     bool   `json:"stopped"`
+	Status      string `json:"status"`
+	ParentRunID string `json:"parent_run_id,omitempty"`
+	ParentStep  string `json:"parent_step,omitempty"`
+	// ObjectID 是关联的工作对象（SOP-06，迁移 0003）：在任务上发起、Agent 处理任务时发起的；子流程继承父执行的
+	ObjectID string `json:"object_id,omitempty"`
+	// Source 是发起来源（Source* 常量），以前的执行是空串；SourceRef 是来源对象的 id，SourceName 是发起那一刻的名字
+	Source     string `json:"source"`
+	SourceRef  string `json:"source_ref,omitempty"`
+	SourceName string `json:"source_name,omitempty"`
+	// RelaunchedTo 是这条失败执行被「按最新流程重新发起」新起的那条执行 id（迁移 0005，runbatch.go）；
+	// 有值就算「已重跑」：不算失败待处理，也不能再重试、重跑。重跑进行中的占位不往外给
+	RelaunchedTo string `json:"relaunched_to,omitempty"`
+	// relaunching 是 relaunched_to 里是重跑进行中的占位（另一次重跑正在新起执行）
+	relaunching bool
 	StartedAt   time.Time  `json:"started_at"`
 	EndedAt     *time.Time `json:"ended_at,omitempty"`
 	UpdatedAt   time.Time  `json:"updated_at"`
@@ -175,16 +203,16 @@ func boolInt(b bool) int {
 
 /* ---------- 存取 ---------- */
 
-const runCols = `id, flow_id, flow_version, title, flow, input, step_through, stopped, status, parent_run_id, parent_step, started_at, ended_at, updated_at`
+const runCols = `id, flow_id, flow_version, title, flow, input, step_through, stopped, status, parent_run_id, parent_step, object_id, source, source_ref, source_name, started_at, ended_at, updated_at, relaunched_to`
 
 // scanRun 读一行 sop_runs；withFlow 为假时不解析快照（列表用），只取流程名。
 func scanRun(row plugin.Row, withFlow bool) (*Run, error) {
 	var r Run
 	var flow, input, started, updated string
-	var parent, parentStep, ended *string
+	var parent, parentStep, object, ended, relaunched *string
 	var through, stopped int
 	if err := row.Scan(&r.ID, &r.FlowID, &r.FlowVersion, &r.Title, &flow, &input, &through, &stopped, &r.Status,
-		&parent, &parentStep, &started, &ended, &updated); err != nil {
+		&parent, &parentStep, &object, &r.Source, &r.SourceRef, &r.SourceName, &started, &ended, &updated, &relaunched); err != nil {
 		return nil, err
 	}
 	var f Flow
@@ -205,6 +233,16 @@ func scanRun(row plugin.Row, withFlow bool) (*Run, error) {
 	}
 	if parentStep != nil {
 		r.ParentStep = *parentStep
+	}
+	if object != nil {
+		r.ObjectID = *object
+	}
+	if relaunched != nil {
+		if isRelaunchClaim(*relaunched) {
+			r.relaunching = true
+		} else {
+			r.RelaunchedTo = *relaunched
+		}
 	}
 	r.StartedAt = *parseTS(&started)
 	r.EndedAt = parseTS(ended)
@@ -286,9 +324,10 @@ func parseSteps(f *Flow) ([]stepDef, error) {
 
 func insertRun(ctx context.Context, st plugin.Store, r *Run) error {
 	flow, _ := json.Marshal(r.Flow)
-	if _, err := st.Exec(ctx, `INSERT INTO sop_runs (`+runCols+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+	if _, err := st.Exec(ctx, `INSERT INTO sop_runs (`+runCols+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		r.ID, r.FlowID, r.FlowVersion, r.Title, string(flow), jsonCol(r.Input), boolInt(r.StepThrough), boolInt(r.Stopped),
-		r.Status, nullStr(r.ParentRunID), nullStr(r.ParentStep), ts(r.StartedAt), tsPtr(r.EndedAt), ts(r.UpdatedAt)); err != nil {
+		r.Status, nullStr(r.ParentRunID), nullStr(r.ParentStep), nullStr(r.ObjectID), r.Source, r.SourceRef, r.SourceName, ts(r.StartedAt), tsPtr(r.EndedAt), ts(r.UpdatedAt),
+		nullStr(r.RelaunchedTo)); err != nil {
 		return err
 	}
 	for i, s := range r.Steps {
@@ -335,9 +374,11 @@ func unfinishedRuns(ctx context.Context, st plugin.Store) ([]string, error) {
 	return out, rows.Err()
 }
 
+// countActive 是一条流程还没走完的执行数（删流程前查）；已重跑的失败执行算处理完了，不挡删除。
 func countActive(ctx context.Context, st plugin.Store, flowID string) (int, error) {
 	var n int
-	err := st.QueryRow(ctx, `SELECT COUNT(*) FROM sop_runs WHERE flow_id = ? AND ended_at IS NULL AND stopped = 0`, flowID).Scan(&n)
+	err := st.QueryRow(ctx, `SELECT COUNT(*) FROM sop_runs WHERE flow_id = ? AND ended_at IS NULL AND stopped = 0
+		AND NOT (status = 'failed' AND relaunched_to IS NOT NULL)`, flowID).Scan(&n)
 	return n, err
 }
 
@@ -376,17 +417,45 @@ func (h *runs) start(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	var objectID string
+	if v, ok := raw["object_id"]; ok && string(v) != "null" {
+		if err := json.Unmarshal(v, &objectID); err != nil {
+			fail(w, r, h.c, apiErr(errValidation, "object_id 必须是字符串"))
+			return
+		}
+	}
+	if objectID, err = checkObject(ctx, h.c, objectID); err != nil {
+		fail(w, r, h.c, err)
+		return
+	}
 	input, err = fillInput(f, input)
 	if err != nil {
 		fail(w, r, h.c, err)
 		return
 	}
-	run, err := h.e.create(ctx, f, input, through, "", "")
+	// 界面上发起的一律记手动，body 里带别的来源也不认（SOP-06）
+	run, err := h.e.create(ctx, f, input, through, origin{ObjectID: objectID, Source: SourceManual})
 	if err != nil {
 		fail(w, r, h.c, err)
 		return
 	}
 	writeJSON(w, http.StatusCreated, map[string]any{"data": run})
+}
+
+// checkObject 校验发起时带的关联对象（SOP-06）：空串不关联；不存在或在回收站里回 400。
+func checkObject(ctx context.Context, c plugin.Core, id string) (string, error) {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return "", nil
+	}
+	o, err := c.Objects().Get(ctx, id)
+	if errors.Is(err, plugin.ErrNoRows) || (err == nil && o.Deleted) {
+		return "", apiErr(errValidation, "关联的对象 %s 不存在", id)
+	}
+	if err != nil {
+		return "", err
+	}
+	return o.ID, nil
 }
 
 // fillInput 补上没传的字段默认值，必填的空着回 400；没定义的 key 原样留着。
@@ -436,20 +505,28 @@ func runTitle(f Flow, input Json) string {
 
 // RunBrief 是列表里的一次执行：不带快照和每步的输入输出、日志，步骤只给 key、名称、状态。
 type RunBrief struct {
-	ID          string      `json:"id"`
-	FlowID      string      `json:"flow_id"`
-	FlowName    string      `json:"flow_name"`
-	FlowVersion int         `json:"flow_version"`
-	Title       string      `json:"title"`
-	StepThrough bool        `json:"step_through"`
-	Stopped     bool        `json:"stopped"`
-	Status      string      `json:"status"`
-	ParentRunID string      `json:"parent_run_id,omitempty"`
-	StartedAt   time.Time   `json:"started_at"`
-	EndedAt     *time.Time  `json:"ended_at,omitempty"`
-	UpdatedAt   time.Time   `json:"updated_at"`
-	Focus       int         `json:"focus"`
-	Steps       []StepBrief `json:"steps"`
+	ID          string `json:"id"`
+	FlowID      string `json:"flow_id"`
+	FlowName    string `json:"flow_name"`
+	FlowVersion int    `json:"flow_version"`
+	Title       string `json:"title"`
+	StepThrough bool   `json:"step_through"`
+	Stopped     bool   `json:"stopped"`
+	Status      string `json:"status"`
+	ParentRunID string `json:"parent_run_id,omitempty"`
+	ObjectID    string `json:"object_id,omitempty"`
+	Source      string `json:"source"`
+	SourceRef   string `json:"source_ref,omitempty"`
+	SourceName  string `json:"source_name,omitempty"`
+	// RelaunchedTo 同 Run.RelaunchedTo：已重跑的失败执行指向新执行
+	RelaunchedTo string      `json:"relaunched_to,omitempty"`
+	StartedAt    time.Time   `json:"started_at"`
+	EndedAt      *time.Time  `json:"ended_at,omitempty"`
+	UpdatedAt    time.Time   `json:"updated_at"`
+	Focus        int         `json:"focus"`
+	Steps        []StepBrief `json:"steps"`
+	// InputValue 是输入里 input_key 那个字段的值，只在按 input_key 查时有（batch.go）
+	InputValue string `json:"input_value,omitempty"`
 }
 
 type StepBrief struct {
@@ -457,12 +534,15 @@ type StepBrief struct {
 	Name   string `json:"name"`
 	Kind   string `json:"kind"`
 	Status string `json:"status"`
+	// Queue 同 RunStep.Queue：在排队等模型名额时有（batch.go 的 markBriefQueued）
+	Queue *StepQueue `json:"queue,omitempty"`
 }
 
 func brief(r *Run) RunBrief {
 	defs, _ := parseSteps(r.Flow)
 	out := RunBrief{ID: r.ID, FlowID: r.FlowID, FlowName: r.FlowName, FlowVersion: r.FlowVersion, Title: r.Title,
-		StepThrough: r.StepThrough, Stopped: r.Stopped, Status: r.Status, ParentRunID: r.ParentRunID,
+		StepThrough: r.StepThrough, Stopped: r.Stopped, Status: r.Status, ParentRunID: r.ParentRunID, ObjectID: r.ObjectID,
+		Source: r.Source, SourceRef: r.SourceRef, SourceName: r.SourceName, RelaunchedTo: r.RelaunchedTo,
 		StartedAt: r.StartedAt, EndedAt: r.EndedAt, UpdatedAt: r.UpdatedAt, Focus: focusIndex(r), Steps: make([]StepBrief, len(r.Steps))}
 	for i, s := range r.Steps {
 		b := StepBrief{Key: s.Key, Status: s.Status}
@@ -479,7 +559,25 @@ const (
 	maxRunLimit     = 500
 )
 
-// list 是 GET /api/sop/runs：按开始时间倒序，可按流程、状态、待我处理筛。
+// pendingStatusCond 是「待我处理」：等人处理的，和失败了还没重跑过的（已重跑的不算，迁移 0005）
+const pendingStatusCond = `(status = 'waiting' OR (status = 'failed' AND relaunched_to IS NULL))`
+
+// statusCond 是按运行状态筛的条件：failed 只算还没重跑过的，已重跑的只在不按状态筛时出现。
+// sts 都已校验在 runStatuses 里，直接拼进语句。
+func statusCond(sts []string) string {
+	var or []string
+	for _, s := range slices.Compact(slices.Sorted(slices.Values(sts))) {
+		if s == stFailed {
+			or = append(or, "(status = 'failed' AND relaunched_to IS NULL)")
+		} else {
+			or = append(or, "status = '"+s+"'")
+		}
+	}
+	return "(" + strings.Join(or, " OR ") + ")"
+}
+
+// list 是 GET /api/sop/runs：按开始时间倒序，可按流程、关联对象（object_id，SOP-06）、状态、待我处理筛。
+// 状态 failed 和 mine 都不含已重跑的失败执行（relaunched_to 有值，迁移 0005），它们只在不按状态筛时列出。
 func (h *runs) list(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	q := r.URL.Query()
@@ -487,6 +585,17 @@ func (h *runs) list(w http.ResponseWriter, r *http.Request) {
 	if v := q.Get("flow_id"); v != "" {
 		where, args = append(where, "flow_id = ?"), append(args, v)
 	}
+	if v := strings.TrimSpace(q.Get("object_id")); v != "" {
+		where, args = append(where, "object_id = ?"), append(args, v)
+	}
+	// 按输入字段查（batch.go）：IM 页处理队列按 message_id 关联消息
+	inputKey := strings.TrimSpace(q.Get("input_key"))
+	iw, ia, err := inputFilter(inputKey, q.Get("input_value"))
+	if err != nil {
+		fail(w, r, h.c, err)
+		return
+	}
+	where, args = append(where, iw...), append(args, ia...)
 	var sts []string
 	if v := q.Get("status"); v != "" {
 		for _, s := range strings.Split(v, ",") {
@@ -507,10 +616,7 @@ func (h *runs) list(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if len(sts) > 0 {
-		where = append(where, "status IN (?"+strings.Repeat(", ?", len(sts)-1)+")")
-		for _, s := range sts {
-			args = append(args, s)
-		}
+		where = append(where, statusCond(sts))
 	}
 	limit := defaultRunLimit
 	if v := q.Get("limit"); v != "" {
@@ -528,10 +634,14 @@ func (h *runs) list(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	out, err := listRuns(ctx, h.c.Store(), cond, args, limit)
+	if err == nil {
+		err = fillInputValues(ctx, h, inputKey, out)
+	}
 	if err != nil {
 		fail(w, r, h.c, err)
 		return
 	}
+	h.e.markBriefQueued(out)
 	writeJSON(w, http.StatusOK, map[string]any{"data": out, "meta": map[string]int{"total": total}})
 }
 
@@ -594,6 +704,7 @@ func (h *runs) show(w http.ResponseWriter, r *http.Request) {
 		fail(w, r, h.c, err)
 		return
 	}
+	h.e.markQueued(run)
 	writeJSON(w, http.StatusOK, map[string]any{"data": run})
 }
 
@@ -636,25 +747,32 @@ func (h *runs) act(w http.ResponseWriter, r *http.Request) {
 		fail(w, r, h.c, apiErr(errValidation, "step-through 要带 on"))
 		return
 	}
+	if a.Kind == "retry" || a.Kind == "skip" {
+		if err := h.notRelaunched(ctx, r.PathValue("id")); err != nil {
+			fail(w, r, h.c, err)
+			return
+		}
+	}
 	out, err := h.e.act(ctx, r.PathValue("id"), a)
 	if err != nil {
 		fail(w, r, h.c, err)
 		return
 	}
+	h.e.markQueued(out)
 	writeJSON(w, http.StatusOK, map[string]any{"data": out})
 }
 
-// pendingCard 是今日卡片「SOP 待我处理」：等人处理（waiting）和失败的执行，最多 5 条。
+// pendingCard 是今日卡片「SOP 待我处理」：等人处理（waiting）和失败了还没重跑过的执行，最多 5 条。
 func pendingCard(ctx context.Context, c plugin.Core) (*plugin.TodayCardData, error) {
 	st := c.Store()
 	var n int
-	if err := st.QueryRow(ctx, `SELECT COUNT(*) FROM sop_runs WHERE status IN ('waiting', 'failed')`).Scan(&n); err != nil {
+	if err := st.QueryRow(ctx, `SELECT COUNT(*) FROM sop_runs WHERE `+pendingStatusCond).Scan(&n); err != nil {
 		return nil, err
 	}
 	if n == 0 {
 		return nil, nil
 	}
-	rs, err := listRuns(ctx, st, `status IN ('waiting', 'failed')`, nil, 5)
+	rs, err := listRuns(ctx, st, pendingStatusCond, nil, 5)
 	if err != nil {
 		return nil, err
 	}

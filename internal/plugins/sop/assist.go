@@ -43,7 +43,7 @@ var kindLabels = map[string]string{
 	"auto": "自动执行", "ai": "AI 处理", "knowledge": "知识检索", "extract": "参数提取", "template": "模板转换",
 	"aggregate": "变量聚合", "code": "代码执行", "decide": "条件分支", "classifier": "问题分类器", "iterate": "迭代",
 	"wait": "等待", "review": "人工检查", "http": "HTTP 请求", "notify": "发送消息", "task": "创建任务",
-	"doc": "写文档", "contact": "写联系人",
+	"doc": "写文档", "contact": "写联系人", "local_append": "写进项目目录",
 	"agent": "调用 Agent", "subflow": "子流程", "end": "结束",
 }
 
@@ -399,7 +399,7 @@ func parseReply(out string, base Flow, kinds kindLookup) (Reply, error) {
 // coreCompleter 走内核的 Agent 句柄（SOP-01c），用默认服务商和它的模型补全；句柄没接上时回 errNoModel。
 func coreCompleter(c plugin.Core) completer {
 	return func(ctx context.Context, system, user string) (string, error) {
-		out, err := c.Agent().Complete(ctx, plugin.CompleteRequest{System: system, Prompt: user})
+		out, err := c.Agent().Complete(ctx, plugin.CompleteRequest{System: system, Prompt: user, Scenario: plugin.ScenarioSOPAssist})
 		if errors.Is(err, plugin.ErrNoAgent) {
 			return "", errNoModel
 		}

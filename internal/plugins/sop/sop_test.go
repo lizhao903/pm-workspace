@@ -18,13 +18,16 @@ import (
 	"github.com/lizhao903/pm-workspace/internal/plugin"
 )
 
+// sopPerms 是装 SOP 插件时确认的权限，同清单。
+var sopPerms = []string{"network:any", "fs:write:project"}
+
 func TestManifestValid(t *testing.T) {
 	m, err := plugin.Parse(manifestJSON)
 	if err != nil {
 		t.Fatalf("清单不合法：%v", err)
 	}
-	// HTTP 节点要访问任意地址（SOP-01c），高风险，安装时单独勾选
-	if m.ID != "sop" || m.TablePrefix != "sop_" || !reflect.DeepEqual(m.Permissions, []string{"network:any"}) {
+	// HTTP 节点要访问任意地址（SOP-01c），高风险，安装时单独勾选；写进项目目录要写项目目录下的文件
+	if m.ID != "sop" || m.TablePrefix != "sop_" || !reflect.DeepEqual(m.Permissions, []string{"network:any", "fs:write:project"}) {
 		t.Fatalf("id=%s table_prefix=%s permissions=%v", m.ID, m.TablePrefix, m.Permissions)
 	}
 	if !reflect.DeepEqual(m.Provides.Modules, []string{"sop"}) {
@@ -45,6 +48,13 @@ func TestMigrationsEmbedded(t *testing.T) {
 // 在真库上装好、启用 SOP 插件，返回注册表和挂了插件路由的 handler
 func setup(t *testing.T, p *Plugin) (*plugin.Registry, http.Handler) {
 	t.Helper()
+	r, h, _ := setupDB(t, p)
+	return r, h
+}
+
+// setupDB 同 setup，多回库，测试要往内核表里放对象时用
+func setupDB(t *testing.T, p *Plugin) (*plugin.Registry, http.Handler, *db.DB) {
+	t.Helper()
 	ctx := context.Background()
 	d, err := db.Open(filepath.Join(t.TempDir(), "pm.db"))
 	if err != nil {
@@ -63,7 +73,7 @@ func setup(t *testing.T, p *Plugin) (*plugin.Registry, http.Handler) {
 		t.Fatal(err)
 	}
 	t.Cleanup(r.Close)
-	if err := r.Install(ctx, "sop", []string{"network:any"}); err != nil {
+	if err := r.Install(ctx, "sop", sopPerms); err != nil {
 		t.Fatal(err)
 	}
 	if err := r.Enable(ctx, "sop"); err != nil {
@@ -73,7 +83,7 @@ func setup(t *testing.T, p *Plugin) (*plugin.Registry, http.Handler) {
 	for _, rt := range r.Routes(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNotFound) }) {
 		mux.HandleFunc(rt.Pattern, rt.Handler)
 	}
-	return r, mux
+	return r, mux, d
 }
 
 func call(t *testing.T, h http.Handler, method, path, body string) (int, map[string]any) {

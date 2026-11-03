@@ -8,7 +8,7 @@
 //   人工判断：看过输入，选走哪个分支
 //   失败：重试或跳过
 // 原型里步骤由前端定时器模拟，每步的产出是写死的规则，不连真服务
-import { seedContacts } from './data'
+import { seedContacts, seedMessages } from './data'
 import { newId } from './ids'
 import { NODE_TYPES, isBranching, typeOf, type Cfg, type StepKind } from './nodetypes'
 
@@ -89,6 +89,10 @@ export interface RunStep {
   edited?: 'input' | 'output' | 'route'
   attempts: number
   log: { at: number; text: string }[]
+  /** 在排队等模型名额（SOP-07）：状态仍是 running，ahead 是全局队列里前面还有几个 */
+  queue?: { ahead: number }
+  /** 占着一个调模型的名额（原型自己用；正式产品在后端内存里） */
+  gated?: boolean
 }
 
 export interface SopRun {
@@ -103,6 +107,34 @@ export interface SopRun {
   ended_at?: number
   input: Json
   steps: RunStep[]
+  /** 关联的工作对象（SOP-06）：在任务详情里「执行 SOP」发起的、Agent 处理任务时用 run_sop 发起的；子流程继承父执行的 */
+  object_id?: string
+  /** 发起来源（SOP-06）：manual 手动 / agent / schedule 定时任务 / im IM 消息触发 / subflow 子流程 / plugin 别的插件；以前的执行没有 */
+  source?: RunSource
+  /** 来源对象的 id：Agent id、定时任务 id、消息 id、父执行 id、插件 id；批量重跑新起的（manual）记原执行 id */
+  source_ref?: string
+  /** 发起那一刻来源的名字；正式产品 Agent、定时任务的名字现查，查不到才用它 */
+  source_name?: string
+  /** 失败后按最新流程重新发起（批量重跑的 relaunch）新起的那条执行 id；有值就是「已重跑」（SPEC-sop-4.21） */
+  relaunched_to?: string
+}
+
+export type RunSource = 'manual' | 'agent' | 'schedule' | 'im' | 'subflow' | 'plugin'
+export type RunOrigin = { objectId?: string; source?: RunSource; sourceRef?: string; sourceName?: string }
+
+/** 来源的文字：「手动」「手动（批量重跑）」「Agent：消息分诊助手」「定时：周一例会」「IM 消息」「子流程」「插件：video」；没有来源为空串 */
+export function sourceText(r: Pick<SopRun, 'source' | 'source_ref' | 'source_name'>): string {
+  const name = r.source_name || r.source_ref || ''
+  switch (r.source) {
+    // 界面上批量发起、批量重跑的记了 source_name
+    case 'manual': return r.source_name ? `手动（${r.source_name}）` : '手动'
+    case 'agent': return name ? `Agent：${name}` : 'Agent'
+    case 'schedule': return name ? `定时：${name}` : '定时'
+    case 'im': return 'IM 消息'
+    case 'subflow': return '子流程'
+    case 'plugin': return name ? `插件：${name}` : '插件'
+    default: return ''
+  }
 }
 
 export const STEP_STATUS: Record<StepStatus, { label: string; color: string }> = {
@@ -116,12 +148,75 @@ export const STEP_STATUS: Record<StepStatus, { label: string; color: string }> =
   bypassed: { label: '未走此分支', color: '#a19d92' },
 }
 
-export const RUN_STATUS: Record<RunStatus, { label: string; color: string }> = {
+/** 界面上显示的状态：失败后已按最新流程重跑过的多一种「已重跑」，灰色，不算失败待处理（SPEC-sop-4.21） */
+export type RunShow = RunStatus | 'relaunched'
+export const RUN_STATUS: Record<RunShow, { label: string; color: string }> = {
   running: { label: '执行中', color: '#3d4fd6' },
   waiting: { label: '待我处理', color: '#b0570b' },
   done: { label: '已完成', color: '#2f7d43' },
   failed: { label: '失败', color: '#c0352b' },
   stopped: { label: '已终止', color: '#a19d92' },
+  relaunched: { label: '已重跑', color: '#a19d92' },
+}
+export const runShow = (r: SopRun): RunShow => {
+  const st = runStatus(r)
+  return st === 'failed' && r.relaunched_to ? 'relaunched' : st
+}
+
+/** 排队中的步骤（SOP-07）：状态仍是 running，界面单独显示「排队中」 */
+export const QUEUED_LOOK = { label: '排队中', color: '#7a766c' }
+export const isQueued = (s: RunStep) => s.status === 'running' && !!s.queue
+export const stepLook = (s: RunStep) => (isQueued(s) ? QUEUED_LOOK : STEP_STATUS[s.status])
+
+/* ---------- 调模型的并发上限（SOP-07） ---------- */
+
+/** 要调模型的节点：AI 处理、参数提取、问题分类、迭代、调用 Agent；知识检索只做关键词检索，不算 */
+export const MODEL_KINDS = ['ai', 'extract', 'classifier', 'iterate', 'agent']
+export const isModelKind = (kind: string) => MODEL_KINDS.includes(kind)
+export const MODEL_CONCURRENCY_DEFAULT = 2
+export const MODEL_CONCURRENCY_MAX = 16
+
+/**
+ * 跨所有执行限制同时调模型的步骤数：占着名额的（gated）不动；没名额的标 queue 并记「排队等模型（前面还有 N 个）」，
+ * 排到了去掉 queue、从这时开始计时并记「排到了，开始调模型」。先按执行的发起时间、再按步骤顺序排；调小时占着的不打断。
+ * 正式产品在后端（gate.go），子流程按父执行的发起时间排；原型的子流程不起子执行，不用管
+ */
+export function gateRuns(runs: SopRun[], limit: number, now = Date.now()): SopRun[] {
+  let held = 0
+  const wait: { r: number; i: number }[] = []
+  runs.forEach((run, r) => run.steps.forEach((s, i) => {
+    if (run.stopped || s.status !== 'running' || !isModelKind(run.sop.steps[i].kind)) return
+    if (s.gated) held++
+    else wait.push({ r, i })
+  }))
+  let changed = false
+  const out = runs.map((run) => {
+    // 不在执行的步骤清掉排队标记
+    if (!run.steps.some((s) => (s.gated || s.queue) && (s.status !== 'running' || run.stopped))) return run
+    changed = true
+    return { ...run, steps: run.steps.map((s) => (s.status !== 'running' || run.stopped ? { ...s, gated: undefined, queue: undefined } : s)) }
+  })
+  wait.sort((a, b) => (runs[a.r].started_at - runs[b.r].started_at) || (a.r - b.r) || (a.i - b.i))
+  let granted = 0
+  wait.forEach(({ r, i }, n) => {
+    const s = out[r].steps[i]
+    let next: RunStep
+    if (held < limit) {
+      held++
+      granted++
+      next = s.queue ? logged({ ...s, gated: true, queue: undefined, started_at: now }, now, '排到了，开始调模型') : { ...s, gated: true }
+    } else {
+      // 排在前面、这次也没排到的个数
+      const ahead = n - granted
+      next = s.queue ? (s.queue.ahead === ahead ? s : { ...s, queue: { ahead } })
+        : logged({ ...s, queue: { ahead } }, now, `排队等模型（前面还有 ${ahead} 个）`)
+    }
+    if (next !== s) {
+      changed = true
+      out[r] = { ...out[r], steps: out[r].steps.map((x, j) => (j === i ? next : x)) }
+    }
+  })
+  return changed ? out : runs
 }
 
 const FINISHED: StepStatus[] = ['done', 'skipped', 'bypassed']
@@ -445,6 +540,53 @@ export const SOPS: Sop[] = [
       },
     ],
   },
+  // 消息分诊（SPEC-messages-2.41）：判断一条消息要不要我处理；要处理的写一句处理建议（advice）并标 need=yes，不用管的标已忽略（marked）。
+  // 消息抽屉「分诊建议」一节按这些输出字段取结论，不认步骤 key。原型的判断是写死的规则
+  {
+    id: 'sop_triage',
+    name: '消息分诊：要不要我处理',
+    desc: '读消息、判断要不要我处理。要处理的写一句处理建议；不用管的标成已忽略',
+    trigger: 'manual',
+    fields: [{ key: 'message_id', label: '消息', type: 'text', required: true, placeholder: '消息 id' }],
+    steps: [
+      {
+        key: 'read', name: '读取消息', kind: 'auto', ms: 300, after: [], desc: '按消息 id 读出发信人、会话、正文',
+        run: (i) => {
+          const m = seedMessages.find((x) => x.id === i.message_id)
+          return { ...i, message: m ? { id: m.id, sender: m.sender_name, conversation: m.conversation || '私聊', text: m.text } : { id: i.message_id, text: '' } }
+        },
+      },
+      {
+        key: 'triage', name: '要不要我处理', kind: 'classifier', ms: 900, desc: '私聊里找我、群里 @我 要我做事的算要处理；@所有人、广播、闲聊算忽略',
+        cases: [{ key: 'handle', label: '需要我处理' }, { key: 'ignore', label: '忽略' }],
+        decide: (i) => {
+          const t = str((i.message as Json | undefined)?.text)
+          const handle = !/@所有人/.test(t) && /@Broleez|能不能|麻烦|确认|？|\?|找时间/.test(t)
+          return handle ? { route: 'handle', reason: '模型判断属于「需要我处理」' } : { route: 'ignore', reason: '模型判断属于「忽略」' }
+        },
+        run: (i) => i,
+      },
+      {
+        key: 'advise', name: '写处理建议', kind: 'ai', ms: 1200, after: ['triage'], branch: { of: 'triage', case: 'handle' },
+        desc: '一两句话写：对方要我做什么；建议怎么回或下一步做什么；有截止时间就写出来', config: { output: 'advice' },
+        run: (i) => {
+          const msg = (i.message as Json | undefined) ?? {}
+          const t = str(msg.text)
+          const ask = t.replace(/@\S+\s*/g, '').split(/[。？！?!]/).map((x) => x.trim()).find((x) => /能不能|麻烦|确认|吗|找时间|can we/i.test(x)) ?? t.slice(0, 30)
+          const due = /今天/.test(t) ? '今天内' : /这周|this week/i.test(t) ? '本周内' : /下周/.test(t) ? '下周前' : ''
+          return { ...i, advice: `${str(msg.sender)} 希望：${ask}。\n建议先回复「收到，我看一下」，${due ? `${due}给出答复` : '看完后给出结论'}；需要别人配合的先拉上相关同事。` }
+        },
+      },
+      {
+        key: 'drop', name: '标成已忽略', kind: 'auto', ms: 300, after: ['triage'], branch: { of: 'triage', case: 'ignore' }, desc: '消息页「已忽略」里还找得到',
+        run: (i) => ({ ...i, marked: { message_id: i.message_id, state: 'ignore', status: 'ignored' } }),
+      },
+      {
+        key: 'flag', name: '标记要处理', kind: 'template', ms: 200, after: ['advise'], desc: '给上层流程判断要不要建任务', config: { output: 'need', template: 'yes' },
+        run: (i) => ({ ...i, need: 'yes' }),
+      },
+    ],
+  },
 ]
 
 // 新建和编辑的 SOP 也放进这张表，引擎和界面都从这里按 id 取。App 里另有一份 state 负责触发重渲染
@@ -502,8 +644,10 @@ function advance(r: SopRun, now: number): SopRun {
   return r
 }
 
-export function startRun(sop: Sop, input: Json, stepThrough: boolean, now = Date.now()): SopRun {
+export function startRun(sop: Sop, input: Json, stepThrough: boolean, now = Date.now(), o: RunOrigin = {}): SopRun {
   const run: SopRun = {
+    ...(o.objectId ? { object_id: o.objectId } : {}),
+    ...(o.source ? { source: o.source, source_ref: o.sourceRef, source_name: o.sourceName } : {}),
     id: `run_${now.toString(36)}${rid()}`,
     sop_id: sop.id,
     sop,
@@ -520,7 +664,8 @@ export function tick(r: SopRun, now = Date.now()): SopRun {
   const sop = r.sop
   let moved = false
   r.steps.forEach((s, i) => {
-    if (s.status !== 'running') return
+    // 排队等模型的不往前走（SOP-07）
+    if (s.status !== 'running' || s.queue) return
     const def = sop.steps[i]
     if (now - (s.started_at ?? now) < def.ms) return
     moved = true
@@ -554,6 +699,65 @@ export type RunAction =
   | { kind: 'skip'; step: number }
   | { kind: 'stop' }
   | { kind: 'step-through'; on: boolean }
+
+/* ---------- 失败执行批量重跑（SPEC-sop-4.13~4.19） ---------- */
+
+/** retry 在原执行里重试失败的步骤（沿用快照）；relaunch 用原输入、流程现在的定义新起一条（原执行标「已重跑」） */
+export type RerunAction = 'retry' | 'relaunch'
+export type RerunResult = {
+  done: { run_id: string; new_run_id?: string }[]
+  skipped: { run_id: string; reason: string; new_run_id?: string }[]
+  failed: { run_id: string; error: string }[]
+}
+/** 一次最多重跑几条（同正式产品，和批量发起同一个上限） */
+export const RERUN_MAX = 200
+export const RERUN_SOURCE_NAME = '批量重跑'
+/** 已重跑过的再重跑、重试时跳过的原因（SPEC-sop-4.22） */
+export const RERUN_REASON_RELAUNCHED = '已重跑过'
+
+/** 发起后流程又改过：快照的步骤、字段和流程现在的不一样；流程删了不算（正式产品比 flow_version） */
+export function flowChanged(r: SopRun): boolean {
+  const cur = SOPS.find((s) => s.id === r.sop_id)
+  return !!cur && JSON.stringify([cur.steps, cur.fields]) !== JSON.stringify([r.sop.steps, r.sop.fields])
+}
+
+/**
+ * 批量重跑：不是失败的、重复的、已重跑过的跳过并给原因；relaunch 来源记手动、source_ref 记原执行、source_name 记「批量重跑」，逐步确认、关联对象照原执行，
+ * 原执行记上 relaunched_to（「已重跑」，移出失败）。同一条失败执行只重跑一次（SPEC-sop-4.21、4.22）。
+ * 原型没有子执行，正式产品里子执行换成它的顶层执行、同一条只发起一次（SPEC-sop-4.17）
+ */
+export function rerunRuns(runs: SopRun[], ids: string[], action: RerunAction, now = Date.now()): { runs: SopRun[]; result: RerunResult } {
+  const result: RerunResult = { done: [], skipped: [], failed: [] }
+  const byId = new Map(runs.map((r) => [r.id, r]))
+  const fresh: SopRun[] = []
+  const seen = new Set<string>()
+  for (const id of ids) {
+    const r = byId.get(id)
+    if (seen.has(id)) { result.skipped.push({ run_id: id, reason: '重复或为空' }); continue }
+    seen.add(id)
+    if (!r) { result.skipped.push({ run_id: id, reason: '执行不存在' }); continue }
+    const st = runStatus(r)
+    if (st !== 'failed') { result.skipped.push({ run_id: id, reason: `不是失败状态（${RUN_STATUS[st].label}）` }); continue }
+    if (r.relaunched_to) { result.skipped.push({ run_id: id, reason: RERUN_REASON_RELAUNCHED, new_run_id: r.relaunched_to }); continue }
+    if (action === 'retry') {
+      let x = r
+      r.steps.forEach((s, i) => { if (s.status === 'failed') x = act(x, { kind: 'retry', step: i }, now) })
+      byId.set(id, x)
+      result.done.push({ run_id: id })
+      continue
+    }
+    const sop = SOPS.find((s) => s.id === r.sop_id)
+    if (!sop) { result.failed.push({ run_id: id, error: `流程「${r.sop.name}」已删除` }); continue }
+    const input = { ...Object.fromEntries(sop.fields.map((f) => [f.key, f.default ?? ''])), ...r.input }
+    const miss = sop.fields.filter((f) => f.required && !str(input[f.key]).trim())
+    if (miss.length) { result.failed.push({ run_id: id, error: `${miss.map((f) => `「${f.label}」`).join('、')}必填` }); continue }
+    const n = startRun(sop, input, r.step_through, now + fresh.length, { objectId: r.object_id, source: 'manual', sourceRef: r.id, sourceName: RERUN_SOURCE_NAME })
+    fresh.push(n)
+    byId.set(id, { ...r, relaunched_to: n.id })
+    result.done.push({ run_id: id, new_run_id: n.id })
+  }
+  return { runs: [...fresh, ...runs.map((r) => byId.get(r.id) ?? r)], result }
+}
 
 export function act(r: SopRun, a: RunAction, now = Date.now()): SopRun {
   const sop = r.sop
@@ -619,16 +823,24 @@ const stepIs = (key: string, st: StepStatus) => (r: SopRun) => r.steps.find((s) 
 
 export const seedRuns: SopRun[] = (() => {
   const [fb, mt, ct] = SOPS
+  const tr = SOPS.find((x) => x.id === 'sop_triage')!
   return [
     // 刚开始的周会纪要，正在三路并行
-    simulate(mt, { ...defaults(mt), meeting: '权限 PRD 评审会 10/29' }, 0.03, stepIs('summarize', 'running')),
+    { ...simulate(mt, { ...defaults(mt), meeting: '权限 PRD 评审会 10/29' }, 0.03, stepIs('summarize', 'running')), source: 'manual' as const },
     // 功能需求分支，停在「确认诉求清单」等人检查
-    simulate(fb, defaults(fb), 12, stepIs('confirm', 'review')),
+    { ...simulate(fb, defaults(fb), 12, stepIs('confirm', 'review')), source: 'im' as const, source_ref: 'm1' },
     // 联系人建档，查到疑似重复，等人判断新建还是合并
-    simulate(ct, defaults(ct), 30, stepIs('match', 'review')),
+    { ...simulate(ct, defaults(ct), 30, stepIs('match', 'review')), source: 'manual' as const },
     // 缺陷分支，走微信回复，发送失败
     simulate(fb, { ...defaults(fb), customer: '许知行', channel: 'wechat', message: '审批页面一提交就报错，详情也打不开。' }, 95, (r) => runStatus(r) === 'failed'),
-    simulate(mt, defaults(mt), 60 * 26, (r) => runStatus(r) === 'done'),
+    { ...simulate(mt, defaults(mt), 60 * 26, (r) => runStatus(r) === 'done'), source: 'schedule' as const, source_ref: 'sc_meeting', source_name: '周会纪要' },
     simulate(ct, { raw: '何嘉宁 | 商务拓展总监\n远舟科技\n手机 138 0013 7788\n邮箱 jianing.he@yuanzhou.tech' }, 60 * 50, (r) => runStatus(r) === 'done', { match: 'new' }),
+    // 关联到任务 T-015（SOP-06）：Agent 处理任务时发起的，停在「确认诉求清单」；在任务上手动发起、已经跑完的周会纪要
+    { ...simulate(fb, { ...defaults(fb), customer: '许知行', message: '导出改成分批写文件，修掉 300 秒超时\n\n大租户导出审计日志很慢，能不能分批导出，再给个进度提示？' }, 40, stepIs('confirm', 'review')), object_id: 'tk_dev1', source: 'agent' as const, source_ref: 'ag_triage', source_name: '消息分诊助手' },
+    { ...simulate(mt, { ...defaults(mt), meeting: '导出超时复盘 10/30' }, 60 * 20, (r) => runStatus(r) === 'done'), object_id: 'tk_dev1', source: 'manual' as const },
+    // 消息分诊（SPEC-messages-2.41）：第一条消息分诊过两次（最近一次要处理、写了建议），@所有人 那条判为忽略
+    { ...simulate(tr, { message_id: seedMessages[0].id }, 5, (r) => runStatus(r) === 'done'), source: 'manual' as const, source_name: '批量发起' },
+    { ...simulate(tr, { message_id: seedMessages[0].id }, 2, (r) => runStatus(r) === 'done'), source: 'manual' as const, source_name: '批量发起' },
+    { ...simulate(tr, { message_id: seedMessages[2].id }, 20, (r) => runStatus(r) === 'done'), source: 'manual' as const, source_name: '批量发起' },
   ].map((r, n) => ({ ...r, id: `run_seed${n}` }))
 })()

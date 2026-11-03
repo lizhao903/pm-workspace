@@ -39,7 +39,7 @@ func setupStale(t *testing.T) (*plugin.Registry, http.Handler) {
 		return r
 	}
 	first := newReg()
-	if err := first.Install(ctx, "sop", []string{"network:any"}); err != nil {
+	if err := first.Install(ctx, "sop", sopPerms); err != nil {
 		t.Fatal(err)
 	}
 	if err := first.Enable(ctx, "sop"); err != nil {
@@ -85,7 +85,7 @@ func TestHTTPNodeNeedsConfirmedNetworkAny(t *testing.T) {
 		t.Fatalf("没确认不能出网，对方收到 %d 次", hits.Load())
 	}
 
-	if err := r.Upgrade(context.Background(), "sop", []string{"network:any"}); err != nil {
+	if err := r.Upgrade(context.Background(), "sop", sopPerms); err != nil {
 		t.Fatalf("upgrade: %v", err)
 	}
 	// 升级后插件重新注册，旧引擎已停；重试这一步走新注册的路由
@@ -95,5 +95,16 @@ func TestHTTPNodeNeedsConfirmedNetworkAny(t *testing.T) {
 	run = waitStatus(t, h, rid, "done")
 	if res := step(run, "h")["output"].(map[string]any)["http"].(map[string]any); res["status"] != float64(200) || hits.Load() != 1 {
 		t.Fatalf("确认后要真发请求：%v hits=%d", res, hits.Load())
+	}
+}
+
+// 写进项目目录要 fs:write:project：升级后没确认之前这一步失败，不碰磁盘
+func TestLocalAppendNeedsConfirmedWrite(t *testing.T) {
+	_, h := setupStale(t)
+	id := newFlow(t, h, `{"name":"写目录","steps":[{"key":"w","name":"写","kind":"local_append","after":[],"config":{"project":"Octok","path":"a.md","content":"x"}}]}`)
+	rid := startRun(t, h, id, `{}`)["id"].(string)
+	run := waitStatus(t, h, rid, "failed")
+	if got := step(run, "w")["error"]; got != "插件 sop 的 fs:write:project 权限还没确认，到插件管理里升级并确认" {
+		t.Fatalf("没确认时要失败：%v", got)
 	}
 }

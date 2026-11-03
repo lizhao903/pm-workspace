@@ -1,15 +1,17 @@
 // 发起执行抽屉（SPEC-sop-6）：按流程 fields 填输入、逐步确认开关；必填空着标红不关抽屉，发起失败抽屉不关、显示错误。
-// 成功后关抽屉、打开这次执行的运行页
+// 成功后关抽屉、打开这次执行的运行页。在任务上发起（SOP-06）时带 object，执行关联到它，抽屉上写明是哪条任务
 import { useState } from 'react'
 import { errorText, useStartSopRun, type SopFlow, type SopJson } from '../../core/data'
 import { Button, Checkbox, Drawer, Field, Input, Select, Textarea } from '../../core/ui'
 import { initialValues, missingRequired } from './model'
 import { KindTag } from './parts'
 
-export function StartDrawer({ flow, initial, onClose, onStarted }: {
+export function StartDrawer({ flow, initial, object, onClose, onStarted }: {
   flow: SopFlow
-  /** 「用同样的输入再执行」时预填那次的输入 */
+  /** 「用同样的输入再执行」时预填那次的输入；在任务上发起时是从任务字段预填的 */
   initial?: SopJson | null
+  /** 这次执行关联到的工作对象（SOP-06） */
+  object?: { id: string; ref: string; title: string }
   onClose: () => void
   onStarted: (runId: string) => void
 }) {
@@ -23,7 +25,7 @@ export function StartDrawer({ flow, initial, onClose, onStarted }: {
   const submit = () => {
     setTried(true)
     if (missing.length || start.isPending) return
-    start.mutate({ flowId: flow.id, body: { input: vals, step_through: stepThrough } }, { onSuccess: (r) => onStarted(r.id) })
+    start.mutate({ flowId: flow.id, body: { input: vals, step_through: stepThrough, ...(object ? { object_id: object.id } : {}) } }, { onSuccess: (r) => onStarted(r.id) })
   }
 
   return (
@@ -38,6 +40,7 @@ export function StartDrawer({ flow, initial, onClose, onStarted }: {
         <div>
           <h2 className="sop-start-title">{flow.name}</h2>
           {flow.desc && <div className="sop-muted">{flow.desc}</div>}
+          {object && <div className="sop-start-object">关联任务 {object.ref} {object.title}，输入已按任务字段预填，可以改</div>}
         </div>
         {flow.fields.map((f) => {
           const bad = tried && missing.includes(f)

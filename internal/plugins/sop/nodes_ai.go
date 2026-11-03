@@ -17,7 +17,9 @@ import (
 	"github.com/lizhao903/pm-workspace/internal/plugin"
 )
 
-// AI 类和外部节点（SOP-01c）：ai、extract、classifier、iterate 经 Core.Agent() 调默认服务商，
+// AI 类和外部节点（SOP-01c）：ai 经 Core.Agent() 调节点选的服务商和模型（没选用默认的），extract、classifier、iterate 调默认服务商；
+// 这四种节点选了 Agent（config.agent）就用它的服务商、模型、思考档位，指令拼在系统提示前，服务商和模型忽略；
+// 都没选时按「其他后台调用」的场景默认 Agent 走（设置 > Agent），那里也没选才用默认服务商。
 // knowledge 只搜配置的知识库，agent 按 Agent 的授权跑一轮，http 真发请求；code 不执行。
 // 规格见 web-next/docs/spec/sop.md「SPEC-sop-12」15 到 22。
 
@@ -98,7 +100,7 @@ func runAI(ctx context.Context, a plugin.AgentService, def stepDef, input Json) 
 		ask = def.Name
 	}
 	out, err := a.Complete(ctx, plugin.CompleteRequest{
-		System: aiSystem, Model: def.Config["model"],
+		System: aiSystem, Provider: def.Config["provider"], Model: def.Config["model"], Agent: def.Config["agent"],
 		Prompt: fmt.Sprintf("这一步：%s\n要求：%s\n\n输入：\n%s", def.Name, ask, inputJSON(input)),
 	})
 	if err != nil {
@@ -133,7 +135,7 @@ func runExtract(ctx context.Context, a plugin.AgentService, def stepDef, input J
 	}
 	text := mainText(input, def.Config["from"])
 	out, err := a.Complete(ctx, plugin.CompleteRequest{
-		System: "你从文字里提取字段。只回一个 JSON 对象，不要别的内容。",
+		System: "你从文字里提取字段。只回一个 JSON 对象，不要别的内容。", Agent: def.Config["agent"],
 		Prompt: fmt.Sprintf("要提取的字段：%s\n键就用这些字段名，取不到的值填空字符串。\n\n文字：\n%s",
 			strings.Join(fields, "、"), text),
 	})
@@ -168,7 +170,7 @@ func runClassifier(ctx context.Context, a plugin.AgentService, def stepDef, inpu
 		hint = "\n判断依据：" + hint + "\n"
 	}
 	out, err := a.Complete(ctx, plugin.CompleteRequest{
-		System: "你做分类。只回一个类别名，从给的类别里原样挑一个，不要解释。",
+		System: "你做分类。只回一个类别名，从给的类别里原样挑一个，不要解释。", Agent: def.Config["agent"],
 		Prompt: fmt.Sprintf("类别：\n%s%s\n要分类的文字：\n%s", b.String(), hint, mainText(input, def.Config["from"])),
 	})
 	if err != nil {
@@ -218,7 +220,7 @@ func runIterate(ctx context.Context, a plugin.AgentService, def stepDef, input J
 			return nodeResult{err: "执行被取消"}
 		}
 		out, err := a.Complete(ctx, plugin.CompleteRequest{
-			System: aiSystem,
+			System: aiSystem, Agent: def.Config["agent"],
 			Prompt: fmt.Sprintf("对列表里的这一项做这件事：%s\n\n这是第 %d 项，共 %d 项：\n%s", action, i+1, len(items), txt(item)),
 		})
 		if err != nil {
