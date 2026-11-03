@@ -2,6 +2,9 @@ import { useState } from 'react'
 import { PageTitle } from './topbar'
 import { AUTH_LABEL, IM_CHANNELS, TOOL_CATEGORIES, TOOLS, fieldView, testedAccount, tokenProblem, type ConnStatus, type Connector, type Tool } from './data'
 import { cls, timeAgo } from './ui'
+import { ImQuickReplies } from './quickreplies'
+import { ChannelPicker } from './channelpick'
+import { emailBackfillText, SLACK_EMAIL_SCOPE_HINT, type EmailBackfillResult } from './slackemail'
 
 const STATUS: Record<ConnStatus, { label: string; tone: string }> = {
   connected: { label: '已连接', tone: 'ok' },
@@ -135,6 +138,7 @@ export function ConnectorsSettings({ connectors, messageCount, initialCat = '', 
             <span className="muted">{c.desc}</span>
           </div>
           {c.key === 'im' && <ImExpiry days={imExpireDays} onSave={onImExpireDays} />}
+          {c.key === 'im' && <ImQuickReplies />}
           <div className="tool-grid">
             {TOOLS.filter((t) => t.category === c.key).map((t) => {
               const mine = connectors.filter((x) => x.tool === t.key)
@@ -201,7 +205,7 @@ export function ConnectorsSettings({ connectors, messageCount, initialCat = '', 
 type Draft = Pick<Connector, 'name' | 'config' | 'direction' | 'interval'> & { enabled: boolean }
 type TestResult = { ok: boolean; text: string } | null
 
-export function ConnectorDrawer({ tool, connector, onClose, onSave, onDelete, onConnect, onDisconnect, delImpact }: {
+export function ConnectorDrawer({ tool, connector, onClose, onSave, onDelete, onConnect, onDisconnect, delImpact, onBackfillEmails }: {
   onConnect?: () => void
   onDisconnect?: () => void
   tool: Tool
@@ -211,6 +215,8 @@ export function ConnectorDrawer({ tool, connector, onClose, onSave, onDelete, on
   onDelete: () => void
   /** 删除的连带影响，列在确认里 */
   delImpact?: string[]
+  /** 从 Slack 补联系人邮箱（SPEC-settings-4.7d），只有已接的 Slack 给 */
+  onBackfillEmails?: () => EmailBackfillResult
 }) {
   const creating = !connector
   const [d, setD] = useState<Draft>(() => connector
@@ -286,7 +292,14 @@ export function ConnectorDrawer({ tool, connector, onClose, onSave, onDelete, on
 
         <div className="field-group">
           <div className="field-group-title">凭证与参数</div>
-          {tool.fields.map((f) => { const v = fieldView(tool.key, f, d.config); return (
+          {tool.fields.map((f) => { const v = fieldView(tool.key, f, d.config); return f.picker === 'im_channels' ? (
+            // 监听频道：从连接器 Token 看得到的会话里勾选（SPEC-settings-4.7c）；新建、暂停、断开、异常时退回文本框
+            <div key={f.key} className="field">
+              <span className="field-label">{v.label}{f.required && <em>*</em>}</span>
+              <ChannelPicker connector={connector} value={d.config[f.key] ?? ''} placeholder={v.placeholder} onChange={(x) => setCfg(f.key, x)} />
+              {v.hint && <span className="field-hint-line">{v.hint}</span>}
+            </div>
+          ) : (
             <label key={f.key} className="field">
               <span className="field-label">{v.label}{f.required && <em>*</em>}</span>
               {f.kind === 'select' ? (
@@ -313,6 +326,8 @@ export function ConnectorDrawer({ tool, connector, onClose, onSave, onDelete, on
             {test && <span className={test.ok ? 'test-ok' : 'test-bad'}>{test.text}</span>}
           </div>
         </div>
+
+        {connector && onBackfillEmails && <EmailBackfill connector={connector} run={onBackfillEmails} />}
 
         <div className="field-group">
           <div className="field-group-title">同步</div>
@@ -357,5 +372,36 @@ export function ConnectorDrawer({ tool, connector, onClose, onSave, onDelete, on
         )}
       </div>
     </aside>
+  )
+}
+
+/* ---------- 从 Slack 补联系人邮箱（SPEC-settings-4.7d） ---------- */
+
+function EmailBackfill({ connector, run }: { connector: Connector; run: () => EmailBackfillResult }) {
+  const [busy, setBusy] = useState(false)
+  const [r, setR] = useState<EmailBackfillResult | null>(null)
+  const off = connector.status === 'paused' || connector.status === 'disconnected'
+  const go = () => {
+    setBusy(true); setR(null)
+    window.setTimeout(() => { setBusy(false); setR(run()) }, 700)
+  }
+  return (
+    <div className="field-group">
+      <div className="field-group-title">联系人邮箱</div>
+      <span className="field-hint-line">按联系人关联的 Slack 身份（Member ID）查 Slack 资料里的邮箱，只填联系人邮箱为空的，不覆盖已有的。之后收到新身份、新消息时也会顺带补。</span>
+      <div className="test-row">
+        <button className="btn btn-ghost btn-outline" onClick={go} disabled={busy || off} title={off ? '停用、断开时不查' : undefined}>
+          {busy ? '正在查 Slack…' : '从 Slack 补联系人邮箱'}
+        </button>
+        {r && <span className={r.missingScope ? 'muted' : 'test-ok'}>{emailBackfillText(r)}</span>}
+      </div>
+      {r?.missingScope && <div className="mail-hint">{SLACK_EMAIL_SCOPE_HINT}</div>}
+      {r && r.filledList.length > 0 && (
+        <ul className="mail-list muted">{r.filledList.map((x) => <li key={x.id}>{x.name}：{x.email}</li>)}</ul>
+      )}
+      {r && r.conflicts.length > 0 && (
+        <ul className="mail-list">{r.conflicts.map((x) => <li key={x.id}>{x.name}：名册里是 {x.current}，Slack 里是 {x.found}（没改，要换去联系人里改）</li>)}</ul>
+      )}
+    </div>
   )
 }

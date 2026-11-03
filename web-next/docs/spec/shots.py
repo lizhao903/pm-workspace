@@ -79,16 +79,22 @@ def _menu(pg, label):
 
 
 def tasks_devloop(pg, shot):
-    """任务抽屉的开发闭环区块、交给 Claude Code 弹窗、列表完成圆圈确认（SPEC-tasks-5、SPEC-tasks-6）。"""
+    """任务抽屉的标签和开发闭环区块、交给 Claude Code 弹窗、列表完成圆圈确认（SPEC-tasks-4.35、SPEC-tasks-5、SPEC-tasks-6）。"""
     _menu(pg, '任务')
     pg.locator('.task-row', has_text='T-015').click(); pg.wait_for_timeout(400)
     dr = pg.locator('aside.drawer'); body = dr.locator('.drawer-body')
+    # 待验收的任务默认停在「开发任务」标签（SPEC-tasks-4.35）
     shot('抽屉_待验收')
     dr.locator('.dev-sec').nth(0).evaluate('e => e.scrollIntoView({ block: "start" })'); pg.wait_for_timeout(150)
     shot('抽屉_进展')
-    dr.locator('.dev-run-head').nth(1).click(); pg.wait_for_timeout(150)
     dr.locator('.dev-sec').nth(1).evaluate('e => e.scrollIntoView({ block: "start" })'); pg.wait_for_timeout(150)
-    shot('抽屉_产出物和执行记录')
+    shot('抽屉_产出物')
+    dr.locator('.task-tabs [role=tab]', has_text='执行记录').click(); pg.wait_for_timeout(150)
+    dr.locator('.dev-run-head').nth(1).click(); pg.wait_for_timeout(150)
+    shot('抽屉_执行记录')
+    dr.locator('.task-tabs [role=tab]', has_text='基础信息').click(); pg.wait_for_timeout(150)
+    shot('抽屉_基础信息')
+    dr.locator('.task-tabs [role=tab]', has_text='开发任务').click(); pg.wait_for_timeout(150)
     body.evaluate('e => { e.scrollTop = 0 }')
     dr.locator('button', has_text='退回').first.click(); pg.wait_for_timeout(150)
     dr.locator('.dev-reviewbar textarea').focus()
@@ -101,6 +107,7 @@ def tasks_devloop(pg, shot):
     shot('交给_Claude_Code_允许写入确认')
     dlg.locator('button', has_text='算了，只读').click()
     dlg.locator('textarea').fill('先别改，看看界面上的超时还有没有别的地方写死')
+    # 发起后抽屉自己切到「执行记录」（SPEC-tasks-4.41）
     dlg.locator('.btn-primary').click(); pg.wait_for_timeout(2600)
     dr.locator('.dev-run.open').first.evaluate('e => e.scrollIntoView({ block: "center" })'); pg.wait_for_timeout(100)
     shot('抽屉_执行中')
@@ -174,12 +181,23 @@ def projects_task_confirm(pg, shot):
 
 
 def projects_comms(pg, shot):
-    """沟通标签：附件逐个决定、绑定面板（SPEC-projects-4、SPEC-projects-5）。"""
+    """沟通标签：绑定面板（SPEC-projects-4）。"""
     _project(pg, '产品工作台新版', '沟通')
-    pg.locator('.att-inbox button', has_text='逐个决定').click(); pg.wait_for_timeout(200)
-    shot('沟通_附件逐个决定')
     pg.locator('.pt-chats .mount-head button', has_text='绑定').click(); pg.wait_for_timeout(200)
     shot('沟通_绑定')
+
+
+def projects_attachments(pg, shot):
+    """附件标签：全部附件和去向、勾选后的批量操作（SPEC-projects-5）。"""
+    _project(pg, '产品工作台新版', '附件')
+    pg.locator('.att-tools .seg button', has_text='全部').click(); pg.wait_for_timeout(200)
+    shot('附件_全部')
+    pg.locator('.att-tools .seg button', has_text='待决定').click(); pg.wait_for_timeout(200)
+    boxes = pg.locator('.att-tr:not(.att-th) input[type=checkbox]:not([disabled])')
+    for i in range(min(2, boxes.count())):
+        boxes.nth(i).check()
+    pg.wait_for_timeout(150)
+    shot('附件_批量')
 
 
 def projects_dock(pg, shot):
@@ -1373,7 +1391,7 @@ trading_live.widths = (375, 1440)
 STEPS = {
     'tasks': [tasks_devloop, tasks_unsaved, tasks_schedule],
     'messages': [messages_drawer, messages_fetch_paused],
-    'projects': [projects_task_confirm, projects_comms, projects_dock],
+    'projects': [projects_task_confirm, projects_comms, projects_attachments, projects_dock],
     'sessions': [sessions_agent_off, sessions_perm, sessions_outputs],
     'settings': [settings_workspace, settings_im_drawer, settings_app_drawer, settings_provider_drawer, settings_agent_editor,
                  settings_agent_model_off, settings_kb, settings_skill, settings_incident, settings_misc],

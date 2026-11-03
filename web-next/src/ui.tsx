@@ -1,9 +1,29 @@
+import { useLayoutEffect, useRef, type TextareaHTMLAttributes } from 'react'
 import { IM_CHANNELS, type Contact, type Group, type ImChannel } from './data'
 import { useEnum } from './enumdata'
 
 // 页面之间共用的小部件。
 
 export const cls = (...xs: (string | false | undefined | null)[]) => xs.filter(Boolean).join(' ')
+
+/**
+ * 高度随内容撑开的多行输入（SPEC-tasks-4.10）：不出内部滚动条、不给手动拉，粘贴长文也跟着长；rows 是最小高度。
+ * 量高度时先设回 auto，抽屉的滚动位置要还原，不然打字时会跳。正式前端是 core/ui 的 Textarea autoGrow
+ */
+export function GrowArea({ className, value, ...rest }: TextareaHTMLAttributes<HTMLTextAreaElement> & { value: string }) {
+  const ref = useRef<HTMLTextAreaElement>(null)
+  useLayoutEffect(() => {
+    const el = ref.current
+    if (!el) return
+    const box = el.closest('.drawer-body') as HTMLElement | null
+    const top = box?.scrollTop
+    el.style.height = 'auto'
+    const cs = getComputedStyle(el)
+    el.style.height = `${el.scrollHeight + (parseFloat(cs.borderTopWidth) || 0) + (parseFloat(cs.borderBottomWidth) || 0)}px`
+    if (box && top !== undefined) box.scrollTop = top
+  }, [value])
+  return <textarea ref={ref} className={cls('grow-area', className)} value={value} {...rest} />
+}
 
 export function ago(iso: string | null) {
   if (!iso) return null

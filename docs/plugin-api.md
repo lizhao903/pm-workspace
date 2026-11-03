@@ -160,6 +160,11 @@ export interface PluginApi {
   sopNodes: SopNodeRegistry        // 2.7（SOP-03b，见 2.13.18）
   todayCards: TodayCardRegistry    // 2.8
   todaySources: TodaySourceRegistry // 今日「需要你处理」「正在运行」的来源（ALIGN-08，见 2.13.17）
+  projectTabs: ProjectTabRegistry  // 项目详情的插件标签（VID-08d）
+  objectSections: ObjectSectionRegistry // 对象详情的插件区块（SOP-06，见 2.13.21）
+  sessionTools: SessionToolRegistry // 会话头部的工具入口和面板（SPEC-sessions-1.34，见 2.13.22）
+  sessionSources: SessionSourceRegistry // 会话来源怎么显示、跳到哪（SPEC-sessions-1.42，见 2.13.23）
+  terminalLauncher: TerminalLauncherRegistry // 在终端里开 Claude Code 的入口（内核 0048，见 2.13.25）
   commands: CommandRegistry        // 2.9
   events: EventRegistry            // 2.10（规划，同上）
   /** 内核的数据访问层（CORE-03a）；插件只能通过它读写数据 */
@@ -216,6 +221,7 @@ type Registrar interface {
 	SOPStarter(st SOPStarter)                   // 2.7，只给 provides.modules 含 sop 的插件（SOP-01d）
 	HostHandler(d HostHandlerDef)               // 2.11，只有后端
 	ScheduleAction(d ScheduleActionDef)         // 2.12，只有后端（VID-06a）
+	ProjectPrototypes(fn ProjectPrototypeLister) // 只给 provides.modules 含 projects 的插件，见 2.13.24
 
 	// 规划，还没实现：SettingsSection（2.2）、ObjectType（2.3）、AgentTool（2.6）、SearchProvider（2.9）
 }
@@ -226,8 +232,8 @@ type Core interface {
 	Log() *slog.Logger
 	Events() Publisher                       // 只能发布清单 emits 里的类型（2.10）
 	Store() Store                            // 只能访问 table_prefix 开头的表（2.13.1）
-	Objects() ObjectReader                   // 只读：Get(ctx, id) ObjectInfo（下面「内核对象只读句柄」）
-	Contacts() ContactReader                 // 只读：Get、FindByName
+	Objects() ObjectReader                   // 只读：Get(ctx, id)、Find(ctx, typeID, key) ObjectInfo（下面「内核对象只读句柄」）
+	Contacts() ContactReader                 // 只读：Get、FindByName；ContactInfo 带 ID、Name、Email、Archived
 	Conversations() ConversationReader       // 只读：IM 会话（2.13.2）
 	ConversationWriter() ConversationWriter  // 登记 IM 会话，只建不改（PR-02，2.13.5 后）
 	Identities() IdentityReader              // 只读：IM 身份（2.13.3）
@@ -251,13 +257,13 @@ type Core interface {
 
 `RouteRegistrar` 沿用 `internal/api/server.go` 里的同名接口（`HandleFunc(pattern, handler)`），路径必须以 `/api/<id>/` 开头；内核在外面包一层，停用时整组返回 404。加了路由照旧要写进 `docs/api-contract.md`（契约测试双向检查）。
 
-内核对象只读句柄（已实现，`internal/plugin/store.go`）：`Objects().Get(ctx, id)` 返回 `ObjectInfo{ID, Type, Title, Workdir, Deleted}`，没有这个 id 返回 `ErrNoRows`。`Workdir` 是对象自身的 `workdir` 列，对项目就是 `root`，没设为空串，不往所属项目继承（TERM-01c 加）。项目根目录可能存成了 `file://` 地址，拿来当目录用之前过一遍 `plugin.LocalDir`（SEC-01 加：去掉前缀、按 URL 解码，不是 `file://` 的原样返回）。
+内核对象只读句柄（已实现，`internal/plugin/store.go`）：`Objects().Get(ctx, id)` 返回 `ObjectInfo{ID, Type, Ref, Title, Workdir, Props, Deleted}`，没有这个 id 返回 `ErrNoRows`。`Props` 是对象的自定义字段（JSON 解开的 `map[string]any`，解不开为空 map），`Ref` 是给人看的编号（消息分流加，SOP 的写进项目目录要读项目的 `props.related`）。`Objects().Find(ctx, typeID, key)` 在一个类型里按 id、`ref`（不分大小写）、标题（完全相同）依次找没删的对象，标题重名取最早建的，都找不到返回 `ErrNoRows`（消息分流加，SOP 节点和 IM 的归到项目按「项目 id、编号或名字」认项目）。`Workdir` 是对象自身的 `workdir` 列，对项目就是 `root`，没设为空串，不往所属项目继承（TERM-01c 加）。项目根目录可能存成了 `file://` 地址，拿来当目录用之前过一遍 `plugin.LocalDir`（SEC-01 加：去掉前缀、按 URL 解码，不是 `file://` 的原样返回）。
 
 模型和 Agent 句柄（已实现，`internal/plugin/agent.go`，SOP-01c 加）：实现是 `internal/agent` 的 `Service`，`cmd/pmw` 用 `Registry.SetAgent` 接上；没接上时每个方法回 `ErrNoAgent`。服务商、授权、技能的口径和对话接口（`/api/agent/chat`）一致。
 
 | 方法 | 做什么 |
 |---|---|
-| `Complete(ctx, CompleteRequest{System, Prompt, Model})` | 不带工具补全一次，回模型说的原文。服务商取默认的（没有默认的取第一个启用的），`Model` 为空用服务商的模型；一个服务商都没有回 `agent.ErrNoProvider` |
+| `Complete(ctx, CompleteRequest{System, Prompt, Provider, Model, Agent, Scenario})` | 不带工具补全一次，回模型说的原文。`Agent`（id 或名称）给了就用这个 Agent 的服务商、模型、思考档位，它的指令拼在 `System` 前面，`Provider`、`Model` 忽略；指定的 Agent 不存在或停用了报错。`Agent`、`Provider`、`Model` 都没给时按 `Scenario`（`plugin.ScenarioSOPAssist` / `plugin.ScenarioBackground`，空的算 background）用「设置 / Agent」里选的场景默认 Agent，没选或用不了照老样子。服务商取 `Provider`，没给取默认的（没有默认的取第一个启用的），`Model` 为空用服务商的模型；一个服务商都没有回 `agent.ErrNoProvider`。思考档位翻成各家参数、模型不认时自动去掉重来，插件不用管 |
 | `RunAgent(ctx, AgentRunRequest{Agent, Prompt, Title})` | `Agent` 是 id 或名称，停用的不跑。新建一个挂这个 Agent 的会话（标题 `Title`），按它当前的服务商、模型、技能、工具授权跑一轮。遇到授权是「需确认」的工具不执行，回 `Waiting: true`、`Pending`（给人看的一句话）、`CallIDs`；人在会话里确认或拒绝后由对话接口接着跑 |
 | `AgentState(ctx, sessionID)` | 会话里最新一条 Agent 回复（`MessageID`、`Reply`）；回复里还有确认卡片时 `Waiting` 为真。插件靠「`MessageID` 变了、`Waiting` 为假」判断确认后这一轮跑完了 |
 | `SearchKB(ctx, kbIDs, query, top)` | 只在给的知识库里检索，回前 `top` 段（`KBHit` 即 `kb.SearchHit`）；`kbIDs` 为空直接报错，不搜全部 |
@@ -657,6 +663,7 @@ export interface SopNodeView {
   desc: string
   color: string
   fields: { key: string; label: string; type: 'text' | 'textarea' | 'select' | 'multi' | 'number' | 'code'; required?: boolean; default?: string; hint?: string; options?: () => { value: string; label: string }[] }[]
+  summary?: (config: Record<string, string>) => string   // 画布节点上的一行配置摘要，不给时显示节点说明；出错当空串（消息分流加）
 }
 export interface SopNodeRegistry { register(def: SopNodeView): Disposable }
 ```
@@ -699,7 +706,7 @@ type SOPNodeInput struct {
 
 ```go
 // 请求和结果的类型定义在 internal/schedule（agent、schedule 不能 import plugin），这里是别名
-type SOPStartRequest = schedule.SOPRequest // {FlowID（也认流程名）, Input, Source（schedule / agent）, SourceID, SourceName}
+type SOPStartRequest = schedule.SOPRequest // {FlowID（也认流程名）, Input, Source（schedule / agent）, SourceID, SourceName, ObjectID}
 type SOPStarted = schedule.SOPStarted      // {RunID, FlowID, FlowName, Status}，不等跑完，Status 是发起时的运行状态
 type SOPStarter interface {
 	StartSOP(ctx context.Context, q SOPStartRequest) (*SOPStarted, error)
@@ -711,6 +718,8 @@ type SOPStarter interface {
 
 - 只有清单 `provides.modules` 含 `sop` 的插件能登记，**同一时间只有一个**：已有在跑的插件登记过时，后启用的那个启用失败（「发起 SOP 的入口已由插件 x 登记，同一时间只能有一个」），先停掉前一个再启用。本插件内重复登记、传 nil 也失败。
 - 登记方的 `StartSOP` 自己负责找流程、补默认值和必填校验，错误文字给人看（定时任务记进执行记录、Agent 回给模型）；panic 转成「发起 SOP 出错」。SOP 编排插件的实现同 `POST /api/sop/flows/{id}/runs`，不逐步确认，人工检查点照常停下。
+- `ObjectID`（SOP-06）：这次执行关联的工作对象。Agent 的 `run_sop` 在挂着对象的会话（任务分配给 Agent 触发的、在任务详情里对话的）里调用时带上会话的 `object_id`，定时任务不带。SOP 编排插件把它记进 `sop_runs.object_id`，对象已经不在了只记日志、照常发起不关联。
+- 来源（SOP-06）：SOP 编排插件把 `Source` 记进 `sop_runs.source`，只认 `schedule`、`agent`、`plugin`（内核运行句柄 `Runs().StartSOP` 发起的），别的记空串；`SourceID`、`SourceName` 记进 `source_ref`、`source_name`。界面发起记 `manual`、IM 触发记 `im`、子流程记 `subflow`，这三种不经钩子。
 - `Schedules` 由内核接上定时任务的查询（`Registry.SetSOPRefs`），没接时回空切片。SOP 插件删流程前用它拦下被定时任务引用的流程（契约「SOP 编排插件 sop」）。
 
 例子（IM 消息，发消息节点）：
@@ -1014,12 +1023,14 @@ type IdentityInfo struct {
 type IdentityReader interface {
 	Get(ctx context.Context, id string) (IdentityInfo, error)
 	Find(ctx context.Context, channel, externalID string) (IdentityInfo, error) // 规整规则同 Conversations().Find
+	List(ctx context.Context, channel string) ([]IdentityInfo, error)           // 一个渠道的全部身份，按编号排序
 }
 ```
 
 - 谁能调：任何插件。只读，查联系人的 IM 身份（CT-01b，`contact_identities`）；收消息时按渠道编号认人，不按名字。写身份走内核 `/api/im-identities`。
 - 权限：不要权限。
 - 查不到、渠道或编号格式不对都回 `ErrNoRows`。
+- `List` 渠道格式不对回空列表、不报错。IM 插件从渠道资料补联系人邮箱时用它列身份（`internal/plugins/im/emails.go`），配合 `Contacts().Get` 回的 `Email` 判断空不空、`ContactWriter().Merge` 写回。
 
 例子：
 
@@ -1247,10 +1258,16 @@ type Handles interface{ Handles() []string }                       // 「我」�
 type InstancePuller interface {                                   // 立即同步只拉指定实例（IM-01d）
 	PullConnector(ctx context.Context, connectorID, cursor string) (msgs []Incoming, next string, err error)
 }
+type EmailLooker interface {                                      // 按渠道用户编号查资料里的邮箱，给联系人补邮箱用
+	Adapter
+	LookupEmails(ctx context.Context, connectorID string, ids []string) (EmailLookup, error)
+}
+// EmailLookup{Found: 编号 -> 邮箱（资料里没邮箱为空串，不在这个工作区的不回）, MissingScope, Hint, Pending（被限流没查完的个数）}
 ```
 
 - 谁能调：只有 IM 插件自己调适配器；适配器拿到的 `plugin.Core` 是 IM 插件的，所以 `Connectors().With`、`RecordSync` 只对 IM 插件登记的实例有效。
 - 权限：适配器出网用 `Core.HTTP("im")`，要 IM 插件清单里的 `network:im` 经用户确认；`ConnectorProvider` 的 `tool` 要写进 IM 清单的 `provides.connectors`，并和适配器的渠道同名。
+- `EmailLooker`：Slack 实现（`slackemail.go`，`users.info` 的 `profile.email`，要 `users:read.email`；先看 `auth.test` 响应头 `X-OAuth-Scopes`，没有这个 scope 时回 `MissingScope` 不逐个查）。插件用它做 `POST /api/im/connectors/{id}/backfill-emails` 和后台任务 `backfill_emails`：只填联系人邮箱为空的，不覆盖，写入走 `ContactWriter().Merge`（操作者 `im#email_backfill`，记审计）。缺权限不算失败。
 - 进度：`cursor` 存在 `im_cursors` 里适配器的一行，一个工具接多个实例时按实例分开存（`{"instances": {<连接器 id>: <进度>}}`），整批落库后才存。
 
 例子（最小的拉取型适配器，示意：飞书还没做，`connector.Lark` 不存在）：
@@ -1564,7 +1581,142 @@ if err != nil {
 }
 ```
 
+#### 2.13.21 前端扩展点 `objectSections`
+
+```ts
+// frontend/src/core/plugin/objectSections.ts（SOP-06）
+export type ObjectSectionProps = { object: WorkObject; returnTo?: string } // returnTo：离开详情后「返回」回哪里能重新打开这条对象
+export interface ObjectSectionDef {
+  key: string                       // 本插件内唯一
+  typeIds: string[]                 // 在哪些类型的对象详情里显示，如 ['task']
+  order?: number                    // 越小越靠前，没有算 100；同 order 按登记顺序
+  section: LazyExoticComponent<ComponentType<ObjectSectionProps>>
+}
+export interface ObjectSectionRegistry { register(def: ObjectSectionDef): Disposable }
+// PluginApi.objectSections；宿主用 core/shell/extensionHosts 的 <ObjectSections object returnTo />
+```
+
+- 谁能调：任何插件，在 `activate` 里调 `api.objectSections.register`。不进清单 `provides`（同项目标签）；同一插件 `key` 重复时抛错。停用插件时按插件 id 撤掉，区块跟着消失。
+- 权限：不要权限；数据照常走 `api.data`。
+- 宿主：任务抽屉（`modules/tasks/TaskDrawer.tsx`）在开发闭环区块后面摆 `typeIds` 含 `task` 的区块，每块单独出错边界，加载时不占位。任务页给 `returnTo`（当前地址加 `?t=<任务 id>`），从别的模块打开的任务抽屉不给，区块退回当前地址。
+
+例子（SOP 插件，`frontend/src/plugins/sop/index.ts`）：
+
+```ts
+api.objectSections.register({ key: 'sop-runs', typeIds: ['task'], order: 50, section: lazy(() => import('./ObjectRuns')) })
+```
+
+- 区块可以放进对象详情的标签（只增不减，老写法照常）：`ObjectSectionDef.tab?: { key: string; label: string; badge?: LazyExoticComponent<ComponentType<ObjectSectionProps>>; focusParam?: string }`。同 key 的区块合在一个标签里，按 `order` 排；插件停用后标签跟着消失；不给 `tab` 的区块摆在基础信息末尾。`badge` 是标签名后面的计数或状态点；地址带 `focusParam` 这个参数时自动切到这个标签，参数值作为 `focus` 传给区块。`ObjectSectionProps` 新增 `focus?: string`。SOP 插件登记的是 `tab: { key: 'sop', label: 'SOP', badge, focusParam: 'sop_run' }`（任务详情分标签：基础信息、开发任务、SOP、执行记录）。
+
+#### 2.13.22 前端扩展点 `sessionTools`
+
+```ts
+// frontend/src/core/plugin/sessionTools.ts（SPEC-sessions-1.34）
+export type SessionToolProps = {
+  sessionId: string
+  workdir: string                   // 会话的工作目录；空串是会话没设，插件按自己的默认处理
+  links: readonly string[]          // 会话里出现过的链接（Agent 回复和工具结果里的 http/https），新的在前，最多 8 个
+  request: number                   // 每从头部入口打开一次加一；插件据此做「打开时」的动作
+  hidden: boolean                   // 收起或切到别的工具时面板不卸载，只是藏起来
+}
+export interface SessionToolDef {
+  key: string                       // 全局唯一
+  label: string                     // 入口上的名字
+  icon: ComponentType               // 入口和面板头部切换上的图标
+  order?: number                    // 越小越靠前，没有算 100；同 order 按登记顺序
+  hint?: (ctx: { workdir: string; links: readonly string[] }) => string // 入口的悬停提示
+  page?: string                     // 「整页打开」去的站内路径，如 '/terminal'
+  panel: LazyExoticComponent<ComponentType<SessionToolProps>>
+}
+export interface SessionToolRegistry { register(def: SessionToolDef): Disposable }
+// PluginApi.sessionTools；会话页（modules/conversations/ChatsView.tsx）用 useSessionTools() 读
+```
+
+- 谁能调：任何插件，在 `activate` 里调 `api.sessionTools.register`。不进清单 `provides`（同项目标签、对象区块）；`key` 全局重复时抛错。停用插件时按插件 id 撤掉，入口和面板跟着消失。
+- 权限：不要权限；面板里的数据照常走 `api.data`。
+- 宿主：会话页的会话头部右上角（「删除会话」左边）按 order 摆入口；点了在对话右边展开面板（宽屏是第三列，放不下时盖在对话右边），面板头部能在登记的工具间切换、「整页打开」、收起。面板打开过就一直挂着，离开会话页才卸载；每个面板单独出错边界。
+- 现在的登记：终端插件 `terminal`（面板和一级菜单「终端」同一套标签，`request` 变化时定位到停在 `workdir` 的格子，没有就新开标签），浏览器插件 `browser`（面板和一级菜单「浏览器」同一套标签，`links` 显示成「会话里的链接」一行）。
+
+例子（终端插件，`frontend/src/plugins/terminal/index.ts`）：
+
+```ts
+api.sessionTools.register({
+  key: 'terminal', label: '终端', icon: IconTerminal, order: 10, page: '/terminal',
+  hint: ({ workdir }) => `在对话旁边打开终端，目录：${workdir || '没设工作目录，用终端的默认目录'}`,
+  panel: lazy(() => import('./SessionPanel')),
+})
+```
+
 ## 3. 权限
+
+
+#### 2.13.23 前端扩展点 `sessionSources`
+
+```ts
+// frontend/src/core/plugin/sessionSources.ts（SPEC-sessions-1.42）
+export type SessionSourceLink = { label: string; to: string; title?: string }  // to 为空串时只显示不跳
+export interface SessionSourceDef {
+  kind: string                                                // 认哪种来源：会话 source_ref.kind 等于它，全局唯一
+  describe: (ref: SessionSourceRef) => SessionSourceLink | null
+}
+export interface SessionSourceRegistry { register(def: SessionSourceDef): Disposable }
+// PluginApi.sessionSources；会话页用 useSessionSource(session.source_ref) 读
+```
+
+- 会话来源是内核会话的 `source_ref`（迁移 0047，`POST /api/agent/sessions` 建的时候给，之后不改）：从别的记录发起的会话记下是哪条。会话里 Agent 用 `create_object` 新建的对象 `props.source_ref` 缺省就是它，里面有 `project_id` 时对象缺省挂到这个项目。
+- 谁能调：发起这种会话的插件，在 `activate` 里调 `api.sessionSources.register`；不进清单 `provides`，`kind` 重复时抛错，停用插件时撤掉。没人认的来源只显示 `source_ref.label`、不能点。
+- 宿主：会话页头部下面一行「来源 <label>」，点了跳到 `to`。
+- 现在的登记：IM 插件 `im_message`（IM 消息页「发起会话」「拆分任务」，`SPEC-messages-5`），跳到 `/messages?m=<最新一条消息>`。
+
+#### 2.13.24 `Registrar.ProjectPrototypes`（只有后端）
+
+```go
+// internal/plugin/projectprotos.go
+type ProjectPrototype struct{ Name, Dir string }
+type ProjectPrototypeLister func(ctx context.Context, projectID string) ([]ProjectPrototype, error)
+// Registrar.ProjectPrototypes(fn ProjectPrototypeLister)
+// Registry.ProjectPrototypes(ctx, projectID) ([]ProjectPrototype, error)，没人登记回 ErrNoProjectPrototypes
+```
+
+- 用途：任务「交给 Claude Code」（两种方式都是，内核 0048）拼提示词时，内核要写出任务所属项目的「原型在哪里操作」，而原型登记在项目插件自己的表 `projects_prototypes` 里，内核读不到，就经这个入口问。
+- 谁能调：清单 `provides.modules` 含 `projects` 的插件，在 `Register` 里登记一次，重复登记、传 nil 都是登记错误；按插件登记顺序第一个在跑的生效。插件 panic 转成错误。
+- 权限：不要权限，只读插件自己的表。
+- 内核的用法：没人登记（项目插件没装或停用）或查询出错时，提示词按「这个项目没有登记原型目录，可在项目设置里补」写，不让执行失败；出错记一条 warn 日志。
+- 现在的登记：项目插件 `projects`（0.10.0 起），按登记先后回每个原型的 `name`、`dir`。
+
+```go
+r.ProjectPrototypes(func(ctx context.Context, projectID string) ([]plugin.ProjectPrototype, error) {
+	rows, err := c.Store().Query(ctx, `SELECT name, dir FROM projects_prototypes WHERE project_id = ? ORDER BY created_at, rowid`, projectID)
+	// ...
+})
+```
+
+#### 2.13.25 前端扩展点 `terminalLauncher`
+
+```ts
+// frontend/src/core/plugin/terminalLaunch.ts（内核 0048）
+export type ClaudeLaunch = { prompt_file: string; mcp_config: string; workdir: string }
+export type TerminalLaunchRequest = { cwd: string; claude: ClaudeLaunch; title: string }
+export interface TerminalLauncherDef {
+  page: string                                                    // 开好之后去的站内路径，如 '/terminal'
+  launch(req: TerminalLaunchRequest): Promise<{ command: string }> // 新开标签执行启动命令，回写进终端的那条命令；失败抛错
+}
+export interface TerminalLauncherRegistry { register(def: TerminalLauncherDef): Disposable }
+// PluginApi.terminalLauncher；任务模块（modules/tasks/HandOff.tsx）用 useTerminalLauncher() 读，没有登记时是 undefined
+```
+
+- 用途：任务抽屉「交给 Claude Code」选「切换到终端」时，任务模块先调 `POST /api/objects/{id}/run/terminal` 让内核建执行记录、写好提示词和 MCP 配置，再经这个入口让终端插件在终端里新开标签执行启动命令，然后跳到 `page`。任务模块和终端插件互不 import。
+- 谁能调：任何插件，在 `activate` 里调 `api.terminalLauncher.register`；同一时间只能有一个，已有登记时再登记抛错。不进清单 `provides`。停用插件时按插件 id 撤掉，任务弹窗里「切换到终端」跟着置灰（「终端插件没启用，到 设置 > 插件 里启用后可用」）。
+- 权限：不要前端权限；终端插件后端起 shell 要 `process:spawn`（安装时确认过）。
+- 命令只在用户点「在终端中打开」之后才执行。
+- 现在的登记：终端插件 `terminal`（0.2.0 起），`launch` 调 `POST /api/terminal/sessions` 带 `claude`，按设置「Claude Code 启动命令」渲染后写进新会话；标签名是任务编号，`page` 是 `/terminal`。
+
+```ts
+api.terminalLauncher.register({
+  page: '/terminal',
+  launch: async (req) => (await import('./store')).launchClaudeTab(req),
+})
+```
 
 ### 3.1 权限清单
 
@@ -1850,5 +2002,9 @@ stateDiagram-v2
 |---|---|---|
 | 1.0.0 | 2026-10-28 | 初版（CORE-01a） |
 | 1.1.0 | 2026-10-29 | `Core` 加 `Runs()`：发起 Agent、SOP 运行和交给 Claude Code，跑完给发起的插件投 `run.finished`（VID-03a） |
+
+补记（不改版本号，2026-11-02，交给 Claude Code 两种方式）：`Registrar` 加 `ProjectPrototypes`（2.13.24），前端 `PluginApi` 加 `terminalLauncher`（2.13.25）。只增不改，按 1.3 是小版本，和下一条一起等用户定稿。
+
+补记（不改版本号，2026-11-02）：`ContactInfo` 加 `Email`，`IdentityReader` 加 `List(ctx, channel)`，IM 适配器加可选接口 `EmailLooker`（从 Slack 补联系人邮箱）。都是只增不改，按 1.3 是小版本，和上一条一起等用户定稿。
 
 文档补记（不改版本号，DOC-02，2026-10-29）：补写 1.0.0 到 1.1.0 之间各批已经加进代码、文档没跟上的句柄和扩展点（2.13），2.0 的代码块、2.5 的连接器定义按代码改正。这些按 1.3 本该升小版本，发布前由用户定稿版本号时一起写进上表。

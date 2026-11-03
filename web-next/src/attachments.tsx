@@ -1,11 +1,12 @@
 import { useState } from 'react'
 import type { Message, MsgAttachment } from './data'
 import type { Project } from './projectdata'
+import { AttachmentPreview, AttThumb } from './attpreview'
 import { useOpenUrl } from './openurl'
 import { SearchSelect } from './searchselect'
 import { cls, timeAgo } from './ui'
 
-// 消息附件：在消息列表上露个名字，在消息详情里获取、加进项目资料，在项目沟通里集中挑哪些要进支持材料
+// 消息附件：在消息列表上露个名字，在消息详情里获取、加进项目资料，在项目的「附件」标签里集中管理（挑哪些要进支持材料）
 // 文件和图片要先「获取」（从 IM 平台下载到本地）；链接直接就能加
 
 export const ATTACH_KIND: Record<MsgAttachment['kind'], string> = { file: '文件', image: '图片', link: '链接' }
@@ -36,11 +37,13 @@ function AttIcon({ kind }: { kind: MsgAttachment['kind'] }) {
 }
 
 /** 一个附件一行：获取状态 + 能做的事 */
-function AttRow({ a, children }: { a: MsgAttachment; children?: React.ReactNode }) {
+function AttRow({ a, onPreview, children }: { a: MsgAttachment; onPreview?: () => void; children?: React.ReactNode }) {
   const openUrl = useOpenUrl()
   return (
     <div className={cls('att-row', a.fetch === 'error' && 'att-bad')}>
-      <span className={cls('att-ico', `att-${a.kind}`)}><AttIcon kind={a.kind} /></span>
+      {onPreview && a.kind === 'image' && a.fetch === 'done'
+        ? <AttThumb a={a} onClick={onPreview} />
+        : <span className={cls('att-ico', `att-${a.kind}`)}><AttIcon kind={a.kind} /></span>}
       <span className="att-main">
         {a.kind === 'link' ? <button className="link-btn ellipsis" onClick={() => a.url && openUrl(a.url, a.name)}>{a.name}</button> : <b className="ellipsis">{a.name}</b>}
         <span className="list-sub ellipsis">
@@ -66,6 +69,7 @@ export function AttachmentPanel({ msg, projects, suggested, onFetch, onAdd }: {
   onAdd: (attId: string, projectId: string) => void
 }) {
   const [pick, setPick] = useState<Record<string, string>>({})
+  const [preview, setPreview] = useState<string | null>(null)
   const atts = msg.attachments ?? []
   if (!atts.length) return null
   const def = suggested[0] ?? ''
@@ -78,8 +82,10 @@ export function AttachmentPanel({ msg, projects, suggested, onFetch, onAdd }: {
           const target = pick[a.id] ?? (inP.some((p) => p.id === def) ? projects.find((p) => !inP.includes(p))?.id ?? '' : def)
           const canAdd = target && !inP.some((p) => p.id === target)
           return (
-            <AttRow key={a.id} a={a}>
+            <AttRow key={a.id} a={a} onPreview={() => setPreview(a.id)}>
               <span className="att-acts">
+                {a.kind !== 'link' && <button className="act" disabled={a.fetch === 'fetching'} onClick={() => setPreview(a.id)}>预览</button>}
+                {a.kind !== 'link' && a.fetch === 'done' && <button className="act act-quiet" title="下载到浏览器">下载</button>}
                 {a.kind !== 'link' && a.fetch !== 'done' && (
                   <button className="act" disabled={a.fetch === 'fetching'} onClick={() => onFetch(a.id)}>{a.fetch === 'error' ? '重试' : a.fetch === 'fetching' ? '获取中' : '获取'}</button>
                 )}
@@ -99,62 +105,156 @@ export function AttachmentPanel({ msg, projects, suggested, onFetch, onAdd }: {
           )
         })}
       </div>
+      {preview && <AttachmentPreview msg={msg} startId={preview} onFetch={onFetch} onClose={() => setPreview(null)} />}
     </>
   )
 }
 
-/** 待决定的附件超过这么多个就折叠，展开后也先露这么多个 */
-const PEEK = 3
+export type AttState = 'todo' | 'added' | 'skipped'
+export const ATT_STATE: Record<AttState, string> = { todo: '待决定', added: '已加入资料', skipped: '不加入' }
+const ATT_SEGS: { key: AttState | ''; label: string }[] = [{ key: 'todo', label: '待决定' }, { key: 'added', label: '已加入资料' }, { key: 'skipped', label: '不加入' }, { key: '', label: '全部' }]
+type AttRow = { m: Message; a: MsgAttachment; state: AttState; materialId?: string }
 
-/** 项目沟通页顶上：这个项目消息里还没决定的附件，一条条选加不加 */
-export function ProjectAttachmentInbox({ p, messages, onFetch, onAdd, onSkip, onOpenMessage }: {
+/** 项目消息里的附件，一个附件一行，按消息时间倒序；去向：加过资料的算已加入，记在 skipped_attachments 的算不加入，其余待决定 */
+export function projectAttachmentRows(p: Project, messages: Message[]): AttRow[] {
+  const seen = new Set<string>()
+  return [...messages].sort((x, y) => y.at.localeCompare(x.at)).flatMap((m) => (m.attachments ?? []).flatMap((a) => {
+    if (seen.has(a.id)) return []
+    seen.add(a.id)
+    const mat = p.materials.find((x) => x.from?.attachment_id === a.id)
+    return [{ m, a, materialId: mat?.id, state: mat ? 'added' as const : p.skipped_attachments?.includes(a.id) ? 'skipped' as const : 'todo' as const }]
+  }))
+}
+
+/** 沟通标签右栏顶上的一行：有待决定的附件时出现，点了去附件标签 */
+export function AttachmentsHint({ p, messages, onGo }: { p: Project; messages: Message[]; onGo: () => void }) {
+  const n = projectAttachmentRows(p, messages).filter((r) => r.state === 'todo').length
+  if (!n) return null
+  return (
+    <button className="att-hint-line" onClick={onGo}>
+      <AttIcon kind="file" />消息里有 {n} 个附件待决定要不要放进支持材料<span className="link-btn">去附件标签</span>
+    </button>
+  )
+}
+
+/**
+ * 项目的「附件」标签（SPEC-projects-5）：项目沟通消息里的全部附件——待决定、已加入资料、不加入——集中管理。
+ * 分段 + 种类 + 搜索筛选；每行勾选、名字和种类大小、来自（点开来源消息）、时间、获取状态、去向、操作；勾选后批量加入资料或不加入
+ */
+export function ProjectAttachmentsTab({ p, messages, onFetch, onAdd, onSkip, onOpenMessage, onOpenMaterial }: {
   p: Project
   /** 已经是这个项目的消息 */
   messages: Message[]
   onFetch: (msgId: string, attId: string) => void
   onAdd: (msgId: string, attId: string) => void
-  onSkip: (attId: string, skip: boolean) => void
+  /** 一次改多个，记在 skipped_attachments */
+  onSkip: (attIds: string[], skip: boolean) => void
   onOpenMessage: (id: string) => void
+  /** 去支持材料里看那一条 */
+  onOpenMaterial: (id: string) => void
 }) {
-  const [showSkipped, setShowSkipped] = useState(false)
-  /** 待决定的超过 PEEK 个时整块默认折叠成一行；open 展开露 PEEK 个，all 全部 */
-  const [open, setOpen] = useState(false)
-  const [all, setAll] = useState(false)
-  const rows = messages.flatMap((m) => (m.attachments ?? []).map((a) => ({ m, a }))).sort((x, y) => y.m.at.localeCompare(x.m.at))
-  const added = (id: string) => p.materials.some((x) => x.from?.attachment_id === id)
-  const skipped = (id: string) => p.skipped_attachments?.includes(id) ?? false
-  const todo = rows.filter((x) => !added(x.a.id) && !skipped(x.a.id))
-  const skippedRows = rows.filter((x) => skipped(x.a.id))
-  if (!rows.length) return null
-  const foldable = todo.length > PEEK
-  const folded = foldable && !open
-  const todoShown = folded ? [] : all || !foldable ? todo : todo.slice(0, PEEK)
+  const openUrl = useOpenUrl()
+  const [seg, setSeg] = useState<AttState | ''>('todo')
+  const [kind, setKind] = useState<MsgAttachment['kind'] | ''>('')
+  const [q, setQ] = useState('')
+  const [sel, setSel] = useState<string[]>([])
+  const [preview, setPreview] = useState<string | null>(null)
+  const rows = projectAttachmentRows(p, messages)
+  const hit = (r: AttRow) => {
+    const words = q.trim().toLowerCase().split(/\s+/).filter(Boolean)
+    const hay = `${r.a.name} ${r.m.sender_name} ${r.m.conversation}`.toLowerCase()
+    return words.every((w) => hay.includes(w))
+  }
+  const base = rows.filter((r) => (!kind || r.a.kind === kind) && hit(r))
+  const shown = base.filter((r) => !seg || r.state === seg)
+  const kindN = (k: MsgAttachment['kind']) => rows.filter((r) => r.a.kind === k && (!seg || r.state === seg) && hit(r)).length
+  const picked = shown.filter((r) => sel.includes(r.a.id) && r.state !== 'added')
+  const pickable = shown.filter((r) => r.state !== 'added')
+  const allPicked = pickable.length > 0 && pickable.every((r) => sel.includes(r.a.id))
+  const narrowed = !!kind || !!q.trim()
+  if (!rows.length) {
+    return <div className="empty"><div className="empty-title">消息里还没有附件</div><div className="list-sub">绑定的群和私聊里、归到这个项目的消息带的文件、图片、链接会出现在这里，逐个决定要不要放进支持材料</div></div>
+  }
+  const fetchText = (a: MsgAttachment) => (a.kind === 'link' ? '不用获取' : a.fetch === 'done' ? '已获取' : a.fetch === 'fetching' ? '获取中…' : a.fetch === 'error' ? '获取失败' : '没获取')
+  const previewMsg = preview ? rows.find((r) => r.a.id === preview)?.m : undefined
   return (
-    <section className={cls('att-inbox', folded && 'att-folded')}>
-      <div className="mount-head">
-        <div className="field-group-title">消息里的附件<span className="field-hint">{todo.length ? `${todo.length} 个还没决定要不要放进支持材料` : '都处理过了'}</span></div>
-        {foldable && <button className="act act-quiet" onClick={() => { setOpen(!open); setAll(false) }}>{open ? '收起' : '逐个决定'}</button>}
-        {!folded && skippedRows.length > 0 && <button className="act act-quiet" onClick={() => setShowSkipped(!showSkipped)}>{showSkipped ? '收起不加入的' : `看不加入的 ${skippedRows.length} 个`}</button>}
+    <div className="att-tab">
+      <div className="toolbar att-tools">
+        <div className="seg">
+          {ATT_SEGS.map((s) => (
+            <button key={s.key || 'all'} className={cls(seg === s.key && 'on')} onClick={() => setSeg(s.key)}>
+              {s.label}<span className="seg-n">{s.key ? base.filter((r) => r.state === s.key).length : base.length}</span>
+            </button>
+          ))}
+        </div>
+        <label className={cls('chip chip-select', kind && 'chip-on')}>
+          <select value={kind} onChange={(e) => setKind(e.target.value as MsgAttachment['kind'] | '')}>
+            <option value="">全部种类</option>
+            {(['image', 'file', 'link'] as const).map((k) => <option key={k} value={k}>{ATTACH_KIND[k]}（{kindN(k)}）</option>)}
+          </select>
+        </label>
+        <div className="search att-search">
+          <svg viewBox="0 0 16 16" width="13" height="13"><circle cx="7" cy="7" r="4.5" fill="none" stroke="currentColor" strokeWidth="1.5" /><path d="M10.5 10.5 14 14" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" /></svg>
+          <input value={q} placeholder="搜文件名、发信人、群名" onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => { if (e.key === 'Escape' && q) { e.stopPropagation(); setQ('') } }} />
+        </div>
       </div>
-      {todoShown.map(({ m, a }) => (
-        <AttRow key={a.id} a={a}>
-          <span className="att-acts">
-            <button className="act act-quiet" onClick={() => onOpenMessage(m.id)} title={m.text}>{m.sender_name} · {timeAgo(m.at)}</button>
-            {a.kind !== 'link' && a.fetch !== 'done' && a.fetch !== 'fetching' && <button className="act" onClick={() => onFetch(m.id, a.id)}>{a.fetch === 'error' ? '重试' : '获取'}</button>}
-            <button className="act act-primary" disabled={a.fetch === 'fetching'} onClick={() => onAdd(m.id, a.id)}>{a.kind !== 'link' && a.fetch !== 'done' ? '获取并加入' : '加入支持材料'}</button>
-            <button className="act act-quiet" onClick={() => onSkip(a.id, true)}>不加入</button>
-          </span>
-        </AttRow>
-      ))}
-      {!folded && foldable && !all && <button className="act act-quiet att-more" onClick={() => setAll(true)}>还有 {todo.length - PEEK} 个</button>}
-      {!folded && showSkipped && skippedRows.map(({ m, a }) => (
-        <AttRow key={a.id} a={a}>
-          <span className="att-acts">
-            <span className="run-muted">{m.sender_name} · 选了不加入</span>
-            <button className="act" onClick={() => onSkip(a.id, false)}>恢复</button>
-          </span>
-        </AttRow>
-      ))}
-    </section>
+      {picked.length > 0 && (
+        <div className="att-bulk">
+          <span>已选 {picked.length} 个</span>
+          <button className="btn btn-primary btn-sm" onClick={() => { picked.forEach((r) => onAdd(r.m.id, r.a.id)); setSel([]) }}>加入资料</button>
+          <button className="btn btn-outline btn-sm" disabled={!picked.some((r) => r.state === 'todo')} title="只对待决定的生效"
+            onClick={() => { onSkip(picked.filter((r) => r.state === 'todo').map((r) => r.a.id), true); setSel([]) }}>不加入</button>
+          <button className="btn btn-ghost btn-sm" onClick={() => setSel([])}>取消选择</button>
+        </div>
+      )}
+      {shown.length ? (
+        <div className="att-table">
+          <div className="att-tr att-th">
+            <span><input type="checkbox" checked={allPicked} disabled={!pickable.length} title="全选能操作的"
+              onChange={(e) => setSel(e.target.checked ? [...new Set([...sel, ...pickable.map((r) => r.a.id)])] : sel.filter((id) => !pickable.some((r) => r.a.id === id)))} /></span>
+            <span>附件</span><span>来自</span><span>时间</span><span>获取</span><span>去向</span><span className="att-ops">操作</span>
+          </div>
+          {shown.map(({ m, a, state, materialId }) => (
+            <div key={a.id} className={cls('att-tr', sel.includes(a.id) && 'on', a.fetch === 'error' && 'att-bad')}>
+              <span><input type="checkbox" disabled={state === 'added'} checked={sel.includes(a.id)}
+                onChange={(e) => setSel(e.target.checked ? [...sel, a.id] : sel.filter((x) => x !== a.id))} /></span>
+              <span className="att-cell-name">
+                <span className={cls('att-ico', `att-${a.kind}`)}><AttIcon kind={a.kind} /></span>
+                <span className="att-main">
+                  {a.kind === 'link' ? <button className="link-btn ellipsis" onClick={() => a.url && openUrl(a.url, a.name)}>{a.name}</button> : <b className="ellipsis">{a.name}</b>}
+                  <span className="list-sub ellipsis">{ATTACH_KIND[a.kind]}{a.kind === 'link' ? ` · ${a.url}` : a.size ? ` · ${fmtSize(a.size)}` : ''}</span>
+                </span>
+              </span>
+              <button className="att-src" title={`打开来源消息：${m.text}`} onClick={() => onOpenMessage(m.id)}>
+                <b className="ellipsis">{m.sender_name}</b><span className="list-sub ellipsis">{m.conversation || '私聊'}</span>
+              </button>
+              <span className="run-muted">{timeAgo(m.at)}</span>
+              <span className={cls('att-fetch', a.fetch === 'error' && 'att-err')} title={a.fetch === 'error' ? a.error : undefined}>{fetchText(a)}</span>
+              <span>{state === 'added' && materialId ? <button className="link-btn att-state" title="到支持材料里看这一条" onClick={() => onOpenMaterial(materialId)}>已加入资料</button>
+                : <span className={cls('att-state', `att-state-${state}`)}>{ATT_STATE[state]}</span>}</span>
+              <span className="att-acts att-ops">
+                {a.kind !== 'link' && a.fetch !== 'done' && a.fetch !== 'fetching' && <button className="act" onClick={() => onFetch(m.id, a.id)}>{a.fetch === 'error' ? '重试' : '获取'}</button>}
+                {a.kind !== 'link' && <button className="act" onClick={() => setPreview(a.id)}>预览</button>}
+                {a.kind !== 'link' && a.fetch === 'done' && <button className="act" title="下载到浏览器">下载</button>}
+                {a.kind === 'link' && <button className="act" onClick={() => a.url && openUrl(a.url, a.name)}>打开</button>}
+                {state !== 'added' && <button className="act act-primary" disabled={a.fetch === 'fetching'} onClick={() => onAdd(m.id, a.id)}>{a.kind !== 'link' && a.fetch !== 'done' ? '获取并加入' : '加入资料'}</button>}
+                {state === 'todo' && <button className="act act-quiet" onClick={() => onSkip([a.id], true)}>不加入</button>}
+                {state === 'skipped' && <button className="act act-quiet" onClick={() => onSkip([a.id], false)}>撤销不加入</button>}
+              </span>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="empty">
+          <div className="empty-title">{narrowed ? '没有匹配的附件' : seg === 'todo' ? '都处理过了' : `没有${ATT_STATE[seg || 'todo']}的附件`}</div>
+          {narrowed ? <button className="btn btn-outline" onClick={() => { setQ(''); setKind('') }}>清掉筛选</button>
+            : seg ? <button className="btn btn-outline" onClick={() => setSeg('')}>看全部</button> : null}
+        </div>
+      )}
+      {preview && previewMsg && (
+        <AttachmentPreview msg={previewMsg} startId={preview} pool={shown.map((r) => r.a)}
+          onFetch={(attId) => { const r = rows.find((x) => x.a.id === attId); if (r) onFetch(r.m.id, attId) }} onClose={() => setPreview(null)} />
+      )}
+    </div>
   )
 }

@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { PageTitle } from './topbar'
 import { ALL_HANDLES, IM_CHANNELS, MY_HANDLES, QUICK_REPLIES, TOOLS, sendAsText, type Connector, type Contact, type Message } from './data'
 import { Avatar, ImMark, cls, timeAgo } from './ui'
@@ -6,11 +6,20 @@ import { AttachmentChips, AttachmentPanel } from './attachments'
 import type { Project } from './projectdata'
 import { useEnumView } from './enumdata'
 import { SearchSelect, type SearchOption } from './searchselect'
+import type { Sop, SopRun } from './sopflow'
+import { TriageBar, TriageTag, activeTriage, latestTriage } from './triage'
+import { AgentSection, ReplyBarActions } from './msgagent'
+import { MaterialSection, notesOf } from './msgmaterial'
+import { clusterMessages, countLabel, isOpenMsg, nestThreads, previewText, rowTime, threadHint, threadShown, toRows, type MsgRow, type SessionIntent, type ThreadBlock } from './msggroup'
+import { GroupAdminDrawer } from './groupadmin'
+import { SendDialog, SentStrip, sentReplyOf, type Sent } from './msgsend'
+import { MentionBox, composeReply, quickReplyText, useReplyMention, type Member, type MentionPick } from './mention'
 
 export type MsgAction =
   | { kind: 'done' | 'ignore' | 'reopen' | 'read' }
   | { kind: 'snooze'; until: string }
-  | { kind: 'reply'; text: string; done: boolean }
+  /** mentions 是正文里真正要 @ 的人（SPEC-messages-2.46）；原型只记正文 */
+  | { kind: 'reply'; text: string; done: boolean; mentions?: MentionPick[] }
 
 type View = 'pending' | 'snoozed' | 'done' | 'ignored' | 'expired' | 'all'
 
@@ -57,6 +66,26 @@ export function contactIndex(contacts: Contact[]) {
 }
 /** 消息属于哪个会话：群聊按渠道 + 群名，私聊按渠道 + 发信人 */
 const convKey = (m: Message) => (m.conversation ? `g:${m.channel}|${m.conversation}` : `d:${senderKey(m)}`)
+/** 群组标签里「私聊」合成一个标签，键是 dm:<渠道> */
+const dmTab = (channel: string) => `dm:${channel}`
+/** 会话筛选：空串不筛；dm:<渠道> 是这个渠道的全部私聊；其余按会话键 */
+const convOk = (m: Message, conv: string) => !conv || (conv.startsWith('dm:') ? !m.conversation && m.channel === conv.slice(3) : convKey(m) === conv)
+/** 群组标签最多直接摆几个，其余收进「更多」 */
+const GROUP_TAB_MAX = 8
+
+/**
+ * 群组默认归属的项目：消息自己没归项目时，按所在群（会话键 g:<渠道>|<群名>）设的默认项目算，project_source 记为 conversation；
+ * 项目删了按没设。正式产品存在 IM 插件里（GET/PUT /api/im/conversation-projects），读消息时由后端兜底
+ */
+export function withGroupProjects(messages: Message[], groupProjects: Record<string, string>, projects: Project[]): Message[] {
+  if (!Object.keys(groupProjects).length) return messages
+  return messages.map((m) => {
+    // 私聊也能在群组管理（SPEC-messages-7）里设默认归属，会话键 d:<渠道>:<发信人>
+    if (m.project_id) return m
+    const pid = groupProjects[convKey(m)]
+    return pid && projects.some((p) => p.id === pid) ? { ...m, project_id: pid, project_source: 'conversation' as const } : m
+  })
+}
 /** 列表按天分段 */
 const dayLabel = (iso: string) => {
   const d = new Date(iso), t = new Date()
@@ -123,6 +152,7 @@ function QuickReplyItems({ onPick, close }: { onPick: (text: string, done: boole
   return (
     <>
       <div className="menu-label">快捷回复</div>
+      {!QUICK_REPLIES.length && <div className="menu-item muted">没有快捷回复，到设置的即时通讯里添加</div>}
       {QUICK_REPLIES.map((q) => (
         <button key={q.text} className="menu-item" onClick={() => { onPick(q.text, q.done); close() }}>
           <span className="ellipsis">{q.text}</span>
@@ -145,7 +175,22 @@ const fmtMD = (iso: string) => new Date(iso).toLocaleString('zh-CN', { month: 'n
 /** 状态小标签按枚举颜色上色，和原来「已处理」的绿色标签同一种做法 */
 const stateStyle = (c: string): React.CSSProperties => ({ color: c, background: `color-mix(in srgb, ${c} 12%, transparent)` })
 
-export function MessagesPage({ messages, contacts, connectors, selected, onOpen, onAct, onGoConnectors, onToTask, taskOf, onSync, syncing, syncResult }: {
+export function MessagesPage({ messages, contacts, connectors, selected, onOpen, onAct, onGoConnectors, onToTask, taskOf, onSync, syncing, syncResult, projects, groupProjects, onSetGroupProject, sops, runs, onBatchTriage, onOpenQueue, onOpenTriage, selectedGroup, onOpenGroup, onStartSession, linksOf, onOpenSession, onToMaterial, onOpenMaterial }: {
+  /** 转项目资料（SPEC-messages-6）：带上这些消息打开弹窗；转过的去项目资料页定位那一条 */
+  onToMaterial: (ids: string[]) => void
+  onOpenMaterial: (projectId: string, materialId: string) => void
+  /** 合并显示（SPEC-messages-1.54）：打开的一组、点一组打开组抽屉 */
+  selectedGroup: string | null; onOpenGroup: (key: string) => void
+  /** 交给 Agent（SPEC-messages-1.57）：带上这些消息发起会话、拆分任务；linksOf 是一组消息发起过的会话（新的在前）和拆出来的任务数 */
+  onStartSession: (ids: string[], intent: SessionIntent) => void
+  linksOf: (ids: string[]) => { sessions: string[]; tasks: number }
+  onOpenSession: (id: string) => void
+  /** 批量分诊、处理队列（SPEC-messages-1.51~1.53）：分诊用的流程和执行；onBatchTriage 回发起、跳过各几条 */
+  sops: Sop[]; runs: SopRun[]; onBatchTriage: (sopId: string, messageIds: string[], rerun: boolean) => { started: number; skipped: number }; onOpenQueue: () => void
+  /** 分诊建议（SPEC-messages-1.53）：点「已分诊」打开这条消息的抽屉并滚到「分诊建议」 */
+  onOpenTriage: (id: string) => void
+  /** 群组默认归属的项目：群的会话键 -> 项目 id；选中一个群标签时能设、改、清除（null） */
+  projects: Project[]; groupProjects: Record<string, string>; onSetGroupProject: (convKey: string, projectId: string | null) => void
   /** 立即同步：传了渠道只同步那个渠道 */
   onSync: (channel?: string) => void; syncing: boolean; syncResult: { at: string; text: string; bad: boolean } | null
   /** onGoConnectors：打开设置里的连接器，并定位到即时通讯分类 */
@@ -163,6 +208,20 @@ export function MessagesPage({ messages, contacts, connectors, selected, onOpen,
   const [q, setQ] = useState('')
   /** 只看某个会话：convKey */
   const [conv, setConv] = useState('')
+  /** 合并显示，默认开（SPEC-messages-1.54） */
+  const [merge, setMerge] = useState(true)
+  /** 群组管理抽屉（SPEC-messages-7） */
+  const [groupsOpen, setGroupsOpen] = useState(false)
+  /** 主动发消息（SPEC-messages-8）：弹窗带上的会话键；发件记录原型只存在这里 */
+  const [sending, setSending] = useState<{ key?: string } | null>(null)
+  const [outbox, setOutbox] = useState<Sent[]>([])
+  const sentReply = useMemo(() => sentReplyOf(messages, outbox), [messages, outbox])
+  const addSent = (s: Omit<Sent, 'id' | 'at' | 'status' | 'error' | 'source'>) =>
+    setOutbox((xs) => [...xs, { ...s, id: `ob${xs.length + 1}`, at: new Date().toISOString(), status: 'sent', error: '', source: 'manual' }])
+  const sentTag = (ids: string[]) => {
+    const s = ids.map((id) => sentReply.get(id)).find(Boolean)
+    return s ? <span className="state sent-tag" title={`回复了我 ${timeAgo(s.at)}发出的「${s.text.slice(0, 40)}」`}>回复了我发出的</span> : null
+  }
   const people = useMemo(() => contactIndex(contacts), [contacts])
   const whoOf = (m: Message) => people.get(senderKey(m))
   // @ 解析是正则，每条只算一次
@@ -177,7 +236,7 @@ export function MessagesPage({ messages, contacts, connectors, selected, onOpen,
   const kw = q.trim().toLowerCase()
   const relOk = (m: Message) => !mine || (mine === 'at' ? relOf(m) === 'me' : relOf(m) !== null)
   const rows = useMemo(() => messages
-    .filter((m) => inView(m, view) && (!channel || m.channel === channel) && (!conv || convKey(m) === conv) && (!unreadOnly || !m.read) && relOk(m)
+    .filter((m) => inView(m, view) && (!channel || m.channel === channel) && convOk(m, conv) && (!unreadOnly || !m.read) && relOk(m)
       && (!kw || [m.text, m.sender_name, m.conversation, whoOf(m)?.name ?? ''].some((v) => v.toLowerCase().includes(kw))))
     .sort((a, b) => b.at.localeCompare(a.at)),
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -187,7 +246,7 @@ export function MessagesPage({ messages, contacts, connectors, selected, onOpen,
   const views = msgEnum.items.flatMap((i) => (i.key === 'pending' ? [[i.key, i.label], ['snoozed', '稍后']] : [[i.key, i.label]])) as [View, string][]
   const segViews = views.length > VIEW_SEG_MAX + 1 ? views.slice(0, VIEW_SEG_MAX) : views
   const moreViews = views.slice(segViews.length)
-  const count = (v: View) => messages.filter((m) => inView(m, v) && (!channel || m.channel === channel) && (!conv || convKey(m) === conv) && relOk(m)).length
+  const count = (v: View) => messages.filter((m) => inView(m, v) && (!channel || m.channel === channel) && convOk(m, conv) && relOk(m)).length
   const atMe = messages.filter((m) => m.status === 'pending' && !isSnoozed(m) && relOf(m) === 'me').length
 
   // 会话筛选的选项：当前渠道下出现过的群和私聊，各自按待处理数排
@@ -215,13 +274,54 @@ export function MessagesPage({ messages, contacts, connectors, selected, onOpen,
     return [...xs.filter(([k]) => k.startsWith('g:')).sort(by).map(opt), ...xs.filter(([k]) => k.startsWith('d:')).sort(by).map(opt)]
   }, [messages, channel, people, msgEnum])
 
+  // 群组标签：选了渠道后按群组归总。群按消息条数、再按群名排（不按待处理数排，处理消息时标签不跳），
+  // 私聊合成一个「私聊」标签紧跟「全部」（群多时也看得到）；超过 GROUP_TAB_MAX 的群和单个私聊收进「更多」。数字是待处理（不含稍后）
+  const tabs = useMemo(() => {
+    if (!channel) return null
+    const acc = new Map<string, { m: Message; n: number; pending: number }>()
+    for (const m of messages) {
+      if (m.channel !== channel) continue
+      const k = convKey(m)
+      const x = acc.get(k) ?? { m, n: 0, pending: 0 }
+      x.n += 1
+      if (m.status === 'pending' && !isSnoozed(m)) x.pending += 1
+      acc.set(k, x)
+    }
+    const xs = [...acc.entries()].map(([value, x]) => ({ value, label: x.m.conversation || people.get(senderKey(x.m))?.name || x.m.sender_name, n: x.n, pending: x.pending, group: !!x.m.conversation }))
+    const groups = xs.filter((x) => x.group).sort((a, b) => b.n - a.n || a.label.localeCompare(b.label, 'zh-CN'))
+    const dms = xs.filter((x) => !x.group)
+    const all = { value: '', label: '全部', n: 0, pending: messages.filter((m) => m.channel === channel && m.status === 'pending' && !isSnoozed(m)).length }
+    const dm = dms.length ? [{ value: dmTab(channel), label: '私聊', n: 0, pending: dms.reduce((a, x) => a + x.pending, 0) }] : []
+    const more: SearchOption[] = [...groups.slice(GROUP_TAB_MAX), ...dms].map((x) => ({
+      value: x.value, group: x.group ? '群聊' : '私聊', label: x.label, hint: x.pending ? `${x.pending} 条${msgEnum.label('pending')}` : `${x.n} 条`,
+    }))
+    return { tabs: [all, ...dm, ...groups.slice(0, GROUP_TAB_MAX)], more, moreGroups: Math.max(0, groups.length - GROUP_TAB_MAX), any: groups.length + dms.length > 0 }
+  }, [messages, channel, people, msgEnum])
+  const moreOn = !!tabs?.more.some((o) => o.value === conv)
+  const lastTriage = useMemo(() => latestTriage(runs), [runs])
+  const activeN = activeTriage(runs).length
+  const [triaging, setTriaging] = useState(false)
+  const [triageNote, setTriageNote] = useState('')
+  const groupOn = conv.startsWith('g:')
+  const projectOptions = projects.map((p) => ({ value: p.id, label: p.name }))
+
   // 先渲染 PAGE 条；筛选一变就回到第一页（按筛选条件记，不用 effect 清）
-  const sig = [view, channel, conv, unreadOnly, mine, kw].join('|')
+  const sig = [view, channel, conv, unreadOnly, mine, kw, merge].join('|')
   const [lim, setLim] = useState({ sig, n: PAGE })
   const limit = lim.sig === sig ? lim.n : PAGE
-  const shown = rows.slice(0, limit)
+  const clusters = useMemo(() => clusterMessages(messages), [messages])
+  // 串里的回复挂到原消息那一行下面（SPEC-messages-1.62），不管合不合并
+  const viewRows = useMemo(() => nestThreads(toRows(rows, clusters, merge), messages), [rows, clusters, merge, messages])
+  const byId = useMemo(() => new Map(messages.map((m) => [m.id, m])), [messages])
+  const [threadOpen, setThreadOpen] = useState<ReadonlySet<string>>(() => new Set())
+  const shown = viewRows.slice(0, limit)
+  // 每天的条数按消息算（挂着的串里回复也算），一组归在它最新一条那天
   const dayCount = new Map<string, number>()
-  for (const m of rows) dayCount.set(dayLabel(m.at), (dayCount.get(dayLabel(m.at)) ?? 0) + 1)
+  for (const r of viewRows) {
+    const d = dayLabel(rowTime(r))
+    dayCount.set(d, (dayCount.get(d) ?? 0) + r.items.length + (r.threads ?? []).reduce((n, b) => n + b.replies.length, 0))
+  }
+  const openRow = (r: MsgRow) => (r.kind === 'single' ? onOpen(r.head.id) : onOpenGroup(r.key))
   const usedChannels = IM_CHANNELS.filter((ch) => connectors.some((c) => c.tool === ch.key) || messages.some((m) => m.channel === ch.key))
   const broken = connectors.filter((c) => c.status === 'error' && TOOLS.find((t) => t.key === c.tool)?.category === 'im')
   const lastSync = connectors.filter((c) => TOOLS.find((t) => t.key === c.tool)?.category === 'im' && c.last_sync_at).map((c) => c.last_sync_at!).sort().pop()
@@ -239,21 +339,144 @@ export function MessagesPage({ messages, contacts, connectors, selected, onOpen,
     const onKey = (e: KeyboardEvent) => {
       const t = e.target as HTMLElement
       if (t.closest('input, textarea, select') || e.metaKey || e.ctrlKey) return
-      const i = rows.findIndex((r) => r.id === selected)
-      if (e.key === 'j' && rows.length) {
-        const n = Math.min(i + 1, rows.length - 1)
+      const i = viewRows.findIndex((r) => (r.kind === 'single' ? r.head.id === selected : r.key === selectedGroup))
+      if (e.key === 'j' && viewRows.length) {
+        const n = Math.min(i + 1, viewRows.length - 1)
         // 走到已渲染的末尾就再加载一页
         if (n >= limit) setLim({ sig, n: limit + PAGE })
-        onOpen(rows[n].id)
+        openRow(viewRows[n])
       }
-      if (e.key === 'k' && rows.length) onOpen(rows[Math.max(i - 1, 0)].id)
+      if (e.key === 'k' && viewRows.length) openRow(viewRows[Math.max(i - 1, 0)])
       // 只对还没处理的（待处理含稍后、已过期）生效，已处理、已忽略的不动
       const st = selected ? messages.find((m) => m.id === selected)?.status : undefined
       if (e.key === 'e' && selected && (st === 'pending' || st === 'expired')) onAct(selected, { kind: 'done' })
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [rows, messages, selected, onOpen, onAct, limit, sig])
+  })
+
+  // 行上的「更多」菜单：交给 Agent（拆分任务、发起会话，SPEC-messages-1.57）、转项目资料（SPEC-messages-1.59）
+  const agentMenu = (ids: string[]) => (
+    <Menu className="act" label={<>更多{caret}</>}>
+      {(close) => (
+        <>
+          <div className="menu-label">交给 Agent</div>
+          <button className="menu-item" onClick={() => { onStartSession(ids, 'split'); close() }}>拆分任务…</button>
+          <button className="menu-item" onClick={() => { onStartSession(ids, 'chat'); close() }}>发起会话…</button>
+          <div className="menu-label">资料</div>
+          <button className="menu-item" onClick={() => { onToMaterial(ids); close() }}>转项目资料…</button>
+        </>
+      )}
+    </Menu>
+  )
+  // 转过资料的标「已转资料」，点了去项目资料页（SPEC-messages-1.60）
+  const matTag = (ids: string[]) => {
+    const notes = notesOf(projects, ids)
+    if (!notes.length) return null
+    return (
+      <button className="state state-task state-link" title={notes.map((h) => `${h.project.name}：${h.material.name}`).join('\n')}
+        onClick={(e) => { e.stopPropagation(); onOpenMaterial(notes[0].project.id, notes[0].material.id) }} onKeyDown={(e) => e.stopPropagation()}>
+        已转资料{notes.length > 1 ? ` ${notes.length}` : ''}
+      </button>
+    )
+  }
+  // 发起过会话、拆出过任务的标出来（SPEC-messages-1.58）
+  const linkTags = (ids: string[]) => {
+    const l = linksOf(ids)
+    if (l.tasks) return <button className="state state-task state-link" onClick={(e) => { e.stopPropagation(); if (l.sessions[0]) onOpenSession(l.sessions[0]) }} onKeyDown={(e) => e.stopPropagation()}>已拆分 {l.tasks} 条任务</button>
+    if (l.sessions.length) return <button className="state state-task state-link" onClick={(e) => { e.stopPropagation(); onOpenSession(l.sessions[0]) }} onKeyDown={(e) => e.stopPropagation()} title="打开最近的一个会话">已发起会话</button>
+    return null
+  }
+  // 合并的一组（SPEC-messages-1.55）：人名、条数、拼起来的预览；整组标已处理、忽略
+  // 串里的回复挂在原消息那一行下面缩进一层：少（不超过 3 条）时全列，多了只列最近 2 条加「还有 N 条回复」；每条能单独处理
+  const replyRow = (m: Message) => {
+    const who = whoOf(m)
+    const blocker = replyBlocker(connectors.find((c) => c.id === m.connector_id))
+    const open = isOpenMsg(m)
+    return (
+      <div key={m.id} role="button" tabIndex={0} className={cls('msg msg-reply', selected === m.id && 'sel', !m.read && 'unread', m.status !== 'pending' && 'msg-closed')}
+        onClick={() => onOpen(m.id)} onKeyDown={(e) => e.key === 'Enter' && onOpen(m.id)}>
+        <span className="msg-unread" />
+        <Avatar name={who?.name ?? m.sender_name} size={24} src={who?.photo} />
+        <div className="msg-main">
+          <div className="msg-top">
+            <span className="msg-who">{who?.name ?? m.sender_name}</span>
+            {relOf(m) === 'me' && <span className="rel-tag rel-me">{RELEVANCE.me}</span>}
+            <span className="spacer" />
+            {m.status !== 'pending' && <span className="state" style={stateStyle(msgEnum.color(m.status))}>{msgEnum.label(m.status)}</span>}
+            {m.replies.length > 0 && <span className="state">已回复</span>}
+            <span className="msg-time">{timeAgo(m.at)}</span>
+          </div>
+          <div className="msg-text"><MentionText text={m.text} /></div>
+        </div>
+        <div className="msg-actions" onClick={(e) => e.stopPropagation()}>
+          {open ? (
+            <>
+              <button className="act act-primary" onClick={() => onAct(m.id, { kind: 'done' })}>{msgEnum.label('done')}</button>
+              {blocker
+                ? <button className="act" disabled title={blocker}>回复{caret}</button>
+                : <Menu className="act" label={<>回复{caret}</>}>{(close) => <QuickReplyItems close={close} onPick={(text, done) => onAct(m.id, { kind: 'reply', done, ...quickReplyText(m, who?.name ?? m.sender_name, text) })} />}</Menu>}
+              <button className="act act-quiet" onClick={() => onAct(m.id, { kind: 'ignore' })}>忽略</button>
+            </>
+          ) : <button className="act" onClick={() => onAct(m.id, { kind: 'reopen' })}>重新打开</button>}
+        </div>
+      </div>
+    )
+  }
+  const threadBlocks = (r: MsgRow) => (r.threads ?? []).map((b: ThreadBlock) => {
+    const open = threadOpen.has(b.parent.id)
+    const { shown: xs, hidden } = threadShown(b, open)
+    const toggle = () => setThreadOpen((s0) => { const n = new Set(s0); if (n.has(b.parent.id)) n.delete(b.parent.id); else n.add(b.parent.id); return n })
+    return (
+      <div key={`thr:${b.parent.id}`} className="thread-replies">
+        {hidden > 0 && <button className="thread-more" onClick={toggle}>还有 {hidden} 条回复</button>}
+        {xs.map(replyRow)}
+        {open && b.replies.length > 3 && <button className="thread-more" onClick={toggle}>收起</button>}
+      </div>
+    )
+  })
+
+  const groupRow = (r: MsgRow) => {
+    const m = r.head
+    const who = whoOf(m)
+    const open = r.items.filter(isOpenMsg)
+    const unread = r.items.filter((x) => !x.read).length
+    const label = countLabel(r)
+    return (
+      <div role="button" tabIndex={0} className={cls('msg msg-group', selectedGroup === r.key && 'sel', unread > 0 && 'unread', !open.length && 'msg-closed')}
+        onClick={() => onOpenGroup(r.key)} onKeyDown={(e) => e.key === 'Enter' && onOpenGroup(r.key)}>
+        <span className="msg-unread" />
+        <Avatar name={who?.name ?? m.sender_name} size={34} src={who?.photo} />
+        <div className="msg-main">
+          <div className="msg-top">
+            <span className="msg-who">{who?.name ?? m.sender_name}</span>
+            {label && <span className="msg-count">{label}</span>}
+            <ImMark ch={channelOf(m.channel)} compact />
+            <span className="msg-conv">{m.conversation || '私聊'}</span>
+            <span className="spacer" />
+            {open.length > 0 && open.length < r.items.length && <span className="state">{open.length} 条{msgEnum.label('pending')}</span>}
+            {unread > 0 && r.kind === 'dm' && <span className="state">{unread} 条未读</span>}
+            {linkTags(r.all.map((x) => x.id))}
+            {matTag(r.all.map((x) => x.id))}
+            {sentTag(r.items.map((x) => x.id))}
+            <span className="msg-time">{timeAgo(m.at)}</span>
+          </div>
+          <div className="msg-text"><MentionText text={previewText(r)} /></div>
+        </div>
+        <div className="msg-actions" onClick={(e) => e.stopPropagation()}>
+          {open.length > 0 ? (
+            <>
+              <button className="act act-primary" onClick={() => open.forEach((x) => onAct(x.id, { kind: 'done' }))} title={`这一行 ${open.length} 条都标为${msgEnum.label('done')}`}>{msgEnum.label('done')}</button>
+              {agentMenu(r.all.map((x) => x.id))}
+              <button className="act act-quiet" onClick={() => open.forEach((x) => onAct(x.id, { kind: 'ignore' }))}>忽略</button>
+            </>
+          ) : (
+            <>{agentMenu(r.all.map((x) => x.id))}<button className="act" onClick={() => r.items.forEach((x) => onAct(x.id, { kind: 'reopen' }))}>重新打开</button></>
+          )}
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="page">
@@ -265,6 +488,9 @@ export function MessagesPage({ messages, contacts, connectors, selected, onOpen,
           <svg className={cls(syncing && 'spin')} viewBox="0 0 16 16" width="13" height="13"><path d="M13 8a5 5 0 1 1-1.5-3.6M13 3v2.5h-2.5" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /></svg>
           {syncing ? '同步中…' : channel ? `同步${channelOf(channel).label}` : '立即同步'}
         </button>
+        {triageNote && <span className="sync-note">{triageNote}</span>}
+        <button className="btn btn-ghost btn-outline" onClick={() => setSending({})} title="主动发一条到群或私聊">发消息</button>
+        <button className="btn btn-ghost btn-outline" onClick={() => setGroupsOpen(true)} title="给群和私聊设默认归属的项目，能批量设">群组管理</button>
         <button className="btn btn-ghost btn-outline" onClick={onGoConnectors} title="在设置里管理 IM 渠道的连接器">
           {gear}渠道配置
           {broken.length > 0 && <span className="dot-alert" title={`${broken.length} 个连接器异常`} />}
@@ -298,7 +524,10 @@ export function MessagesPage({ messages, contacts, connectors, selected, onOpen,
           {!mine && atMe > 0 && <span className="mention-n" title={`${atMe} 条 @我 的消息${msgEnum.label('pending')}`}>@{atMe}</span>}
         </div>
         <button className={cls('chip', unreadOnly && 'chip-on')} onClick={() => setUnreadOnly(!unreadOnly)}>只看未读</button>
-        {convOptions.length > 1 && (
+        <button className={cls('chip', merge && 'chip-on')} aria-pressed={merge} onClick={() => setMerge(!merge)}
+          title="同一个私聊合成一行，群里同一人连发、重复的消息合成一行；只是显示，消息不变">合并显示</button>
+        {/* 选了渠道时由群组标签代替这个下拉 */}
+        {!channel && convOptions.length > 1 && (
           <SearchSelect value={conv} onChange={setConv} noneLabel="全部会话" options={convOptions}
             searchPlaceholder="搜群名、发信人" missingLabel={() => '这个渠道下没有这个会话'} aria-label="只看某个会话" />
         )}
@@ -313,25 +542,76 @@ export function MessagesPage({ messages, contacts, connectors, selected, onOpen,
         </div>
       </div>
 
-      {rows.length === 0 ? (
+      {/* 页面下方的批量处理条（SPEC-messages-1.51、1.52）：原型列表不能勾选，只有批量分诊（对当前筛选结果）和处理队列 */}
+      <div className="run-bulk msg-bulk-idle" role="toolbar" aria-label="批量处理">
+        <span className="list-sub">批量分诊对当前筛选结果（最多 200 条）</span>
+        <span className="spacer" />
+        <button className="btn btn-outline" onClick={() => setTriaging(true)} title="给当前筛选结果全部的消息各发起一次分诊流程（最多 200 条）">批量分诊</button>
+        <button className="btn btn-outline" onClick={onOpenQueue} title="分诊这类按消息发起的流程执行：进行中的和最近结束的">处理队列{activeN > 0 && <span className="seg-n">{activeN}</span>}</button>
+      </div>
+      {triaging && (
+        <TriageBar sops={sops} runs={runs} targets={rows} onCancel={() => setTriaging(false)}
+          onStart={(sopId, rerun) => {
+            const r = onBatchTriage(sopId, rows.map((m) => m.id), rerun)
+            setTriaging(false)
+            setTriageNote(`分诊发起 ${r.started} 条${r.skipped ? `，跳过 ${r.skipped} 条已跑过的` : ''}`)
+          }} />
+      )}
+      {tabs?.any && (
+        <div className="msg-tabs-row">
+          <div className="msg-tabs" role="tablist" aria-label="群组">
+            {tabs.tabs.map((t) => (
+              <button key={t.value || 'all'} role="tab" aria-selected={conv === t.value} className={cls(conv === t.value && 'on')} onClick={() => setConv(t.value)}
+                ref={conv === t.value ? (el) => { el?.scrollIntoView({ block: 'nearest', inline: 'nearest' }) } : undefined}
+                title={t.value ? `${t.label}：${t.pending} 条${msgEnum.label('pending')}` : undefined}>
+                <span className="msg-tab-label">{t.label}</span>{t.pending > 0 && <span className="seg-n">{t.pending}</span>}
+              </button>
+            ))}
+          </div>
+          {tabs.more.length > 0 && (
+            <SearchSelect value={moreOn ? conv : ''} onChange={setConv} placeholder={tabs.moreGroups ? `更多群组 ${tabs.moreGroups}` : '单个私聊'} options={tabs.more}
+              searchPlaceholder="搜群名、发信人" aria-label="更多群组和私聊" />
+          )}
+        </div>
+      )}
+      {channel && groupOn && (
+        <div className="msg-group-bar">
+          <span className="muted">默认归属</span>
+          <SearchSelect value={groupProjects[conv] ?? ''} onChange={(v) => onSetGroupProject(conv, v || null)} noneLabel="不归项目" placeholder="设为项目"
+            searchPlaceholder="搜项目" aria-label="群组默认归属的项目" missingLabel={() => '已删除的项目'} options={projectOptions} />
+          <span className="muted">这个群里没单独归项目的消息都算到这个项目，项目「沟通」里能看到</span>
+        </div>
+      )}
+      {conv && !conv.startsWith('dm:') && (
+        <SentStrip sent={outbox.filter((s) => s.key === conv)} onSend={() => setSending({ key: conv })}
+          onResend={(s) => addSent({ key: s.key, channel: s.channel, connector_id: s.connector_id, name: s.name, text: s.text })} />
+      )}
+
+      {viewRows.length === 0 ? (
         <div className="empty">
           <div className="empty-title">{mine === 'at' ? '没有 @我 的消息' : view === 'pending' && !conv ? `${msgEnum.label('pending')}的消息都清完了` : '这里没有消息'}</div>
           <div className="muted">{view === 'pending' && !conv ? '新消息会按连接器的同步间隔收进来' : '换个状态、渠道或会话看看'}</div>
         </div>
       ) : (
         <div className="msg-list">
-          {shown.map((m, i) => {
+          {shown.map((r, i) => {
+            const day = dayLabel(rowTime(r))
+            const dayHead = (i === 0 || dayLabel(rowTime(shown[i - 1])) !== day) && <div className="msg-day">{day}<span className="seg-n">{dayCount.get(day)}</span></div>
+            if (r.kind !== 'single') return <Fragment key={r.key}>{dayHead}{groupRow(r)}{threadBlocks(r)}</Fragment>
+            const m = r.head
+            const parent = m.thread?.parent_id ? byId.get(m.thread.parent_id) : undefined
+            const hint = threadHint(m, parent, parent && whoOf(parent)?.name)
             const ch = channelOf(m.channel)
             const who = whoOf(m)
             const conn = connectors.find((c) => c.id === m.connector_id)
             const blocker = replyBlocker(conn)
             const rel = relOf(m)
             const task = taskOf(m.id)
-            const day = dayLabel(m.at)
             return (
               <Fragment key={m.id}>
-              {(i === 0 || dayLabel(shown[i - 1].at) !== day) && <div className="msg-day">{day}<span className="seg-n">{dayCount.get(day)}</span></div>}
-              <div role="button" tabIndex={0} className={cls('msg', selected === m.id && 'sel', !m.read && 'unread', m.status !== 'pending' && 'msg-closed')}
+              {dayHead}
+              <div role="button" tabIndex={0} className={cls('msg', selected === m.id && 'sel', !m.read && 'unread', m.status !== 'pending' && 'msg-closed', r.faded && 'msg-faded')}
+                title={r.faded ? '原消息不在当前筛选里，为挂串里的回复显示' : undefined}
                 onClick={() => onOpen(m.id)} onKeyDown={(e) => e.key === 'Enter' && onOpen(m.id)}>
                 <span className="msg-unread" />
                 <Avatar name={who?.name ?? m.sender_name} size={34} src={who?.photo} />
@@ -342,7 +622,11 @@ export function MessagesPage({ messages, contacts, connectors, selected, onOpen,
                     <ImMark ch={ch} compact />
                     {conn && broken.includes(conn) && <span className="state state-bad" title={conn.error}>渠道异常</span>}
                     <span className="msg-conv">{m.conversation || '私聊'}</span>
+                    <TriageTag run={lastTriage.get(m.id)} onClick={onOpenQueue} onOpenAdvice={() => onOpenTriage(m.id)} />
                     {rel && rel !== 'dm' && <span className={cls('rel-tag', rel === 'me' && 'rel-me')}>{RELEVANCE[rel]}</span>}
+                    {m.thread && (parent
+                      ? <button className="thread-tag" title={`${hint}，点开看整个串`} onClick={(e) => { e.stopPropagation(); onOpen(parent.id) }} onKeyDown={(e) => e.stopPropagation()}>串里回复</button>
+                      : <span className="thread-tag" title={`${hint}（原消息还没收到）`}>串里回复</span>)}
                     <span className="spacer" />
                     {m.status !== 'pending' && (
                       <span className="state" style={stateStyle(msgEnum.color(m.status))}
@@ -351,9 +635,13 @@ export function MessagesPage({ messages, contacts, connectors, selected, onOpen,
                     {isSnoozed(m) && <span className="state state-snooze">{new Date(m.snooze_until!).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })} 提醒</span>}
                     {m.replies.length > 0 && <span className="state">已回复 {m.replies.length}</span>}
                     {task && <button className="state state-task state-link" onClick={(e) => { e.stopPropagation(); onToTask(m.id) }} onKeyDown={(e) => e.stopPropagation()} title="打开这条任务">已转任务 {task}</button>}
+                    {linkTags([m.id])}
+                    {matTag([m.id])}
+                    {sentTag([m.id])}
                     <span className="msg-time">{timeAgo(m.at)}</span>
                   </div>
                   <div className="msg-text"><MentionText text={m.text} /></div>
+                  {hint && <div className="thread-hint">{hint}</div>}
                   <AttachmentChips atts={m.attachments} />
                 </div>
                 <div className="msg-actions" onClick={(e) => e.stopPropagation()}>
@@ -362,13 +650,14 @@ export function MessagesPage({ messages, contacts, connectors, selected, onOpen,
                       <button className="act act-primary" onClick={() => onAct(m.id, { kind: 'done' })} title={`标为${msgEnum.label('done')} (E)`}>{msgEnum.label('done')}</button>
                       {blocker
                         ? <button className="act" disabled title={blocker}>回复{caret}</button>
-                        : <Menu className="act" label={<>回复{caret}</>}>{(close) => <QuickReplyItems close={close} onPick={(text, done) => onAct(m.id, { kind: 'reply', text, done })} />}</Menu>}
+                        : <Menu className="act" label={<>回复{caret}</>}>{(close) => <QuickReplyItems close={close} onPick={(text, done) => onAct(m.id, { kind: 'reply', done, ...quickReplyText(m, who?.name ?? m.sender_name, text) })} />}</Menu>}
                       <Menu className="act" label={<>稍后{caret}</>}>
                         {(close) => snoozeOptions().map((o) => (
                           <button key={o.label} className="menu-item" onClick={() => { onAct(m.id, { kind: 'snooze', until: o.until.toISOString() }); close() }}>{o.label}</button>
                         ))}
                       </Menu>
                       {!task && <button className="act" onClick={() => onToTask(m.id)}>转任务</button>}
+                      {agentMenu([m.id])}
                       <button className="act act-quiet" onClick={() => onAct(m.id, { kind: 'ignore' })}>忽略</button>
                     </>
                   ) : m.status === 'expired' ? (
@@ -379,19 +668,29 @@ export function MessagesPage({ messages, contacts, connectors, selected, onOpen,
                       <button className="act act-quiet" onClick={() => onAct(m.id, { kind: 'ignore' })}>忽略</button>
                     </>
                   ) : (
-                    <button className="act" onClick={() => onAct(m.id, { kind: 'reopen' })}>重新打开</button>
+                    <>{agentMenu([m.id])}<button className="act" onClick={() => onAct(m.id, { kind: 'reopen' })}>重新打开</button></>
                   )}
                 </div>
               </div>
+              {threadBlocks(r)}
               </Fragment>
             )
           })}
-          {rows.length > limit && (
+          {viewRows.length > limit && (
             <button className="msg-more" onClick={() => setLim({ sig, n: limit + PAGE })}>
-              加载更多<span className="seg-n">还有 {rows.length - limit} 条</span>
+              加载更多<span className="seg-n">还有 {viewRows.length - limit} 行</span>
             </button>
           )}
         </div>
+      )}
+      {groupsOpen && (
+        <GroupAdminDrawer messages={messages} contacts={contacts} projects={projects} groupProjects={groupProjects} onSetGroupProject={onSetGroupProject}
+          onClose={() => setGroupsOpen(false)} onSend={(key) => setSending({ key })}
+          onOpenConversation={(ch, key) => { setGroupsOpen(false); setChannel(ch); setConv(key) }} />
+      )}
+      {sending && (
+        <SendDialog messages={messages} contacts={contacts} connectors={connectors} preset={sending.key} onCancel={() => setSending(null)}
+          onSend={(t, c, text) => { addSent({ key: t.key, channel: t.channel, connector_id: c.id, name: t.name, text }); setSending(null) }} />
       )}
     </div>
   )
@@ -399,18 +698,30 @@ export function MessagesPage({ messages, contacts, connectors, selected, onOpen,
 
 /* ---------- 抽屉：会话 + 处理 + 反馈 ---------- */
 
-export function MessageDrawer({ msg, contact, connector, onClose, onAct, onOpenContact, onSaveContact, task, onToTask, deal, onToDeal, onFixConnector, projects, msgProjects, onFetchAttachment, onAddAttachment }: {
+export function MessageDrawer({ msg, contact, connector, members = [], onClose, onAct, onOpenContact, onSaveContact, task, onToTask, deal, onToDeal, onFixConnector, projects, msgProjects, onFetchAttachment, onAddAttachment, onSetProject , links, onStartSession, onOpenSession, onToMaterial, onOpenMaterial, triage, thread = [], threadParent, onOpenMessage, onActOther }: {
+  /** 「分诊建议」一节（SPEC-messages-2.41），放在正文下面 */
+  triage?: ReactNode
+  /** 转项目资料（SPEC-messages-2.38）：打开弹窗；转过的去项目资料页 */
+  onToMaterial: () => void; onOpenMaterial: (projectId: string, materialId: string) => void
+  /** 归到项目、清除归属（消息分流）；null 是清除 */
+  onSetProject: (projectId: string | null) => void
   /** 附件：获取到本地、加进项目支持材料；msgProjects 是这条消息所在的项目 */
   projects: Project[]; msgProjects: string[]
   onFetchAttachment: (attId: string) => void; onAddAttachment: (attId: string, projectId: string) => void
   onFixConnector: () => void
   msg: Message; contact: Contact | undefined; connector: Connector | undefined
+  /** @ 候选（SPEC-messages-2.46）：联系人在前，再是会话里发过言、没认上联系人的 */
+  members?: Member[]
   onClose: () => void; onAct: (a: MsgAction) => void
   onOpenContact: (id: string) => void; onSaveContact: () => void
   /** 这条消息转出来的任务；onToTask 没转过就新建，转过就打开 */
   task?: { ref: string; title: string }; onToTask: () => void
   /** 品牌询价转商单（视频模块开着才有，VID-08p）：没转过就新建，转过就打开 */
   deal?: { title: string; brand: string }; onToDeal?: () => void
+  /** 交给 Agent（SPEC-messages-2.36）：发起过的会话、拆出来的任务数；发起会话、拆分任务 */
+  links: { sessions: string[]; tasks: number }; onStartSession: (intent: SessionIntent) => void; onOpenSession: (id: string) => void
+  /** 串里的回复（SPEC-messages-2.45）：这条作为原消息时整个串（按时间）；这条是串里回复时它的原消息；打开另一条；处理串里的某一条 */
+  thread?: Message[]; threadParent?: Message; onOpenMessage?: (id: string) => void; onActOther?: (id: string, a: MsgAction) => void
 }) {
   const msgEnum = useEnumView('msg_status')
   const ch = channelOf(msg.channel)
@@ -419,10 +730,15 @@ export function MessageDrawer({ msg, contact, connector, onClose, onAct, onOpenC
   const sendAs = blocker ? null : sendAsText(connector)
   const [text, setText] = useState('')
   const [alsoDone, setAlsoDone] = useState(true)
-  const send = (t: string, done: boolean) => {
+  // 回复时 @ 对方（SPEC-messages-2.46）：群聊才有开关，默认打开、记在本机；私聊不加
+  const [atOn, setAtOn] = useReplyMention()
+  const target: MentionPick | null = msg.conversation ? { id: msg.sender_id, name: contact?.name ?? msg.sender_name } : null
+  const [picked, setPicked] = useState<MentionPick[]>([])
+  const send = (t: string, done: boolean, fromBox = true) => {
     if (!t.trim() || blocker) return
-    onAct({ kind: 'reply', text: t.trim(), done })
-    setText('')
+    const out = composeReply(t, target && atOn ? target : null, picked)
+    onAct({ kind: 'reply', text: out.text, done, mentions: out.mentions })
+    if (fromBox) { setText(''); setPicked([]) }
   }
 
   return (
@@ -488,6 +804,13 @@ export function MessageDrawer({ msg, contact, connector, onClose, onAct, onOpenC
             : <button className="btn btn-ghost" onClick={onSaveContact}>存为联系人</button>}
         </div>
 
+        {msg.thread && (
+          <div className="thread-from">
+            <span className="thread-tag">串里回复</span>
+            <span className="muted ellipsis">{threadHint(msg, threadParent)}</span>
+            {threadParent && onOpenMessage && <button className="act" onClick={() => onOpenMessage(threadParent.id)}>打开原消息</button>}
+          </div>
+        )}
         <div className="thread">
           <div className="bubble bubble-in">
             <div><MentionText text={msg.text} /></div>
@@ -501,7 +824,48 @@ export function MessageDrawer({ msg, contact, connector, onClose, onAct, onOpenC
           ))}
         </div>
 
+        {thread.length > 0 && (
+          <>
+            <div className="section-label">串里的回复 <span className="seg-n">{thread.length}</span></div>
+            <div className="thread-list">
+              {thread.map((m) => {
+                const open = isOpenMsg(m)
+                return (
+                  <div key={m.id} className={cls('thread-item', !open && 'msg-closed')}>
+                    <div className="thread-item-top">
+                      <button className="thread-who" onClick={() => onOpenMessage?.(m.id)} title="打开这一条">{m.sender_name}</button>
+                      <span className="muted">{timeAgo(m.at)}</span>
+                      {m.status !== 'pending' && <span className="state">{msgEnum.label(m.status)}</span>}
+                      <span className="spacer" />
+                      {open ? (
+                        <>
+                          <button className="act" onClick={() => onActOther?.(m.id, { kind: 'done' })}>标为{msgEnum.label('done')}</button>
+                          <button className="act act-quiet" onClick={() => onActOther?.(m.id, { kind: 'ignore' })}>忽略</button>
+                        </>
+                      ) : <button className="act" onClick={() => onActOther?.(m.id, { kind: 'reopen' })}>重新打开</button>}
+                    </div>
+                    <div className="thread-item-text"><MentionText text={m.text} /></div>
+                  </div>
+                )
+              })}
+            </div>
+          </>
+        )}
+
+        {triage}
+
         <AttachmentPanel msg={msg} projects={projects} suggested={msgProjects} onFetch={onFetchAttachment} onAdd={onAddAttachment} />
+
+        {/* 归到项目：分流流程会自动设，这里能改、能清除；归了的消息出现在项目「沟通」里 */}
+        <div className="section-label">项目</div>
+        <div className="act-row">
+          <SearchSelect value={msg.project_id ?? ''} onChange={(v) => onSetProject(v || null)} noneLabel="不归项目" placeholder="归到项目"
+            searchPlaceholder="搜项目" aria-label="归到项目" missingLabel={() => '已删除的项目'}
+            options={projects.map((pj) => ({ value: pj.id, label: pj.name }))} />
+          {msg.project_id && msg.project_source !== 'conversation' && <button className="act" onClick={() => onSetProject(null)}>清除</button>}
+          <span className="muted">{msg.project_source === 'conversation' ? '按群组默认归属；在这里改只改这一条'
+            : msg.project_id ? '项目「沟通」里能看到这条' : '归到项目后，项目「沟通」里能看到这条'}</span>
+        </div>
 
         <div className="section-label">转任务</div>
         {task ? (
@@ -509,6 +873,9 @@ export function MessageDrawer({ msg, contact, connector, onClose, onAct, onOpenC
         ) : (
           <div className="act-row"><button className="act" onClick={onToTask}>转为任务</button><span className="muted">原消息会记在任务里，方便回看</span></div>
         )}
+
+        <AgentSection links={links} onOpenSession={onOpenSession} />
+        <MaterialSection notes={notesOf(projects, [msg.id])} onOpen={onOpenMaterial} />
 
         {onToDeal && (
           <>
@@ -526,8 +893,9 @@ export function MessageDrawer({ msg, contact, connector, onClose, onAct, onOpenC
           <div className="banner banner-warn">{blocker}</div>
         ) : (
           <div className="quick-replies">
+            {!QUICK_REPLIES.length && <span className="muted">没有快捷回复，到设置的即时通讯里添加</span>}
             {QUICK_REPLIES.map((qr) => (
-              <button key={qr.text} className="qr" onClick={() => send(qr.text, qr.done)} title={qr.done ? `发送并标为${msgEnum.label('done')}` : '发送'}>
+              <button key={qr.text} className="qr" onClick={() => send(qr.text, qr.done, false)} title={qr.done ? `发送并标为${msgEnum.label('done')}` : '发送'}>
                 {qr.text}{qr.done && <span className="qr-done">并处理</span>}
               </button>
             ))}
@@ -535,13 +903,14 @@ export function MessageDrawer({ msg, contact, connector, onClose, onAct, onOpenC
         )}
       </div>
       <div className="drawer-foot reply-box">
-        <textarea rows={2} value={text} disabled={!!blocker}
-          placeholder={blocker ? '这个会话现在不能回复' : `回复 ${contact?.name ?? msg.sender_name}，⌘ Enter 发送`}
-          onChange={(e) => setText(e.target.value)}
+        <MentionBox value={text} onChange={setText} onPick={(p) => setPicked((x) => [...x, p])} members={members} disabled={!!blocker} label="回复内容"
+          placeholder={blocker ? '这个会话现在不能回复' : `回复 ${contact?.name ?? msg.sender_name}${msg.thread ? '（发到同一个串）' : ''}，输入 @ 提到别人，⌘ Enter 发送`}
           onKeyDown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) send(text, alsoDone) }} />
         <div className="reply-bar">
           <label className="check"><input type="checkbox" checked={alsoDone} onChange={(e) => setAlsoDone(e.target.checked)} disabled={!!blocker} />发送后标为{msgEnum.label('done')}</label>
+          {target && <label className="check" title={`发送时在正文开头 @${target.name}，对方会收到通知`}><input type="checkbox" checked={atOn} onChange={(e) => setAtOn(e.target.checked)} disabled={!!blocker} />回复时 @ 对方</label>}
           <div className="spacer" />
+          <ReplyBarActions many={false} onStart={onStartSession} onToMaterial={onToMaterial} />
           {sendAs && <span className="send-as">{sendAs}</span>}
           <button className="btn btn-primary" disabled={!!blocker || !text.trim()} title={sendAs ?? undefined} onClick={() => send(text, alsoDone)}>发送</button>
         </div>

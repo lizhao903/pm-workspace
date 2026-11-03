@@ -91,6 +91,7 @@
 | 改动 | 项目 | 「启动并打开」「启动原型」 | 启动那个原型 | `SPEC-projects-12` |
 | 改动 | 设置 / 连接器 | Google 登录、退出 | Google Drive、Google 日历连接器连上或断开 | `SPEC-settings-5` |
 | 相关 | 项目里的浏览器 | 项目详情「浏览器」 | 同一个组件，标签互不相干，Google 账号共用 | `SPEC-projects-14` |
+| 进来 | 会话 | 会话头部「浏览器」 | 在对话右边展开浏览器，工具栏下面多一行「会话里的链接」，点了按 `SPEC-browser-1.15` 打开；正式版标签和一级菜单是同一套（原型是单独一份，见 `SPEC-sessions` S-8） | `SPEC-sessions-1.36` |
 
 ## SPEC-browser-1 标签栏和地址栏
 

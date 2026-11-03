@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { SearchSelect } from './searchselect'
 import { ListSegHead } from './tasks'
 import {
-  ACTION_LABEL, FREQ_LABEL, SWEEP_LEVEL_LABEL, WEEK, describeRule, emptyRule, nextRun, ruleError, sweepText, whenText,
+  ACTION_LABEL, FREQ_LABEL, SWEEP_LEVEL_LABEL, WEEK, describeRule, emptyRule, nextRun, nextText, ruleError, sweepText, whenText,
   type Freq, type Schedule, type ScheduleAction,
 } from './scheduledata'
 import type { Priority } from './taskdata'
@@ -18,6 +18,7 @@ interface Named { id: string; name: string; enabled?: boolean }
 
 export const actionText = (a: ScheduleAction, sops: Named[], agents: Named[], publishes: Named[] = []) => (a.kind === 'task'
   ? `建任务「${a.title || '未填标题'}」`
+  : a.kind === 'remind' ? `提醒「${a.title || '未填标题'}」${a.task_id ? '，关联任务' : ''}`
   : a.kind === 'sop' ? `执行「${sops.find((s) => s.id === a.sop_id)?.name ?? '已删除的 SOP'}」`
     : a.kind === 'publish' ? `发布「${publishes.find((x) => x.id === a.publish_id)?.name ?? '已删除的发布记录'}」`
       : a.kind === 'incident_sweep' ? `巡检运行异常：${sweepText(a)}，建任务交给 Claude Code`
@@ -51,7 +52,7 @@ export function SchedulesPage({ schedules, sops, agents, publishes = [], selecte
         <span className="task-main"><span className="task-title"><span className="ellipsis" title={s.name}>{s.name}</span></span></span>
         <span className="run-muted ellipsis">{describeRule(s.rule)}</span>
         <span className="sched-action"><span className={`sched-kind sk-${s.action.kind}`}>{ACTION_LABEL[s.action.kind]}</span><span className="ellipsis run-muted">{actionText(s.action, sops, agents, publishes)}</span></span>
-        <span className={cls('run-muted', s.enabled && next && 'sched-next')}>{s.enabled ? whenText(next) : '已停用'}</span>
+        <span className={cls('run-muted', s.enabled && next && 'sched-next')}>{nextText(s)}</span>
         <span className={cls('run-muted', last && !last.ok && 'danger-text')} title={last?.text}>{last ? `${timeAgo(last.at)}${last.ok ? '' : ' 失败'}` : '还没执行过'}</span>
         <span onClick={(e) => e.stopPropagation()}>
           <label className="switch-line"><input type="checkbox" checked={s.enabled} onChange={(e) => onToggle(s.id, e.target.checked)} /><span className="switch" /></label>
@@ -61,7 +62,7 @@ export function SchedulesPage({ schedules, sops, agents, publishes = [], selecte
   }
   return (
     <div className="page page-fill">
-      <PageTitle parent="任务" count={schedules.length} desc="到点自动建任务、执行 SOP、让 Agent 去做，或者发布视频；它建的任务来源标为「定时」"
+      <PageTitle parent="任务" count={schedules.length} desc="到点自动建任务、提醒你、执行 SOP、让 Agent 去做，或者发布视频；它建的任务来源标为「定时」"
         actions={<button className="btn btn-primary" onClick={onNew}>新建定时任务</button>}>定时任务</PageTitle>
       {schedules.length > 0 && (
         <div className="toolbar">
@@ -98,7 +99,9 @@ export function SchedulesPage({ schedules, sops, agents, publishes = [], selecte
   )
 }
 
-export function ScheduleDrawer({ schedule, sops, agents, publishes = [], assignees, onClose, onSave, onDelete, onRunNow, openTask, onOpenPublish, onOpenCalendar }: {
+export function ScheduleDrawer({ schedule, sops, agents, publishes = [], assignees, onClose, onSave, onDelete, onRunNow, openTask, onOpenPublish, onOpenCalendar, taskName }: {
+  /** 提醒关联的任务「T-004 标题」，任务删了返回 undefined */
+  taskName?: (taskId: string) => string | undefined
   schedule: Schedule | null
   sops: Named[]
   agents: Named[]
@@ -130,6 +133,7 @@ export function ScheduleDrawer({ schedule, sops, agents, publishes = [], assigne
   const setRule = (p: Partial<typeof r>) => setD({ ...d, rule: { ...r, ...p } })
   const setKind = (k: ScheduleAction['kind']) => setD({
     ...d, action: k === 'task' ? { kind: 'task', title: '', desc: '', priority: defPrio, assignee: '我', due_days: 0 }
+      : k === 'remind' ? { kind: 'remind', title: '', body: '', task_id: '' }
       : k === 'sop' ? { kind: 'sop', sop_id: sops[0]?.id ?? '' }
         : k === 'incident_sweep' ? { kind: 'incident_sweep', min_level: 'error', min_count: 1 }
           : { kind: 'agent', agent_id: agents.find((a) => a.enabled !== false)?.id ?? '', prompt: '' },
@@ -138,7 +142,7 @@ export function ScheduleDrawer({ schedule, sops, agents, publishes = [], assigne
   // 定时发布只读：规则跟着发布记录，过了时间也不算错
   const pub = a.kind === 'publish'
   const rErr = pub ? '' : ruleError(r)
-  const aErr = a.kind === 'task' ? (!a.title.trim() ? '任务标题必填' : '') : a.kind === 'sop' ? (!a.sop_id ? '选一个 SOP' : '') : a.kind === 'publish' || a.kind === 'incident_sweep' ? '' : (!a.agent_id ? '选一个 Agent' : !a.prompt.trim() ? '写一下要它做什么' : '')
+  const aErr = a.kind === 'task' ? (!a.title.trim() ? '任务标题必填' : '') : a.kind === 'remind' ? (!a.title.trim() ? '提醒标题必填' : a.title.trim().length > 100 ? '提醒标题最多 100 字' : '') : a.kind === 'sop' ? (!a.sop_id ? '选一个 SOP' : '') : a.kind === 'publish' || a.kind === 'incident_sweep' ? '' : (!a.agent_id ? '选一个 Agent' : !a.prompt.trim() ? '写一下要它做什么' : '')
   const errors = [!d.name.trim() && '名称必填', rErr, aErr].filter(Boolean) as string[]
   const next = nextRun(r)
   // 列出接下来三次，帮人确认规则是不是自己想的那样
@@ -244,6 +248,26 @@ export function ScheduleDrawer({ schedule, sops, agents, publishes = [], assigne
                   </select>
                 </label>
               </div>
+            </>
+          )}
+          {a.kind === 'remind' && (
+            <>
+              <label className="field">
+                <span className="field-label">提醒标题<em>*</em></span>
+                <input value={a.title} className={cls(tried && !a.title.trim() && 'bad')} placeholder="比如：给客户回电话" onChange={(e) => setD({ ...d, action: { ...a, title: e.target.value } })} />
+              </label>
+              <label className="field"><span className="field-label">内容<span className="field-hint">可以不填；关联了任务时不填就显示任务标题</span></span>
+                <textarea rows={2} value={a.body} onChange={(e) => setD({ ...d, action: { ...a, body: e.target.value } })} />
+              </label>
+              {a.task_id && (
+                <div className="sched-pub">
+                  <span className="list-sub">关联任务：</span>
+                  <span className="ellipsis">{taskName?.(a.task_id) ?? '已删除的任务'}</span>
+                  <span className="spacer" />
+                  <button className="act" onClick={() => setD({ ...d, action: { ...a, task_id: '' } })}>解除关联</button>
+                </div>
+              )}
+              <span className="field-hint-line">到点在工作台右下角弹一条提醒，不发到 IM；关联了任务的，点提醒打开这条任务。只提醒一次的到点后自动停用</span>
             </>
           )}
           {a.kind === 'incident_sweep' && (

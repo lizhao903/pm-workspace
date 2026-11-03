@@ -2,8 +2,8 @@ import { Fragment, useEffect, useRef, useState, type ReactNode } from 'react'
 import { PageTitle } from './topbar'
 import './agents.css'
 import {
-  ABILITIES, AGENT_COLORS, AVATAR_ICONS, TRIGGER_KIND,
-  type AbilityMode, type Agent, type AgentAvatarConf, type AgentRun, type ChatMsg, type KnowledgeBase, type Skill, type ToolCall, type TriggerKind,
+  ABILITIES, AGENT_COLORS, AVATAR_ICONS, THINKING_OPTIONS, TRIGGER_KIND,
+  type AbilityMode, type Agent, type AgentAvatarConf, type AgentRun, type AgentScenario, type AgentThinking, type ChatMsg, type KnowledgeBase, type Skill, type ToolCall, type TriggerKind,
 } from './agentdata'
 import type { Contact, Message } from './data'
 import { useEnumView } from './enumdata'
@@ -169,9 +169,11 @@ export function CallCard({ call, onConfirm, onReject }: { call: ToolCall; onConf
 
 /* ---------- 列表 ---------- */
 
-export function AgentsPage({ agents, runs, models, onOpen, onNew, onToggle }: {
+export function AgentsPage({ agents, runs, models, onOpen, onNew, onToggle, scenarios, onScenario }: {
   agents: Agent[]; runs: AgentRun[]; models: ModelChoice[]
   onOpen: (id: string) => void; onNew: () => void; onToggle: (id: string, on: boolean) => void
+  /** 场景默认 Agent，列在卡片下面 */
+  scenarios: AgentScenario[]; onScenario: (key: string, agentId: string) => void
 }) {
   const [q, setQ] = useState('')
   const rows = agents.filter((a) => hasAll(`${a.name} ${a.desc}`, q))
@@ -206,6 +208,7 @@ export function AgentsPage({ agents, runs, models, onOpen, onNew, onToggle }: {
                   <span className="agent-name ellipsis">{a.name || '未命名'}</span>
                   <span className={cls('agent-model', models.find((m) => m.key === a.model)?.ok === false && 'danger-text')}>
                     {models.find((m) => m.key === a.model)?.label ?? a.model}{models.find((m) => m.key === a.model)?.ok === false && ' · 不可用'}
+                    {a.thinking !== 'default' && ` · 思考：${THINKING_OPTIONS.find((o) => o.value === a.thinking)?.label}`}
                   </span>
                 </div>
                 <label className="switch-line" onClick={(e) => e.stopPropagation()} title={a.enabled ? '停用后不再被触发' : '启用'}>
@@ -228,7 +231,34 @@ export function AgentsPage({ agents, runs, models, onOpen, onNew, onToggle }: {
           )
         })}
       </div>
+      <ScenarioDefaults agents={agents} scenarios={scenarios} onChange={onScenario} />
     </div>
+  )
+}
+
+/** 场景默认 Agent：没指定 Agent 的模型调用按场景用它的模型、思考和指令；没选、选的删了或停用了，用默认服务商 */
+function ScenarioDefaults({ agents, scenarios, onChange }: { agents: Agent[]; scenarios: AgentScenario[]; onChange: (key: string, agentId: string) => void }) {
+  return (
+    <section className="agent-scenes" aria-label="场景默认 Agent">
+      <div className="field-group-title">场景默认 Agent<span className="field-hint">没指定 Agent 的模型调用用谁：用它的模型、思考和指令；不指定就用默认服务商</span></div>
+      {scenarios.map((s) => {
+        const a = agents.find((x) => x.id === s.agent_id)
+        const problem = !s.agent_id ? '' : !a ? '选的 Agent 已删除，现在用默认服务商，换一个' : !a.enabled ? `「${a.name || '未命名'}」已停用，现在用默认服务商` : ''
+        return (
+          <div key={s.key} className="agent-scene">
+            <div className="agent-scene-text"><b>{s.label}</b><span className="list-sub">{s.desc}</span></div>
+            <div className="agent-scene-pick">
+              <select className="select" aria-label={`${s.label}的默认 Agent`} value={s.agent_id} onChange={(e) => onChange(s.key, e.target.value)}>
+                <option value="">不指定（用默认服务商）</option>
+                {agents.map((x) => <option key={x.id} value={x.id}>{x.name || '未命名'}{x.enabled ? '' : '（已停用）'}</option>)}
+                {s.agent_id && !a && <option value={s.agent_id}>已删除的 Agent</option>}
+              </select>
+              {problem && <span className="list-sub danger-text">{problem}</span>}
+            </div>
+          </div>
+        )
+      })}
+    </section>
   )
 }
 
@@ -672,6 +702,13 @@ export function AgentEditor({ agent, creating, ctx, models, conns, kbs, skills, 
                   </div>
                 )
               })()}
+              <div className="agent-thinking">
+                <label className="field-group-title" htmlFor="agent-thinking">思考<span className="field-hint">调模型时要不要先想、想多深；本机模型想得越多越慢</span></label>
+                <select id="agent-thinking" className="select agent-thinking-select" value={d.thinking} onChange={(e) => setD({ ...d, thinking: e.target.value as AgentThinking })}>
+                  {THINKING_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                </select>
+                <span className="list-sub">{THINKING_OPTIONS.find((o) => o.value === d.thinking)?.hint}。模型不支持时自动按模型默认跑。</span>
+              </div>
             </section>
           )}
           {tab === 'instructions' && (

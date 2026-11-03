@@ -118,6 +118,8 @@ export interface ToolField {
   placeholder?: string
   options?: string[]
   required?: boolean
+  /** 用列表选择器填（值仍是文本）：im_channels 从连接器 Token 看得到的会话里勾选，存逗号分隔的会话编号（SPEC-settings-4.7c） */
+  picker?: 'im_channels'
 }
 
 export interface Tool {
@@ -141,7 +143,25 @@ export interface Tool {
  * 读我能看到的私信和频道、以我的名义回复，我自己发的不进待处理。没填按 Bot */
 export const SLACK_AS_BOT = 'Bot'
 export const SLACK_AS_USER = '我本人（用户 Token）'
-export const SLACK_USER_SCOPES = 'channels:history channels:read groups:history groups:read im:history im:read mpim:history mpim:read users:read chat:write files:read'
+export const SLACK_USER_SCOPES = 'channels:history channels:read groups:history groups:read im:history im:read mpim:history mpim:read users:read users:read.email chat:write files:read'
+
+/**
+ * 连接器 Token 看得到的群组会话（SPEC-settings-4.7c）：正式产品是 GET /api/im/connectors/{id}/conversations 现查（Slack users.conversations），
+ * 原型按连接器 id 给一份种子。name 是渠道里的名字（频道不带 #，多人私信是 mpdm-a--b--c-1）
+ */
+export type ImConvKind = 'public' | 'private' | 'mpim'
+export interface ImConvOption { id: string; name: string; kind: ImConvKind; is_member: boolean; is_archived: boolean }
+const conv = (id: string, name: string, kind: ImConvKind = 'public', is_archived = false): ImConvOption => ({ id, name, kind, is_member: true, is_archived })
+export const IM_CONVERSATIONS: Record<string, ImConvOption[]> = {
+  cn_slack: [
+    conv('C0B68D4PA79', 'product'), conv('C0BB9UYC64C', 'feedback'), conv('C0B1RELEASE', 'release'), conv('C0B2PMWBETA', 'pmw-beta'),
+    conv('C0B3GENERAL', 'general'), conv('C0B4RANDOM', 'random'), conv('C0B5DESIGN', 'design'), conv('C0B6INCIDENT', 'incident'),
+    conv('C0B7OLDSPEC', 'spec-2025', 'public', true), conv('G0B8LEADS', 'product-leads', 'private'), conv('G0B9PRICING', 'pricing-war-room', 'private'),
+    conv('G0BAMPDM01', 'mpdm-lin.yuan--zhou.yu--broleez-1', 'mpim'), conv('G0BBMPDM02', 'mpdm-chen.mo--broleez--qa.bot-1', 'mpim'),
+  ],
+}
+/** 列表不完整的原因（SPEC-settings-4.22）：按连接器 id 给，没有就是完整的；正式产品是接口回的 complete=false 和 note */
+export const IM_CONVERSATIONS_NOTE: Record<string, string> = {}
 const slackUser = (config: Record<string, string>) => config.identity === SLACK_AS_USER
 
 /** Slack 字段按身份换的标签、占位和说明；别的工具、别的字段原样 */
@@ -204,7 +224,7 @@ export const TOOLS: Tool[] = [
     { key: 'identity', label: '身份', kind: 'select', options: [SLACK_AS_BOT, SLACK_AS_USER], required: true },
     { key: 'bot_token', label: 'Token', kind: 'secret', placeholder: 'xoxb-', required: true },
     { key: 'signing_secret', label: 'Signing Secret', kind: 'secret', required: true },
-    { key: 'channels', label: '监听频道', kind: 'text', placeholder: '#product, #feedback，逗号分隔；留空 = 只收私信' },
+    { key: 'channels', label: '监听频道', kind: 'text', picker: 'im_channels', placeholder: '#product, #feedback，逗号分隔；留空 = 只收私信' },
   ]),
   imTool('telegram', '用个人账号（API ID）同步会话，或接一个 Bot', true, [
     { key: 'mode', label: '接入方式', kind: 'select', options: ['用户账号（API ID）', 'Bot'], required: true },
@@ -469,6 +489,15 @@ export interface Message {
   expire_from?: string
   replies: Reply[]
   attachments?: MsgAttachment[]
+  /** 归到的项目（消息分流）：SOP 节点「消息归到项目」或消息抽屉里手动设；没归为空 */
+  project_id?: string | null
+  /** 归属的来源：message 消息上设的；conversation 是群组默认归属的项目兜底（读时算出来的，不存） */
+  project_source?: 'message' | 'conversation'
+  /**
+   * 串里的回复（Slack 在串里回复的，正式产品插件迁移 0010）：parent_id 是原消息的 id，原消息还没收到时为 null；
+   * parent_sender、parent_text 是原消息发信人和正文的快照（原消息没收到时显示用）。不是串里回复的不带
+   */
+  thread?: { parent_id: string | null; parent_sender: string; parent_text: string }
 }
 
 let mseq = 0
@@ -515,7 +544,38 @@ export const seedMessages: Message[] = [
     text: '@here 今晚 22 点发 2.8 版本，期间权限页只读，有要一起带上的改动下午六点前说。' }),
   m({ channel: 'slack', connector_id: 'cn_slack', conversation: '#feedback', sender_name: 'Kevin Wu', sender_id: 'U07KEVINWU', at: minsAgo(320), read: true,
     text: '@Chen Ruoxi 导出按钮的新位置设计稿出了吗？客户那边在催。' }),
+  // 放在最后，免得前面消息的编号变了（别处按编号引用）。合并显示（SPEC-messages-1.55）：同一个私聊的第二条、群里同一人连发的、机器人重复推的
+  m({ channel: 'telegram', connector_id: 'cn_tg', conversation: '', sender_name: 'Mia Hoffmann', sender_id: '@mia_nordlicht', at: minsAgo(16),
+    text: 'Also, we need the data processing agreement signed before the pilot starts on the 20th.' }),
+  m({ channel: 'slack', connector_id: 'cn_slack', conversation: '#product', sender_name: 'Lin Yuan', sender_id: 'U04LINYUAN', at: minsAgo(4),
+    text: '另外审批流那几个节点的权限我标黄了，周三前要定下来，后端排期等这个。' }),
+  m({ channel: 'slack', connector_id: 'cn_slack', conversation: '#deploy', sender_name: 'CI Bot', sender_id: 'B01CIBOT', at: minsAgo(25), read: true,
+    text: 'dev 构建失败：web-app 单测 3 个没过' }),
+  m({ channel: 'slack', connector_id: 'cn_slack', conversation: '#deploy', sender_name: 'CI Bot', sender_id: 'B01CIBOT', at: minsAgo(15), read: true,
+    text: 'dev 构建失败：web-app 单测 3 个没过' }),
+  m({ channel: 'slack', connector_id: 'cn_slack', conversation: '#deploy', sender_name: 'CI Bot', sender_id: 'B01CIBOT', at: minsAgo(3), read: true,
+    text: 'dev 构建失败：web-app 单测 3 个没过' }),
 ]
+
+// 串里的回复（0010）：放在最后，前面消息的编号不变。原消息已处理，串里又来了 4 条回复（列表上挂在原消息下面，原消息变淡），
+// 外加一条原消息还没收到的（按普通行显示、标「串里回复」）
+{
+  const parent = m({ channel: 'slack', connector_id: 'cn_slack', conversation: '#feedback', sender_name: 'Kevin Wu', sender_id: 'U07KEVINWU', at: minsAgo(180),
+    read: true, status: 'done', text: '导出放到工具条的方案定了：列表页右上角加「导出」，下拉里选格式。大家有意见在串里说。' })
+  const th = { parent_id: parent.id, parent_sender: 'Kevin Wu', parent_text: parent.text }
+  seedMessages.push(parent,
+    m({ channel: 'slack', connector_id: 'cn_slack', conversation: '#feedback', sender_name: 'Chen Ruoxi', sender_id: 'U05CHENRX0', at: minsAgo(150), read: true,
+      text: '下拉里的格式顺序按使用频率排吧，CSV 放第一个。', thread: th }),
+    m({ channel: 'slack', connector_id: 'cn_slack', conversation: '#feedback', sender_name: 'Zhou Yu', sender_id: 'U04ZHOUYU0', at: minsAgo(120), read: true,
+      text: '大数据量导出要走异步，工具条上得有个进度提示。', thread: th }),
+    m({ channel: 'slack', connector_id: 'cn_slack', conversation: '#feedback', sender_name: 'Kevin Wu', sender_id: 'U07KEVINWU', at: minsAgo(40),
+      text: '@Broleez 异步这块要不要单独提个需求？', thread: th }),
+    m({ channel: 'slack', connector_id: 'cn_slack', conversation: '#feedback', sender_name: 'Kevin Wu', sender_id: 'U07KEVINWU', at: minsAgo(38),
+      text: '客户那边月底要用。', thread: th }),
+    m({ channel: 'slack', connector_id: 'cn_slack', conversation: '#product', sender_name: 'Zhou Yu', sender_id: 'U04ZHOUYU0', at: minsAgo(9),
+      text: '这个我周四前给结论。', thread: { parent_id: null, parent_sender: 'Lin Yuan', parent_text: '缓存方案改了之后，权限变更的生效时间能不能压到 1 分钟以内？' } }),
+  )
+}
 
 /** 「我」在各渠道里被叫的名字：@ 到这些就算 @我 */
 export const MY_HANDLES = ['Broleez', 'broleez', '我']

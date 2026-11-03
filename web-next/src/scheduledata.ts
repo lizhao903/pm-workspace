@@ -1,4 +1,4 @@
-// 定时任务：按规则到点自动做一件事——建一条任务、执行一个 SOP、或者让一个 Agent 去做
+// 定时任务：按规则到点自动做一件事——建一条任务、提醒你、执行一个 SOP、或者让一个 Agent 去做
 // 原型里没有真的后台计时，「下次执行」按规则算出来展示；「立即执行一次」会真的跑一遍动作并留记录
 // 定时发布（publish）跟着视频的发布记录走：发布记录定了时间就有一条，时间在日历或发布记录里改，这里只读
 
@@ -25,12 +25,14 @@ export interface ScheduleRule {
 
 export type ScheduleAction =
   | { kind: 'task'; title: string; desc: string; priority: Priority; assignee: string; due_days: number }
+  /** 提醒：到点在工作台右下角弹一条通知（不外发 IM）；task_id 是关联的任务，点提醒打开它，空串为不关联（正式产品叫 object_id） */
+  | { kind: 'remind'; title: string; body: string; task_id: string }
   | { kind: 'sop'; sop_id: string }
   | { kind: 'agent'; agent_id: string; prompt: string }
   | { kind: 'publish'; publish_id: string }
   /** 运行异常巡检（INC-01）：到点把满足条件、未处理、还没有任务的异常各建一条任务交给 Claude Code 修 */
   | { kind: 'incident_sweep'; min_level: IncidentLevel; min_count: number }
-export const ACTION_LABEL: Record<ScheduleAction['kind'], string> = { task: '建一条任务', sop: '执行 SOP', agent: '让 Agent 去做', publish: '发布视频', incident_sweep: '运行异常巡检' }
+export const ACTION_LABEL: Record<ScheduleAction['kind'], string> = { task: '建一条任务', remind: '提醒', sop: '执行 SOP', agent: '让 Agent 去做', publish: '发布视频', incident_sweep: '运行异常巡检' }
 export const SWEEP_LEVEL_LABEL: Record<IncidentLevel, string> = { error: '只看错误', warn: '错误和警告' }
 /** 「只看错误」「错误和警告，至少 3 次」 */
 export const sweepText = (a: { min_level: IncidentLevel; min_count: number }) => `${SWEEP_LEVEL_LABEL[a.min_level]}${a.min_count > 1 ? `，至少 ${a.min_count} 次` : ''}`
@@ -121,6 +123,32 @@ export function whenText(d: Date | null): string {
   return `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${t}`
 }
 
+/**
+ * 列表「下次执行」一列：启用的按规则算；只提醒一次的提醒到点后自动停用，提醒了写「已提醒」、错过了写「已错过」，其余停用的「已停用」
+ */
+export function nextText(s: Schedule, now = new Date()): string {
+  if (s.enabled) return whenText(nextRun(s.rule, now))
+  if (s.action.kind === 'remind' && s.rule.freq === 'once' && s.rule.date && new Date(`${s.rule.date}T${s.rule.time}`) <= now) {
+    const last = s.history[0]
+    if (!last) return '已停用'
+    return last.ok ? '已提醒' : last.text.includes('错过') ? '已错过' : '已停用'
+  }
+  return '已停用'
+}
+
+/** 任务抽屉「设个提醒」建的那条：只提醒一次，关联这条任务，名称「提醒：标题」 */
+export function taskReminder(id: string, taskId: string, f: { title: string; body: string; date: string; time: string }): Schedule {
+  const title = f.title.trim()
+  return {
+    id, name: `提醒：${title}`.slice(0, 100), enabled: true, rule: { ...emptyRule(), freq: 'once', date: f.date, time: f.time },
+    action: { kind: 'remind', title, body: f.body.trim(), task_id: taskId }, history: [], created_at: new Date().toISOString(),
+  }
+}
+
+/** 到点该提醒的：启用的、只提醒一次的提醒，时间到了还没提醒过（原型只模拟这一种的到点，重复的提醒用「立即执行一次」看效果） */
+export const dueReminders = (list: Schedule[], now = new Date()) => list.filter((s) => s.enabled && s.action.kind === 'remind' && s.rule.freq === 'once'
+  && s.rule.date && new Date(`${s.rule.date}T${s.rule.time}`) <= now)
+
 export const emptyRule = (): ScheduleRule => ({ freq: 'weekly', time: '09:00', weekdays: [1], day: 1, date: ymd(new Date(Date.now() + 86400000)), cron: '0 9 * * 1' })
 
 const minsAgo = (m: number) => new Date(Date.now() - m * 60000).toISOString()
@@ -183,6 +211,12 @@ export const seedSchedules: Schedule[] = [
     rule: { ...emptyRule(), freq: 'cron', cron: '0 18 * * 1' },
     action: { kind: 'sop', sop_id: 'sop_meeting' },
     history: [{ at: minsAgo(60 * 26), ok: true, text: '执行了「周会纪要整理」，已完成' }],
+  },
+  {
+    id: 'sc_remind_eu', name: '提醒：架构图发给 Mia', enabled: true, created_at: minsAgo(60 * 3),
+    rule: { ...emptyRule(), freq: 'once', time: '17:30', date: ymd(new Date(Date.now() + 86400000)) },
+    action: { kind: 'remind', title: '架构图发给 Mia', body: '通电话前发过去，留时间给她看', task_id: 'tk_eu1' },
+    history: [],
   },
   {
     id: 'sc_contract', name: '机柜合同续签提醒', enabled: false, created_at: minsAgo(60 * 24 * 60),

@@ -21,6 +21,21 @@ export const newPane = (cwd: string): Pane => ({
 })
 export const newTab = (cwd: string, name = ''): TermTab => { const p = newPane(cwd); return { id: newId('tb'), name, dir: 'row', panes: [p], focus: p.id } }
 
+/**
+ * 任务「交给 Claude Code」选了「切换到终端」（SPEC-terminal-1.17）：在工作目录新开一个标签，名字是任务编号，执行渲染好的启动命令。
+ * 原型不真执行，只把命令打出来；正式产品是后端在新开的 pty 里写入这行命令，起一个交互式 claude 会话
+ */
+export const launchTab = (cwd: string, name: string, command: string, note: string): TermTab => {
+  const t = newTab(cwd, name)
+  t.panes[0].lines = [
+    { kind: 'sys', text: note },
+    { kind: 'in', text: command, cwd },
+    { kind: 'out', text: '（原型不真执行：真实产品在这里起一个交互式 claude 会话，提示词已经带进去；它开始和结束时经工作台 MCP 回写任务）' },
+  ]
+  t.panes[0].history = [command]
+  return t
+}
+
 /** 虚拟文件系统：项目目录、它下面的原型目录和关联目录，外加几个常见目录 */
 function buildFs(projects: Project[]) {
   const dirs = new Map<string, Set<string>>()

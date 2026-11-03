@@ -14,3 +14,11 @@
   .ae-foot { padding: 8px 16px; }
   .ae-foot-note { flex-basis: 100%; }
 }
+
+/* 思考档位、场景默认 Agent */
+.agent-thinking { display: flex; flex-direction: column; gap: 6px; padding-top: 8px; margin-top: 4px; border-top: 1px solid var(--line); }
+.agent-thinking-select { max-width: 240px; }
+.agent-scenes { display: flex; flex-direction: column; gap: 8px; margin-top: 22px; padding-top: 14px; border-top: 1px solid var(--line); }
+.agent-scene { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 6px 0; }
+.agent-scene-text { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 220px; }
+.agent-scene-pick { display: flex; flex-direction: column; gap: 4px; width: 260px; max-width: 100%; }

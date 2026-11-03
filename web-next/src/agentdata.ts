@@ -45,9 +45,28 @@ export interface Agent {
   /** 挂载的知识库 id */
   kbs: string[]
   triggers: AgentTrigger[]
+  /** 调模型时的思考档位，默认 default（不传，交给模型）。用本机模型时后台批量的活（分诊、分类）关掉能快很多 */
+  thinking: AgentThinking
   enabled: boolean
   created_at: string
 }
+
+export type AgentThinking = 'default' | 'off' | 'low' | 'medium' | 'high'
+/** 思考档位的下拉。模型不支持时后端自动按「模型默认」跑，不会失败 */
+export const THINKING_OPTIONS: { value: AgentThinking; label: string; hint: string }[] = [
+  { value: 'default', label: '模型默认', hint: '不传思考参数，交给模型自己决定' },
+  { value: 'off', label: '不思考', hint: '最快，适合分类、提取这类简单活' },
+  { value: 'low', label: '浅', hint: '想一点，速度和质量折中' },
+  { value: 'medium', label: '中', hint: '想得多一些' },
+  { value: 'high', label: '深', hint: '最慢，适合复杂的分析和写作' },
+]
+
+/** 场景默认 Agent：没指定 Agent 的模型调用按场景用谁（它的模型、思考和指令）；agent_id 空串是没选，用默认服务商 */
+export interface AgentScenario { key: string; label: string; desc: string; agent_id: string }
+export const seedScenarios: AgentScenario[] = [
+  { key: 'sop_assist', label: 'SOP 编排助手', desc: '流程编辑器里帮你搭流程、改节点的助手', agent_id: '' },
+  { key: 'background', label: '其他后台调用', desc: '插件在后台调模型、又没指定 Agent 的地方，包括没选 Agent 的 SOP 节点（AI 处理、提取、分类、逐项处理）', agent_id: '' },
+]
 
 export interface ToolCall { tool: string; input: Record<string, unknown>; output?: unknown; state: 'done' | 'pending' | 'confirmed' | 'rejected' }
 
@@ -96,7 +115,9 @@ export interface KnowledgeBase { id: string; name: string; desc: string; sources
 /* ---------- 会话与产出 ---------- */
 
 export interface ChatMsg { id: number; role: 'user' | 'agent'; text: string; calls?: ToolCall[]; at?: string }
-export interface Session { id: string; agent_id: string; project_id?: string; title: string; created_at: string; updated_at: string; messages: ChatMsg[] }
+/** 会话的来源（SPEC-sessions-1.42）：从哪条记录发起的；现在只有 IM 消息的「发起会话」「拆分任务」 */
+export interface SessionSource { kind: 'im_message'; message_ids: string[]; label: string; intent: 'chat' | 'split' }
+export interface Session { id: string; agent_id: string; project_id?: string; title: string; created_at: string; updated_at: string; messages: ChatMsg[]; source?: SessionSource }
 
 /** Agent 真正落到数据上的东西：建的任务、写的文档、发的回复、发起的流程 */
 export type OutputKind = 'task' | 'doc' | 'reply' | 'sop' | 'other'
@@ -120,7 +141,7 @@ export function newAgent(): Agent {
     id: newId('ag'), name: '', desc: '', color: AGENT_COLORS[Math.floor(Math.random() * AGENT_COLORS.length)],
     model: 'claude-sonnet-5-5', instructions: '', abilities: { ...allOff(), read_tasks: 'auto', read_contacts: 'auto' },
     avatar: { kind: 'text', value: '' }, skills: [], mcps: [], kbs: [],
-    triggers: [{ kind: 'manual', detail: '' }], enabled: true, created_at: new Date().toISOString(),
+    triggers: [{ kind: 'manual', detail: '' }], thinking: 'default', enabled: true, created_at: new Date().toISOString(),
   }
 }
 
@@ -130,21 +151,21 @@ export const seedAgents: Agent[] = [
     model: 'claude-haiku-5-5',
     instructions: '你是产品经理的消息分诊助手。\n1. 先用联系人确认发消息的人是谁、哪家公司。\n2. 判断消息是否需要跟进：有明确诉求、问题或截止时间的需要跟进，寒暄和群通知不需要。\n3. 需要跟进的，建一条任务，标题用一句话概括诉求，优先级按紧急程度给。\n4. 起草一条回复，语气和对方保持一致，不承诺具体上线时间。',
     abilities: { ...allOff(), read_messages: 'auto', read_contacts: 'auto', read_tasks: 'auto', write_tasks: 'confirm', reply_message: 'confirm', 'conn:cn_github:list_issues': 'auto', 'conn:cn_github:get_issue': 'auto', 'conn:cn_github:create_issue': 'confirm' },
-    avatar: { kind: 'icon', value: 'chat' }, skills: ['sk_triage', 'sk_reply'], mcps: ['cn_github'], kbs: ['kb_feedback'], triggers: [{ kind: 'im', detail: '飞书、微信、Slack 私聊' }, { kind: 'manual', detail: '' }], enabled: true, created_at: minsAgo(60 * 24 * 14),
+    avatar: { kind: 'icon', value: 'chat' }, skills: ['sk_triage', 'sk_reply'], mcps: ['cn_github'], kbs: ['kb_feedback'], triggers: [{ kind: 'im', detail: '飞书、微信、Slack 私聊' }, { kind: 'manual', detail: '' }], thinking: 'off', enabled: true, created_at: minsAgo(60 * 24 * 14),
   },
   {
     id: 'ag_weekly', name: '周报助手', desc: '每周五下午汇总这周完成和进行中的任务，写成周报草稿', color: '#7a4fd6',
     model: 'claude-sonnet-5-5',
     instructions: '每周五 16:00 汇总本周任务：已完成的按项目归类，进行中的写清卡在哪，下周计划从未开始的任务里挑优先级最高的 5 条。写成「文档 > 笔记」里的一篇周报草稿，不要直接发出去。',
     abilities: { ...allOff(), read_tasks: 'auto', read_content: 'auto', write_content: 'confirm', 'conn:cn_notion:search': 'auto', 'conn:cn_notion:get_page': 'auto', 'conn:cn_notion:create_page': 'confirm' },
-    avatar: { kind: 'icon', value: 'doc' }, skills: ['sk_weekly', 'sk_minutes'], mcps: ['cn_notion'], kbs: ['kb_product'], triggers: [{ kind: 'schedule', detail: '每周五 16:00' }, { kind: 'manual', detail: '' }], enabled: true, created_at: minsAgo(60 * 24 * 30),
+    avatar: { kind: 'icon', value: 'doc' }, skills: ['sk_weekly', 'sk_minutes'], mcps: ['cn_notion'], kbs: ['kb_product'], triggers: [{ kind: 'schedule', detail: '每周五 16:00' }, { kind: 'manual', detail: '' }], thinking: 'medium', enabled: true, created_at: minsAgo(60 * 24 * 30),
   },
   {
     id: 'ag_sop', name: '流程执行助手', desc: '按描述挑一个合适的 SOP 发起执行，帮忙填好输入', color: '#b0570b',
     model: 'claude-opus-5-5',
     instructions: '用户描述一件事时，从已有的 SOP 里挑最合适的一个，把用户给的信息填进 SOP 的输入字段，然后发起执行。挑不到合适的就说明原因，不要硬套。',
     abilities: { ...allOff(), read_messages: 'auto', read_contacts: 'auto', run_sop: 'confirm' },
-    avatar: { kind: 'icon', value: 'flow' }, skills: [], mcps: [], kbs: [], triggers: [{ kind: 'manual', detail: '' }, { kind: 'task', detail: '' }], enabled: false, created_at: minsAgo(60 * 24 * 3),
+    avatar: { kind: 'icon', value: 'flow' }, skills: [], mcps: [], kbs: [], triggers: [{ kind: 'manual', detail: '' }, { kind: 'task', detail: '' }], thinking: 'default', enabled: false, created_at: minsAgo(60 * 24 * 3),
   },
 ]
 
@@ -190,7 +211,7 @@ export const seedSessions: Session[] = [
     id: 'ss1', agent_id: 'ag_triage', project_id: 'pj_perm', title: '今天谁找我了', created_at: minsAgo(28), updated_at: minsAgo(24),
     messages: [
       { id: 1, role: 'user', text: '今天谁找我了？有要马上处理的吗', at: minsAgo(28) },
-      { id: 2, role: 'agent', at: minsAgo(28), text: '有 9 条消息待处理，来自许知行、梁晚晴、Kevin Wu 等。最急的是许知行问月底演示能不能带上按部门自定义角色，你已经把它转成了任务 T-010。',
+      { id: 2, role: 'agent', at: minsAgo(28), text: '有 9 条消息待处理，来自许知行、梁晚晴、Kevin Wu 等。最急的是许知行问月底演示能不能带上按部门自定义角色，你已经把它转成了任务 T-010。权限配置原型在 http://127.0.0.1:7781 ，他的原话在 https://acme.slack.com/archives/C0PERM/p1730000000 。',
         calls: [{ tool: 'read_messages', input: { status: 'pending' }, output: { total: 9 }, state: 'done' }] },
       { id: 3, role: 'user', text: '再建一条任务：确认演示环境能不能打开自定义角色', at: minsAgo(24) },
       { id: 4, role: 'agent', at: minsAgo(24), text: '我准备建一条任务「确认演示环境能不能打开自定义角色」，确认后执行。',

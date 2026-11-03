@@ -68,7 +68,7 @@ const makeTab = (url: string, title: string): BrowserTab => {
 }
 
 // memo：App 别的状态变化时不跟着重渲染；回调要由 App 传稳定的引用
-export const BrowserPage = memo(function BrowserPage({ openRequest, prototypes, onStartProto, google, onGoogleLogin, onGoogleLogout, hidden = false, embedded = false, startUrl, onCount, onEmpty }: {
+export const BrowserPage = memo(function BrowserPage({ openRequest, prototypes, onStartProto, google, onGoogleLogin, onGoogleLogout, hidden = false, embedded = false, startUrl, onCount, onEmpty, links }: {
   /** 外部要求打开一个地址（来自项目原型、视频预览、发布链接）；n 变化即触发一次，同 url 已开就切过去 */
   openRequest: { url: string; title?: string; n: number } | null
   prototypes: ProtoEntry[]
@@ -86,6 +86,8 @@ export const BrowserPage = memo(function BrowserPage({ openRequest, prototypes, 
   onCount?: (n: number) => void
   /** 传了就是关掉最后一个标签时交给外面处理，不再自动补一个新标签页 */
   onEmpty?: () => void
+  /** 会话旁边的浏览器（SPEC-sessions-1.36）：会话里出现过的链接，工具栏下面多一行，点了在这里打开 */
+  links?: string[]
 }) {
   const [tabs, setTabs] = useState<BrowserTab[]>(() => [startUrl ? makeTab(startUrl, titleOf(startUrl, prototypes)) : makeTab(HOME_URL, '新标签页')])
   /** 新标签页里项目分组手动展开 / 收起过的，按项目记；没记的按「有原型在跑就展开」 */
@@ -167,11 +169,15 @@ export const BrowserPage = memo(function BrowserPage({ openRequest, prototypes, 
   useEffect(() => {
     if (!openRequest || handledN.current === openRequest.n) return
     handledN.current = openRequest.n
-    const url = normalize(openRequest.url)
+    openOrFocus(openRequest.url, openRequest.title)
+  }, [openRequest?.n])
+  /** 同一地址的标签切过去，否则新开 */
+  function openOrFocus(raw: string, title?: string) {
+    const url = normalize(raw)
     const hit = tabs.find((t) => sameUrl(t.url, url))
     if (hit) { setActive(hit.id); return }
-    openTab(url, openRequest.title)
-  }, [openRequest?.n])
+    openTab(url, title)
+  }
 
   // 「启动并打开」：等原型状态变成 running 再在那个标签里加载
   useEffect(() => {
@@ -250,6 +256,19 @@ export const BrowserPage = memo(function BrowserPage({ openRequest, prototypes, 
 
       <Toolbar tab={tab} google={google} onBack={() => go(-1)} onForward={() => go(1)} onReload={() => reload(tab.id)}
         onSubmit={(url) => navigate(tab.id, url)} onLogin={() => setLoginOpen(true)} onLogout={onGoogleLogout} />
+
+      {links && links.length > 0 && (
+        <div className="br-links" role="group" aria-label="会话里的链接">
+          <span className="br-links-label">会话里的链接</span>
+          <div className="br-links-list">
+            {links.map((u) => (
+              <button key={u} title={u} className={cls('br-link', sameUrl(tab.url, u) && 'on')} onClick={() => openOrFocus(u)}>
+                <span className="ellipsis">{displayUrl(u)}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div className="br-body">
         {tabs.map((t) => (
