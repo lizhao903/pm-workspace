@@ -4,7 +4,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router'
 import {
-  errorText, isApiError, projectView, useEventsLive, usePlugins, useSaveProject, useSopFlows, useSopRuns, type WorkObject,
+  errorText, isApiError, projectView, sopRunShow, useEventsLive, usePlugins, useSaveProject, useSopFlows, useSopRuns, type WorkObject,
 } from '../../core/data'
 import { Button, EmptyState, ErrorState, LoadingState, Pill, SearchSelect } from '../../core/ui'
 import { ago } from './model'
@@ -92,7 +92,7 @@ export function SopTab({ project }: { project: WorkObject }) {
             <h3 className="pj-sec-title">最近执行</h3>
             <div className="pj-table">
               {recent.map((r) => {
-                const look = runLook(r.status)
+                const look = runLook(sopRunShow(r))
                 return (
                   <button key={r.id} type="button" className="pj-sop-run" onClick={() => openRun(r.id)}>
                     <span className="ellipsis">{r.title || r.flow_name}</span>

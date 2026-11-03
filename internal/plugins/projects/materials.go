@@ -179,8 +179,16 @@ func (h *materials) update(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if in.Kind != nil && *in.Kind != m.Kind {
-		h.fail(w, r, apiErr(errValidation, "kind cannot be changed; delete and add again"))
-		return
+		// 换种类只在笔记和链接之间、文件和文件夹之间；值按新种类重新校验（没传 value 时校验原来的值）
+		if !canSwitchKind(m.Kind, *in.Kind) {
+			h.fail(w, r, apiErr(errValidation, "kind can only change between note and link, or between file and folder"))
+			return
+		}
+		if in.Value == nil {
+			v := m.Value
+			in.Value = &v
+		}
+		m.Kind = *in.Kind
 	}
 	if err := applyMaterial(&m, in); err != nil {
 		h.fail(w, r, err)
@@ -223,6 +231,18 @@ func (h *materials) remove(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"data": nil})
+}
+
+// kindGroups 是能互换种类的组：笔记和链接都是一段文本，文件和文件夹都是本机路径（0.9.1 起）。
+var kindGroups = [][]string{{"note", "link"}, {"file", "folder"}}
+
+func canSwitchKind(from, to string) bool {
+	for _, g := range kindGroups {
+		if slices.Contains(g, from) && slices.Contains(g, to) {
+			return true
+		}
+	}
+	return false
 }
 
 // applyMaterial 把传了的字段校验后写进 m，m.Kind 已定。

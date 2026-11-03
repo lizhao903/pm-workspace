@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import type { Agent, Session } from './agentdata'
 import { AgentAvatar } from './agents'
+import { listenedChannels } from './channelpick'
 import { IM_CHANNELS, type Connector, type Contact, type Message } from './data'
 import { MentionText, contactIndex, isSnoozed, senderKey } from './messages'
 import { SearchSelect, matchOption } from './searchselect'
@@ -11,7 +12,7 @@ import { isOpenTask } from './taskdata'
 import { PriorityTag, TaskStatusPill } from './tasks'
 import { useEnumView } from './enumdata'
 import { Avatar, cls, timeAgo } from './ui'
-import { AttachmentChips, ProjectAttachmentInbox } from './attachments'
+import { AttachmentChips, AttachmentsHint } from './attachments'
 import { ApproveConfirm } from './devloop'
 
 // 项目里的沟通、干系人、任务、SOP、Agent 页签。数据都在各自模块里，项目只记关联关系
@@ -30,8 +31,9 @@ export function chatOf(m: Message, chats: ProjectChat[], contacts: Contact[], pe
   return chats.find((c) => chatKey(c) === k)
 }
 export function projectMessages(p: Project, messages: Message[], contacts: Contact[], people = contactIndex(contacts)) {
+  // 绑定会话里的消息，加上归到这个项目的（消息分流），同一条只算一次
   const keys = new Set(p.chats.map(chatKey))
-  return keys.size ? messages.filter((m) => keys.has(msgKey(m, people))) : []
+  return messages.filter((m) => m.project_id === p.id || (keys.size > 0 && keys.has(msgKey(m, people))))
 }
 /** 沟通消息先渲染这么多条 */
 const MSG_PAGE = 50
@@ -40,14 +42,13 @@ const DM_PEEK = 8
 
 /* ---------- 沟通：私聊 + 群聊 ---------- */
 
-export function CommsTab({ p, messages, contacts, connectors = [], onChange, onOpenMessage, onFetchAttachment, onAddAttachment }: {
+export function CommsTab({ p, messages, contacts, connectors = [], onChange, onOpenMessage, onGoAttachments }: {
   p: Project; messages: Message[]; contacts: Contact[]
   /** IM 连接器：配置里监听的频道也算可绑的群，新建的群收到第一条消息前也能绑 */
   connectors?: Connector[]
   onChange: (x: Partial<Project>) => void; onOpenMessage: (id: string) => void
-  onFetchAttachment: (msgId: string, attId: string) => void
-  /** 加进这个项目的支持材料；没获取的会先获取 */
-  onAddAttachment: (msgId: string, attId: string) => void
+  /** 去「附件」标签（SPEC-projects-5）；不传时右栏顶上不出「N 个附件待决定」那一行 */
+  onGoAttachments?: () => void
 }) {
   const msgEnum = useEnumView('msg_status')
   const [filter, setFilter] = useState('')
@@ -62,7 +63,8 @@ export function CommsTab({ p, messages, contacts, connectors = [], onChange, onO
   // 可以绑的群：现有消息里出现过的群聊，加上连接器配置里监听的频道（还没收到消息的排最后），去掉已经绑了的
   // 没搜的时候群聊也只露最近有消息的几个
   const seen = new Map([...messages].sort((a, b) => a.at.localeCompare(b.at)).filter((m) => m.conversation).map((m) => [`${m.channel}|${m.conversation}`, { channel: m.channel, conversation: m.conversation, at: m.at }]))
-  for (const c of connectors) for (const name of (c.config.channels ?? '').split(/[,，]/).map((x) => x.trim()).filter(Boolean)) {
+  // 监听频道存的是会话编号或名字（SPEC-settings-4.7c），换成 #名字 再和消息里的群名对
+  for (const c of connectors) for (const name of listenedChannels(c)) {
     if (!seen.has(`${c.tool}|${name}`)) seen.set(`${c.tool}|${name}`, { channel: c.tool, conversation: name, at: '' })
   }
   const groupPool = [...seen.values()]
@@ -131,8 +133,7 @@ export function CommsTab({ p, messages, contacts, connectors = [], onChange, onO
         {!p.chats.length && <div className="mount-empty">还没绑定。把项目群、对接人的私聊绑过来，项目里就只看这些消息</div>}
       </div>
       <div className="pt-msgs">
-        <ProjectAttachmentInbox p={p} messages={mine} onFetch={onFetchAttachment} onAdd={onAddAttachment} onOpenMessage={onOpenMessage}
-          onSkip={(id, skip) => onChange({ skipped_attachments: skip ? [...(p.skipped_attachments ?? []), id] : (p.skipped_attachments ?? []).filter((x) => x !== id) })} />
+        {onGoAttachments && <AttachmentsHint p={p} messages={mine} onGo={onGoAttachments} />}
         {rows.length ? rows.slice(0, limit).map((m) => {
           const who = people.get(senderKey(m))
           const snoozed = isSnoozed(m)
@@ -147,7 +148,7 @@ export function CommsTab({ p, messages, contacts, connectors = [], onChange, onO
               {snoozed ? <span className="list-sub">稍后提醒</span> : m.status === 'pending' ? <span className="today-go">回复</span> : <span className="list-sub">{msgEnum.label(m.status)}</span>}
             </button>
           )
-        }) : <div className="empty"><div className="empty-title">没有消息</div><div className="list-sub">绑定的群和私聊里收到消息后会出现在这里</div></div>}
+        }) : <div className="empty"><div className="empty-title">没有消息</div><div className="list-sub">绑定的群和私聊里的消息、归到这个项目的消息会出现在这里</div></div>}
         {rows.length > limit && (
           <button className="pt-more" onClick={() => setLim({ filter, n: limit + MSG_PAGE })}>加载更早的消息<span className="seg-n">还有 {rows.length - limit} 条</span></button>
         )}

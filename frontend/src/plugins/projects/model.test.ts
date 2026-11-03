@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import type { DictItem, ObjectStatus, ProjectStakeholder, ProjectView, WorkObject } from '../../core/data'
 import {
   RECENT_MAX, ago, colorOf, doneStatus, isOpenStatus, reopenStatus, sortByPriority, sortStakeholders, diffForm, dirName, activityOf, groupByActivity, showStatusTag, loadRecent, markText, matchQuery, resetRecentMemo, sortProjects, tabOf,
-  touchRecent, type Form,
+  touchRecent, hiddenTabsOf, tabsOrderOf, weaveKeys, orderTabs, moveTab, isDefaultOrder, withPluginTabs, TABS, type Form,
 } from './model'
 import { PROJECT_COLORS } from './markIcons'
 
@@ -94,7 +94,7 @@ describe('最近打开', () => {
 })
 
 describe('设置的保存口径', () => {
-  const base: Form = { name: '工作台', desc: '', status: 'planning', root: '', color: '#3d4fd6', mark: { text: '', icon: 'folder' }, related: [] }
+  const base: Form = { name: '工作台', desc: '', status: 'planning', root: '', color: '#3d4fd6', mark: { text: '', icon: 'folder' }, related: [], hidden: [], order: [] }
 
   it('名称清空不存，目录去首尾空白', () => {
     expect(diffForm({ ...base, name: '  ' }, base)).toEqual({ patch: {}, props: {} })
@@ -105,6 +105,23 @@ describe('设置的保存口径', () => {
     expect(diffForm({ ...base, related: [{ path: '', label: '设计稿' }] }, base)).toEqual({ patch: {}, props: {} })
     expect(diffForm({ ...base, related: [{ path: '/a ', label: '设计稿' }, { path: '', label: '' }] }, base).props)
       .toEqual({ related: [{ path: '/a', label: '设计稿' }] })
+  })
+
+  it('隐藏的标签进 props.tabs_hidden；读的时候概览、设置和非字符串不认，去重', () => {
+    expect(diffForm({ ...base, hidden: ['sop', 'agents'] }, base).props).toEqual({ tabs_hidden: ['sop', 'agents'] })
+    expect(diffForm({ ...base, hidden: [] }, { ...base, hidden: ['sop'] }).props).toEqual({ tabs_hidden: [] })
+    expect(hiddenTabsOf({ props: { tabs_hidden: ['sop', 'overview', 'settings', 3, 'sop'] } })).toEqual(['sop'])
+    expect(hiddenTabsOf({ props: { tabs_hidden: 'sop' } })).toEqual([])
+    expect(hiddenTabsOf({ props: null })).toEqual([])
+  })
+
+  it('标签顺序进 props.tabs_order；读的时候概览、设置、空串和非字符串不认，去重', () => {
+    expect(diffForm({ ...base, order: ['sop', 'comms'] }, base).props).toEqual({ tabs_order: ['sop', 'comms'] })
+    expect(diffForm({ ...base, order: [] }, { ...base, order: ['sop'] }).props).toEqual({ tabs_order: [] })
+    expect(diffForm(base, base)).toEqual({ patch: {}, props: {} })
+    expect(tabsOrderOf({ props: { tabs_order: ['sop', 'overview', 'settings', '', 3, 'sop', 'comms'] } })).toEqual(['sop', 'comms'])
+    expect(tabsOrderOf({ props: { tabs_order: 'sop' } })).toEqual([])
+    expect(tabsOrderOf({ props: null })).toEqual([])
   })
 
   it('标志、底色进 props', () => {
@@ -154,5 +171,50 @@ describe('项目标签', () => {
     expect(ago('2026-10-29T09:00:00Z', now)).toBe('3 小时前')
     expect(ago('2026-10-26T12:00:00Z', now)).toBe('3 天前')
     expect(ago('bad', now)).toBe('-')
+  })
+})
+
+describe('标签顺序', () => {
+  const keys = (xs: readonly { key: string }[]) => xs.map((t) => t.key)
+  const def = keys(TABS)
+
+  it('没存顺序时就是默认顺序', () => {
+    expect(keys(orderTabs(TABS, []))).toEqual(def)
+    expect(isDefaultOrder(TABS, [])).toBe(true)
+  })
+
+  it('按存的顺序排，概览固定第一、设置固定最后；存的顺序里写了概览、设置也不挪', () => {
+    const order = ['prototypes', 'sop', 'comms', 'attachments', 'stakeholders', 'tasks', 'docs', 'agents', 'materials']
+    expect(keys(orderTabs(TABS, order))).toEqual(['overview', ...order, 'settings'])
+    expect(keys(orderTabs(TABS, ['settings', ...order, 'overview']))).toEqual(['overview', ...order, 'settings'])
+    expect(isDefaultOrder(TABS, order)).toBe(false)
+  })
+
+  it('存的顺序里没有的标签按默认位置插入：跟在默认顺序里前一个标签后面，前面没有就放最前', () => {
+    // 只存了一部分：comms 不在里面，默认在 overview 后，前面没有可跟的，放最前
+    expect(keys(orderTabs(TABS, ['tasks', 'sop']))).toEqual(['overview', 'comms', 'attachments', 'stakeholders', 'tasks', 'docs', 'sop', 'agents', 'materials', 'prototypes', 'settings'])
+    // 插件后来登记的「商单」（默认在任务后面）跟着任务走
+    const all = withPluginTabs([{ key: 'deals', label: '商单', after: 'tasks', page: null as never, plugin: 'video' }])
+    const saved = ['prototypes', 'tasks', 'comms', 'attachments', 'stakeholders', 'docs', 'sop', 'agents', 'materials']
+    expect(keys(orderTabs(all, saved))).toEqual(['overview', 'prototypes', 'tasks', 'deals', 'comms', 'attachments', 'stakeholders', 'docs', 'sop', 'agents', 'materials', 'settings'])
+  })
+
+  it('存的顺序里认不出的 key（插件没在跑）跳过', () => {
+    const order = ['deals', 'prototypes', 'sop', 'comms', 'attachments', 'stakeholders', 'tasks', 'docs', 'agents', 'materials']
+    expect(keys(orderTabs(TABS, order))).toEqual(['overview', ...order.slice(1), 'settings'])
+    expect(keys(orderTabs(TABS, ['deals']))).toEqual(def)
+    expect(isDefaultOrder(TABS, ['deals'])).toBe(true)
+  })
+
+  it('挪动返回要存的整个顺序；没列出来的插件标签按原来的邻居留着', () => {
+    const vis = ['comms', 'tasks', 'sop']
+    expect(moveTab(vis, [], 'sop', 0)).toEqual(['sop', 'comms', 'tasks'])
+    expect(moveTab(vis, [], 'comms', 9)).toEqual(['tasks', 'sop', 'comms'])
+    expect(moveTab(vis, ['comms', 'tasks', 'deals', 'sop'], 'sop', 0)).toEqual(['sop', 'comms', 'tasks', 'deals'])
+  })
+
+  it('补 key 时连着的几个保持先后', () => {
+    expect(weaveKeys(['c'], ['a', 'b', 'c', 'd', 'e'])).toEqual(['a', 'b', 'c', 'd', 'e'])
+    expect(weaveKeys(['e', 'a'], ['a', 'b', 'c', 'd', 'e'])).toEqual(['e', 'a', 'b', 'c', 'd'])
   })
 })

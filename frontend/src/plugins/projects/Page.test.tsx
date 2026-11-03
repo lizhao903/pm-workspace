@@ -1,9 +1,11 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { render, screen, waitFor, within } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { lazy } from 'react'
 import { createMemoryRouter, RouterProvider } from 'react-router'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { WorkObject } from '../../core/data'
+import { projectTabRegistry } from '../../core/plugin'
 import { resetRecentMemo } from './model'
 import Page from './Page'
 
@@ -267,3 +269,138 @@ describe('项目列表', () => {
     expect(router.state.location.pathname).toBe('/projects')
   })
 })
+
+describe('详情页的标签设置和切换项目', () => {
+  it('设置里勾掉的标签不显示，概览、设置不能勾；停在被藏的标签上回概览', async () => {
+    const a = obj({ title: '工作台', props: { tabs_hidden: ['sop'] } })
+    const calls = fakeBackend([a])
+    const router = mount(`/projects/${a.id}/sop`)
+    await waitFor(() => expect(router.state.location.pathname).toBe(`/projects/${a.id}`))
+    const bar = await screen.findByRole('tablist', { name: '项目标签' })
+    expect(within(bar).queryByRole('tab', { name: 'SOP' })).not.toBeInTheDocument()
+    expect(within(bar).getByRole('tab', { name: 'Agent' })).toBeInTheDocument()
+
+    await userEvent.click(within(bar).getByRole('tab', { name: '设置' }))
+    const sec = await screen.findByRole('region', { name: '显示的标签' })
+    expect(within(sec).getByRole('checkbox', { name: '概览' })).toBeDisabled()
+    expect(within(sec).getByRole('checkbox', { name: '设置' })).toBeDisabled()
+    expect(within(sec).getByRole('checkbox', { name: 'SOP' })).not.toBeChecked()
+    await userEvent.click(within(sec).getByRole('checkbox', { name: 'Agent' }))
+    await waitFor(() => expect(calls.some((c) => c.method === 'PATCH' && (c.body as { props?: { tabs_hidden?: string[] } }).props?.tabs_hidden?.join() === 'sop,agents')).toBe(true))
+    await waitFor(() => expect(within(bar).queryByRole('tab', { name: 'Agent' })).not.toBeInTheDocument())
+    await userEvent.click(within(sec).getByRole('checkbox', { name: 'SOP' }))
+    await waitFor(() => expect(within(bar).getByRole('tab', { name: 'SOP' })).toBeInTheDocument())
+  })
+
+  it('标题里的项目名是切换菜单：最近打开的在前，可搜，选了停在同一个标签；目标项目藏了这个标签就回概览', async () => {
+    const a = obj({ title: '工作台' })
+    const b = obj({ title: '交易台' })
+    const c = obj({ title: '博客', props: { tabs_hidden: ['tasks'] } })
+    fakeBackend([a, b, c])
+    localStorage.setItem('pmw-projects-recent', JSON.stringify([b.id]))
+    const router = mount(`/projects/${a.id}/tasks`)
+    const btn = await screen.findByRole('button', { name: '切换项目' })
+    await waitFor(() => expect(btn).toHaveTextContent('工作台'))
+    await userEvent.click(btn)
+    const opts = () => screen.getAllByRole('option').map((o) => o.getAttribute('title'))
+    // 最近打开的（交易台）在前，其余按名称
+    expect(opts()).toEqual(['交易台', '博客', '工作台'])
+    expect(screen.getAllByRole('option').find((o) => o.getAttribute('title') === '工作台')).toHaveAttribute('aria-selected', 'true')
+    await userEvent.keyboard('交易{Enter}')
+    await waitFor(() => expect(router.state.location.pathname).toBe(`/projects/${b.id}/tasks`))
+
+    await userEvent.click(await screen.findByRole('button', { name: '切换项目' }))
+    await userEvent.type(screen.getByRole('combobox', { name: '搜项目' }), '博客')
+    await userEvent.keyboard('{Enter}')
+    await waitFor(() => expect(router.state.location.pathname).toBe(`/projects/${c.id}`))
+  })
+
+  const tabNames = (bar: HTMLElement) => within(bar).getAllByRole('tab').map((t) => t.textContent)
+  const pickNames = (sec: HTMLElement) => within(within(sec).getByRole('list', { name: '标签顺序' })).getAllByRole('listitem').map((li) => li.textContent?.replace(/固定(第一|最后)$/, ''))
+  const patchedOrder = (calls: { method: string; body?: unknown }[]) =>
+    calls.filter((c) => c.method === 'PATCH').map((c) => (c.body as { props?: { tabs_order?: string[] } }).props?.tabs_order).filter(Boolean).at(-1)
+
+  it('详情页标签按 props.tabs_order 排：概览第一、设置最后；藏掉的不显示', async () => {
+    const order = ['prototypes', 'sop', 'comms', 'attachments', 'stakeholders', 'tasks', 'docs', 'agents', 'materials']
+    const a = obj({ title: '工作台', props: { tabs_order: ['settings', ...order], tabs_hidden: ['docs'] } })
+    fakeBackend([a])
+    mount(`/projects/${a.id}`)
+    const bar = await screen.findByRole('tablist', { name: '项目标签' })
+    // 附件在 IM 插件没在跑时本来就不显示
+    expect(tabNames(bar)).toEqual(['概览', '原型', 'SOP', '沟通', '干系人', '任务', 'Agent', '支持材料', '设置'])
+  })
+
+  it('设置里用上移、下移调顺序：立即保存，焦点留在按钮上，标签条跟着变；固定项没有按钮；恢复默认顺序', async () => {
+    const a = obj({ title: '工作台' })
+    const calls = fakeBackend([a])
+    mount(`/projects/${a.id}/settings`)
+    const bar = await screen.findByRole('tablist', { name: '项目标签' })
+    const sec = await screen.findByRole('region', { name: '显示的标签' })
+    const reset = within(sec).getByRole('button', { name: '恢复默认顺序' })
+    expect(reset).toBeDisabled()
+    expect(pickNames(sec)).toEqual(['概览', '沟通', '附件', '干系人', '任务', '文档', 'SOP', 'Agent', '支持材料', '原型', '设置'])
+    expect(within(sec).queryByRole('button', { name: '上移「概览」' })).toBeNull()
+    expect(within(sec).queryByRole('button', { name: '下移「设置」' })).toBeNull()
+    // 第一个能排的上不去，最后一个下不去
+    expect(within(sec).getByRole('button', { name: '上移「沟通」' })).toBeDisabled()
+    expect(within(sec).getByRole('button', { name: '下移「原型」' })).toBeDisabled()
+
+    // 键盘：Tab 到按钮上按空格、回车
+    const down = within(sec).getByRole('button', { name: '下移「沟通」' })
+    down.focus()
+    await userEvent.keyboard('{Enter}')
+    await waitFor(() => expect(patchedOrder(calls)).toEqual(['attachments', 'comms', 'stakeholders', 'tasks', 'docs', 'sop', 'agents', 'materials', 'prototypes']))
+    expect(within(sec).getByRole('button', { name: '下移「沟通」' })).toHaveFocus()
+    await userEvent.keyboard(' ')
+    await waitFor(() => expect(pickNames(sec).slice(0, 4)).toEqual(['概览', '附件', '干系人', '沟通']))
+    await waitFor(() => expect(tabNames(bar).slice(0, 3)).toEqual(['概览', '干系人', '沟通']))
+    expect(screen.getByText('「沟通」移到第 4 个')).toBeInTheDocument()
+
+    // 挪到最上面后上移置灰，焦点换到下移
+    await userEvent.click(within(sec).getByRole('button', { name: '上移「原型」' }))
+    const up = within(sec).getByRole('button', { name: '上移「SOP」' })
+    up.focus()
+    for (let i = 0; i < 5; i += 1) await userEvent.keyboard('{Enter}')
+    await waitFor(() => expect(pickNames(sec).slice(0, 3)).toEqual(['概览', 'SOP', '附件']))
+    expect(within(sec).getByRole('button', { name: '上移「SOP」' })).toBeDisabled()
+    expect(within(sec).getByRole('button', { name: '下移「SOP」' })).toHaveFocus()
+    expect(pickNames(sec).at(-1)).toBe('设置')
+
+    expect(reset).toBeEnabled()
+    await userEvent.click(reset)
+    await waitFor(() => expect(patchedOrder(calls)).toEqual([]))
+    await waitFor(() => expect(tabNames(bar)).toEqual(['概览', '沟通', '干系人', '任务', '文档', 'SOP', 'Agent', '支持材料', '原型', '设置']))
+    expect(reset).toBeDisabled()
+  })
+
+  it('拖动一行排序；插件给的标签也参与，新登记的按默认位置出现', async () => {
+    const reg = projectTabRegistry('video').register({ key: 'deals', label: '商单', after: 'tasks', page: lazy(async () => ({ default: () => <div>商单内容</div> })) })
+    try {
+      // 存的顺序里没有商单（插件后来才开）：跟在默认顺序里它前面的「任务」后面
+      const order = ['tasks', 'comms', 'attachments', 'stakeholders', 'docs', 'sop', 'agents', 'materials', 'prototypes']
+      const a = obj({ title: '工作台', props: { tabs_order: order } })
+      const calls = fakeBackend([a])
+      mount(`/projects/${a.id}/settings`)
+      const bar = await screen.findByRole('tablist', { name: '项目标签' })
+      expect(tabNames(bar).slice(0, 4)).toEqual(['概览', '任务', '商单', '沟通'])
+      const sec = await screen.findByRole('region', { name: '显示的标签' })
+      expect(pickNames(sec).slice(0, 4)).toEqual(['概览', '任务', '商单', '沟通'])
+
+      // 把商单拖到原型那一行（往下拖，落在原型后面）
+      const row = (name: string) => within(sec).getAllByRole('listitem').find((li) => li.textContent?.startsWith(name))!
+      const dt = { setData: () => {}, getData: () => '', effectAllowed: '', dropEffect: '' }
+      fireEvent.dragStart(row('商单'), { dataTransfer: dt })
+      fireEvent.dragOver(row('原型'), { dataTransfer: dt })
+      fireEvent.drop(row('原型'), { dataTransfer: dt })
+      await waitFor(() => expect(patchedOrder(calls)).toEqual(['tasks', 'comms', 'attachments', 'stakeholders', 'docs', 'sop', 'agents', 'materials', 'prototypes', 'deals']))
+      await waitFor(() => expect(tabNames(bar).slice(-3)).toEqual(['原型', '商单', '设置']))
+      // 拖到设置上也只到可排的最后，设置不动；拖到概览上到第一个
+      fireEvent.dragStart(row('沟通'), { dataTransfer: dt })
+      fireEvent.drop(row('概览'), { dataTransfer: dt })
+      await waitFor(() => expect(pickNames(sec).slice(0, 3)).toEqual(['概览', '沟通', '任务']))
+    } finally {
+      reg.dispose()
+    }
+  })
+})
+

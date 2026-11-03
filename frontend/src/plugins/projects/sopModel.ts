@@ -1,18 +1,20 @@
 // SOP 标签（SPEC-projects-9）的纯函数：关联的流程、候选、最近执行、执行状态的显示名。
 // 执行状态的显示名和颜色同 SOP 插件的 RUN_STATUS（插件之间不互相 import，这里抄一份）
-import type { SopFlow, SopRunBrief, SopRunStatus } from '../../core/data'
+import type { SopFlow, SopRunBrief, SopRunShow } from '../../core/data'
 
 /** 最近执行露几条（SPEC-projects-9.6） */
 export const SOP_RUN_PEEK = 8
 
-export const RUN_LOOK: Record<SopRunStatus, { label: string; color: string }> = {
+export const RUN_LOOK: Record<SopRunShow, { label: string; color: string }> = {
   running: { label: '执行中', color: 'var(--accent)' },
   waiting: { label: '待我处理', color: 'var(--warn)' },
   done: { label: '已完成', color: 'var(--ok)' },
   failed: { label: '失败', color: 'var(--danger)' },
   stopped: { label: '已终止', color: 'var(--faint)' },
+  relaunched: { label: '已重跑', color: 'var(--faint)' },
 }
-export const runLook = (s: string) => RUN_LOOK[s as SopRunStatus] ?? { label: s, color: 'var(--faint)' }
+/** s 是显示状态（core/data 的 sopRunShow）：失败后已按最新流程重跑过的显示「已重跑」 */
+export const runLook = (s: string) => RUN_LOOK[s as SopRunShow] ?? { label: s, color: 'var(--faint)' }
 
 /** 关联的流程，按 sop_ids 的顺序；流程库里找不到的（已删）跳过（SPEC-projects-9.9） */
 export function linkedFlows(ids: readonly string[], flows: readonly SopFlow[]): SopFlow[] {

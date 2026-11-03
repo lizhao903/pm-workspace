@@ -7,8 +7,11 @@ export const MATERIAL_KIND: Record<MaterialKind, string> = { file: '文件', fol
 
 export interface Material {
   id: string; name: string; kind: MaterialKind; value: string; tags: string[]; added_at: string
-  /** 从 IM 消息附件加进来的：记着出处；文件的 value 是本地绝对路径，不拼项目目录 */
-  from?: { message_id: string; attachment_id: string; sender: string; conversation: string }
+  /**
+   * 来自 IM 消息的：记着出处。附件加进来的 attachment_id 是附件，文件的 value 是本地绝对路径，不拼项目目录；
+   * 消息正文转成的笔记（SPEC-messages-6）attachment_id 为空，message_ids 是这组消息（按时间正序），message_id 是最新一条
+   */
+  from?: { message_id: string; attachment_id: string; sender: string; conversation: string; message_ids?: string[] }
 }
 
 export type DocStatus = 'draft' | 'review' | 'final'
@@ -75,6 +78,10 @@ export interface Project {
   chats: ProjectChat[]
   /** 沟通里的附件选了「不加入」的（附件 id），不再提示 */
   skipped_attachments?: string[]
+  /** 详情页不显示的标签（SPEC-projects-13.19）；概览、设置一直显示，没有时全部显示 */
+  tabs_hidden?: string[]
+  /** 详情页标签的先后（SPEC-projects-13.20）：标签 key 的顺序，概览、设置固定一头一尾不在里面；没有时按默认顺序，没列进来的新标签按默认位置插入 */
+  tabs_order?: string[]
   stakeholders: Stakeholder[]
   /** 关联的 SOP */
   sop_ids: string[]
@@ -186,7 +193,8 @@ export const seedProjects: Project[] = [
   {
     id: 'pj_eu', name: '欧盟数据驻留方案', desc: '和 Nordlicht 一起定欧盟租户的存储和运维方案', color: '#2f7d43', mark: { text: '', icon: 'globe' },
     root: '/Volumes/docs/方案/eu-residency',
-    related: [],
+    // 有关联文档目录、没登记原型：交给 Claude Code 的提示词里原型一项写「没有登记原型目录」（SPEC-tasks-6.13）
+    related: [{ path: '/Volumes/docs/方案/eu-residency/方案文档', label: '方案文档' }],
     agent_ids: ['ag_weekly'],
     chats: [{ id: 'ch7', kind: 'dm', contact_id: 'ct_008' }],
     stakeholders: [

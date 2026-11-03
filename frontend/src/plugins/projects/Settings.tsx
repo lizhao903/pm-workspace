@@ -1,14 +1,18 @@
 // 设置（SPEC-projects-13）：名称、标志、说明、状态、本地项目目录、关联目录、删除项目。边改边保存，没有「保存」按钮：
 // 输入停手片刻存一次，选图标、底色、状态、删关联目录这类一下就定的立即存；离开页面时没存的也存掉。
 // 本地项目目录存在对象的 workdir 列上，任务没设工作目录时执行就用它（后端 ResolveWorkdir 向上继承）。
+// 「显示哪些标签」（SPEC-projects-13.19、13.20）：勾掉的标签存进 props.tabs_hidden，详情页不显示；概览、设置一直显示（设置里才开得回来）。
+// 同一块里拖动或上移、下移调标签先后，存进 props.tabs_order；概览固定第一、设置固定最后（见 TabPicks）。
 // 刚从列表新建、名称还是「新项目」就离开（切标签、回列表、换模块）时，用路由的 useBlocker 拦下来问要不要删（C-05）。
 import { useEffect, useRef, useState } from 'react'
 import { useBlocker, useLocation, useNavigate } from 'react-router'
 import { PROJECT_TYPE, errorText, useDeleteObject, useObjectTypes, useObjects, useSaveProject, type WorkObject } from '../../core/data'
+import { useProjectTabs } from '../../core/plugin'
 import { Button, IconButton, IconClose, Select } from '../../core/ui'
 import { MarkEditor, ProjectMarkView } from './Mark'
-import { NEW_PROJECT_NAME, colorOf, diffForm, formOf, isFresh, markText, unmarkFresh, type Form } from './model'
+import { NEW_PROJECT_NAME, colorOf, diffForm, formOf, isFresh, markText, unmarkFresh, withPluginTabs, type Form } from './model'
 import { PathInput } from './PathInput'
+import { TabPicks } from './TabPicks'
 
 /** 输入停手多久保存 */
 const SAVE_DELAY = 500
@@ -20,6 +24,7 @@ export function Settings({ project, onDeleted }: { project: WorkObject; onDelete
   const save = useSaveProject()
   const del = useDeleteObject()
   const taskTotal = useObjects({ type: ['task'], project: id, limit: 1 })
+  const allTabs = withPluginTabs(useProjectTabs())
   const [form, setForm] = useState(() => formOf(project))
   // 名称清空时只改输入框、不存，离开输入框时恢复成原来的名字（SPEC-projects-13.14）
   const [nameDraft, setNameDraft] = useState<string | null>(null)
@@ -180,6 +185,12 @@ export function Settings({ project, onDeleted }: { project: WorkObject; onDelete
           </div>
         ))}
         {!form.related.length && <div className="pj-block-empty">没有关联目录</div>}
+      </section>
+
+      <section className="pj-block" aria-label="显示的标签">
+        <h2 className="pj-sec-title">显示哪些标签<span className="pj-hint">不勾的标签在这个项目的详情页里不显示，数据不动；拖动或用上移、下移调整顺序；概览和设置一直显示、固定一头一尾</span></h2>
+        <TabPicks tabs={allTabs} hidden={form.hidden} order={form.order}
+          onHidden={(hidden) => update({ hidden }, 0)} onOrder={(order) => update({ order }, 0)} />
       </section>
 
       <section className="pj-block pj-danger" aria-label="删除项目">

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import type { ProjectMaterial, WorkObject } from '../../core/data'
-import { allTags, dirOf, joinPath, matchMaterial, newestFirst, recentDocsAndMaterials, resolvePath, splitTags } from './materialModel'
+import type { ImMaterialSource, ProjectMaterial, WorkObject } from '../../core/data'
+import { allTags, dirOf, editDraftOf, editPatch, foldNote, joinPath, matchMaterial, newestFirst, recentDocsAndMaterials, resolvePath, sourceLabel, sourceMessage, splitTags, switchableKinds, valueError } from './materialModel'
 
 const mat = (p: Partial<ProjectMaterial>): ProjectMaterial => ({
   id: 'mt_1', project_id: 'obj_p', kind: 'file', name: '访谈', value: '/x/a.md', category: '', status: '', tags: [], source: 'manual',
@@ -65,5 +65,58 @@ describe('概览的最近的文档和材料', () => {
     expect(got[0].tag).toBe('PRD')
     expect(got[4].tag).toBe('链接')
     expect(recentDocsAndMaterials([docs[1]], []).map((x) => x.tag)).toEqual(['文档'])
+  })
+})
+
+describe('来自 IM 消息的出处、长笔记折叠（0009）', () => {
+  const src = (p: Partial<ImMaterialSource>): ImMaterialSource => ({
+    material_id: 'mt_1', project_id: 'obj_p', kind: 'messages', attachment_id: '', title: '', channel: 'slack', conversation_id: null,
+    conversation: '#product', senders: ['林原'], message_ids: ['m1'], first_at: '', last_at: '', created_at: '', ...p,
+  })
+  it('出处文案：一组写条数，一条写发信人，私聊写和谁；附件照 SPEC-projects-11.16', () => {
+    expect(sourceLabel(src({ message_ids: ['m1', 'm2'] }))).toBe('来自 IM 消息：群「#product」 · 2 条')
+    expect(sourceLabel(src({ conversation: '' }))).toBe('来自 IM 消息：和 林原 的私聊 · 林原 的一条')
+    expect(sourceLabel(src({ conversation: '', senders: ['a', 'b', 'c', 'd'], message_ids: ['m1', 'm2'] }))).toBe('来自 IM 消息：和 a、b、c 等 的私聊 · 2 条')
+    expect(sourceLabel(src({ kind: 'attachment', conversation: '' }))).toBe('来自 林原（私聊）的消息')
+    expect(sourceLabel(src({ kind: 'attachment' }))).toBe('来自 林原（#product）的消息')
+  })
+  it('点出处打开最后一条（还在的最新一条）；没有消息时为空', () => {
+    expect(sourceMessage(src({ message_ids: ['gone', 'm1', 'm2'] }))).toBe('m2')
+    expect(sourceMessage(src({ message_ids: [] }))).toBe('')
+  })
+  it('超过 9 行的笔记先露 8 行', () => {
+    const lines = (n: number) => Array.from({ length: n }, (_, i) => `第${i + 1}行`).join('\n')
+    expect(foldNote(lines(9))).toBeNull()
+    expect(foldNote(lines(12))).toEqual({ head: lines(8), rest: 4 })
+  })
+})
+
+describe('编辑资料', () => {
+  const m = (over: Partial<ProjectMaterial>): ProjectMaterial => ({
+    id: 'mt1', project_id: 'p', kind: 'note', name: '名字', value: '正文', category: '', status: '', tags: ['a'], source: 'manual', created_at: '', updated_at: '', ...over,
+  })
+  it('能换的种类：笔记和链接、文件和文件夹；锁住时只有自己', () => {
+    expect(switchableKinds('note')).toEqual(['note', 'link'])
+    expect(switchableKinds('folder')).toEqual(['file', 'folder'])
+    expect(switchableKinds('file', true)).toEqual(['file'])
+  })
+  it('按种类校验值：笔记 5000 字（按字数）、链接要 http(s)', () => {
+    expect(valueError('note', '字'.repeat(5000))).toBe('')
+    expect(valueError('note', '字'.repeat(5001))).toBe('超过 5000 字（现在 5001 字）')
+    expect(valueError('note', '𠀀'.repeat(5000))).toBe('')
+    expect(valueError('link', 'ftp://x')).toBe('链接要以 http:// 或 https:// 开头')
+    expect(valueError('link', 'https://x.com/a')).toBe('')
+    expect(valueError('note', '  ')).toBe('内容不能为空')
+  })
+  it('只带改了的字段；换种类连 value 一起带；路径按项目目录补全', () => {
+    const note = m({})
+    expect(editPatch(note, editDraftOf(note), '/r')).toEqual({})
+    expect(editPatch(note, { ...editDraftOf(note), name: ' 新名字 ', tags: 'a，b' }, '/r')).toEqual({ name: '新名字', tags: ['a', 'b'] })
+    expect(editPatch(note, { ...editDraftOf(note), kind: 'link', value: 'https://x.com' }, '/r')).toEqual({ kind: 'link', value: 'https://x.com' })
+    expect(editPatch(note, { ...editDraftOf(note), kind: 'link' }, '/r')).toEqual({ error: '链接要以 http:// 或 https:// 开头' })
+    const file = m({ kind: 'file', value: '/r/a.md' })
+    expect(editPatch(file, { ...editDraftOf(file), value: 'b.md' }, '/r')).toEqual({ value: '/r/b.md' })
+    expect(editPatch(file, { ...editDraftOf(file), kind: 'folder' }, '/r')).toEqual({ kind: 'folder', value: '/r/a.md' })
+    expect(editPatch(file, { ...editDraftOf(file), value: 'b.md' }, '')).toHaveProperty('error')
   })
 })

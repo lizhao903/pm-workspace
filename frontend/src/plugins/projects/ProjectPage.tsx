@@ -1,12 +1,14 @@
 // 项目详情的框架（SPEC-projects-2）：顶栏「项目 /」回列表、标志、名称、说明；标签条；各标签的右上按钮。
-// 概览、设置（PJ-01c），干系人、任务、文档（PJ-01d），支持材料（PJ-03b），沟通（PJ-02b），原型（PJ-04b），SOP（PR-10），Agent（PR-21）；其余标签按规格占位，由后续任务补
+// 概览、设置（PJ-01c），干系人、任务、文档（PJ-01d），支持材料（PJ-03b），沟通（PJ-02b），附件（SPEC-projects-5），原型（PJ-04b），SOP（PR-10），Agent（PR-21）；其余标签按规格占位，由后续任务补
+// 「附件」标签只在 IM 消息插件在跑时出现（消息和附件都来自它），标签上的数字是待决定的附件个数
 // 插件登记的标签（core/plugin 的 projectTabs，视频插件的「商单」）按 after 插进标签条，内容由插件渲染
+// 项目设置里勾掉的标签（props.tabs_hidden，SPEC-projects-13.19）不显示，标签按设置里排的顺序（props.tabs_order，SPEC-projects-13.20）；正停在被藏掉的标签上时回概览；标题里的项目名是切换项目的菜单（SPEC-projects-2.9）
 import { Suspense, useEffect, useRef, useState } from 'react'
 import { errorText, isApiError, isLiveProject, projectView, useProject } from '../../core/data'
-import { useProjectTabs, type PluginProjectTab } from '../../core/plugin'
+import { useProjectTabs } from '../../core/plugin'
 import { Button, EmptyState, ErrorState, LoadingState, PageTitle, cls } from '../../core/ui'
-import { ProjectMarkView } from './Mark'
 import { AgentsTab } from './AgentsTab'
+import { AttachmentsTab, AttachmentsTabCount } from './AttachmentsTab'
 import { CommsTab, CommsTabDot } from './CommsTab'
 import { DocsTab } from './DocsTab'
 import { MaterialsTab } from './MaterialsTab'
@@ -16,18 +18,23 @@ import { Settings } from './Settings'
 import { SopTab } from './SopTab'
 import { StakeholdersTab } from './StakeholdersTab'
 import { TasksTab } from './TasksTab'
-import { TABS, type ProjectTab } from './model'
+import { TABS, hiddenTabsOf, orderTabs, tabsOrderOf, withPluginTabs, type ProjectTab } from './model'
+import { ProjectSwitcher } from './ProjectSwitcher'
+import { useProjectMessages } from './projectMessages'
 
-export function ProjectPage({ id, tab, onTab, onAll }: {
+export function ProjectPage({ id, tab, onTab, onAll, onSwitch }: {
   id: string
   /** 项目自己的标签，或插件登记的标签 key */
   tab: ProjectTab | string
   onTab: (t: ProjectTab | string) => void
   /** 回到项目列表 */
   onAll: () => void
+  /** 标题里的菜单切到别的项目（停在同一个标签） */
+  onSwitch?: (id: string) => void
 }) {
   const q = useProject(id)
   const pluginTabs = useProjectTabs()
+  const { noIm, imRunning } = useProjectMessages(id)
   const ref = useRef<HTMLDivElement>(null)
   // 文档标签「加文档」的内联表单
   const [docAdding, setDocAdding] = useState(false)
@@ -40,6 +47,10 @@ export function ProjectPage({ id, tab, onTab, onAll }: {
     const box = ref.current?.closest('.shell-content')
     if (box) box.scrollTop = 0
   }, [tab])
+  // 停在这个项目藏掉的标签上（改了设置、从别的项目切过来）时回概览
+  const hidden = hiddenTabsOf(q.data)
+  const onHidden = hidden.includes(tab)
+  useEffect(() => { if (onHidden) onTab('overview') }, [onHidden, onTab])
 
   const back = <button type="button" className="pj-back" title="回到项目列表" onClick={onAll}>项目</button>
   const gone = (q.isError && isApiError(q.error) && q.error.code === 'not_found') || (q.data && !isLiveProject(q.data))
@@ -62,7 +73,9 @@ export function ProjectPage({ id, tab, onTab, onAll }: {
   }
   const o = q.data!
   const p = projectView(o)
-  const tabs = withPluginTabs(pluginTabs)
+  // 附件标签：IM 插件没在跑（或插件列表还没回来、读不出来）时不显示；正停在这个标签上时照样显示，内容里提示去插件管理
+  const tabs = orderTabs(withPluginTabs(pluginTabs), tabsOrderOf(o)).filter((t) => !hidden.includes(t.key))
+    .filter((t) => t.key !== 'attachments' || tab === 'attachments' || (imRunning && !noIm))
   const cur = tabs.find((t) => t.key === tab) ?? TABS[0]
   const plug = pluginTabs.find((t) => t.key === tab)
   const actions = tab === 'overview' ? <Button variant="outline" onClick={() => onTab('settings')}>项目设置</Button>
@@ -73,12 +86,15 @@ export function ProjectPage({ id, tab, onTab, onAll }: {
 
   return (
     <div className="pj-page" ref={ref}>
-      <PageTitle parent={back} icon={<ProjectMarkView p={p} size={20} />} desc={p.desc || undefined} actions={actions}>{p.name}</PageTitle>
+      <PageTitle parent={back} desc={p.desc || undefined} actions={actions}>
+        {onSwitch ? <ProjectSwitcher current={o.id} name={p.name} onSwitch={onSwitch} /> : p.name}
+      </PageTitle>
       <div className="pj-tabs" role="tablist" aria-label="项目标签">
         {tabs.map((t) => (
           <button key={t.key} type="button" role="tab" aria-selected={tab === t.key} className={cls(tab === t.key && 'on')} onClick={() => { setDocAdding(false); setMatAdding(false); setProtoAdding(false); onTab(t.key) }}>
             {t.label}
             {t.key === 'comms' && <CommsTabDot projectId={o.id} />}
+            {t.key === 'attachments' && <AttachmentsTabCount projectId={o.id} />}
             {t.key === 'prototypes' && <ProtoTabLight projectId={o.id} />}
             {t.badge && <t.badge projectId={o.id} />}
           </button>
@@ -86,7 +102,8 @@ export function ProjectPage({ id, tab, onTab, onAll }: {
       </div>
       <div role="tabpanel" aria-label={cur.label}>
         {tab === 'overview' && <Overview project={o} onTab={onTab} />}
-        {tab === 'comms' && <CommsTab key={o.id} projectId={o.id} />}
+        {tab === 'comms' && <CommsTab key={o.id} projectId={o.id} onAttachments={() => onTab('attachments')} />}
+        {tab === 'attachments' && <AttachmentsTab key={o.id} projectId={o.id} />}
         {tab === 'settings' && <Settings key={o.id} project={o} onDeleted={onAll} />}
         {tab === 'stakeholders' && <StakeholdersTab key={o.id} projectId={o.id} />}
         {tab === 'tasks' && <TasksTab key={o.id} projectId={o.id} />}
@@ -100,17 +117,4 @@ export function ProjectPage({ id, tab, onTab, onAll }: {
       </div>
     </div>
   )
-}
-
-type TabItem = { key: string; label: string; todo?: string; badge?: PluginProjectTab['badge'] }
-
-/** 插件标签插在 after 指的标签后面，没给或找不到的放在「设置」前面 */
-function withPluginTabs(plugin: readonly PluginProjectTab[]): TabItem[] {
-  const out: TabItem[] = [...TABS]
-  for (const t of plugin) {
-    const i = t.after ? out.findIndex((x) => x.key === t.after) : -1
-    const at = i >= 0 ? i + 1 : out.findIndex((x) => x.key === 'settings')
-    out.splice(at < 0 ? out.length : at, 0, { key: t.key, label: t.label, badge: t.badge })
-  }
-  return out
 }
