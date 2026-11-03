@@ -1,0 +1,897 @@
+import { useOpenUrl, useProtoDomain } from './openurl'
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
+import type { Agent, Session } from './agentdata'
+import { AgentAvatar } from './agents'
+import type { Connector, Contact, ContentItem, Message } from './data'
+import { ProjectAttachmentsTab, projectAttachmentRows } from './attachments'
+import { CommsTab, ProjectAgentTab, ProjectSopTab, ProjectTasksTab, StakeholdersTab, projectMessages } from './projecttabs'
+import { contactIndex, isSnoozed, senderKey } from './messages'
+import { SearchSelect } from './searchselect'
+import type { Sop, SopRun } from './sopflow'
+import type { Task, TaskStatus } from './taskdata'
+import { isOpenTask } from './taskdata'
+import {
+  DOC_KINDS, DOC_STATUS, MATERIAL_KIND, PROTO_STATUS, STAKE_ROLE, portConflict,
+  type DocStatus, type Material, type MaterialKind, type Project, type ProjectDoc, type Prototype, type StakeRole,
+} from './projectdata'
+import { Mark, MarkEditor } from './imagepick'
+import { ALWAYS_TABS, TabPicks, orderTabs } from './tabpicks'
+import { BrowserPage, type ProtoEntry } from './browser'
+import type { GoogleAccount } from './browserdata'
+import { TerminalPage, type TermTab } from './terminal'
+import { PageTitle } from './topbar'
+import { cls, timeAgo } from './ui'
+import { newId } from './ids'
+
+// 项目：把一个产品相关的东西串起来——沟通（私聊、群聊）、干系人、任务、文档、SOP、Agent、支持材料、原型、目录
+// 任务和会话本身记着属于哪个项目（project_id），其余是项目这边记的关联
+
+export type ProjectTab = 'overview' | 'comms' | 'attachments' | 'stakeholders' | 'tasks' | 'deals' | 'docs' | 'sop' | 'agents' | 'materials' | 'prototypes' | 'settings'
+const TABS: { key: ProjectTab; label: string }[] = [
+  { key: 'overview', label: '概览' }, { key: 'comms', label: '沟通' }, { key: 'attachments', label: '附件' }, { key: 'stakeholders', label: '干系人' }, { key: 'tasks', label: '任务' }, { key: 'deals', label: '商单' },
+  { key: 'docs', label: '文档' }, { key: 'sop', label: 'SOP' }, { key: 'agents', label: 'Agent' },
+  { key: 'materials', label: '支持材料' }, { key: 'prototypes', label: '原型' }, { key: 'settings', label: '设置' },
+]
+const Pill = ({ label, color }: { label: string; color: string }) => <span className="pill" style={{ '--c': color } as React.CSSProperties}><span className="pill-dot" />{label}</span>
+const running = (p: Project) => p.prototypes.filter((x) => x.status === 'running').length
+/** 待回复：待处理且不在稍后里，和 IM 消息页的待处理同一口径 */
+export const awaitingReply = (m: Message) => m.status === 'pending' && !isSnoozed(m)
+export const ProjectMark = ({ p, size = 22 }: { p: Project; size?: number }) => <Mark image={p.mark?.image} icon={p.mark?.icon} text={p.mark?.text || p.name.slice(0, 1) || '项'} color={p.color} size={size} />
+/** 概览里露几个原型、几个干系人 */
+const PROTO_PEEK = 5
+const STAKE_PEEK = 6
+/** 原型页签：已停止的超过这么多个就折叠 */
+const STOPPED_FOLD = 6
+const STAKE_ORDER: StakeRole[] = ['decider', 'contact', 'owner', 'member', 'informed']
+/** 路径里的目录前缀：「materials/a.md」→「materials」；没有就默认放 materials 下 */
+const dirOf = (v: string) => (v.includes('/') ? v.slice(0, v.lastIndexOf('/')) : v.trim() ? '' : 'materials')
+
+/** 浏览器支不支持目录选择器；不支持时选文件夹的按钮置灰并说明 */
+const canPickDir = () => typeof (window as unknown as { showDirectoryPicker?: unknown }).showDirectoryPicker === 'function'
+const NO_DIR_PICKER = '这个浏览器不支持选文件夹，请手填路径'
+
+/** 选本地文件 / 文件夹。浏览器拿不到绝对路径，只拿得到名字，路径按「项目目录下的相对路径」拼 */
+function LocalPick({ kind, onPick }: { kind: 'file' | 'folder'; onPick: (names: string[]) => void }) {
+  const pickFolder = async () => {
+    const w = window as unknown as { showDirectoryPicker?: () => Promise<{ name: string }> }
+    if (!w.showDirectoryPicker) return
+    try { onPick([(await w.showDirectoryPicker()).name]) } catch { /* 用户取消 */ }
+  }
+  if (kind === 'folder') return <button type="button" className="act" disabled={!canPickDir()} title={canPickDir() ? undefined : NO_DIR_PICKER} onClick={pickFolder}>选择文件夹…</button>
+  return (
+    <label className="act">
+      选择文件…
+      <input type="file" multiple hidden onChange={(e) => { const fs = Array.from(e.target.files ?? []).map((f) => f.name); if (fs.length) onPick(fs); e.target.value = '' }} />
+    </label>
+  )
+}
+
+/** 当前停在项目列表页时 projectId 用这个值；项目没有二级菜单，列表页就是入口 */
+export const ALL_PROJECTS = ':all'
+
+/* ---------- 全部项目：卡片网格，可搜索、按状态筛 ---------- */
+
+type ProjFilter = '' | 'running' | 'pending' | 'other'
+const PROJ_GROUPS: { key: Exclude<ProjFilter, ''>; label: string }[] = [
+  { key: 'running', label: '有原型在跑' }, { key: 'pending', label: '有待回复' }, { key: 'other', label: '其他' },
+]
+/** 每组先露几个，多的点「显示全部」 */
+const GROUP_PEEK = 12
+
+export function ProjectsListPage({ projects, messages, contacts, tasks, recent, onOpen, onNew }: {
+  projects: Project[]; messages: Message[]; contacts: Contact[]; tasks: Task[]
+  /** 最近打开的项目 id，新的在前；用来排序 */
+  recent?: string[]
+  onOpen: (id: string) => void
+  onNew: () => void
+}) {
+  const [q, setQ] = useState('')
+  const [filter, setFilter] = useState<ProjFilter>('')
+  const [sort, setSort] = useState<'recent' | 'name'>(recent ? 'recent' : 'name')
+  const [expanded, setExpanded] = useState<string[]>([])
+  // 每个项目的待回复数、未完成任务数一次算好；联系人索引只建一次
+  const stats = useMemo(() => {
+    const people = contactIndex(contacts)
+    const open = new Map<string, number>()
+    for (const t of tasks) if (t.project_id && isOpenTask(t.status)) open.set(t.project_id, (open.get(t.project_id) ?? 0) + 1)
+    return new Map(projects.map((p) => [p.id, {
+      pending: projectMessages(p, messages, contacts, people).filter(awaitingReply).length,
+      tasks: open.get(p.id) ?? 0,
+    }]))
+  }, [projects, messages, contacts, tasks])
+  const st = (p: Project) => stats.get(p.id) ?? { pending: 0, tasks: 0 }
+  const groupOf = (p: Project): Exclude<ProjFilter, ''> => (running(p) ? 'running' : st(p).pending ? 'pending' : 'other')
+  const rank = new Map((recent ?? []).map((id, i) => [id, i]))
+  const kw = q.trim().toLowerCase()
+  const rows = projects
+    .filter((p) => (!filter || groupOf(p) === filter) && (!kw || `${p.name} ${p.desc} ${p.root}`.toLowerCase().includes(kw)))
+    .sort(sort === 'name' ? (a, b) => a.name.localeCompare(b.name, 'zh-CN') : (a, b) => (rank.get(a.id) ?? 1e9) - (rank.get(b.id) ?? 1e9))
+  const n = (k: Exclude<ProjFilter, ''>) => projects.filter((p) => groupOf(p) === k).length
+
+  const card = (p: Project) => {
+    const s = st(p)
+    return (
+      <button key={p.id} className="pl-card" onClick={() => onOpen(p.id)} title={p.name}>
+        <span className="pl-card-head"><ProjectMark p={p} size={28} /><b className="pl-card-name">{p.name}</b></span>
+        <span className="pl-card-desc">{p.desc || <span className="faint">没有说明</span>}</span>
+        <span className="pl-card-meta">
+          {p.prototypes.length > 0 && <span className={cls(running(p) > 0 && 'pl-ok')}><span className={cls('proto-light', running(p) > 0 && 'pl-running')} />原型 {running(p)}/{p.prototypes.length}</span>}
+          {s.pending > 0 && <span className="pl-warn">{s.pending} 条待回复</span>}
+          <span>{s.tasks ? `${s.tasks} 个未完成任务` : '没有未完成任务'}</span>
+          <span className="ellipsis mono" title={p.root}>{p.root.split('/').pop() || '未设目录'}</span>
+        </span>
+      </button>
+    )
+  }
+
+  // 没筛选、没搜索时按状态分组，每组先露 GROUP_PEEK 个
+  const grouped = !filter && !kw
+  return (
+    <div className="page page-fill">
+      <PageTitle parent="项目" count={projects.length} desc="按状态分组；点卡片打开项目" actions={
+        <button className="btn btn-primary" onClick={onNew}>
+          <svg viewBox="0 0 16 16" width="12" height="12"><path d="M8 3v10M3 8h10" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" /></svg>
+          新建项目
+        </button>
+      }>全部项目</PageTitle>
+      <div className="toolbar">
+        <div className="search">
+          <svg viewBox="0 0 16 16" width="14" height="14"><circle cx="7" cy="7" r="4.5" fill="none" stroke="currentColor" strokeWidth="1.5" /><path d="M10.5 10.5 14 14" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" /></svg>
+          <input placeholder="搜项目名、说明、目录" value={q} onChange={(e) => setQ(e.target.value)} />
+          {q && <button className="search-clear" onClick={() => setQ('')} title="清空"><svg viewBox="0 0 16 16" width="12" height="12"><path d="m4 4 8 8M12 4l-8 8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" /></svg></button>}
+        </div>
+        <div className="seg">
+          <button className={cls(!filter && 'on')} onClick={() => setFilter('')}>全部<span className="seg-n">{projects.length}</span></button>
+          {PROJ_GROUPS.map((g) => <button key={g.key} className={cls(filter === g.key && 'on')} onClick={() => setFilter(g.key)}>{g.label}<span className="seg-n">{n(g.key)}</span></button>)}
+        </div>
+        <span className="spacer" />
+        <label className="sort">
+          排序
+          <select value={sort} onChange={(e) => setSort(e.target.value as 'recent' | 'name')}>
+            {recent && <option value="recent">最近打开</option>}
+            <option value="name">名称</option>
+          </select>
+        </label>
+      </div>
+      {!projects.length ? (
+        <div className="empty"><div className="empty-title">还没有项目</div><div className="list-sub">把一个产品相关的沟通、干系人、任务、文档和原型串到一起</div><button className="btn btn-primary" onClick={onNew}>新建第一个项目</button></div>
+      ) : !rows.length ? (
+        <div className="empty"><div className="empty-title">没有匹配的项目</div><div className="list-sub">换个关键词，或清掉状态筛选</div></div>
+      ) : grouped ? (
+        <div className="pl-groups">
+          {PROJ_GROUPS.map((g) => {
+            const xs = rows.filter((p) => groupOf(p) === g.key)
+            if (!xs.length) return null
+            const all = expanded.includes(g.key)
+            return (
+              <section key={g.key} className="pl-group">
+                <div className="mount-head">
+                  <div className="field-group-title">{g.label}<span className="field-hint">{xs.length} 个</span></div>
+                  {xs.length > GROUP_PEEK && <button className="act act-quiet" onClick={() => setExpanded(all ? expanded.filter((x) => x !== g.key) : [...expanded, g.key])}>{all ? '收起' : `显示全部 ${xs.length} 个`}</button>}
+                </div>
+                <div className="pl-grid">{(all ? xs : xs.slice(0, GROUP_PEEK)).map(card)}</div>
+              </section>
+            )
+          })}
+        </div>
+      ) : (
+        <div className="pl-grid">{rows.map(card)}</div>
+      )}
+    </div>
+  )
+}
+
+/** 路径输入：可以手填，也可以点「选择」用系统的目录选择器（浏览器拿不到绝对路径，只能填进目录名，要补全上级） */
+function PathInput({ value, onChange, placeholder }: { value: string; onChange: (v: string) => void; placeholder?: string }) {
+  const pick = async () => {
+    const w = window as unknown as { showDirectoryPicker?: () => Promise<{ name: string }> }
+    if (!w.showDirectoryPicker) return
+    try {
+      const h = await w.showDirectoryPicker()
+      const parent = value.includes('/') ? value.slice(0, value.lastIndexOf('/')) : ''
+      onChange(parent ? `${parent}/${h.name}` : h.name)
+    } catch { /* 用户取消 */ }
+  }
+  return (
+    // 和页面其它输入框同一套外观：浅底、圆角、聚焦时描边加光圈；图标和「选择」按钮收在框里
+    <span className="path-box">
+      <svg className="path-ico" viewBox="0 0 16 16" width="14" height="14"><path d="M2 4.5A1.5 1.5 0 0 1 3.5 3h2.8l1.4 1.5h4.8A1.5 1.5 0 0 1 14 6v5.5a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 2 11.5Z" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" /></svg>
+      <input className="mono" value={value} placeholder={placeholder} spellCheck={false} onChange={(e) => onChange(e.target.value)} />
+      <button type="button" className="path-pick" onClick={pick} disabled={!canPickDir()} title={canPickDir() ? '浏览器只能拿到选中目录的名字，上级路径要自己补' : NO_DIR_PICKER}>选择</button>
+    </span>
+  )
+}
+
+function ProtoCard({ p, project, projects, onStart, onStop, onChange, onRemove }: {
+  p: Prototype; project: Project; projects: Project[]
+  onStart: () => void; onStop: () => void; onChange: (x: Prototype) => void; onRemove: () => void
+}) {
+  const [edit, setEdit] = useState(false)
+  const [d, setD] = useState(p)
+  const [logs, setLogs] = useState(false)
+  const busy = p.status === 'starting' || p.status === 'stopping'
+  const live = p.status === 'running'
+  const conflict = !live && !busy ? portConflict(p.port, p.id, projects) : null
+  const url = `http://127.0.0.1:${p.port}`
+  const openUrl = useOpenUrl()
+  const domain = useProtoDomain()(p.id)
+  return (
+    <div className={cls('proto-card', `proto-${p.status}`)}>
+      <div className="proto-head">
+        <span className={cls('proto-light', `pl-${p.status}`)} />
+        <span className="proto-name">{p.name}</span>
+        <Pill {...PROTO_STATUS[p.status]} />
+        <span className="spacer" />
+        {domain && <button className="proto-domain mono" onClick={() => navigator.clipboard?.writeText(domain)} title="内网域名，点一下复制">{domain.replace(/^https?:\/\//, '')}</button>}
+        {live && <button className="act" onClick={() => openUrl(url, p.name)} title="在内置浏览器里打开">打开 :{p.port}</button>}
+        {live || p.status === 'stopping'
+          ? <button className="act" disabled={busy} onClick={onStop}>{p.status === 'stopping' ? '停止中…' : '停止'}</button>
+          : <button className="act act-primary" disabled={busy || !!conflict} title={conflict ?? undefined} onClick={onStart}>{p.status === 'starting' ? '启动中…' : p.status === 'error' ? '重新启动' : '启动'}</button>}
+      </div>
+      <div className="proto-meta">
+        <span><span className="proto-k">目录</span><code>{project.root ? `${project.root}/` : ''}{p.dir}</code></span>
+        <span><span className="proto-k">命令</span><code>{p.command}</code></span>
+        <span><span className="proto-k">端口</span><code>{p.port}</code></span>
+        {live && p.started_at && <span><span className="proto-k">已运行</span>{timeAgo(p.started_at).replace('前', '')}</span>}
+      </div>
+      {conflict && <div className="proto-warn">{conflict}，换一个端口再启动</div>}
+      {p.status === 'error' && p.error && <div className="proto-warn">{p.error}</div>}
+      <div className="act-row">
+        <button className="act act-quiet" onClick={() => setLogs(!logs)} disabled={!p.logs.length}>{logs ? '收起日志' : '看日志'}</button>
+        <button className="act act-quiet" disabled={live || busy} title={live ? '先停下来再改' : undefined} onClick={() => { setD(p); setEdit(!edit) }}>{edit ? '收起设置' : '修改'}</button>
+        <span className="spacer" />
+        <button className="act act-quiet btn-danger-ghost" disabled={live || busy} onClick={onRemove}>移除</button>
+      </div>
+      {logs && <pre className="proto-logs">{p.logs.join('\n')}</pre>}
+      {edit && (
+        <div className="proto-edit form">
+          <div className="field-row">
+            <label className="field"><span className="field-label">名称</span><input value={d.name} onChange={(e) => setD({ ...d, name: e.target.value })} /></label>
+            <label className="field"><span className="field-label">端口</span><input type="number" value={d.port} onChange={(e) => setD({ ...d, port: Number(e.target.value) })} /></label>
+          </div>
+          <label className="field"><span className="field-label">目录<span className="field-hint">相对项目目录</span></span><input className="mono" value={d.dir} onChange={(e) => setD({ ...d, dir: e.target.value })} /></label>
+          <label className="field"><span className="field-label">启动命令</span><input className="mono" value={d.command} onChange={(e) => setD({ ...d, command: e.target.value })} /></label>
+          {portConflict(d.port, d.id, projects) && <span className="field-err">{portConflict(d.port, d.id, projects)}</span>}
+          <div className="act-row">
+            <button className="act act-primary" disabled={!d.name.trim() || !d.command.trim()} onClick={() => { onChange({ ...d, status: 'stopped', error: undefined }); setEdit(false) }}>保存</button>
+            <button className="act act-quiet" onClick={() => setEdit(false)}>取消</button>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+export interface ProjectLinks {
+  messages: Message[]; contacts: Contact[]; tasks: Task[]; sops: Sop[]; runs: SopRun[]; sessions: Session[]
+  /** IM 连接器，绑定群聊时补候选 */
+  connectors?: Connector[]
+  onOpenMessage: (id: string) => void; onOpenContact: (id: string) => void
+  onNewTask: () => void; onOpenTask: (id: string) => void; onTaskStatus: (id: string, s: TaskStatus) => void
+  /** 待验收任务确认后验收通过 */
+  onApproveTask?: (id: string) => void
+  onStartSop: (id: string) => void; onOpenRun: (id: string) => void; onOpenSop: (id: string) => void
+  onOpenSession: (id: string) => void
+  /** 去会话页看这个项目的全部会话（会话页按项目筛）；不传就在项目里就地展开 */
+  onAllSessions?: () => void
+  onFetchAttachment: (msgId: string, attId: string) => void
+  onAddAttachment: (projectId: string, msgId: string, attId: string) => void
+  /** 附件标签里「已加入资料」点了去支持材料，高亮那一条 */
+  onOpenMaterial?: (materialId: string) => void
+  /** IM 消息插件在不在：不在时不显示「附件」标签（附件都来自 IM 消息） */
+  imOn?: boolean
+  /** 从消息上「已转资料」跳过来时高亮的那条材料（SPEC-projects-11.23） */
+  focusMaterial?: string | null
+}
+
+export function ProjectPage({ project, projects, agents, content, tab, onTab, onChange, onDelete, onStart, onStop, onOpenDoc, onChat, onOpenAgent, links, delImpact, onAll, dock, onDock, deals, dealAlert, recent = [], onSwitch }: {
+  /** 最近打开的项目 id，新的在前：标题里的切换菜单排在前面（SPEC-projects-2.9） */
+  recent?: string[]
+  /** 标题里的项目名点开选了别的项目：切过去，停在同一个标签（那边藏了这个标签就回概览） */
+  onSwitch?: (id: string) => void
+  /** 顶栏「项目」点回项目列表 */
+  onAll?: () => void
+  /** 这个项目已打开的终端、网页数量，和展开区域当前显示的是哪个（收起时为 null） */
+  dock?: { term: number; browser: number; open: DockView | null }
+  /** 标题行的终端、浏览器按钮 */
+  onDock?: (v: DockView) => void
+  links: ProjectLinks
+  project: Project
+  projects: Project[]
+  agents: Agent[]
+  content: ContentItem[]
+  tab: ProjectTab
+  onTab: (t: ProjectTab) => void
+  onChange: (p: Project) => void
+  onDelete: () => void
+  /** 删除的连带影响，列在确认里 */
+  delImpact?: string[]
+  onStart: (protoId: string) => void
+  onStop: (protoId: string) => void
+  onOpenDoc: (contentId: string) => void
+  onChat: (agentId: string) => void
+  onOpenAgent: (agentId: string) => void
+  /** 商单标签的内容（视频模块开着才有，VID-08p）；不传就没有这个标签。dealAlert：有账期快到的单 */
+  deals?: ReactNode
+  dealAlert?: boolean
+}) {
+  const p = project
+  const set = (x: Partial<Project>) => onChange({ ...p, ...x })
+  // 项目设置里勾掉的标签（SPEC-projects-13.19）；停在被藏掉的标签上时回概览。标签条按设置里排的顺序（tabs_order，SPEC-projects-13.20）
+  const hiddenTabs = (p.tabs_hidden ?? []).filter((k) => !ALWAYS_TABS.includes(k))
+  const onHidden = hiddenTabs.includes(tab)
+  useEffect(() => { if (onHidden) onTab('overview') }, [onHidden, onTab])
+  const agent = agents.find((a) => a.id === p.agent_ids[0])
+  const openUrl = useOpenUrl()
+  const L = links
+  const people = useMemo(() => contactIndex(L.contacts), [L.contacts])
+  const pmsgs = projectMessages(p, L.messages, L.contacts, people)
+  const waiting = pmsgs.filter(awaitingReply).length
+  const attTodo = L.imOn === false ? 0 : projectAttachmentRows(p, pmsgs).filter((r) => r.state === 'todo').length
+  const ptasks = L.tasks.filter((t) => t.project_id === p.id)
+  const openTasks = ptasks.filter((t) => isOpenTask(t.status))
+  const [newMat, setNewMat] = useState<Omit<Material, 'id' | 'added_at'> | null>(null)
+  // 支持材料卡片上「编辑」就地展开的那一条（SPEC-projects-11.24）
+  const [editMat, setEditMat] = useState<string | null>(null)
+  const [matTag, setMatTag] = useState('')
+  const [newDoc, setNewDoc] = useState<{ title: string; kind: string; type: 'library' | 'file'; ref: string } | null>(null)
+  const [newProto, setNewProto] = useState<{ name: string; dir: string; command: string; port: number } | null>(null)
+  const [confirmDel, setConfirmDel] = useState(false)
+  // 名称必填：清空时只改输入框、不存，离开输入框时恢复成原来的名字
+  const [nameDraft, setNameDraft] = useState<string | null>(null)
+  const [matQ, setMatQ] = useState('')
+  const [matKind, setMatKind] = useState<MaterialKind | ''>('')
+  const [showStopped, setShowStopped] = useState(false)
+  const tags = [...new Set(p.materials.flatMap((m) => m.tags))]
+  const matKw = matQ.trim().toLowerCase()
+  const matOk = (m: Material) => (!matTag || m.tags.includes(matTag)) && (!matKind || m.kind === matKind) && (!matKw || `${m.name} ${m.value} ${m.tags.join(' ')}`.toLowerCase().includes(matKw))
+  const mats = p.materials.filter(matOk)
+  // 高亮的那条材料滚到视野里；引用稳定，只在换了高亮的材料时滚一次
+  const focusRef = useCallback((el: HTMLDivElement | null) => { el?.scrollIntoView({ block: 'center' }) }, [L.focusMaterial])
+  // 原型：运行中、启动失败、启停中的排前面
+  const protoRank = (x: Prototype) => (x.status === 'running' ? 0 : x.status === 'error' ? 1 : x.status === 'stopped' ? 3 : 2)
+  const protos = [...p.prototypes].sort((a, b) => protoRank(a) - protoRank(b))
+
+  const freePort = () => {
+    for (let n = 7780; n < 7900; n += 1) if (!portConflict(n, '', projects) && !projects.some((x) => x.prototypes.some((y) => y.port === n))) return n
+    return 7899
+  }
+
+  const actions = {
+    overview: <button className="btn btn-outline" onClick={() => onTab('settings')}>项目设置</button>,
+    comms: null, attachments: null, stakeholders: null, tasks: null, deals: null, sop: null, agents: null,
+    materials: <button className="btn btn-primary" onClick={() => setNewMat({ name: '', kind: 'file', value: '', tags: [] })}>加材料</button>,
+    docs: <button className="btn btn-primary" onClick={() => setNewDoc({ title: '', kind: 'PRD', type: 'library', ref: content[0]?.id ?? '' })}>加文档</button>,
+    prototypes: <button className="btn btn-primary" onClick={() => setNewProto({ name: '', dir: '', command: 'npm run dev', port: freePort() })}>加原型</button>,
+    settings: null,
+  }[tab]
+  // 终端、浏览器固定在标题行最右，排在各标签自己的按钮后面（概览上就是「项目设置」右侧）
+  const dockBtns = dock && onDock && <>
+    <button className={cls('btn btn-outline pdock-btn', dock.open === 'term' && 'on')} aria-pressed={dock.open === 'term'}
+      title={dock.open === 'term' ? '收起终端' : `这个项目的终端${dock.term ? `，已打开 ${dock.term} 个` : ''}`} onClick={() => onDock('term')}>
+      {DOCK_ICON.term}<span className="pdock-btn-label">终端</span>{dock.term > 0 && <span className="pdock-n">{dock.term}</span>}
+    </button>
+    <button className={cls('btn btn-outline pdock-btn', dock.open === 'browser' && 'on')} aria-pressed={dock.open === 'browser'}
+      title={dock.open === 'browser' ? '收起浏览器' : `这个项目的浏览器${dock.browser ? `，已打开 ${dock.browser} 个网页` : ''}`} onClick={() => onDock('browser')}>
+      {DOCK_ICON.browser}<span className="pdock-btn-label">浏览器</span>{dock.browser > 0 && <span className="pdock-n">{dock.browser}</span>}
+    </button>
+  </>
+
+  return (
+    <div className="page page-fill project-page">
+      <PageTitle parent={onAll ? <button className="tb-parent-btn tb-parent-keep" onClick={onAll} title="回到项目列表">项目</button> : '项目'} desc={p.desc} actions={dockBtns ? <>{actions}{dockBtns}</> : actions}
+        icon={onSwitch ? undefined : <ProjectMark p={p} size={20} />}>
+        {onSwitch ? (
+          // 项目名点开是切换项目的菜单（SPEC-projects-2.9）：最近打开的在前，其余按名称，可搜；上下选、回车切、Esc 关
+          <SearchSelect variant="plain" className="proj-switch" value={p.id} title="切换项目" aria-label="切换项目" searchPlaceholder="搜项目" noMatchText="没有匹配的项目" menuWidth={300}
+            onChange={(id) => { if (id && id !== p.id) onSwitch(id) }}
+            options={[...projects].sort((a, b) => {
+              const ra = recent.indexOf(a.id), rb = recent.indexOf(b.id)
+              return (ra < 0 ? Infinity : ra) - (rb < 0 ? Infinity : rb) || a.name.localeCompare(b.name, 'zh-CN')
+            }).map((x) => ({ value: x.id, label: x.name, keywords: `${x.desc} ${x.root}`, icon: <ProjectMark p={x} size={18} /> }))} />
+        ) : p.name}
+      </PageTitle>
+      <div className="project-tabs np-tabs">
+        {orderTabs(TABS, p.tabs_order).filter((t) => (t.key !== 'deals' || deals) && (t.key !== 'attachments' || L.imOn !== false) && !hiddenTabs.includes(t.key)).map((t) => (
+          <button key={t.key} className={cls(tab === t.key && 'on')} onClick={() => onTab(t.key)}>
+            {t.label}
+            {t.key === 'prototypes' && running(p) > 0 && <span className="proto-light pl-running" />}
+            {t.key === 'comms' && waiting > 0 && <span className="side-dot" />}
+            {t.key === 'attachments' && attTodo > 0 && <span className="seg-n" title={`${attTodo} 个附件待决定`}>{attTodo}</span>}
+            {t.key === 'deals' && dealAlert && <span className="side-dot" />}
+          </button>
+        ))}
+      </div>
+
+      {tab === 'overview' && (
+        <div className="proj-overview">
+          <div className="stats">
+            <button className="stat stat-btn" onClick={() => onTab('comms')}><div className="stat-label">待回复消息</div><div className={cls('stat-value', waiting > 0 && 'stat-danger')}>{waiting}</div></button>
+            <button className="stat stat-btn" onClick={() => onTab('tasks')}><div className="stat-label">未完成任务</div><div className="stat-value">{openTasks.length}</div></button>
+            <button className="stat stat-btn" onClick={() => onTab('stakeholders')}><div className="stat-label">干系人</div><div className="stat-value">{p.stakeholders.length}</div></button>
+            <button className="stat stat-btn" onClick={() => onTab('docs')}><div className="stat-label">产品文档</div><div className="stat-value">{p.docs.length}</div></button>
+            <button className="stat stat-btn" onClick={() => onTab('prototypes')}><div className="stat-label">原型运行中</div><div className="stat-value stat-ok">{running(p)} / {p.prototypes.length}</div></button>
+          </div>
+          <div className="proj-grid">
+            <section className="hook-sec">
+              <div className="mount-head"><div className="field-group-title">最新沟通</div><button className="act act-quiet" onClick={() => onTab('comms')}>全部</button></div>
+              {pmsgs.length ? [...pmsgs].sort((a, b) => b.at.localeCompare(a.at)).slice(0, 4).map((m) => (
+                <button key={m.id} className="proj-proto-line" onClick={() => L.onOpenMessage(m.id)}>
+                  <span className={cls('today-dot', awaitingReply(m) ? 'td-info' : 'td-done')} /><b className="pt-who">{people.get(senderKey(m))?.name ?? m.sender_name}</b><span className="ellipsis">{m.text}</span><span className="spacer" /><span className="run-muted">{timeAgo(m.at)}</span>
+                </button>
+              )) : p.chats.length ? <div className="mount-empty">绑定的会话里还没有消息</div>
+                : <div className="mount-empty">还没绑定沟通渠道。<button className="link-btn" onClick={() => onTab('comms')}>去绑定</button></div>}
+            </section>
+            <section className="hook-sec">
+              <div className="mount-head"><div className="field-group-title">进行中的任务</div><button className="act act-quiet" onClick={() => onTab('tasks')}>全部</button></div>
+              {openTasks.length ? openTasks.sort((a, b) => a.priority.localeCompare(b.priority)).slice(0, 5).map((t) => (
+                <button key={t.id} className="proj-proto-line" onClick={() => L.onOpenTask(t.id)}>
+                  <span className="task-ref">{t.ref}</span><span className="ellipsis">{t.title}</span><span className="spacer" /><span className="run-muted">{t.assignee}</span>
+                </button>
+              )) : <div className="mount-empty">没有未完成的任务</div>}
+            </section>
+            <section className="hook-sec">
+              <div className="mount-head"><div className="field-group-title">干系人</div><button className="act act-quiet" onClick={() => onTab('stakeholders')}>全部</button></div>
+              {p.stakeholders.length ? <div className="proj-stakes">{[...p.stakeholders].sort((a, b) => STAKE_ORDER.indexOf(a.role) - STAKE_ORDER.indexOf(b.role)).slice(0, STAKE_PEEK).map((x) => {
+                const c = L.contacts.find((y) => y.id === x.contact_id)
+                return c && <button key={x.contact_id} className="tag kb-user" onClick={() => L.onOpenContact(c.id)} title={x.focus ? `${c.name}：${x.focus}` : c.name}><span className="kb-user-name">{c.name} · {STAKE_ROLE[x.role].label}</span></button>
+              })}{p.stakeholders.length > STAKE_PEEK && <button className="tag" onClick={() => onTab('stakeholders')} title="看全部干系人">+{p.stakeholders.length - STAKE_PEEK}</button>}</div> : <div className="mount-empty">还没有干系人</div>}
+            </section>
+            <section className="hook-sec">
+              <div className="field-group-title">项目目录</div>
+              <code className="proj-root">{p.root || '还没设置'}</code>
+              {p.related.length > 0 && <div className="proj-related">{p.related.map((r) => <span key={r.path} className="tag" title={r.path}>{r.label}</span>)}</div>}
+            </section>
+            <section className="hook-sec">
+              <div className="mount-head"><div className="field-group-title">项目 Agent</div><button className="act act-quiet" onClick={() => onTab('agents')}>全部</button></div>
+              {agent ? (
+                <div className="proj-agent">
+                  <AgentAvatar agent={agent} size={36} />
+                  <span className="mount-text"><b>{agent.name}</b><span className="list-sub">{agent.desc}</span></span>
+                  <button className="act act-primary" disabled={!agent.enabled} onClick={() => onChat(agent.id)}>和它对话</button>
+                </div>
+              ) : <div className="mount-empty">还没设置。<button className="link-btn" onClick={() => onTab('agents')}>去设置</button></div>}
+            </section>
+            <section className="hook-sec">
+              <div className="mount-head"><div className="field-group-title">原型{p.prototypes.length > PROTO_PEEK && <span className="field-hint">共 {p.prototypes.length} 个</span>}</div>{p.prototypes.length > 0 && <button className="act act-quiet" onClick={() => onTab('prototypes')}>全部</button>}</div>
+              {protos.length ? protos.slice(0, PROTO_PEEK).map((x) => (
+                <div key={x.id} className="proj-proto-line">
+                  <span className={cls('proto-light', `pl-${x.status}`)} /><span className="ellipsis">{x.name}</span><code>:{x.port}</code>
+                  <span className="spacer" />
+                  {x.status === 'running' ? <><button className="act act-quiet" onClick={() => openUrl(`http://127.0.0.1:${x.port}`, x.name)}>打开</button><button className="act" onClick={() => onStop(x.id)}>停止</button></>
+                    : (() => {
+                      // 和原型卡片同一套文字：已停止「启动」、启动失败「重新启动」、启停中显示状态；端口冲突置灰并悬停原因
+                      const conflict = x.status === 'starting' || x.status === 'stopping' ? null : portConflict(x.port, x.id, projects)
+                      return <button className="act" disabled={x.status === 'starting' || x.status === 'stopping' || !!conflict} title={conflict ?? undefined} onClick={() => onStart(x.id)}>
+                        {x.status === 'stopped' ? '启动' : x.status === 'error' ? '重新启动' : x.status === 'starting' ? '启动中…' : '停止中…'}
+                      </button>
+                    })()}
+                </div>
+              )) : <div className="mount-empty">还没有原型</div>}
+            </section>
+            <section className="hook-sec">
+              <div className="field-group-title">最近的文档和材料</div>
+              {p.docs.length || p.materials.length ? [...p.docs.map((x) => ({ k: `d${x.id}`, t: x.title, at: x.updated_at, tag: x.kind })), ...p.materials.map((x) => ({ k: `m${x.id}`, t: x.name, at: x.added_at, tag: MATERIAL_KIND[x.kind] }))]
+                .sort((a, b) => b.at.localeCompare(a.at)).slice(0, 5).map((x) => (
+                  <div key={x.k} className="proj-proto-line"><span className="tag">{x.tag}</span><span className="ellipsis">{x.t}</span><span className="spacer" /><span className="run-muted">{timeAgo(x.at)}</span></div>
+                )) : <div className="mount-empty">还没有文档和材料</div>}
+            </section>
+          </div>
+        </div>
+      )}
+
+      {tab === 'comms' && <CommsTab p={p} messages={L.messages} contacts={L.contacts} connectors={L.connectors} onChange={set} onOpenMessage={L.onOpenMessage}
+        onGoAttachments={L.imOn !== false ? () => onTab('attachments') : undefined} />}
+      {tab === 'attachments' && <ProjectAttachmentsTab p={p} messages={pmsgs} onFetch={L.onFetchAttachment} onAdd={(mid, aid) => L.onAddAttachment(p.id, mid, aid)}
+        onOpenMessage={L.onOpenMessage} onOpenMaterial={(id) => (L.onOpenMaterial ? L.onOpenMaterial(id) : onTab('materials'))}
+        onSkip={(ids, skip) => set({ skipped_attachments: skip ? [...new Set([...(p.skipped_attachments ?? []), ...ids])] : (p.skipped_attachments ?? []).filter((x) => !ids.includes(x)) })} />}
+      {tab === 'stakeholders' && <StakeholdersTab p={p} contacts={L.contacts} messages={L.messages} onChange={set} onOpenContact={L.onOpenContact} onOpenMessage={L.onOpenMessage} />}
+      {tab === 'deals' && deals}
+      {tab === 'tasks' && <ProjectTasksTab p={p} tasks={L.tasks} onNew={L.onNewTask} onOpen={L.onOpenTask} onStatus={L.onTaskStatus} onApprove={L.onApproveTask} />}
+      {tab === 'sop' && <ProjectSopTab p={p} sops={L.sops} runs={L.runs} onChange={set} onStart={L.onStartSop} onOpenRun={L.onOpenRun} onOpenSop={L.onOpenSop} />}
+      {tab === 'agents' && <ProjectAgentTab p={p} agents={agents} sessions={L.sessions} onChange={set} onChat={onChat} onOpenAgent={onOpenAgent} onOpenSession={L.onOpenSession} onAllSessions={L.onAllSessions} />}
+      {tab === 'materials' && (
+        <>
+          {newMat && (
+            <div className="inline-form">
+              <div className="seg seg-sm">{(Object.keys(MATERIAL_KIND) as MaterialKind[]).map((k) => <button key={k} className={cls(newMat.kind === k && 'on')} onClick={() => setNewMat({ ...newMat, kind: k })}>{MATERIAL_KIND[k]}</button>)}</div>
+              <input value={newMat.name} placeholder="名称，比如：客户访谈纪要 10/20" onChange={(e) => setNewMat({ ...newMat, name: e.target.value })} />
+              {newMat.kind === 'note' ? (
+                <NoteBox rows={3} value={newMat.value} onChange={(v) => setNewMat({ ...newMat, value: v })} />
+              ) : newMat.kind === 'link' ? (
+                <input className="mono" value={newMat.value} placeholder="https://…" onChange={(e) => setNewMat({ ...newMat, value: e.target.value })} />
+              ) : (
+                <>
+                  <span className="secret-line">
+                    <input className="mono" value={newMat.value} placeholder={newMat.kind === 'file' ? '相对项目目录的路径，比如 materials/interview.md' : '相对项目目录的路径，比如 materials/screenshots'} onChange={(e) => setNewMat({ ...newMat, value: e.target.value })} />
+                    <LocalPick kind={newMat.kind} onPick={(names) => {
+                      const dir = dirOf(newMat.value)
+                      const path = (n: string) => (dir ? `${dir}/${n}` : n)
+                      // 一次选了好几个文件：每个文件各加一条材料，直接加上
+                      if (names.length > 1) {
+                        const now = new Date().toISOString()
+                        set({ materials: [...names.map((n) => ({ id: newId('mt'), name: n, kind: 'file' as const, value: path(n), tags: newMat.tags, added_at: now })), ...p.materials] })
+                        setNewMat(null)
+                        return
+                      }
+                      setNewMat({ ...newMat, value: path(names[0]), name: newMat.name || names[0] })
+                    }} />
+                  </span>
+                  <span className="list-sub">浏览器只拿得到{newMat.kind === 'file' ? '文件' : '文件夹'}名，路径按项目目录下的相对路径拼{p.root ? `：${p.root}/…` : ''}；选多个文件会各加一条</span>
+                </>
+              )}
+              <input value={newMat.tags.join(', ')} placeholder="标签，逗号隔开" onChange={(e) => setNewMat({ ...newMat, tags: e.target.value.split(/[,，]/).map((x) => x.trim()).filter(Boolean) })} />
+              <div className="act-row">
+                <button className="act act-primary" disabled={!newMat.name.trim() || !newMat.value.trim() || (newMat.kind === 'note' && Array.from(newMat.value.trim()).length > NOTE_MAX)} onClick={() => { set({ materials: [{ ...newMat, id: newId('mt'), added_at: new Date().toISOString() }, ...p.materials] }); setNewMat(null) }}>加上</button>
+                <button className="act act-quiet" onClick={() => setNewMat(null)}>取消</button>
+              </div>
+            </div>
+          )}
+          {p.materials.length > 0 && (
+            <div className="toolbar">
+              <div className="search">
+                <svg viewBox="0 0 16 16" width="14" height="14"><circle cx="7" cy="7" r="4.5" fill="none" stroke="currentColor" strokeWidth="1.5" /><path d="M10.5 10.5 14 14" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" /></svg>
+                <input placeholder="搜名称、路径、链接、内容" value={matQ} onChange={(e) => setMatQ(e.target.value)} />
+                {matQ && <button className="search-clear" onClick={() => setMatQ('')} title="清空"><svg viewBox="0 0 16 16" width="12" height="12"><path d="m4 4 8 8M12 4l-8 8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" /></svg></button>}
+              </div>
+              <div className="seg seg-sm">
+                <button className={cls(!matKind && 'on')} onClick={() => setMatKind('')}>全部<span className="seg-n">{p.materials.length}</span></button>
+                {(Object.keys(MATERIAL_KIND) as MaterialKind[]).filter((k) => p.materials.some((m) => m.kind === k)).map((k) => (
+                  <button key={k} className={cls(matKind === k && 'on')} onClick={() => setMatKind(k)}>{MATERIAL_KIND[k]}<span className="seg-n">{p.materials.filter((m) => m.kind === k).length}</span></button>
+                ))}
+              </div>
+            </div>
+          )}
+          {tags.length > 0 && (
+            <div className="filter-row proj-filter">
+              <button className={cls('fchip', !matTag && 'on')} onClick={() => setMatTag('')}>全部标签</button>
+              {tags.map((t) => <button key={t} className={cls('fchip', matTag === t && 'on')} onClick={() => setMatTag(matTag === t ? '' : t)}>{t}</button>)}
+            </div>
+          )}
+          <div className="mat-list">
+            {mats.map((m) => (
+              <div key={m.id} className={cls('mount-card', L.focusMaterial === m.id && 'mat-hit')}
+                ref={L.focusMaterial === m.id ? focusRef : undefined}>
+                <span className={`mat-kind mk-${m.kind}`}>{MATERIAL_KIND[m.kind]}</span>
+                {editMat === m.id ? (
+                  <MaterialEdit m={m} root={p.root} onCancel={() => setEditMat(null)}
+                    onSave={(x) => { set({ materials: p.materials.map((y) => (y.id === m.id ? { ...y, ...x } : y)) }); setEditMat(null) }} />
+                ) : <>
+                <span className="mount-text">
+                  <b>{m.name}</b>
+                  {m.kind === 'note' ? <NoteText value={m.value} />
+                    : m.kind === 'link' && /^https?:/.test(m.value) ? <a className="link-btn ellipsis mat-link" href={m.value} target="_blank" rel="noreferrer" title={m.value}>{m.value}</a>
+                      : <code className="mat-path">{(m.kind === 'file' || m.kind === 'folder') && p.root && !m.from ? `${p.root}/` : ''}{m.value}{m.kind === 'folder' ? '/' : ''}</code>}
+                  <span className="mount-uses">{m.tags.map((t) => `#${t}`).join(' ')} {timeAgo(m.added_at)}加入
+                    {m.from && !m.from.message_ids && <> · 来自 <button className="link-btn" onClick={() => L.onOpenMessage(m.from!.message_id)}>{m.from.sender}（{m.from.conversation}）的消息</button></>}
+                    {m.from?.message_ids && <> · <button className="link-btn" title="打开这组里最新的一条" onClick={() => L.onOpenMessage(m.from!.message_id)}>
+                      来自 IM 消息：{m.from.conversation === '私聊' ? `和 ${m.from.sender} 的私聊` : `群「${m.from.conversation}」`} · {m.from.message_ids.length > 1 ? `${m.from.message_ids.length} 条` : `${m.from.sender} 的一条`}</button></>}</span>
+                </span>
+                <button className="act act-quiet" onClick={() => setEditMat(m.id)}>编辑</button>
+                <button className="icon-btn icon-btn-sm" title="移除" onClick={() => set({ materials: p.materials.filter((x) => x.id !== m.id) })}>
+                  <svg viewBox="0 0 16 16" width="11" height="11"><path d="m4 4 8 8M12 4l-8 8" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" /></svg>
+                </button>
+                </>}
+              </div>
+            ))}
+            {p.materials.length > 0 && !mats.length && (
+              <div className="empty"><div className="empty-title">没有匹配的材料</div><div className="list-sub">换个关键词，或清掉类型和标签筛选</div></div>
+            )}
+            {!p.materials.length && !newMat && <div className="empty"><div className="empty-title">还没有支持材料</div><div className="list-sub">访谈纪要、竞品截图、需求原文、参考链接都可以放这里</div></div>}
+          </div>
+        </>
+      )}
+
+      {tab === 'docs' && (
+        <>
+          {newDoc && (
+            <div className="inline-form">
+              <div className="seg seg-sm">
+                <button className={cls(newDoc.type === 'library' && 'on')} onClick={() => setNewDoc({ ...newDoc, type: 'library', ref: content[0]?.id ?? '' })}>关联「文档」里的</button>
+                <button className={cls(newDoc.type === 'file' && 'on')} onClick={() => setNewDoc({ ...newDoc, type: 'file', ref: '' })}>项目目录里的文件</button>
+              </div>
+              {newDoc.type === 'library' ? (
+                <SearchSelect variant="field" value={newDoc.ref} placeholder="选一篇文档" searchPlaceholder="搜文档标题" missingLabel={() => '已删除的文档'}
+                  options={content.map((c) => ({ value: c.id, label: c.title, hint: p.docs.some((d) => d.source.type === 'library' && d.source.content_id === c.id) ? '已关联' : undefined }))}
+                  emptyText="「文档」里还没有文档"
+                  onChange={(v) => setNewDoc({ ...newDoc, ref: v, title: newDoc.title || content.find((c) => c.id === v)?.title || '' })} />
+              ) : <input className="mono" value={newDoc.ref} placeholder="相对项目目录的路径，比如 docs/prd.md" onChange={(e) => setNewDoc({ ...newDoc, ref: e.target.value })} />}
+              <div className="field-row">
+                <input value={newDoc.title} placeholder="标题（留空用文档原标题）" onChange={(e) => setNewDoc({ ...newDoc, title: e.target.value })} />
+                <select value={newDoc.kind} onChange={(e) => setNewDoc({ ...newDoc, kind: e.target.value })}>{DOC_KINDS.map((k) => <option key={k}>{k}</option>)}</select>
+              </div>
+              <div className="act-row">
+                <button className="act act-primary" disabled={!newDoc.ref.trim()} onClick={() => {
+                  const title = newDoc.title.trim() || (newDoc.type === 'library' ? content.find((c) => c.id === newDoc.ref)?.title ?? '' : newDoc.ref.split('/').pop() ?? '')
+                  const doc: ProjectDoc = { id: newId('pd'), title, kind: newDoc.kind, status: 'draft', source: newDoc.type === 'library' ? { type: 'library', content_id: newDoc.ref } : { type: 'file', path: newDoc.ref }, updated_at: new Date().toISOString() }
+                  set({ docs: [doc, ...p.docs] }); setNewDoc(null)
+                }}>加上</button>
+                <button className="act act-quiet" onClick={() => setNewDoc(null)}>取消</button>
+              </div>
+            </div>
+          )}
+          {p.docs.length ? (
+            <div className="task-table">
+              <div className="pdoc-row task-th"><span>文档</span><span>类型</span><span>来源</span><span>状态</span><span>更新</span><span /></div>
+              {p.docs.map((x) => (
+                <div key={x.id} className="pdoc-row">
+                  <span className="ellipsis">{x.source.type === 'library' ? <button className="link-btn" onClick={() => onOpenDoc((x.source as { content_id: string }).content_id)}>{x.title}</button> : x.title}</span>
+                  <span><span className="tag">{x.kind}</span></span>
+                  <span className="run-muted ellipsis">{x.source.type === 'library' ? '文档库' : <code>{x.source.path}</code>}</span>
+                  <span>
+                    <select className="pdoc-status" value={x.status} style={{ '--c': DOC_STATUS[x.status].color } as React.CSSProperties}
+                      onChange={(e) => set({ docs: p.docs.map((y) => (y.id === x.id ? { ...y, status: e.target.value as DocStatus, updated_at: new Date().toISOString() } : y)) })}>
+                      {(Object.keys(DOC_STATUS) as DocStatus[]).map((k) => <option key={k} value={k}>{DOC_STATUS[k].label}</option>)}
+                    </select>
+                  </span>
+                  <span className="run-muted">{timeAgo(x.updated_at)}</span>
+                  <span><button className="act act-quiet" onClick={() => set({ docs: p.docs.filter((y) => y.id !== x.id) })}>移除</button></span>
+                </div>
+              ))}
+            </div>
+          ) : !newDoc && <div className="empty"><div className="empty-title">还没有产品文档</div><div className="list-sub">可以关联「文档」里的 PRD，也可以指向项目目录里的文件</div></div>}
+        </>
+      )}
+
+      {tab === 'prototypes' && (
+        <>
+          {!p.root && <div className="mount-empty">先在「设置」里填项目目录，原型的目录相对它来算</div>}
+          {newProto && (
+            <div className="inline-form">
+              <div className="field-row">
+                <input value={newProto.name} placeholder="原型名称，比如：权限配置原型" onChange={(e) => setNewProto({ ...newProto, name: e.target.value })} />
+                <input type="number" value={newProto.port} onChange={(e) => setNewProto({ ...newProto, port: Number(e.target.value) })} />
+              </div>
+              <input className="mono" value={newProto.dir} placeholder="目录（相对项目目录），比如 prototype" onChange={(e) => setNewProto({ ...newProto, dir: e.target.value })} />
+              <input className="mono" value={newProto.command} placeholder="启动命令" onChange={(e) => setNewProto({ ...newProto, command: e.target.value })} />
+              {portConflict(newProto.port, '', projects) && <span className="field-err">{portConflict(newProto.port, '', projects)}</span>}
+              <div className="act-row">
+                <button className="act act-primary" disabled={!newProto.name.trim() || !newProto.command.trim()} onClick={() => { set({ prototypes: [...p.prototypes, { ...newProto, id: newId('pt'), status: 'stopped', logs: [] }] }); setNewProto(null) }}>加上</button>
+                <button className="act act-quiet" onClick={() => setNewProto(null)}>取消</button>
+                <span className="list-sub">端口默认给一个没被占用的</span>
+              </div>
+            </div>
+          )}
+          <div className="proto-list">
+            {(() => {
+              // 已停止的超过 STOPPED_FOLD 个时折叠成一行，点开再展
+              const stopped = protos.filter((x) => x.status === 'stopped')
+              const fold = stopped.length > STOPPED_FOLD
+              const card = (x: Prototype) => (
+                <ProtoCard key={x.id} p={x} project={p} projects={projects} onStart={() => onStart(x.id)} onStop={() => onStop(x.id)}
+                  onChange={(y) => set({ prototypes: p.prototypes.map((z) => (z.id === y.id ? y : z)) })}
+                  onRemove={() => set({ prototypes: p.prototypes.filter((z) => z.id !== x.id) })} />
+              )
+              return (
+                <>
+                  {protos.filter((x) => !fold || x.status !== 'stopped').map(card)}
+                  {fold && (
+                    <button className="proto-fold" onClick={() => setShowStopped(!showStopped)} aria-expanded={showStopped}>
+                      <span className="proto-light" />已停止 {stopped.length} 个<span className="spacer" /><span className="run-muted">{showStopped ? '收起' : '展开'}</span>
+                    </button>
+                  )}
+                  {fold && showStopped && stopped.map(card)}
+                </>
+              )
+            })()}
+            {!p.prototypes.length && !newProto && <div className="empty"><div className="empty-title">还没有原型</div><div className="list-sub">配好目录、启动命令和端口，就能在这里一键启停</div></div>}
+          </div>
+        </>
+      )}
+
+      {tab === 'settings' && (
+        <div className="form proj-settings">
+          <section className="hook-sec">
+            <div className="field-group-title">基本信息</div>
+            <div className="name-with-mark">
+              <MarkEditor image={p.mark?.image} icon={p.mark?.icon} text={p.mark?.text} color={p.color} textPlaceholder={p.name.slice(0, 1)}
+                onIcon={(icon) => set({ mark: { text: p.mark?.text ?? '', ...p.mark, icon } })}
+                onImage={(image) => set({ mark: { text: p.mark?.text ?? '', image } })}
+                onText={(text) => set({ mark: { ...p.mark, text, icon: text ? undefined : p.mark?.icon } })}
+                onColor={(color) => set({ color })}>
+                <ProjectMark p={p} size={48} />
+              </MarkEditor>
+              <label className="field"><span className="field-label">名称</span>
+                <input value={nameDraft ?? p.name} onChange={(e) => { const v = e.target.value; setNameDraft(v.trim() ? null : v); if (v.trim()) set({ name: v }) }} onBlur={() => setNameDraft(null)} />
+                {nameDraft !== null && <span className="field-err">名称必填；不填的话离开输入框时恢复成「{p.name}」</span>}
+              </label>
+            </div>
+            <label className="field"><span className="field-label">说明</span><input value={p.desc} onChange={(e) => set({ desc: e.target.value })} /></label>
+          </section>
+          <section className="hook-sec">
+            <div className="field-group-title">本地项目目录<span className="field-hint">原型、文件类材料和文档的路径都相对它</span></div>
+            <PathInput value={p.root} placeholder="/Users/me/projects/xxx" onChange={(v) => set({ root: v })} />
+          </section>
+          <section className="hook-sec">
+            <div className="mount-head">
+              <div className="field-group-title">关联目录<span className="field-hint">和这个项目相关、但不在项目目录里的地方：设计稿、客户资料、别的仓库</span></div>
+              <button className="act" onClick={() => set({ related: [...p.related, { path: '', label: '' }] })}>加一个</button>
+            </div>
+            {p.related.map((r, i) => (
+              <div key={i} className="related-row">
+                <input className="text-box" value={r.label} placeholder="名称" onChange={(e) => set({ related: p.related.map((y, j) => (j === i ? { ...y, label: e.target.value } : y)) })} />
+                <PathInput value={r.path} placeholder="/Volumes/…" onChange={(v) => set({ related: p.related.map((y, j) => (j === i ? { ...y, path: v } : y)) })} />
+                <button className="icon-btn icon-btn-sm" title="删除这个关联目录" onClick={() => set({ related: p.related.filter((_, j) => j !== i) })}>
+                  <svg viewBox="0 0 16 16" width="11" height="11"><path d="m4 4 8 8M12 4l-8 8" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" /></svg>
+                </button>
+              </div>
+            ))}
+            {!p.related.length && <div className="mount-empty">没有关联目录</div>}
+          </section>
+          <section className="hook-sec">
+            <div className="field-group-title">显示哪些标签<span className="field-hint">不勾的标签在这个项目的详情页里不显示，数据不动；拖动或用上移、下移调整顺序；概览和设置一直显示、固定一头一尾</span></div>
+            <TabPicks tabs={TABS.filter((t) => t.key !== 'deals' || deals)} hidden={hiddenTabs} order={p.tabs_order}
+              onHidden={(tabs_hidden) => set({ tabs_hidden })} onOrder={(tabs_order) => set({ tabs_order })} />
+          </section>
+          <section className="hook-sec danger-zone">
+            <div className="field-group-title">删除项目</div>
+            {confirmDel ? (
+              <div className="act-row"><span className="danger-text">只删项目记录，本地目录和文件不动{delImpact?.length ? `；${delImpact.join('；')}` : ''}</span><button className="act act-quiet" onClick={() => setConfirmDel(false)}>取消</button><button className="act btn-danger" onClick={onDelete}>删除</button></div>
+            ) : <div className="act-row"><span className="list-sub">本地目录和文件不会被删</span><button className="act btn-danger-ghost" onClick={() => setConfirmDel(true)}>删除项目</button></div>}
+          </section>
+        </div>
+      )}
+    </div>
+  )
+}
+
+/* ---------- 项目里的终端和浏览器 ---------- */
+
+// 每个项目一份：终端默认在项目目录，浏览器第一个标签是这个项目的原型
+// 状态记在 App 里，切项目、切菜单、收起都留着；「全部关闭」才清掉
+export type DockView = 'term' | 'browser'
+export interface ProjectDockState {
+  open: boolean
+  view: DockView
+  term: TermTab[]
+  termActive: string
+  /** 浏览器实例的 key：0 表示没开；全部关闭后再开换一个，标签从头来 */
+  br: number
+  /** 浏览器当前的标签数 */
+  brTabs: number
+}
+export const EMPTY_DOCK: ProjectDockState = { open: false, view: 'term', term: [], termActive: '', br: 0, brTabs: 0 }
+export const dockCount = (d: ProjectDockState) => d.term.length + d.brTabs
+/** 浏览器第一个标签：在跑的原型优先，没有就第一个原型；一个原型都没有就是新标签页 */
+export const dockStartUrl = (p: Project) => {
+  const x = p.prototypes.find((y) => y.status === 'running') ?? p.prototypes[0]
+  return x ? `http://127.0.0.1:${x.port}` : undefined
+}
+
+const DOCK_ICON: Record<DockView, React.ReactNode> = {
+  term: <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"><rect x="1.8" y="2.8" width="12.4" height="10.4" rx="1.6" /><path d="m4.6 6.4 2 1.6-2 1.6M8.4 10h3" /></svg>,
+  browser: <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.4"><circle cx="8" cy="8" r="6" /><path d="M2 8h12M8 2c1.8 1.8 2.6 3.8 2.6 6S9.8 12.2 8 14M8 2C6.2 3.8 5.4 5.8 5.4 8s.8 4.2 2.6 6" /></svg>,
+}
+
+export function ProjectDock({ project, projects, state, hidden, prototypes, google, onState, onShow, onCollapse, onCloseAll, onStartProto, onStopProto, onGoogleLogin, onGoogleLogout }: {
+  project: Project
+  projects: Project[]
+  state: ProjectDockState
+  /** 不在这个项目详情上或收起了：只藏起来，已加载的网页留着 */
+  hidden: boolean
+  /** 只给这个项目的原型 */
+  prototypes: ProtoEntry[]
+  google: GoogleAccount | null
+  onState: (f: (d: ProjectDockState) => ProjectDockState) => void
+  /** 切到终端或浏览器；那边一个都没开时先开一个 */
+  onShow: (v: DockView) => void
+  onCollapse: () => void
+  onCloseAll: () => void
+  onStartProto: (id: string) => void
+  onStopProto: (id: string) => void
+  onGoogleLogin: (acc: GoogleAccount) => void
+  onGoogleLogout: () => void
+}) {
+  const d = state
+  const n = dockCount(d)
+  const seg = (v: DockView, label: string, count: number) => (
+    <button className={cls(d.view === v && 'on')} aria-pressed={d.view === v} onClick={() => onShow(v)}>
+      {DOCK_ICON[v]}{label}{count > 0 && <span className="seg-n">{count}</span>}
+    </button>
+  )
+  return (
+    <section className="pdock" hidden={hidden} aria-label={`${project.name} 的终端和浏览器`}>
+      <div className="pdock-head">
+        <div className="seg seg-sm pdock-seg">{seg('term', '终端', d.term.length)}{seg('browser', '浏览器', d.brTabs)}</div>
+        <span className="pdock-where faint ellipsis" title={project.root}>{project.name}{project.root ? ` · ${project.root}` : ''}</span>
+        <span className="spacer" />
+        <button className="act act-quiet" disabled={!n} title="关闭这个项目打开的全部终端和网页；终端里跑着的原型一起停掉" onClick={onCloseAll}>全部关闭</button>
+        <button className="icon-btn" title="收起（已打开的终端和网页保留）" onClick={onCollapse}>
+          <svg viewBox="0 0 16 16" width="14" height="14"><path d="m4 6 4 4 4-4" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" /></svg>
+        </button>
+      </div>
+      <div className="pdock-body">
+        <div className="pdock-pane" hidden={d.view !== 'term'}>
+          {d.term.length ? (
+            <TerminalPage embedded tabs={d.term} active={d.termActive || d.term[0].id} cwd={project.root || undefined} projects={projects}
+              onTabs={(f) => onState((x) => ({ ...x, term: f(x.term) }))} onActive={(id) => onState((x) => ({ ...x, termActive: id }))}
+              onStartProto={onStartProto} onStopProto={onStopProto} />
+          ) : (
+            <div className="pdock-empty"><span className="muted">没有打开的终端</span><button className="act act-primary" onClick={() => onShow('term')}>新建终端</button></div>
+          )}
+        </div>
+        <div className="pdock-pane" hidden={d.view !== 'browser'}>
+          {d.br ? (
+            <BrowserPage key={d.br} embedded openRequest={null} startUrl={dockStartUrl(project)} prototypes={prototypes} onStartProto={onStartProto}
+              google={google} onGoogleLogin={onGoogleLogin} onGoogleLogout={onGoogleLogout} hidden={hidden || d.view !== 'browser'}
+              onCount={(c) => onState((x) => (x.brTabs === c ? x : { ...x, brTabs: c }))} onEmpty={() => onState((x) => ({ ...x, br: 0, brTabs: 0 }))} />
+          ) : (
+            <div className="pdock-empty"><span className="muted">没有打开的网页</span><button className="act act-primary" onClick={() => onShow('browser')}>打开浏览器</button></div>
+          )}
+        </div>
+      </div>
+    </section>
+  )
+}
+
+/** 笔记正文：超过 9 行先露 8 行，点「展开全部」看全（消息转成的对话记录常常很长，SPEC-projects-11.15） */
+function NoteText({ value }: { value: string }) {
+  const [open, setOpen] = useState(false)
+  const lines = value.split('\n')
+  const fold = lines.length > 9
+  return (
+    <>
+      <span className="list-sub pre-line">{fold && !open ? lines.slice(0, 8).join('\n') : value}</span>
+      {fold && <button className="link-btn mat-fold" onClick={() => setOpen(!open)}>{open ? '收起' : `展开全部（还有 ${lines.length - 8} 行）`}</button>}
+    </>
+  )
+}
+
+/** 笔记正文最多这么多字，新建、编辑、IM 消息转笔记同一个数（SPEC-messages-6） */
+const NOTE_MAX = 5000
+
+/** 笔记正文：带字数，超了红字 */
+function NoteBox({ value, rows, onChange }: { value: string; rows: number; onChange: (v: string) => void }) {
+  const n = Array.from(value.trim()).length
+  return (
+    <>
+      <textarea rows={rows} value={value} placeholder="内容" onChange={(e) => onChange(e.target.value)} />
+      <span className={cls('list-sub note-n', n > NOTE_MAX && 'err-text')}>{n > NOTE_MAX ? `超过 ${NOTE_MAX} 字（现在 ${n} 字），删掉一些` : `${n} / ${NOTE_MAX}`}</span>
+    </>
+  )
+}
+
+/** 能互换的种类：笔记和链接、文件和文件夹（SPEC-projects-11.25） */
+const KIND_GROUPS: MaterialKind[][] = [['note', 'link'], ['file', 'folder']]
+
+/**
+ * 支持材料卡片里就地展开的编辑表单（SPEC-projects-11.24）：名称、内容、标签；同组里换种类，值按新种类校验。
+ * 消息附件加进来的（from.attachment_id 有值）种类和路径不能改；来自 IM 消息的笔记改了出处照样在
+ */
+function MaterialEdit({ m, root, onSave, onCancel }: { m: Material; root: string; onSave: (x: Partial<Material>) => void; onCancel: () => void }) {
+  const [d, setD] = useState({ kind: m.kind, name: m.name, value: m.value, tags: m.tags.join('，') })
+  const [err, setErr] = useState('')
+  const locked = !!m.from?.attachment_id
+  const kinds = locked ? [m.kind] : KIND_GROUPS.find((g) => g.includes(m.kind)) ?? [m.kind]
+  const save = () => {
+    const v = d.value.trim()
+    // 种类和值都没动时不校验值（早先存的不合新规矩的值，只改名字、标签照样能存）
+    const touched = d.kind !== m.kind || v !== m.value
+    if (!v) { setErr('内容不能为空'); return }
+    if (touched && d.kind === 'note' && Array.from(v).length > NOTE_MAX) { setErr(`超过 ${NOTE_MAX} 字`); return }
+    if (touched && d.kind === 'link' && !/^https?:\/\/\S/.test(v)) { setErr('链接要以 http:// 或 https:// 开头'); return }
+    onSave({ kind: d.kind, name: d.name.trim() || m.name, value: v, tags: [...new Set(d.tags.split(/[,，]/).map((x) => x.trim()).filter(Boolean))] })
+  }
+  return (
+    <div className="inline-form mat-edit" onKeyDown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); onCancel() } }}>
+      {kinds.length > 1 && (
+        <div className="mat-edit-kind">
+          <div className="seg seg-sm">{kinds.map((k) => <button key={k} className={cls(d.kind === k && 'on')} onClick={() => setD({ ...d, kind: k })}>{MATERIAL_KIND[k]}</button>)}</div>
+          <span className="list-sub">{kinds.map((k) => MATERIAL_KIND[k]).join('和')}之间能互换</span>
+        </div>
+      )}
+      <input autoFocus value={d.name} placeholder="名称" onChange={(e) => setD({ ...d, name: e.target.value })} />
+      {d.kind === 'note' ? <NoteBox rows={6} value={d.value} onChange={(v) => setD({ ...d, value: v })} />
+        : locked ? <><code className="mat-path">{m.value}</code><span className="list-sub">来自消息附件，种类和路径不能改</span></>
+          : d.kind === 'link' ? <input className="mono" value={d.value} placeholder="https://…" onChange={(e) => setD({ ...d, value: e.target.value })} />
+            : <><input className="mono" value={d.value} placeholder="相对项目目录的路径" onChange={(e) => setD({ ...d, value: e.target.value })} />
+              <span className="list-sub">路径按项目目录下的相对路径拼{root ? `：${root}/…` : ''}</span></>}
+      <input value={d.tags} placeholder="标签，逗号隔开" onChange={(e) => setD({ ...d, tags: e.target.value })} />
+      {err && <span className="err-text">{err}</span>}
+      <div className="act-row">
+        <button className="act act-primary" onClick={save}>保存</button>
+        <button className="act act-quiet" onClick={onCancel}>取消</button>
+      </div>
+    </div>
+  )
+}

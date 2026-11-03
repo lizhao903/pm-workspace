@@ -1,11 +1,13 @@
-// 右栏抽屉：详情 / AI 助手 / 执行 / 活动 / 关联，共用一个对象上下文（对齐线框稿的 tab 次序）。
+// 右栏抽屉：详情 / AI 助手 / 执行 / 产物 / 活动 / 关联，共用一个对象上下文（对齐线框稿的 tab 次序）。
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useWorkspace } from '../hooks/workspace'
 import type { DrawerTab } from '../hooks/workspace'
 import { api } from '../lib/api'
-import type { LinkView, ObjectPatch, Revision, WorkObject } from '../lib/types'
+import type { Artifact, LinkView, ObjectPatch, Revision, WorkObject } from '../lib/types'
 import TaskRunPanel, { WorkdirField } from './TaskRunPanel'
 import ObjectAgentPanel from './agent/ObjectAgentPanel'
+import ArtifactDialog from './artifacts/ArtifactDialog'
+import ArtifactList from './artifacts/ArtifactList'
 import { OwnerPicker, ParticipantPicker, useStakeholders } from './StakeholderPicker'
 import {
   Button, CategoryPicker, ConfirmDialog, PRIORITIES, RELATIONS, RelativeTime, Select,
@@ -13,6 +15,7 @@ import {
   fromDateTimeLocal, isEndOfDay, isOverdue, toDateTimeLocal, useCategoryTree,
 } from './ui'
 import '../views.css'
+import '../artifacts.css'
 
 // 「执行」只活在抽屉本地：DrawerTab 是 hooks/workspace 的公共类型，别的入口（命令面板、
 // Agent 结果跳转）都在用它，为了一个抽屉内的页签去改它不值当。本地态 + 跟随全局值即可。
@@ -22,6 +25,7 @@ const TABS: Array<{ key: LocalTab; label: string }> = [
   { key: 'detail', label: '详情' },
   { key: 'ai', label: 'AI 助手' },
   { key: 'run', label: '执行' },
+  { key: 'artifacts', label: '产物' },
   { key: 'activity', label: '活动' },
   { key: 'links', label: '关联' },
 ]
@@ -92,6 +96,7 @@ export default function DetailDrawer() {
       {tab === 'detail' ? <DetailTab key={selected.id} object={selected} /> : null}
       {tab === 'ai' ? <AiTab object={selected} onGoDetail={() => pickTab('detail')} /> : null}
       {tab === 'run' ? <TaskRunPanel key={selected.id} object={selected} onGoDetail={() => pickTab('detail')} /> : null}
+      {tab === 'artifacts' ? <ArtifactsTab key={selected.id} object={selected} /> : null}
       {tab === 'activity' ? <ActivityTab key={selected.id} objectId={selected.id} /> : null}
       {tab === 'links' ? <LinksTab key={selected.id} objectId={selected.id} /> : null}
     </div>
@@ -513,4 +518,58 @@ function ActivityTab({ objectId }: { objectId: string }) {
 // key 挂 object.id：换对象要换一条对话，而不是把上一个对象的消息留在这儿。
 function AiTab({ object, onGoDetail }: { object: WorkObject; onGoDetail: () => void }) {
   return <ObjectAgentPanel key={object.id} object={object} onGoDetail={onGoDetail} />
+}
+
+
+/**
+ * 抽屉里的「产物」页签：只看这个对象的。
+ *
+ * 不做「顺带显示未归属的」这种贴心：那会让同一件产物在两个对象的页签里都出现，
+ * 用户没法判断它到底属于谁，而这正是归属这个字段要回答的问题。
+ */
+function ArtifactsTab({ object }: { object: WorkObject }) {
+  const [items, setItems] = useState<Artifact[]>([])
+  const [loading, setLoading] = useState(true)
+  const [editing, setEditing] = useState<Artifact | null>(null)
+  const [dialogOpen, setDialogOpen] = useState(false)
+
+  const load = useCallback(async () => {
+    setLoading(true)
+    try {
+      setItems((await api.artifacts({ object_id: object.id })).items)
+    } catch {
+      setItems([])
+    } finally {
+      setLoading(false)
+    }
+  }, [object.id])
+
+  useEffect(() => { void load() }, [load])
+
+  return (
+    <div className="drawer-pane ar-tab">
+      <div className="ar-tab-head">
+        <span className="faint">{loading ? '加载中…' : `共 ${items.length} 件`}</span>
+        <Button small variant="primary" onClick={() => { setEditing(null); setDialogOpen(true) }}>
+          登记产物
+        </Button>
+      </div>
+
+      <ArtifactList
+        items={items}
+        showObject={false}
+        onEdit={(a) => { setEditing(a); setDialogOpen(true) }}
+        onChanged={() => void load()}
+        emptyHint="这件事还没有登记产物。AI 助手写盘、任务执行改动文件会自动记进来；发到外部平台的，点上面「登记产物」把链接贴进来。"
+      />
+
+      <ArtifactDialog
+        open={dialogOpen}
+        editing={editing}
+        presetObject={object}
+        onClose={() => setDialogOpen(false)}
+        onSaved={() => void load()}
+      />
+    </div>
+  )
 }

@@ -225,6 +225,20 @@ func filterCases() []filterCase {
 			},
 		},
 		{
+			field: "Sources",
+			want:  []string{"命中", "命中二"},
+			build: func(t *testing.T, s *Store, ctx context.Context) domain.ObjectFilter {
+				// 多值是或；不带来源和手动建的都要被排除。
+				mustCreate(t, s, ctx, &domain.Object{
+					TypeID: "task", Title: "命中", Source: domain.TaskSourceWebhook,
+					Props: map[string]any{domain.PropSourceRef: map[string]any{"hook_id": "wh_1", "delivery_id": "dl_1"}}})
+				mustCreate(t, s, ctx, &domain.Object{TypeID: "task", Title: "命中二", Source: domain.TaskSourceIM})
+				mustCreate(t, s, ctx, &domain.Object{TypeID: "task", Title: "排除", Source: domain.TaskSourceManual})
+				mustCreate(t, s, ctx, &domain.Object{TypeID: "task", Title: "也排除"})
+				return domain.ObjectFilter{Sources: []string{domain.TaskSourceWebhook, domain.TaskSourceIM}}
+			},
+		},
+		{
 			field: "IncludeArchived",
 			want:  []string{"已归档", "正常"},
 			build: func(t *testing.T, s *Store, ctx context.Context) domain.ObjectFilter {

@@ -1,0 +1,73 @@
+/* 终端插件样式，照原型 web-next/src/styles.css 的「终端」一段。终端始终是深色底，不跟着亮暗主题变（SPEC-terminal-1），
+   所以颜色写成这里的 --term-* 变量；xterm 的配色也从这几个变量读（XTerm.tsx 的 themeOf） */
+
+/* 终端页不要顶栏，内容区不留内边距：拆分、新标签的操作都在标签栏和格子头上 */
+.shell-main:has(> .shell-content > .term-page) > .topbar { display: none; }
+.shell-content:has(> .term-page) { padding: 0; overflow: hidden; }
+
+.term-page {
+  --term-bg: #141413; --term-fg: #d6d4cc; --term-cursor: #7fb4ff; --term-sel: #3a3a35;
+  --term-bar: #1b1b19; --term-line: #2f2f2b; --term-line-2: #232320; --term-hover: #232320; --term-head: #181816; --term-head-on: #1f1f1c;
+  --term-muted: #a6a398; --term-faint: #77746b; --term-text: #ecebe6; --term-input: #3d3d38; --term-btn-hover: #2a2a26; --term-x-hover: #3a3a35;
+  --term-ok: #7fd28f; --term-err: #ff8b7e; --term-warn: #e5c07b;
+  --term-c0: #2f2f2b; --term-c1: #ff8b7e; --term-c2: #7fd28f; --term-c3: #e5c07b; --term-c4: #7fb4ff; --term-c5: #c792ea; --term-c6: #7fd4d4; --term-c7: #d6d4cc;
+  display: flex; flex-direction: column; height: 100%; min-height: 0; background: var(--term-bg); color: var(--term-fg);
+}
+.term-ellipsis { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.term-spacer { flex: 1; }
+
+/* ---------- 标签栏 ---------- */
+.term-tabs { display: flex; align-items: stretch; gap: 2px; padding: 6px 8px 0; background: var(--term-bar); border-bottom: 1px solid var(--term-line); flex: none; overflow-x: auto; scrollbar-width: none; }
+.term-tab { display: flex; align-items: center; gap: 6px; height: 32px; padding: 0 8px 0 12px; max-width: 200px; border-radius: 7px 7px 0 0; color: var(--term-muted); font-size: var(--fs-sm); cursor: pointer; flex: none; user-select: none; }
+.term-tab:hover { background: var(--term-hover); color: var(--term-text); }
+.term-tab.on { background: var(--term-bg); color: var(--term-text); box-shadow: inset 0 2px 0 var(--accent); }
+.term-tab-n { font-size: var(--fs-2xs); padding: 0 5px; border-radius: 8px; background: var(--term-line); color: var(--term-muted); }
+.term-tab-x { width: 18px; height: 18px; display: grid; place-items: center; border-radius: 4px; color: var(--term-faint); background: none; border: 0; padding: 0; cursor: pointer; flex: none; }
+.term-tab-x:hover { background: var(--term-x-hover); color: var(--term-text); }
+.term-tab-input { width: 120px; height: 22px; padding: 0 6px; border: 1px solid var(--term-input); border-radius: 4px; background: var(--term-bg); color: var(--term-text); outline: 0; font-size: var(--fs-sm); }
+.term-tab-add { width: 30px; display: grid; place-items: center; color: var(--term-muted); border-radius: 6px; flex: none; background: none; border: 0; cursor: pointer; }
+.term-tab-add:hover:not(:disabled) { background: var(--term-hover); color: var(--term-text); }
+.term-tab-add:disabled { opacity: 0.4; cursor: default; }
+.term-notice { align-self: center; margin-left: 8px; color: var(--term-warn); font-size: var(--fs-xs); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.term-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--term-ok); flex: none; }
+.term-empty { flex: 1; display: grid; place-items: center; color: var(--term-faint); font-size: var(--fs-sm); }
+
+/* ---------- 格子：1 格 l1；2 格 l2r / l2c；3 格第一格占左边整列；4 格 2x2 ---------- */
+.term-grid { flex: 1; min-height: 0; display: grid; gap: 1px; background: var(--term-line); }
+.term-grid[hidden] { display: none; }
+.term-grid.l1 { grid-template: minmax(0, 1fr) / minmax(0, 1fr); }
+.term-grid.l2r { grid-template: minmax(0, 1fr) / repeat(2, minmax(0, 1fr)); }
+.term-grid.l2c { grid-template: repeat(2, minmax(0, 1fr)) / minmax(0, 1fr); }
+.term-grid.l3 { grid-template: repeat(2, minmax(0, 1fr)) / repeat(2, minmax(0, 1fr)); }
+.term-grid.l3 > :first-child { grid-row: span 2; }
+.term-grid.l4 { grid-template: repeat(2, minmax(0, 1fr)) / repeat(2, minmax(0, 1fr)); }
+.term-pane { display: flex; flex-direction: column; min-width: 0; min-height: 0; background: var(--term-bg); color: var(--term-fg); box-shadow: inset 0 0 0 1px transparent; }
+.term-pane.focus { box-shadow: inset 0 0 0 1px var(--accent-line); }
+.term-pane.focus .term-pane-head { background: var(--term-head-on); color: var(--term-text); }
+.term-pane:not(.focus) .term-xterm { opacity: 0.82; }
+.term-pane-head { display: flex; align-items: center; gap: 8px; height: 28px; padding: 0 6px 0 12px; flex: none; background: var(--term-head); color: var(--term-faint); font: var(--fs-xs) var(--mono); border-bottom: 1px solid var(--term-line-2); min-width: 0; }
+.term-cwd { flex: 0 1 auto; }
+.term-run { display: inline-flex; align-items: center; gap: 6px; color: var(--term-ok); white-space: nowrap; flex: none; }
+.term-run.starting { color: var(--term-warn); }
+.term-run.starting .term-dot { background: var(--term-warn); }
+.term-btn { width: 22px; height: 22px; display: grid; place-items: center; border-radius: 4px; color: var(--term-faint); background: none; border: 0; padding: 0; cursor: pointer; flex: none; }
+.term-btn:hover:not(:disabled) { background: var(--term-btn-hover); color: var(--term-text); }
+.term-btn:disabled { opacity: 0.35; cursor: default; }
+.term-act { display: inline-flex; align-items: center; gap: 4px; height: 20px; padding: 0 7px; border-radius: 4px; border: 1px solid var(--term-input); background: none; color: var(--term-muted); font: var(--fs-2xs) var(--sans); cursor: pointer; white-space: nowrap; flex: none; }
+.term-act:hover:not(:disabled) { background: var(--term-btn-hover); color: var(--term-text); }
+.term-act:disabled { opacity: 0.5; cursor: default; }
+
+/* ---------- xterm ---------- */
+.term-xterm-wrap { flex: 1; min-height: 0; position: relative; display: flex; flex-direction: column; }
+.term-xterm { flex: 1; min-height: 0; padding: 6px 0 4px 10px; }
+.term-xterm .xterm { height: 100%; }
+.term-xterm .xterm-viewport { background: var(--term-bg) !important; }
+.term-banner { position: absolute; top: 6px; right: 10px; padding: 2px 8px; border-radius: 4px; background: var(--term-line); color: var(--term-warn); font-size: var(--fs-xs); }
+.term-ended { flex: none; display: flex; align-items: center; gap: 10px; padding: 6px 12px; border-top: 1px solid var(--term-line-2); background: var(--term-head); color: var(--term-muted); font-size: var(--fs-xs); }
+.term-ended-acts { display: inline-flex; gap: 6px; }
+
+/* 窄于 760：左右排的格子改成从上到下一列，每格等高 */
+@media (max-width: 760px) {
+  .term-grid.l2r, .term-grid.l3, .term-grid.l4 { grid-template-columns: minmax(0, 1fr); grid-auto-rows: minmax(0, 1fr); grid-template-rows: none; }
+  .term-grid.l3 > :first-child { grid-row: auto; }
+}

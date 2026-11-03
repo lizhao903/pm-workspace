@@ -38,7 +38,7 @@ type ToolResult struct {
 	Summary  string
 	ObjectID string
 	Content  string
-	Artifact *domain.AgentArtifact
+	Artifact *domain.Artifact
 	// Question 只有 ask_user 会填。Runner 见到它就发一条 question 事件并结束本轮——
 	// 答案走用户的下一条消息，流不挂在这里等。
 	Question *Question
@@ -53,6 +53,10 @@ type Toolbox struct {
 	// 「还能不能再问」是 ask_user 自己的前置条件，拒绝的话要以工具结果的形式
 	// 回给模型，让它改用「在方案里标成待确认」的方式收场。
 	asked int
+	// kbs 是会话所挂 Agent 的知识库，kb_search 只能搜这些，见 kbsearch.go
+	kbs []string
+	// sopAgent 是会话挂的 Agent，非 nil 时给 run_sop，见 runsop.go
+	sopAgent *domain.Agent
 }
 
 func NewToolbox(st store.Store, session *domain.AgentSession) *Toolbox {
@@ -62,7 +66,7 @@ func NewToolbox(st store.Store, session *domain.AgentSession) *Toolbox {
 // Defs 返回给模型的工具声明。描述里写清「什么时候用」而不只是「这是什么」——
 // 小模型选错工具，多半是因为描述只讲了功能没讲场景。
 func (tb *Toolbox) Defs() []ToolDef {
-	return []ToolDef{
+	return append([]ToolDef{
 		{
 			Name: "search_objects",
 			Description: "按关键词搜索已有的工作对象。创建任何新对象之前都应该先用它查重，" +
@@ -140,7 +144,7 @@ func (tb *Toolbox) Defs() []ToolDef {
 				"content": str("文件的完整内容"),
 			}, []string{"path", "content"}),
 		},
-	}
+	}, append(tb.kbDefs(), tb.sopDefs()...)...)
 }
 
 // Invoke 执行一次工具调用。
@@ -169,6 +173,10 @@ func (tb *Toolbox) Invoke(ctx context.Context, call ToolCall) ToolResult {
 		return tb.askUser(args)
 	case "write_file":
 		return tb.writeFile(ctx, args)
+	case toolKbSearch:
+		return tb.kbSearch(ctx, args)
+	case toolRunSOP:
+		return tb.runSOP(ctx, args)
 	default:
 		return failed(call.Name, fmt.Sprintf("没有名为 %s 的工具", call.Name))
 	}
@@ -253,6 +261,8 @@ func (tb *Toolbox) createObject(ctx context.Context, args map[string]any) ToolRe
 		o.DueAt = t
 	}
 
+	tb.applySource(ctx, o)
+
 	out, err := tb.st.CreateObject(ctx, o, agentActor)
 	if err != nil {
 		// store 的校验错误（类型不存在、状态非法）原样告诉模型，它据此改参数重试。
@@ -263,6 +273,33 @@ func (tb *Toolbox) createObject(ctx context.Context, args map[string]any) ToolRe
 		ObjectID: out.ID,
 		Content: fmt.Sprintf("创建成功：ref=%s id=%s type=%s status=%s title=%s",
 			out.Ref, out.ID, out.TypeID, out.Status, out.Title),
+	}
+}
+
+// applySource 把会话的来源（0047，会话从哪条记录发起的）记到新建对象的 props.source_ref，
+// 来源里有 project_id、对象自己没挂项目时缺省挂到这个项目（项目删了、不是项目就不挂）。
+// 这样从 IM 消息发起的会话里拆出来的任务，和「转任务」建的一样能追回消息、落在消息归属的项目下，
+// 不靠模型照抄一段 JSON。建的是项目本身时不挂项目。
+func (tb *Toolbox) applySource(ctx context.Context, o *domain.Object) {
+	if tb.session == nil || len(tb.session.SourceRef) == 0 {
+		return
+	}
+	ref := make(map[string]any, len(tb.session.SourceRef))
+	for k, v := range tb.session.SourceRef {
+		ref[k] = v
+	}
+	if o.Props == nil {
+		o.Props = map[string]any{}
+	}
+	if _, ok := o.Props[domain.PropSourceRef]; !ok {
+		o.Props[domain.PropSourceRef] = ref
+	}
+	pid, _ := ref["project_id"].(string)
+	if pid = strings.TrimSpace(pid); pid == "" || o.ProjectID != nil || o.TypeID == "project" {
+		return
+	}
+	if p, err := tb.st.GetObject(ctx, pid); err == nil && p.TypeID == "project" && p.DeletedAt == nil {
+		o.ProjectID = &pid
 	}
 }
 
@@ -569,14 +606,33 @@ func (tb *Toolbox) writeFile(ctx context.Context, args map[string]any) ToolResul
 	}
 
 	size := int64(len(content))
-	art, err := tb.st.RecordAgentArtifact(ctx, &domain.AgentArtifact{
-		SessionID: tb.session.ID,
+	// 调试对话没有会话（AG-02c），产物不挂会话
+	var sid *string
+	if tb.session.ID != "" {
+		sid = &tb.session.ID
+	}
+	// 产物登记走通用的 artifacts 表：一条产物同时带上会话（出处）和对象（归属）。
+	// 只挂会话的话，用户在任务详情里看「这件事产出了什么」会是空的——
+	// 对话在对象里，产物却记在会话上，两者对不上。
+	art, err := tb.st.RecordArtifact(ctx, domain.ArtifactInput{
+		ObjectID:  tb.session.ObjectID,
+		SessionID: sid,
 		Path:      stored,
+		BaseDir:   tb.session.Workdir,
+		Platform:  "local",
 		Size:      size,
+		Source:    domain.ArtifactSourceAgent,
 	})
 	if err != nil {
 		// 文件已经落盘了，索引没记上不该让用户以为写失败——降级成一条没有 id 的记录。
-		art = &domain.AgentArtifact{SessionID: tb.session.ID, Path: stored, Size: size}
+		art = &domain.Artifact{
+			SessionID: sid,
+			Path:      filepath.Join(tb.session.Workdir, stored),
+			BaseDir:   tb.session.Workdir,
+			RelPath:   stored,
+			Size:      size,
+			Source:    domain.ArtifactSourceAgent,
+		}
 	}
 
 	return ToolResult{

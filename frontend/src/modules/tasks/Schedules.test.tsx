@@ -1,0 +1,227 @@
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { render, screen, waitFor, within } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
+import { createMemoryRouter, RouterProvider } from 'react-router'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import type { ObjectStatus, Schedule, ScheduleRun } from '../../core/data'
+import Page from './Page'
+
+const statuses: ObjectStatus[] = [
+  { key: 'todo', label: '待办', color: '', terminal: false },
+  { key: 'done', label: '已完成', color: '', terminal: true },
+]
+const later = (d: number) => new Date(Date.now() + d * 86400_000).toISOString()
+
+function sch(id: string, name: string, p: Partial<Schedule> = {}): Schedule {
+  return {
+    id, name, enabled: true, rule: { freq: 'weekly', time: '09:00', weekdays: [1], day: 1, date: '', cron: '' },
+    action: { kind: 'task', title: '整理周会议程', desc: '', priority: 'P2', assignee: '', due_days: 0 },
+    next_run_at: later(3), created_at: '', updated_at: '', ...p,
+  }
+}
+
+// 内存里的后端：定时任务、执行记录、预览，立即执行时记一条并「建出」任务
+function fakeBackend(rows: Schedule[], runs: Record<string, ScheduleRun[]> = {}, extra: (path: string) => unknown = () => undefined) {
+  const json = (data: unknown, meta?: unknown, status = 200) => new Response(JSON.stringify({ data, meta }), { status })
+  const calls: string[] = []
+  let n = 0
+  vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const u = new URL(String(input), 'http://x')
+    const method = init?.method ?? 'GET'
+    const body = init?.body ? JSON.parse(String(init.body)) : undefined
+    calls.push(`${method} ${u.pathname}`)
+    const more = extra(u.pathname)
+    if (more !== undefined) return json(more, { total: 1 })
+    if (u.pathname === '/api/object-types') return json([{ id: 'task', name: '任务', statuses }])
+    if (u.pathname === '/api/counts') return json({ overdue: 0, by_type: {}, total: 0 })
+    if (u.pathname === '/api/schedules/preview') return json({ rule: body.rule, next_runs: [later(4), later(11), later(18)], time_zone: 'Asia/Shanghai' })
+    if (u.pathname === '/api/schedules' && method === 'POST') {
+      const s = sch(`sch_new${++n}`, body.name, { ...body, next_run_at: later(4) })
+      rows.unshift(s)
+      return json(s, undefined, 201)
+    }
+    if (u.pathname === '/api/schedules') return json(rows, { total: rows.length })
+    const m = u.pathname.match(/^\/api\/schedules\/([^/]+)(\/runs|\/run)?$/)
+    if (m) {
+      const s = rows.find((r) => r.id === m[1])!
+      if (method === 'PATCH') { Object.assign(s, body); return json(s) }
+      if (m[2] === '/runs') return json((runs[s.id] ?? []).slice(0, Number(u.searchParams.get('limit') ?? 50)))
+      if (m[2] === '/run') {
+        const r: ScheduleRun = {
+          id: `srn_${++n}`, schedule_id: s.id, at: new Date().toISOString(), status: 'ok', ok: true, text: '建了任务 TSK-0099', manual: true,
+          missed: 0, object_id: 'obj_99', ref: 'TSK-0099', started_at: '', finished_at: '',
+        }
+        runs[s.id] = [r, ...(runs[s.id] ?? [])]
+        return json(r, undefined, 201)
+      }
+      return json(s)
+    }
+    return json([], { total: 0 })
+  }))
+  return calls
+}
+
+function renderPage(path = '/tasks/schedules') {
+  const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  const router = createMemoryRouter([{ path: '/tasks/*', element: <Page /> }], { initialEntries: [path] })
+  return render(<QueryClientProvider client={qc}><RouterProvider router={router} /></QueryClientProvider>)
+}
+
+describe('定时任务页（TASK-04a）', () => {
+  afterEach(() => vi.unstubAllGlobals())
+
+  it('列表：启用的在上、停用的收在「已停用」段，行尾开关立刻启停', async () => {
+    const calls = fakeBackend([sch('sch_a', '周会前整理议程'), sch('sch_b', '合同续签提醒', { enabled: false, next_run_at: null })])
+    renderPage()
+    expect(await screen.findByText('周会前整理议程')).toBeInTheDocument()
+    expect(screen.getByText('每周一 09:00')).toBeInTheDocument()
+    expect(screen.queryByText('合同续签提醒')).not.toBeInTheDocument()
+    expect(within(screen.getByRole('group', { name: '已停用' })).getByText('1')).toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole('checkbox', { name: '启用「周会前整理议程」' }))
+    expect(calls).toContain('PATCH /api/schedules/sch_a')
+    // 停用后移到收起的段里
+    await waitFor(() => expect(screen.queryByText('周会前整理议程')).not.toBeInTheDocument())
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+
+    // 搜索时停用的也展开
+    await userEvent.type(screen.getByRole('searchbox', { name: '搜索定时任务' }), '合同')
+    expect(await screen.findByText('合同续签提醒')).toBeInTheDocument()
+  })
+
+  it('新建：必填项挡住，填好后创建，抽屉切到这条的查看状态', async () => {
+    const calls = fakeBackend([])
+    renderPage()
+    expect(await screen.findByText('还没有定时任务')).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: '新建定时任务' }))
+    const drawer = await screen.findByRole('dialog', { name: '新建定时任务' })
+    await userEvent.click(within(drawer).getByRole('button', { name: '创建' }))
+    expect(within(drawer).getAllByText('名称必填').length).toBeGreaterThan(0)
+    expect(calls).not.toContain('POST /api/schedules')
+
+    await userEvent.type(within(drawer).getByPlaceholderText('比如：周会前整理议程'), '写周报')
+    await userEvent.type(within(drawer).getByPlaceholderText('比如：整理 {{date}} 周会议程'), '本周周报')
+    expect(await within(drawer).findByText(/每周一 09:00，接下来/)).toBeInTheDocument()
+    await userEvent.click(within(drawer).getByRole('button', { name: '创建' }))
+    expect(calls).toContain('POST /api/schedules')
+    const view = await screen.findByRole('dialog', { name: '定时任务 写周报' })
+    expect(within(view).getByText('还没执行过')).toBeInTheDocument()
+    expect(await screen.findByRole('button', { name: '写周报' })).toBeInTheDocument()
+  })
+
+  it('运行异常巡检（INC-01b）：动作能选，配最低级别和最少次数；列表写成一句话', async () => {
+    const rows: Schedule[] = []
+    fakeBackend(rows)
+    renderPage()
+    await userEvent.click(await screen.findByRole('button', { name: '新建定时任务' }))
+    const drawer = await screen.findByRole('dialog', { name: '新建定时任务' })
+    await userEvent.type(within(drawer).getByPlaceholderText('比如：周会前整理议程'), '巡检')
+    const kind = within(drawer).getByRole('radio', { name: '运行异常巡检' })
+    expect(kind).toBeEnabled()
+    await userEvent.click(kind)
+    expect(within(drawer).getByText(/带 claude-code 标签交给 Claude Code 修/)).toBeInTheDocument()
+    await userEvent.click(within(drawer).getByRole('radio', { name: '错误和警告' }))
+    await userEvent.selectOptions(within(drawer).getByLabelText('最少次数'), '3')
+    await userEvent.click(within(drawer).getByRole('button', { name: '创建' }))
+    await waitFor(() => expect(rows[0]?.action).toEqual({ kind: 'incident_sweep', min_level: 'warn', min_count: 3 }))
+    expect(await screen.findByText('巡检运行异常：错误和警告，至少 3 次，建任务交给 Claude Code')).toBeInTheDocument()
+  })
+
+  it('提醒：动作能选，填标题、内容；只提醒一次的到点后列表写「已提醒」', async () => {
+    const past = new Date(Date.now() - 86400_000)
+    const pd = `${past.getFullYear()}-${String(past.getMonth() + 1).padStart(2, '0')}-${String(past.getDate()).padStart(2, '0')}`
+    const rows: Schedule[] = [sch('sch_done', '提醒：回电话', {
+      enabled: false, next_run_at: null, rule: { freq: 'once', time: '09:00', weekdays: [], day: 1, date: pd, cron: '' },
+      action: { kind: 'remind', title: '回电话', body: '', object_id: 'obj_1' },
+    })]
+    const done: ScheduleRun = { id: 'srn_1', schedule_id: 'sch_done', at: past.toISOString(), status: 'ok', ok: true, text: '提醒了「回电话」，关联 TSK-0001',
+      manual: false, missed: 0, object_id: 'obj_1', ref: 'TSK-0001', started_at: '', finished_at: '' }
+    fakeBackend(rows, { sch_done: [done] })
+    renderPage()
+    await userEvent.click(await screen.findByRole('button', { name: '新建定时任务' }))
+    const drawer = await screen.findByRole('dialog', { name: '新建定时任务' })
+    await userEvent.type(within(drawer).getByPlaceholderText('比如：周会前整理议程'), '喝水')
+    await userEvent.click(within(drawer).getByRole('radio', { name: '提醒' }))
+    expect(within(drawer).getByText(/到点在工作台右下角弹一条提醒，不发到 IM/)).toBeInTheDocument()
+    await userEvent.click(within(drawer).getByRole('button', { name: '创建' }))
+    expect(within(drawer).getAllByText('提醒标题必填').length).toBeGreaterThan(0)
+    await userEvent.type(within(drawer).getByPlaceholderText('比如：给客户回电话'), ' 喝水 ')
+    await userEvent.type(within(drawer).getByRole('textbox', { name: /内容/ }), '起来走走')
+    await userEvent.click(within(drawer).getByRole('button', { name: '创建' }))
+    await waitFor(() => expect(rows[0]?.action).toEqual({ kind: 'remind', title: '喝水', body: '起来走走', object_id: '' }))
+    expect(await screen.findByText('提醒「喝水」')).toBeInTheDocument()
+
+    // 已经提醒过的一次性提醒停用了，在「已停用」段里写「已提醒」
+    await userEvent.click(within(screen.getByRole('group', { name: '已停用' })).getByRole('button', { name: /已停用/ }))
+    const row = await screen.findByRole('button', { name: '提醒：回电话' })
+    expect(await within(row).findByText('已提醒')).toBeInTheDocument()
+  })
+
+  it('立即执行一次：执行记录多一条带「手动」，建出的任务编号可点', async () => {
+    const calls = fakeBackend([sch('sch_a', '周会前整理议程')])
+    renderPage('/tasks/schedules?open=sch_a')
+    const drawer = await screen.findByRole('dialog', { name: '定时任务 周会前整理议程' })
+    expect(await within(drawer).findByText('还没执行过')).toBeInTheDocument()
+    await userEvent.click(within(drawer).getByRole('button', { name: '立即执行一次' }))
+    expect(calls).toContain('POST /api/schedules/sch_a/run')
+    expect(await within(drawer).findByRole('button', { name: 'TSK-0099' })).toBeInTheDocument()
+    expect(within(drawer).getByText('手动')).toBeInTheDocument()
+    expect(within(drawer).getByText('1 次')).toBeInTheDocument()
+  })
+
+  it('有没保存的改动时先保存再执行', async () => {
+    const calls = fakeBackend([sch('sch_a', '周会前整理议程')])
+    renderPage('/tasks/schedules?open=sch_a')
+    const drawer = await screen.findByRole('dialog', { name: '定时任务 周会前整理议程' })
+    await userEvent.click(within(drawer).getByRole('radio', { name: '每天' }))
+    await userEvent.click(within(drawer).getByRole('button', { name: '保存并执行一次' }))
+    await waitFor(() => expect(calls).toContain('POST /api/schedules/sch_a/run'))
+    expect(calls.indexOf('PATCH /api/schedules/sch_a')).toBeLessThan(calls.indexOf('POST /api/schedules/sch_a/run'))
+  })
+
+  it('视频发布动作（VID-06d）：显示「发布视频」和平台加发布标题，动作筛选多一项，抽屉里只读', async () => {
+    const a = { kind: 'video_publish', publish_id: 'pb_1' } as unknown as Schedule['action']
+    fakeBackend([sch('sch_1', '周会'), sch('sch_2', '周四定时发布', { action: a })], {}, (path) => (
+      path === '/api/video/publishes' ? [{ id: 'pb_1', video_id: 'vd_1', platform: 'bilibili', title: 'B 站首发', status: 'scheduled' }]
+        : path === '/api/video/platforms' ? [{ key: 'bilibili', label: 'B 站' }] : undefined))
+    const user = userEvent.setup()
+    renderPage()
+    const row = await screen.findByRole('button', { name: '周四定时发布' })
+    expect(within(row).getByText('发布视频')).toBeInTheDocument()
+    expect(await within(row).findByText('发布「B 站 · B 站首发」')).toBeInTheDocument()
+    const seg = screen.getByRole('group', { name: '动作类型' })
+    await user.click(within(seg).getByRole('button', { name: /发布视频/ }))
+    expect(screen.queryByRole('button', { name: '周会' })).not.toBeInTheDocument()
+    await user.click(row)
+    const d = await screen.findByRole('dialog')
+    expect(within(d).getByText(/这条定时跟着视频的发布记录走.*失败的记进运行异常/)).toBeInTheDocument()
+    expect(within(d).getByRole('button', { name: '去内容日历' })).toBeInTheDocument()
+    expect(within(d).getByRole('button', { name: '打开发布记录' })).toBeInTheDocument()
+    // SPEC-videos-15.13：名称只读，「什么时候」「做什么」换成「发布哪条」
+    expect(within(d).queryByDisplayValue('周四定时发布')).not.toBeInTheDocument()
+    expect(within(d).getByText('周四定时发布')).toBeInTheDocument()
+    expect(within(d).queryByRole('region', { name: '什么时候' })).not.toBeInTheDocument()
+    expect(within(d).queryByRole('region', { name: '做什么' })).not.toBeInTheDocument()
+    const target = within(d).getByRole('region', { name: '发布哪条' })
+    expect(await within(target).findByText('B 站 · B 站首发')).toBeInTheDocument()
+    expect(within(target).getByText(/^每周一 09:00，下次：/)).toBeInTheDocument()
+  })
+
+  it('视频发布动作：时间已过的一次性定时不挡停用和立即执行', async () => {
+    const a = { kind: 'video_publish', publish_id: 'pb_1' } as unknown as Schedule['action']
+    const calls = fakeBackend([sch('sch_2', '定时发布：B 站「首发」', {
+      action: a, next_run_at: null, rule: { freq: 'once', time: '20:00', weekdays: [], day: 1, date: '2026-01-01', cron: '' },
+    })])
+    const user = userEvent.setup()
+    renderPage('/tasks/schedules?open=sch_2')
+    const d = await screen.findByRole('dialog')
+    // 发布记录列表里没有这一条
+    expect(await within(d).findByText('已删除的发布记录')).toBeInTheDocument()
+    await user.click(within(d).getByRole('button', { name: '立即执行一次' }))
+    await waitFor(() => expect(calls).toContain('POST /api/schedules/sch_2/run'))
+    expect(calls).not.toContain('POST /api/schedules/preview')
+    await user.click(within(d).getByRole('checkbox', { name: '启用' }))
+    await user.click(within(d).getByRole('button', { name: '保存' }))
+    await waitFor(() => expect(calls).toContain('PATCH /api/schedules/sch_2'))
+  })
+})

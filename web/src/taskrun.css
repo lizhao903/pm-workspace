@@ -194,3 +194,26 @@
   word-break: break-word;
   color: var(--text);
 }
+
+/* 执行收尾时登记下来的产出。比工具行更安静：它不是「正在做什么」，
+   而是跑完之后留下的东西，用户扫一眼数清几件就够了。 */
+.tr-artifact {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 0;
+  font-size: var(--fs-sm);
+  color: var(--muted);
+  min-width: 0;
+}
+.tr-art-tag {
+  flex: none;
+  font-size: var(--fs-xs);
+  line-height: 1;
+  padding: 2px 5px;
+  border-radius: var(--r-sm);
+  background: var(--panel-soft);
+  border: 1px solid var(--line);
+  color: var(--faint);
+}
+.tr-art-new { background: var(--ok-soft); border-color: var(--ok); color: var(--ok); }

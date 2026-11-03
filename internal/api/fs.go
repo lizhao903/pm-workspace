@@ -4,6 +4,8 @@ import (
 	"errors"
 	"io/fs"
 	"net/http"
+	"path/filepath"
+	"strings"
 
 	"github.com/lizhao903/pm-workspace/internal/fsbrowse"
 )
@@ -60,4 +62,63 @@ func (s *Server) failFs(w http.ResponseWriter, r *http.Request, err error) {
 	default:
 		s.fail(w, r, err)
 	}
+}
+
+// --- 额外可浏览目录（FS-01）：存在数据目录的 fs-roots.json，见 fsbrowse/extra.go ---
+
+// loadFsRoots 在 New 时读一次。没有数据目录（测试）时不动，额外根只在内存里。
+func (s *Server) loadFsRoots() {
+	if s.opt.DataDir == "" {
+		return
+	}
+	if err := fsbrowse.LoadExtraRoots(filepath.Join(s.opt.DataDir, fsbrowse.ExtraRootsFile)); err != nil {
+		s.log.Warn("load extra fs roots", "err", err)
+	}
+}
+
+// fsRoots 是 GET /api/fs/roots 的回包：默认三块和用户加的额外根分开给，设置页只让删后者。
+type fsRoots struct {
+	Defaults []string             `json:"defaults"`
+	Extra    []fsbrowse.ExtraRoot `json:"extra"`
+}
+
+func (s *Server) handleListFsRoots(w http.ResponseWriter, r *http.Request) {
+	extra := fsbrowse.ExtraRoots()
+	if extra == nil {
+		extra = []fsbrowse.ExtraRoot{}
+	}
+	respondData(w, http.StatusOK, fsRoots{Defaults: fsbrowse.DefaultRoots(), Extra: extra})
+}
+
+func (s *Server) handleAddFsRoot(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Path string `json:"path"`
+	}
+	if err := decodeBody(r, &req); err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	root, err := fsbrowse.AddExtraRoot(req.Path, s.opt.DataDir)
+	if err != nil {
+		s.failFs(w, r, err)
+		return
+	}
+	s.auditConfig(r, "create", "fs_root", root.Path, "加可浏览目录 "+root.Path, map[string]any{"path": root.Path})
+	respondData(w, http.StatusCreated, root)
+}
+
+// handleRemoveFsRoot 的路径放在查询参数里：路径带 /，塞进 {id} 段要转义，容易出错。
+func (s *Server) handleRemoveFsRoot(w http.ResponseWriter, r *http.Request) {
+	p := r.URL.Query().Get("path")
+	if strings.TrimSpace(p) == "" {
+		s.fail(w, r, validationf("path is required"))
+		return
+	}
+	root, err := fsbrowse.RemoveExtraRoot(p)
+	if err != nil {
+		s.failFs(w, r, err)
+		return
+	}
+	s.auditConfig(r, "delete", "fs_root", root.Path, "删可浏览目录 "+root.Path, map[string]any{"path": root.Path})
+	respondData(w, http.StatusOK, nil)
 }

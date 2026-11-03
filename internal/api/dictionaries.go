@@ -71,6 +71,8 @@ func (s *Server) handleCreateDictItem(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, err)
 		return
 	}
+	s.auditConfig(r, "create", "dict_item", out.ID, "新建字典项 "+out.DictID+"/"+out.Label,
+		map[string]any{"dict_id": out.DictID, "key": out.Key, "label": out.Label})
 	respondData(w, http.StatusCreated, out)
 }
 
@@ -90,6 +92,11 @@ func (s *Server) handleUpdateDictItem(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, err)
 		return
 	}
+	s.auditConfig(r, "update", "dict_item", out.ID, "修改字典项 "+out.DictID+"/"+out.Label,
+		map[string]any{"dict_id": out.DictID, "key": out.Key, "label": out.Label, "fields": givenFields(map[string]bool{
+			"label": p.Label != nil, "color": p.Color != nil, "description": p.Description != nil,
+			"sort_order": p.SortOrder != nil, "meta": p.Meta != nil,
+		})})
 	respondData(w, http.StatusOK, out)
 }
 
@@ -134,16 +141,24 @@ func (s *Server) handleArchiveDictItem(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, err)
 		return
 	}
+	action, verb := "archive", "停用"
+	if !req.Archived {
+		action, verb = "unarchive", "启用"
+	}
+	s.auditConfig(r, action, "dict_item", out.ID, verb+"字典项 "+out.DictID+"/"+out.Label,
+		map[string]any{"dict_id": out.DictID, "key": out.Key, "label": out.Label})
 	respondData(w, http.StatusOK, out)
 }
 
 // handleDeleteDictItem 的 409 是常态而非异常：有引用就只能停用，
 // store 会把引用数写进 message 供界面提示。
 func (s *Server) handleDeleteDictItem(w http.ResponseWriter, r *http.Request) {
-	if err := s.st.DeleteDictItem(r.Context(), r.PathValue("id")); err != nil {
+	id := r.PathValue("id")
+	if err := s.st.DeleteDictItem(r.Context(), id); err != nil {
 		s.fail(w, r, err)
 		return
 	}
+	s.auditConfig(r, "delete", "dict_item", id, "删除字典项 "+id, nil)
 	respondData(w, http.StatusOK, nil)
 }
 
@@ -168,10 +183,16 @@ func (s *Server) handleReorderDictItems(w http.ResponseWriter, r *http.Request) 
 		s.fail(w, r, err)
 		return
 	}
-	if err := s.st.ReorderDictItems(r.Context(), r.PathValue("id"), req.TypeID, req.IDs); err != nil {
+	dictID := r.PathValue("id")
+	if err := s.st.ReorderDictItems(r.Context(), dictID, req.TypeID, req.IDs); err != nil {
 		s.fail(w, r, err)
 		return
 	}
+	d := map[string]any{"ids": req.IDs}
+	if req.TypeID != nil {
+		d["type_id"] = *req.TypeID
+	}
+	s.auditConfig(r, "reorder", "dictionary", dictID, "调整字典顺序 "+dictID, d)
 	respondData(w, http.StatusOK, nil)
 }
 

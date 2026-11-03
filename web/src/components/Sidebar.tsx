@@ -210,6 +210,15 @@ export default function Sidebar({
           <span className="nav-label truncate">快捷访问</span>
           {shortcuts.length > 0 && <span className="badge">{shortcuts.length}</span>}
         </button>
+        <button
+          type="button"
+          className={cls('nav-item', nav.kind === 'page' && nav.page === 'artifacts' && 'nav-item-active')}
+          title="输出产物：本地文件与发到各平台的东西"
+          onClick={() => go({ kind: 'page', page: 'artifacts' })}
+        >
+          <span className="nav-glyph">产</span>
+          <span className="nav-label truncate">输出产物</span>
+        </button>
         <button type="button" className="nav-item" disabled title="Agent 中心（M4）">
           <span className="nav-glyph">A</span>
           <span className="nav-label truncate">Agent 中心</span>

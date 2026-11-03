@@ -1,0 +1,38 @@
+/* 设置里的「外观」，照原型 web-next/src/styles.css 的「外观」一段（theme-grid、theme-card、tp-*、appearance-row）。
+   缩略预览画的是各配色本身的样子，不随当前主题变，所以那几行写的是原型的色值，不走变量 */
+.ap-page { display: flex; flex-direction: column; min-width: 0; }
+.ap-label { margin: var(--sp-10) 0 var(--sp-3); font-size: var(--fs-xs); font-weight: 500; color: var(--faint); }
+.ap-sub { color: var(--muted); font-size: var(--fs-sm); }
+.ap-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(220px, 100%), 1fr)); gap: var(--sp-6); max-width: 760px; }
+.ap-card {
+  display: flex; flex-direction: column; gap: var(--sp-5); padding: var(--sp-5); border: 1.5px solid var(--line); border-radius: var(--r-lg);
+  background: var(--panel); text-align: left; font: inherit; color: inherit; cursor: pointer;
+}
+.ap-card:hover { border-color: var(--line-2); }
+.ap-card.on { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.ap-card:focus-visible { outline: 2px solid var(--accent-line); outline-offset: 2px; }
+.ap-text { display: flex; flex-direction: column; gap: 2px; padding: 0 var(--sp-2) 2px; }
+.ap-preview { display: flex; height: 92px; border-radius: var(--r); overflow: hidden; border: 1px solid var(--line); }
+.ap-tp-side { width: 28%; }
+.ap-tp-main { flex: 1; display: flex; flex-direction: column; gap: 6px; padding: 10px; }
+.ap-tp-main i { height: 10px; border-radius: 3px; }
+.ap-tp-main i:first-child { width: 50%; }
+.ap-tp-light { background: #f4f3ef; }
+.ap-tp-light .ap-tp-side { background: #eceae4; }
+.ap-tp-light .ap-tp-main i { background: #e4e1d9; }
+.ap-tp-light .ap-tp-main i:first-child { background: #3d4fd6; }
+.ap-tp-dark { background: #161614; }
+.ap-tp-dark .ap-tp-side { background: #1b1b19; }
+.ap-tp-dark .ap-tp-main i { background: #2f2f2b; }
+.ap-tp-dark .ap-tp-main i:first-child { background: #6f7ef0; }
+.ap-tp-system { background: linear-gradient(90deg, #f4f3ef 50%, #161614 50%); }
+.ap-tp-system .ap-tp-side { background: #eceae4; }
+.ap-tp-system .ap-tp-main i { background: color-mix(in srgb, #888 50%, transparent); }
+.ap-tp-system .ap-tp-main i:first-child { background: #3d4fd6; }
+.ap-row {
+  display: flex; align-items: center; justify-content: space-between; gap: var(--sp-6); max-width: 760px; padding: 14px 16px;
+  border: 1px solid var(--line); border-radius: var(--r-lg); background: var(--panel);
+}
+.ap-row-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.ap-row-title { font-size: var(--fs-sm); font-weight: 500; color: var(--muted); }
+.ap-row .ap-sub { font-size: var(--fs-xs); color: var(--faint); }

@@ -1,0 +1,12 @@
+/* 设置里的「本机目录」（FS-01） */
+.lf-page { display: flex; flex-direction: column; min-width: 0; max-width: 760px; }
+.lf-label { margin: var(--sp-10) 0 var(--sp-3); font-size: var(--fs-xs); font-weight: 500; color: var(--faint); }
+.lf-list { list-style: none; margin: 0; padding: 0; border: 1px solid var(--line); border-radius: var(--r); background: var(--panel); }
+.lf-list li + li { border-top: 1px solid var(--line); }
+.lf-row { display: flex; align-items: center; gap: var(--sp-5); padding: var(--sp-4) var(--sp-6); min-width: 0; }
+.lf-path { flex: 1; min-width: 0; font: var(--fs-sm) var(--mono); overflow-wrap: anywhere; }
+.lf-sub { flex: none; color: var(--muted); font-size: var(--fs-xs); }
+.lf-hint { margin: var(--sp-3) 0 0; color: var(--muted); font-size: var(--fs-sm); line-height: 1.6; }
+.lf-add { display: flex; gap: var(--sp-3); margin-top: var(--sp-5); min-width: 0; }
+.lf-add .input { flex: 1; min-width: 0; font-family: var(--mono); }
+.lf-mono { font-family: var(--mono); overflow-wrap: anywhere; }

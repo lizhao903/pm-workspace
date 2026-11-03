@@ -166,6 +166,7 @@ func objectFilter(r *http.Request) (domain.ObjectFilter, error) {
 	f.OwnerID = p.str("owner_id")
 	f.ProjectID = p.str("project")
 	f.Query = p.str("q")
+	f.Sources = p.csv("source")
 
 	if f.CategorySubtree, err = p.boolean("subtree"); err != nil {
 		return f, err
@@ -222,5 +223,70 @@ func actorFrom(r *http.Request) store.Actor {
 	if !actorSources[src] {
 		src = store.DefaultActor.Source
 	}
-	return store.Actor{Name: store.DefaultActor.Name, Source: src}
+	a := store.Actor{Name: store.DefaultActor.Name, Source: src}
+	if n := cleanActorName(r.Header.Get("X-Actor-Name")); n != "" {
+		a.Name = n
+	}
+	a.Session = cleanActorSession(r.Header.Get("X-Actor-Session"))
+	return a
+}
+
+// actorNameMax / actorSessionMax 限制两个取证头的长度。它们会原样进 revisions.actor，
+// 每条修订都背着，没有上限的话一个写错的客户端能让变更历史体积翻倍。
+const (
+	actorNameMax    = 40
+	actorSessionMax = 64
+)
+
+// cleanActorName 清洗 X-Actor-Name：去掉控制字符和会话分隔符，超长截断。
+// 和来源白名单一样，不合法时降级而不是拒绝——取证信息写坏了不该让写入本身失败。
+func cleanActorName(raw string) string {
+	var b strings.Builder
+	n := 0
+	for _, r := range strings.TrimSpace(raw) {
+		if r < 0x20 || r == 0x7f || strings.ContainsRune(domain.ActorSessionSep, r) {
+			continue
+		}
+		if n >= actorNameMax {
+			break
+		}
+		b.WriteRune(r)
+		n++
+	}
+	return strings.TrimSpace(b.String())
+}
+
+// cleanActorSession 只收 [A-Za-z0-9._:-]，其它字符整串作废（返回空串）。
+// 会话标识是拿来分组和比对的，截掉一部分或替换掉几个字符都会让它和别的会话撞上，
+// 宁可当成没带。
+func cleanActorSession(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" || len(raw) > actorSessionMax {
+		return ""
+	}
+	for _, r := range raw {
+		ok := r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' ||
+			r == '.' || r == '_' || r == ':' || r == '-'
+		if !ok {
+			return ""
+		}
+	}
+	return raw
+}
+
+// triBool 是三态布尔：没传返回 nil，传了返回指向值的指针。
+//
+// 不能用 boolean()——它把「没传」和「传了 false」都返回 false。
+// 产物列表的 has_url 正好需要区分这两者：不传是「不过滤」，
+// 传 false 是「只看还没发出去的本地文件」，后者是用户真会问的一个问题。
+// 用 boolean() 的话第二种查询永远退化成第一种，返回全部，而且不报错。
+func (p params) triBool(k string) (*bool, error) {
+	if p.str(k) == "" {
+		return nil, nil
+	}
+	v, err := p.boolean(k)
+	if err != nil {
+		return nil, err
+	}
+	return &v, nil
 }

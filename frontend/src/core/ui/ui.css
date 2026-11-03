@@ -1,0 +1,13 @@
+/* core/ui 自带的小部件样式 */
+.theme-switch {
+  display: flex; gap: var(--sp-1);
+  padding: var(--sp-1); border-radius: var(--r-sm);
+  background: var(--hover); border: 1px solid var(--line);
+}
+.theme-switch-item {
+  flex: 1; text-align: center; white-space: nowrap;
+  padding: var(--sp-1) var(--sp-3); border-radius: 4px;
+  font-size: var(--fs-xs); color: var(--muted);
+}
+.theme-switch-item:hover { color: var(--text); }
+.theme-switch-item.on { background: var(--panel); color: var(--text); font-weight: 500; box-shadow: var(--shadow-sm); }

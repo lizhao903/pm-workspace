@@ -1,0 +1,91 @@
+/* 设置里的「运行异常」，照原型 web-next/src/styles.css 的 inc-*、task-table；颜色走 tokens.css 的变量 */
+.inc-page { display: flex; flex-direction: column; gap: var(--sp-6); min-width: 0; }
+.inc-muted { color: var(--faint); font-size: var(--fs-sm); }
+.inc-err { color: var(--danger); font-size: var(--fs-sm); }
+.inc-link { color: var(--accent); font-size: var(--fs-sm); white-space: nowrap; }
+.inc-link:hover { text-decoration: underline; }
+
+/* 顶栏「自动巡检」 */
+.inc-sweep { display: inline-flex; align-items: center; gap: var(--sp-3); min-width: 0; max-width: 100%; font-size: var(--fs-sm); color: var(--muted); }
+.inc-sweep-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--faint); flex: none; }
+.inc-sweep-dot.on { background: var(--ok); }
+
+.inc-toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: var(--sp-4); }
+.inc-toolbar .search { flex: 1 1 160px; width: auto; min-width: 160px; max-width: 280px; margin-left: auto; }
+.inc-toolbar .search input::-webkit-search-cancel-button { display: none; }
+.inc-seg { display: flex; padding: 2px; border-radius: var(--r-sm); background: var(--hover); max-width: 100%; overflow-x: auto; }
+.inc-seg button { display: flex; align-items: center; gap: 5px; height: 28px; padding: 0 var(--sp-5); border-radius: 4px; color: var(--muted); font-size: var(--fs-sm); white-space: nowrap; }
+.inc-seg button:hover { color: var(--text); }
+.inc-seg button.on { background: var(--panel); color: var(--text); box-shadow: var(--shadow-sm); font-weight: 500; }
+.inc-seg-full { width: 100%; }
+.inc-seg-full button { flex: 1; justify-content: center; }
+.inc-select {
+  height: 32px; padding: 0 var(--sp-5); border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--panel);
+  color: var(--muted); font-size: var(--fs-sm); max-width: 160px;
+}
+.inc-select.on { border-color: var(--accent-line); color: var(--accent); background: var(--accent-soft); }
+
+.inc-table { border: 1px solid var(--line); border-radius: var(--r-lg); background: var(--panel); overflow: hidden; box-shadow: var(--shadow-sm); container-type: inline-size; }
+.inc-row {
+  display: grid; align-items: center; grid-template-columns: 10px minmax(240px, 1.8fr) 90px 56px 90px 140px; gap: 12px;
+  min-height: 58px; padding: 8px 16px; border-bottom: 1px solid var(--line); cursor: pointer;
+}
+.inc-row > * { min-width: 0; }
+.inc-row:last-child { border-bottom: 0; }
+.inc-row:not(.inc-th):hover { background: var(--panel-2); }
+.inc-row.sel { background: var(--accent-soft); box-shadow: inset 3px 0 0 var(--accent); }
+.inc-row:focus-visible { outline: 2px solid var(--accent-line); outline-offset: -2px; }
+.inc-row.is-done .inc-title { color: var(--muted); }
+.inc-th { min-height: 36px; background: var(--panel-2); font-size: var(--fs-xs); font-weight: 500; color: var(--faint); cursor: default; }
+.inc-main { display: flex; flex-direction: column; gap: 2px; }
+.inc-title { display: flex; align-items: center; gap: 6px; font-weight: 500; min-width: 0; }
+.inc-desc { font-size: var(--fs-xs); color: var(--faint); }
+.inc-level { width: 8px; height: 8px; border-radius: 50%; }
+.inc-level.big { width: 12px; height: 12px; margin-top: 7px; flex: none; }
+.il-error { background: var(--danger); }
+.il-warn { background: var(--warn); }
+.inc-count { font: 600 12.5px var(--mono); color: var(--muted); }
+.inc-count.hot { color: var(--danger); }
+.inc-st { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.inc-ref { font: 500 var(--fs-xs) var(--mono); color: var(--muted); }
+.inc-chev { display: inline-flex; flex: none; color: var(--faint); transition: transform 0.15s; }
+.inc-chev.open { transform: rotate(90deg); }
+.inc-group.open { background: var(--panel-2); }
+.inc-child { padding-left: 30px; }
+.inc-more { width: 100%; padding: 11px; color: var(--muted); }
+.inc-more:hover { color: var(--accent); background: var(--accent-soft); }
+@container (max-width: 700px) {
+  .inc-row { grid-template-columns: 10px minmax(0, 1fr) 44px 100px; }
+  .inc-row > :nth-child(3), .inc-row > :nth-child(5) { display: none; }
+}
+/* 抽屉打开后列表很窄：次数也收起来，标题列让出空间 */
+@container (max-width: 520px) {
+  .inc-row { grid-template-columns: 8px minmax(0, 1fr) auto; gap: 8px; padding: 8px 12px; }
+  .inc-row > :nth-child(4) { display: none; }
+  .inc-child { padding-left: 22px; }
+}
+
+/* 抽屉 */
+.inc-form { display: flex; flex-direction: column; gap: var(--sp-7); }
+.inc-head { display: flex; align-items: flex-start; gap: 12px; }
+.inc-head-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.inc-head h2 { margin: 0; font-size: 17px; overflow-wrap: anywhere; }
+.inc-note {
+  padding: var(--sp-4) var(--sp-6); border: 1px solid color-mix(in srgb, var(--warn) 45%, var(--line)); border-radius: var(--r);
+  background: var(--warn-soft); font-size: var(--fs-sm);
+}
+.inc-msg { padding: 10px 12px; border-radius: var(--r); background: var(--panel-2); border: 1px solid var(--line); line-height: 1.6; overflow-wrap: anywhere; }
+.inc-group-box { display: flex; flex-direction: column; gap: var(--sp-6); padding: var(--sp-7); border: 1px solid var(--line); border-radius: var(--r); }
+.inc-box-head { display: flex; align-items: center; gap: var(--sp-4); min-width: 0; }
+.inc-box-title { font-size: var(--fs-sm); font-weight: 600; color: var(--muted); }
+.inc-hint { margin-left: var(--sp-4); font-weight: 400; color: var(--faint); font-size: var(--fs-xs); }
+.inc-act-row { display: flex; align-items: center; gap: var(--sp-3); flex-wrap: wrap; }
+.inc-code { font-family: var(--mono); font-size: var(--fs-sm); line-height: 1.6; }
+.inc-ctx { margin: 0; border: 1px solid var(--line); border-radius: var(--r); overflow: hidden; }
+.inc-ctx-row { display: grid; grid-template-columns: 110px minmax(0, 1fr); gap: var(--sp-5); padding: 8px 12px; border-bottom: 1px solid var(--line); font-size: var(--fs-sm); }
+.inc-ctx-row:last-child { border-bottom: 0; }
+.inc-ctx-row dt { color: var(--faint); }
+.inc-ctx-row dd { margin: 0; overflow-wrap: anywhere; }
+.inc-json, .inc-stack { margin: 0; font: var(--fs-xs)/1.55 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; }
+.inc-stack { padding: 10px 12px; border-radius: var(--r); background: var(--panel-2); border: 1px solid var(--line); max-height: 280px; overflow: auto; }
+.inc-times { display: flex; flex-wrap: wrap; gap: 6px; }

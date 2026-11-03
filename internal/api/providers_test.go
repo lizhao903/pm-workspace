@@ -116,7 +116,7 @@ func TestCreateProviderRespectsExplicitEnabled(t *testing.T) {
 func TestCreateProviderErrorMapping(t *testing.T) {
 	f := newFakeStore()
 	f.errCreateProvider = domain.ErrValidation
-	w := do(newTestServer(f), http.MethodPost, "/api/agent-providers", `{"name":"x","kind":"anthropic"}`)
+	w := do(newTestServer(f), http.MethodPost, "/api/agent-providers", `{"name":"x","kind":"bedrock"}`)
 	assertError(t, w, http.StatusBadRequest, "validation")
 
 	// 空 body 也走 400，而不是撞进 store。
@@ -317,6 +317,67 @@ func TestTestProviderOllamaNeedsNoKey(t *testing.T) {
 	models, _ := obj["models"].([]any)
 	if len(models) != 2 || models[1] != "qwen2.5:7b" {
 		t.Errorf("models = %v", models)
+	}
+}
+
+func TestTestProviderAnthropic(t *testing.T) {
+	f := newFakeStore()
+	var gotPath, gotLimit, gotKey, gotVersion, gotAuth string
+	id := stubProvider(t, f, domain.ProviderAnthropic, plainKey, func(w http.ResponseWriter, r *http.Request) {
+		gotPath, gotLimit = r.URL.Path, r.URL.Query().Get("limit")
+		gotKey, gotVersion = r.Header.Get("x-api-key"), r.Header.Get("anthropic-version")
+		gotAuth = r.Header.Get("Authorization")
+		_, _ = w.Write([]byte(`{"data":[{"type":"model","id":"claude-opus-4-1","display_name":"Claude Opus 4.1"},` +
+			`{"type":"model","id":"claude-haiku-4-5","display_name":"Claude Haiku 4.5"}],"has_more":false}`))
+	})
+
+	w := do(newTestServer(f), http.MethodPost, "/api/agent-providers/"+id+"/test", "")
+	if w.Code != http.StatusOK {
+		t.Fatalf("状态码 = %d (%s)", w.Code, w.Body.String())
+	}
+	// base_url 默认不带 /v1，探测时补上。
+	if gotPath != "/v1/models" || gotLimit != "1000" {
+		t.Errorf("探测路径 = %q limit=%q, 期望 /v1/models limit=1000", gotPath, gotLimit)
+	}
+	if gotKey != plainKey || gotVersion == "" || gotAuth != "" {
+		t.Errorf("鉴权头 x-api-key=%q anthropic-version=%q Authorization=%q", gotKey, gotVersion, gotAuth)
+	}
+	assertNoPlaintextKey(t, w)
+
+	obj := dataObj(t, w)
+	if obj["ok"] != true {
+		t.Fatalf("ok = %v (%s)", obj["ok"], w.Body.String())
+	}
+	models, _ := obj["models"].([]any)
+	if len(models) != 2 || models[0] != "claude-opus-4-1" {
+		t.Errorf("models = %v", models)
+	}
+}
+
+// TestTestProviderDeepSeek：DeepSeek 是 openai 协议加 preset，探测走的就是 openai 那一路。
+func TestTestProviderDeepSeek(t *testing.T) {
+	f := newFakeStore()
+	var gotPath, gotAuth string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath, gotAuth = r.URL.Path, r.Header.Get("Authorization")
+		_, _ = w.Write([]byte(`{"object":"list","data":[{"id":"deepseek-chat","object":"model","owned_by":"deepseek"},` +
+			`{"id":"deepseek-reasoner","object":"model","owned_by":"deepseek"}]}`))
+	}))
+	t.Cleanup(srv.Close)
+	f.putProvider(&domain.AgentProvider{
+		ID: "apv_deepseek", Name: "DeepSeek", Kind: domain.ProviderOpenAI, BaseURL: srv.URL, Enabled: true,
+		Extra: map[string]any{"preset": domain.ProviderPresetDeepSeek},
+	}, plainKey)
+
+	w := do(newTestServer(f), http.MethodPost, "/api/agent-providers/apv_deepseek/test", "")
+	if gotPath != "/models" || gotAuth != "Bearer "+plainKey {
+		t.Errorf("探测请求 path=%q auth=%q", gotPath, gotAuth)
+	}
+	assertNoPlaintextKey(t, w)
+	obj := dataObj(t, w)
+	models, _ := obj["models"].([]any)
+	if obj["ok"] != true || len(models) != 2 || models[1] != "deepseek-reasoner" {
+		t.Errorf("结果 = %v", obj)
 	}
 }
 

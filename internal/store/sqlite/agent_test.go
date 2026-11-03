@@ -158,8 +158,12 @@ func TestAgentMessageKeepsToolFields(t *testing.T) {
 	}
 }
 
-// TestDeleteAgentSessionCascades 是这张 schema 的核心约束：
-// 删会话必须把消息和产物一起带走，留下孤儿行会让后续的会话统计全错。
+// TestDeleteAgentSessionCascades 是这张 schema 的核心约束，0012 之后它变成了两条：
+// 消息必须跟着删（没有会话的消息是孤儿），产物必须**留下**（session_id 置空）。
+//
+// 产物这一条是反的，而且是有意的。0007 时产物是会话的附属物，一起删说得通；
+// 现在产物指向的是磁盘上真实存在的文件或云端真实存在的页面，
+// 删掉一段对话不该让那个文件从产物清单里消失——那一行往往是它在本机唯一的索引。
 func TestDeleteAgentSessionCascades(t *testing.T) {
 	s, ctx := newStore(t)
 	target := mustSession(t, s, ctx, "要删的")
@@ -171,8 +175,10 @@ func TestDeleteAgentSessionCascades(t *testing.T) {
 		}); err != nil {
 			t.Fatalf("追加消息: %v", err)
 		}
-		if _, err := s.RecordAgentArtifact(ctx, &domain.AgentArtifact{
-			SessionID: sess.ID, Path: "报告.md", Size: 12,
+		sid := sess.ID
+		if _, err := s.RecordArtifact(ctx, domain.ArtifactInput{
+			SessionID: &sid, Path: "报告.md", BaseDir: "/tmp/wd-" + sess.ID,
+			Size: 12, Source: domain.ArtifactSourceAgent,
 		}); err != nil {
 			t.Fatalf("记产物: %v", err)
 		}
@@ -186,15 +192,29 @@ func TestDeleteAgentSessionCascades(t *testing.T) {
 		t.Errorf("会话应已删除，得到 %v", err)
 	}
 	// 直接查底表：走 ListAgentMessages 的话，会话没了也可能只是返回空。
-	for _, tbl := range []string{"agent_messages", "agent_artifacts"} {
-		var n int
-		if err := s.db.R.QueryRowContext(ctx,
-			`SELECT COUNT(*) FROM `+tbl+` WHERE session_id = ?`, target.ID).Scan(&n); err != nil {
-			t.Fatalf("查 %s: %v", tbl, err)
-		}
-		if n != 0 {
-			t.Errorf("%s 残留 %d 行孤儿数据", tbl, n)
-		}
+	var orphanMsgs int
+	if err := s.db.R.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM agent_messages WHERE session_id = ?`, target.ID).Scan(&orphanMsgs); err != nil {
+		t.Fatalf("查 agent_messages: %v", err)
+	}
+	if orphanMsgs != 0 {
+		t.Errorf("agent_messages 残留 %d 行孤儿数据", orphanMsgs)
+	}
+
+	// 产物这边查的是「还在不在」以及「有没有被解绑」，两个都要查。
+	// 只查行数的话，一个漏配成 CASCADE 的外键会让它变 0 而测试仍然能过——
+	// 因为「产物还在」这句话没有被断言，只有「消息没了」被断言了。
+	var keptArts, stillBound int
+	if err := s.db.R.QueryRowContext(ctx, `SELECT COUNT(*),
+		COALESCE(SUM(CASE WHEN session_id IS NOT NULL THEN 1 ELSE 0 END), 0)
+		FROM artifacts WHERE path LIKE ?`, "/tmp/wd-"+target.ID+"%").Scan(&keptArts, &stillBound); err != nil {
+		t.Fatalf("查 artifacts: %v", err)
+	}
+	if keptArts != 1 {
+		t.Errorf("删会话后产物应保留 1 条，得到 %d 条", keptArts)
+	}
+	if stillBound != 0 {
+		t.Errorf("产物的 session_id 应被置空，仍有 %d 条绑着已删除的会话", stillBound)
 	}
 
 	// 另一个会话必须毫发无损。
@@ -202,7 +222,7 @@ func TestDeleteAgentSessionCascades(t *testing.T) {
 	if err != nil || len(msgs) != 1 {
 		t.Errorf("另一个会话的消息被误删: %v (%d 条)", err, len(msgs))
 	}
-	arts, err := s.ListAgentArtifacts(ctx, keep.ID)
+	arts, _, err := s.ListArtifacts(ctx, domain.ArtifactFilter{SessionID: keep.ID})
 	if err != nil || len(arts) != 1 {
 		t.Errorf("另一个会话的产物被误删: %v (%d 条)", err, len(arts))
 	}
@@ -254,69 +274,6 @@ func TestUpdateAgentSession(t *testing.T) {
 
 	if _, err := s.UpdateAgentSession(ctx, "ags_nope", &title, nil, nil, nil); !errors.Is(err, domain.ErrNotFound) {
 		t.Errorf("期望 ErrNotFound，得到 %v", err)
-	}
-}
-
-// TestRecordAgentArtifactUpserts 确认同一个文件写多次只留一条。
-// 反复改一份文档会在产物面板里堆出十几行同名记录，那是没法用的。
-func TestRecordAgentArtifactUpserts(t *testing.T) {
-	s, ctx := newStore(t)
-	sess := mustSession(t, s, ctx, "会话")
-
-	first, err := s.RecordAgentArtifact(ctx, &domain.AgentArtifact{
-		SessionID: sess.ID, Path: "docs/方案.md", Size: 100,
-	})
-	if err != nil {
-		t.Fatalf("记产物: %v", err)
-	}
-	second, err := s.RecordAgentArtifact(ctx, &domain.AgentArtifact{
-		SessionID: sess.ID, Path: "docs/方案.md", Size: 250,
-	})
-	if err != nil {
-		t.Fatalf("覆盖写产物: %v", err)
-	}
-	// id 要复用：前端可能已经拿它当列表 key 了。
-	if second.ID != first.ID {
-		t.Errorf("同路径应复用 id，%q -> %q", first.ID, second.ID)
-	}
-
-	arts, err := s.ListAgentArtifacts(ctx, sess.ID)
-	if err != nil {
-		t.Fatalf("列产物: %v", err)
-	}
-	if len(arts) != 1 {
-		t.Fatalf("同一路径写两次应只有 1 条，得到 %d 条", len(arts))
-	}
-	if arts[0].Size != 250 {
-		t.Errorf("size 应更新为最后一次的值，得到 %d", arts[0].Size)
-	}
-}
-
-// TestRecordAgentArtifactRejectsAbsolutePath 守的是「库里只存相对路径」这条约定：
-// 存了绝对路径的话，用户换一次产物目录整张表就全指向不存在的位置。
-func TestRecordAgentArtifactRejectsAbsolutePath(t *testing.T) {
-	s, ctx := newStore(t)
-	sess := mustSession(t, s, ctx, "会话")
-
-	cases := []struct{ name, path string }{
-		{"绝对路径", "/etc/passwd"},
-		{"空路径", ""},
-		{"只有空白", "   "},
-	}
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			if _, err := s.RecordAgentArtifact(ctx, &domain.AgentArtifact{
-				SessionID: sess.ID, Path: c.path,
-			}); !errors.Is(err, domain.ErrValidation) {
-				t.Fatalf("路径 %q 应报 ErrValidation，得到 %v", c.path, err)
-			}
-		})
-	}
-
-	if _, err := s.RecordAgentArtifact(ctx, &domain.AgentArtifact{
-		SessionID: "ags_nope", Path: "a.md",
-	}); !errors.Is(err, domain.ErrNotFound) {
-		t.Errorf("不存在的会话应报 ErrNotFound，得到 %v", err)
 	}
 }
 
@@ -376,17 +333,21 @@ func TestAppendAgentMessagePreservesOrderWithinSameInstant(t *testing.T) {
 	}
 }
 
-// TestListAgentMessagesAndArtifactsRejectMissingSession 守读写一致：
+// TestListAgentMessagesRejectsMissingSession 守读写一致：
 // 写接口对不存在的会话报 ErrNotFound，读接口不能反而安静地回一个空列表——
 // 那会把「会话没了」显示成「会话是空的」，用户会以为消息丢了。
-func TestListAgentMessagesAndArtifactsRejectMissingSession(t *testing.T) {
+//
+// 产物那一半 0012 之后不在这里了：ListArtifacts 是个通用过滤器，
+// 「按某个会话过滤」只是它的一种用法，让它去校验会话存在性等于把
+// 一个无关的前置条件塞进所有调用方。同一个保证移到了 API 层——
+// handleListAgentArtifacts 先 GetAgentSession 再查，见 internal/api/agent.go。
+// 这不是把保证丢了，是换了个地方；换地方这件事本身要写下来，
+// 否则下一个人会以为它消失了，或者以为它还在这里。
+func TestListAgentMessagesRejectsMissingSession(t *testing.T) {
 	s, ctx := newStore(t)
 
 	if _, err := s.ListAgentMessages(ctx, "ags_nope", 0); !errors.Is(err, domain.ErrNotFound) {
 		t.Errorf("列不存在会话的消息应报 ErrNotFound，得到 %v", err)
-	}
-	if _, err := s.ListAgentArtifacts(ctx, "ags_nope"); !errors.Is(err, domain.ErrNotFound) {
-		t.Errorf("列不存在会话的产物应报 ErrNotFound，得到 %v", err)
 	}
 
 	// 存在但是空的会话，仍然要正常返回空列表（这不是错误）。
@@ -394,10 +355,6 @@ func TestListAgentMessagesAndArtifactsRejectMissingSession(t *testing.T) {
 	msgs, err := s.ListAgentMessages(ctx, sess.ID, 0)
 	if err != nil || len(msgs) != 0 {
 		t.Errorf("空会话应返回空列表: %v (%d 条)", err, len(msgs))
-	}
-	arts, err := s.ListAgentArtifacts(ctx, sess.ID)
-	if err != nil || len(arts) != 0 {
-		t.Errorf("空会话应返回空产物列表: %v (%d 条)", err, len(arts))
 	}
 }
 

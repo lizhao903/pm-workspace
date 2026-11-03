@@ -42,6 +42,7 @@ func (s *Server) handleCreateObjectType(w http.ResponseWriter, r *http.Request) 
 		s.fail(w, r, err)
 		return
 	}
+	s.auditConfig(r, "create", "object_type", out.ID, "新建类型 "+out.Name, map[string]any{"name": out.Name})
 	respondData(w, http.StatusCreated, out)
 }
 
@@ -57,13 +58,23 @@ func (s *Server) handleUpdateObjectType(w http.ResponseWriter, r *http.Request) 
 		s.fail(w, r, err)
 		return
 	}
+	s.auditConfig(r, "update", "object_type", out.ID, "修改类型 "+out.Name, map[string]any{"name": out.Name, "fields": givenFields(map[string]bool{
+		"name": p.Name != nil, "plural": p.Plural != nil, "ref_prefix": p.RefPrefix != nil, "icon": p.Icon != nil,
+		"color": p.Color != nil, "sort_order": p.SortOrder != nil, "statuses": p.Statuses != nil,
+	})})
 	respondData(w, http.StatusOK, out)
 }
 
 func (s *Server) handleDeleteObjectType(w http.ResponseWriter, r *http.Request) {
-	if err := s.st.DeleteObjectType(r.Context(), r.PathValue("id")); err != nil {
+	id := r.PathValue("id")
+	label := id
+	if t, err := s.st.GetObjectType(r.Context(), id); err == nil {
+		label = t.Name
+	}
+	if err := s.st.DeleteObjectType(r.Context(), id); err != nil {
 		s.fail(w, r, err)
 		return
 	}
+	s.auditConfig(r, "delete", "object_type", id, "删除类型 "+label, nil)
 	respondData(w, http.StatusOK, nil)
 }

@@ -1,0 +1,32 @@
+{
+  "_说明": "shot-compare.py 的对照配置。proto.menu 是原型侧边栏一级菜单的文字（foot 为 true 表示在侧边栏底部，如设置），proto.sub 是可选的二级菜单文字；front.route 是正式前端的路由。wait 是进入后额外等待的毫秒数。",
+  "widths": [375, 768, 1440],
+  "themes": ["light", "dark"],
+  "height": 900,
+  "modules": {
+    "today": {
+      "proto": { "menu": "今日" },
+      "front": { "route": "/today" }
+    },
+    "tasks": {
+      "proto": { "menu": "任务" },
+      "front": { "route": "/tasks" }
+    },
+    "docs": {
+      "proto": { "menu": "文档" },
+      "front": { "route": "/docs" }
+    },
+    "contacts": {
+      "proto": { "menu": "联系人" },
+      "front": { "route": "/contacts" }
+    },
+    "conversations": {
+      "proto": { "menu": "会话" },
+      "front": { "route": "/conversations" }
+    },
+    "settings": {
+      "proto": { "menu": "设置", "foot": true },
+      "front": { "route": "/settings" }
+    }
+  }
+}

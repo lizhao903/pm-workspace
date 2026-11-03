@@ -1,0 +1,30 @@
+{
+  "id": "im",
+  "name": "IM 消息",
+  "description": "各渠道收进来的消息：收件箱、与我相关、回复、稍后提醒、转任务、附件",
+  "version": "0.1.0",
+  "core": ">=1.0.0 <2.0.0",
+  "depends": {},
+  "optional_depends": { "projects": ">=0.1.0 <1.0.0" },
+  "provides": {
+    "modules": ["messages"],
+    "settings": ["im_channels"],
+    "object_types": [],
+    "connectors": ["slack", "telegram", "lark", "wecom"],
+    "skills": ["sk_im_reply"],
+    "agent_tools": ["im_search_messages", "im_draft_reply", "im_send_reply"],
+    "sop_nodes": ["im_send_message", "im_wait_reply"],
+    "today_cards": ["im_mentions", "im_snoozed_due"],
+    "commands": ["im.open_inbox", "im.reply", "im.to_task"],
+    "search": ["im_messages"]
+  },
+  "emits": ["im.message_received", "im.mention_received", "im.snooze_due"],
+  "subscribes": ["object.status_changed", "contact.identity_merged"],
+  "adopts": {
+    "object_types": [],
+    "routes": []
+  },
+  "permissions": ["network:im", "secrets:im", "fs:write:attachments", "fs:read:attachments"],
+  "migrations": "migrations",
+  "table_prefix": "im_"
+}

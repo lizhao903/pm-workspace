@@ -55,6 +55,7 @@ func List(path string) (*domain.FsListing, error) {
 	out := &domain.FsListing{
 		Path:     dir,
 		Parent:   parentOf(dir, roots),
+		Root:     rootOf(dir, roots),
 		Writable: writable(dir),
 		Entries:  []*domain.FsEntry{},
 	}
@@ -118,21 +119,64 @@ func parentOf(dir string, roots []string) string {
 	return p
 }
 
+// rootOf 返回 dir 所在的最外层根：面包屑要能一路回到 /Volumes，而不是停在某个更里面的根上。
+func rootOf(dir string, roots []string) string {
+	best := ""
+	for _, r := range roots {
+		if within(dir, []string{r}) && (best == "" || len(r) < len(best)) {
+			best = r
+		}
+	}
+	return best
+}
+
+// cand 是一条候选起跳点。
+type cand struct{ label, path string }
+
+// volumesDir 是外接盘的挂载点。做成变量只为测试。
+var volumesDir = "/Volumes"
+
+// volumes 列出 volumesDir 下的分区，只要真实目录：系统盘在这里是一个指回 / 的软链
+// （「Macintosh HD」），列出来点进去就是越界。按当前挂载情况现读，插拔盘后刷新即变。
+func volumes() []cand {
+	items, err := os.ReadDir(volumesDir)
+	if err != nil {
+		return nil
+	}
+	out := []cand{}
+	for _, it := range items {
+		name := it.Name()
+		if strings.HasPrefix(name, ".") || it.Type()&fs.ModeSymlink != 0 || !it.IsDir() {
+			continue
+		}
+		out = append(out, cand{"外挂分区：" + name, filepath.Join(volumesDir, name)})
+	}
+	sort.Slice(out, func(i, j int) bool { return strings.ToLower(out[i].path) < strings.ToLower(out[j].path) })
+	return out
+}
+
 // Shortcuts 返回目录选择器的起跳点，省得用户从主目录一层层点下去。
 // 不存在的目录不返回——列一个点不进去的入口比不列更糟。
 func Shortcuts() []*domain.FsShortcut {
 	home := homeDir()
-	cands := []struct{ label, path string }{
+	cands := []cand{
 		{"主目录", home},
 		{"桌面", filepath.Join(home, "Desktop")},
 		{"文稿", filepath.Join(home, "Documents")},
 		{"下载", filepath.Join(home, "Downloads")},
 		{"当前项目", projectRoot()},
+	}
+	cands = append(cands, volumes()...)
+	cands = append(cands, cand{"/Volumes（全部分区）", volumesDir})
+	for _, r := range extraPaths() {
+		cands = append(cands, cand{"可浏览目录：" + filepath.Base(r), r})
+	}
+	cands = append(cands, []cand{
 		// /tmp 在允许范围内，但根目录不让浏览，没有这条入口用户就只能手打路径才到得了——
 		// 而手打路径正是这套选择器要取消的东西。标签里点明「重启可能清空」：
 		// FsShortcut 只有 Label 和 Path，没有副标题字段，性质只能写进标签。
 		{"临时目录（重启可能清空）", "/tmp"},
-	}
+	}...)
 
 	roots := rootForms()
 	out := []*domain.FsShortcut{}

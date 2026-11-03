@@ -11,11 +11,11 @@ import type {
 
 export type FocusKind = 'inbox' | 'today' | 'week' | 'overdue' | 'stalled' | 'trash'
 // 独立页面：不走对象列表，由 App 直接分发到对应页面组件
-export type PageKind = 'shortcuts' | 'settings'
+export type PageKind = 'shortcuts' | 'settings' | 'artifacts'
 // 设置的二级页面；nav.section 指定打开哪一个
 export type SettingsSection =
   | 'types' | 'categories' | 'tags' | 'stakeholders' | 'priority' | 'link-relation' | 'data' | 'agent'
-export type DrawerTab = 'detail' | 'ai' | 'activity' | 'links'
+export type DrawerTab = 'detail' | 'ai' | 'activity' | 'links' | 'artifacts'
 // 'type' 只在「全部类型」作用域下有意义：跨类型时分类树会把不同类型的同名分类混成一组
 export type GroupBy = 'none' | 'category' | 'status' | 'priority' | 'type'
 

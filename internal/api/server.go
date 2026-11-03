@@ -11,8 +11,22 @@ import (
 	"runtime/debug"
 	"time"
 
+	"github.com/lizhao903/pm-workspace/internal/agent"
+	"github.com/lizhao903/pm-workspace/internal/audit"
+	"github.com/lizhao903/pm-workspace/internal/connector"
+	"github.com/lizhao903/pm-workspace/internal/conversation"
+	"github.com/lizhao903/pm-workspace/internal/events"
+	"github.com/lizhao903/pm-workspace/internal/imident"
+	"github.com/lizhao903/pm-workspace/internal/incident"
+	"github.com/lizhao903/pm-workspace/internal/kb"
+	"github.com/lizhao903/pm-workspace/internal/localdir"
+	"github.com/lizhao903/pm-workspace/internal/notify"
+	"github.com/lizhao903/pm-workspace/internal/plugin"
 	"github.com/lizhao903/pm-workspace/internal/runner"
+	"github.com/lizhao903/pm-workspace/internal/schedule"
 	"github.com/lizhao903/pm-workspace/internal/store"
+	"github.com/lizhao903/pm-workspace/internal/webhook"
+	"github.com/lizhao903/pm-workspace/internal/workspace"
 )
 
 // maxBodyBytes 限制单次请求体，避免手滑把大文件 POST 进来撑爆内存。
@@ -29,6 +43,58 @@ type Options struct {
 	// 测试靠 ClaudeBin 指向一个假的 CLI，不必装真的 claude 也不联网。
 	ClaudeBin  string
 	RunTimeout time.Duration
+
+	// MCPBin / PublicURL 只给「切换到终端」执行用（0048，runterminal.go）：生成接回本工作台的 MCP 配置，
+	// command 是 MCPBin，--api 是 PublicURL。MCPBin 为空或文件不在时发起终端执行回 409。
+	MCPBin    string
+	PublicURL string
+
+	// Vault 是凭证保险箱；为 nil 时 /api/secrets 一律回 500 并说明未配置。
+	Vault SecretVault
+
+	// Plugins 是插件注册表；为 nil 时没有插件路由。必须在 New 之前 Start，路由在 New 时挂上。
+	Plugins *plugin.Registry
+
+	// Audit 是审计日志（CORE-08）；为 nil 时不记，GET /api/audits 回 500。
+	// 删除和 Agent 写操作由 audit.WrapStore 记，这里只给配置类 handler 和查询接口用。
+	Audit *audit.Log
+
+	// Notify 是通知（CORE-07b，0019）；为 nil 时 /api/notifications 回 500。
+	Notify *notify.Center
+	// Stream 是推给前端的事件流，来源是事件总线（Bus.Tap）；为 nil 时 GET /api/events 回 500。
+	Stream *events.Stream
+
+	// Schedules 是定时任务的定义（TASK-03a，0020）；为 nil 时 /api/schedules 回 500。
+	Schedules *schedule.Store
+	// ScheduleRunner 是调度器（TASK-03b），手动执行要用；为 nil 时 POST /api/schedules/{id}/run 回 500。
+	ScheduleRunner *schedule.Runner
+
+	// AgentRuns 是 Agent 的触发和执行记录（AG-01b4，0036）；New 给它接上 Prepare。为 nil 时不自动触发，列表照常读库。
+	AgentRuns *agent.Dispatcher
+
+	// Webhooks 是 Webhook 配置（TASK-02a，0022），密钥在保险箱里；为 nil 时 /api/webhooks 回 500。
+	Webhooks *webhook.Store
+
+	// Workspaces 是工作台配置（CORE-10a，0023）；为 nil 时 /api/workspaces 回 500。
+	Workspaces *workspace.Store
+
+	// LocalDirs 是文档挂载的本机目录（DOC-01a，0025）；为 nil 时 /api/local-dirs 回 500。
+	LocalDirs *localdir.Store
+
+	// Identities 是联系人的 IM 身份（CT-01b，0027）；为 nil 时 /api/im-identities 回 500。
+	Identities *imident.Store
+
+	// Conversations 是 IM 会话（CT-02，0028）；为 nil 时 /api/conversations 回 500。
+	Conversations *conversation.Store
+
+	// Connectors 是连接器的定义和实例（CONN-01a，0029），凭证在保险箱里；为 nil 时 /api/connectors 回 500。
+	Connectors *connector.Store
+
+	// Incidents 是运行异常（INC-01a，0043）；为 nil 时 /api/incidents 回 500。
+	Incidents *incident.Store
+
+	// DataDir 是库文件所在目录（含 vault.key、backups/），读文件和挂载一律不许进去；空串表示不限制。
+	DataDir string
 }
 
 type Server struct {
@@ -39,10 +105,14 @@ type Server struct {
 	// run 持有所有正在跑的 claude 进程，取消要靠它。它必须是 Server 级的单例：
 	// 每次请求新建一个的话，取消接口就找不到别的请求起的那个进程了。
 	run *runner.Runner
+	// kbSync 记知识库正在跑的同步和进度，同一个知识库同时只跑一次；和 run 一样要是 Server 级的
+	kbSync *kb.Tracker
+	// turns 记会话里正在跑的一轮对话，「停止」靠它（agentstop.go）
+	turns activeTurns
 }
 
 func New(st store.Store, opts Options) *Server {
-	s := &Server{st: st, opt: opts, log: opts.Logger}
+	s := &Server{st: st, opt: opts, log: opts.Logger, kbSync: kb.NewTracker()}
 	if s.log == nil {
 		s.log = slog.Default()
 	}
@@ -50,6 +120,10 @@ func New(st store.Store, opts Options) *Server {
 		s.opt.Version = "dev"
 	}
 	s.run = &runner.Runner{Bin: opts.ClaudeBin, Timeout: opts.RunTimeout, Logger: s.log}
+	if opts.AgentRuns != nil {
+		opts.AgentRuns.Prepare = s.agentRunner
+	}
+	s.loadFsRoots()
 	s.h = s.build()
 	return s
 }
@@ -79,7 +153,7 @@ func (s *Server) build() http.Handler {
 		})
 	}
 
-	return s.recoverer(s.logging(limitBody(root)))
+	return s.recoverer(s.logging(limitBody(withActor(root))))
 }
 
 // routes 逐条对应 docs/api-contract.md 的表格，顺序保持一致便于比对。
@@ -93,6 +167,7 @@ func (s *Server) routes(m routeRegistrar) {
 	m.HandleFunc("GET /api/health", s.handleHealth)
 	m.HandleFunc("GET /api/stats", s.handleStats)
 	m.HandleFunc("GET /api/counts", s.handleCounts)
+	m.HandleFunc("GET /api/today", s.handleToday)
 
 	m.HandleFunc("GET /api/object-types", s.handleListObjectTypes)
 	m.HandleFunc("POST /api/object-types", s.handleCreateObjectType)
@@ -114,6 +189,12 @@ func (s *Server) routes(m routeRegistrar) {
 	m.HandleFunc("GET /api/objects/{id}/links", s.handleListLinks)
 	m.HandleFunc("POST /api/objects/{id}/links", s.handleCreateLink)
 	m.HandleFunc("GET /api/objects/{id}/revisions", s.handleObjectRevisions)
+
+	// 开发任务闭环：进展与领取。进展是服务端追加（只插入不更新），
+	// 不走 PATCH body——读出来拼一段再整体写回，两个会话同时写就会丢一段。
+	m.HandleFunc("GET /api/objects/{id}/progress", s.handleListProgress)
+	m.HandleFunc("POST /api/objects/{id}/progress", s.handleAppendProgress)
+	m.HandleFunc("POST /api/objects/{id}/claim", s.handleClaimObject)
 
 	// /api/shortcuts/reorder 必须先于 /api/shortcuts/{id} 注册，否则 reorder 会被当成一个 id。
 	m.HandleFunc("GET /api/shortcuts", s.handleListShortcuts)
@@ -154,6 +235,22 @@ func (s *Server) routes(m routeRegistrar) {
 	m.HandleFunc("POST /api/stakeholders", s.handleCreateStakeholder)
 	m.HandleFunc("PATCH /api/stakeholders/{id}", s.handleUpdateStakeholder)
 	m.HandleFunc("DELETE /api/stakeholders/{id}", s.handleDeleteStakeholder)
+	// 联系人的 IM 身份（CT-01b）：resolve 是字面路径，优先于 {id}
+	m.HandleFunc("GET /api/im-identities", s.handleListIdentities)
+	m.HandleFunc("POST /api/im-identities", s.handleCreateIdentity)
+	m.HandleFunc("GET /api/im-identities/resolve", s.handleResolveIdentity)
+	m.HandleFunc("GET /api/im-identities/{id}", s.handleGetIdentity)
+	m.HandleFunc("PATCH /api/im-identities/{id}", s.handleUpdateIdentity)
+	m.HandleFunc("DELETE /api/im-identities/{id}", s.handleDeleteIdentity)
+	// IM 会话（CT-02）：resolve 是字面路径，优先于 {id}
+	m.HandleFunc("GET /api/conversations", s.handleListConversations)
+	m.HandleFunc("POST /api/conversations", s.handleCreateConversation)
+	m.HandleFunc("GET /api/conversations/resolve", s.handleResolveConversation)
+	m.HandleFunc("GET /api/conversations/{id}", s.handleGetConversation)
+	m.HandleFunc("PATCH /api/conversations/{id}", s.handleUpdateConversation)
+	m.HandleFunc("DELETE /api/conversations/{id}", s.handleDeleteConversation)
+	m.HandleFunc("POST /api/conversations/{id}/members", s.handleAddConversationMember)
+	m.HandleFunc("DELETE /api/conversations/{id}/members/{identity_id}", s.handleRemoveConversationMember)
 
 	// Agent 供应商。{id}/default 和 {id}/test 比 {id} 多一段，
 	// ServeMux 按最具体的模式匹配，不会被 {id} 吃掉；仍按从具体到宽泛的顺序写，便于目视核对。
@@ -173,13 +270,80 @@ func (s *Server) routes(m routeRegistrar) {
 	m.HandleFunc("GET /api/agent/sessions/{id}/artifacts", s.handleListAgentArtifacts)
 	m.HandleFunc("PATCH /api/agent/sessions/{id}", s.handleUpdateAgentSession)
 	m.HandleFunc("DELETE /api/agent/sessions/{id}", s.handleDeleteAgentSession)
+	m.HandleFunc("POST /api/agent/sessions/{id}/stop", s.handleStopAgentSession)
+	m.HandleFunc("GET /api/agent/running", s.handleRunningAgentSessions)
 	m.HandleFunc("POST /api/agent/workdir/check", s.handleCheckWorkdir)
 	m.HandleFunc("POST /api/agent/chat", s.handleAgentChat)
+
+	// Agent 配置（AG-01b1，0032）
+	m.HandleFunc("GET /api/agents", s.handleListAgents)
+	m.HandleFunc("POST /api/agents", s.handleCreateAgent)
+	m.HandleFunc("GET /api/agents/scenarios", s.handleListAgentScenarios)
+	m.HandleFunc("PATCH /api/agents/scenarios", s.handlePatchAgentScenarios)
+	m.HandleFunc("GET /api/agents/{id}", s.handleGetAgent)
+	m.HandleFunc("PATCH /api/agents/{id}", s.handleUpdateAgent)
+	m.HandleFunc("DELETE /api/agents/{id}", s.handleDeleteAgent)
+	m.HandleFunc("GET /api/agents/{id}/impact", s.handleAgentImpact)
+	// Agent 工具授权（AG-02a，0035）
+	m.HandleFunc("GET /api/agents/{id}/grants", s.handleGetAgentGrants)
+	m.HandleFunc("PUT /api/agents/{id}/grants", s.handlePutAgentGrants)
+	m.HandleFunc("POST /api/agent/tool-calls/{id}/confirm", s.handleConfirmToolCall)
+	m.HandleFunc("POST /api/agent/tool-calls/{id}/reject", s.handleRejectToolCall)
+	// Agent 执行记录（AG-01b4，0036）
+	m.HandleFunc("GET /api/agent-runs", s.handleListAgentRuns)
+	m.HandleFunc("GET /api/agent-runs/{id}", s.handleGetAgentRun)
+	// Agent 调试对话（AG-02c）
+	m.HandleFunc("POST /api/agents/debug/chat", s.handleAgentDebugChat)
+	m.HandleFunc("GET /api/skills", s.handleListSkills)
+	m.HandleFunc("POST /api/skills", s.handleCreateSkill)
+	m.HandleFunc("GET /api/skills/{id}", s.handleGetSkill)
+	m.HandleFunc("PATCH /api/skills/{id}", s.handleUpdateSkill)
+	m.HandleFunc("DELETE /api/skills/{id}", s.handleDeleteSkill)
+	m.HandleFunc("GET /api/knowledge-bases", s.handleListKnowledgeBases)
+	m.HandleFunc("POST /api/knowledge-bases", s.handleCreateKnowledgeBase)
+	m.HandleFunc("GET /api/knowledge-bases/{id}", s.handleGetKnowledgeBase)
+	m.HandleFunc("PATCH /api/knowledge-bases/{id}", s.handleUpdateKnowledgeBase)
+	m.HandleFunc("DELETE /api/knowledge-bases/{id}", s.handleDeleteKnowledgeBase)
+	m.HandleFunc("GET /api/knowledge-bases/{id}/docs", s.handleListKbDocs)
+	m.HandleFunc("POST /api/knowledge-bases/{id}/docs", s.handleAddKbDocs)
+	m.HandleFunc("PATCH /api/knowledge-bases/{id}/docs/{doc_id}", s.handleUpdateKbDoc)
+	m.HandleFunc("DELETE /api/knowledge-bases/{id}/docs/{doc_id}", s.handleDeleteKbDoc)
+	m.HandleFunc("GET /api/knowledge-bases/{id}/missing", s.handleKbMissing)
+	m.HandleFunc("POST /api/knowledge-bases/{id}/reindex", s.handleReindexKb)
+	m.HandleFunc("POST /api/knowledge-bases/{id}/sync", s.handleSyncKb)
+	m.HandleFunc("GET /api/knowledge-bases/{id}/sync", s.handleKbSyncProgress)
+	m.HandleFunc("POST /api/knowledge-bases/{id}/search", s.handleSearchKb)
+
+	// 输出产物。/api/artifacts/stats 是字面量，比 /api/artifacts/{id} 更具体，
+	// ServeMux 优先匹配它——不会有 id="stats" 的请求打到 GetArtifact 上。
+	m.HandleFunc("GET /api/artifacts", s.handleListArtifacts)
+	m.HandleFunc("GET /api/artifacts/stats", s.handleArtifactStats)
+	m.HandleFunc("POST /api/artifacts", s.handleCreateArtifact)
+	m.HandleFunc("GET /api/artifacts/{id}", s.handleGetArtifact)
+	m.HandleFunc("PATCH /api/artifacts/{id}", s.handleUpdateArtifact)
+	m.HandleFunc("DELETE /api/artifacts/{id}", s.handleDeleteArtifact)
 
 	// 目录浏览。browse / shortcuts / mkdir 三个都是固定路径，互不遮挡。
 	m.HandleFunc("GET /api/fs/browse", s.handleFsBrowse)
 	m.HandleFunc("GET /api/fs/shortcuts", s.handleFsShortcuts)
 	m.HandleFunc("POST /api/fs/mkdir", s.handleFsMkdir)
+	// 额外可浏览目录（FS-01）：删除用 ?path=，路径带 /
+	m.HandleFunc("GET /api/fs/roots", s.handleListFsRoots)
+	m.HandleFunc("POST /api/fs/roots", s.handleAddFsRoot)
+	m.HandleFunc("DELETE /api/fs/roots", s.handleRemoveFsRoot)
+	// 读文件（DOC-01a）：只读、同一套允许根，越界 403
+	m.HandleFunc("GET /api/fs/read", s.handleFsRead)
+	// 原样读能预览的文件（PDF、图片）、用本机应用打开或在访达中显示（全部文档），边界同 read
+	m.HandleFunc("GET /api/fs/raw", s.handleFsRaw)
+	m.HandleFunc("POST /api/fs/open", s.handleFsOpen)
+
+	// 文档挂载的本机目录。reorder 是字面量，比 {id} 更具体；{id}/files 多一段，不会被吃掉。
+	m.HandleFunc("GET /api/local-dirs", s.handleListLocalDirs)
+	m.HandleFunc("POST /api/local-dirs", s.handleCreateLocalDir)
+	m.HandleFunc("POST /api/local-dirs/reorder", s.handleReorderLocalDirs)
+	m.HandleFunc("PATCH /api/local-dirs/{id}", s.handleUpdateLocalDir)
+	m.HandleFunc("DELETE /api/local-dirs/{id}", s.handleDeleteLocalDir)
+	m.HandleFunc("GET /api/local-dirs/{id}/files", s.handleListLocalDirFiles)
 
 	// 用本机 Claude Code 执行任务。/api/objects/{id}/run 与 .../runs 是两段不同的
 	// 字面量，互不遮挡；/api/runs/{id}/cancel 比 /api/runs/{id} 多一段，
@@ -188,13 +352,89 @@ func (s *Server) routes(m routeRegistrar) {
 	m.HandleFunc("POST /api/objects/{id}/run", s.handleRunObject)
 	m.HandleFunc("GET /api/runs/{id}", s.handleGetTaskRun)
 	m.HandleFunc("POST /api/runs/{id}/cancel", s.handleCancelTaskRun)
+	// 交给 Claude Code 的另一种方式：切换到终端（0048，runterminal.go）
+	m.HandleFunc("GET /api/objects/{id}/run/prompt", s.handleRunPrompt)
+	m.HandleFunc("POST /api/objects/{id}/run/terminal", s.handleRunTerminal)
+	m.HandleFunc("POST /api/runs/{id}/finish", s.handleFinishTaskRun)
 
 	m.HandleFunc("GET /api/revisions", s.handleRecentRevisions)
+
+	// 审计日志：只读，写入点在各处的 handler 和 audit.WrapStore。
+	m.HandleFunc("GET /api/audits", s.handleListAudits)
+
+	// 通知与事件流。read-all 是字面量，和 {id}/read 段数不同，互不遮挡。
+	m.HandleFunc("GET /api/notifications", s.handleListNotifications)
+	m.HandleFunc("POST /api/notifications/read-all", s.handleReadAllNotifications)
+	m.HandleFunc("POST /api/notifications/{id}/read", s.handleReadNotification)
+	m.HandleFunc("GET /api/events", s.handleEvents)
+
+	// 定时任务。preview 是字面量，POST /api/schedules/{id} 没有注册，不会被吃掉。
+	m.HandleFunc("GET /api/schedules", s.handleListSchedules)
+	m.HandleFunc("POST /api/schedules", s.handleCreateSchedule)
+	m.HandleFunc("POST /api/schedules/preview", s.handlePreviewSchedule)
+	m.HandleFunc("GET /api/schedules/{id}", s.handleGetSchedule)
+	m.HandleFunc("PATCH /api/schedules/{id}", s.handleUpdateSchedule)
+	m.HandleFunc("DELETE /api/schedules/{id}", s.handleDeleteSchedule)
+	m.HandleFunc("GET /api/schedules/{id}/runs", s.handleListScheduleRuns)
+	m.HandleFunc("POST /api/schedules/{id}/run", s.handleRunSchedule)
+
+	// 运行异常（INC-01a）。report 是字面量，比 {id} 更具体；{id}/task 多一段，不会被吃掉。
+	m.HandleFunc("GET /api/incidents", s.handleListIncidents)
+	m.HandleFunc("POST /api/incidents/report", s.handleReportIncident)
+	m.HandleFunc("GET /api/incidents/{id}", s.handleGetIncident)
+	m.HandleFunc("PATCH /api/incidents/{id}", s.handleUpdateIncident)
+	m.HandleFunc("POST /api/incidents/{id}/task", s.handleIncidentTask)
+
+	// Webhook 配置。{id}/usage、{id}/rotate-secret 比 {id} 多一段，不会被吃掉。
+	m.HandleFunc("GET /api/webhooks", s.handleListWebhooks)
+	m.HandleFunc("POST /api/webhooks", s.handleCreateWebhook)
+	m.HandleFunc("GET /api/webhooks/{id}", s.handleGetWebhook)
+	m.HandleFunc("PATCH /api/webhooks/{id}", s.handleUpdateWebhook)
+	m.HandleFunc("DELETE /api/webhooks/{id}", s.handleDeleteWebhook)
+	m.HandleFunc("GET /api/webhooks/{id}/usage", s.handleWebhookUsage)
+	m.HandleFunc("POST /api/webhooks/{id}/rotate-secret", s.handleRotateWebhookSecret)
+	// 投递记录和收件地址（TASK-02b）。收件在 /api/hooks 下，和配置分开：它不走前端，只认签名。
+	m.HandleFunc("GET /api/webhooks/{id}/deliveries", s.handleListWebhookDeliveries)
+	m.HandleFunc("POST /api/hooks/{token}", s.handleReceiveHook)
+
+	// 工作台配置。templates 是字面量，比 {id} 更具体，不会被当成 id。
+	m.HandleFunc("GET /api/workspaces", s.handleListWorkspaces)
+	m.HandleFunc("POST /api/workspaces", s.handleCreateWorkspace)
+	m.HandleFunc("GET /api/workspaces/templates", s.handleListWorkspaceTemplates)
+	m.HandleFunc("GET /api/workspaces/{id}", s.handleGetWorkspace)
+	m.HandleFunc("PATCH /api/workspaces/{id}", s.handleUpdateWorkspace)
+	m.HandleFunc("DELETE /api/workspaces/{id}", s.handleDeleteWorkspace)
+
+	// 凭证保险箱。只回脱敏提示，明文没有任何读接口；{id}/rotate 比 {id} 多一段，不会被吃掉。
+	m.HandleFunc("GET /api/secrets", s.handleListSecrets)
+	m.HandleFunc("POST /api/secrets", s.handleCreateSecret)
+	m.HandleFunc("POST /api/secrets/{id}/rotate", s.handleRotateSecret)
+	m.HandleFunc("DELETE /api/secrets/{id}", s.handleDeleteSecret)
+
+	// 连接器。defs 是字面量，比 {id} 更具体；{id}/test、{id}/tools 多一段，不会被吃掉。
+	m.HandleFunc("GET /api/connectors/defs", s.handleListConnectorDefs)
+	m.HandleFunc("GET /api/connectors", s.handleListConnectors)
+	m.HandleFunc("POST /api/connectors", s.handleCreateConnector)
+	m.HandleFunc("GET /api/connectors/{id}", s.handleGetConnector)
+	m.HandleFunc("PATCH /api/connectors/{id}", s.handleUpdateConnector)
+	m.HandleFunc("DELETE /api/connectors/{id}", s.handleDeleteConnector)
+	m.HandleFunc("GET /api/connectors/{id}/impact", s.handleConnectorImpact)
+	m.HandleFunc("POST /api/connectors/{id}/test", s.handleTestConnector)
+	m.HandleFunc("POST /api/connectors/{id}/tools/refresh", s.handleRefreshConnectorTools)
+	m.HandleFunc("PATCH /api/connectors/{id}/tools", s.handleSetConnectorToolModes)
+	// OAuth（CONN-01b）：callback 是字面路径，优先于 {id}
+	m.HandleFunc("GET /api/connectors/oauth/callback", s.handleConnectorOAuthCallback)
+	m.HandleFunc("POST /api/connectors/{id}/oauth/start", s.handleStartConnectorOAuth)
+	m.HandleFunc("POST /api/connectors/{id}/oauth/refresh", s.handleRefreshConnectorOAuth)
+	m.HandleFunc("POST /api/connectors/{id}/disconnect", s.handleDisconnectConnector)
 
 	// 数据与备份。export 直接回文件流，不套 envelope。
 	m.HandleFunc("GET /api/admin/migrations", s.handleMigrations)
 	m.HandleFunc("POST /api/admin/snapshot", s.handleSnapshot)
 	m.HandleFunc("GET /api/admin/export", s.handleExport)
+
+	// 插件路由：/api/<插件 id>/...，停用时回 404（见 plugins.go）。
+	s.pluginRoutes(m)
 }
 
 // --- 中间件 ---
@@ -225,6 +465,9 @@ func (w *statusWriter) Flush() {
 		f.Flush()
 	}
 }
+
+// Unwrap 让 http.ResponseController 和 WebSocket 库拿到底下的 Hijacker（终端插件的 ws，TERM-01a）。
+func (w *statusWriter) Unwrap() http.ResponseWriter { return w.ResponseWriter }
 
 func (s *Server) logging(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -276,7 +519,7 @@ func devCORS(next http.Handler) http.Handler {
 			h.Set("Access-Control-Allow-Origin", "*")
 		}
 		h.Set("Access-Control-Allow-Methods", "GET, POST, PATCH, DELETE, OPTIONS")
-		h.Set("Access-Control-Allow-Headers", "Content-Type, X-Actor-Source")
+		h.Set("Access-Control-Allow-Headers", "Content-Type, X-Actor-Source, X-Actor-Name, X-Actor-Session")
 		h.Set("Access-Control-Max-Age", "600")
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusNoContent)

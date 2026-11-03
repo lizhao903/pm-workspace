@@ -1,0 +1,476 @@
+/* SOP 插件样式，照原型 web-next/src/styles.css 的「SOP」「SOP 流程图」两段；类名一律加 sop- 前缀，免得和别的模块的全局样式撞上 */
+
+/* 外壳的内容区自带内边距，抵掉它，页面内边距照原型 .page */
+.sop-mod { display: flex; flex-direction: column; min-height: calc(100% + 2 * var(--sp-12)); margin: calc(-1 * var(--sp-12)); }
+.sop-mod-fill { height: calc(100% + 2 * var(--sp-12)); min-height: 0; }
+.sop-body { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.sop-page { padding: var(--sp-10) var(--sp-12) var(--sp-16); display: flex; flex-direction: column; gap: var(--sp-6); min-width: 0; }
+.sop-page > .page-title { margin-bottom: var(--sp-1); }
+@media (max-width: 760px) {
+  .sop-page { padding: var(--sp-8) var(--sp-8) 28px; }
+}
+.sop-subnav .subnav-new { display: flex; flex: 1; align-items: center; justify-content: center; gap: 6px; border: 1px dashed var(--line-2); color: var(--muted); font-size: var(--fs-sm); }
+.sop-subnav .subnav-new:hover { color: var(--accent); border-color: var(--accent-line); background: var(--accent-soft); }
+.sop-muted { color: var(--muted); font-size: var(--fs-sm); }
+
+/* ---------- 工具条 ---------- */
+.sop-toolbar { display: flex; align-items: center; gap: var(--sp-4); flex-wrap: wrap; }
+.sop-toolbar .search { flex: 1 1 160px; width: auto; min-width: 160px; max-width: 280px; }
+.sop-seg { display: flex; padding: 2px; border-radius: var(--r-sm); background: var(--hover); max-width: 100%; overflow-x: auto; }
+.sop-seg button { display: flex; align-items: center; gap: 5px; height: 28px; padding: 0 var(--sp-5); border-radius: 4px; color: var(--muted); font-size: var(--fs-sm); white-space: nowrap; }
+.sop-seg button:hover { color: var(--text); }
+.sop-seg button.on { background: var(--panel); color: var(--text); box-shadow: var(--shadow-sm); font-weight: 500; }
+.sop-seg-sm button { height: 24px; padding: 0 var(--sp-4); }
+
+/* ---------- 节点类型标签：颜色照原型 nodetypes.tsx 的 NODE_TYPES ---------- */
+.sop-kind {
+  --c: var(--faint);
+  display: inline-flex; align-items: center; height: 18px; padding: 0 6px; border-radius: 4px; font-size: var(--fs-2xs); font-weight: 500;
+  white-space: nowrap; flex: none;
+  background: color-mix(in srgb, var(--c) 13%, transparent); color: color-mix(in srgb, var(--c) 82%, var(--text));
+}
+.sop-kt-auto, .sop-kt-subflow { --c: #3d4fd6; }
+.sop-kt-ai, .sop-kt-agent { --c: #7a4fd6; }
+.sop-kt-knowledge, .sop-kt-end { --c: #2f7d43; }
+.sop-kt-extract, .sop-kt-template, .sop-kt-aggregate { --c: #0c8599; }
+.sop-kt-code { --c: #495057; }
+.sop-kt-decide, .sop-kt-classifier, .sop-kt-iterate { --c: #0f8a8a; }
+.sop-kt-wait { --c: #868e96; }
+.sop-kt-review { --c: #b0570b; }
+.sop-kt-http, .sop-kt-notify, .sop-kt-task, .sop-kt-doc, .sop-kt-contact { --c: #e8590c; }
+
+/* ---------- 执行表格 ---------- */
+.sop-run-table { border: 1px solid var(--line); border-radius: var(--r-lg); background: var(--panel); overflow: hidden; box-shadow: var(--shadow-sm); container-type: inline-size; }
+.sop-run-row {
+  display: grid; align-items: center; width: 100%; text-align: left;
+  grid-template-columns: minmax(200px, 1.4fr) 100px minmax(180px, 1fr) 90px 80px; gap: 14px;
+  min-height: 56px; padding: 8px 16px; border-bottom: 1px solid var(--line);
+}
+.sop-run-row:last-child { border-bottom: 0; }
+button.sop-run-row:hover { background: var(--panel-2); }
+.sop-run-th { min-height: 36px; background: var(--panel-2); font-size: var(--fs-xs); font-weight: 500; color: var(--faint); }
+.sop-run-name { display: flex; flex-direction: column; min-width: 0; line-height: 1.4; font-weight: 500; }
+.sop-run-sub { font-size: var(--fs-xs); color: var(--faint); font-weight: 400; }
+.sop-run-muted { color: var(--muted); font-size: var(--fs-sm); }
+.sop-run-progress { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+.sop-run-progress-text { font-size: var(--fs-xs); color: var(--muted); }
+.sop-steps-bar { display: flex; gap: 3px; }
+.sop-steps-bar span { flex: 1; height: 5px; border-radius: 3px; background: var(--line); }
+.sop-steps-bar .seg-done { background: var(--ok); }
+.sop-steps-bar .seg-skipped { background: var(--line-2); }
+.sop-steps-bar .seg-running { background: var(--accent); animation: sop-pulse 1.2s ease-in-out infinite; }
+.sop-steps-bar .seg-paused, .sop-steps-bar .seg-review { background: var(--warn); }
+.sop-steps-bar .seg-failed { background: var(--danger); }
+@keyframes sop-pulse { 50% { opacity: 0.45; } }
+@container (max-width: 700px) {
+  .sop-run-row { grid-template-columns: minmax(140px, 1fr) 96px minmax(110px, 0.8fr); }
+  .sop-run-row > :nth-child(4), .sop-run-row > :nth-child(5) { display: none; }
+}
+@container (max-width: 440px) {
+  .sop-run-row { grid-template-columns: minmax(0, 1fr) 96px; }
+  .sop-run-row > :nth-child(3) { display: none; }
+}
+
+/* ---------- 失败执行批量重跑：勾选框、底部批量条（照 IM 消息页 .im-bulk）、确认框、结果提示 ---------- */
+.sop-run-pick { display: flex; align-items: center; border-bottom: 1px solid var(--line); }
+.sop-run-pick:last-child { border-bottom: 0; }
+.sop-run-pick > .sop-run-row { flex: 1; min-width: 0; border-bottom: 0; padding-left: 10px; }
+.sop-run-pick.picked { background: var(--accent-soft); }
+.sop-run-pick-th { background: var(--panel-2); }
+/* 失败行右边的「重试」、已重跑行的「新执行」：有这两种行时每行都留这一格，列对齐 */
+.sop-run-act { flex: 0 0 76px; display: flex; justify-content: center; padding-right: 12px; }
+.sop-run-nopick > .sop-run-row { padding-left: 16px; }
+.sop-pick { flex: none; width: 16px; height: 16px; margin: 0 0 0 16px; accent-color: var(--accent); cursor: pointer; }
+.sop-bulk {
+  position: sticky; bottom: var(--sp-4); z-index: 2; display: flex; align-items: center; flex-wrap: wrap; gap: var(--sp-3);
+  padding: 10px 14px; border: 1px solid var(--line); border-radius: var(--r-lg); background: var(--panel); box-shadow: var(--shadow);
+}
+.sop-bulk-n { font-size: var(--fs-sm); font-weight: 600; }
+.sop-bulk-hint { font-size: var(--fs-xs); color: var(--muted); }
+.sop-rerun { display: flex; flex-direction: column; gap: 10px; }
+.sop-rerun-opts { display: flex; flex-direction: column; gap: 8px; }
+.sop-rerun-opt { display: flex; align-items: flex-start; gap: 10px; padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--r); cursor: pointer; line-height: 1.5; }
+.sop-rerun-opt.on { border-color: var(--accent-line); background: var(--accent-soft); }
+.sop-rerun-opt input { flex: none; margin: 4px 0 0; accent-color: var(--accent); }
+.sop-rerun-opt b { display: block; font-weight: 600; }
+.sop-rerun-desc { display: block; font-size: var(--fs-sm); color: var(--muted); }
+.sop-rerun-hint { font-size: var(--fs-sm); color: var(--muted); line-height: 1.6; }
+.sop-rerun .sop-rerun-err { margin: 0; }
+.sop-rerun-note { display: flex; align-items: center; gap: var(--sp-3); padding: 8px 12px; border-radius: var(--r); background: var(--accent-soft); font-size: var(--fs-sm); line-height: 1.6; }
+.sop-rerun-note > span { flex: 1; min-width: 0; }
+.sop-run-origin { color: var(--accent); }
+.sop-run-origin:hover { text-decoration: underline; }
+.sop-rerun-note.bad { background: var(--warn-soft); }
+
+/* ---------- 流程库 ---------- */
+.sop-lib-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px; }
+.sop-lib-card { display: flex; flex-direction: column; gap: 6px; min-width: 0; padding: 14px 16px; border: 1px solid var(--line); border-radius: var(--r-lg); background: var(--panel); box-shadow: var(--shadow-sm); text-align: left; }
+.sop-lib-card:hover { border-color: var(--accent-line); }
+.sop-lib-head { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.sop-lib-name { flex: 1; min-width: 0; font-weight: 600; }
+.sop-lib-pending { flex: none; height: 18px; padding: 0 6px; border-radius: 4px; font-size: var(--fs-2xs); line-height: 18px; color: var(--warn); background: var(--warn-soft); white-space: nowrap; }
+/* 要当前工作台没开的模块的流程（SPEC-sop-2.11） */
+.sop-lib-need { flex: none; height: 18px; padding: 0 6px; border-radius: 4px; font-size: var(--fs-2xs); line-height: 18px; color: var(--muted); background: var(--panel-2); border: 1px solid var(--line); white-space: nowrap; }
+.sop-lib-card.elsewhere .sop-lib-name { color: var(--muted); }
+.sop-need-text { color: var(--warn); }
+.sop-lib-desc { font-size: var(--fs-sm); color: var(--muted); line-height: 1.5; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
+.sop-lib-meta { display: flex; flex-wrap: wrap; gap: 2px 12px; font-size: var(--fs-xs); color: var(--faint); }
+
+/* ---------- 流程详情 ---------- */
+.sop-facts { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: var(--fs-sm); color: var(--faint); }
+.sop-section-label { margin: 14px 0 -4px; font-size: var(--fs-xs); color: var(--faint); font-weight: 500; display: flex; align-items: baseline; gap: 8px; }
+.sop-section-hint { font-weight: 400; }
+.sop-fields { display: flex; flex-wrap: wrap; gap: 6px; }
+/* 删除确认条：窄屏换行，按钮始终可见 */
+.sop-confirm { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; padding: 10px 14px; border-radius: var(--r); border: 1px solid color-mix(in srgb, var(--danger) 25%, transparent); background: var(--danger-soft); }
+.sop-confirm .danger-text { min-width: 0; flex: 1 1 260px; overflow-wrap: anywhere; }
+
+/* ---------- 发起执行抽屉 ---------- */
+.sop-start-title { font-size: var(--fs-xl); margin: 0 0 4px; }
+.sop-field-group { display: flex; flex-direction: column; gap: 4px; }
+.sop-check-lg { font-size: var(--fs); color: var(--text); font-weight: 500; }
+.sop-mini-flow { margin: 0; padding-left: 1.4em; display: flex; flex-direction: column; gap: 6px; color: var(--muted); }
+.sop-mini-flow li { display: list-item; }
+.sop-mini-flow li .sop-kind { margin-left: 6px; vertical-align: 1px; }
+
+/* ---------- 流程图 ---------- */
+.sop-flow-card { border: 1px solid var(--line); border-radius: var(--r-lg); background: var(--panel-2); overflow: hidden; }
+.sop-flow-scroll { overflow-x: auto; padding: 4px 8px; }
+.sop-flow { position: relative; margin: 0 auto; }
+.sop-flow-edges { position: absolute; inset: 0; overflow: visible; }
+.sop-edge { fill: none; stroke: var(--line-2); stroke-width: 1.5; }
+.sop-edge-on { stroke: color-mix(in srgb, var(--ok) 70%, var(--line-2)); stroke-width: 2; }
+.sop-edge-off { stroke-dasharray: 4 4; opacity: 0.55; }
+.sop-arr { fill: var(--line-2); }
+.sop-arr-on { fill: color-mix(in srgb, var(--ok) 70%, var(--line-2)); }
+.sop-edge-label {
+  --c: #0f8a8a;
+  position: absolute; transform: translate(-50%, -50%); z-index: 1;
+  padding: 1px 7px; border-radius: 9px; font-size: var(--fs-2xs); white-space: nowrap;
+  background: var(--panel); border: 1px solid color-mix(in srgb, var(--c) 35%, var(--line)); color: color-mix(in srgb, var(--c) 85%, var(--text));
+}
+.sop-edge-label.off { opacity: 0.5; text-decoration: line-through; }
+.sop-flow-par { position: absolute; font-size: var(--fs-2xs); color: var(--faint); font-weight: 500; }
+.sop-fnode {
+  position: absolute; z-index: 2; display: flex; flex-direction: column; justify-content: center; gap: 3px;
+  padding: 7px 10px; border-radius: var(--r); text-align: left;
+  background: var(--panel); border: 1px solid var(--line); box-shadow: var(--shadow-sm);
+}
+.sop-fnode > * { flex: none; }
+.sop-fnode:not(.static):hover { border-color: var(--line-2); }
+.sop-fnode.static { cursor: default; }
+.sop-fnode.sel { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft), var(--shadow-sm); }
+.sop-fnode.fk-decide, .sop-fnode.fk-classifier { border-left: 3px solid color-mix(in srgb, #0f8a8a 60%, var(--line)); }
+.sop-fnode.fk-review { border-left: 3px solid color-mix(in srgb, var(--warn) 55%, var(--line)); }
+.sop-fnode-top { display: flex; align-items: center; gap: 5px; }
+.sop-fnode-join { font-size: var(--fs-2xs); color: var(--faint); }
+.sop-fnode-name { font-weight: 500; font-size: var(--fs); line-height: 1.4; }
+.sop-fnode-st { display: flex; align-items: center; gap: 5px; font-size: var(--fs-xs); color: var(--faint); min-height: 16px; }
+.sop-fnode-st.fst-running { color: var(--accent); }
+.sop-fnode-st.fst-running.fst-queued { color: var(--muted); }
+.sop-fnode-st.fst-paused, .sop-fnode-st.fst-review { color: var(--warn); font-weight: 500; }
+.sop-fnode-st.fst-failed { color: var(--danger); font-weight: 500; }
+.sop-fnode-st.fst-done { color: var(--ok); }
+.sop-fnode.fn-done { background: color-mix(in srgb, var(--ok) 5%, var(--panel)); }
+.sop-fnode.fn-paused, .sop-fnode.fn-review { border-color: color-mix(in srgb, var(--warn) 55%, var(--line)); background: var(--warn-soft); }
+.sop-fnode.fn-failed { border-color: color-mix(in srgb, var(--danger) 55%, var(--line)); background: var(--danger-soft); }
+.sop-fnode.fn-running { border-color: var(--accent-line); }
+.sop-fnode.fn-bypassed, .sop-fnode.fn-pending { box-shadow: none; }
+.sop-fnode.fn-bypassed { border-style: dashed; background: var(--panel-2); color: var(--faint); }
+.sop-fnode.fn-bypassed .sop-fnode-name, .sop-fnode.fn-bypassed .sop-kind { opacity: 0.55; }
+.sop-fnode.fn-skipped { border-style: dashed; }
+.sop-fnode.sel.fn-paused, .sop-fnode.sel.fn-review, .sop-fnode.sel.fn-failed { border-color: var(--accent); }
+:root[data-theme='dark'] .sop-fnode.fn-paused, :root[data-theme='dark'] .sop-fnode.fn-review { background: color-mix(in srgb, var(--warn) 14%, var(--panel)); }
+:root[data-theme='dark'] .sop-fnode.fn-failed { background: color-mix(in srgb, var(--danger) 14%, var(--panel)); }
+.sop-edited-dot { font-size: 10px; padding: 0 4px; border-radius: 3px; border: 1px solid var(--line-2); color: var(--muted); margin-left: auto; }
+.sop-spinner-xs { width: 9px; height: 9px; border-width: 1.5px; }
+.sop-flow-legend { display: flex; flex-wrap: wrap; gap: 4px 16px; font-size: var(--fs-xs); color: var(--faint); margin-top: -4px; }
+
+/* ---------- 运行页：上面流程图，下面这一步的输入输出 ---------- */
+.sop-run-view { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+.sop-run-head { display: flex; align-items: flex-start; gap: 12px; padding: 14px 24px; border-bottom: 1px solid var(--line); flex: none; }
+.sop-run-back { flex: none; }
+.sop-run-head-text { flex: 1; min-width: 0; }
+.sop-run-head-text .page-title { row-gap: 6px; }
+.sop-run-head-meta { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 12px; margin-top: 4px; font-size: var(--fs-sm); color: var(--faint); }
+.sop-run-head-warn { color: var(--warn); font-weight: 500; }
+.sop-act-error { flex: none; margin: 10px 24px 0; padding: 8px 12px; border-radius: var(--r); background: var(--danger-soft); color: color-mix(in srgb, var(--danger) 75%, var(--text)); font-size: var(--fs-sm); }
+.sop-run-flow { flex: none; max-height: 44vh; overflow: auto; border-bottom: 1px solid var(--line); background: var(--panel-2); }
+.sop-inspector { flex: 1; display: flex; flex-direction: column; min-height: 0; min-width: 0; overflow-y: auto; padding: 20px 28px 28px; gap: 14px; }
+.sop-inspector > * { flex: none; }
+.sop-insp-title { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.sop-insp-title h2 { font-size: var(--fs-xl); margin: 0; }
+.sop-insp-n { font-size: var(--fs-xs); color: var(--faint); }
+.sop-insp-desc { margin-top: 4px; color: var(--muted); font-size: var(--fs-sm); }
+.sop-edited-tag { font-size: var(--fs-xs); padding: 1px 7px; border-radius: 4px; border: 1px dashed var(--line-2); color: var(--muted); }
+.sop-banner { display: flex; flex-direction: column; gap: 10px; padding: 12px 14px; border-radius: var(--r); font-size: var(--fs); line-height: 1.6; }
+.sop-banner b { margin-right: 8px; }
+.sop-banner.warn { background: var(--warn-soft); color: color-mix(in srgb, var(--warn) 70%, var(--text)); border: 1px solid color-mix(in srgb, var(--warn) 25%, transparent); }
+.sop-banner.danger { background: var(--danger-soft); color: color-mix(in srgb, var(--danger) 75%, var(--text)); border: 1px solid color-mix(in srgb, var(--danger) 25%, transparent); }
+.sop-banner.info { flex-direction: row; flex-wrap: wrap; align-items: center; gap: 8px; background: var(--accent-soft); color: var(--accent); }
+.sop-banner.muted { background: var(--hover); color: var(--muted); }
+.sop-act-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.sop-banner-note { font-size: var(--fs-sm); }
+.sop-run-bar { flex-basis: 100%; height: 4px; border-radius: 2px; background: color-mix(in srgb, var(--accent) 18%, transparent); overflow: hidden; }
+.sop-run-bar span { display: block; height: 100%; background: var(--accent); transition: width 0.25s linear; }
+.sop-insp-route {
+  --c: #0f8a8a;
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; padding: 10px 14px; border-radius: var(--r); font-weight: 500;
+  background: color-mix(in srgb, var(--c) 9%, transparent); color: color-mix(in srgb, var(--c) 85%, var(--text));
+}
+.sop-insp-route-k { font-size: var(--fs-xs); font-weight: 600; opacity: 0.8; }
+.sop-insp-route-why { font-weight: 400; font-size: var(--fs-sm); color: var(--muted); }
+.sop-insp-tabs { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
+.sop-insp-note { font-size: var(--fs-xs); color: var(--faint); }
+.sop-insp-body { border: 1px solid var(--line); border-radius: var(--r); background: var(--panel); min-height: 160px; }
+.sop-io-fields { margin: 0; }
+.sop-io-field { display: grid; grid-template-columns: 140px minmax(0, 1fr); gap: 12px; padding: 10px 14px; border-bottom: 1px solid var(--line); }
+.sop-io-field:last-child { border-bottom: 0; }
+.sop-io-field dt { font: 12px var(--mono); color: var(--muted); padding-top: 2px; overflow-wrap: anywhere; }
+.sop-io-field dd { margin: 0; min-width: 0; }
+.sop-io-text { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.6; }
+.sop-io-json { margin: 0; font: 12px/1.6 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; color: var(--text); }
+.sop-io-json-full { padding: 14px; }
+.sop-io-empty { padding: 28px 14px; text-align: center; color: var(--faint); font-size: var(--fs-sm); }
+.sop-io-field .sop-io-empty { padding: 0; text-align: left; }
+.sop-io-log { list-style: none; margin: 0; padding: 8px 0; }
+.sop-io-log li { display: flex; gap: 12px; padding: 5px 14px; font-size: var(--fs-sm); }
+.sop-io-log time { font: 12px var(--mono); color: var(--faint); flex: none; }
+.sop-io-edit { display: flex; flex-direction: column; gap: 6px; padding: 10px; }
+.sop-io-edit textarea { min-height: 260px; resize: vertical; padding: 10px 12px; border: 1px solid var(--accent-line); border-radius: var(--r-sm); background: var(--panel-2); color: var(--text); font: 12.5px/1.6 var(--mono); outline: 0; }
+.sop-insp-foot { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: var(--fs-xs); color: var(--faint); }
+
+@media (max-width: 1100px) {
+  .sop-inspector { padding: 18px 20px 24px; }
+}
+@media (max-width: 760px) {
+  .sop-run-head { flex-wrap: wrap; padding: 12px 16px; }
+  .sop-act-error { margin: 10px 16px 0; }
+  .sop-inspector { padding: 16px; }
+  .sop-io-field { grid-template-columns: minmax(0, 1fr); gap: 4px; }
+}
+
+/* ---------- 编排页（SOP-04c）：照原型 styles.css 的「SOP 编排画布」「AI 协助」两段 ---------- */
+.sop-editor { flex: 1; display: grid; grid-template-columns: minmax(0, 1fr); min-height: 0; position: relative; }
+.sop-editor.with-ai { grid-template-columns: 340px minmax(0, 1fr); }
+.sop-editor.with-panel { grid-template-columns: minmax(0, 1fr) 380px; }
+.sop-editor.with-ai.with-panel { grid-template-columns: 340px minmax(0, 1fr) 380px; }
+.sop-canvas {
+  /* clip 而不是 hidden：hidden 的容器会被浏览器滚动去露出边缘的节点，浮层跟着错位 */
+  position: relative; overflow: clip; min-width: 0; min-height: 0; touch-action: none; cursor: grab; user-select: none;
+  container-type: size;
+  background-color: var(--bg);
+  background-image: radial-gradient(circle, color-mix(in srgb, var(--line-2) 90%, transparent) 1px, transparent 1.2px);
+}
+.sop-canvas.panning { cursor: grabbing; }
+.sop-cv-world { position: absolute; left: 0; top: 0; transform-origin: 0 0; }
+.sop-cv-edges { position: absolute; left: 0; top: 0; width: 1px; height: 1px; overflow: visible; }
+.sop-cv-edge { fill: none; stroke: var(--line-2); stroke-width: 2; }
+.sop-cv-edge.branch { stroke: color-mix(in srgb, #0f8a8a 55%, var(--line-2)); }
+.sop-cv-edge.on { stroke: var(--accent); }
+.sop-cv-edge.dashed { stroke-dasharray: 5 5; }
+.sop-edge-hit { fill: none; stroke: transparent; stroke-width: 14; cursor: pointer; pointer-events: stroke; }
+.sop-edge-del { position: absolute; transform: translate(-50%, -50%); padding: 2px 8px; border-radius: 10px; font-size: var(--fs-2xs); background: var(--danger); color: #fff; box-shadow: var(--shadow-sm); z-index: 3; }
+.sop-cv-node { position: absolute; z-index: 2; border-radius: 12px; background: var(--panel); border: 1.5px solid var(--line); box-shadow: var(--shadow-sm); cursor: default; }
+.sop-cv-node:hover { border-color: var(--line-2); }
+.sop-cv-node:focus-visible { outline: 2px solid var(--accent-line); outline-offset: 2px; }
+.sop-cv-node.sel { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft), var(--shadow); }
+.sop-cv-node.bad { border-color: color-mix(in srgb, var(--danger) 60%, var(--line)); }
+.sop-cv-node-head { display: flex; align-items: center; gap: 8px; height: 44px; padding: 0 12px; cursor: move; }
+.sop-cv-node-name { font-weight: 600; font-size: var(--fs); flex: 1; min-width: 0; }
+.sop-cv-node-kind { font-size: var(--fs-2xs); color: var(--faint); white-space: nowrap; }
+.sop-cv-desc { margin: 0 10px 10px; padding: 6px 8px; border-radius: 6px; background: var(--panel-2); font-size: var(--fs-xs); color: var(--muted); }
+.sop-cv-desc .faint { color: var(--faint); }
+.sop-cv-fields { display: flex; flex-direction: column; gap: 4px; padding: 0 10px 10px; }
+.sop-cv-field { display: flex; align-items: center; gap: 6px; height: 22px; padding: 0 8px; border-radius: 5px; background: var(--panel-2); font-size: var(--fs-xs); color: var(--muted); }
+.sop-cv-field .mono { font-family: var(--mono); color: var(--accent); font-size: var(--fs-2xs); }
+.sop-cv-field em { color: var(--danger); font-style: normal; }
+.sop-cv-cases { display: flex; flex-direction: column; gap: 4px; padding: 0 10px 10px; }
+.sop-cv-case { position: relative; display: flex; align-items: center; height: 26px; padding: 0 8px; border-radius: 6px; background: color-mix(in srgb, #0f8a8a 8%, var(--panel-2)); font-size: var(--fs-xs); font-weight: 600; color: color-mix(in srgb, #0f8a8a 80%, var(--text)); }
+.sop-cv-rule { font-size: var(--fs-2xs); color: var(--faint); padding: 2px 2px 0; }
+.sop-cv-warn { width: 16px; height: 16px; border-radius: 50%; display: grid; place-items: center; background: var(--warn); color: #fff; font-size: var(--fs-2xs); font-weight: 700; flex: none; }
+.sop-cv-node.bad .sop-cv-warn { background: var(--danger); }
+.sop-cv-in { position: absolute; left: -5px; top: 25px; width: 10px; height: 10px; border-radius: 50%; background: var(--panel); border: 2px solid var(--line-2); }
+.sop-cv-handle {
+  position: absolute; right: -10px; top: 20px; width: 20px; height: 20px; border-radius: 50%;
+  display: grid; place-items: center; font-size: 14px; line-height: 1; font-weight: 600;
+  background: var(--accent); color: #fff; cursor: crosshair; opacity: 0; transition: opacity 0.12s, transform 0.12s; z-index: 3;
+}
+.sop-cv-handle-case { right: -19px; top: 3px; }
+.sop-cv-node:hover .sop-cv-handle, .sop-cv-node.sel .sop-cv-handle, .sop-cv-node:focus-within .sop-cv-handle { opacity: 1; }
+.sop-cv-handle:hover { transform: scale(1.15); }
+.sop-kind-icon { display: inline-grid; place-items: center; border-radius: 7px; color: #fff; flex: none; }
+
+.sop-cv-ui { position: absolute; z-index: 10; cursor: default; }
+.sop-cv-top-left { top: 12px; left: 12px; display: flex; align-items: center; gap: 6px; padding: 4px 10px 4px 4px; border-radius: var(--r); background: var(--panel); border: 1px solid var(--line); box-shadow: var(--shadow-sm); max-width: calc(100% - 460px); min-width: 220px; }
+.sop-cv-title { border: 0; outline: 0; background: none; font-size: var(--fs-md); font-weight: 600; color: var(--text); min-width: 80px; width: 220px; flex: 1; }
+.sop-cv-title.bad::placeholder { color: var(--danger); }
+.sop-cv-status { font-size: var(--fs-2xs); color: var(--faint); white-space: nowrap; }
+.sop-cv-top-right { top: 12px; right: 12px; display: flex; align-items: center; gap: 6px; }
+.sop-cv-top-right .btn { background: var(--panel); }
+.sop-cv-top-right .btn-primary { background: var(--accent); }
+.sop-cv-top-right .sop-btn-danger { border-color: color-mix(in srgb, var(--danger) 40%, var(--line)); color: var(--danger); background: var(--danger-soft); }
+.sop-cv-top-right .sop-btn-warn { border-color: color-mix(in srgb, var(--warn) 40%, var(--line)); color: var(--warn); background: var(--warn-soft); }
+.sop-menu-wrap { position: relative; }
+.sop-cv-issues { width: 340px; max-height: 360px; overflow-y: auto; }
+.sop-cv-issue { height: auto; min-height: 32px; padding: 6px 10px; white-space: normal; text-align: left; line-height: 1.5; font-size: var(--fs-sm); align-items: flex-start; }
+.sop-cv-issue.issue-error { font-weight: 500; }
+.sop-issue-dot { width: 7px; height: 7px; border-radius: 50%; margin-top: 6px; flex: none; }
+.sop-issue-dot.dot-error { background: var(--danger); }
+.sop-issue-dot.dot-warn { background: var(--warn); }
+.sop-cv-error { top: 60px; right: 12px; max-width: 420px; padding: 8px 12px; border-radius: var(--r); background: var(--danger-soft); color: color-mix(in srgb, var(--danger) 75%, var(--text)); font-size: var(--fs-sm); border: 1px solid color-mix(in srgb, var(--danger) 25%, transparent); }
+.sop-cv-tools { left: 12px; top: 50%; transform: translateY(-50%); display: flex; flex-direction: column; gap: 2px; padding: 4px; border-radius: var(--r); background: var(--panel); border: 1px solid var(--line); box-shadow: var(--shadow-sm); }
+.sop-cv-bottom-left { left: 12px; bottom: 12px; display: flex; align-items: center; gap: 2px; padding: 4px; border-radius: var(--r); background: var(--panel); border: 1px solid var(--line); box-shadow: var(--shadow-sm); }
+.sop-cv-hint { font-size: var(--fs-2xs); color: var(--faint); padding: 0 8px; white-space: nowrap; }
+.sop-cv-bottom-right { right: 12px; bottom: 12px; display: flex; align-items: center; gap: 2px; padding: 4px; border-radius: var(--r); background: var(--panel); border: 1px solid var(--line); box-shadow: var(--shadow-sm); }
+.sop-cv-zoom { min-width: 48px; font-size: var(--fs-xs); color: var(--muted); font-variant-numeric: tabular-nums; }
+.sop-cv-empty { left: 50%; top: 58%; transform: translate(-50%, 0); display: flex; flex-direction: column; align-items: center; gap: 6px; text-align: center; }
+.sop-cv-toast { left: 50%; top: 64px; transform: translateX(-50%); padding: 7px 14px; border-radius: 16px; background: var(--text); color: var(--bg); font-size: var(--fs-sm); box-shadow: var(--shadow); }
+
+/* 节点选择器 */
+.sop-palette { position: fixed; z-index: 60; width: 288px; display: flex; flex-direction: column; gap: 6px; padding: 8px; border-radius: var(--r-lg); background: var(--panel); border: 1px solid var(--line); box-shadow: var(--shadow-lg); }
+.sop-palette .search { width: 100%; }
+.sop-palette-list { max-height: 360px; overflow-y: auto; }
+.sop-palette-group { padding: 8px 8px 4px; font-size: var(--fs-2xs); font-weight: 600; color: var(--faint); }
+.sop-palette-item { display: flex; align-items: center; gap: 10px; width: 100%; padding: 6px 8px; border-radius: var(--r-sm); text-align: left; }
+.sop-palette-item:hover { background: var(--hover); }
+.sop-palette-text { display: flex; flex-direction: column; min-width: 0; line-height: 1.35; font-weight: 500; }
+.sop-palette-desc { font-size: var(--fs-2xs); color: var(--faint); font-weight: 400; }
+.sop-palette-tip { padding: 6px 8px 2px; border-top: 1px solid var(--line); font-size: var(--fs-2xs); color: var(--faint); line-height: 1.5; }
+
+/* 属性面板 */
+.sop-node-panel { display: flex; flex-direction: column; min-height: 0; min-width: 0; border-left: 1px solid var(--line); background: var(--panel); }
+.sop-np-head { display: flex; align-items: center; gap: 10px; padding: 14px 12px 10px 16px; flex: none; }
+.sop-np-title { flex: 1; min-width: 0; }
+.sop-np-name { width: 100%; border: 0; outline: 0; background: none; font-size: var(--fs-lg); font-weight: 600; color: var(--text); padding: 2px 0; border-bottom: 1px dashed transparent; }
+.sop-np-name:focus { border-bottom-color: var(--line-2); }
+.sop-np-name-static { font-size: var(--fs-lg); font-weight: 600; }
+.sop-np-del:hover:not(:disabled) { color: var(--danger); background: var(--danger-soft); }
+.sop-np-tabs { display: flex; gap: 18px; padding: 0 16px; border-bottom: 1px solid var(--line); flex: none; }
+.sop-np-tabs button { height: 34px; font-size: var(--fs); color: var(--muted); border-bottom: 2px solid transparent; margin-bottom: -1px; }
+.sop-np-tabs button.on { color: var(--text); font-weight: 600; border-bottom-color: var(--accent); }
+.sop-np-body { flex: 1; min-height: 0; overflow-y: auto; padding: 16px; }
+.sop-np-body.form { gap: 16px; }
+.sop-field-hint { font-weight: 400; color: var(--faint); font-size: var(--fs-xs); margin-left: 8px; }
+.sop-code-input { font: 12.5px/1.6 var(--mono); }
+.sop-chips { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.sop-chip { display: inline-flex; align-items: center; gap: 5px; height: 28px; padding: 0 10px; border-radius: 14px; border: 1px solid var(--line); font-size: var(--fs-sm); color: var(--muted); cursor: pointer; white-space: nowrap; }
+.sop-chip input { accent-color: var(--accent); margin: 0; }
+.sop-chip.on { border-color: var(--accent-line); background: var(--accent-soft); color: var(--accent); }
+.sop-case-list { display: flex; flex-direction: column; gap: 6px; }
+.sop-case-row { display: flex; align-items: center; gap: 8px; }
+.sop-case-row .input { flex: 1; }
+.sop-case-count { font-size: var(--fs-xs); color: var(--faint); white-space: nowrap; }
+.sop-case-add { align-self: flex-start; border: 1px dashed var(--line-2); }
+.sop-field-list { display: flex; flex-direction: column; gap: 8px; }
+.sop-field-item { display: flex; flex-direction: column; gap: 6px; }
+.sop-field-line { display: flex; align-items: center; gap: 8px; }
+.sop-field-line .input { flex: 1; min-width: 0; }
+.sop-field-line .select { width: 76px; flex: none; }
+.sop-field-opts { display: flex; flex-direction: column; gap: 6px; margin-left: 14px; padding-left: 10px; border-left: 2px solid var(--line); }
+.sop-field-opt { display: flex; align-items: center; gap: 6px; }
+.sop-field-opt .input { flex: 1; min-width: 0; height: 30px; }
+.sop-np-links { display: flex; flex-direction: column; gap: 6px; }
+.sop-np-link { display: flex; align-items: center; border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--panel-2); }
+.sop-np-link > button:first-child { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0; padding: 6px 8px; text-align: left; font-size: var(--fs-sm); }
+.sop-np-link-x:hover:not(:disabled) { color: var(--danger); background: var(--danger-soft); }
+.sop-np-add { display: flex; align-items: center; gap: 6px; padding: 7px 10px; border-radius: var(--r-sm); border: 1px dashed var(--line-2); color: var(--muted); font-size: var(--fs-sm); }
+.sop-np-add:hover { color: var(--accent); border-color: var(--accent-line); background: var(--accent-soft); }
+.sop-np-last { display: flex; flex-direction: column; gap: 8px; }
+.sop-np-last-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.sop-np-last .sop-section-label { margin: 6px 0 0; }
+.sop-np-last .sop-insp-body { min-height: 0; }
+
+/* AI 协助 */
+.sop-ai-panel[hidden] { display: none !important; }
+.sop-ai-panel { display: flex; flex-direction: column; min-height: 0; min-width: 0; border-right: 1px solid var(--line); background: var(--panel-2); }
+.sop-ai-head { display: flex; align-items: center; gap: 8px; height: 53px; padding: 0 12px 0 16px; border-bottom: 1px solid var(--line); flex: none; }
+.sop-ai-mark { display: inline-grid; place-items: center; width: 22px; height: 22px; border-radius: 6px; font-size: 10.5px; font-weight: 700; color: #fff; background: linear-gradient(135deg, #7a4fd6, #3d4fd6); flex: none; }
+.sop-ai-mark-sm { width: 18px; height: 18px; font-size: 9.5px; border-radius: 5px; }
+.sop-ai-open { display: inline-flex; align-items: center; gap: 6px; }
+.sop-ai-title { font-weight: 600; }
+.sop-ai-msgs { flex: 1; min-height: 0; overflow-y: auto; padding: 14px 14px 6px; display: flex; flex-direction: column; gap: 10px; }
+.sop-ai-msg { display: flex; }
+.sop-ai-user { justify-content: flex-end; }
+.sop-ai-bubble { max-width: 92%; padding: 9px 12px; border-radius: 12px; line-height: 1.6; font-size: var(--fs); overflow-wrap: anywhere; }
+.sop-ai-ai .sop-ai-bubble { background: var(--panel); border: 1px solid var(--line); border-top-left-radius: 4px; }
+.sop-ai-user .sop-ai-bubble { background: var(--accent); color: var(--accent-ink); border-top-right-radius: 4px; white-space: pre-wrap; }
+.sop-ai-ai .sop-ai-bubble.sop-ai-error { border-color: color-mix(in srgb, var(--danger) 30%, var(--line)); color: color-mix(in srgb, var(--danger) 75%, var(--text)); }
+.sop-ai-notes { margin: 6px 0 0; padding-left: 1.1em; color: var(--muted); font-size: var(--fs-sm); }
+.sop-ai-proposal { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--line); display: flex; flex-direction: column; gap: 8px; }
+.sop-ai-proposal.undone .sop-ai-steps { opacity: 0.5; }
+.sop-ai-steps { margin: 0; padding-left: 1.4em; display: flex; flex-direction: column; gap: 4px; font-size: var(--fs-sm); }
+.sop-ai-steps li > * { vertical-align: middle; }
+.sop-ai-steps li .ellipsis { display: inline-block; max-width: 60%; margin-right: 6px; }
+.sop-ai-step-note { font-size: var(--fs-2xs); color: var(--faint); margin-left: 6px; white-space: nowrap; }
+.sop-ai-state { font-size: var(--fs-xs); color: var(--faint); }
+.sop-ai-typing { display: flex; gap: 4px; padding: 12px 14px; }
+.sop-ai-typing span { width: 6px; height: 6px; border-radius: 50%; background: var(--faint); animation: sop-pulse 1s ease-in-out infinite; }
+.sop-ai-typing span:nth-child(2) { animation-delay: 0.15s; }
+.sop-ai-typing span:nth-child(3) { animation-delay: 0.3s; }
+.sop-ai-examples { display: flex; flex-direction: column; gap: 6px; margin-top: 4px; }
+.sop-ai-examples-title { font-size: var(--fs-2xs); color: var(--faint); font-weight: 600; }
+.sop-ai-example { text-align: left; padding: 8px 10px; border-radius: var(--r-sm); border: 1px dashed var(--line-2); font-size: var(--fs-sm); line-height: 1.55; color: var(--muted); }
+.sop-ai-example:not(:disabled):hover { border-color: var(--accent-line); color: var(--text); background: var(--panel); }
+.sop-ai-example:disabled { cursor: default; opacity: 0.55; }
+.sop-ai-input { flex: none; padding: 8px 12px 12px; border-top: 1px solid var(--line); display: flex; flex-direction: column; gap: 8px; }
+.sop-ai-chips { display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; }
+.sop-ai-chip { flex: none; height: 26px; padding: 0 10px; border-radius: 13px; border: 1px solid var(--line); background: var(--panel); font-size: var(--fs-xs); color: var(--muted); white-space: nowrap; }
+.sop-ai-chip:not(:disabled):hover { color: var(--accent); border-color: var(--accent-line); }
+.sop-ai-box { border: 1px solid var(--line); border-radius: var(--r); background: var(--panel); }
+.sop-ai-box:focus-within { border-color: var(--accent-line); box-shadow: 0 0 0 3px var(--accent-soft); }
+.sop-ai-box textarea { display: block; width: 100%; border: 0; outline: 0; resize: none; background: none; padding: 9px 11px 4px; color: var(--text); line-height: 1.55; font: inherit; }
+.sop-ai-box-foot { display: flex; align-items: center; gap: 8px; padding: 4px 6px 6px 11px; }
+.sop-ai-box-foot .field-hint-line { flex: 1; }
+
+@media (max-width: 1280px) {
+  .sop-editor.with-ai.with-panel { grid-template-columns: minmax(0, 1fr) 360px; }
+  .sop-editor.with-ai.with-panel .sop-ai-panel { position: absolute; inset: 0 auto 0 0; width: 340px; z-index: 20; box-shadow: var(--shadow-lg); }
+}
+@media (max-width: 1100px) {
+  /* 窄屏 AI 面板、属性面板盖在画布上面 */
+  .sop-editor.with-ai, .sop-editor.with-panel, .sop-editor.with-ai.with-panel { grid-template-columns: minmax(0, 1fr); }
+  .sop-editor.with-ai .sop-ai-panel { position: absolute; inset: 0 auto 0 0; width: min(380px, 100%); z-index: 20; box-shadow: var(--shadow-lg); }
+  .sop-node-panel { position: absolute; inset: 0 0 0 auto; width: min(380px, 100%); z-index: 25; box-shadow: var(--shadow-lg); }
+}
+@container (max-width: 1100px) {
+  .sop-cv-hint { display: none; }
+}
+@container (max-width: 760px) {
+  .sop-cv-top-left { max-width: calc(100% - 24px); }
+  .sop-cv-top-right { top: 64px; flex-wrap: wrap; justify-content: flex-end; max-width: calc(100% - 24px); }
+  .sop-cv-error { top: 110px; left: 12px; max-width: none; }
+}
+
+/* ---------- 任务详情里的 SOP 执行（SOP-06，SPEC-sop-13） ---------- */
+.sop-obj { display: flex; flex-direction: column; gap: var(--sp-3); padding-top: var(--sp-4); border-top: 1px solid var(--line); }
+.sop-obj-head { display: flex; align-items: center; gap: var(--sp-4); flex-wrap: wrap; }
+.sop-obj-title { font-size: var(--fs-sm); font-weight: 600; color: var(--muted); }
+.sop-obj-hint { color: var(--faint); font-size: var(--fs-xs); }
+.sop-obj-empty { color: var(--faint); font-size: var(--fs-sm); }
+.sop-obj-list { display: flex; flex-direction: column; border: 1px solid var(--line); border-radius: var(--r); overflow: hidden; container-type: inline-size; }
+.sop-obj-run {
+  display: grid; grid-template-columns: minmax(0, 1fr) 96px auto 84px; align-items: center; gap: 12px;
+  width: 100%; text-align: left; padding: 8px 12px; border-bottom: 1px solid var(--line); min-height: 52px;
+}
+.sop-obj-run:last-child { border-bottom: 0; }
+.sop-obj-run:hover { background: var(--panel-2); }
+/* 从别处跳过来定位的那次执行 */
+.sop-obj-run.lit { background: var(--accent-soft); box-shadow: inset 3px 0 0 var(--accent); }
+.sop-obj-name { display: flex; flex-direction: column; min-width: 0; line-height: 1.4; font-weight: 500; }
+.sop-obj-progress { font-size: var(--fs-xs); color: var(--faint); font-weight: 400; }
+.sop-obj-at { font-size: var(--fs-xs); color: var(--faint); text-align: right; white-space: nowrap; }
+@container (max-width: 460px) {
+  .sop-obj-run { grid-template-columns: minmax(0, 1fr) auto; }
+  .sop-obj-bar, .sop-obj-at { display: none; }
+}
+.sop-start-object { margin-top: 6px; font-size: var(--fs-sm); color: var(--muted); }
+
+/* 设置 > 插件 > SOP 编排（SOP-07） */
+.sop-settings { display: flex; flex-direction: column; gap: var(--sp-4); max-width: 640px; }
+.sop-settings-title { font-weight: 600; }
+.sop-settings-row { display: flex; align-items: center; gap: var(--sp-3); }
+.sop-settings-input { width: 88px; }
+.sop-settings-muted, .sop-settings-now { color: var(--muted); font-size: var(--fs-sm); }
+.sop-settings-ok { color: var(--ok); font-size: var(--fs-sm); }
+.sop-settings-err { color: var(--danger); font-size: var(--fs-sm); }

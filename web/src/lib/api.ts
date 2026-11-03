@@ -1,7 +1,8 @@
 // 唯一的后端访问层。组件不得自行 fetch，一律走这里。
 import type {
   Category, CategoryInput, Counts, CreateObjectInput, LinkView,
-  AgentArtifact, AgentMessage, AgentProvider, AgentProviderInput,
+  AgentMessage, AgentProvider, AgentProviderInput,
+  Artifact, ArtifactFilter, ArtifactInput, ArtifactPatch, ArtifactStats,
   FsListing, FsShortcut, TaskRun,
   AgentSession, BackupInfo, WorkdirCheck, DictItem, DictItemInput,
   DictItemPatch, Dictionary, MigrationRecord, ProviderTestResult,
@@ -39,6 +40,30 @@ async function request<T>(path: string, init?: RequestInit): Promise<{ data: T; 
 const get = <T>(p: string) => request<T>(p).then((r) => r)
 const send = <T>(m: string, p: string, b?: unknown) =>
   request<T>(p, { method: m, body: b === undefined ? undefined : JSON.stringify(b) }).then((r) => r.data)
+
+/**
+ * artifactQs 单独写一份，不跟 qs() 合并：两者过滤的是完全不同的东西，
+ * 合并只会得到一个两边字段都认一半的函数，而漏掉的那一半不会报错、只会不生效。
+ *
+ * has_url / has_path 必须用 `!== undefined` 判断。写成 `if (f.has_url)` 的话，
+ * 「只看还没发出去的本地文件」（has_url=false）会被当成「没传」整个丢掉，
+ * 返回全部产物——不报错，只是筛选按钮点了没反应。
+ */
+function artifactQs(f: ArtifactFilter): string {
+  const p = new URLSearchParams()
+  if (f.object_id) p.set('object_id', f.object_id)
+  if (f.session_id) p.set('session_id', f.session_id)
+  if (f.run_id) p.set('run_id', f.run_id)
+  if (f.platform) p.set('platform', f.platform)
+  if (f.source) p.set('source', f.source)
+  if (f.has_url !== undefined) p.set('has_url', String(f.has_url))
+  if (f.has_path !== undefined) p.set('has_path', String(f.has_path))
+  if (f.q) p.set('q', f.q)
+  if (f.unscoped) p.set('unscoped', 'true')
+  if (f.limit) p.set('limit', String(f.limit))
+  if (f.offset) p.set('offset', String(f.offset))
+  return p.toString()
+}
 
 function qs(q: ObjectQuery): string {
   const p = new URLSearchParams()
@@ -146,10 +171,21 @@ export const api = {
     send<AgentSession>('PATCH', `/agent/sessions/${id}`, s),
   deleteAgentSession: (id: string) => send<null>('DELETE', `/agent/sessions/${id}`),
   agentMessages: (id: string) => send<AgentMessage[]>('GET', `/agent/sessions/${id}/messages`),
-  agentArtifacts: (id: string) => send<AgentArtifact[]>('GET', `/agent/sessions/${id}/artifacts`),
+  agentArtifacts: (id: string) => send<Artifact[]>('GET', `/agent/sessions/${id}/artifacts`),
   checkWorkdir: (path: string) => send<WorkdirCheck>('POST', '/agent/workdir/check', { path }),
   /** 对话走 SSE，不走 send()。URL 给调用方自己 new EventSource / fetch-stream */
   agentChatUrl: () => '/api/agent/chat',
+
+  // 输出产物
+  artifacts: async (f: ArtifactFilter = {}) => {
+    const r = await get<Artifact[]>(`/artifacts?${artifactQs(f)}`)
+    return { items: r.data ?? [], total: r.meta?.total ?? 0 }
+  },
+  artifactStats: (f: ArtifactFilter = {}) =>
+    send<ArtifactStats>('GET', `/artifacts/stats?${artifactQs(f)}`),
+  createArtifact: (a: ArtifactInput) => send<Artifact>('POST', '/artifacts', a),
+  updateArtifact: (id: string, p: ArtifactPatch) => send<Artifact>('PATCH', `/artifacts/${id}`, p),
+  deleteArtifact: (id: string) => send<null>('DELETE', `/artifacts/${id}`),
 
   // Agent 供应商
   providers: () => send<AgentProvider[]>('GET', '/agent-providers'),

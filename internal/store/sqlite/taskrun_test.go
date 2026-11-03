@@ -243,8 +243,8 @@ func TestListTaskRunsTiebreakIsInsertionOrder(t *testing.T) {
 	same := nowRun()
 	for _, id := range []string{"run_c", "run_a", "run_b"} {
 		if _, err := s.db.W.ExecContext(ctx,
-			`INSERT INTO task_runs (`+taskRunCols+`) VALUES (?,?,?,?,?,?,?,?,?,?)`,
-			id, obj.ID, "/tmp/demo", "", domain.RunRunning, 0, "", "", same, nil); err != nil {
+			`INSERT INTO task_runs (`+taskRunCols+`) VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
+			id, obj.ID, "/tmp/demo", "", domain.RunRunning, 0, "", "", same, nil, domain.RunModeStream); err != nil {
 			t.Fatalf("插入 %s: %v", id, err)
 		}
 	}
@@ -305,5 +305,40 @@ func TestListTaskRunsZeroLimitCapsAtDefault(t *testing.T) {
 	if capped[0].ID != all[0].ID {
 		t.Errorf("默认条数取到的首条是 %s，全量的首条是 %s——截断把最近的切掉了",
 			capped[0].ID, all[0].ID)
+	}
+}
+
+// 执行方式（0048）：不给是 stream，terminal 原样存，别的值拒绝；提示词能在收尾前补写。
+func TestTaskRunMode(t *testing.T) {
+	s, ctx := newStore(t)
+	obj := mustCreate(t, s, ctx, &domain.Object{TypeID: "task", Title: "方式"})
+	r1, err := s.CreateTaskRun(ctx, &domain.TaskRun{ObjectID: obj.ID, Workdir: "/tmp/x", Status: domain.RunRunning})
+	if err != nil || r1.Mode != domain.RunModeStream {
+		t.Fatalf("默认方式：%+v %v", r1, err)
+	}
+	r2, err := s.CreateTaskRun(ctx, &domain.TaskRun{ObjectID: obj.ID, Workdir: "/tmp/x", Status: domain.RunRunning, Mode: domain.RunModeTerminal})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := s.GetTaskRun(ctx, r2.ID); got.Mode != domain.RunModeTerminal {
+		t.Fatalf("读回：%+v", got)
+	}
+	if _, err := s.CreateTaskRun(ctx, &domain.TaskRun{ObjectID: obj.ID, Workdir: "/tmp/x", Mode: "x"}); !errors.Is(err, domain.ErrValidation) {
+		t.Fatalf("非法方式应拒绝：%v", err)
+	}
+	if err := s.SetTaskRunPrompt(ctx, r2.ID, "带 id 的提示词"); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := s.GetTaskRun(ctx, r2.ID); got.Prompt != "带 id 的提示词" {
+		t.Fatalf("补写提示词：%q", got.Prompt)
+	}
+	if _, err := s.FinishTaskRun(ctx, r2.ID, domain.RunDone, 0, "结论", ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetTaskRunPrompt(ctx, r2.ID, "x"); !errors.Is(err, domain.ErrConflict) {
+		t.Fatalf("收尾后不能再改：%v", err)
+	}
+	if err := s.SetTaskRunPrompt(ctx, "run_nope", "x"); !errors.Is(err, domain.ErrNotFound) {
+		t.Fatalf("不存在：%v", err)
 	}
 }

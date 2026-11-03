@@ -258,6 +258,10 @@ func (s *Store) buildWhere(ctx context.Context, f domain.ObjectFilter) (string, 
 	if f.Inbox {
 		conds = append(conds, "(o.source = 'inbox' OR o.category_id IS NULL)")
 	}
+	if len(f.Sources) > 0 {
+		conds = append(conds, "o.source IN ("+placeholders(len(f.Sources))+")")
+		args = append(args, anySlice(f.Sources)...)
+	}
 	return strings.Join(conds, " AND "), args, nil
 }
 
@@ -538,17 +542,9 @@ func (s *Store) UpdateObject(ctx context.Context, id string, p domain.ObjectPatc
 		}
 		if st.Key != cur.Status {
 			change("status", cur.Status, st.Key, "status", st.Key)
-			// 进出终态顺手维护完成时间，这两个时间戳没有别的写入口。
-			if st.Terminal && cur.CompletedAt == nil {
-				sets = append(sets, "completed_at = ?")
-				args = append(args, now)
-			} else if !st.Terminal && cur.CompletedAt != nil {
-				sets = append(sets, "completed_at = NULL")
-			}
-			if !st.Terminal && cur.StartedAt == nil && st.Key != t.Statuses[0].Key {
-				sets = append(sets, "started_at = ?")
-				args = append(args, now)
-			}
+			ss, sa := statusTimestamps(t, cur, st, now)
+			sets = append(sets, ss...)
+			args = append(args, sa...)
 		}
 	}
 	if p.CategoryID != nil {
@@ -687,6 +683,27 @@ func (s *Store) UpdateObject(ctx context.Context, id string, p domain.ObjectPatc
 		return nil, err
 	}
 	return s.GetObject(ctx, id)
+}
+
+// statusTimestamps 返回切到状态 st 时要顺带维护的时间戳列。
+//
+// 进出终态维护完成时间、第一次离开初始状态记开始时间。这两个时间戳只经由状态切换写入，
+// UpdateObject 和进展/领取（progress.go）都走这里——各写一份的话，
+// 经由领取进入 doing 的任务会没有 started_at，周期时间统计就悄悄少了一截。
+func statusTimestamps(t *domain.ObjectType, cur *domain.Object, st domain.Status, now string) ([]string, []any) {
+	var sets []string
+	var args []any
+	if st.Terminal && cur.CompletedAt == nil {
+		sets = append(sets, "completed_at = ?")
+		args = append(args, now)
+	} else if !st.Terminal && cur.CompletedAt != nil {
+		sets = append(sets, "completed_at = NULL")
+	}
+	if !st.Terminal && cur.StartedAt == nil && st.Key != t.Statuses[0].Key {
+		sets = append(sets, "started_at = ?")
+		args = append(args, now)
+	}
+	return sets, args
 }
 
 func (s *Store) DeleteObject(ctx context.Context, id string, hard bool, a store.Actor) error {

@@ -36,8 +36,9 @@ func TestMigrationSeedsBuiltinDictionaries(t *testing.T) {
 	if err != nil {
 		t.Fatalf("list dictionaries: %v", err)
 	}
-	if len(dicts) != 2 {
-		t.Fatalf("want 2 builtin dictionaries, got %d", len(dicts))
+	// priority、link_relation、artifact_platform（0012）、artifact_kind（0031）、contact_group、msg_status（0041）。
+	if len(dicts) != 6 {
+		t.Fatalf("want 6 builtin dictionaries, got %d", len(dicts))
 	}
 
 	byID := map[string]*domain.Dictionary{}
@@ -79,6 +80,70 @@ func TestMigrationSeedsBuiltinDictionaries(t *testing.T) {
 	// meta.inverse 供详情页在对端对象上显示反向关系名。
 	if blocks.Meta["inverse"] != "被阻塞于" {
 		t.Errorf("blocks meta = %+v, want inverse=被阻塞于", blocks.Meta)
+	}
+
+	// 代码类三种要在：0031 按备注前缀回填到这几个 key，pmw_record_artifact 也写它们。
+	kind, ok := byID[domain.DictArtifactKind]
+	if !ok || !kind.Builtin {
+		t.Fatal("artifact_kind dictionary missing or not builtin")
+	}
+	for _, k := range []string{"doc", "commit", "branch", "pr", "other"} {
+		if findDictItem(kind.Items, k) == nil {
+			t.Errorf("artifact_kind 缺少 %s", k)
+		}
+	}
+
+	plat, ok := byID[domain.DictArtifactPlatform]
+	if !ok {
+		t.Fatal("artifact_platform dictionary missing")
+	}
+	if !plat.Builtin || plat.Scope != domain.ScopeGlobal {
+		t.Errorf("artifact_platform: builtin=%v scope=%q, want true/global", plat.Builtin, plat.Scope)
+	}
+	// local 必须在，而且必须排第一：sqlite 那边 normalizeArtifact 在没给平台、
+	// 也没有链接时会落到 "local"。种子里没有它的话，产物会指向一个不存在的
+	// 字典项——界面上显示成一个没有名字的灰块，而且不会报错。
+	if local := findDictItem(plat.Items, "local"); local == nil {
+		t.Error("artifact_platform 缺少 local，本地产物会落到一个不存在的字典项上")
+	}
+	if other := findDictItem(plat.Items, "other"); other == nil {
+		t.Error("artifact_platform 缺少 other，没指定平台的云端产物会落空")
+	}
+
+	// meta.hosts 是界面粘链接时自动选平台的依据。它写坏了不会报错，
+	// 只会让自动识别安静地永远不命中——所以这里逐条解出来看结构对不对。
+	for _, it := range plat.Items {
+		raw, ok := it.Meta["hosts"]
+		if !ok {
+			t.Errorf("平台 %s 缺 meta.hosts", it.Key)
+			continue
+		}
+		hosts, ok := raw.([]any)
+		if !ok {
+			t.Errorf("平台 %s 的 meta.hosts = %T，期望数组", it.Key, raw)
+			continue
+		}
+		for _, h := range hosts {
+			if sv, ok := h.(string); !ok || strings.TrimSpace(sv) == "" {
+				t.Errorf("平台 %s 的 hosts 里有空项或非字符串: %#v", it.Key, h)
+			}
+		}
+	}
+	// confluence 的特征串要真能匹配上一个 Confluence 链接。
+	// 只验「是个数组」的话，写成 [""] 也能过，而那会匹配任何链接。
+	conf := findDictItem(plat.Items, "confluence")
+	if conf == nil {
+		t.Fatal("artifact_platform 缺少 confluence")
+	}
+	sample := "https://mycorp.atlassian.net/wiki/spaces/PM/pages/123/方案"
+	hit := false
+	for _, h := range conf.Meta["hosts"].([]any) {
+		if strings.Contains(sample, h.(string)) {
+			hit = true
+		}
+	}
+	if !hit {
+		t.Errorf("confluence 的 hosts %v 匹配不上一个真实的 Confluence 链接", conf.Meta["hosts"])
 	}
 }
 
@@ -379,6 +444,85 @@ func TestDictItemUsageDispatch(t *testing.T) {
 
 	if _, err := s.DictItemUsage(ctx, "dit_ghost"); !errors.Is(err, domain.ErrNotFound) {
 		t.Fatalf("err = %v, want ErrNotFound", err)
+	}
+}
+
+// 0041 的两本字典：联系人分组按「、」拆开计数，没填的算「其他」；IM 插件没装时消息状态引用数为 0。
+func TestContactGroupAndMsgStatusUsage(t *testing.T) {
+	s, ctx := newStore(t)
+
+	base := mustDictItems(t, s, ctx, domain.DictContactGroup, false)
+	if len(base) != 5 {
+		t.Fatalf("contact_group items = %d, want 5", len(base))
+	}
+	if other := findDictItem(base, "其他"); other == nil || other.Meta["default"] != true {
+		t.Fatalf("其他 = %+v, want meta.default", other)
+	}
+	before := findDictItem(base, "其他").Usage
+	for _, g := range []string{"客户、Octok", "Octok，XAUE", "客户", ""} {
+		if _, err := s.CreateStakeholder(ctx, &domain.Stakeholder{Name: "人" + g, Group: g}); err != nil {
+			t.Fatalf("create stakeholder: %v", err)
+		}
+	}
+	items := mustDictItems(t, s, ctx, domain.DictContactGroup, false)
+	if n := findDictItem(items, "客户").Usage; n != 2 {
+		t.Errorf("客户 usage = %d, want 2", n)
+	}
+	if n := findDictItem(items, "其他").Usage; n != before+1 {
+		t.Errorf("其他 usage = %d, want %d", n, before+1)
+	}
+	if n, err := s.DictItemUsage(ctx, findDictItem(items, "合作伙伴").ID); err != nil || n != 0 {
+		t.Errorf("合作伙伴 usage = %d, %v; want 0", n, err)
+	}
+	// 被用过的分组不能删
+	if err := s.DeleteDictItem(ctx, findDictItem(items, "客户").ID); !errors.Is(err, domain.ErrConflict) {
+		t.Errorf("删除在用分组 err = %v, want ErrConflict", err)
+	}
+
+	// 任务状态的说明也是 0041 补的，存在 statuses 的 JSON 里
+	task, err := s.GetObjectType(ctx, "task")
+	if err != nil {
+		t.Fatal(err)
+	}
+	desc := map[string]string{}
+	for _, st := range task.Statuses {
+		desc[st.Key] = st.Description
+	}
+	if desc["review"] == "" || desc["done"] == "" || desc["todo"] != "" {
+		t.Errorf("task status descriptions = %v", desc)
+	}
+
+	msg := mustDictItems(t, s, ctx, domain.DictMsgStatus, false)
+	if len(msg) != 4 || msg[0].Key != "pending" || msg[3].Key != "expired" || msg[3].Label != "已过期" {
+		t.Fatalf("msg_status items = %+v, want pending first, expired last of 4", msg)
+	}
+	if n, err := s.DictItemUsage(ctx, msg[0].ID); err != nil || n != 0 {
+		t.Errorf("没有 im_messages 表时 usage = %d, %v; want 0", n, err)
+	}
+	if _, err := s.db.W.ExecContext(ctx, `CREATE TABLE im_messages (id TEXT, status TEXT)`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.db.W.ExecContext(ctx, `INSERT INTO im_messages VALUES ('a','pending'),('b','pending'),('c','done')`); err != nil {
+		t.Fatal(err)
+	}
+	msg = mustDictItems(t, s, ctx, domain.DictMsgStatus, false)
+	if msg[0].Usage != 2 || findDictItem(msg, "done").Usage != 1 {
+		t.Errorf("msg usage = %d/%d, want 2/1", msg[0].Usage, findDictItem(msg, "done").Usage)
+	}
+	// im 0005 起有 expired_at：待处理且标了过期的算到「已过期」（IM-07）；没这一列时（插件还没升级）照上面的旧口径
+	if _, err := s.db.W.ExecContext(ctx, `ALTER TABLE im_messages ADD COLUMN expired_at TEXT`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.db.W.ExecContext(ctx, `UPDATE im_messages SET expired_at = 'x' WHERE id = 'b'`); err != nil {
+		t.Fatal(err)
+	}
+	msg = mustDictItems(t, s, ctx, domain.DictMsgStatus, false)
+	expired := findDictItem(msg, "expired")
+	if msg[0].Usage != 1 || expired.Usage != 1 {
+		t.Errorf("加了 expired_at 后 pending/expired usage = %d/%d, want 1/1", msg[0].Usage, expired.Usage)
+	}
+	if n, err := s.DictItemUsage(ctx, expired.ID); err != nil || n != 1 {
+		t.Errorf("expired 单条 usage = %d, %v; want 1", n, err)
 	}
 }
 

@@ -1,0 +1,26 @@
+/* 选本机目录（FS-01）：左边起跳点，右边路径、面包屑、子目录；窄的时候起跳点换到上面 */
+.dp-picker { display: flex; flex-direction: column; gap: var(--sp-4); padding: var(--sp-5); border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--panel-2); min-width: 0; }
+.dp { display: flex; gap: var(--sp-5); min-width: 0; flex-wrap: wrap; }
+.dp-side { list-style: none; margin: 0; padding: 0; flex: 0 0 168px; max-height: 420px; overflow-y: auto; display: flex; flex-direction: column; gap: 1px; }
+.dp-jump { display: block; width: 100%; padding: var(--sp-2) var(--sp-4); border-radius: var(--r-sm); text-align: left; font-size: var(--fs-sm); background: none; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dp-jump:hover { background: var(--hover); }
+.dp-jump.on { background: var(--hover); font-weight: 600; }
+.dp-main { flex: 1 1 260px; min-width: 0; display: flex; flex-direction: column; gap: var(--sp-4); }
+.dp-go { display: flex; gap: var(--sp-3); min-width: 0; }
+.dp-go .input { flex: 1; min-width: 0; font-family: var(--mono); }
+.dp-crumbs { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2); min-width: 0; font: var(--fs-sm) var(--mono); }
+.dp-crumb { display: inline-flex; align-items: center; gap: var(--sp-2); min-width: 0; }
+.dp-sep { color: var(--faint); }
+.dp-link { background: none; padding: 0; color: var(--accent); font: inherit; overflow-wrap: anywhere; }
+.dp-link:hover { text-decoration: underline; }
+.dp-here { color: var(--text); font-weight: 600; overflow-wrap: anywhere; }
+.dp-list { list-style: none; margin: 0; padding: 0; overflow-y: auto; border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--panel); }
+.dp-list li + li { border-top: 1px solid var(--line); }
+.dp-item { display: block; width: 100%; padding: var(--sp-3) var(--sp-5); text-align: left; font: var(--fs-sm) var(--mono); background: none; color: var(--text); overflow-wrap: anywhere; }
+.dp-item:hover { background: var(--hover); }
+.dp-muted { padding: var(--sp-3) var(--sp-5); color: var(--faint); font-size: var(--fs-sm); }
+.dp-foot { display: flex; align-items: center; gap: var(--sp-3); flex-wrap: wrap; }
+@media (max-width: 640px) {
+  .dp-side { flex-basis: 100%; flex-direction: row; flex-wrap: wrap; max-height: none; }
+  .dp-jump { width: auto; border: 1px solid var(--line); }
+}

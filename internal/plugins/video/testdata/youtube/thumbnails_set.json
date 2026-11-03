@@ -1,0 +1,2 @@
+{"kind": "youtube#thumbnailSetResponse", "etag": "etag-test",
+ "items": [{"default": {"url": "https://i.ytimg.com/vi/Te5tVid0001/default.jpg", "width": 120, "height": 90}}]}

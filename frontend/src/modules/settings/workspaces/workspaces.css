@@ -1,0 +1,75 @@
+/* 设置里的「工作台与模块」，照原型 web-next/src/styles.css 的「设置 > 工作台与模块」和「分组配置」；颜色全走 tokens.css 的变量 */
+.ws-page { container: ws-page / inline-size; min-width: 0; }
+.ws-sub { color: var(--faint); font-size: var(--fs-xs); }
+.ws-hint { margin-left: var(--sp-4); color: var(--faint); font-size: var(--fs-xs); font-weight: 400; }
+.ws-banner {
+  display: flex; align-items: center; flex-wrap: wrap; gap: var(--sp-4); padding: var(--sp-4) var(--sp-6); margin-bottom: var(--sp-6);
+  border: 1px solid color-mix(in srgb, var(--warn) 45%, var(--line)); border-radius: var(--r); background: var(--panel); font-size: var(--fs-sm);
+}
+.ws-banner-danger { border-color: color-mix(in srgb, var(--danger) 45%, var(--line)); background: var(--danger-soft); }
+
+.tpl-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(240px, 100%), 1fr)); gap: var(--sp-5); margin-bottom: var(--sp-8); }
+.tpl-card {
+  display: flex; flex-direction: column; gap: var(--sp-2); padding: var(--sp-6) var(--sp-7); min-width: 0;
+  border: 1px dashed var(--accent-line); border-radius: var(--r-lg); background: var(--accent-soft); text-align: left;
+}
+.tpl-card:hover { border-style: solid; }
+.tpl-card:disabled { opacity: 0.6; }
+.tpl-mods { font-size: var(--fs-xs); color: var(--faint); line-height: 1.5; }
+.tpl-lack { font-size: var(--fs-xs); color: var(--warn); line-height: 1.5; }
+
+.ws-layout { display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: var(--sp-8); align-items: start; }
+.ws-list { display: flex; flex-direction: column; gap: var(--sp-2); min-width: 0; }
+.ws-list-item {
+  display: flex; align-items: center; justify-content: space-between; gap: var(--sp-4); padding: 9px 12px;
+  border-radius: var(--r); border: 1px solid transparent; text-align: left; min-width: 0;
+}
+.ws-list-item:hover { background: var(--hover); }
+.ws-list-item.on { background: var(--panel); border-color: var(--line); box-shadow: var(--shadow-sm); }
+.ws-list-text { display: flex; flex-direction: column; min-width: 0; line-height: 1.4; }
+
+.ws-edit { display: flex; flex-direction: column; gap: var(--sp-7); max-width: 760px; min-width: 0; }
+.ws-sec { display: flex; flex-direction: column; gap: var(--sp-6); padding: var(--sp-8); border: 1px solid var(--line); border-radius: var(--r-lg); background: var(--panel); min-width: 0; }
+.ws-sec-head { display: flex; align-items: center; gap: var(--sp-5); }
+.ws-sec-head > .ws-sec-title { flex: 1; min-width: 0; }
+.ws-sec-title { font-size: var(--fs-sm); font-weight: 600; }
+/* 基本信息第一行：标志、名称、角色并排（原型 .name-with-mark） */
+.ws-name-row { display: flex; align-items: flex-end; gap: var(--sp-6); min-width: 0; }
+.ws-name-row > .field { flex: 1; min-width: 0; }
+.ws-act-row { display: flex; align-items: center; flex-wrap: wrap; gap: var(--sp-4); }
+.ws-danger-text { color: var(--danger); font-size: var(--fs-sm); }
+.ws-needs { display: flex; flex-direction: column; align-items: flex-start; gap: var(--sp-4); font-size: var(--fs-sm); }
+.ws-needs ul { margin: 0; padding-left: 18px; }
+.ws-need-na { color: var(--muted); }
+.ws-mod-lack { color: var(--warn); font-size: var(--fs-xs); }
+
+.grp-list { display: flex; flex-direction: column; gap: var(--sp-5); }
+.grp-card { border: 1px solid var(--line); border-radius: var(--r); overflow: hidden; background: var(--panel); }
+.grp-head { display: flex; align-items: center; gap: var(--sp-4); padding: 8px 12px; background: var(--panel-2); border-bottom: 1px solid var(--line); }
+.grp-name {
+  width: 180px; height: 30px; padding: 0 8px; border: 1px solid var(--line); border-radius: var(--r-sm);
+  background: var(--panel); color: var(--text); font-weight: 600; outline: 0;
+}
+.grp-name:focus { border-color: var(--accent-line); }
+.grp-name::placeholder { font-weight: 400; color: var(--faint); }
+.grp-move { height: 28px; max-width: 140px; min-width: 0; font-size: var(--fs-xs); }
+.grp-empty { padding: 12px; text-align: center; font-size: var(--fs-xs); color: var(--faint); }
+.mod-list { display: flex; flex-direction: column; border: 1px solid var(--line); border-radius: var(--r); overflow: hidden; }
+.mod-row { display: flex; align-items: center; gap: var(--sp-6); padding: 9px 12px; border-bottom: 1px solid var(--line); }
+.mod-row:last-child { border-bottom: 0; }
+.mod-row.off .mod-text b { color: var(--faint); }
+.mod-order { display: flex; gap: 2px; flex: none; }
+.mod-text { display: flex; flex-direction: column; gap: 1px; flex: 1; min-width: 0; font-size: var(--fs-sm); }
+
+/* 正文窄时收成单栏，分组头和模块行放不下就换行 */
+@container ws-page (max-width: 640px) {
+  .ws-layout { grid-template-columns: minmax(0, 1fr); }
+  .ws-sec { padding: var(--sp-6); }
+  .ws-sec-head { flex-wrap: wrap; }
+  .grp-head, .mod-row { flex-wrap: wrap; }
+  .grp-name { flex: 1 1 120px; width: auto; min-width: 0; }
+  .ws-name-row { flex-wrap: wrap; }
+  .ws-name-row > .field { flex-basis: 140px; }
+  .mod-row { gap: var(--sp-4); }
+  .mod-text { flex-basis: 100px; }
+}

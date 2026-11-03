@@ -1,0 +1,37 @@
+/* 进展时间线（DEV-08a），照原型 web-next/src/markets.css 的 mo-timeline；颜色全走 tokens.css 的变量 */
+.prog-count { font-size: var(--fs-xs); color: var(--faint); }
+.prog-live { font-size: var(--fs-xs); color: var(--accent); }
+.prog-jump { font-size: var(--fs-xs); color: var(--accent); padding: 0; background: none; }
+.prog-jump:hover { text-decoration: underline; }
+.prog-trunc { font-size: var(--fs-xs); color: var(--faint); }
+
+.prog-timeline { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.prog-day { padding: var(--sp-5) 0 var(--sp-2); font-size: var(--fs-xs); font-weight: 600; color: var(--muted); }
+.prog-day:first-child { padding-top: 0; }
+.prog-ev { position: relative; padding: 0 0 var(--sp-2) 20px; }
+.prog-ev::before { content: ''; position: absolute; left: 5px; top: 16px; bottom: -6px; width: 1px; background: var(--line); }
+.prog-ev:last-child::before, .prog-ev:has(+ .prog-day)::before { display: none; }
+.prog-dot { position: absolute; left: 1px; top: 10px; width: 9px; height: 9px; border-radius: 50%; border: 2px solid var(--line-2); background: var(--panel); }
+.prog-claim .prog-dot { border-color: var(--accent); }
+.prog-review .prog-dot { border-color: var(--accent); background: var(--accent); }
+
+.prog-body { display: flex; flex-direction: column; gap: var(--sp-2); min-width: 0; padding: var(--sp-3) var(--sp-4); border-radius: var(--r-sm); }
+.prog-review .prog-body { border: 1px solid var(--accent-line); background: var(--accent-soft); }
+.prog-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 2px var(--sp-5); font-size: var(--fs-xs); color: var(--faint); }
+.prog-kind { display: inline-flex; align-items: center; height: 18px; padding: 0 6px; border-radius: 4px; font-weight: 600; background: var(--hover); color: var(--muted); }
+.prog-claim .prog-kind { color: var(--accent); }
+.prog-review .prog-kind { background: var(--accent); color: var(--accent-ink); }
+.prog-actor { color: var(--muted); font-weight: 500; }
+.prog-sess, .prog-mono { font-family: var(--mono); }
+.prog-text { min-width: 0; word-break: break-word; }
+.prog-text .md > :first-child { margin-top: 0; }
+.prog-text .md > :last-child { margin-bottom: 0; }
+.prog-refs { display: flex; align-items: baseline; gap: var(--sp-3); min-width: 0; }
+.prog-refs-label { flex: none; font-size: var(--fs-xs); color: var(--faint); }
+.prog-refs .tags { min-width: 0; }
+.prog-refs .tag { max-width: 100%; }
+
+.prog-add { align-self: flex-start; font-size: var(--fs-sm); color: var(--accent); padding: 0; background: none; }
+.prog-add:hover { text-decoration: underline; }
+.prog-form { display: flex; flex-direction: column; gap: var(--sp-3); }
+.prog-form-foot { display: flex; align-items: center; gap: var(--sp-3); }

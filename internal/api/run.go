@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/lizhao903/pm-workspace/internal/domain"
+	"github.com/lizhao903/pm-workspace/internal/incident"
 	"github.com/lizhao903/pm-workspace/internal/runner"
 	"github.com/lizhao903/pm-workspace/internal/store"
 )
@@ -76,7 +77,8 @@ func (s *Server) handleGetTaskRun(w http.ResponseWriter, r *http.Request) {
 // 那条记录），代价只是多一次写。
 func (s *Server) reapStale(ctx context.Context, runs []*domain.TaskRun) {
 	for _, run := range runs {
-		if run == nil || run.FinishedAt != nil || s.run.Running(run.ID) {
+		// 终端执行（0048）的进程本来就不归工作台管，收尾靠 MCP 回写或手动标记，不在这里判失败。
+		if run == nil || run.FinishedAt != nil || run.Mode == domain.RunModeTerminal || s.run.Running(run.ID) {
 			continue
 		}
 		if time.Since(run.StartedAt) < staleRunGrace {
@@ -91,7 +93,26 @@ func (s *Server) reapStale(ctx context.Context, runs []*domain.TaskRun) {
 			continue
 		}
 		*run = *out
+		var obj *domain.Object
+		if o, err := s.st.GetObject(ctx, run.ObjectID); err == nil {
+			obj = o
+		}
+		s.noteRunFailed(ctx, out, obj, false, -1, out.Error, out.Output)
 	}
+}
+
+// noteRunFailed Claude Code 执行失败记一条运行异常（INC-01a）；取消不记。没接运行异常时什么都不做。
+func (s *Server) noteRunFailed(ctx context.Context, run *domain.TaskRun, obj *domain.Object, allowWrites bool,
+	exitCode int, errMsg, output string) {
+	if s.opt.Incidents == nil || run == nil {
+		return
+	}
+	c := incident.ClaudeRun{RunID: run.ID, ObjectID: run.ObjectID, Workdir: run.Workdir, ExitCode: exitCode,
+		Error: errMsg, Output: output, AllowWrites: allowWrites, Via: "task"}
+	if obj != nil {
+		c.ObjectRef, c.ObjectTitle = obj.Ref, obj.Title
+	}
+	s.opt.Incidents.Note(ctx, incident.ClaudeRunReport(c))
 }
 
 // handleCancelTaskRun 停掉一次正在跑的执行。
@@ -107,6 +128,18 @@ func (s *Server) handleCancelTaskRun(w http.ResponseWriter, r *http.Request) {
 	}
 	if run.FinishedAt != nil {
 		s.fail(w, r, conflictf("这次执行已经结束了，无需取消"))
+		return
+	}
+	if run.Mode == domain.RunModeTerminal {
+		// 终端里的进程不归工作台管：只把记录标成取消，终端标签和里面的 claude 照旧，用户自己关。
+		out, err := s.st.FinishTaskRun(r.Context(), id, domain.RunCanceled, -1, run.Output,
+			"在终端里执行的会话不归工作台管，记录已标记为取消；终端标签需要自己关")
+		if err != nil {
+			s.fail(w, r, err)
+			return
+		}
+		s.dropHandoff(id)
+		respondData(w, http.StatusOK, out)
 		return
 	}
 	if s.run.Cancel(id) {
@@ -169,12 +202,14 @@ func (s *Server) handleRunObject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	prompt := runner.BuildPrompt(s.taskOf(ctx, obj, workdir, req.ExtraPrompt))
+	// 提示词带上所属项目（文档、原型在哪里操作），和预览同一套拼法（runterminal.go）
+	prompt := s.promptFor(ctx, obj, workdir, req.ExtraPrompt, domain.RunModeStream, "")
 	run, err := s.st.CreateTaskRun(ctx, &domain.TaskRun{
 		ObjectID: objID,
 		Workdir:  workdir,
 		Prompt:   prompt,
 		Status:   domain.RunRunning,
+		Mode:     domain.RunModeStream,
 	})
 	if err != nil {
 		s.fail(w, r, err)
@@ -192,7 +227,11 @@ func (s *Server) handleRunObject(w http.ResponseWriter, r *http.Request) {
 	flusher.Flush()
 
 	emit := func(ev runner.Event) {
-		writeRunSSE(w, ev)
+		if err := writeRunSSE(w, ev); err != nil {
+			// 丢一条事件不该中断整条流，但必须留痕——见 writeRunSSE 的注释。
+			s.log.Error("run sse event dropped", "run", run.ID, "type", ev.Type, "err", err)
+			return
+		}
 		flusher.Flush()
 	}
 
@@ -211,6 +250,13 @@ func (s *Server) handleRunObject(w http.ResponseWriter, r *http.Request) {
 	// 这正是「长跑的进程不能只靠用户关页面」那条要求的另一面。
 	bg := context.WithoutCancel(ctx)
 
+	// 执行前拍一张工作目录的快照，收尾时和执行后的比对，差集就是这次的产出。
+	//
+	// 必须在 Start 之前拍。放到 Start 之后的话，claude 启动最初那几百毫秒里写的
+	// 文件会同时出现在两张快照里、大小和 mtime 也一致，差集为空——
+	// 它们会被安静地漏掉，而且这个漏是随机的（取决于两边谁快）。
+	before := runner.TakeSnapshot(workdir)
+
 	res, err := s.run.Start(bg, runner.Request{
 		RunID:       run.ID,
 		Workdir:     workdir,
@@ -221,6 +267,7 @@ func (s *Server) handleRunObject(w http.ResponseWriter, r *http.Request) {
 		// 进程根本没起来。记录必须收尾，否则它会永远停在 running。
 		s.log.Warn("task run failed to start", "run", run.ID, "object", objID, "err", err)
 		s.finishRun(bg, run.ID, domain.RunFailed, -1, "", err.Error())
+		s.noteRunFailed(bg, run, obj, req.AllowWrites, -1, err.Error(), "")
 		emit(runner.Event{Type: runner.EventError, Message: err.Error()})
 		emit(runner.Event{Type: runner.EventDone, RunID: run.ID, ExitCode: -1})
 		return
@@ -233,7 +280,57 @@ func (s *Server) handleRunObject(w http.ResponseWriter, r *http.Request) {
 	} else if res.Error != "" {
 		emit(runner.Event{Type: runner.EventError, Message: res.Error})
 	}
+	if res.Status == domain.RunFailed {
+		s.noteRunFailed(bg, run, obj, req.AllowWrites, res.ExitCode, res.Error, res.Output)
+	}
+
+	// 产物登记在 done 之前：done 的语义是「这次执行的一切都已留痕」。
+	// 放到 done 之后的话，前端收到 done 就去刷产物列表，而登记还没写完，
+	// 刷出来是空的——用户会以为这次执行什么都没产出。
+	s.recordRunArtifacts(bg, run.ID, objID, workdir, before, emit)
+
 	emit(runner.Event{Type: runner.EventDone, RunID: run.ID, ExitCode: res.ExitCode})
+}
+
+// recordRunArtifacts 把这次执行改动过的文件登记成产物，每条发一个 artifact 事件。
+//
+// 登记失败一律只记日志、不打断流：文件已经真的写出来了，一条索引没记上
+// 不该让用户以为执行失败。这跟内置 agent 的 write_file 是同一个取舍。
+func (s *Server) recordRunArtifacts(ctx context.Context, runID, objID, workdir string,
+	before runner.Snapshot, emit func(runner.Event)) {
+
+	changed, truncated := runner.Diff(before, runner.TakeSnapshot(workdir))
+	if len(changed) == 0 {
+		return
+	}
+	// 超过上限时必须说出来。安静地只记前 N 条，会让用户以为这次执行
+	// 就产出了这些——而「产物清单是全的」正是这个功能的全部价值。
+	if truncated {
+		emit(runner.Event{Type: runner.EventError, Message: fmt.Sprintf(
+			"这次执行改动的文件超过 %d 个，只登记了前 %d 个产物。"+
+				"通常意味着工作目录选得太大，或者跑了一次构建。",
+			runner.MaxRecordedArtifacts, runner.MaxRecordedArtifacts)})
+	}
+
+	for _, c := range changed {
+		art, err := s.st.RecordArtifact(ctx, domain.ArtifactInput{
+			ObjectID: &objID,
+			RunID:    &runID,
+			Path:     c.Path,
+			BaseDir:  workdir,
+			Platform: "local",
+			Size:     c.Size,
+			Source:   domain.ArtifactSourceRun,
+		})
+		if err != nil {
+			s.log.Warn("record run artifact failed", "run", runID, "path", c.Path, "err", err)
+			continue
+		}
+		emit(runner.Event{
+			Type: runner.EventArtifact, ArtifactID: art.ID,
+			Path: art.RelPath, Size: art.Size, IsNew: c.New,
+		})
+	}
 }
 
 // finishRun 收尾并把失败记进日志。落库失败不该让流断掉——过程已经发生了，
@@ -279,6 +376,9 @@ func (s *Server) taskOf(ctx context.Context, o *domain.Object, workdir, extra st
 		Workdir:  workdir,
 		Extra:    extra,
 	}
+	// 开发任务的约定字段，见 domain.PropAcceptance / PropRepo。不是字符串就当没有。
+	t.Acceptance, _ = o.Props[domain.PropAcceptance].(string)
+	t.Repo, _ = o.Props[domain.PropRepo].(string)
 	if o.DueAt != nil {
 		t.DueAt = o.DueAt.Local().Format("2006-01-02")
 	}
@@ -308,10 +408,17 @@ func (s *Server) taskOf(ctx context.Context, o *domain.Object, workdir, extra st
 
 // writeRunSSE 写一条 SSE 事件。事件类型放在 JSON 的 type 字段里而不是 SSE 的
 // event: 行，前端只需监听默认的 message 事件按 type 分发（契约见 types.ts 的 TaskRunEvent）。
-func writeRunSSE(w http.ResponseWriter, ev runner.Event) {
+// writeRunSSE 把一条事件写进流。序列化失败时返回 error 而不是静默丢掉。
+//
+// 原来这里是 `if err != nil { return }`。Event.MarshalJSON 对认不出的事件类型
+// 会报错，于是新加一种事件、忘了在 MarshalJSON 里加分支时，那种事件就从流上
+// 彻底消失——后端日志干净、前端没有报错、状态码 200，只是界面上少了一截。
+// 这个坑真的踩到过（加 artifact 事件那次），排查花的时间远超这三行。
+func writeRunSSE(w http.ResponseWriter, ev runner.Event) error {
 	b, err := json.Marshal(ev)
 	if err != nil {
-		return
+		return fmt.Errorf("事件 %q 序列化失败: %w", ev.Type, err)
 	}
 	_, _ = fmt.Fprintf(w, "data: %s\n\n", b)
+	return nil
 }

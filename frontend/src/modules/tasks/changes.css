@@ -1,0 +1,35 @@
+/* 任务抽屉的改动痕迹和验收（DEV-08d），照原型 devloop.css 的 dev-reviewbar、dev-sid；颜色全走 tokens.css 的变量 */
+.chg-count, .chg-trunc { font-size: var(--fs-xs); color: var(--faint); }
+.chg-groups { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--sp-4); }
+.chg-group { display: flex; flex-direction: column; gap: var(--sp-2); padding: var(--sp-3) var(--sp-4); border: 1px solid var(--line); border-radius: var(--r-sm); }
+.chg-head { display: flex; flex-wrap: wrap; align-items: center; gap: 2px var(--sp-4); font-size: var(--fs-xs); color: var(--faint); }
+.chg-actor { color: var(--muted); font-weight: 600; font-size: var(--fs-sm); }
+.chg-nosess { color: var(--faint); }
+.chg-range { color: var(--faint); }
+.chg-sid { font-family: var(--mono); font-size: var(--fs-xs); padding: 0 6px; height: 20px; border-radius: 4px; background: var(--hover); color: var(--muted); max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chg-sid:hover { color: var(--accent); }
+.chg-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+.chg-row { display: flex; align-items: baseline; gap: var(--sp-4); font-size: var(--fs-sm); min-width: 0; }
+.chg-at { flex: none; font-family: var(--mono); font-size: var(--fs-xs); color: var(--faint); }
+.chg-text { min-width: 0; word-break: break-word; white-space: pre-line; }
+.chg-row[data-field='progress'] .chg-text { color: var(--muted); display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden; }
+
+.rv-bar { display: flex; flex-direction: column; gap: var(--sp-3); padding: var(--sp-4); border: 1px solid var(--accent-line); border-radius: var(--r); background: var(--accent-soft); }
+.rv-head { display: flex; flex-wrap: wrap; align-items: center; gap: 2px var(--sp-4); }
+.rv-sub, .rv-hint { font-size: var(--fs-xs); color: var(--faint); }
+.rv-form { display: flex; flex-direction: column; gap: var(--sp-3); }
+.rv-acts { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-3); }
+.rv-text { min-width: 0; max-height: 420px; overflow: auto; padding: var(--sp-3) var(--sp-4); border-radius: var(--r-sm); background: var(--panel); word-break: break-word; }
+.rv-text .md > :first-child { margin-top: 0; }
+.rv-refs { display: flex; align-items: baseline; gap: var(--sp-3); min-width: 0; }
+.rv-refs-label { flex: none; font-size: var(--fs-xs); color: var(--faint); }
+.rv-refs .tags { min-width: 0; }
+.rv-mono { font-family: var(--mono); }
+.rv-checks { display: flex; flex-direction: column; gap: var(--sp-2); }
+.rv-checks .check { align-items: flex-start; color: var(--text); font-size: var(--fs-sm); line-height: 1.5; }
+.rv-checks .check input { margin-top: 3px; flex: none; }
+.rv-title { font-size: var(--fs-lg); font-weight: 600; line-height: 1.4; word-break: break-word; }
+.rv-edit { display: flex; flex-direction: column; gap: var(--sp-5); padding-top: var(--sp-4); border-top: 1px solid var(--line); }
+.rv-edit-toggle { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px var(--sp-4); padding: 0; background: none; text-align: left; }
+.rv-edit-toggle:hover .field-group-title { color: var(--accent); }
+.rv-edit-caret { width: 12px; font-family: var(--mono); color: var(--faint); }
