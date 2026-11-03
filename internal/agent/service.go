@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/lizhao903/pm-workspace/internal/connector"
 	"github.com/lizhao903/pm-workspace/internal/domain"
@@ -33,13 +34,22 @@ type Service struct {
 	PluginSkills func() []store.Skill
 	// NewChat 按服务商建模型客户端，nil 时用 New；测试用它换成假的
 	NewChat func(kind, baseURL, apiKey string) (Chat, error)
+	// RetryDelays 是 Complete 遇到连不上、限流、5xx 时每次重来前的等待；nil 用默认（2s、5s），测试设成很短
+	RetryDelays []time.Duration
 }
 
-// CompleteRequest 是一次不带工具的补全。Model 为空用默认服务商的模型。
+// CompleteRequest 是一次不带工具的补全。Provider 是服务商 id，空的用默认服务商；
+// Model 为空用这个服务商设置的模型。
+//
+// Agent 给了（id 或名称）就用这个 Agent 的服务商、模型、思考档位，它的指令拼在 System 前面，Provider / Model 忽略；
+// Agent 和 Provider、Model 都没给时，按 Scenario（空的算 background）找场景默认 Agent，没选或找不到就照老样子用默认服务商。
 type CompleteRequest struct {
-	System string
-	Prompt string
-	Model  string
+	System   string
+	Prompt   string
+	Provider string
+	Model    string
+	Agent    string
+	Scenario string
 }
 
 // AgentRunRequest 让一个 Agent 跑一轮。Agent 是 id 或名称；Title 是新会话的标题。
@@ -124,9 +134,22 @@ func (s *Service) client(ctx context.Context, providerID, model string) (Chat, s
 	return c, model, nil
 }
 
-// Complete 用默认服务商补全一段提示词，回模型说的原文。
+// Complete 用指定的服务商（没指定用默认的）补全一段提示词，回模型说的原文。
 func (s *Service) Complete(ctx context.Context, req CompleteRequest) (string, error) {
-	c, model, err := s.client(ctx, "", req.Model)
+	req, thinking, err := s.completeAgent(ctx, req)
+	if err != nil {
+		return "", err
+	}
+	if id := strings.TrimSpace(req.Provider); id != "" {
+		p, err := s.provider(ctx, id)
+		if err != nil {
+			return "", fmt.Errorf("找不到选的模型服务商，可能已经删除：%w", err)
+		}
+		if !p.Enabled {
+			return "", fmt.Errorf("服务商「%s」已停用，到 设置 → 模型服务商 启用它，或换一个服务商", p.Name)
+		}
+	}
+	c, model, err := s.client(ctx, req.Provider, req.Model)
 	if err != nil {
 		return "", err
 	}
@@ -135,15 +158,46 @@ func (s *Service) Complete(ctx context.Context, req CompleteRequest) (string, er
 		msgs = append(msgs, Message{Role: RoleSystem, Content: req.System})
 	}
 	msgs = append(msgs, Message{Role: domain.RoleUser, Content: req.Prompt})
-	var b strings.Builder
-	if err := c.Stream(ctx, Request{Model: model, Messages: msgs}, func(ev Event) {
-		if ev.Kind == EventDelta {
-			b.WriteString(ev.Text)
-		}
-	}); err != nil {
-		return "", err
+	delays := s.RetryDelays
+	if delays == nil {
+		delays = defaultRetryDelays
 	}
-	return b.String(), nil
+	for attempt := 0; ; attempt++ {
+		var b strings.Builder
+		err := c.Stream(ctx, Request{Model: model, Messages: msgs, Thinking: thinking}, func(ev Event) {
+			if ev.Kind == EventDelta {
+				b.WriteString(ev.Text)
+			}
+		})
+		if err == nil {
+			return b.String(), nil
+		}
+		// 只重来还没吐过字的瞬时失败；吐了一半断掉的不重来，免得拼出两份
+		if !IsTransient(err) || b.Len() > 0 {
+			return "", err
+		}
+		if attempt >= len(delays) {
+			return "", fmt.Errorf("%w（已自动重试 %d 次仍失败。服务商「%s」可能没启动或网络、代理不通，"+
+				"请到 设置 → 模型服务商 检查它的 base_url 能否访问，或换一个服务商后重试这一步）",
+				err, len(delays), s.providerName(ctx, req.Provider))
+		}
+		select {
+		case <-ctx.Done():
+			return "", err
+		case <-time.After(delays[attempt]):
+		}
+	}
+}
+
+// defaultRetryDelays 是 Complete 遇到瞬时失败时每次重来前等的时间。
+var defaultRetryDelays = []time.Duration{2 * time.Second, 5 * time.Second}
+
+// providerName 是 id 对应服务商的名字，id 为空取默认的。
+func (s *Service) providerName(ctx context.Context, id string) string {
+	if p, err := s.provider(ctx, id); err == nil {
+		return p.Name
+	}
+	return "默认"
 }
 
 // findAgent 按 id 找，找不到再按名称找；停用的不能跑。

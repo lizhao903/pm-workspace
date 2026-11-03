@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/lizhao903/pm-workspace/internal/domain"
 	"github.com/lizhao903/pm-workspace/internal/kb"
@@ -57,6 +58,90 @@ func TestServiceComplete(t *testing.T) {
 	}
 	if r0.Messages[0].Role != RoleSystem || r0.Messages[1].Content != "hi" || r1.Messages[0].Role != domain.RoleUser {
 		t.Fatalf("消息 %+v %+v", r0.Messages, r1.Messages)
+	}
+}
+
+// SOP 的 AI 节点可以选服务商：用它的连接配置和模型，没选模型用它设置的模型；停用的、删了的报错。
+func TestServiceCompleteProvider(t *testing.T) {
+	chat := &recordingChat{script: []func(func(Event)){grantSay("一"), grantSay("二")}}
+	s, st, ctx := newService(t, chat)
+	var urls []string
+	s.NewChat = func(kind, baseURL, key string) (Chat, error) { urls = append(urls, baseURL); return chat, nil }
+	addProvider(t, st, ctx)
+	other, err := st.CreateProvider(ctx, &domain.AgentProvider{Name: "另一个", Kind: domain.ProviderOllama,
+		BaseURL: "http://127.0.0.1:2", Model: "x0", Enabled: true}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Complete(ctx, CompleteRequest{Prompt: "hi", Provider: other.ID}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Complete(ctx, CompleteRequest{Prompt: "hi", Provider: other.ID, Model: "x1"}); err != nil {
+		t.Fatal(err)
+	}
+	if chat.reqs[0].Model != "x0" || chat.reqs[1].Model != "x1" || urls[0] != "http://127.0.0.1:2" {
+		t.Fatalf("模型 %s %s，地址 %v", chat.reqs[0].Model, chat.reqs[1].Model, urls)
+	}
+	off, err := st.CreateProvider(ctx, &domain.AgentProvider{Name: "停用的", Kind: domain.ProviderOllama,
+		BaseURL: "http://127.0.0.1:3", Model: "y0", Enabled: false}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Complete(ctx, CompleteRequest{Prompt: "hi", Provider: off.ID}); err == nil || !strings.Contains(err.Error(), "已停用") {
+		t.Fatalf("停用的服务商应当报错：%v", err)
+	}
+	if _, err := s.Complete(ctx, CompleteRequest{Prompt: "hi", Provider: "nope"}); err == nil || !strings.Contains(err.Error(), "找不到") {
+		t.Fatalf("不存在的服务商应当报错：%v", err)
+	}
+}
+
+// flakyChat 先按 errs 依次失败，用完后回 reply。
+type flakyChat struct {
+	errs  []error
+	calls int
+	reply string
+}
+
+func (c *flakyChat) Stream(_ context.Context, _ Request, on func(Event)) error {
+	c.calls++
+	if c.calls <= len(c.errs) {
+		return c.errs[c.calls-1]
+	}
+	on(Event{Kind: EventDelta, Text: c.reply})
+	return nil
+}
+
+// TSK-0306：SOP 的 AI 步骤偶发连不上模型服务，补全要自己重来；重来仍失败要给出去哪修。
+func TestServiceCompleteRetriesTransient(t *testing.T) {
+	down := transportError(context.Background(), errors.New("dial tcp: connection refused"))
+	if !IsTransient(down) || !IsTransient(upstreamError(503)) || !IsTransient(upstreamError(429)) {
+		t.Fatal("连不上、5xx、限流应当算瞬时失败")
+	}
+	if IsTransient(upstreamError(401)) || IsTransient(upstreamError(404)) {
+		t.Fatal("认证失败、404 重来也没用，不该算瞬时")
+	}
+
+	chat := &flakyChat{errs: []error{down, upstreamError(502)}, reply: "要处理"}
+	s, st, ctx := newService(t, chat)
+	s.RetryDelays = []time.Duration{time.Millisecond, time.Millisecond}
+	addProvider(t, st, ctx)
+	out, err := s.Complete(ctx, CompleteRequest{Prompt: "hi"})
+	if err != nil || out != "要处理" || chat.calls != 3 {
+		t.Fatalf("两次瞬时失败后应当成功：%q %v，调了 %d 次", out, err, chat.calls)
+	}
+
+	chat2 := &flakyChat{errs: []error{down, down, down}}
+	s.NewChat = func(string, string, string) (Chat, error) { return chat2, nil }
+	_, err = s.Complete(ctx, CompleteRequest{Prompt: "hi"})
+	if err == nil || chat2.calls != 3 || !strings.Contains(err.Error(), "已自动重试 2 次") ||
+		!strings.Contains(err.Error(), "「本机」") || !strings.Contains(err.Error(), "模型服务商") {
+		t.Fatalf("重试用完应当失败并指明服务商：%v，调了 %d 次", err, chat2.calls)
+	}
+
+	chat3 := &flakyChat{errs: []error{upstreamError(401)}}
+	s.NewChat = func(string, string, string) (Chat, error) { return chat3, nil }
+	if _, err = s.Complete(ctx, CompleteRequest{Prompt: "hi"}); err == nil || chat3.calls != 1 {
+		t.Fatalf("认证失败不该重试：%v，调了 %d 次", err, chat3.calls)
 	}
 }
 

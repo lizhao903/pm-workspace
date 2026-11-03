@@ -1,19 +1,25 @@
 // 会话（SPEC-sessions-1）：左边全局会话列表（搜索、按 Agent 筛、按时间分段），右边当前会话的对话。
 // 当前会话记在 ?s=，别的页面能直接链接到某个会话。会话挂 Agent（AG-01b8）；0032 之前和「更多」里按服务商开的会话不挂 Agent。
 // 空会话不堆积（B-09）：没有消息的会话只在打开时列出，从它切走时删掉。
+// 头部右上角是插件登记的工具入口（终端、浏览器，SPEC-sessions-1.34），点了在对话右边展开面板。
+// 从别的记录发起的会话（内核 0047，如 IM 消息的「发起会话」「拆分任务」）头部下面显示「来源」，按插件登记的定义跳回去。
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
+import { useNavigate } from 'react-router'
 import {
-  firstMessageOf, useAgentProviders, useAgentSessions, useAgents, useArtifacts, useCreateAgentSession, useDeleteAgentSession,
-  usePatchAgentSession, type AgentSession, type AgentSessionInput,
+  firstMessageOf, useAgentMessages, useAgentProviders, useAgentSessions, useAgents, useArtifacts, useCreateAgentSession, useDeleteAgentSession,
+  usePatchAgentSession, useRunningAgentSessions, useStopAgentSession, type AgentSession, type AgentSessionInput, type SessionSourceRef,
 } from '../../core/data'
+import { useSessionSource, useSessionTools } from '../../core/plugin'
 import { Button, ErrorState, IconSearch, LoadingState, PageTitle, SearchSelect, cls } from '../../core/ui'
 import { AgentAvatar } from '../../core/ui/AgentAvatar'
 import { ChatPane } from './ChatPane'
 import { hasLiveChat, useLiveChat } from './chatLive'
 import {
-  FILTER_GONE, FILTER_NO_AGENT, GONE_AGENT, NEW_TITLE, matchAgentFilter, recentAgents, timeAgo, whenGroup, whoName, whoOf, type ChatWho,
+  FILTER_GONE, FILTER_NO_AGENT, GONE_AGENT, NEW_TITLE, matchAgentFilter, recentAgents, sessionLinks, timeAgo, whenGroup, whoName, whoOf, type ChatWho,
 } from './chatModel'
+import { EMPTY_DOCK, switchTool, toggleTool } from './dockModel'
 import { NewSession } from './NewSession'
+import { ToolButtons, ToolDock } from './ToolDock'
 import { WhoAvatar } from './WhoAvatar'
 
 /** 一次先露多少条，往下点「显示更多」 */
@@ -49,6 +55,23 @@ function SessionItem({ s, who, selected, onOpen }: {
   )
 }
 
+/** 会话的来源（内核 0047）：从哪条记录发起的；插件登记了这种来源时能点回去 */
+function SessionSource({ source }: { source: SessionSourceRef | null | undefined }) {
+  const link = useSessionSource(source)
+  if (!link) return null
+  return (
+    <div className="chat-source">
+      <span className="list-sub">来源</span>
+      {link.to ? <SourceLink label={link.label} to={link.to} title={link.title} /> : <span className="ellipsis" title={link.title}>{link.label}</span>}
+    </div>
+  )
+}
+
+function SourceLink({ label, to, title }: { label: string; to: string; title?: string }) {
+  const navigate = useNavigate()
+  return <button type="button" className="link-btn ellipsis" title={title ?? `打开${label}`} onClick={() => navigate(to)}>{label}</button>
+}
+
 /** 会话头部下面的本会话产出（SPEC-sessions-3 的会话切片），没有就不占地方 */
 function SessionOutputs({ sessionId }: { sessionId: string }) {
   const q = useArtifacts({ session_id: sessionId, limit: ARTIFACT_LIMIT })
@@ -76,13 +99,18 @@ function SessionOutputs({ sessionId }: { sessionId: string }) {
   )
 }
 
-export function ChatsView({ current, onOpen, onOpenAgent, pickRequest = 0 }: {
+export function ChatsView({ current, onOpen, onOpenAgent, pickRequest = 0, onOpenRuns, onOpenOutputs, runsWaiting = 0 }: {
   current: string | null
   onOpen: (id: string | null) => void
   /** 头部点 Agent 名：去「设置 > Agent」它的配置页（SPEC-sessions-1.12）；权限没开时带 tab 直接打开工具与权限 */
   onOpenAgent?: (id: string, tab?: 'tools') => void
-  /** 二级菜单里点「新会话」时加一，这边打开新会话面板 */
+  /** 外面要打开新会话面板时加一（现在只有标题行的「新会话」，留着给别处用） */
   pickRequest?: number
+  /** 会话清单底部两个并排按钮：去执行记录、产出结果（原来的二级菜单） */
+  onOpenRuns?: () => void
+  onOpenOutputs?: () => void
+  /** 等你确认的执行记录数，「执行记录」按钮上的红点 */
+  runsWaiting?: number
 }) {
   const sessions = useAgentSessions()
   const providers = useAgentProviders()
@@ -90,6 +118,9 @@ export function ChatsView({ current, onOpen, onOpenAgent, pickRequest = 0 }: {
   const create = useCreateAgentSession()
   const patch = usePatchAgentSession()
   const del = useDeleteAgentSession()
+  // 停止（会话里正在跑的一轮，含关掉页面后仍在后台跑的）：在跑时头部给「停止」
+  const running = useRunningAgentSessions()
+  const stop = useStopAgentSession()
   // 切走时清掉空会话，和「删除会话」分开，失败不在头部报
   const drop = useDeleteAgentSession()
 
@@ -150,6 +181,14 @@ export function ChatsView({ current, onOpen, onOpenAgent, pickRequest = 0 }: {
   }, [provs, all])
 
   const cur = all.find((s) => s.id === current) ?? null
+
+  // 会话旁边的工具（SPEC-sessions-1.34）：插件登记了才有入口；面板跟着会话页，切会话不收起
+  const tools = useSessionTools()
+  const [dock, setDock] = useState(EMPTY_DOCK)
+  // 消息和对话面板共用一份缓存，不多发请求
+  const curMsgs = useAgentMessages(cur?.id ?? null)
+  const links = useMemo(() => sessionLinks(curMsgs.data ?? []), [curMsgs.data])
+  const dockOpen = !!cur && tools.some((t) => t.key === dock.open)
 
   // 从一个空会话切走（点了别的会话、又新建了一个、从别处链接过来）就删掉它。
   // 按 current 的变化判断，不放在卸载时：离开会话页留下的空会话只是不列出来
@@ -218,7 +257,7 @@ export function ChatsView({ current, onOpen, onOpenAgent, pickRequest = 0 }: {
 
   const curWho = cur ? who(cur) : null
   return (
-    <div className="chats">
+    <div className={cls('chats', dockOpen && 'with-dock')}>
       <PageTitle parent="会话" count={rows.length} desc="和 Agent 的对话都留在这里，能接着聊，也能回看每次调用了什么工具"
         actions={<Button variant="primary" onClick={() => setPicking(!picking)}>新会话</Button>}>会话</PageTitle>
       <div className="chat-list">
@@ -237,6 +276,18 @@ export function ChatsView({ current, onOpen, onOpenAgent, pickRequest = 0 }: {
             onCreate={doCreate} onClose={() => { setPicking(false); create.reset() }} />
         )}
         <div className="chat-items">{list}</div>
+        {(onOpenRuns || onOpenOutputs) && (
+          <div className="chat-list-foot" role="group" aria-label="执行记录和产出结果">
+            {onOpenRuns && (
+              <button type="button" className="btn btn-outline btn-sm" onClick={onOpenRuns} title="Agent 被消息、定时、任务触发后的每一次执行">
+                执行记录{runsWaiting > 0 && <span className="chat-foot-dot" aria-label={`${runsWaiting} 条等你确认`} />}
+              </button>
+            )}
+            {onOpenOutputs && (
+              <button type="button" className="btn btn-outline btn-sm" onClick={onOpenOutputs} title="建的任务、写的文档、发的回复">产出结果</button>
+            )}
+          </div>
+        )}
       </div>
       <div className="chat-main">
         {cur && curWho ? (
@@ -267,6 +318,13 @@ export function ChatsView({ current, onOpen, onOpenAgent, pickRequest = 0 }: {
                     <span className="list-sub chat-agent ellipsis">{whoName(curWho)}{curWho.kind === 'provider' ? ` · ${cur.model}` : ''}</span>
                   )}
                   <span className="spacer" />
+                  {!confirmDel && (
+                    <ToolButtons tools={tools} dock={dock} workdir={cur.workdir} links={links} onToggle={(k) => setDock((d) => toggleTool(d, k))} />
+                  )}
+                  {!confirmDel && running.data?.includes(cur.id) && (
+                    <Button size="sm" variant="danger" disabled={stop.isPending} title="停掉正在跑的这一轮；已经执行的操作不会撤回"
+                      onClick={() => stop.mutate(cur.id)}>{stop.isPending ? '停止中…' : '停止'}</Button>
+                  )}
                   {confirmDel ? (
                     <>
                       <span className="danger-text">删除会话？产出的任务、文档不受影响</span>
@@ -276,6 +334,8 @@ export function ChatsView({ current, onOpen, onOpenAgent, pickRequest = 0 }: {
                   ) : <Button size="sm" onClick={() => { del.reset(); setConfirmDel(true) }}>删除会话</Button>}
                 </div>
                 {del.isError && <div className="chat-head-err field-err">删除失败：{del.error.message}</div>}
+                {stop.isError && <div className="chat-head-err field-err">没停下：{stop.error.message}</div>}
+                <SessionSource source={cur.source_ref} />
                 <SessionOutputs sessionId={cur.id} />
               </>
             )} />
@@ -283,6 +343,9 @@ export function ChatsView({ current, onOpen, onOpenAgent, pickRequest = 0 }: {
           <div className="lib-reader-empty">{current && sessions.isSuccess ? '这个会话已经不在了' : all.length ? '从左边选一个会话' : sessions.isSuccess ? '还没有会话' : ''}</div>
         )}
       </div>
+      {/* 没选中会话时（比如刚删掉一条）只藏起来，不卸载，终端和网页留着 */}
+      <ToolDock tools={tools} dock={dockOpen ? dock : { ...dock, open: null }} sessionId={cur?.id ?? ''} workdir={cur?.workdir ?? ''} links={links}
+        onSwitch={(k) => setDock((d) => switchTool(d, k))} onCollapse={() => setDock((d) => ({ ...d, open: null }))} />
     </div>
   )
 }

@@ -58,6 +58,12 @@ func (c *anthropicChat) Stream(ctx context.Context, req Request, on func(Event))
 	if len(req.Tools) > 0 {
 		body["tools"] = anthropicTools(req.Tools)
 	}
+	level := thinkingLevel(req.Thinking)
+	return streamThinking("anthropic", req.Model, level, body, anthropicThinking(req.Model, level),
+		func(b map[string]any, on func(Event)) error { return c.post(ctx, b, on) }, on)
+}
+
+func (c *anthropicChat) post(ctx context.Context, body map[string]any, on func(Event)) error {
 	raw, err := json.Marshal(body)
 	if err != nil {
 		return fmt.Errorf("编码请求体失败: %w", err)
@@ -87,13 +93,20 @@ func (c *anthropicChat) Stream(ctx context.Context, req Request, on func(Event))
 }
 
 // parseAnthropicStream 只看 data: 行，事件类型以 JSON 里的 type 为准（event: 行与之重复）。
-// thinking 块整体丢弃，理由同 Ollama 的 thinking 字段。
+// thinking 块不给人看，理由同 Ollama 的 thinking 字段；但要攒齐吐成 EventThinkingBlock，
+// 调工具的下一轮原样回传（见 thinking.go）。
 func parseAnthropicStream(r io.Reader, on func(Event)) error {
 	type toolAcc struct {
 		id, name string
 		args     strings.Builder
 	}
 	acc := map[int]*toolAcc{}
+	type thinkAcc struct {
+		typ, data, signature string
+		text                 strings.Builder
+	}
+	thinks := map[int]*thinkAcc{}
+	var thinkOrder []int
 
 	sc := bufio.NewScanner(r)
 	sc.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
@@ -115,11 +128,14 @@ func parseAnthropicStream(r io.Reader, on func(Event)) error {
 				Type string `json:"type"`
 				ID   string `json:"id"`
 				Name string `json:"name"`
+				Data string `json:"data"`
 			} `json:"content_block"`
 			Delta struct {
 				Type        string `json:"type"`
 				Text        string `json:"text"`
 				PartialJSON string `json:"partial_json"`
+				Thinking    string `json:"thinking"`
+				Signature   string `json:"signature"`
 			} `json:"delta"`
 			Error struct {
 				Type string `json:"type"`
@@ -131,8 +147,12 @@ func parseAnthropicStream(r io.Reader, on func(Event)) error {
 
 		switch ev.Type {
 		case "content_block_start":
-			if ev.ContentBlock.Type == "tool_use" {
+			switch ev.ContentBlock.Type {
+			case "tool_use":
 				acc[ev.Index] = &toolAcc{id: ev.ContentBlock.ID, name: ev.ContentBlock.Name}
+			case "thinking", "redacted_thinking":
+				thinks[ev.Index] = &thinkAcc{typ: ev.ContentBlock.Type, data: ev.ContentBlock.Data}
+				thinkOrder = append(thinkOrder, ev.Index)
 			}
 		case "content_block_delta":
 			switch ev.Delta.Type {
@@ -144,6 +164,14 @@ func parseAnthropicStream(r io.Reader, on func(Event)) error {
 				if a := acc[ev.Index]; a != nil {
 					a.args.WriteString(ev.Delta.PartialJSON)
 				}
+			case "thinking_delta":
+				if t := thinks[ev.Index]; t != nil {
+					t.text.WriteString(ev.Delta.Thinking)
+				}
+			case "signature_delta":
+				if t := thinks[ev.Index]; t != nil {
+					t.signature += ev.Delta.Signature
+				}
 			}
 		case "error":
 			// 流中途的错误（overloaded_error 等）HTTP 状态已经是 200，只能从事件里拿。
@@ -153,6 +181,12 @@ func parseAnthropicStream(r io.Reader, on func(Event)) error {
 	}
 	if err := sc.Err(); err != nil {
 		return fmt.Errorf("读取模型响应流中断")
+	}
+
+	// thinking 块先于工具调用吐出：调用方要把它们放在下一轮 assistant 的最前面。
+	for _, i := range thinkOrder {
+		t := thinks[i]
+		on(Event{Kind: EventThinkingBlock, Raw: thinkingBlockJSON(t.typ, t.text.String(), t.signature, t.data)})
 	}
 
 	// 和 OpenAI 一样等流结束再按 index 吐出，执行顺序与模型给出的顺序一致。
@@ -205,6 +239,15 @@ func anthropicMessages(msgs []Message) (system string, out []map[string]any) {
 		case domain.RoleAssistant:
 			flush()
 			blocks := []map[string]any{}
+			// 带工具调用时才回传 thinking 块：API 只要求调工具的那一轮带上
+			if len(m.ToolCalls) > 0 {
+				for _, raw := range m.Thinking {
+					var b map[string]any
+					if json.Unmarshal(raw, &b) == nil {
+						blocks = append(blocks, b)
+					}
+				}
+			}
 			if m.Content != "" {
 				blocks = append(blocks, map[string]any{"type": "text", "text": m.Content})
 			}

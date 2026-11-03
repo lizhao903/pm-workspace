@@ -3,7 +3,7 @@
 // 要人确认的调用（AG-02b）：卡片上「确认执行 / 拒绝」，点了接着跑，回复照常流式显示。调用 id 来自 confirm 事件，
 // 执行记录建的会话从执行记录详情里找回；都找不到（页面刷新过）的只显示状态。
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { AGENT_RUN_PAGE_MAX, useAgentMessages, useAgentRun, useAgentRunList, type AgentSession } from '../../core/data'
+import { AGENT_RUN_PAGE_MAX, useAgentMessages, useAgentRun, useAgentRunList, useStopAgentSession, type AgentSession } from '../../core/data'
 import { Button, ErrorState, LoadingState, cls } from '../../core/ui'
 import { CallCard } from './CallCard'
 import { decideCall, dismissChat, sendChat, useCallState, useDeciding, useLiveChat } from './chatLive'
@@ -100,6 +100,7 @@ export function ChatPane({ session, who, head, autoSend, onRetitle, onOpenTools 
   const { usable, note } = whoUsable(who)
   const hint = who.kind === 'provider' ? '⌘Enter 发送；Agent 的工具会直接执行，提问会给出选项' : '⌘Enter 发送；写操作按权限停下来等你确认'
   const busy = liveRaw?.phase === 'streaming'
+  const stop = useStopAgentSession()
 
   const folded = useMemo(() => foldHistory(msgs.data ?? []), [msgs.data])
   // 执行记录建的会话：等确认的调用 id 在执行记录详情里。只在有配不上 id 的等确认卡片时去找
@@ -219,7 +220,11 @@ export function ChatPane({ session, who, head, autoSend, onRetitle, onOpenTools 
             }} />
           <div className="ai-box-foot">
             <span className="field-hint-line">{note ?? hint}</span>
-            <Button size="sm" variant="primary" disabled={!text.trim() || busy || !usable} title={note} onClick={submit}>发送</Button>
+            {busy ? (
+              <Button size="sm" variant="danger" disabled={stop.isPending} title="停掉正在跑的这一轮；已经执行的操作不会撤回" onClick={() => stop.mutate(session.id)}>
+                {stop.isPending ? '停止中…' : '停止'}
+              </Button>
+            ) : <Button size="sm" variant="primary" disabled={!text.trim() || !usable} title={note} onClick={submit}>发送</Button>}
           </div>
         </div>
       </div>

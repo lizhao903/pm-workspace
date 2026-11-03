@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -110,6 +111,19 @@ type Runner struct {
 	RunID string
 	// Debug 非 nil 是调试对话（AG-02c）：不写会话和消息，历史从它来，见 debug.go。
 	Debug *Debug
+	// Thinking 是思考档位，空串时取 Agent.Thinking，都没有按 default（不带思考参数），见 thinking.go。
+	Thinking string
+}
+
+// thinking 是这一轮用的思考档位：显式给的优先，再看挂的 Agent。
+func (r *Runner) thinking() string {
+	if r.Thinking != "" {
+		return r.Thinking
+	}
+	if r.Agent != nil {
+		return r.Agent.Thinking
+	}
+	return ""
 }
 
 // Run 处理一条用户消息，返回最终落库的 assistant 消息 id。
@@ -172,13 +186,17 @@ func (r *Runner) run(ctx context.Context, userText string, dec *Decision, emit f
 	for turn := 0; turn < maxTurns; turn++ {
 		var text strings.Builder
 		var calls []ToolCall
+		var thinking []json.RawMessage
 
 		err := r.Chat.Stream(ctx, Request{
 			Model:    r.Model,
 			Messages: msgs,
 			Tools:    r.Policy.Tools(tb.Defs()),
+			Thinking: r.thinking(),
 		}, func(ev Event) {
 			switch ev.Kind {
+			case EventThinkingBlock:
+				thinking = append(thinking, ev.Raw)
 			case EventDelta:
 				text.WriteString(ev.Text)
 				emit(StreamEvent{Type: "delta", Text: ev.Text})
@@ -209,6 +227,7 @@ func (r *Runner) run(ctx context.Context, userText string, dec *Decision, emit f
 			Role:      domain.RoleAssistant,
 			Content:   text.String(),
 			ToolCalls: calls,
+			Thinking:  thinking,
 		})
 		if t := strings.TrimSpace(text.String()); t != "" {
 			finalText.WriteString(t)
@@ -367,7 +386,7 @@ func (r *Runner) record(ctx context.Context, m *domain.AgentMessage) (*domain.Ag
 func (r *Runner) buildHistory(ctx context.Context, types []*domain.ObjectType) ([]Message, error) {
 	out := []Message{{
 		Role:    RoleSystem,
-		Content: BuildSystemPrompt(types, time.Now(), r.Object) + agentSection(r.Agent) + skillSection(r.Skills),
+		Content: BuildSystemPrompt(types, time.Now(), r.Object) + sourceSection(r.Session) + agentSection(r.Agent) + skillSection(r.Skills),
 	}}
 	if r.Debug != nil {
 		past := r.debugTranscript()

@@ -1,7 +1,8 @@
 // Agent 列表和配置页的纯函数（AG-01b5），照原型 web-next/src/agents.tsx、agentdata.ts、App.tsx 的 modelChoices。
 // 色值写在这里（.tsx 里不出现色值），单元测试盯着模型可选项、草稿改动和问题汇总。
 import type {
-  Agent, AgentGrantMode, AgentInput, AgentPatch, AgentProvider, AgentTrigger, AgentTriggerKind, AgentTriggerMatch, Connector, ProviderCheck,
+  Agent, AgentGrantMode, AgentInput, AgentPatch, AgentProvider, AgentThinking, AgentTrigger, AgentTriggerKind, AgentTriggerMatch, Connector,
+  ProviderCheck,
 } from '../../../core/data'
 import { kindOf, splitIds, uiKindOf } from '../providers/catalog'
 
@@ -105,16 +106,26 @@ const randomColor = () => AGENT_COLORS[Math.floor(Math.random() * AGENT_COLORS.l
 export function blankDraft(color: string = randomColor()): AgentDraft {
   return {
     name: '', desc: '', color, avatar: { kind: 'text', value: '' }, provider_id: '', model: '', instructions: '',
-    skills: [], mcps: [], kbs: [], triggers: [{ kind: 'manual', detail: '' }], enabled: true,
+    skills: [], mcps: [], kbs: [], triggers: [{ kind: 'manual', detail: '' }], thinking: 'default', enabled: true,
   }
 }
 
 export function draftOf(a: Agent): AgentDraft {
   return {
     name: a.name, desc: a.desc, color: a.color, avatar: a.avatar, provider_id: a.provider_id, model: a.model, instructions: a.instructions,
-    skills: a.skills, mcps: a.mcps, kbs: a.kbs, triggers: a.triggers, enabled: a.enabled,
+    skills: a.skills, mcps: a.mcps, kbs: a.kbs, triggers: a.triggers, thinking: a.thinking ?? 'default', enabled: a.enabled,
   }
 }
+
+/** 思考档位（0045），和后端 domain.ThinkingLevels 一致。模型不支持时后端自动按「模型默认」跑，不会失败 */
+export const THINKING_OPTIONS: { value: AgentThinking; label: string; hint: string }[] = [
+  { value: 'default', label: '模型默认', hint: '不传思考参数，交给模型自己决定' },
+  { value: 'off', label: '不思考', hint: '最快，适合分类、提取这类简单活' },
+  { value: 'low', label: '浅', hint: '想一点，速度和质量折中' },
+  { value: 'medium', label: '中', hint: '想得多一些' },
+  { value: 'high', label: '深', hint: '最慢，适合复杂的分析和写作' },
+]
+export const thinkingLabel = (t: string | undefined) => THINKING_OPTIONS.find((o) => o.value === t)?.label ?? '模型默认'
 
 const DRAFT_KEYS = Object.keys(blankDraft('#000000')) as (keyof AgentDraft)[]
 
@@ -262,4 +273,23 @@ export function grantsEqual(a: Grants, b: Grants): boolean {
 export function toolsOn(g: Grants, mounted: readonly MountableConn[]): number {
   return ABILITIES.filter((a) => (g[a.key] ?? 'off') !== 'off').length
     + mounted.reduce((n, c) => n + c.tools.filter((t) => (g[t.key] ?? 'off') !== 'off').length, 0)
+}
+
+// ---- 场景默认 Agent（0045） ----
+
+/** 场景下拉：不指定 + 全部 Agent（停用的标出来）；选的 Agent 已删除时补一项占位，免得下拉显示成别的 */
+export function scenarioOptions(current: string, agents: Agent[]): { value: string; label: string }[] {
+  const out = [{ value: '', label: '不指定（用默认服务商）' }]
+  for (const a of agents) out.push({ value: a.id, label: `${a.name || '未命名'}${a.enabled ? '' : '（已停用）'}` })
+  if (current && !agents.some((a) => a.id === current)) out.push({ value: current, label: '已删除的 Agent' })
+  return out
+}
+
+/** 选的 Agent 用不了时的说明：删了、停用了都退回默认服务商 */
+export function scenarioProblem(current: string, agents: Agent[]): string | undefined {
+  if (!current) return undefined
+  const a = agents.find((x) => x.id === current)
+  if (!a) return '选的 Agent 已删除，现在用默认服务商，换一个'
+  if (!a.enabled) return `「${a.name || '未命名'}」已停用，现在用默认服务商`
+  return undefined
 }

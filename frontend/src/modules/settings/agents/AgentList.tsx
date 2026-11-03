@@ -6,8 +6,9 @@ import {
 import { Button, cls, EmptyState, PageTitle, Switch } from '../../../core/ui'
 import { timeAgo } from '../providers/model'
 import { AgentAvatar } from './AgentAvatar'
-import { ABILITIES, choiceKey, hasAll, triggerSummary, type ModelChoice } from './model'
+import { ABILITIES, choiceKey, hasAll, thinkingLabel, triggerSummary, type ModelChoice } from './model'
 import { MiniSearch } from './parts'
+import { ScenarioDefaults } from './ScenarioDefaults'
 
 export function AgentList({ models, onOpen, onNew }: { models: ModelChoice[]; onOpen: (id: string) => void; onNew: () => void }) {
   const q = useAgents()
@@ -55,6 +56,7 @@ export function AgentList({ models, onOpen, onNew }: { models: ModelChoice[]; on
                   onOpen={() => onOpen(a.id)} onToggle={(on) => toggle(a, on)} />
               ))}
             </div>
+            <ScenarioDefaults agents={agents} />
           </>
         )}
       </QueryState>
@@ -82,7 +84,7 @@ function AgentCard({ agent: a, model, grants, runs, onOpen, onToggle }: {
         <div className="ag-card-title">
           <span className="ag-name ellipsis">{a.name || '未命名'}</span>
           <span className={cls('ag-model ellipsis', bad && 'danger-text')}>
-            {model?.label ?? a.model}{bad && ' · 不可用'}
+            {model?.label ?? a.model}{bad && ' · 不可用'}{a.thinking && a.thinking !== 'default' && ` · 思考：${thinkingLabel(a.thinking)}`}
           </span>
         </div>
         <span onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>

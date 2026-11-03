@@ -16,7 +16,7 @@ type Open = { mode: 'new'; kind: string } | { mode: 'edit'; id: string; slot?: s
 export function ProvidersSection() {
   const q = useAgentProviders()
   const list = q.data ?? []
-  const checks = useProviderChecks(list.map((p) => p.id))
+  const checks = useProviderChecks(list)
   const test = useTestProvider()
   const [open, setOpen] = useState<Open | null>(null)
 

@@ -261,6 +261,8 @@ func (tb *Toolbox) createObject(ctx context.Context, args map[string]any) ToolRe
 		o.DueAt = t
 	}
 
+	tb.applySource(ctx, o)
+
 	out, err := tb.st.CreateObject(ctx, o, agentActor)
 	if err != nil {
 		// store 的校验错误（类型不存在、状态非法）原样告诉模型，它据此改参数重试。
@@ -271,6 +273,33 @@ func (tb *Toolbox) createObject(ctx context.Context, args map[string]any) ToolRe
 		ObjectID: out.ID,
 		Content: fmt.Sprintf("创建成功：ref=%s id=%s type=%s status=%s title=%s",
 			out.Ref, out.ID, out.TypeID, out.Status, out.Title),
+	}
+}
+
+// applySource 把会话的来源（0047，会话从哪条记录发起的）记到新建对象的 props.source_ref，
+// 来源里有 project_id、对象自己没挂项目时缺省挂到这个项目（项目删了、不是项目就不挂）。
+// 这样从 IM 消息发起的会话里拆出来的任务，和「转任务」建的一样能追回消息、落在消息归属的项目下，
+// 不靠模型照抄一段 JSON。建的是项目本身时不挂项目。
+func (tb *Toolbox) applySource(ctx context.Context, o *domain.Object) {
+	if tb.session == nil || len(tb.session.SourceRef) == 0 {
+		return
+	}
+	ref := make(map[string]any, len(tb.session.SourceRef))
+	for k, v := range tb.session.SourceRef {
+		ref[k] = v
+	}
+	if o.Props == nil {
+		o.Props = map[string]any{}
+	}
+	if _, ok := o.Props[domain.PropSourceRef]; !ok {
+		o.Props[domain.PropSourceRef] = ref
+	}
+	pid, _ := ref["project_id"].(string)
+	if pid = strings.TrimSpace(pid); pid == "" || o.ProjectID != nil || o.TypeID == "project" {
+		return
+	}
+	if p, err := tb.st.GetObject(ctx, pid); err == nil && p.TypeID == "project" && p.DeletedAt == nil {
+		o.ProjectID = &pid
 	}
 }
 

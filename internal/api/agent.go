@@ -59,6 +59,28 @@ type createSessionReq struct {
 	ObjectID string `json:"object_id"`
 	// AgentID 给了就用这个 Agent 的服务商和模型，provider_id / model 忽略；Agent 不存在 404。
 	AgentID string `json:"agent_id"`
+	// SourceRef 是会话的来源（0047），JSON 对象，最多 sourceRefMax 字节；null 和不给一样。
+	// 只在 POST /api/agent/sessions 认，chat 里新建会话不带。
+	SourceRef json.RawMessage `json:"source_ref"`
+}
+
+// sourceRefMax 是会话来源 JSON 的上限：来源只放定位用的几项和一段摘录，不放全文
+const sourceRefMax = 16 << 10
+
+// parseSourceRef 校验会话来源：不给、null 为 nil；不是对象、太长 400。
+func parseSourceRef(raw json.RawMessage) (map[string]any, error) {
+	t := strings.TrimSpace(string(raw))
+	if t == "" || t == "null" {
+		return nil, nil
+	}
+	if len(t) > sourceRefMax {
+		return nil, validationf("source_ref 太长了，最多 %d 字节", sourceRefMax)
+	}
+	var out map[string]any
+	if !strings.HasPrefix(t, "{") || json.Unmarshal([]byte(t), &out) != nil {
+		return nil, validationf("source_ref 必须是 JSON 对象")
+	}
+	return out, nil
 }
 
 func (s *Server) handleCreateAgentSession(w http.ResponseWriter, r *http.Request) {
@@ -101,6 +123,10 @@ func (s *Server) newSession(ctx context.Context, req createSessionReq) (*domain.
 	if v := strings.TrimSpace(req.ObjectID); v != "" {
 		objectID = &v
 	}
+	sourceRef, err := parseSourceRef(req.SourceRef)
+	if err != nil {
+		return nil, err
+	}
 	return s.st.CreateAgentSession(ctx, &domain.AgentSession{
 		Title:      req.Title,
 		ObjectID:   objectID,
@@ -108,6 +134,7 @@ func (s *Server) newSession(ctx context.Context, req createSessionReq) (*domain.
 		Model:      model,
 		Workdir:    strings.TrimSpace(req.Workdir),
 		AgentID:    agentID,
+		SourceRef:  sourceRef,
 	})
 }
 
@@ -332,13 +359,20 @@ func (s *Server) handleAgentChat(w http.ResponseWriter, r *http.Request) {
 		Store: s.st, Chat: chat, Model: model, Session: session,
 		Object: object, Agent: ag, Skills: s.agentSkills(ctx, ag), Policy: policy,
 	}
-	runCtx, cancel := agentRunCtx(ctx)
+	baseCtx, cancel := agentRunCtx(ctx)
 	defer cancel()
+	runCtx, done := s.turns.start(baseCtx, session.ID)
+	defer done()
 	msgID, err := runner.Run(runCtx, req.Message, emit)
+	if err != nil && stoppedByUser(runCtx) {
+		s.noteAgentStopped(baseCtx, session.ID)
+		emit(agent.StreamEvent{Type: "error", Message: "已手动停止"})
+		return
+	}
 	if err != nil {
 		s.log.Warn("agent chat failed",
 			"session", session.ID, "provider", provider.ID, "kind", provider.Kind, "err", err)
-		s.noteAgentFailure(runCtx, session.ID, err)
+		s.noteAgentFailure(baseCtx, session.ID, err)
 		emit(agent.StreamEvent{Type: "error", Message: err.Error()})
 		return
 	}
@@ -353,6 +387,14 @@ const agentRunTimeout = 10 * time.Minute
 // 连接断了以后写流只是写不出去，不影响执行。
 func agentRunCtx(ctx context.Context) (context.Context, context.CancelFunc) {
 	return context.WithTimeout(context.WithoutCancel(ctx), agentRunTimeout)
+}
+
+// noteAgentStopped 手动停止时存一句说明，和出错区分开。
+func (s *Server) noteAgentStopped(ctx context.Context, sessionID string) {
+	msg := "已手动停止这一轮。上面已经执行的工具调用不会撤回，要接着做可以再发一句。"
+	if _, e := s.st.AppendAgentMessage(ctx, &domain.AgentMessage{SessionID: sessionID, Role: domain.RoleAssistant, Content: msg}); e != nil {
+		s.log.Warn("save agent stop note failed", "session", sessionID, "err", e)
+	}
 }
 
 // noteAgentFailure 这一轮没跑完时存一条说明：流里的 error 事件只有当时开着页面的人看得到，

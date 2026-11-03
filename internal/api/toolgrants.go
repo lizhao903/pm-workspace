@@ -336,25 +336,31 @@ func (s *Server) decideToolCall(w http.ResponseWriter, r *http.Request, approved
 		flusher.Flush()
 	}
 
-	runCtx, cancel := agentRunCtx(ctx)
+	baseCtx, cancel := agentRunCtx(ctx)
 	defer cancel()
+	runCtx, done := s.turns.start(baseCtx, session.ID)
+	defer done()
 	dec := &agent.Decision{Call: tc, Approved: approved}
 	msgID, err := runner.Resume(runCtx, dec, emit)
 	if dec.Result != "" {
 		// 和流解耦：用户关掉页面时结果也要记下
-		if e := s.st.SetAgentToolCallResult(runCtx, tc.ID, dec.Result); e != nil {
+		if e := s.st.SetAgentToolCallResult(baseCtx, tc.ID, dec.Result); e != nil {
 			s.log.Warn("save tool call result failed", "call", tc.ID, "err", e)
 		}
 	}
 	// 执行记录按这次处理重算状态（AG-01b4）；连接断了也照样跑完，按真实结果算
 	if tc.RunID != nil {
-		if e := agent.SettleRun(runCtx, s.st, *tc.RunID, err); e != nil {
+		if e := agent.SettleRun(baseCtx, s.st, *tc.RunID, err); e != nil {
 			s.log.Warn("settle agent run failed", "run", *tc.RunID, "err", e)
 		}
 	}
 	if err != nil {
 		s.log.Warn("agent resume failed", "session", session.ID, "call", tc.ID, "err", err)
-		s.noteAgentFailure(runCtx, session.ID, err)
+		if stoppedByUser(runCtx) {
+			s.noteAgentStopped(baseCtx, session.ID)
+		} else {
+			s.noteAgentFailure(baseCtx, session.ID, err)
+		}
 		emit(agent.StreamEvent{Type: "error", Message: err.Error()})
 		return
 	}

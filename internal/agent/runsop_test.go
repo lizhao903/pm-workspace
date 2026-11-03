@@ -147,3 +147,22 @@ func TestRunSOPToolUnavailable(t *testing.T) {
 		t.Fatal("没接钩子不该有 run_sop")
 	}
 }
+
+// 关联任务（SOP-06）：会话挂在任务上（任务分配给 Agent 触发、在任务详情里对话）时，发起的执行带上任务 id；
+// 全局会话不带。
+func TestRunSOPToolLinksSessionObject(t *testing.T) {
+	sops := &fakeSOPStarter{}
+	useSOPStarter(t, sops)
+	task := "obj_task1"
+	tb := NewToolbox(nil, &domain.AgentSession{ID: "ses_1", ObjectID: &task})
+	tb.withAgentSOP(&domain.Agent{ID: "ag_sop", Name: "流程助手"})
+	if res := tb.Invoke(context.Background(), ToolCall{Name: toolRunSOP, Args: `{"flow_id":"sop_weekly"}`}); !strings.Contains(res.Summary, "spr_1") {
+		t.Fatalf("发起：%+v", res)
+	}
+	global := NewToolbox(nil, &domain.AgentSession{ID: "ses_2"})
+	global.withAgentSOP(&domain.Agent{ID: "ag_sop", Name: "流程助手"})
+	global.Invoke(context.Background(), ToolCall{Name: toolRunSOP, Args: `{"flow_id":"sop_weekly"}`})
+	if len(sops.got) != 2 || sops.got[0].ObjectID != task || sops.got[1].ObjectID != "" {
+		t.Fatalf("请求 = %+v", sops.got)
+	}
+}

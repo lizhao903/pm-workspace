@@ -20,6 +20,7 @@ import (
 //  1. 工具调用不分片，一次给全，且 arguments 是 JSON 对象而非字符串；
 //  2. 带思考能力的模型（qwen3.5 等）会额外给一个 thinking 字段——
 //     那是模型的草稿纸，透给用户只会让对话框里出现一大段自言自语。
+//     要不要思考由请求里的 think 决定（Agent 的思考档位，见 thinking.go）。
 type ollamaChat struct {
 	baseURL string
 }
@@ -33,6 +34,12 @@ func (c *ollamaChat) Stream(ctx context.Context, req Request, on func(Event)) er
 	if len(req.Tools) > 0 {
 		body["tools"] = openAITools(req.Tools) // Ollama 的 tools 结构与 OpenAI 一致
 	}
+	level := thinkingLevel(req.Thinking)
+	return streamThinking("ollama", req.Model, level, body, ollamaThinking(req.Model, level),
+		func(b map[string]any, on func(Event)) error { return c.post(ctx, b, on) }, on)
+}
+
+func (c *ollamaChat) post(ctx context.Context, body map[string]any, on func(Event)) error {
 	raw, err := json.Marshal(body)
 	if err != nil {
 		return fmt.Errorf("编码请求体失败: %w", err)
@@ -86,6 +93,10 @@ func parseOllamaStream(r io.Reader, on func(Event)) error {
 		}
 		// Ollama 把「模型不存在」这类错误放在流里的 error 字段，HTTP 状态仍是 200。
 		if chunk.Error != "" {
+			// 不支持思考的模型带了 think：归为拒收，换掉思考参数重来
+			if strings.Contains(strings.ToLower(chunk.Error), "think") {
+				return rejectedError{"模型服务返回错误：" + chunk.Error}
+			}
 			return fmt.Errorf("模型服务返回错误：%s", chunk.Error)
 		}
 		if chunk.Message.Content != "" {
