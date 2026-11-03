@@ -26,7 +26,7 @@ export default function Page() {
   if (!tab || extra.length) return <Navigate to={`${root}/${encodeURIComponent(id)}`} replace />
   return (
     <ProjectPage id={id} tab={tab} onAll={() => navigate(root)}
-      onTab={(t) => navigate(`${root}/${encodeURIComponent(id)}${t === 'overview' ? '' : `/${t}`}`, { replace: true })}
+      onTab={(t, query) => navigate(`${root}/${encodeURIComponent(id)}${t === 'overview' ? '' : `/${t}`}${query ? `?${query}` : ''}`, { replace: !query })}
       onSwitch={(pid) => open(pid, tab)} />
   )
 }

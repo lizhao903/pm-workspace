@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import type { AgentMessage } from '../../core/data'
-import { artifactKind, foldHistory, foldLive, overlayCalls, parseQuestion, titleFrom, toolAbility, whenGroup } from './chatModel'
+import type { AgentMessage } from '../data'
+import { artifactKind, bubbleIds, foldHistory, foldLive, overlayCalls, parseQuestion, titleFrom, toolAbility, whenGroup } from './chatModel'
 
 const msg = (p: Partial<AgentMessage>): AgentMessage => ({
   id: 'm' + Math.random().toString(36).slice(2, 8), session_id: 'ags_1', role: 'user', content: '', created_at: '2026-10-29T01:00:00Z', ...p,
@@ -34,7 +34,7 @@ describe('消息折叠', () => {
       msg({ id: 'a1', role: 'assistant', content: '建好了。\n【需要你确认】要不要设截止日？\n- 要：周五\n- 不要：先放着' }),
     ])
     expect(out.map((m) => [m.id, m.role])).toEqual([['u1', 'user'], ['a1', 'agent']])
-    expect(out[1].calls).toEqual([{ name: 'create_object', args: '{"title":"x"}', summary: '已建 TSK-0009', state: 'done' }])
+    expect(out[1].calls).toEqual([{ name: 'create_object', args: '{"title":"x"}', summary: '已建 TSK-0009', state: 'done', msgIds: ['t1'] }])
     expect(out[1].text).toBe('建好了。')
     expect(out[1].question?.options.map((o) => o.label)).toEqual(['要', '不要'])
   })
@@ -73,7 +73,7 @@ describe('要人确认的调用（AG-02b）', () => {
       asked('t1'),
       msg({ id: 'a1', role: 'assistant', content: '我准备建一条任务。\n【等你确认】新建「开通试点账号」，确认后才会执行。\n' }),
     ])
-    expect(out[1].calls).toEqual([{ name: 'create_object', args: '{"title":"开通试点账号"}', state: 'pending', asked: true }])
+    expect(out[1].calls).toEqual([{ name: 'create_object', args: '{"title":"开通试点账号"}', state: 'pending', asked: true, msgIds: ['t1'] }])
     expect(out[1].text).toBe('我准备建一条任务。')
   })
 
@@ -149,5 +149,20 @@ describe('其他', () => {
     expect(artifactKind({ note: '[commit] sha=abc', url: '' })).toBe('commit')
     expect(artifactKind({ note: '', url: 'https://x' })).toBe('link')
     expect(artifactKind({ note: '说明', url: '' })).toBe('file')
+  })
+})
+
+describe('移除气泡对应的原始消息（SPEC-sessions-1.43）', () => {
+  it('用户一条；Agent 是回复加上面的工具调用，等确认的连同确认结果；只有调用的取调用', () => {
+    const out = foldHistory([
+      msg({ id: 'u1', role: 'user', content: '改一下' }),
+      msg({ id: 't1', role: 'tool', tool_name: 'search_objects', content: '3 条' }),
+      msg({ id: 't2', role: 'tool', tool_name: 'update_object', tool_args: '{"ref":"TSK-1"}', content: '等待确认：修改 TSK-1' }),
+      msg({ id: 'a1', role: 'assistant', content: '等你确认' }),
+      msg({ id: 't3', role: 'tool', tool_name: 'update_object', tool_args: '{"ref":"TSK-1"}', content: '已更新 TSK-1' }),
+      msg({ id: 'u2', role: 'user', content: '再查' }),
+      msg({ id: 't4', role: 'tool', tool_name: 'search_objects', content: '0 条' }),
+    ])
+    expect(out.map(bubbleIds)).toEqual([['u1'], ['a1', 't1', 't2', 't3'], ['u2'], ['t4']])
   })
 })

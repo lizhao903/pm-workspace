@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useState, type ReactNode } from 'react'
 import type { Agent, Session } from './agentdata'
 import { AgentAvatar } from './agents'
 import { listenedChannels } from './channelpick'
@@ -318,16 +318,25 @@ export function ProjectSopTab({ p, sops, runs, onChange, onStart, onOpenRun, onO
 /** 项目 Agent 页签里露几条会话 */
 const SESSION_PEEK = 10
 
-export function ProjectAgentTab({ p, agents, sessions, onChange, onChat, onOpenAgent, onOpenSession, onAllSessions }: {
+export function ProjectAgentTab({ p, agents, sessions, onChange, onChat, onOpenAgent, onOpenSession, onAllSessions, chatOpen = null, onChatOpen, renderChat }: {
   p: Project; agents: Agent[]; sessions: Session[]
   onChange: (x: Partial<Project>) => void; onChat: (agentId: string) => void; onOpenAgent: (id: string) => void; onOpenSession: (id: string) => void
   /** 去会话页看这个项目的全部会话；不传就在这里就地展开 */
   onAllSessions?: () => void
+  /** 就地打开的会话（SPEC-projects-10.13）：左边会话列表，右边对话面板，不跳会话页。不传 onChatOpen、renderChat 时点会话照旧去会话页 */
+  chatOpen?: string | null
+  onChatOpen?: (id: string | null) => void
+  renderChat?: (s: Session, head: ReactNode) => ReactNode
 }) {
   const [allChats, setAllChats] = useState(false)
   const mine = p.agent_ids.map((id) => agents.find((a) => a.id === id)).filter((a): a is Agent => !!a)
   const avail = agents.filter((a) => !p.agent_ids.includes(a.id))
   const chats = sessions.filter((s) => s.project_id === p.id).sort((a, b) => b.updated_at.localeCompare(a.updated_at))
+  const inline = !!(onChatOpen && renderChat)
+  const open = (id: string) => (inline ? onChatOpen!(id) : onOpenSession(id))
+  // 打开的会话从全部会话里找（刚建的空会话也在）
+  const cur = inline && chatOpen ? sessions.find((s) => s.id === chatOpen) : undefined
+  const curAgent = cur ? agents.find((a) => a.id === cur.agent_id) : undefined
   return (
     <>
       <div className="mount-head pt-head">
@@ -354,25 +363,44 @@ export function ProjectAgentTab({ p, agents, sessions, onChange, onChat, onOpenA
           ))}
         </div>
       ) : <div className="mount-empty">还没给项目配 Agent</div>}
-      <div className="section-label">项目里的会话{chats.length > SESSION_PEEK && <span className="seg-n"> {chats.length}</span>}</div>
-      {chats.length ? (
-        <div className="task-table">
-          {(allChats ? chats : chats.slice(0, SESSION_PEEK)).map((s) => {
-            const a = agents.find((x) => x.id === s.agent_id)
-            return (
-              <button key={s.id} className="pt-run" onClick={() => onOpenSession(s.id)}>
-                {a && <AgentAvatar agent={a} size={20} />}
-                <span className="ellipsis">{s.title}</span>
-                <span className="run-muted">{a?.name}</span>
-                <span className="run-muted">{timeAgo(s.updated_at)}</span>
-              </button>
-            )
-          })}
-          {chats.length > SESSION_PEEK && (onAllSessions
-            ? <button className="pt-more" onClick={onAllSessions}>在会话里看全部<span className="seg-n">{chats.length} 条</span></button>
-            : <button className="pt-more" onClick={() => setAllChats(!allChats)}>{allChats ? '收起' : <>显示全部<span className="seg-n">还有 {chats.length - SESSION_PEEK} 条</span></>}</button>)}
-        </div>
-      ) : <div className="mount-empty">还没有项目会话；点上面的「对话」开一个</div>}
+      <div className={cls('pt-chat-split', inline && chatOpen && 'has-chat')}>
+        <section className="pt-chat-list" aria-label="项目里的会话">
+          <div className="section-label">项目里的会话{chats.length > SESSION_PEEK && <span className="seg-n"> {chats.length}</span>}</div>
+          {chats.length ? (
+            <div className="task-table">
+              {(allChats ? chats : chats.slice(0, SESSION_PEEK)).map((s) => {
+                const a = agents.find((x) => x.id === s.agent_id)
+                return (
+                  <button key={s.id} className={cls('pt-run', s.id === chatOpen && inline && 'on')} aria-current={s.id === chatOpen && inline ? 'true' : undefined} onClick={() => open(s.id)}>
+                    {a && <AgentAvatar agent={a} size={20} />}
+                    <span className="ellipsis">{s.title}</span>
+                    <span className="run-muted pt-chat-agent">{a?.name}</span>
+                    <span className="run-muted">{timeAgo(s.updated_at)}</span>
+                  </button>
+                )
+              })}
+              {chats.length > SESSION_PEEK && (onAllSessions
+                ? <button className="pt-more" onClick={onAllSessions}>在会话里看全部<span className="seg-n">{chats.length} 条</span></button>
+                : <button className="pt-more" onClick={() => setAllChats(!allChats)}>{allChats ? '收起' : <>显示全部<span className="seg-n">还有 {chats.length - SESSION_PEEK} 条</span></>}</button>)}
+            </div>
+          ) : <div className="mount-empty">还没有项目会话；点上面的「对话」开一个</div>}
+        </section>
+        {inline && chatOpen && (
+          <section className="pt-chat" aria-label="项目会话">
+            {cur ? renderChat!(cur, (
+              <div className="pt-chat-head">
+                <button className="pt-chat-back" onClick={() => onChatOpen!(null)} title="关掉对话，回到会话列表">返回</button>
+                <b className="ellipsis">{cur.title}</b>
+                <span className="list-sub ellipsis">{curAgent?.name ?? '已删除的 Agent'}</span>
+                <span className="spacer" />
+                <button className="act act-quiet" title="在会话页打开，能看工具面板、产出结果" onClick={() => onOpenSession(cur.id)}>在会话页打开</button>
+              </div>
+            )) : (
+              <div className="mount-empty">这个会话找不到了（可能已删除）。<button className="link-btn" onClick={() => onChatOpen!(null)}>回到列表</button></div>
+            )}
+          </section>
+        )}
+      </div>
     </>
   )
 }

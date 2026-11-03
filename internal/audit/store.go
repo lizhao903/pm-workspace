@@ -2,6 +2,7 @@ package audit
 
 import (
 	"context"
+	"fmt"
 	"strings"
 
 	"github.com/lizhao903/pm-workspace/internal/domain"
@@ -360,6 +361,19 @@ func (s *Store) DeleteAgentSession(ctx context.Context, id string) error {
 	}
 	s.deleted(ctx, "agent_session", id, "删除 Agent 会话 "+label, nil)
 	return nil
+}
+
+func (s *Store) DeleteAgentMessages(ctx context.Context, sessionID string, ids []string) (int, error) {
+	n, err := s.Store.DeleteAgentMessages(ctx, sessionID, ids)
+	if err != nil || n == 0 {
+		return n, err
+	}
+	label := sessionID
+	if prev, _ := s.Store.GetAgentSession(ctx, sessionID); prev != nil && strings.TrimSpace(prev.Title) != "" {
+		label = prev.Title
+	}
+	s.deleted(ctx, "agent_session", sessionID, fmt.Sprintf("从 Agent 会话「%s」移除 %d 条消息", label, n), map[string]any{"message_ids": ids})
+	return n, nil
 }
 
 var _ store.Store = (*Store)(nil)

@@ -315,13 +315,12 @@ button.im-state { cursor: pointer; font: inherit; font-size: var(--fs-2xs); }
 .im-tri-sec > .im-tri-hrow { width: 100%; border: 1px solid var(--line); border-radius: var(--r); margin-top: 6px; }
 .im-tri-gitem { display: flex; flex-direction: column; gap: 6px; }
 
-/* 串里的回复（0010）：挂在原消息下面缩进一层；原消息不在筛选里时那一行变淡 */
+/* 消息列回复（0010）：列表上不列，原消息行上标「消息列 N 条未读回复」；原消息不在筛选里时那一行变淡 */
 .im-msg.im-faded { opacity: .55; }
 .im-msg.im-faded:hover, .im-msg.im-faded.sel { opacity: .8; }
-.im-thread-replies { margin-left: 52px; border-left: 2px solid var(--line-2); }
-.im-reply-row { padding-top: 8px; padding-bottom: 8px; }
-.im-thread-more { display: block; padding: 6px 18px; color: var(--accent); font-size: var(--fs-xs); font-weight: 500; background: none; text-align: left; }
-.im-thread-more:hover { text-decoration: underline; }
+.im-thread-badge:hover { color: var(--text); }
+.im-thread-badge-new { color: var(--accent); font-weight: 600; }
+.im-thread-badge-new:hover { color: var(--accent); text-decoration: underline; }
 .im-thread-tag { flex: none; display: inline-flex; align-items: center; height: 18px; padding: 0 6px; border-radius: 4px; border: 1px solid var(--line-2); color: var(--muted); font-size: var(--fs-2xs); background: none; white-space: nowrap; }
 button.im-thread-tag:hover { color: var(--text); border-color: var(--text); }
 .im-thread-hint { margin-top: 2px; color: var(--muted); font-size: var(--fs-xs); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -347,3 +346,9 @@ button.im-thread-tag:hover { color: var(--text); border-color: var(--text); }
 .im-sent-tag { color: var(--accent); background: var(--accent-soft); }
 .im-send { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
 .im-send-to { font-size: var(--fs); }
+
+/* 转任务附上消息列（SPEC-messages-2.15）：勾选框下面预览最近几条 */
+.im-totask-thread { display: flex; flex-direction: column; gap: var(--sp-3); }
+.im-totask-thread-list { list-style: none; margin: 0; padding: 6px 10px; display: flex; flex-direction: column; gap: 4px; border-left: 3px solid var(--line-2); background: var(--panel-2); border-radius: 0 var(--r-sm) var(--r-sm) 0; font-size: var(--fs-sm); }
+.im-totask-thread-list li { display: flex; gap: 4px; min-width: 0; white-space: nowrap; }
+.im-totask-thread-list li .ellipsis { min-width: 0; }

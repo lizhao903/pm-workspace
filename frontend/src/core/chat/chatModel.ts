@@ -1,5 +1,5 @@
 // 会话页的纯函数（AG-01a）：把落库的消息、流里的事件折成界面上的一条条消息，时间分段，提问的解析。
-import type { Agent, AgentMessage, AgentProvider, AgentSession, Artifact, ChatEvent, QuestionOption } from '../../core/data'
+import type { Agent, AgentMessage, AgentProvider, AgentSession, Artifact, ChatEvent, QuestionOption } from '../data'
 
 /** 新建会话的标题；第一句话发出后改成它的前 20 个字（SPEC-sessions-1.16） */
 export const NEW_TITLE = '新会话'
@@ -37,6 +37,8 @@ export type CallView = {
   id?: string
   /** 是要人确认的那种（历史里「等待确认：」那条），配 id 时按顺序数它 */
   asked?: boolean
+  /** 历史里这次调用对应的原始消息 id（等确认的那条加确认后的结果那条），移除气泡时一起删 */
+  msgIds?: string[]
 }
 export type QuestionView = { id?: string; question: string; options: QuestionOption[]; multi: boolean }
 export type ChatMsgView = {
@@ -98,6 +100,18 @@ export function normArgs(args: string | undefined): string {
  * 「等待确认：」的是等你确认的卡片；后面同名同参数的结果合回这张卡片（已确认执行、已拒绝），不另起一张；
  * 回复里的「【等你确认】」那行有卡片了，不再重复显示。
  */
+/**
+ * 一个历史气泡对应的原始消息 id（SPEC-sessions-1.43「移除」用）：用户的那一条；Agent 的是回复那条加上面挂的工具调用
+ * （等确认的连同确认后的结果）。只有工具调用、没有回复的气泡 id 取第一条调用，不算回复
+ */
+export function bubbleIds(v: ChatMsgView): string[] {
+  const ids = new Set<string>()
+  if (v.role === 'user' || v.text || v.question) ids.add(v.id)
+  for (const c of v.calls) for (const id of c.msgIds ?? []) ids.add(id)
+  if (!ids.size && v.id) ids.add(v.id)
+  return [...ids]
+}
+
 export function foldHistory(msgs: readonly AgentMessage[]): ChatMsgView[] {
   const out: ChatMsgView[] = []
   let calls: CallView[] = []
@@ -113,7 +127,7 @@ export function foldHistory(msgs: readonly AgentMessage[]): ChatMsgView[] {
       const name = m.tool_name || '工具'
       const args = m.tool_args ?? ''
       if (m.content.startsWith(WAIT_MARK)) {
-        const c: CallView = { name, args, state: 'pending', asked: true }
+        const c: CallView = { name, args, state: 'pending', asked: true, msgIds: [m.id] }
         waiting.push(c)
         if (!calls.length) firstCall = m.id
         calls.push(c)
@@ -124,10 +138,11 @@ export function foldHistory(msgs: readonly AgentMessage[]): ChatMsgView[] {
         const w = waiting.splice(i, 1)[0]
         w.state = m.content.startsWith(REJECT_MARK) ? 'rejected' : 'confirmed'
         w.summary = m.content
+        w.msgIds = [...(w.msgIds ?? []), m.id]
         continue
       }
       if (!calls.length) firstCall = m.id
-      calls.push({ name, args, summary: m.content, state: 'done' })
+      calls.push({ name, args, summary: m.content, state: 'done', msgIds: [m.id] })
       continue
     }
     if (m.role === 'user') {

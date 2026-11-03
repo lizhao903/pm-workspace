@@ -33,14 +33,15 @@ import { KbDrawer, KnowledgePage, SkillDrawer, SkillsPage } from './kbskills'
 import { SWEEP_TAG, levelPriority, mergeIncident, seedIncidents, sweepHeldCount, sweepPick, sweepTaskDesc, type IncidentReport } from './incidentdata'
 import { SopDetailPage, SopNav, SopRunView, SopRunsPage, SopSettingsPage, SopStartDrawer, type SopView } from './sop'
 import { EnumContext, seedEnums } from './enumdata'
-import { SKILLS, newAgent, seedAgentRuns, seedAgents, seedKBs, seedOutputs, seedScenarios, seedSessions, type AgentOutput, type OutputKind, type Session, type ToolCall } from './agentdata'
-import { AgentEditor, AgentsPage, type ConnToolChoice, type ModelChoice, type MountableConn } from './agents'
-import { ChatsView, OutputsView, RunsView, type SessionTools, type SessionView } from './sessions'
+import { SKILLS, newAgent, seedAgentRuns, seedAgents, seedKBs, seedOutputs, seedScenarios, seedSessions, type AgentOutput, type ChatMsg, type OutputKind, type Session, type ToolCall } from './agentdata'
+import { AgentEditor, AgentsPage, CHAT_EXAMPLES, ChatPane, type ConnToolChoice, type ModelChoice, type MountableConn } from './agents'
+import { ChatsView, OutputsView, RunsView, goneAgent, type SessionTools, type SessionView } from './sessions'
 import { kindOf, seedModels, seedProviders, usable, type ProviderKind } from './modeldata'
 import { ProviderDrawer, ProvidersPage } from './models'
 import { EnumsPage, type UsageFn } from './enums'
 import { TopbarContext } from './topbar'
 import { AppearancePage, type ThemePref } from './appearance'
+import { UpdatePage } from './update'
 import { cls } from './ui'
 import { PLATFORMS, PLATFORM_TOOL, STAGES, checkPublish, coverRatioOf, dealReport, seedArtifacts, seedDeals, seedPublishes, seedSeries, seedTexts, seedVideos, videoState, type Deal, type PlatformKey, type Publish, type Video } from './videodata'
 import { CalendarPage } from './videocalendar'
@@ -64,7 +65,7 @@ import { runBacktest } from './backtest'
 import { QuickSession } from './quicksession'
 import { GroupDrawer, StartSessionDialog } from './msgagent'
 import { IM_MATERIAL_TAG, ToMaterialDialog, notesOf } from './msgmaterial'
-import { clusterMessages, threadOf, type SessionIntent } from './msggroup'
+import { clusterMessages, threadForMany, threadForTask, threadOf, type SessionIntent } from './msggroup'
 import { StrategyRunsPage } from './strategyruns'
 import type { Backtest, BacktestConfig, Strategy } from './tradedata'
 import { ATTACH_DIR, SYNC_POOL, type MsgAttachment } from './data'
@@ -276,6 +277,8 @@ export default function App() {
   const [runFocus, setRunFocus] = useState<string | null>(null)
   const [sessionView, setSessionView] = useState<SessionView>('chats')
   const [currentSession, setCurrentSession] = useState<string | null>(seedSessions[0]?.id ?? null)
+  // 项目 Agent 标签里就地打开的会话（SPEC-projects-10.13），不跳会话页；切项目时清掉
+  const [projectChat, setProjectChat] = useState<string | null>(null)
   const [pickAgent, setPickAgent] = useState(0)
   const [providers, setProviders] = useState(seedProviders)
   const [models, setModels] = useState(seedModels)
@@ -457,7 +460,11 @@ export default function App() {
     else fetchAttachment(msgId, attId, push)
   }
 
-  const openMessage = (id: string) => { patchMsg(id, { read: true }); setDrawer({ kind: 'message', id }) }
+  // 打开原消息时，它消息列里没读的回复一起标为已读（消息列回复在原消息抽屉里看，SPEC-messages-1.62）
+  const openMessage = (id: string) => {
+    setMessages((xs) => xs.map((x) => (x.id === id || (x.thread?.parent_id === id && !x.read) ? { ...x, read: true } : x)))
+    setDrawer({ kind: 'message', id })
+  }
   // 一组消息发起过的会话（新的在前）、拆出来的任务数（SPEC-messages-1.58）：会话来源里有这组的消息就算；任务按来源消息算，不含转任务那条
   const imLinksOf = (ids: string[]) => {
     const ss = sessions.filter((x) => x.source?.message_ids.some((id) => ids.includes(id))).sort((a, b) => b.created_at.localeCompare(a.created_at))
@@ -469,8 +476,9 @@ export default function App() {
     setPage('projects'); setProjectId(projectId); setProjectTab('materials'); setMatFocus(materialId); setDrawer(null); setImToMat(null)
   }
   // 存成一条笔记，出处记这组消息；选了附件的按附件「加入资料」同一条路径加（没获取的先获取，已加过的跳过）
-  const saveImMaterial = (ids: string[], projectId: string, title: string, body: string, withAtts: boolean, markDone: boolean) => {
-    const ms = messages.filter((m) => ids.includes(m.id)).sort((a, b) => a.at.localeCompare(b.at))
+  // extraIds：勾了「带上消息列」时消息列里另外带上的消息，出处、附件算上，不跟着标已处理（SPEC-messages-6）
+  const saveImMaterial = (ids: string[], projectId: string, title: string, body: string, withAtts: boolean, markDone: boolean, extraIds: string[] = []) => {
+    const ms = messages.filter((m) => ids.includes(m.id) || extraIds.includes(m.id)).sort((a, b) => a.at.localeCompare(b.at))
     const last = ms[ms.length - 1]
     if (!last) return
     const who = (m: Message) => contactFor(m, contacts)?.name ?? m.sender_name
@@ -481,7 +489,7 @@ export default function App() {
         from: { message_id: last.id, attachment_id: '', sender: who(last), conversation: last.conversation || '私聊', message_ids: ms.map((m) => m.id) } }, ...pj.materials],
     }))
     if (withAtts) for (const m of ms) for (const a of m.attachments ?? []) addAttachmentToProject(projectId, m.id, a.id)
-    if (markDone) for (const m of ms) if (m.status === 'pending' || m.status === 'expired') actOnMessage(m.id, { kind: 'done' })
+    if (markDone) for (const m of ms) if (ids.includes(m.id) && (m.status === 'pending' || m.status === 'expired')) actOnMessage(m.id, { kind: 'done' })
     setImToMat(null)
   }
   const openSessionById = (id: string) => { setCurrentSession(id); setPage('sessions'); setSessionView('chats'); setDrawer(null) }
@@ -1022,14 +1030,28 @@ export default function App() {
     const pj: Project = { id: `pj_${Date.now().toString(36)}`, name: '新项目', desc: '', mark: { text: '', icon: 'folder' }, color: PROJECT_COLORS[projects.length % PROJECT_COLORS.length], root: '', related: [], agent_ids: [], chats: [], stakeholders: [], sop_ids: [], materials: [], docs: [], prototypes: [], created_at: new Date().toISOString() }
     setProjects((xs) => [...xs, pj]); setProjectId(pj.id); setProjectTab('settings')
   }
-  const newSession = (agentId: string, projectId?: string, first?: string, source?: Session['source'], title?: string) => {
+  const createSession = (agentId: string, projectId?: string, first?: string, source?: Session['source'], title?: string) => {
     const now = new Date().toISOString()
     const ss: Session = { id: `ss_${Date.now().toString(36)}`, agent_id: agentId, project_id: projectId, title: title ?? '新会话', created_at: now, updated_at: now, messages: [], source }
     setFirstMessage(first ? { sessionId: ss.id, text: first } : null)
     setSessions((xs) => [ss, ...xs])
-    setCurrentSession(ss.id)
+    return ss.id
+  }
+  const newSession = (agentId: string, projectId?: string, first?: string, source?: Session['source'], title?: string) => {
+    setCurrentSession(createSession(agentId, projectId, first, source, title))
     setPage('sessions'); setSessionView('chats'); setDrawer(null)
   }
+  // 在项目里开会话：建好挂到项目，切到 Agent 标签就地打开，不跳会话页（SPEC-projects-10.5、10.13、3.6）
+  const newProjectSession = (agentId: string, projectId: string) => {
+    setProjectChat(createSession(agentId, projectId)); setProjectTab('agents')
+  }
+  // 会话的消息更新：第一句话当标题，之后不再自动改。会话页和项目里的就地对话共用
+  const setSessionMsgs = (id: string, f: (m: ChatMsg[]) => ChatMsg[]) => setSessions((xs) => xs.map((x) => {
+    if (x.id !== id) return x
+    const messages = f(x.messages)
+    const title = x.title === '新会话' && messages[0] ? messages[0].text.slice(0, 20) : x.title
+    return { ...x, messages, title, updated_at: new Date().toISOString() }
+  }))
   // 目标已删除时不跳页面，返回提示给产出结果那一行显示
   const openOutputTarget = (o: AgentOutput): string | void => {
     if (o.kind === 'task' && o.target) {
@@ -1478,6 +1500,7 @@ export default function App() {
     const msg = drawer.kind === 'new-task' && drawer.fromMessage ? messages.find((x) => x.id === drawer.fromMessage) : undefined
     if (drawer.kind === 'new-task' || task) drawerEl = (
       <TaskDrawer key={task?.id ?? `new-${msg?.id ?? ''}`} projects={projects} task={task} initial={drawer.kind === 'new-task' ? drawer.initial : undefined} fromMessage={msg}
+        fromThread={msg ? threadForTask(msg, messages) : undefined} threadWho={(x) => contactFor(x, contacts)?.name ?? x.sender_name}
         tab={drawer.kind === 'task' ? drawer.tab : undefined} focusRun={drawer.kind === 'task' ? drawer.run : undefined} focusSopRun={drawer.kind === 'task' ? drawer.sopRun : undefined}
         hooks={hooks} deliveries={deliveries} assignees={assignees} onClose={() => setDrawer(null)}
         onOpenMessage={(id) => { setPage('messages'); openMessage(id) }}
@@ -1755,7 +1778,7 @@ export default function App() {
               projects={projects} groupProjects={groupProjects}
               onSetGroupProject={(k, pid) => setGroupProjects((x) => { const n = { ...x }; if (pid) n[k] = pid; else delete n[k]; return n })}
               sops={sops} runs={runs} onOpenQueue={() => setDrawer({ kind: 'im-queue' })}
-              onOpenTriage={(id) => { patchMsg(id, { read: true }); setDrawer({ kind: 'message', id, focus: 'triage' }) }}
+              onOpenTriage={(id) => { openMessage(id); setDrawer({ kind: 'message', id, focus: 'triage' }) }}
               selectedGroup={drawer?.kind === 'im-group' ? drawer.key : null} onOpenGroup={(key) => setDrawer({ kind: 'im-group', key })}
               onStartSession={(ids, intent) => setImStart({ ids, intent })} linksOf={imLinksOf} onOpenSession={openSessionById}
               onToMaterial={setImToMat} onOpenMaterial={openMaterial}
@@ -1833,14 +1856,14 @@ export default function App() {
           )}
           {page === 'projects' && projectId === ALL_PROJECTS && (
             <ProjectsListPage projects={projects} messages={messages} contacts={contacts} tasks={tasks} recent={recentProjects}
-              onOpen={(id) => { setProjectId(id); setProjectTab('overview') }} onNew={newProject} />
+              onOpen={(id) => { setProjectId(id); setProjectTab('overview'); setProjectChat(null) }} onNew={newProject} />
           )}
           {page === 'projects' && projectId !== ALL_PROJECTS && (() => {
             const pj = projects.find((x) => x.id === projectId)
             if (!pj) return <div className="page"><div className="empty"><div className="empty-title">这个项目不存在或已删除</div><button className="btn btn-outline" onClick={() => setProjectId(ALL_PROJECTS)}>回到项目列表</button></div></div>
             return (
               <ProjectPage key={pj.id} project={pj} projects={projects} agents={agents} content={content} tab={projectTab} onTab={(t) => { setProjectTab(t); setMatFocus(null) }} onAll={() => setProjectId(ALL_PROJECTS)}
-                recent={recentProjects} onSwitch={(id) => { setProjectId(id); setMatFocus(null) }}
+                recent={recentProjects} onSwitch={(id) => { setProjectId(id); setMatFocus(null); setProjectChat(null) }}
                 dock={(() => { const d = docks[pj.id] ?? EMPTY_DOCK; return { term: d.term.length, browser: d.brTabs, open: d.open && (d.term.length || d.br) ? d.view : null } })()}
                 onDock={(v) => showDock(pj.id, v, true)}
                 onChange={(x) => setProjects((xs) => xs.map((y) => (y.id === x.id ? x : y)))}
@@ -1848,7 +1871,7 @@ export default function App() {
                 onDelete={() => deleteProject(pj)}
                 onStart={startProto} onStop={stopProto}
                 onOpenDoc={(cid) => { setPage('library'); switchWs('builtin'); setReading(cid) }}
-                onChat={(agentId) => newSession(agentId, pj.id)}
+                onChat={(agentId) => newProjectSession(agentId, pj.id)}
                 onOpenAgent={(id) => { go('settings'); setSection('agents'); setAgentView(id) }}
                 deals={has('videos') ? <DealsTab project={pj} deals={deals} videos={videos} selected={drawer?.kind === 'deal' ? drawer.id : null} onOpen={openDeal}
                   onNew={() => setDrawer({ kind: 'new-deal', initial: { project_id: pj.id } })} /> : undefined}
@@ -1866,6 +1889,17 @@ export default function App() {
                   onOpenSop: (id) => { setPage('sop'); setSopView(`sop:${id}`); setOpenRun(null) },
                   onOpenSession: (id) => { setPage('sessions'); setSessionView('chats'); setCurrentSession(id) },
                   onAllSessions: () => { setPage('sessions'); setSessionView('chats'); setSessionProject(pj.id); setDrawer(null) },
+                  chatOpen: projectChat, onChatOpen: setProjectChat,
+                  renderChat: (s, head) => {
+                    const found = agents.find((a) => a.id === s.agent_id)
+                    const agent = found ?? goneAgent(s.agent_id)
+                    return (
+                      <ChatPane key={s.id} agent={agent} msgs={s.messages} onMsgs={(f) => setSessionMsgs(s.id, f)} ctx={ctx}
+                        onExecute={(c) => executeAgentCall(c, s.agent_id, { type: 'session', id: s.id })}
+                        examples={CHAT_EXAMPLES} head={head} permHint="可以到「设置 / Agent / 工具与权限」里打开"
+                        placeholderNote={!found ? '这个 Agent 已删除，只能回看' : agent.enabled ? undefined : '这个 Agent 已停用，只能回看'} />
+                    )
+                  },
                   onFetchAttachment: (mid, aid) => fetchAttachment(mid, aid), onAddAttachment: addAttachmentToProject,
                   onOpenMaterial: (mid) => openMaterial(pj.id, mid), imOn: has('messages'),
                   focusMaterial: matFocus,
@@ -1977,13 +2011,7 @@ export default function App() {
               projects={projects} initialProject={sessionProject} tools={sessionTools}
               onOpenSource={(id) => { setPage('messages'); openMessage(id) }}
               onOpen={setCurrentSession} onNew={(id) => newSession(id)}
-              onMsgs={(id, f) => setSessions((xs) => xs.map((x) => {
-                if (x.id !== id) return x
-                const messages = f(x.messages)
-                // 第一句话当标题，之后不再自动改
-                const title = x.title === '新会话' && messages[0] ? messages[0].text.slice(0, 20) : x.title
-                return { ...x, messages, title, updated_at: new Date().toISOString() }
-              }))}
+              onMsgs={setSessionMsgs}
               onRename={(id, title) => setSessions((xs) => xs.map((x) => (x.id === id ? { ...x, title } : x)))}
               onDelete={(id) => { setSessions((xs) => xs.filter((x) => x.id !== id)); setCurrentSession(sessions.find((x) => x.id !== id)?.id ?? null) }}
               onExecute={(sid, c) => executeAgentCall(c, sessions.find((x) => x.id === sid)?.agent_id ?? '', { type: 'session', id: sid })}
@@ -1993,7 +2021,7 @@ export default function App() {
           {page === 'sessions' && sessionView === 'runs' && <RunsView agents={agents} runs={agentRuns} onSettle={settleAgentRun} focus={runFocus} onFocused={() => setRunFocus(null)} onBack={() => setSessionView('chats')} />}
           {page === 'sessions' && sessionView === 'outputs' && <OutputsView agents={agents} outputs={outputs} sessions={sessions} runs={agentRuns} onOpenTarget={openOutputTarget} onOpenOrigin={openOutputOrigin} onBack={() => setSessionView('chats')} />}
           {page === 'settings' && section === 'agents' && (agentView === 'list' ? (
-            <AgentsPage agents={agents} runs={agentRuns} models={modelChoices} onOpen={setAgentView} onNew={() => setAgentView('new')}
+            <AgentsPage agents={agents} models={modelChoices} onOpen={setAgentView} onNew={() => setAgentView('new')}
               scenarios={agentScenarios} onScenario={(key, id) => setAgentScenarios((xs) => xs.map((x) => (x.key === key ? { ...x, agent_id: id } : x)))}
               onToggle={(id, on) => setAgents((xs) => xs.map((a) => (a.id === id ? { ...a, enabled: on } : a)))} />
           ) : (() => {
@@ -2036,6 +2064,7 @@ export default function App() {
           {page === 'settings' && section === 'sop' && <SopSettingsPage value={sopConcurrency} runs={runs} onSave={setSopConcurrency} />}
           {page === 'settings' && section === 'terminal' && <TerminalSettingsPage value={claudeCommand} onSave={setClaudeCommand} />}
           {page === 'settings' && section === 'appearance' && <AppearancePage theme={theme} onTheme={setTheme} collapsed={collapsed} onCollapsed={setCollapsed} />}
+          {page === 'settings' && section === 'update' && <UpdatePage />}
           {page === 'settings' && section === 'enums' && (
             <EnumsPage groups={enums} usage={enumUsage} onMigrate={migrateEnum}
               onSave={(g) => setEnums((xs) => (xs.some((x) => x.key === g.key) ? xs.map((x) => (x.key === g.key ? g : x)) : [...xs, g]))}
@@ -2076,10 +2105,10 @@ export default function App() {
         const who = (m: Message) => contactFor(m, contacts)?.name ?? m.sender_name
         const pid = [...ms].reverse().find((m) => m.project_id)?.project_id ?? projects.find((x) => ms.some((m) => projectMessages(x, [m], contacts).length > 0))?.id
         return (
-          <ToMaterialDialog messages={ms} projects={projects} defaultProject={pid ?? undefined} who={who}
+          <ToMaterialDialog messages={ms} thread={threadForMany(ms, messages)} projects={projects} defaultProject={pid ?? undefined} who={who}
             chLabel={IM_CHANNELS.find((c) => c.key === last.channel)?.label ?? last.channel}
             onCancel={() => setImToMat(null)} onOpen={openMaterial}
-            onSave={(projectId, title, body, withAtts, markDone) => saveImMaterial(imToMat, projectId, title, body, withAtts, markDone)} />
+            onSave={(projectId, title, body, withAtts, markDone, extraIds) => saveImMaterial(imToMat, projectId, title, body, withAtts, markDone, extraIds)} />
         )
       })()}
       {imStart && (() => {

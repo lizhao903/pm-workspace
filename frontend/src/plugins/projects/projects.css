@@ -471,3 +471,30 @@ a.pj-att-name:hover { text-decoration: underline; }
   .pj-agent-chat { grid-template-columns: 20px minmax(0, 1fr) 64px; gap: var(--sp-4); padding: var(--sp-4) var(--sp-6); }
   .pj-agent-chat > .pj-muted.ellipsis { display: none; }
 }
+
+/* 项目里就地对话（SPEC-projects-10.13）：左边项目会话列表，右边对话面板；窄屏只显示对话，「返回」回列表 */
+.pj-chat-split { display: flex; flex-direction: column; gap: var(--sp-6); }
+.pj-chat-split.has-chat { display: grid; grid-template-columns: minmax(220px, 300px) minmax(0, 1fr); align-items: start; }
+.pj-chat-split.has-chat .pj-agent-chat { grid-template-columns: 20px minmax(0, 1fr) 64px; gap: var(--sp-4); padding: 0 var(--sp-5); }
+.pj-chat-split.has-chat .pj-agent-chat > .pj-muted.ellipsis { display: none; }
+.pj-agent-chat.on { background: var(--accent-soft); }
+.pj-chat { display: flex; flex-direction: column; height: max(480px, calc(100vh - 220px)); min-width: 0; border: 1px solid var(--line); border-radius: var(--r-lg); background: var(--panel); overflow: hidden; }
+.pj-chat > .chat-pane { flex: 1; min-height: 0; }
+.pj-chat-head { display: flex; align-items: center; gap: var(--sp-4); min-width: 0; padding: var(--sp-4) var(--sp-6); border-bottom: 1px solid var(--line); flex: none; }
+.pj-chat-head b { flex: 0 1 auto; min-width: 0; }
+.pj-chat-head .pj-muted { flex: 0 1 auto; min-width: 0; font-size: var(--fs-sm); }
+.pj-chat-head > * { flex-shrink: 0; }
+.pj-chat-head > b, .pj-chat-head > .pj-muted { flex-shrink: 1; }
+.pj-chat-back { flex: none; color: var(--muted); font-size: var(--fs-sm); background: none; padding: 0; }
+.pj-chat-back:hover { color: var(--accent); }
+.pj-chat .ai-msgs { padding: var(--sp-6); }
+.pj-chat .ai-input { padding: var(--sp-4) var(--sp-6) var(--sp-6); }
+@media (max-width: 900px) {
+  .pj-chat-split.has-chat { display: flex; }
+  .pj-chat-split.has-chat .pj-chat-list { display: none; }
+  .pj-chat { height: max(420px, calc(100vh - 180px)); }
+  .pj-chat-head { flex-wrap: wrap; row-gap: var(--sp-2); padding: var(--sp-4); }
+  .pj-chat-head > .pj-muted { display: none; }
+  .pj-chat-head > b { flex: 1 1 0; }
+  .pj-chat-head > .spacer { display: none; }
+}

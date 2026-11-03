@@ -24,6 +24,7 @@ import (
 	"github.com/lizhao903/pm-workspace/internal/plugin"
 	"github.com/lizhao903/pm-workspace/internal/runner"
 	"github.com/lizhao903/pm-workspace/internal/schedule"
+	"github.com/lizhao903/pm-workspace/internal/selfupdate"
 	"github.com/lizhao903/pm-workspace/internal/store"
 	"github.com/lizhao903/pm-workspace/internal/webhook"
 	"github.com/lizhao903/pm-workspace/internal/workspace"
@@ -95,6 +96,8 @@ type Options struct {
 
 	// DataDir 是库文件所在目录（含 vault.key、backups/），读文件和挂载一律不许进去；空串表示不限制。
 	DataDir string
+	// Updater 是设置页「版本更新」（SYS-UPD）：看源码目录比正在跑的新多少、按步骤更新并原地重启；nil 时接口回「这个实例不支持就地更新」
+	Updater *selfupdate.Updater
 }
 
 type Server struct {
@@ -267,6 +270,7 @@ func (s *Server) routes(m routeRegistrar) {
 	m.HandleFunc("GET /api/agent/sessions", s.handleListAgentSessions)
 	m.HandleFunc("POST /api/agent/sessions", s.handleCreateAgentSession)
 	m.HandleFunc("GET /api/agent/sessions/{id}/messages", s.handleListAgentMessages)
+	m.HandleFunc("POST /api/agent/sessions/{id}/messages/remove", s.handleRemoveAgentMessages)
 	m.HandleFunc("GET /api/agent/sessions/{id}/artifacts", s.handleListAgentArtifacts)
 	m.HandleFunc("PATCH /api/agent/sessions/{id}", s.handleUpdateAgentSession)
 	m.HandleFunc("DELETE /api/agent/sessions/{id}", s.handleDeleteAgentSession)
@@ -431,6 +435,8 @@ func (s *Server) routes(m routeRegistrar) {
 	// 数据与备份。export 直接回文件流，不套 envelope。
 	m.HandleFunc("GET /api/admin/migrations", s.handleMigrations)
 	m.HandleFunc("POST /api/admin/snapshot", s.handleSnapshot)
+	m.HandleFunc("GET /api/admin/update", s.handleUpdateStatus)
+	m.HandleFunc("POST /api/admin/update", s.handleStartUpdate)
 	m.HandleFunc("GET /api/admin/export", s.handleExport)
 
 	// 插件路由：/api/<插件 id>/...，停用时回 404（见 plugins.go）。

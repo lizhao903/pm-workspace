@@ -6,7 +6,7 @@
 import { useMemo, useState } from 'react'
 import { useAgentSessions, useArtifacts, type Artifact, type ArtifactSource } from '../../core/data'
 import { ErrorState, LoadingState, PageTitle, EmptyState, cls } from '../../core/ui'
-import { KIND_LABEL, timeAgo, type ArtifactKind } from './chatModel'
+import { KIND_LABEL, timeAgo, type ArtifactKind } from '../../core/chat/chatModel'
 import { groupObjects, groupOutputs, type OutputGroup } from './outputsModel'
 
 const PAGE = 50

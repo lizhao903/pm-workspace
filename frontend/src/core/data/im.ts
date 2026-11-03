@@ -70,16 +70,16 @@ export type ImMessage = {
   split_tasks: ImSplitTask[]
   /** 这条消息转成的项目资料（0009）：正文转的笔记、附件加进的资料，新的在前；项目删了的不列 */
   materials: ImMessageMaterial[]
-  /** 串里的回复（0010，Slack 在串里回复的）属于哪个串；不是串里回复的为 null */
+  /** 消息列回复（0010，Slack 在消息列里回复的）属于哪个消息列；不是消息列回复的为 null */
   thread: ImMessageThread | null
-  /** 这条作为父消息时，收到的串里回复条数（不含我回的） */
+  /** 这条作为父消息时，收到的消息列回复条数（不含我回的） */
   reply_count: number
-  /** 这条来信回复的「我发出的」那条（0.17.0）：thread 是在它的串里回复，next 是发出后同会话第一条来信；对不上为 null */
+  /** 这条来信回复的「我发出的」那条（0.17.0）：thread 是在它的消息列里回复，next 是发出后同会话第一条来信；对不上为 null */
   replied_sent?: { outbox_id: string; text: string; at: string; via: 'thread' | 'next' | string } | null
 }
 
 /**
- * 串里回复属于哪个串：parent_external_id 是父消息的渠道编号；父消息在库里时 parent_message_id 是它的 id，否则为 null。
+ * 消息列回复属于哪个消息列：parent_external_id 是父消息的渠道编号；父消息在库里时 parent_message_id 是它的 id，否则为 null。
  * parent_sender_name、parent_text 是父消息的发信人和正文摘要（至多 80 字），父消息不在库里时取到达时的快照，都没有为空串
  */
 export type ImMessageThread = {

@@ -49,8 +49,8 @@ import { ToMaterialDialog } from './ToMaterialDialog'
 import { materialPath } from './toMaterialModel'
 import { sessionPath } from './sessionModel'
 import {
-  MERGE_KEY, clusterMessages, countLabel, isMerged, nestThreads, openItems, pickState, previewText, rowTime, threadHint, threadOf, threadParent,
-  THREAD_SHOW_ALL, threadShown, toRows, toggleRow, type Row, type ThreadBlock,
+  MERGE_KEY, clusterMessages, countLabel, isMerged, nestThreads, openItems, pickState, previewText, rowTime, threadBadge, threadBadgeLabel, threadForMany, threadForTask, threadHint, threadOf, threadParent,
+  toRows, toggleRow, type Row,
 } from './groupModel'
 import { TriageDialog } from './TriageDialog'
 import { isActiveRun, triageNote, triageTargets } from './triageModel'
@@ -178,11 +178,11 @@ export default function Page() {
   const rows = useMemo(() => filterRows(list, { view, channel, conv, unreadOnly, mine, q }, now), [list, view, channel, conv, unreadOnly, mine, q, now])
   // 合并显示：分组看全部消息（连发、插话要看整段会话），摆行只用筛出来的
   const clusters = useMemo(() => clusterMessages(list), [list])
-  // 串里的回复挂到原消息那一行下面（不管合不合并）
+  // 消息列回复归到原消息那一行（不管合不合并），列表上不显示，只在原消息行上标「消息列 N 条未读回复」
   const viewRows = useMemo(() => nestThreads(toRows(rows, clusters, merge), list), [rows, clusters, merge, list])
   const byId = useMemo(() => new Map(list.map((m) => [m.id, m])), [list])
-  // 展开了全部回复的串（原消息 id）
-  const [threadOpen, setThreadOpen] = useState<ReadonlySet<string>>(() => new Set())
+  // 勾选、全选只算列表上看得到的：原消息收到了的消息列回复在原消息抽屉里处理
+  const listed = useMemo(() => rows.filter((m) => !(m.thread && threadParent(m, byId))), [rows, byId])
   const views = viewsOf(sv)
   const segViews = views.length > VIEW_SEG_MAX + 1 ? views.slice(0, VIEW_SEG_MAX) : views
   const moreViews = views.slice(segViews.length)
@@ -191,8 +191,8 @@ export default function Page() {
   const convOpts = useMemo(() => convOptions(list, channel, now), [list, channel, now])
   const used = usedChannels(channels, list, imConnectors)
   const broken = imConnectors.filter((c) => c.status === 'error')
-  const picked = pickedRows(rows, sel)
-  const pickable = rows.filter(canPick).length
+  const picked = pickedRows(listed, sel)
+  const pickable = listed.filter(canPick).length
   const cb = useMemo(() => convBatch(list, conv, now), [list, conv, now])
   const tabs = useMemo(() => convTabs(list, channel, now), [list, channel, now])
   const convName = conv.startsWith('dm:') ? '私聊' : convOpts.find((o) => o.value === conv)?.label ?? ''
@@ -212,7 +212,7 @@ export default function Page() {
   const shown = viewRows.slice(0, limit)
   // 每天的条数按消息算（合并的一组算它筛得出来的条数），一组归在它最新一条那天
   const dayCount = new Map<string, number>()
-  // 挂着的串里回复也按条算，归在这一行排序用的那天
+  // 归到这一行的消息列回复也按条算（列表上不显示，但它们在筛选结果里），归在这一行排序用的那天
   for (const r of viewRows) {
     const d = dayLabel(rowTime(r))
     dayCount.set(d, (dayCount.get(d) ?? 0) + r.items.length + (r.threads ?? []).reduce((n, b) => n + b.replies.length, 0))
@@ -285,6 +285,16 @@ export default function Page() {
     readSent.current = opened.id
     markRead.mutate({ id: opened.id, action: { kind: 'read' } })
   }, [opened, markRead])
+  // 打开原消息时，它消息列里没读的回复一起标已读（消息列回复在原消息抽屉里看）
+  const threadRead = useRef(new Set<string>())
+  const openedThread = useMemo(() => (opened && !opened.thread ? threadOf(opened, list) : []), [opened, list])
+  useEffect(() => {
+    for (const m of openedThread) {
+      if (m.read || threadRead.current.has(m.id)) continue
+      threadRead.current.add(m.id)
+      markRead.mutate({ id: m.id, action: { kind: 'read' } })
+    }
+  }, [openedThread, markRead])
 
   // 打开的一组：按当前全部消息现算；一组里没读的打开就都标已读（每条只发一次）
   const openedGroup = useMemo<Row | null>(() => {
@@ -445,6 +455,7 @@ export default function Page() {
             <ChannelMark ch={ch} />
             <span className="im-conv">{m.conversation || '私聊'}</span>
             {rel && rel !== 'dm' && <span className={cls('im-rel', rel === 'me' && 'im-rel-me')}>{RELEVANCE[rel]}</span>}
+            {threadTag(r)}
             <span className="spacer" />
             {open.length > 0 && open.length < r.items.length && <span className="im-state">{open.length} 条{pendingLabel}</span>}
             {!open.length && statuses.length === 1 && <span className="im-state" style={stateStyle(sv.color(statuses[0]))}>{sv.label(statuses[0])}</span>}
@@ -483,60 +494,16 @@ export default function Page() {
     )
   }
 
-  // 串里的回复：挂在原消息那一行下面缩进一层；少时全列，多了只列最近 2 条加「还有 N 条回复」。
-  // 每条能单独标已处理、忽略、回复，勾选、批量按一条条消息
-  const replyRow = (m: ImMessage) => {
-    const who = whoName(m)
-    const blocker = replyBlocker(m, connectors.data)
+  // 消息列小标：列表里不列消息列回复，原消息那一行标「消息列 N 条未读回复」，点了打开原消息的抽屉（消息列回复在里面看、处理）
+  const threadTag = (r: Row) => {
+    const b = threadBadge(r, list)
+    if (!b) return null
     return (
-      <div key={m.id} role="listitem" tabIndex={0} aria-label={`串里回复 ${who}：${m.text}`}
-        className={cls('im-msg im-reply-row', openId === m.id && 'sel', !m.read && 'unread', m.status !== 'pending' && 'im-closed', sel.has(m.id) && canPick(m) && 'picked')}
-        onClick={() => setOpen(m.id)} onKeyDown={(e) => { if (e.key === 'Enter' && e.target === e.currentTarget) setOpen(m.id) }}>
-        <span className="im-unread" />
-        {canPick(m)
-          ? <input type="checkbox" className="im-pick" checked={sel.has(m.id)} aria-label={`选中 ${who} 的串里回复`}
-              onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()} onChange={() => setSel((x) => togglePick(x, m.id))} />
-          : <span className="im-pick" aria-hidden="true" />}
-        <Avatar name={who} size={24} src={(m.stakeholder_id && photos.get(m.stakeholder_id)) || undefined} />
-        <div className="im-main">
-          <div className="im-top">
-            <span className="im-who">{who}</span>
-            {m.relevance === 'me' && <span className="im-rel im-rel-me">{RELEVANCE.me}</span>}
-            <span className="spacer" />
-            {m.status !== 'pending' && <span className="im-state" style={stateStyle(sv.color(m.status))}>{sv.label(m.status)}</span>}
-            {isSnoozed(m, now) && <span className="im-state im-state-snooze">{shortTime(m.snooze_until!)} 提醒</span>}
-            {m.replies.some((x) => x.status !== 'failed') && <span className="im-state">已回复</span>}
-            <span className="im-time" title={new Date(m.at).toLocaleString('zh-CN')}>{timeAgo(m.at, now)}</span>
-          </div>
-          <div className="im-text"><MentionText text={m.text} /></div>
-          <AttachmentChips atts={m.attachments} />
-        </div>
-        <div className="im-actions" onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>
-          {isOpen(m) ? (
-            <>
-              <button type="button" className="im-act im-act-primary" onClick={() => run(m, { kind: 'done' })}>{doneLabel}</button>
-              {blocker
-                ? <button type="button" className="im-act" disabled title={blocker}>回复<Caret /></button>
-                : <Menu className="im-act" label={<>回复<Caret /></>} title="回到同一个串里">{(close) => <QuickReplyItems doneLabel={doneLabel} close={close} onPick={(text, done) => run(m, quickReplyAction(m, text, done))} />}</Menu>}
-              <button type="button" className="im-act im-act-quiet" onClick={() => run(m, { kind: 'ignore' })}>忽略</button>
-            </>
-          ) : <button type="button" className="im-act" onClick={() => run(m, { kind: 'reopen' })}>重新打开</button>}
-        </div>
-      </div>
+      <button type="button" className={cls('im-state im-thread-badge', b.unread > 0 && 'im-thread-badge-new')}
+        title="消息列里的回复在原消息里看，点开原消息"
+        onClick={(e) => { e.stopPropagation(); setOpen(b.parentId) }} onKeyDown={(e) => e.stopPropagation()}>{threadBadgeLabel(b)}</button>
     )
   }
-  const threadBlocks = (r: Row) => (r.threads ?? []).map((b: ThreadBlock) => {
-    const open = threadOpen.has(b.parent.id)
-    const { shown: xs, hidden } = threadShown(b, open)
-    const toggle = () => setThreadOpen((s0) => { const n = new Set(s0); if (n.has(b.parent.id)) n.delete(b.parent.id); else n.add(b.parent.id); return n })
-    return (
-      <div key={`thr:${b.parent.id}`} className="im-thread-replies" role="list" aria-label={`${whoName(b.parent)} 的消息下的串里回复`}>
-        {hidden > 0 && <button type="button" className="im-thread-more" onClick={toggle}>还有 {hidden} 条回复</button>}
-        {xs.map(replyRow)}
-        {open && b.replies.length > THREAD_SHOW_ALL && <button type="button" className="im-thread-more" onClick={toggle}>收起</button>}
-      </div>
-    )
-  })
 
   let body
   if (messages.isError && !messages.data) {
@@ -556,7 +523,7 @@ export default function Page() {
         {shown.map((r, i) => {
           const day = dayLabel(rowTime(r))
           const dayHead = (i === 0 || dayLabel(rowTime(shown[i - 1])) !== day) && <div className="im-day">{day}<span className="seg-n">{dayCount.get(day)}</span></div>
-          if (isMerged(r)) return <Fragment key={r.key}>{dayHead}{groupRow(r)}{threadBlocks(r)}</Fragment>
+          if (isMerged(r)) return <Fragment key={r.key}>{dayHead}{groupRow(r)}</Fragment>
           const m = r.head
           const parent = m.thread ? threadParent(m, byId) : undefined
           const hint = threadHint(m, parent)
@@ -571,7 +538,7 @@ export default function Page() {
               {dayHead}
               <div role="listitem" tabIndex={0} aria-label={`${who}：${m.text}`}
                 className={cls('im-msg', openId === m.id && 'sel', !m.read && 'unread', m.status !== 'pending' && 'im-closed', sel.has(m.id) && canPick(m) && 'picked', r.faded && 'im-faded')}
-                title={r.faded ? '原消息不在当前筛选里，为挂串里的回复显示' : undefined}
+                title={r.faded ? '原消息不在当前筛选里，消息列有新回复才显示' : undefined}
                 onClick={() => setOpen(m.id)} onKeyDown={(e) => { if (e.key === 'Enter' && e.target === e.currentTarget) setOpen(m.id) }}>
                 <span className="im-unread" />
                 {canPick(m) && !r.faded
@@ -591,6 +558,7 @@ export default function Page() {
                     <span className="im-conv">{m.conversation || '私聊'}</span>
                     {rel && rel !== 'dm' && <span className={cls('im-rel', rel === 'me' && 'im-rel-me')}>{RELEVANCE[rel]}</span>}
                     {m.thread && <ThreadTag hint={hint} parentId={parent?.id} onOpen={setOpen} />}
+                    {threadTag(r)}
                     <span className="spacer" />
                     {m.status !== 'pending' && (
                       <span className="im-state" style={stateStyle(sv.color(m.status))}
@@ -644,7 +612,6 @@ export default function Page() {
                   )}
                 </div>
               </div>
-              {threadBlocks(r)}
             </Fragment>
           )
         })}
@@ -756,7 +723,7 @@ export default function Page() {
             <>
               <span className="im-bulk-n">已选 {picked.length} 条</span>
               {picked.length < Math.min(pickable, BATCH_MAX) && (
-                <button type="button" className="btn btn-sm btn-ghost" onClick={() => setSel(pickAll(rows))}>全选 {Math.min(pickable, BATCH_MAX)} 条</button>
+                <button type="button" className="btn btn-sm btn-ghost" onClick={() => setSel(pickAll(listed))}>全选 {Math.min(pickable, BATCH_MAX)} 条</button>
               )}
             </>
           ) : <span className="im-muted">勾选消息后可批量标为{doneLabel}、忽略；不勾时批量分诊对当前筛选结果 {Math.min(rows.length, SOP_BATCH_MAX)} 条</span>}
@@ -799,7 +766,7 @@ export default function Page() {
           onStart={(intent) => { if (opened) startSession([opened], intent) }}
           onToMaterial={() => { if (opened) startMaterial([opened]) }} onOpenMaterial={openMaterial}
           onOpenSession={openSession} onOpenTask={setTaskOpen}
-          thread={opened ? threadOf(opened, list) : []} threadParent={opened ? threadParent(opened, byId) : undefined} onOpenMessage={setOpen} />
+          thread={openedThread} threadParent={opened ? threadParent(opened, byId) : undefined} onOpenMessage={setOpen} />
       )}
       {groupKey && !openId && (
         <GroupDrawer row={messages.isSuccess ? openedGroup : null} ch={channelOf(channels, openedGroup?.head.channel ?? '')} connectors={connectors.data} sv={sv}
@@ -825,7 +792,7 @@ export default function Page() {
           onStarted={(id) => { setStarting(null); openSession(id) }} />
       )}
       {toMaterial && (
-        <ToMaterialDialog messages={toMaterial} chLabel={channelOf(channels, toMaterial[0]?.channel ?? '').label} doneLabel={doneLabel}
+        <ToMaterialDialog messages={toMaterial} thread={threadForMany(toMaterial, list)} chLabel={channelOf(channels, toMaterial[0]?.channel ?? '').label} doneLabel={doneLabel}
           onCancel={() => setToMaterial(null)}
           onDone={() => setToMaterial(null)}
           onOpenMaterial={(pid, mid) => { setToMaterial(null); openMaterial(pid, mid) }} />
@@ -870,7 +837,7 @@ export default function Page() {
           onOpenConversation={(ch, id) => { setGroupsOpen(false); setChannel(ch); setConv(`cv:${id}`) }} />
       )}
       {toTask && (
-        <ToTaskDialog msg={toTask} doneLabel={doneLabel} onCancel={() => setToTask(null)}
+        <ToTaskDialog msg={toTask} thread={threadForTask(toTask, list)} doneLabel={doneLabel} onCancel={() => setToTask(null)}
           onCreated={(id) => { setToTask(null); setOpen(null); setTaskOpen(id) }}
           onExisting={() => {
             const id = toTask.id

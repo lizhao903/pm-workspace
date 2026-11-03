@@ -926,7 +926,7 @@ describe('合并显示、交给 Agent（0008）', () => {
   })
 })
 
-describe('串里的回复（0010）', () => {
+describe('消息列回复（0010）', () => {
   beforeEach(() => { localStorage.removeItem('im.merge') })
   const ago = (min: number) => new Date(Date.now() - min * 60_000).toISOString()
   const fixture = () => {
@@ -936,54 +936,98 @@ describe('串里的回复（0010）', () => {
       p,
       msg({ text: '回复一', sender_id: 'U2', sender_name: '王可', at: ago(40), thread: th }),
       msg({ text: '回复二', sender_id: 'U3', sender_name: '周屿', at: ago(30), thread: th }),
-      msg({ text: '回复三', sender_id: 'U2', sender_name: '王可', at: ago(20), thread: th }),
-      msg({ text: '回复四', sender_id: 'U2', sender_name: '王可', at: ago(19), thread: th }),
+      msg({ text: '回复三', sender_id: 'U2', sender_name: '王可', at: ago(20), thread: th, read: false }),
+      msg({ text: '回复四', sender_id: 'U2', sender_name: '王可', at: ago(19), thread: th, read: false }),
       msg({ text: '原消息没收到的回复', sender_id: 'U3', sender_name: '周屿', at: ago(5),
         thread: { parent_external_id: 'C:old', parent_message_id: null, parent_sender_name: '张三', parent_text: '早先的话题' } }),
     ]
   }
 
-  it('挂在原消息下面：原消息已处理时变淡；多了只列最近 2 条，点开展开；不和连发合并', async () => {
+  it('列表不列消息列回复，原消息行标「消息列 N 条未读回复」；原消息已处理时变淡；不能勾、全选也不算', async () => {
     const rows = fixture()
-    const calls = fakeBackend(rows)
+    fakeBackend(rows)
     renderPage()
     expect(await screen.findByText('5 条待处理')).toBeInTheDocument()
     const parent = screen.getByRole('listitem', { name: /Lin Yuan：灰度方案看下/ })
     expect(parent).toHaveClass('im-faded')
     expect(within(parent).queryByRole('checkbox')).toBeNull()
-    const box = screen.getByRole('list', { name: /串里回复/ })
-    expect(within(box).getAllByRole('listitem').map((x) => x.getAttribute('aria-label'))).toEqual(['串里回复 王可：回复三', '串里回复 王可：回复四'])
-    await userEvent.click(within(box).getByRole('button', { name: '还有 2 条回复' }))
-    expect(within(box).getAllByRole('listitem')).toHaveLength(4)
-    // 每条能单独处理
-    await userEvent.click(within(within(box).getByRole('listitem', { name: /回复一/ })).getByRole('button', { name: '已处理' }))
-    await waitFor(() => expect(rows[1].status).toBe('done'))
-    expect(calls.some((c) => c.path === `/api/im/messages/${rows[1].id}/done`)).toBe(true)
-    await screen.findByText('4 条待处理')
-    // 原消息没收到的：普通行，标「串里回复」和「回复 谁：原消息」
+    expect(within(parent).getByRole('button', { name: '消息列 2 条未读回复' })).toBeInTheDocument()
+    for (const t of ['回复一', '回复二', '回复三', '回复四']) expect(screen.queryByRole('listitem', { name: new RegExp(t) })).toBeNull()
+    // 原消息没收到的：普通行，标「消息列回复」和「回复 谁：原消息」
     const orphan = screen.getByRole('listitem', { name: /原消息没收到的回复/ })
-    expect(within(orphan).getByText('串里回复')).toBeInTheDocument()
+    expect(within(orphan).getByText('消息列回复')).toBeInTheDocument()
     expect(within(orphan).getByText('回复 张三：早先的话题')).toBeInTheDocument()
+    expect(screen.getAllByRole('checkbox', { name: /^选中/ })).toHaveLength(1)
   })
 
-  it('点原消息打开抽屉，按时间列出整个串，能逐条处理；串里回复的抽屉能回到原消息', async () => {
+  it('转任务时附上消息列：默认勾上，正文带整段消息列；取消勾选不带', async () => {
+    const p = msg({ text: '灰度方案看下', at: ago(60) })
+    const th = { parent_external_id: p.external_id, parent_message_id: p.id, parent_sender_name: 'Lin Yuan', parent_text: '灰度方案看下' }
+    const rows = [p,
+      msg({ text: '回复一', sender_id: 'U2', sender_name: '王可', at: ago(40), thread: th, status: 'done' }),
+      msg({ text: '回复二\n第二行', sender_id: 'U3', sender_name: '周屿', at: ago(30), thread: th, status: 'done' })]
+    const calls = fakeBackend(rows)
+    renderPage()
+    const row = await screen.findByRole('listitem', { name: /Lin Yuan：灰度方案看下/ })
+    await userEvent.click(within(row).getByRole('button', { name: '转任务' }))
+    const dlg = await screen.findByRole('alertdialog')
+    const box = within(dlg).getByRole('checkbox', { name: /附上消息列（2 条）/ })
+    expect(box).toBeChecked()
+    expect(within(within(dlg).getByRole('list', { name: '附上的消息列' })).getAllByRole('listitem')).toHaveLength(2)
+    await userEvent.click(within(dlg).getByRole('button', { name: '创建任务' }))
+    await waitFor(() => expect(calls.find((c) => c.path.endsWith('/task'))).toBeTruthy())
+    const body = String(calls.find((c) => c.path.endsWith('/task'))?.body?.body ?? '')
+    expect(body).toContain('## 消息列（2 条）')
+    expect(body).toMatch(/- \*\*王可\*\* .+：回复一/)
+    expect(body).toContain('：回复二\n  第二行')
+  })
+
+  it('转项目资料带上消息列：默认勾上，回复并进对话记录、出处也算上；只把选中的标为已处理；取消勾选只剩这一条', async () => {
+    const p = msg({ text: '灰度方案看下', at: ago(60), project_id: 'obj_p1', project_name: 'Octok' })
+    const th = { parent_external_id: p.external_id, parent_message_id: p.id, parent_sender_name: 'Lin Yuan', parent_text: '灰度方案看下' }
+    const rows = [p,
+      msg({ text: '回复一', sender_id: 'U2', sender_name: '王可', at: ago(40), thread: th, status: 'done' }),
+      msg({ text: '回复二', sender_id: 'U3', sender_name: '周屿', at: ago(30), thread: th, status: 'done' })]
+    const calls = fakeBackend(rows)
+    renderPage()
+    const row = await screen.findByRole('listitem', { name: /Lin Yuan：灰度方案看下/ })
+    await userEvent.click(within(row).getByRole('button', { name: /更多/ }))
+    await userEvent.click(screen.getByRole('menuitem', { name: '转项目资料…' }))
+    const dlg = await screen.findByRole('alertdialog', { name: '转项目资料' })
+    const box = within(dlg).getByRole('checkbox', { name: /带上消息列（另外 2 条）/ })
+    expect(box).toBeChecked()
+    const body = within(dlg).getByRole('textbox', { name: '正文' }) as HTMLTextAreaElement
+    for (const want of ['3 条消息', 'Lin Yuan：灰度方案看下', '王可：回复一', '周屿：回复二']) expect(body.value).toContain(want)
+    await userEvent.click(box)
+    expect(body.value).toContain('1 条消息')
+    expect(body.value).not.toContain('回复一')
+    await userEvent.click(box)
+    await userEvent.click(within(dlg).getByRole('button', { name: '存成资料' }))
+    await waitFor(() => expect(calls.find((c) => c.path === '/api/im/materials')?.body).toMatchObject({ message_ids: [rows[0].id, rows[1].id, rows[2].id] }))
+    await waitFor(() => expect(calls.find((c) => c.path === '/api/im/messages/batch')?.body).toEqual({ action: 'done', ids: [rows[0].id] }))
+  })
+
+  it('点小标打开原消息抽屉，按时间列出整个消息列、没读的标已读，能逐条处理；消息列回复的抽屉能回到原消息', async () => {
     const rows = fixture()
     fakeBackend(rows)
     const router = renderPage()
     await screen.findByText('5 条待处理')
-    await userEvent.click(screen.getByRole('listitem', { name: /Lin Yuan：灰度方案看下/ }))
+    await userEvent.click(screen.getByRole('button', { name: '消息列 2 条未读回复' }))
+    await waitFor(() => expect(router.state.location.search).toBe(`?m=${rows[0].id}`))
     const drawer = await screen.findByRole('dialog', { name: '消息详情' })
-    const list = within(drawer).getByRole('list', { name: '串里的回复' })
+    const list = within(drawer).getByRole('list', { name: '消息列回复' })
+    await waitFor(() => expect(rows[3].read && rows[4].read).toBe(true))
+    expect(await screen.findByRole('button', { name: '消息列 4 条回复' })).toBeInTheDocument()
     expect(within(list).getAllByRole('listitem').map((x) => x.textContent)).toEqual([
       expect.stringContaining('回复一'), expect.stringContaining('回复二'), expect.stringContaining('回复三'), expect.stringContaining('回复四')])
     await userEvent.click(within(within(list).getAllByRole('listitem')[1]).getByRole('button', { name: '忽略' }))
     await waitFor(() => expect(rows[2].status).toBe('ignored'))
-    // 打开串里的一条，再回原消息
+    // 打开消息列里的一条，再回原消息
     await userEvent.click(within(list).getAllByRole('button', { name: '王可' })[0])
     await waitFor(() => expect(router.state.location.search).toBe(`?m=${rows[1].id}`))
     const d2 = await screen.findByRole('dialog', { name: '消息详情' })
     expect(within(d2).getByText('回复 Lin Yuan：灰度方案看下')).toBeInTheDocument()
-    expect(within(d2).getByRole('textbox', { name: '回复内容' })).toHaveAttribute('placeholder', expect.stringContaining('发到同一个串'))
+    expect(within(d2).getByRole('textbox', { name: '回复内容' })).toHaveAttribute('placeholder', expect.stringContaining('发到同一个消息列'))
     await userEvent.click(within(d2).getByRole('button', { name: '打开原消息' }))
     await waitFor(() => expect(router.state.location.search).toBe(`?m=${rows[0].id}`))
   })

@@ -10,7 +10,7 @@ import {
 import { useObjectDrawer } from '../../core/plugin'
 import { Button, ErrorState, cls } from '../../core/ui'
 import { AgentAvatar } from '../../core/ui/AgentAvatar'
-import { useProjectChat } from './projectChat'
+import { SESSION_PARAM, useProjectChat } from './projectChat'
 import { defaultAgent } from './agentModel'
 import { awaitingCount, awaitingReply, whoName } from './commsModel'
 import { recentDocsAndMaterials } from './materialModel'
@@ -25,7 +25,7 @@ const PLUGINS_PATH = '/settings/plugins'
 /** 最新沟通露几条（SPEC-projects-3.2） */
 const MSG_PEEK = 4
 
-export function Overview({ project, onTab }: { project: WorkObject; onTab: (t: ProjectTab) => void }) {
+export function Overview({ project, onTab }: { project: WorkObject; onTab: (t: ProjectTab, query?: string) => void }) {
   const p = projectView(project)
   const navigate = useNavigate()
   const tasks = useAllObjects({ type: ['task'], project: p.id, not_terminal: true })
@@ -188,10 +188,11 @@ export function Overview({ project, onTab }: { project: WorkObject; onTab: (t: P
 }
 
 /** 概览的「项目 Agent」（SPEC-projects-3.6）：默认 Agent 的头像、名称、说明和「和它对话」，停用时置灰 */
-function AgentBlock({ project, onTab }: { project: WorkObject; onTab: (t: ProjectTab) => void }) {
+function AgentBlock({ project, onTab }: { project: WorkObject; onTab: (t: ProjectTab, query?: string) => void }) {
   const p = projectView(project)
   const agents = useAgents()
-  const chat = useProjectChat(project)
+  // 建好后切到 Agent 标签就地打开，不跳到会话页
+  const chat = useProjectChat(project, (sid) => onTab('agents', `${SESSION_PARAM}=${encodeURIComponent(sid)}`))
   const none = <div className="pj-block-empty">还没设置。<button type="button" className="pj-link" onClick={() => onTab('agents')}>去设置</button></div>
   // 没配 Agent 时不用等 Agent 列表
   if (!p.agentIds.length) return none

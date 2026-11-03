@@ -26,7 +26,8 @@ export function ProjectPage({ id, tab, onTab, onAll, onSwitch }: {
   id: string
   /** 项目自己的标签，或插件登记的标签 key */
   tab: ProjectTab | string
-  onTab: (t: ProjectTab | string) => void
+  /** query 是带到地址上的参数（如 s=<会话 id> 在 Agent 标签里就地打开会话） */
+  onTab: (t: ProjectTab | string, query?: string) => void
   /** 回到项目列表 */
   onAll: () => void
   /** 标题里的菜单切到别的项目（停在同一个标签） */

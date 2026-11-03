@@ -29,7 +29,7 @@ export { runFinished, useTaskRuns, useTaskRun, useCancelRun, streamRun, useRunPr
 export { workdirUsable, useWorkdirCheck, useFsBrowse, useFsShortcuts, useFsRoots, useAddFsRoot, useRemoveFsRoot, fsCrumbs } from './fs'
 export {
   useAgentProviders, useProviderModels, providerModelIds, loadProviderModels, defaultProvider, useAgentSessions, useAgentMessages, useCreateAgentSession, usePatchAgentSession,
-  useDeleteAgentSession, useRunningAgentSessions, useStopAgentSession, streamChat, streamDecision, streamDebugChat, setFirstMessage, firstMessageOf,
+  useDeleteAgentSession, useRemoveAgentMessages, useRunningAgentSessions, useStopAgentSession, streamChat, streamDecision, streamDebugChat, setFirstMessage, firstMessageOf,
 } from './agent'
 export type {
   AgentProvider, AgentProviderKind, ProviderTestResult, AgentSession, AgentMessage, AgentMessageRole, AgentSessionInput, AgentSessionPatch, SessionSourceRef,
@@ -258,3 +258,4 @@ export type {
   RunEvent, ChatEvent, StreamEvent, RunDone, ChatDone, QuestionOption, StreamErrorKind, StreamOptions, RunRequest, ChatRequest,
   DebugChatMessage, DebugChatRequest,
 } from '../api'
+export { UPDATE_POLL_MS, updateApi, useStartUpdate, useUpdateStatus, type UpdateCommit, type UpdateJob, type UpdateStatus, type UpdateStep } from './update'

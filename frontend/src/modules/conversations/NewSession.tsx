@@ -6,7 +6,7 @@ import {
 } from '../../core/data'
 import { Avatar, Button, Input, SearchSelect, Textarea, cls } from '../../core/ui'
 import { AgentAvatar } from '../../core/ui/AgentAvatar'
-import { avatarName } from './chatModel'
+import { avatarName } from '../../core/chat/chatModel'
 
 // 多于这个数时出搜索框
 const MANY = 6

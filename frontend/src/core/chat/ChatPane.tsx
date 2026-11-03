@@ -3,15 +3,16 @@
 // 要人确认的调用（AG-02b）：卡片上「确认执行 / 拒绝」，点了接着跑，回复照常流式显示。调用 id 来自 confirm 事件，
 // 执行记录建的会话从执行记录详情里找回；都找不到（页面刷新过）的只显示状态。
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { AGENT_RUN_PAGE_MAX, useAgentMessages, useAgentRun, useAgentRunList, useStopAgentSession, type AgentSession } from '../../core/data'
-import { Button, ErrorState, LoadingState, cls } from '../../core/ui'
+import { AGENT_RUN_PAGE_MAX, errorText, useAgentMessages, useAgentRun, useAgentRunList, useRemoveAgentMessages, useStopAgentSession, type AgentSession } from '../data'
+import { Button, ErrorState, LoadingState, cls } from '../ui'
 import { CallCard } from './CallCard'
 import { decideCall, dismissChat, sendChat, useCallState, useDeciding, useLiveChat } from './chatLive'
 import {
-  CHAT_EXAMPLES, NEW_TITLE, answerText, foldHistory, foldLive, overlayCalls, titleFrom, toolAbility, whoName, whoUsable, type CallRef, type CallView,
+  CHAT_EXAMPLES, NEW_TITLE, answerText, bubbleIds, foldHistory, foldLive, overlayCalls, titleFrom, toolAbility, whoName, whoUsable, type CallRef, type CallView,
   type ChatMsgView, type ChatWho, type QuestionView,
 } from './chatModel'
 import { WhoAvatar } from './WhoAvatar'
+import './chat.css'
 
 function QuestionCard({ q, active, onAnswer }: { q: QuestionView; active: boolean; onAnswer: (labels: string[]) => void }) {
   const [picked, setPicked] = useState<string[]>([])
@@ -51,10 +52,39 @@ function ConfirmActions({ call, sessionId, enabled }: { call: CallView; sessionI
   )
 }
 
-function AgentBubble({ m, avatar, children, renderCall, noGrant }: {
+/**
+ * 历史气泡旁的「移除」（SPEC-sessions-1.43）：悬停出现，点了就地确认；移除后这几条不再进模型的上下文，已经执行的操作不撤回。
+ * 这一轮在跑时不能移除（后端也会 409）
+ */
+function RemoveAction({ sessionId, ids, disabled }: { sessionId: string; ids: string[]; disabled: boolean }) {
+  const [asking, setAsking] = useState(false)
+  const remove = useRemoveAgentMessages()
+  if (!ids.length) return null
+  if (!asking) {
+    return (
+      <button type="button" className="ai-msg-act" disabled={disabled} title={disabled ? '这一轮还在跑，跑完再移除' : '从会话里移除这条，之后不再作为上下文发给模型'}
+        onClick={() => { remove.reset(); setAsking(true) }}>移除</button>
+    )
+  }
+  return (
+    <div className="ai-msg-confirm" role="group" aria-label="确认移除">
+      <span>移除这条？之后不再作为上下文发给模型，已经执行的操作不会撤回</span>
+      <span className="act-row">
+        <Button size="sm" variant="danger" disabled={disabled || remove.isPending}
+          onClick={() => remove.mutate({ sessionId, ids }, { onSuccess: () => setAsking(false) })}>{remove.isPending ? '移除中…' : '移除'}</Button>
+        <Button size="sm" disabled={remove.isPending} onClick={() => setAsking(false)}>取消</Button>
+      </span>
+      {remove.isError && <span className="danger-text" role="alert">没移除成：{errorText(remove.error)}</span>}
+    </div>
+  )
+}
+
+function AgentBubble({ m, avatar, children, renderCall, noGrant, action }: {
   m: ChatMsgView
   avatar: ReactNode
   children?: ReactNode
+  /** 气泡旁的操作（历史消息的「移除」） */
+  action?: ReactNode
   /** 卡片里多放的东西（确认、拒绝按钮） */
   renderCall?: (c: CallView) => ReactNode
   noGrant?: (c: CallView) => ReactNode
@@ -72,6 +102,7 @@ function AgentBubble({ m, avatar, children, renderCall, noGrant }: {
         )}
         {children}
       </div>
+      {action}
     </div>
   )
 }
@@ -172,9 +203,15 @@ export function ChatPane({ session, who, head, autoSend, onRetitle, onOpenTools 
           </div>
         )}
         {history.map((m, i) => (m.role === 'user'
-          ? <div key={m.id} className="ai-msg ai-user" data-role="user"><div className="ai-bubble">{m.text}</div></div>
+          ? (
+            <div key={m.id} className="ai-msg ai-user" data-role="user">
+              <RemoveAction sessionId={session.id} ids={bubbleIds(m)} disabled={busy} />
+              <div className="ai-bubble">{m.text}</div>
+            </div>
+          )
           : (
-            <AgentBubble key={m.id} m={m} avatar={avatar} renderCall={renderCall} noGrant={noGrant}>
+            <AgentBubble key={m.id} m={m} avatar={avatar} renderCall={renderCall} noGrant={noGrant}
+              action={<RemoveAction sessionId={session.id} ids={bubbleIds(m)} disabled={busy} />}>
               {m.question && (
                 <QuestionCard q={m.question} active={canAnswer && !live && i === history.length - 1} onAnswer={answer} />
               )}

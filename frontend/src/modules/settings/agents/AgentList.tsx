@@ -1,10 +1,9 @@
 // Agent 列表，照原型 web-next/src/agents.tsx AgentsPage（SPEC-settings-8）：卡片网格，搜索，卡片上直接启停。
 import { useState } from 'react'
 import {
-  errorText, QueryState, useAgentGrants, useAgentRuns, useAgents, usePatchAgent, type Agent, type AgentRunBrief,
+  errorText, QueryState, useAgentGrants, useAgents, usePatchAgent, type Agent,
 } from '../../../core/data'
 import { Button, cls, EmptyState, PageTitle, Switch } from '../../../core/ui'
-import { timeAgo } from '../providers/model'
 import { AgentAvatar } from './AgentAvatar'
 import { ABILITIES, choiceKey, hasAll, thinkingLabel, triggerSummary, type ModelChoice } from './model'
 import { MiniSearch } from './parts'
@@ -14,8 +13,6 @@ export function AgentList({ models, onOpen, onNew }: { models: ModelChoice[]; on
   const q = useAgents()
   const agents = q.data ?? []
   const grants = useAgentGrants(agents.map((a) => a.id))
-  // 执行记录接口取不到时按「还没运行过」显示
-  const runs = useAgentRuns().data ?? []
   const patch = usePatchAgent()
   const [kw, setKw] = useState('')
   const [toggleErr, setToggleErr] = useState<string | null>(null)
@@ -52,7 +49,7 @@ export function AgentList({ models, onOpen, onNew }: { models: ModelChoice[]; on
             <div className="ag-grid">
               {rows.map((a) => (
                 <AgentCard key={a.id} agent={a} model={models.find((m) => m.key === choiceKey(a.provider_id, a.model))}
-                  grants={grants[a.id]?.grants} runs={runs.filter((r) => r.agent_id === a.id)}
+                  grants={grants[a.id]?.grants}
                   onOpen={() => onOpen(a.id)} onToggle={(on) => toggle(a, on)} />
               ))}
             </div>
@@ -64,17 +61,15 @@ export function AgentList({ models, onOpen, onNew }: { models: ModelChoice[]; on
   )
 }
 
-function AgentCard({ agent: a, model, grants, runs, onOpen, onToggle }: {
+// 卡片上不放执行情况：执行记录只算任务、IM、定时触发的，会话里手动对话不算，显示「还没运行过」反而误导；执行记录在「会话」菜单里看
+function AgentCard({ agent: a, model, grants, onOpen, onToggle }: {
   agent: Agent
   model: ModelChoice | undefined
   grants: Record<string, string> | undefined
-  runs: AgentRunBrief[]
   onOpen: () => void
   onToggle: (on: boolean) => void
 }) {
   const on = ABILITIES.filter((x) => (grants?.[x.key] ?? 'off') !== 'off')
-  const wait = runs.filter((r) => r.status === 'waiting').length
-  const last = runs.reduce<AgentRunBrief | undefined>((m, r) => (!m || r.started_at > m.started_at ? r : m), undefined)
   const bad = model ? !model.ok : !!a.model
   return (
     <div role="button" tabIndex={0} className={cls('ag-card', !a.enabled && 'off')} data-agent={a.id} aria-label={a.name || '未命名'}
@@ -101,9 +96,6 @@ function AgentCard({ agent: a, model, grants, runs, onOpen, onToggle }: {
       )}
       <div className="ag-card-foot">
         <span className="ellipsis">{triggerSummary(a.triggers)}</span>
-        <span className="spacer" />
-        {wait > 0 && <span className="ag-wait">{wait} 条等确认</span>}
-        <span className="ag-nowrap">{last ? `${timeAgo(Date.parse(last.started_at))}运行` : '还没运行过'}</span>
       </div>
     </div>
   )

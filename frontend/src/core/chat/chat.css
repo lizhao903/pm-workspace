@@ -1,0 +1,76 @@
+/* 对话面板（core/chat/ChatPane）：会话页和项目里的就地对话共用 */
+.chat-pane { display: flex; flex-direction: column; min-height: 0; height: 100%; }
+.ai-msgs { flex: 1; min-height: 0; overflow-y: auto; padding: var(--sp-8) var(--sp-10); display: flex; flex-direction: column; gap: var(--sp-5); }
+.ai-msg { display: flex; }
+.ai-msg.ai-ai { gap: var(--sp-4); align-items: flex-start; }
+.ai-user { justify-content: flex-end; }
+.ai-bubble { max-width: min(720px, 86%); padding: 9px 12px; border-radius: 12px; line-height: 1.6; font-size: var(--fs); min-width: 0; overflow-wrap: anywhere; }
+.ai-ai .ai-bubble { background: var(--panel); border: 1px solid var(--line); border-top-left-radius: 4px; }
+.ai-user .ai-bubble { background: var(--accent); color: var(--accent-ink); border-top-right-radius: 4px; white-space: pre-wrap; }
+.ai-bubble.ai-failed { border-color: color-mix(in srgb, var(--danger) 40%, var(--line)); color: var(--danger); display: flex; flex-direction: column; gap: var(--sp-4); }
+.pre-line { white-space: pre-line; }
+.ai-typing { display: flex; gap: 4px; padding: 12px 14px; }
+.ai-typing span { width: 6px; height: 6px; border-radius: 50%; background: var(--faint); animation: conv-pulse 1s ease-in-out infinite; }
+.ai-typing span:nth-child(2) { animation-delay: 0.15s; }
+.ai-typing span:nth-child(3) { animation-delay: 0.3s; }
+@keyframes conv-pulse { 50% { opacity: 0.45; } }
+.ai-examples { display: flex; flex-direction: column; gap: var(--sp-3); margin-top: var(--sp-2); }
+.ai-examples-title { font-size: var(--fs-xs); color: var(--faint); font-weight: 600; }
+.ai-example { text-align: left; padding: var(--sp-4) var(--sp-5); border-radius: var(--r-sm); border: 1px dashed var(--line-2); font-size: var(--fs-sm); line-height: 1.55; color: var(--muted); }
+.ai-example:not(:disabled):hover { border-color: var(--accent-line); color: var(--text); background: var(--panel); }
+.ai-example:disabled { cursor: default; opacity: 0.55; }
+.ai-files { margin: var(--sp-3) 0 0; padding-left: 1.1em; color: var(--muted); font-size: var(--fs-sm); }
+.ai-files code { font-family: var(--mono); }
+/* Agent 的提问：选项按钮，点了作为一条普通消息发出 */
+.ai-question { margin-top: var(--sp-4); padding-top: var(--sp-4); border-top: 1px solid var(--line); display: flex; flex-direction: column; gap: var(--sp-4); }
+.ai-bubble > .ai-question:first-child { margin-top: 0; padding-top: 0; border-top: 0; }
+.ai-question-title { font-weight: 500; }
+.ai-question-multi { margin-left: var(--sp-4); font-size: var(--fs-xs); color: var(--faint); font-weight: 400; }
+.ai-question-opts { display: flex; flex-direction: column; gap: var(--sp-3); }
+.ai-option { display: flex; flex-direction: column; gap: 2px; text-align: left; padding: var(--sp-4) var(--sp-5); border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--panel-2); }
+.ai-option:not(:disabled):hover { border-color: var(--accent-line); background: var(--accent-soft); }
+.ai-option.on { border-color: var(--accent); background: var(--accent-soft); }
+.ai-option:disabled { cursor: default; }
+.ai-option-label { font-weight: 500; }
+.ai-option-detail { font-size: var(--fs-xs); color: var(--muted); }
+.ai-question.answered .ai-option { opacity: 0.7; }
+/* 工具调用卡片 */
+.ai-bubble .call-list { display: flex; flex-direction: column; gap: var(--sp-3); margin-bottom: var(--sp-4); }
+.call-card { border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--panel-2); overflow: hidden; }
+.call-head { display: flex; align-items: center; gap: var(--sp-4); width: 100%; padding: 6px 10px; text-align: left; font-size: var(--fs-sm); }
+.call-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); flex: none; }
+.call-dot.write { background: var(--warn); }
+.call-name { font-weight: 500; flex: 1; min-width: 0; }
+.call-state { font-size: var(--fs-xs); color: var(--faint); flex: none; }
+.call-running .call-state { color: var(--accent); }
+.call-chev { color: var(--faint); transition: transform 0.12s; display: inline-flex; }
+.call-chev.open { transform: rotate(90deg); }
+.call-body { display: flex; flex-direction: column; gap: 4px; padding: 0 10px 10px; }
+.call-k { font-size: var(--fs-2xs); color: var(--faint); font-weight: 600; margin-top: 4px; }
+.call-body pre { max-height: 200px; overflow: auto; padding: var(--sp-4); border-radius: 5px; background: var(--panel); }
+.io-json { margin: 0; font: var(--fs-xs) / 1.6 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; color: var(--text); }
+/* 输入框 */
+.ai-input { flex: none; padding: var(--sp-5) var(--sp-10) var(--sp-8); border-top: 1px solid var(--line); }
+.ai-box { border: 1px solid var(--line); border-radius: var(--r); background: var(--panel); }
+.ai-box:focus-within { border-color: var(--accent-line); box-shadow: 0 0 0 3px var(--accent-soft); }
+.ai-box textarea { display: block; width: 100%; border: 0; outline: 0; resize: none; background: none; padding: 9px 11px 4px; color: var(--text); line-height: 1.55; font: inherit; }
+.ai-box-foot { display: flex; align-items: center; gap: var(--sp-4); padding: 4px 6px 6px 11px; }
+.ai-box-foot .field-hint-line { flex: 1; min-width: 0; }
+.call-pending { border-color: color-mix(in srgb, var(--warn) 55%, var(--line)); }
+.call-pending .call-state { color: var(--warn); }
+.call-confirm-hint { margin-top: var(--sp-3); font-size: var(--fs-sm); }
+.call-confirm { margin-top: var(--sp-3); }
+.call-pending .call-state { color: var(--warn); }
+.call-no-grant { margin-top: var(--sp-2); }
+.chat-pane .act-row { display: flex; align-items: center; gap: var(--sp-3); flex-wrap: wrap; }
+.chat-pane .link-btn { color: var(--accent); text-decoration: underline; text-underline-offset: 2px; text-align: left; max-width: 100%; }
+
+/* 历史消息的「移除」（SPEC-sessions-1.43）：悬停气泡时出现，点了就地确认 */
+.ai-msg { position: relative; align-items: flex-start; }
+.ai-user { gap: var(--sp-3); }
+.ai-msg-act { flex: none; align-self: center; padding: 2px 6px; border-radius: var(--r-sm); background: none; color: var(--faint); font-size: var(--fs-xs); opacity: 0; transition: opacity .12s; }
+.ai-msg:hover > .ai-msg-act, .ai-msg-act:focus-visible { opacity: 1; }
+.ai-msg-act:not(:disabled):hover { color: var(--danger); background: var(--hover); }
+.ai-msg-act:disabled { cursor: default; }
+.ai-msg-confirm { flex: none; align-self: center; display: flex; flex-direction: column; gap: var(--sp-2); max-width: 260px; font-size: var(--fs-xs); color: var(--muted); }
+@media (hover: none) { .ai-msg-act { opacity: 1; } }

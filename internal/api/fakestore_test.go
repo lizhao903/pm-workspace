@@ -1148,6 +1148,29 @@ func (f *fakeStore) ListAgentMessages(_ context.Context, sessionID string, limit
 	return out, nil
 }
 
+func (f *fakeStore) DeleteAgentMessages(_ context.Context, sessionID string, ids []string) (int, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if _, ok := f.sessions[sessionID]; !ok {
+		return 0, domain.ErrNotFound
+	}
+	drop := map[string]bool{}
+	for _, id := range ids {
+		drop[id] = true
+	}
+	kept := f.messages[sessionID][:0:0]
+	n := 0
+	for _, m := range f.messages[sessionID] {
+		if drop[m.ID] {
+			n++
+			continue
+		}
+		kept = append(kept, m)
+	}
+	f.messages[sessionID] = kept
+	return n, nil
+}
+
 func (f *fakeStore) AppendAgentMessage(_ context.Context, m *domain.AgentMessage) (*domain.AgentMessage, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()

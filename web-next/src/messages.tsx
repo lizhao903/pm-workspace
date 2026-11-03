@@ -10,7 +10,7 @@ import type { Sop, SopRun } from './sopflow'
 import { TriageBar, TriageTag, activeTriage, latestTriage } from './triage'
 import { AgentSection, ReplyBarActions } from './msgagent'
 import { MaterialSection, notesOf } from './msgmaterial'
-import { clusterMessages, countLabel, isOpenMsg, nestThreads, previewText, rowTime, threadHint, threadShown, toRows, type MsgRow, type SessionIntent, type ThreadBlock } from './msggroup'
+import { clusterMessages, countLabel, isOpenMsg, nestThreads, previewText, rowTime, threadHint, threadOf, toRows, type MsgRow, type SessionIntent } from './msggroup'
 import { GroupAdminDrawer } from './groupadmin'
 import { SendDialog, SentStrip, sentReplyOf, type Sent } from './msgsend'
 import { MentionBox, composeReply, quickReplyText, useReplyMention, type Member, type MentionPick } from './mention'
@@ -310,12 +310,11 @@ export function MessagesPage({ messages, contacts, connectors, selected, onOpen,
   const [lim, setLim] = useState({ sig, n: PAGE })
   const limit = lim.sig === sig ? lim.n : PAGE
   const clusters = useMemo(() => clusterMessages(messages), [messages])
-  // 串里的回复挂到原消息那一行下面（SPEC-messages-1.62），不管合不合并
+  // 消息列回复归到原消息那一行（SPEC-messages-1.62），列表上不显示回复本身，不管合不合并
   const viewRows = useMemo(() => nestThreads(toRows(rows, clusters, merge), messages), [rows, clusters, merge, messages])
   const byId = useMemo(() => new Map(messages.map((m) => [m.id, m])), [messages])
-  const [threadOpen, setThreadOpen] = useState<ReadonlySet<string>>(() => new Set())
   const shown = viewRows.slice(0, limit)
-  // 每天的条数按消息算（挂着的串里回复也算），一组归在它最新一条那天
+  // 每天的条数按消息算（归来的消息列回复也算），一组归在它最新一条那天
   const dayCount = new Map<string, number>()
   for (const r of viewRows) {
     const d = dayLabel(rowTime(r))
@@ -388,51 +387,16 @@ export function MessagesPage({ messages, contacts, connectors, selected, onOpen,
     return null
   }
   // 合并的一组（SPEC-messages-1.55）：人名、条数、拼起来的预览；整组标已处理、忽略
-  // 串里的回复挂在原消息那一行下面缩进一层：少（不超过 3 条）时全列，多了只列最近 2 条加「还有 N 条回复」；每条能单独处理
-  const replyRow = (m: Message) => {
-    const who = whoOf(m)
-    const blocker = replyBlocker(connectors.find((c) => c.id === m.connector_id))
-    const open = isOpenMsg(m)
+  // 消息列回复不在列表上显示（SPEC-messages-1.62）：原消息那一行标「消息列 N 条未读回复」（整个消息列里有没读的），
+  // 没有未读但这一行归来了筛得出来的回复时标「消息列 N 条回复」；点了打开原消息，消息列回复在原消息抽屉里看
+  const threadTags = (r: MsgRow) => (r.threads ?? []).map((b) => {
+    const unread = threadOf(b.parent, messages).filter((x) => !x.read).length
+    if (!unread && !b.replies.length) return null
     return (
-      <div key={m.id} role="button" tabIndex={0} className={cls('msg msg-reply', selected === m.id && 'sel', !m.read && 'unread', m.status !== 'pending' && 'msg-closed')}
-        onClick={() => onOpen(m.id)} onKeyDown={(e) => e.key === 'Enter' && onOpen(m.id)}>
-        <span className="msg-unread" />
-        <Avatar name={who?.name ?? m.sender_name} size={24} src={who?.photo} />
-        <div className="msg-main">
-          <div className="msg-top">
-            <span className="msg-who">{who?.name ?? m.sender_name}</span>
-            {relOf(m) === 'me' && <span className="rel-tag rel-me">{RELEVANCE.me}</span>}
-            <span className="spacer" />
-            {m.status !== 'pending' && <span className="state" style={stateStyle(msgEnum.color(m.status))}>{msgEnum.label(m.status)}</span>}
-            {m.replies.length > 0 && <span className="state">已回复</span>}
-            <span className="msg-time">{timeAgo(m.at)}</span>
-          </div>
-          <div className="msg-text"><MentionText text={m.text} /></div>
-        </div>
-        <div className="msg-actions" onClick={(e) => e.stopPropagation()}>
-          {open ? (
-            <>
-              <button className="act act-primary" onClick={() => onAct(m.id, { kind: 'done' })}>{msgEnum.label('done')}</button>
-              {blocker
-                ? <button className="act" disabled title={blocker}>回复{caret}</button>
-                : <Menu className="act" label={<>回复{caret}</>}>{(close) => <QuickReplyItems close={close} onPick={(text, done) => onAct(m.id, { kind: 'reply', done, ...quickReplyText(m, who?.name ?? m.sender_name, text) })} />}</Menu>}
-              <button className="act act-quiet" onClick={() => onAct(m.id, { kind: 'ignore' })}>忽略</button>
-            </>
-          ) : <button className="act" onClick={() => onAct(m.id, { kind: 'reopen' })}>重新打开</button>}
-        </div>
-      </div>
-    )
-  }
-  const threadBlocks = (r: MsgRow) => (r.threads ?? []).map((b: ThreadBlock) => {
-    const open = threadOpen.has(b.parent.id)
-    const { shown: xs, hidden } = threadShown(b, open)
-    const toggle = () => setThreadOpen((s0) => { const n = new Set(s0); if (n.has(b.parent.id)) n.delete(b.parent.id); else n.add(b.parent.id); return n })
-    return (
-      <div key={`thr:${b.parent.id}`} className="thread-replies">
-        {hidden > 0 && <button className="thread-more" onClick={toggle}>还有 {hidden} 条回复</button>}
-        {xs.map(replyRow)}
-        {open && b.replies.length > 3 && <button className="thread-more" onClick={toggle}>收起</button>}
-      </div>
+      <button key={`thr:${b.parent.id}`} className={cls('thread-count', unread > 0 && 'unread')} title="消息列里的回复在原消息里看，点开原消息"
+        onClick={(e) => { e.stopPropagation(); onOpen(b.parent.id) }} onKeyDown={(e) => e.stopPropagation()}>
+        {unread > 0 ? `消息列 ${unread} 条未读回复` : `消息列 ${b.replies.length} 条回复`}
+      </button>
     )
   })
 
@@ -453,6 +417,7 @@ export function MessagesPage({ messages, contacts, connectors, selected, onOpen,
             {label && <span className="msg-count">{label}</span>}
             <ImMark ch={channelOf(m.channel)} compact />
             <span className="msg-conv">{m.conversation || '私聊'}</span>
+            {threadTags(r)}
             <span className="spacer" />
             {open.length > 0 && open.length < r.items.length && <span className="state">{open.length} 条{msgEnum.label('pending')}</span>}
             {unread > 0 && r.kind === 'dm' && <span className="state">{unread} 条未读</span>}
@@ -597,7 +562,7 @@ export function MessagesPage({ messages, contacts, connectors, selected, onOpen,
           {shown.map((r, i) => {
             const day = dayLabel(rowTime(r))
             const dayHead = (i === 0 || dayLabel(rowTime(shown[i - 1])) !== day) && <div className="msg-day">{day}<span className="seg-n">{dayCount.get(day)}</span></div>
-            if (r.kind !== 'single') return <Fragment key={r.key}>{dayHead}{groupRow(r)}{threadBlocks(r)}</Fragment>
+            if (r.kind !== 'single') return <Fragment key={r.key}>{dayHead}{groupRow(r)}</Fragment>
             const m = r.head
             const parent = m.thread?.parent_id ? byId.get(m.thread.parent_id) : undefined
             const hint = threadHint(m, parent, parent && whoOf(parent)?.name)
@@ -611,7 +576,7 @@ export function MessagesPage({ messages, contacts, connectors, selected, onOpen,
               <Fragment key={m.id}>
               {dayHead}
               <div role="button" tabIndex={0} className={cls('msg', selected === m.id && 'sel', !m.read && 'unread', m.status !== 'pending' && 'msg-closed', r.faded && 'msg-faded')}
-                title={r.faded ? '原消息不在当前筛选里，为挂串里的回复显示' : undefined}
+                title={r.faded ? '原消息不在当前筛选里，消息列有新回复才显示' : undefined}
                 onClick={() => onOpen(m.id)} onKeyDown={(e) => e.key === 'Enter' && onOpen(m.id)}>
                 <span className="msg-unread" />
                 <Avatar name={who?.name ?? m.sender_name} size={34} src={who?.photo} />
@@ -625,8 +590,9 @@ export function MessagesPage({ messages, contacts, connectors, selected, onOpen,
                     <TriageTag run={lastTriage.get(m.id)} onClick={onOpenQueue} onOpenAdvice={() => onOpenTriage(m.id)} />
                     {rel && rel !== 'dm' && <span className={cls('rel-tag', rel === 'me' && 'rel-me')}>{RELEVANCE[rel]}</span>}
                     {m.thread && (parent
-                      ? <button className="thread-tag" title={`${hint}，点开看整个串`} onClick={(e) => { e.stopPropagation(); onOpen(parent.id) }} onKeyDown={(e) => e.stopPropagation()}>串里回复</button>
-                      : <span className="thread-tag" title={`${hint}（原消息还没收到）`}>串里回复</span>)}
+                      ? <button className="thread-tag" title={`${hint}，点开看整个消息列`} onClick={(e) => { e.stopPropagation(); onOpen(parent.id) }} onKeyDown={(e) => e.stopPropagation()}>消息列回复</button>
+                      : <span className="thread-tag" title={`${hint}（原消息还没收到）`}>消息列回复</span>)}
+                    {threadTags(r)}
                     <span className="spacer" />
                     {m.status !== 'pending' && (
                       <span className="state" style={stateStyle(msgEnum.color(m.status))}
@@ -672,7 +638,6 @@ export function MessagesPage({ messages, contacts, connectors, selected, onOpen,
                   )}
                 </div>
               </div>
-              {threadBlocks(r)}
               </Fragment>
             )
           })}
@@ -720,7 +685,7 @@ export function MessageDrawer({ msg, contact, connector, members = [], onClose, 
   deal?: { title: string; brand: string }; onToDeal?: () => void
   /** 交给 Agent（SPEC-messages-2.36）：发起过的会话、拆出来的任务数；发起会话、拆分任务 */
   links: { sessions: string[]; tasks: number }; onStartSession: (intent: SessionIntent) => void; onOpenSession: (id: string) => void
-  /** 串里的回复（SPEC-messages-2.45）：这条作为原消息时整个串（按时间）；这条是串里回复时它的原消息；打开另一条；处理串里的某一条 */
+  /** 消息列回复（SPEC-messages-2.45）：这条作为原消息时整个消息列（按时间）；这条是消息列回复时它的原消息；打开另一条；处理消息列里的某一条 */
   thread?: Message[]; threadParent?: Message; onOpenMessage?: (id: string) => void; onActOther?: (id: string, a: MsgAction) => void
 }) {
   const msgEnum = useEnumView('msg_status')
@@ -806,7 +771,7 @@ export function MessageDrawer({ msg, contact, connector, members = [], onClose, 
 
         {msg.thread && (
           <div className="thread-from">
-            <span className="thread-tag">串里回复</span>
+            <span className="thread-tag">消息列回复</span>
             <span className="muted ellipsis">{threadHint(msg, threadParent)}</span>
             {threadParent && onOpenMessage && <button className="act" onClick={() => onOpenMessage(threadParent.id)}>打开原消息</button>}
           </div>
@@ -826,7 +791,7 @@ export function MessageDrawer({ msg, contact, connector, members = [], onClose, 
 
         {thread.length > 0 && (
           <>
-            <div className="section-label">串里的回复 <span className="seg-n">{thread.length}</span></div>
+            <div className="section-label">消息列回复 <span className="seg-n">{thread.length}</span></div>
             <div className="thread-list">
               {thread.map((m) => {
                 const open = isOpenMsg(m)
@@ -904,7 +869,7 @@ export function MessageDrawer({ msg, contact, connector, members = [], onClose, 
       </div>
       <div className="drawer-foot reply-box">
         <MentionBox value={text} onChange={setText} onPick={(p) => setPicked((x) => [...x, p])} members={members} disabled={!!blocker} label="回复内容"
-          placeholder={blocker ? '这个会话现在不能回复' : `回复 ${contact?.name ?? msg.sender_name}${msg.thread ? '（发到同一个串）' : ''}，输入 @ 提到别人，⌘ Enter 发送`}
+          placeholder={blocker ? '这个会话现在不能回复' : `回复 ${contact?.name ?? msg.sender_name}${msg.thread ? '（发到同一个消息列）' : ''}，输入 @ 提到别人，⌘ Enter 发送`}
           onKeyDown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) send(text, alsoDone) }} />
         <div className="reply-bar">
           <label className="check"><input type="checkbox" checked={alsoDone} onChange={(e) => setAlsoDone(e.target.checked)} disabled={!!blocker} />发送后标为{msgEnum.label('done')}</label>

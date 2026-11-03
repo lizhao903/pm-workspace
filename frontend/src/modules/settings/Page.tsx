@@ -15,6 +15,7 @@ import { KbSection } from './kb/KbSection'
 import { SkillsSection } from './skills/SkillsSection'
 import { LocalFsSection } from './localfs/LocalFsSection'
 import { IncidentsSection } from './incidents/IncidentsSection'
+import { UpdateSection } from './update/UpdateSection'
 
 // 内核的设置分节，照原型 web-next/src/settings.tsx SECTIONS；内网域名是插件的分节，不在这里。
 // 插件管理（CORE-09）原型里还没有，放在「工作台与模块」（CORE-10b）后面
@@ -31,6 +32,8 @@ const KERNEL: SubnavItem<string>[] = [
   { key: 'localfs', label: '本机目录', desc: '选目录时能浏览的范围' },
   { key: 'incidents', label: '运行异常', desc: '系统出的问题，可转研发任务' },
   { key: 'appearance', label: '外观', desc: '配色方案、菜单收起' },
+  // SYS-UPD：原型没有这一节，把工作台更新到源码目录里的最新代码
+  { key: 'update', label: '版本更新', desc: '更新到最新版本并重启' },
 ]
 
 // 插件分节的路径：/settings/plugins/<插件 id>/<分节 key>，不同插件的 key 撞了也分得开
@@ -72,7 +75,8 @@ export default function Page() {
         : kernel!.key === 'skills' ? <SkillsSection />
         : kernel!.key === 'localfs' ? <LocalFsSection />
         : kernel!.key === 'incidents' ? <IncidentsSection />
-        : kernel!.key === 'appearance' ? <AppearanceSection /> : <Placeholder title={kernel!.label} />}
+        : kernel!.key === 'appearance' ? <AppearanceSection />
+        : kernel!.key === 'update' ? <UpdateSection /> : <Placeholder title={kernel!.label} />}
     </>
   )
 }

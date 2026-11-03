@@ -3,7 +3,7 @@
 // 要人确认的调用（AG-02b）：confirm 事件里的 id 记在这里（落库的消息里没有 id）；点了确认、拒绝，
 // 接着跑的那一轮也是一轮流，结果先记着，消息读回来后以读回的为准。
 import { useSyncExternalStore } from 'react'
-import { errorText, streamChat, streamDecision, type ChatEvent } from '../../core/data'
+import { errorText, streamChat, streamDecision, type ChatEvent } from '../data'
 import type { CallDecision, CallRef } from './chatModel'
 
 export type LivePhase = 'streaming' | 'done' | 'failed'

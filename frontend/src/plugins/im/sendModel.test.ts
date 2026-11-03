@@ -47,9 +47,9 @@ describe('发不了的原因和回复说明', () => {
     expect(sendBlocker(c({ direction: 'receive' }))).toBe('连接器「Slack」设置为只收消息')
     expect(sendBlocker(undefined)).toBe('先选渠道')
   })
-  it('串里回复和下一条来信', () => {
+  it('消息列回复和下一条来信', () => {
     const now = new Date('2026-03-01T01:00:00Z').getTime()
-    expect(sentReplyTitle({ replied_sent: { outbox_id: 'ob', text: '方案看了吗', at: '2026-03-01T00:30:00Z', via: 'thread' } }, now)).toBe('在串里回复了我 30 分钟前发出的「方案看了吗」')
+    expect(sentReplyTitle({ replied_sent: { outbox_id: 'ob', text: '方案看了吗', at: '2026-03-01T00:30:00Z', via: 'thread' } }, now)).toBe('在消息列里回复了我 30 分钟前发出的「方案看了吗」')
     expect(sentReplyTitle({ replied_sent: { outbox_id: 'ob', text: '好', at: '2026-03-01T00:30:00Z', via: 'next' } }, now)).toBe('回复了我 30 分钟前发出的「好」')
     expect(sentReplyTitle({ replied_sent: null })).toBe('')
   })

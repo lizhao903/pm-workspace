@@ -1,16 +1,20 @@
 // Agent 标签（SPEC-projects-10）：项目 Agent（props.agent_ids，第一个是默认）和在项目里开的会话。
-// 「对话」建一个挂这个 Agent 的会话，工作目录用项目目录，会话 id 记进 props.session_ids，再切到会话页打开它。
+// 「对话」建一个挂这个 Agent 的会话，工作目录用项目目录，会话 id 记进 props.session_ids，然后就在这个标签里打开它
+// （地址 ?s=<会话 id>）：左边项目会话列表，右边对话面板，不跳到会话页（SPEC-projects-10.13）。
 // 会话页还没有按项目筛选，多于 10 条时就地「显示全部」（SPEC-projects-10.8 的退化写法）
 import { useEffect, useMemo, useState } from 'react'
-import { useNavigate } from 'react-router'
+import { useNavigate, useSearchParams } from 'react-router'
+import { ChatPane } from '../../core/chat/ChatPane'
+import { whoOf, whoName } from '../../core/chat/chatModel'
 import {
-  errorText, projectView, useAgentSessions, useAgents, useSaveProject, type WorkObject,
+  errorText, projectView, useAgentProviders, useAgentSessions, useAgents, usePatchAgentSession, useRunningAgentSessions, useSaveProject,
+  useStopAgentSession, type WorkObject,
 } from '../../core/data'
 import { AgentAvatar } from '../../core/ui/AgentAvatar'
-import { Button, ErrorState, LoadingState, SearchSelect } from '../../core/ui'
+import { Button, ErrorState, LoadingState, SearchSelect, cls } from '../../core/ui'
 import { SESSION_PEEK, addAgent, availAgents, linkedAgents, makeDefault, projectSessions, removeAgent } from './agentModel'
 import { ago } from './model'
-import { NEW_TITLE, SESSIONS_PATH, useProjectChat } from './projectChat'
+import { NEW_TITLE, SESSIONS_PATH, SESSION_PARAM, useProjectChat } from './projectChat'
 
 const AGENT_PATH = '/settings/agents'
 
@@ -20,7 +24,16 @@ export function AgentsTab({ project }: { project: WorkObject }) {
   const agentsQ = useAgents()
   const sessionsQ = useAgentSessions()
   const save = useSaveProject()
-  const chat = useProjectChat(project)
+  const providersQ = useAgentProviders()
+  const patch = usePatchAgentSession()
+  const running = useRunningAgentSessions()
+  const stop = useStopAgentSession()
+  const [params, setParams] = useSearchParams()
+  const openId = params.get(SESSION_PARAM) ?? ''
+  // 就地打开会话：记在地址上，刷新、后退都还在；关掉回到列表
+  const openSession = (id: string) => setParams((x) => { const n = new URLSearchParams(x); n.set(SESSION_PARAM, id); return n })
+  const closeSession = () => setParams((x) => { const n = new URLSearchParams(x); n.delete(SESSION_PARAM); return n }, { replace: true })
+  const chat = useProjectChat(project, openSession)
   const [err, setErr] = useState('')
   const [showAll, setShowAll] = useState(false)
   const [now, setNow] = useState(() => Date.now())
@@ -41,7 +54,10 @@ export function AgentsTab({ project }: { project: WorkObject }) {
     save.mutate({ id: p.id, props: { agent_ids: ids } }, { onError: (e) => setErr(`没存上：${errorText(e)}`) })
   }
   const openAgent = (id: string) => navigate(`${AGENT_PATH}/${encodeURIComponent(id)}`)
-  const openSession = (id: string) => navigate(`${SESSIONS_PATH}?s=${encodeURIComponent(id)}`)
+  const toSessionsPage = (id: string) => navigate(`${SESSIONS_PATH}?s=${encodeURIComponent(id)}`)
+  // 打开的会话从全部会话里找（刚建的还没有消息，不在 chats 里）
+  const cur = openId ? (sessionsQ.data ?? []).find((s) => s.id === openId) : undefined
+  const curWho = cur ? whoOf(cur, agentsQ.data, providersQ.data ?? []) : undefined
 
   const head = (
     <div className="pj-tab-head">
@@ -86,7 +102,8 @@ export function AgentsTab({ project }: { project: WorkObject }) {
       {head}
       {(err || chat.err) && <div className="pj-err" role="alert">{err || chat.err}</div>}
       {agentList}
-      <section className="pj-sop-runs" aria-label="项目里的会话">
+      <div className={cls('pj-chat-split', openId && 'has-chat')}>
+      <section className="pj-sop-runs pj-chat-list" aria-label="项目里的会话">
         <h3 className="pj-sec-title">项目里的会话{chats.length > SESSION_PEEK && <span className="pj-muted"> {chats.length}</span>}</h3>
         {sessionsQ.isPending ? <LoadingState />
           : sessionsQ.isError ? <ErrorState compact error={`会话没加载出来：${errorText(sessionsQ.error)}`} onRetry={() => void sessionsQ.refetch()} />
@@ -95,7 +112,8 @@ export function AgentsTab({ project }: { project: WorkObject }) {
                 {shown.map((s) => {
                   const a = s.agent_id ? byId.get(s.agent_id) : undefined
                   return (
-                    <button key={s.id} type="button" className="pj-agent-chat" onClick={() => openSession(s.id)}>
+                    <button key={s.id} type="button" className={cls('pj-agent-chat', s.id === openId && 'on')} aria-current={s.id === openId ? 'true' : undefined}
+                      onClick={() => openSession(s.id)}>
                       {a ? <AgentAvatar agent={a} size={20} /> : <span className="pj-agent-noav" aria-hidden="true" />}
                       <span className="ellipsis">{s.title || NEW_TITLE}</span>
                       <span className="pj-muted ellipsis">{a?.name ?? ''}</span>
@@ -111,6 +129,34 @@ export function AgentsTab({ project }: { project: WorkObject }) {
               </div>
             ) : <div className="pj-mount-empty">还没有项目会话；点上面的「对话」开一个</div>}
       </section>
+      {openId && (
+        <section className="pj-chat" aria-label="项目会话">
+          {cur && curWho ? (
+            <ChatPane key={cur.id} session={cur} who={curWho}
+              onRetitle={(title) => patch.mutate({ id: cur.id, patch: { title } })}
+              onOpenTools={curWho.kind === 'agent' ? () => navigate(`${AGENT_PATH}/${encodeURIComponent(curWho.agent.id)}?tab=tools`) : undefined}
+              head={(
+                <div className="pj-chat-head">
+                  <button type="button" className="pj-chat-back" onClick={closeSession} title="关掉对话，回到会话列表">返回</button>
+                  <b className="ellipsis">{cur.title || NEW_TITLE}</b>
+                  <span className="pj-muted ellipsis">{whoName(curWho)}</span>
+                  <span className="spacer" />
+                  {running.data?.includes(cur.id) && (
+                    <Button size="sm" variant="danger" disabled={stop.isPending} title="停掉正在跑的这一轮；已经执行的操作不会撤回"
+                      onClick={() => stop.mutate(cur.id)}>{stop.isPending ? '停止中…' : '停止'}</Button>
+                  )}
+                  <Button size="sm" variant="ghost" title="在会话页打开，能看工具面板、产出结果" onClick={() => toSessionsPage(cur.id)}>在会话页打开</Button>
+                </div>
+              )} />
+          ) : sessionsQ.isPending || agentsQ.isPending || providersQ.isPending ? <LoadingState />
+            : (
+              <div className="pj-mount-empty">
+                这个会话找不到了（可能已删除）。<button type="button" className="pj-link" onClick={closeSession}>回到列表</button>
+              </div>
+            )}
+        </section>
+      )}
+      </div>
     </div>
   )
 }

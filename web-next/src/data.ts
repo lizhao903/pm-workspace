@@ -494,8 +494,8 @@ export interface Message {
   /** 归属的来源：message 消息上设的；conversation 是群组默认归属的项目兜底（读时算出来的，不存） */
   project_source?: 'message' | 'conversation'
   /**
-   * 串里的回复（Slack 在串里回复的，正式产品插件迁移 0010）：parent_id 是原消息的 id，原消息还没收到时为 null；
-   * parent_sender、parent_text 是原消息发信人和正文的快照（原消息没收到时显示用）。不是串里回复的不带
+   * 消息列回复（Slack 在消息列里回复的，正式产品插件迁移 0010）：parent_id 是原消息的 id，原消息还没收到时为 null；
+   * parent_sender、parent_text 是原消息发信人和正文的快照（原消息没收到时显示用）。不是消息列回复的不带
    */
   thread?: { parent_id: string | null; parent_sender: string; parent_text: string }
 }
@@ -557,11 +557,11 @@ export const seedMessages: Message[] = [
     text: 'dev 构建失败：web-app 单测 3 个没过' }),
 ]
 
-// 串里的回复（0010）：放在最后，前面消息的编号不变。原消息已处理，串里又来了 4 条回复（列表上挂在原消息下面，原消息变淡），
-// 外加一条原消息还没收到的（按普通行显示、标「串里回复」）
+// 消息列回复（0010）：放在最后，前面消息的编号不变。原消息已处理，消息列里又来了 4 条回复（列表上不显示回复，原消息变淡并标「消息列 N 条未读回复」），
+// 外加一条原消息还没收到的（按普通行显示、标「消息列回复」）
 {
   const parent = m({ channel: 'slack', connector_id: 'cn_slack', conversation: '#feedback', sender_name: 'Kevin Wu', sender_id: 'U07KEVINWU', at: minsAgo(180),
-    read: true, status: 'done', text: '导出放到工具条的方案定了：列表页右上角加「导出」，下拉里选格式。大家有意见在串里说。' })
+    read: true, status: 'done', text: '导出放到工具条的方案定了：列表页右上角加「导出」，下拉里选格式。大家有意见在消息列里说。' })
   const th = { parent_id: parent.id, parent_sender: 'Kevin Wu', parent_text: parent.text }
   seedMessages.push(parent,
     m({ channel: 'slack', connector_id: 'cn_slack', conversation: '#feedback', sender_name: 'Chen Ruoxi', sender_id: 'U05CHENRX0', at: minsAgo(150), read: true,
