@@ -1,7 +1,9 @@
 package im
 
 import (
+	"fmt"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -224,6 +226,11 @@ func TestDownloadAttachmentConfined(t *testing.T) {
 		!strings.HasPrefix(w.Header().Get("Content-Disposition"), "attachment") {
 		t.Fatalf("HTML 附件按下载给：%d %v", w.Code, w.Header())
 	}
+	// 预览要 inline：HTML 不行，照旧下载、带沙箱
+	if w := get(t, e, "/api/im/attachments/slack/page.html?inline=1"); w.Code != 200 || w.Header().Get("Content-Security-Policy") != "sandbox" ||
+		!strings.HasPrefix(w.Header().Get("Content-Disposition"), "attachment") {
+		t.Fatalf("HTML 不能 inline：%d %v", w.Code, w.Header())
+	}
 
 	// 附件目录里没登记的文件、越界的路径、库文件都不给读
 	if err := os.WriteFile(filepath.Join(dir, "手放的.txt"), []byte("x"), 0o600); err != nil {
@@ -285,5 +292,32 @@ func TestSafeName(t *testing.T) {
 		if once := safeName(s); safeName(once) != once {
 			t.Errorf("safeName 再过一遍要不变：%q", s)
 		}
+	}
+}
+
+// 预览（?inline=1）：位图、PDF、音视频按 inline 回；PDF 不加沙箱（Chrome 的阅读器在沙箱里打不开），图片照旧带沙箱；SVG 只下载
+func TestDownloadAttachmentInline(t *testing.T) {
+	e, _ := setupAttachments(t)
+	for i, name := range []string{"截屏.png", "合同.pdf", "图.svg"} {
+		mid := e.push(t, "fake", fmt.Sprintf(`{"external_id":"C01:%d","conversation_id":"C01","sender_id":"U04LIN","attachments":[{"id":"a1","name":%q,"kind":"file"}]}`, i+1, name))
+		e.fake.SetFetchBody([]byte("x"))
+		if code, out := call(t, e.h, "POST", "/api/im/messages/"+mid+"/attachments/a1/fetch", ""); code != 200 {
+			t.Fatalf("获取 %s：%d %v", name, code, out)
+		}
+	}
+	png := get(t, e, "/api/im/attachments/slack/"+url.PathEscape("截屏.png")+"?inline=1")
+	if !strings.HasPrefix(png.Header().Get("Content-Disposition"), "inline") || png.Header().Get("Content-Security-Policy") != "sandbox" {
+		t.Fatalf("png 预览：%v", png.Header())
+	}
+	if d := get(t, e, "/api/im/attachments/slack/"+url.PathEscape("截屏.png")); !strings.HasPrefix(d.Header().Get("Content-Disposition"), "attachment") {
+		t.Fatalf("不带 inline 照旧下载：%v", d.Header())
+	}
+	pdf := get(t, e, "/api/im/attachments/slack/"+url.PathEscape("合同.pdf")+"?inline=1")
+	if !strings.HasPrefix(pdf.Header().Get("Content-Disposition"), "inline") || pdf.Header().Get("Content-Security-Policy") != "" {
+		t.Fatalf("pdf 预览：%v", pdf.Header())
+	}
+	svg := get(t, e, "/api/im/attachments/slack/"+url.PathEscape("图.svg")+"?inline=1")
+	if !strings.HasPrefix(svg.Header().Get("Content-Disposition"), "attachment") || svg.Header().Get("Content-Security-Policy") != "sandbox" {
+		t.Fatalf("svg 只能下载：%v", svg.Header())
 	}
 }

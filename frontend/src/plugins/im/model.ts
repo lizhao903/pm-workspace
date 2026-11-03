@@ -13,7 +13,7 @@ export const PAGE = 50
 
 export const RELEVANCE: Record<'me' | 'all' | 'dm', string> = { me: '@我', all: '@所有人', dm: '私聊' }
 
-/** 快捷回复，done 为真的发完同时标为已处理（原型 QUICK_REPLIES） */
+/** 内置的快捷回复（同后端没设过时回的那四条），设置取回来之前用；done 为真的发完同时标为已处理（原型 QUICK_REPLIES） */
 export const QUICK_REPLIES: readonly { text: string; done: boolean }[] = [
   { text: '收到，我看一下', done: false },
   { text: '稍后回复你', done: false },
@@ -86,9 +86,16 @@ export const whoName = (m: ImMessage) => m.contact_name || m.sender_name
 
 export type Filter = { view: View; channel: string; conv: string; unreadOnly: boolean; mine: Mine; q: string }
 
+/** 群组标签里「私聊」合成一个标签，键是 dm:<渠道> */
+export const dmTab = (channel: string) => `dm:${channel}`
+
+/** 会话筛选：空串不筛；dm:<渠道> 是这个渠道的全部私聊；其余按会话键 */
+export const convOk = (m: ImMessage, conv: string) =>
+  !conv || (conv.startsWith('dm:') ? !isGroup(m) && m.channel === conv.slice(3) : convKey(m) === conv)
+
 /** 只按渠道、会话、与我相关筛（seg 上的数字用它，不受搜索和只看未读影响） */
 export const baseOk = (m: ImMessage, f: Pick<Filter, 'channel' | 'conv' | 'mine'>) =>
-  (!f.channel || m.channel === f.channel) && (!f.conv || convKey(m) === f.conv) && relOk(m, f.mine)
+  (!f.channel || m.channel === f.channel) && convOk(m, f.conv) && relOk(m, f.mine)
 
 export function filterRows(list: readonly ImMessage[], f: Filter, now = Date.now()) {
   const kw = f.q.trim().toLowerCase()
@@ -123,6 +130,37 @@ export function convOptions(list: readonly ImMessage[], channel: string, now = D
   return [...xs.filter((o) => o.opt.group === '群聊').sort(by), ...xs.filter((o) => o.opt.group === '私聊').sort(by)].map((o) => o.opt)
 }
 
+// ---- 群组标签（选了渠道后按群组归总） ----
+
+/** 群组标签最多直接摆几个，其余收进「更多」 */
+export const GROUP_TAB_MAX = 8
+
+export type ConvTab = { value: string; label: string; pending: number; n: number }
+/** moreGroups 是「更多」里群的个数（「更多」里另有单个私聊） */
+export type ConvTabs = { groups: ConvTab[]; dm: ConvTab | null; more: ConvOption[]; moreGroups: number }
+
+/**
+ * 选了渠道后列表上方的群组标签：这个渠道下有消息的群，按消息条数、再按群名排（不按待处理数排，处理消息时标签不跳）；
+ * 私聊合成一个「私聊」标签，界面上紧跟「全部」（群多时也看得到）；超过 GROUP_TAB_MAX 的群和单个私聊收进「更多」，从那里还能只看某一个私聊。
+ * 数字是待处理（不含稍后），不受状态、与我相关、搜索影响
+ */
+export function convTabs(list: readonly ImMessage[], channel: string, now = Date.now()): ConvTabs {
+  if (!channel) return { groups: [], dm: null, more: [], moreGroups: 0 }
+  const opts = convOptions(list, channel, now)
+  const groups = opts.filter((o) => o.group === '群聊')
+    .sort((a, b) => b.n - a.n || a.label.localeCompare(b.label, 'zh-CN'))
+  const dms = opts.filter((o) => o.group === '私聊')
+  const tab = (o: ConvOption): ConvTab => ({ value: o.value, label: o.label, pending: o.pending, n: o.n })
+  const dm = dms.length
+    ? { value: dmTab(channel), label: '私聊', pending: dms.reduce((a, o) => a + o.pending, 0), n: dms.reduce((a, o) => a + o.n, 0) }
+    : null
+  const rest = groups.slice(GROUP_TAB_MAX)
+  return { groups: groups.slice(0, GROUP_TAB_MAX).map(tab), dm, more: [...rest, ...dms], moreGroups: rest.length }
+}
+
+/** 会话键里的内核会话 id（cv:<id>）；没登记的会话、私聊合并标签为 null，设不了默认项目 */
+export const convIdOf = (conv: string) => (conv.startsWith('cv:') ? conv.slice(3) : null)
+
 // ---- 批量处理（PR-03） ----
 
 /** 后端一次最多带的 id 数 */
@@ -154,7 +192,7 @@ export type ConvBatch = { n: number; input: { conversation_id: string; before: s
  * 登记过的会话按会话 + 最近一条的时间点交给后端，后面新到的不动；没登记的按 id */
 export function convBatch(list: readonly ImMessage[], conv: string, now = Date.now()): ConvBatch | null {
   if (!conv) return null
-  const xs = list.filter((m) => convKey(m) === conv && inView(m, 'pending', now))
+  const xs = list.filter((m) => convOk(m, conv) && inView(m, 'pending', now))
   if (!xs.length) return null
   if (conv.startsWith('cv:')) {
     const before = xs.reduce((a, m) => (m.at > a ? m.at : a), xs[0].at)

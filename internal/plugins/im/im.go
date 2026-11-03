@@ -66,12 +66,21 @@ func (p *Plugin) Register(r plugin.Registrar) error {
 			r.Connector(cp.ConnectorDef())
 		}
 	}
+	emails := newEmailFiller(in)
 	r.Routes(func(m plugin.RouteRegistrar) {
 		m.HandleFunc("GET /api/im/messages", in.list)
 		m.HandleFunc("GET /api/im/adapters", in.listAdapters)
 		m.HandleFunc("POST /api/im/callbacks/{adapter}", in.callback)
 		// 立即同步一个渠道（IM-01b，sync.go）
 		m.HandleFunc("POST /api/im/connectors/{id}/sync", in.syncConnector)
+		// 补全以前没解析出来的空正文，只改已有消息（refill.go）
+		m.HandleFunc("POST /api/im/connectors/{id}/refill", in.refillConnector)
+		// 补拉最近几天里有回复的串（0010，threads.go）
+		m.HandleFunc("POST /api/im/connectors/{id}/backfill-threads", in.backfillThreads)
+		// 列 Token 看得到的群组会话，给「监听频道」勾选（channels.go）
+		m.HandleFunc("GET /api/im/connectors/{id}/conversations", in.listConversations)
+		// 从渠道资料补联系人邮箱，只填空的（emails.go）
+		m.HandleFunc("POST /api/im/connectors/{id}/backfill-emails", emails.handle)
 		// 处理动作（IM-02a，actions.go）
 		m.HandleFunc("GET /api/im/messages/{id}", in.getOne)
 		for _, k := range []string{"done", "ignore", "reopen", "read"} {
@@ -80,6 +89,19 @@ func (p *Plugin) Register(r plugin.Registrar) error {
 		m.HandleFunc("POST /api/im/messages/{id}/snooze", in.snooze)
 		m.HandleFunc("POST /api/im/messages/{id}/reply", in.reply)
 		m.HandleFunc("POST /api/im/messages/{id}/task", in.toTask)
+		// 归到项目、清除归属（0006，project.go）
+		m.HandleFunc("POST /api/im/messages/{id}/project", in.setProject)
+		// 群组默认归属的项目（0007，convproject.go）
+		m.HandleFunc("GET /api/im/conversation-projects", in.listConversationProjects)
+		m.HandleFunc("PUT /api/im/conversation-projects/{conversation_id}", in.setConversationProject)
+		// 群组管理：会话统计、批量设默认项目（0.15.0，convsummary.go）
+		m.HandleFunc("GET /api/im/conversations/summary", in.conversationSummary)
+		m.HandleFunc("PUT /api/im/conversation-projects", in.setConversationProjects)
+		// 群组管理里主动发消息、发出的记录（0.17.0，outbox.go）
+		m.HandleFunc("POST /api/im/send", in.send)
+		m.HandleFunc("GET /api/im/conversations/{conversation_id}/sent", in.listSent)
+		// @ 候选（0.18.0，members.go）：会话里发过言的人 + 联系人里在这个渠道有 IM 身份的人
+		m.HandleFunc("GET /api/im/conversations/{conversation_id}/members", in.listMembers)
 		// 批量处理完、忽略（PR-03，actions.go）
 		m.HandleFunc("POST /api/im/messages/batch", in.batch)
 		// 附件获取（IM-04a，attachments.go）
@@ -89,7 +111,15 @@ func (p *Plugin) Register(r plugin.Registrar) error {
 		// 过期天数（IM-07，expiry.go）
 		m.HandleFunc("GET /api/im/settings", in.getSettings)
 		m.HandleFunc("PATCH /api/im/settings", in.patchSettings)
+		// 从消息发起的会话（0008，sessions.go）
+		m.HandleFunc("POST /api/im/sessions", in.linkSession)
+		// 消息转成的项目资料（0009，materials.go）
+		m.HandleFunc("POST /api/im/materials", in.linkMaterial)
+		m.HandleFunc("GET /api/im/materials", in.listMaterials)
+		m.HandleFunc("DELETE /api/im/materials/{material_id}", in.unlinkMaterial)
 	})
+	// 会话里拆出来的任务：来源指向消息的记下来（0008）
+	r.Subscribe("object.created", in.onObjectCreated)
 	for _, a := range p.adapters {
 		if pl, ok := a.(Puller); ok {
 			every := pl.Interval()
@@ -101,6 +131,8 @@ func (p *Plugin) Register(r plugin.Registrar) error {
 	}
 	r.Job(plugin.Job{Name: "snooze_wake", Every: snoozeEvery, Run: in.wakeJob})
 	r.Job(plugin.Job{Name: "expire", Every: expireEvery, Run: in.expireJob})
+	// 顺带补联系人邮箱：新身份、新发送人下一轮查到（emails.go）
+	r.Job(plugin.Job{Name: "backfill_emails", Every: emailEvery, Run: emails.job})
 	// 补登记之前没登记的会话，启用时跑一次（PR-02）
 	r.Job(plugin.Job{Name: "register_conversations", Run: in.registerJob})
 	r.ConnectorImpact(plugin.ConnectorImpactDef{Key: "messages", Load: messagesImpact})

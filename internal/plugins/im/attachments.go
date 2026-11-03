@@ -511,11 +511,34 @@ func (in *inbox) download(w http.ResponseWriter, r *http.Request) {
 	}
 	h := w.Header()
 	h.Set("Content-Type", ct)
-	h.Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": name}))
+	// ?inline=1 给消息页的预览用：只有能安全内嵌的类型（位图、PDF、音视频）按 inline 回，别的照旧下载
+	inline := r.URL.Query().Get("inline") == "1" && inlineSafe(ct)
+	disp := "attachment"
+	if inline {
+		disp = "inline"
+	}
+	h.Set("Content-Disposition", mime.FormatMediaType(disp, map[string]string{"filename": name}))
 	h.Set("X-Content-Type-Options", "nosniff")
-	h.Set("Content-Security-Policy", "sandbox")
+	// 沙箱挡住文件里的脚本；Chrome 的 PDF 阅读器在沙箱里打不开，内嵌的 PDF 不加（阅读器自己隔离脚本）
+	if !(inline && ct == "application/pdf") {
+		h.Set("Content-Security-Policy", "sandbox")
+	}
 	h.Set("Cache-Control", "private, no-cache")
 	http.ServeContent(w, r, "", fi.ModTime(), f)
+}
+
+// inlineSafe 是预览时能 inline 回的类型：位图、PDF、音视频。SVG、HTML 这类能带脚本的一律只下载。
+func inlineSafe(ct string) bool {
+	mt, _, _ := mime.ParseMediaType(ct)
+	switch {
+	case mt == "application/pdf":
+		return true
+	case mt == "image/svg+xml":
+		return false
+	case strings.HasPrefix(mt, "image/"), strings.HasPrefix(mt, "video/"), strings.HasPrefix(mt, "audio/"):
+		return true
+	}
+	return false
 }
 
 // noteFetchIncident 连接器异常时附件取不到，记一条运行异常（INC-01a，SPEC-messages-3.5）：

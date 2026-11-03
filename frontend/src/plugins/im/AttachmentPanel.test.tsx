@@ -16,7 +16,7 @@ const MSG: ImMessage = {
   id: 'msg_1', channel: 'slack', connector_id: '', external_id: 'x', conversation_id: 'cv_prod', conversation_external_id: 'C1', conversation_kind: 'group',
   conversation: '#product', sender_id: 'U1', sender_name: 'Lin', identity_id: null, stakeholder_id: null, contact_name: '',
   text: '', relevance: '', status: 'pending', read: false, snooze_until: null, at: '2026-10-29T01:00:00Z', received_at: '2026-10-29T01:00:00Z',
-  adapter: 'fake', task_id: null, task_ref: '', replies: [], reply_error: '', expired_at: null,
+  adapter: 'fake', task_id: null, task_ref: '', replies: [], reply_error: '', expired_at: null, project_id: null, project_name: '', project_source: '', sessions: [], split_tasks: [], materials: [], thread: null, reply_count: 0,
   attachments: [{ id: 'a1', name: '清单.xlsx', kind: 'file', size: 2048, fetch: 'idle' }, { id: 'a2', name: 'Figma', kind: 'link', url: LINK }],
 }
 const PROJECTS = [
@@ -99,7 +99,9 @@ describe('附件面板', () => {
     await user.click(add)
     await waitFor(() => expect(mats.obj_b?.[0]?.value).toBe(LOCAL))
     const posts = calls.filter((c) => c.method === 'POST').map((c) => c.path)
-    expect(posts).toEqual(['/api/im/messages/msg_1/attachments/a1/fetch', '/api/projects/obj_b/materials'])
+    // 加上后记出处（0009）：kind=attachment，带附件 id
+    expect(posts).toEqual(['/api/im/messages/msg_1/attachments/a1/fetch', '/api/projects/obj_b/materials', '/api/im/materials'])
+    expect(calls.find((c) => c.path === '/api/im/materials')?.body).toMatchObject({ project_id: 'obj_b', message_ids: ['msg_1'], kind: 'attachment', attachment_id: 'a1' })
   })
 
   it('获取被拦时显示原因、标红，不加', async () => {

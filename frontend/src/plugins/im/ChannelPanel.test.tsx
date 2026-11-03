@@ -23,6 +23,7 @@ function backend(opts: { list?: Connector[]; syncFails?: string; defs?: Connecto
   const calls: Call[] = []
   let list = opts.list ?? []
   let expireDays = 7
+  let quick = [{ text: '收到，我看一下', done: false }, { text: '已处理，请查看', done: true }]
   const json = (data: unknown, status = 200) => new Response(JSON.stringify(status < 300 ? { data } : data), { status })
   vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const u = new URL(String(input), 'http://x')
@@ -52,9 +53,10 @@ function backend(opts: { list?: Connector[]; syncFails?: string; defs?: Connecto
     if (u.pathname === '/api/im/settings') {
       if (method === 'PATCH') {
         if (body.expire_days < 0 || body.expire_days > 365) return json({ error: { code: 'validation', message: '过期天数要在 0 到 365 之间' } }, 400)
-        expireDays = body.expire_days
+        if (body.expire_days !== undefined) expireDays = body.expire_days
+        if (body.quick_replies) quick = body.quick_replies
       }
-      return json({ expire_days: expireDays })
+      return json({ expire_days: expireDays, quick_replies: quick })
     }
     if (u.pathname.endsWith('/sync')) {
       if (opts.syncFails) return json({ error: { code: 'sync_failed', message: `同步失败：${opts.syncFails}` } }, 502)
@@ -179,6 +181,34 @@ describe('渠道配置', () => {
     expect(save).toBeDisabled()
   })
 
+  it('快捷回复可以设置：改文字、勾并处理、上移、删除、加一条，空的和重复的不让存，保存整组替换', async () => {
+    const calls = backend({ list: [conn()] })
+    renderPanel()
+    const form = await screen.findByRole('form', { name: '快捷回复' })
+    expect(await within(form).findByLabelText('第 1 条快捷回复')).toHaveValue('收到，我看一下')
+    const save = within(form).getByRole('button', { name: '保存' })
+    expect(save).toBeDisabled()
+    const user = userEvent.setup()
+
+    await user.click(within(form).getByRole('button', { name: '加一条' }))
+    expect(within(form).getByText('不能为空')).toBeInTheDocument()
+    expect(save).toBeDisabled()
+    const third = within(form).getByLabelText('第 3 条快捷回复')
+    await user.type(third, '收到，我看一下')
+    expect(within(form).getByText('和上面的重复了')).toBeInTheDocument()
+    await user.clear(third)
+    await user.type(third, '  已安排排期 ')
+    await user.click(within(form).getAllByRole('checkbox', { name: '并处理' })[2])
+    await user.click(within(form).getAllByRole('button', { name: '上移' })[2])
+    await user.click(within(form).getAllByRole('button', { name: '删除这条' })[0])
+    await user.click(save)
+    expect(await within(form).findByText('已保存：2 条快捷回复')).toBeInTheDocument()
+    expect(calls.filter((c) => c.path === '/api/im/settings' && c.method === 'PATCH').map((c) => c.body)).toEqual([
+      { quick_replies: [{ text: '已安排排期', done: true }, { text: '已处理，请查看', done: true }] },
+    ])
+    expect(save).toBeDisabled()
+  })
+
   it('同步失败写出原因；配置打开已有实例的表单', async () => {
     backend({ list: [conn()], syncFails: 'Slack 拒绝了 Bot Token（invalid_auth）' })
     renderPanel()
@@ -188,7 +218,8 @@ describe('渠道配置', () => {
     expect(await within(card).findByText('Slack 拒绝了 Bot Token（invalid_auth）')).toBeInTheDocument()
     await user.click(within(card).getByRole('button', { name: '配置' }))
     const form = screen.getByRole('form', { name: 'Slack 渠道配置' })
-    expect(within(form).getByDisplayValue('#product')).toBeInTheDocument()
+    // 已保存的实例：监听频道是列表选择，原值显示在已选里（列表对不上的标未找到）
+    expect(await within(form).findByLabelText('已选频道')).toHaveTextContent('#product')
     expect(within(form).getByRole('button', { name: '保存并测试' })).toBeInTheDocument()
   })
 })

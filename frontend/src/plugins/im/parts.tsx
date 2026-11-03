@@ -2,7 +2,8 @@
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import type { ImAttachment } from '../../core/data'
 import { cls } from '../../core/ui'
-import { fmtSize, mentionParts, QUICK_REPLIES, type Channel } from './model'
+import { fmtSize, mentionParts, type Channel } from './model'
+import { useQuickReplies } from './quickReplies'
 
 export const Caret = () => <svg viewBox="0 0 16 16" width="10" height="10" aria-hidden="true"><path d="m4 6 4 4 4-4" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" /></svg>
 
@@ -39,10 +40,12 @@ export function Menu({ label, className, title, children }: {
 }
 
 export function QuickReplyItems({ doneLabel, onPick, close }: { doneLabel: string; onPick: (text: string, done: boolean) => void; close: () => void }) {
+  const list = useQuickReplies()
   return (
     <>
       <div className="menu-label">快捷回复</div>
-      {QUICK_REPLIES.map((q) => (
+      {!list.length && <div className="menu-item im-menu-note" aria-disabled="true">没有快捷回复，到「渠道配置」里添加</div>}
+      {list.map((q) => (
         <button key={q.text} type="button" role="menuitem" className="menu-item" onClick={() => { onPick(q.text, q.done); close() }}>
           <span className="ellipsis">{q.text}</span>
           {q.done && <span className="im-menu-note">并标为{doneLabel}</span>}
@@ -79,5 +82,16 @@ export function AttachmentChips({ atts, max = 3 }: { atts: readonly ImAttachment
       ))}
       {atts.length > max && <span className="im-att-chip">另外 {atts.length - max} 个</span>}
     </span>
+  )
+}
+
+/**
+ * 串里回复的小标（0010）：悬停看「回复 谁：原消息前 40 字」；原消息收到了的点开原消息的抽屉（整个串在里面），没收到的只是标记
+ */
+export function ThreadTag({ hint, parentId, onOpen }: { hint: string; parentId?: string; onOpen: (id: string) => void }) {
+  if (!parentId) return <span className="im-thread-tag" title={`${hint}（原消息还没收到）`}>串里回复</span>
+  return (
+    <button type="button" className="im-thread-tag" title={`${hint}，点开看整个串`}
+      onClick={(e) => { e.stopPropagation(); onOpen(parentId) }} onKeyDown={(e) => e.stopPropagation()}>串里回复</button>
   )
 }

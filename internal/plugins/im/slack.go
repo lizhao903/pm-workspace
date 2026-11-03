@@ -55,6 +55,7 @@ type Slack struct {
 	teams    map[string]string    // 连接器 id -> 工作区编号，回调按 team_id 认实例用
 	users    map[string]string    // Member ID -> 显示名
 	convs    map[string]slackConv // 会话 id -> 会话
+	mail     slackMail            // 资料里的邮箱和各实例有没有读邮箱的权限（slackemail.go）
 }
 
 // SlackOptions：API 是 Web API 的根，空串取正式地址 https://slack.com/api。
@@ -140,6 +141,9 @@ type slackCursor struct {
 	Team      string            `json:"team"`
 	Latest    map[string]string `json:"latest"`
 	Checked   map[string]int64  `json:"checked,omitempty"` // 会话 -> 上次读过历史的时间（Unix 秒），轮流查不活跃会话用
+	// 串里的回复（0010，slackthreads.go）：会话 -> 父消息 ts -> 这个串的进度；会话 -> 上次翻近期历史找串的时间（Unix 秒）
+	Threads    map[string]map[string]*slackThread `json:"threads,omitempty"`
+	ThreadScan map[string]int64                   `json:"thread_scan,omitempty"`
 }
 
 // pullOrder 排这一轮要读历史的会话：监听频道和 slackActiveWindow 里有过消息的全拉，其余取至多 slackIdleBudget 个。
@@ -214,6 +218,57 @@ type slackMsg struct {
 	Channel  string      `json:"channel"`
 	ChType   string      `json:"channel_type"`
 	Files    []slackFile `json:"files"`
+	// 机器人、工作流、Incoming Webhook 发的卡片：text 常是空的，内容在 blocks 或旧版 attachments 里
+	Blocks      []slackBlock      `json:"blocks"`
+	Attachments []slackAttachment `json:"attachments"`
+	BotProfile  *struct {
+		Name string `json:"name"`
+	} `json:"bot_profile"`
+	// 串（0010）：父消息的 thread_ts 等于自己的 ts，带回复数和最新回复的 ts；串里的回复 thread_ts 是父消息的 ts，
+	// parent_user_id 是父消息的发信人
+	ThreadTS    string `json:"thread_ts"`
+	ReplyCount  int    `json:"reply_count"`
+	LatestReply string `json:"latest_reply"`
+	ParentUser  string `json:"parent_user_id"`
+}
+
+// slackAttachment 是旧版的消息附件（彩条卡片），不是文件。
+type slackAttachment struct {
+	AuthorName string `json:"author_name"`
+	Pretext    string `json:"pretext"`
+	Title      string `json:"title"`
+	Text       string `json:"text"`
+	Fallback   string `json:"fallback"`
+	Footer     string `json:"footer"`
+	Fields     []struct {
+		Title string `json:"title"`
+		Value string `json:"value"`
+	} `json:"fields"`
+	Blocks []slackBlock `json:"blocks"`
+}
+
+// slackBlock 是 Block Kit 的一块，只取看得到的文字：section、header、context、rich_text。
+type slackBlock struct {
+	Type     string          `json:"type"`
+	Text     *slackTextObj   `json:"text"`
+	Fields   []slackTextObj  `json:"fields"`
+	Elements []slackRichElem `json:"elements"`
+}
+
+type slackTextObj struct {
+	Text string `json:"text"`
+}
+
+// slackRichElem 是 context 的元素或 rich_text 的一层；嵌套的用 Elements 往下走。
+type slackRichElem struct {
+	Type     string          `json:"type"`
+	Text     json.RawMessage `json:"text"`
+	URL      string          `json:"url"`
+	UserID   string          `json:"user_id"`
+	Channel  string          `json:"channel_id"`
+	Range    string          `json:"range"`
+	Name     string          `json:"name"`
+	Elements []slackRichElem `json:"elements"`
 }
 
 type slackFile struct {
@@ -354,10 +409,12 @@ func (s *Slack) pullInstance(ctx context.Context, cn plugin.ConnectorInfo, raw j
 		var got []slackMsg
 		var convWarn []string
 		now := time.Now()
+		limited := false
 		for _, cv := range cur.pullOrder(convs, now) {
 			ms, latest, err := s.history(ctx, hc, token, cv.ID, cur.Latest[cv.ID])
 			if slackRateLimited(err) {
 				c.Log().Info("slack rate limited, rest of conversations next round", "connector", cn.ID, "conversation", cv.ID, "err", err)
+				limited = true
 				break
 			}
 			if err != nil {
@@ -378,19 +435,28 @@ func (s *Slack) pullInstance(ctx context.Context, cn plugin.ConnectorInfo, raw j
 			cur.Checked[cv.ID] = now.Unix()
 			for i := range ms {
 				ms[i].Channel = cv.ID
+				// 新到的父消息带着回复：这个串从头拉
+				cur.noteThread(cv.ID, ms[i], false)
 			}
 			got = append(got, ms...)
 		}
 		if warn == nil && len(convWarn) > 0 {
 			warn = fmt.Errorf("部分会话没拉到：%s", strings.Join(convWarn, "；"))
 		}
-		s.lookupUsers(ctx, hc, token, got)
+		// 串里的回复：不在 history 里，翻近期历史找有新回复的串，再按串拉（slackthreads.go）
+		var parents map[string]slackMsg
+		var replies []slackMsg
+		if !limited {
+			replies, parents = s.pullThreads(ctx, c, cn.ID, hc, token, &cur, convs, now)
+		}
+		s.lookupUsers(ctx, hc, token, append(append(got, replies...), mapValues(parents)...))
 		for _, m := range got {
 			cv, known := s.conv(m.Channel)
 			if in, ok := s.toIncoming(cn.ID, me, as, cfg.Get("self_user_id"), cv, known, m); ok {
 				msgs = append(msgs, in)
 			}
 		}
+		msgs = append(msgs, s.threadIncoming(cn.ID, me, as, cfg.Get("self_user_id"), replies, parents)...)
 		next, _ = json.Marshal(cur)
 		return nil
 	})
@@ -452,6 +518,12 @@ func (s *Slack) conversations(ctx context.Context, hc *http.Client, token, chann
 	for _, cv := range all {
 		s.remember(cv)
 		if cv.IsIM || cv.MPIM {
+			// 私信、多人私信本来就全收；监听频道里勾了多人私信（列表里能选）也算找到，不报找不到
+			for _, w := range want {
+				if w == cv.ID || (cv.MPIM && strings.EqualFold(w, cv.Name)) {
+					found[w] = true
+				}
+			}
 			keep = append(keep, cv)
 			continue
 		}
@@ -483,12 +555,105 @@ func splitChannels(s string) []string {
 	return out
 }
 
+// slackListPages 是列会话给「监听频道」选时最多翻几页（每页 slackPageLimit 个），再多就标为不完整。
+const slackListPages = 25
+
+// ListConversations 列这个实例的 Token 身份所在的群组会话（公开频道、私有频道、多人私信，含已归档），给「监听频道」选。
+// 用 users.conversations：拉取时也是按它认会话，列出来的就是选了能收到的（Bot 没被加进的频道不在里面）。
+// 翻页途中被限流或页数到顶时回已拿到的，Complete 为 false；第一页就失败回错误。
+func (s *Slack) ListConversations(ctx context.Context, connectorID string) (ConversationList, error) {
+	c := s.core()
+	if c == nil {
+		return ConversationList{}, errors.New("IM 插件还没启用")
+	}
+	res := ConversationList{ConnectorID: connectorID, Complete: true}
+	err := c.Connectors().With(ctx, connectorID, func(cfg plugin.ConnectorConfig) error {
+		token := cfg.Secret("bot_token")
+		if strings.TrimSpace(token) == "" {
+			return errNoToken
+		}
+		hc, err := s.client()
+		if err != nil {
+			return err
+		}
+		next := ""
+		for page := 0; ; page++ {
+			if page == slackListPages {
+				res.Complete = false
+				res.Note = fmt.Sprintf("会话太多，只列出了前 %d 个；没列出的可以在文本框里直接填编号或 #名字", len(res.Items))
+				break
+			}
+			q := url.Values{"types": {"public_channel,private_channel,mpim"}, "exclude_archived": {"false"}, "limit": {strconv.Itoa(slackPageLimit)}}
+			if next != "" {
+				q.Set("cursor", next)
+			}
+			var out struct {
+				Channels []struct {
+					slackConv
+					IsPrivate  bool  `json:"is_private"`
+					IsGroup    bool  `json:"is_group"`
+					IsArchived bool  `json:"is_archived"`
+					IsMember   *bool `json:"is_member"`
+				} `json:"channels"`
+				Meta struct {
+					Next string `json:"next_cursor"`
+				} `json:"response_metadata"`
+			}
+			if err := s.call(ctx, hc, token, "users.conversations", q, &out); err != nil {
+				if page > 0 && slackRateLimited(err) {
+					res.Complete = false
+					res.Note = fmt.Sprintf("Slack 限流，只列出了前 %d 个，稍后再刷新", len(res.Items))
+					break
+				}
+				return err
+			}
+			for _, ch := range out.Channels {
+				if ch.IsIM {
+					continue
+				}
+				s.remember(ch.slackConv)
+				kind := ConvPublic
+				switch {
+				case ch.MPIM:
+					kind = ConvMPIM
+				case ch.IsPrivate || ch.IsGroup:
+					kind = ConvPrivate
+				}
+				// users.conversations 只回所在的会话，没给 is_member 时按在里面算
+				member := ch.IsMember == nil || *ch.IsMember
+				res.Items = append(res.Items, ConversationOption{ID: ch.ID, Name: ch.Name, Kind: kind, IsMember: member, IsArchived: ch.IsArchived})
+			}
+			if next = out.Meta.Next; next == "" {
+				break
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return ConversationList{}, err
+	}
+	// 频道在前、多人私信在后，各自按名字排
+	sort.SliceStable(res.Items, func(i, j int) bool {
+		a, b := res.Items[i], res.Items[j]
+		if (a.Kind == ConvMPIM) != (b.Kind == ConvMPIM) {
+			return b.Kind == ConvMPIM
+		}
+		return strings.ToLower(a.Name) < strings.ToLower(b.Name)
+	})
+	return res, nil
+}
+
 // history 拉一个会话 oldest 之后的消息（不含 oldest），回按时间正序的消息和拉到的最新 ts。
 // 第一次拉（oldest 为空）只取最近 slackFirstLimit 条。
 func (s *Slack) history(ctx context.Context, hc *http.Client, token, ch, oldest string) ([]slackMsg, string, error) {
+	return s.historyPages(ctx, hc, token, ch, oldest, slackMaxPages)
+}
+
+// historyPages 同 history，最多翻 pages 页。
+func (s *Slack) historyPages(ctx context.Context, hc *http.Client, token, ch, oldest string, pages int) ([]slackMsg, string, error) {
 	var got []slackMsg
 	next := ""
-	for page := 0; page < slackMaxPages; page++ {
+	for page := 0; page < pages; page++ {
 		q := url.Values{"channel": {ch}, "limit": {strconv.Itoa(slackPageLimit)}}
 		if oldest != "" {
 			q.Set("oldest", oldest)
@@ -594,12 +759,14 @@ func (s *Slack) lookupUsers(ctx context.Context, hc *http.Client, token string, 
 				Profile struct {
 					Display string `json:"display_name"`
 					Real    string `json:"real_name"`
+					Email   string `json:"email"` // 有 users:read.email 时才有，顺手记下给补联系人邮箱用
 				} `json:"profile"`
 			} `json:"user"`
 		}
 		if err := s.call(ctx, hc, token, "users.info", url.Values{"user": {id}}, &out); err != nil {
 			continue
 		}
+		s.mail.remember(id, out.User.Profile.Email)
 		name := out.User.Profile.Display
 		if name == "" {
 			name = out.User.Profile.Real
@@ -630,11 +797,12 @@ func (s *Slack) toIncoming(connID string, me connector.SlackIdentity, as, self s
 	}
 	sender, name := m.User, s.userName(m.User)
 	if sender == "" {
-		sender, name = m.BotID, m.Username
+		sender, name = m.BotID, m.botName()
 	}
 	if sender == "" {
 		return Incoming{}, false
 	}
+	raw := m.body()
 	if !known {
 		// 事件里的会话还没列过：按 channel_type 猜
 		cv = slackConv{ID: m.Channel, IsIM: m.ChType == "im", MPIM: m.ChType == "mpim"}
@@ -642,9 +810,14 @@ func (s *Slack) toIncoming(connID string, me connector.SlackIdentity, as, self s
 	in := Incoming{
 		ExternalID: m.Channel + ":" + m.TS, ConnectorID: connID,
 		ConversationID: m.Channel, ConversationKind: cv.kind(), ConversationName: cv.title(),
-		SenderID: sender, SenderName: name, Text: s.plainText(m.Text), At: tsTime(m.TS),
-		Mention:  slackMention(m.Text, me.UserID, strings.TrimSpace(self)),
+		SenderID: sender, SenderName: name, Text: s.plainText(raw), At: tsTime(m.TS),
+		Mention:  slackMention(raw, me.UserID, strings.TrimSpace(self)),
 		FromSelf: mine,
+	}
+	if m.ThreadTS != "" && m.ThreadTS != m.TS {
+		// 串里的回复（含同时发到频道的）：记下父消息；父消息是我（本人或 Bot）发的算我发起的串
+		in.ThreadParentID = m.Channel + ":" + m.ThreadTS
+		in.ThreadParentMine = m.ParentUser != "" && m.ParentUser == me.UserID
 	}
 	if cv.IsIM {
 		in.ConversationName = ""
@@ -666,6 +839,142 @@ func (s *Slack) toIncoming(connID string, me connector.SlackIdentity, as, self s
 		in.Attachments, _ = json.Marshal(atts)
 	}
 	return in, true
+}
+
+// botName 是机器人消息的发送人名字：自定的 username，没有用 App 的名字，再没有用卡片的作者名。
+func (m slackMsg) botName() string {
+	if m.Username != "" {
+		return m.Username
+	}
+	if m.BotProfile != nil && m.BotProfile.Name != "" {
+		return m.BotProfile.Name
+	}
+	for _, a := range m.Attachments {
+		if a.AuthorName != "" {
+			return a.AuthorName
+		}
+	}
+	return ""
+}
+
+// body 是消息的完整正文（还是 Slack 的标记写法）：text 有就用，空的从 blocks 拼；
+// 再接上旧版 attachments 卡片里的文字（反馈机器人、告警之类全在这里，text 是空的）。
+func (m slackMsg) body() string {
+	parts := []string{strings.TrimSpace(m.Text)}
+	if parts[0] == "" {
+		parts[0] = blocksText(m.Blocks)
+	}
+	for _, a := range m.Attachments {
+		parts = append(parts, a.body())
+	}
+	return joinNonEmpty(parts, "\n\n")
+}
+
+func (a slackAttachment) body() string {
+	lines := []string{a.Pretext, a.Title, a.Text}
+	for _, f := range a.Fields {
+		switch {
+		case f.Title != "" && f.Value != "":
+			lines = append(lines, f.Title+"："+f.Value)
+		default:
+			lines = append(lines, f.Title+f.Value)
+		}
+	}
+	lines = append(lines, blocksText(a.Blocks))
+	out := joinNonEmpty(lines, "\n")
+	if out == "" {
+		out = strings.TrimSpace(a.Fallback)
+	}
+	return joinNonEmpty([]string{out, a.Footer}, "\n")
+}
+
+// blocksText 把 Block Kit 里看得到的文字按块拼成几行；按钮、图片、分隔线不要。
+func blocksText(blocks []slackBlock) string {
+	lines := make([]string, 0, len(blocks))
+	for _, b := range blocks {
+		switch b.Type {
+		case "section", "header":
+			var ls []string
+			if b.Text != nil {
+				ls = append(ls, b.Text.Text)
+			}
+			for _, f := range b.Fields {
+				ls = append(ls, f.Text)
+			}
+			lines = append(lines, joinNonEmpty(ls, "\n"))
+		case "context":
+			var ls []string
+			for _, e := range b.Elements {
+				ls = append(ls, elemString(e.Text))
+			}
+			lines = append(lines, joinNonEmpty(ls, " "))
+		case "rich_text":
+			var sb strings.Builder
+			richText(&sb, b.Elements)
+			lines = append(lines, sb.String())
+		}
+	}
+	return joinNonEmpty(lines, "\n")
+}
+
+// richText 把 rich_text 的元素写回 Slack 的标记写法，交给 plainText 统一换成看得懂的。
+func richText(sb *strings.Builder, els []slackRichElem) {
+	for i, e := range els {
+		switch e.Type {
+		case "text":
+			sb.WriteString(elemString(e.Text))
+		case "link":
+			if t := elemString(e.Text); t != "" {
+				sb.WriteString("<" + e.URL + "|" + t + ">")
+			} else {
+				sb.WriteString("<" + e.URL + ">")
+			}
+		case "user":
+			sb.WriteString("<@" + e.UserID + ">")
+		case "channel":
+			sb.WriteString("<#" + e.Channel + ">")
+		case "broadcast":
+			sb.WriteString("<!" + e.Range + ">")
+		case "emoji":
+			sb.WriteString(":" + e.Name + ":")
+		case "rich_text_list":
+			for _, item := range e.Elements {
+				sb.WriteString("• ")
+				richText(sb, item.Elements)
+				sb.WriteString("\n")
+			}
+		default:
+			// rich_text_section、rich_text_quote、rich_text_preformatted：往下走，段与段之间换行
+			richText(sb, e.Elements)
+			if i < len(els)-1 && !strings.HasSuffix(sb.String(), "\n") {
+				sb.WriteString("\n")
+			}
+		}
+	}
+}
+
+// elemString 取元素的 text：rich_text 里是字符串，context 里是 {text: …} 对象。
+func elemString(raw json.RawMessage) string {
+	if len(raw) == 0 {
+		return ""
+	}
+	var s string
+	if json.Unmarshal(raw, &s) == nil {
+		return s
+	}
+	var o slackTextObj
+	_ = json.Unmarshal(raw, &o)
+	return o.Text
+}
+
+func joinNonEmpty(parts []string, sep string) string {
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		if p = strings.TrimSpace(p); p != "" {
+			out = append(out, p)
+		}
+	}
+	return strings.Join(out, sep)
 }
 
 // slackMention：@ 到 Bot 或「我的 Member ID」算 me，<!here> <!channel> <!everyone> 算 all；都没有为空，交给正文判断。
@@ -942,8 +1251,12 @@ func (s *Slack) Reply(ctx context.Context, out Outgoing) (string, error) {
 	if ch == "" {
 		return "", errors.New("不知道发到哪个会话")
 	}
-	q := url.Values{"channel": {ch}, "text": {out.Text}}
-	if _, ts, ok := strings.Cut(out.ReplyTo, ":"); ok && out.ConversationKind == "group" && ts != "" {
+	// 正文里的「@名字」换成 <@MemberID> 才会通知到人（mention.go）
+	q := url.Values{"channel": {ch}, "text": {renderSlackMentions(out.Text, out.Mentions)}}
+	if _, ts, ok := strings.Cut(out.ThreadOf, ":"); ok && ts != "" {
+		// 回串里的回复：发到同一个串（thread_ts 要用父消息的，私信里的串也一样）
+		q.Set("thread_ts", ts)
+	} else if _, ts, ok := strings.Cut(out.ReplyTo, ":"); ok && out.ConversationKind == "group" && ts != "" {
 		q.Set("thread_ts", ts)
 	}
 	var res struct {
@@ -965,6 +1278,87 @@ func (s *Slack) Reply(ctx context.Context, out Outgoing) (string, error) {
 	}
 	return res.Channel + ":" + res.TS, nil
 }
+
+// Refetch 按消息编号（频道:ts）重取已收的消息，补全以前没解析出来的正文（refill.go）。
+// 频道消息用 conversations.history 精确取那一条，取不到（串里的回复）再用 conversations.replies；
+// 撞上限流就停，回已经取到的。
+func (s *Slack) Refetch(ctx context.Context, connectorID string, ids []string) (map[string]Incoming, error) {
+	c := s.core()
+	if c == nil {
+		return nil, errors.New("IM 插件还没启用")
+	}
+	out := map[string]Incoming{}
+	err := c.Connectors().With(ctx, connectorID, func(cfg plugin.ConnectorConfig) error {
+		hc, err := s.client()
+		if err != nil {
+			return err
+		}
+		token := cfg.Secret("bot_token")
+		as := connector.SlackAs(cfg.Get(connector.SlackIdentityField))
+		me, err := connector.SlackAuthTest(ctx, hc, s.api, as, token)
+		if err != nil {
+			return err
+		}
+		var got []slackMsg
+		for _, id := range ids {
+			ch, ts, ok := strings.Cut(id, ":")
+			if !ok || ch == "" || ts == "" {
+				continue
+			}
+			m, err := s.oneMessage(ctx, hc, token, ch, ts)
+			if slackRateLimited(err) {
+				c.Log().Info("slack rate limited, refill stops here", "connector", connectorID, "err", err)
+				break
+			}
+			if err != nil {
+				c.Log().Warn("slack refetch failed", "connector", connectorID, "message", id, "err", err)
+				continue
+			}
+			if m != nil {
+				m.Channel = ch
+				got = append(got, *m)
+			}
+		}
+		s.lookupUsers(ctx, hc, token, got)
+		for _, m := range got {
+			cv, known := s.conv(m.Channel)
+			if in, ok := s.toIncoming(connectorID, me, as, cfg.Get("self_user_id"), cv, known, m); ok {
+				out[in.ExternalID] = in
+			}
+		}
+		return nil
+	})
+	return out, err
+}
+
+// oneMessage 取一个会话里 ts 那一条；没有回 nil。
+func (s *Slack) oneMessage(ctx context.Context, hc *http.Client, token, ch, ts string) (*slackMsg, error) {
+	for _, method := range []string{"conversations.history", "conversations.replies"} {
+		q := url.Values{"channel": {ch}, "limit": {"1"}, "inclusive": {"true"}}
+		if method == "conversations.history" {
+			q.Set("latest", ts)
+			q.Set("oldest", ts)
+		} else {
+			q.Set("ts", ts)
+		}
+		var res struct {
+			Messages []slackMsg `json:"messages"`
+		}
+		if err := s.call(ctx, hc, token, method, q, &res); err != nil {
+			return nil, err
+		}
+		for i := range res.Messages {
+			if res.Messages[i].TS == ts {
+				return &res.Messages[i], nil
+			}
+		}
+	}
+	return nil, nil
+}
+
+// errSlackFileLogin 是下载附件拿回网页登录页的情况。
+var errSlackFileLogin = errors.New("Slack 回的是网页登录页而不是文件：这个连接的 Token 缺 files:read 权限，" +
+	"到 Slack App 的 OAuth & Permissions 里给对应的 Token（本人身份是 User Token Scopes）加上 files:read，重新安装到工作区后再获取")
 
 // Fetch 带实例的 Token 下载附件（url_private_download，要 files:read）。
 func (s *Slack) Fetch(ctx context.Context, ref AttachmentRef) (io.ReadCloser, error) {
@@ -1009,6 +1403,12 @@ func (s *Slack) Fetch(ctx context.Context, ref AttachmentRef) (io.ReadCloser, er
 		if resp.StatusCode != http.StatusOK {
 			_ = resp.Body.Close()
 			return fmt.Errorf("Slack 返回 HTTP %d", resp.StatusCode)
+		}
+		// Token 没有 files:read（或文件不对这个身份公开）时，Slack 不报错，而是 200 回一张网页登录页。
+		// 不拦住的话登录页会被存成 .png、标成已获取，打开就是坏图
+		if ct := strings.ToLower(resp.Header.Get("Content-Type")); strings.HasPrefix(ct, "text/html") {
+			_ = resp.Body.Close()
+			return errSlackFileLogin
 		}
 		body = resp.Body
 		return nil

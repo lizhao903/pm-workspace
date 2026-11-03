@@ -15,7 +15,7 @@ const MSG: ImMessage = {
   id: 'msg_1', channel: 'slack', connector_id: '', external_id: 'x', conversation_id: 'cv_yc', conversation_external_id: 'C1', conversation_kind: 'group',
   conversation: '远川项目群', sender_id: 'U1', sender_name: 'wanqing', identity_id: null, stakeholder_id: 'stk_a', contact_name: '梁晚晴',
   text: '采购流程这边需要一份正式的报价', relevance: '', status: 'pending', read: false, snooze_until: null, at: '2026-10-29T01:00:00Z', received_at: '2026-10-29T01:00:00Z',
-  adapter: 'fake', task_id: null, task_ref: '', replies: [], reply_error: '', expired_at: null, attachments: [],
+  adapter: 'fake', task_id: null, task_ref: '', replies: [], reply_error: '', expired_at: null, project_id: null, project_name: '', project_source: '', sessions: [], split_tasks: [], materials: [], thread: null, reply_count: 0, attachments: [],
 }
 
 function fakeBackend() {

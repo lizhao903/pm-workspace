@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { Connector, ImMessage } from '../../core/data'
 import {
-  BATCH_MAX, channelTable, convBatch, convKey, pickAll, pickedRows, togglePick, convOptions, dayLabel, filterRows, fmtSize, inView, mentionParts, nextWake, replyBlocker, replyWarning, snoozeOptions, statusItems, statusView, viewsOf,
+  BATCH_MAX, GROUP_TAB_MAX, channelTable, convBatch, convIdOf, convKey, convOk, convTabs, dmTab, pickAll, pickedRows, togglePick, convOptions, dayLabel, filterRows, fmtSize, inView, mentionParts, nextWake, replyBlocker, replyWarning, snoozeOptions, statusItems, statusView, viewsOf,
   taskTitleOf, clip100, contactCandidates, nameCloseness,
 } from './model'
 
@@ -13,7 +13,7 @@ function msg(p: Partial<ImMessage> = {}): ImMessage {
     conversation_kind: 'group', conversation: '#product', sender_id: 'U1', sender_name: 'Lin Yuan', identity_id: null, stakeholder_id: null,
     contact_name: '', text: '你好', attachments: [], relevance: '', status: 'pending', read: false, snooze_until: null,
     at: '2026-10-29T01:00:00.000Z', received_at: '2026-10-29T01:00:00.000Z', adapter: 'fake', task_id: null, task_ref: '', replies: [],
-    reply_error: '', expired_at: null, ...p,
+    reply_error: '', expired_at: null, project_id: null, project_name: '', project_source: '', sessions: [], split_tasks: [], materials: [], thread: null, reply_count: 0, ...p,
   }
 }
 
@@ -164,6 +164,38 @@ describe('批量处理（PR-03）', () => {
     expect(convBatch([loose], convKey(loose), NOW)).toEqual({ n: 1, input: { ids: [loose.id] } })
     expect(convBatch(xs, '', NOW)).toBeNull()
     expect(convBatch([xs[3]], 'cv:cv_1', NOW)).toBeNull()
+  })
+})
+
+describe('群组标签', () => {
+  it('没选渠道没有标签；群按条数再按群名排，私聊合成一个，多出来的群和单个私聊进「更多」', () => {
+    const xs: ImMessage[] = []
+    for (let i = 0; i < GROUP_TAB_MAX + 2; i++) {
+      // 第 i 个群有 i+1 条，条数多的排前面
+      for (let k = 0; k <= i; k++) xs.push(msg({ conversation_id: `cv_g${i}`, conversation: `#g${i}`, conversation_external_id: `G${i}` }))
+    }
+    xs.push(msg({ conversation_id: 'cv_d1', conversation: '', conversation_kind: 'direct', conversation_external_id: 'D1', sender_name: '阿明', sender_id: 'U9' }))
+    xs.push(msg({ conversation_id: 'cv_d2', conversation: '', conversation_kind: 'direct', conversation_external_id: 'D2', sender_name: '小周', sender_id: 'U8', status: 'done' }))
+    xs.push(msg({ channel: 'telegram', conversation_id: 'cv_t', conversation: '运营群' }))
+    expect(convTabs(xs, '', NOW)).toEqual({ groups: [], dm: null, more: [], moreGroups: 0 })
+    const t = convTabs(xs, 'slack', NOW)
+    expect(t.groups.map((g) => g.label)).toEqual([...Array(GROUP_TAB_MAX)].map((_, i) => `#g${GROUP_TAB_MAX + 1 - i}`))
+    expect(t.groups[0]).toEqual({ value: `cv:cv_g${GROUP_TAB_MAX + 1}`, label: `#g${GROUP_TAB_MAX + 1}`, pending: GROUP_TAB_MAX + 2, n: GROUP_TAB_MAX + 2 })
+    expect(t.dm).toEqual({ value: 'dm:slack', label: '私聊', pending: 1, n: 2 })
+    expect(t.more.map((o) => o.label)).toEqual(['#g1', '#g0', '阿明', '小周'])
+    expect(t.moreGroups).toBe(2)
+  })
+
+  it('私聊标签筛这个渠道的全部私聊；默认项目只认登记过的会话', () => {
+    const g = msg({ conversation_id: 'cv_1' })
+    const d = msg({ conversation_id: 'cv_d', conversation: '', conversation_kind: 'direct' })
+    const tg = msg({ channel: 'telegram', conversation_id: 'cv_t', conversation: '', conversation_kind: 'direct' })
+    expect([g, d, tg].filter((m) => convOk(m, dmTab('slack')))).toEqual([d])
+    expect(filterRows([g, d, tg], { view: 'all', channel: 'slack', conv: 'dm:slack', unreadOnly: false, mine: '', q: '' }, NOW)).toEqual([d])
+    expect(convBatch([g, d], 'dm:slack', NOW)).toEqual({ n: 1, input: { ids: [d.id] } })
+    expect(convIdOf('cv:cv_1')).toBe('cv_1')
+    expect(convIdOf('dm:slack')).toBeNull()
+    expect(convIdOf('g:slack|C01')).toBeNull()
   })
 })
 

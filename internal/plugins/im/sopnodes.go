@@ -48,6 +48,8 @@ func (in *inbox) registerSOPNodes(r plugin.Registrar) {
 	r.SOPNode(plugin.SOPNodeDef{Kind: NodeGetMessage, Group: "沟通", Required: []plugin.SOPNodeField{}, Run: in.getMessageNode})
 	r.SOPNode(plugin.SOPNodeDef{Kind: NodeMarkMessage, Group: "沟通",
 		Required: []plugin.SOPNodeField{{Key: "state", Label: "标记为"}}, Run: in.markMessageNode})
+	r.SOPNode(plugin.SOPNodeDef{Kind: NodeSetProject, Group: "沟通",
+		Required: []plugin.SOPNodeField{{Key: "project", Label: "项目"}}, Run: in.setProjectNode})
 	r.Job(plugin.Job{Name: "sop_waits", Every: waitEvery, Run: in.waitJob})
 }
 
@@ -108,6 +110,8 @@ func (in *inbox) getMessageNode(ctx context.Context, _ plugin.Core, n plugin.SOP
 		"id": m.ID, "text": m.Text, "sender": sender, "sender_name": m.SenderName, "contact_id": deref(m.StakeholderID),
 		"channel": m.Channel, "conversation": m.Conversation, "conversation_kind": kind,
 		"relevance": relevanceLabel(m.Relevance), "status": m.Status, "at": m.At,
+		// 归到的项目（含群组默认项目兜底），没归为空串
+		"project_id": deref(m.ProjectID), "project": m.ProjectName,
 	}), nil
 }
 
@@ -175,41 +179,19 @@ func (in *inbox) sendNode(ctx context.Context, c plugin.Core, n plugin.SOPNodeIn
 	if out, ok, err := sentBefore(ctx, c, text, n.Input, meta); ok {
 		return out, err
 	}
-	// 用会话里最近收到的一条消息定连接器和适配器
-	last, err := in.query(ctx, `SELECT `+messageCols+` FROM im_messages WHERE `+convCond+` ORDER BY sent_at DESC, rowid DESC LIMIT 1`,
-		convArgs(cv.ID, cv.Channel, cv.ExternalID)...)
+	// 用会话里最近收到的一条消息定连接器和适配器；发、记发件记录、记审计走共用的 deliver（0.17.0，outbox.go）
+	m, err := in.sendVia(ctx, cv, "")
 	if err != nil {
 		return nil, err
 	}
-	if len(last) == 0 {
-		return nil, fmt.Errorf("%s里还没收到过消息，不知道用哪个连接器发", convLabel(cv))
+	res := in.deliver(ctx, cv, m, text, nil, "sop", n.RunID, meta)
+	if res.Blocked != nil {
+		return nil, res.Blocked
 	}
-	m := last[0]
-	rp, err := in.replyBlocker(ctx, m)
-	if err != nil {
-		return nil, err
+	if res.SendErr != nil {
+		return nil, errors.New("发送失败：" + res.Item.Error)
 	}
-	out := Outgoing{ConnectorID: m.ConnectorID, ConversationID: cv.ExternalID, ConversationKind: cv.Kind, Text: text}
-	if cv.Kind == "direct" {
-		out.RecipientID = m.SenderID
-	}
-	sendCtx, cancel := context.WithTimeout(ctx, replyTimeout)
-	ext, sendErr := rp.Reply(sendCtx, out)
-	cancel()
-	at := in.clock().UTC().Format(timeLayout)
-	detail := map[string]any{"channel": cv.Channel, "connector_id": m.ConnectorID, "adapter": rp.Key(),
-		"conversation": cv.Name, "text": clip(text, auditTextMax)}
-	if sendErr != nil {
-		reason := clip(sendErr.Error(), maxReplyError)
-		detail["status"], detail["error"] = "failed", reason
-		c.Audit().Note(ctx, plugin.AuditNote{Action: "send", TargetType: "conversation", TargetID: cv.ID,
-			Summary: "发消息到" + convLabel(cv) + "失败", Detail: detail}, meta)
-		c.Log().Warn("im sop send failed", "conversation", cv.ID, "adapter", rp.Key(), "err", sendErr)
-		return nil, errors.New("发送失败：" + reason)
-	}
-	detail["status"], detail["external_id"] = "sent", ext
-	c.Audit().Note(ctx, plugin.AuditNote{Action: "send", TargetType: "conversation", TargetID: cv.ID,
-		Summary: "发消息到" + convLabel(cv), Detail: detail}, meta)
+	ext, at := res.Item.ExternalID, res.Item.CreatedAt
 	if h := afterSend; h != nil {
 		if err := h(ctx, n.Step); err != nil {
 			return nil, err

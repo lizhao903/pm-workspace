@@ -60,7 +60,12 @@ type Outgoing struct {
 	ConversationKind string `json:"conversation_kind"`
 	RecipientID      string `json:"recipient_id"` // 原消息的发送人
 	ReplyTo          string `json:"reply_to"`     // 原消息的编号，渠道支持串回复时用
-	Text             string `json:"text"`
+	// ThreadOf 是原消息所在串的父消息编号（原消息是串里的回复时，0010）：回到同一个串里，不另起串
+	ThreadOf string `json:"thread_of,omitempty"`
+	// Text 是工作台里写的正文，@ 写作「@名字」；Mentions 是其中要真正 @ 到的人（0.18.0，mention.go），
+	// 适配器发送时按渠道换写法（Slack <@MemberID>，Telegram @用户名或 text_mention），认不出的照原样
+	Text     string    `json:"text"`
+	Mentions []Mention `json:"mentions,omitempty"`
 }
 
 // Fetcher 是可选接口：能把附件从渠道下载下来（IM-04a）。没实现的适配器获取时回 409 unsupported。
@@ -136,6 +141,14 @@ type Incoming struct {
 	// FromSelf 是「我」在渠道里自己发的（Slack 以本人身份接入时，IM-06）：不当新消息落库，
 	// 记成同一连接器、同一会话里在它之前最近一条消息的回复（已记过的同编号回复不重复记），那条标为已读，处理状态不动
 	FromSelf bool `json:"from_self,omitempty"`
+	// 以下 0010：串里的回复（Slack 在串里回复的）。ThreadParentID 是父消息的 ExternalID，不是串里回复的为空；
+	// ThreadParentSender、ThreadParentText 是父消息发信人和正文（能拿到时给，库里认不出父消息时显示用）；
+	// ThreadParentMine 是父消息是「我」发的（我发起的串）：别人在里面的回复算与我相关（relevance 记 me）。
+	// FromSelf 的串里回复记在这个串里最近一条消息上（父消息或更早的回复）
+	ThreadParentID     string `json:"thread_parent_id,omitempty"`
+	ThreadParentSender string `json:"thread_parent_sender,omitempty"`
+	ThreadParentText   string `json:"thread_parent_text,omitempty"`
+	ThreadParentMine   bool   `json:"thread_parent_mine,omitempty"`
 }
 
 // Fake 是测试和演练用的假适配器，不联网：Push 进队列等拉取，也接回调 {"messages":[Incoming...]}。

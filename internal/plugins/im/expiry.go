@@ -54,26 +54,43 @@ func (in *inbox) expireJob(ctx context.Context, _ plugin.Core) error {
 }
 
 type imSettings struct {
-	ExpireDays int `json:"expire_days"`
+	ExpireDays   int          `json:"expire_days"`
+	QuickReplies []quickReply `json:"quick_replies"`
 }
 
 func (in *inbox) getSettings(w http.ResponseWriter, r *http.Request) {
-	days, err := in.expireDays(r.Context())
+	ctx := r.Context()
+	days, err := in.expireDays(ctx)
 	if err != nil {
 		fail(w, r, in.c, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"data": imSettings{ExpireDays: days}})
+	qr, err := in.quickReplies(ctx)
+	if err != nil {
+		fail(w, r, in.c, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"data": imSettings{ExpireDays: days, QuickReplies: qr}})
 }
 
 func (in *inbox) patchSettings(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	var body struct {
-		ExpireDays *int `json:"expire_days"`
+		ExpireDays   *int          `json:"expire_days"`
+		QuickReplies *[]quickReply `json:"quick_replies"`
 	}
-	if err := decode(r, &body, 4<<10); err != nil {
+	if err := decode(r, &body, 64<<10); err != nil {
 		fail(w, r, in.c, err)
 		return
+	}
+	// 先校验快捷回复，免得天数存了、回复报错，改一半
+	var replies []quickReply
+	if body.QuickReplies != nil {
+		var err error
+		if replies, err = cleanQuickReplies(*body.QuickReplies); err != nil {
+			fail(w, r, in.c, err)
+			return
+		}
 	}
 	if body.ExpireDays != nil {
 		d := *body.ExpireDays
@@ -99,6 +116,12 @@ func (in *inbox) patchSettings(w http.ResponseWriter, r *http.Request) {
 		// 调短了马上按新天数标一次，不用等下一轮
 		if err := in.expireJob(ctx, in.c); err != nil {
 			in.c.Log().Warn("im expire after settings change failed", "err", err)
+		}
+	}
+	if body.QuickReplies != nil {
+		if err := in.saveQuickReplies(ctx, replies); err != nil {
+			fail(w, r, in.c, err)
+			return
 		}
 	}
 	in.getSettings(w, r)

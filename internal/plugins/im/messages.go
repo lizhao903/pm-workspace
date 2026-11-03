@@ -72,11 +72,30 @@ type Message struct {
 	ReplyError string  `json:"reply_error"`
 	// ExpiredAt 是被标成已过期的时间（IM-07），不是已过期为 null
 	ExpiredAt *string `json:"expired_at"`
+	// ProjectID、ProjectName 是这条消息归到的项目（0006）：SOP 节点 im_set_project 或手动设的；
+	// 没归、项目删了（含软删）为 null 和空串，同 task_id。
+	// 消息自己没归时按所在会话的默认项目兜底（0007，convproject.go）。ProjectSource 是归属的来源：
+	// message（消息上设的）、conversation（群组默认项目）、没归为空串
+	ProjectID     *string `json:"project_id"`
+	ProjectName   string  `json:"project_name"`
+	ProjectSource string  `json:"project_source"`
+	// Sessions 是从这条消息发起的 Agent 会话，新的在前；SplitTasks 是会话里拆出来、来源指向它的任务（0008，sessions.go）
+	Sessions   []MessageSession `json:"sessions"`
+	SplitTasks []SplitTask      `json:"split_tasks"`
+	// Materials 是这条消息转成的项目资料（含附件加进资料的），新的在前；项目删了的不列（0009，materials.go）
+	Materials []MessageMaterial `json:"materials"`
+	// Thread 是串里回复属于哪个串（0010，threads.go），不是串里回复的为 null；
+	// ReplyCount 是这条消息作为父消息时，库里收到的串里回复条数（不含我回的）
+	Thread     *MessageThread `json:"thread"`
+	ReplyCount int            `json:"reply_count"`
+	// RepliedSent 是这条来信回复的「我发出的」那条（0.17.0，outbox.go fillSentLinks），对不上为 null
+	RepliedSent *SentRef `json:"replied_sent"`
 }
 
 const messageCols = `id, channel, connector_id, external_id, conversation_id, conversation_external_id, conversation_kind,
 	conversation_name, sender_identity_id, sender_external_id, sender_name, text, attachments, relevance, ` + statusCol + `,
-	is_read, snooze_until, sent_at, received_at, adapter, task_id, task_ref, reply_error, expired_at`
+	is_read, snooze_until, sent_at, received_at, adapter, task_id, task_ref, reply_error, expired_at, project_id,
+	thread_parent_external_id, thread_parent_sender, thread_parent_text`
 
 func (in *inbox) list(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
@@ -106,6 +125,13 @@ func (in *inbox) list(w http.ResponseWriter, r *http.Request) {
 		// 到达时会话还没登记的消息按渠道编号算进来
 		where = append(where, "(conversation_id = ? OR (conversation_id IS NULL AND channel = ? AND conversation_external_id = ?))")
 		args = append(args, cv.ID, cv.Channel, cv.ExternalID)
+	}
+	if pid := strings.TrimSpace(q.Get("project_id")); pid != "" {
+		// 只按归属筛，不校验项目在不在：项目删了，筛出来的是空列表。
+		// 消息自己没归的按所在会话的默认项目算（0007）
+		where = append(where, `(project_id = ? OR (project_id IS NULL AND conversation_id IN
+			(SELECT conversation_id FROM im_conversation_projects WHERE project_id = ?)))`)
+		args = append(args, pid, pid)
 	}
 	switch q.Get("mine") {
 	case "":
@@ -186,15 +212,19 @@ func (in *inbox) query(ctx context.Context, sql string, args ...any) ([]Message,
 	out := []Message{}
 	for rows.Next() {
 		var m Message
-		var convName, attachments string
+		var convName, attachments, tParent, tSender, tText string
 		var read int
 		if err := rows.Scan(&m.ID, &m.Channel, &m.ConnectorID, &m.ExternalID, &m.ConversationID, &m.ConversationExternalID,
 			&m.ConversationKind, &convName, &m.IdentityID, &m.SenderID, &m.SenderName, &m.Text, &attachments, &m.Relevance,
-			&m.Status, &read, &m.SnoozeUntil, &m.At, &m.ReceivedAt, &m.Adapter, &m.TaskID, &m.TaskRef, &m.ReplyError, &m.ExpiredAt); err != nil {
+			&m.Status, &read, &m.SnoozeUntil, &m.At, &m.ReceivedAt, &m.Adapter, &m.TaskID, &m.TaskRef, &m.ReplyError, &m.ExpiredAt, &m.ProjectID,
+			&tParent, &tSender, &tText); err != nil {
 			_ = rows.Close()
 			return nil, err
 		}
 		m.Conversation, m.Read, m.Attachments = convName, read != 0, json.RawMessage(attachments)
+		if tParent != "" {
+			m.Thread = &MessageThread{ParentExternalID: tParent, ParentSenderName: tSender, ParentText: tText}
+		}
 		out = append(out, m)
 	}
 	err = rows.Err()
@@ -214,6 +244,18 @@ func (in *inbox) query(ctx context.Context, sql string, args ...any) ([]Message,
 	if err := in.fillAttachments(ctx, out); err != nil {
 		return nil, err
 	}
+	if err := in.fillSessions(ctx, out); err != nil {
+		return nil, err
+	}
+	if err := in.fillMaterials(ctx, out); err != nil {
+		return nil, err
+	}
+	if err := in.fillThreads(ctx, out); err != nil {
+		return nil, err
+	}
+	if err := in.fillSentLinks(ctx, out); err != nil {
+		return nil, err
+	}
 	return out, nil
 }
 
@@ -223,11 +265,14 @@ type resolver struct {
 	convs    map[string]*plugin.ConversationInfo
 	idents   map[string]*plugin.IdentityInfo
 	contacts map[string]*plugin.ContactInfo
+	projects map[string]*plugin.ObjectInfo
+	// defaults 是会话的默认项目（0007），第一次用到时读一次
+	defaults map[string]string
 }
 
 func newResolver(c plugin.Core) *resolver {
 	return &resolver{c: c, convs: map[string]*plugin.ConversationInfo{},
-		idents: map[string]*plugin.IdentityInfo{}, contacts: map[string]*plugin.ContactInfo{}}
+		idents: map[string]*plugin.IdentityInfo{}, contacts: map[string]*plugin.ContactInfo{}, projects: map[string]*plugin.ObjectInfo{}}
 }
 
 // cached 查一次记一次；查不到也记（nil）。
@@ -281,6 +326,10 @@ func (rs *resolver) fill(ctx context.Context, m *Message) error {
 	if err != nil {
 		return err
 	}
+	if err := rs.fillProject(ctx, m); err != nil {
+		return err
+	}
+
 	m.IdentityID = nil
 	if idn == nil {
 		return nil
@@ -294,6 +343,51 @@ func (rs *resolver) fill(ctx context.Context, m *Message) error {
 	if ct != nil {
 		m.ContactName = ct.Name
 	}
+	return nil
+}
+
+// project 查一个没删的项目；不在、删了、不是项目的回 nil。
+func (rs *resolver) project(ctx context.Context, id string) (*plugin.ObjectInfo, error) {
+	o, err := cached(rs.projects, id, func() (plugin.ObjectInfo, error) { return rs.c.Objects().Get(ctx, id) })
+	if err != nil || o == nil || o.Deleted || o.Type != projectType {
+		return nil, err
+	}
+	return o, nil
+}
+
+// fillProject 补项目名；项目不在、删了、不是项目的按没归处理（不回写）。
+// 消息自己没归（或归的项目没了）时按所在会话的默认项目兜底（0007）。
+func (rs *resolver) fillProject(ctx context.Context, m *Message) error {
+	if m.ProjectID != nil {
+		o, err := rs.project(ctx, *m.ProjectID)
+		if err != nil {
+			return err
+		}
+		m.ProjectID = nil
+		if o != nil {
+			m.ProjectID, m.ProjectName, m.ProjectSource = &o.ID, o.Title, "message"
+			return nil
+		}
+	}
+	if m.ConversationID == nil {
+		return nil
+	}
+	if rs.defaults == nil {
+		d, err := loadDefaults(ctx, rs.c)
+		if err != nil {
+			return err
+		}
+		rs.defaults = d
+	}
+	pid, ok := rs.defaults[*m.ConversationID]
+	if !ok {
+		return nil
+	}
+	o, err := rs.project(ctx, pid)
+	if err != nil || o == nil {
+		return err
+	}
+	m.ProjectID, m.ProjectName, m.ProjectSource = &o.ID, o.Title, "conversation"
 	return nil
 }
 

@@ -31,6 +31,10 @@
 .im-chexpire-title { font-weight: 600; }
 .im-chexpire-row { display: flex; align-items: center; gap: var(--sp-3); }
 .im-chexpire-input { width: 88px; }
+.im-qrset { display: flex; flex-direction: column; gap: var(--sp-3); }
+.im-qrset-item { display: flex; flex-direction: column; gap: var(--sp-1); }
+.im-qrset-row { display: flex; align-items: center; gap: var(--sp-3); }
+.im-qrset-row > :first-child { flex: 1; min-width: 0; }
 
 .im-chform { display: flex; flex-direction: column; gap: var(--sp-6); }
 .im-chform-steps { margin: 0; padding-left: 1.4em; display: flex; flex-direction: column; gap: var(--sp-2); line-height: 1.6; }
@@ -47,3 +51,9 @@
 }
 .im-chform-seg button:hover { color: var(--text); }
 .im-chform-seg button.on { background: var(--panel); color: var(--text); box-shadow: var(--shadow-sm); font-weight: 500; }
+
+/* 从 Slack 补联系人邮箱（EmailBackfill.tsx） */
+.im-chmail { display: flex; flex-direction: column; gap: var(--sp-2); border-top: 1px dashed var(--line); padding-top: var(--sp-3); margin-top: var(--sp-2); }
+.im-chmail-row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-3); font-size: var(--fs-sm); }
+.im-chmail-hint { color: var(--warn); background: var(--warn-soft); border-radius: var(--r-sm); padding: var(--sp-3) var(--sp-4); font-size: var(--fs-sm); word-break: break-word; }
+.im-chmail-list { margin: 0; padding-left: var(--sp-6); font-size: var(--fs-sm); word-break: break-word; }

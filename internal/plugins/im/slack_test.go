@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -25,12 +26,14 @@ import (
 // fakeSlack 是本机假 Slack Web API：认一个 Bot Token，Bot 在 #product（C01）、#random（C02）和一个私信（D01）里；
 // 也认本人的 User Token（xoxp-me，IM-06），auth.test 回本人 U07ME，会话同上。
 type fakeSlack struct {
-	mu       sync.Mutex
-	token    string
-	user     string           // 本人的 User Token
-	team     string           // 空为 T1
-	convs    []map[string]any // Bot 所在的会话，空为 #product、#random 和一个私信
-	revoked  bool
+	mu      sync.Mutex
+	token   string
+	user    string           // 本人的 User Token
+	team    string           // 空为 T1
+	convs   []map[string]any // Bot 所在的会话，空为 #product、#random 和一个私信
+	revoked bool
+	// noFiles 模拟 Token 缺 files:read：下载附件回 200 的网页登录页
+	noFiles  bool
 	history  map[string][]map[string]any // 会话 -> 消息（正序）
 	broken   map[string]bool             // 读历史回 channel_not_found 的会话
 	posted   []url.Values
@@ -39,6 +42,10 @@ type fakeSlack struct {
 	onPost   func() // chat.postMessage 回结果之前调（不持锁），模拟回复还没落库时事件已经推过来
 	postTS   string // chat.postMessage 回的 ts，空为 1761709999.000100
 	limitAt  int    // conversations.history 累计调到第几次之后回 429；0 为不限流
+	// 串（0010）：「频道:父消息 ts」-> 串里的回复（正序，不含父消息）。history 回父消息时按它补上 reply_count、latest_reply
+	threads        map[string][]map[string]any
+	repliesLimitAt int      // conversations.replies 累计调到第几次之后回 429；0 为不限流
+	repliesOldest  []string // 每次 conversations.replies 带的 oldest
 }
 
 func newFakeSlack() *fakeSlack {
@@ -91,6 +98,11 @@ func (f *fakeSlack) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusForbidden)
 			return
 		}
+		if f.noFiles {
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			_, _ = w.Write([]byte("<!DOCTYPE html><html>登录 Slack</html>"))
+			return
+		}
 		_, _ = w.Write([]byte("xlsx bytes"))
 		return
 	}
@@ -140,13 +152,50 @@ func (f *fakeSlack) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		oldest, _ := strconv.ParseFloat(r.Form.Get("oldest"), 64)
+		latest, _ := strconv.ParseFloat(r.Form.Get("latest"), 64)
+		inclusive := r.Form.Get("inclusive") == "true"
 		limit, _ := strconv.Atoi(r.Form.Get("limit"))
 		var out []map[string]any
 		h := f.history[r.Form.Get("channel")]
 		for i := len(h) - 1; i >= 0 && len(out) < limit; i-- {
 			ts, _ := strconv.ParseFloat(h[i]["ts"].(string), 64)
-			if ts > oldest {
-				out = append(out, h[i])
+			after := ts > oldest || (inclusive && ts == oldest)
+			before := latest == 0 || ts < latest || (inclusive && ts == latest)
+			if after && before {
+				m := h[i]
+				if rs := f.threads[r.Form.Get("channel")+":"+m["ts"].(string)]; len(rs) > 0 {
+					m = maps.Clone(m)
+					m["thread_ts"], m["reply_count"], m["latest_reply"] = m["ts"], len(rs), rs[len(rs)-1]["ts"]
+				}
+				out = append(out, m)
+			}
+		}
+		reply(map[string]any{"messages": out, "has_more": false})
+	case "conversations.replies":
+		if f.repliesLimitAt > 0 && f.calls[method] > f.repliesLimitAt {
+			w.Header().Set("Retry-After", "10")
+			w.WriteHeader(http.StatusTooManyRequests)
+			return
+		}
+		ch, ts := r.Form.Get("channel"), r.Form.Get("ts")
+		f.repliesOldest = append(f.repliesOldest, r.Form.Get("oldest"))
+		var parent map[string]any
+		for _, m := range f.history[ch] {
+			if m["ts"] == ts {
+				parent = maps.Clone(m)
+			}
+		}
+		rs := f.threads[ch+":"+ts]
+		if parent == nil || len(rs) == 0 {
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": "thread_not_found"})
+			return
+		}
+		parent["thread_ts"], parent["reply_count"], parent["latest_reply"] = ts, len(rs), rs[len(rs)-1]["ts"]
+		oldest, _ := strconv.ParseFloat(r.Form.Get("oldest"), 64)
+		out := []map[string]any{parent} // 对方总把父消息放第一条
+		for _, m := range rs {
+			if x, _ := strconv.ParseFloat(m["ts"].(string), 64); x > oldest {
+				out = append(out, m)
 			}
 		}
 		reply(map[string]any{"messages": out, "has_more": false})
@@ -178,6 +227,7 @@ func (rw slackRewrite) RoundTrip(r *http.Request) (*http.Response, error) {
 }
 
 type slackEnv struct {
+	d     *db.DB
 	h     http.Handler
 	conns *connector.Store
 	fake  *fakeSlack
@@ -238,7 +288,7 @@ func setupSlackOn(t *testing.T, fake *fakeSlack, h http.Handler) slackEnv {
 	for _, rt := range r.Routes(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNotFound) }) {
 		mux.HandleFunc(rt.Pattern, rt.Handler)
 	}
-	return slackEnv{h: mux, conns: conns, fake: fake, sl: sl}
+	return slackEnv{d: d, h: mux, conns: conns, fake: fake, sl: sl}
 }
 
 func (e slackEnv) connect(t *testing.T, interval int) *connector.Connector {
@@ -382,6 +432,27 @@ func TestSlackPullAndReply(t *testing.T) {
 	if sent = e.fake.sent(); len(sent) != 2 || sent[1].Get("channel") != "D01" || sent[1].Has("thread_ts") {
 		t.Fatalf("私信回复：%v", sent)
 	}
+	// @（0.18.0）：mentions 里的「@名字」发出去换成 <@MemberID>，手打的照原样；工作台里记的仍是「@名字」
+	code, out = call(t, e.h, "POST", "/api/im/messages/"+ch["id"].(string)+"/reply",
+		`{"text":"@Lin Yuan 收到，@王五 也看下","mentions":[{"external_id":"U04LIN","name":"Lin Yuan"}]}`)
+	if sent = e.fake.sent(); code != 200 || len(sent) != 3 || sent[2].Get("text") != "<@U04LIN> 收到，@王五 也看下" {
+		t.Fatalf("@ 渲染：%d %v", code, sent)
+	}
+	if rps := out["data"].(map[string]any)["replies"].([]any); rps[len(rps)-1].(map[string]any)["text"] != "@Lin Yuan 收到，@王五 也看下" {
+		t.Fatalf("记下的是原文：%v", rps)
+	}
+
+	// Token 缺 files:read 时 Slack 回登录页：不能存成文件、标成已获取，要说清缺什么权限
+	e.fake.mu.Lock()
+	e.fake.noFiles = true
+	e.fake.mu.Unlock()
+	code, out = call(t, e.h, "POST", "/api/im/messages/"+ch["id"].(string)+"/attachments/F1/fetch", "")
+	if code == 200 || !strings.Contains(fmt.Sprint(out), "files:read") {
+		t.Fatalf("登录页应当判失败并提示 files:read：%d %v", code, out)
+	}
+	e.fake.mu.Lock()
+	e.fake.noFiles = false
+	e.fake.mu.Unlock()
 
 	// 附件带 Bot Token 下载
 	code, out = call(t, e.h, "POST", "/api/im/messages/"+ch["id"].(string)+"/attachments/F1/fetch", "")
@@ -475,6 +546,91 @@ func TestSlackPlainText(t *testing.T) {
 	}
 	if !tsTime("1761700000.000100").Equal(time.Unix(1761700000, 100000).UTC()) {
 		t.Fatal("tsTime")
+	}
+}
+
+// 反馈机器人这类消息 text 是空的，内容在旧版 attachments 或 blocks 里，发送人只有 bot_id：正文、名字都要取出来
+func TestSlackCardMessages(t *testing.T) {
+	s := NewSlack(SlackOptions{})
+	s.users["U1"] = "Lin"
+	cv := slackConv{ID: "C1", Name: "feedback"}
+	var card slackMsg
+	if err := json.Unmarshal([]byte(`{"type":"message","subtype":"bot_message","bot_id":"B1","text":"","ts":"1761700000.000100","channel":"C1",
+		"attachments":[{"fallback":"新用户反馈","pretext":":postbox: 新用户反馈 · :bug: Bug","text":"用户：a@b.com\n反馈内容：读取失败 &amp; 报错\n• <https://x.y/log.txt|日志>",
+		"fields":[{"title":"页面","value":"-"}]}]}`), &card); err != nil {
+		t.Fatal(err)
+	}
+	in, ok := s.toIncoming("cn", connector.SlackIdentity{}, "", "", cv, true, card)
+	if !ok || in.SenderID != "B1" {
+		t.Fatalf("机器人卡片应当收下：%v %+v", ok, in)
+	}
+	want := ":postbox: 新用户反馈 · :bug: Bug\n用户：a@b.com\n反馈内容：读取失败 & 报错\n• 日志 (https://x.y/log.txt)\n页面：-"
+	if in.Text != want {
+		t.Fatalf("卡片正文\ngot  %q\nwant %q", in.Text, want)
+	}
+	// 没有正文、只有 fallback 的卡片用 fallback；名字取 bot_profile
+	card.Attachments = []slackAttachment{{Fallback: "只有摘要"}}
+	card.BotProfile = &struct {
+		Name string `json:"name"`
+	}{Name: "反馈助手"}
+	if in, _ := s.toIncoming("cn", connector.SlackIdentity{}, "", "", cv, true, card); in.Text != "只有摘要" || in.SenderName != "反馈助手" {
+		t.Fatalf("fallback / bot_profile：%+v", in)
+	}
+
+	var blk slackMsg
+	if err := json.Unmarshal([]byte(`{"type":"message","user":"U1","text":"","ts":"1761700001.000100","channel":"C1","blocks":[
+		{"type":"header","text":{"type":"plain_text","text":"周报"}},
+		{"type":"section","text":{"type":"mrkdwn","text":"本周完成 3 项"},"fields":[{"type":"mrkdwn","text":"*负责人* <@U1>"}]},
+		{"type":"divider"},
+		{"type":"context","elements":[{"type":"mrkdwn","text":"来自工作流"},{"type":"image","image_url":"x"}]},
+		{"type":"rich_text","elements":[{"type":"rich_text_section","elements":[{"type":"text","text":"请 "},{"type":"user","user_id":"U1"},{"type":"text","text":" 看 "},{"type":"link","url":"https://a.b","text":"这里"}]},
+			{"type":"rich_text_list","elements":[{"type":"rich_text_section","elements":[{"type":"text","text":"一"}]},{"type":"rich_text_section","elements":[{"type":"text","text":"二"}]}]}]}]}`), &blk); err != nil {
+		t.Fatal(err)
+	}
+	in, _ = s.toIncoming("cn", connector.SlackIdentity{}, "", "", cv, true, blk)
+	want = "周报\n本周完成 3 项\n*负责人* @Lin\n来自工作流\n请 @Lin 看 这里 (https://a.b)\n• 一\n• 二"
+	if in.Text != want {
+		t.Fatalf("blocks 正文\ngot  %q\nwant %q", in.Text, want)
+	}
+	// text 有内容时不再拼 blocks（blocks 只是同一段话的富文本版）
+	blk.Text = "原文"
+	if in, _ := s.toIncoming("cn", connector.SlackIdentity{}, "", "", cv, true, blk); in.Text != "原文" {
+		t.Fatalf("有 text 时：%q", in.Text)
+	}
+}
+
+// 以前没解析出来的空正文，按消息编号回 Slack 重取补上：只改正文为空的，不新增消息、不动别的
+func TestSlackRefill(t *testing.T) {
+	e := setupSlack(t)
+	c := e.connect(t, 5)
+	ctx := context.Background()
+	if code, out := call(t, e.h, "POST", "/api/im/connectors/"+c.ID+"/sync", ""); code != 200 {
+		t.Fatalf("同步：%d %v", code, out)
+	}
+	// 模拟老版本落库：私信那条正文、发送人是空的；对方那边其实是一张卡片
+	if _, err := e.d.W.ExecContext(ctx, `UPDATE im_messages SET text = '', sender_name = '' WHERE external_id = 'D01:1761700004.000100'`); err != nil {
+		t.Fatal(err)
+	}
+	e.fake.mu.Lock()
+	e.fake.history["D01"][0] = map[string]any{"type": "message", "subtype": "bot_message", "bot_id": "B9", "text": "", "ts": "1761700004.000100",
+		"bot_profile": map[string]any{"name": "反馈助手"}, "attachments": []map[string]any{{"pretext": "新反馈", "text": "页面打不开"}}}
+	// 不在库里的新消息：补全不能把它收进来
+	e.fake.history["D01"] = append(e.fake.history["D01"], map[string]any{"type": "message", "user": "U09ZHOU", "text": "新的", "ts": "1761700009.000100"})
+	e.fake.mu.Unlock()
+
+	code, out := call(t, e.h, "POST", "/api/im/connectors/"+c.ID+"/refill", "")
+	res, _ := out["data"].(map[string]any)
+	if code != 200 || res["checked"] != float64(1) || res["filled"] != float64(1) {
+		t.Fatalf("补全：%d %v", code, out)
+	}
+	n, got := list(t, e.h, "")
+	m := got["D01:1761700004.000100"]
+	if n != 2 || m == nil || m["text"] != "新反馈\n页面打不开" || m["sender_name"] != "反馈助手" {
+		t.Fatalf("补全后：%d %v", n, m)
+	}
+	// 再补一次没有可补的
+	if _, out := call(t, e.h, "POST", "/api/im/connectors/"+c.ID+"/refill", ""); out["data"].(map[string]any)["checked"] != float64(0) {
+		t.Fatalf("第二次：%v", out)
 	}
 }
 
