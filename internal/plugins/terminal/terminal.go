@@ -4,7 +4,7 @@ package terminal
 
 import (
 	"context"
-	_ "embed"
+	"embed"
 	"encoding/json"
 	"errors"
 	"io"
@@ -19,6 +19,9 @@ import (
 
 //go:embed plugin.json
 var manifestJSON []byte
+
+//go:embed migrations/*.sql
+var migrationsFS embed.FS
 
 // Plugin 是终端插件的入口，cmd/pmw 用 Registry.Add 登记。
 type Plugin struct {
@@ -37,8 +40,14 @@ func New(publicURL string) *Plugin {
 
 func (p *Plugin) Manifest() plugin.Manifest { return p.m }
 
-// Migrations：没有自己的表。
-func (p *Plugin) Migrations() fs.FS { return nil }
+// Migrations 是 migrations/ 下的 .sql（0.2.0 起有设置表 terminal_settings），安装、升级时由内核按文件名顺序应用。
+func (p *Plugin) Migrations() fs.FS {
+	sub, err := fs.Sub(migrationsFS, "migrations")
+	if err != nil {
+		panic(err)
+	}
+	return sub
+}
 
 func (p *Plugin) Register(r plugin.Registrar) error {
 	m := newManager() // 每次启用一个，只建结构不起进程
@@ -49,6 +58,8 @@ func (p *Plugin) Register(r plugin.Registrar) error {
 		rr.HandleFunc("POST /api/terminal/sessions", h.create)
 		rr.HandleFunc("DELETE /api/terminal/sessions/{id}", h.remove)
 		rr.HandleFunc("GET /api/terminal/sessions/{id}/ws", h.ws)
+		rr.HandleFunc("GET /api/terminal/settings", h.getSettings)
+		rr.HandleFunc("PATCH /api/terminal/settings", h.patchSettings)
 	})
 	// 常驻任务只等取消：插件停用、服务关闭时结束这次启用起的全部会话
 	r.Job(plugin.Job{Name: "sessions", Run: func(ctx context.Context, _ plugin.Core) error {
@@ -75,6 +86,14 @@ type createIn struct {
 	ProjectID string `json:"project_id"`
 	Cols      *int   `json:"cols"`
 	Rows      *int   `json:"rows"`
+	// Claude 不为空时，shell 起来后执行设置里的 Claude Code 启动命令（launch.go）
+	Claude *ClaudeLaunch `json:"claude"`
+}
+
+// created 是新建会话的响应：带了 claude 时多一个 command，是写进终端执行的那条命令。
+type created struct {
+	Session
+	Command string `json:"command,omitempty"`
 }
 
 func (h *handlers) create(w http.ResponseWriter, r *http.Request) {
@@ -112,12 +131,31 @@ func (h *handlers) create(w http.ResponseWriter, r *http.Request) {
 		h.fail(w, r, apiErr(errValidation, "cols 和 rows 要在 %d 到 %d 之间", minSize, maxSize))
 		return
 	}
+	command := ""
+	if in.Claude != nil {
+		if err := checkLaunch(in.Claude); err != nil {
+			h.fail(w, r, err)
+			return
+		}
+		tmpl, err := claudeCommand(r.Context(), h.c.Store())
+		if err != nil {
+			h.fail(w, r, err)
+			return
+		}
+		command = RenderClaudeCommand(tmpl, *in.Claude)
+	}
 	s, err := h.m.start(cwd, cols, rows)
 	if err != nil {
 		h.fail(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusCreated, map[string]any{"data": s.view()})
+	if command != "" {
+		// shell 还在读启动文件时写进去也不丢：pty 先缓着，shell 准备好了再读到。
+		if err := s.write([]byte(command + "\r")); err != nil {
+			h.c.Log().Warn("write claude command failed", "session", s.id, "err", err)
+		}
+	}
+	writeJSON(w, http.StatusCreated, map[string]any{"data": created{Session: s.view(), Command: command}})
 }
 
 func (h *handlers) remove(w http.ResponseWriter, r *http.Request) {

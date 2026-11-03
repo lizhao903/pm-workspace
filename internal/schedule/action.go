@@ -12,6 +12,8 @@ const (
 	ActionAgent = "agent"
 	// ActionIncidentSweep 是运行异常巡检（INC-01a），内核动作，见 incident_sweep.go
 	ActionIncidentSweep = "incident_sweep"
+	// ActionRemind 是到点在工作台里发一条提醒通知，可以关联一个对象（任务），内核动作，见 remind.go
+	ActionRemind = "remind"
 )
 
 // 运行异常巡检的默认值。
@@ -26,7 +28,7 @@ const (
 type Action struct {
 	Kind string `json:"kind"`
 
-	// kind = task：到点建一条任务
+	// kind = task：到点建一条任务；kind = remind 时 Title 是提醒的标题
 	Title    string `json:"title"`
 	Desc     string `json:"desc"`
 	Priority string `json:"priority"`
@@ -44,6 +46,10 @@ type Action struct {
 	// kind = incident_sweep：MinLevel 是 error（只看错误）或 warn（警告和错误都看），MinCount 是次数下限
 	MinLevel string `json:"min_level"`
 	MinCount int    `json:"min_count"`
+
+	// kind = remind：Body 是提醒的内容，ObjectID 是关联的对象（任务），点通知打开它；都可以空
+	Body     string `json:"body"`
+	ObjectID string `json:"object_id"`
 
 	// 插件动作：除 kind 外的全部字段，校验交给插件
 	Params map[string]any `json:"-"`
@@ -69,6 +75,8 @@ func (a Action) Normalize() Action {
 			n = DefaultSweepCount
 		}
 		return Action{Kind: a.Kind, MinLevel: lv, MinCount: n}
+	case ActionRemind:
+		return Action{Kind: a.Kind, Title: strings.TrimSpace(a.Title), Body: strings.TrimSpace(a.Body), ObjectID: strings.TrimSpace(a.ObjectID)}
 	}
 	return Action{Kind: a.Kind, Params: a.Params}
 }
@@ -98,6 +106,8 @@ func (a Action) Validate() error {
 		if a.MinCount < 1 || a.MinCount > maxSweepCount {
 			return invalid("action.min_count must be 1..%d, got %d", maxSweepCount, a.MinCount)
 		}
+	case ActionRemind:
+		return a.validateRemind()
 	default:
 		return invalid("action.kind must be task / sop / agent, got %q", a.Kind)
 	}
@@ -116,6 +126,8 @@ func (a Action) MarshalJSON() ([]byte, error) {
 		m["agent_id"], m["prompt"] = a.AgentID, a.Prompt
 	case ActionIncidentSweep:
 		m["min_level"], m["min_count"] = a.MinLevel, a.MinCount
+	case ActionRemind:
+		m["title"], m["body"], m["object_id"] = a.Title, a.Body, a.ObjectID
 	default:
 		for k, v := range a.Params {
 			if k != "kind" {

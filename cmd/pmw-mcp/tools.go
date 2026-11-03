@@ -822,6 +822,7 @@ type recordArtifactArgs struct {
 	ActorType  string `json:"actor_type,omitempty" jsonschema:"产出者类型：agent、skill、sop、mcp 等。不传记成 mcp。只用来展示和筛选，不影响统计里的来源"`
 	ActorID    string `json:"actor_id,omitempty" jsonschema:"产出者 id，比如技能名或 Agent id"`
 	ActorLabel string `json:"actor_label,omitempty" jsonschema:"产出者当时的显示名，比如「PRD 可视化」"`
+	RunID      string `json:"run_id,omitempty" jsonschema:"这件产物是哪次执行做出来的：从工作台「切换到终端」交给你时，提示词里写的执行记录 id（run_…）。不是这种情况不传"`
 }
 
 // 代码类产物的种类。0031 起写进 artifacts.kind；note 开头的标记（[commit] / [branch] / [pr]）
@@ -841,6 +842,7 @@ const recordArtifactDesc = `【会写入数据】把一件已经产出的交付�
 - 代码交付：kind=commit 带 sha，kind=branch 带 branch，kind=pr 带 url。有远端链接（GitHub 上的 commit / 分支 / PR 页）就填 url；只在本地的提交填 repo（仓库绝对路径）。一次开发任务通常登记：每个关键 commit 一条、工作分支一条、PR 一条。
 - 种类：文档填 kind=doc、原型 prototype、数据 data；不确定就不填。
 - 是某个技能或 SOP 做出来的，填 actor_type（skill / sop / agent）和 actor_id、actor_label，用户能按产出者筛。
+- 从工作台「切换到终端」交给你的任务，带上提示词里的执行记录 id（run_id），这件产物会挂到那次执行下。
 
 不要用它记：过程中间产物（草稿、临时文件）、你只是读过没有产出的东西。
 
@@ -881,6 +883,7 @@ func addRecordArtifact(s *mcp.Server, c *client) {
 		putStr(body, "actor_type", strings.ToLower(strings.TrimSpace(in.ActorType)))
 		putStr(body, "actor_id", in.ActorID)
 		putStr(body, "actor_label", in.ActorLabel)
+		putStr(body, "run_id", strings.TrimSpace(in.RunID))
 		if p := c.resolvePlatform(ctx, in.Platform); p != "" {
 			body["platform"] = p
 		}

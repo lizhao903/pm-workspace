@@ -1,23 +1,31 @@
 // 任务抽屉（SPEC-tasks-4、DEV-07b）：新建、查看、编辑、删除。
 // 已有任务以打开那一刻的值为基准：保存只传改过的字段，props 由接口层读回最新的再合并；未保存的改动关闭前先确认。
-// 待验收时验收是主要动作（PR-07，product-review A-04、C-02）：等你验收栏、改动、产出物、进展在前，任务字段收进「编辑任务」，正文默认预览。
+// 已有任务分成标签（SPEC-tasks-4.35 到 4.41）：基础信息、开发任务、插件登记的标签（SOP）、执行记录，当前标签记在地址 ?tab= 上，
+// ?run= / ?sop_run= 定位到某次执行时自动切到那个标签。归类和显示条件在 drawerTabs.ts。
+// 待验收时验收是主要动作（PR-07，product-review A-04、C-02）：默认停在「开发任务」，顶上是等你验收栏，再是改动、产出物、进展，开发字段在最后。
+// 新建不分标签：基础字段加可展开的开发字段。
 import { useId, useState, type CSSProperties, type ReactNode } from 'react'
 import {
-  errorText, isApiError, useArtifactCount, useCreateObject, useDeleteObject, useObject, usePatchObject, useStakeholders,
-  type DictItem, type ObjectStatus, type WorkObject,
+  errorText, isApiError, useArtifactCount, useCreateObject, useDeleteObject, useObject, usePatchObject, useProgress, useStakeholders,
+  useTaskRuns, type DictItem, type ObjectStatus, type WorkObject,
 } from '../../core/data'
 import {
-  Button, ConfirmDialog, Drawer, EmptyState, Field, Input, SearchSelect, Textarea, cls, type SearchOption,
+  Button, ConfirmDialog, Drawer, EmptyState, Field, Input, SearchSelect, Tag, Tags, Textarea, cls, type SearchOption,
 } from '../../core/ui'
-import { DevSlots } from './DevSlots'
+import { ObjectSectionBadge, ObjectSections } from '../../core/shell/extensionHosts'
+import { DevSlots, RunsSlot } from './DevSlots'
+import { HOST_TABS, RUN_PARAM, currentTab, isDevTask, useTaskTabParams, visibleTabs, wantedTab, type HostTab } from './drawerTabs'
 import { HandOffButton } from './HandOff'
+import { runningOf } from './handoffModel'
 import { buildCreate, buildSave, draftOf, emptyDraft, sameDraft, type TaskDraft } from './draft'
 import { Markdown } from './Markdown'
 import { REVIEW, prioText, timeAgo } from './model'
 import { ReviewBar } from './ReviewBar'
+import { useLiveRuns } from './runLive'
+import { TaskReminders } from './TaskReminders'
 import { WorkdirField } from './WorkdirField'
 
-export function TaskDrawer({ task, statuses, priorities, projects, init, onClose, onCreated }: {
+export function TaskDrawer({ task, statuses, priorities, projects, init, returnTo, onClose, onCreated }: {
   /** null 表示新建 */
   task: WorkObject | null
   statuses: ObjectStatus[]
@@ -26,6 +34,8 @@ export function TaskDrawer({ task, statuses, priorities, projects, init, onClose
   projects: WorkObject[]
   /** 新建时预填的字段（项目里新建任务带上所属项目） */
   init?: Partial<TaskDraft>
+  /** 插件区块离开抽屉（去 SOP 运行页）后返回的地址，能重新打开这条任务；不给时插件区块退回当前地址 */
+  returnTo?: string
   onClose: () => void
   /** 新建成功后切到这条任务 */
   onCreated: (t: WorkObject) => void
@@ -35,14 +45,17 @@ export function TaskDrawer({ task, statuses, priorities, projects, init, onClose
   const [base, setBase] = useState<TaskDraft>(() => (task ? draftOf(task) : { ...emptyDraft(statuses, priorities), ...init }))
   const [d, setD] = useState<TaskDraft>(base)
   const [tried, setTried] = useState(false)
-  const [devOpen, setDevOpen] = useState(!creating)
-  const [editOpen, setEditOpen] = useState(false)
+  // 新建时展开开发字段；已有任务上是基础信息里点了「设为开发任务」
+  const [devOpen, setDevOpen] = useState(false)
   const [askDelete, setAskDelete] = useState(false)
   const [error, setError] = useState('')
 
   const people = useStakeholders()
   const live = useObject(task?.id ?? null)
-  const artifactN = useArtifactCount(askDelete && task ? task.id : null)
+  const artifactN = useArtifactCount(task?.id ?? null)
+  const progress = useProgress(task?.id ?? null)
+  const runs = useTaskRuns(task?.id ?? '')
+  const liveRuns = useLiveRuns()
   const create = useCreateObject()
   const save = usePatchObject()
   const del = useDeleteObject()
@@ -54,16 +67,39 @@ export function TaskDrawer({ task, statuses, priorities, projects, init, onClose
 
   const deleted = !!task && (!!live.data?.deleted_at || isApiError(live.error, 'not_found'))
   const reviewing = !!task && (live.data?.status ?? task.status) === REVIEW
+  // 打开时的默认标签：待验收的先看开发任务（验收栏在那里）；验收完状态变了也不跳走
+  const [fallbackTab] = useState<HostTab>(() => (reviewing ? 'dev' : 'info'))
   // 验收或退回后状态在后端已改，基准和表单一起跟上，不算未保存的改动
   const reviewed = (status: string) => {
     setBase((b) => ({ ...b, status }))
     setD((x) => ({ ...x, status }))
   }
 
+  // 标签：地址要的、这条任务该有的
+  const tabs = useTaskTabParams(task?.type_id ?? 'task')
+  const want = wantedTab(tabs.params, tabs.refs)
+  const runRows = task ? runs.data ?? [] : []
+  const dev = isDevTask({
+    acceptance: d.acceptance, workdir: d.workdir, repo: d.repo, opened: devOpen, reviewing,
+    progress: progress.data?.length ?? 0, artifacts: artifactN.data ?? 0, runs: runRows.length,
+  })
+  const visible = visibleTabs(dev, tabs.refs, want)
+  const tab = currentTab(want, visible, fallbackTab)
+  const plugTab = tabs.plugins.find((p) => p.tab.key === tab)?.tab
+  const runFocus = tabs.params.get(RUN_PARAM) || undefined
+  const plugFocus = plugTab?.focusParam ? tabs.params.get(plugTab.focusParam) || undefined : undefined
+  const running = task ? runningOf(task.id, runs.data, liveRuns) : undefined
+
+  // 关抽屉时把标签参数一起去掉，下次打开别的任务从默认标签开始
+  const close = () => {
+    tabs.clear()
+    onClose()
+  }
+
   const submit = async () => {
     setTried(true)
     if (!d.title.trim()) {
-      setEditOpen(true)
+      if (task) tabs.select('info')
       return
     }
     setError('')
@@ -72,7 +108,7 @@ export function TaskDrawer({ task, statuses, priorities, projects, init, onClose
         onCreated(await create.mutateAsync(buildCreate(d)))
       } else {
         await save.mutateAsync(buildSave(task, d))
-        onClose()
+        close()
       }
     } catch (e) {
       setError(errorText(e))
@@ -83,7 +119,7 @@ export function TaskDrawer({ task, statuses, priorities, projects, init, onClose
     try {
       await del.mutateAsync(task.id)
       setAskDelete(false)
-      onClose()
+      close()
     } catch (e) {
       setAskDelete(false)
       setError(errorText(e))
@@ -104,7 +140,7 @@ export function TaskDrawer({ task, statuses, priorities, projects, init, onClose
 
   const impacts: ReactNode[] = []
   if (task?.link_count) impacts.push(`${task.link_count} 条关联保留，恢复后照常可见`)
-  if (artifactN.data) impacts.push(`${artifactN.data} 个产出物的登记保留`)
+  if (askDelete && artifactN.data) impacts.push(`${artifactN.data} 个产出物的登记保留`)
   if (task?.participants.length) impacts.push(`${task.participants.length} 位参与人的手上不再算这条任务`)
   if (task?.owner_id) impacts.push(`负责人「${task.owner_name ?? ''}」手上不再算这条任务`)
 
@@ -114,7 +150,7 @@ export function TaskDrawer({ task, statuses, priorities, projects, init, onClose
         <Input value={d.title} autoFocus={creating} invalid={titleBad} placeholder="要做的事"
           onChange={(e) => set({ title: e.target.value })} />
       </Field>
-      <MdField label="正文" value={d.body} rows={5} placeholder="支持 Markdown" defaultPreview={reviewing}
+      <MdField label="正文" value={d.body} rows={6} placeholder="支持 Markdown" defaultPreview={reviewing}
         onChange={(v) => set({ body: v })} />
       <Field label="状态" wrap={false}>
         <SegPick label="状态" options={statusOpts} value={d.status} onChange={(v) => set({ status: v })} />
@@ -144,67 +180,111 @@ export function TaskDrawer({ task, statuses, priorities, projects, init, onClose
           searchPlaceholder="搜项目" options={projectOpts} missingLabel={() => task?.project_title ?? '已删除的项目'}
           onChange={(v) => set({ project_id: v })} />
       </Field>
-      {devOpen ? (
-        <div className="field-group">
-          <div className="mount-head">
-            <span className="field-group-title">开发</span>
-            <span className="spacer" />
-            {task && <HandOffButton task={task} workdir={d.workdir} inherit={inherit} />}
-          </div>
-          <MdField label="验收标准" value={d.acceptance} rows={4} mono placeholder="- [ ] 一条一行，写成能检查的样子"
-            onChange={(v) => set({ acceptance: v })} />
-          <div className="field-row">
-            <WorkdirField value={d.workdir} onChange={(v) => set({ workdir: v })} inherit={inherit} />
-            <Field label="关联仓库">
-              <Input className="mono-input" value={d.repo} placeholder="远端地址或本机路径，只放一个"
-                onChange={(e) => set({ repo: e.target.value })} />
-            </Field>
-          </div>
-        </div>
-      ) : (
-        <button type="button" className="dev-open" onClick={() => setDevOpen(true)}>+ 开发信息：验收标准、工作目录，交给 Claude Code 做</button>
+      {task && task.tags.length > 0 && (
+        <Field label="标签" wrap={false}>
+          <Tags>{task.tags.map((t) => <Tag key={t}>{t}</Tag>)}</Tags>
+        </Field>
       )}
     </>
+  )
+  const devFields = (
+    <div className="field-group" role="group" aria-label="开发">
+      <div className="mount-head">
+        <span className="field-group-title">开发</span>
+        <span className="spacer" />
+        {task && (
+          <HandOffButton task={task} workdir={d.workdir} inherit={inherit}
+            onShowRun={(runId) => tabs.select('runs', runId ? { [RUN_PARAM]: runId } : undefined)} />
+        )}
+      </div>
+      <MdField label="验收标准" value={d.acceptance} rows={4} mono placeholder="- [ ] 一条一行，写成能检查的样子"
+        onChange={(v) => set({ acceptance: v })} />
+      <div className="field-row">
+        <WorkdirField value={d.workdir} onChange={(v) => set({ workdir: v })} inherit={inherit} />
+        <Field label="关联仓库">
+          <Input className="mono-input" value={d.repo} placeholder="远端地址或本机路径，只放一个"
+            onChange={(e) => set({ repo: e.target.value })} />
+        </Field>
+      </div>
+    </div>
   )
   const times = task && <div className="task-times">{timeAgo(task.created_at)}创建 · {timeAgo(task.updated_at)}更新</div>
 
   let body
   if (deleted) {
     body = <EmptyState title="这条任务已删除" desc="它已经在回收站里，可以从回收站恢复" />
-  } else if (task && reviewing) {
-    body = (
-      <div className="form task-form">
-        <div className="rv-title">{base.title || task.title}</div>
-        <ReviewBar task={task} statuses={statuses} acceptance={base.acceptance} onReviewed={reviewed} />
-        <DevSlots task={task} reviewing />
-        <section className="rv-edit" aria-label="编辑任务">
-          <button type="button" className="rv-edit-toggle" aria-expanded={editOpen} onClick={() => setEditOpen((v) => !v)}>
-            <span className="rv-edit-caret" aria-hidden="true">{editOpen ? '-' : '+'}</span>
-            <span className="field-group-title">编辑任务</span>
-            <span className="rv-sub">{dirty ? '有未保存的修改' : '标题、正文、状态、优先级、负责人、开发信息'}</span>
-          </button>
-          {editOpen && <div className="form rv-edit-body">{fields}</div>}
-        </section>
-        {times}
-      </div>
-    )
-  } else {
+  } else if (!task) {
     body = (
       <div className="form task-form">
         {fields}
-        {times}
-        {task && <DevSlots task={task} />}
+        {devOpen ? devFields : (
+          <button type="button" className="dev-open" onClick={() => setDevOpen(true)}>+ 开发信息：验收标准、工作目录，交给 Claude Code 做</button>
+        )}
+      </div>
+    )
+  } else {
+    const label = (k: string) => HOST_TABS[k as HostTab] ?? tabs.plugins.find((p) => p.tab.key === k)?.tab.label ?? k
+    let panel
+    if (tab === 'dev') {
+      panel = (
+        <>
+          {reviewing && <ReviewBar task={task} statuses={statuses} acceptance={base.acceptance} onReviewed={reviewed} />}
+          {!reviewing && devFields}
+          <DevSlots task={task} reviewing={reviewing} />
+          {reviewing && devFields}
+        </>
+      )
+    } else if (tab === 'runs') {
+      panel = <RunsSlot task={task} focus={runFocus} />
+    } else if (plugTab) {
+      panel = <ObjectSections object={task} returnTo={returnTo} focus={plugFocus} tab={plugTab.key} />
+    } else {
+      panel = (
+        <>
+          {fields}
+          <TaskReminders task={task} />
+          <ObjectSections object={task} returnTo={returnTo} tab={null} />
+          {!dev && (
+            <button type="button" className="dev-open" onClick={() => { setDevOpen(true); tabs.select('dev') }}>
+              + 设为开发任务：验收标准、工作目录，交给 Claude Code 做
+            </button>
+          )}
+          {times}
+        </>
+      )
+    }
+    body = (
+      <div className="task-detail">
+        <div className="tk-title">{d.title.trim() || base.title || task.title}</div>
+        <div className="tk-tabs" role="tablist" aria-label="任务详情">
+          {visible.map((k) => {
+            const p = tabs.plugins.find((x) => x.tab.key === k)?.tab
+            return (
+              <button key={k} type="button" role="tab" aria-selected={tab === k} className={cls(tab === k && 'on')}
+                onClick={() => tabs.select(k)}>
+                {label(k)}
+                {k === 'dev' && reviewing && <span className="side-dot tab-dot" title="等你验收" />}
+                {k === 'runs' && runRows.length > 0 && <span className="seg-n" title={`${runRows.length} 次执行`}>{runRows.length}</span>}
+                {k === 'runs' && running !== undefined && <span className="tab-light" title="有执行在跑" />}
+                {p?.badge && <ObjectSectionBadge badge={p.badge} object={task} />}
+              </button>
+            )
+          })}
+        </div>
+        <div role="tabpanel" aria-label={label(tab)} className="form task-form" data-tab={tab}>
+          {panel}
+        </div>
       </div>
     )
   }
 
   return (
     <>
-      <Drawer open onClose={onClose} dirty={dirty && !deleted} kicker={task ? task.ref : '新建任务'}
+      <Drawer open onClose={close} dirty={dirty && !deleted} kicker={task ? task.ref : '新建任务'}
         aria-label={task ? `${task.ref} ${task.title}` : '新建任务'}
         dirtyMessage="有未保存的修改，关闭后会丢掉。"
         footer={(requestClose) => deleted ? (
-          <><span className="spacer" /><Button onClick={onClose}>关闭</Button></>
+          <><span className="spacer" /><Button onClick={close}>关闭</Button></>
         ) : (
           <>
             {task && <Button variant="danger-ghost" disabled={busy} onClick={() => setAskDelete(true)}>删除任务</Button>}
@@ -253,7 +333,7 @@ function SegPick({ label, options, value, onChange, color }: {
   )
 }
 
-/** Markdown 输入：编辑和预览切换 */
+/** Markdown 输入：编辑和预览切换；编辑框高度随内容撑开 */
 function MdField({ label, value, onChange, rows, mono, placeholder, defaultPreview }: {
   label: string
   value: string
@@ -276,9 +356,10 @@ function MdField({ label, value, onChange, rows, mono, placeholder, defaultPrevi
           <button type="button" className={cls(preview && 'on')} aria-pressed={preview} onClick={() => setPreview(true)}>预览</button>
         </div>
       </div>
+      {/* 编辑框随内容撑开、不出内部滚动条，rows 是最小高度；预览也完整显示，不截高度 */}
       {preview
-        ? <div className="md-preview"><Markdown source={value} empty="还没有写" /></div>
-        : <Textarea id={id} rows={rows} className={cls(mono && 'mono-area')} value={value} placeholder={placeholder}
+        ? <div className="md-preview md-full"><Markdown source={value} empty="还没有写" /></div>
+        : <Textarea id={id} rows={rows} autoGrow className={cls(mono && 'mono-area')} value={value} placeholder={placeholder}
             onChange={(e) => onChange(e.target.value)} />}
     </div>
   )

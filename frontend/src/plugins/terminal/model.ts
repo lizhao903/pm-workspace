@@ -57,6 +57,21 @@ export function findPane(l: Layout, paneId: string): { tab: TermTab; pane: Pane 
   }
 }
 
+const trimSlash = (p: string) => (p.length > 1 ? p.replace(/\/+$/, '') : p)
+
+/** 停在某个目录的格子：当前标签的焦点格、当前标签的别的格、别的标签，依次找；目录比较忽略末尾斜杠，空目录不算 */
+export function findPaneByCwd(l: Layout, cwd: string): { tab: TermTab; pane: Pane } | undefined {
+  const want = trimSlash(cwd.trim())
+  if (!want) return undefined
+  const cur = activeTab(l)
+  const tabs = cur ? [cur, ...l.tabs.filter((t) => t !== cur)] : l.tabs
+  for (const tab of tabs) {
+    const panes = [...tab.panes].sort((a, b) => Number(b.id === tab.focus) - Number(a.id === tab.focus))
+    const pane = panes.find((p) => trimSlash(p.cwd) === want)
+    if (pane) return { tab, pane }
+  }
+}
+
 export function addTab(l: Layout, t: TermTab): Layout {
   return { tabs: [...l.tabs, t], active: t.id }
 }

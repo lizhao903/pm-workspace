@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/json"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/lizhao903/pm-workspace/internal/audit"
@@ -27,7 +28,16 @@ func (s *Server) handleListSchedules(w http.ResponseWriter, r *http.Request) {
 	if !s.schedulesConfigured(w) {
 		return
 	}
-	items, err := s.opt.Schedules.List(r.Context())
+	var (
+		items []schedule.Schedule
+		err   error
+	)
+	// ?object_id= 只看关联这个对象的提醒（任务抽屉里的「提醒」）
+	if id := strings.TrimSpace(r.URL.Query().Get("object_id")); id != "" {
+		items, err = s.opt.Schedules.ListByObject(r.Context(), id)
+	} else {
+		items, err = s.opt.Schedules.List(r.Context())
+	}
 	if err != nil {
 		s.fail(w, r, err)
 		return

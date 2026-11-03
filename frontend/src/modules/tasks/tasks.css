@@ -78,6 +78,18 @@
 .task-check:not(:disabled):hover { border-color: var(--ok); }
 .task-check:disabled { cursor: default; }
 .task-form { padding-bottom: var(--sp-4); }
+/* 已有任务分标签（SPEC-tasks-4.35）：标题一行、标签条（样式同项目详情的标签条），标签条滚动时贴在抽屉顶上 */
+.task-detail { display: flex; flex-direction: column; gap: var(--sp-6); }
+.tk-title { font-size: var(--fs-lg); font-weight: 600; line-height: 1.4; word-break: break-word; }
+.tk-tabs {
+  position: sticky; top: -22px; z-index: 2; margin-top: calc(-1 * var(--sp-3)); background: var(--panel);
+  display: flex; gap: 18px; border-bottom: 1px solid var(--line); overflow-x: auto; scrollbar-width: none;
+}
+.tk-tabs::-webkit-scrollbar { display: none; }
+.tk-tabs button { flex: none; display: inline-flex; align-items: center; gap: 6px; height: 34px; color: var(--muted); border-bottom: 2px solid transparent; margin-bottom: -1px; background: none; white-space: nowrap; }
+.tk-tabs button:hover { color: var(--text); }
+.tk-tabs button.on { color: var(--text); font-weight: 600; border-bottom-color: var(--accent); }
+.task-detail .dev-slots { padding-top: 0; border-top: 0; }
 .seg-full { width: 100%; }
 .seg-full button { flex: 1; justify-content: center; }
 .seg-sm button { height: 22px; padding: 0 var(--sp-4); font-size: var(--fs-xs); }
@@ -96,6 +108,8 @@
 /* Markdown 编辑和预览 */
 .md-head { display: flex; align-items: center; gap: var(--sp-4); }
 .md-preview { min-height: 72px; max-height: 360px; overflow: auto; padding: var(--sp-5) var(--sp-6); border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--panel-2); }
+/* 正文、验收标准的阅读态完整显示，跟编辑框一样按内容撑开 */
+.md-preview.md-full { max-height: none; overflow: visible; }
 .md { display: flex; flex-direction: column; gap: var(--sp-4); word-break: break-word; }
 .md > * { margin: 0; }
 .md h3, .md h4, .md h5, .md h6 { font-size: var(--fs-md); font-weight: 600; }

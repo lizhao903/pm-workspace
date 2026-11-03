@@ -4,6 +4,8 @@
 .run-list { display: flex; flex-direction: column; gap: var(--sp-3); }
 
 .run-item { border: 1px solid var(--line); border-radius: var(--r); background: var(--panel); overflow: hidden; }
+/* 从别处跳过来定位的那一条（?run=） */
+.run-item.lit { border-color: var(--accent-line); box-shadow: 0 0 0 3px var(--accent-soft); }
 .run-head { display: flex; align-items: center; gap: var(--sp-4); width: 100%; min-width: 0; padding: var(--sp-4) var(--sp-5); text-align: left; font-size: var(--fs-sm); background: none; border: 0; color: inherit; cursor: pointer; }
 .run-head:hover { background: var(--hover); }
 .run-chev { display: inline-flex; flex: none; color: var(--faint); transition: transform 0.12s; }
@@ -44,3 +46,8 @@
 @media (max-width: 640px) {
   .run-head .run-extra { display: none; }
 }
+
+/* 执行方式标签（0048）：流式淡、终端醒目一点 */
+.run-mode { flex: none; padding: 0 6px; border-radius: 4px; border: 1px solid var(--line); color: var(--muted); font-size: var(--fs-2xs, 11px); line-height: 18px; }
+.run-mode.term { border-color: var(--accent); color: var(--accent); }
+.run-finish { display: flex; flex-direction: column; gap: var(--sp-4); }

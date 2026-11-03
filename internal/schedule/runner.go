@@ -68,6 +68,8 @@ type Runner struct {
 	SOPs SOPStarter
 	// Incidents 执行动作 incident_sweep（INC-01a），接 internal/incident；为 nil 时记 unsupported
 	Incidents IncidentSweeper
+	// Reminders 执行动作 remind，接 internal/notify；为 nil 时记 unsupported
+	Reminders Reminder
 
 	mu     sync.Mutex // Tick 串行
 	cancel context.CancelFunc
@@ -158,8 +160,9 @@ func (r *Runner) handle(ctx context.Context, d *dueRow, now time.Time) error {
 		v := *t
 		due = &v
 	}
+	n := 0
 	if d.Enabled {
-		first, n := Next(d.Rule, from, loc), 0
+		first := Next(d.Rule, from, loc)
 		for t := first; t != nil && !t.After(now) && n < maxMissedCount; t = Next(d.Rule, *t, loc) {
 			if due != nil && t.Equal(*due) {
 				break
@@ -178,6 +181,12 @@ func (r *Runner) handle(ctx context.Context, d *dueRow, now time.Time) error {
 				return err
 			}
 		} else if _, err := r.s.insertRun(ctx, d.ID, *due, false, runResult{status: RunSkipped, text: "没执行：已停用"}, 0); err != nil {
+			return err
+		}
+	}
+	// 一次性提醒到点了（提醒了或错过了）就停用，列表里显示「已提醒」
+	if d.Enabled && (due != nil || n > 0) && onceDone(&d.Schedule) {
+		if err := r.s.disableDone(ctx, d.ID); err != nil {
 			return err
 		}
 	}
@@ -220,6 +229,10 @@ func (r *Runner) execute(ctx context.Context, sc *Schedule, planned time.Time, m
 		if r.Incidents == nil {
 			return r.s.insertRun(ctx, sc.ID, planned, manual, runResult{status: RunUnsupported, text: incidentUnavailableText}, 0)
 		}
+	case ActionRemind:
+		if r.Reminders == nil {
+			return r.s.insertRun(ctx, sc.ID, planned, manual, runResult{status: RunUnsupported, text: remindUnavailableText}, 0)
+		}
 	case ActionTask:
 	default:
 		if r.s.plugins == nil {
@@ -241,6 +254,8 @@ func (r *Runner) execute(ctx context.Context, sc *Schedule, planned time.Time, m
 		res = r.createTask(ctx, sc, planned)
 	case ActionIncidentSweep:
 		res = r.sweepIncidents(ctx, sc, run)
+	case ActionRemind:
+		res = r.remind(ctx, sc, run, planned, manual)
 	default:
 		res = r.runPlugin(ctx, sc, run, planned, manual)
 	}

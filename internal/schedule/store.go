@@ -59,6 +59,8 @@ type Store struct {
 	now func() time.Time
 	// plugins 校验、执行插件登记的动作（VID-06a），SetPluginActions 接上
 	plugins PluginActions
+	// objects 查提醒关联的对象在不在，SetObjects 接上（remind.go）
+	objects ObjectLookup
 }
 
 // New 建一个定时任务表的读写。loc 是规则里墙上时间所在的时区，nil 为 time.Local。
@@ -122,7 +124,10 @@ func (s *Store) checkAction(ctx context.Context, a Action) (Action, error) {
 	if !builtinKind(a.Kind) {
 		return s.checkPluginAction(ctx, a)
 	}
-	return a, a.Validate()
+	if err := a.Validate(); err != nil {
+		return a, err
+	}
+	return a, s.checkRemindObject(ctx, a)
 }
 
 // Create 新建一个定时任务。

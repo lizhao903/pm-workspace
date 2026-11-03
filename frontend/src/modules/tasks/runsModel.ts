@@ -121,3 +121,15 @@ export function duration(from: string, to: string | null, now: Date = new Date()
   if (s < 3600) return `${Math.round(s / 60)} 分钟`
   return `${Math.floor(s / 3600)} 小时 ${Math.round((s % 3600) / 60)} 分钟`
 }
+
+/** 执行方式的名字（0048）；老记录没有 mode 按流式算 */
+export function modeLabel(mode: TaskRun['mode'] | undefined): string {
+  return mode === 'terminal' ? '终端' : '流式'
+}
+
+/** 终端执行「标记结束」的结果选项 */
+export const FINISH_OPTIONS: { value: 'done' | 'failed' | 'canceled'; label: string }[] = [
+  { value: 'done', label: '完成' },
+  { value: 'failed', label: '失败' },
+  { value: 'canceled', label: '取消' },
+]

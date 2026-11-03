@@ -127,6 +127,36 @@ describe('定时任务页（TASK-04a）', () => {
     expect(await screen.findByText('巡检运行异常：错误和警告，至少 3 次，建任务交给 Claude Code')).toBeInTheDocument()
   })
 
+  it('提醒：动作能选，填标题、内容；只提醒一次的到点后列表写「已提醒」', async () => {
+    const past = new Date(Date.now() - 86400_000)
+    const pd = `${past.getFullYear()}-${String(past.getMonth() + 1).padStart(2, '0')}-${String(past.getDate()).padStart(2, '0')}`
+    const rows: Schedule[] = [sch('sch_done', '提醒：回电话', {
+      enabled: false, next_run_at: null, rule: { freq: 'once', time: '09:00', weekdays: [], day: 1, date: pd, cron: '' },
+      action: { kind: 'remind', title: '回电话', body: '', object_id: 'obj_1' },
+    })]
+    const done: ScheduleRun = { id: 'srn_1', schedule_id: 'sch_done', at: past.toISOString(), status: 'ok', ok: true, text: '提醒了「回电话」，关联 TSK-0001',
+      manual: false, missed: 0, object_id: 'obj_1', ref: 'TSK-0001', started_at: '', finished_at: '' }
+    fakeBackend(rows, { sch_done: [done] })
+    renderPage()
+    await userEvent.click(await screen.findByRole('button', { name: '新建定时任务' }))
+    const drawer = await screen.findByRole('dialog', { name: '新建定时任务' })
+    await userEvent.type(within(drawer).getByPlaceholderText('比如：周会前整理议程'), '喝水')
+    await userEvent.click(within(drawer).getByRole('radio', { name: '提醒' }))
+    expect(within(drawer).getByText(/到点在工作台右下角弹一条提醒，不发到 IM/)).toBeInTheDocument()
+    await userEvent.click(within(drawer).getByRole('button', { name: '创建' }))
+    expect(within(drawer).getAllByText('提醒标题必填').length).toBeGreaterThan(0)
+    await userEvent.type(within(drawer).getByPlaceholderText('比如：给客户回电话'), ' 喝水 ')
+    await userEvent.type(within(drawer).getByRole('textbox', { name: /内容/ }), '起来走走')
+    await userEvent.click(within(drawer).getByRole('button', { name: '创建' }))
+    await waitFor(() => expect(rows[0]?.action).toEqual({ kind: 'remind', title: '喝水', body: '起来走走', object_id: '' }))
+    expect(await screen.findByText('提醒「喝水」')).toBeInTheDocument()
+
+    // 已经提醒过的一次性提醒停用了，在「已停用」段里写「已提醒」
+    await userEvent.click(within(screen.getByRole('group', { name: '已停用' })).getByRole('button', { name: /已停用/ }))
+    const row = await screen.findByRole('button', { name: '提醒：回电话' })
+    expect(await within(row).findByText('已提醒')).toBeInTheDocument()
+  })
+
   it('立即执行一次：执行记录多一条带「手动」，建出的任务编号可点', async () => {
     const calls = fakeBackend([sch('sch_a', '周会前整理议程')])
     renderPage('/tasks/schedules?open=sch_a')

@@ -48,9 +48,9 @@ type PluginActions interface {
 // SetPluginActions 接上插件动作；没接时只认 task / sop / agent。在调度器 Start 之前调。
 func (s *Store) SetPluginActions(p PluginActions) { s.plugins = p }
 
-// builtinKind 是内核自己的动作：task、sop、agent，和运行异常巡检 incident_sweep（INC-01a）。
+// builtinKind 是内核自己的动作：task、sop、agent，运行异常巡检 incident_sweep（INC-01a），和提醒 remind。
 func builtinKind(kind string) bool {
-	return kind == ActionTask || kind == ActionSOP || kind == ActionAgent || kind == ActionIncidentSweep
+	return kind == ActionTask || kind == ActionSOP || kind == ActionAgent || kind == ActionIncidentSweep || kind == ActionRemind
 }
 
 // checkPluginAction 把校验交给插件；kind 没人认时报的错和没接插件时一样。
