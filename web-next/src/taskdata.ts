@@ -26,10 +26,14 @@ export const PRIORITIES: Priority[] = ['P0', 'P1', 'P2', 'P3']
 export type TaskSource =
   | { kind: 'manual' }
   /** session_id：从消息发起的会话里 Agent 拆出来的任务（SPEC-messages-5.6），转任务建的没有 */
-  | { kind: 'im'; message_id: string; channel: string; sender: string; text: string; session_id?: string }
+  /** reply_on_done：转任务时勾了「执行完成后在原消息里回复」（SPEC-tasks-4.42），正式产品由 SOP「IM 任务回执」回复 */
+  | { kind: 'im'; message_id: string; channel: string; sender: string; text: string; session_id?: string; reply_on_done?: boolean }
   | { kind: 'webhook'; hook_id: string; delivery_id: string }
   | { kind: 'schedule'; schedule_id: string; name: string }
   | { kind: 'incident'; incident_id: string; title: string }
+
+/** 提出人：认到联系人时 contact_id 是联系人 id、name 是联系人名；认不上时存 IM 发送者快照（渠道、编号、显示名） */
+export interface TaskRequester { contact_id?: string; name: string; channel?: string; sender_id?: string; sender_name?: string }
 
 export interface Task {
   id: string
@@ -54,6 +58,15 @@ export interface Task {
   repo?: string
   /** 标签；运行异常巡检建的任务带 claude-code，交给 Claude Code 修（INC-01） */
   tags?: string[]
+  /** 阶段（AUTO-05，SPEC-tasks-11）：提出人在看板上看到的流程进度，取值见 taskstage.tsx 的 STAGES；没设为空（对应 props.stage） */
+  stage?: string
+  /** 提出人（对应 props.requester）：IM 转来的自动填，认得出联系人带 contact_id */
+  requester?: TaskRequester
+  /**
+   * 阶段变化历史（AUTO-12，流水线时间线 SPEC-sop-16），早的在前；from、to 没设阶段为空串。
+   * 正式产品不存在任务上，取审计 kind=stage（每次阶段变化记一条，detail 带 from、to）
+   */
+  stage_log?: { at: string; from: string; to: string }[]
   created_at: string
   updated_at: string
 }
@@ -205,21 +218,28 @@ export const seedDeliveries: Delivery[] = [
 
 export const seedTasks: Task[] = [
   // 交给 Claude Code 做的开发任务：进展、产出物、执行记录在文件末尾的 seedProgress / seedArtifacts / seedRuns
-  { id: 'tk_dev3', project_id: 'pj_perm', ref: 'T-017', title: '权限变更缓存改成按部门失效', desc: '对应 T-009：权限变更要 1 分钟内生效。现在整租户缓存 10 分钟，改成按部门打版本号，改了哪个部门只失效哪个部门。', status: 'review', priority: 'P1', assignee: 'Claude Code', due: dayOffset(2), source: { kind: 'manual' },
+  { id: 'tk_dev3', stage: 'accepting', requester: { contact_id: 'ct_005', name: '许知行', channel: 'lark', sender_id: 'ou_7f3a9c21' }, project_id: 'pj_perm', ref: 'T-017', title: '权限变更缓存改成按部门失效', desc: '对应 T-009：权限变更要 1 分钟内生效。现在整租户缓存 10 分钟，改成按部门打版本号，改了哪个部门只失效哪个部门。', status: 'review', priority: 'P1', assignee: 'Claude Code', due: dayOffset(2), source: { kind: 'manual' },
     acceptance: '- [ ] 改了某个部门的角色，1 分钟内该部门成员的权限生效\n- [ ] 其他部门的缓存不受影响\n- [ ] 500 并发下权限查询 p99 不超过 20ms',
     workdir: '/Volumes/project/clients/yuanchuan-permission/server', repo: '/Volumes/project/clients/yuanchuan-permission', created_at: minsAgo(60 * 4), updated_at: minsAgo(50) },
-  { id: 'tk_dev2', project_id: 'pj_pmw', ref: 'T-016', title: '旧版设置页的错误横幅改成行内提示', desc: '旧版问题清单里的「列表页错误横幅太占地方」。保存失败时在出错的字段下面提示，不在页顶铺一条横幅。', status: 'doing', priority: 'P2', assignee: 'Claude Code', due: dayOffset(4), source: { kind: 'manual' },
+  { id: 'tk_dev2', stage: 'developing', stage_log: [
+    { at: minsAgo(60 * 2), from: '', to: 'received' }, { at: minsAgo(115), from: 'received', to: 'designing' },
+    { at: minsAgo(100), from: 'designing', to: 'reviewing' }, { at: minsAgo(97), from: 'reviewing', to: 'designing' },
+    { at: minsAgo(95), from: 'designing', to: 'reviewing' }, { at: minsAgo(92), from: 'reviewing', to: 'developing' },
+  ], project_id: 'pj_pmw', ref: 'T-016', title: '旧版设置页的错误横幅改成行内提示', desc: '旧版问题清单里的「列表页错误横幅太占地方」。保存失败时在出错的字段下面提示，不在页顶铺一条横幅。', status: 'doing', priority: 'P2', assignee: 'Claude Code', due: dayOffset(4), source: { kind: 'manual' },
     acceptance: '- [ ] 连接器、模型服务商、Agent 三个设置页保存失败时在字段下提示\n- [ ] 页顶不再出现错误横幅\n- [ ] npm run build 通过',
     workdir: '/Volumes/project/0xBroleez/pm-workspace/web', repo: '/Volumes/project/0xBroleez/pm-workspace', created_at: minsAgo(60 * 2), updated_at: minsAgo(25) },
-  { id: 'tk_dev1', project_id: 'pj_pmw', ref: 'T-015', title: '导出改成分批写文件，修掉 300 秒超时', desc: '对应 T-012。Sentry 报 runExport 300 秒超时：大租户的审计日志一次读进内存再写文件。改成分批读、边读边写。', status: 'review', priority: 'P1', assignee: 'Claude Code', due: dayOffset(1), source: { kind: 'manual' },
+  { id: 'tk_dev1', stage: 'testing', requester: { contact_id: 'ct_002', name: '周屿', channel: 'slack', sender_id: 'U04ZHOUYU0' }, project_id: 'pj_pmw', ref: 'T-015', title: '导出改成分批写文件，修掉 300 秒超时', desc: '对应 T-012。Sentry 报 runExport 300 秒超时：大租户的审计日志一次读进内存再写文件。改成分批读、边读边写。', status: 'review', priority: 'P1', assignee: 'Claude Code', due: dayOffset(1), source: { kind: 'manual' },
     acceptance: '- [ ] 12 万行的导出 60 秒内完成\n- [ ] 导出过程中内存峰值不超过 200MB\n- [ ] 界面上不再显示「导出超时」\n- [ ] go test ./internal/export/... 通过',
     repo: '/Volumes/project/0xBroleez/pm-workspace', created_at: minsAgo(60 * 6), updated_at: minsAgo(100) },
   { id: 'tk_a1', project_id: 'pj_perm', ref: 'T-014', title: '确认演示环境能不能打开自定义角色', desc: '消息分诊助手在会话里建的，跟 T-010 配套：先确认演示环境的开关', status: 'todo', priority: 'P2', assignee: '我', due: dayOffset(2), source: { kind: 'manual' }, created_at: minsAgo(24), updated_at: minsAgo(24) },
   { id: 'tk_inc_seed', ref: 'T-013', title: '[异常] Webhook：官网需求表单标题字段取不到', desc: '对方表单可能改了字段名，映射要兼容，或者取不到时给出明确提示', status: 'todo', priority: 'P2', assignee: '周屿', due: dayOffset(4), source: { kind: 'incident', incident_id: 'inc3', title: '官网需求表单：标题字段取不到' }, created_at: minsAgo(110), updated_at: minsAgo(110) },
-  { id: 'tk_s1', project_id: 'pj_pmw', ref: 'T-012', title: 'Export job timeout after 300s', desc: 'src/pages/Export.tsx in runExport', status: 'doing', priority: 'P0', assignee: '周屿', due: dayOffset(0), source: { kind: 'webhook', hook_id: 'wh_sentry', delivery_id: 'dl_s1' }, created_at: AT_S1, updated_at: minsAgo(10) },
-  { id: 'tk_f1', project_id: 'pj_beian', ref: 'T-011', title: '司机端支持离线签收', desc: '山区信号差，签收时经常提交失败，希望先存本地，有网了自动补传。', status: 'todo', priority: 'P1', assignee: '林予安', due: dayOffset(21), source: { kind: 'webhook', hook_id: 'wh_form', delivery_id: 'dl_f1' }, created_at: AT_F1, updated_at: AT_F1 },
-  { id: 'tk_i1', project_id: 'pj_perm', ref: 'T-010', title: '月底演示带上按部门自定义角色', desc: '客户老板下周要看，先确认演示环境能不能开这个开关。', status: 'todo', priority: 'P1', assignee: '我', due: dayOffset(3), source: { kind: 'im', message_id: 'msg_003', channel: 'lark', sender: '许知行', text: '月底的演示能不能把按部门自定义角色带上？我们老板下周要看。' }, created_at: minsAgo(30), updated_at: minsAgo(30) },
-  { id: 'tk_i2', project_id: 'pj_perm', ref: 'T-009', title: '和后端对齐权限变更生效时间的缓存方案', desc: '', status: 'doing', priority: 'P2', assignee: '我', due: dayOffset(1), source: { kind: 'im', message_id: 'msg_005', channel: 'slack', sender: 'Zhou Yu', text: '权限变更 1 分钟内生效这条，缓存方案要改，可能会影响排期，找时间对一下。' }, created_at: minsAgo(75), updated_at: minsAgo(40) },
+  { id: 'tk_s1', stage: 'need_human', stage_log: [
+    { at: minsAgo(60 * 5), from: '', to: 'received' }, { at: minsAgo(60 * 4), from: 'received', to: 'designing' },
+    { at: minsAgo(60 * 3), from: 'designing', to: 'reviewing' }, { at: minsAgo(40), from: 'reviewing', to: 'need_human' },
+  ], requester: { contact_id: 'ct_002', name: '周屿', channel: 'slack', sender_id: 'U04ZHOUYU0' }, project_id: 'pj_pmw', ref: 'T-012', title: 'Export job timeout after 300s', desc: 'src/pages/Export.tsx in runExport', status: 'doing', priority: 'P0', assignee: '周屿', due: dayOffset(0), source: { kind: 'webhook', hook_id: 'wh_sentry', delivery_id: 'dl_s1' }, created_at: AT_S1, updated_at: minsAgo(10) },
+  { id: 'tk_f1', stage: 'received', requester: { name: '山区站点王师傅', channel: 'webhook', sender_name: '山区站点王师傅' }, project_id: 'pj_beian', ref: 'T-011', title: '司机端支持离线签收', desc: '山区信号差，签收时经常提交失败，希望先存本地，有网了自动补传。', status: 'todo', priority: 'P1', assignee: '林予安', due: dayOffset(21), source: { kind: 'webhook', hook_id: 'wh_form', delivery_id: 'dl_f1' }, created_at: AT_F1, updated_at: AT_F1 },
+  { id: 'tk_i1', stage: 'designing', requester: { contact_id: 'ct_005', name: '许知行', channel: 'lark', sender_id: 'ou_7f3a9c21' }, project_id: 'pj_perm', ref: 'T-010', title: '月底演示带上按部门自定义角色', desc: '客户老板下周要看，先确认演示环境能不能开这个开关。', status: 'todo', priority: 'P1', assignee: '我', due: dayOffset(3), source: { kind: 'im', message_id: 'msg_003', channel: 'lark', sender: '许知行', text: '月底的演示能不能把按部门自定义角色带上？我们老板下周要看。' }, created_at: minsAgo(30), updated_at: minsAgo(30) },
+  { id: 'tk_i2', stage: 'clarifying', requester: { contact_id: 'ct_002', name: '周屿', channel: 'slack', sender_id: 'U04ZHOUYU0' }, project_id: 'pj_perm', ref: 'T-009', title: '和后端对齐权限变更生效时间的缓存方案', desc: '', status: 'doing', priority: 'P2', assignee: '我', due: dayOffset(1), source: { kind: 'im', message_id: 'msg_005', channel: 'slack', sender: 'Zhou Yu', text: '权限变更 1 分钟内生效这条，缓存方案要改，可能会影响排期，找时间对一下。' }, created_at: minsAgo(75), updated_at: minsAgo(40) },
   { id: 'tk_m1', project_id: 'pj_pmw', ref: 'T-008', title: '整理 Q4 路线图初稿', desc: '按「云端 / 本地端 / 平台」三条线，先列候选，周五前给到负责人。', status: 'todo', priority: 'P2', assignee: '我', due: dayOffset(-1), source: { kind: 'manual' }, created_at: minsAgo(60 * 30), updated_at: minsAgo(60 * 30) },
   { id: 'tk_m2', project_id: 'pj_perm', ref: 'T-007', title: '权限模型 PRD 评审', desc: '约林予安、周屿、陈若溪', status: 'done', priority: 'P1', assignee: '我', due: dayOffset(-2), source: { kind: 'manual' }, created_at: minsAgo(60 * 70), updated_at: minsAgo(60 * 26) },
   { id: 'tk_m3', ref: 'T-006', title: '续签云栈 IDC 机柜合同', desc: '', status: 'todo', priority: 'P3', assignee: '我', due: dayOffset(10), source: { kind: 'manual' }, created_at: minsAgo(60 * 80), updated_at: minsAgo(60 * 80) },

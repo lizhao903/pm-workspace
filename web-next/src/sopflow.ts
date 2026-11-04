@@ -10,7 +10,7 @@
 // 原型里步骤由前端定时器模拟，每步的产出是写死的规则，不连真服务
 import { seedContacts, seedMessages } from './data'
 import { newId } from './ids'
-import { NODE_TYPES, isBranching, typeOf, type Cfg, type StepKind } from './nodetypes'
+import { NODE_TYPES, evalRule, isBranching, loopRounds, render, typeOf, type Cfg, type StepKind } from './nodetypes'
 
 export type Json = Record<string, unknown>
 export type { StepKind }
@@ -89,10 +89,22 @@ export interface RunStep {
   edited?: 'input' | 'output' | 'route'
   attempts: number
   log: { at: number; text: string }[]
-  /** 在排队等模型名额（SOP-07）：状态仍是 running，ahead 是全局队列里前面还有几个 */
-  queue?: { ahead: number }
+  /** 在排队（状态仍是 running）：ahead 是全局队列里前面还有几个；slot 为空是等模型名额（SOP-07），claude_code 是等 Claude Code 名额（AUTO-12） */
+  queue?: { ahead: number; slot?: 'claude_code' }
   /** 占着一个调模型的名额（原型自己用；正式产品在后端内存里） */
   gated?: boolean
+  /** 占着一个 Claude Code 名额（AUTO-12，原型自己用） */
+  cgated?: boolean
+  /** 超出治理上限被暂停（AUTO-12，SPEC-sop-15）：没放行时停在 paused；放行后 released，attempt 是放行的那次尝试 */
+  hold?: { kind: 'runs' | 'duration'; reason: string; since: number; released?: boolean; attempt?: number }
+  /** Claude Code 节点发起的那次执行（AUTO-01）：执行 id、关联任务（执行记录留在任务上时）、工作目录 */
+  claude?: { run_id: string; task_id?: string; workdir?: string }
+  /** 第几轮：被条件回退退回重做后为 2、3……，首轮没有（AUTO-02） */
+  round?: number
+  /** 这一轮被退回重做的原因 */
+  rework_reason?: string
+  /** 条件回退节点已经自动退回了几次 */
+  loops?: number
 }
 
 export interface SopRun {
@@ -166,7 +178,9 @@ export const runShow = (r: SopRun): RunShow => {
 /** 排队中的步骤（SOP-07）：状态仍是 running，界面单独显示「排队中」 */
 export const QUEUED_LOOK = { label: '排队中', color: '#7a766c' }
 export const isQueued = (s: RunStep) => s.status === 'running' && !!s.queue
-export const stepLook = (s: RunStep) => (isQueued(s) ? QUEUED_LOOK : STEP_STATUS[s.status])
+/** 超出治理上限暂停（AUTO-12）：状态是 paused，带没放行的 hold */
+export const HELD_LOOK = { label: '超出上限', color: '#c0392b' }
+export const stepLook = (s: RunStep) => (isQueued(s) ? QUEUED_LOOK : isHeld(s) ? HELD_LOOK : STEP_STATUS[s.status])
 
 /* ---------- 调模型的并发上限（SOP-07） ---------- */
 
@@ -218,6 +232,89 @@ export function gateRuns(runs: SopRun[], limit: number, now = Date.now()): SopRu
   })
   return changed ? out : runs
 }
+
+/**
+ * 流水线治理（AUTO-12，SPEC-sop-15）：同时跑的 Claude Code 步骤数、每个需求累计跑 Claude Code 的次数和分钟数，0 是不限。
+ * 正式产品存在插件设置 sop_settings，账本在 sop_claude_usage（governance.go）；token 用量拿不到，不按 token 控制
+ */
+export type Governance = { claude_concurrency: number; task_max_claude_runs: number; task_max_claude_minutes: number }
+export const GOVERNANCE_DEFAULT: Governance = { claude_concurrency: 3, task_max_claude_runs: 30, task_max_claude_minutes: 1440 }
+export const GOVERNANCE_MAX: Governance = { claude_concurrency: 10, task_max_claude_runs: 1000, task_max_claude_minutes: 100000 }
+
+/** Claude Code 步骤算到哪份预算上：配了关联任务按任务，没配按这次执行 */
+export const budgetKey = (run: SopRun, i: number) => render(run.sop.steps[i].config?.task ?? '', run.steps[i].input ?? {}) || run.object_id || `run:${run.id}`
+
+/** 一份预算已经用了的次数和分钟数：发起过的 Claude Code 步骤，每次尝试算一次（含重试、退回重做）；在跑的算到 now */
+export function claudeUsage(runs: SopRun[], key: string, now = Date.now()): { runs: number; minutes: number } {
+  let n = 0
+  let ms = 0
+  for (const r of runs) {
+    r.steps.forEach((s, i) => {
+      if (r.sop.steps[i].kind !== 'claude_code' || budgetKey(r, i) !== key) return
+      const launched = s.cgated || !!s.claude || s.status === 'done' || s.status === 'failed'
+      if (!launched) return
+      n += Math.max(1, s.attempts)
+      if (s.started_at) ms += (s.ended_at ?? now) - s.started_at
+    })
+  }
+  return { runs: n, minutes: Math.floor(ms / 60000) }
+}
+
+/**
+ * 每次调度后做一次治理：刚放出来的 Claude Code 步骤先查预算，超了转 paused、记 hold；没超的按 claude_concurrency 排队（queue.slot = claude_code），
+ * 排到了从这时开始计时。人放行过的那次尝试不再拦。正式产品在后端（governance.go），超限还发一条错误级通知
+ */
+export function governRuns(runs: SopRun[], gov: Governance, now = Date.now()): SopRun[] {
+  let out = runs
+  const put = (r: number, i: number, next: RunStep) => {
+    out = out.map((run, k) => (k === r ? { ...run, steps: run.steps.map((x, j) => (j === i ? next : x)) } : run))
+  }
+  // 预算
+  runs.forEach((run, r) => run.steps.forEach((s, i) => {
+    if (run.stopped || s.status !== 'running' || s.cgated || s.queue || run.sop.steps[i].kind !== 'claude_code') return
+    if (s.hold?.released && s.hold.attempt === s.attempts) return
+    const key = budgetKey(run, i)
+    const u = claudeUsage(out, key, now)
+    const who = key.startsWith('run:') ? '这次流水线' : `需求 ${key} `
+    let hold: RunStep['hold']
+    if (gov.task_max_claude_runs > 0 && u.runs >= gov.task_max_claude_runs) {
+      hold = { kind: 'runs', reason: `${who}已经跑了 ${u.runs} 次 Claude Code，到了上限 ${gov.task_max_claude_runs} 次`, since: now }
+    } else if (gov.task_max_claude_minutes > 0 && u.minutes >= gov.task_max_claude_minutes) {
+      hold = { kind: 'duration', reason: `${who}Claude Code 累计跑了 ${u.minutes} 分钟，到了上限 ${gov.task_max_claude_minutes} 分钟`, since: now }
+    }
+    if (hold) put(r, i, logged({ ...s, status: 'paused', hold, attempts: Math.max(0, s.attempts - 1) }, now, `超出上限，暂停：${hold.reason}。点「继续」放行这一次，或到 SOP 设置里调高上限`))
+  }))
+  // 并发
+  let held = 0
+  const wait: { r: number; i: number }[] = []
+  out.forEach((run, r) => run.steps.forEach((s, i) => {
+    if (run.sop.steps[i].kind !== 'claude_code') return
+    if (run.stopped || s.status !== 'running') {
+      if (s.cgated || s.queue?.slot) put(r, i, { ...s, cgated: undefined, queue: undefined })
+      return
+    }
+    if (s.cgated) held++
+    else wait.push({ r, i })
+  }))
+  wait.sort((a, b) => (out[a.r].started_at - out[b.r].started_at) || (a.r - b.r) || (a.i - b.i))
+  let granted = 0
+  wait.forEach(({ r, i }, n) => {
+    const s = out[r].steps[i]
+    if (held < gov.claude_concurrency) {
+      held++
+      granted++
+      put(r, i, s.queue ? logged({ ...s, cgated: true, queue: undefined, started_at: now }, now, '排到了，交给 Claude Code') : { ...s, cgated: true })
+    } else {
+      const ahead = n - granted
+      if (!s.queue) put(r, i, logged({ ...s, queue: { ahead, slot: 'claude_code' } }, now, `排队等 Claude Code 名额（前面还有 ${ahead} 个）`))
+      else if (s.queue.ahead !== ahead) put(r, i, { ...s, queue: { ahead, slot: 'claude_code' } })
+    }
+  })
+  return out
+}
+
+/** 这一步正停在「超出上限」上等人放行 */
+export const isHeld = (s: RunStep) => s.status === 'paused' && !!s.hold && !s.hold.released
 
 const FINISHED: StepStatus[] = ['done', 'skipped', 'bypassed']
 export const isFinished = (s: StepStatus) => FINISHED.includes(s)
@@ -587,6 +684,249 @@ export const SOPS: Sop[] = [
       },
     ],
   },
+  // 需求评审闭环（AUTO-01 Claude Code 执行 + AUTO-02 条件回退）：产品 Agent 写 PRD，研发评审 Agent 只读评审，
+  // 不通过自动退回产品带着意见重写，最多 3 轮，超限转人工裁决。原型里评审首轮不通过、第 2 轮通过
+  {
+    id: 'sop_prd_review',
+    name: '需求评审闭环',
+    desc: 'Claude Code 按产品角色写 PRD，再按研发评审角色只读评审；不通过自动退回重写，最多 3 轮，超限转人工',
+    trigger: 'manual',
+    fields: [
+      { key: 'task_id', label: '需求任务', type: 'text', required: true, placeholder: '任务 id' },
+      { key: 'dir', label: '项目目录', type: 'text', required: true, default: '/Volumes/project/octok', placeholder: '本机绝对路径' },
+    ],
+    steps: [
+      {
+        key: 'prd', name: '产品：写 PRD', kind: 'claude_code', ms: 3000, after: [],
+        desc: '按任务正文写 PRD、更新原型；被评审退回时带着意见改',
+        config: { preset: 'rp_pm', workdir: '{{dir}}', prompt: '按任务 {{task_id}} 写 PRD，更新原型与规格', task: '{{task_id}}', permission: '', timeout: '2 小时' },
+      },
+      {
+        key: 'review', name: '研发评审', kind: 'claude_code', ms: 3000,
+        desc: '只读评审 PRD，回报 verdict 和 issues',
+        config: { preset: 'rp_review', workdir: '{{dir}}', prompt: '评审任务 {{task_id}} 的 PRD', task: '{{task_id}}', permission: '', timeout: '1 小时' },
+      },
+      {
+        key: 'gate', name: '评审不通过就退回', kind: 'loopback', ms: 400, rule: 'result.verdict 等于 reject',
+        desc: '不通过退回产品重写，意见作为 feedback 带回去',
+        config: { target: 'prd', max_rounds: '3' },
+        cases: [{ key: 'pass', label: '通过' }, { key: 'over', label: '超限' }],
+      },
+      {
+        key: 'dev', name: '进入研发', kind: 'task', ms: 600, after: ['gate'], branch: { of: 'gate', case: 'pass' },
+        desc: '评审通过，建研发任务',
+        config: { title: '开发：{{summary}}', priority: 'P1', assignee: '我' },
+      },
+      {
+        key: 'human', name: '人工裁决', kind: 'review', ms: 300, after: ['gate'], branch: { of: 'gate', case: 'over' },
+        desc: '退回 3 轮仍不通过：看评审意见决定放行还是打回',
+      },
+    ],
+  },
+  // IM 需求自动受理（AUTO-06，SPEC-sop-0 演示数据、SPEC-messages-2.51）：正式产品由 IM 插件写进 SOP 的内置流程 sop_im_auto_intake，
+  // 默认停用（触发方式手动），在编排页把触发方式改成「IM 消息」才自动处理新消息。IM、项目插件的节点原型里用 auto 模拟：
+  // 读取消息、转成任务、回执、列/读项目档案、设置任务阶段、问提出人、等回复。原型里分类拿得准、评审首轮退回、第 2 轮通过
+  {
+    id: 'sop_im_auto_intake',
+    name: 'IM 需求自动受理',
+    desc: 'IM 消息是需求就建任务、回执提出人，按项目档案分类（拿不准问提出人），Claude Code 写 PRD、研发评审，不通过自动退回最多 3 轮，通过后进入开发。默认停用：触发方式是「手动」，改成「IM 消息」才会自动处理新消息',
+    trigger: 'manual',
+    fields: [
+      { key: 'message_id', label: 'IM 消息', type: 'text', required: true, default: 'm1', placeholder: '消息 id；IM 触发时自动带上' },
+      { key: 'conversation_id', label: '会话', type: 'text', placeholder: '留空取消息所在的会话' },
+    ],
+    steps: [
+      {
+        key: 'read', name: '读取消息', kind: 'auto', ms: 300, after: [], desc: '按消息 id 取出正文、发信人和会话',
+        run: (i) => {
+          const m = seedMessages.find((x) => x.id === i.message_id) ?? seedMessages[0]
+          return { ...i, message: { id: m.id, sender: m.sender_name, conversation: m.conversation || '私聊', text: m.text } }
+        },
+      },
+      {
+        key: 'is_req', name: '是不是需求', kind: 'classifier', ms: 800, after: ['read'],
+        desc: '要做新功能、改进、修问题、改产品的算需求；闲聊、通知、问进度、单纯提问不算',
+        cases: [{ key: 'req', label: '是需求' }, { key: 'other', label: '不是需求' }], config: { from: 'message.text' },
+        decide: (i) => (/午饭|收到|谢谢/.test(str((i.message as Json | undefined)?.text))
+          ? { route: 'other', reason: '模型判断属于「不是需求」' } : { route: 'req', reason: '模型判断属于「是需求」' }),
+        run: (i) => i,
+      },
+      { key: 'skip', name: '普通消息不建任务', kind: 'end', ms: 200, after: ['is_req'], branch: { of: 'is_req', case: 'other' }, desc: '不是需求，流程到此结束，消息照常留在消息页' },
+      {
+        key: 'to_task', name: '建需求任务', kind: 'auto', ms: 500, after: ['is_req'], branch: { of: 'is_req', case: 'req' },
+        desc: '转成任务（IM 插件 im_to_task）：记来源消息和提出人，阶段「已接收」；这条消息转过任务就用那条',
+        run: (i) => ({ ...i, task: { id: 'tsk_auto1', ref: 'TSK-0101', title: str((i.message as Json | undefined)?.text).slice(0, 40), stage: 'received', url: 'https://pmw.local/tasks/board?t=tsk_auto1' } }),
+      },
+      {
+        key: 'ack', name: '回执提出人', kind: 'auto', ms: 400, after: ['to_task'], desc: '回复原消息（IM 插件 im_reply_message）：已收到，附看板链接',
+        run: (i) => ({ ...i, replied: { text: `收到，已记为需求 ${str((i.task as Json).ref)}，进度可以在看板上看：${str((i.task as Json).url)}` } }),
+      },
+      {
+        key: 'profiles', name: '读项目档案', kind: 'auto', ms: 300, after: ['ack'], desc: '列项目档案（项目插件 projects_list_profiles）：建过档案的项目摘要，给分类用',
+        run: (i) => ({ ...i, profiles_text: '- 产品工作台（PRJ-0001）：个人产品管理工具；关键词：需求、SOP\n- Octok（PRJ-0002）：桌面客户端；关键词：客户端、导出' }),
+      },
+      {
+        key: 'classify', name: '判断归属项目', kind: 'ai', ms: 1500, after: ['profiles'], config: { output: 'classify' },
+        desc: '读需求原文和各项目档案，回 JSON：project_id、confidence、sure（置信度不低于 0.7 为 yes）、candidates_text、reason',
+        run: (i) => ({ ...i, classify: '{"project_id":"p2","confidence":0.9,"sure":"yes"}' }),
+      },
+      {
+        key: 'parse', name: '整理分类结果', kind: 'extract', ms: 600, after: ['classify'], config: { from: 'classify', fields: 'project_id、project、confidence、sure、candidates_text、reason' },
+        desc: '把分类回答整理成字段',
+        run: (i) => ({ ...i, extracted: { project_id: 'p2', project: 'Octok', confidence: 0.9, sure: 'yes', candidates_text: '1. Octok（PRJ-0002）', reason: '说的是客户端导出' } }),
+      },
+      {
+        key: 'sure', name: '拿得准吗', kind: 'decide', ms: 300, after: ['parse'], rule: 'extracted.sure 等于 yes',
+        desc: '置信度够（不低于 0.7）直接绑项目，不够问提出人', cases: [{ key: 'yes', label: '拿得准' }, { key: 'no', label: '拿不准' }],
+        decide: (i) => (str((i.extracted as Json | undefined)?.sure) === 'yes'
+          ? { route: 'yes', reason: '规则「extracted.sure 等于 yes」成立' } : { route: 'no', reason: '规则「extracted.sure 等于 yes」不成立' }),
+      },
+      {
+        key: 'bind_auto', name: '绑定项目', kind: 'auto', ms: 300, after: ['sure'], branch: { of: 'sure', case: 'yes' },
+        desc: '设置任务阶段（IM 插件 im_set_task_stage）：任务归到分类给出的项目',
+        run: (i) => ({ ...i, project: { id: 'p2', name: 'Octok' } }),
+      },
+      { key: 'ask_stage', name: '阶段改为待确认项目', kind: 'auto', ms: 300, after: ['sure'], branch: { of: 'sure', case: 'no' }, desc: '设置任务阶段：confirm_project' },
+      { key: 'ask', name: '问提出人归哪个项目', kind: 'auto', ms: 400, after: ['ask_stage'], desc: '回复原消息：列出候选项目，请对方回复项目名或编号' },
+      { key: 'wait', name: '等提出人回复', kind: 'wait', ms: 2500, after: ['ask'], desc: '等待回复（IM 插件 im_wait_reply）：会话里对方的下一条消息，最多 2 天', config: { duration: '2 天' } },
+      { key: 'pick', name: '认出选的项目', kind: 'ai', ms: 900, after: ['wait'], desc: '从回复里认出选的项目，只回项目 id', config: { output: 'picked' }, run: (i) => ({ ...i, picked: 'p2' }) },
+      { key: 'bind_pick', name: '绑定项目', kind: 'auto', ms: 300, after: ['pick'], desc: '设置任务阶段：任务归到提出人选的项目', run: (i) => ({ ...i, project: { id: str(i.picked), name: 'Octok' } }) },
+      {
+        key: 'profile', name: '读项目档案', kind: 'auto', ms: 300, after: ['bind_auto', 'bind_pick'], desc: '读项目档案（项目插件 projects_get_profile）：取原型库、PRD、代码库目录',
+        run: (i) => ({ ...i, profile: { name: 'Octok', dirs: { code: '/Volumes/project/octok', prototype: '/Volumes/project/octok/web-next', prd: '/Volumes/project/octok/docs/prd' } } }),
+      },
+      { key: 'design', name: '阶段改为设计中', kind: 'auto', ms: 300, after: ['profile'], desc: '设置任务阶段：designing；评审退回时也从这里重来' },
+      {
+        key: 'prd', name: '产品：写 PRD 和原型', kind: 'claude_code', ms: 3000, after: ['design'], desc: 'Claude Code 按产品角色在原型库目录写 PRD、更新原型与规格',
+        config: { preset: 'rp_pm', workdir: '{{profile.dirs.prototype}}', prompt: '按需求任务 {{task.ref}} 写 PRD、更新原型与规格。需求原文：{{message.text}}。上一轮研发评审退回的意见（第一轮为空）：{{feedback.result.issues}}', task: '{{task.id}}', permission: '', timeout: '2 小时' },
+      },
+      { key: 'to_review', name: '阶段改为评审中', kind: 'auto', ms: 300, after: ['prd'], desc: '设置任务阶段：reviewing' },
+      {
+        key: 'review', name: '研发评审', kind: 'claude_code', ms: 3000, after: ['to_review'], desc: 'Claude Code 按研发评审角色只读评审，回报 verdict 和 issues',
+        config: { preset: 'rp_review', workdir: '{{profile.dirs.code}}', prompt: '评审需求任务 {{task.ref}} 的 PRD、原型和规格', task: '{{task.id}}', permission: 'read', timeout: '1 小时' },
+      },
+      {
+        key: 'gate', name: '评审不通过就退回', kind: 'loopback', ms: 400, after: ['review'], rule: 'result.verdict 等于 reject',
+        desc: '不通过退回「阶段改为设计中」重写，意见作为 feedback 带回去；最多 3 轮',
+        config: { target: 'design', max_rounds: '3' }, cases: [{ key: 'pass', label: '通过' }, { key: 'over', label: '超限' }],
+      },
+      { key: 'dev', name: '阶段改为开发中', kind: 'auto', ms: 300, after: ['gate'], branch: { of: 'gate', case: 'pass' }, desc: '设置任务阶段：developing' },
+      { key: 'tell_dev', name: '告诉提出人进入开发', kind: 'auto', ms: 400, after: ['dev'], desc: '回复原消息：设计评审通过，进入开发' },
+      // 接研发 pipeline（AUTO-09）：子流程拿这一步的输出当输入，先写出 task_id，再只留任务和来源消息
+      { key: 'pipeline_in', name: '交给研发 pipeline', kind: 'template', ms: 200, after: ['tell_dev'], desc: '把任务 id 写成 task_id，研发 pipeline 按它取任务', config: { template: '{{task.id}}', output: 'task_id' } },
+      {
+        key: 'pipeline_args', name: '只带任务和来源消息', kind: 'end', ms: 200, after: ['pipeline_in'],
+        desc: '子流程拿这一步的输出当输入：只留 task_id、message_id、conversation_id，评审的 summary、feedback 不带进研发', config: { outputs: 'task_id, message_id, conversation_id' },
+      },
+      { key: 'pipeline', name: '研发 pipeline', kind: 'subflow', ms: 1500, after: ['pipeline_args'], desc: '开发、测试、通知验收、人工验收；这一步等研发 pipeline 走完', config: { sop: 'sop_im_dev_pipeline' } },
+      { key: 'human_stage', name: '阶段改为需人工', kind: 'auto', ms: 300, after: ['gate'], branch: { of: 'gate', case: 'over' }, desc: '设置任务阶段：need_human' },
+      { key: 'human', name: '人工裁决', kind: 'review', ms: 300, after: ['human_stage'], desc: '退回 3 轮仍不通过：看评审意见决定放行还是打回' },
+    ],
+  },
+  // 研发 pipeline（AUTO-09，SPEC-sop-12.43 起）：正式产品由 IM 插件写进 SOP 的内置流程 sop_im_dev_pipeline，默认停用（手动发起，或「IM 需求自动受理」末尾以子流程接上）。
+  // IM、项目插件的节点原型里用 auto 模拟：设置任务阶段、读项目档案、准备工作区、跑测试、通知。原型里第一次测试没通过，退回研发一轮后通过；
+  // 停在「人工验收」等你选：通过 / 实现缺陷（退回研发）/ 需求偏差（退回产品）
+  {
+    id: 'sop_im_dev_pipeline',
+    name: '研发 pipeline',
+    desc: '准备工作区，研发、测试用例、自动化测试三路并行，汇合后部署测试；没通过自动退回研发最多 3 轮；通过后保留测试环境、通知提出人和验收人员，人工验收通过进待发布，实现缺陷退回研发、需求偏差退回产品。默认停用：手动发起，或由「IM 需求自动受理」接上',
+    trigger: 'manual',
+    fields: [
+      { key: 'task_id', label: '任务', type: 'text', required: true, default: 'tk_dev3', placeholder: '任务 id；任务要已归到项目、项目档案里设了代码库和测试命令' },
+      { key: 'message_id', label: '来源消息', type: 'text', default: 'm1', placeholder: 'IM 消息 id，有的话通知时在原消息里回复提出人' },
+      { key: 'conversation_id', label: '会话', type: 'text', placeholder: '来源消息所在的会话，可空' },
+    ],
+    steps: [
+      {
+        key: 'start', name: '阶段改为开发中', kind: 'auto', ms: 300, after: [], desc: '设置任务阶段（IM 插件 im_set_task_stage）：developing，取任务信息',
+        run: (i) => ({ ...i, task: { id: str(i.task_id), ref: 'T-017', title: '权限变更缓存改成按部门失效', project_id: 'pj_perm', stage: 'developing', url: 'https://pmw.local/tasks/board?t=tk_dev3' } }),
+      },
+      {
+        key: 'profile', name: '读项目档案', kind: 'auto', ms: 300, after: ['start'], desc: '读项目档案（项目插件 projects_get_profile）：取验收人员',
+        run: (i) => ({ ...i, profile: { name: '权限中心', acceptors_text: '许知行、周屿', dirs: { code: '/Volumes/project/perm-center' } } }),
+      },
+      {
+        key: 'worktree', name: '准备工作区', kind: 'auto', ms: 500, after: ['profile'], desc: '准备工作区（项目插件 projects_prepare_worktree）：任务独立的 worktree 和分支 auto/<任务编号>，分一段端口',
+        run: (i) => ({ ...i, worktree: { path: '/Volumes/project/0xBroleez/pm-workspace/data-dev/worktrees/pj_perm/T-017', branch: 'auto/T-017', port_start: 7920 } }),
+      },
+      { key: 'dev_stage', name: '回到开发中', kind: 'auto', ms: 200, after: ['worktree'], desc: '设置任务阶段：developing；测试没通过、验收发现实现缺陷时退回到这里' },
+      {
+        key: 'dev', name: '研发：功能开发', kind: 'claude_code', ms: 3000, after: ['dev_stage'], desc: 'Claude Code 按研发角色在工作区里改代码、跑单测、提交',
+        config: { preset: 'rp_dev', workdir: '{{worktree.path}}', prompt: '按任务 {{task.ref}} 的内容和验收标准开发（分支 {{worktree.branch}}）。上一轮退回的原因：{{feedback.reason}}；没过的步骤 {{feedback.test.failed_step}}，测试报告 {{feedback.test.report_url}}', task: '{{task.id}}', permission: 'write', timeout: '4 小时' },
+        run: (i) => {
+          const fb = i.feedback as Json | undefined
+          return { ...i, status: 'done', run_id: `run_${Math.random().toString(36).slice(2, 10)}`, result: { files: ['internal/perm/cache.go'], tests: 'passed' },
+            summary: fb ? `按第 ${fb.round} 轮的意见改完了：失效时把子部门一起算上（原型模拟）` : '权限缓存改成按部门打版本号，改了哪个部门只失效哪个部门（原型模拟）' }
+        },
+      },
+      {
+        key: 'cases', name: '测试用例设计', kind: 'claude_code', ms: 2200, after: ['worktree'], desc: '对照验收标准写测试用例，summary 是验收清单',
+        config: { preset: 'rp_testdesign', workdir: '{{worktree.path}}', prompt: '为任务 {{task.ref}} 设计测试用例，写进 docs/test-cases/{{task.ref}}.md', task: '{{task.id}}', permission: 'write', timeout: '4 小时' },
+        run: (i) => ({ ...i, status: 'done', run_id: 'run_cases', result: { cases: 4, automated: 3 }, summary: '- [ ] 改部门 A 的权限，1 分钟内 A 的成员生效\n- [ ] 部门 B 的缓存不受影响\n- [ ] 子部门跟着失效' }),
+      },
+      { key: 'cases_note', name: '记下验收清单', kind: 'template', ms: 200, after: ['cases'], desc: '汇合时研发的 summary 会盖掉这一路的，先存一份', config: { template: '{{summary}}', output: 'test_cases' } },
+      {
+        key: 'autotest', name: '自动化测试脚本', kind: 'claude_code', ms: 2600, after: ['worktree'], desc: '写单测、接口、端到端脚本，产物写进 TEST_REPORT_DIR',
+        config: { preset: 'rp_testdesign', workdir: '{{worktree.path}}', prompt: '为任务 {{task.ref}} 写自动化测试，截图和 junit 写到 TEST_REPORT_DIR', task: '{{task.id}}', permission: 'write', timeout: '4 小时' },
+        run: (i) => ({ ...i, status: 'done', run_id: 'run_auto', result: { files: ['internal/perm/cache_test.go', 'e2e/perm.spec.ts'] }, summary: '加了 cache_test.go 和 e2e/perm.spec.ts，覆盖验收标准 1 到 3' }),
+      },
+      { key: 'autotest_note', name: '记下自动化测试', kind: 'template', ms: 200, after: ['autotest'], desc: '存一份自动化测试的说明', config: { template: '{{summary}}', output: 'autotest' } },
+      { key: 'join', name: '三路汇合', kind: 'aggregate', ms: 200, after: ['cases_note', 'autotest_note', 'dev'], desc: '合并三路的输出，研发排最后，summary 是研发的变更说明', config: { mode: 'merge' } },
+      { key: 'stage_test', name: '阶段改为测试中', kind: 'auto', ms: 200, after: ['join'], desc: '设置任务阶段：testing' },
+      {
+        key: 'test', name: '部署测试', kind: 'auto', ms: 2400, after: ['stage_test'],
+        desc: '跑测试（项目插件 projects_run_test，保留测试环境：是）：构建、起测试环境、跑测试和冒烟，写测试报告；通过时保留测试环境给人工验收',
+        run: (i) => {
+          const ok = !!i.feedback
+          const until = new Date(Date.now() + 24 * 3600_000).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+          return { ...i, test: ok
+            ? { ok: true, status: 'passed', report_url: 'https://pmw.local/api/projects/tests/runs/tr_dev3/report', env_kept: true, env_text: `http://127.0.0.1:7920（保留到 ${until}，到点自动回收）` }
+            : { ok: false, status: 'failed', failed_step: 'test', error: '测试：退出码 1', report_url: 'https://pmw.local/api/projects/tests/runs/tr_x1/report', env_kept: false, env_text: 'http://127.0.0.1:7920（测试跑完已回收）' } }
+        },
+      },
+      {
+        key: 'test_gate', name: '测试没通过就退回研发', kind: 'loopback', ms: 400, after: ['test'], rule: 'test.ok 等于 false',
+        desc: '退回「回到开发中」重做，失败步骤和报告作为 feedback 带回去；最多 3 轮',
+        config: { target: 'dev_stage', max_rounds: '3' }, cases: [{ key: 'pass', label: '通过' }, { key: 'over', label: '超限' }],
+      },
+      { key: 'test_human_stage', name: '阶段改为需人工', kind: 'auto', ms: 200, after: ['test_gate'], branch: { of: 'test_gate', case: 'over' }, desc: '设置任务阶段：need_human' },
+      { key: 'test_human_notify', name: '通知：测试修复超限', kind: 'auto', ms: 300, after: ['test_human_stage'], desc: '通知（IM 插件 im_notify）：平台通知「自动测试修复 3 轮仍没通过」' },
+      { key: 'test_human', name: '人工处理', kind: 'review', ms: 300, after: ['test_human_notify'], desc: '看测试报告决定怎么办：改好代码后放行，或者终止这次执行' },
+      { key: 'stage_accept', name: '阶段改为待验收', kind: 'auto', ms: 200, after: ['test_gate'], branch: { of: 'test_gate', case: 'pass' }, desc: '设置任务阶段：accepting' },
+      {
+        key: 'notify', name: '通知提出人与验收人员', kind: 'auto', ms: 500, after: ['stage_accept'],
+        desc: '通知（IM 插件 im_notify）：平台通知，并在原消息串里回复提出人：测试环境地址、测试报告、看板、验收人员、变更说明、验收清单',
+        run: (i) => {
+          const t = i.task as Json, tst = i.test as Json, p = i.profile as Json
+          return { ...i, notified: { app: 'sent', im: i.message_id ? 'sent' : 'skipped', title: `${str(t.ref)} 待验收`,
+            text: `需求 ${str(t.ref)}「${str(t.title)}」开发完成，自动测试通过，请验收。\n测试环境：${str(tst.env_text)}\n测试报告：${str(tst.report_url)}\n看板：${str(t.url)}\n验收人员：${str(p.acceptors_text)}\n\n变更说明：\n${str(i.summary)}\n\n验收清单：\n${str(i.test_cases)}` } }
+        },
+      },
+      {
+        key: 'accept', name: '人工验收', kind: 'decide', ms: 300, after: ['notify'],
+        desc: '在测试环境上验收。通过选「通过」；不通过先在任务里写一条进展说明问题，再按归属选「实现缺陷」（退回研发）或「需求偏差」（退回产品）',
+        cases: [{ key: 'pass', label: '通过' }, { key: 'defect', label: '实现缺陷' }, { key: 'deviation', label: '需求偏差' }],
+      },
+      { key: 'stage_release', name: '阶段改为待发布', kind: 'auto', ms: 200, after: ['accept'], branch: { of: 'accept', case: 'pass' }, desc: '设置任务阶段：releasing；保留的测试环境随之回收' },
+      { key: 'tell_release', name: '告诉提出人验收通过', kind: 'auto', ms: 300, after: ['stage_release'], desc: '通知：平台通知，回复原消息「验收通过，等发布」' },
+      { key: 'done', name: '结束', kind: 'end', ms: 200, after: ['tell_release'], desc: '发布由发布 pipeline 接着做' },
+      {
+        key: 'back_dev', name: '阶段改回开发中', kind: 'auto', ms: 200, after: ['accept'], branch: { of: 'accept', case: 'defect' }, desc: '设置任务阶段：developing',
+        run: (i) => ({ ...i, task: { ...(i.task as Json), stage: 'developing' } }),
+      },
+      {
+        key: 'accept_gate', name: '验收不通过退回研发', kind: 'loopback', ms: 400, after: ['back_dev'], rule: 'task.stage 等于 developing',
+        desc: '退回「回到开发中」重做，研发从任务进展里读验收意见；最多 3 轮',
+        config: { target: 'dev_stage', max_rounds: '3' }, cases: [{ key: 'pass', label: '通过' }, { key: 'over', label: '超限' }],
+      },
+      { key: 'accept_human_stage', name: '阶段改为需人工', kind: 'auto', ms: 200, after: ['accept_gate'], branch: { of: 'accept_gate', case: 'over' }, desc: '设置任务阶段：need_human' },
+      { key: 'accept_human_notify', name: '通知：验收退回超限', kind: 'auto', ms: 300, after: ['accept_human_stage'], desc: '通知：平台通知「验收退回 3 轮仍没通过」' },
+      { key: 'accept_human', name: '人工处理', kind: 'review', ms: 300, after: ['accept_human_notify'], desc: '验收退回 3 轮仍不通过：看验收意见决定怎么办' },
+      { key: 'back_design', name: '阶段改回设计中', kind: 'auto', ms: 200, after: ['accept'], branch: { of: 'accept', case: 'deviation' }, desc: '设置任务阶段：designing' },
+      { key: 'tell_pm', name: '通知产品：需求偏差', kind: 'auto', ms: 300, after: ['back_design'], desc: '通知：平台通知产品，回复原消息「已退回产品重新设计」' },
+      { key: 'to_design', name: '结束', kind: 'end', ms: 200, after: ['tell_pm'], desc: '产品改完 PRD 后重新走评审和研发' },
+    ],
+  },
 ]
 
 // 新建和编辑的 SOP 也放进这张表，引擎和界面都从这里按 id 取。App 里另有一份 state 负责触发重渲染
@@ -672,6 +1012,14 @@ export function tick(r: SopRun, now = Date.now()): SopRun {
     const err = def.fail?.(s.input ?? {}) ?? typeOf(def.kind).fail?.(def.config ?? {}, s.input ?? {})
     if (err) { r = setStep(r, i, (x) => logged({ ...x, status: 'failed', error: err, ended_at: now }, now, `失败：${err}`)); return }
     const output = def.run ? def.run(s.input ?? {}) : mockRun(def, s.input ?? {})
+    if (def.kind === 'loopback') { r = loopback(r, i, now); return }
+    if (def.kind === 'claude_code') {
+      const out = output as Json
+      const v = (out.result as Json | undefined)?.verdict
+      r = setStep(r, i, (x) => logged({ ...x, status: 'done', output, ended_at: now, claude: { run_id: String(out.run_id), task_id: render(def.config?.task ?? '', x.input ?? {}) || undefined, workdir: render(def.config?.workdir ?? '', x.input ?? {}) } },
+        now, v ? `Claude Code 跑完了，回报结论 ${v}` : 'Claude Code 跑完了，没有回报结构化结论'))
+      return
+    }
     if (isBranching(def.kind) && !isManualDecide(def)) {
       const t = typeOf(def.kind)
       const { route, reason } = def.decide ? def.decide(s.input ?? {})
@@ -688,6 +1036,69 @@ export function tick(r: SopRun, now = Date.now()): SopRun {
     }
   })
   return moved ? advance(r, now) : r
+}
+
+/** 第 j 步的所有下游（依赖它、或挂在它的分支上，层层往下），不含自己 */
+export function downstreamOf(sop: Sop, j: number): number[] {
+  const inSet = new Set([j])
+  for (let changed = true; changed;) {
+    changed = false
+    sop.steps.forEach((d, k) => {
+      if (inSet.has(k)) return
+      const hit = depsOf(sop, k).some((x) => inSet.has(sop.steps.findIndex((y) => y.key === x))) || (!!d.branch && inSet.has(sop.steps.findIndex((y) => y.key === d.branch!.of)))
+      if (hit) { inSet.add(k); changed = true }
+    })
+  }
+  inSet.delete(j)
+  return [...inSet].sort((a, b) => a - b)
+}
+
+/** 第 i 步沿依赖往上的所有步骤 */
+export function upstreamOf(sop: Sop, i: number): number[] {
+  const out = new Set<number>()
+  const walk = (k: number) => depsOf(sop, k).forEach((x) => { const j = sop.steps.findIndex((y) => y.key === x); if (j >= 0 && !out.has(j)) { out.add(j); walk(j) } })
+  walk(i)
+  return [...out].sort((a, b) => a - b)
+}
+
+/** 条件回退（AUTO-02），同后端 loopback.go：条件成立且没超限就退回目标重做（带 feedback），超限走「超限」，不成立走「通过」 */
+function loopback(r: SopRun, i: number, now: number): SopRun {
+  const def = r.sop.steps[i]
+  const s = r.steps[i]
+  const input = s.input ?? {}
+  const rule = def.rule?.trim() ?? ''
+  const ok = evalRule(rule, input)
+  const fail = (err: string) => setStep(r, i, (x) => logged({ ...x, status: 'failed', error: err, ended_at: now }, now, `失败：${err}`))
+  if (ok === null) return fail(rule ? `规则「${rule}」写法不对，要写成「字段 等于 值」或「字段 包含 值」` : '还没填回退条件')
+  const label = (k: string) => def.cases?.find((c) => c.key === k)?.label ?? k
+  if (!ok) return setStep(r, i, (x) => logged({ ...x, status: 'done', output: input, route: 'pass', route_reason: `条件「${rule}」不成立`, ended_at: now }, now, `判断结果：走「${label('pass')}」，条件「${rule}」不成立`))
+  const max = loopRounds(def.config?.max_rounds) ?? 3
+  const j = r.sop.steps.findIndex((x) => x.key === def.config?.target)
+  if (j < 0 || !upstreamOf(r.sop, i).includes(j)) return fail(`退回的步骤 ${def.config?.target ?? ''} 不是这一步的上游`)
+  const loops = s.loops ?? 0
+  if (loops >= max) {
+    const why = `已经自动退回 ${loops} 轮，条件「${rule}」成立，超过上限`
+    if (!r.sop.steps.some((x) => x.branch?.of === def.key && x.branch.case === 'over')) return fail(`${why}；没有步骤接在「超限」出口上`)
+    return setStep(r, i, (x) => logged({ ...x, status: 'done', output: input, route: 'over', route_reason: why, ended_at: now }, now, `判断结果：走「${label('over')}」，${why}`))
+  }
+  const round = loops + 2
+  const tname = r.sop.steps[j].name
+  const reason = `「${def.name}」条件「${rule}」成立`
+  const { feedback: _old, ...rest } = input
+  const feedback = { ...rest, round, reason, from: def.key }
+  let next = setStep(r, i, (x) => logged({ ...x, loops: loops + 1 }, now, `条件「${rule}」成立，退回「${tname}」重做（第 ${round} 轮，最多退回 ${max} 轮）`))
+  for (const k of downstreamOf(r.sop, j)) {
+    next = setStep(next, k, (x) => {
+      const reset = x.status !== 'pending' || k === i
+      const y: RunStep = reset ? { ...x, status: 'pending', output: undefined, ended_at: undefined, edited: undefined, route: undefined, route_reason: undefined, error: undefined, claude: undefined } : x
+      return { ...(reset && k !== i ? logged(y, now, `上游「${tname}」被退回重做，这一步重新等待`) : y), round, rework_reason: undefined }
+    })
+  }
+  const tinput = { ...inputFor(next, r.sop, j), feedback }
+  return setStep(next, j, (x) => logged({
+    ...x, input: tinput, output: undefined, ended_at: undefined, edited: undefined, route: undefined, route_reason: undefined, error: undefined, claude: undefined,
+    round, rework_reason: reason, ...(next.step_through ? { status: 'paused' as const } : { status: 'running' as const, started_at: now, attempts: x.attempts + 1 }),
+  }, now, `第 ${round} 轮：被${reason}退回重做`))
 }
 
 export type RunAction =
@@ -767,10 +1178,15 @@ export function act(r: SopRun, a: RunAction, now = Date.now()): SopRun {
     case 'step-through':
       return { ...r, step_through: a.on }
     case 'confirm-input':
-      return setStep(r, a.step, (s) => logged({
-        ...s, status: 'running', started_at: now, attempts: s.attempts + 1,
-        ...(a.input ? { input: a.input, edited: 'input' as const } : {}),
-      }, now, a.input ? '输入已修改，开始执行' : '输入已确认，开始执行'))
+      return setStep(r, a.step, (s) => {
+        // 超出上限暂停的（AUTO-12）：放行这一次尝试，之后照常按上限拦
+        const hold = s.hold && !s.hold.released ? { ...s.hold, released: true, attempt: s.attempts + 1 } : s.hold
+        const next = logged({
+          ...s, status: 'running', started_at: now, attempts: s.attempts + 1, hold,
+          ...(a.input ? { input: a.input, edited: 'input' as const } : {}),
+        }, now, a.input ? '输入已修改，开始执行' : '输入已确认，开始执行')
+        return hold !== s.hold ? logged(next, now, '已放行：这一次不按上限拦，继续执行') : next
+      })
     case 'approve':
       return advance(setStep(r, a.step, (s) => logged({
         ...s, status: 'done', ended_at: now,
@@ -842,5 +1258,19 @@ export const seedRuns: SopRun[] = (() => {
     { ...simulate(tr, { message_id: seedMessages[0].id }, 5, (r) => runStatus(r) === 'done'), source: 'manual' as const, source_name: '批量发起' },
     { ...simulate(tr, { message_id: seedMessages[0].id }, 2, (r) => runStatus(r) === 'done'), source: 'manual' as const, source_name: '批量发起' },
     { ...simulate(tr, { message_id: seedMessages[2].id }, 20, (r) => runStatus(r) === 'done'), source: 'manual' as const, source_name: '批量发起' },
+    // 研发 pipeline 关联到任务 T-016（AUTO-12）：评审退回过两轮后，研发这一步超出「每个需求最多跑 Claude Code 的次数」，暂停等你放行
+    heldDev(),
   ].map((r, n) => ({ ...r, id: `run_seed${n}` }))
 })()
+
+/** 演示数据：研发 pipeline 跑到「研发」那一步时超出次数上限暂停（SPEC-sop-15） */
+function heldDev(): SopRun {
+  const dp = SOPS.find((x) => x.id === 'sop_im_dev_pipeline')!
+  const r = simulate(dp, { ...defaults(dp), task_id: 'tk_dev2' }, 90, (x) => stepIs('dev', 'running')(x) && stepIs('cases_note', 'done')(x) && stepIs('autotest_note', 'done')(x))
+  const i = r.steps.findIndex((s) => s.key === 'dev')
+  const now = r.steps[i].started_at ?? Date.now()
+  const hold = { kind: 'runs' as const, reason: '需求 T-016 已经跑了 30 次 Claude Code，到了上限 30 次', since: now }
+  const steps = r.steps.map((s, j) => (j === i ? logged({ ...s, status: 'paused' as const, hold, attempts: 0, round: 3, rework_reason: '「评审不通过就退回」条件「result.verdict 等于 reject」成立' }, now,
+    `超出上限，暂停：${hold.reason}。点「继续」放行这一次，或到 SOP 设置里调高上限`) : s))
+  return { ...r, object_id: 'tk_dev2', source: 'manual' as const, steps }
+}

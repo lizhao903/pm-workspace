@@ -4,7 +4,7 @@
 |---|---|
 | 模块 key | `settings`（不是 `MODULES` 里的模块，总在一级菜单左下角） |
 | 原型入口 | 一级菜单左下「设置」，http://127.0.0.1:7778 |
-| 源码 | `web-next/src/settings.tsx`（`SECTIONS`、`SettingsNav`）、`web-next/src/workspaces.tsx`（`WorkspaceSwitcher`、`WorkspacesPage`）、`web-next/src/connectors.tsx`（`ConnectorsSettings`、`ConnectorDrawer`、`ConnBar`）、`web-next/src/apiconn.tsx`（`ApiConnectorDrawer`）、`web-next/src/models.tsx`（`ProvidersPage`、`ProviderDrawer`）、`web-next/src/agents.tsx`（`AgentsPage`、`AgentEditor`）、`web-next/src/kbskills.tsx`（`KnowledgePage`、`KbDrawer`、`SkillsPage`、`SkillDrawer`）、`web-next/src/enums.tsx`（`EnumsPage`）、`web-next/src/incidents.tsx`（`IncidentsPage`、`IncidentDrawer`）、`web-next/src/domains.tsx`（`DomainsPage`）、`web-next/src/appearance.tsx`（`AppearancePage`）、`web-next/src/update.tsx`（`UpdatePage`）；接线在 `web-next/src/App.tsx`（`section`、菜单红点、`connectConn`、`disconnectConn`、`connPlan`、`providerPlan`、`agentPlan`、`enumUsage`、`migrateEnum`、`modelChoices`、`mountableConns`、`report`） |
+| 源码 | `web-next/src/settings.tsx`（`SECTIONS`、`SettingsNav`）、`web-next/src/workspaces.tsx`（`WorkspaceSwitcher`、`WorkspacesPage`）、`web-next/src/connectors.tsx`（`ConnectorsSettings`、`ConnectorDrawer`、`ConnBar`）、`web-next/src/apiconn.tsx`（`ApiConnectorDrawer`）、`web-next/src/models.tsx`（`ProvidersPage`、`ProviderDrawer`）、`web-next/src/agents.tsx`（`AgentsPage`、`AgentEditor`）、`web-next/src/kbskills.tsx`（`KnowledgePage`、`KbDrawer`、`SkillsPage`、`SkillDrawer`）、`web-next/src/enums.tsx`（`EnumsPage`）、`web-next/src/incidents.tsx`（`IncidentsPage`、`IncidentDrawer`）、`web-next/src/domains.tsx`（`DomainsPage`）、`web-next/src/appearance.tsx`（`AppearancePage`）、`web-next/src/update.tsx`（`UpdatePage`）、`web-next/src/runpresetspage.tsx`（`RunPresetsPage`，数据在 `runpresets.ts`）；接线在 `web-next/src/App.tsx`（`section`、菜单红点、`connectConn`、`disconnectConn`、`connPlan`、`providerPlan`、`agentPlan`、`enumUsage`、`migrateEnum`、`modelChoices`、`mountableConns`、`report`） |
 | 数据文件 | `web-next/src/workspacedata.ts`、`web-next/src/data.ts`（连接器部分：`Tool`、`ToolField`、`ToolCategory`、`AuthMode`、`ConnAuth`、`ToolDef`、`ConnTool`、`ToolMode`、`Connector`、`ConnStatus`）、`web-next/src/modeldata.ts`、`web-next/src/agentdata.ts`（`Agent`、`Skill`、`KnowledgeBase`）、`web-next/src/kbdata.ts`、`web-next/src/enumdata.ts`、`web-next/src/incidentdata.ts`、`web-next/src/domaindata.ts`；外观的 `ThemePref` 在 `appearance.tsx` |
 | 截图 | [`shots/settings/`](shots/settings/) |
 | 负责任务 | PROTO-04e（整理）、PROTO-11（修原型、补抽屉和子页截图） |
@@ -54,6 +54,7 @@ Agent、知识库、技能、枚举值、运行异常、内网域名几节目前
 | [SPEC-settings-21](#spec-settings-21-外观) | 外观 | 二级菜单「外观」 | 配色方案、收起一级菜单 |
 | [SPEC-settings-22](#spec-settings-22-终端) | 终端 | 二级菜单「终端」（正式产品：设置 > 插件 > 终端） | Claude Code 启动命令：任务「切换到终端」时执行的命令 |
 | [SPEC-settings-23](#spec-settings-23-版本更新) | 版本更新 | 二级菜单「版本更新」 | 正在运行和源码目录的版本、新提交，更新到最新版本并重启 |
+| [SPEC-settings-24](#spec-settings-24-角色) | 角色 | 二级菜单「角色」（Agent 下面）；交给 Claude Code 弹窗的「管理角色」 | 录交给 Claude Code 时可选的角色：执行要求、权限、输出要求、默认目录，设默认 |
 
 ### 共用数据结构
 
@@ -1689,6 +1690,92 @@ PROTO-04f2 复核时补的：原型里没有、但 DOM-01a 到 DOM-02b 要做的
 |---|---|---|---|---|
 | 改动 | 全局 | 更新完成 | 整个工作台换成新版本，页面自动刷新；正在跑的 Agent 对话、任务执行、终端会话中断 | |
 | 改动 | 数据 | 开始更新 | 数据目录 backups/ 多一份快照 | |
+
+## SPEC-settings-24 角色
+
+交给 Claude Code 时可选的角色（用户 2026-11-04 提「预置提示词」，AUTO-03 升级为角色）：每个角色写清要它做什么（执行要求）、能不能改文件（权限）、结束时怎么回报（输出要求），以及默认在项目档案的哪个目录跑（默认目录，AUTO-04 项目档案落地后生效，现在只存不用）。交给 Claude Code 的弹窗里选一个，执行要求和输出要求拼进提示词「执行要求」一节，权限决定流式执行放不放开文件编辑（`SPEC-tasks-6.18`）。原型 `web-next/src/runpresetspage.tsx` 的 `RunPresetsPage`，数据只放内存（`runpresets.ts`，刷新回到内置六个）；正式产品 `frontend/src/modules/settings/runprompts/RunPresetsSection.tsx`，数据层 `useRunPresets`、`useSaveRunPresets`（`frontend/src/core/data/runs.ts`），接口 `GET / PUT /api/run-prompts`（沿用旧名）。
+
+### 截图
+
+暂缺：等 `shots.py` 补「设置 > 角色」的步骤。
+
+### 交互
+
+| 编号 | 元素 | 操作 | 结果 |
+|---|---|---|---|
+| SPEC-settings-24.1 | 顶栏 | 看 | 「设置 / 角色」，说明「交给 Claude Code 时选一个角色：执行要求和输出要求拼进提示词，权限决定能不能改文件」；下面一段说明用途、「标了默认的打开时就选上」，以及只读角色流式执行时不放开文件编辑、终端方式的权限由启动命令决定（只读只写进提示词） |
+| SPEC-settings-24.2 | 每一个角色 | 输入 | 一张卡片：「角色场景」（必填，如「产品经理工作台」）、「默认」勾选、「删除」；下一行「权限」下拉（允许改文件（acceptEdits）/ 只读）和「默认目录」下拉（不限 / 代码目录 / 原型目录 / PRD 目录，灰字「项目档案上线后按它选工作目录，现在只记下」）；下面「执行要求」多行（必填）、「输出要求」多行（可选，灰字「可选：结束时要它怎么回报，如用 pmw_finish_run 回报 result 的结构」） |
+| SPEC-settings-24.3 | 「默认」 | 勾选 | 单选：勾一个其余的自动取消；再点已勾的取消，变成没有默认（弹窗打开时选「不用」） |
+| SPEC-settings-24.4 | 「加一个角色」 | 点击 | 末尾多一张空卡片（权限允许改文件、默认目录不限）；满 30 个时按钮变「最多 30 个」不可点 |
+| SPEC-settings-24.5 | 「保存」 | 点击 | 有改动且没有错时才可点，整组替换；成功提示「已保存：N 个角色」，全删了是「已保存：不用角色」。有改动时旁边「撤销改动」回到已存的样子 |
+| SPEC-settings-24.6 | 校验 | 输入 | 改过之后逐个提示：角色场景空「写一个角色场景」、超 40 字「最多 40 字」、和上面重复「和上面的重复了」；执行要求空「写上执行要求」、超 4000 字「最多 4000 字」；输出要求超 2000 字「最多 2000 字」。有错时「保存」不可点 |
+| SPEC-settings-24.10 | 内置角色 | 看 | 没设过时是内置六个（见下表）。以后版本新加的内置角色读的时候补在末尾（不抢默认，和已有角色场景名重复的不补）；用户删掉的内置角色保存后不再补回，改过的不会被覆盖 |
+
+内置角色（id 不变，提示词原文见 `internal/api/runprompts.go` 的 `defaultRunPrompts`，原型 `runpresets.ts` 同文）：
+
+| id | 场景 | 权限 | 默认目录 | 输出要求（经 pmw_finish_run 的 result 回报） |
+|---|---|---|---|---|
+| `rp_classify` | 分类 | 只读 | 不限 | `{project_id, confidence, candidates, reason}` |
+| `rp_pm` | 产品经理工作台（默认） | 允许改文件 | 原型目录 | 产出用 pmw_record_artifact 登记；`{artifacts, questions}` |
+| `rp_review` | 研发评审 | 只读 | 代码目录 | `{verdict: pass 或 reject, issues: [{title, detail, severity}]}`，reject 时 issues 至少一条 |
+| `rp_dev` | 研发 | 允许改文件 | 代码目录 | `{files, tests, commits}` |
+| `rp_testdesign` | 测试设计 | 允许改文件 | 代码目录 | `{cases, automated, files}` |
+| `rp_protosync` | 原型同步 | 允许改文件 | 原型目录 | `{synced, pending}` |
+
+### 空状态和异常状态
+
+| 编号 | 场景 | 显示 | 可做的操作 |
+|---|---|---|---|
+| SPEC-settings-24.7 | 一个都没有 | 「还没有角色，交给 Claude Code 时只能手写附加说明。」 | 加一个角色 |
+| SPEC-settings-24.8 | 后端拒收（400） | 红字「没保存：<后端的原因>」，改动留着 | 改了再存 |
+| SPEC-settings-24.9 | 没加载出来 | 「角色没加载出来」+ 原因 +「重试」 | 重试 |
+
+### 数据
+
+`RunPreset`：`{ id, scene, content, default, permission, output, dir_kind }`。`permission` 是 `read_only` / `accept_edits`，`dir_kind` 是 `code` / `prototype` / `prd` / `any`，三个新字段请求里都可选，不带时按 `accept_edits`、空、`any`；读出来总是补齐（AUTO-03 之前存的旧数据同样补，旧内置的「资料调研」`rp_research` 按只读补）。正式产品存在 `agent_settings.run_prompts`（JSON 数组），`PUT /api/run-prompts` 的 body `{ items }`，新条目 `id` 留空由后端补 `rp_` 开头的 id；后端同样校验（场景 1 到 40 字不重复、执行要求 1 到 4000 字、输出要求最多 2000 字、权限和目录种类只认上面几个值、最多 30 个、默认最多一个），记一条 `config` 审计。见过哪些内置角色记在 `agent_settings.run_prompts_builtins`（id 数组），每次保存写成当时全部内置 id；没有这个键时按 AUTO-03 之前的三个（`rp_pm`、`rp_dev`、`rp_research`）算见过。
+
+### 联动
+
+| 方向 | 对方模块 | 触发 | 结果 | 见 |
+|---|---|---|---|---|
+| 出去 | 任务 | 保存 | 交给 Claude Code 弹窗的「角色」选项跟着变，默认那个打开时选上；只读角色锁住「允许写入」 | `SPEC-tasks-6.18` |
+| 进来 | 任务 | 弹窗里「管理角色」 | 关掉弹窗，打开这一节 | `SPEC-tasks-6.18` |
+| 出去 | SOP | `claude_code` 节点选角色（AUTO-01 落地后） | 节点用角色的执行要求和输出要求拼提示词 | `SPEC-sop` |
+
+## SPEC-settings-25 工作区
+
+需求工作区（AUTO-07，`SPEC-tasks-4.50` 起）的端口范围：每个在用的工作区分一段端口给测试环境用（AUTO-08），清理后归还。原型 `web-next/src/worktree.tsx` 的 `WorktreeSettingsPage`，设置存内存，刷新回到默认；正式产品是项目插件登记的设置分节 `frontend/src/plugins/projects/WorktreeSettings.tsx`（设置 > 插件 > 工作区），接口 `GET / PATCH /api/projects/worktree-settings`，存插件表 `projects_worktree_settings`（单行）。
+
+### 截图
+
+暂缺：等 `shots.py` 补「设置 > 工作区」的步骤。
+
+### 交互
+
+| 编号 | 元素 | 操作 | 结果 |
+|---|---|---|---|
+| SPEC-settings-25.1 | 「工作区端口」 | 看 | 一行三个数字框：起始端口「到」结束端口「每段」个数「个」，加「保存」。默认 7900 到 8899，每段 10 个。下面灰字「每个在用的工作区分一段端口给测试环境用，清理后归还。不能和工作台自己用的 7700–7899 重叠；改了只管以后的分配」 |
+| SPEC-settings-25.2 | 「保存」 | 点击 | 有改动且没有错时可点；成功绿字「已保存：起–止，每段 N 个，以后准备的工作区按这个分」。已经分出去的端口段不动 |
+| SPEC-settings-25.3 | 校验 | 输入 | 改过之后红字：不是整数「填整数」；超出 1024 到 65535 或起点大于终点「端口要在 1024 到 65535 之间，起点不能大于终点」；每段不在 1 到 100「每段 1 到 100 个」；放不下一段「范围放不下一段 N 个端口」；和 7700–7899 重叠「不能和工作台自己用的 7700–7899 重叠」。有错时「保存」不可点 |
+| SPEC-settings-25.4 | 此刻 | 看 | 灰字「能分 N 段，此刻 M 个工作区在用，放在 <数据目录>/worktrees」 |
+| SPEC-settings-25.7 | 「测试环境保留时长」 | 看、输入、点击 | AUTO-09。端口下面一行：数字框「小时」+ 单独的「保存」，默认 24。灰字「研发 pipeline 测试通过后，测试环境留着给人工验收；到点、验收结束、任务完成或工作区清理时回收」。改过之后不是 1 到 168 的整数红字「要是 1 到 168 的整数」，「保存」不可点；成功绿字「已保存：测试通过后保留 N 小时」。只管以后保留的，已经保留着的按原来的到点时间。见 `tasks.md` `SPEC-tasks-4.73` |
+
+### 空状态和异常状态
+
+| 编号 | 场景 | 显示 | 可做的操作 |
+|---|---|---|---|
+| SPEC-settings-25.5 | 后端拒收（400） | 红字「没保存：<后端的原因>」，改动留着 | 改了再存 |
+| SPEC-settings-25.6 | 没加载出来 | 「读不到工作区的设置」+ 原因 +「重试」 | 重试 |
+
+### 数据
+
+`{ port_min, port_max, port_block, env_keep_hours, reserved: [7700, 7899], active, dir }`，PATCH 只认前四个、没传的不动，后端同样校验（`env_keep_hours` 1 到 168，迁移 0008 加的列，默认 24）。分配：从起始端口按段对齐往后找，和在用的工作区不重叠、本机每个端口此刻都能监听的第一段。
+
+### 联动
+
+| 方向 | 对方模块 | 触发 | 结果 | 见 |
+|---|---|---|---|---|
+| 出去 | 任务 | 准备工作区 | 按这里的范围分端口段，显示在任务抽屉「工作区」里 | `SPEC-tasks-4.51` |
 
 ## 原型和规格对不上的地方
 

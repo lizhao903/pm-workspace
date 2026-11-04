@@ -20,17 +20,18 @@ import { BrowserPage, type ProtoEntry } from './browser'
 import type { GoogleAccount } from './browserdata'
 import { TerminalPage, type TermTab } from './terminal'
 import { PageTitle } from './topbar'
+import { ProjectProfileTab } from './projectprofile'
 import { cls, timeAgo } from './ui'
 import { newId } from './ids'
 
 // 项目：把一个产品相关的东西串起来——沟通（私聊、群聊）、干系人、任务、文档、SOP、Agent、支持材料、原型、目录
 // 任务和会话本身记着属于哪个项目（project_id），其余是项目这边记的关联
 
-export type ProjectTab = 'overview' | 'comms' | 'attachments' | 'stakeholders' | 'tasks' | 'deals' | 'docs' | 'sop' | 'agents' | 'materials' | 'prototypes' | 'settings'
+export type ProjectTab = 'overview' | 'comms' | 'attachments' | 'stakeholders' | 'tasks' | 'deals' | 'docs' | 'sop' | 'agents' | 'materials' | 'prototypes' | 'profile' | 'settings'
 const TABS: { key: ProjectTab; label: string }[] = [
   { key: 'overview', label: '概览' }, { key: 'comms', label: '沟通' }, { key: 'attachments', label: '附件' }, { key: 'stakeholders', label: '干系人' }, { key: 'tasks', label: '任务' }, { key: 'deals', label: '商单' },
   { key: 'docs', label: '文档' }, { key: 'sop', label: 'SOP' }, { key: 'agents', label: 'Agent' },
-  { key: 'materials', label: '支持材料' }, { key: 'prototypes', label: '原型' }, { key: 'settings', label: '设置' },
+  { key: 'materials', label: '支持材料' }, { key: 'prototypes', label: '原型' }, { key: 'profile', label: '档案' }, { key: 'settings', label: '设置' },
 ]
 const Pill = ({ label, color }: { label: string; color: string }) => <span className="pill" style={{ '--c': color } as React.CSSProperties}><span className="pill-dot" />{label}</span>
 const running = (p: Project) => p.prototypes.filter((x) => x.status === 'running').length
@@ -182,7 +183,7 @@ export function ProjectsListPage({ projects, messages, contacts, tasks, recent, 
 }
 
 /** 路径输入：可以手填，也可以点「选择」用系统的目录选择器（浏览器拿不到绝对路径，只能填进目录名，要补全上级） */
-function PathInput({ value, onChange, placeholder }: { value: string; onChange: (v: string) => void; placeholder?: string }) {
+export function PathInput({ value, onChange, placeholder }: { value: string; onChange: (v: string) => void; placeholder?: string }) {
   const pick = async () => {
     const w = window as unknown as { showDirectoryPicker?: () => Promise<{ name: string }> }
     if (!w.showDirectoryPicker) return
@@ -364,7 +365,7 @@ export function ProjectPage({ project, projects, agents, content, tab, onTab, on
 
   const actions = {
     overview: <button className="btn btn-outline" onClick={() => onTab('settings')}>项目设置</button>,
-    comms: null, attachments: null, stakeholders: null, tasks: null, deals: null, sop: null, agents: null,
+    comms: null, attachments: null, stakeholders: null, tasks: null, deals: null, sop: null, agents: null, profile: null,
     materials: <button className="btn btn-primary" onClick={() => setNewMat({ name: '', kind: 'file', value: '', tags: [] })}>加材料</button>,
     docs: <button className="btn btn-primary" onClick={() => setNewDoc({ title: '', kind: 'PRD', type: 'library', ref: content[0]?.id ?? '' })}>加文档</button>,
     prototypes: <button className="btn btn-primary" onClick={() => setNewProto({ name: '', dir: '', command: 'npm run dev', port: freePort() })}>加原型</button>,
@@ -684,6 +685,8 @@ export function ProjectPage({ project, projects, agents, content, tab, onTab, on
           </div>
         </>
       )}
+
+      {tab === 'profile' && <ProjectProfileTab key={p.id} p={p} contacts={L.contacts} onChange={set} />}
 
       {tab === 'settings' && (
         <div className="form proj-settings">

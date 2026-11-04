@@ -4,8 +4,8 @@
 |---|---|
 | 模块 key | `projects` |
 | 原型入口 | 一级菜单「项目」，http://127.0.0.1:7778 |
-| 源码 | `web-next/src/projects.tsx`（列表页 `ProjectsListPage`、详情页 `ProjectPage`，含概览、文档、支持材料、原型、设置标签和 `ProtoCard`）、`web-next/src/projecttabs.tsx`（沟通 `CommsTab`、干系人 `StakeholdersTab`、任务 `ProjectTasksTab`、SOP `ProjectSopTab`、Agent `ProjectAgentTab`、`projectMessages`）、`web-next/src/attachments.tsx`（附件标签 `ProjectAttachmentsTab`、沟通里的入口 `AttachmentsHint`）；项目里的终端和浏览器 `ProjectDock` 在 `projects.tsx`，复用 `terminal.tsx` 的 `TerminalPage` 和 `browser.tsx` 的 `BrowserPage`（`embedded` 模式）；接线在 `web-next/src/App.tsx`（`newProject`、`projectPlan`、`deleteProject`、`startProto`、`stopProto`、`recentProjects`、`docks`、`showDock`、`closeDock`） |
-| 数据文件 | `web-next/src/projectdata.ts`（`Project`、`ProjectChat`、`Stakeholder`、`StakeRole`、`Material`、`MaterialKind`、`ProjectDoc`、`DocStatus`、`DOC_KINDS`、`Prototype`、`ProtoStatus`、`RelatedDir`、`RESERVED_PORTS`、`portConflict`） |
+| 源码 | `web-next/src/projects.tsx`（列表页 `ProjectsListPage`、详情页 `ProjectPage`，含概览、文档、支持材料、原型、设置标签和 `ProtoCard`）、`web-next/src/projecttabs.tsx`（沟通 `CommsTab`、干系人 `StakeholdersTab`、任务 `ProjectTasksTab`、SOP `ProjectSopTab`、Agent `ProjectAgentTab`、`projectMessages`）、`web-next/src/attachments.tsx`（附件标签 `ProjectAttachmentsTab`、沟通里的入口 `AttachmentsHint`）、`web-next/src/projectprofile.tsx`（档案标签 `ProjectProfileTab`）；项目里的终端和浏览器 `ProjectDock` 在 `projects.tsx`，复用 `terminal.tsx` 的 `TerminalPage` 和 `browser.tsx` 的 `BrowserPage`（`embedded` 模式）；接线在 `web-next/src/App.tsx`（`newProject`、`projectPlan`、`deleteProject`、`startProto`、`stopProto`、`recentProjects`、`docks`、`showDock`、`closeDock`） |
+| 数据文件 | `web-next/src/projectdata.ts`（`Project`、`ProjectChat`、`Stakeholder`、`StakeRole`、`Material`、`MaterialKind`、`ProjectDoc`、`DocStatus`、`DOC_KINDS`、`Prototype`、`ProtoStatus`、`RelatedDir`、`RESERVED_PORTS`、`portConflict`、`ProjectProfile`、`ProfileCommand`、`PROFILE_COMMANDS`、`PLATFORM_PRESETS`） |
 | 截图 | [`shots/projects/`](shots/projects/) |
 | 负责任务 | PROTO-04d |
 | 对应开发任务 | 见下表「引用本规格的开发任务」 |
@@ -23,6 +23,9 @@
 | PJ-04b | 项目原型卡片的启停与日志 | `SPEC-projects-12` |
 | IM-04b | 附件面板和项目附件收件 | `SPEC-projects-5`（消息抽屉一侧见 `SPEC-messages-3`）；收件块已改成独立的「附件」标签（附件独立管理，2026-11-02） |
 | PR-09 | 干系人多选和拼音排序，项目沟通筛选和行内已处理 | `SPEC-projects-6.2`、`SPEC-projects-4.22` 到 `SPEC-projects-4.25` |
+| AUTO-04 | 项目档案：分类信息、三个目录、六条命令、负责人和验收人员 | `SPEC-projects-15` |
+| AUTO-08 | 档案「起测试环境」的就绪检查；构建、测试、起测试环境、冒烟由测试环境执行 | `SPEC-projects-15.7`、`15.7a` |
+| AUTO-10 | 档案命令分「测试环境」「发布」两组，加版本号与更新日志、打包、发布前检查、线上冒烟；冒烟明确为测试环境冒烟 | `SPEC-projects-15.7`、`15.16` |
 
 SOP 标签（`SPEC-projects-9`）由 PR-10 做；Agent 标签（`SPEC-projects-10`）目前没有对应的开发任务，归 Agent 相关任务时再引用。
 
@@ -47,6 +50,7 @@ SOP 标签（`SPEC-projects-9`）由 PR-10 做；Agent 标签（`SPEC-projects-1
 | [SPEC-projects-11](#spec-projects-11-支持材料) | 支持材料 | 标签「支持材料」 | 文件、文件夹、链接、笔记 |
 | [SPEC-projects-12](#spec-projects-12-原型) | 原型 | 标签「原型」 | 原型卡片：启停、日志、端口 |
 | [SPEC-projects-13](#spec-projects-13-设置) | 设置 | 标签「设置」；概览右上「项目设置」 | 名称、标志、目录、关联目录、删除 |
+| [SPEC-projects-15](#spec-projects-15-档案) | 档案 | 标签「档案」 | 给分类 Agent 和各 pipeline 用：简介、关键词、平台，代码库、原型库、PRD 目录，构建到回滚的命令，负责人和验收人员 |
 | [SPEC-projects-14](#spec-projects-14-项目里的终端和浏览器) | 项目里的终端和浏览器 | 详情页标题行最右「终端」「浏览器」 | 在底部展开这个项目自己的终端和内置浏览器，可收起、一键全部关闭 |
 
 ### 共用数据结构
@@ -946,6 +950,68 @@ SOP 标签（`SPEC-projects-9`）由 PR-10 做；Agent 标签（`SPEC-projects-1
 
 一级菜单里的「终端」「浏览器」是两个独立模块，先保留：它们不属于任何项目，适合跨项目或临时用；标签和项目里的这块互不相干，在一边开的标签不会出现在另一边。项目里其他地方的「打开」（原型卡片、概览原型块）仍按 `SPEC-projects-12` 交给一级菜单的浏览器。这两个模块以后是去掉、还是改成「全部项目的终端和浏览器」汇总，另行决定。
 
+## SPEC-projects-15 档案
+
+AUTO-04。给分类 Agent 和各 pipeline 用的项目信息：分类 Agent 按简介、关键词、平台判断一条需求或 IM 消息属于哪个项目；产品 Agent 往原型库、PRD 目录里写；研发和发布 pipeline（二、三期）按代码库目录和命令跑。标签在「原型」后、「设置」前，参与「显示哪些标签」的隐藏和排序（`SPEC-projects-13.19`、`13.20`）。和设置一样边改边存，没有「保存」按钮。
+
+### 截图
+
+| | 亮 | 暗 |
+|---|---|---|
+| 桌面 1440 | ![](shots/projects/第一个项目_标签_档案-1440-light.png) | ![](shots/projects/第一个项目_标签_档案-1440-dark.png) |
+| 手机 375 | ![](shots/projects/第一个项目_标签_档案-375-light.png) | ![](shots/projects/第一个项目_标签_档案-375-dark.png) |
+
+### 交互
+
+| 编号 | 元素 | 操作 | 结果 |
+|---|---|---|---|
+| SPEC-projects-15.1 | 「分类信息」块 | 显示 | 标题旁说明「新需求、IM 消息进来时，分类 Agent 按这些判断属于哪个项目」 |
+| SPEC-projects-15.2 | 简介 | 输入 | 多行，占位「这个项目做什么、给谁用、边界在哪；比设置里的一句话说明写得更全」；停手片刻保存，最多 2000 字。和设置里的「说明」（对象 `body`）是两个字段：说明是一句话、列表卡片上显示；简介写给 Agent 看 |
+| SPEC-projects-15.3 | 关键词 | 输入 | 一个输入框，说明「用逗号或顿号隔开：产品名、模块名、客户名、常说的叫法」；按中英文逗号、顿号、换行拆开，去空、去重（不分大小写，留第一次的写法），每个最多 30 字、最多 50 个；只改了分隔处的空格不算改动 |
+| SPEC-projects-15.4 | 平台 | 点击 / 输入 | 常用项 web、H5、桌面、云端、移动端、小程序，点一下选上（高亮）、再点取消，立即保存；后面「其他，逗号隔开」输入框填常用项以外的平台，和常用项合起来去重。每个最多 30 字、最多 10 个 |
+| SPEC-projects-15.5 | 「目录」块 | 输入 | 标题旁说明「本机绝对路径，要已经存在；软链可以」。三个路径框（同 `SPEC-projects-13.5` 的「选择」）：代码库目录（说明「不填时沿用项目目录 <项目目录>」，占位「留空沿用项目目录」；项目没设目录时说明「研发 pipeline 在这里改代码、跑命令；不填时沿用项目目录」）、原型库目录（「产品 Agent 写原型、发布后回写原型的地方」）、PRD 目录（「产品 Agent 写 PRD 的地方」）。停手片刻保存；清空即清掉 |
+| SPEC-projects-15.6 | 目录保存 | 保存 | 三个目录各自单独存，不和别的字段一起：不是绝对路径、不存在、不是目录时只这一项存不上，路径框下红字「没保存上：<原因>」，别的字段照存；改对后自动再存、红字消失。存的是填的原样（去首尾空白和末尾斜杠），软链不展开 |
+| SPEC-projects-15.7 | 「命令」块 | 输入 | 标题旁说明「目录相对代码库，超时留空用默认值」（AUTO-10 起；AUTO-08 到 AUTO-09 是「构建、测试、起测试环境、冒烟由任务工作区的「运行测试」执行，发布、回滚先只存」）。十行固定，分两组（见 `SPEC-projects-15.16`）：构建、测试、起测试环境、冒烟（测试环境）；版本号与更新日志、打包、发布前检查、发布、线上冒烟、回滚。「冒烟」一直是测试环境上的冒烟，线上冒烟是 AUTO-10 新加的一条（key `prod_smoke`），旧数据不用改；每行三列：命令（等宽，构建行占位 `make build`）、目录（相对代码库目录，占位「代码库根目录」）、超时（秒，占位「默认」；起测试环境的超时是等就绪的时间）。停手片刻保存；命令清空即清掉这一条。命令里可以用 `$PORT`、`{{PORT}}` 等测试时注入的变量（`SPEC-tasks-4.72` 下的说明） |
+| SPEC-projects-15.7a | 「就绪检查」 | 输入 | 只在「起测试环境」一行下面（AUTO-08）：灰字「就绪检查」、等宽输入框（占位「留空等 $PORT 能连上；或填 /healthz」）、灰字「回 2xx、3xx 算就绪；超时是等就绪的时间，留空 2 分钟」。留空等测试环境端口能连上；`/` 开头是本机测试环境端口上的路径；也可以写本机地址（`http://127.0.0.1:{{PORT}}/…`、`localhost`、`[::1]`）。有空格、不是 `/` 或本机地址开头时输入框标红、红字说明，改好前命令先不存；后端也挡（非本机地址 400，不让测试借它往外发请求） |
+| SPEC-projects-15.8 | 超时 | 输入 | 只收非负整数秒，最多 86400（一天）；填错时输入框标红，行下红字「超时填整数秒」或「超时最多一天（86400 秒）」+「，改好前命令先不存」，这期间所有命令都不保存，改好后一起存 |
+| SPEC-projects-15.9 | 「人员」块 | 选择 | 标题旁说明「从联系人里挑；验收人员是自动流程里通知去验收的人」。负责人、验收人员两个多选下拉（同 `SPEC-projects-6.2` 的候选：按姓名、公司、职位、分组、标签搜，按拼音分段），勾一个立即保存。和「干系人」标签的「负责人」角色互不影响：这里是给自动流程用的名单 |
+| SPEC-projects-15.10 | 保存状态 | 显示 | 右上角「保存中」→「已保存」；简介、关键词、平台、命令、人员存不上时红字「没保存上：<原因>」+「重试」 |
+| SPEC-projects-15.16 | 命令分组 | 显示 | AUTO-10。「命令」块里分两组，组名加粗、后面灰字说明。「测试环境」：构建、测试、起测试环境、冒烟（测试环境），说明「任务工作区的「运行测试」按顺序执行：构建、起测试环境、测试、冒烟；可用变量 PORT、WORKTREE、TASK_REF、TEST_REPORT_DIR」。「发布」：版本号与更新日志、打包、发布前检查、发布、线上冒烟、回滚，说明「发布 pipeline 在任务工作区里执行，审批前只跑版本号与打包；可用变量 WORKTREE、TASK_REF、RELEASE_ID、RELEASE_DIR、RELEASE_VERSION」。每行命令下一行灰字提示用途：版本号「审批前跑：把版本号写进 $RELEASE_DIR/version.txt、更新日志写进 $RELEASE_DIR/changelog.md；没写 version.txt 取输出最后一行」；打包「审批前跑：在工作区里打包，不碰生产」；发布前检查、发布、线上冒烟、回滚都以「上线审批后才跑：」开头（发布前检查「备份数据库、核对密钥；没过不发布、不回滚」，发布「没填就发起不了发布」，线上冒烟「没过自动回滚」，回滚「发布或线上冒烟没过时自动执行」）。执行见 `tasks.md` `SPEC-tasks-4.80` |
+
+### 空状态和异常状态
+
+| 编号 | 场景 | 显示 | 可做的操作 |
+|---|---|---|---|
+| SPEC-projects-15.11 | 没建过档案 | 全部空着，照常编辑；第一次保存时才建档案 | 填 |
+| SPEC-projects-15.12 | 档案加载失败 | 「档案没加载出来」+ 原因 | 「重试」 |
+| SPEC-projects-15.13 | 选过的人后来被归档或删除 | 归档的在下拉里显示「已归档的联系人」，可以去掉；删除的读出来时已经滤掉 | 重新挑 |
+| SPEC-projects-15.14 | 存过的目录后来被删或改名 | 编辑页照常显示原路径（只在保存时校验）；档案摘要里这一项算「找不到」，目录不齐全 | 改路径 |
+| SPEC-projects-15.15 | 项目插件没在跑 | 没有项目详情页（同其它标签） | |
+
+### 数据
+
+`Project.profile`（`ProjectProfile`，`web-next/src/projectdata.ts`），没建过时没有：
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `intro` | `string` | 简介 |
+| `keywords` | `string[]` | 关键词 |
+| `platforms` | `string[]` | 平台标签 |
+| `code_dir` / `proto_dir` / `prd_dir` | `string` | 代码库、原型库、PRD 目录，本机绝对路径；空串是没设 |
+| `commands` | `Partial<Record<'build' \| 'test' \| 'test_env' \| 'smoke' \| 'version' \| 'package' \| 'preflight' \| 'release' \| 'prod_smoke' \| 'rollback', { command, dir, timeout_sec, ready? }>>`（AUTO-10 加 `version`、`package`、`preflight`、`prod_smoke`） | 只含设了的命令；`dir` 相对代码库目录、不能是绝对路径、不能用 `..` 跑出代码库；`timeout_sec` 为 0 用执行方默认值；`ready` 只有 `test_env`：就绪检查（`SPEC-projects-15.7a`，AUTO-08） |
+| `owner_ids` / `acceptor_ids` | `string[]` | 联系人 id |
+
+正式产品存在项目插件的表 `projects_profiles`（插件迁移 0005），一个项目一行，不放对象 `props`：props 的 PATCH 整体替换，会和设置页边改边存互相覆盖。接口 `GET`/`PATCH /api/projects/{id}/profile`（PATCH 每个字段整体替换、没传的不动，并发的两次 PATCH 只改各自传了的列）；分类用的摘要 `GET /api/projects/profiles`：每个建过档案、没进回收站的项目一行（名称、ref、简介、关键词、平台、三个目录的路径和状态 ok / missing / unset、代码库没设时沿用项目目录并标 `inherited`、`dirs_ready`、设了哪些命令）。没建档案的项目不在摘要里（插件读不到对象列表），Agent 用 MCP 只读工具 `pmw_list_project_profiles`，它把项目列表和摘要合起来，没建档案的也列出并注明。
+
+### 联动
+
+| 方向 | 对方模块 | 触发 | 结果 | 见 |
+|---|---|---|---|---|
+| 被读 | 分类 Agent、SOP（AUTO-06） | 新需求、IM 消息要定项目 | 读档案摘要（`pmw_list_project_profiles`） | `docs/auto-delivery-flow.md` |
+| 被读 | 研发、发布 pipeline（AUTO-07 到 AUTO-10） | 跑构建、测试、部署 | 读代码库目录和命令 | `docs/auto-delivery-flow.md` |
+| 读 | 本模块「设置」 | 改项目目录 | 代码库目录没设时的说明和摘要里的沿用目录跟着变 | `SPEC-projects-13.4` |
+| 读 | 联系人 | 归档、删除联系人 | 见 15.13 | `SPEC-contacts` |
+
 ## 原型和规格对不上的地方
 
 整理时发现的问题，PROTO-10 按下表处理，正文已同步。
@@ -971,3 +1037,4 @@ SOP 标签（`SPEC-projects-9`）由 PR-10 做；Agent 标签（`SPEC-projects-1
 | P-17 | `SPEC-projects-4.10` | 项目沟通里的消息正文不高亮 @，和 IM 消息页不一致 | 复用 `MentionText` | 已修（PROTO-10）：复用 `MentionText`，见 `SPEC-projects-4.10` |
 | P-18 | `SPEC-projects-0`、`SPEC-projects-4.5`、`SPEC-projects-4.18` | 待回复口径改成只算与我相关（B-01）；私聊候选按联系人列、没填 IM 编号的置灰、空状态按原因写（A-02、E-01）。原型的 `awaitingReply` 仍按全部待处理算，私聊候选没有置灰项，空状态只有「联系人都已经绑过了」 | 原型跟规格改 | 不修（PR-02）：原型只当规格，正式产品按本规格；原型改动另开任务 |
 | P-19 | `SPEC-projects-4.22` 到 `SPEC-projects-4.25`、`SPEC-projects-6.2` | 项目沟通加搜索、与我相关下拉和行内「已处理」（B-10）；加干系人改成多选、按分组和标签搜、按拼音排（B-05）。原型的沟通标签没有筛选条，行上只有「回复」；加干系人是单选、只按姓名公司职位搜、按码位排 | 原型跟规格改 | 不修（PR-09）：原型只当规格，正式产品按本规格；原型改动另开任务 |
+| P-20 | `SPEC-projects-15.6`、`15.8` | 原型不校验目录在不在（浏览器拿不到本机路径）；超时填错时原型只标红，不提示「改好前命令先不存」以外的保存状态；原型没有保存状态 | 原型只演示布局和字段，校验以正式产品为准 | 不修（AUTO-04）：目录校验只能在后端做；原型的其它标签也没有保存状态 |
