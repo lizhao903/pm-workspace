@@ -302,50 +302,9 @@ func (in *inbox) reply(w http.ResponseWriter, r *http.Request) {
 		fail(w, r, in.c, err)
 		return
 	}
-	rp, err := in.replyBlocker(ctx, m)
-	if err != nil {
+	if _, err := in.replyTo(ctx, m, text, mentions); err != nil {
 		fail(w, r, in.c, err)
 		return
-	}
-	out := Outgoing{ConnectorID: m.ConnectorID, ConversationID: m.ConversationExternalID, ConversationKind: m.ConversationKind,
-		RecipientID: m.SenderID, ReplyTo: m.ExternalID, Text: text, Mentions: mentions}
-	if m.Thread != nil {
-		out.ThreadOf = m.Thread.ParentExternalID
-	}
-	sendCtx, cancel := context.WithTimeout(ctx, replyTimeout)
-	ext, sendErr := rp.Reply(sendCtx, out)
-	cancel()
-	rid := idgen.Prefixed("rp")
-	now := in.clock().UTC().Format(timeLayout)
-	if sendErr != nil {
-		reason := clip(sendErr.Error(), maxReplyError)
-		if _, err := in.c.Store().Exec(ctx, `INSERT INTO im_replies (id, message_id, text, status, error, created_at) VALUES (?, ?, ?, 'failed', ?, ?)`,
-			rid, m.ID, text, reason, now); err != nil {
-			fail(w, r, in.c, err)
-			return
-		}
-		if _, err := in.c.Store().Exec(ctx, `UPDATE im_messages SET reply_error = ? WHERE id = ?`, reason, m.ID); err != nil {
-			fail(w, r, in.c, err)
-			return
-		}
-		in.c.Log().Warn("im reply failed", "message", m.ID, "adapter", rp.Key(), "err", sendErr)
-		fail(w, r, in.c, &actionError{status: http.StatusBadGateway, code: "send_failed", msg: "发送失败：" + reason,
-			extra: map[string]string{"reply_id": rid}})
-		return
-	}
-	if _, err := in.c.Store().Exec(ctx, `INSERT INTO im_replies (id, message_id, text, status, external_id, created_at) VALUES (?, ?, ?, 'sent', ?, ?)`,
-		rid, m.ID, text, ext, now); err != nil {
-		fail(w, r, in.c, err)
-		return
-	}
-	// 发出后、落库前，拉取或回调可能已把这条当「本人发的」记过（IM-06）：以这里记的为准，清掉那一条
-	if ext != "" {
-		if _, err := in.c.Store().Exec(ctx, `DELETE FROM im_replies WHERE id <> ? AND id IN (`+
-			strings.Replace(sameReplySQL, "SELECT 1", "SELECT rp.id", 1)+`)`,
-			rid, ext, m.Channel, m.ConnectorID, m.ConversationExternalID); err != nil {
-			fail(w, r, in.c, err)
-			return
-		}
 	}
 	set := `reply_error = '', is_read = 1`
 	if body.Done {
@@ -366,6 +325,8 @@ func (in *inbox) toTask(w http.ResponseWriter, r *http.Request) {
 		OwnerID   *string `json:"owner_id"`
 		DueAt     *string `json:"due_at"`
 		Done      bool    `json:"done"`
+		// ReplyOnDone 是执行完成后回复原消息（SPEC-messages-2.50），不传默认要。
+		ReplyOnDone *bool `json:"reply_on_done"`
 	}
 	if r.ContentLength != 0 {
 		if err := decode(r, &body, 64<<10); err != nil {
@@ -419,19 +380,25 @@ func (in *inbox) toTask(w http.ResponseWriter, r *http.Request) {
 	if title == "" {
 		title = defaultTaskTitle(m)
 	}
-	sender := m.ContactName
-	if sender == "" {
-		sender = m.SenderName
+	ref := sourceRefOf(m)
+	// 回执流程要先确认能用，提示词里才好说「完成后会回复这条消息」（reply_on_done 写进来源）
+	replyOn, replyNote := body.ReplyOnDone == nil || *body.ReplyOnDone, ""
+	if replyOn {
+		ok, note, err := in.ensureTaskReplyFlow(ctx)
+		if err != nil {
+			in.c.Log().Warn("im task reply flow check failed", "err", err)
+			ok, note = false, "回执流程准备失败，执行完成后不会自动回复"
+		}
+		replyOn, replyNote = ok, note
 	}
-	ref := map[string]any{
-		"message_id": m.ID, "channel": m.Channel, "connector_id": m.ConnectorID, "external_id": m.ExternalID,
-		"conversation_id": m.ConversationID, "conversation": m.Conversation,
-		"sender": sender, "sender_id": m.SenderID, "text": clip(m.Text, sourceTextMax), "at": m.At,
+	if replyOn {
+		ref["reply_on_done"] = true
 	}
 	task, err := in.c.ObjectWriter().Create(ctx, plugin.NewObject{
 		TypeID: "task", Title: title, Body: body.Body, Priority: body.Priority,
 		ProjectID: nonEmpty(body.ProjectID), OwnerID: nonEmpty(body.OwnerID), DueAt: due,
-		Props: map[string]any{domain.PropSourceRef: ref},
+		// IM 转来的任务从「已接收」开始走看板（AUTO-05，docs/auto-delivery-flow.md 第 3 节）
+		Props: map[string]any{domain.PropSourceRef: ref, domain.PropRequester: requesterOf(m).Map(), domain.PropStage: "received"},
 	})
 	switch {
 	case errors.Is(err, domain.ErrValidation), errors.Is(err, domain.ErrNotFound):
@@ -454,10 +421,52 @@ func (in *inbox) toTask(w http.ResponseWriter, r *http.Request) {
 		fail(w, r, in.c, err)
 		return
 	}
+	// 发起回执流程；起不来不挡转任务，响应里说清楚
+	reply := map[string]any{"enabled": replyOn}
+	if replyOn {
+		if runID, err := in.startTaskReply(ctx, m.ID, task.ID); err != nil {
+			in.c.Log().Warn("im task reply start failed", "message", m.ID, "task", task.ID, "err", err)
+			reply["enabled"], reply["note"] = false, "回执流程没发起："+err.Error()
+		} else {
+			reply["run_id"] = runID
+		}
+	} else if replyNote != "" {
+		reply["note"] = replyNote
+	}
 	writeJSON(w, http.StatusCreated, map[string]any{"data": map[string]any{
 		"message": m,
 		"task":    map[string]string{"id": task.ID, "ref": task.Ref, "title": task.Title, "status": task.Status, "source": task.Source},
+		"reply":   reply,
 	}})
+}
+
+// sourceRefOf 是转任务时写进 props.source_ref 的来源消息（转任务接口和 SOP 节点 im_to_task 共用）。
+func sourceRefOf(m Message) map[string]any {
+	sender := m.ContactName
+	if sender == "" {
+		sender = m.SenderName
+	}
+	return map[string]any{
+		"message_id": m.ID, "channel": m.Channel, "connector_id": m.ConnectorID, "external_id": m.ExternalID,
+		"conversation_id": m.ConversationID, "conversation": m.Conversation,
+		"sender": sender, "sender_id": m.SenderID, "text": clip(m.Text, sourceTextMax), "at": m.At,
+	}
+}
+
+// requesterOf 是转任务时记的提出人（AUTO-05）：发送者经 IM 身份认到联系人的记联系人，认不上的记发送者快照。
+// 渠道和发送者编号两种情况都带，联系人后来才绑上也能按发送者查进度。
+func requesterOf(m Message) domain.Requester {
+	r := domain.Requester{Channel: m.Channel, SenderID: m.SenderID, SenderName: m.SenderName, Name: m.SenderName}
+	if m.StakeholderID != nil && *m.StakeholderID != "" {
+		r.ContactID = *m.StakeholderID
+		if m.ContactName != "" {
+			r.Name = m.ContactName
+		}
+	}
+	if r.Name == "" {
+		r.Name = m.SenderID
+	}
+	return r
 }
 
 // defaultTaskTitle 同原型：正文压掉空白取前 40 字；没正文时写发送人。
@@ -584,4 +593,56 @@ func (in *inbox) batch(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"data": map[string]any{"action": body.Action, "ids": ids, "count": len(ids)}})
+}
+
+// replyTo 经适配器回复一条消息（回到原消息所在的串），记一行 im_replies；界面的回复和 SOP 的「回复原消息」都走它。
+// 拦下的（连接器暂停、没有适配器等）回 replyBlocker 的错误；发送失败也记一行（status=failed）、原因写到消息上，
+// 回 502 send_failed（带 reply_id）。发成功回这一行的 id 和渠道里的编号。
+func (in *inbox) replyTo(ctx context.Context, m Message, text string, mentions []Mention) (replyDone, error) {
+	rp, err := in.replyBlocker(ctx, m)
+	if err != nil {
+		return replyDone{}, err
+	}
+	out := Outgoing{ConnectorID: m.ConnectorID, ConversationID: m.ConversationExternalID, ConversationKind: m.ConversationKind,
+		RecipientID: m.SenderID, ReplyTo: m.ExternalID, Text: text, Mentions: mentions}
+	if m.Thread != nil {
+		out.ThreadOf = m.Thread.ParentExternalID
+	}
+	sendCtx, cancel := context.WithTimeout(ctx, replyTimeout)
+	ext, sendErr := rp.Reply(sendCtx, out)
+	cancel()
+	rid := idgen.Prefixed("rp")
+	now := in.clock().UTC().Format(timeLayout)
+	if sendErr != nil {
+		reason := clip(sendErr.Error(), maxReplyError)
+		if _, err := in.c.Store().Exec(ctx, `INSERT INTO im_replies (id, message_id, text, status, error, created_at) VALUES (?, ?, ?, 'failed', ?, ?)`,
+			rid, m.ID, text, reason, now); err != nil {
+			return replyDone{}, err
+		}
+		if _, err := in.c.Store().Exec(ctx, `UPDATE im_messages SET reply_error = ? WHERE id = ?`, reason, m.ID); err != nil {
+			return replyDone{}, err
+		}
+		in.c.Log().Warn("im reply failed", "message", m.ID, "adapter", rp.Key(), "err", sendErr)
+		return replyDone{}, &actionError{status: http.StatusBadGateway, code: "send_failed", msg: "发送失败：" + reason,
+			extra: map[string]string{"reply_id": rid}}
+	}
+	if _, err := in.c.Store().Exec(ctx, `INSERT INTO im_replies (id, message_id, text, status, external_id, created_at) VALUES (?, ?, ?, 'sent', ?, ?)`,
+		rid, m.ID, text, ext, now); err != nil {
+		return replyDone{}, err
+	}
+	// 发出后、落库前，拉取或回调可能已把这条当「本人发的」记过（IM-06）：以这里记的为准，清掉那一条
+	if ext != "" {
+		if _, err := in.c.Store().Exec(ctx, `DELETE FROM im_replies WHERE id <> ? AND id IN (`+
+			strings.Replace(sameReplySQL, "SELECT 1", "SELECT rp.id", 1)+`)`,
+			rid, ext, m.Channel, m.ConnectorID, m.ConversationExternalID); err != nil {
+			return replyDone{}, err
+		}
+	}
+	return replyDone{ID: rid, ExternalID: ext}, nil
+}
+
+// replyDone 是回复发成功后的结果。
+type replyDone struct {
+	ID         string
+	ExternalID string
 }

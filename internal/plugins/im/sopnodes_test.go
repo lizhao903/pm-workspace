@@ -64,7 +64,7 @@ func bootSOP(t *testing.T, st *sqlite.Store, fresh bool) sopEnv {
 		t.Fatal(err)
 	}
 	t.Cleanup(r.Close)
-	for id, perms := range map[string][]string{"sop": {"network:any", "fs:write:project"}, "im": {"network:im"}} {
+	for id, perms := range map[string][]string{"sop": {"network:any", "fs:write:project", "process:spawn"}, "im": {"network:im"}} {
 		if !fresh {
 			break
 		}
@@ -209,8 +209,16 @@ func TestSOPSendAndWaitReply(t *testing.T) {
 	if reply["text"] != "看了，没问题" || reply["sender_id"] != "U04LIN" || reply["conversation_id"] != "cv_prod" || out["sent"] == nil || !stepLogged(ask, "插件 im 唤醒") {
 		t.Fatalf("唤醒后的输出：%v", ask)
 	}
+	// 执行先走完、等待行随后删，负载高时两者之间有间隔，最多等 3 秒
 	var left int
-	if err := e.st.DB().R.QueryRow(`SELECT count(*) FROM im_sop_waits`).Scan(&left); err != nil || left != 0 {
+	var err error
+	for deadline := time.Now().Add(3 * time.Second); ; time.Sleep(20 * time.Millisecond) {
+		err = e.st.DB().R.QueryRow(`SELECT count(*) FROM im_sop_waits`).Scan(&left)
+		if err != nil || left == 0 || time.Now().After(deadline) {
+			break
+		}
+	}
+	if err != nil || left != 0 {
 		t.Fatalf("唤醒后应删掉等待：%d %v", left, err)
 	}
 }
