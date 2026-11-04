@@ -201,6 +201,44 @@ func (s *Server) handleListAgentMessages(w http.ResponseWriter, r *http.Request)
 	respondList(w, nonNil(items), Meta{Total: len(items)})
 }
 
+// maxRemoveMessages 一次最多移除的消息条数
+const maxRemoveMessages = 500
+
+// handleRemoveAgentMessages 从会话里移除几条消息（SPEC-sessions-1.43）：body {ids}，回 {removed}。
+// 这一轮还在跑时 409，免得删到正在写的回复；移除后这些消息不再进模型的上下文，已经执行的工具调用不撤回
+func (s *Server) handleRemoveAgentMessages(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	var req struct {
+		IDs []string `json:"ids"`
+	}
+	if err := decodeBody(r, &req); err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	ids := make([]string, 0, len(req.IDs))
+	seen := map[string]bool{}
+	for _, x := range req.IDs {
+		if x = strings.TrimSpace(x); x != "" && !seen[x] {
+			seen[x] = true
+			ids = append(ids, x)
+		}
+	}
+	if len(ids) == 0 || len(ids) > maxRemoveMessages {
+		s.fail(w, r, validationf("ids 要 1 到 %d 条", maxRemoveMessages))
+		return
+	}
+	if s.turns.running(id) {
+		s.fail(w, r, conflictf("这一轮还在跑，先停止或等它跑完再移除"))
+		return
+	}
+	n, err := s.st.DeleteAgentMessages(r.Context(), id, ids)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	respondData(w, http.StatusOK, map[string]any{"session_id": id, "removed": n})
+}
+
 func (s *Server) handleListAgentArtifacts(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	if _, err := s.st.GetAgentSession(r.Context(), id); err != nil {

@@ -57,6 +57,8 @@ export const dataKeys = {
     detail: (id: string) => ['objects', 'get', id] as const,
     progress: (id: string) => ['objects', 'progress', id] as const,
     revisions: (id: string) => ['objects', 'revisions', id] as const,
+    /** 阶段变化历史（AUTO-12，取审计 kind=stage） */
+    stageHistory: (id: string) => ['objects', 'stage-history', id] as const,
   },
   /** type 只收窄聚焦类计数器；不传是全局 */
   counts: {
@@ -74,6 +76,8 @@ export const dataKeys = {
     detail: (id: string) => ['runs', 'get', id] as const,
     /** 提示词预览（0048），参数是 { mode, workdir, extra_prompt } */
     prompt: (objectId: string, params: object) => ['runs', 'prompt', objectId, params] as const,
+    /** 预置提示词（SPEC-settings-24）；不在 runs 前缀下：执行收尾刷 runs 时不该跟着刷它 */
+    presets: ['run-presets'] as const,
   },
   workdir: (path: string) => ['agent', 'workdir', path] as const,
   fs: {
@@ -183,6 +187,10 @@ export const dataKeys = {
     objectRuns: (objectId: string) => ['sop', 'runs', 'object', objectId] as const,
     /** 插件设置（SOP-07）：放在 runs 前缀下，执行一变跟着刷在调模型、排队的个数 */
     settings: ['sop', 'runs', 'settings'] as const,
+    /** 一条需求的流水线（AUTO-12）：在 runs 前缀下，执行一变跟着刷 */
+    pipeline: (taskId: string) => ['sop', 'runs', 'pipeline', taskId] as const,
+    /** 所有等人的步骤（AUTO-12，今日「待我处理」） */
+    waiting: ['sop', 'runs', 'waiting'] as const,
   },
   /** 知识库（AG-01b7）：列表、每个库的文档、还没收进来的篇目、检索结果、Agent 列表，增删改一起刷 */
   knowledgeBases: {

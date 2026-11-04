@@ -22,6 +22,7 @@ const (
 	ObjectCreated       = "object.created"
 	ObjectUpdated       = "object.updated"
 	ObjectStatusChanged = "object.status_changed"
+	ObjectStageChanged  = "object.stage_changed" // 任务阶段（props.stage）变化，AUTO-05
 	TaskReviewRequested = "task.review_requested"
 	ProgressAppended    = "object.progress_appended"
 	RunFinished         = "run.finished"

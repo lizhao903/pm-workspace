@@ -590,3 +590,35 @@ func sessionTitles(list []*domain.AgentSession) []string {
 	}
 	return out
 }
+
+func TestDeleteAgentMessages(t *testing.T) {
+	s, ctx := newStore(t)
+	a := mustSession(t, s, ctx, "a")
+	b := mustSession(t, s, ctx, "b")
+	var ids []string
+	for _, c := range []string{"一", "二", "三"} {
+		m, err := s.AppendAgentMessage(ctx, &domain.AgentMessage{SessionID: a.ID, Role: domain.RoleUser, Content: c})
+		if err != nil {
+			t.Fatal(err)
+		}
+		ids = append(ids, m.ID)
+	}
+	ob, err := s.AppendAgentMessage(ctx, &domain.AgentMessage{SessionID: b.ID, Role: domain.RoleUser, Content: "别处"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	n, err := s.DeleteAgentMessages(ctx, a.ID, []string{ids[0], ids[2], ob.ID})
+	if err != nil || n != 2 {
+		t.Fatalf("删 = %d, %v；期望 2", n, err)
+	}
+	left, _ := s.ListAgentMessages(ctx, a.ID, 0)
+	if len(left) != 1 || left[0].Content != "二" {
+		t.Errorf("剩下 = %+v", left)
+	}
+	if lb, _ := s.ListAgentMessages(ctx, b.ID, 0); len(lb) != 1 {
+		t.Errorf("别的会话不该动：%d", len(lb))
+	}
+	if _, err := s.DeleteAgentMessages(ctx, "ags_nope", []string{"x"}); !errors.Is(err, domain.ErrNotFound) {
+		t.Errorf("会话不存在应 not found：%v", err)
+	}
+}

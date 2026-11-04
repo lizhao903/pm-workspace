@@ -239,6 +239,63 @@ func filterCases() []filterCase {
 			},
 		},
 		{
+			field: "Stages",
+			want:  []string{"命中", "命中二"},
+			build: func(t *testing.T, s *Store, ctx context.Context) domain.ObjectFilter {
+				// 多值是或；none 是没设阶段（没有键或空串）
+				mustCreate(t, s, ctx, &domain.Object{TypeID: "task", Title: "命中", Props: map[string]any{domain.PropStage: "designing"}})
+				mustCreate(t, s, ctx, &domain.Object{TypeID: "task", Title: "命中二"})
+				mustCreate(t, s, ctx, &domain.Object{TypeID: "task", Title: "排除", Props: map[string]any{domain.PropStage: "released"}})
+				return domain.ObjectFilter{Stages: []string{"designing", "none"}}
+			},
+		},
+		{
+			field: "RequesterID",
+			want:  []string{"命中"},
+			build: func(t *testing.T, s *Store, ctx context.Context) domain.ObjectFilter {
+				mustCreate(t, s, ctx, &domain.Object{TypeID: "task", Title: "命中",
+					Props: map[string]any{domain.PropRequester: map[string]any{"contact_id": "sh_a", "name": "甲"}}})
+				mustCreate(t, s, ctx, &domain.Object{TypeID: "task", Title: "排除",
+					Props: map[string]any{domain.PropRequester: map[string]any{"contact_id": "sh_b", "name": "乙"}}})
+				mustCreate(t, s, ctx, &domain.Object{TypeID: "task", Title: "也排除"})
+				return domain.ObjectFilter{RequesterID: "sh_a"}
+			},
+		},
+		{
+			field: "RequesterChannel",
+			want:  []string{"命中"},
+			build: func(t *testing.T, s *Store, ctx context.Context) domain.ObjectFilter {
+				// 渠道和发送者成对：别的渠道同号的要排除
+				mustCreate(t, s, ctx, &domain.Object{TypeID: "task", Title: "命中",
+					Props: map[string]any{domain.PropRequester: map[string]any{"channel": "slack", "sender_id": "U1", "name": "U1"}}})
+				mustCreate(t, s, ctx, &domain.Object{TypeID: "task", Title: "排除",
+					Props: map[string]any{domain.PropRequester: map[string]any{"channel": "telegram", "sender_id": "U1", "name": "U1"}}})
+				return domain.ObjectFilter{RequesterChannel: "slack", RequesterSenderID: "U1"}
+			},
+		},
+		{
+			field: "RequesterSenderID",
+			want:  []string{"命中"},
+			build: func(t *testing.T, s *Store, ctx context.Context) domain.ObjectFilter {
+				mustCreate(t, s, ctx, &domain.Object{TypeID: "task", Title: "命中",
+					Props: map[string]any{domain.PropRequester: map[string]any{"channel": "slack", "sender_id": "U1", "name": "U1"}}})
+				mustCreate(t, s, ctx, &domain.Object{TypeID: "task", Title: "排除",
+					Props: map[string]any{domain.PropRequester: map[string]any{"channel": "slack", "sender_id": "U2", "name": "U2"}}})
+				return domain.ObjectFilter{RequesterChannel: "slack", RequesterSenderID: "U1"}
+			},
+		},
+		{
+			field: "SourceMessageID",
+			want:  []string{"命中"},
+			build: func(t *testing.T, s *Store, ctx context.Context) domain.ObjectFilter {
+				mustCreate(t, s, ctx, &domain.Object{TypeID: "task", Title: "命中", Source: domain.TaskSourceIM,
+					Props: map[string]any{domain.PropSourceRef: map[string]any{"message_id": "imm_1"}}})
+				mustCreate(t, s, ctx, &domain.Object{TypeID: "task", Title: "排除", Source: domain.TaskSourceIM,
+					Props: map[string]any{domain.PropSourceRef: map[string]any{"message_id": "imm_2"}}})
+				return domain.ObjectFilter{SourceMessageID: "imm_1"}
+			},
+		},
+		{
 			field: "IncludeArchived",
 			want:  []string{"已归档", "正常"},
 			build: func(t *testing.T, s *Store, ctx context.Context) domain.ObjectFilter {

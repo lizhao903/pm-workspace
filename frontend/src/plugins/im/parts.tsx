@@ -86,12 +86,12 @@ export function AttachmentChips({ atts, max = 3 }: { atts: readonly ImAttachment
 }
 
 /**
- * 串里回复的小标（0010）：悬停看「回复 谁：原消息前 40 字」；原消息收到了的点开原消息的抽屉（整个串在里面），没收到的只是标记
+ * 消息列回复的小标（0010）：悬停看「回复 谁：原消息前 40 字」；原消息收到了的点开原消息的抽屉（整个消息列在里面），没收到的只是标记
  */
 export function ThreadTag({ hint, parentId, onOpen }: { hint: string; parentId?: string; onOpen: (id: string) => void }) {
-  if (!parentId) return <span className="im-thread-tag" title={`${hint}（原消息还没收到）`}>串里回复</span>
+  if (!parentId) return <span className="im-thread-tag" title={`${hint}（原消息还没收到）`}>消息列回复</span>
   return (
-    <button type="button" className="im-thread-tag" title={`${hint}，点开看整个串`}
-      onClick={(e) => { e.stopPropagation(); onOpen(parentId) }} onKeyDown={(e) => e.stopPropagation()}>串里回复</button>
+    <button type="button" className="im-thread-tag" title={`${hint}，点开看整个消息列`}
+      onClick={(e) => { e.stopPropagation(); onOpen(parentId) }} onKeyDown={(e) => e.stopPropagation()}>消息列回复</button>
   )
 }

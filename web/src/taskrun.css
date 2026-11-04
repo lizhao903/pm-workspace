@@ -53,6 +53,50 @@
 
 .tr-extra { min-height: 48px; }
 
+/* 执行器切换：两个后端的差别是「谁来干、按谁的模型和安全边界干」，摆在同一行让人一眼看见 */
+.tr-engine {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: var(--fs-sm);
+}
+.tr-engine-label { color: var(--muted); }
+.tr-engine-opts {
+  display: inline-flex;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  overflow: hidden;
+}
+.tr-engine-opt {
+  padding: 3px 10px;
+  border: 0;
+  background: var(--panel-soft);
+  color: var(--muted);
+  font-size: var(--fs-sm);
+  cursor: pointer;
+}
+.tr-engine-opt + .tr-engine-opt { border-left: 1px solid var(--line); }
+.tr-engine-opt.is-on { background: var(--accent-soft, var(--panel-soft)); color: var(--text); font-weight: 600; }
+.tr-engine-opt:disabled { cursor: default; opacity: 0.6; }
+.tr-engine-hint {
+  flex-basis: 100%;
+  font-size: var(--fs-xs);
+  line-height: 1.5;
+  color: var(--muted);
+}
+.tr-hist-engine { color: var(--muted); font-size: var(--fs-xs); }
+.tr-resume {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--fs-xs);
+  color: var(--muted);
+  cursor: pointer;
+}
+.tr-resume input { flex: none; }
+.tr-resume-id { margin-left: 6px; color: var(--faint, var(--muted)); }
+
 /* 「允许修改文件」：勾上就等于放手让 claude 动盘，视觉上要比普通勾选重一点 */
 .tr-writes {
   display: flex;

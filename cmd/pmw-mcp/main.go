@@ -34,7 +34,7 @@ const instructions = `这是「产品工作台」——一个跑在本机的个�
 
 1. 状态、类型、优先级、关联关系传的都是 key 不是中文标签，而且状态集是按类型隔离的（需求的 doing 和任务的 doing 是两套）。拿不准就先调 pmw_list_types，不要猜。
 2. 对象 id 形如 obj_0abc…，REQ-0001 这类是给人看的 ref。多数工具两种都认，但 id 更可靠。
-3. pmw_search / pmw_get_object / pmw_list_types / pmw_list_categories / pmw_list_stakeholders / pmw_recent_changes / pmw_counts / pmw_list_artifacts / pmw_next_task / pmw_list_runs / pmw_get_run 是只读的；pmw_create_object / pmw_update_object / pmw_link_objects / pmw_record_artifact / pmw_claim_task / pmw_append_progress / pmw_submit_review / pmw_create_subtasks / pmw_finish_run 会真的写进用户的数据库，动手前先确认清楚要改的是哪一条。
+3. pmw_search / pmw_get_object / pmw_list_types / pmw_list_categories / pmw_list_stakeholders / pmw_recent_changes / pmw_counts / pmw_list_artifacts / pmw_next_task / pmw_list_runs / pmw_get_run / pmw_list_project_profiles 是只读的；pmw_create_object / pmw_update_object / pmw_link_objects / pmw_record_artifact / pmw_claim_task / pmw_append_progress / pmw_submit_review / pmw_create_subtasks / pmw_finish_run 会真的写进用户的数据库，动手前先确认清楚要改的是哪一条。
 4. pmw_update_object 的 body 和 tags 是整体替换不是追加，要增补先读回来再拼完整内容。
 5. 这些工具依赖工作台进程处于运行状态。如果返回「工作台未运行」，把提示里的启动命令转达给用户，不要反复重试。
 6. 做开发任务走固定流程：pmw_get_object 读任务和验收标准 → pmw_claim_task 领取 → 在工作目录里改代码、跑测试，期间多次 pmw_append_progress → pmw_record_artifact 登记 commit / branch / pr → pmw_submit_review 提交验收。不要自己把任务改成已完成，完成与否由用户验收决定。`

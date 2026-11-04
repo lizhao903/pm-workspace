@@ -38,6 +38,8 @@ export const RUN_ID_PENDING = '<发起时生成的执行 id>'
 
 export function buildPrompt(o: {
   task: Task; workdir: string; extra: string; mode: HandoffMode; project?: ProjectContext; runId?: string
+  /** 选的角色（SPEC-tasks-6.18，AUTO-03），拼成「执行要求」一节：执行要求、只读说明、输出要求 */
+  preset?: { scene: string; content: string; permission?: string; output?: string }
 }): string {
   const { task: t, project: p } = o
   const lines: string[] = []
@@ -60,6 +62,12 @@ export function buildPrompt(o: {
     } else {
       lines.push('原型在哪里操作：这个项目没有登记原型目录，可在项目设置里补；需要改原型时先问用户在哪里改。')
     }
+    lines.push('')
+  }
+  if (o.preset?.content.trim()) {
+    lines.push(`## 执行要求${o.preset.scene ? `（${o.preset.scene}）` : ''}`, o.preset.content.trim())
+    if (o.preset.permission === 'read_only') lines.push('', '这个角色只读：不要创建、修改或删除任何文件，结论写在回复里。')
+    if (o.preset.output?.trim()) lines.push('', '输出要求：', o.preset.output.trim())
     lines.push('')
   }
   if (o.extra.trim()) lines.push('## 本次执行的补充要求', o.extra.trim(), '')

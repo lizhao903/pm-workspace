@@ -3,6 +3,7 @@ import { seedAgents } from './agentdata'
 import { seedModels, seedProviders } from './modeldata'
 import { CONTENT_CATEGORIES, seedContent } from './data'
 import { seedProjects } from './projectdata'
+import { runPresetsNow } from './runpresets'
 
 // SOP 节点类型表：画布、节点选择器、属性面板、执行引擎都从这里取。加一种节点 = 在 NODE_TYPES 里加一项
 // 这个文件不从 sopflow 取值（只取类型），sopflow 反过来依赖它，互相取值会在加载时拿到未初始化的东西
@@ -17,14 +18,15 @@ const defaultProvider = () => seedProviders.find((p) => p.enabled)
 export type StepKind =
   | 'auto' | 'ai' | 'review' | 'decide'
   | 'knowledge' | 'extract' | 'template' | 'aggregate' | 'code'
-  | 'classifier' | 'iterate' | 'wait'
-  | 'http' | 'notify' | 'task' | 'local_append' | 'agent' | 'subflow'
+  | 'classifier' | 'iterate' | 'wait' | 'loopback'
+  | 'http' | 'notify' | 'task' | 'local_append' | 'agent' | 'subflow' | 'claude_code'
   | 'end'
 
 type Json = Record<string, unknown>
 export type Cfg = Record<string, string>
 
-export interface FieldCtx { sops: { id: string; name: string }[] }
+/** ups 是当前步骤沿依赖往上的所有步骤（条件回退选退回目标用） */
+export interface FieldCtx { sops: { id: string; name: string }[]; ups?: { key: string; name: string }[] }
 export interface ConfigField {
   key: string
   label: string
@@ -92,6 +94,36 @@ const mainText = (input: Json, field?: string) => {
 }
 const list = (s?: string) => (s ?? '').split(/[,，、\s]+/).map((x) => x.trim()).filter(Boolean)
 const isObj = (v: unknown): v is Json => !!v && typeof v === 'object' && !Array.isArray(v)
+
+/** 条件规则求值，同后端 evalRule：「字段 等于 值」「字段 包含 值」，另有「不等于」「不包含」；写法不对返回 null */
+export function evalRule(rule: string, input: Json): boolean | null {
+  const m = /^\s*(\S+)\s+(不等于|等于|不包含|包含)\s+(.*?)\s*$/.exec(rule)
+  if (!m) return null
+  let want = m[3]
+  for (const [a, b] of [['"', '"'], ["'", "'"], ['「', '」'], ['“', '”']]) if (want.length >= 2 && want.startsWith(a) && want.endsWith(b)) { want = want.slice(1, -1); break }
+  const got = getPath(input, m[1])
+  const op = m[2].replace(/^不/, '')
+  let ok = op === '等于' ? txt(got) === want : Array.isArray(got) ? got.some((x) => txt(x) === want) : txt(got).includes(want)
+  if (m[2].startsWith('不')) ok = !ok
+  return ok
+}
+/** 条件回退最多退回几轮：留空 3，1 到 10 的整数；写法不对返回 null */
+export function loopRounds(s?: string): number | null {
+  if (!s?.trim()) return 3
+  const n = Number(s.trim())
+  return Number.isInteger(n) && n >= 1 && n <= 10 ? n : null
+}
+/** Claude Code 节点的超时，同后端：留空 2 小时，「30 分钟」「2 小时」这样，最多 24 小时；写法不对返回 null（单位毫秒） */
+export function claudeTimeout(s?: string): number | null {
+  if (!s?.trim()) return 2 * 3600e3
+  const m = /^\s*(\d+(?:\.\d+)?)\s*(秒钟?|分钟|分|小时|时|天)\s*$/.exec(s)
+  if (!m) return null
+  const unit = { 秒: 1e3, 秒钟: 1e3, 分: 60e3, 分钟: 60e3, 时: 3600e3, 小时: 3600e3, 天: 86400e3 }[m[2]]!
+  const ms = Number(m[1]) * unit
+  return ms > 0 && ms <= 86400e3 ? ms : null
+}
+/** 原型模拟 Claude Code 的结论：被条件回退退回过（带 feedback）的算通过；评审角色、提示词里有「评审」的首轮不通过 */
+const mockVerdict = (c: Cfg, input: Json) => (input.feedback ? 'pass' : c.preset === 'rp_review' || /评审|审查/.test(c.prompt ?? '') ? 'reject' : 'pass')
 
 const P = (d: string) => <path d={d} fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
 /** 项目下拉：选项是项目名，也可以取输入里的字段 */
@@ -245,6 +277,17 @@ export const NODE_TYPES: NodeType[] = [
     summary: (c) => (c.duration ? `等 ${c.duration}` : ''),
   },
   {
+    kind: 'loopback', label: '条件回退', group: '逻辑', desc: '条件成立就自动退回上游重做，超过轮次上限走「超限」', color: '#0f8a8a', ms: 400,
+    icon: <>{P('M12.5 11.5H6a3.5 3.5 0 0 1 0-7h6.5')}{P('M10 2l2.5 2.5L10 7')}</>,
+    branching: true, defaultCases: [{ key: 'pass', label: '通过' }, { key: 'over', label: '超限' }],
+    fields: [
+      { key: 'target', label: '退回到哪一步', type: 'select', required: true, hint: '只能选上游的步骤；它和中间的步骤会重新执行',
+        options: (ctx) => [{ value: '', label: '选一个上游步骤' }, ...(ctx.ups ?? []).map((u) => ({ value: u.key, label: u.name }))] },
+      { key: 'max_rounds', label: '最多退回几轮', type: 'number', default: '3', placeholder: '3', hint: '1 到 10；超过了走「超限」出口，通常接人工检查' },
+    ],
+    summary: (c) => (c.target ? `退回 ${c.target}，最多 ${c.max_rounds || 3} 轮` : ''),
+  },
+  {
     kind: 'review', label: '人工检查', group: '人工', desc: '停下来让人看输出，可改了再放行', color: '#b0570b', ms: 300, descLabel: '检查要点',
     icon: <><circle cx="8" cy="8" r="2.2" fill="currentColor" /><path d="M1.8 8S4.2 3.8 8 3.8 14.2 8 14.2 8 11.8 12.2 8 12.2 1.8 8 1.8 8Z" fill="none" stroke="currentColor" strokeWidth="1.4" /></>,
     fields: [{ key: 'assignee', label: '谁来检查', type: 'text', placeholder: '我', default: '我' }],
@@ -331,6 +374,31 @@ export const NODE_TYPES: NodeType[] = [
     fields: [{ key: 'sop', label: '执行哪个 SOP', type: 'select', required: true, options: (ctx) => ctx.sops.map((s) => ({ value: s.name, label: s.name })) }],
     run: (c, input) => ({ ...input, subflow: { sop: c.sop, status: 'done' } }),
     summary: (c) => (c.sop ? `执行「${c.sop}」` : ''),
+  },
+  {
+    kind: 'claude_code', label: 'Claude Code 执行', group: '外部', desc: '交给本机 Claude Code 在指定目录里做一件事，等它做完把结论交给下游', color: '#b0570b', ms: 3000,
+    icon: <>{P('M3 4.5 6 8l-3 3.5M8 12h5')}</>,
+    fields: [
+      { key: 'preset', label: '角色', type: 'select', default: '', hint: '执行要求和输出要求拼进提示词；权限留空时按角色',
+        options: () => [{ value: '', label: '不选角色' }, ...runPresetsNow().map((p) => ({ value: p.id, label: p.scene }))] },
+      { key: 'workdir', label: '工作目录', type: 'text', required: true, placeholder: '{{project.code_dir}}', hint: '本机绝对路径，或取输入里的字段' },
+      { key: 'prompt', label: '提示词', type: 'textarea', required: true, placeholder: '按 {{task.title}} 的验收标准评审 PRD', hint: '支持 {{字段}}；被条件回退退回时自动附上上一轮的意见' },
+      { key: 'task', label: '关联任务', type: 'text', placeholder: '{{task_id}}', hint: '填了就在任务上留执行记录，执行详情能跳过去' },
+      { key: 'permission', label: '权限', type: 'select', default: '',
+        options: () => [{ value: '', label: '按角色（没选角色就只读）' }, { value: 'read', label: '只读' }, { value: 'write', label: '可写（允许改文件）' }] },
+      { key: 'timeout', label: '超时', type: 'text', default: '2 小时', placeholder: '2 小时', hint: '到点取消这次执行、这一步失败，最多 24 小时' },
+    ],
+    fail: (c, input) => (!render(c.workdir ?? '', input).trim() ? `工作目录是空的：配置「${c.workdir}」引用的字段在输入里取不到` : claudeTimeout(c.timeout) === null ? `超时「${c.timeout}」写法不对` : null),
+    run: (c, input) => {
+      const verdict = mockVerdict(c, input)
+      const fb = input.feedback as Json | undefined
+      return {
+        ...input, status: 'done', run_id: `run_${Math.random().toString(36).slice(2, 10)}`,
+        summary: verdict === 'pass' ? (fb ? `按第 ${fb.round} 轮的意见改完了（原型模拟）` : '做完了（原型模拟）') : '验收标准第 2 条不可测，退回补充（原型模拟）',
+        result: verdict === 'pass' ? { verdict: 'pass', issues: [] } : { verdict: 'reject', issues: [{ title: '验收标准不可测', severity: 'blocker' }] },
+      }
+    },
+    summary: (c) => [runPresetsNow().find((p) => p.id === c.preset)?.scene, c.workdir].filter(Boolean).join(' · '),
   },
   {
     kind: 'end', label: '结束', group: '输出', desc: '流程到这里结束，挑出要留下的结果', color: '#2f7d43', ms: 200,

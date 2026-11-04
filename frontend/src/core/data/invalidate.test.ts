@@ -63,8 +63,10 @@ describe('失效规则', () => {
     expect(await stale({ kind: 'artifact', objectId: 'obj_a' })).toEqual(['artifacts', 'artifactStats'])
   })
 
-  it('执行开始只刷这个对象的执行列表', async () => {
-    expect(await stale({ kind: 'run-started', objectId: 'obj_a' })).toEqual(['runs'])
+  it('执行开始：这个对象的执行列表，加上对象和计数（交出去的任务改成了进行中）', async () => {
+    const s = await stale({ kind: 'run-started', objectId: 'obj_a' })
+    expect(s).toEqual(expect.arrayContaining(['runs', 'taskList', 'detail', 'taskCounts']))
+    for (const n of ['otherRuns', 'run', 'artifacts', 'types'] as Name[]) expect(s).not.toContain(n)
   })
 
   it('执行收尾：执行记录、产出物、对象和计数都刷（执行里可能改了状态、登记了产出物）', async () => {

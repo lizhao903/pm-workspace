@@ -67,6 +67,7 @@ make build BIN=/tmp/pmw-try/pmw BIN_MCP=/tmp/pmw-try/pmw-mcp
 | `--seed-demo` | `false` | 启动时写入演示数据 |
 | `--dev` | `false` | 放开 CORS，不服务内嵌前端 |
 | `--open` | `false` | 启动后打开浏览器（仅 macOS） |
+| `--dsh-bin` | 环境变量 `DSH_BIN` | deepseek-harness 的 `dsh` 可执行文件；留空走 PATH（见 `docs/deepseek-harness.md`） |
 
 ## 测试
 

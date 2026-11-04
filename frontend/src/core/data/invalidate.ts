@@ -110,8 +110,8 @@ export function invalidationsFor(c: Change): QueryKey[] {
       // 列表和统计（删除确认里的产出物数）一起刷
       return [dataKeys.artifacts.all]
     case 'run-started':
-      // 今日的「正在运行」也要多一行
-      return [dataKeys.runs.list(c.objectId), todayKeys.of(), todayKeys.of('task')]
+      // 今日的「正在运行」也要多一行；交出去的任务后端改成了进行中（SPEC-tasks-6.17），列表、抽屉、计数跟着刷
+      return [dataKeys.runs.list(c.objectId), dataKeys.objects.all, dataKeys.counts.all, todayKeys.of(), todayKeys.of('task')]
     case 'run-settled':
       return [dataKeys.runs.all, dataKeys.artifacts.all, ...objectWide]
     case 'run-canceled':

@@ -112,6 +112,8 @@ type Core interface {
 	HTTP(group string) (*http.Client, error)
 	// AttachmentDir 是本机附件目录的绝对路径（IM-04a，datadir.go），没接数据目录时为空串。
 	AttachmentDir() string
+	// WorktreeDir 是本机工作区目录（数据目录下的 worktrees/）的绝对路径（AUTO-07，datadir.go），没接数据目录时为空串。
+	WorktreeDir() string
 	// Agent 用默认服务商补全、按 Agent 的授权跑一轮、搜指定知识库（SOP-01c，agent.go）。
 	Agent() AgentService
 	// Granted 看用户确认过这项权限没有，只认状态表里确认过的（SEC-01，permissions.go）。
@@ -126,6 +128,8 @@ type Core interface {
 	Runs() RunService
 	// Incidents 记运行异常，来源记为 plugin:<插件 id>，按指纹合并（INC-01a，incidents.go）。
 	Incidents() IncidentService
+	// Artifacts 登记产物（本地文件），来源记 run、产出者记本插件（AUTO-08，artifacts_write.go）。
+	Artifacts() ArtifactWriter
 }
 
 // Publisher 往事件总线上发事件。payload 按 JSON 序列化；总线没接上时什么都不做。

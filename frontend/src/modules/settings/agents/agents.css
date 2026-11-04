@@ -2,7 +2,6 @@
 .ag-page { display: flex; flex-direction: column; gap: var(--sp-7); min-width: 0; }
 .ag-sub { font-size: var(--fs-xs); color: var(--faint); }
 .ag-hint { margin-left: var(--sp-4); color: var(--faint); font-size: var(--fs-xs); font-weight: 400; }
-.ag-nowrap { white-space: nowrap; }
 .ag-grow { flex: 1; min-width: 0; }
 .ag-mono { font-family: var(--mono); }
 .ag-row { display: flex; align-items: center; flex-wrap: wrap; gap: var(--sp-4); }
@@ -58,7 +57,6 @@
 .ag-card-foot {
   display: flex; align-items: center; gap: 8px; min-width: 0; padding-top: 10px; border-top: 1px solid var(--line); font-size: var(--fs-xs); color: var(--faint);
 }
-.ag-wait { color: var(--warn); white-space: nowrap; }
 
 /* 配置页：铺满内容区（抵掉 shell-content 的内边距），标签条、正文滚动、底栏 */
 .ag-editor {

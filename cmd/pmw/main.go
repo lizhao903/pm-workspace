@@ -32,6 +32,7 @@ import (
 	"github.com/lizhao903/pm-workspace/internal/plugin"
 	"github.com/lizhao903/pm-workspace/internal/plugins/browser"
 	"github.com/lizhao903/pm-workspace/internal/plugins/domains"
+	"github.com/lizhao903/pm-workspace/internal/plugins/etf"
 	"github.com/lizhao903/pm-workspace/internal/plugins/im"
 	"github.com/lizhao903/pm-workspace/internal/plugins/projects"
 	"github.com/lizhao903/pm-workspace/internal/plugins/sop"
@@ -40,6 +41,7 @@ import (
 	"github.com/lizhao903/pm-workspace/internal/plugins/video"
 	"github.com/lizhao903/pm-workspace/internal/runner"
 	"github.com/lizhao903/pm-workspace/internal/schedule"
+	"github.com/lizhao903/pm-workspace/internal/selfupdate"
 	"github.com/lizhao903/pm-workspace/internal/store/sqlite"
 	"github.com/lizhao903/pm-workspace/internal/vault"
 	"github.com/lizhao903/pm-workspace/internal/webhook"
@@ -70,6 +72,8 @@ type config struct {
 	publicURL string
 	// mcpBin：「切换到终端」执行时写进 MCP 配置的 MCP 程序；空串时按本程序的位置推（mcpBinFor）
 	mcpBin string
+	// dshBin：deepseek-harness 的 dsh 可执行文件；空串时走 PATH，再看 DSH_BIN
+	dshBin string
 }
 
 func main() {
@@ -87,15 +91,32 @@ func main() {
 	flag.BoolVar(&cfg.fakeIM, "fake-im", false, "IM 插件带上假适配器 fake，可用 POST /api/im/callbacks/fake 灌消息（只用于演练）")
 	flag.StringVar(&cfg.publicURL, "public-url", connector.DefaultPublicURL, "浏览器访问工作台的地址，OAuth 回调地址由它拼出（见 docs/local-domain.md）")
 	flag.StringVar(&cfg.mcpBin, "mcp-bin", "", "交给 Claude Code「切换到终端」时接回工作台的 MCP 程序；留空按本程序位置推：bin/pmw 配 bin/pmw-mcp，bin/pmw-dev 配 bin/pmw-mcp-dev")
+	flag.StringVar(&cfg.dshBin, "dsh-bin", os.Getenv("DSH_BIN"), "deepseek-harness 的 dsh 可执行文件；留空走 PATH（也可用环境变量 DSH_BIN）")
 	flag.Parse()
 
 	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo})))
 
-	if err := run(cfg); err != nil {
+	err := run(cfg)
+	// 版本更新（SYS-UPD）换好二进制后要求重启：run 已经收完尾（关监听、关库、停插件），在这里原地换成新程序，
+	// 参数、环境、进程号都不变（pid 文件、数据目录、vault.key 跟着不变）
+	var re *restartRequest
+	if errors.As(err, &re) {
+		slog.Info("版本更新：原地重启", "exe", re.exe)
+		if xerr := syscall.Exec(re.exe, os.Args, os.Environ()); xerr != nil {
+			slog.Error("重启失败，新程序没起来；旧程序留在 .prev，手动换回再启动", "exe", re.exe, "err", xerr)
+			os.Exit(1)
+		}
+	}
+	if err != nil {
 		slog.Error("fatal", "err", err)
 		os.Exit(1)
 	}
 }
+
+// restartRequest 是 run 收尾后要求原地换成 exe 重启
+type restartRequest struct{ exe string }
+
+func (r *restartRequest) Error() string { return "restart into " + r.exe }
 
 func run(cfg config) error {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
@@ -176,7 +197,7 @@ func run(cfg config) error {
 	plugins.Events = bus
 	// 插件的附件目录在数据目录下（IM-04a）：attachments/ 和库文件同级
 	plugins.DataDir = filepath.Dir(cfg.dbPath)
-	if err := plugins.Add(projects.New()); err != nil {
+	if err := plugins.Add(projects.New().WithPublicURL(cfg.publicURL)); err != nil {
 		return fmt.Errorf("登记插件失败: %w", err)
 	}
 	// IM 消息插件（IM-01a）：真实渠道 Slack（IM-01b）、Telegram（IM-01c），另有演练用的假适配器
@@ -189,7 +210,7 @@ func run(cfg config) error {
 	// Telegram Bot（IM-01c）：Token 在连接器实例里，出网走 network:im；--dev-upstream 可改投到本机假服务
 	imAdapters = append(imAdapters, im.NewTelegram())
 	applyDevUpstreams(plugins)
-	if err := plugins.Add(im.New(imAdapters...)); err != nil {
+	if err := plugins.Add(im.New(imAdapters...).WithPublicURL(cfg.publicURL)); err != nil {
 		return fmt.Errorf("登记插件失败: %w", err)
 	}
 	// SOP 编排插件（SOP-01a）：先只有流程定义，执行引擎从 SOP-01b 起
@@ -208,6 +229,10 @@ func run(cfg config) error {
 	if err := plugins.Add(trade.New()); err != nil {
 		return fmt.Errorf("登记插件失败: %w", err)
 	}
+	// 宽基监控插件（ETF-01a）：只读东方财富公开数据，采每日份额与交易快照
+	if err := plugins.Add(etf.New(etf.NewEastMoney())); err != nil {
+		return fmt.Errorf("登记插件失败: %w", err)
+	}
 	// 视频创作插件（VID-01a）：系列、视频、检查点、发布记录；不接内容平台
 	if err := plugins.Add(video.New()); err != nil {
 		return fmt.Errorf("登记插件失败: %w", err)
@@ -222,7 +247,23 @@ func run(cfg config) error {
 	defer plugins.Close()
 	defer bus.Wait(5 * time.Second)
 
-	opts := api.Options{Version: version, Dev: cfg.dev, Vault: v, Plugins: plugins}
+	opts := api.Options{Version: version, Dev: cfg.dev, Vault: v, Plugins: plugins, DSHBin: cfg.dshBin}
+	// 版本更新（SYS-UPD）：按正在跑的二进制找源码目录；换好二进制后经 restartCh 让下面的 select 收尾、main 原地重启
+	restartCh := make(chan string, 1)
+	if exe, err := os.Executable(); err == nil {
+		opts.Updater = selfupdate.New(exe, version, func(ctx context.Context) (string, error) {
+			info, err := st.Snapshot(ctx, "")
+			if err != nil {
+				return "", err
+			}
+			return info.Path, nil
+		}, func(exe string) {
+			select {
+			case restartCh <- exe:
+			default:
+			}
+		})
+	}
 	// 审计日志（CORE-08，0018）：删除和 Agent 写操作在 store 外层记，配置类在 handler 里记
 	opts.Audit = audit.New(pdb, slog.Default())
 	// 事件流和通知（CORE-07b，0019）：内核内部订阅总线，不经插件注册表；退出时先关流，SSE 连接不拖住 Shutdown
@@ -432,10 +473,13 @@ func run(cfg config) error {
 		openBrowser(urls[len(urls)-1])
 	}
 
+	var restartExe string
 	select {
 	case err := <-errCh:
 		return err
 	case <-ctx.Done():
+	case restartExe = <-restartCh:
+		fmt.Println("\n版本更新：收尾后重启…")
 	}
 
 	// 优雅退出：先停止收新请求，给在途请求 5 秒收尾，再关库。
@@ -447,6 +491,9 @@ func run(cfg config) error {
 			slog.Warn("shutdown 超时，强制关闭", "err", err)
 			_ = srv.Close()
 		}
+	}
+	if restartExe != "" {
+		return &restartRequest{exe: restartExe}
 	}
 	return nil
 }

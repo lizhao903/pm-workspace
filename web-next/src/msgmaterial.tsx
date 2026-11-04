@@ -84,25 +84,35 @@ export function MaterialSection({ notes, onOpen }: {
  * 转项目资料弹窗：项目默认取消息归到的项目，能换；标题、正文能改，正文最多 5000 字；可选连附件一起加入资料。
  * 以前整组转过的先提示，能打开已有的，也能「再转一份」
  */
-export function ToMaterialDialog({ messages, projects, defaultProject, who, chLabel, onCancel, onSave, onOpen }: {
-  messages: Message[]; projects: Project[]; defaultProject?: string; who: (m: Message) => string; chLabel: string
+export function ToMaterialDialog({ messages: picked, thread = [], projects, defaultProject, who, chLabel, onCancel, onSave, onOpen }: {
+  messages: Message[]
+  /** 这些消息所在消息列里、不在 messages 里的消息（threadForMany）；有时出「带上消息列」，默认勾上 */
+  thread?: Message[]
+  projects: Project[]; defaultProject?: string; who: (m: Message) => string; chLabel: string
   onCancel: () => void
-  /** markDone：存好后把这些消息里还没处理的标为已处理（SPEC-messages-6.13，默认勾上） */
-  onSave: (projectId: string, title: string, body: string, withAttachments: boolean, markDone: boolean) => void
+  /**
+   * markDone：存好后把选中的消息里还没处理的标为已处理（SPEC-messages-6.13，默认勾上）；
+   * extraIds：勾了「带上消息列」时另外带上的消息，并进对话记录、出处和附件也算，不跟着标已处理
+   */
+  onSave: (projectId: string, title: string, body: string, withAttachments: boolean, markDone: boolean, extraIds: string[]) => void
   onOpen: (projectId: string, materialId: string) => void
 }) {
   const [pid, setPid] = useState(defaultProject ?? '')
-  const [title, setTitle] = useState(() => materialTitle(messages, who))
+  const [title, setTitle] = useState(() => materialTitle(picked, who))
   const [edited, setEdited] = useState<string | null>(null)
   const [withAtts, setWithAtts] = useState(false)
   const [markDone, setMarkDone] = useState(true)
-  const openN = messages.filter((m) => m.status === 'pending' || m.status === 'expired').length
+  const [withThread, setWithThread] = useState(true)
+  // 实际存进资料的消息：选中的，勾了「带上消息列」再加上消息列里的
+  const extra = withThread ? thread : []
+  const messages = [...picked, ...extra]
+  const openN = picked.filter((m) => m.status === 'pending' || m.status === 'expired').length
   const body = edited ?? materialBody(messages, who, chLabel)
   const len = Array.from(body.trim()).length
   const over = len > NOTE_MAX
   const atts = chrono(messages).flatMap((m) => (m.attachments ?? []).map((a) => ({ m, a })))
-  const prior = priorOf(projects, messages.map((m) => m.id))
-  const many = messages.length > 1
+  const prior = priorOf(projects, picked.map((m) => m.id))
+  const many = picked.length > 1
   const ok = !!pid && projects.some((p) => p.id === pid) && !!title.trim() && !!body.trim() && !over
   return (
     <div className="qs-mask" onMouseDown={(e) => { if (e.target === e.currentTarget) onCancel() }}>
@@ -128,8 +138,11 @@ export function ToMaterialDialog({ messages, projects, defaultProject, who, chLa
         <label className="msg-start-field"><span className="list-sub">标题</span>
           <input className="input" value={title} maxLength={200} onChange={(e) => setTitle(e.target.value)} />
         </label>
+        {thread.length > 0 && (
+          <label className="check"><input type="checkbox" checked={withThread} onChange={(e) => setWithThread(e.target.checked)} /> 带上消息列（另外 {thread.length} 条），按时间并进对话记录{edited !== null ? '（正文改过，要按新的范围重拼点「恢复默认」）' : ''}</label>
+        )}
         <label className="msg-start-field">
-          <span className="list-sub">正文（{many ? `${messages.length} 条消息` : '这条消息'}，按时间拼成一段对话记录；{len} / {NOTE_MAX} 字）{edited !== null && <button className="link-btn" onClick={() => setEdited(null)}>恢复默认</button>}</span>
+          <span className="list-sub">正文（{messages.length > 1 ? `${messages.length} 条消息` : '这条消息'}，按时间拼成一段对话记录；{len} / {NOTE_MAX} 字）{edited !== null && <button className="link-btn" onClick={() => setEdited(null)}>恢复默认</button>}</span>
           <textarea className={cls('input', over && 'bad')} rows={10} value={body} onChange={(e) => setEdited(e.target.value)} />
           {over && <span className="danger-text list-sub">超过 {NOTE_MAX} 字（现在 {len} 字），删掉一些，或分几次转</span>}
         </label>
@@ -147,12 +160,12 @@ export function ToMaterialDialog({ messages, projects, defaultProject, who, chLa
           </div>
         )}
         {openN > 0 && (
-          <label className="check"><input type="checkbox" checked={markDone} onChange={(e) => setMarkDone(e.target.checked)} /> 存好后标为已处理{messages.length > 1 && openN < messages.length ? `（还没处理的 ${openN} 条）` : ''}</label>
+          <label className="check"><input type="checkbox" checked={markDone} onChange={(e) => setMarkDone(e.target.checked)} /> 存好后标为已处理{many && openN < picked.length ? `（还没处理的 ${openN} 条）` : ''}</label>
         )}
         <div className="act-row">
           <span className="spacer" />
           <button className="act act-quiet" onClick={onCancel}>取消</button>
-          <button className="act act-primary" disabled={!ok} onClick={() => onSave(pid, title.trim(), body.trim(), withAtts, markDone)}>{prior.same.length ? '再转一份' : '存成资料'}</button>
+          <button className="act act-primary" disabled={!ok} onClick={() => onSave(pid, title.trim(), body.trim(), withAtts, markDone, extra.map((m) => m.id))}>{prior.same.length ? '再转一份' : '存成资料'}</button>
         </div>
       </div>
     </div>

@@ -68,13 +68,25 @@ type RunStep struct {
 	Log         []LogLine  `json:"log"`
 	WakeAt      *time.Time `json:"wake_at,omitempty"`
 	ChildRunID  string     `json:"child_run_id,omitempty"`
+	// Claude 是 Claude Code 节点发起的运行（AUTO-01，nodes_claude.go）
+	Claude *StepClaude `json:"claude,omitempty"`
+	// Round 是这一步当前第几轮：被条件回退退回重做后为 2、3……，首轮为 0（AUTO-02，loopback.go）
+	Round int `json:"round,omitempty"`
+	// ReworkReason 是这一轮被退回重做的原因，首轮为空
+	ReworkReason string `json:"rework_reason,omitempty"`
+	// Loops 是条件回退节点已经自动退回的次数
+	Loops int `json:"loops,omitempty"`
 	// Queue 是在排队等模型名额（SOP-07，gate.go）：只在接口回执行时按内存里的队列标上，不落库
 	Queue *StepQueue `json:"queue,omitempty"`
+	// Hold 是这一步因为超出治理上限被暂停的记录（AUTO-12，governance.go，迁移 0007）；没暂停过为 nil
+	Hold *StepHold `json:"hold,omitempty"`
 }
 
 // StepQueue 是排队中的步骤前面还有几个（全插件的队列里）。
 type StepQueue struct {
 	Ahead int `json:"ahead"`
+	// Slot 是排的哪个队：空串是调模型（SOP-07），claude_code 是 Claude Code 并发名额（AUTO-12）
+	Slot string `json:"slot,omitempty"`
 }
 
 // Run 是一次执行，形状同原型 SopRun：sop_id、sop 改叫 flow_id、flow，多运行状态和父执行。
@@ -252,16 +264,29 @@ func scanRun(row plugin.Row, withFlow bool) (*Run, error) {
 	return &r, nil
 }
 
-const stepCols = `idx, step_key, status, input, output, route, route_reason, error, edited, attempts, log, started_at, ended_at, wake_at, child_run_id`
+const stepCols = `idx, step_key, status, input, output, route, route_reason, error, edited, attempts, log, started_at, ended_at, wake_at, child_run_id,
+	claude, round, rework_reason, loops, hold`
 
 func scanStep(row plugin.Row) (int, RunStep, error) {
 	var s RunStep
 	var idx int
-	var input, output, started, ended, wake, child *string
+	var input, output, started, ended, wake, child, claude, hold *string
 	var logs string
 	if err := row.Scan(&idx, &s.Key, &s.Status, &input, &output, &s.Route, &s.RouteReason, &s.Error, &s.Edited, &s.Attempts,
-		&logs, &started, &ended, &wake, &child); err != nil {
+		&logs, &started, &ended, &wake, &child, &claude, &s.Round, &s.ReworkReason, &s.Loops, &hold); err != nil {
 		return 0, s, err
+	}
+	if claude != nil && *claude != "" {
+		var c StepClaude
+		if json.Unmarshal([]byte(*claude), &c) == nil && c.RunID != "" {
+			s.Claude = &c
+		}
+	}
+	if hold != nil && *hold != "" {
+		var h StepHold
+		if json.Unmarshal([]byte(*hold), &h) == nil && h.Kind != "" {
+			s.Hold = &h
+		}
 	}
 	s.Input, s.Output = parseJSONCol(input), parseJSONCol(output)
 	if err := json.Unmarshal([]byte(logs), &s.Log); err != nil || s.Log == nil {
@@ -332,9 +357,10 @@ func insertRun(ctx context.Context, st plugin.Store, r *Run) error {
 	}
 	for i, s := range r.Steps {
 		logs, _ := json.Marshal(s.Log)
-		if _, err := st.Exec(ctx, `INSERT INTO sop_run_steps (run_id, `+stepCols+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		if _, err := st.Exec(ctx, `INSERT INTO sop_run_steps (run_id, `+stepCols+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			r.ID, i, s.Key, s.Status, jsonCol(s.Input), jsonCol(s.Output), s.Route, s.RouteReason, s.Error, s.Edited, s.Attempts,
-			string(logs), tsPtr(s.StartedAt), tsPtr(s.EndedAt), tsPtr(s.WakeAt), nullStr(s.ChildRunID)); err != nil {
+			string(logs), tsPtr(s.StartedAt), tsPtr(s.EndedAt), tsPtr(s.WakeAt), nullStr(s.ChildRunID),
+			claudeCol(s.Claude), s.Round, s.ReworkReason, s.Loops, holdCol(s.Hold)); err != nil {
 			return err
 		}
 	}
@@ -344,10 +370,20 @@ func insertRun(ctx context.Context, st plugin.Store, r *Run) error {
 func updateStep(ctx context.Context, st plugin.Store, runID string, i int, s RunStep) error {
 	logs, _ := json.Marshal(s.Log)
 	_, err := st.Exec(ctx, `UPDATE sop_run_steps SET status = ?, input = ?, output = ?, route = ?, route_reason = ?, error = ?, edited = ?,
-		attempts = ?, log = ?, started_at = ?, ended_at = ?, wake_at = ?, child_run_id = ? WHERE run_id = ? AND idx = ?`,
+		attempts = ?, log = ?, started_at = ?, ended_at = ?, wake_at = ?, child_run_id = ?, claude = ?, round = ?, rework_reason = ?, loops = ?, hold = ?
+		WHERE run_id = ? AND idx = ?`,
 		s.Status, jsonCol(s.Input), jsonCol(s.Output), s.Route, s.RouteReason, s.Error, s.Edited, s.Attempts, string(logs),
-		tsPtr(s.StartedAt), tsPtr(s.EndedAt), tsPtr(s.WakeAt), nullStr(s.ChildRunID), runID, i)
+		tsPtr(s.StartedAt), tsPtr(s.EndedAt), tsPtr(s.WakeAt), nullStr(s.ChildRunID), claudeCol(s.Claude), s.Round, s.ReworkReason, s.Loops, holdCol(s.Hold), runID, i)
 	return err
+}
+
+// claudeCol 把 Claude Code 节点的运行转成列值，没有为 NULL。
+func claudeCol(c *StepClaude) any {
+	if c == nil {
+		return nil
+	}
+	b, _ := json.Marshal(c)
+	return string(b)
 }
 
 func updateRunRow(ctx context.Context, st plugin.Store, r *Run) error {

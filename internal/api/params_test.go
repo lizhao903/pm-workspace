@@ -302,11 +302,17 @@ var queryForField = map[string]string{
 	"NotTerminal":     "not_terminal=true",
 	"Inbox":           "inbox=true",
 	"Sources":         "source=webhook",
-	"IncludeArchived": "archived=true",
-	"IncludeDeleted":  "deleted=true",
-	"Sort":            "sort=-updated_at",
-	"Limit":           "limit=10",
-	"Offset":          "offset=5",
+	// AUTO-05：渠道和发送者成对给，单给一个是 400，所以两条都带上另一半
+	"Stages":            "stage=designing,none",
+	"RequesterID":       "requester_id=stk_1",
+	"RequesterChannel":  "requester_channel=slack&requester_sender_id=U1",
+	"RequesterSenderID": "requester_channel=slack&requester_sender_id=U1",
+	"SourceMessageID":   "source_message_id=imm_1",
+	"IncludeArchived":   "archived=true",
+	"IncludeDeleted":    "deleted=true",
+	"Sort":              "sort=-updated_at",
+	"Limit":             "limit=10",
+	"Offset":            "offset=5",
 }
 
 // exemptFields 登记「有意不通过 query 暴露」的字段，值是理由。
@@ -393,7 +399,7 @@ func TestQueryForFieldHasNoStaleEntries(t *testing.T) {
 // due_after 漏的是第 1 和第 3 步，stalled/not_terminal 漏的是第 1 和第 2 步。
 // 三处都确认到位后，把下面的数字改成新值。
 func TestObjectFilterFieldCountTripwire(t *testing.T) {
-	const known = 22
+	const known = 27
 	if n := reflect.TypeOf(domain.ObjectFilter{}).NumField(); n != known {
 		t.Fatalf("ObjectFilter 字段数变成 %d（原为 %d）。"+
 			"请确认新字段在 params.go 有解析、objects.go 有谓词、api-contract.md 有记载，"+

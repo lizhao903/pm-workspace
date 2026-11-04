@@ -60,6 +60,8 @@ type ObjectWriter interface {
 	CreateAs(ctx context.Context, o NewObject, m WriteMeta) (CreatedObject, error)
 	// AppendBody 在对象正文末尾追加一段，带操作者、幂等键，记审计（SOP-02a，writes.go）
 	AppendBody(ctx context.Context, id, text string, m WriteMeta) (CreatedObject, error)
+	// UpdateTask 改任务的阶段（props.stage）和所属项目，带操作者，记审计（AUTO-06，taskstage_write.go）
+	UpdateTask(ctx context.Context, id string, ch TaskChange, m WriteMeta) (ChangedTask, error)
 }
 
 // objectCreatorBox 包一层，atomic.Pointer 才能放接口值。

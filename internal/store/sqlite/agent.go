@@ -233,6 +233,27 @@ func (s *Store) DeleteAgentSession(ctx context.Context, id string) error {
 
 // --- 消息 ---
 
+// DeleteAgentMessages 只删这个会话里的这几条；会话的 updated_at 不动（移除不算新动静，列表不该因此跳到最前）
+func (s *Store) DeleteAgentMessages(ctx context.Context, sessionID string, ids []string) (int, error) {
+	if err := s.assertSession(ctx, sessionID); err != nil {
+		return 0, err
+	}
+	if len(ids) == 0 {
+		return 0, nil
+	}
+	args := append([]any{sessionID}, anySlice(ids)...)
+	res, err := s.db.W.ExecContext(ctx,
+		`DELETE FROM agent_messages WHERE session_id = ? AND id IN (`+placeholders(len(ids))+`)`, args...)
+	if err != nil {
+		return 0, fmt.Errorf("delete agent messages: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return 0, fmt.Errorf("delete agent messages: %w", err)
+	}
+	return int(n), nil
+}
+
 // ListAgentMessages 按时间正序返回。limit > 0 时取最近 N 条，但返回顺序仍是正序
 // ——对话框要的是「最近这一段按顺序读」，倒序回去会让前端每次都得再翻一遍。
 func (s *Store) ListAgentMessages(ctx context.Context, sessionID string, limit int) ([]*domain.AgentMessage, error) {

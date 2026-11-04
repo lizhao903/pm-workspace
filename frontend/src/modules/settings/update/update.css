@@ -1,0 +1,33 @@
+/* 设置「版本更新」（SYS-UPD） */
+.up-page { display: flex; flex-direction: column; gap: var(--sp-6); min-width: 0; max-width: 860px; }
+.up-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--sp-5); }
+.up-card { display: flex; flex-direction: column; gap: var(--sp-2); min-width: 0; padding: var(--sp-6); border: 1px solid var(--line); border-radius: var(--r); background: var(--panel); font-size: var(--fs-sm); }
+.up-label { font-size: var(--fs-xs); font-weight: 500; color: var(--faint); }
+.up-muted { color: var(--muted); font-size: var(--fs-sm); }
+.up-mono { font: var(--fs-xs) var(--mono); color: var(--faint); overflow-wrap: anywhere; }
+.up-tag { margin-left: var(--sp-3); padding: 1px 6px; border-radius: 4px; background: var(--hover); color: var(--muted); font-size: var(--fs-2xs); }
+.up-subject { min-width: 0; }
+.up-commits ul { list-style: none; margin: var(--sp-3) 0 0; padding: 0; border: 1px solid var(--line); border-radius: var(--r); background: var(--panel); max-height: 320px; overflow: auto; }
+.up-commits li { display: grid; grid-template-columns: 64px minmax(0, 1fr) auto; gap: var(--sp-4); align-items: baseline; padding: var(--sp-3) var(--sp-6); font-size: var(--fs-sm); }
+.up-commits li + li { border-top: 1px solid var(--line); }
+.up-commits .up-subject { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.up-sha { font: var(--fs-xs) var(--mono); color: var(--muted); }
+.up-actions { display: flex; align-items: center; gap: var(--sp-5); flex-wrap: wrap; }
+.up-banner { display: flex; align-items: center; gap: var(--sp-5); padding: var(--sp-5) var(--sp-6); border-radius: var(--r); background: var(--accent-soft); font-size: var(--fs-sm); }
+.up-banner.up-ok { background: color-mix(in srgb, var(--ok, #2e9e5b) 14%, var(--panel)); }
+.up-progress { display: flex; flex-direction: column; gap: var(--sp-4); padding: var(--sp-6); border: 1px solid var(--line); border-radius: var(--r); background: var(--panel); }
+.up-progress ol { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--sp-3); }
+.up-step { display: flex; align-items: baseline; gap: var(--sp-4); min-width: 0; font-size: var(--fs-sm); }
+.up-step .up-muted { min-width: 0; overflow-wrap: anywhere; }
+.up-dot { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--line-2); transform: translateY(-1px); }
+.up-running .up-dot { background: var(--accent); animation: up-pulse 1s ease-in-out infinite; }
+.up-done .up-dot { background: var(--ok, #2e9e5b); }
+.up-failed .up-dot { background: var(--danger); }
+@keyframes up-pulse { 50% { opacity: .4; } }
+.up-log-toggle { align-self: flex-start; }
+.up-log { margin: 0; max-height: 360px; overflow: auto; padding: var(--sp-5); border-radius: var(--r-sm); background: var(--panel-2); font: var(--fs-xs) / 1.55 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; }
+@media (max-width: 760px) {
+  .up-grid { grid-template-columns: minmax(0, 1fr); }
+  .up-commits li { grid-template-columns: 56px minmax(0, 1fr); }
+  .up-commits li > .up-muted { display: none; }
+}

@@ -162,10 +162,15 @@ func (e *engine) markQueued(run *Run) {
 	if run == nil || e.gate == nil {
 		return
 	}
-	q := e.gate.queued(run.ID)
+	q, cq := e.gate.queued(run.ID), e.claudeQueued(run.ID)
 	for i := range run.Steps {
-		if n, ok := q[run.Steps[i].Key]; ok && run.Steps[i].Status == stRunning {
+		if run.Steps[i].Status != stRunning {
+			continue
+		}
+		if n, ok := q[run.Steps[i].Key]; ok {
 			run.Steps[i].Queue = &StepQueue{Ahead: n}
+		} else if n, ok := cq[run.Steps[i].Key]; ok {
+			run.Steps[i].Queue = &StepQueue{Ahead: n, Slot: claudeKind}
 		}
 	}
 }
@@ -188,11 +193,19 @@ func modelConcurrency(ctx context.Context, st plugin.Store) (int, error) {
 	return n, nil
 }
 
-// sopSettings 是 GET / PATCH /api/sop/settings 的响应；running、queued 是此刻在调模型、在排队的步骤数，只读。
+// sopSettings 是 GET / PATCH /api/sop/settings 的响应；running、queued、claude_running、claude_queued 是此刻的数，只读。
+// claude_concurrency、task_max_claude_runs、task_max_claude_minutes 是流水线治理（AUTO-12，governance.go）；
+// token_limit_supported 恒为 false：Claude Code 的运行记录里没有 token 用量，只按次数和时长控制。
 type sopSettings struct {
-	ModelConcurrency int `json:"model_concurrency"`
-	Running          int `json:"running"`
-	Queued           int `json:"queued"`
+	ModelConcurrency     int  `json:"model_concurrency"`
+	Running              int  `json:"running"`
+	Queued               int  `json:"queued"`
+	ClaudeConcurrency    int  `json:"claude_concurrency"`
+	ClaudeRunning        int  `json:"claude_running"`
+	ClaudeQueued         int  `json:"claude_queued"`
+	TaskMaxClaudeRuns    int  `json:"task_max_claude_runs"`
+	TaskMaxClaudeMinutes int  `json:"task_max_claude_minutes"`
+	TokenLimitSupported  bool `json:"token_limit_supported"`
 }
 
 type settings struct {
@@ -206,10 +219,19 @@ func (h *settings) get(w http.ResponseWriter, r *http.Request) {
 		fail(w, r, h.c, err)
 		return
 	}
+	g, err := loadGovernance(r.Context(), h.c.Store())
+	if err != nil {
+		fail(w, r, h.c, err)
+		return
+	}
 	_, active, waiting := h.e.gate.stats()
-	writeJSON(w, http.StatusOK, map[string]any{"data": sopSettings{ModelConcurrency: n, Running: active, Queued: waiting}})
+	_, cActive, cWaiting := h.e.cgate.stats()
+	writeJSON(w, http.StatusOK, map[string]any{"data": sopSettings{ModelConcurrency: n, Running: active, Queued: waiting,
+		ClaudeConcurrency: g.ClaudeConcurrency, ClaudeRunning: cActive, ClaudeQueued: cWaiting,
+		TaskMaxClaudeRuns: g.TaskMaxRuns, TaskMaxClaudeMinutes: g.TaskMaxMinutes}})
 }
 
+// patch 改设置：每项只校验给了的；有一项不合法整个请求 400、都不改。值变了各记一条审计。
 func (h *settings) patch(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	raw, err := readBody(r)
@@ -217,28 +239,61 @@ func (h *settings) patch(w http.ResponseWriter, r *http.Request) {
 		fail(w, r, h.c, err)
 		return
 	}
-	if v, ok := raw["model_concurrency"]; ok {
+	specs := append([]govSpec{{settingModelConcurrency, 1, maxModelConcurrency, defaultModelConcurrency, "同时调模型的步骤数", ""}}, govSpecs...)
+	type change struct {
+		sp  govSpec
+		val int
+	}
+	var changes []change
+	for _, sp := range specs {
+		v, ok := raw[sp.key]
+		if !ok {
+			continue
+		}
 		n, err := strconv.Atoi(string(v))
-		if err != nil || n < 1 || n > maxModelConcurrency {
-			fail(w, r, h.c, apiErr(errValidation, "model_concurrency 要是 1 到 %d 的整数", maxModelConcurrency))
+		if err != nil || n < sp.min || n > sp.max {
+			fail(w, r, h.c, apiErr(errValidation, "%s 要是 %d 到 %d 的整数", sp.key, sp.min, sp.max))
 			return
 		}
-		old, err := modelConcurrency(ctx, h.c.Store())
-		if err != nil {
-			fail(w, r, h.c, err)
-			return
-		}
+		changes = append(changes, change{sp, n})
+	}
+	old, err := modelConcurrency(ctx, h.c.Store())
+	if err != nil {
+		fail(w, r, h.c, err)
+		return
+	}
+	g, err := loadGovernance(ctx, h.c.Store())
+	if err != nil {
+		fail(w, r, h.c, err)
+		return
+	}
+	before := map[string]int{settingModelConcurrency: old, settingClaudeConcurrency: g.ClaudeConcurrency,
+		settingTaskMaxRuns: g.TaskMaxRuns, settingTaskMaxMinutes: g.TaskMaxMinutes}
+	for _, c := range changes {
 		if _, err := h.c.Store().Exec(ctx, `INSERT INTO sop_settings (key, value, updated_at) VALUES (?, ?, ?)
 			ON CONFLICT (key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
-			settingModelConcurrency, strconv.Itoa(n), ts(now())); err != nil {
+			c.sp.key, strconv.Itoa(c.val), ts(now())); err != nil {
 			fail(w, r, h.c, err)
 			return
 		}
-		h.e.gate.setLimit(n)
-		if old != n {
-			h.c.Audit().Note(ctx, plugin.AuditNote{Action: "update", TargetType: "sop_settings", TargetID: settingModelConcurrency,
-				Summary: "同时调模型的步骤数 " + strconv.Itoa(old) + " → " + strconv.Itoa(n), Detail: map[string]any{"from": old, "to": n}}, plugin.WriteMeta{})
+		switch c.sp.key {
+		case settingModelConcurrency:
+			h.e.gate.setLimit(c.val)
+		case settingClaudeConcurrency:
+			h.e.cgate.setLimit(c.val)
+		}
+		if from := before[c.sp.key]; from != c.val {
+			h.c.Audit().Note(ctx, plugin.AuditNote{Action: "update", TargetType: "sop_settings", TargetID: c.sp.key,
+				Summary: c.sp.label + " " + limitText(from) + " → " + limitText(c.val), Detail: map[string]any{"from": from, "to": c.val}}, plugin.WriteMeta{})
 		}
 	}
 	h.get(w, r)
+}
+
+// limitText 是审计里的值：0 写成「不限」（只有次数、时长两项能是 0）。
+func limitText(n int) string {
+	if n == 0 {
+		return "不限"
+	}
+	return strconv.Itoa(n)
 }

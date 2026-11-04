@@ -52,6 +52,10 @@ var NetworkHosts = map[string][]HostRule{
 		// OKX 公开行情
 		{Host: "www.okx.com", Paths: []string{"/api/v5/market/", "/api/v5/public/"}},
 		{Host: "ws.okx.com", Paths: []string{"/ws/v5/public", "/ws/v5/business"}},
+		// 东方财富公开数据（A 股宽基 ETF，ETF-01a）：实时行情、历史日 K、数据中心基金份额、基金页
+		{Host: "push2.eastmoney.com"}, {Host: "push2his.eastmoney.com"},
+		{Host: "datacenter-web.eastmoney.com"},
+		{Host: "fund.eastmoney.com"}, {Host: "fundf10.eastmoney.com"},
 	},
 	// 交易接口：先只列域名，实盘（trade:live、TRD-08）之前不用
 	"exchanges": {

@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { PageTitle } from './topbar'
 import { DataView, triggerLabel } from './sop'
-import { NODE_GROUPS, NODE_TYPES, KindIcon, KindTag, defaultConfig, isBranching, missingFields, typeOf, type ConfigField } from './nodetypes'
-import { STEP_KIND, depsOf, stepLook, isManualDecide, ranks, type Sop, type SopField, type SopRun, type SopStepDef, type StepKind } from './sopflow'
+import { NODE_GROUPS, NODE_TYPES, KindIcon, KindTag, claudeTimeout, defaultConfig, evalRule, isBranching, loopRounds, missingFields, typeOf, type ConfigField, type FieldCtx } from './nodetypes'
+import { STEP_KIND, depsOf, stepLook, isManualDecide, ranks, upstreamOf, type Sop, type SopField, type SopRun, type SopStepDef, type StepKind } from './sopflow'
 import { cls, timeAgo } from './ui'
 import { useEnum } from './enumdata'
 import { newId } from './ids'
@@ -33,6 +33,17 @@ export function checkSop(sop: Sop): Issue[] {
         else if (!sop.steps.some((x) => x.branch?.of === s.key && x.branch.case === c.key)) out.push({ level: 'warn', text: `「${s.name}」的「${c.label}」分支下没有步骤，选中它时流程会直接往下走`, step: i })
       })
     }
+    if (s.kind === 'loopback') {
+      // 条件回退（AUTO-02），同后端 checkLoopback：回退目标不是依赖，不算环，但必须是上游
+      const t = s.config?.target?.trim()
+      const j = sop.steps.findIndex((x) => x.key === t)
+      if (!s.rule?.trim()) out.push({ level: 'error', text: `「${s.name}」还没填回退条件`, step: i })
+      else if (evalRule(s.rule, {}) === null) out.push({ level: 'error', text: `「${s.name}」回退条件写法不对，要写成「字段 等于 值」或「字段 包含 值」`, step: i })
+      if (t && j === i) out.push({ level: 'error', text: `「${s.name}」不能退回到自己`, step: i })
+      else if (t && (j < 0 || !upstreamOf(sop, i).includes(j))) out.push({ level: 'error', text: `「${s.name}」只能退回到上游的步骤`, step: i })
+      if (loopRounds(s.config?.max_rounds) === null) out.push({ level: 'error', text: `「${s.name}」最多退回几轮要是 1 到 10 的整数`, step: i })
+    }
+    if (s.kind === 'claude_code' && claudeTimeout(s.config?.timeout) === null) out.push({ level: 'error', text: `「${s.name}」超时写法不对，要写成「30 分钟」「2 小时」这样，最多 24 小时`, step: i })
     if (s.branch && !sop.steps.some((x) => x.key === s.branch!.of && isBranching(x.kind))) out.push({ level: 'error', text: `「${s.name}」挂在一个不存在的判断上`, step: i })
     ;(s.after ?? []).forEach((k) => { if (!keys.includes(k)) out.push({ level: 'error', text: `「${s.name}」依赖的步骤已被删除`, step: i }) })
   })
@@ -58,7 +69,7 @@ function makeStep(sop: Sop, kind: StepKind, name: string, after: string[], extra
   const key = newKey(sop)
   return {
     key, name, kind, desc: '', ms: typeOf(kind).ms, after, config: defaultConfig(kind),
-    ...(isBranching(kind) ? { cases: typeOf(kind).defaultCases!.map((c) => ({ ...c })), ...(kind === 'decide' ? { rule: '' } : {}) } : {}),
+    ...(isBranching(kind) ? { cases: typeOf(kind).defaultCases!.map((c) => ({ ...c })), ...(kind === 'decide' || kind === 'loopback' ? { rule: '' } : {}) } : {}),
     ...extra,
   }
 }
@@ -458,7 +469,7 @@ function Palette({ at, onPick, onClose }: { at: { x: number; y: number }; onPick
 /* ---------- 右侧属性面板 ---------- */
 
 /** 节点配置项：按字段类型渲染，值统一存成字符串 */
-function ConfigInput({ field, value, cfg, ctx, bad, onChange }: { field: ConfigField; value: string; cfg: Record<string, string>; ctx: { sops: { id: string; name: string }[] }; bad?: boolean; onChange: (v: string) => void }) {
+function ConfigInput({ field, value, cfg, ctx, bad, onChange }: { field: ConfigField; value: string; cfg: Record<string, string>; ctx: FieldCtx; bad?: boolean; onChange: (v: string) => void }) {
   const label = <span className="field-label">{field.label}{field.required && <em>*</em>}{field.hint && <span className="field-hint">{field.hint}</span>}</span>
   if (field.type === 'multi') {
     const on = value.split(',').filter(Boolean)
@@ -595,6 +606,8 @@ function NodePanel({ draft, nodeKey, runs, sopList, tried, onChange, onPatchSop,
   }
   if (!s) return null
   const ups = (s.after ?? []).map((k) => draft.steps.find((x) => x.key === k)).filter(Boolean) as SopStepDef[]
+  const sIndex = draft.steps.findIndex((x) => x.key === s.key)
+  const ancestors = upstreamOf(draft, sIndex).map((j) => ({ key: draft.steps[j].key, name: draft.steps[j].name }))
 
   return (
     <aside className="node-panel">
@@ -613,7 +626,8 @@ function NodePanel({ draft, nodeKey, runs, sopList, tried, onChange, onPatchSop,
             <select value={s.kind} onChange={(e) => {
               const k = e.target.value as StepKind
               // 换类型：保留名字和说明，配置换成新类型的默认值；变成分支节点时补上默认分支
-              onChange({ kind: k, ms: typeOf(k).ms, config: { ...defaultConfig(k) }, ...(isBranching(k) ? { cases: s.cases?.length ? s.cases : typeOf(k).defaultCases!.map((c) => ({ ...c })) } : { cases: undefined, rule: undefined }) })
+              // 条件回退的两个出口 key 固定（pass / over），换成它或从它换走时一律用默认出口
+              onChange({ kind: k, ms: typeOf(k).ms, config: { ...defaultConfig(k) }, ...(isBranching(k) ? { cases: s.cases?.length && k !== 'loopback' && s.kind !== 'loopback' ? s.cases : typeOf(k).defaultCases!.map((c) => ({ ...c })) } : { cases: undefined, rule: undefined }) })
             }}>
               {NODE_GROUPS.map((g) => (
                 <optgroup key={g} label={g}>
@@ -623,7 +637,7 @@ function NodePanel({ draft, nodeKey, runs, sopList, tried, onChange, onPatchSop,
             </select>
           </label>
           {(typeOf(s.kind).fields ?? []).filter((f) => !f.hidden?.(s.config ?? {})).map((f) => (
-            <ConfigInput key={f.key} field={f} value={s.config?.[f.key] ?? ''} cfg={s.config ?? {}} ctx={{ sops: sopList }} bad={tried && f.required && !s.config?.[f.key]?.trim()}
+            <ConfigInput key={f.key} field={f} value={s.config?.[f.key] ?? ''} cfg={s.config ?? {}} ctx={{ sops: sopList, ups: ancestors }} bad={tried && f.required && !s.config?.[f.key]?.trim()}
               onChange={(v) => onChange({ config: { ...(s.config ?? {}), ...Object.fromEntries((f.clears ?? []).map((k) => [k, ''])), [f.key]: v } })} />
           ))}
           <label className="field">
@@ -640,18 +654,24 @@ function NodePanel({ draft, nodeKey, runs, sopList, tried, onChange, onPatchSop,
                   <input value={s.rule ?? ''} placeholder="比如：金额大于 5000" onChange={(e) => onChange({ rule: e.target.value })} />
                 </label>
               )}
+              {s.kind === 'loopback' && (
+                <label className="field">
+                  <span className="field-label">回退条件<span className="field-hint">成立就退回上面选的步骤重做，写法同条件分支</span></span>
+                  <input className={cls(tried && !s.rule?.trim() && 'bad')} value={s.rule ?? ''} placeholder="result.verdict 等于 reject" onChange={(e) => onChange({ rule: e.target.value })} />
+                </label>
+              )}
               <div className="field">
-                <span className="field-label">{s.kind === 'classifier' ? '类别' : '分支'}<span className="field-hint">{s.kind === 'classifier' ? '每一类一个出口；类别名写清楚，分类更准' : ''}</span></span>
+                <span className="field-label">{s.kind === 'classifier' ? '类别' : s.kind === 'loopback' ? '出口' : '分支'}<span className="field-hint">{s.kind === 'classifier' ? '每一类一个出口；类别名写清楚，分类更准' : s.kind === 'loopback' ? '条件不成立走「通过」；退回轮次用完还成立走「超限」，没接步骤时这一步失败' : ''}</span></span>
                 <div className="case-list">
                   {(s.cases ?? []).map((c) => (
                     <div key={c.key} className="case-row">
                       <input value={c.label} onChange={(e) => onChange({ cases: s.cases!.map((x) => (x.key === c.key ? { ...x, label: e.target.value } : x)) })} />
                       <span className="case-count">{draft.steps.filter((x) => x.branch?.of === s.key && x.branch.case === c.key).length} 个节点</span>
                       <button className="act act-quiet" onClick={addBtn(c.key)}>加节点</button>
-                      {(s.cases ?? []).length > 2 && <button className="act act-quiet" onClick={() => onChange({ cases: s.cases!.filter((x) => x.key !== c.key) })}>删除</button>}
+                      {(s.cases ?? []).length > 2 && s.kind !== 'loopback' && <button className="act act-quiet" onClick={() => onChange({ cases: s.cases!.filter((x) => x.key !== c.key) })}>删除</button>}
                     </div>
                   ))}
-                  <button className="act act-quiet case-add" onClick={() => onChange({ cases: [...(s.cases ?? []), { key: `c${Date.now().toString(36)}`, label: `分支 ${(s.cases?.length ?? 0) + 1}` }] })}>加一个分支</button>
+                  {s.kind !== 'loopback' && <button className="act act-quiet case-add" onClick={() => onChange({ cases: [...(s.cases ?? []), { key: `c${Date.now().toString(36)}`, label: `分支 ${(s.cases?.length ?? 0) + 1}` }] })}>加一个分支</button>}
                 </div>
               </div>
             </>
@@ -1011,7 +1031,7 @@ export function SopEditor({ initial, creating, runs, sopList, onCancel, onSave }
                         <span className="cv-handle cv-handle-case" data-out={s.key} data-case={c.key} title={`拖动连线，或点击在「${c.label}」分支加节点`}>+</span>
                       </div>
                     ))}
-                    <div className="cv-rule ellipsis">{s.kind === 'classifier' ? 'AI 分类' : isManualDecide(s) ? '人工判断' : s.rule?.trim() ? `规则：${s.rule}` : '按内置规则判断'}</div>
+                    <div className="cv-rule ellipsis">{s.kind === 'classifier' ? 'AI 分类' : isManualDecide(s) ? '人工判断' : s.kind === 'loopback' ? `${s.rule?.trim() ? `条件：${s.rule}` : '还没填回退条件'} · 退回 ${draft.steps.find((x) => x.key === s.config?.target)?.name ?? '未选'}` : s.rule?.trim() ? `规则：${s.rule}` : '按内置规则判断'}</div>
                   </div>
                 ) : (
                   <>

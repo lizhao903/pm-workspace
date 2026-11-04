@@ -50,6 +50,8 @@ type Action struct {
 	// kind = remind：Body 是提醒的内容，ObjectID 是关联的对象（任务），点通知打开它；都可以空
 	Body     string `json:"body"`
 	ObjectID string `json:"object_id"`
+	// Popup 是提醒怎么弹（SPEC-tasks-8.26）：toast 右下角非模态（默认），modal 屏幕中间模态弹窗、点了才关
+	Popup string `json:"popup"`
 
 	// 插件动作：除 kind 外的全部字段，校验交给插件
 	Params map[string]any `json:"-"`
@@ -76,7 +78,11 @@ func (a Action) Normalize() Action {
 		}
 		return Action{Kind: a.Kind, MinLevel: lv, MinCount: n}
 	case ActionRemind:
-		return Action{Kind: a.Kind, Title: strings.TrimSpace(a.Title), Body: strings.TrimSpace(a.Body), ObjectID: strings.TrimSpace(a.ObjectID)}
+		popup := strings.TrimSpace(a.Popup)
+		if popup == "" {
+			popup = PopupToast
+		}
+		return Action{Kind: a.Kind, Title: strings.TrimSpace(a.Title), Body: strings.TrimSpace(a.Body), ObjectID: strings.TrimSpace(a.ObjectID), Popup: popup}
 	}
 	return Action{Kind: a.Kind, Params: a.Params}
 }
@@ -127,7 +133,7 @@ func (a Action) MarshalJSON() ([]byte, error) {
 	case ActionIncidentSweep:
 		m["min_level"], m["min_count"] = a.MinLevel, a.MinCount
 	case ActionRemind:
-		m["title"], m["body"], m["object_id"] = a.Title, a.Body, a.ObjectID
+		m["title"], m["body"], m["object_id"], m["popup"] = a.Title, a.Body, a.ObjectID, a.Popup
 	default:
 		for k, v := range a.Params {
 			if k != "kind" {

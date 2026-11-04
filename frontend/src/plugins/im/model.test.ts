@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { Connector, ImMessage } from '../../core/data'
 import {
-  BATCH_MAX, GROUP_TAB_MAX, channelTable, convBatch, convIdOf, convKey, convOk, convTabs, dmTab, pickAll, pickedRows, togglePick, convOptions, dayLabel, filterRows, fmtSize, inView, mentionParts, nextWake, replyBlocker, replyWarning, snoozeOptions, statusItems, statusView, viewsOf,
+  BATCH_MAX, GROUP_TAB_MAX, replyNoteOf, channelTable, convBatch, convIdOf, convKey, convOk, convTabs, dmTab, pickAll, pickedRows, togglePick, convOptions, dayLabel, filterRows, fmtSize, inView, mentionParts, nextWake, replyBlocker, replyWarning, snoozeOptions, statusItems, statusView, viewsOf,
   taskTitleOf, clip100, contactCandidates, nameCloseness,
 } from './model'
 
@@ -224,5 +224,15 @@ describe('认人的候选联系人（IM-05）', () => {
 
   it('昵称、账号截到 100 字', () => {
     expect(clip100(` ${'字'.repeat(120)} `)).toHaveLength(100)
+  })
+})
+
+describe('转任务回执没发起的提示（SPEC-messages-2.50）', () => {
+  it('勾了回复、后端说没发起时才提示', () => {
+    expect(replyNoteOf(true, { enabled: false, note: 'SOP 编排插件没在运行' })).toBe('任务建好了，但SOP 编排插件没在运行')
+    expect(replyNoteOf(true, { enabled: false })).toBe('任务建好了，但回执流程没发起')
+    expect(replyNoteOf(true, { enabled: true, run_id: 'run_1' })).toBeUndefined()
+    expect(replyNoteOf(false, { enabled: false })).toBeUndefined()
+    expect(replyNoteOf(true, undefined)).toBeUndefined()
   })
 })

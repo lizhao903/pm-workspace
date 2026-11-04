@@ -34,7 +34,7 @@ export type ScheduleAction =
   /** 到点把满足条件、未处理、还没有任务的运行异常各建一条交给 Claude Code 修的任务 */
   | { kind: 'incident_sweep'; min_level: 'error' | 'warn'; min_count: number }
   /** 到点在工作台里发一条通知（不外发 IM）；object_id 是关联的对象（任务），点通知打开它，空串为不关联 */
-  | { kind: 'remind'; title: string; body: string; object_id: string }
+  | { kind: 'remind'; title: string; body: string; object_id: string; popup?: 'toast' | 'modal' }
 
 export type Schedule = {
   id: string

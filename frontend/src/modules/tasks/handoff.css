@@ -13,6 +13,11 @@
 .ho-sub { min-width: 0; color: var(--muted); font-size: var(--fs-sm); }
 .ho-dir { display: flex; flex-direction: column; gap: var(--sp-2); }
 .ho-perm { display: flex; flex-direction: column; gap: var(--sp-2); }
+/* 角色（SPEC-tasks-6.18） */
+.ho-preset { display: flex; flex-direction: column; gap: var(--sp-2); }
+.ho-preset-head { display: flex; align-items: baseline; gap: var(--sp-3); }
+.ho-preset-manage { font-size: var(--fs-sm); color: var(--accent); }
+.ho-preset-text { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 72px; overflow: auto; }
 .ho-check { color: var(--text); font-weight: 500; font-size: var(--fs); }
 .ho-foot { display: flex; align-items: center; gap: var(--sp-5); flex-wrap: wrap; }
 

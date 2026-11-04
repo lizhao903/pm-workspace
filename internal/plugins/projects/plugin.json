@@ -1,26 +1,26 @@
 {
   "id": "projects",
   "name": "项目",
-  "description": "项目目录、沟通渠道绑定、项目资料、原型启停",
+  "description": "项目目录、沟通渠道绑定、项目资料、原型启停、需求工作区、测试环境（可保留给人工验收）、发布（审批后上线，冒烟失败自动回滚）",
   "icon": "folder",
-  "version": "0.10.0",
+  "version": "0.16.0",
   "core": ">=1.0.0 <2.0.0",
   "depends": {},
   "optional_depends": {},
   "provides": {
     "modules": ["projects"],
-    "settings": [],
+    "settings": ["worktrees"],
     "object_types": [],
     "connectors": [],
     "skills": [],
     "agent_tools": [],
-    "sop_nodes": [],
+    "sop_nodes": ["projects_list_profiles", "projects_get_profile", "projects_prepare_worktree", "projects_run_test", "projects_prepare_release", "projects_release"],
     "today_cards": [],
     "commands": [],
     "search": ["projects"]
   },
-  "emits": ["projects.prototype_started", "projects.prototype_stopped", "projects.prototype_deleted"],
-  "subscribes": [],
+  "emits": ["projects.prototype_started", "projects.prototype_stopped", "projects.prototype_deleted", "projects.worktree_changed", "projects.test_changed", "projects.release_changed"],
+  "subscribes": ["object.status_changed", "object.stage_changed"],
   "adopts": {
     "object_types": ["project"],
     "routes": []

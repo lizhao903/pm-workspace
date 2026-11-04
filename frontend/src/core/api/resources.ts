@@ -38,6 +38,7 @@ import type {
   TaskRun,
   TerminalHandoff,
   TerminalRunRequest,
+  RunPreset,
   FinishRunInput,
   RunPrompt,
   RunPromptParams,
@@ -73,6 +74,8 @@ export const objects = {
       query: opts.hard ? new URLSearchParams({ hard: 'true' }) : undefined,
     }),
   restore: (id: string) => request<WorkObject>('POST', `/api/objects/${seg(id)}/restore`),
+  // 任务阶段（AUTO-05）：只换 props.stage，空串清掉
+  setStage: (id: string, stage: string) => request<WorkObject>('PUT', `/api/objects/${seg(id)}/stage`, { body: { stage } }),
   links: (id: string) => request<LinkView[]>('GET', `/api/objects/${seg(id)}/links`),
   addLink: (id: string, input: LinkInput) =>
     request<LinkView>('POST', `/api/objects/${seg(id)}/links`, { body: input }),
@@ -158,6 +161,7 @@ function runPromptQuery(p: RunPromptParams): URLSearchParams {
   if (p.mode) q.set('mode', p.mode)
   if (p.workdir?.trim()) q.set('workdir', p.workdir.trim())
   if (p.extra_prompt?.trim()) q.set('extra_prompt', p.extra_prompt.trim())
+  if (p.preset_id) q.set('preset_id', p.preset_id)
   return q
 }
 
@@ -177,6 +181,9 @@ export const runs = {
     request<RunPrompt>('GET', `/api/objects/${seg(objectId)}/run/prompt`, {
       query: runPromptQuery(params), signal,
     }),
+  // 预置提示词（SPEC-settings-24）：PUT 整组替换，回替换后的列表
+  presets: (signal?: AbortSignal) => request<RunPreset[]>('GET', '/api/run-prompts', { signal }),
+  savePresets: (items: RunPreset[]) => request<RunPreset[]>('PUT', '/api/run-prompts', { body: { items } }),
 }
 
 // 不可用也是 200，看返回的字段，message 说明原因

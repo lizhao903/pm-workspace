@@ -15,7 +15,12 @@ const KindReminder = "schedule.remind"
 // 关联的对象还在时通知带 object_id，data 里放跳转用的 object_id、type_id、ref；内容空着时用对象标题。
 // 对象已删（查不到或在回收站）时通知不带跳转，结果里标 ObjectGone。
 func (c *Center) Remind(ctx context.Context, q schedule.RemindRequest) (*schedule.RemindResult, error) {
-	data := map[string]any{"schedule_id": q.ScheduleID, "run_id": q.RunID}
+	popup := q.Popup
+	if popup != schedule.PopupModal {
+		popup = schedule.PopupToast
+	}
+	// popup 告诉前端怎么弹：toast 右下角，modal 屏幕中间（SPEC-tasks-8.26）
+	data := map[string]any{"schedule_id": q.ScheduleID, "run_id": q.RunID, "popup": popup}
 	n := Notification{Kind: KindReminder, Level: LevelInfo, Title: q.Title, Body: q.Body, Data: data}
 	res := &schedule.RemindResult{}
 	if q.ObjectID != "" && c.lookup != nil {

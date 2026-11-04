@@ -85,9 +85,10 @@ func firstRelated(props map[string]any) (string, string) {
 }
 
 // promptFor 是两种方式共用的提示词拼法：任务本身加所属项目，终端方式再加回写一节。
-func (s *Server) promptFor(ctx context.Context, o *domain.Object, workdir, extra, mode, runID string) string {
+func (s *Server) promptFor(ctx context.Context, o *domain.Object, workdir, extra, mode, runID string, preset *runner.Preset) string {
 	t := s.taskOf(ctx, o, workdir, extra)
 	t.Project = s.projectOf(ctx, o)
+	t.Preset = preset
 	if mode == domain.RunModeTerminal {
 		t.WriteBack = &runner.WriteBack{RunID: runID, ObjectID: o.ID}
 	}
@@ -121,13 +122,19 @@ func (s *Server) handleRunPrompt(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	prompt := s.promptFor(ctx, o, strings.TrimSpace(wd), q.Get("extra_prompt"), mode, previewRunID)
+	preset, err := s.presetOf(ctx, q.Get("preset_id"))
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	prompt := s.promptFor(ctx, o, strings.TrimSpace(wd), q.Get("extra_prompt"), mode, previewRunID, preset)
 	respondData(w, http.StatusOK, map[string]string{"prompt": prompt, "workdir": strings.TrimSpace(wd)})
 }
 
 type runTerminalReq struct {
 	Workdir     string `json:"workdir"`
 	ExtraPrompt string `json:"extra_prompt"`
+	PresetID    string `json:"preset_id"`
 }
 
 // TerminalHandoff 是 POST /api/objects/{id}/run/terminal 的响应：执行记录和交给终端的两个文件。
@@ -157,6 +164,11 @@ func (s *Server) handleRunTerminal(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, err)
 		return
 	}
+	preset, err := s.presetOf(ctx, req.PresetID)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
 	mcpBin, err := s.mcpBin()
 	if err != nil {
 		s.fail(w, r, err)
@@ -172,13 +184,13 @@ func (s *Server) handleRunTerminal(w http.ResponseWriter, r *http.Request) {
 	// 先建记录拿到 id，提示词里要写它；提示词随后补进记录（建记录时先写不带 id 的版本兜底）。
 	run, err := s.st.CreateTaskRun(ctx, &domain.TaskRun{
 		ObjectID: o.ID, Workdir: workdir, Status: domain.RunRunning, Mode: domain.RunModeTerminal,
-		Prompt: s.promptFor(ctx, o, workdir, req.ExtraPrompt, domain.RunModeTerminal, previewRunID),
+		Prompt: s.promptFor(ctx, o, workdir, req.ExtraPrompt, domain.RunModeTerminal, previewRunID, preset),
 	})
 	if err != nil {
 		s.fail(w, r, err)
 		return
 	}
-	prompt := s.promptFor(ctx, o, workdir, req.ExtraPrompt, domain.RunModeTerminal, run.ID)
+	prompt := s.promptFor(ctx, o, workdir, req.ExtraPrompt, domain.RunModeTerminal, run.ID, preset)
 	run.Prompt = prompt
 
 	dir := filepath.Join(root, run.ID)
@@ -194,13 +206,19 @@ func (s *Server) handleRunTerminal(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, werr)
 		return
 	}
+	s.markDoing(ctx, r, o)
 	respondData(w, http.StatusCreated, TerminalHandoff{Run: run, Workdir: workdir, PromptFile: promptFile, MCPConfig: mcpFile})
 }
 
 type finishRunReq struct {
 	Status  string `json:"status"`
 	Summary string `json:"summary"`
+	// Result 是结构化结论（AUTO-01），JSON 对象，如 {verdict, issues, artifacts}；只对插件交给 Claude Code 的运行生效
+	Result json.RawMessage `json:"result"`
 }
+
+// maxRunResult 是结构化结论的上限。
+const maxRunResult = 64 << 10
 
 // handleFinishTaskRun 给终端执行收尾：POST /api/runs/{id}/finish {status, summary?}。
 // 终端里的 claude 经 MCP 的 pmw_finish_run 调它，界面上的「标记结束」也调它。
@@ -227,8 +245,34 @@ func (s *Server) handleFinishTaskRun(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, validationf("summary 要是 UTF-8 文本"))
 		return
 	}
+	var result map[string]any
+	if raw := strings.TrimSpace(string(req.Result)); raw != "" && raw != "null" {
+		if len(raw) > maxRunResult {
+			s.fail(w, r, validationf("result 最多 %d KB", maxRunResult>>10))
+			return
+		}
+		if err := json.Unmarshal(req.Result, &result); err != nil || result == nil {
+			s.fail(w, r, validationf("result 要是 JSON 对象"))
+			return
+		}
+	}
 	ctx := r.Context()
 	id := r.PathValue("id")
+	// 插件交给 Claude Code 的运行（SOP 的 Claude Code 节点，AUTO-01）：只记下回报，进程退出时由内核收尾
+	if s.opt.Plugins != nil {
+		info, perr := s.opt.Plugins.ReportRun(id, status, summary, result)
+		switch {
+		case perr == nil:
+			respondData(w, http.StatusOK, s.reportedRun(ctx, info))
+			return
+		case errors.Is(perr, plugin.ErrRunEnded):
+			s.fail(w, r, conflictf("这次执行已经结束了，或者已经回报过结论"))
+			return
+		case !errors.Is(perr, plugin.ErrRunNotFound):
+			s.fail(w, r, conflictf("%s", perr.Error()))
+			return
+		}
+	}
 	run, err := s.st.GetTaskRun(ctx, id)
 	if err != nil {
 		s.fail(w, r, err)
@@ -253,6 +297,16 @@ func (s *Server) handleFinishTaskRun(w http.ResponseWriter, r *http.Request) {
 	}
 	s.dropHandoff(id)
 	respondData(w, http.StatusOK, out)
+}
+
+// reportedRun 是插件运行回报后的响应：在任务上留了执行记录的回那条记录，没有的拼一条同形状的（状态仍是进行中）。
+func (s *Server) reportedRun(ctx context.Context, info plugin.RunInfo) *domain.TaskRun {
+	if info.TaskRun {
+		if run, err := s.st.GetTaskRun(ctx, info.ID); err == nil {
+			return run
+		}
+	}
+	return &domain.TaskRun{ID: info.ID, Status: info.Status, Mode: domain.RunModeStream, Output: info.Summary, StartedAt: info.StartedAt}
 }
 
 // MCPConfig 生成接回工作台的 MCP 配置：一个 stdio server，名字 pm-workspace，

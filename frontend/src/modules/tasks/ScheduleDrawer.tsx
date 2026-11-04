@@ -280,7 +280,7 @@ export function ScheduleDrawer({ schedule, onClose, onCreated, onOpenTask }: {
               <div className="list-sub">到点把满足条件、未处理、还没有任务的运行异常各建一条任务，带 claude-code 标签交给 Claude Code 修；同一条异常不会重复建。结果记在下面的执行记录里</div>
             </>
           )}
-          {a.kind === 'remind' && <RemindFields title={a.title} body={a.body} objectId={a.object_id} titleBad={titleBad} dirty={dirty}
+          {a.kind === 'remind' && <RemindFields title={a.title} body={a.body} objectId={a.object_id} popup={a.popup} titleBad={titleBad} dirty={dirty}
             onChange={setAction} onOpenTask={onOpenTask} />}
           {isPluginAction(a.kind) && <div className="list-sub">{actionLabel(a.kind)}：这种动作由插件登记，这里只读</div>}
           {a.kind === 'agent' && (
@@ -375,14 +375,21 @@ export function ScheduleDrawer({ schedule, onClose, onCreated, onOpenTask }: {
   )
 }
 
+/** 提醒的两种弹窗方式（SPEC-tasks-8.26） */
+const POPUP_OPTS: { value: 'toast' | 'modal'; label: string; hint: string }[] = [
+  { value: 'toast', label: '右下角提示', hint: '不挡操作，几条叠在右下角' },
+  { value: 'modal', label: '中间弹窗', hint: '屏幕中间大号弹出，点「知道了」才关，适合点餐、开会这类不能错过的' },
+]
+
 /** 动作「提醒」：标题、内容，关联了任务时显示是哪条（任务抽屉里「设个提醒」建的），可以解除关联 */
-function RemindFields({ title, body, objectId, titleBad, dirty, onChange, onOpenTask }: {
+function RemindFields({ title, body, objectId, popup, titleBad, dirty, onChange, onOpenTask }: {
   title: string
   body: string
   objectId: string
+  popup: 'toast' | 'modal'
   titleBad: boolean
   dirty: boolean
-  onChange: (p: { title?: string; body?: string; object_id?: string }) => void
+  onChange: (p: { title?: string; body?: string; object_id?: string; popup?: 'toast' | 'modal' }) => void
   onOpenTask?: (objectId: string) => void
 }) {
   const task = useObject(objectId || null)
@@ -407,7 +414,21 @@ function RemindFields({ title, body, objectId, titleBad, dirty, onChange, onOpen
           <Button size="sm" onClick={() => onChange({ object_id: '' })}>解除关联</Button>
         </div>
       )}
-      <div className="list-sub">到点在工作台右下角弹一条提醒，不发到 IM；关联了任务的，点提醒打开这条任务。只提醒一次的到点后自动停用</div>
+      <fieldset className="sched-popup">
+        <legend className="field-label">弹窗方式</legend>
+        <div className="sched-popup-opts">
+          {POPUP_OPTS.map((o) => (
+            <label key={o.value} className={`sched-popup-opt${popup === o.value ? ' on' : ''}`}>
+              <input type="radio" name="sched-popup" value={o.value} checked={popup === o.value} onChange={() => onChange({ popup: o.value })} />
+              <span>
+                <b>{o.label}</b>
+                <span className="list-sub">{o.hint}</span>
+              </span>
+            </label>
+          ))}
+        </div>
+      </fieldset>
+      <div className="list-sub">到点在工作台里弹出提醒，不发到 IM；关联了任务的，点提醒打开这条任务。只提醒一次的到点后自动停用</div>
     </>
   )
 }

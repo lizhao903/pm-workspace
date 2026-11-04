@@ -221,7 +221,7 @@ async function toApiError(res: Response): Promise<ApiError> {
 
 // ---- 两个流式接口 ----
 
-export type RunRequest = { workdir?: string; extra_prompt?: string; allow_writes?: boolean }
+export type RunRequest = { workdir?: string; extra_prompt?: string; allow_writes?: boolean; preset_id?: string }
 
 export type ChatRequest = {
   session_id?: string

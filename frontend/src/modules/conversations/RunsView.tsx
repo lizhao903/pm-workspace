@@ -8,9 +8,9 @@ import {
 } from '../../core/data'
 import { Button, EmptyState, ErrorState, IconChevronRight, LoadingState, PageTitle, Pill, SearchSelect, cls } from '../../core/ui'
 import { AgentAvatar } from '../../core/ui/AgentAvatar'
-import { CallCard } from './CallCard'
-import { decideCall, useDeciding, useLiveChat } from './chatLive'
-import { GONE_AGENT, timeAgo, type CallView } from './chatModel'
+import { CallCard } from '../../core/chat/CallCard'
+import { decideCall, useDeciding, useLiveChat } from '../../core/chat/chatLive'
+import { GONE_AGENT, timeAgo, type CallView } from '../../core/chat/chatModel'
 import { runCallViews, topAgents } from './runModel'
 
 /** 一次先露多少条，往下点「显示更多」 */

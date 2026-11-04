@@ -142,13 +142,16 @@ describe('定时任务页（TASK-04a）', () => {
     const drawer = await screen.findByRole('dialog', { name: '新建定时任务' })
     await userEvent.type(within(drawer).getByPlaceholderText('比如：周会前整理议程'), '喝水')
     await userEvent.click(within(drawer).getByRole('radio', { name: '提醒' }))
-    expect(within(drawer).getByText(/到点在工作台右下角弹一条提醒，不发到 IM/)).toBeInTheDocument()
+    expect(within(drawer).getByText(/到点在工作台里弹出提醒，不发到 IM/)).toBeInTheDocument()
+    // 弹窗方式默认右下角（SPEC-tasks-8.26）
+    expect(within(drawer).getByRole('radio', { name: /右下角提示/ })).toBeChecked()
     await userEvent.click(within(drawer).getByRole('button', { name: '创建' }))
     expect(within(drawer).getAllByText('提醒标题必填').length).toBeGreaterThan(0)
     await userEvent.type(within(drawer).getByPlaceholderText('比如：给客户回电话'), ' 喝水 ')
     await userEvent.type(within(drawer).getByRole('textbox', { name: /内容/ }), '起来走走')
+    await userEvent.click(within(drawer).getByRole('radio', { name: /中间弹窗/ }))
     await userEvent.click(within(drawer).getByRole('button', { name: '创建' }))
-    await waitFor(() => expect(rows[0]?.action).toEqual({ kind: 'remind', title: '喝水', body: '起来走走', object_id: '' }))
+    await waitFor(() => expect(rows[0]?.action).toEqual({ kind: 'remind', title: '喝水', body: '起来走走', object_id: '', popup: 'modal' }))
     expect(await screen.findByText('提醒「喝水」')).toBeInTheDocument()
 
     // 已经提醒过的一次性提醒停用了，在「已停用」段里写「已提醒」

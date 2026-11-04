@@ -29,6 +29,11 @@ func summaryRows(t *testing.T, e sopEnv, query string) map[string]map[string]any
 func TestConversationSummary(t *testing.T) {
 	e := setupSOP(t)
 	seedProjects(t, e)
+	// 消息时间是 3 月的，过期任务启用时先跑的那一次和下面的推送谁先谁后不定，后跑就会把它们标成过期；
+	// 这个测试不看过期，关掉
+	if code, out := call(t, e.h, "PATCH", "/api/im/settings", `{"expire_days":0}`); code != 200 {
+		t.Fatalf("关过期：%d %v", code, out)
+	}
 	e.push(t, `{"external_id":"C01:s1","connector_id":"cn_ok","conversation_id":"C01","conversation_name":"#product","sender_id":"U1","sender_name":"林原","text":"一","at":"2026-03-01T10:00:00Z"}`)
 	e.push(t, `{"external_id":"C01:s2","connector_id":"cn_ok","conversation_id":"C01","conversation_name":"#product","sender_id":"U2","sender_name":"周舟","text":"二","at":"2026-03-02T10:00:00Z"}`)
 	e.push(t, `{"external_id":"C01:s3","connector_id":"cn_ok","conversation_id":"C01","conversation_name":"#product","sender_id":"U1","sender_name":"林原","text":"三","at":"2026-03-03T10:00:00Z"}`)

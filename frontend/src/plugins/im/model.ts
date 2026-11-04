@@ -1,5 +1,5 @@
 // IM 消息页的纯函数：视图、会话键、按天分段、稍后选项、回不了的原因、@ 解析、渠道显示。照原型 web-next/src/messages.tsx。
-import type { Connector, ConnectorDef, DictItem, ImMessage, ImMsgStatus } from '../../core/data'
+import type { Connector, ConnectorDef, DictItem, ImMessage, ImMsgStatus, ImTaskReply } from '../../core/data'
 import { matchOption } from '../../core/ui/searchMatch'
 
 export type View = 'pending' | 'snoozed' | 'done' | 'ignored' | 'expired' | 'all'
@@ -360,3 +360,9 @@ export function contactCandidates<C extends Candidate>(list: C[], sender: string
 
 /** 挂身份时的昵称、账号：后端限 100 字 */
 export const clip100 = (s: string) => Array.from(s.trim()).slice(0, 100).join('')
+
+/** 转任务（SPEC-messages-2.50）：勾了回复但回执没发起时给出的提示；没勾、发起了都不提示 */
+export function replyNoteOf(asked: boolean, reply: ImTaskReply | undefined): string | undefined {
+  if (!asked || !reply || reply.enabled) return undefined
+  return `任务建好了，但${reply.note || '回执流程没发起'}`
+}

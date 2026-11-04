@@ -1,0 +1,13 @@
+/* 设置「角色」（SPEC-settings-24） */
+.rp-page { display: flex; flex-direction: column; gap: var(--sp-5); min-width: 0; max-width: 860px; }
+.rp-muted { color: var(--muted); font-size: var(--fs-sm); }
+.rp-list { display: flex; flex-direction: column; gap: var(--sp-5); }
+.rp-item { display: flex; flex-direction: column; gap: var(--sp-3); padding: var(--sp-6); border: 1px solid var(--line); border-radius: var(--r); background: var(--panel); }
+.rp-row { display: flex; align-items: flex-end; gap: var(--sp-4); flex-wrap: wrap; }
+.rp-row > :first-child { flex: 1; min-width: 200px; }
+.rp-default { padding-bottom: 6px; }
+.rp-actions { display: flex; align-items: center; gap: var(--sp-3); }
+.rp-ok { color: var(--ok); font-size: var(--fs-sm); }
+.rp-err { color: var(--danger); font-size: var(--fs-sm); }
+.rp-row.rp-opts { align-items: flex-start; }
+.rp-opts > * { flex: 1; min-width: 200px; }

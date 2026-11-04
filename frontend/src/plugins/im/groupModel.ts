@@ -2,10 +2,10 @@
 // 只是展示：库里的消息不动，状态筛选、计数、勾选、批量都还是按一条条消息算，一组只是把几条消息摆在一行。
 // 分组在前端算：列表接口按页拉完全部消息放在一份缓存里（core/data/im.ts），「连发」「插话」要看整段会话（含筛掉的），
 // 前端手里正好有全部；渲染时的「加载更多」只截显示的行，不影响分组。
-// 串里的回复（0010，Slack 在串里回复的）不参与上面三种合并，免得两种分组叠加：它们挂在原消息那一行下面缩进显示（nestThreads），
-// 原消息还没收到的按普通行显示、标「串里回复」。
+// 消息列回复（0010，Slack 在消息列里回复的）不参与上面三种合并，免得两种分组叠加：它们归到原消息那一行（nestThreads），列表上不显示，只在原消息行上标「消息列 N 条未读回复」，
+// 原消息还没收到的按普通行显示、标「消息列回复」。
 import type { ImMessage } from '../../core/data'
-import { canPick, convKey, isGroup, isOpen, whoName } from './model'
+import { canPick, convKey, isGroup, isOpen, shortTime, whoName } from './model'
 
 /** 群里同一人连发：相邻两条间隔不超过这么久才算一段 */
 export const BURST_GAP_MS = 10 * 60_000
@@ -40,7 +40,7 @@ export function clusterMessages(list: readonly ImMessage[]): Clusters {
   const byKey = new Map<string, Cluster>()
   for (const m of list) {
     if (m.thread) {
-      // 串里的回复各自一组（单条），挂到原消息下面由 nestThreads 管
+      // 消息列回复各自一组（单条），归到原消息那一行由 nestThreads 管
       const key = `grp:${m.id}`
       byKey.set(key, { key, kind: 'single', all: [m] })
       of.set(m.id, key)
@@ -102,13 +102,13 @@ export type Row = {
   items: ImMessage[]
   /** 这组的全部消息，按时间正序；不合并时就是这一条 */
   all: ImMessage[]
-  /** 挂在这一行下面的串（nestThreads）：这一行里的原消息和筛得出来的串里回复 */
+  /** 归到这一行的消息列（nestThreads）：这一行里的原消息和筛得出来的消息列回复（列表上不显示，只用来标小标、排序） */
   threads?: ThreadBlock[]
-  /** 原消息自己不在筛选结果里（比如已处理），只为挂串里的回复才显示：变淡，不能勾 */
+  /** 原消息自己不在筛选结果里（比如已处理），只因消息列有新回复才显示：变淡，不能勾 */
   faded?: boolean
 }
 
-/** 一个串：原消息和这一行要显示的串里回复（筛得出来的，按时间正序） */
+/** 一个消息列：原消息和筛得出来的消息列回复（按时间正序） */
 export type ThreadBlock = { parent: ImMessage; replies: ImMessage[] }
 
 /**
@@ -187,16 +187,16 @@ export function rowLinks(xs: readonly ImMessage[]) {
   return { sessions: [...sessions.values()].sort((a, b) => b.at.localeCompare(a.at)), tasks: [...tasks.values()] }
 }
 
-/** 串里回复的原消息（库里收到了的）；原消息还没收到时为 undefined */
+/** 消息列回复的原消息（库里收到了的）；原消息还没收到时为 undefined */
 export function threadParent(m: ImMessage, byId: ReadonlyMap<string, ImMessage>): ImMessage | undefined {
   const id = m.thread?.parent_message_id
   return id ? byId.get(id) : undefined
 }
 
 /**
- * 把串里的回复挂到原消息那一行下面：rows 是 toRows 摆好的行，all 是全部消息（认原消息用）。
- * 原消息在某一行里（筛得出来的优先，合并的一组里也算）就挂在那一行；原消息不在筛选结果里时补一行变淡的原消息挂上；
- * 原消息还没收到的回复照普通行留着。行按「行里最新一条（含挂的回复）」重新排，新回复把老话题顶上来
+ * 把消息列回复归到原消息那一行（回复自己不再成行）：rows 是 toRows 摆好的行，all 是全部消息（认原消息用）。
+ * 原消息在某一行里（筛得出来的优先，合并的一组里也算）就归那一行；原消息不在筛选结果里时补一行变淡的原消息；
+ * 原消息还没收到的回复照普通行留着。行按「行里最新一条（含消息列回复）」重新排，新回复把老话题顶上来
  */
 export function nestThreads(rows: readonly Row[], all: readonly ImMessage[]): Row[] {
   const byId = new Map(all.map((m) => [m.id, m]))
@@ -231,25 +231,40 @@ export function nestThreads(rows: readonly Row[], all: readonly ImMessage[]): Ro
     .map((x) => x.r)
 }
 
-/** 一行排序、分天用的时间：行里最新一条，挂着的串里回复也算；变淡的原消息只按回复算 */
+/** 一行排序、分天用的时间：行里最新一条，归到这一行的消息列回复也算；变淡的原消息只按回复算 */
 export function rowTime(r: Row): string {
   let at = r.faded ? '' : r.head.at
   for (const b of r.threads ?? []) for (const m of b.replies) if (m.at > at) at = m.at
   return at || r.head.at
 }
 
-/** 串里回复多了只显示最近这么多条，加「还有 N 条回复」 */
-export const THREAD_PREVIEW = 2
-/** 不超过这么多条时全列出来 */
-export const THREAD_SHOW_ALL = 3
-
-/** 一个串在列表里显示哪几条回复、藏了几条；open 为真（点了展开）时全显示 */
-export function threadShown(b: ThreadBlock, open: boolean): { shown: ImMessage[]; hidden: number } {
-  if (open || b.replies.length <= THREAD_SHOW_ALL) return { shown: b.replies, hidden: 0 }
-  return { shown: b.replies.slice(-THREAD_PREVIEW), hidden: b.replies.length - THREAD_PREVIEW }
+/**
+ * 一行上的消息列小标（SPEC-messages-1.62）：列表里不列消息列回复，只在原消息那一行标出来。
+ * unread 是这一行挂着的原消息的整个消息列里没读的回复数（不受筛选影响），replies 是筛得出来的回复数；
+ * parentId 是点小标要打开的原消息（有多个时取最新回复所在的那个）。这一行没挂消息列时为 null
+ */
+export function threadBadge(r: Row, all: readonly ImMessage[]): { parentId: string; unread: number; replies: number } | null {
+  const bs = r.threads ?? []
+  if (!bs.length) return null
+  let unread = 0
+  let replies = 0
+  let latest = bs[0]
+  let at = ''
+  for (const b of bs) {
+    unread += threadOf(b.parent, all).filter((m) => !m.read).length
+    replies += b.replies.length
+    const last = b.replies[b.replies.length - 1]?.at ?? ''
+    if (last > at) { at = last; latest = b }
+  }
+  return { parentId: latest.parent.id, unread, replies }
 }
 
-/** 原消息的整个串（抽屉里列）：全部消息里属于这个串的回复，按时间正序 */
+/** 消息列小标的文字：有未读时「消息列 N 条未读回复」，否则「消息列 N 条回复」 */
+export function threadBadgeLabel(b: { unread: number; replies: number }): string {
+  return b.unread > 0 ? `消息列 ${b.unread} 条未读回复` : `消息列 ${b.replies} 条回复`
+}
+
+/** 原消息的整个消息列（抽屉里列）：全部消息里属于这个消息列的回复，按时间正序 */
 export function threadOf(parent: ImMessage, all: readonly ImMessage[]): ImMessage[] {
   return all
     .filter((m) => m.thread && (m.thread.parent_message_id === parent.id
@@ -257,7 +272,7 @@ export function threadOf(parent: ImMessage, all: readonly ImMessage[]): ImMessag
     .sort((a, b) => a.at.localeCompare(b.at) || a.id.localeCompare(b.id))
 }
 
-/** 串里回复下一行的灰字：「回复 <原消息发信人>：<原消息前 40 字>」；原消息在库里时按它的发信人和正文，否则按快照 */
+/** 消息列回复下一行的灰字：「回复 <原消息发信人>：<原消息前 40 字>」；原消息在库里时按它的发信人和正文，否则按快照 */
 export const THREAD_HINT_MAX = 40
 export function threadHint(m: ImMessage, parent?: ImMessage): string {
   if (!m.thread) return ''
@@ -265,4 +280,49 @@ export function threadHint(m: ImMessage, parent?: ImMessage): string {
   const text = (parent?.text || m.thread.parent_text).replace(/\s+/g, ' ').trim()
   const cut = [...text].length > THREAD_HINT_MAX ? `${[...text].slice(0, THREAD_HINT_MAX).join('')}…` : text
   return cut ? `回复 ${who}：${cut}` : `回复 ${who}`
+}
+
+/**
+ * 转任务时可以附上的消息列（SPEC-messages-2.15）：这条消息所在消息列里除它以外的消息，按时间正序。
+ * 这条是原消息时是它的全部回复；是回复时是原消息（收到了的才有）加同一消息列里的别的回复。不是消息列里的、也没有回复的为空
+ */
+export function threadForTask(m: ImMessage, all: readonly ImMessage[]): ImMessage[] {
+  if (!m.thread) return threadOf(m, all)
+  const parent = threadParent(m, new Map(all.map((x) => [x.id, x])))
+  const ext = m.thread.parent_external_id
+  const replies = all
+    .filter((x) => x.id !== m.id && x.thread && x.channel === m.channel && x.thread.parent_external_id === ext)
+    .sort((a, b) => a.at.localeCompare(b.at) || a.id.localeCompare(b.id))
+  return parent ? [parent, ...replies] : replies
+}
+
+/** 一组消息各自所在消息列里、不在这组里的消息，去重，按时间正序（转项目资料带上消息列用） */
+export function threadForMany(ms: readonly ImMessage[], all: readonly ImMessage[]): ImMessage[] {
+  const have = new Set(ms.map((m) => m.id))
+  const out = new Map<string, ImMessage>()
+  for (const m of ms) for (const x of threadForTask(m, all)) if (!have.has(x.id)) out.set(x.id, x)
+  return [...out.values()].sort((a, b) => a.at.localeCompare(b.at) || a.id.localeCompare(b.id))
+}
+
+/** 附上的消息列正文最多这么多字，超出的条数写在末尾（转任务请求体后端限 64KB，中文一字 3 字节，留足余量） */
+export const THREAD_TASK_MAX = 12000
+
+/**
+ * 附上的消息列拼成任务正文（Markdown）：标题「消息列（N 条）」，一条一行「**发信人** 时间：正文」，原消息标「（原消息）」，
+ * 多行正文缩进接在下面；太长时后面的不附，末尾写「还有 K 条没附上，在原消息里看」
+ */
+export function threadTaskBody(xs: readonly ImMessage[], time: (iso: string) => string = shortTime): string {
+  if (!xs.length) return ''
+  const lines: string[] = []
+  let len = 0
+  let cut = 0
+  for (const [i, x] of xs.entries()) {
+    const text = (x.text.trim() || '（没有正文）').split(/\r?\n/).map((l, j) => (j ? `  ${l}` : l)).join('\n')
+    const line = `- **${whoName(x)}**${x.thread ? '' : '（原消息）'} ${time(x.at)}：${text}`
+    if (len + line.length > THREAD_TASK_MAX && lines.length) { cut = xs.length - i; break }
+    lines.push(line)
+    len += line.length + 1
+  }
+  const tail = cut ? `\n\n还有 ${cut} 条没附上，在原消息里看` : ''
+  return `## 消息列（${xs.length} 条）\n\n${lines.join('\n')}${tail}`
 }

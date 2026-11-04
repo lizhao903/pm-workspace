@@ -1,0 +1,20 @@
+/* 项目档案（AUTO-04，SPEC-projects-15） */
+.proj-profile-chips { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.proj-profile .proj-profile-other { width: 180px; height: 28px; font-size: 12.5px; }
+.proj-cmd-grid { display: flex; flex-direction: column; gap: 6px; }
+.proj-cmd-row { display: grid; grid-template-columns: 88px minmax(0, 1fr) 160px 96px; gap: 8px; align-items: center; }
+.proj-cmd-head { font-size: 11.5px; color: var(--faint); }
+.proj-cmd-err { grid-column: 2 / -1; }
+.proj-cmd-grid + .proj-cmd-grid { margin-top: 14px; }
+.proj-cmd-group { font-size: 13px; font-weight: 600; display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; }
+.proj-cmd-hint { grid-column: 2 / -1; font-size: 11.5px; white-space: normal; }
+.proj-cmd-ready { grid-column: 2 / -1; display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 2px 10px; align-items: center; }
+.proj-cmd-ready > span:last-child { grid-column: 2; font-size: 11.5px; }
+.proj-cmd-row .mono-input.bad { border-color: var(--danger); }
+.proj-profile-people { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+@media (max-width: 760px) {
+  .proj-cmd-head { display: none; }
+  .proj-cmd-row { grid-template-columns: minmax(0, 1fr) 96px; }
+  .proj-cmd-row > span:first-child, .proj-cmd-row > input:first-of-type, .proj-cmd-err, .proj-cmd-ready, .proj-cmd-hint { grid-column: 1 / -1; }
+  .proj-profile-people { grid-template-columns: minmax(0, 1fr); }
+}

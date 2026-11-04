@@ -23,6 +23,7 @@ import (
 	"github.com/lizhao903/pm-workspace/internal/notify"
 	"github.com/lizhao903/pm-workspace/internal/plugins/browser"
 	"github.com/lizhao903/pm-workspace/internal/plugins/domains"
+	"github.com/lizhao903/pm-workspace/internal/plugins/etf"
 	"github.com/lizhao903/pm-workspace/internal/plugins/im"
 	"github.com/lizhao903/pm-workspace/internal/plugins/projects"
 	"github.com/lizhao903/pm-workspace/internal/plugins/sop"
@@ -132,13 +133,24 @@ var contractSpecs = map[string]contractSpec{
 	"工作台 workspaces:groups": {v: workspace.Group{}},
 	"工作台 workspaces:mark":   {v: workspace.Mark{}},
 
-	"ProjectStakeholder":  {v: projects.Stakeholder{}},
-	"ProjectConversation": {v: projects.ProjectConversation{}},
-	"ProjectMaterial":     {v: projects.Material{}},
-	"ProjectPrototype":    {v: projects.Prototype{}},
-	"PrototypeLogLine":    {v: projects.LogLine{}},
-	"PrototypeCrash":      {v: projects.Crash{}},
-	"ProjectSummary":      {v: projects.ProjectSummary{}},
+	"ProjectStakeholder":         {v: projects.Stakeholder{}},
+	"ProjectConversation":        {v: projects.ProjectConversation{}},
+	"ProjectMaterial":            {v: projects.Material{}},
+	"ProjectPrototype":           {v: projects.Prototype{}},
+	"PrototypeLogLine":           {v: projects.LogLine{}},
+	"PrototypeCrash":             {v: projects.Crash{}},
+	"ProjectSummary":             {v: projects.ProjectSummary{}},
+	"ProjectProfile":             {v: projects.Profile{}},
+	"ProfileSummary":             {v: projects.ProfileSummary{}},
+	"Worktree":                   {v: projects.Worktree{}},
+	"TestRun":                    {v: projects.TestRun{}},
+	"TestStep":                   {v: projects.TestStep{}},
+	"Release":                    {v: projects.Release{}},
+	"ReleaseStep":                {v: projects.ReleaseStep{}},
+	"项目插件 projects / 发布:release": {skip: "SOP 节点输出由 map 拼出，无结构"},
+	"WorktreeSettings":           {skip: "回包是 PortSettings 加 reserved、active、dir 拼出的 map"},
+	"工作对象 objects / 任务阶段与提出人:props.requester":                          {v: domain.Requester{}},
+	"SOP 编排插件 sop / Claude Code 执行与条件回退（AUTO-01/02，插件版本 0.9.0）:claude": {v: sop.StepClaude{}},
 
 	"Incoming": {v: im.Incoming{}},
 	"Message":  {v: im.Message{}},
@@ -156,6 +168,15 @@ var contractSpecs = map[string]contractSpec{
 	"SopRunBrief":    {v: sop.RunBrief{}},
 	"SopRunAction":   {v: sop.Action{}},
 	"SopAssistReply": {v: sop.Reply{}},
+	// 流水线视图与治理（AUTO-12）
+	"SopStepHold":       {v: sop.StepHold{}},
+	"SopStepQueue":      {v: sop.StepQueue{}},
+	"SopPipeline":       {v: sop.Pipeline{}},
+	"SopPipelineRun":    {v: sop.PipelineRun{}},
+	"SopPipelineStep":   {v: sop.PipelineStep{}},
+	"SopPipelineBudget": {v: sop.PipelineBudget{}},
+	"SopClaudeUsage":    {v: sop.ClaudeUsage{}},
+	"SopWaitingItem":    {v: sop.WaitingItem{}},
 
 	"TerminalSession": {v: terminal.Session{}},
 
@@ -168,6 +189,12 @@ var contractSpecs = map[string]contractSpec{
 	"TradeWatchlist":  {v: trade.Watchlist{}},
 	"TradeSource":     {v: trade.SourceInfo{}},
 	"TradeSync":       {v: trade.SyncResult{}},
+
+	"EtfFund":        {v: etf.Fund{}},
+	"EtfDaily":       {v: etf.Daily{}},
+	"EtfShareChange": {v: etf.ShareChange{}},
+	"EtfCollect":     {v: etf.CollectResult{}},
+	"EtfSource":      {v: etf.SourceInfo{}},
 
 	"Video":         {v: video.Video{}},
 	"VideoSeries":   {v: video.Series{}},

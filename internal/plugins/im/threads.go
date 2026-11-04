@@ -177,7 +177,7 @@ func (in *inbox) backfillThreads(w http.ResponseWriter, r *http.Request) {
 	f := in.threadBackfillerFor(cn.Tool)
 	switch {
 	case f == nil:
-		fail(w, r, in.c, blocked("unsupported", "连接器「"+cn.Name+"」不支持补拉串里的回复"))
+		fail(w, r, in.c, blocked("unsupported", "连接器「"+cn.Name+"」不支持补拉消息列回复"))
 		return
 	case cn.Status == "paused":
 		fail(w, r, in.c, blocked("connector_paused", "连接器「"+cn.Name+"」已暂停"))

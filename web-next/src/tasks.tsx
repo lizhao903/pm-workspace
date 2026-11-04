@@ -10,16 +10,20 @@ import { GrowArea, cls, timeAgo } from './ui'
 import { SearchSelect } from './searchselect'
 import { useEnumView } from './enumdata'
 import { ApproveConfirm, ArtifactsBlock, DevFields, ProgressBlock, ReviewBar, RunDialog, RunsBlock, isDevTask, type DevLoop } from './devloop'
-import { runStatus, type Sop, type SopRun } from './sopflow'
+import { runStatus, type Governance, type RunAction, type Sop, type SopRun } from './sopflow'
 import { TaskSopBlock } from './tasksop'
+import { TaskPipelineBlock, taskRuns, waitOf } from './taskpipeline'
 import { TaskReminders, type ReminderForm } from './taskreminders'
+import { TaskWorktreeBlock } from './worktree'
 import type { Schedule } from './scheduledata'
 import { buildPrompt, projectContext } from './handoff'
+import { threadTaskBody } from './msggroup'
 import type { Project } from './projectdata'
+import { StageBoard } from './taskstage'
 
 /** 任务页的二级菜单 key */
 /** schedule：定时任务建出来的任务；schedules：定时任务本身的管理页；due：逾期未完成；hooks：Webhook 列表 */
-export type TaskView = 'all' | 'due' | 'manual' | 'im' | 'webhook' | 'schedule' | 'incident' | 'schedules' | 'hooks' | `hook:${string}`
+export type TaskView = 'all' | 'due' | 'board' | 'manual' | 'im' | 'webhook' | 'schedule' | 'incident' | 'schedules' | 'hooks' | `hook:${string}`
 
 const channelLabel = (k: string) => IM_CHANNELS.find((c) => c.key === k)?.label ?? k
 // 「今天」按本地日期；addDays、weekEnd 只做日历日加减，用 UTC 解析不受时区影响
@@ -93,6 +97,7 @@ export function TasksNav({ tasks, hooks, deliveries, view, onSelect, onNewHook }
     <Subnav title="任务" active={active} onSelect={onSelect} items={[
       { key: 'all' as TaskView, label: '全部任务', group: '视图' },
       { key: 'due' as TaskView, label: '逾期', desc: dueN ? `${dueN} 条过了截止日还没完成` : '没有逾期的任务', alert: dueN, group: '视图' },
+      { key: 'board' as TaskView, label: '阶段看板', desc: '按阶段分列，按提出人看进度', group: '视图' },
       { key: 'manual' as TaskView, label: '人工创建', group: '来源' },
       { key: 'im' as TaskView, label: 'IM 消息', group: '来源' },
       { key: 'webhook' as TaskView, label: 'Webhook', group: '来源' },
@@ -131,13 +136,18 @@ export function TasksPage(props: {
   onApprove?: (id: string) => void
   /** Webhook 列表页（view = hooks）用：推送记录、打开某个 Webhook、新建 */
   deliveries?: Delivery[]; onOpenHook?: (id: string) => void; onNewHook?: () => void
+  /** 阶段看板（view = board）卡片上改阶段（SPEC-tasks-11） */
+  onStage?: (id: string, stage: string) => void
+  /** 看板上点卡片：打开任务抽屉并停在「流水线」标签（AUTO-12，SPEC-tasks-11.15）；不给时同 onOpen */
+  onOpenBoard?: (id: string) => void
 }) {
+  if (props.view === 'board') return <StageBoard tasks={props.tasks} selected={props.selected} onOpen={props.onOpenBoard ?? props.onOpen} onStage={(id, s) => props.onStage?.(id, s)} />
   if (props.view === 'hooks') return <WebhooksPage hooks={props.hooks} deliveries={props.deliveries} tasks={props.tasks} onOpen={props.onOpenHook} onNew={props.onNewHook} />
   return <TaskList {...props} view={props.view} />
 }
 
 function TaskList({ tasks, hooks, projects, view, selected, onOpen, onNew, onStatus, onApprove }: {
-  tasks: Task[]; hooks: Webhook[]; projects: { id: string; name: string }[]; view: Exclude<ListView, 'hooks'>; selected: string | null
+  tasks: Task[]; hooks: Webhook[]; projects: { id: string; name: string }[]; view: Exclude<ListView, 'hooks' | 'board'>; selected: string | null
   onOpen: (id: string) => void; onNew: () => void; onStatus: (id: string, s: TaskStatus) => void; onApprove?: (id: string) => void
 }) {
   const statusEnum = useEnumView('task_status')
@@ -363,12 +373,12 @@ const draftOf = (t: Task): TaskDraft => ({ title: t.title, desc: t.desc, status:
 const sameDraft = (a: TaskDraft, b: TaskDraft) => (Object.keys({ ...a, ...b }) as (keyof TaskDraft)[]).every((k) => (a[k] || '') === (b[k] || ''))
 
 /** 任务详情的标签（SPEC-tasks-4.35）：基础信息、开发任务、SOP（插件在跑才有）、执行记录 */
-export type TaskTab = 'info' | 'dev' | 'sop' | 'runs'
+export type TaskTab = 'info' | 'dev' | 'pipeline' | 'sop' | 'runs'
 const TASK_TABS: { key: TaskTab; label: string }[] = [
-  { key: 'info', label: '基础信息' }, { key: 'dev', label: '开发任务' }, { key: 'sop', label: 'SOP' }, { key: 'runs', label: '执行记录' },
+  { key: 'info', label: '基础信息' }, { key: 'dev', label: '开发任务' }, { key: 'pipeline', label: '流水线' }, { key: 'sop', label: 'SOP' }, { key: 'runs', label: '执行记录' },
 ]
 
-export function TaskDrawer({ task, initial, fromMessage, hooks, deliveries, assignees, projects, onClose, onSave, onDelete, onOpenMessage, onOpenHook, onOpenSchedule, onOpenIncident, delImpact, dev, sop, handoff, reminders, tab: initialTab, focusRun, focusSopRun }: {
+export function TaskDrawer({ task, initial, fromMessage, fromThread = [], threadWho, hooks, deliveries, assignees, projects, onClose, onSave, onDelete, onOpenMessage, onOpenHook, onOpenSchedule, onOpenIncident, delImpact, dev, sop, handoff, reminders, tab: initialTab, focusRun, focusSopRun }: {
   /** 打开时停在哪个标签；不给时待验收的停在开发任务，其余基础信息。正式产品记在地址 ?tab= 上 */
   tab?: TaskTab
   /** 跳到某次执行（正式产品 ?run=）：切到执行记录并定位 */
@@ -383,13 +393,18 @@ export function TaskDrawer({ task, initial, fromMessage, hooks, deliveries, assi
   initial?: Partial<TaskDraft>
   /** IM 消息转任务时传进来 */
   fromMessage?: Message
+  /** 转任务时这条消息所在消息列里的其它消息（threadForTask），按时间正序；有时出「附上消息列」（SPEC-messages-2.15） */
+  fromThread?: Message[]
+  /** 消息列里的发信人怎么叫（联系人名优先） */
+  threadWho?: (m: Message) => string
   hooks: Webhook[]
   deliveries: Delivery[]
   assignees: string[]
   /** 可选的所属项目；root 是任务没设工作目录时继承的目录 */
-  projects: (Pick<Project, 'id' | 'name' | 'root'> & Partial<Pick<Project, 'related' | 'prototypes'>>)[]
+  projects: (Pick<Project, 'id' | 'name' | 'root'> & Partial<Pick<Project, 'related' | 'prototypes' | 'profile'>>)[]
   onClose: () => void
-  onSave: (d: TaskDraft, markMessageDone: boolean) => void
+  /** replyOnDone：IM 转任务时勾了「执行完成后在原消息里回复」（SPEC-tasks-4.42） */
+  onSave: (d: TaskDraft, markMessageDone: boolean, replyOnDone?: boolean) => void
   onDelete: () => void
   onOpenMessage: (id: string) => void
   onOpenHook: (id: string) => void
@@ -398,9 +413,10 @@ export function TaskDrawer({ task, initial, fromMessage, hooks, deliveries, assi
   /** 开发闭环：进展、产出物、执行记录、验收 */
   dev?: DevLoop
   /** 关联到这条任务的 SOP 执行和「执行 SOP」（SOP-06）；SOP 插件没开时不给 */
-  sop?: { runs: SopRun[]; sops: Sop[]; onStart: (sopId: string) => void; onOpenRun: (runId: string) => void }
+  /** SOP 插件在跑时有：执行、流程、发起、去运行页；gov、onAct 给「流水线」标签（AUTO-12，SPEC-sop-16）用 */
+  sop?: { runs: SopRun[]; sops: Sop[]; onStart: (sopId: string) => void; onOpenRun: (runId: string) => void; gov: Governance; onAct: (runId: string, a: RunAction) => void }
   /** 交给 Claude Code 的「切换到终端」（SPEC-tasks-6.10）：终端插件在跑才有 terminalOn；onTerminal 在终端页新开标签执行启动命令 */
-  handoff?: { terminalOn: boolean; onTerminal: (o: { task: Task; runId: string; workdir: string; prompt: string }) => void }
+  handoff?: { terminalOn: boolean; onTerminal: (o: { task: Task; runId: string; workdir: string; prompt: string }) => void; onManagePresets?: () => void }
 }) {
   const statusEnum = useEnumView('task_status')
   const prioEnum = useEnumView('task_priority')
@@ -425,19 +441,31 @@ export function TaskDrawer({ task, initial, fromMessage, hooks, deliveries, assi
   const [focus, setFocus] = useState({ run: focusRun, sop: focusSopRun })
   const pick = (k: TaskTab) => { setTab(k); setFocus({ run: undefined, sop: undefined }) }
   // 标签条：开发任务和执行记录只在开发任务上有，SOP 只在插件在跑时有；停在没有的标签上回基础信息
-  const tabShown = (k: TaskTab) => k === 'info' || ((k === 'dev' || k === 'runs') && devOn) || (k === 'sop' && !!sop) || k === tab && k !== 'sop'
+  const tabShown = (k: TaskTab) => k === 'info' || ((k === 'dev' || k === 'runs') && devOn) || ((k === 'sop' || k === 'pipeline') && !!sop) || k === tab && k !== 'sop' && k !== 'pipeline'
   const cur: TaskTab = tabShown(tab) ? tab : 'info'
   const runsN = dev ? mine(dev.runs).length : 0
   const sopMine = task && sop ? sop.runs.filter((r) => r.object_id === task.id) : []
+  // 流水线标签上的卡点数（等人、失败、超时、超出上限）
+  const pipeBlocks = task && sop ? taskRuns(task, sop.runs).reduce((n, r) => n + r.steps.filter((_, i) => waitOf(r, i)).length, 0) : 0
   const runningId = dev && mine(dev.runs).find((r) => r.status === 'running')?.id
   const [markDone, setMarkDone] = useState(true)
+  const [replyOnDone, setReplyOnDone] = useState(true)
+  // 转任务附上消息列：默认勾上，存时拼进描述后面
+  const [withThread, setWithThread] = useState(true)
+  const threadBody = useMemo(() => threadTaskBody(fromThread, threadWho), [fromThread, threadWho])
   const [tried, setTried] = useState(false)
   const [confirmDel, setConfirmDel] = useState(false)
   const [showPayload, setShowPayload] = useState(false)
   const src = task?.source ?? (fromMessage ? { kind: 'im' as const, message_id: fromMessage.id, channel: fromMessage.channel, sender: fromMessage.sender_name, text: fromMessage.text } : { kind: 'manual' as const })
   const delivery = src.kind === 'webhook' ? deliveries.find((x) => x.id === src.delivery_id) : undefined
   const hook = src.kind === 'webhook' ? hooks.find((h) => h.id === src.hook_id) : undefined
-  const save = () => { setTried(true); if (d.title.trim()) onSave({ ...d, title: d.title.trim() }, markDone); else pick('info') }
+  const save = () => {
+    setTried(true)
+    if (!d.title.trim()) { pick('info'); return }
+    const extra = creating && fromMessage && withThread ? threadBody : ''
+    const desc = extra ? (d.desc.trim() ? `${d.desc.trim()}\n\n${extra}` : extra) : d.desc
+    onSave({ ...d, title: d.title.trim(), desc }, markDone, replyOnDone)
+  }
   // 未保存的改动：已有任务跟它现在的值比（验收、交给 Claude Code 已经直接改了任务，不算），新建跟打开时比
   const [blank] = useState(d)
   const dirty = !sameDraft(d, task ? draftOf(task) : blank)
@@ -567,8 +595,27 @@ export function TaskDrawer({ task, initial, fromMessage, hooks, deliveries, assi
           <>
             {fields}
             <DevFields d={d} inheritDir={inheritDir} onChange={(p) => setD((x) => ({ ...x, ...p }))} />
+            {fromMessage && fromThread.length > 0 && (
+              <div className="totask-thread">
+                <label className="check"><input type="checkbox" checked={withThread} onChange={(e) => setWithThread(e.target.checked)} />附上消息列（{fromThread.length} 条），写进任务正文</label>
+                {withThread && (
+                  <ul className="totask-thread-list" aria-label="附上的消息列">
+                    {fromThread.slice(-3).map((x) => (
+                      <li key={x.id}><b>{threadWho ? threadWho(x) : x.sender_name}</b>{!x.thread && <span className="list-sub">（原消息）</span>}<span className="list-sub">{timeAgo(x.at)}</span>：<span className="ellipsis">{x.text || '（没有正文）'}</span></li>
+                    ))}
+                    {fromThread.length > 3 && <li className="list-sub">前面还有 {fromThread.length - 3} 条，一起附上</li>}
+                  </ul>
+                )}
+              </div>
+            )}
             {fromMessage && fromMessage.status === 'pending' && (
               <label className="check"><input type="checkbox" checked={markDone} onChange={(e) => setMarkDone(e.target.checked)} />建好后把这条消息标为{msgEnum.label('done')}</label>
+            )}
+            {fromMessage && (
+              <div className="field">
+                <label className="check"><input type="checkbox" checked={replyOnDone} onChange={(e) => setReplyOnDone(e.target.checked)} />执行完成后在原消息里回复</label>
+                <span className="list-sub">任务交给 Claude Code 执行成功、或标为已完成后，自动在原消息里回复对方，带上执行结论（SOP「IM 任务回执」）</span>
+              </div>
             )}
           </>
         ) : (
@@ -583,6 +630,7 @@ export function TaskDrawer({ task, initial, fromMessage, hooks, deliveries, assi
                   {t.key === 'sop' && (sopMine.some((r) => ['waiting', 'failed'].includes(runStatus(r)))
                     ? <span className="side-dot" title="有执行等你处理" />
                     : sopMine.some((r) => runStatus(r) === 'running') && <span className="proto-light pl-running" title="有执行还没结束" />)}
+                  {t.key === 'pipeline' && pipeBlocks > 0 && <><span className="seg-n" title={`${pipeBlocks} 处卡点等你处理`}>{pipeBlocks}</span><span className="side-dot" title="有卡点等你处理" /></>}
                   {t.key === 'runs' && runsN > 0 && <span className="seg-n" title={`${runsN} 次执行`}>{runsN}</span>}
                   {t.key === 'runs' && runningId && <span className="proto-light pl-running" title="有执行在跑" />}
                 </button>
@@ -592,6 +640,8 @@ export function TaskDrawer({ task, initial, fromMessage, hooks, deliveries, assi
               <>
                 {fields}
                 {reminders && <TaskReminders task={task} {...reminders} />}
+                {/* 需求工作区（AUTO-07，SPEC-tasks-4.50 起）：正式产品是项目插件登记的对象区块 */}
+                <TaskWorktreeBlock task={task} projects={projects} />
                 {!devOn && dev && (
                   <button className="act act-quiet dev-open" onClick={() => { setDevOpened(true); pick('dev') }}>+ 设为开发任务：验收标准、工作目录，交给 Claude Code 做</button>
                 )}
@@ -612,6 +662,7 @@ export function TaskDrawer({ task, initial, fromMessage, hooks, deliveries, assi
                 {task.status === 'review' && devFields}
               </>
             )}
+            {cur === 'pipeline' && sop && <TaskPipelineBlock task={task} runs={sop.runs} gov={sop.gov} onAct={sop.onAct} onOpenRun={sop.onOpenRun} />}
             {cur === 'sop' && sop && <TaskSopBlock task={task} runs={sop.runs} sops={sop.sops} onStart={sop.onStart} onOpenRun={sop.onOpenRun} focus={focus.sop} />}
             {cur === 'runs' && dev && <RunsBlock runs={mine(dev.runs)} onCancel={dev.cancel} onFinish={dev.finish} focus={focus.run} />}
           </>
@@ -619,14 +670,16 @@ export function TaskDrawer({ task, initial, fromMessage, hooks, deliveries, assi
       </div>
       {runOpen && task && dev && (
         <RunDialog task={{ ...task, workdir: d.workdir }} inheritDir={inheritDir} project={projectCtx} terminalOn={!!handoff?.terminalOn} onClose={() => setRunOpen(false)}
+          onManagePresets={handoff?.onManagePresets && (() => { setRunOpen(false); handoff.onManagePresets?.() })}
           onStart={(o) => {
             const runId = dev.start(task, o)
             if (o.mode === 'terminal') {
               setRunOpen(false)
-              handoff?.onTerminal({ task, runId, workdir: o.workdir, prompt: buildPrompt({ task, workdir: o.workdir, extra: o.extra_prompt, mode: 'terminal', project: projectCtx, runId }) })
+              handoff?.onTerminal({ task, runId, workdir: o.workdir, prompt: buildPrompt({ task, workdir: o.workdir, extra: o.extra_prompt, mode: 'terminal', project: projectCtx, runId, preset: o.preset }) })
               return
             }
-            if (o.allow_writes) setD((x) => ({ ...x, status: 'doing', assignee: 'Claude Code' }))
+            // 交出去就算开工（SPEC-tasks-6.17）；允许写入时 Claude Code 还会领取，负责人改成它
+            setD((x) => ({ ...x, status: x.status === 'done' || x.status === 'cancelled' ? x.status : 'doing', ...(o.allow_writes ? { assignee: 'Claude Code' } : {}) }))
             setRunOpen(false)
             // 流式执行发起后切到执行记录看输出（SPEC-tasks-4.41）
             pick('runs')

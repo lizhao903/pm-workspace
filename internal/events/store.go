@@ -4,6 +4,7 @@ import (
 	"context"
 	"reflect"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/lizhao903/pm-workspace/internal/domain"
@@ -101,7 +102,10 @@ func (s *Store) FinishTaskRun(ctx context.Context, id, status string, exitCode i
 	if err != nil {
 		return nil, err
 	}
-	s.publish(ctx, RunFinished, map[string]any{"run_id": out.ID, "object_id": out.ObjectID, "ok": out.Status == domain.RunDone})
+	// status、summary（结论开头，最多 runSummaryMax 字）给订阅方直接用：IM 插件据此回复原消息（SPEC-messages-2.50）
+	// origin：插件流程里发起的执行（如 SOP 的 Claude Code 节点）为 "plugin:<插件 id>"，人交给 CLI 的为空
+	s.publish(ctx, RunFinished, map[string]any{"run_id": out.ID, "object_id": out.ObjectID, "ok": out.Status == domain.RunDone,
+		"status": out.Status, "summary": clipRunes(strings.TrimSpace(out.Output), runSummaryMax), "origin": domain.RunOrigin(ctx)})
 	return out, nil
 }
 
@@ -117,6 +121,10 @@ func (s *Store) changed(ctx context.Context, prev, cur *domain.Object) {
 	s.publish(ctx, ObjectUpdated, map[string]any{"id": cur.ID, "type_id": cur.TypeID, "fields": fields})
 	if prev.Status != cur.Status {
 		s.publish(ctx, ObjectStatusChanged, map[string]any{"id": cur.ID, "type_id": cur.TypeID, "from": prev.Status, "to": cur.Status})
+	}
+	// 阶段在 props.stage（AUTO-05），props 变了再细看阶段；空串是「未设阶段」
+	if from, to := domain.StageOf(prev.Props), domain.StageOf(cur.Props); from != to {
+		s.publish(ctx, ObjectStageChanged, map[string]any{"id": cur.ID, "type_id": cur.TypeID, "from": from, "to": to})
 	}
 }
 
@@ -184,3 +192,14 @@ func timeOf(t *time.Time) string {
 }
 
 var _ store.Store = (*Store)(nil)
+
+// runSummaryMax 是 run.finished 里 summary 的上限（字）。
+const runSummaryMax = 1500
+
+func clipRunes(s string, n int) string {
+	r := []rune(s)
+	if len(r) <= n {
+		return s
+	}
+	return string(r[:n]) + "…"
+}

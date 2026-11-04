@@ -1,6 +1,6 @@
 // SOP 插件的纯函数：状态和节点类型的显示、流程图分列、执行列表的筛选排序和进度文字。口径照原型 web-next/src/sopflow.ts、sop.tsx。
 // 运行状态由后端算好给（SopRun.status），这里不重算；节点是不是分支节点从 GET /api/sop/node-types 读，名字在前端
-import { sopRunShow, type SopFlow, type SopJson, type SopNodeType, type SopRun, type SopRunBrief, type SopRunShow, type SopRunStatus, type SopRunStep, type SopStepDef, type SopStepStatus } from '../../core/data'
+import { isSopHeld, sopRunShow, type SopFlow, type SopJson, type SopNodeType, type SopRun, type SopRunBrief, type SopRunShow, type SopRunStatus, type SopRunStep, type SopStepDef, type SopStepStatus } from '../../core/data'
 import { sopNodeView } from '../../core/plugin'
 
 type Look = { label: string; color: string }
@@ -31,8 +31,11 @@ const stepLook = (s: string): Look => STEP_STATUS[s as SopStepStatus] ?? { label
 /** 在排队等模型名额的步骤（SOP-07）：状态仍是 running，后端带 queue；界面显示「排队中」 */
 export const QUEUED_LOOK: Look = { label: '排队中', color: 'var(--muted)' }
 export const isQueued = (s?: Pick<SopRunStep, 'status' | 'queue'>): boolean => !!s && s.status === 'running' && !!s.queue
-/** 步骤的显示：排队中的单独一种，其余按状态 */
-export const runStepLook = (s: Pick<SopRunStep, 'status' | 'queue'>): Look => (isQueued(s) ? QUEUED_LOOK : stepLook(s.status))
+/** 超出治理上限暂停的步骤（AUTO-12）：状态是 paused，带没放行的 hold */
+export const HELD_LOOK: Look = { label: '超出上限', color: 'var(--danger)' }
+/** 步骤的显示：排队中、超出上限的单独一种，其余按状态 */
+export const runStepLook = (s: Pick<SopRunStep, 'status' | 'queue' | 'hold'>): Look =>
+  (isQueued(s) ? QUEUED_LOOK : isSopHeld(s) ? HELD_LOOK : stepLook(s.status))
 /** 插件设置分节的路径（设置 > 插件 > SOP 编排） */
 export const SOP_SETTINGS_PATH = '/settings/plugins/sop/sop'
 const runLook = (s: string): Look => RUN_STATUS[s as SopRunShow] ?? { label: s, color: 'var(--faint)' }
@@ -41,8 +44,9 @@ export { stepLook, runLook }
 /** 节点类型的显示名，照原型 nodetypes.tsx 的 NODE_TYPES，另加 SOP-02a 的写节点 doc、contact；颜色在 sop.css 的 .sop-kt-<kind> */
 export const KIND_LABEL: Record<string, string> = {
   auto: '自动执行', ai: 'AI 处理', knowledge: '知识检索', extract: '参数提取', template: '模板转换', aggregate: '变量聚合',
-  code: '代码执行', decide: '条件分支', classifier: '问题分类器', iterate: '迭代', wait: '等待', review: '人工检查',
-  http: 'HTTP 请求', notify: '发送消息', task: '创建任务', doc: '写文档', contact: '写联系人', local_append: '写进项目目录', agent: '调用 Agent', subflow: '子流程', end: '结束',
+  code: '代码执行', decide: '条件分支', classifier: '问题分类器', iterate: '迭代', wait: '等待', loopback: '条件回退', review: '人工检查',
+  http: 'HTTP 请求', notify: '发送消息', task: '创建任务', doc: '写文档', contact: '写联系人', local_append: '写进项目目录', agent: '调用 Agent', subflow: '子流程',
+  claude_code: 'Claude Code 执行', end: '结束',
 }
 export const kindLabel = (k: string) => KIND_LABEL[k] ?? sopNodeView(k)?.label ?? k
 
