@@ -121,7 +121,7 @@ export const unmarkFresh = (id: string) => { fresh.delete(id) }
 
 // ---- 详情的标签（顺序和显示名见 SPEC-projects-0 ProjectTab）；todo 是还没做的标签由谁补 ----
 
-export type ProjectTab = 'overview' | 'comms' | 'attachments' | 'stakeholders' | 'tasks' | 'docs' | 'sop' | 'agents' | 'materials' | 'prototypes' | 'settings'
+export type ProjectTab = 'overview' | 'comms' | 'attachments' | 'stakeholders' | 'tasks' | 'docs' | 'sop' | 'agents' | 'materials' | 'prototypes' | 'profile' | 'settings'
 
 export const TABS: { key: ProjectTab; label: string; todo?: string }[] = [
   { key: 'overview', label: '概览' },
@@ -134,6 +134,7 @@ export const TABS: { key: ProjectTab; label: string; todo?: string }[] = [
   { key: 'agents', label: 'Agent' },
   { key: 'materials', label: '支持材料' },
   { key: 'prototypes', label: '原型' },
+  { key: 'profile', label: '档案' },
   { key: 'settings', label: '设置' },
 ]
 

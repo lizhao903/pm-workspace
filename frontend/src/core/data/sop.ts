@@ -79,9 +79,34 @@ export type SopRunStep = {
   log: { at: string; text: string }[]
   wake_at?: string
   child_run_id?: string
-  /** 在排队等模型名额（SOP-07）：仍是 running，ahead 是全插件队列里前面还有几个；不在排队时没有 */
-  queue?: { ahead: number }
+  /**
+   * 在排队（仍是 running）：ahead 是全插件队列里前面还有几个；slot 为空是等模型名额（SOP-07），
+   * claude_code 是等 Claude Code 并发名额（AUTO-12）；不在排队时没有
+   */
+  queue?: SopStepQueue
+  /** Claude Code 节点发起的那次执行（AUTO-01）：执行 id、关联任务（执行记录留在任务上时）、工作目录 */
+  claude?: { run_id: string; task_id?: string; workdir?: string }
+  /** 第几轮：被条件回退退回重做后为 2、3……，首轮没有（AUTO-02） */
+  round?: number
+  /** 这一轮被退回重做的原因 */
+  rework_reason?: string
+  /** 条件回退节点已经自动退回了几次 */
+  loops?: number
+  /** 超出治理上限被暂停的记录（AUTO-12）：没放行时步骤停在 paused，「继续」（confirm-input）放行这一次 */
+  hold?: SopStepHold
 }
+export type SopStepQueue = { ahead: number; slot?: 'claude_code' }
+/** 超出上限暂停（AUTO-12）：kind 是 runs（次数）或 duration（时长） */
+export type SopStepHold = {
+  kind: 'runs' | 'duration'
+  reason: string
+  since: string
+  released?: boolean
+  released_at?: string
+  attempt?: number
+}
+/** 这一步正停在「超出上限」上等人放行 */
+export const isSopHeld = (s: { status: SopStepStatus; hold?: SopStepHold }) => s.status === 'paused' && !!s.hold && !s.hold.released
 export type SopRun = {
   id: string
   flow_id: string
@@ -124,9 +149,84 @@ export type SopRunAction =
   | { kind: 'step-through'; on: boolean }
 
 /** object_id：这次执行关联到哪个工作对象（SOP-06），不存在或在回收站里 400 */
-/** SOP 插件设置（SOP-07）：model_concurrency 同时调模型的步骤数 1..16；running、queued 是此刻在调模型、在排队的步骤数，只读 */
-export type SopSettings = { model_concurrency: number; running: number; queued: number }
+/**
+ * SOP 插件设置（SOP-07）：model_concurrency 同时调模型的步骤数 1..16；running、queued 是此刻在调模型、在排队的步骤数，只读。
+ * 流水线治理（AUTO-12）：claude_concurrency 同时跑的 Claude Code 步骤数 1..10；task_max_claude_runs、task_max_claude_minutes
+ * 是每个需求累计的次数、分钟数上限，0 是不限；token_limit_supported 恒为 false（运行记录里没有 token 用量）
+ */
+export type SopSettings = {
+  model_concurrency: number
+  running: number
+  queued: number
+  claude_concurrency: number
+  claude_running: number
+  claude_queued: number
+  task_max_claude_runs: number
+  task_max_claude_minutes: number
+  token_limit_supported: boolean
+}
+export type SopSettingsPatch = Partial<Pick<SopSettings, 'model_concurrency' | 'claude_concurrency' | 'task_max_claude_runs' | 'task_max_claude_minutes'>>
 export const SOP_MODEL_CONCURRENCY_MAX = 16
+export const SOP_CLAUDE_CONCURRENCY_MAX = 10
+export const SOP_TASK_MAX_RUNS_MAX = 1000
+export const SOP_TASK_MAX_MINUTES_MAX = 100000
+
+/** 等人的种类（AUTO-12）：人工检查、人工判断、Agent 等确认、逐步确认、超出上限暂停、失败、超时 */
+export type SopWaitKind = 'review' | 'decide' | 'agent' | 'confirm' | 'hold' | 'failed' | 'timeout'
+/** GET /api/sop/waiting 的一条：一个等人的步骤；task_id 是这次执行算到的需求（子执行沿父执行找） */
+export type SopWaitingItem = {
+  run_id: string
+  run_title: string
+  flow_id: string
+  flow_name: string
+  step_key: string
+  step_name: string
+  step_kind: string
+  step_status: SopStepStatus
+  wait: SopWaitKind
+  reason: string
+  since: string
+  task_id?: string
+  cases?: SopCase[]
+  hold?: SopStepHold
+  claude_run_id?: string
+}
+export type SopPipelineStep = {
+  key: string
+  name: string
+  kind: string
+  status: SopStepStatus
+  attempts: number
+  round?: number
+  loops?: number
+  rework_reason?: string
+  route?: string
+  started_at?: string
+  ended_at?: string
+  error?: string
+  hold?: SopStepHold
+  child_run_id?: string
+  claude_run_id?: string
+  queue?: SopStepQueue
+}
+export type SopPipelineRun = {
+  id: string
+  flow_id: string
+  flow_name: string
+  title: string
+  status: SopRunStatus
+  parent_run_id?: string
+  parent_step?: string
+  relaunched_to?: string
+  started_at: string
+  ended_at?: string
+  steps: SopPipelineStep[]
+}
+export type SopClaudeUsage = { id: string; run_id: string; step: string; attempt: number; started_at: string; ended_at?: string; status: string }
+/** 预算用量；上限 0 是不限 */
+export type SopPipelineBudget = { claude_runs: number; claude_minutes: number; max_runs: number; max_minutes: number }
+/** GET /api/sop/pipeline/{id}：一条需求的流水线，执行按开始时间早的在前 */
+export type SopPipeline = { task_id: string; runs: SopPipelineRun[]; claude: SopClaudeUsage[]; budget: SopPipelineBudget; blockers: SopWaitingItem[] }
 
 export type SopStartInput = { input?: Record<string, string>; step_through?: boolean; object_id?: string }
 
@@ -185,7 +285,12 @@ export const sopApi = {
   start: async (flowId: string, body: SopStartInput) => normRun(await request<SopRun>('POST', `${flowPath(flowId)}/runs`, { body })),
   act: async (runId: string, action: SopRunAction) => normRun(await request<SopRun>('POST', `${runPath(runId)}/actions`, { body: action })),
   settings: (signal?: AbortSignal) => request<SopSettings>('GET', '/api/sop/settings', { signal }),
-  patchSettings: (patch: Pick<SopSettings, 'model_concurrency'>) => request<SopSettings>('PATCH', '/api/sop/settings', { body: patch }),
+  patchSettings: (patch: SopSettingsPatch) => request<SopSettings>('PATCH', '/api/sop/settings', { body: patch }),
+  pipeline: async (taskId: string, signal?: AbortSignal) => {
+    const p = await request<SopPipeline>('GET', `/api/sop/pipeline/${encodeURIComponent(taskId)}`, { signal })
+    return { ...p, runs: (p.runs ?? []).map((r) => ({ ...r, steps: r.steps ?? [] })), claude: p.claude ?? [], blockers: p.blockers ?? [] }
+  },
+  waiting: async (signal?: AbortSignal) => (await requestList<SopWaitingItem>('/api/sop/waiting', { signal })).data,
 }
 
 /** 插件没装或停用时接口 404，不重试 */
@@ -297,7 +402,7 @@ export function useSopSettings() {
 export function usePatchSopSettings() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (patch: Pick<SopSettings, 'model_concurrency'>) => sopApi.patchSettings(patch),
+    mutationFn: (patch: SopSettingsPatch) => sopApi.patchSettings(patch),
     onSuccess: (s) => qc.setQueryData(dataKeys.sop.settings, s),
   })
 }
@@ -312,5 +417,16 @@ export function useDeleteSopFlow() {
   return useMutation({
     mutationFn: (id: string) => sopApi.deleteFlow(id),
     onSuccess: (_d, id) => notify({ kind: 'sop-flow', id }),
+  })
+}
+
+/** 一条需求的流水线（AUTO-12）：在 runs 前缀下，执行一变跟着刷；taskId 为 null 时不取 */
+export function useSopPipeline(taskId: string | null, opts: { refetchInterval?: UseQueryOptions<SopPipeline>['refetchInterval'] } = {}) {
+  return useQuery({
+    queryKey: dataKeys.sop.pipeline(taskId ?? ''),
+    queryFn: ({ signal }) => sopApi.pipeline(taskId!, signal),
+    enabled: !!taskId,
+    retry: noRetry404,
+    refetchInterval: opts.refetchInterval,
   })
 }

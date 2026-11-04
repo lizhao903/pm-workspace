@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { act, render, screen, waitFor, within } from '@testing-library/react'
+import { act, cleanup, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { createMemoryRouter, RouterProvider } from 'react-router'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -47,6 +47,8 @@ function fakeBackend(rows: ImMessage[], opts: {
   sop?: { flows: SopFlow[]; runs: SopInputRun[]; details?: Record<string, unknown> }
   /** @ 候选（0.18.0），按会话 id */
   members?: Record<string, ImMember[]>
+  /** 转任务时回执没发起的原因（SPEC-messages-2.50）；不给时回执照常发起 */
+  replyNote?: string
 } = {}) {
   const calls: Call[] = []
   const defaults: Record<string, { conversation_id: string; project_id: string; project_ref: string; project_name: string; updated_at: string }> = {}
@@ -123,7 +125,8 @@ function fakeBackend(rows: ImMessage[], opts: {
       if (a === 'task') {
         Object.assign(r, { task_id: 'obj_t1', task_ref: 'TSK-0001' })
         if (body.done) r.status = 'done'
-        return json({ message: r, task: { id: 'obj_t1', ref: 'TSK-0001', title: body.title, status: 'todo', source: 'im' } }, 201)
+        const reply = body.reply_on_done === false ? { enabled: false } : opts.replyNote ? { enabled: false, note: opts.replyNote } : { enabled: true, run_id: 'run_r1' }
+        return json({ message: r, task: { id: 'obj_t1', ref: 'TSK-0001', title: body.title, status: 'todo', source: 'im' }, reply }, 201)
       }
       return json(r)
     }
@@ -582,12 +585,35 @@ describe('IM 消息页', () => {
     const dlg = await screen.findByRole('alertdialog')
     expect(within(dlg).getByRole('textbox')).toHaveValue('导出按钮 在 Safari 下没反应')
     await userEvent.click(within(dlg).getByRole('button', { name: '创建任务' }))
-    await waitFor(() => expect(calls.find((c) => c.path.endsWith('/task'))?.body).toEqual({ title: '导出按钮 在 Safari 下没反应', done: true }))
+    await waitFor(() => expect(calls.find((c) => c.path.endsWith('/task'))?.body).toEqual({ title: '导出按钮 在 Safari 下没反应', done: true, reply_on_done: true }))
     await waitFor(() => expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument())
     await userEvent.click(within(screen.getByRole('group', { name: '状态' })).getByRole('button', { name: /^全部/ }))
     expect(await screen.findByRole('button', { name: '已转任务 TSK-0001' })).toBeInTheDocument()
     // 测试里没有任务模块登记的抽屉：说清楚打不开，不静默
     expect(screen.getByText('任务模块没有加载，打不开任务')).toBeInTheDocument()
+  })
+
+  it('转任务时「执行完成后在原消息里回复」默认勾上；取消勾选传 false；回执没发起时顶栏提示原因（SPEC-messages-2.50）', async () => {
+    const calls = fakeBackend([msg({ text: '导出按钮坏了' })], { replyNote: 'SOP 编排插件没在运行，执行完成后不会自动回复' })
+    renderPage()
+    const row = await screen.findByRole('listitem', { name: /导出按钮坏了/ })
+    await userEvent.click(within(row).getByRole('button', { name: '转任务' }))
+    let dlg = await screen.findByRole('alertdialog')
+    expect(within(dlg).getByRole('checkbox', { name: '执行完成后在原消息里回复' })).toBeChecked()
+    await userEvent.click(within(dlg).getByRole('button', { name: '创建任务' }))
+    await waitFor(() => expect(calls.find((c) => c.path.endsWith('/task'))?.body?.reply_on_done).toBe(true))
+    expect(await screen.findByRole('status')).toHaveTextContent('任务建好了，但SOP 编排插件没在运行，执行完成后不会自动回复')
+
+    const calls2 = fakeBackend([msg({ id: 'im_2', text: '另一个问题' })])
+    cleanup()
+    renderPage()
+    const row2 = await screen.findByRole('listitem', { name: /另一个问题/ })
+    await userEvent.click(within(row2).getByRole('button', { name: '转任务' }))
+    dlg = await screen.findByRole('alertdialog')
+    await userEvent.click(within(dlg).getByRole('checkbox', { name: '执行完成后在原消息里回复' }))
+    await userEvent.click(within(dlg).getByRole('button', { name: '创建任务' }))
+    await waitFor(() => expect(calls2.find((c) => c.path.endsWith('/task'))?.body?.reply_on_done).toBe(false))
+    expect(screen.queryByRole('status')).not.toBeInTheDocument()
   })
 
   it('打开联系人去 /contacts?c=', async () => {

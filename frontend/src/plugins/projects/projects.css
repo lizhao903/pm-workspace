@@ -498,3 +498,27 @@ a.pj-att-name:hover { text-decoration: underline; }
   .pj-chat-head > b { flex: 1 1 0; }
   .pj-chat-head > .spacer { display: none; }
 }
+
+/* ---------- 档案（AUTO-04，SPEC-projects-15） ---------- */
+.pj-profile .pj-chips { align-items: center; }
+.pj-profile-other { width: 180px; height: 28px; font-size: var(--fs-sm); }
+.pj-cmd-grid { display: flex; flex-direction: column; gap: var(--sp-3); }
+.pj-cmd-head, .pj-cmd-row { display: grid; grid-template-columns: 88px minmax(0, 1fr) 160px 96px; gap: var(--sp-4); align-items: center; }
+.pj-cmd-head { font-size: var(--fs-xs); color: var(--faint); }
+.pj-cmd-label { font-size: var(--fs-sm); color: var(--muted); }
+.pj-cmd-row .input { font-size: var(--fs-sm); }
+.pj-cmd-err { grid-column: 2 / -1; }
+.pj-cmd-grid + .pj-cmd-grid { margin-top: var(--sp-5); }
+.pj-cmd-group { font-size: var(--fs-sm); font-weight: 600; display: flex; gap: var(--sp-3); align-items: baseline; flex-wrap: wrap; }
+.pj-cmd-hint { grid-column: 2 / -1; font-size: var(--fs-xs); white-space: normal; margin-top: calc(-1 * var(--sp-2)); }
+.pj-cmd-ready { grid-column: 2 / -1; display: grid; grid-template-columns: auto minmax(0, 1fr); gap: var(--sp-1) var(--sp-3); align-items: center; }
+.pj-cmd-ready > span:last-child { grid-column: 2; font-size: var(--fs-xs); white-space: normal; }
+.pj-cmd-sub { font-size: var(--fs-xs); color: var(--faint); }
+.pj-profile-people { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--sp-6); }
+@media (max-width: 760px) {
+  .pj-cmd-head { display: none; }
+  .pj-cmd-row { grid-template-columns: minmax(0, 1fr) 96px; }
+  .pj-cmd-label, .pj-cmd-row > input:first-of-type { grid-column: 1 / -1; }
+  .pj-cmd-err, .pj-cmd-ready, .pj-cmd-hint { grid-column: 1 / -1; }
+  .pj-profile-people { grid-template-columns: minmax(0, 1fr); }
+}

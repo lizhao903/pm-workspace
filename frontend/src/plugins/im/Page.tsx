@@ -838,7 +838,7 @@ export default function Page() {
       )}
       {toTask && (
         <ToTaskDialog msg={toTask} thread={threadForTask(toTask, list)} doneLabel={doneLabel} onCancel={() => setToTask(null)}
-          onCreated={(id) => { setToTask(null); setOpen(null); setTaskOpen(id) }}
+          onCreated={(id, note) => { setToTask(null); setOpen(null); setTaskOpen(id); if (note) setSyncNote({ text: note, bad: true }) }}
           onExisting={() => {
             const id = toTask.id
             setToTask(null)

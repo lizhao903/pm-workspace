@@ -118,6 +118,15 @@ export function useSetStatus() {
   })
 }
 
+/** 改任务阶段（AUTO-05，props.stage）：PUT /stage，服务端只换这一个键，不冲掉别的 props */
+export function useSetStage() {
+  const notify = useNotifyChange()
+  return useMutation({
+    mutationFn: ({ id, stage }: { id: string; stage: string }) => objects.setStage(id, stage),
+    onSuccess: (_, v) => notify({ kind: 'object', id: v.id }),
+  })
+}
+
 /** 软删除进回收站 */
 export function useDeleteObject() {
   const notify = useNotifyChange()

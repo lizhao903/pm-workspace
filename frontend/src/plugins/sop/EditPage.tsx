@@ -3,7 +3,7 @@
 // 字典列表带条目一起取，不直接取 sop_trigger 的条目，免得没有这本字典时控制台报 404
 import { useMemo } from 'react'
 import {
-  QueryState, isApiError, useAgentProviders, useAgents, useCategoryTree, useDictionaries, useKnowledgeBases, useProjects, useSopFlow, useSopNodeTypes, type Category,
+  QueryState, isApiError, useAgentProviders, useAgents, useCategoryTree, useDictionaries, useKnowledgeBases, useProjects, useRunPresets, useSopFlow, useSopNodeTypes, type Category,
   type SopFlow, type SopRunBrief,
 } from '../../core/data'
 import { useSopNodeViews } from '../../core/plugin'
@@ -36,6 +36,8 @@ export function EditPage({ id, flows, runs, onCancel, onSaved }: {
   const cats = useCategoryTree('doc')
   // 建任务、写进项目目录的项目下拉
   const projects = useProjects()
+  // Claude Code 节点选角色（AUTO-01）
+  const presets = useRunPresets()
 
   // 插件登记、撤掉节点展示时目录换新，节点选择器和画布跟着重画（SOP-03b）
   const views = useSopNodeViews()
@@ -48,7 +50,8 @@ export function EditPage({ id, flows, runs, onCancel, onSaved }: {
     docCats: flat(cats.data),
     providers: providers.data ?? [],
     projects: (projects.data?.data ?? []).filter((p) => !p.deleted_at).map((p) => ({ id: p.id, name: p.title })),
-  }), [flows, agents.data, kbs.data, cats.data, providers.data, projects.data])
+    presets: (presets.data ?? []).map((p) => ({ id: p.id, scene: p.scene, permission: p.permission })),
+  }), [flows, agents.data, kbs.data, cats.data, providers.data, projects.data, presets.data])
   const triggers = useMemo<TriggerOption[]>(() => {
     const items = dicts.data?.find((d) => d.id === 'sop_trigger')?.items ?? []
     const live = items.filter((x) => !x.archived_at || x.key === flow.data?.trigger)

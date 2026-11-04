@@ -1,6 +1,7 @@
 // 任务模块（SPEC-tasks-1、SPEC-tasks-2）：二级菜单 + 列表。路由挂在 tasks/* 下：
 // /tasks 全部任务，/tasks/overdue 逾期；状态筛选记在 ?status=，可以直接链接到「待验收」这类视图；?t=<id> 打开某条任务的抽屉。
 // 抽屉的标签记在 ?tab=，?run= / ?sop_run= 定位某次执行（drawerTabs.ts）；从列表换一条任务、新建时清掉，新打开的从默认标签开始。
+// /tasks/board 阶段看板（AUTO-05，SPEC-tasks-11）：按 props.stage 分列、按提出人筛。
 // /tasks/schedules 定时任务（SPEC-tasks-7、8，TASK-04a），二级菜单「自动化」组。
 // /tasks/source/<来源> 来源视图（SPEC-tasks-3），/tasks/webhooks Webhook 接入、/tasks/webhooks/<id|new> 配置页（SPEC-tasks-9、10，TASK-04b）。
 import { useEffect, useState } from 'react'
@@ -17,6 +18,8 @@ import { SchedulesView } from './Schedules'
 import { TaskDrawer } from './TaskDrawer'
 import { useTaskTabParams } from './drawerTabs'
 import { TaskList, type TaskView } from './TaskList'
+import { StageBoard } from './StageBoard'
+import { PIPELINE_TAB } from './stageModel'
 import { SOURCE_KINDS, SOURCE_VIEW, isSourceKind } from './sourceModel'
 import { LAST_DELIVERY_POLL_MS, WebhooksView } from './Webhooks'
 import { isFailing, recentHooks } from './webhookModel'
@@ -27,14 +30,14 @@ const SEARCH_DELAY = 300
 // 优先级字典的 id（/api/dictionaries）
 const PRIORITY_DICT = 'priority'
 
-type View = TaskView | 'schedules' | 'hooks' | `hook:${string}`
+type View = TaskView | 'board' | 'schedules' | 'hooks' | `hook:${string}`
 
 const isHookView = (v: View): v is `hook:${string}` => v.startsWith('hook:')
 
 /** 子路径和视图互转；hook:new 是新建 Webhook */
 function viewOf(rest: string): View | null {
   if (rest === '') return 'all'
-  if (rest === 'overdue' || rest === 'schedules') return rest
+  if (rest === 'overdue' || rest === 'schedules' || rest === 'board') return rest
   if (rest === 'webhooks') return 'hooks'
   const [a, b, ...more] = rest.split('/')
   if (more.length || !b) return null
@@ -44,7 +47,7 @@ function viewOf(rest: string): View | null {
 }
 function subpath(v: View): string {
   if (v === 'all') return ''
-  if (v === 'overdue' || v === 'schedules') return v
+  if (v === 'overdue' || v === 'schedules' || v === 'board') return v
   if (v === 'hooks') return 'webhooks'
   if (isHookView(v)) return `webhooks/${encodeURIComponent(v.slice(5))}`
   return `source/${v}`
@@ -143,7 +146,21 @@ export default function Page() {
   if (types.isError) main = <ErrorState title="任务类型加载失败" error={types.error} onRetry={() => void types.refetch()} />
   else if (types.isPending) main = <LoadingState />
   else if (!taskType) main = <ErrorState title="后端没有任务类型" error="/api/object-types 里找不到 id 为 task 的类型" />
-  else if (view === 'schedules') main = <SchedulesView statuses={statuses} priorities={prios.data ?? []} projects={projects.data?.data ?? []} />
+  else if (view === 'board') {
+    main = (
+      <StageBoard tasks={list.data?.data ?? []} loading={list.isPending} error={list.isError ? list.error : undefined}
+        onRetry={() => void list.refetch()} statuses={statuses} selected={opened?.kind === 'task' ? opened.task.id : null}
+        onOpen={(t) => {
+          // 看板上点开直接看流水线（AUTO-12）：SOP 插件在跑才有这个标签，没有就回默认标签
+          if (opened?.kind !== 'task' || opened.task.id !== t.id) {
+            if (drawerTab.refs.some((r) => r.key === PIPELINE_TAB)) drawerTab.select(PIPELINE_TAB)
+            else drawerTab.clear()
+          }
+          setOpened({ kind: 'task', task: t })
+        }}
+        search={search} onSearch={setSearch} q={q} />
+    )
+  } else if (view === 'schedules') main = <SchedulesView statuses={statuses} priorities={prios.data ?? []} projects={projects.data?.data ?? []} />
   else if (view === 'hooks' || isHookView(view)) {
     main = (
       <WebhooksView route={view === 'hooks' ? 'list' : view.slice(5)} statuses={statuses} priorities={prios.data ?? []}
@@ -203,6 +220,7 @@ export default function Page() {
             desc: overdueN === undefined ? undefined : overdueN ? `${overdueN} 条过了截止日还没完成` : '没有逾期的任务',
             alert: overdueN ?? 0,
           },
+          { key: 'board', label: '阶段看板', group: '视图', desc: '按阶段分列，按提出人看进度' },
           ...SOURCE_KINDS.map((k): SubnavItem<View> => ({
             key: k, label: SOURCE_VIEW[k].label, group: '来源',
             // 条数和来源视图「全部」一致：同一个 source 筛选的 total

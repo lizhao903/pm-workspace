@@ -51,6 +51,12 @@ export function reminderTask(n: Pick<AppNotification, 'object_id' | 'data'>): { 
   return { id: n.object_id, ref: typeof n.data?.ref === 'string' ? n.data.ref : '' }
 }
 
+/** 提醒怎么弹（SPEC-tasks-8.26）：modal 屏幕中间模态弹窗，其余（含旧通知没有这个字段）右下角 */
+export type ReminderPopup = 'toast' | 'modal'
+export function reminderPopup(n: Pick<AppNotification, 'data'>): ReminderPopup {
+  return n.data?.popup === 'modal' ? 'modal' : 'toast'
+}
+
 /** 把新来的提醒排进列表：新的在前，同一条不重复 */
 export function addReminder(list: readonly AppNotification[] | undefined, n: AppNotification): AppNotification[] {
   const rest = (list ?? []).filter((x) => x.id !== n.id)

@@ -103,12 +103,13 @@ describe('SOP 节点（2.7）', () => {
     expect(() => api.sopNodes.register(node('aa_send'))).toThrow('SOP 节点 aa_send 已被插件 aa 注册')
   })
 
-  it('真实的 IM 插件登记发消息、等待回复、读取消息、标记消息、消息归到项目，不依赖 SOP 插件；停用后消失', async () => {
+  it('真实的 IM 插件登记发消息、等待回复、读取消息、标记消息、消息归到项目、等任务完成、回复原消息、转成任务、设置任务阶段、通知，不依赖 SOP 插件；停用后消失', async () => {
     const r = await loadPlugins(discoverPlugins(), state(['im']))
     expect(r.problems).toEqual([])
     expect(sopNodeStore.list().map((v) => [v.kind, v.label, v.plugin])).toEqual([
       ['im_send_message', '发消息', 'im'], ['im_wait_reply', '等待回复', 'im'], ['im_get_message', '读取消息', 'im'], ['im_mark_message', '标记消息', 'im'],
-      ['im_set_project', '消息归到项目', 'im'],
+      ['im_set_project', '消息归到项目', 'im'], ['im_wait_task', '等任务完成', 'im'], ['im_reply_message', '回复原消息', 'im'],
+      ['im_to_task', '转成任务', 'im'], ['im_set_task_stage', '设置任务阶段', 'im'], ['im_notify', '通知', 'im'],
     ])
     expect(sopNodeView('im_send_message')?.fields.map((f) => f.key)).toEqual(['conversation', 'text'])
     expect(sopNodeView('im_wait_reply')?.fields.map((f) => f.key)).toEqual(['conversation', 'timeout'])
@@ -116,6 +117,11 @@ describe('SOP 节点（2.7）', () => {
     expect(sopNodeView('im_mark_message')?.fields.map((f) => [f.key, f.required ?? false])).toEqual([['state', true], ['message', false]])
     expect(sopNodeView('im_set_project')?.fields.map((f) => [f.key, f.required ?? false])).toEqual([['project', true], ['message', false]])
     expect(sopNodeView('im_set_project')?.summary?.({})).toBe('')
+    expect(sopNodeView('im_set_task_stage')?.summary?.({ stage: 'designing', project: '{{project_id}}' })).toBe('阶段改为设计中，绑定项目')
+    expect(sopNodeView('im_notify')?.fields.map((f) => [f.key, f.required ?? false])).toEqual([
+      ['text', true], ['title', false], ['task', false], ['message', false], ['level', false],
+    ])
+    expect(sopNodeView('im_notify')?.summary?.({ message: '{{message_id}}' })).toBe('平台通知，回复原消息')
     deactivatePlugin('im')
     expect(sopNodeStore.list()).toEqual([])
   })
