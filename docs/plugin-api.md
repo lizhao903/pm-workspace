@@ -232,16 +232,17 @@ type Core interface {
 	Log() *slog.Logger
 	Events() Publisher                       // 只能发布清单 emits 里的类型（2.10）
 	Store() Store                            // 只能访问 table_prefix 开头的表（2.13.1）
-	Objects() ObjectReader                   // 只读：Get(ctx, id)、Find(ctx, typeID, key) ObjectInfo（下面「内核对象只读句柄」）
+	Objects() ObjectReader                   // 只读：Get(ctx, id)、Find(ctx, typeID, key) ObjectInfo（下面「内核对象只读句柄」）；TaskStages(ctx, TaskStageQuery{MessageID, RequesterID, Channel, SenderID, Limit}) 按来源消息或提出人查任务阶段，口径同 GET /api/tasks/stages（AUTO-05）
 	Contacts() ContactReader                 // 只读：Get、FindByName；ContactInfo 带 ID、Name、Email、Archived
 	Conversations() ConversationReader       // 只读：IM 会话（2.13.2）
 	ConversationWriter() ConversationWriter  // 登记 IM 会话，只建不改（PR-02，2.13.5 后）
 	Identities() IdentityReader              // 只读：IM 身份（2.13.3）
-	ObjectWriter() ObjectWriter              // 建对象、追加正文（2.13.4）
+	ObjectWriter() ObjectWriter              // 建对象、追加正文、改任务阶段（2.13.4）
 	ContactWriter() ContactWriter            // 建联系人、合并字段（2.13.5）
 	Connectors() ConnectorReader             // 连接器实例：查、授权、断开、取配置、记同步（2.13.6、2.13.9）
 	HTTP(group string) (*http.Client, error) // 只给 network:<group> 声明并确认过的组，每一跳查域名清单（VID-04a，3.1）
 	AttachmentDir() string                   // 数据目录下 attachments/ 的绝对路径，没接数据目录为空串（IM-04a）
+	WorktreeDir() string                     // 数据目录下 worktrees/ 的绝对路径，没接数据目录为空串；项目插件在这里建需求工作区（AUTO-07）
 	Agent() AgentService                     // 用默认服务商补全、按 Agent 的授权跑一轮、搜指定知识库（SOP-01c）
 	Granted(perm string) bool                // 用户确认过这项权限没有（SEC-01，2.13.16）
 	SOP() SOPService                         // SOP 节点、唤醒和失败、内置流程、指向流程的定时任务（2.7、2.13.14、2.13.15）
@@ -249,15 +250,18 @@ type Core interface {
 	Notify(ctx context.Context, n Notification) error // 以本插件的名义发通知（VID-06b，2.13.11）
 	Runs() RunService                        // 发起 Agent、SOP 运行或交给 Claude Code（VID-03a，2.13.13）
 	Incidents() IncidentService              // 记运行异常，按指纹合并（INC-01a，2.13.20）
+	Artifacts() ArtifactWriter               // 登记产物（本地文件）：来源记 run、产出者记本插件，挂到给的对象上（AUTO-08）
 
-	// 规划，还没实现：Links()、Artifacts()（AG-03）、Settings()、Secrets()（CORE-06）、FS(scope)、Process()；
+	// 规划，还没实现：Links()、Artifacts() 的改和删（AG-03）、Settings()、Secrets()（CORE-06）、FS(scope)、Process()；
 	// 改对象、建关联等更宽的写能力等 ObjectService。现在 fs、process 权限靠 Granted/Require 在代码路径上查
 }
 ```
 
 `RouteRegistrar` 沿用 `internal/api/server.go` 里的同名接口（`HandleFunc(pattern, handler)`），路径必须以 `/api/<id>/` 开头；内核在外面包一层，停用时整组返回 404。加了路由照旧要写进 `docs/api-contract.md`（契约测试双向检查）。
 
-内核对象只读句柄（已实现，`internal/plugin/store.go`）：`Objects().Get(ctx, id)` 返回 `ObjectInfo{ID, Type, Ref, Title, Workdir, Props, Deleted}`，没有这个 id 返回 `ErrNoRows`。`Props` 是对象的自定义字段（JSON 解开的 `map[string]any`，解不开为空 map），`Ref` 是给人看的编号（消息分流加，SOP 的写进项目目录要读项目的 `props.related`）。`Objects().Find(ctx, typeID, key)` 在一个类型里按 id、`ref`（不分大小写）、标题（完全相同）依次找没删的对象，标题重名取最早建的，都找不到返回 `ErrNoRows`（消息分流加，SOP 节点和 IM 的归到项目按「项目 id、编号或名字」认项目）。`Workdir` 是对象自身的 `workdir` 列，对项目就是 `root`，没设为空串，不往所属项目继承（TERM-01c 加）。项目根目录可能存成了 `file://` 地址，拿来当目录用之前过一遍 `plugin.LocalDir`（SEC-01 加：去掉前缀、按 URL 解码，不是 `file://` 的原样返回）。
+内核对象只读句柄（已实现，`internal/plugin/store.go`）：`Objects().Get(ctx, id)` 返回 `ObjectInfo{ID, Type, Ref, Title, Workdir, Props, Deleted, Status, ProjectID}`（`ProjectID` 是对象所属项目，没挂项目为空串，AUTO-07 加），没有这个 id 返回 `ErrNoRows`。`Status` 是状态 key（按类型隔离，IM 的「等任务执行完成」节点看任务是不是 `done`，0.19.0 加）。`Props` 是对象的自定义字段（JSON 解开的 `map[string]any`，解不开为空 map），`Ref` 是给人看的编号（消息分流加，SOP 的写进项目目录要读项目的 `props.related`）。`Objects().Find(ctx, typeID, key)` 在一个类型里按 id、`ref`（不分大小写）、标题（完全相同）依次找没删的对象，标题重名取最早建的，都找不到返回 `ErrNoRows`（消息分流加，SOP 节点和 IM 的归到项目按「项目 id、编号或名字」认项目）。`Workdir` 是对象自身的 `workdir` 列，对项目就是 `root`，没设为空串，不往所属项目继承（TERM-01c 加）。项目根目录可能存成了 `file://` 地址，拿来当目录用之前过一遍 `plugin.LocalDir`（SEC-01 加：去掉前缀、按 URL 解码，不是 `file://` 的原样返回）。
+
+产物登记句柄（已实现，`internal/plugin/artifacts_write.go`，AUTO-08 加）：`Artifacts().Record(ctx, NewArtifact{ObjectID, Title, Path, BaseDir, Kind, Note, Props})` 回产物 id。走 `cmd/pmw` 交的外层 store（同 Claude Code 运行的产物登记），`source` 固定 `run`、`actor_type` 固定 `run`、`actor_id` / `actor_label` 为插件 id，`platform` 为 `local`，插件改不了；`ObjectID` 空串不挂对象；`Path` 可以是相对 `BaseDir` 的路径；`Kind` 是字典 `artifact_kind` 的 key（不认的回 `domain.ErrValidation`）。没接 store 回 `ErrNoObjectWriter`。只登记，不改、不删。项目插件用它把测试报告、截图登记为任务产出。
 
 模型和 Agent 句柄（已实现，`internal/plugin/agent.go`，SOP-01c 加）：实现是 `internal/agent` 的 `Service`，`cmd/pmw` 用 `Registry.SetAgent` 接上；没接上时每个方法回 `ErrNoAgent`。服务商、授权、技能的口径和对话接口（`/api/agent/chat`）一致。
 
@@ -280,6 +284,7 @@ type Core interface {
 |---|---|
 | `ObjectWriter().CreateAs(ctx, NewObject, WriteMeta)` | 建对象，校验同 `POST /api/objects`；`NewObject.CategoryID` 是分类 id（可空） |
 | `ObjectWriter().AppendBody(ctx, id, text, WriteMeta)` | 在对象正文末尾追加一段，和原文空一行；对象不存在或已删除回 `domain.ErrNotFound` |
+| `ObjectWriter().UpdateTask(ctx, id, TaskChange{Stage, ProjectID}, WriteMeta) (ChangedTask, error)` | 改任务的阶段（`props.stage`）和所属项目（AUTO-06，`internal/plugin/taskstage_write.go`）。口径同 `PUT /api/objects/{id}/stage`：服务端读当前 props、只换 `stage` 一个键再写回，所属项目同一次写入；`object.stage_changed` 事件和阶段审计由 store 包装层发。空串表示不改（本期不提供清掉阶段、解除项目）；两样都空回 `domain.ErrValidation`。只改任务：不是任务、阶段不认（`domain.TaskStages`）、项目不存在或已删除回 `domain.ErrValidation`；对象不存在、已删除回 `domain.ErrNotFound`。同样的值再写一次不写库、不记审计，回 `Changed` 为空（天然幂等，不查 `WriteMeta.Key`）。改了时操作者「插件 id#Session」，记一条审计 `action=update`、`target_type=object`，`detail` 含 `ref`、`title`、`type_id`、`fields`（`stage` / `project_id`）、`from_stage`、`to_stage`，加 `WriteMeta.Detail`。`ChangedTask`：`{ID, Ref, Title, Status, Stage, ProjectID, Changed}` |
 | `ContactWriter().Create(ctx, NewContact, WriteMeta)` | 建联系人（干系人名册），`Name` 必填，校验同 `POST /api/stakeholders` |
 | `ContactWriter().Merge(ctx, id, ContactPatch, WriteMeta)` | 把非 nil 的字段写进已有联系人，回 `WrittenContact{ID, Name, Fields}`，`Fields` 是改了的字段 |
 | `Contacts().FindByName(ctx, name)` | 只读：按名字找没归档的联系人，重名取最早建的，没有回 `ErrNoRows` |
@@ -299,12 +304,13 @@ type Core interface {
 | 方法 | 做什么 |
 |---|---|
 | `StartAgent(ctx, AgentRunStart{Agent, Prompt, Title})` | 在后台调 `Agent().RunAgent` 跑一轮（口径同上面的 `RunAgent`），上限 10 分钟。Agent 不存在、停用、服务商不对在结束时报（`status: failed`）；停在要确认的调用上记 `waiting` 并算结束，`Error` 是待确认的那句话，确认后接着跑由会话管，用 `Agent().AgentState(Ref)` 查 |
-| `StartSOP(ctx, SOPRunStart{Flow, Input})` | 经 `Registry.StartSOP` 交给 SOP 插件起一条执行（口径同定时任务的 sop 动作，发起方记 `plugin`、插件 id）。SOP 插件没启用回 `ErrNoSOPStarter`，流程不存在、必填空着同步回错误。内核看 SOP 插件发的 `sop.run_status_changed`，到 `done`、`failed`、`stopped` 算结束；人工检查点停着（`waiting`）不算 |
-| `StartClaudeCode(ctx, ClaudeCodeStart{Workdir, Prompt, AllowWrites, ObjectID, ScopeType, ScopeID})` | 用 `internal/runner` 在 `Workdir`（绝对路径，校验同任务执行）里跑一次 claude，提示词原样交过去。默认只读；`AllowWrites` 要用户确认过 `process:spawn`，没确认回 `ErrNotGranted`。跑完按执行前后的目录快照登记改动的文件（同任务执行）：来源 `run`、产出者 `run` 加插件 id、`props.plugin_run_id` 是运行 id，挂到 `ObjectID`（可空）和 `ScopeType`/`ScopeID`（可空，要同时给）。不写 `task_runs`：那张表要挂对象，接口层的取消和残留收尾也认不得这里起的进程 |
-| `Get(runID)` | 本插件发起的运行 `RunInfo{ID, Kind, Source, Status, OK, Ref, Output, Error, ExitCode, Artifacts, Finished, StartedAt, FinishedAt}`；别的插件发起的、不存在的回 `ErrRunNotFound` |
+| `StartSOP(ctx, SOPRunStart{Flow, Input, ObjectID})` | 经 `Registry.StartSOP` 交给 SOP 插件起一条执行（口径同定时任务的 sop 动作，发起方记 `plugin`、插件 id）；`ObjectID` 非空时执行关联到那个工作对象（SOP-06，IM 转任务的回执流程用）。SOP 插件没启用回 `ErrNoSOPStarter`，流程不存在、必填空着同步回错误。内核看 SOP 插件发的 `sop.run_status_changed`，到 `done`、`failed`、`stopped` 算结束；人工检查点停着（`waiting`）不算 |
+| `StartClaudeCode(ctx, ClaudeCodeStart{Workdir, Prompt, AllowWrites, ObjectID, ScopeType, ScopeID})` | 用 `internal/runner` 在 `Workdir`（绝对路径，校验同任务执行）里跑一次 claude，提示词原样交过去。默认只读；`AllowWrites` 要用户确认过 `process:spawn`，没确认回 `ErrNotGranted`。跑完按执行前后的目录快照登记改动的文件（同任务执行）：来源 `run`、产出者 `run` 加插件 id、`props.plugin_run_id` 是运行 id，挂到 `ObjectID`（可空）和 `ScopeType`/`ScopeID`（可空，要同时给）。默认不写 `task_runs`；`RecordOnTask` 为真且给了 `ObjectID` 时在任务上建执行记录，运行 id 即记录 id，接口层的取消和残留收尾也认得（插件运行和任务执行共用同一个执行器）。AUTO-01 另加：`PresetID`（角色 id，内核拼执行要求和输出要求；只读角色一律不放开写）、`FollowPreset`（为真且给了角色时写不写按角色定）、`Timeout`（空用执行器默认）、`ReportBack`（提示词末尾加回写一节、接回写用 MCP `pmw-run`） |
+| `Get(runID)` | 本插件发起的运行 `RunInfo{ID, Kind, Source, Status, OK, Ref, Output, Error, ExitCode, Artifacts, Finished, StartedAt, FinishedAt, Summary, Result, Reported, TaskRun}`（后四项 AUTO-01 加：回报的摘要、结构化结论、回报的状态、是否在任务上建了记录）；别的插件发起的、不存在的回 `ErrRunNotFound` |
+| `Cancel(runID)` | AUTO-01：取消本插件发起、还没结束的 Claude Code 运行，只发请求不等进程退出；已结束的不报错；别的插件发起的回 `ErrRunNotFound`；Agent、SOP 运行回 `ErrRunNotCancelable` |
 
 - `Kind` 是 `agent`、`sop`、`claude_code`；`Status` 是 `done`、`failed`、`waiting`（Agent）、`canceled`（Claude Code）、`stopped`（SOP），只有 `done` 时 `OK` 为真。`Ref` 是 Agent 会话 id 或 SOP 执行 id；`Output` 是 Agent 最新回复或 Claude Code 的过程记录，SOP 为空。
-- `run.finished` 只投给发起插件当前在跑的订阅，不上总线：总线上的 `run.finished` 是任务执行的（2.10），通知中心和事件流按任务执行认。载荷 `{ run_id, kind, source, status, ok, ref }`，插件照常在清单 `subscribes` 里写 `run.finished`、用 `Subscribe` 登记；任务执行的那条也会收到，`Get` 回 `ErrRunNotFound` 跳过即可。
+- `run.finished` 只投给发起插件当前在跑的订阅，不上总线：总线上的 `run.finished` 是任务执行的（2.10），通知中心和事件流按任务执行认。载荷 `{ run_id, kind, source, status, ok, ref, summary, result }`（`summary`、`result` 是 Claude Code 经 `pmw_finish_run` 回报的摘要和结构化结论，没回报为空，AUTO-01），插件照常在清单 `subscribes` 里写 `run.finished`、用 `Subscribe` 登记；任务执行的那条也会收到，`Get` 回 `ErrRunNotFound` 跳过即可。
 - 插件停用后它发起的运行照样跑完、`Get` 照样查得到，只是 `run.finished` 不再投给它；停用期间不能发起（回 `ErrRunInactive`）。
 - 每次发起记一条审计：`kind` 为 `agent`、`action` 为 `run`、`target_type` 为 `plugin_run`、`target_id` 是运行 id，操作者是插件 id、来源 `plugin`，`detail` 带种类和 Agent、流程或目录。
 - 运行记录只在进程内存里，最多留 500 条跑完的；重启后查不到，在途的 Agent、Claude Code 运行退出时最多等 5 秒。没接实现时回 `ErrNoAgent`、`ErrNoClaudeRunner`（`cmd/pmw` 用 `Registry.SetClaudeRunner` 接上）。
@@ -829,9 +835,10 @@ api.commands.register({ id: 'projects.new', group: '操作', title: '新建项�
 | `object.created` | 对象新建 | `{ id, type_id }` |
 | `object.updated` | 对象字段变化 | `{ id, type_id, fields }` |
 | `object.status_changed` | 状态变化 | `{ id, type_id, from, to }` |
+| `object.stage_changed` | 任务阶段（`props.stage`）变化（AUTO-05） | `{ id, type_id, from, to }` |
 | `object.progress_appended` | 记了一条进展（领取、普通进展、提交验收都发） | `{ id, kind }` |
 | `task.review_requested` | 任务提交验收 | `{ id }` |
-| `run.finished` | 执行结束 | `{ run_id, object_id, ok }`；插件发起的运行不上总线，只投给发起的插件，载荷见 2.0「发起运行」 |
+| `run.finished` | 执行结束 | `{ run_id, object_id, ok, status, summary, origin }`，`summary` 是执行输出去首尾空白后的前 1500 字；`origin` 为 `plugin:<插件 id>` 表示是插件流程里发起、在任务上留了记录的执行，人交给 CLI 的为空；插件发起的运行不上总线，只投给发起的插件，载荷见 2.0「发起运行」 |
 | `contact.identity_merged` | 两个 IM 身份合到一个联系人 | `{ contact_id, identity_ids }` |
 
 插件事件以 `<id>.` 开头，在清单 `emits` 里声明，例 `im.message_received`。
@@ -1065,7 +1072,7 @@ type ObjectWriter interface {
 }
 ```
 
-- 谁能调：任何插件。只能建对象、追加正文，不能改字段、删除、建关联。校验同 `POST /api/objects`，错误可以 `errors.Is(err, domain.ErrValidation)`、`domain.ErrNotFound`。没接上回 `ErrNoObjectWriter`，接上的 store 不支持追加正文时回 `ErrWriteUnsupported`。
+- 谁能调：任何插件。只能建对象、追加正文、改任务阶段和所属项目（`UpdateTask`，AUTO-06），不能改别的字段、删除、建关联。校验同 `POST /api/objects`，错误可以 `errors.Is(err, domain.ErrValidation)`、`domain.ErrNotFound`。没接上回 `ErrNoObjectWriter`，接上的 store 不支持追加正文时回 `ErrWriteUnsupported`。
 - 权限：不要权限；暂不限制能建哪些类型，等 `ObjectService` 落地时按「本插件声明或认领的类型」收。
 - `Create` 和 `CreateAs` 的区别：`Create` 操作者记为插件 id、来源 `plugin`，修订、事件照常，不另记审计、没有幂等；`CreateAs`、`AppendBody` 带 `WriteMeta`，操作者、审计、幂等的口径见 2.0「带操作者和审计的写入」。两者的 `objects.source` 都固定是插件 id。
 
@@ -1356,7 +1363,7 @@ c.Audit().Note(ctx, plugin.AuditNote{Action: "send", TargetType: "conversation",
 // internal/plugin/runs.go
 type RunService interface {
 	StartAgent(ctx context.Context, q AgentRunStart) (string, error)          // {Agent, Prompt, Title}
-	StartSOP(ctx context.Context, q SOPRunStart) (string, error)              // {Flow, Input}
+	StartSOP(ctx context.Context, q SOPRunStart) (string, error)              // {Flow, Input, ObjectID}
 	StartClaudeCode(ctx context.Context, q ClaudeCodeStart) (string, error)   // {Workdir, Prompt, AllowWrites, ObjectID, ScopeType, ScopeID}
 	Get(runID string) (RunInfo, error)                                       // 只查本插件发起的
 }
@@ -2006,5 +2013,13 @@ stateDiagram-v2
 补记（不改版本号，2026-11-02，交给 Claude Code 两种方式）：`Registrar` 加 `ProjectPrototypes`（2.13.24），前端 `PluginApi` 加 `terminalLauncher`（2.13.25）。只增不改，按 1.3 是小版本，和下一条一起等用户定稿。
 
 补记（不改版本号，2026-11-02）：`ContactInfo` 加 `Email`，`IdentityReader` 加 `List(ctx, channel)`，IM 适配器加可选接口 `EmailLooker`（从 Slack 补联系人邮箱）。都是只增不改，按 1.3 是小版本，和上一条一起等用户定稿。
+
+补记（不改版本号，2026-11-04，AUTO-08）：`Core` 加 `Artifacts()`（类型 `ArtifactWriter`、`NewArtifact`）。项目插件实际清单（0.14.0）`sop_nodes` 加 `projects_run_test`，`emits` 加 `projects.test_changed`，迁移加 `0007_test_runs.sql`。只增不改。
+
+补记（不改版本号，2026-11-04，AUTO-10）：项目插件实际清单（0.16.0）`sop_nodes` 加 `projects_prepare_release`、`projects_release`，`emits` 加 `projects.release_changed`，迁移加 `0009_releases.sql`；IM 插件 0.22.0 只加内置流程（`sop_im_release_pipeline`），清单不变。内核接口不变。
+
+补记（不改版本号，2026-11-04，AUTO-06/07）：`ObjectWriter` 加 `UpdateTask`、类型 `TaskChange`、`ChangedTask`；IM 插件入口加 `WithPublicURL(url)`；`Core` 加 `WorktreeDir()`，`ObjectInfo` 加 `ProjectID`。项目插件实际清单（0.13.0）另有 `provides.settings: ["worktrees"]`、`sop_nodes` 含 `projects_list_profiles`、`projects_get_profile`、`projects_prepare_worktree`，`emits` 含 `projects.worktree_changed`，`subscribes` 为 `object.status_changed`、`object.stage_changed`。只增不改。
+
+补记（不改版本号，2026-11-04，需求到发布自动化一期）：`RunService` 加 `Cancel`，`ClaudeCodeStart` 加 `PresetID`、`FollowPreset`、`Timeout`、`RecordOnTask`、`ReportBack`，`RunInfo` 加 `Summary`、`Result`、`Reported`、`TaskRun`，插件运行的 `run.finished` 加 `summary`、`result`，总线 `run.finished` 加 `origin`；`ObjectReader` 加 `TaskStages`；内核事件加 `object.stage_changed`。内核钩子 `Registry.SetRunCallback`、`SetRunPresets`、`ReportRun`。都是只增不改，等用户定稿版本号。
 
 文档补记（不改版本号，DOC-02，2026-10-29）：补写 1.0.0 到 1.1.0 之间各批已经加进代码、文档没跟上的句柄和扩展点（2.13），2.0 的代码块、2.5 的连接器定义按代码改正。这些按 1.3 本该升小版本，发布前由用户定稿版本号时一起写进上表。

@@ -14,6 +14,7 @@ import { clusterMessages, countLabel, isOpenMsg, nestThreads, previewText, rowTi
 import { GroupAdminDrawer } from './groupadmin'
 import { SendDialog, SentStrip, sentReplyOf, type Sent } from './msgsend'
 import { MentionBox, composeReply, quickReplyText, useReplyMention, type Member, type MentionPick } from './mention'
+import { ThreadReplies } from './msgthread'
 
 export type MsgAction =
   | { kind: 'done' | 'ignore' | 'reopen' | 'read' }
@@ -790,31 +791,7 @@ export function MessageDrawer({ msg, contact, connector, members = [], onClose, 
         </div>
 
         {thread.length > 0 && (
-          <>
-            <div className="section-label">消息列回复 <span className="seg-n">{thread.length}</span></div>
-            <div className="thread-list">
-              {thread.map((m) => {
-                const open = isOpenMsg(m)
-                return (
-                  <div key={m.id} className={cls('thread-item', !open && 'msg-closed')}>
-                    <div className="thread-item-top">
-                      <button className="thread-who" onClick={() => onOpenMessage?.(m.id)} title="打开这一条">{m.sender_name}</button>
-                      <span className="muted">{timeAgo(m.at)}</span>
-                      {m.status !== 'pending' && <span className="state">{msgEnum.label(m.status)}</span>}
-                      <span className="spacer" />
-                      {open ? (
-                        <>
-                          <button className="act" onClick={() => onActOther?.(m.id, { kind: 'done' })}>标为{msgEnum.label('done')}</button>
-                          <button className="act act-quiet" onClick={() => onActOther?.(m.id, { kind: 'ignore' })}>忽略</button>
-                        </>
-                      ) : <button className="act" onClick={() => onActOther?.(m.id, { kind: 'reopen' })}>重新打开</button>}
-                    </div>
-                    <div className="thread-item-text"><MentionText text={m.text} /></div>
-                  </div>
-                )
-              })}
-            </div>
-          </>
+          <ThreadReplies key={msg.id} parent={msg} replies={thread} onOpen={onOpenMessage} onActOther={onActOther} onActParent={onAct} />
         )}
 
         {triage}

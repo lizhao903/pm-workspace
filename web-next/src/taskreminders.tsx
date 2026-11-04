@@ -80,19 +80,39 @@ export function TaskReminders({ task, list, onAdd, onCancel }: {
   )
 }
 
-export interface Reminder { id: string; at: string; title: string; body: string; taskId?: string; taskRef?: string }
+export interface Reminder { id: string; at: string; title: string; body: string; taskId?: string; taskRef?: string; popup?: 'toast' | 'modal' }
 
 /** 右下角的提醒弹窗：一条条叠起来，点「知道了」或「打开任务」才收；最多显示 3 条，其余折成「还有 N 条」 */
 export function ReminderPopups({ items, onOpenTask, onDismiss }: {
   items: Reminder[]
   onOpenTask: (taskId: string) => void
-  onDismiss: (id: string | 'all') => void
+  /** 'toasts'：右下角的全部知道了（中间弹窗不动） */
+  onDismiss: (id: string | 'toasts') => void
 }) {
-  if (!items.length) return null
-  const shown = items.slice(0, 3)
   const hhmm = (iso: string) => { const d = new Date(iso); return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}` }
+  // 中间弹窗（SPEC-tasks-8.26）：一次一条，先弹最早的，只有按钮能关；右下角的照旧
+  const modals = items.filter((n) => n.popup === 'modal')
+  const modal = modals.length ? modals[modals.length - 1] : null
+  const toasts = items.filter((n) => n.popup !== 'modal')
+  const shown = toasts.slice(0, 3)
   return (
-    <div className="reminder-pops" role="region" aria-label="提醒">
+    <>
+    {modal && (
+      <div className="reminder-modal-scrim">
+        <div className="reminder-modal" role="alertdialog" aria-modal="true" aria-label={modal.title}>
+          <div className="reminder-pop-kicker">提醒 · {hhmm(modal.at)}</div>
+          <div className="reminder-modal-title">{modal.title}</div>
+          {modal.body && <div className="reminder-modal-body">{modal.body}</div>}
+          <div className="act-row reminder-modal-acts">
+            {modals.length > 1 && <span className="list-sub">还有 {modals.length - 1} 条</span>}
+            <span className="spacer" />
+            {modal.taskId && <button className="act" onClick={() => { onDismiss(modal.id); onOpenTask(modal.taskId!) }}>打开任务{modal.taskRef ? ` ${modal.taskRef}` : ''}</button>}
+            <button className="act act-primary" autoFocus onClick={() => onDismiss(modal.id)}>知道了</button>
+          </div>
+        </div>
+      </div>
+    )}
+    {toasts.length > 0 && <div className="reminder-pops" role="region" aria-label="提醒">
       {shown.map((n) => (
         <div key={n.id} className="reminder-pop" role="alert">
           <div className="reminder-pop-head"><span className="reminder-pop-kicker">提醒 · {hhmm(n.at)}</span>
@@ -108,10 +128,11 @@ export function ReminderPopups({ items, onOpenTask, onDismiss }: {
           </div>
         </div>
       ))}
-      {items.length > shown.length && (
-        <div className="reminder-pop-more">还有 {items.length - shown.length} 条提醒<button className="act" onClick={() => onDismiss('all')}>全部知道了</button></div>
+      {toasts.length > shown.length && (
+        <div className="reminder-pop-more">还有 {toasts.length - shown.length} 条提醒<button className="act" onClick={() => onDismiss('toasts')}>全部知道了</button></div>
       )}
-    </div>
+    </div>}
+    </>
   )
 }
 

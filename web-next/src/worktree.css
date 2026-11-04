@@ -1,0 +1,49 @@
+/* 任务抽屉「工作区」、最近一次测试（AUTO-08）和设置里的端口范围（AUTO-07） */
+.wt-card { display: flex; flex-direction: column; gap: 10px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; }
+.wt-card.off { background: var(--panel-2); }
+.wt-grid { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 6px 14px; margin: 0; font-size: 13px; }
+.wt-grid dt { color: var(--muted); }
+.wt-grid dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+.wt code { font-family: var(--mono); font-size: 12px; }
+.wt-path { display: flex; align-items: baseline; gap: 10px; }
+.wt-state.ok { color: var(--ok); }
+.wt-state.warn { color: var(--danger); }
+.wt-state.muted { color: var(--muted); }
+.wt-prep { flex-wrap: wrap; align-items: center; }
+.wt-confirm { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel-2); font-size: 13px; }
+.wt-confirm.danger { border-color: var(--danger); }
+.wt-confirm ul { margin: 0; padding-left: 18px; }
+.wt-settings { display: flex; flex-direction: column; gap: 16px; max-width: 640px; }
+.wt-settings-title { font-weight: 600; }
+.wt-settings-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.wt-settings .wt-settings-row input { width: 88px; height: 28px; padding: 0 8px; border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--panel); color: var(--text); font: inherit; }
+.wt-settings .wt-settings-row input.bad { border-color: var(--danger); }
+
+/* 最近一次测试（AUTO-08，SPEC-tasks-4.63 起） */
+.wtt { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; }
+.wtt-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.wtt-actions { display: flex; align-items: center; gap: 10px; margin-left: auto; }
+.wtt-badge { font-size: 11.5px; padding: 1px 8px; border-radius: 999px; background: var(--panel-2); color: var(--muted); }
+.wtt-badge.ok, .wtt-summary.ok, .wtt-step-state.ok { color: var(--ok); }
+.wtt-badge.bad, .wtt-summary.bad, .wtt-step-state.bad, .wtt-step-err.bad { color: var(--danger); }
+.wtt-badge.run, .wtt-step-state.run { color: var(--accent); }
+.wtt-badge.warn, .wtt-summary.warn { color: var(--warn); }
+/* 最近一次发布（AUTO-10）：步骤按审批前、审批后分组 */
+.wtr-phase { display: flex; flex-direction: column; gap: 4px; }
+.wtr-phase-title { font-size: 11.5px; color: var(--faint); }
+.wtt-step-state.muted { color: var(--faint); }
+.wtt-link { color: var(--accent); font-size: 12.5px; }
+.wtt-summary { font-size: 13px; overflow-wrap: anywhere; }
+.wtt-steps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.wtt-step { display: flex; flex-direction: column; gap: 2px; font-size: 13px; }
+.wtt-step-line { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; min-width: 0; }
+.wtt-step-label { min-width: 72px; color: var(--muted); }
+.wtt-cmd { font-family: var(--mono); font-size: 12px; color: var(--faint); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1 1 160px; }
+.wtt-step-err { font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
+.wtt-out summary { cursor: pointer; color: var(--muted); font-size: 12px; }
+.wtt-out pre { margin: 4px 0 0; padding: 6px 10px; max-height: 240px; overflow: auto; background: var(--panel-2); border-radius: 6px; font-family: var(--mono); font-size: 12px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.wtt-failed ul { margin: 2px 0 0; padding-left: 18px; font-size: 12px; }
+.wtt-shots { display: flex; gap: 10px; flex-wrap: wrap; align-items: baseline; }
+/* 保留给人工验收的测试环境（AUTO-09，SPEC-tasks-4.73） */
+.wtt-env { display: flex; align-items: center; gap: 6px 10px; flex-wrap: wrap; font-size: 13px; min-width: 0; overflow-wrap: anywhere; }
+.wtt-env.kept { padding: 6px 10px; border-left: 3px solid var(--ok); background: var(--panel-2); border-radius: 6px; }

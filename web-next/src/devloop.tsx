@@ -8,6 +8,7 @@ import { useEnumView } from './enumdata'
 import { useOpenUrl } from './openurl'
 import { GrowArea, cls, timeAgo } from './ui'
 import { buildPrompt, type HandoffMode, type ProjectContext } from './handoff'
+import { useRunPresets, type RunPreset } from './runpresets'
 
 // 开发任务闭环：交给 Claude Code 做，它领取、记进展、登记产出、提交验收；你在任务抽屉里验收通过或退回
 // 时序见 web-next/docs/dev-plan.md 4.0，字段见 docs/api-contract.md 进展与领取、输出产物、任务执行
@@ -64,6 +65,8 @@ export function useDevLoop(patchTask: (id: string, p: Partial<Task>) => void) {
       const sid = newSession()
       const id = newId('run')
       const at = new Date().toISOString()
+      // 交出去就算开工（SPEC-tasks-6.17）：流式、终端都把任务改成进行中，已完成、已取消的不动
+      if (task.status !== 'doing' && task.status !== 'done' && task.status !== 'cancelled') patchTask(task.id, { status: 'doing' })
       if (o.mode === 'terminal') {
         setRuns((xs) => [{ id, task_id: task.id, status: 'running', session_id: sid, started_at: at, events: [], pending: [], ...o, allow_writes: false, mode: 'terminal' }, ...xs])
         return id
@@ -488,21 +491,31 @@ export function RunsBlock({ runs, onCancel, onFinish, focus }: {
 
 const TERMINAL_OFF = '终端插件没启用，到 设置 > 插件 里启用后可用'
 
-export function RunDialog({ task, inheritDir, project, terminalOn, onStart, onClose }: {
+export function RunDialog({ task, inheritDir, project, terminalOn, onStart, onClose, onManagePresets }: {
   task: Task; inheritDir?: string
   /** 任务所属项目的上下文，提示词里的「所属项目」一节 */
   project?: ProjectContext
   /** 终端插件在跑：「切换到终端」才能选 */
   terminalOn: boolean
-  onStart: (o: { workdir: string; allow_writes: boolean; extra_prompt: string; mode: HandoffMode }) => void
+  onStart: (o: { workdir: string; allow_writes: boolean; extra_prompt: string; mode: HandoffMode; preset?: RunPreset }) => void
   onClose: () => void
+  /** 「管理角色」：去设置 > 角色 */
+  onManagePresets?: () => void
 }) {
   const [dir, setDir] = useState(task.workdir ?? inheritDir ?? '')
   const [mode, setMode] = useState<HandoffMode>('stream')
-  const [allow, setAllow] = useState(false)
+  // null 是没动过勾选：跟着角色走（AUTO-03）
+  const [allowChoice, setAllowChoice] = useState<boolean | null>(null)
   const [asking, setAsking] = useState(false)
   const [extra, setExtra] = useState('')
   const [preview, setPreview] = useState(false)
+  // 角色（SPEC-tasks-6.18，AUTO-03）：打开时选上标了默认的那个，没有默认为「不用」
+  const presets = useRunPresets()
+  const [presetId, setPresetId] = useState(() => presets.find((p) => p.default)?.id ?? '')
+  const preset = presets.find((p) => p.id === presetId)
+  // 只读角色锁成只读；允许改文件的角色默认勾上、可取消；没选角色默认只读
+  const allowLocked = preset?.permission === 'read_only'
+  const allow = allowLocked ? false : allowChoice ?? !!preset
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') { e.stopPropagation(); onClose() } }
     window.addEventListener('keydown', onKey, true)
@@ -511,7 +524,7 @@ export function RunDialog({ task, inheritDir, project, terminalOn, onStart, onCl
   // 原型只校验写法；正式产品用 POST /api/agent/workdir/check
   const dirErr = !dir.trim() ? '选一个工作目录，任务和所属项目都没设' : !dir.trim().startsWith('/') ? '要写本机绝对路径' : ''
   const term = mode === 'terminal'
-  const prompt = buildPrompt({ task, workdir: dir.trim(), extra, mode, project })
+  const prompt = buildPrompt({ task, workdir: dir.trim(), extra, mode, project, preset })
   return (
     <div className="qs-mask" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose() }}>
       <div className="qs" role="dialog" aria-label="交给 Claude Code">
@@ -537,18 +550,34 @@ export function RunDialog({ task, inheritDir, project, terminalOn, onStart, onCl
           <input className={cls('mono-input', dirErr && 'bad')} value={dir} onChange={(e) => setDir(e.target.value)} />
           {dirErr ? <span className="field-err">{dirErr}</span> : <span className="list-sub">{task.workdir ? '任务上设的' : inheritDir && dir === inheritDir ? '继承自所属项目' : '这次执行用的目录'}{term ? '，终端标签开在这里' : ''}</span>}
         </label>
+        <div className="field">
+          <div className="act-row">
+            <label className="field-label" htmlFor="ho-preset">角色</label>
+            <span className="spacer" />
+            {onManagePresets && <button className="link-btn" onClick={onManagePresets}>管理角色</button>}
+          </div>
+          <select id="ho-preset" className="select" value={presetId} onChange={(e) => { setPresetId(e.target.value); setAllowChoice(null) }}>
+            <option value="">不用</option>
+            {presets.map((p) => <option key={p.id} value={p.id}>{p.scene}{p.permission === 'read_only' ? '（只读）' : ''}{p.default ? '（默认）' : ''}</option>)}
+          </select>
+          <span className="list-sub">{preset ? preset.content : '不带角色的执行要求，只按任务内容和附加说明执行'}</span>
+          {preset?.output && <span className="list-sub">输出要求：{preset.output}</span>}
+          {term && allowLocked && <span className="list-sub">终端方式的权限由启动命令决定：只读角色只在提示词里写明不改文件</span>}
+        </div>
         {!term && (
           <div className="dev-perm">
             <label className="check check-lg">
-              <input type="checkbox" checked={allow} onChange={(e) => { if (e.target.checked) setAsking(true); else setAllow(false) }} />
+              <input type="checkbox" checked={allow} disabled={allowLocked} onChange={(e) => { if (e.target.checked) setAsking(true); else setAllowChoice(false) }} />
               允许写入
             </label>
-            <span className="list-sub">{allow ? '会以 acceptEdits 权限模式运行：可以直接改工作目录里的文件' : '默认只读：只跑一遍看它打算怎么做，不改文件'}</span>
+            <span className="list-sub">{allowLocked ? `角色「${preset?.scene ?? ''}」只读：只跑一遍给结论，不改文件`
+              : allow ? `会以 acceptEdits 权限模式运行：可以直接改工作目录里的文件${preset && allowChoice === null ? `（按角色「${preset.scene}」）` : ''}`
+                : '默认只读：只跑一遍看它打算怎么做，不改文件'}</span>
             {asking && (
               <div className="dev-perm-ask">
                 <span>允许写入后，Claude Code 可以不经确认直接改「{dir || '工作目录'}」里的文件。其他需要权限的操作仍会被挡下，任何情况下都不会跳过权限确认。</span>
                 <div className="act-row">
-                  <button className="act act-warn" onClick={() => { setAllow(true); setAsking(false) }}>确认允许写入</button>
+                  <button className="act act-warn" onClick={() => { setAllowChoice(true); setAsking(false) }}>确认允许写入</button>
                   <button className="act act-quiet" onClick={() => setAsking(false)}>算了，只读</button>
                 </div>
               </div>
@@ -569,7 +598,7 @@ export function RunDialog({ task, inheritDir, project, terminalOn, onStart, onCl
           <span className="spacer" />
           <button className="btn btn-ghost" onClick={onClose}>取消</button>
           <button className="btn btn-primary" disabled={!!dirErr || (!term && asking) || (term && !terminalOn)}
-            onClick={() => onStart({ workdir: dir.trim(), allow_writes: !term && allow, extra_prompt: extra.trim(), mode })}>
+            onClick={() => onStart({ workdir: dir.trim(), allow_writes: !term && allow, extra_prompt: extra.trim(), mode, preset })}>
             {term ? '在终端中打开' : allow ? '开始执行（允许写入）' : '开始执行（只读）'}
           </button>
         </div>
