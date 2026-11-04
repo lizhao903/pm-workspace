@@ -6,15 +6,15 @@ export type { Change } from './invalidate'
 export { queryClient } from './queryClient'
 export { startEventStream, useEventStreamStatus, useEventsLive, onServerEvent, changesFor } from './events'
 export type { ServerEvent, EventStreamStatus } from './events'
-export { REMINDER_KIND, addReminder, isReminder, notificationsApi, reminderTask, useReadNotification, useUnreadReminders } from './notifications'
-export type { AppNotification, NotificationLevel } from './notifications'
+export { REMINDER_KIND, addReminder, isReminder, notificationsApi, reminderPopup, reminderTask, useReadNotification, useUnreadReminders } from './notifications'
+export type { AppNotification, NotificationLevel, ReminderPopup } from './notifications'
 export { errorText, retryable } from './errors'
 export { QueryState } from './QueryState'
 export { useHealth, useObjectTypes, useDictionaries, useDictItems, useStakeholders, useCounts } from './meta'
 export { dictItemsApi, useDictItemsAll, saveDictItems, useSaveDictItems } from './dictionaries'
 export type { DictSavePlan, EnumTarget } from './dictionaries'
 export {
-  listAllObjects, useObjects, useAllObjects, useObject, useCreateObject, usePatchObject, useSetStatus, useDeleteObject,
+  listAllObjects, useObjects, useAllObjects, useObject, useCreateObject, usePatchObject, useSetStatus, useSetStage, useDeleteObject,
   saveObject, mergeProps, PROP_ACCEPTANCE, PROP_REPO,
 } from './objects'
 export type { ObjectFilter, ObjectSave } from './objects'
@@ -25,7 +25,7 @@ export {
 export { REVISION_LIMIT, useObjectRevisions, groupRevisions, rejectText, useReject } from './revisions'
 export type { RevisionGroup } from './revisions'
 export { useArtifacts, useObjectArtifacts, useArtifactStats, useArtifactCount, useRecordArtifact } from './artifacts'
-export { runFinished, useTaskRuns, useTaskRun, useCancelRun, streamRun, useRunPrompt, startTerminalRun, finishTerminalRun, useFinishRun } from './runs'
+export { runFinished, useTaskRuns, useTaskRun, useCancelRun, streamRun, useRunPrompt, startTerminalRun, finishTerminalRun, useFinishRun, useRunPresets, useSaveRunPresets } from './runs'
 export { workdirUsable, useWorkdirCheck, useFsBrowse, useFsShortcuts, useFsRoots, useAddFsRoot, useRemoveFsRoot, fsCrumbs } from './fs'
 export {
   useAgentProviders, useProviderModels, providerModelIds, loadProviderModels, defaultProvider, useAgentSessions, useAgentMessages, useCreateAgentSession, usePatchAgentSession,
@@ -113,7 +113,7 @@ export {
 } from './projectStakeholders'
 export type { ProjectStakeholderInput, ProjectStakeholderPatch, ProjectStakeholdersAdded } from './projectStakeholders'
 export { IM_EXPIRE_DAYS_MAX, IM_QUICK_REPLIES_MAX, IM_QUICK_REPLY_TEXT_MAX, IM_PAGE_MAX, imApi, normMessage, useImMessages, useImMessage, useImAction, useImBatch, useImToTask, useImPendingCount, useImSyncConnector, useImSettings, usePatchImSettings, useImConversationProjects, useSetImConversationProject, useImStartSession } from './im'
-export type { ImMaterialKind, ImMessageMaterial, ImMessageThread, ImMaterialSource, ImMaterialLinkInput, ImMaterialLinkResult, ImMessage, ImMsgStatus, ImRelevance, ImAttachment, ImReply, ImAction, ImBatchInput, ImBatchResult, ImTaskInput, ImTaskResult, ImSyncResult, ImSettings, ImQuickReply, ImConversationProject, ImMessageSession, ImSplitTask, ImSessionIntent, ImSessionLinkInput, ImSessionLinkResult, ImStartSessionInput } from './im'
+export type { ImMaterialKind, ImMessageMaterial, ImMessageThread, ImMaterialSource, ImMaterialLinkInput, ImMaterialLinkResult, ImMessage, ImMsgStatus, ImRelevance, ImAttachment, ImReply, ImAction, ImBatchInput, ImBatchResult, ImTaskInput, ImTaskResult, ImTaskReply, ImSyncResult, ImSettings, ImQuickReply, ImConversationProject, ImMessageSession, ImSplitTask, ImSessionIntent, ImSessionLinkInput, ImSessionLinkResult, ImStartSessionInput } from './im'
 export { imEmailApi, useImBackfillEmails } from './imEmails'
 export { IM_CONV_BATCH_MAX, IM_MENTIONS_MAX, IM_SEND_MAX, imGroupsApi, useImConversationSummary, useImMembers, useImSendToConversation, useImSent, useSetImConversationProjects } from './imGroups'
 export type { ImConvProjectBatchInput, ImConvProjectBatchResult, ImConvProjectFailure, ImConversationSummary, ImMember, ImMention, ImOutboxItem, ImSendInput } from './imGroups'
@@ -135,6 +135,8 @@ export {
 export type { PrototypeStatus, ProjectPrototype, PrototypeCrash, PrototypeLogLine, PrototypeLogs, PrototypeInput, PrototypePatch } from './prototypes'
 export { EMPTY_STAT, SUMMARY_POLL_MS, projectSummaryApi, projectStats, useProjectSummary, usePendingImMessages } from './projectSummary'
 export type { ProjectSummary, ProjectStat } from './projectSummary'
+export { PROFILE_COMMANDS, PROFILE_COMMAND_GROUPS, projectProfileApi, projectProfileKeys, useProjectProfile, useProjectProfiles, useSaveProjectProfile } from './projectProfile'
+export type { ProfileCommand, ProfileCommandGroup, ProfileCommandKey, ProfileDirState, ProjectProfile, ProjectProfilePatch, ProjectProfileSummary } from './projectProfile'
 export {
   ATTACHMENT_TAG, ATTACH_KIND, PROP_SKIPPED_ATTACHMENTS, attachmentsApi, needsFetch, attachmentHref, attachmentPreviewHref, previewKind, TEXT_PREVIEW_MAX, useAttachmentText, attachmentContentUrl, attachmentMaterial,
   attachmentAdded, attachmentAddedAs, fmtBytes, skipKey, skippedAttachments, useImAttachmentStorage, useFetchAttachment, useAddAttachmentToProject, useSkipAttachment,
@@ -153,12 +155,16 @@ export type { TerminalSession, TerminalSessionInput, TerminalSessionCreated, Ter
 export {
   SOP_RUNS_MAX, sopApi, useSopFlows, useSopNodeTypes, useSopRuns, useSopRun, useStartSopRun, useSopRunAction, useDeleteSopFlow,
   useSopFlow, useSaveSopFlow, useSopAssist, sopIssuesOf, useSopObjectRuns, useSopSettings, usePatchSopSettings, SOP_MODEL_CONCURRENCY_MAX,
-  isSopRunRelaunched, sopRunShow,
+  isSopRunRelaunched, sopRunShow, isSopHeld, useSopPipeline, SOP_CLAUDE_CONCURRENCY_MAX, SOP_TASK_MAX_RUNS_MAX, SOP_TASK_MAX_MINUTES_MAX,
 } from './sop'
 export type {
   SopJson, SopField, SopFieldOption, SopCase, SopStepDef, SopFlow, SopNodeType, SopStepStatus, SopRunStatus, SopRunShow, SopRunStep, SopRun,
   SopRunBrief, SopRunSource, SopRunAction, SopStartInput, SopDraft, SopIssue, SopAssistReply, SopAssistInput, SopSettings,
+  SopSettingsPatch, SopStepQueue, SopStepHold, SopWaitKind, SopWaitingItem, SopPipelineStep, SopPipelineRun, SopClaudeUsage, SopPipelineBudget, SopPipeline,
 } from './sop'
+// 任务阶段全集和阶段变化历史（AUTO-05、AUTO-12）
+export { TASK_STAGES, WAITING_STAGES, taskStageLabel, stageHistoryApi, useStageHistory } from './stageHistory'
+export type { TaskStage, StageChange } from './stageHistory'
 
 // 批量发起、按输入字段查执行（IM 页批量分诊、处理队列）
 export { SOP_BATCH_MAX, SOP_RERUN_REASON_RELAUNCHED, applyRerun, sopBatchApi, triageFlows, useRerunSopRuns, useSopRunsByInput, useStartSopBatch, useStopSopRuns } from './sopBatch'
@@ -259,3 +265,19 @@ export type {
   DebugChatMessage, DebugChatRequest,
 } from '../api'
 export { UPDATE_POLL_MS, updateApi, useStartUpdate, useUpdateStatus, type UpdateCommit, type UpdateJob, type UpdateStatus, type UpdateStep } from './update'
+
+export {
+  MAX_ENV_KEEP_HOURS, REMOVED_REASON, portRangeError, useCleanupWorktree, usePrepareWorktree, useSaveWorktreeSettings, useTaskWorktrees, useWorktreeSettings,
+  worktreeApi, worktreeKeys, worktreeState,
+} from './worktrees'
+export type { Worktree, WorktreeSettings, WorktreeSettingsPatch } from './worktrees'
+export {
+  ENV_RELEASE_LABEL, STEP_STATUS_LABEL, TEST_STATUS_LABEL, durationText, testReportUrl, testRunApi, testRunKeys, testShotUrl, testSummary, testTone,
+  useReleaseTestEnv, useStartTestRun, useStopTestRun, useTaskTestRuns,
+} from './testRuns'
+export type { JunitSummary, TestEnvReleaseReason, TestEnvState, TestRun, TestRunStatus, TestStep, TestStepKey, TestStepStatus } from './testRuns'
+export {
+  RELEASE_PHASE_LABEL, RELEASE_STATUS_LABEL, ROLLBACK_LABEL, releaseApi, releaseKeys, releaseReportUrl, releaseSummary, releaseTone, useStopRelease,
+  useTaskReleases,
+} from './releases'
+export type { Release, ReleasePhase, ReleaseStatus, ReleaseStep, ReleaseStepKey, ReleaseStepStatus, RollbackState } from './releases'

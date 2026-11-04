@@ -14,6 +14,7 @@ import { DocsTab } from './DocsTab'
 import { MaterialsTab } from './MaterialsTab'
 import { PrototypesTab, ProtoTabLight } from './PrototypesTab'
 import { Overview } from './Overview'
+import { ProfileTab } from './ProfileTab'
 import { Settings } from './Settings'
 import { SopTab } from './SopTab'
 import { StakeholdersTab } from './StakeholdersTab'
@@ -106,6 +107,7 @@ export function ProjectPage({ id, tab, onTab, onAll, onSwitch }: {
         {tab === 'comms' && <CommsTab key={o.id} projectId={o.id} onAttachments={() => onTab('attachments')} />}
         {tab === 'attachments' && <AttachmentsTab key={o.id} projectId={o.id} />}
         {tab === 'settings' && <Settings key={o.id} project={o} onDeleted={onAll} />}
+        {tab === 'profile' && <ProfileTab key={o.id} projectId={o.id} />}
         {tab === 'stakeholders' && <StakeholdersTab key={o.id} projectId={o.id} />}
         {tab === 'tasks' && <TasksTab key={o.id} projectId={o.id} />}
         {tab === 'sop' && <SopTab key={o.id} project={o} />}

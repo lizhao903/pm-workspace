@@ -2,7 +2,7 @@
 // 状态变化靠事件流刷新（插件入口订阅 sop.* 事件报 sop-run）；动作的响应先写回缓存。没手动点过步骤时检查器跟着 focusIndex 走。
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router'
-import { errorText, sopRunShow, type SopJson, type SopRun, type SopRunAction, type SopStepDef } from '../../core/data'
+import { errorText, isSopHeld, sopRunShow, type SopJson, type SopRun, type SopRunAction, type SopStepDef } from '../../core/data'
 import { Button, Checkbox, PageTitle, Pill, cls } from '../../core/ui'
 import { FlowGraph } from './FlowGraph'
 import {
@@ -82,6 +82,7 @@ function Inspector({ run, index, onAct, busy, now, branching }: {
           <KindTag kind={def.kind} />
           <Pill label={look.label} color={look.color} />
           {step.edited && <span className="sop-edited-tag">{EDITED_LABEL[step.edited]}</span>}
+          {!!step.round && <span className="sop-edited-tag">第 {step.round} 轮</span>}
         </div>
         <div className="sop-insp-desc">
           {def.desc}
@@ -90,13 +91,44 @@ function Inspector({ run, index, onAct, busy, now, branching }: {
         </div>
       </div>
 
+      {step.rework_reason && (
+        <div className="sop-insp-route">
+          <span className="sop-insp-route-k">第 {step.round} 轮</span>被退回重做<span className="sop-insp-route-why">{step.rework_reason}</span>
+        </div>
+      )}
+      {def.kind === 'loopback' && !!step.loops && (
+        <div className="sop-insp-route">
+          <span className="sop-insp-route-k">已退回</span>{step.loops} 轮
+          <span className="sop-insp-route-why">最多 {def.config?.max_rounds || 3} 轮，退回「{nameOf(def.config?.target ?? '')}」</span>
+        </div>
+      )}
+      {step.claude && (
+        <div className="sop-insp-route">
+          <span className="sop-insp-route-k">Claude Code</span>执行 {step.claude.run_id}
+          {step.claude.task_id ? (
+            <Button size="sm" onClick={() => { void navigate(`/tasks?t=${encodeURIComponent(step.claude!.task_id!)}&run=${encodeURIComponent(step.claude!.run_id)}`) }}>
+              在任务里查看这次执行
+            </Button>
+          ) : <span className="sop-insp-route-why">目录 {step.claude.workdir}；没关联任务，过程不留执行记录，结论在输出里</span>}
+        </div>
+      )}
       {routeLabel && (
         <div className="sop-insp-route">
           <span className="sop-insp-route-k">判断结果</span>走「{routeLabel}」分支<span className="sop-insp-route-why">{step.route_reason}</span>
         </div>
       )}
       {step.status === 'bypassed' && <div className="sop-banner muted">这一步所在的分支没被选中，没有执行，也没有输入输出。</div>}
-      {!run.stopped && step.status === 'paused' && (
+      {!run.stopped && isSopHeld(step) && (
+        <div className="sop-banner danger">
+          <div><b>超出上限，已暂停</b>{step.hold!.reason}。放行只放这一次，之后的执行照样按上限拦；要长期放宽到设置里调高上限。</div>
+          <div className="sop-act-row">
+            <Button variant="primary" size="sm" disabled={busy} onClick={() => onAct({ kind: 'confirm-input', step: index })}>放行这一次</Button>
+            <Button size="sm" disabled={busy} onClick={() => onAct({ kind: 'skip', step: index })}>跳过这一步</Button>
+            <Button size="sm" onClick={() => { void navigate(SOP_SETTINGS_PATH) }}>调整上限</Button>
+          </div>
+        </div>
+      )}
+      {!run.stopped && step.status === 'paused' && !isSopHeld(step) && (
         <div className="sop-banner warn">
           <div><b>执行前暂停</b>这一步要用下面的输入执行。检查一下，有问题可以直接改。</div>
           <div className="sop-act-row">
@@ -157,10 +189,17 @@ function Inspector({ run, index, onAct, busy, now, branching }: {
       )}
       {queued && (
         <div className="sop-banner muted">
-          <div><b>排队中</b>在等模型名额，前面还有 {step.queue!.ahead} 个。同时调模型的步骤数有上限，多出来的按先来后到排队，排到了自动开始。</div>
-          <div className="sop-act-row">
-            <Button size="sm" onClick={() => { void navigate(SOP_SETTINGS_PATH) }}>调整同时调模型的步骤数</Button>
-          </div>
+          {step.queue!.slot === 'claude_code' ? <>
+            <div><b>排队中</b>在等 Claude Code 名额，前面还有 {step.queue!.ahead} 个。同时跑的 Claude Code 步骤数有上限，多出来的按先来后到排队，排到了自动发起。</div>
+            <div className="sop-act-row">
+              <Button size="sm" onClick={() => { void navigate(SOP_SETTINGS_PATH) }}>调整同时跑的 Claude Code 步骤数</Button>
+            </div>
+          </> : <>
+            <div><b>排队中</b>在等模型名额，前面还有 {step.queue!.ahead} 个。同时调模型的步骤数有上限，多出来的按先来后到排队，排到了自动开始。</div>
+            <div className="sop-act-row">
+              <Button size="sm" onClick={() => { void navigate(SOP_SETTINGS_PATH) }}>调整同时调模型的步骤数</Button>
+            </div>
+          </>}
         </div>
       )}
       {step.status === 'running' && !queued && (

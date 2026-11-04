@@ -1,0 +1,22 @@
+/* 阶段看板（AUTO-05，SPEC-tasks-11）：列横向排，放不下横向滚动；颜色全走 tokens.css 的变量 */
+.stage-board { display: flex; gap: var(--sp-6); overflow-x: auto; padding-bottom: var(--sp-4); align-items: flex-start; }
+.stage-col { flex: 0 0 236px; display: flex; flex-direction: column; border: 1px solid var(--line); border-radius: var(--r-lg); background: var(--panel-2); max-height: calc(100vh - 220px); min-height: 120px; }
+.stage-col.attn .stage-col-head { color: var(--warn); }
+.stage-col.none { background: var(--hover); }
+.stage-col-head { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-3); padding: var(--sp-4) var(--sp-6); font-size: var(--fs-sm); font-weight: 600; border-bottom: 1px solid var(--line); }
+.stage-col-body { display: flex; flex-direction: column; gap: var(--sp-4); padding: var(--sp-4); overflow-y: auto; }
+.stage-col-empty { color: var(--faint); font-size: var(--fs-xs); text-align: center; padding: var(--sp-6) 0; }
+.stage-card { display: flex; flex-direction: column; gap: var(--sp-3); padding: var(--sp-5); border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--panel); box-shadow: var(--shadow-sm); cursor: pointer; min-width: 0; }
+.stage-card:hover { border-color: var(--line-2); }
+.stage-card:focus-visible { outline: 2px solid var(--accent-line); outline-offset: 1px; }
+.stage-card.sel { border-color: var(--accent); background: var(--accent-soft); }
+.stage-card.attn { box-shadow: inset 3px 0 0 var(--warn), var(--shadow-sm); }
+.stage-card-title { display: flex; flex-direction: column; gap: 2px; font-weight: 500; font-size: var(--fs-sm); min-width: 0; }
+.stage-card-title .clamp2 { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; overflow-wrap: anywhere; line-height: 1.4; }
+.stage-card-who { display: flex; align-items: center; gap: var(--sp-3); font-size: var(--fs-xs); color: var(--muted); min-width: 0; }
+.stage-card-foot { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-3); min-width: 0; }
+.stage-pick { height: 24px; font-size: var(--fs-xs); max-width: 110px; }
+.stage-card-err { font-size: var(--fs-xs); }
+@media (max-width: 760px) {
+  .stage-col { flex-basis: 78vw; max-height: none; }
+}

@@ -16,9 +16,10 @@ function remind(p: Partial<Schedule> = {}): Schedule {
 }
 
 describe('动作「提醒」', () => {
-  it('提交体只带标题、内容、关联对象，去首尾空白', () => {
+  it('提交体只带标题、内容、关联对象、弹窗方式，去首尾空白', () => {
     const a = { ...emptyAction('remind', 'P2'), title: ' 回电话 ', body: ' 问下报价 ', object_id: 'obj_1', priority: 'P1' }
-    expect(actionOf(a)).toEqual({ kind: 'remind', title: '回电话', body: '问下报价', object_id: 'obj_1' })
+    expect(actionOf(a)).toEqual({ kind: 'remind', title: '回电话', body: '问下报价', object_id: 'obj_1', popup: 'toast' })
+    expect(actionOf({ ...a, popup: 'modal' })).toMatchObject({ popup: 'modal' })
   })
 
   it('标题必填、字数有上限', () => {

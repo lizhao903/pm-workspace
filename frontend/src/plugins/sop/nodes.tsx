@@ -36,6 +36,10 @@ export type FieldCtx = {
   providers: AgentProvider[]
   /** 建任务、写进项目目录挑项目（消息分流） */
   projects: { id: string; name: string }[]
+  /** Claude Code 节点选角色（AUTO-01，设置里的角色，GET /api/run-prompts） */
+  presets?: { id: string; scene: string; permission?: string }[]
+  /** 正在配的节点沿依赖往上的所有步骤，条件回退选退回目标（AUTO-02）；节点面板按选中的节点填 */
+  ups?: { key: string; name: string }[]
 }
 export const EMPTY_CTX: FieldCtx = { flows: [], agents: [], kbs: [], docCats: [], providers: [], projects: [] }
 
@@ -198,6 +202,21 @@ const INFO: Record<string, NodeInfo> = {
     fields: [{ key: 'duration', label: '等多久', type: 'text', default: '1 小时', placeholder: '30 分钟 / 1 天', hint: '也认 90s、1h30m' }],
     summary: (c) => (c.duration ? `等 ${c.duration}` : ''),
   },
+  loopback: {
+    label: KIND_LABEL.loopback, desc: '条件成立就自动退回上游重做，超过轮次上限走「超限」', color: '#0f8a8a',
+    icon: <>{line('M12.5 11.5H6a3.5 3.5 0 0 1 0-7h6.5')}{line('M10 2l2.5 2.5L10 7')}</>,
+    fields: [
+      {
+        key: 'target', label: '退回到哪一步', type: 'select', hint: '只能选上游的步骤；它和中间的步骤会重新执行',
+        options: (ctx, cfg) => {
+          const list = [{ value: '', label: '选一个上游步骤' }, ...(ctx.ups ?? []).map((u) => ({ value: u.key, label: u.name || u.key }))]
+          return cfg.target && !list.some((o) => o.value === cfg.target) ? [...list, { value: cfg.target, label: `${cfg.target}（不在上游）` }] : list
+        },
+      },
+      { key: 'max_rounds', label: '最多退回几轮', type: 'number', default: '3', placeholder: '3', hint: '1 到 10；超过了走「超限」出口，通常接人工检查' },
+    ],
+    summary: (c) => (c.target ? `退回 ${c.target}，最多 ${c.max_rounds || 3} 轮` : ''),
+  },
   review: {
     label: KIND_LABEL.review, desc: '停下来让人看输出，可改了再放行', color: '#b0570b', descLabel: '检查要点', descHint: '比如：核对待办的负责人和截止时间',
     icon: <><circle cx="8" cy="8" r="2.2" fill="currentColor" /><path d="M1.8 8S4.2 3.8 8 3.8 14.2 8 14.2 8 11.8 12.2 8 12.2 1.8 8 1.8 8Z" fill="none" stroke="currentColor" strokeWidth="1.4" /></>,
@@ -289,6 +308,29 @@ const INFO: Record<string, NodeInfo> = {
     icon: <><rect x="2" y="3" width="5" height="4" rx="1" fill="none" stroke="currentColor" strokeWidth="1.4" /><rect x="9" y="9" width="5" height="4" rx="1" fill="none" stroke="currentColor" strokeWidth="1.4" />{line('M4.5 7v3.5H9')}</>,
     fields: [{ key: 'sop', label: '执行哪个 SOP', type: 'select', options: (ctx) => ctx.flows.map((f) => ({ value: f.id, label: f.name })) }],
     summary: (c, ctx) => (c.sop ? `执行「${nameOf(ctx.flows, c.sop)}」` : ''),
+  },
+  claude_code: {
+    label: KIND_LABEL.claude_code, desc: '交给本机 Claude Code 在指定目录里做一件事，等它做完把结论交给下游', color: '#b0570b',
+    icon: <>{line('M3 4.5 6 8l-3 3.5M8 12h5')}</>,
+    fields: [
+      {
+        key: 'preset', label: '角色', type: 'select', default: '', hint: '执行要求和输出要求拼进提示词；权限留空时按角色',
+        options: (ctx, cfg) => {
+          const list = [{ value: '', label: '不选角色' }, ...(ctx.presets ?? []).map((p) => ({ value: p.id, label: p.permission === 'read_only' ? `${p.scene}（只读）` : p.scene }))]
+          return cfg.preset && !list.some((o) => o.value === cfg.preset) ? [...list, { value: cfg.preset, label: '已删除的角色' }] : list
+        },
+      },
+      { key: 'workdir', label: '工作目录', type: 'text', placeholder: '{{project.code_dir}}', hint: '本机绝对路径，或取输入里的字段' },
+      { key: 'prompt', label: '提示词', type: 'textarea', placeholder: '按 {{task_id}} 的验收标准评审 PRD', hint: '支持 {{字段}}；被条件回退退回时自动附上上一轮的意见' },
+      { key: 'task', label: '关联任务', type: 'text', placeholder: '{{task_id}}', hint: '填了就在任务上留执行记录，执行详情能跳过去' },
+      {
+        key: 'permission', label: '权限', type: 'select', default: '',
+        options: () => [{ value: '', label: '按角色（没选角色就只读）' }, { value: 'read', label: '只读' }, { value: 'write', label: '可写（允许改文件）' }],
+        hint: '可写要先在插件管理里给 SOP 确认「起子进程」权限；只读角色一律不放开写',
+      },
+      { key: 'timeout', label: '超时', type: 'text', default: '2 小时', placeholder: '2 小时', hint: '到点取消这次执行、这一步失败，最多 24 小时' },
+    ],
+    summary: (c, ctx) => [c.preset ? (ctx.presets ?? []).find((p) => p.id === c.preset)?.scene ?? '' : '', c.workdir].filter(Boolean).join(' · '),
   },
   end: {
     label: KIND_LABEL.end, desc: '流程到这里结束，挑出要留下的结果', color: '#2f7d43',

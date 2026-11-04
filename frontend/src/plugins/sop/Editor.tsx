@@ -521,7 +521,9 @@ function StepNode({ s, pos, catalog, ctx, sel, bad, onSelect }: {
             </div>
           ))}
           <div className="sop-cv-rule ellipsis">
-            {s.kind === 'classifier' ? 'AI 分类' : isManualDecide(s) ? '人工判断' : s.rule?.trim() ? `规则：${s.rule}` : '按内置规则判断'}
+            {s.kind === 'classifier' ? 'AI 分类' : isManualDecide(s) ? '人工判断'
+              : s.kind === 'loopback' ? `${s.rule?.trim() ? `条件：${s.rule}` : '还没填回退条件'} · 退回 ${s.config?.target || '未选'}`
+                : s.rule?.trim() ? `规则：${s.rule}` : '按内置规则判断'}
           </div>
         </div>
       ) : (

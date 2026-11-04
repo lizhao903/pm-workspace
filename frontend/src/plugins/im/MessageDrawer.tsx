@@ -13,7 +13,8 @@
 // 回复框带 @（0.18.0，MentionBox）：群聊回复底部有「回复时 @ 对方」开关（默认打开、记在本机，快捷回复也跟着它），
 // 输入 @ 弹出联系人和会话里发过言的人；私聊没有开关、不加 @。工作台里显示自己发出的回复仍是「@名字」。
 // 消息列回复（0010）：消息列回复的抽屉在正文上面写「回复 谁：原消息」，能打开原消息；原消息的抽屉在正文下面按时间列出整个消息列，
-// 每条能单独标已处理、忽略、重新打开，点开看那一条（列表上不列这些回复，只在原消息行上标未读数，详情都在这里看）。回复框回消息列里的消息时发到同一个消息列（后端带父消息的 thread_ts）。
+// 每条能单独标已处理、忽略、重新打开，点开看那一条（列表上不列这些回复，只在原消息行上标未读数，详情都在这里看）；
+// 也能整列处理、勾选批量处理、连原消息一起（SPEC-messages-2.51，ThreadReplies）。回复框回消息列里的消息时发到同一个消息列（后端带父消息的 thread_ts）。
 import { useState, type ReactNode } from 'react'
 import { errorText, useImAction, useImMembers, useProjects, type Connector, type ImAction, type ImMessage, type ImSessionIntent } from '../../core/data'
 import { Avatar, Button, Checkbox, Drawer, SearchSelect, cls } from '../../core/ui'
@@ -28,6 +29,7 @@ import { Caret, ChannelMark, Menu, MentionText } from './parts'
 import { useQuickReplies } from './quickReplies'
 import { ToClipRow } from './ToClipRow'
 import { ToDealRow } from './ToDealRow'
+import { ThreadReplies } from './ThreadReplies'
 import type { ContactLinkMode, ContactLinkResult } from './ContactLink'
 import { LinkNote, SenderContactActs } from './SenderContact'
 import { threadHint } from './groupModel'
@@ -216,7 +218,7 @@ function DrawerBody({ msg, ch, connectors, sv, photo, note, triage, onClose, onO
         ))}
       </div>
 
-      {thread.length > 0 && <ThreadList replies={thread} sv={sv} onOpen={onOpenMessage} />}
+      {thread.length > 0 && <ThreadReplies parent={msg} replies={thread} sv={sv} onOpen={onOpenMessage} />}
 
       {triage}
 
@@ -266,39 +268,5 @@ function DrawerBody({ msg, ch, connectors, sv, photo, note, triage, onClose, onO
         </div>
       )}
     </Drawer>
-  )
-}
-
-/** 原消息抽屉里的整个消息列：按时间列，每条能单独处理；点一条打开它 */
-function ThreadList({ replies, sv, onOpen }: { replies: ImMessage[]; sv: StatusView; onOpen?: (id: string) => void }) {
-  const act = useImAction()
-  const doneLabel = sv.label('done')
-  return (
-    <>
-      <div className="im-section">消息列回复 <span className="seg-n">{replies.length}</span></div>
-      <div className="im-thread-list" role="list" aria-label="消息列回复">
-        {replies.map((m) => {
-          const open = m.status === 'pending' || m.status === 'expired'
-          return (
-            <div key={m.id} role="listitem" className={cls('im-thread-item', !open && 'im-closed')}>
-              <div className="im-thread-item-top">
-                <button type="button" className="im-thread-who" onClick={() => onOpen?.(m.id)} title="打开这一条">{whoName(m)}</button>
-                <span className="im-muted">{shortTime(m.at)}</span>
-                {m.status !== 'pending' && <span className="im-state" style={{ color: sv.color(m.status) }}>{sv.label(m.status)}</span>}
-                <span className="spacer" />
-                {open ? (
-                  <>
-                    <button type="button" className="im-act" disabled={act.isPending} onClick={() => act.mutate({ id: m.id, action: { kind: 'done' } })}>标为{doneLabel}</button>
-                    <button type="button" className="im-act im-act-quiet" disabled={act.isPending} onClick={() => act.mutate({ id: m.id, action: { kind: 'ignore' } })}>忽略</button>
-                  </>
-                ) : <button type="button" className="im-act" disabled={act.isPending} onClick={() => act.mutate({ id: m.id, action: { kind: 'reopen' } })}>重新打开</button>}
-              </div>
-              <div className="im-thread-item-text"><MentionText text={m.text} /></div>
-            </div>
-          )
-        })}
-      </div>
-      {act.isError && <div className="im-err" role="alert">没改成：{errorText(act.error)}</div>}
-    </>
   )
 }

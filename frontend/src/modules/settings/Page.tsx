@@ -15,6 +15,7 @@ import { KbSection } from './kb/KbSection'
 import { SkillsSection } from './skills/SkillsSection'
 import { LocalFsSection } from './localfs/LocalFsSection'
 import { IncidentsSection } from './incidents/IncidentsSection'
+import { RunPresetsSection } from './runprompts/RunPresetsSection'
 import { UpdateSection } from './update/UpdateSection'
 
 // 内核的设置分节，照原型 web-next/src/settings.tsx SECTIONS；内网域名是插件的分节，不在这里。
@@ -25,6 +26,8 @@ const KERNEL: SubnavItem<string>[] = [
   { key: 'connectors', label: '连接器', desc: '对接外部工具' },
   { key: 'providers', label: '模型服务商', desc: 'API Key 与接口地址' },
   { key: 'agents', label: 'Agent', desc: '工作助手' },
+  // SPEC-settings-24：交给 Claude Code 时可选的执行要求
+  { key: 'run-prompts', label: '角色', desc: '交给 Claude Code 的角色：执行要求、权限、输出要求' },
   { key: 'kbs', label: '知识库', desc: 'Agent 检索用的资料' },
   { key: 'skills', label: '技能', desc: '可复用的做事方法' },
   { key: 'enums', label: '枚举值', desc: '状态、优先级、分类等选项' },
@@ -71,6 +74,7 @@ export default function Page() {
         : kernel!.key === 'workspace' ? <WorkspacesSection />
         : kernel!.key === 'enums' ? <EnumsSection />
         : kernel!.key === 'agents' ? <AgentsSection />
+        : kernel!.key === 'run-prompts' ? <RunPresetsSection />
         : kernel!.key === 'kbs' ? <KbSection />
         : kernel!.key === 'skills' ? <SkillsSection />
         : kernel!.key === 'localfs' ? <LocalFsSection />

@@ -78,13 +78,14 @@ export function FlowGraph({ flow, run, selected, onSelect, branching }: {
           const deps = depsOf(flow, i).length
           const route = rs?.route && def.cases?.find((c) => c.key === rs.route)?.label
           const idle = branching(def)
-            ? (def.kind === 'classifier' ? 'AI 分类' : isManualDecide(def) ? '人工判断' : '按规则判断')
+            ? (def.kind === 'classifier' ? 'AI 分类' : isManualDecide(def) ? '人工判断' : def.kind === 'loopback' ? '不满足就退回' : '按规则判断')
             : typeof def.ms === 'number' ? `约 ${Math.max(1, Math.round(def.ms / 1000))} 秒` : ''
           const body = (
             <>
               <span className="sop-fnode-top">
                 <KindTag kind={def.kind} />
                 {deps > 1 && <span className="sop-fnode-join">汇合 {deps} 路</span>}
+                {!!rs?.round && <span className="sop-fnode-join">第 {rs.round} 轮</span>}
                 {rs?.edited && <span className="sop-edited-dot" title={EDITED_LABEL[rs.edited]}>人</span>}
               </span>
               <span className="sop-fnode-name ellipsis" title={def.name}>{def.name}</span>

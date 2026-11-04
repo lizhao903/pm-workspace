@@ -4,7 +4,7 @@
 import { useEffect, useMemo, useState, type MouseEvent, type ReactNode } from 'react'
 import { useSopRun, type SopField, type SopRunBrief, type SopStepDef } from '../../core/data'
 import { Button, Checkbox, IconButton, IconClose, Input, Pill, Select, Textarea, cls } from '../../core/ui'
-import { changeKind, childrenOf, isBranching, isRequired, START, type Catalog, type Draft, HIDDEN_KINDS, fieldTypePatch } from './edit'
+import { changeKind, childrenOf, isBranching, isRequired, LOOPBACK, START, type Catalog, type Draft, HIDDEN_KINDS, fieldTypePatch, upstreamSteps } from './edit'
 import { stepLook, timeAgo } from './model'
 import { nodeInfo, useLiveOptions, type ConfigField, type FieldCtx } from './nodes'
 import { KindIcon } from './parts'
@@ -194,6 +194,9 @@ export function NodePanel({ draft, nodeKey, catalog, ctx, tried, triggers, flowI
   const info = nodeInfo(s.kind)
   const branching = isBranching(catalog, s.kind)
   const ups = (s.after ?? []).map((k) => draft.steps.find((x) => x.key === k)).filter((x): x is SopStepDef => !!x)
+  const loop = s.kind === LOOPBACK
+  // 条件回退选退回目标：这个节点沿依赖往上的所有步骤（AUTO-02）
+  const nodeCtx: FieldCtx = loop ? { ...ctx, ups: upstreamSteps(draft, draft.steps.indexOf(s)).map((x) => ({ key: x.key, name: x.name })) } : ctx
   // 类型下拉按目录分组，隐藏的（notify）只在当前就是它时列出
   const kinds = catalog.types.filter((t) => !HIDDEN_KINDS.includes(t.kind) || t.kind === s.kind)
   const groups = [...new Set(kinds.map((t) => t.group))]
@@ -225,7 +228,7 @@ export function NodePanel({ draft, nodeKey, catalog, ctx, tried, triggers, flowI
           {info.fields.filter((f) => !f.hidden?.(s.config ?? NO_CFG)).map((f) => {
             const req = isRequired(catalog, s.kind, f.key)
             return (
-              <ConfigInput key={f.key} field={f} value={s.config?.[f.key] ?? ''} cfg={s.config ?? NO_CFG} ctx={ctx} required={req} bad={tried && req && !s.config?.[f.key]?.trim()}
+              <ConfigInput key={f.key} field={f} value={s.config?.[f.key] ?? ''} cfg={s.config ?? NO_CFG} ctx={nodeCtx} required={req} bad={tried && req && !s.config?.[f.key]?.trim()}
                 onChange={(v) => onChange({ config: { ...(s.config ?? {}), ...Object.fromEntries((f.clears ?? []).map((k) => [k, ''])), [f.key]: v } })} />
             )
           })}
@@ -242,9 +245,16 @@ export function NodePanel({ draft, nodeKey, catalog, ctx, tried, triggers, flowI
                   <Input value={s.rule ?? ''} placeholder="比如：金额大于 5000" onChange={(e) => onChange({ rule: e.target.value })} />
                 </label>
               )}
-              <div className="field" role="group" aria-label={s.kind === 'classifier' ? '类别' : '分支'}>
-                <span className="field-label">{s.kind === 'classifier' ? '类别' : '分支'}
+              {loop && (
+                <label className="field">
+                  <span className="field-label">回退条件<span className="sop-field-hint">成立就退回上面选的步骤重做，写法同条件分支</span></span>
+                  <Input value={s.rule ?? ''} placeholder="result.verdict 等于 reject" invalid={tried && !s.rule?.trim()} onChange={(e) => onChange({ rule: e.target.value })} />
+                </label>
+              )}
+              <div className="field" role="group" aria-label={s.kind === 'classifier' ? '类别' : loop ? '出口' : '分支'}>
+                <span className="field-label">{s.kind === 'classifier' ? '类别' : loop ? '出口' : '分支'}
                   {s.kind === 'classifier' && <span className="sop-field-hint">每一类一个出口；类别名写清楚，分类更准</span>}
+                  {loop && <span className="sop-field-hint">条件不成立走「通过」；退回轮次用完还成立走「超限」，没接步骤时这一步失败</span>}
                 </span>
                 <div className="sop-case-list">
                   {(s.cases ?? []).map((c, ci) => (
@@ -253,11 +263,11 @@ export function NodePanel({ draft, nodeKey, catalog, ctx, tried, triggers, flowI
                         onChange={(e) => onChange({ cases: s.cases!.map((x) => (x.key === c.key ? { ...x, label: e.target.value } : x)) })} />
                       <span className="sop-case-count">{draft.steps.filter((x) => x.branch?.of === s.key && x.branch.case === c.key).length} 个节点</span>
                       <Button size="sm" onClick={addBtn(c.key)}>加节点</Button>
-                      {(s.cases ?? []).length > 2 && <Button size="sm" onClick={() => onChange({ cases: s.cases!.filter((x) => x.key !== c.key) })}>删除</Button>}
+                      {(s.cases ?? []).length > 2 && !loop && <Button size="sm" onClick={() => onChange({ cases: s.cases!.filter((x) => x.key !== c.key) })}>删除</Button>}
                     </div>
                   ))}
-                  <Button size="sm" className="sop-case-add"
-                    onClick={() => onChange({ cases: [...(s.cases ?? []), { key: `c${Date.now().toString(36)}`, label: `分支 ${(s.cases?.length ?? 0) + 1}` }] })}>加一个分支</Button>
+                  {!loop && <Button size="sm" className="sop-case-add"
+                    onClick={() => onChange({ cases: [...(s.cases ?? []), { key: `c${Date.now().toString(36)}`, label: `分支 ${(s.cases?.length ?? 0) + 1}` }] })}>加一个分支</Button>}
                 </div>
               </div>
             </>

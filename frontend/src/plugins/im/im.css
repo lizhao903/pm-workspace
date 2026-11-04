@@ -352,3 +352,12 @@ button.im-thread-tag:hover { color: var(--text); border-color: var(--text); }
 .im-totask-thread-list { list-style: none; margin: 0; padding: 6px 10px; display: flex; flex-direction: column; gap: 4px; border-left: 3px solid var(--line-2); background: var(--panel-2); border-radius: 0 var(--r-sm) var(--r-sm) 0; font-size: var(--fs-sm); }
 .im-totask-thread-list li { display: flex; gap: 4px; min-width: 0; white-space: nowrap; }
 .im-totask-thread-list li .ellipsis { min-width: 0; }
+
+/* 消息列回复的批量处理（SPEC-messages-2.51）：标题行右边整列处理 / 已选条，每条前面勾选框 */
+.im-thread-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-height: 26px; }
+.im-thread-bulk { flex: 1; display: flex; align-items: center; gap: 4px; flex-wrap: wrap; min-width: 0; color: var(--text); font-weight: 400; font-size: var(--fs-sm); }
+.im-thread-bulk-n { font-weight: 600; }
+.im-thread-with-parent { margin-right: 4px; font-size: var(--fs-xs); color: var(--muted); }
+.im-thread-check { flex: none; display: inline-flex; width: 16px; margin: 0; }
+.im-thread-picked { background: color-mix(in srgb, var(--accent) 8%, transparent); }
+.im-thread-note { margin: 0 0 6px; color: var(--muted); font-size: var(--fs-xs); }

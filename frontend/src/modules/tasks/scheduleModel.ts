@@ -151,6 +151,8 @@ export type ActionDraft = {
   /** 提醒：标题用 title，内容 body，关联的任务 object_id */
   body: string
   object_id: string
+  /** 提醒的弹窗方式（SPEC-tasks-8.26）：toast 右下角，modal 屏幕中间 */
+  popup: 'toast' | 'modal'
 }
 
 export type ScheduleDraft = { name: string; enabled: boolean; rule: ScheduleRule; action: ActionDraft }
@@ -162,7 +164,7 @@ export function defaultPriority(priorities: readonly DictItem[]): string {
 }
 
 export function emptyAction(kind: ScheduleActionKind, priority: string): ActionDraft {
-  return { kind, title: '', desc: '', priority, assignee: '', due_days: 0, sop_id: '', agent_id: '', prompt: '', min_level: 'error', min_count: 1, body: '', object_id: '' }
+  return { kind, title: '', desc: '', priority, assignee: '', due_days: 0, sop_id: '', agent_id: '', prompt: '', min_level: 'error', min_count: 1, body: '', object_id: '', popup: 'toast' }
 }
 
 export function emptyScheduleDraft(priorities: readonly DictItem[], now: Date = new Date()): ScheduleDraft {
@@ -171,7 +173,10 @@ export function emptyScheduleDraft(priorities: readonly DictItem[], now: Date = 
 
 export function scheduleDraftOf(s: Schedule, priorities: readonly DictItem[], now: Date = new Date()): ScheduleDraft {
   const a = emptyAction(s.action.kind, defaultPriority(priorities))
-  return { name: s.name, enabled: s.enabled, rule: fullRule(s.rule, now), action: { ...a, ...s.action } }
+  const action = { ...a, ...s.action } as ActionDraft
+  // 旧提醒没有 popup（或为空），按右下角
+  action.popup = action.popup === 'modal' ? 'modal' : 'toast'
+  return { name: s.name, enabled: s.enabled, rule: fullRule(s.rule, now), action }
 }
 
 /** 按类型只留自己的字段 */
@@ -179,7 +184,7 @@ export function actionOf(a: ActionDraft): ScheduleAction {
   if (a.kind === 'sop') return { kind: 'sop', sop_id: a.sop_id.trim() }
   if (a.kind === 'agent') return { kind: 'agent', agent_id: a.agent_id.trim(), prompt: a.prompt.trim() }
   if (a.kind === 'incident_sweep') return { kind: 'incident_sweep', min_level: a.min_level, min_count: a.min_count }
-  if (a.kind === 'remind') return { kind: 'remind', title: a.title.trim(), body: a.body.trim(), object_id: a.object_id }
+  if (a.kind === 'remind') return { kind: 'remind', title: a.title.trim(), body: a.body.trim(), object_id: a.object_id, popup: a.popup }
   return { kind: 'task', title: a.title.trim(), desc: a.desc.trim(), priority: a.priority, assignee: a.assignee, due_days: a.due_days }
 }
 

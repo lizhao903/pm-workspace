@@ -1,0 +1,65 @@
+/* 任务详情「工作区」（AUTO-07）、最近一次测试（AUTO-08）和设置里的端口范围 */
+.wt { display: flex; flex-direction: column; gap: var(--sp-3); padding-top: var(--sp-4); border-top: 1px solid var(--line); }
+.wt-head { display: flex; align-items: center; gap: var(--sp-4); flex-wrap: wrap; }
+.wt-title { font-size: var(--fs-sm); font-weight: 600; color: var(--muted); }
+.wt-hint { color: var(--faint); font-size: var(--fs-xs); }
+.wt-card { display: flex; flex-direction: column; gap: var(--sp-3); padding: var(--sp-3) var(--sp-4); border: 1px solid var(--line); border-radius: var(--r); }
+.wt-card.off { background: var(--panel-2); }
+.wt-grid { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 6px var(--sp-4); margin: 0; font-size: var(--fs-sm); }
+.wt-grid dt { color: var(--muted); }
+.wt-grid dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+.wt-grid code, .wt-prep code { font-family: var(--mono); font-size: var(--fs-xs); }
+.wt-path { display: flex; align-items: baseline; gap: var(--sp-3); }
+.wt-path code { min-width: 0; overflow-wrap: anywhere; }
+.wt-copy { flex: none; color: var(--accent); background: none; font-size: var(--fs-xs); }
+.wt-muted { color: var(--muted); font-size: var(--fs-xs); }
+.wt-state.ok { color: var(--ok); }
+.wt-state.warn { color: var(--danger); }
+.wt-state.muted { color: var(--muted); }
+.wt-actions, .wt-prep { display: flex; align-items: center; gap: var(--sp-3); flex-wrap: wrap; }
+.wt-err { color: var(--danger); font-size: var(--fs-sm); width: 100%; }
+
+/* 最近一次测试（AUTO-08） */
+.wtt { display: flex; flex-direction: column; gap: var(--sp-2); padding: var(--sp-3) var(--sp-4); border: 1px solid var(--line); border-radius: var(--r); }
+.wtt-head { display: flex; align-items: center; gap: var(--sp-3); flex-wrap: wrap; }
+.wtt-title { font-size: var(--fs-sm); font-weight: 600; color: var(--muted); }
+.wtt-actions { display: flex; align-items: center; gap: var(--sp-3); margin-left: auto; }
+.wtt-badge { font-size: var(--fs-xs); padding: 1px 8px; border-radius: 999px; background: var(--panel-2); color: var(--muted); }
+.wtt-badge.ok { color: var(--ok); }
+.wtt-badge.bad { color: var(--danger); }
+.wtt-badge.run { color: var(--accent); }
+.wtt-badge.warn { color: var(--warn); }
+/* 最近一次发布（AUTO-10）：步骤按审批前、审批后分组 */
+.wtr-phase { display: flex; flex-direction: column; gap: var(--sp-1); }
+.wtr-phase-title { font-size: var(--fs-xs); color: var(--faint); }
+.wtt-link { color: var(--accent); font-size: var(--fs-sm); }
+.wtt-summary { font-size: var(--fs-sm); overflow-wrap: anywhere; }
+.wtt-summary.ok { color: var(--ok); }
+.wtt-summary.bad { color: var(--danger); }
+.wtt-steps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--sp-2); }
+.wtt-step { display: flex; flex-direction: column; gap: 2px; font-size: var(--fs-sm); }
+.wtt-step-line { display: flex; align-items: baseline; gap: var(--sp-3); flex-wrap: wrap; min-width: 0; }
+.wtt-step-label { min-width: 72px; color: var(--muted); }
+.wtt-step-state.ok { color: var(--ok); }
+.wtt-step-state.bad { color: var(--danger); }
+.wtt-step-state.run { color: var(--accent); }
+.wtt-step-state.muted { color: var(--faint); }
+.wtt-cmd { font-family: var(--mono); font-size: var(--fs-xs); color: var(--faint); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1 1 160px; }
+.wtt-step-err { font-size: var(--fs-xs); color: var(--muted); overflow-wrap: anywhere; }
+.wtt-step-err.bad { color: var(--danger); }
+.wtt-out summary { cursor: pointer; color: var(--muted); font-size: var(--fs-xs); }
+.wtt-out pre { margin: var(--sp-1) 0 0; padding: var(--sp-2) var(--sp-3); max-height: 240px; overflow: auto; background: var(--panel-2); border-radius: var(--r);
+  font-family: var(--mono); font-size: var(--fs-xs); white-space: pre-wrap; overflow-wrap: anywhere; }
+.wtt-failed ul { margin: 2px 0 0; padding-left: 18px; font-size: var(--fs-xs); }
+.wtt-shots { display: flex; gap: var(--sp-3); flex-wrap: wrap; align-items: baseline; }
+.wtt code { font-family: var(--mono); font-size: var(--fs-xs); }
+/* 保留给人工验收的测试环境（AUTO-09） */
+.wtt-env { display: flex; align-items: center; gap: var(--sp-2) var(--sp-3); flex-wrap: wrap; font-size: var(--fs-sm); min-width: 0; overflow-wrap: anywhere; }
+.wtt-env.kept { padding: var(--sp-2) var(--sp-3); border-left: 3px solid var(--ok); background: var(--panel-2); border-radius: var(--r); }
+
+.wt-settings { display: flex; flex-direction: column; gap: var(--sp-4); max-width: 640px; }
+.wt-settings-title { font-weight: 600; }
+.wt-settings-row { display: flex; align-items: center; gap: var(--sp-3); flex-wrap: wrap; }
+.wt-settings-input { width: 96px; }
+.wt-settings-ok { color: var(--ok); font-size: var(--fs-sm); }
+.wt-settings-err { color: var(--danger); font-size: var(--fs-sm); }

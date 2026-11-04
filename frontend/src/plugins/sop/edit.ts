@@ -79,7 +79,7 @@ export function makeStep(d: Draft, cat: Catalog, kind: string, name: string, aft
   const t = cat.byKind.get(kind)
   return {
     key: newKey(d), name, kind, desc: '', after, config: defaultConfig(kind),
-    ...(t?.branching ? { cases: (t.default_cases ?? []).map((c) => ({ ...c })), ...(kind === 'decide' ? { rule: '' } : {}) } : {}),
+    ...(t?.branching ? { cases: (t.default_cases ?? []).map((c) => ({ ...c })), ...(kind === 'decide' || kind === 'loopback' ? { rule: '' } : {}) } : {}),
     ...extra,
   }
 }
@@ -169,7 +169,9 @@ export function changeKind(cat: Catalog, s: SopStepDef, kind: string): Partial<S
   return {
     kind, config: defaultConfig(kind),
     ...(t?.branching
-      ? { cases: s.cases?.length ? s.cases : (t.default_cases ?? []).map((c) => ({ ...c })), ...(kind === 'decide' ? { rule: s.rule ?? '' } : { rule: undefined }) }
+      // 条件回退的两个出口 key 固定（pass / over），换成它或从它换走时一律用默认出口
+      ? { cases: s.cases?.length && kind !== LOOPBACK && s.kind !== LOOPBACK ? s.cases : (t.default_cases ?? []).map((c) => ({ ...c })),
+        ...(kind === 'decide' || kind === LOOPBACK ? { rule: s.rule ?? '' } : { rule: undefined }) }
       : { cases: undefined, rule: undefined }),
   }
 }
@@ -251,6 +253,10 @@ export function checkDraft(d: Draft, cat: Catalog): Issue[] {
         }
       })
     }
+    if (s.kind === LOOPBACK) out.push(...loopbackIssues(d, i))
+    if (s.kind === 'claude_code' && claudeTimeoutMs(s.config?.timeout) === null) {
+      out.push({ level: 'error', text: `「${nameOf(s)}」超时写法不对，要写成「30 分钟」「2 小时」这样，最多 24 小时`, step: i })
+    }
     if (s.branch && !d.steps.some((x) => x.key === s.branch!.of && isBranching(cat, x.kind))) {
       out.push({ level: 'error', text: `「${nameOf(s)}」挂在一个不存在的判断上`, step: i })
     }
@@ -261,6 +267,57 @@ export function checkDraft(d: Draft, cat: Catalog): Issue[] {
   }
   const starts = d.steps.filter((s) => !(s.after ?? []).length).length
   if (starts > 1) out.push({ level: 'warn', text: `有 ${starts} 个起点，它们会在开始时同时执行` })
+  return out
+}
+
+/* ---------- 条件回退（AUTO-02）、Claude Code 执行（AUTO-01） ---------- */
+
+export const LOOPBACK = 'loopback'
+const RULE_RE = /^\s*(\S+)\s+(不等于|等于|不包含|包含)\s+(.*?)\s*$/
+
+/** 最多退回几轮：留空 3，1 到 10 的整数；写法不对回 null（同后端 loopRounds） */
+export function loopRounds(s?: string): number | null {
+  if (!s?.trim()) return 3
+  const n = Number(s.trim())
+  return Number.isInteger(n) && n >= 1 && n <= 10 ? n : null
+}
+
+/** Claude Code 节点的超时：留空 2 小时，「30 分钟」「2 小时」「1 天」，也认 90s、1h30m，最多 24 小时；写法不对回 null（同后端 claudeTimeout） */
+export function claudeTimeoutMs(s?: string): number | null {
+  if (!s?.trim()) return 2 * 3600e3
+  const unit: Record<string, number> = { 秒: 1e3, 秒钟: 1e3, 分: 60e3, 分钟: 60e3, 时: 3600e3, 小时: 3600e3, 天: 86400e3, 周: 7 * 86400e3 }
+  const m = /^\s*(\d+(?:\.\d+)?)\s*(秒钟?|分钟|分|小时|时|天|周)\s*$/.exec(s)
+  let ms: number | null = null
+  if (m) ms = Number(m[1]) * unit[m[2]]
+  else if (/^(\d+(\.\d+)?(h|m|s|ms))+$/.test(s.trim())) {
+    ms = 0
+    for (const [, n, u] of s.trim().matchAll(/(\d+(?:\.\d+)?)(ms|h|m|s)/g)) ms += Number(n) * { h: 3600e3, m: 60e3, s: 1e3, ms: 1 }[u as 'h' | 'm' | 's' | 'ms']
+  }
+  return ms !== null && ms > 0 && ms <= 86400e3 ? ms : null
+}
+
+/** 第 i 步沿依赖往上的所有步骤（不含自己），按步骤顺序 */
+export function upstreamSteps(d: Pick<Draft, 'steps'>, i: number): SopStepDef[] {
+  const up = ancestors(d as Draft, d.steps[i]?.key ?? '')
+  return d.steps.filter((s) => up.has(s.key))
+}
+
+/** 条件回退的检查，同后端 checkLoopback：条件写法、目标是上游（回退不是依赖，不算环）、上限、两个出口 */
+export function loopbackIssues(d: Pick<Draft, 'steps'>, i: number): Issue[] {
+  const s = d.steps[i]
+  const name = nameOf(s)
+  const out: Issue[] = []
+  if (!s.rule?.trim()) out.push({ level: 'error', text: `「${name}」还没填回退条件`, step: i })
+  else if (!RULE_RE.test(s.rule)) out.push({ level: 'error', text: `「${name}」回退条件写法不对，要写成「字段 等于 值」或「字段 包含 值」`, step: i })
+  const t = s.config?.target?.trim()
+  if (t) {
+    if (t === s.key) out.push({ level: 'error', text: `「${name}」不能退回到自己`, step: i })
+    else if (!d.steps.some((x) => x.key === t)) out.push({ level: 'error', text: `「${name}」退回的步骤已被删除`, step: i })
+    else if (!upstreamSteps(d, i).some((x) => x.key === t)) out.push({ level: 'error', text: `「${name}」只能退回到上游的步骤`, step: i })
+  }
+  if (loopRounds(s.config?.max_rounds) === null) out.push({ level: 'error', text: `「${name}」最多退回几轮要是 1 到 10 的整数`, step: i })
+  const keys = (s.cases ?? []).map((c) => c.key)
+  if (!keys.includes('pass') || !keys.includes('over')) out.push({ level: 'error', text: `「${name}」出口要有「通过」和「超限」`, step: i })
   return out
 }
 
