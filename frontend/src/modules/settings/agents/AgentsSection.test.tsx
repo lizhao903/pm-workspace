@@ -81,7 +81,8 @@ describe('Agent 列表（SPEC-settings-8）', () => {
     const card = await screen.findByRole('button', { name: '消息分诊助手' })
     expect(within(card).getByText('Claude Haiku 5.5')).toBeInTheDocument()
     expect(within(card).getByText('手动 · 飞书群')).toBeInTheDocument()
-    expect(within(card).getByText('还没运行过')).toBeInTheDocument()
+    // 卡片上不放执行情况（手动对话不算执行记录，显示「还没运行过」会误导）
+    expect(within(card).queryByText('还没运行过')).toBeNull()
     expect(await within(card).findByText('新建 / 更新任务')).toHaveClass('confirm')
     expect(within(screen.getByRole('button', { name: '周报' })).getByText('还没有说明')).toBeInTheDocument()
 

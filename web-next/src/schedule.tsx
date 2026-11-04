@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { SearchSelect } from './searchselect'
 import { ListSegHead } from './tasks'
 import {
-  ACTION_LABEL, FREQ_LABEL, SWEEP_LEVEL_LABEL, WEEK, describeRule, emptyRule, nextRun, nextText, ruleError, sweepText, whenText,
+  ACTION_LABEL, FREQ_LABEL, SWEEP_LEVEL_LABEL, WEEK, claudeActionError, claudeOutPath, describeRule, emptyRule, nextRun, nextText, ruleError, sweepText, whenText,
   type Freq, type Schedule, type ScheduleAction,
 } from './scheduledata'
 import type { Priority } from './taskdata'
@@ -10,6 +10,7 @@ import { useEnumView } from './enumdata'
 import { PageTitle } from './topbar'
 import { cls, timeAgo } from './ui'
 import { newId } from './ids'
+import { useRunPresets } from './runpresets'
 
 // 任务 > 定时任务：列表 + 抽屉。抽屉里配「什么时候」和「做什么」，下面是执行记录
 // 定时发布由视频的发布记录生成，抽屉里只读：时间去内容日历拖，或在发布记录里改
@@ -22,6 +23,7 @@ export const actionText = (a: ScheduleAction, sops: Named[], agents: Named[], pu
   : a.kind === 'sop' ? `执行「${sops.find((s) => s.id === a.sop_id)?.name ?? '已删除的 SOP'}」`
     : a.kind === 'publish' ? `发布「${publishes.find((x) => x.id === a.publish_id)?.name ?? '已删除的发布记录'}」`
       : a.kind === 'incident_sweep' ? `巡检运行异常：${sweepText(a)}，建任务交给 Claude Code`
+      : a.kind === 'claude' ? a.prompt || '未填要求'
       : `${agents.find((x) => x.id === a.agent_id)?.name ?? '已删除的 Agent'}：${a.prompt || '未填要求'}`)
 
 export function SchedulesPage({ schedules, sops, agents, publishes = [], selected, onOpen, onNew, onToggle }: {
@@ -129,20 +131,24 @@ export function ScheduleDrawer({ schedule, sops, agents, publishes = [], assigne
   })
   const [tried, setTried] = useState(false)
   const [confirmDel, setConfirmDel] = useState(false)
+  // 「交给 Claude Code」勾「允许写入」前的确认（同 SPEC-tasks-6.3）
+  const [askWrite, setAskWrite] = useState(false)
+  const presets = useRunPresets()
   const r = d.rule
   const setRule = (p: Partial<typeof r>) => setD({ ...d, rule: { ...r, ...p } })
   const setKind = (k: ScheduleAction['kind']) => setD({
     ...d, action: k === 'task' ? { kind: 'task', title: '', desc: '', priority: defPrio, assignee: '我', due_days: 0 }
-      : k === 'remind' ? { kind: 'remind', title: '', body: '', task_id: '' }
+      : k === 'remind' ? { kind: 'remind', title: '', body: '', task_id: '', popup: 'toast' }
       : k === 'sop' ? { kind: 'sop', sop_id: sops[0]?.id ?? '' }
         : k === 'incident_sweep' ? { kind: 'incident_sweep', min_level: 'error', min_count: 1 }
+        : k === 'claude' ? { kind: 'claude', workdir: '', prompt: '', preset_id: '', allow_writes: false, out_dir: '' }
           : { kind: 'agent', agent_id: agents.find((a) => a.enabled !== false)?.id ?? '', prompt: '' },
   })
   const a = d.action
   // 定时发布只读：规则跟着发布记录，过了时间也不算错
   const pub = a.kind === 'publish'
   const rErr = pub ? '' : ruleError(r)
-  const aErr = a.kind === 'task' ? (!a.title.trim() ? '任务标题必填' : '') : a.kind === 'remind' ? (!a.title.trim() ? '提醒标题必填' : a.title.trim().length > 100 ? '提醒标题最多 100 字' : '') : a.kind === 'sop' ? (!a.sop_id ? '选一个 SOP' : '') : a.kind === 'publish' || a.kind === 'incident_sweep' ? '' : (!a.agent_id ? '选一个 Agent' : !a.prompt.trim() ? '写一下要它做什么' : '')
+  const aErr = a.kind === 'task' ? (!a.title.trim() ? '任务标题必填' : '') : a.kind === 'remind' ? (!a.title.trim() ? '提醒标题必填' : a.title.trim().length > 100 ? '提醒标题最多 100 字' : '') : a.kind === 'sop' ? (!a.sop_id ? '选一个 SOP' : '') : a.kind === 'publish' || a.kind === 'incident_sweep' ? '' : a.kind === 'claude' ? claudeActionError(a) : (!a.agent_id ? '选一个 Agent' : !a.prompt.trim() ? '写一下要它做什么' : '')
   const errors = [!d.name.trim() && '名称必填', rErr, aErr].filter(Boolean) as string[]
   const next = nextRun(r)
   // 列出接下来三次，帮人确认规则是不是自己想的那样
@@ -267,7 +273,18 @@ export function ScheduleDrawer({ schedule, sops, agents, publishes = [], assigne
                   <button className="act" onClick={() => setD({ ...d, action: { ...a, task_id: '' } })}>解除关联</button>
                 </div>
               )}
-              <span className="field-hint-line">到点在工作台右下角弹一条提醒，不发到 IM；关联了任务的，点提醒打开这条任务。只提醒一次的到点后自动停用</span>
+              <fieldset className="sched-popup">
+                <legend className="field-label">弹窗方式</legend>
+                <div className="sched-popup-opts">
+                  {([['toast', '右下角提示', '不挡操作，几条叠在右下角'], ['modal', '中间弹窗', '屏幕中间大号弹出，点「知道了」才关，适合点餐、开会这类不能错过的']] as const).map(([v, label, hint]) => (
+                    <label key={v} className={cls('sched-popup-opt', (a.popup ?? 'toast') === v && 'on')}>
+                      <input type="radio" name="sched-popup" checked={(a.popup ?? 'toast') === v} onChange={() => setD({ ...d, action: { ...a, popup: v } })} />
+                      <span><b>{label}</b><span className="list-sub">{hint}</span></span>
+                    </label>
+                  ))}
+                </div>
+              </fieldset>
+              <span className="field-hint-line">到点在工作台里弹出提醒，不发到 IM；关联了任务的，点提醒打开这条任务。只提醒一次的到点后自动停用</span>
             </>
           )}
           {a.kind === 'incident_sweep' && (
@@ -285,6 +302,56 @@ export function ScheduleDrawer({ schedule, sops, agents, publishes = [], assigne
               <span className="field-hint-line">到点把满足条件、未处理、还没有任务的运行异常各建一条任务，带 claude-code 标签交给 Claude Code 修；同一条异常不会重复建。结果记在下面的执行记录里</span>
             </>
           )}
+          {a.kind === 'claude' && (() => {
+            const role = presets.find((x) => x.id === a.preset_id)
+            const ro = role?.permission === 'read_only'
+            const wErr = !a.workdir.trim() ? '选一个工作目录' : !a.workdir.trim().startsWith('/') ? '要写本机绝对路径' : ''
+            const oErr = a.out_dir.trim().startsWith('/') || a.out_dir.trim().split('/').includes('..') ? '要写工作目录下的相对路径，比如 lists' : ''
+            const setA = (p: Partial<typeof a>) => setD({ ...d, action: { ...a, ...p } })
+            return (
+              <>
+                <label className="field"><span className="field-label">工作目录<em>*</em><span className="field-hint">Claude Code 在这里跑</span></span>
+                  <input className={cls('mono-input', tried && wErr && 'bad')} value={a.workdir} placeholder="本机绝对路径，比如 /Users/me/pm/fde-feedback" onChange={(e) => setA({ workdir: e.target.value })} />
+                  {tried && wErr && <span className="field-err">{wErr}</span>}
+                </label>
+                <label className="field"><span className="field-label">角色<span className="field-hint">执行要求和输出要求拼进提示词，在「设置 / 角色」里管</span></span>
+                  <select value={a.preset_id} onChange={(e) => {
+                    const rp = presets.find((x) => x.id === e.target.value)
+                    setAskWrite(false)
+                    setA({ preset_id: e.target.value, allow_writes: rp ? rp.permission === 'accept_edits' : a.allow_writes })
+                  }}>
+                    <option value="">不用</option>
+                    {presets.map((p) => <option key={p.id} value={p.id}>{p.scene}{p.permission === 'read_only' ? '（只读）' : ''}</option>)}
+                    {a.preset_id && !role && <option value={a.preset_id}>已删除的角色</option>}
+                  </select>
+                </label>
+                <label className="field"><span className="field-label">要它做什么<em>*</em><span className="field-hint">可以写 {'{{date}}'}，执行时换成当天日期</span></span>
+                  <textarea rows={4} value={a.prompt} className={cls(tried && !a.prompt.trim() && 'bad')} placeholder="比如：从 FDE 反馈表读全部反馈，去重归并成需求清单，写成 {{date}}.md" onChange={(e) => setA({ prompt: e.target.value })} />
+                </label>
+                <label className="field"><span className="field-label">结果存到<span className="field-hint">工作目录下的相对路径，空为工作目录本身</span></span>
+                  <input className={cls('mono-input', oErr && 'bad')} value={a.out_dir} placeholder="比如 lists" onChange={(e) => setA({ out_dir: e.target.value })} />
+                  {oErr ? <span className="field-err">{oErr}</span> : !wErr && <span className="field-hint-line">产出写到 <span className="mono">{claudeOutPath(a)}</span>，执行记录里列出每次写了哪些文件</span>}
+                </label>
+                <div className="dev-perm">
+                  <label className="check check-lg">
+                    <input type="checkbox" checked={!ro && a.allow_writes} disabled={ro} onChange={(e) => { if (!e.target.checked) { setAskWrite(false); setA({ allow_writes: false }) } else setAskWrite(true) }} />
+                    允许写入
+                  </label>
+                  <span className="list-sub">{ro ? `角色「${role!.scene}」只读：只跑一遍给结论，不写文件` : a.allow_writes ? '会以 acceptEdits 权限模式运行：可以直接改工作目录里的文件' : '默认只读：只跑一遍给结论，不写文件；要存结果得允许写入'}</span>
+                  {askWrite && !a.allow_writes && (
+                    <div className="dev-perm-ask">
+                      <span>允许写入后，每次到点 Claude Code 可以不经确认直接改「{a.workdir.trim() || '工作目录'}」里的文件，没人在旁边看着。其他需要权限的操作仍会被挡下，任何情况下都不会跳过权限确认。</span>
+                      <div className="act-row">
+                        <button className="act act-warn" onClick={() => { setAskWrite(false); setA({ allow_writes: true }) }}>确认允许写入</button>
+                        <button className="act act-quiet" onClick={() => setAskWrite(false)}>算了，只读</button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+                <span className="field-hint-line">到点在工作目录里无人值守跑一次 Claude Code（同「流式执行」，不开终端、不建任务），最长 30 分钟；需要确认的操作会被挡下。结论和写出的文件记在下面的执行记录里，失败的同时记进运行异常</span>
+              </>
+            )
+          })()}
           {a.kind === 'sop' && (
             <div className="field"><span className="field-label">执行哪个 SOP</span>
               <SearchSelect variant="field" value={a.sop_id} placeholder="选一个 SOP" searchPlaceholder="搜 SOP" aria-label="执行哪个 SOP"
@@ -332,6 +399,7 @@ export function ScheduleDrawer({ schedule, sops, agents, publishes = [], assigne
                     <span className="sched-h-text">
                       <span>{at < 0 ? h.text : <>{h.text.slice(0, at)}<button className="link-btn" title="打开这条任务" onClick={go}>{h.ref}</button>{h.text.slice(at + h.ref!.length)}</>}</span>
                       {h.manual && <span className="tag">手动</span>}
+                      {h.files?.length ? <span className="sched-files">{h.files.map((f) => <span key={f} className="mono" title={f}>{f.split('/').pop()}</span>)}</span> : null}
                     </span>
                     <time>{timeAgo(h.at)}</time>
                   </li>

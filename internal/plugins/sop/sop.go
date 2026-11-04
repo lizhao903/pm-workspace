@@ -61,6 +61,7 @@ func (p *Plugin) Register(r plugin.Registrar) error {
 	e.hook = p.stepHook
 	rn := &runs{c: c, e: e}
 	sg := &settings{c: c, e: e}
+	ph := &pipelineHandlers{c: c, e: e}
 	as := &assist{c: c, complete: p.complete}
 	if as.complete == nil {
 		as.complete = coreCompleter(c)
@@ -83,6 +84,9 @@ func (p *Plugin) Register(r plugin.Registrar) error {
 		m.HandleFunc("POST /api/sop/assist", as.handle)
 		m.HandleFunc("GET /api/sop/settings", sg.get)
 		m.HandleFunc("PATCH /api/sop/settings", sg.patch)
+		// 流水线视图与待我处理（AUTO-12，pipeline.go）
+		m.HandleFunc("GET /api/sop/pipeline/{id}", ph.pipeline)
+		m.HandleFunc("GET /api/sop/waiting", ph.waiting)
 	})
 	r.Job(plugin.Job{Name: "engine", Run: e.job})
 	// 别的插件登记的节点挂起后经内核 SOP().Resume 唤醒，交给这个引擎（SOP-03a）
@@ -92,6 +96,8 @@ func (p *Plugin) Register(r plugin.Registrar) error {
 	r.SOPStarter(st)
 	// 触发方式是 im 的流程来消息自动发起（SOP-05，imtrigger.go）
 	r.Subscribe(imReceivedEvent, st.onIMMessage)
+	// Claude Code 节点等的运行结束了叫醒它（AUTO-01，nodes_claude.go）；兜底还有轮询
+	r.Subscribe(plugin.RunFinishedEvent, e.onRunFinished)
 	r.TodayCard(plugin.TodayCardDef{Key: "sop_pending", Title: "SOP 待我处理", Order: 50, Load: pendingCard})
 	return nil
 }

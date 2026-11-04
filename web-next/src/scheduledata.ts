@@ -26,13 +26,36 @@ export interface ScheduleRule {
 export type ScheduleAction =
   | { kind: 'task'; title: string; desc: string; priority: Priority; assignee: string; due_days: number }
   /** 提醒：到点在工作台右下角弹一条通知（不外发 IM）；task_id 是关联的任务，点提醒打开它，空串为不关联（正式产品叫 object_id） */
-  | { kind: 'remind'; title: string; body: string; task_id: string }
+  /** popup：弹窗方式（SPEC-tasks-8.26），toast 右下角（默认），modal 屏幕中间 */
+  | { kind: 'remind'; title: string; body: string; task_id: string; popup?: 'toast' | 'modal' }
   | { kind: 'sop'; sop_id: string }
   | { kind: 'agent'; agent_id: string; prompt: string }
   | { kind: 'publish'; publish_id: string }
   /** 运行异常巡检（INC-01）：到点把满足条件、未处理、还没有任务的异常各建一条任务交给 Claude Code 修 */
   | { kind: 'incident_sweep'; min_level: IncidentLevel; min_count: number }
-export const ACTION_LABEL: Record<ScheduleAction['kind'], string> = { task: '建一条任务', remind: '提醒', sop: '执行 SOP', agent: '让 Agent 去做', publish: '发布视频', incident_sweep: '运行异常巡检' }
+  /**
+   * 交给 Claude Code（TSK-0429）：到点在 workdir 里无人值守跑一次 Claude Code，不建任务；结论和产出记进这条定时任务的执行记录。
+   * preset_id 是「设置 / 角色」里的角色（空串为不用）；allow_writes 为 false 时只读；
+   * out_dir 是产出放哪（相对 workdir，空为 workdir 本身），拼进提示词
+   */
+  | { kind: 'claude'; workdir: string; prompt: string; preset_id: string; allow_writes: boolean; out_dir: string }
+export const ACTION_LABEL: Record<ScheduleAction['kind'], string> = { task: '建一条任务', remind: '提醒', sop: '执行 SOP', agent: '让 Agent 去做', claude: '交给 Claude Code', publish: '发布视频', incident_sweep: '运行异常巡检' }
+/** 「交给 Claude Code」的配置错误，空串为没问题（SPEC-tasks-8.27） */
+export function claudeActionError(a: { workdir: string; prompt: string; out_dir: string }): string {
+  const w = a.workdir.trim()
+  if (!w) return '选一个工作目录'
+  if (!w.startsWith('/')) return '工作目录要写本机绝对路径'
+  if (!a.prompt.trim()) return '写一下要它做什么'
+  const o = a.out_dir.trim()
+  if (o.startsWith('/') || o.split('/').includes('..')) return '结果目录要写工作目录下的相对路径'
+  return ''
+}
+/** 产出目录的完整路径：工作目录接上相对目录 */
+export const claudeOutPath = (a: { workdir: string; out_dir: string }) => {
+  const w = a.workdir.trim().replace(/\/+$/, '')
+  const o = a.out_dir.trim().replace(/^\.?\/+|\/+$/g, '')
+  return o ? `${w}/${o}` : w
+}
 export const SWEEP_LEVEL_LABEL: Record<IncidentLevel, string> = { error: '只看错误', warn: '错误和警告' }
 /** 「只看错误」「错误和警告，至少 3 次」 */
 export const sweepText = (a: { min_level: IncidentLevel; min_count: number }) => `${SWEEP_LEVEL_LABEL[a.min_level]}${a.min_count > 1 ? `，至少 ${a.min_count} 次` : ''}`
@@ -42,7 +65,8 @@ export const sweepSchedule = (id: string): Schedule => ({
   action: { kind: 'incident_sweep', min_level: 'error', min_count: 1 }, history: [], created_at: new Date().toISOString(),
 })
 
-export interface ScheduleRun { at: string; ok: boolean; text: string; ref?: string; manual?: boolean }
+/** files：「交给 Claude Code」这次写出的产出（绝对路径），执行记录里逐个列出 */
+export interface ScheduleRun { at: string; ok: boolean; text: string; ref?: string; manual?: boolean; files?: string[] }
 
 export interface Schedule {
   id: string
@@ -205,6 +229,26 @@ export const seedSchedules: Schedule[] = [
     rule: { ...emptyRule(), freq: 'weekly', time: '16:00', weekdays: [5] },
     action: { kind: 'agent', agent_id: 'ag_weekly', prompt: '汇总这周的任务，写成周报草稿存进「文档 > 笔记」' },
     history: [{ at: minsAgo(60 * 24 * 5), ok: true, text: '周报助手写好了「第 43 周周报」，等你确认后已存进文档' }],
+  },
+  // TSK-0429：每天 10:00 让 Claude Code 从 FDE 反馈表拉数据、整理成需求清单存本地；前天那次表格没权限读，失败了
+  {
+    id: 'sc_fde_feedback', name: '整理 FDE 反馈需求清单', enabled: true, created_at: minsAgo(60 * 24 * 4),
+    rule: { ...emptyRule(), freq: 'daily', time: '10:00' },
+    action: {
+      kind: 'claude', workdir: '/Users/me/pm/fde-feedback', preset_id: '', allow_writes: true, out_dir: 'lists',
+      prompt: '从 FDE 反馈表（https://docs.google.com/spreadsheets/d/1f6DUdwuf7pJKKQ0HiquLKCFXZTO2e1POxmbWRMlsBWw/edit?gid=1115809405）读全部反馈行，按 README.md 里的整理规则去重、归并成需求清单：写当天的 .md 和 .json，更新 latest.json；和上一份比，标出新增、变更、已关闭。只读表格，不改表格。',
+    },
+    // 最近一次 10:04 跑完（现在还没到 10:04 就是昨天那次），往前每天一次
+    history: [0, 1, 2].map((n) => {
+      const at = new Date(); at.setHours(10, 4, 0, 0)
+      if (at.getTime() > Date.now()) at.setDate(at.getDate() - 1)
+      at.setDate(at.getDate() - n)
+      const day = ymd(at)
+      return n === 2
+        ? { at: at.toISOString(), ok: false, text: '失败：读不到表格（403，没有访问权限），沿用上一份清单，没写新文件' }
+        : { at: at.toISOString(), ok: true, text: n === 0 ? '读了 46 行反馈，整理出 18 条需求（新增 3、变更 2、已关闭 1）' : '读了 43 行反馈，整理出 16 条需求（新增 2、变更 0、已关闭 0）',
+          files: [`/Users/me/pm/fde-feedback/lists/${day}.md`, `/Users/me/pm/fde-feedback/lists/${day}.json`] }
+    }),
   },
   {
     id: 'sc_meeting', name: '周会纪要', enabled: true, created_at: minsAgo(60 * 24 * 20),

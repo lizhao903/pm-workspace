@@ -3,17 +3,22 @@
 // 流式执行：只读或允许写入（勾「允许写入」先二次确认），走 runLive.startRun，输出在执行记录里流式显示。
 // 切换到终端：后端建执行记录、写好提示词和 MCP 配置，经终端插件登记的入口在终端里新开标签执行启动命令，开好后去终端页；
 // 终端插件没在跑时这个方式置灰。同一任务有执行在跑时按钮变成「查看运行中」。
+// 角色（SPEC-tasks-6.18，AUTO-03 由预置提示词升级）：附加说明上面选一个角色，它的执行要求和输出要求拼进提示词，
+// 打开时选上标了默认的那个；在设置「角色」里管理。流式执行的「允许写入」跟着角色走：只读角色锁成只读，
+// 允许改文件的角色默认勾上（用户可取消）；没选角色时同以前，默认只读、勾选要二次确认。终端方式的权限由启动命令决定。
+// 发起后任务由后端改成进行中（SPEC-tasks-6.17），数据层的 run-started 跟着刷任务。
 import { useEffect, useId, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { useNavigate } from 'react-router'
+import { Link, useNavigate } from 'react-router'
 import {
-  errorText, finishTerminalRun, startTerminalRun, useRunPrompt, useTaskRuns, useWorkdirCheck, workdirUsable, type RunMode, type WorkObject,
+  errorText, finishTerminalRun, startTerminalRun, useRunPresets, useRunPrompt, useTaskRuns, useWorkdirCheck, workdirUsable, type RunMode, type WorkObject,
 } from '../../core/data'
 import { useTerminalLauncher } from '../../core/plugin'
-import { Button, Checkbox, ConfirmDialog, Field, IconButton, IconClose, Textarea } from '../../core/ui'
+import { Button, Checkbox, ConfirmDialog, Field, IconButton, IconClose, Select, Textarea } from '../../core/ui'
 import { restoreFocus, trapTab } from '../../core/ui/focus'
 import {
-  MODE_LABEL, defaultWorkdir, launchFailSummary, modeHint, runRequest, runningOf, submitLabel, terminalRequest,
+  MODE_LABEL, NO_PRESET, defaultWorkdir, effectiveAllow, launchFailSummary, modeHint, pickedPreset, roleOptionLabel, roleReadOnly,
+  runRequest, runningOf, submitLabel, terminalRequest,
 } from './handoffModel'
 import { startRun, useLiveRuns } from './runLive'
 import { WorkdirField } from './WorkdirField'
@@ -82,9 +87,17 @@ export function RunDialog({ task, workdir, inherit, onStart, onClose }: {
   const navigate = useNavigate()
   const [mode, setMode] = useState<RunMode>('stream')
   const [dir, setDir] = useState(init.dir)
-  const [allow, setAllow] = useState(false)
+  // null 是用户没动过勾选：跟着角色走（见 effectiveAllow）
+  const [allowChoice, setAllowChoice] = useState<boolean | null>(null)
   const [asking, setAsking] = useState(false)
   const [extra, setExtra] = useState('')
+  const presets = useRunPresets()
+  // null 是还没选过：跟着默认那条走（角色列表可能比弹窗晚到）
+  const [chosenPreset, setChosenPreset] = useState<string | null>(null)
+  const presetId = pickedPreset(presets.data, chosenPreset)
+  const preset = presets.data?.find((p) => p.id === presetId)
+  const { allow, locked: allowLocked } = effectiveAllow(preset, allowChoice)
+  const pickPreset = (v: string) => { setChosenPreset(v); setAllowChoice(null) }
   const [checked, setChecked] = useState(init.dir)
   // 预览跟着附加说明变，也停手片刻再取
   const [extraSettled, setExtraSettled] = useState('')
@@ -109,7 +122,7 @@ export function RunDialog({ task, workdir, inherit, onStart, onClose }: {
     const t = setTimeout(() => setExtraSettled(extra), CHECK_DELAY)
     return () => clearTimeout(t)
   }, [extra, extraSettled])
-  const prompt = useRunPrompt(task.id, { mode: effMode, workdir: checked, extra_prompt: extraSettled }, preview)
+  const prompt = useRunPrompt(task.id, { mode: effMode, workdir: checked, extra_prompt: extraSettled, preset_id: presetId || undefined }, preview)
   const check = useWorkdirCheck(checked)
   const typing = dir.trim() !== checked
 
@@ -152,7 +165,7 @@ export function RunDialog({ task, workdir, inherit, onStart, onClose }: {
   const submit = () => {
     if (!ready) return
     if (effMode === 'stream') {
-      startRun(task.id, runRequest(dir, extra, allow))
+      startRun(task.id, runRequest(dir, extra, allow, presetId))
       onStart()
       return
     }
@@ -166,7 +179,7 @@ export function RunDialog({ task, workdir, inherit, onStart, onClose }: {
     setFailed('')
     let runId = ''
     try {
-      const h = await startTerminalRun(task.id, terminalRequest(dir, extra))
+      const h = await startTerminalRun(task.id, terminalRequest(dir, extra, presetId))
       runId = h.run.id
       await launcher.launch({
         cwd: h.workdir, title: task.ref || task.title,
@@ -217,13 +230,32 @@ export function RunDialog({ task, workdir, inherit, onStart, onClose }: {
               ? <span className="field-err" role="alert">{dirErr}</span>
               : <span className="field-hint-line">{source}</span>}
           </div>
+          <div className="ho-preset">
+            <div className="ho-preset-head">
+              <label className="field-label" htmlFor={`${id}-preset`}>角色</label>
+              <span className="spacer" />
+              <Link className="ho-preset-manage" to="/settings/run-prompts" onClick={onClose}>管理角色</Link>
+            </div>
+            <Select id={`${id}-preset`} value={presetId} disabled={busy} onValueChange={pickPreset}
+              options={[{ value: NO_PRESET, label: '不用' }, ...(presets.data ?? []).map((p) => ({ value: p.id, label: roleOptionLabel(p) }))]} />
+            <span className="field-hint-line ho-preset-text">
+              {presets.isError ? `角色没取到：${errorText(presets.error)}`
+                : preset ? preset.content : '不带角色的执行要求，只按任务内容和附加说明执行'}
+            </span>
+            {preset?.output && <span className="field-hint-line ho-preset-text">输出要求：{preset.output}</span>}
+            {effMode === 'terminal' && preset && roleReadOnly(preset) && (
+              <span className="field-hint-line">终端方式的权限由启动命令决定：只读角色只在提示词里写明不改文件</span>
+            )}
+          </div>
           {effMode === 'stream' && <div className="ho-perm">
-            <Checkbox className="ho-check" checked={allow}
-              onCheckedChange={(v) => { if (v) setAsking(true); else setAllow(false) }}>
+            <Checkbox className="ho-check" checked={allow} disabled={allowLocked || busy}
+              onCheckedChange={(v) => { if (v) setAsking(true); else setAllowChoice(false) }}>
               允许写入
             </Checkbox>
             <span className="field-hint-line">
-              {allow ? '会以 acceptEdits 权限模式运行：可以直接改工作目录里的文件' : '默认只读：只跑一遍看它打算怎么做，不改文件'}
+              {allowLocked ? `角色「${preset?.scene ?? ''}」只读：只跑一遍给结论，不改文件`
+                : allow ? `会以 acceptEdits 权限模式运行：可以直接改工作目录里的文件${preset && allowChoice === null ? `（按角色「${preset.scene}」）` : ''}`
+                  : '默认只读：只跑一遍看它打算怎么做，不改文件'}
             </span>
           </div>}
           <Field label="附加说明">
@@ -253,7 +285,7 @@ export function RunDialog({ task, workdir, inherit, onStart, onClose }: {
         </div>
       </div>
       <ConfirmDialog open={asking} danger title="允许写入？" confirmLabel="确认允许写入" cancelLabel="算了，只读"
-        onConfirm={() => { setAllow(true); setAsking(false) }} onCancel={() => setAsking(false)}>
+        onConfirm={() => { setAllowChoice(true); setAsking(false) }} onCancel={() => setAsking(false)}>
         会以 acceptEdits 权限模式运行：Claude Code 可以不经确认直接改「{dir.trim() || '工作目录'}」里的文件。
         其他需要权限的操作仍会被挡下，任何情况下都不会跳过权限确认。
       </ConfirmDialog>

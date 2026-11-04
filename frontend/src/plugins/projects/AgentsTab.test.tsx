@@ -35,7 +35,11 @@ function fakeBackend(p: WorkObject, sessions: AgentSession[] = []) {
     calls.push({ method, path: u.pathname, body })
     if (u.pathname === '/api/agents') return json(AGENTS)
     if (u.pathname === '/api/agent/sessions' && method === 'GET') return json(sessions)
-    if (u.pathname === '/api/agent/sessions' && method === 'POST') return json(sess('ags_new', body.agent_id, '2026-10-29T05:00:00Z', 0), 201)
+    if (u.pathname === '/api/agent/sessions' && method === 'POST') {
+      const s = sess('ags_new', body.agent_id, '2026-10-29T05:00:00Z', 0)
+      sessions.push(s)
+      return json(s, 201)
+    }
     if (u.pathname === `/api/objects/${p.id}`) {
       if (method === 'PATCH') Object.assign(p, body)
       return json(p)
@@ -107,13 +111,20 @@ describe('项目的 Agent 标签（PR-21）', () => {
     expect(screen.getByTestId('where')).toHaveTextContent('/settings/agents/ag_week')
   })
 
-  it('「对话」建挂这个 Agent 的会话（工作目录用项目目录），记进 session_ids 最前，再切到会话页', async () => {
+  it('「对话」建挂这个 Agent 的会话（工作目录用项目目录），记进 session_ids 最前，就在项目里打开，不跳到会话页', async () => {
     const p = project({ agent_ids: ['ag_week'], session_ids: ['ags_old'] })
     const calls = fakeBackend(p)
-    mount(<AgentsTab project={p} />)
+    const router = mount(<AgentsTab project={p} />)
     const items = within(await screen.findByRole('list', { name: '项目 Agent' })).getAllByRole('listitem')
     await userEvent.click(within(items[0]).getByRole('button', { name: '对话' }))
-    await waitFor(() => expect(screen.getByTestId('where')).toHaveTextContent('/conversations?s=ags_new'))
+    await waitFor(() => expect(router.state.location.pathname + router.state.location.search).toBe('/projects/obj_p/agents?s=ags_new'))
+    const pane = await screen.findByRole('region', { name: '项目会话' })
+    expect(await within(pane).findByRole('textbox')).toBeInTheDocument()
+    expect(within(pane).getByText('会话 ags_new')).toBeInTheDocument()
+    // 「返回」关掉对话，回到列表
+    await userEvent.click(within(pane).getByRole('button', { name: '返回' }))
+    await waitFor(() => expect(router.state.location.search).toBe(''))
+    expect(screen.queryByRole('region', { name: '项目会话' })).toBeNull()
     expect(calls.find((c) => c.method === 'POST')?.body).toEqual({ title: '新会话', agent_id: 'ag_week', workdir: '/tmp/pj' })
     expect(patches(calls)[0]).toMatchObject({ agent_ids: ['ag_week'], session_ids: ['ags_new', 'ags_old'] })
   })
@@ -127,7 +138,7 @@ describe('项目的 Agent 标签（PR-21）', () => {
     ]
     const p = project({ agent_ids: ['ag_week'], session_ids: [...ids, 'ags_empty'] })
     fakeBackend(p, sessions)
-    mount(<AgentsTab project={p} />)
+    const router = mount(<AgentsTab project={p} />)
     const box = await screen.findByRole('region', { name: '项目里的会话' })
     await within(box).findByText('会话 ags_11')
     expect(within(box).getByRole('heading')).toHaveTextContent('项目里的会话 12')
@@ -139,20 +150,25 @@ describe('项目的 Agent 标签（PR-21）', () => {
     expect(rows()).toHaveLength(12)
     expect(within(box).getByRole('button', { name: '收起' })).toBeInTheDocument()
     await userEvent.click(rows()[0])
+    expect(router.state.location.pathname + router.state.location.search).toBe('/projects/obj_p/agents?s=ags_11')
+    expect(rows()[0]).toHaveAttribute('aria-current', 'true')
+    const pane = await screen.findByRole('region', { name: '项目会话' })
+    await userEvent.click(within(pane).getByRole('button', { name: '在会话页打开' }))
     expect(screen.getByTestId('where')).toHaveTextContent('/conversations?s=ags_11')
   })
 })
 
 describe('概览的项目 Agent 块（PR-21）', () => {
-  it('显示默认 Agent（已删的跳过），「和它对话」开项目会话', async () => {
+  it('显示默认 Agent（已删的跳过），「和它对话」开项目会话，切到 Agent 标签就地打开', async () => {
     const p = project({ agent_ids: ['ag_gone', 'ag_sop', 'ag_week'] })
     const calls = fakeBackend(p)
-    mount(<Overview project={p} onTab={() => {}} />)
+    const onTab = vi.fn()
+    mount(<Overview project={p} onTab={onTab} />)
     const block = await screen.findByRole('region', { name: '项目 Agent' })
     expect(await within(block).findByText('SOP 助手')).toBeInTheDocument()
     expect(within(block).getByText('SOP 助手的说明')).toBeInTheDocument()
     await userEvent.click(within(block).getByRole('button', { name: '和它对话' }))
-    await waitFor(() => expect(screen.getByTestId('where')).toHaveTextContent('/conversations?s=ags_new'))
+    await waitFor(() => expect(onTab).toHaveBeenCalledWith('agents', 's=ags_new'))
     expect(calls.find((c) => c.method === 'POST')?.body).toMatchObject({ agent_id: 'ag_sop' })
   })
 

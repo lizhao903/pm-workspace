@@ -68,6 +68,7 @@ make build         # 构建前端 + pmw + pmw-mcp
 | `pmw_recent_changes` | 只读 | 字段级变更流水，日报周报的数据源 |
 | `pmw_counts` | 只读 | 待办概览：收件箱/今日/本周/逾期/停滞，以及按类型和状态的分布 |
 | `pmw_list_artifacts` | 只读 | 列出产物，可按对象、平台、种类（`kind`）、关键词筛 |
+| `pmw_list_project_profiles` | 只读 | 列出全部项目的档案摘要（简介、关键词、平台、三个目录是否齐全、设了哪些命令），没建档案的项目也列出并注明；分类 Agent 用（AUTO-04） |
 | `pmw_next_task` | 只读 | 按优先级 → 到期 → 创建时间挑下一个可做的任务（默认 task 的初始状态、负责人为空或是 Claude Code），可按项目、标签筛 |
 | `pmw_list_runs` | 只读 | 某任务的后端执行记录（任务页「交给 Claude Code」起的那些） |
 | `pmw_get_run` | 只读 | 一次执行的详情，输出默认取末尾 8000 字符 |

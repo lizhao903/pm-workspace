@@ -1,0 +1,65 @@
+graph TB
+  U["用户（浏览器）"]
+
+  subgraph FE["前端层 · React，嵌入 pmw 单文件"]
+    direction LR
+    SHELL["外壳<br/>导航 / 通知 / 提醒弹窗"]
+    MODS["内核页面<br/>今日 / 任务（交给 CLI、定时任务）/ 文档<br/>联系人 / 对话（AI 助手）/ 设置（预置提示词、连接器、版本）"]
+    PUI["插件页面<br/>消息 / 项目 / SOP / 终端 / 视频 / 域名 / 浏览器"]
+  end
+
+  subgraph CORE["内核层 · Go cmd/pmw"]
+    direction LR
+    API["HTTP API + SSE"]
+    STORE["对象存储<br/>需求 / 任务 / 项目 / 资料 / 笔记"]
+    EV["事件流<br/>object.* / run.finished / im.*"]
+    RUN["执行器<br/>拼提示词 + 拉起 Claude Code"]
+    AG["Agent<br/>多模型对话 + 知识库 + 工具"]
+    SCH["定时任务<br/>建任务 / 提醒"]
+    NT["通知中心"]
+    CON["连接器 + 凭证保险箱"]
+    DOCFS["文档目录挂载"]
+    AU["审计日志"]
+    DB[("SQLite")]
+  end
+
+  subgraph PL["插件层 · 经插件宿主接入事件、SOP 节点、页面"]
+    direction LR
+    IM["IM 消息<br/>收发 / 转任务 / 转资料 / 回执"]
+    SOP["SOP 编排引擎"]
+    PRJ["项目"]
+    TERM["终端"]
+    VID["视频创作"]
+    DOM["内网域名 / 内置浏览器"]
+  end
+
+  subgraph EXT["外部系统"]
+    direction LR
+    CC["Claude Code CLI"]
+    MCP["pmw-mcp<br/>工作台 MCP 服务"]
+    IMX["Slack / Telegram"]
+    LLM["Anthropic / OpenAI<br/>Gemini / Ollama"]
+    GG["Google 日历 / 云盘"]
+    FS["本机目录<br/>Know Me / PRD"]
+    VP["B站 / YouTube / 抖音"]
+  end
+
+  U --> SHELL
+  SHELL --- MODS & PUI
+  FE <-->|"REST 请求 / SSE 推送"| API
+  API --> STORE & RUN & AG & SCH & CON & DOCFS
+  STORE --> DB
+  STORE --> EV
+  STORE --> AU
+  SCH --> NT
+  EV -->|"事件订阅"| PL
+  PL -->|"读写对象 / 发通知"| STORE
+  RUN --> CC
+  TERM --> CC
+  CC --> MCP -->|"回写进度 / 产出"| API
+  CC --> FS
+  DOCFS --> FS
+  AG --> LLM
+  CON --> GG
+  IM <--> IMX
+  VID --> VP

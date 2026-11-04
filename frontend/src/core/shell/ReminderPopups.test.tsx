@@ -2,7 +2,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { reminderTask, type AppNotification } from '../data'
+import { reminderPopup, reminderTask, type AppNotification } from '../data'
 import { ReminderPopups } from './ReminderPopups'
 
 const at = new Date().toISOString()
@@ -50,6 +50,31 @@ describe('提醒弹窗', () => {
     await userEvent.click(within(card).getAllByRole('button', { name: '知道了' })[1])
     await waitFor(() => expect(fn.mock.calls.some(([i]) => String(i) === '/api/notifications/ntf_1/read')).toBe(true))
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  })
+
+  it('中间弹窗（SPEC-tasks-8.26）：模态居中，一次一条先弹最早的，Esc 不关，「知道了」才关；右下角的照旧', async () => {
+    const { fn } = setup([
+      note({ id: 'ntf_3', title: '开会', object_id: '', data: { popup: 'modal' } }),
+      note({ id: 'ntf_2', title: '点餐', body: '17:45 了', object_id: '', data: { popup: 'modal' } }),
+      note({ id: 'ntf_1', title: '喝水', object_id: '', data: {} }),
+    ])
+    const dlg = await screen.findByRole('alertdialog')
+    expect(within(dlg).getByText('点餐')).toBeInTheDocument()
+    expect(within(dlg).getByText('17:45 了')).toBeInTheDocument()
+    expect(within(dlg).getByText('还有 1 条')).toBeInTheDocument()
+    expect(within(dlg).getByRole('button', { name: '知道了' })).toHaveFocus()
+    // 右下角的照旧
+    expect(within(screen.getByRole('alert')).getByText('喝水')).toBeInTheDocument()
+    await userEvent.keyboard('{Escape}')
+    expect(screen.getByRole('alertdialog')).toBeInTheDocument()
+    await userEvent.click(within(dlg).getByRole('button', { name: '知道了' }))
+    await waitFor(() => expect(fn.mock.calls.some(([i]) => String(i) === '/api/notifications/ntf_2/read')).toBe(true))
+  })
+
+  it('弹窗方式：只有 modal 算中间弹窗，旧通知没有这个字段按右下角', () => {
+    expect(reminderPopup(note({ data: { popup: 'modal' } }))).toBe('modal')
+    expect(reminderPopup(note({ data: { popup: 'toast' } }))).toBe('toast')
+    expect(reminderPopup(note({ data: {} }))).toBe('toast')
   })
 
   it('关联的不是任务时不给跳转', () => {

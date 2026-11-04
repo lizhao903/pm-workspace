@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Agent, AgentRunCall, AgentToolCall } from '../../core/data'
-import { matchAgentFilter, recentAgents, whoOf, whoUsable, FILTER_GONE, FILTER_NO_AGENT } from './chatModel'
+import { matchAgentFilter, recentAgents, whoOf, whoUsable, FILTER_GONE, FILTER_NO_AGENT } from '../../core/chat/chatModel'
 import { MANY_AGENTS, TOP_AGENTS, runCallViews, topAgents } from './runModel'
 
 const call = (tool: string, summary: string, args = '{}'): AgentRunCall => ({ tool, args, summary, at: '' })

@@ -1,0 +1,21 @@
+sequenceDiagram
+  autonumber
+  participant IMU as IM 用户
+  participant IM as IM 插件
+  participant K as 内核（任务 / 事件）
+  participant SOP as SOP 引擎
+  participant CLI as Claude Code
+  participant ME as 我（工作台）
+
+  IMU->>IM: 发消息
+  ME->>IM: 转任务（勾选「执行完成后在原消息里回复」）
+  IM->>K: 建任务（带来源消息）
+  IM->>SOP: 启动「IM 任务回执」流程
+  SOP->>SOP: 第 1 步 等任务完成（最长 14 天）
+  ME->>K: 交给 CLI（选预置提示词）
+  K->>K: 任务改为进行中
+  K->>CLI: 提示词 = 任务 + 来源消息 + 执行要求<br/>软链目录用 --add-dir 放行
+  CLI-->>K: 执行结束 run.finished（状态 + 摘要）
+  K-->>SOP: 事件触发，继续流程
+  SOP->>IM: 第 2 步 回复原消息
+  IM->>IMU: 「任务标题」已经处理完了 + 摘要

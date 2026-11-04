@@ -33,6 +33,14 @@ function conversationOptions() {
   ]
 }
 
+// 任务阶段（AUTO-05，契约「任务阶段与提出人」），设置任务阶段节点的下拉用
+const TASK_STAGE_OPTIONS = [
+  { value: 'received', label: '已接收' }, { value: 'confirm_project', label: '待确认项目' }, { value: 'designing', label: '设计中' },
+  { value: 'clarifying', label: '待澄清' }, { value: 'reviewing', label: '评审中' }, { value: 'need_human', label: '需人工' },
+  { value: 'developing', label: '开发中' }, { value: 'testing', label: '测试中' }, { value: 'accepting', label: '待验收' },
+  { value: 'releasing', label: '待发布' }, { value: 'released', label: '已上线' },
+]
+
 export default definePlugin({
   activate(api) {
     api.modules.register({
@@ -110,6 +118,55 @@ export default definePlugin({
         const p = projectOptions().find((o) => o.value === c.project)
         return `归到 ${p?.label ?? c.project}`
       },
+    })
+    // IM 任务回执（SPEC-messages-2.50）：等任务执行完成、在原消息串里回复
+    api.sopNodes.register({
+      kind: 'im_wait_task', label: '等任务完成', group: '沟通', color: '#0c8599', desc: '等任务交给 Claude Code 执行成功结束或被标为已完成',
+      fields: [
+        { key: 'task', label: '任务', type: 'text', default: '{{task_id}}', hint: '任务 id，支持 {{字段}}' },
+        { key: 'timeout', label: '超时', type: 'text', default: '14 天', hint: '最多等多久，写法同等待回复' },
+      ],
+    })
+    api.sopNodes.register({
+      kind: 'im_reply_message', label: '回复原消息', group: '沟通', color: '#0f8a8a', desc: '在原消息所在的串里回复对方',
+      fields: [
+        { key: 'message', label: '消息', type: 'text', hint: '消息 id，支持 {{字段}}；留空用输入里的 message_id' },
+        { key: 'text', label: '内容', type: 'textarea', required: true, hint: '支持 {{字段}}' },
+      ],
+    })
+    // IM 需求自动受理（AUTO-06）：消息转成任务（写提出人、阶段已接收）、改任务阶段并可同时绑项目
+    api.sopNodes.register({
+      kind: 'im_to_task', label: '转成任务', group: '沟通', color: '#1971c2', desc: '同消息页「转任务」：建任务，记来源消息和提出人，阶段「已接收」；转过的取回原任务',
+      fields: [
+        { key: 'message', label: '消息', type: 'text', hint: '消息 id，支持 {{字段}}；留空用输入里的 message_id' },
+        { key: 'title', label: '标题', type: 'text', hint: '留空取正文前 40 字' },
+        { key: 'body', label: '正文', type: 'textarea', hint: '留空是消息原文' },
+      ],
+    })
+    api.sopNodes.register({
+      kind: 'im_set_task_stage', label: '设置任务阶段', group: '沟通', color: '#7048e8', desc: '改任务在看板上的阶段，可同时把任务归到项目',
+      fields: [
+        { key: 'task', label: '任务', type: 'text', default: '{{task.id}}', hint: '任务 id，支持 {{字段}}；留空用输入里的 task.id' },
+        { key: 'stage', label: '阶段', type: 'select', options: () => [{ value: '', label: '不改' }, ...TASK_STAGE_OPTIONS] },
+        { key: 'project', label: '项目', type: 'select', options: () => [
+          { value: '', label: '不改' }, { value: '{{project_id}}', label: '取输入里的 project_id' }, ...projectOptions(),
+        ], hint: '也可以写 {{字段}}，认项目 id、编号或名字' },
+      ],
+      summary: (c) => [c.stage ? `阶段改为${TASK_STAGE_OPTIONS.find((o) => o.value === c.stage)?.label ?? c.stage}` : '', c.project ? '绑定项目' : ''].filter(Boolean).join('，'),
+    })
+    // 研发 pipeline（AUTO-09）：平台通知，有来源消息时同时在原消息串里回复
+    api.sopNodes.register({
+      kind: 'im_notify', label: '通知', group: '沟通', color: '#e8590c', desc: '发一条平台通知（关联任务）；填了消息且取得到时，同时在原消息所在的串里回复同样的内容',
+      fields: [
+        { key: 'text', label: '内容', type: 'textarea', required: true, hint: '支持 {{字段}}' },
+        { key: 'title', label: '标题', type: 'text', hint: '留空是「任务编号 任务标题」' },
+        { key: 'task', label: '任务', type: 'text', default: '{{task.id}}', hint: '通知关联的任务，支持 {{字段}}；取不到不关联' },
+        { key: 'message', label: '回复原消息', type: 'text', hint: '消息 id，支持 {{字段}}（如 {{message_id}}）；留空或取不到只发平台通知' },
+        { key: 'level', label: '级别', type: 'select', options: () => [
+          { value: '', label: '一般' }, { value: 'success', label: '成功' }, { value: 'error', label: '要处理' },
+        ] },
+      ],
+      summary: (c) => (c.message ? '平台通知，回复原消息' : '平台通知'),
     })
   },
 })

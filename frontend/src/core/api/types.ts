@@ -162,6 +162,8 @@ export type ObjectListParams = {
   project?: string
   // 按 objects.source 精确匹配，多个之间是或（任务来源见契约「任务来源」）
   source?: string[]
+  // 按 props.stage 筛（AUTO-05），多个之间是或，"none" 是没设阶段
+  stage?: string[]
   q?: string
   // 纯日期 YYYY-MM-DD 由后端补时：due_after 补 00:00:00，due_before 补 23:59:59；也可传 RFC3339
   due_after?: string
@@ -408,7 +410,8 @@ export type TaskRun = {
 export type RunMode = 'stream' | 'terminal'
 
 /** POST /api/objects/{id}/run/terminal 的请求和响应（0048） */
-export type TerminalRunRequest = { workdir?: string; extra_prompt?: string }
+/** preset_id 是选的角色（SPEC-tasks-6.18，原预置提示词），不用时不传 */
+export type TerminalRunRequest = { workdir?: string; extra_prompt?: string; preset_id?: string }
 export type TerminalHandoff = {
   run: TaskRun
   workdir: string
@@ -419,8 +422,20 @@ export type TerminalHandoff = {
 /** 终端执行收尾：终端里的 claude 经 MCP 或界面上的「标记结束」 */
 export type FinishRunInput = { status: 'done' | 'failed' | 'canceled'; summary?: string }
 /** GET /api/objects/{id}/run/prompt 的参数和响应 */
-export type RunPromptParams = { mode?: RunMode; workdir?: string; extra_prompt?: string }
+export type RunPromptParams = { mode?: RunMode; workdir?: string; extra_prompt?: string; preset_id?: string }
 export type RunPrompt = { prompt: string; workdir: string }
+/** 角色的权限：只读不放开文件编辑；accept_edits 流式执行时加 --permission-mode acceptEdits（AUTO-03） */
+export type RolePermission = 'read_only' | 'accept_edits'
+/** 角色默认在项目档案的哪个目录跑（AUTO-04 落地前只存不用） */
+export type RoleDirKind = 'code' | 'prototype' | 'prd' | 'any'
+/**
+ * 交给 Claude Code 的角色（由预置提示词升级而来，SPEC-tasks-6.18、SPEC-settings-24），GET / PUT /api/run-prompts。
+ * permission / output / dir_kind 可选：后端读出来总会补齐（accept_edits / 空 / any），旧数据和保存时不带也行
+ */
+export type RunPreset = {
+  id: string; scene: string; content: string; default: boolean
+  permission?: RolePermission; output?: string; dir_kind?: RoleDirKind
+}
 
 // ---- 侧栏计数 ----
 

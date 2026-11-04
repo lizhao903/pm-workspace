@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/lizhao903/pm-workspace/internal/db"
+	"github.com/lizhao903/pm-workspace/internal/domain"
 )
 
 // 插件的数据句柄（plugin-api.md 2.0）：Store 只能读写本插件 table_prefix 开头的表；
@@ -43,6 +44,10 @@ type ObjectInfo struct {
 	Workdir string
 	Props   map[string]any
 	Deleted bool
+	// Status 是状态 key（按类型隔离，任务的已完成是 done）。
+	Status string
+	// ProjectID 是所属项目（objects.project_id），没挂项目为空串（AUTO-07：项目插件从任务找到项目档案）。
+	ProjectID string
 }
 
 // ObjectReader 只读查内核对象。没有这个 id 返回 ErrNoRows。
@@ -51,6 +56,8 @@ type ObjectReader interface {
 	// Find 在某个类型里按 id、ref（不分大小写）、标题（完全相同）依次找一个没删的对象，标题重名取最早建的；
 	// 都找不到返回 ErrNoRows（SOP 节点按「项目 id、ref 或名字」认项目用）。
 	Find(ctx context.Context, typeID, key string) (ObjectInfo, error)
+	// TaskStages 按来源消息或提出人查任务阶段（AUTO-05，taskstages.go），给 IM 里「问进度」用。
+	TaskStages(ctx context.Context, q TaskStageQuery) ([]domain.TaskStageRow, error)
 }
 
 // ContactInfo 是干系人名册里的一个人；已归档的 Archived 为 true。
@@ -263,15 +270,16 @@ func (o objectReader) Get(ctx context.Context, id string) (ObjectInfo, error) {
 	return scanObject(d.R.QueryRowContext(ctx, `SELECT `+objectInfoCols+` FROM objects WHERE id = ?`, id))
 }
 
-const objectInfoCols = `id, type_id, ref, title, workdir, props, deleted_at`
+const objectInfoCols = `id, type_id, ref, title, workdir, props, deleted_at, status, project_id`
 
 func scanObject(row *sql.Row) (ObjectInfo, error) {
 	var info ObjectInfo
-	var deleted sql.NullString
+	var deleted, project sql.NullString
 	var props string
-	if err := row.Scan(&info.ID, &info.Type, &info.Ref, &info.Title, &info.Workdir, &props, &deleted); err != nil {
+	if err := row.Scan(&info.ID, &info.Type, &info.Ref, &info.Title, &info.Workdir, &props, &deleted, &info.Status, &project); err != nil {
 		return ObjectInfo{}, err
 	}
+	info.ProjectID = project.String
 	info.Workdir = strings.TrimSpace(info.Workdir)
 	info.Deleted = deleted.Valid
 	if json.Unmarshal([]byte(props), &info.Props) != nil || info.Props == nil {

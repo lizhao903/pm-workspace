@@ -251,8 +251,16 @@ func TestRunStageNodeFails(t *testing.T) {
 	if got := runStep(run, "a")["error"].(string); !strings.HasPrefix(got, "「内容编写」没跑成：") || !strings.Contains(got, "package.json") {
 		t.Fatalf("没跑成：%v", got)
 	}
+	// 步骤先标失败、等待行随后清，负载高时两者之间有间隔，最多等 3 秒
 	var n int
-	if err := e.d.R.QueryRow(`SELECT count(*) FROM video_sop_waits`).Scan(&n); err != nil || n != 0 {
+	var err error
+	for deadline := time.Now().Add(3 * time.Second); ; time.Sleep(20 * time.Millisecond) {
+		err = e.d.R.QueryRow(`SELECT count(*) FROM video_sop_waits`).Scan(&n)
+		if err != nil || n == 0 || time.Now().After(deadline) {
+			break
+		}
+	}
+	if err != nil || n != 0 {
 		t.Fatalf("等待没清掉：%d %v", n, err)
 	}
 }

@@ -160,7 +160,7 @@ export function GroupAdminDrawer({ messages, contacts, projects, groupProjects, 
                 <div key={s.key} className={cls('ga-row', sel.has(s.key) && 'picked')}>
                   <input type="checkbox" checked={sel.has(s.key)} onChange={() => toggle(s.key)} aria-label={`选中 ${displayName(s)}`} />
                   <div className="ga-main">
-                    <div className="ga-top">{ch && used.length > 1 && <ImMark ch={ch} compact />}<button className="ga-name" onClick={() => onOpenConversation(s.channel, s.key)} title="看这个会话的消息">{displayName(s)}</button><span className="spacer" /><button className="act" onClick={() => onSend(s.key)} title="直接发到这个会话，不串在哪条消息下面">发消息</button></div>
+                    <div className="ga-top">{ch && used.length > 1 && <ImMark ch={ch} compact />}<button className="ga-name" onClick={() => onOpenConversation(s.channel, s.key)} title="看这个会话的消息">{displayName(s)}</button><span className="spacer" /><button className="act" onClick={() => onSend(s.key)} title="直接发到这个会话，不挂在哪条消息的消息列里">发消息</button></div>
                     <div className="ga-sub"><span className="ga-who">{s.direct ? '私聊' : s.participants.join('、')}</span><span>{timeAgo(s.last_at)}</span></div>
                   </div>
                   <span className="ga-col">{s.total}</span>

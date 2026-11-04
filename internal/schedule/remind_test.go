@@ -71,8 +71,17 @@ func TestRemindActionValidate(t *testing.T) {
 		t.Fatalf("读回来不一致：%+v %v", got, err)
 	}
 	b, _ := a.MarshalJSON()
-	if string(b) != `{"body":"起来走走","kind":"remind","object_id":"`+task.ID+`","title":"喝水"}` {
+	if string(b) != `{"body":"起来走走","kind":"remind","object_id":"`+task.ID+`","popup":"toast","title":"喝水"}` {
 		t.Fatalf("JSON：%s", b)
+	}
+	// 弹窗方式（SPEC-tasks-8.26）：没给按 toast，modal 照存，别的值 400
+	m := f.create(t, schedule.Input{Name: "点餐", Rule: schedule.Rule{Freq: schedule.FreqDaily, Time: "17:45"},
+		Action: schedule.Action{Kind: schedule.ActionRemind, Title: "点餐", Popup: " modal "}})
+	if m.Action.Popup != schedule.PopupModal {
+		t.Fatalf("modal 应原样存：%+v", m.Action)
+	}
+	if err := (schedule.Action{Kind: schedule.ActionRemind, Title: "x", Popup: "big"}).Normalize().Validate(); err == nil {
+		t.Fatal("popup 不是 toast / modal 应校验不过")
 	}
 	// 删掉的任务不能再关联
 	if err := f.st.DeleteObject(ctx, task.ID, false, store.Actor{Name: "test"}); err != nil {

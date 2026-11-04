@@ -112,7 +112,7 @@ export const imGroupsApi = {
     const r = await request<ImConvProjectBatchResult>('PUT', '/api/im/conversation-projects', { body: { items } })
     return { updated: r.updated ?? [], failed: r.failed ?? [] }
   },
-  /** 主动发一条（不串）：会话、连接器不存在 404；没收过消息又没给连接器、连接器暂停/断开/只收 409；渠道发送失败 502 send_failed（记录照样留着） */
+  /** 主动发一条（不挂在消息列里）：会话、连接器不存在 404；没收过消息又没给连接器、连接器暂停/断开/只收 409；渠道发送失败 502 send_failed（记录照样留着） */
   send: (input: ImSendInput) => request<ImOutboxItem>('POST', '/api/im/send', { body: input }),
   /** @ 候选：会话里发过言的人 + 联系人里在这个渠道有 IM 身份的人；会话不存在 404 */
   members: async (conversationId: string, signal?: AbortSignal) =>

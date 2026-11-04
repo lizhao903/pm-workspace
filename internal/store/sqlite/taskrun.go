@@ -12,7 +12,7 @@ import (
 	"github.com/lizhao903/pm-workspace/internal/store"
 )
 
-const taskRunCols = `id, object_id, workdir, prompt, status, exit_code, output, error, started_at, finished_at, mode`
+const taskRunCols = `id, object_id, workdir, prompt, status, exit_code, output, error, started_at, finished_at, mode, harness, harness_session`
 
 // runTimeLayout 与 agent 三张表用的是同一套格式：带固定 9 位小数的 RFC3339。
 //
@@ -32,7 +32,8 @@ func scanTaskRun(sc rowScanner) (*domain.TaskRun, error) {
 		finished sql.NullString
 	)
 	if err := sc.Scan(&r.ID, &r.ObjectID, &r.Workdir, &r.Prompt, &r.Status,
-		&r.ExitCode, &r.Output, &r.Error, &started, &finished, &r.Mode); err != nil {
+		&r.ExitCode, &r.Output, &r.Error, &started, &finished, &r.Mode, &r.Harness,
+		&r.HarnessSession); err != nil {
 		return nil, err
 	}
 	r.StartedAt = parseTime(started)
@@ -122,6 +123,15 @@ func (s *Store) CreateTaskRun(ctx context.Context, in *domain.TaskRun) (*domain.
 	default:
 		return nil, validation("mode", "must be stream or terminal")
 	}
+	// 执行器不认识就拒绝，不兜底成 claude：记错执行器比缺一个字段更糟——
+	// 三个月后要回答「这批活是谁干的」时，错的那条会把人带偏。
+	switch r.Harness {
+	case "":
+		r.Harness = domain.RunHarnessClaude
+	case domain.RunHarnessClaude, domain.RunHarnessDeepSeek:
+	default:
+		return nil, validation("harness", "must be claude or deepseek")
+	}
 
 	// 先确认对象存在：外键失败回的是一条驱动层的字符串，映射成 500，
 	// 而「这个对象不存在」显然该是 404。
@@ -137,8 +147,9 @@ func (s *Store) CreateTaskRun(ctx context.Context, in *domain.TaskRun) (*domain.
 	r.ID = idgen.Prefixed("run")
 	now := nowRun()
 	if _, err := s.db.W.ExecContext(ctx,
-		`INSERT INTO task_runs (`+taskRunCols+`) VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
-		r.ID, r.ObjectID, r.Workdir, r.Prompt, r.Status, r.ExitCode, r.Output, r.Error, now, nil, r.Mode,
+		`INSERT INTO task_runs (`+taskRunCols+`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		r.ID, r.ObjectID, r.Workdir, r.Prompt, r.Status, r.ExitCode, r.Output, r.Error, now, nil,
+		r.Mode, r.Harness, r.HarnessSession,
 	); err != nil {
 		return nil, fmt.Errorf("insert task run: %w", err)
 	}
@@ -189,6 +200,18 @@ func (s *Store) FinishTaskRun(ctx context.Context, id, status string, exitCode i
 		return nil, err
 	}
 	return out, nil
+}
+
+// SetTaskRunSession 见 store.Store。
+//
+// 不限制「只在没收尾时能改」：会话 id 是进程跑起来才有的，收尾写库和它可能
+// 前后脚，限制窗口只会制造一次莫名其妙的失败，而它本身没有任何可篡改的价值。
+func (s *Store) SetTaskRunSession(ctx context.Context, id, session string) error {
+	if _, err := s.db.W.ExecContext(ctx,
+		`UPDATE task_runs SET harness_session = ? WHERE id = ?`, session, id); err != nil {
+		return fmt.Errorf("set task run session: %w", err)
+	}
+	return nil
 }
 
 // SetTaskRunPrompt 见 store.Store。

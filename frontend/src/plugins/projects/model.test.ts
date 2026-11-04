@@ -184,7 +184,7 @@ describe('标签顺序', () => {
   })
 
   it('按存的顺序排，概览固定第一、设置固定最后；存的顺序里写了概览、设置也不挪', () => {
-    const order = ['prototypes', 'sop', 'comms', 'attachments', 'stakeholders', 'tasks', 'docs', 'agents', 'materials']
+    const order = ['prototypes', 'sop', 'comms', 'attachments', 'stakeholders', 'tasks', 'docs', 'agents', 'materials', 'profile']
     expect(keys(orderTabs(TABS, order))).toEqual(['overview', ...order, 'settings'])
     expect(keys(orderTabs(TABS, ['settings', ...order, 'overview']))).toEqual(['overview', ...order, 'settings'])
     expect(isDefaultOrder(TABS, order)).toBe(false)
@@ -192,15 +192,15 @@ describe('标签顺序', () => {
 
   it('存的顺序里没有的标签按默认位置插入：跟在默认顺序里前一个标签后面，前面没有就放最前', () => {
     // 只存了一部分：comms 不在里面，默认在 overview 后，前面没有可跟的，放最前
-    expect(keys(orderTabs(TABS, ['tasks', 'sop']))).toEqual(['overview', 'comms', 'attachments', 'stakeholders', 'tasks', 'docs', 'sop', 'agents', 'materials', 'prototypes', 'settings'])
+    expect(keys(orderTabs(TABS, ['tasks', 'sop']))).toEqual(['overview', 'comms', 'attachments', 'stakeholders', 'tasks', 'docs', 'sop', 'agents', 'materials', 'prototypes', 'profile', 'settings'])
     // 插件后来登记的「商单」（默认在任务后面）跟着任务走
     const all = withPluginTabs([{ key: 'deals', label: '商单', after: 'tasks', page: null as never, plugin: 'video' }])
     const saved = ['prototypes', 'tasks', 'comms', 'attachments', 'stakeholders', 'docs', 'sop', 'agents', 'materials']
-    expect(keys(orderTabs(all, saved))).toEqual(['overview', 'prototypes', 'tasks', 'deals', 'comms', 'attachments', 'stakeholders', 'docs', 'sop', 'agents', 'materials', 'settings'])
+    expect(keys(orderTabs(all, saved))).toEqual(['overview', 'prototypes', 'profile', 'tasks', 'deals', 'comms', 'attachments', 'stakeholders', 'docs', 'sop', 'agents', 'materials', 'settings'])
   })
 
   it('存的顺序里认不出的 key（插件没在跑）跳过', () => {
-    const order = ['deals', 'prototypes', 'sop', 'comms', 'attachments', 'stakeholders', 'tasks', 'docs', 'agents', 'materials']
+    const order = ['deals', 'prototypes', 'sop', 'comms', 'attachments', 'stakeholders', 'tasks', 'docs', 'agents', 'materials', 'profile']
     expect(keys(orderTabs(TABS, order))).toEqual(['overview', ...order.slice(1), 'settings'])
     expect(keys(orderTabs(TABS, ['deals']))).toEqual(def)
     expect(isDefaultOrder(TABS, ['deals'])).toBe(true)

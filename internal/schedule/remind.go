@@ -27,6 +27,7 @@ type RemindRequest struct {
 	Title        string
 	Body         string
 	ObjectID     string
+	Popup        string // toast / modal，空按 toast
 	ScheduleID   string
 	ScheduleName string
 	RunID        string
@@ -55,6 +56,12 @@ type ObjectLookup interface {
 // SetObjects 接上对象查询：保存提醒时关联的对象不存在（或已删）回 400。没接时不查，到点发通知时再说。
 func (s *Store) SetObjects(o ObjectLookup) { s.objects = o }
 
+// 提醒的弹窗方式（SPEC-tasks-8.26）。旧数据没有这个字段，读出来按 toast。
+const (
+	PopupToast = "toast"
+	PopupModal = "modal"
+)
+
 // remindUnavailableText 是没接通知时执行记录的文字。
 const remindUnavailableText = "没执行：通知没接上"
 
@@ -67,6 +74,9 @@ func (a Action) validateRemind() error {
 	}
 	if n := utf8.RuneCountInString(a.Body); n > maxRemindBody {
 		return invalid("action.body is longer than %d characters", maxRemindBody)
+	}
+	if a.Popup != PopupToast && a.Popup != PopupModal {
+		return invalid("action.popup must be toast or modal, got %q", a.Popup)
 	}
 	return nil
 }
@@ -119,7 +129,7 @@ func (s *Store) disableDone(ctx context.Context, id string) error {
 func (r *Runner) remind(ctx context.Context, sc *Schedule, run *Run, planned time.Time, manual bool) runResult {
 	a := sc.Action
 	got, err := r.Reminders.Remind(ctx, RemindRequest{
-		Title: a.Title, Body: a.Body, ObjectID: a.ObjectID, ScheduleID: sc.ID, ScheduleName: sc.Name,
+		Title: a.Title, Body: a.Body, ObjectID: a.ObjectID, Popup: a.Popup, ScheduleID: sc.ID, ScheduleName: sc.Name,
 		RunID: run.ID, At: planned, Manual: manual,
 	})
 	if err != nil {

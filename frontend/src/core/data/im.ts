@@ -70,16 +70,16 @@ export type ImMessage = {
   split_tasks: ImSplitTask[]
   /** 这条消息转成的项目资料（0009）：正文转的笔记、附件加进的资料，新的在前；项目删了的不列 */
   materials: ImMessageMaterial[]
-  /** 串里的回复（0010，Slack 在串里回复的）属于哪个串；不是串里回复的为 null */
+  /** 消息列回复（0010，Slack 在消息列里回复的）属于哪个消息列；不是消息列回复的为 null */
   thread: ImMessageThread | null
-  /** 这条作为父消息时，收到的串里回复条数（不含我回的） */
+  /** 这条作为父消息时，收到的消息列回复条数（不含我回的） */
   reply_count: number
-  /** 这条来信回复的「我发出的」那条（0.17.0）：thread 是在它的串里回复，next 是发出后同会话第一条来信；对不上为 null */
+  /** 这条来信回复的「我发出的」那条（0.17.0）：thread 是在它的消息列里回复，next 是发出后同会话第一条来信；对不上为 null */
   replied_sent?: { outbox_id: string; text: string; at: string; via: 'thread' | 'next' | string } | null
 }
 
 /**
- * 串里回复属于哪个串：parent_external_id 是父消息的渠道编号；父消息在库里时 parent_message_id 是它的 id，否则为 null。
+ * 消息列回复属于哪个消息列：parent_external_id 是父消息的渠道编号；父消息在库里时 parent_message_id 是它的 id，否则为 null。
  * parent_sender_name、parent_text 是父消息的发信人和正文摘要（至多 80 字），父消息不在库里时取到达时的快照，都没有为空串
  */
 export type ImMessageThread = {
@@ -164,6 +164,8 @@ export type ImBatchInput =
   | { action: 'done' | 'ignore'; ids: string[] }
   | { action: 'done' | 'ignore'; conversation_id: string; before: string }
 export type ImBatchResult = { action: 'done' | 'ignore'; ids: string[]; count: number }
+/** 批量接口一次最多的 id 数（同后端校验）；更多时 useImBatch 分批调、合并结果 */
+export const IM_BATCH_MAX = 500
 
 /** 一条快捷回复；done 为真的发完同时把消息标为已处理 */
 export type ImQuickReply = { text: string; done: boolean }
@@ -178,8 +180,18 @@ export const IM_EXPIRE_DAYS_MAX = 365
 export const IM_QUICK_REPLIES_MAX = 20
 export const IM_QUICK_REPLY_TEXT_MAX = 200
 
-export type ImTaskInput = { title?: string; body?: string; priority?: string; project_id?: string; owner_id?: string; due_at?: string; done?: boolean }
-export type ImTaskResult = { message: ImMessage; task: { id: string; ref: string; title: string; status: string; source: string } }
+/** reply_on_done：执行完成后在原消息里回复（SPEC-messages-2.50），不传后端默认要 */
+export type ImTaskInput = {
+  title?: string; body?: string; priority?: string; project_id?: string; owner_id?: string; due_at?: string; done?: boolean
+  reply_on_done?: boolean
+}
+/** 回执流程（内置 SOP「IM 任务回执」）发起结果：enabled 为假时 note 说原因 */
+export type ImTaskReply = { enabled: boolean; run_id?: string; note?: string }
+export type ImTaskResult = {
+  message: ImMessage
+  task: { id: string; ref: string; title: string; status: string; source: string }
+  reply?: ImTaskReply
+}
 
 /** 一页最多 200 条（契约上限） */
 export const IM_PAGE_MAX = 200
@@ -314,11 +326,23 @@ export function useImAction() {
   })
 }
 
-/** 批量处理：成败都整体刷一遍（失败时可能已改了一部分） */
+/**
+ * 批量处理：成败都整体刷一遍（失败时可能已改了一部分）。
+ * 按 id 时超过 IM_BATCH_MAX 条分批依次调，结果合并（ids 拼起来、count 相加）；中途有一批失败就停，报那一批的错
+ */
 export function useImBatch() {
   const notify = useNotifyChange()
   return useMutation({
-    mutationFn: (input: ImBatchInput) => imApi.batch(input),
+    mutationFn: async (input: ImBatchInput): Promise<ImBatchResult> => {
+      if (!('ids' in input) || input.ids.length <= IM_BATCH_MAX) return imApi.batch(input)
+      const out: ImBatchResult = { action: input.action, ids: [], count: 0 }
+      for (let i = 0; i < input.ids.length; i += IM_BATCH_MAX) {
+        const r = await imApi.batch({ action: input.action, ids: input.ids.slice(i, i + IM_BATCH_MAX) })
+        out.ids.push(...r.ids)
+        out.count += r.count
+      }
+      return out
+    },
     onSettled: () => notify({ kind: 'im-message' }),
   })
 }

@@ -88,6 +88,13 @@ func (s *Server) handleStopAgentSession(w http.ResponseWriter, r *http.Request) 
 	respondData(w, http.StatusOK, map[string]any{"session_id": id, "stopped": n})
 }
 
+// running 这个会话有没有正在跑的一轮
+func (a *activeTurns) running(sessionID string) bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return len(a.runs[sessionID]) > 0
+}
+
 // handleRunningAgentSessions 列出正在跑的会话 id，界面据此显示「停止」。
 func (s *Server) handleRunningAgentSessions(w http.ResponseWriter, r *http.Request) {
 	respondData(w, http.StatusOK, map[string]any{"session_ids": s.turns.list()})

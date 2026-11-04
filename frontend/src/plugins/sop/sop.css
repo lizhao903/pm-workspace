@@ -474,3 +474,37 @@ button.sop-run-row:hover { background: var(--panel-2); }
 .sop-settings-muted, .sop-settings-now { color: var(--muted); font-size: var(--fs-sm); }
 .sop-settings-ok { color: var(--ok); font-size: var(--fs-sm); }
 .sop-settings-err { color: var(--danger); font-size: var(--fs-sm); }
+
+/* 流水线治理设置（AUTO-12）：每项一个表单 */
+.sop-settings-item { display: flex; flex-direction: column; gap: var(--sp-2); }
+
+/* 任务详情「流水线」标签（AUTO-12，SPEC-sop-16） */
+.sop-pl { display: flex; flex-direction: column; gap: var(--sp-3); padding-top: var(--sp-4); }
+.sop-pl-blocks { display: flex; flex-direction: column; gap: var(--sp-2); }
+.sop-pl-block { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-3); flex-wrap: wrap; padding: 10px 12px; border-radius: var(--r);
+  background: var(--warn-soft); border: 1px solid color-mix(in srgb, var(--warn) 25%, transparent); }
+.sop-pl-block.bad { background: var(--danger-soft); border-color: color-mix(in srgb, var(--danger) 25%, transparent); }
+.sop-pl-block-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; font-size: var(--fs); }
+.sop-pl-why { color: var(--muted); font-size: var(--fs-sm); overflow-wrap: anywhere; }
+.sop-pl-budget { color: var(--muted); font-size: var(--fs-sm); }
+.sop-pl-budget b { color: var(--text); }
+.sop-pl-stages { display: flex; flex-wrap: wrap; gap: 6px; }
+.sop-pl-stage { display: flex; flex-direction: column; gap: 2px; padding: 6px 10px; border-radius: var(--r); background: var(--hover); min-width: 84px; }
+.sop-pl-stage.cur { background: var(--accent-soft); }
+.sop-pl-stage-name { font-size: var(--fs-sm); font-weight: 600; display: flex; align-items: center; gap: 4px; }
+.sop-pl-stage-ms { font-size: var(--fs-sm); color: var(--muted); }
+.sop-pl-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; border-left: 2px solid var(--line); margin-left: 64px; }
+.sop-pl-row { position: relative; display: flex; align-items: center; gap: var(--sp-3); padding: 6px 0 6px 14px; min-width: 0; }
+.sop-pl-time { position: absolute; left: -72px; width: 64px; text-align: right; color: var(--faint); font-size: var(--fs-xs, 11px); font-variant-numeric: tabular-nums; }
+.sop-pl-dot { position: absolute; left: -6px; width: 10px; height: 10px; border-radius: 50%; background: var(--panel); border: 2px solid var(--line-2); }
+.sop-pl-row.stage .sop-pl-dot { border-color: var(--accent); background: var(--accent); }
+.sop-pl-row.stage.attn .sop-pl-dot { border-color: var(--warn); background: var(--warn); }
+.sop-pl-row.run .sop-pl-dot { border-color: var(--accent); }
+.sop-pl-row.bad .sop-pl-dot { border-color: var(--danger); }
+.sop-pl-main { flex: 1; min-width: 0; display: flex; align-items: center; flex-wrap: wrap; gap: 6px; font-size: var(--fs); text-align: left; }
+.sop-pl-link { background: none; border: 0; padding: 0; color: inherit; cursor: pointer; }
+.sop-pl-link:hover { color: var(--accent); }
+.sop-pl-row.step .sop-pl-main { color: var(--muted); }
+.sop-pl-tag { font-size: var(--fs-xs, 11px); padding: 0 6px; border-radius: 99px; background: var(--hover); color: var(--muted); font-weight: 400; }
+.sop-pl-row.bad .sop-pl-tag { background: var(--danger-soft); color: var(--danger); }
+.sop-pl-dur { color: var(--faint); font-size: var(--fs-sm); white-space: nowrap; }

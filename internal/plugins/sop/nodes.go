@@ -67,6 +67,9 @@ func runNode(def stepDef, input Json, deps []string) nodeResult {
 			c, why = def.Cases[0], "成立"
 		}
 		return nodeResult{output: input, route: c.Key, reason: fmt.Sprintf("规则「%s」%s", strings.TrimSpace(def.Rule), why)}
+	case loopbackKind:
+		// 条件回退（AUTO-02，loopback.go）：成立时由 runner 退回上游或走超限
+		return runLoopback(def, input)
 	case "end":
 		keys := list(cfg["outputs"])
 		if len(keys) == 0 {

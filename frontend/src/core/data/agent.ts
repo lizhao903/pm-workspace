@@ -88,6 +88,8 @@ export const agentApi = {
   deleteSession: (id: string) => request<null>('DELETE', sessionPath(id)),
   /** 停掉会话里正在跑的一轮（含确认后接着跑），已执行的工具调用不撤回 */
   stopSession: (id: string) => request<{ session_id: string; stopped: number }>('POST', sessionPath(id) + '/stop', { body: {} }),
+  /** 从会话里移除几条消息（SPEC-sessions-1.43）；这一轮在跑时 409 */
+  removeMessages: (id: string, ids: string[]) => request<{ session_id: string; removed: number }>('POST', sessionPath(id) + '/messages/remove', { body: { ids } }),
   /** 正在跑的会话 id */
   running: (signal?: AbortSignal) => request<{ session_ids: string[] }>('GET', '/api/agent/running', { signal }),
   messages: (id: string, signal?: AbortSignal) => requestList<AgentMessage>(sessionPath(id) + '/messages', { signal }),
@@ -190,6 +192,19 @@ export function useStopAgentSession() {
     onSettled: (_d, _e, id) => {
       void qc.invalidateQueries({ queryKey: ['agent-sessions', 'running'] })
       void qc.invalidateQueries({ queryKey: agentKeys.sessions.messages(id) })
+    },
+  })
+}
+
+/** 从会话里移除几条消息：移除后不再进模型的上下文；完了刷新这个会话的消息和会话列表（消息数变了） */
+export function useRemoveAgentMessages() {
+  const qc = useQueryClient()
+  const notify = useNotifyChange()
+  return useMutation({
+    mutationFn: ({ sessionId, ids }: { sessionId: string; ids: string[] }) => agentApi.removeMessages(sessionId, ids),
+    onSuccess: (_d, { sessionId }) => {
+      void qc.invalidateQueries({ queryKey: agentKeys.sessions.messages(sessionId) })
+      notify({ kind: 'agent-session' })
     },
   })
 }

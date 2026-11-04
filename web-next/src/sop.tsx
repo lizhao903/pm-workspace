@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { PageTitle } from './topbar'
 import {
-  MODEL_CONCURRENCY_MAX, RERUN_MAX, RUN_STATUS, SOPS, depsOf, flowChanged, sourceText, focusIndex, isFinished, isManualDecide, isModelKind, isQueued, needsMe, ranks,
+  GOVERNANCE_MAX, MODEL_CONCURRENCY_MAX, RERUN_MAX, RUN_STATUS, SOPS, depsOf, isHeld, flowChanged, sourceText, focusIndex, isFinished, isManualDecide, isModelKind, isQueued, needsMe, ranks,
   RERUN_REASON_RELAUNCHED, runShow, runStatus, stepLook,
-  type Json, type RerunAction, type RerunResult, type RunAction, type RunStep, type Sop, type SopRun,
+  type Governance, type Json, type RerunAction, type RerunResult, type RunAction, type RunStep, type Sop, type SopRun,
 } from './sopflow'
 import { KindTag, isBranching } from './nodetypes'
 import { Subnav } from './subnav'
@@ -729,6 +729,7 @@ function Inspector({ run, index, onAct, onOpenSettings }: { run: SopRun; index: 
           <KindTag kind={def.kind} />
           <Pill {...stepLook(step)} />
           {step.edited && <span className="edited-tag">{{ input: '输入被人工修改', output: '输出被人工修改', route: '分支由人选择' }[step.edited]}</span>}
+          {!!step.round && <span className="edited-tag">第 {step.round} 轮</span>}
         </div>
         <div className="insp-desc">
           {def.desc}
@@ -737,6 +738,22 @@ function Inspector({ run, index, onAct, onOpenSettings }: { run: SopRun; index: 
         </div>
       </div>
 
+      {step.rework_reason && (
+        <div className="insp-route">
+          <span className="insp-route-k">第 {step.round} 轮</span>被退回重做<span className="insp-route-why">{step.rework_reason}</span>
+        </div>
+      )}
+      {def.kind === 'loopback' && !!step.loops && (
+        <div className="insp-route">
+          <span className="insp-route-k">已退回</span>{step.loops} 轮<span className="insp-route-why">最多 {def.config?.max_rounds || 3} 轮，退回「{sop.steps.find((x) => x.key === def.config?.target)?.name ?? def.config?.target}」</span>
+        </div>
+      )}
+      {step.claude && (
+        <div className="insp-route">
+          <span className="insp-route-k">Claude Code</span>执行 {step.claude.run_id}
+          <span className="insp-route-why">{step.claude.task_id ? `执行记录留在任务 ${step.claude.task_id} 上，正式产品里点这里跳到任务抽屉的这次执行` : `目录 ${step.claude.workdir ?? ''}`}</span>
+        </div>
+      )}
       {routeLabel && (
         <div className="insp-route">
           <span className="insp-route-k">判断结果</span>走「{routeLabel}」分支<span className="insp-route-why">{step.route_reason}</span>
@@ -745,7 +762,17 @@ function Inspector({ run, index, onAct, onOpenSettings }: { run: SopRun; index: 
       {step.status === 'bypassed' && (
         <div className="insp-banner muted">这一步所在的分支没被选中，没有执行，也没有输入输出。</div>
       )}
-      {!run.stopped && step.status === 'paused' && (
+      {!run.stopped && isHeld(step) && (
+        <div className="insp-banner danger">
+          <b>超出上限，已暂停</b>{step.hold!.reason}。放行只放这一次，之后的执行照样按上限拦；要长期放宽到设置里调高上限。
+          <div className="act-row">
+            <button className="act act-primary" onClick={() => onAct({ kind: 'confirm-input', step: index })}>放行这一次</button>
+            <button className="act act-quiet" onClick={() => onAct({ kind: 'skip', step: index })}>跳过这一步</button>
+            {onOpenSettings && <button className="act act-quiet" onClick={onOpenSettings}>调整上限</button>}
+          </div>
+        </div>
+      )}
+      {!run.stopped && step.status === 'paused' && !isHeld(step) && (
         <div className="insp-banner warn">
           <b>执行前暂停</b>这一步要用下面的输入执行。检查一下，有问题可以直接改。
           <div className="act-row">
@@ -803,8 +830,13 @@ function Inspector({ run, index, onAct, onOpenSettings }: { run: SopRun; index: 
       )}
       {isQueued(step) && (
         <div className="insp-banner muted">
-          <div><b>排队中</b>在等模型名额，前面还有 {step.queue!.ahead} 个。同时调模型的步骤数有上限，多出来的按先来后到排队，排到了自动开始。</div>
-          {onOpenSettings && <div className="act-row"><button className="act act-quiet" onClick={onOpenSettings}>调整同时调模型的步骤数</button></div>}
+          {step.queue!.slot === 'claude_code' ? <>
+            <div><b>排队中</b>在等 Claude Code 名额，前面还有 {step.queue!.ahead} 个。同时跑的 Claude Code 步骤数有上限，多出来的按先来后到排队，排到了自动发起。</div>
+            {onOpenSettings && <div className="act-row"><button className="act act-quiet" onClick={onOpenSettings}>调整同时跑的 Claude Code 步骤数</button></div>}
+          </> : <>
+            <div><b>排队中</b>在等模型名额，前面还有 {step.queue!.ahead} 个。同时调模型的步骤数有上限，多出来的按先来后到排队，排到了自动开始。</div>
+            {onOpenSettings && <div className="act-row"><button className="act act-quiet" onClick={onOpenSettings}>调整同时调模型的步骤数</button></div>}
+          </>}
         </div>
       )}
       {step.status === 'running' && !isQueued(step) && (
@@ -930,7 +962,11 @@ export function SopRunView({ run, onBack, onAct, onRerun, onOpenSettings, onOpen
  * 整个 SOP 跨所有执行同时调模型的步骤数，1..16，默认 2；改了立即生效：调大马上放排队的进来，调小时正在调的不打断。
  * 正式产品存在插件设置里（GET / PATCH /api/sop/settings），超出范围显示后端 400 的原因
  */
-export function SopSettingsPage({ value, runs, onSave }: { value: number; runs: SopRun[]; onSave: (n: number) => void }) {
+export function SopSettingsPage({ value, runs, onSave, gov, onSaveGov }: {
+  value: number; runs: SopRun[]; onSave: (n: number) => void
+  /** 流水线治理（AUTO-12，SPEC-sop-15） */
+  gov: Governance; onSaveGov: (p: Partial<Governance>) => void
+}) {
   const [txt, setTxt] = useState(String(value))
   const [note, setNote] = useState<{ ok: boolean; text: string } | null>(null)
   const n = Number(txt)
@@ -943,10 +979,18 @@ export function SopSettingsPage({ value, runs, onSave }: { value: number; runs: 
   }
   let running = 0
   let queued = 0
+  let cRunning = 0
+  let cQueued = 0
   for (const r of runs) {
     if (r.stopped) continue
     r.steps.forEach((s, i) => {
-      if (s.status !== 'running' || !isModelKind(r.sop.steps[i].kind)) return
+      if (s.status !== 'running') return
+      if (r.sop.steps[i].kind === 'claude_code') {
+        if (s.queue) cQueued++
+        else if (s.cgated) cRunning++
+        return
+      }
+      if (!isModelKind(r.sop.steps[i].kind)) return
       if (s.queue) queued++
       else running++
     })
@@ -966,6 +1010,47 @@ export function SopSettingsPage({ value, runs, onSave }: { value: number; runs: 
           : <span className="field-hint-line">本机推理慢时调小，消息多时多出来的步骤排队。AI、提取、分类、逐项处理、Agent 节点算在内，跨所有执行一起算；改了立即生效，调小时正在调的不打断</span>}
       </div>
       <div className="sop-settings-now muted">此刻 {running} 个步骤在调模型{queued ? `，${queued} 个在排队` : '，没有排队的'}</div>
+
+      <div className="sop-settings-title">流水线治理</div>
+      <GovField label="同时跑的 Claude Code 步骤数" unit="个" min={1} max={GOVERNANCE_MAX.claude_concurrency} value={gov.claude_concurrency}
+        hint="跨所有执行一起算，多出来的 Claude Code 步骤排队，排到了自动发起；改了立即生效，调小时正在跑的不打断"
+        saved={(v) => `已保存：最多同时 ${v} 个 Claude Code 步骤，立即生效`} onSave={(v) => onSaveGov({ claude_concurrency: v })} />
+      <div className="sop-settings-now muted">此刻 {cRunning} 个 Claude Code 步骤在跑{cQueued ? `，${cQueued} 个在排队` : '，没有排队的'}</div>
+      <GovField label="每个需求最多跑 Claude Code 的次数" unit="次" min={0} max={GOVERNANCE_MAX.task_max_claude_runs} value={gov.task_max_claude_runs}
+        hint="按步骤关联的任务累计，重试、评审退回、测试退回的每一轮都算；没关联任务的按同一次流水线算。到了上限，下一次发起前这一步暂停，发通知等你放行。0 是不限"
+        saved={(v) => `已保存：每个需求最多 ${v === 0 ? '不限' : `${v} 次`}`} onSave={(v) => onSaveGov({ task_max_claude_runs: v })} />
+      <GovField label="每个需求 Claude Code 累计时长上限" unit="分钟" min={0} max={GOVERNANCE_MAX.task_max_claude_minutes} value={gov.task_max_claude_minutes}
+        hint="同一个需求历次 Claude Code 跑的时间加起来（在跑的算到现在）。到了上限，下一次发起前暂停；正在跑的那次不打断，它有自己的超时。0 是不限"
+        saved={(v) => `已保存：每个需求累计最多 ${v === 0 ? '不限' : `${v} 分钟`}`} onSave={(v) => onSaveGov({ task_max_claude_minutes: v })} />
+      <div className="muted">token 上限暂不支持：Claude Code 的执行记录里没有 token 用量，目前只按次数和时长控制。</div>
+    </div>
+  )
+}
+
+/** 流水线治理的一项整数设置（SPEC-sop-15.2 到 15.4）：min 为 0 的项 0 是不限 */
+function GovField({ label, unit, min, max, value, hint, saved, onSave }: {
+  label: string; unit: string; min: number; max: number; value: number; hint: string; saved: (v: number) => string; onSave: (v: number) => void
+}) {
+  const [txt, setTxt] = useState(String(value))
+  const [note, setNote] = useState<{ ok: boolean; text: string } | null>(null)
+  const n = Number(txt)
+  const bad = !/^\d+$/.test(txt.trim()) || n < min || n > max ? (min === 0 ? `填 0 到 ${max} 的整数，0 是不限` : `填 ${min} 到 ${max} 的整数`) : null
+  const save = () => {
+    if (bad) { setNote({ ok: false, text: `没保存：${bad}` }); return }
+    if (n === value) return
+    onSave(n)
+    setNote({ ok: true, text: saved(n) })
+  }
+  return (
+    <div className="field">
+      <span className="field-label">{label}</span>
+      <div className="sop-settings-row">
+        <input type="number" min={min} max={max} step={1} inputMode="numeric" aria-label={label} className={cls(note && !note.ok && 'bad')}
+          value={txt} onChange={(e) => { setTxt(e.target.value); setNote(null) }} onKeyDown={(e) => e.key === 'Enter' && save()} />
+        <span className="muted">{unit}</span>
+        <button className="btn btn-outline" disabled={txt.trim() === String(value)} onClick={save}>保存</button>
+      </div>
+      {note ? <span className={note.ok ? 'ok-text' : 'field-err'}>{note.text}</span> : <span className="field-hint-line">{hint}</span>}
     </div>
   )
 }

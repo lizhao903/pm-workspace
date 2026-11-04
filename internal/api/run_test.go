@@ -467,6 +467,27 @@ func TestAllowWritesPassesAcceptEdits(t *testing.T) {
 	}
 }
 
+// 只读角色（AUTO-03）：勾了允许写入也不放开文件编辑。
+func TestReadOnlyRoleForcesReadOnly(t *testing.T) {
+	s, f, obj, _ := runFixture(t, argvEcho)
+	if w := do(s, "POST", "/api/objects/"+obj.ID+"/run", `{"allow_writes":true,"preset_id":"rp_review"}`); w.Code != http.StatusOK {
+		t.Fatalf("状态码 = %d %s", w.Code, w.Body.String())
+	}
+	if argv := argvOf(t, f, obj.ID); strings.Contains(argv, "--permission-mode") {
+		t.Fatalf("只读角色不该传 --permission-mode：%s", argv)
+	}
+}
+
+func TestAcceptEditsRolePassesAcceptEdits(t *testing.T) {
+	s, f, obj, _ := runFixture(t, argvEcho)
+	if w := do(s, "POST", "/api/objects/"+obj.ID+"/run", `{"allow_writes":true,"preset_id":"rp_dev"}`); w.Code != http.StatusOK {
+		t.Fatalf("状态码 = %d %s", w.Code, w.Body.String())
+	}
+	if argv := argvOf(t, f, obj.ID); !strings.Contains(argv, "--permission-mode acceptEdits") {
+		t.Fatalf("允许改文件的角色应传 acceptEdits：%s", argv)
+	}
+}
+
 // 工具被拒时 claude 以退出码 0 正常结束，但任务没做成。
 // 界面不能显示成一个绿色的「完成」。
 func TestDeniedToolRunIsReportedAsFailure(t *testing.T) {
@@ -683,4 +704,161 @@ echo '{"type":"result","subtype":"success","is_error":false}'
 	if len(items) != 0 {
 		t.Errorf("没改动任何文件，不该登记产物，得到 %d 条", len(items))
 	}
+}
+
+// --- deepseek-harness 执行器 ---
+
+// dshNDJSON 是 dsh 的 --json 事件样本，字段名取自它的 headless 投射。
+const dshNDJSON = `{"type":"session","sessionId":"session-1","cwd":"/tmp"}
+{"type":"text","text":"先把需求拆开。"}
+{"type":"tool_call","callId":"c1","name":"bash","arguments":"{\"command\":\"ls\"}"}
+{"type":"tool_result","callId":"c1","status":"completed","result":"a.txt"}
+{"type":"final","sessionId":"session-1","reason":{"kind":"completed"},"text":"拆好了"}`
+
+// TestRunObjectWithDeepSeekHarness 守着这条接线的四件事：执行器传下去了、
+// 服务商被翻译成 dsh 的路由、事件流照常翻成界面认得的样子、记录上留了 harness。
+func TestRunObjectWithDeepSeekHarness(t *testing.T) {
+	s, f, obj, wd := runFixture(t, "exit 0")
+	// 假 dsh：把 stdin（任务文本）落盘，再吐一段事件流。
+	s.run.DSHBin = fakeClaudeBin(t, "cat > stdin.txt\ncat <<'EOF'\n"+dshNDJSON+"\nEOF")
+	if _, err := f.CreateProvider(t.Context(), &domain.AgentProvider{
+		Name: "DeepSeek", Kind: domain.ProviderOpenAI,
+		BaseURL: "https://api.deepseek.com", Model: "deepseek-chat", Enabled: true,
+	}, "sk-dsh-test"); err != nil {
+		t.Fatalf("建服务商: %v", err)
+	}
+
+	w := do(s, http.MethodPost, "/api/objects/"+obj.ID+"/run", `{"harness":"deepseek"}`)
+	if w.Code != http.StatusOK {
+		t.Fatalf("状态码 = %d (body=%s)", w.Code, w.Body.String())
+	}
+	evs := runEvents(t, w)
+	if got := typesOf(evs); len(got) < 5 || got[0] != "start" || got[len(got)-1] != "done" {
+		t.Fatalf("事件序列 = %v，期望 start 开头 done 结尾", got)
+	}
+	var sawDelta, sawTool bool
+	for _, ev := range evs {
+		switch ev["type"] {
+		case "delta":
+			sawDelta = sawDelta || ev["text"] == "先把需求拆开。"
+		case "tool":
+			sawTool = sawTool || (ev["name"] == "bash" && ev["detail"] == "ls")
+		}
+	}
+	if !sawDelta || !sawTool {
+		t.Fatalf("dsh 的事件没翻成界面事件：delta=%v tool=%v", sawDelta, sawTool)
+	}
+	// 任务走 stdin，不走命令行。
+	if body, err := os.ReadFile(filepath.Join(wd, "stdin.txt")); err != nil || !strings.Contains(string(body), obj.Title) {
+		t.Fatalf("任务没递进 stdin（err=%v, body=%q）", err, string(body))
+	}
+
+	runID, _ := evs[len(evs)-1]["run_id"].(string)
+	run, err := f.GetTaskRun(t.Context(), runID)
+	if err != nil {
+		t.Fatalf("取执行记录: %v", err)
+	}
+	if run.Harness != domain.RunHarnessDeepSeek {
+		t.Errorf("harness = %q，期望 deepseek——历史里要能看出是谁跑的", run.Harness)
+	}
+}
+
+// TestRunObjectDeepSeekNeedsUsableProvider 守着「配错了在开流之前就说清楚」：
+// 没配服务商、或者配的是 dsh 不支持的协议，都必须是 400 而不是流里的一条 error。
+func TestRunObjectDeepSeekNeedsUsableProvider(t *testing.T) {
+	s, f, obj, _ := runFixture(t, "exit 0")
+	s.run.DSHBin = fakeClaudeBin(t, "exit 0")
+
+	// fakestore 里一条服务商都没有时 resolveProvider 会建一条本机 ollama，
+	// 而 ollama 没有对应的 dsh 协议——这正是要拦下的那种配置。
+	w := do(s, http.MethodPost, "/api/objects/"+obj.ID+"/run", `{"harness":"deepseek"}`)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("状态码 = %d，期望 400 (body=%s)", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "OpenAI") {
+		t.Fatalf("要说清该配哪种服务商：%s", w.Body.String())
+	}
+	// 拒绝之后不该留下一条 running 的记录，否则它会永远卡在界面上。
+	if runs, _ := f.ListTaskRuns(t.Context(), obj.ID, 0); len(runs) != 0 {
+		t.Fatalf("开流前就失败了，不该建执行记录，得到 %d 条", len(runs))
+	}
+}
+
+// TestRunObjectDeepSeekResume 守着续跑这条线：第一次执行要把会话 id 落库，
+// 第二次勾了「接着上次会话」要把 --session-id 真递到 dsh 命令行上。
+func TestRunObjectDeepSeekResume(t *testing.T) {
+	// 假 dsh：把收到的参数写成一行，顺手吐一段带会话 id 的事件流。
+	script := `printf '%s ' "$@" > args.txt
+cat > /dev/null
+cat <<'DSHEOF'
+{"type":"session","sessionId":"session-s1","cwd":"/tmp"}
+{"type":"text","text":"好的"}
+{"type":"status","phase":"turn_end","turn":1,"reason":{"kind":"completed"}}
+{"type":"final","text":"好的"}
+DSHEOF
+`
+	s, f, obj, wd := runFixture(t, "exit 0")
+	s.run.DSHBin = fakeClaudeBin(t, script)
+	if _, err := f.CreateProvider(t.Context(), &domain.AgentProvider{
+		Name: "DeepSeek", Kind: domain.ProviderOpenAI,
+		BaseURL: "https://api.deepseek.com", Model: "deepseek-chat", Enabled: true,
+	}, "sk-dsh-test"); err != nil {
+		t.Fatalf("建服务商: %v", err)
+	}
+
+	first := do(s, http.MethodPost, "/api/objects/"+obj.ID+"/run", `{"harness":"deepseek"}`)
+	if first.Code != http.StatusOK {
+		t.Fatalf("第一次执行状态码 = %d (body=%s)", first.Code, first.Body.String())
+	}
+	runs, err := f.ListTaskRuns(t.Context(), obj.ID, 1)
+	if err != nil || len(runs) != 1 {
+		t.Fatalf("取执行记录: %v %d", err, len(runs))
+	}
+	if runs[0].HarnessSession != "session-s1" {
+		t.Fatalf("会话 id 没落库：%q", runs[0].HarnessSession)
+	}
+	if args := mustReadFile(t, filepath.Join(wd, "args.txt")); strings.Contains(args, "--session-id") {
+		t.Fatalf("第一次不该续跑：%s", args)
+	}
+
+	second := do(s, http.MethodPost, "/api/objects/"+obj.ID+"/run",
+		`{"harness":"deepseek","resume_session":true}`)
+	if second.Code != http.StatusOK {
+		t.Fatalf("续跑状态码 = %d (body=%s)", second.Code, second.Body.String())
+	}
+	args := mustReadFile(t, filepath.Join(wd, "args.txt"))
+	if !strings.Contains(args, "--session-id session-s1") {
+		t.Fatalf("续跑没把会话 id 传下去：%s", args)
+	}
+}
+
+// TestRunObjectDeepSeekResumeWithoutSession 守「勾了续跑但没得续」：
+// 必须明确拒绝，不能悄悄新开一段——用户会以为上下文带过去了。
+func TestRunObjectDeepSeekResumeWithoutSession(t *testing.T) {
+	s, f, obj, _ := runFixture(t, "exit 0")
+	s.run.DSHBin = fakeClaudeBin(t, "exit 0")
+	if _, err := f.CreateProvider(t.Context(), &domain.AgentProvider{
+		Name: "DeepSeek", Kind: domain.ProviderOpenAI,
+		BaseURL: "https://api.deepseek.com", Model: "deepseek-chat", Enabled: true,
+	}, "sk-dsh-test"); err != nil {
+		t.Fatalf("建服务商: %v", err)
+	}
+
+	w := do(s, http.MethodPost, "/api/objects/"+obj.ID+"/run",
+		`{"harness":"deepseek","resume_session":true}`)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("状态码 = %d，期望 400 (body=%s)", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "还没有可续的") {
+		t.Fatalf("要说清没有可续的会话：%s", w.Body.String())
+	}
+}
+
+func mustReadFile(t *testing.T, path string) string {
+	t.Helper()
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("读 %s: %v", path, err)
+	}
+	return string(b)
 }

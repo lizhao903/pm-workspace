@@ -1,5 +1,5 @@
 // 交给 Claude Code（DEV-09）的纯函数：默认工作目录、请求体、运行中的那条；两种方式（0048）的文案和终端执行的善后。
-import { runFinished, type RunMode, type RunRequest, type TaskRun, type TerminalRunRequest } from '../../core/data'
+import { runFinished, type RunMode, type RunPreset, type RunRequest, type TaskRun, type TerminalRunRequest } from '../../core/data'
 import type { LiveRun } from './runLive'
 
 // 弹窗打开时的工作目录：任务上设的优先，没设用所属项目的
@@ -9,9 +9,42 @@ export function defaultWorkdir(taskDir: string, inheritDir?: string): { dir: str
   return { dir: '', from: '' }
 }
 
-// 请求体只有这三个字段（契约 POST /api/objects/{id}/run）
-export function runRequest(workdir: string, extra: string, allowWrites: boolean): Required<RunRequest> {
-  return { workdir: workdir.trim(), extra_prompt: extra.trim(), allow_writes: allowWrites }
+// 请求体（契约 POST /api/objects/{id}/run）：三个字段，选了角色时多一个 preset_id（SPEC-tasks-6.18）
+export function runRequest(workdir: string, extra: string, allowWrites: boolean, presetId = ''): RunRequest {
+  return { workdir: workdir.trim(), extra_prompt: extra.trim(), allow_writes: allowWrites, ...(presetId ? { preset_id: presetId } : {}) }
+}
+
+/** 角色选「不用」时的值 */
+export const NO_PRESET = ''
+
+/**
+ * 弹窗里实际选中的角色 id（SPEC-tasks-6.18）：用户选过的优先（选的那条被删了算「不用」），
+ * 没选过取标了默认的那条，没有默认为「不用」
+ */
+export function pickedPreset(list: readonly RunPreset[] | undefined, chosen: string | null): string {
+  const xs = list ?? []
+  if (chosen !== null) return xs.some((p) => p.id === chosen) ? chosen : NO_PRESET
+  return xs.find((p) => p.default)?.id ?? NO_PRESET
+}
+
+/** 角色是否只读；没带 permission 的按 accept_edits（同后端） */
+export function roleReadOnly(p: RunPreset | undefined): boolean {
+  return p?.permission === 'read_only'
+}
+
+/**
+ * 流式执行实际放不放开文件编辑（AUTO-03）：只读角色锁成只读；允许改文件的角色默认勾上，用户还能取消；
+ * 没选角色时默认只读，勾选要二次确认。choice 为 null 表示用户没动过勾选（换角色时清回 null）
+ */
+export function effectiveAllow(p: RunPreset | undefined, choice: boolean | null): { allow: boolean; locked: boolean } {
+  if (p && roleReadOnly(p)) return { allow: false, locked: true }
+  if (choice !== null) return { allow: choice, locked: false }
+  return { allow: !!p, locked: false }
+}
+
+/** 角色下拉里一项的文字：场景名，只读的标出来，默认的标出来 */
+export function roleOptionLabel(p: RunPreset): string {
+  return `${p.scene}${roleReadOnly(p) ? '（只读）' : ''}${p.default ? '（默认）' : ''}`
 }
 
 // 同一任务正在跑的执行：本页刚发起还没收尾的流，或者执行记录里没收尾的那条。
@@ -42,9 +75,9 @@ export function submitLabel(mode: RunMode, opts: { typing: boolean; allow: boole
   return opts.allow ? '开始执行（允许写入）' : '开始执行（只读）'
 }
 
-/** 终端方式的请求体：没有 allow_writes，权限由用户的启动命令决定 */
-export function terminalRequest(workdir: string, extra: string): Required<TerminalRunRequest> {
-  return { workdir: workdir.trim(), extra_prompt: extra.trim() }
+/** 终端方式的请求体：没有 allow_writes，权限由用户的启动命令决定；选了角色时带 preset_id */
+export function terminalRequest(workdir: string, extra: string, presetId = ''): TerminalRunRequest {
+  return { workdir: workdir.trim(), extra_prompt: extra.trim(), ...(presetId ? { preset_id: presetId } : {}) }
 }
 
 /** 终端没开出来时给这次执行记的失败结论 */

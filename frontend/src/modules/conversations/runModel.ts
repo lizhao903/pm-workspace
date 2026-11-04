@@ -1,6 +1,6 @@
 // 执行记录页的纯函数（AG-01b8，SPEC-sessions-2）：会话里的调用记录和要人确认的调用合成一列卡片，Agent 筛选 chip 的挑法。
 import type { AgentRunCall, AgentToolCall } from '../../core/data'
-import type { CallState, CallView } from './chatModel'
+import type { CallState, CallView } from '../../core/chat/chatModel'
 
 // 后端记「要确认」的那条调用时写的前缀（internal/agent 的 requestConfirm）
 const WAIT_MARK = '等待确认：'

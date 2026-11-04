@@ -49,6 +49,47 @@ export interface Prototype {
 
 export interface RelatedDir { path: string; label: string }
 
+/**
+ * 项目档案（AUTO-04，SPEC-projects-15）的命令，分两组（AUTO-10，SPEC-projects-15.9）：
+ * 测试环境组由任务工作区的「运行测试」执行（AUTO-08），smoke 一直是测试环境上的冒烟；
+ * 发布组由发布 pipeline 在任务工作区里执行，版本号与打包在上线审批前跑，其余审批后才跑
+ */
+export const PROFILE_COMMANDS = [
+  { key: 'build', label: '构建', group: 'test', hint: '测试前先构建' },
+  { key: 'test', label: '测试', group: 'test', hint: '单测、接口、端到端；截图和 junit 写进 $TEST_REPORT_DIR' },
+  { key: 'test_env', label: '起测试环境', group: 'test', hint: '后台起临时测试环境，监听 $PORT' },
+  { key: 'smoke', label: '冒烟（测试环境）', group: 'test', hint: '在测试环境上跑的冒烟，不碰生产' },
+  { key: 'version', label: '版本号与更新日志', group: 'release', hint: '审批前跑：把版本号写进 $RELEASE_DIR/version.txt、更新日志写进 $RELEASE_DIR/changelog.md；没写 version.txt 取输出最后一行' },
+  { key: 'package', label: '打包', group: 'release', hint: '审批前跑：在工作区里打包，不碰生产；可用 $RELEASE_VERSION' },
+  { key: 'preflight', label: '发布前检查', group: 'release', hint: '上线审批后才跑：备份数据库、核对密钥；没过不发布、不回滚' },
+  { key: 'release', label: '发布', group: 'release', hint: '上线审批后才跑：发布到生产；没填就发起不了发布' },
+  { key: 'prod_smoke', label: '线上冒烟', group: 'release', hint: '上线审批后才跑：发布后检查线上；没过自动回滚' },
+  { key: 'rollback', label: '回滚', group: 'release', hint: '上线审批后才跑：发布或线上冒烟没过时自动执行' },
+] as const
+export const PROFILE_COMMAND_GROUPS = [
+  { key: 'test', label: '测试环境', hint: '任务工作区的「运行测试」按顺序执行：构建、起测试环境、测试、冒烟；可用变量 PORT、WORKTREE、TASK_REF、TEST_REPORT_DIR' },
+  { key: 'release', label: '发布', hint: '发布 pipeline 在任务工作区里执行，审批前只跑版本号与打包；可用变量 WORKTREE、TASK_REF、RELEASE_ID、RELEASE_DIR、RELEASE_VERSION' },
+] as const
+export type ProfileCommandKey = (typeof PROFILE_COMMANDS)[number]['key']
+/** dir 相对代码库目录，空串是代码库根目录；timeout_sec 为 0 用执行方的默认值；ready 只有起测试环境用：就绪检查（AUTO-08） */
+export interface ProfileCommand { command: string; dir: string; timeout_sec: number; ready?: string }
+export const PLATFORM_PRESETS = ['web', 'H5', '桌面', '云端', '移动端', '小程序']
+
+/** 项目档案：给分类 Agent 和各 pipeline 用。目录是本机绝对路径，正式产品保存时校验存在且是目录 */
+export interface ProjectProfile {
+  intro: string
+  keywords: string[]
+  platforms: string[]
+  code_dir: string
+  proto_dir: string
+  prd_dir: string
+  commands: Partial<Record<ProfileCommandKey, ProfileCommand>>
+  /** 联系人 id */
+  owner_ids: string[]
+  acceptor_ids: string[]
+}
+export const EMPTY_PROFILE: ProjectProfile = { intro: '', keywords: [], platforms: [], code_dir: '', proto_dir: '', prd_dir: '', commands: {}, owner_ids: [], acceptor_ids: [] }
+
 /** 项目的沟通渠道：群聊按「渠道 + 群名」认，私聊按联系人认 */
 export type ProjectChat =
   | { id: string; kind: 'group'; channel: string; conversation: string }
@@ -88,6 +129,8 @@ export interface Project {
   materials: Material[]
   docs: ProjectDoc[]
   prototypes: Prototype[]
+  /** 项目档案（SPEC-projects-15）；没建过时没有 */
+  profile?: ProjectProfile
   created_at: string
 }
 
@@ -120,6 +163,20 @@ export const seedProjects: Project[] = [
   {
     id: 'pj_pmw', name: '产品工作台新版', desc: '把工作台前端重做一版，先出可点的原型', color: '#3d4fd6', mark: { text: '', icon: 'layout' },
     root: '/Volumes/project/0xBroleez/pm-workspace',
+    profile: {
+      intro: '个人产品管理工具：需求、任务、项目、文档、IM 消息和原型统一管，Claude Code 按任务开发',
+      keywords: ['工作台', 'pmw', '需求管理', '原型'], platforms: ['web', '桌面'],
+      code_dir: '', proto_dir: '/Volumes/project/0xBroleez/pm-workspace/web-next', prd_dir: '/Volumes/project/0xBroleez/pm-workspace/docs',
+      commands: { build: { command: 'make build', dir: '', timeout_sec: 900 }, test: { command: 'go test ./... && npm --prefix frontend test', dir: '', timeout_sec: 1200 },
+        test_env: { command: './pmw --addr :$PORT --data $TEST_REPORT_DIR/data', dir: '', timeout_sec: 60, ready: '/api/health' }, smoke: { command: 'curl -fsS http://127.0.0.1:$PORT/api/health', dir: '', timeout_sec: 0 },
+        version: { command: './scripts/next-version.sh > $RELEASE_DIR/version.txt && git log --oneline main.. > $RELEASE_DIR/changelog.md', dir: '', timeout_sec: 0 },
+        package: { command: 'make build VERSION=$RELEASE_VERSION', dir: '', timeout_sec: 900 },
+        preflight: { command: './scripts/backup-db.sh && ./scripts/check-vault-key.sh', dir: '', timeout_sec: 300 },
+        release: { command: './scripts/deploy.sh $RELEASE_VERSION', dir: '', timeout_sec: 600 },
+        prod_smoke: { command: 'curl -fsS http://127.0.0.1:7796/api/health', dir: '', timeout_sec: 60 },
+        rollback: { command: './scripts/rollback.sh', dir: '', timeout_sec: 600 } },
+      owner_ids: ['ct_001'], acceptor_ids: ['ct_004'],
+    },
     related: [
       { path: '/Volumes/project/0xBroleez/pm-workspace/web', label: '旧版前端' },
       { path: '/Volumes/project/0xBroleez/pm-workspace/docs', label: '接口契约与状态看板' },

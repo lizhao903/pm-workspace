@@ -68,6 +68,10 @@ func (s *Server) handleCreateObject(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, err)
 		return
 	}
+	if err := validStageProps(req.Props); err != nil {
+		s.fail(w, r, err)
+		return
+	}
 	o := &domain.Object{
 		TypeID:     strings.TrimSpace(req.TypeID),
 		Title:      strings.TrimSpace(req.Title),
@@ -119,6 +123,12 @@ func (s *Server) handleUpdateObject(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		s.fail(w, r, err)
 		return
+	}
+	if p.Props != nil {
+		if err := validStageProps(*p.Props); err != nil {
+			s.fail(w, r, err)
+			return
+		}
 	}
 	o, err := s.st.UpdateObject(r.Context(), r.PathValue("id"), p, actorFrom(r))
 	if err != nil {

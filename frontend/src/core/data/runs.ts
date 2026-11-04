@@ -1,7 +1,7 @@
 // 执行记录的读写（DEV-08c 起，CORE-03a 迁进数据访问层）：某个对象的执行历史、单条详情、取消，以及发起执行的流。
 // 执行开始报 run-started，收尾报 run-settled（执行过程中可能改了对象、登记了产出物），取消报 run-canceled。
-import { keepPreviousData, useMutation, useQuery } from '@tanstack/react-query'
-import { runObject, runs, type FinishRunInput, type RunDone, type RunEvent, type RunPromptParams, type RunRequest, type StreamOptions, type TaskRun, type TerminalRunRequest } from '../api'
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { runObject, runs, type FinishRunInput, type RunDone, type RunEvent, type RunPreset, type RunPromptParams, type RunRequest, type StreamOptions, type TaskRun, type TerminalRunRequest } from '../api'
 import { notifyChange, useNotifyChange } from './invalidate'
 import { dataKeys } from './keys'
 
@@ -85,5 +85,19 @@ export function useFinishRun(objectId: string) {
   return useMutation({
     mutationFn: ({ id, body }: { id: string; body: FinishRunInput }) => runs.finish(id, body),
     onSettled: () => notify({ kind: 'run-settled', objectId }),
+  })
+}
+
+/** 交给 Claude Code 的角色（SPEC-tasks-6.18、SPEC-settings-24，原预置提示词）：没设过时后端回内置的六个 */
+export function useRunPresets() {
+  return useQuery({ queryKey: dataKeys.runs.presets, queryFn: ({ signal }) => runs.presets(signal) })
+}
+
+/** 整组保存：响应是替换后的列表（新条目补了 id），直接写回缓存；400 的 message 由调用方显示 */
+export function useSaveRunPresets() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (items: RunPreset[]) => runs.savePresets(items),
+    onSuccess: (list) => qc.setQueryData(dataKeys.runs.presets, list),
   })
 }

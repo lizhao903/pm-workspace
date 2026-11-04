@@ -226,12 +226,20 @@ type ObjectFilter struct {
 	NotTerminal bool
 	Inbox       bool // source='inbox' 或未分类
 	// Sources 按 objects.source 精确匹配，多个之间是或。任务来源取值见 TaskSource* 常量。
-	Sources         []string
-	IncludeArchived bool
-	IncludeDeleted  bool
-	Sort            string // updated_at|created_at|due_at|priority|title，前缀 - 表示倒序
-	Limit           int
-	Offset          int
+	Sources []string
+	// 以下按 props 筛（AUTO-05，stage.go）：Stages 是 props.stage 任一，"none" 表示没设阶段；
+	// RequesterID 是 props.requester.contact_id；RequesterChannel + RequesterSenderID 成对按 IM 发送者筛；
+	// SourceMessageID 是 props.source_ref.message_id。
+	Stages            []string
+	RequesterID       string
+	RequesterChannel  string
+	RequesterSenderID string
+	SourceMessageID   string
+	IncludeArchived   bool
+	IncludeDeleted    bool
+	Sort              string // updated_at|created_at|due_at|priority|title，前缀 - 表示倒序
+	Limit             int
+	Offset            int
 }
 
 type Tag struct {
@@ -882,7 +890,7 @@ const (
 	RunModeTerminal = "terminal"
 )
 
-// TaskRun 是一次「把某个工作对象交给本机 claude 去做」的执行记录。
+// TaskRun 是一次「把某个工作对象交给一个 agent 执行器去做」的执行记录。
 // 留存完整输出而不只是成功失败：这类执行的价值在过程，事后要能复查它到底改了什么。
 type TaskRun struct {
 	ID         string     `json:"id"`
@@ -897,7 +905,20 @@ type TaskRun struct {
 	FinishedAt *time.Time `json:"finished_at"`
 	// Mode 是执行方式 RunModeStream / RunModeTerminal（0048），老记录都是 stream
 	Mode string `json:"mode"`
+	// Harness 是这次交给谁跑（0049）：RunHarnessClaude / RunHarnessDeepSeek，
+	// 老记录都是 claude。只用于留档与展示，不参与收尾判定。
+	Harness string `json:"harness"`
+	// HarnessSession 是 dsh 这次用的会话 id（0050）。带上它再跑一次就是续跑；
+	// claude 没有这个概念，留空串。
+	HarnessSession string `json:"harness_session"`
 }
+
+// 执行器。值必须和 internal/runner 的 Harness 常量逐字一致——
+// 那边决定起哪个进程，这边只负责把它记下来。
+const (
+	RunHarnessClaude   = "claude"   // 本机 claude CLI
+	RunHarnessDeepSeek = "deepseek" // deepseek-harness（dsh）的 headless 模式
+)
 
 // ---- 开发任务闭环：进展、领取、会话标识 ----
 

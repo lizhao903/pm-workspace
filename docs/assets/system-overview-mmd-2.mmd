@@ -1,0 +1,54 @@
+flowchart LR
+  subgraph IN["入口"]
+    A1["IM 消息<br/>Slack / Telegram"]
+    A2["手动新建"]
+    A3["定时任务"]
+    A4["AI 对话"]
+    A5["Claude Code 通过 MCP"]
+  end
+
+  subgraph OBJ["工作台对象"]
+    T["任务"]
+    R["需求"]
+    P["项目"]
+    D["文档 / 资料"]
+    C["联系人 / 会话"]
+  end
+
+  subgraph EXE["执行"]
+    H["交给 CLI / 终端<br/>任务自动进行中"]
+    PRE["预置提示词<br/>产品经理工作台 / 研发 / 调研"]
+    CLI["Claude Code 执行<br/>写 PRD / 改原型 / 写代码"]
+    S["SOP 流程"]
+  end
+
+  subgraph OUT["反馈"]
+    O1["回复原 IM 消息"]
+    O2["工作台通知 / 提醒弹窗<br/>右下角 或 中间弹窗"]
+    O3["产出登记<br/>commit / 文件 / 链接"]
+    O4["任务完成"]
+  end
+
+  A1 -->|"转任务"| T
+  A1 -->|"转资料"| D
+  A1 --> C
+  A2 --> T & R
+  A3 -->|"建任务"| T
+  A3 -->|"提醒"| O2
+  A4 --> T & D
+  A5 --> T & O3
+
+  R --> T
+  T --> P
+  D --> P
+  C --> P
+
+  T --> H
+  PRE --> H
+  H --> CLI
+  CLI -->|"run.finished"| S
+  CLI --> O3
+  CLI --> O4
+  A1 -.->|"IM 任务回执"| S
+  S -->|"等任务完成"| O1
+  O4 --> O2

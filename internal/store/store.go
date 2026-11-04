@@ -154,6 +154,9 @@ type Store interface {
 	// SetTaskRunPrompt 补写执行记录的提示词。终端执行（0048）的提示词里要写执行 id，
 	// 只能先建记录拿到 id 再补；只改没收尾的记录，已收尾回 conflict。
 	SetTaskRunPrompt(ctx context.Context, id, prompt string) error
+	// SetTaskRunSession 记下 dsh 这次用的会话 id（0050），续跑要用。
+	// 空串是合法的（claude 的执行没有会话），不报错。
+	SetTaskRunSession(ctx context.Context, id, session string) error
 	// ResolveWorkdir 取对象的有效工作区：自身没设时回退到所属项目的，都没有返回空串。
 	ResolveWorkdir(ctx context.Context, objectID string) (string, error)
 
@@ -169,6 +172,9 @@ type Store interface {
 	CreateAgentSession(ctx context.Context, s *domain.AgentSession) (*domain.AgentSession, error)
 	UpdateAgentSession(ctx context.Context, id string, title, workdir, providerID, model *string) (*domain.AgentSession, error)
 	DeleteAgentSession(ctx context.Context, id string) error
+	// DeleteAgentMessages 从会话里移除指定的几条消息（界面上一个气泡可能是几条：工具调用加回复），
+	// 回实际删掉的条数；不属于这个会话的 id 忽略。会话不存在回 not found。移除后不再进模型的上下文
+	DeleteAgentMessages(ctx context.Context, sessionID string, ids []string) (int, error)
 
 	// Agent 配置（AG-01b1，0032）。ProviderID 必须是存在的服务商，Model 不校验是否在模型列表里；
 	// 名称、头像、触发方式等的校验和默认值在实现里，规则见 docs/api-contract.md「Agent 配置 agents」。

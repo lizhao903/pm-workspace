@@ -62,6 +62,9 @@ var Registry = []Entry{
 	{"mt", "material", "projects_materials", "material"},    // 项目插件的表（PJ-03a）
 	{"pd", "projectDoc", "", "projectDoc"},                  // PJ-03a 起项目文档并进资料用 mt，前缀保留
 	{"pt", "prototype", "projects_prototypes", "prototype"}, // 项目插件的表（PJ-04a）
+	{"wt", "worktree", "projects_worktrees", ""},            // 项目插件的需求工作区（AUTO-07）
+	{"tr", "testRun", "projects_test_runs", ""},             // 项目插件的测试环境与测试报告（AUTO-08）
+	{"rel", "release", "projects_releases", ""},             // 项目插件的发布记录（AUTO-10）
 	{"ch", "projectChat", "", "projectChat"},
 	// 任务与自动化
 	{"sop", "sop", "sop_flows", "sop"},           // SOP 插件的表（SOP-01a）

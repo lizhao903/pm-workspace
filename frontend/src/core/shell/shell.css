@@ -256,3 +256,8 @@
 .shell-reminder-body { font-size: var(--fs-sm); color: var(--muted); white-space: pre-wrap; word-break: break-word; max-height: 8em; overflow: auto; }
 .shell-reminder-acts { display: flex; gap: var(--sp-4); justify-content: flex-end; }
 .shell-reminder-more { display: flex; align-items: center; gap: var(--sp-4); justify-content: space-between; padding: var(--sp-4) var(--sp-7); border-radius: var(--r); background: var(--panel); border: 1px solid var(--line); box-shadow: var(--shadow-sm); font-size: var(--fs-sm); color: var(--muted); }
+.shell-reminder-modal { width: min(520px, calc(100vw - 32px)); padding: var(--sp-10, 28px) var(--sp-10, 28px) var(--sp-8); border-radius: var(--r-lg, 12px); border: 1px solid var(--accent-line); background: var(--panel); box-shadow: var(--shadow); display: flex; flex-direction: column; gap: var(--sp-5); }
+.shell-reminder-modal-title { font-size: 26px; line-height: 1.3; font-weight: 600; color: var(--text); word-break: break-word; }
+.shell-reminder-modal-body { font-size: var(--fs-md); color: var(--muted); white-space: pre-wrap; word-break: break-word; max-height: 40vh; overflow: auto; }
+.shell-reminder-modal-acts { display: flex; align-items: center; gap: var(--sp-4); margin-top: var(--sp-4); flex-wrap: wrap; }
+.shell-reminder-modal-rest { font-size: var(--fs-sm); color: var(--faint); }

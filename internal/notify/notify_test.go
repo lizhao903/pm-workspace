@@ -12,6 +12,7 @@ import (
 	"github.com/lizhao903/pm-workspace/internal/domain"
 	"github.com/lizhao903/pm-workspace/internal/events"
 	"github.com/lizhao903/pm-workspace/internal/notify"
+	"github.com/lizhao903/pm-workspace/internal/schedule"
 	"github.com/lizhao903/pm-workspace/internal/store"
 	"github.com/lizhao903/pm-workspace/internal/store/sqlite"
 )
@@ -148,5 +149,30 @@ func TestCreateValidation(t *testing.T) {
 	_, c, _ := setup(t)
 	if _, err := c.Create(context.Background(), notify.Notification{Kind: "x"}); !errors.Is(err, domain.ErrValidation) {
 		t.Fatalf("没有 title = %v", err)
+	}
+}
+
+// 提醒带上弹窗方式（SPEC-tasks-8.26）：modal 原样带，空和别的值按 toast。
+func TestRemindPopup(t *testing.T) {
+	_, c, _ := setup(t)
+	ctx := context.Background()
+	for popup, want := range map[string]string{"modal": "modal", "": "toast", "x": "toast"} {
+		got, err := c.Remind(ctx, schedule.RemindRequest{Title: "点餐", Popup: popup, ScheduleID: "sch_1", RunID: "r"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		list, _, _ := list(t, c, notify.Filter{})
+		var found bool
+		for _, n := range list {
+			if n.ID == got.NotificationID {
+				found = true
+				if n.Data["popup"] != want {
+					t.Errorf("popup %q 应带 %q，得到 %v", popup, want, n.Data["popup"])
+				}
+			}
+		}
+		if !found {
+			t.Fatalf("没找到通知 %s", got.NotificationID)
+		}
 	}
 }

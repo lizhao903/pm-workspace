@@ -3,7 +3,7 @@
   "name": "SOP 编排",
   "description": "标准工作流的编辑、节点和执行",
   "icon": "flow",
-  "version": "0.8.0",
+  "version": "0.10.0",
   "core": ">=1.0.0 <2.0.0",
   "depends": {},
   "optional_depends": {"im": ">=0.7.0 <1.0.0"},
@@ -20,12 +20,12 @@
     "search": []
   },
   "emits": ["sop.run_status_changed", "sop.step_status_changed"],
-  "subscribes": ["im.message_received"],
+  "subscribes": ["im.message_received", "run.finished"],
   "adopts": {
     "object_types": [],
     "routes": []
   },
-  "permissions": ["network:any", "fs:write:project"],
+  "permissions": ["network:any", "fs:write:project", "process:spawn"],
   "migrations": "migrations",
   "table_prefix": "sop_"
 }

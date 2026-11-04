@@ -835,3 +835,64 @@ func TestAgentChatKeepsTimeOfDayFromModel(t *testing.T) {
 		t.Errorf("落库日期 = %s，期望 2026-09-16", local.Format("2006-01-02"))
 	}
 }
+
+// 移除会话消息（SPEC-sessions-1.43）：只删这个会话里的这几条，别的会话的 id 忽略；空 ids 400，会话不存在 404，在跑时 409
+func TestRemoveAgentMessages(t *testing.T) {
+	f := newFakeStore()
+	s := newTestServer(f)
+	ctx := context.Background()
+	w := do(s, http.MethodPost, "/api/agent/sessions", `{"title":"a"}`)
+	id, _ := envelopeData(t, w)["id"].(string)
+	w = do(s, http.MethodPost, "/api/agent/sessions", `{"title":"b"}`)
+	other, _ := envelopeData(t, w)["id"].(string)
+	var ids []string
+	for _, c := range []string{"问", "答", "再问"} {
+		m, err := f.AppendAgentMessage(ctx, &domain.AgentMessage{SessionID: id, Role: domain.RoleUser, Content: c})
+		if err != nil {
+			t.Fatal(err)
+		}
+		ids = append(ids, m.ID)
+	}
+	o, _ := f.AppendAgentMessage(ctx, &domain.AgentMessage{SessionID: other, Role: domain.RoleUser, Content: "别处"})
+
+	w = do(s, http.MethodPost, "/api/agent/sessions/"+id+"/messages/remove", `{"ids":["`+ids[0]+`","`+ids[1]+`","`+o.ID+`"]}`)
+	if w.Code != http.StatusOK {
+		t.Fatalf("移除: %d %s", w.Code, w.Body.String())
+	}
+	if n := envelopeData(t, w)["removed"]; n != float64(2) {
+		t.Errorf("removed = %v，期望 2", n)
+	}
+	w = do(s, http.MethodGet, "/api/agent/sessions/"+id+"/messages", "")
+	if items := envelopeList(t, w); len(items) != 1 || items[0].(map[string]any)["content"] != "再问" {
+		t.Errorf("剩下的 = %v", items)
+	}
+	if len(f.messages[other]) != 1 {
+		t.Errorf("别的会话的消息不该动")
+	}
+	if w := do(s, http.MethodPost, "/api/agent/sessions/"+id+"/messages/remove", `{"ids":[]}`); w.Code != http.StatusBadRequest {
+		t.Errorf("空 ids 应 400，得到 %d", w.Code)
+	}
+	if w := do(s, http.MethodPost, "/api/agent/sessions/ags_nope/messages/remove", `{"ids":["x"]}`); w.Code != http.StatusNotFound {
+		t.Errorf("会话不存在应 404，得到 %d", w.Code)
+	}
+	_, done := s.turns.start(ctx, id)
+	defer done()
+	if w := do(s, http.MethodPost, "/api/agent/sessions/"+id+"/messages/remove", `{"ids":["`+ids[2]+`"]}`); w.Code != http.StatusConflict {
+		t.Errorf("在跑时应 409，得到 %d", w.Code)
+	}
+}
+
+// 版本更新（SYS-UPD）：没接更新器的实例回 blocked，开始更新 409
+func TestUpdateWithoutUpdater(t *testing.T) {
+	s := newTestServer(newFakeStore())
+	w := do(s, http.MethodGet, "/api/admin/update", "")
+	if w.Code != http.StatusOK {
+		t.Fatalf("状态: %d %s", w.Code, w.Body.String())
+	}
+	if d := envelopeData(t, w); d["blocked"] != "这个实例不支持就地更新" {
+		t.Errorf("blocked = %v", d["blocked"])
+	}
+	if w := do(s, http.MethodPost, "/api/admin/update", ""); w.Code != http.StatusConflict {
+		t.Errorf("开始更新应 409，得到 %d", w.Code)
+	}
+}

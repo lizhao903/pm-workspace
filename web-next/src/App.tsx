@@ -11,13 +11,16 @@ import { MessageDrawer, MessagesPage, contactFor, fetchBlocker, gear, withGroupP
 import { GroupTriageAdvice, QueueDrawer, TriageAdvice, triageRunsOf, triageSops } from './triage'
 import { SECTIONS, SettingsNav, type Section } from './settings'
 import { CommandPalette, type PaletteItem } from './palette'
-import { MODEL_CONCURRENCY_DEFAULT, SOPS, act as actOnRun, gateRuns, rerunRuns, seedRuns, sopById, tick, runShow, runStatus, startRun, upsertSop, type Json, type RunAction } from './sopflow'
+import { GOVERNANCE_DEFAULT, MODEL_CONCURRENCY_DEFAULT, SOPS, act as actOnRun, gateRuns, governRuns, isHeld, type Governance, rerunRuns, seedRuns, sopById, tick, runShow, runStatus, startRun, upsertSop, type Json, type RunAction } from './sopflow'
 import { SopEditor, newSopDraft } from './sopedit'
 import { ingest, newTask, seedDeliveries, seedHooks, seedTasks, type TaskStatus, isOpenTask, localDay } from './taskdata'
+import { waitOf } from './taskpipeline'
+import { stageLabel } from './taskstage'
 import { TaskDrawer, TasksNav, TasksPage, WebhookPage, newHook, type TaskDraft, type TaskTab, type TaskView } from './tasks'
 import { taskPrefill } from './tasksop'
 import { ScheduleDrawer, SchedulesPage } from './schedule'
-import { dueReminders, nextRun, seedSchedules, sweepSchedule, syncPublishSchedules, taskReminder, whenText, type Schedule } from './scheduledata'
+import { useRunPresets } from './runpresets'
+import { claudeOutPath, dueReminders, nextRun, seedSchedules, sweepSchedule, syncPublishSchedules, taskReminder, whenText, type Schedule } from './scheduledata'
 import { ReminderPopups, remindersOf, type Reminder } from './taskreminders'
 import { TodayPage, type TodayItem, type TodayLine } from './today'
 import { useDevLoop } from './devloop'
@@ -32,15 +35,18 @@ import { loadWorkspaces, saveWorkspaces, type Workbench } from './workspacedata'
 import { KbDrawer, KnowledgePage, SkillDrawer, SkillsPage } from './kbskills'
 import { SWEEP_TAG, levelPriority, mergeIncident, seedIncidents, sweepHeldCount, sweepPick, sweepTaskDesc, type IncidentReport } from './incidentdata'
 import { SopDetailPage, SopNav, SopRunView, SopRunsPage, SopSettingsPage, SopStartDrawer, type SopView } from './sop'
+import { WorktreeSettingsPage } from './worktree'
 import { EnumContext, seedEnums } from './enumdata'
-import { SKILLS, newAgent, seedAgentRuns, seedAgents, seedKBs, seedOutputs, seedScenarios, seedSessions, type AgentOutput, type OutputKind, type Session, type ToolCall } from './agentdata'
-import { AgentEditor, AgentsPage, type ConnToolChoice, type ModelChoice, type MountableConn } from './agents'
-import { ChatsView, OutputsView, RunsView, type SessionTools, type SessionView } from './sessions'
+import { SKILLS, newAgent, seedAgentRuns, seedAgents, seedKBs, seedOutputs, seedScenarios, seedSessions, type AgentOutput, type ChatMsg, type OutputKind, type Session, type ToolCall } from './agentdata'
+import { AgentEditor, AgentsPage, CHAT_EXAMPLES, ChatPane, type ConnToolChoice, type ModelChoice, type MountableConn } from './agents'
+import { ChatsView, OutputsView, RunsView, goneAgent, type SessionTools, type SessionView } from './sessions'
 import { kindOf, seedModels, seedProviders, usable, type ProviderKind } from './modeldata'
 import { ProviderDrawer, ProvidersPage } from './models'
 import { EnumsPage, type UsageFn } from './enums'
 import { TopbarContext } from './topbar'
 import { AppearancePage, type ThemePref } from './appearance'
+import { UpdatePage } from './update'
+import { RunPresetsPage } from './runpresetspage'
 import { cls } from './ui'
 import { PLATFORMS, PLATFORM_TOOL, STAGES, checkPublish, coverRatioOf, dealReport, seedArtifacts, seedDeals, seedPublishes, seedSeries, seedTexts, seedVideos, videoState, type Deal, type PlatformKey, type Publish, type Video } from './videodata'
 import { CalendarPage } from './videocalendar'
@@ -64,7 +70,7 @@ import { runBacktest } from './backtest'
 import { QuickSession } from './quicksession'
 import { GroupDrawer, StartSessionDialog } from './msgagent'
 import { IM_MATERIAL_TAG, ToMaterialDialog, notesOf } from './msgmaterial'
-import { clusterMessages, threadOf, type SessionIntent } from './msggroup'
+import { clusterMessages, threadForMany, threadForTask, threadOf, type SessionIntent } from './msggroup'
 import { StrategyRunsPage } from './strategyruns'
 import type { Backtest, BacktestConfig, Strategy } from './tradedata'
 import { ATTACH_DIR, SYNC_POOL, type MsgAttachment } from './data'
@@ -276,6 +282,8 @@ export default function App() {
   const [runFocus, setRunFocus] = useState<string | null>(null)
   const [sessionView, setSessionView] = useState<SessionView>('chats')
   const [currentSession, setCurrentSession] = useState<string | null>(seedSessions[0]?.id ?? null)
+  // 项目 Agent 标签里就地打开的会话（SPEC-projects-10.13），不跳会话页；切项目时清掉
+  const [projectChat, setProjectChat] = useState<string | null>(null)
   const [pickAgent, setPickAgent] = useState(0)
   const [providers, setProviders] = useState(seedProviders)
   const [models, setModels] = useState(seedModels)
@@ -361,8 +369,13 @@ export default function App() {
   const [sopConcurrency, setSopConcurrency] = useState(MODEL_CONCURRENCY_DEFAULT)
   const sopConcurrencyRef = useRef(sopConcurrency)
   useEffect(() => { sopConcurrencyRef.current = sopConcurrency }, [sopConcurrency])
+  // 流水线治理（AUTO-12，SPEC-sop-15）：Claude Code 并发排队、每需求次数和时长上限，超了这一步暂停等人放行
+  const [sopGov, setSopGov] = useState<Governance>(GOVERNANCE_DEFAULT)
+  const sopGovRef = useRef(sopGov)
+  useEffect(() => { sopGovRef.current = sopGov }, [sopGov])
   useEffect(() => {
-    const t = window.setInterval(() => setRuns((xs) => (xs.some((r) => runStatus(r) === 'running') ? gateRuns(xs.map((r) => tick(r)), sopConcurrencyRef.current) : xs)), 250)
+    const t = window.setInterval(() => setRuns((xs) => (xs.some((r) => runStatus(r) === 'running')
+      ? governRuns(gateRuns(xs.map((r) => tick(r)), sopConcurrencyRef.current), sopGovRef.current) : xs)), 250)
     return () => window.clearInterval(t)
   }, [])
 
@@ -457,7 +470,11 @@ export default function App() {
     else fetchAttachment(msgId, attId, push)
   }
 
-  const openMessage = (id: string) => { patchMsg(id, { read: true }); setDrawer({ kind: 'message', id }) }
+  // 打开原消息时，它消息列里没读的回复一起标为已读（消息列回复在原消息抽屉里看，SPEC-messages-1.62）
+  const openMessage = (id: string) => {
+    setMessages((xs) => xs.map((x) => (x.id === id || (x.thread?.parent_id === id && !x.read) ? { ...x, read: true } : x)))
+    setDrawer({ kind: 'message', id })
+  }
   // 一组消息发起过的会话（新的在前）、拆出来的任务数（SPEC-messages-1.58）：会话来源里有这组的消息就算；任务按来源消息算，不含转任务那条
   const imLinksOf = (ids: string[]) => {
     const ss = sessions.filter((x) => x.source?.message_ids.some((id) => ids.includes(id))).sort((a, b) => b.created_at.localeCompare(a.created_at))
@@ -469,8 +486,9 @@ export default function App() {
     setPage('projects'); setProjectId(projectId); setProjectTab('materials'); setMatFocus(materialId); setDrawer(null); setImToMat(null)
   }
   // 存成一条笔记，出处记这组消息；选了附件的按附件「加入资料」同一条路径加（没获取的先获取，已加过的跳过）
-  const saveImMaterial = (ids: string[], projectId: string, title: string, body: string, withAtts: boolean, markDone: boolean) => {
-    const ms = messages.filter((m) => ids.includes(m.id)).sort((a, b) => a.at.localeCompare(b.at))
+  // extraIds：勾了「带上消息列」时消息列里另外带上的消息，出处、附件算上，不跟着标已处理（SPEC-messages-6）
+  const saveImMaterial = (ids: string[], projectId: string, title: string, body: string, withAtts: boolean, markDone: boolean, extraIds: string[] = []) => {
+    const ms = messages.filter((m) => ids.includes(m.id) || extraIds.includes(m.id)).sort((a, b) => a.at.localeCompare(b.at))
     const last = ms[ms.length - 1]
     if (!last) return
     const who = (m: Message) => contactFor(m, contacts)?.name ?? m.sender_name
@@ -481,7 +499,7 @@ export default function App() {
         from: { message_id: last.id, attachment_id: '', sender: who(last), conversation: last.conversation || '私聊', message_ids: ms.map((m) => m.id) } }, ...pj.materials],
     }))
     if (withAtts) for (const m of ms) for (const a of m.attachments ?? []) addAttachmentToProject(projectId, m.id, a.id)
-    if (markDone) for (const m of ms) if (m.status === 'pending' || m.status === 'expired') actOnMessage(m.id, { kind: 'done' })
+    if (markDone) for (const m of ms) if (ids.includes(m.id) && (m.status === 'pending' || m.status === 'expired')) actOnMessage(m.id, { kind: 'done' })
     setImToMat(null)
   }
   const openSessionById = (id: string) => { setCurrentSession(id); setPage('sessions'); setSessionView('chats'); setDrawer(null) }
@@ -572,9 +590,9 @@ export default function App() {
     return !c ? { state: 'none' } : c.status === 'error' ? { state: 'error', name: c.name, error: c.error } : c.status !== 'connected' ? { state: 'none' } : { state: canPublish ? 'ok' : 'manual', name: c.name }
   }
   // 发一条提醒：弹到右下角，结果文字带上关联任务的编号；任务删了不带跳转
-  const fireReminder = (a: { title: string; body: string; task_id: string }, at: Date) => {
+  const fireReminder = (a: { title: string; body: string; task_id: string; popup?: 'toast' | 'modal' }, at: Date) => {
     const t = a.task_id ? tasks.find((x) => x.id === a.task_id) : undefined
-    setReminderPops((xs) => [{ id: `rm_${at.getTime().toString(36)}_${Math.random().toString(36).slice(2, 6)}`, at: at.toISOString(), title: a.title, body: a.body || t?.title || '', taskId: t?.id, taskRef: t?.ref }, ...xs])
+    setReminderPops((xs) => [{ id: `rm_${at.getTime().toString(36)}_${Math.random().toString(36).slice(2, 6)}`, at: at.toISOString(), title: a.title, body: a.body || t?.title || '', taskId: t?.id, taskRef: t?.ref, popup: a.popup }, ...xs])
     return { text: `提醒了「${a.title}」${t ? `，关联 ${t.ref}` : a.task_id ? '（关联的任务已删除，通知不带跳转）' : ''}`, ref: t?.ref }
   }
   // 原型的到点只模拟「只提醒一次」的提醒：每 15 秒看一眼，到点了弹出、记一条执行记录、自动停用（正式产品由后端调度器做，重复的也会到点提醒）
@@ -584,7 +602,7 @@ export default function App() {
     if (!due.length) return
     const now = new Date()
     const done = new Map(due.map((sc) => {
-      const a = sc.action as { title: string; body: string; task_id: string }
+      const a = sc.action as { title: string; body: string; task_id: string; popup?: 'toast' | 'modal' }
       const at = new Date(`${sc.rule.date}T${sc.rule.time}`)
       // 晚于 2 分钟的算错过，不补发（和正式产品的 missed 口径一致）
       if (now.getTime() - at.getTime() > 2 * 60000) return [sc.id, { at: at.toISOString(), ok: false, text: '没执行：到点时服务没在运行，没有补跑' }]
@@ -598,12 +616,14 @@ export default function App() {
     return () => window.clearInterval(id)
   }, [])
 
+  const runPresets = useRunPresets()
   // 立即执行一次定时任务：真的建任务 / 发起 SOP / 记一条 Agent 执行 / 发布视频，再把结果写进它的执行记录
   const runScheduleNow = (sc: Schedule) => {
     const now = new Date()
     const a = sc.action
     let text = ''
     let ref: string | undefined
+    let files: string[] | undefined
     if (a.kind === 'task') {
       const dueAt = new Date(now); dueAt.setDate(dueAt.getDate() + a.due_days)
       const due = localDay(dueAt)
@@ -644,6 +664,18 @@ export default function App() {
       }
       text = [made.length ? `建了 ${made.length} 条修复任务 ${made.map((m) => m.t.ref).join('、')}` : '没有要处理的运行异常', held > 0 && `${held} 条留给你处理（修复任务被删过，或是 Claude Code 执行失败）`, skipped > 0 && `跳过 ${skipped} 条（级别或次数不够）`].filter(Boolean).join('，')
       ref = made[0]?.t.ref
+    } else if (a.kind === 'claude') {
+      // 交给 Claude Code（TSK-0429）：原型不真的跑，按配置记一条；正式产品无人值守跑一次流式执行，结论和写出的文件回填这条记录
+      const day = localDay(now)
+      const role = runPresets.find((x) => x.id === a.preset_id)
+      const write = a.allow_writes && role?.permission !== 'read_only'
+      if (a.preset_id && !role) text = '没执行：角色已删除'
+      else if (!write) text = '只读跑完：结论记在这里，没写文件'
+      else {
+        const out = claudeOutPath(a)
+        files = [`${out}/${day}.md`, `${out}/${day}.json`]
+        text = 'Claude Code 跑完，写了 2 个文件'
+      }
     } else if (a.kind === 'publish') {
       // 按发布记录发：平台没接好或校验不过就失败，失败的由上面的 effect 记进运行异常
       const p = publishes.find((x) => x.id === a.publish_id)
@@ -672,7 +704,7 @@ export default function App() {
         text = `交给了${ag.name}，结果在「会话 / 执行记录」`
       }
     }
-    const entry = { at: now.toISOString(), ok: !text.startsWith('没执行') && !text.startsWith('发布失败'), text, ref, manual: true }
+    const entry = { at: now.toISOString(), ok: !text.startsWith('没执行') && !text.startsWith('发布失败'), text, ref, manual: true, files }
     setSchedules((xs) => xs.map((y) => (y.id === sc.id ? { ...sc, history: [entry, ...y.history] } : y)))
   }
 
@@ -784,11 +816,29 @@ export default function App() {
   // 今日：从各模块收「需要你处理」的事；按数据缓存，别的状态变化不重算（点击回调里只用 setState 和稳定的跳转，旧闭包也没关系）
   // 模块不在当前工作台时它贡献的组整组不出现；运行异常、连接异常在设置里，一直有
   const todayNeeds: TodayItem[] = useMemo(() => { const modOn = (k: (typeof bench.modules)[number]) => bench.modules.includes(k); return [
-    ...(!modOn('sop') ? [] : runs).filter((r) => ['waiting', 'failed'].includes(runStatus(r))).map((r) => ({
-      id: `sop-${r.id}`, kind: 'SOP', tone: runStatus(r) === 'failed' ? 'danger' as const : 'warn' as const, title: r.title,
-      sub: runStatus(r) === 'failed' ? '有步骤执行失败' : '停在人工检查或判断，等你处理', at: new Date(r.started_at).toISOString(), action: '去处理',
-      onClick: () => { setPage('sop'); setOpenRun(r.id); setDrawer(null) },
-    })),
+    // 待我处理（AUTO-12，SPEC-today-1.30）：SOP 里等人的每一步（人工检查、人工判断、确认输入、超出上限暂停、失败、超时），
+    // 加上停在等人阶段（待确认项目、需人工、待验收）的任务；同一个需求已经有等人的步骤时，阶段那条不重复列
+    ...(!modOn('sop') ? [] : (() => {
+      const stepItems = runs.flatMap((r) => r.steps.map((_, i) => ({ r, i, w: waitOf(r, i) })).filter((x) => x.w).map(({ r, i, w }) => {
+        const tid = (r.object_id ?? (typeof r.input.task_id === 'string' ? r.input.task_id : '')) || ''
+        const t = tasks.find((x) => x.id === tid)
+        const s = r.steps[i]
+        const why = isHeld(s) ? `${w!.label}：${s.hold!.reason}` : s.status === 'failed' ? `${w!.label}：${s.error ?? ''}` : w!.label
+        return {
+          id: `sop-${r.id}-${s.key}`, kind: '待我处理', tone: w!.danger ? 'danger' as const : 'warn' as const, title: `${r.sop.steps[i].name} · ${r.sop.name}`,
+          sub: `${t ? `${t.ref} ${t.title}${t.stage ? ` · ${stageLabel(t.stage)}` : ''}` : r.title} · ${why}`, at: new Date(s.hold?.since ?? s.started_at ?? r.started_at).toISOString(),
+          action: w!.action, taskId: t?.id, onClick: () => { setPage('sop'); setOpenRun(r.id); setDrawer(null) },
+        }
+      }))
+      const covered = new Set(stepItems.map((x) => x.taskId).filter(Boolean))
+      const STAGE_WAIT: Record<string, [string, string]> = { confirm_project: ['等确认归到哪个项目', '去选项目'], need_human: ['流程转人工，等你裁决', '去裁决'], accepting: ['等你验收', '去验收'] }
+      const stageItems = (!modOn('tasks') ? [] : tasks).filter((t) => t.stage && STAGE_WAIT[t.stage] && isOpenTask(t.status) && !covered.has(t.id)).map((t) => ({
+        id: `stg-${t.id}`, kind: '待我处理', tone: t.stage === 'need_human' ? 'danger' as const : 'warn' as const, title: `${t.ref} ${t.title}`,
+        sub: `${stageLabel(t.stage)} · ${STAGE_WAIT[t.stage!][0]}`, at: t.updated_at, action: STAGE_WAIT[t.stage!][1],
+        onClick: () => { setPage('tasks'); setDrawer({ kind: 'task', id: t.id, tab: 'pipeline' }) },
+      }))
+      return [...stepItems.map(({ taskId: _t, ...x }) => x), ...stageItems]
+    })()),
     ...(!modOn('sessions') ? [] : agentRuns).filter((r) => r.status === 'waiting').map((r) => ({
       id: `ar-${r.id}`, kind: 'Agent 待确认', tone: 'warn' as const, title: `${agents.find((a) => a.id === r.agent_id)?.name ?? 'Agent'}：${r.trigger}`,
       sub: r.summary, at: r.at, action: '去确认', onClick: () => { setPage('sessions'); setSessionView('runs'); setDrawer(null) },
@@ -1022,14 +1072,28 @@ export default function App() {
     const pj: Project = { id: `pj_${Date.now().toString(36)}`, name: '新项目', desc: '', mark: { text: '', icon: 'folder' }, color: PROJECT_COLORS[projects.length % PROJECT_COLORS.length], root: '', related: [], agent_ids: [], chats: [], stakeholders: [], sop_ids: [], materials: [], docs: [], prototypes: [], created_at: new Date().toISOString() }
     setProjects((xs) => [...xs, pj]); setProjectId(pj.id); setProjectTab('settings')
   }
-  const newSession = (agentId: string, projectId?: string, first?: string, source?: Session['source'], title?: string) => {
+  const createSession = (agentId: string, projectId?: string, first?: string, source?: Session['source'], title?: string) => {
     const now = new Date().toISOString()
     const ss: Session = { id: `ss_${Date.now().toString(36)}`, agent_id: agentId, project_id: projectId, title: title ?? '新会话', created_at: now, updated_at: now, messages: [], source }
     setFirstMessage(first ? { sessionId: ss.id, text: first } : null)
     setSessions((xs) => [ss, ...xs])
-    setCurrentSession(ss.id)
+    return ss.id
+  }
+  const newSession = (agentId: string, projectId?: string, first?: string, source?: Session['source'], title?: string) => {
+    setCurrentSession(createSession(agentId, projectId, first, source, title))
     setPage('sessions'); setSessionView('chats'); setDrawer(null)
   }
+  // 在项目里开会话：建好挂到项目，切到 Agent 标签就地打开，不跳会话页（SPEC-projects-10.5、10.13、3.6）
+  const newProjectSession = (agentId: string, projectId: string) => {
+    setProjectChat(createSession(agentId, projectId)); setProjectTab('agents')
+  }
+  // 会话的消息更新：第一句话当标题，之后不再自动改。会话页和项目里的就地对话共用
+  const setSessionMsgs = (id: string, f: (m: ChatMsg[]) => ChatMsg[]) => setSessions((xs) => xs.map((x) => {
+    if (x.id !== id) return x
+    const messages = f(x.messages)
+    const title = x.title === '新会话' && messages[0] ? messages[0].text.slice(0, 20) : x.title
+    return { ...x, messages, title, updated_at: new Date().toISOString() }
+  }))
   // 目标已删除时不跳页面，返回提示给产出结果那一行显示
   const openOutputTarget = (o: AgentOutput): string | void => {
     if (o.kind === 'task' && o.target) {
@@ -1478,6 +1542,7 @@ export default function App() {
     const msg = drawer.kind === 'new-task' && drawer.fromMessage ? messages.find((x) => x.id === drawer.fromMessage) : undefined
     if (drawer.kind === 'new-task' || task) drawerEl = (
       <TaskDrawer key={task?.id ?? `new-${msg?.id ?? ''}`} projects={projects} task={task} initial={drawer.kind === 'new-task' ? drawer.initial : undefined} fromMessage={msg}
+        fromThread={msg ? threadForTask(msg, messages) : undefined} threadWho={(x) => contactFor(x, contacts)?.name ?? x.sender_name}
         tab={drawer.kind === 'task' ? drawer.tab : undefined} focusRun={drawer.kind === 'task' ? drawer.run : undefined} focusSopRun={drawer.kind === 'task' ? drawer.sopRun : undefined}
         hooks={hooks} deliveries={deliveries} assignees={assignees} onClose={() => setDrawer(null)}
         onOpenMessage={(id) => { setPage('messages'); openMessage(id) }}
@@ -1499,17 +1564,24 @@ export default function App() {
             setTermTabs((ts) => [...ts, tb]); setTermActive(tb.id)
             go('terminal')
           },
+          onManagePresets: () => { setDrawer(null); go('settings'); setSection('run-prompts') },
         }}
         sop={task ? {
           runs, sops,
           onStart: (sopId) => { const s = sopById(sopId); if (s) setDrawer({ kind: 'sop-start', sopId, initial: taskPrefill(s, task), objectId: task.id }) },
           onOpenRun: (id) => { setPage('sop'); setOpenRun(id); setRunFromTask(task.id); setDrawer(null) },
+          gov: sopGov,
+          onAct: (runId, a) => setRuns((xs) => xs.map((r) => (r.id === runId ? actOnRun(r, a) : r))),
         } : undefined}
         onDelete={() => { if (task) deleteTask(task.id); setDrawer(null) }}
-        onSave={(d, markDone) => {
+        onSave={(d, markDone, replyOnDone) => {
           // 重新挑了项目，「原属项目已删除」的提示就不要了
           if (task) { patchTask(task.id, d.project_id ? { ...d, project_removed: undefined } : d); setDrawer(null); return }
-          const t = newTask(tasks, { ...d, source: msg ? { kind: 'im', message_id: msg.id, channel: msg.channel, sender: msg.sender_name, text: msg.text } : { kind: 'manual' } })
+          // 提出人（SPEC-tasks-11.6）：发送者认到联系人记联系人，认不上记发送者快照；IM 转来的从「已接收」开始
+          const ct = msg ? contactFor(msg, contacts) : undefined
+          const requester = msg ? (ct ? { contact_id: ct.id, name: ct.name, channel: msg.channel, sender_id: msg.sender_id }
+            : { name: msg.sender_name || msg.sender_id, channel: msg.channel, sender_id: msg.sender_id, sender_name: msg.sender_name }) : undefined
+          const t = newTask(tasks, { ...d, ...(msg ? { stage: 'received', requester } : {}), source: msg ? { kind: 'im', message_id: msg.id, channel: msg.channel, sender: msg.sender_name, text: msg.text, reply_on_done: replyOnDone } : { kind: 'manual' } })
           setTasks((xs) => [t, ...xs])
           if (msg && markDone && msg.status === 'pending') patchMsg(msg.id, { status: 'done', snooze_until: null, read: true })
           setDrawer({ kind: 'task', id: t.id })
@@ -1745,7 +1817,14 @@ export default function App() {
           })() : (
             <TasksPage tasks={tasks} hooks={hooks} projects={projects} view={taskView as 'all'} selected={selectedId} onOpen={(id) => setDrawer({ kind: 'task', id })}
               onNew={() => setDrawer({ kind: 'new-task' })} onStatus={(id, st: TaskStatus) => patchTask(id, { status: st })} onApprove={(id) => dev.review(id, true, '')}
-              deliveries={deliveries} onOpenHook={(id) => setTaskView(`hook:${id}`)} onNewHook={() => setTaskView('hook:new')} />
+              deliveries={deliveries} onOpenHook={(id) => setTaskView(`hook:${id}`)} onNewHook={() => setTaskView('hook:new')}
+              onStage={(id, stage) => {
+                // 阶段变化记进 stage_log，流水线时间线用（正式产品是审计 kind=stage）
+                const t = tasks.find((x) => x.id === id)
+                if (!t || (t.stage ?? '') === stage) return
+                patchTask(id, { stage: stage || undefined, stage_log: [...(t.stage_log ?? []), { at: new Date().toISOString(), from: t.stage ?? '', to: stage }] })
+              }}
+              onOpenBoard={(id) => setDrawer({ kind: 'task', id, tab: 'pipeline' })} />
           ))}
           {page === 'messages' && (
             <MessagesPage messages={messages} contacts={contacts} connectors={connectors} selected={selectedId}
@@ -1755,7 +1834,7 @@ export default function App() {
               projects={projects} groupProjects={groupProjects}
               onSetGroupProject={(k, pid) => setGroupProjects((x) => { const n = { ...x }; if (pid) n[k] = pid; else delete n[k]; return n })}
               sops={sops} runs={runs} onOpenQueue={() => setDrawer({ kind: 'im-queue' })}
-              onOpenTriage={(id) => { patchMsg(id, { read: true }); setDrawer({ kind: 'message', id, focus: 'triage' }) }}
+              onOpenTriage={(id) => { openMessage(id); setDrawer({ kind: 'message', id, focus: 'triage' }) }}
               selectedGroup={drawer?.kind === 'im-group' ? drawer.key : null} onOpenGroup={(key) => setDrawer({ kind: 'im-group', key })}
               onStartSession={(ids, intent) => setImStart({ ids, intent })} linksOf={imLinksOf} onOpenSession={openSessionById}
               onToMaterial={setImToMat} onOpenMaterial={openMaterial}
@@ -1812,7 +1891,7 @@ export default function App() {
           {page === 'today' && (
             <TodayPage needs={todayNeeds} tasks={tasks} schedules={todaySchedules} running={todayRunning}
               more={{
-                SOP: has('sop') ? () => { go('sop'); setSopView('waiting') } : undefined,
+                待我处理: has('sop') ? () => { go('sop'); setSopView('waiting') } : undefined,
                 // 原型的任务页不能带状态筛选打开，先去全部任务；正式产品带 status=review
                 任务待验收: has('tasks') ? () => { go('tasks'); setTaskView('all') } : undefined,
                 'Agent 待确认': has('sessions') ? () => { go('sessions'); setSessionView('runs') } : undefined,
@@ -1833,14 +1912,14 @@ export default function App() {
           )}
           {page === 'projects' && projectId === ALL_PROJECTS && (
             <ProjectsListPage projects={projects} messages={messages} contacts={contacts} tasks={tasks} recent={recentProjects}
-              onOpen={(id) => { setProjectId(id); setProjectTab('overview') }} onNew={newProject} />
+              onOpen={(id) => { setProjectId(id); setProjectTab('overview'); setProjectChat(null) }} onNew={newProject} />
           )}
           {page === 'projects' && projectId !== ALL_PROJECTS && (() => {
             const pj = projects.find((x) => x.id === projectId)
             if (!pj) return <div className="page"><div className="empty"><div className="empty-title">这个项目不存在或已删除</div><button className="btn btn-outline" onClick={() => setProjectId(ALL_PROJECTS)}>回到项目列表</button></div></div>
             return (
               <ProjectPage key={pj.id} project={pj} projects={projects} agents={agents} content={content} tab={projectTab} onTab={(t) => { setProjectTab(t); setMatFocus(null) }} onAll={() => setProjectId(ALL_PROJECTS)}
-                recent={recentProjects} onSwitch={(id) => { setProjectId(id); setMatFocus(null) }}
+                recent={recentProjects} onSwitch={(id) => { setProjectId(id); setMatFocus(null); setProjectChat(null) }}
                 dock={(() => { const d = docks[pj.id] ?? EMPTY_DOCK; return { term: d.term.length, browser: d.brTabs, open: d.open && (d.term.length || d.br) ? d.view : null } })()}
                 onDock={(v) => showDock(pj.id, v, true)}
                 onChange={(x) => setProjects((xs) => xs.map((y) => (y.id === x.id ? x : y)))}
@@ -1848,7 +1927,7 @@ export default function App() {
                 onDelete={() => deleteProject(pj)}
                 onStart={startProto} onStop={stopProto}
                 onOpenDoc={(cid) => { setPage('library'); switchWs('builtin'); setReading(cid) }}
-                onChat={(agentId) => newSession(agentId, pj.id)}
+                onChat={(agentId) => newProjectSession(agentId, pj.id)}
                 onOpenAgent={(id) => { go('settings'); setSection('agents'); setAgentView(id) }}
                 deals={has('videos') ? <DealsTab project={pj} deals={deals} videos={videos} selected={drawer?.kind === 'deal' ? drawer.id : null} onOpen={openDeal}
                   onNew={() => setDrawer({ kind: 'new-deal', initial: { project_id: pj.id } })} /> : undefined}
@@ -1866,6 +1945,17 @@ export default function App() {
                   onOpenSop: (id) => { setPage('sop'); setSopView(`sop:${id}`); setOpenRun(null) },
                   onOpenSession: (id) => { setPage('sessions'); setSessionView('chats'); setCurrentSession(id) },
                   onAllSessions: () => { setPage('sessions'); setSessionView('chats'); setSessionProject(pj.id); setDrawer(null) },
+                  chatOpen: projectChat, onChatOpen: setProjectChat,
+                  renderChat: (s, head) => {
+                    const found = agents.find((a) => a.id === s.agent_id)
+                    const agent = found ?? goneAgent(s.agent_id)
+                    return (
+                      <ChatPane key={s.id} agent={agent} msgs={s.messages} onMsgs={(f) => setSessionMsgs(s.id, f)} ctx={ctx}
+                        onExecute={(c) => executeAgentCall(c, s.agent_id, { type: 'session', id: s.id })}
+                        examples={CHAT_EXAMPLES} head={head} permHint="可以到「设置 / Agent / 工具与权限」里打开"
+                        placeholderNote={!found ? '这个 Agent 已删除，只能回看' : agent.enabled ? undefined : '这个 Agent 已停用，只能回看'} />
+                    )
+                  },
                   onFetchAttachment: (mid, aid) => fetchAttachment(mid, aid), onAddAttachment: addAttachmentToProject,
                   onOpenMaterial: (mid) => openMaterial(pj.id, mid), imOn: has('messages'),
                   focusMaterial: matFocus,
@@ -1977,13 +2067,7 @@ export default function App() {
               projects={projects} initialProject={sessionProject} tools={sessionTools}
               onOpenSource={(id) => { setPage('messages'); openMessage(id) }}
               onOpen={setCurrentSession} onNew={(id) => newSession(id)}
-              onMsgs={(id, f) => setSessions((xs) => xs.map((x) => {
-                if (x.id !== id) return x
-                const messages = f(x.messages)
-                // 第一句话当标题，之后不再自动改
-                const title = x.title === '新会话' && messages[0] ? messages[0].text.slice(0, 20) : x.title
-                return { ...x, messages, title, updated_at: new Date().toISOString() }
-              }))}
+              onMsgs={setSessionMsgs}
               onRename={(id, title) => setSessions((xs) => xs.map((x) => (x.id === id ? { ...x, title } : x)))}
               onDelete={(id) => { setSessions((xs) => xs.filter((x) => x.id !== id)); setCurrentSession(sessions.find((x) => x.id !== id)?.id ?? null) }}
               onExecute={(sid, c) => executeAgentCall(c, sessions.find((x) => x.id === sid)?.agent_id ?? '', { type: 'session', id: sid })}
@@ -1993,7 +2077,7 @@ export default function App() {
           {page === 'sessions' && sessionView === 'runs' && <RunsView agents={agents} runs={agentRuns} onSettle={settleAgentRun} focus={runFocus} onFocused={() => setRunFocus(null)} onBack={() => setSessionView('chats')} />}
           {page === 'sessions' && sessionView === 'outputs' && <OutputsView agents={agents} outputs={outputs} sessions={sessions} runs={agentRuns} onOpenTarget={openOutputTarget} onOpenOrigin={openOutputOrigin} onBack={() => setSessionView('chats')} />}
           {page === 'settings' && section === 'agents' && (agentView === 'list' ? (
-            <AgentsPage agents={agents} runs={agentRuns} models={modelChoices} onOpen={setAgentView} onNew={() => setAgentView('new')}
+            <AgentsPage agents={agents} models={modelChoices} onOpen={setAgentView} onNew={() => setAgentView('new')}
               scenarios={agentScenarios} onScenario={(key, id) => setAgentScenarios((xs) => xs.map((x) => (x.key === key ? { ...x, agent_id: id } : x)))}
               onToggle={(id, on) => setAgents((xs) => xs.map((a) => (a.id === id ? { ...a, enabled: on } : a)))} />
           ) : (() => {
@@ -2033,9 +2117,12 @@ export default function App() {
           {page === 'settings' && section === 'domains' && (
             <DomainsPage settings={domainSettings} routes={domainRoutes} protos={protoRefs} onSettings={setDomainSettings} onRoutes={setDomainRoutes} onOpenUrl={openInBrowser} />
           )}
-          {page === 'settings' && section === 'sop' && <SopSettingsPage value={sopConcurrency} runs={runs} onSave={setSopConcurrency} />}
+          {page === 'settings' && section === 'sop' && <SopSettingsPage value={sopConcurrency} runs={runs} onSave={setSopConcurrency} gov={sopGov} onSaveGov={(p) => setSopGov((g) => ({ ...g, ...p }))} />}
+          {page === 'settings' && section === 'worktrees' && <WorktreeSettingsPage />}
           {page === 'settings' && section === 'terminal' && <TerminalSettingsPage value={claudeCommand} onSave={setClaudeCommand} />}
           {page === 'settings' && section === 'appearance' && <AppearancePage theme={theme} onTheme={setTheme} collapsed={collapsed} onCollapsed={setCollapsed} />}
+          {page === 'settings' && section === 'update' && <UpdatePage />}
+          {page === 'settings' && section === 'run-prompts' && <RunPresetsPage />}
           {page === 'settings' && section === 'enums' && (
             <EnumsPage groups={enums} usage={enumUsage} onMigrate={migrateEnum}
               onSave={(g) => setEnums((xs) => (xs.some((x) => x.key === g.key) ? xs.map((x) => (x.key === g.key ? g : x)) : [...xs, g]))}
@@ -2076,10 +2163,10 @@ export default function App() {
         const who = (m: Message) => contactFor(m, contacts)?.name ?? m.sender_name
         const pid = [...ms].reverse().find((m) => m.project_id)?.project_id ?? projects.find((x) => ms.some((m) => projectMessages(x, [m], contacts).length > 0))?.id
         return (
-          <ToMaterialDialog messages={ms} projects={projects} defaultProject={pid ?? undefined} who={who}
+          <ToMaterialDialog messages={ms} thread={threadForMany(ms, messages)} projects={projects} defaultProject={pid ?? undefined} who={who}
             chLabel={IM_CHANNELS.find((c) => c.key === last.channel)?.label ?? last.channel}
             onCancel={() => setImToMat(null)} onOpen={openMaterial}
-            onSave={(projectId, title, body, withAtts, markDone) => saveImMaterial(imToMat, projectId, title, body, withAtts, markDone)} />
+            onSave={(projectId, title, body, withAtts, markDone, extraIds) => saveImMaterial(imToMat, projectId, title, body, withAtts, markDone, extraIds)} />
         )
       })()}
       {imStart && (() => {
@@ -2102,7 +2189,7 @@ export default function App() {
       })()}
       <ReminderPopups items={reminderPops}
         onOpenTask={(id) => { if (tasks.some((t) => t.id === id)) { setPage('tasks'); setDrawer({ kind: 'task', id }) } }}
-        onDismiss={(id) => setReminderPops((xs) => (id === 'all' ? [] : xs.filter((x) => x.id !== id)))} />
+        onDismiss={(id) => setReminderPops((xs) => (id === 'toasts' ? xs.filter((x) => x.popup === 'modal') : xs.filter((x) => x.id !== id)))} />
     </div>
     </FrameAllowContext.Provider>
     </ProtoDomainContext.Provider>

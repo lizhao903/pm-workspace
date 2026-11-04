@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { ImMessage } from '../../core/data'
-import { clusterMessages, countLabel, nestThreads, pickState, previewText, rowTime, threadHint, threadOf, threadShown, toggleRow, toRows } from './groupModel'
+import { clusterMessages, countLabel, nestThreads, pickState, previewText, rowTime, threadBadge, threadBadgeLabel, threadForMany, threadForTask, threadHint, threadOf, threadTaskBody, THREAD_TASK_MAX, toggleRow, toRows } from './groupModel'
 
 let seq = 0
 const T0 = Date.parse('2026-11-02T10:00:00Z')
@@ -65,10 +65,10 @@ describe('合并显示的分组', () => {
   })
 })
 
-describe('串里的回复（0010）', () => {
+describe('消息列回复（0010）', () => {
   const thread = (p: ImMessage) => ({ parent_external_id: p.external_id, parent_message_id: p.id, parent_sender_name: p.sender_name, parent_text: p.text })
 
-  it('不参与连发、重复合并；挂在原消息那一行下面，行按最新的回复排', () => {
+  it('不参与连发、重复合并；归到原消息那一行，行按最新的回复排', () => {
     const p = msg({ text: '话题', at: at(0) })
     const other = msg({ text: '别的', sender_id: 'U2', at: at(30) })
     const r1 = msg({ text: '好', sender_id: 'U2', at: at(40), thread: thread(p) })
@@ -104,14 +104,44 @@ describe('串里的回复（0010）', () => {
       .toBe(`回复 原消息：${'a'.repeat(40)}…`)
   })
 
-  it('多了只显示最近 2 条；整个串按时间', () => {
+  it('消息列小标：整个消息列里有未读时标未读数，否则标筛得出来的回复数；整个消息列按时间', () => {
     const p = msg({ text: '话题' })
-    const rs = [1, 2, 3, 4].map((i) => msg({ text: `r${i}`, at: at(i), thread: thread(p) }))
-    expect(threadShown({ parent: p, replies: rs.slice(0, 3) }, false).hidden).toBe(0)
-    const s = threadShown({ parent: p, replies: rs }, false)
-    expect([s.hidden, s.shown.map((m) => m.text)]).toEqual([2, ['r3', 'r4']])
-    expect(threadShown({ parent: p, replies: rs }, true).shown).toHaveLength(4)
+    const rs = [1, 2, 3, 4].map((i) => msg({ text: `r${i}`, at: at(i), thread: thread(p), read: i < 3 }))
+    const all = [p, ...rs]
+    const rows = nestThreads(toRows(desc([p, rs[0], rs[1]]), clusterMessages(all), true), all)
+    expect(rows).toHaveLength(1)
+    const b = threadBadge(rows[0], all)!
+    expect([b.parentId, b.unread, b.replies]).toEqual([p.id, 2, 2])
+    expect(threadBadgeLabel(b)).toBe('消息列 2 条未读回复')
+    expect(threadBadgeLabel({ unread: 0, replies: 3 })).toBe('消息列 3 条回复')
+    expect(threadBadge(nestThreads(toRows([p], clusterMessages([p]), true), [p])[0], [p])).toBeNull()
     expect(threadOf(p, [...rs].reverse()).map((m) => m.text)).toEqual(['r1', 'r2', 'r3', 'r4'])
   })
 })
 
+
+describe('转任务附上消息列（SPEC-messages-2.15）', () => {
+  const thread = (p: ImMessage) => ({ parent_external_id: p.external_id, parent_message_id: p.id, parent_sender_name: p.sender_name, parent_text: p.text })
+  it('原消息取全部回复；回复取原消息加别的回复；没有消息列的为空', () => {
+    const p = msg({ text: '话题', at: at(0) })
+    const r1 = msg({ text: '一', sender_id: 'U2', sender_name: '王可', at: at(2), thread: thread(p) })
+    const r2 = msg({ text: '二', at: at(3), thread: thread(p) })
+    const lone = msg({ text: '独', at: at(9) })
+    const all = [r2, lone, p, r1]
+    expect(threadForTask(p, all).map((m) => m.text)).toEqual(['一', '二'])
+    expect(threadForTask(r2, all).map((m) => m.text)).toEqual(['话题', '一'])
+    expect(threadForTask(lone, all)).toEqual([])
+    expect(threadForMany([p, r2], all).map((m) => m.text)).toEqual(['一'])
+    expect(threadForMany([lone], all)).toEqual([])
+    const body = threadTaskBody([p, r1], () => 'T')
+    expect(body).toBe('## 消息列（2 条）\n\n- **A**（原消息） T：话题\n- **王可** T：一')
+    expect(threadTaskBody([])).toBe('')
+  })
+  it('太长时后面的不附，写明还有几条', () => {
+    const p = msg({ text: '话题' })
+    const big = (i: number) => msg({ text: 'x'.repeat(THREAD_TASK_MAX / 2), at: at(i), thread: thread(p) })
+    const body = threadTaskBody([big(1), big(2), big(3)], () => 'T')
+    expect(body).toContain('## 消息列（3 条）')
+    expect(body.endsWith('还有 2 条没附上，在原消息里看')).toBe(true)
+  })
+})
