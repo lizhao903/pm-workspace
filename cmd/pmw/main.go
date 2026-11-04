@@ -32,6 +32,7 @@ import (
 	"github.com/lizhao903/pm-workspace/internal/plugin"
 	"github.com/lizhao903/pm-workspace/internal/plugins/browser"
 	"github.com/lizhao903/pm-workspace/internal/plugins/domains"
+	"github.com/lizhao903/pm-workspace/internal/plugins/etf"
 	"github.com/lizhao903/pm-workspace/internal/plugins/im"
 	"github.com/lizhao903/pm-workspace/internal/plugins/projects"
 	"github.com/lizhao903/pm-workspace/internal/plugins/sop"
@@ -71,6 +72,8 @@ type config struct {
 	publicURL string
 	// mcpBin：「切换到终端」执行时写进 MCP 配置的 MCP 程序；空串时按本程序的位置推（mcpBinFor）
 	mcpBin string
+	// dshBin：deepseek-harness 的 dsh 可执行文件；空串时走 PATH，再看 DSH_BIN
+	dshBin string
 }
 
 func main() {
@@ -88,6 +91,7 @@ func main() {
 	flag.BoolVar(&cfg.fakeIM, "fake-im", false, "IM 插件带上假适配器 fake，可用 POST /api/im/callbacks/fake 灌消息（只用于演练）")
 	flag.StringVar(&cfg.publicURL, "public-url", connector.DefaultPublicURL, "浏览器访问工作台的地址，OAuth 回调地址由它拼出（见 docs/local-domain.md）")
 	flag.StringVar(&cfg.mcpBin, "mcp-bin", "", "交给 Claude Code「切换到终端」时接回工作台的 MCP 程序；留空按本程序位置推：bin/pmw 配 bin/pmw-mcp，bin/pmw-dev 配 bin/pmw-mcp-dev")
+	flag.StringVar(&cfg.dshBin, "dsh-bin", os.Getenv("DSH_BIN"), "deepseek-harness 的 dsh 可执行文件；留空走 PATH（也可用环境变量 DSH_BIN）")
 	flag.Parse()
 
 	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo})))
@@ -193,7 +197,7 @@ func run(cfg config) error {
 	plugins.Events = bus
 	// 插件的附件目录在数据目录下（IM-04a）：attachments/ 和库文件同级
 	plugins.DataDir = filepath.Dir(cfg.dbPath)
-	if err := plugins.Add(projects.New()); err != nil {
+	if err := plugins.Add(projects.New().WithPublicURL(cfg.publicURL)); err != nil {
 		return fmt.Errorf("登记插件失败: %w", err)
 	}
 	// IM 消息插件（IM-01a）：真实渠道 Slack（IM-01b）、Telegram（IM-01c），另有演练用的假适配器
@@ -206,7 +210,7 @@ func run(cfg config) error {
 	// Telegram Bot（IM-01c）：Token 在连接器实例里，出网走 network:im；--dev-upstream 可改投到本机假服务
 	imAdapters = append(imAdapters, im.NewTelegram())
 	applyDevUpstreams(plugins)
-	if err := plugins.Add(im.New(imAdapters...)); err != nil {
+	if err := plugins.Add(im.New(imAdapters...).WithPublicURL(cfg.publicURL)); err != nil {
 		return fmt.Errorf("登记插件失败: %w", err)
 	}
 	// SOP 编排插件（SOP-01a）：先只有流程定义，执行引擎从 SOP-01b 起
@@ -225,6 +229,10 @@ func run(cfg config) error {
 	if err := plugins.Add(trade.New()); err != nil {
 		return fmt.Errorf("登记插件失败: %w", err)
 	}
+	// 宽基监控插件（ETF-01a）：只读东方财富公开数据，采每日份额与交易快照
+	if err := plugins.Add(etf.New(etf.NewEastMoney())); err != nil {
+		return fmt.Errorf("登记插件失败: %w", err)
+	}
 	// 视频创作插件（VID-01a）：系列、视频、检查点、发布记录；不接内容平台
 	if err := plugins.Add(video.New()); err != nil {
 		return fmt.Errorf("登记插件失败: %w", err)
@@ -239,7 +247,7 @@ func run(cfg config) error {
 	defer plugins.Close()
 	defer bus.Wait(5 * time.Second)
 
-	opts := api.Options{Version: version, Dev: cfg.dev, Vault: v, Plugins: plugins}
+	opts := api.Options{Version: version, Dev: cfg.dev, Vault: v, Plugins: plugins, DSHBin: cfg.dshBin}
 	// 版本更新（SYS-UPD）：按正在跑的二进制找源码目录；换好二进制后经 restartCh 让下面的 select 收尾、main 原地重启
 	restartCh := make(chan string, 1)
 	if exe, err := os.Executable(); err == nil {

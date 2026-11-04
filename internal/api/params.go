@@ -167,6 +167,12 @@ func objectFilter(r *http.Request) (domain.ObjectFilter, error) {
 	f.ProjectID = p.str("project")
 	f.Query = p.str("q")
 	f.Sources = p.csv("source")
+	// props 上的筛选（AUTO-05）：阶段、提出人（联系人或 IM 发送者）、来源消息
+	f.Stages = p.csv("stage")
+	f.RequesterID = p.str("requester_id")
+	f.RequesterChannel = p.str("requester_channel")
+	f.RequesterSenderID = p.str("requester_sender_id")
+	f.SourceMessageID = p.str("source_message_id")
 
 	if f.CategorySubtree, err = p.boolean("subtree"); err != nil {
 		return f, err
@@ -201,6 +207,10 @@ func objectFilter(r *http.Request) (domain.ObjectFilter, error) {
 	}
 	if f.DueBefore, err = p.timeAt("due_before", dayEnd); err != nil {
 		return f, err
+	}
+	// 按 IM 发送者筛要渠道和发送者编号成对给，只给一个会把别的渠道同号的人也筛进来
+	if (f.RequesterChannel == "") != (f.RequesterSenderID == "") {
+		return f, validationf("requester_channel and requester_sender_id must be given together")
 	}
 	if f.Sort, err = p.sort("sort"); err != nil {
 		return f, err

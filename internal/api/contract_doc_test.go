@@ -13,6 +13,7 @@ import (
 	"github.com/lizhao903/pm-workspace/internal/plugin"
 	"github.com/lizhao903/pm-workspace/internal/plugins/browser"
 	"github.com/lizhao903/pm-workspace/internal/plugins/domains"
+	"github.com/lizhao903/pm-workspace/internal/plugins/etf"
 	"github.com/lizhao903/pm-workspace/internal/plugins/im"
 	"github.com/lizhao903/pm-workspace/internal/plugins/projects"
 	"github.com/lizhao903/pm-workspace/internal/plugins/sop"
@@ -49,6 +50,9 @@ func registeredRoutes(t *testing.T) []string {
 		t.Fatal(err)
 	}
 	if err := plugins.Add(trade.New()); err != nil {
+		t.Fatal(err)
+	}
+	if err := plugins.Add(etf.New(etf.NewFake())); err != nil {
 		t.Fatal(err)
 	}
 	if err := plugins.Add(video.New()); err != nil {

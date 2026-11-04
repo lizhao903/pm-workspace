@@ -368,6 +368,9 @@ func (f *fakeStore) UpdateObject(_ context.Context, id string, p domain.ObjectPa
 	if p.Title != nil {
 		o.Title = *p.Title
 	}
+	if p.Status != nil {
+		o.Status = *p.Status
+	}
 	if p.CategoryID != nil {
 		o.CategoryID = *p.CategoryID
 	}
@@ -1566,6 +1569,17 @@ func (f *fakeStore) FinishTaskRun(_ context.Context, id, status string, exitCode
 	r.Status, r.ExitCode, r.Output, r.Error, r.FinishedAt = status, exitCode, output, errMsg, &now
 	c := *r
 	return &c, nil
+}
+
+func (f *fakeStore) SetTaskRunSession(_ context.Context, id, session string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	r, ok := f.runsMap()[id]
+	if !ok {
+		return domain.ErrNotFound
+	}
+	r.HarnessSession = session
+	return nil
 }
 
 func (f *fakeStore) SetTaskRunPrompt(_ context.Context, id, prompt string) error {

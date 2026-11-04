@@ -90,9 +90,19 @@ func (s *Store) CreateObject(ctx context.Context, o *domain.Object, a store.Acto
 }
 
 func (s *Store) UpdateObject(ctx context.Context, id string, p domain.ObjectPatch, a store.Actor) (*domain.Object, error) {
+	// 阶段只在 props 里，不改 props 的写不用先读
+	var prevStage string
+	if p.Props != nil {
+		if prev, err := s.Store.GetObject(ctx, id); err == nil {
+			prevStage = domain.StageOf(prev.Props)
+		}
+	}
 	out, err := s.Store.UpdateObject(ctx, id, p, a)
 	if err != nil {
 		return nil, err
+	}
+	if p.Props != nil {
+		s.stageChanged(ctx, a, out, prevStage)
 	}
 	if isAgent(a) {
 		d := objDetail(out)
@@ -135,6 +145,25 @@ func (s *Store) ClaimObject(ctx context.Context, objectID string, in domain.Clai
 		s.agent(ctx, a, "claim", "object", objectID, "领取 "+objLabel(out.Object, objectID), objDetail(out.Object))
 	}
 	return out, nil
+}
+
+// stageChanged 任务阶段（props.stage，AUTO-05）变了记一条 kind=stage：不论操作者是谁都记，
+// 阶段由自动交付流程推进，事后要能查出是谁、在什么时候把它推到了哪一步。
+func (s *Store) stageChanged(ctx context.Context, a store.Actor, o *domain.Object, from string) {
+	to := domain.StageOf(o.Props)
+	if from == to {
+		return
+	}
+	d := objDetail(o)
+	d["from"], d["to"] = from, to
+	label := func(k string) string {
+		if k == "" {
+			return "未设阶段"
+		}
+		return domain.TaskStageLabel(k)
+	}
+	s.note(ctx, a, Entry{Kind: KindStage, Action: "stage_change", TargetType: "object", TargetID: o.ID,
+		Summary: objLabel(o, o.ID) + " 阶段 " + label(from) + " → " + label(to), Detail: d})
 }
 
 // patchFields 列出 PATCH 里给了的字段名，和契约的字段名一致；只记名字不记值。

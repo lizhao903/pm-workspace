@@ -27,12 +27,23 @@ func TestFinishRunCallsAPI(t *testing.T) {
 	}))
 	defer srv.Close()
 	c := newClient(srv.URL)
-	r, err := c.finishRun(context.Background(), "run_1", "done", "  写完了  ")
+	r, err := c.finishRun(context.Background(), "run_1", "done", "  写完了  ", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if gotPath != "POST /api/runs/run_1/finish" || gotBody["status"] != "done" || gotBody["summary"] != "写完了" {
 		t.Fatalf("请求：%s %v", gotPath, gotBody)
+	}
+	if _, ok := gotBody["result"]; ok {
+		t.Fatalf("没给 result 不该带：%v", gotBody)
+	}
+	// 结构化结论（AUTO-01）原样带上
+	if _, err := c.finishRun(context.Background(), "run_1", "done", "", map[string]any{"verdict": "reject", "issues": []any{"缺验收"}}); err != nil {
+		t.Fatal(err)
+	}
+	res, _ := gotBody["result"].(map[string]any)
+	if res["verdict"] != "reject" {
+		t.Fatalf("result 没带上：%v", gotBody)
 	}
 	if line := runLine(r); !strings.Contains(line, "终端") || !strings.Contains(line, "耗时") {
 		t.Fatalf("runLine：%s", line)

@@ -56,6 +56,7 @@ func registerTools(s *mcp.Server, c *client) {
 	addCounts(s, c)
 	addRecordArtifact(s, c)
 	addListArtifacts(s, c)
+	addListProjectProfiles(s, c)
 	registerDevTools(s, c)
 }
 

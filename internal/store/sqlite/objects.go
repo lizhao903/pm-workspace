@@ -262,6 +262,41 @@ func (s *Store) buildWhere(ctx context.Context, f domain.ObjectFilter) (string, 
 		conds = append(conds, "o.source IN ("+placeholders(len(f.Sources))+")")
 		args = append(args, anySlice(f.Sources)...)
 	}
+	// props 上的筛选（AUTO-05）。props 是 JSON 文本，0001 起非空（默认 '{}'），json_extract 不会报错。
+	if len(f.Stages) > 0 {
+		var keys []string
+		none := false
+		for _, s := range f.Stages {
+			if s == "none" {
+				none = true
+			} else if s != "" {
+				keys = append(keys, s)
+			}
+		}
+		var ors []string
+		if len(keys) > 0 {
+			ors = append(ors, "json_extract(o.props, '$.stage') IN ("+placeholders(len(keys))+")")
+			args = append(args, anySlice(keys)...)
+		}
+		if none {
+			ors = append(ors, "COALESCE(json_extract(o.props, '$.stage'), '') = ''")
+		}
+		if len(ors) > 0 {
+			conds = append(conds, "("+strings.Join(ors, " OR ")+")")
+		}
+	}
+	if f.RequesterID != "" {
+		conds = append(conds, "json_extract(o.props, '$.requester.contact_id') = ?")
+		args = append(args, f.RequesterID)
+	}
+	if f.RequesterChannel != "" || f.RequesterSenderID != "" {
+		conds = append(conds, "json_extract(o.props, '$.requester.channel') = ? AND json_extract(o.props, '$.requester.sender_id') = ?")
+		args = append(args, f.RequesterChannel, f.RequesterSenderID)
+	}
+	if f.SourceMessageID != "" {
+		conds = append(conds, "json_extract(o.props, '$.source_ref.message_id') = ?")
+		args = append(args, f.SourceMessageID)
+	}
 	return strings.Join(conds, " AND "), args, nil
 }
 

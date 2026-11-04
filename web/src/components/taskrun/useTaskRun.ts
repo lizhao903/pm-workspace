@@ -47,8 +47,18 @@ export interface UseTaskRun {
   historyLoading: boolean
   reloadHistory: () => Promise<void>
 
-  /** allowWrites 为 true 时后端给 claude 加 --permission-mode acceptEdits */
-  start: (workdir: string, extraPrompt: string, allowWrites: boolean) => Promise<void>
+  /**
+   * allowWrites 为 true 时后端放开写权限（claude 是 --permission-mode acceptEdits，
+   * deepseek 是 dsh 沙箱的 workspace-write）。harness 选执行器，空按 claude。
+   * resumeSession 只对 deepseek 有意义：接着这个对象上一次的会话继续跑。
+   */
+  start: (opts: {
+    workdir: string
+    extraPrompt: string
+    allowWrites: boolean
+    harness?: 'claude' | 'deepseek'
+    resumeSession?: boolean
+  }) => Promise<void>
   stop: () => void
 }
 
@@ -120,7 +130,15 @@ export function useTaskRun(objectId: string): UseTaskRun {
 
   /* ───────── 发起执行 ───────── */
 
-  const start = useCallback(async (workdir: string, extraPrompt: string, allowWrites: boolean) => {
+  const start = useCallback(async ({
+    workdir, extraPrompt, allowWrites, harness = 'claude', resumeSession = false,
+  }: {
+    workdir: string
+    extraPrompt: string
+    allowWrites: boolean
+    harness?: 'claude' | 'deepseek'
+    resumeSession?: boolean
+  }) => {
     if (running || !workdir.trim()) return
 
     setItems([])
@@ -146,6 +164,9 @@ export function useTaskRun(objectId: string): UseTaskRun {
           workdir: workdir.trim(),
           extra_prompt: extraPrompt.trim(),
           allow_writes: allowWrites,
+          harness,
+          // 只有 deepseek 认这个开关；claude 传了也无害，后端不看
+          resume_session: harness === 'deepseek' ? resumeSession : undefined,
         } satisfies TaskRunRequest),
         signal: ac.signal,
       })

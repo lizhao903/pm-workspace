@@ -18,6 +18,10 @@ type Task struct {
 	Links    []string // 关联对象的标题，给模型一点上下文
 	Workdir  string   // 它将要工作的目录
 	Extra    string   // 用户在发起时补的一句话，优先级最高
+	// Preset 是发起时选的预置提示词（SPEC-tasks-6.18），按角色场景录在设置里；没选为 nil。
+	Preset *Preset
+	// Source 是任务来自哪条 IM 消息（IM 转任务时有）：模型要知道是谁、为什么提的，结论会回复给对方。
+	Source *Source
 	// Acceptance 是验收标准（props.acceptance），Repo 是关联仓库（props.repo）。
 	// 验收标准单独成节而不是混进正文：它是「做到什么程度算完」，模型要逐条对照。
 	Acceptance string
@@ -26,6 +30,27 @@ type Task struct {
 	Project *Project
 	// WriteBack 不为 nil 表示这次是在终端里交互执行，要模型经工作台 MCP 自己回写（0048）。
 	WriteBack *WriteBack
+}
+
+// Preset 是一个角色（SPEC-settings-24）：场景名、执行要求、权限和输出要求。
+// ReadOnly 为真时提示词写明不改文件，流式执行也不放开文件编辑（api 层据此改 AllowWrites）；
+// Output 是对输出的要求（如结束时用 pmw_finish_run 回报的 result 结构），拼在执行要求后面。
+// DirKind 是默认在项目档案的哪个目录跑（code / prototype / prd / any），AUTO-04 落地前只存不用。
+type Preset struct {
+	Scene    string
+	Content  string
+	ReadOnly bool
+	Output   string
+	DirKind  string
+}
+
+// Source 是任务的来源 IM 消息。Reply 为真表示执行完成后工作台会回复原消息（IM 转任务时建的回执 SOP）。
+type Source struct {
+	Channel      string
+	Conversation string
+	Sender       string
+	Text         string
+	Reply        bool
 }
 
 // Project 是所属项目的上下文。DocsDir 取项目 props.related 的第一个关联目录，
@@ -93,6 +118,19 @@ const promptTemplate = `你正在协助处理一个来自「产品工作台」�
 {{range .Prototypes}}  - {{if .Name}}{{.Name}}：{{end}}{{.Dir}}
 {{end}}{{else}}原型在哪里操作：这个项目没有登记原型目录，可在项目设置里补；需要改原型时先问用户在哪里改。
 {{end}}
+{{end}}{{with .Source}}## 来源消息
+这条任务来自 {{if .Channel}}{{.Channel}} {{end}}{{if .Conversation}}「{{.Conversation}}」里{{end}}{{if .Sender}} {{.Sender}} {{end}}的消息：
+{{.Text}}
+{{if .Reply}}执行结束后，工作台会把这次执行的结论回复到这条消息里，结论请写成能直接发给对方看的话。
+{{end}}
+{{end}}{{with .Preset}}## 执行要求{{if .Scene}}（{{.Scene}}）{{end}}
+{{.Content}}
+{{if .ReadOnly}}
+这个角色只读：不要创建、修改或删除任何文件，结论写在回复里。
+{{end}}{{if .Output}}
+输出要求：
+{{.Output}}
+{{end}}
 {{end}}{{if .Extra}}## 本次执行的补充要求
 {{.Extra}}
 
@@ -117,6 +155,21 @@ func BuildPrompt(t Task) string {
 	t.Title = strings.TrimSpace(t.Title)
 	t.Body = strings.TrimSpace(t.Body)
 	t.Extra = strings.TrimSpace(t.Extra)
+	if t.Preset != nil {
+		p := *t.Preset // 不改调用方传进来的那份
+		t.Preset = &p
+		p.Content = strings.TrimSpace(p.Content)
+		p.Output = strings.TrimSpace(p.Output)
+		if p.Content == "" {
+			t.Preset = nil
+		}
+	}
+	if t.Source != nil {
+		t.Source.Text = strings.TrimSpace(t.Source.Text)
+		if t.Source.Text == "" {
+			t.Source.Text = "（消息没有正文）"
+		}
+	}
 	t.Acceptance = strings.TrimSpace(t.Acceptance)
 	t.Repo = strings.TrimSpace(t.Repo)
 

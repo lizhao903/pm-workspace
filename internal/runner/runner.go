@@ -150,6 +150,23 @@ type Request struct {
 	// 所以被拒的工具调用会被检出来并在结尾明确告诉用户该勾哪个开关，
 	// 见 denialReason。
 	AllowWrites bool
+
+	// MCPConfig 可选，额外的 MCP 配置文件（--mcp-config），插件运行回写结论用（AUTO-01）；
+	// AllowedTools 是不用确认就能调的工具（--allowedTools），只放开回写那个 MCP server。
+	MCPConfig    string
+	AllowedTools []string
+
+	// Harness 指定这次交给谁跑，空由 Runner.Harness 决定，两者都空是 claude。
+	//
+	// 单次覆盖而不是全局配置：同一个工作台上，「改代码」这类活给 claude，
+	// 「读需求写方案」这类活给 DeepSeek，是同时存在的两种情况。
+	Harness Harness
+	// DeepSeek 只在 Harness 是 deepseek 时用：模型路由。为 nil 时直接回
+	// 「先配服务商」，不会退回 claude——那会让用户以为自己换了模型其实没换。
+	DeepSeek *DeepSeekRoute
+	// SessionID 只在 Harness 是 deepseek 时用：接着这个会话继续跑。
+	// 空表示新开一个。未知 id 会让 dsh 直接失败，不会悄悄换成新会话。
+	SessionID string
 }
 
 // Result 是一次执行的收尾信息，调用方据此落库。
@@ -169,6 +186,10 @@ type Result struct {
 	// 哪怕 claude 自己以退出码 0 正常结束（它确实会这么做）。
 	// 退出码只说明「进程正常退出」，不说明「任务做成了」。
 	Denials []Denial
+
+	// SessionID 是 dsh 这次用的会话 id（0.2.x 的新会话形如 session-<uuid>）。
+	// 落库之后下一次可以带上它接着跑；claude 没有这个概念，留空。
+	SessionID string
 }
 
 // --- Runner ---
@@ -178,6 +199,14 @@ type Runner struct {
 	Timeout   time.Duration // 空则用 DefaultTimeout
 	MaxOutput int           // 空则用 DefaultMaxOutput
 	Logger    *slog.Logger
+
+	// Harness 是这个 Runner 的默认执行器，空是 claude；单次请求可以在
+	// Request.Harness 里覆盖它。取消、并发登记、残留判定不区分执行器：
+	// 它们靠 runID，而 runID 全库唯一。
+	Harness Harness
+	// DSHBin 是 dsh 可执行文件，空则走 PATH。和 Bin 分开是因为两者常常
+	// 一个在 PATH 里、另一个装在不常见的位置（npx 装的、nvm 下的）。
+	DSHBin string
 
 	mu   sync.Mutex
 	live map[string]*process
@@ -280,11 +309,43 @@ func (r *Runner) Start(ctx context.Context, req Request, on func(Event)) (*Resul
 		bin = DefaultBin
 	}
 
-	args := buildArgs(prompt, req.AllowWrites)
-	cmd := exec.Command(bin, args...)
+	// 选执行器。harness 决定后面的一切：命令行、怎么读流、失败文案里叫什么名字。
+	h := req.Harness
+	if h == "" {
+		h = r.Harness
+	}
+	var spec cmdSpec
+	switch h {
+	case HarnessDeepSeek:
+		spec, err = r.prepareDSH(req, prompt, workdir)
+		if err != nil {
+			return nil, err
+		}
+	default:
+		spec = cmdSpec{
+			bin:  bin,
+			name: "claude",
+			hint: "请确认本机已安装 Claude Code",
+			args: claudeArgs(req, prompt, workdir),
+			read: readStream,
+		}
+	}
+	if spec.cleanup != nil {
+		// 临时配置（dsh 的 patch）跟着这一次执行走，进程退了就删。
+		defer spec.cleanup()
+	}
+
+	cmd := exec.Command(spec.bin, spec.args...)
 	cmd.Dir = workdir
 	// 关键：让子进程自成一个进程组，取消时才能一次干掉它拉起的所有后代。
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	if len(spec.env) > 0 {
+		// 显式的环境变量接在父进程环境后面：同名的以后者为准，这是 exec 的语义。
+		cmd.Env = append(os.Environ(), spec.env...)
+	}
+	if spec.stdin != "" {
+		cmd.Stdin = strings.NewReader(spec.stdin)
+	}
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
@@ -297,9 +358,9 @@ func (r *Runner) Start(ctx context.Context, req Request, on func(Event)) (*Resul
 
 	if err := cmd.Start(); err != nil {
 		if errors.Is(err, exec.ErrNotFound) {
-			return nil, validationErr("找不到 claude 可执行文件（" + bin + "），请确认本机已安装 Claude Code")
+			return nil, validationErr("找不到 " + spec.name + " 可执行文件（" + spec.bin + "），" + spec.hint)
 		}
-		return nil, fmt.Errorf("启动 claude 失败：%w", err)
+		return nil, fmt.Errorf("启动 %s 失败：%w", spec.name, err)
 	}
 
 	// Setpgid 让子进程成为新进程组的组长，pgid 就等于它的 pid。
@@ -328,7 +389,7 @@ func (r *Runner) Start(ctx context.Context, req Request, on func(Event)) (*Resul
 		case <-timer.C:
 			timedOut.Store(true)
 		}
-		// 先礼后兵：SIGTERM 给 claude 一个把文件写完的机会，不听话再 SIGKILL。
+		// 先礼后兵：SIGTERM 给进程一个把文件写完的机会，不听话再 SIGKILL。
 		p.kill(syscall.SIGTERM)
 		select {
 		case <-done:
@@ -345,7 +406,7 @@ func (r *Runner) Start(ctx context.Context, req Request, on func(Event)) (*Resul
 	}()
 
 	out := &capped{max: captureCap}
-	stream := readStream(stdout, out, on)
+	stream := spec.read(stdout, out, on)
 
 	// StdoutPipe 的约定：必须读到 EOF 之后才能 Wait，否则 Wait 会把管道关掉。
 	<-stderrDone
@@ -364,7 +425,36 @@ func (r *Runner) Start(ctx context.Context, req Request, on func(Event)) (*Resul
 		canceled: p.canceled.Load(),
 		timedOut: timedOut.Load(),
 		stream:   stream,
+		name:     spec.name,
 	}), nil
+}
+
+// cmdSpec 是「这次执行要起什么进程、怎么读它」的完整描述。
+//
+// 抽成结构体是为了让两个执行器的差异只出现在一个地方：参数怎么拼、
+// 流怎么读、失败时叫什么名字。Start 里剩下的部分（进程组、超时、
+// 取消、截断、落库）对 claude 和 dsh 是同一套，不该复制两份。
+type cmdSpec struct {
+	bin     string
+	args    []string
+	env     []string // 追加到父进程环境后面，空表示不追加
+	stdin   string   // 非空时喂给子进程的 stdin（dsh 的任务文本走这里）
+	name    string   // 给人看的执行器名字，用在报错文案里
+	hint    string   // 找不到可执行文件时的补救办法
+	read    func(io.Reader, io.Writer, func(Event)) streamOutcome
+	cleanup func() // 收尾清理，nil 表示没有
+}
+
+// claudeArgs 拼 claude 的命令行，含请求里的可选参数。
+func claudeArgs(req Request, prompt, workdir string) []string {
+	args := buildArgs(prompt, req.AllowWrites, LinkedDirs(workdir)...)
+	if req.MCPConfig != "" {
+		args = append(args, "--mcp-config", req.MCPConfig)
+	}
+	for _, t := range req.AllowedTools {
+		args = append(args, "--allowedTools", t)
+	}
+	return args
 }
 
 // buildArgs 拼实际执行的命令行。抽成函数是为了让「生产参数长什么样」
@@ -376,10 +466,17 @@ func (r *Runner) Start(ctx context.Context, req Request, on func(Event)) (*Resul
 // allowWrites 为 true 时传 --permission-mode acceptEdits，只放开文件编辑。
 // 不用 --dangerously-skip-permissions：那个连命令执行也一起放开，
 // 而用户在界面上勾的是「允许修改文件」，不是「允许干任何事」。
-func buildArgs(prompt string, allowWrites bool) []string {
+//
+// addDirs 是工作目录里软链接指向的外部目录（LinkedDirs）：claude 只许访问工作目录，
+// 软链接进来的目录实际路径在外面，不加 --add-dir 读不到（SPEC-tasks-6.19）。每个目录单独一个 --add-dir，
+// 不写成一个 --add-dir 跟多个值：它是可变参数，后面的参数会被吞进去。
+func buildArgs(prompt string, allowWrites bool, addDirs ...string) []string {
 	args := []string{"-p", prompt, "--output-format", "stream-json", "--verbose"}
 	if allowWrites {
 		args = append(args, "--permission-mode", "acceptEdits")
+	}
+	for _, d := range addDirs {
+		args = append(args, "--add-dir", d)
 	}
 	return args
 }
@@ -395,11 +492,12 @@ type finishInput struct {
 	canceled       bool
 	timedOut       bool
 	stream         streamOutcome
+	name           string // 执行器名字，只用在失败文案里
 }
 
 // finish 把进程的死法翻译成一条可以落库的记录。
 func (r *Runner) finish(in finishInput) *Result {
-	res := &Result{ExitCode: in.exitCode, Denials: in.stream.denials}
+	res := &Result{ExitCode: in.exitCode, Denials: in.stream.denials, SessionID: in.stream.sessionID}
 	switch {
 	case in.canceled:
 		// 取消优先于超时和退出码：用户按了取消，进程当然是被信号杀死的，
@@ -409,6 +507,27 @@ func (r *Runner) finish(in finishInput) *Result {
 	case in.timedOut:
 		res.Status = domain.RunFailed
 		res.Error = fmt.Sprintf("执行超时（超过 %s），进程已被终止", in.timeout)
+	case in.stream.sandboxDown && in.stream.okTools == 0:
+		// 沙箱后端起不来，dsh 会拒绝在无隔离的情况下跑命令。这不是「任务没做成」，
+		// 是这台机器的环境没准备好——把它说成任务失败，用户会去改提示词而不是装后端。
+		res.Status = domain.RunFailed
+		res.Error = "dsh 的沙箱后端在这台机器上起不来，它拒绝在没有隔离的情况下执行命令，" +
+			"所以这次什么都没干成。装一个可用的沙箱后端再重试（Linux 用 bubblewrap 或启用 Landlock 的内核，" +
+			"macOS 要求 sandbox-exec 可用），或者改用 Claude Code 执行器。原始报错：" +
+			oneLine(in.stream.sandboxMsg, 200)
+	case in.stream.writeDenials > 0 && in.stream.okTools == 0 && in.req.AllowWrites:
+		// 已经勾了「允许修改文件」还被拒，那说明写的是工作区之外的地方。
+		res.Status = domain.RunFailed
+		res.Error = fmt.Sprintf("这次执行有 %d 次写入被 dsh 的沙箱拒绝，任务没有真正完成。"+
+			"「允许修改文件」已经打开，所以这些路径不在工作区里；"+
+			"把目标目录设成工作区，或者在「%s」里放一个指向它的软链接（工作台会把软链目标加成可写目录）。",
+			in.stream.writeDenials, in.workdir)
+	case in.stream.writeDenials > 0 && in.stream.okTools == 0:
+		// 和 claude 那条同一个道理：只读执行里「一个字都没写进去」必须判失败，
+		// 不能因为 dsh 正常收尾、退出码是 0 就显示完成。
+		res.Status = domain.RunFailed
+		res.Error = fmt.Sprintf("这次执行有 %d 次写入被 dsh 的沙箱拒绝（本次是只读执行，沙箱档位 read-only），"+
+			"任务没有真正完成。要让它改文件，请在发起时勾选「允许修改文件」。", in.stream.writeDenials)
 	case len(in.stream.denials) > 0 && in.stream.okTools == 0:
 		// 这一支必须排在「退出码为 0 就算成功」前面。
 		//
@@ -431,7 +550,7 @@ func (r *Runner) finish(in finishInput) *Result {
 		}
 	default:
 		res.Status = domain.RunFailed
-		res.Error = failureReason(in.exitCode, in.stream.finalText, in.stderr)
+		res.Error = failureReason(in.exitCode, firstNonEmpty(in.stream.finalText, in.stream.turnReason), in.stderr, in.name)
 	}
 
 	res.Output, res.Truncated = truncate(in.output, r.maxOutput())
@@ -488,8 +607,11 @@ func uniqueToolNames(denials []Denial) []string {
 const truncNotice = "\n\n---\n输出过长已截断。"
 
 // failureReason 拼一句能让用户知道下一步该看哪里的失败原因。
-// claude 自己的 result 文本最有用，其次是 stderr，最后才是光秃秃的退出码。
-func failureReason(exitCode int, finalText, stderr string) string {
+// 执行器自己的收尾文本最有用，其次是 stderr，最后才是光秃秃的退出码。
+func failureReason(exitCode int, finalText, stderr, name string) string {
+	if name == "" {
+		name = "claude"
+	}
 	if s := strings.TrimSpace(finalText); s != "" {
 		return oneLine(s, 500)
 	}
@@ -497,9 +619,19 @@ func failureReason(exitCode int, finalText, stderr string) string {
 		return oneLine(s, 500)
 	}
 	if exitCode < 0 {
-		return "claude 进程被信号终止"
+		return name + " 进程被信号终止"
 	}
-	return fmt.Sprintf("claude 以退出码 %d 结束", exitCode)
+	return fmt.Sprintf("%s 以退出码 %d 结束", name, exitCode)
+}
+
+// firstNonEmpty 取第一个非空串。dsh 失败时 final.text 是空的，原因只在 turnReason 里。
+func firstNonEmpty(vals ...string) string {
+	for _, v := range vals {
+		if strings.TrimSpace(v) != "" {
+			return v
+		}
+	}
+	return ""
 }
 
 func exitCodeOf(waitErr error) int {
@@ -525,6 +657,37 @@ type streamOutcome struct {
 	// 「被拒了但换个路子做成了」分开——claude 确实会绕路（Write 被拒就改用
 	// Bash 重定向），一律判失败会把真正做成事的执行标成红的。
 	okTools int
+
+	// 以下三个只有 dsh 会填。dsh 没有 claude 那种结构化的被拒清单，
+	// 只能从工具失败文本里认（见 dshDeniedWrite / dshSandboxUnavailable）。
+	// sandboxDown 是「沙箱后端起不来」，属环境故障，必须和任务失败分开说。
+	sandboxDown  bool
+	sandboxMsg   string
+	writeDenials int
+
+	// turnReason 是 dsh 一轮失败时唯一有信息量的文案：
+	// 实测 final.text 在这种情况下是空串，原因只在 turn_end.reason.error.message 里。
+	turnReason string
+
+	// sessionID 是这次运行落在哪段会话上，续跑要用。
+	sessionID string
+}
+
+// noteToolError 把一条工具失败按签名归类。
+//
+// 先认环境故障再认写入被拒：沙箱起不来的那条报错里本身就带着
+// "Operation not permitted"，顺序反了就会把环境问题记成一次写入被拒。
+func (so *streamOutcome) noteToolError(msg string) {
+	if dshSandboxUnavailable(msg) {
+		so.sandboxDown = true
+		if so.sandboxMsg == "" {
+			so.sandboxMsg = msg
+		}
+		return
+	}
+	if dshDeniedWrite(msg) {
+		so.writeDenials++
+	}
 }
 
 // readStream 逐行读 NDJSON，翻成事件回调出去，同时把可读的过程记录攒进 out。
