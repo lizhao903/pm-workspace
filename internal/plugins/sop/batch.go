@@ -211,13 +211,19 @@ func (e *engine) markBriefQueued(list []RunBrief) {
 		return
 	}
 	for i := range list {
-		q := e.gate.queued(list[i].ID)
-		if len(q) == 0 {
+		q, cq := e.gate.queued(list[i].ID), e.claudeQueued(list[i].ID)
+		if len(q) == 0 && len(cq) == 0 {
 			continue
 		}
 		for j := range list[i].Steps {
-			if n, ok := q[list[i].Steps[j].Key]; ok && list[i].Steps[j].Status == stRunning {
-				list[i].Steps[j].Queue = &StepQueue{Ahead: n}
+			st := &list[i].Steps[j]
+			if st.Status != stRunning {
+				continue
+			}
+			if n, ok := q[st.Key]; ok {
+				st.Queue = &StepQueue{Ahead: n}
+			} else if n, ok := cq[st.Key]; ok {
+				st.Queue = &StepQueue{Ahead: n, Slot: claudeKind}
 			}
 		}
 	}
