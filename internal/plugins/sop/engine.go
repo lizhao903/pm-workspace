@@ -37,6 +37,10 @@ type engine struct {
 	hook func(ctx context.Context, runID, step string) error
 	// gate 限制整个插件同时调模型的步骤数（SOP-07，gate.go）
 	gate *modelGate
+	// cgate 限制整个插件同时在跑的 Claude Code 步骤数（AUTO-12，governance.go）
+	cgate *modelGate
+	// claude 是在等的 Claude Code 运行，run.finished 来了叫醒（AUTO-01，nodes_claude.go）
+	claude claudeWaiters
 
 	mu    sync.Mutex
 	ctx   context.Context // 后台任务的 ctx，ready 关闭后才有
@@ -46,7 +50,8 @@ type engine struct {
 }
 
 func newEngine(c plugin.Core) *engine {
-	return &engine{c: c, runs: map[string]*runner{}, ready: make(chan struct{}), gate: newModelGate(defaultModelConcurrency)}
+	return &engine{c: c, runs: map[string]*runner{}, ready: make(chan struct{}),
+		gate: newModelGate(defaultModelConcurrency), cgate: newModelGate(defaultClaudeConcurrency)}
 }
 
 // job 是常驻后台任务：接着调度没结束的执行，然后等取消，取消后等全部协程退出。
@@ -60,6 +65,11 @@ func (e *engine) job(ctx context.Context, _ plugin.Core) error {
 		e.c.Log().Warn("sop model concurrency not loaded, using default", "err", err)
 	} else {
 		e.gate.setLimit(n)
+	}
+	if g, err := loadGovernance(ctx, e.c.Store()); err != nil {
+		e.c.Log().Warn("sop governance not loaded, using default", "err", err)
+	} else {
+		e.cgate.setLimit(g.ClaudeConcurrency)
 	}
 	// 补记已重跑的失败执行、修好上次重跑到一半停了的占位（runbatch.go）；之后的重跑请求等 ready 才占位
 	if err := backfillRelaunched(ctx, e.c.Store()); err != nil {
@@ -257,6 +267,8 @@ type gateMsg struct {
 	step, token int
 	queued      bool
 	ahead       int
+	// claude 为真是排 Claude Code 并发名额（AUTO-12），否则是调模型的名额
+	claude bool
 }
 
 // childMsg 是子执行结束时发给父执行的通知。
@@ -346,6 +358,8 @@ func (r *runner) resume() {
 			r.log(i, t, "服务重启后继续等待，到点时间不变")
 		case kind == "subflow" && s.ChildRunID != "":
 			r.log(i, t, "服务重启后继续等子流程")
+		case kind == claudeKind && s.Claude != nil:
+			r.log(i, t, "服务重启后继续等 Claude Code")
 		case isWriteKind(kind):
 			// 写节点按原来那次尝试重跑，写过的按幂等键取回，不重复写（SOP-02a）
 			s.StartedAt = &t
@@ -357,7 +371,7 @@ func (r *runner) resume() {
 		default:
 			s.Attempts++
 			s.StartedAt = &t
-			s.WakeAt, s.ChildRunID = nil, ""
+			s.WakeAt, s.ChildRunID, s.Claude = nil, "", nil
 			r.log(i, t, "服务重启后重跑")
 		}
 	}
@@ -367,6 +381,8 @@ func (r *runner) loop(ctx context.Context) {
 	defer r.e.wg.Done()
 	defer close(r.done)
 	defer r.e.remove(r)
+	// 退出时还在信箱里的 Claude Code 名额还回去，免得名额漏掉
+	defer r.drainGrants()
 	r.advance(now())
 	r.dispatch(ctx)
 	r.save(ctx)
@@ -396,6 +412,11 @@ func (r *runner) loop(ctx context.Context) {
 				r.save(ctx)
 			case gateMsg:
 				r.gateNote(ctx, m)
+			case claudeGrant:
+				r.claudeGranted(ctx, m)
+				r.advance(now())
+				r.dispatch(ctx)
+				r.save(ctx)
 			case childMsg:
 				r.childEnded(ctx, m.child)
 				r.advance(now())
@@ -504,7 +525,7 @@ func (r *runner) advance(t time.Time) {
 				r.log(i, t, "所在分支未被选中，不执行")
 			} else {
 				s.Input, _ = r.inputFor(i)
-				s.Output, s.Error, s.WakeAt, s.ChildRunID = nil, "", nil, ""
+				s.Output, s.Error, s.WakeAt, s.ChildRunID, s.Claude = nil, "", nil, "", nil
 				if r.run.StepThrough {
 					s.Status = stPaused
 					r.log(i, t, "执行前暂停，等待确认输入")
@@ -553,6 +574,9 @@ func (r *runner) dispatch(ctx context.Context) {
 		switch def.Kind {
 		case "subflow":
 			r.startSubflow(ctx, i)
+			continue
+		case claudeKind:
+			r.dispatchClaude(ctx, i)
 			continue
 		case "wait":
 			if s.WakeAt == nil {
@@ -638,9 +662,14 @@ func (r *runner) gateNote(ctx context.Context, m gateMsg) {
 		return
 	}
 	s := r.run.Steps[m.step]
-	if m.queued {
+	switch {
+	case m.claude && m.queued:
+		r.log(m.step, now(), fmt.Sprintf("排队等 Claude Code 名额（前面还有 %d 个）", m.ahead))
+	case m.claude:
+		r.log(m.step, now(), "排到了，交给 Claude Code")
+	case m.queued:
 		r.log(m.step, now(), fmt.Sprintf("排队等模型（前面还有 %d 个）", m.ahead))
-	} else {
+	default:
 		r.log(m.step, now(), "排到了，开始调模型")
 	}
 	r.save(ctx)
@@ -769,6 +798,8 @@ func (r *runner) finish(m resultMsg) {
 		s.Output = waitingMark(def.Kind, res.waiting)
 		r.inflight[m.step] = inflight{token: -1, cancel: func() {}}
 		r.log(m.step, t, "挂起："+res.waiting+"，等插件唤醒")
+	case def.Kind == loopbackKind && res.route == loopBack:
+		r.loopBack(m.step, res, t)
 	case res.route != "":
 		s.Status, s.Output, s.Route, s.RouteReason, s.EndedAt = stDone, res.output, res.route, res.reason, &t
 		r.log(m.step, t, fmt.Sprintf("判断结果：走「%s」，%s", caseLabel(def, res.route), res.reason))
@@ -1002,6 +1033,11 @@ func (r *runner) apply(ctx context.Context, a Action) error {
 		}
 		s.Status, s.StartedAt = stRunning, &t
 		s.Attempts++
+		if h := s.Hold; h != nil && !h.Released {
+			// 超出上限暂停的（AUTO-12）：放行这一次尝试，之后的执行照常按上限拦
+			h.Released, h.ReleasedAt, h.Attempt = true, &t, s.Attempts
+			r.log(i, t, "已放行：这一次不按上限拦，继续执行")
+		}
 		if a.Input != nil {
 			s.Input, s.Edited = a.Input, "input"
 			r.log(i, t, "输入已修改，开始执行")
@@ -1047,7 +1083,7 @@ func (r *runner) apply(ctx context.Context, a Action) error {
 			u := &r.run.Steps[j]
 			r.cancelStep(j)
 			u.Status, u.Output, u.StartedAt, u.EndedAt, u.Edited = stRunning, nil, &t, nil, ""
-			u.Route, u.RouteReason, u.Error, u.WakeAt, u.ChildRunID = "", "", "", nil, ""
+			u.Route, u.RouteReason, u.Error, u.WakeAt, u.ChildRunID, u.Claude = "", "", "", nil, "", nil
 			u.Attempts++
 			r.log(j, t, "被下游退回，重新执行")
 		}
@@ -1055,7 +1091,7 @@ func (r *runner) apply(ctx context.Context, a Action) error {
 		if s.Status != stFailed {
 			return apiErr(errConflict, "这一步没有失败")
 		}
-		s.Status, s.Error, s.StartedAt, s.EndedAt, s.WakeAt, s.ChildRunID = stRunning, "", &t, nil, nil, ""
+		s.Status, s.Error, s.StartedAt, s.EndedAt, s.WakeAt, s.ChildRunID, s.Claude = stRunning, "", &t, nil, nil, "", nil
 		s.Attempts++
 		r.log(i, t, fmt.Sprintf("第 %d 次尝试", s.Attempts))
 	case "skip":

@@ -66,6 +66,9 @@ var NodeTypes = []NodeType{
 	{Kind: "classifier", Group: "逻辑", Branching: true, DefaultCases: []Case{{"c1", "类别 1"}, {"c2", "类别 2"}}},
 	{Kind: "iterate", Group: "逻辑", Required: []ConfigField{{"list", "列表字段"}, {"action", "每一项做什么"}}},
 	{Kind: "wait", Group: "逻辑"},
+	// 条件回退（AUTO-02，loopback.go）：条件成立自动退回上游重做，超过轮次上限走「超限」；原型同步加了
+	{Kind: loopbackKind, Group: "逻辑", Branching: true, DefaultCases: []Case{{loopPass, "通过"}, {loopOver, "超限"}},
+		Required: []ConfigField{{"target", "退回到哪一步"}}},
 	{Kind: "review", Group: "人工"},
 	{Kind: "http", Group: "外部", Required: []ConfigField{{"url", "地址"}}},
 	{Kind: "notify", Group: "外部", Required: []ConfigField{{"to", "发给"}, {"content", "内容"}}},
@@ -77,6 +80,8 @@ var NodeTypes = []NodeType{
 	{Kind: "local_append", Group: "外部", Required: []ConfigField{{"project", "项目"}, {"path", "文件路径"}, {"content", "内容"}}},
 	{Kind: "agent", Group: "外部", Required: []ConfigField{{"agent", "Agent"}}},
 	{Kind: "subflow", Group: "外部", Required: []ConfigField{{"sop", "执行哪个 SOP"}}},
+	// Claude Code 执行（AUTO-01，nodes_claude.go）：交给本机 Claude Code 跑一次，等它结束；原型同步加了
+	{Kind: claudeKind, Group: "外部", Required: []ConfigField{{"workdir", "工作目录"}, {"prompt", "提示词"}}},
 	{Kind: "end", Group: "输出"},
 }
 
@@ -535,6 +540,16 @@ func CheckWith(f *Flow, kinds kindLookup) []Issue {
 		for _, cf := range t.Required {
 			if strings.TrimSpace(s.Config[cf.Key]) == "" {
 				add(i, "「%s」还没填「%s」", label(i), cf.Label)
+			}
+		}
+		if s.Kind == loopbackKind {
+			for _, msg := range checkLoopback(steps, idx, i) {
+				add(i, "「%s」%s", label(i), msg)
+			}
+		}
+		if s.Kind == claudeKind {
+			for _, msg := range checkClaude(s.Config) {
+				add(i, "「%s」%s", label(i), msg)
 			}
 		}
 		if t.Branching {

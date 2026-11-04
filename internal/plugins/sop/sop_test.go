@@ -19,15 +19,16 @@ import (
 )
 
 // sopPerms 是装 SOP 插件时确认的权限，同清单。
-var sopPerms = []string{"network:any", "fs:write:project"}
+var sopPerms = []string{"network:any", "fs:write:project", "process:spawn"}
 
 func TestManifestValid(t *testing.T) {
 	m, err := plugin.Parse(manifestJSON)
 	if err != nil {
 		t.Fatalf("清单不合法：%v", err)
 	}
-	// HTTP 节点要访问任意地址（SOP-01c），高风险，安装时单独勾选；写进项目目录要写项目目录下的文件
-	if m.ID != "sop" || m.TablePrefix != "sop_" || !reflect.DeepEqual(m.Permissions, []string{"network:any", "fs:write:project"}) {
+	// HTTP 节点要访问任意地址（SOP-01c），高风险，安装时单独勾选；写进项目目录要写项目目录下的文件；
+	// Claude Code 节点可写模式要起子进程（AUTO-01）
+	if m.ID != "sop" || m.TablePrefix != "sop_" || !reflect.DeepEqual(m.Permissions, []string{"network:any", "fs:write:project", "process:spawn"}) {
 		t.Fatalf("id=%s table_prefix=%s permissions=%v", m.ID, m.TablePrefix, m.Permissions)
 	}
 	if !reflect.DeepEqual(m.Provides.Modules, []string{"sop"}) {
