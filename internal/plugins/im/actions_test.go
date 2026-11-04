@@ -295,6 +295,14 @@ func TestToTask(t *testing.T) {
 	if ref["message_id"] != id || ref["channel"] != "slack" || ref["sender"] != "林原" || ref["conversation"] != "#product" {
 		t.Fatalf("source_ref 指向消息：%v", o.Props)
 	}
+	// 提出人（AUTO-05）：发送者认到了联系人，记联系人，渠道和发送者编号也带上
+	if rq, _ := o.Props[domain.PropRequester].(map[string]any); rq["contact_id"] != "stk_lin" || rq["name"] != "林原" ||
+		rq["channel"] != "slack" || rq["sender_id"] != "U04LIN" {
+		t.Fatalf("提出人：%v", o.Props[domain.PropRequester])
+	}
+	if o.Props[domain.PropStage] != "received" {
+		t.Fatalf("IM 转来的任务从已接收开始：%v", o.Props[domain.PropStage])
+	}
 	var actor, src string
 	if err := e.st.DB().R.QueryRow(`SELECT actor, source FROM revisions WHERE object_id = ? ORDER BY rowid LIMIT 1`, o.ID).Scan(&actor, &src); err != nil {
 		t.Fatal(err)
@@ -330,6 +338,21 @@ func TestToTask(t *testing.T) {
 	code, out = call(t, e.h, "POST", "/api/im/messages/"+id2+"/task", `{}`)
 	if code != 201 || data(out)["task"].(map[string]any)["title"] != "来自 林原 的消息" {
 		t.Fatalf("没正文时的默认标题：%d %v", code, out)
+	}
+
+	// 认不上联系人的发送者：存快照，名字取发送者显示名
+	id3 := e.push(t, "fake", `{"external_id":"C01:3","conversation_id":"C01","sender_id":"U77","sender_name":"访客","text":"能加个导出吗"}`)
+	code, out = call(t, e.h, "POST", "/api/im/messages/"+id3+"/task", `{}`)
+	if code != 201 {
+		t.Fatalf("转任务：%d %v", code, out)
+	}
+	o3, err := e.st.GetObject(ctx, data(out)["task"].(map[string]any)["id"].(string))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rq, _ := o3.Props[domain.PropRequester].(map[string]any); rq["contact_id"] != nil || rq["name"] != "访客" ||
+		rq["sender_name"] != "访客" || rq["channel"] != "slack" || rq["sender_id"] != "U77" {
+		t.Fatalf("认不上的提出人：%v", o3.Props[domain.PropRequester])
 	}
 }
 

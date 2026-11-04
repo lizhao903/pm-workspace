@@ -8,6 +8,7 @@ import (
 	"embed"
 	"fmt"
 	"io/fs"
+	"strings"
 	"sync"
 
 	"github.com/lizhao903/pm-workspace/internal/plugin"
@@ -26,10 +27,18 @@ const EventReceived = "im.message_received"
 type Plugin struct {
 	m        plugin.Manifest
 	adapters []Adapter
+	// publicURL 是浏览器访问工作台的地址（--public-url），回执里的看板链接拼在它后面（AUTO-06）
+	publicURL string
 }
 
 func New(adapters ...Adapter) *Plugin {
 	return &Plugin{m: plugin.MustParse(manifestJSON), adapters: adapters}
+}
+
+// WithPublicURL 设浏览器访问工作台的地址（cmd/pmw 传 --public-url），IM 需求自动受理的回执里拼看板链接用（AUTO-06）。
+func (p *Plugin) WithPublicURL(u string) *Plugin {
+	p.publicURL = strings.TrimRight(strings.TrimSpace(u), "/")
+	return p
 }
 
 func (p *Plugin) Manifest() plugin.Manifest { return p.m }
@@ -55,7 +64,7 @@ func (p *Plugin) Register(r plugin.Registrar) error {
 		}
 		seen[k] = true
 	}
-	in := &inbox{c: r.Core(), adapters: p.adapters, pullMu: map[string]*sync.Mutex{}}
+	in := &inbox{c: r.Core(), adapters: p.adapters, pullMu: map[string]*sync.Mutex{}, publicURL: p.publicURL}
 	for _, a := range p.adapters {
 		in.pullMu[a.Key()] = &sync.Mutex{}
 		// 真实渠道（IM-01b 起）：交插件句柄，登记自带的连接器定义
@@ -138,5 +147,8 @@ func (p *Plugin) Register(r plugin.Registrar) error {
 	r.ConnectorImpact(plugin.ConnectorImpactDef{Key: "messages", Load: messagesImpact})
 	// SOP 节点：发消息、等回复（SOP-02b，sopnodes.go）
 	in.registerSOPNodes(r)
+	in.registerTaskReply(r)
+	// IM 需求自动受理：转成任务、设置任务阶段两个节点和内置流程（AUTO-06，autointake.go）
+	in.registerAutoIntake(r)
 	return nil
 }

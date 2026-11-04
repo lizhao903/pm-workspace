@@ -34,10 +34,22 @@ func (f *fakeClaude) Start(_ context.Context, req runner.Request, _ func(runner.
 	return &runner.Result{Status: plugin.RunDone, Output: "做好了"}, nil
 }
 
+// last 取最近一次交给 Claude Code 的请求。发起是异步的（插件运行先回 id、协程里再调执行器），
+// 负载高时 HTTP 已经回了、执行器还没被调到，这里最多等 3 秒。
 func (f *fakeClaude) last() runner.Request {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	return f.got[len(f.got)-1]
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		f.mu.Lock()
+		if n := len(f.got); n > 0 || time.Now().After(deadline) {
+			defer f.mu.Unlock()
+			if n == 0 {
+				panic("fakeClaude: 3 秒内没收到交给 Claude Code 的请求")
+			}
+			return f.got[n-1]
+		}
+		f.mu.Unlock()
+		time.Sleep(10 * time.Millisecond)
+	}
 }
 
 // fakeAgent 是假的 Agent：RunAgent 直接回一个会话。
