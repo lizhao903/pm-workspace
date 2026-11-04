@@ -1,0 +1,27 @@
+{
+  "id": "etf",
+  "name": "宽基监控",
+  "description": "监控 A 股宽基 ETF 的每日份额变动与交易大盘情况，落库留存并支持异动分析",
+  "icon": "pulse",
+  "version": "0.1.0",
+  "core": ">=1.0.0 <2.0.0",
+  "depends": {},
+  "optional_depends": {},
+  "provides": {
+    "modules": ["monitor"],
+    "settings": [],
+    "object_types": [],
+    "connectors": [],
+    "skills": [],
+    "agent_tools": [],
+    "sop_nodes": [],
+    "today_cards": [],
+    "commands": [],
+    "search": []
+  },
+  "emits": [],
+  "subscribes": [],
+  "permissions": ["network:market-data"],
+  "migrations": "migrations",
+  "table_prefix": "etf_"
+}
