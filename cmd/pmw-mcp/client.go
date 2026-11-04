@@ -386,9 +386,12 @@ func (c *client) getRun(ctx context.Context, id string) (*domain.TaskRun, error)
 }
 
 // finishRun 给终端执行收尾（POST /api/runs/{id}/finish）。
-func (c *client) finishRun(ctx context.Context, id, status, summary string) (*domain.TaskRun, error) {
+func (c *client) finishRun(ctx context.Context, id, status, summary string, result map[string]any) (*domain.TaskRun, error) {
 	var out domain.TaskRun
 	body := map[string]any{"status": status, "summary": strings.TrimSpace(summary)}
+	if result != nil {
+		body["result"] = result
+	}
 	if _, err := c.do(ctx, http.MethodPost, "/api/runs/"+url.PathEscape(id)+"/finish", nil, body, &out); err != nil {
 		return nil, err
 	}

@@ -154,6 +154,9 @@ type Store interface {
 	// SetTaskRunPrompt 补写执行记录的提示词。终端执行（0048）的提示词里要写执行 id，
 	// 只能先建记录拿到 id 再补；只改没收尾的记录，已收尾回 conflict。
 	SetTaskRunPrompt(ctx context.Context, id, prompt string) error
+	// SetTaskRunSession 记下 dsh 这次用的会话 id（0050），续跑要用。
+	// 空串是合法的（claude 的执行没有会话），不报错。
+	SetTaskRunSession(ctx context.Context, id, session string) error
 	// ResolveWorkdir 取对象的有效工作区：自身没设时回退到所属项目的，都没有返回空串。
 	ResolveWorkdir(ctx context.Context, objectID string) (string, error)
 

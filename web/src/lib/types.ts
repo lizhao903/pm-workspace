@@ -557,6 +557,10 @@ export interface TaskRun {
   error: string
   started_at: string
   finished_at: string | null
+  /** 这次交给谁跑：'claude'（本机 Claude Code）或 'deepseek'（deepseek-harness 的 headless 模式） */
+  harness: string
+  /** dsh 这次用的会话 id；勾「接着上次会话」时下一次会带上它。claude 的执行是空串 */
+  harness_session: string
 }
 
 /**
@@ -589,10 +593,17 @@ export interface TaskRunRequest {
   workdir?: string
   extra_prompt?: string
   /**
-   * 允许 claude 修改文件（后端译成 --permission-mode acceptEdits）。
+   * 允许执行器修改文件。claude 译成 --permission-mode acceptEdits，
+   * deepseek 译成 dsh 沙箱的 workspace-write。
    * 默认 false：只读跑一遍看它打算做什么，是比「先改了再说」安全的默认值。
    */
   allow_writes?: boolean
+  /** 执行器：空或 'claude' 走本机 Claude Code，'deepseek' 走 deepseek-harness（dsh） */
+  harness?: 'claude' | 'deepseek'
+  /** 只在 harness='deepseek' 时用：把哪个模型服务商交给 dsh，空用默认服务商 */
+  provider_id?: string
+  /** 只在 harness='deepseek' 时用：接着这个对象上一次 dsh 会话继续跑（没有可续的会话时后端回 400） */
+  resume_session?: boolean
 }
 
 // ---- 干系人名册 ----

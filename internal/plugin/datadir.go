@@ -18,3 +18,20 @@ func (c *core) AttachmentDir() string {
 	}
 	return filepath.Join(abs, AttachmentsSubdir)
 }
+
+// 工作区目录（AUTO-07）：数据目录下的 worktrees/，项目插件在这里给每个进研发的任务建 git worktree，不放进代码库。
+// 同附件目录只给路径、不建目录。
+
+// WorktreesSubdir 是工作区目录在数据目录下的名字。
+const WorktreesSubdir = "worktrees"
+
+func (c *core) WorktreeDir() string {
+	if c.reg == nil || c.reg.DataDir == "" {
+		return ""
+	}
+	abs, err := filepath.Abs(c.reg.DataDir)
+	if err != nil {
+		return ""
+	}
+	return filepath.Join(abs, WorktreesSubdir)
+}

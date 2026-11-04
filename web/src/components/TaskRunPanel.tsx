@@ -137,6 +137,17 @@ export default function TaskRunPanel({ object, onGoDetail }: TaskRunPanelProps) 
   const [allowWrites, setAllowWrites] = useState(false)
   const [openRun, setOpenRun] = useState<string | null>(null)
   const [openErrors, setOpenErrors] = useState<Set<string>>(new Set())
+  // 执行器：claude 是本机 Claude Code，deepseek 是 deepseek-harness 的 headless 模式
+  const [harness, setHarness] = useState<'claude' | 'deepseek'>('claude')
+  const engineName = harness === 'deepseek' ? 'DeepSeek Harness' : 'Claude Code'
+  // 续跑只对 DeepSeek 有意义：上一次 dsh 执行留下了会话才能接着跑
+  const [resume, setResume] = useState(false)
+  const lastSession = useMemo(() => {
+    for (const r of run.history) {
+      if (r.harness === 'deepseek' && r.harness_session) return r.harness_session
+    }
+    return ''
+  }, [run.history])
   const streamRef = useRef<HTMLDivElement | null>(null)
   const pinned = useRef(true)
 
@@ -177,7 +188,7 @@ export default function TaskRunPanel({ object, onGoDetail }: TaskRunPanelProps) 
         ) : (
           <div className="tr-warn">
             <b>请先设置工作区目录</b>
-            <span>Claude Code 需要一个落地目录才能执行；可以设在本对象上，也可以设在所属项目上由它继承。</span>
+            <span>执行器需要一个落地目录才能干活；可以设在本对象上，也可以设在所属项目上由它继承。</span>
             <button type="button" className="tr-link" onClick={onGoDetail}>去详情 Tab 设置</button>
           </div>
         )}
@@ -191,7 +202,49 @@ export default function TaskRunPanel({ object, onGoDetail }: TaskRunPanelProps) 
           onValueChange={setExtra}
         />
 
-        {/* 勾这个框等于放手让 claude 改文件，所以把「会写到哪」摆在同一行里 */}
+        {/* 同一个任务可以交给两个执行器：改代码给 Claude Code，读需求写方案给 DeepSeek */}
+        <div className="tr-engine">
+          <span className="tr-engine-label">执行器</span>
+          <div className="tr-engine-opts" role="group" aria-label="执行器">
+            <button
+              type="button"
+              className={harness === 'claude' ? 'tr-engine-opt is-on' : 'tr-engine-opt'}
+              disabled={run.running}
+              onClick={() => setHarness('claude')}
+            >
+              Claude Code
+            </button>
+            <button
+              type="button"
+              className={harness === 'deepseek' ? 'tr-engine-opt is-on' : 'tr-engine-opt'}
+              disabled={run.running}
+              onClick={() => setHarness('deepseek')}
+            >
+              DeepSeek Harness
+            </button>
+          </div>
+          {harness === 'deepseek' ? (
+            <span className="tr-engine-hint">
+              按设置里的默认服务商跑；模型和密钥由工作台转成 dsh 的临时配置，每次执行现生成。
+            </span>
+          ) : null}
+          {harness === 'deepseek' && lastSession ? (
+            <label className="tr-resume">
+              <input
+                type="checkbox"
+                checked={resume}
+                disabled={run.running}
+                onChange={(e) => setResume(e.target.checked)}
+              />
+              <span>
+                接着上次会话
+                <span className="tr-resume-id mono">{lastSession.slice(-8)}</span>
+              </span>
+            </label>
+          ) : null}
+        </div>
+
+        {/* 勾这个框等于放手让执行器改文件，所以把「会写到哪」摆在同一行里 */}
         <label className={`tr-writes ${allowWrites ? 'tr-writes-on' : ''}`.trim()}>
           <input
             type="checkbox"
@@ -204,8 +257,8 @@ export default function TaskRunPanel({ object, onGoDetail }: TaskRunPanelProps) 
             {eff.value ? (
               <span className="tr-writes-hint">
                 {allowWrites
-                  ? <>claude 可以直接改 <span className="mono">{eff.value}</span> 下的文件。</>
-                  : <>不勾则只读跑一遍：claude 会说它打算做什么，但改不了 <span className="mono">{eff.value}</span> 里的任何东西。</>}
+                  ? <>{engineName} 可以直接改 <span className="mono">{eff.value}</span> 下的文件。</>
+                  : <>不勾则只读跑一遍：{engineName} 会说它打算做什么，但改不了 <span className="mono">{eff.value}</span> 里的任何东西。</>}
               </span>
             ) : null}
           </span>
@@ -222,9 +275,12 @@ export default function TaskRunPanel({ object, onGoDetail }: TaskRunPanelProps) 
               small
               disabled={!canRun}
               title={eff.value ? '' : '未设置工作区目录，无法执行'}
-              onClick={() => void run.start(eff.value, extra, allowWrites)}
+              onClick={() => void run.start({
+                workdir: eff.value, extraPrompt: extra, allowWrites, harness,
+                resumeSession: resume,
+              })}
             >
-              用 Claude Code 执行
+              用 {engineName} 执行
             </Button>
           )}
           {run.running ? <span className="tr-timer mono">{fmtDuration(run.elapsedMs)}</span> : null}
@@ -298,6 +354,11 @@ export default function TaskRunPanel({ object, onGoDetail }: TaskRunPanelProps) 
             >
               <span className={`tr-dot tr-dot-${r.status}`} aria-hidden="true" />
               <span className="faint">{formatDateTime(r.started_at)}</span>
+              <span className="tr-hist-engine" title={r.harness_session || undefined}>
+                {r.harness === 'deepseek'
+                  ? `DeepSeek${r.harness_session ? ` · ${r.harness_session.slice(-6)}` : ''}`
+                  : 'Claude'}
+              </span>
               <span className={r.status === 'failed' ? 'tr-badge-fail' : ''}>{STATUS_LABELS[r.status] ?? r.status}</span>
               <span className="faint">{runDuration(r)}</span>
               {r.status !== 'done' && r.exit_code !== 0 ? <span className="faint mono">退出码 {r.exit_code}</span> : null}

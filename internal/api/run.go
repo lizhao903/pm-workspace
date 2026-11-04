@@ -167,6 +167,18 @@ type runObjectReq struct {
 	// AllowWrites 必须由用户在界面上显式勾选，默认 false。
 	// 我们不替用户放宽 claude 的安全边界——那个决定只能他自己做。
 	AllowWrites bool `json:"allow_writes"`
+	// PresetID 是选的角色（SPEC-tasks-6.18，AUTO-03），空表示不用；只读角色会把 AllowWrites 压成 false。
+	PresetID string `json:"preset_id"`
+	// Harness 是执行器：空或 claude 走本机 claude CLI，deepseek 走 deepseek-harness
+	// 的 headless 模式（dsh）。别的值 400，不兜底成 claude——
+	// 用户以为自己换了执行器其实没换，比直接报错更糟。
+	Harness string `json:"harness"`
+	// ProviderID 只在 harness=deepseek 时用：把哪个模型服务商交给 dsh；空用默认服务商。
+	ProviderID string `json:"provider_id"`
+	// ResumeSession 只在 harness=deepseek 时用：接着这个对象上一次 dsh 会话继续跑。
+	// 默认 false——续跑会把上一次的上下文一起带进来，那该是用户明确要的，
+	// 而不是每次点「执行」都悄悄发生。
+	ResumeSession bool `json:"resume_session"`
 }
 
 // handleRunObject 把一个工作对象交给本机 claude 执行，过程以 SSE 流式回推。
@@ -203,18 +215,62 @@ func (s *Server) handleRunObject(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 提示词带上所属项目（文档、原型在哪里操作），和预览同一套拼法（runterminal.go）
-	prompt := s.promptFor(ctx, obj, workdir, req.ExtraPrompt, domain.RunModeStream, "")
+	preset, err := s.presetOf(ctx, req.PresetID)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	// 只读角色不放开文件编辑，勾了「允许写入」也不行（AUTO-03）；允许改文件的角色仍以请求里的为准，
+	// 弹窗选角色时把勾选跟着角色走，用户还能取消。
+	if preset != nil && preset.ReadOnly {
+		req.AllowWrites = false
+	}
+	prompt := s.promptFor(ctx, obj, workdir, req.ExtraPrompt, domain.RunModeStream, "", preset)
+
+	// 执行器和模型路由都必须在开流之前定死：这两样出错是「参数不对」，
+	// 用户改一下就能重试，而 SSE 的响应头一旦发出去就只能当流里的 error。
+	harness, err := runner.ParseHarness(req.Harness)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	var dsRoute *runner.DeepSeekRoute
+	var sessionID string
+	if harness == runner.HarnessDeepSeek {
+		dsRoute, err = s.deepseekRoute(ctx, req.ProviderID)
+		if err != nil {
+			s.fail(w, r, err)
+			return
+		}
+		if req.ResumeSession {
+			sessionID, err = s.lastDeepSeekSession(ctx, objID)
+			if err != nil {
+				s.fail(w, r, err)
+				return
+			}
+			if sessionID == "" {
+				// 没有可续的会话不该静默新开一段：用户勾的是「接着上次」，
+				// 悄悄变成新会话，他会以为上下文带过去了。
+				s.fail(w, r, validationf("这个对象还没有可续的 DeepSeek 会话，先跑一次再续"))
+				return
+			}
+		}
+	}
+
 	run, err := s.st.CreateTaskRun(ctx, &domain.TaskRun{
 		ObjectID: objID,
 		Workdir:  workdir,
 		Prompt:   prompt,
 		Status:   domain.RunRunning,
 		Mode:     domain.RunModeStream,
+		Harness:  string(harness),
 	})
 	if err != nil {
 		s.fail(w, r, err)
 		return
 	}
+
+	s.markDoing(ctx, r, obj)
 
 	// 从这里开始就是流了。
 	h := w.Header()
@@ -262,6 +318,9 @@ func (s *Server) handleRunObject(w http.ResponseWriter, r *http.Request) {
 		Workdir:     workdir,
 		Prompt:      prompt,
 		AllowWrites: req.AllowWrites,
+		Harness:     harness,
+		DeepSeek:    dsRoute,
+		SessionID:   sessionID,
 	}, emit)
 	if err != nil {
 		// 进程根本没起来。记录必须收尾，否则它会永远停在 running。
@@ -271,6 +330,14 @@ func (s *Server) handleRunObject(w http.ResponseWriter, r *http.Request) {
 		emit(runner.Event{Type: runner.EventError, Message: err.Error()})
 		emit(runner.Event{Type: runner.EventDone, RunID: run.ID, ExitCode: -1})
 		return
+	}
+
+	// 会话 id 要赶在收尾之前落：下一次续跑靠它找上次的会话，
+	// 而收尾（FinishTaskRun）之后就只剩 reading 的份了。
+	if res.SessionID != "" {
+		if err := s.st.SetTaskRunSession(bg, run.ID, res.SessionID); err != nil {
+			s.log.Warn("save dsh session failed", "run", run.ID, "err", err)
+		}
 	}
 
 	// 先落库再发 done：前端看到 done 就认为「这次执行已经留痕」，
@@ -333,6 +400,26 @@ func (s *Server) recordRunArtifacts(ctx context.Context, runID, objID, workdir s
 	}
 }
 
+// markDoing 交给 Claude Code（流式或终端）时把任务改成进行中（SPEC-tasks-6.17）：
+// 只改任务，已经是进行中、已完成、已取消的不动；待验收、受阻的重新交出去算重新开工。
+// 改不动只记日志：执行已经建好了，不能因为状态没改成让这次执行起不来。
+func (s *Server) markDoing(ctx context.Context, r *http.Request, o *domain.Object) {
+	if o == nil || o.TypeID != "task" {
+		return
+	}
+	switch o.Status {
+	case taskDoing, "done", "cancelled":
+		return
+	}
+	st := taskDoing
+	if _, err := s.st.UpdateObject(ctx, o.ID, domain.ObjectPatch{Status: &st}, actorFrom(r)); err != nil {
+		s.log.Warn("mark task doing on run failed", "object", o.ID, "err", err)
+	}
+}
+
+// taskDoing 是任务的「进行中」状态 key（0002_seed_types）。
+const taskDoing = "doing"
+
 // finishRun 收尾并把失败记进日志。落库失败不该让流断掉——过程已经发生了，
 // 用户至少要能在界面上看完它。
 func (s *Server) finishRun(ctx context.Context, runID, status string, exitCode int, output, errMsg string) error {
@@ -382,6 +469,7 @@ func (s *Server) taskOf(ctx context.Context, o *domain.Object, workdir, extra st
 	if o.DueAt != nil {
 		t.DueAt = o.DueAt.Local().Format("2006-01-02")
 	}
+	t.Source = imSourceOf(o)
 	if ot, err := s.st.GetObjectType(ctx, o.TypeID); err == nil && ot != nil {
 		t.TypeName = ot.Name
 		for _, st := range ot.Statuses {
@@ -421,4 +509,65 @@ func writeRunSSE(w http.ResponseWriter, ev runner.Event) error {
 	}
 	_, _ = fmt.Fprintf(w, "data: %s\n\n", b)
 	return nil
+}
+
+// imSourceOf 从 props.source_ref 认出 IM 来源（IM 转任务时写的：message_id、channel、conversation、sender、text），
+// reply_on_done 为真表示 IM 插件建了回执 SOP，执行完成会回复原消息。不是 IM 来的回 nil。
+func imSourceOf(o *domain.Object) *runner.Source {
+	ref, _ := o.Props[domain.PropSourceRef].(map[string]any)
+	if ref == nil {
+		return nil
+	}
+	str := func(k string) string { v, _ := ref[k].(string); return strings.TrimSpace(v) }
+	if str("message_id") == "" {
+		return nil
+	}
+	reply, _ := ref["reply_on_done"].(bool)
+	return &runner.Source{Channel: str("channel"), Conversation: str("conversation"), Sender: str("sender"), Text: str("text"), Reply: reply}
+}
+
+// deepseekRoute 把工作台的模型服务商翻译成 dsh 的模型路由。
+//
+// 为什么要翻译：dsh 读不到工作台的库，它只认自己 profile 里的 provider 配置。
+// 所以每次执行现生成一份临时 patch（见 internal/runner 的 writeDSHPatch），
+// 服务商地址、模型、密钥都从工作台这一侧带过去——密钥只经进程环境，
+// 不落文件、不进命令行。
+func (s *Server) deepseekRoute(ctx context.Context, providerID string) (*runner.DeepSeekRoute, error) {
+	p, err := s.resolveProvider(ctx, providerID)
+	if err != nil {
+		return nil, err
+	}
+	key, err := s.st.ProviderAPIKey(ctx, p.ID)
+	if err != nil {
+		return nil, err
+	}
+	route := &runner.DeepSeekRoute{
+		Kind:    p.Kind,
+		BaseURL: p.BaseURL,
+		Model:   p.Model,
+		APIKey:  key,
+	}
+	// 在这里就把「这条路由 dsh 能不能用」判掉：协议不支持、没设模型这类问题
+	// 用户改一下设置就能重试，不该变成流里的一条 error。
+	if err := route.Validate(); err != nil {
+		return nil, err
+	}
+	return route, nil
+}
+
+// lastDeepSeekSession 找这个对象上一次 DeepSeek 执行留下的会话 id，给续跑用。
+//
+// 不新加一个 store 方法：执行历史本来就能按对象列最近 N 条，
+// 而「最近一条带会话的 deepseek 执行」拿几十条就够（中间夹着 claude 的执行很正常）。
+func (s *Server) lastDeepSeekSession(ctx context.Context, objectID string) (string, error) {
+	runs, err := s.st.ListTaskRuns(ctx, objectID, 20)
+	if err != nil {
+		return "", err
+	}
+	for _, run := range runs {
+		if run.Harness == domain.RunHarnessDeepSeek && strings.TrimSpace(run.HarnessSession) != "" {
+			return run.HarnessSession, nil
+		}
+	}
+	return "", nil
 }

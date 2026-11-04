@@ -45,6 +45,11 @@ type Options struct {
 	ClaudeBin  string
 	RunTimeout time.Duration
 
+	// DSHBin 是 deepseek-harness 的 dsh 可执行文件，空则走 PATH（--dsh-bin 或 DSH_BIN）。
+	// 和 ClaudeBin 分开：npx / nvm 装出来的 dsh 常常不在服务进程的 PATH 里，
+	// 而把 claude 的路径复用过来只会让两边都错。
+	DSHBin string
+
 	// MCPBin / PublicURL 只给「切换到终端」执行用（0048，runterminal.go）：生成接回本工作台的 MCP 配置，
 	// command 是 MCPBin，--api 是 PublicURL。MCPBin 为空或文件不在时发起终端执行回 409。
 	MCPBin    string
@@ -122,7 +127,14 @@ func New(st store.Store, opts Options) *Server {
 	if s.opt.Version == "" {
 		s.opt.Version = "dev"
 	}
-	s.run = &runner.Runner{Bin: opts.ClaudeBin, Timeout: opts.RunTimeout, Logger: s.log}
+	s.run = &runner.Runner{Bin: opts.ClaudeBin, DSHBin: opts.DSHBin, Timeout: opts.RunTimeout, Logger: s.log}
+	if opts.Plugins != nil {
+		// 插件交给 Claude Code 的运行和任务执行共用一个执行器（AUTO-01）：在任务上留了记录的，
+		// 任务抽屉里取消、判残留都认得它；回写结论用的 MCP、预置提示词同任务执行
+		opts.Plugins.SetClaudeRunner(s.run)
+		opts.Plugins.SetRunCallback(opts.MCPBin, opts.PublicURL)
+		opts.Plugins.SetRunPresets(s.presetLookup)
+	}
 	if opts.AgentRuns != nil {
 		opts.AgentRuns.Prepare = s.agentRunner
 	}
@@ -198,6 +210,10 @@ func (s *Server) routes(m routeRegistrar) {
 	m.HandleFunc("GET /api/objects/{id}/progress", s.handleListProgress)
 	m.HandleFunc("POST /api/objects/{id}/progress", s.handleAppendProgress)
 	m.HandleFunc("POST /api/objects/{id}/claim", s.handleClaimObject)
+	// 任务阶段与提出人（AUTO-05，stages.go）
+	m.HandleFunc("PUT /api/objects/{id}/stage", s.handleSetObjectStage)
+	m.HandleFunc("GET /api/task-stages", s.handleTaskStageDefs)
+	m.HandleFunc("GET /api/tasks/stages", s.handleTaskStages)
 
 	// /api/shortcuts/reorder 必须先于 /api/shortcuts/{id} 注册，否则 reorder 会被当成一个 id。
 	m.HandleFunc("GET /api/shortcuts", s.handleListShortcuts)
@@ -358,6 +374,8 @@ func (s *Server) routes(m routeRegistrar) {
 	m.HandleFunc("POST /api/runs/{id}/cancel", s.handleCancelTaskRun)
 	// 交给 Claude Code 的另一种方式：切换到终端（0048，runterminal.go）
 	m.HandleFunc("GET /api/objects/{id}/run/prompt", s.handleRunPrompt)
+	m.HandleFunc("GET /api/run-prompts", s.handleListRunPrompts)
+	m.HandleFunc("PUT /api/run-prompts", s.handlePutRunPrompts)
 	m.HandleFunc("POST /api/objects/{id}/run/terminal", s.handleRunTerminal)
 	m.HandleFunc("POST /api/runs/{id}/finish", s.handleFinishTaskRun)
 

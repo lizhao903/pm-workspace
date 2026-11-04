@@ -27,6 +27,7 @@ const (
 	KindDelete = "delete"
 	KindAgent  = "agent"
 	KindOrder  = "order" // 下单，交易插件以后接
+	KindStage  = "stage" // 任务阶段变化（AUTO-05），不论操作者
 )
 
 // 凭证的提示文字，detail 里只出现这几个值。

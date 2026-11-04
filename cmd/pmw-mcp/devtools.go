@@ -682,16 +682,19 @@ func clip(s string, n int) string {
 // --- pmw_finish_run ---
 
 type finishRunArgs struct {
-	RunID   string `json:"run_id" jsonschema:"执行记录 id，交给你的提示词「回写到工作台」一节里写着，形如 run_…"`
-	Status  string `json:"status" jsonschema:"结果：done（做完了）、failed（做不下去）或 canceled（用户让你停下）"`
-	Summary string `json:"summary,omitempty" jsonschema:"结论摘要，Markdown：做了什么、产出在哪、还剩什么没做。failed 时写清卡在哪"`
+	RunID   string         `json:"run_id" jsonschema:"执行记录 id，交给你的提示词「回写到工作台」一节里写着，形如 run_…"`
+	Status  string         `json:"status" jsonschema:"结果：done（做完了）、failed（做不下去）或 canceled（用户让你停下）"`
+	Summary string         `json:"summary,omitempty" jsonschema:"结论摘要，Markdown：做了什么、产出在哪、还剩什么没做。failed 时写清卡在哪"`
+	Result  map[string]any `json:"result,omitempty" jsonschema:"结构化结论，JSON 对象。SOP 自动交给你的执行要填：至少带 verdict（pass 通过 / reject 不通过要退回），不通过时 issues 逐条写要改什么，产出可列在 artifacts。下游步骤按它判断往哪走"`
 }
 
 const finishRunDesc = `【会写入数据】给一次「切换到终端」的执行收尾：记下结果和结论摘要，工作台任务抽屉的执行记录里这条从「进行中」变成完成 / 失败 / 取消，摘要显示为这次执行的输出。
 
 什么时候用：用户在工作台把任务「交给 Claude Code」并选了「切换到终端」，你就在那个终端里。提示词的「回写到工作台」一节写了执行记录 id。做完、做不下去、或用户让你停下时调一次，只调一次。
 
-只收终端执行：用户点「流式执行」起的那种由工作台自己收尾，调了会被拒绝（conflict）。已经收尾的也会被拒绝。
+也收 SOP 自动交给你的执行（提示词「回写到工作台」一节写着是 SOP 交的）：这时只记下结论，进程退出时工作台自己收尾，result 填结构化结论，后面的步骤按 result.verdict 往下走。
+
+用户点「流式执行」起的那种由工作台自己收尾，调了会被拒绝（conflict）。已经收尾、已经回报过的也会被拒绝。
 
 这个工具只管执行记录。任务本身的状态用 pmw_update_object 改，产出用 pmw_record_artifact（带 run_id）登记，过程用 pmw_append_progress 记。
 
@@ -713,9 +716,13 @@ func addFinishRun(s *mcp.Server, c *client) {
 		default:
 			return nil, nil, fmt.Errorf("status 只能是 done、failed 或 canceled")
 		}
-		r, err := c.finishRun(ctx, id, status, in.Summary)
+		r, err := c.finishRun(ctx, id, status, in.Summary, in.Result)
 		if err != nil {
 			return nil, nil, err
+		}
+		if r.FinishedAt == nil {
+			// SOP 交给的执行：只记下了结论，进程退出后工作台自己收尾
+			return textResult("已记下结论，这次执行结束后工作台会自己收尾，下游步骤按 result 往下走：\n" + runLine(r)), nil, nil
 		}
 		return textResult("已收尾：\n" + runLine(r)), nil, nil
 	})
