@@ -8,7 +8,7 @@
   "depends": {},
   "optional_depends": {},
   "provides": {
-    "modules": ["monitor"],
+    "modules": [],
     "settings": [],
     "object_types": [],
     "connectors": [],
