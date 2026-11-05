@@ -64,8 +64,29 @@ type Daily struct {
 	TurnoverRate    float64 `json:"turnover_rate"`
 	AUM             float64 `json:"aum"`
 	PremiumDiscount float64 `json:"premium_discount"`
-	Source          string  `json:"source"`
-	UpdatedAt       string  `json:"updated_at"`
+	// IOPV 是盘中参考净值（元），只有采集最近交易日时能拿到，历史日期为 0（ETF-01b）。
+	IOPV float64 `json:"iopv"`
+	// PremiumBasis 是折溢价口径：iopv / nav / none（两样都没有，折溢价不可用），采集时定。
+	PremiumBasis string `json:"premium_basis"`
+	Source       string `json:"source"`
+	UpdatedAt    string `json:"updated_at"`
+}
+
+// IndexBar 是跟踪指数一天的行情，同时是 etf_index_daily 的行和接口里的形状（ETF-01b）。
+type IndexBar struct {
+	Date      string  `json:"date"`
+	Code      string  `json:"code"`
+	Close     float64 `json:"close"`
+	ChangePct float64 `json:"change_pct"`
+	Amount    float64 `json:"amount"`
+	Source    string  `json:"source"`
+	UpdatedAt string  `json:"updated_at"`
+}
+
+// IndexSource 是可选接口：能拉跟踪指数日行情的源实现它，没实现的源跟踪误差和超额收益为空（ETF-01b）。
+type IndexSource interface {
+	// IndexDaily 拉某交易日（空串为最近交易日）这批指数代码的日行情，取不到的代码跳过。
+	IndexDaily(ctx context.Context, date string, codes []string) ([]IndexBar, error)
 }
 
 // Source 是一个宽基数据源，只读。
@@ -133,13 +154,24 @@ func (e *EastMoney) Daily(ctx context.Context, date string, symbols []string) ([
 	for _, f := range broadBased {
 		bySymbol[f.Symbol] = f
 	}
+	// 最近交易日多拉一轮实时快照补总份额和 IOPV（ETF-01b）；历史日期没有快照，拿不到不算失败
+	var snaps map[string]quoteSnap
+	if date == "" {
+		secids := make([]string, 0, len(symbols))
+		for _, sym := range symbols {
+			if f, ok := bySymbol[sym]; ok {
+				secids = append(secids, f.Secid)
+			}
+		}
+		snaps, _ = e.fetchSnapshots(ctx, hc, secids)
+	}
 	out := make([]Daily, 0, len(symbols))
 	for _, sym := range symbols {
 		f, ok := bySymbol[sym]
 		if !ok {
 			continue
 		}
-		d, err := e.fetchDaily(ctx, hc, f, date)
+		d, err := e.fetchDaily(ctx, hc, f, date, snaps[sym])
 		if err != nil {
 			return nil, fmt.Errorf("%s: %w", sym, err)
 		}
@@ -151,7 +183,93 @@ func (e *EastMoney) Daily(ctx context.Context, date string, symbols []string) ([
 	return out, nil
 }
 
-func (e *EastMoney) fetchDaily(ctx context.Context, hc *http.Client, f Fund, date string) (Daily, error) {
+// IndexDaily 拉跟踪指数的日 K（ETF-01b）：同 ETF 日 K 的接口，指数不复权；取不到的代码跳过。
+func (e *EastMoney) IndexDaily(ctx context.Context, date string, codes []string) ([]IndexBar, error) {
+	if e.http == nil {
+		return nil, errors.New("东方财富源还没接上出网客户端")
+	}
+	hc, err := e.http(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]IndexBar, 0, len(codes))
+	for _, code := range codes {
+		k, err := e.fetchKline(ctx, hc, indexSecid(code), date)
+		if err != nil {
+			continue
+		}
+		out = append(out, IndexBar{Date: k.date, Code: code, Close: k.close, ChangePct: k.changePct, Amount: k.amount, Source: e.ID()})
+	}
+	return out, nil
+}
+
+// indexSecid 把指数代码换成东方财富证券标识：399 开头是深交所指数（0.），其余（000300、000905、000852…）是 1.。
+func indexSecid(code string) string {
+	if strings.HasPrefix(code, "399") {
+		return "0." + code
+	}
+	return "1." + code
+}
+
+// quoteSnap 是实时快照里用到的两项：f38 总份额（份）、f441 IOPV（元），f124 是行情时间（Unix 秒）。
+type quoteSnap struct {
+	date   string
+	shares float64
+	iopv   float64
+}
+
+// fetchSnapshots 一次拉一批 ETF 的实时快照（push2 ulist.np），按 6 位代码返回。
+func (e *EastMoney) fetchSnapshots(ctx context.Context, hc *http.Client, secids []string) (map[string]quoteSnap, error) {
+	if len(secids) == 0 {
+		return nil, nil
+	}
+	q := url.Values{}
+	q.Set("secids", strings.Join(secids, ","))
+	q.Set("fields", "f12,f38,f124,f441")
+	q.Set("fltt", "2")
+	body, err := e.get(ctx, hc, "https://push2.eastmoney.com/api/qt/ulist.np/get?"+q.Encode())
+	if err != nil {
+		return nil, err
+	}
+	return parseSnapshots(body)
+}
+
+func parseSnapshots(body []byte) (map[string]quoteSnap, error) {
+	var resp struct {
+		Data *struct {
+			Diff []map[string]json.RawMessage `json:"diff"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(body, &resp); err != nil {
+		return nil, fmt.Errorf("解析实时快照失败: %w", err)
+	}
+	out := map[string]quoteSnap{}
+	if resp.Data == nil {
+		return out, nil
+	}
+	for _, row := range resp.Data.Diff {
+		code := strings.Trim(string(row["f12"]), `"`)
+		if code == "" {
+			continue
+		}
+		snap := quoteSnap{shares: parseFlexFloat(row["f38"]), iopv: parseFlexFloat(row["f441"])}
+		if ts := parseFlexFloat(row["f124"]); ts > 0 {
+			snap.date = time.Unix(int64(ts), 0).In(shanghai).Format(time.DateOnly)
+		}
+		out[code] = snap
+	}
+	return out, nil
+}
+
+// shanghai 是 A 股的时区；系统里没有时区库时退到固定 +8。
+var shanghai = func() *time.Location {
+	if loc, err := time.LoadLocation("Asia/Shanghai"); err == nil {
+		return loc
+	}
+	return time.FixedZone("CST", 8*3600)
+}()
+
+func (e *EastMoney) fetchDaily(ctx context.Context, hc *http.Client, f Fund, date string, snap quoteSnap) (Daily, error) {
 	k, err := e.fetchKline(ctx, hc, f.Secid, date)
 	if err != nil {
 		return Daily{}, err
@@ -171,9 +289,16 @@ func (e *EastMoney) fetchDaily(ctx context.Context, hc *http.Client, f Fund, dat
 		TurnoverRate: k.turnoverRate,
 		Source:       e.ID(),
 	}
+	// 实时快照和日 K 是同一天才用：总份额（f38）、IOPV（f441）
+	if snap.date == k.date {
+		d.Shares = snap.shares
+		d.IOPV = snap.iopv
+	}
 	// 份额偶有延迟：取不到不整体失败，留 0，下次采集补齐。
-	if shares, err := e.fetchShares(ctx, hc, f.Symbol, date); err == nil {
-		d.Shares = shares
+	if d.Shares <= 0 {
+		if shares, err := e.fetchShares(ctx, hc, f.Symbol, date); err == nil {
+			d.Shares = shares
+		}
 	}
 	return d, nil
 }
@@ -373,7 +498,13 @@ func (f *Fake) Daily(_ context.Context, date string, symbols []string) ([]Daily,
 		wave := math.Sin(seq/7 + float64(len(sym)))
 		price := 4.0 + 0.2*wave
 		shares := 2.5e10 * (1 + 0.01*wave)
+		iopv := 0.0
+		if date == "" {
+			// 实时快照只有最近交易日有，演示源照这个口径
+			iopv = price * 0.9995
+		}
 		out = append(out, Daily{
+			IOPV:         iopv,
 			Date:         day,
 			Symbol:       sym,
 			Shares:       shares,
@@ -389,6 +520,28 @@ func (f *Fake) Daily(_ context.Context, date string, symbols []string) ([]Daily,
 			Amplitude:    1.2,
 			TurnoverRate: 0.8,
 			Source:       "fake",
+		})
+	}
+	return out, nil
+}
+
+// IndexDaily 给演示源的跟踪指数行情：和 ETF 同一条波形，叠一点偏差，跟踪误差不为 0。
+func (f *Fake) IndexDaily(_ context.Context, date string, codes []string) ([]IndexBar, error) {
+	day := date
+	if day == "" {
+		day = time.Now().Format(time.DateOnly)
+	}
+	base, err := time.Parse(time.DateOnly, day)
+	if err != nil {
+		return nil, fmt.Errorf("日期 %q 要写成 YYYY-MM-DD", date)
+	}
+	seq := float64(base.Unix() / 86400)
+	out := make([]IndexBar, 0, len(codes))
+	for _, code := range codes {
+		wave := math.Sin(seq/7 + 6)
+		out = append(out, IndexBar{
+			Date: day, Code: code, Close: 4000 * (1 + 0.05*wave),
+			ChangePct: 0.6*wave + 0.05*math.Sin(seq/3), Amount: 3e11, Source: "fake",
 		})
 	}
 	return out, nil

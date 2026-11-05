@@ -28,9 +28,12 @@ func TestManifestValid(t *testing.T) {
 	if !slices.Equal(m.Permissions, []string{"network:market-data"}) {
 		t.Fatalf("权限只该有 network:market-data：%v", m.Permissions)
 	}
-	// 「盯盘」模块归交易插件 trade；宽基监控的页面另起模块 key，不能和 trade 抢 monitor
-	if len(m.Provides.Modules) != 0 {
+	// 「盯盘」模块归交易插件 trade；宽基监控的页面另起模块 key etf，不能和 trade 抢 monitor
+	if !slices.Equal(m.Provides.Modules, []string{"etf"}) {
 		t.Fatalf("modules = %v", m.Provides.Modules)
+	}
+	if m.Version != "0.2.0" {
+		t.Fatalf("version = %s", m.Version)
 	}
 }
 

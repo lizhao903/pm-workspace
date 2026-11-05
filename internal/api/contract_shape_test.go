@@ -152,6 +152,15 @@ var contractSpecs = map[string]contractSpec{
 	"工作对象 objects / 任务阶段与提出人:props.requester":                          {v: domain.Requester{}},
 	"SOP 编排插件 sop / Claude Code 执行与条件回退（AUTO-01/02，插件版本 0.9.0）:claude": {v: sop.StepClaude{}},
 
+	// 原型同步（AUTO-11）
+	"ProtoSync":         {v: projects.ProtoSync{}},
+	"ProtoSyncItem":     {v: projects.ProtoSyncItem{}},
+	"ProtoSyncCounts":   {v: projects.ProtoSyncCounts{}},
+	"ProtoSyncSettings": {v: projects.ProtoSyncSettings{}},
+	"ProtoSyncState":    {v: projects.ProtoSyncState{}},
+	"SyncPoint":         {v: projects.SyncPoint{}},
+	"项目插件 projects / 原型同步:sync": {skip: "SOP 节点输出由 map 拼出，无结构"},
+
 	"Incoming": {v: im.Incoming{}},
 	"Message":  {v: im.Message{}},
 	// 两种错误的附加字段是 actionError.extra 这个 map 拼出来的，没有可比的结构
@@ -189,12 +198,23 @@ var contractSpecs = map[string]contractSpec{
 	"TradeWatchlist":  {v: trade.Watchlist{}},
 	"TradeSource":     {v: trade.SourceInfo{}},
 	"TradeSync":       {v: trade.SyncResult{}},
+	// 行情缓存和推送（TRD-02a）
+	"TradeSourceHealth": {v: trade.SourceHealth{}},
+	"TradeQuote":        {v: trade.Quote{}},
+	"TradeBook":         {v: trade.Book{}},
+	"TradeFunding":      {v: trade.FundingView{}},
+	"TradeKline":        {v: trade.Kline{}},
+	"TradeKlineMeta":    {v: trade.KlineMeta{}},
+	"TradeStreamEvent":  {v: trade.StreamEvent{}},
 
 	"EtfFund":        {v: etf.Fund{}},
 	"EtfDaily":       {v: etf.Daily{}},
 	"EtfShareChange": {v: etf.ShareChange{}},
 	"EtfCollect":     {v: etf.CollectResult{}},
 	"EtfSource":      {v: etf.SourceInfo{}},
+	"EtfMetrics":     {v: etf.Metrics{}},
+	"EtfAnomaly":     {v: etf.Anomaly{}},
+	"EtfRule":        {v: etf.Rule{}},
 
 	"Video":         {v: video.Video{}},
 	"VideoSeries":   {v: video.Series{}},

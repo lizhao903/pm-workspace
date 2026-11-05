@@ -1,14 +1,14 @@
 {
   "id": "etf",
   "name": "宽基监控",
-  "description": "监控 A 股宽基 ETF 的每日份额变动与交易大盘情况，落库留存并支持异动分析",
+  "description": "监控 A 股宽基 ETF 的每日份额变动与交易大盘情况，算派生指标、按规则判定异动并发通知",
   "icon": "pulse",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "core": ">=1.0.0 <2.0.0",
   "depends": {},
   "optional_depends": {},
   "provides": {
-    "modules": [],
+    "modules": ["etf"],
     "settings": [],
     "object_types": [],
     "connectors": [],

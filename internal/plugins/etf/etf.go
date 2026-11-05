@@ -1,5 +1,5 @@
-// Package etf 是 A 股宽基监控插件的后端（ETF-01a）：盯每天的基金份额变动与交易大盘情况，
-// 落库留存，供盯盘和后续异动分析用。
+// Package etf 是 A 股宽基监控插件的后端（ETF-01a 起）：盯每天的基金份额变动与交易大盘情况，
+// 落库留存；ETF-01b 起采集后补跟踪指数行情、算派生指标、按规则判定异动并发通知。
 //
 // 只读公开数据（东方财富），权限只有 network:market-data；没有任何下单、撤单、划转、提币的代码路径。
 // 接口契约见 docs/api-contract.md「宽基监控插件 etf」。
@@ -15,8 +15,10 @@ import (
 	"io"
 	"io/fs"
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/lizhao903/pm-workspace/internal/plugin"
@@ -32,6 +34,8 @@ var migrationsFS embed.FS
 type Plugin struct {
 	m       plugin.Manifest
 	sources []Source
+	// collectMu 让定时任务和手动采集不同时跑：同一天的指标和命中记录要按顺序重算
+	collectMu sync.Mutex
 }
 
 // New 带上要用的数据源；id 为空或重复直接 panic（源是编译进来的，写错是代码问题）。
@@ -60,6 +64,11 @@ func (p *Plugin) Migrations() fs.FS {
 	return sub
 }
 
+// OnInstall 安装时补种首批 7 条异动规则（迁移里只能建表，不能写数据）。
+func (p *Plugin) OnInstall(ctx context.Context, c plugin.Core) error {
+	return ensureDefaultRules(ctx, c)
+}
+
 func (p *Plugin) Register(r plugin.Registrar) error {
 	core := r.Core()
 	// 需要出网的源在这里接上受控客户端；client 延迟到每次请求时取，权限变了立刻生效。
@@ -78,6 +87,13 @@ func (p *Plugin) Register(r plugin.Registrar) error {
 		m.HandleFunc("GET /api/etf/daily", h.listDaily)
 		m.HandleFunc("GET /api/etf/share-change", h.listShareChange)
 		m.HandleFunc("POST /api/etf/collect", h.collect)
+		// ETF-01b：派生指标、命中记录、规则
+		m.HandleFunc("GET /api/etf/metrics", h.listMetrics)
+		m.HandleFunc("GET /api/etf/anomalies", h.listAnomalies)
+		m.HandleFunc("POST /api/etf/anomalies/{id}/ack", h.ackAnomaly)
+		m.HandleFunc("GET /api/etf/rules", h.listRules)
+		m.HandleFunc("POST /api/etf/rules", h.createRule)
+		m.HandleFunc("PATCH /api/etf/rules/{id}", h.patchRule)
 	})
 	// 每个交易日收盘后份额和行情才定型；24 小时一轮，启用时先跑一次。
 	r.Job(plugin.Job{Name: "etf_daily", Every: 24 * time.Hour, Run: func(ctx context.Context, c plugin.Core) error {
@@ -132,11 +148,16 @@ type SourceInfo struct {
 }
 
 // CollectResult 是一次采集的结果；errors 是跳过原因，最多 10 条。
+// indexes 是写入的指数行情条数，metrics 是算了指标的 ETF 只数，hits 是当天命中总数，new_hits 是这次新增的命中（ETF-01b）。
 type CollectResult struct {
 	Date     string   `json:"date"`
 	Source   string   `json:"source"`
 	Upserted int      `json:"upserted"`
 	Skipped  int      `json:"skipped"`
+	Indexes  int      `json:"indexes"`
+	Metrics  int      `json:"metrics"`
+	Hits     int      `json:"hits"`
+	NewHits  int      `json:"new_hits"`
 	Errors   []string `json:"errors"`
 }
 
@@ -203,12 +224,12 @@ func (h *handlers) getFund(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"data": f})
 }
 
-const dailyCols = `trade_date, symbol, shares, nav, price, open, high, low, volume, amount, change_pct, change_amount, amplitude, turnover_rate, aum, premium_discount, source, updated_at`
+const dailyCols = `trade_date, symbol, shares, nav, price, open, high, low, volume, amount, change_pct, change_amount, amplitude, turnover_rate, aum, premium_discount, iopv, premium_basis, source, updated_at`
 
 func scanDaily(row plugin.Row) (Daily, error) {
 	var d Daily
 	err := row.Scan(&d.Date, &d.Symbol, &d.Shares, &d.NAV, &d.Price, &d.Open, &d.High, &d.Low, &d.Volume, &d.Amount,
-		&d.ChangePct, &d.ChangeAmount, &d.Amplitude, &d.TurnoverRate, &d.AUM, &d.PremiumDiscount, &d.Source, &d.UpdatedAt)
+		&d.ChangePct, &d.ChangeAmount, &d.Amplitude, &d.TurnoverRate, &d.AUM, &d.PremiumDiscount, &d.IOPV, &d.PremiumBasis, &d.Source, &d.UpdatedAt)
 	return d, err
 }
 
@@ -351,6 +372,8 @@ func (h *handlers) collect(w http.ResponseWriter, r *http.Request) {
 // runCollect 拉宽基清单和某日快照，写进 etf_funds、etf_daily。
 // date 为空表示最近交易日；同一天重跑是覆盖，不会重复。
 func runCollect(ctx context.Context, c plugin.Core, p *Plugin, date string) (CollectResult, error) {
+	p.collectMu.Lock()
+	defer p.collectMu.Unlock()
 	res := CollectResult{Date: date, Errors: []string{}}
 	if len(p.sources) == 0 {
 		return res, errors.New("没有可用的宽基数据源")
@@ -364,11 +387,15 @@ func runCollect(ctx context.Context, c plugin.Core, p *Plugin, date string) (Col
 	}
 	now := time.Now().UTC().Format(time.RFC3339)
 	symbols := make([]string, 0, len(funds))
+	var indexCodes []string
 	for _, f := range funds {
 		if err := upsertFund(ctx, c, f, now); err != nil {
 			return res, err
 		}
 		symbols = append(symbols, f.Symbol)
+		if f.Underlying != "" && !slices.Contains(indexCodes, f.Underlying) {
+			indexCodes = append(indexCodes, f.Underlying)
+		}
 	}
 
 	rows, err := src.Daily(ctx, date, symbols)
@@ -383,10 +410,7 @@ func runCollect(ctx context.Context, c plugin.Core, p *Plugin, date string) (Col
 			}
 			continue
 		}
-		if d.NAV > 0 {
-			d.AUM = d.Shares * d.NAV
-			d.PremiumDiscount = (d.Price - d.NAV) / d.NAV * 100
-		}
+		priceDerived(&d)
 		d.Source = src.ID()
 		d.UpdatedAt = now
 		if err := upsertDaily(ctx, c, d); err != nil {
@@ -397,7 +421,82 @@ func runCollect(ctx context.Context, c plugin.Core, p *Plugin, date string) (Col
 	if res.Date == "" && len(rows) > 0 {
 		res.Date = rows[0].Date
 	}
+	if res.Upserted == 0 || res.Date == "" {
+		return res, nil
+	}
+	analyzeAfterCollect(ctx, c, src, &res, indexCodes, now)
 	return res, nil
+}
+
+// priceDerived 算规模和折溢价（ETF-01b 起带口径）：折溢价 IOPV 优先，没有用单位净值，两样都没有不可用；
+// 规模用净值，没有净值依次退到 IOPV、收盘价。
+func priceDerived(d *Daily) {
+	switch {
+	case d.IOPV > 0:
+		d.PremiumBasis = "iopv"
+		d.PremiumDiscount = (d.Price - d.IOPV) / d.IOPV * 100
+	case d.NAV > 0:
+		d.PremiumBasis = "nav"
+		d.PremiumDiscount = (d.Price - d.NAV) / d.NAV * 100
+	default:
+		d.PremiumBasis = "none"
+		d.PremiumDiscount = 0
+	}
+	unit := d.Price
+	if d.NAV > 0 {
+		unit = d.NAV
+	} else if d.IOPV > 0 {
+		unit = d.IOPV
+	}
+	d.AUM = d.Shares * unit
+}
+
+// analyzeAfterCollect 是采集后的一串：补跟踪指数行情 → 算派生指标 → 按规则判定 → 新命中发通知（ETF-01b）。
+// 这几步出错不让采集整体失败（快照已经落库），原因记进 errors。
+func analyzeAfterCollect(ctx context.Context, c plugin.Core, src Source, res *CollectResult, indexCodes []string, now string) {
+	note := func(format string, args ...any) {
+		if len(res.Errors) < 10 {
+			res.Errors = append(res.Errors, fmt.Sprintf(format, args...))
+		}
+	}
+	if is, ok := src.(IndexSource); ok && len(indexCodes) > 0 {
+		bars, err := is.IndexDaily(ctx, res.Date, indexCodes)
+		if err != nil {
+			note("取指数行情失败：%v", err)
+		}
+		for _, b := range bars {
+			if b.Date == "" || b.Code == "" {
+				continue
+			}
+			b.Source, b.UpdatedAt = src.ID(), now
+			if err := upsertIndex(ctx, c, b); err != nil {
+				note("写指数行情失败：%v", err)
+				break
+			}
+			res.Indexes++
+		}
+	}
+	n, err := computeDay(ctx, c, res.Date)
+	if err != nil {
+		note("算派生指标失败：%v", err)
+		return
+	}
+	res.Metrics = n
+	fresh, hits, err := evaluateDay(ctx, c, res.Date)
+	if err != nil {
+		note("规则判定失败：%v", err)
+		return
+	}
+	res.Hits, res.NewHits = hits, len(fresh)
+	notifyAnomalies(context.WithoutCancel(ctx), c, res.Date, fresh)
+}
+
+func upsertIndex(ctx context.Context, c plugin.Core, b IndexBar) error {
+	_, err := c.Store().Exec(ctx, `INSERT INTO etf_index_daily (trade_date, index_code, close, change_pct, amount, source, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT(trade_date, index_code) DO UPDATE SET close = excluded.close,
+		change_pct = excluded.change_pct, amount = excluded.amount, source = excluded.source, updated_at = excluded.updated_at`,
+		b.Date, b.Code, b.Close, b.ChangePct, b.Amount, b.Source, b.UpdatedAt)
+	return err
 }
 
 func upsertFund(ctx context.Context, c plugin.Core, f Fund, now string) error {
@@ -410,15 +509,15 @@ func upsertFund(ctx context.Context, c plugin.Core, f Fund, now string) error {
 }
 
 func upsertDaily(ctx context.Context, c plugin.Core, d Daily) error {
-	_, err := c.Store().Exec(ctx, `INSERT INTO etf_daily (`+dailyCols+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	_, err := c.Store().Exec(ctx, `INSERT INTO etf_daily (`+dailyCols+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(trade_date, symbol) DO UPDATE SET shares = excluded.shares, nav = excluded.nav,
 		price = excluded.price, open = excluded.open, high = excluded.high, low = excluded.low,
 		volume = excluded.volume, amount = excluded.amount, change_pct = excluded.change_pct,
 		change_amount = excluded.change_amount, amplitude = excluded.amplitude,
 		turnover_rate = excluded.turnover_rate, aum = excluded.aum, premium_discount = excluded.premium_discount,
-		source = excluded.source, updated_at = excluded.updated_at`,
+		iopv = excluded.iopv, premium_basis = excluded.premium_basis, source = excluded.source, updated_at = excluded.updated_at`,
 		d.Date, d.Symbol, d.Shares, d.NAV, d.Price, d.Open, d.High, d.Low, d.Volume, d.Amount,
-		d.ChangePct, d.ChangeAmount, d.Amplitude, d.TurnoverRate, d.AUM, d.PremiumDiscount, d.Source, d.UpdatedAt)
+		d.ChangePct, d.ChangeAmount, d.Amplitude, d.TurnoverRate, d.AUM, d.PremiumDiscount, d.IOPV, d.PremiumBasis, d.Source, d.UpdatedAt)
 	return err
 }
 
