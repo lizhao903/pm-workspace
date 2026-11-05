@@ -105,7 +105,7 @@ func (s *Store) FinishTaskRun(ctx context.Context, id, status string, exitCode i
 	// status、summary（结论开头，最多 runSummaryMax 字）给订阅方直接用：IM 插件据此回复原消息（SPEC-messages-2.50）
 	// origin：插件流程里发起的执行（如 SOP 的 Claude Code 节点）为 "plugin:<插件 id>"，人交给 CLI 的为空
 	s.publish(ctx, RunFinished, map[string]any{"run_id": out.ID, "object_id": out.ObjectID, "ok": out.Status == domain.RunDone,
-		"status": out.Status, "summary": clipRunes(strings.TrimSpace(out.Output), runSummaryMax), "origin": domain.RunOrigin(ctx)})
+		"status": out.Status, "summary": clipRunes(runConclusion(out.Output), runSummaryMax), "origin": domain.RunOrigin(ctx)})
 	return out, nil
 }
 
@@ -195,6 +195,43 @@ var _ store.Store = (*Store)(nil)
 
 // runSummaryMax 是 run.finished 里 summary 的上限（字）。
 const runSummaryMax = 1500
+
+// runConclusion 从执行的过程记录里取结论：最后一次工具调用之后的那段文字。
+// 过程记录（runner.render）是模型的说明文字夹着「[工具] …」「[工具失败] …」行，
+// 订阅方（IM 回执把它回给需求方）要的是结果，不是「我先读一下目录……」这类过程。
+// 最后一次工具调用之后没有文字时，退回最后一段非工具文字；整段都是工具行时回空。
+func runConclusion(output string) string {
+	lines := strings.Split(strings.TrimSpace(output), "\n")
+	isTool := func(l string) bool {
+		l = strings.TrimSpace(l)
+		return strings.HasPrefix(l, "[工具] ") || strings.HasPrefix(l, "[工具失败] ")
+	}
+	last := -1
+	for i, l := range lines {
+		if isTool(l) {
+			last = i
+		}
+	}
+	if tail := strings.TrimSpace(strings.Join(lines[last+1:], "\n")); tail != "" {
+		return tail
+	}
+	// 以工具行结尾：往前找最后一段连续的非工具文字
+	end := -1
+	for i := len(lines) - 1; i >= 0; i-- {
+		if !isTool(lines[i]) && strings.TrimSpace(lines[i]) != "" {
+			end = i
+			break
+		}
+	}
+	if end < 0 {
+		return ""
+	}
+	start := end
+	for start > 0 && !isTool(lines[start-1]) {
+		start--
+	}
+	return strings.TrimSpace(strings.Join(lines[start:end+1], "\n"))
+}
 
 func clipRunes(s string, n int) string {
 	r := []rune(s)
