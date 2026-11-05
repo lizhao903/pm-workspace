@@ -33,9 +33,26 @@ export function sessionSourceRegistry(owner: string): SessionSourceRegistry {
   }
 }
 
+/**
+ * 内核自己的来源：任务交给工作台 Agent 执行（TSK-0460）建的会话，kind 为 task_run，
+ * 跳回那条任务的执行记录（/tasks?t=<任务>&tab=runs&run=<执行>）。不经插件登记
+ */
+export function taskRunSource(ref: SessionSourceRef): SessionSourceLink | null {
+  const str = (v: unknown) => (typeof v === 'string' ? v.trim() : '')
+  const obj = str(ref.object_id)
+  if (ref.kind !== 'task_run' || !obj) return null
+  const q = new URLSearchParams({ t: obj, tab: 'runs' })
+  const run = str(ref.run_id)
+  if (run) q.set('run', run)
+  const label = str(ref.label) || `任务 ${str(ref.ref)} 的执行`
+  return { label, to: `/tasks?${q.toString()}`, title: '打开这条任务的执行记录' }
+}
+
 /** 按登记的定义描述来源；没人认（插件停用了）时只用 label，不能跳；没有来源为 null */
 export function describeSource(list: readonly PluginSessionSource[], ref: SessionSourceRef | null | undefined): SessionSourceLink | null {
   if (!ref || typeof ref !== 'object') return null
+  const own = taskRunSource(ref)
+  if (own) return own
   const def = list.find((d) => d.kind === ref.kind)
   const got = def ? def.describe(ref) : null
   if (got) return got

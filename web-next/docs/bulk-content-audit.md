@@ -6,10 +6,10 @@
 
 ## 0. 怎么测的
 
-- 副本：`/private/tmp/claude-501/-Volumes-project-0xBroleez-pm-workspace/332d2cac-6041-4a72-bd2a-96d5db218df9/scratchpad/bulk/`（src 复制、node_modules 软链、vite cacheDir 指到副本里，端口 7793，测完已按 pid 关掉）。
+- 副本：`/private/tmp/claude-501/-Volumes-project-example-pm-workspace/332d2cac-6041-4a72-bd2a-96d5db218df9/scratchpad/bulk/`（src 复制、node_modules 软链、vite cacheDir 指到副本里，端口 7793，测完已按 pid 关掉）。
 - 放大数据的脚本：副本里的 `src/bulk.ts`，在 `main.tsx` 里最先 import，就地往各个 `seed*` 数组里 push；App 里另外接了 `bulkFolders`（本地深层目录）、`bulkBacktests`（回测 100）、`bulkWorkbenches`（工作台 15 个）；浏览器开 13 个标签。
 - 数据量：项目 30（每个 40 材料 / 20 原型 / 15 群聊 / 12 干系人 / 25 文档）、联系人 300、IM 消息 500、任务 400、定时任务 60、Webhook 30、文档 200 + 本地目录 200 个文件（最深 7 层）、SOP 40（执行 300）、Agent 30、会话 200、Agent 执行 200、产出 200、连接器每个工具都接上（51 个，另加 10 个各 30 工具的 MCP）、模型服务商 20、知识库 40、技能 60、运行异常 150、枚举每类 40 项、工作台 15（每个 8 组）、策略 50（回测 100、运行 80）、自选组 20（每组 60 个标的）、提醒 120（触发 200）、委托 300、持仓 80、交易账户 15、视频 120（系列 6）、发布 300、内网域名手动 40 条（加上原型自动分配共 632 条）。名字按「短 / 中 / 长 / 40 字以上超长」轮换。
-- 截图：`/private/tmp/claude-501/-Volumes-project-0xBroleez-pm-workspace/332d2cac-6041-4a72-bd2a-96d5db218df9/scratchpad/bulk/shots/`，文件名 `<编号-场景>-<宽度>-<light|dark>.png`，下文只写前缀，比如 `13-tasks-390-light`。
+- 截图：`/private/tmp/claude-501/-Volumes-project-example-pm-workspace/332d2cac-6041-4a72-bd2a-96d5db218df9/scratchpad/bulk/shots/`，文件名 `<编号-场景>-<宽度>-<light|dark>.png`，下文只写前缀，比如 `13-tasks-390-light`。
 - 性能：Playwright 里挂 PerformanceObserver(longtask) 量长任务；另做了一次 A/B（副本里临时关掉常驻的浏览器页再量）。
 - 行号是审查时 `web-next/src` 的行号；主会话还在改这几个文件（App.tsx、projects.tsx、browser.tsx 等），行号可能有几行漂移，以函数名为准。
 

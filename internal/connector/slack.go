@@ -81,7 +81,7 @@ func Slack(e SlackEndpoints) Def {
 			{Key: "signing_secret", Label: "Signing Secret", Kind: "secret", Placeholder: "用事件订阅（Events API）回调时必填"},
 			{Key: "channels", Label: "监听频道", Kind: "text", Picker: PickerIMChannels, Placeholder: "#product, #feedback，逗号分隔；留空 = 只收私信"},
 			{Key: "self_user_id", Label: "我的 Member ID", Kind: "text", Placeholder: "U 开头；@ 到它算 @我，留空只认 @Bot；身份是我本人时自动取"},
-			{Key: "self_names", Label: "我的称呼", Kind: "text", Placeholder: "李钊, Zhao，逗号分隔；正文里 @ 到它们也算 @我"},
+			{Key: "self_names", Label: "我的称呼", Kind: "text", Placeholder: "张三, Zhang，逗号分隔；正文里 @ 到它们也算 @我"},
 		},
 		Test: func(ctx context.Context, cfg Config) (string, error) {
 			c := http.DefaultClient

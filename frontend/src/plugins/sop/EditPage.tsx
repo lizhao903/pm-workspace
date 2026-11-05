@@ -1,5 +1,6 @@
 // 编排页的取数（SPEC-sop-8）：节点目录、要编辑的流程、子流程 / Agent / 知识库 / 文档分类 / 模型服务商 / 项目的下拉选项、触发方式，都回来了才渲染编辑器。
-// 触发方式：字典里有 sop_trigger 就用，没有就用内置的四种（同原型 enumdata.ts），都存 key；旧流程存的文字照原样列出（NodePanel）。
+// 触发方式：字典里有 sop_trigger 就用，没有就用内置的三种（手动、IM 消息、定时），都存 key；旧流程存的文字照原样列出（NodePanel）。
+// 定时只有一项（TSK-0463）：字典里旧的 daily、weekly、cron 不列，没有 schedule 时补一项「定时」，不会出现两个定时；时间规则在开始节点里配。
 // 字典列表带条目一起取，不直接取 sop_trigger 的条目，免得没有这本字典时控制台报 404
 import { useMemo } from 'react'
 import {
@@ -9,12 +10,10 @@ import {
 import { useSopNodeViews } from '../../core/plugin'
 import { Button, EmptyState, LoadingState } from '../../core/ui'
 import { catalogOf, newDraft } from './edit'
-import { TRIGGER_LABEL } from './model'
+import { draftScheduleOf, triggerOptionsOf } from './schedule'
 import { Editor } from './Editor'
 import type { TriggerOption } from './NodePanel'
 import type { FieldCtx } from './nodes'
-
-const FALLBACK_TRIGGERS: TriggerOption[] = ['manual', 'im', 'daily', 'weekly'].map((v) => ({ value: v, label: TRIGGER_LABEL[v] }))
 
 const flat = (list: readonly Category[] | undefined, depth = 0): { id: string; name: string }[] =>
   (list ?? []).flatMap((c) => [{ id: c.id, name: `${'　'.repeat(depth)}${c.name}` }, ...flat(c.children, depth + 1)])
@@ -55,7 +54,7 @@ export function EditPage({ id, flows, runs, onCancel, onSaved }: {
   const triggers = useMemo<TriggerOption[]>(() => {
     const items = dicts.data?.find((d) => d.id === 'sop_trigger')?.items ?? []
     const live = items.filter((x) => !x.archived_at || x.key === flow.data?.trigger)
-    return live.length ? live.map((x) => ({ value: x.key, label: x.label })) : FALLBACK_TRIGGERS
+    return triggerOptionsOf(live)
   }, [dicts.data, flow.data?.trigger])
 
   if (id && flow.isError && isApiError(flow.error, 'not_found')) {
@@ -72,8 +71,8 @@ export function EditPage({ id, flows, runs, onCancel, onSaved }: {
       {() => id ? (
         <QueryState query={flow} errorTitle="流程没取到">
           {(f) => (
-            <Editor key={f.id} initial={{ id: f.id, name: f.name, desc: f.desc, trigger: f.trigger, fields: f.fields, steps: f.steps, layout: f.layout }}
-              flowId={f.id} version={f.version} catalog={catalog} ctx={ctx} triggers={triggers} runs={runs} onCancel={onCancel} onSaved={onSaved} />
+            <Editor key={f.id} initial={{ id: f.id, name: f.name, desc: f.desc, ...draftScheduleOf(f), fields: f.fields, steps: f.steps, layout: f.layout }}
+              flowId={f.id} version={f.version} hasSchedule={!!f.schedule} catalog={catalog} ctx={ctx} triggers={triggers} runs={runs} onCancel={onCancel} onSaved={onSaved} />
           )}
         </QueryState>
       ) : (

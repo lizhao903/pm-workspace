@@ -94,6 +94,8 @@ describe('列表的文字', () => {
     expect(actionText({ kind: 'task', title: '', desc: '', priority: '', assignee: '', due_days: 0 })).toBe('建任务「未填标题」')
     expect(actionText({ kind: 'agent', agent_id: 'ag_1', prompt: '' })).toBe('ag_1：未填要求')
     expect(actionText({ kind: 'sop', sop_id: 'sop_1' })).toBe('执行「sop_1」')
+    // 随流程管理的（TSK-0463）：有流程名时显示名字
+    expect(actionText({ kind: 'sop', sop_id: 'sop_1', managed: true }, { flows: { sop_1: '周报' } })).toBe('执行「周报」，随流程管理')
   })
 
   it('搜索名称、规则文字、做什么', () => {

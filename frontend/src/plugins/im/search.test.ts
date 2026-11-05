@@ -7,18 +7,18 @@ const msg = (id: string, over: Partial<ImMessage>) =>
 
 describe('searchMessages', () => {
   const rows = [
-    msg('m1', { text: '验收标准麻烦再确认一下', sender_name: 'U01', contact_name: '常乐', conversation: 'Octok 产品群', at: '2026-10-01T08:00:00Z' }),
+    msg('m1', { text: '验收标准麻烦再确认一下', sender_name: 'U01', contact_name: '周七', conversation: 'Acme 产品群', at: '2026-10-01T08:00:00Z' }),
     msg('m2', { text: '好的收到', sender_name: 'lisa', conversation: '', at: '2026-10-02T08:00:00Z' }),
-    msg('m3', { text: '验收\n明天做', sender_name: 'bob', conversation: 'XAUE', at: '2026-10-03T08:00:00Z' }),
+    msg('m3', { text: '验收\n明天做', sender_name: 'bob', conversation: 'Globex', at: '2026-10-03T08:00:00Z' }),
   ]
   it('按正文、发信人、群名搜，新的在前', () => {
     expect(searchMessages(rows, '验收').map((m) => m.id)).toEqual(['m3', 'm1'])
     expect(searchMessages(rows, 'LISA').map((m) => m.id)).toEqual(['m2'])
-    expect(searchMessages(rows, '常乐').map((m) => m.id)).toEqual(['m1'])
-    expect(searchMessages(rows, 'octok').map((m) => m.id)).toEqual(['m1'])
+    expect(searchMessages(rows, '周七').map((m) => m.id)).toEqual(['m1'])
+    expect(searchMessages(rows, 'acme').map((m) => m.id)).toEqual(['m1'])
   })
   it('多个词每个都要命中；空输入不出结果', () => {
-    expect(searchMessages(rows, '验收 xaue').map((m) => m.id)).toEqual(['m3'])
+    expect(searchMessages(rows, '验收 globex').map((m) => m.id)).toEqual(['m3'])
     expect(searchMessages(rows, '')).toEqual([])
   })
   it('最多给 SEARCH_MAX 条', () => {
@@ -26,7 +26,7 @@ describe('searchMessages', () => {
     expect(searchMessages(many, '同步')).toHaveLength(SEARCH_MAX)
   })
   it('标题是发信人：正文，认上联系人用联系人名，换行压成空格', () => {
-    expect(messageTitle(rows[0])).toBe('常乐：验收标准麻烦再确认一下')
+    expect(messageTitle(rows[0])).toBe('周七：验收标准麻烦再确认一下')
     expect(messageTitle(rows[2])).toBe('bob：验收 明天做')
   })
 })

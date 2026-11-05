@@ -395,7 +395,7 @@ AUTO-05。阶段和状态是两套：状态是负责人的工作状态，阶段�
 ## 干系人名册 stakeholders
 
 负责人与参与人都指向这里。0010 之前 `objects.owner` 是自由文本，库里出现过
-「宋一杰、李钊、振华」三个人挤在一个字段的值——没法筛选、没法统计、改名要全表替换。
+「示例甲、示例乙、示例丙」三个人挤在一个字段的值——没法筛选、没法统计、改名要全表替换。
 
 一个对象**一个负责人 + 若干参与人**：一件事必须有唯一一个人对结果负责，
 否则「这事该找谁」没有答案；参与人表达「还有谁在这件事里」，信息不丢但不承担「找谁」的语义。
@@ -411,7 +411,7 @@ AUTO-05。阶段和状态是两套：状态是负责人的工作状态，阶段�
 
 | 字段 | 类型 | 说明 |
 |---|---|---|
-| `group` | string | 分组显示名（客户、合作伙伴、同事、供应商、其他，可在设置里新增），不约束取值，去首尾空白；库里列名 `contact_group`。一人可在多个分组，多个用「、」连接存成一个字符串（如 `Octok、XAUE`），后端不拆，前端按「、」拆开（也认逗号、斜杠、分号）后按包含匹配筛选（PR-04） |
+| `group` | string | 分组显示名（客户、合作伙伴、同事、供应商、其他，可在设置里新增），不约束取值，去首尾空白；库里列名 `contact_group`。一人可在多个分组，多个用「、」连接存成一个字符串（如 `Acme、Globex`），后端不拆，前端按「、」拆开（也认逗号、斜杠、分号）后按包含匹配筛选（PR-04） |
 | `company` / `title` / `phone` | string | 公司、职位、电话，默认空串。`title` 是职位，和原有的 `role`（产品、研发这类角色）是两个字段 |
 | `tags` | string[] | 去首尾空白、去空、去重后保存，默认 `[]` |
 | `photo` | string | `data:image/` 开头的 data URL，1.4MB 以内（和工作台图标同一上限）；空串表示按名字生成头像 |
@@ -431,7 +431,7 @@ message 形如 `stakeholder 王磊 already exists; add a qualifier to tell them 
   那条对象从回收站恢复回来负责人就没了，**而这个丢失不报错**。
 
 **MCP（`cmd/pmw-mcp`）这一层收的是人名，不是 id**，内部再换成 `owner_id`。调用方是模型，
-它手上有「李钊」没有 `stk_xxx`，强行要 id 只会逼出「先查一次再调一次」，而中间那步经常被省掉。
+它手上有「张三」没有 `stk_xxx`，强行要 id 只会逼出「先查一次再调一次」，而中间那步经常被省掉。
 
 这里有一个必须守住的点，任何「名字解析失败就回退成空串」的实现都会踩：
 **`owner_id` 传空串的语义是「清空负责人」。**把一个打错的名字变成空串，
@@ -561,7 +561,7 @@ IM 里的群聊和私聊（CT-02，0028，表 `conversations`、`conversation_me
 | GET | `/api/agent/sessions?object_id=X` / `?unscoped=true` | **必须二选一**：`object_id` 给某个对象的会话（详情抽屉用），`unscoped=true` 给 `object_id IS NULL` 的全局会话（底部对话框用）。两个都不给返回空列表，不是全部；两个都给以 `object_id` 为准（不报 400——这俩是前端两处独立代码各自拼的，真撞上时给一批说得通的数据比让抽屉整个打不开好） |
 | POST | `/api/agent/sessions` | `{title?,provider_id,model,workdir?,object_id?,agent_id?,source_ref?}`，`object_id` 省略即全局会话；`agent_id` 见下面「会话挂 Agent」；`source_ref` 见下面「会话来源」 |
 | POST | `/api/agent/sessions/{id}/stop` | 停掉这个会话里正在跑的一轮（`/api/agent/chat` 发起的和确认、拒绝后接着跑的都算）。已经执行的工具调用不撤回，会话里记一句「已手动停止这一轮。上面已经执行的工具调用不会撤回，要接着做可以再发一句。」，流里发 `error`「已手动停止」；确认后接着跑的执行记录照常重算状态。回 `{session_id, stopped}`，`stopped` 是停了几轮，没在跑的为 0（不算错）；会话不存在 404。一轮对话和浏览器连接脱钩，关掉页面后要停只能靠它 |
-| GET | `/api/agent/running` | 正在跑的会话 `{session_ids}`（按 id 排），界面据此在会话头部显示「停止」。只含会话里的对话，触发器、执行记录起的 Agent 运行不在内 |
+| GET | `/api/agent/running` | 正在跑的会话 `{session_ids}`（按 id 排），界面据此在会话头部显示「停止」。只含会话里的对话（任务交给工作台 Agent 执行时正在跑模型的那一段也算，TSK-0460），触发器、Agent 执行记录起的 Agent 运行不在内 |
 | PATCH | `/api/agent/sessions/{id}` | |
 | DELETE | `/api/agent/sessions/{id}` | 消息级联删除；**产物保留**，只把它的 `session_id` 置空（见「输出产物」一节） |
 | GET | `/api/agent/sessions/{id}/messages` | `AgentMessage[]`，**按时间正序**（最旧在前） |
@@ -618,7 +618,7 @@ chat 带了不同的 `object_id` 也不会让已有会话搬家——搬走会�
 
 - 会话多一个字段 `source_ref`：从哪条记录发起的会话，JSON 对象，存在 `agent_sessions.source_ref`（`TEXT NOT NULL DEFAULT ''`，空串表示没有）。只在 `POST /api/agent/sessions` 时给，之后不改，PATCH 不认；`/api/agent/chat` 不带 `session_id` 新建会话时也不认。没有来源时响应里不带这个键。
 - 校验：`null` 或不给表示没有；不是 JSON 对象回 400「source_ref 必须是 JSON 对象」，超过 16KB 回 400「source_ref 太长了，最多 16384 字节」。空对象当没有。
-- 内容由发起方定，内核只认三个键：`kind` 是来源种类（前端按它找插件登记的显示方式，扩展点 `sessionSources`），`label` 是给人看的一句（系统提示词里用），`project_id` 是缺省项目。现在只有 IM 插件用 `kind: "im_message"`，见「IM 消息插件 im」的「从消息发起会话」。
+- 内容由发起方定，内核只认三个键：`kind` 是来源种类（前端按它找插件登记的显示方式，扩展点 `sessionSources`），`label` 是给人看的一句（系统提示词里用），`project_id` 是缺省项目。现在 IM 插件用 `kind: "im_message"`，见「IM 消息插件 im」的「从消息发起会话」；任务交给工作台 Agent 执行建的会话用 `kind: "task_run"`（内核自己写，带 `object_id`、`ref`、`run_id`），见「任务执行」的「交给工作台 Agent」。
 - 会话里 Agent 用 `create_object` 新建对象时：`props.source_ref` 缺省记为会话的 `source_ref`（原样复制）；来源里有 `project_id`、对象没指定项目、建的不是项目本身、并且这个项目在且没删时，对象挂到这个项目。`source` 仍是 `agent`。
 - 有来源时系统提示词在「用户当前打开的对象」之后多一段「这个会话的来源」：「这个会话是从<label>发起的，内容见用户的第一条消息」，并说明新建的对象会自动记上来源、自动挂到来源所属的项目。
 
@@ -662,7 +662,7 @@ AG-01b1。表 `agents`（0032），id 前缀 `ag`，字段对齐原型 `web-next
 
 ### 场景默认 Agent agent-scenarios
 
-没指定 Agent 的模型调用按场景用哪个 Agent（它的服务商、模型、思考档位和指令）。场景有 `sop_assist`（SOP 编排助手）和 `background`（其他后台调用：插件经 `Complete` 调模型又没指定 Agent 和服务商的，包括没选 Agent 的 SOP 节点 `ai`、`extract`、`classifier`、`iterate`）。`agent_id` 空串是没选，用默认服务商、思考 `default`；选的 Agent 删了或停用了同样退回，记日志不报错。存在内核表 `agent_settings`（0045，key `scenario:<场景>`）。SOP 这四种节点另有配置项 `agent`：选了就用这个 Agent 的服务商、模型、思考档位，指令拼在节点系统提示前面，节点上的 `provider`、`model` 不看；明确选的 Agent 不存在或停用时这一步失败。
+没指定 Agent 的模型调用按场景用哪个 Agent（它的服务商、模型、思考档位和指令）。场景有 `sop_assist`（SOP 编排助手）、`task_run`（执行任务：任务交给工作台 Agent 执行时默认用哪个 Agent，没选用第一个启用的 Agent，TSK-0460；界面上排在最后）和 `background`（其他后台调用：插件经 `Complete` 调模型又没指定 Agent 和服务商的，包括没选 Agent 的 SOP 节点 `ai`、`extract`、`classifier`、`iterate`）。`agent_id` 空串是没选，用默认服务商、思考 `default`；选的 Agent 删了或停用了同样退回，记日志不报错。存在内核表 `agent_settings`（0045，key `scenario:<场景>`）。SOP 这四种节点另有配置项 `agent`：选了就用这个 Agent 的服务商、模型、思考档位，指令拼在节点系统提示前面，节点上的 `provider`、`model` 不看；明确选的 Agent 不存在或停用时这一步失败。
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
@@ -690,7 +690,7 @@ AG-02a。表 `agent_tool_grants`（0035）存每个 Agent 自己的授权，`age
 | 内置工具 | 能力 |
 |---|---|
 | `search_objects`、`get_object` | `read_tasks` |
-| `create_object`、`update_object` | `write_tasks` |
+| `create_object`、`update_object`、`append_progress` | `write_tasks` |
 | `write_file` | `write_content` |
 | `kb_search` | `read_content` |
 | `run_sop` | `run_sop`（SOP-01d） |
@@ -698,9 +698,10 @@ AG-02a。表 `agent_tool_grants`（0035）存每个 Agent 自己的授权，`age
 
   `read_messages`、`reply_message`、`read_contacts`、`write_contacts` 现在没有对应的内置工具，授权先存着。
   `run_sop`（SOP-01d）参数是 `{flow_id, input?}`：`flow_id` 是流程 id，也认流程名；`input` 是输入字段，没给的取默认值。经内核「发起 SOP」钩子起一条执行（同定时任务的 `sop` 动作，来源记 `agent`），不等它跑完，人工检查点照常停下；`summary` 为「发起了 SOP「周会」，执行记录 spr_…」。只给挂了 Agent 的会话，SOP 编排插件没启用时工具结果是「SOP 编排插件没启用……」。确认卡片写「发起 SOP <flow_id>」。
+  `append_progress`（TSK-0460）参数 `{ref, text}`：给对象追加一条进展（`kind=note`，操作者 `agent`），只追加不改正文；`summary` 为「已给 TSK-0009 记了一条进展」，确认卡片写「给 <ref> 记进展」。`create_object` 多一个可选参数 `parent_ref`（父任务编号或 id）：先查父任务，查不到不建；建好后和父任务建 `parent` 关联（父 → 子），没指定项目时挂到父任务的项目；关联没建上不撤回新建的对象，`summary` 里写明。
 - **执行时**：给模型的工具列表只有实际档位不是关闭的。连接器工具给模型的名字是 `<连接器定义 tool>__<工具名>`（非字母数字的字符换成 `_`，最长 64）；同一定义挂了多个实例（CONN-04）撞名时，按 `mcps` 的顺序第一个保持原名，后面的在定义 key 后加序号，如 `custom_mcp_2__search`。工具带参数 Schema（`tools[].schema`）时原样给模型，没有时给空对象。模型硬调关闭的工具不执行，工具结果是「错误：没有授权……」，`tool_result` 的 `summary` 为「<工具> 没有授权，没有执行」。需确认的发 `confirm` 事件后本轮结束，见「Agent 对话」。
 - **连接器工具真正调用**：经连接器定义上可选的 `Call` 调对方，参数是模型给的 JSON 原文，对方错误里的凭证原文换成 `***`，单次 15 秒超时。定义没实现 `Call` 时工具结果是「这个连接器的工具还不能调用」。现在只有假连接器 `fake` 实现了：`list_items` 回两条固定条目，`get_item` / `create_item` / `delete_item` 回 `{tool, ok, args}`，`token` 含 `invalid` 时失败。
-- **确认、拒绝**：只有 `pending` 的能处理，已经处理过回 409（两个页面同时点，只有一个执行）。会话删了、Agent 删了或停用回 409；确认时按当前授权再查一次，已经关闭的回 409「…已经没有授权了」，调用保持 `pending`，可以拒绝掉。这些都在开流之前。执行结果（或拒绝说明）记进 `agent_tool_calls.result`。执行记录里的调用（`run_id` 非空）同样记着它的会话，确认、拒绝走这两个接口，在那个会话里接着跑，跑完重算执行记录的状态，见「Agent 执行记录」。
+- **确认、拒绝**：只有 `pending` 的能处理，已经处理过回 409（两个页面同时点，只有一个执行）。会话删了、Agent 删了或停用回 409；确认时按当前授权再查一次，已经关闭的回 409「…已经没有授权了」，调用保持 `pending`，可以拒绝掉。这些都在开流之前。执行结果（或拒绝说明）记进 `agent_tool_calls.result`。执行记录里的调用（`run_id` 非空）同样记着它的会话，确认、拒绝走这两个接口，在那个会话里接着跑，跑完重算执行记录的状态，见「Agent 执行记录」。任务交给工作台 Agent 执行（TSK-0460）时停下的调用也走这两个接口：有在途的执行在等它时只记决定和审计、把决定交给执行，SSE 只回 `done`，见「任务执行」的「交给工作台 Agent」。
 - **删除连接器**时，挂着它的 Agent 从 `mcps` 里摘掉、`conn:<id>:*` 授权清掉（同一个事务），影响检查里是 `agent_mounts` 一项，见「连接器」一节。
 - 审计：PUT 按 `config` 记，`target_type` 为 `agent`，`action` 为 `set_tool_grants`，`detail.changed` 是改了的 `{<key>: 新档位}`（改成关闭记 `off`），没有改动不记。确认、拒绝按 `agent` 记，`target_type` 为 `agent_tool_call`，`action` 为 `confirm` / `reject`，`detail` 为 `{agent_id, session_id, tool, grant_key}`。
 
@@ -1000,10 +1001,10 @@ AG-01b3。字段对齐原型 `web-next/src/agentdata.ts` 的 `KnowledgeBase` 和
 | GET | `/api/objects/{id}/runs?limit=20` | `TaskRun[]`，**最近** N 条，倒序；limit 省略取 20，上限 100 |
 | GET | `/api/runs/{id}` | 单条执行记录，含完整输出 |
 | POST | `/api/runs/{id}/cancel` | 杀掉整个进程组 |
-| GET | `/api/objects/{id}/run/prompt?mode=&workdir=&extra_prompt=&preset_id=` | 提示词预览 `{prompt, workdir}`，和发起时同一套拼法；`preset_id` 是角色 id（接口沿用旧名），不存在 400；`mode` 是 `stream`（默认）或 `terminal`，其他值 400；`workdir` 不传时按任务、所属项目继承，不校验目录；终端方式里执行 id 写成「<发起时生成的执行 id>」；对象不存在 404 |
+| GET | `/api/objects/{id}/run/prompt?mode=&workdir=&extra_prompt=&preset_id=&harness=&resume=` | 提示词预览 `{prompt, workdir}`，和发起时同一套拼法；`preset_id` 是角色 id（接口沿用旧名），不存在 400；`mode` 是 `stream`（默认）或 `terminal`，其他值 400；`harness=agent` 时预览交给工作台 Agent 的那一份（`mode` 不看），`resume=true` 是续跑的说法（TSK-0460）；`workdir` 不传时按任务、所属项目继承，不校验目录；终端方式里执行 id 写成「<发起时生成的执行 id>」；对象不存在 404 |
 | POST | `/api/objects/{id}/run/terminal` | `{workdir?, extra_prompt?, preset_id?}`，切换到终端（0048）：建一条 `mode=terminal`、`status=running` 的执行记录，把提示词和 MCP 配置写到数据目录 `tmp/handoff/<执行 id>/prompt.md`、`mcp.json`（0600），不起进程；回 201 `{run, workdir, prompt_file, mcp_config}`。工作目录规则同 `/run`；找不到 MCP 程序（`--mcp-bin`，缺省按本程序位置推：`pmw`→`pmw-mcp`，`pmw-dev`→`pmw-mcp-dev`，退回同目录 `pmw-mcp`）或没有 `--public-url` 时 409 |
 | POST | `/api/runs/{id}/finish` | `{status, summary?, result?}`（MCP `pmw_finish_run` 和界面「标记结束」）。`status` 是 `done`、`failed`、`canceled`，否则 400。`result` 可选，要是 JSON 对象（否则 400「result 要是 JSON 对象」），最多 64 KB（超了 400「result 最多 64 KB」）；约定形状 `{verdict: "pass" \| "reject", issues?: [...], artifacts?: [...]}`，内核不校验里面的字段。**插件交给 Claude Code 的运行**（SOP「Claude Code 执行」节点发起的，AUTO-01）：先按插件运行认，只记下回报不收尾，`status`、`summary`、`result` 存进那次运行，进程退出时由内核按回报和退出码收尾（进程正常结束但回报 `failed` / `canceled` 时整条按回报算，`error` 为「Claude Code 回报做不下去：摘要前 300 字」）；回 200 + `TaskRun`（在任务上留了执行记录的回那条记录，状态仍是 `running`；没有的回同形状的 `{id, status, mode: "stream", output: summary, started_at}`）；已经结束或已经回报过 409；不是 Claude Code 的插件运行 409。**终端执行**：`summary` 最多 200 KB 写进 `output`；`failed` 没写 summary 时 `error` 记「标记为失败，没写原因」；流式执行、已收尾的 409；不存在 404；收尾后删掉临时目录；照常投 `run.finished`；`result` 不落库（`task_runs` 没有这一列）。超过 7 天的临时目录在下次发起时清掉 |
-| POST | `/api/objects/{id}/run` | `{workdir?, extra_prompt?, allow_writes?, preset_id?, harness?, provider_id?, resume_session?}`，**SSE 流式响应** |
+| POST | `/api/objects/{id}/run` | `{workdir?, extra_prompt?, allow_writes?, preset_id?, harness?, provider_id?, resume_session?, agent_id?, model?, max_steps?, max_minutes?, confirm_wait_minutes?}`，**SSE 流式响应**；后五个只对 `harness=agent`，见下面「交给工作台 Agent」 |
 | GET | `/api/run-prompts` | 角色（原预置提示词，SPEC-tasks-6.18、SPEC-settings-24，AUTO-03）`[{id, scene, content, default, permission, output, dir_kind}]`，存在 `agent_settings.run_prompts`。`permission` 是 `read_only` 或 `accept_edits`，`output` 是输出要求（可空），`dir_kind` 是 `code` / `prototype` / `prd` / `any`（项目档案落地前只存不用）；读出来三项总是补齐，旧数据没带的按 `accept_edits`、空串、`any` 补（旧内置 `rp_research` 按 `read_only`）。没设过回内置六个：`rp_classify` 分类（只读）、`rp_pm` 产品经理工作台（默认）、`rp_review` 研发评审（只读，输出要求回报 `{verdict, issues}`）、`rp_dev` 研发、`rp_testdesign` 测试设计、`rp_protosync` 原型同步。设过的：把用户没见过的内置角色（按 id）补在末尾，不抢默认，和已有场景名重复的不补，满 30 个不补；见过哪些记在 `agent_settings.run_prompts_builtins`（id 数组，没有时按 `rp_pm`、`rp_dev`、`rp_research` 算） |
 | PUT | `/api/run-prompts` | `{items: [{id?, scene, content, default?, permission?, output?, dir_kind?}]}` 整组替换，回替换后的列表（新字段补齐）。`id` 空的补 `rp_` 开头的新 id；`scene` 去首尾空白后 1 到 40 字、不能重复，`content` 1 到 4000 字，`output` 最多 2000 字，`permission` 只认 `read_only` / `accept_edits`（空按 `accept_edits`），`dir_kind` 只认 `code` / `prototype` / `prd` / `any`（空按 `any`），最多 30 个，`default` 最多一个，违反任一条 400 整组不生效；空数组表示不要角色。保存成功后 `run_prompts_builtins` 写成当时全部内置 id（用户删掉的内置角色以后不再补回）。记一条 `config` 审计（`target_type` 为 `run_prompts`，`detail.scenes`） |
 
@@ -1015,24 +1016,24 @@ AG-01b3。字段对齐原型 `web-next/src/agentdata.ts` 的 `KnowledgeBase` 和
 选了只读角色（`permission=read_only`）时，流式执行不管 `allow_writes` 传什么都按 `false` 处理，不加 `--permission-mode acceptEdits`；
 允许改文件的角色仍以请求里的 `allow_writes` 为准（前端弹窗选这类角色时默认勾上，用户可取消）。终端方式的权限由启动命令决定，只读只写进提示词。
 
-`harness` 选执行器，空或 `claude` 走本机 Claude Code，`deepseek` 走 deepseek-harness（dsh）的 headless 模式，别的值 400。
-`provider_id` 只对 `deepseek` 有效：把哪个模型服务商交给 dsh，空用默认服务商；协议只支持 `openai`（DeepSeek 属于这类）和 `anthropic`，其它 400。
+`harness` 选执行器，空或 `claude` 走本机 Claude Code，`deepseek` 走 deepseek-harness（dsh）的 headless 模式，`agent` 交给工作台自己的 Agent（TSK-0460，见下面「交给工作台 Agent」），别的值 400。
+`provider_id` 对 `agent` 是这次用的服务商（见「交给工作台 Agent」）；对 `deepseek`：把哪个模型服务商交给 dsh，空用默认服务商；协议只支持 `openai`（DeepSeek 属于这类）和 `anthropic`，其它 400。
 dsh 那边的权限口径：`allow_writes=false` 译成沙箱 `read-only`，`true` 译成 `workspace-write`（软链接进来的目录进 `additionalWritableRoots`），
 审批策略恒为 `never`（headless 没有交互界面，选 ask 只会卡住，需要批准的调用被直接拒绝）。
 这些全部写在每次执行现生成的 `--patch` 里，不走命令行——0.2.x 的 headless 只认 `--json` 和 `--session-id`。
-`resume_session` 只对 `deepseek` 有效：为 `true` 时接着这个对象**上一次** dsh 会话继续跑（`--session-id`），
+`resume_session` 对 `agent` 是续用上次的 Agent 会话（见「交给工作台 Agent」）；对 `deepseek`：为 `true` 时接着这个对象**上一次** dsh 会话继续跑（`--session-id`），
 没有可续的会话回 400，不悄悄新开一段。细节见 `docs/deepseek-harness.md`。
-执行记录（`TaskRun`）多两个字段：`harness`（0049）：`claude` / `deepseek`，0049 之前的记录都是 `claude`；
-`harness_session`（0050）：dsh 那次用的会话 id，续跑靠它，claude 的执行是空串。
+执行记录（`TaskRun`）多两个字段：`harness`（0049）：`claude` / `deepseek` / `agent`（TSK-0460），0049 之前的记录都是 `claude`；
+`harness_session`（0050）：dsh 那次用的会话 id，续跑靠它；`agent` 的是 Agent 会话 id（能打开会话接着聊）；claude 的执行是空串。`status` 多一个 `waiting`（只有 `agent` 的执行会有：停在要人确认的写操作上，没结束），读的时候不按残留收尾。
 两者都只用于留档与展示，不参与收尾判定——收尾看 `status` 和 `exit_code`。
 
-交给 Claude Code（流式发起、切换到终端）时，任务（`type_id=task`）状态不是进行中、已完成、已取消的改成进行中（`doing`，SPEC-tasks-6.17），
+交给 Claude Code（流式发起、切换到终端）和交给工作台 Agent 时，任务（`type_id=task`）状态不是进行中、已完成、已取消的改成进行中（`doing`，SPEC-tasks-6.17），
 操作者是发起的人，照常记修订、发 `object.status_changed`；改不成只记日志，不挡执行。
 
 提示词：选了角色时加「执行要求（<角色场景>）」一节：执行要求原文；只读角色再加一段「这个角色只读：不要创建、修改或删除任何文件，结论写在回复里。」；有输出要求时再加「输出要求：」和原文；任务 `props.source_ref` 带 `message_id`（IM 转来的）时加「来源消息」一节，
 写渠道、会话、发送人和原文，`reply_on_done` 为真时说明执行结束后工作台会把结论回复到这条消息。
 
-`run.finished` 事件（内核）载荷是 `{run_id, object_id, ok, status, summary, origin}`：`summary` 是执行输出（终端执行是回写的结论）去首尾空白后的前 1500 字；`origin` 是发起方，插件流程里发起的执行（SOP「Claude Code 执行」节点在任务上留的执行记录）为 `plugin:<插件 id>`，人交给 CLI 的为空串。IM 任务回执只认 `origin` 为空的执行（流程里的一步跑完不算任务做完）。
+`run.finished` 事件（内核）载荷是 `{run_id, object_id, ok, status, summary, origin}`：`summary` 是结论：执行输出里最后一次工具调用（`[工具] …`、`[工具失败] …` 行）之后的那段文字，没有就退回最后一段非工具文字，去首尾空白后的前 1500 字，不带执行过程（终端执行是回写的结论）；`origin` 是发起方，插件流程里发起的执行（SOP「Claude Code 执行」节点在任务上留的执行记录）为 `plugin:<插件 id>`，人交给 CLI 的为空串。IM 任务回执只认 `origin` 为空的执行（流程里的一步跑完不算任务做完）。
 
 插件发起的运行结束时投给发起插件的 `run.finished`（不上总线）载荷是 `{run_id, kind, source, status, ok, ref, summary, result}`：`summary` 是 Claude Code 经 `pmw_finish_run` 回报的摘要（前 1500 字，没回报为空串），`result` 是回报的结构化结论（没回报为 `null`）；Agent、SOP 运行这两项总是空。
 SOP「Claude Code 执行」节点填了关联任务时，内核在那条任务上建一条 `task_runs` 记录（`mode: stream`，提示词是实际交给 Claude Code 的全文），插件运行 id 就是这条记录的 id：任务抽屉「执行记录」里看得到、能取消（插件运行和任务执行共用同一个 Claude Code 执行器）；跑完由内核收尾，`output` 是「回报的摘要 + `---` + 过程记录」，收尾照常投总线上的 `run.finished`（带 `origin`，不带 `result`）。产物同时挂到这条执行记录。
@@ -1041,10 +1042,12 @@ SSE 事件（形状的唯一真相是 `internal/runner` 的 `Event.MarshalJSON`�
 
 | 事件 | 字段 | 说明 |
 |---|---|---|
-| `start` | `run_id`, `workdir` | 先导事件，在 `CreateTaskRun` 之后发，所以此时 `/cancel` 一定找得到 |
+| `start` | `run_id`, `workdir`, `session_id`? | 先导事件，在 `CreateTaskRun` 之后发，所以此时 `/cancel` 一定找得到；`session_id` 只有 `harness=agent` 有，是这次用的 Agent 会话 |
 | `delta` | `text` | 正文增量 |
 | `tool` | `id`, `name`, `detail` | 工具调用**开始** |
-| `tool_result` | `id`, `name`, `ok`, `error` | 靠 `id` 与 `tool` 配对 |
+| `tool_result` | `id`, `name`, `ok`, `error`, `summary`? | 靠 `id` 与 `tool` 配对；`summary` 只有 `harness=agent` 有，是给人看的结果一句话（拒绝了的调用不发 `tool_result`） |
+| `confirm` | `id`, `name`, `args`, `summary`, `deadline` | 只有 `harness=agent`：要人确认的写操作，执行停下等（记录 `waiting`）。`id` 是待确认调用的 id（`atc_`），`args` 参数 JSON 原文，`summary` 给人看的一句话，`deadline`（RFC3339，UTC）到点没人决定按拒绝处理 |
+| `decision` | `id`, `approved`, `reason` | 只有 `harness=agent`：上面那次调用有了决定，`reason` 是 `user`（人点的）或 `timeout`（等待超时按拒绝），之后接着跑 |
 | `done` | `run_id`, `exit_code` | |
 | `error` | `message` | |
 
@@ -1059,6 +1062,19 @@ SSE 事件（形状的唯一真相是 `internal/runner` 的 `Event.MarshalJSON`�
 - `TaskRun` 多一个字段 `mode`：`stream`（工作台起进程流式回推，0048 之前的都是）或 `terminal`（在终端里交互执行）。终端执行的开始时间是发起时，结束和结论由终端里的 claude 经 MCP 回写，或用户手动标记结束。读记录时不会因为「进程不在本工作台手上」把终端执行判成失败；对终端执行 `POST /api/runs/{id}/cancel` 只把记录标成 `canceled`，`error` 写「在终端里执行的会话不归工作台管，记录已标记为取消；终端标签需要自己关」。
 - 两种方式的提示词都带「所属项目」一节（任务挂在项目下才有）：名称、编号、项目工作目录（有才写）。文档目录取项目 `props.related` 第一个有路径的目录（`file://` 去掉前缀）；原型目录经插件钩子 `Registrar.ProjectPrototypes` 由项目插件给出（项目插件 0.10.0）。没有时写明「这个项目没有关联文档目录 / 没有登记原型目录，可在项目设置里补」。有项目时约束放宽到这两类目录。终端方式另加「回写到工作台」一节（`pmw_update_object`、`pmw_append_progress`、`pmw_record_artifact` 带 `run_id`、`pmw_finish_run`）。
 - MCP 配置是 `{"mcpServers":{"pm-workspace":{"type":"stdio","command":<MCP 程序>,"args":["--api",<public-url 去掉末尾斜杠>]}}}`，不含凭证。MCP 新增工具 `pmw_finish_run`（收终端执行，也收 SOP 自动交给 Claude Code 的执行；可选参数 `result` 是结构化结论，至少带 `verdict`），`pmw_record_artifact` 加可选参数 `run_id`。
+
+**交给工作台 Agent（TSK-0460，`harness=agent`）**
+
+不起外部进程：在工作台进程里跑 `internal/agent` 的工具循环（和会话里同一套工具、工具授权、要确认的调用、技能），模型客户端经 `agent.Service`，和插件 `Complete` 同一套服务商熔断、瞬时失败自动重试（2 次）、「失败时改用」（`extra.fallback_id`，只改一跳）。
+
+- **请求**（`POST /api/objects/{id}/run`，`harness: "agent"`）：`agent_id?` 交给哪个 Agent，不给用场景默认 Agent `task_run`（「执行任务」）选的，没选、选的删了或停用了用第一个启用的 Agent，一个都没有 400「还没有可用的 Agent……」；给了但不存在 404，停用、删了 409。`provider_id?`、`model?` 这次用的服务商和模型，不给用 Agent 设置的（给了服务商没给模型用服务商设置的模型）；服务商不存在 404，停用、没设模型 400。`preset_id?` 角色同 Claude Code（只读角色 `permission=read_only` 时只给读的工具：写能力的授权去掉、会改对方数据的连接器工具关掉）；`extra_prompt?` 补充说明；`allow_writes` 不看。`workdir?` 可选：给了要能用（同 Claude Code 校验，不能用 400），不给按任务、所属项目继承，继承来的不能用就当没有；有目录时是 `write_file` 的产物目录，没有时 Agent 写文件失败。预算：`max_steps?`（默认 30，1 到 100）步数上限，调一次模型算一步，确认前后合起来算；`max_minutes?`（默认 10，1 到 60）时长上限，不含等确认的时间；`confirm_wait_minutes?`（默认 10，1 到 60）等人确认多久后按拒绝处理；超范围 400。这些错误都在开流之前。
+- **提示词**：第一条用户消息由任务编号、类型、标题、状态、优先级、到期、关联仓库、关联对象、正文（「任务描述」）、验收标准、所属项目（名称、编号、文档目录）、角色（「执行要求」，只读角色写明只给了读的工具）、补充说明拼成，再写怎么做（先 `get_object` 读任务；关键步骤 `append_progress`；拆子任务 `create_object` 带 `parent_ref`；做完了才 `update_object` 改状态；不能提问；要确认的写操作会停下等、被拒绝不要再提）和结束时写一段结论。`GET /api/objects/{id}/run/prompt?harness=agent` 预览这一份，`resume=true` 是续跑的说法（开头写「接着上次的执行继续处理这条任务」）。无人值守：给模型的工具里没有 `ask_user`，硬调回「不能提问」。
+- **会话**：每次执行建一个挂这个 Agent 的**全局**会话（`object_id` 为 null，会话列表 `?unscoped=true` 里有），标题是「任务编号 标题」（截到 40 字），`provider_id`、`model` 是这次用的，`workdir` 是这次的产物目录，`source_ref` 是 `{kind: "task_run", label: "任务 <编号> <标题> 的执行", object_id, ref, run_id, project_id?}`（Agent 在会话里新建的对象缺省记这个来源、挂到任务所属的项目，同「会话来源」）。执行记录的 `harness_session` 是会话 id，开流时 `start` 事件带 `session_id`。会话之后能照常在会话页接着聊（按 Agent 当前的服务商和模型）。
+- **续跑**：`resume_session: true` 时续用这个任务最近 20 条执行里最近一条 `harness=agent` 且有会话的那条的会话（不新建），用会话挂的 Agent（`agent_id` 忽略）；没有、会话已删、会话没挂 Agent 都回 400「这个任务还没有可续的工作台 Agent 会话……」；Agent 停用、删了 409；会话里还有一轮在跑 409「上次的会话里还有一轮在跑……」。
+- **要确认的写操作**：Agent 的工具授权是「需确认」的调用照会话里的口径记一条 `agent_tool_calls`（`session_id` 是这次的会话，`run_id` 为空），执行停下：执行记录状态改成 `waiting`（没结束，`finished_at` 为空），流里发 `confirm`。人点确认、拒绝走 `POST /api/agent/tool-calls/{id}/confirm` / `reject`（执行面板和会话页都行）：这次调用有在途的执行在等时，那两个接口只记下决定、记审计，把决定交给执行，SSE 里只回一个 `done`（`{type, session_id}`），后面的过程在执行自己的流里接着出；执行发 `decision`，状态回到 `running`，确认的执行这次调用、拒绝的不执行，模型接着跑（换办法或收尾）。到 `confirm_wait_minutes` 没人决定按拒绝处理：调用记 `rejected`，`result` 为「等待确认超时，按拒绝处理：<操作>，没有执行」，审计 `agent` / `reject`，摘要「等待确认超时，按拒绝处理 Agent「名称」的调用 <工具>」，`detail` 多 `run_id`。工作台重启后在途执行没了，还在等的调用照常可以在会话里确认、拒绝（按会话口径接着跑）。
+- **取消**：`POST /api/runs/{id}/cancel` 停掉在途执行（等确认时也行），记录收尾成 `canceled`、`error`「已取消」，还在等的调用拒掉（`result`「执行已取消，没有执行」）；会话页「停止」（`POST /api/agent/sessions/{id}/stop`）也停得下正在跑模型的那一段，同样收尾成 `canceled`、`error`「在会话里手动停止了」。
+- **收尾**：完成 `done`、`exit_code` 0；失败 `failed`、`exit_code` 1，`error` 写原因：步数超限「超过步数上限（N 步）还没做完，已停下。已经执行的操作不会撤回；可以调大步数上限后续跑，或者把任务拆小」，时长超限「超过时长上限（N 分钟）还没做完，已停下……」，服务商不可用「服务商不可用，执行失败：<熔断或重试用完的原因>」（不无限重试：一次调模型最多 3 次，备用服务商再来一遍）；取消 `canceled`、`exit_code` -1。`output` 是过程记录，格式同 Claude Code（正文原样，`[工具] 名 · 参数`、`[工具失败] 名 · 原因`），另加 `[等待确认] <操作>` 和随后一行 `[已确认]` / `[已拒绝]` / `[等待超时，按拒绝处理]`。完成时给任务记一条进展（`kind=note`，操作者 `agent`，会话标识是这次的会话 id）「工作台 Agent「名称」执行完成（执行记录 <id 后 8 位>）：」加 Agent 最后一条回复；失败记「工作台 Agent「名称」执行失败（执行记录 <id 后 8 位>）：<原因>」；取消不记。会话里另落一句（失败「这一轮没跑完：<原因>……」，取消「已手动停止这一轮……」）。收尾照常投 `run.finished`（`origin` 为空）。不记运行异常，不登记产物（`write_file` 写的文件照常按会话登记、挂到任务上）。
+- 交给工作台 Agent 同样把任务改成进行中（SPEC-tasks-6.17 的规则），不领取、不改负责人。
 
 ## 凭证保险箱 secrets
 
@@ -1453,13 +1469,14 @@ TASK-03a、TASK-03b。定义存在表 `schedules`（0020），执行记录存在
 | kind | 字段 | 说明 |
 |---|---|---|
 | `task` | `title`（必填）、`desc`、`priority`、`assignee`、`due_days` | 到点建一条任务；`due_days` 是截止日距执行当天几天，0 到 365 |
-| `sop` | `sop_id`（必填） | 执行一个 SOP |
+| `sop` | `sop_id`（必填）、`managed`（只读） | 执行一个 SOP。`managed` 为 `true` 是随 SOP 流程管理的那一条（TSK-0463，见「SOP 编排插件 sop」的「定时触发」），输出时总有这个键 |
 | `agent` | `agent_id`（必填）、`prompt` | 让一个 Agent 去做 |
 | `incident_sweep` | `min_level`（`error` 只看错误 / `warn` 警告和错误都看，缺省 `error`）、`min_count`（次数下限，1 到 1000000，缺省 1） | 运行异常巡检（INC-01a），内核动作，见「运行异常 incidents」；保存时补上缺省值 |
 | `remind` | `title`（必填，去首尾空白，最多 100 字）、`body`（可空，最多 2000 字）、`object_id`（关联的对象，可空）、`popup`（弹窗方式，`toast` 或 `modal`，不传或空串按 `toast`，别的值 400；SPEC-tasks-8.26） | 提醒：到点在工作台里发一条通知（只进通知列表和事件流，不外发 IM），`toast` 在前端外壳右下角弹出，`modal` 在屏幕中间模态弹出、只有按钮能关。`object_id` 非空时保存会查对象，不存在或在回收站回 400「action.object_id: object … not found」。规则为 `once` 时到点（执行了或错过了）后自动停用（`enabled` 变 `false`），手动执行不停用 |
 | `<插件 id>_<动作>` | 插件定的参数，和 `kind` 平铺 | 插件登记的动作（VID-06a，`docs/plugin-api.md` 2.12），例 `video_publish` |
 
 - `sop_id`、`agent_id` 只查非空、不查是否存在（SOP 是插件，可能还没装），到点执行时找不到记 `failed`。
+- 随流程管理的定时任务（TSK-0463）：`action.managed` 只有 SOP 插件经插件句柄 `Core.SOP().SaveFlowSchedule` 能置真，`POST /api/schedules` 带了也按 `false` 存；`PATCH` 时保持原值（body 里带不带 `managed` 都一样）。`managed` 为真的那条只能改 `name`、`enabled`、`rule`，`action` 原样提交照常，改成别的 `kind` 或别的 `sop_id` 回 400「action: this schedule is managed by SOP flow sop_x; change the flow's trigger instead」。`DELETE` 照常删，流程的触发方式留在「定时」，流程接口的 `schedule` 变成 `null`（「定时，未配置」）。
 - 插件动作（VID-06a）：除 `kind` 外的字段原样存、原样回，校验交给声明它的插件，插件的错误回 `validation` 400「action: …」。没有插件声明这个 `kind` 回 400「action.kind must be task / sop / agent or a plugin action, got "…"」；声明它的插件停用时新建、改动作回 400「action.kind video_publish: 提供这个动作的插件没启用：视频（video）」，只改 `name`、`enabled` 照常。
 - 删除按 `delete` 记审计，Agent 来源的新建和修改按 `agent` 记，`target_type` 为 `schedule`。
 - 服务没接定时任务时这几个接口回 `internal` 500，message 为 `schedules are not configured on this server`；没接调度器时 `POST /run` 回 `internal` 500，message 为 `schedule runner is not configured on this server`。
@@ -2090,7 +2107,7 @@ SOP 输出 `sync`（六个节点共用）：`{id, project_id, trigger, status, c
 
 ## IM 消息插件 im
 
-IM-01a 起。插件 `im`（`internal/plugins/im`，清单 `plugin.json`，0.24.0（0.24.0 加私信我确认、来消息确认派发（TSK-0411）：SOP 节点 `im_ask_me`、`im_tell_me`，内置流程 `sop_im_task_confirm`，插件迁移 `0013_ask_me.sql`；0.23.0 加原型同步（AUTO-11）：内置流程 `sop_im_proto_sync`，不加迁移、不改清单；0.22.0 加发布 pipeline（AUTO-10）：内置流程 `sop_im_release_pipeline`，研发 pipeline 验收通过后以子流程接它，不加迁移；0.21.0 加研发 pipeline（AUTO-09）：SOP 节点 `im_notify`、内置流程 `sop_im_dev_pipeline`，不加迁移；0.19.0 加 IM 任务回执 `im_wait_task`、`im_reply_message` 和内置流程「IM 任务回执」，插件迁移 `0012_task_reply.sql`；0.20.0 加 IM 需求自动受理（AUTO-06）：SOP 节点 `im_to_task`、`im_set_task_stage`，内置流程 `sop_im_auto_intake`，不加迁移；IM-06 加 Slack 本人身份；0.7.1 回复和推回来的本人消息只记一次；0.7.2 Slack 限流不算同步失败、不活跃私信轮流查，Telegram 后台连续 3 次连不上才算同步失败；0.8.0 加 SOP 节点读取消息、标记消息；0.9.0 加已过期和设置，插件迁移 `0005_expiry.sql`；0.11.0 加消息归到项目：`im_messages.project_id`、插件迁移 `0006_project.sql`、处理动作 `project`、SOP 节点 `im_set_project`；0.18.0 加回复、发消息里的 @（不加迁移，接口 `GET /api/im/conversations/{conversation_id}/members`，回复和 `POST /api/im/send` 的 body 加 `mentions`，`Outgoing` 加 `mentions`）；0.17.0 加主动发消息（插件迁移 `0011_outbox.sql`，接口 `POST /api/im/send`、`GET /api/im/conversations/{conversation_id}/sent`，会话统计加 `connector_id`、`sent`、`last_sent_at`，消息加 `replied_sent`）；0.16.0 加 Slack 消息列回复（插件迁移 `0010_threads.sql`，接口 `POST /api/im/connectors/{id}/backfill-threads`，`Message` 加 `thread`、`reply_count`，`Incoming` 加 `thread_parent_*`，`Outgoing` 加 `thread_of`）；0.15.0 加群组管理（接口 `GET /api/im/conversations/summary`、批量 `PUT /api/im/conversation-projects`，不加迁移）；0.14.0 加消息转项目资料（插件迁移 `0009_message_materials.sql`，接口 `POST/GET /api/im/materials`、`DELETE /api/im/materials/{material_id}`，消息加 `materials`）；0.13.0 加从消息发起会话、拆分任务（插件迁移 `0008_message_sessions.sql`），清单 `subscribes` 加 `object.created`；0.12.0 加群组默认归属项目（插件迁移 `0007_conversation_projects.sql`）、从 Slack 补联系人邮箱（接口 `POST /api/im/connectors/{id}/backfill-emails`、后台任务 `backfill_emails`）），权限 `network:im`：真实渠道出网，IM-01b 加，0.4.0 升上来要确认；域名清单是 `slack.com`、`*.slack.com`、`api.telegram.org` 等 IM 服务）。收各 IM 渠道的消息，落在插件表 `im_messages`（插件迁移 `0001_messages.sql`；IM-02a 的处理动作加了 `0002_actions.sql`，回复在 `im_replies`；IM-04a 的附件获取加了 `0003_attachments.sql`，获取状态在 `im_attachments`；SOP-02b 的等回复节点加了 `0004_sop_waits.sql`，挂起中的等待在 `im_sop_waits`；安装插件时应用）。发送人按 IM 身份（见「IM 身份 im-identities」）的 id 认、会话按会话（见「会话 conversations」）的 id 归，**不靠名字**。插件未安装或停用时，本节接口回 `not_found` 404（同「插件路由」）；停用时拉取也停下，数据不动。
+IM-01a 起。插件 `im`（`internal/plugins/im`，清单 `plugin.json`，0.25.0（0.25.0 汇总 TSK-0467、0468、0470：回执需求方、FDE 反馈转发、回复只带状态和结论，插件迁移 `0014_task_ack.sql`、`0015_fde_forward.sql`；TSK-0467 加回执需求方：SOP 节点 `im_ack_task`，插件迁移 `0014_task_ack.sql`，内置流程 `sop_im_auto_intake`、`sop_im_task_confirm` 建任务后加这一步，已写进 SOP 的旧版按升级口径换（版本号待定）；TSK-0468 加 FDE 反馈转发：SOP 节点 `im_message_digest`、`im_send_contact`，内置流程 `sop_im_fde_forward`，插件迁移 `0015_fde_forward.sql`，设置加 `fde_forward`（版本号待定）；0.24.0 加私信我确认、来消息确认派发（TSK-0411）：SOP 节点 `im_ask_me`、`im_tell_me`，内置流程 `sop_im_task_confirm`，插件迁移 `0013_ask_me.sql`；0.23.0 加原型同步（AUTO-11）：内置流程 `sop_im_proto_sync`，不加迁移、不改清单；0.22.0 加发布 pipeline（AUTO-10）：内置流程 `sop_im_release_pipeline`，研发 pipeline 验收通过后以子流程接它，不加迁移；0.21.0 加研发 pipeline（AUTO-09）：SOP 节点 `im_notify`、内置流程 `sop_im_dev_pipeline`，不加迁移；0.19.0 加 IM 任务回执 `im_wait_task`、`im_reply_message` 和内置流程「IM 任务回执」，插件迁移 `0012_task_reply.sql`；0.20.0 加 IM 需求自动受理（AUTO-06）：SOP 节点 `im_to_task`、`im_set_task_stage`，内置流程 `sop_im_auto_intake`，不加迁移；IM-06 加 Slack 本人身份；0.7.1 回复和推回来的本人消息只记一次；0.7.2 Slack 限流不算同步失败、不活跃私信轮流查，Telegram 后台连续 3 次连不上才算同步失败；0.8.0 加 SOP 节点读取消息、标记消息；0.9.0 加已过期和设置，插件迁移 `0005_expiry.sql`；0.11.0 加消息归到项目：`im_messages.project_id`、插件迁移 `0006_project.sql`、处理动作 `project`、SOP 节点 `im_set_project`；0.18.0 加回复、发消息里的 @（不加迁移，接口 `GET /api/im/conversations/{conversation_id}/members`，回复和 `POST /api/im/send` 的 body 加 `mentions`，`Outgoing` 加 `mentions`）；0.17.0 加主动发消息（插件迁移 `0011_outbox.sql`，接口 `POST /api/im/send`、`GET /api/im/conversations/{conversation_id}/sent`，会话统计加 `connector_id`、`sent`、`last_sent_at`，消息加 `replied_sent`）；0.16.0 加 Slack 消息列回复（插件迁移 `0010_threads.sql`，接口 `POST /api/im/connectors/{id}/backfill-threads`，`Message` 加 `thread`、`reply_count`，`Incoming` 加 `thread_parent_*`，`Outgoing` 加 `thread_of`）；0.15.0 加群组管理（接口 `GET /api/im/conversations/summary`、批量 `PUT /api/im/conversation-projects`，不加迁移）；0.14.0 加消息转项目资料（插件迁移 `0009_message_materials.sql`，接口 `POST/GET /api/im/materials`、`DELETE /api/im/materials/{material_id}`，消息加 `materials`）；0.13.0 加从消息发起会话、拆分任务（插件迁移 `0008_message_sessions.sql`），清单 `subscribes` 加 `object.created`；0.12.0 加群组默认归属项目（插件迁移 `0007_conversation_projects.sql`）、从 Slack 补联系人邮箱（接口 `POST /api/im/connectors/{id}/backfill-emails`、后台任务 `backfill_emails`）），权限 `network:im`：真实渠道出网，IM-01b 加，0.4.0 升上来要确认；域名清单是 `slack.com`、`*.slack.com`、`api.telegram.org` 等 IM 服务）。收各 IM 渠道的消息，落在插件表 `im_messages`（插件迁移 `0001_messages.sql`；IM-02a 的处理动作加了 `0002_actions.sql`，回复在 `im_replies`；IM-04a 的附件获取加了 `0003_attachments.sql`，获取状态在 `im_attachments`；SOP-02b 的等回复节点加了 `0004_sop_waits.sql`，挂起中的等待在 `im_sop_waits`；安装插件时应用）。发送人按 IM 身份（见「IM 身份 im-identities」）的 id 认、会话按会话（见「会话 conversations」）的 id 归，**不靠名字**。插件未安装或停用时，本节接口回 `not_found` 404（同「插件路由」）；停用时拉取也停下，数据不动。
 
 ### 适配器
 
@@ -2208,7 +2225,7 @@ IM 插件自己存（插件表，迁移 `0007_conversation_projects.sql`），�
 | GET | `/api/im/conversations/summary?channel=` | 群组管理用（0.15.0）。列出有消息或设了默认项目的会话 `{conversation_id, channel, kind, name, external_id, participants, total, pending, unread, last_at, project_id, project_ref, project_name}[]` + `meta.total`。`name` 取会话表，私聊为空；`participants` 是发过消息的人（认上联系人的用联系人名），最近发言的在前，最多 5 个；`pending` 是待处理、没过期、不在稍后里的条数；`unread` 是未读条数；`last_at` 是最近一条的发送时间，没有消息为 `null`；默认项目已删除（含回收站）按没设（`project_id` 为 `null`、`project_ref`/`project_name` 为空串）。按最近一条倒序，没有消息的排最后。`channel` 可省，不分大小写 |
 | PUT | `/api/im/conversation-projects` | 批量设、清除默认项目（0.15.0）。body `{items: [{conversation_id, project_id}]}` 或 `{conversation_ids: [...], project_id}`（两种不能同时用），`project_id` 认法同单个，`null` 或空串为清除，每项都必须带 `project_id`；一次最多 200 个，空、超过、缺字段 400 `validation`。逐条校验：会话不存在（`not_found`）、项目不存在或已删除或不是项目（`validation`）、同一会话在这批里出现第二次（`validation`，按第一次的算）的列进 `failed`，其余写入；全部没过也回 200。回 `{data: {updated: ConversationProject[], failed: [{conversation_id, project_id, code, message}]}, meta: {total, updated, failed}}`，`message` 是中文原因。写入分两条语句（设的 upsert、清的 delete），后一条失败时把前一条改过的恢复原值 |
 
-- 默认项目值有变化时记审计（0.15.0 起，单个和批量都记，值没变不记）：`kind=agent`、操作者 `im`、`action=update`、`target_type=conversation`、`target_id` 为会话 id，summary 形如「群组默认归属「#product」不归项目 → Octok」，detail 带 `field: "default_project"`、`channel`、`from`、`to`（没设为 `null`），批量的多 `batch: true`。
+- 默认项目值有变化时记审计（0.15.0 起，单个和批量都记，值没变不记）：`kind=agent`、操作者 `im`、`action=update`、`target_type=conversation`、`target_id` 为会话 id，summary 形如「群组默认归属「#product」不归项目 → Acme」，detail 带 `field: "default_project"`、`channel`、`from`、`to`（没设为 `null`），批量的多 `batch: true`。
 
 ### 从 Slack 补联系人邮箱
 
@@ -2288,9 +2305,9 @@ IM 插件自己存（插件表，迁移 `0007_conversation_projects.sql`），�
   "at": "2026-10-29T01:00:00.000Z", "received_at": "2026-10-29T01:00:02.000Z",
   "adapter": "slack", "task_id": "obj_..." | null, "task_ref": "TSK-0012",
   "replies": [{ "id": "rp_...", "text": "收到，我今天看。", "status": "sent", "error": "", "external_id": "C01:1712.40", "at": "..." }],
-  "reply_error": "", "expired_at": null, "project_id": "obj_..." | null, "project_name": "Octok", "project_source": "message",
+  "reply_error": "", "expired_at": null, "project_id": "obj_..." | null, "project_name": "Acme", "project_source": "message",
   "sessions": [{ "session_id": "ags_...", "intent": "split", "at": "..." }], "split_tasks": [{ "id": "obj_...", "ref": "TSK-0031", "title": "..." }],
-  "materials": [{ "material_id": "mt_...", "project_id": "obj_...", "project_name": "Octok", "kind": "messages", "attachment_id": "", "title": "#product 10月30日 的消息", "count": 3, "at": "..." }],
+  "materials": [{ "material_id": "mt_...", "project_id": "obj_...", "project_name": "Acme", "kind": "messages", "attachment_id": "", "title": "#product 10月30日 的消息", "count": 3, "at": "..." }],
   "thread": null, "reply_count": 0, "replied_sent": null }
 ```
 
@@ -2306,7 +2323,7 @@ IM 插件自己存（插件表，迁移 `0007_conversation_projects.sql`），�
 - `conversation` 是群名：认上会话的取会话表现在的名字（改群名不断），没认上的取到达时的快照；私聊为空串（原型用空串表示私聊）。
 - `identity_id`、`stakeholder_id` 认不上为 `null`，`contact_name` 为空串；界面上这时显示 `sender_name`。
 - `relevance` 是「与我相关」的原因，到达时算一次：`me`（@我）优先于 `all`（@所有人：所有人、全体成员、all、here、channel、everyone），私聊是 `dm`，无关为空串；`Incoming.mention` 给了时以它为准。正文里 `@称呼` 后面紧跟字母、数字、下划线的不算（`@我们` 不算 `@我`），不分大小写。
-- 「我」的称呼（IM-03）：收这条消息的连接器（`connector_id`）的 `account` 拆出来的几种，加上适配器自己给的（例如渠道里的用户编号）。`account` 按括号、逗号、顿号、斜杠、竖线分段，每段和整串都算，开头的 `@` 去掉，段里 `@` 开头的词也单算，例 `Lin Zhao（@zhaoli，U07ME）` 认 `@Lin Zhao`、`@zhaoli`、`@U07ME`。另加连接器配置里用户自己填的「我的称呼」`config.self_names`（PR-19，微信、飞书这类按名字 @ 的渠道要填）：按逗号、顿号、分号、换行分开，开头的 `@` 去掉，段里的空格保留，例 `李钊, Zhao` 认 `@李钊`、`@Zhao`；改了之后到的消息按新称呼认，已存的不重算（同 `account`）。没给 `connector_id` 或连接器已删时只认适配器给的。
+- 「我」的称呼（IM-03）：收这条消息的连接器（`connector_id`）的 `account` 拆出来的几种，加上适配器自己给的（例如渠道里的用户编号）。`account` 按括号、逗号、顿号、斜杠、竖线分段，每段和整串都算，开头的 `@` 去掉，段里 `@` 开头的词也单算，例 `Zhang San（@zhangsan，U0EXAMPLE）` 认 `@Zhang San`、`@zhangsan`、`@U0EXAMPLE`。另加连接器配置里用户自己填的「我的称呼」`config.self_names`（PR-19，微信、飞书这类按名字 @ 的渠道要填）：按逗号、顿号、分号、换行分开，开头的 `@` 去掉，段里的空格保留，例 `张三, Zhang` 认 `@张三`、`@Zhang`；改了之后到的消息按新称呼认，已存的不重算（同 `account`）。没给 `connector_id` 或连接器已删时只认适配器给的。
 - 连接器的 `account` 变了（重新连通测试时由对方给），之后到的消息按新称呼认；已存的 `relevance` 不重算：那些消息到达时确实是 @ 当时的我，而且渠道给的 `mention` 没有落库，重算会把它丢掉。
 - `status`、`read`、`snooze_until` 到达时是 `pending`、未读、无，用下面的处理动作改。
 - `expired` 和 `expired_at`（IM-07）：待处理的消息超过设置的天数没处理，后台任务（约每 10 分钟）标成已过期，`status` 为 `expired`、`expired_at` 是标的时间，不是已过期为 `null`。从发送时间算，改回待处理过的从改回的时候算；稍后提醒还没到点的不过期。已过期不算待处理（不进 `status=pending`、`snoozed=true`），库里仍是 `pending` 加 `expired_at`（插件迁移 `0005_expiry.sql`）。天数见下「设置」。
@@ -2331,8 +2348,8 @@ IM-02a，口径照原型 `App.tsx` 的 `actOnMessage`。除单条读取外都是
 | POST | `/api/im/messages/{id}/task` | 转任务，body 可省略，见下；成功 201 |
 | POST | `/api/im/messages/{id}/project` | 归到项目，body `{project_id}`：项目 id、编号（`ref`，不分大小写）或名字，按这个顺序认，只认没删的 `type=project`；认不出来 400 `project <x> not found`。`null` 或空串是清除；不带 `project_id` 400（不当清除）。回改后的整条 `Message` |
 | POST | `/api/im/messages/batch` | 批量处理完或忽略（PR-03），见下；按 id 列表时含已过期的 |
-| GET | `/api/im/settings` | 本插件的设置：`{expire_days, quick_replies}`。`expire_days` 没设过是 7（IM-07）；`quick_replies` 是快捷回复 `[{text, done}]`（`done` 为真的发完同时标为已处理），没设过回内置四条：收到，我看一下 / 稍后回复你 / 已处理，请查看（done）/ 这个需求记下了，排期后同步你（done） |
-| PATCH | `/api/im/settings` | 改设置，body `{expire_days?, quick_replies?}`，没给的不动。`expire_days`：0 到 365 的整数，0 为不过期，别的 400；改完马上按新天数标一次（调短的立刻生效，调长不会把已过期的改回来），天数变了记一条审计。`quick_replies`：整组替换，最多 20 条，`text` 去首尾空白后不能为空、不超过 200 字、不能重复，违反任一条 400 且整个请求不生效（天数也不改）；空数组表示不要快捷回复；内容变了记一条审计（`target_id` 为 `quick_replies`）。回改后的设置 |
+| GET | `/api/im/settings` | 本插件的设置：`{expire_days, quick_replies, fde_forward}`。`fde_forward`（TSK-0468）是手动转任务后发起内置流程「FDE 反馈转发」，没设过是 `false`。`expire_days` 没设过是 7（IM-07）；`quick_replies` 是快捷回复 `[{text, done}]`（`done` 为真的发完同时标为已处理），没设过回内置四条：收到，我看一下 / 稍后回复你 / 已处理，请查看（done）/ 这个需求记下了，排期后同步你（done） |
+| PATCH | `/api/im/settings` | 改设置，body `{expire_days?, quick_replies?, fde_forward?}`，没给的不动。`fde_forward`：布尔，开关变了记一条审计（`target_id` 为 `fde_forward`，`summary`「打开 FDE 反馈转发」/「关闭 FDE 反馈转发」）。`expire_days`：0 到 365 的整数，0 为不过期，别的 400；改完马上按新天数标一次（调短的立刻生效，调长不会把已过期的改回来），天数变了记一条审计。`quick_replies`：整组替换，最多 20 条，`text` 去首尾空白后不能为空、不超过 200 字、不能重复，违反任一条 400 且整个请求不生效（天数也不改）；空数组表示不要快捷回复；内容变了记一条审计（`target_id` 为 `quick_replies`）。回改后的设置 |
 
 批量处理（PR-03）：body `{action, ids}` 或 `{action, conversation_id, before}`，二选一，都给或都没给 400。
 
@@ -2373,11 +2390,16 @@ IM-02a，口径照原型 `App.tsx` 的 `actOnMessage`。除单条读取外都是
 - 已经转过、任务还在：409 `conflict`，`error` 里多 `task_id`、`task_ref`，前端打开那条任务。
 - `reply_on_done`（默认 `true`，SPEC-messages-2.50）：执行完成后回复原消息。先确认内置流程 `sop_im_task_reply`（「IM 任务回执」）写进了 SOP（没写过的现写，记在 `im_sop_templates`；写过又被用户删掉的不再加回来），能用时 `props.source_ref` 多一个 `reply_on_done: true`，建完任务后经 `Core.Runs().StartSOP` 发起这条流程，输入 `{message_id, task_id}`，执行关联到新任务（`ObjectID`）。
 - 成功 201，`data` 是 `{message: Message, task: {id, ref, title, status, source}, reply: {enabled, run_id?, note?}}`：`enabled` 为假时 `note` 说原因（没勾、SOP 插件没在运行、流程被删、发起失败）。回执没发起不挡转任务。
+- FDE 反馈转发（TSK-0468）：设置 `fde_forward` 为真时，建好任务后按这条消息排一次转发（见「内置流程：FDE 反馈转发」），几秒内由后台任务发起；排不上只记日志，不挡转任务、不改响应。
 
 「IM 任务回执」流程（字段 `message_id`、`task_id`，两步）：
 
 1. 等任务执行完成 `im_wait_task`：`config.task` 默认 `{{task_id}}`，`config.timeout` 默认 14 天（最多 30 天）。任务已经是 `done` 时直接往下走；否则落一行 `im_task_waits`、步骤挂起。任务的执行成功结束（`run.finished` 带 `object_id` 且 `ok`）记 `done_via=run` 和 `summary`；任务改成 `done`（`object.status_changed`）记 `done_via=status`；后台任务 `task_waits` 每 3 秒唤醒记下的（也按任务当前状态补认漏掉的事件），到点没完成的、任务删了的让步骤失败。执行失败、取消不算完成，接着等。输出加 `task: {id, ref, title, status, summary, via}`。
-2. 回复原消息 `im_reply_message`：`config.message` 默认 `{{message_id}}`，`config.text` 默认「「{{task.title}}」已经处理完了（{{task.ref}}）。\n{{task.summary}}」，超过回复上限截断。回复口径同 `POST /{id}/reply`（回到原消息所在的串、记 `im_replies`、拦截和发送失败同上），另记一条审计（`action=reply`、`target_type=message`），幂等键同 `im_send_message`，发过的不再发。输出加 `replied: {message_id, reply_id, external_id, text}`。
+2. 回复原消息 `im_reply_message`：`config.message` 默认 `{{message_id}}`，`config.text` 默认「「{{task.title}}」（{{task.ref}}）已完成。\n结果：{{task.summary}}」（TSK-0470：只回状态和结果），超过回复上限截断。`task.summary` 是执行的结论（`run.finished` 的 `summary`；任务被直接改成已完成时为空），这时末尾空着的「结果：」一行发送前去掉，只回状态一行。回复口径同 `POST /{id}/reply`（回到原消息所在的串、记 `im_replies`、拦截和发送失败同上），另记一条审计（`action=reply`、`target_type=message`），幂等键同 `im_send_message`，发过的不再发。输出加 `replied: {message_id, reply_id, external_id, text}`。
+
+回复内容的兜底（TSK-0470）：`im_reply_message`（含 `im_notify` 里的回复原消息）、`im_tell_me`、`im_ack_task` 发送前对渲染好的文字做一遍清理：去掉以「[工具] 」「[工具失败] 」开头的行（去首尾空白后判断），再去掉末尾只有标签和冒号、值是空的行（最多 8 个字的标签，如「结果：」），最后去首尾空白；中间的「验收清单：」后面接着列表的不动。清理后为空时 `im_reply_message` 失败「要回复的内容是空的」。
+
+升级（TSK-0470）：TSK-0470 之前写进 SOP 的「IM 任务回执」（回复内容是「…已经处理完了…」）：后台任务（`sop_templates`）对还是第 1 版、没有进行中执行、没被定时任务引用的经 `RemoveFlow` 撤下、`InstallFlow` 按新版写回；用户改过（版本不是 1）的不动，发一条平台通知（`kind: im.notify`，标题「内置流程「IM 任务回执」没有自动换成新的回复内容」，正文给出新的回复内容怎么改）；用户删掉的不补回来。处理过一次在 `im_sop_templates` 记一行 `flow_id = "sop_im_task_reply#result"`，新写入的直接记上；有进行中执行（等任务完成的回执都算）、被定时任务引用的下次再试。不加迁移。
 
 ### 附件获取
 
@@ -2434,6 +2456,9 @@ SOP-02b。IM 插件经 SOP 节点扩展点（`docs/plugin-api.md` 2.7）登记�
 | `im_notify` | `text` 内容 | `task` 任务、`title` 标题、`level` 级别、`message` 消息 | 通知（AUTO-09）：发一条平台通知（`Core.Notify`，`kind` 为 `im.notify`，关联 `task`，`data` 带 `run_id`、`flow_id`、`step`），配了 `message` 且渲染后不为空时，同时在原消息所在的串里回复同样的内容（口径同 `im_reply_message`）；`message` 不配或取到空串就只发平台通知，不报错，流程里不用另判断有没有来源消息。`task` 默认 `{{task.id}}`，取不到不关联；`title` 留空是「任务编号 任务标题」，再没有为「流程通知」；`level` 为 `info`（默认）/ `success` / `error`，别的失败「通知级别「x」不认，只能是 info、success、error」。都支持 `{{字段}}`。输出加 `notified: {title, text, task_id, app, im, replied?, reused?}`，`app` 为 `sent`（通知中心没接上时 `skipped`），`im` 为 `sent` / `skipped`。去重：平台通知按写入键（`<运行 id>/<步骤 key>#<尝试次数>`）查本插件的审计（`action: notify`、`target_type: object`，`target_id` 是任务 id，没有任务时是运行 id），服务重启后重跑同一次尝试不重发；回复同 `im_reply_message` 的去重。失败：内容为空「通知内容是空的」；发平台通知出错「发平台通知失败：…」；回复失败「平台通知已发，回复原消息失败：…」（重试是新的一次尝试，平台通知会再发一次） |
 | `im_ask_me` | `text` 内容 | `timeout` 每轮等多久、`channel` 渠道、`connector` 连接器、`to` 发给 | 私信我确认（TSK-0411，插件迁移 `0013_ask_me.sql`）：私信「我」本人 `text`（支持 `{{字段}}`，后面固定附上「回复「执行」开工，「分配 某人」交给别人，「不做」取消。」），步骤挂起（日志「挂起：私信问你了，等你回复（执行 / 分配 某人 / 不做），最多等 1 天，没回复提醒一次…」），等待落在 `im_ask_waits`，服务重启后接着等。回复认法：执行类（执行、确认、好、好的、开工、可以、行、ok、yes…，整句就是这个词）→ `execute`；`分配 X` / `分配给 X` / `交给 X` / `指派给 X`（X 去掉 @ 和引号，原文大小写）→ `assign`；不做类（不做、取消、不用、算了、不要、no…）→ `cancel`；别的都认不出：第一次认不出在提问的串里再问一次（「没认出「…」。…再认不出就先不执行，任务留在未开工。」），重新计时；第二次还认不出往下走，`choice: none`、`reason: unknown`。到 `timeout`（默认 `1 天`，写法同等待回复，最多 30 天）没回复先在提问的串里提醒一次，再等一个 `timeout`，还没有往下走，`choice: none`、`reason: timeout`。输出加 `answer: {choice, assignee, text, reason, reason_text, at?, asked}`（`asked` 是一共发了几次：提问、再问、提醒），输入里有 `task.id` 时补上 `task.url`（看板链接，同 `im_to_task`）。「我」：`to` 填了用它；没填按连接器认：Slack「我本人（用户 Token）」身份取连接器账号「名字（Member ID）」里的 Member ID，Bot 身份取配置「我的 Member ID」（`self_user_id`）；都没有失败「私信发不出去：认不出你在 Slack 上的本人身份：连接器「X」是 Bot 身份时要在「我的 Member ID」里填你的 Member ID（U 开头），或在这一步的「发给」里填」；别的渠道要填 `to`。连接器：`connector` 填了用它（不是这个渠道的失败）；没填用这个渠道最新建的、不是只收、没暂停断开的那个；有连接器但都不能发失败「私信发不出去：slack 的连接器都不能发消息（只收、暂停或断开），私信不了你」；一个连接器都没有时用不靠连接器的适配器（演练用的假适配器，「我」是它给的第一个称呼）。`channel` 默认 `slack`。发出：经适配器 `Reply`（`Outgoing{conversation_kind: direct, recipient_id: 我的编号}`，Slack 为 `chat.postMessage channel=<Member ID>`），按渠道回的会话编号登记一个私聊会话「私信我」，记发件记录（`im_outbox`，`source: sop`）和审计（同发消息，`summary`「私信我」/「私信我失败」，`detail` 多 `to`、`conversation_external_id`）；同一次尝试重跑按写入键查审计，发过的不再发。发不出去这一步失败「私信发不出去：<原因>」（SOP 照常记运行异常）；再问、提醒发不出去时让步骤失败「再问一次时私信发不出去：…」/「超时提醒时私信发不出去：…」。我的回复：同渠道、同连接器，我自己发的（Slack 本人身份拉回来的 `from_self`）或发送人编号是我的、在这条私信会话里（会话编号不知道时：任意私聊）、晚于这次提问（再问后晚于再问）的那条；到达时记到等待上，**不落成消息**（不进消息页、不发 `im.message_received`、不触发 IM 流程、不记成别的消息的回复）。同时有几条在等：回在某条提问的串里的归那条，否则归最近问的那条。 |
 | `im_tell_me` | `text` 内容 | `channel`、`connector`、`to`（同 `im_ask_me`） | 私信我（TSK-0411）：私信我本人一条，不等回复；「我」、连接器、发件记录、审计、重跑不重发同 `im_ask_me`。输入里有 `task.id` 时先补上 `task.url` 再渲染。输出加 `told: {text, external_id, at}`（重跑取回时 `reused: true`）。内容为空失败「要发的内容是空的」，发不出去失败「私信发不出去：…」 |
+| `im_ack_task` | | `text` 文案、`task` 任务、`message` 消息 | 回执需求方（TSK-0467，插件迁移 `0014_task_ack.sql`）：放在建任务（`im_to_task`、SOP 的 `task`）之后，在原消息所在的会话里回复需求方，口径同 `POST /{id}/reply`（原消息在消息列里的回在消息列里、记 `im_replies`、拦截同上）。`text` 默认「已创建任务 {{task_ref}}，开始进行需求规划」，除输入里的 `{{字段}}` 外认 `{{task_ref}}`、`{{task_title}}`、`{{task_project}}`（所属项目名，没有为空）、`{{task_url}}`（看板链接，同 `im_to_task`），超过回复上限截断；`task` 默认 `{{task.id}}`，渲染为空再取 `{{task_id}}`；`message` 默认 `{{message_id}}`。**同一条消息只回一次**：按消息在插件表 `im_task_acks` 占一行（`status`：`sending` / `sent` / `failed`），占到的发；回过（不管哪条流程、哪次执行）或正在回的不再回，`failed` 的下次可以重新占来补发；服务重启后同一次尝试重跑按审计（写入键同 `im_send_message`）认发没发过。**任务是取回的已有任务（输入 `task.reused: true`）时不发「已在跟进」第二条**：同样按消息判断，回过就不回，没回过照常回一次。输出加 `acked: {status, reason, reason_text, task_id, task_ref, task_reused?, message_id?, text?, reply_id?, external_id?, connector?, previous?, reused?}`：`status` 为 `sent`；或 `skipped`（这一步照常完成），`reason` 为 `no_message`（没有来源消息）、`message_missing`（消息不在了）、`self`（发信人是我自己，认法同「与我相关」）、`receive_only`（连接器只收不发）、`already`（这条消息回执过了，`previous` 带之前那一行的 `status`、`task_ref`、`run_id`、`at`）；或 `failed`（这一步也照常完成，任务不受影响），`reason` 为 `blocked`（连接器暂停、断开、没有适配器）或 `send_failed`（渠道报错），`reason_text`「回执需求方失败：<原因>；任务 TSK-x 已建好，不受影响」，另记一条运行异常（`level: warn`，模块「IM 消息」，标题「回执需求方失败」，指纹 `im:ack:<流程 id>:<步骤 key>`）。发送记审计（`action: reply`、`target_type: message`，`detail` 多 `kind: task_ack`、`task_id`、`task_ref`）。失败：渲染不出任务「没有指定任务：…」、任务不存在「任务 obj_x 不存在」、文案渲染后为空「回执内容是空的」 |
+| `im_message_digest` | | `messages` 消息 id、`tasks` 任务 id | 整理消息摘要（TSK-0468）：`messages` 是一组消息 id（JSON 数组，或逗号、顿号、空白分隔，支持 `{{字段}}`），留空取输入的 `message_ids`，再没有取 `message_id`；`tasks` 同样写法，留空取输入的 `task_ids`，再没有取这些消息转成的（`task_id`）和拆出来的（`split_tasks`）任务。输出加 `digest: {messages_text, tasks_text, task_refs, messages, tasks}`：`messages_text` 每条消息几行「发信人：<联系人名或发送人>」「会话：<会话名或私聊>（<渠道>）」「时间：<本机时区 YYYY-MM-DD HH:mm>」「原文：<正文>」「附件：<附件名，顿号分隔>」（没有附件不写这行），几条之间空一行；`tasks_text` 一条是「任务：TSK-x「标题」<看板链接>」，几条是「任务（N 条）：」后逐行列，没有是「任务：（没有）」；删了的任务跳过。`task_refs` 用顿号连。失败：没有消息「没有指定消息：…」、都不存在「消息 msg_x 不存在」 |
+| `im_send_contact` | `contact` 联系人、`text` 内容 | `to` 身份编号、`channel` 渠道、`connector` 连接器 | 私信联系人（TSK-0468）：`contact` 是联系人 id 或名字（`Contacts().Get`，再 `FindByName`），`channel` 默认 `slack`；在这个渠道上找联系人的 IM 身份：`to` 填了只认联系人的这个编号（不分大小写），留空用他第一个不是「我」的身份（「我」的认法同「与我相关」，按要用的连接器）。连接器、发送、登记私信会话（名字「私信 <联系人名>」）、发件记录、审计（`summary`「私信 <联系人名>」/「私信 <联系人名>失败」）、同一次尝试重跑不重发同 `im_tell_me`。`text` 支持 `{{字段}}`（输入里有 `task.id` 时先补 `task.url`），超过回复上限截断。输出加 `sent_to: {contact, to, text, external_id, at}`（重跑取回时 `reused: true`）。失败：联系人不存在「联系人 X 不存在」；`to` 填了但不是他的「联系人 X 没有 Slack 身份 U0…」；没填且他在这个渠道没有身份「联系人 X 没有 Slack 身份」，只有我自己的「联系人 X 没有 Slack 身份（只有你自己的）」；连接器不能发、渠道报错「私信 X 发不出去：<原因>」（SOP 记运行异常） |
 
 - `message` 是消息 id，支持 `{{字段}}`，留空取输入里的 `message_id`（IM 触发的流程输入里就有）；消息不存在时失败（`消息 msg_x 不存在`），取不到 id 时失败（`没有指定消息：…`）。
 - `conversation` 是会话 id（见「会话 conversations」），可以写 `{{conversation_id}}` 从输入里取；会话不存在时步骤失败，`error` 是 `会话 cv_x 不存在`。
@@ -2450,9 +2475,10 @@ AUTO-06。IM 插件后台任务（`sop_templates`，每分钟一次）经 `Core.
 
 - **默认停用**：SOP 没有启停开关，流程的 `trigger` 写成 `manual`，`im.message_received` 不会发起它；用户在编排页把触发方式改成「IM 消息」（`PATCH /api/sop/flows/{id}`，`id` 为 `sop_im_auto_intake`，body `{"trigger":"im"}`）即启用，改回 `manual` 即停用。
 - 输入字段：`message_id`（必填）、`conversation_id`（可空，`im_to_task` 补）。
-- 步骤（key：kind）：`read`：`im_get_message` → `is_req`：`classifier`（`req` 是需求 / `other` 不是需求，`from: message.text`）→ `other`：`skip`：`end`；`req`：`to_task`：`im_to_task` → `ack`：`im_reply_message`（回执 + 看板链接）→ `profiles`：`projects_list_profiles` → `classify`：`ai`（输出 `classify`，要求回 JSON：`project_id`、`project`、`confidence`、`sure`（置信度不低于 0.7 且有项目时 `yes`）、`candidates_text`、`reason`）→ `parse`：`extract`（`from: classify`，提取上面六个字段到 `extracted`）→ `sure`：`decide`（规则 `extracted.sure 等于 yes`，`yes` / `no`）→ `yes`：`bind_auto`：`im_set_task_stage`（`project: {{extracted.project_id}}`）；`no`：`ask_stage`：`im_set_task_stage`（`confirm_project`）→ `ask`：`im_reply_message`（列候选）→ `wait`：`im_wait_reply`（`{{conversation_id}}`，2 天）→ `pick`：`ai`（输出 `picked`，只回项目 id 或 `none`）→ `bind_pick`：`im_set_task_stage`（`project: {{picked}}`）→ 汇合 `profile`：`projects_get_profile`（`{{project.id}}`）→ `design`：`im_set_task_stage`（`designing`）→ `prd`：`claude_code`（`preset: rp_pm`，`workdir: {{profile.dirs.prototype}}`，`task: {{task.id}}`，权限按角色，2 小时；提示词带需求原文和 `{{feedback.result.issues}}`）→ `to_review`：`im_set_task_stage`（`reviewing`）→ `review`：`claude_code`（`preset: rp_review`，`workdir: {{profile.dirs.code}}`，`permission: read`，1 小时）→ `gate`：`loopback`（`result.verdict 等于 reject`，`target: design`，`max_rounds: 3`）→ `pass`：`dev`：`im_set_task_stage`（`developing`）→ `tell_dev`：`im_reply_message` → `pipeline_in`：`template`（`{{task.id}}` 写到 `task_id`）→ `pipeline_args`：`end`（`outputs: task_id, message_id, conversation_id`，子流程拿这一步的输出当输入，评审的 `summary`、`feedback` 不带进研发）→ `pipeline`：`subflow`（`sop: sop_im_dev_pipeline`，等研发 pipeline 走完）；`over`：`human_stage`：`im_set_task_stage`（`need_human`）→ `human`：`review`。
+- 步骤（key：kind）：`read`：`im_get_message` → `is_req`：`classifier`（`req` 是需求 / `other` 不是需求，`from: message.text`）→ `other`：`skip`：`end`；`req`：`to_task`：`im_to_task` → `ack`：`im_ack_task`（回执需求方，文案「已创建任务 {{task_ref}}，开始进行需求规划」，TSK-0467）→ `profiles`：`projects_list_profiles` → `classify`：`ai`（输出 `classify`，要求回 JSON：`project_id`、`project`、`confidence`、`sure`（置信度不低于 0.7 且有项目时 `yes`）、`candidates_text`、`reason`）→ `parse`：`extract`（`from: classify`，提取上面六个字段到 `extracted`）→ `sure`：`decide`（规则 `extracted.sure 等于 yes`，`yes` / `no`）→ `yes`：`bind_auto`：`im_set_task_stage`（`project: {{extracted.project_id}}`）；`no`：`ask_stage`：`im_set_task_stage`（`confirm_project`）→ `ask`：`im_reply_message`（列候选）→ `wait`：`im_wait_reply`（`{{conversation_id}}`，2 天）→ `pick`：`ai`（输出 `picked`，只回项目 id 或 `none`）→ `bind_pick`：`im_set_task_stage`（`project: {{picked}}`）→ 汇合 `profile`：`projects_get_profile`（`{{project.id}}`）→ `design`：`im_set_task_stage`（`designing`）→ `prd`：`claude_code`（`preset: rp_pm`，`workdir: {{profile.dirs.prototype}}`，`task: {{task.id}}`，权限按角色，2 小时；提示词带需求原文和 `{{feedback.result.issues}}`）→ `to_review`：`im_set_task_stage`（`reviewing`）→ `review`：`claude_code`（`preset: rp_review`，`workdir: {{profile.dirs.code}}`，`permission: read`，1 小时）→ `gate`：`loopback`（`result.verdict 等于 reject`，`target: design`，`max_rounds: 3`）→ `pass`：`dev`：`im_set_task_stage`（`developing`）→ `tell_dev`：`im_reply_message` → `pipeline_in`：`template`（`{{task.id}}` 写到 `task_id`）→ `pipeline_args`：`end`（`outputs: task_id, message_id, conversation_id`，子流程拿这一步的输出当输入，评审的 `summary`、`feedback` 不带进研发）→ `pipeline`：`subflow`（`sop: sop_im_dev_pipeline`，等研发 pipeline 走完）；`over`：`human_stage`：`im_set_task_stage`（`need_human`）→ `human`：`review`。
 - 回退目标是 `design`（设置阶段那一步）而不是 `prd`：退回时阶段先回到「设计中」；`prd` 不是被退回的那一步，不自动附「上一轮被退回」一节，所以提示词里显式引用 `{{feedback.result.issues}}`（第一轮为空）。
 - 升级：AUTO-09 之前写进 SOP 的第 1 版受理流程（没接研发 pipeline）：后台任务对还是第 1 版、没有进行中执行、没被定时任务引用的经 `RemoveFlow` 撤下、`InstallFlow` 按新版写回（仍是第 1 版、`trigger: manual`）；用户改过（版本不是 1，包括把触发方式改成 IM）的不动；用户删掉的不补回来。处理过一次（换了、改过不动、删了）在 `im_sop_templates` 记一行 `flow_id = "sop_im_auto_intake#pipeline"`，之后不再试；有进行中执行、被定时任务引用的下次再试。不加迁移。
+- 升级（TSK-0467）：已经是接研发 pipeline 版本、还没有「回执需求方」的受理流程（`ack` 是 `im_reply_message`）：同上，还是第 1 版、没有进行中执行、没被定时任务引用的撤下按新版写回；用户改过（版本不是 1，包括把触发方式改成 IM）的不动，发一条平台通知（`kind: im.notify`，标题「内置流程「IM 需求自动受理」没有自动加上「回执需求方」」，正文说明新版做什么、在哪一步之后自己加 `im_ack_task`）；用户删掉的不补回来。处理过一次在 `im_sop_templates` 记一行 `flow_id = "sop_im_auto_intake#ack"`；新写入、或这次按 `#pipeline` 升级写回的直接记上。有进行中执行、被定时任务引用的下次再试。不加迁移（`im_task_acks` 是节点用的，见 `0014_task_ack.sql`）。
 - 子执行继承父执行的 `object_id`：受理流程由 IM 消息发起、没关联任务，研发 pipeline 这次子执行也不关联（见遗留）。
 - 要用到：SOP 插件确认过 `process:spawn`（产品角色可写）、`network:any` 不需要；项目插件 0.12.0 以上（当前 0.16.0；没升到 0.16.0 时发布 pipeline 写不进去，后面两条也不写，下次再试）；内核 `--public-url`（回执里的看板链接）。
 
@@ -2525,7 +2551,8 @@ TSK-0411。IM 插件后台任务（`sop_templates`）经 `Core.SOP().InstallFlow
   - 接在已有流程建任务之后：在「消息分流」等流程的建任务步骤后面加一步 `subflow`（`sop: sop_im_task_confirm`），子流程的输入就是建任务那一步的输出，里面有 `message_id` 和 `task.id`，跳过分类和建任务。
 - **同一条消息只建一次任务**：建任务用 `im_to_task`，消息转过、或者别的流程已经为它建过任务（`props.source_ref.message_id`）时取回那条；SOP 的 `task` 节点在输入带 `message_id` 时同样先查（见 SOP 插件「写节点」）。所以和消息分流、IM 需求自动受理同时开着也不会重复建。
 - 输入字段：`message_id`（必填）、`task_id`（可空，已经建好的任务 id）。
-- 步骤（key：kind）：`read`：`im_get_message` → `given_id`：`decide`（规则 `task_id 不等于 ""`）→ `yes`：`use_id`：`auto`；`no`：`given_obj`：`decide`（规则 `task.id 不等于 ""`）→ `yes`：`use_obj`：`auto`；`no`：`need`：`classifier`（`task` 要建任务 / `none` 不用，`from: message.text`）→ `none`：`skip`：`end`；`task`：`to_task`：`im_to_task`（`{{message_id}}`）→ 汇合 `join`：`aggregate`（`first`，`after: use_id, use_obj, to_task`）→ `info`：`task_update`（不配，只读取任务：编号、标题、项目、继承后的工作目录）→ `ask`：`im_ask_me`（摘要：编号、标题、项目、工作目录、来源消息的发信人和会话和原文、看板链接；`timeout: 1 天`）→ `is_exec`：`decide`（`answer.choice 等于 execute`）→
+- **回执需求方**（TSK-0467）：建好（或取回）任务、读完任务之后，先在原消息所在的会话里回复需求方「已创建任务 TSK-x，开始进行需求规划」（`im_ack_task`），再私信我确认；同一条消息别的流程回过就不回，回复失败不影响后面。升级：TSK-0467 之前写进 SOP 的版本（没有 `ack`），还是第 1 版、没有进行中执行、没被定时任务引用的撤下按新版写回；改过的不动、发一条平台通知说明在「读任务」之后、「私信我确认」之前自己加；删掉的不补回来。处理过一次记 `flow_id = "sop_im_task_confirm#ack"`；新写入的直接记上。
+- 步骤（key：kind）：`read`：`im_get_message` → `given_id`：`decide`（规则 `task_id 不等于 ""`）→ `yes`：`use_id`：`auto`；`no`：`given_obj`：`decide`（规则 `task.id 不等于 ""`）→ `yes`：`use_obj`：`auto`；`no`：`need`：`classifier`（`task` 要建任务 / `none` 不用，`from: message.text`）→ `none`：`skip`：`end`；`task`：`to_task`：`im_to_task`（`{{message_id}}`）→ 汇合 `join`：`aggregate`（`first`，`after: use_id, use_obj, to_task`）→ `info`：`task_update`（不配，只读取任务：编号、标题、项目、继承后的工作目录）→ `ack`：`im_ack_task`（先回执需求方，再问我；TSK-0467）→ `ask`：`im_ask_me`（摘要：编号、标题、项目、工作目录、来源消息的发信人和会话和原文、看板链接；`timeout: 1 天`）→ `is_exec`：`decide`（`answer.choice 等于 execute`）→
   - `yes`：`run`：`task_run`（`task: {{task.id}}`，`timeout: 2 小时`，`on_fail: continue`）→ `run_ok`：`decide`（`status 等于 done`）→ `yes`：`tell_done`：`im_tell_me`（「TSK-x「标题」执行完了。」+ `{{summary}}` + 任务链接）；`no`：`tell_fail`：`im_tell_me`（「…没执行成功：{{error}}」+ 任务链接）；
   - `no`：`is_assign`：`decide`（`answer.choice 等于 assign`）→ `yes`：`assign`：`task_update`（`assignee: {{answer.assignee}}`）→ `assigned`：`decide`（`task.assign_ok 等于 yes`）→ `yes`：`tell_assigned`（「已把 TSK-x「标题」分配给 X。」）；`no`：`tell_noone`（「没找到「X」，任务留着没分配（TSK-x「标题」）：链接」）；
     - `no`：`is_cancel`：`decide`（`answer.choice 等于 cancel`）→ `yes`：`cancel`：`task_update`（`status: cancelled`）→ `tell_cancel`（「已取消 TSK-x「标题」。」）；`no`（认不出两次、超时）：`tell_idle`（「两次都没认出你的回复 / 提醒之后又等了 1 天没收到回复，TSK-x「标题」先不执行，留在未开工：链接」）。
@@ -2533,6 +2560,20 @@ TSK-0411。IM 插件后台任务（`sop_templates`）经 `Core.SOP().InstallFlow
 - 执行：工作目录按任务 → 所属项目继承，没有、不存在、不可写时不派发，`tell_fail` 私信原因（见 SOP 插件「执行任务」）；执行记录留在任务上，任务页「执行记录」里看得到、能取消。
 - 私信发不出去（认不出我、连接器不能发、渠道报错）时那一步失败、记运行异常，不静默。
 - 要用到：SOP 插件确认过 `process:spawn`（执行任务一律可写）；Slack 连接器能发消息（`direction: both`），身份是「我本人」或填了「我的 Member ID」；Slack App 的 Token 有 `chat:write`、`im:history`、`im:read`（我本人身份另需能读自己的私信会话）；内核 `--public-url`（私信里的看板链接）。
+
+### 内置流程：FDE 反馈转发
+
+TSK-0468，插件迁移 `0015_fde_forward.sql`。我在消息页手动把消息转成任务时，私信联系人（默认 Robot.CyberBroleez 的 Slack 身份 `U0BQZG8LSTB`）一条「FDE 反馈」+ 原始消息 + 新任务编号和链接。
+
+- 写入：同一个后台任务（`sop_templates`）经 `Core.SOP().InstallFlow` 写入 `sop_im_fde_forward`「FDE 反馈转发」，只写一次（记在 `im_sop_templates`），删了不补回来、改过的不动。`trigger: manual`。
+- **不加触发方式，由本插件发起**：只在两个手动入口之后排队——转任务（`POST /api/im/messages/{id}/task` 成功后）；拆分任务（`object.created` 里 `type=task`、`props.source_ref.kind` 为 `im_message` 的任务，即从消息页「发起会话 / 拆分任务」建的 Agent 会话里建出来的，`source_ref.message_id`、`message_ids` 是这组消息）。SOP 流程建的任务（`task` 节点的来源是运行、`im_to_task` 不走转任务接口）不排。
+- **默认停用**：IM 设置 `fde_forward` 为真才排（`PATCH /api/im/settings`）；关着时什么都不记。
+- **同一条消息只发一次**：`im_fde_forward_messages` 按消息占位，一次转发（`im_fde_forwards`，`id` 是主消息 id）带这组消息和几条任务。这组里有消息已经发起过（`started`）或发起失败过（`failed`）的不再排；有还在攒的（`pending`）并进去。转任务马上发（`due_at` 为当时）；拆分时每来一条任务往后推 2 分钟，到点没有新任务再发，列出全部任务。
+- 发起：后台任务 `fde_forwards`（约每 3 秒）把到点的经 `Core.Runs().StartSOP` 发起，输入 `{message_id, message_ids, task_ids}`，执行关联到第一条任务（`ObjectID`），记 `started` 和运行 id。SOP 插件没在跑留着下次；别的错（流程被删等）记 `failed`、`error`，并记一条运行异常（`level: warn`，模块「IM 消息」，标题「FDE 反馈没转发」，指纹 `im:fde_forward:start`），不再试。
+- 输入字段：`message_id`（必填）、`message_ids`、`task_ids`（可空）。
+- 步骤（key：kind）：`digest`：`im_message_digest`（不配，取输入）→ `send`：`im_send_contact`（`contact: Robot.CyberBroleez`、`to: U0BQZG8LSTB`、`channel: slack`、`text: FDE 反馈\n{{digest.messages_text}}\n{{digest.tasks_text}}`）。收件人和开头文字在 `send` 这一步改；流程里写的是联系人名字和 Slack 编号，不写库里的 id，运行时解析。
+- 失败：联系人没有这个 Slack 身份时 `send` 失败「联系人 Robot.CyberBroleez 没有 Slack 身份 U0BQZG8LSTB」；发送失败「私信 Robot.CyberBroleez 发不出去：…」；都由 SOP 记运行异常，任务早已建好不受影响。
+- 要用到：Slack 连接器能发消息（`direction: both`）；「我本人」身份时以我的账号私信对方（`chat.postMessage channel=<Member ID>`）。
 
 ### 事件
 
@@ -2547,26 +2588,26 @@ TSK-0411。IM 插件后台任务（`sop_templates`）经 `Core.SOP().InstallFlow
 
 ## SOP 编排插件 sop
 
-SOP-01a 起。插件 `sop`（`internal/plugins/sop`，清单 `plugin.json`，0.11.0（0.11.0 加执行任务 `task_run`、改任务 `task_update` 节点（TSK-0411）和等服务商恢复（TSK-0391/0392），不加迁移；SOP-05 加 IM 触发，可选依赖 `im`、订阅 `im.message_received`；0.5.0 执行关联工作对象；0.6.0 加写进项目目录节点 `local_append`、建任务认项目编号和名字；0.7.0 加执行并发设置、批量发起和按输入字段查执行；0.7.1 加失败执行批量重跑；0.8.0 重跑后移出失败列表、重跑幂等；0.9.0 加 Claude Code 执行和条件回退；0.10.0 加流水线视图与治理（AUTO-12）），权限 `network:any`、`fs:write:project`：HTTP 节点要访问任意地址，高风险，安装时在 `permissions` 里单独确认；`fs:write:project` 是写进项目目录要的，0.6.0 升上来时要确认）。流程定义落在插件表 `sop_flows`（插件迁移 `0001_flows.sql`，安装插件时应用），id 前缀 `sop`；执行（SOP-01b）落在 `sop_runs`、`sop_run_steps`（插件迁移 `0002_runs.sql`），id 前缀 `spr`。AI 类和外部节点 SOP-01c 起；定时任务的 `sop` 动作和 Agent 的 `run_sop` 工具经内核「发起 SOP」钩子发起执行（SOP-01d）。插件未安装或停用时，本节接口回 `not_found` 404（同「插件路由」），数据不动。
+SOP-01a 起。插件 `sop`（`internal/plugins/sop`，清单 `plugin.json`，0.12.0（0.12.0 触发方式「定时」可配置规则、随流程管理的定时任务（TSK-0463），Claude Code 执行没回报时 summary 只取结论，不加迁移；0.11.0 加执行任务 `task_run`、改任务 `task_update` 节点（TSK-0411）和等服务商恢复（TSK-0391/0392），不加迁移；SOP-05 加 IM 触发，可选依赖 `im`、订阅 `im.message_received`；0.5.0 执行关联工作对象；0.6.0 加写进项目目录节点 `local_append`、建任务认项目编号和名字；0.7.0 加执行并发设置、批量发起和按输入字段查执行；0.7.1 加失败执行批量重跑；0.8.0 重跑后移出失败列表、重跑幂等；0.9.0 加 Claude Code 执行和条件回退；0.10.0 加流水线视图与治理（AUTO-12）），权限 `network:any`、`fs:write:project`：HTTP 节点要访问任意地址，高风险，安装时在 `permissions` 里单独确认；`fs:write:project` 是写进项目目录要的，0.6.0 升上来时要确认）。流程定义落在插件表 `sop_flows`（插件迁移 `0001_flows.sql`，安装插件时应用），id 前缀 `sop`；执行（SOP-01b）落在 `sop_runs`、`sop_run_steps`（插件迁移 `0002_runs.sql`），id 前缀 `spr`。AI 类和外部节点 SOP-01c 起；定时任务的 `sop` 动作和 Agent 的 `run_sop` 工具经内核「发起 SOP」钩子发起执行（SOP-01d）。插件未安装或停用时，本节接口回 `not_found` 404（同「插件路由」），数据不动。
 
 ### 流程定义
 
 | 方法 | 路径 | body / 说明 |
 |---|---|---|
-| GET | `/api/sop/flows` | `SopFlow[]` + `meta.total`，不分页，按新建先后 |
-| POST | `/api/sop/flows` | `{name, desc?, trigger?, fields?, steps, layout?, id?}`，校验通过回 201 + `SopFlow` |
+| GET | `/api/sop/flows` | `SopFlow[]` + `meta.total`，不分页，按新建先后；每条带随它管理的定时任务 `schedule`（TSK-0463） |
+| POST | `/api/sop/flows` | `{name, desc?, trigger?, fields?, steps, layout?, id?, schedule?}`，校验通过回 201 + `SopFlow`；`schedule` 见「定时触发」 |
 | GET | `/api/sop/flows/{id}` | 一条 `SopFlow`；不存在 404 |
-| PATCH | `/api/sop/flows/{id}` | 只传要改的：`name` / `desc` / `trigger` / `fields` / `steps` / `layout`，数组和 `layout` 整体替换，`layout: null` 清掉；可带 `version`，和库里不一致 409。改完对整条定义重新校验，`version` 加 1 |
-| DELETE | `/api/sop/flows/{id}` | 彻底删除，`data` 为 `null`；有进行中的执行（没结束也没终止）、有定时任务指向它时 409；不存在 404；执行记录不跟着删 |
+| PATCH | `/api/sop/flows/{id}` | 只传要改的：`name` / `desc` / `trigger` / `fields` / `steps` / `layout`，数组和 `layout` 整体替换，`layout: null` 清掉；可带 `version`，和库里不一致 409。改完对整条定义重新校验，`version` 加 1。另可带 `schedule`、`schedule_off`（见「定时触发」），不算进 `version` 的校验 |
+| DELETE | `/api/sop/flows/{id}` | 彻底删除，`data` 为 `null`；有进行中的执行（没结束也没终止）、有用户手建的定时任务指向它时 409；不存在 404；执行记录不跟着删；随它管理的定时任务一起删（TSK-0463） |
 | GET | `/api/sop/node-types` | 节点类型 `SopNodeType[]` + `meta.total`：先是内置的，和原型 `NODE_TYPES` 同序；后面接在跑的插件登记的（SOP-03a） |
 
-`SopFlow`：`{id, name, desc, trigger, fields, steps, layout?, version, created_at, updated_at}`。形状同原型 `web-next/src/sopflow.ts` 的 `Sop`：`fields` 是 `SopField[]`，`steps` 是 `SopStepDef[]`，`layout` 是 `{<步骤 key 或 __start>: {x, y}}`，没有就不返回这个字段。
+`SopFlow`：`{id, name, desc, trigger, fields, steps, layout?, version, created_at, updated_at, schedule}`。`schedule` 是随这个流程管理的定时任务（形状同 `/api/schedules` 的 `Schedule`），没有为 `null`（TSK-0463，见「定时触发」）。形状同原型 `web-next/src/sopflow.ts` 的 `Sop`：`fields` 是 `SopField[]`，`steps` 是 `SopStepDef[]`，`layout` 是 `{<步骤 key 或 __start>: {x, y}}`，没有就不返回这个字段。
 
 - `fields`、`steps`、`layout` 校验后按原样存 JSON，取回来和存进去一致，没认的字段（`rule`、`ms` 等）原样保留。步骤里原型的函数字段（`run`、`fail`、`decide`）不在 JSON 里；没有 `decide` 也没有 `rule` 的判断节点就是人工判断（同原型 `isManualDecide`）。
 - `after` 不写就接在上一步后面、第一步是起点（同原型 `depsOf`），存的时候不补写。
 - `id` 可以不传，后端生成；传了是导入原型或别处导出的流程：必须 `sop_` 开头、后面只能是小写字母、数字、下划线，最多 60 个，已存在 409。
-- `name` 去首尾空白后必填，最多 100 字；`desc` 最多 1000 字；`trigger` 是给人看的触发方式说明（如「手动 / 每周一 18:00」），最多 200 字，真正的定时由「定时任务」的 `sop` 动作指过来（SOP-01d）。输入字段最多 50 个，步骤最多 200 个，请求体最多 1MB。
-- 删除被拦（SOP-01d，规格 `SPEC-sop-5.7`）：409 `conflict`，`message` 是「这个流程有 N 个进行中的执行，等它们结束或终止后再删」和 / 或「定时任务「周一例会」、「周五复盘」会发起它，先改掉或删掉这些定时任务」，两条用「；」连；`error.schedules` 是动作 `sop` 指向它的定时任务 `{id, name}[]`（停用的也算，按新建时间倒序），没有为 `[]`。定时任务经内核句柄 `SOP().Schedules` 查。
+- `name` 去首尾空白后必填，最多 100 字；`desc` 最多 1000 字；`trigger` 是触发方式（`sop_trigger` 枚举的 key：`manual`、`im`、`schedule`，旧数据也可能是别的说明文字），最多 200 字；`schedule` 的时间规则存在随流程管理的定时任务里（TSK-0463，见「定时触发」），用户也可以另在「定时任务」里建 `sop` 动作指过来（SOP-01d）。输入字段最多 50 个，步骤最多 200 个，请求体最多 1MB。
+- 删除被拦（SOP-01d，规格 `SPEC-sop-5.7`）：409 `conflict`，`message` 是「这个流程有 N 个进行中的执行，等它们结束或终止后再删」和 / 或「定时任务「周一例会」、「周五复盘」会发起它，先改掉或删掉这些定时任务」，两条用「；」连；`error.schedules` 是用户手建、动作 `sop` 指向它的定时任务 `{id, name, managed}[]`（`managed` 都是 `false`；停用的也算，按新建时间倒序），没有为 `[]`。定时任务经内核句柄 `SOP().Schedules` 查；随流程管理的那条（`managed: true`）不拦，删流程时一起删（TSK-0463）。
 - 暂不记审计、不发事件。
 
 ### 保存校验
@@ -2597,9 +2638,27 @@ SOP-01a 起。插件 `sop`（`internal/plugins/sop`，清单 `plugin.json`，0.1
 - `claude_code`：`config.permission` 不是空、`read`、`write`「「名称」权限只能是只读（read）或可写（write）」；`config.timeout` 写法不对或超出「「名称」超时「…」写法不对，要写成「30 分钟」「2 小时」这样」/「「名称」超时要在 0 到 24 小时之间」。
 - `task_run`（TSK-0411）：`config.timeout` 同 `claude_code`；`config.on_fail` 不是空、`stop`、`continue`「「名称」失败时只能是停下（stop）或继续（continue）」。
 
+### 定时触发
+
+TSK-0463。触发方式（`trigger`）是 `schedule` 的流程，时间规则存在一条**随流程管理的定时任务**里：内核定时任务（「定时任务 schedules」），动作 `{kind: sop, sop_id: <流程 id>, managed: true}`，名字跟流程名。一个流程最多一条；不加列、不加迁移，靠 `action.managed` 认。SOP 插件经插件句柄 `Core.SOP()` 的 `FlowSchedule` / `SaveFlowSchedule` / `DeleteFlowSchedule` 读写（`docs/plugin-api.md` 2.7）。到点由内核调度器经「发起 SOP」钩子发起，执行来源 `schedule`、`source_ref` 是这条定时任务的 id、`source_name` 是它的名字，同用户手建的 `sop` 动作。
+
+- **流程接口**：`SopFlow.schedule` 就是这一条（形状同 `Schedule`，含 `next_run_at`），没有为 `null`。`trigger` 是 `schedule` 而 `schedule` 为 `null` 是「定时，未配置」（比如在定时任务页删掉了），到点不会执行。
+- **写**：`POST /api/sop/flows`、`PATCH /api/sop/flows/{id}` 的 body 可带：
+  - `schedule` 是对象，可带 `rule`、`enabled`，`rule` 同 `Schedule.rule`。触发方式（写完后的）是 `schedule` 时：已有那一条就改它（给了 `rule` 改规则、给了 `enabled` 改启停，名字始终改成流程名）；还没有、给了 `rule` 就新建（`enabled` 缺省 `true`）；没给 `rule` 不新建。从别的触发方式改回 `schedule`、没给 `enabled` 时重新启用（停用着的那一条恢复）。触发方式不是 `schedule` 时忽略。`rule` 先于流程校验，不对回 `validation` 400「定时规则不对：rule.time must be HH:mm like 09:00, got "9"」，流程不改；`schedule` 不是对象 400「schedule 必须是对象：{rule, enabled}」；服务没接定时任务又给了 `rule` 400「定时任务没有启用，存不了定时规则」。
+  - `schedule_off`：`disable`（缺省）或 `delete`，触发方式从 `schedule` 改成别的时那一条停用还是删掉；别的值 400「schedule_off 只能是 disable 或 delete」。没有那一条时忽略。
+  - 流程先写进库，再改定时任务；改定时任务失败（极少见）时流程已经存上，回错误，重试同一个请求即可。
+- **旧触发方式**：`daily`（原来显示「每天 09:00」）、`weekly`（「每周一 18:00」）、`cron`（「定时」标签）原来只是标签，从没按时间发起过。写流程时传它们存成 `schedule`，还没有那一条、又没给 `rule` 时按等价规则新建（`daily` 每天 09:00、`weekly` 每周一 18:00；`cron` 没有规则，即未配置）；库里已有的由插件后台任务 `legacy_trigger` 转换（启用插件时跑，之后每分钟查一次）：
+  - 已经有随流程管理的那一条：只把规则改成等价规则（上次中途失败的情况），不另建；
+  - 用户手建了指向这个流程、规则等价（同频率、频率用到的字段相同）的 `sop` 定时任务：**认领**最早建的那条（`managed` 置真，名字、启停不动），不另建，免得同一时刻执行两次；
+  - 都没有：新建；必填输入都有默认值（定时发起不带输入也能跑）时启用，否则建成停用，免得到点只记一条失败；
+  - 改 `trigger_desc` 为 `schedule`，`version`、`updated_at` 不动。幂等：转完的不再是旧触发方式，重复跑什么都不做。日志 `sop legacy trigger migrated`（`flow`、`from`、`schedule`、`adopted`、`enabled`）。
+- **删除**：删流程时随它管理的那一条一起删，不像用户手建的那样拦下；内置流程撤下（`RemoveFlow`）同样。
+- **定时任务页**：能看到、改它的规则和启停，改动作见「定时任务 schedules」；改了流程接口跟着变。
+- IM 触发、Webhook、手动的行为不变。不加插件迁移。
+
 ### IM 触发
 
-SOP-05。触发方式（`trigger`）是 `im` 的流程，来一条新消息自动发起一次执行；别的触发方式仍只是标记（定时、Agent 经内核钩子发起）。SOP 插件订阅 IM 插件的 `im.message_received`（清单 `optional_depends: {im}`，IM 没装或停用时不触发，SOP 照常可用）。
+SOP-05。触发方式（`trigger`）是 `im` 的流程，来一条新消息自动发起一次执行；`schedule` 按随流程管理的定时任务到点发起（TSK-0463，见「定时触发」），Agent 经内核钩子发起。SOP 插件订阅 IM 插件的 `im.message_received`（清单 `optional_depends: {im}`，IM 没装或停用时不触发，SOP 照常可用）。
 
 - 输入是事件里的归类：`message_id`、`channel`、`connector_id`、`conversation_id`、`stakeholder_id`、`relevance`（`me` / `all` / `dm` / 空串）、`at`，没有的为空串。正文不在事件里，流程里用 IM 插件的 `im_get_message` 按 `message_id` 取（见 IM 插件「SOP 节点」）。
 - 补默认值同 `POST /api/sop/flows/{id}/runs`；必填字段补不齐的这条流程跳过，记一行日志，不报运行异常。不逐步确认，人工检查照常停下。
@@ -2695,7 +2754,7 @@ SOP-01b 起。执行语义同原型 `web-next/src/sopflow.ts` 的 `startRun`、`
 | `task` | SOP-02a。建一条待办：`config.title`（必填，支持 `{{字段}}`，渲染后为空时失败 `任务标题是空的…`）、`config.priority`（默认 `P2`）、`config.assignee`（联系人 id 或名字，支持 `{{字段}}`；`我` 和留空不指派，找不到时不指派、日志记一行）、`config.body`、`config.project`（项目 id、编号或名字，支持 `{{字段}}`，按 id、编号（不分大小写）、名字依次认，只认没删的项目；认不出来时失败 `项目「X」不存在：…`，不建任务）都可选。`source` 为 `sop`，`props.source_ref` 为 `{run_id, flow_id, flow, step, attempt, write_key}`，从任务能追到运行和步骤。输出加 `task: {id, ref, title, priority, assignee, status, project_id, project}`（`project` 是项目名，没挂为空串） |
 | `doc` | SOP-02a。`config.mode` 为 `new`（默认）时新建一篇文档：`config.title`（默认 `流程名 · 步骤名`）、`config.content`（正文，留空时是输入的 JSON 代码块）、`config.category`（文档分类 id，可空），`source`、`props.source_ref` 同 `task`；为 `append` 时把正文追加到 `config.doc`（文档 id，支持 `{{字段}}`）末尾，和原文空一行，不存在或不是文档时失败。输出加 `content_id`（同原型）和 `doc: {id, ref, title, mode}` |
 | `contact` | SOP-02a。`config.mode` 为 `new`（默认）时新建联系人，为 `merge` 时把非空的字段写进 `config.id`（联系人 id，支持 `{{字段}}`，留空取输入的 `contact_id`）指的联系人，不存在时失败。字段 `name`、`company`、`title`、`phone`、`email`、`group`、`note`：配置了的按 `{{字段}}` 渲染，没配置的取输入里同名的字段（原型「AI 解析字段」的输出就是这几个）；新建时 `name` 为空失败。输出加 `contact_id`（同原型）和 `contact: {id, name, mode, fields}`，`fields` 是合并时改了的字段 |
-| `local_append` | 消息分流。写进项目目录：`config.project`（必填，认法同 `task`）；`config.dir` 选这个项目 `props.related` 里的哪个目录，留空是第一个，数字是第几个（从 1 起），否则按 `label`；`config.path`（必填）是那个目录下的相对路径；`config.content`（必填）是要写的内容。`path`、`content` 支持 `{{字段}}`，另有 `{{date}}`（本机时区 `YYYY-MM-DD`）、`{{month}}`（`YYYY-MM`）、`{{time}}`（`HH:MM`，路径里是 `HHMM`），输入里有同名字段时以输入为准。只写 `props.related` 里列的目录（`file://` 也认），目录本身不存在时失败，下面缺的中间目录自动建。路径不能是绝对路径、不能有 `..`（渲染后再查）；已有的各级目录解析符号链接后必须还在那个目录（也解析过符号链接）里面，目标文件是符号链接时按指向的位置校验、写到指向的文件，目标不是普通文件时失败。文件已有就追加（前面补到空一行，内容末尾补换行），没有就新建。内容最多 64KB、要是 UTF-8。要插件的 `fs:write:project` 权限，没确认时失败 `插件 sop 的 fs:write:project 权限还没确认，到插件管理里升级并确认`。输出加 `file: {path, rel, dir, dir_label, project: {id, ref, name}, bytes, created}`，`path` 是实际写入的绝对路径。失败的 `error` 例：`文件路径「../x.md」不能有 ..，只能写进项目目录里面`、`写进项目目录失败：文件路径「out/x.md」解析符号链接后越出了项目目录，不写`、`项目「Octok」没有关联本地目录：先在项目设置里加一个`、`要写的内容有 70 KB，一次最多 64 KB` |
+| `local_append` | 消息分流。写进项目目录：`config.project`（必填，认法同 `task`）；`config.dir` 选这个项目 `props.related` 里的哪个目录，留空是第一个，数字是第几个（从 1 起），否则按 `label`；`config.path`（必填）是那个目录下的相对路径；`config.content`（必填）是要写的内容。`path`、`content` 支持 `{{字段}}`，另有 `{{date}}`（本机时区 `YYYY-MM-DD`）、`{{month}}`（`YYYY-MM`）、`{{time}}`（`HH:MM`，路径里是 `HHMM`），输入里有同名字段时以输入为准。只写 `props.related` 里列的目录（`file://` 也认），目录本身不存在时失败，下面缺的中间目录自动建。路径不能是绝对路径、不能有 `..`（渲染后再查）；已有的各级目录解析符号链接后必须还在那个目录（也解析过符号链接）里面，目标文件是符号链接时按指向的位置校验、写到指向的文件，目标不是普通文件时失败。文件已有就追加（前面补到空一行，内容末尾补换行），没有就新建。内容最多 64KB、要是 UTF-8。要插件的 `fs:write:project` 权限，没确认时失败 `插件 sop 的 fs:write:project 权限还没确认，到插件管理里升级并确认`。输出加 `file: {path, rel, dir, dir_label, project: {id, ref, name}, bytes, created}`，`path` 是实际写入的绝对路径。失败的 `error` 例：`文件路径「../x.md」不能有 ..，只能写进项目目录里面`、`写进项目目录失败：文件路径「out/x.md」解析符号链接后越出了项目目录，不写`、`项目「Acme」没有关联本地目录：先在项目设置里加一个`、`要写的内容有 70 KB，一次最多 64 KB` |
 
 调模型的节点（`ai`、`extract`、`classifier`、`iterate`）在没有模型服务商时失败（`调模型失败：还没有配置模型服务商，先在设置 > 模型里加一个`），模型服务出错时也失败（`调模型失败：…`）；`agent` 跑不起来时失败为 `调用 Agent 失败：…`，`knowledge` 检索出错为 `检索失败：…`；都可重试。
 
@@ -2761,7 +2820,7 @@ SOP-01b 起。执行语义同原型 `web-next/src/sopflow.ts` 的 `startRun`、`
 
 **执行语义**
 
-- **Claude Code 执行**：输出 = 输入加 `status`、`summary`（回报的摘要，没回报取过程记录末尾 1500 字）、`result`（回报的结构化结论，没回报为 `null`）、`run_id`；下游条件分支能直接写 `result.verdict 等于 reject`。执行失败、被取消、超时这一步失败（`error` 「Claude Code 执行失败：…」「Claude Code 执行被取消：…」「Claude Code 超时没跑完，已取消这次运行」），`retry` 重新发起一次。`stop`、`rework`、`retry` 收掉这一步时取消在跑的那次。服务重启后那次运行的结果拿不到（插件运行只在内存），这一步失败「这次 Claude Code 运行（run_…）的结果拿不到了，工作台可能重启过；重试这一步会重新执行」；插件停用再启用（不重启）接着等。被条件回退退回时（输入有 `feedback`、`prompt` 没引用它）提示词后自动附「上一轮被退回（这是第 N 轮）」一节。
+- **Claude Code 执行**：输出 = 输入加 `status`、`summary`（回报的摘要；没回报取过程记录里的结论——最后一次工具调用之后的那段文字，前 1500 字，不带「[工具] …」这类执行过程，TSK-0470）、`result`（回报的结构化结论，没回报为 `null`）、`run_id`；下游条件分支能直接写 `result.verdict 等于 reject`。执行失败、被取消、超时这一步失败（`error` 「Claude Code 执行失败：…」「Claude Code 执行被取消：…」「Claude Code 超时没跑完，已取消这次运行」），`retry` 重新发起一次。`stop`、`rework`、`retry` 收掉这一步时取消在跑的那次。服务重启后那次运行的结果拿不到（插件运行只在内存），这一步失败「这次 Claude Code 运行（run_…）的结果拿不到了，工作台可能重启过；重试这一步会重新执行」；插件停用再启用（不重启）接着等。被条件回退退回时（输入有 `feedback`、`prompt` 没引用它）提示词后自动附「上一轮被退回（这是第 N 轮）」一节。
 - **条件回退**：条件不成立走 `pass`。成立且 `loops < max_rounds`：`loops + 1`；`config.target` 下游的步骤（依赖它或挂在它分支上，层层往下，含本步）回到 `pending`、清掉输出和分支结果，记 `round`；目标步骤重新 `running`（逐步确认时 `paused`），`attempts + 1`，`input` = 按依赖算的输入加 `feedback`（本步输入去掉上一轮的 `feedback`，加 `round`、`reason`、`from`），记 `round`、`rework_reason`。成立且 `loops >= max_rounds`：走 `over`，`route_reason`「已经自动退回 N 轮，条件「…」成立，超过上限」；没有步骤 `branch: {of: 本步, case: "over"}` 时这一步失败（同一原因加「；没有步骤接在「超限」出口上」）。
 - 事件：照常发 `sop.step_status_changed`，没有新事件类型。
 

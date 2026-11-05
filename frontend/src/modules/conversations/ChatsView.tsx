@@ -47,7 +47,13 @@ function SessionItem({ s, who, selected, onOpen }: {
         ? <WhoAvatar who={who} size={30} />
         : who.kind !== 'gone' && <span className="chat-item-noavatar" aria-hidden="true" />}
       <span className="chat-item-text">
-        <span className="chat-item-top"><span className="ellipsis chat-item-title">{s.title || NEW_TITLE}</span></span>
+        <span className="chat-item-top">
+          <span className="ellipsis chat-item-title">{s.title || NEW_TITLE}</span>
+          {/* 任务交给工作台 Agent 执行建的会话（TSK-0460）：标出来自任务，悬停是哪条 */}
+          {s.source_ref?.kind === 'task_run' && (
+            <span className="chat-item-tag" title={typeof s.source_ref.label === 'string' ? s.source_ref.label : undefined}>任务执行</span>
+          )}
+        </span>
         <span className="ellipsis list-sub">{whoName(who)}{who.kind === 'provider' ? ` · ${s.model}` : ''} · {sub}</span>
       </span>
       <span className="chat-item-time">{timeAgo(s.updated_at)}</span>

@@ -28,7 +28,8 @@ export type ScheduleAction =
   /** 提醒：到点在工作台右下角弹一条通知（不外发 IM）；task_id 是关联的任务，点提醒打开它，空串为不关联（正式产品叫 object_id） */
   /** popup：弹窗方式（SPEC-tasks-8.26），toast 右下角（默认），modal 屏幕中间 */
   | { kind: 'remind'; title: string; body: string; task_id: string; popup?: 'toast' | 'modal' }
-  | { kind: 'sop'; sop_id: string }
+  /** managed：随流程管理的那一条（TSK-0463）——流程触发方式选「定时」时建的，一个流程最多一条；名称跟流程名、动作改不了，删流程时一起删 */
+  | { kind: 'sop'; sop_id: string; managed?: boolean }
   | { kind: 'agent'; agent_id: string; prompt: string }
   | { kind: 'publish'; publish_id: string }
   /** 运行异常巡检（INC-01）：到点把满足条件、未处理、还没有任务的异常各建一条任务交给 Claude Code 修 */
@@ -81,8 +82,35 @@ export interface Schedule {
 const pad = (n: number) => String(n).padStart(2, '0')
 const ymd = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
 
+/**
+ * 编辑时的模式（TSK-0463）：六种频率之外多一种「每隔几小时」，存成 cron「分 *\/N * * *」（从 0 点起算），规则本身不加字段
+ */
+export type RuleMode = Freq | 'interval'
+export const RULE_MODES: RuleMode[] = ['once', 'daily', 'weekdays', 'weekly', 'monthly', 'interval', 'cron']
+export const RULE_MODE_LABEL: Record<RuleMode, string> = { once: '一次', daily: '每天', weekdays: '工作日', weekly: '每周', monthly: '每月', interval: '每隔几小时', cron: 'Cron' }
+export const INTERVAL_HOURS = [1, 2, 3, 4, 6, 8, 12]
+export function intervalOf(r: Pick<ScheduleRule, 'freq' | 'cron'>): { hours: number; minute: number } | null {
+  if (r.freq !== 'cron') return null
+  const m = /^(\d{1,2})\s+\*\/(\d{1,2})\s+\*\s+\*\s+\*$/.exec(r.cron.trim())
+  if (!m) return null
+  const minute = Number(m[1]); const hours = Number(m[2])
+  return minute <= 59 && hours >= 1 && hours <= 23 ? { hours, minute } : null
+}
+export const intervalCron = (hours: number, minute: number) => `${minute} */${hours} * * *`
+export const modeOf = (r: ScheduleRule): RuleMode => (intervalOf(r) ? 'interval' : r.freq)
+export function withMode(r: ScheduleRule, m: RuleMode): ScheduleRule {
+  if (m === 'interval') return { ...r, freq: 'cron', cron: intervalOf(r) ? r.cron : intervalCron(2, 0) }
+  if (m === 'cron') return { ...r, freq: 'cron', cron: intervalOf(r) || !r.cron.trim() ? '0 9 * * 1' : r.cron }
+  return { ...r, freq: m }
+}
+
+/** 随这个流程管理的那条定时任务（TSK-0463），没有为 undefined */
+export const flowSchedule = (list: Schedule[], sopId: string) => list.find((s) => s.action.kind === 'sop' && s.action.managed && s.action.sop_id === sopId)
+
 /** 规则写成一句话 */
 export function describeRule(r: ScheduleRule): string {
+  const iv = intervalOf(r)
+  if (iv) return `每隔 ${iv.hours} 小时（${iv.minute ? `第 ${iv.minute} 分` : '整点'}）`
   switch (r.freq) {
     case 'once': return `${r.date || '未定日期'} ${r.time}`
     case 'daily': return `每天 ${r.time}`
@@ -106,6 +134,17 @@ export function ruleError(r: ScheduleRule): string {
 /** 从 from 往后找下一次执行时间；找不到（一次性已过、规则不完整）返回 null */
 export function nextRun(r: ScheduleRule, from = new Date()): Date | null {
   if (ruleError(r) && r.freq !== 'once') return null
+  const iv = intervalOf(r)
+  if (iv) {
+    // 每隔几小时：从 0 点起算的整点（或第几分）
+    const d = new Date(from); d.setSeconds(0, 0)
+    for (let i = 0; i < 48; i += 1) {
+      d.setMinutes(iv.minute)
+      if (d > from && d.getHours() % iv.hours === 0) return new Date(d)
+      d.setHours(d.getHours() + 1)
+    }
+    return null
+  }
   if (r.freq === 'cron') {
     // 原型只认「分 时 * * 周」这类常见写法，其余按每天这个点算
     const [mi, h, , , dow] = r.cron.trim().split(/\s+/)
@@ -236,7 +275,7 @@ export const seedSchedules: Schedule[] = [
     rule: { ...emptyRule(), freq: 'daily', time: '10:00' },
     action: {
       kind: 'claude', workdir: '/Users/me/pm/fde-feedback', preset_id: '', allow_writes: true, out_dir: 'lists',
-      prompt: '从 FDE 反馈表（https://docs.google.com/spreadsheets/d/1f6DUdwuf7pJKKQ0HiquLKCFXZTO2e1POxmbWRMlsBWw/edit?gid=1115809405）读全部反馈行，按 README.md 里的整理规则去重、归并成需求清单：写当天的 .md 和 .json，更新 latest.json；和上一份比，标出新增、变更、已关闭。只读表格，不改表格。',
+      prompt: '从 FDE 反馈表（https://docs.google.com/spreadsheets/d/1AbCdEfGhIjKlMnOpQrStUvWxYz0123456789/edit?gid=1115809405）读全部反馈行，按 README.md 里的整理规则去重、归并成需求清单：写当天的 .md 和 .json，更新 latest.json；和上一份比，标出新增、变更、已关闭。只读表格，不改表格。',
     },
     // 最近一次 10:04 跑完（现在还没到 10:04 就是昨天那次），往前每天一次
     history: [0, 1, 2].map((n) => {
@@ -250,10 +289,11 @@ export const seedSchedules: Schedule[] = [
           files: [`/Users/me/pm/fde-feedback/lists/${day}.md`, `/Users/me/pm/fde-feedback/lists/${day}.json`] }
     }),
   },
+  // 随流程「周会纪要整理」管理的那条（TSK-0463）：流程触发方式是「定时」，规则在这里，名称跟流程名
   {
-    id: 'sc_meeting', name: '周会纪要', enabled: true, created_at: minsAgo(60 * 24 * 20),
-    rule: { ...emptyRule(), freq: 'cron', cron: '0 18 * * 1' },
-    action: { kind: 'sop', sop_id: 'sop_meeting' },
+    id: 'sc_meeting', name: '周会纪要整理', enabled: true, created_at: minsAgo(60 * 24 * 20),
+    rule: { ...emptyRule(), freq: 'weekly', time: '18:00', weekdays: [1] },
+    action: { kind: 'sop', sop_id: 'sop_meeting', managed: true },
     history: [{ at: minsAgo(60 * 26), ok: true, text: '执行了「周会纪要整理」，已完成' }],
   },
   {

@@ -20,6 +20,7 @@ import {
   MODE_LABEL, NO_PRESET, defaultWorkdir, effectiveAllow, launchFailSummary, modeHint, pickedPreset, roleOptionLabel, roleReadOnly,
   runRequest, runningOf, submitLabel, terminalRequest,
 } from './handoffModel'
+import { AgentRunDialog } from './AgentHandOff'
 import { startRun, useLiveRuns } from './runLive'
 import { WorkdirField } from './WorkdirField'
 import './handoff.css'
@@ -47,7 +48,13 @@ export function HandOffButton({ task, workdir, inherit, onShowRun }: {
   onShowRun?: (runId?: string) => void
 }) {
   const show = (runId?: string) => (onShowRun ? onShowRun(runId) : scrollToRun(task.id, runId))
-  const [open, setOpen] = useState(false)
+  // 「交给…」两个执行器（TSK-0460）：本机 Claude Code、工作台 Agent
+  const [open, setOpen] = useState<'' | 'claude' | 'agent'>('')
+  const started = () => {
+    setOpen('')
+    if (onShowRun) onShowRun()
+    else requestAnimationFrame(() => scrollToRun(task.id))
+  }
   const rows = useTaskRuns(task.id)
   const live = useLiveRuns()
   const running = runningOf(task.id, rows.data, live)
@@ -60,17 +67,12 @@ export function HandOffButton({ task, workdir, inherit, onShowRun }: {
     )
   }
   return (
-    <>
-      <Button size="sm" variant="primary" onClick={() => setOpen(true)}>交给 Claude Code</Button>
-      {open && (
-        <RunDialog task={task} workdir={workdir} inherit={inherit} onClose={() => setOpen(false)}
-          onStart={() => {
-            setOpen(false)
-            if (onShowRun) onShowRun()
-            else requestAnimationFrame(() => scrollToRun(task.id))
-          }} />
-      )}
-    </>
+    <span className="ho-entry">
+      <Button size="sm" variant="outline" onClick={() => setOpen('agent')}>交给工作台 Agent</Button>
+      <Button size="sm" variant="primary" onClick={() => setOpen('claude')}>交给 Claude Code</Button>
+      {open === 'claude' && <RunDialog task={task} workdir={workdir} inherit={inherit} onClose={() => setOpen('')} onStart={started} />}
+      {open === 'agent' && <AgentRunDialog task={task} workdir={workdir} inherit={inherit} onClose={() => setOpen('')} onStart={started} />}
+    </span>
   )
 }
 

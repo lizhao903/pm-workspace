@@ -5,6 +5,7 @@ import type { SopFlow } from '../../core/data'
 import { Button, EmptyState, IconSearch, PageTitle, cls } from '../../core/ui'
 import { libPass, libraryRows, timeAgo, type FlowStat, type LibFilter } from './model'
 import { IconPlus } from './parts'
+import { ScheduleBar } from './ScheduleBar'
 import { needsText } from './scope'
 
 const FILTERS: [LibFilter, string][] = [['', '全部'], ['pending', '有待处理'], ['never', '没执行过']]
@@ -54,8 +55,10 @@ export function Library({ flows, stats, needs, trigger, onOpen, onNew, now }: {
           {rows.map((s) => {
             const x = stats.get(s.id)
             const need = needs(s)
+            // 定时触发的流程卡片下面接一行规则、下次执行和启停开关（TSK-0463）；开关不能放进按钮里，挂在卡片外面
             return (
-              <button key={s.id} type="button" className={cls('sop-lib-card', need.length > 0 && 'elsewhere')} onClick={() => onOpen(s.id)}>
+              <div key={s.id} className="sop-lib-cell">
+              <button type="button" className={cls('sop-lib-card', need.length > 0 && 'elsewhere')} onClick={() => onOpen(s.id)}>
                 <span className="sop-lib-head">
                   <span className="sop-lib-name ellipsis" title={s.name}>{s.name}</span>
                   {!!x?.pending && <span className="sop-lib-pending">{x.pending} 个待处理</span>}
@@ -68,6 +71,8 @@ export function Library({ flows, stats, needs, trigger, onOpen, onNew, now }: {
                   {x && <span>{timeAgo(new Date(x.last).toISOString(), now)}执行</span>}
                 </span>
               </button>
+              <ScheduleBar flow={s} now={now} className="sop-lib-sched" />
+              </div>
             )
           })}
         </div>

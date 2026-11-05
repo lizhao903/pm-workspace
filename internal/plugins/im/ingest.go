@@ -47,6 +47,7 @@ type inbox struct {
 	adapters []Adapter
 	now      func() time.Time
 	taskMu   sync.Mutex             // 转任务串行，同一条消息连点两次不建两条任务
+	fdeMu    sync.Mutex             // FDE 反馈转发排队、发起串行（TSK-0468）
 	pullMu   map[string]*sync.Mutex // 按适配器 key：定时拉和立即同步不同时跑，进度不打架（IM-01b）
 	fetchMu  sync.Mutex             // 获取附件串行，挑文件名和落库不打架（IM-04a）
 	// publicURL 是浏览器访问工作台的地址，回执里的看板链接用（AUTO-06）；空串时链接只有路径

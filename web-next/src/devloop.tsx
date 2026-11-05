@@ -1,14 +1,16 @@
 import { useEffect, useRef, useState } from 'react'
 import './devloop.css'
 import {
-  ARTIFACT_GROUPS, PROGRESS_LABEL, parseArtifact, runScript, seedArtifacts, seedProgress, seedRuns, stepRun,
-  type RunEvent, type Task, type TaskArtifact, type TaskProgress, type TaskRun, type TaskStatus,
+  ARTIFACT_GROUPS, PROGRESS_LABEL, agentAfterDecision, agentRunScript, parseArtifact, runScript, seedArtifacts, seedProgress, seedRuns, stepRun,
+  type RunEvent, type RunHarness, type Task, type TaskArtifact, type TaskProgress, type TaskRun, type TaskStatus,
 } from './taskdata'
 import { useEnumView } from './enumdata'
 import { useOpenUrl } from './openurl'
 import { GrowArea, cls, timeAgo } from './ui'
 import { buildPrompt, type HandoffMode, type ProjectContext } from './handoff'
 import { useRunPresets, type RunPreset } from './runpresets'
+import type { Agent } from './agentdata'
+import type { ModelConf, Provider } from './modeldata'
 
 // 开发任务闭环：交给 Claude Code 做，它领取、记进展、登记产出、提交验收；你在任务抽屉里验收通过或退回
 // 时序见 web-next/docs/dev-plan.md 4.0，字段见 docs/api-contract.md 进展与领取、输出产物、任务执行
@@ -27,6 +29,18 @@ export function useDevLoop(patchTask: (id: string, p: Partial<Task>) => void) {
   runsRef.current = runs
   const finishRef = useRef<(r: TaskRun) => void>(() => {})
   finishRef.current = (r) => {
+    // 工作台 Agent 执行收尾（SPEC-tasks-5.35）：完成记结论、失败记原因，写成任务的一条进展
+    if (r.harness === 'agent') {
+      if (r.status !== 'done' && r.status !== 'failed') return
+      const last = [...r.events].reverse().find((e) => e.type === 'delta')
+      const text = last?.type === 'delta' ? last.text.replace(/^结论：/, '') : '（Agent 没有写结论）'
+      const at = new Date().toISOString()
+      setProgress((xs) => [...xs, {
+        id: newId('pg'), task_id: r.task_id, kind: 'note', commits: [], files: [], actor_name: 'agent', session_id: r.agent_session ?? '', source: 'agent', at,
+        text: r.status === 'done' ? `工作台 Agent「${r.agent_name ?? ''}」执行完成（执行记录 ${r.id.slice(-8)}）：\n\n${text}` : `工作台 Agent「${r.agent_name ?? ''}」执行失败（执行记录 ${r.id.slice(-8)}）：${r.error ?? ''}`,
+      }])
+      return
+    }
     // 允许写入的执行做完，Claude Code 会经 MCP 回写进展和产出物
     if (!r.allow_writes || r.status !== 'done') return
     const files = r.events.flatMap((e) => (e.type === 'tool' && e.name === 'Edit' ? [e.detail] : []))
@@ -40,17 +54,39 @@ export function useDevLoop(patchTask: (id: string, p: Partial<Task>) => void) {
     if (!running) return
     const h = window.setInterval(() => {
       const ending = runsRef.current.filter((r) => r.status === 'running' && r.mode !== 'terminal' && r.pending.length <= 1)
-      setRuns((xs) => xs.map((r) => stepRun(r)))
+      setRuns((xs) => xs.map((r) => withDeadline(stepRun(r))))
       for (const r of ending) finishRef.current(stepRun(r))
     }, 450)
     return () => window.clearInterval(h)
   }, [running])
 
+  // 工作台 Agent 停下等确认（SPEC-tasks-5.34）：到时间没人决定按拒绝处理
+  const decide = (id: string, approved: boolean, reason: 'user' | 'timeout' = 'user') => {
+    const r = runsRef.current.find((x) => x.id === id)
+    if (!r || r.status !== 'waiting') return
+    if (approved) patchTask(r.task_id, { status: 'review' })
+    setRuns((xs) => xs.map((x) => (x.id === id && x.status === 'waiting'
+      ? { ...x, status: 'running', pending: agentAfterDecision({ ref: x.task_ref ?? '' }, approved, reason) } : x)))
+  }
+  const decideRef = useRef(decide)
+  decideRef.current = decide
+  const waitKey = runs.filter((r) => r.status === 'waiting').map((r) => r.id).join(',')
+  useEffect(() => {
+    const hs = runsRef.current.filter((r) => r.status === 'waiting').map((r) => {
+      const c = [...r.events].reverse().find((e) => e.type === 'confirm')
+      const left = c?.type === 'confirm' && c.deadline ? new Date(c.deadline).getTime() - Date.now() : 0
+      return window.setTimeout(() => decideRef.current(r.id, false, 'timeout'), Math.max(0, left))
+    })
+    return () => hs.forEach((h) => window.clearTimeout(h))
+  }, [waitKey])
+
   const add = (task_id: string, p: Pick<TaskProgress, 'kind' | 'text'> & Partial<TaskProgress>) =>
     setProgress((xs) => [...xs, { id: newId('pg'), task_id, commits: [], files: [], actor_name: '我', source: 'ui', at: new Date().toISOString(), ...p }])
 
   return {
-    progress, artifacts, runs,
+    progress, artifacts, runs, decide,
+    /** 工作台 Agent 执行建好会话后记到执行记录上（正式产品 harness_session） */
+    bindSession: (id: string, sid: string) => setRuns((xs) => xs.map((r) => (r.id === id ? { ...r, agent_session: sid } : r))),
     append: (task_id: string, text: string) => add(task_id, { kind: 'note', text }),
     /** 验收通过记 done；退回记 todo（退回到 doing 会被领取规则当成仍被占用，别的会话领不到） */
     review: (task_id: string, ok: boolean, comment: string) => {
@@ -61,12 +97,21 @@ export function useDevLoop(patchTask: (id: string, p: Partial<Task>) => void) {
     addArtifact: (task_id: string, a: Pick<TaskArtifact, 'note' | 'url' | 'path'>) =>
       setArtifacts((xs) => [...xs, { id: newId('af'), task_id, source: 'manual', at: new Date().toISOString(), ...a }]),
     /** 发起一次执行，返回执行 id。终端方式只记一条进行中的执行（开始时间 = 发起时），过程在终端里 */
-    start: (task: Task, o: { workdir: string; allow_writes: boolean; extra_prompt: string; mode?: HandoffMode }): string => {
+    start: (task: Task, o: RunStart): string => {
       const sid = newSession()
       const id = newId('run')
       const at = new Date().toISOString()
       // 交出去就算开工（SPEC-tasks-6.17）：流式、终端都把任务改成进行中，已完成、已取消的不动
       if (task.status !== 'doing' && task.status !== 'done' && task.status !== 'cancelled') patchTask(task.id, { status: 'doing' })
+      // 交给工作台 Agent（SPEC-tasks-6.20）：没有进程，不领取；要确认的写操作停下等
+      if (o.harness === 'agent') {
+        setRuns((xs) => [{
+          id, task_id: task.id, task_ref: task.ref, status: 'running', harness: 'agent', mode: 'stream', session_id: sid, started_at: at, events: [],
+          pending: agentRunScript(task, !!o.read_only, o.extra_prompt, !!o.resume), workdir: o.workdir, allow_writes: false, extra_prompt: o.extra_prompt,
+          agent_id: o.agent_id, agent_name: o.agent_name, model: o.model, agent_session: o.agent_session, confirm_wait: o.confirm_wait ?? 10,
+        }, ...xs])
+        return id
+      }
       if (o.mode === 'terminal') {
         setRuns((xs) => [{ id, task_id: task.id, status: 'running', session_id: sid, started_at: at, events: [], pending: [], ...o, allow_writes: false, mode: 'terminal' }, ...xs])
         return id
@@ -83,10 +128,45 @@ export function useDevLoop(patchTask: (id: string, p: Partial<Task>) => void) {
     /** 终端执行收尾：终端里的 claude 经 MCP pmw_finish_run 回写，或者用户手动「标记结束」；已经结束的不再改 */
     finish: (id: string, status: 'done' | 'failed' | 'cancelled', summary: string) => setRuns((xs) => xs.map((r) => (r.id === id && r.status === 'running'
       ? { ...r, status, summary: summary.trim() || undefined, ended_at: new Date().toISOString() } : r))),
-    cancel: (id: string) => setRuns((xs) => xs.map((r) => (r.id === id && r.status === 'running' ? { ...r, status: 'cancelled', pending: [], error: '已取消', ended_at: new Date().toISOString() } : r))),
+    // 等确认时取消：待确认的写操作一并拒掉（SPEC-tasks-5.34）
+    cancel: (id: string) => setRuns((xs) => xs.map((r) => ((r.id === id && (r.status === 'running' || r.status === 'waiting')) ? { ...r, status: 'cancelled', pending: [], error: '已取消', ended_at: new Date().toISOString() } : r))),
   }
 }
 export type DevLoop = ReturnType<typeof useDevLoop>
+
+/** RunDialog 交给工作台 Agent 要用的数据（SPEC-tasks-6.20 到 6.23） */
+export interface AgentRunOptions {
+  agents: Agent[]
+  /** 场景「执行任务」选的，没有用第一个启用的 */
+  defaultAgentId?: string
+  providers: Provider[]
+  models: ModelConf[]
+  /** 这条任务上一次工作台 Agent 执行的会话；没有时「接着上次的会话」置灰 */
+  lastSession?: { id: string; agent_id?: string; agent_name?: string }
+}
+
+/** 发起一次执行的参数；harness=agent 时后面几项才有用（SPEC-tasks-6.20 到 6.24） */
+export interface RunStart {
+  workdir: string; allow_writes: boolean; extra_prompt: string; mode?: HandoffMode; preset?: RunPreset
+  harness?: RunHarness
+  agent_id?: string; agent_name?: string; provider_id?: string; model?: string
+  /** 只读角色：只给读的工具 */
+  read_only?: boolean
+  /** 接着上次的会话（resume_session），agent_session 是要续的那个 */
+  resume?: boolean; agent_session?: string
+  confirm_wait?: number
+}
+
+/** 刚停下等确认的执行补上截止时间（等待从这一刻算） */
+function withDeadline(r: TaskRun): TaskRun {
+  if (r.status !== 'waiting') return r
+  const i = r.events.length - 1
+  const e = r.events[i]
+  if (e?.type !== 'confirm' || e.deadline) return r
+  const events = [...r.events]
+  events[i] = { ...e, deadline: new Date(Date.now() + (r.confirm_wait ?? 10) * 60000).toISOString() }
+  return { ...r, events }
+}
 
 /** 算不算开发任务：填了开发字段，或者已经有进展、产出、执行记录 */
 export const isDevTask = (t: Task, dev: DevLoop) => !!(t.acceptance || t.workdir || t.repo)
@@ -353,27 +433,53 @@ export function ArtifactsBlock({ items, onAdd }: { items: TaskArtifact[]; onAdd:
 /* ---------- 执行记录 ---------- */
 
 const RUN_STATUS: Record<TaskRun['status'], { label: string; tone: string }> = {
-  running: { label: '运行中', tone: 'run' }, done: { label: '完成', tone: 'ok' }, failed: { label: '失败', tone: 'bad' }, cancelled: { label: '已取消', tone: 'off' },
+  running: { label: '运行中', tone: 'run' }, waiting: { label: '等待确认', tone: 'warn' }, done: { label: '完成', tone: 'ok' }, failed: { label: '失败', tone: 'bad' }, cancelled: { label: '已取消', tone: 'off' },
 }
 const dur = (a: string, b?: string) => {
   const s = Math.max(0, Math.round(((b ? new Date(b).getTime() : Date.now()) - new Date(a).getTime()) / 1000))
   return s < 60 ? `${s} 秒` : `${Math.round(s / 60)} 分钟`
 }
 
-/** 流式输出：正文连续拼，工具调用和结果按 id 配成一张卡片 */
-export function RunOutput({ events, live }: { events: RunEvent[]; live: boolean }) {
-  const blocks: ({ k: 'text'; text: string } | { k: 'tool'; id: string; name: string; detail: string; ok?: boolean; error?: string })[] = []
+type OutBlock = { k: 'text'; text: string }
+  | { k: 'tool'; id: string; name: string; detail: string; ok?: boolean; error?: string; summary?: string }
+  | { k: 'confirm'; id: string; name: string; summary: string; deadline: string; decided?: { approved: boolean; reason: 'user' | 'timeout' } }
+
+const hhmm = (iso: string) => (iso ? new Date(iso).toTimeString().slice(0, 5) : '')
+
+/**
+ * 流式输出：正文连续拼，工具调用和结果按 id 配成一张卡片。
+ * 工作台 Agent 的确认卡片（SPEC-tasks-5.34）：等着时有确认、拒绝和超时时间，决定后写「已确认 / 已拒绝 / 等待超时，按拒绝处理」
+ */
+export function RunOutput({ events, live, onDecide }: { events: RunEvent[]; live: boolean; onDecide?: (approved: boolean) => void }) {
+  const blocks: OutBlock[] = []
   for (const e of events) {
     const last = blocks[blocks.length - 1]
     if (e.type === 'delta') { if (last?.k === 'text') last.text += e.text; else blocks.push({ k: 'text', text: e.text }) }
     else if (e.type === 'tool') blocks.push({ k: 'tool', id: e.id, name: e.name, detail: e.detail })
-    else { const t = blocks.find((b) => b.k === 'tool' && b.id === e.id); if (t && t.k === 'tool') { t.ok = e.ok; t.error = e.error } }
+    else if (e.type === 'confirm') blocks.push({ k: 'confirm', id: e.id, name: e.name, summary: e.summary, deadline: e.deadline })
+    else if (e.type === 'decision') { const c = blocks.find((b) => b.k === 'confirm' && b.id === e.id); if (c?.k === 'confirm') c.decided = { approved: e.approved, reason: e.reason } }
+    else { const t = blocks.find((b) => b.k === 'tool' && b.id === e.id); if (t?.k === 'tool') { t.ok = e.ok; t.error = e.error; t.summary = e.summary } }
   }
   return (
     <div className="dev-out">
       {blocks.map((b, i) => b.k === 'text'
         ? <div key={i} className="dev-out-text pre-line">{b.text}</div>
-        : (
+        : b.k === 'confirm' ? (
+          <div key={i} className="call-card dev-tool dev-confirm">
+            <div className="call-head">
+              <span className="call-dot write" />
+              <span className="call-name">等你确认<span className="list-sub"> {b.summary}</span></span>
+              <span className="call-state">{!b.decided ? '等待确认' : b.decided.approved ? '已确认' : b.decided.reason === 'timeout' ? '等待超时，按拒绝处理' : '已拒绝'}</span>
+            </div>
+            {!b.decided && (
+              <div className="call-body act-row">
+                <button className="act act-primary" disabled={!onDecide} onClick={() => onDecide?.(true)}>确认</button>
+                <button className="act act-quiet" disabled={!onDecide} onClick={() => onDecide?.(false)}>拒绝</button>
+                <span className="list-sub">{b.deadline ? `${hhmm(b.deadline)} 前没人决定按拒绝处理` : ''}；在会话里点也一样</span>
+              </div>
+            )}
+          </div>
+        ) : (
           <div key={i} className={cls('call-card dev-tool', b.ok === false && 'dev-tool-bad')}>
             <div className="call-head">
               <span className={cls('call-dot', ['Edit', 'Write', 'Bash'].includes(b.name) && 'write')} />
@@ -381,6 +487,7 @@ export function RunOutput({ events, live }: { events: RunEvent[]; live: boolean 
               <span className="call-state">{b.ok === undefined ? '执行中' : b.ok ? '成功' : '失败'}</span>
             </div>
             {b.error && <div className="call-body"><span className="danger-text">{b.error}</span></div>}
+            {!b.error && b.summary && <div className="call-body list-sub">{b.summary}</div>}
           </div>
         ))}
       {live && <span className="dev-caret" aria-label="输出中" />}
@@ -429,8 +536,14 @@ function FinishRunDialog({ onFinish, onClose }: { onFinish: (status: 'done' | 'f
   )
 }
 
-export function RunsBlock({ runs, onCancel, onFinish, focus }: {
+export function RunsBlock({ runs, onCancel, onFinish, focus, onDecide, onOpenSession, agentName }: {
   runs: TaskRun[]; onCancel: (id: string) => void
+  /** 工作台 Agent 停下等确认时确认 / 拒绝（SPEC-tasks-5.34） */
+  onDecide?: (id: string, approved: boolean) => void
+  /** 工作台 Agent 执行结束后「打开会话继续」（SPEC-tasks-5.36） */
+  onOpenSession?: (sessionId: string) => void
+  /** Agent 现在的名字，删了回 undefined */
+  agentName?: (id: string) => string | undefined
   /** 终端执行的手动收尾（SPEC-tasks-5.31） */
   onFinish?: (id: string, status: 'done' | 'failed' | 'cancelled', summary: string) => void
   /** 从别处跳过来定位的那一条：展开、高亮、滚到可见处（SPEC-tasks-4.39） */
@@ -444,18 +557,21 @@ export function RunsBlock({ runs, onCancel, onFinish, focus }: {
   const xs = [...runs].sort((a, b) => b.started_at.localeCompare(a.started_at))
   return (
     <section className="dev-sec">
-      <div className="field-group-title">执行记录<span className="field-hint">从这里交给 Claude Code 的每一次执行，最近的在前</span></div>
+      <div className="field-group-title">执行记录<span className="field-hint">从这里交给 Claude Code 或工作台 Agent 的每一次执行，最近的在前</span></div>
       {!xs.length && <div className="mount-empty">还没有执行过</div>}
       {xs.map((r) => {
         const s = RUN_STATUS[r.status]
         const term = r.mode === 'terminal'
-        const expanded = r.status === 'running' || open === r.id
+        const ag = r.harness === 'agent'
+        const live = r.status === 'running' || r.status === 'waiting'
+        const expanded = live || open === r.id
         return (
           <div key={r.id} id={`run-${r.id}`} className={cls('dev-run', expanded && 'open', focus === r.id && 'lit')}>
             <button className="dev-run-head" onClick={() => setOpen(open === r.id ? null : r.id)} aria-expanded={expanded}>
               <span className={cls('dev-run-st', `st-${s.tone}`)}>{term && r.status === 'running' ? '进行中' : s.label}</span>
-              <span className={cls('src-tag', term && 'dev-term')}>{term ? '终端' : '流式'}</span>
-              {!term && <span className={cls('src-tag', r.allow_writes && 'dev-write')}>{r.allow_writes ? '允许写入' : '只读'}</span>}
+              <span className={cls('src-tag', ag && 'dev-agent')}>{ag ? '工作台 Agent' : 'Claude Code'}</span>
+              {!ag && <span className={cls('src-tag', term && 'dev-term')}>{term ? '终端' : '流式'}</span>}
+              {!term && !ag && <span className={cls('src-tag', r.allow_writes && 'dev-write')}>{r.allow_writes ? '允许写入' : '只读'}</span>}
               <span className="ellipsis list-sub">{r.extra_prompt || '没有附加说明'}</span>
               <span className="spacer" />
               <span className="list-sub dev-run-at">{timeAgo(r.started_at)} · {dur(r.started_at, r.ended_at)}</span>
@@ -464,15 +580,23 @@ export function RunsBlock({ runs, onCancel, onFinish, focus }: {
             {r.error && r.status !== 'running' && <div className={cls('dev-run-note', r.status === 'failed' ? 'danger-text' : 'muted')}>{r.status === 'done' ? `保留意见：${r.error}` : r.error}</div>}
             {expanded && (
               <div className="dev-run-body">
-                <div className="list-sub mono">{r.workdir}{term ? '' : ` · 会话 ${short(r.session_id)}`}{r.exit_code !== undefined ? ` · exit ${r.exit_code}` : ''}</div>
+                <div className="list-sub mono">{ag
+                  ? `${(r.agent_id && agentName?.(r.agent_id)) ?? r.agent_name ?? '已删除的 Agent'} · ${r.model ?? ''}${r.workdir ? ` · 产物目录 ${r.workdir}` : ''}${r.agent_session ? ` · 会话 ${short(r.agent_session)}` : ''}`
+                  : `${r.workdir}${term ? '' : ` · 会话 ${short(r.session_id)}`}${r.exit_code !== undefined ? ` · exit ${r.exit_code}` : ''}`}</div>
                 {term
                   ? <div className="list-sub">在终端里交互执行，过程看终端标签。结束和结论由终端里的 Claude Code 经工作台 MCP（pmw_finish_run）回写{r.status === 'running' ? '；它没回写时用「标记结束」收尾' : ''}。</div>
-                  : <RunOutput events={r.events} live={r.status === 'running'} />}
-                {r.status === 'running' && (
+                  : <RunOutput events={r.events} live={r.status === 'running'} onDecide={r.status === 'waiting' && onDecide ? (ok) => onDecide(r.id, ok) : undefined} />}
+                {live && (
                   <div className="act-row">
                     {term
                       ? <button className="act" onClick={() => setFinishing(r.id)} disabled={!onFinish}>标记结束</button>
                       : <button className="act act-danger" onClick={() => onCancel(r.id)}>取消执行</button>}
+                  </div>
+                )}
+                {ag && !live && r.agent_session && onOpenSession && (
+                  <div className="act-row">
+                    <button className="act" onClick={() => onOpenSession(r.agent_session!)}>打开会话继续</button>
+                    <span className="list-sub">在会话里接着追问；要它再动手，从「交给…」勾「接着上次的会话」续跑</span>
                   </div>
                 )}
               </div>
@@ -491,18 +615,21 @@ export function RunsBlock({ runs, onCancel, onFinish, focus }: {
 
 const TERMINAL_OFF = '终端插件没启用，到 设置 > 插件 里启用后可用'
 
-export function RunDialog({ task, inheritDir, project, terminalOn, onStart, onClose, onManagePresets }: {
+export function RunDialog({ task, inheritDir, project, terminalOn, onStart, onClose, onManagePresets, agentRun }: {
   task: Task; inheritDir?: string
   /** 任务所属项目的上下文，提示词里的「所属项目」一节 */
   project?: ProjectContext
   /** 终端插件在跑：「切换到终端」才能选 */
   terminalOn: boolean
-  onStart: (o: { workdir: string; allow_writes: boolean; extra_prompt: string; mode: HandoffMode; preset?: RunPreset }) => void
+  onStart: (o: RunStart) => void
   onClose: () => void
   /** 「管理角色」：去设置 > 角色 */
   onManagePresets?: () => void
+  /** 交给工作台 Agent 要用的（SPEC-tasks-6.20）：没给就只有 Claude Code */
+  agentRun?: AgentRunOptions
 }) {
   const [dir, setDir] = useState(task.workdir ?? inheritDir ?? '')
+  const [harness, setHarness] = useState<RunHarness>('claude')
   const [mode, setMode] = useState<HandoffMode>('stream')
   // null 是没动过勾选：跟着角色走（AUTO-03）
   const [allowChoice, setAllowChoice] = useState<boolean | null>(null)
@@ -522,19 +649,83 @@ export function RunDialog({ task, inheritDir, project, terminalOn, onStart, onCl
     return () => window.removeEventListener('keydown', onKey, true)
   }, [onClose])
   // 原型只校验写法；正式产品用 POST /api/agent/workdir/check
-  const dirErr = !dir.trim() ? '选一个工作目录，任务和所属项目都没设' : !dir.trim().startsWith('/') ? '要写本机绝对路径' : ''
-  const term = mode === 'terminal'
+  const ag = harness === 'agent'
+  // 工作台 Agent 的工作目录可选，只当 write_file 的产物目录（SPEC-tasks-6.20）
+  const dirErr = ag ? (dir.trim() && !dir.trim().startsWith('/') ? '要写本机绝对路径' : '')
+    : !dir.trim() ? '选一个工作目录，任务和所属项目都没设' : !dir.trim().startsWith('/') ? '要写本机绝对路径' : ''
+  const term = !ag && mode === 'terminal'
   const prompt = buildPrompt({ task, workdir: dir.trim(), extra, mode, project, preset })
+  // 工作台 Agent：Agent、服务商、模型（SPEC-tasks-6.21、6.22）、续跑（6.23）
+  const enabledAgents = agentRun?.agents.filter((a) => a.enabled) ?? []
+  const [agentId, setAgentId] = useState(agentRun?.defaultAgentId ?? '')
+  const agent = enabledAgents.find((a) => a.id === agentId)
+  const agentModel = agentRun?.models.find((m) => m.id === agent?.model)
+  const [providerChoice, setProviderChoice] = useState<string | null>(null)
+  const [modelChoice, setModelChoice] = useState<string | null>(null)
+  const providerId = providerChoice ?? agentModel?.provider_id ?? agentRun?.providers[0]?.id ?? ''
+  const providerModels = agentRun?.models.filter((m) => m.provider_id === providerId && m.enabled) ?? []
+  const modelId = modelChoice ?? (agentModel?.provider_id === providerId ? agentModel.id : providerModels[0]?.id ?? '')
+  const [resume, setResume] = useState(false)
+  const canResume = !!agentRun?.lastSession
+  const agentErr = ag && !agent ? '没有可用的 Agent：先到「Agent」里建一个并启用' : ag && !modelId ? '这个服务商还没有启用的模型' : ''
+  const agentPrompt = [
+    resume ? '接着上次的执行继续处理这条任务。先用 get_object 看看任务现在的状态和最近的进展，从没做完的地方接着做。'
+      : '这条任务从「产品工作台」交给你执行。你手里是工作台的工具：读任务和关联对象、搜知识库、记进展、改状态和字段、建子任务、按授权写文件、发起 SOP。',
+    `\n## 任务\n编号：${task.ref}\n标题：${task.title}`,
+    task.desc ? `\n## 任务描述\n${task.desc}` : '',
+    task.acceptance ? `\n## 验收标准\n${task.acceptance}` : '',
+    project ? `\n## 所属项目\n名称：${project.name}` : '',
+    preset ? `\n## 执行要求（${preset.scene}）\n${preset.content}${preset.permission === 'read_only' ? '\n\n这个角色只读：这次只给你开了读的工具，不要尝试改任何东西，结论写在回复里。' : ''}` : '',
+    extra.trim() ? `\n## 本次执行的补充要求\n${extra.trim()}` : '',
+    `\n## 怎么做\n- 先用 get_object 读这条任务（${task.ref}），关联的对象需要时也读一下。\n- 做完一个关键步骤用 append_progress 记一句进展；拆子任务用 create_object 并带 parent_ref=${task.ref}。\n- 任务真的做完了，用 update_object 改成完成。\n- 这次没有人在旁边回答问题：不能向用户提问，拿不准的写进结论。\n- 有些写操作要用户确认，提出后会停下等；被拒绝了就换办法或收尾。${dir.trim() ? `\n- write_file 写进 ${dir.trim()}，只用相对路径。` : ''}`,
+    '\n## 结束时\n最后用一段话写结论：做了什么、改了哪些对象、产出在哪、还剩什么没做。这段会原样记成这条任务的进展。',
+  ].filter(Boolean).join('\n')
+  const title = ag ? '交给工作台 Agent' : '交给 Claude Code'
   return (
     <div className="qs-mask" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose() }}>
-      <div className="qs" role="dialog" aria-label="交给 Claude Code">
+      <div className="qs" role="dialog" aria-label={title}>
         <div className="qs-head">
-          <b>交给 Claude Code</b>
+          <b>{title}</b>
           <span className="list-sub">{task.ref} {task.title}</span>
           <span className="spacer" />
           <button className="icon-btn" onClick={onClose} title="关闭 (Esc)">{closeIcon}</button>
         </div>
-        <div className="field">
+        {agentRun && (
+          <div className="field">
+            <span className="field-label">交给谁</span>
+            <div className="seg seg-full" role="radiogroup" aria-label="交给谁">
+              <button role="radio" aria-checked={!ag} className={cls(!ag && 'on')} onClick={() => setHarness('claude')}>Claude Code</button>
+              <button role="radio" aria-checked={ag} className={cls(ag && 'on')} onClick={() => { setHarness('agent'); setAsking(false) }}>工作台 Agent</button>
+            </div>
+            <span className="list-sub">{ag ? '工作台自己的 Agent 用它的工具处理这条任务：读任务和关联、记进展、改状态、拆子任务；要确认的写操作会停下等你。改代码的任务仍建议交给 Claude Code'
+              : '本机 Claude Code 在工作目录里干活，能改文件、跑命令'}</span>
+          </div>
+        )}
+        {ag && agentRun && (
+          <>
+            <div className="field">
+              <label className="field-label" htmlFor="ho-agent">Agent</label>
+              <select id="ho-agent" className="select" value={agentId} onChange={(e) => { setAgentId(e.target.value); setProviderChoice(null); setModelChoice(null) }}>
+                {!agent && <option value="">选一个 Agent</option>}
+                {enabledAgents.map((a) => <option key={a.id} value={a.id}>{a.name}{a.id === agentRun.defaultAgentId ? '（默认）' : ''}</option>)}
+              </select>
+              <span className="list-sub">{agent ? `${agent.desc}。工具授权按这个 Agent 的「工具与权限」，要确认的照旧要确认` : '默认用「Agent > 场景默认 Agent」里「执行任务」选的'}</span>
+            </div>
+            <div className="field">
+              <span className="field-label">服务商和模型</span>
+              <div className="act-row">
+                <select className="select" aria-label="服务商" value={providerId} onChange={(e) => { setProviderChoice(e.target.value); setModelChoice(null) }}>
+                  {agentRun.providers.map((p) => <option key={p.id} value={p.id} disabled={!p.enabled}>{p.name}{p.status === 'error' ? '（连接异常）' : ''}</option>)}
+                </select>
+                <select className="select" aria-label="模型" value={modelId} onChange={(e) => setModelChoice(e.target.value)}>
+                  {providerModels.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
+                </select>
+              </div>
+              <span className="list-sub">{providerChoice === null && modelChoice === null ? '默认取 Agent 设置的；只改这一次，不改 Agent' : '只改这一次，不改 Agent'}</span>
+            </div>
+          </>
+        )}
+        {!ag && <div className="field">
           <span className="field-label">执行方式</span>
           <div className="seg seg-full" role="radiogroup" aria-label="执行方式">
             <button role="radio" aria-checked={!term} className={cls(!term && 'on')} onClick={() => setMode('stream')}>流式执行</button>
@@ -544,11 +735,13 @@ export function RunDialog({ task, inheritDir, project, terminalOn, onStart, onCl
           <span className="list-sub">{!terminalOn ? TERMINAL_OFF
             : term ? '在终端里新开一个标签，按设置里的「Claude Code 启动命令」开一个交互式会话；它经工作台 MCP 回写进展和结论'
               : '在工作台里直接跑，实时输出显示在任务的执行记录里'}</span>
-        </div>
+        </div>}
         <label className="field">
-          <span className="field-label">工作目录</span>
+          <span className="field-label">{ag ? '产物目录（可选）' : '工作目录'}</span>
           <input className={cls('mono-input', dirErr && 'bad')} value={dir} onChange={(e) => setDir(e.target.value)} />
-          {dirErr ? <span className="field-err">{dirErr}</span> : <span className="list-sub">{task.workdir ? '任务上设的' : inheritDir && dir === inheritDir ? '继承自所属项目' : '这次执行用的目录'}{term ? '，终端标签开在这里' : ''}</span>}
+          {dirErr ? <span className="field-err">{dirErr}</span>
+            : ag ? <span className="list-sub">{dir.trim() ? 'Agent 写文件（write_file）写在这里' : '不填 Agent 就不能写文件，其他工具照常用'}</span>
+              : <span className="list-sub">{task.workdir ? '任务上设的' : inheritDir && dir === inheritDir ? '继承自所属项目' : '这次执行用的目录'}{term ? '，终端标签开在这里' : ''}</span>}
         </label>
         <div className="field">
           <div className="act-row">
@@ -561,10 +754,11 @@ export function RunDialog({ task, inheritDir, project, terminalOn, onStart, onCl
             {presets.map((p) => <option key={p.id} value={p.id}>{p.scene}{p.permission === 'read_only' ? '（只读）' : ''}{p.default ? '（默认）' : ''}</option>)}
           </select>
           <span className="list-sub">{preset ? preset.content : '不带角色的执行要求，只按任务内容和附加说明执行'}</span>
+          {ag && allowLocked && <span className="list-sub">只读角色：这次只给 Agent 开读的工具，不改任何东西</span>}
           {preset?.output && <span className="list-sub">输出要求：{preset.output}</span>}
           {term && allowLocked && <span className="list-sub">终端方式的权限由启动命令决定：只读角色只在提示词里写明不改文件</span>}
         </div>
-        {!term && (
+        {!term && !ag && (
           <div className="dev-perm">
             <label className="check check-lg">
               <input type="checkbox" checked={allow} disabled={allowLocked} onChange={(e) => { if (e.target.checked) setAsking(true); else setAllowChoice(false) }} />
@@ -586,21 +780,44 @@ export function RunDialog({ task, inheritDir, project, terminalOn, onStart, onCl
         )}
         <label className="field">
           <span className="field-label">附加说明</span>
-          <textarea className="qs-input" rows={3} value={extra} placeholder="可选：这次要特别注意的事，会接在任务内容后面发给 Claude Code" onChange={(e) => setExtra(e.target.value)} />
+          <textarea className="qs-input" rows={3} value={extra} placeholder={`可选：这次要特别注意的事，会接在任务内容后面发给${ag ? ' Agent' : ' Claude Code'}`} onChange={(e) => setExtra(e.target.value)} />
         </label>
+        {ag && (
+          <div className="dev-perm">
+            <label className="check check-lg">
+              <input type="checkbox" checked={resume && canResume} disabled={!canResume} onChange={(e) => setResume(e.target.checked)} />
+              接着上次的会话
+            </label>
+            <span className="list-sub">{canResume ? '续用上次执行的 Agent 会话，带上之前的上下文；Agent 用上次那个' : '这条任务还没交给工作台 Agent 执行过，没有可续的会话'}</span>
+          </div>
+        )}
         <div className="dev-preview">
           <button className="link-btn" aria-expanded={preview} onClick={() => setPreview(!preview)}>{preview ? '收起提示词预览' : '提示词预览'}</button>
           {!preview && <span className="list-sub">{project ? `带上所属项目「${project.name}」的文档和原型位置` : '任务没挂在项目下，不带项目信息'}</span>}
-          {preview && <pre className="dev-preview-body mono">{prompt}</pre>}
+          {preview && <pre className="dev-preview-body mono">{ag ? agentPrompt : prompt}</pre>}
         </div>
+        {agentErr && <span className="field-err">{agentErr}</span>}
         <div className="qs-foot">
-          <span className="list-sub">{term ? '会跳到终端页，执行记录里记一条进行中的终端执行' : '执行过程会流式显示在任务的执行记录里'}</span>
+          <span className="list-sub">{ag ? '过程流式显示在执行记录里，同时建一个 Agent 会话；默认最多 30 步、10 分钟，等确认 10 分钟没人决定按拒绝'
+            : term ? '会跳到终端页，执行记录里记一条进行中的终端执行' : '执行过程会流式显示在任务的执行记录里'}</span>
           <span className="spacer" />
           <button className="btn btn-ghost" onClick={onClose}>取消</button>
-          <button className="btn btn-primary" disabled={!!dirErr || (!term && asking) || (term && !terminalOn)}
-            onClick={() => onStart({ workdir: dir.trim(), allow_writes: !term && allow, extra_prompt: extra.trim(), mode, preset })}>
-            {term ? '在终端中打开' : allow ? '开始执行（允许写入）' : '开始执行（只读）'}
-          </button>
+          {ag ? (
+            <button className="btn btn-primary" disabled={!!dirErr || !!agentErr}
+              onClick={() => onStart({
+                workdir: dir.trim(), allow_writes: false, extra_prompt: extra.trim(), mode: 'stream', preset, harness: 'agent',
+                agent_id: resume && agentRun?.lastSession ? agentRun.lastSession.agent_id : agent?.id,
+                agent_name: resume && agentRun?.lastSession ? agentRun.lastSession.agent_name : agent?.name,
+                provider_id: providerId, model: modelId, read_only: allowLocked, resume: resume && canResume, agent_session: resume ? agentRun?.lastSession?.id : undefined,
+              })}>
+              {resume && canResume ? '接着上次执行' : '开始执行'}
+            </button>
+          ) : (
+            <button className="btn btn-primary" disabled={!!dirErr || (!term && asking) || (term && !terminalOn)}
+              onClick={() => onStart({ workdir: dir.trim(), allow_writes: !term && allow, extra_prompt: extra.trim(), mode, preset })}>
+              {term ? '在终端中打开' : allow ? '开始执行（允许写入）' : '开始执行（只读）'}
+            </button>
+          )}
         </div>
       </div>
     </div>

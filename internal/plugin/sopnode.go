@@ -71,6 +71,13 @@ type SOPEngine interface {
 type SOPService interface {
 	// Schedules 是动作指向这个流程的定时任务，删流程前列出来；内核没接定时任务时为空（SOP-01d，soplaunch.go）。
 	Schedules(ctx context.Context, flowID string) ([]SOPScheduleRef, error)
+	// FlowSchedule、FlowSchedules、SaveFlowSchedule、DeleteFlowSchedule、CheckScheduleRule 是随流程管理的定时任务（TSK-0463，sopschedule.go）：
+	// 流程触发方式选「定时」时规则存在这一条里。只有 SOP 插件能改；内核没接定时任务时回 ErrNoSOPSchedules。
+	FlowSchedule(ctx context.Context, flowID string) (*SOPFlowSchedule, error)
+	FlowSchedules(ctx context.Context) (map[string]SOPFlowSchedule, error)
+	SaveFlowSchedule(ctx context.Context, flowID string, in SOPFlowScheduleInput) (*SOPFlowScheduleResult, error)
+	DeleteFlowSchedule(ctx context.Context, flowID string) (int, error)
+	CheckScheduleRule(r SOPScheduleRule) (SOPScheduleRule, error)
 	// Nodes 是在跑的插件登记的节点，按插件登记顺序、登记顺序。
 	Nodes() []SOPNode
 	// Provider 是清单 provides.sop_nodes 里声明了 kind 的插件 id（不管装没装、启没启用）。

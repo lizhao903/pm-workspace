@@ -236,6 +236,8 @@ func (in *inbox) onObjectCreated(ctx context.Context, c plugin.Core, ev plugin.E
 			return err
 		}
 	}
+	// 从消息发起的会话里拆出来的任务（手动拆分）：排 FDE 反馈转发，攒一段汇成一条（TSK-0468）
+	in.onSessionTask(ctx, o.Props, o.ID, ids)
 	return nil
 }
 

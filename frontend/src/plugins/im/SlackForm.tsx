@@ -136,7 +136,7 @@ export function SlackForm({ connector, onSaved, onCancel }: {
         </Field>
       )}
       <Field label="我的称呼" hint={SELF_NAMES_HINT}>
-        <Input value={names} placeholder="李钊, Zhao" onChange={(e) => setNames(e.target.value)} />
+        <Input value={names} placeholder="张三, Zhang" onChange={(e) => setNames(e.target.value)} />
       </Field>
       <Field label="同步间隔" hint="工作台不在公网上时 Slack 推不进来，靠定时拉 conversations.history 收消息">
         <Select value={String(every)} onValueChange={(v) => setEvery(Number(v))}

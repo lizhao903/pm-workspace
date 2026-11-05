@@ -47,7 +47,7 @@ graph TB
     IMX["Slack / Telegram"]
     LLM["Anthropic / OpenAI<br/>Gemini / Ollama"]
     GG["Google 日历 / 云盘"]
-    FS["本机目录<br/>Know Me / PRD"]
+    FS["本机目录<br/>示例资料库 / PRD"]
     VP["B站 / YouTube / 抖音"]
   end
 
@@ -154,7 +154,7 @@ sequenceDiagram
   CLI-->>K: 执行结束 run.finished（状态 + 摘要）
   K-->>SOP: 事件触发，继续流程
   SOP->>IM: 第 2 步 回复原消息
-  IM->>IMU: 「任务标题」已经处理完了 + 摘要
+  IM->>IMU: 「任务标题」（编号）已完成 + 结果（只回结论）
 ```
 
 ## 4. 模块与代码位置

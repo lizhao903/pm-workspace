@@ -4,8 +4,8 @@
 
 ## 怎么走的
 
-- 7796（测试实例，只读）：232 条任务（`source=import`，都没截止日）、62 个联系人（Octok、XAUE 干系人）、5 个 Agent 会话、198 条产出结果、1 个 SOP 模板；没有项目、文档、IM 消息。浏览器里拦掉了所有非 GET 请求。
-- 7794（临时后端，7796 库的只读备份副本，`--fake-im --fake-connector`，出网改投本机空端口）：用真实联系人灌了两个项目「Octok 客户端」「XAUE 安全审计」（干系人 14 + 10 人、各绑一个群、18 条任务归到 Octok、5 篇文档），两个群和 6 个陌生人私聊共 109 条 IM 消息（含 @我、@all）；写操作（新建项目、加干系人、绑定、新建任务抽屉）在这里试。
+- 7796（测试实例，只读）：232 条任务（`source=import`，都没截止日）、62 个联系人（Acme、Globex 干系人）、5 个 Agent 会话、198 条产出结果、1 个 SOP 模板；没有项目、文档、IM 消息。浏览器里拦掉了所有非 GET 请求。
+- 7794（临时后端，7796 库的只读备份副本，`--fake-im --fake-connector`，出网改投本机空端口）：用真实联系人灌了两个项目「Acme 客户端」「Globex 安全审计」（干系人 14 + 10 人、各绑一个群、18 条任务归到 Acme、5 篇文档），两个群和 6 个陌生人私聊共 109 条 IM 消息（含 @我、@all）；写操作（新建项目、加干系人、绑定、新建任务抽屉）在这里试。
 - 宽度 1440 和 375，浅色；原型在 7778 上点开对照；Playwright 截图看完已删。
 - 每条一行，能直接拆成一个任务。级别：P1 每天都会碰到、影响判断；P2 常用但能绕过；P3 小毛病。
 
@@ -13,7 +13,7 @@
 
 | 编号 | 级别 | 页面 | 现象 | 为什么是问题 | 建议改法 | 涉及文件 |
 |---|---|---|---|---|---|---|
-| A-01 | P1 | 全局 / 命令面板（顶栏「搜索」、⌘K） | 搜「Octok」「常乐」「Slack」「客户端」都是「没找到…相关的内容」，只能搜到功能模块和几个操作 | 规格写明命令面板能搜到项目（名称、说明、目录，`SPEC-projects-0` 联动）、联系人（含电话、邮箱、IM 编号，`SPEC-contacts-0`）和任务；数据多了以后这是最快的入口。框架已有（`provides.search`），但 `/api/plugins` 里各插件 `provides.search` 都是空的，内核模块也没登记数据源 | 内核任务、联系人在模块入口登记搜索数据源；projects、im 插件在 `plugin.json` 的 `provides.search` 声明并 `provide`；结果按「项目 / 任务 / 联系人 / 消息」分组，回车打开详情或抽屉 | `frontend/src/core/shell/CommandPalette.tsx`、`core/plugin/commands.ts`、`modules/tasks/index.ts`、`modules/contacts/index.ts`、`plugins/projects/index.ts`、`plugins/im/index.ts`、`internal/plugins/projects/plugin.json`、`internal/plugins/im/plugin.json` |
+| A-01 | P1 | 全局 / 命令面板（顶栏「搜索」、⌘K） | 搜「Acme」「周七」「Slack」「客户端」都是「没找到…相关的内容」，只能搜到功能模块和几个操作 | 规格写明命令面板能搜到项目（名称、说明、目录，`SPEC-projects-0` 联动）、联系人（含电话、邮箱、IM 编号，`SPEC-contacts-0`）和任务；数据多了以后这是最快的入口。框架已有（`provides.search`），但 `/api/plugins` 里各插件 `provides.search` 都是空的，内核模块也没登记数据源 | 内核任务、联系人在模块入口登记搜索数据源；projects、im 插件在 `plugin.json` 的 `provides.search` 声明并 `provide`；结果按「项目 / 任务 / 联系人 / 消息」分组，回车打开详情或抽屉 | `frontend/src/core/shell/CommandPalette.tsx`、`core/plugin/commands.ts`、`modules/tasks/index.ts`、`modules/contacts/index.ts`、`plugins/projects/index.ts`、`plugins/im/index.ts`、`internal/plugins/projects/plugin.json`、`internal/plugins/im/plugin.json` |
 | A-02 | P1 | 项目详情 / 沟通 / 绑定面板 | 收进来的群消息不会登记成会话（`ingest.go` 只按编号找会话，找不到留空），绑定面板的群聊候选只从会话表取，新群收到再多消息也绑不上；私聊候选为空时写「联系人都已经绑过了」，实际 62 个联系人一个都没绑 | 规格 `SPEC-projects-4.4`、`4.5`：群聊候选是消息里出现过的群，私聊候选是还没绑的联系人。现在要先手工调接口建会话才能绑，空状态还说反了 | 后端收消息时没登记的会话自动登记（渠道 + 编号 + 群名 + kind）；私聊候选按联系人列，联系人有该渠道 IM 身份时取或建私聊会话，没有身份时这一项置灰并提示「先在联系人里填 IM 编号」；空状态按真实原因写 | `internal/plugins/im/ingest.go`、`docs/api-contract.md`（IM 一节）、`frontend/src/plugins/projects/commsModel.ts`、`CommsTab.tsx` |
 | A-03 | P1 | 项目详情 / SOP、Agent 标签 | 仍是「『SOP』还在开发中」「『Agent』还在开发中」占位（ALIGN-03 F-09、F-10） | SOP 插件 0.3.0 已上线（流程库、执行记录、发起执行都能用），项目里看不到关联流程和最近执行，规格 `SPEC-projects-9` | SOP 标签先做：关联流程卡片（`props.sop_ids`，执行、取消关联）+ 最近执行；`GET /api/sop/runs` 现在只能按 `flow_id` 筛，按关联流程拉即可，或补 `project_id` 条件。Agent 标签等 Agent 表，先做「项目里的会话」 | `frontend/src/plugins/projects/model.ts`（TABS）、`ProjectPage.tsx`、新文件 `SopTab.tsx`、`internal/plugins/sop`（如补筛选）、`docs/api-contract.md` |
 | A-04 | P2 | 任务抽屉 / 等你验收栏 | 原型的栏里有提交说明（做了什么、测试结果）和验收标准勾选清单，下面才是「验收通过 / 退回」；正式只有「claude-code · 会话 main-ses · 1 小时前提交」和两个按钮，提交说明在抽屉底部的进展里（抽屉内容 4800px 高） | `SPEC-tasks-5`；验收时要先滚到底读说明再滚回顶部点按钮 | 栏里放最近一条「提交验收」进展的正文、测试结果、提交号，加验收标准清单（本地勾选，不保存，同原型） | `frontend/src/modules/tasks/ReviewBar.tsx`、`ProgressTimeline.tsx`、`TaskDrawer.tsx` |
@@ -29,16 +29,16 @@
 |---|---|---|---|---|---|---|
 | B-01 | P1 | 今日、项目列表、项目概览、项目标签红点 | 群里每条消息都算「待处理」：今日「135 件事等你处理」里 109 条是两个群的闲聊（「好的收到」也算）；项目卡片「65 条待回复」、概览「待回复消息 65」、「沟通」红点常亮 | 规格就是这么定的（`SPEC-today-1` IM 组取所有 `pending`），数据少时没问题，接上真实群后数字失去提醒作用，真正 @我 的 5 条被淹没 | 口径改成「与我相关」才进今日和项目待回复：@我、@所有人、私聊（`relevance` 非空）；其余群消息只在 IM 收件箱里。今日 IM 组按 @我 优先排。要先改规格 `SPEC-today-1`、`SPEC-projects-1`、`3` 的待回复口径（需用户拍板） | `frontend/src/plugins/im/index.ts`（今日卡片）、`plugins/projects/commsModel.ts`（`awaitingCount`）、`ListPage.tsx`、`Overview.tsx`、`web-next/docs/spec/today.md`、`projects.md` |
 | B-02 | P1 | IM 消息 | 109 条待处理只能逐条点「已处理」；每行常驻 5 个按钮（已处理、回复、稍后、转任务、忽略） | 群消息一多，清收件箱要点上百下 | 选了会话筛选时出现「这个会话全部标为已处理」；列表加多选（勾选后底栏批量已处理、忽略）；后端加批量接口（按 id 列表或按会话 + 时间点之前） | `frontend/src/plugins/im/Page.tsx`、`model.ts`、`internal/plugins/im/actions.go`、`docs/api-contract.md` |
-| B-03 | P1 | 联系人 / 分组 | 导入的分组是整串「Octok、XAUE」，被当成第三个分组（9 人）；点「Octok」只出 24 人，漏掉同属两组的 9 人（常乐、李钊、李世豪等核心人）。表格里「Octok、XAUE」标签压到右边一列（1440 和 375 都是） | 按项目找人是最常用的筛选，现在会漏人 | 分组改成可多选（数据上存数组或按「、」拆），筛选按包含匹配；导入脚本按「、」拆开；分组列标签超宽时截断加悬停 | `frontend/src/modules/contacts/model.ts`、`Page.tsx`、`contacts.css`、`internal`（stakeholders 的 `group` 字段）、`docs/api-contract.md` |
-| B-04 | P2 | 联系人 / 搜索 | 搜「Randy」「fleetent」都「没有匹配的联系人」：别名和职责只写在备注里，搜索只覆盖姓名、公司、电话、邮箱、IM 编号；「XAUE 信用卡」这种多词也搜不到 | 导入的 62 人别名全在备注里，按外号找不到人 | 搜索加上备注和标签；多个词按空格拆开、每个词都要命中（跨字段） | `frontend/src/modules/contacts/model.ts` |
-| B-05 | P2 | 项目详情 / 干系人 / 加干系人 | 选择器只按姓名、公司、职位搜，搜「Octok」没结果；一次只能挑一个，加 14 个人要开 14 次；排序是拉丁名在前、中文按码位（侯、刁、刘、史…），和联系人页的拼音序不一样 | 新建项目时成批加人是固定动作 | 支持按分组、标签搜；多选后「加 N 人」；排序复用联系人页的拼音排序（`modules/contacts/pinyin.ts` 挪进 `core`，插件不能 import 模块） | `frontend/src/plugins/projects/StakeholdersTab.tsx`、`modules/contacts/pinyin.ts` → `core/` |
+| B-03 | P1 | 联系人 / 分组 | 导入的分组是整串「Acme、Globex」，被当成第三个分组（9 人）；点「Acme」只出 24 人，漏掉同属两组的 9 人（周七、张三、李世豪等核心人）。表格里「Acme、Globex」标签压到右边一列（1440 和 375 都是） | 按项目找人是最常用的筛选，现在会漏人 | 分组改成可多选（数据上存数组或按「、」拆），筛选按包含匹配；导入脚本按「、」拆开；分组列标签超宽时截断加悬停 | `frontend/src/modules/contacts/model.ts`、`Page.tsx`、`contacts.css`、`internal`（stakeholders 的 `group` 字段）、`docs/api-contract.md` |
+| B-04 | P2 | 联系人 / 搜索 | 搜「Randy」「fleetent」都「没有匹配的联系人」：别名和职责只写在备注里，搜索只覆盖姓名、公司、电话、邮箱、IM 编号；「Globex 信用卡」这种多词也搜不到 | 导入的 62 人别名全在备注里，按外号找不到人 | 搜索加上备注和标签；多个词按空格拆开、每个词都要命中（跨字段） | `frontend/src/modules/contacts/model.ts` |
+| B-05 | P2 | 项目详情 / 干系人 / 加干系人 | 选择器只按姓名、公司、职位搜，搜「Acme」没结果；一次只能挑一个，加 14 个人要开 14 次；排序是拉丁名在前、中文按码位（侯、刁、刘、史…），和联系人页的拼音序不一样 | 新建项目时成批加人是固定动作 | 支持按分组、标签搜；多选后「加 N 人」；排序复用联系人页的拼音排序（`modules/contacts/pinyin.ts` 挪进 `core`，插件不能 import 模块） | `frontend/src/plugins/projects/StakeholdersTab.tsx`、`modules/contacts/pinyin.ts` → `core/` |
 | B-06 | P2 | 任务列表 | 232 条任务都没截止日，「按截止日分段」只剩一段「无截止 65」，段内按优先级；「已完成 167」按编号正序，最近完成的在最后（「这一段还有 35 条」要点多次） | 不设截止日的人分段没用；看「刚做完的」最常见 | 已完成视图按完成时间倒序；加排序（优先级、最近更新、创建时间），无截止段内默认按最近更新 | `frontend/src/modules/tasks/model.ts`、`TaskList.tsx`、`Page.tsx` |
 | B-07 | P2 | 任务列表 | 没有负责人筛选，搜索也不搜负责人（原型占位「搜索标题、编号、负责人」，正式「搜索标题、描述、编号」） | Claude Code 的开发任务和自己的事混在一起，想只看「我的」做不到 | 筛选条加负责人下拉（含「未分配」「我」）；搜索覆盖负责人名 | `frontend/src/modules/tasks/Page.tsx`、`model.ts` |
 | B-08 | P2 | 会话 / 产出结果 | 198 条全是「提交 · 第三十 X 批提交 · MCP 回写」，产出列重复同一个批次名，真正区分的任务在来源列被截断 | 一眼看不出产出了什么；同一次提交对应七八个任务就重复七八行 | 产出列显示「提交号 + 批次说明」，来源列显示任务编号和标题（悬停全称）；同一提交合并成一行，展开看涉及的任务 | `frontend/src/modules/conversations/OutputsView.tsx` |
 | B-09 | P2 | 会话列表 | 4 条「新会话 · 还没有消息」堆在列表里 | 点一下「新建会话」就落一条，试几次就满屏空会话 | 发出第一条消息时才落库；或列表默认隐藏空会话、离开时删除 | `frontend/src/modules/conversations/NewSession.tsx`、`ChatsView.tsx`、Agent 会话后端 |
 | B-10 | P2 | 项目详情 / 沟通 | 65 条消息没有「与我相关」筛选和搜索，行上只有「回复」，不能标已处理 | 项目里看沟通是日常入口，处理完还得去 IM 页再点一遍 | 复用 IM 页的「与我相关」下拉和搜索；行内加「已处理」（悬停出现） | `frontend/src/plugins/projects/CommsTab.tsx`、`commsModel.ts` |
 | B-11 | P2 | 375 宽度：任务、联系人、项目概览 | 任务标题只剩 4 个字（「真实接...」），优先级和状态占了大半；联系人分组标签压到「最近联系」上；项目概览 5 个数字卡各占一整行，滚两屏才到最新沟通 | 手机上主要是看和快速处理 | 窄屏任务行改两行（标题一行、标签一行）；概览数字卡窄屏两列或横向滑动 | `frontend/src/modules/tasks/tasks.css`、`TaskList.tsx`、`modules/contacts/contacts.css`、`plugins/projects/projects.css` |
-| B-12 | P3 | IM 消息 / 与我相关 | 「@李钊 验收标准麻烦再确认一下」不算 @我（用户本人就叫李钊）；「我」的称呼只来自连接器账号和适配器 | 微信、飞书这类渠道按名字 @，认不出就漏 | IM 渠道配置里加「我的称呼」（多个，逗号隔开），后端合进 self handles | `internal/plugins/im/relevance.go`、`frontend/src/plugins/im/ChannelPanel.tsx`、`docs/api-contract.md` |
+| B-12 | P3 | IM 消息 / 与我相关 | 「@张三 验收标准麻烦再确认一下」不算 @我（用户本人就叫张三）；「我」的称呼只来自连接器账号和适配器 | 微信、飞书这类渠道按名字 @，认不出就漏 | IM 渠道配置里加「我的称呼」（多个，逗号隔开），后端合进 self handles | `internal/plugins/im/relevance.go`、`frontend/src/plugins/im/ChannelPanel.tsx`、`docs/api-contract.md` |
 
 ## 操作绕
 

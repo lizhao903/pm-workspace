@@ -674,6 +674,7 @@ Agent、知识库、技能、枚举值、运行异常、内网域名几节目前
 | SPEC-settings-8.9 | 卡片底部 | 看 | 触发方式（手动写「手动」，其余写条件，没条件写类型名，用 · 隔开）。不放执行情况（「N 条等确认」「<时间>运行」「还没运行过」都去掉）：执行记录只算任务、IM、定时触发的，会话里手动对话不算，显示「还没运行过」会误导；执行记录、等确认的在「会话」菜单的执行记录里看 |
 | SPEC-settings-8.13 | 卡片头的思考档位 | 看 | 思考不是「模型默认」时，模型名后面写「· 思考：<档位>」（不思考 / 浅 / 中 / 深），见 `SPEC-settings-9.44` |
 | SPEC-settings-8.14 | 卡片下方「场景默认 Agent」 | 看、选 | 标题「场景默认 Agent」，提示「没指定 Agent 的模型调用用谁：用它的模型、思考和指令；不指定就用默认服务商」。每个场景一行：场景名、说明、一个下拉（「不指定（用默认服务商）」加全部 Agent，停用的写「（已停用）」）；选了立即保存。场景两个：「SOP 编排助手」（流程编辑器里的助手，`SPEC-sop`）、「其他后台调用」（插件在后台调模型又没指定 Agent 的地方，包括没选 Agent 的 SOP 调模型节点）。Agent 会话、SOP 的 Agent 节点本来就挂着 Agent，不在这里 |
+| SPEC-settings-8.16 | 场景「执行任务」 | 看、选 | 场景默认 Agent 多一行「执行任务」，说明「任务交给工作台 Agent 执行时默认用的 Agent，交的时候还能换；没选时用第一个启用的 Agent」。和另外两个场景不同，没选时不是退回默认服务商，而是用第一个启用的 Agent：下拉第一项写「不指定（用第一个启用的 Agent）」，选的 Agent 删了或停了红字写「……现在用第一个启用的 Agent」。决定的是「交给…」弹窗里 Agent 下拉的默认选项（`SPEC-tasks-6.21`）。正式产品 key `task_run`，排在 `background` 后面 |
 
 ### 空状态和异常状态
 
@@ -686,7 +687,7 @@ Agent、知识库、技能、枚举值、运行异常、内网域名几节目前
 
 ### 数据
 
-见 `SPEC-settings-9` 的 `Agent`。场景默认 Agent 是 `AgentScenario`（`web-next/src/agentdata.ts`，`seedScenarios`）：`{ key: string; label: string; desc: string; agent_id: string }`，`key` 为 `sop_assist` / `background`，`agent_id` 空串是没选；正式产品存在内核 `agent_settings`（0045），接口 `GET /api/agents/scenarios`、`PATCH /api/agents/scenarios`（body `{ "<场景>": "<Agent id 或空串>" }`）。等确认数、最近运行来自 `AgentRun`（`agent_id`、`at`、`status`，见 `SPEC-sessions`）。模型名和可用性来自 `modelChoices`（`ModelChoice`：`{ key: string; label: string; note: string; ok: boolean; group?: string }`，由 `ModelConf` 和 `usable` 算出，`ok` 为 false 时 `note` 是不可用原因）。
+见 `SPEC-settings-9` 的 `Agent`。场景默认 Agent 是 `AgentScenario`（`web-next/src/agentdata.ts`，`seedScenarios`）：`{ key: string; label: string; desc: string; agent_id: string }`，`key` 为 `sop_assist` / `background` / `task_run`（执行任务，8.16），`agent_id` 空串是没选；正式产品存在内核 `agent_settings`（0045），接口 `GET /api/agents/scenarios`、`PATCH /api/agents/scenarios`（body `{ "<场景>": "<Agent id 或空串>" }`）。等确认数、最近运行来自 `AgentRun`（`agent_id`、`at`、`status`，见 `SPEC-sessions`）。模型名和可用性来自 `modelChoices`（`ModelChoice`：`{ key: string; label: string; note: string; ok: boolean; group?: string }`，由 `ModelConf` 和 `usable` 算出，`ok` 为 false 时 `note` 是不可用原因）。
 
 ### 联动
 
@@ -1312,7 +1313,7 @@ store（原型）：`{ docs: KbDoc[]; settings: KbSettings[]; busy: string[] }`�
 | `contact_group` | 联系人分组 | 联系人 | `其他` | `客户`、`合作伙伴`、`同事`、`供应商`、`其他` | 无 | 联系人的 `group` |
 | `content_category` | 文档分类 | 文档 | `note` | `CONTENT_CATEGORIES` 的 key | 无 | 文档的 `category` |
 | `msg_status` | IM 消息状态 | IM 消息 | `pending` | `pending` 待处理、`done` 已处理、`ignored` 已忽略 | 全部 | 消息的 `status` |
-| `sop_trigger` | SOP 触发方式 | SOP | `manual` | `manual` 手动、`im` IM 消息、`daily` 每天 09:00、`weekly` 每周一 18:00 | `manual` | 没接数据 |
+| `sop_trigger` | SOP 触发方式 | SOP | `manual` | `manual` 手动、`im` IM 消息、`schedule` 定时（TSK-0463：原来的 `daily` 每天 09:00、`weekly` 每周一 18:00 并成这一项，时间规则在 SOP 开始节点里配，`SPEC-sop-9.3`） | `manual`、`schedule` | 没接数据 |
 | `customer_level` | 客户等级 | 自定义 | `B` | `A`、`B`、`C` | 无 | 没接数据 |
 
 页面读枚举用 `enumView(groups, key)` / `useEnumView(key)`，返回 `EnumView`：`items`（全部值，按设置顺序）、`options`（启用的，新建用）、`optionsWith(cur)`（编辑用：启用的加当前值，哪怕已停用或已删除；停用的放回原位，已删除的补在最后、灰色）、`item(k)`、`label(k)`（找不到原样显示 key）、`color(k)`（找不到 `#a19d92`）、`defaultKey`（设置的默认值，没设或已停用时取第一个启用的）。使用数 `UsageFn = (group: string, key: string) => number | undefined`，没接数据的返回 `undefined`；合并只改了任务优先级、联系人分组、文档分类（系统值不会被删，任务状态、消息状态不需要）。

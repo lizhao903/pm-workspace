@@ -2858,3 +2858,21 @@ button.thread-tag:hover { color: var(--text); border-color: var(--text); }
 .thread-note { margin: 0 0 6px; color: var(--muted); font-size: 11.5px; }
 .thread-confirm { width: min(440px, 100%); }
 .thread-confirm .qs-head b { flex: 1 1 auto; white-space: normal; }
+
+/* SOP 定时触发（TSK-0463）：流程库卡片下面、流程详情概要下面的一行规则、下次执行和启停；开始节点里的规则编辑 */
+.sop-lib-cell { display: flex; flex-direction: column; min-width: 0; }
+.sop-lib-cell > .sop-lib-card { flex: 1; }
+.sop-lib-cell:has(.sop-lib-sched) > .sop-lib-card { border-bottom-left-radius: 0; border-bottom-right-radius: 0; }
+.sop-sched { display: flex; align-items: center; gap: 10px; min-width: 0; font-size: var(--fs-xs); color: var(--muted); }
+.sop-sched-text { display: flex; flex-wrap: wrap; gap: 2px 10px; flex: 1; min-width: 0; }
+.sop-sched-next { color: var(--accent); }
+.sop-sched.off .sop-sched-text { color: var(--faint); }
+.sop-sched.unset { color: var(--warn); }
+.sop-lib-sched { padding: 8px 16px; border: 1px solid var(--line); border-top: 0; border-radius: 0 0 var(--r-lg) var(--r-lg); background: var(--panel); }
+.sop-detail-sched { margin: 8px 0 4px; padding: 8px 12px; border: 1px solid var(--line); border-radius: var(--r); background: var(--panel); font-size: var(--fs-sm); }
+.rule-modes { flex-wrap: wrap; }
+.sop-start-sched { display: flex; flex-direction: column; gap: 10px; padding: 10px; border: 1px solid var(--line); border-radius: var(--r); min-width: 0; }
+.sop-start-sched.unset { flex-direction: row; flex-wrap: wrap; align-items: center; color: var(--warn); font-size: var(--fs-sm); }
+.sop-start-sched-warn { font-size: var(--fs-sm); color: var(--warn); }
+.sop-off-ask { display: flex; flex-direction: column; gap: 8px; }
+.sop-off-ask label { display: flex; align-items: flex-start; gap: 8px; cursor: pointer; }

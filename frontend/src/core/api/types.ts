@@ -390,7 +390,11 @@ export type FsRoots = { defaults: string[]; extra: FsRoot[] }
 
 // ---- 任务执行 ----
 
-export type RunStatus = 'pending' | 'running' | 'done' | 'failed' | 'canceled'
+/** waiting：交给工作台 Agent 的执行（harness=agent）停在要人确认的写操作上，没结束 */
+export type RunStatus = 'pending' | 'running' | 'waiting' | 'done' | 'failed' | 'canceled'
+
+/** 执行器（0049、TSK-0460）：claude 本机 Claude Code，deepseek 是 deepseek-harness，agent 是工作台自己的 Agent */
+export type RunHarness = 'claude' | 'deepseek' | 'agent'
 
 export type TaskRun = {
   id: string
@@ -405,6 +409,10 @@ export type TaskRun = {
   finished_at: string | null
   /** 执行方式（0048）：stream 工作台起进程流式回推；terminal 在终端里交互执行，靠 MCP 回写或手动标记结束 */
   mode: RunMode
+  /** 执行器（0049），老记录是 claude */
+  harness?: RunHarness | (string & {})
+  /** 执行器的会话（0050）：deepseek 是 dsh 会话，agent 是 Agent 会话 id（能打开会话接着聊）；没有为空串 */
+  harness_session?: string
 }
 
 export type RunMode = 'stream' | 'terminal'
@@ -422,7 +430,8 @@ export type TerminalHandoff = {
 /** 终端执行收尾：终端里的 claude 经 MCP 或界面上的「标记结束」 */
 export type FinishRunInput = { status: 'done' | 'failed' | 'canceled'; summary?: string }
 /** GET /api/objects/{id}/run/prompt 的参数和响应 */
-export type RunPromptParams = { mode?: RunMode; workdir?: string; extra_prompt?: string; preset_id?: string }
+/** harness=agent 时预览交给工作台 Agent 的那一份（TSK-0460），resume 是续跑的说法 */
+export type RunPromptParams = { mode?: RunMode; workdir?: string; extra_prompt?: string; preset_id?: string; harness?: RunHarness; resume?: boolean }
 export type RunPrompt = { prompt: string; workdir: string }
 /** 角色的权限：只读不放开文件编辑；accept_edits 流式执行时加 --permission-mode acceptEdits（AUTO-03） */
 export type RolePermission = 'read_only' | 'accept_edits'

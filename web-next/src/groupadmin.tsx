@@ -44,12 +44,12 @@ export const displayName = (s: GroupSummary) => (s.direct ? s.participants[0] ||
 
 /**
  * 按群名关键字建议项目（同正式产品 groupAdminModel）：群名先转小写、去掉开头 #、空白和下划线换成 -、两头补 -；
- * 命中内置关键字（octok → Octok、xaue → XAUE、-ns- → NS 系统）或项目名（不少于 3 个字）的项目都是候选，
+ * 命中内置关键字（acme → Acme、globex → Globex、-ns- → NS 系统）或项目名（不少于 3 个字）的项目都是候选，
  * 按在群名里出现的先后排；只给没设归属的群，私聊不建议。一个候选能直接采纳，几个候选要人挑。
  */
 export const SUGGEST_RULES: { keyword: string; projects: string[] }[] = [
-  { keyword: 'octok', projects: ['Octok'] },
-  { keyword: 'xaue', projects: ['XAUE'] },
+  { keyword: 'acme', projects: ['Acme'] },
+  { keyword: 'globex', projects: ['Globex'] },
   { keyword: '-ns-', projects: ['NS 系统', 'NS'] },
 ]
 const norm = (s: string) => `-${s.toLowerCase().replace(/^#/, '').replace(/[\s_]+/g, '-')}-`

@@ -75,6 +75,10 @@ type Options struct {
 	// ScheduleRunner 是调度器（TASK-03b），手动执行要用；为 nil 时 POST /api/schedules/{id}/run 回 500。
 	ScheduleRunner *schedule.Runner
 
+	// Agent 是插件句柄背后那个 agent.Service（cmd/pmw 建一份，插件和任务执行共用，熔断状态也共用）。
+	// 任务交给工作台 Agent 执行（TSK-0460）经它拿带熔断、重试、失败改用的模型客户端；为 nil 时 New 自己建一份。
+	Agent *agent.Service
+
 	// AgentRuns 是 Agent 的触发和执行记录（AG-01b4，0036）；New 给它接上 Prepare。为 nil 时不自动触发，列表照常读库。
 	AgentRuns *agent.Dispatcher
 
@@ -117,6 +121,11 @@ type Server struct {
 	kbSync *kb.Tracker
 	// turns 记会话里正在跑的一轮对话，「停止」靠它（agentstop.go）
 	turns activeTurns
+	// agentSvc 给任务交给工作台 Agent 执行用（runagent.go）；agentTasks 记在跑的这类执行和它们在等的确认
+	agentSvc   *agent.Service
+	agentTasks agentTaskRuns
+	// agentTimeUnit 是预算里「一分钟」有多长，零值是一分钟；测试调短
+	agentTimeUnit time.Duration
 }
 
 func New(st store.Store, opts Options) *Server {
@@ -137,6 +146,13 @@ func New(st store.Store, opts Options) *Server {
 	}
 	if opts.AgentRuns != nil {
 		opts.AgentRuns.Prepare = s.agentRunner
+	}
+	s.agentSvc = opts.Agent
+	if s.agentSvc == nil {
+		s.agentSvc = &agent.Service{Store: st}
+		if opts.Connectors != nil {
+			s.agentSvc.Connectors = opts.Connectors
+		}
 	}
 	s.loadFsRoots()
 	s.h = s.build()

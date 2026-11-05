@@ -25,7 +25,7 @@ export {
 export { REVISION_LIMIT, useObjectRevisions, groupRevisions, rejectText, useReject } from './revisions'
 export type { RevisionGroup } from './revisions'
 export { useArtifacts, useObjectArtifacts, useArtifactStats, useArtifactCount, useRecordArtifact } from './artifacts'
-export { runFinished, useTaskRuns, useTaskRun, useCancelRun, streamRun, useRunPrompt, startTerminalRun, finishTerminalRun, useFinishRun, useRunPresets, useSaveRunPresets } from './runs'
+export { runFinished, useTaskRuns, useTaskRun, useCancelRun, streamRun, decideRunCall, useRunPrompt, startTerminalRun, finishTerminalRun, useFinishRun, useRunPresets, useSaveRunPresets } from './runs'
 export { workdirUsable, useWorkdirCheck, useFsBrowse, useFsShortcuts, useFsRoots, useAddFsRoot, useRemoveFsRoot, fsCrumbs } from './fs'
 export {
   useAgentProviders, useProviderModels, providerModelIds, loadProviderModels, defaultProvider, useAgentSessions, useAgentMessages, useCreateAgentSession, usePatchAgentSession,
@@ -162,6 +162,9 @@ export type {
   SopRunBrief, SopRunSource, SopRunAction, SopStartInput, SopDraft, SopIssue, SopAssistReply, SopAssistInput, SopSettings,
   SopSettingsPatch, SopStepQueue, SopStepHold, SopWaitKind, SopWaitingItem, SopPipelineStep, SopPipelineRun, SopClaudeUsage, SopPipelineBudget, SopPipeline,
 } from './sop'
+// SOP 的定时触发（TSK-0463）：规则存在随流程管理的定时任务里
+export { SOP_TRIGGER_SCHEDULE } from './sop'
+export type { SopScheduleDraft, SopScheduleOff } from './sop'
 // 挂起等服务商恢复（TSK-0392）
 export { isSopProviderWait } from './sop'
 export type { SopProviderWait } from './sop'

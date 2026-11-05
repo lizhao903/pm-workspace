@@ -67,7 +67,8 @@ export const seedEnums: EnumGroup[] = [
   {
     key: 'sop_trigger', name: 'SOP 触发方式', module: 'SOP', builtin: true, default_key: 'manual',
     desc: '编排 SOP 时开始节点可选的触发方式',
-    items: [it('manual', '手动', '#a19d92', '', true), it('im', 'IM 消息', '#2f7d43', '收到符合条件的 IM 消息时'), it('daily', '每天 09:00', '#3d4fd6'), it('weekly', '每周一 18:00', '#3d4fd6')],
+    // 定时只有一项（TSK-0463）：时间规则在开始节点里配，存在随流程管理的定时任务里；原来的 daily「每天 09:00」、weekly「每周一 18:00」并进来
+    items: [it('manual', '手动', '#a19d92', '', true), it('im', 'IM 消息', '#2f7d43', '收到符合条件的 IM 消息时'), it('schedule', '定时', '#3d4fd6', '按开始节点里设的时间规则自动执行', true)],
   },
   {
     key: 'customer_level', name: '客户等级', module: '自定义', builtin: false, default_key: 'B',

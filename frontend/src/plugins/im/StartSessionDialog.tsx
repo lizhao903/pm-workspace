@@ -42,7 +42,7 @@ export function StartSessionDialog({ messages, intent: intent0, chLabel, onCance
   const agent = list.find((a) => a.id === picked && a.enabled) ?? pickAgent(list, readLast(), writable)
   const grant = agent ? grants[agent.id]?.effective.write_tasks : undefined
   const project = projectOf(messages)
-  // 项目的本地目录（workdir）优先；没设时用项目第一个关联目录（Octok、XAUE 这类只登记了关联目录的项目）
+  // 项目的本地目录（workdir）优先；没设时用项目第一个关联目录（Acme、Globex 这类只登记了关联目录的项目）
   const projObj = project ? (projects.data?.data ?? []).find((p) => p.id === project.id) : undefined
   const projectDir = projObj ? projObj.workdir || relatedDir(projObj.props) : ''
   const [workdir, setWorkdir] = useState<string | null>(null)

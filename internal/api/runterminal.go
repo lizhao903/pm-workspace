@@ -127,7 +127,13 @@ func (s *Server) handleRunPrompt(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, err)
 		return
 	}
-	prompt := s.promptFor(ctx, o, strings.TrimSpace(wd), q.Get("extra_prompt"), mode, previewRunID, preset)
+	// harness=agent（TSK-0460）预览交给工作台 Agent 的那一份；resume=true 是续跑的说法
+	var prompt string
+	if strings.TrimSpace(q.Get("harness")) == string(runner.HarnessAgent) {
+		prompt = s.agentPromptFor(ctx, o, strings.TrimSpace(wd), q.Get("extra_prompt"), preset, q.Get("resume") == "true")
+	} else {
+		prompt = s.promptFor(ctx, o, strings.TrimSpace(wd), q.Get("extra_prompt"), mode, previewRunID, preset)
+	}
 	respondData(w, http.StatusOK, map[string]string{"prompt": prompt, "workdir": strings.TrimSpace(wd)})
 }
 

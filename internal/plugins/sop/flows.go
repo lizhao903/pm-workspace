@@ -13,6 +13,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/lizhao903/pm-workspace/internal/domain"
 	"github.com/lizhao903/pm-workspace/internal/idgen"
 	"github.com/lizhao903/pm-workspace/internal/plugin"
 )
@@ -109,6 +110,9 @@ type Flow struct {
 	Version   int             `json:"version"`
 	CreatedAt time.Time       `json:"created_at"`
 	UpdatedAt time.Time       `json:"updated_at"`
+	// Schedule 是随流程管理的定时任务（TSK-0463，flowsched.go），形状同 /api/schedules 的一项；没有为 null。
+	// 触发方式是 schedule 而它为 null 时是「定时，未配置」（比如在定时任务页删掉了）
+	Schedule *plugin.SOPFlowSchedule `json:"schedule"`
 }
 
 // Issue 是一处校验问题，step 是步骤下标（原型 checkSop 的 Issue 去掉 level，这里只收拦保存的）。
@@ -147,11 +151,22 @@ func (h *flows) list(w http.ResponseWriter, r *http.Request) {
 		fail(w, r, h.c, err)
 		return
 	}
+	// 随流程管理的定时任务一次取全（TSK-0463）；内核没接定时任务时都是 null
+	scheds, err := h.c.SOP().FlowSchedules(r.Context())
+	if err != nil && !errors.Is(err, plugin.ErrNoSOPSchedules) {
+		fail(w, r, h.c, err)
+		return
+	}
+	for i := range out {
+		if sc, ok := scheds[out[i].ID]; ok {
+			out[i].Schedule = &sc
+		}
+	}
 	writeJSON(w, http.StatusOK, map[string]any{"data": out, "meta": map[string]int{"total": len(out)}})
 }
 
 func (h *flows) show(w http.ResponseWriter, r *http.Request) {
-	f, err := h.get(r.Context(), r.PathValue("id"))
+	f, err := h.getFull(r.Context(), r.PathValue("id"))
 	if err != nil {
 		fail(w, r, h.c, err)
 		return
@@ -183,17 +198,27 @@ func (h *flows) add(w http.ResponseWriter, r *http.Request) {
 	} else {
 		f.ID = idgen.Prefixed("sop")
 	}
+	sched, err := readSchedIn(h.c, raw)
+	if err != nil {
+		fail(w, r, h.c, err)
+		return
+	}
 	if err := apply(&f, raw, kindsOf(h.c)); err != nil {
 		fail(w, r, h.c, err)
 		return
 	}
+	normalizeTrigger(&f, sched)
 	now := time.Now().UTC().Format(time.RFC3339)
 	if _, err := h.c.Store().Exec(ctx, `INSERT INTO sop_flows (`+flowCols+`) VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`,
 		f.ID, f.Name, f.Desc, f.Trigger, string(f.Fields), string(f.Steps), layoutCol(f.Layout), now, now); err != nil {
 		fail(w, r, h.c, err)
 		return
 	}
-	out, err := h.get(ctx, f.ID)
+	if err := syncSchedule(ctx, h.c, f, "", sched); err != nil {
+		fail(w, r, h.c, scheduleErr(err))
+		return
+	}
+	out, err := h.getFull(ctx, f.ID)
 	if err != nil {
 		fail(w, r, h.c, err)
 		return
@@ -225,11 +250,17 @@ func (h *flows) update(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	base := f.Version
+	base, prev := f.Version, f.Trigger
+	sched, err := readSchedIn(h.c, raw)
+	if err != nil {
+		fail(w, r, h.c, err)
+		return
+	}
 	if err := apply(&f, raw, kindsOf(h.c)); err != nil {
 		fail(w, r, h.c, err)
 		return
 	}
+	normalizeTrigger(&f, sched)
 	now := time.Now().UTC().Format(time.RFC3339)
 	// 按读到的版本号更新，中间有人改过就算冲突
 	res, err := h.c.Store().Exec(ctx, `UPDATE sop_flows SET name = ?, description = ?, trigger_desc = ?, fields = ?, steps = ?,
@@ -243,7 +274,11 @@ func (h *flows) update(w http.ResponseWriter, r *http.Request) {
 		fail(w, r, h.c, apiErr(errConflict, "流程刚被别处改过，刷新后再改"))
 		return
 	}
-	out, err := h.get(ctx, id)
+	if err := syncSchedule(ctx, h.c, f, prev, sched); err != nil {
+		fail(w, r, h.c, scheduleErr(err))
+		return
+	}
+	out, err := h.getFull(ctx, id)
 	if err != nil {
 		fail(w, r, h.c, err)
 		return
@@ -263,8 +298,8 @@ func (h *flows) remove(w http.ResponseWriter, r *http.Request) {
 		fail(w, r, h.c, err)
 		return
 	}
-	// 指向它的定时任务也拦（SOP-01d，规格 SPEC-sop-5.7），两条用「；」连
-	refs, err := h.c.SOP().Schedules(ctx, id)
+	// 指向它的定时任务也拦（SOP-01d，规格 SPEC-sop-5.7），两条用「；」连；随流程管理的那一条不拦，跟着删（TSK-0463）
+	refs, err := userSchedules(ctx, h.c, id)
 	if err != nil {
 		fail(w, r, h.c, err)
 		return
@@ -285,6 +320,10 @@ func (h *flows) remove(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if _, err := h.c.Store().Exec(ctx, `DELETE FROM sop_flows WHERE id = ?`, id); err != nil {
+		fail(w, r, h.c, err)
+		return
+	}
+	if _, err := h.c.SOP().DeleteFlowSchedule(ctx, id); err != nil && !errors.Is(err, plugin.ErrNoSOPSchedules) {
 		fail(w, r, h.c, err)
 		return
 	}
@@ -313,6 +352,38 @@ func (h *flows) get(ctx context.Context, id string) (Flow, error) {
 		return Flow{}, apiErr(errNotFound, "流程 %s 不存在", id)
 	}
 	return f, err
+}
+
+// getFull 同 get，带上随流程管理的定时任务。
+func (h *flows) getFull(ctx context.Context, id string) (Flow, error) {
+	f, err := h.get(ctx, id)
+	if err != nil {
+		return f, err
+	}
+	return f, withSchedule(ctx, h.c, &f)
+}
+
+// userSchedules 是用户手建、指向这个流程的定时任务（删流程时拦），不含随流程管理的那一条。
+func userSchedules(ctx context.Context, c plugin.Core, id string) ([]plugin.SOPScheduleRef, error) {
+	refs, err := c.SOP().Schedules(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	out := []plugin.SOPScheduleRef{}
+	for _, x := range refs {
+		if !x.Managed {
+			out = append(out, x)
+		}
+	}
+	return out, nil
+}
+
+// scheduleErr 把改定时任务的校验错误换成插件的 validation，其余原样。
+func scheduleErr(err error) error {
+	if errors.Is(err, domain.ErrValidation) {
+		return apiErr(errValidation, "定时任务没存上：%s", ruleReason(err))
+	}
+	return err
 }
 
 func scanFlow(row plugin.Row) (Flow, error) {

@@ -302,6 +302,11 @@ func (s *Server) decideToolCall(w http.ResponseWriter, r *http.Request, approved
 		s.fail(w, r, conflictf("%s 已经没有授权了，不能执行，可以拒绝掉", tc.Tool))
 		return
 	}
+	// 有在途的任务执行（harness=agent，TSK-0460）在等这次调用：决定交给它，由它接着跑，这里不另起一轮
+	if ch := s.agentTasks.claim(tc.ID); ch != nil {
+		s.decideForTaskRun(w, r, flusher, tc, ag, session, approved, ch)
+		return
+	}
 	runner, err := s.resumeRunner(ctx, session, ag, policy)
 	if err != nil {
 		s.fail(w, r, err)

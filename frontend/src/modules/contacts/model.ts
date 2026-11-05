@@ -86,7 +86,7 @@ export function toRows(list: Contact[]): Row[] {
 }
 
 /** 搜索：不区分大小写；整串或去掉空格后（电话「137 22」）被某个字段包含即命中，
- * 否则按空格拆词，每个词都要命中某个字段，可以是不同字段（「XAUE 信用卡」） */
+ * 否则按空格拆词，每个词都要命中某个字段，可以是不同字段（「Globex 信用卡」） */
 export function matches(r: Row, q: string): boolean {
   const kw = q.trim().toLowerCase()
   if (!kw) return true

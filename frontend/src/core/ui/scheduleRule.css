@@ -1,0 +1,15 @@
+/* 定时规则编辑（ScheduleRuleEditor.tsx）：定时任务抽屉和 SOP 流程编辑共用，样式自带，不依赖任务模块的 .seg */
+.rule-ed { display: flex; flex-direction: column; gap: var(--sp-6); min-width: 0; }
+.rule-ed-seg { display: flex; flex-wrap: wrap; gap: 2px; padding: 2px; border-radius: var(--r-sm); background: var(--hover); }
+.rule-ed-seg button { flex: 1 1 auto; display: flex; align-items: center; justify-content: center; height: 28px; padding: 0 8px; border-radius: 4px; color: var(--muted); font-size: var(--fs-sm); white-space: nowrap; }
+.rule-ed-seg button:hover { color: var(--text); }
+.rule-ed-seg button.on { background: var(--panel); color: var(--text); box-shadow: var(--shadow-sm); font-weight: 500; }
+.rule-ed-week { display: flex; gap: 6px; flex-wrap: wrap; }
+.rule-ed-day { display: grid; place-items: center; padding: 0; width: 34px; height: 34px; border-radius: 50%; border: 1px solid var(--line); background: var(--panel); color: var(--muted); }
+.rule-ed-day.on { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); font-weight: 600; }
+.rule-ed.compact .rule-ed-day { width: 30px; height: 30px; }
+.rule-ed.compact .field-row { grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); }
+.rule-ed-preview { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
+.rule-ed-sub { color: var(--faint); font-size: var(--fs-sm); }
+.rule-ed-hint { margin-left: var(--sp-4); font-weight: 400; color: var(--faint); }
+.rule-ed-mono { font-family: var(--mono); font-size: var(--fs-sm); }
