@@ -18,6 +18,9 @@
 .tr-halt b { margin-right: 8px; padding: 1px 7px; border-radius: 4px; background: var(--danger); color: #fff; font-size: 12px; }
 .tr-halt-act { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; flex: none !important; }
 .tr-halt-q { font-size: 12px; }
+.tr-halt-input { width: 180px; }
+/* 一键全停的结果（停了几个部署、撤了几笔挂单） */
+.tr-kill-done { justify-content: space-between; flex-wrap: wrap; border-color: color-mix(in srgb, var(--ok) 30%, var(--line)); background: color-mix(in srgb, var(--ok) 8%, var(--panel)); }
 
 /* 买卖方向小标 */
 .tr-side { display: inline-grid; place-items: center; flex: none; width: 20px; height: 20px; border-radius: 4px; font-size: 11.5px; font-weight: 600; }
@@ -25,6 +28,9 @@
 .tr-side.sell { color: var(--tr-down, #1f9d55); background: color-mix(in srgb, var(--tr-down, #1f9d55) 13%, transparent); }
 .tr-tag-sm { height: 18px; padding: 0 6px; font-size: 11px; margin-left: 4px; }
 .tr-tag-live { color: var(--warn); background: var(--warn-soft); }
+.tr-tag-first { margin: 0 6px 0 0; }
+.tr-halt-row { align-items: flex-start; }
+.tr-halt-row > .tr-dot { margin-top: 6px; }
 
 /* 总览 */
 .tr-stats .stat-value { font-size: 21px; white-space: nowrap; }
@@ -170,6 +176,7 @@ button.tr-card-title:hover { color: var(--accent); }
 .tr-hints { display: flex; flex-direction: column; gap: 4px; padding: 9px 12px; border-radius: var(--r); background: var(--warn-soft); color: color-mix(in srgb, var(--warn) 80%, var(--text)); font-size: 12.5px; line-height: 1.55; }
 .tr-block { margin-bottom: 0; }
 .tr-block ul { margin: 4px 0 0; padding-left: 18px; }
+.tr-hint-list { margin: 0; padding-left: 18px; }
 .tr-confirm-q { font-size: 12.5px; color: var(--warn); }
 .tr-btn-buy { background: var(--tr-up, #d4372c); color: #fff; }
 .tr-btn-sell { background: var(--tr-down, #1f9d55); color: #fff; }
@@ -224,4 +231,5 @@ button.tr-card-title:hover { color: var(--accent); }
   .detail-alert.tr-off-block > span { flex-basis: 100%; }
   .tr-card-nums b { font-size: 14px; }
   .tr-halt { align-items: flex-start; }
+  .tr-halt-input { width: 100%; }
 }

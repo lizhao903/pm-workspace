@@ -36,13 +36,14 @@ func TestManifestValid(t *testing.T) {
 	}
 }
 
-// 资金边界：插件源码里不出现下单、撤单、划转、提币的路径，也不申请实盘和交易所权限
+// 资金边界：插件源码里不出现向交易所下单、撤单、划转、提币的路径，也不申请实盘和交易所权限。
+// 模拟盘自己的接口 /api/trade/orders（TRD-05a，只在本地撮合）是例外，先从源码里去掉再查。
 func TestNoLiveTradingPaths(t *testing.T) {
 	files, err := filepath.Glob("*.go")
 	if err != nil {
 		t.Fatal(err)
 	}
-	banned := []string{"/order", "withdraw", "transfer", "cancelorder", "placeorder", "http.defaultclient"}
+	banned := []string{"/order", "/api/v5/trade", "/sapi/", "withdraw", "transfer", "cancelorder", "placeorder", "http.defaultclient"}
 	for _, f := range files {
 		if strings.HasSuffix(f, "_test.go") {
 			continue
@@ -51,7 +52,7 @@ func TestNoLiveTradingPaths(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		src := strings.ToLower(string(b))
+		src := strings.ReplaceAll(strings.ToLower(string(b)), "/api/trade/orders", "")
 		for _, s := range banned {
 			if strings.Contains(src, s) {
 				t.Errorf("%s 里出现了 %q", f, s)

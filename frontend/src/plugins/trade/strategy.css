@@ -246,3 +246,33 @@
   .sg-field-row { grid-template-columns: minmax(0, 1fr); }
 }
 .bt-rule { margin-top: 6px; padding: 6px 10px; border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--panel-2); font-size: 12.5px; overflow-wrap: anywhere; }
+
+/* ---------- 运行记录（SPEC-strategy-5.10、8），照原型 strategy.css 的 sr- 搬 ---------- */
+.sr-stats { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; }
+.sr-ok { color: var(--ok); }
+.sr-mini3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.sr-mini-list { display: flex; flex-direction: column; gap: 4px; }
+.sr-mini { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: var(--r); border: 1px solid var(--line); background: var(--panel); font-size: 12.5px; text-align: left; min-width: 0; }
+.sr-mini:hover { background: var(--hover); }
+.sr-list { display: flex; flex-direction: column; gap: 8px; container-type: inline-size; }
+.sr-row { border: 1px solid var(--line); border-radius: var(--r-lg); background: var(--panel); min-width: 0; }
+.sr-row.on { box-shadow: var(--shadow-sm); }
+.sr-bad { border-color: color-mix(in srgb, var(--danger) 35%, var(--line)); }
+.sr-head { display: flex; align-items: center; gap: 14px; width: 100%; padding: 12px 14px; text-align: left; min-width: 0; }
+.sr-main { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
+.sr-main b { font-weight: 600; }
+.sr-tag { margin-left: 6px; }
+.sr-cell { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; min-width: 76px; font-size: 12.5px; }
+.sr-cell small { font-size: 11px; opacity: 0.8; }
+.sr-body { display: flex; flex-direction: column; gap: 8px; padding: 12px 14px 14px; border-top: 1px solid var(--line); min-width: 0; }
+.sr-logs { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; font-size: 12.5px; }
+.sr-logs li { display: flex; gap: 10px; min-width: 0; overflow-wrap: anywhere; }
+.sr-logs li .sg-muted { flex: none; width: 86px; }
+.sr-log-warn { color: var(--warn); }
+.sr-log-error { color: var(--danger); }
+@container (max-width: 640px) {
+  .sr-head { flex-wrap: wrap; }
+  .sr-main { flex-basis: calc(100% - 90px); }
+  .sr-when { display: none; }
+  .sr-cell { align-items: flex-start; }
+}

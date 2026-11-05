@@ -1,10 +1,11 @@
 // Package trade 是交易套件插件的后端（TRD-01a 起）：一个插件、四个功能模块（行情、盯盘、策略与回测、交易执行），
 // 以后要单独装时再拆。标的（instruments.go）、自选分组（watchlists.go）、行情源适配接口（source.go），
 // Binance、OKX 公开行情（binance.go、okx.go，TRD-01b、TRD-01c），行情缓存和推送（market.go、klines.go、stream.go，TRD-02a），
-// 盯盘提醒（alerts.go、alerts_api.go，TRD-03a）。
+// 盯盘提醒（alerts.go、alerts_api.go，TRD-03a），策略和回测（strategies.go、backtests.go，TRD-04b），
+// 模拟盘账户、委托、撮合（accounts.go、ledger.go、paper.go，TRD-05a），策略部署（runs.go，TRD-05b），风控（risk.go，TRD-06a）。
 //
 // 涉及资金的边界：只做行情、回测、模拟盘；不写任何向交易所下单、撤单、划转、提币的代码路径，
-// 权限只有 network:market-data，不声明 network:exchanges 和 trade:live。
+// 权限只有 network:market-data，不声明 network:exchanges 和 trade:live。模拟盘的委托只在本地撮合，下单入口只接受模拟盘账户。
 // 接口契约见 docs/api-contract.md「交易套件插件 trade」。
 package trade
 
@@ -38,6 +39,8 @@ type Plugin struct {
 	mkt     *market
 	alerts  *alerter  // 盯盘提醒（alerts.go）
 	bt      *btRunner // 回测调度（TRD-04b，backtests.go）
+	paper   *paper    // 模拟盘账本、下单入口、撮合、风控（TRD-05a、TRD-06a，paper.go、risk.go）
+	runs    *runner   // 策略部署（TRD-05b，runs.go）
 
 	// 测试用：时钟、刷新和推送间隔、出网函数（换成假交易所），零值用默认
 	now  func() time.Time
@@ -114,6 +117,8 @@ func (p *Plugin) Register(r plugin.Registrar) error {
 	p.mkt = newMarket(p, core)
 	p.alerts = newAlerter(p, core)
 	p.bt = newBtRunner(p, core)
+	p.paper = newPaper(p, core)
+	p.runs = newRunner(p, core)
 	h := &handlers{c: core, p: p}
 	r.Routes(func(m plugin.RouteRegistrar) {
 		m.HandleFunc("GET /api/trade/sources", h.listSources)
@@ -144,9 +149,40 @@ func (p *Plugin) Register(r plugin.Registrar) error {
 		m.HandleFunc("DELETE /api/trade/backtests/{id}", h.removeBacktest)
 		m.HandleFunc("POST /api/trade/backtests/{id}/rerun", h.rerunBacktest)
 		m.HandleFunc("POST /api/trade/backtests/{id}/sweep", h.sweepBacktest)
+		// 模拟盘（TRD-05a，accounts.go、paper_api.go）
+		m.HandleFunc("GET /api/trade/accounts", h.listAccounts)
+		m.HandleFunc("POST /api/trade/accounts", h.addAccount)
+		m.HandleFunc("GET /api/trade/accounts/{id}", h.getAccount)
+		m.HandleFunc("PATCH /api/trade/accounts/{id}", h.updateAccount)
+		m.HandleFunc("DELETE /api/trade/accounts/{id}", h.removeAccount)
+		m.HandleFunc("GET /api/trade/accounts/{id}/reconcile", h.reconcileAccount)
+		m.HandleFunc("GET /api/trade/orders", h.listOrders)
+		m.HandleFunc("POST /api/trade/orders", h.addOrder)
+		m.HandleFunc("POST /api/trade/orders/cancel-all", h.cancelAllOrders)
+		m.HandleFunc("GET /api/trade/orders/{id}", h.getOrder)
+		m.HandleFunc("PATCH /api/trade/orders/{id}", h.updateOrder)
+		m.HandleFunc("POST /api/trade/orders/{id}/cancel", h.cancelPaperOrder)
+		m.HandleFunc("GET /api/trade/positions", h.listPositions)
+		m.HandleFunc("POST /api/trade/positions/{id}/close", h.closePosition)
+		m.HandleFunc("GET /api/trade/fills", h.listFills)
+		// 部署（TRD-05b，runs.go）
+		m.HandleFunc("GET /api/trade/runs", h.listRuns)
+		m.HandleFunc("POST /api/trade/runs", h.addRun)
+		m.HandleFunc("GET /api/trade/runs/{id}", h.getRun)
+		m.HandleFunc("POST /api/trade/runs/{id}/pause", h.runAction("pause"))
+		m.HandleFunc("POST /api/trade/runs/{id}/resume", h.runAction("resume"))
+		m.HandleFunc("POST /api/trade/runs/{id}/stop", h.runAction("stop"))
+		// 风控（TRD-06a，risk.go）
+		m.HandleFunc("GET /api/trade/risk", h.getRisk)
+		m.HandleFunc("PATCH /api/trade/risk", h.updateRisk)
+		m.HandleFunc("POST /api/trade/risk/kill", h.killAll)
+		m.HandleFunc("POST /api/trade/risk/release", h.releaseHalt)
+		m.HandleFunc("GET /api/trade/risk/halts", h.listHalts)
 	})
 	r.Job(plugin.Job{Name: "trade_backtests", Run: func(ctx context.Context, _ plugin.Core) error { return p.bt.run(ctx) }})
 	r.Job(plugin.Job{Name: "trade_alerts", Every: alertEvery, Run: func(ctx context.Context, _ plugin.Core) error { return p.alerts.check(ctx) }})
+	r.Job(plugin.Job{Name: "trade_paper", Run: func(ctx context.Context, _ plugin.Core) error { return p.paper.run(ctx) }})
+	r.Job(plugin.Job{Name: "trade_runs", Run: func(ctx context.Context, _ plugin.Core) error { return p.runs.run(ctx) }})
 	if len(p.sources) > 0 {
 		// 行情刷新常驻；标的表一天同步一次（启用时先跑一次）
 		r.Job(plugin.Job{Name: "trade_market", Run: func(ctx context.Context, _ plugin.Core) error { return p.mkt.run(ctx) }})

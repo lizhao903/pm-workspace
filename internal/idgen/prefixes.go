@@ -99,10 +99,12 @@ var Registry = []Entry{
 	{"st", "strategy", "", "strategy"},
 	{"rl", "strategyRule", "", "strategyRule"},
 	{"bk", "backtest", "", "backtest"},
-	{"ac", "account", "", "account"},
-	{"ps", "position", "", "position"},
-	{"od", "order", "", "order"},
-	{"rn", "strategyRun", "", "strategyRun"},
+	{"ac", "account", "trade_accounts", "account"},       // 交易插件的表（TRD-05a），模拟盘账户
+	{"ps", "position", "trade_fills", "position"},        // 交易插件（TRD-05a），持仓编号记在成交流水的 pos_id 上，没有单独的表
+	{"od", "order", "trade_orders", "order"},             // 交易插件的表（TRD-05a），委托
+	{"fl", "fill", "trade_fills", ""},                    // 交易插件的表（TRD-05a），成交流水
+	{"rn", "strategyRun", "trade_runs", "strategyRun"},   // 交易插件的表（TRD-05b），策略部署；日志 trade_run_logs 用整数 id
+	{"hl", "haltRecord", "trade_halts", ""},              // 交易插件的表（TRD-06a），熔断记录
 	{"ear", "etfAnomalyRule", "etf_anomaly_rules", ""},   // 宽基监控插件的表（ETF-01b），异动规则；内置 7 条用固定 id
 	{"eae", "etfAnomalyEvent", "etf_anomaly_events", ""}, // 宽基监控插件的表（ETF-01b），异动命中记录
 	// 浏览器与终端
