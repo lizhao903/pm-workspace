@@ -1,6 +1,7 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { MemoryRouter } from 'react-router'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ProfileTab } from './ProfileTab'
 
@@ -39,7 +40,8 @@ function fakeBackend() {
 
 function mount() {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-  return render(<QueryClientProvider client={qc}><ProfileTab projectId="obj_p" /></QueryClientProvider>)
+  // 末尾的「原型同步」块（AUTO-11）里有去 SOP 执行页的链接，要在路由里
+  return render(<MemoryRouter><QueryClientProvider client={qc}><ProfileTab projectId="obj_p" /></QueryClientProvider></MemoryRouter>)
 }
 
 afterEach(() => vi.unstubAllGlobals())

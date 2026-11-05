@@ -1,10 +1,12 @@
 // 项目档案（AUTO-04，SPEC-projects-15）：给分类 Agent 和各 pipeline 用的项目信息。
 // 和设置一样边改边存，没有「保存」按钮。目录存在性由正式产品的后端校验，原型不查，只说明规则。
+// 末尾是原型同步（AUTO-11，protosync.tsx）。
 import { useState } from 'react'
 import './projectprofile.css'
 import type { Contact } from './data'
 import { PathInput } from './projects'
 import { EMPTY_PROFILE, PLATFORM_PRESETS, PROFILE_COMMAND_GROUPS, PROFILE_COMMANDS, type Project, type ProjectProfile, type ProfileCommandKey } from './projectdata'
+import { ProtoSyncSection } from './protosync'
 import { SearchSelect } from './searchselect'
 import { Avatar, cls } from './ui'
 
@@ -127,6 +129,8 @@ export function ProjectProfileTab({ p, contacts, onChange }: { p: Project; conta
           </label>
         </div>
       </section>
+
+      <ProtoSyncSection info={p.proto_sync} codeDirSet={!!(pf.code_dir || p.root)} onChange={(proto_sync) => onChange({ proto_sync })} />
     </div>
   )
 }
