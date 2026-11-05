@@ -677,6 +677,11 @@ func (h *runs) list(w http.ResponseWriter, r *http.Request) {
 		fail(w, r, h.c, err)
 		return
 	}
+	// COUNT 和取列表是两条查询，中间执行器可能改了状态（比如重跑出的新执行刚失败），两边会对不上；
+	// 不满一页时列表就是全部，total 以列表为准
+	if len(out) < limit {
+		total = len(out)
+	}
 	h.e.markBriefQueued(out)
 	writeJSON(w, http.StatusOK, map[string]any{"data": out, "meta": map[string]int{"total": total}})
 }
