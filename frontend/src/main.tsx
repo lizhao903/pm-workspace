@@ -4,7 +4,7 @@ import { QueryClientProvider } from '@tanstack/react-query'
 import { RouterProvider } from 'react-router'
 import { queryClient, startEventStream } from './core/data'
 import { createAppRouter } from './core/shell/router'
-import { watchStaleBuild } from './core/shell/staleBuild'
+import { setReloadTarget, watchStaleBuild } from './core/shell/staleBuild'
 import { watchErrors } from './core/shell/errorReport'
 import { coreModules } from './modules'
 
@@ -13,6 +13,11 @@ watchStaleBuild()
 // 全局未捕获的异常、没人处理的 Promise 记成运行异常，同一个错误一次会话只报一次（INC-01b）
 watchErrors()
 const router = createAppRouter(coreModules)
+// 换版本自动刷新时直接打开正在去的页面，不回到点之前的那页
+setReloadTarget(() => {
+  const to = router.state.navigation.location
+  return to ? to.pathname + to.search + to.hash : null
+})
 // 订阅后端事件流，按事件刷新缓存；断开时各处退回轮询（CORE-07c）
 startEventStream(queryClient)
 
