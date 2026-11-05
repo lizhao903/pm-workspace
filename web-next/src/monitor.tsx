@@ -4,15 +4,16 @@ import { PageTitle } from './topbar'
 import { cls, timeAgo } from './ui'
 import {
   ALERT_COND, DOWN, INSTRUMENTS, MARKETS, OPTION_EXPIRIES, OPTION_UNDERLYINGS, SESSION_LABEL, UP,
-  bars, fmtPct, fmtPrice, greeks, instOf, optionChain, prevClose, priceAt, sessionOf,
-  type AlertCond, type AlertEvent, type AlertNotify, type Instrument, type MarketKey, type PriceAlert, type SessionState, type Watchlist,
+  bars, fmtPct, fmtPrice, instOf, optionChain, prevClose, priceAt, sessionOf,
+  type AlertCond, type AlertEvent, type AlertNotify, type MarketKey, type PriceAlert, type SessionState, type Watchlist,
 } from './tradedata'
+import { condFits, condValue, fmtCondValue } from './alertcheck'
 import { newId } from './ids'
 import { SearchSelect } from './searchselect'
 import { SymbolPicker } from './symbolpick'
 
 // 盯盘：市场时段、盯盘墙（迷你分时）、提醒规则、触发记录
-// checkAlerts 是纯函数，主会话每 5 秒调用一次，负责写 last_fired_at 和追加触发记录
+// checkAlerts 是纯函数（alertcheck.ts），主会话每 5 秒调用一次，负责写 last_fired_at 和追加触发记录
 // 页面本身不跟秒走：时钟、盯盘墙、规则的「当前值」各自订阅下面的共用时钟，规则行和触发记录都是 memo
 
 /* ---------- 共用的秒级时钟 ---------- */
@@ -48,103 +49,8 @@ function useNearView<T extends Element>() {
   return [ref, near] as const
 }
 
-const TAU = Math.PI * 2
-function hashStr(s: string) { let h = 2166136261; for (const c of s) h = Math.imul(h ^ c.charCodeAt(0), 16777619); return h >>> 0 }
-
-/** 模拟资金费率（单位 %，每 8 小时结算一次的费率）；只有永续有，其它返回 0。看盘页显示的也是它 */
-export function fundingRate(symbol: string, at = Date.now()): number {
-  const i = instOf(symbol)
-  if (!i || i.kind !== 'perp') return 0
-  const h = hashStr(symbol)
-  const t = at / 3600000
-  const v = 0.012
-    + 0.03 * Math.sin(TAU * (t / 9 + (h % 100) / 100))
-    + 0.018 * Math.sin(TAU * (t / 1.7 + (h % 37) / 37))
-    + 0.006 * Math.sin(TAU * (t / 0.25 + (h % 13) / 13))
-  return Math.round(v * 10000) / 10000
-}
-
-/** 条件是否适用于这个标的 */
-export function condFits(cond: AlertCond, i: Instrument | undefined) {
-  if (!i) return false
-  const k = ALERT_COND[cond].kinds
-  if (k && !k.includes(i.kind)) return false
-  if (cond === 'limit_near' && !i.limit) return false
-  return true
-}
-
-/** 按条件的单位算当前值：价格、涨跌幅 %、量比、资金费率 %、IV %、距涨跌停 % */
-function condValue(cond: AlertCond, symbol: string, at: number): number | null {
-  const i = instOf(symbol)
-  if (!condFits(cond, i)) return null
-  const last = priceAt(symbol, at)
-  switch (cond) {
-    case 'price_above': case 'price_below': return last
-    case 'pct_above': case 'pct_below': {
-      const prev = prevClose(symbol, at)
-      const pct = prev ? ((last - prev) / prev) * 100 : 0
-      return cond === 'pct_above' ? pct : -pct
-    }
-    case 'volume_spike': {
-      const xs = bars(symbol, '1m', 21, at)
-      const avg = xs.slice(0, -1).reduce((s, b) => s + Math.abs(b.v), 0) / Math.max(1, xs.length - 1)
-      return avg ? Math.abs(xs[xs.length - 1].v) / avg : 0
-    }
-    case 'funding_above': return fundingRate(symbol, at)
-    case 'iv_above': return greeks(i!, at).iv * 100
-    case 'limit_near': {
-      const prev = prevClose(symbol, at)
-      const up = prev * (1 + i!.limit!), down = prev * (1 - i!.limit!)
-      return (Math.min(up - last, last - down) / prev) * 100
-    }
-  }
-}
-
-function hit(cond: AlertCond, v: number, th: number) {
-  if (cond === 'price_below' || cond === 'limit_near') return v <= th
-  return v >= th
-}
-
-function fmtCondValue(cond: AlertCond, symbol: string, v: number) {
-  if (cond === 'price_above' || cond === 'price_below') return fmtPrice(symbol, v)
-  if (cond === 'volume_spike') return `${v.toFixed(2)} 倍`
-  if (cond === 'funding_above') return `${v.toFixed(4)}%`
-  return `${v.toFixed(2)}%`
-}
-
-function alertText(a: PriceAlert, v: number) {
-  const name = instOf(a.symbol)?.name ?? a.symbol
-  const th = a.cond === 'price_above' || a.cond === 'price_below' ? fmtPrice(a.symbol, a.value) : String(a.value)
-  switch (a.cond) {
-    case 'price_above': return `${name} 价格 ${fmtPrice(a.symbol, v)}，上穿 ${th}`
-    case 'price_below': return `${name} 价格 ${fmtPrice(a.symbol, v)}，下穿 ${th}`
-    case 'pct_above': return `${name} 涨幅 ${v.toFixed(2)}%，超过 ${th}%`
-    case 'pct_below': return `${name} 跌幅 ${v.toFixed(2)}%，超过 ${th}%`
-    case 'volume_spike': return `${name} 1 分钟成交量是 20 根均量的 ${v.toFixed(2)} 倍，超过 ${th} 倍`
-    case 'funding_above': return `${name} 资金费率 ${v.toFixed(4)}%，高于 ${th}%`
-    case 'iv_above': return `${name} 隐含波动率 ${v.toFixed(1)}%，高于 ${th}%`
-    case 'limit_near': return `${name} 距涨跌停 ${v.toFixed(2)}%，在 ${th}% 以内`
-  }
-}
-
-/** 纯函数：给定时刻哪些提醒该触发 */
-export function checkAlerts(alerts: PriceAlert[], at: number): { alert: PriceAlert; text: string; price: number }[] {
-  const out: { alert: PriceAlert; text: string; price: number }[] = []
-  for (const a of alerts) {
-    if (!a.enabled) continue
-    const i = instOf(a.symbol)
-    if (!condFits(a.cond, i)) continue
-    if (a.last_fired_at) {
-      // 单次提醒触发过就不再响；重复提醒要过了冷却
-      if (!a.repeat) continue
-      if (at - new Date(a.last_fired_at).getTime() < Math.max(0, a.cooldown_min) * 60000) continue
-    }
-    const v = condValue(a.cond, a.symbol, at)
-    if (v === null || !Number.isFinite(v) || !hit(a.cond, v, a.value)) continue
-    out.push({ alert: a, text: alertText(a, v), price: priceAt(a.symbol, at) })
-  }
-  return out
-}
+// 判定逻辑在 alertcheck.ts（纯函数，后端照它移植并对拍）；这里转出去给 App.tsx、markets.tsx 用
+export { checkAlerts, condFits, fundingRate } from './alertcheck'
 
 /* ---------- 市场时段 ---------- */
 
@@ -260,10 +166,14 @@ function symbolChoices(extra: string) {
 
 type Draft = Omit<PriceAlert, 'id' | 'created_at' | 'value'> & { value: string }
 
+/** 推 IM 的连接器；不是已连接的在下拉里标出来，选了给提示（SPEC-monitor-0.2） */
+type ImConn = { id: string; name: string; status?: string }
+const CONN_STATUS: Record<string, string> = { connecting: '连接中', error: '异常', paused: '已暂停', disconnected: '已断开' }
+
 function AlertDrawer({ alert, symbol, imConnectors, onClose, onSave, onDelete }: {
   alert: PriceAlert | null
   symbol: string
-  imConnectors: { id: string; name: string }[]
+  imConnectors: ImConn[]
   onClose: () => void
   onSave: (d: Omit<PriceAlert, 'id' | 'created_at'>) => void
   onDelete: () => void
@@ -334,6 +244,7 @@ function AlertDrawer({ alert, symbol, imConnectors, onClose, onSave, onDelete }:
           <span className="mo-cur-v">{cur === null ? '-' : fmtCondValue(d.cond, d.symbol, cur)}</span>
           {d.cond === 'pct_below' && <span className="faint">跌幅按正数填，例如 4 表示跌 4%</span>}
           {d.cond === 'limit_near' && <span className="faint">离涨停或跌停的距离，占昨收的百分比</span>}
+          {isPrice(d.cond) && <span className="faint">价格在阈值{d.cond === 'price_above' ? '上方' : '下方'}时就算满足</span>}
           <span className="spacer" />
           <button className="act act-quiet" disabled={cur === null} onClick={fill}>填入当前值</button>
         </div>
@@ -350,8 +261,9 @@ function AlertDrawer({ alert, symbol, imConnectors, onClose, onSave, onDelete }:
               <label className="field"><span className="field-label">推送到</span>
                 <select value={d.im_connector ?? ''} onChange={(e) => setD({ ...d, im_connector: e.target.value || undefined })}>
                   <option value="">选一个 IM 连接器</option>
-                  {imConnectors.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                  {imConnectors.map((c) => <option key={c.id} value={c.id}>{c.status && c.status !== 'connected' ? `${c.name}（${CONN_STATUS[c.status] ?? c.status}）` : c.name}</option>)}
                 </select>
+                {(() => { const c = imConnectors.find((x) => x.id === d.im_connector); return c?.status && c.status !== 'connected' ? <span className="field-hint-line">这个连接器现在{CONN_STATUS[c.status] ?? c.status}，提醒推不出去</span> : null })()}
               </label>
             ) : <div className="mount-empty">还没有可用的 IM 连接器，到 设置 &gt; 连接器 里接一个</div>
           )}
@@ -454,7 +366,7 @@ const AlertRow = memo(function AlertRow({ a, sel, imName, onOpen, onPatch }: {
 
 function RulesPanel({ alerts, selId, imConnectors, onOpen, onPatch, onNew }: {
   alerts: PriceAlert[]; selId: string | null
-  imConnectors: { id: string; name: string }[]
+  imConnectors: ImConn[]
   onOpen: (a: PriceAlert) => void
   onPatch: (id: string, p: Partial<PriceAlert>) => void
   onNew: () => void
@@ -565,7 +477,7 @@ const EventsPanel = memo(function EventsPanel({ events, onRead, onReadAll, onOpe
 
 export function MonitorPage({ alerts, events, watchlists, imConnectors, onAlerts, onEvents, onOpenChart, newRequest }: {
   alerts: PriceAlert[]; events: AlertEvent[]; watchlists: Watchlist[]
-  imConnectors: { id: string; name: string }[]
+  imConnectors: ImConn[]
   onAlerts: (fn: (xs: PriceAlert[]) => PriceAlert[]) => void
   onEvents: (fn: (xs: AlertEvent[]) => AlertEvent[]) => void
   onOpenChart: (symbol: string) => void
