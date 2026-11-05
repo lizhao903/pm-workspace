@@ -4,11 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"slices"
 	"strconv"
 	"strings"
 	"unicode/utf8"
+
+	"github.com/lizhao903/pm-workspace/internal/plugin"
 )
 
 // 模拟盘、部署、风控的接口（TRD-05a、TRD-05b、TRD-06a），路由在 trade.go 登记，契约见 docs/api-contract.md「交易套件插件 trade」。
@@ -38,6 +41,12 @@ type OrderView struct {
 	Source       string   `json:"source"`
 	Triggered    bool     `json:"triggered"`
 	Confirmed    bool     `json:"confirmed"`
+	// 实盘委托（TRD-08d）：live 为真；发给交易所的委托编号、交易所委托号、发出时间、最近一次查单时间
+	Live            bool   `json:"live"`
+	ClientOrderID   string `json:"client_order_id,omitempty"`
+	ExchangeOrderID string `json:"exchange_order_id,omitempty"`
+	SubmittedAt     string `json:"submitted_at,omitempty"`
+	CheckedAt       string `json:"checked_at,omitempty"`
 }
 
 func optFx(v fx) *float64 {
@@ -52,7 +61,8 @@ func (o Order) view() OrderView {
 	return OrderView{ID: o.ID, AccountID: o.AccountID, Symbol: o.Symbol, Side: o.Side, Type: o.Type, Qty: o.Qty.Float(), Price: optFx(o.Price),
 		StopPrice: optFx(o.Stop), Filled: o.Filled.Float(), AvgFill: optFx(o.AvgFill), Status: o.Status, RejectReason: o.RejectReason,
 		ReduceOnly: o.ReduceOnly, RunID: o.RunID, CreatedAt: o.CreatedAt, UpdatedAt: o.UpdatedAt, Leverage: o.Leverage, Fee: o.Fee.Float(),
-		Source: o.Source, Triggered: o.Triggered, Confirmed: o.Confirmed}
+		Source: o.Source, Triggered: o.Triggered, Confirmed: o.Confirmed, Live: o.Live, ClientOrderID: o.ExClientID, ExchangeOrderID: o.ExOrderID,
+		SubmittedAt: o.SubmittedAt, CheckedAt: o.CheckedAt}
 }
 
 // PositionView 是接口里的持仓（TradePosition），前半同原型 Position，后面是现价和盈亏。
@@ -243,17 +253,28 @@ func (b *bodyReader) only(keys ...string) {
 	}
 }
 
-// failPlace 把下单入口的错误写回：风控拦截、二次确认是 409。
+// failPlace 把下单入口的错误写回：风控拦截、二次确认是 409；实盘闸门没过 403（reason live_gate，missing 写缺什么）；
+// 不是用户本人代为提交实盘委托 403（reason not_user）；取不到交易所的下单规则、杠杆 502（code upstream）。
 func (h *handlers) failPlace(w http.ResponseWriter, r *http.Request, err error) {
 	var re *riskError
 	var ce *confirmError
+	var ge *gateError
+	var nu *plugin.NotUserError
 	switch {
+	case errors.As(err, &ge):
+		writeJSON(w, http.StatusForbidden, map[string]any{"error": map[string]any{"code": "forbidden", "reason": "live_gate",
+			"message": "实盘闸门没过：" + strings.Join(ge.Missing, "；"), "missing": ge.Missing}})
+	case errors.As(err, &nu):
+		writeJSON(w, http.StatusForbidden, map[string]any{"error": map[string]any{"code": "forbidden", "reason": "not_user", "message": nu.Error()}})
+	case errors.Is(err, errUpstream):
+		_, msg, _ := strings.Cut(err.Error(), ": ")
+		writeJSON(w, http.StatusBadGateway, map[string]any{"error": map[string]any{"code": "upstream", "message": msg}})
 	case errors.As(err, &re):
 		writeJSON(w, http.StatusConflict, map[string]any{"error": map[string]any{"code": "conflict", "reason": "risk",
 			"message": "风控未通过：" + strings.Join(re.Blocks, "；"), "blocks": re.Blocks, "order": re.Order.view()}})
 	case errors.As(err, &ce):
 		writeJSON(w, http.StatusConflict, map[string]any{"error": map[string]any{"code": "conflict", "reason": "confirm",
-			"message": ce.Error(), "value": ce.Value.Float(), "confirm_above": ce.Threshold.Float()}})
+			"message": ce.Error(), "value": ce.Value.Float(), "confirm_above": ce.Threshold.Float(), "live": ce.Live}})
 	case errors.Is(err, errHalted):
 		writeJSON(w, http.StatusConflict, map[string]any{"error": map[string]any{"code": "conflict", "reason": "halted",
 			"message": "熔断中，不能启动新运行；先到风控解除熔断"}})
@@ -350,19 +371,27 @@ func (h *handlers) listOrders(w http.ResponseWriter, r *http.Request) {
 			args = append(args, v)
 		}
 	}
+	if v := qs.Get("live"); v != "" {
+		if v != "true" && v != "false" {
+			h.fail(w, r, apiErr(errValidation, "live 只能是 true 或 false"))
+			return
+		}
+		conds = append(conds, "live = ?")
+		args = append(args, b2i(v == "true"))
+	}
 	base := strings.Join(conds, " AND ")
 	where := base
 	switch st := qs.Get("status"); st {
 	case "":
 	case "active":
-		where = joinCond(base, "status = 'open'")
+		where = joinCond(base, activeSQL)
 	case "history":
-		where = joinCond(base, "status != 'open'")
-	case orderOpen, orderFilled, orderCanceled, orderRejected:
+		where = joinCond(base, "NOT "+activeSQL)
+	case orderOpen, orderFilled, orderCanceled, orderRejected, orderPending, orderPartial, orderUnknown:
 		where = joinCond(base, "status = ?")
 		args = append(args, st)
 	default:
-		h.fail(w, r, apiErr(errValidation, "status 只能是 active、history、open、filled、canceled、rejected"))
+		h.fail(w, r, apiErr(errValidation, "status 只能是 active、history、open、filled、canceled、rejected、pending、partial、unknown"))
 		return
 	}
 	var total, active, history int
@@ -374,7 +403,7 @@ func (h *handlers) listOrders(w http.ResponseWriter, r *http.Request) {
 	if qs.Get("status") != "" && qs.Get("status") != "active" && qs.Get("status") != "history" {
 		baseArgs = args[:len(args)-1]
 	}
-	_ = h.c.Store().QueryRow(ctx, `SELECT COALESCE(SUM(status = 'open'), 0), COALESCE(SUM(status != 'open'), 0) FROM trade_orders`+wherePrefix(base), baseArgs...).Scan(&active, &history)
+	_ = h.c.Store().QueryRow(ctx, `SELECT COALESCE(SUM(`+activeSQL+`), 0), COALESCE(SUM(NOT `+activeSQL+`), 0) FROM trade_orders`+wherePrefix(base), baseArgs...).Scan(&active, &history)
 	os, err := queryOrders(ctx, h.c, wherePrefix(where)+` ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?`, append(args, limit, offset)...)
 	if err != nil {
 		h.fail(w, r, err)
@@ -386,6 +415,9 @@ func (h *handlers) listOrders(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"data": out, "meta": map[string]int{"total": total, "active": active, "history": history, "limit": limit, "offset": offset}})
 }
+
+// activeSQL 是「进行中」的委托：模拟盘挂单中，实盘还没到终态（pending、open、partial、unknown）。
+const activeSQL = `(` + liveActiveSQL + `)`
 
 func joinCond(a, b string) string {
 	if a == "" {
@@ -533,7 +565,7 @@ func (h *handlers) updateOrder(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"data": o.view()})
 }
 
-// POST /api/trade/orders/{id}/cancel
+// POST /api/trade/orders/{id}/cancel：模拟盘本地撤；实盘委托到交易所撤（撤单查单令牌，开关关了也能撤），撤不了 502。
 func (h *handlers) cancelPaperOrder(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	pp := h.p.paper
@@ -542,6 +574,28 @@ func (h *handlers) cancelPaperOrder(w http.ResponseWriter, r *http.Request) {
 	o, err := loadOrder(ctx, h.c, r.PathValue("id"))
 	if err != nil {
 		h.fail(w, r, err)
+		return
+	}
+	if o.Live {
+		if terminalStatus(o.Status) {
+			h.failPlace(w, r, apiErr(errConflictState, "委托已经是终态，撤不了"))
+			return
+		}
+		ok, err := h.p.trader.cancelOrderLocked(ctx, o, "手动撤单", userMeta)
+		var ge *gateError
+		switch {
+		case errors.As(err, &ge):
+			h.failPlace(w, r, err)
+			return
+		case err != nil:
+			h.failPlace(w, r, fmt.Errorf("%w: 撤单失败：%v", errUpstream, err))
+			return
+		case !ok:
+			h.failPlace(w, r, apiErr(errConflictState, "委托在交易所已经成交或撤掉了"))
+			return
+		}
+		o, _ = loadOrder(ctx, h.c, o.ID)
+		writeJSON(w, http.StatusOK, map[string]any{"data": o.view()})
 		return
 	}
 	ok, err := pp.cancelLocked(ctx, o, "手动撤单", userMeta)
@@ -573,16 +627,22 @@ func (h *handlers) cancelAllOrders(w http.ResponseWriter, r *http.Request) {
 		h.fail(w, r, b.err)
 		return
 	}
-	if aid != "" {
-		// 实盘账户的撤单同样不开放（403）
-		if a, err := loadAccount(ctx, h.c, aid); err == nil && !a.Paper {
-			h.fail(w, r, liveErr(a.Name))
-			return
-		}
-	}
 	pp := h.p.paper
 	pp.mu.Lock()
 	defer pp.mu.Unlock()
+	if aid != "" {
+		// 实盘账户：撤掉这个账户在交易所的全部挂单（含不是交易套件下的）
+		if a, err := loadAccount(ctx, h.c, aid); err == nil && !a.Paper {
+			n, failed, _ := h.p.trader.cancelAccountLocked(ctx, a, "全部撤单", userMeta)
+			if len(failed) > 0 {
+				writeJSON(w, http.StatusBadGateway, map[string]any{"error": map[string]any{"code": "upstream", "message": "有挂单没撤掉：" + strings.Join(failed, "；"),
+					"canceled": n, "failed": failed}})
+				return
+			}
+			writeJSON(w, http.StatusOK, map[string]any{"data": map[string]int{"canceled": n}})
+			return
+		}
+	}
 	where, args := "", []any{}
 	if aid != "" {
 		where, args = " AND account_id = ?", append(args, aid)
@@ -591,6 +651,17 @@ func (h *handlers) cancelAllOrders(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		h.fail(w, r, err)
 		return
+	}
+	if aid == "" {
+		// 不指定账户：实盘这边只撤交易套件自己下的、还没到终态的委托
+		live, err := queryOrders(ctx, h.c, `WHERE live = 1 AND `+liveActiveSQL+` ORDER BY created_at`)
+		if err != nil {
+			h.fail(w, r, err)
+			return
+		}
+		k, f := h.p.trader.cancelOrdersLocked(ctx, live, "全部撤单", userMeta)
+		n += k
+		failed = append(failed, f...)
 	}
 	if len(failed) > 0 {
 		h.fail(w, r, errors.New(strings.Join(failed, "；")))
@@ -646,12 +717,32 @@ func (h *handlers) closePosition(w http.ResponseWriter, r *http.Request) {
 		h.fail(w, r, b.err)
 		return
 	}
+	id := r.PathValue("id")
+	if strings.HasPrefix(id, "live:") {
+		// 实盘持仓（快照里的 id 是 live:<账户>:<持仓键>）：按本地记录的数量反向下一笔，永续带仅减仓，同样走统一下单入口
+		lreq, err := h.liveCloseReq(ctx, id)
+		if err != nil {
+			h.fail(w, r, err)
+			return
+		}
+		req.AccountID, req.Symbol, req.Qty, req.Side, req.ReduceOnly = lreq.AccountID, lreq.Symbol, lreq.Qty, lreq.Side, lreq.ReduceOnly
+		if req.Type != "market" && req.Type != "limit" {
+			h.fail(w, r, apiErr(errValidation, "实盘平仓只支持市价、限价"))
+			return
+		}
+		o, err := h.p.paper.place(ctx, req)
+		if err != nil {
+			h.failPlace(w, r, err)
+			return
+		}
+		writeJSON(w, http.StatusCreated, map[string]any{"data": o.view()})
+		return
+	}
 	held, err := loadPositions(ctx, h.c, "")
 	if err != nil {
 		h.fail(w, r, err)
 		return
 	}
-	id := r.PathValue("id")
 	i := slices.IndexFunc(held, func(p heldPosition) bool { return p.ID == id })
 	if i < 0 {
 		h.fail(w, r, apiErr(errNotFound, "持仓 %s 不存在或已经平掉", id))
@@ -671,6 +762,37 @@ func (h *handlers) closePosition(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusCreated, map[string]any{"data": o.view()})
+}
+
+// liveCloseReq 把实盘持仓 id（live:<账户>:<持仓键>）换成平仓委托的账户、标的、数量、方向。
+func (h *handlers) liveCloseReq(ctx context.Context, id string) (orderReq, error) {
+	rest := strings.TrimPrefix(id, "live:")
+	aid, key, ok := strings.Cut(rest, ":")
+	if !ok || aid == "" || key == "" {
+		return orderReq{}, apiErr(errNotFound, "持仓 %s 不存在", id)
+	}
+	a, err := loadAccount(ctx, h.c, aid)
+	if err != nil || a.Paper {
+		return orderReq{}, apiErr(errNotFound, "持仓 %s 不存在", id)
+	}
+	hs, err := h.p.live.holdings(ctx, a.ID)
+	if err != nil {
+		return orderReq{}, err
+	}
+	hd, ok := hs[key]
+	if !ok || hd.Qty == 0 || strings.Contains(key, "#") {
+		return orderReq{}, apiErr(errNotFound, "持仓 %s 不存在、已经平掉，或是双向持仓（实盘下单只支持单向持仓）", id)
+	}
+	req := orderReq{AccountID: a.ID, Symbol: hd.Symbol, Qty: hd.Qty.abs(), Side: "sell"}
+	if holdingKind(key) == "spot" {
+		req.Symbol = spotSymbol(a.Broker, key)
+	} else {
+		req.ReduceOnly = true
+	}
+	if hd.Qty < 0 {
+		req.Side = "buy"
+	}
+	return req, nil
 }
 
 // GET /api/trade/fills?account_id=&run_id=&order_id=&limit=&offset=

@@ -27,7 +27,8 @@ import (
 // 同步（后台任务 trade_live，每 liveSyncEvery 一轮；POST /accounts/{id}/sync、/connect、/recon 当场同步一次）：
 // 每次先查 Key 权限（发现带了提币权限：账户立刻停用、写审计、停掉这个账户上的部署），再拉余额、持仓、挂单和新的成交。
 // 第一次成功时按交易所数据建立本地记录；之后本地记录只按新拉到的成交变动，再和交易所的持仓、挂单对账。
-// 出网走 Core.HTTP("exchanges")，外面包 readOnlyTransport：只能 GET exchangeReadPaths 里的路径。
+// 出网走 Core.HTTP("exchanges")，外面包 readOnlyTransport：只能 GET exchangeReadPaths 里的路径；
+// 下单、撤单、查单只在实盘闸门的令牌下放行（TRD-08d，exchange_trade.go、livetrade.go），同步本身从不发写请求。
 
 var (
 	liveEvery     = 30 * time.Second // 后台任务多久看一遍
@@ -42,8 +43,8 @@ var (
 // errLive：对实盘账户的交易动作。接口回 403 forbidden、reason live。
 var errLive = errors.New("live")
 
-func liveErr(name string) error {
-	return fmt.Errorf("%w: 账户「%s」是实盘账户：实盘下单、改单撤单、平仓和部署还没开放（要先过实盘评审、打开实盘开关，并等实盘下单上线），实盘账户现在只读同步", errLive, name)
+func liveErr(name, why string) error {
+	return fmt.Errorf("%w: 账户「%s」是实盘账户：%s", errLive, name, why)
 }
 
 type liveSync struct {
@@ -117,7 +118,7 @@ func (ls *liveSync) connectorDef(x exchangeAccount) plugin.ConnectorDef {
 			}
 			perm := "只读"
 			if k.Trade {
-				perm = "读取 + 交易（交易套件里只读）"
+				perm = "读取 + 交易"
 			}
 			return x.Broker() + " " + hint + " · " + perm, nil
 		},
@@ -401,7 +402,13 @@ func (ls *liveSync) syncLocked(ctx context.Context, aid string) error {
 	for _, o := range los {
 		track = append(track, o.Symbol)
 	}
+	// 交易套件下的实盘委托（还没到终态的、一天内动过的）：它们的标的也要拉成交，市价单一下就成交完、不会出现在挂单里
+	if ids, err := idsWhere(ctx, ls.c, `SELECT DISTINCT symbol FROM trade_orders WHERE live = 1 AND account_id = ? AND (`+liveActiveSQL+` OR updated_at >= ?)`,
+		a.ID, stamp(now.Add(-24*time.Hour))); err == nil {
+		track = append(track, ids...)
+	}
 	slices.Sort(track)
+	track = slices.Compact(track)
 	var k KeyPerms
 	var snap liveSnapshot
 	werr := ls.c.Connectors().With(ctx, a.ConnectorID, func(cfg plugin.ConnectorConfig) error {
@@ -636,12 +643,16 @@ func (ls *liveSync) runAll(ctx context.Context) error {
 		}
 	}
 	ls.checkFeeds(ctx)
+	// 实盘委托的状态回写（TRD-08d）：没到终态的按 clientOrderId 查单
+	if ls.p.trader != nil {
+		ls.p.trader.poll(ctx)
+	}
 	return nil
 }
 
 /* ---------- 接口 ---------- */
 
-// effectivePerms 是账户的权限：用户要了交易、Key 也有交易权限才是读取 + 交易（实盘下单没开放前也不起作用）。
+// effectivePerms 是账户的权限：用户要了交易、Key 也有交易权限才是读取 + 交易（实盘下单还要过实盘闸门，livetrade.go）。
 func effectivePerms(a account) []string {
 	if a.WantTrade && slices.Contains(a.KeyPerms, "trade") {
 		return []string{"read", "trade"}
@@ -667,11 +678,12 @@ func (ls *liveSync) view(ctx context.Context, a account) (AccountView, error) {
 	if err != nil {
 		return AccountView{}, err
 	}
+	ready, blockers := ls.p.trader.tradeReady(ctx, a)
 	return AccountView{ID: a.ID, Name: a.Name, Broker: a.Broker, Kind: a.Kind, Markets: a.Markets, Paper: false, Currency: a.Currency,
 		Equity: st.Equity.Float(), Available: st.Available.Float(), MarginUsed: st.Margin.Float(), Status: a.Status, Error: a.Error,
 		APIHint: a.APIHint, Permissions: effectivePerms(a), UpdatedAt: orDefault(st.SyncedAt, a.UpdatedAt), Balance: st.Equity.Float(),
 		UnrealizedPnL: upl, MarksStatus: marks, CreatedAt: a.CreatedAt, ConnectorID: a.ConnectorID, KeyPermissions: a.KeyPerms,
-		WantTrade: &want, SyncedAt: st.SyncedAt, Recon: &brief}, nil
+		WantTrade: &want, SyncedAt: st.SyncedAt, Recon: &brief, TradeReady: &ready, TradeBlockers: blockers}, nil
 }
 
 // failLive 写回实盘账户接口的冲突：reason 是 key_withdraw / connect_failed / in_use / disconnected。
@@ -764,7 +776,11 @@ func (h *handlers) addLiveAccount(w http.ResponseWriter, r *http.Request, raw ma
 		h.fail(w, r, err)
 		return
 	}
-	h.p.paper.audit(ctx, "create", "trade_account", a.ID, "接入 "+x.Broker()+" 实盘账户「"+a.Name+"」（只读，"+a.APIHint+"）",
+	mode := "只读"
+	if trade {
+		mode = "读取 + 交易"
+	}
+	h.p.paper.audit(ctx, "create", "trade_account", a.ID, "接入 "+x.Broker()+" 实盘账户「"+a.Name+"」（"+mode+"，"+a.APIHint+"）",
 		map[string]any{"account_id": a.ID, "connector_id": cid, "broker": a.Broker, "key_permissions": k.list(), "want_trade": trade, "ip_restricted": k.IPRestricted}, userMeta)
 	if err := ls.syncAccount(ctx, a.ID); err != nil {
 		h.c.Log().Warn("first live sync failed", "account", a.ID, "err", err.Error())
@@ -782,7 +798,8 @@ func (h *handlers) addLiveAccount(w http.ResponseWriter, r *http.Request, raw ma
 	writeJSON(w, http.StatusCreated, map[string]any{"data": v})
 }
 
-// PATCH /api/trade/accounts/{id}（实盘）：只能改名称和要不要交易权限（trade，只记意愿，实盘下单没开放前不起作用）。
+// PATCH /api/trade/accounts/{id}（实盘）：只能改名称和要不要交易权限（trade：读取 + 交易，是实盘闸门的一项）。
+// 从读取 + 交易改成只读：这个账户上运行中的实盘部署下一轮自动暂停。
 func (h *handlers) updateLiveAccount(w http.ResponseWriter, r *http.Request, a account, raw map[string]json.RawMessage) {
 	ctx := r.Context()
 	b := &bodyReader{raw: raw}
@@ -826,6 +843,14 @@ func (h *handlers) writeAccount(w http.ResponseWriter, r *http.Request, id strin
 // 成交历史、对账记录、审计保留。调用方持有账本锁。
 func (h *handlers) removeLiveAccount(w http.ResponseWriter, r *http.Request, a account) {
 	ctx := r.Context()
+	var nOrders, nRuns int
+	_ = h.c.Store().QueryRow(ctx, `SELECT COUNT(*) FROM trade_orders WHERE live = 1 AND account_id = ? AND `+liveActiveSQL, a.ID).Scan(&nOrders)
+	_ = h.c.Store().QueryRow(ctx, `SELECT COUNT(*) FROM trade_runs WHERE account_id = ? AND status != 'stopped'`, a.ID).Scan(&nRuns)
+	if nOrders > 0 || nRuns > 0 {
+		writeJSON(w, http.StatusConflict, map[string]any{"error": map[string]any{"code": "conflict", "reason": "in_use",
+			"message": fmt.Sprintf("实盘账户还有 %d 笔没到终态的委托、%d 个没停的部署，先撤单、停掉部署再删", nOrders, nRuns)}})
+		return
+	}
 	for _, q := range []string{`DELETE FROM trade_accounts WHERE id = ?`, `DELETE FROM trade_live_state WHERE account_id = ?`,
 		`DELETE FROM trade_live_holdings WHERE account_id = ?`, `DELETE FROM trade_live_orders WHERE account_id = ?`} {
 		if _, err := h.c.Store().Exec(ctx, q, a.ID); err != nil {
@@ -932,6 +957,7 @@ func (h *handlers) liveSnapshot(w http.ResponseWriter, r *http.Request) {
 	}
 	for i := range st.Positions {
 		st.Positions[i].AccountID = a.ID
+		st.Positions[i].ID = "live:" + a.ID + ":" + st.Positions[i].Key
 	}
 	for i := range st.Orders {
 		st.Orders[i].AccountID = a.ID

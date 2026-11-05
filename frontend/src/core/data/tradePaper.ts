@@ -1,4 +1,5 @@
 // 模拟盘交易（TRD-05a、05b、06a 后端，TRD-05c、06b 前端）：账户、委托、持仓、部署、风控、熔断。
+// 实盘下单（TRD-08d）走同一套接口：统一下单、撤单、平仓、部署都接受闸门全开（trade_ready）的实盘账户，委托带 live。
 // 契约见 docs/api-contract.md「交易套件插件 trade / 模拟盘账户、委托和撮合」「策略部署」「风控」。
 //
 // 撮合、估值、风控全在后端：前端不撮合、不算账，只发请求和显示。没有推送：
@@ -46,11 +47,18 @@ export type TradeAccount = {
   connector_id?: string
   /** 最近一次查到的 Key 权限 */
   key_permissions?: string[]
-  /** 用户要不要交易权限（只记意愿，实盘下单没上线） */
+  /** 用户接入时要没要交易权限（选了「读取 + 交易」） */
   want_trade?: boolean
   /** 最近一次同步成功的时间 */
   synced_at?: string
   recon?: TradeReconBrief
+  /**
+   * 现在能不能实盘下单（TRD-08d）：本地几项（评审、trade:live、实盘开关、账户选了读取 + 交易、连接正常）加最近一次同步查到的 Key 权限；
+   * 下单时后端还会现查交易所，所以为真也可能被 403 live_gate
+   */
+  trade_ready?: boolean
+  /** trade_ready 为假时逐条写原因 */
+  trade_blockers?: string[]
 }
 
 /** 账户卡片上的「对账」一行（TradeAccount.recon），实盘账户才有 */
@@ -60,8 +68,12 @@ export type TradeAccountInput = { name?: string; currency?: string; initial?: nu
 
 export type TradeOrderSide = 'buy' | 'sell'
 export type TradeOrderType = 'market' | 'limit' | 'stop' | 'stop_limit'
-/** 后端没有 pending（下单当场检查完）；partial 预留，模拟撮合一次全部成交 */
-export type TradeOrderStatus = 'open' | 'partial' | 'filled' | 'canceled' | 'rejected'
+/**
+ * 模拟盘没有 pending、unknown（下单当场检查完），partial 也不出现（模拟撮合一次全部成交）。
+ * 实盘委托（TRD-08d）：pending 已落库、请求还没回；partial 部分成交（filled 是已成交数量）；
+ * unknown 请求超时或交易所回状态未知，后台按委托编号查单确认，不会重发。
+ */
+export type TradeOrderStatus = 'pending' | 'open' | 'partial' | 'unknown' | 'filled' | 'canceled' | 'rejected'
 export type TradeOrderSource = 'manual' | 'close' | 'run' | 'liquidation'
 
 export type TradeOrder = {
@@ -87,6 +99,14 @@ export type TradeOrder = {
   /** 止损限价已触发 */
   triggered: boolean
   confirmed: boolean
+  /** 实盘委托（TRD-08d）：发到交易所的；下面几项只有实盘委托有 */
+  live: boolean
+  /** 发给交易所的委托编号（pmw…），状态未知时按它查单 */
+  client_order_id?: string
+  exchange_order_id?: string
+  submitted_at?: string
+  /** 最近一次到交易所查单的时间 */
+  checked_at?: string
 }
 
 export type TradeOrderInput = {
@@ -102,7 +122,8 @@ export type TradeOrderInput = {
   confirmed?: boolean
 }
 
-export type TradeOrderQuery = { account_id?: string; status?: 'active' | 'history' | TradeOrderStatus; run_id?: string; symbol?: string; limit?: number }
+/** status：active 是 pending、open、partial、unknown，history 是其余；live 只取实盘或只取模拟盘的 */
+export type TradeOrderQuery = { account_id?: string; status?: 'active' | 'history' | TradeOrderStatus; run_id?: string; symbol?: string; live?: boolean; limit?: number }
 export type TradeOrderPage = { data: TradeOrder[]; total: number; active: number; history: number }
 
 export type TradePosition = {
@@ -215,14 +236,37 @@ export type TradeHalt = {
   release_reason?: string
 }
 
-/** 下单（含平仓、挂止损）被拦时的三种情况；接口返回 409 时 error 里带的字段 */
+/**
+ * 下单（含平仓、挂止损、部署）被拦时的几种情况：
+ * - risk（409）：风控拦截，blocks 逐条；
+ * - confirm（409）：要二次确认，live 为真是实盘单（每笔都要确认，不看金额）；
+ * - gate（403 live_gate）：实盘闸门没过，missing 逐条写缺什么；
+ * - not_user（403）：实盘手动下单、平仓、部署只接受用户本人在界面上的操作；
+ * - upstream（502）：取不到交易所的下单规则或杠杆、交易所撤单失败，failed 是撤不掉的；
+ * - other：其他（熔断中不能部署、状态不对、400 不符合交易所下单规则等），message 原样显示。
+ */
 export type TradePlaceError =
   | { kind: 'risk'; message: string; blocks: string[]; order?: TradeOrder }
-  | { kind: 'confirm'; message: string; value: number; confirm_above: number }
+  | { kind: 'confirm'; message: string; value: number; confirm_above: number; live: boolean }
+  | { kind: 'gate'; message: string; missing: string[] }
+  | { kind: 'not_user'; message: string }
+  | { kind: 'upstream'; message: string; failed: string[] }
   | { kind: 'other'; message: string; reason?: string }
 
-/** 把下单、平仓、部署的错误拆开：风控拦截（原样逐条）、要二次确认、其他（熔断中不能部署、状态不对等） */
+/** 把下单、平仓、部署、撤单的错误拆开（见 TradePlaceError） */
 export function tradePlaceError(e: unknown): TradePlaceError {
+  if (isApiError(e) && e.status === 403) {
+    const x = e.extra
+    if (x.reason === 'live_gate') {
+      const missing = Array.isArray(x.missing) ? x.missing.map(String) : []
+      return { kind: 'gate', message: e.message, missing: missing.length ? missing : [e.message] }
+    }
+    if (x.reason === 'not_user') return { kind: 'not_user', message: e.message }
+    return { kind: 'other', message: e.message, reason: typeof x.reason === 'string' ? x.reason : undefined }
+  }
+  if (isApiError(e) && e.status === 502) {
+    return { kind: 'upstream', message: e.message, failed: Array.isArray(e.extra.failed) ? e.extra.failed.map(String) : [] }
+  }
   if (isApiError(e) && e.status === 409) {
     const x = e.extra
     if (x.reason === 'risk') {
@@ -230,7 +274,7 @@ export function tradePlaceError(e: unknown): TradePlaceError {
       return { kind: 'risk', message: e.message, blocks: blocks.length ? blocks : [e.message], order: x.order as TradeOrder | undefined }
     }
     if (x.reason === 'confirm') {
-      return { kind: 'confirm', message: e.message, value: Number(x.value) || 0, confirm_above: Number(x.confirm_above) || 0 }
+      return { kind: 'confirm', message: e.message, value: Number(x.value) || 0, confirm_above: Number(x.confirm_above) || 0, live: x.live === true }
     }
     return { kind: 'other', message: e.message, reason: typeof x.reason === 'string' ? x.reason : undefined }
   }

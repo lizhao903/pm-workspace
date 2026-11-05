@@ -27,6 +27,8 @@ import (
 // 日亏损熔断：撮合任务每轮算一次「当日盈亏」= Σ 各模拟盘账户（现在权益 − 当日 UTC 0 点后第一次看到的权益），
 // 亏到这些基线合计的 daily_loss_pct 时自动一键全停；持仓的最新价不全是实时时不判定。同一个 UTC 日回到上限以内之前不再重复自动熔断。
 // 一键全停：先进入熔断（之后开仓单全被拦），再停所有没停的部署、撤所有挂单；持仓不动。熔断、全停、解除、改规则、拦截都写审计。
+// 实盘账户（TRD-08d）：撤模拟盘挂单之后，到每个实盘账户的交易所撤掉全部挂单（livetrade.go cancelAllLiveLocked），持仓不动；
+// 撤不掉的写进 failed 和 remaining_orders（「账户名 #交易所委托号」）。
 // 熔断和解除发事件 trade.halted、trade.halt_released 并发通知（kind trade.halt）。
 
 const (
@@ -187,12 +189,16 @@ func (pp *paper) killLocked(ctx context.Context, reason, kind string, m plugin.W
 	}
 	res.OrdersCanceled = canceled
 	res.Failed = append(res.Failed, failed...)
+	liveN, liveFailed, liveLeft := pp.p.trader.cancelAllLiveLocked(ctx, "一键全停："+reason, m)
+	res.OrdersCanceled += liveN
+	res.Failed = append(res.Failed, liveFailed...)
 	if ids, err := idsWhere(ctx, pp.c, `SELECT id FROM trade_runs WHERE status != 'stopped'`); err == nil {
 		res.RemainingRuns = ids
 	}
-	if ids, err := idsWhere(ctx, pp.c, `SELECT id FROM trade_orders WHERE status = 'open'`); err == nil {
+	if ids, err := idsWhere(ctx, pp.c, `SELECT id FROM trade_orders WHERE status = 'open' AND live = 0`); err == nil {
 		res.RemainingOrders = ids
 	}
+	res.RemainingOrders = append(res.RemainingOrders, liveLeft...)
 	if _, err := pp.c.Store().Exec(ctx, `UPDATE trade_halts SET runs_stopped = ?, orders_canceled = ? WHERE id = ?`, res.RunsStopped, res.OrdersCanceled, res.HaltID); err != nil {
 		res.Failed = append(res.Failed, err.Error())
 	}

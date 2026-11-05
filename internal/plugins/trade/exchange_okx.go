@@ -14,7 +14,7 @@ import (
 	"github.com/lizhao903/pm-workspace/internal/connector"
 )
 
-// OKX 账户只读接入（TRD-07a）：www.okx.com 的 /api/v5/account/ 和 /api/v5/trade/ 下的查询接口，只调 exchangeReadPaths 里的 GET。
+// OKX 账户接入（TRD-07a 只读，TRD-08d 下单在 exchange_okx_trade.go）：www.okx.com 的 /api/v5/account/ 和 /api/v5/trade/ 下的查询接口，只调 exchangeReadPaths 里的 GET。
 // 签名按 OKX 文档：时间戳（ISO 毫秒）+ 方法 + 路径（含查询串）+ body，用 Secret 做 HMAC-SHA256 再 Base64，
 // 放 OK-ACCESS-SIGN；OK-ACCESS-KEY、OK-ACCESS-PASSPHRASE、OK-ACCESS-TIMESTAMP 一起带上。
 // 权限按 /api/v5/account/config 的 perm（read_only、trade、withdraw 逗号分隔）：带 withdraw 拒绝接入。
@@ -28,8 +28,9 @@ func newOKXAccount() *okxAccount { return &okxAccount{Base: "https://www.okx.com
 func (o *okxAccount) Tool() string   { return OKXAccountTool }
 func (o *okxAccount) Broker() string { return "OKX" }
 func (o *okxAccount) Desc() string {
-	return "OKX 交易账户（只读）：同步余额、永续持仓、挂单和近三天成交，用来对账。在 OKX「API」里创建 V5 Key，权限只勾「读取」，" +
-		"不要勾提现（带了会拒绝接入），建议绑 IP。勾了交易也只按只读用，交易套件不会下单"
+	return "OKX 交易账户：同步余额、永续持仓、挂单和近三天成交，用来对账。在 OKX「API」里创建 V5 Key：只读就只勾「读取」；要实盘下单再勾「交易」。" +
+		"不要勾提现（带了会拒绝接入），建议绑 IP。实盘下单要过实盘评审、授予 trade:live、打开实盘开关，账户接入时选「读取 + 交易」，每笔都在下单时现查这些条件；" +
+		"测试网选 testnet（OKX 模拟盘，要用模拟盘的 Key）"
 }
 
 func (o *okxAccount) Fields() []connector.Field {
@@ -37,6 +38,7 @@ func (o *okxAccount) Fields() []connector.Field {
 		{Key: "api_key", Label: "API Key", Kind: "secret", Placeholder: "OKX V5 API Key", Required: true},
 		{Key: "api_secret", Label: "Secret Key", Kind: "secret", Placeholder: "创建时只显示一次的 Secret Key", Required: true},
 		{Key: "passphrase", Label: "Passphrase", Kind: "secret", Placeholder: "创建 Key 时自己设的口令", Required: true},
+		envField,
 	}
 }
 
@@ -69,6 +71,9 @@ func (o *okxAccount) get(ctx context.Context, s *exSession, path string, q url.V
 	h.Set("OK-ACCESS-SIGN", okxSign(s.cfg.Secret("api_secret"), ts, http.MethodGet, reqPath, ""))
 	h.Set("OK-ACCESS-TIMESTAMP", ts)
 	h.Set("OK-ACCESS-PASSPHRASE", s.cfg.Secret("passphrase"))
+	if isTestnet(s) {
+		h.Set("x-simulated-trading", "1")
+	}
 	body, err := exGet(ctx, s.http, "OKX", o.Base+reqPath, h, okxErrBody)
 	if err != nil {
 		return err
@@ -92,8 +97,9 @@ func (o *okxAccount) get(ctx context.Context, s *exSession, path string, q url.V
 
 func (o *okxAccount) Perms(ctx context.Context, s *exSession) (KeyPerms, error) {
 	var cfg []struct {
-		Perm string `json:"perm"`
-		IP   string `json:"ip"`
+		Perm    string `json:"perm"`
+		IP      string `json:"ip"`
+		PosMode string `json:"posMode"`
 	}
 	if err := o.get(ctx, s, "/api/v5/account/config", nil, &cfg); err != nil {
 		return KeyPerms{}, err
@@ -101,13 +107,13 @@ func (o *okxAccount) Perms(ctx context.Context, s *exSession) (KeyPerms, error) 
 	if len(cfg) == 0 {
 		return KeyPerms{}, fmt.Errorf("OKX 没返回账户配置")
 	}
-	k := KeyPerms{Futures: true, IPRestricted: strings.TrimSpace(cfg[0].IP) != ""}
+	k := KeyPerms{Futures: true, IPRestricted: strings.TrimSpace(cfg[0].IP) != "", Hedge: cfg[0].PosMode == "long_short_mode", Testnet: isTestnet(s)}
 	for _, p := range strings.Split(cfg[0].Perm, ",") {
 		switch strings.TrimSpace(p) {
 		case "read_only":
 			k.Read = true
 		case "trade":
-			k.Trade = true
+			k.Trade, k.SpotTrade = true, true
 		case "withdraw":
 			k.Withdraw = true
 		}

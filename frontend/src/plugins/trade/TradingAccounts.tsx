@@ -1,18 +1,20 @@
 // 交易账户（TRD-07b，SPEC-trading-8、9、12）：账户卡片、新增账户抽屉、对账抽屉、实盘账户的交易所数据。
 // 交互照原型 web-next/src/trading.tsx 的 AccountsView、AccountDrawer、ReconDrawer；和原型有出入的地方见 web-next/docs/spec/trading.md「正式前端」。
-// - 模拟盘本地撮合；实盘账户（Binance、OKX）只读同步：凭证走内核连接器（建连接器 → 测试连接 → 建账户，放弃时删掉连接器）。
-// - 实盘账户上没有可用的交易入口：下单按钮不可点并说明要先过实盘评审（交易设置），实盘下单还没上线（TRD-08d）。
+// - 模拟盘本地撮合；实盘账户（Binance、OKX）同步余额持仓：凭证走内核连接器（建连接器 → 测试连接 → 建账户，放弃时删掉连接器）。
+//   连接器的密钥字段进 secrets，其余（「网络」正式网 / 测试网等）进 config。
+// - 实盘下单（TRD-08d）：账户 trade_ready（闸门全开）时卡片上的「下单」可用、交易所数据里能平仓和撤掉全部挂单（都要确认）；
+//   不然「下单」不可点，旁边逐条写 trade_blockers。
 // - Bybit、券商还没有连接器，抽屉里归到不可用。
 import { useEffect, useRef, useState } from 'react'
 import {
   errorText, isApiError, useConnectTradeAccount, useConnectorDefs, useCreateConnector, useCreateLiveAccount, useCreateTradeAccount,
   useDeleteConnector, useDisconnectTradeAccount, usePatchConnector, useRecheckRecon, useRemoveTradeAccount, useResolveRecon,
-  useTestConnector, useTradeLiveFills, useTradeLiveSnapshot, useTradeRecon,
-  type TradeAccount, type TradePosition, type TradeReconItem,
+  tradePlaceError, useCancelAllTradeOrders, useCloseTradePosition, useTestConnector, useTradeLiveFills, useTradeLiveSnapshot, useTradeRecon,
+  type TradeAccount, type TradeLivePosition, type TradePlaceError, type TradePosition, type TradeReconItem,
 } from '../../core/data'
 import { Button, Drawer, EmptyState, ErrorState, LoadingState, cls } from '../../core/ui'
 import { MARKETS, guessInstrument } from './model'
-import { LIVE_BLOCK, ago, fmtQty, fmtTime, num, reconText, signed, tone } from './tradingModel'
+import { LIVE_RISK, ago, fmtQty, fmtTime, liveBlock, num, reconText, signed, tone } from './tradingModel'
 
 const STATUS: Record<string, { label: string; tone: string }> = {
   connected: { label: '已连接', tone: 'ok' }, error: { label: '异常', tone: 'danger' }, disconnected: { label: '已断开', tone: 'muted' },
@@ -20,9 +22,9 @@ const STATUS: Record<string, { label: string; tone: string }> = {
 
 /* ---------- 账户卡片（SPEC-trading-8） ---------- */
 
-export function AccountsView({ accounts, positions, onNew, onRecon, onLiveData }: {
+export function AccountsView({ accounts, positions, onNew, onRecon, onLiveData, onOrder }: {
   accounts: TradeAccount[]; positions: TradePosition[]
-  onNew: () => void; onRecon: (id: string) => void; onLiveData: (id: string) => void
+  onNew: () => void; onRecon: (id: string) => void; onLiveData: (id: string) => void; onOrder: (id: string) => void
 }) {
   if (!accounts.length) {
     return <EmptyState title="还没有接入交易账户" desc="接入交易所的 API（只读），或者先开一个模拟盘" action={<Button variant="primary" onClick={onNew}>新增账户</Button>} />
@@ -31,7 +33,7 @@ export function AccountsView({ accounts, positions, onNew, onRecon, onLiveData }
     <div className="tr-cards">
       {accounts.map((a) => a.paper
         ? <AccountCard key={a.id} a={a} positions={positions.filter((p) => p.account_id === a.id).length} />
-        : <LiveAccountCard key={a.id} a={a} onRecon={() => onRecon(a.id)} onLiveData={() => onLiveData(a.id)} />)}
+        : <LiveAccountCard key={a.id} a={a} onRecon={() => onRecon(a.id)} onLiveData={() => onLiveData(a.id)} onOrder={() => onOrder(a.id)} />)}
     </div>
   )
 }
@@ -108,7 +110,7 @@ function AccountCard({ a, positions }: { a: TradeAccount; positions: number }) {
   )
 }
 
-function LiveAccountCard({ a, onRecon, onLiveData }: { a: TradeAccount; onRecon: () => void; onLiveData: () => void }) {
+function LiveAccountCard({ a, onRecon, onLiveData, onOrder }: { a: TradeAccount; onRecon: () => void; onLiveData: () => void; onOrder: () => void }) {
   const [ask, setAsk] = useState<'' | 'off' | 'del'>('')
   const connect = useConnectTradeAccount()
   const disconnect = useDisconnectTradeAccount()
@@ -118,6 +120,7 @@ function LiveAccountCard({ a, onRecon, onLiveData }: { a: TradeAccount; onRecon:
   const rc = reconText(a.recon)
   const trade = a.permissions.includes('trade')
   const n = snap.data?.positions.length
+  const block = liveBlock(a)
   return (
     <section className={cls('tr-card', a.status === 'error' && 'tr-card-bad')} aria-label={a.name}>
       <CardHead a={a} status={st} />
@@ -140,10 +143,20 @@ function LiveAccountCard({ a, onRecon, onLiveData }: { a: TradeAccount; onRecon:
           {rc.text}{a.recon?.at ? ` · ${ago(a.recon.at)}` : ''}<span className="faint">，查看</span>
         </button>
       </div>
-      <div className="tr-live-note" title={LIVE_BLOCK}>
-        <Button size="sm" disabled title={LIVE_BLOCK}>下单</Button>
-        <span className="faint tr-small">要先过实盘评审（交易设置）；实盘下单还没上线，现在只读同步</span>
-      </div>
+      {block ? (
+        <div className="tr-live-note" title={block}>
+          <Button size="sm" disabled title={block}>下单</Button>
+          <span className="faint tr-small">
+            实盘不能下单，现在只读同步：
+            {a.trade_blockers?.length ? <ul className="tr-banner-list">{a.trade_blockers.map((x) => <li key={x}>{x}</li>)}</ul> : '要先过实盘评审、申请 trade:live、打开实盘开关（交易设置）'}
+          </span>
+        </div>
+      ) : (
+        <div className="tr-live-note">
+          <Button size="sm" variant="primary" onClick={onOrder}>下单</Button>
+          <span className="tr-small"><span className="tag tr-tag-sm tr-tag-live">实盘</span> 闸门全开，可以下单：{LIVE_RISK}，每笔都要二次确认</span>
+        </div>
+      )}
       <div className="tr-card-foot">
         {ask === 'del' ? <DeleteFoot a={a} onCancel={() => setAsk('')} /> : ask === 'off' ? (
           <>
@@ -170,8 +183,8 @@ function LiveAccountCard({ a, onRecon, onLiveData }: { a: TradeAccount; onRecon:
 
 type BrokerDef = { key: string; label: string; markets: string; tool?: string; paper?: boolean; off?: string; note: string }
 const BROKERS: BrokerDef[] = [
-  { key: 'binance', label: 'Binance', markets: '数币', tool: 'binance_account', note: '在币安「API 管理」创建，只勾「读取」（勾了现货 / 合约交易也只按只读用），不要勾提币、内部划转、万向划转，建议绑 IP 白名单' },
-  { key: 'okx', label: 'OKX', markets: '数币', tool: 'okx_account', note: '权限选「读取」（选了「交易」也只按只读用），不选「提币」' },
+  { key: 'binance', label: 'Binance', markets: '数币', tool: 'binance_account', note: '在币安「API 管理」创建，只读同步勾「读取」就够；要实盘下单再勾现货 / 合约交易。不要勾提币、内部划转、万向划转，建议绑 IP 白名单' },
+  { key: 'okx', label: 'OKX', markets: '数币', tool: 'okx_account', note: '权限选「读取」；要实盘下单再选「交易」。不选「提币」' },
   { key: 'paper', label: '模拟', markets: '数币', paper: true, note: '本地模拟撮合，按后端行情成交，不连真实账户；现在只有数币有行情源' },
   { key: 'bybit', label: 'Bybit', markets: '数币', off: '还没有连接器', note: '' },
   { key: 'futu', label: '富途', markets: '港股 / 美股', off: '还没有连接器', note: '' },
@@ -182,6 +195,8 @@ const BROKERS: BrokerDef[] = [
 ]
 
 type TestState = { state: 'idle' | 'testing' | 'ok' | 'fail'; msg?: string }
+/** 连接器「网络」字段（env）的中文 */
+const ENV_LABEL: Record<string, string> = { mainnet: '正式网', testnet: '测试网（只给联调用，资金不是真钱）' }
 
 export function AccountDrawer({ onClose, onCreated }: { onClose: () => void; onCreated: (a: TradeAccount) => void }) {
   const [bk, setBk] = useState('binance')
@@ -225,19 +240,22 @@ export function AccountDrawer({ onClose, onCreated }: { onClose: () => void; onC
 
   const runTest = async () => {
     if (!b.tool) return
-    const miss = fields.find((f) => f.required && !(vals[f.key] ?? '').trim())
+    const miss = fields.find((f) => f.required && !(vals[f.key] ?? f.default ?? '').trim())
     if (miss) return setTest({ state: 'fail', msg: `没填 ${miss.label}` })
     setTest({ state: 'testing' })
-    const secrets = Object.fromEntries(fields.map((f) => [f.key, (vals[f.key] ?? '').trim()]))
+    // 密钥字段进 secrets，其余（「网络」等）进 config：内核按字段种类分开存，混着发会被拒
+    const val = (k: string, d?: string) => (vals[k] ?? d ?? '').trim()
+    const secrets = Object.fromEntries(fields.filter((f) => f.kind === 'secret').map((f) => [f.key, val(f.key)]))
+    const config = Object.fromEntries(fields.filter((f) => f.kind !== 'secret').map((f) => [f.key, val(f.key, f.default)]))
     try {
       let id = connId
       if (!id) {
-        const c = await createConn.mutateAsync({ tool: b.tool, name: name.trim() || `${b.label} 账户`, auth_mode: 'token', secrets })
+        const c = await createConn.mutateAsync({ tool: b.tool, name: name.trim() || `${b.label} 账户`, auth_mode: 'token', secrets, config })
         id = c.id
         pending.current = id
         setConnId(id)
       } else if (!synced) {
-        await patchConn.mutateAsync({ id, patch: { secrets } })
+        await patchConn.mutateAsync({ id, patch: { secrets, config } })
       }
       setSynced(true)
       const r = await testConn.mutateAsync(id)
@@ -302,8 +320,17 @@ export function AccountDrawer({ onClose, onCreated }: { onClose: () => void; onC
             {b.tool && defs.data && !def && <div className="tr-inline-msg tr-inline-bad"><span>没有 {b.label} 的交易账户连接器：交易插件停用了或版本太旧</span></div>}
             {fields.map((f) => (
               <label key={f.key} className="field"><span className="field-label">{f.label}{f.required && <em aria-hidden="true">*</em>}</span>
-                <input className="input" type={f.kind === 'secret' ? 'password' : 'text'} autoComplete="off" placeholder={f.placeholder}
-                  value={vals[f.key] ?? ''} onChange={(e) => setVal(f.key, e.target.value)} />
+                {f.kind === 'select' ? (
+                  <>
+                    <select className="select" value={vals[f.key] ?? f.default ?? f.options?.[0] ?? ''} onChange={(e) => setVal(f.key, e.target.value)}>
+                      {(f.options ?? []).map((o) => <option key={o} value={o}>{f.key === 'env' ? ENV_LABEL[o] ?? o : o}</option>)}
+                    </select>
+                    {f.placeholder && <span className="field-hint-line">{f.placeholder}</span>}
+                  </>
+                ) : (
+                  <input className="input" type={f.kind === 'secret' ? 'password' : 'text'} autoComplete="off" placeholder={f.placeholder}
+                    value={vals[f.key] ?? ''} onChange={(e) => setVal(f.key, e.target.value)} />
+                )}
               </label>
             ))}
             <div className="field">
@@ -312,7 +339,7 @@ export function AccountDrawer({ onClose, onCreated }: { onClose: () => void; onC
                 <button type="button" className={cls(!trade && 'on')} onClick={() => setTrade(false)}>只读</button>
                 <button type="button" className={cls(trade && 'on')} onClick={() => setTrade(true)}>读取 + 交易</button>
               </div>
-              {trade && <span className="field-hint-line">只记下你要交易权限：实盘下单要先过实盘评审、打开「交易设置」里的实盘开关，并等实盘下单上线；在那之前只读同步</span>}
+              {trade && <span className="field-hint-line">开了交易权限也要过实盘评审、申请 trade:live、打开「交易设置」里的实盘开关才能下单，Key 本身也要有交易权限；在那之前只读同步</span>}
             </div>
             <div className="tr-act-row">
               <Button disabled={test.state === 'testing' || !def} onClick={() => void runTest()}>{test.state === 'testing' ? '测试中…' : '测试连接'}</Button>
@@ -411,17 +438,55 @@ export function ReconDrawer({ account, onClose }: { account: TradeAccount; onClo
   )
 }
 
-/* ---------- 实盘账户的交易所数据：余额、持仓、挂单、成交（只读） ---------- */
+/* ---------- 实盘账户的交易所数据：余额、持仓、挂单、成交；闸门全开时能平仓、撤掉全部挂单（TRD-08d） ---------- */
+
+/** 交易所数据里的行内操作：平仓（要确认）、撤掉全部挂单（要确认），被拦时就地写原因 */
+type LiveAct = { kind: 'close'; key: string; err?: TradePlaceError } | { kind: 'cancel'; err?: TradePlaceError }
+
+function LiveActErr({ err }: { err: TradePlaceError }) {
+  if (err.kind === 'gate') {
+    return <div className="tr-inline-msg tr-inline-bad" role="alert"><span><b>实盘闸门没过</b><ul>{err.missing.map((m) => <li key={m}>{m}</li>)}</ul></span></div>
+  }
+  if (err.kind === 'risk') {
+    return <div className="tr-inline-msg tr-inline-bad" role="alert"><span><b>风控未通过</b><ul>{err.blocks.map((m) => <li key={m}>{m}</li>)}</ul></span></div>
+  }
+  if (err.kind === 'upstream' && err.failed.length) {
+    return <div className="tr-inline-msg tr-inline-bad" role="alert"><span>交易所没撤掉：<ul>{err.failed.map((m) => <li key={m}>{m}</li>)}</ul></span></div>
+  }
+  return <div className="tr-inline-msg tr-inline-bad" role="alert"><span>{err.message}</span></div>
+}
 
 export function LiveDataDrawer({ account, onClose }: { account: TradeAccount; onClose: () => void }) {
   const snap = useTradeLiveSnapshot(account.id)
   const fills = useTradeLiveFills(account.id)
+  const close = useCloseTradePosition()
+  const cancelAll = useCancelAllTradeOrders()
+  const [act, setAct] = useState<LiveAct | null>(null)
+  const [done, setDone] = useState('')
   const s = snap.data
+  const block = liveBlock(account)
+  const busy = close.isPending || cancelAll.isPending
+  const doClose = (p: TradeLivePosition) => {
+    if (!p.id) return
+    // 用户已在行内确认过，直接带 confirmed（实盘每笔都要确认）
+    close.mutate({ id: p.id, confirmed: true }, {
+      onSuccess: (o) => {
+        setAct(null)
+        setDone(o.status === 'rejected' ? `平仓单被拒：${o.reject_reason ?? ''}` : `已下实盘平仓单：${o.side === 'buy' ? '买入' : '卖出'} ${fmtQty(o.qty)} ${p.name || guessInstrument(p.symbol).name}，市价`)
+        void snap.refetch()
+      },
+      onError: (e) => setAct({ kind: 'close', key: p.key, err: tradePlaceError(e) }),
+    })
+  }
+  const doCancelAll = () => cancelAll.mutate(account.id, {
+    onSuccess: (r) => { setAct(null); setDone(`已到交易所撤掉 ${r.canceled} 笔挂单`); void snap.refetch() },
+    onError: (e) => setAct({ kind: 'cancel', err: tradePlaceError(e) }),
+  })
   return (
     <Drawer open onClose={onClose} kicker={`交易所数据 · ${account.name}`} aria-label="交易所数据" className="tr-drawer"
       footer={(requestClose) => (
         <>
-          <span className="tr-muted tr-small">只读：这里不能下单、撤单、平仓</span>
+          <span className="tr-muted tr-small">{block ? '只读：闸门没开全，这里不能平仓、撤单' : '实盘：平仓、撤单会在交易所真实执行，都要先确认'}</span>
           <span className="spacer" />
           <Button onClick={requestClose}>关闭</Button>
         </>
@@ -431,7 +496,8 @@ export function LiveDataDrawer({ account, onClose }: { account: TradeAccount; on
           <div className="tr-kv"><span>同步于</span><b>{s.synced_at ? `${fmtTime(s.synced_at)}（${ago(s.synced_at)}）` : '还没同步成功'}{s.fail_count > 0 ? `，连续失败 ${s.fail_count} 次` : ''}</b></div>
           {s.error && <div className="tr-inline-msg tr-inline-bad" role="alert"><span>{s.error}</span></div>}
           <div className="tr-kv"><span>权益 / 可用 / 保证金</span><b className="tr-num">{num(s.equity, 2)} / {num(s.available, 2)} / {num(s.margin_used, 2)} USD</b></div>
-          <div className="tr-kv"><span>Key 权限</span><b>{s.key_permissions.includes('trade') ? '读取 + 交易（交易套件里只读）' : '只读'}</b></div>
+          <div className="tr-kv"><span>Key 权限</span><b>{s.key_permissions.includes('trade') ? '读取 + 交易' : '只读'}</b></div>
+          {done && <div className="tr-inline-msg" role="status"><span>{done}</span><Button size="sm" onClick={() => setDone('')}>知道了</Button></div>}
           <section className="tr-sec tr-sec-flat">
             <div className="tr-sec-title">余额<span className="tr-hint">{s.balances.length} 项</span></div>
             {!s.balances.length ? <div className="tr-empty-box">没有余额</div> : (
@@ -450,19 +516,47 @@ export function LiveDataDrawer({ account, onClose }: { account: TradeAccount; on
             <div className="tr-sec-title">持仓<span className="tr-hint">{s.positions.length} 个</span></div>
             {!s.positions.length ? <div className="tr-empty-box">没有持仓</div> : (
               <div className="tr-list">
-                {s.positions.map((p) => (
-                  <div key={p.key} className="tr-list-row">
-                    <span className={cls('tr-side', p.side === 'long' ? 'buy' : 'sell')}>{p.side === 'long' ? '多' : '空'}</span>
-                    <span className="tr-list-main"><span className="ellipsis" title={p.symbol}>{p.name || guessInstrument(p.symbol).name}</span>
-                      <span className="tr-muted tr-small tr-num">{p.kind === 'spot' ? '现货' : `永续${p.leverage ? ` ${p.leverage}x` : ''}`} · {fmtQty(p.qty)}{p.avg_price ? ` @ ${num(p.avg_price, 2)}` : ''}{p.liq_price ? ` · 强平 ${num(p.liq_price, 2)}` : ''}</span></span>
-                    <span className="tr-num tr-list-val" style={{ color: tone(p.pnl) }}>{p.kind === 'spot' ? `$${num(p.last * p.qty, 2)}` : signed(p.pnl)}</span>
-                  </div>
-                ))}
+                {s.positions.map((p) => {
+                  const mine = act?.kind === 'close' && act.key === p.key ? act : null
+                  const nm = p.name || guessInstrument(p.symbol).name
+                  return (
+                    <div key={p.key}>
+                      <div className="tr-list-row">
+                        <span className={cls('tr-side', p.side === 'long' ? 'buy' : 'sell')}>{p.side === 'long' ? '多' : '空'}</span>
+                        <span className="tr-list-main"><span className="ellipsis" title={p.symbol}>{nm}</span>
+                          <span className="tr-muted tr-small tr-num">{p.kind === 'spot' ? '现货' : `永续${p.leverage ? ` ${p.leverage}x` : ''}`} · {fmtQty(p.qty)}{p.avg_price ? ` @ ${num(p.avg_price, 2)}` : ''}{p.liq_price ? ` · 强平 ${num(p.liq_price, 2)}` : ''}</span></span>
+                        <span className="tr-num tr-list-val" style={{ color: tone(p.pnl) }}>{p.kind === 'spot' ? `$${num(p.last * p.qty, 2)}` : signed(p.pnl)}</span>
+                        {p.id && (
+                          <Button size="sm" variant="outline" disabled={!!block || busy} title={block ?? `市价平掉 ${fmtQty(p.qty)}${p.kind === 'spot' ? '' : '，仅减仓'}`}
+                            onClick={() => setAct({ kind: 'close', key: p.key })}>平仓</Button>
+                        )}
+                      </div>
+                      {mine && !mine.err && (
+                        <div className="tr-inline-msg tr-inline-warn" role="alert">
+                          <span><span className="tag tr-tag-sm tr-tag-live">实盘</span> 市价{p.side === 'long' ? '卖出' : '买入'} {fmtQty(p.qty)} {nm}{p.kind === 'spot' ? '' : '（仅减仓）'}，{LIVE_RISK}</span>
+                          <Button size="sm" onClick={() => setAct(null)}>取消</Button>
+                          <Button size="sm" variant="danger" disabled={busy} onClick={() => doClose(p)}>确认平仓</Button>
+                        </div>
+                      )}
+                      {mine?.err && <LiveActErr err={mine.err} />}
+                    </div>
+                  )
+                })}
               </div>
             )}
           </section>
           <section className="tr-sec tr-sec-flat">
-            <div className="tr-sec-title">挂单<span className="tr-hint">{s.orders.length} 笔，只读，不能在这里改、撤</span></div>
+            <div className="tr-sec-title">挂单<span className="tr-hint">{s.orders.length} 笔{block ? '，只读' : '；交易套件下的单在委托里撤，这里能撤掉这个账户在交易所的全部挂单'}</span>
+              {!block && s.orders.length > 0 && act?.kind !== 'cancel' && <><span className="spacer" /><Button size="sm" disabled={busy} onClick={() => setAct({ kind: 'cancel' })}>全部撤单</Button></>}
+            </div>
+            {act?.kind === 'cancel' && !act.err && (
+              <div className="tr-inline-msg tr-inline-warn" role="alert">
+                <span><span className="tag tr-tag-sm tr-tag-live">实盘</span> 到交易所撤掉这个账户的全部 {s.orders.length} 笔挂单（含不是交易套件下的）？</span>
+                <Button size="sm" onClick={() => setAct(null)}>取消</Button>
+                <Button size="sm" variant="danger" disabled={busy} onClick={doCancelAll}>确认撤单</Button>
+              </div>
+            )}
+            {act?.kind === 'cancel' && act.err && <LiveActErr err={act.err} />}
             {!s.orders.length ? <div className="tr-empty-box">没有挂单</div> : (
               <div className="tr-list">
                 {s.orders.map((o) => (

@@ -1,8 +1,10 @@
 // 下单抽屉（SPEC-trading-5）：标的、账户、方向、类型、价格、数量、合约设置。
-// 只能下模拟盘账户；提交走后端统一下单入口（POST /api/trade/orders），风控、二次确认都以后端为准（SPEC-trading-0.12）：
+// 模拟盘账户和闸门全开（trade_ready）的实盘账户能下；提交走后端统一下单入口（POST /api/trade/orders），风控、二次确认都以后端为准（SPEC-trading-0.12）：
 // - 前端的预检查只做提示，不拦提交；
 // - 409 reason=risk：后端的拦截原因逐条原样显示，那笔委托已记成被拒绝；
 // - 409 reason=confirm：底部出确认条（金额和阈值取后端返回的），确认后带 confirmed: true 重新提交。
+// 实盘（TRD-08d）：抽屉标题和顶上横幅标「实盘」；只给市价、限价；每笔都先在底部确认（写明会在交易所真实成交、产生真实盈亏）再带 confirmed: true 提交；
+// 403 live_gate 时逐条列缺什么，502 upstream、400（不符合交易所下单规则、杠杆不一致等）原样显示。
 // A 股 T+1、涨跌停、部分成交后端还没做（没有 A 股行情源），这里不出这些提示；非数币市场的账户归到不可用，原因「行情源还没接」。
 import { useState } from 'react'
 import {
@@ -13,13 +15,14 @@ import { Button, Drawer, cls } from '../../core/ui'
 import { MARKETS, digitsFor, fmtPrice, guessInstrument } from './model'
 import { SymbolField } from './MonitorDrawer'
 import { NoAccount } from './TradingParts'
-import { ORDER_TYPE, acctBlock, fmtQty, isContract, isOpening, num, riskHints, roundLot, usd } from './tradingModel'
+import { LIVE_RISK, LIVE_TYPES, ORDER_TYPE, acctBlock, fmtQty, isContract, isOpening, num, riskHints, roundLot, usd } from './tradingModel'
 
 const TYPES: TradeOrderType[] = ['market', 'limit', 'stop', 'stop_limit']
 const LEV_MAX = 50
 
 export function OrderDrawer({ init, accounts, positions, risk, onClose, onPlaced }: {
-  init: { symbol: string; side: TradeOrderSide }
+  /** accountId：从实盘账户卡片的「下单」进来时预选这个账户 */
+  init: { symbol: string; side: TradeOrderSide; accountId?: string }
   accounts: TradeAccount[]; positions: TradePosition[]; risk?: TradeRisk
   onClose: () => void
   onPlaced: (o: TradeOrder) => void
@@ -33,10 +36,10 @@ export function OrderDrawer({ init, accounts, positions, risk, onClose, onPlaced
   const last = quote?.last ?? 0
   const digits = digitsFor(instQ.data ?? undefined, last)
   // 选过的账户能用就用它，否则默认第一个能用的（账户列表是异步来的，不在初始化时定死）
-  const [acctId, setAcctId] = useState('')
+  const [acctId, setAcctId] = useState(init.accountId ?? '')
   const [showBlocked, setShowBlocked] = useState(false)
   const [side, setSide] = useState<TradeOrderSide>(init.side)
-  const [type, setType] = useState<TradeOrderType>('limit')
+  const [rawType, setType] = useState<TradeOrderType>('limit')
   const [price, setPrice] = useState('')
   const [stop, setStop] = useState('')
   const [qty, setQty] = useState('')
@@ -44,19 +47,25 @@ export function OrderDrawer({ init, accounts, positions, risk, onClose, onPlaced
   const [reduce, setReduce] = useState(false)
   const [tried, setTried] = useState(false)
   const [placeErr, setPlaceErr] = useState<TradePlaceError | null>(null)
+  /** 实盘单提交前的确认 */
+  const [liveAsk, setLiveAsk] = useState(false)
   const place = usePlaceTradeOrder()
 
   /** 改了任何一项，后端上一次的拦截和确认就作废 */
-  const touch = () => setPlaceErr(null)
+  const touch = () => { setPlaceErr(null); setLiveAsk(false) }
   const pick = (s: string) => {
     setSymbol(s)
     setPrice(''); setStop(''); setQty(''); setReduce(false); touch()
     setLev(positions.find((p) => p.account_id === account?.id && p.symbol === s)?.leverage ?? 3)
   }
 
-  const account = accounts.find((a) => a.id === acctId && !acctBlock(a, inst)) ?? accounts.find((a) => !acctBlock(a, inst))
   const usable = accounts.filter((a) => !acctBlock(a, inst))
+  // 选过的能用就用它；否则默认第一个能用的模拟盘，没有再取第一个能用的（SPEC-trading-0.2）
+  const account = usable.find((a) => a.id === acctId) ?? usable.find((a) => a.paper) ?? usable[0]
   const blocked = accounts.flatMap((a) => { const why = acctBlock(a, inst); return why ? [{ a, why }] : [] })
+  const isLive = !!account && !account.paper
+  // 实盘只支持市价、限价：选了止损类再换到实盘账户时按限价算
+  const type: TradeOrderType = isLive && !LIVE_TYPES.includes(rawType) ? 'limit' : rawType
   const contract = isContract(inst)
   const needPrice = type === 'limit' || type === 'stop_limit'
   const needStop = type === 'stop' || type === 'stop_limit'
@@ -82,7 +91,7 @@ export function OrderDrawer({ init, accounts, positions, risk, onClose, onPlaced
   })()
 
   const errors: string[] = []
-  if (!account) errors.push('选一个可交易的模拟盘账户')
+  if (!account) errors.push('选一个可交易的账户')
   if (needPrice && !(priceN > 0)) errors.push('填委托价格')
   if (needStop && !(stopN > 0)) errors.push('填触发价')
   if (!(qtyN > 0)) errors.push(rawQty > 0 && lot ? `数量不足最小单位 ${lot}` : '填数量')
@@ -93,6 +102,8 @@ export function OrderDrawer({ init, accounts, positions, risk, onClose, onPlaced
   const submit = (confirmed = false) => {
     setTried(true)
     if (errors.length || !account) return
+    // 实盘每笔都要确认（不看金额）：先在底部确认，确认后带 confirmed 提交
+    if (isLive && !confirmed) { setLiveAsk(true); return }
     place.mutate({
       account_id: account.id, symbol, side, type, qty: qtyN,
       price: needPrice ? priceN : undefined, stop_price: needStop ? stopN : undefined,
@@ -100,14 +111,27 @@ export function OrderDrawer({ init, accounts, positions, risk, onClose, onPlaced
       confirmed: confirmed || undefined,
     }, {
       onSuccess: onPlaced,
-      onError: (e) => setPlaceErr(tradePlaceError(e)),
+      onError: (e) => { setLiveAsk(false); setPlaceErr(tradePlaceError(e)) },
     })
   }
   const sideLabel = side === 'buy' ? '买入' : '卖出'
+  const liveConfirm = isLive && (liveAsk || !!confirming)
 
   return (
-    <Drawer open onClose={onClose} kicker="下单 · 模拟盘" aria-label="下单" className="tr-drawer"
-      footer={(requestClose) => confirming ? (
+    <Drawer open onClose={onClose} kicker={isLive ? '下单 · 实盘' : '下单 · 模拟盘'} aria-label="下单" className="tr-drawer"
+      footer={(requestClose) => liveConfirm && account ? (
+        <>
+          <span className="tr-confirm-q" role="alert">
+            <span className="tag tr-tag-sm tr-tag-live">实盘</span>
+            {account.name}：{sideLabel} {fmtQty(qtyN, lot)} {inst.name}，金额约 <b>{num(value, 2)} {account.currency}</b>，{LIVE_RISK}
+          </span>
+          <span className="spacer" />
+          <Button onClick={touch}>返回修改</Button>
+          <button type="button" className={cls('btn', side === 'buy' ? 'tr-btn-buy' : 'tr-btn-sell')} disabled={place.isPending} onClick={() => submit(true)}>
+            {place.isPending ? '提交中…' : `确认实盘${sideLabel}`}
+          </button>
+        </>
+      ) : confirming ? (
         <>
           <span className="tr-confirm-q">金额约 <b>{usd(confirming.value)}</b>，超过 {usd(confirming.confirm_above)} 二次确认线</span>
           <span className="spacer" />
@@ -117,7 +141,7 @@ export function OrderDrawer({ init, accounts, positions, risk, onClose, onPlaced
       ) : (
         <>
           {tried && errors.length > 0 ? <span className="field-err" role="alert">{errors[0]}</span>
-            : <span className="tr-muted tr-small">{account ? `${account.name}（模拟）` : ''}</span>}
+            : <span className="tr-muted tr-small">{account ? `${account.name}（${account.paper ? '模拟' : '实盘'}）` : ''}</span>}
           <span className="spacer" />
           <Button onClick={requestClose}>取消</Button>
           <button type="button" className={cls('btn', side === 'buy' ? 'tr-btn-buy' : 'tr-btn-sell')} disabled={place.isPending} onClick={() => submit()}>
@@ -126,6 +150,12 @@ export function OrderDrawer({ init, accounts, positions, risk, onClose, onPlaced
         </>
       )}>
       <div className="form">
+        {isLive && account && (
+          <div className="tr-banner tr-banner-danger tr-live-banner" role="note" aria-label="实盘提示">
+            <span className="tag tr-tag-sm tr-tag-live">实盘</span>
+            <span>用的是实盘账户「{account.name}」：这笔会发到 {account.broker}，{LIVE_RISK}。只支持市价、限价，每笔都要二次确认；不改交易所杠杆。</span>
+          </div>
+        )}
         <div className="field">
           <span className="field-label">标的</span>
           <SymbolField value={symbol} inst={inst} price={last || undefined} digits={digits} onChange={(s) => pick(s)} />
@@ -133,24 +163,24 @@ export function OrderDrawer({ init, accounts, positions, risk, onClose, onPlaced
         </div>
 
         <div className="field">
-          <span className="field-label">账户<span className="tr-hint">只能选模拟盘、支持{MARKETS[inst.market].label}的</span></span>
+          <span className="field-label">账户<span className="tr-hint">只能选支持{MARKETS[inst.market].label}的模拟盘，或闸门全开的实盘账户</span></span>
           {!accounts.length ? <NoAccount compact /> : (
             <>
               <div className="tr-acct-pick">
                 {usable.map((a) => (
                   <button key={a.id} type="button" className={cls('tr-acct-opt', account?.id === a.id && 'on')} aria-pressed={account?.id === a.id} onClick={() => { setAcctId(a.id); touch() }}>
-                    <span><span className="ellipsis">{a.name}</span><span className="tag tr-tag-sm">模拟</span></span>
+                    <span><span className="ellipsis">{a.name}</span><span className={cls('tag tr-tag-sm', !a.paper && 'tr-tag-live')}>{a.paper ? '模拟' : '实盘'}</span></span>
                     <span className="tr-small tr-muted">可用 {num(a.available, 2)} {a.currency}</span>
                   </button>
                 ))}
                 {showBlocked && blocked.map(({ a, why }) => (
-                  <button key={a.id} type="button" disabled className="tr-acct-opt">
+                  <button key={a.id} type="button" disabled className="tr-acct-opt" title={why}>
                     <span className="ellipsis">{a.name}</span>
                     <span className="tr-small faint">{why}</span>
                   </button>
                 ))}
               </div>
-              {!usable.length && <div className="tr-empty-box">没有能交易{MARKETS[inst.market].label}的模拟盘账户{blocked[0] ? `：${blocked[0].why}` : ''}</div>}
+              {!usable.length && <div className="tr-empty-box">没有能交易{MARKETS[inst.market].label}的账户{blocked[0] ? `：${blocked[0].why}` : ''}</div>}
               {blocked.length > 0 && (
                 <button type="button" className="tr-link tr-acct-more" onClick={() => setShowBlocked(!showBlocked)}>
                   {showBlocked ? '收起不可用的账户' : `其他 ${blocked.length} 个账户不可用`}
@@ -171,7 +201,13 @@ export function OrderDrawer({ init, accounts, positions, risk, onClose, onPlaced
           <div className="field">
             <span className="field-label">类型</span>
             <div className="tr-seg tr-seg-full" role="group" aria-label="委托类型">
-              {TYPES.map((k) => <button key={k} type="button" className={cls(type === k && 'on')} aria-pressed={type === k} onClick={() => { setType(k); touch() }}>{k === 'stop' ? '止损' : ORDER_TYPE[k]}</button>)}
+              {TYPES.map((k) => {
+                const off = isLive && !LIVE_TYPES.includes(k)
+                return (
+                  <button key={k} type="button" className={cls(type === k && 'on')} aria-pressed={type === k} disabled={off} title={off ? '实盘只支持市价、限价' : undefined}
+                    onClick={() => { setType(k); touch() }}>{k === 'stop' ? '止损' : ORDER_TYPE[k]}</button>
+                )
+              })}
             </div>
           </div>
         </div>
@@ -214,7 +250,7 @@ export function OrderDrawer({ init, accounts, positions, risk, onClose, onPlaced
             <div className="tr-sec-title">合约设置</div>
             {inst.kind !== 'option' && (
               <div className="field">
-                <span className="field-label">杠杆<span className="tr-hint">上限 {risk?.max_leverage ?? '-'}x；保证金约 {num(value / lev, 2)}</span></span>
+                <span className="field-label">杠杆<span className="tr-hint">上限 {risk?.max_leverage ?? '-'}x；保证金约 {num(value / lev, 2)}{isLive ? '；实盘不改交易所杠杆，要和交易所现在的一致' : ''}</span></span>
                 <div className="tr-lev">
                   <input type="range" min={1} max={LEV_MAX} value={lev} aria-label="杠杆" onChange={(e) => { setLev(Number(e.target.value)); touch() }} />
                   <span className={cls('tr-num tr-lev-n', risk && lev > risk.max_leverage && 'danger-text')}>{lev}x</span>
@@ -234,7 +270,15 @@ export function OrderDrawer({ init, accounts, positions, risk, onClose, onPlaced
             <ul>{placeErr.blocks.map((b) => <li key={b}>{b}</li>)}</ul>
           </div>
         )}
-        {placeErr?.kind === 'other' && <div className="tr-block" role="alert"><b>没下成</b><span>{placeErr.message}</span></div>}
+        {placeErr?.kind === 'gate' && (
+          <div className="tr-block" role="alert">
+            <b>实盘闸门没过</b>
+            <span>这笔没发到交易所，缺：</span>
+            <ul>{placeErr.missing.map((m) => <li key={m}>{m}</li>)}</ul>
+          </div>
+        )}
+        {placeErr?.kind === 'upstream' && <div className="tr-block" role="alert"><b>交易所没回</b><span>{placeErr.message}</span></div>}
+        {(placeErr?.kind === 'other' || placeErr?.kind === 'not_user') && <div className="tr-block" role="alert"><b>没下成</b><span>{placeErr.message}</span></div>}
         {!placeErr && hints.length > 0 && (
           <div className="tr-hints">
             <div><b>预检查</b>：提交后后端会按同样的规则拦下，以后端结果为准</div>

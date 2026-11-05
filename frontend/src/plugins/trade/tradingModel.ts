@@ -1,4 +1,4 @@
-// 交易页的纯函数：状态文案、金额格式、下单前的预检查提示。
+// 交易页的纯函数：状态文案、金额格式、下单前的预检查提示、实盘账户能不能交易。
 // 交互照原型 web-next/src/trading.tsx；撮合、估值、风控只在后端做，这里的预检查只做提示，不拦提交（SPEC-trading-0.12）。
 import type {
   TradeAccount, TradeInstrument, TradeOrderSide, TradeReconBrief, TradeOrderSource, TradeOrderStatus, TradeOrderType, TradePosition, TradeRiskRules, TradeRunStatus,
@@ -7,14 +7,21 @@ import { DOWN, MARKETS, UP } from './model'
 
 export const ORDER_TYPE: Record<TradeOrderType, string> = { market: '市价', limit: '限价', stop: '止损市价', stop_limit: '止损限价' }
 export const ORDER_STATUS: Record<TradeOrderStatus, { label: string; color: string }> = {
-  open: { label: '挂单中', color: '#3d4fd6' }, partial: { label: '部分成交', color: '#b0570b' }, filled: { label: '已成交', color: '#2f7d43' },
+  pending: { label: '提交中', color: '#a19d92' }, open: { label: '挂单中', color: '#3d4fd6' }, partial: { label: '部分成交', color: '#b0570b' },
+  unknown: { label: '状态未知', color: '#b0570b' }, filled: { label: '已成交', color: '#2f7d43' },
   canceled: { label: '已撤单', color: '#a19d92' }, rejected: { label: '被拒绝', color: '#c0352b' },
+}
+/** 实盘委托状态的说明（委托列表行下小字） */
+export const LIVE_STATUS_NOTE: Partial<Record<TradeOrderStatus, string>> = {
+  pending: '已记下，正在发往交易所',
+  unknown: '交易所没回准状态（请求超时等），后台按委托编号查单确认，不会重发',
 }
 export const ORDER_SOURCE: Record<TradeOrderSource, string> = { manual: '手动', close: '平仓', run: '策略', liquidation: '强平' }
 export const RUN_STATUS: Record<TradeRunStatus, { label: string; color: string }> = {
   running: { label: '运行中', color: '#2f7d43' }, paused: { label: '已暂停', color: '#b0570b' }, stopped: { label: '已停止', color: '#a19d92' }, error: { label: '异常', color: '#c0352b' },
 }
-export const isActive = (s: TradeOrderStatus) => s === 'open' || s === 'partial'
+/** 当前委托：同后端 status=active（open、pending、partial、unknown） */
+export const isActive = (s: TradeOrderStatus) => s === 'open' || s === 'partial' || s === 'pending' || s === 'unknown'
 
 /** 现在只有数币有行情源；别的市场下单、部署后端回 400「行情源还没接」（SPEC-trading-0.16） */
 export const LIVE_MARKETS: readonly string[] = ['crypto']
@@ -47,12 +54,26 @@ export function fmtTime(iso?: string) {
 }
 export const isContract = (i?: Pick<TradeInstrument, 'kind'>) => !!i && i.kind !== 'spot'
 
-/** 实盘账户的交易入口一律不可用（TRD-07b、TRD-08c）：实盘下单要先过评审、打开实盘开关，并等实盘下单上线（TRD-08d） */
-export const LIVE_BLOCK = '实盘账户：要先过实盘评审（交易设置），实盘下单还没上线，现在只读同步'
+/** 实盘只支持市价、限价（TRD-08d） */
+export const LIVE_TYPES: readonly TradeOrderType[] = ['market', 'limit']
+/** 实盘下单的风险提示：下单抽屉的横幅、二次确认、平仓确认都用 */
+export const LIVE_RISK = '会在交易所真实成交、产生真实盈亏'
+
+/**
+ * 实盘账户现在能不能交易（TRD-08d）：闸门全开（后端算的 trade_ready）才能下单、平仓、部署；不能的返回原因（trade_blockers 逐条用「；」连起来）。
+ * 模拟盘返回 undefined。
+ */
+export function liveBlock(a: TradeAccount): string | undefined {
+  if (a.paper || a.trade_ready) return undefined
+  const why = a.trade_blockers?.length ? a.trade_blockers.join('；') : '要先过实盘评审、申请 trade:live、打开实盘开关（交易设置）'
+  return `实盘不能下单：${why}`
+}
+export const isLiveReady = (a: TradeAccount) => !a.paper && !!a.trade_ready
 
 /** 账户能不能下这个标的：不能的返回原因 */
 export function acctBlock(a: TradeAccount, i: Pick<TradeInstrument, 'market'> | undefined): string | undefined {
-  if (!a.paper) return LIVE_BLOCK
+  const lb = liveBlock(a)
+  if (lb) return lb
   if (i && !a.markets.includes(i.market)) return `不支持${MARKETS[i.market].label}`
   if (i && !LIVE_MARKETS.includes(i.market)) return `${MARKETS[i.market].label}${NO_SOURCE}`
   if (!a.permissions.includes('trade')) return '只读权限，不能下单'

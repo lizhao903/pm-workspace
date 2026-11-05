@@ -37,7 +37,14 @@ const (
 	orderFilled   = "filled"
 	orderCanceled = "canceled"
 	orderRejected = "rejected"
+	// 实盘委托才有（TRD-08d）：已落库、请求还没回；部分成交；请求超时或交易所回状态未知、等查单确认
+	orderPending = "pending"
+	orderPartial = "partial"
+	orderUnknown = "unknown"
 )
+
+// liveActiveSQL 是实盘委托还没到终态的状态（要查单回写、全停要撤）。
+const liveActiveSQL = `status IN ('pending', 'open', 'partial', 'unknown')`
 
 // OrderTypes、OrderSides 同原型 OrderType、Order.side。
 var (
@@ -129,24 +136,30 @@ type Order struct {
 	Confirmed    bool
 	CreatedAt    string
 	UpdatedAt    string
+	// 实盘委托（TRD-08d，迁移 0012）：发到交易所的委托编号、交易所委托号、发出时间、最近一次查单时间
+	Live        bool
+	ExClientID  string
+	ExOrderID   string
+	SubmittedAt string
+	CheckedAt   string
 }
 
 const orderCols = `id, account_id, symbol, side, type, qty_e8, price_e8, stop_e8, leverage, reduce_only, triggered, status, reject_reason,
-	filled_e8, avg_fill_e8, fee_e8, run_id, source, client_id, confirmed, created_at, updated_at`
+	filled_e8, avg_fill_e8, fee_e8, run_id, source, client_id, confirmed, created_at, updated_at, live, ex_client_id, ex_order_id, submitted_at, checked_at`
 
 func scanOrder(row plugin.Row) (Order, error) {
 	var o Order
-	var ro, tr, cf int
+	var ro, tr, cf, lv int
 	err := row.Scan(&o.ID, &o.AccountID, &o.Symbol, &o.Side, &o.Type, &o.Qty, &o.Price, &o.Stop, &o.Leverage, &ro, &tr, &o.Status, &o.RejectReason,
-		&o.Filled, &o.AvgFill, &o.Fee, &o.RunID, &o.Source, &o.ClientID, &cf, &o.CreatedAt, &o.UpdatedAt)
-	o.ReduceOnly, o.Triggered, o.Confirmed = ro == 1, tr == 1, cf == 1
+		&o.Filled, &o.AvgFill, &o.Fee, &o.RunID, &o.Source, &o.ClientID, &cf, &o.CreatedAt, &o.UpdatedAt, &lv, &o.ExClientID, &o.ExOrderID, &o.SubmittedAt, &o.CheckedAt)
+	o.ReduceOnly, o.Triggered, o.Confirmed, o.Live = ro == 1, tr == 1, cf == 1, lv == 1
 	return o, err
 }
 
 func insertOrder(ctx context.Context, c plugin.Core, o Order) error {
-	_, err := c.Store().Exec(ctx, `INSERT INTO trade_orders (`+orderCols+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+	_, err := c.Store().Exec(ctx, `INSERT INTO trade_orders (`+orderCols+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		o.ID, o.AccountID, o.Symbol, o.Side, o.Type, o.Qty, o.Price, o.Stop, o.Leverage, b2i(o.ReduceOnly), b2i(o.Triggered), o.Status, o.RejectReason,
-		o.Filled, o.AvgFill, o.Fee, o.RunID, o.Source, o.ClientID, b2i(o.Confirmed), o.CreatedAt, o.UpdatedAt)
+		o.Filled, o.AvgFill, o.Fee, o.RunID, o.Source, o.ClientID, b2i(o.Confirmed), o.CreatedAt, o.UpdatedAt, b2i(o.Live), o.ExClientID, o.ExOrderID, o.SubmittedAt, o.CheckedAt)
 	return err
 }
 
@@ -185,7 +198,7 @@ func (o Order) signedQty() fx {
 // orderHold 是挂单占用：没成交的开仓委托按委托价（市价单、止损单按触发价或 0）估的名义价值除以杠杆。
 // 仅减仓的不占；止损市价按触发价估。
 func (pp *paper) orderHold(ctx context.Context, accountID string) (fx, error) {
-	os, err := queryOrders(ctx, pp.c, `WHERE account_id = ? AND status = 'open' AND reduce_only = 0`, accountID)
+	os, err := queryOrders(ctx, pp.c, `WHERE account_id = ? AND status = 'open' AND reduce_only = 0 AND live = 0`, accountID)
 	if err != nil {
 		return 0, err
 	}
@@ -264,11 +277,16 @@ type riskError struct {
 func (e *riskError) Error() string { return "风控未通过：" + strings.Join(e.Blocks, "；") }
 
 // confirmError 是金额超过二次确认阈值又没带确认标记：不下单、不记委托。
+// Live 为真是实盘委托：每笔都要二次确认（会产生真实盈亏），不看金额。
 type confirmError struct {
 	Value, Threshold fx
+	Live             bool
 }
 
 func (e *confirmError) Error() string {
+	if e.Live {
+		return fmt.Sprintf("实盘委托，金额约 %s，会在交易所真实成交、产生真实盈亏，确认后带 confirmed: true 重新提交", usdText(e.Value))
+	}
 	return fmt.Sprintf("金额约 %s，超过 %s 二次确认线，确认后带 confirmed: true 重新提交", usdText(e.Value), usdText(e.Threshold))
 }
 
@@ -278,6 +296,7 @@ type duplicateError struct{ OrderID string }
 func (e *duplicateError) Error() string { return "这根 K 线已经下过单：" + e.OrderID }
 
 // place 是唯一的下单入口：校验、风控、二次确认、模拟交易所的拒单检查，过了记成挂单中并叫醒撮合。
+// 实盘账户走 placeLiveLocked（livetrade.go）：实盘闸门逐笔现查，风控、二次确认同样一项不跳，过了发到交易所。
 // 回的委托可能是 open（挂单中）或 rejected（模拟交易所拒单：可卖不足、仅减仓没有反向持仓、可用资金不足）；
 // 被风控拦下回 *riskError（委托也记成被拒绝），要二次确认回 *confirmError，参数不对回 errValidation。
 func (pp *paper) place(ctx context.Context, req orderReq) (Order, error) {
@@ -287,9 +306,12 @@ func (pp *paper) place(ctx context.Context, req orderReq) (Order, error) {
 }
 
 func (pp *paper) placeLocked(ctx context.Context, req orderReq) (Order, error) {
-	a, err := paperAccount(ctx, pp.c, req.AccountID)
+	a, err := tradeAccount(ctx, pp.c, req.AccountID)
 	if err != nil {
 		return Order{}, err
+	}
+	if !a.Paper {
+		return pp.placeLiveLocked(ctx, a, req)
 	}
 	if !slices.Contains(OrderSides, req.Side) {
 		return Order{}, apiErr(errValidation, "side 只能是 buy 或 sell")
@@ -503,7 +525,7 @@ func marketLabel(m string) string {
 // cancel 撤一笔挂单；不是挂单中回 false。
 func (pp *paper) cancelLocked(ctx context.Context, o Order, reason string, m plugin.WriteMeta) (bool, error) {
 	now := stamp(pp.now())
-	res, err := pp.c.Store().Exec(ctx, `UPDATE trade_orders SET status = 'canceled', reject_reason = ?, updated_at = ? WHERE id = ? AND status = 'open'`, reason, now, o.ID)
+	res, err := pp.c.Store().Exec(ctx, `UPDATE trade_orders SET status = 'canceled', reject_reason = ?, updated_at = ? WHERE id = ? AND status = 'open' AND live = 0`, reason, now, o.ID)
 	if err != nil {
 		return false, err
 	}
@@ -515,9 +537,9 @@ func (pp *paper) cancelLocked(ctx context.Context, o Order, reason string, m plu
 	return true, nil
 }
 
-// cancelWhere 撤掉一批挂单（全停、停部署、全部撤单用），回撤掉的条数。
+// cancelWhere 撤掉一批模拟盘挂单（全停、停部署、全部撤单用），回撤掉的条数。实盘委托由 liveTrader 到交易所撤（livetrade.go）。
 func (pp *paper) cancelWhereLocked(ctx context.Context, where string, reason string, m plugin.WriteMeta, args ...any) (int, []string, error) {
-	os, err := queryOrders(ctx, pp.c, `WHERE status = 'open'`+where+` ORDER BY created_at`, args...)
+	os, err := queryOrders(ctx, pp.c, `WHERE status = 'open' AND live = 0`+where+` ORDER BY created_at`, args...)
 	if err != nil {
 		return 0, nil, err
 	}
@@ -574,7 +596,7 @@ func (pp *paper) tick(ctx context.Context) {
 func (pp *paper) recover(ctx context.Context) error {
 	pp.mu.Lock()
 	defer pp.mu.Unlock()
-	rows, err := pp.c.Store().Query(ctx, `SELECT o.id, f.qty_e8, f.price_e8, f.fee_e8, f.at FROM trade_orders o JOIN trade_fills f ON f.order_id = o.id WHERE o.status = 'open'`)
+	rows, err := pp.c.Store().Query(ctx, `SELECT o.id, f.qty_e8, f.price_e8, f.fee_e8, f.at FROM trade_orders o JOIN trade_fills f ON f.order_id = o.id WHERE o.status = 'open' AND o.live = 0`)
 	if err != nil {
 		return err
 	}
@@ -626,7 +648,8 @@ func (pp *paper) watch(symbols []string) {
 func (pp *paper) match(ctx context.Context) error {
 	pp.mu.Lock()
 	defer pp.mu.Unlock()
-	orders, err := queryOrders(ctx, pp.c, `WHERE status = 'open' ORDER BY created_at, id`)
+	// 只撮合模拟盘委托：实盘委托（live = 1）的状态只由交易所回写，本地从不撮合
+	orders, err := queryOrders(ctx, pp.c, `WHERE status = 'open' AND live = 0 ORDER BY created_at, id`)
 	if err != nil {
 		return err
 	}

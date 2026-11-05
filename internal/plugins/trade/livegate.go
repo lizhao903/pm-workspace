@@ -24,8 +24,9 @@ import (
 // trade:live 走内核的单独申请（POST /api/plugins/trade/permissions/grant，二次确认输入插件名），
 // 插件实现 PermissionGuard：评审没通过时不同意授予。
 //
-// 实盘开关：评审没通过或没授予 trade:live 时打开一律 403 并写缺什么。开关只记意愿——
-// 本批次没有实盘下单：开关开着，下单、改单撤单、平仓、部署对实盘账户照样 403（paperAccount、liveErr），要等 TRD-08d。
+// 实盘开关：评审没通过或没授予 trade:live 时打开一律 403 并写缺什么。
+// 实盘下单（TRD-08d，livetrade.go）：开关是实盘闸门的一项，下单时和评审、trade:live、账户的读取 + 交易、交易所现查的 Key 权限一起逐笔现查；
+// 关掉开关、撤回评审、收回 trade:live 后，下一笔就被拦，运行中的实盘部署自动暂停。
 
 // LivePerm 是实盘下单的权限。
 const LivePerm = "trade:live"
@@ -107,14 +108,15 @@ type LiveView struct {
 	// CanEnable、Blockers：现在能不能打开、不能的原因（按要做的先后）
 	CanEnable bool     `json:"can_enable"`
 	Blockers  []string `json:"blockers"`
-	// LiveOrders 恒为 false：实盘下单（TRD-08d）没上线，开关开着实盘账户也只读
+	// LiveOrders 是实盘下单已经上线（TRD-08d 起恒为 true）；能不能下看开关、评审、trade:live 和每个账户的 trade_ready
 	LiveOrders bool               `json:"live_orders"`
 	Note       string             `json:"note"`
 	PluginName string             `json:"plugin_name"`
 	Records    []LiveReviewRecord `json:"records"`
 }
 
-const liveOrdersNote = "实盘下单还没上线（TRD-08d）：实盘开关打开后，实盘账户的下单、改单撤单、平仓、部署和启动照样不可用，只读同步"
+const liveOrdersNote = "实盘下单已上线（TRD-08d）：评审通过、trade:live 已授予、实盘开关打开后，接入时选了「读取 + 交易」、Key 在交易所有交易权限且没有提币和划转权限的实盘账户才能下单；" +
+	"每一笔都在下单时现查这些条件，任何一条不满足就拒单，运行中的实盘部署自动暂停。每笔实盘委托都会产生真实盈亏"
 
 /* ---------- 五项的条件 ---------- */
 
@@ -461,7 +463,7 @@ func (h *handlers) liveView(ctx context.Context) (LiveView, error) {
 	v.Enabled, v.ChangedAt, v.ChangedBy, v.OffReason = sw.Enabled, sw.ChangedAt, sw.ChangedBy, sw.Reason
 	v.Blockers = gateBlockers(missing, v.Granted)
 	v.CanEnable = len(v.Blockers) == 0
-	v.Note, v.PluginName = liveOrdersNote, h.p.m.Name
+	v.Note, v.PluginName, v.LiveOrders = liveOrdersNote, h.p.m.Name, true
 	v.Records = []LiveReviewRecord{}
 	rows, err := h.c.Store().Query(ctx, `SELECT id, at, action, item, reviewer, source, detail FROM trade_live_reviews ORDER BY id DESC LIMIT 50`)
 	if err != nil {
@@ -654,6 +656,7 @@ func (h *handlers) revokeLiveCheck(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			h.p.paper.audit(ctx, "review_reopen", "trade_live", "review", "撤回「"+d.Label+"」，实盘评审回到未通过，trade:live 一并收回", map[string]any{"item": key}, userMeta)
+			h.p.runs.poke()
 		}
 	}
 	v, err := h.liveView(ctx)
@@ -665,7 +668,6 @@ func (h *handlers) revokeLiveCheck(w http.ResponseWriter, r *http.Request) {
 }
 
 // POST /api/trade/live/switch {enabled}：打开只接受用户本人，且评审通过、trade:live 已授予，否则 403 写缺什么；关掉谁调都行。
-// 开关只记意愿：实盘下单没上线前，开着也不开放实盘账户的任何交易动作。
 func (h *handlers) setLiveSwitch(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	raw, err := readBody(r)
@@ -726,11 +728,14 @@ func (h *handlers) setLiveSwitch(w http.ResponseWriter, r *http.Request) {
 			h.fail(w, r, err)
 			return
 		}
-		action, text := "live_on", "打开实盘开关（实盘下单还没上线，实盘账户仍只读）"
+		action, text := "live_on", "打开实盘开关"
 		if !*on {
 			action, text = "live_off", "关掉实盘开关"
 		}
 		h.p.paper.audit(ctx, action, "trade_live", "switch", text+"（"+a.Label()+"）", map[string]any{"actor": reviewerName(a), "source": a.Source}, userMeta)
+		if !*on {
+			h.p.runs.poke() // 运行中的实盘部署马上看闸门、自动暂停
+		}
 	}
 	v, err := h.liveView(ctx)
 	if err != nil {

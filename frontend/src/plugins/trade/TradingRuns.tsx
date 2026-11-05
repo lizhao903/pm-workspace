@@ -1,4 +1,5 @@
-// 策略运行（SPEC-trading-6）和新建策略运行抽屉（SPEC-trading-7）。部署只能到模拟盘账户；
+// 策略运行（SPEC-trading-6）和新建策略运行抽屉（SPEC-trading-7）。部署到模拟盘账户，或闸门全开（trade_ready）的实盘账户（TRD-08d）：
+// 实盘要勾「我确认用真实资金运行」才能启动，实盘部署的恢复、启动也先出确认条；闸门失效时后端自动暂停实盘部署（error 写原因）。
 // 信号、下单、盈亏都在后端（TRD-05b）：K 线收盘时算信号、下市价单，每笔过风控。这里只启停和看日志。
 // 原型的「启动」「恢复」在后端合成一个 /resume；熔断中启动、新建都会被后端拒（409 halted），原因原样显示。
 import { useState } from 'react'
@@ -10,7 +11,7 @@ import { Button, Drawer, EmptyState, ErrorState, LoadingState, Pill, SearchSelec
 import { MARKETS, fmtPct, guessInstrument } from './model'
 import { intervalLabel, instName } from './strategyModel'
 import { NoAccount } from './TradingParts'
-import { LIVE_BLOCK, LIVE_MARKETS, NO_SOURCE, RUN_STATUS, fmtQty, fmtTime, num, signed, tone } from './tradingModel'
+import { LIVE_MARKETS, NO_SOURCE, RUN_STATUS, fmtQty, fmtTime, liveBlock, num, signed, tone } from './tradingModel'
 
 type Q<T> = { data: T | undefined; isPending: boolean; isError: boolean; error: unknown; refetch: () => unknown }
 
@@ -27,7 +28,7 @@ export function RunsView({ runs, accounts, strategies, halted, onOpenStrategy, o
   }
   const all = [...runs.data.data].sort((a, b) => ORDER[a.status] - ORDER[b.status] || b.started_at.localeCompare(a.started_at))
   if (!all.length) {
-    return <EmptyState title="还没有策略在跑" desc="在策略页回测满意后部署，或者直接新建一个运行；现在只能部署到模拟盘" action={<Button variant="primary" onClick={onNew}>新建运行</Button>} />
+    return <EmptyState title="还没有策略在跑" desc="在策略页回测满意后部署，或者直接新建一个运行；先在模拟盘跑一段再上实盘" action={<Button variant="primary" onClick={onNew}>新建运行</Button>} />
   }
   const stopped = all.filter((r) => r.status === 'stopped')
   const rows = showStopped ? all : all.filter((r) => r.status !== 'stopped')
@@ -51,12 +52,16 @@ function RunCard({ r, account: a, strategyAlive, halted, onOpenStrategy }: {
 }) {
   const [open, setOpen] = useState(false)
   const [stopAsk, setStopAsk] = useState(false)
+  const [liveAsk, setLiveAsk] = useState(false)
   const act = useTradeRunAction()
+  const live = !!a && !a.paper
+  const lb = a ? liveBlock(a) : undefined
   const detail = useTradeRun(r.id, open)
   const src = open && detail.data ? detail.data : r
   const logs = [...src.logs].reverse()
   const shown = open ? logs : logs.slice(0, LOG_FIRST)
-  const run = (action: 'pause' | 'resume' | 'stop') => act.mutate({ id: r.id, action }, { onSuccess: () => setStopAsk(false) })
+  const run = (action: 'pause' | 'resume' | 'stop') => act.mutate({ id: r.id, action }, { onSuccess: () => { setStopAsk(false); setLiveAsk(false) } })
+  const resumeLabel = r.status === 'paused' ? '恢复' : '启动'
   return (
     <section className={cls('tr-card', r.status === 'error' && 'tr-card-bad', r.status === 'stopped' && 'tr-dim')} aria-label={`部署 ${r.strategy_name}`}>
       <div className="tr-card-head">
@@ -66,7 +71,7 @@ function RunCard({ r, account: a, strategyAlive, halted, onOpenStrategy }: {
         <Pill {...RUN_STATUS[r.status]} />
       </div>
       <div className="tr-card-sub">
-        <span className="tag tr-tag-sm">模拟</span>
+        <span className={cls('tag tr-tag-sm', live && 'tr-tag-live')}>{live ? '实盘' : '模拟'}</span>
         <span className="ellipsis">{a?.name ?? '已删除的账户'} · {r.symbols.map(instName).join('、')} · {intervalLabel(r.interval as TradeInterval)} K 线</span>
       </div>
       {r.error && <div className="tr-inline-msg tr-inline-bad"><span>{r.error}</span></div>}
@@ -97,7 +102,14 @@ function RunCard({ r, account: a, strategyAlive, halted, onOpenStrategy }: {
       </div>
       {act.error && <div className="tr-inline-msg tr-inline-bad" role="alert"><span>{errorText(act.error)}</span></div>}
       <div className="tr-card-foot">
-        {stopAsk ? (
+        {liveAsk ? (
+          <>
+            <span className="tr-small danger-text" role="alert">用真实资金运行：{a?.name}，分配 {num(r.capital)} {a?.currency}；信号单会在交易所真实成交</span>
+            <span className="spacer" />
+            <Button size="sm" onClick={() => setLiveAsk(false)}>取消</Button>
+            <Button size="sm" variant="danger" disabled={act.isPending} onClick={() => run('resume')}>确认{resumeLabel}</Button>
+          </>
+        ) : stopAsk ? (
           <>
             <span className="tr-small danger-text">停止后撤掉这个部署的挂单，持仓保留、不自动平仓</span>
             <span className="spacer" />
@@ -108,12 +120,13 @@ function RunCard({ r, account: a, strategyAlive, halted, onOpenStrategy }: {
           <>
             {r.status === 'running' && <Button size="sm" variant="outline" disabled={act.isPending} onClick={() => run('pause')}>暂停</Button>}
             {r.status !== 'running' && (
-              <Button size="sm" variant="primary" disabled={halted || act.isPending || !a} title={halted ? '熔断中，先到风控解除' : !a ? '账户已删除' : undefined}
-                onClick={() => run('resume')}>{r.status === 'paused' ? '恢复' : '启动'}</Button>
+              <Button size="sm" variant="primary" disabled={halted || act.isPending || !a || !!lb} title={halted ? '熔断中，先到风控解除' : !a ? '账户已删除' : lb}
+                onClick={() => (live ? setLiveAsk(true) : run('resume'))}>{resumeLabel}</Button>
             )}
             {r.status !== 'stopped' && <Button size="sm" onClick={() => setStopAsk(true)}>停止</Button>}
             <span className="spacer" />
             {halted && r.status !== 'running' && <span className="faint tr-small">熔断中不能启动</span>}
+            {!halted && lb && r.status !== 'running' && <span className="faint tr-small ellipsis" title={lb}>{lb}</span>}
           </>
         )}
       </div>
@@ -134,7 +147,8 @@ export function RunDrawer({ initStrategy, strategies, accounts, halted, onClose,
   const s = strategies.find((x) => x.id === pickedSid) ?? (initStrategy ? undefined : strategies[0])
   const sid = s?.id ?? pickedSid
   const why = (a: TradeAccount, st?: TradeStrategy) => {
-    if (!a.paper) return LIVE_BLOCK
+    const lb = liveBlock(a)
+    if (lb) return lb
     const ms = new Set((st?.symbols ?? []).map((x) => guessInstrument(x).market))
     if (ms.size && ![...ms].some((m) => a.markets.includes(m))) return `不支持${[...ms].map((m) => MARKETS[m].label).join(' / ')}`
     return undefined
@@ -142,7 +156,10 @@ export function RunDrawer({ initStrategy, strategies, accounts, halted, onClose,
   const usable = (st: TradeStrategy | undefined, acc: TradeAccount | undefined) =>
     (st?.symbols ?? []).filter((x) => acc?.markets.includes(guessInstrument(x).market) && runnable(x))
   const [aid, setAid] = useState('')
-  const a = accounts.find((x) => x.id === aid && !why(x, s)) ?? accounts.find((x) => !why(x, s))
+  // 默认第一个能用的模拟盘，没有再取第一个能用的
+  const a = accounts.find((x) => x.id === aid && !why(x, s)) ?? accounts.find((x) => x.paper && !why(x, s)) ?? accounts.find((x) => !why(x, s))
+  const live = !!a && !a.paper
+  const [ack, setAck] = useState(false)
   const [pickedSyms, setSyms] = useState<string[] | null>(null)
   const ok = usable(s, a)
   const syms = pickedSyms ? pickedSyms.filter((x) => ok.includes(x)) : ok
@@ -159,17 +176,18 @@ export function RunDrawer({ initStrategy, strategies, accounts, halted, onClose,
     setSyms(null)
     create.reset()
   }
-  const pickAcct = (acc: TradeAccount) => { setAid(acc.id); setSyms(null); create.reset() }
+  const pickAcct = (acc: TradeAccount) => { setAid(acc.id); setSyms(null); setAck(false); create.reset() }
 
   const cap = Number(capital)
   const errors: string[] = []
   if (halted) errors.push('熔断中，不能启动新运行；先到风控解除熔断')
   if (!s) errors.push(initStrategy && !strategies.length ? '策略还在加载' : initStrategy && pickedSid === initStrategy ? '要部署的策略已经删除，换一个' : '选一个策略')
-  if (!a) errors.push('选一个模拟盘账户')
+  if (!a) errors.push('选一个可交易的账户')
   if (s && !syms.length) errors.push('至少选一个标的')
   if (!(cap > 0)) errors.push('填分配资金')
   else if (a && cap > a.available) errors.push(`分配资金超过账户可用 ${num(a.available, 2)} ${a.currency}`)
   if (Object.values(params).some((v) => v.trim() === '' || Number.isNaN(Number(v)))) errors.push('参数要填数字')
+  if (live && !ack) errors.push('实盘要勾选确认用真实资金运行')
   const blockedAccts = accounts.filter((x) => why(x, s))
 
   const submit = () => {
@@ -182,7 +200,7 @@ export function RunDrawer({ initStrategy, strategies, accounts, halted, onClose,
   }
 
   return (
-    <Drawer open onClose={onClose} kicker="新建策略运行 · 模拟盘" aria-label="新建策略运行" className="tr-drawer"
+    <Drawer open onClose={onClose} kicker={live ? '新建策略运行 · 实盘' : '新建策略运行 · 模拟盘'} aria-label="新建策略运行" className="tr-drawer"
       footer={(requestClose) => (
         <>
           {create.error ? <span className="field-err" role="alert">没启动：{errorText(create.error)}</span>
@@ -203,7 +221,7 @@ export function RunDrawer({ initStrategy, strategies, accounts, halted, onClose,
           )}
         </div>
         <div className="field">
-          <span className="field-label">账户<span className="tr-hint">只能部署到模拟盘</span></span>
+          <span className="field-label">账户<span className="tr-hint">先在模拟盘跑一段再上实盘；实盘账户要闸门全开</span></span>
           {!accounts.length ? <NoAccount compact /> : (
             <>
               <div className="tr-acct-pick">
@@ -211,7 +229,7 @@ export function RunDrawer({ initStrategy, strategies, accounts, halted, onClose,
                   const w = why(x, s)
                   return (
                     <button key={x.id} type="button" disabled={!!w} className={cls('tr-acct-opt', a?.id === x.id && 'on')} aria-pressed={a?.id === x.id} onClick={() => pickAcct(x)}>
-                      <span><span className="ellipsis">{x.name}</span><span className="tag tr-tag-sm">模拟</span></span>
+                      <span><span className="ellipsis">{x.name}</span><span className={cls('tag tr-tag-sm', !x.paper && 'tr-tag-live')}>{x.paper ? '模拟' : '实盘'}</span></span>
                       <span className={cls('tr-small', w ? 'faint' : 'tr-muted')}>{w ?? `可用 ${num(x.available, 2)} ${x.currency}`}</span>
                     </button>
                   )
@@ -258,6 +276,12 @@ export function RunDrawer({ initStrategy, strategies, accounts, halted, onClose,
               ))}
             </div>
           </section>
+        )}
+        {live && a && (
+          <label className={cls('check', tried && !ack && 'danger-text')}>
+            <input type="checkbox" checked={ack} onChange={(e) => { setAck(e.target.checked); create.reset() }} />
+            我确认用真实资金运行（{a.name}）：信号单会在交易所真实成交、产生真实盈亏
+          </label>
         )}
         {s && (
           <div className="tr-hints">
