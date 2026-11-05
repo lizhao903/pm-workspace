@@ -65,12 +65,13 @@ func (e *UpgradePermissionsError) Error() string {
 }
 
 // NewPermissions 是清单里有、状态表里还没确认过的权限，按清单顺序。没安装时为空。
+// 单独申请的权限（SeparatePermissions，如 trade:live）不算：升级时不授予，也不要求确认。
 func (in Info) NewPermissions() []string {
 	if !in.State.Installed {
 		return []string{}
 	}
 	out := []string{}
-	for _, p := range in.Manifest.Permissions {
+	for _, p := range installable(in.Manifest) {
 		if !slices.Contains(in.State.Permissions, p) {
 			out = append(out, p)
 		}
@@ -150,7 +151,14 @@ func (r *Registry) Upgrade(ctx context.Context, id string, confirmed []string) e
 	st := e.state
 	from := st.Version
 	st.Version, st.UpdatedAt = e.m.Version, now
-	if perms := slices.Clone(e.m.Permissions); !slices.Equal(perms, st.Permissions) {
+	// 单独申请的权限不随升级授予：已经单独授予过、新清单里仍声明的保留，其余收回
+	perms := installable(e.m)
+	for _, p := range st.Permissions {
+		if IsSeparate(p) && slices.Contains(e.m.Permissions, p) {
+			perms = append(perms, p)
+		}
+	}
+	if !slices.Equal(perms, st.Permissions) {
 		st.Permissions, st.PermissionsAt = perms, &now
 	}
 	if err := r.store.Save(ctx, st); err != nil {

@@ -605,13 +605,13 @@ export type LiveCheckKey = 'audit' | 'recon' | 'incident' | 'drill' | 'paper'
 export const LIVE_CHECKS: { key: LiveCheckKey; label: string; desc: string }[] = [
   { key: 'audit', label: '审计日志', desc: '一笔委托从下单、报单、成交到撤单的每一步都能查到，风控拦截和熔断也记' },
   { key: 'recon', label: '对账', desc: '实盘账户定时和交易所对余额、持仓、挂单，差异都处理完' },
-  { key: 'incident', label: '异常处理', desc: '账户异常、委托被拒、风控拦截、熔断、对账差异都记运行异常并通知' },
+  { key: 'incident', label: '异常演练', desc: '账户异常、委托被拒、风控拦截、熔断、对账差异都记审计、运行异常并通知；至少真的出过一次并查得到' },
   { key: 'drill', label: '全停演练', desc: '手动按一次一键全停，确认策略全停、挂单全撤、进入熔断，再解除' },
-  { key: 'paper', label: '模拟盘两周记录', desc: '至少一个部署在模拟盘连续跑满 14 天' },
+  { key: 'paper', label: '模拟盘两周记录', desc: '至少一个部署在模拟盘连续跑满 14 天，每天一条运行检查记录（TRD-05d）' },
 ]
 
 export interface LiveReview {
-  /** 每项评审用户确认通过的时间；没确认的没有 */
+  /** 每项评审用户确认通过的时间；没确认的没有。评审人是确认的人（正式版记界面操作者的名字，原型只有「我」） */
   confirmed: Partial<Record<LiveCheckKey, string>>
   /** trade:live 权限授予的时间；没申请或已收回的没有 */
   granted_at?: string

@@ -11,7 +11,7 @@ describe('交易套件插件', () => {
       ['strategy', '策略', 'strategy'],
       ['trading', '交易', 'trading'],
     ])
-    expect(r.plugins[0].permissions).toEqual(['network:market-data', 'network:exchanges'])
+    expect(r.plugins[0].permissions).toEqual(['network:market-data', 'network:exchanges', 'trade:live'])
     expect(deactivatePlugin('trade')).toBe(true)
     expect(moduleStore.ofOwner('trade')).toEqual([])
   })

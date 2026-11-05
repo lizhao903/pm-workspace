@@ -253,8 +253,8 @@ function pluginOffBlock(runs: StrategyRun[], orders: Order[]): string | null {
   return `还有 ${[r && `${r} 个部署在跑`, o && `${o} 笔挂单`].filter(Boolean).join('、')}，先到交易里一键全停`
 }
 
-/** 评审清单每一项现在的情况：ok 才能确认通过；不 ok 的给原因和去处理的地方 */
-type LiveCheck = { ok: boolean; text: string; go?: TradingView }
+/** 评审清单每一项现在的情况：ok 才能确认通过；不 ok 的给原因和去处理的地方；evidence 是证据（正式版是能直接查的审计、对账记录接口，原型跳到对应视图） */
+type LiveCheck = { ok: boolean; text: string; go?: TradingView; evidence: { label: string; go: TradingView }[] }
 function liveChecks(s: { accounts: TradeAccount[]; orders: Order[]; runs: StrategyRun[]; strategies: Strategy[]; recons: Reconciliation[]; at: number }): Record<LiveCheckKey, LiveCheck> {
   const liveAccts = s.accounts.filter((a) => !a.paper)
   const reconBad = liveAccts.flatMap((a) => {
@@ -270,17 +270,17 @@ function liveChecks(s: { accounts: TradeAccount[]; orders: Order[]; runs: Strate
     .map((r) => ({ r, days: ((r.stopped_at ? Date.parse(r.stopped_at) : s.at) - Date.parse(r.started_at)) / 86400000 }))
     .sort((a, b) => b.days - a.days)[0]
   return {
-    audit: { ok: true, text: `委托 ${s.orders.length} 笔、熔断 ${haltLog.length} 次，每一步都有记录` },
+    audit: { ok: true, text: `委托 ${s.orders.length} 笔、熔断 ${haltLog.length} 次，每一步都有记录`, evidence: [{ label: '委托', go: 'orders' }, { label: '熔断记录', go: 'risk' }] },
     recon: reconBad.length
-      ? { ok: false, text: reconBad.join('；'), go: 'accounts' }
-      : { ok: true, text: `${liveAccts.length} 个实盘账户最近一次对账都一致` },
-    incident: { ok: true, text: '交易的异常都记到「设置 / 运行异常」，模块「交易」' },
+      ? { ok: false, text: reconBad.join('；'), go: 'accounts', evidence: [{ label: '对账记录', go: 'accounts' }] }
+      : { ok: true, text: `${liveAccts.length} 个实盘账户最近一次对账都一致`, evidence: [{ label: '对账记录', go: 'accounts' }] },
+    incident: { ok: true, text: '交易的异常都记到审计和「设置 / 运行异常」，模块「交易」', evidence: [{ label: '被拒的委托', go: 'orders' }, { label: '熔断记录', go: 'risk' }] },
     drill: drill
-      ? { ok: true, text: `${fmtTime(drill.at)} 全停，${fmtTime(drill.released_at!)} 解除` }
-      : { ok: false, text: '还没演练过：按一次一键全停，确认都停了再解除熔断', go: 'risk' },
+      ? { ok: true, text: `${fmtTime(drill.at)} 全停，${fmtTime(drill.released_at!)} 解除`, evidence: [{ label: '熔断记录', go: 'risk' }] }
+      : { ok: false, text: '还没演练过：按一次一键全停，确认都停了再解除熔断', go: 'risk', evidence: [{ label: '熔断记录', go: 'risk' }] },
     paper: paper && paper.days >= 14
-      ? { ok: true, text: `「${s.strategies.find((x) => x.id === paper.r.strategy_id)?.name ?? '策略'}」在模拟盘连续跑了 ${Math.floor(paper.days)} 天` }
-      : { ok: false, text: paper ? `模拟盘最长连续跑了 ${Math.floor(paper.days)} 天，还差 ${Math.ceil(14 - paper.days)} 天` : '还没在模拟盘跑过', go: 'runs' },
+      ? { ok: true, text: `「${s.strategies.find((x) => x.id === paper.r.strategy_id)?.name ?? '策略'}」在模拟盘连续跑了 ${Math.floor(paper.days)} 天`, evidence: [{ label: '模拟盘部署', go: 'runs' }] }
+      : { ok: false, text: paper ? `模拟盘最长连续跑了 ${Math.floor(paper.days)} 天，还差 ${Math.ceil(14 - paper.days)} 天` : '还没在模拟盘跑过', go: 'runs', evidence: [{ label: '模拟盘部署', go: 'runs' }] },
   }
 }
 
@@ -608,7 +608,7 @@ export function TradingPage(props: {
       {view === 'orders' && <OrdersView orders={orders} accounts={accounts} acctName={acctName} at={tick} live={liveMode} onOrders={onOrders} />}
       {view === 'runs' && <RunsView runs={runs} accounts={accounts} strategies={strategies} risk={risk} live={liveMode} onRuns={onRuns} onOpenStrategy={props.onOpenStrategy}
         onNew={() => setDrawer({ kind: 'run', key: Date.now() })} />}
-      {view === 'accounts' && <AccountsView accounts={accounts} positions={positions} recons={g.recons} onAccounts={onAccounts} onNew={() => setDrawer({ kind: 'account', key: Date.now() })}
+      {view === 'accounts' && <AccountsView accounts={accounts} positions={positions} recons={g.recons} live={liveMode} onAccounts={onAccounts} onNew={() => setDrawer({ kind: 'account', key: Date.now() })}
         onRecon={(id) => setDrawer({ kind: 'recon', accountId: id, key: Date.now() })} deleteBlock={props.accountDeleteBlock} onDelete={props.onDeleteAccount} />}
       {view === 'risk' && <RiskView risk={risk} onRisk={onRisk} lossUsed={lossUsed} lossLimit={lossLimit} equity={sum.equity} today={sum.today}
         halts={haltLog} onKill={() => kill('风控页手动一键全停')} />}
@@ -1527,8 +1527,8 @@ const BROKERS: BrokerDef[] = [
   { key: '模拟', label: '模拟', kind: 'exchange', markets: ['crypto', 'cn', 'hk', 'us'], currency: 'USD', fields: [{ k: 'capital', label: '初始资金（USD）', placeholder: '100000' }], note: '本地模拟撮合，按实时模拟行情成交，不连真实账户' },
 ]
 
-function AccountsView({ accounts, positions, recons, onAccounts, onNew, onRecon, deleteBlock, onDelete }: {
-  accounts: TradeAccount[]; positions: Position[]; recons: Reconciliation[]; onAccounts: (fn: (xs: TradeAccount[]) => TradeAccount[]) => void; onNew: () => void
+function AccountsView({ accounts, positions, recons, live, onAccounts, onNew, onRecon, deleteBlock, onDelete }: {
+  accounts: TradeAccount[]; positions: Position[]; recons: Reconciliation[]; live: boolean; onAccounts: (fn: (xs: TradeAccount[]) => TradeAccount[]) => void; onNew: () => void
   onRecon: (id: string) => void; deleteBlock: (id: string) => string | null; onDelete: (id: string) => void
 }) {
   const [busy, setBusy] = useState<Set<string>>(new Set())
@@ -1587,6 +1587,9 @@ function AccountsView({ accounts, positions, recons, onAccounts, onNew, onRecon,
                 </div>
               )
             })()}
+            {!a.paper && !live && a.permissions.includes('trade') && (
+              <div className="tr-kv"><span>下单</span><b className="faint" title={LIVE_OFF_TIP}>{LIVE_OFF}：要先过实盘评审（交易设置），现在只读同步</b></div>
+            )}
             <div className="tr-card-foot">
               {askDel === a.id ? (() => {
                 const why = deleteBlock(a.id)
@@ -1936,7 +1939,10 @@ function SettingsView({ review, checks, offBlock, onReview, onPluginOff, onView 
       </section>
 
       <section className="hook-sec">
-        <div className="field-group-title">评审清单<span className="field-hint">每项都由你本人确认；条件没满足的不能确认</span></div>
+        <div className="field-group-title">评审清单<span className="field-hint">每项都由你本人确认；条件没满足的不能确认；Agent 和接口代为确认会被拒绝并记审计</span></div>
+        <div className={cls('tr-small', missing.length ? 'danger-text' : 'tr-ok')}>
+          <b>评审结论：{missing.length ? '未通过' : '通过'}</b>{missing.length ? `，还差 ${missing.length} 项：${missing.map((c) => c.label).join('、')}` : '，评审人：我'}
+        </div>
         <div className="tr-rules">
           {LIVE_CHECKS.map((c) => {
             const ck = checks[c.key]
@@ -1948,11 +1954,15 @@ function SettingsView({ review, checks, offBlock, onReview, onPluginOff, onView 
                   <b>{c.label}</b>
                   <span className="faint tr-small">{c.desc}</span>
                   <span className={cls('tr-small', ck.ok ? 'run-muted' : 'danger-text')}>{ck.text}</span>
+                  <span className="tr-evidence">
+                    <span className="faint tr-small">证据：</span>
+                    {ck.evidence.map((ev) => <button key={ev.label} className="tr-recon-link tr-small" onClick={() => onView(ev.go)}>{ev.label}</button>)}
+                  </span>
                 </div>
                 <div className="tr-rule-input">
                   {done ? (
                     <>
-                      <span className="tr-ok tr-small">已确认 · {fmtTime(done)}</span>
+                      <span className="tr-ok tr-small">已确认 · {fmtTime(done)} · 我</span>
                       <button className="act act-quiet" onClick={() => revoke(c.key)} title="撤回后 trade:live 一并收回、实盘关掉">撤回</button>
                     </>
                   ) : (

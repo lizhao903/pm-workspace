@@ -257,3 +257,51 @@
   .tr-halt-input { width: 100%; }
   .tr-stat-value { font-size: 18px; }
 }
+
+/* 交易账户（TRD-07b，SPEC-trading-8、9、12） */
+.tr-conn { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; font-weight: 500; min-width: 0; overflow-wrap: anywhere; }
+.tr-conn i { flex: none; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+.tr-conn-ok { color: var(--ok); }
+.tr-conn-danger { color: var(--danger); }
+.tr-conn-muted { color: var(--faint); }
+.tr-conn-info { color: var(--accent); }
+.tr-card-head .tr-conn { flex: none; white-space: nowrap; }
+.tr-tag-live { color: var(--warn); background: var(--warn-soft); }
+.tr-brokers { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(120px, 100%), 1fr)); gap: 6px; }
+.tr-broker { display: flex; flex-direction: column; gap: 2px; padding: 8px 10px; border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--panel); text-align: left; font-weight: 500; min-width: 0; }
+.tr-broker:hover:not(:disabled) { border-color: var(--line-2); background: var(--hover); }
+.tr-broker.on { border-color: var(--accent); background: var(--accent-soft); box-shadow: inset 0 0 0 1px var(--accent); }
+.tr-broker:disabled { cursor: not-allowed; opacity: 0.5; background: var(--panel-2); }
+.tr-broker .faint { font-weight: 400; }
+.tr-recon-link { min-width: 0; font-weight: 500; text-align: right; color: inherit; }
+.tr-recon-row { align-items: flex-start; }
+.tr-recon-row > .tr-dot { margin-top: 5px; }
+.tr-recon-ops { display: flex; flex-direction: column; align-items: stretch; gap: 4px; flex: none; }
+.tr-verify { margin-top: 4px; }
+.tr-verify-input { flex: 1 1 180px; width: auto; min-width: 0; }
+.tr-live-note { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 8px 10px; border-radius: var(--r); background: var(--panel-2); }
+.tr-live-note > .faint { flex: 1 1 180px; min-width: 0; }
+.tr-foot-msg { flex: 1 1 200px; min-width: 0; }
+
+/* 交易设置（TRD-08c，SPEC-trading-11） */
+.tr-sec-live { border-color: color-mix(in srgb, var(--warn) 45%, var(--line)); }
+.tr-live-head { display: flex; align-items: center; gap: 16px; }
+.tr-check { align-items: flex-start; }
+.tr-check > .tr-dot { margin-top: 5px; }
+.tr-check-act { flex-wrap: wrap; justify-content: flex-end; max-width: 100%; }
+.tr-evidence { display: flex; align-items: baseline; flex-wrap: wrap; gap: 2px 10px; }
+.tr-apply { display: flex; flex-direction: column; gap: 8px; }
+.tr-apply-input { width: 160px; text-align: left; }
+.tr-inline-ok { background: color-mix(in srgb, var(--ok) 10%, var(--panel)); }
+.tr-off-block { justify-content: flex-end; }
+.tr-href { min-width: 0; overflow-wrap: anywhere; flex: 1 1 200px; }
+.tr-audit-sum { overflow-wrap: anywhere; font-size: 12.5px; }
+
+@media (max-width: 560px) {
+  .tr-check { flex-direction: row; flex-wrap: wrap; }
+  .tr-check .tr-rule-text { flex-basis: calc(100% - 24px); }
+  .tr-check-act { width: 100%; justify-content: flex-start; }
+  .tr-recon-row { flex-wrap: wrap; }
+  .tr-recon-ops { flex-direction: row; flex-wrap: wrap; width: 100%; padding-left: 18px; }
+  .tr-live-head { align-items: flex-start; }
+}

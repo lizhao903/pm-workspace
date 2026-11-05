@@ -1,14 +1,16 @@
-// 交易页（TRD-05c、TRD-06b，SPEC-trading-1 到 7、10）：二级菜单 + 总览、持仓、委托、策略运行、风控；熔断条、一键全停、下单抽屉、部署抽屉。
-// 交互照原型 web-next/src/trading.tsx。现在只有模拟盘：撮合、估值、风控、部署信号都在后端（TRD-05a、05b、06a），这里只发请求和显示，
-// 页面上明确标「模拟盘」。交易账户（TRD-07b）、交易设置（TRD-08）还没做，二级菜单不放这两项；没有模拟盘账户时就地给「建一个模拟盘账户」。
-// 路由挂在 trading/* 下：/trading 总览，/trading/positions，/trading/orders，/trading/runs，/trading/risk。
+// 交易页（TRD-05c、TRD-06b、TRD-07b、TRD-08c，SPEC-trading-1 到 12）：二级菜单 + 总览、持仓、委托、策略运行、交易账户、风控、交易设置；
+// 熔断条、一键全停、下单抽屉、部署抽屉、新增账户抽屉、对账抽屉、交易所数据抽屉、证据抽屉。
+// 交互照原型 web-next/src/trading.tsx。撮合、估值、风控、部署信号都在后端（TRD-05a、05b、06a），这里只发请求和显示。
+// 交易只有模拟盘：实盘账户（TRD-07a）只读同步，下单、部署入口对它不可用（要先过实盘评审，实盘下单 TRD-08d 还没上线），
+// 所以总览、持仓、委托、策略运行只算模拟盘账户，页面上标「模拟盘」；实盘账户在交易账户页看。没有模拟盘账户时就地给「建一个模拟盘账户」。
+// 路由挂在 trading/* 下：/trading 总览，/trading/positions，/trading/orders，/trading/runs，/trading/accounts，/trading/risk，/trading/settings。
 // 从行情来：/trading?symbol=&side= 打开下单抽屉；从策略来：/trading/runs?deploy=<策略 id> 打开部署抽屉。
 import { useEffect, useMemo, useState } from 'react'
 import { Navigate, useNavigate, useParams, useSearchParams } from 'react-router'
 import {
-  QueryState, errorText, tradeKillPartial, useKillTrading, useReleaseHalt, useTradeAccounts, useTradeFillWatch,
-  useTradeHaltEvents, useTradeOrders, useTradePositions, useTradeRisk, useTradeRuns, useTradeStrategies,
-  type TradeAccount, type TradeKillResult, type TradeOrder, type TradePosition, type TradeRisk, type TradeRun,
+  QueryState, errorText, evidenceKind, tradeKillPartial, useKillTrading, useReleaseHalt, useTradeAccounts, useTradeFillWatch,
+  useTradeHaltEvents, useTradeLiveGate, useTradeOrders, useTradePositions, useTradeRisk, useTradeRuns, useTradeStrategies,
+  type TradeAccount, type TradeKillResult, type TradeLiveEvidence, type TradeOrder, type TradePosition, type TradeRisk, type TradeRun,
 } from '../../core/data'
 import { Button, InSubnavHost, PageTitle, Pill, Subnav, cls } from '../../core/ui'
 import './markets.css'
@@ -16,24 +18,34 @@ import './monitor.css'
 import { MARKETS, guessInstrument } from './model'
 import { OrderDrawer } from './OrderDrawer'
 import { RiskView } from './RiskView'
+import { AccountDrawer, AccountsView, LiveDataDrawer, ReconDrawer } from './TradingAccounts'
+import { EvidenceDrawer, SettingsView } from './TradingSettings'
 import { NoAccount, type TradeNotice } from './TradingParts'
 import { OrdersView, PositionsView } from './TradingTables'
 import { RunDrawer, RunsView } from './TradingRuns'
 import { ORDER_STATUS, ORDER_TYPE, RUN_STATUS, compact, fmtQty, fmtTime, num, signed, signedUsd, tone, usd } from './tradingModel'
 import './trading.css'
 
-export type TradingView = 'overview' | 'positions' | 'orders' | 'runs' | 'risk'
-const VIEWS: TradingView[] = ['overview', 'positions', 'orders', 'runs', 'risk']
+export type TradingView = 'overview' | 'positions' | 'orders' | 'runs' | 'accounts' | 'risk' | 'settings'
+const VIEWS: TradingView[] = ['overview', 'positions', 'orders', 'runs', 'accounts', 'risk', 'settings']
 
 const TITLES: Record<TradingView, { title: string; desc: string }> = {
   overview: { title: '交易总览', desc: '模拟盘账户的权益、盈亏和风控；估值按后端行情缓存现算' },
   positions: { title: '持仓', desc: '现价、盈亏、强平价都由后端算；平仓会下一笔反向市价单' },
   orders: { title: '委托', desc: '提交后后端当场检查，过了就挂单；限价单在价格到了时成交，市价单通常一秒内成交' },
   runs: { title: '策略运行', desc: '策略部署到模拟盘账户上跑，K 线收盘时算信号、下市价单，每笔都过风控' },
+  accounts: { title: '交易账户', desc: '交易所账户只读接入（凭证存保险箱，不开提币权限）和模拟盘；实盘账户要过实盘评审才能交易' },
   risk: { title: '风控', desc: '每笔下单在后端逐笔检查；当日亏损到上限自动熔断' },
+  settings: { title: '交易设置', desc: '装好只有模拟盘；实盘要过评审、申请 trade:live、再打开实盘开关' },
 }
 
-type DrawerState = { kind: 'order'; symbol: string; side: 'buy' | 'sell'; key: number } | { kind: 'run'; strategyId?: string; key: number } | null
+type DrawerState =
+  | { kind: 'order'; symbol: string; side: 'buy' | 'sell'; key: number }
+  | { kind: 'run'; strategyId?: string; key: number }
+  | { kind: 'account'; key: number }
+  | { kind: 'recon' | 'livedata'; accountId: string; key: number }
+  | { kind: 'evidence'; ev: TradeLiveEvidence; key: number }
+  | null
 
 const DEFAULT_SYMBOL = 'BINANCE:BTCUSDT'
 
@@ -48,6 +60,7 @@ export default function TradingPage() {
   const runs = useTradeRuns()
   const active = useTradeOrders({ status: 'active', limit: 1 })
   const strategies = useTradeStrategies()
+  const gate = useTradeLiveGate()
   const kill = useKillTrading()
   // 外部请求（行情「买入」「卖出」、策略「部署」）：进页面时按地址打开抽屉，再把参数从地址里去掉，刷新不会再开一次
   const [drawer, setDrawer] = useState<DrawerState>(() => {
@@ -73,8 +86,15 @@ export default function TradingPage() {
   const openOrder = (symbol = DEFAULT_SYMBOL, side: 'buy' | 'sell' = 'buy') => setDrawer({ kind: 'order', symbol, side, key: Date.now() })
   const openRun = (strategyId?: string) => setDrawer({ kind: 'run', strategyId, key: Date.now() })
   const openStrategy = (id: string) => void navigate(`/strategy/s/${encodeURIComponent(id)}`)
+  // 证据：审计、对账记录在抽屉里看；熔断记录、部署跳到对应视图
+  const openEvidence = (ev: TradeLiveEvidence) => {
+    if (evidenceKind(ev.href)) setDrawer({ kind: 'evidence', ev, key: Date.now() })
+    else if (ev.view && VIEWS.includes(ev.view as TradingView)) go(ev.view as TradingView)
+  }
 
   const runList = runs.data?.data ?? []
+  const badAcct = (accounts.data ?? []).filter((a) => a.status !== 'connected').length
+  const liveAcct = (accounts.data ?? []).filter((a) => !a.paper).length
   const badRun = runList.filter((r) => r.status === 'error').length
   const liveRun = runList.filter((r) => r.status === 'running').length
   const r = risk.data
@@ -103,6 +123,7 @@ export default function TradingPage() {
     <>
       <Button variant="danger" className="tr-kill-top" disabled={kill.isPending} title="停掉所有策略、撤掉所有挂单、进入熔断" onClick={() => setKillAsk('top')}>一键全停</Button>
       {view === 'runs' && <Button variant="outline" onClick={() => openRun()}>新建运行</Button>}
+      {view === 'accounts' && <Button variant="outline" onClick={() => setDrawer({ kind: 'account', key: Date.now() })}>新增账户</Button>}
       <Button variant="primary" onClick={() => openOrder()}>下单</Button>
     </>
   )
@@ -117,7 +138,12 @@ export default function TradingPage() {
           key: 'runs', label: '策略运行', alert: badRun, title: badRun ? `${badRun} 个运行异常` : undefined,
           desc: badRun ? `${badRun} 个异常` : liveRun ? `${liveRun} 个运行中` : undefined,
         },
+        {
+          key: 'accounts', label: '交易账户', alert: badAcct, title: badAcct ? `${badAcct} 个账户异常` : undefined,
+          desc: badAcct ? `${badAcct} 个异常` : liveAcct ? `${liveAcct} 个实盘只读` : undefined,
+        },
         { key: 'risk', label: '风控', alert: halted ? 1 : 0, desc: halted ? '熔断中' : undefined, title: halted ? '熔断中' : undefined },
+        { key: 'settings', label: '交易设置', desc: gate.data?.enabled ? '实盘已开启' : '只开模拟盘' },
       ]}>
         {killAsk === 'nav' ? (
           <>
@@ -133,14 +159,21 @@ export default function TradingPage() {
     </InSubnavHost>
   )
 
-  const noAccount = accounts.data && !accounts.data.length
+  const allAccts = accounts.data ?? []
+  // 交易只有模拟盘：总览、持仓、委托、策略运行只算模拟盘账户；实盘账户只读，在交易账户页看
+  const paperAccts = allAccts.filter((a) => a.paper)
+  const noAccount = accounts.data && !paperAccts.length
   let body
-  if (accounts.isPending && !accounts.data) body = <QueryState query={accounts} errorTitle="账户没取到">{() => null}</QueryState>
-  else if (accounts.isError && !accounts.data) body = <QueryState query={accounts} errorTitle="模拟盘账户没取到">{() => null}</QueryState>
-  else if (noAccount && view !== 'risk') body = <NoAccount />
+  if (view === 'settings') body = <SettingsView onView={go} onEvidence={openEvidence} />
+  else if (accounts.isPending && !accounts.data) body = <QueryState query={accounts} errorTitle="账户没取到">{() => null}</QueryState>
+  else if (accounts.isError && !accounts.data) body = <QueryState query={accounts} errorTitle="交易账户没取到">{() => null}</QueryState>
+  else if (view === 'accounts') {
+    body = <AccountsView accounts={allAccts} positions={positions.data ?? []} onNew={() => setDrawer({ kind: 'account', key: Date.now() })}
+      onRecon={(id) => setDrawer({ kind: 'recon', accountId: id, key: Date.now() })} onLiveData={(id) => setDrawer({ kind: 'livedata', accountId: id, key: Date.now() })} />
+  } else if (noAccount && view !== 'risk') body = <NoAccount />
   else {
-    const accts = accounts.data ?? []
-    const acctName = (id: string) => accts.find((a) => a.id === id)?.name ?? '已删除的账户'
+    const accts = paperAccts
+    const acctName = (id: string) => allAccts.find((a) => a.id === id)?.name ?? '已删除的账户'
     if (view === 'overview') {
       body = <Overview accounts={accts} positions={positions.data ?? []} runs={runList} risk={r} acctName={acctName} onView={go} onOpenStrategy={openStrategy} />
     } else if (view === 'positions') {
@@ -191,6 +224,21 @@ export default function TradingPage() {
         <OrderDrawer key={drawer.key} init={drawer} accounts={accounts.data ?? []} positions={positions.data ?? []} risk={r}
           onClose={() => setDrawer(null)} onPlaced={(o) => { setDrawer(null); setNotice(placedNotice(o)) }} />
       )}
+      {drawer?.kind === 'account' && (
+        <AccountDrawer key={drawer.key} onClose={() => setDrawer(null)} onCreated={(a) => {
+          setDrawer(null)
+          setNotice({ tone: 'ok', text: a.paper ? `已建模拟盘账户「${a.name}」` : `已接入「${a.name}」（只读同步${a.recon ? '，第一次同步完成' : ''}）` })
+          if (view !== 'accounts') go('accounts')
+        }} />
+      )}
+      {(drawer?.kind === 'recon' || drawer?.kind === 'livedata') && (() => {
+        const a = allAccts.find((x) => x.id === drawer.accountId)
+        if (!a) return null
+        return drawer.kind === 'recon'
+          ? <ReconDrawer key={drawer.key} account={a} onClose={() => setDrawer(null)} />
+          : <LiveDataDrawer key={drawer.key} account={a} onClose={() => setDrawer(null)} />
+      })()}
+      {drawer?.kind === 'evidence' && <EvidenceDrawer key={drawer.key} ev={drawer.ev} onClose={() => setDrawer(null)} />}
       {drawer?.kind === 'run' && (
         <RunDrawer key={drawer.key} initStrategy={drawer.strategyId} strategies={strategies.data ?? []} accounts={accounts.data ?? []} halted={halted}
           onClose={() => setDrawer(null)} onCreated={() => { setDrawer(null); if (view !== 'runs') go('runs') }} />
@@ -371,7 +419,7 @@ function Overview({ accounts, positions, runs, risk, acctName, onView, onOpenStr
             )}
           </section>
           <section className="tr-sec">
-            <div className="tr-sec-title">账户<span className="tr-hint">{accounts.length} 个模拟盘</span></div>
+            <div className="tr-sec-title">账户<span className="tr-hint">{accounts.length} 个模拟盘</span><span className="spacer" /><button type="button" className="tr-link" onClick={() => onView('accounts')}>交易账户</button></div>
             <div className="tr-list">
               {acctShown.map((a) => (
                 <div key={a.id} className="tr-list-row tr-acct-row">
@@ -384,7 +432,7 @@ function Overview({ accounts, positions, runs, risk, acctName, onView, onOpenStr
                 </div>
               ))}
             </div>
-            {accounts.length > OV_ACCTS && <span className="faint tr-small">其余 {accounts.length - OV_ACCTS} 个账户在交易账户页（还在开发）</span>}
+            {accounts.length > OV_ACCTS && <button type="button" className="tr-link" onClick={() => onView('accounts')}>其余 {accounts.length - OV_ACCTS} 个账户在交易账户页</button>}
           </section>
           <div className="faint tr-foot-note">
             {at ? `按 ${new Date(at).toLocaleTimeString('zh-CN', { hour12: false })} 的行情估值` : ''}{stale ? '；有持仓的现价不是实时，按缓存或均价估' : ''}

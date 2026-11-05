@@ -43,7 +43,7 @@ var (
 var errLive = errors.New("live")
 
 func liveErr(name string) error {
-	return fmt.Errorf("%w: 账户「%s」是实盘账户：实盘下单、改单撤单、平仓和部署还没开放（要过实盘评审、打开实盘开关），实盘账户现在只读同步", errLive, name)
+	return fmt.Errorf("%w: 账户「%s」是实盘账户：实盘下单、改单撤单、平仓和部署还没开放（要先过实盘评审、打开实盘开关，并等实盘下单上线），实盘账户现在只读同步", errLive, name)
 }
 
 type liveSync struct {

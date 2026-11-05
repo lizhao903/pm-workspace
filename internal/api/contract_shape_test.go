@@ -247,6 +247,8 @@ var contractSpecs = map[string]contractSpec{
 	"TradeRecon":        {v: trade.ReconView{}},
 	"TradeReconItem":    {v: trade.ReconItemView{}},
 	"TradeReconRecord":  {v: trade.ReconRecord{}},
+	// 实盘评审闸门和实盘开关（TRD-08c）
+	"TradeLiveGate": {v: trade.LiveView{}},
 
 	"EtfFund":        {v: etf.Fund{}},
 	"EtfDaily":       {v: etf.Daily{}},
