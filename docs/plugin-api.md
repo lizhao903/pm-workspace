@@ -2018,6 +2018,8 @@ stateDiagram-v2
 
 补记（不改版本号，2026-11-04，AUTO-10）：项目插件实际清单（0.16.0）`sop_nodes` 加 `projects_prepare_release`、`projects_release`，`emits` 加 `projects.release_changed`，迁移加 `0009_releases.sql`；IM 插件 0.22.0 只加内置流程（`sop_im_release_pipeline`），清单不变。内核接口不变。
 
+补记（不改版本号，2026-11-05，TRD-03a、TRD-04b）：交易插件实际清单升到 0.3.0，`emits` 加 `trade.alert_fired`，迁移加 `0003_alerts.sql`（表 `trade_alerts`、`trade_alert_events`）和 `0004_strategy_backtest.sql`（表 `trade_strategies`、`trade_backtests`），后台任务加 `trade_alerts`（每 2 秒）和 `trade_backtests`（常驻执行回测）。内核接口不变。IM 推送是弱依赖但内核还没有给插件的 IM 发送句柄，盯盘提醒选了 IM 时只在触发记录上标「未推送」。
+
 补记（不改版本号，2026-11-04，AUTO-11）：项目插件实际清单（0.17.0）`sop_nodes` 加 `projects_proto_sync_range`、`projects_proto_sync_branch`、`projects_proto_sync_classify`、`projects_proto_sync_verdict`、`projects_proto_sync_commit`、`projects_proto_sync_record`，`emits` 加 `projects.proto_sync_changed`，`subscribes` 加 `run.finished`（自己发起的「原型同步」执行结束时收尾），迁移加 `0010_proto_syncs.sql`；id 前缀登记 `psy`（`projects_proto_syncs`）。IM 插件 0.23.0 只加内置流程（`sop_im_proto_sync`），清单不变。内核接口不变。
 
 补记（不改版本号，2026-11-04，AUTO-06/07）：`ObjectWriter` 加 `UpdateTask`、类型 `TaskChange`、`ChangedTask`；IM 插件入口加 `WithPublicURL(url)`；`Core` 加 `WorktreeDir()`，`ObjectInfo` 加 `ProjectID`。项目插件实际清单（0.13.0）另有 `provides.settings: ["worktrees"]`、`sop_nodes` 含 `projects_list_profiles`、`projects_get_profile`、`projects_prepare_worktree`，`emits` 含 `projects.worktree_changed`，`subscribes` 为 `object.status_changed`、`object.stage_changed`。只增不改。
