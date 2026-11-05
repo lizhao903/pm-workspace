@@ -561,7 +561,7 @@ IM 里的群聊和私聊（CT-02，0028，表 `conversations`、`conversation_me
 | GET | `/api/agent/sessions?object_id=X` / `?unscoped=true` | **必须二选一**：`object_id` 给某个对象的会话（详情抽屉用），`unscoped=true` 给 `object_id IS NULL` 的全局会话（底部对话框用）。两个都不给返回空列表，不是全部；两个都给以 `object_id` 为准（不报 400——这俩是前端两处独立代码各自拼的，真撞上时给一批说得通的数据比让抽屉整个打不开好） |
 | POST | `/api/agent/sessions` | `{title?,provider_id,model,workdir?,object_id?,agent_id?,source_ref?}`，`object_id` 省略即全局会话；`agent_id` 见下面「会话挂 Agent」；`source_ref` 见下面「会话来源」 |
 | POST | `/api/agent/sessions/{id}/stop` | 停掉这个会话里正在跑的一轮（`/api/agent/chat` 发起的和确认、拒绝后接着跑的都算）。已经执行的工具调用不撤回，会话里记一句「已手动停止这一轮。上面已经执行的工具调用不会撤回，要接着做可以再发一句。」，流里发 `error`「已手动停止」；确认后接着跑的执行记录照常重算状态。回 `{session_id, stopped}`，`stopped` 是停了几轮，没在跑的为 0（不算错）；会话不存在 404。一轮对话和浏览器连接脱钩，关掉页面后要停只能靠它 |
-| GET | `/api/agent/running` | 正在跑的会话 `{session_ids}`（按 id 排），界面据此在会话头部显示「停止」。只含会话里的对话，触发器、执行记录起的 Agent 运行不在内 |
+| GET | `/api/agent/running` | 正在跑的会话 `{session_ids}`（按 id 排），界面据此在会话头部显示「停止」。只含会话里的对话（任务交给工作台 Agent 执行时正在跑模型的那一段也算，TSK-0460），触发器、Agent 执行记录起的 Agent 运行不在内 |
 | PATCH | `/api/agent/sessions/{id}` | |
 | DELETE | `/api/agent/sessions/{id}` | 消息级联删除；**产物保留**，只把它的 `session_id` 置空（见「输出产物」一节） |
 | GET | `/api/agent/sessions/{id}/messages` | `AgentMessage[]`，**按时间正序**（最旧在前） |
@@ -618,7 +618,7 @@ chat 带了不同的 `object_id` 也不会让已有会话搬家——搬走会�
 
 - 会话多一个字段 `source_ref`：从哪条记录发起的会话，JSON 对象，存在 `agent_sessions.source_ref`（`TEXT NOT NULL DEFAULT ''`，空串表示没有）。只在 `POST /api/agent/sessions` 时给，之后不改，PATCH 不认；`/api/agent/chat` 不带 `session_id` 新建会话时也不认。没有来源时响应里不带这个键。
 - 校验：`null` 或不给表示没有；不是 JSON 对象回 400「source_ref 必须是 JSON 对象」，超过 16KB 回 400「source_ref 太长了，最多 16384 字节」。空对象当没有。
-- 内容由发起方定，内核只认三个键：`kind` 是来源种类（前端按它找插件登记的显示方式，扩展点 `sessionSources`），`label` 是给人看的一句（系统提示词里用），`project_id` 是缺省项目。现在只有 IM 插件用 `kind: "im_message"`，见「IM 消息插件 im」的「从消息发起会话」。
+- 内容由发起方定，内核只认三个键：`kind` 是来源种类（前端按它找插件登记的显示方式，扩展点 `sessionSources`），`label` 是给人看的一句（系统提示词里用），`project_id` 是缺省项目。现在 IM 插件用 `kind: "im_message"`，见「IM 消息插件 im」的「从消息发起会话」；任务交给工作台 Agent 执行建的会话用 `kind: "task_run"`（内核自己写，带 `object_id`、`ref`、`run_id`），见「任务执行」的「交给工作台 Agent」。
 - 会话里 Agent 用 `create_object` 新建对象时：`props.source_ref` 缺省记为会话的 `source_ref`（原样复制）；来源里有 `project_id`、对象没指定项目、建的不是项目本身、并且这个项目在且没删时，对象挂到这个项目。`source` 仍是 `agent`。
 - 有来源时系统提示词在「用户当前打开的对象」之后多一段「这个会话的来源」：「这个会话是从<label>发起的，内容见用户的第一条消息」，并说明新建的对象会自动记上来源、自动挂到来源所属的项目。
 
@@ -662,7 +662,7 @@ AG-01b1。表 `agents`（0032），id 前缀 `ag`，字段对齐原型 `web-next
 
 ### 场景默认 Agent agent-scenarios
 
-没指定 Agent 的模型调用按场景用哪个 Agent（它的服务商、模型、思考档位和指令）。场景有 `sop_assist`（SOP 编排助手）和 `background`（其他后台调用：插件经 `Complete` 调模型又没指定 Agent 和服务商的，包括没选 Agent 的 SOP 节点 `ai`、`extract`、`classifier`、`iterate`）。`agent_id` 空串是没选，用默认服务商、思考 `default`；选的 Agent 删了或停用了同样退回，记日志不报错。存在内核表 `agent_settings`（0045，key `scenario:<场景>`）。SOP 这四种节点另有配置项 `agent`：选了就用这个 Agent 的服务商、模型、思考档位，指令拼在节点系统提示前面，节点上的 `provider`、`model` 不看；明确选的 Agent 不存在或停用时这一步失败。
+没指定 Agent 的模型调用按场景用哪个 Agent（它的服务商、模型、思考档位和指令）。场景有 `sop_assist`（SOP 编排助手）、`task_run`（执行任务：任务交给工作台 Agent 执行时默认用哪个 Agent，没选用第一个启用的 Agent，TSK-0460；界面上排在最后）和 `background`（其他后台调用：插件经 `Complete` 调模型又没指定 Agent 和服务商的，包括没选 Agent 的 SOP 节点 `ai`、`extract`、`classifier`、`iterate`）。`agent_id` 空串是没选，用默认服务商、思考 `default`；选的 Agent 删了或停用了同样退回，记日志不报错。存在内核表 `agent_settings`（0045，key `scenario:<场景>`）。SOP 这四种节点另有配置项 `agent`：选了就用这个 Agent 的服务商、模型、思考档位，指令拼在节点系统提示前面，节点上的 `provider`、`model` 不看；明确选的 Agent 不存在或停用时这一步失败。
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
@@ -690,7 +690,7 @@ AG-02a。表 `agent_tool_grants`（0035）存每个 Agent 自己的授权，`age
 | 内置工具 | 能力 |
 |---|---|
 | `search_objects`、`get_object` | `read_tasks` |
-| `create_object`、`update_object` | `write_tasks` |
+| `create_object`、`update_object`、`append_progress` | `write_tasks` |
 | `write_file` | `write_content` |
 | `kb_search` | `read_content` |
 | `run_sop` | `run_sop`（SOP-01d） |
@@ -698,9 +698,10 @@ AG-02a。表 `agent_tool_grants`（0035）存每个 Agent 自己的授权，`age
 
   `read_messages`、`reply_message`、`read_contacts`、`write_contacts` 现在没有对应的内置工具，授权先存着。
   `run_sop`（SOP-01d）参数是 `{flow_id, input?}`：`flow_id` 是流程 id，也认流程名；`input` 是输入字段，没给的取默认值。经内核「发起 SOP」钩子起一条执行（同定时任务的 `sop` 动作，来源记 `agent`），不等它跑完，人工检查点照常停下；`summary` 为「发起了 SOP「周会」，执行记录 spr_…」。只给挂了 Agent 的会话，SOP 编排插件没启用时工具结果是「SOP 编排插件没启用……」。确认卡片写「发起 SOP <flow_id>」。
+  `append_progress`（TSK-0460）参数 `{ref, text}`：给对象追加一条进展（`kind=note`，操作者 `agent`），只追加不改正文；`summary` 为「已给 TSK-0009 记了一条进展」，确认卡片写「给 <ref> 记进展」。`create_object` 多一个可选参数 `parent_ref`（父任务编号或 id）：先查父任务，查不到不建；建好后和父任务建 `parent` 关联（父 → 子），没指定项目时挂到父任务的项目；关联没建上不撤回新建的对象，`summary` 里写明。
 - **执行时**：给模型的工具列表只有实际档位不是关闭的。连接器工具给模型的名字是 `<连接器定义 tool>__<工具名>`（非字母数字的字符换成 `_`，最长 64）；同一定义挂了多个实例（CONN-04）撞名时，按 `mcps` 的顺序第一个保持原名，后面的在定义 key 后加序号，如 `custom_mcp_2__search`。工具带参数 Schema（`tools[].schema`）时原样给模型，没有时给空对象。模型硬调关闭的工具不执行，工具结果是「错误：没有授权……」，`tool_result` 的 `summary` 为「<工具> 没有授权，没有执行」。需确认的发 `confirm` 事件后本轮结束，见「Agent 对话」。
 - **连接器工具真正调用**：经连接器定义上可选的 `Call` 调对方，参数是模型给的 JSON 原文，对方错误里的凭证原文换成 `***`，单次 15 秒超时。定义没实现 `Call` 时工具结果是「这个连接器的工具还不能调用」。现在只有假连接器 `fake` 实现了：`list_items` 回两条固定条目，`get_item` / `create_item` / `delete_item` 回 `{tool, ok, args}`，`token` 含 `invalid` 时失败。
-- **确认、拒绝**：只有 `pending` 的能处理，已经处理过回 409（两个页面同时点，只有一个执行）。会话删了、Agent 删了或停用回 409；确认时按当前授权再查一次，已经关闭的回 409「…已经没有授权了」，调用保持 `pending`，可以拒绝掉。这些都在开流之前。执行结果（或拒绝说明）记进 `agent_tool_calls.result`。执行记录里的调用（`run_id` 非空）同样记着它的会话，确认、拒绝走这两个接口，在那个会话里接着跑，跑完重算执行记录的状态，见「Agent 执行记录」。
+- **确认、拒绝**：只有 `pending` 的能处理，已经处理过回 409（两个页面同时点，只有一个执行）。会话删了、Agent 删了或停用回 409；确认时按当前授权再查一次，已经关闭的回 409「…已经没有授权了」，调用保持 `pending`，可以拒绝掉。这些都在开流之前。执行结果（或拒绝说明）记进 `agent_tool_calls.result`。执行记录里的调用（`run_id` 非空）同样记着它的会话，确认、拒绝走这两个接口，在那个会话里接着跑，跑完重算执行记录的状态，见「Agent 执行记录」。任务交给工作台 Agent 执行（TSK-0460）时停下的调用也走这两个接口：有在途的执行在等它时只记决定和审计、把决定交给执行，SSE 只回 `done`，见「任务执行」的「交给工作台 Agent」。
 - **删除连接器**时，挂着它的 Agent 从 `mcps` 里摘掉、`conn:<id>:*` 授权清掉（同一个事务），影响检查里是 `agent_mounts` 一项，见「连接器」一节。
 - 审计：PUT 按 `config` 记，`target_type` 为 `agent`，`action` 为 `set_tool_grants`，`detail.changed` 是改了的 `{<key>: 新档位}`（改成关闭记 `off`），没有改动不记。确认、拒绝按 `agent` 记，`target_type` 为 `agent_tool_call`，`action` 为 `confirm` / `reject`，`detail` 为 `{agent_id, session_id, tool, grant_key}`。
 
@@ -1000,10 +1001,10 @@ AG-01b3。字段对齐原型 `web-next/src/agentdata.ts` 的 `KnowledgeBase` 和
 | GET | `/api/objects/{id}/runs?limit=20` | `TaskRun[]`，**最近** N 条，倒序；limit 省略取 20，上限 100 |
 | GET | `/api/runs/{id}` | 单条执行记录，含完整输出 |
 | POST | `/api/runs/{id}/cancel` | 杀掉整个进程组 |
-| GET | `/api/objects/{id}/run/prompt?mode=&workdir=&extra_prompt=&preset_id=` | 提示词预览 `{prompt, workdir}`，和发起时同一套拼法；`preset_id` 是角色 id（接口沿用旧名），不存在 400；`mode` 是 `stream`（默认）或 `terminal`，其他值 400；`workdir` 不传时按任务、所属项目继承，不校验目录；终端方式里执行 id 写成「<发起时生成的执行 id>」；对象不存在 404 |
+| GET | `/api/objects/{id}/run/prompt?mode=&workdir=&extra_prompt=&preset_id=&harness=&resume=` | 提示词预览 `{prompt, workdir}`，和发起时同一套拼法；`preset_id` 是角色 id（接口沿用旧名），不存在 400；`mode` 是 `stream`（默认）或 `terminal`，其他值 400；`harness=agent` 时预览交给工作台 Agent 的那一份（`mode` 不看），`resume=true` 是续跑的说法（TSK-0460）；`workdir` 不传时按任务、所属项目继承，不校验目录；终端方式里执行 id 写成「<发起时生成的执行 id>」；对象不存在 404 |
 | POST | `/api/objects/{id}/run/terminal` | `{workdir?, extra_prompt?, preset_id?}`，切换到终端（0048）：建一条 `mode=terminal`、`status=running` 的执行记录，把提示词和 MCP 配置写到数据目录 `tmp/handoff/<执行 id>/prompt.md`、`mcp.json`（0600），不起进程；回 201 `{run, workdir, prompt_file, mcp_config}`。工作目录规则同 `/run`；找不到 MCP 程序（`--mcp-bin`，缺省按本程序位置推：`pmw`→`pmw-mcp`，`pmw-dev`→`pmw-mcp-dev`，退回同目录 `pmw-mcp`）或没有 `--public-url` 时 409 |
 | POST | `/api/runs/{id}/finish` | `{status, summary?, result?}`（MCP `pmw_finish_run` 和界面「标记结束」）。`status` 是 `done`、`failed`、`canceled`，否则 400。`result` 可选，要是 JSON 对象（否则 400「result 要是 JSON 对象」），最多 64 KB（超了 400「result 最多 64 KB」）；约定形状 `{verdict: "pass" \| "reject", issues?: [...], artifacts?: [...]}`，内核不校验里面的字段。**插件交给 Claude Code 的运行**（SOP「Claude Code 执行」节点发起的，AUTO-01）：先按插件运行认，只记下回报不收尾，`status`、`summary`、`result` 存进那次运行，进程退出时由内核按回报和退出码收尾（进程正常结束但回报 `failed` / `canceled` 时整条按回报算，`error` 为「Claude Code 回报做不下去：摘要前 300 字」）；回 200 + `TaskRun`（在任务上留了执行记录的回那条记录，状态仍是 `running`；没有的回同形状的 `{id, status, mode: "stream", output: summary, started_at}`）；已经结束或已经回报过 409；不是 Claude Code 的插件运行 409。**终端执行**：`summary` 最多 200 KB 写进 `output`；`failed` 没写 summary 时 `error` 记「标记为失败，没写原因」；流式执行、已收尾的 409；不存在 404；收尾后删掉临时目录；照常投 `run.finished`；`result` 不落库（`task_runs` 没有这一列）。超过 7 天的临时目录在下次发起时清掉 |
-| POST | `/api/objects/{id}/run` | `{workdir?, extra_prompt?, allow_writes?, preset_id?, harness?, provider_id?, resume_session?}`，**SSE 流式响应** |
+| POST | `/api/objects/{id}/run` | `{workdir?, extra_prompt?, allow_writes?, preset_id?, harness?, provider_id?, resume_session?, agent_id?, model?, max_steps?, max_minutes?, confirm_wait_minutes?}`，**SSE 流式响应**；后五个只对 `harness=agent`，见下面「交给工作台 Agent」 |
 | GET | `/api/run-prompts` | 角色（原预置提示词，SPEC-tasks-6.18、SPEC-settings-24，AUTO-03）`[{id, scene, content, default, permission, output, dir_kind}]`，存在 `agent_settings.run_prompts`。`permission` 是 `read_only` 或 `accept_edits`，`output` 是输出要求（可空），`dir_kind` 是 `code` / `prototype` / `prd` / `any`（项目档案落地前只存不用）；读出来三项总是补齐，旧数据没带的按 `accept_edits`、空串、`any` 补（旧内置 `rp_research` 按 `read_only`）。没设过回内置六个：`rp_classify` 分类（只读）、`rp_pm` 产品经理工作台（默认）、`rp_review` 研发评审（只读，输出要求回报 `{verdict, issues}`）、`rp_dev` 研发、`rp_testdesign` 测试设计、`rp_protosync` 原型同步。设过的：把用户没见过的内置角色（按 id）补在末尾，不抢默认，和已有场景名重复的不补，满 30 个不补；见过哪些记在 `agent_settings.run_prompts_builtins`（id 数组，没有时按 `rp_pm`、`rp_dev`、`rp_research` 算） |
 | PUT | `/api/run-prompts` | `{items: [{id?, scene, content, default?, permission?, output?, dir_kind?}]}` 整组替换，回替换后的列表（新字段补齐）。`id` 空的补 `rp_` 开头的新 id；`scene` 去首尾空白后 1 到 40 字、不能重复，`content` 1 到 4000 字，`output` 最多 2000 字，`permission` 只认 `read_only` / `accept_edits`（空按 `accept_edits`），`dir_kind` 只认 `code` / `prototype` / `prd` / `any`（空按 `any`），最多 30 个，`default` 最多一个，违反任一条 400 整组不生效；空数组表示不要角色。保存成功后 `run_prompts_builtins` 写成当时全部内置 id（用户删掉的内置角色以后不再补回）。记一条 `config` 审计（`target_type` 为 `run_prompts`，`detail.scenes`） |
 
@@ -1015,18 +1016,18 @@ AG-01b3。字段对齐原型 `web-next/src/agentdata.ts` 的 `KnowledgeBase` 和
 选了只读角色（`permission=read_only`）时，流式执行不管 `allow_writes` 传什么都按 `false` 处理，不加 `--permission-mode acceptEdits`；
 允许改文件的角色仍以请求里的 `allow_writes` 为准（前端弹窗选这类角色时默认勾上，用户可取消）。终端方式的权限由启动命令决定，只读只写进提示词。
 
-`harness` 选执行器，空或 `claude` 走本机 Claude Code，`deepseek` 走 deepseek-harness（dsh）的 headless 模式，别的值 400。
-`provider_id` 只对 `deepseek` 有效：把哪个模型服务商交给 dsh，空用默认服务商；协议只支持 `openai`（DeepSeek 属于这类）和 `anthropic`，其它 400。
+`harness` 选执行器，空或 `claude` 走本机 Claude Code，`deepseek` 走 deepseek-harness（dsh）的 headless 模式，`agent` 交给工作台自己的 Agent（TSK-0460，见下面「交给工作台 Agent」），别的值 400。
+`provider_id` 对 `agent` 是这次用的服务商（见「交给工作台 Agent」）；对 `deepseek`：把哪个模型服务商交给 dsh，空用默认服务商；协议只支持 `openai`（DeepSeek 属于这类）和 `anthropic`，其它 400。
 dsh 那边的权限口径：`allow_writes=false` 译成沙箱 `read-only`，`true` 译成 `workspace-write`（软链接进来的目录进 `additionalWritableRoots`），
 审批策略恒为 `never`（headless 没有交互界面，选 ask 只会卡住，需要批准的调用被直接拒绝）。
 这些全部写在每次执行现生成的 `--patch` 里，不走命令行——0.2.x 的 headless 只认 `--json` 和 `--session-id`。
-`resume_session` 只对 `deepseek` 有效：为 `true` 时接着这个对象**上一次** dsh 会话继续跑（`--session-id`），
+`resume_session` 对 `agent` 是续用上次的 Agent 会话（见「交给工作台 Agent」）；对 `deepseek`：为 `true` 时接着这个对象**上一次** dsh 会话继续跑（`--session-id`），
 没有可续的会话回 400，不悄悄新开一段。细节见 `docs/deepseek-harness.md`。
-执行记录（`TaskRun`）多两个字段：`harness`（0049）：`claude` / `deepseek`，0049 之前的记录都是 `claude`；
-`harness_session`（0050）：dsh 那次用的会话 id，续跑靠它，claude 的执行是空串。
+执行记录（`TaskRun`）多两个字段：`harness`（0049）：`claude` / `deepseek` / `agent`（TSK-0460），0049 之前的记录都是 `claude`；
+`harness_session`（0050）：dsh 那次用的会话 id，续跑靠它；`agent` 的是 Agent 会话 id（能打开会话接着聊）；claude 的执行是空串。`status` 多一个 `waiting`（只有 `agent` 的执行会有：停在要人确认的写操作上，没结束），读的时候不按残留收尾。
 两者都只用于留档与展示，不参与收尾判定——收尾看 `status` 和 `exit_code`。
 
-交给 Claude Code（流式发起、切换到终端）时，任务（`type_id=task`）状态不是进行中、已完成、已取消的改成进行中（`doing`，SPEC-tasks-6.17），
+交给 Claude Code（流式发起、切换到终端）和交给工作台 Agent 时，任务（`type_id=task`）状态不是进行中、已完成、已取消的改成进行中（`doing`，SPEC-tasks-6.17），
 操作者是发起的人，照常记修订、发 `object.status_changed`；改不成只记日志，不挡执行。
 
 提示词：选了角色时加「执行要求（<角色场景>）」一节：执行要求原文；只读角色再加一段「这个角色只读：不要创建、修改或删除任何文件，结论写在回复里。」；有输出要求时再加「输出要求：」和原文；任务 `props.source_ref` 带 `message_id`（IM 转来的）时加「来源消息」一节，
@@ -1041,10 +1042,12 @@ SSE 事件（形状的唯一真相是 `internal/runner` 的 `Event.MarshalJSON`�
 
 | 事件 | 字段 | 说明 |
 |---|---|---|
-| `start` | `run_id`, `workdir` | 先导事件，在 `CreateTaskRun` 之后发，所以此时 `/cancel` 一定找得到 |
+| `start` | `run_id`, `workdir`, `session_id`? | 先导事件，在 `CreateTaskRun` 之后发，所以此时 `/cancel` 一定找得到；`session_id` 只有 `harness=agent` 有，是这次用的 Agent 会话 |
 | `delta` | `text` | 正文增量 |
 | `tool` | `id`, `name`, `detail` | 工具调用**开始** |
-| `tool_result` | `id`, `name`, `ok`, `error` | 靠 `id` 与 `tool` 配对 |
+| `tool_result` | `id`, `name`, `ok`, `error`, `summary`? | 靠 `id` 与 `tool` 配对；`summary` 只有 `harness=agent` 有，是给人看的结果一句话（拒绝了的调用不发 `tool_result`） |
+| `confirm` | `id`, `name`, `args`, `summary`, `deadline` | 只有 `harness=agent`：要人确认的写操作，执行停下等（记录 `waiting`）。`id` 是待确认调用的 id（`atc_`），`args` 参数 JSON 原文，`summary` 给人看的一句话，`deadline`（RFC3339，UTC）到点没人决定按拒绝处理 |
+| `decision` | `id`, `approved`, `reason` | 只有 `harness=agent`：上面那次调用有了决定，`reason` 是 `user`（人点的）或 `timeout`（等待超时按拒绝），之后接着跑 |
 | `done` | `run_id`, `exit_code` | |
 | `error` | `message` | |
 
@@ -1059,6 +1062,19 @@ SSE 事件（形状的唯一真相是 `internal/runner` 的 `Event.MarshalJSON`�
 - `TaskRun` 多一个字段 `mode`：`stream`（工作台起进程流式回推，0048 之前的都是）或 `terminal`（在终端里交互执行）。终端执行的开始时间是发起时，结束和结论由终端里的 claude 经 MCP 回写，或用户手动标记结束。读记录时不会因为「进程不在本工作台手上」把终端执行判成失败；对终端执行 `POST /api/runs/{id}/cancel` 只把记录标成 `canceled`，`error` 写「在终端里执行的会话不归工作台管，记录已标记为取消；终端标签需要自己关」。
 - 两种方式的提示词都带「所属项目」一节（任务挂在项目下才有）：名称、编号、项目工作目录（有才写）。文档目录取项目 `props.related` 第一个有路径的目录（`file://` 去掉前缀）；原型目录经插件钩子 `Registrar.ProjectPrototypes` 由项目插件给出（项目插件 0.10.0）。没有时写明「这个项目没有关联文档目录 / 没有登记原型目录，可在项目设置里补」。有项目时约束放宽到这两类目录。终端方式另加「回写到工作台」一节（`pmw_update_object`、`pmw_append_progress`、`pmw_record_artifact` 带 `run_id`、`pmw_finish_run`）。
 - MCP 配置是 `{"mcpServers":{"pm-workspace":{"type":"stdio","command":<MCP 程序>,"args":["--api",<public-url 去掉末尾斜杠>]}}}`，不含凭证。MCP 新增工具 `pmw_finish_run`（收终端执行，也收 SOP 自动交给 Claude Code 的执行；可选参数 `result` 是结构化结论，至少带 `verdict`），`pmw_record_artifact` 加可选参数 `run_id`。
+
+**交给工作台 Agent（TSK-0460，`harness=agent`）**
+
+不起外部进程：在工作台进程里跑 `internal/agent` 的工具循环（和会话里同一套工具、工具授权、要确认的调用、技能），模型客户端经 `agent.Service`，和插件 `Complete` 同一套服务商熔断、瞬时失败自动重试（2 次）、「失败时改用」（`extra.fallback_id`，只改一跳）。
+
+- **请求**（`POST /api/objects/{id}/run`，`harness: "agent"`）：`agent_id?` 交给哪个 Agent，不给用场景默认 Agent `task_run`（「执行任务」）选的，没选、选的删了或停用了用第一个启用的 Agent，一个都没有 400「还没有可用的 Agent……」；给了但不存在 404，停用、删了 409。`provider_id?`、`model?` 这次用的服务商和模型，不给用 Agent 设置的（给了服务商没给模型用服务商设置的模型）；服务商不存在 404，停用、没设模型 400。`preset_id?` 角色同 Claude Code（只读角色 `permission=read_only` 时只给读的工具：写能力的授权去掉、会改对方数据的连接器工具关掉）；`extra_prompt?` 补充说明；`allow_writes` 不看。`workdir?` 可选：给了要能用（同 Claude Code 校验，不能用 400），不给按任务、所属项目继承，继承来的不能用就当没有；有目录时是 `write_file` 的产物目录，没有时 Agent 写文件失败。预算：`max_steps?`（默认 30，1 到 100）步数上限，调一次模型算一步，确认前后合起来算；`max_minutes?`（默认 10，1 到 60）时长上限，不含等确认的时间；`confirm_wait_minutes?`（默认 10，1 到 60）等人确认多久后按拒绝处理；超范围 400。这些错误都在开流之前。
+- **提示词**：第一条用户消息由任务编号、类型、标题、状态、优先级、到期、关联仓库、关联对象、正文（「任务描述」）、验收标准、所属项目（名称、编号、文档目录）、角色（「执行要求」，只读角色写明只给了读的工具）、补充说明拼成，再写怎么做（先 `get_object` 读任务；关键步骤 `append_progress`；拆子任务 `create_object` 带 `parent_ref`；做完了才 `update_object` 改状态；不能提问；要确认的写操作会停下等、被拒绝不要再提）和结束时写一段结论。`GET /api/objects/{id}/run/prompt?harness=agent` 预览这一份，`resume=true` 是续跑的说法（开头写「接着上次的执行继续处理这条任务」）。无人值守：给模型的工具里没有 `ask_user`，硬调回「不能提问」。
+- **会话**：每次执行建一个挂这个 Agent 的**全局**会话（`object_id` 为 null，会话列表 `?unscoped=true` 里有），标题是「任务编号 标题」（截到 40 字），`provider_id`、`model` 是这次用的，`workdir` 是这次的产物目录，`source_ref` 是 `{kind: "task_run", label: "任务 <编号> <标题> 的执行", object_id, ref, run_id, project_id?}`（Agent 在会话里新建的对象缺省记这个来源、挂到任务所属的项目，同「会话来源」）。执行记录的 `harness_session` 是会话 id，开流时 `start` 事件带 `session_id`。会话之后能照常在会话页接着聊（按 Agent 当前的服务商和模型）。
+- **续跑**：`resume_session: true` 时续用这个任务最近 20 条执行里最近一条 `harness=agent` 且有会话的那条的会话（不新建），用会话挂的 Agent（`agent_id` 忽略）；没有、会话已删、会话没挂 Agent 都回 400「这个任务还没有可续的工作台 Agent 会话……」；Agent 停用、删了 409；会话里还有一轮在跑 409「上次的会话里还有一轮在跑……」。
+- **要确认的写操作**：Agent 的工具授权是「需确认」的调用照会话里的口径记一条 `agent_tool_calls`（`session_id` 是这次的会话，`run_id` 为空），执行停下：执行记录状态改成 `waiting`（没结束，`finished_at` 为空），流里发 `confirm`。人点确认、拒绝走 `POST /api/agent/tool-calls/{id}/confirm` / `reject`（执行面板和会话页都行）：这次调用有在途的执行在等时，那两个接口只记下决定、记审计，把决定交给执行，SSE 里只回一个 `done`（`{type, session_id}`），后面的过程在执行自己的流里接着出；执行发 `decision`，状态回到 `running`，确认的执行这次调用、拒绝的不执行，模型接着跑（换办法或收尾）。到 `confirm_wait_minutes` 没人决定按拒绝处理：调用记 `rejected`，`result` 为「等待确认超时，按拒绝处理：<操作>，没有执行」，审计 `agent` / `reject`，摘要「等待确认超时，按拒绝处理 Agent「名称」的调用 <工具>」，`detail` 多 `run_id`。工作台重启后在途执行没了，还在等的调用照常可以在会话里确认、拒绝（按会话口径接着跑）。
+- **取消**：`POST /api/runs/{id}/cancel` 停掉在途执行（等确认时也行），记录收尾成 `canceled`、`error`「已取消」，还在等的调用拒掉（`result`「执行已取消，没有执行」）；会话页「停止」（`POST /api/agent/sessions/{id}/stop`）也停得下正在跑模型的那一段，同样收尾成 `canceled`、`error`「在会话里手动停止了」。
+- **收尾**：完成 `done`、`exit_code` 0；失败 `failed`、`exit_code` 1，`error` 写原因：步数超限「超过步数上限（N 步）还没做完，已停下。已经执行的操作不会撤回；可以调大步数上限后续跑，或者把任务拆小」，时长超限「超过时长上限（N 分钟）还没做完，已停下……」，服务商不可用「服务商不可用，执行失败：<熔断或重试用完的原因>」（不无限重试：一次调模型最多 3 次，备用服务商再来一遍）；取消 `canceled`、`exit_code` -1。`output` 是过程记录，格式同 Claude Code（正文原样，`[工具] 名 · 参数`、`[工具失败] 名 · 原因`），另加 `[等待确认] <操作>` 和随后一行 `[已确认]` / `[已拒绝]` / `[等待超时，按拒绝处理]`。完成时给任务记一条进展（`kind=note`，操作者 `agent`，会话标识是这次的会话 id）「工作台 Agent「名称」执行完成（执行记录 <id 后 8 位>）：」加 Agent 最后一条回复；失败记「工作台 Agent「名称」执行失败（执行记录 <id 后 8 位>）：<原因>」；取消不记。会话里另落一句（失败「这一轮没跑完：<原因>……」，取消「已手动停止这一轮……」）。收尾照常投 `run.finished`（`origin` 为空）。不记运行异常，不登记产物（`write_file` 写的文件照常按会话登记、挂到任务上）。
+- 交给工作台 Agent 同样把任务改成进行中（SPEC-tasks-6.17 的规则），不领取、不改负责人。
 
 ## 凭证保险箱 secrets
 
