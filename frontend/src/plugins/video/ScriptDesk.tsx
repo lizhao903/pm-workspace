@@ -10,6 +10,7 @@ import {
   type Video, type VideoArtifact, type VideoClip, type VideoOrientation, type VideoTopic,
 } from '../../core/data'
 import { Button, Pill, cls } from '../../core/ui'
+import { StoryboardDesk } from './StoryboardDesk'
 import { ARTIFACT_STATUS, defaultName, defaultPath, fullPath, sourceText } from './artifactModel'
 import { ORIENT, timeAgo } from './model'
 import { OrientShape } from './parts'
@@ -44,6 +45,8 @@ export function ScriptDesk({ v, arts, topic, clips, choices, onOpenArt, onClose 
   const putContent = usePutArtifactContent()
   const del = useDeleteArtifact()
   const [ov, setOv] = useState<VideoOrientation | null>(null)
+  // 文稿、分镜两个视图（TSK-0456）
+  const [view, setView] = useState<'text' | 'board'>('text')
   const [discarding, setDiscarding] = useState(false)
   const [discardErr, setDiscardErr] = useState<unknown>(null)
   const os = deskOrients(v)
@@ -104,6 +107,13 @@ export function ScriptDesk({ v, arts, topic, clips, choices, onOpenArt, onClose 
   return (
     <div className="vd-desk" aria-label="内容编写编辑区">
       <div className="vd-desk-bar">
+        <span className="vd-sort" role="tablist" aria-label="编辑区视图">
+          <button type="button" role="tab" aria-selected={view === 'text'} className={cls(view === 'text' && 'on')} onClick={() => setView('text')}>文稿</button>
+          <button type="button" role="tab" aria-selected={view === 'board'} className={cls(view === 'board' && 'on')} onClick={() => setView('board')}>分镜</button>
+        </span>
+        {view === 'board' && <span className="spacer" />}
+        {view === 'board' && onClose && <Button size="sm" onClick={onClose}>收起</Button>}
+        {view === 'text' && <>
         <span className="vd-muted vd-wrap vd-desk-hint">
           {topic ? `可以照选题「${topic.title || '未命名选题'}」的角度和大纲起草，也可以直接写` : '先在「选题」一步挂上选题，才能按大纲起草；也可以直接写'}
         </span>
@@ -111,7 +121,10 @@ export function ScriptDesk({ v, arts, topic, clips, choices, onOpenArt, onClose 
         <Button variant="primary" size="sm" disabled={!!draftOff || running || run.isPending} title={draftOff || `交给${runnerLabel}起草`} onClick={onDraft}>
           {drafting ? '起草中…' : run.isPending ? '正在发起…' : proposals.length ? '重新起草' : last?.status === 'failed' ? '重试起草' : '按选题大纲起草'}
         </Button>
+        </>}
       </div>
+      {view === 'board' && <StoryboardDesk v={v} arts={arts} />}
+      {view === 'text' && <>
       {run.error && <div className="vd-err" role="alert">{errorText(run.error)}</div>}
       {drafting && (
         <div className="vd-runner-state" role="status">
@@ -178,6 +191,7 @@ export function ScriptDesk({ v, arts, topic, clips, choices, onOpenArt, onClose 
           </div>
         )}
       </section>
+      </>}
     </div>
   )
 }

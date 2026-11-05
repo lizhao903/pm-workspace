@@ -451,3 +451,31 @@ func (b *Bilibili) StatsKeys() []string { return []string{"favorites", "coins"} 
 func (b *Bilibili) Comments(context.Context, Session, RemoteRef, string) (CommentPage, error) {
 	return CommentPage{}, ErrUnsupported
 }
+
+// BiliOpenStat 是开放平台能给的账号数据（TSK-0455）：/arcopen/fn/user/account/info 的昵称，
+// /arcopen/fn/data/user/stat 的粉丝 follower、关注 following、过审稿件数 arc_passed_total。
+type BiliOpenStat struct {
+	Name      string
+	Follower  int64
+	Following int64
+	Archives  int64
+}
+
+// UserStat 取授权账号的昵称和粉丝、关注、过审稿件数。B 站组件优先用它，拿不到的再走网页端。
+func (b *Bilibili) UserStat(ctx context.Context, s Session) (BiliOpenStat, error) {
+	var info struct {
+		Name string `json:"name"`
+	}
+	if err := b.call(ctx, s, http.MethodGet, "/arcopen/fn/user/account/info", nil, &info); err != nil {
+		return BiliOpenStat{}, err
+	}
+	var st struct {
+		Follower       int64 `json:"follower"`
+		Following      int64 `json:"following"`
+		ArcPassedTotal int64 `json:"arc_passed_total"`
+	}
+	if err := b.call(ctx, s, http.MethodGet, "/arcopen/fn/data/user/stat", nil, &st); err != nil {
+		return BiliOpenStat{}, err
+	}
+	return BiliOpenStat{Name: info.Name, Follower: st.Follower, Following: st.Following, Archives: st.ArcPassedTotal}, nil
+}

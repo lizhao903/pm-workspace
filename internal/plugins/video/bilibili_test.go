@@ -95,6 +95,8 @@ func (f *fakeBilibili) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	switch r.URL.Path {
 	case "/arcopen/fn/user/account/info":
 		f.sample(w, "account_info")
+	case "/arcopen/fn/data/user/stat": // TSK-0455：B 站组件取粉丝、关注、过审稿件数
+		f.sample(w, "user_stat")
 	case "/arcopen/fn/archive/video/init":
 		f.sample(w, "video_init")
 	case "/arcopen/fn/archive/video/complete":

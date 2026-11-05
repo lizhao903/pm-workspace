@@ -101,7 +101,7 @@ var ReservedIDs = []string{
 // Permissions 是内核认的固定权限；另有 secrets:<scope>（docs/plugin-api.md 3.1）。
 var Permissions = []string{
 	"fs:read:project", "fs:write:project", "fs:read:attachments", "fs:write:attachments",
-	"fs:read:any", "fs:write:any",
+	"fs:read:any", "fs:write:any", "fs:read:registered",
 	"network:localhost", "network:im", "network:media-platforms", "network:market-data",
 	"network:exchanges", "network:any",
 	"process:spawn", "trade:live",

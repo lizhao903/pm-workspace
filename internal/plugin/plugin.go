@@ -114,6 +114,8 @@ type Core interface {
 	AttachmentDir() string
 	// WorktreeDir 是本机工作区目录（数据目录下的 worktrees/）的绝对路径（AUTO-07，datadir.go），没接数据目录时为空串。
 	WorktreeDir() string
+	// CacheDir 是本插件的缓存目录（数据目录下的 cache/<插件 id>/）的绝对路径（TSK-0456，datadir.go），没接数据目录时为空串。
+	CacheDir() string
 	// Agent 用默认服务商补全、按 Agent 的授权跑一轮、搜指定知识库（SOP-01c，agent.go）。
 	Agent() AgentService
 	// Granted 看用户确认过这项权限没有，只认状态表里确认过的（SEC-01，permissions.go）。

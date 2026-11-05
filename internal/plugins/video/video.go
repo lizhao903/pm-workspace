@@ -7,6 +7,7 @@
 // YouTube、抖音连接器（VID-04d）见 youtube.go、douyin.go，没有上传能力的平台用 package.go 的发布包。
 // 封面 A/B 测试和决胜规则（VID-05b）见 covertests.go，表 video_cover_tests、video_cover_test_arms。
 // 定时发布、内容日历（VID-06c）见 schedule.go。
+// B 站组件（TSK-0455）：网页端连接器 bilibili_web 见 biliweb.go，账户数据、私信的接口见 biliapi.go，表 video_bili_*。
 // 接口契约见 docs/api-contract.md「视频创作插件 video」。
 package video
 
@@ -36,12 +37,16 @@ type Plugin struct {
 	m plugin.Manifest
 	// 内容平台适配器（VID-04b），按平台 key
 	platforms []PlatformAdapter
+	// B 站网页端（TSK-0455，biliweb.go）
+	web *biliWeb
+	// last 是最近一次 Register 建的 handler，只给测试直接调后台任务用
+	last *handler
 }
 
 func New() *Plugin { return newWith(NewBilibili(), NewYouTube(), NewDouyin()) }
 
 func newWith(adapters ...PlatformAdapter) *Plugin {
-	return &Plugin{m: plugin.MustParse(manifestJSON), platforms: adapters}
+	return &Plugin{m: plugin.MustParse(manifestJSON), platforms: adapters, web: newBiliWeb()}
 }
 
 func (p *Plugin) Manifest() plugin.Manifest { return p.m }
@@ -119,6 +124,7 @@ func (p *Plugin) Register(r plugin.Registrar) error {
 		m.HandleFunc("POST /api/video/clips/{id}/link", h.linkTopic)
 		m.HandleFunc("POST /api/video/clips/comments", h.pullComments)
 		h.registerDeals(m)
+		h.registerStoryboard(m) // 分镜和 B-roll 素材（TSK-0456，storyboard.go、media.go）
 		m.HandleFunc("GET /api/video/calendar", h.listCalendar)
 		m.HandleFunc("GET /api/video/cover-tests", h.listCoverTests)
 		m.HandleFunc("POST /api/video/cover-tests", h.addCoverTest)
@@ -136,6 +142,9 @@ func (p *Plugin) Register(r plugin.Registrar) error {
 	r.Job(plugin.Job{Name: "metrics_daily", Every: metricsEvery, Run: h.metricsJob})
 	r.Job(commentJob(h))
 	r.Job(plugin.Job{Name: "cover_tests", Every: coverTestsEvery, Run: h.coverTestsJob})
+	// B 站组件（TSK-0455）：网页端连接器、接口和拉私信、拉快照两个后台任务，见 biliapi.go
+	h.registerBili(r, p.web)
+	p.last = h
 	return nil
 }
 
@@ -156,6 +165,8 @@ type handler struct {
 	collectMu sync.Mutex
 	// 定时任务动作 video_publish 交过来、等常驻任务 publish_due 投的发布记录（VID-06c）
 	fire chan string
+	// B 站组件（TSK-0455）：扫码登录的待确认项、拉私信的锁
+	bili *biliState
 }
 
 // 错误分类，对应信封里的 code
