@@ -30,3 +30,11 @@
 # 根目录下的构建产物（Makefile 的临时产物，正式产物在 /bin）
 /pmw-mcp
 /pmw
+
+# 开发工具的目录不入库（Claude Code、WorkBuddy、Obsidian 的本机配置和笔记）
+/.claude/
+/.workbuddy/
+/.obsidian/
+# 手工备份的前端构建产物
+/frontend/dist.bak*/
+/internal/webui/dist.bak*/
