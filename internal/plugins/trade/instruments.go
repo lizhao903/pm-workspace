@@ -13,10 +13,12 @@ import (
 )
 
 // SourceInfo 是行情源在接口里的样子：id、显示名、覆盖的市场和品种。
+// health 是源的连接状态（TRD-02a），见 SourceHealth。
 type SourceInfo struct {
-	ID       string     `json:"id"`
-	Name     string     `json:"name"`
-	Coverage []Coverage `json:"coverage"`
+	ID       string       `json:"id"`
+	Name     string       `json:"name"`
+	Coverage []Coverage   `json:"coverage"`
+	Health   SourceHealth `json:"health"`
 }
 
 // SyncResult 是一次标的同步的结果；skipped 是源交回来但校验没过的，errors 最多列 10 条原因。
@@ -32,29 +34,46 @@ var errUpstream = errors.New("upstream")
 func (h *handlers) listSources(w http.ResponseWriter, _ *http.Request) {
 	out := make([]SourceInfo, 0, len(h.p.sources))
 	for _, s := range h.p.sources {
-		out = append(out, SourceInfo{ID: s.ID(), Name: s.Name(), Coverage: s.Coverage()})
+		out = append(out, SourceInfo{ID: s.ID(), Name: s.Name(), Coverage: s.Coverage(), Health: h.p.mkt.sourceHealth(s.ID())})
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"data": out, "meta": map[string]int{"total": len(out)}})
 }
 
 // syncSource 把源覆盖的每个市场、品种的标的拉一遍，按 symbol 新建或覆盖；源里没有了的不删（自选可能还引用着）。
 func (h *handlers) syncSource(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
 	s := h.p.source(r.PathValue("id"))
 	if s == nil {
 		h.fail(w, r, apiErr(errNotFound, "行情源 %s 不存在", r.PathValue("id")))
 		return
 	}
+	res, err := runSync(r.Context(), h.c, s)
+	var ue *syncUpstreamError
+	if errors.As(err, &ue) {
+		writeJSON(w, http.StatusBadGateway, map[string]any{"error": map[string]string{"code": errUpstream.Error(), "message": ue.Error()}})
+		return
+	}
+	if err != nil {
+		h.fail(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"data": res})
+}
+
+// syncUpstreamError 是同步时行情源出的错（接口回 502）。
+type syncUpstreamError struct{ msg string }
+
+func (e *syncUpstreamError) Error() string { return e.msg }
+
+// runSync 是同步一个源的标的，接口和每日任务共用。
+func runSync(ctx context.Context, c plugin.Core, s Source) (SyncResult, error) {
 	res := SyncResult{Source: s.ID(), Errors: []string{}}
 	now := time.Now().UTC().Format(time.RFC3339)
-	for _, c := range s.Coverage() {
-		for _, k := range c.Kinds {
-			list, err := s.Instruments(ctx, c.Market, k)
+	for _, cv := range s.Coverage() {
+		for _, k := range cv.Kinds {
+			list, err := s.Instruments(ctx, cv.Market, k)
 			if err != nil {
-				h.c.Log().Warn("sync instruments failed", "source", s.ID(), "market", c.Market, "kind", k, "err", err)
-				writeJSON(w, http.StatusBadGateway, map[string]any{"error": map[string]string{
-					"code": errUpstream.Error(), "message": "行情源 " + s.ID() + " 取 " + c.Market + "/" + k + " 的标的失败：" + err.Error()}})
-				return
+				c.Log().Warn("sync instruments failed", "source", s.ID(), "market", cv.Market, "kind", k, "err", err)
+				return res, &syncUpstreamError{"行情源 " + s.ID() + " 取 " + cv.Market + "/" + k + " 的标的失败：" + err.Error()}
 			}
 			for _, in := range list {
 				if err := checkInstrument(s, in); err != nil {
@@ -64,19 +83,18 @@ func (h *handlers) syncSource(w http.ResponseWriter, r *http.Request) {
 					}
 					continue
 				}
-				if err := h.upsert(ctx, in, s.ID(), now); err != nil {
-					h.fail(w, r, err)
-					return
+				if err := upsertInstrument(ctx, c, in, s.ID(), now); err != nil {
+					return res, err
 				}
 				res.Upserted++
 			}
 		}
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"data": res})
+	return res, nil
 }
 
-func (h *handlers) upsert(ctx context.Context, in Instrument, source, now string) error {
-	_, err := h.c.Store().Exec(ctx, `INSERT INTO trade_instruments (`+instCols+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+func upsertInstrument(ctx context.Context, c plugin.Core, in Instrument, source, now string) error {
+	_, err := c.Store().Exec(ctx, `INSERT INTO trade_instruments (`+instCols+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(symbol) DO UPDATE SET name = excluded.name, market = excluded.market, kind = excluded.kind, venue = excluded.venue,
 		digits = excluded.digits, lot = excluded.lot, multiplier = excluded.multiplier, expiry = excluded.expiry,
 		underlying = excluded.underlying, strike = excluded.strike, opt_right = excluded.opt_right,

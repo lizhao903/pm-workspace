@@ -49,6 +49,11 @@ var NetworkHosts = map[string][]HostRule{
 			"/api/v3/ping", "/api/v3/time", "/api/v3/exchangeInfo", "/api/v3/depth", "/api/v3/trades",
 			"/api/v3/aggTrades", "/api/v3/klines", "/api/v3/uiKlines", "/api/v3/avgPrice", "/api/v3/ticker",
 		}},
+		// Binance U 本位永续公开行情（TRD-01b，同 plugin-api.md 的清单）：同一域名上也有交易接口，只放行行情路径
+		{Host: "fapi.binance.com", Paths: []string{
+			"/fapi/v1/ping", "/fapi/v1/time", "/fapi/v1/exchangeInfo", "/fapi/v1/depth", "/fapi/v1/klines",
+			"/fapi/v1/premiumIndex", "/fapi/v1/fundingRate", "/fapi/v1/fundingInfo", "/fapi/v1/ticker",
+		}},
 		// OKX 公开行情
 		{Host: "www.okx.com", Paths: []string{"/api/v5/market/", "/api/v5/public/"}},
 		{Host: "ws.okx.com", Paths: []string{"/ws/v5/public", "/ws/v5/business"}},
