@@ -1741,7 +1741,7 @@ api.terminalLauncher.register({
 | `network:im` | 访问 IM 平台（Slack、Telegram、飞书、企业微信的接口域名） | 普通 |
 | `network:media-platforms` | 访问视频平台 | 普通 |
 | `network:market-data` | 访问行情源 | 普通 |
-| `network:exchanges` | 访问交易所的交易接口 | 高 |
+| `network:exchanges` | 访问交易所的账户和交易接口（交易套件 0.5.0 起只用它只读同步交易所账户，见 3.3） | 高 |
 | `network:any` | 访问任意外网地址 | 高 |
 | `secrets:<scope>` | 取凭证保险箱里该范围的凭证，例 `secrets:im`、`secrets:media` | 普通 |
 | `process:spawn` | 起子进程（原型、终端） | 高 |
@@ -1755,7 +1755,7 @@ api.terminalLauncher.register({
 | `im` | `slack.com`、`*.slack.com`、`api.telegram.org`、`open.feishu.cn`、`open.larksuite.com`、`qyapi.weixin.qq.com` |
 | `media-platforms` | B 站 `bilibili.com`、`*.bilibili.com`、`*.hdslb.com`、`*.bilivideo.com`；YouTube `youtube.com`、`*.youtube.com`、`youtube.googleapis.com`、`*.googlevideo.com`、`*.ytimg.com`，`www.googleapis.com` 只放 `/youtube/`、`/upload/youtube/`；抖音 `douyin.com`、`*.douyin.com`、`*.douyinpic.com`、`*.douyinvod.com` |
 | `market-data` | Binance `data-api.binance.vision`、`data-stream.binance.vision`，`api.binance.com` 只放公开行情路径（`/api/v3/` 下的 ping、time、exchangeInfo、depth、trades、aggTrades、klines、uiKlines、avgPrice、ticker），U 本位永续 `fapi.binance.com` 只放公开行情路径（`/fapi/v1/` 下的 ping、time、exchangeInfo、depth、klines、premiumIndex、fundingRate、fundingInfo、ticker）；OKX `www.okx.com` 只放 `/api/v5/market/`、`/api/v5/public/`，`ws.okx.com` 只放 `/ws/v5/public`、`/ws/v5/business` |
-| `exchanges` | Binance `api.binance.com`、`api1` 到 `api4.binance.com`、`fapi`、`dapi`、`stream`、`fstream.binance.com`、`testnet.binance.vision`；OKX `www.okx.com`、`ws.okx.com`。先只列域名，实盘（`trade:live`、TRD-08）之前不用 |
+| `exchanges` | Binance `api.binance.com`、`api1` 到 `api4.binance.com`、`fapi`、`dapi`、`stream`、`fstream.binance.com`、`testnet.binance.vision`；OKX `www.okx.com`、`ws.okx.com`。只列域名、不分路径。交易套件（TRD-07a）只用它调只读接口：插件在客户端外面再包一层检查，只放行 `GET` 和 `internal/plugins/trade/exchange.go` 的 `exchangeReadPaths` 里的路径（Key 权限、余额、持仓、挂单查询、成交历史）；实盘下单（`trade:live`）另定 |
 | `any` | 任意 http、https 地址 |
 
 `Core.HTTP(group)`：清单 `permissions` 里没声明 `network:<group>`（或组不存在）回 `ErrNetworkNotDeclared`；声明了但用户没确认回 `*NotGrantedError`（3.3）。拿到的客户端每一跳（含重定向）发出前再查一次确认状态和域名清单，清单外回 `*HostNotAllowedError`（`errors.Is(err, plugin.ErrHostNotAllowed)`，说明里不带查询串），请求不发出去。客户端没设总超时，请求用 `NewRequestWithContext` 带期限。测试用 `Registry.SetHTTPTransport` 把底层换成本机假服务，检查照样在外面。
@@ -1781,6 +1781,7 @@ api.terminalLauncher.register({
 | `projects` | `process:spawn` | 原型启动前，409 |
 | `terminal` | `process:spawn` | 新建终端会话前，409 |
 | 登记了 Host 处理器的插件（`domains`） | `network:localhost` | 内核按 Host 分发前查，没确认的不交给它（2.11） |
+| `trade` | `network:exchanges` | 交易所账户连通测试、同步前经 `Core.HTTP("exchanges")` 拿客户端，没确认时失败，账户的异常原因就是这句提示（0.5.0，TRD-07a） |
 
 `Granted` 不拿注册表的锁（后台任务里也会调，停用时等任务退出不能卡在锁上），状态变了由注册表换掉它看的权限集合。新加要高风险权限的代码路径时同样调 `Require`。
 
@@ -1825,7 +1826,7 @@ stateDiagram-v2
 
 | 后端 | 前端 |
 |---|---|
-| 有 `DisableGuard` 时先调 `CanDisable`，不通过就拒绝（交易插件：有在跑的部署或挂单时不允许停用，要先「一键全停」）；取消后台任务的 ctx，等它们退出（最多 10 秒）；撤掉订阅；本插件和认领的路由返回 404；状态表置停用；记审计日志。数据一行不动 | 撤销所有注册（`Disposable`），调 `deactivate`；如果当前停在这个模块的页面，跳回工作台的默认模块；菜单、今日卡片、命令消失 |
+| 有 `DisableGuard` 时先调 `CanDisable`，不通过就拒绝（交易插件：有在跑的部署或挂单时不允许停用，要先「一键全停」；TRD-08a 已实现，原因「还有 N 个部署在跑、N 笔挂单，先到交易里一键全停」，卸载时 `OnUninstall` 同样拦）；取消后台任务的 ctx，等它们退出（最多 10 秒）；撤掉订阅；本插件和认领的路由返回 404；状态表置停用；记审计日志。数据一行不动 | 撤销所有注册（`Disposable`），调 `deactivate`；如果当前停在这个模块的页面，跳回工作台的默认模块；菜单、今日卡片、命令消失 |
 
 被依赖时的提示：停用前后端返回依赖它且已启用的插件列表（`depends` 强依赖），前端弹确认框：
 
