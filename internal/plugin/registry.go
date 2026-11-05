@@ -272,7 +272,7 @@ func (r *Registry) Install(ctx context.Context, id string, confirmed []string) e
 	now := time.Now().UTC()
 	st := State{
 		ID: id, Installed: true, Version: e.m.Version, InstalledAt: &now,
-		Permissions: slices.Clone(e.m.Permissions), PermissionsAt: &now, UpdatedAt: now,
+		Permissions: installable(e.m), PermissionsAt: &now, UpdatedAt: now,
 	}
 	if err := r.store.Save(ctx, st); err != nil {
 		return err
@@ -312,7 +312,7 @@ func (r *Registry) checkInstall(e *entry, confirmed []string) error {
 		return err
 	}
 	var missing []string
-	for _, p := range e.m.Permissions {
+	for _, p := range installable(e.m) {
 		if !slices.Contains(confirmed, p) {
 			missing = append(missing, p)
 		}

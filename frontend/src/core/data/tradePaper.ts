@@ -42,7 +42,19 @@ export type TradeAccount = {
   /** live 持仓现价都是实时的；stale 有的按缓存或均价估 */
   marks_status: 'live' | 'stale'
   created_at: string
+  // 下面只有实盘账户有（TRD-07a、TRD-08b）
+  connector_id?: string
+  /** 最近一次查到的 Key 权限 */
+  key_permissions?: string[]
+  /** 用户要不要交易权限（只记意愿，实盘下单没上线） */
+  want_trade?: boolean
+  /** 最近一次同步成功的时间 */
+  synced_at?: string
+  recon?: TradeReconBrief
 }
+
+/** 账户卡片上的「对账」一行（TradeAccount.recon），实盘账户才有 */
+export type TradeReconBrief = { status: 'ok' | 'diff' | 'failed' | 'none'; at?: string; open: number; error?: string }
 
 export type TradeAccountInput = { name?: string; currency?: string; initial?: number; markets?: TradeMarket[]; fee_bp?: number; slippage_ticks?: number }
 

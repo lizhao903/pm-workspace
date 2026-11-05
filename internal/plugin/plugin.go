@@ -118,6 +118,8 @@ type Core interface {
 	Agent() AgentService
 	// Granted 看用户确认过这项权限没有，只认状态表里确认过的（SEC-01，permissions.go）。
 	Granted(perm string) bool
+	// RevokePermission 收回自己单独授予的权限（如 trade:live），只能收回不能授予（TRD-08c，separate.go）。
+	RevokePermission(ctx context.Context, perm string) error
 	// SOP 查插件登记的 SOP 节点、执行插件节点、唤醒挂起的步骤（SOP-03a，sopnode.go）。
 	SOP() SOPService
 	// Audit 记插件替用户做的对外动作，操作者记为插件，记在审计 agent 一组（SOP-02b，audit_note.go）。

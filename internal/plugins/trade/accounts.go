@@ -13,8 +13,9 @@ import (
 	"github.com/lizhao903/pm-workspace/internal/plugin"
 )
 
-// 模拟盘账户（TRD-05a）：表 trade_accounts（迁移 0005）。本批次只建模拟盘：没有实盘账户的创建路径，
-// paper 建好后不能改（PATCH 带 paper 回 400，库里也没有改它的语句）。权益、可用、保证金不落表，读的时候现算。
+// 交易账户：表 trade_accounts（迁移 0005，0008 加列）。模拟盘（TRD-05a）权益、可用、保证金不落表，读的时候按成交流水现算；
+// 交易所实盘账户（TRD-07a，live.go）只读同步，paper 恒为假（建的时候写死 0，没有改它的语句），下单、部署对它回 403。
+// paper 建好后不能改（PATCH 带 paper 回 400）。
 
 const (
 	maxAccountName = 40
@@ -40,16 +41,30 @@ type account struct {
 	APIHint       string
 	CreatedAt     string
 	UpdatedAt     string
+	// 实盘账户（TRD-07a）：连接器实例、连接状态、要不要交易权限、最近一次查到的 Key 权限
+	ConnectorID string
+	Status      string
+	Error       string
+	WantTrade   bool
+	KeyPerms    []string
 }
 
-const accountCols = `id, name, broker, kind, markets, paper, currency, initial_e8, fee_rate_e8, slippage_ticks, permissions, api_hint, created_at, updated_at`
+const accountCols = `id, name, broker, kind, markets, paper, currency, initial_e8, fee_rate_e8, slippage_ticks, permissions, api_hint, created_at, updated_at,
+	connector_id, status, error, want_trade, key_perms`
+
+// paperInsertCols 是模拟盘建账户时写的列（实盘的几列取默认值）。
+const paperInsertCols = `id, name, broker, kind, markets, paper, currency, initial_e8, fee_rate_e8, slippage_ticks, permissions, api_hint, created_at, updated_at`
 
 func scanAccount(row plugin.Row) (account, error) {
 	var a account
-	var markets, perms string
-	var paper int
-	err := row.Scan(&a.ID, &a.Name, &a.Broker, &a.Kind, &markets, &paper, &a.Currency, &a.Initial, &a.FeeRate, &a.SlippageTicks, &perms, &a.APIHint, &a.CreatedAt, &a.UpdatedAt)
-	a.Paper = paper == 1
+	var markets, perms, keyPerms string
+	var paper, want int
+	err := row.Scan(&a.ID, &a.Name, &a.Broker, &a.Kind, &markets, &paper, &a.Currency, &a.Initial, &a.FeeRate, &a.SlippageTicks, &perms, &a.APIHint, &a.CreatedAt, &a.UpdatedAt,
+		&a.ConnectorID, &a.Status, &a.Error, &want, &keyPerms)
+	a.Paper, a.WantTrade = paper == 1, want == 1
+	if json.Unmarshal([]byte(keyPerms), &a.KeyPerms) != nil || a.KeyPerms == nil {
+		a.KeyPerms = []string{}
+	}
 	if json.Unmarshal([]byte(markets), &a.Markets) != nil || a.Markets == nil {
 		a.Markets = []string{}
 	}
@@ -68,7 +83,8 @@ func loadAccount(ctx context.Context, c plugin.Core, id string) (account, error)
 	return a, err
 }
 
-// paperAccount 是下单、部署用的账户检查：不存在、不是模拟盘都回 400（不是 404：账户 id 是请求体里的引用）。
+// paperAccount 是下单、部署用的账户检查：不存在回 400（不是 404：账户 id 是请求体里的引用）；
+// 实盘账户回 403（errLive）：实盘下单没开放前，下单入口对实盘账户一律拒绝（TRD-07a）。
 func paperAccount(ctx context.Context, c plugin.Core, id string) (account, error) {
 	if strings.TrimSpace(id) == "" {
 		return account{}, apiErr(errValidation, "选一个账户（account_id）")
@@ -81,7 +97,7 @@ func paperAccount(ctx context.Context, c plugin.Core, id string) (account, error
 		return a, err
 	}
 	if !a.Paper {
-		return a, apiErr(errValidation, "账户「%s」是实盘账户，现在只能对模拟盘账户下单和部署", a.Name)
+		return a, liveErr(a.Name)
 	}
 	return a, nil
 }
@@ -132,6 +148,12 @@ type AccountView struct {
 	SlippageTicks int      `json:"slippage_ticks"`
 	MarksStatus   string   `json:"marks_status"`
 	CreatedAt     string   `json:"created_at"`
+	// 实盘账户才有（TRD-07a、TRD-08b）
+	ConnectorID    string      `json:"connector_id,omitempty"`
+	KeyPermissions []string    `json:"key_permissions,omitempty"`
+	WantTrade      *bool       `json:"want_trade,omitempty"`
+	SyncedAt       string      `json:"synced_at,omitempty"`
+	Recon          *ReconBrief `json:"recon,omitempty"`
 }
 
 // valuation 是一个账户此刻的估值（定点），下单检查和接口都用。
@@ -327,6 +349,9 @@ func applyAccount(a *account, raw map[string]json.RawMessage, create bool) error
 }
 
 func (h *handlers) accountView(ctx context.Context, a account) (AccountView, error) {
+	if !a.Paper {
+		return h.p.live.view(ctx, a)
+	}
 	v, err := h.p.paper.value(ctx, a)
 	if err != nil {
 		return AccountView{}, err
@@ -362,6 +387,10 @@ func (h *handlers) addAccount(w http.ResponseWriter, r *http.Request) {
 		h.fail(w, r, err)
 		return
 	}
+	if _, ok := raw["connector_id"]; ok {
+		h.addLiveAccount(w, r, raw)
+		return
+	}
 	now := stamp(h.p.paper.now())
 	a := account{ID: idgen.Prefixed("ac"), Name: "模拟盘", Broker: "模拟", Kind: "exchange", Markets: []string{"crypto"}, Paper: true,
 		Currency: "USD", Initial: fxInt(defaultCapital), FeeRate: 50000, SlippageTicks: 1, Permissions: []string{"read", "trade"},
@@ -373,7 +402,7 @@ func (h *handlers) addAccount(w http.ResponseWriter, r *http.Request) {
 	ms, _ := json.Marshal(a.Markets)
 	ps, _ := json.Marshal(a.Permissions)
 	// paper 写死 1：本批次没有实盘账户的创建路径
-	if _, err := h.c.Store().Exec(ctx, `INSERT INTO trade_accounts (`+accountCols+`) VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?)`,
+	if _, err := h.c.Store().Exec(ctx, `INSERT INTO trade_accounts (`+paperInsertCols+`) VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		a.ID, a.Name, a.Broker, a.Kind, string(ms), a.Currency, a.Initial, a.FeeRate, a.SlippageTicks, string(ps), a.APIHint, a.CreatedAt, a.UpdatedAt); err != nil {
 		h.fail(w, r, err)
 		return
@@ -415,6 +444,10 @@ func (h *handlers) updateAccount(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	pp := h.p.paper
+	if a, err := loadAccount(ctx, h.c, r.PathValue("id")); err == nil && !a.Paper {
+		h.updateLiveAccount(w, r, a, raw)
+		return
+	}
 	pp.mu.Lock()
 	defer pp.mu.Unlock()
 	a, err := loadAccount(ctx, h.c, r.PathValue("id"))
@@ -454,6 +487,10 @@ func (h *handlers) removeAccount(w http.ResponseWriter, r *http.Request) {
 	a, err := loadAccount(ctx, h.c, r.PathValue("id"))
 	if err != nil {
 		h.fail(w, r, err)
+		return
+	}
+	if !a.Paper {
+		h.removeLiveAccount(w, r, a)
 		return
 	}
 	var why []string

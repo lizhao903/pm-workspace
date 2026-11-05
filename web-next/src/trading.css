@@ -209,6 +209,8 @@ button.tr-card-title:hover { color: var(--accent); }
 .tr-check { align-items: flex-start; }
 .tr-check > .tr-dot { margin-top: 5px; }
 .tr-check .tr-rule-input { flex-wrap: wrap; justify-content: flex-end; }
+.tr-evidence { display: flex; align-items: baseline; flex-wrap: wrap; gap: 2px 10px; }
+.tr-evidence .tr-recon-link { color: var(--accent); text-align: left; }
 .tr-apply { display: flex; flex-direction: column; gap: 8px; }
 .tr-apply-input { width: 160px; text-align: left; }
 
