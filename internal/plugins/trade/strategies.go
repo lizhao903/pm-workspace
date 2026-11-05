@@ -288,11 +288,15 @@ func (h *handlers) updateStrategy(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"data": st})
 }
 
-// DELETE /api/trade/strategies/{id}：回测记录保留（带快照）。部署（TRD-05）还没有，不用停。
+// DELETE /api/trade/strategies/{id}：回测记录保留（带快照）；没停的部署全部停止（原因「策略已删除」）、撤掉它们的挂单（TRD-05b）。
 func (h *handlers) removeStrategy(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	id := r.PathValue("id")
 	if _, err := loadStrategy(ctx, h.c, id); err != nil {
+		h.fail(w, r, err)
+		return
+	}
+	if err := h.p.runs.stopForStrategy(ctx, id); err != nil {
 		h.fail(w, r, err)
 		return
 	}
