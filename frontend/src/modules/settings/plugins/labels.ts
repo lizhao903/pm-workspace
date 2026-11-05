@@ -10,6 +10,7 @@ const PERMISSION_TEXT: Record<string, { text: string; risk: Risk }> = {
   'fs:write:attachments': { text: '写数据目录下的附件', risk: 'normal' },
   'fs:read:any': { text: '读本机任意路径', risk: 'high' },
   'fs:write:any': { text: '写本机任意路径', risk: 'high' },
+  'fs:read:registered': { text: '只读你在插件里逐个登记的本机目录', risk: 'normal' },
   'network:localhost': { text: '访问 127.0.0.1 和本机域名', risk: 'normal' },
   'network:im': { text: '访问 IM 平台的接口', risk: 'normal' },
   'network:media-platforms': { text: '访问视频平台', risk: 'normal' },

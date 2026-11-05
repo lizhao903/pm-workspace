@@ -148,6 +148,7 @@ func (p *Plugin) Register(r plugin.Registrar) error {
 	// SOP 节点：发消息、等回复（SOP-02b，sopnodes.go）
 	in.registerSOPNodes(r)
 	in.registerTaskReply(r)
+	in.registerAskMe(r) // 私信我确认（TSK-0411，askme.go）
 	// IM 需求自动受理：转成任务、设置任务阶段两个节点和内置流程（AUTO-06，autointake.go）
 	in.registerAutoIntake(r)
 	return nil

@@ -82,6 +82,9 @@ var NodeTypes = []NodeType{
 	{Kind: "subflow", Group: "外部", Required: []ConfigField{{"sop", "执行哪个 SOP"}}},
 	// Claude Code 执行（AUTO-01，nodes_claude.go）：交给本机 Claude Code 跑一次，等它结束；原型同步加了
 	{Kind: claudeKind, Group: "外部", Required: []ConfigField{{"workdir", "工作目录"}, {"prompt", "提示词"}}},
+	// 执行任务、更新任务（TSK-0411，nodes_taskrun.go）：工作目录按任务 → 项目继承地交给 Claude Code；改已有任务的负责人、状态
+	{Kind: taskRunKind, Group: "外部"},
+	{Kind: taskUpdateKind, Group: "外部"},
 	{Kind: "end", Group: "输出"},
 }
 
@@ -549,6 +552,11 @@ func CheckWith(f *Flow, kinds kindLookup) []Issue {
 		}
 		if s.Kind == claudeKind {
 			for _, msg := range checkClaude(s.Config) {
+				add(i, "「%s」%s", label(i), msg)
+			}
+		}
+		if s.Kind == taskRunKind {
+			for _, msg := range checkTaskRun(s.Config) {
 				add(i, "「%s」%s", label(i), msg)
 			}
 		}

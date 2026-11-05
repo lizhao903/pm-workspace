@@ -44,14 +44,14 @@ function errStack(err: unknown): string | undefined {
 const oneLine = (s: string, n: number) => s.replace(/\s+/g, ' ').trim().slice(0, n)
 
 /** 报错转成上报体（纯函数，测试直接用）。指纹 front:<模块路径>:<类别>:<报错第一行>，同一页同一个报错合并 */
-export function frontReport(kind: FrontErrorKind, err: unknown, at: { pathname: string; search?: string; href?: string; entry?: string | null; where?: string }): IncidentReport {
+export function frontReport(kind: FrontErrorKind, err: unknown, at: { pathname: string; search?: string; href?: string; entry?: string | null; where?: string; detail?: string }): IncidentReport {
   const msg = oneLine(errMessage(err), 2_000) || KIND_TEXT[kind]
   const mod = moduleOfPath(at.pathname)
   const head = oneLine(msg, FP_MAX)
   const title = kind === 'rejection' ? `未处理的 Promise 异常：${oneLine(msg, TITLE_MAX - 12)}`
     : kind === 'chunk' ? `分包加载失败：${oneLine(msg, TITLE_MAX - 8)}`
       : oneLine(msg, TITLE_MAX)
-  const message = kind === 'route' ? `打开「${mod.label}」页面时出错，页面停在「出错了」；已排除服务换了新版本`
+  const message = at.detail ? at.detail : kind === 'route' ? `打开「${mod.label}」页面时出错，页面停在「出错了」；已排除服务换了新版本`
     : kind === 'error' ? `${at.where ? `${at.where} ` : '页面脚本'}抛出未捕获的异常`
       : kind === 'rejection' ? '有异步操作失败了但没人处理'
         : '页面的代码分包没加载出来，服务器上的版本和页面一致，不是换版本'
@@ -103,10 +103,10 @@ export function isNoise(err: unknown): boolean {
 }
 
 /** 报一次；同一个指纹这次会话里只发一次请求，之后直接回第一次的结果 */
-export function reportFrontError(kind: FrontErrorKind, err: unknown, where?: string): Promise<ReportResult> {
+export function reportFrontError(kind: FrontErrorKind, err: unknown, where?: string, detail?: string): Promise<ReportResult> {
   if (isNoise(err)) return Promise.resolve({ ok: false })
   const body = frontReport(kind, err, {
-    pathname: location.pathname, search: location.search, href: location.href, entry: currentEntry(), where,
+    pathname: location.pathname, search: location.search, href: location.href, entry: currentEntry(), where, detail,
   })
   const fp = body.fingerprint!
   const had = sent.get(fp)

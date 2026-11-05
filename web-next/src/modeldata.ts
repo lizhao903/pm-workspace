@@ -164,6 +164,8 @@ export interface Provider {
   status: 'ok' | 'error' | 'untested'
   error?: string
   checked_at?: string
+  /** 失败时改用的服务商 id（SPEC-settings-7.22）：它连不上、5xx 被暂停调用（熔断）时改用，空的不改用 */
+  fallback_id?: string
 }
 
 export interface ModelConf {

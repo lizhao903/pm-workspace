@@ -95,6 +95,11 @@ export interface RunStep {
   gated?: boolean
   /** 占着一个 Claude Code 名额（AUTO-12，原型自己用） */
   cgated?: boolean
+  /**
+   * 挂起等服务商恢复（TSK-0392，SPEC-sop-7.50）：IM、定时等自动发起的执行，调模型的步骤遇到服务商不可用不标失败，
+   * 状态仍是 running，到 retry_at 或服务商恢复后原地重跑；provider 是服务商名，reason 是最近一次失败
+   */
+  provider_wait?: { provider_id: string; provider: string; reason: string; since: number; retry_at: number }
   /** 超出治理上限被暂停（AUTO-12，SPEC-sop-15）：没放行时停在 paused；放行后 released，attempt 是放行的那次尝试 */
   hold?: { kind: 'runs' | 'duration'; reason: string; since: number; released?: boolean; attempt?: number }
   /** Claude Code 节点发起的那次执行（AUTO-01）：执行 id、关联任务（执行记录留在任务上时）、工作目录 */
@@ -177,16 +182,21 @@ export const runShow = (r: SopRun): RunShow => {
 
 /** 排队中的步骤（SOP-07）：状态仍是 running，界面单独显示「排队中」 */
 export const QUEUED_LOOK = { label: '排队中', color: '#7a766c' }
+/** 挂起等服务商恢复（SPEC-sop-7.50） */
+export const PROVIDER_WAIT_LOOK = { label: '等服务商恢复', color: '#b7791f' }
+export const isProviderWait = (s: RunStep) => s.status === 'running' && !!s.provider_wait
 export const isQueued = (s: RunStep) => s.status === 'running' && !!s.queue
 /** 超出治理上限暂停（AUTO-12）：状态是 paused，带没放行的 hold */
 export const HELD_LOOK = { label: '超出上限', color: '#c0392b' }
-export const stepLook = (s: RunStep) => (isQueued(s) ? QUEUED_LOOK : isHeld(s) ? HELD_LOOK : STEP_STATUS[s.status])
+export const stepLook = (s: RunStep) => (isProviderWait(s) ? PROVIDER_WAIT_LOOK : isQueued(s) ? QUEUED_LOOK : isHeld(s) ? HELD_LOOK : STEP_STATUS[s.status])
 
 /* ---------- 调模型的并发上限（SOP-07） ---------- */
 
 /** 要调模型的节点：AI 处理、参数提取、问题分类、迭代、调用 Agent；知识检索只做关键词检索，不算 */
 export const MODEL_KINDS = ['ai', 'extract', 'classifier', 'iterate', 'agent']
 export const isModelKind = (kind: string) => MODEL_KINDS.includes(kind)
+/** 交给 Claude Code、走 Claude Code 名额和需求预算的节点（执行任务 task_run 同 claude_code，TSK-0411） */
+export const isClaudeKind = (kind: string) => kind === 'claude_code' || kind === 'task_run'
 export const MODEL_CONCURRENCY_DEFAULT = 2
 export const MODEL_CONCURRENCY_MAX = 16
 
@@ -250,7 +260,7 @@ export function claudeUsage(runs: SopRun[], key: string, now = Date.now()): { ru
   let ms = 0
   for (const r of runs) {
     r.steps.forEach((s, i) => {
-      if (r.sop.steps[i].kind !== 'claude_code' || budgetKey(r, i) !== key) return
+      if (!isClaudeKind(r.sop.steps[i].kind) || budgetKey(r, i) !== key) return
       const launched = s.cgated || !!s.claude || s.status === 'done' || s.status === 'failed'
       if (!launched) return
       n += Math.max(1, s.attempts)
@@ -271,7 +281,7 @@ export function governRuns(runs: SopRun[], gov: Governance, now = Date.now()): S
   }
   // 预算
   runs.forEach((run, r) => run.steps.forEach((s, i) => {
-    if (run.stopped || s.status !== 'running' || s.cgated || s.queue || run.sop.steps[i].kind !== 'claude_code') return
+    if (run.stopped || s.status !== 'running' || s.cgated || s.queue || !isClaudeKind(run.sop.steps[i].kind)) return
     if (s.hold?.released && s.hold.attempt === s.attempts) return
     const key = budgetKey(run, i)
     const u = claudeUsage(out, key, now)
@@ -288,7 +298,7 @@ export function governRuns(runs: SopRun[], gov: Governance, now = Date.now()): S
   let held = 0
   const wait: { r: number; i: number }[] = []
   out.forEach((run, r) => run.steps.forEach((s, i) => {
-    if (run.sop.steps[i].kind !== 'claude_code') return
+    if (!isClaudeKind(run.sop.steps[i].kind)) return
     if (run.stopped || s.status !== 'running') {
       if (s.cgated || s.queue?.slot) put(r, i, { ...s, cgated: undefined, queue: undefined })
       return
@@ -925,6 +935,70 @@ export const SOPS: Sop[] = [
       { key: 'back_design', name: '阶段改回设计中', kind: 'auto', ms: 200, after: ['accept'], branch: { of: 'accept', case: 'deviation' }, desc: '设置任务阶段：designing' },
       { key: 'tell_pm', name: '通知产品：需求偏差', kind: 'auto', ms: 300, after: ['back_design'], desc: '通知：平台通知产品，回复原消息「已退回产品重新设计」' },
       { key: 'to_design', name: '结束', kind: 'end', ms: 200, after: ['tell_pm'], desc: '产品改完 PRD 后重新走评审和研发' },
+    ],
+  },
+  // 来消息确认派发（TSK-0411，SPEC-sop 节点表「执行任务」「更新任务」）：正式产品由 IM 插件写进 SOP 的内置流程 sop_im_task_confirm，默认停用。
+  // 私信我、等我回复是 IM 插件的 im_ask_me（原型用 auto 模拟，输入 reply 当作我的回复）；单独用（触发方式改成 IM 消息）时先分类、建任务，
+  // 接在消息分流建任务之后当子流程时输入带 task_id，跳过分类和建任务。同一条消息只建一次任务。
+  {
+    id: 'sop_im_task_confirm',
+    name: '来消息确认派发',
+    desc: 'IM 消息要建任务时先私信我确认：回「执行」派 Claude Code 在任务继承的工作目录里开工、做完私信回报；回「分配 某人」改负责人；回「不做」取消任务；认不出再问一次、超时提醒一次，仍没有就不执行。默认停用：触发方式是「手动」',
+    trigger: 'manual',
+    fields: [
+      { key: 'message_id', label: 'IM 消息', type: 'text', required: true, default: 'm1', placeholder: '消息 id；IM 触发时自动带上' },
+      { key: 'task_id', label: '任务', type: 'text', placeholder: '已经建好的任务 id；留空时按消息判断要不要建' },
+      { key: 'reply', label: '我的回复（原型模拟）', type: 'text', default: '执行', placeholder: '执行 / 分配 林原 / 不做 / 随便说点什么' },
+    ],
+    steps: [
+      {
+        key: 'read', name: '读取消息', kind: 'auto', ms: 300, after: [], desc: '读取消息（IM 插件 im_get_message）',
+        run: (i) => {
+          const m = seedMessages.find((x) => x.id === i.message_id) ?? seedMessages[0]
+          return { ...i, message: { id: m.id, sender: m.sender_name, conversation: m.conversation || '私聊', text: m.text } }
+        },
+      },
+      { key: 'given_id', name: '带了任务 id 吗', desc: '', kind: 'decide', ms: 200, after: ['read'], rule: 'task_id 不等于 ""', cases: [{ key: 'yes', label: '带了' }, { key: 'no', label: '没带' }] },
+      {
+        key: 'need', name: '要不要建任务', kind: 'classifier', ms: 800, after: ['given_id'], branch: { of: 'given_id', case: 'no' },
+        desc: '要我或团队去做的事算要建任务；闲聊、通知、问进度、客套不算', config: { from: 'message.text' },
+        cases: [{ key: 'task', label: '要建任务' }, { key: 'none', label: '不用' }],
+        decide: (i) => (/午饭|收到|谢谢/.test(str((i.message as Json | undefined)?.text)) ? { route: 'none', reason: '模型判断属于「不用」' } : { route: 'task', reason: '模型判断属于「要建任务」' }),
+        run: (i) => i,
+      },
+      { key: 'skip', name: '不用建任务', desc: '', kind: 'end', ms: 200, after: ['need'], branch: { of: 'need', case: 'none' } },
+      {
+        key: 'to_task', name: '建任务', kind: 'auto', ms: 500, after: ['need'], branch: { of: 'need', case: 'task' },
+        desc: '转成任务（IM 插件 im_to_task）：这条消息已经被别的流程建过任务时取回那条，不再建',
+        run: (i) => ({ ...i, task: { id: 'tsk_confirm1', ref: 'TSK-0102', title: str((i.message as Json | undefined)?.text).slice(0, 40) } }),
+      },
+      { key: 'use_id', name: '用带来的任务', desc: '', kind: 'auto', ms: 200, after: ['given_id'], branch: { of: 'given_id', case: 'yes' }, run: (i) => ({ ...i, task: { id: i.task_id, ref: 'TSK-0099', title: '带来的任务' } }) },
+      { key: 'join', name: '任务', desc: '', kind: 'aggregate', ms: 200, after: ['use_id', 'to_task'], config: { mode: 'first' } },
+      { key: 'info', name: '读任务', kind: 'task_update', ms: 300, after: ['join'], desc: '取任务的编号、标题、项目和继承后的工作目录，给私信摘要用', config: {} },
+      {
+        key: 'ask', name: '私信我确认', kind: 'auto', ms: 1200, after: ['info'],
+        desc: '私信我确认（IM 插件 im_ask_me）：私信我任务摘要和「执行 / 分配 某人 / 不做」；认不出再问一次，超时提醒一次，仍没有就不执行',
+        run: (i) => {
+          const r = str(i.reply).trim()
+          const m = /^(?:分配给?|交给|指派给?)\s*(.+)$/.exec(r)
+          const choice = /^(执行|确认|好|开工)$/.test(r) ? 'execute' : m ? 'assign' : /^(不做|取消|算了)$/.test(r) ? 'cancel' : 'none'
+          return { ...i, answer: { choice, assignee: m?.[1] ?? '', text: r, reason: choice === 'none' ? 'unknown' : '', reason_text: choice === 'none' ? '两次都没认出你的回复' : '' } }
+        },
+      },
+      { key: 'is_exec', name: '回复执行？', desc: '', kind: 'decide', ms: 200, after: ['ask'], rule: 'answer.choice 等于 execute', cases: [{ key: 'yes', label: '执行' }, { key: 'no', label: '不是' }] },
+      { key: 'run', name: '执行任务', desc: '', kind: 'task_run', ms: 3000, after: ['is_exec'], branch: { of: 'is_exec', case: 'yes' }, config: { task: '{{task.id}}', timeout: '2 小时', on_fail: 'continue' } },
+      { key: 'run_ok', name: '执行成功？', desc: '', kind: 'decide', ms: 200, after: ['run'], rule: 'status 等于 done', cases: [{ key: 'yes', label: '成功' }, { key: 'no', label: '失败' }] },
+      { key: 'tell_done', name: '回报结果', kind: 'auto', ms: 300, after: ['run_ok'], branch: { of: 'run_ok', case: 'yes' }, desc: '私信我（IM 插件 im_tell_me）：执行完了 + 结论摘要 + 任务链接' },
+      { key: 'tell_fail', name: '回报失败', kind: 'auto', ms: 300, after: ['run_ok'], branch: { of: 'run_ok', case: 'no' }, desc: '私信我：没执行成功的原因 + 任务链接' },
+      { key: 'is_assign', name: '回复分配？', desc: '', kind: 'decide', ms: 200, after: ['is_exec'], branch: { of: 'is_exec', case: 'no' }, rule: 'answer.choice 等于 assign', cases: [{ key: 'yes', label: '分配' }, { key: 'no', label: '不是' }] },
+      { key: 'assign', name: '改负责人', desc: '', kind: 'task_update', ms: 300, after: ['is_assign'], branch: { of: 'is_assign', case: 'yes' }, config: { task: '{{task.id}}', assignee: '{{answer.assignee}}' } },
+      { key: 'assigned', name: '分配上了？', desc: '', kind: 'decide', ms: 200, after: ['assign'], rule: 'task.assign_ok 等于 yes', cases: [{ key: 'yes', label: '分配上了' }, { key: 'no', label: '没找到人' }] },
+      { key: 'tell_assigned', name: '回话：已分配', kind: 'auto', ms: 300, after: ['assigned'], branch: { of: 'assigned', case: 'yes' }, desc: '私信我：已把任务分配给某人' },
+      { key: 'tell_noone', name: '回话：没找到人', kind: 'auto', ms: 300, after: ['assigned'], branch: { of: 'assigned', case: 'no' }, desc: '私信我：没找到「X」，任务留着没分配' },
+      { key: 'is_cancel', name: '回复不做？', desc: '', kind: 'decide', ms: 200, after: ['is_assign'], branch: { of: 'is_assign', case: 'no' }, rule: 'answer.choice 等于 cancel', cases: [{ key: 'yes', label: '不做' }, { key: 'no', label: '没答复' }] },
+      { key: 'cancel', name: '标为已取消', desc: '', kind: 'task_update', ms: 300, after: ['is_cancel'], branch: { of: 'is_cancel', case: 'yes' }, config: { task: '{{task.id}}', status: 'cancelled' } },
+      { key: 'tell_cancel', name: '回话：已取消', kind: 'auto', ms: 300, after: ['cancel'], desc: '私信我：已取消' },
+      { key: 'tell_idle', name: '回话：先不执行', kind: 'auto', ms: 300, after: ['is_cancel'], branch: { of: 'is_cancel', case: 'no' }, desc: '私信我：认不出或超时，先不执行，任务留在未开工' },
     ],
   },
 ]

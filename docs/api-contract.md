@@ -529,6 +529,8 @@ IM 里的群聊和私聊（CT-02，0028，表 `conversations`、`conversation_me
 | POST | `/api/agent-providers/{id}/test` | 连通性探测，顺带拉回可用模型列表：`{ok,latency_ms,message,models?}`。探测失败也是 200 + `ok=false`，`message` 只有归类后的说法，不回显上游原文 |
 
 - `AgentProvider` 带 `last_test`（内核迁移 0046）：最近一次 `/test` 的结论 `{ok, latency_ms, message, models?, at}`，没测过为 `null`。每次 `/test` 都覆盖它，不动 `updated_at`；PATCH 改了 `kind`、`base_url`、`api_key`、`extra` 或 `enabled` 时清成 `null`（结论不再作数），只改 `name`、`model` 不清。界面卡片的「连接正常 / 连接异常 / 未测试」以它为准，离开设置页、刷新后不丢。
+- `extra.fallback_id`（TSK-0392）：「失败时改用」，值是另一个服务商的 id。这个服务商不可用（熔断中，或自动重试用完仍是 5xx / 连不上）时，后台补全（插件 `Complete`，含 SOP 的 AI 节点）改用它和它的默认模型再试一次；只改一跳，备用自己的 `fallback_id` 不再往下找；指向不存在、停用的或自己时当没设。后端不校验这个值，按 `extra` 原样存（改它和改别的 `extra` 一样清 `last_test`）。
+- 服务商熔断（TSK-0392，内核 `internal/agent/breaker.go`，只在内存）：同一服务商 5 分钟内连续 5 次服务商级失败（5xx、连不上；一次补全自动重试 2 次）后暂停调用 30 秒，期间补全和 Agent 调用不打出去、直接报错「服务商「名称」暂停调用（熔断）：连续 N 次失败，最后一次是「原因」；HH:MM:SS 自动探测一次，通了就恢复。请到 设置 → 模型服务商 检查它的 base_url 能否访问、服务是否启动，或给它设「失败时改用」的备用服务商」；到点放一次探测，通了恢复，不通冷却翻倍，最长 10 分钟。限流、认证失败、其他 4xx 不计。重启后从头算。对话接口（`/api/agent/chat`）不经过熔断。
 
 - `api_key` 存在凭证保险箱里（`agent_providers.api_key_secret_id` 指向条目，条目名 `模型服务商 <id>`），库里的 `api_key` 列只剩空串；0015 之前存的明文在服务启动时加密搬进保险箱后清空。
 - `api_key_masked` 用保险箱的 `hint` 规则（见「凭证保险箱」一节）。换密钥会换一个新条目、删掉旧条目；删服务商连带删条目。
@@ -2088,7 +2090,7 @@ SOP 输出 `sync`（六个节点共用）：`{id, project_id, trigger, status, c
 
 ## IM 消息插件 im
 
-IM-01a 起。插件 `im`（`internal/plugins/im`，清单 `plugin.json`，0.23.0（0.23.0 加原型同步（AUTO-11）：内置流程 `sop_im_proto_sync`，不加迁移、不改清单；0.22.0 加发布 pipeline（AUTO-10）：内置流程 `sop_im_release_pipeline`，研发 pipeline 验收通过后以子流程接它，不加迁移；0.21.0 加研发 pipeline（AUTO-09）：SOP 节点 `im_notify`、内置流程 `sop_im_dev_pipeline`，不加迁移；0.19.0 加 IM 任务回执 `im_wait_task`、`im_reply_message` 和内置流程「IM 任务回执」，插件迁移 `0012_task_reply.sql`；0.20.0 加 IM 需求自动受理（AUTO-06）：SOP 节点 `im_to_task`、`im_set_task_stage`，内置流程 `sop_im_auto_intake`，不加迁移；IM-06 加 Slack 本人身份；0.7.1 回复和推回来的本人消息只记一次；0.7.2 Slack 限流不算同步失败、不活跃私信轮流查，Telegram 后台连续 3 次连不上才算同步失败；0.8.0 加 SOP 节点读取消息、标记消息；0.9.0 加已过期和设置，插件迁移 `0005_expiry.sql`；0.11.0 加消息归到项目：`im_messages.project_id`、插件迁移 `0006_project.sql`、处理动作 `project`、SOP 节点 `im_set_project`；0.18.0 加回复、发消息里的 @（不加迁移，接口 `GET /api/im/conversations/{conversation_id}/members`，回复和 `POST /api/im/send` 的 body 加 `mentions`，`Outgoing` 加 `mentions`）；0.17.0 加主动发消息（插件迁移 `0011_outbox.sql`，接口 `POST /api/im/send`、`GET /api/im/conversations/{conversation_id}/sent`，会话统计加 `connector_id`、`sent`、`last_sent_at`，消息加 `replied_sent`）；0.16.0 加 Slack 消息列回复（插件迁移 `0010_threads.sql`，接口 `POST /api/im/connectors/{id}/backfill-threads`，`Message` 加 `thread`、`reply_count`，`Incoming` 加 `thread_parent_*`，`Outgoing` 加 `thread_of`）；0.15.0 加群组管理（接口 `GET /api/im/conversations/summary`、批量 `PUT /api/im/conversation-projects`，不加迁移）；0.14.0 加消息转项目资料（插件迁移 `0009_message_materials.sql`，接口 `POST/GET /api/im/materials`、`DELETE /api/im/materials/{material_id}`，消息加 `materials`）；0.13.0 加从消息发起会话、拆分任务（插件迁移 `0008_message_sessions.sql`），清单 `subscribes` 加 `object.created`；0.12.0 加群组默认归属项目（插件迁移 `0007_conversation_projects.sql`）、从 Slack 补联系人邮箱（接口 `POST /api/im/connectors/{id}/backfill-emails`、后台任务 `backfill_emails`）），权限 `network:im`：真实渠道出网，IM-01b 加，0.4.0 升上来要确认；域名清单是 `slack.com`、`*.slack.com`、`api.telegram.org` 等 IM 服务）。收各 IM 渠道的消息，落在插件表 `im_messages`（插件迁移 `0001_messages.sql`；IM-02a 的处理动作加了 `0002_actions.sql`，回复在 `im_replies`；IM-04a 的附件获取加了 `0003_attachments.sql`，获取状态在 `im_attachments`；SOP-02b 的等回复节点加了 `0004_sop_waits.sql`，挂起中的等待在 `im_sop_waits`；安装插件时应用）。发送人按 IM 身份（见「IM 身份 im-identities」）的 id 认、会话按会话（见「会话 conversations」）的 id 归，**不靠名字**。插件未安装或停用时，本节接口回 `not_found` 404（同「插件路由」）；停用时拉取也停下，数据不动。
+IM-01a 起。插件 `im`（`internal/plugins/im`，清单 `plugin.json`，0.24.0（0.24.0 加私信我确认、来消息确认派发（TSK-0411）：SOP 节点 `im_ask_me`、`im_tell_me`，内置流程 `sop_im_task_confirm`，插件迁移 `0013_ask_me.sql`；0.23.0 加原型同步（AUTO-11）：内置流程 `sop_im_proto_sync`，不加迁移、不改清单；0.22.0 加发布 pipeline（AUTO-10）：内置流程 `sop_im_release_pipeline`，研发 pipeline 验收通过后以子流程接它，不加迁移；0.21.0 加研发 pipeline（AUTO-09）：SOP 节点 `im_notify`、内置流程 `sop_im_dev_pipeline`，不加迁移；0.19.0 加 IM 任务回执 `im_wait_task`、`im_reply_message` 和内置流程「IM 任务回执」，插件迁移 `0012_task_reply.sql`；0.20.0 加 IM 需求自动受理（AUTO-06）：SOP 节点 `im_to_task`、`im_set_task_stage`，内置流程 `sop_im_auto_intake`，不加迁移；IM-06 加 Slack 本人身份；0.7.1 回复和推回来的本人消息只记一次；0.7.2 Slack 限流不算同步失败、不活跃私信轮流查，Telegram 后台连续 3 次连不上才算同步失败；0.8.0 加 SOP 节点读取消息、标记消息；0.9.0 加已过期和设置，插件迁移 `0005_expiry.sql`；0.11.0 加消息归到项目：`im_messages.project_id`、插件迁移 `0006_project.sql`、处理动作 `project`、SOP 节点 `im_set_project`；0.18.0 加回复、发消息里的 @（不加迁移，接口 `GET /api/im/conversations/{conversation_id}/members`，回复和 `POST /api/im/send` 的 body 加 `mentions`，`Outgoing` 加 `mentions`）；0.17.0 加主动发消息（插件迁移 `0011_outbox.sql`，接口 `POST /api/im/send`、`GET /api/im/conversations/{conversation_id}/sent`，会话统计加 `connector_id`、`sent`、`last_sent_at`，消息加 `replied_sent`）；0.16.0 加 Slack 消息列回复（插件迁移 `0010_threads.sql`，接口 `POST /api/im/connectors/{id}/backfill-threads`，`Message` 加 `thread`、`reply_count`，`Incoming` 加 `thread_parent_*`，`Outgoing` 加 `thread_of`）；0.15.0 加群组管理（接口 `GET /api/im/conversations/summary`、批量 `PUT /api/im/conversation-projects`，不加迁移）；0.14.0 加消息转项目资料（插件迁移 `0009_message_materials.sql`，接口 `POST/GET /api/im/materials`、`DELETE /api/im/materials/{material_id}`，消息加 `materials`）；0.13.0 加从消息发起会话、拆分任务（插件迁移 `0008_message_sessions.sql`），清单 `subscribes` 加 `object.created`；0.12.0 加群组默认归属项目（插件迁移 `0007_conversation_projects.sql`）、从 Slack 补联系人邮箱（接口 `POST /api/im/connectors/{id}/backfill-emails`、后台任务 `backfill_emails`）），权限 `network:im`：真实渠道出网，IM-01b 加，0.4.0 升上来要确认；域名清单是 `slack.com`、`*.slack.com`、`api.telegram.org` 等 IM 服务）。收各 IM 渠道的消息，落在插件表 `im_messages`（插件迁移 `0001_messages.sql`；IM-02a 的处理动作加了 `0002_actions.sql`，回复在 `im_replies`；IM-04a 的附件获取加了 `0003_attachments.sql`，获取状态在 `im_attachments`；SOP-02b 的等回复节点加了 `0004_sop_waits.sql`，挂起中的等待在 `im_sop_waits`；安装插件时应用）。发送人按 IM 身份（见「IM 身份 im-identities」）的 id 认、会话按会话（见「会话 conversations」）的 id 归，**不靠名字**。插件未安装或停用时，本节接口回 `not_found` 404（同「插件路由」）；停用时拉取也停下，数据不动。
 
 ### 适配器
 
@@ -2427,9 +2429,11 @@ SOP-02b。IM 插件经 SOP 节点扩展点（`docs/plugin-api.md` 2.7）登记�
 | `im_get_message` | | `message` 消息 id | 读取消息（SOP-05）：输出加 `message: {id, text, sender, sender_name, contact_id, channel, conversation, conversation_kind, relevance, status, at}`；`sender` 认上联系人时是联系人名，`conversation_kind` 是 私聊 / 群聊，`relevance` 是 @我 / @所有人 / 私聊 / 无关 |
 | `im_mark_message` | `state` 标记为 | `message` 消息 id | 标记消息（SOP-05）：`state` 为 `done`（已处理）、`ignore`（忽略）、`read`（已读，仍待处理）、`reopen`（改回待处理），改法同「处理动作」的同名接口；输出加 `marked: {message_id, state, status}`；`state` 不认时失败（`标记为「x」不认，只能是 done、ignore、read、reopen`） |
 | `im_set_project` | `project` 项目 | `message` 消息 id | 消息归到项目（消息分流）：`message` 留空时先取输入的 `message.id`（读取消息的输出），再取 `message_id`；`project` 是项目 id、编号或名字（支持 `{{字段}}`），认法同 `POST /api/im/messages/{id}/project`。改的是本插件的表，重跑同一次尝试结果一样，不另做幂等。输出加 `project: {id, ref, name, message_id}`；`project` 渲染后为空失败（`没有指定项目：…`），认不出来失败（`项目「X」不存在：填项目 id、编号或名字，已删除的项目不算`），消息不存在同读取消息 |
-| `im_to_task` | | `message` 消息 id、`title` 标题、`body` 正文 | 转成任务（AUTO-06）：同 `POST /api/im/messages/{id}/task`，建 `type=task`、来源 `im` 的任务，`props.source_ref` 指向消息（同转任务，不带 `reply_on_done`），`props.requester` 是提出人，`props.stage = "received"`；任务 id 记在消息上。`message` 留空取输入的 `message_id`；`title` 留空取正文前 40 字（同转任务），`body` 留空是消息原文，都支持 `{{字段}}`。消息已经转过、任务还在时不再建，取回那条（输出 `task.reused: true`）；同一次尝试重跑按写入键（`<运行 id>/<步骤 key>#<尝试次数>`）取回，建对象记审计（同 SOP 写节点，操作者 `im#<运行 id>`）。输出加 `task: {id, ref, title, status, stage, project_id, url}`，`url` 是看板链接 `<--public-url>/tasks/board?t=<任务 id>`（没给 `--public-url` 时只有路径）；输入里没有 `conversation_id`（或为空）时补上消息所在会话的 id。消息不存在同读取消息；建任务失败 `建任务失败：<原因>` |
+| `im_to_task` | | `message` 消息 id、`title` 标题、`body` 正文 | 转成任务（AUTO-06）：同 `POST /api/im/messages/{id}/task`，建 `type=task`、来源 `im` 的任务，`props.source_ref` 指向消息（同转任务，不带 `reply_on_done`），`props.requester` 是提出人，`props.stage = "received"`；任务 id 记在消息上。`message` 留空取输入的 `message_id`；`title` 留空取正文前 40 字（同转任务），`body` 留空是消息原文，都支持 `{{字段}}`。消息已经转过、任务还在时不再建，取回那条（输出 `task.reused: true`）；消息没转过、但别的流程已经为它建过任务（任务的 `props.source_ref.message_id` 是这条消息，如消息分流里 SOP 的 `task` 节点建的，TSK-0411）时同样取回那条，并把任务 id 记到消息上；同一次尝试重跑按写入键（`<运行 id>/<步骤 key>#<尝试次数>`）取回，建对象记审计（同 SOP 写节点，操作者 `im#<运行 id>`）。输出加 `task: {id, ref, title, status, stage, project_id, url}`，`url` 是看板链接 `<--public-url>/tasks/board?t=<任务 id>`（没给 `--public-url` 时只有路径）；输入里没有 `conversation_id`（或为空）时补上消息所在会话的 id。消息不存在同读取消息；建任务失败 `建任务失败：<原因>` |
 | `im_set_task_stage` | | `task` 任务 id、`stage` 阶段、`project` 项目 | 设置任务阶段（AUTO-06）：改任务的阶段（`props.stage`，取值见「任务阶段与提出人」），可同时把任务归到项目。`task` 留空取输入的 `task.id`；`project` 认项目 id、编号、名字（同 `im_set_project`，去掉首尾引号、句号和空白），都支持 `{{字段}}`。经内核 `ObjectWriter.UpdateTask`，口径同 `PUT /api/objects/{id}/stage`（服务端只换 `stage` 一个键，`object.stage_changed` 事件和阶段审计照常），同样的值再写一次不动。输出加 `task`（同上，`stage`、`project_id` 是改后的值），绑了项目时加 `project: {id, ref, name}`。失败：阶段不认 `阶段「x」不认，只能是 received、confirm_project、…`；配了 `project` 但渲染后为空或是 `none` `没有认出项目：配置「…」取到的是空的`；项目认不出 `项目「X」不存在：填项目 id、编号或名字，已删除的项目不算`；阶段和项目都没配 `没有要改的：阶段和项目至少填一个`；任务不存在或已删除 `任务 x 不存在`；不是任务 `改任务 x 失败：…only tasks have a stage…` |
 | `im_notify` | `text` 内容 | `task` 任务、`title` 标题、`level` 级别、`message` 消息 | 通知（AUTO-09）：发一条平台通知（`Core.Notify`，`kind` 为 `im.notify`，关联 `task`，`data` 带 `run_id`、`flow_id`、`step`），配了 `message` 且渲染后不为空时，同时在原消息所在的串里回复同样的内容（口径同 `im_reply_message`）；`message` 不配或取到空串就只发平台通知，不报错，流程里不用另判断有没有来源消息。`task` 默认 `{{task.id}}`，取不到不关联；`title` 留空是「任务编号 任务标题」，再没有为「流程通知」；`level` 为 `info`（默认）/ `success` / `error`，别的失败「通知级别「x」不认，只能是 info、success、error」。都支持 `{{字段}}`。输出加 `notified: {title, text, task_id, app, im, replied?, reused?}`，`app` 为 `sent`（通知中心没接上时 `skipped`），`im` 为 `sent` / `skipped`。去重：平台通知按写入键（`<运行 id>/<步骤 key>#<尝试次数>`）查本插件的审计（`action: notify`、`target_type: object`，`target_id` 是任务 id，没有任务时是运行 id），服务重启后重跑同一次尝试不重发；回复同 `im_reply_message` 的去重。失败：内容为空「通知内容是空的」；发平台通知出错「发平台通知失败：…」；回复失败「平台通知已发，回复原消息失败：…」（重试是新的一次尝试，平台通知会再发一次） |
+| `im_ask_me` | `text` 内容 | `timeout` 每轮等多久、`channel` 渠道、`connector` 连接器、`to` 发给 | 私信我确认（TSK-0411，插件迁移 `0013_ask_me.sql`）：私信「我」本人 `text`（支持 `{{字段}}`，后面固定附上「回复「执行」开工，「分配 某人」交给别人，「不做」取消。」），步骤挂起（日志「挂起：私信问你了，等你回复（执行 / 分配 某人 / 不做），最多等 1 天，没回复提醒一次…」），等待落在 `im_ask_waits`，服务重启后接着等。回复认法：执行类（执行、确认、好、好的、开工、可以、行、ok、yes…，整句就是这个词）→ `execute`；`分配 X` / `分配给 X` / `交给 X` / `指派给 X`（X 去掉 @ 和引号，原文大小写）→ `assign`；不做类（不做、取消、不用、算了、不要、no…）→ `cancel`；别的都认不出：第一次认不出在提问的串里再问一次（「没认出「…」。…再认不出就先不执行，任务留在未开工。」），重新计时；第二次还认不出往下走，`choice: none`、`reason: unknown`。到 `timeout`（默认 `1 天`，写法同等待回复，最多 30 天）没回复先在提问的串里提醒一次，再等一个 `timeout`，还没有往下走，`choice: none`、`reason: timeout`。输出加 `answer: {choice, assignee, text, reason, reason_text, at?, asked}`（`asked` 是一共发了几次：提问、再问、提醒），输入里有 `task.id` 时补上 `task.url`（看板链接，同 `im_to_task`）。「我」：`to` 填了用它；没填按连接器认：Slack「我本人（用户 Token）」身份取连接器账号「名字（Member ID）」里的 Member ID，Bot 身份取配置「我的 Member ID」（`self_user_id`）；都没有失败「私信发不出去：认不出你在 Slack 上的本人身份：连接器「X」是 Bot 身份时要在「我的 Member ID」里填你的 Member ID（U 开头），或在这一步的「发给」里填」；别的渠道要填 `to`。连接器：`connector` 填了用它（不是这个渠道的失败）；没填用这个渠道最新建的、不是只收、没暂停断开的那个；有连接器但都不能发失败「私信发不出去：slack 的连接器都不能发消息（只收、暂停或断开），私信不了你」；一个连接器都没有时用不靠连接器的适配器（演练用的假适配器，「我」是它给的第一个称呼）。`channel` 默认 `slack`。发出：经适配器 `Reply`（`Outgoing{conversation_kind: direct, recipient_id: 我的编号}`，Slack 为 `chat.postMessage channel=<Member ID>`），按渠道回的会话编号登记一个私聊会话「私信我」，记发件记录（`im_outbox`，`source: sop`）和审计（同发消息，`summary`「私信我」/「私信我失败」，`detail` 多 `to`、`conversation_external_id`）；同一次尝试重跑按写入键查审计，发过的不再发。发不出去这一步失败「私信发不出去：<原因>」（SOP 照常记运行异常）；再问、提醒发不出去时让步骤失败「再问一次时私信发不出去：…」/「超时提醒时私信发不出去：…」。我的回复：同渠道、同连接器，我自己发的（Slack 本人身份拉回来的 `from_self`）或发送人编号是我的、在这条私信会话里（会话编号不知道时：任意私聊）、晚于这次提问（再问后晚于再问）的那条；到达时记到等待上，**不落成消息**（不进消息页、不发 `im.message_received`、不触发 IM 流程、不记成别的消息的回复）。同时有几条在等：回在某条提问的串里的归那条，否则归最近问的那条。 |
+| `im_tell_me` | `text` 内容 | `channel`、`connector`、`to`（同 `im_ask_me`） | 私信我（TSK-0411）：私信我本人一条，不等回复；「我」、连接器、发件记录、审计、重跑不重发同 `im_ask_me`。输入里有 `task.id` 时先补上 `task.url` 再渲染。输出加 `told: {text, external_id, at}`（重跑取回时 `reused: true`）。内容为空失败「要发的内容是空的」，发不出去失败「私信发不出去：…」 |
 
 - `message` 是消息 id，支持 `{{字段}}`，留空取输入里的 `message_id`（IM 触发的流程输入里就有）；消息不存在时失败（`消息 msg_x 不存在`），取不到 id 时失败（`没有指定消息：…`）。
 - `conversation` 是会话 id（见「会话 conversations」），可以写 `{{conversation_id}}` 从输入里取；会话不存在时步骤失败，`error` 是 `会话 cv_x 不存在`。
@@ -2512,9 +2516,27 @@ AUTO-11（`docs/auto-delivery-flow.md` 第 2 节）。IM 插件后台任务（`s
 - 失败：任一步失败按 SOP 的口径停在那一步（可重试）；执行结束时项目插件把这次同步记 `failed`，同步点不动。
 - 要用到：SOP 插件确认过 `process:spawn`（Agent 可写）；项目插件 0.17.0（六个原型同步节点、`projects_get_profile`）；IM 插件 0.23.0；运行角色 `rp_protosync`（内置，`dir_kind: prototype`，允许改文件）。
 
+### 内置流程：来消息确认派发
+
+TSK-0411。IM 插件后台任务（`sop_templates`）经 `Core.SOP().InstallFlow` 写入 `sop_im_task_confirm`「来消息确认派发」，写过一次记在 `im_sop_templates`，用户删了不补回来、改过的不动（`InstallFlow` 已有同 id 不写）；不在受理、研发、发布那条链上，单独写。用到 SOP 插件的 `task_run`、`task_update`（TSK-0411）：SOP 插件旧版不认这两个节点时写不进去，只记日志，下次再试。不加 SOP 插件迁移。
+
+- **默认停用**：`trigger: manual`。两种用法：
+  - 单独用：触发方式改成「IM 消息」（`PATCH /api/sop/flows/{id}`，`id` 填 `sop_im_task_confirm`，body `{"trigger":"im"}`），新消息来了先分类要不要建任务；
+  - 接在已有流程建任务之后：在「消息分流」等流程的建任务步骤后面加一步 `subflow`（`sop: sop_im_task_confirm`），子流程的输入就是建任务那一步的输出，里面有 `message_id` 和 `task.id`，跳过分类和建任务。
+- **同一条消息只建一次任务**：建任务用 `im_to_task`，消息转过、或者别的流程已经为它建过任务（`props.source_ref.message_id`）时取回那条；SOP 的 `task` 节点在输入带 `message_id` 时同样先查（见 SOP 插件「写节点」）。所以和消息分流、IM 需求自动受理同时开着也不会重复建。
+- 输入字段：`message_id`（必填）、`task_id`（可空，已经建好的任务 id）。
+- 步骤（key：kind）：`read`：`im_get_message` → `given_id`：`decide`（规则 `task_id 不等于 ""`）→ `yes`：`use_id`：`auto`；`no`：`given_obj`：`decide`（规则 `task.id 不等于 ""`）→ `yes`：`use_obj`：`auto`；`no`：`need`：`classifier`（`task` 要建任务 / `none` 不用，`from: message.text`）→ `none`：`skip`：`end`；`task`：`to_task`：`im_to_task`（`{{message_id}}`）→ 汇合 `join`：`aggregate`（`first`，`after: use_id, use_obj, to_task`）→ `info`：`task_update`（不配，只读取任务：编号、标题、项目、继承后的工作目录）→ `ask`：`im_ask_me`（摘要：编号、标题、项目、工作目录、来源消息的发信人和会话和原文、看板链接；`timeout: 1 天`）→ `is_exec`：`decide`（`answer.choice 等于 execute`）→
+  - `yes`：`run`：`task_run`（`task: {{task.id}}`，`timeout: 2 小时`，`on_fail: continue`）→ `run_ok`：`decide`（`status 等于 done`）→ `yes`：`tell_done`：`im_tell_me`（「TSK-x「标题」执行完了。」+ `{{summary}}` + 任务链接）；`no`：`tell_fail`：`im_tell_me`（「…没执行成功：{{error}}」+ 任务链接）；
+  - `no`：`is_assign`：`decide`（`answer.choice 等于 assign`）→ `yes`：`assign`：`task_update`（`assignee: {{answer.assignee}}`）→ `assigned`：`decide`（`task.assign_ok 等于 yes`）→ `yes`：`tell_assigned`（「已把 TSK-x「标题」分配给 X。」）；`no`：`tell_noone`（「没找到「X」，任务留着没分配（TSK-x「标题」）：链接」）；
+    - `no`：`is_cancel`：`decide`（`answer.choice 等于 cancel`）→ `yes`：`cancel`：`task_update`（`status: cancelled`）→ `tell_cancel`（「已取消 TSK-x「标题」。」）；`no`（认不出两次、超时）：`tell_idle`（「两次都没认出你的回复 / 提醒之后又等了 1 天没收到回复，TSK-x「标题」先不执行，留在未开工：链接」）。
+- **不确认绝不执行**：只有 `answer.choice` 是 `execute` 才走到 `task_run`；超时、认不出、`不做` 都不派发。
+- 执行：工作目录按任务 → 所属项目继承，没有、不存在、不可写时不派发，`tell_fail` 私信原因（见 SOP 插件「执行任务」）；执行记录留在任务上，任务页「执行记录」里看得到、能取消。
+- 私信发不出去（认不出我、连接器不能发、渠道报错）时那一步失败、记运行异常，不静默。
+- 要用到：SOP 插件确认过 `process:spawn`（执行任务一律可写）；Slack 连接器能发消息（`direction: both`），身份是「我本人」或填了「我的 Member ID」；Slack App 的 Token 有 `chat:write`、`im:history`、`im:read`（我本人身份另需能读自己的私信会话）；内核 `--public-url`（私信里的看板链接）。
+
 ### 事件
 
-新消息落库后发 `im.message_received`（清单 `emits` 里声明，走事件总线），重复到达不发。payload：
+新消息落库后发 `im.message_received`（清单 `emits` 里声明，走事件总线），重复到达不发。我对「私信我确认」（`im_ask_me`）的回复不落库，也不发（TSK-0411）。payload：
 
 ```json
 { "message_id": "msg_...", "channel": "slack", "connector_id": "", "conversation_id": "cv_..." | null,
@@ -2525,7 +2547,7 @@ AUTO-11（`docs/auto-delivery-flow.md` 第 2 节）。IM 插件后台任务（`s
 
 ## SOP 编排插件 sop
 
-SOP-01a 起。插件 `sop`（`internal/plugins/sop`，清单 `plugin.json`，0.10.0（SOP-05 加 IM 触发，可选依赖 `im`、订阅 `im.message_received`；0.5.0 执行关联工作对象；0.6.0 加写进项目目录节点 `local_append`、建任务认项目编号和名字；0.7.0 加执行并发设置、批量发起和按输入字段查执行；0.7.1 加失败执行批量重跑；0.8.0 重跑后移出失败列表、重跑幂等；0.9.0 加 Claude Code 执行和条件回退；0.10.0 加流水线视图与治理（AUTO-12）），权限 `network:any`、`fs:write:project`：HTTP 节点要访问任意地址，高风险，安装时在 `permissions` 里单独确认；`fs:write:project` 是写进项目目录要的，0.6.0 升上来时要确认）。流程定义落在插件表 `sop_flows`（插件迁移 `0001_flows.sql`，安装插件时应用），id 前缀 `sop`；执行（SOP-01b）落在 `sop_runs`、`sop_run_steps`（插件迁移 `0002_runs.sql`），id 前缀 `spr`。AI 类和外部节点 SOP-01c 起；定时任务的 `sop` 动作和 Agent 的 `run_sop` 工具经内核「发起 SOP」钩子发起执行（SOP-01d）。插件未安装或停用时，本节接口回 `not_found` 404（同「插件路由」），数据不动。
+SOP-01a 起。插件 `sop`（`internal/plugins/sop`，清单 `plugin.json`，0.11.0（0.11.0 加执行任务 `task_run`、改任务 `task_update` 节点（TSK-0411）和等服务商恢复（TSK-0391/0392），不加迁移；SOP-05 加 IM 触发，可选依赖 `im`、订阅 `im.message_received`；0.5.0 执行关联工作对象；0.6.0 加写进项目目录节点 `local_append`、建任务认项目编号和名字；0.7.0 加执行并发设置、批量发起和按输入字段查执行；0.7.1 加失败执行批量重跑；0.8.0 重跑后移出失败列表、重跑幂等；0.9.0 加 Claude Code 执行和条件回退；0.10.0 加流水线视图与治理（AUTO-12）），权限 `network:any`、`fs:write:project`：HTTP 节点要访问任意地址，高风险，安装时在 `permissions` 里单独确认；`fs:write:project` 是写进项目目录要的，0.6.0 升上来时要确认）。流程定义落在插件表 `sop_flows`（插件迁移 `0001_flows.sql`，安装插件时应用），id 前缀 `sop`；执行（SOP-01b）落在 `sop_runs`、`sop_run_steps`（插件迁移 `0002_runs.sql`），id 前缀 `spr`。AI 类和外部节点 SOP-01c 起；定时任务的 `sop` 动作和 Agent 的 `run_sop` 工具经内核「发起 SOP」钩子发起执行（SOP-01d）。插件未安装或停用时，本节接口回 `not_found` 404（同「插件路由」），数据不动。
 
 ### 流程定义
 
@@ -2573,6 +2595,7 @@ SOP-01a 起。插件 `sop`（`internal/plugins/sop`，清单 `plugin.json`，0.1
 
 - `loopback`：`rule` 为空「「名称」还没填回退条件」；写法不对「「名称」回退条件「…」写法不对，要写成「字段 等于 值」或「字段 包含 值」」；`config.target` 不存在「「名称」退回的步骤 x 不存在」、是自己「「名称」不能退回到自己」、不在上游（沿依赖往上找不到）「「名称」只能退回到上游的步骤，「目标」不在它上游」；`config.max_rounds` 不是 1 到 10 的整数「「名称」最多退回几轮要是 1 到 10 的整数」；`cases` 少了 `pass` 或 `over`「「名称」出口要有「通过」（pass）和「超限」（over）」。回退目标写在配置里不是依赖，「依赖成环」检查不算它。
 - `claude_code`：`config.permission` 不是空、`read`、`write`「「名称」权限只能是只读（read）或可写（write）」；`config.timeout` 写法不对或超出「「名称」超时「…」写法不对，要写成「30 分钟」「2 小时」这样」/「「名称」超时要在 0 到 24 小时之间」。
+- `task_run`（TSK-0411）：`config.timeout` 同 `claude_code`；`config.on_fail` 不是空、`stop`、`continue`「「名称」失败时只能是停下（stop）或继续（continue）」。
 
 ### IM 触发
 
@@ -2586,7 +2609,7 @@ SOP-05。触发方式（`trigger`）是 `im` 的流程，来一条新消息自�
 
 ### 节点类型
 
-`SopNodeType`：`{kind, group, branching, default_cases?, required, source}`。`group` 是原型的分组名（`基础`、`知识与数据`、`逻辑`、`人工`、`外部`、`输出`）；`default_cases` 只有分支节点有；`required` 是必填配置项 `[{key, label}]`，`label` 用在校验信息里，没有必填项是 `[]`。节点的名字、说明、颜色、图标和配置项的其余信息仍在前端。内置的 23 种（AUTO-01/02 加 `loopback` 条件回退：分组「逻辑」排在 `wait` 后，`branching: true`，`default_cases` 为 `pass` 通过、`over` 超限，必填 `target`；`claude_code` Claude Code 执行：分组「外部」排在 `subflow` 后，必填 `workdir`、`prompt`）：原型的 19 种（含消息分流新加的 `local_append` 写进项目目录，分组 `外部`，排在 `task` 后面，必填 `project`、`path`、`content`），加上 SOP-02a 新加的写节点 `doc`、`contact`（分组 `外部`，排在 `task` 后面，原型里用 `auto` 模拟）。`source` 内置的是 `builtin`，插件登记的是插件 id。
+`SopNodeType`：`{kind, group, branching, default_cases?, required, source}`。`group` 是原型的分组名（`基础`、`知识与数据`、`逻辑`、`人工`、`外部`、`输出`）；`default_cases` 只有分支节点有；`required` 是必填配置项 `[{key, label}]`，`label` 用在校验信息里，没有必填项是 `[]`。节点的名字、说明、颜色、图标和配置项的其余信息仍在前端。内置的 25 种（TSK-0411 加 `task_run` 执行任务、`task_update` 更新任务：分组「外部」，依次排在 `claude_code` 后，`branching: false`，没有必填项；AUTO-01/02 加 `loopback` 条件回退：分组「逻辑」排在 `wait` 后，`branching: true`，`default_cases` 为 `pass` 通过、`over` 超限，必填 `target`；`claude_code` Claude Code 执行：分组「外部」排在 `subflow` 后，必填 `workdir`、`prompt`）：原型的 19 种（含消息分流新加的 `local_append` 写进项目目录，分组 `外部`，排在 `task` 后面，必填 `project`、`path`、`content`），加上 SOP-02a 新加的写节点 `doc`、`contact`（分组 `外部`，排在 `task` 后面，原型里用 `auto` 模拟）。`source` 内置的是 `builtin`，插件登记的是插件 id。
 
 插件节点（SOP-03a，`docs/plugin-api.md` 2.7）：别的插件用 `Registrar.SOPNode` 登记，`kind` 以 `<插件 id>_` 开头，`branching` 为 `false`，`group` 没写时是 `插件`，`required` 由插件给。提供节点的插件停用后不在这个列表里；保存时用到它的流程照常能存（只是不查必填项），执行到这一步失败，`error` 是 `提供这个节点的插件已停用`，流程定义不动；没有任何插件声明的 kind 照旧报「类型不存在」。插件节点挂起等外部事件时步骤停在 `running`，`output` 是 `{waiting: {kind, reason, since}}`，日志写「挂起：<原因>，等插件唤醒」；服务重启后不重跑，接着等；提供节点的插件经内核句柄 `SOP().Resume` 唤醒后这一步 `done`，`output` 是插件给的输出。
 
@@ -2621,9 +2644,9 @@ SOP-01b 起。执行语义同原型 `web-next/src/sopflow.ts` 的 `startRun`、`
 
 `SopRun`：`{id, flow_id, flow_name, flow_version, flow, title, input, step_through, stopped, status, parent_run_id?, parent_step?, object_id?, source, source_ref?, source_name?, relaunched_to?, started_at, ended_at?, updated_at, steps}`。对照原型 `SopRun`：`sop_id`、`sop` 改叫 `flow_id`、`flow`（`flow` 是开始执行时的整条 `SopFlow` 快照，之后改了流程，进行中的执行仍按它走完；流程删了执行记录照留，`flow_name` 照常显示）。`title` 同原型：`流程名 · 第一个输入值的第一行`（按换行或 `|` 切，前 16 个字，取不到就只有流程名）。`status` 是 `RunStatus`（`running` `waiting` `done` `failed` `stopped`），由步骤算出，口径同原型 `runStatus`。`parent_run_id`、`parent_step` 只有子流程起的子执行有。`object_id`、`source`、`source_ref`、`source_name` 见下面「执行关联到工作对象、发起来源」。时间都是 RFC3339 UTC，精确到毫秒。
 
-`SopRunStep`：`{key, status, input, output, route?, route_reason?, started_at?, ended_at?, error?, edited?, attempts, log, wake_at?, child_run_id?, claude?, round?, rework_reason?, loops?, queue?, hold?}`（`queue` 见「执行并发」和「流水线视图与治理」；`claude`、`round`、`rework_reason`、`loops` 见「Claude Code 执行与条件回退」；`hold` 见「流水线视图与治理」），顺序同快照的 `steps`。`status` 同原型 `StepStatus`；`input`、`output` 没有时为 `null`；`edited` 是 `input` / `output` / `route`；`log` 是 `{at, text}[]`；`wake_at` 是等待节点的到点时间，`child_run_id` 是子流程节点起的子执行。
+`SopRunStep`：`{key, status, input, output, route?, route_reason?, started_at?, ended_at?, error?, edited?, attempts, log, wake_at?, child_run_id?, claude?, round?, rework_reason?, loops?, queue?, hold?, provider_wait?}`（`queue` 见「执行并发」和「流水线视图与治理」；`claude`、`round`、`rework_reason`、`loops` 见「Claude Code 执行与条件回退」；`hold` 见「流水线视图与治理」；`provider_wait` 见「执行并发」下的「等服务商恢复」），顺序同快照的 `steps`。`status` 同原型 `StepStatus`；`input`、`output` 没有时为 `null`；`edited` 是 `input` / `output` / `route`；`log` 是 `{at, text}[]`；`wake_at` 是等待节点的到点时间，`child_run_id` 是子流程节点起的子执行。
 
-`SopRunBrief`（列表行）：`{id, flow_id, flow_name, flow_version, title, step_through, stopped, status, parent_run_id?, object_id?, source, source_ref?, source_name?, relaunched_to?, started_at, ended_at?, updated_at, focus, steps, input_value?}`（`input_value` 只在按 `input_key` 查时有），`steps` 是 `{key, name, kind, status, queue?}[]`（`queue` 见「执行并发」），不带快照和每步的输入输出、日志；`focus` 是界面默认看的步骤下标（同原型 `focusIndex`）。
+`SopRunBrief`（列表行）：`{id, flow_id, flow_name, flow_version, title, step_through, stopped, status, parent_run_id?, object_id?, source, source_ref?, source_name?, relaunched_to?, started_at, ended_at?, updated_at, focus, steps, input_value?}`（`input_value` 只在按 `input_key` 查时有），`steps` 是 `{key, name, kind, status, queue?, provider_wait?}[]`（`queue`、`provider_wait` 见「执行并发」），不带快照和每步的输入输出、日志；`focus` 是界面默认看的步骤下标（同原型 `focusIndex`）。
 
 **执行关联到工作对象、发起来源（SOP-06，插件迁移 `0003_run_object`，插件版本 0.5.0）**
 
@@ -2683,6 +2706,8 @@ SOP-01b 起。执行语义同原型 `web-next/src/sopflow.ts` 的 `startRun`、`
 - 幂等：`write_key` 是 `<运行 id>/<步骤 key>#<尝试次数>`，同一个 key 只写一次。服务重启后重跑同一次尝试时取回上次写的（日志「这次尝试已经写过（服务重启后重跑），没有重复写：…」），输出照常；重试、退回重做是新的一次尝试，会再写。查重先看审计，建对象另外看 `props.source_ref.write_key`。
 - 写入失败（校验不过、对象或联系人不存在）这一步失败，`error` 以 `建任务失败：`、`新建文档失败：`、`追加文档失败：`、`新建联系人失败：`、`合并联系人失败：` 开头，可重试、可跳过。
 - `local_append` 也按写节点的口径重跑、去重：成功写入记一条审计，`action` 为 `append`、`target_type` 为 `file`、`target_id` 是写入的绝对路径，`detail` 带 `project_id`、`bytes`、`created`、`output` 和运行信息、`write_key`；服务重启后重跑同一次尝试时按审计查，写过的不再写、输出取回上次的。失败的写不记。
+- `task`（TSK-0411）：执行的输入里有 `message_id`（IM 消息发起的执行、或子流程带过来的）时，`props.source_ref` 多记 `message_id`；建之前按 `props.source_ref.message_id` 查没删、没归档的任务，有别的执行（`source_ref.run_id` 不是这次执行）建的就不建，取回那条：输出 `task` 是那条任务（`id`、`ref`、`title`、`status`、`project_id`，`priority`、`assignee`、`project` 为空串，`reused: true`），日志「消息 msg_x 已经建过任务 TSK-0001 标题，取回那条，没有再建」，不记审计。同一个执行里建几条不受影响；没有 `message_id` 照旧每次建。IM 的 `im_to_task` 也认这一项，所以消息分流、IM 需求自动受理、来消息确认派发同时开着时同一条消息只建一条任务。
+- `task_update` 更新任务（TSK-0411）：`config.task` 认法同 `task_run`（不存在、已删除、不是任务这一步失败）；`config.assignee` 负责人（联系人 id 或名字，支持 `{{字段}}`，去掉首尾 @、引号、标点；配了但渲染后为空或名册里没有时**不改、不失败**，`assign_ok: "no"`，`assign_note` 为「没说分配给谁，任务留着没分配」/「没找到「X」，任务留着没分配」，日志同）；`config.status` 状态 key（支持 `{{字段}}`，任务类型的状态集，不认时失败「改任务 TSK-0001 失败：…」）。都没配（或只配了认不出的负责人）时不写，日志「没有要改的，只读取了任务 TSK-0001」。改经内核 `ObjectWriter().UpdateTask`（`TaskChange{Status, OwnerID}`），状态事件、修订、审计同界面改（操作者 `sop#<运行 id>`，审计 `action: update`、`detail.fields` 为 `status` / `owner_id`）；同样的值不写（日志「任务 TSK-0001 已经是这样，没有改」）。按写节点的口径重跑（改法天然幂等）。输出在输入上加 `task: {id, ref, title, status, owner_id, assignee, project_id, project, workdir, assign_ok, assign_note, changed}`：都是改后的值，`assignee` 是负责人名字，`workdir` 是继承后的有效工作目录（任务 → 所属项目，都没有为空串），`assign_ok` 没配负责人时为空串、分配上了 `yes`，`changed` 是这次改了的字段。
 
 条件分支规则（`SopStepDef.rule`，一行）：`字段 等于 值`、`字段 包含 值`，另有 `不等于`、`不包含`。字段写法同模板；值可以加引号（`"…"`、`'…'`、`「…」`）。`等于` 按文字比；`包含` 对文字是子串，对列表是有一项等于这个值。成立走第一个分支（`cases[0]`），不成立走第二个（`cases[1]`），`route_reason` 是 `规则「…」成立` / `不成立`。写法不认时这一步失败。
 
@@ -2710,6 +2735,18 @@ SOP-01b 起。执行语义同原型 `web-next/src/sopflow.ts` 的 `startRun`、`
 | `timeout` | 默认 `2 小时`，写法同等待节点，最多 24 小时；到点执行器取消、这一步失败；再过 1 分钟没收尾由 SOP 取消 |
 
 提示词末尾内核加「回写到工作台」一节，要求结束前调一次 `pmw_finish_run`（带 `result.verdict`）。回写用的 MCP 由内核给这次执行单独接上：临时 MCP 配置（server 名 `pmw-run`，`command` 是工作台的 MCP 程序，`args: ["--api", <本实例地址>]`），经 `claude --mcp-config <文件> --allowedTools mcp__pmw-run` 传入，跑完删掉。没配 MCP 程序（`--mcp-bin`）或本实例地址（`--public-url`）时照样执行，提示词改说「在最后一段写清结论」。
+
+`task_run`（执行任务，TSK-0411）的 `config`：
+
+| key | 说明 |
+|---|---|
+| `task` | 可选，任务 id 或编号，支持 `{{字段}}`；留空取输入的 `task.id`，再取 `task_id`；取不到这一步失败「没有指定任务：配置里填任务 id，或者输入里要有 task.id」，不存在「任务 x 不存在」，不是任务「x 不是任务」 |
+| `prompt` | 可选，附加要求，支持 `{{字段}}`，拼在任务说明后面 |
+| `preset` | 可选，角色 id，同 `claude_code`；执行任务一律可写（`AllowWrites`），不看角色的权限 |
+| `timeout` | 同 `claude_code`，默认 `2 小时` |
+| `on_fail` | `""`（默认，同 `stop`）/ `stop` / `continue` |
+
+工作目录：任务自己的 `workdir`，没设取所属项目的（同内核 `ResolveWorkdir`）；都没有失败「任务 TSK-0001 没有工作目录：任务自己没设，所属项目「X」也没设；在任务或项目上设好工作目录再执行」（没挂项目时是「任务没有所属项目」）；目录不存在、不是目录、不可写（发起前实测写一个临时文件）失败「任务 TSK-0001 的工作目录（继承自任务 / 所属项目「X」）不能用：<内核 CheckWorkdir 的原因>」。提示词：「按工作台任务 TSK-0001「标题」开工（任务 id …）。所属项目…。工作目录…，只在这个目录里改。先用工作台 MCP 的 pmw_get_object 读这条任务的正文、验收标准和最近进展，再动手；做完逐条对照验收标准自查。」+ 验收标准（`props.acceptance`，有的话）+ 附加要求 + 内核的「回写到工作台」一节。发起、等待、并发名额、需求预算（按这条任务算）、步骤的 `claude`、输出同 `claude_code`。`on_fail: continue` 时上面这些失败、发起失败、执行失败 / 取消 / 超时都不让这一步失败：步骤 `done`，输出 = 输入加 `status: "failed"`、`error`、`summary: ""`（执行失败时另有 `run_id`），日志「没能执行，按配置继续往下走：…」/「Claude Code 没成功，按配置继续往下走：…」，不记运行异常。
 
 `loopback` 的 `config`：`target`（必填，上游步骤 key）、`max_rounds`（可选，默认 `3`，1 到 10）。回退条件是步骤的 `rule`（写法同条件分支）。
 
@@ -2751,6 +2788,8 @@ SOP-01b 起。执行语义同原型 `web-next/src/sopflow.ts` 的 `startRun`、`
 | PATCH | `/api/sop/settings` | 给哪项改哪项：`model_concurrency`（1 到 16）、`claude_concurrency`（1 到 10）、`task_max_claude_runs`（0 到 1000）、`task_max_claude_minutes`（0 到 100000），都要是整数，有一项不合法整个请求 400、都不改（`<key> 要是 a 到 b 的整数`，例 `model_concurrency 要是 1 到 16 的整数`）。存进插件表 `sop_settings`（key / value），立即生效：调大马上放排队的进来，调小时在跑的不打断。每项值变了各记一条审计（`sop_settings` / `<key>`，例「同时调模型的步骤数 2 → 1」「每个需求最多跑 Claude Code 的次数 30 → 不限」，0 写「不限」）。回改后的整份设置 |
 
 `SopRunStep` 多一个可选字段 `queue`（`SopStepQueue`：`{ahead, slot?}`）：步骤在排队（此时 `status` 仍是 `running`），`ahead` 是全局队列里前面还有几个；`slot` 不带是等模型名额，`claude_code` 是等 Claude Code 名额（见「流水线视图与治理」）。不落库，只在 `GET /api/sop/runs/{id}` 和 `POST /api/sop/runs/{id}/actions` 回执行时按内存里的队列标上。`SopRunBrief.steps[]` 在排队时同样带 `queue`。
+
+**等服务商恢复**（TSK-0392）：`ai`、`extract`、`classifier`、`iterate` 步骤调模型，失败原因是服务商不可用（`Complete` 回 `ProviderUnavailableError`，见 plugin-api 2.0 模型句柄）时，来源是 `im`、`schedule`、`plugin`、`subflow` 的执行不标失败：步骤仍是 `running`，带 `provider_wait`（`SopProviderWait`：`{provider_id, provider, reason, since, retry_at}`，服务商 id 和名称、最近一次失败、开始等的时间、下次重跑时间），不占调模型的名额；到 `retry_at`（服务商熔断时是它的探测时间，没熔断时 1 分钟后），或同一服务商有别的挂起步骤重跑成功时，原地重跑这一步（同一条执行、同一个 `attempts`，不新建执行）。最多等到执行发起后 24 小时，过了照常 `failed`，`error` 后面加「（执行发起后已等了 24 小时，服务商仍没恢复，不再自动重跑；修好后在这里点重试）」。`manual`、`agent` 来源的直接 `failed`。`provider_wait` 不落库，只在回执行（`GET /api/sop/runs/{id}`、`POST .../actions`）和列表 `SopRunBrief.steps[]` 时按内存标上；服务重启后执行中的步骤照常重跑，还不通就重新挂起。日志：第一次挂起「服务商「名称」不可用（原因），先挂起，等它恢复后自动重跑这一步；HH:MM:SS 先探测一次，最多等到执行发起后 24 小时」，重跑成功「服务商「名称」恢复了，重跑这一步」。运行异常：服务商不可用的挂起和失败都不按步骤记，按服务商记一条，指纹 `sop:provider:<服务商 id>`，模块 `SOP`，标题「服务商「名称」不可用，影响 N 次执行」（N 是正在等这个服务商的执行数，失败的另加 1），正文写原因、熔断和探测时间、这一步怎么处理、怎么修，上下文带服务商、原因、在等的执行数和最近一次的 SOP / 步骤 / 执行；每条执行只在第一次挂起时记一次。
 
 事件：步骤进队和排到时各发一条 `sop.step_status_changed` `{run_id, step, from: "running", to: "running", attempts, queued}`，`queued` 为 `true` 是进队，`false` 是排到了，只用来让界面刷新。
 
@@ -3483,7 +3522,7 @@ ETF-01a 起，ETF-01b 加派生指标、异动规则和命中记录。插件 `et
 
 ## 视频创作插件 video
 
-VID-01a 起。插件 `video`（`internal/plugins/video`，清单 `plugin.json`，0.4.0），强依赖 `projects`，弱依赖 `im`，权限 `fs:read:project`、`fs:write:project`、`network:media-platforms`、`process:spawn`（前三个是普通级别；`process:spawn` 是高风险，VID-03b 加，技能执行器要它才能让 Claude Code 在工程目录里写文件，0.3.0 升上来要重新确认；产出物路径按 `fs:read:project` 的范围限制在视频工程目录内，登记时不查磁盘；经连接器投稿时读成片和封面，内容平台出网用 `network:media-platforms`，VID-04b 起）。功能模块 key 是 `videos`（同工作台目录和 `ws_video` 模板）。表前缀 `video_`，迁移在插件目录：`migrations/0001_video.sql` 建 `video_series`、`video_videos`、`video_checkpoints`、`video_publishes`，`0002_artifacts.sql`（VID-01b）建 `video_artifacts`、`video_artifact_reviews`，`0003_artifact_ratio.sql`（VID-02a）给产出物加 `ratio`、`lang` 和按封面比例分组的序号、选用列，`0005_runners.sql`（VID-03b）建阶段执行器 `video_runners` 和执行记录 `video_runs`，`0007_video_topic.sql`（VID-09a）给视频加 `topic_id`，`0008_publish_snapshots.sql`（VID-05a）给发布记录加账号、标签、分区、合集和校验结果，建平台账号 `video_accounts`、数据快照 `video_metric_snapshots`，`0010_cover_tests.sql`（VID-05b）建封面 A/B 测试 `video_cover_tests`、`video_cover_test_arms`，给产出物加归档列，`0011_target_date.sql`（VID-06c）给视频加计划首发日 `target_date`、给发布记录加到点查询的索引；0.1.0、0.2.0 装过的要走升级（`POST /api/plugins/{id}/upgrade`）应用新迁移，没升级前插件不启动。形状同原型 `web-next/src/videodata.ts`。前端两页是 VID-01c、VID-01d。内容平台连接器有 B 站 `bilibili`（VID-04b）、YouTube `youtube`、抖音 `douyin`（VID-04d），见下「内容平台」；视频号、小红书不做连接器，发布记录只登记、回填链接，数据手填。插件未安装或停用时本节接口回 `not_found` 404（同「插件路由」），数据不动，再启用照旧。停用 `projects` 时 `video` 在 `dependents` 里（同「插件管理」）。
+VID-01a 起。插件 `video`（`internal/plugins/video`，清单 `plugin.json`，0.4.0），强依赖 `projects`，弱依赖 `im`，权限 `fs:read:project`、`fs:write:project`、`network:media-platforms`、`process:spawn`（前三个是普通级别；`process:spawn` 是高风险，VID-03b 加，技能执行器要它才能让 Claude Code 在工程目录里写文件，0.3.0 升上来要重新确认；产出物路径按 `fs:read:project` 的范围限制在视频工程目录内，登记时不查磁盘；经连接器投稿时读成片和封面，内容平台出网用 `network:media-platforms`，VID-04b 起）。功能模块 key 是 `videos`（同工作台目录和 `ws_video` 模板）。表前缀 `video_`，迁移在插件目录：`migrations/0001_video.sql` 建 `video_series`、`video_videos`、`video_checkpoints`、`video_publishes`，`0002_artifacts.sql`（VID-01b）建 `video_artifacts`、`video_artifact_reviews`，`0003_artifact_ratio.sql`（VID-02a）给产出物加 `ratio`、`lang` 和按封面比例分组的序号、选用列，`0005_runners.sql`（VID-03b）建阶段执行器 `video_runners` 和执行记录 `video_runs`，`0007_video_topic.sql`（VID-09a）给视频加 `topic_id`，`0008_publish_snapshots.sql`（VID-05a）给发布记录加账号、标签、分区、合集和校验结果，建平台账号 `video_accounts`、数据快照 `video_metric_snapshots`，`0010_cover_tests.sql`（VID-05b）建封面 A/B 测试 `video_cover_tests`、`video_cover_test_arms`，给产出物加归档列，`0011_target_date.sql`（VID-06c）给视频加计划首发日 `target_date`、给发布记录加到点查询的索引；0.1.0、0.2.0 装过的要走升级（`POST /api/plugins/{id}/upgrade`）应用新迁移，没升级前插件不启动。形状同原型 `web-next/src/videodata.ts`。前端两页是 VID-01c、VID-01d。内容平台连接器有 B 站 `bilibili`（VID-04b）、YouTube `youtube`、抖音 `douyin`（VID-04d），见下「内容平台」；B 站组件（TSK-0455，0.8.0）另登记网页端连接器 `bilibili_web`（扫码登录，非官方网页接口），见下「B 站组件（TSK-0455）」；视频号、小红书不做连接器，发布记录只登记、回填链接，数据手填。插件未安装或停用时本节接口回 `not_found` 404（同「插件路由」），数据不动，再启用照旧。停用 `projects` 时 `video` 在 `dependents` 里（同「插件管理」）。
 
 | 方法 | 路径 | body / 说明 |
 |---|---|---|
@@ -3819,6 +3858,111 @@ VID-01a 起。插件 `video`（`internal/plugins/video`，清单 `plugin.json`�
 - 出结案报告：`report_state` 没有时 409「挂上的视频还没有发出去；发布满 7 天后可以出结案报告」，没满 7 天 409「最早一条发布还差 N 天满 7 天」。满了经插件建对象（`Core.ObjectWriter`）建一篇文档：标题「<品牌> · <名称> 结案报告」，类型 `doc`、状态取文档类型的第一个，`project_id` 是商单的项目，标签「商单」「结案报告」，来源 `video`，`props.source_ref` 是 `{deal_id, deal}`；正文同原型 `dealReport`（合作概况、数据汇总、各平台明细、结论）。建成后把 `report_content_id` 换成这篇。插件只能建不能改，所以「按最新数据重出」是再建一篇新的，旧的那篇留在文档里。
 
 今日卡片 `video_deal_due`（标题「商单账期」，`order` 63）：`status` 为 `delivered`、有 `pay_due`、离账期不到 7 天或已经过了的商单（同原型 `payState`），账期早的在前。条目 `{id, project_id, brand, deal_title, quote, currency, pay_due, days, tone, label, title, sub, at, link}`：`days` 是离账期几天（负数是已过），`tone` 已过是 `danger`、其余 `warn`，`label` 是「N 天后到账期」「今天到账期」「账期已过 N 天」，`title` 是「<品牌>「<名称>」<label>」，`sub` 是「已交付待收款 · <报价>」，`at` 是商单的 `updated_at`，`link` 是 `/projects/{project_id}/deals?deal={id}`。
+
+### B 站组件（TSK-0455）
+
+视频插件 0.8.0。视频模块的「B 站」页：扫码登录 B 站网页端，查自己账号的数据和按天趋势，收发私信。插件迁移 `migrations/0013_bilibili_web.sql` 建 `video_bili_profiles`（每个实例的公开资料、登录状态、退避）、`video_bili_snapshots`（账户数据按天快照，一个实例一天一行）、`video_bili_trends`（创作中心按天增量）、`video_bili_sessions`（私信会话）、`video_bili_messages`（私信消息，id 是 `bpm_` 前缀，已登记），只建表；0.7.0 装过的要走升级应用。
+
+**数据来源**：开放平台（现有连接器 `bilibili` 的 access_token）只给得出昵称（`/arcopen/fn/user/account/info`）和粉丝 `follower`、关注 `following`、过审稿件数 `arc_passed_total`（`/arcopen/fn/data/user/stat`）；接了开放平台实例、而且它的昵称和网页端账号一样时，这三项优先取开放平台。别的数据和私信走网页端，都是**非官方网页接口，可能变化**（地址、字段按社区公开整理的文档写，测试用本机假服务端，真实账号由用户本人登录后核对）：
+
+| 用途 | 网页接口 | 用到的字段 |
+|---|---|---|
+| 扫码登录 | `GET passport.bilibili.com/x/passport-login/web/qrcode/generate`、`/poll?qrcode_key=` | `url`、`qrcode_key`；轮询 `data.code`：0 成功、86101 未扫码、86090 已扫码未确认、86038 已失效；成功时 `Set-Cookie` 的 `SESSDATA`、`bili_jct`、`DedeUserID`、`DedeUserID__ckMd5`、`sid`，`refresh_token` |
+| 账号 | `GET api.bilibili.com/x/web-interface/nav` | `isLogin`、`mid`、`uname`、`face` |
+| 粉丝和关系 | `GET api.bilibili.com/x/relation/stat?vmid=` | `follower`、`following` |
+| 创作中心概览 | `GET member.bilibili.com/x/web/index/stat` | `total_fans`、`total_click`、`total_like`、`total_coin`、`total_fav`、`total_reply`、`total_dm`、`total_share`、`total_elec`、`incr_fans`、`incr_click` |
+| 创作中心按天趋势 | `GET member.bilibili.com/x/web/data/pandect?type=` | `[{date_key, total_inc}]`；type 1 播放、5 投币、6 收藏、7 充电、8 点赞 |
+| 私信会话 | `GET api.vc.bilibili.com/session_svr/v1/session_svr/get_sessions` | `session_list[].talker_id`、`session_type`（只收 1）、`unread_count`、`max_seqno`、`last_msg` |
+| 对方昵称 | `GET api.vc.bilibili.com/account/v1/user/cards?uids=` | `mid`、`name`、`face` |
+| 消息记录 | `GET api.vc.bilibili.com/svr_sync/v1/svr_sync/fetch_session_msgs` | `messages[].sender_uid`、`msg_type`、`content`、`msg_seqno`、`timestamp`、`msg_key` |
+| 发文字私信 | `POST api.vc.bilibili.com/web_im/v1/web_im/send_msg`（表单） | `msg[sender_uid]`、`msg[receiver_id]`、`msg[receiver_type]=1`、`msg[msg_type]=1`、`msg[dev_id]`、`msg[timestamp]`、`msg[content]`、`csrf`；回 `msg_key` |
+
+域名都在 `network:media-platforms` 已有的 `*.bilibili.com` 里，清单不变。请求头只带浏览器常规的 `User-Agent`、`Referer`（发私信另带 `Origin`），不伪造设备指纹，不绕验证码；`msg[dev_id]` 是每个实例一个的随机 UUID（发私信接口要的消息设备号）。
+
+**连接器 `bilibili_web`**：插件 `video` 登记，分类 `media`，认证方式 `none`，没有表单字段；在连接器页或 B 站页新建。登录凭证经 `Connectors().SaveSession`（`docs/plugin-api.md` 2.13.27）存进实例的保险箱条目：键 `_web_cookie`（整串 Cookie）、`_web_csrf`（`bili_jct`）、`_web_refresh`（`refresh_token`），`_` 开头的键不出 `secret_hints`、不在配置表单里，断开实例时一起删。连通测试用登录态查一次 `nav`，回昵称；没登录回「还没扫码登录：到「视频 / B 站」页扫码登录」。**Cookie、csrf、开放平台令牌不出现在任何接口响应、错误文字、日志、通知和审计里**（审计 `action: connector_session` 只记键名和「已更新 / 已清除」）。
+
+**限频和退避**：所有网页接口共用一个队列，两次请求之间至少隔 1.5 秒，排队超过 45 秒的不发、回「排队的请求太多」。B 站回 -412、-352、-509、-799、HTTP 412 / 429、说明里有「风控」「频繁」或要验证码（`v_voucher`）时，这个实例退避：第 n 次连着被拦停 2 分钟 × 2^(n-1)，最多 2 小时；要验证码的至少 30 分钟。退避期内这个实例的所有网页请求直接回 429、不出网；成功一次清掉。登录失效（-101、-111、-2，或 `nav` 回没登录）时账号标成 `expired`、连接器置为异常「B 站登录已失效，到「视频 / B 站」重新扫码登录」，后台任务不再拉。
+
+**后台任务**：`bili_inbox` 每 60 秒，登录着、没暂停断开、不在退避的实例各拉一轮私信；`bili_daily` 每小时看一遍，当天（北京时间）还没快照的拉一次账户数据。
+
+| 方法 | 路径 | body / 说明 |
+|---|---|---|
+| GET | `/api/video/bili/accounts` | `BiliAccount[]` + `meta.total`：每个 `bilibili_web` 实例一项，按新建先后 |
+| POST | `/api/video/bili/{cid}/login/qrcode` | 生成登录二维码，回 `{login_id, qr_svg, expires_at}`：`qr_svg` 是二维码的 SVG 原文（后端生成），`login_id` 是本机的轮询号（不是 B 站的 `qrcode_key`），3 分钟有效；同一个实例再生成，旧的作废 |
+| POST | `/api/video/bili/{cid}/login/poll` | `{login_id}`，回 `{state, message, account?}`：`state` 是 `waiting` / `scanned` / `expired` / `done`，`done` 时凭证已经进保险箱、带 `account`（`BiliAccount`）；`login_id` 不对、过期、用过回 `expired`。登录到另一个账号（mid 变了）时这个实例原来的会话、消息、快照、趋势清掉 |
+| POST | `/api/video/bili/{cid}/logout` | 清掉保险箱里的登录凭证，账号标成 `logged_out`，连接器置为异常「已退出 B 站登录…」；回 `BiliAccount`。已经拉到的数据、私信留着 |
+| GET | `/api/video/bili/{cid}/overview` | `BiliOverview`：只读库，不出网 |
+| POST | `/api/video/bili/{cid}/overview/refresh` | 现拉一次存成当天快照（同一天覆盖），同时更新趋势，回 `BiliOverview`；10 分钟内拉过的 409「刚刷新过，N 分钟后再刷新」 |
+| GET | `/api/video/bili/{cid}/sessions` | `BiliSession[]` 按最后一条时间倒序，`meta`：`{total, unread, account}`（`account` 是 `BiliAccount`） |
+| POST | `/api/video/bili/{cid}/sessions/refresh` | 现拉一轮私信（同后台任务，有新收到的发通知），回同 GET；10 秒内拉过的 409「刚拉过」 |
+| GET | `/api/video/bili/{cid}/sessions/{talker}/messages?before=&limit=` | 这个会话的 `BiliMessage[]`，按时间先后；`limit` 默认 50、1 到 200，取最近的这么多条，`before`（RFC3339）只要更早的；`meta`：`{total, has_more, session}`（`session` 是 `BiliSession`）。会话不在列表里 404 |
+| POST | `/api/video/bili/{cid}/sessions/{talker}/sync` | 拉这个会话的新消息落库（本地还没有消息的拉最近一页），回同 GET |
+| POST | `/api/video/bili/{cid}/sessions/{talker}/messages` | `{client_msg_id, text}` 发一条文字私信，回 201 + `BiliMessage`（`status: sent`） |
+
+- `{cid}` 是 `bilibili_web` 实例 id，不存在、不是这个工具的 404；暂停、断开的 409。
+- 发私信：`text` 去首尾空白后 1 到 500 字；`client_msg_id` 必填，8 到 64 位字母、数字、`-`、`_`。**同一个实例下同一个 `client_msg_id` 只发一次**：已经发过的（成功或失败）原样回 200 + 那条消息、`meta.duplicate: true`，不再发；正在发的 409「这条消息正在发送」；同一个键换了对方或内容 409。对方要已经在会话列表里（不能给任意 UID 发），否则 404。一次一条、一个对方；没有批量、定时、自动回复接口。发送失败消息记成 `failed`、`error` 是原因，不自动重试，换一个 `client_msg_id` 才会再发。
+- 拉私信：登录后第一轮只记下现有会话（基线），不拉历史消息、不发通知；之后对方发来新消息的会话（一轮最多 5 个，剩下的下一轮）拉新消息落库，自己发的按 `msg_key` 不重复落库。有新收到的发一条通知（`kind: video.bili_dm`，标题「B 站新私信」，正文「「昵称」等 N 人发来 M 条私信」，`data` 里带 `connector_id`、`talker_id`、`count`），不带消息内容。
+- 错误：退避中、被限频或风控 429，`error.code` 是 `bili_guarded`，`error.guard` 是 `BiliGuard`；登录失效 409，`error.code` 是 `bili_login_required`；别的网页接口错误 502，`error.code` 是 `bili_failed`。发送失败的错误多一个 `error.message_id`（落库的那条）。
+
+`BiliAccount`：`{connector_id, name, status, error?, login, mid?, uname?, face?, guard?, unread, inbox_synced_at?, snapshot_at?, poll_sec}`。`name`、`status`、`error` 是连接器的；`login` 是 `logged_out` / `logged_in` / `expired`；`mid`、`uname`、`face` 是 B 站公开资料；`unread` 是各会话未读数之和；`snapshot_at` 是最近一次快照的时间；`poll_sec` 是拉新私信的间隔（秒）。
+
+`BiliGuard`：`{until, reason, code}`。退避到 `until`（RFC3339）；`reason` 是给人看的原因；`code` 是 B 站返回码。
+
+`BiliSnapshot`：`{date, source, followers?, following?, archives?, total_click?, total_like?, total_coin?, total_fav?, total_reply?, total_dm?, total_share?, total_elec?, incr_fans?, incr_click?, updated_at}`。`date` 是北京时间的日期；`source` 是 `web` 或 `open+web`（粉丝、关注、过审稿件数取开放平台）；拿不到的项不返回，`archives` 只有开放平台给。
+
+`BiliOverview`：`{account, latest, days, trends}`。`latest` 是最新一天的 `BiliSnapshot`，没有为 `null`；`days` 是近 90 天每天的快照，按日期先后；`trends` 是 `{metric, points}[]`，`metric` 依次是 `click` / `like` / `coin` / `fav` / `elec`，`points` 是 `{date, value}[]`（创作中心近 30 天每天的新增）。
+
+`BiliSession`：`{talker_id, talker_name, talker_face, unread, last_text, last_at?, updated_at}`。
+
+`BiliMessage`：`{id, talker_id, direction, msg_type, text, at, status, error?, client_msg_id?, created_at}`。`direction` 是 `in` / `out`；`status` 是 `received` / `sending` / `sent` / `failed`；`msg_type` 1 是文字，别的类型 `text` 是占位（「[图片]」等）。
+
+### 分镜和 B-roll 素材（TSK-0456）
+
+内容编写的编辑区分「文稿」「分镜」两个视图（规格 `SPEC-videos-17`）：每期视频一份有序的分镜，每个分镜对应一段口播、写画面说明、估时长，再从本机素材目录挑照片、视频当 B-roll。插件迁移 `migrations/0014_storyboard.sql` 建 `video_shots`（分镜，id 是 `vsh_` 前缀）、`video_shot_brolls`（分镜里的 B-roll，`vbr_`）、`video_media_roots`（登记的素材目录，`vmr_`），三个前缀已登记，只建表；装过旧版本的要走升级应用。视频删掉时分镜和 B-roll 一起删；素材目录的登记不跟视频走。
+
+**素材目录和权限**：素材目录有两种。一是这一集的视频工程目录，id 固定是 `project`（不登记，路径同技能执行器的工程目录），读要已确认 `fs:read:project`；二是用户在界面上登记的本机目录（全局共用，不按视频分），读要已确认 `fs:read:registered`（TSK-0456 新增的内核权限，普通级别，见 `docs/plugin-api.md` 3.1；视频插件清单的 `permissions` 末尾追加了它，装过的升级时要确认）。没确认时素材目录 `available: false`、`reason` 是确认提示，浏览、预览、加 B-roll 回 400，登记回 409。**只读**：这些接口不移动、不改、不删原文件，只写插件自己的缓存目录（缩略图）。
+
+**路径安全**：浏览、预览、缩略图、加 B-roll 都只认「素材目录 id + 相对路径」。相对路径是绝对路径（`/`、`~`、盘符开头）、带反斜杠或 NUL、任何一段是 `..`、任何一段以 `.` 开头（隐藏项）都 400；拼上素材目录后解析符号链接，结果不在（解析后的）素材目录里也 400「路径越出了素材目录」。列目录、搜索时隐藏项和指到目录外面的链接不列，不顺着目录链接往下走。素材目录或文件不在了 404。
+
+**元数据和缩略图**：本机有 `ffprobe`、`ffmpeg`（先按 `PATH` 找，再试 `/opt/homebrew/bin`、`/usr/local/bin`）并且确认过 `process:spawn` 时，视频取时长和尺寸，图片和视频都能生成缩略图；图片尺寸读文件头（jpeg、png、gif，别的格式有 `ffprobe` 时用它）。缩略图是最长边 320 的 JPEG（视频取第 1 秒，短于 1 秒取第一帧），缓存在插件缓存目录 `Core.CacheDir()/thumbs/` 下（数据目录的 `cache/video/thumbs/`），按「解析后的路径、大小、修改时间」取哈希命名，文件变了自然换一张。都没有时降级：只给文件名、大小、修改时间，浏览器能直接显示的图片（jpg、png、gif、webp、bmp、avif）缩略图回原图，视频的缩略图 404。
+
+| 方法 | 路径 | body / 说明 |
+|---|---|---|
+| GET | `/api/video/videos/{id}/shots` | 这一集的 `VideoShot[]` + `meta.total`，按序号；视频不存在 404 |
+| POST | `/api/video/videos/{id}/shots` | `{text?, visual?, duration?, position?}` 加一个分镜，`position` 是插到第几个（1 到现有个数加一），不给放最后；回 201 + 整份 `VideoShot[]` |
+| POST | `/api/video/videos/{id}/shots/reorder` | `{ids}` 按给定顺序重排，要正好列出全部分镜各一次，否则 400；回整份 `VideoShot[]` |
+| POST | `/api/video/videos/{id}/shots/generate` | `{mode?, source?, variant?}` 从口播稿或大纲生成分镜初稿，回 `{shots, added, source}`，见下 |
+| PATCH | `/api/video/shots/{id}` | 只传要改的：`text` / `visual` / `duration`（传 `null` 回到按口播估）；回整份 `VideoShot[]` |
+| DELETE | `/api/video/shots/{id}` | 删分镜和它的 B-roll（原文件不动），后面的序号前移；回整份 `VideoShot[]` |
+| POST | `/api/video/shots/{id}/brolls` | `{items: [{root_id, path}], position?}` 把素材目录里的文件加到这个分镜，回整份 `VideoShot[]`，见下 |
+| POST | `/api/video/shots/{id}/brolls/reorder` | `{ids}` 这个分镜的 B-roll 按给定顺序重排，要正好列出全部各一次；回整份 `VideoShot[]` |
+| PATCH | `/api/video/brolls/{id}` | 只传要改的：`note` / `in` / `out` / `shot_id`，回整份 `VideoShot[]`，见下 |
+| DELETE | `/api/video/brolls/{id}` | 从分镜里移除，原文件不动；回整份 `VideoShot[]` |
+| GET | `/api/video/media/roots?video_id=` | `VideoMediaRoot[]` + `meta.total`：带 `video_id` 时第一个是这一集的工程目录，后面是登记的目录（按登记先后） |
+| POST | `/api/video/media/roots` | `{path, name?}` 登记一个素材目录，回 201 + `VideoMediaRoot`，见下 |
+| PATCH | `/api/video/media/roots/{id}` | `{name}` 改名；工程目录 400 |
+| DELETE | `/api/video/media/roots/{id}` | 只删登记、不动磁盘；分镜里引用它的 B-roll 留着、标缺失；`project` 400，不存在 404 |
+| GET | `/api/video/media/browse?root=&video_id=&dir=&type=&q=&page=&page_size=` | 浏览一页，回 `VideoMediaListing`，`meta` 是 `{total, page, page_size}`，见下 |
+| GET | `/api/video/media/file?root=&video_id=&path=` | 原样回图片原图、视频（`http.ServeContent`，支持 `Range`，视频能拖进度）；`Content-Type` 按扩展名固定，`X-Content-Type-Options: nosniff`，`Content-Disposition: inline`。只认图片和视频的扩展名，别的 400 |
+| GET | `/api/video/media/thumb?root=&video_id=&path=` | 缩略图，`image/jpeg`；降级规则见上 |
+
+- 分镜：`text`（口播段落）最多 5000 字，`visual`（画面说明）最多 1000 字，`duration` 是 1 到 3600 的整数秒，不填按口播字数估。一集最多 300 个分镜，一个分镜最多 50 条 B-roll。读的时候 `no` 是序号（从 1 起，删、插、排序后都连续），`est` 按口播字数和语速估：去掉 Markdown 记号后汉字一个算一个、英文按词，每分钟 240 字（同前端 `SPEECH_RATE`），有字时至少 1 秒。
+- 生成：`source` 是 `script` / `outline`，不给时先找口播稿、没有再找大纲；`variant` 是比例，不给时取本集第一个比例（没定按横屏），这个比例没有的取别的比例；读的是产出物当前版本的正文文件（要 `fs:read:project`），空的跳过；都没有 400「这一集还没有写好的口播稿和大纲，先在内容编写里写稿再生成分镜」。拆法：有标题时一个标题一个分镜，标题当 `visual`、下面的正文当 `text`（去掉列表记号），只有一个一级总标题、下面没正文的跳过；代码块里的 `#` 不算标题；没有标题按空行分段，一段一个分镜，`visual` 为空。拆不出段落 400。**已经有分镜时 `mode` 必填**：`append` 接在后面，`replace` 覆盖（先写新的再删旧的，旧分镜的 B-roll 一起删）；没填 409「已经有 N 个分镜，选追加还是覆盖」。回 `{shots: VideoShot[], added, source: {artifact_id, kind, variant, version}}`，`added` 是这次生成了几个。
+- 加 B-roll：`items` 至少一个；素材目录要可用（`project` 用分镜所在的视频），路径按上面的路径安全规则查，要是存在的图片或视频普通文件，否则 400（素材目录不存在 404）；任何一个不合规整批不加。同一个文件（同一素材目录、同一路径）已经在这个分镜里的跳过。`position` 是插到第几个，不给接在最后。存的是素材目录 id 加规范化后的相对路径，`kind` 按扩展名定。
+- 改 B-roll：`note` 最多 500 字；`in`、`out` 是 0 到 86400 的秒数（保留两位小数），传 `null` 清掉；只有视频能设，图片带了 400「图片没有入点、出点」；两个都有时出点要晚于入点，否则 400「出点要晚于入点」。`shot_id` 是挪到同一集的另一个分镜（放最后），别的视频的分镜 400。
+- 缺失：读分镜时逐条看文件还在不在（素材目录被移除、没权限、目录或文件不在、链接指出去了），不在的 `missing: true`，不报错，备注、入出点照常能改。
+- 登记素材目录：`path` 是绝对路径，存规范化（去掉末尾斜杠）后的写法，读的时候再解析链接；不存在、不是目录 400「找不到这个目录」「这不是目录」；磁盘根 `/` 400；系统目录（`/etc`、`/System`、`/usr`、`/bin`、`/sbin`、`/dev`、`/Library`、`/private/etc`、`/private/var/db`）本身和里面 400；路径里有隐藏段（解析链接前后都查）400；同一路径登记过 409；最多 50 个。`name` 最多 100 字，不给取目录名。
+- 浏览：`root` 必填，`project` 要带 `video_id`。`dir` 是相对素材目录的子目录（空串是根）；`type` 是 `image` / `video`，不给是都要；`q` 给了时在 `dir` 下面（含子目录）按文件名找，不分大小写，最多走 20000 个目录项，走不完 `truncated: true`，搜索时 `dirs` 为空；`page` 从 1 起，`page_size` 默认 60、最大 200（超出按最大）；不合规 400。文件按相对路径排（不分大小写），子目录按名字排。认的扩展名：图片 jpg、jpeg、png、gif、webp、heic、heif、bmp、avif、tif、tiff，视频 mp4、mov、m4v、webm、mkv、avi。
+
+`VideoShot`：`{id, video_id, no, text, visual, duration, est, brolls, created_at, updated_at}`。`duration` 没填为 `null`；`brolls` 是 `VideoBroll[]`，按顺序。
+
+`VideoBroll`：`{id, shot_id, root_id, path, name, kind, note, in, out, missing, created_at}`。`root_id` 是素材目录 id 或 `project`；`path` 相对素材目录；`name` 是文件名；`kind` 是 `image` / `video`；`in`、`out` 没设为 `null`。
+
+`VideoMediaRoot`：`{id, name, path, builtin, available, reason?, created_at?}`。`builtin` 为 `true` 的是工程目录（没有 `created_at`）；`available` 为 `false` 时 `reason` 写原因（没确认权限、目录不在了、视频没填工程目录）。
+
+`VideoMediaFile`：`{name, path, kind, size, modified_at, width?, height?, duration?, thumb}`。`path` 相对素材目录；`width`、`height`、`duration`（秒）取不到不返回；`thumb` 为 `true` 是能取缩略图。
+
+`VideoMediaListing`：`{root, dir, parent?, dirs, files, truncated, tools}`。`root` 是 `VideoMediaRoot`；`dir` 是当前目录（根是空串），`parent` 是上一级（在根上时不返回）；`dirs` 是 `{name, path}[]`；`files` 是这一页的 `VideoMediaFile[]`；`tools` 是 `{probe, thumbs}`，本机能不能取视频元数据、生成缩略图。
 
 ## 内置浏览器插件 browser
 

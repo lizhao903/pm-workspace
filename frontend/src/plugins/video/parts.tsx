@@ -33,10 +33,12 @@ export const OrientTag = ({ o, large }: { o: VideoOrientation; large?: boolean }
   <span className={cls('vd-otag', large && 'vd-otag-lg')} title={orientText(o)}><OrientShape o={o} />{large ? orientText(o) : ORIENT[o].ratio}</span>
 )
 
-export type ModuleTab = 'all' | 'review' | 'calendar' | 'topics' | 'clips' | 'series' | 'publishes'
+export type ModuleTab = 'all' | 'review' | 'calendar' | 'topics' | 'clips' | 'series' | 'publishes' | 'bilibili'
 const MODULE_TABS: { key: ModuleTab; label: string }[] = [
   { key: 'all', label: '全部视频' }, { key: 'review', label: '待我处理' }, { key: 'calendar', label: '日历' }, { key: 'topics', label: '选题' }, { key: 'clips', label: '素材收件箱' },
   { key: 'series', label: '系列' }, { key: 'publishes', label: '发布记录' },
+  // B 站组件（TSK-0455）：账户数据和私信
+  { key: 'bilibili', label: 'B 站' },
 ]
 
 /** 模块标签栏：放在顶栏下面；「待我处理」后面是停在检查点或被退回的集数，「素材收件箱」后面是待整理的条数，为 0 不显示 */

@@ -94,7 +94,13 @@ export type SopRunStep = {
   loops?: number
   /** 超出治理上限被暂停的记录（AUTO-12）：没放行时步骤停在 paused，「继续」（confirm-input）放行这一次 */
   hold?: SopStepHold
+  /** 挂起等服务商恢复（TSK-0392）：仍是 running，到 retry_at 或服务商恢复后自动重跑；不在等时没有 */
+  provider_wait?: SopProviderWait
 }
+/** 服务商不可用时挂起的步骤：哪个服务商、最近一次失败、从什么时候开始等、下次重跑时间 */
+export type SopProviderWait = { provider_id: string; provider: string; reason: string; since: string; retry_at: string }
+/** 这一步正挂起等服务商恢复 */
+export const isSopProviderWait = (s: { status: SopStepStatus; provider_wait?: SopProviderWait }) => s.status === 'running' && !!s.provider_wait
 export type SopStepQueue = { ahead: number; slot?: 'claude_code' }
 /** 超出上限暂停（AUTO-12）：kind 是 runs（次数）或 duration（时长） */
 export type SopStepHold = {

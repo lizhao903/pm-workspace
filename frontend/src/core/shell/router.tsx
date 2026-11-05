@@ -1,5 +1,6 @@
 import { createBrowserRouter } from 'react-router'
 import type { ModuleDef } from '../plugin'
+import { loadChunk } from './chunkLoad'
 import { HomeRedirect } from './HomeRedirect'
 import { ModuleRoute } from './ModuleRoute'
 import { Placeholder } from './Placeholder'
@@ -17,7 +18,8 @@ export function createAppRouter(modules: ModuleDef[]) {
         ...modules.map((m) => ({
           path: m.path + '/*',
           lazy: async () => {
-            const Page = (await m.load()).default
+            // 分包没取到时先查是不是换了版本，没换就退避重试，重试成功不上报（loadChunk）
+            const Page = (await loadChunk(m.load)).default
             return { Component: () => <ModuleRoute module={m} page={Page} home={'/' + (modules[0]?.path ?? '')} /> }
           },
         })),
