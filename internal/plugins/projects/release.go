@@ -150,6 +150,8 @@ type releaseService struct {
 	live      map[string]*liveTest
 	publicURL string
 	reconcile sync.Once
+	// onReleased 在发布记录变成 released 后调（原型同步的「发布成功」触发，AUTO-11），在自己的协程里跑
+	onReleased func(Release)
 }
 
 func newReleaseService(c plugin.Core, wt *worktreeService, publicURL string) *releaseService {
@@ -478,6 +480,9 @@ func (s *releaseService) execute(r Release, taskTitle, branch string, lt *liveTe
 	r.pgid = 0
 	s.save(ctx, &r)
 	s.notify(ctx, r.ID)
+	if r.Status == rlReleased && s.onReleased != nil {
+		go s.onReleased(r)
+	}
 }
 
 // runStep 跑一步到结束，结果写回 st；没过时记 failed_step、error，停了记 status。

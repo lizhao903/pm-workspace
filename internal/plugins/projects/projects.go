@@ -1,6 +1,6 @@
 // Package projects 是「项目」插件的后端（PJ-01a 起）。清单 plugin.json 只有这一份，前端构建时也读它。
 // 项目本身仍是内核 type=project 的对象，字段约定见 docs/api-contract.md「项目插件」；
-// 插件自己的表放项目干系人（PJ-01b）、绑定的 IM 会话（PJ-02a）、项目资料（PJ-03a）、原型定义和崩溃记录（PJ-04a）、项目档案（AUTO-04）、需求工作区（AUTO-07）、测试记录（AUTO-08）、发布记录（AUTO-10）。
+// 插件自己的表放项目干系人（PJ-01b）、绑定的 IM 会话（PJ-02a）、项目资料（PJ-03a）、原型定义和崩溃记录（PJ-04a）、项目档案（AUTO-04）、需求工作区（AUTO-07）、测试记录（AUTO-08）、发布记录（AUTO-10）、原型同步记录（AUTO-11）。
 package projects
 
 import (
@@ -27,6 +27,8 @@ type Plugin struct {
 	tests *testService
 	// releases 是最近一次启用登记的发布服务，只给测试用
 	releases *releaseService
+	// protoSyncs 是最近一次启用登记的原型同步服务，只给测试用
+	protoSyncs *protoSyncService
 }
 
 func New() *Plugin { return &Plugin{m: plugin.MustParse(manifestJSON)} }
@@ -96,6 +98,11 @@ func (p *Plugin) Register(r plugin.Registrar) error {
 	rs := newReleaseService(r.Core(), ws, p.publicURL)
 	rs.register(r, h)
 	p.releases = rs
+	// 原型回写旁路：同步点、三种触发（发布成功、生产分支合并、每日巡检）和原型同步的几个 SOP 节点（AUTO-11，protosync.go）
+	ps := newProtoSyncService(r.Core())
+	ps.register(r, h)
+	rs.onReleased = ps.onReleased
+	p.protoSyncs = ps
 	// 交给 Claude Code 时内核经这个入口取项目登记的原型目录
 	r.ProjectPrototypes(prototypeDirs(r.Core()))
 	// 常驻任务只等取消：插件停用、服务关闭时停掉这次启用起的全部原型进程
