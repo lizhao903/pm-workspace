@@ -24,7 +24,8 @@ import (
 	"github.com/lizhao903/pm-workspace/internal/plugin"
 )
 
-// tradePerms 是清单要的全部权限：公开行情，加交易所账户的只读接口（TRD-07a）。
+// tradePerms 是安装时要确认的权限：公开行情，加交易所账户的只读接口（TRD-07a）。
+// 清单里还声明了 trade:live（TRD-08c），它是单独申请的，安装、升级都不授予。
 var tradePerms = []string{"network:market-data", "network:exchanges"}
 
 func TestManifestValid(t *testing.T) {
@@ -32,11 +33,14 @@ func TestManifestValid(t *testing.T) {
 	if err != nil {
 		t.Fatalf("清单不合法：%v", err)
 	}
-	if m.ID != "trade" || m.TablePrefix != "trade_" || m.Version != "0.5.0" {
-		t.Fatalf("id=%s table_prefix=%s version=%s", m.ID, m.TablePrefix, m.Version)
+	if m.ID != "trade" || m.TablePrefix != "trade_" || m.Version != "0.6.0" || m.Name != "交易套件" {
+		t.Fatalf("id=%s table_prefix=%s version=%s name=%s", m.ID, m.TablePrefix, m.Version, m.Name)
 	}
-	if !slices.Equal(m.Permissions, tradePerms) {
-		t.Fatalf("权限只该有 network:market-data、network:exchanges：%v", m.Permissions)
+	if !slices.Equal(m.Permissions, append(slices.Clone(tradePerms), LivePerm)) {
+		t.Fatalf("权限只该有 network:market-data、network:exchanges、trade:live：%v", m.Permissions)
+	}
+	if !plugin.IsSeparate(LivePerm) {
+		t.Fatal("trade:live 要是单独申请的权限：安装、升级都不授予")
 	}
 	if !slices.Equal(m.Provides.Modules, []string{"markets", "monitor", "strategy", "trading"}) {
 		t.Fatalf("modules = %v", m.Provides.Modules)
@@ -131,12 +135,15 @@ func TestNoLiveTradingPaths(t *testing.T) {
 			return true
 		})
 	}
-	b, err := os.ReadFile("plugin.json")
+	// trade:live 只能在清单里声明成单独申请的（TRD-08c）：安装时不授予，见 TestLiveGate*。
+	m, err := plugin.Parse(manifestJSON)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(string(b), "trade:live") {
-		t.Error("清单里出现了 trade:live")
+	for _, p := range m.Permissions {
+		if p == "trade:live" && !plugin.IsSeparate(p) {
+			t.Error("trade:live 不是单独申请的权限")
+		}
 	}
 }
 

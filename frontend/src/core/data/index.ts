@@ -36,7 +36,7 @@ export type {
 } from './agent'
 export {
   usePlugins, useInstallPlugin, useEnablePlugin, useDisablePlugins, useUninstallPlugin, enabledDependents, installedDependents,
-  useUpgradePlugin, newPermissions,
+  useUpgradePlugin, newPermissions, installPermissions,
 } from './plugins'
 export type { PluginInfo, PluginInstallResult, PluginUninstallResult, PluginUpgradeResult } from './plugins'
 export {
@@ -337,5 +337,15 @@ export {
 export type {
   TradeAccount, TradeAccountInput, TradeOrderSide, TradeOrderType, TradeOrderStatus, TradeOrderSource, TradeOrder, TradeOrderInput,
   TradeOrderQuery, TradeOrderPage, TradePosition, TradeRunStatus, TradeRunLog, TradeRunHolding, TradeRun, TradeRunInput, TradeRunPage,
-  TradeRiskDay, TradeRiskRules, TradeRisk, TradeKillResult, TradeHalt, TradePlaceError,
+  TradeRiskDay, TradeRiskRules, TradeRisk, TradeKillResult, TradeHalt, TradePlaceError, TradeReconBrief,
 } from './tradePaper'
+export {
+  tradeLiveKeys, tradeLiveApi, evidenceKind, TRADE_PLUGIN_ID, TRADE_LIVE_PERM, useTradeLiveSnapshot, useTradeLiveFills, useTradeRecon,
+  useTradeRecons, useTradeAudit, useTradeLiveGate, useCreateLiveAccount, useRemoveTradeAccount, useConnectTradeAccount,
+  useDisconnectTradeAccount, useRecheckRecon, useResolveRecon, useConfirmLiveCheck, useRevokeLiveCheck, useSetLiveSwitch,
+  useGrantTradeLive, useRevokeTradeLive,
+} from './tradeLive'
+export type {
+  TradeLiveBalance, TradeLivePosition, TradeLiveOrder, TradeLiveFill, TradeLiveSnapshot, TradeReconItem, TradeRecon, TradeReconRecord,
+  TradeAudit, TradeLiveEvidence, TradeLiveCheckState, TradeLiveCheckKey, TradeLiveCheck, TradeLiveRecord, TradeLiveGate, TradeLiveAccountInput,
+} from './tradeLive'

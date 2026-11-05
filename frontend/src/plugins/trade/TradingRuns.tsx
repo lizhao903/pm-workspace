@@ -10,7 +10,7 @@ import { Button, Drawer, EmptyState, ErrorState, LoadingState, Pill, SearchSelec
 import { MARKETS, fmtPct, guessInstrument } from './model'
 import { intervalLabel, instName } from './strategyModel'
 import { NoAccount } from './TradingParts'
-import { LIVE_MARKETS, NO_SOURCE, RUN_STATUS, fmtQty, fmtTime, num, signed, tone } from './tradingModel'
+import { LIVE_BLOCK, LIVE_MARKETS, NO_SOURCE, RUN_STATUS, fmtQty, fmtTime, num, signed, tone } from './tradingModel'
 
 type Q<T> = { data: T | undefined; isPending: boolean; isError: boolean; error: unknown; refetch: () => unknown }
 
@@ -134,7 +134,7 @@ export function RunDrawer({ initStrategy, strategies, accounts, halted, onClose,
   const s = strategies.find((x) => x.id === pickedSid) ?? (initStrategy ? undefined : strategies[0])
   const sid = s?.id ?? pickedSid
   const why = (a: TradeAccount, st?: TradeStrategy) => {
-    if (!a.paper) return '不是模拟盘账户'
+    if (!a.paper) return LIVE_BLOCK
     const ms = new Set((st?.symbols ?? []).map((x) => guessInstrument(x).market))
     if (ms.size && ![...ms].some((m) => a.markets.includes(m))) return `不支持${[...ms].map((m) => MARKETS[m].label).join(' / ')}`
     return undefined
