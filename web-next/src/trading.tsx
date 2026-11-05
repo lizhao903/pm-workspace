@@ -220,10 +220,11 @@ export function killAll(s: { runs: StrategyRun[]; orders: Order[]; risk: RiskRul
   }
 }
 
-/** 熔断记录：RiskRules 只存当前这一次，历史留在内存里 */
-interface HaltRec { at: string; reason: string; released_at?: string }
+/** 熔断记录：RiskRules 只存当前这一次，历史留在内存里。kind 手动 / 自动；解除要写原因（SPEC-trading-0.15） */
+interface HaltRec { at: string; reason: string; kind: 'manual' | 'auto'; runs_stopped?: number; orders_canceled?: number; released_at?: string; release_reason?: string }
 const haltLog: HaltRec[] = [
-  { at: new Date(Date.now() - 9 * 86400000).toISOString(), reason: '单日亏损 3.1%，超过 3% 上限，自动熔断', released_at: new Date(Date.now() - 9 * 86400000 + 2 * 3600000).toISOString() },
+  { at: new Date(Date.now() - 9 * 86400000).toISOString(), reason: '单日亏损 3.1%，超过 3% 上限，自动熔断', kind: 'auto', runs_stopped: 2, orders_canceled: 1,
+    released_at: new Date(Date.now() - 9 * 86400000 + 2 * 3600000).toISOString(), release_reason: '行情回稳，复盘后手动解除' },
 ]
 const reportedAcct = new Set<string>()
 /** 外部请求处理过的 n：页面重新挂载也不重复打开 */
@@ -482,7 +483,7 @@ export function TradingPage(props: {
   const [, setHaltVer] = useState(0)
   useEffect(() => {
     if (risk.halted && risk.halted_at && !haltLog.some((h) => h.at === risk.halted_at)) {
-      haltLog.unshift({ at: risk.halted_at, reason: risk.halted_reason ?? '手动全停' })
+      haltLog.unshift({ at: risk.halted_at, reason: risk.halted_reason ?? '手动全停', kind: risk.halted_reason?.includes('自动熔断') ? 'auto' : 'manual' })
       setHaltVer((v) => v + 1)
     } else if (!risk.halted) {
       const open = haltLog.find((h) => !h.released_at)
@@ -490,13 +491,28 @@ export function TradingPage(props: {
     }
   }, [risk.halted, risk.halted_at, risk.halted_reason])
 
+  /** 一键全停的结果：停了几个部署、撤了几笔挂单，显示在页面顶上（SPEC-trading-1.3） */
+  const [killMsg, setKillMsg] = useState('')
   const kill = (reason: string) => {
     const at = nowIso()
+    const nRuns = runs.filter((r) => r.status !== 'stopped').length
+    const nOrders = orders.filter((o) => ACTIVE.includes(o.status)).length
+    if (risk.halted) {
+      const open = haltLog.find((h) => !h.released_at)
+      if (open) { open.released_at = at; open.release_reason = '再次一键全停，由新的熔断记录接替' }
+    }
+    haltLog.unshift({ at, reason, kind: reason.includes('自动熔断') ? 'auto' : 'manual', runs_stopped: nRuns, orders_canceled: nOrders })
+    if (!reason.includes('自动熔断')) setKillMsg(`一键全停完成：停掉 ${nRuns} 个部署，撤掉 ${nOrders} 笔挂单，持仓保留；已进入熔断`)
     onRuns((xs) => killAll({ runs: xs, orders: [], risk }, reason, at).runs)
     onOrders((xs) => killAll({ runs: [], orders: xs, risk }, reason, at).orders)
     onRisk((r) => killAll({ runs: [], orders: [], risk: r }, reason, at).risk)
   }
-  const release = () => onRisk((r) => ({ ...r, halted: false, halted_reason: undefined, halted_at: undefined }))
+  /** 解除熔断要写原因，记到这次熔断记录上；停掉的运行不自动恢复 */
+  const release = (reason: string) => {
+    const open = haltLog.find((h) => !h.released_at)
+    if (open) { open.released_at = nowIso(); open.release_reason = reason }
+    onRisk((r) => ({ ...r, halted: false, halted_reason: undefined, halted_at: undefined }))
+  }
 
   /** 下一笔委托（已带上交易所侧会拒的原因） */
   const place = (o: Pick<Order, 'account_id' | 'symbol' | 'side' | 'type' | 'qty' | 'price' | 'stop_price' | 'reduce_only' | 'run_id'>, meta: { leverage?: number; reject?: string }) => {
@@ -579,6 +595,12 @@ export function TradingPage(props: {
     <div className="page page-fill tr-page">
       <PageTitle parent="交易" desc={t.desc} actions={actions}>{t.title}</PageTitle>
       {risk.halted && <HaltBar risk={risk} onRelease={release} />}
+      {killMsg && (
+        <div className="banner tr-kill-done">
+          <span>{killMsg}</span>
+          <button className="act act-quiet" onClick={() => setKillMsg('')}>知道了</button>
+        </div>
+      )}
 
       {view === 'overview' && <Overview {...props} sum={sum} lossUsed={lossUsed} lossLimit={lossLimit} at={tick} acctName={acctName} />}
       {view === 'positions' && <PositionsView accounts={accounts} positions={positions} runs={runs} strategies={strategies} at={tick} acctName={acctName} live={liveMode}
@@ -595,7 +617,7 @@ export function TradingPage(props: {
 
       {drawer?.kind === 'order' && (
         <OrderDrawer key={drawer.key} init={drawer} accounts={accounts} positions={positions} risk={risk} live={liveMode} onReport={onReport}
-          onClose={() => setDrawer(null)} onPlace={(o, meta) => { place(o, meta); setDrawer(null) }} />
+          onClose={() => setDrawer(null)} onPlace={(o, meta) => { place(o, meta); setDrawer(null) }} onRiskReject={(o, reason) => place(o, { reject: reason })} />
       )}
       {drawer?.kind === 'run' && (
         <RunDrawer key={drawer.key} initStrategy={drawer.strategyId} strategies={strategies} accounts={accounts} risk={risk} live={liveMode} onClose={() => setDrawer(null)}
@@ -628,16 +650,18 @@ function runTick(r: StrategyRun, s: Strategy | undefined, at: string): { d: numb
 
 /* ---------- 熔断状态条 ---------- */
 
-function HaltBar({ risk, onRelease }: { risk: RiskRules; onRelease: () => void }) {
+function HaltBar({ risk, onRelease }: { risk: RiskRules; onRelease: (reason: string) => void }) {
   const [confirm, setConfirm] = useState(false)
+  const [reason, setReason] = useState('')
   return (
     <div className="banner banner-danger tr-halt">
       <span><b>熔断中</b>{risk.halted_reason ?? '手动全停'}{risk.halted_at && ` · ${fmtTime(risk.halted_at)}`}。所有策略已停止、挂单已撤，只能平仓或减仓。</span>
       {confirm ? (
         <span className="tr-halt-act">
           <span className="tr-halt-q">解除后可以重新开仓，策略不会自动恢复</span>
+          <input className="tr-input tr-halt-input" placeholder="解除原因（必填）" value={reason} autoFocus onChange={(e) => setReason(e.target.value)} />
           <button className="act act-quiet" onClick={() => setConfirm(false)}>取消</button>
-          <button className="act act-danger" onClick={() => { onRelease(); setConfirm(false) }}>确认解除</button>
+          <button className="act act-danger" disabled={!reason.trim()} title={reason.trim() ? undefined : '先写解除原因'} onClick={() => { onRelease(reason.trim()); setConfirm(false); setReason('') }}>确认解除</button>
         </span>
       ) : (
         <button className="act" onClick={() => setConfirm(true)}>解除熔断</button>
@@ -1000,11 +1024,13 @@ function OrdersView({ orders, accounts, acctName, at, live, onOrders }: {
 
 /* ---------- 下单抽屉 ---------- */
 
-function OrderDrawer({ init, accounts, positions, risk, live, onClose, onPlace, onReport }: {
+function OrderDrawer({ init, accounts, positions, risk, live, onClose, onPlace, onRiskReject, onReport }: {
   init: { symbol: string; side: 'buy' | 'sell' }
   accounts: TradeAccount[]; positions: Position[]; risk: RiskRules; live: boolean
   onClose: () => void
   onPlace: (o: Pick<Order, 'account_id' | 'symbol' | 'side' | 'type' | 'qty' | 'price' | 'stop_price' | 'reduce_only'>, meta: { leverage?: number; reject?: string }) => void
+  /** 被风控拦下：委托记成被拒绝，抽屉不关，原因原样显示（正式版是后端统一下单入口回 409） */
+  onRiskReject: (o: Pick<Order, 'account_id' | 'symbol' | 'side' | 'type' | 'qty' | 'price' | 'stop_price' | 'reduce_only'>, reason: string) => void
   onReport: (title: string, message: string) => void
 }) {
   useEsc(onClose)
@@ -1024,6 +1050,8 @@ function OrderDrawer({ init, accounts, positions, risk, live, onClose, onPlace, 
   const [acctId, setAcctId] = useState(() => firstOk(instOf(init.symbol)))
   const [confirming, setConfirming] = useState(false)
   const [tried, setTried] = useState(false)
+  /** 提交后被风控拦下的原因；改了任何一项就清掉，回到预检查提示 */
+  const [rejectedAt, setRejected] = useState<{ key: string; blocks: string[] } | null>(null)
 
   const pick = (s: string) => {
     const i = instOf(s)
@@ -1078,6 +1106,8 @@ function OrderDrawer({ init, accounts, positions, risk, live, onClose, onPlace, 
   if (!(qtyN > 0)) errors.push(rawQty > 0 ? `数量不足最小单位 ${inst.lot}` : '填数量')
   const blocks = qtyN > 0 ? riskBlocks({ risk, account, inst, valueUsd, leverage: levN, opening, positions, at: now }) : []
   const needConfirm = valueUsd > risk.confirm_above
+  const formKey = [symbol, acctId, side, type, price, stop, qty, lev, reduce].join('|')
+  const rejected = rejectedAt?.key === formKey ? rejectedAt.blocks : null
 
   const hints: string[] = []
   if (inst.market === 'cn' && !contract) hints.push('A 股 T+1：今日买入的股份明日才能卖出')
@@ -1088,7 +1118,13 @@ function OrderDrawer({ init, accounts, positions, risk, live, onClose, onPlace, 
   const submit = () => {
     setTried(true)
     if (errors.length || !account) return
-    if (blocks.length) { onReport('下单被风控拦截', `${inst.name} ${side === 'buy' ? '买入' : '卖出'} ${fmtQty(qtyN, symbol)}：${blocks.join('；')}`); return }
+    if (blocks.length) {
+      onReport('下单被风控拦截', `${inst.name} ${side === 'buy' ? '买入' : '卖出'} ${fmtQty(qtyN, symbol)}：${blocks.join('；')}`)
+      onRiskReject({ account_id: account.id, symbol, side, type, qty: qtyN, price: needPrice ? round(priceN, inst.digits) : undefined,
+        stop_price: needStop ? round(stopN, inst.digits) : undefined, reduce_only: contract ? reduce : undefined }, blocks.join('；'))
+      setRejected({ key: formKey, blocks })
+      return
+    }
     if (needConfirm && !confirming) { setConfirming(true); return }
     const limitPx = needPrice ? round(priceN, inst.digits) : undefined
     const reject = exchangeReject(account, inst, side, qtyN, type, limitPx, contract && reduce, positions, now)
@@ -1199,11 +1235,16 @@ function OrderDrawer({ init, accounts, positions, risk, live, onClose, onPlace, 
         {pos && <div className="run-muted tr-small">该账户已有{pos.side === 'long' ? '多' : '空'}仓 {fmtQty(pos.qty, symbol)}，成本 {fmtPrice(symbol, pos.avg_price)}</div>}
         {hints.length > 0 && <div className="tr-hints">{hints.map((h) => <div key={h}>{h}</div>)}</div>}
 
-        {blocks.length > 0 && (
+        {rejected ? (
           <div className="detail-alert tr-block">
-            <span><b>风控未通过</b>{tried ? '已记到运行异常。' : ''}调整后才能提交：
-              <ul>{blocks.map((b) => <li key={b}>{b}</li>)}</ul>
+            <span><b>风控未通过</b>这笔已记成被拒绝的委托，拦下的原因：
+              <ul>{rejected.map((b) => <li key={b}>{b}</li>)}</ul>
             </span>
+          </div>
+        ) : blocks.length > 0 && (
+          <div className="tr-hints">
+            <div><b>预检查</b>：提交后会按同样的规则拦下（正式版在后端拦），以拦截结果为准</div>
+            <ul className="tr-hint-list">{blocks.map((b) => <li key={b}>{b}</li>)}</ul>
           </div>
         )}
       </div>
@@ -1769,9 +1810,13 @@ function RiskView({ risk, onRisk, lossUsed, lossLimit, equity, today, halts, onK
         {!halts.length ? <div className="mount-empty">还没有熔断过</div> : (
           <div className="tr-list">
             {halts.map((h) => (
-              <div key={h.at} className="tr-list-row">
+              <div key={h.at} className="tr-list-row tr-halt-row">
                 <span className={cls('tr-dot', h.released_at ? 'off' : 'bad')} />
-                <span className="tr-list-main"><span>{h.reason}</span><span className="run-muted">{fmtTime(h.at)} 触发{h.released_at ? ` · ${fmtTime(h.released_at)} 解除` : ' · 未解除'}</span></span>
+                <span className="tr-list-main">
+                  <span><span className="tag tr-tag-sm tr-tag-first">{h.kind === 'auto' ? '自动' : '手动'}</span>{h.reason}</span>
+                  <span className="run-muted">{fmtTime(h.at)} 触发{h.runs_stopped !== undefined ? ` · 停掉 ${h.runs_stopped} 个部署、撤掉 ${h.orders_canceled ?? 0} 笔挂单` : ''}{h.released_at ? ` · ${fmtTime(h.released_at)} 解除` : ' · 未解除'}</span>
+                  {h.release_reason && <span className="run-muted">解除原因：{h.release_reason}</span>}
+                </span>
                 {!h.released_at && <span className="danger-text tr-small">进行中</span>}
               </div>
             ))}

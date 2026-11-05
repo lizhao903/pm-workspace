@@ -143,8 +143,8 @@ const PREVIEW_STATUS: Record<string, string> = {
   unsupported: '条件不适用于这个标的', unavailable: '行情源给不了这项数据',
 }
 
-/** 标的选择：搜标的表；为空时列当前自选里的；输入完整的 交易场所:代码 也能直接用 */
-function SymbolField({ value, inst, price, digits, onChange }: {
+/** 标的选择：搜标的表；为空时列当前自选里的；输入完整的 交易场所:代码 也能直接用。下单抽屉也用它（样式在 markets.css、monitor.css） */
+export function SymbolField({ value, inst, price, digits, onChange }: {
   value: string
   inst: TradeInstrument
   price?: number

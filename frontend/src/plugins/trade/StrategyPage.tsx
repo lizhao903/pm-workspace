@@ -1,27 +1,29 @@
 // 策略与回测（TRD-04c，SPEC-strategy-1 到 7）：二级菜单 + 策略库（默认）、编辑页、回测记录（含对比）、回测报告。
-// 路由挂在 strategy/* 下：/strategy 策略库，/strategy/s/<id> 编辑页，/strategy/backtests 回测记录，/strategy/backtests/<id> 回测报告。
+// 路由挂在 strategy/* 下：/strategy 策略库，/strategy/s/<id> 编辑页，/strategy/backtests 回测记录，/strategy/backtests/<id> 回测报告，/strategy/runs 运行记录。
 // 回测只在后端跑（排队、取真实历史 K 线、落库），这里只发起和展示；进度靠轮询（core/data/tradeStrategy.ts）。
-// 部署（TRD-05）、运行记录还没有后端：「部署」按钮不可点并写明原因，二级菜单不放「运行记录」。
+// 部署（TRD-05c 起）：「部署」跳到交易「策略运行」打开部署抽屉（/trading/runs?deploy=<策略 id>），只能部署到模拟盘；运行记录来自 /api/trade/runs。
 import { useEffect, useMemo, useState } from 'react'
 import { Navigate, useNavigate, useParams } from 'react-router'
 import {
-  QueryState, errorText, useCreateTradeStrategy, useTradeBacktests, useTradeStrategies, type TradeBacktestBrief, type TradeStrategy,
+  QueryState, errorText, useCreateTradeStrategy, useTradeBacktests, useTradeRuns, useTradeStrategies, type TradeBacktestBrief, type TradeStrategy,
 } from '../../core/data'
 import { Button, EmptyState, InSubnavHost, PageTitle, Pill, SearchSelect, Subnav, cls } from '../../core/ui'
 import { BacktestReportPage, BacktestsPage } from './BacktestPages'
 import { MARKETS } from './model'
 import { StrategyEditor } from './StrategyEditor'
+import { StrategyRunsPage } from './StrategyRuns'
 import { BT_STATUS, DIR_LABEL, MODE_LABEL, intervalLabel, instName, latestOf, marketOf, pctRaw, timeAgo } from './strategyModel'
 import { PlusIcon, ProgressBar, SearchIcon, Signed, SymTags } from './StrategyParts'
 import './strategy.css'
 
-type NavKey = 'list' | 'backtests' | `st:${string}`
-type Route = { kind: 'list' } | { kind: 'backtests' } | { kind: 'strategy'; id: string } | { kind: 'backtest'; id: string } | { kind: 'bad' }
+type NavKey = 'list' | 'backtests' | 'runs' | `st:${string}`
+type Route = { kind: 'list' } | { kind: 'backtests' } | { kind: 'runs' } | { kind: 'strategy'; id: string } | { kind: 'backtest'; id: string } | { kind: 'bad' }
 
 function routeOf(rest: string): Route {
   const seg = rest.split('/').filter(Boolean).map(decodeURIComponent)
   if (!seg.length) return { kind: 'list' }
   if (seg.length === 1 && seg[0] === 'backtests') return { kind: 'backtests' }
+  if (seg.length === 1 && seg[0] === 'runs') return { kind: 'runs' }
   if (seg.length === 2 && seg[0] === 'backtests') return { kind: 'backtest', id: seg[1] }
   if (seg.length === 2 && seg[0] === 's') return { kind: 'strategy', id: seg[1] }
   return { kind: 'bad' }
@@ -36,6 +38,7 @@ export default function StrategyPage() {
   const route = routeOf(rest)
   const strategies = useTradeStrategies()
   const backtests = useTradeBacktests()
+  const runs = useTradeRuns()
   const create = useCreateTradeStrategy()
   const now = useNow(60_000)
   const root = '/strategy'
@@ -52,11 +55,14 @@ export default function StrategyPage() {
   const select = (k: NavKey) => {
     if (k === 'list') void navigate(root)
     else if (k === 'backtests') void navigate(`${root}/backtests`)
+    else if (k === 'runs') void navigate(`${root}/runs`)
     else openStrategy(k.slice(3))
   }
   const running = bts.filter((b) => b.status === 'running').length
   // 打开的策略不在最近编辑里时，高亮「策略库」；看回测报告时高亮「回测记录」
-  const active: NavKey = route.kind === 'backtests' || route.kind === 'backtest' ? 'backtests'
+  const runBad = runs.data?.error ?? 0
+  const runLive = runs.data ? runs.data.running + runs.data.paused : 0
+  const active: NavKey = route.kind === 'runs' ? 'runs' : route.kind === 'backtests' || route.kind === 'backtest' ? 'backtests'
     : route.kind === 'strategy' && recent.some((s) => s.id === route.id) ? `st:${route.id}` : 'list'
 
   const subnav = (
@@ -67,6 +73,11 @@ export default function StrategyPage() {
         {
           key: 'backtests', label: '回测记录', alert: backtests.isError ? 0 : running, group: '视图',
           title: running ? `${running} 个回测运行中` : undefined, desc: running ? `${running} 个运行中` : undefined,
+        },
+        // 计数加载失败时同样不显示（SPEC-strategy-1.3、1.7）
+        {
+          key: 'runs', label: '运行记录', alert: runs.isError ? 0 : runBad, group: '视图', title: runBad ? `${runBad} 个运行异常` : undefined,
+          desc: runLive ? `${runLive} 个在模拟盘跑` : undefined,
         },
         ...recent.map((s) => ({
           key: `st:${s.id}` as NavKey, label: s.name || '未命名策略', desc: `${MODE_LABEL[s.mode]} · ${intervalLabel(s.interval)}`, group: '最近编辑', title: s.name,
@@ -96,6 +107,8 @@ export default function StrategyPage() {
         }}
       </QueryState>
     )
+  } else if (route.kind === 'runs') {
+    body = <StrategyRunsPage strategies={list} now={now} onOpenStrategy={openStrategy} onManage={() => void navigate('/trading/runs')} onToList={() => void navigate(root)} />
   } else if (route.kind === 'backtests') {
     body = (
       <QueryState query={backtests} errorTitle="回测记录没取到">
