@@ -207,6 +207,7 @@ func fillInputValues(ctx context.Context, h *runs, key string, list []RunBrief) 
 
 // markBriefQueued 给列表里在排队等模型名额的步骤标上 queue（同 engine.markQueued，按步骤 key 对）。
 func (e *engine) markBriefQueued(list []RunBrief) {
+	e.markBriefProviderWait(list)
 	if e == nil || e.gate == nil {
 		return
 	}

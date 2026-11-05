@@ -6,7 +6,7 @@ describe('视频创作插件', () => {
     const r = await loadPlugins(discoverPlugins(), { enabled: ['projects', 'video'], apiVersion: PLUGIN_API_VERSION })
     expect(r.problems).toEqual([])
     const video = r.plugins.find((p) => p.id === 'video')!
-    expect(video.permissions).toEqual(['fs:read:project', 'fs:write:project', 'network:media-platforms', 'process:spawn'])
+    expect(video.permissions).toEqual(['fs:read:project', 'fs:write:project', 'network:media-platforms', 'process:spawn', 'fs:read:registered'])
     expect(r.modules.filter((m) => m.plugin.id === 'video').map((m) => [m.def.id, m.def.label, m.def.path])).toEqual([['videos', '视频', 'videos']])
     // SOP 节点的展示：名字给流程图用，阶段、检查点按带不带检查点分开
     expect(sopNodeView('video_run_stage')?.label).toBe('跑视频阶段')

@@ -80,6 +80,8 @@ type RunStep struct {
 	Queue *StepQueue `json:"queue,omitempty"`
 	// Hold 是这一步因为超出治理上限被暂停的记录（AUTO-12，governance.go，迁移 0007）；没暂停过为 nil
 	Hold *StepHold `json:"hold,omitempty"`
+	// ProviderWait 是挂起等服务商恢复（TSK-0392，provider_wait.go）：只在接口回执行时按内存标上，不落库
+	ProviderWait *StepProviderWait `json:"provider_wait,omitempty"`
 }
 
 // StepQueue 是排队中的步骤前面还有几个（全插件的队列里）。
@@ -572,6 +574,8 @@ type StepBrief struct {
 	Status string `json:"status"`
 	// Queue 同 RunStep.Queue：在排队等模型名额时有（batch.go 的 markBriefQueued）
 	Queue *StepQueue `json:"queue,omitempty"`
+	// ProviderWait 同 RunStep.ProviderWait
+	ProviderWait *StepProviderWait `json:"provider_wait,omitempty"`
 }
 
 func brief(r *Run) RunBrief {
@@ -676,6 +680,11 @@ func (h *runs) list(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		fail(w, r, h.c, err)
 		return
+	}
+	// COUNT 和取列表是两条查询，中间执行器可能改了状态（比如重跑出的新执行刚失败），两边会对不上；
+	// 不满一页时列表就是全部，total 以列表为准
+	if len(out) < limit {
+		total = len(out)
 	}
 	h.e.markBriefQueued(out)
 	writeJSON(w, http.StatusOK, map[string]any{"data": out, "meta": map[string]int{"total": total}})

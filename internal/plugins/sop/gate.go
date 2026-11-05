@@ -159,6 +159,7 @@ func (g *modelGate) stats() (limit, active, waiting int) {
 
 // markQueued 给回给前端的执行标上排队中的步骤（只在内存里，不落库）。
 func (e *engine) markQueued(run *Run) {
+	e.markProviderWait(run)
 	if run == nil || e.gate == nil {
 		return
 	}

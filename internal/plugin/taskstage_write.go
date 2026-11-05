@@ -15,9 +15,13 @@ import (
 // 只改任务；阶段要是合法 key（domain.TaskStages），项目要是没删的项目。两样都没变时不写，回 Changed 为空。
 
 // TaskChange 是要改的阶段和所属项目，空串不改（本期不提供清掉阶段、解除项目）。
+// Status、OwnerID 是 TSK-0411 追加的：状态 key（按任务类型的状态集校验，空串不改）、负责人（联系人 id，nil 不改；
+// 不提供清掉负责人）。SOP 的 task 节点「更新已有任务」模式用。
 type TaskChange struct {
 	Stage     string
 	ProjectID string
+	Status    string
+	OwnerID   *string
 }
 
 // ChangedTask 是改完的任务。Changed 是这次真的改了的字段（stage、project_id），没变时为空。
@@ -29,6 +33,8 @@ type ChangedTask struct {
 	Stage     string
 	ProjectID string
 	Changed   []string
+	// OwnerID 是改后的负责人（TSK-0411），没有为空串
+	OwnerID string
 }
 
 // UpdateTask 改任务的阶段、所属项目，带操作者，改了时记审计。对象不存在、已删除回 domain.ErrNotFound；
@@ -42,8 +48,14 @@ func (w objectWriter) UpdateTask(ctx context.Context, id string, ch TaskChange, 
 	if !ok {
 		return ChangedTask{}, ErrWriteUnsupported
 	}
-	stage, pid := strings.TrimSpace(ch.Stage), strings.TrimSpace(ch.ProjectID)
-	if stage == "" && pid == "" {
+	stage, pid, status := strings.TrimSpace(ch.Stage), strings.TrimSpace(ch.ProjectID), strings.TrimSpace(ch.Status)
+	var owner string
+	if ch.OwnerID != nil {
+		if owner = strings.TrimSpace(*ch.OwnerID); owner == "" {
+			return ChangedTask{}, fmt.Errorf("%w: owner is empty", domain.ErrValidation)
+		}
+	}
+	if stage == "" && pid == "" && status == "" && owner == "" {
 		return ChangedTask{}, fmt.Errorf("%w: nothing to change", domain.ErrValidation)
 	}
 	if stage != "" && !domain.ValidTaskStage(stage) {
@@ -81,6 +93,15 @@ func (w objectWriter) UpdateTask(ctx context.Context, id string, ch TaskChange, 
 		patch.ProjectID = &v
 		fields = append(fields, "project_id")
 	}
+	// 状态合不合法由 store 按类型的状态集校验（不合法回 ErrValidation），负责人要是在名册里的联系人（store 校验）
+	if status != "" && cur.Status != status {
+		patch.Status = &status
+		fields = append(fields, "status")
+	}
+	if owner != "" && (cur.OwnerID == nil || *cur.OwnerID != owner) {
+		patch.OwnerID = &owner
+		fields = append(fields, "owner_id")
+	}
 	out := cur
 	if len(fields) > 0 {
 		if out, err = up.UpdateObject(ctx, cur.ID, patch, w.c.actor(m)); err != nil {
@@ -93,6 +114,9 @@ func (w objectWriter) UpdateTask(ctx context.Context, id string, ch TaskChange, 
 	res := ChangedTask{ID: out.ID, Ref: out.Ref, Title: out.Title, Status: out.Status, Stage: domain.StageOf(out.Props), Changed: fields}
 	if out.ProjectID != nil {
 		res.ProjectID = *out.ProjectID
+	}
+	if out.OwnerID != nil {
+		res.OwnerID = *out.OwnerID
 	}
 	return res, nil
 }

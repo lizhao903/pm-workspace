@@ -85,6 +85,21 @@ func (in *inbox) toTaskNode(ctx context.Context, c plugin.Core, n plugin.SOPNode
 			return nil, err
 		}
 	}
+	// 别的流程（消息分流的 task 节点等，TSK-0411）已经为这条消息建过任务：props.source_ref.message_id 指着它，取回那条、记到消息上
+	if rows, err := c.Objects().TaskStages(ctx, plugin.TaskStageQuery{MessageID: m.ID, Limit: 5}); err == nil {
+		for _, r := range rows {
+			o, err := c.Objects().Get(ctx, r.ID)
+			if err != nil || o.Deleted {
+				continue
+			}
+			if _, err := c.Store().Exec(ctx, `UPDATE im_messages SET task_id = ?, task_ref = ? WHERE id = ?`, o.ID, o.Ref, m.ID); err != nil {
+				return nil, err
+			}
+			t := in.taskInfo(o.ID, o.Ref, o.Title, o.Status, domain.StageOf(o.Props), o.ProjectID)
+			t["reused"] = true
+			return with(out, "task", t), nil
+		}
+	}
 	title := strings.TrimSpace(render(n.Config["title"], n.Input))
 	if title == "" {
 		title = defaultTaskTitle(m)
@@ -308,6 +323,10 @@ func (in *inbox) installIntake(ctx context.Context, c plugin.Core) error {
 	// 原型同步（AUTO-11，protosync.go）不在这条链上，单独写；项目插件旧版（没有原型同步节点）时下次再试
 	if _, err := in.installOnce(ctx, c, protoSyncFlow()); err != nil {
 		c.Log().Warn("im proto sync flow install failed", "err", err)
+	}
+	// 来消息确认派发（TSK-0411，taskconfirm.go）也不在这条链上，单独写；SOP 插件旧版（不认 task_update、task_run）时下次再试
+	if _, err := in.installOnce(ctx, c, taskConfirmFlow()); err != nil {
+		c.Log().Warn("im task confirm flow install failed", "err", err)
 	}
 	ok, err := in.installOnce(ctx, c, releasePipelineFlow())
 	if err != nil {

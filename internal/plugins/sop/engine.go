@@ -41,6 +41,8 @@ type engine struct {
 	cgate *modelGate
 	// claude 是在等的 Claude Code 运行，run.finished 来了叫醒（AUTO-01，nodes_claude.go）
 	claude claudeWaiters
+	// pwaits 是挂起等服务商恢复的步骤（TSK-0392，provider_wait.go）
+	pwaits providerWaits
 
 	mu    sync.Mutex
 	ctx   context.Context // 后台任务的 ctx，ready 关闭后才有
@@ -358,7 +360,7 @@ func (r *runner) resume() {
 			r.log(i, t, "服务重启后继续等待，到点时间不变")
 		case kind == "subflow" && s.ChildRunID != "":
 			r.log(i, t, "服务重启后继续等子流程")
-		case kind == claudeKind && s.Claude != nil:
+		case isClaudeKind(kind) && s.Claude != nil:
 			r.log(i, t, "服务重启后继续等 Claude Code")
 		case isWriteKind(kind):
 			// 写节点按原来那次尝试重跑，写过的按幂等键取回，不重复写（SOP-02a）
@@ -422,6 +424,12 @@ func (r *runner) loop(ctx context.Context) {
 				r.advance(now())
 				r.dispatch(ctx)
 				r.save(ctx)
+			case providerRetryMsg:
+				if r.providerRetry(m) {
+					r.advance(now())
+					r.dispatch(ctx)
+					r.save(ctx)
+				}
 			case resumeMsg:
 				err := r.resumeStep(m)
 				if err == nil {
@@ -575,7 +583,7 @@ func (r *runner) dispatch(ctx context.Context) {
 		case "subflow":
 			r.startSubflow(ctx, i)
 			continue
-		case claudeKind:
+		case claudeKind, taskRunKind:
 			r.dispatchClaude(ctx, i)
 			continue
 		case "wait":
@@ -635,7 +643,7 @@ func (r *runner) dispatch(ctx context.Context) {
 			} else if isPluginKind(def.Kind) {
 				res = runPluginNode(sctx, r.e.c, wr, def, orEmpty(input))
 			} else {
-				res = execNode(sctx, r.e.c, def, orEmpty(input), keys)
+				res = execGuarded(sctx, r.e.c, def, orEmpty(input), keys)
 			}
 			// 调完模型马上还名额，不等 runner 收结果
 			release()
@@ -791,7 +799,11 @@ func (r *runner) finish(m resultMsg) {
 	if res.log != "" {
 		r.log(m.step, t, res.log)
 	}
+	r.settleProvider(m.step, t, res)
 	switch {
+	case res.outage != nil && r.holdForProvider(m.step, t, res.outage):
+	case res.outage != nil:
+		r.failOnOutage(m.step, t, res)
 	case res.err != "":
 		r.fail(m.step, t, res.err)
 	case res.waiting != "":

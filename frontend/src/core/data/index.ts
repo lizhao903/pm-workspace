@@ -162,6 +162,9 @@ export type {
   SopRunBrief, SopRunSource, SopRunAction, SopStartInput, SopDraft, SopIssue, SopAssistReply, SopAssistInput, SopSettings,
   SopSettingsPatch, SopStepQueue, SopStepHold, SopWaitKind, SopWaitingItem, SopPipelineStep, SopPipelineRun, SopClaudeUsage, SopPipelineBudget, SopPipeline,
 } from './sop'
+// 挂起等服务商恢复（TSK-0392）
+export { isSopProviderWait } from './sop'
+export type { SopProviderWait } from './sop'
 // 任务阶段全集和阶段变化历史（AUTO-05、AUTO-12）
 export { TASK_STAGES, WAITING_STAGES, taskStageLabel, stageHistoryApi, useStageHistory } from './stageHistory'
 export type { TaskStage, StageChange } from './stageHistory'
@@ -246,6 +249,12 @@ export type {
 } from './videoPublish'
 export { videoCalendarApi, videoCalendarKeys, useVideoCalendar, calendarPollMs, isVideoEvent } from './videoCalendar'
 export type { VideoCalendar, VideoCalendarItem, VideoCalendarKind, VideoCalendarRange, VideoCalendarTone } from './videoCalendar'
+// 分镜和 B-roll 素材（TSK-0456）
+export {
+  storyboardApi, storyboardKeys, mediaFileUrl, mediaThumbUrl, useShots, useAddShot, usePatchShot, useRemoveShot, useReorderShots, useGenerateShots,
+  useAddBrolls, useReorderBrolls, usePatchBroll, useRemoveBroll, useMediaRoots, useAddMediaRoot, useRenameMediaRoot, useRemoveMediaRoot, useMediaBrowse,
+} from './storyboard'
+export type { VideoShot, VideoBroll, VideoMediaRoot, VideoMediaFile, VideoMediaListing, VideoMediaQuery, GenerateShotsResult } from './storyboard'
 
 export { browserKeys } from './browserKeys'
 export { BROWSER_MAX_STORED_TABS, browserApi, useBrowserGoogle, useBrowserGoogleLogin, useBrowserGoogleLogout, useBrowserAllowlist, useAddBrowserAllow } from './browser'
@@ -349,3 +358,12 @@ export type {
   TradeLiveBalance, TradeLivePosition, TradeLiveOrder, TradeLiveFill, TradeLiveSnapshot, TradeReconItem, TradeRecon, TradeReconRecord,
   TradeAudit, TradeLiveEvidence, TradeLiveCheckState, TradeLiveCheckKey, TradeLiveCheck, TradeLiveRecord, TradeLiveGate, TradeLiveAccountInput,
 } from './tradeLive'
+// B 站组件（TSK-0455）
+export {
+  videoBiliApi, videoBiliKeys, biliGuardOf, biliNeedsLogin, newClientMsgId, BILI_TEXT_MAX, useBiliAccounts, useBiliOverview, useBiliSessions,
+  useBiliMessages, useBiliQRCode, useBiliPoll, useBiliLogout, useBiliRefreshOverview, useBiliRefreshSessions, useBiliSyncTalker, useBiliSend,
+} from './videoBili'
+export type {
+  BiliAccount, BiliLogin, BiliGuard, BiliSnapshot, BiliTrend, BiliTrendMetric, BiliOverview, BiliSession, BiliMessage, BiliMessageStatus,
+  BiliQRCode, BiliPoll, BiliPollState, BiliSessions, BiliMessages,
+} from './videoBili'

@@ -243,6 +243,7 @@ type Core interface {
 	HTTP(group string) (*http.Client, error) // 只给 network:<group> 声明并确认过的组，每一跳查域名清单（VID-04a，3.1）
 	AttachmentDir() string                   // 数据目录下 attachments/ 的绝对路径，没接数据目录为空串（IM-04a）
 	WorktreeDir() string                     // 数据目录下 worktrees/ 的绝对路径，没接数据目录为空串；项目插件在这里建需求工作区（AUTO-07）
+	CacheDir() string                        // 数据目录下 cache/<插件 id>/ 的绝对路径，没接数据目录为空串；放缩略图这类能重新生成的东西（TSK-0456）
 	Agent() AgentService                     // 用默认服务商补全、按 Agent 的授权跑一轮、搜指定知识库（SOP-01c）
 	Granted(perm string) bool                // 用户确认过这项权限没有（SEC-01，2.13.16）
 	RevokePermission(ctx context.Context, perm string) error // 收回自己单独授予的权限（如 trade:live），只能收回不能授予（TRD-08c，2.13.26）
@@ -260,7 +261,7 @@ type Core interface {
 
 `RouteRegistrar` 沿用 `internal/api/server.go` 里的同名接口（`HandleFunc(pattern, handler)`），路径必须以 `/api/<id>/` 开头；内核在外面包一层，停用时整组返回 404。加了路由照旧要写进 `docs/api-contract.md`（契约测试双向检查）。
 
-内核对象只读句柄（已实现，`internal/plugin/store.go`）：`Objects().Get(ctx, id)` 返回 `ObjectInfo{ID, Type, Ref, Title, Workdir, Props, Deleted, Status, ProjectID}`（`ProjectID` 是对象所属项目，没挂项目为空串，AUTO-07 加），没有这个 id 返回 `ErrNoRows`。`Status` 是状态 key（按类型隔离，IM 的「等任务执行完成」节点看任务是不是 `done`，0.19.0 加）。`Props` 是对象的自定义字段（JSON 解开的 `map[string]any`，解不开为空 map），`Ref` 是给人看的编号（消息分流加，SOP 的写进项目目录要读项目的 `props.related`）。`Objects().Find(ctx, typeID, key)` 在一个类型里按 id、`ref`（不分大小写）、标题（完全相同）依次找没删的对象，标题重名取最早建的，都找不到返回 `ErrNoRows`（消息分流加，SOP 节点和 IM 的归到项目按「项目 id、编号或名字」认项目）。`Workdir` 是对象自身的 `workdir` 列，对项目就是 `root`，没设为空串，不往所属项目继承（TERM-01c 加）。项目根目录可能存成了 `file://` 地址，拿来当目录用之前过一遍 `plugin.LocalDir`（SEC-01 加：去掉前缀、按 URL 解码，不是 `file://` 的原样返回）。
+内核对象只读句柄（已实现，`internal/plugin/store.go`）：`Objects().Get(ctx, id)` 返回 `ObjectInfo{ID, Type, Ref, Title, Workdir, Props, Deleted, Status, ProjectID, OwnerID}`（`ProjectID` 是对象所属项目，没挂项目为空串，AUTO-07 加；`OwnerID` 是负责人联系人 id，没有为空串，TSK-0411 加），没有这个 id 返回 `ErrNoRows`。`Status` 是状态 key（按类型隔离，IM 的「等任务执行完成」节点看任务是不是 `done`，0.19.0 加）。`Props` 是对象的自定义字段（JSON 解开的 `map[string]any`，解不开为空 map），`Ref` 是给人看的编号（消息分流加，SOP 的写进项目目录要读项目的 `props.related`）。`Objects().Find(ctx, typeID, key)` 在一个类型里按 id、`ref`（不分大小写）、标题（完全相同）依次找没删的对象，标题重名取最早建的，都找不到返回 `ErrNoRows`（消息分流加，SOP 节点和 IM 的归到项目按「项目 id、编号或名字」认项目）。`Workdir` 是对象自身的 `workdir` 列，对项目就是 `root`，没设为空串，不往所属项目继承（TERM-01c 加）。项目根目录可能存成了 `file://` 地址，拿来当目录用之前过一遍 `plugin.LocalDir`（SEC-01 加：去掉前缀、按 URL 解码，不是 `file://` 的原样返回）。
 
 产物登记句柄（已实现，`internal/plugin/artifacts_write.go`，AUTO-08 加）：`Artifacts().Record(ctx, NewArtifact{ObjectID, Title, Path, BaseDir, Kind, Note, Props})` 回产物 id。走 `cmd/pmw` 交的外层 store（同 Claude Code 运行的产物登记），`source` 固定 `run`、`actor_type` 固定 `run`、`actor_id` / `actor_label` 为插件 id，`platform` 为 `local`，插件改不了；`ObjectID` 空串不挂对象；`Path` 可以是相对 `BaseDir` 的路径；`Kind` 是字典 `artifact_kind` 的 key（不认的回 `domain.ErrValidation`）。没接 store 回 `ErrNoObjectWriter`。只登记，不改、不删。项目插件用它把测试报告、截图登记为任务产出。
 
@@ -268,7 +269,7 @@ type Core interface {
 
 | 方法 | 做什么 |
 |---|---|
-| `Complete(ctx, CompleteRequest{System, Prompt, Provider, Model, Agent, Scenario})` | 不带工具补全一次，回模型说的原文。`Agent`（id 或名称）给了就用这个 Agent 的服务商、模型、思考档位，它的指令拼在 `System` 前面，`Provider`、`Model` 忽略；指定的 Agent 不存在或停用了报错。`Agent`、`Provider`、`Model` 都没给时按 `Scenario`（`plugin.ScenarioSOPAssist` / `plugin.ScenarioBackground`，空的算 background）用「设置 / Agent」里选的场景默认 Agent，没选或用不了照老样子。服务商取 `Provider`，没给取默认的（没有默认的取第一个启用的），`Model` 为空用服务商的模型；一个服务商都没有回 `agent.ErrNoProvider`。思考档位翻成各家参数、模型不认时自动去掉重来，插件不用管 |
+| `Complete(ctx, CompleteRequest{System, Prompt, Provider, Model, Agent, Scenario})` | 不带工具补全一次，回模型说的原文。`Agent`（id 或名称）给了就用这个 Agent 的服务商、模型、思考档位，它的指令拼在 `System` 前面，`Provider`、`Model` 忽略；指定的 Agent 不存在或停用了报错。`Agent`、`Provider`、`Model` 都没给时按 `Scenario`（`plugin.ScenarioSOPAssist` / `plugin.ScenarioBackground`，空的算 background）用「设置 / Agent」里选的场景默认 Agent，没选或用不了照老样子。服务商取 `Provider`，没给取默认的（没有默认的取第一个启用的），`Model` 为空用服务商的模型；一个服务商都没有回 `agent.ErrNoProvider`。思考档位翻成各家参数、模型不认时自动去掉重来，插件不用管。服务商不可用（熔断中，或自动重试 2 次仍是 5xx / 连不上）时：服务商设了「失败时改用」（`extra.fallback_id`）先改用备用服务商和它的默认模型；还不行回 `*plugin.ProviderUnavailableError`（即 `agent.UnavailableError`：`ProviderID`、`Provider`、`Cause` 原始失败、`Open` 是否已熔断、`RetryAt` 下次探测时间、`Fallback` 试过的备用服务商名），用 `plugin.AsProviderUnavailable(err)` 取，插件可以据此等服务商恢复再跑（SOP 的做法见 api-contract「等服务商恢复」）。`RunAgent` 也经过熔断，熔断中直接回这个错误，不改用备用 |
 | `RunAgent(ctx, AgentRunRequest{Agent, Prompt, Title})` | `Agent` 是 id 或名称，停用的不跑。新建一个挂这个 Agent 的会话（标题 `Title`），按它当前的服务商、模型、技能、工具授权跑一轮。遇到授权是「需确认」的工具不执行，回 `Waiting: true`、`Pending`（给人看的一句话）、`CallIDs`；人在会话里确认或拒绝后由对话接口接着跑 |
 | `AgentState(ctx, sessionID)` | 会话里最新一条 Agent 回复（`MessageID`、`Reply`）；回复里还有确认卡片时 `Waiting` 为真。插件靠「`MessageID` 变了、`Waiting` 为假」判断确认后这一轮跑完了 |
 | `SearchKB(ctx, kbIDs, query, top)` | 只在给的知识库里检索，回前 `top` 段（`KBHit` 即 `kb.SearchHit`）；`kbIDs` 为空直接报错，不搜全部 |
@@ -285,7 +286,7 @@ type Core interface {
 |---|---|
 | `ObjectWriter().CreateAs(ctx, NewObject, WriteMeta)` | 建对象，校验同 `POST /api/objects`；`NewObject.CategoryID` 是分类 id（可空） |
 | `ObjectWriter().AppendBody(ctx, id, text, WriteMeta)` | 在对象正文末尾追加一段，和原文空一行；对象不存在或已删除回 `domain.ErrNotFound` |
-| `ObjectWriter().UpdateTask(ctx, id, TaskChange{Stage, ProjectID}, WriteMeta) (ChangedTask, error)` | 改任务的阶段（`props.stage`）和所属项目（AUTO-06，`internal/plugin/taskstage_write.go`）。口径同 `PUT /api/objects/{id}/stage`：服务端读当前 props、只换 `stage` 一个键再写回，所属项目同一次写入；`object.stage_changed` 事件和阶段审计由 store 包装层发。空串表示不改（本期不提供清掉阶段、解除项目）；两样都空回 `domain.ErrValidation`。只改任务：不是任务、阶段不认（`domain.TaskStages`）、项目不存在或已删除回 `domain.ErrValidation`；对象不存在、已删除回 `domain.ErrNotFound`。同样的值再写一次不写库、不记审计，回 `Changed` 为空（天然幂等，不查 `WriteMeta.Key`）。改了时操作者「插件 id#Session」，记一条审计 `action=update`、`target_type=object`，`detail` 含 `ref`、`title`、`type_id`、`fields`（`stage` / `project_id`）、`from_stage`、`to_stage`，加 `WriteMeta.Detail`。`ChangedTask`：`{ID, Ref, Title, Status, Stage, ProjectID, Changed}` |
+| `ObjectWriter().UpdateTask(ctx, id, TaskChange{Stage, ProjectID, Status, OwnerID}, WriteMeta) (ChangedTask, error)` | 改任务的阶段（`props.stage`）和所属项目（AUTO-06，`internal/plugin/taskstage_write.go`）。口径同 `PUT /api/objects/{id}/stage`：服务端读当前 props、只换 `stage` 一个键再写回，所属项目同一次写入；`object.stage_changed` 事件和阶段审计由 store 包装层发。空串表示不改（本期不提供清掉阶段、解除项目）；两样都空回 `domain.ErrValidation`。只改任务：不是任务、阶段不认（`domain.TaskStages`）、项目不存在或已删除回 `domain.ErrValidation`；对象不存在、已删除回 `domain.ErrNotFound`。同样的值再写一次不写库、不记审计，回 `Changed` 为空（天然幂等，不查 `WriteMeta.Key`）。改了时操作者「插件 id#Session」，记一条审计 `action=update`、`target_type=object`，`detail` 含 `ref`、`title`、`type_id`、`fields`（`stage` / `project_id`）、`from_stage`、`to_stage`，加 `WriteMeta.Detail`。`ChangedTask`：`{ID, Ref, Title, Status, Stage, ProjectID, Changed, OwnerID}`。TSK-0411 追加：`Status` 是状态 key（空串不改，store 按任务类型的状态集校验，不认回 `domain.ErrValidation`；`object.status_changed` 照常发），`OwnerID` 是 `*string` 负责人联系人 id（nil 不改；不提供清掉负责人，给了空串回 `domain.ErrValidation`；联系人不存在回 `domain.ErrNotFound`）；四样都没给回 `domain.ErrValidation`；`Changed`、审计的 `fields` 多 `status`、`owner_id` |
 | `ContactWriter().Create(ctx, NewContact, WriteMeta)` | 建联系人（干系人名册），`Name` 必填，校验同 `POST /api/stakeholders` |
 | `ContactWriter().Merge(ctx, id, ContactPatch, WriteMeta)` | 把非 nil 的字段写进已有联系人，回 `WrittenContact{ID, Name, Fields}`，`Fields` 是改了的字段 |
 | `Contacts().FindByName(ctx, name)` | 只读：按名字找没归档的联系人，重名取最早建的，没有回 `ErrNoRows` |
@@ -583,6 +584,7 @@ r.Connector(plugin.ConnectorDef{
 | `Disconnect(ctx, id)` | 断开这个实例，口径同 `POST /api/connectors/{id}/disconnect`：状态置为 `disconnected`，OAuth 令牌删掉、授权状态清空。记一条审计（`action: disconnect`，`kind` 为 `agent`，操作者是插件 id），回断开后的 `ConnectorInfo` |
 | `With(ctx, id, fn)` | 把本插件登记的实例的配置交给回调，见下面「调对方接口时拿配置」（VID-04a） |
 | `RecordSync(ctx, id, syncErr)` | 记本插件登记的实例的一次同步结果，见 2.13.9（IM-01b） |
+| `SaveSession(ctx, id, secrets, account)` | 把插件自己拿到的登录态写进本插件登记的实例的保险箱条目，见 2.13.27（TSK-0455） |
 
 `ConnectorInfo` 另有 `Interval`（同步间隔，分钟，0 是不定时同步，IM-01b）；`SelfNames`（配置里的 `self_names`，用户自己填的「我的称呼」，逗号分隔，没填为空串，PR-19）：从普通配置读，不经保险箱。
 
@@ -1073,7 +1075,7 @@ type ObjectWriter interface {
 }
 ```
 
-- 谁能调：任何插件。只能建对象、追加正文、改任务阶段和所属项目（`UpdateTask`，AUTO-06），不能改别的字段、删除、建关联。校验同 `POST /api/objects`，错误可以 `errors.Is(err, domain.ErrValidation)`、`domain.ErrNotFound`。没接上回 `ErrNoObjectWriter`，接上的 store 不支持追加正文时回 `ErrWriteUnsupported`。
+- 谁能调：任何插件。只能建对象、追加正文、改任务阶段、所属项目、状态和负责人（`UpdateTask`，AUTO-06、TSK-0411），不能改别的字段、删除、建关联。校验同 `POST /api/objects`，错误可以 `errors.Is(err, domain.ErrValidation)`、`domain.ErrNotFound`。没接上回 `ErrNoObjectWriter`，接上的 store 不支持追加正文时回 `ErrWriteUnsupported`。
 - 权限：不要权限；暂不限制能建哪些类型，等 `ObjectService` 落地时按「本插件声明或认领的类型」收。
 - `Create` 和 `CreateAs` 的区别：`Create` 操作者记为插件 id、来源 `plugin`，修订、事件照常，不另记审计、没有幂等；`CreateAs`、`AppendBody` 带 `WriteMeta`，操作者、审计、幂等的口径见 2.0「带操作者和审计的写入」。两者的 `objects.source` 都固定是插件 id。
 
@@ -1145,12 +1147,13 @@ type ConnectorReader interface {
 	Disconnect(ctx context.Context, id string) (ConnectorInfo, error)
 	With(ctx context.Context, id string, fn func(ConnectorConfig) error) error // ConnectorConfig = connector.Config
 	RecordSync(ctx context.Context, id string, syncErr error) (ConnectorInfo, error)
+	SaveSession(ctx context.Context, id string, secrets map[string]string, account string) (ConnectorInfo, error) // TSK-0455，见 2.13.27
 }
 ```
 
 - 谁能调：
   - `Get`、`List`、`StartOAuth`、`Disconnect`：任何插件，能看到所有实例（含内核和别的插件的），但拿不到配置和凭证。
-  - `With`、`RecordSync`：只对本插件登记的实例（定义的 `Source` 是本插件 id）；别的实例、没有这个 id、本插件停用后定义不在了，都回 `ErrNoRows`。
+  - `With`、`RecordSync`、`SaveSession`：只对本插件登记的实例（定义的 `Source` 是本插件 id）；别的实例、没有这个 id、本插件停用后定义不在了，都回 `ErrNoRows`。
 - 权限：不要权限。授权、断开要用户在界面上点，插件只是替用户转一次；`With` 回调里出网仍要 `Core.HTTP(group)`，受 `network:<group>` 管。
 - 各方法的口径见 2.5 的「连接器实例句柄」表和「调对方接口时拿配置」。没接上回 `ErrNoConnectors`。
 
@@ -1228,6 +1231,27 @@ RecordSync(ctx context.Context, id string, syncErr error) (ConnectorInfo, error)
 if _, rerr := c.Connectors().RecordSync(ctx, cn.ID, err); rerr != nil {
 	c.Log().Warn("record slack sync failed", "connector", cn.ID, "err", rerr)
 }
+```
+
+#### 2.13.27 `Connectors().SaveSession`
+
+```go
+// internal/plugin/connectors_session.go，实现是 connector.Store.SaveSession（internal/connector/session.go）
+SaveSession(ctx context.Context, id string, secrets map[string]string, account string) (ConnectorInfo, error)
+```
+
+- 谁能调：任何插件，只对本插件登记的实例；别的实例、没有这个 id 回 `ErrNoRows`。没接上实现回 `ErrNoConnectors`。
+- 做什么：把插件自己拿到的登录态（如视频插件扫码登录 B 站网页端得到的 Cookie，TSK-0455）合进实例的保险箱条目。键必须以 `_` 开头（同 OAuth 令牌：不出 `secret_hints`、不在配置表单里，`Disconnect` 时一起删），否则回 `connector.ErrSessionKey`；值为空串表示清掉这一项，单项最多 8KB、不能带首尾空白。原有的表单凭证不动。`account` 非空时记成实例的账号。
+- 状态不动：成功与否由调用方再记一次 `RecordSync`（登录成功记 nil 恢复，退出登录记一条说明置为异常）。
+- 审计：动到了键就记一条（`action: connector_session`，`kind` 为 `agent`，操作者是插件 id），`detail` 是 `{tool, secrets: {键: "已更新" | "已清除"}}`，不记值。
+- 权限：不要权限，同 `RecordSync`；值只在调用期间经过，调用方不要留存、打日志、放进错误。
+
+例子（视频插件扫码成功后，`internal/plugins/video/biliapi.go`）：
+
+```go
+_, err := c.Connectors().SaveSession(ctx, cn.ID, map[string]string{
+	"_web_cookie": login.Cookie, "_web_csrf": login.CSRF, "_web_refresh": login.Refresh,
+}, nav.Uname)
 ```
 
 #### 2.13.10 IM 适配器的可选接口
@@ -1755,6 +1779,24 @@ func RequireUser(ctx context.Context, what string) error
 - 谁能调：接口层 `POST /api/plugins/{id}/permissions/grant` 只接受用户本人；`Core.RevokePermission` 给插件在自己的接口里收回（交易插件撤回评审时），不能在持有注册表锁的回调里调。
 - 「只接受用户本人」：内核区分用户和代理只有一种办法——请求的取证头 `X-Actor-Source`（前端的写请求一律 `ui`、不带会话标识；pmw-mcp 一律 `agent` 并带 `X-Actor-Session`；没带头的是 `api`）。`RequireUser` 要求 `ui` 且不带会话标识，插件接口里调它（交易插件的评审确认、实盘开关）。这只是请求自己声明的来源，不是认证：本机能发 HTTP 的进程（Claude Code 的 shell、SOP 的 HTTP 节点）伪造 `X-Actor-Source: ui` 就能过，要真正挡住得有用户会话或令牌（待定事项）。
 
+#### 2.13.28 `Core.CacheDir()`（TSK-0456）
+
+```go
+// internal/plugin/datadir.go
+const CacheSubdir = "cache"
+CacheDir() string // Core 的方法
+```
+
+- 谁能调：任何插件，拿到的是自己的目录：数据目录下的 `cache/<插件 id>/` 的绝对路径；没接数据目录（测试里常见）时为空串，调用方要按「没有缓存」降级。
+- 做什么：放能重新生成的东西（视频插件的缩略图）。同附件目录只给路径、不建目录，插件用的时候自己建；删了不丢数据，备份时可以跳过。
+- 权限：不要权限，写自己的缓存目录不算 `fs:write:*`；插件只往自己的缓存目录写，不往里放凭证、用户数据。
+- 例子（视频插件的缩略图，`internal/plugins/video/media.go`）：
+
+```go
+dir := filepath.Join(h.c.CacheDir(), "thumbs", name[:2])
+if err := os.MkdirAll(dir, 0o755); err != nil { return err }
+```
+
 ### 3.1 权限清单
 
 格式 `<类别>:<动作>[:<范围>]`。内核只认下表里的权限，未知权限 CORE-01b 校验报错。
@@ -1767,6 +1809,7 @@ func RequireUser(ctx context.Context, what string) error
 | `fs:write:attachments` | 写 `attachments/`（按渠道分子目录，见开发决策「消息附件存在哪」） | 普通 |
 | `fs:read:any` | 读本机任意路径（用户在文件选择器里选的除外，那个不需要权限） | 高 |
 | `fs:write:any` | 写本机任意路径 | 高 |
+| `fs:read:registered` | 只读用户在插件界面上逐个登记的本机目录（登记表和路径校验在插件里，见 3.3；TSK-0456） | 普通 |
 | `network:localhost` | 访问 127.0.0.1 和本机域名 | 普通 |
 | `network:im` | 访问 IM 平台（Slack、Telegram、飞书、企业微信的接口域名） | 普通 |
 | `network:media-platforms` | 访问视频平台 | 普通 |
@@ -1813,6 +1856,8 @@ func RequireUser(ctx context.Context, what string) error
 | 登记了 Host 处理器的插件（`domains`） | `network:localhost` | 内核按 Host 分发前查，没确认的不交给它（2.11） |
 | `trade` | `network:exchanges` | 交易所账户连通测试、同步前经 `Core.HTTP("exchanges")` 拿客户端，没确认时失败，账户的异常原因就是这句提示（0.5.0，TRD-07a） |
 | `trade` | `trade:live` | 实盘开关的闸门里查（0.6.0，TRD-08c）：打开开关要评审通过且 `Granted("trade:live")`；0.7.0（TRD-08d）起实盘下单、部署到实盘、恢复实盘部署每一笔都现查它（和评审、开关、读取 + 交易、交易所现查的 Key 权限一起），收回后下一笔就被拒、运行中的实盘部署自动暂停 |
+
+视频插件（TSK-0456）另有两处：读用户登记的素材目录（浏览、预览、缩略图、加 B-roll、检查文件在不在）前查 `fs:read:registered`，没确认时素材目录标成不可用，接口回 400，登记新目录回 409；取视频元数据、生成缩略图前查 `process:spawn`，没确认时降级成只显示文件信息。读工程目录照旧查 `fs:read:project`。
 
 `Granted` 不拿注册表的锁（后台任务里也会调，停用时等任务退出不能卡在锁上），状态变了由注册表换掉它看的权限集合。新加要高风险权限的代码路径时同样调 `Require`。
 
@@ -2042,6 +2087,8 @@ stateDiagram-v2
 | 1.0.0 | 2026-10-28 | 初版（CORE-01a） |
 | 1.1.0 | 2026-10-29 | `Core` 加 `Runs()`：发起 Agent、SOP 运行和交给 Claude Code，跑完给发起的插件投 `run.finished`（VID-03a） |
 
+补记（不改版本号，2026-11-05，TSK-0455）：`ConnectorReader` 加 `SaveSession(ctx, id, secrets, account)`（2.13.27），插件把自己拿到的登录态（`_` 开头的键）写进本插件登记的实例的保险箱条目，记只有键名的审计。视频插件实际清单升到 0.8.0：`provides.connectors` 加 `bilibili_web`（B 站网页端，扫码登录，非官方接口），迁移加 `0013_bilibili_web.sql`（表 `video_bili_profiles`、`video_bili_snapshots`、`video_bili_trends`、`video_bili_sessions`、`video_bili_messages`），后台任务加 `bili_inbox`（每 60 秒拉私信）、`bili_daily`（每小时看一遍当天快照），通知 kind 加 `video.bili_dm`；id 前缀登记 `bpm`（`video_bili_messages`）。权限不变：网页端域名都在 `network:media-platforms` 已有的 `*.bilibili.com` 里。只增不改。
+
 补记（不改版本号，2026-11-02，交给 Claude Code 两种方式）：`Registrar` 加 `ProjectPrototypes`（2.13.24），前端 `PluginApi` 加 `terminalLauncher`（2.13.25）。只增不改，按 1.3 是小版本，和下一条一起等用户定稿。
 
 补记（不改版本号，2026-11-02）：`ContactInfo` 加 `Email`，`IdentityReader` 加 `List(ctx, channel)`，IM 适配器加可选接口 `EmailLooker`（从 Slack 补联系人邮箱）。都是只增不改，按 1.3 是小版本，和上一条一起等用户定稿。
@@ -2056,6 +2103,8 @@ stateDiagram-v2
 
 补记（不改版本号，2026-11-04，AUTO-11）：项目插件实际清单（0.17.0）`sop_nodes` 加 `projects_proto_sync_range`、`projects_proto_sync_branch`、`projects_proto_sync_classify`、`projects_proto_sync_verdict`、`projects_proto_sync_commit`、`projects_proto_sync_record`，`emits` 加 `projects.proto_sync_changed`，`subscribes` 加 `run.finished`（自己发起的「原型同步」执行结束时收尾），迁移加 `0010_proto_syncs.sql`；id 前缀登记 `psy`（`projects_proto_syncs`）。IM 插件 0.23.0 只加内置流程（`sop_im_proto_sync`），清单不变。内核接口不变。
 
+补记（不改版本号，2026-11-05，TSK-0411）：`TaskChange` 加 `Status`、`OwnerID`，`ChangedTask` 加 `OwnerID`，`ObjectInfo` 加 `OwnerID`。IM 插件清单 `sop_nodes` 加 `im_ask_me`、`im_tell_me`，迁移加 `0013_ask_me.sql`（表 `im_ask_waits`），后台任务加 `ask_waits`；SOP 插件内置节点加 `task_run`、`task_update`（不加迁移）。两个插件的版本号由主会话统一升，IM 插件有新迁移，必须升版本走升级才会应用（不升时插件以「迁移待应用」不启动）。
+
 补记（不改版本号，2026-11-04，AUTO-06/07）：`ObjectWriter` 加 `UpdateTask`、类型 `TaskChange`、`ChangedTask`；IM 插件入口加 `WithPublicURL(url)`；`Core` 加 `WorktreeDir()`，`ObjectInfo` 加 `ProjectID`。项目插件实际清单（0.13.0）另有 `provides.settings: ["worktrees"]`、`sop_nodes` 含 `projects_list_profiles`、`projects_get_profile`、`projects_prepare_worktree`，`emits` 含 `projects.worktree_changed`，`subscribes` 为 `object.status_changed`、`object.stage_changed`。只增不改。
 
 补记（不改版本号，2026-11-04，需求到发布自动化一期）：`RunService` 加 `Cancel`，`ClaudeCodeStart` 加 `PresetID`、`FollowPreset`、`Timeout`、`RecordOnTask`、`ReportBack`，`RunInfo` 加 `Summary`、`Result`、`Reported`、`TaskRun`，插件运行的 `run.finished` 加 `summary`、`result`，总线 `run.finished` 加 `origin`；`ObjectReader` 加 `TaskStages`；内核事件加 `object.stage_changed`。内核钩子 `Registry.SetRunCallback`、`SetRunPresets`、`ReportRun`。都是只增不改，等用户定稿版本号。
@@ -2063,5 +2112,7 @@ stateDiagram-v2
 补记（不改版本号，2026-11-05，TRD-08c）：内核加「单独申请的权限」（2.13.26）：`SeparatePermissions`（现在只有 `trade:live`）安装、升级都不授予也不要求确认，`Registry.Grant`、`Revoke`，可选接口 `PermissionGuard`，`Core` 加 `RevokePermission`；只接受用户本人的判断 `RequestActor`、`ActorOf`、`RequireUser`（按取证头 `X-Actor-Source`）。插件管理接口加 `POST /api/plugins/{id}/permissions/grant`、`/revoke`，列表项加 `permissions_separate`。交易插件实际清单升到 0.6.0，`permissions` 加 `trade:live`（单独申请），迁移加 `0011_live_review.sql`（表 `trade_live_checks`、`trade_live_reviews`、`trade_live_switch`），实现 `PermissionGuard`（实盘评审通过才同意授予 `trade:live`）。仍然没有实盘下单的代码路径。只增不改。
 
 补记（不改版本号，2026-11-05，TRD-08d）：交易插件实际清单升到 0.7.0，迁移加 `0012_live_orders.sql`（`trade_orders` 加实盘委托的五列和两个索引）。实盘下单上线：`network:exchanges` 下的写请求只有下单、撤单、查单（`exchangeTradePaths`），只在插件的实盘闸门签发的一次性令牌下放行，闸门每笔现查评审、`Granted("trade:live")`、实盘开关、账户的读取 + 交易和交易所现查的 Key 权限；永不提币、划转、借贷。内核接口不变，`RequireUser` 不变（插件对实盘手动下单、部署到实盘多用了它）。
+
+补记（不改版本号，2026-11-05，TSK-0456）：权限清单加 `fs:read:registered`（3.1，普通级别：只读用户在插件界面上逐个登记的本机目录，范围由插件自己的登记表和路径校验收窄，比 `fs:read:any` 小）；`Core` 加 `CacheDir()`（2.13.28）。视频插件清单 `permissions` 末尾追加 `fs:read:registered`（升级时要确认），迁移加 `0014_storyboard.sql`（表 `video_shots`、`video_shot_brolls`、`video_media_roots`），id 前缀登记 `vsh`、`vbr`、`vmr`。只增不改。
 
 文档补记（不改版本号，DOC-02，2026-10-29）：补写 1.0.0 到 1.1.0 之间各批已经加进代码、文档没跟上的句柄和扩展点（2.13），2.0 的代码块、2.5 的连接器定义按代码改正。这些按 1.3 本该升小版本，发布前由用户定稿版本号时一起写进上表。

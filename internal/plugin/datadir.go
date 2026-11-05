@@ -35,3 +35,20 @@ func (c *core) WorktreeDir() string {
 	}
 	return filepath.Join(abs, WorktreesSubdir)
 }
+
+// 插件缓存目录（TSK-0456）：数据目录下的 cache/<插件 id>/，放能重新生成的东西（视频插件的缩略图）。
+// 同附件目录只给路径、不建目录；删了不丢数据，备份时可以跳过。写自己的缓存目录不要权限。
+
+// CacheSubdir 是缓存目录在数据目录下的名字。
+const CacheSubdir = "cache"
+
+func (c *core) CacheDir() string {
+	if c.reg == nil || c.reg.DataDir == "" || c.id == "" {
+		return ""
+	}
+	abs, err := filepath.Abs(c.reg.DataDir)
+	if err != nil {
+		return ""
+	}
+	return filepath.Join(abs, CacheSubdir, c.id)
+}

@@ -127,6 +127,12 @@ func TestNetworkAllows(t *testing.T) {
 		{"media-platforms", "https://www.googleapis.com/upload/youtube/v3/videos", true},
 		{"media-platforms", "https://www.googleapis.com/drive/v3/files", false},
 		{"media-platforms", "https://open.douyin.com/oauth/access_token/", true},
+		// B 站网页端（TSK-0455）：扫码登录、账号数据、创作中心、私信都在 *.bilibili.com 下
+		{"media-platforms", "https://passport.bilibili.com/x/passport-login/web/qrcode/poll", true},
+		{"media-platforms", "https://api.bilibili.com/x/web-interface/nav", true},
+		{"media-platforms", "https://member.bilibili.com/x/web/data/pandect?type=1", true},
+		{"media-platforms", "https://api.vc.bilibili.com/web_im/v1/web_im/send_msg", true},
+		{"media-platforms", "https://passport.biligame.com/x/passport-login/web/crossDomain", false},
 		{"market-data", "https://api.binance.com/api/v3/order", false},
 		{"market-data", "https://fapi.binance.com/fapi/v1/premiumIndex?symbol=BTCUSDT", true},
 		{"market-data", "https://fapi.binance.com/fapi/v1/ticker/bookTicker", true},

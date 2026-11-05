@@ -9,7 +9,13 @@ export type ProviderForm = {
   /** 默认模型（后端的 model） */
   model: string
   enabled: boolean
+  /** 失败时改用的服务商 id（extra.fallback_id，TSK-0392），空串不改用 */
+  fallback: string
 }
+
+/** 服务商 extra 里「失败时改用」的键，后端 agent.FallbackKey */
+export const FALLBACK_KEY = 'fallback_id'
+const extraFallback = (p: AgentProvider) => (typeof p.extra?.[FALLBACK_KEY] === 'string' ? (p.extra[FALLBACK_KEY] as string) : '')
 
 const extraIds = (p: AgentProvider) => (typeof p.extra?.model_ids === 'string' ? p.extra.model_ids : '')
 
@@ -20,9 +26,13 @@ export function initialForm(def: ProviderKindDef, p?: AgentProvider): ProviderFo
       values: { api_key: '', base_url: def.prefill ?? '', model_ids: '' },
       model: def.catalog[0]?.id ?? '',
       enabled: true,
+      fallback: '',
     }
   }
-  return { name: p.name, values: { api_key: '', base_url: p.base_url, model_ids: extraIds(p) }, model: p.model, enabled: p.enabled }
+  return {
+    name: p.name, values: { api_key: '', base_url: p.base_url, model_ids: extraIds(p) }, model: p.model, enabled: p.enabled,
+    fallback: extraFallback(p),
+  }
 }
 
 /** 必填没填的项。API Key 编辑时已经配过就不算没填（空着表示不改） */
@@ -40,6 +50,22 @@ function nextExtra(def: ProviderKindDef, f: ProviderForm, prev: Record<string, u
   const ids = f.values.model_ids.trim()
   if (def.fields.some((x) => x.key === 'model_ids') && ids) out.model_ids = ids
   else delete out.model_ids
+  if (f.fallback) out[FALLBACK_KEY] = f.fallback
+  else delete out[FALLBACK_KEY]
+  return out
+}
+
+/**
+ * 「失败时改用」的候选：别的已接入服务商（不含自己），停用的标出来不能选；
+ * 当前选的已经删了也列上，免得看不到。
+ */
+export function fallbackOptions(list: AgentProvider[], self: string | undefined, cur: string): { value: string; label: string; disabled?: boolean }[] {
+  const out: { value: string; label: string; disabled?: boolean }[] = [{ value: '', label: '不改用，直接报错' }]
+  for (const p of list) {
+    if (p.id === self) continue
+    out.push({ value: p.id, label: p.enabled ? `${p.name}${p.model ? ` · ${p.model}` : ''}` : `${p.name}（已停用）`, disabled: !p.enabled && p.id !== cur })
+  }
+  if (cur && !list.some((p) => p.id === cur)) out.push({ value: cur, label: '已删除的服务商' })
   return out
 }
 

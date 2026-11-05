@@ -15,11 +15,12 @@ import { PriorityBadge, StatusPill, TopicDrawer } from './topics'
 import { newId } from './ids'
 import { SKILLS, seedAgents } from './agentdata'
 import { SOPS } from './sopflow'
+import { StoryboardDesk } from './storyboard'
 
 // 视频：按 web-video-presentation 的流程管一集视频——阶段时间线、检查点、产出物（带比例、版本、验收）、设置
 // 数据约定在 videodata.ts；这里只读它的类型和常量
 
-export type VideoView = 'all' | 'review' | 'single' | `sr:${string}` | `video:${string}` | 'series' | 'publish' | 'topics' | 'clips' | 'calendar'
+export type VideoView = 'all' | 'review' | 'single' | `sr:${string}` | `video:${string}` | 'series' | 'publish' | 'topics' | 'clips' | 'calendar' | 'bilibili'
 
 const Pill = ({ label, color }: { label: string; color: string }) => <span className="pill" style={{ '--c': color } as React.CSSProperties}><span className="pill-dot" />{label}</span>
 const now = () => new Date().toISOString()
@@ -168,10 +169,12 @@ export function VideosNav({ videos, series, view, onSelect, onNew, pendingClips 
 
 /* ---------- 标签栏 ---------- */
 
-type ModuleTab = 'all' | 'review' | 'calendar' | 'topics' | 'clips' | 'series' | 'publish'
+type ModuleTab = 'all' | 'review' | 'calendar' | 'topics' | 'clips' | 'series' | 'publish' | 'bilibili'
 const MODULE_TABS: { key: ModuleTab; label: string }[] = [
   { key: 'all', label: '全部视频' }, { key: 'review', label: '待我处理' }, { key: 'calendar', label: '日历' }, { key: 'topics', label: '选题' },
   { key: 'clips', label: '素材收件箱' }, { key: 'series', label: '系列' }, { key: 'publish', label: '发布记录' },
+  // B 站组件（TSK-0455）：账户数据和私信，见 videobili.tsx
+  { key: 'bilibili', label: 'B 站' },
 ]
 const fromSeries = (v?: VideoView) => v === 'series' || !!v?.startsWith('sr:')
 /** 视图落在哪个标签：系列详情算「系列」，单集列表算「全部视频」；打开某一集时看从哪进来的，从系列进的算「系列」，其余算「全部视频」 */
@@ -1373,6 +1376,8 @@ function ScriptDesk({ v, mine, texts, topic, clips, runner, busy, onDraft, onEdi
   const [urlErr, setUrlErr] = useState('')
   const proposals = texts.filter((x) => x.draft === 'proposal')
   const drafting = v.last_run?.stage === 'script' && v.last_run.status === 'running'
+  // 文稿、分镜两个视图（TSK-0456）
+  const [view, setView] = useState<'text' | 'board'>('text')
   const links = topic ? clips.filter((c) => topic.clip_ids.includes(c.id) && c.url) : []
   const currentBody = (kind: TextKind, variant?: Orientation) => {
     const a = art(kind, variant)
@@ -1395,16 +1400,28 @@ function ScriptDesk({ v, mine, texts, topic, clips, runner, busy, onDraft, onEdi
       onEdit={(b) => onEdit(kind, variant, b)} onSave={(b, st) => onSave(kind, variant, b, st)} onSubmit={() => onSubmit(kind, variant)} onOpenArt={onOpenArt} />
   )
   const pLabel = (p: ScriptText) => `${p.variant && p.kind !== 'article' ? ORIENT[p.variant].label : ''}${TEXT_LABEL[p.kind]}`
+  // 分镜按当前口播稿（第一个比例，含没保存的草稿）生成，没有口播稿用大纲
+  const sbSource = (['script', 'outline'] as const).map((k) => ({ kind: k, version: art(k, os[0])?.version, body: currentBody(k, os[0]).body })).find((x) => x.body.trim())
   return (
     <div className="vd-desk">
       <div className="vd-desk-bar">
+        <span className="seg seg-sm">
+          <button className={cls(view === 'text' && 'on')} onClick={() => setView('text')}>文稿</button>
+          <button className={cls(view === 'board' && 'on')} onClick={() => setView('board')}>分镜</button>
+        </span>
+        {view === 'board' && <span className="spacer" />}
+        {view === 'board' && onClose && <button className="act act-quiet" onClick={onClose}>收起</button>}
+        {view === 'text' && <>
         <span className="run-muted vd-desk-hint">{topic ? `可以照选题「${topic.title || '未命名选题'}」的角度和大纲起草，也可以直接写` : '先在「选题」一步挂上选题，才能按大纲起草；也可以直接写'}</span>
         <span className="spacer" />
         {onClose && <button className="act act-quiet" onClick={onClose}>收起</button>}
         <button className="act act-primary" disabled={!topic || busy} title={!topic ? '先选好选题' : busy && !drafting ? '另一个阶段正在跑，等它跑完' : `交给${RUNNER_TYPE[runner.type]}「${runnerName(runner) ?? runner.ref_id}」起草`} onClick={onDraft}>
           {drafting ? '起草中…' : proposals.length ? '重新起草' : v.last_run?.stage === 'script' && v.last_run.status === 'failed' ? '重试起草' : '按选题大纲起草'}
         </button>
+        </>}
       </div>
+      {view === 'board' && <StoryboardDesk v={v} source={sbSource} />}
+      {view === 'text' && <>
 
       {drafting && <div className="vd-runner-state"><i className="vd-spin" />正在起草，开始于 {timeAgo(v.last_run!.started_at)}；跑完出初稿，对比后再决定用不用</div>}
       {v.last_run?.stage === 'script' && v.last_run.status === 'failed' && (
@@ -1476,6 +1493,7 @@ function ScriptDesk({ v, mine, texts, topic, clips, runner, busy, onDraft, onEdi
           </div>
         )}
       </section>
+      </>}
     </div>
   )
 }

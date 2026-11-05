@@ -116,9 +116,9 @@ func upstreamError(status int) error {
 	case status == http.StatusNotFound:
 		return fmt.Errorf("模型服务返回 404，请检查 base_url 与模型名是否正确")
 	case status == http.StatusTooManyRequests:
-		return transientError{"模型服务限流，请稍后再试"}
+		return transientError{msg: "模型服务限流，请稍后再试"}
 	case status/100 == 5:
-		return transientError{fmt.Sprintf("模型服务异常（HTTP %d）", status)}
+		return transientError{msg: fmt.Sprintf("模型服务异常（HTTP %d）", status), outage: true}
 	case status == http.StatusBadRequest || status == http.StatusUnprocessableEntity:
 		// 单独一类：带了模型不认的思考参数时换写法重来，见 thinking.go
 		return rejectedError{fmt.Sprintf("模型服务拒绝了这次请求（HTTP %d）", status)}
@@ -129,7 +129,11 @@ func upstreamError(status int) error {
 
 // transientError 是过一会儿再试大概率就好的失败：连不上、限流、上游 5xx。
 // 都发生在拿到响应头之前，模型还没吐过字，整轮重来不会重复输出。
-type transientError struct{ msg string }
+// outage 为真是服务商本身出了问题（5xx、连不上），熔断按它计数；限流不算，见 breaker.go。
+type transientError struct {
+	msg    string
+	outage bool
+}
 
 func (e transientError) Error() string { return e.msg }
 
@@ -148,6 +152,6 @@ func transportError(ctx context.Context, err error) error {
 	case ctx.Err() == context.DeadlineExceeded:
 		return fmt.Errorf("模型服务响应超时")
 	default:
-		return transientError{"无法连接到模型服务，请检查 base_url 与网络"}
+		return transientError{msg: "无法连接到模型服务，请检查 base_url 与网络", outage: true}
 	}
 }

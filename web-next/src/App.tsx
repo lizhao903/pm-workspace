@@ -50,6 +50,7 @@ import { RunPresetsPage } from './runpresetspage'
 import { cls } from './ui'
 import { PLATFORMS, PLATFORM_TOOL, STAGES, checkPublish, coverRatioOf, dealReport, seedArtifacts, seedDeals, seedPublishes, seedSeries, seedTexts, seedVideos, videoState, type Deal, type PlatformKey, type Publish, type Video } from './videodata'
 import { CalendarPage } from './videocalendar'
+import { BiliPage } from './videobili'
 import { DealDrawer, DealsTab, dueDeals, payText } from './videodeals'
 import { VideoDetail, VideosListPage, VideosTabs, type VideoView } from './videos'
 import { PublishPage, SeriesPage, type ChannelState } from './videopublish'
@@ -1596,7 +1597,7 @@ export default function App() {
     const current = drawer.kind === 'provider' ? providers.find((p) => p.id === drawer.id) ?? null : null
     const kind = current?.kind ?? (drawer.kind === 'new-provider' ? drawer.provider : 'anthropic')
     drawerEl = (
-      <ProviderDrawer key={current?.id ?? `new-${kind}`} provider={current} kind={kind} models={models} onClose={() => setDrawer(null)}
+      <ProviderDrawer key={current?.id ?? `new-${kind}`} provider={current} kind={kind} models={models} providers={providers} onClose={() => setDrawer(null)}
         onSave={(p, ms) => {
           setProviders((xs) => (xs.some((x) => x.id === p.id) ? xs.map((x) => (x.id === p.id ? p : x)) : [...xs, p]))
           setModels((xs) => [...xs.filter((m) => m.provider_id !== p.id), ...ms])
@@ -1994,6 +1995,7 @@ export default function App() {
             <ClipsPage clips={clips} topics={topics} onClips={setClips} onTopics={setTopics} tabs={videoTabs}
               onOpenTopic={(id) => { setTopicFocus((r) => ({ id, n: (r?.n ?? 0) + 1 })); setVideoView('topics') }} />
           )}
+          {page === 'videos' && videoView === 'bilibili' && <BiliPage tabs={videoTabs} />}
           {page === 'videos' && videoView === 'series' && (
             <SeriesPage series={series} videos={videos} onSeries={setSeries} onOpenSeries={(id) => setVideoView(`sr:${id}`)} tabs={videoTabs} />
           )}
