@@ -1,0 +1,49 @@
+/* 宽基监控（SPEC-etf） */
+.etf-page { display: flex; flex-direction: column; font-variant-numeric: tabular-nums; }
+.etf-tabs { margin-bottom: 16px; }
+.etf-notice { display: flex; align-items: center; gap: 8px; margin-bottom: 14px; padding: 8px 12px; border: 1px solid var(--accent-line); border-radius: var(--r); background: var(--accent-soft); font-size: 13px; }
+
+.etf-summary { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-bottom: 14px; }
+.etf-stat { display: flex; flex-direction: column; gap: 4px; min-width: 0; padding: 12px 14px; border: 1px solid var(--line); border-radius: var(--r); background: var(--panel); text-align: left; }
+.etf-stat-btn { cursor: pointer; }
+.etf-stat-btn:hover { border-color: var(--line-2); background: var(--hover); }
+.etf-stat-k { font-size: 12px; color: var(--faint); }
+.etf-stat-v { font-size: 17px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+.etf-scroll { position: relative; overflow-x: auto; overscroll-behavior-x: contain; border: 1px solid var(--line); border-radius: var(--r); background: var(--panel); }
+.etf-table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+.etf-table th { position: sticky; top: 0; padding: 8px 10px; border-bottom: 1px solid var(--line); background: var(--panel-2); color: var(--muted); font-weight: 500; text-align: left; white-space: nowrap; }
+.etf-table td { padding: 8px 10px; border-top: 1px solid var(--line); vertical-align: middle; white-space: nowrap; }
+.etf-table tbody tr:first-child td { border-top: 0; }
+.etf-table tbody tr:hover { background: var(--hover); }
+.etf-table .num { text-align: right; }
+.etf-table tr.is-off td { color: var(--faint); }
+.etf-table tr.sel { background: var(--accent-soft); }
+.etf-name { display: flex; flex-direction: column; gap: 2px; }
+.etf-code { font: 12px var(--mono); color: var(--muted); }
+.etf-sub { display: block; font-size: 11px; }
+.etf-hot { color: var(--danger); font-weight: 600; }
+.etf-spark { display: block; }
+.etf-tag { display: inline-flex; align-items: center; height: 18px; margin-left: 6px; padding: 0 6px; border-radius: 4px; background: var(--hover); color: var(--muted); font-size: 11px; font-weight: 500; vertical-align: middle; }
+.etf-tag-warn { background: var(--warn-soft); color: var(--warn); }
+.etf-btn-sm { height: 26px; padding: 0 10px; font-size: 12px; }
+.etf-hint { margin-top: -6px; font-size: 12px; }
+
+.etf-events { border: 1px solid var(--line); border-radius: var(--r); background: var(--panel); }
+.etf-ev { display: grid; grid-template-columns: 88px 64px minmax(0, 1fr) auto; align-items: center; gap: 12px; padding: 10px 14px; border-top: 1px solid var(--line); font-size: 13px; }
+.etf-ev:first-child { border-top: 0; }
+.etf-ev.is-done { opacity: 0.72; }
+.etf-ev-date { font: 12px var(--mono); color: var(--muted); }
+.etf-ev-main { min-width: 0; }
+.etf-ev-title { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-weight: 500; }
+.etf-ev-detail { margin-top: 3px; font-size: 12px; overflow-wrap: anywhere; }
+.etf-ev-acts { display: flex; align-items: center; gap: 6px; white-space: nowrap; font-size: 12px; }
+
+.etf-drawer { position: fixed; top: 0; right: 0; bottom: 0; width: min(var(--drawer-w), 100%); z-index: 40; box-shadow: var(--shadow-lg); }
+.etf-drawer .field select { width: 100%; min-width: 0; }
+
+@media (max-width: 760px) {
+  .etf-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .etf-ev { grid-template-columns: auto minmax(0, 1fr); }
+  .etf-ev-main, .etf-ev-acts { grid-column: 1 / -1; }
+}
