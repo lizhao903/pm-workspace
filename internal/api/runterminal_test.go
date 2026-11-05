@@ -22,10 +22,10 @@ func terminalFixture(t *testing.T) (*Server, *fakeStore, *domain.Object, string)
 		Statuses: []domain.Status{{Key: "todo", Label: "待办"}}}
 	f.types["project"] = &domain.ObjectType{ID: "project", Name: "项目", RefPrefix: "PRJ"}
 	wd := t.TempDir()
-	prj, err := f.CreateObject(t.Context(), &domain.Object{TypeID: "project", Title: "Octok", Workdir: wd,
+	prj, err := f.CreateObject(t.Context(), &domain.Object{TypeID: "project", Title: "Acme", Workdir: wd,
 		Props: map[string]any{"related": []any{
 			map[string]any{"path": "", "label": "空的跳过"},
-			map[string]any{"path": "file:///Volumes/docs/Know Me/Octok项目", "label": "Octok项目概况"},
+			map[string]any{"path": "file:///Volumes/docs/example/acme-project", "label": "acme-project概况"},
 		}}}, store.DefaultActor)
 	if err != nil {
 		t.Fatal(err)
@@ -70,7 +70,7 @@ func TestRunPromptPreview(t *testing.T) {
 	m := decodeEnvelope(t, do(s, "GET", "/api/objects/"+task.ID+"/run/prompt?extra_prompt="+url.QueryEscape("先列提纲"), ""))
 	d := m["data"].(map[string]any)
 	p := d["prompt"].(string)
-	for _, want := range []string{"## 所属项目\n名称：Octok", "文档在哪里操作：/Volumes/docs/Know Me/Octok项目（项目关联目录「Octok项目概况」）",
+	for _, want := range []string{"## 所属项目\n名称：Acme", "文档在哪里操作：/Volumes/docs/example/acme-project（项目关联目录「acme-project概况」）",
 		"这个项目没有登记原型目录，可在项目设置里补", "## 本次执行的补充要求\n先列提纲"} {
 		if !strings.Contains(p, want) {
 			t.Fatalf("预览里应有 %q:\n%s", want, p)
@@ -132,12 +132,12 @@ func TestRunTerminalHandoff(t *testing.T) {
 	}
 
 	// 回写收尾：结论落进 output，临时文件删掉
-	w = do(s, "POST", "/api/runs/"+h.Run.ID+"/finish", `{"status":"done","summary":"写完了 PRD，放在 Octok项目/需求"}`)
+	w = do(s, "POST", "/api/runs/"+h.Run.ID+"/finish", `{"status":"done","summary":"写完了 PRD，放在 acme-project/需求"}`)
 	if w.Code != http.StatusOK {
 		t.Fatalf("收尾：%d %s", w.Code, w.Body.String())
 	}
 	got, _ := f.GetTaskRun(t.Context(), h.Run.ID)
-	if got.Status != domain.RunDone || got.Output != "写完了 PRD，放在 Octok项目/需求" || got.FinishedAt == nil {
+	if got.Status != domain.RunDone || got.Output != "写完了 PRD，放在 acme-project/需求" || got.FinishedAt == nil {
 		t.Fatalf("收尾后：%+v", got)
 	}
 	if _, err := os.Stat(dir); !os.IsNotExist(err) {

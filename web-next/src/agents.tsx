@@ -869,7 +869,7 @@ export function AgentEditor({ agent, creating, ctx, models, conns, kbs, skills, 
                       </label>
                     ))}
                   </div>
-                  <input className={cls('mono', newDirErr && 'bad')} value={newKb.dir} placeholder="本地目录（可选），比如 /Volumes/docs/客户/远川科技" onChange={(e) => setNewKb({ ...newKb, dir: e.target.value })} />
+                  <input className={cls('mono', newDirErr && 'bad')} value={newKb.dir} placeholder="本地目录（可选），比如 /Volumes/docs/example-client" onChange={(e) => setNewKb({ ...newKb, dir: e.target.value })} />
                   {newDirErr && <span className="field-err">{newDirErr}</span>}
                   <div className="act-row">
                     <button className="act act-primary" disabled={!newKb.name.trim() || !!newDirErr || (!newKb.sources.length && !newDir)} onClick={createKb}>建好并挂上</button>

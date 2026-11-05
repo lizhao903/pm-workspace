@@ -449,7 +449,7 @@ function KbTab({ mounted, all, mountedIds, onToggle, onCreated }: {
             ))}
             {!cats.length && <span className="ag-sub">还没有文档分类</span>}
           </div>
-          <Input className="ag-mono" invalid={!!dirErr} value={form.dir} aria-label="本地目录" placeholder="本地目录（可选），比如 /Volumes/docs/客户/远川科技"
+          <Input className="ag-mono" invalid={!!dirErr} value={form.dir} aria-label="本地目录" placeholder="本地目录（可选），比如 /Volumes/docs/example-client"
             onChange={(e) => setForm({ ...form, dir: e.target.value })} />
           {dirErr && <span className="field-err">{dirErr}</span>}
           {err && <span className="field-err" role="alert">{err}</span>}

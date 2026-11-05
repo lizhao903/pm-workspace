@@ -8,11 +8,17 @@ import { ApiError, apiBase, errorCode } from './client'
 
 // 任务执行的事件，形状以 internal/runner 的 Event.MarshalJSON 为准。
 export type RunEvent =
-  | { type: 'start'; run_id: string; workdir: string }
+  // session_id 只有交给工作台 Agent（harness=agent）时有：这次用的 Agent 会话
+  | { type: 'start'; run_id: string; workdir: string; session_id?: string }
   | { type: 'delta'; text: string }
   // 工具调用开始；靠 id 和 tool_result 配对，被取消时可能等不到配对的结果
   | { type: 'tool'; id: string; name: string; detail: string }
-  | { type: 'tool_result'; id: string; name: string; ok: boolean; error: string }
+  // summary 只有工作台 Agent 的有：给人看的结果一句话
+  | { type: 'tool_result'; id: string; name: string; ok: boolean; error: string; summary?: string }
+  // 以下两种只有工作台 Agent 的有（TSK-0460）：要人确认的写操作，执行停下等（记录状态 waiting），
+  // 确认或拒绝走 /api/agent/tool-calls/{id}/confirm|reject；deadline 到了按拒绝处理，之后发 decision
+  | { type: 'confirm'; id: string; name: string; args: string; summary: string; deadline: string }
+  | { type: 'decision'; id: string; approved: boolean; reason: 'user' | 'timeout' | (string & {}) }
   // 收尾时登记的产出，在 done 之前发；path 相对 workdir
   | { type: 'artifact'; artifact_id: string; path: string; size: number; is_new: boolean }
   | { type: 'done'; run_id: string; exit_code: number }
@@ -221,7 +227,24 @@ async function toApiError(res: Response): Promise<ApiError> {
 
 // ---- 两个流式接口 ----
 
-export type RunRequest = { workdir?: string; extra_prompt?: string; allow_writes?: boolean; preset_id?: string }
+export type RunRequest = {
+  workdir?: string
+  extra_prompt?: string
+  allow_writes?: boolean
+  preset_id?: string
+  /** 执行器，空是 claude（TSK-0460 加 agent） */
+  harness?: 'claude' | 'deepseek' | 'agent'
+  /** deepseek / agent：用哪个服务商；agent 不给时用 Agent 设置的 */
+  provider_id?: string
+  /** deepseek / agent：接着上次同一执行器的会话；没有可续的 400 */
+  resume_session?: boolean
+  /** 以下只对 agent：交给哪个 Agent（空用场景「执行任务」选的）、模型、步数和时长上限、等确认多久按拒绝 */
+  agent_id?: string
+  model?: string
+  max_steps?: number
+  max_minutes?: number
+  confirm_wait_minutes?: number
+}
 
 export type ChatRequest = {
   session_id?: string

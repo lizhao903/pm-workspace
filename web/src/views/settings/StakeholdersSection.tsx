@@ -321,7 +321,7 @@ function StakeholderForm({ busy, initial, onCancel, onSubmit }: {
           <TextInput
             autoFocus
             value={d.name}
-            placeholder="李钊"
+            placeholder="张三"
             onValueChange={(v) => setD({ ...d, name: v })}
             onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); submit() } }}
           />

@@ -65,7 +65,7 @@ SOP 标签（`SPEC-projects-9`）由 PR-10 做；Agent 标签（`SPEC-projects-1
 | `desc` | `string` | 是 | 说明，可为空串 | `把工作台前端重做一版，先出可点的原型` |
 | `color` | `string` | 是 | 标志底色；新建时按 `PROJECT_COLORS` 轮流取 | `#3d4fd6` |
 | `mark` | `{ text: string; image?: string; icon?: string }` | 否 | 标志：内置图标 key、上传图片（data URL）或文字；都没有时取名称第一个字，名称也空时为「项」 | `{ text: '', icon: 'layout' }` |
-| `root` | `string` | 是 | 本地项目目录，绝对路径，可为空串；原型、文件类材料和文档的路径都相对它 | `/Volumes/project/0xBroleez/pm-workspace` |
+| `root` | `string` | 是 | 本地项目目录，绝对路径，可为空串；原型、文件类材料和文档的路径都相对它 | `/Volumes/project/example/pm-workspace` |
 | `related` | `RelatedDir[]` | 是 | 关联目录。SOP 节点「写进项目目录」（`local_append`，`SPEC-sop-11`）只能写进这里列的目录，按顺序（从 1 起）或名称选，默认第一个 | |
 | `agent_ids` | `string[]` | 是 | 项目 Agent，第一个是默认 | `['ag_weekly', 'ag_sop']` |
 | `chats` | `ProjectChat[]` | 是 | 绑定的沟通渠道 | |

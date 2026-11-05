@@ -21,7 +21,7 @@ func dataObject(t *testing.T, w *httptest.ResponseRecorder) map[string]any {
 
 func seedStakeholders(f *fakeStore) (active, archived *domain.Stakeholder) {
 	gone := time.Now()
-	active = &domain.Stakeholder{ID: "stk_1", Name: "李钊", Role: "研发", SortOrder: 10}
+	active = &domain.Stakeholder{ID: "stk_1", Name: "张三", Role: "研发", SortOrder: 10}
 	archived = &domain.Stakeholder{ID: "stk_9", Name: "已离职", SortOrder: 90, ArchivedAt: &gone}
 	f.stakeholdersMap()[active.ID] = active
 	f.stakeholdersMap()[archived.ID] = archived
@@ -60,7 +60,7 @@ func TestListStakeholdersArchivedParam(t *testing.T) {
 	assertError(t, w, http.StatusBadRequest, "validation")
 }
 
-// 名字全局唯一：出现两个「李钊」时用户无从选择，而错选的后果是任务分给了另一个人。
+// 名字全局唯一：出现两个「张三」时用户无从选择，而错选的后果是任务分给了另一个人。
 func TestCreateStakeholderDuplicateNameConflicts(t *testing.T) {
 	f := newFakeStore()
 	seedStakeholders(f)
@@ -74,7 +74,7 @@ func TestCreateStakeholderDuplicateNameConflicts(t *testing.T) {
 		t.Fatalf("name = %v", got)
 	}
 
-	w = do(s, http.MethodPost, "/api/stakeholders", `{"name":"李钊"}`)
+	w = do(s, http.MethodPost, "/api/stakeholders", `{"name":"张三"}`)
 	assertError(t, w, http.StatusConflict, "conflict")
 
 	w = do(s, http.MethodPost, "/api/stakeholders", `{"name":"  "}`)
@@ -166,8 +166,8 @@ func TestCreateObjectAcceptsOwnerAndParticipants(t *testing.T) {
 	if got["owner_id"] != "stk_1" {
 		t.Errorf("owner_id = %v", got["owner_id"])
 	}
-	if got["owner_name"] != "李钊" {
-		t.Errorf("owner_name = %v, 期望 李钊（列表要显示人名）", got["owner_name"])
+	if got["owner_name"] != "张三" {
+		t.Errorf("owner_name = %v, 期望 张三（列表要显示人名）", got["owner_name"])
 	}
 	parts, _ := got["participants"].([]any)
 	if len(parts) != 1 {
@@ -194,7 +194,7 @@ func TestUpdateObjectClearsOwnerAndParticipants(t *testing.T) {
 	active, _ := seedStakeholders(f)
 	f.objs["obj_1"] = &domain.Object{
 		ID: "obj_1", TypeID: "task", Title: "某任务", OwnerID: &active.ID,
-		Participants: []domain.StakeholderRef{{ID: active.ID, Name: "李钊"}},
+		Participants: []domain.StakeholderRef{{ID: active.ID, Name: "张三"}},
 	}
 	s := newTestServer(f)
 

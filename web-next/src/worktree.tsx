@@ -44,7 +44,7 @@ export interface WorktreeSettings { port_min: number; port_max: number; port_blo
 
 /** 工作台自己用的端口（生产 7796、测试实例 7807 / 7817 等），范围不能和它重叠 */
 export const RESERVED_RANGE = [7700, 7899] as const
-export const WORKTREE_DIR = '/Volumes/project/0xBroleez/pm-workspace/data-dev/worktrees'
+export const WORKTREE_DIR = '/Volumes/project/example/pm-workspace/data-dev/worktrees'
 
 const REASON: Record<Exclude<Worktree['removed_reason'], ''>, string> = {
   task_done: '任务完成后自动清理', task_cancelled: '任务取消后自动清理', released: '上线后自动清理', manual: '手动清理',
@@ -52,7 +52,7 @@ const REASON: Record<Exclude<Worktree['removed_reason'], ''>, string> = {
 
 const minsAgo = (m: number) => new Date(Date.now() - m * 60000).toISOString()
 const minsLater = (m: number) => new Date(Date.now() + m * 60000).toISOString()
-const PMW = '/Volumes/project/0xBroleez/pm-workspace'
+const PMW = '/Volumes/project/example/pm-workspace'
 
 export type TestStepKey = 'build' | 'test_env' | 'test' | 'smoke'
 export type TestStepStatus = 'pending' | 'running' | 'passed' | 'failed' | 'skipped' | 'stopped'

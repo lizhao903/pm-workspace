@@ -100,7 +100,7 @@ func rootForms() []string {
 }
 
 // within 判断 path 是否落在某个根之内。前缀后必须正好到头或紧跟一个分隔符——
-// 只比前缀的话，/Users/broleez 会把隔壁的 /Users/broleezevil 一起放进来。
+// 只比前缀的话，/Users/example 会把隔壁的 /Users/exampleevil 一起放进来。
 func within(path string, roots []string) bool {
 	for _, r := range roots {
 		r = strings.TrimSuffix(r, string(filepath.Separator))

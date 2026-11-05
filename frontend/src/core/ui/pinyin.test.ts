@@ -97,7 +97,7 @@ describe('拼音首字母', () => {
 
 describe('按姓名排序', () => {
   it('拉丁名和中文名混排时按索引字母排，# 在最后', () => {
-    const names = ['Zoe', '侯明', '刁亮', '刘一', '史强', 'alice', '123', '安然']
-    expect([...names].sort(compareNames)).toEqual(['安然', 'alice', '刁亮', '侯明', '刘一', '史强', 'Zoe', '123'])
+    const names = ['Zoe', '赵六', '王五', '孙七', '史强', 'alice', '123', '吴九']
+    expect([...names].sort(compareNames)).toEqual(['alice', '史强', '孙七', '王五', '吴九', '赵六', 'Zoe', '123'])
   })
 })

@@ -703,7 +703,7 @@ export const SOPS: Sop[] = [
     trigger: 'manual',
     fields: [
       { key: 'task_id', label: '需求任务', type: 'text', required: true, placeholder: '任务 id' },
-      { key: 'dir', label: '项目目录', type: 'text', required: true, default: '/Volumes/project/octok', placeholder: '本机绝对路径' },
+      { key: 'dir', label: '项目目录', type: 'text', required: true, default: '/Volumes/project/acme', placeholder: '本机绝对路径' },
     ],
     steps: [
       {
@@ -773,7 +773,7 @@ export const SOPS: Sop[] = [
       },
       {
         key: 'profiles', name: '读项目档案', kind: 'auto', ms: 300, after: ['ack'], desc: '列项目档案（项目插件 projects_list_profiles）：建过档案的项目摘要，给分类用',
-        run: (i) => ({ ...i, profiles_text: '- 产品工作台（PRJ-0001）：个人产品管理工具；关键词：需求、SOP\n- Octok（PRJ-0002）：桌面客户端；关键词：客户端、导出' }),
+        run: (i) => ({ ...i, profiles_text: '- 产品工作台（PRJ-0001）：个人产品管理工具；关键词：需求、SOP\n- Acme（PRJ-0002）：桌面客户端；关键词：客户端、导出' }),
       },
       {
         key: 'classify', name: '判断归属项目', kind: 'ai', ms: 1500, after: ['profiles'], config: { output: 'classify' },
@@ -783,7 +783,7 @@ export const SOPS: Sop[] = [
       {
         key: 'parse', name: '整理分类结果', kind: 'extract', ms: 600, after: ['classify'], config: { from: 'classify', fields: 'project_id、project、confidence、sure、candidates_text、reason' },
         desc: '把分类回答整理成字段',
-        run: (i) => ({ ...i, extracted: { project_id: 'p2', project: 'Octok', confidence: 0.9, sure: 'yes', candidates_text: '1. Octok（PRJ-0002）', reason: '说的是客户端导出' } }),
+        run: (i) => ({ ...i, extracted: { project_id: 'p2', project: 'Acme', confidence: 0.9, sure: 'yes', candidates_text: '1. Acme（PRJ-0002）', reason: '说的是客户端导出' } }),
       },
       {
         key: 'sure', name: '拿得准吗', kind: 'decide', ms: 300, after: ['parse'], rule: 'extracted.sure 等于 yes',
@@ -794,16 +794,16 @@ export const SOPS: Sop[] = [
       {
         key: 'bind_auto', name: '绑定项目', kind: 'auto', ms: 300, after: ['sure'], branch: { of: 'sure', case: 'yes' },
         desc: '设置任务阶段（IM 插件 im_set_task_stage）：任务归到分类给出的项目',
-        run: (i) => ({ ...i, project: { id: 'p2', name: 'Octok' } }),
+        run: (i) => ({ ...i, project: { id: 'p2', name: 'Acme' } }),
       },
       { key: 'ask_stage', name: '阶段改为待确认项目', kind: 'auto', ms: 300, after: ['sure'], branch: { of: 'sure', case: 'no' }, desc: '设置任务阶段：confirm_project' },
       { key: 'ask', name: '问提出人归哪个项目', kind: 'auto', ms: 400, after: ['ask_stage'], desc: '回复原消息：列出候选项目，请对方回复项目名或编号' },
       { key: 'wait', name: '等提出人回复', kind: 'wait', ms: 2500, after: ['ask'], desc: '等待回复（IM 插件 im_wait_reply）：会话里对方的下一条消息，最多 2 天', config: { duration: '2 天' } },
       { key: 'pick', name: '认出选的项目', kind: 'ai', ms: 900, after: ['wait'], desc: '从回复里认出选的项目，只回项目 id', config: { output: 'picked' }, run: (i) => ({ ...i, picked: 'p2' }) },
-      { key: 'bind_pick', name: '绑定项目', kind: 'auto', ms: 300, after: ['pick'], desc: '设置任务阶段：任务归到提出人选的项目', run: (i) => ({ ...i, project: { id: str(i.picked), name: 'Octok' } }) },
+      { key: 'bind_pick', name: '绑定项目', kind: 'auto', ms: 300, after: ['pick'], desc: '设置任务阶段：任务归到提出人选的项目', run: (i) => ({ ...i, project: { id: str(i.picked), name: 'Acme' } }) },
       {
         key: 'profile', name: '读项目档案', kind: 'auto', ms: 300, after: ['bind_auto', 'bind_pick'], desc: '读项目档案（项目插件 projects_get_profile）：取原型库、PRD、代码库目录',
-        run: (i) => ({ ...i, profile: { name: 'Octok', dirs: { code: '/Volumes/project/octok', prototype: '/Volumes/project/octok/web-next', prd: '/Volumes/project/octok/docs/prd' } } }),
+        run: (i) => ({ ...i, profile: { name: 'Acme', dirs: { code: '/Volumes/project/acme', prototype: '/Volumes/project/acme/web-next', prd: '/Volumes/project/acme/docs/prd' } } }),
       },
       { key: 'design', name: '阶段改为设计中', kind: 'auto', ms: 300, after: ['profile'], desc: '设置任务阶段：designing；评审退回时也从这里重来' },
       {
@@ -857,7 +857,7 @@ export const SOPS: Sop[] = [
       },
       {
         key: 'worktree', name: '准备工作区', kind: 'auto', ms: 500, after: ['profile'], desc: '准备工作区（项目插件 projects_prepare_worktree）：任务独立的 worktree 和分支 auto/<任务编号>，分一段端口',
-        run: (i) => ({ ...i, worktree: { path: '/Volumes/project/0xBroleez/pm-workspace/data-dev/worktrees/pj_perm/T-017', branch: 'auto/T-017', port_start: 7920 } }),
+        run: (i) => ({ ...i, worktree: { path: '/Volumes/project/example/pm-workspace/data-dev/worktrees/pj_perm/T-017', branch: 'auto/T-017', port_start: 7920 } }),
       },
       { key: 'dev_stage', name: '回到开发中', kind: 'auto', ms: 200, after: ['worktree'], desc: '设置任务阶段：developing；测试没通过、验收发现实现缺陷时退回到这里' },
       {

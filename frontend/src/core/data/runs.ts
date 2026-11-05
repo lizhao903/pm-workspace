@@ -2,6 +2,7 @@
 // 执行开始报 run-started，收尾报 run-settled（执行过程中可能改了对象、登记了产出物），取消报 run-canceled。
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { runObject, runs, type FinishRunInput, type RunDone, type RunEvent, type RunPreset, type RunPromptParams, type RunRequest, type StreamOptions, type TaskRun, type TerminalRunRequest } from '../api'
+import { streamDecision } from './agent'
 import { notifyChange, useNotifyChange } from './invalidate'
 import { dataKeys } from './keys'
 
@@ -10,7 +11,8 @@ const LIMIT = 100
 // 有记录在跑时多久刷一次。输出只在收尾时落库，轮询只为拿到最终状态
 const POLL_MS = 2000
 
-export const runFinished = (r: Pick<TaskRun, 'status'>) => r.status !== 'running' && r.status !== 'pending'
+// waiting 是交给工作台 Agent 的执行在等人确认（TSK-0460），也没结束
+export const runFinished = (r: Pick<TaskRun, 'status'>) => r.status !== 'running' && r.status !== 'pending' && r.status !== 'waiting'
 
 // 最近的在前（后端排序）；有没收尾的记录时轮询
 export function useTaskRuns(objectId: string) {
@@ -55,6 +57,16 @@ export function streamRun(objectId: string, req: RunRequest = {}, opts: StreamOp
       if (e.type === 'start') void notifyChange({ kind: 'run-started', objectId })
     },
   }).finally(() => void notifyChange({ kind: 'run-settled', objectId }))
+}
+
+/**
+ * 确认或拒绝工作台 Agent 执行里一次要人确认的写操作（TSK-0460）：和会话里同一个接口，在途的执行接着跑，
+ * 过程在执行自己的流里；这里只等接口回 done，收尾按 run-settled 刷执行记录（状态从 waiting 回到 running）。
+ */
+export function decideRunCall(callId: string, approve: boolean, objectId: string, sessionId?: string): Promise<void> {
+  return streamDecision(callId, approve, sessionId).done
+    .then(() => undefined)
+    .finally(() => void notifyChange({ kind: 'run-settled', objectId }))
 }
 
 /** 提示词预览（0048）：弹窗里随方式、目录、附加说明变；切换参数时先留着上一份，免得闪空 */

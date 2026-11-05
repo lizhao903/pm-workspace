@@ -34,12 +34,12 @@ describe('filterPalette', () => {
 describe('arrangeFound', () => {
   it('按项目、任务、联系人、消息排组，其余组在后面，组内保持原顺序', () => {
     const found = [
-      it_('u1', '联系人', '常乐'),
+      it_('u1', '联系人', '周七'),
       it_('x1', '文档', '周报'),
       it_('t1', '任务', 'TSK-1'),
-      it_('u2', '联系人', '常乐乐'),
+      it_('u2', '联系人', '周七乐'),
       it_('t2', '任务', 'TSK-2'),
-      it_('p1', '项目', 'Octok'),
+      it_('p1', '项目', 'Acme'),
     ]
     expect(arrangeFound(found).map((x) => x.id)).toEqual(['p1', 't1', 't2', 'u1', 'u2', 'x1'])
   })

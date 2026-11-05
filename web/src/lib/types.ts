@@ -142,7 +142,7 @@ export interface ObjectQuery {
   priority?: string[]
   tag?: string[]
   /** 按干系人 id 筛负责人。0010 起取代了原来的 owner 文本匹配——
-   *  一个语义只留一个定义，否则「宋一杰、李钊、振华」按文本搜得到、按 id 搜不到 */
+   *  一个语义只留一个定义，否则「示例甲、示例乙、示例丙」按文本搜得到、按 id 搜不到 */
   owner_id?: string
   project?: string
   q?: string

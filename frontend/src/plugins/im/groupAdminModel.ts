@@ -64,8 +64,8 @@ export const pickedGroups = (rows: readonly ImConversationSummary[], sel: Readon
  * 所以「-ns-」能认出 #fde-bi-ns-support、#ns-ops，认不出 #dns、#ins。
  */
 export const SUGGEST_RULES: { keyword: string; projects: string[] }[] = [
-  { keyword: 'octok', projects: ['Octok'] },
-  { keyword: 'xaue', projects: ['XAUE'] },
+  { keyword: 'acme', projects: ['Acme'] },
+  { keyword: 'globex', projects: ['Globex'] },
   { keyword: '-ns-', projects: ['NS 系统', 'NS'] },
 ]
 /** 项目名本身也当关键字，太短的（少于 3 个字）不算，免得误认 */
@@ -132,7 +132,7 @@ export function adoptable(rows: readonly ImConversationSummary[], sugg: Readonly
   })
 }
 
-/** 把建议说成一句：「群名里有「octok」」，悬停用 */
+/** 把建议说成一句：「群名里有「acme」」，悬停用 */
 export const suggestReason = (x: Suggestion) => `群名里有${x.hits.map((h) => `「${h}」`).join('、')}`
 
 // ---- 批量请求 ----
@@ -148,7 +148,7 @@ export function chunks<T>(xs: readonly T[], size = GROUP_BATCH_MAX): T[][] {
 export const mergeResults = (rs: readonly ImConvProjectBatchResult[]): ImConvProjectBatchResult =>
   ({ updated: rs.flatMap((r) => r.updated), failed: rs.flatMap((r) => r.failed) })
 
-/** 批量结果的一句话；verb 是「设为 Octok」「清除归属」「采纳建议」这类 */
+/** 批量结果的一句话；verb 是「设为 Acme」「清除归属」「采纳建议」这类 */
 export function resultText(r: ImConvProjectBatchResult, verb: string, nameOf: (id: string) => string): { text: string; bad: boolean } {
   const ok = r.updated.length
   if (!r.failed.length) return { text: `已${verb}：${ok} 个会话`, bad: false }

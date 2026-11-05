@@ -74,7 +74,7 @@
 | `project_removed` | `string` | 否 | 原属项目被删时记下的项目名，任务上提示「原属项目已删除」；重新选了项目后清掉 | `远川科技权限改造` |
 | `acceptance` | `string` | 否 | 开发任务的验收标准，Markdown 清单 `- [ ] …`（正式产品存 `props.acceptance`） | `- [ ] 12 万行的导出 60 秒内完成` |
 | `workdir` | `string` | 否 | 开发任务的工作目录，本机绝对路径；没设时继承所属项目的根目录（正式产品是 `workdir` 列） | `/Volumes/project/clients/yuanchuan-permission/server` |
-| `repo` | `string` | 否 | 关联仓库，远端地址或本机绝对路径，只放一个（正式产品存 `props.repo`） | `/Volumes/project/0xBroleez/pm-workspace` |
+| `repo` | `string` | 否 | 关联仓库，远端地址或本机绝对路径，只放一个（正式产品存 `props.repo`） | `/Volumes/project/example/pm-workspace` |
 | `stage` | `string` | 否 | 阶段（AUTO-05），提出人在看板上看到的流程进度，和状态是两套、不联动；取值见 `SPEC-tasks-11` 阶段表，没设时没有这个字段（正式产品存 `props.stage`，改阶段走 `PUT /api/objects/{id}/stage`） | `designing` |
 | `stage_log` | `{at, from, to}[]` | 否 | 阶段变化历史（AUTO-12），早的在前，`from`、`to` 没设阶段为空串；流水线时间线（`SPEC-sop-16`）按它算每个阶段停留多久。正式产品不存在任务上，取审计 `kind=stage` | `[{at: "2026-11-04T09:00:00Z", from: "", to: "received"}]` |
 | `requester` | `TaskRequester` | 否 | 提出人（AUTO-05）：认到联系人时 `{ contact_id, name, channel?, sender_id? }`，认不上时存 IM 发送者快照 `{ name, channel, sender_id, sender_name }`；IM 转来的自动填（正式产品存 `props.requester`） | `{ contact_id: 'ct_005', name: '许知行', channel: 'lark', sender_id: 'ou_7f3a9c21' }` |
@@ -707,7 +707,7 @@ stateDiagram-v2
 | SPEC-tasks-6.15 | 「在终端中打开」 | 点击 | 关闭弹窗，执行记录记一条进行中的终端执行（`SPEC-tasks-5.30`），跳到一级菜单「终端」，新开一个标签（名字是任务编号）停在工作目录，执行渲染好的启动命令（`SPEC-terminal-1.17`、`SPEC-settings-22`）。不领取、不改状态，这些由终端里的 claude 经 MCP 做。正式产品：`POST /api/objects/{id}/run/terminal` 建执行记录（`mode: terminal`）、把提示词和 MCP 配置写进工作台数据目录下的临时子目录，再由终端插件开会话执行命令；命令只在点了这个按钮后执行。发起时状态改为进行中（6.17），领取、进展由终端里的 claude 经 MCP 做 |
 | SPEC-tasks-6.17 | 发起后任务的状态 | 「开始执行」/「在终端中打开」 | 交出去就算开工：任务状态不是进行中、已完成、已取消的改为进行中（未开工、待验收、受阻都改），列表、抽屉、计数马上跟着变。已完成、已取消的不动。正式产品由后端在建执行记录后改（`POST /api/objects/{id}/run`、`/run/terminal`），照常记修订；改不成不挡执行 |
 | SPEC-tasks-6.18 | 「角色」 | 选择 | 工作目录下面、「允许写入」上面一个下拉（AUTO-03 前叫「预置提示词」）：「不用」加上设置里录的各个角色（标题是角色场景，只读的后面写「（只读）」，默认的后面写「（默认）」）。打开时选上标了默认的那个，没有默认选「不用」。下面一行灰字是所选的执行要求（最多三行高，可滚），有输出要求时再一行「输出要求：…」；选「不用」写「不带角色的执行要求，只按任务内容和附加说明执行」。终端方式选了只读角色时再一行「终端方式的权限由启动命令决定：只读角色只在提示词里写明不改文件」。右上「管理角色」关掉弹窗去「设置 / 角色」（`SPEC-settings-24`）。选了的拼进提示词「执行要求（<角色场景>）」一节（在「所属项目」之后、「本次执行的补充要求」之前）：执行要求，只读角色加一段「这个角色只读：不要创建、修改或删除任何文件，结论写在回复里。」，有输出要求时加「输出要求：」和原文；提示词预览跟着变。流式执行的「允许写入」跟着角色走（6.3）。正式产品请求和预览多带 `preset_id`，选的那个刚被删掉时后端回 400；只读角色后端把 `allow_writes` 压成 `false`，不加 `--permission-mode acceptEdits` |
-| SPEC-tasks-6.19 | 工作目录里的软链接目录 | 执行 | 工作目录本层和下一层里软链接指向、实际路径在工作目录外的目录（比如 `Know Me/Octok项目/云端功能需求` 指向 `PRDs/Octok/云端功能需求`），流式执行时逐个追加 `--add-dir <实际路径>`（最多 20 个），否则 Claude Code 按实际路径判断、读这些目录会被挡下。界面上没有变化。终端方式的权限和目录由启动命令决定，不加 |
+| SPEC-tasks-6.19 | 工作目录里的软链接目录 | 执行 | 工作目录本层和下一层里软链接指向、实际路径在工作目录外的目录（比如 `example/acme-project/云端功能需求` 指向 `PRDs/Acme/云端功能需求`），流式执行时逐个追加 `--add-dir <实际路径>`（最多 20 个），否则 Claude Code 按实际路径判断、读这些目录会被挡下。界面上没有变化。终端方式的权限和目录由启动命令决定，不加 |
 
 ### 空状态和异常状态
 

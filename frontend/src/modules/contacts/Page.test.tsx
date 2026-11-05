@@ -68,14 +68,14 @@ describe('联系人列表', () => {
 
   it('搜索覆盖备注和角色，多个词可以分别命中不同字段', async () => {
     fakeBackend([
-      ct({ name: '常乐', company: 'Northstar', tags: ['Octok'], note: 'Octok：fleetent 团队负责人\n别名：Randy、乐哥' }),
-      ct({ name: 'Abby Chua', role: '产品 / 文案，XAUE 信用卡运营执行' }),
-      ct({ name: '周岚', company: 'XAUE' }),
+      ct({ name: '周七', company: 'Northstar', tags: ['Acme'], note: 'Acme：fleetent 团队负责人\n别名：Randy、乐哥' }),
+      ct({ name: 'Abby Chua', role: '产品 / 文案，Globex 信用卡运营执行' }),
+      ct({ name: '周岚', company: 'Globex' }),
     ])
     mount()
-    await screen.findByText('常乐')
+    await screen.findByText('周七')
     const box = screen.getByRole('searchbox', { name: '搜索联系人' })
-    for (const [q, want] of [['Randy', ['常乐']], ['fleetent', ['常乐']], ['XAUE 信用卡', ['Abby Chua']], ['northstar 乐哥', ['常乐']]] as const) {
+    for (const [q, want] of [['Randy', ['周七']], ['fleetent', ['周七']], ['Globex 信用卡', ['Abby Chua']], ['northstar 乐哥', ['周七']]] as const) {
       await userEvent.clear(box)
       await userEvent.type(box, q)
       expect(rowNames(), q).toEqual(want)
@@ -98,7 +98,7 @@ describe('联系人列表', () => {
       ct({ name: '许知行', company: '远川科技', phone: '137 2233 4405', group: '客户', last_contact_at: today, starred: true }),
       ct({ name: '周岚', group: '同事' }),
       ct({ name: 'Bob', group: '', last_contact_at: today }),
-      ct({ name: '常乐', group: '客户、同事' }),
+      ct({ name: '周七', group: '客户、同事' }),
     ])
     mount()
     await screen.findByText('许知行')
@@ -107,7 +107,7 @@ describe('联系人列表', () => {
     expect(within(seg).getByRole('button', { name: /全部\s*4/ })).toHaveAttribute('aria-pressed', 'true')
     // 多个分组的人在每个分组里各算一次，标签悬停看全部
     expect(within(seg).getByRole('button', { name: /同事\s*2/ })).toBeInTheDocument()
-    const cl = screen.getAllByRole('row').find((r) => r.getAttribute('aria-label') === '常乐')!
+    const cl = screen.getAllByRole('row').find((r) => r.getAttribute('aria-label') === '周七')!
     expect(within(cl).getByTitle('客户、同事')).toBeInTheDocument()
 
     await userEvent.type(screen.getByRole('searchbox', { name: '搜索联系人' }), '13722')
@@ -116,7 +116,7 @@ describe('联系人列表', () => {
     expect(rowNames()).toHaveLength(4)
 
     await userEvent.click(within(seg).getByRole('button', { name: /同事/ }))
-    expect(rowNames()).toEqual(['周岚', '常乐'].sort((x, y) => x.localeCompare(y, 'zh-CN')))
+    expect(rowNames()).toEqual(['周岚', '周七'].sort((x, y) => x.localeCompare(y, 'zh-CN')))
     // 没分组的算「其他」
     await userEvent.click(within(seg).getByRole('button', { name: /其他/ }))
     expect(rowNames()).toEqual(['Bob'])

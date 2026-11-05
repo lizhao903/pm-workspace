@@ -3488,7 +3488,7 @@
       "docs/api-contract.md /api/fs/browse、/api/fs/shortcuts",
       "frontend/src/modules/tasks/WorkdirField.tsx、frontend/src/plugins/projects/PathInput.tsx、frontend/src/modules/docs/MountDrawer.tsx"
     ],
-    "body": "## 背景\n\n用户要求：「我需要能选择更多的文件目录，包括外挂的分区」。现在：\n\n- `GET /api/fs/shortcuts` 只有主目录、桌面、文稿、下载、当前项目、临时目录，外挂分区（/Volumes/antalpha、docs、project、sandbox 等）不出现，要知道路径才能进。\n- 可浏览范围写死成主目录、/Volumes、/tmp，别处一律回「不在可浏览范围内」，没有办法放开。\n\n## 要做什么\n\n- 起跳点：`/api/fs/shortcuts` 按当前挂载情况列出 /Volumes 下每个分区（只列真实目录，跳过指回根盘的软链如「Macintosh HD」），标「外挂分区：<名字>」，再加一条「/Volumes（全部分区）」。插拔盘后刷新即变。\n- 额外可浏览目录：设置里新增一处（放在「设置」现有合适的分节，没有就新建「本机目录」分节）让用户加、删额外根目录，后端持久化（优先用现有的设置或键值存储；确实要新表才加内核迁移，用 0037）。`fsbrowse` 的可浏览范围等于默认三块加这些额外根。\n- 额外根的校验：必须是存在的绝对目录，解开软链后再查；拒绝 `/`、`/etc`、`/System`、`/private`、`/usr`、`/bin`、`/sbin`、`/var`、`/dev`、`/Library`、数据目录及其上级，报错写明原因。加、删记审计。\n- 前端选目录的控件（任务工作目录、项目目录、文档挂载、知识库挂目录等共用的那个）：侧边起跳点显示分区；面包屑能一路回到所在根（含 /Volumes）；支持直接输入或粘贴绝对路径跳转；越界时显示后端的中文原因。\n- `/api/fs/read` 的规则不变（只读已挂载目录、拦敏感文件），文档挂载、知识库挂目录对额外根同样适用这些拦截。\n\n## 注意事项\n\n- 契约 `/api/fs/*` 一节同步更新；改共用文件改前重新读、小范围替换。",
+    "body": "## 背景\n\n用户要求：「我需要能选择更多的文件目录，包括外挂的分区」。现在：\n\n- `GET /api/fs/shortcuts` 只有主目录、桌面、文稿、下载、当前项目、临时目录，外挂分区（/Volumes/examplecorp、docs、project、sandbox 等）不出现，要知道路径才能进。\n- 可浏览范围写死成主目录、/Volumes、/tmp，别处一律回「不在可浏览范围内」，没有办法放开。\n\n## 要做什么\n\n- 起跳点：`/api/fs/shortcuts` 按当前挂载情况列出 /Volumes 下每个分区（只列真实目录，跳过指回根盘的软链如「Macintosh HD」），标「外挂分区：<名字>」，再加一条「/Volumes（全部分区）」。插拔盘后刷新即变。\n- 额外可浏览目录：设置里新增一处（放在「设置」现有合适的分节，没有就新建「本机目录」分节）让用户加、删额外根目录，后端持久化（优先用现有的设置或键值存储；确实要新表才加内核迁移，用 0037）。`fsbrowse` 的可浏览范围等于默认三块加这些额外根。\n- 额外根的校验：必须是存在的绝对目录，解开软链后再查；拒绝 `/`、`/etc`、`/System`、`/private`、`/usr`、`/bin`、`/sbin`、`/var`、`/dev`、`/Library`、数据目录及其上级，报错写明原因。加、删记审计。\n- 前端选目录的控件（任务工作目录、项目目录、文档挂载、知识库挂目录等共用的那个）：侧边起跳点显示分区；面包屑能一路回到所在根（含 /Volumes）；支持直接输入或粘贴绝对路径跳转；越界时显示后端的中文原因。\n- `/api/fs/read` 的规则不变（只读已挂载目录、拦敏感文件），文档挂载、知识库挂目录对额外根同样适用这些拦截。\n\n## 注意事项\n\n- 契约 `/api/fs/*` 一节同步更新；改共用文件改前重新读、小范围替换。",
     "acceptance": "- [ ] 起跳点里能看到 /Volumes 下每个外挂分区，点了直接进\n- [ ] 设置里加一个额外根（例如 scratchpad 下的测试目录）后能浏览和选中，删掉后回到越界提示；加 /etc、/ 被拒并写明原因\n- [ ] 选目录控件能输入路径跳转，面包屑能回到 /Volumes\n- [ ] /api/fs/read 对额外根里的敏感文件照样拦下（Go 测试）\n- [ ] gofmt、go vet、go test ./... 通过；npm test、typecheck、lint、build、smoke-frontend 通过"
   },
   {
@@ -4315,7 +4315,7 @@
       "web-next/docs/spec/*.md",
       "docs/proto-align.md（ALIGN-03 的格式）"
     ],
-    "body": "## 背景\n\n用户说「先把产品工作和视频博主相关工作功能优化好」。ALIGN-03 之后改了十几批，7796 上现在有真实数据：166 条开发任务、60 个联系人（Octok、XAUE 干系人）、94 条选题、几个会话。\n\n## 要做什么\n\n- 在 7796 本身（只读，不改数据）用产品经理工作台的菜单逐页走：今日、项目（列表和详情各页签）、任务、文档、IM 消息、联系人、会话、SOP、终端、浏览器、设置各节。每页对照原型 7778 和规格包，再从「一个产品经理每天怎么用」的角度看：数据多了以后列表能不能找、筛选够不够、空状态和报错说得清不清、常用操作要点几下。\n- 产出 `docs/product-review.md`：每条写页面、现象、为什么是问题、建议改法、涉及文件，标 P1 / P2 / P3，分「对不上原型」「数据多了不好用」「操作绕」「文案」「报错和空状态」。末尾给派批建议。\n\n## 注意事项\n\n- 不改代码，不改 7796 上的数据。要试写操作就自己起临时后端（7796 库的只读备份副本），用完删掉。",
+    "body": "## 背景\n\n用户说「先把产品工作和视频博主相关工作功能优化好」。ALIGN-03 之后改了十几批，7796 上现在有真实数据：166 条开发任务、60 个联系人（Acme、Globex 干系人）、94 条选题、几个会话。\n\n## 要做什么\n\n- 在 7796 本身（只读，不改数据）用产品经理工作台的菜单逐页走：今日、项目（列表和详情各页签）、任务、文档、IM 消息、联系人、会话、SOP、终端、浏览器、设置各节。每页对照原型 7778 和规格包，再从「一个产品经理每天怎么用」的角度看：数据多了以后列表能不能找、筛选够不够、空状态和报错说得清不清、常用操作要点几下。\n- 产出 `docs/product-review.md`：每条写页面、现象、为什么是问题、建议改法、涉及文件，标 P1 / P2 / P3，分「对不上原型」「数据多了不好用」「操作绕」「文案」「报错和空状态」。末尾给派批建议。\n\n## 注意事项\n\n- 不改代码，不改 7796 上的数据。要试写操作就自己起临时后端（7796 库的只读备份副本），用完删掉。",
     "acceptance": "- [ ] product-review.md 覆盖上面全部页面，每条能直接拆成任务\n- [ ] 截图看完已删除"
   },
   {
@@ -4356,7 +4356,7 @@
       "docs/product-review.md A-01（内核任务、联系人部分）"
     ],
     "body": "## 要做什么\n\n按 `docs/product-review.md` 的 A-01（内核任务、联系人部分） 改：逐条照「建议改法」做，规格编号见各条。\n\n命令面板的搜索数据源：内核任务模块、联系人模块各登记一个，按标题、编号、姓名、电话、邮箱、IM 编号搜；结果按「任务 / 联系人」分组，回车打开对应抽屉。projects、im 插件的数据源由 PR-01b 做，分组展示框架本条先搭好。\n\n## 注意事项\n\n- 验收在 7796 本身看一遍（主会话重启后），不只看 vite dev server。\n- 规格要改的（web-next/docs/spec）同步改，原型代码只在规格和原型对不上时改。",
-    "acceptance": "- [ ] ⌘K 搜「常乐」能出联系人，搜任务编号或标题能出任务，回车打开抽屉\n- [ ] 改到的 Go 跑 gofmt、go vet、go test ./...；前端 npm test、typecheck、lint、build、smoke-frontend 通过"
+    "acceptance": "- [ ] ⌘K 搜「周七」能出联系人，搜任务编号或标题能出任务，回车打开抽屉\n- [ ] 改到的 Go 跑 gofmt、go vet、go test ./...；前端 npm test、typecheck、lint、build、smoke-frontend 通过"
   },
   {
     "key": "PR-01b",
@@ -4374,7 +4374,7 @@
       "docs/product-review.md A-01（projects、im 插件部分）"
     ],
     "body": "## 要做什么\n\n按 `docs/product-review.md` 的 A-01（projects、im 插件部分） 改：逐条照「建议改法」做，规格编号见各条。\n\nprojects、im 插件在 plugin.json 的 provides.search 声明并 provide 数据源（项目按名称、说明、目录；消息按正文、发信人、群名），各升一次版本，不加权限。分组展示用 PR-01a 搭的框架。\n\n## 注意事项\n\n- 验收在 7796 本身看一遍（主会话重启后），不只看 vite dev server。\n- 规格要改的（web-next/docs/spec）同步改，原型代码只在规格和原型对不上时改。",
-    "acceptance": "- [ ] ⌘K 搜「Octok」能出项目，搜消息里的词能出 IM 消息，回车打开项目或消息抽屉\n- [ ] 改到的 Go 跑 gofmt、go vet、go test ./...；前端 npm test、typecheck、lint、build、smoke-frontend 通过"
+    "acceptance": "- [ ] ⌘K 搜「Acme」能出项目，搜消息里的词能出 IM 消息，回车打开项目或消息抽屉\n- [ ] 改到的 Go 跑 gofmt、go vet、go test ./...；前端 npm test、typecheck、lint、build、smoke-frontend 通过"
   },
   {
     "key": "PR-02",
@@ -4427,8 +4427,8 @@
     "spec": [
       "docs/product-review.md B-03"
     ],
-    "body": "## 要做什么\n\n按 `docs/product-review.md` 的 B-03 改：逐条照「建议改法」做，规格编号见各条。\n\n分组改成可多选（stakeholders.group 用「、」分隔存多个，或改成数组，选改动面小、可逆的那种；需要迁移就用内核 0039），筛选按包含匹配，分组标签超宽截断加悬停。不要改 7796 上的数据；7796 现有的「Octok、XAUE」这种值由主会话之后统一修正，代码要能直接认它。\n\n## 注意事项\n\n- 验收在 7796 本身看一遍（主会话重启后），不只看 vite dev server。\n- 规格要改的（web-next/docs/spec）同步改，原型代码只在规格和原型对不上时改。",
-    "acceptance": "- [ ] 点「Octok」出 33 人（含两边都有的 9 人），点「XAUE」出 36 人\n- [ ] 分组列标签不再挤到右边\n- [ ] 改到的 Go 跑 gofmt、go vet、go test ./...；前端 npm test、typecheck、lint、build、smoke-frontend 通过"
+    "body": "## 要做什么\n\n按 `docs/product-review.md` 的 B-03 改：逐条照「建议改法」做，规格编号见各条。\n\n分组改成可多选（stakeholders.group 用「、」分隔存多个，或改成数组，选改动面小、可逆的那种；需要迁移就用内核 0039），筛选按包含匹配，分组标签超宽截断加悬停。不要改 7796 上的数据；7796 现有的「Acme、Globex」这种值由主会话之后统一修正，代码要能直接认它。\n\n## 注意事项\n\n- 验收在 7796 本身看一遍（主会话重启后），不只看 vite dev server。\n- 规格要改的（web-next/docs/spec）同步改，原型代码只在规格和原型对不上时改。",
+    "acceptance": "- [ ] 点「Acme」出 33 人（含两边都有的 9 人），点「Globex」出 36 人\n- [ ] 分组列标签不再挤到右边\n- [ ] 改到的 Go 跑 gofmt、go vet、go test ./...；前端 npm test、typecheck、lint、build、smoke-frontend 通过"
   },
   {
     "key": "PR-05",
@@ -4698,7 +4698,7 @@
       "docs/product-review.md B-12"
     ],
     "body": "## 要做什么\n\n按 `docs/product-review.md` 的 B-12 改：逐条照「建议改法」做，规格编号见各条。\n\n## 注意事项\n\n- 规格要改的（web-next/docs/spec）同步改，原型代码只在规格和原型对不上时改。",
-    "acceptance": "- [ ] 在渠道配置里填「李钊」后，「@李钊 …」算 @我（Go 测试）\n- [ ] 改到的 Go 跑 gofmt、go vet、go test ./...；前端 npm test、typecheck、lint、build、smoke-frontend 通过"
+    "acceptance": "- [ ] 在渠道配置里填「张三」后，「@张三 …」算 @我（Go 测试）\n- [ ] 改到的 Go 跑 gofmt、go vet、go test ./...；前端 npm test、typecheck、lint、build、smoke-frontend 通过"
   },
   {
     "key": "PR-20",

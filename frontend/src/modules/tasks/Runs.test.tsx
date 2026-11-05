@@ -128,7 +128,7 @@ describe('流式输出', () => {
 
   it('标方式：流式和终端；终端执行的结论按 Markdown 显示', async () => {
     stub([
-      run({ id: 'run_term00001', mode: 'terminal', output: '写完了 PRD，放在 **Octok项目/需求**' }),
+      run({ id: 'run_term00001', mode: 'terminal', output: '写完了 PRD，放在 **acme-project/需求**' }),
       run({ id: 'run_strm00002' }),
     ])
     renderBlock()
@@ -137,7 +137,7 @@ describe('流式输出', () => {
     expect(term).toHaveAttribute('data-mode', 'terminal')
     expect(within(screen.getByText('流式').closest('[data-run]') as HTMLElement).getByText('完成')).toBeInTheDocument()
     await user.click(within(term).getByRole('button', { name: /完成/ }))
-    expect(within(term).getByText('Octok项目/需求')).toBeInTheDocument()
+    expect(within(term).getByText('acme-project/需求')).toBeInTheDocument()
   })
 
   it('进行中的终端执行：没有取消，有「标记结束」，选结果写结论后收尾', async () => {

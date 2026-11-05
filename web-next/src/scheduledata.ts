@@ -236,7 +236,7 @@ export const seedSchedules: Schedule[] = [
     rule: { ...emptyRule(), freq: 'daily', time: '10:00' },
     action: {
       kind: 'claude', workdir: '/Users/me/pm/fde-feedback', preset_id: '', allow_writes: true, out_dir: 'lists',
-      prompt: '从 FDE 反馈表（https://docs.google.com/spreadsheets/d/1f6DUdwuf7pJKKQ0HiquLKCFXZTO2e1POxmbWRMlsBWw/edit?gid=1115809405）读全部反馈行，按 README.md 里的整理规则去重、归并成需求清单：写当天的 .md 和 .json，更新 latest.json；和上一份比，标出新增、变更、已关闭。只读表格，不改表格。',
+      prompt: '从 FDE 反馈表（https://docs.google.com/spreadsheets/d/1AbCdEfGhIjKlMnOpQrStUvWxYz0123456789/edit?gid=1115809405）读全部反馈行，按 README.md 里的整理规则去重、归并成需求清单：写当天的 .md 和 .json，更新 latest.json；和上一份比，标出新增、变更、已关闭。只读表格，不改表格。',
     },
     // 最近一次 10:04 跑完（现在还没到 10:04 就是昨天那次），往前每天一次
     history: [0, 1, 2].map((n) => {

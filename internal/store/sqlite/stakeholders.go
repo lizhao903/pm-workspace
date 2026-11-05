@@ -157,7 +157,7 @@ func (s *Store) CreateStakeholder(ctx context.Context, sh *domain.Stakeholder) (
 		id, name, sh.Role, sh.Email, sh.Note, sh.Color, sh.SortOrder, now, now,
 		strings.TrimSpace(sh.Group), sh.Company, sh.Title, sh.Phone, tagsJSON(sh.Tags), sh.Photo,
 		sh.Starred, timeArg(sh.LastContactAt))
-	// 同名唯一由 0010 的唯一索引兜底：干系人靠名字辨认，出现两个「李钊」时用户无从选择，
+	// 同名唯一由 0010 的唯一索引兜底：干系人靠名字辨认，出现两个「张三」时用户无从选择，
 	// 而错选的后果是任务分配到了另一个人身上。
 	if isUnique(err) {
 		return nil, nameTaken(name)

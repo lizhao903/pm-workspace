@@ -21,13 +21,13 @@ func TestBuildPromptIncludesAcceptanceAndRepo(t *testing.T) {
 func TestBuildPromptProjectContext(t *testing.T) {
 	p := BuildPrompt(Task{Title: "改原型", Workdir: "/w", Project: &Project{
 		Name: "一人之下控制台", Ref: "PRJ-0007", Workdir: "/Volumes/project/pmw",
-		DocsDir: "/Volumes/docs/Know Me/Octok项目", DocsLabel: "Octok项目概况",
+		DocsDir: "/Volumes/docs/example/acme-project", DocsLabel: "acme-project概况",
 		Prototypes: []PrototypeDir{{Name: "原型站点（web-next）", Dir: "/Volumes/project/pmw/web-next"}},
 	}})
 	for _, want := range []string{
 		"## 所属项目\n名称：一人之下控制台（PRJ-0007）\n",
 		"项目工作目录：/Volumes/project/pmw\n",
-		"文档在哪里操作：/Volumes/docs/Know Me/Octok项目（项目关联目录「Octok项目概况」）\n",
+		"文档在哪里操作：/Volumes/docs/example/acme-project（项目关联目录「acme-project概况」）\n",
 		"原型在哪里操作：\n  - 原型站点（web-next）：/Volumes/project/pmw/web-next\n",
 		"文档目录和原型目录里",
 	} {
@@ -42,9 +42,9 @@ func TestBuildPromptProjectContext(t *testing.T) {
 
 // 项目没有文档目录、没有登记原型：写明可在项目设置里补，不写项目工作目录那一行。
 func TestBuildPromptProjectWithoutDirs(t *testing.T) {
-	p := BuildPrompt(Task{Title: "x", Workdir: "/w", Project: &Project{Name: "Octok"}})
+	p := BuildPrompt(Task{Title: "x", Workdir: "/w", Project: &Project{Name: "Acme"}})
 	for _, want := range []string{
-		"名称：Octok\n",
+		"名称：Acme\n",
 		"这个项目没有关联文档目录，可在项目设置里补",
 		"这个项目没有登记原型目录，可在项目设置里补",
 	} {

@@ -8,7 +8,7 @@
 
 | target_kind | 含义 | 例子 |
 |---|---|---|
-| `url` | 外部链接 | `https://antalpha.atlassian.net/jira/software/projects/AAA/boards/1` |
+| `url` | 外部链接 | `https://example.atlassian.net/jira/software/projects/AAA/boards/1` |
 | `internal` | 工作台内部导航 | 跳到「需求池 / 云端平台 / 仅 P0」这个组合视图 |
 | `command` | 触发一个动作 | 打开快速捕获并预选「需求」类型 |
 
@@ -24,7 +24,7 @@
 | `{{owner}}` / `{{status}}` / `{{category}}` | 对应字段 |
 | `{{today}}` | 当天日期 YYYY-MM-DD |
 
-例：`https://antalpha.atlassian.net/issues/?jql=text~"{{title}}"` —— 选中一条需求后点它，直接在 Jira 里搜同名内容。没有选中对象时，含变量的快捷入口置灰并提示「需先选中一个工作对象」。
+例：`https://example.atlassian.net/issues/?jql=text~"{{title}}"` —— 选中一条需求后点它，直接在 Jira 里搜同名内容。没有选中对象时，含变量的快捷入口置灰并提示「需先选中一个工作对象」。
 
 ## 数据结构
 
