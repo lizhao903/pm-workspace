@@ -2919,7 +2919,7 @@ DOM-01a。插件 `domains`（`internal/plugins/domains`，清单 `plugin.json`�
 
 ## 交易套件插件 trade
 
-TRD-01a 起。插件 `trade`（`internal/plugins/trade`，清单 `plugin.json`，0.2.0），不依赖别的插件，权限只有 `network:market-data`（普通）；**不声明 `network:exchanges` 和 `trade:live`，没有任何下单、撤单、划转、提币的接口**，只做行情、回测、模拟盘。表前缀 `trade_`，迁移在插件目录：`migrations/0001_trade.sql` 建 `trade_instruments`、`trade_watchlists`；`0002_market_cache.sql`（TRD-02a）建 `trade_klines`（收盘了的 K 线）、`trade_kline_spans`（已向交易所取过的区间）、`trade_quotes`（每个标的最近一次的最新价，30 秒落一次）。一个插件提供四个功能模块 `markets`（行情）、`monitor`（盯盘）、`strategy`（策略与回测）、`trading`（交易执行），以后要单独装时再拆。插件未安装或停用时本节接口回 `not_found` 404（同「插件路由」）。编进二进制的行情源是 Binance（`binance`，TRD-01b）和 OKX（`okx`，TRD-01c）的公开行情，只读、不带任何 API Key；不出网的假行情源 `fake` 只给测试和离线演示，设环境变量 `PMW_TRADE_DEMO=1` 才登记。两个真实源各登记一个连接器 `binance_market`、`okx_market`（类别 `market`，认证方式 `none`，连通测试是 ping 一次交易所），清单 `provides.connectors` 声明了这两个。后台任务：`trade_market` 常驻刷新行情（见下文「行情缓存和推送」），`trade_instruments` 启用时先跑一次、之后每 24 小时把每个源的标的同步一遍（同 `POST /api/trade/sources/{id}/sync`）。
+TRD-01a 起。插件 `trade`（`internal/plugins/trade`，清单 `plugin.json`，0.3.0），不依赖别的插件，权限只有 `network:market-data`（普通）；**不声明 `network:exchanges` 和 `trade:live`，没有任何下单、撤单、划转、提币的接口**，只做行情、回测、模拟盘。表前缀 `trade_`，迁移在插件目录：`migrations/0001_trade.sql` 建 `trade_instruments`、`trade_watchlists`；`0002_market_cache.sql`（TRD-02a）建 `trade_klines`（收盘了的 K 线）、`trade_kline_spans`（已向交易所取过的区间）、`trade_quotes`（每个标的最近一次的最新价，30 秒落一次）。`0003_alerts.sql`（TRD-03a）建 `trade_alerts`（盯盘提醒）、`trade_alert_events`（提醒触发记录）。`0004_strategy_backtest.sql`（TRD-04b）建 `trade_strategies`（策略）、`trade_backtests`（回测记录）。一个插件提供四个功能模块 `markets`（行情）、`monitor`（盯盘）、`strategy`（策略与回测）、`trading`（交易执行），以后要单独装时再拆。插件未安装或停用时本节接口回 `not_found` 404（同「插件路由」）。编进二进制的行情源是 Binance（`binance`，TRD-01b）和 OKX（`okx`，TRD-01c）的公开行情，只读、不带任何 API Key；不出网的假行情源 `fake` 只给测试和离线演示，设环境变量 `PMW_TRADE_DEMO=1` 才登记。两个真实源各登记一个连接器 `binance_market`、`okx_market`（类别 `market`，认证方式 `none`，连通测试是 ping 一次交易所），清单 `provides.connectors` 声明了这两个。后台任务：`trade_market` 常驻刷新行情（见下文「行情缓存和推送」），`trade_instruments` 启用时先跑一次、之后每 24 小时把每个源的标的同步一遍（同 `POST /api/trade/sources/{id}/sync`），`trade_alerts` 每 2 秒检查一次盯盘提醒（TRD-03a，见下文「盯盘提醒」），`trade_backtests` 常驻执行排队的回测（TRD-04b，见下文「策略和回测」）。发布事件 `trade.alert_fired`（清单 `emits`），通知 kind 为 `trade.alert`。
 
 | 方法 | 路径 | body / 说明 |
 |---|---|---|
@@ -2998,6 +2998,115 @@ TRD-01a 起。插件 `trade`（`internal/plugins/trade`，清单 `plugin.json`�
 - OKX：冒号后原样是 `instId`。现货 `OKX:BTC-USDT`，USDT 本位永续 `OKX:BTC-USDT-SWAP`；交割、期权（如 `OKX:BTC-USD-261225`）还没接，回「不支持」。永续的 `multiplier` 是合约面值 `ctVal`，`lot` 是最小下单张数。
 
 行情源适配接口（Go，`internal/plugins/trade/source.go`，不是 HTTP 接口）：`Source` 有 `ID`、`Name`、`Coverage`（声明覆盖哪些市场和品种）、`Instruments(market, kind)`、`Ticker`（最新价、买一卖一、24 小时开高低量）、`Klines`（周期 `1m`、`5m`、`15m`、`1h`、`4h`、`1d`、`1w`，1 到 1000 根）、`OrderBook`（档数 1 到 100）、`Funding`（永续资金费率），全部只读；没有的数据返回 `ErrUnsupported`，标的不认识返回 `ErrUnknownSymbol`。插件登记时校验源 id 不重复、覆盖声明里的市场和品种都认识。实现有 `Binance`（`binance.go`）、`OKX`（`okx.go`）和不出网的 `FakeSource`；交易所的错误统一成 `UpstreamError`（带是否被限频、`Retry-After`），标的不存在（Binance `-1121`、OKX `51001`）回 `ErrUnknownSymbol`。单测用 `testdata/binance`、`testdata/okx` 下录好的响应和 `httptest` 假服务端，另有 `TRADE_LIVE=1` 才跑的对照测试直连交易所比对。
+
+### 盯盘提醒（TRD-03a）
+
+提醒规则和触发记录存在后端，页面关着也照常检查。判定逐行移植原型 `web-next/src/alertcheck.ts` 的 `checkAlerts`（纯函数），和原型用同一组夹具对拍（`internal/plugins/trade/testdata/alerts_golden.json`，由同目录 `gen-alert-golden.mjs` 跑原型生成）。
+
+| 方法 | 路径 | body / 说明 |
+|---|---|---|
+| GET | `/api/trade/alerts` | `TradeAlert[]` + `meta.total`，不分页，新建的在前 |
+| POST | `/api/trade/alerts` | `{symbol, cond, value, repeat?, cooldown_min?, notify?, im_connector?, enabled?, note?}`，回 201 + `TradeAlert`；默认 `repeat=false`、`cooldown_min=30`、`notify=["app"]`、`enabled=true` |
+| GET | `/api/trade/alerts/{id}` | `TradeAlert` |
+| PATCH | `/api/trade/alerts/{id}` | 字段同 POST，只改出现的，回 `TradeAlert`。改完是单次提醒、并且改了 `symbol`、`cond` 或 `value` 时清掉 `last_fired_at`（重新上膛）；重复提醒改了不清 |
+| DELETE | `/api/trade/alerts/{id}` | `data` 为 `null`；触发记录保留 |
+| POST | `/api/trade/alerts/{id}/rearm` | 重新上膛：清掉 `last_fired_at`，下一轮重新检查，回 `TradeAlert` |
+| GET | `/api/trade/alerts/values` | `TradeAlertValue[]` + `meta.total`：每条启用的提醒上一轮检查算出的当前值，顺序同 `/alerts`；还没检查过的 `status` 为 `loading` |
+| GET | `/api/trade/alerts/preview?symbol=&cond=` | `TradeAlertValue`（`alert_id` 为空串）：还没保存的标的和条件现算当前值，提醒抽屉用；最新价还没有时当场取一次，查过的标的之后 30 秒内最新价每秒刷新（同 `/quotes`）。`symbol` 格式不对、`cond` 不认识 400 |
+| GET | `/api/trade/alert-events?limit=&offset=&unread=` | `TradeAlertEvent[]`，新的在前；`limit` 默认 50、1 到 500，`unread=1` 只要未读。`meta` 是 `{total, unread, limit, offset}`，`total` 是筛选后的条数，`unread` 是全部未读数 |
+| POST | `/api/trade/alert-events/read` | `{ids?}` 标为已读，不传 `ids` 是全部已读，一次最多 500 个，不认识的 id 跳过；回 `{updated}`（这次从未读改成已读的条数） |
+
+`TradeAlert`：`{id, symbol, cond, value, repeat, cooldown_min, notify, im_connector, enabled, note, last_fired_at, created_at, updated_at}`，同原型 `PriceAlert`，多 `updated_at`。
+
+- `id` 是 `al_` 前缀（已登记）。`symbol` 同 `TradeInstrument.symbol` 的格式，不要求已在标的表里。
+- `cond` 是 `price_above`（价格上穿）、`price_below`（价格下穿）、`pct_above`（涨幅超过）、`pct_below`（跌幅超过）、`volume_spike`（成交量放大）、`funding_above`（资金费率高于）、`iv_above`（隐含波动率高于）、`limit_near`（接近涨跌停）之一。`value` 是阈值，单位跟着条件：价格；%（`pct_below` 按正数填，跌 4% 填 4）；倍于均量；资金费率 %（`0.05` 即 0.05%）；IV %；距涨跌停占昨收的 %。
+- 条件对品种不适用的拒绝保存（400）：`funding_above` 只适用于永续，`iv_above` 只适用于期权，`limit_near` 要标的有涨跌停幅度（`TradeInstrument.limit`）。品种按标的表判断，标的表里还没有时按 symbol 推：Binance、OKX 代码以 `.P`、`-SWAP` 结尾的是永续，OKX 带 6 位日期的是交割，其余按现货。
+- `repeat` 为 `false` 是单次：触发一次就停（`last_fired_at` 有值后不再检查，「重新上膛」清掉它）；为 `true` 是重复：每次满足都提醒，两次之间至少隔 `cooldown_min` 分钟（0 到 43200 的整数）。
+- `notify` 是 `app`（应用内通知）、`im`（推 IM）、`sound`（打开着的页面响一声）的数组，至少一种，去重保序。含 `im` 时 `im_connector` 必填、要是已有的连接器实例 id（不存在 400）；不含 `im` 时 `im_connector` 存成空串。
+- `note` 去掉首尾空白，最多 500 字，触发时一起显示。`last_fired_at` 是最近一次触发的时间，没触发过为空串，只读（PATCH 里传了忽略，重新上膛走 `/rearm`）。不认识的字段 400。时间都是 RFC3339 UTC。
+
+`TradeAlertEvent`：`{id, alert_id, symbol, cond, value, text, price, note, at, read, im_status, im_error}`，同原型 `AlertEvent`，多 `cond`、`value`（触发时的当前值，单位同 `TradeAlert.value`）、`note`（规则备注的快照）和 IM 推送结果。`id` 是 `ae_` 前缀（已登记）；`text` 按条件拼，和原型一字不差，例「BTC/USDT 价格 70,012.5，上穿 70,000.0」「NVIDIA 跌幅 4.30%，超过 4%」；`price` 是触发时的最新价。`im_status`：没选 IM 为空串；`unavailable` 是工作台还没有给插件发 IM 的接口、这次没推，`im_error` 写原因（以后接上发送能力再加 `sent`、`failed`）。
+
+`TradeAlertFired`：`{id, alert_id, symbol, cond, value, text, price, note, at, read, im_status, im_error, notify}`，是 `trade.alert_fired` 事件的载荷：触发记录加上规则的 `notify`（前端据此判断要不要响声音）。
+
+`TradeAlertValue`：`{alert_id, symbol, cond, status, error, value, price, at}`。`status`：`ok` 算出来了（`value` 是当前值，单位同 `TradeAlert.value`，`price` 是最新价）；`no_source`、`loading`、`stale`、`error` 同 `TradeQuote` 的最新价状态；`unsupported` 条件不适用于这个标的；`unavailable` 行情源给不了这项数据（期权的隐含波动率、取不到 1 分钟 K 线、资金费率不是实时的、没有 24 小时前的开盘价）。不是 `ok` 时 `value` 为 `null`、`error` 写原因。`at` 是算的时间。
+
+检查和触发：
+
+- 后台任务 `trade_alerts` 每 2 秒一轮：读启用的提醒，把用到的标的挂进行情订阅（同 `/stream` 的订阅，最新价每秒刷），不另起轮询交易所。当前值的口径同原型：价格类取最新价；涨跌幅相对 `open_24h`（24 小时前的开盘价）；放量是最近一根 1 分钟成交量除以前 20 根的均量（K 线走缓存，每个标的 10 秒最多取一次）；资金费率是 `TradeFunding.rate` 乘 100（按行情缓存的 30 秒节奏取）；接近涨跌停是离涨停、跌停较近的那个占 `open_24h` 的 %。期权的隐含波动率现在没有行情源，`iv_above` 的规则不检查。
+- 只在最新价是 `live` 时判定：交易所取不到、给的是缓存时不判定，免得拿旧价格误报。判定没有「穿越」：「价格上穿 70000」在价格一直高于 70000 时也算满足，单次提醒因此只响一次，重复提醒按冷却反复响（同原型）。
+- 触发：按「`last_fired_at` 还是这一轮读到的值、规则仍启用」条件更新 `last_fired_at`，没更新上（这一轮之间被停用、编辑或重新上膛）就不算；然后写触发记录，发事件 `trade.alert_fired`（载荷 `TradeAlertFired`），`notify` 含 `app` 时发通知（kind `trade.alert`，标题是 `text`，正文是备注加「触发价 <价格>」，`data` 带 `alert_id`、`event_id`、`symbol`）。
+- IM：工作台还没有给插件发 IM 的接口（`plugin.Core` 没有，IM 插件也没对外提供），选了 `im` 的触发记录标 `im_status=unavailable`，并且不管有没有选 `app` 都补发一条应用内通知，免得什么都收不到。
+- 规则和触发记录暂不记审计。
+
+### 策略和回测（TRD-04b）
+
+策略落 `trade_strategies`，回测记录落 `trade_backtests`（迁移 `0004_strategy_backtest.sql`），id 前缀 `st`（策略）、`bk`（回测，原型的 `bt` 已被浏览器标签页占用，前缀表里早已登记 `bk`）。回测引擎是 `backtest.go` 的纯函数（TRD-04a，和原型 `web-next/src/backtest.ts` 对拍），这里只管落库、排队和取数据。**只做回测：没有部署、下单的接口；代码模式不执行源码**，按 `CodeKindOf` 认成网格、期现基差、双均线三种内置近似，`note` 里写明。
+
+| 方法 | 路径 | body / 说明 |
+|---|---|---|
+| GET | `/api/trade/strategies` | `TradeStrategy[]` + `meta.total`，按 `updated_at` 新的在前，不分页 |
+| POST | `/api/trade/strategies` | `TradeStrategy` 的可写字段，都可选，回 201 + `TradeStrategy`；没传的取「新建策略」的默认值：名称「新策略」、条件规则、没有标的、`1h`、只做多、入场出场都空、止损止盈 0、仓位 20、没有参数和标签 |
+| GET | `/api/trade/strategies/{id}` | `TradeStrategy` |
+| PATCH | `/api/trade/strategies/{id}` | 可写字段的任意子集，只改出现的，数组、对象整体替换，每次都更新 `updated_at`；回 `TradeStrategy`。编辑页自动保存用 |
+| DELETE | `/api/trade/strategies/{id}` | `data` 为 `null`；回测记录保留（带快照） |
+| GET | `/api/trade/backtests?strategy_id=&status=` | `TradeBacktestBrief[]` + `meta.total/queued/running/done/failed`（筛选后的各状态条数），按 `created_at` 新的在前，不分页。`status` 是 `queued` / `running` / `done` / `failed`，不认识 400 |
+| POST | `/api/trade/backtests` | `{strategy_id, symbols?, interval?, bars?, capital?, fee_bp?, slippage_ticks?, params?}`，回 201 + `TradeBacktest`（`status=queued`）。用策略这一刻的样子拍快照；`symbols`、`interval` 不传取策略的，`bars` 默认 1000、`capital` 默认 100000、`fee_bp` 数币默认 5 其余 3、`slippage_ticks` 默认 1；`params` 是覆盖，盖在策略参数上，键只能是策略里有的参数和 `stop_loss`、`take_profit`、`position_pct`。策略不存在 404；没有标的、条件规则模式下入场规则为空、范围不对 400 |
+| GET | `/api/trade/backtests/compare?ids=` | `TradeBacktest[]`（不带 `sweep`）+ `meta.total`，按 `ids` 的顺序；`ids` 逗号分隔 2 到 4 个，都要已完成，否则 400；有不存在的 404 |
+| GET | `/api/trade/backtests/{id}` | `TradeBacktest`，带完整结果和最近一次扫描 |
+| DELETE | `/api/trade/backtests/{id}` | `data` 为 `null`；在跑的先打断 |
+| POST | `/api/trade/backtests/{id}/rerun` | `{params?}`（可以不带 body），用这条的配置再发起一次，回 201 + 新的 `TradeBacktest`；策略还在用当前的策略拍快照，删了用这条的快照；`params` 盖在原配置的参数上（扫描结果里点「回测」用）。排队中、运行中的 400 |
+| POST | `/api/trade/backtests/{id}/sweep` | `{param, values}`，同步跑完回 `TradeSweep`，并存在这条回测上（覆盖上一次）；不新增回测记录。只能扫已完成的回测（否则 400），用和它同一段 K 线（截至 `data_to`）；`param` 是策略参数或三个保留键，`values` 去重后 1 到 20 个有限数。取数据出问题 502 `upstream`，`message` 同下文「失败原因」 |
+
+`TradeStrategy`：`{id, name, desc, mode, symbols, interval, direction, entry, exit, stop_loss, take_profit, position_pct, code, params, tags, updated_at, created_at}`，同原型 `Strategy`。
+
+- `name` 去首尾空白，不能为空，最多 80 字；`desc` 最多 2000 字；`code` 最多 32KB。
+- `mode` 是 `rules` / `code`；`interval` 是 `1m` / `5m` / `15m` / `1h` / `4h` / `1d` / `1w`；`direction` 是 `long` / `short` / `both`。
+- `symbols` 有序去重，每个要是 symbol 格式，最多 20 个，不要求已在标的表里（回测时才查）。`tags` 去空白、去重，最多 20 个。
+- `entry`、`exit` 是 `{logic, rules}`，`logic` 是 `all` / `any`，`rules` 是 `TradeRule[]`，每组最多 50 条。
+- `stop_loss`、`take_profit`、`position_pct` 是百分数，0 到 100，0 表示不设。
+- `params` 是参数名到数值的对象，**键的顺序有意义**（规则里的周期或数值等于多个参数的值时取先出现的，约定见 `SPEC-strategy-0`「回测引擎的约定」2），后端原样保留；最多 50 个，键不能为空、最多 40 个字符。
+- 时间是毫秒精度、定长的 RFC3339 UTC（`2026-11-05T02:59:17.943Z`），字符串比较即时间先后。不认识的字段 400。
+
+`TradeRule`：`{id, left, op, right}`。`op` 是 `cross_up` / `cross_down` / `gt` / `lt`；`id` 是策略里的编号，前端新加的可以先自己起（最多 40 个字符），空的、重复的由后端补成 `rl_` 开头的。
+
+`TradeOperand`：`{kind, ind, params, value}`。`kind` 为 `ind`（指标）时有 `ind`、`params`，`ind` 是 `price` / `ma` / `ema` / `rsi` / `macd` / `boll_up` / `boll_low` / `volume` / `atr`，`params` 最多 3 个数；`kind` 为 `num`（数值）时只有 `value`。
+
+`TradeBacktestConfig`：`{strategy_id, symbols, interval, bars, capital, fee_bp, slippage_ticks, params}`，同原型 `BacktestConfig`。`bars` 是回测最近多少根 K 线，50 到 5000；`capital` 大于 0；`fee_bp`（万分之几）、`slippage_ticks`（跳）不能为负；`params` 是策略参数加本次覆盖，顺序同策略。
+
+`TradeBacktest`：`{id, name, config, status, progress, strategy_snapshot, result?, error?, created_at, started_at?, finished_at?, data_from?, data_to?, sweep?}`，同原型 `Backtest`，多开始时间、数据区间和最近一次扫描。
+
+- `name` 是「<策略名> #N」，N 是这个策略的第几次回测（删过的不回收）。
+- `status` 是 `queued`（排队中）/ `running`（运行中）/ `done`（已完成）/ `failed`（失败）；`progress` 0 到 1，按取到的 K 线推，完成为 1。
+- `strategy_snapshot` 是发起那一刻的 `TradeStrategy`，之后改策略、删策略都不影响。
+- `result` 是 `TradeBacktestResult`，完成才有；`error` 是失败原因，失败才有。
+- `data_from`、`data_to` 是实际回测区间第一根、最后一根 K 线的开盘时间，完成才有。
+- `sweep` 是 `TradeSweep`，扫过才有。
+
+`TradeBacktestBrief`：`{id, name, config, status, progress, strategy_snapshot, stats?, note?, error?, created_at, started_at?, finished_at?, data_from?, data_to?}`，列表用：不带资金曲线、成交和扫描，`stats`（`TradeBacktestStats`）、`note` 完成才有。
+
+`TradeBacktestResult`：`{equity, trades, stats, note?}`，同原型 `BacktestResult`。`equity` 每项 `{t, v, bench}`（`t` 是 K 线开盘时刻的毫秒时间戳，`bench` 是等权买入持有的基准），和回测区间的 K 线一一对应；`trades` 是 `TradeBacktestTrade[]`，按时间排；`note` 是说明，几条用「；」连起来。
+
+`TradeBacktestTrade`：`{t, symbol, side, price, qty, pnl?, reason}`，`side` 是 `buy` / `sell`，`pnl` 只有减仓的成交才有。
+
+`TradeBacktestStats`：`{total_return, annual, max_dd, sharpe, win_rate, trades, profit_factor, bench_return}`，口径同 `SPEC-strategy-0`「`stats` 统计」。
+
+`TradeSweep`：`{param, points, at}`，`points` 是 `TradeSweepPoint[]`，按请求里 `values` 的顺序（去重后）；`at` 是扫描时间。
+
+`TradeSweepPoint`：`{value, total_return, max_dd, sharpe}`。
+
+执行：
+
+- 后台常驻任务 `trade_backtests` 按 `created_at` 先后取排队的回测，最多同时跑 2 个，其余保持 `queued`；新建、重跑后立刻叫醒，不等下一轮（兜底每 2 秒看一次）。进度写库，前端在有排队、运行中的回测时轮询列表或详情（1 秒一次），不走推送。
+- 后端重启（或插件停用）时还在 `running` 的改成 `failed`，原因「回测被中断：……可以重新回测」；`queued` 的重启后接着排；`done` 的结果在库里，不受影响。
+- 历史 K 线从行情缓存取（同 `/api/trade/klines`：先读 `trade_klines`，缺的找交易所补齐并落库），截至最近一根已经收盘的 K 线，一次 1000 根往前翻页；指标预热（`SPEC-strategy-0` 约定 5）的那段一起取。标的的乘数、最小下单量、精度从 `trade_instruments` 读。
+- 失败原因 `error` 以分类开头：
+  - 「数据缺失：」——标的没有行情源（A 股、港股、美股现在都没有）、标的表里没有这个标的、交易所暂时取不到（被限频、断网）、或回测区间的 K 线取不全。取不全时写明「<symbol> <周期> 要最近 N 根（<起> 到 <止>），只取到 M 根；缺 <起> 到 <止> 这一段」，时间是 UTC；只缺指标预热的那段时照跑，`note` 里写「<symbol> 指标预热少了 K 根，开头一段指标可能不准」。
+  - 「参数不合法：」——快照或配置没通过校验。
+  - 「引擎错误：」——引擎本身出错。
+  - 「回测被中断：」——后端重启、插件停用或回测被删。
+  前三种同时记一条运行异常（级别 `error`，模块「交易」，标题「「<策略名>」回测失败」，按「策略 + 原因分类」合并）。
+- 不记审计、不发事件。
 
 ## 宽基监控插件 etf
 

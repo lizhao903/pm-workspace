@@ -415,15 +415,18 @@ function Editor({ strategy: st, onChange, onDelete, onBacktest, onDeploy, lastBa
 
 function BasicInfo({ st, set }: { st: Strategy; set: (p: Partial<Strategy>) => void }) {
   const [tagInput, setTagInput] = useState('')
+  const [nameTouched, setNameTouched] = useState(false)
+  const nameErr = nameTouched && !st.name.trim()
   const addTag = () => { const t = tagInput.trim(); if (t && !st.tags.includes(t)) set({ tags: [...st.tags, t] }); setTagInput('') }
   const currencies = new Set(st.symbols.map((s) => currencyOf([s])))
   return (
     <section className="hook-sec">
       <div className="field-group-title">基本信息</div>
-      <label className="field"><span className="field-label">名称<em>*</em></span><input value={st.name} placeholder="比如：双均线趋势" onChange={(e) => set({ name: e.target.value })} /></label>
+      <label className="field"><span className="field-label">名称<em>*</em></span><input value={st.name} placeholder="比如：双均线趋势" aria-invalid={nameErr} onBlur={() => setNameTouched(true)} onChange={(e) => set({ name: e.target.value })} />
+        {nameErr && <span className="danger-text sg-small">名称不能为空，其余改动照常保存</span>}</label>
       <label className="field"><span className="field-label">说明</span><textarea rows={2} value={st.desc} placeholder="什么行情下用、怎么进出场" onChange={(e) => set({ desc: e.target.value })} /></label>
       <div className="field">
-        <span className="field-label">标签<span className="field-hint">第一个标签决定左侧菜单里的分组</span></span>
+        <span className="field-label">标签<span className="field-hint">用于在策略库里搜</span></span>
         <div className="tag-input">
           {st.tags.map((t) => <span key={t} className="tag">{t}<button type="button" title="移除" onClick={() => set({ tags: st.tags.filter((x) => x !== t) })}><XIcon /></button></span>)}
           <input value={tagInput} placeholder={st.tags.length ? '' : '输入后回车添加'} onChange={(e) => setTagInput(e.target.value)} onBlur={addTag}
@@ -580,7 +583,7 @@ function CodeEditor({ st, set }: { st: Strategy; set: (p: Partial<Strategy>) => 
           }} />
       </div>
       <div className="sg-code-foot">
-        <span className="list-sub">原型不执行源码，回测按「{CODE_KIND_LABEL[kind]}」内置近似模拟。代码里用 params.名字 引用右侧参数</span>
+        <span className="list-sub">不执行源码，回测按「{CODE_KIND_LABEL[kind]}」内置近似模拟。代码里用 params.名字 引用右侧参数</span>
         <span className="spacer" />
         {missing.length > 0 && <button className="act" onClick={() => set({ params: { ...st.params, ...Object.fromEntries(missing.map((k) => [k, 0])) } })}>从代码补全参数 {missing.length} 个</button>}
       </div>
@@ -826,7 +829,8 @@ function CompareView({ items, names, onClose, onOpen }: { items: Backtest[]; nam
 
 /* ---------- 回测报告 ---------- */
 
-export function BacktestReport({ backtest: b, onRerun, onDeploy, onOpenStrategy }: { backtest: Backtest; onRerun: (cfg: BacktestConfig) => void; onDeploy: (strategyId: string) => void; onOpenStrategy: (id: string) => void }) {
+export function BacktestReport({ backtest: b, onRerun, onDeploy, onOpenStrategy, onDelete }: { backtest: Backtest; onRerun: (cfg: BacktestConfig) => void; onDeploy: (strategyId: string) => void; onOpenStrategy: (id: string) => void; onDelete?: () => void }) {
+  const [confirmDel, setConfirmDel] = useState(false)
   const snap = b.strategy_snapshot
   const r = b.result as (Backtest['result'] & { note?: string }) | undefined
   const cur = currencyOf(b.config.symbols)
@@ -844,6 +848,7 @@ export function BacktestReport({ backtest: b, onRerun, onDeploy, onOpenStrategy 
         <span>手续费 万分之 <b className="sg-num">{b.config.fee_bp}</b></span>
         <span>滑点 <b className="sg-num">{b.config.slippage_ticks}</b> 跳</span>
         <span>{spanText(b.config.bars, b.config.interval)}</span>
+        {r && r.equity.length > 0 && <span title="实际回测区间第一根、最后一根 K 线的开盘时间">数据 {fmtT(r.equity[0].t, b.config.interval)} 到 {fmtT(r.equity[r.equity.length - 1].t, b.config.interval)}</span>}
         <span className="faint">{timeAgo(b.created_at)}发起{b.finished_at ? ` · ${timeAgo(b.finished_at)}完成` : ''}</span>
       </div>
 
@@ -901,6 +906,18 @@ export function BacktestReport({ backtest: b, onRerun, onDeploy, onOpenStrategy 
         <div className="field-group-title">策略快照<span className="field-hint">发起回测那一刻的策略，之后改策略不影响这份报告</span></div>
         <Snapshot st={snap} cfg={b.config} />
       </section>
+
+      {onDelete && (
+        <div className="bt-del">
+          {confirmDel ? (
+            <>
+              <span className="danger-text">只删这一条回测记录和它的扫描结果，策略不动{b.status === 'running' || b.status === 'queued' ? '；还没跑完的会先停下' : ''}</span>
+              <button className="btn btn-ghost" onClick={() => setConfirmDel(false)}>取消</button>
+              <button className="btn btn-danger" onClick={onDelete}>删除</button>
+            </>
+          ) : <button className="btn btn-ghost btn-danger-ghost" onClick={() => setConfirmDel(true)}>删除这条回测记录</button>}
+        </div>
+      )}
     </div>
   )
 }

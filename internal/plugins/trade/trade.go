@@ -1,6 +1,7 @@
 // Package trade 是交易套件插件的后端（TRD-01a 起）：一个插件、四个功能模块（行情、盯盘、策略与回测、交易执行），
 // 以后要单独装时再拆。标的（instruments.go）、自选分组（watchlists.go）、行情源适配接口（source.go），
-// Binance、OKX 公开行情（binance.go、okx.go，TRD-01b、TRD-01c），行情缓存和推送（market.go、klines.go、stream.go，TRD-02a）。
+// Binance、OKX 公开行情（binance.go、okx.go，TRD-01b、TRD-01c），行情缓存和推送（market.go、klines.go、stream.go，TRD-02a），
+// 盯盘提醒（alerts.go、alerts_api.go，TRD-03a）。
 //
 // 涉及资金的边界：只做行情、回测、模拟盘；不写任何向交易所下单、撤单、划转、提币的代码路径，
 // 权限只有 network:market-data，不声明 network:exchanges 和 trade:live。
@@ -35,6 +36,8 @@ type Plugin struct {
 	m       plugin.Manifest
 	sources []Source
 	mkt     *market
+	alerts  *alerter  // 盯盘提醒（alerts.go）
+	bt      *btRunner // 回测调度（TRD-04b，backtests.go）
 
 	// 测试用：时钟、刷新和推送间隔、出网函数（换成假交易所），零值用默认
 	now  func() time.Time
@@ -109,6 +112,8 @@ func (p *Plugin) Register(r plugin.Registrar) error {
 		}
 	}
 	p.mkt = newMarket(p, core)
+	p.alerts = newAlerter(p, core)
+	p.bt = newBtRunner(p, core)
 	h := &handlers{c: core, p: p}
 	r.Routes(func(m plugin.RouteRegistrar) {
 		m.HandleFunc("GET /api/trade/sources", h.listSources)
@@ -125,7 +130,23 @@ func (p *Plugin) Register(r plugin.Registrar) error {
 		m.HandleFunc("GET /api/trade/funding", h.getFunding)
 		m.HandleFunc("GET /api/trade/klines", h.getKlines)
 		m.HandleFunc("GET /api/trade/stream", h.stream)
+		registerAlertRoutes(m, h)
+		// 策略和回测（TRD-04b，strategies.go、backtests_api.go）
+		m.HandleFunc("GET /api/trade/strategies", h.listStrategies)
+		m.HandleFunc("POST /api/trade/strategies", h.addStrategy)
+		m.HandleFunc("GET /api/trade/strategies/{id}", h.getStrategy)
+		m.HandleFunc("PATCH /api/trade/strategies/{id}", h.updateStrategy)
+		m.HandleFunc("DELETE /api/trade/strategies/{id}", h.removeStrategy)
+		m.HandleFunc("GET /api/trade/backtests", h.listBacktests)
+		m.HandleFunc("POST /api/trade/backtests", h.addBacktest)
+		m.HandleFunc("GET /api/trade/backtests/compare", h.compareBacktests)
+		m.HandleFunc("GET /api/trade/backtests/{id}", h.getBacktest)
+		m.HandleFunc("DELETE /api/trade/backtests/{id}", h.removeBacktest)
+		m.HandleFunc("POST /api/trade/backtests/{id}/rerun", h.rerunBacktest)
+		m.HandleFunc("POST /api/trade/backtests/{id}/sweep", h.sweepBacktest)
 	})
+	r.Job(plugin.Job{Name: "trade_backtests", Run: func(ctx context.Context, _ plugin.Core) error { return p.bt.run(ctx) }})
+	r.Job(plugin.Job{Name: "trade_alerts", Every: alertEvery, Run: func(ctx context.Context, _ plugin.Core) error { return p.alerts.check(ctx) }})
 	if len(p.sources) > 0 {
 		// 行情刷新常驻；标的表一天同步一次（启用时先跑一次）
 		r.Job(plugin.Job{Name: "trade_market", Run: func(ctx context.Context, _ plugin.Core) error { return p.mkt.run(ctx) }})
