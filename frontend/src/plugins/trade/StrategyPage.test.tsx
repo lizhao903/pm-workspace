@@ -3,7 +3,7 @@ import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { createMemoryRouter, RouterProvider } from 'react-router'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import type { TradeBacktest, TradeBacktestResult, TradeStrategy } from '../../core/data'
+import type { TradeBacktest, TradeBacktestResult, TradeRun, TradeStrategy } from '../../core/data'
 import StrategyPage from './StrategyPage'
 
 // 假后端：策略和回测都在内存里；回测发起后先排队，被查两次后变运行中，再查一次完成（模拟后端跑）
@@ -42,13 +42,22 @@ function backtest(id: string, over: Partial<TradeBacktest> = {}): TradeBacktest 
   }
 }
 
-function fakeBackend(init: { strategies?: TradeStrategy[]; backtests?: TradeBacktest[]; failPatch?: boolean } = {}) {
+function run(id: string, over: Partial<TradeRun> = {}): TradeRun {
+  return {
+    id, strategy_id: 'st_1', account_id: 'ac_1', symbols: ['BINANCE:BTCUSDT'], params: { fast: 12, slow: 48 }, capital: 20000, status: 'running', pnl: 120.5,
+    started_at: new Date(T0).toISOString(), logs: [{ at: new Date(T0).toISOString(), level: 'info', text: '模拟盘启动：BTC/USDT，分配 20,000 USD；1 时 K 线收盘时算信号' }],
+    log_total: 1, strategy_name: '双均线趋势', interval: '1h', realized_pnl: 0, unrealized_pnl: 120.5, fees: 0, holdings: [], updated_at: new Date(T0).toISOString(), ...over,
+  }
+}
+
+function fakeBackend(init: { strategies?: TradeStrategy[]; backtests?: TradeBacktest[]; failPatch?: boolean; runs?: TradeRun[] } = {}) {
   const state = {
     strategies: init.strategies ?? [strategy()],
     backtests: init.backtests ?? [] as TradeBacktest[],
     calls: [] as { method: string; path: string; body?: unknown }[],
     failPatch: init.failPatch ?? false,
     polls: {} as Record<string, number>,
+    runs: init.runs ?? [] as TradeRun[],
   }
   let n = 0
   const json = (data: unknown, status = 200, meta?: unknown) => new Response(JSON.stringify(status < 300 ? { data, meta } : data), { status })
@@ -132,6 +141,16 @@ function fakeBackend(init: { strategies?: TradeStrategy[]; backtests?: TradeBack
       advance(b)
       return json(b)
     }
+    if (p === '/api/trade/runs') {
+      const sid = u.searchParams.get('strategy_id')
+      const rs = state.runs.filter((r) => !sid || r.strategy_id === sid)
+      return json(rs, 200, { total: rs.length, running: rs.filter((r) => r.status === 'running').length, paused: 0, stopped: rs.filter((r) => r.status === 'stopped').length, error: rs.filter((r) => r.status === 'error').length, pnl: rs.reduce((n, r) => n + r.pnl, 0) })
+    }
+    if (p === '/api/trade/accounts') return json([{ id: 'ac_1', name: '模拟盘', paper: true }], 200, { total: 1 })
+    if (p === '/api/trade/orders') {
+      const os = state.runs.filter((r) => r.status !== 'stopped').map((r, i) => ({ id: `od_${i}`, run_id: r.id, status: 'open' }))
+      return json(os, 200, { total: os.length, active: 0, history: 0 })
+    }
     if (p === '/api/trade/instruments') {
       return json([{ symbol: 'BINANCE:ETHUSDT', name: 'ETH/USDT', market: 'crypto', kind: 'spot', venue: 'Binance', digits: 2, lot: 0.0001, multiplier: 1, source: 'binance', updated_at: '' }], 200, { total: 1 })
     }
@@ -143,7 +162,7 @@ function fakeBackend(init: { strategies?: TradeStrategy[]; backtests?: TradeBack
 function setup(path = '/strategy', init?: Parameters<typeof fakeBackend>[0]) {
   const backend = fakeBackend(init)
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-  const router = createMemoryRouter([{ path: '/strategy/*', element: <StrategyPage /> }], { initialEntries: [path] })
+  const router = createMemoryRouter([{ path: '/strategy/*', element: <StrategyPage /> }, { path: '/trading/*', element: <div>交易页</div> }], { initialEntries: [path] })
   render(<QueryClientProvider client={qc}><RouterProvider router={router} /></QueryClientProvider>)
   return { backend, router }
 }
@@ -243,13 +262,13 @@ describe('策略页', () => {
     setup('/strategy/backtests/bk_3', { backtests: [backtest('bk_3', { status: 'failed', result: undefined, error: '数据缺失：BINANCE:BTCUSDT 1h 只取到 300 根' })] })
     expect(await screen.findByText('数据缺失：BINANCE:BTCUSDT 1h 只取到 300 根')).toBeInTheDocument()
     expect(screen.getAllByRole('button', { name: '重新回测' }).length).toBeGreaterThan(0)
-    expect(screen.getByRole('button', { name: '部署' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: '部署' })).toBeEnabled()
   })
 
   it('删除策略（回测记录保留）、删除一条回测记录', async () => {
     const { backend, router } = setup('/strategy/s/st_1', { backtests: [backtest('bk_1')] })
     await userEvent.click(await screen.findByRole('button', { name: '删除策略' }))
-    expect(screen.getByText('删除后不能恢复，已有的回测记录保留')).toBeInTheDocument()
+    expect(screen.getByText('删除后不能恢复：已有的回测记录保留')).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: '删除' }))
     await waitFor(() => expect(router.state.location.pathname).toBe('/strategy'))
     expect(backend.calls.some((c) => c.method === 'DELETE' && c.path === '/api/trade/strategies/st_1')).toBe(true)
@@ -260,6 +279,40 @@ describe('策略页', () => {
     await userEvent.click(screen.getByRole('button', { name: '删除' }))
     await waitFor(() => expect(router.state.location.pathname).toBe('/strategy/backtests'))
     expect(await screen.findByText('还没有回测')).toBeInTheDocument()
+  })
+
+  it('部署：编辑页、回测报告的「部署」跳到交易的部署抽屉，策略选好', async () => {
+    const { router } = setup('/strategy/s/st_1', { backtests: [backtest('bk_1')] })
+    await userEvent.click(await screen.findByRole('button', { name: '部署' }))
+    await waitFor(() => expect(router.state.location.pathname + router.state.location.search).toBe('/trading/runs?deploy=st_1'))
+    await router.navigate('/strategy/backtests/bk_1')
+    await userEvent.click(await screen.findByRole('button', { name: '部署' }))
+    await waitFor(() => expect(router.state.location.pathname + router.state.location.search).toBe('/trading/runs?deploy=st_1'))
+  })
+
+  it('运行记录：侧栏汇总、二级菜单、列表展开看日志；删除策略写明会停的部署和撤的挂单', async () => {
+    const runs = [run('rn_1'), run('rn_2', { status: 'stopped', pnl: -30, stop_reason: '手动停止', stopped_at: new Date(T0 + 7200_000).toISOString() }), run('rn_3', { status: 'error', error: '账户已删除，部署已挂起', pnl: 0 })]
+    const { router } = setup('/strategy/s/st_1', { runs })
+    const panel = await screen.findByRole('region', { name: '运行记录' })
+    await waitFor(() => expect(within(panel).getByText('全部 3 次')).toBeInTheDocument())
+    expect(within(panel).getByText('+90.50')).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: '删除策略' }))
+    expect(await screen.findByText('删除后不能恢复：2 个运行中、暂停或异常挂起的部署会停止，2 笔挂单会撤销，已有的回测记录保留')).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: '取消' }))
+
+    await userEvent.click(screen.getByRole('button', { name: /运行记录/ }))
+    await waitFor(() => expect(router.state.location.pathname).toBe('/strategy/runs'))
+    expect(await screen.findByText('已停止 1 个')).toBeInTheDocument()
+    // 异常的排最前，展开看原因和日志
+    const heads = within(document.querySelector<HTMLElement>('.sr-list')!).getAllByRole('button', { expanded: false })
+    expect(heads).toHaveLength(2)
+    await userEvent.click(heads[0])
+    expect(screen.getByText('账户已删除，部署已挂起')).toBeInTheDocument()
+    expect(screen.getByText(/模拟盘启动：BTC\/USDT/)).toBeInTheDocument()
+    await userEvent.click(screen.getByText('已停止 1 个'))
+    expect(screen.getByText('收起已停止的')).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: '到交易里管理' }))
+    await waitFor(() => expect(router.state.location.pathname).toBe('/trading/runs'))
   })
 
   it('打开不存在的回测', async () => {

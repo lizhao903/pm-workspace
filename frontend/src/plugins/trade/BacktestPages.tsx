@@ -1,6 +1,7 @@
 // 回测记录和对比（SPEC-strategy-6）、回测报告（SPEC-strategy-7）。结果全部来自后端，前端不跑回测；
 // 参数扫描也在后端按同一段数据跑，结果留在这条回测上，刷新不丢。
 import { useMemo, useState, type ReactNode } from 'react'
+import { useNavigate } from 'react-router'
 import {
   QueryState, errorText, isApiError, useRemoveTradeBacktest, useRerunTradeBacktest, useSweepTradeBacktest, useTradeBacktest,
   useTradeBacktestCompare, type TradeBacktest, type TradeBacktestBrief, type TradeBacktestConfig, type TradeBacktestStatus,
@@ -18,7 +19,6 @@ import { Chart, ProgressBar, SearchIcon, Signed, StatusCell, SymTags, type Line 
 const LINE_COLORS = ['var(--accent)', '#e8590c', '#0c8599', '#9c4fd6']
 /** 回测记录先露这么多条 */
 const BT_PAGE = 50
-const DEPLOY_HINT = '部署到模拟盘还在开发（TRD-05），现在只能回测'
 
 const METRICS: { key: MetricKey; label: string; fmt: (x: number) => ReactNode; better: 1 | -1 }[] = [
   { key: 'total_return', label: '总收益', fmt: (x) => <Signed x={x} />, better: 1 },
@@ -184,7 +184,10 @@ function BacktestReport({ b, strategyAlive, now, onOpenStrategy, onOpen, onBack 
 }) {
   const rerun = useRerunTradeBacktest()
   const remove = useRemoveTradeBacktest()
+  const navigate = useNavigate()
   const [confirmDel, setConfirmDel] = useState(false)
+  // 部署：跳到交易「策略运行」打开部署抽屉，策略选好（SPEC-strategy-7.4）；部署用策略现在的版本和参数
+  const onDeploy = (sid: string) => void navigate(`/trading/runs?${new URLSearchParams({ deploy: sid })}`)
   const snap = b.strategy_snapshot
   const r = b.result
   const cur = currencyOf(b.config.symbols)
@@ -195,7 +198,7 @@ function BacktestReport({ b, strategyAlive, now, onOpenStrategy, onOpen, onBack 
       <PageTitle parent="回测记录" desc={`${snap.name || '未命名策略'} · ${b.config.symbols.map(instName).join('、')} · ${b.config.bars} 根 ${intervalLabel(b.config.interval)}`} actions={<>
         <Button title={strategyAlive ? undefined : '策略已经删除'} onClick={() => onOpenStrategy(b.config.strategy_id)}>打开策略</Button>
         <Button variant="outline" disabled={busy || rerun.isPending} title={busy ? '跑完才能重新回测' : strategyAlive ? '用同样的配置和当前的策略再跑一次' : '策略已经删除，用这次的快照再跑一次'} onClick={() => doRerun()}>重新回测</Button>
-        <Button variant="primary" disabled title={DEPLOY_HINT}>部署</Button>
+        <Button variant="primary" disabled={!strategyAlive} title={strategyAlive ? '部署到模拟盘账户上跑（用策略现在的版本）' : '策略已经删除，不能部署'} onClick={() => onDeploy(b.config.strategy_id)}>部署</Button>
       </>}>{b.name}</PageTitle>
 
       <div className="bt-meta">
