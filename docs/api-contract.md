@@ -2919,7 +2919,7 @@ DOM-01a。插件 `domains`（`internal/plugins/domains`，清单 `plugin.json`�
 
 ## 交易套件插件 trade
 
-TRD-01a 起。插件 `trade`（`internal/plugins/trade`，清单 `plugin.json`，0.3.0），不依赖别的插件，权限只有 `network:market-data`（普通）；**不声明 `network:exchanges` 和 `trade:live`，没有任何下单、撤单、划转、提币的接口**，只做行情、回测、模拟盘。表前缀 `trade_`，迁移在插件目录：`migrations/0001_trade.sql` 建 `trade_instruments`、`trade_watchlists`；`0002_market_cache.sql`（TRD-02a）建 `trade_klines`（收盘了的 K 线）、`trade_kline_spans`（已向交易所取过的区间）、`trade_quotes`（每个标的最近一次的最新价，30 秒落一次）。`0003_alerts.sql`（TRD-03a）建 `trade_alerts`（盯盘提醒）、`trade_alert_events`（提醒触发记录）。`0004_strategy_backtest.sql`（TRD-04b）建 `trade_strategies`（策略）、`trade_backtests`（回测记录）。一个插件提供四个功能模块 `markets`（行情）、`monitor`（盯盘）、`strategy`（策略与回测）、`trading`（交易执行），以后要单独装时再拆。插件未安装或停用时本节接口回 `not_found` 404（同「插件路由」）。编进二进制的行情源是 Binance（`binance`，TRD-01b）和 OKX（`okx`，TRD-01c）的公开行情，只读、不带任何 API Key；不出网的假行情源 `fake` 只给测试和离线演示，设环境变量 `PMW_TRADE_DEMO=1` 才登记。两个真实源各登记一个连接器 `binance_market`、`okx_market`（类别 `market`，认证方式 `none`，连通测试是 ping 一次交易所），清单 `provides.connectors` 声明了这两个。后台任务：`trade_market` 常驻刷新行情（见下文「行情缓存和推送」），`trade_instruments` 启用时先跑一次、之后每 24 小时把每个源的标的同步一遍（同 `POST /api/trade/sources/{id}/sync`），`trade_alerts` 每 2 秒检查一次盯盘提醒（TRD-03a，见下文「盯盘提醒」），`trade_backtests` 常驻执行排队的回测（TRD-04b，见下文「策略和回测」）。发布事件 `trade.alert_fired`（清单 `emits`），通知 kind 为 `trade.alert`。
+TRD-01a 起。插件 `trade`（`internal/plugins/trade`，清单 `plugin.json`，0.4.0），不依赖别的插件，权限只有 `network:market-data`（普通）；**不声明 `network:exchanges` 和 `trade:live`，没有任何向交易所下单、撤单、划转、提币的接口**，只做行情、回测、模拟盘：模拟盘的委托只在本地撮合，下单、部署只接受模拟盘账户（TRD-05a 起）。表前缀 `trade_`，迁移在插件目录：`migrations/0001_trade.sql` 建 `trade_instruments`、`trade_watchlists`；`0002_market_cache.sql`（TRD-02a）建 `trade_klines`（收盘了的 K 线）、`trade_kline_spans`（已向交易所取过的区间）、`trade_quotes`（每个标的最近一次的最新价，30 秒落一次）。`0003_alerts.sql`（TRD-03a）建 `trade_alerts`（盯盘提醒）、`trade_alert_events`（提醒触发记录）。`0004_strategy_backtest.sql`（TRD-04b）建 `trade_strategies`（策略）、`trade_backtests`（回测记录）。`0005_paper_trading.sql`（TRD-05a）建 `trade_accounts`（模拟盘账户）、`trade_orders`（委托）、`trade_fills`（成交流水，持仓也从这里取）、`trade_day_marks`（每个账户每个 UTC 日的起始权益）。`0006_strategy_runs.sql`（TRD-05b）建 `trade_runs`（部署）、`trade_run_logs`（部署日志）。`0007_risk.sql`（TRD-06a）建 `trade_risk`（风控规则和熔断状态）、`trade_halts`（熔断记录）。一个插件提供四个功能模块 `markets`（行情）、`monitor`（盯盘）、`strategy`（策略与回测）、`trading`（交易执行），以后要单独装时再拆。插件未安装或停用时本节接口回 `not_found` 404（同「插件路由」）。编进二进制的行情源是 Binance（`binance`，TRD-01b）和 OKX（`okx`，TRD-01c）的公开行情，只读、不带任何 API Key；不出网的假行情源 `fake` 只给测试和离线演示，设环境变量 `PMW_TRADE_DEMO=1` 才登记。两个真实源各登记一个连接器 `binance_market`、`okx_market`（类别 `market`，认证方式 `none`，连通测试是 ping 一次交易所），清单 `provides.connectors` 声明了这两个。后台任务：`trade_market` 常驻刷新行情（见下文「行情缓存和推送」），`trade_instruments` 启用时先跑一次、之后每 24 小时把每个源的标的同步一遍（同 `POST /api/trade/sources/{id}/sync`），`trade_alerts` 每 2 秒检查一次盯盘提醒（TRD-03a，见下文「盯盘提醒」），`trade_backtests` 常驻执行排队的回测（TRD-04b，见下文「策略和回测」），`trade_paper` 常驻撮合模拟盘挂单、检查强平和日亏损熔断（TRD-05a、TRD-06a，见下文「模拟盘账户、委托和撮合」「风控」），`trade_runs` 常驻按 K 线收盘给运行中的部署算信号、下单（TRD-05b，见下文「策略部署」）。发布事件 `trade.alert_fired`、`trade.halted`、`trade.halt_released`（清单 `emits`），通知 kind 为 `trade.alert`、`trade.halt`、`trade.liquidation`。
 
 | 方法 | 路径 | body / 说明 |
 |---|---|---|
@@ -3041,7 +3041,7 @@ TRD-01a 起。插件 `trade`（`internal/plugins/trade`，清单 `plugin.json`�
 
 ### 策略和回测（TRD-04b）
 
-策略落 `trade_strategies`，回测记录落 `trade_backtests`（迁移 `0004_strategy_backtest.sql`），id 前缀 `st`（策略）、`bk`（回测，原型的 `bt` 已被浏览器标签页占用，前缀表里早已登记 `bk`）。回测引擎是 `backtest.go` 的纯函数（TRD-04a，和原型 `web-next/src/backtest.ts` 对拍），这里只管落库、排队和取数据。**只做回测：没有部署、下单的接口；代码模式不执行源码**，按 `CodeKindOf` 认成网格、期现基差、双均线三种内置近似，`note` 里写明。
+策略落 `trade_strategies`，回测记录落 `trade_backtests`（迁移 `0004_strategy_backtest.sql`），id 前缀 `st`（策略）、`bk`（回测，原型的 `bt` 已被浏览器标签页占用，前缀表里早已登记 `bk`）。回测引擎是 `backtest.go` 的纯函数（TRD-04a，和原型 `web-next/src/backtest.ts` 对拍），这里只管落库、排队和取数据。**代码模式不执行源码**（部署到模拟盘见下文「策略部署」），按 `CodeKindOf` 认成网格、期现基差、双均线三种内置近似，`note` 里写明。
 
 | 方法 | 路径 | body / 说明 |
 |---|---|---|
@@ -3049,7 +3049,7 @@ TRD-01a 起。插件 `trade`（`internal/plugins/trade`，清单 `plugin.json`�
 | POST | `/api/trade/strategies` | `TradeStrategy` 的可写字段，都可选，回 201 + `TradeStrategy`；没传的取「新建策略」的默认值：名称「新策略」、条件规则、没有标的、`1h`、只做多、入场出场都空、止损止盈 0、仓位 20、没有参数和标签 |
 | GET | `/api/trade/strategies/{id}` | `TradeStrategy` |
 | PATCH | `/api/trade/strategies/{id}` | 可写字段的任意子集，只改出现的，数组、对象整体替换，每次都更新 `updated_at`；回 `TradeStrategy`。编辑页自动保存用 |
-| DELETE | `/api/trade/strategies/{id}` | `data` 为 `null`；回测记录保留（带快照） |
+| DELETE | `/api/trade/strategies/{id}` | `data` 为 `null`；回测记录保留（带快照）；这个策略没停的部署全部停止（`stop_reason`「策略已删除」）、撤掉它们的挂单（TRD-05b） |
 | GET | `/api/trade/backtests?strategy_id=&status=` | `TradeBacktestBrief[]` + `meta.total/queued/running/done/failed`（筛选后的各状态条数），按 `created_at` 新的在前，不分页。`status` 是 `queued` / `running` / `done` / `failed`，不认识 400 |
 | POST | `/api/trade/backtests` | `{strategy_id, symbols?, interval?, bars?, capital?, fee_bp?, slippage_ticks?, params?}`，回 201 + `TradeBacktest`（`status=queued`）。用策略这一刻的样子拍快照；`symbols`、`interval` 不传取策略的，`bars` 默认 1000、`capital` 默认 100000、`fee_bp` 数币默认 5 其余 3、`slippage_ticks` 默认 1；`params` 是覆盖，盖在策略参数上，键只能是策略里有的参数和 `stop_loss`、`take_profit`、`position_pct`。策略不存在 404；没有标的、条件规则模式下入场规则为空、范围不对 400 |
 | GET | `/api/trade/backtests/compare?ids=` | `TradeBacktest[]`（不带 `sweep`）+ `meta.total`，按 `ids` 的顺序；`ids` 逗号分隔 2 到 4 个，都要已完成，否则 400；有不存在的 404 |
@@ -3107,6 +3107,153 @@ TRD-01a 起。插件 `trade`（`internal/plugins/trade`，清单 `plugin.json`�
   - 「回测被中断：」——后端重启、插件停用或回测被删。
   前三种同时记一条运行异常（级别 `error`，模块「交易」，标题「「<策略名>」回测失败」，按「策略 + 原因分类」合并）。
 - 不记审计、不发事件。
+
+### 模拟盘账户、委托和撮合（TRD-05a）
+
+模拟盘账户、委托、成交落 `trade_accounts`、`trade_orders`、`trade_fills`、`trade_day_marks`（迁移 `0005_paper_trading.sql`）。**只有模拟盘：没有实盘账户的创建路径，下单只接受模拟盘账户；委托只在本地撮合，不向交易所发任何请求。** id 前缀 `ac`（账户）、`od`（委托）、`ps`（持仓）、`fl`（成交）。
+
+| 方法 | 路径 | body / 说明 |
+|---|---|---|
+| GET | `/api/trade/accounts` | `TradeAccount[]` + `meta.total`，按新建先后，不分页；权益、可用、保证金按成交流水和行情缓存现算 |
+| POST | `/api/trade/accounts` | `{name?, currency?, initial?, markets?, fee_bp?, slippage_ticks?, paper?}`，回 201 + `TradeAccount`。默认名称「模拟盘」、`USD`、初始资金 100000、`["crypto"]`、手续费万分之 5、滑点 1 跳。`paper` 只能是 `true`（传 `false` 400「现在只能建模拟盘账户」） |
+| GET | `/api/trade/accounts/{id}` | `TradeAccount` |
+| PATCH | `/api/trade/accounts/{id}` | `{name?, markets?, fee_bp?, slippage_ticks?}`，只改出现的，回 `TradeAccount`；带 `paper`、`currency`、`initial` 都 400（建好后不能改） |
+| DELETE | `/api/trade/accounts/{id}` | `data` 为 `null`；还有持仓、挂单或没停的部署时 409 `conflict`、`reason: "in_use"`，`message` 写还剩什么。委托、成交、部署记录保留，界面写「已删除的账户」 |
+| GET | `/api/trade/accounts/{id}/reconcile` | `TradeLedgerCheck`：账本对账（见下文「账本口径」），TSK-0233 的两周运行检查脚本调它 |
+| GET | `/api/trade/orders?account_id=&status=&run_id=&symbol=&limit=&offset=` | `TradeOrder[]`，新的在前；`status` 是 `active`（挂单中）、`history`（其余）或单个状态，不认识 400；`limit` 默认 200、1 到 1000。`meta` 是 `{total, active, history, limit, offset}`，`total` 是筛选后的条数，`active`、`history` 是不按状态筛时的两类条数 |
+| POST | `/api/trade/orders` | 统一下单入口：`{account_id, symbol, side, type?, qty, price?, stop_price?, leverage?, reduce_only?, confirmed?}`，回 201 + `TradeOrder`（`status` 是 `open` 或 `rejected`）。错误见下文「下单」 |
+| POST | `/api/trade/orders/cancel-all` | `{account_id?}`（可以不带 body），撤掉全部（或这个账户的）挂单，回 `{canceled}` |
+| GET | `/api/trade/orders/{id}` | `TradeOrder` |
+| PATCH | `/api/trade/orders/{id}` | `{price?, stop_price?}` 改挂单的委托价、触发价（限价、止损限价改 `price`，止损、止损限价改 `stop_price`，止损限价触发后只能改 `price`），回 `TradeOrder`；开仓单按新价格重新过风控，不过 409（同下单，委托保持原样）。不是挂单中 409 `conflict`、`reason: "state"` |
+| POST | `/api/trade/orders/{id}/cancel` | 撤单，回 `TradeOrder`（`status` 为 `canceled`，`reject_reason` 写「手动撤单」）；不是挂单中 409 `reason: "state"` |
+| GET | `/api/trade/positions?account_id=` | `TradePosition[]` + `meta.total`，按开仓时间新的在前 |
+| POST | `/api/trade/positions/{id}/close` | `{type?, price?, stop_price?, confirmed?}`（可以不带 body），按反方向下一笔平掉整个持仓：默认市价，合约带仅减仓，`source` 为 `close`；同样走统一下单入口（风控、二次确认），回 201 + `TradeOrder`。持仓不存在或已平 404 |
+| GET | `/api/trade/fills?account_id=&run_id=&order_id=&symbol=&limit=&offset=` | `TradeFill[]` + `meta.total/limit/offset`，新的在前；`limit` 默认 200、1 到 1000 |
+
+`TradeAccount`：`{id, name, broker, kind, markets, paper, currency, equity, available, margin_used, status, error?, api_hint, permissions, updated_at, initial, balance, realized_pnl, unrealized_pnl, fees, order_hold, fee_bp, slippage_ticks, marks_status, created_at}`，前半同原型 `TradeAccount`，后面是模拟盘账本的明细。
+
+- 模拟盘固定 `broker` 为「模拟」、`kind` 为 `exchange`、`status` 为 `connected`、`api_hint` 为「本地模拟撮合」、`permissions` 为 `["read","trade"]`；`updated_at` 是这次估值的时间。
+- `currency` 是 `USD` 或 `USDT`（现在只有数币行情，两者都按 1:1 折算 USD）；`markets` 是 `crypto` / `cn` / `hk` / `us` 的子集，但只有数币有行情源，别的市场的标的下单会 400。
+- `initial` 初始资金；`realized_pnl` 已实现盈亏合计（不含手续费）；`fees` 手续费合计；`balance` = `initial + realized_pnl − fees`；`unrealized_pnl` 是持仓按现价的浮动盈亏；`equity` = `balance + unrealized_pnl`。
+- `margin_used`：合约是 |持仓成本| / 杠杆，现货是 |持仓成本|（现货买入占全额）；`order_hold` 是开仓挂单的占用（委托价或触发价估的名义价值 / 杠杆，市价单、平仓单不占）；`available` = `equity − margin_used − order_hold`，可以是负数（浮亏超过余额）。
+- `fee_bp` 是手续费万分之几（0 到 100），`slippage_ticks` 是市价、止损单成交时加减几跳（0 到 1000 的整数，一跳是 10 的负「标的价格小数位」次方）。
+- `marks_status`：`live` 持仓的现价都是实时的；`stale` 有的不是实时（按行情缓存或均价估）。
+
+`TradeOrder`：`{id, account_id, symbol, side, type, qty, price?, stop_price?, filled, avg_fill?, status, reject_reason?, reduce_only, run_id?, created_at, updated_at, leverage, fee, source, triggered, confirmed}`，前半同原型 `Order`。
+
+- `side` 是 `buy` / `sell`；`type` 是 `market` / `limit` / `stop` / `stop_limit`（POST 不传按 `limit`）；`qty` 按标的最小下单量向下取整，取整后为 0 时 400「数量不足最小单位 N」。限价、止损限价要 `price`，止损、止损限价要 `stop_price`，别的类型传了忽略。
+- `status` 是 `open`（挂单中）/ `filled`（已成交）/ `canceled`（已撤单）/ `rejected`（被拒绝）。原型的 `pending` 在后端不出现（下单当场检查完就是挂单中或被拒绝）；`partial` 预留，模拟撮合一次全部成交。`reject_reason` 是被拒或撤单的原因。
+- `leverage` 是整数倍：现货恒为 1（传了大于 1 的 400）；合约 1 到 125，不传沿用现有持仓的杠杆，没有持仓按 1。`reduce_only` 只适用于合约（现货传 `true` 400）。
+- `fee` 是这笔的手续费，`avg_fill` 是成交价；`source` 是 `manual`（手动）/ `close`（持仓页平仓）/ `run`（部署）/ `liquidation`（强平）；`triggered` 是止损限价已触发；`confirmed` 是下单时带了二次确认标记。
+
+`TradePosition`：`{id, account_id, symbol, name, side, qty, avg_price, leverage?, liq_price?, run_id?, opened_at, cost, margin, last, value, pnl, pct, mark_status, mark_at}`，前半同原型 `Position`，后面是现价和盈亏。`side` 是 `long` / `short`，`qty` 是正数；`leverage`、`liq_price` 只有合约有；`run_id` 是开这个仓的部署；`opened_at` 是开仓时间（平到 0 再开、反手时更新，编号也换新）。`cost` 是 |持仓成本|，`avg_price` = `cost /（qty × 合约乘数）`，`margin` 同 `TradeAccount.margin_used` 的口径；`last` 是现价（行情缓存里没有时为 0，盈亏按均价估），`value` 是现价市值，`pnl` 是浮动盈亏，`pct` 是 `pnl / margin`（小数，合约相当于乘了杠杆）；`mark_status`、`mark_at` 是现价的状态和数据时间（同 `TradeQuote.status`、`at`）。
+
+`TradeFill`：`{id, order_id, account_id, symbol, side, qty, price, fee, realized_pnl, kind, run_id?, position_id, at}`。`kind` 是 `trade`（撮合）/ `liquidation`（强平）；`realized_pnl` 是这笔平掉部分的已实现盈亏（不含手续费，开仓的为 0）；`position_id` 是成交后的持仓编号。
+
+`TradeLedgerCheck`：`{account_id, at, ok, initial, realized, unrealized, fees, equity, equity_replay, diff, fills, positions, problems, marks_status}`。金额都是精确的十进制字符串（不是 JSON 数字）：`equity` 是账本口径（`initial + realized + unrealized − fees`），`equity_replay` 是把成交流水按现金流重放（`initial − Σ带符号名义价值 − Σ手续费 + Σ持仓市值`），`diff` 是两者之差；`fills`、`positions` 是核对的成交、持仓数；`problems` 是对不上的地方（逐笔核对持仓链、已实现，持仓数量对成交累计，两种口径的权益），没有为 `[]`；`ok` 为真表示全部对上。`marks_status` 同 `TradeAccount`。
+
+账本口径：
+
+- 金额、数量、价格、手续费在库里都是按 1e8 放大的整数（列名带 `_e8`），乘除用大整数、最后一步四舍五入（正好一半远离零），不用浮点累加；接口输出时才转成 JSON 数字。
+- 插件的数据句柄没有事务，账本以成交流水为准：每笔成交一条记录，同一条里带上成交后这个账户这个标的的持仓（数量、成本、杠杆、开仓时间、编号）；持仓就是每个标的最新一条成交带的持仓。委托改成已成交是第二步，进程崩在两步中间时，撮合任务启动先按成交流水把委托补成已成交。
+- 持仓记带符号的成本（名义价值累计）而不是均价：同向加仓数量、成本相加；反向减仓按减掉的比例结转成本，已实现 = −本笔带符号名义 − 结转的成本；反手先平后开，名义按数量拆成两段。于是任意时刻 **权益 = 初始资金 + 已实现 + 未实现 − 手续费** 在整数上精确成立，`/reconcile` 用另一种口径重放核对。
+- 强平价同原型：多单均价 ×（1 − 1/杠杆 + 0.5%），空单均价 ×（1 + 1/杠杆 − 0.5%）。资金费率不计。
+
+下单（`POST /api/trade/orders`，以及持仓页平仓、部署下单，都走同一个入口，风控逐笔检查接在这里，直接调接口也绕不过）：
+
+- 400 `validation`：账户不存在或不是模拟盘（「账户「…」是实盘账户，现在只能对模拟盘账户下单和部署」）、字段不对、标的格式不对或不在标的表里、行情源还没接、期权、账户不支持这个市场、数量取整后为 0、市价单还没有最新价、金额超出范围。不认识的字段 400。这些情况不记委托。
+- 409 `conflict`、`reason: "risk"`：被风控拦下（见下文「风控」），`message` 是「风控未通过：」加逐条原因（用「；」连），`error` 里多 `blocks`（原因数组）和 `order`（记成被拒绝的那笔 `TradeOrder`，`reject_reason` 是同样的原因）。
+- 409 `conflict`、`reason: "confirm"`：手动单（含平仓）金额（折 USD）超过二次确认阈值又没带 `confirmed: true`，`error` 里多 `value`（这一笔的金额）和 `confirm_above`；不记委托，带上确认标记重新提交即可。
+- 201、`status: "rejected"`：模拟交易所会拒的单，委托照记，`reject_reason` 是「可卖数量不足：持有 N」「没有可卖的持仓（现货不能卖空）」「仅减仓：没有可减的反向持仓」「可用资金不足：需要 N，可用 N」（开仓要的是名义 / 杠杆 + 手续费）；同时记一条 warn 级运行异常「委托被拒」。
+- 201、`status: "open"`：挂单中，立刻叫醒撮合（市价单通常一秒内成交）。
+
+撮合（后台常驻任务 `trade_paper`，每秒一轮，下单、改价后立刻再跑一轮）：
+
+- 行情只取行情缓存，不另起轮询交易所：挂单、持仓用到的标的挂进行情订阅（同 `/stream`，最新价每秒刷）。**最新价不是 `live` 时不撮合、不强平**，免得拿旧价成交。
+- 市价单按最新价加减滑点成交（买加卖减）；限价单在买单最新价 ≤ 委托价、卖单最新价 ≥ 委托价时按委托价成交；止损单在买单最新价 ≥ 触发价、卖单 ≤ 触发价时按最新价加减滑点成交；止损限价先等触发（记 `triggered`），之后按限价单的规则成交，触发和成交可以不在同一轮。
+- 成交时再查一遍：仅减仓的数量收到持仓以内，没有反向持仓了改成被拒绝；现货可卖不足、开仓可用资金不足也改成被拒绝。手续费 = |名义价值| × 账户手续费率，计入成交。
+- 合约持仓的最新价（实时）越过强平价时按最新价强平（不加滑点）：记一笔 `source` 为 `liquidation` 的委托和 `kind` 为 `liquidation` 的成交，发通知（kind `trade.liquidation`，级别 `error`），记 warn 级运行异常「模拟盘强平」，来自部署的写进部署日志。
+- 账户删了的挂单撤掉（原因「账户已删除」）。
+
+审计（内核审计，操作者 `trade#user`（接口）、`trade#paper`（撮合）、`trade#<部署 id>`（部署）、`trade#risk`（日亏损熔断））：建、改、删账户（`create` / `update` / `delete`，`target_type` `trade_account`）；下单 `place`、被拒 `reject`、风控拦截 `risk_block`、改价 `modify`、撤单 `cancel`、成交 `fill`（`target_type` 都是 `trade_order`，`detail` 带账户、标的、方向、数量、价格、金额、原因、部署 id）。
+
+### 策略部署（TRD-05b）
+
+「部署」是策略在一个模拟盘账户上长期跑，和 SOP 的「执行」分开建模，落 `trade_runs`、`trade_run_logs`（迁移 `0006_strategy_runs.sql`），id 前缀 `rn`。**只能部署到模拟盘账户。**
+
+| 方法 | 路径 | body / 说明 |
+|---|---|---|
+| GET | `/api/trade/runs?strategy_id=&account_id=&status=` | `TradeRun[]`（每条带最近 60 条日志），按启动时间新的在前，不分页。`status` 是 `running` / `paused` / `stopped` / `error`，不认识 400。`meta` 是 `{total, running, paused, stopped, error, pnl}`，`pnl` 是筛选结果的盈亏合计 |
+| POST | `/api/trade/runs` | `{strategy_id, account_id, symbols?, params?, capital?}`，回 201 + `TradeRun`（`status=running`，带最近 500 条日志）。错误见下 |
+| GET | `/api/trade/runs/{id}` | `TradeRun`，带最近 500 条日志 |
+| POST | `/api/trade/runs/{id}/pause` | 运行中的才能暂停：不再出新信号，已有挂单保留；日志「手动暂停」。回 `TradeRun`；不是运行中 409 `reason: "state"` |
+| POST | `/api/trade/runs/{id}/resume` | 已暂停的恢复（日志「手动恢复」），已停止、异常的重新启动（日志「重新启动」）；清掉异常原因、停止时间和原因，从启动时最近收盘的那根 K 线之后接着算，停着的这段不补算。熔断中 409 `reason: "halted"`；账户不存在或不是模拟盘 400；已在运行 409 `reason: "state"` |
+| POST | `/api/trade/runs/{id}/stop` | `{reason?}`（可以不带 body，默认「手动停止」），没停的才能停：撤掉这个部署的挂单，**持仓保留、不自动平仓**；回 `TradeRun`；已停止 409 `reason: "state"` |
+
+`TradeRun`：`{id, strategy_id, account_id, symbols, params, capital, status, error?, pnl, started_at, stopped_at?, stop_reason?, logs, log_total, strategy_name, interval, realized_pnl, unrealized_pnl, fees, holdings, updated_at}`，前半同原型 `StrategyRun`。
+
+- `symbols` 是这次跑的标的；`params` 是策略参数加本次覆盖（键序同策略，网格没设 `lower`、`upper` 时部署时按现价上下 8% 定下来写进这里）；`capital` 是分配资金（账户币种）。
+- `status` 是 `running` / `paused` / `stopped` / `error`；`error` 是异常原因（账户删了、账户不是模拟盘时变 `error`，「…，部署已挂起」）；`stopped_at`、`stop_reason` 是停止时间和原因（「手动停止」「一键全停：<原因>」「策略已删除」「亏损超过 N% 停止网格」或请求里写的原因）。
+- `logs` 是 `TradeRunLog[]`，按时间正序，列表里是最近 60 条、详情和写操作的返回是最近 500 条；`log_total` 是日志总条数。
+- `strategy_name`、`interval` 取部署时的策略快照（之后改策略、删策略都不影响这次部署的规则）。
+- `pnl` = `realized_pnl − fees + unrealized_pnl`，按 `run_id` 是它的成交重放算（同账本口径）；`holdings` 是 `TradeRunHolding[]`，这个部署自己在各标的上的持仓。
+
+`TradeRunLog`：`{at, level, text}`，`level` 是 `info` / `warn` / `error`。
+
+`TradeRunHolding`：`{symbol, side, qty, avg_price}`。
+
+新建的校验（都不建部署）：
+
+- 400：`strategy_id` 没给；账户不存在或不是模拟盘；策略不合法；条件规则的入场规则为空；期现基差的代码策略（「要两条腿同时成交，模拟盘还不能部署」）；`symbols` 里有不是策略标的的；没有能模拟交易的标的（标的表里没有、行情源没接、账户不支持这个市场、期权）；现货标的配了做空（只做多的策略才能部署到现货）；`params` 的键不是策略参数或 `stop_loss`、`take_profit`、`position_pct`，或不是数；`capital` 不大于 0 或超过账户可用（「分配资金超过账户可用 N 币种」）；不认识的字段。`capital` 不传按 20000，`symbols` 不传取策略里这个账户能模拟交易的全部。
+- 404：策略不存在。
+- 409 `conflict`、`reason: "halted"`：熔断中，`message`「熔断中，不能启动新运行；先到风控解除熔断」。
+- 成功时日志第一条「模拟盘启动：<标的名>，分配 N 币种；<周期> K 线收盘时算信号」，记审计 `deploy`（`target_type` `trade_run`）。
+
+信号和下单（后台常驻任务 `trade_runs`，每 5 秒看一遍运行中的部署，新建、恢复后立刻看一遍）：
+
+- 每个标的在策略周期的 K 线收盘后算一次信号。K 线走行情缓存（同 `/api/trade/klines`），取不到时写一条 warn 日志（同一个问题只写一次），下一轮再试。
+- 规则和指标复用回测引擎（`ApplyParams`、`Series`、`warmOf`、`evalGroup`，参数替换同 `SPEC-strategy-0` 约定 2、3）：条件规则和「未识别，按双均线」的代码策略按约定 6 开平仓；止损止盈按刚收盘那根的最高最低价对部署的持仓均价判断（约定 1），触发了按市价平仓（回测按止损价成交，模拟盘只能按当时的最新价加滑点）；网格近似按收盘价算目标仓位（约定 10，每格数量取 `qty` 但不让满仓超过分配资金 × 仓位比例，按区间中点估），和部署持仓差超过半格就补齐，部署盈亏跌破分配资金 ×（1 − 止损）时平仓并停止部署。
+- 开仓数量 = 分配资金 / 标的数 × 仓位比例 /（收盘价 × 乘数），按最小下单量向下取整；不够一手不开，写 warn 日志。平仓数量是部署自己的持仓，但不超过账户里这个标的同方向的持仓（手动平掉的不再平）。
+- 下单都是市价单，走统一下单入口（`source` 为 `run`，带 `run_id`，部署时已确认过，不要二次确认）。幂等键是「部署 + 标的 + K 线时间 + 动作」，同一根 K 线重算不会重复下单。日志：信号「<K 线时间> 收盘 <价>：入场信号，开多，市价买入 N」，成交「成交：买入 N <标的名> @ <价>」（同原型），被风控拦「风控拦截：…，<原因>」（warn），被拒「委托被拒：…」（warn）。
+- **后端重启**：运行中的部署照常继续，第一轮写一条「后端重启，部署继续运行」。每个标的记着算到哪一根，重启后中间错过的 K 线逐根补算信号、合成一条日志「补算 <标的> N 根 K 线（<起> 到 <止>）：<哪根出了什么信号，或没有信号>。后端没在跑时错过的 K 线只补算、不补下单」；只有收盘后宽限期内（周期的十分之一，至少 1 分钟、至多一个周期）的那根才下单。一次最多补算 1000 根（含指标预热），更早的写明没有补算。
+- 删策略时它没停的部署全部停止（`stop_reason`「策略已删除」）、撤掉它们的挂单。
+- 审计：`deploy`、`pause`、`resume`、`stop`（`target_type` `trade_run`）。
+
+### 风控（TRD-06a）
+
+风控规则和熔断记录落 `trade_risk`（全局一行，第一次读时按原型 `seedRisk` 补默认值）、`trade_halts`（迁移 `0007_risk.sql`），熔断记录 id 前缀 `hl`。**全部在后端强制**：逐笔检查接在统一下单入口上，前端绕不过。
+
+| 方法 | 路径 | body / 说明 |
+|---|---|---|
+| GET | `/api/trade/risk` | `TradeRisk` |
+| PATCH | `/api/trade/risk` | `{max_position_pct?, daily_loss_pct?, max_order_value?, max_leverage?, confirm_above?}`，只改出现的，都要大于 0（两个百分比不超过 100），否则 400；回 `TradeRisk`。改了的记审计。放宽规则不会自动解除熔断 |
+| POST | `/api/trade/risk/kill` | `{reason?}`（可以不带 body，默认「手动一键全停」，风控页传「风控页手动一键全停」），一键全停，回 `TradeKillResult`。没全部做完时 500，`error` 里多 `result`（`TradeKillResult`），`message` 是「全停没有完成：<原因>」 |
+| POST | `/api/trade/risk/release` | `{reason}` 解除熔断，原因必填（空 400），回 `TradeRisk`；没在熔断中 409 `reason: "not_halted"`。停掉的部署不自动恢复 |
+| GET | `/api/trade/risk/halts` | `TradeHalt[]` + `meta.total`，新的在前，最多 200 条 |
+
+`TradeRisk`：`{max_position_pct, daily_loss_pct, max_order_value, max_leverage, confirm_above, halted, halted_reason?, halted_at?, halt_id?, updated_at, day}`，前半同原型 `RiskRules`；`halt_id` 是当前这次熔断的记录；`day` 是 `TradeRiskDay`。
+
+`TradeRiskDay`：`{date, start_equity, equity, pnl, loss_used, loss_limit, status}`。`date` 是 UTC 日期；`start_equity` 是各模拟盘账户当日（UTC 0 点后）第一次看到的权益合计（当天新建的账户记初始资金）；`equity` 是现在的权益合计；`pnl` = `equity − start_equity`（当日已实现加未实现）；`loss_used` 是亏损（盈利时为 0）；`loss_limit` = `start_equity × daily_loss_pct %`。`status`：`ok`；`stale` 有持仓的现价不是实时，这一刻不判定日亏损（数按缓存估）。
+
+`TradeKillResult`：`{halted, reason, at, halt_id, kind, runs_stopped, orders_canceled, remaining_runs, remaining_orders, failed}`，也是 `trade.halted` 事件的载荷。`kind` 是 `manual`（一键全停）/ `auto`（日亏损自动熔断）；`remaining_runs`、`remaining_orders` 是没停掉的部署、没撤掉的挂单的 id（正常为 `[]`）；`failed` 是出错的原因。
+
+`TradeHalt`：`{id, kind, reason, at, runs_stopped, orders_canceled, released_at?, release_reason?}`，同原型 `HaltRec`，多种类和停掉的数量；没解除的没有 `released_at`。已经在熔断中再全停时，上一条记录记为解除（「再次一键全停，由新的熔断记录接替」），新开一条。
+
+`TradeHaltReleased`：`{halt_id, reason, at, halted_reason, halted_at}`，是 `trade.halt_released` 事件的载荷。
+
+逐笔检查（同原型 `riskBlocks`，原因文字和下单抽屉里的一致；金额都折 USD）：
+
+- 开仓单才查前三条（开仓的认法同原型 `isOpening`：现货买入算；合约勾了仅减仓不算；和已有持仓反向、数量不超过持仓的不算；其余算）：
+  - 熔断中：「熔断中：只能平仓或减仓，禁止新开仓」；
+  - 单笔金额（限价、止损限价按委托价，止损按触发价，市价按最新价）超过 `max_order_value`：「单笔金额 $N 超过上限 $N」；
+  - 下单后这个标的的市值（已有持仓按现价加这一笔）占账户权益超过 `max_position_pct`：「下单后 <标的名> 占该账户权益 N%，超过单标的上限 N%」；
+- 合约杠杆超过 `max_leverage`（不分开平仓）：「杠杆 Nx 超过上限 Nx」。
+- 不通过：委托记成被拒绝，接口 409（见上文「下单」），记审计 `risk_block` 和 warn 级运行异常「下单被风控拦截」；部署的单写 warn 日志。
+- 二次确认：手动单（含平仓）金额超过 `confirm_above` 要带 `confirmed: true`，否则 409 `reason: "confirm"`；部署的单不要。
+
+日亏损熔断：撮合任务每轮算一次 `TradeRiskDay`，`loss_used` 到 `loss_limit` 时自动一键全停，原因「单日亏损 $N，达到上限 N%，自动熔断」，`kind` 为 `auto`，记 warn 级运行异常「风控熔断」，审计动作 `halt`（操作者 `trade#risk`）。有持仓的现价不全是实时时不判定。同一个 UTC 日自动熔断过、又被手动解除后，回到上限以内之前不再自动熔断。
+
+一键全停（`/risk/kill` 和日亏损自动熔断同一套，都在账本锁里按顺序做）：先进入熔断（之后的开仓单全被拦）、写熔断记录；再把所有没停的部署改成已停止（`stop_reason`「一键全停：<原因>」，日志加 warn）；再撤掉所有挂单（原因「一键全停：<原因>」）；持仓不动。然后记审计（手动 `kill`，自动 `halt`，`target_type` `trade_risk`，`detail` 带停掉的数量和没做完的）、发事件 `trade.halted`（载荷 `TradeKillResult`）、发通知（kind `trade.halt`，级别 `error`）。解除记审计 `release`、发事件 `trade.halt_released`、发通知（级别 `info`）。改规则记审计 `update`（`detail` 带改前改后）。
 
 ## 宽基监控插件 etf
 
