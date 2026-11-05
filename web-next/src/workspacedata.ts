@@ -3,7 +3,7 @@
 // groups 是唯一的来源；modules 是按分组顺序摊平的启用列表，跟着 groups 算出来，方便各处直接用
 
 export type ModuleKey = 'today' | 'projects' | 'contacts' | 'messages' | 'tasks' | 'library' | 'sop' | 'sessions' | 'terminal' | 'browser'
-  | 'videos' | 'markets' | 'monitor' | 'strategy' | 'trading'
+  | 'videos' | 'markets' | 'monitor' | 'strategy' | 'trading' | 'etf'
 
 export const MODULES: { key: ModuleKey; label: string; desc: string }[] = [
   { key: 'today', label: '今日', desc: '今天要处理的事集中在一页' },
@@ -21,6 +21,7 @@ export const MODULES: { key: ModuleKey; label: string; desc: string }[] = [
   { key: 'monitor', label: '盯盘', desc: '盯盘墙、价格与异动提醒、市场时段' },
   { key: 'strategy', label: '策略', desc: '策略编辑、回测和参数扫描' },
   { key: 'trading', label: '交易', desc: '账户、持仓、委托、策略运行和风控' },
+  { key: 'etf', label: '宽基监控', desc: '宽基 ETF 份额与资金流、异动提醒和规则' },
 ]
 export const moduleOf = (k: ModuleKey) => MODULES.find((m) => m.key === k)!
 
@@ -50,9 +51,9 @@ export const TEMPLATES: { role: string; name: string; desc: string; groups: [str
   { id: 'ws_video', role: '视频博主', name: '视频创作工作台', desc: '视频制作、系列、多平台发布和粉丝合作', home: 'videos', mark: { text: '', icon: 'video', color: '#e8590c' },
     groups: [['', ['today']], ['创作', ['videos', 'library', 'sessions']], ['发布与互动', ['tasks', 'messages']], ['合作', ['contacts', 'projects']], ['工具', ['sop', 'terminal', 'browser']]] },
   { id: 'ws_trader', role: '交易员', name: '交易工作台', desc: '看盘盯盘、策略回测、账户执行和风控', home: 'markets', mark: { text: '', icon: 'candles', color: '#c0352b' },
-    groups: [['', ['today']], ['行情', ['markets', 'monitor']], ['策略与执行', ['strategy', 'trading']], ['资讯', ['messages', 'library', 'browser']], ['工具', ['tasks', 'sessions', 'terminal']]] },
+    groups: [['', ['today']], ['行情', ['markets', 'monitor', 'etf']], ['策略与执行', ['strategy', 'trading']], ['资讯', ['messages', 'library', 'browser']], ['工具', ['tasks', 'sessions', 'terminal']]] },
   { id: 'ws_all', role: '全部模块', name: '0xBroleez', desc: '所有功能模块都开着', home: 'today', mark: { text: '0x', color: '#161823' },
-    groups: [['', ['today']], ['工作', ['projects', 'tasks', 'library']], ['视频', ['videos']], ['交易', ['markets', 'monitor', 'strategy', 'trading']],
+    groups: [['', ['today']], ['工作', ['projects', 'tasks', 'library']], ['视频', ['videos']], ['交易', ['markets', 'monitor', 'etf', 'strategy', 'trading']],
       ['沟通', ['messages', 'contacts', 'sessions']], ['工具', ['sop', 'terminal', 'browser']]] },
   { id: '', role: '自定义', name: '我的工作台', desc: '从空白开始，自己挑模块', home: 'today', groups: [['', ['today']]] },
 ]

@@ -65,6 +65,7 @@ var Registry = []Entry{
 	{"wt", "worktree", "projects_worktrees", ""},            // 项目插件的需求工作区（AUTO-07）
 	{"tr", "testRun", "projects_test_runs", ""},             // 项目插件的测试环境与测试报告（AUTO-08）
 	{"rel", "release", "projects_releases", ""},             // 项目插件的发布记录（AUTO-10）
+	{"psy", "protoSync", "projects_proto_syncs", ""},        // 项目插件的原型同步记录（AUTO-11）
 	{"ch", "projectChat", "", "projectChat"},
 	// 任务与自动化
 	{"sop", "sop", "sop_flows", "sop"},           // SOP 插件的表（SOP-01a）
@@ -102,6 +103,8 @@ var Registry = []Entry{
 	{"ps", "position", "", "position"},
 	{"od", "order", "", "order"},
 	{"rn", "strategyRun", "", "strategyRun"},
+	{"ear", "etfAnomalyRule", "etf_anomaly_rules", ""},   // 宽基监控插件的表（ETF-01b），异动规则；内置 7 条用固定 id
+	{"eae", "etfAnomalyEvent", "etf_anomaly_events", ""}, // 宽基监控插件的表（ETF-01b），异动命中记录
 	// 浏览器与终端
 	{"bt", "browserTab", "browser_tabs", "browserTab"}, // 浏览器插件的表（BR-01a）
 	{"tb", "termTab", "", "termTab"},
