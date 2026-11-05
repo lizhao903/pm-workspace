@@ -332,6 +332,42 @@ const INFO: Record<string, NodeInfo> = {
     ],
     summary: (c, ctx) => [c.preset ? (ctx.presets ?? []).find((p) => p.id === c.preset)?.scene ?? '' : '', c.workdir].filter(Boolean).join(' · '),
   },
+  // 执行任务（TSK-0411）：工作目录按任务 → 所属项目继承，一律可写；更新任务：改负责人、状态，都不填只读取
+  task_run: {
+    label: KIND_LABEL.task_run, desc: '把一条任务交给本机 Claude Code 去做：工作目录按任务、所属项目继承，等它做完', color: '#b0570b',
+    icon: <>{line('M3 4.5 6 8l-3 3.5M8.5 4.5h5M8.5 8h5M8.5 11.5h3')}</>,
+    fields: [
+      { key: 'task', label: '任务', type: 'text', placeholder: '{{task.id}}', hint: '任务 id 或编号，支持 {{字段}}；留空取输入的 task.id，再取 task_id' },
+      { key: 'prompt', label: '附加要求', type: 'textarea', placeholder: '先跑一遍测试再动手', hint: '拼在任务说明后面；任务正文和验收标准 Claude Code 会自己读' },
+      {
+        key: 'preset', label: '角色', type: 'select', default: '', hint: '执行要求和输出要求拼进提示词；执行任务一律可写',
+        options: (ctx, cfg) => {
+          const list = [{ value: '', label: '不选角色' }, ...(ctx.presets ?? []).map((p) => ({ value: p.id, label: p.scene }))]
+          return cfg.preset && !list.some((o) => o.value === cfg.preset) ? [...list, { value: cfg.preset, label: '已删除的角色' }] : list
+        },
+      },
+      { key: 'timeout', label: '超时', type: 'text', default: '2 小时', placeholder: '2 小时', hint: '到点取消这次执行，最多 24 小时' },
+      {
+        key: 'on_fail', label: '失败时', type: 'select', default: '',
+        options: () => [{ value: '', label: '这一步失败（停下）' }, { value: 'continue', label: '继续往下走，输出 status=failed 和原因' }],
+        hint: '没有工作目录、目录不可写、执行失败时怎么办；选继续可以在下游回报失败原因',
+      },
+    ],
+    summary: (c) => [c.task || '{{task.id}}', c.on_fail === 'continue' ? '失败继续' : ''].filter(Boolean).join(' · '),
+  },
+  task_update: {
+    label: KIND_LABEL.task_update, desc: '改已有任务的负责人、状态；都不填只读取任务（含继承后的工作目录）', color: '#e8590c',
+    icon: <><rect x="2.5" y="2.5" width="11" height="11" rx="2.4" fill="none" stroke="currentColor" strokeWidth="1.4" />{line('M5.5 10.5 10 6M9 5h2v2')}</>,
+    fields: [
+      { key: 'task', label: '任务', type: 'text', placeholder: '{{task.id}}', hint: '任务 id 或编号，支持 {{字段}}；留空取输入的 task.id，再取 task_id' },
+      { key: 'assignee', label: '负责人', type: 'text', placeholder: '{{answer.assignee}}', hint: '联系人 id 或名字；名册里没有时不改，输出 assign_ok=no 和提示' },
+      {
+        key: 'status', label: '状态', type: 'select', default: '',
+        options: () => [{ value: '', label: '不改' }, ...([['todo', '未开工'], ['doing', '进行中'], ['review', '待验收'], ['blocked', '受阻'], ['done', '已完成'], ['cancelled', '已取消']] as const).map(([value, label]) => ({ value, label }))],
+      },
+    ],
+    summary: (c) => [c.assignee ? `负责人 ${c.assignee}` : '', c.status ? `状态 ${c.status}` : ''].filter(Boolean).join(' · ') || '只读取',
+  },
   end: {
     label: KIND_LABEL.end, desc: '流程到这里结束，挑出要留下的结果', color: '#2f7d43',
     icon: <rect x="4" y="4" width="8" height="8" rx="1.5" fill="currentColor" />,

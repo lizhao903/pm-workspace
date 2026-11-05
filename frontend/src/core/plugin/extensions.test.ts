@@ -110,6 +110,10 @@ describe('SOP 节点（2.7）', () => {
       ['im_send_message', '发消息', 'im'], ['im_wait_reply', '等待回复', 'im'], ['im_get_message', '读取消息', 'im'], ['im_mark_message', '标记消息', 'im'],
       ['im_set_project', '消息归到项目', 'im'], ['im_wait_task', '等任务完成', 'im'], ['im_reply_message', '回复原消息', 'im'],
       ['im_to_task', '转成任务', 'im'], ['im_set_task_stage', '设置任务阶段', 'im'], ['im_notify', '通知', 'im'],
+      ['im_ask_me', '私信我确认', 'im'], ['im_tell_me', '私信我', 'im'],
+    ])
+    expect(sopNodeView('im_ask_me')?.fields.map((f) => [f.key, f.required ?? false])).toEqual([
+      ['text', true], ['timeout', false], ['channel', false], ['connector', false], ['to', false],
     ])
     expect(sopNodeView('im_send_message')?.fields.map((f) => f.key)).toEqual(['conversation', 'text'])
     expect(sopNodeView('im_wait_reply')?.fields.map((f) => f.key)).toEqual(['conversation', 'timeout'])

@@ -71,10 +71,12 @@ export function ProvidersPage({ providers, models, selected, onOpen, onAdd }: {
   )
 }
 
-export function ProviderDrawer({ provider, kind, models, onClose, onSave, onDelete, onFail, delPlan }: {
+export function ProviderDrawer({ provider, kind, models, providers = [], onClose, onSave, onDelete, onFail, delPlan }: {
   provider: Provider | null
   kind: ProviderKind
   models: ModelConf[]
+  /** 已接入的全部服务商，「失败时改用」从里面挑 */
+  providers?: Provider[]
   onClose: () => void
   /** 保存服务商，同时把勾选的目录模型同步成启用 / 不启用 */
   onSave: (p: Provider, models: ModelConf[]) => void
@@ -90,6 +92,7 @@ export function ProviderDrawer({ provider, kind, models, onClose, onSave, onDele
   const [name, setName] = useState(provider?.name ?? def.label)
   const [values, setValues] = useState<Record<string, string>>(() => ({ ...Object.fromEntries(def.fields.map((f) => [f.key, ''])), ...provider?.values }))
   const [enabled, setEnabled] = useState(provider?.enabled ?? true)
+  const [fallback, setFallback] = useState(provider?.fallback_id ?? '')
   const [show, setShow] = useState<Record<string, boolean>>({})
   const [test, setTest] = useState<{ state: 'idle' | 'running' | 'ok' | 'error'; error?: string }>(() => (provider ? { state: provider.status === 'ok' ? 'ok' : provider.status === 'error' ? 'error' : 'idle', error: provider.error } : { state: 'idle' }))
   const [tried, setTried] = useState(false)
@@ -116,7 +119,7 @@ export function ProviderDrawer({ provider, kind, models, onClose, onSave, onDele
     setTried(true)
     if (missing.length || !name.trim()) return
     const r = testProvider(kind, values)
-    const p: Provider = { id, kind, name: name.trim(), values, enabled, status: test.state === 'ok' ? 'ok' : test.state === 'error' ? 'error' : r.ok ? 'untested' : 'error', error: r.ok ? undefined : r.error, checked_at: test.state === 'ok' || test.state === 'error' ? new Date().toISOString() : provider?.checked_at }
+    const p: Provider = { id, kind, name: name.trim(), values, enabled, fallback_id: fallback || undefined, status: test.state === 'ok' ? 'ok' : test.state === 'error' ? 'error' : r.ok ? 'untested' : 'error', error: r.ok ? undefined : r.error, checked_at: test.state === 'ok' || test.state === 'error' ? new Date().toISOString() : provider?.checked_at }
     const next = catalog.map((c) => {
       const old = mine.find((m) => m.id === c.id)
       return old ? { ...old, enabled: picked.includes(c.id) } : { ...catalogModel(id, c), enabled: picked.includes(c.id) }
@@ -198,6 +201,16 @@ export function ProviderDrawer({ provider, kind, models, onClose, onSave, onDele
             </>
           ) : <span className="list-sub">在上面「模型 ID」里填了之后这里会列出来</span>}
         </div>
+
+        <label className="field">
+          <span className="field-label">失败时改用<span className="field-hint">它连不上、返回 5xx 被暂停调用（熔断）时，改用这个服务商和它的默认模型</span></span>
+          <select aria-label="失败时改用" value={fallback} onChange={(e) => setFallback(e.target.value)}>
+            <option value="">不改用，直接报错</option>
+            {providers.filter((x) => x.id !== id).map((x) => (
+              <option key={x.id} value={x.id} disabled={!x.enabled && x.id !== fallback}>{x.enabled ? x.name : `${x.name}（已停用）`}</option>
+            ))}
+          </select>
+        </label>
 
         <label className="switch-row">
           <span><span className="field-label">启用</span><span className="switch-hint">停用后它下面的模型都不能用，配置保留</span></span>

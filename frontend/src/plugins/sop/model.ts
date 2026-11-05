@@ -1,6 +1,6 @@
 // SOP 插件的纯函数：状态和节点类型的显示、流程图分列、执行列表的筛选排序和进度文字。口径照原型 web-next/src/sopflow.ts、sop.tsx。
 // 运行状态由后端算好给（SopRun.status），这里不重算；节点是不是分支节点从 GET /api/sop/node-types 读，名字在前端
-import { isSopHeld, sopRunShow, type SopFlow, type SopJson, type SopNodeType, type SopRun, type SopRunBrief, type SopRunShow, type SopRunStatus, type SopRunStep, type SopStepDef, type SopStepStatus } from '../../core/data'
+import { isSopHeld, isSopProviderWait, sopRunShow, type SopFlow, type SopJson, type SopNodeType, type SopRun, type SopRunBrief, type SopRunShow, type SopRunStatus, type SopRunStep, type SopStepDef, type SopStepStatus } from '../../core/data'
 import { sopNodeView } from '../../core/plugin'
 
 type Look = { label: string; color: string }
@@ -33,9 +33,13 @@ export const QUEUED_LOOK: Look = { label: '排队中', color: 'var(--muted)' }
 export const isQueued = (s?: Pick<SopRunStep, 'status' | 'queue'>): boolean => !!s && s.status === 'running' && !!s.queue
 /** 超出治理上限暂停的步骤（AUTO-12）：状态是 paused，带没放行的 hold */
 export const HELD_LOOK: Look = { label: '超出上限', color: 'var(--danger)' }
-/** 步骤的显示：排队中、超出上限的单独一种，其余按状态 */
-export const runStepLook = (s: Pick<SopRunStep, 'status' | 'queue' | 'hold'>): Look =>
-  (isQueued(s) ? QUEUED_LOOK : isSopHeld(s) ? HELD_LOOK : stepLook(s.status))
+/** 服务商不可用、挂起等它恢复的步骤（TSK-0392）：状态仍是 running，带 provider_wait */
+export const PROVIDER_WAIT_LOOK: Look = { label: '等服务商恢复', color: 'var(--warn)' }
+/** 步骤的显示：等服务商恢复、排队中、超出上限的单独一种，其余按状态 */
+export const runStepLook = (s: Pick<SopRunStep, 'status' | 'queue' | 'hold' | 'provider_wait'>): Look =>
+  (isSopProviderWait(s) ? PROVIDER_WAIT_LOOK : isQueued(s) ? QUEUED_LOOK : isSopHeld(s) ? HELD_LOOK : stepLook(s.status))
+/** 设置里的模型服务商 */
+export const PROVIDERS_SETTINGS_PATH = '/settings/providers'
 /** 插件设置分节的路径（设置 > 插件 > SOP 编排） */
 export const SOP_SETTINGS_PATH = '/settings/plugins/sop/sop'
 const runLook = (s: string): Look => RUN_STATUS[s as SopRunShow] ?? { label: s, color: 'var(--faint)' }
@@ -47,6 +51,8 @@ export const KIND_LABEL: Record<string, string> = {
   code: '代码执行', decide: '条件分支', classifier: '问题分类器', iterate: '迭代', wait: '等待', loopback: '条件回退', review: '人工检查',
   http: 'HTTP 请求', notify: '发送消息', task: '创建任务', doc: '写文档', contact: '写联系人', local_append: '写进项目目录', agent: '调用 Agent', subflow: '子流程',
   claude_code: 'Claude Code 执行', end: '结束',
+  // 执行任务、更新任务（TSK-0411）
+  task_run: '执行任务', task_update: '更新任务',
 }
 export const kindLabel = (k: string) => KIND_LABEL[k] ?? sopNodeView(k)?.label ?? k
 

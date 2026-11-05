@@ -26,8 +26,9 @@ type writeRun struct {
 var afterWrite func(ctx context.Context, step string) error
 
 // local_append 写的是本机文件（nodes_local.go），也按写节点的口径重跑、去重。
+// task_update（更新任务，TSK-0411，nodes_taskrun.go）改已有任务，改法天然幂等，同样按写节点的口径重跑。
 func isWriteKind(kind string) bool {
-	return kind == "task" || kind == "doc" || kind == "contact" || kind == localAppendKind
+	return kind == "task" || kind == "doc" || kind == "contact" || kind == localAppendKind || kind == taskUpdateKind
 }
 
 func (w writeRun) key() string { return fmt.Sprintf("%s/%s#%d", w.runID, w.step, w.attempt) }
@@ -54,6 +55,8 @@ func runWrite(ctx context.Context, c plugin.Core, w writeRun, def stepDef, input
 		res = writeContact(ctx, c, w, def, input)
 	case localAppendKind:
 		res = writeLocal(ctx, c, w, def, input)
+	case taskUpdateKind:
+		res = writeTaskUpdate(ctx, c, w, def, input)
 	default:
 		return nodeResult{err: notWired}
 	}
@@ -120,9 +123,21 @@ func writeTask(ctx context.Context, c plugin.Core, w writeRun, def stepDef, inpu
 		}
 		project, projectName = &info.ID, info.Title
 	}
+	// 来消息发起的执行（输入带 message_id，TSK-0411）：来源记上这条消息；这条消息已经被别的执行（别的流程、重新发起）建过任务时
+	// 取回那条，不再建第二条（消息分流、IM 需求自动受理、来消息确认派发同时开着时同一条消息只建一次任务）
+	ref := w.sourceRef()
+	if msgID := strings.TrimSpace(txt(input["message_id"])); msgID != "" {
+		ref["message_id"] = msgID
+		if ex, ok := taskOfMessage(ctx, c, msgID, w.runID); ok {
+			return nodeResult{output: with(input, "task", map[string]any{
+				"id": ex.ID, "ref": ex.Ref, "title": ex.Title, "priority": "", "assignee": "", "status": ex.Status,
+				"project_id": ex.ProjectID, "project": "", "reused": true,
+			}), log: fmt.Sprintf("消息 %s 已经建过任务 %s %s，取回那条，没有再建", msgID, ex.Ref, ex.Title)}
+		}
+	}
 	t, err := c.ObjectWriter().CreateAs(ctx, plugin.NewObject{
 		TypeID: "task", Title: title, Body: body, Priority: priority, OwnerID: owner, ProjectID: project,
-		Props: map[string]any{domain.PropSourceRef: w.sourceRef()},
+		Props: map[string]any{domain.PropSourceRef: ref},
 	}, w.meta())
 	if err != nil {
 		return nodeResult{err: writeErr("建任务", err)}

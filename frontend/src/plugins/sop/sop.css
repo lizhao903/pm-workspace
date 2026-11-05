@@ -37,7 +37,7 @@
 .sop-kt-decide, .sop-kt-classifier, .sop-kt-iterate { --c: #0f8a8a; }
 .sop-kt-wait { --c: #868e96; }
 .sop-kt-review { --c: #b0570b; }
-.sop-kt-http, .sop-kt-notify, .sop-kt-task, .sop-kt-doc, .sop-kt-contact { --c: #e8590c; }
+.sop-kt-http, .sop-kt-notify, .sop-kt-task, .sop-kt-doc, .sop-kt-contact, .sop-kt-task_update { --c: #e8590c; }
 
 /* ---------- 执行表格 ---------- */
 .sop-run-table { border: 1px solid var(--line); border-radius: var(--r-lg); background: var(--panel); overflow: hidden; box-shadow: var(--shadow-sm); container-type: inline-size; }

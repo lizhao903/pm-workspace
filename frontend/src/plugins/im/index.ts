@@ -168,5 +168,25 @@ export default definePlugin({
       ],
       summary: (c) => (c.message ? '平台通知，回复原消息' : '平台通知'),
     })
+    // 来消息确认派发（TSK-0411）：私信我本人确认、私信我回报；「我」按连接器认（Slack 本人身份取账号的 Member ID，Bot 身份取「我的 Member ID」）
+    const askTarget = [
+      { key: 'channel', label: '渠道', type: 'select' as const, options: () => [{ value: '', label: 'Slack（默认）' }, { value: 'telegram', label: 'Telegram' }] },
+      { key: 'connector', label: '连接器', type: 'text' as const, hint: '连接器 id；留空用这个渠道最新建的、能发消息的那个' },
+      { key: 'to', label: '发给', type: 'text' as const, hint: '你在渠道里的编号（Slack Member ID）；留空按连接器认出你本人' },
+    ]
+    api.sopNodes.register({
+      kind: 'im_ask_me', label: '私信我确认', group: '沟通', color: '#0f8a8a',
+      desc: '私信我本人一个问题，等我回「执行 / 分配 某人 / 不做」；认不出再问一次，超时提醒一次，仍没有就输出 choice=none（不执行）',
+      fields: [
+        { key: 'text', label: '内容', type: 'textarea', required: true, hint: '支持 {{字段}}；后面自动附上三种回复方式' },
+        { key: 'timeout', label: '每轮等多久', type: 'text', default: '1 天', hint: '写法同等待回复；到点提醒一次，再到点就不执行' },
+        ...askTarget,
+      ],
+      summary: () => '私信我，等执行 / 分配 / 不做',
+    })
+    api.sopNodes.register({
+      kind: 'im_tell_me', label: '私信我', group: '沟通', color: '#0f8a8a', desc: '私信我本人一条，不等回复；发不出去这一步失败',
+      fields: [{ key: 'text', label: '内容', type: 'textarea', required: true, hint: '支持 {{字段}}' }, ...askTarget],
+    })
   },
 })

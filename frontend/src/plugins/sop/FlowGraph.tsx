@@ -1,7 +1,7 @@
 // 流程图（SPEC-sop-5.9、7.7）：按依赖分列，同一列的步骤互不依赖；判断后的分支也落在同一列，连线上写分支名。
 // 给了 run 就按步骤状态着色、标「人」、高亮走过的连线；给了 onSelect 节点可点。照原型 sop.tsx FlowGraph
 import { useEffect, useRef } from 'react'
-import type { SopFlow, SopRun, SopStepDef } from '../../core/data'
+import { isSopProviderWait, type SopFlow, type SopRun, type SopStepDef } from '../../core/data'
 import { cls } from '../../core/ui'
 import { EDITED_LABEL, depsOf, isFinished, isManualDecide, isQueued, ranks, runStepLook } from './model'
 import { KindTag } from './parts'
@@ -91,7 +91,7 @@ export function FlowGraph({ flow, run, selected, onSelect, branching }: {
               <span className="sop-fnode-name ellipsis" title={def.name}>{def.name}</span>
               {rs ? (
                 <span className={cls('sop-fnode-st', `fst-${rs.status}`, isQueued(rs) && 'fst-queued')}>
-                  {rs.status === 'running' && !isQueued(rs) && <span className="spinner sop-spinner-xs" aria-hidden="true" />}
+                  {rs.status === 'running' && !isQueued(rs) && !isSopProviderWait(rs) && <span className="spinner sop-spinner-xs" aria-hidden="true" />}
                   {route ? `走「${route}」` : runStepLook(rs).label}
                 </span>
               ) : <span className="sop-fnode-st">{idle}</span>}

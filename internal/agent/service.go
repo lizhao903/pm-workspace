@@ -36,6 +36,8 @@ type Service struct {
 	NewChat func(kind, baseURL, apiKey string) (Chat, error)
 	// RetryDelays 是 Complete 遇到连不上、限流、5xx 时每次重来前的等待；nil 用默认（2s、5s），测试设成很短
 	RetryDelays []time.Duration
+	// Breaker 是按服务商的熔断（breaker.go），零值用默认配置；Complete、RunAgent 都经过它
+	Breaker Breaker
 }
 
 // CompleteRequest 是一次不带工具的补全。Provider 是服务商 id，空的用默认服务商；
@@ -117,6 +119,11 @@ func (s *Service) client(ctx context.Context, providerID, model string) (Chat, s
 	if err != nil {
 		return nil, "", err
 	}
+	return s.clientFor(ctx, p, model)
+}
+
+// clientFor 同 client，服务商已经取好；客户端包上这个服务商的熔断（breaker.go）。
+func (s *Service) clientFor(ctx context.Context, p *domain.AgentProvider, model string) (Chat, string, error) {
 	key, err := s.Store.ProviderAPIKey(ctx, p.ID)
 	if err != nil {
 		return nil, "", err
@@ -131,10 +138,12 @@ func (s *Service) client(ctx context.Context, providerID, model string) (Chat, s
 	if model == "" {
 		return nil, "", fmt.Errorf("服务商「%s」没有设置模型", p.Name)
 	}
-	return c, model, nil
+	return &guardedChat{inner: c, b: &s.Breaker, id: p.ID, name: p.Name}, model, nil
 }
 
 // Complete 用指定的服务商（没指定用默认的）补全一段提示词，回模型说的原文。
+// 服务商不可用（熔断中、或重试用完仍是 5xx / 连不上）时，它设了「失败时改用」（extra.fallback_id）就改用备用服务商再试一次；
+// 还是不行回 *UnavailableError，调用方可以据此等服务商恢复再跑（TSK-0392）。
 func (s *Service) Complete(ctx context.Context, req CompleteRequest) (string, error) {
 	req, thinking, err := s.completeAgent(ctx, req)
 	if err != nil {
@@ -149,7 +158,7 @@ func (s *Service) Complete(ctx context.Context, req CompleteRequest) (string, er
 			return "", fmt.Errorf("服务商「%s」已停用，到 设置 → 模型服务商 启用它，或换一个服务商", p.Name)
 		}
 	}
-	c, model, err := s.client(ctx, req.Provider, req.Model)
+	p, err := s.provider(ctx, req.Provider)
 	if err != nil {
 		return "", err
 	}
@@ -158,6 +167,32 @@ func (s *Service) Complete(ctx context.Context, req CompleteRequest) (string, er
 		msgs = append(msgs, Message{Role: RoleSystem, Content: req.System})
 	}
 	msgs = append(msgs, Message{Role: domain.RoleUser, Content: req.Prompt})
+	out, err := s.completeOn(ctx, p, req.Model, msgs, thinking)
+	ue, down := AsUnavailable(err)
+	if !down {
+		return out, err
+	}
+	fb := s.fallback(ctx, p)
+	if fb == nil {
+		return "", err
+	}
+	// 备用服务商用它自己设置的模型：原来的模型名是给原服务商的
+	out, ferr := s.completeOn(ctx, fb, "", msgs, thinking)
+	if ferr == nil {
+		thinkingLog().Info("服务商不可用，改用备用服务商", "provider", p.Name, "fallback", fb.Name, "cause", ue.Cause)
+		return out, nil
+	}
+	ue.Fallback = fb.Name
+	ue.msg += fmt.Sprintf("；备用服务商「%s」也没成功：%s", fb.Name, ferr.Error())
+	return "", ue
+}
+
+// completeOn 在一个服务商上补全，瞬时失败按 RetryDelays 重来；重来用完仍失败回 *UnavailableError。
+func (s *Service) completeOn(ctx context.Context, p *domain.AgentProvider, model string, msgs []Message, thinking string) (string, error) {
+	c, model, err := s.clientFor(ctx, p, model)
+	if err != nil {
+		return "", err
+	}
 	delays := s.RetryDelays
 	if delays == nil {
 		delays = defaultRetryDelays
@@ -172,14 +207,12 @@ func (s *Service) Complete(ctx context.Context, req CompleteRequest) (string, er
 		if err == nil {
 			return b.String(), nil
 		}
-		// 只重来还没吐过字的瞬时失败；吐了一半断掉的不重来，免得拼出两份
+		// 只重来还没吐过字的瞬时失败；吐了一半断掉的不重来，免得拼出两份。熔断中被挡下的不是瞬时失败，直接回
 		if !IsTransient(err) || b.Len() > 0 {
 			return "", err
 		}
 		if attempt >= len(delays) {
-			return "", fmt.Errorf("%w（已自动重试 %d 次仍失败。服务商「%s」可能没启动或网络、代理不通，"+
-				"请到 设置 → 模型服务商 检查它的 base_url 能否访问，或换一个服务商后重试这一步）",
-				err, len(delays), s.providerName(ctx, req.Provider))
+			return "", s.exhausted(p, err, len(delays))
 		}
 		select {
 		case <-ctx.Done():
@@ -189,16 +222,37 @@ func (s *Service) Complete(ctx context.Context, req CompleteRequest) (string, er
 	}
 }
 
+// exhausted 是重试用完仍失败的错误：写明服务商、去哪修；这几次失败让它熔断了的，再写上什么时候探测。
+func (s *Service) exhausted(p *domain.AgentProvider, err error, retries int) *UnavailableError {
+	msg := fmt.Sprintf("%s（已自动重试 %d 次仍失败。服务商「%s」可能没启动或网络、代理不通，"+
+		"请到 设置 → 模型服务商 检查它的 base_url 能否访问，或换一个服务商后重试这一步）", err.Error(), retries, p.Name)
+	ue := &UnavailableError{ProviderID: p.ID, Provider: p.Name, Cause: err.Error(), cause: err}
+	if st := s.Breaker.Status(p.ID); st.Open {
+		ue.Open, ue.RetryAt = true, st.RetryAt
+		msg += fmt.Sprintf("；已暂停调用它（熔断），%s 自动探测一次", st.RetryAt.Local().Format("15:04:05"))
+	}
+	ue.msg = msg
+	return ue
+}
+
+// fallback 是服务商设的「失败时改用」（extra.fallback_id）：存在、启用、不是它自己才算，否则 nil。
+func (s *Service) fallback(ctx context.Context, p *domain.AgentProvider) *domain.AgentProvider {
+	id, _ := p.Extra[FallbackKey].(string)
+	if id = strings.TrimSpace(id); id == "" || id == p.ID {
+		return nil
+	}
+	fb, err := s.Store.GetProvider(ctx, id)
+	if err != nil || !fb.Enabled {
+		return nil
+	}
+	return fb
+}
+
+// FallbackKey 是服务商 extra 里「失败时改用」的键，值是另一个服务商的 id。
+const FallbackKey = "fallback_id"
+
 // defaultRetryDelays 是 Complete 遇到瞬时失败时每次重来前等的时间。
 var defaultRetryDelays = []time.Duration{2 * time.Second, 5 * time.Second}
-
-// providerName 是 id 对应服务商的名字，id 为空取默认的。
-func (s *Service) providerName(ctx context.Context, id string) string {
-	if p, err := s.provider(ctx, id); err == nil {
-		return p.Name
-	}
-	return "默认"
-}
 
 // findAgent 按 id 找，找不到再按名称找；停用的不能跑。
 func (s *Service) findAgent(ctx context.Context, ref string) (*domain.Agent, error) {

@@ -72,6 +72,12 @@ func (in *inbox) ingest(ctx context.Context, a Adapter, msgs []Incoming, strict 
 	rows := make([]row, 0, len(msgs))
 	var mine []Incoming
 	for i, m := range msgs {
+		// 我对「私信我确认」的回复（TSK-0411，askme.go）：记到等待上，不当消息落库、不触发 IM 流程
+		if ok, err := in.captureAsk(ctx, ch, m, m.FromSelf); err != nil {
+			return res, err
+		} else if ok {
+			continue
+		}
 		if m.FromSelf {
 			// 等这一批别人的消息落完再记，回的可能就是同一批里的
 			mine = append(mine, m)

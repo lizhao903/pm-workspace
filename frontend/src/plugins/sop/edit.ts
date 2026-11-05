@@ -254,7 +254,7 @@ export function checkDraft(d: Draft, cat: Catalog): Issue[] {
       })
     }
     if (s.kind === LOOPBACK) out.push(...loopbackIssues(d, i))
-    if (s.kind === 'claude_code' && claudeTimeoutMs(s.config?.timeout) === null) {
+    if ((s.kind === 'claude_code' || s.kind === 'task_run') && claudeTimeoutMs(s.config?.timeout) === null) {
       out.push({ level: 'error', text: `「${nameOf(s)}」超时写法不对，要写成「30 分钟」「2 小时」这样，最多 24 小时`, step: i })
     }
     if (s.branch && !d.steps.some((x) => x.key === s.branch!.of && isBranching(cat, x.kind))) {
