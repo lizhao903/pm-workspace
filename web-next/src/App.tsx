@@ -64,6 +64,7 @@ import { projectMessages } from './projecttabs'
 import { seedAccounts, seedAlertEvents, seedAlerts, seedOrders, seedPositions, seedRisk, seedRuns as seedTradeRuns, seedStrategies, seedWatchlists, type AlertEvent } from './tradedata'
 import { MarketsPage } from './markets'
 import { MonitorPage, checkAlerts } from './monitor'
+import { EtfPage } from './etf'
 import { TradingNav, TradingPage, killAll, type TradingView } from './trading'
 import { BacktestReport, BacktestsPage, StrategyEditor, StrategyListPage, StrategyNav, type StrategyView } from './strategy'
 import { runBacktest } from './backtest'
@@ -80,7 +81,7 @@ import { OverviewPage, type OverviewKey } from './overview'
 
 // 菜单从这里加：Page 加一个 key，MENU 加一行，main 里接上页面。设置不在 MENU 里，单独吸底
 type Page = 'today' | 'projects' | 'contacts' | 'messages' | 'tasks' | 'library' | 'sop' | 'sessions' | 'terminal' | 'browser'
-  | 'videos' | 'markets' | 'monitor' | 'strategy' | 'trading' | 'settings' | 'overview'
+  | 'videos' | 'markets' | 'monitor' | 'strategy' | 'trading' | 'etf' | 'settings' | 'overview'
 
 // 抽屉是全局的一个：从消息页「存为联系人」时，不用离开消息页就能打开联系人表单
 type DrawerState =
@@ -137,6 +138,7 @@ const icons: Record<Page, React.ReactNode> = {
   videos: <svg className="side-icon" viewBox="0 0 16 16" width="15" height="15"><rect x="1.8" y="3.2" width="9.2" height="9.6" rx="1.8" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" /><path d="m11 6.6 3.2-1.8v6.4L11 9.4" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" /></svg>,
   markets: <svg className="side-icon" viewBox="0 0 16 16" width="15" height="15"><path d="M4 3v10M4 5h-.01M12 4v8M8 6v7" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" /><rect x="2.8" y="5.5" width="2.4" height="4.5" rx=".5" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" /><rect x="6.8" y="7.5" width="2.4" height="3.5" rx=".5" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" /><rect x="10.8" y="5" width="2.4" height="4" rx=".5" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" /></svg>,
   monitor: <svg className="side-icon" viewBox="0 0 16 16" width="15" height="15"><path d="M1.8 8h2.6l1.6-4 3 8 1.6-4h3.6" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" /></svg>,
+  etf: <svg className="side-icon" viewBox="0 0 16 16" width="15" height="15"><path d="M2 13.5h12M4 11V8M7 11V5.5M10 11V7M13 11V3.5" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" /></svg>,
   strategy: <svg className="side-icon" viewBox="0 0 16 16" width="15" height="15"><path d="M2 13.5h12M3.5 11l3-3.5 2.5 2 4-5" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" /><path d="M10.5 4.5h2.5V7" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" /></svg>,
   trading: <svg className="side-icon" viewBox="0 0 16 16" width="15" height="15"><path d="M3 5h9.5l-2.5-2.5M13 11H3.5L6 13.5" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" /></svg>,
   settings: <span className="side-icon">{gear}</span>,
@@ -806,6 +808,7 @@ export default function App() {
     { key: 'videos', label: '视频', alert: videoWaiting > 0 },
     { key: 'markets', label: '行情' },
     { key: 'monitor', label: '盯盘' },
+    { key: 'etf', label: '宽基监控' },
     { key: 'strategy', label: '策略' },
     { key: 'trading', label: '交易' },
   ]
@@ -2030,6 +2033,7 @@ export default function App() {
             <MonitorPage alerts={alerts} events={alertEvents} watchlists={watchlists} onAlerts={setAlerts} onEvents={setAlertEvents} onOpenChart={openChart} newRequest={alertReq}
               imConnectors={connectors.filter((c) => TOOLS.find((t) => t.key === c.tool)?.category === 'im').map((c) => ({ id: c.id, name: c.name }))} />
           )}
+          {page === 'etf' && <EtfPage />}
           {page === 'trading' && (
             <TradingPage view={tradingView} accounts={accounts} positions={positions} orders={orders} runs={tradeRuns} risk={risk} strategies={strategies}
               onAccounts={setAccounts} onPositions={setPositions} onOrders={setOrders} onRuns={setTradeRuns} onRisk={setRisk}

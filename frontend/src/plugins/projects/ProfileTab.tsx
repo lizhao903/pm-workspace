@@ -1,5 +1,5 @@
 // 档案（AUTO-04，SPEC-projects-15）：给分类 Agent 和各 pipeline 用的项目信息——简介、关键词、平台，
-// 代码库、原型库、PRD 三个目录，构建到回滚六条命令，负责人和验收人员。
+// 代码库、原型库、PRD 三个目录，构建到回滚十条命令，负责人和验收人员；末尾是原型同步（AUTO-11，ProtoSyncBlock）。
 // 和设置一样边改边存、没有「保存」按钮：输入停手片刻存一次，点选的立即存，离开标签时没存的也存掉。
 // 目录一个一个单独存，后端校验目录在不在，存不上的只在那一项下面说，不连累别的；请求按顺序一个个发。
 import { useEffect, useRef, useState } from 'react'
@@ -7,6 +7,7 @@ import { PROFILE_COMMANDS, PROFILE_COMMAND_GROUPS, errorText, useContacts, usePr
 import { Avatar, ErrorState, LoadingState, SearchSelect, Textarea, cls } from '../../core/ui'
 import { nameInitial } from '../../core/ui/pinyin'
 import { PathInput } from './PathInput'
+import { ProtoSyncBlock } from './ProtoSyncBlock'
 import { DIR_FIELDS, PLATFORM_PRESETS, formOfProfile, profileDiff, readyError, timeoutError, type DirField, type ProfileForm } from './profileModel'
 
 const SAVE_DELAY = 500
@@ -178,6 +179,8 @@ function ProfileEditor({ profile }: { profile: ProjectProfile }) {
           </label>
         </div>
       </section>
+
+      <ProtoSyncBlock projectId={id} />
     </div>
   )
 }

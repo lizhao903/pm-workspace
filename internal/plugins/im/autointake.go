@@ -300,11 +300,15 @@ func intakeFlow() plugin.SOPFlowTemplate {
 	}
 }
 
-// installIntake 把内置流程「发布 pipeline」「研发 pipeline」「IM 需求自动受理」依次写进 SOP（后一条末尾以子流程接前一条，所以倒着写），
+// installIntake 先写「原型同步」（AUTO-11），再把内置流程「发布 pipeline」「研发 pipeline」「IM 需求自动受理」依次写进 SOP（后一条末尾以子流程接前一条，所以倒着写），
 // 写过一次（含已有同 id 的）记下来，之后不再写，用户删了也不补回来。SOP 插件没在跑、项目插件没装或版本旧（节点类型不认）时下次再试。
 // 以前写过第 1 版研发 pipeline 的，换成接发布 pipeline 的版本（releasepipeline.go 的 upgradeDevPipeline）；
 // 以前写过第 1 版受理流程的，换成接研发 pipeline 的版本（devpipeline.go 的 upgradeIntake）。
 func (in *inbox) installIntake(ctx context.Context, c plugin.Core) error {
+	// 原型同步（AUTO-11，protosync.go）不在这条链上，单独写；项目插件旧版（没有原型同步节点）时下次再试
+	if _, err := in.installOnce(ctx, c, protoSyncFlow()); err != nil {
+		c.Log().Warn("im proto sync flow install failed", "err", err)
+	}
 	ok, err := in.installOnce(ctx, c, releasePipelineFlow())
 	if err != nil {
 		c.Log().Warn("im release pipeline flow install failed", "err", err)

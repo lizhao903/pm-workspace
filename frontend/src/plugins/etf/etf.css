@@ -1,0 +1,66 @@
+/* 宽基监控页（ETF-01b，SPEC-etf）：类名都带 etf- 前缀 */
+.etf-tabs { display: flex; gap: 18px; border-bottom: 1px solid var(--line); margin: calc(-1 * var(--sp-3)) 0 var(--sp-6); overflow-x: auto; scrollbar-width: none; }
+.etf-tabs::-webkit-scrollbar { display: none; }
+.etf-tabs button {
+  flex: none; display: inline-flex; align-items: center; gap: 6px; height: 34px; white-space: nowrap;
+  color: var(--muted); border-bottom: 2px solid transparent; margin-bottom: -1px; background: none;
+}
+.etf-tabs button:hover { color: var(--text); }
+.etf-tabs button.on { color: var(--text); font-weight: 600; border-bottom-color: var(--accent); }
+.etf-tab-n {
+  min-width: 18px; height: 16px; padding: 0 5px; border-radius: 8px; font-size: var(--fs-2xs); font-weight: 600; line-height: 16px;
+  text-align: center; font-variant-numeric: tabular-nums; color: var(--danger); background: var(--danger-soft);
+}
+.etf-note { display: flex; align-items: center; gap: var(--sp-4); margin-bottom: var(--sp-4); padding: var(--sp-3) var(--sp-5); border-radius: var(--r); font-size: var(--fs-sm); color: var(--muted); background: var(--panel-2); }
+.etf-note span { flex: 1; min-width: 0; }
+.etf-summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: var(--sp-4); margin-bottom: var(--sp-6); }
+.etf-summary > div, .etf-summary > .etf-sum-link { display: flex; flex-direction: column; gap: 2px; padding: var(--sp-4) var(--sp-5); border: 1px solid var(--line); border-radius: var(--r); background: var(--panel); }
+.etf-summary span { font-size: var(--fs-xs); color: var(--muted); }
+.etf-summary b { font-size: var(--fs-lg); font-variant-numeric: tabular-nums; }
+.etf-scroll { position: relative; overflow-x: auto; border: 1px solid var(--line); border-radius: var(--r); background: var(--panel); }
+.etf-table { width: 100%; border-collapse: collapse; font-size: var(--fs-sm); }
+.etf-table th, .etf-table td { padding: 7px var(--sp-5); border-bottom: 1px solid var(--line); text-align: left; white-space: nowrap; vertical-align: middle; }
+.etf-table th { height: 34px; font-weight: 600; color: var(--muted); background: var(--panel-2); }
+.etf-table tbody tr:last-child td { border-bottom: none; }
+.etf-table tr.off td { color: var(--faint); }
+.etf-table .num { text-align: right; font-variant-numeric: tabular-nums; }
+.etf-sym { font-family: var(--mono); color: var(--muted); }
+.etf-chg { margin-left: 4px; font-size: var(--fs-xs); }
+/* A 股习惯：涨红跌绿 */
+.etf-page .up { color: #c0352b; }
+.etf-page .down { color: #13804b; }
+:root[data-theme='dark'] .etf-page .up { color: #f0776c; }
+:root[data-theme='dark'] .etf-page .down { color: #4cc38a; }
+.etf-summary b.etf-alert { color: var(--danger); }
+.etf-sum-link { text-align: left; cursor: pointer; }
+.etf-sum-link:hover { border-color: var(--accent-line); }
+.etf-page .etf-hot { color: var(--danger); font-weight: 600; }
+.etf-foot { margin: var(--sp-4) 0 0; line-height: var(--lh); }
+@media (max-width: 760px) { .etf-summary { grid-template-columns: 1fr 1fr; } }
+.etf-basis { margin-left: 6px; padding: 0 5px; border-radius: 4px; font-size: var(--fs-2xs); color: var(--muted); background: var(--hover); }
+.etf-review { margin-left: 6px; }
+.etf-faint { color: var(--faint); font-size: var(--fs-sm); }
+.etf-spark { display: block; }
+.etf-spark polyline { stroke: var(--muted); }
+.etf-spark.up polyline { stroke: #c0352b; }
+.etf-spark.down polyline { stroke: #13804b; }
+.etf-filters { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-4); margin-bottom: var(--sp-5); }
+.etf-filters .select { width: auto; min-width: 120px; }
+.etf-events { list-style: none; margin: 0; padding: 0; border: 1px solid var(--line); border-radius: var(--r); background: var(--panel); }
+.etf-event { display: flex; align-items: center; gap: var(--sp-4); padding: var(--sp-4) var(--sp-5); border-bottom: 1px solid var(--line); }
+.etf-event:last-child { border-bottom: none; }
+.etf-event.done { opacity: 0.7; }
+.etf-date { flex: none; font-family: var(--mono); font-size: var(--fs-xs); color: var(--muted); }
+.etf-ev-main { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
+.etf-ev-main b { font-weight: 600; }
+.etf-ev-detail { font-size: var(--fs-sm); color: var(--muted); }
+.etf-ev-acts { display: flex; align-items: center; gap: var(--sp-2); flex: none; }
+.etf-hint { margin: 0; line-height: var(--lh); }
+@media (max-width: 760px) {
+  .etf-event { flex-wrap: wrap; }
+  .etf-ev-main { flex-basis: 100%; order: 3; }
+  .etf-ev-acts { order: 4; margin-left: auto; }
+}
+.etf-seg { display: inline-flex; flex-wrap: wrap; gap: 2px; padding: 2px; border-radius: var(--r); background: var(--hover); }
+.etf-seg button { display: inline-flex; align-items: center; gap: 5px; height: 26px; padding: 0 var(--sp-4); border-radius: var(--r-sm); font-size: var(--fs-sm); color: var(--muted); background: none; }
+.etf-seg button.on { color: var(--text); font-weight: 600; background: var(--panel); box-shadow: var(--shadow-sm); }

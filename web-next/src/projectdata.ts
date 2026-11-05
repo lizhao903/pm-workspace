@@ -1,5 +1,6 @@
 // 项目：把一个产品相关的东西归到一起——本地项目目录、支持材料、产品文档、产品原型、关联目录、项目 Agent
 // 原型的启停是模拟的：不真的起进程，只按端口占用规则走「启动中 → 运行中 / 失败」，日志是编出来的
+import { seedProtoSync, type ProtoSyncInfo } from './protosyncdata'
 import { seedContent } from './data'
 
 export type MaterialKind = 'file' | 'folder' | 'link' | 'note'
@@ -131,6 +132,8 @@ export interface Project {
   prototypes: Prototype[]
   /** 项目档案（SPEC-projects-15）；没建过时没有 */
   profile?: ProjectProfile
+  /** 原型同步（SPEC-projects-15.17 到 15.28，AUTO-11）：触发开关、生产分支 HEAD、同步历史；没同步过时没有 */
+  proto_sync?: ProtoSyncInfo
   created_at: string
 }
 
@@ -177,6 +180,7 @@ export const seedProjects: Project[] = [
         rollback: { command: './scripts/rollback.sh', dir: '', timeout_sec: 600 } },
       owner_ids: ['ct_001'], acceptor_ids: ['ct_004'],
     },
+    proto_sync: seedProtoSync,
     related: [
       { path: '/Volumes/project/0xBroleez/pm-workspace/web', label: '旧版前端' },
       { path: '/Volumes/project/0xBroleez/pm-workspace/docs', label: '接口契约与状态看板' },

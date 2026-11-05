@@ -281,3 +281,30 @@ export {
   useTaskReleases,
 } from './releases'
 export type { Release, ReleasePhase, ReleaseStatus, ReleaseStep, ReleaseStepKey, ReleaseStepStatus, RollbackState } from './releases'
+export {
+  DECISION_LABEL, IMPL_STATUS_LABEL, PROTO_SYNC_KIND_LABEL, PROTO_SYNC_STATUS_LABEL, PROTO_SYNC_TRIGGER_LABEL, implTone, protoSyncApi, protoSyncKeys,
+  protoSyncSummary, protoSyncTone, shortSha, specStatuses, useCancelProtoSync, useProtoSyncHistory, useProtoSyncState, useSaveProtoSyncSettings,
+  useTriggerProtoSync,
+} from './protoSyncs'
+export type {
+  ImplStatus, ProtoSync, ProtoSyncCounts, ProtoSyncDecision, ProtoSyncItem, ProtoSyncKind, ProtoSyncSettings, ProtoSyncSettingsPatch, ProtoSyncState,
+  ProtoSyncStatus, ProtoSyncTrigger, SyncPoint,
+} from './protoSyncs'
+
+export {
+  etfKeys, etfApi, useEtfFunds, useEtfDaily, useEtfMetrics, useEtfAnomalies, useEtfRules, useAckEtfAnomaly, useCreateEtfRule,
+  usePatchEtfRule, useCollectEtf,
+} from './etf'
+export type {
+  EtfFund, EtfDaily, EtfMetrics, EtfAnomaly, EtfRule, EtfRuleInput, EtfRulePatch, EtfCollectResult, EtfAnomalyFilter, EtfSeverity,
+  EtfAnomalyStatus, EtfOperator, EtfScope, EtfPremiumBasis,
+} from './etf'
+
+export {
+  tradeKeys, tradeApi, useTradeSources, useTradeWatchlists, useTradeInstrumentSearch, useTradeInstrument, useTradeKlines, useAddWatchlist,
+  usePatchWatchlist, useRemoveWatchlist, useTradeLive,
+} from './trade'
+export type {
+  TradeMarket, TradeKind, TradeInterval, TradeInstrument, TradeWatchlist, TradeSource, TradeSourceHealth, TradeDataStatus, TradeQuote,
+  TradeLevel, TradeBook, TradeFunding, TradeKline, TradeKlineMeta, TradeLive, TradeLiveTransport, TradeLiveOptions,
+} from './trade'

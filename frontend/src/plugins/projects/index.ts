@@ -3,7 +3,7 @@
 import { lazy } from 'react'
 import { definePlugin } from '../../core/plugin'
 import {
-  PROJECT_TYPE, dataKeys, listAllObjects, onServerEvent, prototypeUp, prototypesApi, queryClient, releaseKeys, testRunKeys, worktreeKeys, type ObjectFilter, type ProjectPrototype,
+  PROJECT_TYPE, dataKeys, listAllObjects, onServerEvent, prototypeUp, prototypesApi, queryClient, releaseKeys, protoSyncKeys, testRunKeys, worktreeKeys, type ObjectFilter, type ProjectPrototype,
 } from '../../core/data'
 import { firstLine, searchProjects } from './search'
 
@@ -36,6 +36,8 @@ let offWorktree: (() => void) | undefined
 let offTests: (() => void) | undefined
 // 发布开始、每步变化、结束时后端发 projects.release_changed（AUTO-10），标脏任务详情里的「最近一次发布」
 let offReleases: (() => void) | undefined
+// 原型同步开始、每步变化、结束时后端发 projects.proto_sync_changed（AUTO-11），标脏档案标签里的「原型同步」
+let offProtoSync: (() => void) | undefined
 
 export default definePlugin({
   activate(api) {
@@ -114,9 +116,52 @@ export default definePlugin({
       ],
       summary: (c) => (c.release ? `发布 ${c.release}` : '发布取输入里的 release.id'),
     })
+    // 原型同步（AUTO-11）：内置流程「原型同步」用的六个节点，下游条件分支按 sync.changed、sync.has_pending
+    const syncField = { key: 'sync', label: '同步', type: 'text' as const, hint: '同步记录 id，支持 {{字段}}；留空取输入里的 sync.id（接在「取同步范围」后面不用填）' }
+    api.sopNodes.register({
+      kind: 'projects_proto_sync_range', label: '取同步范围', group: '项目', color: '#5f3dc4',
+      desc: '取项目上次同步点到生产分支 HEAD 的代码 diff（首次同步对比整个代码库），判断有没有涉及界面或接口的改动。输出 sync.changed、sync.diff_path、sync.diff_stat、sync.base、sync.head',
+      fields: [
+        { key: 'project', label: '项目', type: 'text', hint: '项目 id、编号或名字，支持 {{字段}}；留空取输入里的 project_id' },
+        { key: 'sync', label: '同步', type: 'text', hint: '项目插件发起时带的同步记录 id；留空取输入里的 sync_id，没有就新建一次' },
+      ],
+      summary: (c) => (c.project ? `项目 ${c.project}` : '项目取输入里的 project_id'),
+    })
+    api.sopNodes.register({
+      kind: 'projects_proto_sync_branch', label: '准备原型同步分支', group: '项目', color: '#5f3dc4',
+      desc: '在原型库拉 proto-sync/<日期> 分支的独立 worktree，不切换、不改原型库主目录。输出 sync.proto_path（Claude Code 的工作目录）、sync.proto_branch',
+      fields: [syncField],
+      summary: () => '原型库 proto-sync/<日期>',
+    })
+    api.sopNodes.register({
+      kind: 'projects_proto_sync_classify', label: '登记差异', group: '项目', color: '#5f3dc4',
+      desc: '读 Claude Code 回报的 result.items，按新增、不一致、未实现、已下线、不确定分类，记规格的实现状态；有不确定项时等产品裁决。输出 sync.has_pending、sync.pending_text、sync.items_text',
+      fields: [syncField, { key: 'result', label: '结论字段', type: 'text', hint: '留空取输入里的 result' }],
+      summary: () => '按五类登记',
+    })
+    api.sopNodes.register({
+      kind: 'projects_proto_sync_verdict', label: '记裁决', group: '项目', color: '#5f3dc4',
+      desc: '把还没裁决的不确定项记成这次的裁决：design 当作新设计、defect 当作缺陷（给项目建修复任务）、ignore 暂不处理',
+      fields: [{ key: 'decision', label: '裁决', type: 'select', required: true, options: () => [
+        { value: 'design', label: '当作新设计' }, { value: 'defect', label: '当作缺陷' }, { value: 'ignore', label: '暂不处理' }] }, syncField],
+      summary: (c) => ({ design: '当作新设计', defect: '当作缺陷', ignore: '暂不处理' } as Record<string, string>)[c.decision ?? ''] ?? '还没选裁决',
+    })
+    api.sopNodes.register({
+      kind: 'projects_proto_sync_commit', label: '提交同步分支', group: '项目', color: '#5f3dc4',
+      desc: '把同步分支 worktree 里没提交的改动提交到 proto-sync/ 分支；当前分支不是同步分支时拒绝。不推送、不合并。输出 sync.proto_commit',
+      fields: [syncField],
+      summary: () => '只提交到 proto-sync/ 分支',
+    })
+    api.sopNodes.register({
+      kind: 'projects_proto_sync_record', label: '记同步点', group: '项目', color: '#5f3dc4',
+      desc: '把这次的代码 HEAD 记成同步点，和同步分支的提交对应起来；删掉 worktree，分支保留。输出 sync.text（给通知用的一句话）',
+      fields: [syncField, { key: 'outcome', label: '结果', type: 'text', hint: '写 no_change 记成「没有涉及界面或接口的改动」；留空按有没有改动定' }],
+      summary: (c) => (c.outcome === 'no_change' ? '只前移同步点' : '记同步点'),
+    })
     offWorktree = onServerEvent('projects.worktree_changed', () => void queryClient.invalidateQueries({ queryKey: worktreeKeys.all }))
     offTests = onServerEvent('projects.test_changed', () => void queryClient.invalidateQueries({ queryKey: testRunKeys.all }))
     offReleases = onServerEvent('projects.release_changed', () => void queryClient.invalidateQueries({ queryKey: releaseKeys.all }))
+    offProtoSync = onServerEvent('projects.proto_sync_changed', () => void queryClient.invalidateQueries({ queryKey: protoSyncKeys.all }))
   },
   deactivate() {
     offWorktree?.()
@@ -125,5 +170,7 @@ export default definePlugin({
     offTests = undefined
     offReleases?.()
     offReleases = undefined
+    offProtoSync?.()
+    offProtoSync = undefined
   },
 })

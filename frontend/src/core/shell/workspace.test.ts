@@ -55,6 +55,13 @@ describe('模块和插件', () => {
     expect(pluginOfModule('today')).toBeNull()
   })
 
+  it('宽基监控是插件 etf 的模块 etf，盯盘 monitor 仍归交易插件 trade（ETF-01b）', () => {
+    expect(pluginOfModule('etf')).toBe('etf')
+    expect(pluginOfModule('monitor')).toBe('trade')
+    expect(pluginsForModules(['markets', 'monitor', 'etf'])).toEqual(['trade', 'etf'])
+    expect(CATALOG_IDS.has('etf')).toBe(true)
+  })
+
   it('后端的 library、sessions 对应前端的文档、会话', () => {
     expect(moduleIdOf('library')).toBe('docs')
     expect(moduleIdOf('sessions')).toBe('conversations')

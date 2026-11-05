@@ -1594,7 +1594,7 @@ CORE-10a。工作台是一套菜单：开哪些模块、怎么分组、默认打
 
 ## 项目插件 projects
 
-PJ-01b。插件 `projects`（`internal/plugins/projects`，清单 `plugin.json`）。项目仍是 `type=project` 的工作对象，读写走上面的 `/api/objects`，插件不另开项目接口；插件自己的表放项目干系人、绑定的会话、项目资料、原型定义、项目档案（0.11.0，插件迁移 `0005_profiles.sql`）和工作区（0.13.0，插件迁移 `0006_worktrees.sql`，表 `projects_worktrees`、`projects_worktree_settings`；SOP 节点 `projects_prepare_worktree`；订阅 `object.status_changed`、`object.stage_changed`；发 `projects.worktree_changed`；设置分节 `worktrees`）和测试环境（0.14.0，插件迁移 `0007_test_runs.sql`，表 `projects_test_runs`；SOP 节点 `projects_run_test`；发 `projects.test_changed`）和发布（0.16.0，插件迁移 `0009_releases.sql`，表 `projects_releases`；SOP 节点 `projects_prepare_release`、`projects_release`；发 `projects.release_changed`）。0.12.0 加 SOP 节点 `projects_list_profiles`、`projects_get_profile`（AUTO-06）。项目插件未安装或停用时，本节 `/api/projects/...` 接口回 `not_found` 404（同「插件路由」），项目对象本身照常能读写。
+PJ-01b。插件 `projects`（`internal/plugins/projects`，清单 `plugin.json`）。项目仍是 `type=project` 的工作对象，读写走上面的 `/api/objects`，插件不另开项目接口；插件自己的表放项目干系人、绑定的会话、项目资料、原型定义、项目档案（0.11.0，插件迁移 `0005_profiles.sql`）和工作区（0.13.0，插件迁移 `0006_worktrees.sql`，表 `projects_worktrees`、`projects_worktree_settings`；SOP 节点 `projects_prepare_worktree`；订阅 `object.status_changed`、`object.stage_changed`；发 `projects.worktree_changed`；设置分节 `worktrees`）和测试环境（0.14.0，插件迁移 `0007_test_runs.sql`，表 `projects_test_runs`；SOP 节点 `projects_run_test`；发 `projects.test_changed`）和发布（0.16.0，插件迁移 `0009_releases.sql`，表 `projects_releases`；SOP 节点 `projects_prepare_release`、`projects_release`；发 `projects.release_changed`）和原型同步（0.17.0，插件迁移 `0010_proto_syncs.sql`，表 `projects_proto_syncs`、`projects_proto_sync_settings`；SOP 节点 `projects_proto_sync_range`、`projects_proto_sync_branch`、`projects_proto_sync_classify`、`projects_proto_sync_verdict`、`projects_proto_sync_commit`、`projects_proto_sync_record`；订阅 `run.finished`；发 `projects.proto_sync_changed`）。0.12.0 加 SOP 节点 `projects_list_profiles`、`projects_get_profile`（AUTO-06）。项目插件未安装或停用时，本节 `/api/projects/...` 接口回 `not_found` 404（同「插件路由」），项目对象本身照常能读写。
 
 ### 项目字段
 
@@ -1779,7 +1779,7 @@ MCP 只读工具 `pmw_list_project_profiles`：合并 `GET /api/objects?type=pro
 
 ### SOP 节点（项目插件）
 
-AUTO-06。项目插件 0.11.0 → 0.12.0，清单 `provides.sop_nodes: ["projects_list_profiles", "projects_get_profile"]`，分组 `项目`，不加迁移、不加路由。插件之间不 import：IM、SOP 插件读不到 `projects_profiles`，经这两个节点把档案交到流程里。只读。上线：已装 0.11.0 的换新二进制后在插件管理里点升级。 0.14.0 加 `projects_run_test`（AUTO-08），见「测试环境」。0.15.0 加保留测试环境（AUTO-09）：`projects_get_profile` 输出加负责人、验收人员；`projects_run_test` 加 `config.keep_env`，输出加报告链接和保留情况。cmd/pmw 把 `--public-url` 也传给项目插件（`projects.New().WithPublicURL`）。0.16.0 加 `projects_prepare_release`（准备发布）、`projects_release`（上线），见「发布」。
+AUTO-06。项目插件 0.11.0 → 0.12.0，清单 `provides.sop_nodes: ["projects_list_profiles", "projects_get_profile"]`，分组 `项目`，不加迁移、不加路由。插件之间不 import：IM、SOP 插件读不到 `projects_profiles`，经这两个节点把档案交到流程里。只读。上线：已装 0.11.0 的换新二进制后在插件管理里点升级。 0.14.0 加 `projects_run_test`（AUTO-08），见「测试环境」。0.15.0 加保留测试环境（AUTO-09）：`projects_get_profile` 输出加负责人、验收人员；`projects_run_test` 加 `config.keep_env`，输出加报告链接和保留情况。cmd/pmw 把 `--public-url` 也传给项目插件（`projects.New().WithPublicURL`）。0.16.0 加 `projects_prepare_release`（准备发布）、`projects_release`（上线），见「发布」。0.17.0 加原型同步的六个节点（AUTO-11），见「原型同步」。
 
 | kind | 必填配置 | 说明 |
 |---|---|---|
@@ -1788,6 +1788,12 @@ AUTO-06。项目插件 0.11.0 → 0.12.0，清单 `provides.sop_nodes: ["project
 | `projects_run_test` | | 跑测试：`task` 可选，`config.keep_env` 可选（支持 `{{字段}}`）：空、`否`、`no`、`false`、`0` 不保留；`是`、`保留`、`yes`、`true`、`1` 用设置里的 `env_keep_hours`；也可以写时长 `24 小时`、`2 天`、`30 分钟`、`1.5小时`（单位 分钟 / 分 / 小时 / 时 / 天 / 周）或 `90m`、`36h`，1 分钟到 168 小时；写法不对或超出这一步失败「保留测试环境「x」写法不对：填「是」用默认时长，或写「24 小时」「2 天」这样的时长」/「保留测试环境「x」超出范围：要在 1 分钟到 168 小时之间」。任务 id 或编号（支持 `{{字段}}`），留空依次取输入的 `task_id`、`task.id`、`worktree.task_id`（接在「准备工作区」后面不用配）。按「测试环境」的流程起一次测试后挂起（等外部事件），跑完唤醒；输出是输入加 `test: {ok, status, id, task_id, task_ref, report_path, report_url, port, url?, steps, failed_step?, error?, junit?, artifact_ids, shots, env_kept, env_keep_until, env_text}`（`report_url` 是 `<--public-url>/api/projects/tests/runs/<id>/report`，没给 `--public-url` 时只有路径，还没有报告为空串；`env_kept` bool；`env_keep_until` RFC3339，没保留为空串；`env_text` 给通知用：保留时「<地址>（保留到 2026-11-05 18:00，到点自动回收）」，没保留「<地址>（测试跑完已回收）」，没有测试环境「（这次没有起测试环境：项目档案里没有起测试环境命令）」），`steps` 每项 `{key, label, status, exit_code, duration_ms, timed_out, error, output}`。`ok` 只在 `status` 为 `passed` 时为真；下游条件分支、条件回退写 `test.ok 等于 false` 走修复。同一次执行、同一步、同一次尝试再执行（服务重启后重跑）不重复起：还在跑接着挂起，跑完了直接回结果；重试、退回重做（尝试次数加 1）重新跑。起不来时这一步失败「测试没起来：<原因>」（原因同 `POST /api/projects/tests` 的 4xx），没有任务「没有指定任务：在「任务」里填 {{字段}}，或者确认输入里有 task_id」。测试没通过、被手动停止、工作台重启没跑完都算跑完（`ok: false`），不让这一步失败 |
 | `projects_prepare_release` | | 准备发布（AUTO-10）：`config.task` 可选，任务 id 或编号（支持 `{{字段}}`），留空依次取输入的 `task_id`、`task.id`、`worktree.task_id`。按「发布」起准备段（版本号与更新日志、打包，只在工作区里跑）后挂起，跑完唤醒；输出是输入加 `release`（见「发布」末的 SOP 输出），`release.ok` 为真表示准备好、等审批。同一次执行、同一步、同一次尝试再执行不重复起（按写入键 `<执行>/<步骤>#<尝试>` 记在 `prep_key`）。起不来时这一步失败「发布准备没起来：<原因>」（原因同 `POST /api/projects/releases` 的 4xx），没有任务「没有指定任务：在「任务」里填 {{字段}}，或者确认输入里有 task_id」。准备段没过、被停止、工作台重启没跑完都算跑完（`ok: false`），不让这一步失败 |
 | `projects_release` | | 上线（AUTO-10）：`config.release` 可选，发布 id（支持 `{{字段}}`），留空取输入的 `release.id`（接在「准备发布」和人工审批后面不用配）。只认 `prepared` 的发布，记审批 `approved_by: "sop:<执行 id>"`，起上线段（发布前检查、发布、线上冒烟，没过自动回滚）后挂起，跑完唤醒；输出是输入加 `release`，`release.ok` 只在 `status` 为 `released` 时为真。流程里必须放在人工审批（`decide` 的批准分支或 `review`）之后：审批前不跑任何动生产的命令。幂等同上（`deploy_key`）。起不来「上线没起来：<原因>」（发布不是等审批的、同项目另有在上线的、工作区没了等，同 `POST …/deploy` 的 409）；没有发布 id「没有指定发布：接在「准备发布」后面，或者在「发布」里填 {{release.id}}」。上线没成功、回滚了都算跑完（`ok: false`），不让这一步失败 |
+| `projects_proto_sync_range` | | 取同步范围（AUTO-11）：`config.sync` 可选（默认 `{{sync_id}}`），`config.project` 可选（默认 `{{project_id}}`，认项目 id、编号、名字），`config.trigger` 可选（默认 `{{trigger}}`）。有同步记录 id 时用那一行（项目插件发起时带上；已经结束的这一步失败「这次原型同步已经<状态>，不能再取范围：重新发起一次」）；没有时（SOP 页直接发起）按项目新建一行（触发方式取 `trigger`，不是 release / merge / daily 的记 `manual`），按写入键 `<执行>/<步骤>#<尝试>` 记在 `sop_key`，重跑同一次尝试不重复建；同一项目有进行中的同步时失败（原因同 `POST /api/projects/{id}/proto-syncs` 的 409）。算 `base_commit` → `head_commit` 的改动：`base_commit` 为空（首次同步）或在代码库里找不到时对比整个代码库（`full: true`，`changed: true`）；相同时 `changed: false`；否则 `git diff --name-only`，测试（`_test.go`、`.test.`、`.spec.`、`__tests__/`、`tests/`、`e2e/`）、文档（`.md`、`docs/`）、`testdata/`、`.github/`、锁文件、`.gitignore`、`LICENSE` 以外有一个文件改了就算 `changed: true`；完整 diff 写到 `run_dir/diff.patch`（最多 2MB）。输出加 `sync`（见「原型同步」末的 SOP 输出） |
+| `projects_proto_sync_branch` | | 准备原型同步分支（AUTO-11）：`config.sync` 可选（默认 `{{sync.id}}`，再退到输入的 `sync_id`）。原型库目录取档案的 `proto_dir`、`prd_dir`、代码库目录（同 `projects_get_profile` 的 `dirs.prototype`），要在 git 仓库里；从原型库当前检出的提交（`proto_base`）拉分支 `proto-sync/<本机日期 YYYYMMDD>`（已有就加 `-2`、`-3`，最多 50 个）的 worktree，放在数据目录 `worktrees/<项目 id>/proto-sync-<同步 id>`，不切换、不改原型库主目录。`proto_path` 是 worktree 里对应原型库目录的路径（原型库目录是仓库子目录时带上子路径），下游 Claude Code 节点的工作目录写 `{{sync.proto_path}}`。同一次同步重跑时 worktree 还在且检出的是这个分支就复用。失败：「项目档案里没有原型库目录：…」「原型库目录 X 不在 git 仓库里：…」「原型库 X 还没有提交，拉不了同步分支」「拉原型同步分支没成：<git 原文>」 |
+| `projects_proto_sync_classify` | | 登记差异（AUTO-11）：`config.sync` 同上，`config.result` 可选（默认 `result`，上游 Claude Code 节点回报的结构化结论）。认 `result.items: [{kind, title, detail, spec, page}]`；`kind` 认 `added`、`changed`、`unimplemented`、`removed`、`uncertain` 和中文「新增」「不一致」「未实现」「已下线」「不确定」，认不出的当 `uncertain`；没有 `items` 时 `synced` 每项记 `changed`、`pending` 每项记 `uncertain`（同角色 `rp_protosync` 的输出要求）；标题为空的跳过，最多 300 条。每项按分类定规格实现状态 `status`：`added` / `changed` → `implemented`，`unimplemented` → `unimplemented`，`removed` → `offline`，`uncertain` → `pending`。输入的 `summary` 记进 `summary`。有没裁决的 `uncertain` 时这次转 `reviewing`。输出 `sync`，下游判断写 `sync.has_pending 等于 true` |
+| `projects_proto_sync_verdict` | `decision` 裁决 | 记裁决（AUTO-11）：`decision` 是 `design`（当作新设计）、`defect`（当作缺陷）、`ignore`（暂不处理），也认「新设计」「缺陷」「暂不处理」，别的失败「裁决「X」不认，…」。把所有还没裁决的 `uncertain` 项记成这个裁决，`status` 改成 `implemented`（design）、`deviation`（defect）、`pending`（ignore）；`defect` 时给项目建一条任务（标题「修复：原型同步发现的实现偏差（<项目名>）」，正文列这些差异，`props.proto_sync_id`），按写入键 `<执行>/<步骤>#<尝试>` 只建一次，任务 id 记在 `fix_task_id`。这次从 `reviewing` 回到 `running`。放在人工判断（`decide` 不写规则）各分支后面 |
+| `projects_proto_sync_commit` | | 提交同步分支（AUTO-11）：`config.sync` 同上。在同步分支的 worktree 里 `git add -A`，有暂存的改动就提交（提交信息「proto-sync: 按上线代码 <短提交> 回写原型和规格（<同步 id>）」；仓库没配 `user.email` 时用 `pm-workspace <pm-workspace@localhost>`），Claude Code 自己提交过的不动。worktree 当前检出的不是这次的 `proto-sync/` 分支时失败「原型同步分支的目录现在检出的是「X」，不是 Y：只提交到原型同步分支，这次不提交」。不推送、不合并、不碰原型库主分支。`proto_commit` 是同步分支 HEAD，和 `proto_base` 相同（原型没改）时为空串 |
+| `projects_proto_sync_record` | | 记同步点（AUTO-11）：`config.sync` 同上，`config.outcome` 可选：`no_change` 或这次没有涉及界面或接口的改动时记 `no_change`，否则记 `done`。还有没裁决的不确定项时失败「还有 N 条拿不准的差异没裁决：接在「产品裁决」后面」。记 `finished_at`，这次的 `head_commit` 成为同步点；删掉同步分支的 worktree（分支保留；分支上没有新提交时连分支一起删）。已经结束的重跑原样回。输出 `sync`，`sync.text` 是给通知用的一句话 |
 
 ### 工作区
 
@@ -2002,9 +2008,85 @@ SOP 输出 `release`（两个节点共用）：`{ok, status, phase, id, task_id,
 
 事件：起、每步开始和结束、结束、手动作废时发（再准备一次顺带作废的旧发布不单独发，新发布的事件会让前端刷新） `projects.release_changed { id, task_id, project_id, status, phase }`（前端据此刷新任务详情的「最近一次发布」）。
 
+### 原型同步
+
+AUTO-11（`docs/auto-delivery-flow.md` 第 2 节「旁路：按上线代码回写原型库」）。以上线代码为准回写原型库和规格：取上次同步点到生产分支 HEAD 的代码 diff，原型同步 Agent（Claude Code，角色 `rp_protosync`）在原型库的同步分支上对比，新增、不一致的按代码改原型和规格，未实现、已下线的在规格上标实现状态，拿不准的交产品裁决；只提交到原型库的同步分支 `proto-sync/<日期>`，不碰主分支，产品看过差异清单后自己合并；记同步点（代码提交和同步分支提交的对应），通知负责人。项目插件 0.16.0 → 0.17.0，插件迁移 `0010_proto_syncs.sql`；已装 0.16.0 的换新二进制后因迁移待应用不启动，要经 `POST /api/plugins/{id}/upgrade`（`id` 为 `projects`）升级。git 是子进程，要用户确认过 `process:spawn`，没确认时发起回 409、后台检查不动。
+
+分工：项目插件管同步记录、同步点、三种触发和六个 SOP 节点（见「SOP 节点（项目插件）」）；流程本身是 IM 插件写进 SOP 的内置流程 `sop_im_proto_sync`「原型同步」（见 IM 插件「内置流程：原型同步」），因为末尾要用 IM 的 `im_notify` 通知负责人，且 IM 插件已经负责写受理、研发、发布三条内置流程，依赖方向不变（IM 的流程用项目插件的节点，项目插件不依赖 IM，只按流程 id 发起）。
+
+表 `projects_proto_syncs`：一次同步一行，不挂外键；同一项目同时只能有一次进行中（`running` / `reviewing`，部分唯一索引）。**同步点**是这个项目最近一次 `done` / `no_change` / `baseline` 的 `head_commit`（按结束时间），下次只看它到新 HEAD 的增量。表 `projects_proto_sync_settings`：一个项目一行，三种自动触发的开关，默认都关（没有行等于都关）。
+
+**三种触发**（都走同一个入口：建一行 `running`，再经 `Core.Runs().StartSOP` 发起 `sop_im_proto_sync`，输入 `{project_id, sync_id, trigger}`，`object_id` 是项目）：
+
+- **发布成功**（`on_release`）：发布记录变成 `released` 时（项目插件内直接回调，等价于订阅 `projects.release_changed` 的 `released`），`trigger_ref` 是发布 id。
+- **生产分支合并**（`on_merge`）：后台任务 `proto_sync_watch` 每分钟看一次生产分支的 HEAD（本机代码库的本地分支 `refs/heads/<分支>`，不 fetch 远端；hotfix、手工提交合进来都算）。和同步点不同、和这个项目最近一次同步（不管成没成、作没作废）冲着的 HEAD 也不同、没有进行中的同步时发起，`trigger_ref` 是这个 HEAD。同步没成功、被作废的不按同一个 HEAD 反复发起，等下一次提交或手动重来。
+- **每日巡检**（`daily`、`daily_at`）：同一个后台任务，每天本机时间到 `daily_at` 后第一次检查、今天还没巡检过、没有进行中的同步时巡检一次，`trigger_ref` 是本机日期 `YYYY-MM-DD`；HEAD 和同步点相同时只记一行 `no_change`（「每日巡检：生产分支自上次同步后没有新提交」），不发起流程。
+
+另有手动：`POST /api/projects/{id}/proto-syncs`（`mode: sync` 发起，`baseline` 只把当前 HEAD 记成同步点）；在 SOP 页直接发起 `sop_im_proto_sync`（不带 `sync_id`）时「取同步范围」节点自己建行。
+
+代码库取档案的 `code_dir`，没设用项目目录，要在 git 仓库里。**生产分支**取设置的 `branch`，空串时依次认 `main`、`master`、代码库当前检出的分支。
+
+| 方法 | 路径 | body / 说明 |
+|---|---|---|
+| GET | `/api/projects/{id}/proto-sync` | `ProtoSyncState`：开关、生效的生产分支和当前 HEAD、同步点、最近一次、进行中的那次；项目不存在、不是项目、在回收站 404 |
+| PATCH | `/api/projects/{id}/proto-sync` | `{on_release?, on_merge?, daily?, daily_at?, branch?}`，只改传了的，回 `ProtoSyncState`。`daily_at` 要是 `HH:MM`（00:00 到 23:59）否则 400「daily_at: 巡检时间要写成 HH:MM（00:00 到 23:59）」；`branch` 去首尾空白，非空时只能有字母、数字、`.`、`_`、`/`、`-`，最多 100 个，不能含 `..`、不能以 `-` 开头、不能以 `/` 或 `.lock` 结尾，否则 400 |
+| GET | `/api/projects/{id}/proto-syncs` | 查询参数 `limit`（1 到 200，默认 20）；回 `ProtoSync[]` + `meta.total`，新的在前 |
+| POST | `/api/projects/{id}/proto-syncs` | `{mode?}`（body 可省）：`sync`（默认）发起一次同步，回 202 和 `ProtoSync`（`status: running`，`trigger: manual`）；`baseline` 把当前 HEAD 记成同步点、不对比，回 201 和 `ProtoSync`（`status: baseline`）；别的 400。409：没确认 `process:spawn`；没有代码库目录「项目没有代码库目录：先到项目的档案里填「代码库目录」，或者给项目设目录」、目录不存在、不在 git 仓库里、认不出生产分支、分支不存在「代码库 X 里没有分支 Y」；同一项目有进行中的同步「项目 X 有一次原型同步还没结束（psy_…，进行中 / 等产品裁决）：等它结束，或者先作废」（进行中超过 48 小时没更新的当作中断，记 `failed` 后照常发起；等裁决的不会自动中断）；流程发不起来（SOP 插件没在跑、流程被删）时这一行记 `failed` 并回 409「原型同步流程没发起：<原因>（流程「原型同步」由 IM 插件写进 SOP，要装着 SOP 编排插件）」 |
+| GET | `/api/projects/proto-syncs/runs/{sync_id}` | `ProtoSync`；没有 404 |
+| POST | `/api/projects/proto-syncs/runs/{sync_id}/cancel` | 作废进行中或等裁决的：记 `cancelled`（「手动作废，同步点没动」），删掉同步分支的 worktree（分支上没有新提交时连分支一起删），不终止 SOP 执行（到执行页终止，之后流程里的原型同步节点都会失败）；已经结束的原样回 200 |
+
+`ProtoSync`：
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `id` | string | `psy_` 开头 |
+| `project_id` | string | |
+| `trigger` | string | `release` 发布成功 / `merge` 生产分支有新提交 / `daily` 每日巡检 / `manual` 手动 / `baseline` 设基线 |
+| `trigger_ref` | string | `release` 是发布 id，`merge` 是检查到的 HEAD，`daily` 是本机日期，其余空串 |
+| `status` | string | `running` 进行中；`reviewing` 有拿不准的差异等产品裁决；`done` 已同步；`no_change` 没有涉及界面或接口的改动，只前移同步点；`baseline` 设为基线；`failed` 没成功（同步点不动）；`cancelled` 手动作废 |
+| `code_dir` / `code_branch` | string | 代码库目录和生产分支 |
+| `base_commit` / `head_commit` | string | 这次的代码范围；`base_commit` 是发起时的同步点，空串是首次同步（对比整个代码库） |
+| `files` | string[] | 改动的文件，最多 500 个；首次同步是整个代码库的文件 |
+| `diff_stat` | string | `git diff --stat` 的最后 40 行；首次同步、同步点找不到时是说明文字 |
+| `ui_changed` | bool | 有没有涉及界面或接口的改动（口径见 `projects_proto_sync_range`） |
+| `proto_dir` / `proto_repo` | string | 原型库目录、它所在 git 仓库的根 |
+| `proto_branch` / `proto_base` / `proto_commit` | string | 同步分支、拉分支时原型库检出的提交、同步分支上最后的提交（原型没改为空串，原型没改时分支随 worktree 一起删掉，`proto_branch` 也清空） |
+| `proto_path` | string | 同步分支 worktree 里对应原型库目录的路径，记完同步点后目录删掉，字段保留 |
+| `items` | ProtoSyncItem[] | 差异清单 |
+| `counts` | ProtoSyncCounts | 按分类的条数 |
+| `decision` | string | 这次的人工裁决：`""` / `design` / `defect` / `ignore` |
+| `decided_at` | string \| null | |
+| `fix_task_id` | string | 判为缺陷时建的修复任务，没有为空串 |
+| `summary` | string | Claude Code 的说明（最多 2000 字），设基线、巡检没变化时是说明文字 |
+| `run_dir` | string | 数据目录下 `proto-syncs/<项目 id>/<id>` |
+| `diff_path` | string | `run_dir/diff.patch`，没写出来为空串 |
+| `run_id` | string | 项目插件发起 SOP 时拿到的运行 id，SOP 页直接发起的为空串 |
+| `sop_run_id` | string | SOP 执行 id（「取同步范围」那一步写上） |
+| `error` | string | 没成功、作废的原因 |
+| `started_at` / `updated_at` | string | |
+| `finished_at` | string \| null | |
+
+`ProtoSyncItem`：`{kind, title, detail, spec, page, status, decision}`。`kind` 是 `added`（代码有、原型没有）/ `changed`（都有但不一致）/ `unimplemented`（原型有、代码没有）/ `removed`（代码已删、原型还在）/ `uncertain`（拿不准是 bug 还是有意改动）；`spec` 是规格条目编号（`SPEC-x-y`），没有为空串；`page` 是原型页面或路由；`status` 是规格的实现状态：`implemented` 已实现 / `unimplemented` 未实现 / `offline` 已下线 / `deviation` 实现有偏差（判为缺陷）/ `pending` 待裁决或暂不处理；`decision` 只有 `uncertain` 有：`""` 待裁决 / `design` / `defect` / `ignore`。
+
+`ProtoSyncCounts`：`{added, changed, unimplemented, removed, uncertain, pending}`，`pending` 是还没裁决的 `uncertain`。
+
+`ProtoSyncSettings`：`{on_release, on_merge, daily, daily_at, branch, updated_at}`。三个开关默认 `false`，`daily_at` 默认 `09:00`（本机时间），`branch` 空串时依次认 `main`、`master`、当前检出的分支；没设过时 `updated_at` 为 `null`。
+
+`ProtoSyncState`：`{project_id, settings, branch, head, head_error, point, last, active}`。`settings` 是 `ProtoSyncSettings`；`branch`、`head` 是生效的生产分支和它当前的提交，取不到时为空串、原因写在 `head_error`（同 `POST …/proto-syncs` 的 409 原因），取到了 `head_error` 为空串；`point` 是同步点 `SyncPoint`，没有为 `null`；`last` 是最近一次 `ProtoSync`，没有为 `null`；`active` 是进行中或等裁决的那次，没有为 `null`。
+
+`SyncPoint`：`{commit, sync_id, status, proto_branch, proto_commit, at}`。`commit` 是同步到的代码提交；`sync_id`、`status` 是记下它的那次同步（`done` / `no_change` / `baseline`）；`proto_branch`、`proto_commit` 是那次同步分支和提交（原型没改为空串）；`at` 是那次结束的时间。
+
+SOP 输出 `sync`（六个节点共用）：`{id, project_id, trigger, status, code_dir, branch, base, head, base_short, head_short, files, files_count, diff_stat, diff_path, full, changed, proto_dir, proto_repo, proto_branch, proto_base, proto_commit, proto_path, items, counts, has_pending, decision, fix_task_id, items_text, pending_text, text}`。`base_short` 首次同步为「（首次同步）」；`files` 最多 200 个；`full` 是对比整个代码库；`changed` 同 `ui_changed`，下游条件分支写 `sync.changed 等于 true`；`counts` 同 `ProtoSyncCounts`；`has_pending` 是还有没裁决的不确定项，写 `sync.has_pending 等于 true`；`items_text`、`pending_text` 是差异清单、待裁决清单，每项一行「- [分类] 标题（规格编号）：说明（裁决：…）」，没有时「（没有）」；`text` 是一句话：已同步「原型已按上线代码 <起> → <止> 同步：新增 n、不一致 n、未实现 n、已下线 n、不确定 n；拿不准的裁决为「…」。改动在原型库分支 X（提交 Y），看过差异清单后再合并」（原型没改「。原型和规格不用改」）、没有界面改动「代码 <起> → <止> 没有涉及界面或接口的改动，同步点前移到 <止>」、等裁决「对比了代码 …，有 n 条拿不准，等产品裁决」、没成功「原型同步没成功：<原因>」。
+
+执行没走完：项目插件订阅 `run.finished`，自己发起的「原型同步」执行结束时这次同步还是 `running` / `reviewing`（流程没走到「记同步点」，例如某一步失败后执行结束）就记 `failed`（「原型同步流程没走完（执行 <状态>），同步点没动；到 SOP 执行页看是哪一步，修好后重试那一步或重新发起」）；之后在执行页重试走完的，「记同步点」照常把它改成 `done`。
+
+规格里的实现状态：原型同步 Agent 在规格条目最后一列末尾写「实现状态：已实现（原型同步 <短提交>）」「实现状态：未实现」「实现状态：已下线（代码 <短提交> 删除）」，新增条目的编号接该节现有最大号往后加（`web-next/docs/spec/README.md`「编号规则」）；项目档案标签「原型同步」块按同步记录汇总规格实现状态（`SPEC-projects-15.25`）。
+
+事件：建行、每个节点写回、结束、作废时发 `projects.proto_sync_changed { id, project_id, status, trigger }`（前端据此刷新项目档案标签的「原型同步」）。
+
 ## IM 消息插件 im
 
-IM-01a 起。插件 `im`（`internal/plugins/im`，清单 `plugin.json`，0.22.0（0.22.0 加发布 pipeline（AUTO-10）：内置流程 `sop_im_release_pipeline`，研发 pipeline 验收通过后以子流程接它，不加迁移；0.21.0 加研发 pipeline（AUTO-09）：SOP 节点 `im_notify`、内置流程 `sop_im_dev_pipeline`，不加迁移；0.19.0 加 IM 任务回执 `im_wait_task`、`im_reply_message` 和内置流程「IM 任务回执」，插件迁移 `0012_task_reply.sql`；0.20.0 加 IM 需求自动受理（AUTO-06）：SOP 节点 `im_to_task`、`im_set_task_stage`，内置流程 `sop_im_auto_intake`，不加迁移；IM-06 加 Slack 本人身份；0.7.1 回复和推回来的本人消息只记一次；0.7.2 Slack 限流不算同步失败、不活跃私信轮流查，Telegram 后台连续 3 次连不上才算同步失败；0.8.0 加 SOP 节点读取消息、标记消息；0.9.0 加已过期和设置，插件迁移 `0005_expiry.sql`；0.11.0 加消息归到项目：`im_messages.project_id`、插件迁移 `0006_project.sql`、处理动作 `project`、SOP 节点 `im_set_project`；0.18.0 加回复、发消息里的 @（不加迁移，接口 `GET /api/im/conversations/{conversation_id}/members`，回复和 `POST /api/im/send` 的 body 加 `mentions`，`Outgoing` 加 `mentions`）；0.17.0 加主动发消息（插件迁移 `0011_outbox.sql`，接口 `POST /api/im/send`、`GET /api/im/conversations/{conversation_id}/sent`，会话统计加 `connector_id`、`sent`、`last_sent_at`，消息加 `replied_sent`）；0.16.0 加 Slack 消息列回复（插件迁移 `0010_threads.sql`，接口 `POST /api/im/connectors/{id}/backfill-threads`，`Message` 加 `thread`、`reply_count`，`Incoming` 加 `thread_parent_*`，`Outgoing` 加 `thread_of`）；0.15.0 加群组管理（接口 `GET /api/im/conversations/summary`、批量 `PUT /api/im/conversation-projects`，不加迁移）；0.14.0 加消息转项目资料（插件迁移 `0009_message_materials.sql`，接口 `POST/GET /api/im/materials`、`DELETE /api/im/materials/{material_id}`，消息加 `materials`）；0.13.0 加从消息发起会话、拆分任务（插件迁移 `0008_message_sessions.sql`），清单 `subscribes` 加 `object.created`；0.12.0 加群组默认归属项目（插件迁移 `0007_conversation_projects.sql`）、从 Slack 补联系人邮箱（接口 `POST /api/im/connectors/{id}/backfill-emails`、后台任务 `backfill_emails`）），权限 `network:im`：真实渠道出网，IM-01b 加，0.4.0 升上来要确认；域名清单是 `slack.com`、`*.slack.com`、`api.telegram.org` 等 IM 服务）。收各 IM 渠道的消息，落在插件表 `im_messages`（插件迁移 `0001_messages.sql`；IM-02a 的处理动作加了 `0002_actions.sql`，回复在 `im_replies`；IM-04a 的附件获取加了 `0003_attachments.sql`，获取状态在 `im_attachments`；SOP-02b 的等回复节点加了 `0004_sop_waits.sql`，挂起中的等待在 `im_sop_waits`；安装插件时应用）。发送人按 IM 身份（见「IM 身份 im-identities」）的 id 认、会话按会话（见「会话 conversations」）的 id 归，**不靠名字**。插件未安装或停用时，本节接口回 `not_found` 404（同「插件路由」）；停用时拉取也停下，数据不动。
+IM-01a 起。插件 `im`（`internal/plugins/im`，清单 `plugin.json`，0.23.0（0.23.0 加原型同步（AUTO-11）：内置流程 `sop_im_proto_sync`，不加迁移、不改清单；0.22.0 加发布 pipeline（AUTO-10）：内置流程 `sop_im_release_pipeline`，研发 pipeline 验收通过后以子流程接它，不加迁移；0.21.0 加研发 pipeline（AUTO-09）：SOP 节点 `im_notify`、内置流程 `sop_im_dev_pipeline`，不加迁移；0.19.0 加 IM 任务回执 `im_wait_task`、`im_reply_message` 和内置流程「IM 任务回执」，插件迁移 `0012_task_reply.sql`；0.20.0 加 IM 需求自动受理（AUTO-06）：SOP 节点 `im_to_task`、`im_set_task_stage`，内置流程 `sop_im_auto_intake`，不加迁移；IM-06 加 Slack 本人身份；0.7.1 回复和推回来的本人消息只记一次；0.7.2 Slack 限流不算同步失败、不活跃私信轮流查，Telegram 后台连续 3 次连不上才算同步失败；0.8.0 加 SOP 节点读取消息、标记消息；0.9.0 加已过期和设置，插件迁移 `0005_expiry.sql`；0.11.0 加消息归到项目：`im_messages.project_id`、插件迁移 `0006_project.sql`、处理动作 `project`、SOP 节点 `im_set_project`；0.18.0 加回复、发消息里的 @（不加迁移，接口 `GET /api/im/conversations/{conversation_id}/members`，回复和 `POST /api/im/send` 的 body 加 `mentions`，`Outgoing` 加 `mentions`）；0.17.0 加主动发消息（插件迁移 `0011_outbox.sql`，接口 `POST /api/im/send`、`GET /api/im/conversations/{conversation_id}/sent`，会话统计加 `connector_id`、`sent`、`last_sent_at`，消息加 `replied_sent`）；0.16.0 加 Slack 消息列回复（插件迁移 `0010_threads.sql`，接口 `POST /api/im/connectors/{id}/backfill-threads`，`Message` 加 `thread`、`reply_count`，`Incoming` 加 `thread_parent_*`，`Outgoing` 加 `thread_of`）；0.15.0 加群组管理（接口 `GET /api/im/conversations/summary`、批量 `PUT /api/im/conversation-projects`，不加迁移）；0.14.0 加消息转项目资料（插件迁移 `0009_message_materials.sql`，接口 `POST/GET /api/im/materials`、`DELETE /api/im/materials/{material_id}`，消息加 `materials`）；0.13.0 加从消息发起会话、拆分任务（插件迁移 `0008_message_sessions.sql`），清单 `subscribes` 加 `object.created`；0.12.0 加群组默认归属项目（插件迁移 `0007_conversation_projects.sql`）、从 Slack 补联系人邮箱（接口 `POST /api/im/connectors/{id}/backfill-emails`、后台任务 `backfill_emails`）），权限 `network:im`：真实渠道出网，IM-01b 加，0.4.0 升上来要确认；域名清单是 `slack.com`、`*.slack.com`、`api.telegram.org` 等 IM 服务）。收各 IM 渠道的消息，落在插件表 `im_messages`（插件迁移 `0001_messages.sql`；IM-02a 的处理动作加了 `0002_actions.sql`，回复在 `im_replies`；IM-04a 的附件获取加了 `0003_attachments.sql`，获取状态在 `im_attachments`；SOP-02b 的等回复节点加了 `0004_sop_waits.sql`，挂起中的等待在 `im_sop_waits`；安装插件时应用）。发送人按 IM 身份（见「IM 身份 im-identities」）的 id 认、会话按会话（见「会话 conversations」）的 id 归，**不靠名字**。插件未安装或停用时，本节接口回 `not_found` 404（同「插件路由」）；停用时拉取也停下，数据不动。
 
 ### 适配器
 
@@ -2358,7 +2440,7 @@ SOP-02b。IM 插件经 SOP 节点扩展点（`docs/plugin-api.md` 2.7）登记�
 
 ### 内置流程：IM 需求自动受理
 
-AUTO-06。IM 插件后台任务（`sop_templates`，每分钟一次）经 `Core.SOP().InstallFlow` 把内置流程 `sop_im_auto_intake`「IM 需求自动受理」写进 SOP，写过一次（含已有同 id 的）记在 `im_sop_templates`（0012 已有的表），之后不再写，用户在 SOP 里删了不补回来。同一个后台任务依次写「发布 pipeline」`sop_im_release_pipeline`、「研发 pipeline」`sop_im_dev_pipeline`（见后两节），前一条写成了再写后一条，最后写受理流程（后一条末尾以子流程接前一条）。SOP 插件没在跑、项目插件没装（节点类型不认，保存校验不过）时下次再试。
+AUTO-06。IM 插件后台任务（`sop_templates`，每分钟一次）经 `Core.SOP().InstallFlow` 把内置流程 `sop_im_auto_intake`「IM 需求自动受理」写进 SOP，写过一次（含已有同 id 的）记在 `im_sop_templates`（0012 已有的表），之后不再写，用户在 SOP 里删了不补回来。同一个后台任务先单独写「原型同步」`sop_im_proto_sync`（见「内置流程：原型同步」，写不进去只记日志、不挡后面），再依次写「发布 pipeline」`sop_im_release_pipeline`、「研发 pipeline」`sop_im_dev_pipeline`（见后两节），前一条写成了再写后一条，最后写受理流程（后一条末尾以子流程接前一条）。SOP 插件没在跑、项目插件没装（节点类型不认，保存校验不过）时下次再试。
 
 - **默认停用**：SOP 没有启停开关，流程的 `trigger` 写成 `manual`，`im.message_received` 不会发起它；用户在编排页把触发方式改成「IM 消息」（`PATCH /api/sop/flows/{id}`，`id` 为 `sop_im_auto_intake`，body `{"trigger":"im"}`）即启用，改回 `manual` 即停用。
 - 输入字段：`message_id`（必填）、`conversation_id`（可空，`im_to_task` 补）。
@@ -2407,6 +2489,26 @@ AUTO-10（`docs/auto-delivery-flow.md` 第 1 节第 9 段）。IM 插件后台�
 - 失败和暂缓不回复提出人（提出人只在验收通过、已上线时收到原消息串里的回复），只给负责人发平台通知。
 - 子执行继承父执行的 `object_id`（同研发 pipeline）。
 - 要用到：SOP 插件；项目插件 0.16.0（`projects_prepare_release`、`projects_release`）；IM 插件 0.22.0；内核 `--public-url`（看板、报告链接）。
+
+### 内置流程：原型同步
+
+AUTO-11（`docs/auto-delivery-flow.md` 第 2 节）。IM 插件后台任务（`sop_templates`）经 `Core.SOP().InstallFlow` 写入 `sop_im_proto_sync`「原型同步」，写过一次记在 `im_sop_templates`，用户删了不补回来；不在受理、研发、发布那条链上，单独写，项目插件旧版（没有原型同步节点，节点类型不认）时下次再试。`trigger: manual` 即默认停用：由项目插件按三种触发发起（发布成功、生产分支有新提交、每日巡检，各自在项目档案的「原型同步」里开，默认都关；见项目插件「原型同步」），或手动发起（项目档案里点「立即同步」，或在 SOP 页输入项目 id）。
+
+- 输入字段：`project_id`（必填，项目 id、编号或名字；档案里要有代码库目录和原型库目录，都在 git 仓库里）、`sync_id`（项目插件发起时带上，手动发起留空）、`trigger`（`release` / `merge` / `daily`，手动留空）。
+- 步骤（key：kind）：
+  - `profile`：`projects_get_profile`（`{{project_id}}`，取项目名和负责人）→ `range`：`projects_proto_sync_range`（同步点到生产分支 HEAD 的代码 diff）→ `range_gate`：`decide`（规则 `sync.changed 等于 true`，`changed` 有 / `none` 没有）；
+  - `none`：`record_none`：`projects_proto_sync_record`（`outcome: no_change`，只前移同步点）→ `none_end`：`end`；
+  - `changed`：`branch`：`projects_proto_sync_branch`（原型库拉 `proto-sync/<日期>` 的 worktree）→ `agent`：`claude_code`（`preset: rp_protosync`、`workdir: {{sync.proto_path}}`、`permission: write`、`timeout: 2 小时`；提示词带代码库目录、生产分支、范围、`{{sync.diff_path}}`、`{{sync.diff_stat}}`，要求只改同步分支 worktree 里的原型和规格、代码库只读、不切分支不推送不合并，按新增 / 不一致 / 未实现 / 已下线 / 不确定五类处理并在规格条目上标实现状态，`result` 回报 `{"items": [{kind, title, detail, spec, page}]}`）→ `classify`：`projects_proto_sync_classify` → `pending_gate`：`decide`（规则 `sync.has_pending 等于 true`，`pending` 有 / `clear` 没有）：
+    - `pending`：`ask`：`im_notify`（`info`，只发平台通知，标题「<项目> 原型同步有 N 条差异待裁决」，内容带 `{{sync.pending_text}}`、`{{profile.owners_text}}` 和三个选项的说明）→ `verdict`：`decide`（规则留空即人工判断：`design` 当作新设计 / `defect` 当作缺陷 / `ignore` 暂不处理）：
+      - `design`：`v_design`：`projects_proto_sync_verdict`（`design`）→ `rewrite`：`claude_code`（同 `agent` 的配置，提示词带 `{{sync.items_text}}`，只回写标了「当作新设计」的几条）；
+      - `defect`：`v_defect`：`projects_proto_sync_verdict`（`defect`，给项目建修复任务，原型不动）；
+      - `ignore`：`v_ignore`：`projects_proto_sync_verdict`（`ignore`，留在差异清单里）；
+    - `clear`：`clear`：`template`（`{{sync.id}}` 写到 `sync_id`，只为汇合）；
+  - 汇合（`after: rewrite, v_defect, v_ignore, clear`，没走到的分支不算）：`commit`：`projects_proto_sync_commit`（只提交到 `proto-sync/` 分支）→ `record`：`projects_proto_sync_record`（记同步点）→ `notify`：`im_notify`（`success`，只发平台通知，标题「<项目> 原型已同步到 <短提交>」，内容 `{{sync.text}}`、`{{sync.items_text}}`、`{{profile.owners_text}}`）→ `done`：`end`。
+- 只提交到同步分支：两层保证。流程里 Agent 的工作目录是同步分支的独立 worktree，原型库主目录不切换；「提交同步分支」节点检查当前检出的是这次的 `proto-sync/` 分支，不是就拒绝。不推送、不合并，产品看过差异清单后自己合并。
+- 没有涉及界面或接口的改动时不交给 Claude Code，只前移同步点、不通知。
+- 失败：任一步失败按 SOP 的口径停在那一步（可重试）；执行结束时项目插件把这次同步记 `failed`，同步点不动。
+- 要用到：SOP 插件确认过 `process:spawn`（Agent 可写）；项目插件 0.17.0（六个原型同步节点、`projects_get_profile`）；IM 插件 0.23.0；运行角色 `rp_protosync`（内置，`dir_kind: prototype`，允许改文件）。
 
 ### 事件
 
@@ -2817,7 +2919,7 @@ DOM-01a。插件 `domains`（`internal/plugins/domains`，清单 `plugin.json`�
 
 ## 交易套件插件 trade
 
-TRD-01a。插件 `trade`（`internal/plugins/trade`，清单 `plugin.json`，0.1.0），不依赖别的插件，权限只有 `network:market-data`（普通）；**不声明 `network:exchanges` 和 `trade:live`，没有任何下单、撤单、划转、提币的接口**，只做行情、回测、模拟盘。表前缀 `trade_`，迁移在插件目录 `migrations/0001_trade.sql`。一个插件提供四个功能模块 `markets`（行情）、`monitor`（盯盘）、`strategy`（策略与回测）、`trading`（交易执行），以后要单独装时再拆。插件未安装或停用时本节接口回 `not_found` 404（同「插件路由」）。真实行情源（Binance、OKX）在 TRD-01b、TRD-01c，本条编进二进制的插件不带行情源，`sources` 为空。
+TRD-01a 起。插件 `trade`（`internal/plugins/trade`，清单 `plugin.json`，0.2.0），不依赖别的插件，权限只有 `network:market-data`（普通）；**不声明 `network:exchanges` 和 `trade:live`，没有任何下单、撤单、划转、提币的接口**，只做行情、回测、模拟盘。表前缀 `trade_`，迁移在插件目录：`migrations/0001_trade.sql` 建 `trade_instruments`、`trade_watchlists`；`0002_market_cache.sql`（TRD-02a）建 `trade_klines`（收盘了的 K 线）、`trade_kline_spans`（已向交易所取过的区间）、`trade_quotes`（每个标的最近一次的最新价，30 秒落一次）。一个插件提供四个功能模块 `markets`（行情）、`monitor`（盯盘）、`strategy`（策略与回测）、`trading`（交易执行），以后要单独装时再拆。插件未安装或停用时本节接口回 `not_found` 404（同「插件路由」）。编进二进制的行情源是 Binance（`binance`，TRD-01b）和 OKX（`okx`，TRD-01c）的公开行情，只读、不带任何 API Key；不出网的假行情源 `fake` 只给测试和离线演示，设环境变量 `PMW_TRADE_DEMO=1` 才登记。两个真实源各登记一个连接器 `binance_market`、`okx_market`（类别 `market`，认证方式 `none`，连通测试是 ping 一次交易所），清单 `provides.connectors` 声明了这两个。后台任务：`trade_market` 常驻刷新行情（见下文「行情缓存和推送」），`trade_instruments` 启用时先跑一次、之后每 24 小时把每个源的标的同步一遍（同 `POST /api/trade/sources/{id}/sync`）。
 
 | 方法 | 路径 | body / 说明 |
 |---|---|---|
@@ -2830,10 +2932,17 @@ TRD-01a。插件 `trade`（`internal/plugins/trade`，清单 `plugin.json`，0.1
 | GET | `/api/trade/watchlists/{id}` | `TradeWatchlist` |
 | PATCH | `/api/trade/watchlists/{id}` | `{name?, symbols?, position?}`，只改出现的，`symbols` 整体替换，回 `TradeWatchlist` |
 | DELETE | `/api/trade/watchlists/{id}` | `data` 为 `null` |
+| GET | `/api/trade/quotes?symbols=` | `TradeQuote[]` + `meta.total`，按 `symbols` 的顺序；`symbols` 必填，逗号分隔、去重，最多 200 个，格式不对 400。轮询用（SSE 连不上时前端退回这个）：内存里还没有的当场取一次，查过的标的之后 30 秒内按每秒一次刷新 |
+| GET | `/api/trade/book?symbol=&depth=` | `TradeBook`，`depth` 默认 10、1 到 20；查过的标的之后 30 秒内盘口每秒刷新 |
+| GET | `/api/trade/funding?symbol=` | `TradeFunding`；不是永续的 `status` 为 `unsupported` |
+| GET | `/api/trade/klines?symbol=&interval=&limit=&end=` | `TradeKline[]`（按时间正序）+ `meta` 为 `TradeKlineMeta`。`interval` 是 `1m` / `5m` / `15m` / `1h` / `4h` / `1d` / `1w`，默认 `15m`；`limit` 默认 200、1 到 1000；`end` 是 RFC3339，不传为现在。没有源的标的回 200、`data` 为空、`meta.status` 为 `no_source`；交易所取不到又一根缓存都没有时 502 `upstream` |
+| GET | `/api/trade/stream?symbols=&focus=` | SSE（`text/event-stream`），每条一行 `data: <TradeStreamEvent>`；`symbols` 同 `/quotes`，`focus` 是正在看的那个标的（可选），额外推它的盘口和资金费率 |
 
 `TradeInstrument`：`{symbol, name, market, kind, venue, digits, lot, multiplier, expiry, underlying, strike, right, limit, source, updated_at}`，同原型 `Instrument`，去掉模拟用的 `base`、`vol`，多 `source`（最近一次同步它的行情源 id）和 `updated_at`。`symbol` 全局唯一，形如 `BINANCE:BTCUSDT`、`SSE:600519`、`OKX:ETH-USDT-SWAP`（交易场所大写字母、数字、下划线，冒号后是代码）。`market` 是 `crypto` / `cn` / `hk` / `us`，`kind` 是 `spot` / `perp` / `future` / `option`；`digits` 是价格小数位，`lot` 最小下单量，`multiplier` 合约乘数。`expiry`（`YYYY-MM-DD`）、`underlying`（标的的 symbol）、`strike`、`right`（`call` / `put`，只有期权有）、`limit`（A 股涨跌停幅度，`0.1` 即 10%）没有时省略。同步时不合格的标的（格式不对、市场品种不在源的覆盖里、最小下单量或合约乘数不是正数、期权没写看涨看跌）跳过，不写表。
 
-`TradeSource`：`{id, name, coverage}`，`coverage` 每项 `{market, kinds}`。
+`TradeSource`：`{id, name, coverage, health}`，`coverage` 每项 `{market, kinds}`，`health` 是 `TradeSourceHealth`。
+
+`TradeSourceHealth`：`{status, error, since, last_ok_at, retry_at}`。`status` 是 `ok`（正常）、`error`（异常）、`idle`（还没发过请求）；`error` 是最近的异常原因，正常时为空串；`since` 是进入当前状态的时间，`last_ok_at` 是最近一次请求成功的时间，`retry_at` 是退避到什么时候（这之前不再请求交易所），不在退避期为空串。时间都是 RFC3339 UTC，没有为空串。
 
 `TradeSync`：`{source, upserted, skipped, errors}`，`errors` 是跳过的原因，最多 10 条。
 
@@ -2845,11 +2954,54 @@ TRD-01a。插件 `trade`（`internal/plugins/trade`，清单 `plugin.json`，0.1
 - `position` 非负整数。不认识的字段 400。
 - 暂不记审计、不发事件。
 
-行情源适配接口（Go，`internal/plugins/trade/source.go`，不是 HTTP 接口）：`Source` 有 `ID`、`Name`、`Coverage`（声明覆盖哪些市场和品种）、`Instruments(market, kind)`、`Ticker`（最新价、买一卖一、24 小时开高低量）、`Klines`（周期 `1m`、`5m`、`15m`、`1h`、`4h`、`1d`、`1w`，1 到 1000 根）、`OrderBook`（档数 1 到 100）、`Funding`（永续资金费率），全部只读；没有的数据返回 `ErrUnsupported`，标的不认识返回 `ErrUnknownSymbol`。插件登记时校验源 id 不重复、覆盖声明里的市场和品种都认识。测试用不出网的 `FakeSource`。
+
+### 行情缓存和推送（TRD-02a）
+
+`TradeQuote`：`{symbol, source, status, error, last, bid, ask, open_24h, high_24h, low_24h, volume_24h, change, change_pct, at, fetched_at}`。`source` 是行情源 id，没有源时为空串。`status`：
+
+- `live` 实时；
+- `stale` 交易所暂时取不到（被限频、断网、源在退避期）或数据超过 90 秒没刷到，给的是缓存，`error` 写原因；刚重启、交易所又连不上时从 `trade_quotes` 读上次落库的值，也是 `stale`；
+- `loading` 还没取到；`error` 取失败且没有缓存（如交易所没有这个标的）；
+- `no_source` 没有行情源覆盖它（A 股、港股、美股、期权现在都是），价格字段全是 0，界面显示「数据源未接」，不造价格。
+
+`change`、`change_pct` 相对 24 小时前的开盘价（`open_24h`），`change_pct` 是小数（`0.0123` 即 1.23%）；`volume_24h` 是标的币数量。`at` 是交易所给的数据时间，`fetched_at` 是本机取到的时间，RFC3339 UTC，没有数据时为空串。
+
+`TradeBook`：`{symbol, source, status, error, bids, asks, at, fetched_at}`，`status` 同 `TradeQuote`。`bids` 价格从高到低、`asks` 从低到高，每档 `{price, size}`，`size` 是标的币数量（OKX 永续的张数已乘合约面值）。
+
+`TradeFunding`：`{symbol, source, status, error, rate, next_time, at, fetched_at}`，`status` 同 `TradeQuote`，另有 `unsupported`（不是永续）。`rate` 是小数（`0.0001` 即 0.01%），`next_time` 是这一期的结算时间。
+
+`TradeKline`：`{time, open, high, low, close, volume}`，`time` 是开盘时间（RFC3339 UTC），`volume` 是标的币数量。日线、周线按 UTC 对齐，周线从周一开始。
+
+`TradeKlineMeta`：`{symbol, interval, source, status, error, cached, fetched_at}`。`status` 是 `live`、`stale`（交易所取不到，给的是缓存里有的部分）、`error`（交易所没有这个标的）、`no_source`；`cached` 为真表示这次没有请求交易所；`fetched_at` 是还没收盘那一根的取数时间，没有为空串。
+
+`TradeStreamEvent`：`{type, quote?, book?, funding?, source?, at}`，`type` 是：
+
+- `ready`：连上后第一条；
+- `quote`：带 `quote`（`TradeQuote`）；
+- `book`、`funding`：带 `book`、`funding`，只推 `focus` 那个标的；
+- `source`：带 `source`，是 `{id}` 加 `TradeSourceHealth` 的字段。
+
+连上先发 `ready`，再把每个源的状态、每个标的的报价、`focus` 的盘口和资金费率各发一遍；之后每秒检查一次，只推有变化的（`fetched_at`、`status`、`error` 变了）。每 15 秒写一行 `: ping` 注释做心跳。断开即取消订阅。推送不走事件总线（高频行情会把总线挤满），也不进 `/api/events`。
+
+缓存和刷新：
+
+- 上游用 REST 轮询，不接交易所 WebSocket：插件出网只能用 `Core.HTTP("market-data")` 给的客户端，域名清单在每一跳上检查，WebSocket 要自己拨号会绕过这层；以后内核给出受控的 WebSocket 句柄再换，换时本节接口不变。
+- 被 `/stream` 订阅的标的、最近 30 秒被 `/quotes` 查过的标的，最新价每秒刷一次；自选里其余的标的 30 秒一次。盘口只刷 `focus` 和最近 30 秒被 `/book` 查过的，每秒一次，取 20 档；永续资金费率 30 秒一次。
+- K 线：收盘了的落 `trade_klines`，取过的区间记在 `trade_kline_spans`（相邻、重叠的合并）；查询区间已被覆盖时直接读库，不请求交易所；只缺尾巴时只补尾巴。还没收盘的那根放内存，3 秒内重复查不再请求。
+- 限频：每个源一个令牌桶，Binance 每秒 10 次、OKX 每秒 8 次（都远低于交易所公开接口的上限），令牌不够的刷新顺延到下一轮。
+- 退避和降级：被限频（HTTP 429、418，Binance `-1003`，OKX `50011`）立刻把源标为异常；网络错误、5xx 连续两次才标异常。退避 1、2、4 … 60 秒封顶，有 `Retry-After` 时取较大者；退避期内不请求，报价、盘口降级为缓存（`stale`）并带数据时间。恢复后第一次成功即回到 `ok`。
+- 源状态变化时同步到它的连接器实例（`binance_market`、`okx_market`，同「连接器」的同步记录）：异常时实例置为 `error` 并记原因，恢复后回到 `connected`；正常时每分钟记一次同步时间。没有建实例时只在 `TradeSource.health` 里看得到。
+
+标的写法和交易所的对照：
+
+- Binance：现货 `BINANCE:BTCUSDT`（交易对 `BTCUSDT`，走 `data-api.binance.vision`），U 本位永续 `BINANCE:BTCUSDT.P`（交易对 `BTCUSDT`，走 `fapi.binance.com`）。同步只要 USDT 计价、在交易的；永续只要 `PERPETUAL`。
+- OKX：冒号后原样是 `instId`。现货 `OKX:BTC-USDT`，USDT 本位永续 `OKX:BTC-USDT-SWAP`；交割、期权（如 `OKX:BTC-USD-261225`）还没接，回「不支持」。永续的 `multiplier` 是合约面值 `ctVal`，`lot` 是最小下单张数。
+
+行情源适配接口（Go，`internal/plugins/trade/source.go`，不是 HTTP 接口）：`Source` 有 `ID`、`Name`、`Coverage`（声明覆盖哪些市场和品种）、`Instruments(market, kind)`、`Ticker`（最新价、买一卖一、24 小时开高低量）、`Klines`（周期 `1m`、`5m`、`15m`、`1h`、`4h`、`1d`、`1w`，1 到 1000 根）、`OrderBook`（档数 1 到 100）、`Funding`（永续资金费率），全部只读；没有的数据返回 `ErrUnsupported`，标的不认识返回 `ErrUnknownSymbol`。插件登记时校验源 id 不重复、覆盖声明里的市场和品种都认识。实现有 `Binance`（`binance.go`）、`OKX`（`okx.go`）和不出网的 `FakeSource`；交易所的错误统一成 `UpstreamError`（带是否被限频、`Retry-After`），标的不存在（Binance `-1121`、OKX `51001`）回 `ErrUnknownSymbol`。单测用 `testdata/binance`、`testdata/okx` 下录好的响应和 `httptest` 假服务端，另有 `TRADE_LIVE=1` 才跑的对照测试直连交易所比对。
 
 ## 宽基监控插件 etf
 
-ETF-01a。插件 `etf`（`internal/plugins/etf`，清单 `plugin.json`，0.1.0），不依赖别的插件，权限只有 `network:market-data`（普通），只读公开行情与基金数据，没有任何下单、撤单、划转、提币的接口。表前缀 `etf_`，迁移在插件目录 `migrations/0001_etf.sql`，建 `etf_funds`（宽基静态元信息）和 `etf_daily`（每日份额与交易快照，主键 `(trade_date, symbol)`）。数据源走插件内适配接口，编进二进制的是东方财富 `eastmoney`，另有不出网的 `fake` 给测试和离线演练。插件未安装或停用时本节接口回 `not_found` 404（同「插件路由」）。后台任务 `etf_daily`（启用时先跑一次，之后每 24 小时一轮）拉当日快照落库，同一天重跑是覆盖。
+ETF-01a 起，ETF-01b 加派生指标、异动规则和命中记录。插件 `etf`（`internal/plugins/etf`，清单 `plugin.json`，0.2.0），不依赖别的插件，权限只有 `network:market-data`（普通），只读公开行情与基金数据，没有任何下单、撤单、划转、提币的接口。功能模块 key 是 `etf`（页面「宽基监控」，同工作台目录；「盯盘」`monitor` 归交易插件 `trade`）。表前缀 `etf_`，迁移在插件目录：`migrations/0001_etf.sql` 建 `etf_funds`（宽基静态元信息）和 `etf_daily`（每日份额与交易快照，主键 `(trade_date, symbol)`）；`0002_anomaly.sql`（ETF-01b）给 `etf_daily` 加 `iopv`、`premium_basis`，建跟踪指数日行情 `etf_index_daily`（主键 `(trade_date, index_code)`）、派生指标 `etf_metrics_daily`（主键 `(trade_date, symbol)`）、异动规则 `etf_anomaly_rules`（id 前缀 `ear_`）和命中记录 `etf_anomaly_events`（id 前缀 `eae_`，`(trade_date, symbol, rule_id)` 唯一）。0.1.0 装过的要走升级（`POST /api/plugins/{id}/upgrade`）应用 0002。数据源走插件内适配接口，编进二进制的是东方财富 `eastmoney`，另有不出网的 `fake` 给测试和离线演练。插件未安装或停用时本节接口回 `not_found` 404（同「插件路由」）。后台任务 `etf_daily`（启用时先跑一次，之后每 24 小时一轮）拉当日快照落库，同一天重跑是覆盖。
 
 | 方法 | 路径 | body / 说明 |
 |---|---|---|
@@ -2858,19 +3010,50 @@ ETF-01a。插件 `etf`（`internal/plugins/etf`，清单 `plugin.json`，0.1.0�
 | GET | `/api/etf/funds/{symbol}` | 一只宽基的 `EtfFund`；不存在 404 |
 | GET | `/api/etf/daily?symbol=&from=&to=&limit=` | `EtfDaily[]` + `meta.total/limit`，按日期倒序；`from`、`to` 是 `YYYY-MM-DD`，`limit` 默认 500、1 到 5000 |
 | GET | `/api/etf/share-change?symbol=&days=` | `EtfShareChange[]`，按日期正序，头一条没有变动（`change`、`change_pct`、`net_inflow` 为 0）；`symbol` 必填，`days` 默认 30、2 到 500 |
-| POST | `/api/etf/collect` | `{date?}`，立刻采集一轮写库，回 `EtfCollect`；不传 `date` 取最近交易日 |
+| POST | `/api/etf/collect` | `{date?}`，立刻采集一轮写库，回 `EtfCollect`；不传 `date` 取最近交易日。采集后接着补跟踪指数行情、算当天派生指标、按启用的规则判定（ETF-01b），这几步出错不让采集失败，原因记进 `errors` |
+| GET | `/api/etf/metrics?symbol=&date=&from=&to=&limit=` | `EtfMetrics[]` + `meta.total/limit`，按日期正序（截断时留最近的）；日期都是 `YYYY-MM-DD`，`limit` 默认 500、1 到 5000 |
+| GET | `/api/etf/anomalies?date=&from=&to=&symbol=&severity=&status=&limit=` | `EtfAnomaly[]` + `meta.total/limit`，按日期倒序、同一天严重的在前；`severity` 是 `info` / `warn` / `critical`，`status` 是 `open` / `acked` / `ignored`，别的值 400；`limit` 默认 200、1 到 2000 |
+| POST | `/api/etf/anomalies/{id}/ack` | `{status?}`，确认（`acked`，不传默认）、忽略（`ignored`）或撤回成未处理（`open`）；回 `EtfAnomaly`；不存在 404 |
+| GET | `/api/etf/rules` | `EtfRule[]` + `meta.total`，不分页，内置的在前；读之前先补种缺的内置规则 |
+| POST | `/api/etf/rules` | `{name, metric, operator, threshold, scope?, scope_value?, window_days?, severity?, enabled?}`，回 201 + `EtfRule`；`scope` 默认 `all`，`window_days` 默认 1，`severity` 默认 `warn`，`enabled` 默认 `true`；带不认识的字段 400 |
+| PATCH | `/api/etf/rules/{id}` | 只传要改的，字段同新建；内置规则也能改阈值、范围、严重度和启停；回 `EtfRule`；不存在 404。本期没有删除规则的接口 |
 
 `EtfFund`：`{symbol, name, track_index, category, manager, market, secid, underlying, launch_date, updated_at}`。`symbol` 是 6 位代码；`secid` 是东方财富证券标识（`1.` 上交所、`0.` 深交所）；`category` 本插件只登记 `宽基`；`launch_date` 没有是空串。
 
-`EtfDaily`：`{date, symbol, shares, nav, price, open, high, low, volume, amount, change_pct, change_amount, amplitude, turnover_rate, aum, premium_discount, source, updated_at}`。`shares` 是基金份额（份）；`nav` 单位净值（元）；`price`、`open`、`high`、`low` 收盘与当日高低（元）；`volume` 成交量（手）；`amount` 成交额（元）；`change_pct`、`change_amount` 涨跌幅（%）与涨跌额（元）；`amplitude` 振幅（%）、`turnover_rate` 换手率（%）；`aum` 估算规模（元，= `shares × nav`）；`premium_discount` 折溢价（%，= `(price - nav) / nav × 100`）。
+`EtfDaily`：`{date, symbol, shares, nav, price, open, high, low, volume, amount, change_pct, change_amount, amplitude, turnover_rate, aum, premium_discount, iopv, premium_basis, source, updated_at}`。`shares` 是基金份额（份）；`nav` 单位净值（元）；`price`、`open`、`high`、`low` 收盘与当日高低（元）；`volume` 成交量（手）；`amount` 成交额（元）；`change_pct`、`change_amount` 涨跌幅（%）与涨跌额（元）；`amplitude` 振幅（%）、`turnover_rate` 换手率（%）；`iopv` 是盘中参考净值（元，只有采集最近交易日时能拿到，历史日期为 0）；`premium_basis` 是折溢价口径：`iopv`（有 IOPV 时按 IOPV 算）、`nav`（没有 IOPV 按单位净值算）、`none`（两样都没有，折溢价不可用、记 0），0.1.0 写的旧行为空串；`premium_discount` 折溢价（%，= `(price - 基准) / 基准 × 100`，基准按 `premium_basis`）；`aum` 估算规模（元，= `shares × nav`，没有净值依次用 IOPV、收盘价）。
 
 `EtfShareChange`：`{date, symbol, shares, change, change_pct, net_inflow}`。`change` 是相邻两日份额差（份），`change_pct` 是变动百分比，`net_inflow` 是估算资金净流入（元，= `change × nav`）。
 
-`EtfCollect`：`{date, source, upserted, skipped, errors}`。`errors` 是跳过原因，最多 10 条。
+`EtfCollect`：`{date, source, upserted, skipped, indexes, metrics, hits, new_hits, errors}`。`indexes` 是写入的跟踪指数行情条数，`metrics` 是算了指标的 ETF 只数，`hits` 是当天命中总数，`new_hits` 是这次新增的命中（ETF-01b）；`errors` 是跳过原因和采集后各步的报错，最多 10 条。
 
 `EtfSource`：`{id, name}`。
 
-数据源适配接口（Go，`internal/plugins/etf/source.go`，不是 HTTP 接口）：`Source` 有 `ID`、`Name`、`Funds`（宽基静态清单）、`Daily(date, symbols)`（某交易日快照），全部只读。东方财富源 `eastmoney`：行情走 `push2his.eastmoney.com` 的日 K，份额走 `datacenter-web.eastmoney.com` 的 `RPT_FUND_SCALE_DET`（`filter=(FCODE="…")`，取最新 `OCF`，单位为亿份，落库时换成份）；份额源偶有延迟，取不到时该日 `shares` 记 0，下一次采集补齐，行情照常落库。
+`EtfMetrics`：`{date, symbol, share_change_pct, net_inflow, inflow_streak, amount_ratio, share_pctile, aum_pctile, premium_pctile, tracking_error, excess_return, aum_change_pct, premium_discount, premium_basis, review_flag, updated_at}`。一只 ETF 一天的派生指标，采集后算好落库。样本不够的指标是 `null`，判定时跳过（不判定）：
+
+- `share_change_pct` 份额日变动（%，和上一条快照比，两天都有份额才算）；`net_inflow` 估算净流入（元，= 份额差 × 净值，没有净值依次用 IOPV、收盘价）；`aum_change_pct` 规模日变动（%）。
+- `inflow_streak` 连续净流入天数（正）或连续净流出天数（负），份额不变或缺份额为 0，不为 `null`。
+- `amount_ratio` 量比 = 当日成交额 / 之前 20 个交易日的均额（不含当日，避免自己和自己比）；之前不足 20 天或其中有一天没有成交额为 `null`。
+- `share_pctile`、`aum_pctile`、`premium_pctile` 是当日值在近 250 个交易日有效样本里的分位（≤ 当日值的占比，0 到 100）；有效样本不足 60 天为 `null`；折溢价分位只算口径是 `iopv` 或 `nav` 的天。
+- `tracking_error` 是近 20 个交易日（ETF 日涨跌幅 - 跟踪指数日涨跌幅）的样本标准差 × √252（%）；`excess_return` 是同期 ETF 累计收益减指数累计收益（%）；不足 20 天或这 20 天里缺一天指数行情为 `null`。
+- `premium_discount`、`premium_basis` 同当天快照；口径是 `none` 时 `premium_discount` 为 `null`。
+- `review_flag` 非空表示待核：`pending_review` 是份额单日变动绝对值超过 10% 且量比不到 2（或量比样本不足），疑似分红、拆分、份额折算这类非交易性跳变；份额类规则（`share_change_pct`、`net_inflow`、`inflow_streak`、`aum_change_pct`、`share_pctile`、`aum_pctile`）这天命中时 `flag` 也标 `pending_review`。
+
+`EtfRule`：`{id, name, scope, scope_value, metric, operator, threshold, window_days, severity, enabled, builtin, created_at, updated_at}`。一条规则 = 一个指标 + 比较 + 阈值。
+
+- `id` 是 `ear_` 前缀；首批 7 条是内置的（`builtin` 为 `true`），固定 id，插件安装时和每次判定前用 `INSERT OR IGNORE` 补种，用户改过的不覆盖：`ear_share_jump` 份额单日骤变（`share_change_pct` `abs_gt` 2，warn）、`ear_inflow_streak` 连续净流入（`inflow_streak` `gte` 3，info）、`ear_outflow_streak` 连续净流出（`inflow_streak` `lte` -3，warn）、`ear_volume_spike` 放量（`amount_ratio` `gt` 2，info）、`ear_premium` 折溢价异常（`premium_discount` `abs_gt` 0.5，warn）、`ear_aum_jump` 规模骤变（`aum_change_pct` `abs_gt` 3，warn）、`ear_tracking_error` 跟踪误差扩大（`tracking_error` `gt` 1，critical）。
+- `name` 去首尾空白后必填，最多 50 字。`metric` 是 `EtfMetrics` 里的 `share_change_pct`、`net_inflow`、`inflow_streak`、`amount_ratio`、`premium_discount`、`aum_change_pct`、`tracking_error`、`excess_return`、`share_pctile`、`aum_pctile`、`premium_pctile` 之一。`operator` 是 `gt`、`gte`、`lt`、`lte`、`abs_gt`（绝对值大于）。`severity` 是 `info`、`warn`、`critical`。
+- `scope` 是 `all`（全部，`scope_value` 存空串）、`symbol`（只看 `scope_value` 这只 ETF 的 6 位代码）、`index`（只看跟踪 `scope_value` 这个指数的，认指数代码如 `000300`，也认跟踪指数名如 `沪深300`）；不是 `all` 时 `scope_value` 必填。
+- `window_days` 1 到 250，是指标的窗口说明（量比、跟踪误差的内置规则写 20），目前只做展示，指标窗口固定按上面的口径。
+- 改了规则不回头重判历史；下次采集（或 `POST /api/etf/collect` 带那一天）时按新规则重判那一天。
+
+`EtfAnomaly`：`{id, date, symbol, fund_name, rule_id, rule_name, metric, value, threshold, operator, severity, status, flag, detail, created_at, updated_at, handled_at}`。一条命中记录，同日同标的同规则只有一条。
+
+- `id` 是 `eae_` 前缀；`fund_name` 取自 `etf_funds`，没有为空串；`rule_name`、`metric`、`threshold`、`operator`、`severity` 是判定时规则的快照；`value` 是命中的指标值；`detail` 是给人看的一句话（如「份额日变动 2.50%，规则 绝对值 > 2.00%」，待核时后面接说明）。
+- `status`：`open` 未处理、`acked` 已确认、`ignored` 已忽略；`handled_at` 是确认或忽略的时间，`open` 为空串。`flag` 为 `pending_review` 是待核，否则空串。
+- 重跑同一天：命中的覆盖值和规则快照，不改 `status`、`handled_at`、`created_at`；不再命中（改了阈值、样本变化）的只撤掉 `open` 的，确认、忽略过的留着；停用的规则不判定，也不动它已有的记录。
+- 每次采集新增的命中汇总成一条通知（kind `etf.anomaly`，来源 `etf`），标题「宽基异动：<日期> 新增 N 条」，有待核的标题里带「（M 条待核）」；有 `critical` 时级别 `error`，否则 `info`；`data` 是 `{date, count, event_ids}`。重跑同一天已有的命中不再通知。
+
+数据源适配接口（Go，`internal/plugins/etf/source.go`，不是 HTTP 接口）：`Source` 有 `ID`、`Name`、`Funds`（宽基静态清单）、`Daily(date, symbols)`（某交易日快照），全部只读；可选接口 `IndexSource` 有 `IndexDaily(date, codes)`（跟踪指数日行情，ETF-01b），没实现的源跟踪误差和超额收益为 `null`。东方财富源 `eastmoney`：行情走 `push2his.eastmoney.com` 的日 K；采集最近交易日时再用 `push2.eastmoney.com` 的 `ulist.np` 批量取实时快照，`f38` 是总份额（份）、`f441` 是 IOPV（元）、`f124` 是行情时间，快照日期和日 K 同一天才用；份额取不到时再试 `datacenter-web.eastmoney.com` 的 `RPT_FUND_SCALE_DET`（2026-11-04 实测返回「报表配置不存在」，历史日期的份额目前拿不到，该日 `shares` 记 0），行情照常落库。跟踪指数也走日 K，`secid` 是 `399` 开头的 `0.<代码>`、其余 `1.<代码>`，不复权。东方财富源目前不给单位净值，`nav` 为 0，折溢价靠 IOPV（只有最近交易日）。
 
 ## 视频创作插件 video
 
