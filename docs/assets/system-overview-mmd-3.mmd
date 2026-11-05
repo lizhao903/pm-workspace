@@ -18,4 +18,4 @@ sequenceDiagram
   CLI-->>K: 执行结束 run.finished（状态 + 摘要）
   K-->>SOP: 事件触发，继续流程
   SOP->>IM: 第 2 步 回复原消息
-  IM->>IMU: 「任务标题」已经处理完了 + 摘要
+  IM->>IMU: 「任务标题」（编号）已完成 + 结果（只回结论）

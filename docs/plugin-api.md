@@ -722,7 +722,13 @@ type SOPStarter interface {
 }
 // Registrar.SOPStarter(st SOPStarter)
 // Registry.StartSOP(ctx, q)：交给在跑的登记方；没有回 ErrNoSOPStarter（「SOP 编排插件没启用」，即 schedule.ErrSOPUnavailable）
-// Core.SOP().Schedules(ctx, flowID) ([]SOPScheduleRef, error)：动作 sop 指向这个流程的定时任务 {ID, Name}
+// Core.SOP().Schedules(ctx, flowID) ([]SOPScheduleRef, error)：动作 sop 指向这个流程的定时任务 {ID, Name, Managed}
+// 随流程管理的定时任务（TSK-0463，internal/plugin/sopschedule.go）：
+// Core.SOP().FlowSchedule(ctx, flowID) (*SOPFlowSchedule, error)：随这个流程管理的那条，没有回 nil
+// Core.SOP().FlowSchedules(ctx) (map[string]SOPFlowSchedule, error)：全部，按流程 id
+// Core.SOP().SaveFlowSchedule(ctx, flowID, SOPFlowScheduleInput{Name, Rule *SOPScheduleRule, Enabled *bool, Adopt bool}) (*SOPFlowScheduleResult, error)
+// Core.SOP().DeleteFlowSchedule(ctx, flowID) (int, error)
+// Core.SOP().CheckScheduleRule(rule SOPScheduleRule) (SOPScheduleRule, error)：规范化并校验（同 POST /api/schedules/preview）
 ```
 
 - 只有清单 `provides.modules` 含 `sop` 的插件能登记，**同一时间只有一个**：已有在跑的插件登记过时，后启用的那个启用失败（「发起 SOP 的入口已由插件 x 登记，同一时间只能有一个」），先停掉前一个再启用。本插件内重复登记、传 nil 也失败。
@@ -730,6 +736,7 @@ type SOPStarter interface {
 - `ObjectID`（SOP-06）：这次执行关联的工作对象。Agent 的 `run_sop` 在挂着对象的会话（任务分配给 Agent 触发的、在任务详情里对话的）里调用时带上会话的 `object_id`，定时任务不带。SOP 编排插件把它记进 `sop_runs.object_id`，对象已经不在了只记日志、照常发起不关联。
 - 来源（SOP-06）：SOP 编排插件把 `Source` 记进 `sop_runs.source`，只认 `schedule`、`agent`、`plugin`（内核运行句柄 `Runs().StartSOP` 发起的），别的记空串；`SourceID`、`SourceName` 记进 `source_ref`、`source_name`。界面发起记 `manual`、IM 触发记 `im`、子流程记 `subflow`，这三种不经钩子。
 - `Schedules` 由内核接上定时任务的查询（`Registry.SetSOPRefs`），没接时回空切片。SOP 插件删流程前用它拦下被定时任务引用的流程（契约「SOP 编排插件 sop」）。
+- 随流程管理的定时任务（TSK-0463）：SOP 流程触发方式是「定时」时，规则存在一条动作 `sop`、`action.managed` 为真的内核定时任务里，一个流程最多一条（契约「SOP 编排插件 sop」的「定时触发」）。类型是 `internal/schedule` 的别名：`SOPFlowSchedule = schedule.Schedule`、`SOPFlowScheduleInput = schedule.FlowScheduleInput`、`SOPFlowScheduleResult = schedule.FlowScheduleResult{Schedule, Created, Adopted}`、`SOPScheduleRule = schedule.Rule`。内核用 `Registry.SetSOPSchedules(*schedule.Store)` 接上（可以在 `Start` 之后调），没接时这几个方法回 `ErrNoSOPSchedules`。读（`FlowSchedule`、`FlowSchedules`、`CheckScheduleRule`）谁都能调；写（`SaveFlowSchedule`、`DeleteFlowSchedule`）只有 SOP 编排插件（id `sop`）能调，别的插件回 `ErrSOPScheduleForbidden`。`SaveFlowSchedule`：已有那一条就改（`Rule`、`Enabled` 为 nil 不改，`Name` 非空且不同就改名）；没有时 `Rule` 为 nil 不建，否则新建（`Enabled` 缺省启用）；`Adopt` 为真时先找用户手建、指向这个流程、规则等价的条目，有就认领（置 `managed`，名字、启停不动，`Adopted` 为真）。同一个流程的查找和新建串行，不会建出两条。`SOPScheduleRef` 多了 `Managed`：删流程前只拦 `Managed` 为假的。
 
 例子（IM 消息，发消息节点）：
 
