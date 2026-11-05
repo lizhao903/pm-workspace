@@ -48,6 +48,8 @@ type ObjectInfo struct {
 	Status string
 	// ProjectID 是所属项目（objects.project_id），没挂项目为空串（AUTO-07：项目插件从任务找到项目档案）。
 	ProjectID string
+	// OwnerID 是负责人（联系人 id），没有为空串（TSK-0411：SOP 的更新任务节点输出改后的负责人）。
+	OwnerID string
 }
 
 // ObjectReader 只读查内核对象。没有这个 id 返回 ErrNoRows。
@@ -270,16 +272,17 @@ func (o objectReader) Get(ctx context.Context, id string) (ObjectInfo, error) {
 	return scanObject(d.R.QueryRowContext(ctx, `SELECT `+objectInfoCols+` FROM objects WHERE id = ?`, id))
 }
 
-const objectInfoCols = `id, type_id, ref, title, workdir, props, deleted_at, status, project_id`
+const objectInfoCols = `id, type_id, ref, title, workdir, props, deleted_at, status, project_id, owner_id`
 
 func scanObject(row *sql.Row) (ObjectInfo, error) {
 	var info ObjectInfo
-	var deleted, project sql.NullString
+	var deleted, project, owner sql.NullString
 	var props string
-	if err := row.Scan(&info.ID, &info.Type, &info.Ref, &info.Title, &info.Workdir, &props, &deleted, &info.Status, &project); err != nil {
+	if err := row.Scan(&info.ID, &info.Type, &info.Ref, &info.Title, &info.Workdir, &props, &deleted, &info.Status, &project, &owner); err != nil {
 		return ObjectInfo{}, err
 	}
 	info.ProjectID = project.String
+	info.OwnerID = owner.String
 	info.Workdir = strings.TrimSpace(info.Workdir)
 	info.Deleted = deleted.Valid
 	if json.Unmarshal([]byte(props), &info.Props) != nil || info.Props == nil {

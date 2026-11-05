@@ -83,10 +83,10 @@ export function ProvidersSection() {
       </QueryState>
 
       {open?.mode === 'new' ? (
-        <ProviderDrawer key={`new-${open.kind}`} def={kindOf(open.kind)} testing={false} onTest={(id) => test.mutate(id)}
+        <ProviderDrawer key={`new-${open.kind}`} def={kindOf(open.kind)} providers={list} testing={false} onTest={(id) => test.mutate(id)}
           onCreated={(p) => setOpen({ mode: 'edit', id: p.id, slot: `new-${open.kind}` })} onClose={() => setOpen(null)} />
       ) : editing && open ? (
-        <ProviderDrawer key={open.slot ?? editing.id} def={kindOf(uiKindOf(editing))} provider={editing} check={checks[editing.id]}
+        <ProviderDrawer key={open.slot ?? editing.id} def={kindOf(uiKindOf(editing))} provider={editing} providers={list} check={checks[editing.id]}
           testing={testingId === editing.id} testError={testError} onTest={(id) => test.mutate(id)}
           onCreated={() => undefined} onClose={() => setOpen(null)} />
       ) : null}

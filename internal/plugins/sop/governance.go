@@ -225,6 +225,10 @@ func (r *runner) drainGrants() {
 
 // claudeTask 是这一步配的关联任务（config.task 按输入渲染），没配为空串。
 func (r *runner) claudeTask(i int) string {
+	if r.defs[i].Kind == taskRunKind {
+		// 执行任务（TSK-0411）：task 留空时取输入的 task.id / task_id
+		return taskTarget(r.defs[i].Config, orEmpty(r.run.Steps[i].Input))
+	}
 	return strings.TrimSpace(render(r.defs[i].Config["task"], orEmpty(r.run.Steps[i].Input)))
 }
 

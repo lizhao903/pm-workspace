@@ -139,41 +139,30 @@ func (r *runner) startClaude(ctx context.Context, i int, release func()) {
 	}()
 	def := r.defs[i]
 	input := orEmpty(s.Input)
-	cfg := def.Config
-	workdir := strings.TrimSpace(render(cfg["workdir"], input))
-	if workdir == "" {
-		r.fail(i, t, "工作目录是空的："+fieldHint(cfg["workdir"]))
-		return
+	var p claudeParams
+	if def.Kind == taskRunKind {
+		// 执行任务（TSK-0411，nodes_taskrun.go）：工作目录按任务 → 所属项目继承，提示词由任务拼
+		var why string
+		if p, why = taskRunParams(ctx, r.e.c, def, input); why != "" {
+			r.claudeFail(i, t, why)
+			return
+		}
+	} else {
+		var ok bool
+		if p, ok = r.claudeCodeParams(i, t, def, input); !ok {
+			return
+		}
 	}
-	prompt := strings.TrimSpace(render(cfg["prompt"], input))
-	if prompt == "" {
-		r.fail(i, t, "提示词是空的："+fieldHint(cfg["prompt"]))
-		return
-	}
-	timeout, err := claudeTimeout(cfg["timeout"])
-	if err != nil {
-		r.fail(i, t, err.Error())
-		return
-	}
-	// 被条件回退退回重做的那一步（AUTO-02，记着 rework_reason），把退回意见附在提示词后面，模板里没引用 feedback 也看得到；
-	// 下游步骤的输入里也带着 feedback（透传），但不是退给它的，不附
-	if fb, ok := input["feedback"].(map[string]any); ok && s.ReworkReason != "" && !strings.Contains(cfg["prompt"], "feedback") {
-		prompt += feedbackSection(fb)
-	}
-	task := strings.TrimSpace(render(cfg["task"], input))
+	workdir, task, preset, writes, follow, timeout := p.workdir, p.task, p.preset, p.writes, p.follow, p.timeout
 	if r.holdIfOverBudget(ctx, i, task) {
 		return
 	}
-	preset := strings.TrimSpace(cfg["preset"])
-	writes := cfg["permission"] == "write"
-	// 权限留空、选了角色时按角色的权限（只读 / 可写）；角色只读时内核一律不放开写
-	follow := cfg["permission"] == "" && preset != ""
 	id, err := r.e.c.Runs().StartClaudeCode(ctx, plugin.ClaudeCodeStart{
-		Workdir: workdir, Prompt: prompt, AllowWrites: writes, ObjectID: task, RecordOnTask: task != "",
+		Workdir: workdir, Prompt: p.prompt, AllowWrites: writes, ObjectID: task, RecordOnTask: task != "",
 		ReportBack: true, PresetID: preset, FollowPreset: follow, Timeout: timeout,
 	})
 	if err != nil {
-		r.fail(i, t, "交给 Claude Code 失败："+claudeStartErr(err))
+		r.claudeFail(i, t, "交给 Claude Code 失败："+claudeStartErr(err))
 		return
 	}
 	s.Claude = &StepClaude{RunID: id, TaskID: task, Workdir: workdir}
@@ -192,6 +181,50 @@ func (r *runner) startClaude(ctx context.Context, i int, release func()) {
 	}
 	r.log(i, t, fmt.Sprintf("交给 Claude Code（执行 %s，%s，目录 %s，最多 %s%s），等它结束", id, mode, workdir, humanDuration(timeout), where))
 	r.watchClaude(ctx, i, release)
+}
+
+// claudeCodeParams 是 claude_code 节点的发起参数，配置不对时让这一步失败、回 false。
+func (r *runner) claudeCodeParams(i int, t time.Time, def stepDef, input Json) (claudeParams, bool) {
+	s := &r.run.Steps[i]
+	cfg := def.Config
+	workdir := strings.TrimSpace(render(cfg["workdir"], input))
+	if workdir == "" {
+		r.fail(i, t, "工作目录是空的："+fieldHint(cfg["workdir"]))
+		return claudeParams{}, false
+	}
+	prompt := strings.TrimSpace(render(cfg["prompt"], input))
+	if prompt == "" {
+		r.fail(i, t, "提示词是空的："+fieldHint(cfg["prompt"]))
+		return claudeParams{}, false
+	}
+	timeout, err := claudeTimeout(cfg["timeout"])
+	if err != nil {
+		r.fail(i, t, err.Error())
+		return claudeParams{}, false
+	}
+	// 被条件回退退回重做的那一步（AUTO-02，记着 rework_reason），把退回意见附在提示词后面，模板里没引用 feedback 也看得到；
+	// 下游步骤的输入里也带着 feedback（透传），但不是退给它的，不附
+	if fb, ok := input["feedback"].(map[string]any); ok && s.ReworkReason != "" && !strings.Contains(cfg["prompt"], "feedback") {
+		prompt += feedbackSection(fb)
+	}
+	preset := strings.TrimSpace(cfg["preset"])
+	// 权限留空、选了角色时按角色的权限（只读 / 可写）；角色只读时内核一律不放开写
+	return claudeParams{
+		workdir: workdir, prompt: prompt, task: strings.TrimSpace(render(cfg["task"], input)), preset: preset,
+		writes: cfg["permission"] == "write", follow: cfg["permission"] == "" && preset != "", timeout: timeout,
+	}, true
+}
+
+// claudeFail 是发起前、发起时失败：执行任务配了 on_fail=continue 时这一步照样完成，输出 status=failed 和原因，交给下游回报；
+// 别的情况这一步失败。
+func (r *runner) claudeFail(i int, t time.Time, why string) {
+	if !taskRunContinue(r.defs[i]) {
+		r.fail(i, t, why)
+		return
+	}
+	s := &r.run.Steps[i]
+	s.Status, s.Output, s.EndedAt = stDone, taskRunFailed(orEmpty(s.Input), why), &t
+	r.log(i, t, "没能执行，按配置继续往下走："+why)
 }
 
 // fieldHint 说清空值从哪来：配置里引用了输入字段时提示字段取不到。
@@ -241,6 +274,7 @@ func (r *runner) watchClaude(ctx context.Context, i int, release func()) {
 	sctx, cancel := context.WithCancel(ctx)
 	r.inflight[i] = inflight{token: token, cancel: cancel}
 	runID, input := s.Claude.RunID, orEmpty(clone(s.Input))
+	cont := taskRunContinue(r.defs[i])
 	runs := r.e.c.Runs()
 	st := r.e.c.Store()
 	poke, done := r.e.claude.add(runID)
@@ -261,6 +295,12 @@ func (r *runner) watchClaude(ctx context.Context, i int, release func()) {
 		}
 		if res.err != "" {
 			finishUsage(st, runID, usageFailed)
+			if cont {
+				// 执行任务配了 on_fail=continue：执行失败也交给下游回报（TSK-0411）
+				out := taskRunFailed(input, res.err)
+				out["run_id"] = runID
+				res = nodeResult{output: out, log: "Claude Code 没成功，按配置继续往下走：" + res.err}
+			}
 		} else {
 			finishUsage(st, runID, usageDone)
 		}

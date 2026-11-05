@@ -8,9 +8,9 @@ import {
   errorText, useCreateProvider, useDeleteProvider, usePatchProvider, useSetDefaultProvider,
   type AgentProvider, type ProviderCheck,
 } from '../../../core/data'
-import { Button, cls, ConfirmDialog, Drawer, Field, Input, Tag } from '../../../core/ui'
+import { Button, cls, ConfirmDialog, Drawer, Field, Input, Select, Tag } from '../../../core/ui'
 import { CAP_LABEL, keyOptional, type FieldKey, type ProviderKindDef } from './catalog'
-import { createBody, initialForm, missingFields, modelList, patchBody, statusOf, type ProviderForm } from './model'
+import { createBody, fallbackOptions, initialForm, missingFields, modelList, patchBody, statusOf, type ProviderForm } from './model'
 import { ProviderLogo } from './ProviderLogo'
 
 const SOURCE_HINT = {
@@ -19,10 +19,12 @@ const SOURCE_HINT = {
   catalog: '内置目录，测通后换成服务商实际返回的列表',
 }
 
-export function ProviderDrawer({ def, provider, check, testing, testError, onTest, onCreated, onClose }: {
+export function ProviderDrawer({ def, provider, providers = [], check, testing, testError, onTest, onCreated, onClose }: {
   def: ProviderKindDef
   /** 没有就是新建 */
   provider?: AgentProvider
+  /** 已接入的全部服务商，「失败时改用」从里面挑 */
+  providers?: AgentProvider[]
   check?: ProviderCheck
   testing: boolean
   /** 测试请求本身失败（不是 ok=false） */
@@ -232,6 +234,11 @@ export function ProviderDrawer({ def, provider, check, testing, testError, onTes
             </>
           ) : <span className="pv-muted">在上面「模型 ID」里填了之后这里会列出来</span>}
         </div>
+
+        <Field label={<>失败时改用<span className="pv-field-hint">它连不上、返回 5xx 被暂停调用（熔断）时，改用这个服务商和它的默认模型</span></>}>
+          <Select aria-label="失败时改用" value={form.fallback} options={fallbackOptions(providers, provider?.id, form.fallback)}
+            onValueChange={(v) => setForm({ ...form, fallback: v })} />
+        </Field>
 
         <label className="pv-switch-row">
           <span><span className="field-label">启用</span><span className="pv-muted">停用后它下面的模型都不能用，配置保留</span></span>

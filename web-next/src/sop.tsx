@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { PageTitle } from './topbar'
 import {
-  GOVERNANCE_MAX, MODEL_CONCURRENCY_MAX, RERUN_MAX, RUN_STATUS, SOPS, depsOf, isHeld, flowChanged, sourceText, focusIndex, isFinished, isManualDecide, isModelKind, isQueued, needsMe, ranks,
+  GOVERNANCE_MAX, MODEL_CONCURRENCY_MAX, RERUN_MAX, RUN_STATUS, SOPS, depsOf, isHeld, flowChanged, sourceText, focusIndex, isFinished, isClaudeKind, isManualDecide, isModelKind, isProviderWait, isQueued, needsMe, ranks,
   RERUN_REASON_RELAUNCHED, runShow, runStatus, stepLook,
   type Governance, type Json, type RerunAction, type RerunResult, type RunAction, type RunStep, type Sop, type SopRun,
 } from './sopflow'
@@ -631,7 +631,7 @@ export function FlowGraph({ sop, run, selected, onSelect }: {
               <span className="fnode-name ellipsis">{def.name}</span>
               {rs ? (
                 <span className={cls('fnode-st', `fst-${rs.status}`, isQueued(rs) && 'fst-queued')}>
-                  {rs.status === 'running' && !isQueued(rs) && <span className="spinner spinner-xs" />}
+                  {rs.status === 'running' && !isQueued(rs) && !isProviderWait(rs) && <span className="spinner spinner-xs" />}
                   {route ? `走「${route}」` : stepLook(rs).label}
                 </span>
               ) : (
@@ -828,6 +828,12 @@ function Inspector({ run, index, onAct, onOpenSettings }: { run: SopRun; index: 
           )}
         </div>
       )}
+      {isProviderWait(step) && (
+        <div className="insp-banner warn">
+          <div><b>等服务商恢复</b>服务商「{step.provider_wait!.provider}」不可用（{step.provider_wait!.reason}），这一步已挂起，
+            {new Date(step.provider_wait!.retry_at).toLocaleTimeString('zh-CN', { hour12: false })} 自动重跑，服务商恢复后会接着跑这条执行，不新建执行。最多等到执行发起后 24 小时，过了才标失败。</div>
+        </div>
+      )}
       {isQueued(step) && (
         <div className="insp-banner muted">
           {step.queue!.slot === 'claude_code' ? <>
@@ -839,7 +845,7 @@ function Inspector({ run, index, onAct, onOpenSettings }: { run: SopRun; index: 
           </>}
         </div>
       )}
-      {step.status === 'running' && !isQueued(step) && (
+      {step.status === 'running' && !isQueued(step) && !isProviderWait(step) && (
         <div className="insp-banner info">
           <span className="spinner" />正在执行{def.kind === 'ai' ? '，AI 生成中' : ''}…
           <div className="run-bar"><span style={{ width: `${Math.min(100, ((Date.now() - (step.started_at ?? Date.now())) / def.ms) * 100)}%` }} /></div>
@@ -985,7 +991,7 @@ export function SopSettingsPage({ value, runs, onSave, gov, onSaveGov }: {
     if (r.stopped) continue
     r.steps.forEach((s, i) => {
       if (s.status !== 'running') return
-      if (r.sop.steps[i].kind === 'claude_code') {
+      if (isClaudeKind(r.sop.steps[i].kind)) {
         if (s.queue) cQueued++
         else if (s.cgated) cRunning++
         return

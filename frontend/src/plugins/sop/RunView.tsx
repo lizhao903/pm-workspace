@@ -2,11 +2,11 @@
 // 状态变化靠事件流刷新（插件入口订阅 sop.* 事件报 sop-run）；动作的响应先写回缓存。没手动点过步骤时检查器跟着 focusIndex 走。
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router'
-import { errorText, isSopHeld, sopRunShow, type SopJson, type SopRun, type SopRunAction, type SopStepDef } from '../../core/data'
+import { errorText, isSopHeld, isSopProviderWait, sopRunShow, type SopJson, type SopRun, type SopRunAction, type SopStepDef } from '../../core/data'
 import { Button, Checkbox, PageTitle, Pill, cls } from '../../core/ui'
 import { FlowGraph } from './FlowGraph'
 import {
-  EDITED_LABEL, SOP_SETTINGS_PATH, clock, defaultTab, depsOf, dur, focusIndex, isEnded, isManualDecide, isQueued, needsMe, parseJsonObject, runDur,
+  EDITED_LABEL, PROVIDERS_SETTINGS_PATH, SOP_SETTINGS_PATH, clock, defaultTab, depsOf, dur, focusIndex, isEnded, isManualDecide, isQueued, needsMe, parseJsonObject, runDur,
   runLook, runStepLook, timeAgo, upstreamOf, type Tab,
 } from './model'
 import { IconBack, KindTag } from './parts'
@@ -118,6 +118,17 @@ function Inspector({ run, index, onAct, busy, now, branching }: {
         </div>
       )}
       {step.status === 'bypassed' && <div className="sop-banner muted">这一步所在的分支没被选中，没有执行，也没有输入输出。</div>}
+      {!run.stopped && isSopProviderWait(step) && (
+        <div className="sop-banner warn" role="status">
+          <div>
+            <b>等服务商恢复</b>服务商「{step.provider_wait!.provider}」不可用（{step.provider_wait!.reason}），这一步已挂起，
+            {clock(step.provider_wait!.retry_at)} 自动重跑，服务商恢复后会接着跑这条执行，不新建执行。最多等到执行发起后 24 小时，过了才标失败。
+          </div>
+          <div className="sop-act-row">
+            <Button size="sm" onClick={() => { void navigate(PROVIDERS_SETTINGS_PATH) }}>检查服务商</Button>
+          </div>
+        </div>
+      )}
       {!run.stopped && isSopHeld(step) && (
         <div className="sop-banner danger">
           <div><b>超出上限，已暂停</b>{step.hold!.reason}。放行只放这一次，之后的执行照样按上限拦；要长期放宽到设置里调高上限。</div>

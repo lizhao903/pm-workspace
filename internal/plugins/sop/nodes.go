@@ -30,6 +30,8 @@ type nodeResult struct {
 	log    string
 	// waiting 非空表示插件节点挂起等唤醒，是挂起的原因（SOP-03a）
 	waiting string
+	// outage 是这一步失败是因为模型服务商不可用（TSK-0392，provider_wait.go）
+	outage *providerOutage
 }
 
 // runNode 执行能当场算出结果、不用内核句柄的节点。wait、subflow 不走这里，AI 类和外部节点先过 execNode。

@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react'
 import { seedAgents } from './agentdata'
 import { seedModels, seedProviders } from './modeldata'
-import { CONTENT_CATEGORIES, seedContent } from './data'
+import { CONTENT_CATEGORIES, seedContacts, seedContent } from './data'
 import { seedProjects } from './projectdata'
 import { runPresetsNow } from './runpresets'
 
@@ -19,7 +19,7 @@ export type StepKind =
   | 'auto' | 'ai' | 'review' | 'decide'
   | 'knowledge' | 'extract' | 'template' | 'aggregate' | 'code'
   | 'classifier' | 'iterate' | 'wait' | 'loopback'
-  | 'http' | 'notify' | 'task' | 'local_append' | 'agent' | 'subflow' | 'claude_code'
+  | 'http' | 'notify' | 'task' | 'local_append' | 'agent' | 'subflow' | 'claude_code' | 'task_run' | 'task_update'
   | 'end'
 
 type Json = Record<string, unknown>
@@ -399,6 +399,55 @@ export const NODE_TYPES: NodeType[] = [
       }
     },
     summary: (c) => [runPresetsNow().find((p) => p.id === c.preset)?.scene, c.workdir].filter(Boolean).join(' · '),
+  },
+  {
+    kind: 'task_run', label: '执行任务', group: '外部', desc: '把一条任务交给本机 Claude Code 去做：工作目录按任务、所属项目继承，等它做完', color: '#b0570b', ms: 3000,
+    icon: <>{P('M3 4.5 6 8l-3 3.5M8.5 4.5h5M8.5 8h5M8.5 11.5h3')}</>,
+    fields: [
+      { key: 'task', label: '任务', type: 'text', placeholder: '{{task.id}}', hint: '任务 id 或编号，支持 {{字段}}；留空取输入的 task.id' },
+      { key: 'prompt', label: '附加要求', type: 'textarea', placeholder: '先跑一遍测试再动手', hint: '拼在任务说明后面；任务正文和验收标准 Claude Code 会自己读' },
+      { key: 'preset', label: '角色', type: 'select', default: '', hint: '执行要求和输出要求拼进提示词；执行任务一律可写',
+        options: () => [{ value: '', label: '不选角色' }, ...runPresetsNow().map((p) => ({ value: p.id, label: p.scene }))] },
+      { key: 'timeout', label: '超时', type: 'text', default: '2 小时', placeholder: '2 小时', hint: '到点取消这次执行，最多 24 小时' },
+      { key: 'on_fail', label: '失败时', type: 'select', default: '',
+        options: () => [{ value: '', label: '这一步失败（停下）' }, { value: 'continue', label: '继续往下走，输出 status=failed 和原因' }] },
+    ],
+    fail: (c, input) => {
+      if (claudeTimeout(c.timeout) === null) return `超时「${c.timeout}」写法不对`
+      const id = render(c.task || '{{task.id}}', input).trim()
+      if (!id && c.on_fail !== 'continue') return '没有指定任务：配置里填任务 id，或者输入里要有 task.id'
+      return null
+    },
+    run: (c, input) => {
+      const id = render(c.task || '{{task.id}}', input).trim()
+      if (!id) return { ...input, status: 'failed', error: '没有指定任务（原型模拟）', summary: '' }
+      return { ...input, status: 'done', run_id: `run_${Math.random().toString(36).slice(2, 10)}`, summary: '按任务做完了，验收标准逐条自查通过（原型模拟）', result: null }
+    },
+    summary: (c) => [c.task || '{{task.id}}', c.on_fail === 'continue' ? '失败继续' : ''].filter(Boolean).join(' · '),
+  },
+  {
+    kind: 'task_update', label: '更新任务', group: '外部', desc: '改已有任务的负责人、状态；都不填只读取任务（含继承后的工作目录）', color: '#e8590c', ms: 400,
+    icon: <><rect x="2.5" y="2.5" width="11" height="11" rx="2.4" fill="none" stroke="currentColor" strokeWidth="1.4" />{P('M5.5 10.5 10 6M9 5h2v2')}</>,
+    fields: [
+      { key: 'task', label: '任务', type: 'text', placeholder: '{{task.id}}', hint: '任务 id 或编号，支持 {{字段}}；留空取输入的 task.id，再取 task_id' },
+      { key: 'assignee', label: '负责人', type: 'text', placeholder: '{{answer.assignee}}', hint: '联系人 id 或名字；名册里没有时不改，输出 assign_ok=no' },
+      { key: 'status', label: '状态', type: 'select', default: '',
+        options: () => [{ value: '', label: '不改' }, ...[['todo', '未开工'], ['doing', '进行中'], ['review', '待验收'], ['blocked', '受阻'], ['done', '已完成'], ['cancelled', '已取消']].map(([value, label]) => ({ value, label }))] },
+    ],
+    run: (c, input) => {
+      const prev = (input.task ?? {}) as Json
+      const who = render(c.assignee ?? '', input).trim()
+      const hit = who ? seedContacts.find((x) => x.name === who || x.id === who) : undefined
+      return {
+        ...input,
+        task: {
+          ...prev, status: c.status || prev.status || 'todo', workdir: prev.workdir ?? '/Users/me/projects/demo',
+          assignee: hit?.name ?? prev.assignee ?? '', assign_ok: c.assignee ? (hit ? 'yes' : 'no') : '',
+          assign_note: c.assignee && !hit ? `没找到「${who}」，任务留着没分配` : '',
+        },
+      }
+    },
+    summary: (c) => [c.assignee ? `负责人 ${c.assignee}` : '', c.status ? `状态 ${c.status}` : ''].filter(Boolean).join(' · ') || '只读取',
   },
   {
     kind: 'end', label: '结束', group: '输出', desc: '流程到这里结束，挑出要留下的结果', color: '#2f7d43', ms: 200,
