@@ -2,10 +2,15 @@
 // 以后要单独装时再拆。标的（instruments.go）、自选分组（watchlists.go）、行情源适配接口（source.go），
 // Binance、OKX 公开行情（binance.go、okx.go，TRD-01b、TRD-01c），行情缓存和推送（market.go、klines.go、stream.go，TRD-02a），
 // 盯盘提醒（alerts.go、alerts_api.go，TRD-03a），策略和回测（strategies.go、backtests.go，TRD-04b），
-// 模拟盘账户、委托、撮合（accounts.go、ledger.go、paper.go，TRD-05a），策略部署（runs.go，TRD-05b），风控（risk.go，TRD-06a）。
+// 模拟盘账户、委托、撮合（accounts.go、ledger.go、paper.go，TRD-05a），策略部署（runs.go，TRD-05b），风控（risk.go，TRD-06a），
+// 交易所账户只读接入（exchange*.go、live.go，TRD-07a），交易审计和停用前全停（audit.go，TRD-08a），对账和自动熔断（recon.go，TRD-08b），
+// 实盘评审闸门和实盘开关（livegate.go，TRD-08c）。
 //
-// 涉及资金的边界：只做行情、回测、模拟盘；不写任何向交易所下单、撤单、划转、提币的代码路径，
-// 权限只有 network:market-data，不声明 network:exchanges 和 trade:live。模拟盘的委托只在本地撮合，下单入口只接受模拟盘账户。
+// 涉及资金的边界：只做行情、回测、模拟盘，交易所账户只读同步；不写任何向交易所下单、撤单、划转、提币的代码路径。
+// 权限 network:market-data（公开行情）、network:exchanges（只用于交易所账户的只读接口，出网客户端外面再包一层只读检查），
+// 0.6.0 起声明 trade:live，但它是单独申请的权限：安装、升级都不授予，要用户本人在交易设置里过评审后申请（TRD-08c）。
+// 本批次没有实盘下单：就算 trade:live 授予了、实盘开关开着，下单入口对实盘账户照样 403（要等 TRD-08d）。
+// 模拟盘的委托只在本地撮合；实盘账户 paper 恒为假。
 // 接口契约见 docs/api-contract.md「交易套件插件 trade」。
 package trade
 
@@ -20,6 +25,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/lizhao903/pm-workspace/internal/connector"
@@ -41,12 +47,20 @@ type Plugin struct {
 	bt      *btRunner // 回测调度（TRD-04b，backtests.go）
 	paper   *paper    // 模拟盘账本、下单入口、撮合、风控（TRD-05a、TRD-06a，paper.go、risk.go）
 	runs    *runner   // 策略部署（TRD-05b，runs.go）
+	live    *liveSync // 交易所账户只读同步、对账（TRD-07a、TRD-08b，live.go、recon.go）
+
+	exchanges []exchangeAccount // 交易所账户适配器（只读）
 
 	// 测试用：时钟、刷新和推送间隔、出网函数（换成假交易所），零值用默认
-	now  func() time.Time
-	tick time.Duration
-	push time.Duration
-	doer HTTPDoer
+	now    func() time.Time
+	tick   time.Duration
+	push   time.Duration
+	doer   HTTPDoer
+	exDoer HTTPDoer // 交易所账户用的出网客户端，测试换成假交易所；零值走 Core.HTTP("exchanges")
+
+	liveMu sync.Mutex // 实盘评审、开关的读改写串行（TRD-08c，livegate.go）
+	// paperRecord 是评审「模拟盘两周记录」的条件；TRD-05d 的每日运行检查还没做，零值时这一项一律不满足，只给测试换
+	paperRecord func(ctx context.Context) (ok bool, text string)
 }
 
 // DefaultSources 是编进二进制的行情源：Binance、OKX 公开行情。
@@ -71,7 +85,7 @@ func New(sources ...Source) *Plugin {
 		}
 		seen[s.ID()] = true
 	}
-	return &Plugin{m: plugin.MustParse(manifestJSON), sources: sources}
+	return &Plugin{m: plugin.MustParse(manifestJSON), sources: sources, exchanges: []exchangeAccount{newBinanceAccount(), newOKXAccount()}}
 }
 
 func (p *Plugin) Manifest() plugin.Manifest { return p.m }
@@ -114,6 +128,12 @@ func (p *Plugin) Register(r plugin.Registrar) error {
 			})
 		}
 	}
+	// 交易所账户（只读）：每家一个令牌认证的连接器，凭证进保险箱
+	p.live = newLiveSync(p, core)
+	for _, x := range p.exchanges {
+		r.Connector(p.live.connectorDef(x))
+	}
+	r.ConnectorImpact(plugin.ConnectorImpactDef{Key: "accounts", Load: liveAccountsImpact})
 	p.mkt = newMarket(p, core)
 	p.alerts = newAlerter(p, core)
 	p.bt = newBtRunner(p, core)
@@ -156,6 +176,16 @@ func (p *Plugin) Register(r plugin.Registrar) error {
 		m.HandleFunc("PATCH /api/trade/accounts/{id}", h.updateAccount)
 		m.HandleFunc("DELETE /api/trade/accounts/{id}", h.removeAccount)
 		m.HandleFunc("GET /api/trade/accounts/{id}/reconcile", h.reconcileAccount)
+		// 交易所账户只读同步、对账（TRD-07a、TRD-08b，live.go、recon.go）
+		m.HandleFunc("POST /api/trade/accounts/{id}/sync", h.syncLiveAccount)
+		m.HandleFunc("POST /api/trade/accounts/{id}/connect", h.connectLiveAccount)
+		m.HandleFunc("POST /api/trade/accounts/{id}/disconnect", h.disconnectLiveAccount)
+		m.HandleFunc("GET /api/trade/accounts/{id}/snapshot", h.liveSnapshot)
+		m.HandleFunc("GET /api/trade/accounts/{id}/fills", h.liveFills)
+		m.HandleFunc("GET /api/trade/accounts/{id}/recon", h.getRecon)
+		m.HandleFunc("POST /api/trade/accounts/{id}/recon", h.recheckRecon)
+		m.HandleFunc("POST /api/trade/accounts/{id}/recon/items/{item}/resolve", h.resolveRecon)
+		m.HandleFunc("GET /api/trade/recons", h.listRecons)
 		m.HandleFunc("GET /api/trade/orders", h.listOrders)
 		m.HandleFunc("POST /api/trade/orders", h.addOrder)
 		m.HandleFunc("POST /api/trade/orders/cancel-all", h.cancelAllOrders)
@@ -178,11 +208,19 @@ func (p *Plugin) Register(r plugin.Registrar) error {
 		m.HandleFunc("POST /api/trade/risk/kill", h.killAll)
 		m.HandleFunc("POST /api/trade/risk/release", h.releaseHalt)
 		m.HandleFunc("GET /api/trade/risk/halts", h.listHalts)
+		// 交易审计（TRD-08a，audit.go）
+		m.HandleFunc("GET /api/trade/audit", h.listAudit)
+		// 实盘评审闸门和实盘开关（TRD-08c，livegate.go）
+		m.HandleFunc("GET /api/trade/live", h.getLive)
+		m.HandleFunc("POST /api/trade/live/checks/{key}/confirm", h.confirmLiveCheck)
+		m.HandleFunc("POST /api/trade/live/checks/{key}/revoke", h.revokeLiveCheck)
+		m.HandleFunc("POST /api/trade/live/switch", h.setLiveSwitch)
 	})
 	r.Job(plugin.Job{Name: "trade_backtests", Run: func(ctx context.Context, _ plugin.Core) error { return p.bt.run(ctx) }})
 	r.Job(plugin.Job{Name: "trade_alerts", Every: alertEvery, Run: func(ctx context.Context, _ plugin.Core) error { return p.alerts.check(ctx) }})
 	r.Job(plugin.Job{Name: "trade_paper", Run: func(ctx context.Context, _ plugin.Core) error { return p.paper.run(ctx) }})
 	r.Job(plugin.Job{Name: "trade_runs", Run: func(ctx context.Context, _ plugin.Core) error { return p.runs.run(ctx) }})
+	r.Job(plugin.Job{Name: "trade_live", Every: liveEvery, Run: func(ctx context.Context, _ plugin.Core) error { return p.live.runAll(ctx) }})
 	if len(p.sources) > 0 {
 		// 行情刷新常驻；标的表一天同步一次（启用时先跑一次）
 		r.Job(plugin.Job{Name: "trade_market", Run: func(ctx context.Context, _ plugin.Core) error { return p.mkt.run(ctx) }})
@@ -247,6 +285,10 @@ func (h *handlers) fail(w http.ResponseWriter, r *http.Request, err error) {
 		status, code = http.StatusNotFound, "not_found"
 	case errors.Is(err, errValidation):
 		status, code = http.StatusBadRequest, "validation"
+	case errors.Is(err, errLive):
+		_, msg, _ = strings.Cut(msg, ": ")
+		writeJSON(w, http.StatusForbidden, map[string]any{"error": map[string]any{"code": "forbidden", "reason": "live", "message": msg}})
+		return
 	default:
 		h.c.Log().Error("request failed", "method", r.Method, "path", r.URL.Path, "err", err)
 		msg = "internal server error"

@@ -1,7 +1,7 @@
 // 交易页的纯函数：状态文案、金额格式、下单前的预检查提示。
 // 交互照原型 web-next/src/trading.tsx；撮合、估值、风控只在后端做，这里的预检查只做提示，不拦提交（SPEC-trading-0.12）。
 import type {
-  TradeAccount, TradeInstrument, TradeOrderSide, TradeOrderSource, TradeOrderStatus, TradeOrderType, TradePosition, TradeRiskRules, TradeRunStatus,
+  TradeAccount, TradeInstrument, TradeOrderSide, TradeReconBrief, TradeOrderSource, TradeOrderStatus, TradeOrderType, TradePosition, TradeRiskRules, TradeRunStatus,
 } from '../../core/data'
 import { DOWN, MARKETS, UP } from './model'
 
@@ -47,9 +47,12 @@ export function fmtTime(iso?: string) {
 }
 export const isContract = (i?: Pick<TradeInstrument, 'kind'>) => !!i && i.kind !== 'spot'
 
+/** 实盘账户的交易入口一律不可用（TRD-07b、TRD-08c）：实盘下单要先过评审、打开实盘开关，并等实盘下单上线（TRD-08d） */
+export const LIVE_BLOCK = '实盘账户：要先过实盘评审（交易设置），实盘下单还没上线，现在只读同步'
+
 /** 账户能不能下这个标的：不能的返回原因 */
 export function acctBlock(a: TradeAccount, i: Pick<TradeInstrument, 'market'> | undefined): string | undefined {
-  if (!a.paper) return '不是模拟盘账户'
+  if (!a.paper) return LIVE_BLOCK
   if (i && !a.markets.includes(i.market)) return `不支持${MARKETS[i.market].label}`
   if (i && !LIVE_MARKETS.includes(i.market)) return `${MARKETS[i.market].label}${NO_SOURCE}`
   if (!a.permissions.includes('trade')) return '只读权限，不能下单'
@@ -89,4 +92,24 @@ export function riskHints(o: {
 export function runDuration(from: string, to?: string, now = Date.now()) {
   const d = ((to ? Date.parse(to) : now) - Date.parse(from)) / 86400000
   return d >= 1 ? `${Math.floor(d)} 天` : `${Math.max(1, Math.round(d * 24))} 小时`
+}
+
+/** 「3 分钟前」：卡片上的同步时间、对账时间 */
+export function ago(iso?: string, now = Date.now()) {
+  if (!iso) return ''
+  const t = Date.parse(iso)
+  if (Number.isNaN(t)) return ''
+  const s = Math.max(0, (now - t) / 1000)
+  if (s < 60) return '刚刚'
+  if (s < 3600) return `${Math.floor(s / 60)} 分钟前`
+  if (s < 86400) return `${Math.floor(s / 3600)} 小时前`
+  return `${Math.floor(s / 86400)} 天前`
+}
+
+/** 账户卡片、对账抽屉的对账结果文字 */
+export function reconText(rc?: TradeReconBrief): { text: string; bad: boolean } {
+  if (!rc || rc.status === 'none') return { text: '还没对过账', bad: true }
+  if (rc.status === 'failed') return { text: '对账失败', bad: true }
+  if (rc.open > 0) return { text: `${rc.open} 处差异`, bad: true }
+  return { text: '一致', bad: false }
 }

@@ -28,6 +28,8 @@ export type PluginInfo = {
   permissions: string[]
   /** 用户确认过的权限，卸载后保留 */
   permissions_confirmed: string[]
+  /** 清单里声明的、要单独申请的权限（如 trade:live）：安装、升级都不授予，在插件自己的设置里申请（TRD-08c）；老后端没有 */
+  permissions_separate?: string[]
   permissions_at: string | null
   pending_migrations: number
   jobs: number
@@ -50,6 +52,10 @@ export const pluginsApi = {
   /** 删数据时 confirm 必须等于插件 id */
   uninstall: (id: string, opts: { deleteData: boolean }) =>
     request<PluginUninstallResult>('POST', path(id, 'uninstall'), { body: { delete_data: opts.deleteData, confirm: opts.deleteData ? id : '' } }),
+  /** 单独申请的权限（TRD-08c）：只接受用户本人在界面上申请，confirm 要等于插件名；插件不同意时 403 */
+  grantPermission: (id: string, permission: string, confirm: string) =>
+    request<PluginInfo>('POST', path(id, 'permissions/grant'), { body: { permission, confirm } }),
+  revokePermission: (id: string, permission: string) => request<PluginInfo>('POST', path(id, 'permissions/revoke'), { body: { permission } }),
 }
 
 /** 二进制里的全部插件（已装和可装），按后端登记顺序 */
@@ -78,10 +84,16 @@ export function enabledDependents(id: string, list: readonly PluginInfo[]): Plug
   return out
 }
 
-/** 升级新增的权限：新版本清单里有、还没确认过的（docs/plugin-api.md 4.5） */
+/** 安装、升级时要确认的权限：清单里的去掉单独申请的（docs/plugin-api.md 3.2） */
+export function installPermissions(p: PluginInfo): string[] {
+  const sep = new Set(p.permissions_separate ?? [])
+  return (p.permissions ?? []).filter((x) => !sep.has(x))
+}
+
+/** 升级新增的权限：新版本清单里有、还没确认过的（docs/plugin-api.md 4.5）；单独申请的不算 */
 export function newPermissions(p: PluginInfo): string[] {
   const done = new Set(p.permissions_confirmed ?? [])
-  return (p.permissions ?? []).filter((x) => !done.has(x))
+  return installPermissions(p).filter((x) => !done.has(x))
 }
 
 /** 卸载前要先卸掉的插件：已安装（不论是否启用）、强依赖它的 */

@@ -30,6 +30,7 @@ export function PluginDrawer({ plugin, list, actions, onClose }: {
   const deps = Object.entries(plugin.depends ?? {})
   const optional = Object.entries(plugin.optional_depends ?? {})
   const groups = providedGroups(plugin)
+  const separate = new Set(plugin.permissions_separate ?? [])
   const depState = (id: string) => {
     const p = list.find((x) => x.id === id)
     if (!p) return '二进制里没有'
@@ -79,8 +80,12 @@ export function PluginDrawer({ plugin, list, actions, onClose }: {
             return (
               <Row key={p} label={RISK_LABEL[info.risk]}>
                 {info.text} <code className="plg-code">{p}</code>
-                {plugin.permissions_confirmed.includes(p) && <span className="plg-muted">已确认</span>}
-                {plugin.installed && !plugin.permissions_confirmed.includes(p) && <span className="plg-risk">还没确认，升级时确认</span>}
+                {plugin.permissions_confirmed.includes(p) && <span className="plg-muted">{separate.has(p) ? '已单独授予' : '已确认'}</span>}
+                {plugin.installed && !plugin.permissions_confirmed.includes(p) && (
+                  separate.has(p)
+                    ? <span className="plg-muted">安装、升级时不授予，在插件自己的设置里单独申请</span>
+                    : <span className="plg-risk">还没确认，升级时确认</span>
+                )}
               </Row>
             )
           })}

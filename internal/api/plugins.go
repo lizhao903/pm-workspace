@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/lizhao903/pm-workspace/internal/plugin"
@@ -20,6 +21,8 @@ func (s *Server) pluginRoutes(m routeRegistrar) {
 	m.HandleFunc("POST /api/plugins/{id}/disable", s.handleDisablePlugin)
 	m.HandleFunc("POST /api/plugins/{id}/uninstall", s.handleUninstallPlugin)
 	m.HandleFunc("POST /api/plugins/{id}/upgrade", s.handleUpgradePlugin)
+	m.HandleFunc("POST /api/plugins/{id}/permissions/grant", s.handleGrantPermission)
+	m.HandleFunc("POST /api/plugins/{id}/permissions/revoke", s.handleRevokePermission)
 
 	if s.opt.Plugins == nil {
 		return
@@ -49,10 +52,12 @@ type pluginView struct {
 	Dependents           []string          `json:"dependents"`
 	Permissions          []string          `json:"permissions"`
 	PermissionsConfirmed []string          `json:"permissions_confirmed"`
-	PermissionsAt        *time.Time        `json:"permissions_at"`
-	PendingMigrations    int               `json:"pending_migrations"`
-	Jobs                 int               `json:"jobs"`
-	Provides             plugin.Provides   `json:"provides"`
+	// PermissionsSeparate 是清单里声明的、要单独申请的权限（如 trade:live）：安装、升级都不授予，也不用确认
+	PermissionsSeparate []string        `json:"permissions_separate"`
+	PermissionsAt       *time.Time      `json:"permissions_at"`
+	PendingMigrations   int             `json:"pending_migrations"`
+	Jobs                int             `json:"jobs"`
+	Provides            plugin.Provides `json:"provides"`
 }
 
 func (s *Server) pluginView(ctx context.Context, in plugin.Info) (pluginView, error) {
@@ -63,7 +68,7 @@ func (s *Server) pluginView(ctx context.Context, in plugin.Info) (pluginView, er
 		InstalledVersion: st.Version, Upgradable: st.Installed && st.Version != "" && st.Version != m.Version,
 		InstalledAt: st.InstalledAt, Depends: orEmpty(m.Depends), OptionalDepends: orEmpty(m.OptionalDepends),
 		Dependents: in.Dependents, Permissions: m.Permissions, PermissionsConfirmed: st.Permissions,
-		PermissionsAt: st.PermissionsAt, Jobs: in.Jobs, Provides: m.Provides,
+		PermissionsAt: st.PermissionsAt, Jobs: in.Jobs, Provides: m.Provides, PermissionsSeparate: in.SeparateDeclared(),
 	}
 	if v.Dependents == nil {
 		v.Dependents = []string{}
@@ -336,12 +341,15 @@ func (s *Server) pluginFail(w http.ResponseWriter, r *http.Request, err error) {
 	var ge *plugin.GuardError
 	var ve *plugin.ValidationError
 	var pe *plugin.UpgradePermissionsError
+	var gd *plugin.GrantDeniedError
 	status, code := 0, ""
 	switch {
 	case errors.Is(err, plugin.ErrNotFound):
 		status, code = http.StatusNotFound, "not_found"
-	case errors.Is(err, plugin.ErrUnconfirmed):
+	case errors.Is(err, plugin.ErrUnconfirmed), errors.Is(err, plugin.ErrNotSeparate):
 		status, code = http.StatusBadRequest, "validation"
+	case errors.Is(err, plugin.ErrNotUser), errors.As(err, &gd):
+		status, code = http.StatusForbidden, "forbidden"
 	case errors.As(err, &de), errors.As(err, &ge), errors.As(err, &ve), errors.As(err, &pe), errors.Is(err, plugin.ErrState):
 		status, code = http.StatusConflict, "conflict"
 	default:
@@ -357,4 +365,77 @@ func (s *Server) pluginFail(w http.ResponseWriter, r *http.Request, err error) {
 		b.Error.Permissions = pe.Missing
 	}
 	writeJSON(w, status, b)
+}
+
+/* ---------- 单独申请的权限（TRD-08c，docs/plugin-api.md 3.2） ---------- */
+
+type grantPermissionReq struct {
+	Permission string `json:"permission"`
+	// Confirm 是二次确认：必须等于插件名（清单的 name，如「交易套件」），去掉首尾空格后比
+	Confirm string `json:"confirm"`
+}
+
+// handleGrantPermission：单独授予清单里声明的、要单独申请的权限（现在只有 trade:live）。
+// 只接受用户本人在界面上的操作（X-Actor-Source: ui 且不带会话标识），Agent、脚本、接口代为申请一律 403 并记审计；
+// confirm 要等于插件名；插件的 PermissionGuard 不同意时 403，原因原样给（交易插件：实盘评审还没通过）。
+func (s *Server) handleGrantPermission(w http.ResponseWriter, r *http.Request) {
+	id, ok := s.pluginOr404(w, r)
+	if !ok {
+		return
+	}
+	var req grantPermissionReq
+	if err := decodeBody(r, &req); err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	perm := strings.TrimSpace(req.Permission)
+	if err := plugin.RequireUser(r.Context(), "申请 "+perm+" 权限"); err != nil {
+		s.auditConfig(r, "grant_denied", "plugin", id, "拒绝代为申请插件 "+id+" 的 "+perm+" 权限",
+			map[string]any{"permission": perm, "reason": err.Error()})
+		s.pluginFail(w, r, err)
+		return
+	}
+	in, err := s.opt.Plugins.Get(id)
+	if err != nil {
+		s.pluginFail(w, r, err)
+		return
+	}
+	if strings.TrimSpace(req.Confirm) != in.Manifest.Name {
+		s.fail(w, r, validationf("申请 %s 要二次确认：confirm 必须填插件名「%s」", perm, in.Manifest.Name))
+		return
+	}
+	if err := s.opt.Plugins.Grant(r.Context(), id, perm); err != nil {
+		var gd *plugin.GrantDeniedError
+		if errors.As(err, &gd) {
+			s.auditConfig(r, "grant_denied", "plugin", id, "插件 "+id+" 不同意授予 "+perm, map[string]any{"permission": perm, "reason": gd.Reason})
+		}
+		s.pluginFail(w, r, err)
+		return
+	}
+	s.auditConfig(r, "grant_permission", "plugin", id, "授予插件 "+id+" 的 "+perm+" 权限", map[string]any{"permission": perm})
+	s.respondPlugin(w, r, id, nil)
+}
+
+type revokePermissionReq struct {
+	Permission string `json:"permission"`
+}
+
+// handleRevokePermission：收回单独授予的权限。收回只会让权限变少，谁调都行，不用确认；没授予时照样 200。
+func (s *Server) handleRevokePermission(w http.ResponseWriter, r *http.Request) {
+	id, ok := s.pluginOr404(w, r)
+	if !ok {
+		return
+	}
+	var req revokePermissionReq
+	if err := decodeBody(r, &req); err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	perm := strings.TrimSpace(req.Permission)
+	if err := s.opt.Plugins.Revoke(r.Context(), id, perm); err != nil {
+		s.pluginFail(w, r, err)
+		return
+	}
+	s.auditConfig(r, "revoke_permission", "plugin", id, "收回插件 "+id+" 的 "+perm+" 权限", map[string]any{"permission": perm})
+	s.respondPlugin(w, r, id, nil)
 }

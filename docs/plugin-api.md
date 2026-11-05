@@ -245,6 +245,7 @@ type Core interface {
 	WorktreeDir() string                     // 数据目录下 worktrees/ 的绝对路径，没接数据目录为空串；项目插件在这里建需求工作区（AUTO-07）
 	Agent() AgentService                     // 用默认服务商补全、按 Agent 的授权跑一轮、搜指定知识库（SOP-01c）
 	Granted(perm string) bool                // 用户确认过这项权限没有（SEC-01，2.13.16）
+	RevokePermission(ctx context.Context, perm string) error // 收回自己单独授予的权限（如 trade:live），只能收回不能授予（TRD-08c，2.13.26）
 	SOP() SOPService                         // SOP 节点、唤醒和失败、内置流程、指向流程的定时任务（2.7、2.13.14、2.13.15）
 	Audit() AuditLog                         // 插件替用户做的对外动作记一条（SOP-02b，2.13.12）
 	Notify(ctx context.Context, n Notification) error // 以本插件的名义发通知（VID-06b，2.13.11）
@@ -1725,6 +1726,35 @@ api.terminalLauncher.register({
 })
 ```
 
+#### 2.13.26 单独申请的权限和「只接受用户本人」（TRD-08c）
+
+```go
+// internal/plugin/separate.go
+var SeparatePermissions = []string{"trade:live"}
+func IsSeparate(perm string) bool
+func (in Info) SeparateDeclared() []string               // 清单里声明了的单独申请的权限
+type PermissionGuard interface {                         // 插件可选实现
+	CanGrant(ctx context.Context, c Core, perm string) (ok bool, reason string)
+}
+type GrantDeniedError struct{ ID, Perm, Reason string }
+var ErrNotSeparate = errors.New("permission is not separately granted")
+func (r *Registry) Grant(ctx context.Context, id, perm string) error
+func (r *Registry) Revoke(ctx context.Context, id, perm string) error
+// Core 的方法：收回自己单独授予的权限
+RevokePermission(ctx context.Context, perm string) error
+
+type RequestActor struct{ Name, Session, Source string }
+func ActorOf(ctx context.Context) RequestActor            // 这次请求的操作者（api 层按取证头解析后放进 ctx）
+func (a RequestActor) IsUser() bool                       // Source == "ui" && Session == ""
+var ErrNotUser = errors.New("only the user can do this")
+type NotUserError struct{ What string; Actor RequestActor }
+func RequireUser(ctx context.Context, what string) error
+```
+
+- 单独申请的权限：清单 `permissions` 里可以声明；`Install` 只授予去掉它们的那些（`confirmed` 里带上了也不授予），`NewPermissions`、`CheckUpgrade` 不把它们算新增、不要求确认；`Upgrade` 写新权限集时保留已经单独授予、新清单仍声明的。`Grant` 要插件已安装、在跑、清单声明了这项、是单独申请的；插件实现 `PermissionGuard` 时先问它（持有注册表的锁，`CanGrant` 里只能读自己的表，不能调注册表的方法）。`Revoke` 随时可以。卸载后重装从头来（不保留单独授予的）。
+- 谁能调：接口层 `POST /api/plugins/{id}/permissions/grant` 只接受用户本人；`Core.RevokePermission` 给插件在自己的接口里收回（交易插件撤回评审时），不能在持有注册表锁的回调里调。
+- 「只接受用户本人」：内核区分用户和代理只有一种办法——请求的取证头 `X-Actor-Source`（前端的写请求一律 `ui`、不带会话标识；pmw-mcp 一律 `agent` 并带 `X-Actor-Session`；没带头的是 `api`）。`RequireUser` 要求 `ui` 且不带会话标识，插件接口里调它（交易插件的评审确认、实盘开关）。这只是请求自己声明的来源，不是认证：本机能发 HTTP 的进程（Claude Code 的 shell、SOP 的 HTTP 节点）伪造 `X-Actor-Source: ui` 就能过，要真正挡住得有用户会话或令牌（待定事项）。
+
 ### 3.1 权限清单
 
 格式 `<类别>:<动作>[:<范围>]`。内核只认下表里的权限，未知权限 CORE-01b 校验报错。
@@ -1741,11 +1771,11 @@ api.terminalLauncher.register({
 | `network:im` | 访问 IM 平台（Slack、Telegram、飞书、企业微信的接口域名） | 普通 |
 | `network:media-platforms` | 访问视频平台 | 普通 |
 | `network:market-data` | 访问行情源 | 普通 |
-| `network:exchanges` | 访问交易所的交易接口 | 高 |
+| `network:exchanges` | 访问交易所的账户和交易接口（交易套件 0.5.0 起只用它只读同步交易所账户，见 3.3） | 高 |
 | `network:any` | 访问任意外网地址 | 高 |
 | `secrets:<scope>` | 取凭证保险箱里该范围的凭证，例 `secrets:im`、`secrets:media` | 普通 |
 | `process:spawn` | 起子进程（原型、终端） | 高 |
-| `trade:live` | 实盘下单 | 最高 |
+| `trade:live` | 实盘下单。单独申请的权限：清单里可以声明，安装、升级都不授予（3.2、2.13.26） | 最高 |
 
 `network:<group>` 的域名清单由内核维护（写在 `internal/plugin/network.go` 的 `NetworkHosts`，VID-04a），不由插件自己声明，避免插件给自己开口子。只认 http、https，端口不管；`*.example.com` 只配子域名。同一个域名上公开行情和交易接口混在一起时按路径前缀分组。
 
@@ -1755,7 +1785,7 @@ api.terminalLauncher.register({
 | `im` | `slack.com`、`*.slack.com`、`api.telegram.org`、`open.feishu.cn`、`open.larksuite.com`、`qyapi.weixin.qq.com` |
 | `media-platforms` | B 站 `bilibili.com`、`*.bilibili.com`、`*.hdslb.com`、`*.bilivideo.com`；YouTube `youtube.com`、`*.youtube.com`、`youtube.googleapis.com`、`*.googlevideo.com`、`*.ytimg.com`，`www.googleapis.com` 只放 `/youtube/`、`/upload/youtube/`；抖音 `douyin.com`、`*.douyin.com`、`*.douyinpic.com`、`*.douyinvod.com` |
 | `market-data` | Binance `data-api.binance.vision`、`data-stream.binance.vision`，`api.binance.com` 只放公开行情路径（`/api/v3/` 下的 ping、time、exchangeInfo、depth、trades、aggTrades、klines、uiKlines、avgPrice、ticker），U 本位永续 `fapi.binance.com` 只放公开行情路径（`/fapi/v1/` 下的 ping、time、exchangeInfo、depth、klines、premiumIndex、fundingRate、fundingInfo、ticker）；OKX `www.okx.com` 只放 `/api/v5/market/`、`/api/v5/public/`，`ws.okx.com` 只放 `/ws/v5/public`、`/ws/v5/business` |
-| `exchanges` | Binance `api.binance.com`、`api1` 到 `api4.binance.com`、`fapi`、`dapi`、`stream`、`fstream.binance.com`、`testnet.binance.vision`；OKX `www.okx.com`、`ws.okx.com`。先只列域名，实盘（`trade:live`、TRD-08）之前不用 |
+| `exchanges` | Binance `api.binance.com`、`api1` 到 `api4.binance.com`、`fapi`、`dapi`、`stream`、`fstream.binance.com`、`testnet.binance.vision`；OKX `www.okx.com`、`ws.okx.com`。只列域名、不分路径。交易套件（TRD-07a）只用它调只读接口：插件在客户端外面再包一层检查，只放行 `GET` 和 `internal/plugins/trade/exchange.go` 的 `exchangeReadPaths` 里的路径（Key 权限、余额、持仓、挂单查询、成交历史）；实盘下单（`trade:live`）另定 |
 | `any` | 任意 http、https 地址 |
 
 `Core.HTTP(group)`：清单 `permissions` 里没声明 `network:<group>`（或组不存在）回 `ErrNetworkNotDeclared`；声明了但用户没确认回 `*NotGrantedError`（3.3）。拿到的客户端每一跳（含重定向）发出前再查一次确认状态和域名清单，清单外回 `*HostNotAllowedError`（`errors.Is(err, plugin.ErrHostNotAllowed)`，说明里不带查询串），请求不发出去。客户端没设总超时，请求用 `NewRequestWithContext` 带期限。测试用 `Registry.SetHTTPTransport` 把底层换成本机假服务，检查照样在外面。
@@ -1764,7 +1794,7 @@ api.terminalLauncher.register({
 
 - 安装前，插件管理页列出清单里的全部权限，每条带一句人话说明（来自上表）；用户点「确认并安装」才继续。确认结果（权限列表、时间）记进插件状态表和审计日志
 - 高风险权限（`fs:*:any`、`network:exchanges`、`network:any`、`process:spawn`）单独一行、单独勾选，不勾不能装
-- `trade:live` 安装时不授予：交易插件装好后只有模拟盘。要开实盘，在交易插件的设置里单独申请，过二次确认（输入插件名），并且要过 TRD-08 评审。默认只开模拟盘
+- `trade:live` 安装时不授予：交易插件装好后只有模拟盘。要开实盘，在交易插件的设置里单独申请，过二次确认（输入插件名），并且要过 TRD-08 评审。默认只开模拟盘。已实现（TRD-08c）：内核把它当「单独申请的权限」（`SeparatePermissions`）——安装、升级都不授予也不要求确认，升级时已单独授予的保留；申请走 `POST /api/plugins/{id}/permissions/grant`（只接受用户本人在界面上的操作，`confirm` 要等于插件名，插件的 `PermissionGuard` 同意才授予），收回走 `/permissions/revoke`，见 2.13.26
 - 升级时新增了权限：列出新增的那几条要求确认；用户不确认，状态表里的版本和权限都不变，要新增权限的代码路径在运行时被拦（3.3、4.5），其余功能照常
 - 升级时减少了权限：直接收回，不用确认
 - 第一方插件也走确认流程，不因为是第一方就跳过；内核模块不需要确认
@@ -1781,6 +1811,8 @@ api.terminalLauncher.register({
 | `projects` | `process:spawn` | 原型启动前，409 |
 | `terminal` | `process:spawn` | 新建终端会话前，409 |
 | 登记了 Host 处理器的插件（`domains`） | `network:localhost` | 内核按 Host 分发前查，没确认的不交给它（2.11） |
+| `trade` | `network:exchanges` | 交易所账户连通测试、同步前经 `Core.HTTP("exchanges")` 拿客户端，没确认时失败，账户的异常原因就是这句提示（0.5.0，TRD-07a） |
+| `trade` | `trade:live` | 只在实盘开关的闸门里查（0.6.0，TRD-08c）：打开开关要评审通过且 `Granted("trade:live")`；没有任何代码路径因为它放行实盘下单（实盘下单是 TRD-08d） |
 
 `Granted` 不拿注册表的锁（后台任务里也会调，停用时等任务退出不能卡在锁上），状态变了由注册表换掉它看的权限集合。新加要高风险权限的代码路径时同样调 `Require`。
 
@@ -1825,7 +1857,7 @@ stateDiagram-v2
 
 | 后端 | 前端 |
 |---|---|
-| 有 `DisableGuard` 时先调 `CanDisable`，不通过就拒绝（交易插件：有在跑的部署或挂单时不允许停用，要先「一键全停」）；取消后台任务的 ctx，等它们退出（最多 10 秒）；撤掉订阅；本插件和认领的路由返回 404；状态表置停用；记审计日志。数据一行不动 | 撤销所有注册（`Disposable`），调 `deactivate`；如果当前停在这个模块的页面，跳回工作台的默认模块；菜单、今日卡片、命令消失 |
+| 有 `DisableGuard` 时先调 `CanDisable`，不通过就拒绝（交易插件：有在跑的部署或挂单时不允许停用，要先「一键全停」；TRD-08a 已实现，原因「还有 N 个部署在跑、N 笔挂单，先到交易里一键全停」，卸载时 `OnUninstall` 同样拦）；取消后台任务的 ctx，等它们退出（最多 10 秒）；撤掉订阅；本插件和认领的路由返回 404；状态表置停用；记审计日志。数据一行不动 | 撤销所有注册（`Disposable`），调 `deactivate`；如果当前停在这个模块的页面，跳回工作台的默认模块；菜单、今日卡片、命令消失 |
 
 被依赖时的提示：停用前后端返回依赖它且已启用的插件列表（`depends` 强依赖），前端弹确认框：
 
@@ -2027,5 +2059,7 @@ stateDiagram-v2
 补记（不改版本号，2026-11-04，AUTO-06/07）：`ObjectWriter` 加 `UpdateTask`、类型 `TaskChange`、`ChangedTask`；IM 插件入口加 `WithPublicURL(url)`；`Core` 加 `WorktreeDir()`，`ObjectInfo` 加 `ProjectID`。项目插件实际清单（0.13.0）另有 `provides.settings: ["worktrees"]`、`sop_nodes` 含 `projects_list_profiles`、`projects_get_profile`、`projects_prepare_worktree`，`emits` 含 `projects.worktree_changed`，`subscribes` 为 `object.status_changed`、`object.stage_changed`。只增不改。
 
 补记（不改版本号，2026-11-04，需求到发布自动化一期）：`RunService` 加 `Cancel`，`ClaudeCodeStart` 加 `PresetID`、`FollowPreset`、`Timeout`、`RecordOnTask`、`ReportBack`，`RunInfo` 加 `Summary`、`Result`、`Reported`、`TaskRun`，插件运行的 `run.finished` 加 `summary`、`result`，总线 `run.finished` 加 `origin`；`ObjectReader` 加 `TaskStages`；内核事件加 `object.stage_changed`。内核钩子 `Registry.SetRunCallback`、`SetRunPresets`、`ReportRun`。都是只增不改，等用户定稿版本号。
+
+补记（不改版本号，2026-11-05，TRD-08c）：内核加「单独申请的权限」（2.13.26）：`SeparatePermissions`（现在只有 `trade:live`）安装、升级都不授予也不要求确认，`Registry.Grant`、`Revoke`，可选接口 `PermissionGuard`，`Core` 加 `RevokePermission`；只接受用户本人的判断 `RequestActor`、`ActorOf`、`RequireUser`（按取证头 `X-Actor-Source`）。插件管理接口加 `POST /api/plugins/{id}/permissions/grant`、`/revoke`，列表项加 `permissions_separate`。交易插件实际清单升到 0.6.0，`permissions` 加 `trade:live`（单独申请），迁移加 `0011_live_review.sql`（表 `trade_live_checks`、`trade_live_reviews`、`trade_live_switch`），实现 `PermissionGuard`（实盘评审通过才同意授予 `trade:live`）。仍然没有实盘下单的代码路径。只增不改。
 
 文档补记（不改版本号，DOC-02，2026-10-29）：补写 1.0.0 到 1.1.0 之间各批已经加进代码、文档没跟上的句柄和扩展点（2.13），2.0 的代码块、2.5 的连接器定义按代码改正。这些按 1.3 本该升小版本，发布前由用户定稿版本号时一起写进上表。

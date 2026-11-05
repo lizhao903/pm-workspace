@@ -85,10 +85,6 @@ func (pp *paper) poke() {
 	}
 }
 
-func (pp *paper) audit(ctx context.Context, action, targetType, targetID, summary string, detail map[string]any, m plugin.WriteMeta) {
-	pp.c.Audit().Note(ctx, plugin.AuditNote{Action: action, TargetType: targetType, TargetID: targetID, Summary: summary, Detail: detail}, m)
-}
-
 func (pp *paper) incident(ctx context.Context, fp, title, msg string, detail map[string]any) {
 	err := pp.c.Incidents().Record(ctx, plugin.Incident{Fingerprint: fp, Level: "warn", Module: "交易", Title: title, Message: msg, Context: detail})
 	if err != nil && !errors.Is(err, plugin.ErrNoIncidents) {

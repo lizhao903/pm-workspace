@@ -1,7 +1,7 @@
 // 插件管理的确认弹窗：安装（列权限、高风险单独勾选）、升级（只列新增的权限，同样勾选）、停用（被依赖时列出要一起停的）、
 // 卸载（保留或删除数据，删除要二次确认）
 import { useState } from 'react'
-import { newPermissions, type PluginInfo } from '../../../core/data'
+import { installPermissions, newPermissions, type PluginInfo } from '../../../core/data'
 import { Checkbox, ConfirmDialog, Field, Input } from '../../../core/ui'
 import { permissionInfo, quoteNames, RISK_LABEL } from './labels'
 
@@ -12,7 +12,8 @@ export function InstallDialog({ plugin, busy, onConfirm, onCancel }: {
   onCancel: () => void
 }) {
   const [granted, setGranted] = useState<ReadonlySet<string>>(new Set())
-  const perms = plugin.permissions ?? []
+  const perms = installPermissions(plugin)
+  const separate = plugin.permissions_separate ?? []
   const risky = perms.filter((p) => permissionInfo(p).risk !== 'normal')
   const ready = risky.every((p) => granted.has(p))
   const before = new Set(plugin.permissions_confirmed ?? [])
@@ -49,6 +50,11 @@ export function InstallDialog({ plugin, busy, onConfirm, onCancel }: {
           })}
           {!ready && <div className="plg-muted">高风险权限要逐条勾选后才能安装。</div>}
         </div>
+      )}
+      {separate.length > 0 && (
+        <p className="plg-dialog-p plg-muted">
+          {separate.map((p) => `${permissionInfo(p).text}（${p}）`).join('、')}安装时不授予：要在插件自己的设置里过评审后单独申请。
+        </p>
       )}
     </ConfirmDialog>
   )

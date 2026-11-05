@@ -281,7 +281,7 @@ func setupPaperAt(t *testing.T, path string, fresh bool, src *paperSrc) paperEnv
 		t.Fatal(err)
 	}
 	if fresh {
-		if err := r.Install(ctx, "trade", []string{"network:market-data"}); err != nil {
+		if err := r.Install(ctx, "trade", tradePerms); err != nil {
 			t.Fatal(err)
 		}
 		if err := r.Enable(ctx, "trade"); err != nil {
@@ -373,14 +373,20 @@ func TestPaperAccountsOnly(t *testing.T) {
 	if p := data(t, h, "PATCH", "/api/trade/accounts/"+id, `{"name":"改名","slippage_ticks":3}`); p["name"] != "改名" || p["slippage_ticks"] != 3.0 || p["paper"] != true {
 		t.Fatalf("PATCH = %v", p)
 	}
-	// 下单只接受模拟盘：不存在的账户、实盘账户都 400
+	// 下单只接受模拟盘：不存在的账户 400，实盘账户 403（TRD-07a：实盘下单没开放前一律拒绝）
 	if _, err := e.d.W.Exec(`INSERT INTO trade_accounts (id, name, paper, initial_e8, created_at, updated_at) VALUES ('ac_live', 'Binance 主账户', 0, 1, 'x', 'x')`); err != nil {
 		t.Fatal(err)
 	}
-	for _, aid := range []string{"ac_nope", "ac_live", ""} {
+	for aid, want := range map[string]int{"ac_nope": 400, "ac_live": 403, "": 400} {
 		code, out := call(t, h, "POST", "/api/trade/orders", `{"account_id":"`+aid+`","symbol":"FAKE:BTCUSDT","side":"buy","type":"market","qty":0.1}`)
-		if code != 400 {
-			t.Errorf("账户 %q 下单 = %d %v，应当 400", aid, code, out)
+		if code != want {
+			t.Errorf("账户 %q 下单 = %d %v，应当 %d", aid, code, out, want)
+		}
+		if want == 403 {
+			e := out["error"].(map[string]any)
+			if e["code"] != "forbidden" || e["reason"] != "live" || !strings.Contains(e["message"].(string), "实盘账户") {
+				t.Errorf("实盘账户下单的错误 = %v", e)
+			}
 		}
 	}
 	var n int
@@ -692,12 +698,14 @@ func TestDeployRunSignalsOrdersAndRestart(t *testing.T) {
 	h := e.h
 	aid := e.account(t, `{"initial":100000,"fee_bp":0,"slippage_ticks":0}`)
 	sid := data(t, h, "POST", "/api/trade/strategies", crossStrategy)["id"].(string)
-	// 部署到实盘、不存在的账户 400；不认识的参数 400
+	// 部署到实盘 403（TRD-07a）；不存在的账户 400；不认识的参数 400
 	if _, err := e.d.W.Exec(`INSERT INTO trade_accounts (id, name, paper, initial_e8, created_at, updated_at) VALUES ('ac_live', '实盘', 0, 1, 'x', 'x')`); err != nil {
 		t.Fatal(err)
 	}
+	if code, out := call(t, h, "POST", "/api/trade/runs", `{"strategy_id":"`+sid+`","account_id":"ac_live","capital":20000}`); code != 403 {
+		t.Errorf("部署到实盘账户 = %d %v，应当 403", code, out)
+	}
 	for _, body := range []string{
-		`{"strategy_id":"` + sid + `","account_id":"ac_live","capital":20000}`,
 		`{"strategy_id":"` + sid + `","account_id":"ac_nope","capital":20000}`,
 		`{"strategy_id":"` + sid + `","account_id":"` + aid + `","capital":20000,"params":{"nope":1}}`,
 		`{"strategy_id":"` + sid + `","account_id":"` + aid + `","capital":2000000}`,

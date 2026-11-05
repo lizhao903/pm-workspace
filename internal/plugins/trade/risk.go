@@ -48,6 +48,10 @@ type riskRules struct {
 	HaltID         string
 	TripDay        string
 	UpdatedAt      string
+	// 自动熔断阈值（TRD-08b，迁移 0010）
+	ReconDiffPct    float64
+	SyncFailLimit   float64
+	FeedDownMinutes float64
 }
 
 func fxOf(f float64) fx {
@@ -62,11 +66,15 @@ var defaultRisk = riskRules{MaxPositionPct: 35, DailyLossPct: 3, MaxOrderValue: 
 
 const riskCols = `max_position_pct, daily_loss_pct, max_order_value, max_leverage, confirm_above, halted, halted_reason, halted_at, halt_id, trip_day, updated_at`
 
+// riskReadCols 多了 0010 加的三个自动熔断阈值（新建那一行时取列默认值）。
+const riskReadCols = riskCols + `, recon_diff_pct, sync_fail_limit, feed_down_minutes`
+
 func (pp *paper) risk(ctx context.Context) (riskRules, error) {
 	var r riskRules
 	var halted int
-	err := pp.c.Store().QueryRow(ctx, `SELECT `+riskCols+` FROM trade_risk WHERE id = 'global'`).
-		Scan(&r.MaxPositionPct, &r.DailyLossPct, &r.MaxOrderValue, &r.MaxLeverage, &r.ConfirmAbove, &halted, &r.HaltedReason, &r.HaltedAt, &r.HaltID, &r.TripDay, &r.UpdatedAt)
+	err := pp.c.Store().QueryRow(ctx, `SELECT `+riskReadCols+` FROM trade_risk WHERE id = 'global'`).
+		Scan(&r.MaxPositionPct, &r.DailyLossPct, &r.MaxOrderValue, &r.MaxLeverage, &r.ConfirmAbove, &halted, &r.HaltedReason, &r.HaltedAt, &r.HaltID, &r.TripDay, &r.UpdatedAt,
+			&r.ReconDiffPct, &r.SyncFailLimit, &r.FeedDownMinutes)
 	if errors.Is(err, plugin.ErrNoRows) {
 		d := defaultRisk
 		d.UpdatedAt = stamp(pp.now())
@@ -372,6 +380,10 @@ type RiskView struct {
 	HaltID         string  `json:"halt_id,omitempty"`
 	UpdatedAt      string  `json:"updated_at"`
 	Day            DayLoss `json:"day"`
+	// 自动熔断阈值（TRD-08b）
+	ReconDiffPct    float64 `json:"recon_diff_pct"`
+	SyncFailLimit   float64 `json:"sync_fail_limit"`
+	FeedDownMinutes float64 `json:"feed_down_minutes"`
 }
 
 func (h *handlers) riskView(ctx context.Context) (RiskView, error) {
@@ -390,6 +402,7 @@ func (h *handlers) riskView(ctx context.Context) (RiskView, error) {
 	}
 	return RiskView{MaxPositionPct: r.MaxPositionPct, DailyLossPct: r.DailyLossPct, MaxOrderValue: r.MaxOrderValue, MaxLeverage: r.MaxLeverage,
 		ConfirmAbove: r.ConfirmAbove, Halted: r.Halted, HaltedReason: r.HaltedReason, HaltedAt: r.HaltedAt, HaltID: r.HaltID, UpdatedAt: r.UpdatedAt,
+		ReconDiffPct: r.ReconDiffPct, SyncFailLimit: r.SyncFailLimit, FeedDownMinutes: r.FeedDownMinutes,
 		Day: DayLoss{Date: utcDay(pp.now()), StartEquity: d.start.Float(), Equity: d.equity.Float(), PnL: d.pnl.Float(), LossUsed: d.used.Float(),
 			LossLimit: d.limit.Float(), Status: st}}, nil
 }
@@ -404,9 +417,10 @@ func (h *handlers) getRisk(w http.ResponseWriter, r *http.Request) {
 }
 
 var riskFields = map[string]string{"max_position_pct": "单标的最大仓位", "daily_loss_pct": "单日最大亏损", "max_order_value": "单笔最大金额",
-	"max_leverage": "合约最大杠杆", "confirm_above": "二次确认阈值"}
+	"max_leverage": "合约最大杠杆", "confirm_above": "二次确认阈值",
+	"recon_diff_pct": "对账差异熔断阈值", "sync_fail_limit": "交易所接口连续失败熔断次数", "feed_down_minutes": "行情断开熔断分钟数"}
 
-// PATCH /api/trade/risk：五条规则，只改出现的，都要大于 0；放宽规则不会自动解除熔断。
+// PATCH /api/trade/risk：五条规则加三个自动熔断阈值，只改出现的，都要大于 0；放宽规则不会自动解除熔断。
 func (h *handlers) updateRisk(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	raw, err := readBody(r)
@@ -424,12 +438,13 @@ func (h *handlers) updateRisk(w http.ResponseWriter, r *http.Request) {
 	}
 	next := cur
 	ptr := map[string]*float64{"max_position_pct": &next.MaxPositionPct, "daily_loss_pct": &next.DailyLossPct, "max_order_value": &next.MaxOrderValue,
-		"max_leverage": &next.MaxLeverage, "confirm_above": &next.ConfirmAbove}
+		"max_leverage": &next.MaxLeverage, "confirm_above": &next.ConfirmAbove,
+		"recon_diff_pct": &next.ReconDiffPct, "sync_fail_limit": &next.SyncFailLimit, "feed_down_minutes": &next.FeedDownMinutes}
 	keys := []string{}
 	for k, v := range raw {
 		p, ok := ptr[k]
 		if !ok {
-			h.fail(w, r, apiErr(errValidation, "不认识的字段 %s；能改的是 max_position_pct、daily_loss_pct、max_order_value、max_leverage、confirm_above", k))
+			h.fail(w, r, apiErr(errValidation, "不认识的字段 %s；能改的是 max_position_pct、daily_loss_pct、max_order_value、max_leverage、confirm_above、recon_diff_pct、sync_fail_limit、feed_down_minutes", k))
 			return
 		}
 		var f float64
@@ -437,7 +452,15 @@ func (h *handlers) updateRisk(w http.ResponseWriter, r *http.Request) {
 			h.fail(w, r, apiErr(errValidation, "%s 要是大于 0 的数", riskFields[k]))
 			return
 		}
-		if (k == "max_position_pct" || k == "daily_loss_pct") && f > 100 {
+		if k == "sync_fail_limit" && (f != float64(int(f)) || f > 100) {
+			h.fail(w, r, apiErr(errValidation, "%s 要是 1 到 100 的整数", riskFields[k]))
+			return
+		}
+		if k == "feed_down_minutes" && f > 1440 {
+			h.fail(w, r, apiErr(errValidation, "%s 不能超过 1440", riskFields[k]))
+			return
+		}
+		if (k == "max_position_pct" || k == "daily_loss_pct" || k == "recon_diff_pct") && f > 100 {
 			h.fail(w, r, apiErr(errValidation, "%s 是百分比，不能超过 100", riskFields[k]))
 			return
 		}
@@ -446,8 +469,9 @@ func (h *handlers) updateRisk(w http.ResponseWriter, r *http.Request) {
 	}
 	slices.Sort(keys)
 	now := stamp(pp.now())
-	if _, err := h.c.Store().Exec(ctx, `UPDATE trade_risk SET max_position_pct = ?, daily_loss_pct = ?, max_order_value = ?, max_leverage = ?, confirm_above = ?, updated_at = ? WHERE id = 'global'`,
-		next.MaxPositionPct, next.DailyLossPct, next.MaxOrderValue, next.MaxLeverage, next.ConfirmAbove, now); err != nil {
+	if _, err := h.c.Store().Exec(ctx, `UPDATE trade_risk SET max_position_pct = ?, daily_loss_pct = ?, max_order_value = ?, max_leverage = ?, confirm_above = ?,
+		recon_diff_pct = ?, sync_fail_limit = ?, feed_down_minutes = ?, updated_at = ? WHERE id = 'global'`,
+		next.MaxPositionPct, next.DailyLossPct, next.MaxOrderValue, next.MaxLeverage, next.ConfirmAbove, next.ReconDiffPct, next.SyncFailLimit, next.FeedDownMinutes, now); err != nil {
 		h.fail(w, r, err)
 		return
 	}
@@ -455,7 +479,8 @@ func (h *handlers) updateRisk(w http.ResponseWriter, r *http.Request) {
 	from, to := map[string]float64{}, map[string]float64{}
 	for _, k := range keys {
 		a, b := *map[string]*float64{"max_position_pct": &cur.MaxPositionPct, "daily_loss_pct": &cur.DailyLossPct, "max_order_value": &cur.MaxOrderValue,
-			"max_leverage": &cur.MaxLeverage, "confirm_above": &cur.ConfirmAbove}[k], *ptr[k]
+			"max_leverage": &cur.MaxLeverage, "confirm_above": &cur.ConfirmAbove,
+			"recon_diff_pct": &cur.ReconDiffPct, "sync_fail_limit": &cur.SyncFailLimit, "feed_down_minutes": &cur.FeedDownMinutes}[k], *ptr[k]
 		if a != b {
 			parts = append(parts, riskFields[k]+" "+jsString(a)+" → "+jsString(b))
 			from[k], to[k] = a, b
