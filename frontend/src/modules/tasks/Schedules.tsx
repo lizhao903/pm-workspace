@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import { useSearchParams } from 'react-router'
 import {
-  errorText, isApiError, useLastScheduleRuns, useObject, usePatchSchedule, useSchedules, useVideoPlatforms, useVideoPublishes,
+  errorText, isApiError, useLastScheduleRuns, useObject, usePatchSchedule, useSchedules, useSopFlows, useVideoPlatforms, useVideoPublishes,
   type DictItem, type ObjectStatus, type Schedule, type ScheduleRun, type WorkObject,
 } from '../../core/data'
 import { Button, EmptyState, ErrorState, IconClose, IconSearch, ListSegHead, LoadingState, PageTitle, cls } from '../../core/ui'
@@ -122,7 +122,13 @@ export function SchedulesPage({ schedules, loading, error, onRetry, selected, on
   const pubs = useVideoPublishes({ enabled: hasPub })
   const plats = useVideoPlatforms({ enabled: hasPub })
   const platLabel = (k: string) => plats.data?.find((x) => x.key === k)?.label ?? k
-  const names: ActionNames = pubs.data ? { publishes: Object.fromEntries(pubs.data.map((p) => [p.id, `${platLabel(p.platform)} · ${p.title || '未填标题'}`])) } : {}
+  // 有 SOP 动作时取流程名（TSK-0463）；SOP 插件没启用时取不到，显示编号
+  const hasSop = schedules.some((s) => s.action.kind === 'sop')
+  const flows = useSopFlows({ enabled: hasSop })
+  const names: ActionNames = {
+    ...(pubs.data ? { publishes: Object.fromEntries(pubs.data.map((p) => [p.id, `${platLabel(p.platform)} · ${p.title || '未填标题'}`])) } : {}),
+    ...(flows.data ? { flows: Object.fromEntries(flows.data.map((f) => [f.id, f.name])) } : {}),
+  }
   const kinds = [...ACTION_KINDS as string[], ...new Set(schedules.map((s) => s.action.kind as string).filter(isPluginAction))]
 
   const kw = q.trim()

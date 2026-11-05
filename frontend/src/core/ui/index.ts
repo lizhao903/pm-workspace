@@ -38,3 +38,8 @@ export { Markdown } from './Markdown'
 export { parseBlocks, mdHeadings } from './mdParse'
 export type { Block as MdBlock, MdHeading } from './mdParse'
 export { IconCheck, IconChevronDown, IconChevronRight, IconClose, IconSearch } from './icons'
+// 定时规则编辑（定时任务抽屉、SOP 流程的定时触发共用，TSK-0463）
+export { ScheduleRuleFields } from './ScheduleRuleEditor'
+export { useRuleCheck } from './useRuleCheck'
+export type { RuleCheck } from './useRuleCheck'
+export { describeRule as describeScheduleRule, emptyRule as emptyScheduleRule, fullRule as fullScheduleRule, whenText as scheduleWhenText } from './scheduleRule'

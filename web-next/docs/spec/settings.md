@@ -1313,7 +1313,7 @@ store（原型）：`{ docs: KbDoc[]; settings: KbSettings[]; busy: string[] }`�
 | `contact_group` | 联系人分组 | 联系人 | `其他` | `客户`、`合作伙伴`、`同事`、`供应商`、`其他` | 无 | 联系人的 `group` |
 | `content_category` | 文档分类 | 文档 | `note` | `CONTENT_CATEGORIES` 的 key | 无 | 文档的 `category` |
 | `msg_status` | IM 消息状态 | IM 消息 | `pending` | `pending` 待处理、`done` 已处理、`ignored` 已忽略 | 全部 | 消息的 `status` |
-| `sop_trigger` | SOP 触发方式 | SOP | `manual` | `manual` 手动、`im` IM 消息、`daily` 每天 09:00、`weekly` 每周一 18:00 | `manual` | 没接数据 |
+| `sop_trigger` | SOP 触发方式 | SOP | `manual` | `manual` 手动、`im` IM 消息、`schedule` 定时（TSK-0463：原来的 `daily` 每天 09:00、`weekly` 每周一 18:00 并成这一项，时间规则在 SOP 开始节点里配，`SPEC-sop-9.3`） | `manual`、`schedule` | 没接数据 |
 | `customer_level` | 客户等级 | 自定义 | `B` | `A`、`B`、`C` | 无 | 没接数据 |
 
 页面读枚举用 `enumView(groups, key)` / `useEnumView(key)`，返回 `EnumView`：`items`（全部值，按设置顺序）、`options`（启用的，新建用）、`optionsWith(cur)`（编辑用：启用的加当前值，哪怕已停用或已删除；停用的放回原位，已删除的补在最后、灰色）、`item(k)`、`label(k)`（找不到原样显示 key）、`color(k)`（找不到 `#a19d92`）、`defaultKey`（设置的默认值，没设或已停用时取第一个启用的）。使用数 `UsageFn = (group: string, key: string) => number | undefined`，没接数据的返回 `undefined`；合并只改了任务优先级、联系人分组、文档分类（系统值不会被删，任务状态、消息状态不需要）。

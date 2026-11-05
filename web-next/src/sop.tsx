@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import { PageTitle } from './topbar'
 import {
   GOVERNANCE_MAX, MODEL_CONCURRENCY_MAX, RERUN_MAX, RUN_STATUS, SOPS, depsOf, isHeld, flowChanged, sourceText, focusIndex, isFinished, isClaudeKind, isManualDecide, isModelKind, isProviderWait, isQueued, needsMe, ranks,
@@ -11,6 +11,33 @@ import { cls, timeAgo } from './ui'
 import { SearchSelect } from './searchselect'
 import { useEnum } from './enumdata'
 import { ListSegHead, ListSegMore } from './tasks'
+import { describeRule, flowSchedule, nextRun, whenText, type Schedule } from './scheduledata'
+
+/**
+ * 定时触发（TSK-0463）：触发方式「定时」的规则在随流程管理的定时任务里。App 把定时任务列表和启停放进这个上下文，
+ * 流程库卡片、流程详情显示规则、下次执行和启停开关；和定时任务页改的是同一条
+ */
+export const SopSchedules = createContext<{ list: Schedule[]; toggle: (id: string, on: boolean) => void }>({ list: [], toggle: () => {} })
+
+/** 流程的定时一行：规则、下次执行、启停；定时但没有那条定时任务（在定时任务页删了）是「定时，未配置」 */
+function SchedLine({ sop, className }: { sop: Sop; className: string }) {
+  const { list, toggle } = useContext(SopSchedules)
+  if (sop.trigger !== 'schedule') return null
+  const sc = flowSchedule(list, sop.id)
+  if (!sc) return <div className={cls('sop-sched unset', className)}>定时，未配置：到点不会执行，到编辑里设好时间</div>
+  const next = sc.enabled ? nextRun(sc.rule) : null
+  return (
+    <div className={cls('sop-sched', !sc.enabled && 'off', className)}>
+      <span className="sop-sched-text">
+        <span>定时 · {describeRule(sc.rule)}</span>
+        <span className={cls(sc.enabled && 'sop-sched-next')}>{sc.enabled ? (next ? `下次 ${whenText(next)}` : '不会再执行') : '已停用'}</span>
+      </span>
+      <span className="switch-line" title={sc.enabled ? '停用定时' : '启用定时'}>
+        <input type="checkbox" aria-label={`定时执行「${sop.name}」`} checked={sc.enabled} onChange={(e) => toggle(sc.id, e.target.checked)} /><span className="switch" />
+      </span>
+    </div>
+  )
+}
 
 /** SOP 页的二级菜单 key；library：流程库（全部 SOP 的卡片列表） */
 export type SopView = 'runs' | 'waiting' | 'library' | `sop:${string}` | `edit:${string}`
@@ -397,8 +424,10 @@ function SopLibraryPage({ sops, runs, onOpen, onNew }: { sops: Sop[]; runs: SopR
           {rows.map((s) => {
             const x = stat.get(s.id)
             const at = last.get(s.id)
+            // 定时触发的卡片下面接一行规则、下次执行和启停（TSK-0463）；开关不能放进按钮里，挂在卡片外面
             return (
-              <button key={s.id} className="sop-lib-card" disabled={!onOpen} onClick={() => onOpen?.(s.id)}>
+              <div key={s.id} className="sop-lib-cell">
+              <button className="sop-lib-card" disabled={!onOpen} onClick={() => onOpen?.(s.id)}>
                 <span className="sop-lib-head">
                   <span className="sop-lib-name ellipsis" title={s.name}>{s.name}</span>
                   {!!x?.pending && <span className="sop-lib-pending">{x.pending} 个待处理</span>}
@@ -410,6 +439,8 @@ function SopLibraryPage({ sops, runs, onOpen, onNew }: { sops: Sop[]; runs: SopR
                   {at && <span>{timeAgo(iso(at))}执行</span>}
                 </span>
               </button>
+              <SchedLine sop={s} className="sop-lib-sched" />
+              </div>
             )
           })}
         </div>
@@ -463,6 +494,7 @@ export function SopDetailPage({ sop, runs, onStart, onOpen, onEdit, onDelete, de
         <span>{decides} 个分支节点</span>
         <span>{reviews} 个需要人处理的节点</span>
       </div>
+      <SchedLine sop={sop} className="sop-detail-sched" />
 
       <div className="section-label">流程</div>
       <div className="flow-card"><FlowGraph sop={sop} /></div>

@@ -375,6 +375,8 @@ func run(cfg config) error {
 	opts.ScheduleRunner.SOPs = plugins
 	agent.SetSOPStarter(plugins)
 	plugins.SetSOPRefs(opts.Schedules.SOPRefs)
+	// 随流程管理的定时任务（TSK-0463）：SOP 流程触发方式选「定时」时，规则存在一条定时任务里，SOP 插件经这里建、改、删
+	plugins.SetSOPSchedules(opts.Schedules)
 	// 按 Host 分发（DOM-02a）：内网域名插件接原型等子域名，--public-url 的主机和 IP、localhost 永远进工作台
 	handler := plugins.HostDispatch(api.New(objects, opts), cfg.publicURL)
 	// 在 api.New 之后启动：agent 动作要用 New 接上的 Runner

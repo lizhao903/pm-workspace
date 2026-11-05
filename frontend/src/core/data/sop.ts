@@ -5,6 +5,7 @@ import { useMutation, useQuery, useQueryClient, type QueryClient, type UseQueryO
 import { isApiError, request, requestList } from '../api'
 import { useNotifyChange } from './invalidate'
 import { dataKeys } from './keys'
+import type { Schedule, ScheduleRule } from './schedules'
 
 export type SopJson = Record<string, unknown>
 
@@ -42,7 +43,18 @@ export type SopFlow = {
   version: number
   created_at: string
   updated_at: string
+  /**
+   * 随流程管理的定时任务（TSK-0463），形状同 /api/schedules 的一项；没有为 null。
+   * 触发方式是 schedule 而它为 null 时是「定时，未配置」（比如在定时任务页删掉了）
+   */
+  schedule?: Schedule | null
 }
+/** 触发方式「定时」的 key；旧的 daily、weekly、cron 后端转成它（TSK-0463） */
+export const SOP_TRIGGER_SCHEDULE = 'schedule'
+/** 编排页里定时触发的草稿：规则和启停，保存时写进随流程管理的定时任务 */
+export type SopScheduleDraft = { rule: ScheduleRule; enabled: boolean }
+/** 触发方式从定时改成别的时，随流程管理的那条怎么处理：停用（改回定时时恢复）或删掉 */
+export type SopScheduleOff = 'disable' | 'delete'
 export type SopNodeType = {
   kind: string
   group: string
@@ -237,11 +249,16 @@ export type SopPipeline = { task_id: string; runs: SopPipelineRun[]; claude: Sop
 export type SopStartInput = { input?: Record<string, string>; step_through?: boolean; object_id?: string }
 
 /** 编排页的草稿：形状同 SopFlow 去掉版本和时间，可以没保存过、可以不合格 */
-export type SopDraft = Pick<SopFlow, 'name' | 'desc' | 'trigger' | 'fields' | 'steps' | 'layout'> & { id?: string }
+export type SopDraft = Pick<SopFlow, 'name' | 'desc' | 'trigger' | 'fields' | 'steps' | 'layout'> & { id?: string; sched?: SopScheduleDraft }
 /** 保存校验的一条问题；step 是步骤下标（从 0 起），整条流程的问题没有 */
 export type SopIssue = { text: string; step?: number }
 /** 新建、修改流程的 body；layout 为 null 时清掉手动位置 */
-type SopFlowBody = Omit<SopDraft, 'id' | 'layout'> & { layout: SopFlow['layout'] | null }
+type SopFlowBody = Omit<SopDraft, 'id' | 'layout' | 'sched'> & {
+  layout: SopFlow['layout'] | null
+  /** 触发方式是定时时的规则和启停（TSK-0463） */
+  schedule?: SopScheduleDraft
+  schedule_off?: SopScheduleOff
+}
 /** AI 协助的回复；draft 是改好的整条草稿，不带 layout */
 export type SopAssistReply = { text: string; draft?: SopDraft; notes?: string[] }
 export type SopAssistInput = { message: string; draft?: SopDraft; selected?: number }
@@ -259,7 +276,7 @@ export function sopIssuesOf(e: unknown): SopIssue[] {
 export const SOP_RUNS_MAX = 500
 
 // 后端的空数组可能是 null，这里一次补齐
-const normFlow = (f: SopFlow): SopFlow => ({ ...f, desc: f.desc ?? '', trigger: f.trigger ?? '', fields: f.fields ?? [], steps: f.steps ?? [] })
+const normFlow = (f: SopFlow): SopFlow => ({ ...f, desc: f.desc ?? '', trigger: f.trigger ?? '', fields: f.fields ?? [], steps: f.steps ?? [], schedule: f.schedule ?? null })
 const normRun = (r: SopRun): SopRun => ({
   ...r, source: r.source ?? '', flow: normFlow(r.flow), input: r.input ?? {},
   steps: (r.steps ?? []).map((s) => ({ ...s, log: s.log ?? [], attempts: s.attempts ?? 0, input: s.input ?? null, output: s.output ?? null })),
@@ -304,8 +321,9 @@ const noRetry404 = (n: number, e: unknown) => !isApiError(e, 'not_found') && n <
 
 type Poll = { refetchInterval?: number | false }
 
-export function useSopFlows(opts: Poll = {}) {
-  return useQuery({ queryKey: dataKeys.sop.flows, queryFn: ({ signal }) => sopApi.flows(signal), retry: noRetry404, refetchInterval: opts.refetchInterval })
+/** enabled 为 false 时不取（定时任务页只在有随流程管理的定时任务时取流程名） */
+export function useSopFlows(opts: Poll & { enabled?: boolean } = {}) {
+  return useQuery({ queryKey: dataKeys.sop.flows, queryFn: ({ signal }) => sopApi.flows(signal), retry: noRetry404, refetchInterval: opts.refetchInterval, enabled: opts.enabled ?? true })
 }
 
 /** 内置节点类型：分支节点、必填配置项；名字和颜色在前端 */
@@ -371,13 +389,18 @@ export function useSopRunAction() {
   })
 }
 
-/** 新建（没有 id）或整条覆盖保存；成功后把流程写进缓存再报 sop-flow */
+/**
+ * 新建（没有 id）或整条覆盖保存；成功后把流程写进缓存再报 sop-flow（定时任务列表跟着刷）。
+ * 触发方式是定时时带上规则和启停；scheduleOff 是从定时改成别的时那条定时任务停用还是删掉（TSK-0463）
+ */
 export function useSaveSopFlow() {
   const qc = useQueryClient()
   const notify = useNotifyChange()
   return useMutation({
-    mutationFn: ({ id, draft, version }: { id?: string; draft: SopDraft; version?: number }) => {
+    mutationFn: ({ id, draft, version, scheduleOff }: { id?: string; draft: SopDraft; version?: number; scheduleOff?: SopScheduleOff }) => {
       const body: SopFlowBody = { name: draft.name, desc: draft.desc, trigger: draft.trigger, fields: draft.fields, steps: draft.steps, layout: draft.layout ?? null }
+      if (draft.trigger === SOP_TRIGGER_SCHEDULE && draft.sched) body.schedule = draft.sched
+      if (scheduleOff) body.schedule_off = scheduleOff
       return id ? sopApi.patchFlow(id, { ...body, version }) : sopApi.createFlow(body)
     },
     onSuccess: (f) => {

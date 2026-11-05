@@ -10,6 +10,7 @@ import (
 	"os"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 	"unicode/utf8"
 
@@ -61,6 +62,8 @@ type Store struct {
 	plugins PluginActions
 	// objects 查提醒关联的对象在不在，SetObjects 接上（remind.go）
 	objects ObjectLookup
+	// flowMu 串起随流程管理的定时任务的查找和新建，同一个流程不会建出两条（flowsched.go）
+	flowMu sync.Mutex
 }
 
 // New 建一个定时任务表的读写。loc 是规则里墙上时间所在的时区，nil 为 time.Local。
@@ -130,8 +133,13 @@ func (s *Store) checkAction(ctx context.Context, a Action) (Action, error) {
 	return a, s.checkRemindObject(ctx, a)
 }
 
-// Create 新建一个定时任务。
+// Create 新建一个定时任务。随流程管理的标记（action.managed）在这里不认，只有 SaveFlowSchedule 能建（TSK-0463）。
 func (s *Store) Create(ctx context.Context, in Input) (*Schedule, error) {
+	in.Action.Managed = false
+	return s.create(ctx, in)
+}
+
+func (s *Store) create(ctx context.Context, in Input) (*Schedule, error) {
 	name, err := checkName(in.Name)
 	if err != nil {
 		return nil, err
@@ -234,9 +242,20 @@ func (s *Store) Update(ctx context.Context, id string, p Patch) (*Schedule, erro
 		}
 	}
 	if p.Action != nil {
-		if cur.Action, err = s.checkAction(ctx, *p.Action); err != nil {
+		next, err := s.checkAction(ctx, *p.Action)
+		if err != nil {
 			return nil, err
 		}
+		// 随流程管理的那一条只能改规则、名字、启停，动作跟着流程走（TSK-0463）；别的条目不能改成随流程管理
+		if cur.Action.Kind == ActionSOP && cur.Action.Managed {
+			if next.Kind != ActionSOP || next.SOPID != cur.Action.SOPID {
+				return nil, invalid("action: this schedule is managed by SOP flow %s; change the flow's trigger instead", cur.Action.SOPID)
+			}
+			next.Managed = true
+		} else {
+			next.Managed = false
+		}
+		cur.Action = next
 	}
 	ruleJSON, actionJSON, err := encode(cur.Rule, cur.Action)
 	if err != nil {

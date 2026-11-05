@@ -34,6 +34,8 @@ type Plugin struct {
 	stepHook func(ctx context.Context, runID, step string) error
 	// complete 是 AI 协助调模型的入口（SOP-04a，assist.go），nil 时用默认服务商
 	complete completer
+	// core 是最近一次启用拿到的 Core，测试里直接调插件内部函数用
+	core plugin.Core
 }
 
 func New() *Plugin { return &Plugin{m: plugin.MustParse(manifestJSON)} }
@@ -51,6 +53,7 @@ func (p *Plugin) Migrations() fs.FS {
 
 func (p *Plugin) Register(r plugin.Registrar) error {
 	c := r.Core()
+	p.core = c
 	active := p.activeRuns
 	if active == nil {
 		active = func(ctx context.Context, id string) (int, error) { return countActive(ctx, c.Store(), id) }
@@ -89,6 +92,8 @@ func (p *Plugin) Register(r plugin.Registrar) error {
 		m.HandleFunc("GET /api/sop/waiting", ph.waiting)
 	})
 	r.Job(plugin.Job{Name: "engine", Run: e.job})
+	// 旧触发方式 daily、weekly 转成随流程管理的定时任务（TSK-0463，flowsched.go），幂等
+	r.Job(plugin.Job{Name: "legacy_trigger", Every: legacyEvery, Run: legacyJob})
 	// 别的插件登记的节点挂起后经内核 SOP().Resume 唤醒，交给这个引擎（SOP-03a）
 	r.SOPEngine(e)
 	// 定时任务的 sop 动作和 Agent 的 run_sop 经内核钩子发起执行（SOP-01d，launch.go）

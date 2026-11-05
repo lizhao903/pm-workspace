@@ -11,7 +11,7 @@ import { MessageDrawer, MessagesPage, contactFor, fetchBlocker, gear, withGroupP
 import { GroupTriageAdvice, QueueDrawer, TriageAdvice, triageRunsOf, triageSops } from './triage'
 import { SECTIONS, SettingsNav, type Section } from './settings'
 import { CommandPalette, type PaletteItem } from './palette'
-import { GOVERNANCE_DEFAULT, MODEL_CONCURRENCY_DEFAULT, SOPS, act as actOnRun, gateRuns, governRuns, isHeld, type Governance, rerunRuns, seedRuns, sopById, tick, runShow, runStatus, startRun, upsertSop, type Json, type RunAction } from './sopflow'
+import { GOVERNANCE_DEFAULT, MODEL_CONCURRENCY_DEFAULT, SOPS, act as actOnRun, gateRuns, governRuns, isHeld, type Governance, rerunRuns, seedRuns, sopById, tick, runShow, runStatus, startRun, upsertSop, type Json, type RunAction, type Sop } from './sopflow'
 import { SopEditor, newSopDraft } from './sopedit'
 import { ingest, newTask, seedDeliveries, seedHooks, seedTasks, type TaskStatus, isOpenTask, localDay } from './taskdata'
 import { waitOf } from './taskpipeline'
@@ -20,7 +20,7 @@ import { TaskDrawer, TasksNav, TasksPage, WebhookPage, newHook, type TaskDraft, 
 import { taskPrefill } from './tasksop'
 import { ScheduleDrawer, SchedulesPage } from './schedule'
 import { useRunPresets } from './runpresets'
-import { claudeOutPath, dueReminders, nextRun, seedSchedules, sweepSchedule, syncPublishSchedules, taskReminder, whenText, type Schedule } from './scheduledata'
+import { claudeOutPath, dueReminders, flowSchedule, nextRun, seedSchedules, sweepSchedule, syncPublishSchedules, taskReminder, whenText, type Schedule } from './scheduledata'
 import { ReminderPopups, remindersOf, type Reminder } from './taskreminders'
 import { TodayPage, type TodayItem, type TodayLine } from './today'
 import { useDevLoop } from './devloop'
@@ -34,7 +34,7 @@ import { WorkspaceSwitcher, WorkspacesPage } from './workspaces'
 import { loadWorkspaces, saveWorkspaces, type Workbench } from './workspacedata'
 import { KbDrawer, KnowledgePage, SkillDrawer, SkillsPage } from './kbskills'
 import { SWEEP_TAG, levelPriority, mergeIncident, seedIncidents, sweepHeldCount, sweepPick, sweepTaskDesc, type IncidentReport } from './incidentdata'
-import { SopDetailPage, SopNav, SopRunView, SopRunsPage, SopSettingsPage, SopStartDrawer, type SopView } from './sop'
+import { SopDetailPage, SopNav, SopRunView, SopRunsPage, SopSchedules, SopSettingsPage, SopStartDrawer, type SopView } from './sop'
 import { WorktreeSettingsPage } from './worktree'
 import { EnumContext, seedEnums } from './enumdata'
 import { SKILLS, newAgent, seedAgentRuns, seedAgents, seedKBs, seedOutputs, seedScenarios, seedSessions, taskRunAgent, type AgentOutput, type ChatMsg, type OutputKind, type Session, type ToolCall } from './agentdata'
@@ -1405,7 +1405,8 @@ export default function App() {
   // SOP：有没走完的执行、被定时任务用着就拦截；项目里摘掉；执行记录带快照，保留
   const sopPlan = (id: string): DelPlan => {
     const live = runs.filter((r) => r.sop_id === id && ['running', 'waiting', 'failed'].includes(runStatus(r))).length
-    const sc = schedules.filter((x) => x.action.kind === 'sop' && x.action.sop_id === id).map((x) => x.name)
+    // 随流程管理的那条（TSK-0463）跟着流程删，不拦；用户手建的照旧拦
+    const sc = schedules.filter((x) => x.action.kind === 'sop' && x.action.sop_id === id && !x.action.managed).map((x) => x.name)
     const block = lines(
       live > 0 && `还有 ${live} 次执行没走完（执行中、等人处理或失败待重试），先处理完或停掉`,
       sc.length > 0 && `定时任务${nameList(sc)}会发起它，先改掉或删掉这些定时任务`,
@@ -1418,8 +1419,21 @@ export default function App() {
     if (i >= 0) SOPS.splice(i, 1)
     setSops([...SOPS])
     setProjects((ps) => ps.map((p) => (p.sop_ids.includes(id) ? { ...p, sop_ids: p.sop_ids.filter((x) => x !== id) } : p)))
+    setSchedules((xs) => xs.filter((x) => !(x.action.kind === 'sop' && x.action.managed && x.action.sop_id === id)))
     setSopView('runs'); setOpenRun(null)
   }
+  // SOP 的定时触发（TSK-0463）：规则存在随流程管理的定时任务里。保存流程时建或改那一条（名称跟流程名）；
+  // 从定时改成别的触发方式时按确认停用或删掉；流程库、详情的启停开关改的也是它
+  const sopSched = { list: schedules, toggle: (id: string, on: boolean) => setSchedules((xs) => xs.map((y) => (y.id === id ? { ...y, enabled: on } : y))) }
+  const syncSopSchedule = (sop: Sop, off?: 'disable' | 'delete') => setSchedules((xs) => {
+    const cur = flowSchedule(xs, sop.id)
+    if (sop.trigger === 'schedule' && sop.sched) {
+      if (cur) return xs.map((y) => (y.id === cur.id ? { ...y, name: sop.name, rule: sop.sched!.rule, enabled: sop.sched!.enabled } : y))
+      return [{ id: newId('sc'), name: sop.name, enabled: sop.sched.enabled, rule: sop.sched.rule, action: { kind: 'sop', sop_id: sop.id, managed: true }, history: [], created_at: new Date().toISOString() }, ...xs]
+    }
+    if (!cur || sop.trigger === 'schedule') return xs
+    return off === 'delete' ? xs.filter((y) => y.id !== cur.id) : xs.map((y) => (y.id === cur.id ? { ...y, enabled: false } : y))
+  })
   // 策略：先停掉没停的部署（运行中、暂停、异常挂起）并撤掉挂单，再删；回测有快照，保留
   const strategyPlan = (id: string): DelPlan => {
     const mine = tradeRuns.filter((r) => r.strategy_id === id)
@@ -1882,10 +1896,14 @@ export default function App() {
               const id = sopView.slice(5)
               const existing = id === 'new' ? null : sopById(id)
               return (
-                <SopEditor key={sopView} initial={existing ?? newSopDraft()} creating={!existing} runs={runs} sopList={sops.map((x) => ({ id: x.id, name: x.name }))}
+                <SopEditor key={sopView} runs={runs} sopList={sops.map((x) => ({ id: x.id, name: x.name }))}
+                  initial={existing ? { ...existing, sched: (() => { const sc = flowSchedule(schedules, existing.id); return sc ? { rule: sc.rule, enabled: sc.enabled } : undefined })() } : newSopDraft()}
+                  creating={!existing} hasSchedule={!!existing && !!flowSchedule(schedules, existing.id)}
                   onCancel={() => setSopView(existing ? `sop:${existing.id}` : 'runs')}
-                  onSave={(sop, thenRun) => {
-                    upsertSop(sop)
+                  onSave={(sop, thenRun, off) => {
+                    // 定时规则存进随流程管理的定时任务，流程本身不存 sched
+                    syncSopSchedule(sop, off)
+                    upsertSop({ ...sop, sched: undefined })
                     setSops([...SOPS])
                     setSopView(`sop:${sop.id}`)
                     if (thenRun) setDrawer({ kind: 'sop-start', sopId: sop.id })
@@ -1895,14 +1913,14 @@ export default function App() {
             if (sopView.startsWith('sop:')) {
               const sop = sopById(sopView.slice(4))
               if (!sop) return <div className="page"><PageTitle>SOP</PageTitle><div className="empty"><div className="empty-title">这个 SOP 已经删除</div></div></div>
-              return <SopDetailPage key={sop.id} sop={sop} runs={runs} onOpen={setOpenRun} onEdit={() => setSopView(`edit:${sop.id}`)} onStart={() => setDrawer({ kind: 'sop-start', sopId: sop.id })}
+              return <SopSchedules.Provider value={sopSched}><SopDetailPage key={sop.id} sop={sop} runs={runs} onOpen={setOpenRun} onEdit={() => setSopView(`edit:${sop.id}`)} onStart={() => setDrawer({ kind: 'sop-start', sopId: sop.id })}
                 onAllRuns={() => { setSopFilter(sop.id); setSopView('runs') }}
-                delPlan={sopPlan(sop.id)} onDelete={() => { if (!sopPlan(sop.id).block) deleteSop(sop.id) }} />
+                delPlan={sopPlan(sop.id)} onDelete={() => { if (!sopPlan(sop.id).block) deleteSop(sop.id) }} /></SopSchedules.Provider>
             }
             // 流程库（library）也走这里；带着 SOP 筛选进来时换 key 重置页面里的筛选
-            return <SopRunsPage key={`${sopView}:${sopFilter ?? ''}`} runs={runs} view={sopView as 'runs' | 'waiting' | 'library'} sop={sopFilter} onOpen={setOpenRun}
+            return <SopSchedules.Provider value={sopSched}><SopRunsPage key={`${sopView}:${sopFilter ?? ''}`} runs={runs} view={sopView as 'runs' | 'waiting' | 'library'} sop={sopFilter} onOpen={setOpenRun}
               onRerun={(ids, action) => { const x = rerunRuns(runs, ids, action); setRuns(x.runs); return x.result }}
-              sops={sops} onOpenSop={(id) => setSopView(`sop:${id}`)} onNew={() => { setSopView('edit:new'); setOpenRun(null) }} />
+              sops={sops} onOpenSop={(id) => setSopView(`sop:${id}`)} onNew={() => { setSopView('edit:new'); setOpenRun(null) }} /></SopSchedules.Provider>
           })()}
           {page === 'overview' && <OverviewPage benches={benches} current={bench.id} onOpen={openFromOverview} />}
           {page === 'today' && (

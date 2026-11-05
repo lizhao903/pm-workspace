@@ -1,11 +1,12 @@
 // 定时任务页的纯函数（SPEC-tasks-7、8）：规则说成一句话、前端先挡的规则错误、「做什么」的文字、表单草稿和提交体。
 // 下次执行、接下来几次由后端算（next_run_at、POST /api/schedules/preview），这里不重复算。
 import type {
-  DictItem, Schedule, ScheduleAction, ScheduleActionKind, ScheduleFreq, ScheduleInput, SchedulePatch, ScheduleRule, ScheduleRun,
+  DictItem, Schedule, ScheduleAction, ScheduleActionKind, ScheduleInput, SchedulePatch, ScheduleRule, ScheduleRun,
 } from '../../core/data'
+import { describeRule, emptyRule, fullRule, ruleError, whenText } from '../../core/ui/scheduleRule'
+// 规则的纯函数挪到 core/ui/scheduleRule.ts（TSK-0463：SOP 流程编辑复用同一个规则编辑），这里照旧导出
+export { FREQS, FREQ_LABEL, WEEK, WEEK_ORDER, describeRule, emptyRule, fullRule, ruleError, whenText } from '../../core/ui/scheduleRule'
 
-export const FREQS: ScheduleFreq[] = ['once', 'daily', 'weekdays', 'weekly', 'monthly', 'cron']
-export const FREQ_LABEL: Record<ScheduleFreq, string> = { once: '一次', daily: '每天', weekdays: '工作日', weekly: '每周', monthly: '每月', cron: 'Cron 表达式' }
 export const ACTION_KINDS: ScheduleActionKind[] = ['task', 'remind', 'sop', 'agent', 'incident_sweep']
 export const ACTION_LABEL: Record<ScheduleActionKind, string> = { task: '建一条任务', remind: '提醒', sop: '执行 SOP', agent: '让 Agent 去做', incident_sweep: '运行异常巡检' }
 /** 提醒的字数上限，和后端一致 */
@@ -24,73 +25,11 @@ export function publishIdOf(a: ScheduleAction): string | undefined {
   const x = a as unknown as { kind: string; publish_id?: unknown }
   return x.kind === 'video_publish' && typeof x.publish_id === 'string' && x.publish_id ? x.publish_id : undefined
 }
-/** 动作里引用的东西的名字：发布记录 id 到发布标题；没取到（视频插件没启用）不传 */
-export type ActionNames = { publishes?: Record<string, string> }
-export const WEEK = ['日', '一', '二', '三', '四', '五', '六']
-/** 周一在前 */
-export const WEEK_ORDER = [1, 2, 3, 4, 5, 6, 0]
+/** 动作里引用的东西的名字：发布记录 id 到发布标题、SOP 流程 id 到流程名；没取到（插件没启用）不传 */
+export type ActionNames = { publishes?: Record<string, string>; flows?: Record<string, string> }
+/** 随 SOP 流程管理的那一条（TSK-0463）：动作跟着流程，定时任务页只能改名称、规则、启停 */
+export const isManagedSop = (a: ScheduleAction) => a.kind === 'sop' && !!a.managed
 export const DUE_DAYS = [0, 1, 2, 3, 5, 7]
-
-const pad = (n: number) => String(n).padStart(2, '0')
-const ymd = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
-
-/** 新建时的默认规则：每周一 09:00；一次性默认明天，cron 默认同一个点 */
-export function emptyRule(now: Date = new Date()): ScheduleRule {
-  const tomorrow = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1)
-  return { freq: 'weekly', time: '09:00', weekdays: [1], day: 1, date: ymd(tomorrow), cron: '0 9 * * 1' }
-}
-
-/** 后端只给自己频率的字段时补齐，切换频率时有默认值可用 */
-export function fullRule(r: Partial<ScheduleRule> | undefined, now: Date = new Date()): ScheduleRule {
-  const e = emptyRule(now)
-  return {
-    freq: r?.freq ?? e.freq,
-    time: r?.time || e.time,
-    weekdays: r?.weekdays?.length ? [...r.weekdays] : e.weekdays,
-    day: r?.day || e.day,
-    date: r?.date || e.date,
-    cron: r?.cron || e.cron,
-  }
-}
-
-/** 规则写成一句话：「每周一 09:00」「Cron：0 18 * * 1」 */
-export function describeRule(r: ScheduleRule): string {
-  switch (r.freq) {
-    case 'once': return `${r.date || '未定日期'} ${r.time}`
-    case 'daily': return `每天 ${r.time}`
-    case 'weekdays': return `工作日 ${r.time}`
-    case 'weekly': {
-      const days = WEEK_ORDER.filter((d) => r.weekdays.includes(d))
-      return `每周${days.length ? days.map((d) => WEEK[d]).join('、') : '（没选周几）'} ${r.time}`
-    }
-    case 'monthly': return `每月 ${r.day} 号 ${r.time}`
-    case 'cron': return `Cron：${r.cron || '未填'}`
-  }
-}
-
-/** 前端先挡的规则错误（SPEC-tasks-0 ruleError 的五种文案）；cron 的细节和时区由后端预览再校验 */
-export function ruleError(r: ScheduleRule, now: Date = new Date()): string {
-  if (r.freq !== 'cron' && !/^\d{2}:\d{2}$/.test(r.time)) return '时间要写成 09:00 这种格式'
-  if (r.freq === 'weekly' && !r.weekdays.length) return '每周执行要至少选一天'
-  if (r.freq === 'once' && !r.date) return '选一个执行日期'
-  if (r.freq === 'once' && new Date(`${r.date}T${r.time}`) <= now) return '这个时间已经过去了'
-  if (r.freq === 'cron' && r.cron.trim().split(/\s+/).filter(Boolean).length !== 5) return 'Cron 要 5 段：分 时 日 月 周，比如 0 9 * * 1'
-  return ''
-}
-
-/** 「今天 09:00」「明天 09:00」「周三 18:00」「11-15 09:00」；算不出时「不再执行」 */
-export function whenText(iso: string | null | undefined, now: Date = new Date()): string {
-  if (!iso) return '不再执行'
-  const d = new Date(iso)
-  if (Number.isNaN(d.getTime())) return '不再执行'
-  const day = (x: Date) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime()
-  const diff = Math.round((day(d) - day(now)) / 86400000)
-  const t = `${pad(d.getHours())}:${pad(d.getMinutes())}`
-  if (diff === 0) return `今天 ${t}`
-  if (diff === 1) return `明天 ${t}`
-  if (diff > 1 && diff < 7) return `周${WEEK[d.getDay()]} ${t}`
-  return `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${t}`
-}
 
 /** 发布记录名「平台 · 标题」；发布记录取到了但没有这一条时「已删除的发布记录」，没取到时显示编号 */
 export function publishName(id: string, names: ActionNames): string {
@@ -102,7 +41,7 @@ export function publishName(id: string, names: ActionNames): string {
 export function actionText(a: ScheduleAction, names: ActionNames = {}): string {
   if (a.kind === 'task') return `建任务「${a.title || '未填标题'}」`
   if (a.kind === 'remind') return `提醒「${a.title || '未填标题'}」${a.object_id ? '，关联任务' : ''}`
-  if (a.kind === 'sop') return `执行「${a.sop_id || '未选 SOP'}」`
+  if (a.kind === 'sop') return `执行「${(a.sop_id && names.flows?.[a.sop_id]) || a.sop_id || '未选 SOP'}」${a.managed ? '，随流程管理' : ''}`
   if (a.kind === 'incident_sweep') return `巡检运行异常：${SWEEP_LEVEL_LABEL[a.min_level] ?? SWEEP_LEVEL_LABEL.error}${a.min_count > 1 ? `，至少 ${a.min_count} 次` : ''}，建任务交给 Claude Code`
   const kind = (a as { kind: string }).kind
   if (kind === 'video_publish') {

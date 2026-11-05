@@ -46,6 +46,8 @@ type Registry struct {
 	agent atomic.Pointer[agentBox]
 	// sopRefs 查指向 SOP 流程的定时任务（SOP-01d，soplaunch.go），SetSOPRefs 接上
 	sopRefs atomic.Pointer[sopRefsBox]
+	// sopSchedules 是随流程管理的定时任务（TSK-0463，sopschedule.go），SetSOPSchedules 接上
+	sopSchedules atomic.Pointer[sopSchedulesBox]
 	// notifier 是插件发通知用的通知中心（VID-06b，notify.go），SetNotifier 接上
 	notifier atomic.Pointer[notifierBox]
 	// incidents 是插件记运行异常用的（INC-01a，incidents.go），SetIncidents 接上
