@@ -2031,7 +2031,7 @@ export default function App() {
           {page === 'markets' && <MarketsPage watchlists={watchlists} onWatchlists={setWatchlists} focus={chartFocus} onNewAlert={newAlertFor} onTrade={tradeFor} />}
           {page === 'monitor' && (
             <MonitorPage alerts={alerts} events={alertEvents} watchlists={watchlists} onAlerts={setAlerts} onEvents={setAlertEvents} onOpenChart={openChart} newRequest={alertReq}
-              imConnectors={connectors.filter((c) => TOOLS.find((t) => t.key === c.tool)?.category === 'im').map((c) => ({ id: c.id, name: c.name }))} />
+              imConnectors={connectors.filter((c) => TOOLS.find((t) => t.key === c.tool)?.category === 'im').map((c) => ({ id: c.id, name: c.name, status: c.status }))} />
           )}
           {page === 'etf' && <EtfPage />}
           {page === 'trading' && (
@@ -2063,7 +2063,8 @@ export default function App() {
             if (!b) return <div className="page"><PageTitle>回测</PageTitle><div className="empty"><div className="empty-title">这条回测记录不在了</div></div></div>
             return (
               <BacktestReport key={b.id} backtest={b} onDeploy={deployStrategy} onOpenStrategy={(id) => setStrategyView(`st:${id}`)}
-                onRerun={(cfg) => { const st = strategies.find((x) => x.id === b.config.strategy_id) ?? b.strategy_snapshot; setStrategyView(`bt:${startBacktest(st, cfg)}`) }} />
+                onRerun={(cfg) => { const st = strategies.find((x) => x.id === b.config.strategy_id) ?? b.strategy_snapshot; setStrategyView(`bt:${startBacktest(st, cfg)}`) }}
+                onDelete={() => { setBacktests((xs) => xs.filter((x) => x.id !== b.id)); setStrategyView('backtests') }} />
             )
           })()}
           {page === 'sessions' && sessionView === 'chats' && (
