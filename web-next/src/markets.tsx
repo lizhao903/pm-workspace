@@ -11,13 +11,12 @@ import {
 import { newId } from './ids'
 import { SearchSelect } from './searchselect'
 
-// 行情：左自选、中 K 线、右盘口与成交；另一个标签是期权 T 型报价
+// 行情：左自选、中 K 线、右盘口与数据源；另一个标签是期权（数据源未接，可看演示）
 // K 线历史按 (标的, 周期, 分钟) 缓存，最后一根每秒用 bars(...,1,now) 单独现算
 
 const TOTAL = 200
 const VIEW = 140
 const p2 = (n: number) => String(n).padStart(2, '0')
-function hashStr(s: string) { let h = 2166136261; for (const c of s) h = Math.imul(h ^ c.charCodeAt(0), 16777619); return h >>> 0 }
 const code = (symbol: string) => symbol.slice(symbol.indexOf(':') + 1)
 const fmtVol = (v: number) => (v >= 1e8 ? `${(v / 1e8).toFixed(2)} 亿` : v >= 1e4 ? `${(v / 1e4).toFixed(2)} 万` : v >= 100 ? v.toFixed(0) : v.toFixed(2))
 const fmtNum = (x: number) => { const a = Math.abs(x); return a >= 100 ? x.toFixed(1) : a >= 1 ? x.toFixed(2) : a >= 0.001 ? x.toFixed(4) : x === 0 ? '0' : x.toExponential(2) }
@@ -25,6 +24,20 @@ const fmtStrike = (k: number) => String(Number(k.toPrecision(10)))
 const daysTo = (iso: string, at: number) => Math.max(0, Math.ceil((new Date(iso).getTime() - at) / 86400000))
 const signColor = (x: number) => (x > 0 ? UP : x < 0 ? DOWN : 'var(--muted)')
 const FUNDING_MS = 8 * 3600000
+
+/* ---------- 数据源（TRD-02b） ---------- */
+// 正式版只有数币的现货和永续接了行情源（Binance、OKX 公开行情）；A 股、港股、美股、交割合约和期权显示「数据源未接」，不显示价格。
+// 原型的价格仍是模拟的，这里演示界面：哪些标的有源、数据状态和数据时间、断开后价格停在最后一次并标「缓存」。
+type FeedStatus = 'live' | 'stale' | 'no_source'
+const FEED_LABEL: Record<FeedStatus, string> = { live: '实时', stale: '缓存', no_source: '数据源未接' }
+/** 有行情源时回源名，没有回 null */
+const feedOf = (i: Instrument) => (i.market === 'crypto' && (i.kind === 'spot' || i.kind === 'perp') ? i.venue : null)
+/** 断开演示：cut 是断开的时刻，之后价格停在这一刻 */
+type Cut = number | null
+const feedStatus = (i: Instrument, cut: Cut): FeedStatus => (!feedOf(i) ? 'no_source' : cut ? 'stale' : 'live')
+const CUT_REASON = 'Binance 返回 429（被限频），12 秒后重试'
+const FeedDot = ({ s, title }: { s: FeedStatus; title?: string }) => <span className={cls('mk-st', `mk-st-${s}`)} title={title}><i />{FEED_LABEL[s]}</span>
+const hms = (t: number) => { const d = new Date(t); return `${p2(d.getHours())}:${p2(d.getMinutes())}:${p2(d.getSeconds())}` }
 
 /* ---------- 指标 ---------- */
 
@@ -96,7 +109,7 @@ type MarketFilter = MarketKey | 'all'
 /** 自选组超过这么多个时，标签只放前 3 个和当前组，其余收进可搜索的下拉 */
 const GROUP_CHIPS_MAX = 6
 
-function WatchPanel({ watchlists, onWatchlists, wlId, setWlId, symbol, onPick, now }: {
+function WatchPanel({ watchlists, onWatchlists, wlId, setWlId, symbol, onPick, now, cut }: {
   watchlists: Watchlist[]
   onWatchlists: (fn: (xs: Watchlist[]) => Watchlist[]) => void
   wlId: string
@@ -104,6 +117,7 @@ function WatchPanel({ watchlists, onWatchlists, wlId, setWlId, symbol, onPick, n
   symbol: string
   onPick: (s: string) => void
   now: number
+  cut: Cut
 }) {
   const wl = watchlists.find((w) => w.id === wlId) ?? watchlists[0]
   const [mf, setMf] = useState<MarketFilter>('all')
@@ -208,8 +222,10 @@ function WatchPanel({ watchlists, onWatchlists, wlId, setWlId, symbol, onPick, n
       <div className="mk-list">
         {!rows.length && <div className="mount-empty">{wl?.symbols.length ? '这个市场没有自选标的' : '这一组还是空的，上面搜一个加进来'}</div>}
         {rows.map((i) => {
-          const last = priceAt(i.symbol, now)
-          const prev = prevClose(i.symbol, now)
+          const fs = feedStatus(i, cut)
+          const at = cut ?? now
+          const last = priceAt(i.symbol, at)
+          const prev = prevClose(i.symbol, at)
           const pct = prev ? (last - prev) / prev : 0
           const s = sessions[i.market]
           return (
@@ -217,12 +233,17 @@ function WatchPanel({ watchlists, onWatchlists, wlId, setWlId, symbol, onPick, n
               onKeyDown={(e) => { if (e.key === 'Enter') onPick(i.symbol) }}>
               <div className="mk-row-main">
                 <span className="mk-row-name"><Dot m={i.market} /><span className="ellipsis">{i.name}</span><KindTag i={i} /></span>
-                <span className="mk-row-sub"><span className="mk-code ellipsis">{code(i.symbol)}</span><span className={cls('mk-sess', `mk-sess-${s}`)}>{SESSION_LABEL[s]}</span></span>
+                <span className="mk-row-sub"><span className="mk-code ellipsis">{code(i.symbol)}</span><span className={cls('mk-sess', `mk-sess-${s}`)}>{SESSION_LABEL[s]}</span>
+                  {fs === 'stale' && <span className="mk-sess mk-sess-pre" title={CUT_REASON}>缓存</span>}</span>
               </div>
-              <div className="mk-row-px">
-                <span className="mk-row-last">{fmtPrice(i.symbol, last)}</span>
-                <span className="mk-row-pct" style={{ background: pct >= 0 ? UP : DOWN }}>{fmtPct(pct)}</span>
-              </div>
+              {fs === 'no_source' ? (
+                <div className="mk-row-px"><span className="mk-na">数据源未接</span></div>
+              ) : (
+                <div className="mk-row-px">
+                  <span className="mk-row-last">{fmtPrice(i.symbol, last)}</span>
+                  <span className={cls('mk-row-pct', fs === 'stale' && 'is-stale')} style={{ background: pct >= 0 ? UP : DOWN }}>{fmtPct(pct)}</span>
+                </div>
+              )}
               <button className="mk-row-x" title="移出自选" onClick={(e) => { e.stopPropagation(); remove(i.symbol) }}><IconX /></button>
             </div>
           )
@@ -428,21 +449,34 @@ function KChart({ symbol, interval, now, ov, sub }: { symbol: string; interval: 
   )
 }
 
-function SymbolHead({ i, now }: { i: Instrument; now: number }) {
-  const q = quoteOf(i.symbol, now)
+function SymbolHead({ i, now, cut }: { i: Instrument; now: number; cut: Cut }) {
+  const fs = feedStatus(i, cut)
+  const at = cut ?? now
+  const q = quoteOf(i.symbol, at)
   const minute = Math.floor(now / 60000) * 60000
   const dayVol = useMemo(() => bars(i.symbol, '15m', 96, minute).reduce((a, b) => a + Math.abs(b.v), 0), [i.symbol, minute])
   const s = sessionOf(i.market, now)
-  const color = signColor(q.change)
-  const fr = i.kind === 'perp' ? fundingRate(i.symbol, now) : 0
+  const color = fs === 'stale' ? 'var(--muted)' : signColor(q.change)
+  const fr = i.kind === 'perp' ? fundingRate(i.symbol, at) : 0
   const nextFund = Math.ceil(now / FUNDING_MS) * FUNDING_MS
   const Item = ({ k, v, c }: { k: string; v: React.ReactNode; c?: string }) => <span className="mk-hi"><span className="mk-hi-k">{k}</span><span className="mk-hi-v" style={c ? { color: c } : undefined}>{v}</span></span>
+  const idBlock = (
+    <div className="mk-head-id">
+      <div className="mk-head-name"><Dot m={i.market} /><span className="ellipsis">{i.name}</span><KindTag i={i} /></div>
+      <div className="mk-code">{i.symbol} · {i.venue} · {MARKETS[i.market].currency}</div>
+    </div>
+  )
+  if (fs === 'no_source') {
+    return (
+      <div className="mk-head">
+        {idBlock}
+        <div className="mk-head-na"><b>数据源未接</b><span className="faint">{MARKETS[i.market].label}{i.kind === 'future' ? '交割合约' : ''}的行情源还没接，不显示价格</span></div>
+      </div>
+    )
+  }
   return (
     <div className="mk-head">
-      <div className="mk-head-id">
-        <div className="mk-head-name"><Dot m={i.market} /><span className="ellipsis">{i.name}</span><KindTag i={i} /></div>
-        <div className="mk-code">{i.symbol} · {i.venue} · {MARKETS[i.market].currency}</div>
-      </div>
+      {idBlock}
       <div className="mk-head-px">
         <span className="mk-last" style={{ color }}>{fmtPrice(i.symbol, q.last)}</span>
         <span className="mk-chg" style={{ color }}>{q.change >= 0 ? '+' : ''}{fmtPrice(i.symbol, q.change)} {fmtPct(q.pct)}</span>
@@ -464,6 +498,7 @@ function SymbolHead({ i, now }: { i: Instrument; now: number }) {
           <Item k="资金费率" v={`${fr >= 0 ? '+' : ''}${fr.toFixed(4)}%`} c={signColor(fr)} />
           <Item k="下次结算" v={fmtSpan(nextFund - now)} />
         </>}
+        <span className="mk-hi"><span className="mk-hi-k">数据时间</span><span className="mk-hi-v"><FeedDot s={fs} title={fs === 'stale' ? CUT_REASON : undefined} /> {hms(at)}</span></span>
         <span className="mk-hi"><SessionPill s={s} /></span>
       </div>
     </div>
@@ -472,35 +507,32 @@ function SymbolHead({ i, now }: { i: Instrument; now: number }) {
 
 /* ---------- 右栏：盘口、成交、下单 ---------- */
 
-function BookPanel({ i, now, onTrade, onNewAlert }: { i: Instrument; now: number; onTrade: (s: string, side: 'buy' | 'sell') => void; onNewAlert: (s: string) => void }) {
-  const book = orderBook(i.symbol, now, 10)
-  const last = priceAt(i.symbol, now)
+function BookPanel({ i, now, cut, setCut, onTrade, onNewAlert }: {
+  i: Instrument; now: number; cut: Cut; setCut: (c: Cut) => void
+  onTrade: (s: string, side: 'buy' | 'sell') => void; onNewAlert: (s: string) => void
+}) {
+  const fs = feedStatus(i, cut)
+  const at = cut ?? now
+  const book = orderBook(i.symbol, at, 10)
+  const last = priceAt(i.symbol, at)
   const cum = (xs: [number, number][]) => { let s = 0; return xs.map(([p, v]) => { s += v; return [p, v, s] as const }) }
   const asks = cum(book.asks), bids = cum(book.bids)
   const max = Math.max(asks[asks.length - 1]?.[2] ?? 1, bids[bids.length - 1]?.[2] ?? 1)
   const sz = (v: number) => (i.market === 'crypto' ? v.toFixed(3) : fmtVol(v))
   const bidSum = bids[bids.length - 1]?.[2] ?? 0, askSum = asks[asks.length - 1]?.[2] ?? 0
   const bidPct = bidSum + askSum ? bidSum / (bidSum + askSum) : 0.5
-  // 最近成交：按整秒往前取价，跟前一秒比定方向
-  const sec = Math.floor(now / 1000) * 1000
-  const trades = Array.from({ length: 16 }, (_, k) => {
-    const t = sec - k * 1000
-    const p = priceAt(i.symbol, t)
-    const pp = priceAt(i.symbol, t - 1000)
-    const h = hashStr(`${i.symbol}${t}`)
-    const v = i.market === 'crypto' ? ((h % 900) + 5) / 1000 * (i.base > 10000 ? 1 : 20) : ((h % 40) + 1) * i.lot
-    return { t, p, v, buy: p >= pp }
-  })
   return (
     <div className="mk-side">
       <div className="mk-trade">
-        <button className="mk-buy" onClick={() => onTrade(i.symbol, 'buy')}>买入<span>{fmtPrice(i.symbol, book.asks[0]?.[0] ?? last)}</span></button>
-        <button className="mk-sell" onClick={() => onTrade(i.symbol, 'sell')}>卖出<span>{fmtPrice(i.symbol, book.bids[0]?.[0] ?? last)}</span></button>
+        <button className="mk-buy" onClick={() => onTrade(i.symbol, 'buy')}>买入<span>{fs === 'no_source' ? '-' : fmtPrice(i.symbol, book.asks[0]?.[0] ?? last)}</span></button>
+        <button className="mk-sell" onClick={() => onTrade(i.symbol, 'sell')}>卖出<span>{fs === 'no_source' ? '-' : fmtPrice(i.symbol, book.bids[0]?.[0] ?? last)}</span></button>
       </div>
+      <div className="mk-trade-note">下单去交易页，只到模拟盘</div>
       <button className="act mk-alert-btn" onClick={() => onNewAlert(i.symbol)}>设提醒</button>
 
       <div className="mk-box">
-        <div className="mk-box-head"><span>盘口</span><span className="spacer" /><span className="faint">价格</span><span className="faint mk-box-r">数量</span></div>
+        <div className="mk-box-head"><span>盘口</span>{fs !== 'live' && <FeedDot s={fs} />}<span className="spacer" /><span className="faint">价格</span><span className="faint mk-box-r">数量</span></div>
+        {fs === 'no_source' ? <div className="mount-empty">数据源未接</div> : <>
         <div className="mk-book">
           {[...asks].reverse().map(([p, v, c], k) => (
             <div key={`a${k}`} className="mk-lv">
@@ -520,22 +552,21 @@ function BookPanel({ i, now, onTrade, onNewAlert }: { i: Instrument; now: number
           <span style={{ width: `${bidPct * 100}%`, background: UP }} /><span style={{ width: `${(1 - bidPct) * 100}%`, background: DOWN }} />
         </div>
         <div className="mk-ratio-t"><span style={{ color: UP }}>买 {(bidPct * 100).toFixed(0)}%</span><span style={{ color: DOWN }}>卖 {((1 - bidPct) * 100).toFixed(0)}%</span></div>
+        </>}
       </div>
 
-      <div className="mk-box">
-        <div className="mk-box-head"><span>最近成交</span></div>
-        <div className="mk-ticks">
-          {trades.map((x) => {
-            const t = new Date(x.t)
-            return (
-              <div key={x.t} className="mk-tick">
-                <span className="faint">{p2(t.getHours())}:{p2(t.getMinutes())}:{p2(t.getSeconds())}</span>
-                <span style={{ color: x.buy ? UP : DOWN }}>{fmtPrice(i.symbol, x.p)}</span>
-                <span className="mk-lv-v">{sz(x.v)}</span>
-              </div>
-            )
-          })}
-        </div>
+      <div className="mk-box mk-src" aria-label="数据源">
+        <div className="mk-box-head"><span>数据源</span></div>
+        <div className="mk-kv"><span className="muted">来源</span><span>{feedOf(i) ? `${feedOf(i)} 公开行情` : '未接'}</span></div>
+        <div className="mk-kv"><span className="muted">状态</span><FeedDot s={fs} /></div>
+        {fs !== 'no_source' && <div className="mk-kv"><span className="muted">数据时间</span><span>{hms(at)}（{fmtSpan(now - at)}前）</span></div>}
+        {fs !== 'no_source' && <div className="mk-kv"><span className="muted">更新方式</span><span>推送，每秒</span></div>}
+        {fs === 'stale' && <div className="mk-src-err">交易所异常：{CUT_REASON}</div>}
+        {fs !== 'no_source' && (
+          <button className="act act-quiet mk-src-demo" onClick={() => setCut(cut ? null : Date.now())} title="原型演示：交易所取不到时价格停在最后一次、标为缓存">
+            {cut ? '演示：恢复数据源' : '演示：断开数据源'}
+          </button>
+        )}
       </div>
     </div>
   )
@@ -660,6 +691,8 @@ export function MarketsPage({ watchlists, onWatchlists, focus, onNewAlert, onTra
   const [exp, setExp] = useState(OPTION_EXPIRIES[1])
   const [pick, setPick] = useState<string | null>(null)
   const [listOpen, setListOpen] = useState(false)
+  const [cut, setCut] = useState<Cut>(null)
+  const [optDemo, setOptDemo] = useState(false)
 
   const handled = useRef<number | null>(null)
   useEffect(() => {
@@ -706,11 +739,11 @@ export function MarketsPage({ watchlists, onWatchlists, focus, onNewAlert, onTra
           {listOpen && <div className="mk-scrim" onClick={() => setListOpen(false)} />}
           <aside className={cls('mk-left', listOpen && 'open')}>
             <div className="mk-left-head"><span>自选</span><span className="spacer" /><button className="icon-btn icon-btn-sm" onClick={() => setListOpen(false)} title="关闭 (Esc)"><IconX s={12} /></button></div>
-            <WatchPanel watchlists={watchlists} onWatchlists={onWatchlists} wlId={wlId} setWlId={setWlId} symbol={symbol} now={now}
+            <WatchPanel watchlists={watchlists} onWatchlists={onWatchlists} wlId={wlId} setWlId={setWlId} symbol={symbol} now={now} cut={cut}
               onPick={(s) => { setSymbol(s); setListOpen(false) }} />
           </aside>
           <section className="mk-center">
-            <SymbolHead i={inst} now={now} />
+            <SymbolHead i={inst} now={now} cut={cut} />
             <div className="mk-tools">
               <div className="seg seg-sm">
                 {(Object.keys(INTERVALS) as BarInterval[]).map((k) => <button key={k} className={cls(interval === k && 'on')} onClick={() => setInterval_(k)}>{INTERVALS[k].label}</button>)}
@@ -728,15 +761,28 @@ export function MarketsPage({ watchlists, onWatchlists, focus, onNewAlert, onTra
                 {([['vol', '成交量'], ['macd', 'MACD'], ['rsi', 'RSI']] as [SubKind, string][]).map(([k, l]) => <button key={k} className={cls(sub === k && 'on')} onClick={() => setSub(k)}>{l}</button>)}
               </div>
             </div>
-            <KChart symbol={inst.symbol} interval={interval} now={now} ov={ov} sub={sub} />
+            {feedOf(inst)
+              ? <KChart symbol={inst.symbol} interval={interval} now={cut ?? now} ov={ov} sub={sub} />
+              : <div className="mk-chart"><div className="mk-chart-msg">{MARKETS[inst.market].label}的行情源还没接，不显示 K 线</div></div>}
           </section>
           <aside className="mk-right">
-            <BookPanel i={inst} now={now} onTrade={onTrade} onNewAlert={onNewAlert} />
+            <BookPanel i={inst} now={now} cut={cut} setCut={setCut} onTrade={onTrade} onNewAlert={onNewAlert} />
           </aside>
+        </div>
+      ) : !optDemo ? (
+        <div className="mk-body mk-body-opt">
+          <section className="mk-center mk-opt-na">
+            <div className="mk-opt-empty">
+              <b>期权数据源未接</b>
+              <span className="muted">期权 T 型报价要接 Deribit、OKX 期权或券商的期权行情，接上之前不显示报价，也不用模拟价格</span>
+              <button className="act act-quiet" onClick={() => setOptDemo(true)}>看原型演示（模拟报价）</button>
+            </div>
+          </section>
         </div>
       ) : (
         <div className="mk-body mk-body-opt">
           <section className="mk-center mk-center-opt">
+            <div className="mk-banner">原型演示：下面是模拟报价，不是真实行情<button className="act act-quiet" onClick={() => setOptDemo(false)}>收起演示</button></div>
             <OptionBoard und={und} exp={exp} setUnd={(s) => { setUnd(s); setPick(null) }} setExp={(e) => { setExp(e); setPick(null) }} pick={pick} setPick={setPick} now={now} />
           </section>
           <aside className="mk-right">

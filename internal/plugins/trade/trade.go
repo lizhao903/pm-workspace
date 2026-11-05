@@ -1,6 +1,6 @@
-// Package trade 是交易套件插件的后端（TRD-01a）：一个插件、四个功能模块（行情、盯盘、策略与回测、交易执行），
-// 以后要单独装时再拆。本条只有标的（instruments.go）、自选分组（watchlists.go）和行情源适配接口（source.go），
-// 真实行情源在 TRD-01b、TRD-01c。
+// Package trade 是交易套件插件的后端（TRD-01a 起）：一个插件、四个功能模块（行情、盯盘、策略与回测、交易执行），
+// 以后要单独装时再拆。标的（instruments.go）、自选分组（watchlists.go）、行情源适配接口（source.go），
+// Binance、OKX 公开行情（binance.go、okx.go，TRD-01b、TRD-01c），行情缓存和推送（market.go、klines.go、stream.go，TRD-02a）。
 //
 // 涉及资金的边界：只做行情、回测、模拟盘；不写任何向交易所下单、撤单、划转、提币的代码路径，
 // 权限只有 network:market-data，不声明 network:exchanges 和 trade:live。
@@ -8,6 +8,7 @@
 package trade
 
 import (
+	"context"
 	"embed"
 	"encoding/json"
 	"errors"
@@ -15,8 +16,11 @@ import (
 	"io"
 	"io/fs"
 	"net/http"
+	"os"
 	"strings"
+	"time"
 
+	"github.com/lizhao903/pm-workspace/internal/connector"
 	"github.com/lizhao903/pm-workspace/internal/plugin"
 )
 
@@ -30,6 +34,23 @@ var migrationsFS embed.FS
 type Plugin struct {
 	m       plugin.Manifest
 	sources []Source
+	mkt     *market
+
+	// 测试用：时钟、刷新和推送间隔、出网函数（换成假交易所），零值用默认
+	now  func() time.Time
+	tick time.Duration
+	push time.Duration
+	doer HTTPDoer
+}
+
+// DefaultSources 是编进二进制的行情源：Binance、OKX 公开行情。
+// 不出网的假行情源只给测试和离线演示，设了环境变量 PMW_TRADE_DEMO=1 才加上，界面上标为「假行情源」。
+func DefaultSources() []Source {
+	out := []Source{NewBinance(), NewOKX()}
+	if os.Getenv("PMW_TRADE_DEMO") == "1" {
+		out = append(out, &FakeSource{})
+	}
+	return out
 }
 
 // New 带上要用的行情源；id 重复或覆盖声明不对直接 panic（源是编译进来的，写错是代码问题）。
@@ -58,8 +79,37 @@ func (p *Plugin) Migrations() fs.FS {
 	return sub
 }
 
+// connectorColors 是连接器页上的品牌色。
+var connectorColors = map[string]string{"binance": "#F0B90B", "okx": "#121212"}
+
 func (p *Plugin) Register(r plugin.Registrar) error {
-	h := &handlers{c: r.Core(), p: p}
+	core := r.Core()
+	// 要出网的源在这里接上受控客户端；client 每次请求时现取，权限变了立刻生效
+	for _, s := range p.sources {
+		if b, ok := s.(httpBinder); ok {
+			if p.doer != nil {
+				b.BindHTTP(p.doer)
+			} else {
+				b.BindHTTP(func(ctx context.Context) (*http.Client, error) { return core.HTTP("market-data") })
+			}
+		}
+		if cs, ok := s.(connectorSource); ok {
+			r.Connector(plugin.ConnectorDef{
+				Tool: cs.ConnectorTool(), Label: s.Name() + " 公开行情", Category: "market", Color: connectorColors[s.ID()],
+				Desc: s.Name() + " 现货和 USDT 永续的公开行情：K 线、盘口、最新价、资金费率。只读，不需要 API Key，不能下单。" +
+					"交易套件拉行情时把限频、断网记到这里，恢复后自动回到已连接",
+				Auth: []connector.AuthMode{connector.AuthNone},
+				Test: func(ctx context.Context, _ connector.Config) (string, error) {
+					if err := cs.Ping(ctx); err != nil {
+						return "", err
+					}
+					return s.Name() + " 公开行情", nil
+				},
+			})
+		}
+	}
+	p.mkt = newMarket(p, core)
+	h := &handlers{c: core, p: p}
 	r.Routes(func(m plugin.RouteRegistrar) {
 		m.HandleFunc("GET /api/trade/sources", h.listSources)
 		m.HandleFunc("POST /api/trade/sources/{id}/sync", h.syncSource)
@@ -70,7 +120,24 @@ func (p *Plugin) Register(r plugin.Registrar) error {
 		m.HandleFunc("GET /api/trade/watchlists/{id}", h.getWatchlist)
 		m.HandleFunc("PATCH /api/trade/watchlists/{id}", h.updateWatchlist)
 		m.HandleFunc("DELETE /api/trade/watchlists/{id}", h.removeWatchlist)
+		m.HandleFunc("GET /api/trade/quotes", h.getQuotes)
+		m.HandleFunc("GET /api/trade/book", h.getBook)
+		m.HandleFunc("GET /api/trade/funding", h.getFunding)
+		m.HandleFunc("GET /api/trade/klines", h.getKlines)
+		m.HandleFunc("GET /api/trade/stream", h.stream)
 	})
+	if len(p.sources) > 0 {
+		// 行情刷新常驻；标的表一天同步一次（启用时先跑一次）
+		r.Job(plugin.Job{Name: "trade_market", Run: func(ctx context.Context, _ plugin.Core) error { return p.mkt.run(ctx) }})
+		r.Job(plugin.Job{Name: "trade_instruments", Every: 24 * time.Hour, Run: func(ctx context.Context, c plugin.Core) error {
+			for _, s := range p.sources {
+				if _, err := runSync(ctx, c, s); err != nil {
+					c.Log().Warn("sync instruments failed", "source", s.ID(), "err", err)
+				}
+			}
+			return nil
+		}})
+	}
 	return nil
 }
 

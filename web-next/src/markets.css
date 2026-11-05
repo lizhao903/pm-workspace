@@ -158,6 +158,28 @@
 .mk-greek { display: flex; flex-direction: column; padding: 6px 8px; border-radius: var(--r-sm); background: var(--panel-2); font-size: 12.5px; }
 .mk-greek .faint { font-size: 11px; }
 
+/* ---------- 数据源与数据状态（TRD-02b） ---------- */
+.mk-na { flex: none; font-size: 11px; line-height: 17px; padding: 0 6px; border-radius: 4px; color: var(--faint); background: var(--hover); }
+.mk-row-pct.is-stale { background: var(--line-2) !important; color: var(--muted); }
+.mk-st { display: inline-flex; align-items: center; gap: 5px; font-size: 11.5px; color: var(--muted); white-space: nowrap; }
+.mk-st i { width: 7px; height: 7px; border-radius: 50%; background: var(--line-2); flex: none; }
+.mk-st-live i { background: var(--ok); }
+.mk-st-stale i { background: var(--warn); }
+.mk-st-stale { color: var(--text); }
+.mk-head-na { display: flex; flex-direction: column; gap: 2px; }
+.mk-head-na b { font-size: 18px; font-weight: 600; color: var(--muted); }
+.mk-chart-msg { position: absolute; inset: 0; display: grid; place-items: center; padding: 20px; color: var(--faint); font-size: 12.5px; text-align: center; }
+.mk-src { display: flex; flex-direction: column; gap: 2px; }
+.mk-src .mk-kv { padding: 1px 0; font-size: 12px; }
+.mk-src-err { margin-top: 4px; font-size: 11.5px; color: var(--danger); word-break: break-word; }
+.mk-src-demo { align-self: flex-start; margin-top: 6px; height: 24px; font-size: 11.5px; }
+.mk-trade-note { font-size: 11px; color: var(--faint); text-align: center; margin-top: -4px; }
+.mk-banner { display: flex; align-items: center; gap: 8px; margin: 12px 12px 0; padding: 6px 12px; border-radius: var(--r-sm); font-size: 12px; background: var(--warn-soft); }
+.mk-banner .act { margin-left: auto; height: 24px; }
+.mk-opt-na { display: grid; place-items: center; padding: 40px 16px; }
+.mk-opt-empty { display: flex; flex-direction: column; align-items: center; gap: 8px; max-width: 420px; text-align: center; }
+.mk-opt-empty b { font-size: 15px; }
+
 /* ---------- 看盘窄屏 ---------- */
 @media (max-width: 1100px) {
   .mk-page { overflow-y: auto; }

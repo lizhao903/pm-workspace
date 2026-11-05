@@ -225,8 +225,8 @@ func run(cfg config) error {
 	if err := plugins.Add(domains.New(domains.Options{Addr: cfg.addr, TLSAddr: cfg.tlsAddr, TLSCert: cfg.tlsCert})); err != nil {
 		return fmt.Errorf("登记插件失败: %w", err)
 	}
-	// 交易套件插件（TRD-01a）：只做行情、回测、模拟盘；真实行情源在 TRD-01b 接上
-	if err := plugins.Add(trade.New()); err != nil {
+	// 交易套件插件（TRD-01a）：只做行情、回测、模拟盘；行情源是 Binance、OKX 公开行情（TRD-01b、TRD-01c）
+	if err := plugins.Add(trade.New(trade.DefaultSources()...)); err != nil {
 		return fmt.Errorf("登记插件失败: %w", err)
 	}
 	// 宽基监控插件（ETF-01a）：只读东方财富公开数据，采每日份额与交易快照
