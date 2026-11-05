@@ -50,6 +50,9 @@ type ConnectorReader interface {
 	With(ctx context.Context, id string, fn func(ConnectorConfig) error) error
 	// RecordSync 记本插件登记的实例的一次同步：syncErr 为 nil 记同步时间、异常的回到已连接，否则置为异常并记原因（IM-01b，connectors_sync.go）。
 	RecordSync(ctx context.Context, id string, syncErr error) (ConnectorInfo, error)
+	// SaveSession 把插件自己拿到的登录态（键以 _ 开头，值空串为清掉）写进本插件登记的实例的保险箱条目，
+	// account 非空时记成实例账号；状态不动，记一条只有键名的审计（TSK-0455，connectors_session.go）。
+	SaveSession(ctx context.Context, id string, secrets map[string]string, account string) (ConnectorInfo, error)
 }
 
 // ConnectorActions 是发起授权和断开的实现，*connector.Store 满足；cmd/pmw 用 SetConnectors 接上。

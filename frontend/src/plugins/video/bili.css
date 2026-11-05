@@ -1,0 +1,82 @@
+/* B 站组件（TSK-0455），照原型 web-next/src/videobili.css；类名 bl- 前缀，颜色走 tokens.css */
+.bl-empty-acts { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; }
+.bl-note { font-size: var(--fs-xs); }
+
+/* ---------- 账号条 ---------- */
+.bl-acc { display: flex; flex-direction: column; gap: var(--sp-4); padding: var(--sp-6) var(--sp-8); border: 1px solid var(--line); border-radius: var(--r-lg); background: var(--panel); }
+.bl-acc-main { display: flex; align-items: center; gap: 12px; min-width: 0; flex-wrap: wrap; }
+.bl-acc-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1 1 200px; }
+.bl-acc-name { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.bl-acc-name b { font-size: var(--fs-md, 15px); min-width: 0; }
+.bl-acc-sub { font-size: var(--fs-xs); color: var(--faint); }
+
+/* ---------- 扫码登录 ---------- */
+.bl-login-body { display: flex; gap: var(--sp-8); align-items: flex-start; flex-wrap: wrap; }
+.bl-qr { width: 196px; height: 196px; flex: none; display: grid; place-items: center; padding: 8px; border: 1px solid var(--line); border-radius: var(--r); background: #fff; text-align: center; font-size: var(--fs-xs); }
+.bl-qr img { display: block; width: 180px; height: 180px; image-rendering: pixelated; }
+.bl-qr.dim img { opacity: .35; }
+.bl-login-text { display: flex; flex-direction: column; gap: 10px; min-width: 0; flex: 1 1 240px; font-size: var(--fs-sm); }
+.bl-login-text p { margin: 0; font-size: var(--fs-xs); }
+.bl-steps { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 4px; }
+.bl-login-state { font-weight: 500; }
+.bl-login-state.ok { color: var(--ok); }
+.bl-login-state.warn { color: var(--warn); }
+
+/* ---------- 账户概览 ---------- */
+.bl-ov { display: flex; flex-direction: column; gap: var(--sp-6); min-width: 0; }
+.bl-stats { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: var(--sp-5); }
+.bl-inc { font-style: normal; font-size: var(--fs-xs); color: var(--ok); }
+.bl-inc.neg { color: var(--danger); }
+.bl-bars { display: flex; flex-direction: column; gap: 4px; }
+.bl-bars-plot { display: flex; align-items: flex-end; gap: 3px; height: 140px; border-bottom: 1px solid var(--line-2); }
+.bl-bar { flex: 1 1 0; min-width: 2px; height: var(--h); border-radius: 3px 3px 0 0; background: color-mix(in srgb, #fb7299 75%, var(--panel)); }
+.bl-bar:hover { background: #fb7299; }
+.bl-bars-axis { display: flex; justify-content: space-between; font-size: var(--fs-2xs); color: var(--faint); }
+.bl-bars-empty { padding: 24px 0; text-align: center; font-size: var(--fs-sm); }
+
+/* ---------- 私信 ---------- */
+.bl-inbox-wrap { display: flex; flex-direction: column; gap: var(--sp-5); min-width: 0; }
+.bl-inbox { display: grid; grid-template-columns: 280px minmax(0, 1fr); min-height: 460px; border: 1px solid var(--line); border-radius: var(--r-lg); background: var(--panel); overflow: hidden; }
+.bl-sessions { list-style: none; margin: 0; padding: 0; border-right: 1px solid var(--line); overflow-y: auto; max-height: 640px; min-width: 0; }
+.bl-sessions-empty { padding: 16px; font-size: var(--fs-sm); }
+.bl-session { display: flex; align-items: center; gap: 10px; width: 100%; padding: 10px 12px; text-align: left; background: none; border-bottom: 1px solid var(--line); min-width: 0; }
+.bl-session:hover { background: var(--hover); }
+.bl-session.sel { background: var(--accent-soft); }
+.bl-session-main { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
+.bl-session-top { display: flex; align-items: baseline; gap: 6px; min-width: 0; }
+.bl-session-top b { flex: 1; min-width: 0; font-size: var(--fs-sm); }
+.bl-session-top span { font-size: var(--fs-2xs); flex: none; }
+.bl-session-last { font-size: var(--fs-xs); color: var(--muted); }
+.bl-chat-pane { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+.bl-chat-none { margin: auto; font-size: var(--fs-sm); }
+.bl-chat { display: flex; flex-direction: column; min-height: 0; flex: 1; }
+.bl-chat-head { display: flex; align-items: center; gap: 8px; padding: 10px 14px; border-bottom: 1px solid var(--line); min-width: 0; }
+.bl-chat-head b { min-width: 0; }
+.bl-chat-head .vd-faint { font-size: var(--fs-xs); flex: none; }
+.bl-back { display: none; }
+.bl-msgs { flex: 1; display: flex; flex-direction: column; gap: 10px; padding: 14px; overflow-y: auto; max-height: 480px; min-height: 240px; }
+.bl-msgs-empty { margin: auto; font-size: var(--fs-sm); }
+.bl-msg { display: flex; flex-direction: column; gap: 2px; max-width: 78%; }
+.bl-msg.in { align-self: flex-start; }
+.bl-msg.out { align-self: flex-end; align-items: flex-end; }
+.bl-bubble { padding: 8px 12px; border-radius: 12px; font-size: var(--fs-sm); line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; background: var(--panel-2); }
+.bl-msg.out .bl-bubble { background: color-mix(in srgb, #fb7299 18%, var(--panel)); }
+.bl-msg.failed .bl-bubble { opacity: .7; }
+.bl-msg-meta { display: flex; gap: 8px; align-items: center; font-size: var(--fs-2xs); color: var(--faint); }
+.bl-msg-meta .vd-link { font-size: var(--fs-2xs); }
+.bl-msg-err { font-size: var(--fs-2xs); color: var(--danger); overflow-wrap: anywhere; }
+.bl-compose { display: flex; flex-direction: column; gap: 6px; padding: 10px 14px; border-top: 1px solid var(--line); }
+.bl-compose-bar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: var(--fs-xs); }
+.bl-send-err { font-size: var(--fs-xs); min-width: 0; overflow-wrap: anywhere; }
+
+@media (max-width: 760px) {
+  .bl-inbox { grid-template-columns: minmax(0, 1fr); }
+  .bl-sessions { border-right: none; max-height: none; }
+  .bl-inbox .bl-chat-pane { display: none; }
+  .bl-inbox.has-cur .bl-sessions { display: none; }
+  .bl-inbox.has-cur .bl-chat-pane { display: flex; }
+  .bl-back { display: inline-flex; }
+  .bl-msg { max-width: 90%; }
+  .bl-acc { padding: var(--sp-5); }
+  .bl-qr { margin: 0 auto; }
+}

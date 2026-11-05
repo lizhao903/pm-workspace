@@ -90,6 +90,7 @@
               "fs:write:attachments",
               "fs:read:any",
               "fs:write:any",
+              "fs:read:registered",
               "network:localhost",
               "network:im",
               "network:media-platforms",

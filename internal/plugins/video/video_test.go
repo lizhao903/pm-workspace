@@ -22,7 +22,7 @@ import (
 	"github.com/lizhao903/pm-workspace/internal/plugins/projects"
 )
 
-var perms = []string{"fs:read:project", "fs:write:project", "network:media-platforms", "process:spawn"}
+var perms = []string{"fs:read:project", "fs:write:project", "network:media-platforms", "process:spawn", "fs:read:registered"}
 
 func TestManifestValid(t *testing.T) {
 	m, err := plugin.Parse(manifestJSON)

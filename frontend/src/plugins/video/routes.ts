@@ -15,7 +15,10 @@ type PublishPage = { kind: 'publishes' }
 /** 内容日历（VID-06d）：?m=week 周视图，?d= 看的那天，?p= 发布抽屉 */
 type CalendarPage = { kind: 'calendar' }
 
-type Route = { kind: 'list'; view: ListView } | SeriesList | TopicPages | PublishPage | CalendarPage | { kind: 'video'; id: string; tab: DetailTab } | { kind: 'bad' }
+/** B 站组件（TSK-0455）：?c= 连接器，?v=dm 私信，?t= 对方 UID */
+type BiliPage = { kind: 'bilibili' }
+
+type Route = { kind: 'list'; view: ListView } | SeriesList | TopicPages | PublishPage | CalendarPage | BiliPage | { kind: 'video'; id: string; tab: DetailTab } | { kind: 'bad' }
 
 export function routeOf(rest: string): Route {
   const seg = rest.split('/').filter(Boolean).map(decodeURIComponent)
@@ -25,6 +28,7 @@ export function routeOf(rest: string): Route {
   if (seg.length === 1 && (seg[0] === 'topics' || seg[0] === 'clips')) return { kind: seg[0] }
   if (seg.length === 1 && seg[0] === 'publishes') return { kind: 'publishes' }
   if (seg.length === 1 && seg[0] === 'calendar') return { kind: 'calendar' }
+  if (seg.length === 1 && seg[0] === 'bilibili') return { kind: 'bilibili' }
   if (seg.length === 2 && seg[0] === 'series') return { kind: 'list', view: { kind: 'series', id: seg[1] } }
   if (seg[0] === 'v' && seg.length === 2) return { kind: 'video', id: seg[1], tab: 'flow' }
   if (seg[0] === 'v' && seg.length === 3 && (seg[2] === 'settings' || seg[2] === 'artifacts')) return { kind: 'video', id: seg[1], tab: seg[2] }

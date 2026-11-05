@@ -265,7 +265,7 @@ func TestMediaConnectorsFollowPlugin(t *testing.T) {
 		}
 		return out
 	}
-	if got := tools(); !slices.Equal(got, []string{"bilibili", "youtube", "douyin"}) {
+	if got := tools(); !slices.Equal(got, []string{"bilibili", "youtube", "douyin", BiliWebTool}) {
 		t.Fatalf("连接器目录：%v", got)
 	}
 	if d, ok := e.conns.Defs().Get(YouTubeTool); !ok || d.Source != "video" || d.OAuth == nil || !slices.Equal(d.Auth, []connector.AuthMode{connector.AuthOAuth2}) {
@@ -280,7 +280,7 @@ func TestMediaConnectorsFollowPlugin(t *testing.T) {
 	if err := e.r.Enable(ctx, "video"); err != nil {
 		t.Fatal(err)
 	}
-	if got := tools(); len(got) != 3 {
+	if got := tools(); len(got) != 4 {
 		t.Fatalf("启用后：%v", got)
 	}
 }
