@@ -66,8 +66,8 @@ export interface AgentScenario { key: string; label: string; desc: string; agent
 export const seedScenarios: AgentScenario[] = [
   { key: 'sop_assist', label: 'SOP 编排助手', desc: '流程编辑器里帮你搭流程、改节点的助手', agent_id: '' },
   { key: 'background', label: '其他后台调用', desc: '插件在后台调模型、又没指定 Agent 的地方，包括没选 Agent 的 SOP 节点（AI 处理、提取、分类、逐项处理）', agent_id: '' },
-  // SPEC-settings-9.43：任务交给工作台 Agent 执行时默认选谁，交的时候还能换；没选用第一个启用的
-  { key: 'task_run', label: '执行任务', desc: '任务交给工作台 Agent 执行时默认用的 Agent，交的时候还能换；没选时用第一个启用的 Agent', agent_id: 'ag_weekly' },
+  // SPEC-settings-8.16：任务交给工作台 Agent 执行时默认选谁，交的时候还能换；没选用第一个启用的
+  { key: 'task_run', label: '执行任务', desc: '任务交给工作台 Agent 执行时默认用的 Agent，交的时候还能换；没选时用第一个启用的 Agent', agent_id: '' },
 ]
 
 /** 交给工作台 Agent 执行时默认的 Agent（SPEC-tasks-6.21）：场景「执行任务」选的，删了、停了或没选用第一个启用的 */

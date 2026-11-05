@@ -143,9 +143,9 @@ export function runNote(r: Pick<TaskRun, 'status' | 'error'>): { text: string; t
   return { text: e, tone: r.status === 'failed' ? 'danger' : 'muted' }
 }
 
-// 附加说明在提示词的「本次执行的补充要求」一节（internal/runner 的 promptTemplate）
+// 附加说明在提示词的「本次执行的补充要求」一节（internal/runner 的 promptTemplate；交给工作台 Agent 的 agentPromptTemplate 后面接「怎么做」）
 export function extraOf(prompt: string): string {
-  const m = /## 本次执行的补充要求\n([\s\S]*?)\n\n## 约束/.exec(prompt)
+  const m = /## 本次执行的补充要求\n([\s\S]*?)\n\n## (?:约束|怎么做)/.exec(prompt)
   return m ? m[1].trim() : ''
 }
 

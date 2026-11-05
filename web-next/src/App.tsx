@@ -37,7 +37,7 @@ import { SWEEP_TAG, levelPriority, mergeIncident, seedIncidents, sweepHeldCount,
 import { SopDetailPage, SopNav, SopRunView, SopRunsPage, SopSettingsPage, SopStartDrawer, type SopView } from './sop'
 import { WorktreeSettingsPage } from './worktree'
 import { EnumContext, seedEnums } from './enumdata'
-import { SKILLS, newAgent, seedAgentRuns, seedAgents, seedKBs, seedOutputs, seedScenarios, seedSessions, type AgentOutput, type ChatMsg, type OutputKind, type Session, type ToolCall } from './agentdata'
+import { SKILLS, newAgent, seedAgentRuns, seedAgents, seedKBs, seedOutputs, seedScenarios, seedSessions, taskRunAgent, type AgentOutput, type ChatMsg, type OutputKind, type Session, type ToolCall } from './agentdata'
 import { AgentEditor, AgentsPage, CHAT_EXAMPLES, ChatPane, type ConnToolChoice, type ModelChoice, type MountableConn } from './agents'
 import { ChatsView, OutputsView, RunsView, goneAgent, type SessionTools, type SessionView } from './sessions'
 import { kindOf, seedModels, seedProviders, usable, type ProviderKind } from './modeldata'
@@ -1569,6 +1569,19 @@ export default function App() {
             go('terminal')
           },
           onManagePresets: () => { setDrawer(null); go('settings'); setSection('run-prompts') },
+          // 交给工作台 Agent（SPEC-tasks-6.20）：Agent 默认取场景「执行任务」的；会话是全局的，来源标这次执行（SPEC-sessions-1.44）
+          agentRun: { agents, defaultAgentId: taskRunAgent(agents, agentScenarios)?.id, providers, models },
+          onAgentSession: ({ task: t, runId, agentId, prompt }) => {
+            const now = new Date().toISOString()
+            const ss: Session = {
+              id: `ss_${Date.now().toString(36)}`, agent_id: agentId, project_id: t.project_id, title: `${t.ref} ${t.title}`.slice(0, 40), created_at: now, updated_at: now,
+              messages: [{ id: 1, role: 'user', text: prompt, at: now }, { id: 2, role: 'agent', text: '在执行这条任务，过程和结论在任务的执行记录里；结束后可以在这里接着问。', at: now }],
+              source: { kind: 'task_run', message_ids: [], label: `任务 ${t.ref} ${t.title} 的执行`, intent: 'chat', task_id: t.id, run_id: runId },
+            }
+            setSessions((xs) => [ss, ...xs])
+            return ss.id
+          },
+          onOpenSession: openSessionById,
         }}
         sop={task ? {
           runs, sops,
@@ -2073,6 +2086,7 @@ export default function App() {
             <ChatsView agents={agents} sessions={sessions} current={currentSession} ctx={ctx} pickRequest={pickAgent} firstMessage={firstMessage}
               projects={projects} initialProject={sessionProject} tools={sessionTools}
               onOpenSource={(id) => { setPage('messages'); openMessage(id) }}
+              onOpenTaskRun={(id, run) => { setPage('tasks'); setDrawer({ kind: 'task', id, tab: 'runs', run }) }}
               onOpen={setCurrentSession} onNew={(id) => newSession(id)}
               onMsgs={setSessionMsgs}
               onRename={(id, title) => setSessions((xs) => xs.map((x) => (x.id === id ? { ...x, title } : x)))}

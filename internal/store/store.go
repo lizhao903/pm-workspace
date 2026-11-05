@@ -157,6 +157,9 @@ type Store interface {
 	// SetTaskRunSession 记下 dsh 这次用的会话 id（0050），续跑要用。
 	// 空串是合法的（claude 的执行没有会话），不报错。
 	SetTaskRunSession(ctx context.Context, id, session string) error
+	// SetTaskRunStatus 改一条还没结束的执行的状态，只认 running / waiting（TSK-0460：交给工作台 Agent 的执行
+	// 停下等人确认时是 waiting）。已经结束的回 conflict，不存在回 not found。
+	SetTaskRunStatus(ctx context.Context, id, status string) error
 	// ResolveWorkdir 取对象的有效工作区：自身没设时回退到所属项目的，都没有返回空串。
 	ResolveWorkdir(ctx context.Context, objectID string) (string, error)
 

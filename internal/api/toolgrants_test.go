@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/lizhao903/pm-workspace/internal/audit"
 	"github.com/lizhao903/pm-workspace/internal/connector"
@@ -24,6 +25,8 @@ type grantUpstream struct {
 	mu     sync.Mutex
 	script []string
 	tools  [][]string
+	// delay 是每次回话前等多久（模拟慢服务商，测时长上限）
+	delay time.Duration
 }
 
 func (u *grantUpstream) push(lines ...string) {
@@ -76,6 +79,16 @@ func newGrantServer(t *testing.T) (*connRec, *sqlite.Store, *grantUpstream) {
 		names := []string{}
 		for _, x := range req.Tools {
 			names = append(names, x.Function.Name)
+		}
+		up.mu.Lock()
+		delay := up.delay
+		up.mu.Unlock()
+		if delay > 0 {
+			select {
+			case <-time.After(delay):
+			case <-r.Context().Done():
+				return
+			}
 		}
 		up.mu.Lock()
 		up.tools = append(up.tools, names)

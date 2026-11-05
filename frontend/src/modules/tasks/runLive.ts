@@ -12,6 +12,8 @@ export type LiveRun = {
   objectId: string
   runId?: string
   workdir?: string
+  /** 交给工作台 Agent 时这次用的会话（start 事件带来） */
+  sessionId?: string
   phase: LivePhase
   events: RunEvent[]
   // 流里的 error 事件（不是终止事件）和开流失败、断流的原因
@@ -53,7 +55,7 @@ export function startRun(objectId: string, req: RunRequest = {}, opts: { signal?
     onEvent: (e) => {
       patch(key, (r) => {
         const next = { ...r, events: [...r.events, e] }
-        if (e.type === 'start') return { ...next, runId: e.run_id, workdir: e.workdir, phase: 'streaming' }
+        if (e.type === 'start') return { ...next, runId: e.run_id, workdir: e.workdir, sessionId: e.session_id, phase: 'streaming' }
         if (e.type === 'error') return { ...next, errors: [...r.errors, e.message] }
         if (e.type === 'done') return { ...next, done: e, phase: 'done' }
         return next

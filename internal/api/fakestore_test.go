@@ -1533,7 +1533,7 @@ func (f *fakeStore) CreateTaskRun(_ context.Context, in *domain.TaskRun) (*domai
 	}
 	// workdir 必填是这条链路最要紧的一道校验，fake 也得守着，
 	// 否则「空目录被拒」的 handler 测试会因为 fake 放行而失去意义。
-	if strings.TrimSpace(in.Workdir) == "" {
+	if strings.TrimSpace(in.Workdir) == "" && in.Harness != domain.RunHarnessAgent {
 		return nil, domain.ErrValidation
 	}
 	if _, ok := f.objs[in.ObjectID]; !ok {
@@ -1579,6 +1579,20 @@ func (f *fakeStore) SetTaskRunSession(_ context.Context, id, session string) err
 		return domain.ErrNotFound
 	}
 	r.HarnessSession = session
+	return nil
+}
+
+func (f *fakeStore) SetTaskRunStatus(_ context.Context, id, status string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	r, ok := f.runsMap()[id]
+	if !ok {
+		return domain.ErrNotFound
+	}
+	if r.FinishedAt != nil {
+		return domain.ErrConflict
+	}
+	r.Status = status
 	return nil
 }
 

@@ -49,6 +49,7 @@ func AbilityOf(key string) (Ability, bool) {
 var ToolAbility = map[string]string{
 	"search_objects": "read_tasks",
 	"get_object":     "read_tasks",
+	toolProgress:     "write_tasks",
 	"list_types":     "",
 	"create_object":  "write_tasks",
 	"update_object":  "write_tasks",
@@ -165,6 +166,28 @@ func (p *Policy) conn(name string) *ConnTool {
 	return nil
 }
 
+// ReadOnly 是只读的一份：写能力的授权去掉、会改对方数据的连接器工具关掉（TSK-0460，只读角色交给 Agent 执行）。
+// 不改原来那份；nil 回 nil（没挂 Agent 的会话不会走到这里，任务执行一定挂着 Agent）。
+func (p *Policy) ReadOnly() *Policy {
+	if p == nil {
+		return nil
+	}
+	out := &Policy{Grants: map[string]string{}}
+	for k, v := range p.Grants {
+		if a, ok := AbilityOf(k); ok && a.Write {
+			continue
+		}
+		out.Grants[k] = v
+	}
+	for _, c := range p.Conn {
+		if c.Write {
+			c.Mode = store.GrantOff
+		}
+		out.Conn = append(out.Conn, c)
+	}
+	return out
+}
+
 // Tools 是给模型的工具列表：内置的去掉关闭的，后面接上没关闭的连接器工具。
 func (p *Policy) Tools(builtin []ToolDef) []ToolDef {
 	if p == nil {
@@ -235,6 +258,8 @@ func (r *Runner) callBrief(call ToolCall) string {
 		return fmt.Sprintf("新建「%s」", oneLine(argStr(args, "title")))
 	case "update_object":
 		return fmt.Sprintf("修改 %s", argStr(args, "ref"))
+	case toolProgress:
+		return fmt.Sprintf("给 %s 记进展", argStr(args, "ref"))
 	case "write_file":
 		return fmt.Sprintf("写文件 %s", argStr(args, "path"))
 	case toolRunSOP:

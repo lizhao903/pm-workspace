@@ -350,7 +350,9 @@ func run(cfg config) error {
 	// 插件建内核对象（IM-02a 转任务）走同一个外层包装，修订、审计、事件照常；来源记为插件 id
 	plugins.SetObjectCreator(objects)
 	// 插件用模型和 Agent（SOP-01c）：口径同对话接口，Agent 的写操作走外层包装，审计、事件照常
-	plugins.SetAgent(&agent.Service{Store: objects, Connectors: opts.Connectors, PluginSkills: plugins.Skills})
+	// 任务交给工作台 Agent 执行（TSK-0460）用同一份：服务商熔断状态插件和任务执行共用
+	opts.Agent = &agent.Service{Store: objects, Connectors: opts.Connectors, PluginSkills: plugins.Skills}
+	plugins.SetAgent(opts.Agent)
 	// 插件交给 Claude Code（VID-03a）：插件发起的运行只在内存里，退出时最多等 5 秒在途的
 	plugins.SetClaudeRunner(&runner.Runner{Logger: slog.Default()})
 	defer plugins.WaitRuns(5 * time.Second)
