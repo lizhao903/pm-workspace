@@ -486,10 +486,15 @@ func TestAlertIMAndOtherConds(t *testing.T) {
 	}
 	waitFor(t, "补发应用内通知", func() bool { return len(e.n.list()) == 1 })
 	vs := map[string]map[string]any{}
-	for _, x := range list(t, h, "/api/trade/alerts/values") {
-		v := x.(map[string]any)
-		vs[v["alert_id"].(string)] = v
-	}
+	// 永续的行情可能比现货晚一轮取到，等两条都算出当前值再比
+	waitFor(t, "放量和资金费率算出当前值", func() bool {
+		vs = map[string]map[string]any{}
+		for _, x := range list(t, h, "/api/trade/alerts/values") {
+			v := x.(map[string]any)
+			vs[v["alert_id"].(string)] = v
+		}
+		return vs[vol["id"].(string)]["status"] == "ok" && vs[fund["id"].(string)]["status"] == "ok"
+	})
 	if v := vs[vol["id"].(string)]; v["status"] != "ok" || v["value"] != 1.0 {
 		t.Fatalf("放量当前值 = %v", v)
 	}

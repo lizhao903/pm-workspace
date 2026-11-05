@@ -327,3 +327,15 @@ export type {
   TradeBacktestStatus, TradeBacktestConfig, TradeBacktestTrade, TradeBacktestStats, TradeEquityPoint, TradeBacktestResult, TradeSweepPoint,
   TradeSweep, TradeBacktest, TradeBacktestBrief, TradeBacktestStart,
 } from './tradeStrategy'
+
+export {
+  tradePaperKeys, tradePaperApi, tradePlaceError, tradeKillPartial, useTradeAccounts, useTradePositions, useTradeOrders, useTradeFillWatch,
+  useTradeRuns, useTradeRun, useTradeRisk, useTradeHalts, useTradeHaltEvents, useCreateTradeAccount, usePlaceTradeOrder, useModifyTradeOrder,
+  useCancelTradeOrder, useCancelAllTradeOrders, useCloseTradePosition, useCreateTradeRun, useTradeRunAction, usePatchTradeRisk, useKillTrading,
+  useReleaseHalt,
+} from './tradePaper'
+export type {
+  TradeAccount, TradeAccountInput, TradeOrderSide, TradeOrderType, TradeOrderStatus, TradeOrderSource, TradeOrder, TradeOrderInput,
+  TradeOrderQuery, TradeOrderPage, TradePosition, TradeRunStatus, TradeRunLog, TradeRunHolding, TradeRun, TradeRunInput, TradeRunPage,
+  TradeRiskDay, TradeRiskRules, TradeRisk, TradeKillResult, TradeHalt, TradePlaceError,
+} from './tradePaper'

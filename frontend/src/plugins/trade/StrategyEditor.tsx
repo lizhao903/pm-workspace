@@ -1,9 +1,11 @@
 // 策略编辑页（SPEC-strategy-3、4、5）：基本信息、条件规则或代码、风控和参数；右栏快速回测和最近一次回测。
 // 改动自动保存：本地草稿立刻生效，停 500ms 后整份 PATCH；同一时间只有一个保存在路上，期间的改动等它回来再存。
 // 保存失败时底部换成红字和「重试」，改动留在界面上（SPEC-strategy-3.30）。
+// 「部署」先把没存的存掉，再跳到交易「策略运行」打开部署抽屉（SPEC-strategy-3.2，只能部署到模拟盘）；右栏多「运行记录」（SPEC-strategy-5.10）。
 import { useEffect, useRef, useState } from 'react'
+import { useNavigate } from 'react-router'
 import {
-  errorText, useRemoveTradeStrategy, useStartTradeBacktest, usePatchTradeStrategy, useTradeBacktest, useTradeInstrumentSearch,
+  errorText, useRemoveTradeStrategy, useStartTradeBacktest, usePatchTradeStrategy, useTradeBacktest, useTradeInstrumentSearch, useTradeOrders, useTradeRuns,
   type TradeBacktestBrief, type TradeCompare, type TradeIndicator, type TradeOperand, type TradeRule, type TradeRuleGroup, type TradeStrategy,
   tradeStrategyApi,
 } from '../../core/data'
@@ -14,9 +16,9 @@ import {
   instName, intervalLabel, latestOf, newRuleId, pctRaw, quickDefaults, quickParams, sig, spanText, timeAgo, tone, withParam, type QuickCfg,
 } from './strategyModel'
 import { NumInput, PlusIcon, Signed, Spark, StatusCell, XIcon } from './StrategyParts'
+import { StrategyRunsPanel } from './StrategyRuns'
 
 const SAVE_DELAY = 500
-const DEPLOY_HINT = '部署到模拟盘还在开发（TRD-05），现在只能回测'
 
 type SaveState = { state: 'idle' | 'saving' | 'error'; error?: string }
 
@@ -35,6 +37,10 @@ export function StrategyEditor({ strategy, backtests, now, onOpenBacktest, onDel
   const patch = usePatchTradeStrategy()
   const remove = useRemoveTradeStrategy()
   const start = useStartTradeBacktest()
+  const navigate = useNavigate()
+  // 删除的影响：这个策略没停的部署会停止、它们的挂单会撤销（后端删策略时一起做，SPEC-strategy-3.20）
+  const runs = useTradeRuns(strategy.id)
+  const activeOrders = useTradeOrders({ status: 'active' }, confirmDel)
 
   // 自动保存的排队：timer 等停手，inflight 是路上那一次，next 是它回来之后要存的
   const q = useRef<{ timer?: ReturnType<typeof setTimeout>; inflight: Promise<void> | null; next: TradeStrategy | null }>({ inflight: null, next: null })
@@ -92,6 +98,18 @@ export function StrategyEditor({ strategy, backtests, now, onOpenBacktest, onDel
   const blocker = blockerOf(st)
   const nameErr = nameTouched && !st.name.trim()
   const lastBt = latestOf(st.id, backtests)
+  const deploy = async () => {
+    if (!(await flush())) return
+    void navigate(`/trading/runs?${new URLSearchParams({ deploy: st.id })}`)
+  }
+  const liveRuns = (runs.data?.data ?? []).filter((r) => r.status !== 'stopped')
+  const liveRunIds = new Set(liveRuns.map((r) => r.id))
+  const runOrders = (activeOrders.data?.data ?? []).filter((o) => o.run_id && liveRunIds.has(o.run_id)).length
+  const delImpact = [
+    ...(liveRuns.length ? [`${liveRuns.length} 个运行中、暂停或异常挂起的部署会停止`] : []),
+    ...(runOrders ? [`${runOrders} 笔挂单会撤销`] : []),
+    '已有的回测记录保留',
+  ].join('，')
   const run = async () => {
     if (blocker || !(await flush())) return
     start.mutate({ strategy_id: st.id, bars: qc.bars, capital: qc.capital, fee_bp: qc.fee_bp, slippage_ticks: qc.slippage_ticks, params: quickParams(st, qc) })
@@ -100,7 +118,7 @@ export function StrategyEditor({ strategy, backtests, now, onOpenBacktest, onDel
   return (
     <div className="sg-page sg-edit">
       <PageTitle parent="策略" desc={st.desc || undefined} actions={<>
-        <Button variant="outline" disabled title={DEPLOY_HINT}>部署</Button>
+        <Button variant="outline" title="部署到模拟盘账户上跑" onClick={() => void deploy()}>部署</Button>
         <Button variant="primary" disabled={!!blocker || start.isPending} title={blocker || undefined} onClick={() => void run()}>开始回测</Button>
       </>}>{st.name || '未命名策略'}</PageTitle>
 
@@ -141,13 +159,14 @@ export function StrategyEditor({ strategy, backtests, now, onOpenBacktest, onDel
         <div className="sg-col sg-side">
           <QuickPanel st={st} qc={qc} setQc={setQc} blocker={blocker} busy={start.isPending} error={start.error ? errorText(start.error) : ''} onRun={() => void run()} />
           <LastPanel st={st} bt={lastBt} now={now} onOpen={onOpenBacktest} />
+          <StrategyRunsPanel st={st} onOpenAll={() => void navigate('/strategy/runs')} onDeploy={() => void deploy()} />
         </div>
       </div>
 
       <div className="sg-foot">
         {confirmDel ? (
           <>
-            <span className="danger-text">删除后不能恢复，已有的回测记录保留{remove.error ? `；删除失败：${errorText(remove.error)}` : ''}</span>
+            <span className="danger-text">删除后不能恢复：{delImpact}{remove.error ? `；删除失败：${errorText(remove.error)}` : ''}</span>
             <span className="spacer" />
             <Button onClick={() => setConfirmDel(false)}>取消</Button>
             <Button variant="danger" disabled={remove.isPending} onClick={() => {
