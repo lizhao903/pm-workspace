@@ -308,3 +308,22 @@ export type {
   TradeMarket, TradeKind, TradeInterval, TradeInstrument, TradeWatchlist, TradeSource, TradeSourceHealth, TradeDataStatus, TradeQuote,
   TradeLevel, TradeBook, TradeFunding, TradeKline, TradeKlineMeta, TradeLive, TradeLiveTransport, TradeLiveOptions,
 } from './trade'
+
+export {
+  tradeAlertKeys, tradeAlertsApi, useTradeAlerts, useTradeAlertValues, useTradeAlertPreview, useTradeAlertEvents, useCreateTradeAlert,
+  usePatchTradeAlert, useRemoveTradeAlert, useRearmTradeAlert, useReadTradeAlertEvents, useTradeAlertFired, useTradeInstrumentMap,
+} from './tradeAlerts'
+export type {
+  TradeAlert, TradeAlertCond, TradeAlertNotify, TradeAlertInput, TradeAlertEvent, TradeAlertFired, TradeAlertImStatus, TradeAlertValue,
+  TradeAlertValueStatus, TradeAlertEventPage,
+} from './tradeAlerts'
+
+export {
+  tradeStrategyKeys, tradeStrategyApi, useTradeStrategies, useTradeBacktests, useTradeBacktest, useTradeBacktestCompare, useCreateTradeStrategy,
+  usePatchTradeStrategy, useRemoveTradeStrategy, useStartTradeBacktest, useRerunTradeBacktest, useRemoveTradeBacktest, useSweepTradeBacktest,
+} from './tradeStrategy'
+export type {
+  TradeIndicator, TradeCompare, TradeOperand, TradeRule, TradeRuleGroup, TradeStrategyMode, TradeDirection, TradeStrategy, TradeStrategyInput,
+  TradeBacktestStatus, TradeBacktestConfig, TradeBacktestTrade, TradeBacktestStats, TradeEquityPoint, TradeBacktestResult, TradeSweepPoint,
+  TradeSweep, TradeBacktest, TradeBacktestBrief, TradeBacktestStart,
+} from './tradeStrategy'

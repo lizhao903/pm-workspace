@@ -350,12 +350,20 @@ func TestQuotePersistFallback(t *testing.T) {
 		t.Fatalf("先取到实时价：%v", q)
 	}
 	m := e.p.mkt
-	m.persist(ctx)
+	// 先断网、让源进退避，再等后台循环把在途的刷新和落库跑完，免得它在下面清内存之后又写回实时价，
+	// 或者它刚占了落库时间、行还没写进去，这里的 persist 就跳过了
 	e.f.setStatus("*", http.StatusServiceUnavailable)
+	m.mu.Lock()
+	m.health["binance"].retryAt = m.now().Add(time.Minute)
+	m.mu.Unlock()
+	time.Sleep(3 * e.p.tick)
+	m.mu.Lock()
+	m.saved = map[string]time.Time{}
+	m.mu.Unlock()
+	m.persist(ctx)
 	// 模拟重启：内存清空
 	m.mu.Lock()
 	m.quotes, m.loaded, m.polled = map[string]*snap[Ticker]{}, map[string]bool{}, map[string]time.Time{}
-	m.health["binance"].retryAt = m.now().Add(time.Minute)
 	m.mu.Unlock()
 	q := quoteOf(t, e.h, "BINANCE:ETHUSDT")["BINANCE:ETHUSDT"]
 	if q["status"] != "stale" || q["last"] != 78129.31 || q["at"] == "" || q["fetched_at"] == "" {

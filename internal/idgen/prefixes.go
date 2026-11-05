@@ -94,8 +94,8 @@ var Registry = []Entry{
 	{"deal", "deal", "video_deals", "deal"}, // 视频插件的表（VID-08d），商单
 	// 交易
 	{"wl", "watchlist", "", "watchlist"},
-	{"al", "alert", "", "alert"},
-	{"ae", "alertEvent", "", "alertEvent"},
+	{"al", "alert", "trade_alerts", "alert"},                 // 交易插件的表（TRD-03a），盯盘提醒
+	{"ae", "alertEvent", "trade_alert_events", "alertEvent"}, // 交易插件的表（TRD-03a），提醒触发记录
 	{"st", "strategy", "", "strategy"},
 	{"rl", "strategyRule", "", "strategyRule"},
 	{"bk", "backtest", "", "backtest"},

@@ -206,6 +206,23 @@ var contractSpecs = map[string]contractSpec{
 	"TradeKline":        {v: trade.Kline{}},
 	"TradeKlineMeta":    {v: trade.KlineMeta{}},
 	"TradeStreamEvent":  {v: trade.StreamEvent{}},
+	// 盯盘提醒（TRD-03a）
+	"TradeAlert":      {v: trade.Alert{}},
+	"TradeAlertEvent": {v: trade.AlertEvent{}},
+	"TradeAlertFired": {v: trade.AlertFired{}},
+	"TradeAlertValue": {v: trade.AlertValue{}},
+	// 策略和回测（TRD-04b）
+	"TradeStrategy":       {v: trade.Strategy{}},
+	"TradeRule":           {v: trade.Rule{}},
+	"TradeOperand":        {skip: "联合类型：自定义 MarshalJSON 按 kind 输出指标或数值两种形状"},
+	"TradeBacktestConfig": {v: trade.BacktestConfig{}},
+	"TradeBacktest":       {v: trade.Backtest{}},
+	"TradeBacktestBrief":  {v: trade.BacktestBrief{}},
+	"TradeBacktestResult": {v: trade.BacktestResult{}},
+	"TradeBacktestTrade":  {v: trade.BacktestTrade{}},
+	"TradeBacktestStats":  {v: trade.BacktestStats{}},
+	"TradeSweep":          {v: trade.SweepRecord{}},
+	"TradeSweepPoint":     {v: trade.SweepPoint{}},
 
 	"EtfFund":        {v: etf.Fund{}},
 	"EtfDaily":       {v: etf.Daily{}},
