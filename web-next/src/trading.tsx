@@ -91,6 +91,9 @@ function summarize(accounts: TradeAccount[], positions: Position[], at: number) 
 /** 实盘开关没开时，实盘账户上带实盘标记的操作都不可用 */
 const LIVE_OFF = '实盘未开启'
 const LIVE_OFF_TIP = '实盘未开启：到「交易设置」过评审、打开实盘开关前，实盘账户只读同步'
+/** 实盘下单（TRD-08d）：只支持市价、限价；每笔都要二次确认（不看金额）；委托不能改价；不支持止损单 */
+const LIVE_TYPES: OrderType[] = ['market', 'limit']
+const LIVE_RISK = '会在交易所真实成交、产生真实盈亏'
 /** 账户能不能下这个标的：不能的返回原因；live 是实盘开关 */
 function acctBlock(a: TradeAccount, i: Instrument | undefined, live: boolean): string | undefined {
   if (i && !a.markets.includes(i.market)) return `不支持${MARKETS[i.market].label}`
@@ -809,6 +812,7 @@ function PositionsView({ accounts, positions, runs, strategies, at, acctName, li
   const fold = (k: string) => setFolded(folded.includes(k) ? folded.filter((x) => x !== k) : [...folded, k])
   // 实盘开关没开时，实盘账户的持仓只读：平仓、加止损不可点
   const locked = (p: Position) => !live && accounts.some((a) => a.id === p.account_id && !a.paper)
+  const liveAcct = (p: Position) => accounts.some((a) => a.id === p.account_id && !a.paper)
   const runName = (id?: string) => {
     if (!id) return '手动'
     const r = runs.find((x) => x.id === id)
@@ -873,6 +877,7 @@ function PositionsView({ accounts, positions, runs, strategies, at, acctName, li
                 <span className="tr-ops">
                   {confirmClose === p.id ? (
                     <>
+                      {liveAcct(p) && <span className="danger-text tr-small"><span className="tag tr-tag-sm tr-tag-live">实盘</span> {LIVE_RISK}</span>}
                       <button className="act act-quiet" onClick={() => setConfirmClose(null)}>取消</button>
                       <button className="act act-danger" onClick={() => { onClose(p); setConfirmClose(null) }}>市价全平</button>
                     </>
@@ -880,7 +885,7 @@ function PositionsView({ accounts, positions, runs, strategies, at, acctName, li
                     <>
                       <button className="act" disabled={locked(p)} title={locked(p) ? LIVE_OFF_TIP : undefined} onClick={() => setConfirmClose(p.id)}>平仓</button>
                       <button className="act act-quiet" onClick={() => onChart(p.symbol)}>看图</button>
-                      <button className="act act-quiet" disabled={locked(p)} title={locked(p) ? LIVE_OFF_TIP : undefined} onClick={() => setStopFor({ id: p.id, price: String(round(c.last * (p.side === 'long' ? 0.95 : 1.05), c.inst?.digits ?? 2)) })}>加止损</button>
+                      <button className="act act-quiet" disabled={liveAcct(p)} title={locked(p) ? LIVE_OFF_TIP : liveAcct(p) ? '实盘不支持止损单' : undefined} onClick={() => setStopFor({ id: p.id, price: String(round(c.last * (p.side === 'long' ? 0.95 : 1.05), c.inst?.digits ?? 2)) })}>加止损</button>
                     </>
                   )}
                 </span>
@@ -966,6 +971,7 @@ function OrdersView({ orders, accounts, acctName, at, live, onOrders }: {
             const i = instOf(o.symbol)
             const shown = o.type === 'stop' ? o.stop_price : o.price
             const canEdit = isActive(o) && o.status !== 'pending' && o.type !== 'market'
+            const liveOrd = accounts.some((a) => a.id === o.account_id && !a.paper)
             const last = priceAt(o.symbol, at)
             return (
               <div key={o.id} className="tr-ord-wrap">
@@ -974,6 +980,7 @@ function OrdersView({ orders, accounts, acctName, at, live, onOrders }: {
                     <span className="task-title">
                       <span className={cls('tr-side', o.side === 'buy' ? 'buy' : 'sell')}>{o.side === 'buy' ? '买' : '卖'}</span>
                       <span className="ellipsis">{i?.name ?? o.symbol}</span>
+                      {liveOrd && <span className="tag tr-tag-sm tr-tag-live">实盘</span>}
                       {o.reduce_only && <span className="tag tr-tag-sm">仅减仓</span>}
                     </span>
                     <span className="task-meta"><span className="ellipsis">{acctName(o.account_id)} · {fmtTime(o.created_at)}{o.run_id ? ' · 策略' : ''}</span></span>
@@ -990,7 +997,7 @@ function OrdersView({ orders, accounts, acctName, at, live, onOrders }: {
                     {o.status === 'open' && i && sessionOf(i.market, at) !== 'open' && <span className="faint tr-small">{SESSION_LABEL[sessionOf(i.market, at)]}，开盘后报出</span>}
                   </span>
                   <span className="tr-ops">
-                    {canEdit && <button className="act act-quiet" disabled={locked(o)} title={locked(o) ? LIVE_OFF_TIP : undefined} onClick={() => setEdit({ id: o.id, price: String(shown ?? '') })}>改价</button>}
+                    {canEdit && <button className="act act-quiet" disabled={liveOrd} title={locked(o) ? LIVE_OFF_TIP : liveOrd ? '实盘委托不能改价：撤单后重新下' : undefined} onClick={() => setEdit({ id: o.id, price: String(shown ?? '') })}>改价</button>}
                     {isActive(o) && <button className="act" disabled={locked(o)} title={locked(o) ? LIVE_OFF_TIP : undefined} onClick={() => cancel(o.id)}>撤单</button>}
                     {!isActive(o) && <span className="faint tr-small">{timeAgo(o.updated_at)}</span>}
                   </span>
@@ -1070,6 +1077,7 @@ function OrderDrawer({ init, accounts, positions, risk, live, onClose, onPlace, 
   }
 
   const account = accounts.find((a) => a.id === acctId)
+  const isLive = !!account && !account.paper
   const usableAccts = accounts.filter((a) => !acctBlock(a, inst, live))
   const blockedAccts = accounts.flatMap((a) => { const why = acctBlock(a, inst, live); return why ? [{ a, why }] : [] })
   const last = priceAt(symbol, now)
@@ -1104,8 +1112,10 @@ function OrderDrawer({ init, accounts, positions, risk, live, onClose, onPlace, 
   if (needPrice && !(priceN > 0)) errors.push('填委托价格')
   if (needStop && !(stopN > 0)) errors.push('填触发价')
   if (!(qtyN > 0)) errors.push(rawQty > 0 ? `数量不足最小单位 ${inst.lot}` : '填数量')
+  if (isLive && !LIVE_TYPES.includes(type)) errors.push('实盘只支持市价、限价')
   const blocks = qtyN > 0 ? riskBlocks({ risk, account, inst, valueUsd, leverage: levN, opening, positions, at: now }) : []
-  const needConfirm = valueUsd > risk.confirm_above
+  // 实盘每笔都要二次确认，不看金额
+  const needConfirm = valueUsd > risk.confirm_above || isLive
   const formKey = [symbol, acctId, side, type, price, stop, qty, lev, reduce].join('|')
   const rejected = rejectedAt?.key === formKey ? rejectedAt.blocks : null
 
@@ -1137,11 +1147,16 @@ function OrderDrawer({ init, accounts, positions, risk, live, onClose, onPlace, 
   return (
     <aside className="drawer tr-drawer">
       <div className="drawer-head">
-        <span className="drawer-kicker">下单</span>
+        <span className="drawer-kicker">{isLive ? '下单 · 实盘' : '下单'}</span>
         <div className="spacer" />
         <button className="icon-btn" onClick={onClose} title="关闭 (Esc)"><CloseIcon /></button>
       </div>
       <div className="drawer-body form">
+        {isLive && account && (
+          <div className="detail-alert">
+            <span><span className="tag tr-tag-sm tr-tag-live">实盘</span> 用的是实盘账户「{account.name}」：这笔会发到 {account.broker}，{LIVE_RISK}。只支持市价、限价，每笔都要二次确认；不改交易所杠杆。</span>
+          </div>
+        )}
         <div className="field">
           <span className="field-label">标的</span>
           <SymbolPicker value={symbol} onChange={pick} side={<span className="tr-num">{fmtPrice(symbol, last)}</span>} />
@@ -1152,7 +1167,7 @@ function OrderDrawer({ init, accounts, positions, risk, live, onClose, onPlace, 
           <div className="tr-acct-pick">
             {/* 能下单的在前；不能下单的收成一行，点开再看原因 */}
             {usableAccts.map((a) => (
-              <button key={a.id} className={cls('tr-acct-opt', acctId === a.id && 'on')} onClick={() => setAcctId(a.id)}>
+              <button key={a.id} className={cls('tr-acct-opt', acctId === a.id && 'on')} onClick={() => { setAcctId(a.id); setConfirming(false); if (!a.paper && !LIVE_TYPES.includes(type)) setType('limit') }}>
                 <span className="ellipsis">{a.name}</span>
                 <span className="tr-small run-muted">{a.paper ? '模拟' : '实盘'} · 可用 {num(a.available)} {a.currency}</span>
               </button>
@@ -1183,7 +1198,10 @@ function OrderDrawer({ init, accounts, positions, risk, live, onClose, onPlace, 
           <div className="field">
             <span className="field-label">类型</span>
             <div className="seg seg-full">
-              {(Object.keys(ORDER_TYPE) as OrderType[]).map((k) => <button key={k} className={cls(type === k && 'on')} onClick={() => { setType(k); setConfirming(false) }}>{k === 'stop' ? '止损' : ORDER_TYPE[k]}</button>)}
+              {(Object.keys(ORDER_TYPE) as OrderType[]).map((k) => {
+                const off = isLive && !LIVE_TYPES.includes(k)
+                return <button key={k} className={cls(type === k && 'on')} disabled={off} title={off ? '实盘只支持市价、限价' : undefined} onClick={() => { setType(k); setConfirming(false) }}>{k === 'stop' ? '止损' : ORDER_TYPE[k]}</button>
+              })}
             </div>
           </div>
         </div>
@@ -1251,10 +1269,12 @@ function OrderDrawer({ init, accounts, positions, risk, live, onClose, onPlace, 
       <div className="drawer-foot">
         {confirming ? (
           <>
-            <span className="tr-confirm-q">金额约 <b>{usd(valueUsd)}</b>，超过 {usd(risk.confirm_above)} 二次确认线</span>
+            {isLive && account
+              ? <span className="tr-confirm-q"><span className="tag tr-tag-sm tr-tag-live">实盘</span> {account.name}：金额约 <b>{usd(valueUsd)}</b>，{LIVE_RISK}</span>
+              : <span className="tr-confirm-q">金额约 <b>{usd(valueUsd)}</b>，超过 {usd(risk.confirm_above)} 二次确认线</span>}
             <div className="spacer" />
             <button className="btn btn-ghost" onClick={() => setConfirming(false)}>返回修改</button>
-            <button className={cls('btn', side === 'buy' ? 'tr-btn-buy' : 'tr-btn-sell')} onClick={submit}>确认{side === 'buy' ? '买入' : '卖出'}</button>
+            <button className={cls('btn', side === 'buy' ? 'tr-btn-buy' : 'tr-btn-sell')} onClick={submit}>确认{isLive ? '实盘' : ''}{side === 'buy' ? '买入' : '卖出'}</button>
           </>
         ) : (
           <>

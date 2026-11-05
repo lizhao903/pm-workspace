@@ -235,6 +235,30 @@ func (ls *liveSync) reconcileLocked(ctx context.Context, a account, snap liveSna
 	for _, o := range snap.Orders {
 		remoteOrders[o.ID] = o
 	}
+	// 交易套件下的实盘委托（TRD-08d）：按交易所委托号认。交易所有、本地挂单里还没记上的（下单和这次同步交错）直接补记，不算差异
+	ours := map[string]Order{}
+	if os, err := queryOrders(ctx, ls.c, `WHERE live = 1 AND account_id = ? AND ex_order_id != ''`, a.ID); err == nil {
+		for _, o := range os {
+			ours[o.ExOrderID] = o
+		}
+	}
+	for id, ro := range remoteOrders {
+		if _, inL := los[id]; inL {
+			continue
+		}
+		if o, ok := ours[id]; ok && !terminalStatus(o.Status) {
+			if err := ls.putLocalOrder(ctx, a.ID, ro); err != nil {
+				return err
+			}
+			los[id] = localOrder{ID: id, Symbol: ro.Symbol, Side: ro.Side, Type: ro.Type, Qty: ro.qty, Price: ro.price, Filled: ro.filled}
+		}
+	}
+	ourLabel := func(id string) string {
+		if o, ok := ours[id]; ok {
+			return "（交易套件下的实盘委托 " + o.ID + "，本地状态 " + o.Status + "）"
+		}
+		return ""
+	}
 	ids := []string{}
 	for id := range los {
 		ids = append(ids, id)
@@ -252,11 +276,15 @@ func (ls *liveSync) reconcileLocked(ctx context.Context, a account, snap liveSna
 			continue
 		}
 		if inR {
-			diffs = append(diffs, diff{Kind: "order", Key: id, Symbol: ro.Symbol, Label: ro.Symbol + " " + sideText[ro.Side] + "挂单 #" + id, Local: "没有",
+			diffs = append(diffs, diff{Kind: "order", Key: id, Symbol: ro.Symbol, Label: ro.Symbol + " " + sideText[ro.Side] + "挂单 #" + id + ourLabel(id), Local: "没有",
 				Remote: "挂单中 " + ro.qty.String(), RemoteQ: ro.qty, Pct: 100, Note: "本地没有这笔挂单：在交易所手动挂的，或本地漏记"})
 		} else {
-			diffs = append(diffs, diff{Kind: "order", Key: id, Symbol: lo.Symbol, Label: lo.Symbol + " " + sideText[lo.Side] + "挂单 #" + id, Local: "挂单中 " + lo.Qty.String(),
-				Remote: "没有", LocalQ: lo.Qty, Pct: 100, Note: "交易所已经没有这笔挂单：在交易所撤了，或成交没拉到"})
+			note := "交易所已经没有这笔挂单：在交易所撤了，或成交没拉到"
+			if _, ok := ours[id]; ok {
+				note = "交易所已经没有这笔挂单：交易套件下的委托，查单任务会回写它的终态（成交或撤销）"
+			}
+			diffs = append(diffs, diff{Kind: "order", Key: id, Symbol: lo.Symbol, Label: lo.Symbol + " " + sideText[lo.Side] + "挂单 #" + id + ourLabel(id), Local: "挂单中 " + lo.Qty.String(),
+				Remote: "没有", LocalQ: lo.Qty, Pct: 100, Note: note})
 		}
 	}
 	return ls.recordRecon(ctx, a, len(keys)+len(ids), diffs)

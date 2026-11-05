@@ -73,7 +73,7 @@ func TestLiveGate(t *testing.T) {
 	}
 
 	v := data(t, h, "GET", "/api/trade/live", "")
-	if len(v["checks"].([]any)) != 5 || v["granted"] != false || v["enabled"] != false || v["can_enable"] != false || v["live_orders"] != false ||
+	if len(v["checks"].([]any)) != 5 || v["granted"] != false || v["enabled"] != false || v["can_enable"] != false || v["live_orders"] != true ||
 		v["plugin_name"] != "交易套件" || v["review"].(map[string]any)["status"] != "pending" || len(v["blockers"].([]any)) != 2 {
 		t.Fatalf("初始 = %v", v)
 	}
@@ -193,18 +193,18 @@ func TestLiveGate(t *testing.T) {
 		t.Fatalf("代理打开开关 = %d %v", code, out)
 	}
 	v = data(t, user, "POST", "/api/trade/live/switch", `{"enabled":true}`)
-	if v["enabled"] != true || v["can_enable"] != true || v["changed_by"] != "me" || v["live_orders"] != false {
+	if v["enabled"] != true || v["can_enable"] != true || v["changed_by"] != "me" || v["live_orders"] != true {
 		t.Fatalf("打开开关 = %v", v)
 	}
 
-	// 开关开着、trade:live 授予了：实盘账户的下单、平仓、部署照样 403（实盘下单 TRD-08d 才做）
+	// 开关开着、trade:live 授予了（TRD-08d）：代理代为下实盘单、部署到实盘账户一律 403 not_user，不出网
 	for _, c := range []struct{ path, body string }{
 		{"/api/trade/orders", `{"account_id":"` + lid + `","symbol":"BINANCE:BTCUSDT","side":"buy","type":"limit","qty":0.001,"price":1}`},
 		{"/api/trade/runs", `{"account_id":"` + lid + `","strategy_id":"x","capital":100}`},
 	} {
-		code, out := call(t, user, "POST", c.path, c.body)
-		if code != 403 || errOf(out)["reason"] != "live" || !strings.Contains(errOf(out)["message"].(string), "实盘下单上线") {
-			t.Fatalf("开关开着对实盘账户 %s = %d %v", c.path, code, out)
+		code, out := call(t, agent, "POST", c.path, c.body)
+		if code != 403 || errOf(out)["reason"] != "not_user" {
+			t.Fatalf("代理对实盘账户 %s = %d %v", c.path, code, out)
 		}
 	}
 	e.onlyReadCalls(t)

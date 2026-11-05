@@ -28,6 +28,11 @@ import (
 // 同一根 K 线重算不会重复下单。
 // 部署自己的持仓按 run_id 是它的成交重放（applyFill）算，平仓数量不超过账户里这个标的同方向的持仓。
 //
+// 部署到实盘账户（TRD-08d）：要用户本人在界面上操作，实盘闸门全开（含交易所现查 Key）才能部署、恢复；信号下单同样走 paper.place，
+// 每笔都过闸门和风控。闸门任何一条失效（开关关了、trade:live 收回、评审撤回、账户不再是读取 + 交易、Key 没了交易权限等），
+// 运行中的实盘部署自动暂停（pauseForGate：写部署日志、审计、运行异常），不撤已有挂单、不动持仓；恢复要用户本人再过一次闸门。
+// 实盘部署自己的持仓按它的实盘委托的已成交数量和均价重放（委托级，不是逐笔成交）。
+//
 // 重启：运行中的部署照常继续。每个标的记着算到的最后一根 K 线（last_bars），重启后中间错过的 K 线逐根补算信号、写进日志，
 // 但不补下单；只有刚收盘的那根（收盘后 runGrace 以内）才下单。暂停、停止后再启动不补算，从启动时最近收盘的那根之后接着算。
 
@@ -217,9 +222,19 @@ func (rn *runner) stopLocked(ctx context.Context, x Run, reason string, m plugin
 	if err != nil {
 		return err
 	}
+	// 实盘部署：到交易所撤它自己还没到终态的委托；撤不掉的写日志（审计在撤单里写了），不挡停止
+	var liveFailed []string
+	if live, err := queryOrders(ctx, rn.c, `WHERE live = 1 AND run_id = ? AND `+liveActiveSQL, x.ID); err == nil && len(live) > 0 {
+		k, f := rn.p.trader.cancelOrdersLocked(ctx, live, "部署已停止", m)
+		n += k
+		liveFailed = f
+	}
 	text := reason + "；持仓保留，不自动平仓"
 	if n > 0 {
 		text += fmt.Sprintf("；撤了 %d 笔挂单", n)
+	}
+	if len(liveFailed) > 0 {
+		text += "；有实盘委托没撤掉，到交易所确认：" + strings.Join(liveFailed, "；")
 	}
 	rn.log(ctx, x.ID, "info", text)
 	rn.p.paper.audit(ctx, "stop", "trade_run", x.ID, "停止部署「"+x.Strategy.Name+"」："+reason, map[string]any{"reason": reason, "from": x.Status, "orders_canceled": n}, m)
@@ -258,6 +273,27 @@ func (rn *runner) book(ctx context.Context, runID string) (runBook, error) {
 		return runBook{}, err
 	}
 	b := runBook{pos: map[string]posState{}}
+	// 实盘部署：每笔有成交的实盘委托按「已成交数量 @ 均价」当一笔成交重放（模拟盘部署没有这种委托）
+	live, err := queryOrders(ctx, rn.c, `WHERE live = 1 AND run_id = ? AND filled_e8 > 0 ORDER BY created_at, id`, runID)
+	if err != nil {
+		return runBook{}, err
+	}
+	for _, o := range live {
+		mult := fx(fxScale)
+		if in, ok := loadLedgerInst(ctx, rn.c, o.Symbol); ok {
+			mult = in.Mult
+		}
+		n, err := fxMul3(o.Filled, o.AvgFill, mult)
+		if err != nil {
+			return b, err
+		}
+		f := Fill{ID: o.ID, OrderID: o.ID, Symbol: o.Symbol, Side: o.Side, Qty: o.Filled, Price: o.AvgFill, Mult: mult, Notional: n, Fee: o.Fee,
+			RunID: runID, Pos: posState{ID: "lp_" + o.ID, Lev: o.Leverage}, At: o.UpdatedAt}
+		if f.Side == "sell" {
+			f.Notional = -n
+		}
+		fills = append(fills, f)
+	}
 	for _, f := range fills {
 		d := f.Qty
 		if f.Side == "sell" {
@@ -336,9 +372,15 @@ func (h *handlers) createRun(ctx context.Context, raw map[string]json.RawMessage
 	}
 	_ = json.Unmarshal(raw["account_id"], &aid)
 	pp := h.p.paper
-	a, err := paperAccount(ctx, h.c, aid)
+	a, err := tradeAccount(ctx, h.c, aid)
 	if err != nil {
 		return Run{}, err
+	}
+	if !a.Paper {
+		if err := plugin.RequireUser(ctx, "部署到实盘账户"); err != nil {
+			pp.audit(ctx, "live_denied", "trade_account", a.ID, "拒绝代为部署到实盘账户「"+a.Name+"」："+err.Error(), map[string]any{"account_id": a.ID, "strategy_id": sid}, userMeta)
+			return Run{}, err
+		}
 	}
 	st, err := loadStrategy(ctx, h.c, sid)
 	if err != nil {
@@ -381,8 +423,9 @@ func (h *handlers) createRun(ctx context.Context, raw map[string]json.RawMessage
 		}
 	}
 	if len(syms) == 0 {
-		return Run{}, apiErr(errValidation, "至少选一个标的：策略里没有这个账户能模拟交易的标的")
+		return Run{}, apiErr(errValidation, "至少选一个标的：策略里没有这个账户能交易的标的")
 	}
+	var liveKinds []string
 	for _, s := range syms {
 		in, ok := loadLedgerInst(ctx, h.c, s)
 		switch {
@@ -396,6 +439,19 @@ func (h *handlers) createRun(ctx context.Context, raw map[string]json.RawMessage
 			return Run{}, apiErr(errValidation, "期权还不能部署（%s）", s)
 		case !in.contract() && st.Direction != "long":
 			return Run{}, apiErr(errValidation, "现货不能做空：只做多的策略才能部署到现货 %s", s)
+		}
+		if !a.Paper {
+			_, t, ok := h.p.trader.adapters(a)
+			lin, ok2 := liveInst{}, false
+			if ok {
+				lin, ok2 = t.Inst(s)
+			}
+			if !ok2 {
+				return Run{}, apiErr(errValidation, "账户「%s」是 %s 账户，只能部署 %s 的现货、USDT 永续（%s 不行）", a.Name, a.Broker, a.Broker, s)
+			}
+			if !slices.Contains(liveKinds, lin.Kind) {
+				liveKinds = append(liveKinds, lin.Kind)
+			}
 		}
 	}
 	// 参数：策略参数加本次覆盖；能覆盖的是策略里有的参数和三个保留键
@@ -430,12 +486,31 @@ func (h *handlers) createRun(ctx context.Context, raw map[string]json.RawMessage
 		}
 		capital = c
 	}
-	val, err := pp.value(ctx, a)
-	if err != nil {
-		return Run{}, err
-	}
-	if capital > val.Available {
-		return Run{}, apiErr(errValidation, "分配资金超过账户可用 %s %s", priceText(val.Available, 2), a.Currency)
+	if a.Paper {
+		val, err := pp.value(ctx, a)
+		if err != nil {
+			return Run{}, err
+		}
+		if capital > val.Available {
+			return Run{}, apiErr(errValidation, "分配资金超过账户可用 %s %s", priceText(val.Available, 2), a.Currency)
+		}
+	} else {
+		// 实盘：闸门全开（含交易所现查 Key）才能部署；分配资金不超过最近一次同步的可用
+		if err := h.p.trader.probeGate(ctx, a, liveKinds); err != nil {
+			var ge *gateError
+			if errors.As(err, &ge) {
+				pp.audit(ctx, "live_gate_block", "trade_account", a.ID, "实盘闸门拒绝部署「"+st.Name+"」："+strings.Join(ge.Missing, "；"),
+					map[string]any{"account_id": a.ID, "strategy_id": st.ID, "missing": ge.Missing, "live": true}, userMeta)
+			}
+			return Run{}, err
+		}
+		ls, err := h.p.live.state(ctx, a.ID)
+		if err != nil {
+			return Run{}, err
+		}
+		if capital > ls.Available {
+			return Run{}, apiErr(errValidation, "分配资金超过实盘账户最近一次同步的可用 %s %s", priceText(ls.Available, 2), a.Currency)
+		}
 	}
 	now := rnNow(h.p)
 	x := Run{ID: idgen.Prefixed("rn"), StrategyID: st.ID, Strategy: st, AccountID: a.ID, Symbols: syms, Params: params, Capital: capital,
@@ -475,13 +550,20 @@ func (h *handlers) createRun(ctx context.Context, raw map[string]json.RawMessage
 		in, _ := loadLedgerInst(ctx, h.c, s)
 		names[i] = in.Name
 	}
-	text := fmt.Sprintf("模拟盘启动：%s，分配 %s %s；%s K 线收盘时算信号", strings.Join(names, "、"), priceText(capital, 2), a.Currency, st.Interval)
+	where := "模拟盘"
+	if !a.Paper {
+		where = "实盘"
+	}
+	text := fmt.Sprintf("%s启动：%s，分配 %s %s；%s K 线收盘时算信号", where, strings.Join(names, "、"), priceText(capital, 2), a.Currency, st.Interval)
+	if !a.Paper {
+		text += "；每笔信号单都在交易所真实成交，逐笔过实盘闸门和风控"
+	}
 	if len(notes) > 0 {
 		text += "；" + strings.Join(notes, "，")
 	}
 	h.p.runs.log(ctx, x.ID, "info", text)
-	pp.audit(ctx, "deploy", "trade_run", x.ID, "部署「"+st.Name+"」到模拟盘「"+a.Name+"」",
-		map[string]any{"strategy_id": st.ID, "account_id": a.ID, "symbols": syms, "params": x.Params, "capital": capital.String()}, userMeta)
+	pp.audit(ctx, "deploy", "trade_run", x.ID, "部署「"+st.Name+"」到"+where+"「"+a.Name+"」",
+		map[string]any{"strategy_id": st.ID, "account_id": a.ID, "symbols": syms, "params": x.Params, "capital": capital.String(), "live": !a.Paper}, userMeta)
 	h.p.runs.mu.Lock()
 	h.p.runs.resumed[x.ID] = true
 	h.p.runs.mu.Unlock()
@@ -530,8 +612,27 @@ func (rn *runner) act(ctx context.Context, id, action, reason string) (Run, erro
 		if r.Halted {
 			return x, errHalted
 		}
-		if _, err := paperAccount(ctx, rn.c, x.AccountID); err != nil {
+		a, err := tradeAccount(ctx, rn.c, x.AccountID)
+		if err != nil {
 			return x, err
+		}
+		if !a.Paper {
+			if err := plugin.RequireUser(ctx, "恢复实盘部署"); err != nil {
+				return x, err
+			}
+			var kinds []string
+			_, t, _ := rn.p.trader.adapters(a)
+			for _, s := range x.Symbols {
+				if t == nil {
+					break
+				}
+				if lin, ok := t.Inst(s); ok && !slices.Contains(kinds, lin.Kind) {
+					kinds = append(kinds, lin.Kind)
+				}
+			}
+			if err := rn.p.trader.probeGate(ctx, a, kinds); err != nil {
+				return x, err
+			}
 		}
 		text := "手动恢复"
 		if x.Status != "paused" {
@@ -621,18 +722,26 @@ func (rn *runner) eval(ctx context.Context, x Run) error {
 		rn.log(ctx, x.ID, "info", "后端重启，部署继续运行")
 	}
 	a, err := loadAccount(ctx, rn.c, x.AccountID)
-	if err != nil || !a.Paper {
-		why := "账户已删除"
-		if err == nil {
-			why = "账户不是模拟盘"
-		} else if !errors.Is(err, errNotFound) {
+	if err != nil {
+		if !errors.Is(err, errNotFound) {
 			return err
 		}
-		if err := rn.setStatus(ctx, x, "error", why+"，部署已挂起", "", ""); err != nil {
+		if err := rn.setStatus(ctx, x, "error", "账户已删除，部署已挂起", "", ""); err != nil {
 			return err
 		}
-		rn.log(ctx, x.ID, "error", why+"，部署已挂起")
+		rn.log(ctx, x.ID, "error", "账户已删除，部署已挂起")
 		return nil
+	}
+	if !a.Paper {
+		// 实盘部署每一轮先看闸门的本地几项：有一条失效就自动暂停（交易所那边的 Key 在每笔下单时现查）
+		miss, err := rn.p.trader.localGate(ctx, a)
+		if err != nil {
+			return err
+		}
+		if len(miss) > 0 {
+			rn.pauseForGate(ctx, x.ID, miss)
+			return nil
+		}
 	}
 	st := x.effective()
 	iv := st.Interval
@@ -802,7 +911,7 @@ func (rn *runner) holding(ctx context.Context, x Run, sym string) (posState, err
 	if mine.Qty == 0 {
 		return posState{}, nil
 	}
-	acct, err := loadPosition(ctx, rn.c, x.AccountID, sym)
+	acct, err := rn.accountPos(ctx, x.AccountID, sym)
 	if err != nil {
 		return posState{}, err
 	}
@@ -816,6 +925,43 @@ func (rn *runner) holding(ctx context.Context, x Run, sym string) (posState, err
 	return mine, nil
 }
 
+// accountPos 是账户里这个标的的持仓：模拟盘按成交流水，实盘按对账的本地记录（只读同步拉的成交记进去的）。
+func (rn *runner) accountPos(ctx context.Context, aid, sym string) (posState, error) {
+	a, err := loadAccount(ctx, rn.c, aid)
+	if err != nil {
+		return posState{}, err
+	}
+	if a.Paper {
+		return loadPosition(ctx, rn.c, aid, sym)
+	}
+	_, t, ok := rn.p.trader.adapters(a)
+	if !ok {
+		return posState{}, nil
+	}
+	lin, ok := t.Inst(sym)
+	if !ok {
+		return posState{}, nil
+	}
+	q, err := rn.p.trader.liveHeld(ctx, a, lin)
+	return posState{Qty: q}, err
+}
+
+// pauseForGate：实盘闸门有一条失效时，运行中的实盘部署自动暂停（写部署日志、审计、运行异常）。已经不在运行的不动。
+func (rn *runner) pauseForGate(ctx context.Context, runID string, missing []string) {
+	reason := "实盘闸门失效，自动暂停：" + strings.Join(missing, "；")
+	res, err := rn.c.Store().Exec(ctx, `UPDATE trade_runs SET status = 'paused', error = ?, updated_at = ? WHERE id = ? AND status = 'running'`, reason, stamp(rn.now()), runID)
+	if err != nil {
+		rn.c.Log().Warn("pause live run failed", "run", runID, "err", err)
+		return
+	}
+	if n, _ := res.RowsAffected(); n != 1 {
+		return
+	}
+	rn.log(ctx, runID, "warn", reason+"。已有挂单保留、持仓不动；闸门恢复后由用户本人手动恢复")
+	rn.p.paper.audit(ctx, "pause", "trade_run", runID, "实盘部署自动暂停："+reason, map[string]any{"reason": reason, "missing": missing, "auto": true, "live": true}, liveMeta)
+	rn.p.paper.incident(ctx, "trade:run_gate:"+runID, "实盘部署自动暂停", reason, map[string]any{"部署 id": runID})
+}
+
 // order 经统一入口下一笔市价单；被风控拦、被拒、重复都写日志，不回错。
 func (rn *runner) order(ctx context.Context, x Run, in ledgerInst, sym, side string, qty fx, reduce bool, barT int64, tag, why string) error {
 	if qty <= 0 {
@@ -825,9 +971,17 @@ func (rn *runner) order(ctx context.Context, x Run, in ledgerInst, sym, side str
 		RunID: x.ID, Source: "run", ClientID: fmt.Sprintf("%s|%s|%d|%s", x.ID, sym, barT, tag)})
 	var re *riskError
 	var de *duplicateError
+	var ge *gateError
 	switch {
 	case errors.As(err, &re):
 		rn.log(ctx, x.ID, "warn", "风控拦截："+why+"，"+strings.Join(re.Blocks, "；"))
+		return nil
+	case errors.As(err, &ge):
+		// 部署已经在下单入口里自动暂停了
+		return nil
+	case errors.Is(err, errUpstream):
+		_, msg, _ := strings.Cut(err.Error(), ": ")
+		rn.log(ctx, x.ID, "error", "下单失败："+why+"，"+msg)
 		return nil
 	case errors.As(err, &de):
 		return nil

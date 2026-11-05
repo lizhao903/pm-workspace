@@ -132,7 +132,7 @@ type liveEnv struct {
 	rec   *recorder
 }
 
-func setupLive(t *testing.T) liveEnv {
+func setupLive(t *testing.T, extra ...Source) liveEnv {
 	t.Helper()
 	fastPaper(t)
 	ctx := context.Background()
@@ -153,7 +153,7 @@ func setupLive(t *testing.T) liveEnv {
 	log := slog.New(slog.NewTextHandler(logs, &slog.HandlerOptions{Level: slog.LevelDebug}))
 	defs := connector.NewRegistry()
 	conns := connector.New(d, v, defs)
-	p := New(src)
+	p := New(append([]Source{src}, extra...)...)
 	p.now, p.tick, p.push = src.clock.now, 30*time.Millisecond, 50*time.Millisecond
 	n, ev := &alertNotifier{}, &alertRecorder{}
 	r := plugin.NewRegistry(plugin.NewSQLStateStore(d), log)
@@ -355,7 +355,7 @@ func TestLiveBinanceAccount(t *testing.T) {
 			"type": "LIMIT", "side": "SELL", "stopPrice": "0", "time": 1730000000000}}
 	})
 	res, _ = e.conns.Test(ctx, cid)
-	if !res.OK || res.Connector.Account != "Binance ****WXYZ · 读取 + 交易（交易套件里只读）" {
+	if !res.OK || res.Connector.Account != "Binance ****WXYZ · 读取 + 交易" {
 		t.Fatalf("连通测试：%+v", res)
 	}
 	if hints := res.Connector.SecretHints; strings.Contains(hints["api_secret"], "never-real") || hints["api_key"] == testBNKey {
@@ -419,14 +419,14 @@ func TestLiveBinanceAccount(t *testing.T) {
 		t.Fatalf("对账 = %v", rc)
 	}
 
-	// 实盘账户：下单、部署、全部撤单都 403
-	for _, c := range []struct{ method, path, body string }{
-		{"POST", "/api/trade/orders", `{"account_id":"` + aid + `","symbol":"FAKE:BTCUSDT","side":"buy","type":"market","qty":0.1}`},
-		{"POST", "/api/trade/orders/cancel-all", `{"account_id":"` + aid + `"}`},
-	} {
-		code, out := call(t, h, c.method, c.path, c.body)
-		if code != 403 || out["error"].(map[string]any)["code"] != "forbidden" || out["error"].(map[string]any)["reason"] != "live" {
-			t.Fatalf("%s %s = %d %v，应当 403", c.method, c.path, code, out)
+	// 实盘账户：接口代为下单 403 not_user；用户本人下单但闸门没开 403 live_gate（实盘下单见 livetrade_test.go）
+	for _, c := range []struct {
+		h      http.Handler
+		reason string
+	}{{h, "not_user"}, {as(h, asUser), "live_gate"}} {
+		code, out := call(t, c.h, "POST", "/api/trade/orders", `{"account_id":"`+aid+`","symbol":"BINANCE:BTCUSDT","side":"buy","type":"market","qty":0.1,"confirmed":true}`)
+		if code != 403 || out["error"].(map[string]any)["code"] != "forbidden" || out["error"].(map[string]any)["reason"] != c.reason {
+			t.Fatalf("实盘账户下单 = %d %v，应当 403 %s", code, out, c.reason)
 		}
 	}
 	var n int

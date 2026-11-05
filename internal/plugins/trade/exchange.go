@@ -19,15 +19,17 @@ import (
 	"github.com/lizhao903/pm-workspace/internal/plugin"
 )
 
-// 交易所账户的只读接入（TRD-07a）：连接器 binance_account、okx_account，凭证（API Key、Secret，OKX 加 Passphrase）
+// 交易所账户接入（TRD-07a 只读，TRD-08d 加实盘下单）：连接器 binance_account、okx_account，凭证（API Key、Secret，OKX 加 Passphrase）
 // 经内核连接器框架进保险箱，插件只在 Core.Connectors().With 的回调里拿到明文，用完即丢。
 //
 // 资金边界（硬约束）：
-//   - 只调交易所的只读接口：Key 权限查询、余额、持仓、挂单、成交历史。exchangeReadPaths 是全部路径，
-//     出网客户端外面再包一层 readOnlyTransport：不是 GET、不在这张表里的请求一律不发出去。
-//     没有任何下单、撤单、改单、划转、提币的代码路径；trade_test.go 的 TestNoLiveTradingPaths 扫源码盯着。
-//   - Key 带提币权限（或能把资金转出这个账户的划转权限）直接拒绝接入；同步时发现了，账户立刻停用、写审计。
-//   - Key 带交易权限也只按只读用：实盘账户 paper 恒为假，统一下单入口对它回 403。
+//   - 永不提币、永不划转：没有任何提币、划转、借贷、万向划转、子账户划转的代码路径；trade_test.go 的 TestExchangeWriteBoundary 扫源码盯着。
+//   - 只读接口（Key 权限、余额、持仓、挂单查询、成交历史、公开的交易规则）是 exchangeReadPaths，只能 GET。
+//   - 写操作只有下单、撤单、查单三种，是 exchangeTradePaths（按交易所、方法列，exchange_trade.go），范围最小；
+//     而且只有带着实盘闸门（livetrade.go 的 withGate）发的令牌的请求才放行：令牌只在那一次调用的 ctx 里，
+//     下单令牌要五项闸门逐笔现查全过，撤单查单令牌只要 Key 仍然没有提币、划转权限。
+//     出网客户端外面包一层 readOnlyTransport：只读清单之外、没有令牌或令牌不允许的请求一律不发出去。
+//   - Key 带提币权限（或能把资金转出这个账户的划转权限）直接拒绝接入；同步时发现了，账户立刻停用、写审计；闸门也不再给它发任何令牌。
 //   - 错误文本里不带 Secret、签名和带签名的地址：exchangeErr 只留路径，scrubSecrets 再抹一遍。
 
 // 连接器 tool
@@ -36,33 +38,46 @@ const (
 	OKXAccountTool     = "okx_account"
 )
 
-// exchangeReadPaths 是交易所只读接口的全部路径（host -> 路径）。加一个路径要同时改 trade_test.go 里的期望清单。
+// exchangeReadPaths 是交易所只读接口的全部路径（host -> 路径），只能 GET。加一个路径要同时改 trade_test.go 里的期望清单。
+// 测试网（连接器选「测试网」）的域名用同样的路径：testnet.binance.vision 是 Binance 现货测试网（没有 /sapi/ 权限接口），
+// testnet.binancefuture.com 是 U 本位合约测试网；OKX 模拟盘和实盘同一个域名，请求头带 x-simulated-trading: 1。
 var exchangeReadPaths = map[string][]string{
 	"api.binance.com": {
 		"/sapi/v1/account/apiRestrictions", // Key 的权限
 		"/api/v3/account",                  // 现货余额
 		"/api/v3/openOrders",               // 现货挂单（查询）
 		"/api/v3/myTrades",                 // 现货成交历史
+		"/api/v3/exchangeInfo",             // 公开的交易规则（tickSize、stepSize、minNotional），TRD-08d
 	},
 	"fapi.binance.com": {
 		"/fapi/v2/account",      // U 本位合约账户
-		"/fapi/v2/positionRisk", // U 本位合约持仓
+		"/fapi/v2/positionRisk", // U 本位合约持仓（下单前也用它看杠杆和持仓模式）
 		"/fapi/v1/openOrders",   // U 本位合约挂单（查询）
 		"/fapi/v1/userTrades",   // U 本位合约成交历史
+		"/fapi/v1/exchangeInfo", // 公开的交易规则，TRD-08d
 	},
 	"www.okx.com": {
-		"/api/v5/account/config",       // 账户配置，含 Key 的权限 perm
-		"/api/v5/account/balance",      // 余额
-		"/api/v5/account/positions",    // 持仓
-		"/api/v5/trade/orders-pending", // 未成交委托（查询）
-		"/api/v5/trade/fills",          // 近三天成交明细（查询）
+		"/api/v5/account/config",        // 账户配置，含 Key 的权限 perm、持仓模式 posMode
+		"/api/v5/account/balance",       // 余额
+		"/api/v5/account/positions",     // 持仓
+		"/api/v5/trade/orders-pending",  // 未成交委托（查询）
+		"/api/v5/trade/fills",           // 近三天成交明细（查询）
+		"/api/v5/public/instruments",    // 公开的交易规则（tickSz、lotSz、minSz、ctVal），TRD-08d
+		"/api/v5/account/leverage-info", // 永续现在的杠杆（实盘不改杠杆，只读来过风控），TRD-08d
+	},
+	"testnet.binance.vision": {
+		"/api/v3/account", "/api/v3/openOrders", "/api/v3/myTrades", "/api/v3/exchangeInfo",
+	},
+	"testnet.binancefuture.com": {
+		"/fapi/v2/account", "/fapi/v2/positionRisk", "/fapi/v1/openOrders", "/fapi/v1/userTrades", "/fapi/v1/exchangeInfo",
 	},
 }
 
-// errNotReadOnly：要发的请求不是只读接口，没有发出去。
-var errNotReadOnly = errors.New("交易插件只允许调交易所的只读接口")
+// errNotReadOnly：要发的请求不是只读接口，也没有实盘闸门放行，没有发出去。
+var errNotReadOnly = errors.New("交易插件只允许调交易所的只读接口；下单、撤单、查单只能经实盘闸门放行")
 
-// readOnlyTransport 包在内核的出网客户端外面：只放行 GET，且 host + 路径在 exchangeReadPaths 里。
+// readOnlyTransport 包在内核的出网客户端外面：只放行 GET 且 host + 路径在 exchangeReadPaths 里的，
+// 或者 ctx 里带着实盘闸门发的、仍然有效的令牌、且方法 + host + 路径在 exchangeTradePaths 里、令牌的范围允许这一种操作的（tradeAllowed）。
 // 内核的域名检查（network:exchanges）在里面那层照样做。
 type readOnlyTransport struct{ base http.RoundTripper }
 
@@ -75,7 +90,7 @@ func readOnlyAllowed(method string, u *url.URL) bool {
 }
 
 func (t readOnlyTransport) RoundTrip(req *http.Request) (*http.Response, error) {
-	if !readOnlyAllowed(req.Method, req.URL) {
+	if !readOnlyAllowed(req.Method, req.URL) && !tradeAllowed(req.Context(), req.Method, req.URL) {
 		if req.Body != nil {
 			_ = req.Body.Close()
 		}
@@ -97,15 +112,29 @@ func readOnlyClient(hc *http.Client) *http.Client {
 
 // KeyPerms 是一把 Key 在交易所那边的权限。
 type KeyPerms struct {
-	Read     bool
-	Trade    bool
-	Withdraw bool
+	Read  bool
+	Trade bool
+	// SpotTrade 是现货交易权限（Binance enableSpotAndMarginTrading；OKX 的 trade 现货、永续都管，同 Trade）
+	SpotTrade bool
+	Withdraw  bool
 	// Transfer 是能把资金转出这个账户的划转权限（Binance 的内部划转、万向划转），和提币同样拒绝
 	Transfer []string
 	// Futures 是 Binance 的 U 本位合约权限（有才去读合约账户）；OKX 统一账户恒为真
 	Futures bool
 	// IPRestricted 是 Key 绑了 IP 白名单
 	IPRestricted bool
+	// Hedge 是合约账户开了双向持仓（OKX posMode long_short_mode）：实盘下单只支持单向持仓
+	Hedge bool
+	// Testnet 是测试网的连接器：Binance 测试网没有权限查询接口，按「读取 + 交易、没有提币」算（测试网的资金不是真钱）
+	Testnet bool
+}
+
+// canTrade 是这把 Key 能不能交易 kind（spot / perp）的标的。
+func (k KeyPerms) canTrade(kind string) bool {
+	if kind == "spot" {
+		return k.SpotTrade
+	}
+	return k.Futures && k.Trade
 }
 
 // perms 是给账户看的权限：只读 / 读取 + 交易。
@@ -167,7 +196,9 @@ type LivePosition struct {
 	Contracts *float64 `json:"contracts,omitempty"`
 
 	// Key 是对账用的持仓键：现货是 spot:<币种>，合约是 symbol（双向持仓加 #long / #short）
-	Key       string `json:"key"`
+	Key string `json:"key"`
+	// ID 是平仓用的持仓 id：live:<账户>:<持仓键>（快照接口才填），POST /api/trade/positions/{id}/close 认它（TRD-08d）
+	ID        string `json:"id,omitempty"`
 	AccountID string `json:"account_id,omitempty"`
 
 	qty fx // 带符号的数量（空为负）
@@ -269,13 +300,26 @@ func (e *ExchangeError) Error() string {
 
 // exGet 发一个只读 GET：url 是完整地址（含签名），header 是签名头。出错时只留路径，不留查询串（里面有签名）。
 func exGet(ctx context.Context, hc *http.Client, broker, rawURL string, header http.Header, decodeErr func(status int, body []byte) *ExchangeError) ([]byte, error) {
+	return exDo(ctx, hc, broker, http.MethodGet, rawURL, header, "", decodeErr)
+}
+
+// exDo 发一个请求（方法、body 由调用方定；能不能发出去由 readOnlyTransport 判）。
+// 请求没送到或没收到回包（网络错误、超时）回 *exNoReplyError：调用方要当成「状态未知」，不能当成失败重发。
+func exDo(ctx context.Context, hc *http.Client, broker, method, rawURL string, header http.Header, body string, decodeErr func(status int, body []byte) *ExchangeError) ([]byte, error) {
 	u, err := url.Parse(rawURL)
 	if err != nil {
 		return nil, fmt.Errorf("%s 地址不对", broker)
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
+	var rd io.Reader
+	if body != "" {
+		rd = strings.NewReader(body)
+	}
+	req, err := http.NewRequestWithContext(ctx, method, rawURL, rd)
 	if err != nil {
 		return nil, fmt.Errorf("%s 地址不对", broker)
+	}
+	if body != "" {
+		req.Header.Set("Content-Type", "application/json")
 	}
 	for k, vs := range header {
 		for _, v := range vs {
@@ -283,39 +327,51 @@ func exGet(ctx context.Context, hc *http.Client, broker, rawURL string, header h
 		}
 	}
 	req.Header.Set("Accept", "application/json")
-	req.Header.Set("User-Agent", "pm-workspace-trade/0.5")
+	req.Header.Set("User-Agent", "pm-workspace-trade/0.7")
 	resp, err := hc.Do(req)
 	if err != nil {
 		var ue *url.Error
 		if errors.As(err, &ue) {
 			err = ue.Err
 		}
+		// 本地拦下的（没发出去）：不是「状态未知」
 		if errors.Is(err, errNotReadOnly) || errors.Is(err, plugin.ErrHostNotAllowed) || errors.Is(err, plugin.ErrNotGranted) || errors.Is(err, plugin.ErrNetworkNotDeclared) {
 			return nil, err
 		}
+		cause := err
 		if ctx.Err() != nil {
-			return nil, ctx.Err()
+			cause = ctx.Err()
 		}
-		return nil, fmt.Errorf("连不上 %s（%s）：%v", broker, u.Path, err)
+		return nil, &exNoReplyError{msg: fmt.Sprintf("连不上 %s（%s）：%v", broker, u.Path, cause), err: cause}
 	}
 	defer func() { _ = resp.Body.Close() }()
-	body, err := io.ReadAll(io.LimitReader(resp.Body, maxUpstreamBody+1))
+	rb, err := io.ReadAll(io.LimitReader(resp.Body, maxUpstreamBody+1))
 	if err != nil {
-		return nil, fmt.Errorf("读 %s 响应失败", broker)
+		return nil, &exNoReplyError{msg: fmt.Sprintf("读 %s 响应失败", broker), err: err}
 	}
-	if len(body) > maxUpstreamBody {
+	if len(rb) > maxUpstreamBody {
 		return nil, fmt.Errorf("%s 响应太大", broker)
 	}
 	if resp.StatusCode/100 != 2 {
-		e := decodeErr(resp.StatusCode, body)
+		e := decodeErr(resp.StatusCode, rb)
 		e.Path = u.Path
 		if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
 			e.Auth = true
 		}
 		return nil, e
 	}
-	return body, nil
+	return rb, nil
 }
+
+// exNoReplyError：请求可能已经到了交易所，但没收到回包（网络错误、超时、读响应失败）。
+// 只读接口照常当失败；下单时它表示「状态未知」，要按 clientOrderId 查单确认，不能重发。
+type exNoReplyError struct {
+	msg string
+	err error
+}
+
+func (e *exNoReplyError) Error() string { return e.msg }
+func (e *exNoReplyError) Unwrap() error { return e.err }
 
 // binanceSign 是 Binance 的签名：HMAC-SHA256(查询串, Secret)，十六进制小写。
 func binanceSign(secret, query string) string {
