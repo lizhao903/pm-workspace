@@ -19,7 +19,7 @@ function account(over: Partial<TradeAccount> = {}): TradeAccount {
 function order(id: string, over: Partial<TradeOrder> = {}): TradeOrder {
   return {
     id, account_id: 'ac_1', symbol: 'BINANCE:BTCUSDT', side: 'buy', type: 'limit', qty: 0.1, price: 60000, filled: 0, status: 'open', reduce_only: false,
-    created_at: NOW, updated_at: NOW, leverage: 1, fee: 0, source: 'manual', triggered: false, confirmed: false, ...over,
+    created_at: NOW, updated_at: NOW, leverage: 1, fee: 0, source: 'manual', triggered: false, confirmed: false, live: false, ...over,
   }
 }
 function position(over: Partial<TradePosition> = {}): TradePosition {

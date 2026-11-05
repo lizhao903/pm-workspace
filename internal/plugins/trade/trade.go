@@ -4,13 +4,13 @@
 // 盯盘提醒（alerts.go、alerts_api.go，TRD-03a），策略和回测（strategies.go、backtests.go，TRD-04b），
 // 模拟盘账户、委托、撮合（accounts.go、ledger.go、paper.go，TRD-05a），策略部署（runs.go，TRD-05b），风控（risk.go，TRD-06a），
 // 交易所账户只读接入（exchange*.go、live.go，TRD-07a），交易审计和停用前全停（audit.go，TRD-08a），对账和自动熔断（recon.go，TRD-08b），
-// 实盘评审闸门和实盘开关（livegate.go，TRD-08c）。
+// 实盘评审闸门和实盘开关（livegate.go，TRD-08c），实盘下单（exchange_trade.go、exchange_*_trade.go、livetrade.go，TRD-08d）。
 //
-// 涉及资金的边界：只做行情、回测、模拟盘，交易所账户只读同步；不写任何向交易所下单、撤单、划转、提币的代码路径。
-// 权限 network:market-data（公开行情）、network:exchanges（只用于交易所账户的只读接口，出网客户端外面再包一层只读检查），
-// 0.6.0 起声明 trade:live，但它是单独申请的权限：安装、升级都不授予，要用户本人在交易设置里过评审后申请（TRD-08c）。
-// 本批次没有实盘下单：就算 trade:live 授予了、实盘开关开着，下单入口对实盘账户照样 403（要等 TRD-08d）。
-// 模拟盘的委托只在本地撮合；实盘账户 paper 恒为假。
+// 涉及资金的边界：永不提币、永不划转（没有这类代码路径）。交易所的写操作只有下单、撤单、查单（exchangeTradePaths），
+// 只在实盘闸门逐笔现查全过（评审通过、trade:live 已授予、实盘开关开着、账户选了读取 + 交易、Key 现查有交易权限且没有提币划转权限）后签发的令牌下发出。
+// 权限 network:market-data（公开行情）、network:exchanges（交易所账户：只读接口，加闸门放行的下单、撤单、查单），
+// 0.6.0 起声明 trade:live，它是单独申请的权限：安装、升级都不授予，要用户本人在交易设置里过评审后申请（TRD-08c）。
+// 模拟盘的委托只在本地撮合；实盘账户 paper 恒为假，实盘委托的状态只由交易所回写。
 // 接口契约见 docs/api-contract.md「交易套件插件 trade」。
 package trade
 
@@ -43,11 +43,12 @@ type Plugin struct {
 	m       plugin.Manifest
 	sources []Source
 	mkt     *market
-	alerts  *alerter  // 盯盘提醒（alerts.go）
-	bt      *btRunner // 回测调度（TRD-04b，backtests.go）
-	paper   *paper    // 模拟盘账本、下单入口、撮合、风控（TRD-05a、TRD-06a，paper.go、risk.go）
-	runs    *runner   // 策略部署（TRD-05b，runs.go）
-	live    *liveSync // 交易所账户只读同步、对账（TRD-07a、TRD-08b，live.go、recon.go）
+	alerts  *alerter    // 盯盘提醒（alerts.go）
+	bt      *btRunner   // 回测调度（TRD-04b，backtests.go）
+	paper   *paper      // 模拟盘账本、下单入口、撮合、风控（TRD-05a、TRD-06a，paper.go、risk.go）
+	runs    *runner     // 策略部署（TRD-05b，runs.go）
+	live    *liveSync   // 交易所账户只读同步、对账（TRD-07a、TRD-08b，live.go、recon.go）
+	trader  *liveTrader // 实盘下单、撤单、查单回写（TRD-08d，livetrade.go）
 
 	exchanges []exchangeAccount // 交易所账户适配器（只读）
 
@@ -139,6 +140,7 @@ func (p *Plugin) Register(r plugin.Registrar) error {
 	p.bt = newBtRunner(p, core)
 	p.paper = newPaper(p, core)
 	p.runs = newRunner(p, core)
+	p.trader = newLiveTrader(p, core)
 	h := &handlers{c: core, p: p}
 	r.Routes(func(m plugin.RouteRegistrar) {
 		m.HandleFunc("GET /api/trade/sources", h.listSources)
