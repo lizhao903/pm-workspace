@@ -238,13 +238,15 @@ function ScenarioDefaults({ agents, scenarios, onChange }: { agents: Agent[]; sc
       <div className="field-group-title">场景默认 Agent<span className="field-hint">没指定 Agent 的模型调用用谁：用它的模型、思考和指令；不指定就用默认服务商</span></div>
       {scenarios.map((s) => {
         const a = agents.find((x) => x.id === s.agent_id)
-        const problem = !s.agent_id ? '' : !a ? '选的 Agent 已删除，现在用默认服务商，换一个' : !a.enabled ? `「${a.name || '未命名'}」已停用，现在用默认服务商` : ''
+        // 「执行任务」没选时不是退回默认服务商，而是用第一个启用的 Agent（SPEC-settings-8.16）
+        const fallback = s.key === 'task_run' ? '用第一个启用的 Agent' : '用默认服务商'
+        const problem = !s.agent_id ? '' : !a ? `选的 Agent 已删除，现在${fallback}，换一个` : !a.enabled ? `「${a.name || '未命名'}」已停用，现在${fallback}` : ''
         return (
           <div key={s.key} className="agent-scene">
             <div className="agent-scene-text"><b>{s.label}</b><span className="list-sub">{s.desc}</span></div>
             <div className="agent-scene-pick">
               <select className="select" aria-label={`${s.label}的默认 Agent`} value={s.agent_id} onChange={(e) => onChange(s.key, e.target.value)}>
-                <option value="">不指定（用默认服务商）</option>
+                <option value="">不指定（{fallback}）</option>
                 {agents.map((x) => <option key={x.id} value={x.id}>{x.name || '未命名'}{x.enabled ? '' : '（已停用）'}</option>)}
                 {s.agent_id && !a && <option value={s.agent_id}>已删除的 Agent</option>}
               </select>

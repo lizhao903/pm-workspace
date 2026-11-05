@@ -45,6 +45,7 @@
 | 交给 Claude Code 选方式（流式 / 终端）、带项目上下文、终端执行回写 | `SPEC-tasks-5.29 到 5.32`、`SPEC-tasks-6.10 到 6.16`、`SPEC-terminal-1.17`、`SPEC-settings-22` |
 | 交给 Claude Code 改进行中、预置提示词（AUTO-03 升级为角色）、软链接目录（用户 2026-11-04 提） | `SPEC-tasks-6.17 到 6.19`、`SPEC-settings-24` |
 | IM 转任务执行完成后回复原消息（用户 2026-11-04 提） | `SPEC-tasks-4.42`、`SPEC-messages-2.50` |
+| TSK-0460 任务交给工作台 Agent 执行（新执行器 agent，用户 2026-11-05 提） | `SPEC-tasks-6.20 到 6.31`、`SPEC-tasks-5.33 到 5.37`、`SPEC-sessions-1.44`、`SPEC-settings-8.16` |
 | AUTO-05 任务阶段、提出人与按提出人看板 | `SPEC-tasks-11`（全节）、`SPEC-tasks-1.12`、`SPEC-tasks-0` `Task` 的 `stage`、`requester` |
 | AUTO-12 流水线视图与治理 | `SPEC-tasks-4.82`、`SPEC-tasks-11.15`、`SPEC-tasks-11` 阶段变化历史、`SPEC-tasks-0` `Task` 的 `stage_log`；流水线本身见 `sop.md` `SPEC-sop-16` |
 | AUTO-07 需求级 git worktree（工作区） | `SPEC-tasks-4.50 到 4.62`（任务抽屉「工作区」、SOP 节点「准备工作区」、自动清理）、`SPEC-settings-25`（端口范围） |
@@ -604,6 +605,11 @@ stateDiagram-v2
 | SPEC-tasks-5.30 | 终端执行 | 展示、展开 | 从「切换到终端」发起时记一条：开始时间 = 发起时，状态「进行中」（不是「运行中」），没有流式输出，一直展开，写「在终端里交互执行，过程看终端标签。结束和结论由终端里的 Claude Code 经工作台 MCP（pmw_finish_run）回写；它没回写时用「标记结束」收尾。」。回写后状态变成完成 / 失败 / 已取消，行下面写「结论：…」（`summary`），用时算到回写时。产出物经 `pmw_record_artifact`（带 `run_id`）出现在产出物区块，进展经 `pmw_append_progress` 出现在进展区块。演示数据：`T-016` 有一条完成的终端执行，带结论 |
 | SPEC-tasks-5.31 | 「标记结束」 | 点击（进行中的终端执行） | 兜底收尾，替代流式执行的「取消执行」。弹小窗「标记结束」，说明「终端里的 Claude Code 没有回写结果时，手动给这次执行收尾」：结果三选一「完成 / 失败 / 取消」（默认完成），结论摘要（可空，占位「可选：做了什么、产出在哪、还剩什么没做」），底部提示「只改执行记录，终端标签不会被关掉」，「取消」「确认」；Esc、点遮罩关掉。确认后这条收尾，摘要写进「结论」。已经被 MCP 回写结束的不再改。正式产品：`POST /api/runs/{id}/finish` `{status, summary?}`，只认终端执行，流式执行回 409 |
 | SPEC-tasks-5.32 | 工作台重启后 | 展示 | 终端执行不归工作台进程管：工作台重启后不会像流式执行那样被收尾成失败（「工作台重启，这次执行被中断」），照旧停在进行中，等 MCP 回写或手动标记结束。原型没有重启，不演示 |
+| SPEC-tasks-5.33 | 执行器标签 | 展示 | 状态后面第一个标签写执行器：「Claude Code」（`harness` 为 `claude` 或没有）/「工作台 Agent」（`agent`，绿）。工作台 Agent 的不显示「流式 / 终端」和「只读 / 允许写入」；展开后第一行写「<Agent 名> · <模型> · 产物目录 <目录>（填了才写）· 会话 <会话 id 前 8 位>」，Agent 删了写「已删除的 Agent」。块标题旁的说明改为「从这里交给 Claude Code 或工作台 Agent 的每一次执行，最近的在前」 |
+| SPEC-tasks-5.34 | 等待确认 | 展示、确认、拒绝 | 工作台 Agent 要做一次需要人确认的写操作（按 Agent 的工具授权，「需确认」档位）时执行停下：状态变「等待确认」（橙），输出里出现一张橙边卡片「等你确认 <操作说明>」，下面「确认」「拒绝」两个按钮和一行「<时:分> 前没人决定按拒绝处理；在会话里点也一样」。确认后卡片右边写「已确认」，接着执行这次操作、Agent 继续；拒绝后写「已拒绝」，不执行，Agent 换办法或收尾。等到时间（默认 10 分钟，`confirm_wait_minutes`）没人决定写「等待超时，按拒绝处理」。等确认的时间不算进时长上限。等待时「取消执行」照样能点，取消后这次待确认的操作一并拒掉。抽屉「执行记录」标签上的运行灯、「查看运行中」按钮在等待确认时照亮。正式产品：记录 `status` 为 `waiting`，流里 `confirm` / `decision` 事件；确认、拒绝走 `POST /api/agent/tool-calls/{id}/confirm`、`reject`（和会话里的确认卡片同一个接口），执行在后端接着跑 |
+| SPEC-tasks-5.35 | 工作台 Agent 执行结束 | 展示 | 结束时给任务记一条进展（操作者 agent）：完成写「工作台 Agent「<名称>」执行完成（执行记录 <id 后 8 位>）：」加 Agent 最后写的结论；失败写「工作台 Agent「<名称>」执行失败（执行记录 <id 后 8 位>）：<原因>」；取消不记。执行过程中 Agent 自己用工具记的进展、改的状态、建的子任务照常出现在对应区块。执行记录照常落库：输出是过程记录（同流式，工具一行「[工具] 名 · 参数」，确认、决定各一行） |
+| SPEC-tasks-5.36 | 「打开会话继续」 | 点击（结束了的工作台 Agent 执行） | 展开后输出下面一个按钮「打开会话继续」，旁边写「在会话里接着追问；要它再动手，从「交给…」勾「接着上次的会话」续跑」。点了去「会话」打开这次执行绑定的会话（`SPEC-sessions-1.44`）。正式产品：会话 id 是执行记录的 `harness_session` |
+| SPEC-tasks-5.37 | 工作台 Agent 执行的工具卡片 | 展示 | 工具名是 Agent 的工具（`get_object`、`append_progress`、`create_object`、`update_object`、`write_file` 等），参数压成一行当说明；结果下面多一行灰字摘要（如「已给 T-016 记了一条进展」），失败的照旧红字写原因 |
 
 改动痕迹、验收和退回（DEV-08d）：
 
@@ -708,6 +714,13 @@ stateDiagram-v2
 | SPEC-tasks-6.17 | 发起后任务的状态 | 「开始执行」/「在终端中打开」 | 交出去就算开工：任务状态不是进行中、已完成、已取消的改为进行中（未开工、待验收、受阻都改），列表、抽屉、计数马上跟着变。已完成、已取消的不动。正式产品由后端在建执行记录后改（`POST /api/objects/{id}/run`、`/run/terminal`），照常记修订；改不成不挡执行 |
 | SPEC-tasks-6.18 | 「角色」 | 选择 | 工作目录下面、「允许写入」上面一个下拉（AUTO-03 前叫「预置提示词」）：「不用」加上设置里录的各个角色（标题是角色场景，只读的后面写「（只读）」，默认的后面写「（默认）」）。打开时选上标了默认的那个，没有默认选「不用」。下面一行灰字是所选的执行要求（最多三行高，可滚），有输出要求时再一行「输出要求：…」；选「不用」写「不带角色的执行要求，只按任务内容和附加说明执行」。终端方式选了只读角色时再一行「终端方式的权限由启动命令决定：只读角色只在提示词里写明不改文件」。右上「管理角色」关掉弹窗去「设置 / 角色」（`SPEC-settings-24`）。选了的拼进提示词「执行要求（<角色场景>）」一节（在「所属项目」之后、「本次执行的补充要求」之前）：执行要求，只读角色加一段「这个角色只读：不要创建、修改或删除任何文件，结论写在回复里。」，有输出要求时加「输出要求：」和原文；提示词预览跟着变。流式执行的「允许写入」跟着角色走（6.3）。正式产品请求和预览多带 `preset_id`，选的那个刚被删掉时后端回 400；只读角色后端把 `allow_writes` 压成 `false`，不加 `--permission-mode acceptEdits` |
 | SPEC-tasks-6.19 | 工作目录里的软链接目录 | 执行 | 工作目录本层和下一层里软链接指向、实际路径在工作目录外的目录（比如 `example/acme-project/云端功能需求` 指向 `PRDs/Acme/云端功能需求`），流式执行时逐个追加 `--add-dir <实际路径>`（最多 20 个），否则 Claude Code 按实际路径判断、读这些目录会被挡下。界面上没有变化。终端方式的权限和目录由启动命令决定，不加 |
+| SPEC-tasks-6.20 | 「交给谁」 | 二选一 | 弹窗最上面「Claude Code / 工作台 Agent」，默认 Claude Code，下面一行说明。选工作台 Agent 时：标题改「交给工作台 Agent」；不显示「执行方式」和「允许写入」；工作目录改叫「产物目录（可选）」，可以空（空着提示「不填 Agent 就不能写文件，其他工具照常用」，填了要是绝对路径，提示「Agent 写文件（write_file）写在这里」）；角色、附加说明、提示词预览照旧。说明里写「改代码的任务仍建议交给 Claude Code」。发起后状态改进行中（同 6.17），不领取、不改负责人，切到「执行记录」标签看过程。按钮仍叫「交给 Claude Code」，同一任务有执行在跑或等待确认时变「查看运行中」 |
+| SPEC-tasks-6.21 | 「Agent」 | 选择 | 只列启用的 Agent，打开时选上「Agent / 场景默认 Agent」里「执行任务」选的（`SPEC-settings-8.16`），没选或那个停了、删了选第一个启用的，后面写「（默认）」。下面一行是 Agent 的说明，加「工具授权按这个 Agent 的「工具与权限」，要确认的照旧要确认」。一个启用的都没有时红字「没有可用的 Agent：先到「Agent」里建一个并启用」，「开始执行」不可用 |
+| SPEC-tasks-6.22 | 「服务商和模型」 | 选择 | 两个下拉，默认取所选 Agent 设置的服务商和模型，下面写「默认取 Agent 设置的；只改这一次，不改 Agent」；换了写「只改这一次，不改 Agent」。换 Agent 时回到新 Agent 的设置。服务商下没有启用的模型时红字「这个服务商还没有启用的模型」，不可发起 |
+| SPEC-tasks-6.23 | 「接着上次的会话」 | 勾选 | 附加说明下面。这条任务交给工作台 Agent 执行过才能勾，勾了续用上次那次执行的会话（带上之前的上下文，Agent 用上次那个），按钮变「接着上次执行」；没有时置灰，说明「这条任务还没交给工作台 Agent 执行过，没有可续的会话」。正式产品 `resume_session: true`，没有可续的会话（没跑过、或者上次的会话删了）后端回 400 |
+| SPEC-tasks-6.24 | 交给工作台 Agent 的提示词 | 展示（预览） | 第一条消息由任务拼：开头一句说明手里的工具（续跑时改为「接着上次的执行继续处理这条任务……」），「任务」一节（编号、类型、标题、状态、优先级、到期、关联仓库、关联对象），「任务描述」「验收标准」「所属项目」（名称、文档目录），「执行要求（角色）」（只读角色写「这次只给你开了读的工具」），「本次执行的补充要求」，「怎么做」（先读任务、记进展、拆子任务带 `parent_ref`、做完才改完成、不能向用户提问、要确认的写操作会停下等、产物目录），「结束时」（最后一段写结论，会原样记成任务进展）。正式产品：`runner.BuildAgentPrompt`，预览 `GET /api/objects/{id}/run/prompt?harness=agent` |
+| SPEC-tasks-6.25 | 只读角色交给工作台 Agent | 发起 | 选了只读角色（`permission=read_only`）时说明多一行「只读角色：这次只给 Agent 开读的工具，不改任何东西」；正式产品给模型的工具只剩读的（写任务、写文档、会改对方数据的连接器工具都关掉），不看 Agent 授权里怎么开的 |
+| SPEC-tasks-6.26 | 预算 | 发起 | 底部说明「过程流式显示在执行记录里，同时建一个 Agent 会话；默认最多 30 步、10 分钟，等确认 10 分钟没人决定按拒绝」。调一次模型算一步，续跑也重新算；时长不含等确认的时间。弹窗不给改，接口能改：`max_steps`（1 到 100）、`max_minutes`（1 到 60）、`confirm_wait_minutes`（1 到 60），超出范围 400 |
 
 ### 空状态和异常状态
 
@@ -717,8 +730,15 @@ stateDiagram-v2
 | SPEC-tasks-6.8 | 执行接口报错（`error` 事件或请求失败） | 原型未做。正式产品：流式区显示错误信息，执行记录照常刷新 | 重新执行 |
 | SPEC-tasks-6.9 | 执行失败 | 执行记录显示「失败」和原因（演示数据 `T-016` 的那条：「npm run build 失败：Providers.tsx 类型错误」） | 重新执行 |
 | SPEC-tasks-6.16 | 终端没打开（终端插件刚停用、会话数到上限、目录打不开） | 原型未做。正式产品：执行记录里那条收尾成失败，结论写「终端没打开：原因」，弹窗处给出原因 | 换流式执行或处理后重试 |
+| SPEC-tasks-6.27 | 工作台 Agent 超过步数或时长上限 | 原型未做。正式产品：执行停下、记录「失败」，原因「超过步数上限（30 步）还没做完，已停下。已经执行的操作不会撤回；可以调大步数上限后续跑，或者把任务拆小」或「超过时长上限（10 分钟）……」，任务进展记一条「执行失败」，会话里也留一句 | 勾「接着上次的会话」续跑，或拆小任务 |
+| SPEC-tasks-6.28 | 服务商不可用 | 原型未做。正式产品：模型调用按服务商的熔断和重试走（瞬时失败重试两次），设了「失败时改用」的改用备用服务商再试；还是不行就失败，原因「服务商不可用，执行失败：服务商「<名称>」……」（熔断中写下次探测时间），不无限重试 | 到「设置 / 模型服务商」检查，或换服务商重新执行 |
+| SPEC-tasks-6.29 | 等确认超时 | 确认卡片写「等待超时，按拒绝处理」，这次操作不执行，Agent 接着收尾（`SPEC-tasks-5.34`）；正式产品这次调用的结果记「等待确认超时，按拒绝处理：……」 | 续跑后让它再提一次 |
+| SPEC-tasks-6.30 | 没有可续的会话 | 「接着上次的会话」置灰（6.23）；正式产品接口回 400「这个任务还没有可续的工作台 Agent 会话（没跑过，或者上次的会话已经删了），先跑一次再续」 | 不勾续跑，重新执行 |
+| SPEC-tasks-6.31 | Agent 停用、删除，或会话里还有一轮在跑 | 原型未做。正式产品：指定的 Agent 停用或删了回 409「Agent 已停用 / 已删除」；续跑时上次会话里还有一轮在跑回 409「上次的会话里还有一轮在跑，等它跑完或先停下再续跑」 | 换 Agent 或等会话跑完 |
 
 ### 数据
+
+交给工作台 Agent（6.20 起）请求体同一个接口 `POST /api/objects/{id}/run`：`{ harness: 'agent', agent_id?: string, provider_id?: string, model?: string, preset_id?: string, extra_prompt?: string, workdir?: string, resume_session?: boolean, max_steps?: number, max_minutes?: number, confirm_wait_minutes?: number }`，`agent_id` 空用场景「执行任务」的，`provider_id`、`model` 空用 Agent 设置的，`workdir` 可空（产物目录），没有 `allow_writes`。流里多两种事件 `confirm {id, name, args, summary, deadline}`、`decision {id, approved, reason: 'user' | 'timeout'}`，`start` 多 `session_id`，`tool_result` 多 `summary`；执行记录 `harness: 'agent'`、`harness_session` 是会话 id，`status` 多一个 `waiting`。原型：`TaskRun` 多 `harness`、`agent_id`、`agent_name`、`model`、`agent_session`、`confirm_wait`，事件脚本 `agentRunScript` / `agentAfterDecision`（`taskdata.ts`），发起参数 `RunStart`（`devloop.tsx`）。
 
 流式执行请求体 `{ workdir?: string, extra_prompt?: string, allow_writes?: boolean, preset_id?: string }`（原型 `start(task, { workdir, allow_writes, extra_prompt, mode })`，`mode` 为 `stream` 或 `terminal`，返回执行 id）；终端方式只用 `workdir`、`extra_prompt`、`preset_id`，`allow_writes` 恒为 `false`。角色原型在 `runpresets.ts`（`useRunPresets`），`buildPrompt` 多一个 `preset`（`{ scene, content, permission?, output? }`）。任务来自 IM 消息时正式产品的提示词另有「来源消息」一节（渠道、会话、发送人、原文；勾了回复时说明结论会回复到这条消息，`SPEC-messages-2.50`），原型没做。提示词原型由 `handoff.ts` 的 `buildPrompt({ task, workdir, extra, mode, project, runId })` 拼，项目上下文 `ProjectContext`：`{ name, ref?, workdir?, docsDir?, docsLabel?, prototypes: { name, dir }[] }`（`projectContext(project)` 从 `Project` 算：`docsDir` 取 `related` 第一个，原型相对目录接在项目根目录后面）。`workdir` 省略时后端按任务、所属项目逐级继承；`allow_writes` 默认 `false`，为 `true` 时后端加 `--permission-mode acceptEdits`（选了只读角色时后端按 `false` 处理），任何情况下都不传 `--dangerously-skip-permissions`。
 

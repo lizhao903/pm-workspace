@@ -674,6 +674,7 @@ Agent、知识库、技能、枚举值、运行异常、内网域名几节目前
 | SPEC-settings-8.9 | 卡片底部 | 看 | 触发方式（手动写「手动」，其余写条件，没条件写类型名，用 · 隔开）。不放执行情况（「N 条等确认」「<时间>运行」「还没运行过」都去掉）：执行记录只算任务、IM、定时触发的，会话里手动对话不算，显示「还没运行过」会误导；执行记录、等确认的在「会话」菜单的执行记录里看 |
 | SPEC-settings-8.13 | 卡片头的思考档位 | 看 | 思考不是「模型默认」时，模型名后面写「· 思考：<档位>」（不思考 / 浅 / 中 / 深），见 `SPEC-settings-9.44` |
 | SPEC-settings-8.14 | 卡片下方「场景默认 Agent」 | 看、选 | 标题「场景默认 Agent」，提示「没指定 Agent 的模型调用用谁：用它的模型、思考和指令；不指定就用默认服务商」。每个场景一行：场景名、说明、一个下拉（「不指定（用默认服务商）」加全部 Agent，停用的写「（已停用）」）；选了立即保存。场景两个：「SOP 编排助手」（流程编辑器里的助手，`SPEC-sop`）、「其他后台调用」（插件在后台调模型又没指定 Agent 的地方，包括没选 Agent 的 SOP 调模型节点）。Agent 会话、SOP 的 Agent 节点本来就挂着 Agent，不在这里 |
+| SPEC-settings-8.16 | 场景「执行任务」 | 看、选 | 场景默认 Agent 多一行「执行任务」，说明「任务交给工作台 Agent 执行时默认用的 Agent，交的时候还能换；没选时用第一个启用的 Agent」。和另外两个场景不同，没选时不是退回默认服务商，而是用第一个启用的 Agent：下拉第一项写「不指定（用第一个启用的 Agent）」，选的 Agent 删了或停了红字写「……现在用第一个启用的 Agent」。决定的是「交给…」弹窗里 Agent 下拉的默认选项（`SPEC-tasks-6.21`）。正式产品 key `task_run`，排在 `background` 后面 |
 
 ### 空状态和异常状态
 
@@ -686,7 +687,7 @@ Agent、知识库、技能、枚举值、运行异常、内网域名几节目前
 
 ### 数据
 
-见 `SPEC-settings-9` 的 `Agent`。场景默认 Agent 是 `AgentScenario`（`web-next/src/agentdata.ts`，`seedScenarios`）：`{ key: string; label: string; desc: string; agent_id: string }`，`key` 为 `sop_assist` / `background`，`agent_id` 空串是没选；正式产品存在内核 `agent_settings`（0045），接口 `GET /api/agents/scenarios`、`PATCH /api/agents/scenarios`（body `{ "<场景>": "<Agent id 或空串>" }`）。等确认数、最近运行来自 `AgentRun`（`agent_id`、`at`、`status`，见 `SPEC-sessions`）。模型名和可用性来自 `modelChoices`（`ModelChoice`：`{ key: string; label: string; note: string; ok: boolean; group?: string }`，由 `ModelConf` 和 `usable` 算出，`ok` 为 false 时 `note` 是不可用原因）。
+见 `SPEC-settings-9` 的 `Agent`。场景默认 Agent 是 `AgentScenario`（`web-next/src/agentdata.ts`，`seedScenarios`）：`{ key: string; label: string; desc: string; agent_id: string }`，`key` 为 `sop_assist` / `background` / `task_run`（执行任务，8.16），`agent_id` 空串是没选；正式产品存在内核 `agent_settings`（0045），接口 `GET /api/agents/scenarios`、`PATCH /api/agents/scenarios`（body `{ "<场景>": "<Agent id 或空串>" }`）。等确认数、最近运行来自 `AgentRun`（`agent_id`、`at`、`status`，见 `SPEC-sessions`）。模型名和可用性来自 `modelChoices`（`ModelChoice`：`{ key: string; label: string; note: string; ok: boolean; group?: string }`，由 `ModelConf` 和 `usable` 算出，`ok` 为 false 时 `note` 是不可用原因）。
 
 ### 联动
 

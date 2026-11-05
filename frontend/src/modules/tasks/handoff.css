@@ -37,3 +37,11 @@
 .ho-preview summary { cursor: pointer; color: var(--muted); font-size: var(--fs-sm); }
 .ho-prompt { margin: var(--sp-3) 0 0; max-height: 280px; overflow: auto; padding: var(--sp-3) var(--sp-4); border: 1px solid var(--line); border-radius: 6px; white-space: pre-wrap; word-break: break-word; font: var(--fs-sm) var(--mono); }
 .ho-prompt[aria-busy='true'] { opacity: 0.7; }
+
+/* 交给工作台 Agent（TSK-0460）：服务商和模型、步数和时长两两并排，窄屏叠起来 */
+.ho-row { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--sp-5); }
+.ho-budget { margin-top: var(--sp-3); }
+.ho-entry { display: inline-flex; gap: var(--sp-3); flex-wrap: wrap; justify-content: flex-end; }
+@media (max-width: 640px) {
+  .ho-row { grid-template-columns: minmax(0, 1fr); }
+}

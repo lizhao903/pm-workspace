@@ -78,7 +78,7 @@ func (s *Server) handleGetTaskRun(w http.ResponseWriter, r *http.Request) {
 func (s *Server) reapStale(ctx context.Context, runs []*domain.TaskRun) {
 	for _, run := range runs {
 		// 终端执行（0048）的进程本来就不归工作台管，收尾靠 MCP 回写或手动标记，不在这里判失败。
-		if run == nil || run.FinishedAt != nil || run.Mode == domain.RunModeTerminal || s.run.Running(run.ID) {
+		if run == nil || run.FinishedAt != nil || run.Mode == domain.RunModeTerminal || s.run.Running(run.ID) || s.agentTasks.running(run.ID) {
 			continue
 		}
 		if time.Since(run.StartedAt) < staleRunGrace {
@@ -142,7 +142,7 @@ func (s *Server) handleCancelTaskRun(w http.ResponseWriter, r *http.Request) {
 		respondData(w, http.StatusOK, out)
 		return
 	}
-	if s.run.Cancel(id) {
+	if s.run.Cancel(id) || s.agentTasks.cancel(id) {
 		respondData(w, http.StatusOK, run)
 		return
 	}
@@ -173,12 +173,23 @@ type runObjectReq struct {
 	// 的 headless 模式（dsh）。别的值 400，不兜底成 claude——
 	// 用户以为自己换了执行器其实没换，比直接报错更糟。
 	Harness string `json:"harness"`
-	// ProviderID 只在 harness=deepseek 时用：把哪个模型服务商交给 dsh；空用默认服务商。
+	// ProviderID 在 harness=deepseek 时是把哪个模型服务商交给 dsh，空用默认服务商；
+	// harness=agent 时是这次用哪个服务商，空用 Agent 设置的。
 	ProviderID string `json:"provider_id"`
-	// ResumeSession 只在 harness=deepseek 时用：接着这个对象上一次 dsh 会话继续跑。
+	// ResumeSession 在 harness=deepseek / agent 时用：接着这个对象上一次同一执行器的会话继续跑。
 	// 默认 false——续跑会把上一次的上下文一起带进来，那该是用户明确要的，
 	// 而不是每次点「执行」都悄悄发生。
 	ResumeSession bool `json:"resume_session"`
+
+	// 以下只在 harness=agent（TSK-0460）时用，见 runagent.go。
+	// AgentID 是交给哪个 Agent，空用场景「执行任务」选的，没选用第一个启用的；续跑时用上次会话的 Agent，这项忽略。
+	AgentID string `json:"agent_id"`
+	// Model 是这次用的模型，空用服务商（没给服务商时用 Agent）设置的。
+	Model string `json:"model"`
+	// MaxSteps / MaxMinutes 是步数和时长上限，ConfirmWaitMinutes 是等人确认多久后按拒绝处理；0 用默认值。
+	MaxSteps           int `json:"max_steps"`
+	MaxMinutes         int `json:"max_minutes"`
+	ConfirmWaitMinutes int `json:"confirm_wait_minutes"`
 }
 
 // handleRunObject 把一个工作对象交给本机 claude 执行，过程以 SSE 流式回推。
@@ -205,6 +216,12 @@ func (s *Server) handleRunObject(w http.ResponseWriter, r *http.Request) {
 	obj, err := s.st.GetObject(ctx, objID)
 	if err != nil {
 		s.fail(w, r, err)
+		return
+	}
+
+	// 工作台 Agent 不起进程、工作目录可选，走自己的一支（runagent.go）
+	if h, err := runner.ParseHarness(req.Harness); err == nil && h == runner.HarnessAgent {
+		s.runObjectWithAgent(w, r, flusher, obj, req)
 		return
 	}
 
@@ -243,7 +260,7 @@ func (s *Server) handleRunObject(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if req.ResumeSession {
-			sessionID, err = s.lastDeepSeekSession(ctx, objID)
+			sessionID, err = s.lastHarnessSession(ctx, objID, domain.RunHarnessDeepSeek)
 			if err != nil {
 				s.fail(w, r, err)
 				return
@@ -555,17 +572,17 @@ func (s *Server) deepseekRoute(ctx context.Context, providerID string) (*runner.
 	return route, nil
 }
 
-// lastDeepSeekSession 找这个对象上一次 DeepSeek 执行留下的会话 id，给续跑用。
+// lastHarnessSession 找这个对象上一次用这个执行器（deepseek / agent）的执行留下的会话 id，给续跑用。
 //
 // 不新加一个 store 方法：执行历史本来就能按对象列最近 N 条，
-// 而「最近一条带会话的 deepseek 执行」拿几十条就够（中间夹着 claude 的执行很正常）。
-func (s *Server) lastDeepSeekSession(ctx context.Context, objectID string) (string, error) {
+// 而「最近一条带会话的同执行器执行」拿几十条就够（中间夹着别的执行器的执行很正常）。
+func (s *Server) lastHarnessSession(ctx context.Context, objectID, harness string) (string, error) {
 	runs, err := s.st.ListTaskRuns(ctx, objectID, 20)
 	if err != nil {
 		return "", err
 	}
 	for _, run := range runs {
-		if run.Harness == domain.RunHarnessDeepSeek && strings.TrimSpace(run.HarnessSession) != "" {
+		if run.Harness == harness && strings.TrimSpace(run.HarnessSession) != "" {
 			return run.HarnessSession, nil
 		}
 	}

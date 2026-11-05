@@ -178,3 +178,6 @@
   .chats.with-dock { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); position: relative; }
   .chats.with-dock .chat-dock { position: absolute; inset: 0; z-index: 20; }
 }
+
+/* 任务交给工作台 Agent 执行建的会话（TSK-0460） */
+.chat-item-tag { flex: none; padding: 0 5px; border-radius: 4px; border: 1px solid var(--line); color: var(--muted); font-size: var(--fs-2xs, 11px); line-height: 16px; }

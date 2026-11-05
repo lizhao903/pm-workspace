@@ -66,6 +66,11 @@
 .st-ok { color: var(--ok); background: color-mix(in srgb, var(--ok) 12%, transparent); }
 .st-bad { color: var(--danger); background: var(--danger-soft); }
 .st-off { color: var(--faint); background: var(--hover); }
+/* 工作台 Agent 执行（SPEC-tasks-5.33、5.34）：执行器标签、等待确认状态、确认卡片 */
+.st-warn { color: var(--warn); background: var(--warn-soft); }
+.src-tag.dev-agent { color: var(--ok); background: color-mix(in srgb, var(--ok) 12%, transparent); }
+.dev-confirm { border-color: var(--warn); }
+.dev-confirm .act-row { flex-wrap: wrap; }
 .src-tag.dev-write { color: var(--warn); background: var(--warn-soft); }
 .dev-run-at { flex: none; }
 .dev-run-note { padding: 0 10px 8px; font-size: 12px; }

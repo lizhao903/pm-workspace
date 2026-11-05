@@ -193,33 +193,110 @@ func (s *Service) completeOn(ctx context.Context, p *domain.AgentProvider, model
 	if err != nil {
 		return "", err
 	}
+	var b strings.Builder
+	err = s.streamRetry(ctx, p, c, Request{Model: model, Messages: msgs, Thinking: thinking}, func(ev Event) {
+		if ev.Kind == EventDelta {
+			b.WriteString(ev.Text)
+		}
+	})
+	if err != nil {
+		return "", err
+	}
+	return b.String(), nil
+}
+
+// streamRetry 在一个服务商上调一次模型，瞬时失败按 RetryDelays 重来；重来用完仍失败回 *UnavailableError。
+// 只重来还没吐过东西的瞬时失败；吐了一半断掉的不重来，免得拼出两份。熔断中被挡下的不是瞬时失败，直接回。
+func (s *Service) streamRetry(ctx context.Context, p *domain.AgentProvider, c Chat, req Request, on func(Event)) error {
 	delays := s.RetryDelays
 	if delays == nil {
 		delays = defaultRetryDelays
 	}
 	for attempt := 0; ; attempt++ {
-		var b strings.Builder
-		err := c.Stream(ctx, Request{Model: model, Messages: msgs, Thinking: thinking}, func(ev Event) {
-			if ev.Kind == EventDelta {
-				b.WriteString(ev.Text)
-			}
+		emitted := false
+		err := c.Stream(ctx, req, func(ev Event) {
+			emitted = true
+			on(ev)
 		})
 		if err == nil {
-			return b.String(), nil
+			return nil
 		}
-		// 只重来还没吐过字的瞬时失败；吐了一半断掉的不重来，免得拼出两份。熔断中被挡下的不是瞬时失败，直接回
-		if !IsTransient(err) || b.Len() > 0 {
-			return "", err
+		if !IsTransient(err) || emitted {
+			return err
 		}
 		if attempt >= len(delays) {
-			return "", s.exhausted(p, err, len(delays))
+			return s.exhausted(p, err, len(delays))
 		}
 		select {
 		case <-ctx.Done():
-			return "", err
+			return err
 		case <-time.After(delays[attempt]):
 		}
 	}
+}
+
+// TaskChat 备好交给 Agent 执行任务（TSK-0460）用的模型客户端：服务商 providerID（空用默认的）、模型 model
+// （空用服务商设置的）。回的客户端和 Complete 同一套口径：包着这个服务商的熔断，每次调模型遇到瞬时失败按
+// RetryDelays 重来，重来用完或熔断中回 *UnavailableError；服务商设了「失败时改用」时改用备用服务商
+// （用它自己的模型）再试一次。不会无限重试：一次调用最多 1+len(RetryDelays) 次，备用服务商再来一遍。
+func (s *Service) TaskChat(ctx context.Context, providerID, model string) (Chat, string, *domain.AgentProvider, error) {
+	p, err := s.provider(ctx, providerID)
+	if err != nil {
+		if strings.TrimSpace(providerID) != "" && errors.Is(err, domain.ErrNotFound) {
+			return nil, "", nil, fmt.Errorf("找不到选的模型服务商，可能已经删除：%w", err)
+		}
+		return nil, "", nil, err
+	}
+	if !p.Enabled {
+		return nil, "", nil, fmt.Errorf("服务商「%s」已停用，到 设置 → 模型服务商 启用它，或换一个服务商", p.Name)
+	}
+	c, model, err := s.clientFor(ctx, p, model)
+	if err != nil {
+		return nil, "", nil, err
+	}
+	return &resilientChat{s: s, p: p, c: c}, model, p, nil
+}
+
+// resilientChat 是 TaskChat 回的客户端，见 TaskChat。
+type resilientChat struct {
+	s *Service
+	p *domain.AgentProvider
+	c Chat
+}
+
+func (r *resilientChat) Stream(ctx context.Context, req Request, on func(Event)) error {
+	emitted := false
+	mark := func(ev Event) {
+		emitted = true
+		on(ev)
+	}
+	err := r.s.streamRetry(ctx, r.p, r.c, req, mark)
+	ue, down := AsUnavailable(err)
+	if !down || emitted {
+		return err
+	}
+	fb := r.s.fallback(ctx, r.p)
+	if fb == nil {
+		return err
+	}
+	fc, fmodel, ferr := r.s.clientFor(ctx, fb, "")
+	if ferr == nil {
+		freq := req
+		freq.Model = fmodel
+		// 思考块是原服务商的格式，换了服务商不带
+		freq.Messages = make([]Message, len(req.Messages))
+		for i, m := range req.Messages {
+			m.Thinking = nil
+			freq.Messages[i] = m
+		}
+		if ferr = r.s.streamRetry(ctx, fb, fc, freq, mark); ferr == nil {
+			thinkingLog().Info("服务商不可用，改用备用服务商", "provider", r.p.Name, "fallback", fb.Name, "cause", ue.Cause)
+			return nil
+		}
+	}
+	ue.Fallback = fb.Name
+	ue.msg += fmt.Sprintf("；备用服务商「%s」也没成功：%s", fb.Name, ferr.Error())
+	return ue
 }
 
 // exhausted 是重试用完仍失败的错误：写明服务商、去哪修；这几次失败让它熔断了的，再写上什么时候探测。

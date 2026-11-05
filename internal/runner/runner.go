@@ -77,6 +77,10 @@ const (
 	// 不等用户下次打开产物页才告诉他：这次执行到底产出了什么，
 	// 是他盯着这条流最想知道的事。
 	EventArtifact = "artifact"
+	// EventConfirm / EventDecision 只有 harness=agent（TSK-0460）会发：Agent 要做一次需要人确认的写操作，
+	// 执行停下等（记录状态 waiting）；确认、拒绝或等待超时后发 decision，接着跑。
+	EventConfirm  = "confirm"
+	EventDecision = "decision"
 )
 
 // Event 是推给前端的一条流事件，字段契约见 web/src/lib/types.ts 的 TaskRunEvent。
@@ -110,17 +114,34 @@ type Event struct {
 	Path       string
 	Size       int64
 	IsNew      bool
+
+	// 以下仅 harness=agent（TSK-0460）使用。SessionID 在 start 上是这次用的 Agent 会话；
+	// Summary 在 tool_result 上是给人看的结果一句话、在 confirm 上是要确认的操作；Args 是 confirm 的参数原文；
+	// Deadline 是 confirm 等到什么时候按拒绝处理；Approved、Reason（user / timeout）在 decision 上。
+	SessionID string
+	Summary   string
+	Args      string
+	Deadline  time.Time
+	Approved  bool
+	Reason    string
 }
 
 func (e Event) MarshalJSON() ([]byte, error) {
 	switch e.Type {
 	case EventStart:
+		if e.SessionID != "" {
+			return jsonObject("type", EventStart, "run_id", e.RunID, "workdir", e.Workdir, "session_id", e.SessionID)
+		}
 		return jsonObject("type", EventStart, "run_id", e.RunID, "workdir", e.Workdir)
 	case EventDelta:
 		return jsonObject("type", EventDelta, "text", e.Text)
 	case EventTool:
 		return jsonObject("type", EventTool, "id", e.ID, "name", e.Name, "detail", e.Detail)
 	case EventToolResult:
+		if e.Summary != "" {
+			return jsonObject("type", EventToolResult, "id", e.ID, "name", e.Name,
+				"ok", e.OK, "error", e.Message, "summary", e.Summary)
+		}
 		return jsonObject("type", EventToolResult, "id", e.ID, "name", e.Name,
 			"ok", e.OK, "error", e.Message)
 	case EventDone:
@@ -130,6 +151,11 @@ func (e Event) MarshalJSON() ([]byte, error) {
 	case EventArtifact:
 		return jsonObject("type", EventArtifact, "artifact_id", e.ArtifactID,
 			"path", e.Path, "size", e.Size, "is_new", e.IsNew)
+	case EventConfirm:
+		return jsonObject("type", EventConfirm, "id", e.ID, "name", e.Name, "args", e.Args,
+			"summary", e.Summary, "deadline", e.Deadline.UTC().Format(time.RFC3339))
+	case EventDecision:
+		return jsonObject("type", EventDecision, "id", e.ID, "approved", e.Approved, "reason", e.Reason)
 	}
 	return nil, fmt.Errorf("unknown run event type %q", e.Type)
 }
@@ -726,6 +752,10 @@ func readStream(stdout io.Reader, out io.Writer, on func(Event)) streamOutcome {
 		}
 	}
 }
+
+// Render 同 render，给不经 Runner 的执行器（harness=agent，TSK-0460）落同一种格式的过程记录，
+// 前端按同一套规则（[工具] / [工具失败] 行）解析回显示块。
+func Render(w io.Writer, ev Event) { render(w, ev) }
 
 // render 把事件写成人能读的过程记录。落库的是这一份而不是原始 NDJSON：
 // 事后复查的人要读的是「它做了什么」，不是一堆 JSON。

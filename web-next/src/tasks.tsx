@@ -9,7 +9,7 @@ import {
 import { GrowArea, cls, timeAgo } from './ui'
 import { SearchSelect } from './searchselect'
 import { useEnumView } from './enumdata'
-import { ApproveConfirm, ArtifactsBlock, DevFields, ProgressBlock, ReviewBar, RunDialog, RunsBlock, isDevTask, type DevLoop } from './devloop'
+import { ApproveConfirm, ArtifactsBlock, DevFields, ProgressBlock, ReviewBar, RunDialog, RunsBlock, isDevTask, type AgentRunOptions, type DevLoop } from './devloop'
 import { runStatus, type Governance, type RunAction, type Sop, type SopRun } from './sopflow'
 import { TaskSopBlock } from './tasksop'
 import { TaskPipelineBlock, taskRuns, waitOf } from './taskpipeline'
@@ -416,7 +416,15 @@ export function TaskDrawer({ task, initial, fromMessage, fromThread = [], thread
   /** SOP 插件在跑时有：执行、流程、发起、去运行页；gov、onAct 给「流水线」标签（AUTO-12，SPEC-sop-16）用 */
   sop?: { runs: SopRun[]; sops: Sop[]; onStart: (sopId: string) => void; onOpenRun: (runId: string) => void; gov: Governance; onAct: (runId: string, a: RunAction) => void }
   /** 交给 Claude Code 的「切换到终端」（SPEC-tasks-6.10）：终端插件在跑才有 terminalOn；onTerminal 在终端页新开标签执行启动命令 */
-  handoff?: { terminalOn: boolean; onTerminal: (o: { task: Task; runId: string; workdir: string; prompt: string }) => void; onManagePresets?: () => void }
+  handoff?: {
+    terminalOn: boolean; onTerminal: (o: { task: Task; runId: string; workdir: string; prompt: string }) => void; onManagePresets?: () => void
+    /** 交给工作台 Agent（SPEC-tasks-6.20）：Agent、服务商、模型；没给就只有 Claude Code */
+    agentRun?: Omit<AgentRunOptions, 'lastSession'>
+    /** 发起工作台 Agent 执行时建会话（全局会话，来源标这条任务的这次执行），回会话 id */
+    onAgentSession?: (o: { task: Task; runId: string; agentId: string; prompt: string }) => string
+    /** 执行记录里「打开会话继续」（SPEC-tasks-5.36） */
+    onOpenSession?: (sessionId: string) => void
+  }
 }) {
   const statusEnum = useEnumView('task_status')
   const prioEnum = useEnumView('task_priority')
@@ -447,7 +455,7 @@ export function TaskDrawer({ task, initial, fromMessage, fromThread = [], thread
   const sopMine = task && sop ? sop.runs.filter((r) => r.object_id === task.id) : []
   // 流水线标签上的卡点数（等人、失败、超时、超出上限）
   const pipeBlocks = task && sop ? taskRuns(task, sop.runs).reduce((n, r) => n + r.steps.filter((_, i) => waitOf(r, i)).length, 0) : 0
-  const runningId = dev && mine(dev.runs).find((r) => r.status === 'running')?.id
+  const runningId = dev && mine(dev.runs).find((r) => r.status === 'running' || r.status === 'waiting')?.id
   const [markDone, setMarkDone] = useState(true)
   const [replyOnDone, setReplyOnDone] = useState(true)
   // 转任务附上消息列：默认勾上，存时拼进描述后面
@@ -664,15 +672,29 @@ export function TaskDrawer({ task, initial, fromMessage, fromThread = [], thread
             )}
             {cur === 'pipeline' && sop && <TaskPipelineBlock task={task} runs={sop.runs} gov={sop.gov} onAct={sop.onAct} onOpenRun={sop.onOpenRun} />}
             {cur === 'sop' && sop && <TaskSopBlock task={task} runs={sop.runs} sops={sop.sops} onStart={sop.onStart} onOpenRun={sop.onOpenRun} focus={focus.sop} />}
-            {cur === 'runs' && dev && <RunsBlock runs={mine(dev.runs)} onCancel={dev.cancel} onFinish={dev.finish} focus={focus.run} />}
+            {cur === 'runs' && dev && <RunsBlock runs={mine(dev.runs)} onCancel={dev.cancel} onFinish={dev.finish} focus={focus.run}
+              onDecide={dev.decide} onOpenSession={handoff?.onOpenSession} agentName={(id) => handoff?.agentRun?.agents.find((a) => a.id === id)?.name} />}
           </>
         )}
       </div>
       {runOpen && task && dev && (
         <RunDialog task={{ ...task, workdir: d.workdir }} inheritDir={inheritDir} project={projectCtx} terminalOn={!!handoff?.terminalOn} onClose={() => setRunOpen(false)}
+          agentRun={handoff?.agentRun && (() => {
+            const last = mine(dev.runs).filter((r) => r.harness === 'agent' && r.agent_session).sort((a, b) => b.started_at.localeCompare(a.started_at))[0]
+            return { ...handoff.agentRun, lastSession: last ? { id: last.agent_session!, agent_id: last.agent_id, agent_name: last.agent_name } : undefined }
+          })()}
           onManagePresets={handoff?.onManagePresets && (() => { setRunOpen(false); handoff.onManagePresets?.() })}
           onStart={(o) => {
             const runId = dev.start(task, o)
+            // 工作台 Agent：建会话（续跑用上次的），记到执行记录上；不领取、不改负责人（SPEC-tasks-6.20）
+            if (o.harness === 'agent') {
+              const sid = o.agent_session ?? handoff?.onAgentSession?.({ task, runId, agentId: o.agent_id ?? '', prompt: `交给你执行任务 ${task.ref}「${task.title}」${o.extra_prompt ? `，补充说明：${o.extra_prompt}` : ''}` })
+              if (sid) dev.bindSession(runId, sid)
+              setD((x) => ({ ...x, status: x.status === 'done' || x.status === 'cancelled' ? x.status : 'doing' }))
+              setRunOpen(false)
+              pick('runs')
+              return
+            }
             if (o.mode === 'terminal') {
               setRunOpen(false)
               handoff?.onTerminal({ task, runId, workdir: o.workdir, prompt: buildPrompt({ task, workdir: o.workdir, extra: o.extra_prompt, mode: 'terminal', project: projectCtx, runId, preset: o.preset }) })

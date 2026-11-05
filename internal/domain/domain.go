@@ -881,6 +881,9 @@ const (
 	RunDone     = "done"
 	RunFailed   = "failed"
 	RunCanceled = "canceled"
+	// RunWaiting 是交给工作台 Agent 的执行（TSK-0460）停在要人确认的写操作上：没结束（finished_at 为空），
+	// 确认、拒绝或等待超时后回到 running。只有 harness=agent 的执行会进这个状态
+	RunWaiting = "waiting"
 )
 
 // 执行方式（0048）。stream 是工作台起子进程、流式回推；terminal 是在工作台的终端里开交互式会话，
@@ -909,7 +912,7 @@ type TaskRun struct {
 	// 老记录都是 claude。只用于留档与展示，不参与收尾判定。
 	Harness string `json:"harness"`
 	// HarnessSession 是 dsh 这次用的会话 id（0050）。带上它再跑一次就是续跑；
-	// claude 没有这个概念，留空串。
+	// claude 没有这个概念，留空串。harness=agent 时是 Agent 会话 id（TSK-0460），能打开会话接着聊。
 	HarnessSession string `json:"harness_session"`
 }
 
@@ -918,6 +921,9 @@ type TaskRun struct {
 const (
 	RunHarnessClaude   = "claude"   // 本机 claude CLI
 	RunHarnessDeepSeek = "deepseek" // deepseek-harness（dsh）的 headless 模式
+	// RunHarnessAgent 是工作台自己的 Agent（TSK-0460）：在工作台进程里跑 internal/agent 的工具循环，
+	// 不起外部进程；HarnessSession 记的是这次用的 Agent 会话 id
+	RunHarnessAgent = "agent"
 )
 
 // ---- 开发任务闭环：进展、领取、会话标识 ----
