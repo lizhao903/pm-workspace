@@ -91,7 +91,11 @@ var Registry = []Entry{
 	{"vct", "coverTest", "video_cover_tests", ""},   // 视频插件的表（VID-05b），封面 A/B 测试；分组没有 id
 	{"tp", "topic", "", "topic"},
 	{"cl", "clip", "", "clip"},
-	{"deal", "deal", "video_deals", "deal"}, // 视频插件的表（VID-08d），商单
+	{"deal", "deal", "video_deals", "deal"},            // 视频插件的表（VID-08d），商单
+	{"bpm", "biliMessage", "video_bili_messages", ""},  // 视频插件的表（TSK-0455），B 站私信
+	{"vsh", "videoShot", "video_shots", ""},            // 视频插件的表（TSK-0456），分镜
+	{"vbr", "videoBroll", "video_shot_brolls", ""},     // 视频插件的表（TSK-0456），分镜里的 B-roll
+	{"vmr", "videoMediaRoot", "video_media_roots", ""}, // 视频插件的表（TSK-0456），登记的素材目录
 	// 交易
 	{"wl", "watchlist", "", "watchlist"},
 	{"al", "alert", "trade_alerts", "alert"},                 // 交易插件的表（TRD-03a），盯盘提醒
