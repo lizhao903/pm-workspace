@@ -173,7 +173,11 @@ export type ImQuickReply = { text: string; done: boolean }
  * IM 插件的设置：expire_days 是多少天没处理算已过期，0 为不过期（IM-07）；
  * quick_replies 是消息抽屉「反馈」和列表快捷回复菜单里的那几条，没设过后端回内置的四条，PATCH 整组替换
  */
-export type ImSettings = { expire_days: number; quick_replies: ImQuickReply[] }
+export type ImSettings = {
+  expire_days: number; quick_replies: ImQuickReply[]
+  /** 手动转任务（转任务、拆分任务）后发起内置 SOP「FDE 反馈转发」，默认关（TSK-0468） */
+  fde_forward: boolean
+}
 /** 过期天数的取值范围（同后端校验） */
 export const IM_EXPIRE_DAYS_MAX = 365
 /** 快捷回复的条数和每条字数上限（同后端校验） */

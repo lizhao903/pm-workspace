@@ -23,6 +23,7 @@ function backend(opts: { list?: Connector[]; syncFails?: string; defs?: Connecto
   const calls: Call[] = []
   let list = opts.list ?? []
   let expireDays = 7
+  let fde = false
   let quick = [{ text: '收到，我看一下', done: false }, { text: '已处理，请查看', done: true }]
   const json = (data: unknown, status = 200) => new Response(JSON.stringify(status < 300 ? { data } : data), { status })
   vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -55,8 +56,9 @@ function backend(opts: { list?: Connector[]; syncFails?: string; defs?: Connecto
         if (body.expire_days < 0 || body.expire_days > 365) return json({ error: { code: 'validation', message: '过期天数要在 0 到 365 之间' } }, 400)
         if (body.expire_days !== undefined) expireDays = body.expire_days
         if (body.quick_replies) quick = body.quick_replies
+        if (body.fde_forward !== undefined) fde = body.fde_forward
       }
-      return json({ expire_days: expireDays, quick_replies: quick })
+      return json({ expire_days: expireDays, quick_replies: quick, fde_forward: fde })
     }
     if (u.pathname.endsWith('/sync')) {
       if (opts.syncFails) return json({ error: { code: 'sync_failed', message: `同步失败：${opts.syncFails}` } }, 502)
@@ -179,6 +181,23 @@ describe('渠道配置', () => {
     expect(calls.filter((c) => c.path === '/api/im/settings' && c.method === 'PATCH').map((c) => c.body)).toEqual([{ expire_days: 400 }, { expire_days: 0 }])
     expect(input).toHaveValue(0)
     expect(save).toBeDisabled()
+  })
+
+  it('FDE 反馈转发（TSK-0468）：默认关，勾上即打开并说明，取消即关闭', async () => {
+    const calls = backend({ list: [conn()] })
+    renderPanel()
+    const box = await screen.findByRole('group', { name: 'FDE 反馈转发' })
+    const cb = within(box).getByRole('checkbox', { name: '手动转任务后转发 FDE 反馈' })
+    await waitFor(() => expect(cb).not.toBeDisabled())
+    expect(cb).not.toBeChecked()
+    expect(within(box).getByText(/同一条消息只发一次，拆分出几条任务汇成一条；流程自动建的任务不发/)).toBeInTheDocument()
+    const user = userEvent.setup()
+    await user.click(cb)
+    expect(await within(box).findByText('已打开：手动转任务后会转发 FDE 反馈')).toBeInTheDocument()
+    await waitFor(() => expect(cb).toBeChecked())
+    await user.click(cb)
+    expect(await within(box).findByText('已关闭：手动转任务不再转发')).toBeInTheDocument()
+    expect(calls.filter((c) => c.path === '/api/im/settings' && c.method === 'PATCH').map((c) => c.body)).toEqual([{ fde_forward: true }, { fde_forward: false }])
   })
 
   it('快捷回复可以设置：改文字、勾并处理、上移、删除、加一条，空的和重复的不让存，保存整组替换', async () => {

@@ -289,6 +289,10 @@ func (in *inbox) upgradeIntake(ctx context.Context, c plugin.Core) error {
 			return fmt.Errorf("重写「IM 需求自动受理」失败：%w", err)
 		}
 		c.Log().Info("im auto intake flow upgraded to hand off to dev pipeline", "flow", AutoIntakeFlowID)
+		// 新版已经带「回执需求方」（TSK-0467），不用再换一次
+		if err := in.markTemplate(ctx, c, intakeAckMark); err != nil {
+			return err
+		}
 	case why == "":
 		// 用户删掉了：不补回来
 	case strings.Contains(why, "改过"):

@@ -110,7 +110,14 @@ describe('SOP 节点（2.7）', () => {
       ['im_send_message', '发消息', 'im'], ['im_wait_reply', '等待回复', 'im'], ['im_get_message', '读取消息', 'im'], ['im_mark_message', '标记消息', 'im'],
       ['im_set_project', '消息归到项目', 'im'], ['im_wait_task', '等任务完成', 'im'], ['im_reply_message', '回复原消息', 'im'],
       ['im_to_task', '转成任务', 'im'], ['im_set_task_stage', '设置任务阶段', 'im'], ['im_notify', '通知', 'im'],
-      ['im_ask_me', '私信我确认', 'im'], ['im_tell_me', '私信我', 'im'],
+      ['im_ask_me', '私信我确认', 'im'], ['im_tell_me', '私信我', 'im'], ['im_ack_task', '回执需求方', 'im'],
+      ['im_message_digest', '整理消息摘要', 'im'], ['im_send_contact', '私信联系人', 'im'],
+    ])
+    expect(sopNodeView('im_send_contact')?.fields.map((f) => [f.key, f.required ?? false])).toEqual([
+      ['contact', true], ['to', false], ['text', true], ['channel', false], ['connector', false],
+    ])
+    expect(sopNodeView('im_ack_task')?.fields.map((f) => [f.key, f.required ?? false, f.default ?? ''])).toEqual([
+      ['text', false, '已创建任务 {{task_ref}}，开始进行需求规划'], ['task', false, '{{task.id}}'], ['message', false, ''],
     ])
     expect(sopNodeView('im_ask_me')?.fields.map((f) => [f.key, f.required ?? false])).toEqual([
       ['text', true], ['timeout', false], ['channel', false], ['connector', false], ['to', false],

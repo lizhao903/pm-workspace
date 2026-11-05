@@ -3,7 +3,7 @@
   "name": "IM 消息",
   "description": "收各 IM 渠道的消息，按 IM 身份认人、按会话归档，筛出与我相关的",
   "icon": "message",
-  "version": "0.24.0",
+  "version": "0.25.0",
   "core": ">=1.0.0 <2.0.0",
   "depends": {},
   "optional_depends": {},
@@ -14,7 +14,7 @@
     "connectors": ["slack", "telegram"],
     "skills": [],
     "agent_tools": [],
-    "sop_nodes": ["im_send_message", "im_wait_reply", "im_get_message", "im_mark_message", "im_set_project", "im_wait_task", "im_reply_message", "im_to_task", "im_set_task_stage", "im_notify", "im_ask_me", "im_tell_me"],
+    "sop_nodes": ["im_send_message", "im_wait_reply", "im_get_message", "im_mark_message", "im_set_project", "im_wait_task", "im_reply_message", "im_to_task", "im_set_task_stage", "im_notify", "im_ask_me", "im_tell_me", "im_ack_task", "im_message_digest", "im_send_contact"],
     "today_cards": [],
     "commands": [],
     "search": ["im_messages"]

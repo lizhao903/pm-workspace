@@ -298,7 +298,7 @@ func TestIntakeFlowInstalledDisabled(t *testing.T) {
 	}
 }
 
-// TestIntakeHappyPathWithRework：需求消息 → 建任务（已接收）→ 回执带看板链接 → 分类拿得准、绑 Acme → 设计中 →
+// TestIntakeHappyPathWithRework：需求消息 → 建任务（已接收）→ 回执需求方 → 分类拿得准、绑 Acme → 设计中 →
 // 产品在原型库目录写 PRD → 评审中 → 评审退回一轮（意见带回产品）→ 第二轮通过 → 开发中，告诉提出人。
 func TestIntakeHappyPathWithRework(t *testing.T) {
 	e := setupIntake(t)
@@ -317,8 +317,8 @@ func TestIntakeHappyPathWithRework(t *testing.T) {
 		t.Fatalf("来源消息：%v", o.Props)
 	}
 	sent := e.fake.Sent()
-	if len(sent) != 1 || sent[0].ReplyTo != "C01:h1" || !strings.Contains(sent[0].Text, o.Ref) ||
-		!strings.Contains(sent[0].Text, "http://pmw.test/tasks/board?t="+o.ID) {
+	// 回执需求方（TSK-0467）：默认文案「已创建任务 TSK-x，开始进行需求规划」
+	if len(sent) != 1 || sent[0].ReplyTo != "C01:h1" || sent[0].Text != "已创建任务 "+o.Ref+"，开始进行需求规划" {
 		t.Fatalf("回执：%+v", sent)
 	}
 	pm := e.claude.last()
