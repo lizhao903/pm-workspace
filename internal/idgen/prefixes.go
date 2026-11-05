@@ -105,6 +105,8 @@ var Registry = []Entry{
 	{"fl", "fill", "trade_fills", ""},                    // 交易插件的表（TRD-05a），成交流水
 	{"rn", "strategyRun", "trade_runs", "strategyRun"},   // 交易插件的表（TRD-05b），策略部署；日志 trade_run_logs 用整数 id
 	{"hl", "haltRecord", "trade_halts", ""},              // 交易插件的表（TRD-06a），熔断记录
+	{"rcn", "reconRun", "trade_recons", ""},              // 交易插件的表（TRD-08b），实盘账户的一次对账
+	{"rc", "reconItem", "trade_recon_items", ""},         // 交易插件的表（TRD-08b），对账差异（原型 ReconItem 的 id 也是 rc 开头，原型没有登记前缀）
 	{"ear", "etfAnomalyRule", "etf_anomaly_rules", ""},   // 宽基监控插件的表（ETF-01b），异动规则；内置 7 条用固定 id
 	{"eae", "etfAnomalyEvent", "etf_anomaly_events", ""}, // 宽基监控插件的表（ETF-01b），异动命中记录
 	// 浏览器与终端

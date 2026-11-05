@@ -237,6 +237,16 @@ var contractSpecs = map[string]contractSpec{
 	"TradeKillResult":   {v: trade.KillResult{}},
 	"TradeHalt":         {v: trade.Halt{}},
 	"TradeHaltReleased": {v: trade.HaltReleased{}},
+	// 交易所账户只读接入、审计、对账（TRD-07a、TRD-08a、TRD-08b）
+	"TradeLiveSnapshot": {v: trade.LiveSnapshotView{}},
+	"TradeLiveBalance":  {v: trade.LiveBalance{}},
+	"TradeLivePosition": {v: trade.LivePosition{}},
+	"TradeLiveOrder":    {v: trade.LiveOrder{}},
+	"TradeLiveFill":     {v: trade.LiveFillView{}},
+	"TradeAudit":        {v: trade.AuditView{}},
+	"TradeRecon":        {v: trade.ReconView{}},
+	"TradeReconItem":    {v: trade.ReconItemView{}},
+	"TradeReconRecord":  {v: trade.ReconRecord{}},
 
 	"EtfFund":        {v: etf.Fund{}},
 	"EtfDaily":       {v: etf.Daily{}},

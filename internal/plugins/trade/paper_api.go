@@ -573,6 +573,13 @@ func (h *handlers) cancelAllOrders(w http.ResponseWriter, r *http.Request) {
 		h.fail(w, r, b.err)
 		return
 	}
+	if aid != "" {
+		// 实盘账户的撤单同样不开放（403）
+		if a, err := loadAccount(ctx, h.c, aid); err == nil && !a.Paper {
+			h.fail(w, r, liveErr(a.Name))
+			return
+		}
+	}
 	pp := h.p.paper
 	pp.mu.Lock()
 	defer pp.mu.Unlock()
