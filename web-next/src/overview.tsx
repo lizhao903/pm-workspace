@@ -67,6 +67,11 @@ const DRAFT: Partial<Record<OverviewKey, PageRow[]>> = {
   ],
   markets: [{ name: '行情', desc: '自选列表、K 线、期权 T 型报价' }],
   monitor: [{ name: '盯盘', desc: '市场时段、盯盘墙、价格与异动提醒、触发记录' }],
+  etf: [
+    { name: '份额与资金流', desc: '宽基 ETF 的份额、估算净流入、量比、折溢价、跟踪误差和份额趋势' },
+    { name: '异动', desc: '按规则命中的异动，确认或忽略' },
+    { name: '规则', desc: '异动规则：改阈值、启停、新建' },
+  ],
   strategy: [
     { name: '策略库', desc: '策略列表，点开进编辑器', view: 'list' },
     { name: '回测记录', desc: '回测和参数扫描的结果', view: 'backtests' },

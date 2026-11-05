@@ -2018,6 +2018,8 @@ stateDiagram-v2
 
 补记（不改版本号，2026-11-04，AUTO-10）：项目插件实际清单（0.16.0）`sop_nodes` 加 `projects_prepare_release`、`projects_release`，`emits` 加 `projects.release_changed`，迁移加 `0009_releases.sql`；IM 插件 0.22.0 只加内置流程（`sop_im_release_pipeline`），清单不变。内核接口不变。
 
+补记（不改版本号，2026-11-04，AUTO-11）：项目插件实际清单（0.17.0）`sop_nodes` 加 `projects_proto_sync_range`、`projects_proto_sync_branch`、`projects_proto_sync_classify`、`projects_proto_sync_verdict`、`projects_proto_sync_commit`、`projects_proto_sync_record`，`emits` 加 `projects.proto_sync_changed`，`subscribes` 加 `run.finished`（自己发起的「原型同步」执行结束时收尾），迁移加 `0010_proto_syncs.sql`；id 前缀登记 `psy`（`projects_proto_syncs`）。IM 插件 0.23.0 只加内置流程（`sop_im_proto_sync`），清单不变。内核接口不变。
+
 补记（不改版本号，2026-11-04，AUTO-06/07）：`ObjectWriter` 加 `UpdateTask`、类型 `TaskChange`、`ChangedTask`；IM 插件入口加 `WithPublicURL(url)`；`Core` 加 `WorktreeDir()`，`ObjectInfo` 加 `ProjectID`。项目插件实际清单（0.13.0）另有 `provides.settings: ["worktrees"]`、`sop_nodes` 含 `projects_list_profiles`、`projects_get_profile`、`projects_prepare_worktree`，`emits` 含 `projects.worktree_changed`，`subscribes` 为 `object.status_changed`、`object.stage_changed`。只增不改。
 
 补记（不改版本号，2026-11-04，需求到发布自动化一期）：`RunService` 加 `Cancel`，`ClaudeCodeStart` 加 `PresetID`、`FollowPreset`、`Timeout`、`RecordOnTask`、`ReportBack`，`RunInfo` 加 `Summary`、`Result`、`Reported`、`TaskRun`，插件运行的 `run.finished` 加 `summary`、`result`，总线 `run.finished` 加 `origin`；`ObjectReader` 加 `TaskStages`；内核事件加 `object.stage_changed`。内核钩子 `Registry.SetRunCallback`、`SetRunPresets`、`ReportRun`。都是只增不改，等用户定稿版本号。

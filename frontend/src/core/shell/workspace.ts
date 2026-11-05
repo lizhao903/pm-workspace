@@ -20,6 +20,7 @@ export const MODULE_CATALOG: readonly { key: string; label: string; desc: string
   { key: 'videos', label: '视频', desc: '视频制作流程、产出物、系列和多平台发布' },
   { key: 'markets', label: '行情', desc: '数币、A 股、港股、美股的看盘和期权 T 型报价' },
   { key: 'monitor', label: '盯盘', desc: '盯盘墙、价格与异动提醒、市场时段' },
+  { key: 'etf', label: '宽基监控', desc: '宽基 ETF 份额与资金流、异动提醒和规则' },
   { key: 'strategy', label: '策略', desc: '策略编辑、回测和参数扫描' },
   { key: 'trading', label: '交易', desc: '账户、持仓、委托、策略运行和风控' },
 ]
