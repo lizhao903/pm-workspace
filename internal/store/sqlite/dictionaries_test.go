@@ -459,7 +459,7 @@ func TestContactGroupAndMsgStatusUsage(t *testing.T) {
 		t.Fatalf("其他 = %+v, want meta.default", other)
 	}
 	before := findDictItem(base, "其他").Usage
-	for _, g := range []string{"客户、Octok", "Octok，XAUE", "客户", ""} {
+	for _, g := range []string{"客户、Acme", "Acme，Globex", "客户", ""} {
 		if _, err := s.CreateStakeholder(ctx, &domain.Stakeholder{Name: "人" + g, Group: g}); err != nil {
 			t.Fatalf("create stakeholder: %v", err)
 		}

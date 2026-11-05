@@ -12,7 +12,7 @@ import (
 	"github.com/lizhao903/pm-workspace/internal/runner"
 )
 
-// 原型同步（AUTO-11）：真的 SOP、项目插件、git 临时仓库（Octok 的代码库和原型库），Claude Code 用假执行器。
+// 原型同步（AUTO-11）：真的 SOP、项目插件、git 临时仓库（Acme 的代码库和原型库），Claude Code 用假执行器。
 // 由项目插件的接口手动发起（三种自动触发走同一个入口，触发本身在项目插件的单测里）：
 // 有界面改动 → 同步分支上对比回写 → 拿不准的交人工裁决（缺陷建修复任务 / 新设计再回写）→ 只提交到同步分支 → 记同步点 → 通知负责人；
 // 只有文档改动时不交给 Claude Code，只前移同步点。
@@ -25,14 +25,14 @@ func setupProtoSyncFlow(t *testing.T) pipeEnv {
 	e.r.SetNotifier(e.notes)
 	for _, dir := range []string{e.code, e.proto} {
 		git(t, dir, "init", "-q", "-b", "main")
-		if err := os.WriteFile(filepath.Join(dir, "README.md"), []byte("octok\n"), 0o644); err != nil {
+		if err := os.WriteFile(filepath.Join(dir, "README.md"), []byte("acme\n"), 0o644); err != nil {
 			t.Fatal(err)
 		}
 		git(t, dir, "add", ".")
 		git(t, dir, "commit", "-q", "-m", "init")
 	}
 	exec(t, e.st.DB(), `INSERT INTO stakeholders (id, name, created_at, updated_at) VALUES ('stk_own', '负责人丙', 'x', 'x')`)
-	if code, out := call(t, e.h, "PATCH", "/api/projects/obj_octok/profile", `{"owner_ids":["stk_own"]}`); code != 200 {
+	if code, out := call(t, e.h, "PATCH", "/api/projects/obj_acme/profile", `{"owner_ids":["stk_own"]}`); code != 200 {
 		t.Fatalf("档案 %d %v", code, out)
 	}
 	deadline := time.Now().Add(5 * time.Second)
@@ -45,7 +45,7 @@ func setupProtoSyncFlow(t *testing.T) pipeEnv {
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	if code, out := call(t, e.h, "POST", "/api/projects/obj_octok/proto-syncs", `{"mode":"baseline"}`); code != 201 {
+	if code, out := call(t, e.h, "POST", "/api/projects/obj_acme/proto-syncs", `{"mode":"baseline"}`); code != 201 {
 		t.Fatalf("设基线 %d %v", code, out)
 	}
 	return e
@@ -67,7 +67,7 @@ func (e pipeEnv) codeCommit(t *testing.T, file string) {
 // startSync 经项目插件发起一次，等到 SOP 执行 id。
 func (e pipeEnv) startSync(t *testing.T) (string, string) {
 	t.Helper()
-	code, out := call(t, e.h, "POST", "/api/projects/obj_octok/proto-syncs", "")
+	code, out := call(t, e.h, "POST", "/api/projects/obj_acme/proto-syncs", "")
 	if code != 202 {
 		t.Fatalf("发起原型同步 %d %v", code, out)
 	}
@@ -153,7 +153,7 @@ func TestProtoSyncFlowDefectThenDesign(t *testing.T) {
 	id, runID := e.startSync(t)
 
 	req := e.next(t)
-	if !strings.Contains(req.Workdir, filepath.Join("worktrees", "obj_octok", "proto-sync-"+id)) || !req.AllowWrites ||
+	if !strings.Contains(req.Workdir, filepath.Join("worktrees", "obj_acme", "proto-sync-"+id)) || !req.AllowWrites ||
 		!strings.Contains(req.Prompt, "proto-sync/") || !strings.Contains(req.Prompt, "diff.patch") || !strings.Contains(req.Prompt, "不确定（uncertain）") {
 		t.Fatalf("Claude Code 在同步分支工作区里跑：%s %v\n%s", req.Workdir, req.AllowWrites, req.Prompt)
 	}
@@ -181,7 +181,7 @@ func TestProtoSyncFlowDefectThenDesign(t *testing.T) {
 	}
 	var title, project string
 	if err := e.st.DB().R.QueryRow(`SELECT title, project_id FROM objects WHERE id = ?`, row["fix_task_id"]).Scan(&title, &project); err != nil ||
-		!strings.Contains(title, "修复：原型同步") || project != "obj_octok" {
+		!strings.Contains(title, "修复：原型同步") || project != "obj_acme" {
 		t.Fatalf("修复任务：%v %s %s", err, title, project)
 	}
 	branch := row["proto_branch"].(string)
@@ -192,7 +192,7 @@ func TestProtoSyncFlowDefectThenDesign(t *testing.T) {
 	if strings.TrimSpace(gitOut(t, e.proto, "rev-parse", "main")) != protoMain || fileThere(filepath.Join(e.proto, "src/export.tsx")) {
 		t.Fatal("原型库主分支被改了")
 	}
-	_, out := call(t, e.h, "GET", "/api/projects/obj_octok/proto-sync", "")
+	_, out := call(t, e.h, "GET", "/api/projects/obj_acme/proto-sync", "")
 	if p := data(out)["point"].(map[string]any); p["commit"] != head || p["proto_commit"] != pc || p["sync_id"] != id {
 		t.Fatalf("同步点：%v", p)
 	}

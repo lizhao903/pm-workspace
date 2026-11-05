@@ -29,7 +29,7 @@ function sopRun(p: Partial<SopInputRun> = {}): SopInputRun {
 }
 const flow = (p: Partial<SopFlow>): SopFlow => ({ id: 'sop_im', name: '消息分流', desc: '', trigger: 'im', fields: [], steps: [], version: 1, created_at: '', updated_at: '', ...p })
 
-const PROJECTS = [{ id: 'obj_p1', type_id: 'project', ref: 'PRJ-0001', title: 'Octok', props: {}, deleted_at: null, workdir: '/work/octok' }]
+const PROJECTS = [{ id: 'obj_p1', type_id: 'project', ref: 'PRJ-0001', title: 'Acme', props: {}, deleted_at: null, workdir: '/work/acme' }]
 
 type Call = { method: string; path: string; body?: Record<string, unknown> }
 
@@ -371,9 +371,9 @@ describe('IM 消息页', () => {
     expect(await screen.findByText('群里一')).toBeInTheDocument()
     expect(screen.queryByText('别的群')).not.toBeInTheDocument()
     await userEvent.click(await screen.findByRole('button', { name: '群组默认归属的项目' }))
-    await userEvent.click(await screen.findByRole('option', { name: /Octok/ }))
+    await userEvent.click(await screen.findByRole('option', { name: /Acme/ }))
     await waitFor(() => expect(calls.find((c) => c.method === 'PUT')).toEqual({ method: 'PUT', path: '/api/im/conversation-projects/cv_1', body: { project_id: 'obj_p1' } }))
-    await waitFor(() => expect(screen.getByRole('button', { name: '群组默认归属的项目' })).toHaveTextContent('Octok'))
+    await waitFor(() => expect(screen.getByRole('button', { name: '群组默认归属的项目' })).toHaveTextContent('Acme'))
     expect(rows[0].project_source).toBe('conversation')
   })
 
@@ -565,7 +565,7 @@ describe('IM 消息页', () => {
 
   it('Slack 回复框写明以谁的身份发送（IM-06）', async () => {
     const c: Connector = {
-      id: 'cn_1', tool: 'slack', name: 'Slack 工作区', account: 'broleez（U07ME）', status: 'connected', error: '', auth_mode: 'token',
+      id: 'cn_1', tool: 'slack', name: 'Slack 工作区', account: 'broleez（U0EXAMPLE）', status: 'connected', error: '', auth_mode: 'token',
       config: { identity: '我本人（用户 Token）' }, secret_hints: {}, direction: 'both', interval: 5, tools: [], tools_at: null, last_tested_at: null,
       last_sync_at: null, available: true, created_at: '', updated_at: '',
     }
@@ -643,8 +643,8 @@ describe('IM 消息页', () => {
 
 describe('认人：关联到联系人、就地新建、改挂（IM-05）', () => {
   const people = (): FakeContact[] => [
-    { id: 'stk_a', name: '陈澈', company: 'Octok', title: '', photo: '' },
-    { id: 'stk_b', name: 'Lin Yuan', company: 'XAUE', title: '产品', photo: '' },
+    { id: 'stk_a', name: '陈澈', company: 'Acme', title: '', photo: '' },
+    { id: 'stk_b', name: 'Lin Yuan', company: 'Globex', title: '产品', photo: '' },
     { id: 'stk_c', name: '王五', company: '', title: '', photo: '' },
   ]
   const slack: Connector = {
@@ -662,7 +662,7 @@ describe('认人：关联到联系人、就地新建、改挂（IM-05）', () =>
     const opts = await within(dlg).findAllByRole('option')
     expect(opts[0]).toHaveTextContent('Lin Yuan')
     // 搜公司
-    await userEvent.type(within(dlg).getByLabelText('搜索联系人'), 'octok')
+    await userEvent.type(within(dlg).getByLabelText('搜索联系人'), 'acme')
     expect(within(dlg).getAllByRole('option')).toHaveLength(1)
     await userEvent.clear(within(dlg).getByLabelText('搜索联系人'))
     await userEvent.click(within(dlg).getByRole('option', { name: /Lin Yuan/ }))
@@ -685,10 +685,10 @@ describe('认人：关联到联系人、就地新建、改挂（IM-05）', () =>
     const dlg = await screen.findByRole('alertdialog')
     expect(within(dlg).getByLabelText(/姓名/)).toHaveValue('赵六')
     expect(within(dlg).getByLabelText('分组')).toHaveValue('其他')
-    await userEvent.type(within(dlg).getByLabelText('公司'), 'Octok')
+    await userEvent.type(within(dlg).getByLabelText('公司'), 'Acme')
     await userEvent.click(within(dlg).getByRole('button', { name: '创建并关联' }))
     await waitFor(() => expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument())
-    expect(calls.find((c) => c.method === 'POST' && c.path === '/api/stakeholders')?.body).toEqual({ name: '赵六', company: 'Octok', group: '其他' })
+    expect(calls.find((c) => c.method === 'POST' && c.path === '/api/stakeholders')?.body).toEqual({ name: '赵六', company: 'Acme', group: '其他' })
     const made = calls.find((c) => c.method === 'POST' && c.path === '/api/im-identities')?.body
     expect(made).toMatchObject({ channel: 'slack', external_id: 'U7', display_name: '赵六' })
     expect(router.state.location.pathname).toBe('/messages')
@@ -789,7 +789,7 @@ describe('合并显示、交给 Agent（0008）', () => {
   const ago = (min: number) => new Date(Date.now() - min * 60_000).toISOString()
   // 一个私聊三条、群里林原连发两条、机器人刷了三遍同一句（中间夹着别人的话）
   const fixture = () => [
-    msg({ text: '私聊一', conversation: '', conversation_kind: 'direct', conversation_external_id: 'D9', sender_id: 'U9', sender_name: '周屿', relevance: 'dm', at: ago(50), project_id: 'obj_p1', project_name: 'Octok' }),
+    msg({ text: '私聊一', conversation: '', conversation_kind: 'direct', conversation_external_id: 'D9', sender_id: 'U9', sender_name: '周屿', relevance: 'dm', at: ago(50), project_id: 'obj_p1', project_name: 'Acme' }),
     msg({ text: '私聊二', conversation: '', conversation_kind: 'direct', conversation_external_id: 'D9', sender_id: 'U9', sender_name: '周屿', relevance: 'dm', at: ago(40), read: false }),
     msg({ text: '私聊三', conversation: '', conversation_kind: 'direct', conversation_external_id: 'D9', sender_id: 'U9', sender_name: '周屿', relevance: 'dm', at: ago(30), read: false, attachments: [{ id: 'a1', name: '合同.docx', kind: 'file' }] }),
     msg({ text: '连发一', at: ago(20) }),
@@ -861,13 +861,13 @@ describe('合并显示、交给 Agent（0008）', () => {
     const dlg = await screen.findByRole('alertdialog', { name: '拆分任务' })
     await within(dlg).findByText(/拆活助手：它建任务前会先出确认卡片/)
     const prompt = within(dlg).getByRole('textbox', { name: '第一句话' }) as HTMLTextAreaElement
-    for (const want of ['3 条消息', '群：私聊', '归属项目：Octok', '附件：合同.docx', '周屿：私聊一', 'create_object', '确认卡片']) expect(prompt.value).toContain(want)
-    expect(within(dlg).getByRole('textbox', { name: '工作目录' })).toHaveValue('/work/octok')
+    for (const want of ['3 条消息', '群：私聊', '归属项目：Acme', '附件：合同.docx', '周屿：私聊一', 'create_object', '确认卡片']) expect(prompt.value).toContain(want)
+    expect(within(dlg).getByRole('textbox', { name: '工作目录' })).toHaveValue('/work/acme')
     await userEvent.click(within(dlg).getByRole('button', { name: '开始拆分' }))
     await waitFor(() => expect(router.state.location.pathname).toBe('/conversations'))
     expect(router.state.location.search).toBe('?s=ags_1')
     const create = calls.find((c) => c.path === '/api/agent/sessions')!.body!
-    expect(create).toMatchObject({ agent_id: 'ag_1', workdir: '/work/octok' })
+    expect(create).toMatchObject({ agent_id: 'ag_1', workdir: '/work/acme' })
     expect(create.source_ref).toMatchObject({ kind: 'im_message', message_id: rows[2].id, message_ids: [rows[0].id, rows[1].id, rows[2].id], project_id: 'obj_p1' })
     expect(calls.find((c) => c.path === '/api/im/sessions')?.body).toEqual({ session_id: 'ags_1', message_ids: [rows[0].id, rows[1].id, rows[2].id], intent: 'split' })
   })
@@ -892,7 +892,7 @@ describe('合并显示、交给 Agent（0008）', () => {
     await userEvent.click(within(dm).getByRole('button', { name: /更多/ }))
     await userEvent.click(screen.getByRole('menuitem', { name: '转项目资料…' }))
     const dlg = await screen.findByRole('alertdialog', { name: '转项目资料' })
-    expect(within(dlg).getByRole('button', { name: '存到哪个项目' })).toHaveTextContent('Octok')
+    expect(within(dlg).getByRole('button', { name: '存到哪个项目' })).toHaveTextContent('Acme')
     const title = within(dlg).getByRole('textbox', { name: '标题' }) as HTMLInputElement
     expect(title.value).toMatch(/^周屿 .+ 的消息$/)
     const body = within(dlg).getByRole('textbox', { name: '正文' }) as HTMLTextAreaElement
@@ -927,7 +927,7 @@ describe('合并显示、交给 Agent（0008）', () => {
   })
 
   it('转项目资料：连附件一起加，没获取的先获取；正文超过 5000 字不能存', async () => {
-    const rows = [msg({ text: '看下合同', project_id: 'obj_p1', project_name: 'Octok', project_source: 'conversation', attachments: [{ id: 'a1', name: '合同.docx', kind: 'file', fetch: 'idle' }] })]
+    const rows = [msg({ text: '看下合同', project_id: 'obj_p1', project_name: 'Acme', project_source: 'conversation', attachments: [{ id: 'a1', name: '合同.docx', kind: 'file', fetch: 'idle' }] })]
     const calls = fakeBackend(rows)
     renderPage()
     await screen.findByText('1 条待处理')
@@ -1009,7 +1009,7 @@ describe('消息列回复（0010）', () => {
   })
 
   it('转项目资料带上消息列：默认勾上，回复并进对话记录、出处也算上；只把选中的标为已处理；取消勾选只剩这一条', async () => {
-    const p = msg({ text: '灰度方案看下', at: ago(60), project_id: 'obj_p1', project_name: 'Octok' })
+    const p = msg({ text: '灰度方案看下', at: ago(60), project_id: 'obj_p1', project_name: 'Acme' })
     const th = { parent_external_id: p.external_id, parent_message_id: p.id, parent_sender_name: 'Lin Yuan', parent_text: '灰度方案看下' }
     const rows = [p,
       msg({ text: '回复一', sender_id: 'U2', sender_name: '王可', at: ago(40), thread: th, status: 'done' }),

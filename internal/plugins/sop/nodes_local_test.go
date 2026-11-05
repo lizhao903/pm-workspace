@@ -26,7 +26,7 @@ func newLocalEnv(t *testing.T) localEnv {
 	if err != nil {
 		t.Fatal(err)
 	}
-	e := localEnv{writeEnv: newWriteEnv(t), root: root, docs: filepath.Join(root, "Octok项目"), inbox: filepath.Join(root, "收件"), outside: filepath.Join(root, "outside")}
+	e := localEnv{writeEnv: newWriteEnv(t), root: root, docs: filepath.Join(root, "acme-project"), inbox: filepath.Join(root, "收件"), outside: filepath.Join(root, "outside")}
 	for _, d := range []string{e.docs, e.inbox, e.outside} {
 		if err := os.MkdirAll(d, 0o755); err != nil {
 			t.Fatal(err)
@@ -36,7 +36,7 @@ func newLocalEnv(t *testing.T) localEnv {
 	gone, _ := json.Marshal(map[string]any{"related": []map[string]string{{"label": "没了", "path": filepath.Join(root, "nope")}}})
 	rel, _ := json.Marshal(map[string]any{"related": []map[string]string{{"label": "相对", "path": "docs/x"}}})
 	e.exec(t, `INSERT INTO objects (id, type_id, ref, title, props, created_at, updated_at) VALUES
-		('obj_octok', 'project', 'PRJ-0101', 'Octok', ?, '2026-01-01', '2026-01-01'),
+		('obj_acme', 'project', 'PRJ-0101', 'Acme', ?, '2026-01-01', '2026-01-01'),
 		('obj_bare', 'project', 'PRJ-0102', '空项目', '{}', '2026-01-02', '2026-01-02'),
 		('obj_gone', 'project', 'PRJ-0103', '目录没了', ?, '2026-01-03', '2026-01-03'),
 		('obj_rel', 'project', 'PRJ-0104', '相对目录', ?, '2026-01-04', '2026-01-04')`, string(related), string(gone), string(rel))
@@ -60,12 +60,12 @@ func TestLocalAppendWritesAndAppends(t *testing.T) {
 	r, h := e.boot(New())
 	defer r.Close()
 	fid := newFlow(t, h, `{"name":"收件","fields":[{"key":"text","label":"正文","type":"text"},{"key":"who","label":"谁","type":"text"}],"steps":[
-		{"key":"w","name":"写进项目目录","kind":"local_append","after":[],"config":{"project":"Octok","path":"IM收件/{{date}}.md","content":"## {{time}} {{who}}\n{{text}}"}}]}`)
+		{"key":"w","name":"写进项目目录","kind":"local_append","after":[],"config":{"project":"Acme","path":"IM收件/{{date}}.md","content":"## {{time}} {{who}}\n{{text}}"}}]}`)
 	run := waitStatus(t, h, startRun(t, h, fid, `{"input":{"text":"排期往后挪一周","who":"林原"}}`)["id"].(string), "done")
 	f := step(run, "w")["output"].(map[string]any)["file"].(map[string]any)
 	want := filepath.Join(e.docs, "IM收件", "2026-11-02.md")
 	if f["path"] != want || f["rel"] != "IM收件/2026-11-02.md" || f["created"] != true || f["dir_label"] != "文档" ||
-		f["project"].(map[string]any)["id"] != "obj_octok" {
+		f["project"].(map[string]any)["id"] != "obj_acme" {
 		t.Fatalf("输出 %v", f)
 	}
 	if got := read(t, want); got != "## 09:30 林原\n排期往后挪一周\n" {
@@ -119,22 +119,22 @@ func TestLocalAppendRejects(t *testing.T) {
 	defer r.Close()
 	big := strings.Repeat("字", 22000)
 	cases := []struct{ name, cfg, input, want string }{
-		{"点点", `{"project":"Octok","path":"../outside/x.md","content":"x"}`, `{}`, "不能有 .."},
-		{"字段里的点点", `{"project":"Octok","path":"{{p}}","content":"x"}`, `{"p":"a/../../outside/x.md"}`, "不能有 .."},
-		{"绝对路径", `{"project":"Octok","path":"` + filepath.Join(e.outside, "x.md") + `","content":"x"}`, `{}`, "不能是绝对路径"},
-		{"符号链接目录", `{"project":"Octok","path":"out/x.md","content":"x"}`, `{}`, "越出了项目目录"},
-		{"符号链接目录下新建子目录", `{"project":"Octok","path":"out/new/x.md","content":"x"}`, `{}`, "越出了项目目录"},
-		{"符号链接文件", `{"project":"Octok","path":"link.md","content":"x"}`, `{}`, "越出了项目目录"},
-		{"目录", `{"project":"Octok","path":"sub","content":"x"}`, `{}`, "不是普通文件"},
-		{"路径空", `{"project":"Octok","path":"{{nothing}}","content":"x"}`, `{}`, "文件路径是空的"},
-		{"内容空", `{"project":"Octok","path":"a.md","content":"{{nothing}}"}`, `{}`, "要写的内容是空的"},
-		{"太大", `{"project":"Octok","path":"a.md","content":"{{big}}"}`, `{"big":"` + big + `"}`, "一次最多 64 KB"},
+		{"点点", `{"project":"Acme","path":"../outside/x.md","content":"x"}`, `{}`, "不能有 .."},
+		{"字段里的点点", `{"project":"Acme","path":"{{p}}","content":"x"}`, `{"p":"a/../../outside/x.md"}`, "不能有 .."},
+		{"绝对路径", `{"project":"Acme","path":"` + filepath.Join(e.outside, "x.md") + `","content":"x"}`, `{}`, "不能是绝对路径"},
+		{"符号链接目录", `{"project":"Acme","path":"out/x.md","content":"x"}`, `{}`, "越出了项目目录"},
+		{"符号链接目录下新建子目录", `{"project":"Acme","path":"out/new/x.md","content":"x"}`, `{}`, "越出了项目目录"},
+		{"符号链接文件", `{"project":"Acme","path":"link.md","content":"x"}`, `{}`, "越出了项目目录"},
+		{"目录", `{"project":"Acme","path":"sub","content":"x"}`, `{}`, "不是普通文件"},
+		{"路径空", `{"project":"Acme","path":"{{nothing}}","content":"x"}`, `{}`, "文件路径是空的"},
+		{"内容空", `{"project":"Acme","path":"a.md","content":"{{nothing}}"}`, `{}`, "要写的内容是空的"},
+		{"太大", `{"project":"Acme","path":"a.md","content":"{{big}}"}`, `{"big":"` + big + `"}`, "一次最多 64 KB"},
 		{"项目不存在", `{"project":"Nope","path":"a.md","content":"x"}`, `{}`, "项目「Nope」不存在"},
 		{"没关联目录", `{"project":"空项目","path":"a.md","content":"x"}`, `{}`, "没有关联本地目录"},
 		{"关联目录没了", `{"project":"目录没了","path":"a.md","content":"x"}`, `{}`, "不存在"},
 		{"关联目录是相对路径", `{"project":"相对目录","path":"a.md","content":"x"}`, `{}`, "不是绝对路径"},
-		{"没有这个序号", `{"project":"Octok","dir":"3","path":"a.md","content":"x"}`, `{}`, "没有第 3 个"},
-		{"没有这个 label", `{"project":"Octok","dir":"素材","path":"a.md","content":"x"}`, `{}`, "没有叫「素材」的关联目录"},
+		{"没有这个序号", `{"project":"Acme","dir":"3","path":"a.md","content":"x"}`, `{}`, "没有第 3 个"},
+		{"没有这个 label", `{"project":"Acme","dir":"素材","path":"a.md","content":"x"}`, `{}`, "没有叫「素材」的关联目录"},
 	}
 	for _, c := range cases {
 		fid := newFlow(t, h, `{"name":"`+c.name+`","fields":[{"key":"p","label":"p","type":"text"},{"key":"big","label":"big","type":"text"}],"steps":[
@@ -172,7 +172,7 @@ func TestLocalAppendInnerSymlink(t *testing.T) {
 	}
 	r, h := e.boot(New())
 	defer r.Close()
-	fid := newFlow(t, h, `{"name":"内部链接","steps":[{"key":"w","name":"写","kind":"local_append","after":[],"config":{"project":"obj_octok","path":"alias.md","content":"二"}}]}`)
+	fid := newFlow(t, h, `{"name":"内部链接","steps":[{"key":"w","name":"写","kind":"local_append","after":[],"config":{"project":"obj_acme","path":"alias.md","content":"二"}}]}`)
 	run := waitStatus(t, h, startRun(t, h, fid, `{}`)["id"].(string), "done")
 	if f := step(run, "w")["output"].(map[string]any)["file"].(map[string]any); f["path"] != real {
 		t.Fatalf("写到指向的文件：%v", f)
@@ -196,7 +196,7 @@ func TestLocalAppendResumeNoDuplicate(t *testing.T) {
 	}
 	defer func() { afterWrite = nil }()
 	r1, h1 := e.boot(New())
-	fid := newFlow(t, h1, `{"name":"续跑","steps":[{"key":"w","name":"写","kind":"local_append","after":[],"config":{"project":"Octok","path":"log.md","content":"只写一次"}}]}`)
+	fid := newFlow(t, h1, `{"name":"续跑","steps":[{"key":"w","name":"写","kind":"local_append","after":[],"config":{"project":"Acme","path":"log.md","content":"只写一次"}}]}`)
 	rid := startRun(t, h1, fid, `{}`)["id"].(string)
 	<-entered
 	r1.Close()
@@ -220,11 +220,11 @@ func TestTaskProjectByRefOrName(t *testing.T) {
 	defer r.Close()
 	fid := newFlow(t, h, `{"name":"挂项目","fields":[{"key":"p","label":"p","type":"text"}],"steps":[
 		{"key":"t","name":"建任务","kind":"task","after":[],"config":{"title":"跟进","project":"{{p}}"}}]}`)
-	for _, key := range []string{"obj_octok", "PRJ-0101", "Octok"} {
+	for _, key := range []string{"obj_acme", "PRJ-0101", "Acme"} {
 		run := waitStatus(t, h, startRun(t, h, fid, `{"input":{"p":"`+key+`"}}`)["id"].(string), "done")
 		task := step(run, "t")["output"].(map[string]any)["task"].(map[string]any)
 		o, err := e.st.GetObject(context.Background(), task["id"].(string))
-		if err != nil || o.ProjectID == nil || *o.ProjectID != "obj_octok" || task["project_id"] != "obj_octok" || task["project"] != "Octok" {
+		if err != nil || o.ProjectID == nil || *o.ProjectID != "obj_acme" || task["project_id"] != "obj_acme" || task["project"] != "Acme" {
 			t.Fatalf("%s：任务 %v 项目 %v", key, task, o.ProjectID)
 		}
 	}

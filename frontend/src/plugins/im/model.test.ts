@@ -201,7 +201,7 @@ describe('群组标签', () => {
 
 describe('认人的候选联系人（IM-05）', () => {
   const c = (id: string, name: string, company = '', title = '') => ({ id, name, company, title })
-  const list = [c('a', '王五'), c('b', 'Lin Yuan', 'XAUE'), c('c', 'Yuan Li', 'Octok', '产品'), c('d', '林予安')]
+  const list = [c('a', '王五'), c('b', 'Lin Yuan', 'Globex'), c('c', 'Yuan Li', 'Acme', '产品'), c('d', '林予安')]
 
   it('名字相近程度：一样、包含、有一个词对上、不像', () => {
     expect(nameCloseness('Lin Yuan', 'lin yuan')).toBe(0)
@@ -217,7 +217,7 @@ describe('认人的候选联系人（IM-05）', () => {
   })
 
   it('搜姓名、公司、职位', () => {
-    expect(contactCandidates(list, '', 'octok').map((x) => x.id)).toEqual(['c'])
+    expect(contactCandidates(list, '', 'acme').map((x) => x.id)).toEqual(['c'])
     expect(contactCandidates(list, '', '产品').map((x) => x.id)).toEqual(['c'])
     expect(contactCandidates(list, '', '林').map((x) => x.id)).toEqual(['d'])
   })

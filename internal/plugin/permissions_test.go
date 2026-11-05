@@ -122,7 +122,7 @@ func TestGrantedFollowsInstallState(t *testing.T) {
 
 func TestLocalDir(t *testing.T) {
 	for in, want := range map[string]string{
-		"file:///Volumes/docs/Know Me/FDE工作": "/Volumes/docs/Know Me/FDE工作",
+		"file:///Volumes/docs/example/FDE工作": "/Volumes/docs/example/FDE工作",
 		"file:///tmp/a%20b":                  "/tmp/a b",
 		"file://localhost/tmp/x":             "/tmp/x",
 		"FILE:///tmp/x":                      "/tmp/x",

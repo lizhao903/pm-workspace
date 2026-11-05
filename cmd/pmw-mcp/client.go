@@ -223,7 +223,7 @@ func (c *client) listStakeholders(ctx context.Context) ([]*domain.Stakeholder, e
 
 // resolveStakeholder 把人名换成干系人 id。
 //
-// MCP 这层收人名而不是 id，是因为调用方是模型：它手上有「李钊」，没有 stk_xxx，
+// MCP 这层收人名而不是 id，是因为调用方是模型：它手上有「张三」，没有 stk_xxx，
 // 强行要 id 只会逼出「先查一次再调一次」的两步，而中间那步经常被省掉。
 //
 // 找不到时必须**报错**，不能返回空 id 静默放行。owner_id 传空串的语义是「清空负责人」——

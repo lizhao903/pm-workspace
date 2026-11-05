@@ -880,7 +880,7 @@ export default function ObjectListView() {
                 </Popover>
 
                 {/* 和单行内联编辑复用同一个 OwnerMenu：选中的是干系人 id，不是一段文本。
-                    自由文本输入框已经去掉——库里那条「宋一杰、李钊、振华」就是它的产物。 */}
+                    自由文本输入框已经去掉——库里那条「示例甲、示例乙、示例丙」就是它的产物。 */}
                 <Popover triggerClassName="btn btn-sm" trigger="负责人" width={230}>
                   {(close) => (
                     <OwnerMenu

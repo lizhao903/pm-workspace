@@ -196,18 +196,18 @@ describe('AI 节点的服务商和模型', () => {
 })
 
 describe('建任务、写进项目目录的项目下拉（消息分流）', () => {
-  const ctx = { ...EMPTY_CTX, projects: [{ id: 'obj_octok', name: 'Octok' }, { id: 'obj_xaue', name: 'XAUE' }] }
+  const ctx = { ...EMPTY_CTX, projects: [{ id: 'obj_acme', name: 'Acme' }, { id: 'obj_globex', name: 'Globex' }] }
   const field = (kind: string, key: string) => nodeInfo(kind).fields.find((f) => f.key === key)!
 
   it('选项是项目列表，能取输入里的 project_id；建任务多一项「不挂项目」；存着的值不在列表里时照样列出', () => {
-    expect(field('local_append', 'project').options?.(ctx, {}).map((o) => o.value)).toEqual(['{{project_id}}', 'obj_octok', 'obj_xaue'])
-    expect(field('task', 'project').options?.(ctx, {}).map((o) => o.label)).toEqual(['不挂项目', '取输入里的 project_id', 'Octok', 'XAUE'])
+    expect(field('local_append', 'project').options?.(ctx, {}).map((o) => o.value)).toEqual(['{{project_id}}', 'obj_acme', 'obj_globex'])
+    expect(field('task', 'project').options?.(ctx, {}).map((o) => o.label)).toEqual(['不挂项目', '取输入里的 project_id', 'Acme', 'Globex'])
     expect(field('local_append', 'project').options?.(ctx, { project: 'PRJ-0009' }).at(-1)).toEqual({ value: 'PRJ-0009', label: 'PRJ-0009' })
   })
 
   it('画布摘要写项目名和路径', () => {
-    expect(nodeInfo('local_append').summary?.({ project: 'obj_octok', path: 'IM收件/{{date}}.md' }, ctx)).toBe('Octok / IM收件/{{date}}.md')
-    expect(nodeInfo('local_append').summary?.({ project: 'obj_octok' }, ctx)).toBe('')
-    expect(nodeInfo('task').summary?.({ title: '跟进', project: 'obj_xaue' }, ctx)).toBe('P2 跟进 · XAUE')
+    expect(nodeInfo('local_append').summary?.({ project: 'obj_acme', path: 'IM收件/{{date}}.md' }, ctx)).toBe('Acme / IM收件/{{date}}.md')
+    expect(nodeInfo('local_append').summary?.({ project: 'obj_acme' }, ctx)).toBe('')
+    expect(nodeInfo('task').summary?.({ title: '跟进', project: 'obj_globex' }, ctx)).toBe('P2 跟进 · Globex')
   })
 })

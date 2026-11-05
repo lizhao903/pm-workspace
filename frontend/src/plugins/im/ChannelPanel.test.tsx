@@ -101,11 +101,11 @@ describe('渠道配置', () => {
     await user.type(within(form).getByLabelText(/Bot Token/), 'xoxb-test')
     await user.type(within(form).getByLabelText(/Signing Secret/), 'sig-secret')
     await user.type(within(form).getByLabelText(/监听频道/), '#product')
-    await user.type(within(form).getByLabelText(/我的称呼/), ' 李钊, Zhao ')
+    await user.type(within(form).getByLabelText(/我的称呼/), ' 张三, Zhang ')
     await user.click(within(form).getByRole('button', { name: '接入并测试' }))
     expect(await screen.findByText('已连上 pmw（UBOT）')).toBeInTheDocument()
     const post = calls.find((c) => c.method === 'POST' && c.path === '/api/connectors')
-    expect(post?.body).toMatchObject({ tool: 'slack', direction: 'both', interval: 5, config: { channels: '#product', self_names: '李钊, Zhao' },
+    expect(post?.body).toMatchObject({ tool: 'slack', direction: 'both', interval: 5, config: { channels: '#product', self_names: '张三, Zhang' },
       secrets: { bot_token: 'xoxb-test', signing_secret: 'sig-secret' } })
     // 明文不留在输入框，只显示脱敏提示
     expect(screen.getByLabelText(/Bot Token/)).toHaveValue('')
@@ -135,14 +135,14 @@ describe('渠道配置', () => {
   })
 
   it('渠道卡片：状态、账号、最近同步、出错原因；立即同步、测试连接、停用', async () => {
-    const calls = backend({ list: [conn({ status: 'error', error: 'Slack 拒绝了 Bot Token（invalid_auth）', config: { channels: '#product', self_names: '李钊, Zhao' } })] })
+    const calls = backend({ list: [conn({ status: 'error', error: 'Slack 拒绝了 Bot Token（invalid_auth）', config: { channels: '#product', self_names: '张三, Zhang' } })] })
     renderPanel()
     const card = await screen.findByRole('listitem', { name: '公司 Slack' })
     expect(within(card).getByText('异常')).toBeInTheDocument()
     expect(within(card).getByText(/出错原因：Slack 拒绝了 Bot Token/)).toBeInTheDocument()
     expect(within(card).getByText(/最近同步 2 分钟前/)).toBeInTheDocument()
     expect(within(card).getByText('账号 pmw（UBOT）')).toBeInTheDocument()
-    expect(within(card).getByText('我的称呼 李钊, Zhao')).toBeInTheDocument()
+    expect(within(card).getByText('我的称呼 张三, Zhang')).toBeInTheDocument()
     // 已接过 Slack，只剩 Telegram 可接
     expect(screen.queryByRole('button', { name: /接入 Slack/ })).toBeNull()
     expect(screen.getByRole('button', { name: /接入 Telegram/ })).toBeInTheDocument()

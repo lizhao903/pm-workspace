@@ -11,7 +11,7 @@ export function TerminalSettingsPage({ value, onSave }: { value: string; onSave:
   const [txt, setTxt] = useState(value)
   const [note, setNote] = useState('')
   const effective = txt.trim() || CLAUDE_COMMAND_DEFAULT
-  const sample = renderClaudeCommand(effective, { ...handoffFiles('run_示例'), workdir: '/Volumes/project/0xBroleez/pm-workspace' })
+  const sample = renderClaudeCommand(effective, { ...handoffFiles('run_示例'), workdir: '/Volumes/project/example/pm-workspace' })
   const save = (v: string) => {
     const next = v.trim() || CLAUDE_COMMAND_DEFAULT
     setTxt(next)

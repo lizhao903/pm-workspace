@@ -208,7 +208,7 @@ type ObjectFilter struct {
 	Priorities      []string
 	Tags            []string
 	// OwnerID 取代了 0010 之前的 Owner 文本匹配。一个语义只留一个定义——
-	// 两种筛法并存的话，「宋一杰、李钊、振华」这条按文本能搜到、按 id 搜不到，
+	// 两种筛法并存的话，「示例甲、示例乙、示例丙」这条按文本能搜到、按 id 搜不到，
 	// 同一个筛选器给出两种结果。
 	OwnerID   string
 	ProjectID string

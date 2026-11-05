@@ -57,7 +57,7 @@ func (s *selfHandles) forConnector(ctx context.Context, c plugin.Core, id string
 
 // accountHandles 把连接器账号拆成能被 @ 到的称呼：整串、括号里外、逗号斜杠分开的各段，开头的 @ 去掉；
 // 段里有空格时整段算一个（显示名 Lin Yuan），另把其中 @ 开头的词单拿出来（「Broleez @broleez」）。
-// 例：「@broleez」→ broleez；「Zhao（@zhaoli，U012AB）」→ Zhao（@zhaoli，U012AB）、Zhao、zhaoli、U012AB。
+// 例：「@broleez」→ broleez；「Zhang（@zhangsan，U012AB）」→ Zhang（@zhangsan，U012AB）、Zhang、zhangsan、U012AB。
 // 匹配不分大小写，只差大小写的只留一个。
 func accountHandles(account string) []string {
 	out := []string{}
@@ -83,7 +83,7 @@ func accountHandles(account string) []string {
 	return out
 }
 
-// nameHandles 把「我的称呼」拆开：逗号、顿号、分号、换行分隔，开头的 @ 去掉，段里的空格保留（Lin Zhao），只差大小写的只留一个。
+// nameHandles 把「我的称呼」拆开：逗号、顿号、分号、换行分隔，开头的 @ 去掉，段里的空格保留（Zhang San），只差大小写的只留一个。
 func nameHandles(names string) []string {
 	out := []string{}
 	seen := map[string]bool{}

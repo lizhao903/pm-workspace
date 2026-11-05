@@ -52,7 +52,7 @@
 | 字段 | 类型 | 必填 | 说明 | 取值 / 示例 |
 |---|---|---|---|---|
 | `id` | `string` | 是 | 编号，`newId('pn')` | `pn_…` |
-| `cwd` | `string` | 是 | 当前目录，绝对路径 | `/Volumes/project/0xBroleez/pm-workspace` |
+| `cwd` | `string` | 是 | 当前目录，绝对路径 | `/Volumes/project/example/pm-workspace` |
 | `lines` | `TermLine[]` | 是 | 输出，新格子带一行 `sys` 说明 | |
 | `history` | `string[]` | 是 | 命令历史，去重（重复的挪到最后），最多 100 条 | `['cd docs', 'npm run dev']` |
 | `running` | `string` | 否 | 这一格里跑着的原型 `Prototype.id`；有值时输入行不收命令 | `pt2` |

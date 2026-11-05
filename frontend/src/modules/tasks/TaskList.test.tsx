@@ -30,7 +30,7 @@ function task(p: Partial<WorkObject>): WorkObject {
   }
 }
 
-const people = [{ id: 'stk_me', name: '李钊' }, { id: 'stk_cc', name: 'Claude Code' }]
+const people = [{ id: 'stk_me', name: '张三' }, { id: 'stk_cc', name: 'Claude Code' }]
 
 function Harness({ tasks, view = 'all', onOpen = () => {} }: { tasks: WorkObject[]; view?: TaskView; onOpen?: (t: WorkObject) => void }) {
   const [status, setStatus] = useState<StatusFilter>(OPEN)
@@ -155,7 +155,7 @@ describe('任务列表', () => {
     localStorage.removeItem('pmw-tasks-me')
     const user = userEvent.setup()
     render(<Harness tasks={[
-      task({ title: '我的事', owner_id: 'stk_me', owner_name: '李钊' }),
+      task({ title: '我的事', owner_id: 'stk_me', owner_name: '张三' }),
       task({ title: '开发任务', owner_id: 'stk_cc', owner_name: 'Claude Code' }),
       task({ title: '没人管' }),
     ]} />)
@@ -169,7 +169,7 @@ describe('任务列表', () => {
     await pickOwner('^我')
     expect(screen.getByText('还没选你是哪位干系人')).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: '我是' }))
-    await user.click(screen.getByRole('option', { name: '我是 李钊' }))
+    await user.click(screen.getByRole('option', { name: '我是 张三' }))
     expect(all()).toEqual(['我的事'])
     expect(localStorage.getItem('pmw-tasks-me')).toBe('stk_me')
     await pickOwner('Claude Code')

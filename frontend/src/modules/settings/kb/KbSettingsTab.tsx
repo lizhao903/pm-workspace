@@ -127,7 +127,7 @@ export function KbSettingsTab({ kb, docs, editing, onEdit, onReindex }: {
           <div className="kb-muted kbx-dir-progress" role="status">{progress.dir ? `${progress.dir} · ` : '文档分类 · '}{progressText(progress)}</div>
         )}
         <div className="kbx-search-line">
-          <Input className="kb-mono" value={dir} invalid={!!dirErr} aria-label="本地目录" placeholder="/Volumes/docs/客户/远川科技"
+          <Input className="kb-mono" value={dir} invalid={!!dirErr} aria-label="本地目录" placeholder="/Volumes/docs/example-client"
             onChange={(e) => { setDir(e.target.value); setDirErr('') }} onKeyDown={(e) => { if (e.key === 'Enter' && dir.trim()) addDir() }} />
           <Button disabled={!dir.trim() || patch.isPending} onClick={addDir}>挂上目录</Button>
         </div>

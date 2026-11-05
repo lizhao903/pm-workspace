@@ -7,8 +7,8 @@ import { ProfileTab } from './ProfileTab'
 
 // 档案标签（AUTO-04）：边改边存，目录单独存、存不上只在那一项下面说
 const contacts = [
-  { id: 'sh_1', name: '侯明', company: '', title: '', group: '', tags: [], photo: '' },
-  { id: 'sh_2', name: '安然', company: '', title: '', group: '', tags: [], photo: '' },
+  { id: 'sh_1', name: '赵六', company: '', title: '', group: '', tags: [], photo: '' },
+  { id: 'sh_2', name: '吴九', company: '', title: '', group: '', tags: [], photo: '' },
 ]
 
 function fakeBackend() {
@@ -95,7 +95,7 @@ describe('档案标签', () => {
     mount()
     await screen.findByDisplayValue('旧简介')
     await userEvent.click(screen.getByRole('button', { name: '负责人' }))
-    await userEvent.click(within(screen.getByRole('listbox')).getByText('侯明'))
+    await userEvent.click(within(screen.getByRole('listbox')).getByText('赵六'))
     await waitFor(() => expect(patches.at(-1)).toEqual({ owner_ids: ['sh_1'] }))
   })
 })

@@ -14,7 +14,7 @@ const msg = (p: Partial<ImMessage> = {}): ImMessage => {
   }
 }
 const mm = (p: Partial<ImMessageMaterial>): ImMessageMaterial => ({
-  material_id: 'mt_1', project_id: 'obj_p', project_name: 'Octok', kind: 'messages', attachment_id: '', title: 't', count: 1, at: '2026-10-30T07:00:00Z', ...p,
+  material_id: 'mt_1', project_id: 'obj_p', project_name: 'Acme', kind: 'messages', attachment_id: '', title: 't', count: 1, at: '2026-10-30T07:00:00Z', ...p,
 })
 const now = new Date('2026-11-02T00:00:00Z')
 

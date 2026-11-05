@@ -395,7 +395,7 @@ AUTO-05。阶段和状态是两套：状态是负责人的工作状态，阶段�
 ## 干系人名册 stakeholders
 
 负责人与参与人都指向这里。0010 之前 `objects.owner` 是自由文本，库里出现过
-「宋一杰、李钊、振华」三个人挤在一个字段的值——没法筛选、没法统计、改名要全表替换。
+「示例甲、示例乙、示例丙」三个人挤在一个字段的值——没法筛选、没法统计、改名要全表替换。
 
 一个对象**一个负责人 + 若干参与人**：一件事必须有唯一一个人对结果负责，
 否则「这事该找谁」没有答案；参与人表达「还有谁在这件事里」，信息不丢但不承担「找谁」的语义。
@@ -411,7 +411,7 @@ AUTO-05。阶段和状态是两套：状态是负责人的工作状态，阶段�
 
 | 字段 | 类型 | 说明 |
 |---|---|---|
-| `group` | string | 分组显示名（客户、合作伙伴、同事、供应商、其他，可在设置里新增），不约束取值，去首尾空白；库里列名 `contact_group`。一人可在多个分组，多个用「、」连接存成一个字符串（如 `Octok、XAUE`），后端不拆，前端按「、」拆开（也认逗号、斜杠、分号）后按包含匹配筛选（PR-04） |
+| `group` | string | 分组显示名（客户、合作伙伴、同事、供应商、其他，可在设置里新增），不约束取值，去首尾空白；库里列名 `contact_group`。一人可在多个分组，多个用「、」连接存成一个字符串（如 `Acme、Globex`），后端不拆，前端按「、」拆开（也认逗号、斜杠、分号）后按包含匹配筛选（PR-04） |
 | `company` / `title` / `phone` | string | 公司、职位、电话，默认空串。`title` 是职位，和原有的 `role`（产品、研发这类角色）是两个字段 |
 | `tags` | string[] | 去首尾空白、去空、去重后保存，默认 `[]` |
 | `photo` | string | `data:image/` 开头的 data URL，1.4MB 以内（和工作台图标同一上限）；空串表示按名字生成头像 |
@@ -431,7 +431,7 @@ message 形如 `stakeholder 王磊 already exists; add a qualifier to tell them 
   那条对象从回收站恢复回来负责人就没了，**而这个丢失不报错**。
 
 **MCP（`cmd/pmw-mcp`）这一层收的是人名，不是 id**，内部再换成 `owner_id`。调用方是模型，
-它手上有「李钊」没有 `stk_xxx`，强行要 id 只会逼出「先查一次再调一次」，而中间那步经常被省掉。
+它手上有「张三」没有 `stk_xxx`，强行要 id 只会逼出「先查一次再调一次」，而中间那步经常被省掉。
 
 这里有一个必须守住的点，任何「名字解析失败就回退成空串」的实现都会踩：
 **`owner_id` 传空串的语义是「清空负责人」。**把一个打错的名字变成空串，
@@ -2208,7 +2208,7 @@ IM 插件自己存（插件表，迁移 `0007_conversation_projects.sql`），�
 | GET | `/api/im/conversations/summary?channel=` | 群组管理用（0.15.0）。列出有消息或设了默认项目的会话 `{conversation_id, channel, kind, name, external_id, participants, total, pending, unread, last_at, project_id, project_ref, project_name}[]` + `meta.total`。`name` 取会话表，私聊为空；`participants` 是发过消息的人（认上联系人的用联系人名），最近发言的在前，最多 5 个；`pending` 是待处理、没过期、不在稍后里的条数；`unread` 是未读条数；`last_at` 是最近一条的发送时间，没有消息为 `null`；默认项目已删除（含回收站）按没设（`project_id` 为 `null`、`project_ref`/`project_name` 为空串）。按最近一条倒序，没有消息的排最后。`channel` 可省，不分大小写 |
 | PUT | `/api/im/conversation-projects` | 批量设、清除默认项目（0.15.0）。body `{items: [{conversation_id, project_id}]}` 或 `{conversation_ids: [...], project_id}`（两种不能同时用），`project_id` 认法同单个，`null` 或空串为清除，每项都必须带 `project_id`；一次最多 200 个，空、超过、缺字段 400 `validation`。逐条校验：会话不存在（`not_found`）、项目不存在或已删除或不是项目（`validation`）、同一会话在这批里出现第二次（`validation`，按第一次的算）的列进 `failed`，其余写入；全部没过也回 200。回 `{data: {updated: ConversationProject[], failed: [{conversation_id, project_id, code, message}]}, meta: {total, updated, failed}}`，`message` 是中文原因。写入分两条语句（设的 upsert、清的 delete），后一条失败时把前一条改过的恢复原值 |
 
-- 默认项目值有变化时记审计（0.15.0 起，单个和批量都记，值没变不记）：`kind=agent`、操作者 `im`、`action=update`、`target_type=conversation`、`target_id` 为会话 id，summary 形如「群组默认归属「#product」不归项目 → Octok」，detail 带 `field: "default_project"`、`channel`、`from`、`to`（没设为 `null`），批量的多 `batch: true`。
+- 默认项目值有变化时记审计（0.15.0 起，单个和批量都记，值没变不记）：`kind=agent`、操作者 `im`、`action=update`、`target_type=conversation`、`target_id` 为会话 id，summary 形如「群组默认归属「#product」不归项目 → Acme」，detail 带 `field: "default_project"`、`channel`、`from`、`to`（没设为 `null`），批量的多 `batch: true`。
 
 ### 从 Slack 补联系人邮箱
 
@@ -2288,9 +2288,9 @@ IM 插件自己存（插件表，迁移 `0007_conversation_projects.sql`），�
   "at": "2026-10-29T01:00:00.000Z", "received_at": "2026-10-29T01:00:02.000Z",
   "adapter": "slack", "task_id": "obj_..." | null, "task_ref": "TSK-0012",
   "replies": [{ "id": "rp_...", "text": "收到，我今天看。", "status": "sent", "error": "", "external_id": "C01:1712.40", "at": "..." }],
-  "reply_error": "", "expired_at": null, "project_id": "obj_..." | null, "project_name": "Octok", "project_source": "message",
+  "reply_error": "", "expired_at": null, "project_id": "obj_..." | null, "project_name": "Acme", "project_source": "message",
   "sessions": [{ "session_id": "ags_...", "intent": "split", "at": "..." }], "split_tasks": [{ "id": "obj_...", "ref": "TSK-0031", "title": "..." }],
-  "materials": [{ "material_id": "mt_...", "project_id": "obj_...", "project_name": "Octok", "kind": "messages", "attachment_id": "", "title": "#product 10月30日 的消息", "count": 3, "at": "..." }],
+  "materials": [{ "material_id": "mt_...", "project_id": "obj_...", "project_name": "Acme", "kind": "messages", "attachment_id": "", "title": "#product 10月30日 的消息", "count": 3, "at": "..." }],
   "thread": null, "reply_count": 0, "replied_sent": null }
 ```
 
@@ -2306,7 +2306,7 @@ IM 插件自己存（插件表，迁移 `0007_conversation_projects.sql`），�
 - `conversation` 是群名：认上会话的取会话表现在的名字（改群名不断），没认上的取到达时的快照；私聊为空串（原型用空串表示私聊）。
 - `identity_id`、`stakeholder_id` 认不上为 `null`，`contact_name` 为空串；界面上这时显示 `sender_name`。
 - `relevance` 是「与我相关」的原因，到达时算一次：`me`（@我）优先于 `all`（@所有人：所有人、全体成员、all、here、channel、everyone），私聊是 `dm`，无关为空串；`Incoming.mention` 给了时以它为准。正文里 `@称呼` 后面紧跟字母、数字、下划线的不算（`@我们` 不算 `@我`），不分大小写。
-- 「我」的称呼（IM-03）：收这条消息的连接器（`connector_id`）的 `account` 拆出来的几种，加上适配器自己给的（例如渠道里的用户编号）。`account` 按括号、逗号、顿号、斜杠、竖线分段，每段和整串都算，开头的 `@` 去掉，段里 `@` 开头的词也单算，例 `Lin Zhao（@zhaoli，U07ME）` 认 `@Lin Zhao`、`@zhaoli`、`@U07ME`。另加连接器配置里用户自己填的「我的称呼」`config.self_names`（PR-19，微信、飞书这类按名字 @ 的渠道要填）：按逗号、顿号、分号、换行分开，开头的 `@` 去掉，段里的空格保留，例 `李钊, Zhao` 认 `@李钊`、`@Zhao`；改了之后到的消息按新称呼认，已存的不重算（同 `account`）。没给 `connector_id` 或连接器已删时只认适配器给的。
+- 「我」的称呼（IM-03）：收这条消息的连接器（`connector_id`）的 `account` 拆出来的几种，加上适配器自己给的（例如渠道里的用户编号）。`account` 按括号、逗号、顿号、斜杠、竖线分段，每段和整串都算，开头的 `@` 去掉，段里 `@` 开头的词也单算，例 `Zhang San（@zhangsan，U0EXAMPLE）` 认 `@Zhang San`、`@zhangsan`、`@U0EXAMPLE`。另加连接器配置里用户自己填的「我的称呼」`config.self_names`（PR-19，微信、飞书这类按名字 @ 的渠道要填）：按逗号、顿号、分号、换行分开，开头的 `@` 去掉，段里的空格保留，例 `张三, Zhang` 认 `@张三`、`@Zhang`；改了之后到的消息按新称呼认，已存的不重算（同 `account`）。没给 `connector_id` 或连接器已删时只认适配器给的。
 - 连接器的 `account` 变了（重新连通测试时由对方给），之后到的消息按新称呼认；已存的 `relevance` 不重算：那些消息到达时确实是 @ 当时的我，而且渠道给的 `mention` 没有落库，重算会把它丢掉。
 - `status`、`read`、`snooze_until` 到达时是 `pending`、未读、无，用下面的处理动作改。
 - `expired` 和 `expired_at`（IM-07）：待处理的消息超过设置的天数没处理，后台任务（约每 10 分钟）标成已过期，`status` 为 `expired`、`expired_at` 是标的时间，不是已过期为 `null`。从发送时间算，改回待处理过的从改回的时候算；稍后提醒还没到点的不过期。已过期不算待处理（不进 `status=pending`、`snoozed=true`），库里仍是 `pending` 加 `expired_at`（插件迁移 `0005_expiry.sql`）。天数见下「设置」。
@@ -2695,7 +2695,7 @@ SOP-01b 起。执行语义同原型 `web-next/src/sopflow.ts` 的 `startRun`、`
 | `task` | SOP-02a。建一条待办：`config.title`（必填，支持 `{{字段}}`，渲染后为空时失败 `任务标题是空的…`）、`config.priority`（默认 `P2`）、`config.assignee`（联系人 id 或名字，支持 `{{字段}}`；`我` 和留空不指派，找不到时不指派、日志记一行）、`config.body`、`config.project`（项目 id、编号或名字，支持 `{{字段}}`，按 id、编号（不分大小写）、名字依次认，只认没删的项目；认不出来时失败 `项目「X」不存在：…`，不建任务）都可选。`source` 为 `sop`，`props.source_ref` 为 `{run_id, flow_id, flow, step, attempt, write_key}`，从任务能追到运行和步骤。输出加 `task: {id, ref, title, priority, assignee, status, project_id, project}`（`project` 是项目名，没挂为空串） |
 | `doc` | SOP-02a。`config.mode` 为 `new`（默认）时新建一篇文档：`config.title`（默认 `流程名 · 步骤名`）、`config.content`（正文，留空时是输入的 JSON 代码块）、`config.category`（文档分类 id，可空），`source`、`props.source_ref` 同 `task`；为 `append` 时把正文追加到 `config.doc`（文档 id，支持 `{{字段}}`）末尾，和原文空一行，不存在或不是文档时失败。输出加 `content_id`（同原型）和 `doc: {id, ref, title, mode}` |
 | `contact` | SOP-02a。`config.mode` 为 `new`（默认）时新建联系人，为 `merge` 时把非空的字段写进 `config.id`（联系人 id，支持 `{{字段}}`，留空取输入的 `contact_id`）指的联系人，不存在时失败。字段 `name`、`company`、`title`、`phone`、`email`、`group`、`note`：配置了的按 `{{字段}}` 渲染，没配置的取输入里同名的字段（原型「AI 解析字段」的输出就是这几个）；新建时 `name` 为空失败。输出加 `contact_id`（同原型）和 `contact: {id, name, mode, fields}`，`fields` 是合并时改了的字段 |
-| `local_append` | 消息分流。写进项目目录：`config.project`（必填，认法同 `task`）；`config.dir` 选这个项目 `props.related` 里的哪个目录，留空是第一个，数字是第几个（从 1 起），否则按 `label`；`config.path`（必填）是那个目录下的相对路径；`config.content`（必填）是要写的内容。`path`、`content` 支持 `{{字段}}`，另有 `{{date}}`（本机时区 `YYYY-MM-DD`）、`{{month}}`（`YYYY-MM`）、`{{time}}`（`HH:MM`，路径里是 `HHMM`），输入里有同名字段时以输入为准。只写 `props.related` 里列的目录（`file://` 也认），目录本身不存在时失败，下面缺的中间目录自动建。路径不能是绝对路径、不能有 `..`（渲染后再查）；已有的各级目录解析符号链接后必须还在那个目录（也解析过符号链接）里面，目标文件是符号链接时按指向的位置校验、写到指向的文件，目标不是普通文件时失败。文件已有就追加（前面补到空一行，内容末尾补换行），没有就新建。内容最多 64KB、要是 UTF-8。要插件的 `fs:write:project` 权限，没确认时失败 `插件 sop 的 fs:write:project 权限还没确认，到插件管理里升级并确认`。输出加 `file: {path, rel, dir, dir_label, project: {id, ref, name}, bytes, created}`，`path` 是实际写入的绝对路径。失败的 `error` 例：`文件路径「../x.md」不能有 ..，只能写进项目目录里面`、`写进项目目录失败：文件路径「out/x.md」解析符号链接后越出了项目目录，不写`、`项目「Octok」没有关联本地目录：先在项目设置里加一个`、`要写的内容有 70 KB，一次最多 64 KB` |
+| `local_append` | 消息分流。写进项目目录：`config.project`（必填，认法同 `task`）；`config.dir` 选这个项目 `props.related` 里的哪个目录，留空是第一个，数字是第几个（从 1 起），否则按 `label`；`config.path`（必填）是那个目录下的相对路径；`config.content`（必填）是要写的内容。`path`、`content` 支持 `{{字段}}`，另有 `{{date}}`（本机时区 `YYYY-MM-DD`）、`{{month}}`（`YYYY-MM`）、`{{time}}`（`HH:MM`，路径里是 `HHMM`），输入里有同名字段时以输入为准。只写 `props.related` 里列的目录（`file://` 也认），目录本身不存在时失败，下面缺的中间目录自动建。路径不能是绝对路径、不能有 `..`（渲染后再查）；已有的各级目录解析符号链接后必须还在那个目录（也解析过符号链接）里面，目标文件是符号链接时按指向的位置校验、写到指向的文件，目标不是普通文件时失败。文件已有就追加（前面补到空一行，内容末尾补换行），没有就新建。内容最多 64KB、要是 UTF-8。要插件的 `fs:write:project` 权限，没确认时失败 `插件 sop 的 fs:write:project 权限还没确认，到插件管理里升级并确认`。输出加 `file: {path, rel, dir, dir_label, project: {id, ref, name}, bytes, created}`，`path` 是实际写入的绝对路径。失败的 `error` 例：`文件路径「../x.md」不能有 ..，只能写进项目目录里面`、`写进项目目录失败：文件路径「out/x.md」解析符号链接后越出了项目目录，不写`、`项目「Acme」没有关联本地目录：先在项目设置里加一个`、`要写的内容有 70 KB，一次最多 64 KB` |
 
 调模型的节点（`ai`、`extract`、`classifier`、`iterate`）在没有模型服务商时失败（`调模型失败：还没有配置模型服务商，先在设置 > 模型里加一个`），模型服务出错时也失败（`调模型失败：…`）；`agent` 跑不起来时失败为 `调用 Agent 失败：…`，`knowledge` 检索出错为 `检索失败：…`；都可重试。
 

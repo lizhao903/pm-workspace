@@ -10,8 +10,8 @@ const conv = (p: Partial<ImConversationSummary> & { conversation_id: string }): 
 })
 
 const projects = [
-  { id: 'obj_octok', title: 'Octok', ref: 'PRJ-0009' },
-  { id: 'obj_xaue', title: 'XAUE', ref: 'PRJ-0008' },
+  { id: 'obj_acme', title: 'Acme', ref: 'PRJ-0009' },
+  { id: 'obj_globex', title: 'Globex', ref: 'PRJ-0008' },
   { id: 'obj_ns', title: 'NS 系统', ref: 'PRJ-0010' },
   { id: 'obj_one', title: '一人之下控制台', ref: 'PRJ-0007' },
 ]
@@ -28,8 +28,8 @@ describe('显示名', () => {
 
 describe('筛选', () => {
   const rows = [
-    conv({ conversation_id: 'g1', name: '#ai-octok-platform', participants: ['林原'], project_id: 'obj_octok', project_name: 'Octok' }),
-    conv({ conversation_id: 'g2', name: '#xaue-waas', channel: 'telegram' }),
+    conv({ conversation_id: 'g1', name: '#ai-acme-platform', participants: ['林原'], project_id: 'obj_acme', project_name: 'Acme' }),
+    conv({ conversation_id: 'g2', name: '#globex-waas', channel: 'telegram' }),
     conv({ conversation_id: 'd1', kind: 'direct', participants: ['周舟'] }),
   ]
   it('按渠道、类型、没设归属、搜索筛，顺序不变', () => {
@@ -39,7 +39,7 @@ describe('筛选', () => {
     expect(filterGroups(rows, { channel: '', kind: 'group', q: '', unset: true }).map((s) => s.conversation_id)).toEqual(['g2'])
     // 搜成员、项目名都能搜到，不分大小写
     expect(filterGroups(rows, { channel: '', kind: '', q: '林原', unset: false }).map((s) => s.conversation_id)).toEqual(['g1'])
-    expect(filterGroups(rows, { channel: '', kind: '', q: 'OCTOK', unset: false }).map((s) => s.conversation_id)).toEqual(['g1'])
+    expect(filterGroups(rows, { channel: '', kind: '', q: 'ACME', unset: false }).map((s) => s.conversation_id)).toEqual(['g1'])
     expect(filterGroups(rows, { channel: '', kind: '', q: '周舟', unset: false }).map((s) => s.conversation_id)).toEqual(['d1'])
   })
 })
@@ -56,9 +56,9 @@ describe('勾选', () => {
 })
 
 describe('按群名建议项目', () => {
-  it('octok、xaue、-ns- 三条关键字和项目编号、项目名', () => {
-    expect(suggestFor(conv({ conversation_id: 'a', name: '#ai-octok-platform' }), projects)).toEqual({ ids: ['obj_octok'], hits: ['octok'] })
-    expect(suggestFor(conv({ conversation_id: 'b', name: '#沟通-xaue-产研' }), projects)?.ids).toEqual(['obj_xaue'])
+  it('acme、globex、-ns- 三条关键字和项目编号、项目名', () => {
+    expect(suggestFor(conv({ conversation_id: 'a', name: '#ai-acme-platform' }), projects)).toEqual({ ids: ['obj_acme'], hits: ['acme'] })
+    expect(suggestFor(conv({ conversation_id: 'b', name: '#沟通-globex-产研' }), projects)?.ids).toEqual(['obj_globex'])
     expect(suggestFor(conv({ conversation_id: 'c', name: '#fde-bi-ns-support' }), projects)).toEqual({ ids: ['obj_ns'], hits: ['-ns-'] })
     // -ns- 在开头也认，夹在词里不认
     expect(suggestFor(conv({ conversation_id: 'd', name: '#ns-ops' }), projects)?.ids).toEqual(['obj_ns'])
@@ -71,17 +71,17 @@ describe('按群名建议项目', () => {
 
   it('几个项目都命中时按在群名里出现的先后列出，全部采纳不管它', () => {
     const rows = [
-      conv({ conversation_id: 'two', name: '#xaue-octok-智能客服支持' }),
-      conv({ conversation_id: 'one', name: '#octok-平台反馈' }),
-      conv({ conversation_id: 'set', name: '#octok-x', project_id: 'obj_xaue' }),
-      conv({ conversation_id: 'dm', kind: 'direct', name: '', participants: ['octok 小助手'] }),
-      conv({ conversation_id: 'mp', name: '多人私信', participants: ['octok'] }),
+      conv({ conversation_id: 'two', name: '#globex-acme-智能客服支持' }),
+      conv({ conversation_id: 'one', name: '#acme-平台反馈' }),
+      conv({ conversation_id: 'set', name: '#acme-x', project_id: 'obj_globex' }),
+      conv({ conversation_id: 'dm', kind: 'direct', name: '', participants: ['acme 小助手'] }),
+      conv({ conversation_id: 'mp', name: '多人私信', participants: ['acme'] }),
     ]
     const s = suggestAll(rows, projects)
-    expect(s.get('two')?.ids).toEqual(['obj_xaue', 'obj_octok'])
+    expect(s.get('two')?.ids).toEqual(['obj_globex', 'obj_acme'])
     expect([...s.keys()]).toEqual(['two', 'one'])
-    expect(adoptable(rows, s)).toEqual([{ conversation_id: 'one', project_id: 'obj_octok' }])
-    expect(suggestReason(s.get('two')!)).toBe('群名里有「xaue」、「octok」')
+    expect(adoptable(rows, s)).toEqual([{ conversation_id: 'one', project_id: 'obj_acme' }])
+    expect(suggestReason(s.get('two')!)).toBe('群名里有「globex」、「acme」')
   })
 
   it('项目不在时这条关键字不建议', () => {
@@ -98,7 +98,7 @@ describe('批量请求', () => {
     ])
     expect(r.updated.length).toBe(1)
     expect(r.failed.length).toBe(1)
-    expect(resultText(r, '设为「Octok」', (id) => (id === 'b' ? '#ops' : ''))).toEqual({ text: '已设为「Octok」：1 个会话；1 个没设成：#ops：会话不存在', bad: true })
+    expect(resultText(r, '设为「Acme」', (id) => (id === 'b' ? '#ops' : ''))).toEqual({ text: '已设为「Acme」：1 个会话；1 个没设成：#ops：会话不存在', bad: true })
     expect(resultText({ updated: r.updated, failed: [] }, '清除归属', () => '')).toEqual({ text: '已清除归属：1 个会话', bad: false })
   })
 })

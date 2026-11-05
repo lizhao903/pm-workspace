@@ -206,7 +206,7 @@ func TestPromptHasIMSource(t *testing.T) {
 	s, f, task, _ := terminalFixture(t)
 	f.mu.Lock()
 	f.objs[task.ID].Props = map[string]any{domain.PropSourceRef: map[string]any{
-		"message_id": "imm_1", "channel": "slack", "conversation": "octok-产品", "sender": "Lucy", "text": "对话框图片能点开放大吗", "reply_on_done": true}}
+		"message_id": "imm_1", "channel": "slack", "conversation": "acme-产品", "sender": "Lucy", "text": "对话框图片能点开放大吗", "reply_on_done": true}}
 	f.mu.Unlock()
 	p := decodeEnvelope(t, do(s, "GET", "/api/objects/"+task.ID+"/run/prompt", ""))["data"].(map[string]any)["prompt"].(string)
 	for _, want := range []string{"## 来源消息", "Lucy", "对话框图片能点开放大吗", "工作台会把这次执行的结论回复到这条消息里"} {

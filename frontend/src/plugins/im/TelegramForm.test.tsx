@@ -76,18 +76,18 @@ describe('Telegram 渠道表单', () => {
 
   it('修改：不填 Token 时不动凭证，只显示脱敏提示；测试失败写出原因', async () => {
     const calls = backend(false)
-    renderForm({ connector: conn({ config: { self_names: '李钊' } }) })
+    renderForm({ connector: conn({ config: { self_names: '张三' } }) })
     expect(screen.getByText(/已保存（1234…efgh）/)).toBeInTheDocument()
     const user = userEvent.setup()
     // 我的称呼回填，改了随配置保存（PR-19）
-    expect(screen.getByLabelText(/我的称呼/)).toHaveValue('李钊')
-    await user.type(screen.getByLabelText(/我的称呼/), '，钊哥')
+    expect(screen.getByLabelText(/我的称呼/)).toHaveValue('张三')
+    await user.type(screen.getByLabelText(/我的称呼/), '，三哥')
     await user.click(screen.getByRole('checkbox', { name: /允许从这里回复/ }))
     await user.click(screen.getByRole('button', { name: '保存并测试' }))
     expect(await screen.findByText(/连不上：Telegram 返回 401/)).toBeInTheDocument()
     await waitFor(() => expect(calls.some((c) => c.method === 'PATCH')).toBe(true))
     const p = calls.find((c) => c.method === 'PATCH')
-    expect(p?.body).toMatchObject({ direction: 'receive', config: { webhook_url: '', self_names: '李钊，钊哥' } })
+    expect(p?.body).toMatchObject({ direction: 'receive', config: { webhook_url: '', self_names: '张三，三哥' } })
     expect(p?.body).not.toHaveProperty('secrets')
   })
 })

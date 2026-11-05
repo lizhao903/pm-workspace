@@ -50,7 +50,7 @@ graph LR
 ### 0. 先构建
 
 ```bash
-cd /Volumes/project/0xBroleez/pm-workspace
+cd /Volumes/project/example/pm-workspace
 make build
 ```
 

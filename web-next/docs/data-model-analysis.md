@@ -2,14 +2,14 @@
 
 ## 0. 范围与方法
 
-- 对象：`/Volumes/project/0xBroleez/pm-workspace/web-next/src` 的 13 个数据定义文件和 `App.tsx` 里的状态与跨模块写操作，另外看了会改数据的组件（trading、videos、videopublish、monitor、projects、projecttabs、sessions、browser、strategy）。
+- 对象：`/Volumes/project/example/pm-workspace/web-next/src` 的 13 个数据定义文件和 `App.tsx` 里的状态与跨模块写操作，另外看了会改数据的组件（trading、videos、videopublish、monitor、projects、projecttabs、sessions、browser、strategy）。
 - 只读代码，没改任何文件，没启动任何服务。
 - 快照时间：2026-10-28 17:25 左右。分析期间有别的会话在并行改 `src`（`videodata.ts` 从 211 行变成 236 行，新增了 32 集的「AI 工具 100 讲」系列；`App.tsx` 多了 1 行，`newVideo` 改成带 `seriesId`）。下文行号按快照时的文件；后续再改，行号可能偏 1 到几行。
-- 一致性检查脚本：`/private/tmp/claude-501/-Volumes-project-0xBroleez-pm-workspace/332d2cac-6041-4a72-bd2a-96d5db218df9/scratchpad/check-seeds.ts`，输出在同目录 `out.txt`。运行方式：
+- 一致性检查脚本：`/private/tmp/claude-501/-Volumes-project-example-pm-workspace/332d2cac-6041-4a72-bd2a-96d5db218df9/scratchpad/check-seeds.ts`，输出在同目录 `out.txt`。运行方式：
 
 ```bash
-cd /private/tmp/claude-501/-Volumes-project-0xBroleez-pm-workspace/332d2cac-6041-4a72-bd2a-96d5db218df9/scratchpad
-npx -y tsx --tsconfig /Volumes/project/0xBroleez/pm-workspace/web-next/tsconfig.json check-seeds.ts
+cd /private/tmp/claude-501/-Volumes-project-example-pm-workspace/332d2cac-6041-4a72-bd2a-96d5db218df9/scratchpad
+npx -y tsx --tsconfig /Volumes/project/example/pm-workspace/web-next/tsconfig.json check-seeds.ts
 ```
 
   脚本只 import 数据文件。有一处例外：`sopflow.ts` 自己 import 了 `nodetypes.tsx`（节点类型表，里面有图标 JSX，不是页面组件），所以要带上项目的 tsconfig 让 JSX 能编译。这本身也是一个问题，见 4.6。

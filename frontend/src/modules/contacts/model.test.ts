@@ -34,16 +34,16 @@ describe('搜索', () => {
   })
   it('备注和角色也搜；多个词按空格拆开，每个词都要命中，可以跨字段', () => {
     const rs = toRows([
-      ct({ name: '常乐', company: 'Northstar', tags: ['Octok'], note: 'fleetent 团队负责人\n别名：Randy、乐哥' }),
-      ct({ name: 'Abby Chua', role: '产品 / 文案，XAUE 信用卡运营执行' }),
-      ct({ name: '周岚', company: 'XAUE' }),
+      ct({ name: '周七', company: 'Northstar', tags: ['Acme'], note: 'fleetent 团队负责人\n别名：Randy、乐哥' }),
+      ct({ name: 'Abby Chua', role: '产品 / 文案，Globex 信用卡运营执行' }),
+      ct({ name: '周岚', company: 'Globex' }),
     ])
-    expect(names(applyFilter(rs, { ...F, q: 'randy' }))).toEqual(['常乐'])
-    expect(names(applyFilter(rs, { ...F, q: 'Fleetent' }))).toEqual(['常乐'])
-    expect(names(applyFilter(rs, { ...F, q: 'xaue 信用卡' }))).toEqual(['Abby Chua'])
-    expect(names(applyFilter(rs, { ...F, q: 'octok  乐哥' }))).toEqual(['常乐'])
-    expect(names(applyFilter(rs, { ...F, q: 'XAUE', sort: 'name' }))).toEqual(['Abby Chua', '周岚'])
-    expect(applyFilter(rs, { ...F, q: 'XAUE 乐哥' })).toEqual([])
+    expect(names(applyFilter(rs, { ...F, q: 'randy' }))).toEqual(['周七'])
+    expect(names(applyFilter(rs, { ...F, q: 'Fleetent' }))).toEqual(['周七'])
+    expect(names(applyFilter(rs, { ...F, q: 'globex 信用卡' }))).toEqual(['Abby Chua'])
+    expect(names(applyFilter(rs, { ...F, q: 'acme  乐哥' }))).toEqual(['周七'])
+    expect(names(applyFilter(rs, { ...F, q: 'Globex', sort: 'name' }))).toEqual(['Abby Chua', '周岚'])
+    expect(applyFilter(rs, { ...F, q: 'Globex 乐哥' })).toEqual([])
   })
   it('空白搜索词不过滤', () => {
     expect(applyFilter(rows, { ...F, q: '   ' })).toHaveLength(3)
@@ -68,20 +68,20 @@ describe('筛选', () => {
   })
   it('一人多个分组：「、」拆开，按包含匹配，两边都能筛到（B-03）', () => {
     const rs = toRows([
-      ct({ name: '甲', group: 'Octok' }),
-      ct({ name: '乙', group: 'XAUE' }),
-      ct({ name: '丙', group: 'Octok、XAUE' }),
-      ct({ name: '丁', group: ' XAUE , Octok，XAUE ' }),
+      ct({ name: '甲', group: 'Acme' }),
+      ct({ name: '乙', group: 'Globex' }),
+      ct({ name: '丙', group: 'Acme、Globex' }),
+      ct({ name: '丁', group: ' Globex , Acme，Globex ' }),
     ])
-    expect(groupsOf(rs[2].c)).toEqual(['Octok', 'XAUE'])
-    expect(groupsOf(rs[3].c)).toEqual(['XAUE', 'Octok'])
-    expect(names(applyFilter(rs, { ...F, group: 'Octok', sort: 'name' }))).toEqual(['丙', '丁', '甲'])
-    expect(names(applyFilter(rs, { ...F, group: 'XAUE', sort: 'name' }))).toEqual(['丙', '丁', '乙'])
-    expect(applyFilter(rs, { ...F, group: 'Octok、XAUE' })).toEqual([])
+    expect(groupsOf(rs[2].c)).toEqual(['Acme', 'Globex'])
+    expect(groupsOf(rs[3].c)).toEqual(['Globex', 'Acme'])
+    expect(names(applyFilter(rs, { ...F, group: 'Acme', sort: 'name' }))).toEqual(['丙', '丁', '甲'])
+    expect(names(applyFilter(rs, { ...F, group: 'Globex', sort: 'name' }))).toEqual(['丙', '丁', '乙'])
+    expect(applyFilter(rs, { ...F, group: 'Acme、Globex' })).toEqual([])
     const v = groupView([], rs.map((r) => r.c))
-    expect(v.seg.map((g) => g.key)).toEqual(['Octok', 'XAUE'])
-    expect([v.countOf('Octok'), v.countOf('XAUE')]).toEqual([3, 3])
-    expect(joinGroups(['Octok', 'XAUE'])).toBe('Octok、XAUE')
+    expect(v.seg.map((g) => g.key)).toEqual(['Acme', 'Globex'])
+    expect([v.countOf('Acme'), v.countOf('Globex')]).toEqual([3, 3])
+    expect(joinGroups(['Acme', 'Globex'])).toBe('Acme、Globex')
   })
   it('接口没有 im 字段时不显示渠道', () => {
     expect(hasImField(rows.map((r) => r.c))).toBe(true)
