@@ -40,9 +40,11 @@ type SOPStarter interface {
 }
 
 // SOPRef 是动作指向某个 SOP 流程的定时任务，删流程前列出来。
+// Managed 是随流程管理的那一条（TSK-0463）：删流程时跟着删，不拦。
 type SOPRef struct {
-	ID   string `json:"id"`
-	Name string `json:"name"`
+	ID      string `json:"id"`
+	Name    string `json:"name"`
+	Managed bool   `json:"managed"`
 }
 
 // SOPRefs 是动作 sop 指向这个流程的定时任务，按新建时间倒序；停用的也算。
@@ -60,7 +62,7 @@ func (s *Store) SOPRefs(ctx context.Context, flowID string) ([]SOPRef, error) {
 			return nil, err
 		}
 		if sc.Action.Kind == ActionSOP && sc.Action.SOPID == flowID {
-			out = append(out, SOPRef{ID: sc.ID, Name: sc.Name})
+			out = append(out, SOPRef{ID: sc.ID, Name: sc.Name, Managed: sc.Action.Managed})
 		}
 	}
 	return out, rows.Err()

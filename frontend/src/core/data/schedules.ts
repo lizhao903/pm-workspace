@@ -29,7 +29,8 @@ export type ScheduleActionKind = 'task' | 'sop' | 'agent' | 'incident_sweep' | '
 /** 后端按 kind 只输出自己的字段 */
 export type ScheduleAction =
   | { kind: 'task'; title: string; desc: string; priority: string; assignee: string; due_days: number }
-  | { kind: 'sop'; sop_id: string }
+  /** managed：随 SOP 流程管理的那一条（TSK-0463），流程触发方式选「定时」时 SOP 插件建的；这里新建时不认，修改时保持原值 */
+  | { kind: 'sop'; sop_id: string; managed?: boolean }
   | { kind: 'agent'; agent_id: string; prompt: string }
   /** 到点把满足条件、未处理、还没有任务的运行异常各建一条交给 Claude Code 修的任务 */
   | { kind: 'incident_sweep'; min_level: 'error' | 'warn'; min_count: number }

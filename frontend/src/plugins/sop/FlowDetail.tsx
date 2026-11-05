@@ -7,6 +7,7 @@ import { Button, EmptyState, PageTitle } from '../../core/ui'
 import { FlowGraph, FlowLegend } from './FlowGraph'
 import { isManualDecide, isPendingRun } from './model'
 import { IconPlay, RunHead, RunRow } from './parts'
+import { ScheduleBar } from './ScheduleBar'
 import { useSourceText } from './source'
 import { needsText } from './scope'
 
@@ -41,7 +42,9 @@ export function FlowDetail({ flow, runs, branching, needs = [], trigger, onStart
 
   const remove = () => del.mutate(flow.id, { onSuccess: onDeleted })
   const copy = () => save.mutate(
-    { draft: { name: `${flow.name} 副本`, desc: flow.desc, trigger: flow.trigger, fields: flow.fields, steps: flow.steps, layout: flow.layout } },
+    // 定时的副本带上同样的规则但先停用，免得复制出来就和原流程同一时刻各跑一次（TSK-0463）
+    { draft: { name: `${flow.name} 副本`, desc: flow.desc, trigger: flow.trigger, fields: flow.fields, steps: flow.steps, layout: flow.layout,
+      ...(flow.schedule ? { sched: { rule: flow.schedule.rule, enabled: false } } : {}) } },
     { onSuccess: onCopied },
   )
   const confirmText = del.isError ? `删除失败：${errorText(del.error)}` : block ? `不能删除：${block}` : '删除后已有的执行记录保留'
@@ -76,6 +79,7 @@ export function FlowDetail({ flow, runs, branching, needs = [], trigger, onStart
         <span>{reviews} 个需要人处理的节点</span>
         {needs.length > 0 && <span className="sop-need-text" title="这个工作台没开这个模块，执行时可能选不到要的数据">{needsText(needs)}</span>}
       </div>
+      <ScheduleBar flow={flow} now={now} className="sop-detail-sched" />
 
       <div className="sop-section-label">流程</div>
       <div className="sop-flow-card"><FlowGraph flow={flow} branching={branching} /></div>

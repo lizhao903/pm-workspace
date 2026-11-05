@@ -6,6 +6,11 @@ import { STEP_KIND, depsOf, stepLook, isManualDecide, ranks, upstreamOf, type So
 import { cls, timeAgo } from './ui'
 import { useEnum } from './enumdata'
 import { newId } from './ids'
+import { RuleFields } from './schedule'
+import { describeRule, emptyRule } from './scheduledata'
+
+/** 新选「定时」时的默认规则：每天 09:00（TSK-0463） */
+const defaultSched = () => ({ rule: { ...emptyRule(), freq: 'daily' as const, time: '09:00' }, enabled: true })
 
 // 新建 / 编辑 SOP：编排画布。左边 AI 协助，中间画布（拖动节点、从节点右侧连线或点 + 加下一个节点），右边是选中节点的属性
 // AI 的每次改动都先作为「提案」出现在对话里，看过再点应用；应用过的可以撤销
@@ -554,11 +559,30 @@ function NodePanel({ draft, nodeKey, runs, sopList, tried, onChange, onPatchSop,
           <div className="list-sub">执行时要填的内容，第一批节点拿它当输入。</div>
           <label className="field">
             <span className="field-label">触发方式</span>
-            <select value={draft.trigger} onChange={(e) => onPatchSop({ trigger: e.target.value })}>
+            <select value={draft.trigger} onChange={(e) => onPatchSop(e.target.value === 'schedule' && !draft.sched ? { trigger: e.target.value, sched: defaultSched() } : { trigger: e.target.value })}>
               {!triggerOpts.some((t) => t.key === draft.trigger) && <option value={draft.trigger}>{draft.trigger}</option>}
               {triggerOpts.map((t) => <option key={t.key} value={t.key}>{t.label}</option>)}
             </select>
           </label>
+          {/* 定时（TSK-0463）：规则在这里配，接下来 5 次；保存时写进随流程管理的定时任务，定时任务页看到、改到的是同一条 */}
+          {draft.trigger === 'schedule' && (draft.sched ? (
+            <div className="sop-start-sched">
+              <RuleFields compact count={5} rule={draft.sched.rule} onChange={(rule) => onPatchSop({ sched: { ...draft.sched!, rule } })} />
+              <label className="switch-row">
+                <span><span className="field-label">到点自动执行</span><span className="switch-hint">{draft.sched.enabled ? '保存后按规则自动执行' : '已停用：保存后不会自动执行'}</span></span>
+                <span className="switch-line"><input type="checkbox" checked={draft.sched.enabled} onChange={(e) => onPatchSop({ sched: { ...draft.sched!, enabled: e.target.checked } })} /><span className="switch" /></span>
+              </label>
+              {draft.fields.some((f) => f.required && !(f.default ?? '').trim()) && (
+                <div className="sop-start-sched-warn">定时执行时不填输入：{draft.fields.filter((f) => f.required && !(f.default ?? '').trim()).map((f) => `「${f.label || f.key}」`).join('、')}是必填又没有默认值，到点会执行失败。给它们填默认值，或改成不必填</div>
+              )}
+              <span className="field-hint-line">保存后在「任务 / 定时任务」里也能看到这一条，两边改的是同一条</span>
+            </div>
+          ) : (
+            <div className="sop-start-sched unset">
+              <span>定时，未配置：随流程管理的定时任务不在了（可能在定时任务页删掉了），到点不会执行。</span>
+              <button className="act" onClick={() => onPatchSop({ sched: defaultSched() })}>设定时间</button>
+            </div>
+          ))}
           <div className="field">
             <span className="field-label">输入字段</span>
             <div className="field-list">
@@ -742,15 +766,21 @@ type Drag =
   | { kind: 'node'; key: string; sx: number; sy: number; ox: number; oy: number; moved: boolean; before: Sop }
   | { kind: 'link'; from: string; caseKey?: string; sx: number; sy: number; at: { x: number; y: number } }
 
-export function SopEditor({ initial, creating, runs, sopList, onCancel, onSave }: {
+export function SopEditor({ initial, creating, runs, sopList, hasSchedule = false, onCancel, onSave }: {
   initial: Sop
   creating: boolean
   runs: SopRun[]
   /** 子流程节点可选的 SOP */
   sopList: { id: string; name: string }[]
+  /** 这个流程现在有随它管理的定时任务（TSK-0463）：改成别的触发方式保存前先问停用还是删掉 */
+  hasSchedule?: boolean
   onCancel: () => void
-  onSave: (sop: Sop, thenRun: boolean) => void
+  /** off：从定时改成别的触发方式时，那条定时任务停用还是删掉 */
+  onSave: (sop: Sop, thenRun: boolean, off?: 'disable' | 'delete') => void
 }) {
+  const [offAsk, setOffAsk] = useState<{ thenRun: boolean } | null>(null)
+  const [offChoice, setOffChoice] = useState<'disable' | 'delete'>('disable')
+  const [schedSaved, setSchedSaved] = useState(hasSchedule)
   const [draft, setDraft] = useState<Sop>(() => explicit(initial))
   const [past, setPast] = useState<Sop[]>([])
   const [future, setFuture] = useState<Sop[]>([])
@@ -957,15 +987,17 @@ export function SopEditor({ initial, creating, runs, sopList, onCancel, onSave }
     // AI 整体替换后位置都变了，重新适配一次视口
     fitted.current = false
   }
-  const save = (thenRun: boolean) => {
+  const save = (thenRun: boolean, off?: 'disable' | 'delete') => {
     setTried(true)
     if (errors.length) { setShowIssues(true); return }
+    if (!creating && schedSaved && draft.trigger !== 'schedule' && !off) { setOffAsk({ thenRun }); return }
+    setSchedSaved(draft.trigger === 'schedule' ? !!draft.sched : off === 'disable')
     const out = { ...draft, layout: lay }
     setSavedJson(JSON.stringify(out))
     if (aiMark === draft) setAiMark(out)
     if (nameEdit.current === draft) nameEdit.current = out
     setDraft(out)
-    onSave(out, thenRun)
+    onSave(out, thenRun, off)
   }
 
   // 屏幕不够宽时，选中节点打开属性面板就先收起 AI 面板，给画布留地方
@@ -1007,7 +1039,7 @@ export function SopEditor({ initial, creating, runs, sopList, onCancel, onSave }
 
           {/* 开始节点 */}
           <div className={cls('cv-node', sel === START && 'sel')} data-node={START} style={{ left: lay[START].x, top: lay[START].y, width: NW }}>
-            <div className="cv-node-head"><KindIcon kind="start" /><span className="cv-node-name">开始</span><span className="cv-node-kind">{triggerLabel(triggers, draft.trigger)}</span></div>
+            <div className="cv-node-head"><KindIcon kind="start" /><span className="cv-node-name">开始</span><span className="cv-node-kind">{draft.trigger === 'schedule' ? (draft.sched ? `${triggerLabel(triggers, draft.trigger)} · ${describeRule(draft.sched.rule)}` : `${triggerLabel(triggers, draft.trigger)}，未配置`) : triggerLabel(triggers, draft.trigger)}</span></div>
             <div className="cv-fields">{draft.fields.map((f) => <span key={f.key} className="cv-field"><span className="mono">{'{x}'}</span>{f.label || '未命名字段'}{f.required && <em>*</em>}</span>)}</div>
             <span className="cv-handle" data-out={START} title="拖动连线，或点击添加下一个节点">+</span>
           </div>
@@ -1073,6 +1105,19 @@ export function SopEditor({ initial, creating, runs, sopList, onCancel, onSave }
             测试运行
           </button>
           <button className="btn btn-primary" onClick={() => save(false)}>{creating && !savedJson ? '发布' : '保存'}</button>
+          {/* 从定时改成别的触发方式（TSK-0463）：保存前问那条定时任务停用还是删掉 */}
+          {offAsk && (
+            <div className="menu cv-issues sop-off-ask" role="dialog" aria-label="不再定时执行？">
+              <b>不再定时执行？</b>
+              <span className="list-sub">触发方式改成「{triggerLabel(triggers, draft.trigger)}」后，随这个流程的定时任务怎么处理：</span>
+              <label><input type="radio" name="sop-off" checked={offChoice === 'disable'} onChange={() => setOffChoice('disable')} /><span><b>停用</b>　规则留着，以后改回定时时恢复</span></label>
+              <label><input type="radio" name="sop-off" checked={offChoice === 'delete'} onChange={() => setOffChoice('delete')} /><span><b>删掉</b>　定时任务页里这一条一起删除</span></label>
+              <div className="act-row">
+                <button className="btn btn-ghost" onClick={() => setOffAsk(null)}>取消</button>
+                <button className="btn btn-primary" onClick={() => { const t = offAsk.thenRun; setOffAsk(null); save(t, offChoice) }}>保存</button>
+              </div>
+            </div>
+          )}
         </div>
         <div className="cv-ui cv-tools">
           <button className="icon-btn" title="添加节点" onClick={(e) => { const r = (e.currentTarget as HTMLElement).getBoundingClientRect(); setPalette({ at: { x: r.right + 8, y: r.top }, from: sel ?? (draft.steps.length ? draft.steps[draft.steps.length - 1].key : START) }) }}>

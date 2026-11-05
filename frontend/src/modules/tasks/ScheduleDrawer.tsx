@@ -1,24 +1,22 @@
 // 定时任务抽屉（SPEC-tasks-8）：配「什么时候」和「做什么」，下面是执行记录和「立即执行一次」。
 // 接下来几次由后端预览（POST /api/schedules/preview）；立即执行按已保存的配置跑，有没保存的改动时先保存再执行。
 // 视频发布动作（SPEC-videos-15.13）跟着发布记录走：名称和规则只读，两段换成「发布哪条」，不预览也不校验规则。
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { useNavigate } from 'react-router'
 import {
   errorText, isApiError, useCreateSchedule, useDeleteSchedule, useDictItems, useObject, usePatchSchedule, useRunSchedule, useScheduleRuns,
-  useSchedulePreview, useStakeholders, useVideoPlatforms, useVideoPublishes, type Schedule, type ScheduleActionKind, type ScheduleFreq, type ScheduleRule,
+  useSopFlows, useStakeholders, useVideoPlatforms, useVideoPublishes, type Schedule, type ScheduleActionKind, type ScheduleRule,
 } from '../../core/data'
-import { Button, Drawer, Field, Input, SearchSelect, Select, Textarea, cls, type SearchOption } from '../../core/ui'
+import { Button, Drawer, Field, Input, ScheduleRuleFields, SearchSelect, Select, Textarea, cls, useRuleCheck, type SearchOption } from '../../core/ui'
 import { prioText, timeAgo } from './model'
 import {
-  ACTION_KINDS, ACTION_LABEL, DUE_DAYS, FREQS, FREQ_LABEL, REMIND_BODY_MAX, REMIND_TITLE_MAX, SWEEP_COUNTS, SWEEP_LEVEL_LABEL, WEEK, WEEK_ORDER, buildScheduleInput, buildSchedulePatch, defaultPriority,
-  actionLabel, describeRule, draftErrors, emptyAction, emptyScheduleDraft, isPluginAction, publishIdOf, publishName, ruleError, runTone, scheduleDirty, scheduleDraftOf, whenText,
+  ACTION_KINDS, ACTION_LABEL, DUE_DAYS, REMIND_BODY_MAX, REMIND_TITLE_MAX, SWEEP_COUNTS, SWEEP_LEVEL_LABEL, buildScheduleInput, buildSchedulePatch, defaultPriority,
+  actionLabel, describeRule, draftErrors, emptyAction, emptyScheduleDraft, isManagedSop, isPluginAction, publishIdOf, publishName, runTone, scheduleDirty, scheduleDraftOf, whenText,
   type ActionNames, type ScheduleDraft,
 } from './scheduleModel'
 
 // 优先级字典的 id（/api/dictionaries）
 const PRIORITY_DICT = 'priority'
-// 改规则时停手多久再去预览
-const PREVIEW_DELAY = 300
 // 抽屉开着时多久重取一次执行记录（调度器到点执行不发事件）
 const RUNS_POLL_MS = 15_000
 
@@ -70,24 +68,18 @@ export function ScheduleDrawer({ schedule, onClose, onCreated, onOpenTask }: {
   const pubNames: ActionNames = pubs.data
     ? { publishes: Object.fromEntries(pubs.data.map((p) => [p.id, `${plats.data?.find((x) => x.key === p.platform)?.label ?? p.platform} · ${p.title || '未填标题'}`])) }
     : {}
+  // 随 SOP 流程管理的那一条（TSK-0463）：动作跟着流程，这里只能改名称、规则、启停
+  const managed = !!schedule && isManagedSop(schedule.action)
+  const flows = useSopFlows({ enabled: managed })
+  const flowName = managed ? flows.data?.find((f) => f.id === a.sop_id)?.name : undefined
   // 只读的规则不在前端校验：已发出去的一次性定时时间早过了，照样要能停用、立即执行
-  const clientErr = locked ? '' : ruleError(r, now)
-  // 规则停手一会儿再预览，cron 一个字一个字敲时不连发
-  const [previewRule, setPreviewRule] = useState<ScheduleRule | null>(clientErr || locked ? null : r)
-  useEffect(() => {
-    const next = clientErr || locked ? null : r
-    const id = setTimeout(() => setPreviewRule(next), PREVIEW_DELAY)
-    return () => clearTimeout(id)
-  }, [r, clientErr, locked])
-  const preview = useSchedulePreview(previewRule)
-  // 后端校验的说明带着「validation failed:」前缀，去掉只留原因
-  const serverErr = previewRule && preview.isError ? `规则不对：${errorText(preview.error).replace(/^validation failed:\s*/, '')}` : ''
-  const ruleErr = clientErr || serverErr
-  const upcoming = !clientErr && preview.data ? preview.data.next_runs : null
+  const check = useRuleCheck(r, { now, off: locked })
+  const serverErr = check.serverError
+  const upcoming = check.upcoming
 
   const errors = locked ? [] : draftErrors(d, now)
   const dirty = scheduleDirty(base, d)
-  const setRule = (p: Partial<ScheduleRule>) => setD((x) => ({ ...x, rule: { ...x.rule, ...p } }))
+  const setRule = (rule: ScheduleRule) => setD((x) => ({ ...x, rule }))
   const setAction = (p: Partial<ScheduleDraft['action']>) => setD((x) => ({ ...x, action: { ...x.action, ...p } }))
   // 切换动作类型时清空该动作的字段（SPEC-tasks-8.7）
   const setKind = (k: ScheduleActionKind) => setD((x) => (x.action.kind === k ? x : { ...x, action: emptyAction(k, defPrio) }))
@@ -148,7 +140,11 @@ export function ScheduleDrawer({ schedule, onClose, onCreated, onOpenTask }: {
 
   const body = (
     <div className="form sched-form">
-      {locked ? (
+      {managed ? (
+        <Field label="名称" hint="名称跟着 SOP 流程名，改流程名时一起改" wrap={false}>
+          <div className="sched-readonly">{d.name}</div>
+        </Field>
+      ) : locked ? (
         <Field label="名称" hint="名称跟着发布记录生成，这里不能改" wrap={false}>
           <div className="sched-readonly">{d.name}</div>
         </Field>
@@ -174,54 +170,21 @@ export function ScheduleDrawer({ schedule, onClose, onCreated, onOpenTask }: {
         <>
         <section className="field-group" aria-label="什么时候">
           <div className="field-group-title">什么时候</div>
-          <div className="seg seg-full sched-freq" role="radiogroup" aria-label="频率">
-            {FREQS.map((f: ScheduleFreq) => (
-              <button key={f} type="button" role="radio" aria-checked={r.freq === f} className={cls(r.freq === f && 'on')}
-                onClick={() => setRule({ freq: f })}>{FREQ_LABEL[f]}</button>
-            ))}
-          </div>
-          {r.freq === 'weekly' && (
-            <div className="week-pick" role="group" aria-label="周几">
-              {WEEK_ORDER.map((w) => {
-                const on = r.weekdays.includes(w)
-                return (
-                  <button key={w} type="button" aria-pressed={on} aria-label={`周${WEEK[w]}`} className={cls('week-day', on && 'on')}
-                    onClick={() => setRule({ weekdays: on ? r.weekdays.filter((x) => x !== w) : [...r.weekdays, w].sort() })}>{WEEK[w]}</button>
-                )
-              })}
-            </div>
-          )}
-          <div className="field-row">
-            {r.freq === 'once' && (
-              <Field label="日期"><Input type="date" value={r.date} onChange={(e) => setRule({ date: e.target.value })} /></Field>
-            )}
-            {r.freq === 'monthly' && (
-              <Field label="几号">
-                <Select value={String(r.day)} onValueChange={(v) => setRule({ day: Number(v) })}
-                  options={Array.from({ length: 31 }, (_, i) => ({ value: String(i + 1), label: i === 30 ? '31（小月按月底） 号' : `${i + 1} 号` }))} />
-              </Field>
-            )}
-            {r.freq === 'cron' ? (
-              <Field label={<>Cron 表达式<span className="field-hint">分 时 日 月 周</span></>}>
-                <Input className="mono-input" value={r.cron} placeholder="0 9 * * 1" invalid={!!ruleErr}
-                  onChange={(e) => setRule({ cron: e.target.value })} />
-              </Field>
-            ) : (
-              <Field label="时间"><Input type="time" value={r.time} onChange={(e) => setRule({ time: e.target.value })} /></Field>
-            )}
-          </div>
-          {ruleErr ? <div className="field-err" role="alert">{ruleErr}</div> : (
-            <div className="sched-preview" aria-live="polite">
-              <span className="list-sub">{describeRule(r)}，接下来：</span>
-              {upcoming ? (upcoming.length
-                ? upcoming.map((u) => <span key={u} className="tag">{whenText(u, now)}</span>)
-                : <span className="list-sub">不会再执行</span>) : <span className="list-sub">正在算</span>}
-            </div>
-          )}
+          <ScheduleRuleFields rule={r} onChange={setRule} check={check} now={now} />
         </section>
 
         <section className="field-group" aria-label="做什么">
           <div className="field-group-title">做什么</div>
+          {managed ? (
+            <>
+              <div className="sched-pub-name">执行 SOP「{flowName ?? a.sop_id}」</div>
+              <div className="list-sub">这条定时跟着 SOP 流程走：名称跟流程名，规则、启停在这里改和在流程编辑里改是同一条；要换动作或不再定时，到流程编辑里改触发方式。删掉它，流程的触发方式变成「定时，未配置」</div>
+              <div className="sched-plugin-acts">
+                <Button size="sm" onClick={() => void navigate(`/sop/flows/${encodeURIComponent(a.sop_id)}`)}>打开流程</Button>
+              </div>
+            </>
+          ) : (
+          <>
           <div className="seg seg-full" role="radiogroup" aria-label="动作类型">
             {ACTION_KINDS.map((k) => {
               // SOP、Agent 的接口 M4 之后才有：没法选，已经是这种类型的照样显示；运行异常巡检是内核动作（INC-01b），能选
@@ -294,6 +257,8 @@ export function ScheduleDrawer({ schedule, onClose, onCreated, onOpenTask }: {
               </Field>
             </>
           )}
+          </>
+          )}
         </section>
         </>
       )}
@@ -355,7 +320,7 @@ export function ScheduleDrawer({ schedule, onClose, onCreated, onOpenTask }: {
       dirtyMessage="有未保存的修改，关闭后会丢掉。"
       footer={(requestClose) => confirmDel ? (
         <>
-          <span className="danger-text">删除后不再执行，已经建出来的任务保留</span>
+          <span className="danger-text">{managed ? `删除后不再执行，流程「${flowName ?? a.sop_id}」的触发方式变成「定时，未配置」` : '删除后不再执行，已经建出来的任务保留'}</span>
           <span className="spacer" />
           <Button onClick={() => setConfirmDel(false)}>取消</Button>
           <Button variant="danger" disabled={del.isPending} onClick={() => void remove()}>删除</Button>

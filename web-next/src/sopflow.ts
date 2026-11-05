@@ -10,6 +10,7 @@
 // 原型里步骤由前端定时器模拟，每步的产出是写死的规则，不连真服务
 import { seedContacts, seedMessages } from './data'
 import { newId } from './ids'
+import type { ScheduleRule } from './scheduledata'
 import { NODE_TYPES, evalRule, isBranching, loopRounds, render, typeOf, type Cfg, type StepKind } from './nodetypes'
 
 export type Json = Record<string, unknown>
@@ -60,6 +61,11 @@ export interface Sop {
   desc: string
   /** sop_trigger 枚举的 key */
   trigger: string
+  /**
+   * 编排页里定时触发的草稿（TSK-0463）：规则和启停。保存时写进随流程管理的定时任务（定时任务列表里 action.managed 的那条），
+   * 流程本身不存；打开编排页时从那条定时任务带出来，没有那条时为空（「定时，未配置」）
+   */
+  sched?: { rule: ScheduleRule; enabled: boolean }
   fields: SopField[]
   steps: SopStepDef[]
   /** 编排画布上的节点位置，key 是步骤 key，__start 是开始节点；没有就按依赖自动排 */
@@ -472,7 +478,8 @@ export const SOPS: Sop[] = [
     id: 'sop_meeting',
     name: '周会纪要整理',
     desc: '转写稿拆开后并行生成纪要、待办和发言统计，校对后同时归档和同步到群里',
-    trigger: 'weekly',
+    // 定时：每周一 18:00，规则在随流程管理的定时任务 sc_meeting 里（TSK-0463，原来是写死的 weekly）
+    trigger: 'schedule',
     fields: [
       { key: 'meeting', label: '会议', type: 'text', required: true, default: '产品周会 10/26' },
       { key: 'transcript', label: '转写稿', type: 'textarea', required: true, default: '林予安：权限点清单周三前和后端对齐。\n周屿：导出异步化要先评估存储成本。\n陈若溪：远川的时区问题这周先给临时方案。\n周屿：好，缓存方案我周五前出。' },
@@ -739,7 +746,7 @@ export const SOPS: Sop[] = [
   {
     id: 'sop_im_auto_intake',
     name: 'IM 需求自动受理',
-    desc: 'IM 消息是需求就建任务、回执提出人，按项目档案分类（拿不准问提出人），Claude Code 写 PRD、研发评审，不通过自动退回最多 3 轮，通过后进入开发。默认停用：触发方式是「手动」，改成「IM 消息」才会自动处理新消息',
+    desc: 'IM 消息是需求就建任务、回执需求方，按项目档案分类（拿不准问提出人），Claude Code 写 PRD、研发评审，不通过自动退回最多 3 轮，通过后进入开发。默认停用：触发方式是「手动」，改成「IM 消息」才会自动处理新消息',
     trigger: 'manual',
     fields: [
       { key: 'message_id', label: 'IM 消息', type: 'text', required: true, default: 'm1', placeholder: '消息 id；IM 触发时自动带上' },
@@ -768,8 +775,9 @@ export const SOPS: Sop[] = [
         run: (i) => ({ ...i, task: { id: 'tsk_auto1', ref: 'TSK-0101', title: str((i.message as Json | undefined)?.text).slice(0, 40), stage: 'received', url: 'https://pmw.local/tasks/board?t=tsk_auto1' } }),
       },
       {
-        key: 'ack', name: '回执提出人', kind: 'auto', ms: 400, after: ['to_task'], desc: '回复原消息（IM 插件 im_reply_message）：已收到，附看板链接',
-        run: (i) => ({ ...i, replied: { text: `收到，已记为需求 ${str((i.task as Json).ref)}，进度可以在看板上看：${str((i.task as Json).url)}` } }),
+        key: 'ack', name: '回执需求方', kind: 'auto', ms: 400, after: ['to_task'],
+        desc: '回执需求方（IM 插件 im_ack_task，TSK-0467）：在原消息所在的会话里回复「已创建任务 TSK-x，开始进行需求规划」；同一条消息只回一次，我自己发的、只收不发的不回，回复失败不影响任务',
+        run: (i) => ({ ...i, acked: { status: 'sent', task_ref: str((i.task as Json).ref), text: `已创建任务 ${str((i.task as Json).ref)}，开始进行需求规划` } }),
       },
       {
         key: 'profiles', name: '读项目档案', kind: 'auto', ms: 300, after: ['ack'], desc: '列项目档案（项目插件 projects_list_profiles）：建过档案的项目摘要，给分类用',
@@ -943,7 +951,7 @@ export const SOPS: Sop[] = [
   {
     id: 'sop_im_task_confirm',
     name: '来消息确认派发',
-    desc: 'IM 消息要建任务时先私信我确认：回「执行」派 Claude Code 在任务继承的工作目录里开工、做完私信回报；回「分配 某人」改负责人；回「不做」取消任务；认不出再问一次、超时提醒一次，仍没有就不执行。默认停用：触发方式是「手动」',
+    desc: 'IM 消息要建任务时先在原会话回执需求方「已创建任务 TSK-x，开始进行需求规划」，再私信我确认：回「执行」派 Claude Code 在任务继承的工作目录里开工、做完私信回报；回「分配 某人」改负责人；回「不做」取消任务；认不出再问一次、超时提醒一次，仍没有就不执行。默认停用：触发方式是「手动」',
     trigger: 'manual',
     fields: [
       { key: 'message_id', label: 'IM 消息', type: 'text', required: true, default: 'm1', placeholder: '消息 id；IM 触发时自动带上' },
@@ -976,7 +984,12 @@ export const SOPS: Sop[] = [
       { key: 'join', name: '任务', desc: '', kind: 'aggregate', ms: 200, after: ['use_id', 'to_task'], config: { mode: 'first' } },
       { key: 'info', name: '读任务', kind: 'task_update', ms: 300, after: ['join'], desc: '取任务的编号、标题、项目和继承后的工作目录，给私信摘要用', config: {} },
       {
-        key: 'ask', name: '私信我确认', kind: 'auto', ms: 1200, after: ['info'],
+        key: 'ack', name: '回执需求方', kind: 'auto', ms: 400, after: ['info'],
+        desc: '回执需求方（IM 插件 im_ack_task，TSK-0467）：先在原消息所在的会话里回复需求方「已创建任务 TSK-x，开始进行需求规划」，再私信我；同一条消息只回一次（别的流程回过就不回）',
+        run: (i) => ({ ...i, acked: { status: 'sent', task_ref: str((i.task as Json).ref), text: `已创建任务 ${str((i.task as Json).ref)}，开始进行需求规划` } }),
+      },
+      {
+        key: 'ask', name: '私信我确认', kind: 'auto', ms: 1200, after: ['ack'],
         desc: '私信我确认（IM 插件 im_ask_me）：私信我任务摘要和「执行 / 分配 某人 / 不做」；认不出再问一次，超时提醒一次，仍没有就不执行',
         run: (i) => {
           const r = str(i.reply).trim()
@@ -999,6 +1012,38 @@ export const SOPS: Sop[] = [
       { key: 'cancel', name: '标为已取消', desc: '', kind: 'task_update', ms: 300, after: ['is_cancel'], branch: { of: 'is_cancel', case: 'yes' }, config: { task: '{{task.id}}', status: 'cancelled' } },
       { key: 'tell_cancel', name: '回话：已取消', kind: 'auto', ms: 300, after: ['cancel'], desc: '私信我：已取消' },
       { key: 'tell_idle', name: '回话：先不执行', kind: 'auto', ms: 300, after: ['is_cancel'], branch: { of: 'is_cancel', case: 'no' }, desc: '私信我：认不出或超时，先不执行，任务留在未开工' },
+    ],
+  },
+  // FDE 反馈转发（TSK-0468，SPEC-sop-12.51）：正式产品由 IM 插件写进 SOP 的内置流程 sop_im_fde_forward，默认停用（IM 设置「FDE 反馈转发」打开后，
+  // 我在消息页手动转任务、拆分任务时由 IM 插件发起；流程自动建的任务不发）。整理摘要、私信联系人是 IM 插件的 im_message_digest、im_send_contact，原型用 auto 模拟
+  {
+    id: 'sop_im_fde_forward',
+    name: 'FDE 反馈转发',
+    desc: '我在 IM 消息页手动把消息转成任务（转任务、拆分任务）后，私信 Robot.CyberBroleez 一条「FDE 反馈」+ 原始消息 + 任务编号和链接；同一条消息只发一次，拆分出几条任务汇成一条。默认停用：在 IM 消息页「渠道配置」里打开「FDE 反馈转发」才会自动发；收件人、开头文字在「私信 FDE 反馈收件人」这一步里改',
+    trigger: 'manual',
+    fields: [
+      { key: 'message_id', label: 'IM 消息', type: 'text', required: true, default: 'm1', placeholder: '消息 id；手动转任务时自动带上' },
+      { key: 'message_ids', label: '同组消息', type: 'text', placeholder: '拆分任务时会话带的一组消息 id，可空' },
+      { key: 'task_ids', label: '任务', type: 'text', placeholder: '新建的任务 id，可空（空时取这条消息转成、拆出来的任务）' },
+    ],
+    steps: [
+      {
+        key: 'digest', name: '整理消息摘要', kind: 'auto', ms: 300, after: [],
+        desc: '整理消息摘要（IM 插件 im_message_digest）：原始消息的发信人、会话、时间、原文、附件名，和新任务编号、链接；拆分出几条任务时都列上',
+        run: (i) => {
+          const m = seedMessages.find((x) => x.id === i.message_id) ?? seedMessages[0]
+          return { ...i, digest: {
+            messages_text: `发信人：${m.sender_name}\n会话：${m.conversation || '私聊'}（${m.channel}）\n时间：2026-11-05 10:30\n原文：${m.text}`,
+            tasks_text: '任务：TSK-0103「' + m.text.slice(0, 20) + '」https://pmw.local/tasks/board?t=tsk_fde1',
+          } }
+        },
+      },
+      {
+        key: 'send', name: '私信 FDE 反馈收件人', kind: 'auto', ms: 500, after: ['digest'],
+        config: { contact: 'Robot.CyberBroleez', to: 'U0BQZG8LSTB', channel: 'slack', text: 'FDE 反馈\n{{digest.messages_text}}\n{{digest.tasks_text}}' },
+        desc: '私信联系人（IM 插件 im_send_contact）：按联系人找到 Slack 身份 U0BQZG8LSTB 私信「FDE 反馈」+ 摘要；联系人没有这个身份时失败「联系人 Robot.CyberBroleez 没有 Slack 身份 U0BQZG8LSTB」，发送失败记运行异常，任务不受影响',
+        run: (i) => ({ ...i, sent_to: { contact: 'Robot.CyberBroleez', to: 'U0BQZG8LSTB' } }),
+      },
     ],
   },
 ]

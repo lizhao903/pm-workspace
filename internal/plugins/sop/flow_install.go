@@ -64,7 +64,7 @@ func (e *engine) RemoveFlow(ctx context.Context, _ string, id string) (bool, str
 	if n > 0 {
 		return false, fmt.Sprintf("有 %d 个进行中的执行", n), nil
 	}
-	refs, err := e.c.SOP().Schedules(ctx, id)
+	refs, err := userSchedules(ctx, e.c, id)
 	if err != nil {
 		return false, "", err
 	}
@@ -77,6 +77,9 @@ func (e *engine) RemoveFlow(ctx context.Context, _ string, id string) (bool, str
 	}
 	if n, _ := res.RowsAffected(); n == 0 {
 		return false, "流程刚被改过，留给用户", nil
+	}
+	if _, err := e.c.SOP().DeleteFlowSchedule(ctx, id); err != nil && !errors.Is(err, plugin.ErrNoSOPSchedules) {
+		return true, "", err
 	}
 	return true, "", nil
 }

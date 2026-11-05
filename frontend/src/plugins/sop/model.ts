@@ -2,6 +2,7 @@
 // 运行状态由后端算好给（SopRun.status），这里不重算；节点是不是分支节点从 GET /api/sop/node-types 读，名字在前端
 import { isSopHeld, isSopProviderWait, sopRunShow, type SopFlow, type SopJson, type SopNodeType, type SopRun, type SopRunBrief, type SopRunShow, type SopRunStatus, type SopRunStep, type SopStepDef, type SopStepStatus } from '../../core/data'
 import { sopNodeView } from '../../core/plugin'
+import { describeRule as describeScheduleRule, fullRule as fullScheduleRule } from '../../core/ui/scheduleRule'
 
 type Look = { label: string; color: string }
 
@@ -56,13 +57,24 @@ export const KIND_LABEL: Record<string, string> = {
 }
 export const kindLabel = (k: string) => KIND_LABEL[k] ?? sopNodeView(k)?.label ?? k
 
-/** 触发方式的内置显示名（同原型 enumdata.ts 的 sop_trigger），设置里有 sop_trigger 枚举时以枚举为准；都没有的原样显示（SPEC-sop-0） */
+/**
+ * 触发方式的内置显示名（同原型 enumdata.ts 的 sop_trigger），设置里有 sop_trigger 枚举时以枚举为准；都没有的原样显示（SPEC-sop-0）。
+ * 定时（TSK-0463）只有一项 schedule，时间规则在随流程管理的定时任务里；旧的 daily、weekly、cron 后端转成 schedule，显示也按「定时」
+ */
 export const TRIGGER_LABEL: Record<string, string> = {
-  manual: '手动', im: 'IM 消息', daily: '每天 09:00', weekly: '每周一 18:00', schedule: '定时', cron: '定时', webhook: 'Webhook',
+  manual: '手动', im: 'IM 消息', schedule: '定时', webhook: 'Webhook',
 }
+/** 旧的定时类触发方式，都按 schedule 看 */
+export const LEGACY_SCHEDULE_TRIGGERS: readonly string[] = ['daily', 'weekly', 'cron']
+/** 旧触发方式换成 schedule，其余原样 */
+export const normTrigger = (t: string) => (LEGACY_SCHEDULE_TRIGGERS.includes(t) ? 'schedule' : t)
 export function triggerLabelOf(items?: readonly { key: string; label: string }[]) {
   const m = new Map((items ?? []).map((x) => [x.key, x.label]))
-  return (t: string) => (t ? m.get(t) ?? TRIGGER_LABEL[t] ?? t : '手动')
+  return (t: string) => {
+    if (!t) return '手动'
+    const k = normTrigger(t)
+    return m.get(k) ?? TRIGGER_LABEL[k] ?? t
+  }
 }
 
 /* ---------- 流程要的插件 ---------- */
@@ -225,7 +237,7 @@ export function libraryRows(flows: readonly SopFlow[], stats: Map<string, FlowSt
   const trig = opts.trigger ?? ((t: string) => t)
   const away = (f: SopFlow) => Number(!!opts.elsewhere?.(f))
   const pend = (f: SopFlow) => Number((stats.get(f.id)?.pending ?? 0) > 0)
-  return flows.filter((f) => libPass(f, k, stats) && (!kw || `${f.name} ${f.desc} ${f.trigger} ${trig(f.trigger)}`.toLowerCase().includes(kw)))
+  return flows.filter((f) => libPass(f, k, stats) && (!kw || `${f.name} ${f.desc} ${f.trigger} ${trig(f.trigger)} ${f.schedule ? describeScheduleRule(fullScheduleRule(f.schedule.rule)) : ''}`.toLowerCase().includes(kw)))
     .sort((a, b) => away(a) - away(b) || pend(b) - pend(a) || (stats.get(b.id)?.last ?? 0) - (stats.get(a.id)?.last ?? 0) || a.name.localeCompare(b.name, 'zh-CN'))
 }
 

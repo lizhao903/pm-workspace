@@ -9,6 +9,8 @@ import { stepLook, timeAgo } from './model'
 import { nodeInfo, useLiveOptions, type ConfigField, type FieldCtx } from './nodes'
 import { KindIcon } from './parts'
 import { DataView } from './RunView'
+import { SCHEDULE, defaultSched } from './schedule'
+import { StartSchedule } from './StartSchedule'
 
 type AddAt = (at: { x: number; y: number }, from: string, caseKey?: string) => void
 
@@ -150,8 +152,13 @@ export function NodePanel({ draft, nodeKey, catalog, ctx, tried, triggers, flowI
           <div className="sop-muted">执行时要填的内容，第一批节点拿它当输入。</div>
           <label className="field">
             <span className="field-label">触发方式</span>
-            <Select value={draft.trigger} options={trigOpts} onValueChange={(v) => onPatchDraft({ trigger: v })} />
+            <Select value={draft.trigger} options={trigOpts}
+              onValueChange={(v) => onPatchDraft(v === SCHEDULE && !draft.sched ? { trigger: v, sched: defaultSched() } : { trigger: v })} />
           </label>
+          {/* 定时（TSK-0463）：时间规则在这里配，保存时写进随流程管理的定时任务 */}
+          {draft.trigger === SCHEDULE && (
+            <StartSchedule sched={draft.sched} fields={draft.fields} onChange={(sched) => onPatchDraft({ sched })} />
+          )}
           <div className="field">
             <span className="field-label">输入字段</span>
             <div className="sop-field-list">

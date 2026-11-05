@@ -38,6 +38,9 @@ type Action struct {
 
 	// kind = sop
 	SOPID string `json:"sop_id"`
+	// Managed 是「随流程管理」（TSK-0463，flowsched.go）：流程触发方式选「定时」时 SOP 插件建的那一条，一个流程最多一条。
+	// 只有 SOP 插件经 SaveFlowSchedule 能置真；/api/schedules 新建时忽略、修改时保持原值
+	Managed bool `json:"managed"`
 
 	// kind = agent
 	AgentID string `json:"agent_id"`
@@ -65,7 +68,7 @@ func (a Action) Normalize() Action {
 		return Action{Kind: a.Kind, Title: strings.TrimSpace(a.Title), Desc: a.Desc,
 			Priority: strings.TrimSpace(a.Priority), Assignee: strings.TrimSpace(a.Assignee), DueDays: a.DueDays}
 	case ActionSOP:
-		return Action{Kind: a.Kind, SOPID: strings.TrimSpace(a.SOPID)}
+		return Action{Kind: a.Kind, SOPID: strings.TrimSpace(a.SOPID), Managed: a.Managed}
 	case ActionAgent:
 		return Action{Kind: a.Kind, AgentID: strings.TrimSpace(a.AgentID), Prompt: a.Prompt}
 	case ActionIncidentSweep:
@@ -127,7 +130,7 @@ func (a Action) MarshalJSON() ([]byte, error) {
 	case ActionTask:
 		m["title"], m["desc"], m["priority"], m["assignee"], m["due_days"] = a.Title, a.Desc, a.Priority, a.Assignee, a.DueDays
 	case ActionSOP:
-		m["sop_id"] = a.SOPID
+		m["sop_id"], m["managed"] = a.SOPID, a.Managed
 	case ActionAgent:
 		m["agent_id"], m["prompt"] = a.AgentID, a.Prompt
 	case ActionIncidentSweep:

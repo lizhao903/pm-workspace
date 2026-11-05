@@ -2,8 +2,8 @@
 // 编排页改的是草稿，保存时整体提交，位置一起存进 layout；有错误级问题不保存，后端 400 时把问题逐条标到节点上（SPEC-sop-8.30、8.35）。
 // 撤销历史最多 50 步；流程名连续输入算一步。照原型 web-next/src/sopedit.tsx 的 SopEditor
 import { useEffect, useMemo, useRef, useState, type PointerEvent as RPointerEvent } from 'react'
-import { errorText, isApiError, sopIssuesOf, useSaveSopFlow, type SopDraft, type SopFlow, type SopRunBrief, type SopStepDef } from '../../core/data'
-import { Button, ConfirmDialog, IconButton, PageTitle, cls } from '../../core/ui'
+import { errorText, isApiError, sopIssuesOf, useSaveSopFlow, type SopDraft, type SopFlow, type SopRunBrief, type SopScheduleOff, type SopStepDef } from '../../core/data'
+import { Button, ConfirmDialog, IconButton, PageTitle, cls, describeScheduleRule } from '../../core/ui'
 import { AiPanel } from './AiPanel'
 import {
   COL_GAP, NW, START, caseY, checkDraft, childrenOf, connect, explicit, fitView, isBranching, layoutOf, makeStep, mergeIssues,
@@ -14,6 +14,7 @@ import { isManualDecide } from './model'
 import { NodePanel, type TriggerOption } from './NodePanel'
 import { nodeInfo, type FieldCtx } from './nodes'
 import { Palette } from './Palette'
+import { SCHEDULE } from './schedule'
 import { IconBack, IconPlay, KindIcon } from './parts'
 
 const HISTORY = 50
@@ -26,11 +27,13 @@ type Drag =
 
 type PaletteAt = { at: Pos; from: string; caseKey?: string }
 
-export function Editor({ initial, flowId, version, catalog, ctx, triggers, runs, onCancel, onSaved }: {
+export function Editor({ initial, flowId, version, hasSchedule = false, catalog, ctx, triggers, runs, onCancel, onSaved }: {
   initial: Draft
   /** 编辑已有流程时有；新建没有 */
   flowId?: string
   version?: number
+  /** 这个流程现在有随它管理的定时任务（TSK-0463）：改成别的触发方式保存前先确认停用还是删掉 */
+  hasSchedule?: boolean
   catalog: Catalog
   ctx: FieldCtx
   triggers: TriggerOption[]
@@ -58,6 +61,10 @@ export function Editor({ initial, flowId, version, catalog, ctx, triggers, runs,
   const [saveError, setSaveError] = useState('')
   const [gone, setGone] = useState(false)
   const [leaving, setLeaving] = useState(false)
+  // 从定时改成别的触发方式时，保存前问那条定时任务停用还是删掉（TSK-0463）
+  const [offAsk, setOffAsk] = useState<{ thenRun: boolean } | null>(null)
+  const [offChoice, setOffChoice] = useState<SopScheduleOff>('disable')
+  const [schedSaved, setSchedSaved] = useState(hasSchedule)
   // AI 提案的撤销只撤这次提案：记下应用后的草稿，之后有别的改动就不再给「撤销」
   const [aiMark, setAiMark] = useState<Draft | null>(null)
   const canvasRef = useRef<HTMLDivElement>(null)
@@ -74,6 +81,8 @@ export function Editor({ initial, flowId, version, catalog, ctx, triggers, runs,
   const dirty = !sameDraft(draft, JSON.parse(base) as Draft)
   const items = useMemo(() => paletteItems(catalog), [catalog])
   const triggerLabel = triggers.find((t) => t.value === draft.trigger)?.label ?? draft.trigger
+  // 画布开始节点上定时的写出规则（TSK-0463）
+  const startLabel = draft.trigger === SCHEDULE ? (draft.sched ? `${triggerLabel} · ${describeScheduleRule(draft.sched.rule)}` : `${triggerLabel}，未配置`) : triggerLabel
 
   const commit = (next: Draft) => {
     setPast((p) => [...p.slice(-(HISTORY - 1)), draft])
@@ -306,17 +315,19 @@ export function Editor({ initial, flowId, version, catalog, ctx, triggers, runs,
     fitted.current = false
   }
 
-  const save = (thenRun: boolean) => {
+  const save = (thenRun: boolean, scheduleOff?: SopScheduleOff) => {
     setTried(true)
     if (errors.length) { setShowIssues(true); return }
     if (saveM.isPending) return
+    const asNew = creating || gone
+    if (!asNew && schedSaved && draft.trigger !== SCHEDULE && !scheduleOff) { setOffAsk({ thenRun }); return }
     const out: Draft = { ...draft, layout: lay }
     setServer([])
     setSaveError('')
-    const asNew = creating || gone
-    saveM.mutate({ id: asNew ? undefined : flowId, draft: out, version: asNew ? undefined : version }, {
+    saveM.mutate({ id: asNew ? undefined : flowId, draft: out, version: asNew ? undefined : version, scheduleOff }, {
       onSuccess: (f) => {
         setBase(JSON.stringify(draft))
+        setSchedSaved(!!f.schedule)
         onSaved(f, thenRun)
       },
       onError: (e) => {
@@ -384,7 +395,7 @@ export function Editor({ initial, flowId, version, catalog, ctx, triggers, runs,
           {/* 开始节点 */}
           <div className={cls('sop-cv-node', sel === START && 'sel')} data-node={START} style={{ left: lay[START].x, top: lay[START].y, width: NW }}
             role="button" tabIndex={0} aria-label="开始节点" onKeyDown={(e) => { if (e.key === 'Enter') select(START) }}>
-            <div className="sop-cv-node-head"><KindIcon kind="start" /><span className="sop-cv-node-name">开始</span><span className="sop-cv-node-kind">{triggerLabel}</span></div>
+            <div className="sop-cv-node-head"><KindIcon kind="start" /><span className="sop-cv-node-name">开始</span><span className="sop-cv-node-kind">{startLabel}</span></div>
             <div className="sop-cv-fields">
               {draft.fields.map((f) => (
                 <span key={f.key} className="sop-cv-field"><span className="mono">{'{x}'}</span>{f.label || '未命名字段'}{f.required && <em>*</em>}</span>
@@ -480,6 +491,16 @@ export function Editor({ initial, flowId, version, catalog, ctx, triggers, runs,
           onAddNext={(at, from, caseKey) => setPalette({ at, from, caseKey })} onClose={() => setSel(null)} />
       )}
       {palette && <Palette at={palette.at} items={items} onClose={() => setPalette(null)} onPick={(p) => addNode(p, palette.from, palette.caseKey)} />}
+      <ConfirmDialog open={!!offAsk} title="不再定时执行？" confirmLabel="保存" onCancel={() => setOffAsk(null)}
+        onConfirm={() => { const t = offAsk!.thenRun; setOffAsk(null); save(t, offChoice) }}>
+        <div className="sop-off-ask">
+          <span>触发方式改成「{triggerLabel}」后，随这个流程的定时任务怎么处理：</span>
+          <label><input type="radio" name="sop-sched-off" checked={offChoice === 'disable'} onChange={() => setOffChoice('disable')} />
+            <span><b>停用</b>　规则留着，以后改回定时时恢复</span></label>
+          <label><input type="radio" name="sop-sched-off" checked={offChoice === 'delete'} onChange={() => setOffChoice('delete')} />
+            <span><b>删掉</b>　定时任务页里这一条一起删除，执行记录不保留</span></label>
+        </div>
+      </ConfirmDialog>
       <ConfirmDialog open={leaving} title="离开编排页？" confirmLabel="不保存，离开" danger onCancel={() => setLeaving(false)}
         onConfirm={() => { setLeaving(false); onCancel() }}>
         有未保存的修改，离开后这些改动会丢掉。
