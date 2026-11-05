@@ -4,6 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"io"
 	"log/slog"
 	"net/http"
@@ -12,6 +15,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -20,30 +24,69 @@ import (
 	"github.com/lizhao903/pm-workspace/internal/plugin"
 )
 
+// tradePerms 是清单要的全部权限：公开行情，加交易所账户的只读接口（TRD-07a）。
+var tradePerms = []string{"network:market-data", "network:exchanges"}
+
 func TestManifestValid(t *testing.T) {
 	m, err := plugin.Parse(manifestJSON)
 	if err != nil {
 		t.Fatalf("清单不合法：%v", err)
 	}
-	if m.ID != "trade" || m.TablePrefix != "trade_" {
-		t.Fatalf("id=%s table_prefix=%s", m.ID, m.TablePrefix)
+	if m.ID != "trade" || m.TablePrefix != "trade_" || m.Version != "0.5.0" {
+		t.Fatalf("id=%s table_prefix=%s version=%s", m.ID, m.TablePrefix, m.Version)
 	}
-	if !slices.Equal(m.Permissions, []string{"network:market-data"}) {
-		t.Fatalf("权限只该有 network:market-data：%v", m.Permissions)
+	if !slices.Equal(m.Permissions, tradePerms) {
+		t.Fatalf("权限只该有 network:market-data、network:exchanges：%v", m.Permissions)
 	}
 	if !slices.Equal(m.Provides.Modules, []string{"markets", "monitor", "strategy", "trading"}) {
 		t.Fatalf("modules = %v", m.Provides.Modules)
 	}
+	if !slices.Equal(m.Provides.Connectors, []string{"binance_market", "okx_market", "binance_account", "okx_account"}) {
+		t.Fatalf("connectors = %v", m.Provides.Connectors)
+	}
 }
 
-// 资金边界：插件源码里不出现向交易所下单、撤单、划转、提币的路径，也不申请实盘和交易所权限。
-// 模拟盘自己的接口 /api/trade/orders（TRD-05a，只在本地撮合）是例外，先从源码里去掉再查。
+// wantReadPaths 是交易所只读接口的全部路径。exchangeReadPaths 多一条、少一条都要先改这里，
+// 加之前确认是只读的查询接口（权限、余额、持仓、挂单查询、成交历史），不是下单、撤单、划转、提币。
+var wantReadPaths = map[string][]string{
+	"api.binance.com":  {"/sapi/v1/account/apiRestrictions", "/api/v3/account", "/api/v3/openOrders", "/api/v3/myTrades"},
+	"fapi.binance.com": {"/fapi/v2/account", "/fapi/v2/positionRisk", "/fapi/v1/openOrders", "/fapi/v1/userTrades"},
+	"www.okx.com":      {"/api/v5/account/config", "/api/v5/account/balance", "/api/v5/account/positions", "/api/v5/trade/orders-pending", "/api/v5/trade/fills"},
+}
+
+// 资金边界：插件源码里不出现向交易所下单、撤单、划转、提币的路径，也不申请实盘权限。
+//   - 只读接口清单和上面的期望一字不差；
+//   - 源码里所有交易所路径的字符串字面量，要么是公开行情（network:market-data 放行的），要么在只读清单里，要么是插件自己的 /api/trade/ 路由；
+//   - 下单、撤单、划转、提币的路径片段一律不许出现。
 func TestNoLiveTradingPaths(t *testing.T) {
+	if len(exchangeReadPaths) != len(wantReadPaths) {
+		t.Fatalf("只读接口的域名变了：%v", exchangeReadPaths)
+	}
+	for host, want := range wantReadPaths {
+		if !slices.Equal(exchangeReadPaths[host], want) {
+			t.Fatalf("%s 的只读接口变了：%v", host, exchangeReadPaths[host])
+		}
+	}
 	files, err := filepath.Glob("*.go")
 	if err != nil {
 		t.Fatal(err)
 	}
-	banned := []string{"/order", "/api/v5/trade", "/sapi/", "withdraw", "transfer", "cancelorder", "placeorder", "http.defaultclient"}
+	var marketHosts []string
+	for _, r := range plugin.NetworkHosts["market-data"] {
+		marketHosts = append(marketHosts, r.Host)
+	}
+	readOnly := func(p string) bool {
+		for _, ps := range exchangeReadPaths {
+			if slices.Contains(ps, p) {
+				return true
+			}
+		}
+		return false
+	}
+	banned := []string{"/withdraw", "/transfer", "/order\"", "/order?", "/order/", "/batchorders", "/cancel-order", "/amend-order",
+		"/close-position", "/api/v5/asset/", "/sapi/v1/capital/", "/sapi/v1/asset/", "/sapi/v1/sub-account/", "/sapi/v1/margin/",
+		"placeorder", "cancelorder", "http.defaultclient"}
+	fset := token.NewFileSet()
 	for _, f := range files {
 		if strings.HasSuffix(f, "_test.go") {
 			continue
@@ -58,15 +101,42 @@ func TestNoLiveTradingPaths(t *testing.T) {
 				t.Errorf("%s 里出现了 %q", f, s)
 			}
 		}
+		af, err := parser.ParseFile(fset, f, b, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		ast.Inspect(af, func(n ast.Node) bool {
+			lit, ok := n.(*ast.BasicLit)
+			if !ok || lit.Kind != token.STRING {
+				return true
+			}
+			v, err := strconv.Unquote(lit.Value)
+			if err != nil {
+				return true
+			}
+			for _, pre := range []string{"/api/", "/sapi/", "/fapi/", "/dapi/", "/papi/", "/eapi/", "/ws/"} {
+				if !strings.HasPrefix(v, pre) {
+					continue
+				}
+				if strings.HasPrefix(v, "/api/trade/") || readOnly(v) {
+					return true
+				}
+				for _, host := range marketHosts {
+					if u, err := url.Parse("https://" + strings.TrimPrefix(host, "*.") + v); err == nil && plugin.NetworkAllows("market-data", u) {
+						return true
+					}
+				}
+				t.Errorf("%s:%d 出现了不在只读清单、也不是公开行情的交易所路径 %q", f, fset.Position(lit.Pos()).Line, v)
+			}
+			return true
+		})
 	}
 	b, err := os.ReadFile("plugin.json")
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, s := range []string{"trade:live", "network:exchanges"} {
-		if strings.Contains(string(b), s) {
-			t.Errorf("清单里出现了 %q", s)
-		}
+	if strings.Contains(string(b), "trade:live") {
+		t.Error("清单里出现了 trade:live")
 	}
 }
 
@@ -95,7 +165,7 @@ func setup(t *testing.T, sources ...Source) env {
 		t.Fatal(err)
 	}
 	t.Cleanup(r.Close)
-	if err := r.Install(ctx, "trade", []string{"network:market-data"}); err != nil {
+	if err := r.Install(ctx, "trade", tradePerms); err != nil {
 		t.Fatal(err)
 	}
 	if err := r.Enable(ctx, "trade"); err != nil {

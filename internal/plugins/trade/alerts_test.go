@@ -258,7 +258,7 @@ func setupAlerts(t *testing.T) alertEnv {
 		t.Fatal(err)
 	}
 	t.Cleanup(r.Close)
-	if err := r.Install(ctx, "trade", []string{"network:market-data"}); err != nil {
+	if err := r.Install(ctx, "trade", tradePerms); err != nil {
 		t.Fatal(err)
 	}
 	if err := r.Enable(ctx, "trade"); err != nil {
