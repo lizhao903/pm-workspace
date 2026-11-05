@@ -180,6 +180,7 @@ var contractSpecs = map[string]contractSpec{
 	// 流水线视图与治理（AUTO-12）
 	"SopStepHold":       {v: sop.StepHold{}},
 	"SopStepQueue":      {v: sop.StepQueue{}},
+	"SopProviderWait":   {v: sop.StepProviderWait{}}, // 等服务商恢复（TSK-0392）
 	"SopPipeline":       {v: sop.Pipeline{}},
 	"SopPipelineRun":    {v: sop.PipelineRun{}},
 	"SopPipelineStep":   {v: sop.PipelineStep{}},
@@ -283,6 +284,21 @@ var contractSpecs = map[string]contractSpec{
 
 	// 内容日历（VID-06c）
 	"VideoCalendarItem": {v: video.CalendarItem{}},
+
+	// 分镜和 B-roll 素材（TSK-0456）
+	"VideoShot":         {v: video.Shot{}},
+	"VideoBroll":        {v: video.Broll{}},
+	"VideoMediaRoot":    {v: video.MediaRoot{}},
+	"VideoMediaFile":    {v: video.MediaFile{}},
+	"VideoMediaListing": {v: video.MediaListing{}},
+
+	// B 站组件（TSK-0455）
+	"BiliAccount":  {v: video.BiliAccount{}},
+	"BiliGuard":    {v: video.BiliGuard{}},
+	"BiliSnapshot": {v: video.BiliSnapshot{}},
+	"BiliOverview": {v: video.BiliOverview{}},
+	"BiliSession":  {v: video.BiliSession{}},
+	"BiliMessage":  {v: video.BiliMessage{}},
 
 	"BrowserTab":         {v: browser.Tab{}},
 	"BrowserAllowEntry":  {v: browser.AllowEntry{}},
