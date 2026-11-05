@@ -421,6 +421,8 @@ func (in *inbox) toTask(w http.ResponseWriter, r *http.Request) {
 		fail(w, r, in.c, err)
 		return
 	}
+	// 手动转任务：排一次 FDE 反馈转发（TSK-0468，设置没开不排；出错只记日志，不挡转任务）
+	in.queueFDE(ctx, []string{m.ID}, task.ID, 0)
 	// 发起回执流程；起不来不挡转任务，响应里说清楚
 	reply := map[string]any{"enabled": replyOn}
 	if replyOn {

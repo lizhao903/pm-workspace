@@ -50,7 +50,10 @@ func taskConfirmFlow() plugin.SOPFlowTemplate {
 		{Key: "use_obj", Name: "用带来的任务", Kind: "auto", After: []string{"given_obj"}, Branch: br("given_obj", "yes")},
 		{Key: "join", Name: "任务", Kind: "aggregate", After: []string{"use_id", "use_obj", "to_task"}, Config: map[string]string{"mode": "first"}},
 		{Key: "info", Name: "读任务", Kind: "task_update", After: []string{"join"}, Desc: "取任务的编号、标题、项目和继承后的工作目录，给私信摘要用"},
-		{Key: "ask", Name: "私信我确认", Kind: NodeAskMe, After: []string{"info"},
+		{Key: "ack", Name: "回执需求方", Kind: NodeAckTask, After: []string{"info"},
+			Desc:   "先在原消息所在的会话里回复需求方，再私信我确认；同一条消息只回一次（别的流程回过就不回），我自己发的、只收不发的不回，回复失败不影响后面（TSK-0467）",
+			Config: map[string]string{"message": "{{message_id}}", "task": "{{task.id}}", "text": defaultAckText}},
+		{Key: "ask", Name: "私信我确认", Kind: NodeAskMe, After: []string{"ack"},
 			Desc:   "私信我任务摘要和三种回复方式；认不出再问一次，超时提醒一次，仍没有就不执行",
 			Config: map[string]string{"text": confirmAsk, "timeout": "1 天"}},
 		{Key: "is_exec", Name: "回复执行？", Kind: "decide", After: []string{"ask"}, Rule: "answer.choice 等于 execute",
@@ -92,7 +95,7 @@ func taskConfirmFlow() plugin.SOPFlowTemplate {
 	fb, _ := json.Marshal(fields)
 	return plugin.SOPFlowTemplate{
 		ID: TaskConfirmFlowID, Name: "来消息确认派发", Trigger: "manual", Fields: fb, Steps: sb,
-		Desc: "IM 消息要建任务时先私信我确认：回「执行」派 Claude Code 在任务继承的工作目录里开工、做完私信回报；回「分配 某人」改负责人；回「不做」取消任务；" +
+		Desc: "IM 消息要建任务时先在原会话回执需求方「已创建任务 TSK-x，开始进行需求规划」，再私信我确认：回「执行」派 Claude Code 在任务继承的工作目录里开工、做完私信回报；回「分配 某人」改负责人；回「不做」取消任务；" +
 			"认不出再问一次、超时提醒一次，仍没有就不执行。可单独用（触发方式改成「IM 消息」），也可接在「消息分流」建任务之后当子流程（带上任务），" +
 			"同一条消息只建一次任务。默认停用：触发方式是「手动」",
 	}

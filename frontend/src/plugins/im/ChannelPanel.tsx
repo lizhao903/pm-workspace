@@ -85,6 +85,7 @@ export function ChannelPanel({ onClose, onManageAll }: { onClose: () => void; on
         )}
         <button type="button" className="im-chlink" onClick={() => onManageAll()}>在设置里管理全部连接器</button>
         <ExpirySetting />
+        <FdeForwardSetting />
         <QuickReplySetting />
       </div>
     )
@@ -218,6 +219,41 @@ function ExpirySetting() {
         </>
       )}
     </form>
+  )
+}
+
+/**
+ * FDE 反馈转发（TSK-0468）：我手动把消息转成任务（转任务、拆分任务）后，发起内置 SOP「FDE 反馈转发」，
+ * 私信 Robot.CyberBroleez「FDE 反馈」+ 原始消息 + 任务编号和链接。默认关；收件人、开头文字在 SOP 里那条流程上改
+ */
+function FdeForwardSetting() {
+  const settings = useImSettings()
+  const save = usePatchImSettings()
+  const [note, setNote] = useState<Note | null>(null)
+  const on = settings.data?.fde_forward ?? false
+  const toggle = (next: boolean) => {
+    setNote(null)
+    save.mutate({ fde_forward: next }, {
+      onSuccess: (r) => setNote({ ok: true, text: r.fde_forward ? '已打开：手动转任务后会转发 FDE 反馈' : '已关闭：手动转任务不再转发' }),
+      onError: (e) => setNote({ ok: false, text: `没保存：${errorText(e)}` }),
+    })
+  }
+  return (
+    <div className="im-chexpire" role="group" aria-label="FDE 反馈转发">
+      <div className="im-chexpire-title">FDE 反馈转发</div>
+      {settings.isError ? (
+        <div className="im-err" role="alert">设置没加载出来：{errorText(settings.error)}</div>
+      ) : (
+        <>
+          <Checkbox checked={on} disabled={settings.isPending || save.isPending} onCheckedChange={toggle}>手动转任务后转发 FDE 反馈</Checkbox>
+          <div className="im-muted">
+            在消息页点「转任务」或「拆分任务」建出任务后，发起 SOP「FDE 反馈转发」：私信 Robot.CyberBroleez 一条「FDE 反馈」加原始消息和任务编号。
+            同一条消息只发一次，拆分出几条任务汇成一条；流程自动建的任务不发。收件人、开头文字在 SOP 里改
+          </div>
+          {note && <div className={note.ok ? 'im-ok' : 'im-err'} role={note.ok ? 'status' : 'alert'}>{note.text}</div>}
+        </>
+      )}
+    </div>
   )
 }
 

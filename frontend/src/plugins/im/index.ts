@@ -188,5 +188,38 @@ export default definePlugin({
       kind: 'im_tell_me', label: '私信我', group: '沟通', color: '#0f8a8a', desc: '私信我本人一条，不等回复；发不出去这一步失败',
       fields: [{ key: 'text', label: '内容', type: 'textarea', required: true, hint: '支持 {{字段}}' }, ...askTarget],
     })
+    // 回执需求方（TSK-0467）：建任务之后在原消息所在的会话里回复需求方；同一条消息只回一次，回复失败不让流程失败
+    api.sopNodes.register({
+      kind: 'im_ack_task', label: '回执需求方', group: '沟通', color: '#0f8a8a',
+      desc: '放在建任务之后：在原消息所在的会话里回复需求方（在消息列里的回在消息列里）。同一条消息只回一次；我自己发的、只收不发的不回；回复失败记运行异常，不影响任务',
+      fields: [
+        { key: 'text', label: '文案', type: 'textarea', default: '已创建任务 {{task_ref}}，开始进行需求规划',
+          hint: '可用 {{task_ref}} 任务编号、{{task_title}} 标题、{{task_project}} 项目、{{task_url}} 链接，以及输入里的 {{字段}}' },
+        { key: 'task', label: '任务', type: 'text', default: '{{task.id}}', hint: '任务 id，支持 {{字段}}；留空用输入里的 task.id，再没有用 task_id' },
+        { key: 'message', label: '消息', type: 'text', hint: '消息 id，支持 {{字段}}；留空用输入里的 message_id，取不到就不回' },
+      ],
+      summary: () => '回复需求方：已创建任务',
+    })
+    // FDE 反馈转发（TSK-0468）：整理消息摘要、私信联系人
+    api.sopNodes.register({
+      kind: 'im_message_digest', label: '整理消息摘要', group: '沟通', color: '#5c7cfa',
+      desc: '把消息（发信人、会话、时间、原文、附件名）和任务编号、链接整理成文字，输出 digest.messages_text、digest.tasks_text',
+      fields: [
+        { key: 'messages', label: '消息', type: 'text', hint: '消息 id，可以几条（逗号分隔），支持 {{字段}}；留空用输入里的 message_ids，再没有用 message_id' },
+        { key: 'tasks', label: '任务', type: 'text', hint: '任务 id，可以几条，支持 {{字段}}；留空用输入里的 task_ids，再没有用这些消息转成、拆出来的任务' },
+      ],
+    })
+    api.sopNodes.register({
+      kind: 'im_send_contact', label: '私信联系人', group: '沟通', color: '#0f8a8a',
+      desc: '按联系人找到他在渠道上的身份，私信一条；联系人没有这个身份时失败并写明，发送失败这一步失败（记运行异常）',
+      fields: [
+        { key: 'contact', label: '联系人', type: 'text', required: true, hint: '联系人名字或 id，支持 {{字段}}' },
+        { key: 'to', label: '身份编号', type: 'text', hint: '联系人在渠道里的编号（Slack Member ID）；留空用他第一个不是你的身份' },
+        { key: 'text', label: '内容', type: 'textarea', required: true, hint: '支持 {{字段}}' },
+        { key: 'channel', label: '渠道', type: 'select', options: () => [{ value: '', label: 'Slack（默认）' }, { value: 'telegram', label: 'Telegram' }] },
+        { key: 'connector', label: '连接器', type: 'text', hint: '连接器 id；留空用这个渠道最新建的、能发消息的那个' },
+      ],
+      summary: (c) => (c.contact ? `私信 ${c.contact}` : ''),
+    })
   },
 })

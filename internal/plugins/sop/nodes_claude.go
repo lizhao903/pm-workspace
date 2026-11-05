@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/lizhao903/pm-workspace/internal/plugin"
+	pmrunner "github.com/lizhao903/pm-workspace/internal/runner"
 )
 
 // Claude Code 执行节点（AUTO-01）：在 SOP 里交给本机 Claude Code 跑一次，等它结束，把结论交给下游。
@@ -340,7 +341,8 @@ func waitClaude(ctx context.Context, runs plugin.RunService, runID string, input
 func claudeResult(info plugin.RunInfo, input Json) nodeResult {
 	summary := info.Summary
 	if summary == "" {
-		summary = tail(strings.TrimSpace(info.Output), claudeSummaryMax)
+		// 没回报结论时取过程记录里的结论（最后一次工具调用之后的文字），不带执行过程（TSK-0470）
+		summary = tail(pmrunner.Conclusion(info.Output), claudeSummaryMax)
 	}
 	if info.Status != plugin.RunDone {
 		why := map[string]string{plugin.RunCanceled: "被取消", plugin.RunFailed: "失败"}[info.Status]

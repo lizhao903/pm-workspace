@@ -2,6 +2,7 @@ package im
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"log/slog"
 	"strings"
@@ -105,7 +106,8 @@ func TestTaskReplyAfterRunFinished(t *testing.T) {
 		t.Fatalf("流程里的一步跑完不该发消息，多发了 %d 条", n-sent)
 	}
 
-	_ = bus.Publish(ctx, "run.finished", map[string]any{"run_id": "trn_2", "object_id": o.ID, "ok": true, "summary": "PRD 写好了，放在需求草稿里"})
+	// 万一 summary 里混进了执行过程的工具行，回给对方前也去掉（TSK-0470）
+	_ = bus.Publish(ctx, "run.finished", map[string]any{"run_id": "trn_2", "object_id": o.ID, "ok": true, "summary": "[工具] Bash · ls\nPRD 写好了，放在需求草稿里"})
 	run := e.until(t, runID, "跑完", func(r map[string]any) bool { return r["status"] == "done" })
 	out := sopStep(run, "wait")["output"].(map[string]any)["task"].(map[string]any)
 	if out["via"] != "run" || out["summary"] != "PRD 写好了，放在需求草稿里" {
@@ -116,7 +118,7 @@ func TestTaskReplyAfterRunFinished(t *testing.T) {
 		t.Fatalf("应回复一条：%d -> %d", sent, len(got))
 	}
 	last := got[len(got)-1]
-	if last.ReplyTo != "C01:t1" || !strings.Contains(last.Text, o.Ref) || !strings.Contains(last.Text, "PRD 写好了") {
+	if last.ReplyTo != "C01:t1" || last.Text != "「"+o.Title+"」（"+o.Ref+"）已完成。\n结果：PRD 写好了，放在需求草稿里" {
 		t.Fatalf("回复：%+v", last)
 	}
 	var n int
@@ -149,7 +151,8 @@ func TestTaskReplyAfterMarkedDoneAndOptOut(t *testing.T) {
 	if sopStep(run, "wait")["output"].(map[string]any)["task"].(map[string]any)["via"] != "status" {
 		t.Fatalf("应按状态认：%v", run)
 	}
-	if last := e.fake.Sent()[len(e.fake.Sent())-1]; last.ReplyTo != "C01:t2" || !strings.Contains(last.Text, "修导出按钮") {
+	// 改成已完成没有结论：只回状态一行，不留空的「结果：」（TSK-0470）
+	if last := e.fake.Sent()[len(e.fake.Sent())-1]; last.ReplyTo != "C01:t2" || last.Text != "「修导出按钮」（"+task["ref"].(string)+"）已完成。" {
 		t.Fatalf("回复：%+v", last)
 	}
 
@@ -211,5 +214,78 @@ func TestTaskReplyFlowDeletedNotReAdded(t *testing.T) {
 	}
 	if code, _ := call(t, e.h, "GET", "/api/sop/flows/"+TaskReplyFlowID, ""); code != 404 {
 		t.Fatalf("流程应仍是删掉的：%d", code)
+	}
+}
+
+// TestCleanReply：回给对方的文字去掉执行过程的工具行、末尾空着的标签行；中间带列表的标签不动（TSK-0470）。
+func TestCleanReply(t *testing.T) {
+	cases := map[string]string{
+		"「导出」（TSK-0001）已完成。\n结果：":                                  "「导出」（TSK-0001）已完成。",
+		"「导出」（TSK-0001）已完成。\n结果：改好了":                               "「导出」（TSK-0001）已完成。\n结果：改好了",
+		"先同步一下进度\n[工具] Bash · ls\n  [工具失败] Read · a.go\n改好了，单测通过。": "先同步一下进度\n改好了，单测通过。",
+		"请验收。\n验收清单：\n- [ ] 导出 CSV":                                "请验收。\n验收清单：\n- [ ] 导出 CSV",
+		"[工具] Bash · ls": "",
+	}
+	for in, want := range cases {
+		if got := cleanReply(in); got != want {
+			t.Errorf("cleanReply(%q) = %q，应当 %q", in, got, want)
+		}
+	}
+}
+
+// TestReplyMessageStripsProcess：im_reply_message 这一层去掉工具行再发；只剩工具行时失败。
+func TestReplyMessageStripsProcess(t *testing.T) {
+	e := setupConfirm(t)
+	mid := e.msg(t, "导出要支持 CSV")
+	fid := e.flow(t, `{"name":"回","fields":[{"key":"message_id","label":"消息","type":"text"}],"steps":[
+		{"key":"r","name":"回复原消息","kind":"im_reply_message","after":[],"config":{"text":"已完成。\n[工具] Bash · go test ./...\n结果：{{note}}"}}]}`)
+	e.ended(t, e.start(t, fid, fmt.Sprintf(`{"input":{"message_id":%q,"note":"改好了"}}`, mid)), "done")
+	e.ended(t, e.start(t, fid, fmt.Sprintf(`{"input":{"message_id":%q}}`, mid)), "done")
+	got := e.acksTo("C01")
+	if len(got) != 2 || got[0] != "已完成。\n结果：改好了" || got[1] != "已完成。" {
+		t.Fatalf("回复 = %q", got)
+	}
+}
+
+// TestTaskReplyFlowUpgrade：已写进 SOP 的旧版「IM 任务回执」：第 1 版换成新模板；改过的不动（TSK-0470）。
+func TestTaskReplyFlowUpgrade(t *testing.T) {
+	e := setupConfirm(t)
+	old := `[{"key":"wait","name":"等任务执行完成","kind":"im_wait_task","desc":"","config":{"task":"{{task_id}}","timeout":"14 天"}},` +
+		`{"key":"reply","name":"回复原消息","kind":"im_reply_message","desc":"","config":{"message":"{{message_id}}","text":"「{{task.title}}」已经处理完了（{{task.ref}}）。\n{{task.summary}}"}}]`
+	ins := func(version int) {
+		exec(t, e.st.DB(), `DELETE FROM sop_flows WHERE id = '`+TaskReplyFlowID+`'`,
+			fmt.Sprintf(`INSERT INTO sop_flows (id, name, description, trigger_desc, fields, steps, version, created_at, updated_at)
+			VALUES ('%s', 'IM 任务回执', '', 'manual', '[]', '%s', %d, 'x', 'x')`, TaskReplyFlowID, strings.ReplaceAll(old, "'", "''"), version),
+			`INSERT INTO im_sop_templates (flow_id, installed_at) VALUES ('`+TaskReplyFlowID+`', 'x') ON CONFLICT DO NOTHING`,
+			`DELETE FROM im_sop_templates WHERE flow_id = '`+taskReplyUpgradeMark+`'`)
+	}
+	stepsOf := func() string {
+		var s string
+		_ = e.st.DB().R.QueryRow(`SELECT steps FROM sop_flows WHERE id = ?`, TaskReplyFlowID).Scan(&s)
+		return s
+	}
+	waitMark := func() {
+		deadline := time.Now().Add(5 * time.Second)
+		for {
+			var n int
+			_ = e.st.DB().R.QueryRow(`SELECT count(*) FROM im_sop_templates WHERE flow_id = ?`, taskReplyUpgradeMark).Scan(&n)
+			if n > 0 {
+				return
+			}
+			if time.Now().After(deadline) {
+				t.Fatal("等了 5 秒没有升级标记")
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+	}
+	ins(1)
+	waitMark()
+	if s := stepsOf(); !strings.Contains(s, "已完成。") || strings.Contains(s, "已经处理完了") {
+		t.Fatalf("第 1 版应当换成新模板：%s", s)
+	}
+	ins(3)
+	waitMark()
+	if s := stepsOf(); !strings.Contains(s, "已经处理完了") {
+		t.Fatalf("改过的不该覆盖：%s", s)
 	}
 }
