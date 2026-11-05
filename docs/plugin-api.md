@@ -1771,7 +1771,7 @@ func RequireUser(ctx context.Context, what string) error
 | `network:im` | 访问 IM 平台（Slack、Telegram、飞书、企业微信的接口域名） | 普通 |
 | `network:media-platforms` | 访问视频平台 | 普通 |
 | `network:market-data` | 访问行情源 | 普通 |
-| `network:exchanges` | 访问交易所的账户和交易接口（交易套件 0.5.0 起只用它只读同步交易所账户，见 3.3） | 高 |
+| `network:exchanges` | 访问交易所的账户和交易接口（交易套件 0.5.0 起用它只读同步交易所账户，0.7.0 起加实盘闸门放行的下单、撤单、查单，见 3.3） | 高 |
 | `network:any` | 访问任意外网地址 | 高 |
 | `secrets:<scope>` | 取凭证保险箱里该范围的凭证，例 `secrets:im`、`secrets:media` | 普通 |
 | `process:spawn` | 起子进程（原型、终端） | 高 |
@@ -1785,7 +1785,7 @@ func RequireUser(ctx context.Context, what string) error
 | `im` | `slack.com`、`*.slack.com`、`api.telegram.org`、`open.feishu.cn`、`open.larksuite.com`、`qyapi.weixin.qq.com` |
 | `media-platforms` | B 站 `bilibili.com`、`*.bilibili.com`、`*.hdslb.com`、`*.bilivideo.com`；YouTube `youtube.com`、`*.youtube.com`、`youtube.googleapis.com`、`*.googlevideo.com`、`*.ytimg.com`，`www.googleapis.com` 只放 `/youtube/`、`/upload/youtube/`；抖音 `douyin.com`、`*.douyin.com`、`*.douyinpic.com`、`*.douyinvod.com` |
 | `market-data` | Binance `data-api.binance.vision`、`data-stream.binance.vision`，`api.binance.com` 只放公开行情路径（`/api/v3/` 下的 ping、time、exchangeInfo、depth、trades、aggTrades、klines、uiKlines、avgPrice、ticker），U 本位永续 `fapi.binance.com` 只放公开行情路径（`/fapi/v1/` 下的 ping、time、exchangeInfo、depth、klines、premiumIndex、fundingRate、fundingInfo、ticker）；OKX `www.okx.com` 只放 `/api/v5/market/`、`/api/v5/public/`，`ws.okx.com` 只放 `/ws/v5/public`、`/ws/v5/business` |
-| `exchanges` | Binance `api.binance.com`、`api1` 到 `api4.binance.com`、`fapi`、`dapi`、`stream`、`fstream.binance.com`、`testnet.binance.vision`；OKX `www.okx.com`、`ws.okx.com`。只列域名、不分路径。交易套件（TRD-07a）只用它调只读接口：插件在客户端外面再包一层检查，只放行 `GET` 和 `internal/plugins/trade/exchange.go` 的 `exchangeReadPaths` 里的路径（Key 权限、余额、持仓、挂单查询、成交历史）；实盘下单（`trade:live`）另定 |
+| `exchanges` | Binance `api.binance.com`、`api1` 到 `api4.binance.com`、`fapi`、`dapi`、`stream`、`fstream.binance.com`、`testnet.binance.vision`；OKX `www.okx.com`、`ws.okx.com`。只列域名、不分路径。交易套件（TRD-07a）在客户端外面再包一层检查：只读请求只放行 `GET` 和 `internal/plugins/trade/exchange.go` 的 `exchangeReadPaths` 里的路径（Key 权限、余额、持仓、挂单查询、成交历史、公开的交易规则、永续杠杆查询）；写请求（TRD-08d）只放行 `exchange_trade.go` 的 `exchangeTradePaths`（下单、撤单、查单），而且只在实盘闸门签发的一次性令牌下放行，永不放行提币、划转、借贷。`testnet.binancefuture.com`（U 本位合约测试网）还不在这张表里 |
 | `any` | 任意 http、https 地址 |
 
 `Core.HTTP(group)`：清单 `permissions` 里没声明 `network:<group>`（或组不存在）回 `ErrNetworkNotDeclared`；声明了但用户没确认回 `*NotGrantedError`（3.3）。拿到的客户端每一跳（含重定向）发出前再查一次确认状态和域名清单，清单外回 `*HostNotAllowedError`（`errors.Is(err, plugin.ErrHostNotAllowed)`，说明里不带查询串），请求不发出去。客户端没设总超时，请求用 `NewRequestWithContext` 带期限。测试用 `Registry.SetHTTPTransport` 把底层换成本机假服务，检查照样在外面。
@@ -1794,7 +1794,7 @@ func RequireUser(ctx context.Context, what string) error
 
 - 安装前，插件管理页列出清单里的全部权限，每条带一句人话说明（来自上表）；用户点「确认并安装」才继续。确认结果（权限列表、时间）记进插件状态表和审计日志
 - 高风险权限（`fs:*:any`、`network:exchanges`、`network:any`、`process:spawn`）单独一行、单独勾选，不勾不能装
-- `trade:live` 安装时不授予：交易插件装好后只有模拟盘。要开实盘，在交易插件的设置里单独申请，过二次确认（输入插件名），并且要过 TRD-08 评审。默认只开模拟盘。已实现（TRD-08c）：内核把它当「单独申请的权限」（`SeparatePermissions`）——安装、升级都不授予也不要求确认，升级时已单独授予的保留；申请走 `POST /api/plugins/{id}/permissions/grant`（只接受用户本人在界面上的操作，`confirm` 要等于插件名，插件的 `PermissionGuard` 同意才授予），收回走 `/permissions/revoke`，见 2.13.26
+- `trade:live` 安装时不授予：交易插件装好后只有模拟盘。要开实盘，在交易插件的设置里单独申请，过二次确认（输入插件名），并且要过 TRD-08 评审。默认只开模拟盘。授予之后也不是放行：实盘下单（TRD-08d）每一笔都在插件的实盘闸门里现查 `Granted("trade:live")`，和评审、实盘开关、账户的读取 + 交易、交易所现查的 Key 权限一起，一项不满足就拒单。已实现（TRD-08c）：内核把它当「单独申请的权限」（`SeparatePermissions`）——安装、升级都不授予也不要求确认，升级时已单独授予的保留；申请走 `POST /api/plugins/{id}/permissions/grant`（只接受用户本人在界面上的操作，`confirm` 要等于插件名，插件的 `PermissionGuard` 同意才授予），收回走 `/permissions/revoke`，见 2.13.26
 - 升级时新增了权限：列出新增的那几条要求确认；用户不确认，状态表里的版本和权限都不变，要新增权限的代码路径在运行时被拦（3.3、4.5），其余功能照常
 - 升级时减少了权限：直接收回，不用确认
 - 第一方插件也走确认流程，不因为是第一方就跳过；内核模块不需要确认
@@ -1812,7 +1812,7 @@ func RequireUser(ctx context.Context, what string) error
 | `terminal` | `process:spawn` | 新建终端会话前，409 |
 | 登记了 Host 处理器的插件（`domains`） | `network:localhost` | 内核按 Host 分发前查，没确认的不交给它（2.11） |
 | `trade` | `network:exchanges` | 交易所账户连通测试、同步前经 `Core.HTTP("exchanges")` 拿客户端，没确认时失败，账户的异常原因就是这句提示（0.5.0，TRD-07a） |
-| `trade` | `trade:live` | 只在实盘开关的闸门里查（0.6.0，TRD-08c）：打开开关要评审通过且 `Granted("trade:live")`；没有任何代码路径因为它放行实盘下单（实盘下单是 TRD-08d） |
+| `trade` | `trade:live` | 实盘开关的闸门里查（0.6.0，TRD-08c）：打开开关要评审通过且 `Granted("trade:live")`；0.7.0（TRD-08d）起实盘下单、部署到实盘、恢复实盘部署每一笔都现查它（和评审、开关、读取 + 交易、交易所现查的 Key 权限一起），收回后下一笔就被拒、运行中的实盘部署自动暂停 |
 
 `Granted` 不拿注册表的锁（后台任务里也会调，停用时等任务退出不能卡在锁上），状态变了由注册表换掉它看的权限集合。新加要高风险权限的代码路径时同样调 `Require`。
 
@@ -2061,5 +2061,7 @@ stateDiagram-v2
 补记（不改版本号，2026-11-04，需求到发布自动化一期）：`RunService` 加 `Cancel`，`ClaudeCodeStart` 加 `PresetID`、`FollowPreset`、`Timeout`、`RecordOnTask`、`ReportBack`，`RunInfo` 加 `Summary`、`Result`、`Reported`、`TaskRun`，插件运行的 `run.finished` 加 `summary`、`result`，总线 `run.finished` 加 `origin`；`ObjectReader` 加 `TaskStages`；内核事件加 `object.stage_changed`。内核钩子 `Registry.SetRunCallback`、`SetRunPresets`、`ReportRun`。都是只增不改，等用户定稿版本号。
 
 补记（不改版本号，2026-11-05，TRD-08c）：内核加「单独申请的权限」（2.13.26）：`SeparatePermissions`（现在只有 `trade:live`）安装、升级都不授予也不要求确认，`Registry.Grant`、`Revoke`，可选接口 `PermissionGuard`，`Core` 加 `RevokePermission`；只接受用户本人的判断 `RequestActor`、`ActorOf`、`RequireUser`（按取证头 `X-Actor-Source`）。插件管理接口加 `POST /api/plugins/{id}/permissions/grant`、`/revoke`，列表项加 `permissions_separate`。交易插件实际清单升到 0.6.0，`permissions` 加 `trade:live`（单独申请），迁移加 `0011_live_review.sql`（表 `trade_live_checks`、`trade_live_reviews`、`trade_live_switch`），实现 `PermissionGuard`（实盘评审通过才同意授予 `trade:live`）。仍然没有实盘下单的代码路径。只增不改。
+
+补记（不改版本号，2026-11-05，TRD-08d）：交易插件实际清单升到 0.7.0，迁移加 `0012_live_orders.sql`（`trade_orders` 加实盘委托的五列和两个索引）。实盘下单上线：`network:exchanges` 下的写请求只有下单、撤单、查单（`exchangeTradePaths`），只在插件的实盘闸门签发的一次性令牌下放行，闸门每笔现查评审、`Granted("trade:live")`、实盘开关、账户的读取 + 交易和交易所现查的 Key 权限；永不提币、划转、借贷。内核接口不变，`RequireUser` 不变（插件对实盘手动下单、部署到实盘多用了它）。
 
 文档补记（不改版本号，DOC-02，2026-10-29）：补写 1.0.0 到 1.1.0 之间各批已经加进代码、文档没跟上的句柄和扩展点（2.13），2.0 的代码块、2.5 的连接器定义按代码改正。这些按 1.3 本该升小版本，发布前由用户定稿版本号时一起写进上表。

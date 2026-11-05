@@ -3,10 +3,11 @@ import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { createMemoryRouter, RouterProvider } from 'react-router'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import type { TradeAccount, TradeLiveCheck, TradeLiveGate, TradeRecon } from '../../core/data'
+import type { TradeAccount, TradeLiveCheck, TradeLiveGate, TradeOrder, TradeRecon } from '../../core/data'
 import TradingPage from './TradingPage'
 
-// 交易账户（TRD-07b）和交易设置（TRD-08c）。假后端按契约回；评审、开关、trade:live 的真规则在后端测（livegate_test.go）。
+// 交易账户（TRD-07b）、交易设置（TRD-08c）、实盘下单入口（TRD-08d）。假后端按契约回；
+// 评审、开关、trade:live、闸门的真规则在后端测（livegate_test.go、livetrade_test.go）。
 const NOW = new Date().toISOString()
 
 function paper(over: Partial<TradeAccount> = {}): TradeAccount {
@@ -20,8 +21,17 @@ function live(over: Partial<TradeAccount> = {}): TradeAccount {
   return paper({
     id: 'ac_bn', name: 'Binance 主账户', broker: 'Binance', paper: false, currency: 'USDT', equity: 1500.5, available: 1300.5, margin_used: 200,
     api_hint: '****WXYZ', permissions: ['read', 'trade'], fee_bp: 0, slippage_ticks: 0, connector_id: 'cn_1', key_permissions: ['read', 'trade'], want_trade: true,
-    synced_at: NOW, recon: { status: 'diff', at: NOW, open: 1 }, ...over,
+    synced_at: NOW, recon: { status: 'diff', at: NOW, open: 1 },
+    trade_ready: false, trade_blockers: ['实盘评审还没通过（还差 5 项：审计日志、对账、异常演练、全停演练、模拟盘两周记录）', '还没授予 trade:live 权限', '实盘开关没打开'], ...over,
   })
+}
+/** 闸门全开的实盘账户 */
+const ready = (over: Partial<TradeAccount> = {}) => live({ trade_ready: true, trade_blockers: undefined, ...over })
+function order(over: Partial<TradeOrder> = {}): TradeOrder {
+  return {
+    id: 'od_1', account_id: 'ac_bn', symbol: 'BINANCE:BTCUSDT', side: 'buy', type: 'limit', qty: 0.01, price: 60000, filled: 0, status: 'open', reduce_only: false,
+    created_at: NOW, updated_at: NOW, leverage: 1, fee: 0, source: 'manual', triggered: false, confirmed: true, live: true, client_order_id: 'pmw1', ...over,
+  }
 }
 const recon: TradeRecon = {
   account_id: 'ac_bn', at: NOW, status: 'diff', checked: 3, open: 1, max_pct: 0.1, threshold: 5, id: 'rcn_1',
@@ -35,12 +45,15 @@ function gate(over: Partial<TradeLiveGate> = {}): TradeLiveGate {
     checks: [check('audit', '审计日志', true), check('recon', '对账', false, { go: 'accounts' }), check('incident', '异常演练', true), check('drill', '全停演练', false), check('paper', '模拟盘两周记录', false, { go: 'runs' })],
     review: { status: 'pending', missing: ['审计日志', '对账', '异常演练', '全停演练', '模拟盘两周记录'] }, granted: false, enabled: false, can_enable: false,
     blockers: ['评审还差 5 项没确认：审计日志、对账、异常演练、全停演练、模拟盘两周记录', '还没授予 trade:live 权限（在交易设置里申请，二次确认输入插件名）'],
-    live_orders: false, note: '实盘下单还没上线（TRD-08d）', plugin_name: '交易套件', records: [], ...over,
+    live_orders: true, note: '实盘下单已上线：闸门全开的实盘账户能下单', plugin_name: '交易套件', records: [], ...over,
   }
 }
 
-function fakeBackend(init: { accounts?: TradeAccount[]; gate?: TradeLiveGate } = {}) {
-  const state = { accounts: init.accounts ?? [paper(), live()], gate: init.gate ?? gate(), recon: structuredClone(recon), calls: [] as { method: string; path: string; body?: Record<string, unknown> }[] }
+function fakeBackend(init: { accounts?: TradeAccount[]; gate?: TradeLiveGate; orders?: TradeOrder[]; place?: 'ok' | 'gate' } = {}) {
+  const state = {
+    accounts: init.accounts ?? [paper(), live()], gate: init.gate ?? gate(), recon: structuredClone(recon), orders: init.orders ?? [],
+    calls: [] as { method: string; path: string; body?: Record<string, unknown> }[],
+  }
   const json = (data: unknown, status = 200, meta?: unknown) => new Response(JSON.stringify(status < 300 ? { data, meta } : data), { status })
   const err = (status: number, error: Record<string, unknown>) => json({ error }, status)
   vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, req?: RequestInit) => {
@@ -58,10 +71,11 @@ function fakeBackend(init: { accounts?: TradeAccount[]; gate?: TradeLiveGate } =
     if (p === '/api/trade/accounts/ac_bn/snapshot') {
       return json({ account_id: 'ac_bn', synced_at: NOW, baseline_at: NOW, status: 'connected', equity: 1500.5, available: 1300.5, margin_used: 200, marks_status: 'live', key_permissions: ['read', 'trade'], fail_count: 0,
         balances: [{ asset: 'USDT', free: 1000, locked: 0, total: 1000, value: 1000, wallet: 'spot' }],
-        positions: [{ symbol: 'BINANCE:ETHUSDT', name: 'ETH/USDT', kind: 'spot', side: 'long', qty: 6.1938, avg_price: 0, last: 3000, pnl: 0, margin: 0, key: 'spot:ETH', account_id: 'ac_bn' }],
+        positions: [{ symbol: 'BINANCE:ETHUSDT', name: 'ETH/USDT', kind: 'spot', side: 'long', qty: 6.1938, avg_price: 0, last: 3000, pnl: 0, margin: 0, key: 'spot:ETH', account_id: 'ac_bn', id: 'live:ac_bn:spot:ETH' }],
         orders: [] })
     }
     if (p === '/api/trade/accounts/ac_bn/fills') return json([], 200, { total: 0 })
+    if (p === '/api/trade/positions/live:ac_bn:spot:ETH/close') return json(order({ id: 'od_c', side: 'sell', type: 'market', qty: 6.1938, price: undefined, status: 'pending', source: 'close' }), 201)
     if (p === '/api/trade/accounts/ac_bn/recon' && method === 'GET') return json(state.recon)
     const rs = p.match(/^\/api\/trade\/accounts\/ac_bn\/recon\/items\/(\w+)\/resolve$/)
     if (rs) {
@@ -80,13 +94,22 @@ function fakeBackend(init: { accounts?: TradeAccount[]; gate?: TradeLiveGate } =
     if (p === '/api/trade/audit') return json([{ id: 1, at: NOW, action: 'place', target_type: 'trade_order', target_id: 'od_1', summary: '下单：买入 0.1 BTC/USDT', origin: 'manual', actor: 'user', order_id: 'od_1', detail: {} }], 200, { total: 1 })
     if (p === '/api/connectors/defs') {
       return json([{ tool: 'okx_account', label: 'OKX 交易账户', category: 'market', color: '', desc: '', can_send: false, auth: ['token'], tools: [], source: 'trade',
-        fields: [{ key: 'api_key', label: 'API Key', kind: 'secret', required: true }, { key: 'api_secret', label: 'Secret Key', kind: 'secret', required: true }, { key: 'passphrase', label: 'Passphrase', kind: 'secret', required: true }] }])
+        fields: [{ key: 'api_key', label: 'API Key', kind: 'secret', required: true }, { key: 'api_secret', label: 'Secret Key', kind: 'secret', required: true }, { key: 'passphrase', label: 'Passphrase', kind: 'secret', required: true },
+          { key: 'env', label: '网络', kind: 'select', options: ['mainnet', 'testnet'], default: 'mainnet', required: false }] }])
     }
     if (p === '/api/connectors' && method === 'POST') return json({ id: 'cn_new', tool: body?.tool, name: body?.name, status: 'connecting' }, 201)
     if (p === '/api/connectors/cn_new/test') return json({ ok: true, account: 'OKX ****m9Lk · 只读', message: '', connector: { id: 'cn_new', tool: 'okx_account', name: 'x', status: 'connected' } })
     if (p === '/api/connectors/cn_new' && method === 'DELETE') return json({ id: 'cn_new' })
     if (p === '/api/trade/risk') return json({ max_position_pct: 35, daily_loss_pct: 3, max_order_value: 50000, max_leverage: 10, confirm_above: 10000, halted: false, updated_at: NOW, day: { date: NOW.slice(0, 10), start_equity: 1, equity: 1, pnl: 0, loss_used: 0, loss_limit: 1, status: 'ok' } })
-    if (p === '/api/trade/orders') return json([], 200, { total: 0, active: 0, history: 0 })
+    if (p === '/api/trade/orders' && method === 'POST') {
+      if (init.place === 'gate') {
+        return err(403, { code: 'forbidden', reason: 'live_gate', message: '实盘闸门没过：实盘开关没打开；Key 没有交易权限', missing: ['实盘开关没打开', 'Key 没有交易权限'] })
+      }
+      // 实盘每笔都要二次确认
+      if (body?.confirmed !== true) return err(409, { code: 'conflict', reason: 'confirm', message: '实盘委托会在交易所真实成交、产生真实盈亏，要二次确认', value: 600, confirm_above: 10000, live: true })
+      return json(order({ status: 'pending', qty: Number(body.qty), price: Number(body.price) }), 201)
+    }
+    if (p === '/api/trade/orders') return json(state.orders, 200, { total: state.orders.length, active: state.orders.length, history: 0 })
     if (p === '/api/trade/runs') return json([], 200, { total: 0, running: 0, paused: 0, stopped: 0, error: 0, pnl: 0 })
     if (p === '/api/trade/positions' || p === '/api/trade/strategies' || p === '/api/trade/risk/halts' || p === '/api/trade/watchlists') return json([], 200, { total: 0 })
     if (p === '/api/trade/quotes') return json([], 200, { total: 0 })
@@ -107,15 +130,18 @@ function setup(path: string, init?: Parameters<typeof fakeBackend>[0]) {
 afterEach(() => vi.unstubAllGlobals())
 
 describe('交易账户', () => {
-  it('模拟盘和实盘分开显示；实盘账户的下单入口不可用并说明要先过实盘评审；对账抽屉处理差异', async () => {
+  it('模拟盘和实盘分开显示；闸门没开全时实盘账户的下单入口不可用并逐条写原因；对账抽屉处理差异', async () => {
     const { backend } = setup('/trading/accounts')
     const card = await screen.findByRole('region', { name: 'Binance 主账户' })
     expect(within(card).getByText('实盘')).toBeInTheDocument()
     expect(within(card).getByText('****WXYZ')).toBeInTheDocument()
-    const order = within(card).getByRole('button', { name: '下单' })
-    expect(order).toBeDisabled()
-    expect(order.getAttribute('title')).toContain('要先过实盘评审')
-    expect(within(card).getByText(/要先过实盘评审（交易设置）/)).toBeInTheDocument()
+    const btn = within(card).getByRole('button', { name: '下单' })
+    expect(btn).toBeDisabled()
+    expect(btn.getAttribute('title')).toContain('实盘不能下单：实盘评审还没通过')
+    expect(within(card).getByText('还没授予 trade:live 权限')).toBeInTheDocument()
+    expect(within(card).getByText('实盘开关没打开')).toBeInTheDocument()
+    // 闸门没开全：标题栏只有「模拟盘」
+    expect(screen.queryByText('实盘可下单')).not.toBeInTheDocument()
     expect(within(screen.getByRole('region', { name: '模拟盘' })).getByText('本地撮合，不用对账')).toBeInTheDocument()
 
     await userEvent.click(within(card).getByRole('button', { name: /1 处差异/ }))
@@ -131,11 +157,12 @@ describe('交易账户', () => {
     expect(await within(drawer).findByText(/标为已核实，本地记录不改：交易所漏回报/)).toBeInTheDocument()
   })
 
-  it('下单抽屉里实盘账户归到不可用，原因写要先过实盘评审', async () => {
+  it('闸门没开全时下单抽屉里实盘账户归到不可用，原因逐条写', async () => {
     setup('/trading/orders?symbol=BINANCE%3ABTCUSDT&side=buy')
     const drawer = await screen.findByRole('dialog', { name: '下单' })
+    expect(within(drawer).getByText('下单 · 模拟盘')).toBeInTheDocument()
     await userEvent.click(await within(drawer).findByRole('button', { name: /其他 1 个账户不可用/ }))
-    expect(within(drawer).getByText(/实盘账户：要先过实盘评审/)).toBeInTheDocument()
+    expect(within(drawer).getByText(/实盘不能下单：实盘评审还没通过.*；还没授予 trade:live 权限；实盘开关没打开/)).toBeInTheDocument()
   })
 
   it('新增交易所账户：建连接器、测试连接、通过后建账户；只读默认', async () => {
@@ -152,8 +179,9 @@ describe('交易账户', () => {
     await userEvent.type(within(drawer).getByLabelText(/^Passphrase/), 'p')
     await userEvent.click(within(drawer).getByRole('button', { name: '测试连接' }))
     expect(await within(drawer).findByText('OKX ****m9Lk · 只读')).toBeInTheDocument()
+    // 密钥进 secrets，「网络」进 config（默认正式网）
     expect(backend.calls.find((c) => c.method === 'POST' && c.path === '/api/connectors')?.body).toMatchObject({
-      tool: 'okx_account', auth_mode: 'token', secrets: { api_key: 'okx-key-m9Lk', api_secret: 's', passphrase: 'p' },
+      tool: 'okx_account', auth_mode: 'token', secrets: { api_key: 'okx-key-m9Lk', api_secret: 's', passphrase: 'p' }, config: { env: 'mainnet' },
     })
     await userEvent.click(within(drawer).getByRole('button', { name: '保存' }))
     await waitFor(() => expect(screen.queryByRole('dialog', { name: '新增交易账户' })).not.toBeInTheDocument())
@@ -175,13 +203,93 @@ describe('交易账户', () => {
   })
 })
 
+describe('实盘下单（TRD-08d）', () => {
+  it('闸门全开时实盘账户卡片的下单可用；抽屉标「实盘」、只给市价限价、每笔先确认再带 confirmed 提交', async () => {
+    const { backend } = setup('/trading/accounts', { accounts: [paper(), ready()] })
+    expect(await screen.findByText('实盘可下单')).toBeInTheDocument()
+    const card = await screen.findByRole('region', { name: 'Binance 主账户' })
+    expect(within(card).getByText(/闸门全开，可以下单/)).toBeInTheDocument()
+    await userEvent.click(within(card).getByRole('button', { name: '下单' }))
+
+    const drawer = await screen.findByRole('dialog', { name: '下单' })
+    expect(within(drawer).getByText('下单 · 实盘')).toBeInTheDocument()
+    expect(within(drawer).getByRole('note', { name: '实盘提示' })).toHaveTextContent('会在交易所真实成交、产生真实盈亏')
+    expect(within(drawer).getByRole('button', { name: /Binance 主账户/ })).toHaveAttribute('aria-pressed', 'true')
+    expect(within(drawer).getByRole('button', { name: '止损' })).toBeDisabled()
+    expect(within(drawer).getByRole('button', { name: '止损限价' })).toBeDisabled()
+    expect(within(drawer).getByRole('button', { name: '限价' })).toBeEnabled()
+
+    await userEvent.type(within(drawer).getByLabelText('委托价'), '60000')
+    await userEvent.type(within(drawer).getByLabelText('数量'), '0.01')
+    await userEvent.click(within(drawer).getByRole('button', { name: '买入 0.01' }))
+    // 不看金额，先在底部确认，没发请求
+    expect(within(drawer).getByText(/会在交易所真实成交、产生真实盈亏/, { selector: '.tr-confirm-q' })).toBeInTheDocument()
+    expect(backend.calls.some((c) => c.method === 'POST' && c.path === '/api/trade/orders')).toBe(false)
+    await userEvent.click(within(drawer).getByRole('button', { name: '确认实盘买入' }))
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: '下单' })).not.toBeInTheDocument())
+    expect(backend.calls.find((c) => c.method === 'POST' && c.path === '/api/trade/orders')?.body).toMatchObject({
+      account_id: 'ac_bn', symbol: 'BINANCE:BTCUSDT', side: 'buy', type: 'limit', qty: 0.01, price: 60000, confirmed: true,
+    })
+    expect(await screen.findByText(/已下单：实盘买入 0.01 BTC\/USDT，提交中/)).toBeInTheDocument()
+  })
+
+  it('后端 403 live_gate：抽屉里逐条列缺什么', async () => {
+    setup('/trading/accounts', { accounts: [paper(), ready()], place: 'gate' })
+    await userEvent.click(within(await screen.findByRole('region', { name: 'Binance 主账户' })).getByRole('button', { name: '下单' }))
+    const drawer = await screen.findByRole('dialog', { name: '下单' })
+    await userEvent.type(within(drawer).getByLabelText('委托价'), '60000')
+    await userEvent.type(within(drawer).getByLabelText('数量'), '0.01')
+    await userEvent.click(within(drawer).getByRole('button', { name: '买入 0.01' }))
+    await userEvent.click(within(drawer).getByRole('button', { name: '确认实盘买入' }))
+    const box = await within(drawer).findByText('实盘闸门没过')
+    const block = box.closest('.tr-block') as HTMLElement
+    expect(within(block).getByText('实盘开关没打开')).toBeInTheDocument()
+    expect(within(block).getByText('Key 没有交易权限')).toBeInTheDocument()
+    expect(screen.getByRole('dialog', { name: '下单' })).toBeInTheDocument()
+  })
+
+  it('交易所数据里能平仓（先确认，带 confirmed 提交）', async () => {
+    const { backend } = setup('/trading/accounts', { accounts: [paper(), ready()] })
+    await userEvent.click(within(await screen.findByRole('region', { name: 'Binance 主账户' })).getByRole('button', { name: '交易所数据' }))
+    const drawer = await screen.findByRole('dialog', { name: '交易所数据' })
+    await userEvent.click(await within(drawer).findByRole('button', { name: '平仓' }))
+    expect(within(drawer).getByText(/市价卖出 6.1938 ETH\/USDT，会在交易所真实成交、产生真实盈亏/)).toBeInTheDocument()
+    await userEvent.click(within(drawer).getByRole('button', { name: '确认平仓' }))
+    await waitFor(() => expect(backend.calls.find((c) => c.path === '/api/trade/positions/live:ac_bn:spot:ETH/close')?.body).toEqual({ confirmed: true }))
+    expect(await within(drawer).findByText(/已下实盘平仓单：卖出 6.1938 ETH\/USDT/)).toBeInTheDocument()
+  })
+
+  it('闸门没开全时交易所数据里的平仓不可用', async () => {
+    setup('/trading/accounts')
+    await userEvent.click(within(await screen.findByRole('region', { name: 'Binance 主账户' })).getByRole('button', { name: '交易所数据' }))
+    const drawer = await screen.findByRole('dialog', { name: '交易所数据' })
+    const btn = await within(drawer).findByRole('button', { name: '平仓' })
+    expect(btn).toBeDisabled()
+    expect(btn.getAttribute('title')).toContain('实盘不能下单')
+  })
+
+  it('委托列表：实盘委托标「实盘」、新状态写中文、不能改价', async () => {
+    setup('/trading/orders', { accounts: [paper(), ready()], orders: [order({ status: 'unknown' }), order({ id: 'od_2', status: 'partial', filled: 0.004 })] })
+    const table = await screen.findByRole('table', { name: '当前委托' })
+    expect(within(table).getAllByText('实盘')).toHaveLength(2)
+    expect(within(table).getByText('状态未知')).toBeInTheDocument()
+    expect(within(table).getByText(/后台按委托编号查单确认，不会重发/)).toBeInTheDocument()
+    expect(within(table).getByText('部分成交')).toBeInTheDocument()
+    for (const b of within(table).getAllByRole('button', { name: '改价' })) {
+      expect(b).toBeDisabled()
+      expect(b.getAttribute('title')).toContain('实盘委托不能改价')
+    }
+    expect(within(table).getAllByRole('button', { name: '撤单' })[0]).toBeEnabled()
+  })
+})
+
 describe('交易设置', () => {
   it('评审清单带证据；条件不满足不能确认；代为提交被拒原样显示；实盘开关不可用并写原因', async () => {
     const { backend } = setup('/trading/settings')
     const sw = await screen.findByRole('switch', { name: '实盘开关' })
     expect(sw).toBeDisabled()
     expect(screen.getByText(/不能打开：评审还差 5 项没确认/)).toBeInTheDocument()
-    expect(screen.getByText('实盘下单还没上线（TRD-08d）')).toBeInTheDocument()
+    expect(screen.getByText('实盘下单已上线：闸门全开的实盘账户能下单')).toBeInTheDocument()
     const recon = screen.getByLabelText('对账')
     expect(within(recon).getByRole('button', { name: '确认通过' })).toBeDisabled()
     expect(within(recon).getByRole('button', { name: '去处理' })).toBeInTheDocument()

@@ -33,7 +33,7 @@ func TestManifestValid(t *testing.T) {
 	if err != nil {
 		t.Fatalf("清单不合法：%v", err)
 	}
-	if m.ID != "trade" || m.TablePrefix != "trade_" || m.Version != "0.6.0" || m.Name != "交易套件" {
+	if m.ID != "trade" || m.TablePrefix != "trade_" || m.Version != "0.7.0" || m.Name != "交易套件" {
 		t.Fatalf("id=%s table_prefix=%s version=%s name=%s", m.ID, m.TablePrefix, m.Version, m.Name)
 	}
 	if !slices.Equal(m.Permissions, append(slices.Clone(tradePerms), LivePerm)) {
@@ -50,25 +50,78 @@ func TestManifestValid(t *testing.T) {
 	}
 }
 
-// wantReadPaths 是交易所只读接口的全部路径。exchangeReadPaths 多一条、少一条都要先改这里，
-// 加之前确认是只读的查询接口（权限、余额、持仓、挂单查询、成交历史），不是下单、撤单、划转、提币。
+// wantReadPaths 是交易所只读接口的全部路径（只能 GET）。exchangeReadPaths 多一条、少一条都要先改这里，
+// 加之前确认是只读的查询接口（权限、余额、持仓、挂单查询、成交历史、公开的交易规则、杠杆查询），不是下单、撤单、划转、提币。
 var wantReadPaths = map[string][]string{
-	"api.binance.com":  {"/sapi/v1/account/apiRestrictions", "/api/v3/account", "/api/v3/openOrders", "/api/v3/myTrades"},
-	"fapi.binance.com": {"/fapi/v2/account", "/fapi/v2/positionRisk", "/fapi/v1/openOrders", "/fapi/v1/userTrades"},
-	"www.okx.com":      {"/api/v5/account/config", "/api/v5/account/balance", "/api/v5/account/positions", "/api/v5/trade/orders-pending", "/api/v5/trade/fills"},
+	"api.binance.com":  {"/sapi/v1/account/apiRestrictions", "/api/v3/account", "/api/v3/openOrders", "/api/v3/myTrades", "/api/v3/exchangeInfo"},
+	"fapi.binance.com": {"/fapi/v2/account", "/fapi/v2/positionRisk", "/fapi/v1/openOrders", "/fapi/v1/userTrades", "/fapi/v1/exchangeInfo"},
+	"www.okx.com": {"/api/v5/account/config", "/api/v5/account/balance", "/api/v5/account/positions", "/api/v5/trade/orders-pending", "/api/v5/trade/fills",
+		"/api/v5/public/instruments", "/api/v5/account/leverage-info"},
+	"testnet.binance.vision":    {"/api/v3/account", "/api/v3/openOrders", "/api/v3/myTrades", "/api/v3/exchangeInfo"},
+	"testnet.binancefuture.com": {"/fapi/v2/account", "/fapi/v2/positionRisk", "/fapi/v1/openOrders", "/fapi/v1/userTrades", "/fapi/v1/exchangeInfo"},
 }
 
-// 资金边界：插件源码里不出现向交易所下单、撤单、划转、提币的路径，也不申请实盘权限。
-//   - 只读接口清单和上面的期望一字不差；
-//   - 源码里所有交易所路径的字符串字面量，要么是公开行情（network:market-data 放行的），要么在只读清单里，要么是插件自己的 /api/trade/ 路由；
-//   - 下单、撤单、划转、提币的路径片段一律不许出现。
-func TestNoLiveTradingPaths(t *testing.T) {
+// wantTradePaths 是写操作的全部放行清单（TRD-08d）：下单、撤单、查单，按交易所、方法列。多一条、少一条都要先改这里。
+var wantTradePaths = map[string][]string{
+	"api.binance.com":           {"POST /api/v3/order place", "DELETE /api/v3/order cancel", "GET /api/v3/order query"},
+	"fapi.binance.com":          {"POST /fapi/v1/order place", "DELETE /fapi/v1/order cancel", "GET /fapi/v1/order query"},
+	"www.okx.com":               {"POST /api/v5/trade/order place", "POST /api/v5/trade/cancel-order cancel", "GET /api/v5/trade/order query"},
+	"testnet.binance.vision":    {"POST /api/v3/order place", "DELETE /api/v3/order cancel", "GET /api/v3/order query"},
+	"testnet.binancefuture.com": {"POST /fapi/v1/order place", "DELETE /fapi/v1/order cancel", "GET /fapi/v1/order query"},
+}
+
+// bannedExchangePaths 是永远不许出现在插件源码里的交易所路径片段：提币、划转（含万向划转、子账户划转）、借贷、
+// 批量下单、改单、平仓接口、调杠杆和保证金模式。出现一个就失败。
+var bannedExchangePaths = []string{
+	// 提币、充提
+	"/withdraw", "/sapi/v1/capital/", "/api/v5/asset/withdrawal", "/api/v5/asset/",
+	// 划转：Binance 万向划转、内部划转、子账户、合约划转；OKX 资金划转
+	"/transfer", "/sapi/v1/asset/", "/sapi/v1/sub-account/", "/sapi/v2/sub-account/", "/sapi/v1/futures/transfer", "/api/v5/asset/transfer",
+	"/api/v5/users/subaccount/",
+	// 借贷、杠杆账户
+	"/sapi/v1/margin/", "/sapi/v1/loan/", "/sapi/v2/loan/", "/borrow", "/repay", "/api/v5/account/borrow-repay", "/api/v5/finance/",
+	// 批量下单、改单、平仓接口、调杠杆、改保证金模式和持仓模式
+	"/batchorders", "/batch-orders", "/amend-order", "/amend-batch-orders", "/close-position", "/order/oco", "/orderlist", "/fapi/v1/leverage",
+	"/fapi/v1/margintype", "/fapi/v1/positionside/dual", "/api/v5/account/set-leverage", "/api/v5/account/set-position-mode",
+	"/api/v5/trade/order-algo", "/fapi/v1/allopenorders", "/dapi/", "/papi/", "/eapi/",
+	"http.defaultclient",
+}
+
+// 资金边界（TRD-07a 起，TRD-08d 改成「只读加最小写清单」）：
+//   - 只读清单、写清单和上面的期望一字不差；写清单的每一条都是下单、撤单、查单之一；
+//   - 源码里所有交易所路径的字符串字面量，要么是公开行情（network:market-data 放行的），要么在只读清单或写清单里，要么是插件自己的 /api/trade/ 路由；
+//   - 提币、划转、借贷、批量、改单、平仓、调杠杆的路径片段一律不许出现（bannedExchangePaths）。
+func TestExchangeWriteBoundary(t *testing.T) {
 	if len(exchangeReadPaths) != len(wantReadPaths) {
 		t.Fatalf("只读接口的域名变了：%v", exchangeReadPaths)
 	}
 	for host, want := range wantReadPaths {
 		if !slices.Equal(exchangeReadPaths[host], want) {
 			t.Fatalf("%s 的只读接口变了：%v", host, exchangeReadPaths[host])
+		}
+	}
+	if len(exchangeTradePaths) != len(wantTradePaths) {
+		t.Fatalf("写操作的域名变了：%v", exchangeTradePaths)
+	}
+	for host, want := range wantTradePaths {
+		got := []string{}
+		for _, p := range exchangeTradePaths[host] {
+			got = append(got, p.Method+" "+p.Path+" "+string(p.Op))
+			if p.Op != opPlace && p.Op != opCancel && p.Op != opQuery {
+				t.Fatalf("写清单只能有下单、撤单、查单：%v", p)
+			}
+		}
+		if !slices.Equal(got, want) {
+			t.Fatalf("%s 的写操作变了：%v", host, got)
+		}
+	}
+	for _, b := range bannedExchangePaths {
+		for host, ps := range exchangeTradePaths {
+			for _, p := range ps {
+				if strings.Contains(strings.ToLower(host+p.Path), b) {
+					t.Fatalf("写清单里出现了禁止的路径 %s%s", host, p.Path)
+				}
+			}
 		}
 	}
 	files, err := filepath.Glob("*.go")
@@ -79,17 +132,21 @@ func TestNoLiveTradingPaths(t *testing.T) {
 	for _, r := range plugin.NetworkHosts["market-data"] {
 		marketHosts = append(marketHosts, r.Host)
 	}
-	readOnly := func(p string) bool {
+	listed := func(p string) bool {
 		for _, ps := range exchangeReadPaths {
 			if slices.Contains(ps, p) {
 				return true
 			}
 		}
+		for _, ps := range exchangeTradePaths {
+			for _, x := range ps {
+				if x.Path == p {
+					return true
+				}
+			}
+		}
 		return false
 	}
-	banned := []string{"/withdraw", "/transfer", "/order\"", "/order?", "/order/", "/batchorders", "/cancel-order", "/amend-order",
-		"/close-position", "/api/v5/asset/", "/sapi/v1/capital/", "/sapi/v1/asset/", "/sapi/v1/sub-account/", "/sapi/v1/margin/",
-		"placeorder", "cancelorder", "http.defaultclient"}
 	fset := token.NewFileSet()
 	for _, f := range files {
 		if strings.HasSuffix(f, "_test.go") {
@@ -99,10 +156,10 @@ func TestNoLiveTradingPaths(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		src := strings.ReplaceAll(strings.ToLower(string(b)), "/api/trade/orders", "")
-		for _, s := range banned {
+		src := strings.ReplaceAll(strings.ToLower(string(b)), "/api/trade/", "")
+		for _, s := range bannedExchangePaths {
 			if strings.Contains(src, s) {
-				t.Errorf("%s 里出现了 %q", f, s)
+				t.Errorf("%s 里出现了禁止的路径片段 %q", f, s)
 			}
 		}
 		af, err := parser.ParseFile(fset, f, b, 0)
@@ -122,7 +179,7 @@ func TestNoLiveTradingPaths(t *testing.T) {
 				if !strings.HasPrefix(v, pre) {
 					continue
 				}
-				if strings.HasPrefix(v, "/api/trade/") || readOnly(v) {
+				if strings.HasPrefix(v, "/api/trade/") || listed(v) {
 					return true
 				}
 				for _, host := range marketHosts {
@@ -130,7 +187,7 @@ func TestNoLiveTradingPaths(t *testing.T) {
 						return true
 					}
 				}
-				t.Errorf("%s:%d 出现了不在只读清单、也不是公开行情的交易所路径 %q", f, fset.Position(lit.Pos()).Line, v)
+				t.Errorf("%s:%d 出现了不在只读清单、写清单，也不是公开行情的交易所路径 %q", f, fset.Position(lit.Pos()).Line, v)
 			}
 			return true
 		})
@@ -144,6 +201,54 @@ func TestNoLiveTradingPaths(t *testing.T) {
 		if p == "trade:live" && !plugin.IsSeparate(p) {
 			t.Error("trade:live 不是单独申请的权限")
 		}
+	}
+}
+
+// 令牌只由实盘闸门签发：issueTradeGrant 只在 livetrade.go 的 withGate 里调，别处一个都没有。
+func TestTradeGrantOnlyFromGate(t *testing.T) {
+	files, err := filepath.Glob("*.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	fset := token.NewFileSet()
+	var callers []string
+	for _, f := range files {
+		if strings.HasSuffix(f, "_test.go") {
+			continue
+		}
+		af, err := parser.ParseFile(fset, f, nil, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, d := range af.Decls {
+			fd, ok := d.(*ast.FuncDecl)
+			if !ok || fd.Body == nil {
+				continue
+			}
+			ast.Inspect(fd.Body, func(n ast.Node) bool {
+				if x, ok := n.(*ast.CallExpr); ok {
+					if id, ok := x.Fun.(*ast.Ident); ok && id.Name == "issueTradeGrant" {
+						callers = append(callers, f+":"+fd.Name.Name)
+					}
+				}
+				return true
+			})
+		}
+	}
+	if !slices.Equal(callers, []string{"livetrade.go:withGate"}) {
+		t.Fatalf("issueTradeGrant 只许在 livetrade.go 的 withGate 里调：%v", callers)
+	}
+	// 也不许取它的值（func 变量、方法值）绕过：源码里出现的次数 = 定义 1 次 + 调用 1 次
+	n := 0
+	for _, f := range files {
+		if strings.HasSuffix(f, "_test.go") {
+			continue
+		}
+		b, _ := os.ReadFile(f)
+		n += strings.Count(string(b), "issueTradeGrant(")
+	}
+	if n != 2 {
+		t.Fatalf("issueTradeGrant( 在源码里出现 %d 次，应当是定义 1 次加 withGate 里调用 1 次", n)
 	}
 }
 

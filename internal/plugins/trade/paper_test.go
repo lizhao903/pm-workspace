@@ -373,8 +373,8 @@ func TestPaperAccountsOnly(t *testing.T) {
 	if p := data(t, h, "PATCH", "/api/trade/accounts/"+id, `{"name":"改名","slippage_ticks":3}`); p["name"] != "改名" || p["slippage_ticks"] != 3.0 || p["paper"] != true {
 		t.Fatalf("PATCH = %v", p)
 	}
-	// 下单只接受模拟盘：不存在的账户 400，实盘账户 403（TRD-07a：实盘下单没开放前一律拒绝）
-	if _, err := e.d.W.Exec(`INSERT INTO trade_accounts (id, name, paper, initial_e8, created_at, updated_at) VALUES ('ac_live', 'Binance 主账户', 0, 1, 'x', 'x')`); err != nil {
+	// 不存在的账户 400；实盘账户（TRD-08d）：不是用户本人在界面上提交的手动单 403 not_user，什么都不记
+	if _, err := e.d.W.Exec(`INSERT INTO trade_accounts (id, name, broker, paper, initial_e8, created_at, updated_at) VALUES ('ac_live', 'Binance 主账户', 'Binance', 0, 1, 'x', 'x')`); err != nil {
 		t.Fatal(err)
 	}
 	for aid, want := range map[string]int{"ac_nope": 400, "ac_live": 403, "": 400} {
@@ -384,7 +384,7 @@ func TestPaperAccountsOnly(t *testing.T) {
 		}
 		if want == 403 {
 			e := out["error"].(map[string]any)
-			if e["code"] != "forbidden" || e["reason"] != "live" || !strings.Contains(e["message"].(string), "实盘账户") {
+			if e["code"] != "forbidden" || e["reason"] != "not_user" || !strings.Contains(e["message"].(string), "实盘下单") {
 				t.Errorf("实盘账户下单的错误 = %v", e)
 			}
 		}

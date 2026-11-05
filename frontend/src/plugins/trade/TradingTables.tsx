@@ -1,5 +1,7 @@
 // 持仓（SPEC-trading-3）、委托（SPEC-trading-4）。现价、盈亏、强平价、保证金全部来自后端，前端不撮合、不算账。
 // 平仓走 POST /positions/{id}/close，挂止损是一笔仅减仓的止损单，都经统一下单入口：被风控拦下或要二次确认时就地显示。
+// 持仓只有模拟盘的（实盘持仓在交易账户的「交易所数据」里看、平仓）；委托里有实盘委托（TRD-08d，live）：标「实盘」，
+// 多「提交中」「状态未知」，不能改价（撤单后重新下），撤单到交易所撤，撤不掉原样写原因。
 import { Fragment, useMemo, useState } from 'react'
 import {
   errorText, tradePlaceError, useCancelAllTradeOrders, useCancelTradeOrder, useCloseTradePosition, useModifyTradeOrder, usePlaceTradeOrder,
@@ -9,7 +11,7 @@ import {
 import { Button, EmptyState, ErrorState, LoadingState, Pill, SearchSelect, cls } from '../../core/ui'
 import { KIND_SHORT, MARKETS, digitsFor, fmtPct, fmtPrice, guessInstrument } from './model'
 import type { TradeNotice } from './TradingParts'
-import { ORDER_SOURCE, ORDER_STATUS, ORDER_TYPE, fmtQty, fmtTime, isActive, isContract, num, signed, signedUsd, tone, usd } from './tradingModel'
+import { LIVE_STATUS_NOTE, ORDER_SOURCE, ORDER_STATUS, ORDER_TYPE, fmtQty, fmtTime, isActive, isContract, num, signed, signedUsd, tone, usd } from './tradingModel'
 
 type Q<T> = { data: T | undefined; isPending: boolean; isError: boolean; error: unknown; refetch: () => unknown }
 
@@ -255,13 +257,13 @@ export function OrdersView({ accounts, acctName }: { accounts: TradeAccount[]; a
         <span className="spacer" />
         {tab === 'active' && rows.length > 1 && (cancelAllAsk ? (
           <span className="tr-inline-ask">
-            <span className="danger-text tr-small">撤掉{acct ? '这个账户' : '全部'} {rows.length} 笔挂单？</span>
+            <span className="danger-text tr-small">撤掉{acct ? '这个账户' : '全部'} {rows.length} 笔挂单？{rows.some((o) => o.live) ? '实盘的会到交易所撤' : ''}</span>
             <Button size="sm" onClick={() => setCancelAllAsk(false)}>取消</Button>
             <Button size="sm" variant="danger" disabled={cancelAll.isPending} onClick={() => cancelAll.mutate(acct || undefined, { onSettled: () => setCancelAllAsk(false) })}>全部撤单</Button>
           </span>
         ) : <Button size="sm" onClick={() => setCancelAllAsk(true)}>全部撤单</Button>)}
       </div>
-      {cancel.error && <div className="tr-inline-msg tr-inline-bad" role="alert"><span>撤单失败：{errorText(cancel.error)}</span></div>}
+      {cancel.error && <div className="tr-inline-msg tr-inline-bad" role="alert"><span>撤单失败：{errorText(cancel.error)}{tradePlaceError(cancel.error).kind === 'upstream' ? '（交易所没撤掉，稍后再试或到交易所处理）' : ''}</span></div>}
       {cancelAll.error && <div className="tr-inline-msg tr-inline-bad" role="alert"><span>全部撤单失败：{errorText(cancelAll.error)}</span></div>}
       {q.data === undefined ? (
         q.isError ? <ErrorState title="委托没取到" error={errorText(q.error)} onRetry={() => void q.refetch()} /> : <LoadingState />
@@ -283,10 +285,13 @@ export function OrdersView({ accounts, acctName }: { accounts: TradeAccount[]; a
                     <span className="tr-title">
                       <span className={cls('tr-side', o.side === 'buy' ? 'buy' : 'sell')}>{o.side === 'buy' ? '买' : '卖'}</span>
                       <span className="ellipsis">{i.name}</span>
+                      {o.live && <span className="tag tr-tag-sm tr-tag-live" title="实盘委托：发到交易所，状态以交易所回报为准">实盘</span>}
                       {o.reduce_only && <span className="tag tr-tag-sm">仅减仓</span>}
                       {o.source !== 'manual' && <span className="tag tr-tag-sm">{ORDER_SOURCE[o.source]}</span>}
                     </span>
-                    <span className="tr-meta ellipsis">{acctName(o.account_id)} · {fmtTime(o.created_at)}{o.leverage > 1 ? ` · ${o.leverage}x` : ''}</span>
+                    <span className="tr-meta ellipsis" title={o.client_order_id ? `委托编号 ${o.client_order_id}${o.exchange_order_id ? `，交易所委托号 ${o.exchange_order_id}` : ''}` : undefined}>
+                      {acctName(o.account_id)} · {fmtTime(o.created_at)}{o.leverage > 1 ? ` · ${o.leverage}x` : ''}{o.exchange_order_id ? ` · #${o.exchange_order_id}` : ''}
+                    </span>
                   </span>
                   <span className="tr-c-type"><span className="tag">{ORDER_TYPE[o.type]}</span></span>
                   <span className="tr-r tr-num tr-c-oprice tr-two">
@@ -299,9 +304,11 @@ export function OrdersView({ accounts, acctName }: { accounts: TradeAccount[]; a
                   <span className="tr-ord-st">
                     <Pill {...ORDER_STATUS[o.status]} />
                     {(o.status === 'rejected' || o.status === 'canceled') && o.reject_reason && <span className={cls('tr-small', o.status === 'rejected' ? 'tr-reject' : 'faint ellipsis')} title={o.reject_reason}>{o.reject_reason}</span>}
+                    {o.live && LIVE_STATUS_NOTE[o.status] && <span className="faint tr-small ellipsis" title={LIVE_STATUS_NOTE[o.status]}>{LIVE_STATUS_NOTE[o.status]}</span>}
                   </span>
                   <span className="tr-ops">
-                    {act && o.type !== 'market' && <Button size="sm" onClick={() => setEdit({ id: o.id, price: String((o.type === 'stop' || editsStop(o) ? o.stop_price : o.price) ?? '') })}>改价</Button>}
+                    {act && o.type !== 'market' && o.live && <Button size="sm" disabled title="实盘委托不能改价：撤单后重新下">改价</Button>}
+                    {act && o.type !== 'market' && !o.live && <Button size="sm" onClick={() => setEdit({ id: o.id, price: String((o.type === 'stop' || editsStop(o) ? o.stop_price : o.price) ?? '') })}>改价</Button>}
                     {act && <Button size="sm" variant="outline" disabled={cancel.isPending} onClick={() => cancel.mutate(o.id)}>撤单</Button>}
                     {!act && <span className="faint tr-small">{fmtTime(o.updated_at)}</span>}
                   </span>

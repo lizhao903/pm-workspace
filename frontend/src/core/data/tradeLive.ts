@@ -1,8 +1,8 @@
 // 交易所实盘账户（TRD-07a 后端，TRD-07b 前端）、对账（TRD-08b）、交易审计（TRD-08a）、实盘评审闸门和实盘开关（TRD-08c）。
 // 契约见 docs/api-contract.md「交易套件插件 trade」的「交易所账户只读接入」「交易审计和停用前全停」「对账和自动熔断」「实盘评审闸门」。
 //
-// 实盘账户只读：没有任何向交易所下单、撤单、划转、提币的接口。实盘开关打开后，实盘下单（TRD-08d）上线之前，
-// 实盘账户的交易动作后端照样 403，前端也不给可用的入口。
+// 实盘下单（TRD-08d）：下单、撤单、平仓、部署走 tradePaper 里同一套接口（统一下单入口），闸门全开（账户 trade_ready）才可用；
+// 闸门没过后端 403 live_gate 并逐条写缺什么，前端照 trade_blockers 把入口置灰写原因。没有划转、提币的接口。
 //
 // 接入实盘账户三步：内核建连接器（凭证进保险箱）→ 测试连接 → POST /api/trade/accounts {connector_id}；放弃时删掉连接器。
 // 评审确认、申请 trade:live、打开实盘开关只接受用户本人在界面上的操作：前端的写请求都带 X-Actor-Source: ui（core/api/client）。
@@ -29,6 +29,8 @@ export type TradeLivePosition = {
   /** 对账用的持仓键，同一账户内唯一，当行 id 用 */
   key: string
   account_id?: string
+  /** 平仓用的 id（live:<账户>:<持仓键>）：POST /api/trade/positions/{id}/close 认它（TRD-08d） */
+  id?: string
 }
 export type TradeLiveOrder = {
   id: string
@@ -156,7 +158,7 @@ export type TradeLiveGate = {
   off_reason?: string
   can_enable: boolean
   blockers: string[]
-  /** 恒为 false：实盘下单（TRD-08d）没上线 */
+  /** TRD-08d 起恒为 true：实盘下单已上线；能不能下看开关、评审、trade:live 和每个账户的 trade_ready */
   live_orders: boolean
   note: string
   /** 二次确认要输入的插件名 */

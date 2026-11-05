@@ -2921,7 +2921,7 @@ DOM-01a。插件 `domains`（`internal/plugins/domains`，清单 `plugin.json`�
 
 ## 交易套件插件 trade
 
-TRD-01a 起。插件 `trade`（`internal/plugins/trade`，清单 `plugin.json`，0.6.0），不依赖别的插件，权限是 `network:market-data`（普通，公开行情）和 `network:exchanges`（高，0.5.0 起，**只用于交易所账户的只读接口**，见下文「交易所账户只读接入」；从 0.4.0 升级时要用户确认这条新增权限，确认前实盘账户同步失败，原因是「插件 trade 的 network:exchanges 权限还没确认，到插件管理里升级并确认」）；0.6.0 起清单声明 `trade:live`（最高风险），但它是单独申请的权限：安装、升级都不授予，要用户本人在交易设置里过实盘评审后申请（见下文「实盘评审闸门和实盘开关」）；**没有任何向交易所下单、撤单、改单、划转、提币的接口**（`trade:live` 授予了、实盘开关开着也一样，实盘下单是 TRD-08d），只做行情、回测、模拟盘和交易所账户的只读同步、对账：模拟盘的委托只在本地撮合，下单、部署只接受模拟盘账户（TRD-05a 起），对实盘账户回 403（TRD-07a 起）。表前缀 `trade_`，迁移在插件目录：`migrations/0001_trade.sql` 建 `trade_instruments`、`trade_watchlists`；`0002_market_cache.sql`（TRD-02a）建 `trade_klines`（收盘了的 K 线）、`trade_kline_spans`（已向交易所取过的区间）、`trade_quotes`（每个标的最近一次的最新价，30 秒落一次）。`0003_alerts.sql`（TRD-03a）建 `trade_alerts`（盯盘提醒）、`trade_alert_events`（提醒触发记录）。`0004_strategy_backtest.sql`（TRD-04b）建 `trade_strategies`（策略）、`trade_backtests`（回测记录）。`0005_paper_trading.sql`（TRD-05a）建 `trade_accounts`（模拟盘账户）、`trade_orders`（委托）、`trade_fills`（成交流水，持仓也从这里取）、`trade_day_marks`（每个账户每个 UTC 日的起始权益）。`0006_strategy_runs.sql`（TRD-05b）建 `trade_runs`（部署）、`trade_run_logs`（部署日志）。`0007_risk.sql`（TRD-06a）建 `trade_risk`（风控规则和熔断状态）、`trade_halts`（熔断记录）。`0008_live_accounts.sql`（TRD-07a）给 `trade_accounts` 加 `connector_id`、`status`、`error`、`want_trade`、`key_perms`，建 `trade_live_state`（每个实盘账户最近一次只读同步拉到的交易所数据和估值）、`trade_live_holdings`、`trade_live_orders`（对账用的本地记录）、`trade_live_fills`（交易所成交历史）。`0009_audit.sql`（TRD-08a）建 `trade_audit`（交易审计的查询索引）。`0010_recon.sql`（TRD-08b）给 `trade_risk` 加三个自动熔断阈值，建 `trade_recons`（对账记录）、`trade_recon_items`（对账差异）。`0011_live_review.sql`（TRD-08c）建 `trade_live_checks`（评审清单每一项的确认）、`trade_live_reviews`（评审记录，只追加）、`trade_live_switch`（实盘开关）。一个插件提供四个功能模块 `markets`（行情）、`monitor`（盯盘）、`strategy`（策略与回测）、`trading`（交易执行），以后要单独装时再拆。插件未安装或停用时本节接口回 `not_found` 404（同「插件路由」）。编进二进制的行情源是 Binance（`binance`，TRD-01b）和 OKX（`okx`，TRD-01c）的公开行情，只读、不带任何 API Key；不出网的假行情源 `fake` 只给测试和离线演示，设环境变量 `PMW_TRADE_DEMO=1` 才登记。两个真实源各登记一个连接器 `binance_market`、`okx_market`（类别 `market`，认证方式 `none`，连通测试是 ping 一次交易所），清单 `provides.connectors` 声明了这两个；0.5.0 起还有交易所账户的 `binance_account`、`okx_account`（类别 `market`，认证方式 `token`，见下文「交易所账户只读接入」）。后台任务：`trade_market` 常驻刷新行情（见下文「行情缓存和推送」），`trade_instruments` 启用时先跑一次、之后每 24 小时把每个源的标的同步一遍（同 `POST /api/trade/sources/{id}/sync`），`trade_alerts` 每 2 秒检查一次盯盘提醒（TRD-03a，见下文「盯盘提醒」），`trade_backtests` 常驻执行排队的回测（TRD-04b，见下文「策略和回测」），`trade_paper` 常驻撮合模拟盘挂单、检查强平和日亏损熔断（TRD-05a、TRD-06a，见下文「模拟盘账户、委托和撮合」「风控」），`trade_runs` 常驻按 K 线收盘给运行中的部署算信号、下单（TRD-05b，见下文「策略部署」），`trade_live` 每 30 秒看一遍：到点（每个账户每分钟一次）的实盘账户只读同步并对账，再看行情源断开要不要熔断（TRD-07a、TRD-08b，见下文「交易所账户只读接入」「对账和自动熔断」）。发布事件 `trade.alert_fired`、`trade.halted`、`trade.halt_released`（清单 `emits`），通知 kind 为 `trade.alert`、`trade.halt`、`trade.liquidation`、`trade.account`（交易账户异常、恢复）、`trade.recon`（对账差异）。
+TRD-01a 起。插件 `trade`（`internal/plugins/trade`，清单 `plugin.json`，0.7.0），不依赖别的插件，权限是 `network:market-data`（普通，公开行情）和 `network:exchanges`（高，0.5.0 起，用于交易所账户的只读接口，0.7.0 起加实盘闸门放行的下单、撤单、查单，见下文「交易所账户只读接入」「实盘下单」；从 0.4.0 升级时要用户确认这条新增权限，确认前实盘账户同步失败，原因是「插件 trade 的 network:exchanges 权限还没确认，到插件管理里升级并确认」）；0.6.0 起清单声明 `trade:live`（最高风险），但它是单独申请的权限：安装、升级都不授予，要用户本人在交易设置里过实盘评审后申请（见下文「实盘评审闸门和实盘开关」）；**永不提币、永不划转**（没有任何提币、划转、借贷的接口和代码路径）；做行情、回测、模拟盘、交易所账户的只读同步和对账，0.7.0 起（TRD-08d）实盘账户可以下单、撤单、部署：每一笔都要过实盘闸门（评审通过、`trade:live` 已授予、实盘开关开着、账户选了读取 + 交易、Key 现查有交易权限且没有提币划转权限），交易所的写操作只有下单、撤单、查单，见下文「实盘下单」。模拟盘的委托只在本地撮合。表前缀 `trade_`，迁移在插件目录：`migrations/0001_trade.sql` 建 `trade_instruments`、`trade_watchlists`；`0002_market_cache.sql`（TRD-02a）建 `trade_klines`（收盘了的 K 线）、`trade_kline_spans`（已向交易所取过的区间）、`trade_quotes`（每个标的最近一次的最新价，30 秒落一次）。`0003_alerts.sql`（TRD-03a）建 `trade_alerts`（盯盘提醒）、`trade_alert_events`（提醒触发记录）。`0004_strategy_backtest.sql`（TRD-04b）建 `trade_strategies`（策略）、`trade_backtests`（回测记录）。`0005_paper_trading.sql`（TRD-05a）建 `trade_accounts`（模拟盘账户）、`trade_orders`（委托）、`trade_fills`（成交流水，持仓也从这里取）、`trade_day_marks`（每个账户每个 UTC 日的起始权益）。`0006_strategy_runs.sql`（TRD-05b）建 `trade_runs`（部署）、`trade_run_logs`（部署日志）。`0007_risk.sql`（TRD-06a）建 `trade_risk`（风控规则和熔断状态）、`trade_halts`（熔断记录）。`0008_live_accounts.sql`（TRD-07a）给 `trade_accounts` 加 `connector_id`、`status`、`error`、`want_trade`、`key_perms`，建 `trade_live_state`（每个实盘账户最近一次只读同步拉到的交易所数据和估值）、`trade_live_holdings`、`trade_live_orders`（对账用的本地记录）、`trade_live_fills`（交易所成交历史）。`0009_audit.sql`（TRD-08a）建 `trade_audit`（交易审计的查询索引）。`0010_recon.sql`（TRD-08b）给 `trade_risk` 加三个自动熔断阈值，建 `trade_recons`（对账记录）、`trade_recon_items`（对账差异）。`0011_live_review.sql`（TRD-08c）建 `trade_live_checks`（评审清单每一项的确认）、`trade_live_reviews`（评审记录，只追加）、`trade_live_switch`（实盘开关）。`0012_live_orders.sql`（TRD-08d）给 `trade_orders` 加 `live`、`ex_client_id`、`ex_order_id`、`submitted_at`、`checked_at`（实盘委托），建 `ex_client_id` 的唯一索引和 `(live, status)` 索引。一个插件提供四个功能模块 `markets`（行情）、`monitor`（盯盘）、`strategy`（策略与回测）、`trading`（交易执行），以后要单独装时再拆。插件未安装或停用时本节接口回 `not_found` 404（同「插件路由」）。编进二进制的行情源是 Binance（`binance`，TRD-01b）和 OKX（`okx`，TRD-01c）的公开行情，只读、不带任何 API Key；不出网的假行情源 `fake` 只给测试和离线演示，设环境变量 `PMW_TRADE_DEMO=1` 才登记。两个真实源各登记一个连接器 `binance_market`、`okx_market`（类别 `market`，认证方式 `none`，连通测试是 ping 一次交易所），清单 `provides.connectors` 声明了这两个；0.5.0 起还有交易所账户的 `binance_account`、`okx_account`（类别 `market`，认证方式 `token`，见下文「交易所账户只读接入」）。后台任务：`trade_market` 常驻刷新行情（见下文「行情缓存和推送」），`trade_instruments` 启用时先跑一次、之后每 24 小时把每个源的标的同步一遍（同 `POST /api/trade/sources/{id}/sync`），`trade_alerts` 每 2 秒检查一次盯盘提醒（TRD-03a，见下文「盯盘提醒」），`trade_backtests` 常驻执行排队的回测（TRD-04b，见下文「策略和回测」），`trade_paper` 常驻撮合模拟盘挂单、检查强平和日亏损熔断（TRD-05a、TRD-06a，见下文「模拟盘账户、委托和撮合」「风控」），`trade_runs` 常驻按 K 线收盘给运行中的部署算信号、下单（TRD-05b，见下文「策略部署」），`trade_live` 每 30 秒看一遍：到点（每个账户每分钟一次）的实盘账户只读同步并对账，再看行情源断开要不要熔断（TRD-07a、TRD-08b，见下文「交易所账户只读接入」「对账和自动熔断」）。发布事件 `trade.alert_fired`、`trade.halted`、`trade.halt_released`（清单 `emits`），通知 kind 为 `trade.alert`、`trade.halt`、`trade.liquidation`、`trade.account`（交易账户异常、恢复）、`trade.recon`（对账差异）。
 
 | 方法 | 路径 | body / 说明 |
 |---|---|---|
@@ -3112,7 +3112,7 @@ TRD-01a 起。插件 `trade`（`internal/plugins/trade`，清单 `plugin.json`�
 
 ### 模拟盘账户、委托和撮合（TRD-05a）
 
-模拟盘账户、委托、成交落 `trade_accounts`、`trade_orders`、`trade_fills`、`trade_day_marks`（迁移 `0005_paper_trading.sql`）。**下单只接受模拟盘账户；委托只在本地撮合，不向交易所发任何请求。** 交易所实盘账户（TRD-07a）也在这张表里、走同一组账户接口，只读同步，`paper` 恒为 `false`，见下文「交易所账户只读接入」。 id 前缀 `ac`（账户）、`od`（委托）、`ps`（持仓）、`fl`（成交）。
+模拟盘账户、委托、成交落 `trade_accounts`、`trade_orders`、`trade_fills`、`trade_day_marks`（迁移 `0005_paper_trading.sql`）。**模拟盘的委托只在本地撮合，不向交易所发任何请求。** 交易所实盘账户（TRD-07a）也在这张表里、走同一组账户接口，`paper` 恒为 `false`，见下文「交易所账户只读接入」；实盘委托也在 `trade_orders`（`live` 为真），过实盘闸门后发到交易所，见下文「实盘下单」（TRD-08d）。 id 前缀 `ac`（账户）、`od`（委托）、`ps`（持仓）、`fl`（成交）。
 
 | 方法 | 路径 | body / 说明 |
 |---|---|---|
@@ -3120,19 +3120,19 @@ TRD-01a 起。插件 `trade`（`internal/plugins/trade`，清单 `plugin.json`�
 | POST | `/api/trade/accounts` | 建模拟盘：`{name?, currency?, initial?, markets?, fee_bp?, slippage_ticks?, paper?}`，回 201 + `TradeAccount`。默认名称「模拟盘」、`USD`、初始资金 100000、`["crypto"]`、手续费万分之 5、滑点 1 跳。`paper` 只能是 `true`（传 `false` 400「现在只能建模拟盘账户」）。body 带 `connector_id` 时是接入交易所实盘账户，见下文「交易所账户只读接入」 |
 | GET | `/api/trade/accounts/{id}` | `TradeAccount` |
 | PATCH | `/api/trade/accounts/{id}` | 模拟盘 `{name?, markets?, fee_bp?, slippage_ticks?}`，实盘 `{name?, trade?}`，只改出现的，回 `TradeAccount`；带 `paper`、`currency`、`initial` 都 400（建好后不能改） |
-| DELETE | `/api/trade/accounts/{id}` | `data` 为 `null`；模拟盘还有持仓、挂单或没停的部署时 409 `conflict`、`reason: "in_use"`，`message` 写还剩什么。委托、成交、部署记录保留，界面写「已删除的账户」。实盘账户不拦：只删插件里的账户和本地记录，交易所那边不动，连接器实例（凭证）保留，成交历史、对账记录、审计保留 |
+| DELETE | `/api/trade/accounts/{id}` | `data` 为 `null`；模拟盘还有持仓、挂单或没停的部署时 409 `conflict`、`reason: "in_use"`，`message` 写还剩什么。委托、成交、部署记录保留，界面写「已删除的账户」。实盘账户还有没到终态的实盘委托或没停的部署时同样 409 `in_use`（TRD-08d），没有时只删插件里的账户和本地记录，交易所那边不动，连接器实例（凭证）保留，成交历史、对账记录、审计保留 |
 | GET | `/api/trade/accounts/{id}/reconcile` | `TradeLedgerCheck`：账本对账（见下文「账本口径」），TSK-0233 的两周运行检查脚本调它 |
-| GET | `/api/trade/orders?account_id=&status=&run_id=&symbol=&limit=&offset=` | `TradeOrder[]`，新的在前；`status` 是 `active`（挂单中）、`history`（其余）或单个状态，不认识 400；`limit` 默认 200、1 到 1000。`meta` 是 `{total, active, history, limit, offset}`，`total` 是筛选后的条数，`active`、`history` 是不按状态筛时的两类条数 |
-| POST | `/api/trade/orders` | 统一下单入口：`{account_id, symbol, side, type?, qty, price?, stop_price?, leverage?, reduce_only?, confirmed?}`，回 201 + `TradeOrder`（`status` 是 `open` 或 `rejected`）。错误见下文「下单」 |
-| POST | `/api/trade/orders/cancel-all` | `{account_id?}`（可以不带 body），撤掉全部（或这个账户的）挂单，回 `{canceled}` |
+| GET | `/api/trade/orders?account_id=&status=&run_id=&symbol=&live=&limit=&offset=` | `TradeOrder[]`，新的在前；`status` 是 `active`（进行中：模拟盘挂单中，实盘 `pending` / `open` / `partial` / `unknown`）、`history`（其余）或单个状态，不认识 400；`live` 是 `true` / `false`（只看实盘或模拟盘委托），别的值 400；`limit` 默认 200、1 到 1000。`meta` 是 `{total, active, history, limit, offset}`，`total` 是筛选后的条数，`active`、`history` 是不按状态筛时的两类条数 |
+| POST | `/api/trade/orders` | 统一下单入口：`{account_id, symbol, side, type?, qty, price?, stop_price?, leverage?, reduce_only?, confirmed?}`，回 201 + `TradeOrder`（模拟盘 `status` 是 `open` 或 `rejected`；实盘见下文「实盘下单」）。错误见下文「下单」 |
+| POST | `/api/trade/orders/cancel-all` | `{account_id?}`（可以不带 body），撤掉全部（或这个账户的）挂单，回 `{canceled}`；实盘账户撤它在交易所的全部挂单，有撤不掉的 502（TRD-08d，见下文「实盘下单」） |
 | GET | `/api/trade/orders/{id}` | `TradeOrder` |
-| PATCH | `/api/trade/orders/{id}` | `{price?, stop_price?}` 改挂单的委托价、触发价（限价、止损限价改 `price`，止损、止损限价改 `stop_price`，止损限价触发后只能改 `price`），回 `TradeOrder`；开仓单按新价格重新过风控，不过 409（同下单，委托保持原样）。不是挂单中 409 `conflict`、`reason: "state"` |
-| POST | `/api/trade/orders/{id}/cancel` | 撤单，回 `TradeOrder`（`status` 为 `canceled`，`reject_reason` 写「手动撤单」）；不是挂单中 409 `reason: "state"` |
+| PATCH | `/api/trade/orders/{id}` | `{price?, stop_price?}` 改挂单的委托价、触发价（限价、止损限价改 `price`，止损、止损限价改 `stop_price`，止损限价触发后只能改 `price`），回 `TradeOrder`；开仓单按新价格重新过风控，不过 409（同下单，委托保持原样）。不是挂单中 409 `conflict`、`reason: "state"`；实盘委托 403 `reason: "live"`（不能改价） |
+| POST | `/api/trade/orders/{id}/cancel` | 撤单，回 `TradeOrder`（`status` 为 `canceled`，`reject_reason` 写「手动撤单」）；不是挂单中 409 `reason: "state"`。实盘委托到交易所撤，撤不了 502（TRD-08d） |
 | GET | `/api/trade/positions?account_id=` | `TradePosition[]` + `meta.total`，按开仓时间新的在前 |
-| POST | `/api/trade/positions/{id}/close` | `{type?, price?, stop_price?, confirmed?}`（可以不带 body），按反方向下一笔平掉整个持仓：默认市价，合约带仅减仓，`source` 为 `close`；同样走统一下单入口（风控、二次确认），回 201 + `TradeOrder`。持仓不存在或已平 404 |
+| POST | `/api/trade/positions/{id}/close` | `{type?, price?, stop_price?, confirmed?}`（可以不带 body），按反方向下一笔平掉整个持仓：默认市价，合约带仅减仓，`source` 为 `close`；同样走统一下单入口（风控、二次确认），回 201 + `TradeOrder`。持仓不存在或已平 404。`id` 是 `live:<账户>:<持仓键>` 时平实盘持仓（TRD-08d，见下文「实盘下单」） |
 | GET | `/api/trade/fills?account_id=&run_id=&order_id=&symbol=&limit=&offset=` | `TradeFill[]` + `meta.total/limit/offset`，新的在前；`limit` 默认 200、1 到 1000 |
 
-`TradeAccount`：`{id, name, broker, kind, markets, paper, currency, equity, available, margin_used, status, error?, api_hint, permissions, updated_at, initial, balance, realized_pnl, unrealized_pnl, fees, order_hold, fee_bp, slippage_ticks, marks_status, created_at, connector_id?, key_permissions?, want_trade?, synced_at?, recon?}`，前半同原型 `TradeAccount`，中间是模拟盘账本的明细，最后五个只有实盘账户有（见下文「交易所账户只读接入」），`recon` 是 `{status, at?, open, error?}`。
+`TradeAccount`：`{id, name, broker, kind, markets, paper, currency, equity, available, margin_used, status, error?, api_hint, permissions, updated_at, initial, balance, realized_pnl, unrealized_pnl, fees, order_hold, fee_bp, slippage_ticks, marks_status, created_at, connector_id?, key_permissions?, want_trade?, synced_at?, recon?, trade_ready?, trade_blockers?}`，前半同原型 `TradeAccount`，中间是模拟盘账本的明细，最后七个只有实盘账户有（见下文「交易所账户只读接入」），`recon` 是 `{status, at?, open, error?}`；`trade_ready` 是现在能不能实盘下单（闸门里不用问交易所的几项，加最近一次同步查到的 Key 有没有交易权限；下单时还会现查交易所），`trade_blockers` 是不能的原因（TRD-08d）。
 
 - 模拟盘固定 `broker` 为「模拟」、`kind` 为 `exchange`、`status` 为 `connected`、`api_hint` 为「本地模拟撮合」、`permissions` 为 `["read","trade"]`；`updated_at` 是这次估值的时间。
 - `currency` 是 `USD` 或 `USDT`（现在只有数币行情，两者都按 1:1 折算 USD）；`markets` 是 `crypto` / `cn` / `hk` / `us` 的子集，但只有数币有行情源，别的市场的标的下单会 400。
@@ -3141,10 +3141,10 @@ TRD-01a 起。插件 `trade`（`internal/plugins/trade`，清单 `plugin.json`�
 - `fee_bp` 是手续费万分之几（0 到 100），`slippage_ticks` 是市价、止损单成交时加减几跳（0 到 1000 的整数，一跳是 10 的负「标的价格小数位」次方）。
 - `marks_status`：`live` 持仓的现价都是实时的；`stale` 有的不是实时（按行情缓存或均价估）。
 
-`TradeOrder`：`{id, account_id, symbol, side, type, qty, price?, stop_price?, filled, avg_fill?, status, reject_reason?, reduce_only, run_id?, created_at, updated_at, leverage, fee, source, triggered, confirmed}`，前半同原型 `Order`。
+`TradeOrder`：`{id, account_id, symbol, side, type, qty, price?, stop_price?, filled, avg_fill?, status, reject_reason?, reduce_only, run_id?, created_at, updated_at, leverage, fee, source, triggered, confirmed, live, client_order_id?, exchange_order_id?, submitted_at?, checked_at?}`，前半同原型 `Order`；`live` 是实盘委托，`client_order_id` 是发给交易所的委托编号，`exchange_order_id` 是交易所的委托号，`submitted_at` 是请求发出的时间，`checked_at` 是最近一次查单的时间（TRD-08d，见下文「实盘下单」）。
 
 - `side` 是 `buy` / `sell`；`type` 是 `market` / `limit` / `stop` / `stop_limit`（POST 不传按 `limit`）；`qty` 按标的最小下单量向下取整，取整后为 0 时 400「数量不足最小单位 N」。限价、止损限价要 `price`，止损、止损限价要 `stop_price`，别的类型传了忽略。
-- `status` 是 `open`（挂单中）/ `filled`（已成交）/ `canceled`（已撤单）/ `rejected`（被拒绝）。原型的 `pending` 在后端不出现（下单当场检查完就是挂单中或被拒绝）；`partial` 预留，模拟撮合一次全部成交。`reject_reason` 是被拒或撤单的原因。
+- `status` 是 `open`（挂单中）/ `filled`（已成交）/ `canceled`（已撤单）/ `rejected`（被拒绝）。模拟盘不出现 `pending`、`partial`、`unknown`（下单当场检查完就是挂单中或被拒绝，模拟撮合一次全部成交）；实盘委托多 `pending`（已落库、请求还没回）、`partial`（部分成交，`filled` 是已成交数量）、`unknown`（状态未知，等查单确认）（TRD-08d）。`reject_reason` 是被拒或撤单的原因。
 - `leverage` 是整数倍：现货恒为 1（传了大于 1 的 400）；合约 1 到 125，不传沿用现有持仓的杠杆，没有持仓按 1。`reduce_only` 只适用于合约（现货传 `true` 400）。
 - `fee` 是这笔的手续费，`avg_fill` 是成交价；`source` 是 `manual`（手动）/ `close`（持仓页平仓）/ `run`（部署）/ `liquidation`（强平）；`triggered` 是止损限价已触发；`confirmed` 是下单时带了二次确认标记。
 
@@ -3163,7 +3163,7 @@ TRD-01a 起。插件 `trade`（`internal/plugins/trade`，清单 `plugin.json`�
 
 下单（`POST /api/trade/orders`，以及持仓页平仓、部署下单，都走同一个入口，风控逐笔检查接在这里，直接调接口也绕不过）：
 
-- 403 `forbidden`、`reason: "live"`：账户是实盘账户（TRD-07a 起，原来是 400）。`message`「账户「…」是实盘账户：实盘下单、改单撤单、平仓和部署还没开放（要先过实盘评审、打开实盘开关，并等实盘下单上线），实盘账户现在只读同步」；实盘开关打开后也一样（TRD-08c，实盘下单是 TRD-08d）。不记委托。`POST /api/trade/orders/cancel-all` 带实盘账户的 `account_id`、`PATCH /api/trade/orders/{id}` 同样 403。
+- 实盘账户（TRD-08d 起，原来一律 403 `reason: "live"`）：403 `reason: "live_gate"`（实盘闸门没过，`missing` 写缺什么）、403 `reason: "not_user"`（不是用户本人在界面上提交的手动单、平仓）、400（不符合交易所的下单规则、实盘不改杠杆、双向持仓、止损单）、502 `upstream`（取不到交易所的下单规则或杠杆），见下文「实盘下单」；改实盘委托的价 403 `reason: "live"`。
 - 400 `validation`：账户不存在、字段不对、标的格式不对或不在标的表里、行情源还没接、期权、账户不支持这个市场、数量取整后为 0、市价单还没有最新价、金额超出范围。不认识的字段 400。这些情况不记委托。
 - 409 `conflict`、`reason: "risk"`：被风控拦下（见下文「风控」），`message` 是「风控未通过：」加逐条原因（用「；」连），`error` 里多 `blocks`（原因数组）和 `order`（记成被拒绝的那笔 `TradeOrder`，`reject_reason` 是同样的原因）。
 - 409 `conflict`、`reason: "confirm"`：手动单（含平仓）金额（折 USD）超过二次确认阈值又没带 `confirmed: true`，`error` 里多 `value`（这一笔的金额）和 `confirm_above`；不记委托，带上确认标记重新提交即可。
@@ -3182,7 +3182,7 @@ TRD-01a 起。插件 `trade`（`internal/plugins/trade`，清单 `plugin.json`�
 
 ### 策略部署（TRD-05b）
 
-「部署」是策略在一个模拟盘账户上长期跑，和 SOP 的「执行」分开建模，落 `trade_runs`、`trade_run_logs`（迁移 `0006_strategy_runs.sql`），id 前缀 `rn`。**只能部署到模拟盘账户**（部署、恢复到实盘账户 403 `forbidden`、`reason: "live"`，TRD-07a）。
+「部署」是策略在一个模拟盘账户上长期跑，和 SOP 的「执行」分开建模，落 `trade_runs`、`trade_run_logs`（迁移 `0006_strategy_runs.sql`），id 前缀 `rn`。部署到实盘账户要用户本人、实盘闸门全开（TRD-08d，见下文「实盘下单」；原来一律 403 `reason: "live"`）。
 
 | 方法 | 路径 | body / 说明 |
 |---|---|---|
@@ -3190,13 +3190,13 @@ TRD-01a 起。插件 `trade`（`internal/plugins/trade`，清单 `plugin.json`�
 | POST | `/api/trade/runs` | `{strategy_id, account_id, symbols?, params?, capital?}`，回 201 + `TradeRun`（`status=running`，带最近 500 条日志）。错误见下 |
 | GET | `/api/trade/runs/{id}` | `TradeRun`，带最近 500 条日志 |
 | POST | `/api/trade/runs/{id}/pause` | 运行中的才能暂停：不再出新信号，已有挂单保留；日志「手动暂停」。回 `TradeRun`；不是运行中 409 `reason: "state"` |
-| POST | `/api/trade/runs/{id}/resume` | 已暂停的恢复（日志「手动恢复」），已停止、异常的重新启动（日志「重新启动」）；清掉异常原因、停止时间和原因，从启动时最近收盘的那根 K 线之后接着算，停着的这段不补算。熔断中 409 `reason: "halted"`；账户不存在 400，是实盘账户 403；已在运行 409 `reason: "state"` |
+| POST | `/api/trade/runs/{id}/resume` | 已暂停的恢复（日志「手动恢复」），已停止、异常的重新启动（日志「重新启动」）；清掉异常原因、停止时间和原因，从启动时最近收盘的那根 K 线之后接着算，停着的这段不补算。熔断中 409 `reason: "halted"`；账户不存在 400；实盘账户要用户本人（403 `not_user`）、闸门全开（403 `live_gate`）；已在运行 409 `reason: "state"` |
 | POST | `/api/trade/runs/{id}/stop` | `{reason?}`（可以不带 body，默认「手动停止」），没停的才能停：撤掉这个部署的挂单，**持仓保留、不自动平仓**；回 `TradeRun`；已停止 409 `reason: "state"` |
 
 `TradeRun`：`{id, strategy_id, account_id, symbols, params, capital, status, error?, pnl, started_at, stopped_at?, stop_reason?, logs, log_total, strategy_name, interval, realized_pnl, unrealized_pnl, fees, holdings, updated_at}`，前半同原型 `StrategyRun`。
 
 - `symbols` 是这次跑的标的；`params` 是策略参数加本次覆盖（键序同策略，网格没设 `lower`、`upper` 时部署时按现价上下 8% 定下来写进这里）；`capital` 是分配资金（账户币种）。
-- `status` 是 `running` / `paused` / `stopped` / `error`；`error` 是异常原因（账户删了、账户不是模拟盘时变 `error`，「…，部署已挂起」）；`stopped_at`、`stop_reason` 是停止时间和原因（「手动停止」「一键全停：<原因>」「策略已删除」「亏损超过 N% 停止网格」或请求里写的原因）。
+- `status` 是 `running` / `paused` / `stopped` / `error`；`error` 是异常原因（账户删了时变 `error`，「…，部署已挂起」；实盘闸门失效自动暂停时 `status` 是 `paused`、`error` 是「实盘闸门失效，自动暂停：…」）；`stopped_at`、`stop_reason` 是停止时间和原因（「手动停止」「一键全停：<原因>」「策略已删除」「亏损超过 N% 停止网格」或请求里写的原因）。
 - `logs` 是 `TradeRunLog[]`，按时间正序，列表里是最近 60 条、详情和写操作的返回是最近 500 条；`log_total` 是日志总条数。
 - `strategy_name`、`interval` 取部署时的策略快照（之后改策略、删策略都不影响这次部署的规则）。
 - `pnl` = `realized_pnl − fees + unrealized_pnl`，按 `run_id` 是它的成交重放算（同账本口径）；`holdings` 是 `TradeRunHolding[]`，这个部署自己在各标的上的持仓。
@@ -3207,7 +3207,7 @@ TRD-01a 起。插件 `trade`（`internal/plugins/trade`，清单 `plugin.json`�
 
 新建的校验（都不建部署）：
 
-- 403 `forbidden`、`reason: "live"`：账户是实盘账户（TRD-07a 起，原来是 400）。
+- 实盘账户（TRD-08d）：403 `reason: "not_user"`（不是用户本人）、403 `reason: "live_gate"`（闸门没过）；标的不是账户那家交易所的现货或 USDT 永续 400；`capital` 超过最近一次同步的可用 400。
 - 400：`strategy_id` 没给；账户不存在；策略不合法；条件规则的入场规则为空；期现基差的代码策略（「要两条腿同时成交，模拟盘还不能部署」）；`symbols` 里有不是策略标的的；没有能模拟交易的标的（标的表里没有、行情源没接、账户不支持这个市场、期权）；现货标的配了做空（只做多的策略才能部署到现货）；`params` 的键不是策略参数或 `stop_loss`、`take_profit`、`position_pct`，或不是数；`capital` 不大于 0 或超过账户可用（「分配资金超过账户可用 N 币种」）；不认识的字段。`capital` 不传按 20000，`symbols` 不传取策略里这个账户能模拟交易的全部。
 - 404：策略不存在。
 - 409 `conflict`、`reason: "halted"`：熔断中，`message`「熔断中，不能启动新运行；先到风控解除熔断」。
@@ -3239,7 +3239,7 @@ TRD-01a 起。插件 `trade`（`internal/plugins/trade`，清单 `plugin.json`�
 
 `TradeRiskDay`：`{date, start_equity, equity, pnl, loss_used, loss_limit, status}`。`date` 是 UTC 日期；`start_equity` 是各模拟盘账户当日（UTC 0 点后）第一次看到的权益合计（当天新建的账户记初始资金）；`equity` 是现在的权益合计；`pnl` = `equity − start_equity`（当日已实现加未实现）；`loss_used` 是亏损（盈利时为 0）；`loss_limit` = `start_equity × daily_loss_pct %`。`status`：`ok`；`stale` 有持仓的现价不是实时，这一刻不判定日亏损（数按缓存估）。
 
-`TradeKillResult`：`{halted, reason, at, halt_id, kind, runs_stopped, orders_canceled, remaining_runs, remaining_orders, failed}`，也是 `trade.halted` 事件的载荷。`kind` 是 `manual`（一键全停）/ `auto`（日亏损自动熔断，以及 TRD-08b 的对账差异超阈值、交易所接口连续失败、数据源断开自动熔断）；`remaining_runs`、`remaining_orders` 是没停掉的部署、没撤掉的挂单的 id（正常为 `[]`）；`failed` 是出错的原因。
+`TradeKillResult`：`{halted, reason, at, halt_id, kind, runs_stopped, orders_canceled, remaining_runs, remaining_orders, failed}`，也是 `trade.halted` 事件的载荷。`kind` 是 `manual`（一键全停）/ `auto`（日亏损自动熔断，以及 TRD-08b 的对账差异超阈值、交易所接口连续失败、数据源断开自动熔断）；`remaining_runs`、`remaining_orders` 是没停掉的部署、没撤掉的挂单的 id（正常为 `[]`；实盘账户在交易所没撤掉的挂单写「<账户> #<交易所委托号>」，TRD-08d）；`failed` 是出错的原因。
 
 `TradeHalt`：`{id, kind, reason, at, runs_stopped, orders_canceled, released_at?, release_reason?}`，同原型 `HaltRec`，多种类和停掉的数量；没解除的没有 `released_at`。已经在熔断中再全停时，上一条记录记为解除（「再次一键全停，由新的熔断记录接替」），新开一条。
 
@@ -3257,18 +3257,18 @@ TRD-01a 起。插件 `trade`（`internal/plugins/trade`，清单 `plugin.json`�
 
 日亏损熔断：撮合任务每轮算一次 `TradeRiskDay`，`loss_used` 到 `loss_limit` 时自动一键全停，原因「单日亏损 $N，达到上限 N%，自动熔断」，`kind` 为 `auto`，记 warn 级运行异常「风控熔断」，审计动作 `halt`（操作者 `trade#risk`）。有持仓的现价不全是实时时不判定。同一个 UTC 日自动熔断过、又被手动解除后，回到上限以内之前不再自动熔断。
 
-一键全停（`/risk/kill` 和日亏损自动熔断同一套，都在账本锁里按顺序做）：先进入熔断（之后的开仓单全被拦）、写熔断记录；再把所有没停的部署改成已停止（`stop_reason`「一键全停：<原因>」，日志加 warn）；再撤掉所有挂单（原因「一键全停：<原因>」）；持仓不动。然后记审计（手动 `kill`，自动 `halt`，`target_type` `trade_risk`，`detail` 带停掉的数量和没做完的）、发事件 `trade.halted`（载荷 `TradeKillResult`）、发通知（kind `trade.halt`，级别 `error`）。解除记审计 `release`、发事件 `trade.halt_released`、发通知（级别 `info`）。改规则记审计 `update`（`detail` 带改前改后）。
+一键全停（`/risk/kill` 和日亏损自动熔断同一套，都在账本锁里按顺序做）：先进入熔断（之后的开仓单全被拦）、写熔断记录；再把所有没停的部署改成已停止（`stop_reason`「一键全停：<原因>」，日志加 warn）；再撤掉所有挂单（原因「一键全停：<原因>」；TRD-08d 起还到每个实盘账户的交易所撤掉全部挂单，见「实盘下单」）；持仓不动。然后记审计（手动 `kill`，自动 `halt`，`target_type` `trade_risk`，`detail` 带停掉的数量和没做完的）、发事件 `trade.halted`（载荷 `TradeKillResult`）、发通知（kind `trade.halt`，级别 `error`）。解除记审计 `release`、发事件 `trade.halt_released`、发通知（级别 `info`）。改规则记审计 `update`（`detail` 带改前改后）。
 
 ### 交易所账户只读接入（TRD-07a）
 
-交易所实盘账户也落 `trade_accounts`（`paper` 恒为 0，建的时候写死，没有改它的语句），同步数据落 `trade_live_state`、`trade_live_holdings`、`trade_live_orders`、`trade_live_fills`（迁移 `0008_live_accounts.sql`），id 前缀同模拟盘 `ac`。**只调交易所的只读接口，没有任何下单、撤单、改单、划转、提币的代码路径。**
+交易所实盘账户也落 `trade_accounts`（`paper` 恒为 0，建的时候写死，没有改它的语句），同步数据落 `trade_live_state`、`trade_live_holdings`、`trade_live_orders`、`trade_live_fills`（迁移 `0008_live_accounts.sql`），id 前缀同模拟盘 `ac`。**同步只调交易所的只读接口；没有任何改单、划转、提币的代码路径；下单、撤单、查单只在实盘闸门放行时发（TRD-08d，见「实盘下单」）。**
 
-- 连接器：`binance_account`（字段 `api_key`、`api_secret`）、`okx_account`（再加 `passphrase`），类别 `market`，认证 `token`，字段都是凭证（`secret`），进保险箱、对外只有 `secret_hints`。插件只在 `Core.Connectors().With` 的回调里拿明文，用完即丢。
-- 出网：`Core.HTTP("exchanges")` 拿客户端，外面再包一层只读检查：只放行 `GET`，且只放行下面这些路径，别的请求不发出去。Binance `api.binance.com` 的 `/sapi/v1/account/apiRestrictions`（Key 权限）、`/api/v3/account`、`/api/v3/openOrders`、`/api/v3/myTrades`，`fapi.binance.com` 的 `/fapi/v2/account`、`/fapi/v2/positionRisk`、`/fapi/v1/openOrders`、`/fapi/v1/userTrades`；OKX `www.okx.com` 的 `/api/v5/account/config`（Key 权限 `perm`）、`/api/v5/account/balance`、`/api/v5/account/positions`、`/api/v5/trade/orders-pending`、`/api/v5/trade/fills`。签名按交易所文档：Binance 查询串 HMAC-SHA256 十六进制、`X-MBX-APIKEY` 头；OKX 时间戳 + 方法 + 路径 HMAC-SHA256 再 Base64、`OK-ACCESS-*` 头。
-- Key 权限（连通测试 `POST /api/connectors/{id}/test`、建账户、每次同步都先查）：带提币权限（Binance `enableWithdrawals`、OKX `perm` 含 `withdraw`），或 Binance 的内部划转、万向划转（`enableInternalTransfer`、`permitsUniversalTransfer`）的一律拒绝：连通测试失败，`message`「这个 API Key 开了提币权限，不能接入。到交易所关掉提币权限后再试（交易套件只需要读取权限）」；没有读取权限也拒绝。带交易权限的照样接入，只按只读用（`key_permissions` 记 `["read","trade"]`）。
+- 连接器：`binance_account`（字段 `api_key`、`api_secret`）、`okx_account`（再加 `passphrase`），类别 `market`，认证 `token`，这几个字段都是凭证（`secret`）；TRD-08d 起两个都多一个 `select` 字段 `env`（`mainnet` / `testnet`，默认 `mainnet`，见「实盘下单」的测试网），进保险箱、对外只有 `secret_hints`。插件只在 `Core.Connectors().With` 的回调里拿明文，用完即丢。
+- 出网：`Core.HTTP("exchanges")` 拿客户端，外面再包一层只读检查：只放行 `GET`，且只放行下面这些路径，别的请求不发出去。Binance `api.binance.com` 的 `/sapi/v1/account/apiRestrictions`（Key 权限）、`/api/v3/account`、`/api/v3/openOrders`、`/api/v3/myTrades`，`fapi.binance.com` 的 `/fapi/v2/account`、`/fapi/v2/positionRisk`、`/fapi/v1/openOrders`、`/fapi/v1/userTrades`；OKX `www.okx.com` 的 `/api/v5/account/config`（Key 权限 `perm`）、`/api/v5/account/balance`、`/api/v5/account/positions`、`/api/v5/trade/orders-pending`、`/api/v5/trade/fills`。TRD-08d 加：Binance `/api/v3/exchangeInfo`、`/fapi/v1/exchangeInfo`（公开的交易规则），OKX `/api/v5/public/instruments`（公开的交易规则）、`/api/v5/account/leverage-info`（永续现在的杠杆）；测试网 `testnet.binance.vision`、`testnet.binancefuture.com` 用同样的路径（没有 `/sapi/`）。写清单另列，见「实盘下单」。签名按交易所文档：Binance 查询串 HMAC-SHA256 十六进制、`X-MBX-APIKEY` 头；OKX 时间戳 + 方法 + 路径 HMAC-SHA256 再 Base64、`OK-ACCESS-*` 头。
+- Key 权限（连通测试 `POST /api/connectors/{id}/test`、建账户、每次同步都先查）：带提币权限（Binance `enableWithdrawals`、OKX `perm` 含 `withdraw`），或 Binance 的内部划转、万向划转（`enableInternalTransfer`、`permitsUniversalTransfer`）的一律拒绝：连通测试失败，`message`「这个 API Key 开了提币权限，不能接入。到交易所关掉提币权限后再试（交易套件只需要读取权限）」；没有读取权限也拒绝。带交易权限的照样接入（`key_permissions` 记 `["read","trade"]`），实盘下单还要过实盘闸门（TRD-08d）。
 - 凭证不外露：账户只存 API Key 后四位（`api_hint` 如 `****7Q2c`）；日志、错误、接口响应、审计、运行异常、通知里都不出现 Secret、Passphrase 和完整的 API Key（交易所的报错里带了也抹成 `***`）。
 
-接入的流程：前端先 `POST /api/connectors`（`{tool: "binance_account", name?, secrets: {api_key, api_secret}}`），再 `POST /api/connectors/{id}/test`（`ok: true` 时 `account` 如「Binance ****7Q2c · 只读」「OKX ****m9Lk · 读取 + 交易（交易套件里只读）」），最后 `POST /api/trade/accounts {connector_id}`。测试没过就别建账户；放弃时 `DELETE /api/connectors/{id}` 删掉凭证。
+接入的流程：前端先 `POST /api/connectors`（`{tool: "binance_account", name?, secrets: {api_key, api_secret}}`），再 `POST /api/connectors/{id}/test`（`ok: true` 时 `account` 如「Binance ****7Q2c · 只读」「OKX ****m9Lk · 读取 + 交易」），最后 `POST /api/trade/accounts {connector_id}`。测试没过就别建账户；放弃时 `DELETE /api/connectors/{id}` 删掉凭证。
 
 | 方法 | 路径 | body / 说明 |
 |---|---|---|
@@ -3279,22 +3279,22 @@ TRD-01a 起。插件 `trade`（`internal/plugins/trade`，清单 `plugin.json`�
 | GET | `/api/trade/accounts/{id}/snapshot` | `TradeLiveSnapshot`：最近一次同步拉到的交易所数据；模拟盘 400 |
 | GET | `/api/trade/accounts/{id}/fills?symbol=&limit=&offset=` | `TradeLiveFill[]` + `meta.total/limit/offset`，交易所成交历史，新的在前；`limit` 默认 200、1 到 1000；模拟盘 400 |
 
-实盘账户的 `TradeAccount`：`broker` 是 `Binance` / `OKX`，`kind` 为 `exchange`，`markets` 为 `["crypto"]`，`currency` 为 `USDT`；`status` 是 `connected` / `disconnected` / `error`，`error` 是原因（不含凭证）；`equity`、`available`、`margin_used` 是交易所数据的估值（USD）：现货各币按行情缓存的 `<币种>USDT` 现价折算（稳定币 1:1，取不到价的不计、`marks_status` 为 `stale`），Binance 加 U 本位合约的保证金余额，OKX 用 `totalEq`；`balance` 同 `equity`，`unrealized_pnl` 是交易所给的合约未实现盈亏合计；`initial`、`realized_pnl`、`fees`、`order_hold`、`fee_bp`、`slippage_ticks` 为 0。`api_hint` 是 API Key 后四位；`permissions` 是 `["read"]`，用户要了交易权限（`trade: true`）且 Key 也有交易权限时是 `["read","trade"]`——**只是记下来，实盘下单没开放前不起作用**；`key_permissions` 是最近一次查到的 Key 权限；`want_trade` 是用户要不要交易权限；`synced_at` 是最近一次同步成功的时间，`updated_at` 同它（还没同步成功时是账户的修改时间）；`recon` 是最近一次对账：`status` 是 `ok` / `diff` / `failed` / `none`（还没对过账），`open` 是没处理的差异数，`error` 是失败原因。
+实盘账户的 `TradeAccount`：`broker` 是 `Binance` / `OKX`，`kind` 为 `exchange`，`markets` 为 `["crypto"]`，`currency` 为 `USDT`；`status` 是 `connected` / `disconnected` / `error`，`error` 是原因（不含凭证）；`equity`、`available`、`margin_used` 是交易所数据的估值（USD）：现货各币按行情缓存的 `<币种>USDT` 现价折算（稳定币 1:1，取不到价的不计、`marks_status` 为 `stale`），Binance 加 U 本位合约的保证金余额，OKX 用 `totalEq`；`balance` 同 `equity`，`unrealized_pnl` 是交易所给的合约未实现盈亏合计；`initial`、`realized_pnl`、`fees`、`order_hold`、`fee_bp`、`slippage_ticks` 为 0。`api_hint` 是 API Key 后四位；`permissions` 是 `["read"]`，用户要了交易权限（`trade: true`）且 Key 也有交易权限时是 `["read","trade"]`；用户要了交易权限（`want_trade`）是实盘闸门的一项（TRD-08d）；`key_permissions` 是最近一次查到的 Key 权限；`want_trade` 是用户要不要交易权限；`synced_at` 是最近一次同步成功的时间，`updated_at` 同它（还没同步成功时是账户的修改时间）；`recon` 是最近一次对账：`status` 是 `ok` / `diff` / `failed` / `none`（还没对过账），`open` 是没处理的差异数，`error` 是失败原因。
 
 `TradeLiveSnapshot`：`{account_id, synced_at, baseline_at, status, error?, equity, available, margin_used, marks_status, key_permissions, fail_count, balances, positions, orders}`。`baseline_at` 是第一次同步成功、建立本地记录的时间；`fail_count` 是连续失败次数；`balances` 是 `TradeLiveBalance[]`，`positions` 是 `TradeLivePosition[]`，`orders` 是 `TradeLiveOrder[]`。
 
 `TradeLiveBalance`：`{asset, free, locked, total, value, wallet}`，`wallet` 是 `spot` / `futures`（Binance U 本位，币种记 USDT、`total` 是保证金余额）/ `unified`（OKX）；`value` 是折 USD 的估值。
 
-`TradeLivePosition`：`{symbol, name, kind, side, qty, avg_price, leverage?, liq_price?, last, pnl, margin, contracts?, key, account_id?}`。`kind` 是 `spot`（现货里非计价币的持有，`symbol` 是 `<币种>USDT` 那个标的，`side` 恒为 `long`，交易所不给均价、`avg_price` 为 0）/ `perp`（U 本位永续）；`key` 是对账用的持仓键（现货 `spot:<币种>`，合约是 `symbol`，双向持仓加 `#long` / `#short`），同一账户内唯一，界面拿它当行 id；`contracts` 是 OKX 永续的张数（`qty` 是乘了合约面值的币数量）；`account_id` 只在 `/snapshot` 里有。
+`TradeLivePosition`：`{symbol, name, kind, side, qty, avg_price, leverage?, liq_price?, last, pnl, margin, contracts?, key, id?, account_id?}`；`id` 是 `live:<账户 id>:<key>`，只在 `/snapshot` 里有，平仓接口认它（TRD-08d）。`kind` 是 `spot`（现货里非计价币的持有，`symbol` 是 `<币种>USDT` 那个标的，`side` 恒为 `long`，交易所不给均价、`avg_price` 为 0）/ `perp`（U 本位永续）；`key` 是对账用的持仓键（现货 `spot:<币种>`，合约是 `symbol`，双向持仓加 `#long` / `#short`），同一账户内唯一，界面拿它当行 id；`contracts` 是 OKX 永续的张数（`qty` 是乘了合约面值的币数量）；`account_id` 只在 `/snapshot` 里有。
 
-`TradeLiveOrder`：`{id, symbol, side, type, qty, price?, stop_price?, filled, status, created_at, account_id?}`，`id` 是交易所的委托号，`status` 是 `open` / `partial`；只读，**不能在插件里改、撤**。
+`TradeLiveOrder`：`{id, symbol, side, type, qty, price?, stop_price?, filled, status, created_at, account_id?}`，`id` 是交易所的委托号，`status` 是 `open` / `partial`；快照本身只读，撤交易所挂单走 `POST /api/trade/orders/cancel-all {account_id}` 或一键全停（TRD-08d）。
 
 `TradeLiveFill`：`{id, account_id, order_id, symbol, side, qty, price, fee, fee_asset, at, synced_at}`，`id` 是成交号（Binance `spot:<交易对>:<id>`、`perp:<交易对>:<id>`，OKX `okx:<billId>`），`fee` 是手续费绝对值。
 
 同步（后台任务 `trade_live`，以及上面三个接口）：每次先查 Key 权限，再拉余额、持仓、挂单和游标之后的新成交（Binance 现货按持有的币种和挂单的交易对逐个拉 `myTrades`，只拉 `<币种>USDT`；OKX 拉近三天的 `fills`）。
 
 - 第一次成功：按交易所的持仓、挂单建立本地记录（`trade_live_holdings`、`trade_live_orders`），记审计 `baseline`。之后本地记录只按新拉到的成交变动（按成交号去重，新插入的才记）：买卖改持仓数量，手续费按非计价币扣的从那个币的持有里扣，成交了的挂单累计成交量、满了去掉。然后对账（见「对账和自动熔断」）。
-- 发现 Key 带了提币或转出权限：账户立刻 `error`「这个 API Key 开了提币权限，已停止使用。到交易所关掉提币权限后重新连接」，不再拉别的数据，停掉这个账户上的部署（实盘不能部署，正常为 0），记审计 `key_rejected`，按「数据源断开」熔断。
+- 发现 Key 带了提币或转出权限：账户立刻 `error`「这个 API Key 开了提币权限，已停止使用。到交易所关掉提币权限后重新连接」，不再拉别的数据，停掉这个账户上的部署（停的时候到交易所撤部署的委托会被闸门拦下：Key 开了提币权限，不再用它发任何写请求），记审计 `key_rejected`，按「数据源断开」熔断。
 - 失败（连不上、限频、交易所 5xx、Key 无效或过期、IP 不在白名单、连接器被暂停断开删除）：账户 `error`，原因不含凭证；连接器实例同步记成异常；记一条失败的对账；从正常变异常时记审计 `sync_failed`、发通知（kind `trade.account`，级别 `error`）、记 warn 级运行异常「交易账户异常」。恢复后账户回到 `connected`，记审计 `sync_recovered`，之前触发过熔断的再发一条通知「熔断不会自动解除」。
 
 ### 交易审计和停用前全停（TRD-08a）
@@ -3307,7 +3307,7 @@ TRD-01a 起。插件 `trade`（`internal/plugins/trade`，清单 `plugin.json`�
 
 `TradeAudit`：`{id, at, action, target_type, target_id, summary, origin, actor, account_id?, run_id?, order_id?, detail}`。
 
-- 口径：委托 `place`、`reject`、`risk_block`、`modify`、`cancel`、`fill`（`target_type` `trade_order`）；部署 `deploy`、`pause`、`resume`、`stop`（`trade_run`）；风控 `update`、`kill`、`halt`、`breaker`、`release`（`trade_risk`）；账户 `create`、`update`、`delete`、`connect`、`disconnect`、`baseline`、`sync_failed`、`sync_recovered`、`key_rejected`（`trade_account`，拒绝接入时是 `connector`）；对账 `recon_diff`、`recon_resolve`、`recon_auto_resolved`（`trade_recon_item`）。
+- 口径：委托 `place`、`reject`、`risk_block`、`modify`、`cancel`、`fill`，实盘委托另有 `unknown`（状态未知）、`confirm`（状态未知后查单确认）、`cancel_failed`（撤不掉）（`target_type` `trade_order`；TRD-08d）；实盘闸门拒绝 `live_gate_block`、拒绝代为提交实盘委托或部署 `live_denied`、撤交易所里不是交易套件下的挂单 `cancel`、账户撤单没全部成功 `cancel_failed`（`target_type` `trade_account`）；部署 `deploy`、`pause`、`resume`、`stop`（`trade_run`）；风控 `update`、`kill`、`halt`、`breaker`、`release`（`trade_risk`）；账户 `create`、`update`、`delete`、`connect`、`disconnect`、`baseline`、`sync_failed`、`sync_recovered`、`key_rejected`（`trade_account`，拒绝接入时是 `connector`）；对账 `recon_diff`、`recon_resolve`、`recon_auto_resolved`（`trade_recon_item`）。
 - `origin` 是来源：`manual`（手动，接口来的，含手动单的撮合成交）/ 部署 id（部署下的单、部署自己的启停）/ `risk`（风控自动动作）/ `live`（交易所只读同步）/ `recon`（对账）/ `system`；内核审计的 `detail.origin` 同它。`actor` 是内核审计操作者 `trade#<会话>` 的会话部分（`user` / `paper` / `risk` / 部署 id / `live` / `recon`）。
 - `account_id`、`run_id`、`order_id` 是涉及的账户、部署、委托：委托的审计按委托补上账户和部署，部署的审计补上账户。`detail` 不含凭证。
 - 一笔模拟委托从下单到成交：`?order_id=` 查到 `place`、`fill`（被拒是 `reject`，风控拦截是 `risk_block`，撤单是 `cancel`）。
@@ -3333,7 +3333,7 @@ TRD-01a 起。插件 `trade`（`internal/plugins/trade`，清单 `plugin.json`�
 
 对账口径（每次同步成功后对一次）：
 
-- 本地记录（建立后只按拉到的成交变动）和交易所这一刻的持仓（现货非计价币的持有、U 本位永续）、挂单逐项比，数量差一点也算；计价币（USDT、USDC、FDUSD 等）余额受资金费、合约盈亏影响，不比，只给人看。
+- 本地记录（建立后只按拉到的成交变动）和交易所这一刻的持仓（现货非计价币的持有、U 本位永续）、挂单逐项比，数量差一点也算；交易套件下的实盘委托（TRD-08d）按交易所委托号认：交易所有、本地挂单里还没记上的直接补记，不算差异，涉及它们的差异 `label` 带「（交易套件下的实盘委托 od_…，本地状态 …）」；计价币（USDT、USDC、FDUSD 等）余额受资金费、合约盈亏影响，不比，只给人看。
 - 同一处差异再出现时更新它（`seen` 加一），不重复记；自己对上了的自动关闭（`recon_auto_resolved`）；标为已核实的，数量没变就不再报。新的差异记审计 `recon_diff`。
 - 差异连续两次对账都在（避开拉数据的时间差）才算数：发通知（kind `trade.recon`，级别 `error`，「交易对账异常：<账户>」「N 处差异没处理，<对象>本地 N，交易所 N」），记 warn 级运行异常「交易对账异常」（指纹 `trade:recon:<账户 id>`），每处只发一次；**持仓差异的相对差到 `recon_diff_pct`（默认 5%）时自动熔断**。挂单差异只通知不熔断（在交易所手动挂撤单就会出现）。
 
@@ -3346,7 +3346,7 @@ TRD-01a 起。插件 `trade`（`internal/plugins/trade`，清单 `plugin.json`�
 
 ### 实盘评审闸门和实盘开关（TRD-08c）
 
-评审记录、实盘开关落 `trade_live_checks`、`trade_live_reviews`、`trade_live_switch`（迁移 `0011_live_review.sql`）。**本批次没有实盘下单**：实盘开关开着、`trade:live` 授予了，下单、改单撤单、平仓、部署和启动对实盘账户照样 403 `reason: "live"`（要等 TRD-08d）；只读限制（`exchange.go` 的 `readOnlyTransport`、`exchangeReadPaths`）不变。
+评审记录、实盘开关落 `trade_live_checks`、`trade_live_reviews`、`trade_live_switch`（迁移 `0011_live_review.sql`）。实盘开关、评审、`trade:live` 是实盘闸门的三项，实盘下单（TRD-08d，见下文「实盘下单」）每一笔都现查；关掉开关、撤回评审、收回 `trade:live` 后下一笔就被拦，运行中的实盘部署自动暂停。
 
 只接受用户本人在界面上的操作：确认评审项、打开实盘开关（以及内核的申请接口，插件管理的 `/api/plugins/{id}/permissions/grant`）要求请求的取证头 `X-Actor-Source` 是 `ui` 且不带 `X-Actor-Session`（`plugin.RequireUser`，见 `docs/plugin-api.md` 2.13.26）；Agent（pmw-mcp 发的是 `agent` 加会话标识）、没带头的接口调用（`api`）、带会话标识的界面请求一律 403 `forbidden`、`reason: "not_user"`，`message`「实盘评审「审计日志」只能由用户本人在界面上操作，不接受 Agent、脚本或接口代为提交（这次的来源：<名字>#<会话>（<来源>））」，同时记一条评审记录 `denied` 和交易审计 `live_denied`。撤回评审项、关掉开关只会更保守，谁调都行（记下是谁）。这层判断靠的是请求自己声明的来源，挡得住 MCP 工具、内置 Agent 和照常调接口的代理，挡不住故意伪造请求头的本机进程（内核没有用户会话或令牌）。
 
@@ -3372,10 +3372,58 @@ TRD-01a 起。插件 `trade`（`internal/plugins/trade`，清单 `plugin.json`�
 - `checks` 是 `TradeLiveCheck[]`：`{key, label, desc, ok, text, go?, evidence, confirmed_at?, reviewer?, note?, confirmed?}`。`ok` 是条件现在满不满足，`text` 是现在的情况（不满足时是原因），`go` 是条件不满足时去处理的交易视图（`accounts` / `risk` / `runs` / `orders`）；`evidence` 是 `{label, href, view?}[]`，`view` 是交易页里去看的视图；确认过的有 `confirmed_at`、`reviewer`（界面操作者的名字）、`note` 和 `confirmed`（确认那一刻的 `{ok, text, go?, evidence}` 快照）。确认之后条件又不满足了（新出现对账差异）不自动撤回。
 - `review` 是 `{status, at?, reviewer?, missing}`：`status` 是 `passed`（五项都确认）/ `pending`；通过时 `at`、`reviewer` 是那条 `pass` 记录的；`missing` 是还没确认的项名。
 - `granted` 是 `trade:live` 授予没有（`Core.Granted`）；`enabled` 是实盘开关；`changed_at`、`changed_by`、`off_reason` 是开关最近一次改的时间、操作者和关掉的原因；`can_enable`、`blockers` 是现在能不能打开、不能的原因（同 `missing`）。
-- `live_orders` 恒为 `false`，`note`「实盘下单还没上线（TRD-08d）：实盘开关打开后，实盘账户的下单、改单撤单、平仓、部署和启动照样不可用，只读同步」；`plugin_name` 是申请 `trade:live` 二次确认要输入的插件名（清单的 `name`，「交易套件」）。
+- `live_orders` 恒为 `true`（TRD-08d 起，实盘下单已上线），`note`「实盘下单已上线（TRD-08d）：评审通过、trade:live 已授予、实盘开关打开后，接入时选了「读取 + 交易」、Key 在交易所有交易权限且没有提币和划转权限的实盘账户才能下单；每一笔都在下单时现查这些条件，任何一条不满足就拒单，运行中的实盘部署自动暂停。每笔实盘委托都会产生真实盈亏」；`plugin_name` 是申请 `trade:live` 二次确认要输入的插件名（清单的 `name`，「交易套件」）。
 - `records` 是 `TradeLiveReviewRecord[]`，新的在前：`{id, at, action, item?, reviewer, source, detail}`，`action` 是 `confirm` / `revoke` / `pass` / `reopen` / `denied`，`source` 是取证头里的来源（`ui` / `agent` / `api`），`detail` 是证据快照、拒绝原因等。
 
 `trade:live` 的申请走内核（插件管理的 `/api/plugins/{id}/permissions/grant`，`{id}` 是 `trade`，见「插件管理」）：交易插件实现 `PermissionGuard`，评审没通过时不同意授予（403，`message`「插件 trade 现在不能授予 trade:live：实盘评审还差 N 项没确认：<项名>」）。收回走同一节的 `/api/plugins/{id}/permissions/revoke`，或者撤回任何一项评审。
+
+### 实盘下单（TRD-08d）
+
+实盘委托和模拟盘委托同在 `trade_orders`（迁移 `0012_live_orders.sql` 加 `live`、`ex_client_id`、`ex_order_id`、`submitted_at`、`checked_at` 五列，`ex_client_id` 唯一索引），id 前缀同 `od`，没有新路由、没有新的 id 前缀。只做 Binance 现货、Binance U 本位永续（USDT）、OKX 现货（`<币种>-USDT`）、OKX USDT 永续；只做市价单、限价单（限价 GTC）。**永不提币、永不划转**：没有任何提币、划转（含万向划转、子账户划转）、借贷的代码路径，`trade_test.go` 的 `TestExchangeWriteBoundary` 列出这些路径片段并扫源码。
+
+写操作的放行（`exchange_trade.go`）：
+
+- 写清单 `exchangeTradePaths` 只有下单、撤单、查单：Binance `api.binance.com` 的 `POST`、`DELETE`、`GET` `/api/v3/order`，`fapi.binance.com` 的 `POST`、`DELETE`、`GET` `/fapi/v1/order`；OKX `www.okx.com` 的 `/api/v5/trade/order`（`POST` 下单、`GET` 查单）、`/api/v5/trade/cancel-order`（`POST` 撤单）。测试网域名 `testnet.binance.vision`、`testnet.binancefuture.com` 用同样的路径。没有批量下单、改单、平仓接口、调杠杆、改保证金或持仓模式、条件单。
+- 出网客户端外面的检查（`readOnlyTransport`）：只读清单的 `GET` 照常放行；写清单的请求只在请求的 ctx 里带着实盘闸门签发的令牌时放行：令牌要在登记表里（签发时登记、这次调用结束即作废，自己构造的不算）、没过期（最长 2 分钟）、是这个账户那家交易所的、方法和路径在写清单里、令牌范围允许这一种操作（下单令牌三种都行，撤单查单令牌不能下单）。别的代码路径发写请求一律在本地拦下、不出网（`TestTradeTransportNeedsGateGrant`）；令牌只在 `livetrade.go` 的 `withGate` 里签发（`TestTradeGrantOnlyFromGate` 扫源码）。
+
+实盘闸门（`livetrade.go` 的 `withGate`，**每一笔现查，不缓存任何「已放行」**）。下单要全部满足：
+
+1. 实盘评审已通过（五项都确认）；
+2. `trade:live` 已授予（`Core.Granted` 现读）；
+3. 实盘开关开着；
+4. 账户接入时选了「读取 + 交易」（`want_trade`），账户没断开、最近一次同步正常、已经同步成功过；
+5. 当场到交易所查这把 Key：有这个品种的交易权限（Binance 现货 `enableSpotAndMarginTrading`、永续 `enableFutures`；OKX `perm` 含 `trade`），并且仍然没有提币和划转权限。
+
+任何一条不满足：不发请求，接口 403 `forbidden`、`reason: "live_gate"`，`message`「实盘闸门没过：<逐条>」，`missing` 逐条写缺什么（如「实盘评审还没通过（还差 N 项：…）」「还没授予 trade:live 权限」「实盘开关没打开」「账户「…」接入时没选「读取 + 交易」」「这把 Key 在交易所没有现货交易权限」「这把 Key 开了提币权限，不能再用它向交易所发任何写请求」「查不到这把 Key 在交易所的权限：…」）；记审计 `live_gate_block`（`target_type` `trade_account`）。撤单、查单用撤单查单令牌，只要求 Key 仍然没有提币、划转权限（开关关了、评审撤回了也能撤单）。闸门逻辑（评审、开关、`trade:live` 的授予）不变，`RequireUser` 不放宽。
+
+只接受用户本人：实盘的手动下单、平仓、部署到实盘账户、恢复实盘部署要求 `plugin.RequireUser`（同实盘评审），Agent、脚本、接口代为提交 403 `reason: "not_user"`，记审计 `live_denied`。部署产生的信号单不要（部署时用户本人已确认过）。撤单谁调都行（只会更保守）。
+
+下单（`POST /api/trade/orders`、实盘持仓平仓、实盘部署的信号单都走统一入口 `paper.place`，实盘分支 `placeLiveLocked`）的顺序：
+
+1. 用户本人（手动单、平仓）→ 闸门的本地几项（不出网）→ 字段校验：只支持 `market`、`limit`（止损、止损限价、`stop_price` 400）；标的要是账户那家交易所的现货或 USDT 永续（`BINANCE:<币种>USDT`、`BINANCE:<币种>USDT.P`、`OKX:<币种>-USDT`、`OKX:<币种>-USDT-SWAP`），别的 400；
+2. 闸门全部现查（含交易所的 Key），过了签发下单令牌；
+3. 取交易所公开的交易规则（Binance `exchangeInfo` 的 `PRICE_FILTER`、`LOT_SIZE`、`MARKET_LOT_SIZE`、`NOTIONAL` / `MIN_NOTIONAL`；OKX `instruments` 的 `tickSz`、`lotSz`、`minSz`、`maxLmtSz`、`maxMktSz`、`ctVal`，缓存 10 分钟），取不到 502 `upstream`。数量按步长向下取整；限价按 tick 往不比填的价差的方向取整（买向下、卖向上）；取整后为 0、小于最小量、超过单笔上限、价格超出区间、金额小于最小金额（市价单按最新价估）的在本地 400「不符合交易所的下单规则：…」，不发请求；
+4. 永续：只读查交易所现在的杠杆和持仓模式（Binance `positionRisk?symbol=`，OKX `account/leverage-info` 和 `account/config` 的 `posMode`）。**实盘不改交易所的杠杆**：请求带的 `leverage` 和交易所不一致 400「实盘不改交易所的杠杆：<标的> 在交易所现在是 N 倍，按 N 倍下，或先到交易所改杠杆」；双向持仓 400（只支持单向持仓）；风控按交易所的杠杆查；
+5. 风控逐笔检查，同模拟盘一项不跳（单笔上限、仓位上限、杠杆上限、熔断中不许开仓）：权益用最近一次同步的估值，已有持仓用对账的本地记录、按这一笔的价格估市值；不过 409 `risk`，委托记成被拒绝（`live: true`）；
+6. 二次确认：**实盘的手动单、平仓每一笔都要 `confirmed: true`**，不看金额；没带 409 `reason: "confirm"`，`error` 里多 `live: true`，`message`「实盘委托，金额约 $N，会在交易所真实成交、产生真实盈亏，确认后带 confirmed: true 重新提交」；
+7. 生成委托编号 `client_order_id`（`pmw` 加 16 位小写字母数字；Binance `newClientOrderId`、OKX `clOrdId`），**先落库（`status` `pending`）再发请求**；Binance 参数和签名同只读接口（查询串签名，`recvWindow` 5 秒，`newOrderRespType=RESULT`，永续减仓带 `reduceOnly`）；OKX JSON body 签名，现货 `tdMode` `cash`、市价买带 `tgtCcy=base_ccy`（数量按币算），永续 `tdMode` `cross`、`sz` 是张数，下单请求带 `expTime`（发出时刻 + 5 秒）；
+8. 结果：回包明确的按回包写状态（OKX 下单回包只有委托号，先记挂单中，成交由查单回写），记审计 `place`；交易所明确拒了（Binance 4xx，如 -2010 余额不足；OKX `sCode` 非 0）记 `rejected`、`reject_reason`「交易所拒单：…」，审计 `reject`，warn 级运行异常「实盘委托被拒」；**没收到回包、超时、交易所 5xx 或回「状态未知」（Binance -1000、-1001、-1006、-1007，OKX 50001、50004、50013、50026）记 `unknown`**，审计 `unknown`、warn 级运行异常「实盘委托状态未知」，当场按 `client_order_id` 查一次单，查到了按查到的写（审计 `confirm`），查不到留着 `unknown` 由查单任务接着查。**任何情况下都不自动重发下单请求**，一笔委托只发一次 POST。
+
+回 201 + `TradeOrder`（`live: true`，`status` 是 `open` / `partial` / `filled` / `rejected` / `unknown`）。
+
+状态回写：后台任务 `trade_live` 每轮（30 秒）在同步之后，对没到终态的实盘委托（`pending`、`open`、`partial`、`unknown`）逐笔按 `client_order_id` 查单，写状态、交易所委托号、已成交数量（`filled`，部分成交时 `status` 是 `partial`）、均价、手续费；已成交数量变多时记一条审计 `fill`（`detail.qty` 是增量），部署的单写部署日志；交易所那边撤了（过期、在交易所手动撤）记审计 `cancel`。`pending`、`unknown` 的委托交易所从来没确认过（没有交易所委托号）、查不到、离发出超过 1 分钟（Binance `recvWindow`、OKX `expTime` 都是 5 秒，之后交易所不会再收这笔）才按没下成记 `rejected`（「交易所查不到这笔委托（委托编号 …）：下单请求没到交易所，按没下成处理」）；交易所确认过的委托查不到时记 `unknown`、写审计和运行异常，留给人工核对。挂单中的实盘委托同时记进对账的本地挂单（`trade_live_orders`），终态时去掉；成交由只读同步拉的成交记进本地持仓（同 TRD-07a），同步也会拉这些委托的标的的成交（市价单马上成交完、不出现在挂单里）。
+
+撤单：`POST /api/trade/orders/{id}/cancel` 对实盘委托到交易所撤（按委托编号），撤完再查一次单写终态（撤之前已经部分成交的照实写 `filled`），成功 200、审计 `cancel`；已经是终态 409 `state`；交易所已经成交完 409 `state`「委托在交易所已经成交或撤掉了」；撤不了 502 `upstream`，审计 `cancel_failed`。`POST /api/trade/orders/cancel-all {account_id}` 带实盘账户：撤这个账户在交易所的全部挂单（含不是交易套件下的，先列挂单再逐笔撤），回 `{canceled}`，有撤不掉的 502 `upstream`，`error` 里多 `canceled`、`failed`；不带 `account_id` 时除了模拟盘挂单，还撤交易套件自己下的、没到终态的实盘委托。实盘委托不能改价（`PATCH` 403 `reason: "live"`，「实盘委托不能改价：撤单后重新下」）。
+
+平仓：实盘持仓的 id 是 `live:<账户 id>:<持仓键>`（`/snapshot` 的 `TradeLivePosition.id`），`POST /api/trade/positions/{id}/close` 按对账本地记录的数量反向下一笔（现货卖出持有；永续带仅减仓），`source` 为 `close`，只支持市价、限价，同样走上面的全部步骤；持仓不存在、已平或是双向持仓 404。
+
+全停：一键全停和自动熔断在撤模拟盘挂单之后，到每个接了连接器的实盘账户撤掉交易所的全部挂单（含不是交易套件下的；撤单查单令牌），持仓不动；交易套件下的委托撤完写终态。撤不掉的写进 `TradeKillResult.failed`（「<账户> #<交易所委托号>：<原因>」）和 `remaining_orders`（「<账户> #<交易所委托号>」，整个账户撤不了是「<账户>（全部挂单）」），记审计 `cancel_failed`，接口照常 500。Key 开了提币权限或列不出挂单、而本地记录里这个账户没有挂单时不算失败。
+
+部署到实盘账户（`POST /api/trade/runs`）：要用户本人（403 `not_user`），闸门全开（含交易所现查 Key；不过 403 `live_gate`，审计 `live_gate_block`）；标的要是账户那家交易所的现货或 USDT 永续，不是的 400；`capital` 不超过最近一次同步的可用（「分配资金超过实盘账户最近一次同步的可用 N 币种」）。日志第一条「实盘启动：…；每笔信号单都在交易所真实成交，逐笔过实盘闸门和风控」，审计 `deploy` 的 `detail.live` 为真。信号单走统一入口（`source` `run`，幂等键同模拟盘），每笔照样现查闸门和风控。**闸门任何一条失效时，运行中的实盘部署自动暂停**：部署每一轮先看闸门的本地几项，下单那一刻被闸门拒绝也一样；`status` 变 `paused`，`error`「实盘闸门失效，自动暂停：<逐条>」，写 warn 日志（已有挂单保留、持仓不动）、审计 `pause`（`origin` `live`，`detail.auto` 为真）、warn 级运行异常「实盘部署自动暂停」。关开关、撤回评审时马上叫醒部署任务。恢复要用户本人、闸门全开（否则 403）。停止实盘部署时到交易所撤它自己的委托，撤不掉的写进停止日志。实盘部署自己的持仓按它的实盘委托的已成交数量和均价重放（委托级），收到账户本地记录里的持仓以内。
+
+测试网：连接器 `binance_account`、`okx_account` 多一个 `select` 字段 `env`（`mainnet` 正式网，默认 / `testnet` 测试网）。Binance 测试网现货走 `testnet.binance.vision`（测试网没有 `/sapi/` 权限接口，Key 权限按「读取 + 现货交易、没有提币和划转」算，测试网的资金不是真钱）；U 本位合约测试网 `testnet.binancefuture.com` 写进了插件的只读、写清单，但内核 `network:exchanges` 的域名表还没放行，现在连不通（要用时内核加这个域名）。OKX 模拟盘和正式网同一个域名，请求头带 `x-simulated-trading: 1`，要用 OKX 模拟盘的 Key。
+
+不在本次范围：Hyperliquid；止损单等条件单；改单；调杠杆和保证金模式；双向持仓；实盘账户的日亏损熔断（`TradeRiskDay` 仍只算模拟盘账户）。
 
 ## 宽基监控插件 etf
 

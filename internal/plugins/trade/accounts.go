@@ -14,7 +14,7 @@ import (
 )
 
 // 交易账户：表 trade_accounts（迁移 0005，0008 加列）。模拟盘（TRD-05a）权益、可用、保证金不落表，读的时候按成交流水现算；
-// 交易所实盘账户（TRD-07a，live.go）只读同步，paper 恒为假（建的时候写死 0，没有改它的语句），下单、部署对它回 403。
+// 交易所实盘账户（TRD-07a，live.go）只读同步，paper 恒为假（建的时候写死 0，没有改它的语句）；下单、部署过实盘闸门（TRD-08d，livetrade.go）。
 // paper 建好后不能改（PATCH 带 paper 回 400）。
 
 const (
@@ -83,9 +83,9 @@ func loadAccount(ctx context.Context, c plugin.Core, id string) (account, error)
 	return a, err
 }
 
-// paperAccount 是下单、部署用的账户检查：不存在回 400（不是 404：账户 id 是请求体里的引用）；
-// 实盘账户回 403（errLive）：实盘下单没开放前，下单入口对实盘账户一律拒绝（TRD-07a）。
-func paperAccount(ctx context.Context, c plugin.Core, id string) (account, error) {
+// tradeAccount 是下单、部署用的账户检查：不存在回 400（不是 404：账户 id 是请求体里的引用）。
+// 实盘账户照样回（TRD-08d）：由调用方走实盘闸门。
+func tradeAccount(ctx context.Context, c plugin.Core, id string) (account, error) {
 	if strings.TrimSpace(id) == "" {
 		return account{}, apiErr(errValidation, "选一个账户（account_id）")
 	}
@@ -93,11 +93,17 @@ func paperAccount(ctx context.Context, c plugin.Core, id string) (account, error
 	if errors.Is(err, errNotFound) {
 		return a, apiErr(errValidation, "账户 %s 不存在", id)
 	}
+	return a, err
+}
+
+// paperAccount 同 tradeAccount，但实盘账户回 403（errLive）：只有模拟盘才有的动作（改价）用。
+func paperAccount(ctx context.Context, c plugin.Core, id string) (account, error) {
+	a, err := tradeAccount(ctx, c, id)
 	if err != nil {
 		return a, err
 	}
 	if !a.Paper {
-		return a, liveErr(a.Name)
+		return a, liveErr(a.Name, "实盘委托不能改价：撤单后重新下")
 	}
 	return a, nil
 }
@@ -148,8 +154,11 @@ type AccountView struct {
 	SlippageTicks int      `json:"slippage_ticks"`
 	MarksStatus   string   `json:"marks_status"`
 	CreatedAt     string   `json:"created_at"`
-	// 实盘账户才有（TRD-07a、TRD-08b）
-	ConnectorID    string      `json:"connector_id,omitempty"`
+	// 实盘账户才有（TRD-07a、TRD-08b、TRD-08d）
+	ConnectorID string `json:"connector_id,omitempty"`
+	// TradeReady 是现在能不能实盘下单（本地几项加最近一次同步查到的 Key 权限，下单时还会现查交易所），TradeBlockers 是不能的原因
+	TradeReady     *bool       `json:"trade_ready,omitempty"`
+	TradeBlockers  []string    `json:"trade_blockers,omitempty"`
 	KeyPermissions []string    `json:"key_permissions,omitempty"`
 	WantTrade      *bool       `json:"want_trade,omitempty"`
 	SyncedAt       string      `json:"synced_at,omitempty"`

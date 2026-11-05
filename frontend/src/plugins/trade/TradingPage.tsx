@@ -1,8 +1,9 @@
 // 交易页（TRD-05c、TRD-06b、TRD-07b、TRD-08c，SPEC-trading-1 到 12）：二级菜单 + 总览、持仓、委托、策略运行、交易账户、风控、交易设置；
 // 熔断条、一键全停、下单抽屉、部署抽屉、新增账户抽屉、对账抽屉、交易所数据抽屉、证据抽屉。
 // 交互照原型 web-next/src/trading.tsx。撮合、估值、风控、部署信号都在后端（TRD-05a、05b、06a），这里只发请求和显示。
-// 交易只有模拟盘：实盘账户（TRD-07a）只读同步，下单、部署入口对它不可用（要先过实盘评审，实盘下单 TRD-08d 还没上线），
-// 所以总览、持仓、委托、策略运行只算模拟盘账户，页面上标「模拟盘」；实盘账户在交易账户页看。没有模拟盘账户时就地给「建一个模拟盘账户」。
+// 实盘账户（TRD-07a）只读同步；闸门全开（账户 trade_ready，TRD-08d）后能下单、平仓、撤单、部署，入口复用模拟盘的（下单抽屉、
+// 委托列表、部署抽屉），实盘持仓在交易账户的「交易所数据」里看和平仓。总览、持仓只算模拟盘账户；委托、策略运行里实盘的标「实盘」。
+// 标题栏固定「模拟盘」标签，有能下单的实盘账户时多一个「实盘可下单」。没有模拟盘账户时就地给「建一个模拟盘账户」。
 // 路由挂在 trading/* 下：/trading 总览，/trading/positions，/trading/orders，/trading/runs，/trading/accounts，/trading/risk，/trading/settings。
 // 从行情来：/trading?symbol=&side= 打开下单抽屉；从策略来：/trading/runs?deploy=<策略 id> 打开部署抽屉。
 import { useEffect, useMemo, useState } from 'react'
@@ -23,7 +24,7 @@ import { EvidenceDrawer, SettingsView } from './TradingSettings'
 import { NoAccount, type TradeNotice } from './TradingParts'
 import { OrdersView, PositionsView } from './TradingTables'
 import { RunDrawer, RunsView } from './TradingRuns'
-import { ORDER_STATUS, ORDER_TYPE, RUN_STATUS, compact, fmtQty, fmtTime, num, signed, signedUsd, tone, usd } from './tradingModel'
+import { ORDER_STATUS, ORDER_TYPE, RUN_STATUS, compact, fmtQty, fmtTime, isLiveReady, num, signed, signedUsd, tone, usd } from './tradingModel'
 import './trading.css'
 
 export type TradingView = 'overview' | 'positions' | 'orders' | 'runs' | 'accounts' | 'risk' | 'settings'
@@ -32,15 +33,15 @@ const VIEWS: TradingView[] = ['overview', 'positions', 'orders', 'runs', 'accoun
 const TITLES: Record<TradingView, { title: string; desc: string }> = {
   overview: { title: '交易总览', desc: '模拟盘账户的权益、盈亏和风控；估值按后端行情缓存现算' },
   positions: { title: '持仓', desc: '现价、盈亏、强平价都由后端算；平仓会下一笔反向市价单' },
-  orders: { title: '委托', desc: '提交后后端当场检查，过了就挂单；限价单在价格到了时成交，市价单通常一秒内成交' },
-  runs: { title: '策略运行', desc: '策略部署到模拟盘账户上跑，K 线收盘时算信号、下市价单，每笔都过风控' },
-  accounts: { title: '交易账户', desc: '交易所账户只读接入（凭证存保险箱，不开提币权限）和模拟盘；实盘账户要过实盘评审才能交易' },
+  orders: { title: '委托', desc: '提交后后端当场检查，过了就挂单；模拟盘限价单在价格到了时成交，实盘委托以交易所回报为准' },
+  runs: { title: '策略运行', desc: '策略部署到账户上跑（实盘要闸门全开），K 线收盘时算信号、下市价单，每笔都过风控' },
+  accounts: { title: '交易账户', desc: '交易所账户接入（凭证存保险箱，不开提币权限）和模拟盘；实盘账户要闸门全开才能交易，否则只读同步' },
   risk: { title: '风控', desc: '每笔下单在后端逐笔检查；当日亏损到上限自动熔断' },
   settings: { title: '交易设置', desc: '装好只有模拟盘；实盘要过评审、申请 trade:live、再打开实盘开关' },
 }
 
 type DrawerState =
-  | { kind: 'order'; symbol: string; side: 'buy' | 'sell'; key: number }
+  | { kind: 'order'; symbol: string; side: 'buy' | 'sell'; accountId?: string; key: number }
   | { kind: 'run'; strategyId?: string; key: number }
   | { kind: 'account'; key: number }
   | { kind: 'recon' | 'livedata'; accountId: string; key: number }
@@ -83,7 +84,7 @@ export default function TradingPage() {
   if (segs.length > 1 || (segs[0] && !VIEWS.includes(view))) return <Navigate to="/trading" replace />
 
   const go = (v: TradingView) => void navigate(v === 'overview' ? '/trading' : `/trading/${v}`)
-  const openOrder = (symbol = DEFAULT_SYMBOL, side: 'buy' | 'sell' = 'buy') => setDrawer({ kind: 'order', symbol, side, key: Date.now() })
+  const openOrder = (symbol = DEFAULT_SYMBOL, side: 'buy' | 'sell' = 'buy', accountId?: string) => setDrawer({ kind: 'order', symbol, side, accountId, key: Date.now() })
   const openRun = (strategyId?: string) => setDrawer({ kind: 'run', strategyId, key: Date.now() })
   const openStrategy = (id: string) => void navigate(`/strategy/s/${encodeURIComponent(id)}`)
   // 证据：审计、对账记录在抽屉里看；熔断记录、部署跳到对应视图
@@ -95,6 +96,7 @@ export default function TradingPage() {
   const runList = runs.data?.data ?? []
   const badAcct = (accounts.data ?? []).filter((a) => a.status !== 'connected').length
   const liveAcct = (accounts.data ?? []).filter((a) => !a.paper).length
+  const liveReady = (accounts.data ?? []).filter(isLiveReady).length
   const badRun = runList.filter((r) => r.status === 'error').length
   const liveRun = runList.filter((r) => r.status === 'running').length
   const r = risk.data
@@ -140,7 +142,7 @@ export default function TradingPage() {
         },
         {
           key: 'accounts', label: '交易账户', alert: badAcct, title: badAcct ? `${badAcct} 个账户异常` : undefined,
-          desc: badAcct ? `${badAcct} 个异常` : liveAcct ? `${liveAcct} 个实盘只读` : undefined,
+          desc: badAcct ? `${badAcct} 个异常` : liveReady ? `${liveReady} 个实盘可下单` : liveAcct ? `${liveAcct} 个实盘只读` : undefined,
         },
         { key: 'risk', label: '风控', alert: halted ? 1 : 0, desc: halted ? '熔断中' : undefined, title: halted ? '熔断中' : undefined },
         { key: 'settings', label: '交易设置', desc: gate.data?.enabled ? '实盘已开启' : '只开模拟盘' },
@@ -160,29 +162,31 @@ export default function TradingPage() {
   )
 
   const allAccts = accounts.data ?? []
-  // 交易只有模拟盘：总览、持仓、委托、策略运行只算模拟盘账户；实盘账户只读，在交易账户页看
+  // 总览、持仓只算模拟盘账户（实盘的余额、持仓在交易账户页看）；委托、策略运行里也有实盘的（TRD-08d）
   const paperAccts = allAccts.filter((a) => a.paper)
-  const noAccount = accounts.data && !paperAccts.length
+  const tradeAccts = allAccts.filter((a) => a.paper || a.trade_ready || a.want_trade)
+  const noAccount = accounts.data && !paperAccts.length && !liveReady
   let body
   if (view === 'settings') body = <SettingsView onView={go} onEvidence={openEvidence} />
   else if (accounts.isPending && !accounts.data) body = <QueryState query={accounts} errorTitle="账户没取到">{() => null}</QueryState>
   else if (accounts.isError && !accounts.data) body = <QueryState query={accounts} errorTitle="交易账户没取到">{() => null}</QueryState>
   else if (view === 'accounts') {
     body = <AccountsView accounts={allAccts} positions={positions.data ?? []} onNew={() => setDrawer({ kind: 'account', key: Date.now() })}
-      onRecon={(id) => setDrawer({ kind: 'recon', accountId: id, key: Date.now() })} onLiveData={(id) => setDrawer({ kind: 'livedata', accountId: id, key: Date.now() })} />
+      onRecon={(id) => setDrawer({ kind: 'recon', accountId: id, key: Date.now() })} onLiveData={(id) => setDrawer({ kind: 'livedata', accountId: id, key: Date.now() })}
+      onOrder={(id) => openOrder(DEFAULT_SYMBOL, 'buy', id)} />
   } else if (noAccount && view !== 'risk') body = <NoAccount />
   else {
     const accts = paperAccts
     const acctName = (id: string) => allAccts.find((a) => a.id === id)?.name ?? '已删除的账户'
     if (view === 'overview') {
-      body = <Overview accounts={accts} positions={positions.data ?? []} runs={runList} risk={r} acctName={acctName} onView={go} onOpenStrategy={openStrategy} />
+      body = <Overview accounts={accts} allAccounts={allAccts} positions={positions.data ?? []} runs={runList} risk={r} acctName={acctName} onView={go} onOpenStrategy={openStrategy} />
     } else if (view === 'positions') {
       body = <PositionsView accounts={accts} positions={positions} runs={runList} acctName={acctName} onNew={() => openOrder()} onNotice={setNotice}
         onChart={(s) => void navigate(`/markets?${new URLSearchParams({ symbol: s })}`)} />
     } else if (view === 'orders') {
-      body = <OrdersView accounts={accts} acctName={acctName} />
+      body = <OrdersView accounts={tradeAccts} acctName={acctName} />
     } else if (view === 'runs') {
-      body = <RunsView runs={runs} accounts={accts} strategies={strategies.data ?? []} halted={halted} onOpenStrategy={openStrategy} onNew={() => openRun()} />
+      body = <RunsView runs={runs} accounts={allAccts} strategies={strategies.data ?? []} halted={halted} onOpenStrategy={openStrategy} onNew={() => openRun()} />
     } else {
       body = <RiskView risk={risk} killing={kill.isPending} onKill={() => doKill('风控页手动一键全停')} />
     }
@@ -192,7 +196,12 @@ export default function TradingPage() {
     <div className="tr-mod">
       {subnav}
       <div className="tr-page">
-        <PageTitle parent="交易" icon={<span className="tag tr-paper" title="只有模拟盘：委托只在本地撮合，不向交易所发任何请求">模拟盘</span>} desc={t.desc} actions={actions}>
+        <PageTitle parent="交易" desc={t.desc} actions={actions} icon={liveReady ? (
+          <>
+            <span className="tag tr-paper" title="模拟盘账户的委托只在本地撮合">模拟盘</span>
+            <span className="tag tr-paper tr-tag-live" title={`${liveReady} 个实盘账户闸门全开：在这些账户上下单会在交易所真实成交`}>实盘可下单</span>
+          </>
+        ) : <span className="tag tr-paper" title="只有模拟盘能下单：委托只在本地撮合；实盘账户闸门没开全，只读同步">模拟盘</span>}>
           {t.title}
         </PageTitle>
         {killAsk === 'top' && (
@@ -261,9 +270,11 @@ function killNotice(res: TradeKillResult): TradeNotice {
 }
 
 function placedNotice(o: TradeOrder): TradeNotice {
-  const what = `${o.side === 'buy' ? '买入' : '卖出'} ${fmtQty(o.qty)} ${guessInstrument(o.symbol).name}`
+  const what = `${o.live ? '实盘' : ''}${o.side === 'buy' ? '买入' : '卖出'} ${fmtQty(o.qty)} ${guessInstrument(o.symbol).name}`
   if (o.status === 'rejected') return { tone: 'danger', text: `委托被拒：${what}，${o.reject_reason ?? '没有原因'}` }
-  return { tone: 'ok', text: `已下单：${what}，${ORDER_STATUS[o.status]?.label ?? o.status}${o.type === 'market' ? '，市价单通常一秒内成交' : ''}` }
+  const tail = o.live ? (o.status === 'unknown' ? '，交易所没回准状态，后台按委托编号查单确认、不会重发' : '，状态以交易所回报为准')
+    : o.type === 'market' ? '，市价单通常一秒内成交' : ''
+  return { tone: 'ok', text: `已下单：${what}，${ORDER_STATUS[o.status]?.label ?? o.status}${tail}` }
 }
 
 /* ---------- 熔断条（SPEC-trading-1.5、1.6） ---------- */
@@ -300,8 +311,8 @@ function HaltBar({ risk }: { risk: TradeRisk }) {
 
 const OV_ACCTS = 6
 
-function Overview({ accounts, positions, runs, risk, acctName, onView, onOpenStrategy }: {
-  accounts: TradeAccount[]; positions: TradePosition[]; runs: TradeRun[]; risk?: TradeRisk; acctName: (id: string) => string
+function Overview({ accounts, allAccounts, positions, runs, risk, acctName, onView, onOpenStrategy }: {
+  accounts: TradeAccount[]; allAccounts: TradeAccount[]; positions: TradePosition[]; runs: TradeRun[]; risk?: TradeRisk; acctName: (id: string) => string
   onView: (v: TradingView) => void; onOpenStrategy: (id: string) => void
 }) {
   const recent = useTradeOrders({ limit: 6 })
@@ -369,7 +380,7 @@ function Overview({ accounts, positions, runs, risk, acctName, onView, onOpenStr
                 {going.map((x) => (
                   <button key={x.id} type="button" className="tr-mini" onClick={() => onOpenStrategy(x.strategy_id)} title="打开策略">
                     <span className="tr-mini-top"><span className="ellipsis">{x.strategy_name || '未命名策略'}</span><Pill {...RUN_STATUS[x.status]} /></span>
-                    <span className="tr-muted ellipsis">{acctName(x.account_id)} · 模拟 · {x.symbols.join('、')}</span>
+                    <span className="tr-muted ellipsis">{acctName(x.account_id)} · {allAccounts.find((a) => a.id === x.account_id)?.paper === false ? '实盘' : '模拟'} · {x.symbols.join('、')}</span>
                     <span className="tr-mini-pnl tr-num" style={{ color: tone(x.pnl) }}>{signed(x.pnl)}</span>
                   </button>
                 ))}

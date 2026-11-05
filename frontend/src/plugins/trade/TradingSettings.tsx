@@ -3,7 +3,7 @@
 // - 评审项的条件、证据、评审结论都由后端现算和记录（GET /api/trade/live），前端不算；
 // - 确认评审、申请 trade:live、打开开关只接受用户本人在界面上的操作（前端写请求带 X-Actor-Source: ui），Agent 和接口代为提交后端 403；
 // - trade:live 走内核的单独申请（二次确认输入插件名）；评审没通过时后端不同意授予；
-// - 实盘下单（TRD-08d）还没上线：开关打开后实盘账户照样只读，页面上写明。
+// - 实盘下单（TRD-08d）已上线：开关打开后，选了「读取 + 交易」、Key 有交易权限的实盘账户就能下单（账户 trade_ready）；「实盘」一节的说明取后端 note。
 import { useState } from 'react'
 import { useNavigate } from 'react-router'
 import { deactivatePlugin } from '../../core/plugin'
@@ -51,7 +51,7 @@ function LiveSwitchSec({ g }: { g: TradeLiveGate }) {
           <b>{g.enabled ? '实盘已开启' : '只开模拟盘'}</b>
           <span className={cls('tr-small', why && !g.enabled ? 'danger-text' : 'faint')}>
             {g.enabled
-              ? `${g.changed_at ? fmtTime(g.changed_at) : ''} 由 ${g.changed_by || '-'} 打开；关掉后实盘账户回到只读`
+              ? `${g.changed_at ? fmtTime(g.changed_at) : ''} 由 ${g.changed_by || '-'} 打开；关掉后实盘账户回到只读，运行中的实盘部署自动暂停，已挂的单不自动撤`
               : why ? `不能打开：${why}` : '评审和 trade:live 都齐了，可以打开'}
           </span>
           {!g.enabled && g.off_reason && <span className="faint tr-small">上次关掉：{g.off_reason}{g.changed_at ? `（${fmtTime(g.changed_at)}）` : ''}</span>}
@@ -155,7 +155,7 @@ function GrantSec({ g }: { g: TradeLiveGate }) {
         </div>
       ) : applying ? (
         <div className="tr-apply">
-          <span className="danger-text">授予后，打开实盘开关就能用真实资金下单（实盘下单上线后）。输入插件名「{g.plugin_name}」确认：</span>
+          <span className="danger-text">授予后，打开实盘开关就能用真实资金下单。输入插件名「{g.plugin_name}」确认：</span>
           <div className="tr-act-row">
             <input className="tr-input tr-apply-input" aria-label="输入插件名确认" value={typed} autoFocus placeholder={g.plugin_name}
               onChange={(e) => setTyped(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') submit() }} />
