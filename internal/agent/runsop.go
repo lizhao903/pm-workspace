@@ -56,7 +56,7 @@ func (tb *Toolbox) sopDefs() []ToolDef {
 		Description: "按标准流程（SOP）发起一次执行，不等它跑完。用户让你「走一遍某某流程」「按 SOP 处理」时用它。" +
 			"流程里的人工检查点会停下等人处理，你只负责发起，把执行记录 id 告诉用户。",
 		Parameters: obj(props{
-			"flow_id": str("流程 id（sop_ 开头），也接受流程名称"),
+			"flow_id": str("流程 id（sop_ 开头），也接受流程名称。不知道就先调 list_sops 查，不要自己编"),
 			"input":   map[string]any{"type": "object", "description": "流程的输入字段，key 是字段 key；没给的取流程的默认值"},
 		}, []string{"flow_id"}),
 	}}
@@ -70,6 +70,12 @@ func (tb *Toolbox) runSOP(ctx context.Context, args map[string]any) ToolResult {
 	flow := strings.TrimSpace(argStr(args, "flow_id"))
 	if flow == "" {
 		return failed(toolRunSOP, "flow_id 是必填的")
+	}
+	// 先在流程目录里找（TSK-0480）：找不到时把真实存在的流程列给模型，不让它接着编 id
+	if cat := currentSOPCatalog(); cat != nil {
+		if _, err := cat.GetSOP(ctx, flow); errors.Is(err, schedule.ErrSOPNotFound) {
+			return notFoundSOP(ctx, toolRunSOP, cat, err)
+		}
 	}
 	input, err := sopInput(args["input"])
 	if err != nil {

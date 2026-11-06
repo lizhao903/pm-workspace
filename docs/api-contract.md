@@ -138,6 +138,9 @@
 | POST | `/api/objects/{id}/claim` | `ClaimInput`，领取任务。领到 201；同一会话重复领 200（`already=true`，什么都不写）；被占用 409 |
 | PUT | `/api/objects/{id}/stage` | `{stage}`，改任务阶段：服务端读当前 `props`、只换 `stage` 一个键再写回（不冲掉别的 props）；`stage: ""` 清掉阶段。不是任务、`stage` 缺省或不在阶段表里回 400；和当前阶段相同时原样回、不写修订。回 200 + `Object` |
 | GET | `/api/task-stages` | 阶段表 `TaskStage[]`（`{key,label}`），顺序即看板列序 |
+
+状态不在该类型状态集里（新建、PATCH、进展带 `status`、领取）回 400 `validation`，message 带上合法的 key（TSK-0480）：
+`status is not allowed for type task: planning (allowed: todo, doing, review, blocked, done, cancelled)`，括号里按类型的状态顺序列出。Agent 的 `create_object` / `update_object` 把它原样回给模型。
 | GET | `/api/tasks/stages` | 按来源消息或提出人查任务阶段（给 IM 插件「问进度」用）。query：`message_id`、`requester_id`、`channel` + `sender_id`（成对），至少给一种，多种是「且」；都没给、`channel` / `sender_id` 不成对回 400。只看没删、没归档的任务，最近更新的在前，最多 200 条。回 `TaskStageRow[]` + `meta.total`。`TaskStageRow`：`{id, ref, title, status, stage, stage_label, requester, message_id, updated_at}`；`stage` 没设为 `""`、`stage_label` 为 `""`，`requester` 没有为 `null`，`message_id` 不是 IM 转来的为 `""` |
 
 ### props 约定（开发任务）
@@ -604,6 +607,17 @@ chat 带了不同的 `object_id` 也不会让已有会话搬家——搬走会�
 用户的回答走下一条普通 `POST /api/agent/chat` 消息，没有单独的应答接口——
 这样即使前端没渲染成按钮，问题也仍然是一段看得懂的文字，回答仍然是一句普通的话。
 
+**一轮的工具往返上限与收尾（TSK-0480）。**有人在旁边的对话一轮最多 8 次「模型说话 → 调工具」，之后再给模型一次收尾：
+发「已达到本轮工具调用上限……直接总结」的系统提示，这一次只说话，调了工具也不执行。以前第 8 次调完工具这一轮就结束了，
+提示没发给模型，回复落到兜底的「好的，已经处理完了。」。无人值守（任务交给工作台 Agent）按步数上限，不受这条影响。
+
+**回复如实写执行情况（TSK-0480）。**这一轮有调用没做成（工具失败、没有授权、同参重试被拦）时，执行器在 assistant 回复末尾补一段
+（同时作为 `delta` 发出，落库的消息、Agent 执行记录的结论都带着）：
+「【执行情况】本轮有 N 次调用没成功：<失败调用的 summary，去重，每条最多 160 字，最多列 5 条，多了写「等 N 条」>。」
+后接「这一轮没有改动任何数据。」（没有成功的写操作）或「实际改动只有：<成功写操作的 summary>。」。写操作 = 归属能力 `write: true` 的内置工具、`write: true` 的连接器工具。
+模型一个字没说时的兜底不再一律「好的，已经处理完了。」：有失败的只留上面那段；有成功写操作的「这一轮做了：<summary>。」；只调了只读工具的「查过了，这一轮没有改动任何数据。」；什么都没做的「（模型这一轮没有给出回复）」。
+同一轮里同一个工具、规整后参数完全相同（键序不同也算）的调用失败过一次后再调，不执行，工具结果「错误：这次调用和前面失败的那次参数完全一样……」，`summary` 为「<工具> 执行失败：和这一轮前面失败的那次调用参数完全一样，没有再执行」。
+
 `/api/agent/chat` 与 `/api/objects/{id}/run` 都是 SSE，而 `EventSource` 只能发 GET、带不了 body，
 前端一律用 `fetch` + `ReadableStream` 自己按空行切块。
 
@@ -682,7 +696,7 @@ AG-02a。表 `agent_tool_grants`（0035）存每个 Agent 自己的授权，`age
 
 `AgentGrants`：`{agent_id, grants, effective}`。`grants` 是 Agent 自己的授权，含全部内置能力（没开的为 `off`）和存着的连接器工具；`effective` 是实际档位，key 是 `grants` 的加上挂着的连接器的全部工具。
 
-- **key**：内置能力是原型 `ABILITIES` 的 key（`read_messages`、`reply_message`、`read_contacts`、`write_contacts`、`read_tasks`、`write_tasks`、`read_content`、`write_content`、`run_sop`）；连接器工具是 `conn:<连接器 id>:<工具名>`，连接器必须存在、工具必须在它的清单里（不要求已挂载，先配授权再挂也行）。别的 key、别的档位回 400。只读的（内置能力 `write: false`、连接器工具 `write: false`）设 `confirm` 回 400。
+- **key**：内置能力是原型 `ABILITIES` 的 key（`read_messages`、`reply_message`、`read_contacts`、`write_contacts`、`read_tasks`、`write_tasks`、`read_content`、`write_content`、`read_sop`、`write_sop`、`run_sop`；`read_sop` 只读、`write_sop` 写，TSK-0480 加，已有的 Agent 默认关闭，要用在「工具与权限」里打开）；连接器工具是 `conn:<连接器 id>:<工具名>`，连接器必须存在、工具必须在它的清单里（不要求已挂载，先配授权再挂也行）。别的 key、别的档位回 400。只读的（内置能力 `write: false`、连接器工具 `write: false`）设 `confirm` 回 400。
 - **实际档位** = min(Agent 授权, 连接器上限)，顺序 关闭 < 需确认 < 自动；只读工具没有「需确认」，算出来是需确认的按自动。连接器工具只算挂着的（`mcps` 里有）、没暂停没断开、定义还在的实例，其余都是关闭。例：连接器上限是需确认、Agent 设成自动，按需确认处理。
 - **新建 Agent** 按原型 `newAgent` 只开 `read_tasks`、`read_contacts`（自动）；0035 之前建的 Agent 迁移时同样补上这两项。没挂 Agent 的会话（`agent_id` 为 null）不受授权约束，行为不变。
 - **内置工具归哪项能力**：
@@ -694,10 +708,16 @@ AG-02a。表 `agent_tool_grants`（0035）存每个 Agent 自己的授权，`age
 | `write_file` | `write_content` |
 | `kb_search` | `read_content` |
 | `run_sop` | `run_sop`（SOP-01d） |
+| `list_sops`、`get_sop` | `read_sop`（TSK-0480） |
+| `create_sop`、`update_sop` | `write_sop`（TSK-0480） |
 | `ask_user`、`list_types` | 不需要授权（反问用户；只列类型和状态 key） |
 
   `read_messages`、`reply_message`、`read_contacts`、`write_contacts` 现在没有对应的内置工具，授权先存着。
-  `run_sop`（SOP-01d）参数是 `{flow_id, input?}`：`flow_id` 是流程 id，也认流程名；`input` 是输入字段，没给的取默认值。经内核「发起 SOP」钩子起一条执行（同定时任务的 `sop` 动作，来源记 `agent`），不等它跑完，人工检查点照常停下；`summary` 为「发起了 SOP「周会」，执行记录 spr_…」。只给挂了 Agent 的会话，SOP 编排插件没启用时工具结果是「SOP 编排插件没启用……」。确认卡片写「发起 SOP <flow_id>」。
+  `run_sop`（SOP-01d）参数是 `{flow_id, input?}`：`flow_id` 是流程 id，也认流程名；`input` 是输入字段，没给的取默认值。流程不存在时（TSK-0480）不发起，`summary` 为「run_sop 执行失败：流程 X 不存在」，回给模型的结果后面接上现有流程的清单（每行 `flow_id`、名称、触发方式、步骤数、版本，最多 50 条），并要求它只从中选、不要编 id；一条流程都没有时提示用 `create_sop` 新建。经内核「发起 SOP」钩子起一条执行（同定时任务的 `sop` 动作，来源记 `agent`），不等它跑完，人工检查点照常停下；`summary` 为「发起了 SOP「周会」，执行记录 spr_…」。只给挂了 Agent 的会话，SOP 编排插件没启用时工具结果是「SOP 编排插件没启用……」。确认卡片写「发起 SOP <flow_id>」。
+  SOP 流程的查询与编辑（TSK-0480）：只给挂了 Agent 的会话，经内核注册表交给 SOP 编排插件（插件实现了流程目录才有，见 plugin-api.md 2.7），插件没启用时三个工具都不出现在工具列表里。
+  - `list_sops` `{query?}`：列流程（`query` 按名称、说明、id 不分大小写过滤），格式同上面的候选清单；`summary`「查看了 N 个 SOP 流程」。
+  - `get_sop` `{flow_id}`（id 或名称）：回 `flow_id`、名称、触发方式、版本、说明、`fields`、`steps` 的 JSON 原文，后接能用的节点类型（内置的和在跑的插件登记的：kind、显示名、必填 config 项、分支出口）；`summary`「读取了 SOP「名称」」。不存在同 `run_sop` 回候选清单。
+  - `create_sop` `{name, steps, desc?, trigger?, fields?}` 新建，没有 `flow_id` 参数（给了也不认，id 由插件生成）；`update_sop` `{flow_id, version, name?, desc?, trigger?, fields?, steps?}` 修改，`flow_id` 认 id 和名称，`version` 必填（缺了工具失败「version 是必填的：先用 get_sop 读出这条流程……」），只改给了的字段，`steps` 给了是整套替换。分成两个工具是因为合在一起时（`flow_id` 可选）模型会把「参照已有流程」做成「改已有流程」，新建时又自己编 `flow_id`（临时实例重放实测）。口径、校验同 `POST /api/sop/flows` / `PATCH /api/sop/flows/{id}`（含版本冲突、随流程管理的定时任务）；`fields`、`steps` 也认数组的 JSON 字符串；`steps` 里分支节点没写 `cases` 的补节点类型的默认出口（条件分支 `yes` 是 / `no` 否），有 `branch.of` 却没写 `after` 的补成 `[branch.of]`（编辑器画布本来就自动带这两样），别的照原样校验。`trigger` 是对象 `{type, rule?}`：`type` 为 `manual` / `im` / `schedule`（别的值工具失败），`rule` 只在 `schedule` 时用、即 `PATCH` 的 `schedule.rule`；也认一个字符串（当成 `type`）。两个工具的 `trigger` 里别的键（如按会话过滤、只要 @我、执行顺序——TSK-0481 接）现在不认：照常保存，结果里写明这些键没存上、要如实告诉用户，`summary` 加「，触发条件 X 不支持没存上」。保存校验没过时工具结果是「流程没存上：第 n 步：…；…」并附节点类型清单；版本冲突时后面接「用 get_sop 重新读出最新的版本号和内容……」；`update_sop` 流程不存在同 `run_sop` 回候选清单。存上了但结构多半写错时（条件分支没写 `rule` 会停下等人选、`rule` 写进了 `config`、第一步以外的步骤既没有 `after` 也不在分支下会和第一步同时开始），回给模型的结果后面接「存上了，但下面几处多半不是你想要的，用 update_sop（version=N）改掉：第 n 步「名称」…」，`summary` 不变。工具说明里写明 IM 触发的输入字段（`conversation_id` 是内核会话 id 不是渠道频道编号，`relevance` 为 `me` / `all` / `dm` / 空串）和现在做不到的（流程之间的执行顺序、触发层按会话或 @我 过滤），要求模型如实告诉用户。`summary`「已新建 SOP「名称」（sop_…）」/「已修改 …」；确认卡片写「新建 SOP「名称」」/「修改 SOP <flow_id>」。
   `append_progress`（TSK-0460）参数 `{ref, text}`：给对象追加一条进展（`kind=note`，操作者 `agent`），只追加不改正文；`summary` 为「已给 TSK-0009 记了一条进展」，确认卡片写「给 <ref> 记进展」。`create_object` 多一个可选参数 `parent_ref`（父任务编号或 id）：先查父任务，查不到不建；建好后和父任务建 `parent` 关联（父 → 子），没指定项目时挂到父任务的项目；关联没建上不撤回新建的对象，`summary` 里写明。
 - **执行时**：给模型的工具列表只有实际档位不是关闭的。连接器工具给模型的名字是 `<连接器定义 tool>__<工具名>`（非字母数字的字符换成 `_`，最长 64）；同一定义挂了多个实例（CONN-04）撞名时，按 `mcps` 的顺序第一个保持原名，后面的在定义 key 后加序号，如 `custom_mcp_2__search`。工具带参数 Schema（`tools[].schema`）时原样给模型，没有时给空对象。模型硬调关闭的工具不执行，工具结果是「错误：没有授权……」，`tool_result` 的 `summary` 为「<工具> 没有授权，没有执行」。需确认的发 `confirm` 事件后本轮结束，见「Agent 对话」。
 - **连接器工具真正调用**：经连接器定义上可选的 `Call` 调对方，参数是模型给的 JSON 原文，对方错误里的凭证原文换成 `***`，单次 15 秒超时。定义没实现 `Call` 时工具结果是「这个连接器的工具还不能调用」。现在只有假连接器 `fake` 实现了：`list_items` 回两条固定条目，`get_item` / `create_item` / `delete_item` 回 `{tool, ok, args}`，`token` 含 `invalid` 时失败。
@@ -2588,7 +2608,7 @@ TSK-0468，插件迁移 `0015_fde_forward.sql`。我在消息页手动把消息�
 
 ## SOP 编排插件 sop
 
-SOP-01a 起。插件 `sop`（`internal/plugins/sop`，清单 `plugin.json`，0.12.0（0.12.0 触发方式「定时」可配置规则、随流程管理的定时任务（TSK-0463），Claude Code 执行没回报时 summary 只取结论，不加迁移；0.11.0 加执行任务 `task_run`、改任务 `task_update` 节点（TSK-0411）和等服务商恢复（TSK-0391/0392），不加迁移；SOP-05 加 IM 触发，可选依赖 `im`、订阅 `im.message_received`；0.5.0 执行关联工作对象；0.6.0 加写进项目目录节点 `local_append`、建任务认项目编号和名字；0.7.0 加执行并发设置、批量发起和按输入字段查执行；0.7.1 加失败执行批量重跑；0.8.0 重跑后移出失败列表、重跑幂等；0.9.0 加 Claude Code 执行和条件回退；0.10.0 加流水线视图与治理（AUTO-12）），权限 `network:any`、`fs:write:project`：HTTP 节点要访问任意地址，高风险，安装时在 `permissions` 里单独确认；`fs:write:project` 是写进项目目录要的，0.6.0 升上来时要确认）。流程定义落在插件表 `sop_flows`（插件迁移 `0001_flows.sql`，安装插件时应用），id 前缀 `sop`；执行（SOP-01b）落在 `sop_runs`、`sop_run_steps`（插件迁移 `0002_runs.sql`），id 前缀 `spr`。AI 类和外部节点 SOP-01c 起；定时任务的 `sop` 动作和 Agent 的 `run_sop` 工具经内核「发起 SOP」钩子发起执行（SOP-01d）。插件未安装或停用时，本节接口回 `not_found` 404（同「插件路由」），数据不动。
+SOP-01a 起。插件 `sop`（`internal/plugins/sop`，清单 `plugin.json`，0.13.0（0.13.0 实现内核流程目录，Agent 的 `list_sops`、`get_sop`、`create_sop`、`update_sop` 经它查、建、改流程（TSK-0480），不加迁移，已装旧版本的，换新二进制后经 `POST /api/plugins/{id}/upgrade`（id 为 `sop`）升级，升级前 Agent 看不到这三个工具；0.12.0 触发方式「定时」可配置规则、随流程管理的定时任务（TSK-0463），Claude Code 执行没回报时 summary 只取结论，不加迁移；0.11.0 加执行任务 `task_run`、改任务 `task_update` 节点（TSK-0411）和等服务商恢复（TSK-0391/0392），不加迁移；SOP-05 加 IM 触发，可选依赖 `im`、订阅 `im.message_received`；0.5.0 执行关联工作对象；0.6.0 加写进项目目录节点 `local_append`、建任务认项目编号和名字；0.7.0 加执行并发设置、批量发起和按输入字段查执行；0.7.1 加失败执行批量重跑；0.8.0 重跑后移出失败列表、重跑幂等；0.9.0 加 Claude Code 执行和条件回退；0.10.0 加流水线视图与治理（AUTO-12）），权限 `network:any`、`fs:write:project`：HTTP 节点要访问任意地址，高风险，安装时在 `permissions` 里单独确认；`fs:write:project` 是写进项目目录要的，0.6.0 升上来时要确认）。流程定义落在插件表 `sop_flows`（插件迁移 `0001_flows.sql`，安装插件时应用），id 前缀 `sop`；执行（SOP-01b）落在 `sop_runs`、`sop_run_steps`（插件迁移 `0002_runs.sql`），id 前缀 `spr`。AI 类和外部节点 SOP-01c 起；定时任务的 `sop` 动作和 Agent 的 `run_sop` 工具经内核「发起 SOP」钩子发起执行（SOP-01d）。插件未安装或停用时，本节接口回 `not_found` 404（同「插件路由」），数据不动。
 
 ### 流程定义
 

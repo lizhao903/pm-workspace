@@ -175,50 +175,12 @@ func (h *flows) show(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *flows) add(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
 	raw, err := readBody(r)
 	if err != nil {
 		fail(w, r, h.c, err)
 		return
 	}
-	f := Flow{Fields: json.RawMessage(`[]`), Steps: json.RawMessage(`[]`), Version: 1}
-	if v, ok := raw["id"]; ok && string(v) != "null" {
-		// 带 id 是为了导入原型或别处导出的流程，id 照旧
-		if err := json.Unmarshal(v, &f.ID); err != nil || !flowIDRe.MatchString(f.ID) {
-			fail(w, r, h.c, apiErr(errValidation, "id 必须是 sop_ 开头，后面只能是小写字母、数字、下划线，最多 60 个"))
-			return
-		}
-		if _, err := h.get(ctx, f.ID); err == nil {
-			fail(w, r, h.c, apiErr(errConflict, "流程 %s 已经存在", f.ID))
-			return
-		} else if !errors.Is(err, errNotFound) {
-			fail(w, r, h.c, err)
-			return
-		}
-	} else {
-		f.ID = idgen.Prefixed("sop")
-	}
-	sched, err := readSchedIn(h.c, raw)
-	if err != nil {
-		fail(w, r, h.c, err)
-		return
-	}
-	if err := apply(&f, raw, kindsOf(h.c)); err != nil {
-		fail(w, r, h.c, err)
-		return
-	}
-	normalizeTrigger(&f, sched)
-	now := time.Now().UTC().Format(time.RFC3339)
-	if _, err := h.c.Store().Exec(ctx, `INSERT INTO sop_flows (`+flowCols+`) VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`,
-		f.ID, f.Name, f.Desc, f.Trigger, string(f.Fields), string(f.Steps), layoutCol(f.Layout), now, now); err != nil {
-		fail(w, r, h.c, err)
-		return
-	}
-	if err := syncSchedule(ctx, h.c, f, "", sched); err != nil {
-		fail(w, r, h.c, scheduleErr(err))
-		return
-	}
-	out, err := h.getFull(ctx, f.ID)
+	out, err := h.create(r.Context(), raw)
 	if err != nil {
 		fail(w, r, h.c, err)
 		return
@@ -226,39 +188,77 @@ func (h *flows) add(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, map[string]any{"data": out})
 }
 
+// create 是新建一条流程，raw 是 POST /api/sop/flows 的请求体；Agent 的 create_sop 也走这里（TSK-0480，launch.go）。
+func (h *flows) create(ctx context.Context, raw map[string]json.RawMessage) (Flow, error) {
+	f := Flow{Fields: json.RawMessage(`[]`), Steps: json.RawMessage(`[]`), Version: 1}
+	if v, ok := raw["id"]; ok && string(v) != "null" {
+		// 带 id 是为了导入原型或别处导出的流程，id 照旧
+		if err := json.Unmarshal(v, &f.ID); err != nil || !flowIDRe.MatchString(f.ID) {
+			return Flow{}, apiErr(errValidation, "id 必须是 sop_ 开头，后面只能是小写字母、数字、下划线，最多 60 个")
+		}
+		if _, err := h.get(ctx, f.ID); err == nil {
+			return Flow{}, apiErr(errConflict, "流程 %s 已经存在", f.ID)
+		} else if !errors.Is(err, errNotFound) {
+			return Flow{}, err
+		}
+	} else {
+		f.ID = idgen.Prefixed("sop")
+	}
+	sched, err := readSchedIn(h.c, raw)
+	if err != nil {
+		return Flow{}, err
+	}
+	if err := apply(&f, raw, kindsOf(h.c)); err != nil {
+		return Flow{}, err
+	}
+	normalizeTrigger(&f, sched)
+	now := time.Now().UTC().Format(time.RFC3339)
+	if _, err := h.c.Store().Exec(ctx, `INSERT INTO sop_flows (`+flowCols+`) VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`,
+		f.ID, f.Name, f.Desc, f.Trigger, string(f.Fields), string(f.Steps), layoutCol(f.Layout), now, now); err != nil {
+		return Flow{}, err
+	}
+	if err := syncSchedule(ctx, h.c, f, "", sched); err != nil {
+		return Flow{}, scheduleErr(err)
+	}
+	return h.getFull(ctx, f.ID)
+}
+
 func (h *flows) update(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
-	id := r.PathValue("id")
 	raw, err := readBody(r)
 	if err != nil {
 		fail(w, r, h.c, err)
 		return
 	}
-	f, err := h.get(ctx, id)
+	out, err := h.patch(r.Context(), r.PathValue("id"), raw)
 	if err != nil {
 		fail(w, r, h.c, err)
 		return
 	}
+	writeJSON(w, http.StatusOK, map[string]any{"data": out})
+}
+
+// patch 是修改一条流程，raw 是 PATCH /api/sop/flows/{id} 的请求体；Agent 的 update_sop 也走这里（TSK-0480）。
+func (h *flows) patch(ctx context.Context, id string, raw map[string]json.RawMessage) (Flow, error) {
+	f, err := h.get(ctx, id)
+	if err != nil {
+		return Flow{}, err
+	}
 	if v, ok := raw["version"]; ok && string(v) != "null" {
 		var want int
 		if err := json.Unmarshal(v, &want); err != nil {
-			fail(w, r, h.c, apiErr(errValidation, "version 必须是整数"))
-			return
+			return Flow{}, apiErr(errValidation, "version 必须是整数")
 		}
 		if want != f.Version {
-			fail(w, r, h.c, apiErr(errConflict, "流程已经被改过（现在是第 %d 版），刷新后再改", f.Version))
-			return
+			return Flow{}, apiErr(errConflict, "流程已经被改过（现在是第 %d 版），刷新后再改", f.Version)
 		}
 	}
 	base, prev := f.Version, f.Trigger
 	sched, err := readSchedIn(h.c, raw)
 	if err != nil {
-		fail(w, r, h.c, err)
-		return
+		return Flow{}, err
 	}
 	if err := apply(&f, raw, kindsOf(h.c)); err != nil {
-		fail(w, r, h.c, err)
-		return
+		return Flow{}, err
 	}
 	normalizeTrigger(&f, sched)
 	now := time.Now().UTC().Format(time.RFC3339)
@@ -267,23 +267,15 @@ func (h *flows) update(w http.ResponseWriter, r *http.Request) {
 		layout = ?, version = version + 1, updated_at = ? WHERE id = ? AND version = ?`,
 		f.Name, f.Desc, f.Trigger, string(f.Fields), string(f.Steps), layoutCol(f.Layout), now, id, base)
 	if err != nil {
-		fail(w, r, h.c, err)
-		return
+		return Flow{}, err
 	}
 	if n, _ := res.RowsAffected(); n == 0 {
-		fail(w, r, h.c, apiErr(errConflict, "流程刚被别处改过，刷新后再改"))
-		return
+		return Flow{}, apiErr(errConflict, "流程刚被别处改过，刷新后再改")
 	}
 	if err := syncSchedule(ctx, h.c, f, prev, sched); err != nil {
-		fail(w, r, h.c, scheduleErr(err))
-		return
+		return Flow{}, scheduleErr(err)
 	}
-	out, err := h.getFull(ctx, id)
-	if err != nil {
-		fail(w, r, h.c, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"data": out})
+	return h.getFull(ctx, id)
 }
 
 func (h *flows) remove(w http.ResponseWriter, r *http.Request) {

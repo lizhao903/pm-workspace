@@ -242,6 +242,16 @@ func validateStatuses(ss []domain.Status) error {
 }
 
 // statusOf 在类型的状态集里找 key。
+// badStatus 是状态不在该类型状态集里的校验错误，带上合法的 key（TSK-0480）：
+// 只说 not allowed 的话，调用方（尤其是 Agent 里的小模型）会拿同一个值反复重试。
+func badStatus(t *domain.ObjectType, key string) error {
+	keys := make([]string, 0, len(t.Statuses))
+	for _, st := range t.Statuses {
+		keys = append(keys, st.Key)
+	}
+	return validation("status", "is not allowed for type "+t.ID+": "+key+" (allowed: "+strings.Join(keys, ", ")+")")
+}
+
 func statusOf(t *domain.ObjectType, key string) (domain.Status, bool) {
 	for _, st := range t.Statuses {
 		if st.Key == key {

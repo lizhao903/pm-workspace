@@ -29,6 +29,8 @@ export const ABILITIES: { key: string; label: string; write: boolean; group: str
   { key: 'write_tasks', label: '新建 / 更新任务', write: true, group: '任务', desc: '' },
   { key: 'read_content', label: '读文档', write: false, group: '文档', desc: '只能读挂载的知识库里的资料' },
   { key: 'write_content', label: '写文档', write: true, group: '文档', desc: '新建笔记、摘录' },
+  { key: 'read_sop', label: '查 SOP 流程', write: false, group: 'SOP', desc: '列出流程、读流程的步骤和能用的节点' },
+  { key: 'write_sop', label: '新建 / 修改 SOP 流程', write: true, group: 'SOP', desc: '按描述建流程或改步骤，保存前照编辑器的规则校验' },
   { key: 'run_sop', label: '发起 SOP', write: true, group: 'SOP', desc: '按标准流程执行，流程里的人工检查点照常停下' },
 ]
 

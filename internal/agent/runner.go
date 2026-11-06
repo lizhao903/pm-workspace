@@ -211,10 +211,16 @@ func (r *Runner) run(ctx context.Context, userText string, dec *Decision, emit f
 		}
 	}
 
+	// out 记这一轮实际做成和没做成的调用，收尾时如实补在回复后面（TSK-0480，outcome.go）
+	var out outcome
 	var note string
 	if dec != nil {
-		if note, err = r.applyDecision(ctx, tb, dec, emit); err != nil {
+		var res ToolResult
+		if note, res, err = r.applyDecision(ctx, tb, dec, emit); err != nil {
 			return "", err
+		}
+		if dec.Approved {
+			out.note(ToolCall{Name: dec.Call.Tool, Args: dec.Call.Args}, res, r.isWrite(dec.Call.Tool))
 		}
 	}
 
@@ -232,11 +238,15 @@ func (r *Runner) run(ctx context.Context, userText string, dec *Decision, emit f
 	// 用户问的是「这个需求怎么推进」，收场却是一句「好的，已经处理完了」。
 	usedTools, nudged := false, false
 
-	limit := maxTurns
+	// 有人在旁边的对话最多 maxTurns 轮调工具，之后再给一轮收尾：这一轮只说话，调了工具也不执行。
+	// 以前没有这一轮——第 maxTurns 轮调完工具循环就结束了，「请总结」的提示从没发给模型，
+	// 回复落到兜底的「好的，已经处理完了」（会话 ags_06gtxj0d159ynhvd 第二轮正好 8 次调用）。
+	limit := maxTurns + 1
 	if r.Budget != nil {
 		limit = math.MaxInt
 	}
 	for turn := 0; turn < limit; turn++ {
+		wrapUp := r.Budget == nil && turn == maxTurns
 		if err := r.Budget.take(); err != nil {
 			return "", err
 		}
@@ -262,6 +272,10 @@ func (r *Runner) run(ctx context.Context, userText string, dec *Decision, emit f
 		})
 		if err != nil {
 			return "", err
+		}
+		if wrapUp {
+			// 收尾轮还要调工具的不执行；工具声明照旧带着，有的服务商见到历史里有工具调用却没有工具声明会报错
+			calls = nil
 		}
 
 		// 没有工具调用，这一轮就是最终回答。
@@ -319,10 +333,17 @@ func (r *Runner) run(ctx context.Context, userText string, dec *Decision, emit f
 			}
 
 			var res ToolResult
-			if mode == store.GrantOff {
+			switch {
+			case mode == store.GrantOff:
 				res = deniedResult(call.Name)
-			} else {
+			case call.Name != toolAskUser && out.failedBefore(call):
+				// 同参重试：结果不会变，不再执行，告诉模型改参数或停下（会话里 create_object 同参失败了两遍）
+				res = repeatedFailure(call.Name)
+			default:
 				res = r.invoke(ctx, tb, call)
+			}
+			if call.Name != toolAskUser {
+				out.note(call, res, r.isWrite(call.Name))
 			}
 
 			// ask_user 被打回（选项缺 detail、问题写成了开场白……）时，这条结果是给**模型**的
@@ -405,9 +426,18 @@ func (r *Runner) run(ctx context.Context, userText string, dec *Decision, emit f
 
 	final := strings.TrimSpace(finalText.String())
 	if final == "" {
-		// 模型只调了工具没说话时兜一句，否则对话框里会留一个空气泡。
-		final = "好的，已经处理完了。"
-		emit(StreamEvent{Type: "delta", Text: final})
+		// 模型没说话时按实际结果兜一句，否则对话框里会留一个空气泡；有失败的交给下面的执行情况说
+		if final = out.fallback(usedTools); final != "" {
+			emit(StreamEvent{Type: "delta", Text: final})
+		}
+	}
+	if f := out.footer(); f != "" {
+		sep := "\n\n"
+		if final == "" {
+			sep = ""
+		}
+		emit(StreamEvent{Type: "delta", Text: sep + f})
+		final += sep + f
 	}
 
 	saved, err := r.record(ctx, &domain.AgentMessage{

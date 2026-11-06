@@ -310,7 +310,17 @@ function reply(agent: Agent, text: string, ctx: Ctx, permHint = PERM_HINT): { te
       lines.push('起草了一条回复，发之前请你确认。')
     } else denied.push('回复 IM 消息')
   }
-  if (/SOP|流程|执行/.test(text)) {
+  // 建 / 改流程（TSK-0480）：用 write_sop，不拿建任务凑；触发条件里按会话过滤、只要 @我、执行顺序现在不支持，如实说
+  const mkSop = /(?:建|新建|创建|改|修改)(?:一个|一条)?(?:SOP|流程|工作流)/i.test(text)
+  if (mkSop) {
+    if (can('write_sop')) {
+      const name = text.replace(/^.*?(?:建|新建|创建|改|修改)(?:一个|一条)?(?:SOP|流程|工作流)[：:，,]?/i, '').slice(0, 30) || '新流程'
+      const trigger = /消息|IM|群|会话/i.test(text) ? 'im' : 'manual'
+      calls.push({ tool: 'write_sop', input: { name, trigger: { type: trigger } }, state: mode('write_sop') })
+      lines.push(agent.abilities.write_sop === 'auto' ? `已新建流程「${name}」，触发方式${trigger === 'im' ? '「IM 消息」' : '「手动」'}，步骤到 SOP 编排页里补。` : `我准备新建流程「${name}」，确认后保存。`)
+      if (/优先|除了|除去|只要|仅/.test(text)) lines.push('「只看某个会话、排除 @我、优先于其他流程」这几条触发条件现在还不支持：流程会对每条新消息各跑一遍，条件只能写在流程里的条件分支上，执行顺序没法排。')
+    } else denied.push('新建 / 修改 SOP 流程')
+  } else if (/SOP|流程|执行/.test(text)) {
     if (can('run_sop')) {
       const sop = ctx.sops.find((s) => text.includes(s.name.slice(0, 2))) ?? ctx.sops[0]
       if (sop) {

@@ -39,6 +39,8 @@ type ToolResult struct {
 	ObjectID string
 	Content  string
 	Artifact *domain.Artifact
+	// Failed 是这次调用没做成（failed、没授权、同参重试），执行器据此如实说明本轮结果，见 outcome.go
+	Failed bool
 	// Question 只有 ask_user 会填。Runner 见到它就发一条 question 事件并结束本轮——
 	// 答案走用户的下一条消息，流不挂在这里等。
 	Question *Question
@@ -155,7 +157,7 @@ func (tb *Toolbox) Defs() []ToolDef {
 				"content": str("文件的完整内容"),
 			}, []string{"path", "content"}),
 		},
-	}, append(tb.kbDefs(), tb.sopDefs()...)...)
+	}, append(append(tb.kbDefs(), tb.sopDefs()...), tb.sopCatalogDefs()...)...)
 }
 
 // Invoke 执行一次工具调用。
@@ -190,6 +192,14 @@ func (tb *Toolbox) Invoke(ctx context.Context, call ToolCall) ToolResult {
 		return tb.kbSearch(ctx, args)
 	case toolRunSOP:
 		return tb.runSOP(ctx, args)
+	case toolListSOPs:
+		return tb.listSOPs(ctx, args)
+	case toolGetSOP:
+		return tb.getSOP(ctx, args)
+	case toolCreateSOP:
+		return tb.createSOP(ctx, args)
+	case toolUpdateSOP:
+		return tb.updateSOP(ctx, args)
 	default:
 		return failed(call.Name, fmt.Sprintf("没有名为 %s 的工具", call.Name))
 	}
@@ -827,9 +837,15 @@ func parseDue(s string) (*time.Time, error) {
 }
 
 func failed(tool, reason string) ToolResult {
+	return failedResult(tool, reason, "错误："+reason)
+}
+
+// failedResult 同 failed，回给模型的 content 另给。
+func failedResult(tool, reason, content string) ToolResult {
 	return ToolResult{
 		Summary: fmt.Sprintf("%s 执行失败：%s", tool, reason),
-		Content: "错误：" + reason,
+		Content: content,
+		Failed:  true,
 	}
 }
 

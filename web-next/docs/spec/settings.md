@@ -807,7 +807,11 @@ Agent、知识库、技能、枚举值、运行异常、内网域名几节目前
 | `write_tasks` | 新建 / 更新任务 | 任务 | 是 |
 | `read_content` | 读文档 | 文档 | 否 |
 | `write_content` | 写文档 | 文档 | 是 |
+| `read_sop` | 查 SOP 流程 | SOP | 否 |
+| `write_sop` | 新建 / 修改 SOP 流程 | SOP | 是 |
 | `run_sop` | 发起 SOP | SOP | 是 |
+
+`read_sop`、`write_sop` 是 TSK-0480 加的：「SOP 编排助手」以前只有「发起 SOP」，建不了流程，只能拿建任务凑。已有的 Agent 这两项默认关闭，要用在「工具与权限」里打开。
 
 新建默认（`newAgent`）：全部关闭，只开 `read_tasks`、`read_contacts` 自动；模型取第一个可用的（没有就 `claude-sonnet-5-5`）；头像文字留空；触发方式一条手动。
 

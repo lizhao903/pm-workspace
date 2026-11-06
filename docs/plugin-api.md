@@ -735,6 +735,19 @@ type SOPStarter interface {
 - 登记方的 `StartSOP` 自己负责找流程、补默认值和必填校验，错误文字给人看（定时任务记进执行记录、Agent 回给模型）；panic 转成「发起 SOP 出错」。SOP 编排插件的实现同 `POST /api/sop/flows/{id}/runs`，不逐步确认，人工检查点照常停下。
 - `ObjectID`（SOP-06）：这次执行关联的工作对象。Agent 的 `run_sop` 在挂着对象的会话（任务分配给 Agent 触发的、在任务详情里对话的）里调用时带上会话的 `object_id`，定时任务不带。SOP 编排插件把它记进 `sop_runs.object_id`，对象已经不在了只记日志、照常发起不关联。
 - 来源（SOP-06）：SOP 编排插件把 `Source` 记进 `sop_runs.source`，只认 `schedule`、`agent`、`plugin`（内核运行句柄 `Runs().StartSOP` 发起的），别的记空串；`SourceID`、`SourceName` 记进 `source_ref`、`source_name`。界面发起记 `manual`、IM 触发记 `im`、子流程记 `subflow`，这三种不经钩子。
+- 流程目录（TSK-0480，`internal/schedule/sopcatalog.go`、`internal/plugin/soplaunch.go`）：登记的发起入口可以另外实现 `SOPCatalog`（别名 `schedule.SOPCatalog`），内核的 `Registry.ListSOPs`、`GetSOP`、`SaveSOP`、`SOPNodeKinds` 转给它，Agent 的内置工具 `list_sops`、`get_sop`、`create_sop`、`update_sop` 走这里。没实现或没有在跑的登记方时回 `ErrNoSOPStarter`，插件 panic 转成「读写 SOP 流程出错」。
+
+  ```go
+  type SOPCatalog interface {
+  	ListSOPs(ctx) ([]SOPFlowBrief, error)              // {ID, Name, Desc, Trigger, Steps（步骤数）, Version}，按新建时间
+  	GetSOP(ctx, ref string) (*SOPFlowDoc, error)       // ref 认 id 和名称；找不到 errors.Is(err, ErrSOPNotFound)
+  	SaveSOP(ctx, q SOPSave) (*SOPFlowDoc, error)       // q.ID 为空新建，否则修改；q.Body 同 POST / PATCH /api/sop/flows 的请求体
+  	SOPNodeKinds(ctx) ([]SOPNodeKind, error)           // {Kind, Label, Group, Branching, Cases, Required}，内置的和在跑的插件登记的
+  }
+  type SOPFlowDoc struct { SOPFlowBrief; Fields, StepDefs json.RawMessage }
+  ```
+
+  SOP 编排插件的实现和 `POST /api/sop/flows`、`PATCH /api/sop/flows/{id}` 是同一段代码（同样的校验、版本冲突、随流程管理的定时任务），body 里的 `id` 忽略（新建一律生成 id），`steps` 里分支节点没写 `cases` 的补默认出口、有 `branch.of` 没写 `after` 的补成依赖分支步骤；保存校验没过的错误是「流程没存上：第 n 步：…；…」，其余错误去掉分类前缀给人看。
 - `Schedules` 由内核接上定时任务的查询（`Registry.SetSOPRefs`），没接时回空切片。SOP 插件删流程前用它拦下被定时任务引用的流程（契约「SOP 编排插件 sop」）。
 - 随流程管理的定时任务（TSK-0463）：SOP 流程触发方式是「定时」时，规则存在一条动作 `sop`、`action.managed` 为真的内核定时任务里，一个流程最多一条（契约「SOP 编排插件 sop」的「定时触发」）。类型是 `internal/schedule` 的别名：`SOPFlowSchedule = schedule.Schedule`、`SOPFlowScheduleInput = schedule.FlowScheduleInput`、`SOPFlowScheduleResult = schedule.FlowScheduleResult{Schedule, Created, Adopted}`、`SOPScheduleRule = schedule.Rule`。内核用 `Registry.SetSOPSchedules(*schedule.Store)` 接上（可以在 `Start` 之后调），没接时这几个方法回 `ErrNoSOPSchedules`。读（`FlowSchedule`、`FlowSchedules`、`CheckScheduleRule`）谁都能调；写（`SaveFlowSchedule`、`DeleteFlowSchedule`）只有 SOP 编排插件（id `sop`）能调，别的插件回 `ErrSOPScheduleForbidden`。`SaveFlowSchedule`：已有那一条就改（`Rule`、`Enabled` 为 nil 不改，`Name` 非空且不同就改名）；没有时 `Rule` 为 nil 不建，否则新建（`Enabled` 缺省启用）；`Adopt` 为真时先找用户手建、指向这个流程、规则等价的条目，有就认领（置 `managed`，名字、启停不动，`Adopted` 为真）。同一个流程的查找和新建串行，不会建出两条。`SOPScheduleRef` 多了 `Managed`：删流程前只拦 `Managed` 为假的。
 
