@@ -670,7 +670,7 @@ describe('IM 消息页', () => {
 
   it('输入 @ 弹出候选：联系人在前、能搜、上下键选、回车选中，发送带上 mentions', async () => {
     const rows = [msg({ conversation_id: 'cv_1' })]
-    const member = (p: Partial<ImMember>): ImMember => ({ external_id: '', name: '', sender_name: '', identity_id: '', contact_id: '', source: 'conversation', last_at: '', ...p })
+    const member = (p: Partial<ImMember>): ImMember => ({ external_id: '', name: '', sender_name: '', identity_id: '', contact_id: '', source: 'conversation', last_at: '', is_bot: false, is_self: false, ...p })
     const calls = fakeBackend(rows, { members: { cv_1: [
       member({ external_id: 'U1', name: '林原', sender_name: 'Lin Yuan', identity_id: 'idn_1', contact_id: 'stk_1' }),
       member({ external_id: 'U5', name: '陈晨', identity_id: 'idn_5', contact_id: 'stk_5', source: 'contact' }),

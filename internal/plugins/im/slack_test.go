@@ -157,10 +157,15 @@ func (f *fakeSlack) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		limit, _ := strconv.Atoi(r.Form.Get("limit"))
 		var out []map[string]any
 		h := f.history[r.Form.Get("channel")]
-		for i := len(h) - 1; i >= 0 && len(out) < limit; i-- {
+		more := false // 这一页满了、后面还有（补全消息 TSK-0724 按 has_more 往前翻）
+		for i := len(h) - 1; i >= 0; i-- {
 			ts, _ := strconv.ParseFloat(h[i]["ts"].(string), 64)
 			after := ts > oldest || (inclusive && ts == oldest)
 			before := latest == 0 || ts < latest || (inclusive && ts == latest)
+			if after && before && len(out) >= limit {
+				more = true
+				break
+			}
 			if after && before {
 				m := h[i]
 				if rs := f.threads[r.Form.Get("channel")+":"+m["ts"].(string)]; len(rs) > 0 {
@@ -170,7 +175,7 @@ func (f *fakeSlack) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				out = append(out, m)
 			}
 		}
-		reply(map[string]any{"messages": out, "has_more": false})
+		reply(map[string]any{"messages": out, "has_more": more})
 	case "conversations.replies":
 		if f.repliesLimitAt > 0 && f.calls[method] > f.repliesLimitAt {
 			w.Header().Set("Retry-After", "10")

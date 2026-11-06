@@ -7,7 +7,7 @@ import { GroupAdminDrawer } from './GroupAdmin'
 
 const conv = (p: Partial<ImConversationSummary> & { conversation_id: string }): ImConversationSummary => ({
   channel: 'slack', kind: 'group', name: '', external_id: 'C0', participants: [], total: 3, pending: 1, unread: 0, last_at: '2026-03-01T00:00:00Z',
-  project_id: null, project_ref: '', project_name: '', connector_id: 'cn_sl', sent: 0, last_sent_at: null, unresolved_users: [], name_unresolved: false, can_refill: true, refill_error: '', ...p,
+  project_id: null, project_ref: '', project_name: '', connector_id: 'cn_sl', sent: 0, last_sent_at: null, unresolved_users: [], name_unresolved: false, can_refill: true, refill_error: '', can_backfill: true, backfill_note: '', ...p,
 })
 
 const SUMMARY = [

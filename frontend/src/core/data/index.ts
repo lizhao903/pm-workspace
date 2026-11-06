@@ -118,6 +118,9 @@ export { imEmailApi, useImBackfillEmails } from './imEmails'
 export { IM_CONV_BATCH_MAX, IM_MENTIONS_MAX, IM_SEND_MAX, imGroupsApi, useImConversationSummary, useImMembers, useImSendToConversation, useImSent, useRefillImNames, useSetImConversationProjects } from './imGroups'
 export type { ImConvProjectBatchInput, ImConvProjectBatchResult, ImConvProjectFailure, ImConversationSummary, ImMember, ImMention, ImNameFailed, ImNameFilled, ImNameRefillResult, ImOutboxItem, ImSendInput } from './imGroups'
 export type { ImEmailBackfillResult, ImEmailConflict, ImEmailFilled } from './imEmails'
+// 群组管理补全消息（IM 0.30.0，TSK-0724）
+export { useImBackfillConversation } from './imGroups'
+export type { ImHistoryBackfillResult, ImHistoryRange } from './imGroups'
 // 自动忽略发信人（IM 0.27.0，TSK-0495）
 export { findMute, imMutesApi, useCreateImMute, useImMutePending, useImMutes, useRemoveImMute } from './imMutes'
 export type { ImMessageMute, ImMute, ImMuteInput, ImMuteResult, ImMuteTarget } from './imMutes'

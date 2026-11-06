@@ -112,6 +112,8 @@ func (p *Plugin) Register(r plugin.Registrar) error {
 		// 查询回填：只显示渠道编号的人名、群名回渠道查了补上（TSK-0494，names.go）
 		m.HandleFunc("POST /api/im/conversations/refill-names", in.refillNamesBatch)
 		m.HandleFunc("POST /api/im/conversations/{conversation_id}/refill-names", in.refillNamesOne)
+		// 补全消息：回渠道拉单个会话的历史、补空正文，补进来的不当新消息（TSK-0724，history.go）
+		m.HandleFunc("POST /api/im/conversations/{conversation_id}/backfill", in.backfillConversation)
 		// 群组管理里主动发消息、发出的记录（0.17.0，outbox.go）
 		m.HandleFunc("POST /api/im/send", in.send)
 		m.HandleFunc("GET /api/im/conversations/{conversation_id}/sent", in.listSent)

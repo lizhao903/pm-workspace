@@ -53,6 +53,10 @@ type ConversationSummary struct {
 	NameUnresolved  bool     `json:"name_unresolved"`
 	CanRefill       bool     `json:"can_refill"`
 	RefillError     string   `json:"refill_error"`
+	// 补全消息（TSK-0724，history.go）：CanBackfill 是能回渠道拉这个会话的历史（渠道支持、有消息所在的连接器）；
+	// BackfillNote 是不能的原因（按钮置灰时的说明），能的为空串
+	CanBackfill  bool   `json:"can_backfill"`
+	BackfillNote string `json:"backfill_note"`
 }
 
 func (in *inbox) conversationSummary(w http.ResponseWriter, r *http.Request) {
@@ -286,6 +290,8 @@ func (in *inbox) markUnresolved(s *ConversationSummary, cv *plugin.ConversationI
 		s.RefillError = lookups[s.Channel+"/user/"+x].message
 	}
 	s.CanRefill = s.ConnectorID != "" && in.nameResolverFor(s.Channel) != nil
+	s.BackfillNote = in.backfillNote(s.Channel, s.ConnectorID)
+	s.CanBackfill = s.BackfillNote == ""
 }
 
 // ConversationProjectFailure 是批量设默认项目里没写成的一条；Message 是给人看的中文原因。

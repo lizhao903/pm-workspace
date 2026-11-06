@@ -899,7 +899,8 @@ export default function Page() {
       )}
       {groupsOpen && (
         <GroupAdminDrawer onClose={() => setGroupsOpen(false)} onSend={(id) => setSending({ conversationId: id })}
-          onOpenConversation={(ch, id) => { setProject('', 'groups'); setChannel(ch); setConv(`cv:${id}`) }} />
+          onOpenConversation={(ch, id) => { setProject('', 'groups'); setChannel(ch); setConv(`cv:${id}`) }}
+          onOpenContact={(id) => navigate(`/contacts?c=${encodeURIComponent(id)}`)} />
       )}
       {toTask && (
         <ToTaskDialog msg={toTask} thread={threadForTask(toTask, list)} doneLabel={doneLabel} onCancel={() => setToTask(null)}
