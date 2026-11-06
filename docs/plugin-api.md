@@ -739,13 +739,15 @@ type SOPStarter interface {
 
   ```go
   type SOPCatalog interface {
-  	ListSOPs(ctx) ([]SOPFlowBrief, error)              // {ID, Name, Desc, Trigger, Steps（步骤数）, Version}，按新建时间
+  	ListSOPs(ctx) ([]SOPFlowBrief, error)              // {ID, Name, Desc, Trigger, Steps（步骤数）, Version, IMTrigger}，按新建时间
   	GetSOP(ctx, ref string) (*SOPFlowDoc, error)       // ref 认 id 和名称；找不到 errors.Is(err, ErrSOPNotFound)
   	SaveSOP(ctx, q SOPSave) (*SOPFlowDoc, error)       // q.ID 为空新建，否则修改；q.Body 同 POST / PATCH /api/sop/flows 的请求体
   	SOPNodeKinds(ctx) ([]SOPNodeKind, error)           // {Kind, Label, Group, Branching, Cases, Required}，内置的和在跑的插件登记的
   }
   type SOPFlowDoc struct { SOPFlowBrief; Fields, StepDefs json.RawMessage }
   ```
+
+  `IMTrigger`（TSK-0481）是触发方式为 `im` 时的过滤条件、执行顺序和拦截，一句给人看的话（如「会话 ai-octok-platform（slack C0BNCBRL5C0，cv_…）；排除 @我；第 1 个判断；命中后不再触发后面的 IM 流程」），不是 `im` 为空串；`SaveSOP` 的 body 可带 `im`，同 `POST` / `PATCH` 的 `im`。
 
   SOP 编排插件的实现和 `POST /api/sop/flows`、`PATCH /api/sop/flows/{id}` 是同一段代码（同样的校验、版本冲突、随流程管理的定时任务），body 里的 `id` 忽略（新建一律生成 id），`steps` 里分支节点没写 `cases` 的补默认出口、有 `branch.of` 没写 `after` 的补成依赖分支步骤；保存校验没过的错误是「流程没存上：第 n 步：…；…」，其余错误去掉分类前缀给人看。
 - `Schedules` 由内核接上定时任务的查询（`Registry.SetSOPRefs`），没接时回空切片。SOP 插件删流程前用它拦下被定时任务引用的流程（契约「SOP 编排插件 sop」）。
@@ -1027,12 +1029,16 @@ type ConversationReader interface {
 	Get(ctx context.Context, id string) (ConversationInfo, error)
 	// Find 按渠道和渠道里的会话编号找；编号规整同 imident（telegram 去掉开头的 @），格式不对当查不到
 	Find(ctx context.Context, channel, externalID string) (ConversationInfo, error)
+	// Match 不知道渠道时按一句话找（TSK-0481）：先按各渠道的会话编号原样比（telegram 也认带 @ 的），
+	// 都没有再按会话名比（不分大小写，开头的 # 去掉）；按渠道、编号排序，可能多条，都没有回空切片（不是 ErrNoRows）
+	Match(ctx context.Context, ref string) ([]ConversationInfo, error)
 }
 ```
 
 - 谁能调：任何插件。只读，查内核的 IM 会话表（CT-02，`conversations`），不带成员；建会话、改成员走内核 `/api/conversations`。
 - 权限：不要权限。
-- 查不到回 `ErrNoRows`。
+- 查不到回 `ErrNoRows`（`Match` 除外，回空）。
+- `Match` 给 SOP 编排插件的 IM 触发按会话过滤用（用户、Agent 给的是 Slack 频道编号 `C0BNCBRL5C0` 或群名，不知道渠道）；对上多条时调用方自己决定怎么办（SOP 插件回 400 让改填 `cv_` id）。
 
 例子（IM 插件收到消息时认会话）：
 

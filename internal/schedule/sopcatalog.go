@@ -18,6 +18,8 @@ type SOPFlowBrief struct {
 	Trigger string // manual / im / schedule；老数据可能是别的文字
 	Steps   int    // 步骤数
 	Version int
+	// IMTrigger 是触发方式为 im 时的过滤条件、执行顺序和拦截，一句给人看的话（TSK-0481）；不是 im 为空串
+	IMTrigger string
 }
 
 // SOPFlowDoc 是一条流程的完整定义，Fields、StepDefs 同 GET /api/sop/flows/{id} 的 fields、steps。

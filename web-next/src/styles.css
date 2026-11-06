@@ -1225,7 +1225,7 @@ button.run-row:hover { background: var(--panel-2); }
 .cv-node.bad { border-color: color-mix(in srgb, var(--danger) 60%, var(--line)); }
 .cv-node-head { display: flex; align-items: center; gap: 8px; height: 44px; padding: 0 12px; cursor: move; }
 .cv-node-name { font-weight: 600; font-size: 13px; flex: 1; min-width: 0; }
-.cv-node-kind { font-size: 11px; color: var(--faint); }
+.cv-node-kind { font-size: 11px; color: var(--faint); white-space: nowrap; max-width: 65%; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .cv-desc { margin: 0 10px 10px; padding: 6px 8px; border-radius: 6px; background: var(--panel-2); font-size: 12px; color: var(--muted); }
 .cv-desc .faint { color: var(--faint); }
 .cv-fields { display: flex; flex-direction: column; gap: 4px; padding: 0 10px 10px; }
@@ -2874,5 +2874,11 @@ button.thread-tag:hover { color: var(--text); border-color: var(--text); }
 .sop-start-sched { display: flex; flex-direction: column; gap: 10px; padding: 10px; border: 1px solid var(--line); border-radius: var(--r); min-width: 0; }
 .sop-start-sched.unset { flex-direction: row; flex-wrap: wrap; align-items: center; color: var(--warn); font-size: var(--fs-sm); }
 .sop-start-sched-warn { font-size: var(--fs-sm); color: var(--warn); }
+/* IM 触发（TSK-0481） */
+.sop-start-im-rel { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; }
+.sop-start-im-rel select { width: auto; }
+.sop-start-im-rel .check { white-space: nowrap; flex-direction: row; }
+.sop-start-im-rel .check input { width: auto; }
+.sop-im-stop { padding: 0 6px; border-radius: var(--r); color: var(--warn); border: 1px solid currentColor; white-space: nowrap; font-size: var(--fs-xs); }
 .sop-off-ask { display: flex; flex-direction: column; gap: 8px; }
 .sop-off-ask label { display: flex; align-items: flex-start; gap: 8px; cursor: pointer; }

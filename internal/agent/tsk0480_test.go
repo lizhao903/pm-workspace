@@ -128,8 +128,12 @@ func TestSOPCatalogTools(t *testing.T) {
 	if q.ID != "" || string(q.Body["trigger"]) != `"im"` || !strings.HasPrefix(string(q.Body["steps"]), `[{`) {
 		t.Fatalf("保存请求 = id %q body %v", q.ID, map[string]string{"trigger": string(q.Body["trigger"]), "steps": string(q.Body["steps"])})
 	}
+	// TSK-0481：conversation 当 conversations 映射进 im（一个值写成字符串也认），priority 仍不认
+	if im := string(q.Body["im"]); im != `{"conversations":["C0BNCBRL5C0"]}` {
+		t.Errorf("im = %s", im)
+	}
 	got := lastToolContent(chat.reqs[2])
-	if !strings.Contains(got, "conversation、priority") || !strings.Contains(got, "没有存上") || !strings.Contains(got, "如实说明") {
+	if !strings.Contains(got, "trigger 里的 priority 现在还不支持") || !strings.Contains(got, "没有存上") || !strings.Contains(got, "如实说明") {
 		t.Errorf("不认的触发条件要写明没存上：%q", got)
 	}
 
@@ -187,7 +191,9 @@ func TestSOPTriggerArg(t *testing.T) {
 		{nil, "", nil, false},
 		{"im", "im", nil, false},
 		{`{"type":"schedule","rule":{"kind":"daily"}}`, "schedule", nil, false},
-		{map[string]any{"type": "im", "only_me": false, "conversation_id": "cv_1"}, "im", []string{"conversation_id", "only_me"}, false},
+		// TSK-0481：会话（含别名 conversation_id）、与我的关系、顺序、拦截认了；only_me 这类别的键仍报没存上
+		{map[string]any{"type": "im", "only_me": false, "conversation_id": "cv_1"}, "im", []string{"only_me"}, false},
+		{map[string]any{"type": "im", "conversations": []any{"C0BNCBRL5C0"}, "relevance": []any{"me"}, "relevance_mode": "exclude", "order": 1.0, "stop": true}, "im", nil, false},
 		{map[string]any{"type": "cron"}, "", nil, true},
 		{map[string]any{"conversation_id": "cv_1"}, "", nil, true},
 		{42.0, "", nil, true},
@@ -316,4 +322,25 @@ func savedContent(t *testing.T, r *Runner, id string) string {
 	}
 	t.Fatalf("没找到消息 %s", id)
 	return ""
+}
+
+// TSK-0481：trigger 里 IM 的过滤、顺序、拦截映射成保存请求的 im；别名 conversation_id、逗号隔开的一串都认，调用方的参数不改。
+func TestSOPTriggerIMKeys(t *testing.T) {
+	in := map[string]any{"type": "im", "conversation_id": "C0BNCBRL5C0, cv_2", "relevance": "me", "relevance_mode": "exclude", "order": 1.0, "stop": true}
+	got, ignored, err := sopTrigger(in)
+	if err != nil || len(ignored) != 0 {
+		t.Fatalf("err %v ignored %v", err, ignored)
+	}
+	b, _ := json.Marshal(got.IM)
+	if string(b) != `{"conversations":["C0BNCBRL5C0","cv_2"],"order":1,"relevance":["me"],"relevance_mode":"exclude","stop":true}` {
+		t.Fatalf("im = %s", b)
+	}
+	if _, ok := in["conversation_id"]; !ok {
+		t.Fatal("不该改调用方的参数")
+	}
+	// 只有 type：不带 im，免得把已有的条件清掉
+	got, _, _ = sopTrigger(map[string]any{"type": "im"})
+	if len(got.IM) != 0 {
+		t.Fatalf("没给条件时 im 应为空：%v", got.IM)
+	}
 }

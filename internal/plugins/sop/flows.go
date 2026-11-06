@@ -113,6 +113,8 @@ type Flow struct {
 	// Schedule 是随流程管理的定时任务（TSK-0463，flowsched.go），形状同 /api/schedules 的一项；没有为 null。
 	// 触发方式是 schedule 而它为 null 时是「定时，未配置」（比如在定时任务页删掉了）
 	Schedule *plugin.SOPFlowSchedule `json:"schedule"`
+	// IM 是 IM 触发的过滤条件、执行顺序与拦截（TSK-0481，imfilter.go），触发方式不是 im 时照常存着、不起作用
+	IM IMTrigger `json:"im"`
 }
 
 // Issue 是一处校验问题，step 是步骤下标（原型 checkSop 的 Issue 去掉 level，这里只收拦保存的）。
@@ -131,8 +133,11 @@ var flowIDRe = regexp.MustCompile(`^sop_[a-z0-9_]{1,60}$`)
 
 const flowCols = `id, name, description, trigger_desc, fields, steps, layout, version, created_at, updated_at`
 
+// flowSel 是读流程的列：flowCols 加 IM 触发设置（TSK-0481），scanFlow 按它读
+const flowSel = flowCols + `, im_filter, im_stop, ` + imRankSQL
+
 func (h *flows) list(w http.ResponseWriter, r *http.Request) {
-	rows, err := h.c.Store().Query(r.Context(), `SELECT `+flowCols+` FROM sop_flows ORDER BY created_at, rowid`)
+	rows, err := h.c.Store().Query(r.Context(), `SELECT `+flowSel+` FROM sop_flows ORDER BY created_at, rowid`)
 	if err != nil {
 		fail(w, r, h.c, err)
 		return
@@ -208,13 +213,22 @@ func (h *flows) create(ctx context.Context, raw map[string]json.RawMessage) (Flo
 	if err != nil {
 		return Flow{}, err
 	}
+	im, err := readIMIn(ctx, h.c, raw)
+	if err != nil {
+		return Flow{}, err
+	}
 	if err := apply(&f, raw, kindsOf(h.c)); err != nil {
 		return Flow{}, err
 	}
 	normalizeTrigger(&f, sched)
+	im.applyIM(&f.IM)
 	now := time.Now().UTC().Format(time.RFC3339)
-	if _, err := h.c.Store().Exec(ctx, `INSERT INTO sop_flows (`+flowCols+`) VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`,
-		f.ID, f.Name, f.Desc, f.Trigger, string(f.Fields), string(f.Steps), layoutCol(f.Layout), now, now); err != nil {
+	// 新流程在 IM 顺序里先排最后，给了 order 的再挪（placeIM）
+	if _, err := h.c.Store().Exec(ctx, `INSERT INTO sop_flows (`+flowCols+`, im_filter, im_stop, im_order) VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, `+nextIMOrder+`)`,
+		f.ID, f.Name, f.Desc, f.Trigger, string(f.Fields), string(f.Steps), layoutCol(f.Layout), now, now, f.IM.filterJSON(), f.IM.Stop); err != nil {
+		return Flow{}, err
+	}
+	if err := placeIM(ctx, h.c, f, imTrigger, im.Order); err != nil {
 		return Flow{}, err
 	}
 	if err := syncSchedule(ctx, h.c, f, "", sched); err != nil {
@@ -257,20 +271,28 @@ func (h *flows) patch(ctx context.Context, id string, raw map[string]json.RawMes
 	if err != nil {
 		return Flow{}, err
 	}
+	im, err := readIMIn(ctx, h.c, raw)
+	if err != nil {
+		return Flow{}, err
+	}
 	if err := apply(&f, raw, kindsOf(h.c)); err != nil {
 		return Flow{}, err
 	}
 	normalizeTrigger(&f, sched)
+	im.applyIM(&f.IM)
 	now := time.Now().UTC().Format(time.RFC3339)
 	// 按读到的版本号更新，中间有人改过就算冲突
 	res, err := h.c.Store().Exec(ctx, `UPDATE sop_flows SET name = ?, description = ?, trigger_desc = ?, fields = ?, steps = ?,
-		layout = ?, version = version + 1, updated_at = ? WHERE id = ? AND version = ?`,
-		f.Name, f.Desc, f.Trigger, string(f.Fields), string(f.Steps), layoutCol(f.Layout), now, id, base)
+		layout = ?, im_filter = ?, im_stop = ?, version = version + 1, updated_at = ? WHERE id = ? AND version = ?`,
+		f.Name, f.Desc, f.Trigger, string(f.Fields), string(f.Steps), layoutCol(f.Layout), f.IM.filterJSON(), f.IM.Stop, now, id, base)
 	if err != nil {
 		return Flow{}, err
 	}
 	if n, _ := res.RowsAffected(); n == 0 {
 		return Flow{}, apiErr(errConflict, "流程刚被别处改过，刷新后再改")
+	}
+	if err := placeIM(ctx, h.c, f, prev, im.Order); err != nil {
+		return Flow{}, err
 	}
 	if err := syncSchedule(ctx, h.c, f, prev, sched); err != nil {
 		return Flow{}, scheduleErr(err)
@@ -339,7 +361,7 @@ func (h *flows) nodeTypes(w http.ResponseWriter, _ *http.Request) {
 }
 
 func (h *flows) get(ctx context.Context, id string) (Flow, error) {
-	f, err := scanFlow(h.c.Store().QueryRow(ctx, `SELECT `+flowCols+` FROM sop_flows WHERE id = ?`, id))
+	f, err := scanFlow(h.c.Store().QueryRow(ctx, `SELECT `+flowSel+` FROM sop_flows WHERE id = ?`, id))
 	if errors.Is(err, plugin.ErrNoRows) {
 		return Flow{}, apiErr(errNotFound, "流程 %s 不存在", id)
 	}
@@ -380,11 +402,13 @@ func scheduleErr(err error) error {
 
 func scanFlow(row plugin.Row) (Flow, error) {
 	var f Flow
-	var fields, steps, created, updated string
+	var fields, steps, created, updated, filter string
 	var layout *string
-	if err := row.Scan(&f.ID, &f.Name, &f.Desc, &f.Trigger, &fields, &steps, &layout, &f.Version, &created, &updated); err != nil {
+	if err := row.Scan(&f.ID, &f.Name, &f.Desc, &f.Trigger, &fields, &steps, &layout, &f.Version, &created, &updated,
+		&filter, &f.IM.Stop, &f.IM.Order); err != nil {
 		return Flow{}, err
 	}
+	readIMFilter(filter, &f.IM)
 	f.Fields, f.Steps = json.RawMessage(fields), json.RawMessage(steps)
 	if layout != nil {
 		f.Layout = json.RawMessage(*layout)

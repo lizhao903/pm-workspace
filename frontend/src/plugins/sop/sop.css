@@ -279,6 +279,8 @@ button.sop-run-row:hover { background: var(--panel-2); }
 .sop-cv-node-head { display: flex; align-items: center; gap: 8px; height: 44px; padding: 0 12px; cursor: move; }
 .sop-cv-node-name { font-weight: 600; font-size: var(--fs); flex: 1; min-width: 0; }
 .sop-cv-node-kind { font-size: var(--fs-2xs); color: var(--faint); white-space: nowrap; }
+/* 开始节点的触发方式可能很长（IM 触发带过滤条件，TSK-0481）：截断，悬停看全文 */
+.sop-cv-node-kind { max-width: 65%; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .sop-cv-desc { margin: 0 10px 10px; padding: 6px 8px; border-radius: 6px; background: var(--panel-2); font-size: var(--fs-xs); color: var(--muted); }
 .sop-cv-desc .faint { color: var(--faint); }
 .sop-cv-fields { display: flex; flex-direction: column; gap: 4px; padding: 0 10px 10px; }
@@ -526,3 +528,11 @@ button.sop-run-row:hover { background: var(--panel-2); }
 .sop-off-ask { display: flex; flex-direction: column; gap: 8px; }
 .sop-off-ask label { display: flex; align-items: flex-start; gap: 8px; cursor: pointer; }
 .sop-off-ask input { margin-top: 3px; }
+/* IM 触发（TSK-0481）：开始节点里的过滤、顺序、拦截；流程库卡片、流程详情的一行 */
+.sop-start-im { display: flex; flex-direction: column; gap: 10px; padding: 10px; border: 1px solid var(--line); border-radius: var(--r); min-width: 0; }
+.sop-start-im-rel { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; }
+.sop-start-im-rel .select { width: auto; }
+.sop-im-bar { display: flex; align-items: center; gap: 10px; min-width: 0; font-size: var(--fs-xs); color: var(--muted); }
+.sop-im-order { color: var(--accent); white-space: nowrap; }
+.sop-im-filter { flex: 1; min-width: 0; }
+.sop-im-stop { padding: 0 6px; border-radius: var(--r); color: var(--warn); border: 1px solid currentColor; white-space: nowrap; }

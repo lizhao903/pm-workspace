@@ -11,7 +11,7 @@ import { MessageDrawer, MessagesPage, contactFor, fetchBlocker, gear, withGroupP
 import { GroupTriageAdvice, QueueDrawer, TriageAdvice, triageRunsOf, triageSops } from './triage'
 import { SECTIONS, SettingsNav, type Section } from './settings'
 import { CommandPalette, type PaletteItem } from './palette'
-import { GOVERNANCE_DEFAULT, MODEL_CONCURRENCY_DEFAULT, SOPS, act as actOnRun, gateRuns, governRuns, isHeld, type Governance, rerunRuns, seedRuns, sopById, tick, runShow, runStatus, startRun, upsertSop, type Json, type RunAction, type Sop } from './sopflow'
+import { GOVERNANCE_DEFAULT, MODEL_CONCURRENCY_DEFAULT, SOPS, act as actOnRun, gateRuns, governRuns, isHeld, type Governance, rerunRuns, seedRuns, sopById, tick, runShow, runStatus, startRun, upsertSop, type Json, type RunAction, type Sop, type SopIMRelevance } from './sopflow'
 import { SopEditor, newSopDraft } from './sopedit'
 import { ingest, newTask, seedDeliveries, seedHooks, seedTasks, type TaskStatus, isOpenTask, localDay } from './taskdata'
 import { waitOf } from './taskpipeline'
@@ -774,8 +774,11 @@ export default function App() {
     }
     if (c.tool === 'write_sop') {
       // 新建一条只有名字和触发方式的流程（TSK-0480），产出记成 SOP，点标题打开它
-      const trig = (c.input.trigger as { type?: string } | undefined)?.type ?? 'manual'
-      const sop = { ...newSopDraft(), name: String(c.input.name ?? '新流程'), trigger: trig }
+      const t = (c.input.trigger ?? {}) as { type?: string; conversations?: string[]; relevance?: SopIMRelevance[]; relevance_mode?: string; order?: number; stop?: boolean }
+      const trig = t.type ?? 'manual'
+      // IM 触发的过滤、顺序、拦截（TSK-0481）照 trigger 里给的存
+      const im = trig === 'im' ? { conversations: t.conversations ?? [], relevance: t.relevance ?? [], relevance_mode: t.relevance_mode === 'exclude' ? 'exclude' as const : 'include' as const, order: t.order ?? 0, stop: !!t.stop } : undefined
+      const sop = { ...newSopDraft(), name: String(c.input.name ?? '新流程'), trigger: trig, im }
       setSops((xs) => [...xs, sop])
       record('sop', `新建流程「${sop.name}」`, sop.id)
       return { sop_id: sop.id }

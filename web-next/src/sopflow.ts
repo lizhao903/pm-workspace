@@ -55,6 +55,29 @@ export interface SopField {
   default?: string
 }
 
+/** 与我的关系：@我、@所有人、私聊、无关 */
+export type SopIMRelevance = 'me' | 'all' | 'dm' | 'none'
+export const IM_RELEVANCES: SopIMRelevance[] = ['me', 'all', 'dm', 'none']
+export const IM_REL_LABEL: Record<SopIMRelevance, string> = { me: '@我', all: '@所有人', dm: '私聊', none: '无关' }
+export interface SopIM {
+  conversations: string[]
+  relevance: SopIMRelevance[]
+  relevance_mode: 'include' | 'exclude'
+  order: number
+  stop: boolean
+}
+export const emptyIM = (): SopIM => ({ conversations: [], relevance: [], relevance_mode: 'include', order: 0, stop: false })
+/** 过滤条件写成一句：「#random · 除了 @我」；没有过滤为「全部消息」 */
+export function imFilterText(im: SopIM): string {
+  const parts: string[] = []
+  if (im.conversations.length) parts.push(im.conversations.join('、'))
+  if (im.relevance.length) parts.push(`${im.relevance_mode === 'exclude' ? '除了' : '只要'} ${im.relevance.map((r) => IM_REL_LABEL[r]).join('、')}`)
+  return parts.length ? parts.join(' · ') : '全部消息'
+}
+/** IM 流程按顺序排好（同序号按在表里的先后） */
+export const imSops = (list: readonly Sop[]) => list.filter((s) => s.trigger === 'im').map((s, i) => ({ s, i }))
+  .sort((a, b) => (a.s.im?.order || Infinity) - (b.s.im?.order || Infinity) || a.i - b.i).map((x) => x.s)
+
 export interface Sop {
   id: string
   name: string
@@ -66,6 +89,11 @@ export interface Sop {
    * 流程本身不存；打开编排页时从那条定时任务带出来，没有那条时为空（「定时，未配置」）
    */
   sched?: { rule: ScheduleRule; enabled: boolean }
+  /**
+   * IM 触发的过滤条件、执行顺序与拦截（TSK-0481，SPEC-sop-9.27）：只在触发方式是 im 时起作用，没有时是不过滤、排最后、不拦截。
+   * conversations 是会话（原型用会话名，正式产品存内核会话 id），空为全部；relevance 空为不限；order 是在 IM 流程里排第几（1 起）
+   */
+  im?: SopIM
   fields: SopField[]
   steps: SopStepDef[]
   /** 编排画布上的节点位置，key 是步骤 key，__start 是开始节点；没有就按依赖自动排 */
@@ -385,6 +413,8 @@ export const SOPS: Sop[] = [
     name: '客户反馈转需求',
     desc: '把 IM 里的客户反馈提炼成诉求，按功能需求和缺陷分开处理，回复客户并同步研发',
     trigger: 'im',
+    // IM 流程里排第 2，排在「群消息忽略」后面（TSK-0481）
+    im: { conversations: [], relevance: [], relevance_mode: 'include', order: 2, stop: false },
     fields: [
       { key: 'customer', label: '客户', type: 'text', required: true, default: '梁晚晴', placeholder: '联系人姓名' },
       { key: 'channel', label: '回复渠道', type: 'select', default: 'lark', options: [
@@ -1046,6 +1076,23 @@ export const SOPS: Sop[] = [
       },
     ],
   },
+  {
+    // TSK-0481 的验收样例：某个群里不是 @我 的消息一律标为忽略，排第 1 个并拦截，别的 IM 流程不再接；@我 的照常往下走
+    id: 'sop_im_mute',
+    name: '群消息忽略',
+    desc: '#random 里除了 @我 的消息一律标为忽略；排在最前面，接住的消息别的 IM 流程不再处理',
+    trigger: 'im',
+    im: { conversations: ['#random'], relevance: ['me'], relevance_mode: 'exclude', order: 1, stop: true },
+    fields: [{ key: 'message_id', label: 'IM 消息', type: 'text', required: true, default: 'm1', placeholder: '消息 id；IM 触发时自动带上' }],
+    steps: [
+      {
+        key: 'mark', name: '标记消息', kind: 'auto', ms: 200, after: [],
+        config: { message_id: '{{message_id}}', state: 'ignore' },
+        desc: '标记消息（IM 插件 im_mark_message）：把这条消息标为忽略，不进待处理',
+        run: (i) => ({ ...i, marked: { message_id: i.message_id, state: 'ignore' } }),
+      },
+    ],
+  },
 ]
 
 // 新建和编辑的 SOP 也放进这张表，引擎和界面都从这里按 id 取。App 里另有一份 state 负责触发重渲染
@@ -1054,6 +1101,31 @@ export function upsertSop(sop: Sop) {
   const i = SOPS.findIndex((s) => s.id === sop.id)
   if (i >= 0) SOPS[i] = sop
   else SOPS.push(sop)
+  placeIM(sop.id)
+}
+
+/**
+ * 定 IM 流程的顺序（TSK-0481，同后端 placeIM）：这一条的 im.order 是想排第几，插进去、其余顺延，全部重新从 1 编号；
+ * 没有 order（新的、刚改成 IM 的）排最后。不是 IM 的 order 清成 0
+ */
+function placeIM(id: string) {
+  const me = SOPS.find((s) => s.id === id)
+  if (!me) return
+  if (me.trigger !== 'im') { if (me.im) me.im = { ...me.im, order: 0 }; return }
+  const rest = imSops(SOPS).filter((s) => s.id !== id)
+  const want = me.im?.order || rest.length + 1
+  rest.splice(Math.min(want - 1, rest.length), 0, me)
+  rest.forEach((s, k) => { s.im = { ...(s.im ?? emptyIM()), order: k + 1 } })
+}
+
+/** 一条消息符不符合 IM 触发的过滤条件（原型按会话名比） */
+export function imMatches(im: SopIM | undefined, m: { conversation: string; relevance?: string }): boolean {
+  if (!im) return true
+  if (im.conversations.length && !im.conversations.includes(m.conversation)) return false
+  if (!im.relevance.length) return true
+  const rel = (m.relevance || 'none') as SopIMRelevance
+  const hit = im.relevance.includes(rel)
+  return im.relevance_mode === 'exclude' ? !hit : hit
 }
 export const isManualDecide = (d: SopStepDef) => d.kind === 'decide' && !d.decide && !d.rule?.trim()
 

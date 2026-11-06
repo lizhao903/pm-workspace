@@ -1,7 +1,7 @@
 import { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import { PageTitle } from './topbar'
 import {
-  GOVERNANCE_MAX, MODEL_CONCURRENCY_MAX, RERUN_MAX, RUN_STATUS, SOPS, depsOf, isHeld, flowChanged, sourceText, focusIndex, isFinished, isClaudeKind, isManualDecide, isModelKind, isProviderWait, isQueued, needsMe, ranks,
+  GOVERNANCE_MAX, MODEL_CONCURRENCY_MAX, RERUN_MAX, RUN_STATUS, SOPS, depsOf, emptyIM, imFilterText, isHeld, flowChanged, sourceText, focusIndex, isFinished, isClaudeKind, isManualDecide, isModelKind, isProviderWait, isQueued, needsMe, ranks,
   RERUN_REASON_RELAUNCHED, runShow, runStatus, stepLook,
   type Governance, type Json, type RerunAction, type RerunResult, type RunAction, type RunStep, type Sop, type SopRun,
 } from './sopflow'
@@ -35,6 +35,21 @@ function SchedLine({ sop, className }: { sop: Sop; className: string }) {
       <span className="switch-line" title={sc.enabled ? '停用定时' : '启用定时'}>
         <input type="checkbox" aria-label={`定时执行「${sop.name}」`} checked={sc.enabled} onChange={(e) => toggle(sc.id, e.target.checked)} /><span className="switch" />
       </span>
+    </div>
+  )
+}
+
+/** 流程的 IM 触发一行（TSK-0481，SPEC-sop-2.14、5.18）：第几个判断、过滤条件、拦截标记；不是 IM 触发不显示 */
+function IMLine({ sop, className }: { sop: Sop; className: string }) {
+  if (sop.trigger !== 'im') return null
+  const im = sop.im ?? emptyIM()
+  return (
+    <div className={cls('sop-sched sop-im-line', className)}>
+      <span className="sop-sched-text">
+        <span className="sop-sched-next">第 {im.order || '?'} 个</span>
+        <span>{imFilterText(im)}</span>
+      </span>
+      {im.stop && <span className="sop-im-stop" title="这条流程接住的消息，排在后面的 IM 流程不再处理">拦截后续</span>}
     </div>
   )
 }
@@ -440,6 +455,7 @@ function SopLibraryPage({ sops, runs, onOpen, onNew }: { sops: Sop[]; runs: SopR
                 </span>
               </button>
               <SchedLine sop={s} className="sop-lib-sched" />
+              <IMLine sop={s} className="sop-lib-sched" />
               </div>
             )
           })}
@@ -495,6 +511,7 @@ export function SopDetailPage({ sop, runs, onStart, onOpen, onEdit, onDelete, de
         <span>{reviews} 个需要人处理的节点</span>
       </div>
       <SchedLine sop={sop} className="sop-detail-sched" />
+      <IMLine sop={sop} className="sop-detail-sched" />
 
       <div className="section-label">流程</div>
       <div className="flow-card"><FlowGraph sop={sop} /></div>

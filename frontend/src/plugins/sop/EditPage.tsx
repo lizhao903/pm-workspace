@@ -11,6 +11,7 @@ import { useSopNodeViews } from '../../core/plugin'
 import { Button, EmptyState, LoadingState } from '../../core/ui'
 import { catalogOf, newDraft } from './edit'
 import { draftScheduleOf, triggerOptionsOf } from './schedule'
+import { emptyIM, imDraftOf, imFlowsOf, imOf } from './imtrigger'
 import { Editor } from './Editor'
 import type { TriggerOption } from './NodePanel'
 import type { FieldCtx } from './nodes'
@@ -50,6 +51,7 @@ export function EditPage({ id, flows, runs, onCancel, onSaved }: {
     providers: providers.data ?? [],
     projects: (projects.data?.data ?? []).filter((p) => !p.deleted_at).map((p) => ({ id: p.id, name: p.title })),
     presets: (presets.data ?? []).map((p) => ({ id: p.id, scene: p.scene, permission: p.permission })),
+    imFlows: imFlowsOf(flows).map((f) => ({ id: f.id, name: f.name, order: imOf(f).order, stop: imOf(f).stop })),
   }), [flows, agents.data, kbs.data, cats.data, providers.data, projects.data, presets.data])
   const triggers = useMemo<TriggerOption[]>(() => {
     const items = dicts.data?.find((d) => d.id === 'sop_trigger')?.items ?? []
@@ -71,12 +73,12 @@ export function EditPage({ id, flows, runs, onCancel, onSaved }: {
       {() => id ? (
         <QueryState query={flow} errorTitle="流程没取到">
           {(f) => (
-            <Editor key={f.id} initial={{ id: f.id, name: f.name, desc: f.desc, ...draftScheduleOf(f), fields: f.fields, steps: f.steps, layout: f.layout }}
+            <Editor key={f.id} initial={{ id: f.id, name: f.name, desc: f.desc, ...draftScheduleOf(f), im: imDraftOf(f), fields: f.fields, steps: f.steps, layout: f.layout }}
               flowId={f.id} version={f.version} hasSchedule={!!f.schedule} catalog={catalog} ctx={ctx} triggers={triggers} runs={runs} onCancel={onCancel} onSaved={onSaved} />
           )}
         </QueryState>
       ) : (
-        <Editor initial={newDraft(triggers[0].value)} catalog={catalog} ctx={ctx} triggers={triggers} runs={runs} onCancel={onCancel} onSaved={onSaved} />
+        <Editor initial={{ ...newDraft(triggers[0].value), im: emptyIM() }} catalog={catalog} ctx={ctx} triggers={triggers} runs={runs} onCancel={onCancel} onSaved={onSaved} />
       )}
     </QueryState>
   )

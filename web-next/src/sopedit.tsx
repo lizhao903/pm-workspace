@@ -2,7 +2,9 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { PageTitle } from './topbar'
 import { DataView, triggerLabel } from './sop'
 import { NODE_GROUPS, NODE_TYPES, KindIcon, KindTag, claudeTimeout, defaultConfig, evalRule, isBranching, loopRounds, missingFields, typeOf, type ConfigField, type FieldCtx } from './nodetypes'
-import { STEP_KIND, depsOf, stepLook, isManualDecide, ranks, upstreamOf, type Sop, type SopField, type SopRun, type SopStepDef, type StepKind } from './sopflow'
+import { IM_RELEVANCES, IM_REL_LABEL, SOPS, STEP_KIND, depsOf, emptyIM, imFilterText, imSops, stepLook, isManualDecide, ranks, upstreamOf, type Sop, type SopField, type SopIM, type SopRun, type SopStepDef, type StepKind } from './sopflow'
+import { SearchSelect } from './searchselect'
+import { IM_CONVERSATIONS } from './data'
 import { cls, timeAgo } from './ui'
 import { useEnum } from './enumdata'
 import { newId } from './ids'
@@ -559,7 +561,7 @@ function NodePanel({ draft, nodeKey, runs, sopList, tried, onChange, onPatchSop,
           <div className="list-sub">执行时要填的内容，第一批节点拿它当输入。</div>
           <label className="field">
             <span className="field-label">触发方式</span>
-            <select value={draft.trigger} onChange={(e) => onPatchSop(e.target.value === 'schedule' && !draft.sched ? { trigger: e.target.value, sched: defaultSched() } : { trigger: e.target.value })}>
+            <select value={draft.trigger} onChange={(e) => onPatchSop(e.target.value === 'schedule' && !draft.sched ? { trigger: e.target.value, sched: defaultSched() } : e.target.value === 'im' && !draft.im ? { trigger: e.target.value, im: emptyIM() } : { trigger: e.target.value })}>
               {!triggerOpts.some((t) => t.key === draft.trigger) && <option value={draft.trigger}>{draft.trigger}</option>}
               {triggerOpts.map((t) => <option key={t.key} value={t.key}>{t.label}</option>)}
             </select>
@@ -583,6 +585,8 @@ function NodePanel({ draft, nodeKey, runs, sopList, tried, onChange, onPatchSop,
               <button className="act" onClick={() => onPatchSop({ sched: defaultSched() })}>设定时间</button>
             </div>
           ))}
+          {/* IM 消息（TSK-0481）：只接哪些会话、与我的关系、第几个判断、命中后拦截后面的 IM 流程 */}
+          {draft.trigger === 'im' && <StartIM sop={draft} onChange={(im) => onPatchSop({ im })} />}
           <div className="field">
             <span className="field-label">输入字段</span>
             <div className="field-list">
@@ -747,6 +751,60 @@ function NextList({ kids, onSelect, onAdd }: { kids: SopStepDef[]; onSelect: (k:
           选择下一个节点
         </button>
       </div>
+    </div>
+  )
+}
+
+/**
+ * 开始节点的「IM 消息」（TSK-0481，SPEC-sop-9.27 到 9.31）。会话多选，名字和渠道里的编号都能搜（Slack 的 C0…）；
+ * 与我的关系「只要 / 除了」加四种勾选，都不勾是不限；顺序下拉写明在谁之前、之后；拦截开关。不符合条件的消息不发起、不留记录
+ */
+const CONV_OPTIONS = [
+  ...(IM_CONVERSATIONS.cn_slack ?? []).filter((c) => c.kind !== 'mpim').map((c) => ({ value: `#${c.name}`, label: `#${c.name}`, hint: `slack · ${c.id}` })),
+  { value: '远川试点项目群', label: '远川试点项目群', hint: 'lark · oc_7f3a9c21' },
+]
+function StartIM({ sop, onChange }: { sop: Sop; onChange: (im: SopIM) => void }) {
+  const im = sop.im ?? emptyIM()
+  const others = imSops(SOPS).filter((s) => s.id !== sop.id)
+  const saved = SOPS.find((s) => s.id === sop.id)
+  const cur = im.order || (saved?.trigger === 'im' ? saved.im?.order : 0) || others.length + 1
+  const patch = (p: Partial<SopIM>) => onChange({ ...im, ...p })
+  const blockers = others.slice(0, cur - 1).filter((s) => s.im?.stop)
+  return (
+    <div className="sop-start-sched">
+      <div className="field">
+        <span className="field-label">只接这些会话</span>
+        <SearchSelect multiple value={im.conversations} placeholder="全部会话" searchPlaceholder="搜群名或会话编号（如 C0…）" options={CONV_OPTIONS}
+          onChange={(v) => patch({ conversations: v })} />
+      </div>
+      <div className="field">
+        <span className="field-label">与我的关系</span>
+        <div className="sop-start-im-rel">
+          <select value={im.relevance_mode} onChange={(e) => patch({ relevance_mode: e.target.value === 'exclude' ? 'exclude' : 'include' })}>
+            <option value="include">只要</option>
+            <option value="exclude">除了</option>
+          </select>
+          {IM_RELEVANCES.map((r) => (
+            <label key={r} className="check"><input type="checkbox" checked={im.relevance.includes(r)}
+              onChange={(e) => patch({ relevance: IM_RELEVANCES.filter((x) => (x === r ? e.target.checked : im.relevance.includes(x))) })} />{IM_REL_LABEL[r]}</label>
+          ))}
+        </div>
+        <span className="field-hint-line">{im.relevance.length ? '' : '都不勾是不限。'}不符合会话和关系的消息不会发起这个流程，也不留执行记录</span>
+      </div>
+      <label className="field">
+        <span className="field-label">执行顺序</span>
+        <select value={cur} onChange={(e) => patch({ order: Number(e.target.value) })}>
+          {Array.from({ length: others.length + 1 }, (_, k) => k + 1).map((n) => (
+            <option key={n} value={n}>{n === 1 ? (others.length ? `第 1 个（在「${others[0].name}」之前）` : '第 1 个（目前只有它）') : `第 ${n} 个（在「${others[n - 2].name}」之后）`}</option>
+          ))}
+        </select>
+        <span className="field-hint-line">来一条消息时，IM 流程按这个顺序逐个判断、发起</span>
+      </label>
+      <label className="switch-row">
+        <span><span className="field-label">命中后不再触发后面的 IM 流程</span><span className="switch-hint">{im.stop ? '这条流程接住（条件符合并发起了）的消息，排在后面的 IM 流程不再处理；不影响 IM 插件自己的处理和 Agent 的 IM 触发' : '不拦截：后面的 IM 流程照常判断'}</span></span>
+        <span className="switch-line"><input type="checkbox" checked={im.stop} onChange={(e) => patch({ stop: e.target.checked })} /><span className="switch" /></span>
+      </label>
+      {blockers.length > 0 && <div className="sop-start-sched-warn">排在前面的{blockers.map((s) => `「${s.name}」`).join('、')}会拦截：它们接住的消息不会再到这个流程</div>}
     </div>
   )
 }
@@ -1039,7 +1097,8 @@ export function SopEditor({ initial, creating, runs, sopList, hasSchedule = fals
 
           {/* 开始节点 */}
           <div className={cls('cv-node', sel === START && 'sel')} data-node={START} style={{ left: lay[START].x, top: lay[START].y, width: NW }}>
-            <div className="cv-node-head"><KindIcon kind="start" /><span className="cv-node-name">开始</span><span className="cv-node-kind">{draft.trigger === 'schedule' ? (draft.sched ? `${triggerLabel(triggers, draft.trigger)} · ${describeRule(draft.sched.rule)}` : `${triggerLabel(triggers, draft.trigger)}，未配置`) : triggerLabel(triggers, draft.trigger)}</span></div>
+            <div className="cv-node-head"><KindIcon kind="start" /><span className="cv-node-name">开始</span><span className="cv-node-kind">{draft.trigger === 'schedule' ? (draft.sched ? `${triggerLabel(triggers, draft.trigger)} · ${describeRule(draft.sched.rule)}` : `${triggerLabel(triggers, draft.trigger)}，未配置`)
+              : draft.trigger === 'im' && draft.im ? `${triggerLabel(triggers, draft.trigger)} · ${imFilterText(draft.im)}${draft.im.stop ? ' · 拦截后续' : ''}` : triggerLabel(triggers, draft.trigger)}</span></div>
             <div className="cv-fields">{draft.fields.map((f) => <span key={f.key} className="cv-field"><span className="mono">{'{x}'}</span>{f.label || '未命名字段'}{f.required && <em>*</em>}</span>)}</div>
             <span className="cv-handle" data-out={START} title="拖动连线，或点击添加下一个节点">+</span>
           </div>

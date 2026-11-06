@@ -40,6 +40,8 @@ export type FieldCtx = {
   presets?: { id: string; scene: string; permission?: string }[]
   /** 正在配的节点沿依赖往上的所有步骤，条件回退选退回目标（AUTO-02）；节点面板按选中的节点填 */
   ups?: { key: string; name: string }[]
+  /** 现在的 IM 流程，按执行顺序（TSK-0481），开始节点选顺序用 */
+  imFlows?: { id: string; name: string; order: number; stop: boolean }[]
 }
 export const EMPTY_CTX: FieldCtx = { flows: [], agents: [], kbs: [], docCats: [], providers: [], projects: [] }
 

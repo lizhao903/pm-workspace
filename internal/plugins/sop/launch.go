@@ -65,7 +65,7 @@ func hookSource(s string) string {
 var _ plugin.SOPCatalog = (*starter)(nil)
 
 func (s *starter) ListSOPs(ctx context.Context) ([]plugin.SOPFlowBrief, error) {
-	rows, err := s.c.Store().Query(ctx, `SELECT `+flowCols+` FROM sop_flows ORDER BY created_at, rowid`)
+	rows, err := s.c.Store().Query(ctx, `SELECT `+flowSel+` FROM sop_flows ORDER BY created_at, rowid`)
 	if err != nil {
 		return nil, err
 	}
@@ -76,7 +76,7 @@ func (s *starter) ListSOPs(ctx context.Context) ([]plugin.SOPFlowBrief, error) {
 		if err != nil {
 			return nil, err
 		}
-		out = append(out, flowBrief(f))
+		out = append(out, s.brief(ctx, f))
 	}
 	return out, rows.Err()
 }
@@ -93,7 +93,7 @@ func (s *starter) GetSOP(ctx context.Context, ref string) (*plugin.SOPFlowDoc, e
 	if err != nil {
 		return nil, plainErr(err)
 	}
-	return flowDoc(f), nil
+	return s.doc(ctx, f), nil
 }
 
 func (s *starter) SaveSOP(ctx context.Context, q plugin.SOPSave) (*plugin.SOPFlowDoc, error) {
@@ -128,7 +128,7 @@ func (s *starter) SaveSOP(ctx context.Context, q plugin.SOPSave) (*plugin.SOPFlo
 		}
 		return nil, plainErr(err)
 	}
-	return flowDoc(f), nil
+	return s.doc(ctx, f), nil
 }
 
 func (s *starter) SOPNodeKinds(_ context.Context) ([]plugin.SOPNodeKind, error) {
@@ -195,12 +195,13 @@ func issuesText(issues []Issue) string {
 	return "流程没存上：" + strings.Join(ts, "；")
 }
 
-func flowBrief(f Flow) plugin.SOPFlowBrief {
+func (s *starter) brief(ctx context.Context, f Flow) plugin.SOPFlowBrief {
 	var steps []json.RawMessage
 	_ = json.Unmarshal(f.Steps, &steps)
-	return plugin.SOPFlowBrief{ID: f.ID, Name: f.Name, Desc: f.Desc, Trigger: f.Trigger, Steps: len(steps), Version: f.Version}
+	return plugin.SOPFlowBrief{ID: f.ID, Name: f.Name, Desc: f.Desc, Trigger: f.Trigger, Steps: len(steps), Version: f.Version,
+		IMTrigger: imDescribe(ctx, s.c, f)}
 }
 
-func flowDoc(f Flow) *plugin.SOPFlowDoc {
-	return &plugin.SOPFlowDoc{SOPFlowBrief: flowBrief(f), Fields: f.Fields, StepDefs: f.Steps}
+func (s *starter) doc(ctx context.Context, f Flow) *plugin.SOPFlowDoc {
+	return &plugin.SOPFlowDoc{SOPFlowBrief: s.brief(ctx, f), Fields: f.Fields, StepDefs: f.Steps}
 }
