@@ -47,6 +47,7 @@ import { TopbarContext } from './topbar'
 import { AppearancePage, type ThemePref } from './appearance'
 import { UpdatePage } from './update'
 import { RunPresetsPage } from './runpresetspage'
+import { RunPermsPage } from './runpermspage'
 import { cls } from './ui'
 import { PLATFORMS, PLATFORM_TOOL, STAGES, checkPublish, coverRatioOf, dealReport, seedArtifacts, seedDeals, seedPublishes, seedSeries, seedTexts, seedVideos, videoState, type Deal, type PlatformKey, type Publish, type Video } from './videodata'
 import { CalendarPage } from './videocalendar'
@@ -155,6 +156,8 @@ export default function App() {
   useEffect(() => { saveWorkspaces(benches, bench.id) }, [benches, bench.id])
   const [page, setPage] = useState<Page>(() => (bench.home as Page) ?? 'projects')
   const [section, setSection] = useState<Section>('connectors')
+  // 执行记录「去设置放行」带过来的规则（TSK-0499），设置 > 执行权限预填
+  const [permsPending, setPermsPending] = useState<string[]>([])
   // Agent 配置页有未保存的改动时，切二级菜单先让它确认
   const agentGuard = useRef<((leave: () => void) => boolean) | null>(null)
   const leaveAgent = (go: () => void) => { if (!agentGuard.current || agentGuard.current(go)) go() }
@@ -1594,6 +1597,8 @@ export default function App() {
             go('terminal')
           },
           onManagePresets: () => { setDrawer(null); go('settings'); setSection('run-prompts') },
+          onManagePerms: () => { setDrawer(null); go('settings'); setSection('run-permissions') },
+          onAllowRules: (rules) => { setPermsPending(rules); setDrawer(null); go('settings'); setSection('run-permissions') },
           // 交给工作台 Agent（SPEC-tasks-6.20）：Agent 默认取场景「执行任务」的；会话是全局的，来源标这次执行（SPEC-sessions-1.44）
           agentRun: { agents, defaultAgentId: taskRunAgent(agents, agentScenarios)?.id, providers, models },
           onAgentSession: ({ task: t, runId, agentId, prompt }) => {
@@ -2178,6 +2183,7 @@ export default function App() {
           {page === 'settings' && section === 'appearance' && <AppearancePage theme={theme} onTheme={setTheme} collapsed={collapsed} onCollapsed={setCollapsed} />}
           {page === 'settings' && section === 'update' && <UpdatePage />}
           {page === 'settings' && section === 'run-prompts' && <RunPresetsPage />}
+          {page === 'settings' && section === 'run-permissions' && <RunPermsPage key={permsPending.join('\n')} pending={permsPending} />}
           {page === 'settings' && section === 'enums' && (
             <EnumsPage groups={enums} usage={enumUsage} onMigrate={migrateEnum}
               onSave={(g) => setEnums((xs) => (xs.some((x) => x.key === g.key) ? xs.map((x) => (x.key === g.key ? g : x)) : [...xs, g]))}

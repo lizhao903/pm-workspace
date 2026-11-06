@@ -3,7 +3,7 @@ import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes } from 'react-router'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import type { RunPreset, TaskRun, WorkObject } from '../../core/data'
+import type { RunPermissions, RunPreset, TaskRun, WorkObject } from '../../core/data'
 import { terminalLauncherRegistry, terminalLauncherStore, type TerminalLaunchRequest } from '../../core/plugin'
 import { HandOffButton } from './HandOff'
 import { resetLiveRuns } from './runLive'
@@ -11,7 +11,7 @@ import { resetLiveRuns } from './runLive'
 const task = { id: 'obj_1', ref: 'TSK-0001', title: '任务' } as WorkObject
 
 // 打桩 fetch：执行记录、目录校验（/ok 开头的可用）、发起执行（回一段 SSE）
-function stub(rows: TaskRun[] = [], presets: RunPreset[] = []) {
+function stub(rows: TaskRun[] = [], presets: RunPreset[] = [], perms?: Partial<RunPermissions>) {
   const bodies: unknown[] = []
   vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input)
@@ -47,6 +47,7 @@ function stub(rows: TaskRun[] = [], presets: RunPreset[] = []) {
       return json({ id: fin[1], status: 'failed', mode: 'terminal' })
     }
     if (url.endsWith('/api/run-prompts')) return json(presets)
+    if (url.endsWith('/api/run-permissions')) return json({ write_profile: 'accept_edits', custom: [], profiles: [], mcp_server: 'pmw-run', ...perms })
     if (url.includes('/api/objects/obj_1/runs')) return json(rows)
     return json([])
   }))
@@ -130,7 +131,7 @@ describe('交给 Claude Code', () => {
     await waitFor(() => expect(go).toBeEnabled())
     await user.click(go)
     await waitFor(() => expect(bodies).toHaveLength(1))
-    expect(bodies[0]).toEqual({ workdir: '/ok/w', extra_prompt: '只读 a.txt', allow_writes: false })
+    expect(bodies[0]).toEqual({ workdir: '/ok/w', extra_prompt: '只读 a.txt', allow_writes: false, permission: 'read_only' })
     expect(screen.queryByRole('dialog', { name: '交给 Claude Code' })).not.toBeInTheDocument()
   })
 
@@ -154,7 +155,7 @@ describe('交给 Claude Code', () => {
     await waitFor(() => expect(go).toBeEnabled())
     await user.click(go)
     await waitFor(() => expect(bodies).toHaveLength(1))
-    expect(bodies[0]).toEqual({ workdir: '/ok/w', extra_prompt: '', allow_writes: true, preset_id: 'rp_pm' })
+    expect(bodies[0]).toEqual({ workdir: '/ok/w', extra_prompt: '', allow_writes: true, permission: 'accept_edits', preset_id: 'rp_pm' })
   })
 
   it('只读角色锁成只读，显示输出要求；换回允许改文件的角色又勾上（AUTO-03）', async () => {
@@ -183,7 +184,7 @@ describe('交给 Claude Code', () => {
     await waitFor(() => expect(go).toBeEnabled())
     await user.click(go)
     await waitFor(() => expect(bodies).toHaveLength(1))
-    expect(bodies[0]).toEqual({ workdir: '/ok/w', extra_prompt: '', allow_writes: false, preset_id: 'rp_review' })
+    expect(bodies[0]).toEqual({ workdir: '/ok/w', extra_prompt: '', allow_writes: false, permission: 'read_only', preset_id: 'rp_review' })
   })
 
   it('角色选「不用」时请求不带 preset_id，回到默认只读', async () => {
@@ -199,7 +200,7 @@ describe('交给 Claude Code', () => {
     await waitFor(() => expect(go).toBeEnabled())
     await user.click(go)
     await waitFor(() => expect(bodies).toHaveLength(1))
-    expect(bodies[0]).toEqual({ workdir: '/ok/w', extra_prompt: '', allow_writes: false })
+    expect(bodies[0]).toEqual({ workdir: '/ok/w', extra_prompt: '', allow_writes: false, permission: 'read_only' })
   })
 
   it('已有运行中的执行时按钮是「查看运行中」', async () => {
@@ -265,5 +266,26 @@ describe('交给 Claude Code', () => {
     expect(await screen.findByLabelText('提示词预览')).toHaveTextContent('预览 mode=stream')
     await user.click(screen.getByRole('radio', { name: '切换到终端' }))
     await waitFor(() => expect(screen.getByLabelText('提示词预览')).toHaveTextContent('预览 mode=terminal'))
+  })
+
+  // TSK-0499：勾了允许写入才出写入档位，默认跟设置「执行权限」，选的档位进请求体
+  it('写入档位：默认跟设置，可改，发起时带 permission', async () => {
+    const bodies = stub([], [], { write_profile: 'edits_and_tests', custom: ['Bash(git commit:*)'] })
+    renderButton()
+    const user = userEvent.setup()
+    await user.click(await screen.findByRole('button', { name: '交给 Claude Code' }))
+    expect(screen.queryByRole('combobox', { name: '写入档位' })).not.toBeInTheDocument()
+    await user.click(screen.getByRole('checkbox', { name: '允许写入' }))
+    await user.click(screen.getByRole('button', { name: '确认允许写入' }))
+    const sel = await screen.findByRole('combobox', { name: '写入档位' })
+    await waitFor(() => expect(sel).toHaveValue('edits_and_tests'))
+    expect(screen.getByRole('link', { name: '管理执行权限' })).toHaveAttribute('href', '/settings/run-permissions')
+    await user.selectOptions(sel, 'custom')
+    expect(screen.getByText(/自定义白名单（1 条）/)).toBeInTheDocument()
+    const go = screen.getByRole('button', { name: '开始执行（允许写入）' })
+    await waitFor(() => expect(go).toBeEnabled())
+    await user.click(go)
+    await waitFor(() => expect(bodies).toHaveLength(1))
+    expect(bodies[0]).toEqual({ workdir: '/ok/w', extra_prompt: '', allow_writes: true, permission: 'custom' })
   })
 })

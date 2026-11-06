@@ -661,7 +661,7 @@ func TestOrdinaryToolFailureDoesNotFailTheRun(t *testing.T) {
 func TestDenialReasonDependsOnAllowWrites(t *testing.T) {
 	denials := []Denial{{ToolName: "Write"}, {ToolName: "Edit"}, {ToolName: "Write"}}
 
-	readonly := denialReason(denials, false, false)
+	readonly := denialReason(denials, Request{}, false)
 	if !strings.Contains(readonly, "允许修改文件") {
 		t.Errorf("只读模式要告诉用户去勾开关：%s", readonly)
 	}
@@ -672,8 +672,12 @@ func TestDenialReasonDependsOnAllowWrites(t *testing.T) {
 	if !strings.Contains(readonly, "3 个") {
 		t.Errorf("次数仍然要如实报：%s", readonly)
 	}
+	// 编辑被拒靠档位放开，不该叫用户把 Write 加进白名单。
+	if strings.Contains(readonly, "建议放行") {
+		t.Errorf("文件编辑不进白名单：%s", readonly)
+	}
 
-	allowed := denialReason(denials, true, false)
+	allowed := denialReason(denials, Request{AllowWrites: true}, false)
 	if strings.Contains(allowed, "请在发起时勾选") {
 		t.Errorf("开关已经打开了，再叫用户去勾就是错的指引：%s", allowed)
 	}
@@ -682,12 +686,37 @@ func TestDenialReasonDependsOnAllowWrites(t *testing.T) {
 	}
 
 	// 有别的调用成功了，就不能断言整件事没做成——claude 会绕路。
-	partial := denialReason(denials, false, true)
+	partial := denialReason(denials, Request{}, true)
 	if strings.Contains(partial, "任务没有真正完成") {
 		t.Errorf("部分被拒时不能断言任务没完成：%s", partial)
 	}
 	if !strings.Contains(partial, "允许修改文件") {
 		t.Errorf("解法仍然要给：%s", partial)
+	}
+}
+
+// TSK-0499：被拒的命令和 MCP 工具要列出来，并给出可以直接加进白名单的规则（前端认「建议放行：`…`」）。
+func TestDenialReasonSuggestsRules(t *testing.T) {
+	denials := []Denial{
+		{ToolName: "Bash", ToolInput: map[string]any{"command": `sqlite3 -readonly "file:data-dev/pm.db?mode=ro" ".tables" | head -5`}},
+		{ToolName: "Bash", ToolInput: map[string]any{"command": "git commit -m x && make deploy"}},
+		{ToolName: "mcp__other__do_thing"},
+	}
+	req := Request{AllowWrites: true, Permission: PermAcceptEdits, AllowedTools: PermAllowed(PermAcceptEdits, nil)}
+	msg := denialReason(denials, req, false)
+	for _, want := range []string{
+		"被拒的命令：sqlite3 -readonly", "建议放行：", "sqlite3 -readonly -safe", "`Bash(git commit:*)`",
+		"`Bash(make deploy:*)`", "`mcp__other__do_thing`", "设置 / 执行权限", "「允许改文件」",
+	} {
+		if !strings.Contains(msg, want) {
+			t.Errorf("提示缺少 %q：%s", want, msg)
+		}
+	}
+	// head 已在默认白名单里，不是被拒的原因；sqlite3 不给裸的 Bash(sqlite3:*)。
+	for _, bad := range []string{"`Bash(head:*)`", "`Bash(sqlite3:*)`"} {
+		if strings.Contains(msg, bad) {
+			t.Errorf("不该建议 %s：%s", bad, msg)
+		}
 	}
 }
 

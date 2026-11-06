@@ -9,6 +9,7 @@ import { useOpenUrl } from './openurl'
 import { GrowArea, cls, timeAgo } from './ui'
 import { buildPrompt, type HandoffMode, type ProjectContext } from './handoff'
 import { useRunPresets, type RunPreset } from './runpresets'
+import { WRITE_PROFILE_OPTIONS, allowRulesOf, useRunPerms, writeProfileHint, type RunPermission, type RunWriteProfile } from './runperms'
 import type { Agent } from './agentdata'
 import type { ModelConf, Provider } from './modeldata'
 
@@ -148,6 +149,8 @@ export interface AgentRunOptions {
 /** 发起一次执行的参数；harness=agent 时后面几项才有用（SPEC-tasks-6.20 到 6.24） */
 export interface RunStart {
   workdir: string; allow_writes: boolean; extra_prompt: string; mode?: HandoffMode; preset?: RunPreset
+  /** 权限档位（TSK-0499）：不允许写入时 read_only，允许时是选的写入档位 */
+  permission?: RunPermission
   harness?: RunHarness
   agent_id?: string; agent_name?: string; provider_id?: string; model?: string
   /** 只读角色：只给读的工具 */
@@ -536,7 +539,7 @@ function FinishRunDialog({ onFinish, onClose }: { onFinish: (status: 'done' | 'f
   )
 }
 
-export function RunsBlock({ runs, onCancel, onFinish, focus, onDecide, onOpenSession, agentName }: {
+export function RunsBlock({ runs, onCancel, onFinish, focus, onDecide, onOpenSession, agentName, onAllowRules }: {
   runs: TaskRun[]; onCancel: (id: string) => void
   /** 工作台 Agent 停下等确认时确认 / 拒绝（SPEC-tasks-5.34） */
   onDecide?: (id: string, approved: boolean) => void
@@ -548,6 +551,8 @@ export function RunsBlock({ runs, onCancel, onFinish, focus, onDecide, onOpenSes
   onFinish?: (id: string, status: 'done' | 'failed' | 'cancelled', summary: string) => void
   /** 从别处跳过来定位的那一条：展开、高亮、滚到可见处（SPEC-tasks-4.39） */
   focus?: string
+  /** 被拒提示里「建议放行」的规则：去设置 > 执行权限预填（TSK-0499） */
+  onAllowRules?: (rules: string[]) => void
 }) {
   const [open, setOpen] = useState<string | null>(focus ?? null)
   useEffect(() => {
@@ -578,6 +583,11 @@ export function RunsBlock({ runs, onCancel, onFinish, focus, onDecide, onOpenSes
             </button>
             {r.summary && r.status !== 'running' && <div className="dev-run-note pre-line">结论：{r.summary}</div>}
             {r.error && r.status !== 'running' && <div className={cls('dev-run-note', r.status === 'failed' ? 'danger-text' : 'muted')}>{r.status === 'done' ? `保留意见：${r.error}` : r.error}</div>}
+            {r.error && r.status !== 'running' && onAllowRules && allowRulesOf(r.error).length > 0 && (
+              <div className="dev-run-note muted">
+                <button className="link-btn" onClick={() => onAllowRules(allowRulesOf(r.error ?? ''))}>去设置放行这 {allowRulesOf(r.error).length} 项</button>（加进「执行权限」的自定义白名单，发起时选「自定义白名单」档位）
+              </div>
+            )}
             {expanded && (
               <div className="dev-run-body">
                 <div className="list-sub mono">{ag
@@ -615,7 +625,7 @@ export function RunsBlock({ runs, onCancel, onFinish, focus, onDecide, onOpenSes
 
 const TERMINAL_OFF = '终端插件没启用，到 设置 > 插件 里启用后可用'
 
-export function RunDialog({ task, inheritDir, project, terminalOn, onStart, onClose, onManagePresets, agentRun }: {
+export function RunDialog({ task, inheritDir, project, terminalOn, onStart, onClose, onManagePresets, onManagePerms, agentRun }: {
   task: Task; inheritDir?: string
   /** 任务所属项目的上下文，提示词里的「所属项目」一节 */
   project?: ProjectContext
@@ -625,6 +635,8 @@ export function RunDialog({ task, inheritDir, project, terminalOn, onStart, onCl
   onClose: () => void
   /** 「管理角色」：去设置 > 角色 */
   onManagePresets?: () => void
+  /** 「管理执行权限」：去设置 > 执行权限（TSK-0499） */
+  onManagePerms?: () => void
   /** 交给工作台 Agent 要用的（SPEC-tasks-6.20）：没给就只有 Claude Code */
   agentRun?: AgentRunOptions
 }) {
@@ -643,6 +655,10 @@ export function RunDialog({ task, inheritDir, project, terminalOn, onStart, onCl
   // 只读角色锁成只读；允许改文件的角色默认勾上、可取消；没选角色默认只读
   const allowLocked = preset?.permission === 'read_only'
   const allow = allowLocked ? false : allowChoice ?? !!preset
+  // 写入档位（TSK-0499）：没选过跟设置「执行权限」的默认
+  const perms = useRunPerms()
+  const [profileChoice, setProfileChoice] = useState<RunWriteProfile | null>(null)
+  const writeProfile = profileChoice ?? perms.write_profile
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') { e.stopPropagation(); onClose() } }
     window.addEventListener('keydown', onKey, true)
@@ -767,6 +783,20 @@ export function RunDialog({ task, inheritDir, project, terminalOn, onStart, onCl
             <span className="list-sub">{allowLocked ? `角色「${preset?.scene ?? ''}」只读：只跑一遍给结论，不改文件`
               : allow ? `会以 acceptEdits 权限模式运行：可以直接改工作目录里的文件${preset && allowChoice === null ? `（按角色「${preset.scene}」）` : ''}`
                 : '默认只读：只跑一遍看它打算怎么做，不改文件'}</span>
+            {allow && (
+              <div className="field">
+                <div className="act-row">
+                  <label className="field-label" htmlFor="ho-profile">写入档位</label>
+                  <span className="spacer" />
+                  {onManagePerms && <button className="link-btn" onClick={onManagePerms}>管理执行权限</button>}
+                </div>
+                <select id="ho-profile" className="select" value={writeProfile} onChange={(e) => setProfileChoice(e.target.value as RunWriteProfile)}>
+                  {WRITE_PROFILE_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                </select>
+                <span className="list-sub">{writeProfileHint(writeProfile, perms.custom)}</span>
+              </div>
+            )}
+            <span className="list-sub">任何档位都放行工作台 MCP（回写进展和结论）和只读命令（git log、grep、sqlite3 -readonly -safe 等）</span>
             {asking && (
               <div className="dev-perm-ask">
                 <span>允许写入后，Claude Code 可以不经确认直接改「{dir || '工作目录'}」里的文件。其他需要权限的操作仍会被挡下，任何情况下都不会跳过权限确认。</span>
@@ -814,7 +844,8 @@ export function RunDialog({ task, inheritDir, project, terminalOn, onStart, onCl
             </button>
           ) : (
             <button className="btn btn-primary" disabled={!!dirErr || (!term && asking) || (term && !terminalOn)}
-              onClick={() => onStart({ workdir: dir.trim(), allow_writes: !term && allow, extra_prompt: extra.trim(), mode, preset })}>
+              onClick={() => onStart({ workdir: dir.trim(), allow_writes: !term && allow, extra_prompt: extra.trim(), mode, preset,
+                permission: !term && allow ? writeProfile : 'read_only' })}>
               {term ? '在终端中打开' : allow ? '开始执行（允许写入）' : '开始执行（只读）'}
             </button>
           )}

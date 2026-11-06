@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { RunEvent } from '../../core/data'
-import { duration, extraOf, foldEvents, parseOutput, runNote, runStatusOf } from './runsModel'
+import { allowRulesLink, allowRulesOf, duration, extraOf, foldEvents, parseOutput, runNote, runStatusOf } from './runsModel'
 
 describe('foldEvents', () => {
   it('delta 连续拼成一段，tool 和 tool_result 按 id 配对，交错到达也配得上', () => {
@@ -80,5 +80,15 @@ describe('状态和说明', () => {
     expect(duration(t, '2026-10-28T10:00:42Z')).toBe('42 秒')
     expect(duration(t, '2026-10-28T10:05:00Z')).toBe('5 分钟')
     expect(duration(t, null, new Date('2026-10-28T11:30:00Z'))).toBe('1 小时 30 分钟')
+  })
+})
+
+// TSK-0499：被拒提示里「建议放行：`…`」的规则取出来，做去设置放行的直达入口
+describe('建议放行', () => {
+  it('取出规则、去重，没有这句回空', () => {
+    const e = '这次执行有 2 个工具调用被权限策略拒绝（Bash），任务没有真正完成。被拒的命令：git commit -m x | head。本次档位「只读」没放行这些调用；建议放行：`Bash(git commit:*)`、`mcp__x`、`Bash(git commit:*)`。到「设置 / 执行权限」把它们加进自定义白名单。'
+    expect(allowRulesOf(e)).toEqual(['Bash(git commit:*)', 'mcp__x'])
+    expect(allowRulesOf('执行超时')).toEqual([])
+    expect(allowRulesLink(['Bash(a:*)', 'mcp__x'])).toBe('/settings/run-permissions?add=' + encodeURIComponent('Bash(a:*)\nmcp__x'))
   })
 })

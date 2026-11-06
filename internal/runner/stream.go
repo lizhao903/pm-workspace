@@ -36,6 +36,8 @@ type streamLine struct {
 type Denial struct {
 	ToolName  string `json:"tool_name"`
 	ToolUseID string `json:"tool_use_id"`
+	// ToolInput 是被拒那次调用的入参（Bash 的 command 在这里），被拒提示据此列出命令、推出放行规则（TSK-0499）。
+	ToolInput map[string]any `json:"tool_input"`
 }
 
 type streamMessage struct {

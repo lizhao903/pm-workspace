@@ -2,7 +2,7 @@ import type { ReactNode } from 'react'
 import { Subnav, type SubnavItem } from './subnav'
 
 // 设置分项从这里加：Section 加一个 key，SECTIONS 加一行，App 里按 key 渲染内容
-export type Section = 'workspace' | 'connectors' | 'providers' | 'agents' | 'kbs' | 'skills' | 'enums' | 'incidents' | 'domains' | 'sop' | 'terminal' | 'appearance' | 'update' | 'run-prompts' | 'worktrees'
+export type Section = 'workspace' | 'connectors' | 'providers' | 'agents' | 'kbs' | 'skills' | 'enums' | 'incidents' | 'domains' | 'sop' | 'terminal' | 'appearance' | 'update' | 'run-prompts' | 'run-permissions' | 'worktrees'
 
 export const SECTIONS: { key: Section; label: string; desc: string }[] = [
   { key: 'workspace', label: '工作台与模块', desc: '切换工作台、选功能模块' },
@@ -11,6 +11,8 @@ export const SECTIONS: { key: Section; label: string; desc: string }[] = [
   { key: 'agents', label: 'Agent', desc: '工作助手' },
   // SPEC-settings-24：交给 Claude Code 时可选的执行要求
   { key: 'run-prompts', label: '角色', desc: '交给 Claude Code 的角色：执行要求、权限、输出要求' },
+  // SPEC-settings-26（TSK-0499）：后台执行放行什么
+  { key: 'run-permissions', label: '执行权限', desc: '交给 Claude Code 后台执行时放行的工具和命令' },
   { key: 'kbs', label: '知识库', desc: 'Agent 检索用的资料' },
   { key: 'skills', label: '技能', desc: '可复用的做事方法' },
   { key: 'enums', label: '枚举值', desc: '状态、优先级、分类等选项' },

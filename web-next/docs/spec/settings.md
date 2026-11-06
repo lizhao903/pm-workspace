@@ -1627,7 +1627,7 @@ PROTO-04f2 复核时补的：原型里没有、但 DOM-01a 到 DOM-02b 要做的
 | SPEC-settings-22.1 | 「Claude Code 启动命令」输入框 | 输入，回车或「保存」 | 等宽单行，默认 `gogogo`（用户本机的 shell 别名，展开是 `cd /Volumes/docs/Know\ Me && claude --dangerously-skip-permissions`）。保存后提示「已保存，下次「在终端中打开」生效」；和已存的一样时「保存」不可点。留空保存等于恢复默认，提示「留空等于默认值，已恢复成 gogogo」 |
 | SPEC-settings-22.2 | 「恢复默认」 | 点击 | 存成 `gogogo`；已经是默认时不可点 |
 | SPEC-settings-22.3 | 输入框下的说明 | 看 | 「任务里「交给 Claude Code」选「切换到终端」时，在新开的终端标签里执行这行命令。终端是登录 shell，会加载 ~/.zshrc，所以 shell 别名可以直接用。默认 gogogo；留空保存等于恢复默认」 |
-| SPEC-settings-22.4 | 「占位符」 | 看 | `{{prompt_file}}` 工作台写好的提示词文件路径（任务内容、所属项目的文档和原型位置、回写要求）；`{{mcp_config}}` 工作台生成的 MCP 配置文件路径：server 名 pm-workspace，接回当前这个工作台，claude 用它回写进展和结论；`{{workdir}}` 这次执行的工作目录（终端标签也开在这里）。占位符会换成已经加好引号的路径（单引号，值里的单引号转义），不用再自己加引号；自己包了一层引号的（`"{{workdir}}"`）也认，去掉那层 |
+| SPEC-settings-22.4 | 「占位符」 | 看 | `{{prompt_file}}` 工作台写好的提示词文件路径（任务内容、所属项目的文档和原型位置、回写要求）；`{{mcp_config}}` 工作台生成的 MCP 配置文件路径：server 名 pmw-run（TSK-0499 起，不和工作目录 `.mcp.json` 里的 `pm-workspace` 撞名），接回当前这个工作台，claude 用它回写进展和结论；`{{workdir}}` 这次执行的工作目录（终端标签也开在这里）。占位符会换成已经加好引号的路径（单引号，值里的单引号转义），不用再自己加引号；自己包了一层引号的（`"{{workdir}}"`）也认，去掉那层 |
 | SPEC-settings-22.5 | 自动补参数 | 渲染 | 没写 `{{prompt_file}}` 就在末尾补 `"$(cat {{prompt_file}})"`，没写 `{{mcp_config}}` 再补 `--mcp-config {{mcp_config}}`。提示词放在 `--mcp-config` 前面：`--mcp-config` 能接多个值，写在它后面的参数会被它吞掉。默认的 `gogogo` 渲染成 `gogogo "$(cat '<数据目录>/tmp/handoff/<执行 id>/prompt.md')" --mcp-config '<数据目录>/tmp/handoff/<执行 id>/mcp.json'`，别名展开后参数落在 claude 上 |
 | SPEC-settings-22.6 | 「示例」 | 看 | `gogogo`（默认）；`cd {{workdir}} && claude --mcp-config {{mcp_config}} -- "$(cat {{prompt_file}})"`；`claude "$(cat {{prompt_file}})" --mcp-config {{mcp_config}}`（和上一条等价，不切目录） |
 | SPEC-settings-22.7 | 「实际执行的命令（预览）」 | 看 | 按输入框当前内容、用示例路径实时渲染出的整行命令 |
@@ -1641,7 +1641,7 @@ PROTO-04f2 复核时补的：原型里没有、但 DOM-01a 到 DOM-02b 要做的
 
 ### 数据
 
-原型：`App.tsx` 的 state `claudeCommand`（默认 `CLAUDE_COMMAND_DEFAULT = 'gogogo'`），刷新复原。正式产品：终端插件的表 `terminal_settings`（key / value，插件迁移），接口 `GET / PATCH /api/terminal/settings` `{claude_command}`；提示词文件和 MCP 配置由内核写在工作台数据目录下的临时子目录 `tmp/handoff/<执行 id>/`（原型示例路径 `/Users/me/pm-workspace/data/tmp/handoff/`），不进仓库，用完可清理。MCP 配置的 server 名 `pm-workspace`，`command` 是本机工作台的 MCP 二进制，`--api` 指向当前工作台地址，都由服务自己推出来。
+原型：`App.tsx` 的 state `claudeCommand`（默认 `CLAUDE_COMMAND_DEFAULT = 'gogogo'`），刷新复原。正式产品：终端插件的表 `terminal_settings`（key / value，插件迁移），接口 `GET / PATCH /api/terminal/settings` `{claude_command}`；提示词文件和 MCP 配置由内核写在工作台数据目录下的临时子目录 `tmp/handoff/<执行 id>/`（原型示例路径 `/Users/me/pm-workspace/data/tmp/handoff/`），不进仓库，用完可清理。MCP 配置的 server 名 `pmw-run`（TSK-0499 前是 `pm-workspace`；和后台执行、插件运行共用同一份生成逻辑），`command` 是本机工作台的 MCP 二进制，`--api` 指向当前工作台地址，都由服务自己推出来。
 
 ### 联动
 
@@ -1783,6 +1783,44 @@ PROTO-04f2 复核时补的：原型里没有、但 DOM-01a 到 DOM-02b 要做的
 | 方向 | 对方模块 | 触发 | 结果 | 见 |
 |---|---|---|---|---|
 | 出去 | 任务 | 准备工作区 | 按这里的范围分端口段，显示在任务抽屉「工作区」里 | `SPEC-tasks-4.51` |
+
+## SPEC-settings-26 执行权限
+
+任务交给 Claude Code 后台执行（流式执行，`claude -p`，没人值守）时放行什么（TSK-0499）。需要确认的调用在后台执行里一律被拒，所以每一档都放行工作台 MCP（server 名 `pmw-run`）和只读命令白名单，按档位再放开改文件、测试构建或自定义白名单；任何档位都不用 `--dangerously-skip-permissions`。原型 `web-next/src/runpermspage.tsx`（数据 `runperms.ts`，存内存，刷新回到默认）；正式产品 `frontend/src/modules/settings/runperms/RunPermsSection.tsx`，接口 `GET / PUT /api/run-permissions`，存 `agent_settings.run_permissions`。档位清单的唯一真相是 `internal/runner/permissions.go`。
+
+### 截图
+
+暂缺：等 `shots.py` 补「设置 > 执行权限」的步骤。
+
+### 交互
+
+| 编号 | 元素 | 操作 | 结果 |
+|---|---|---|---|
+| SPEC-settings-26.1 | 说明 | 看 | 标题「执行权限」，灰字说明：后台执行没人值守，需要确认的调用会被直接拒绝；每一档都放行工作台 MCP（server 名 pmw-run：读任务、记进展、登记产出、回写结论）和一份只读命令白名单；不勾「允许写入」就是只读档；任何档位都不用 --dangerously-skip-permissions；管道、&& 连起来的命令按每一段分别判定，每段都要在白名单里；写文件的重定向（> 文件）在只读档照旧被拒 |
+| SPEC-settings-26.2 | 「勾「允许写入」时默认的写入档位」 | 选择 | 下拉三项：允许改文件（默认）/ 允许改文件 + 跑测试构建 / 自定义白名单。交给 Claude Code 弹窗里写入档位打开时选它（`SPEC-tasks-6.32`），弹窗里还能逐次改 |
+| SPEC-settings-26.3 | 「自定义白名单」 | 输入 | 多行文本框，一行一条 Claude Code 权限规则，只在「自定义白名单」档生效；灰字举例 `Bash(git commit:*)`、`Bash(make deploy:*)`、`mcp__slack`、`WebFetch`。空行跳过、重复的去掉 |
+| SPEC-settings-26.4 | 校验 | 输入 | 红字，「保存」不可点：`Bash`、`Bash(*)`、`Bash(:*)` 这类「「…」等于放开任意命令，不收；按命令前缀写，如 Bash(git commit:*)」；`Bash(` 少右括号；`mcp__` 少 server 名；不像规则的「不像 Claude Code 的权限规则……」；超过 200 字符；超过 100 条 |
+| SPEC-settings-26.5 | 「保存」/「撤销改动」 | 点击 | 有改动且没有错时可点；成功绿字「已保存：默认写入档位「…」，自定义白名单 N 条」；「撤销改动」回到已保存的 |
+| SPEC-settings-26.6 | 「每一档实际放行的命令」 | 展开 | 四个可展开块：只读（不改文件）、允许改文件、允许改文件 + 跑测试构建、自定义白名单（放开文件编辑），标题后写条数，展开是 `mcp__pmw-run` 加该档全部规则，一行一条 |
+| SPEC-settings-26.7 | 从执行记录过来 | 进入 | 执行记录「去设置放行这 N 项」（`SPEC-tasks-5.38`）带着规则过来：已在白名单里的不重复加，其余加在白名单末尾，写入档位切到「自定义白名单」，上面一行「从执行记录带来 N 条待放行的规则，已加在白名单末尾，写入档位切到「自定义白名单」；确认无误后保存」。不自动保存 |
+
+### 空状态和异常状态
+
+| 编号 | 场景 | 显示 | 可做的操作 |
+|---|---|---|---|
+| SPEC-settings-26.8 | 后端拒收（400） | 红字「没保存：<后端的原因>」，改动留着 | 改了再存 |
+| SPEC-settings-26.9 | 没加载出来 | 「执行权限没加载出来」+ 原因 +「重试」 | 重试 |
+
+### 数据
+
+`{ write_profile: 'accept_edits' | 'edits_and_tests' | 'custom', custom: string[], profiles: [{ key, label, writes, allowed }], mcp_server: 'pmw-run' }`，PUT 只收前两个。只读命令白名单：`git status / log / diff / show / blame / ls-files / rev-parse`、`ls`、`cat`、`head`、`tail`、`wc`、`grep`、`sort`、`uniq`、`cut`、`jq`、`pwd`、`sqlite3 -readonly -safe`（两种参数顺序）。测试构建：`go test / vet / build`、`gofmt -l`、`make test / build`、`npm test`、`npm run test / typecheck / build / lint`、`npx tsc / vitest`、`pytest`、`cargo test / build`。安全边界：不收不带 `-safe` 的 `sqlite3`（`.shell` 能跑任意命令）、`rg`（`--pre`）、`find`、`sed`、`awk`；测试构建会执行项目自己的代码，所以单独一档；`git diff --output` 能写文件，属已知边界。
+
+### 联动
+
+| 方向 | 对方模块 | 触发 | 结果 | 见 |
+|---|---|---|---|---|
+| 出去 | 任务 | 交给 Claude Code，勾「允许写入」 | 写入档位默认取这里的；发起时按档位拼 `--allowedTools` | `SPEC-tasks-6.32` |
+| 进来 | 任务 | 执行记录「去设置放行这 N 项」 | 预填规则、档位切到自定义 | `SPEC-tasks-5.38` |
 
 ## 原型和规格对不上的地方
 

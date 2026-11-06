@@ -41,6 +41,8 @@ import type {
   TerminalRunRequest,
   RunPreset,
   FinishRunInput,
+  RunPermissions,
+  RunPermissionsInput,
   RunPrompt,
   RunPromptParams,
   WorkdirCheck,
@@ -190,6 +192,9 @@ export const runs = {
   // 预置提示词（SPEC-settings-24）：PUT 整组替换，回替换后的列表
   presets: (signal?: AbortSignal) => request<RunPreset[]>('GET', '/api/run-prompts', { signal }),
   savePresets: (items: RunPreset[]) => request<RunPreset[]>('PUT', '/api/run-prompts', { body: { items } }),
+  // 后台执行的权限档位与自定义白名单（TSK-0499）：PUT 整体替换，回同 GET
+  permissions: (signal?: AbortSignal) => request<RunPermissions>('GET', '/api/run-permissions', { signal }),
+  savePermissions: (body: RunPermissionsInput) => request<RunPermissions>('PUT', '/api/run-permissions', { body }),
 }
 
 // 不可用也是 200，看返回的字段，message 说明原因
