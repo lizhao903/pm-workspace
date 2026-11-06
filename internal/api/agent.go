@@ -169,11 +169,25 @@ func (s *Server) handleUpdateAgentSession(w http.ResponseWriter, r *http.Request
 		s.fail(w, r, err)
 		return
 	}
-
-	out, err := s.st.UpdateAgentSession(r.Context(), r.PathValue("id"), title, workdir, providerID, model)
+	override, err := patchField[bool](raw, "model_override", "a boolean")
 	if err != nil {
 		s.fail(w, r, err)
 		return
+	}
+
+	// 换模型（TSK-0720）先做：校验不过整条 PATCH 不生效
+	var out *domain.AgentSession
+	if providerID != nil || model != nil || override != nil {
+		if out, err = s.switchSessionModel(r.Context(), r.PathValue("id"), providerID, model, override); err != nil {
+			s.fail(w, r, err)
+			return
+		}
+	}
+	if out == nil || title != nil || workdir != nil {
+		if out, err = s.st.UpdateAgentSession(r.Context(), r.PathValue("id"), title, workdir, nil, nil); err != nil {
+			s.fail(w, r, err)
+			return
+		}
 	}
 	respondData(w, http.StatusOK, out)
 }
@@ -331,19 +345,14 @@ func (s *Server) handleAgentChat(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, err)
 		return
 	}
-	// 挂了 Agent 的会话按 Agent 当前的服务商和模型跑，并把快照写回会话；删了或停用了回 409
+	// 挂了 Agent 的会话：没单独换过模型的按 Agent 当前的服务商和模型跑，换过的按会话自己的（TSK-0720）；删了或停用了回 409
 	var ag *domain.Agent
 	if session.AgentID != nil {
 		if ag, err = s.chatAgent(ctx, *session.AgentID); err != nil {
 			s.fail(w, r, err)
 			return
 		}
-		if ag.ProviderID != session.ProviderID || ag.Model != session.Model {
-			if session, err = s.st.UpdateAgentSession(ctx, session.ID, nil, nil, &ag.ProviderID, &ag.Model); err != nil {
-				s.fail(w, r, err)
-				return
-			}
-		}
+		session = followAgentModel(session, ag)
 	}
 	provider, err := s.resolveProvider(ctx, session.ProviderID)
 	if err != nil {
@@ -415,6 +424,17 @@ func (s *Server) handleAgentChat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	emit(agent.StreamEvent{Type: "done", SessionID: session.ID, MessageID: msgID})
+}
+
+// followAgentModel 没单独换过模型的会话用 Agent 当前的服务商和模型（读会话时已经是，这里防读和跑之间 Agent 刚改过）。
+// 不写回库：读会话时现算，快照只在换模型时记。
+func followAgentModel(sess *domain.AgentSession, ag *domain.Agent) *domain.AgentSession {
+	if sess.ModelOverride || ag == nil {
+		return sess
+	}
+	c := *sess
+	c.ProviderID, c.Model = ag.ProviderID, ag.Model
+	return &c
 }
 
 // agentRunTimeout 是一轮对话（含工具调用）最长跑多久。

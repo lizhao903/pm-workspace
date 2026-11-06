@@ -252,12 +252,12 @@ func (s *Server) runObjectWithAgent(w http.ResponseWriter, r *http.Request, flus
 		return
 	}
 
-	// 服务商和模型：请求里给了用请求的，没给用 Agent 设置的
+	// 服务商和模型：请求里给了用请求的，没给时续跑的会话在会话里单独换过模型的用会话的（TSK-0720），其余用 Agent 设置的
 	providerID, model := strings.TrimSpace(req.ProviderID), strings.TrimSpace(req.Model)
 	if providerID == "" {
-		providerID = ag.ProviderID
-		if model == "" {
-			model = ag.Model
+		providerID, model = ag.ProviderID, ag.Model
+		if sess != nil && sess.ModelOverride {
+			providerID, model = sess.ProviderID, sess.Model
 		}
 	}
 	chat, model, prov, err := s.agentSvc.TaskChat(ctx, providerID, model)
@@ -292,6 +292,8 @@ func (s *Server) runObjectWithAgent(w http.ResponseWriter, r *http.Request, flus
 		sess, err = s.st.CreateAgentSession(ctx, &domain.AgentSession{
 			Title: clipTitle(strings.TrimSpace(obj.Ref + " " + obj.Title)), ProviderID: prov.ID, Model: model,
 			Workdir: workdir, AgentID: &ag.ID, SourceRef: agentTaskSource(obj, run.ID),
+			// 交给 Agent 时另选了服务商或模型：会话记成单独换过的，读出来是实际跑的那个，接着聊也用它（TSK-0720）
+			ModelOverride: prov.ID != ag.ProviderID || model != ag.Model,
 		})
 		if err != nil {
 			_ = s.finishRun(context.WithoutCancel(ctx), run.ID, domain.RunFailed, -1, "", "建 Agent 会话失败："+err.Error())
@@ -303,6 +305,10 @@ func (s *Server) runObjectWithAgent(w http.ResponseWriter, r *http.Request, flus
 		s.log.Warn("save agent run session failed", "run", run.ID, "err", err)
 	}
 	run.HarnessSession = sess.ID
+	// 这次实际用的服务商和模型（续跑时请求里另给的也算），回复上记的就是它；只改内存里的这份
+	sessRun := *sess
+	sessRun.ProviderID, sessRun.Model = prov.ID, model
+	sess = &sessRun
 
 	s.markDoing(ctx, r, obj, agentExecutor(ag))
 

@@ -3,11 +3,12 @@
 // 空会话不堆积（B-09）：没有消息的会话只在打开时列出，从它切走时删掉。
 // 头部右上角是插件登记的工具入口（终端、浏览器，SPEC-sessions-1.34），点了在对话右边展开面板。
 // 从别的记录发起的会话（内核 0047，如 IM 消息的「发起会话」「拆分任务」）头部下面显示「来源」，按插件登记的定义跳回去。
+// 列表每条、头部都显示实际用的「服务商 · 模型」，头部能换（SPEC-sessions-1.46 到 1.49，TSK-0720）。
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router'
 import {
   firstMessageOf, useAgentMessages, useAgentProviders, useAgentSessions, useAgents, useArtifacts, useCreateAgentSession, useDeleteAgentSession,
-  usePatchAgentSession, useRunningAgentSessions, useStopAgentSession, type AgentSession, type AgentSessionInput, type SessionSourceRef,
+  usePatchAgentSession, useRunningAgentSessions, useStopAgentSession, type AgentProvider, type AgentSession, type AgentSessionInput, type SessionSourceRef,
 } from '../../core/data'
 import { useSessionSource, useSessionTools } from '../../core/plugin'
 import { Button, ErrorState, IconSearch, LoadingState, PageTitle, SearchSelect, cls } from '../../core/ui'
@@ -15,9 +16,10 @@ import { AgentAvatar } from '../../core/ui/AgentAvatar'
 import { ChatPane } from '../../core/chat/ChatPane'
 import { hasLiveChat, useLiveChat } from '../../core/chat/chatLive'
 import {
-  FILTER_GONE, FILTER_NO_AGENT, GONE_AGENT, NEW_TITLE, matchAgentFilter, recentAgents, sessionLinks, timeAgo, whenGroup, whoName, whoOf, type ChatWho,
+  FILTER_GONE, FILTER_NO_AGENT, GONE_AGENT, NEW_TITLE, matchAgentFilter, modelLabel, recentAgents, sessionLinks, timeAgo, whenGroup, whoName, whoOf, type ChatWho,
 } from '../../core/chat/chatModel'
 import { EMPTY_DOCK, switchTool, toggleTool } from './dockModel'
+import { ModelSwitch } from './ModelSwitch'
 import { NewSession } from './NewSession'
 import { ToolButtons, ToolDock } from './ToolDock'
 import { WhoAvatar } from '../../core/chat/WhoAvatar'
@@ -32,13 +34,15 @@ function isEmpty(s: AgentSession): boolean {
   return !s.message_count && !hasLiveChat(s.id) && !firstMessageOf(s.id)
 }
 
-function SessionItem({ s, who, selected, onOpen }: {
+function SessionItem({ s, who, providers, selected, onOpen }: {
   s: AgentSession
   who: ChatWho
+  providers: readonly AgentProvider[]
   selected: boolean
   onOpen: () => void
 }) {
   const live = useLiveChat(s.id)
+  const used = modelLabel(s.provider_id, s.model, providers)
   const sub = live?.phase === 'streaming' ? '正在回复…' : s.message_count ? `${s.message_count} 条消息` : '还没有消息'
   return (
     <button type="button" className={cls('chat-item', selected && 'sel')} aria-current={selected || undefined} onClick={onOpen}>
@@ -54,7 +58,9 @@ function SessionItem({ s, who, selected, onOpen }: {
             <span className="chat-item-tag" title={typeof s.source_ref.label === 'string' ? s.source_ref.label : undefined}>任务执行</span>
           )}
         </span>
-        <span className="ellipsis list-sub">{whoName(who)}{who.kind === 'provider' ? ` · ${s.model}` : ''} · {sub}</span>
+        <span className="ellipsis list-sub">{whoName(who)} · {sub}</span>
+        {/* 实际用的服务商和模型（TSK-0720）：Agent 会话没单独换过的是 Agent 当前的默认；停用的标出来 */}
+        <span className={cls('ellipsis chat-item-model', used.disabled && 'warn')} title={`用的模型：${used.text}${s.model_override ? '（这个会话单独选的）' : ''}`}>{used.text}</span>
       </span>
       <span className="chat-item-time">{timeAgo(s.updated_at)}</span>
     </button>
@@ -152,7 +158,7 @@ export function ChatsView({ current, onOpen, onOpenAgent, pickRequest = 0, onOpe
   const kw = q.trim().toLowerCase()
   // 后端已按 updated_at 倒序；列表接口不带消息，搜索匹配标题、Agent 名和模型。没有消息的只列正打开的那条
   const rows = all.filter((s) => (s.id === current || !isEmpty(s))
-    && matchAgentFilter(s, filter) && (!kw || `${s.title} ${whoName(who(s))} ${s.model}`.toLowerCase().includes(kw)))
+    && matchAgentFilter(s, filter) && (!kw || `${s.title} ${whoName(who(s))} ${modelLabel(s.provider_id, s.model, provs).text}`.toLowerCase().includes(kw)))
   const shown = rows.slice(0, limit)
   const setF = (f: () => void) => { f(); setLimit(PAGE) }
 
@@ -249,7 +255,7 @@ export function ChatsView({ current, onOpen, onOpenAgent, pickRequest = 0, onOpe
           return (
             <Fragment key={s.id}>
               {g !== (i ? whenGroup(shown[i - 1].updated_at) : '') && <div className="menu-label chat-group">{g}</div>}
-              <SessionItem s={s} who={who(s)} selected={s.id === current} onOpen={() => open(s.id)} />
+              <SessionItem s={s} who={who(s)} providers={provs} selected={s.id === current} onOpen={() => open(s.id)} />
             </Fragment>
           )
         })}
@@ -262,6 +268,9 @@ export function ChatsView({ current, onOpen, onOpenAgent, pickRequest = 0, onOpe
   }
 
   const curWho = cur ? who(cur) : null
+  // 正在回复（这个页面发的、或者后台还在跑的）时不能换模型
+  const curLive = useLiveChat(cur?.id ?? null)
+  const curBusy = !!cur && (curLive?.phase === 'streaming' || !!running.data?.includes(cur.id))
   return (
     <div className={cls('chats', dockOpen && 'with-dock')}>
       <PageTitle parent="会话" count={rows.length} desc="和 Agent 的对话都留在这里，能接着聊，也能回看每次调用了什么工具"
@@ -316,12 +325,17 @@ export function ChatsView({ current, onOpen, onOpenAgent, pickRequest = 0, onOpe
                     <button type="button" className="chat-title ellipsis" title="点一下改标题" onClick={() => setEditing(true)}>{cur.title || NEW_TITLE}</button>
                   )}
                   {curWho.kind === 'agent' ? (
-                    <button type="button" className="link-btn chat-agent ellipsis" title={`${curWho.agent.model || cur.model}；点一下去「设置 > Agent」看它的配置`}
+                    <button type="button" className="link-btn chat-agent ellipsis" title="点一下去「设置 > Agent」看它的配置"
                       onClick={() => onOpenAgent?.(curWho.agent.id)}>
                       {whoName(curWho)}
                     </button>
-                  ) : (
-                    <span className="list-sub chat-agent ellipsis">{whoName(curWho)}{curWho.kind === 'provider' ? ` · ${cur.model}` : ''}</span>
+                  ) : curWho.kind !== 'provider' && (
+                    <span className="list-sub chat-agent ellipsis">{whoName(curWho)}</span>
+                  )}
+                  {/* 用的模型，点了换（SPEC-sessions-1.46）；Agent 删了、服务商删了的只显示 */}
+                  {curWho.kind !== 'pending' && (
+                    <ModelSwitch session={cur} agent={curWho.kind === 'agent' ? curWho.agent : undefined} providers={provs} busy={curBusy}
+                      readOnly={curWho.kind === 'gone' || (curWho.kind === 'provider' && !curWho.provider)} />
                   )}
                   <span className="spacer" />
                   {!confirmDel && (

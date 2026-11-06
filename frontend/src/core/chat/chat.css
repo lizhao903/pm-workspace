@@ -73,4 +73,10 @@
 .ai-msg-act:not(:disabled):hover { color: var(--danger); background: var(--hover); }
 .ai-msg-act:disabled { cursor: default; }
 .ai-msg-confirm { flex: none; align-self: center; display: flex; flex-direction: column; gap: var(--sp-2); max-width: 260px; font-size: var(--fs-xs); color: var(--muted); }
-@media (hover: none) { .ai-msg-act { opacity: 1; } }
+/* 回复用的模型（TSK-0720）：悬停时在气泡底下露出来，触屏一直显示 */
+.ai-msg-model { max-height: 0; overflow: hidden; opacity: 0; margin-top: 0; color: var(--faint); font-size: var(--fs-xs); line-height: 1.4; overflow-wrap: anywhere; transition: opacity .12s; }
+.ai-msg:hover .ai-msg-model { max-height: 3em; opacity: 1; margin-top: var(--sp-2); }
+/* 换模型这类系统提示：居中一行小字 */
+.ai-notice { display: flex; justify-content: center; padding: 0 var(--sp-8); }
+.ai-notice span { max-width: 100%; padding: 2px 10px; border-radius: 999px; background: var(--panel-2); color: var(--muted); font-size: var(--fs-xs); text-align: center; overflow-wrap: anywhere; }
+@media (hover: none) { .ai-msg-act { opacity: 1; } .ai-msg-model { max-height: 3em; opacity: 1; margin-top: var(--sp-2); } }

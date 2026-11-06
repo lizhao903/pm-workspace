@@ -440,10 +440,13 @@ func (r *Runner) run(ctx context.Context, userText string, dec *Decision, emit f
 		final += sep + f
 	}
 
+	// 记下这条回复用的服务商和模型（TSK-0720）：会话中途换了模型，历史里看得出哪条是谁答的
 	saved, err := r.record(ctx, &domain.AgentMessage{
-		SessionID: r.Session.ID,
-		Role:      domain.RoleAssistant,
-		Content:   final,
+		SessionID:  r.Session.ID,
+		Role:       domain.RoleAssistant,
+		Content:    final,
+		ProviderID: r.Session.ProviderID,
+		Model:      r.Model,
 	})
 	if err != nil {
 		return "", fmt.Errorf("保存回复失败")

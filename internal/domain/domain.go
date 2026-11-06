@@ -568,6 +568,10 @@ type AgentSession struct {
 	AgentID *string `json:"agent_id"`
 	// AgentDeleted：挂了 Agent 但 Agent 已删除，会话照常能看、不能再发消息。
 	AgentDeleted bool `json:"agent_deleted"`
+	// ModelOverride（0053，TSK-0720）：挂 Agent 的会话单独换过模型。为 true 时 ProviderID / Model 是会话自己选的；
+	// 为 false 时跟随 Agent 当前的默认，读出来的 ProviderID / Model 就是 Agent 当前的（Agent 删了是最后的快照）。
+	// 不挂 Agent 的会话恒为 false，ProviderID / Model 本来就是自己的。
+	ModelOverride bool `json:"model_override"`
 
 	// SourceRef 是会话的来源（0047）：从哪条记录发起的，JSON 对象，建的时候给、之后不改；
 	// 不是从别的记录发起的为 nil，响应里不带这个键。会话里 Agent 新建的对象缺省把它记进 props.source_ref，
@@ -684,6 +688,8 @@ const (
 	RoleUser      = "user"
 	RoleAssistant = "assistant"
 	RoleTool      = "tool"
+	// RoleNotice 是会话里给人看的系统提示（如「已切换到 X」，TSK-0720），不进模型的上下文。
+	RoleNotice = "notice"
 )
 
 type AgentMessage struct {
@@ -692,9 +698,12 @@ type AgentMessage struct {
 	Role      string `json:"role"`
 	Content   string `json:"content"`
 	// ToolName / ToolArgs 仅 role=tool 时有值，用于在界面上回放 Agent 做了什么。
-	ToolName  string    `json:"tool_name,omitempty"`
-	ToolArgs  string    `json:"tool_args,omitempty"`
-	CreatedAt time.Time `json:"created_at"`
+	ToolName string `json:"tool_name,omitempty"`
+	ToolArgs string `json:"tool_args,omitempty"`
+	// ProviderID / Model 是这条助手回复（和换模型的提示）当时用的服务商和模型（0053，TSK-0720）；别的角色和 0053 之前的为空，不出现。
+	ProviderID string    `json:"provider_id,omitempty"`
+	Model      string    `json:"model,omitempty"`
+	CreatedAt  time.Time `json:"created_at"`
 }
 
 // Artifact 是一件输出产物：这项工作实际产出的、能被打开的东西。

@@ -372,14 +372,9 @@ func (s *Server) decideToolCall(w http.ResponseWriter, r *http.Request, approved
 	emit(agent.StreamEvent{Type: "done", SessionID: session.ID, MessageID: msgID})
 }
 
-// resumeRunner 照 handleAgentChat 的口径备好 Runner：按 Agent 当前的服务商和模型跑。
+// resumeRunner 照 handleAgentChat 的口径备好 Runner：没单独换过模型的按 Agent 当前的服务商和模型跑，换过的按会话的（TSK-0720）。
 func (s *Server) resumeRunner(ctx context.Context, session *domain.AgentSession, ag *domain.Agent, policy *agent.Policy) (*agent.Runner, error) {
-	var err error
-	if ag.ProviderID != session.ProviderID || ag.Model != session.Model {
-		if session, err = s.st.UpdateAgentSession(ctx, session.ID, nil, nil, &ag.ProviderID, &ag.Model); err != nil {
-			return nil, err
-		}
-	}
+	session = followAgentModel(session, ag)
 	provider, err := s.resolveProvider(ctx, session.ProviderID)
 	if err != nil {
 		return nil, err

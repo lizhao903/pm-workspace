@@ -2,11 +2,11 @@
 // 不选 Agent、按「服务商 + 模型」开的旧方式收在「更多」里（AG-01b8），可选产物目录和第一句话。
 import { useState } from 'react'
 import {
-  errorText, useProviderModels, useWorkdirCheck, workdirUsable, type Agent, type AgentProvider, type AgentSessionInput,
+  errorText, useWorkdirCheck, workdirUsable, type Agent, type AgentProvider, type AgentSessionInput,
 } from '../../core/data'
-import { Avatar, Button, Input, SearchSelect, Textarea, cls } from '../../core/ui'
+import { Button, Input, Textarea } from '../../core/ui'
 import { AgentAvatar } from '../../core/ui/AgentAvatar'
-import { avatarName } from '../../core/chat/chatModel'
+import { ProviderModelPicker, useProviderModelState } from './ProviderModelPicker'
 
 // 多于这个数时出搜索框
 const MANY = 6
@@ -63,7 +63,7 @@ export function NewSession({ agents, agentsLoading, providers, busy, error, onCr
   )
 }
 
-/** 旧方式：选服务商（停用的置灰）、模型，可选产物目录和第一句话 */
+/** 旧方式：选服务商（停用的置灰）、模型，可选产物目录和第一句话；服务商和模型的选择和头部换模型共用 ProviderModelPicker */
 function ProviderForm({ providers, busy, error, onCreate, onClose }: {
   providers: AgentProvider[]
   busy: boolean
@@ -71,12 +71,8 @@ function ProviderForm({ providers, busy, error, onCreate, onClose }: {
   onCreate: (input: AgentSessionInput, firstMessage: string) => void
   onClose: () => void
 }) {
-  const usable = providers.filter((p) => p.enabled)
-  const [pid, setPid] = useState(() => (usable.find((p) => p.is_default) ?? usable[0])?.id ?? '')
-  const provider = providers.find((p) => p.id === pid)
-  const [models, setModels] = useState<Record<string, string>>({})
-  const model = models[pid] ?? provider?.model ?? ''
-  const list = useProviderModels(pid)
+  const choice = useProviderModelState(providers)
+  const { pid, provider, model } = choice
   const [workdir, setWorkdir] = useState('')
   const wd = workdir.trim()
   const check = useWorkdirCheck(wd)
@@ -89,36 +85,11 @@ function ProviderForm({ providers, busy, error, onCreate, onClose }: {
     onCreate({ provider_id: pid, model: model.trim(), workdir: wd || undefined }, text.trim())
   }
 
-  // 模型：拉得到列表就从列表挑（当前默认模型一定在里面），拉不到就手填
-  const modelOpts = [...new Set([...(provider?.model ? [provider.model] : []), ...(list.data ?? [])])]
-    .map((m) => ({ value: m, label: m }))
-
   return (
     <>
-      <div className="menu-label">用哪个服务商聊</div>
-      <div className="agent-pick-list" role="radiogroup" aria-label="服务商">
-        {providers.map((p) => (
-          <button key={p.id} type="button" role="radio" aria-checked={p.id === pid} className={cls('menu-item', p.id === pid && 'on')}
-            disabled={!p.enabled} onClick={() => setPid(p.id)}>
-            <Avatar name={avatarName(p)} size={20} />
-            <span className="ellipsis">{p.name || '未命名'}</span>
-            <span className="list-sub">{p.enabled ? p.model || p.kind : '已停用'}</span>
-          </button>
-        ))}
-        {!providers.length && <div className="io-empty">还没有服务商，先到「设置」里配一个</div>}
-      </div>
+      <ProviderModelPicker providers={providers} state={choice} />
       {provider?.enabled && (
         <div className="agent-pick-form">
-          <label className="agent-pick-field">
-            <span className="list-sub">模型</span>
-            {modelOpts.length > 1 ? (
-              <SearchSelect variant="field" value={model} options={modelOpts} searchPlaceholder="搜模型" aria-label="模型"
-                missingLabel={(v) => v} onChange={(v) => setModels((m) => ({ ...m, [pid]: v }))} />
-            ) : (
-              <Input value={model} aria-label="模型" placeholder={list.isFetching ? '正在拉取模型列表' : '模型名'}
-                onChange={(e) => setModels((m) => ({ ...m, [pid]: e.target.value }))} />
-            )}
-          </label>
           <label className="agent-pick-field">
             <span className="list-sub">产物目录（可选，Agent 写的文件落在这里）</span>
             <Input className="mono-input" value={workdir} invalid={badDir} aria-label="产物目录" placeholder="本机绝对路径"
