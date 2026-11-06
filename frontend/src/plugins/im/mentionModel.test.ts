@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import type { ImMember } from '../../core/data'
 import { activeMention, composeMentions, defaultMention, filterMembers, insertMention } from './mentionModel'
 
-const member = (p: Partial<ImMember>): ImMember => ({ external_id: '', name: '', sender_name: '', identity_id: '', contact_id: '', source: 'conversation', last_at: '', ...p })
+const member = (p: Partial<ImMember>): ImMember => ({ external_id: '', name: '', sender_name: '', identity_id: '', contact_id: '', source: 'conversation', last_at: '', is_bot: false, is_self: false, ...p })
 
 describe('回复、发消息里的 @', () => {
   it('群聊回复 @ 原发信人（联系人名优先），私聊没有', () => {

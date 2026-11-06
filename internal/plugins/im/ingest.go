@@ -47,6 +47,8 @@ type Muted struct {
 type IngestResult struct {
 	IDs        []string `json:"ids"`        // 新落库的消息 id
 	Duplicates int      `json:"duplicates"` // 已经收过的
+	// 补全历史（TSK-0724，history.go）时的统计：新落库里因自动忽略落成已忽略的、按发送时间落成已过期的
+	muted, expired int
 }
 
 type inbox struct {
@@ -71,6 +73,13 @@ func (in *inbox) clock() time.Time {
 // ingest 落一批。strict（回调）时有一条不合法整批拒绝、回 400；拉取时跳过不合法的并记日志，免得进度卡住。
 // 落到一半出错不回滚：重来一次时靠去重跳过已落的。
 func (in *inbox) ingest(ctx context.Context, a Adapter, msgs []Incoming, strict bool) (IngestResult, error) {
+	return in.ingestAs(ctx, a, msgs, strict, false)
+}
+
+// ingestAs 同 ingest；history 为真时是补全历史（TSK-0724，history.go）：不当新消息处理——不发 im.message_received、
+// im.message_muted（不触发 SOP、Agent，不通知），不认「私信我确认」的回复，落库即已读，发送超过 historyFreshFor 的落成已过期；
+// 自动忽略照样生效（落成已忽略）。
+func (in *inbox) ingestAs(ctx context.Context, a Adapter, msgs []Incoming, strict, history bool) (IngestResult, error) {
 	res := IngestResult{IDs: []string{}}
 	ch, err := imident.NormalizeChannel(a.Channel())
 	if err != nil {
@@ -80,11 +89,13 @@ func (in *inbox) ingest(ctx context.Context, a Adapter, msgs []Incoming, strict 
 	rows := make([]row, 0, len(msgs))
 	var mine []Incoming
 	for i, m := range msgs {
-		// 我对「私信我确认」的回复（TSK-0411，askme.go）：记到等待上，不当消息落库、不触发 IM 流程
-		if ok, err := in.captureAsk(ctx, ch, m, m.FromSelf); err != nil {
-			return res, err
-		} else if ok {
-			continue
+		// 我对「私信我确认」的回复（TSK-0411，askme.go）：记到等待上，不当消息落库、不触发 IM 流程；补全历史时不认（是旧回复）
+		if !history {
+			if ok, err := in.captureAsk(ctx, ch, m, m.FromSelf); err != nil {
+				return res, err
+			} else if ok {
+				continue
+			}
 		}
 		if m.FromSelf {
 			// 等这一批别人的消息落完再记，回的可能就是同一批里的
@@ -107,6 +118,7 @@ func (in *inbox) ingest(ctx context.Context, a Adapter, msgs []Incoming, strict 
 			return res, err
 		}
 		r.adapter = a.Key()
+		r.history = history
 		rows = append(rows, r)
 	}
 	named := map[string]bool{} // 这一批里已经把名字回补过的发信人
@@ -122,6 +134,9 @@ func (in *inbox) ingest(ctx context.Context, a Adapter, msgs []Incoming, strict 
 		// 发信人被设为自动忽略（TSK-0495，mutes.go）：入库即已忽略、已读，不发事件（不触发 SOP、Agent 的 IM 触发）
 		if r.mutedBy, r.mutedName, err = in.muteFor(ctx, r); err != nil {
 			return res, err
+		}
+		if r.history && r.mutedBy == "" {
+			r.expiredAt = historyExpiry(in.clock(), r.sentAt)
 		}
 		ok, err := in.insert(ctx, r)
 		if err != nil {
@@ -142,6 +157,16 @@ func (in *inbox) ingest(ctx context.Context, a Adapter, msgs []Incoming, strict 
 			continue
 		}
 		res.IDs = append(res.IDs, r.id)
+		if r.history {
+			// 补全历史：不发任何事件
+			switch {
+			case r.mutedBy != "":
+				res.muted++
+			case r.expiredAt != nil:
+				res.expired++
+			}
+			continue
+		}
 		if r.mutedBy != "" {
 			// 不发 im.message_received；另发 im.message_muted（0.28.0，TSK-0491），SOP 记「发信人被自动忽略、没发起」
 			mev := Muted{Received: Received{MessageID: r.id, Channel: r.channel, ConnectorID: r.connectorID, ConversationID: r.convID,
@@ -237,6 +262,9 @@ type row struct {
 	threadParent, threadSender, threadText string
 	// 命中的自动忽略（TSK-0495）：非空时落库为已忽略、已读，不发 im.message_received
 	mutedBy, mutedName string
+	// 补全历史（TSK-0724）：落库即已读；expiredAt 非空时落成已过期（发送超过 historyFreshFor）
+	history   bool
+	expiredAt *string
 }
 
 // badInput 是一条消息本身不合法（和查库出错区分开）。
@@ -423,13 +451,13 @@ func (in *inbox) insert(ctx context.Context, r row) (bool, error) {
 	res, err := in.c.Store().Exec(ctx, `INSERT INTO im_messages (id, channel, connector_id, external_id,
 		conversation_id, conversation_external_id, conversation_kind, conversation_name,
 		sender_identity_id, sender_external_id, sender_name, text, attachments, relevance, sent_at, received_at, adapter,
-		thread_parent_external_id, thread_parent_sender, thread_parent_text, status, is_read, muted_by, muted_name)
+		thread_parent_external_id, thread_parent_sender, thread_parent_text, status, is_read, muted_by, muted_name, expired_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-			CASE WHEN ? <> '' THEN 'ignored' ELSE 'pending' END, CASE WHEN ? <> '' THEN 1 ELSE 0 END, ?, ?)
+			CASE WHEN ? <> '' THEN 'ignored' ELSE 'pending' END, CASE WHEN ? <> '' OR ? THEN 1 ELSE 0 END, ?, ?, ?)
 		ON CONFLICT (channel, external_id) DO NOTHING`,
 		r.id, r.channel, r.connectorID, r.externalID, r.convID, r.convExt, r.convKind, r.convName,
 		r.identityID, r.senderExt, r.senderName, r.text, r.attachments, r.relevance, r.sentAt, r.receivedAt, r.adapter,
-		r.threadParent, r.threadSender, r.threadText, r.mutedBy, r.mutedBy, r.mutedBy, r.mutedName)
+		r.threadParent, r.threadSender, r.threadText, r.mutedBy, r.mutedBy, r.history, r.mutedBy, r.mutedName, r.expiredAt)
 	if err != nil {
 		return false, fmt.Errorf("insert im message: %w", err)
 	}

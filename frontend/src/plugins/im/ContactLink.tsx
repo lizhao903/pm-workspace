@@ -11,6 +11,11 @@ import { clip100, contactCandidates } from './model'
 
 export type ContactLinkMode = 'link' | 'create' | 'fix'
 
+/**
+ * 要认的发信人：消息抽屉给整条消息，群组管理「成员」菜单（TSK-0724）按成员拼出这几项
+ */
+export type ContactLinkSubject = Pick<ImMessage, 'channel' | 'connector_id' | 'sender_id' | 'sender_name' | 'identity_id' | 'stakeholder_id' | 'contact_name'>
+
 /** 做成了：text 是给人看的结果，created 时给「去联系人页补全」 */
 export type ContactLinkResult = { text: string; contactId?: string; created?: boolean }
 
@@ -18,7 +23,7 @@ export type ContactLinkResult = { text: string; contactId?: string; created?: bo
 const SHOW_MAX = 8
 
 export function ContactLinkDialog({ msg, mode: initial, chLabel, connectors, onCancel, onDone, onOpenContact }: {
-  msg: ImMessage
+  msg: ContactLinkSubject
   mode: ContactLinkMode
   chLabel: string
   connectors: Connector[] | undefined

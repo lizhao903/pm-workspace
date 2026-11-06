@@ -44,6 +44,10 @@
 /* 查询回填（TSK-0494）：行下面一行小字，补上了什么、没查到的原因；多了个按钮的那一行名字至少留 9 个字宽，放不下时按钮换到下一行 */
 .im-ga-top-refill { flex-wrap: wrap; row-gap: 4px; }
 .im-ga-top-refill .im-ga-name { min-width: min(9em, 100%); }
+/* 补全消息（TSK-0724）之后每行至少两个按钮：名字一律至少留 9 个字宽，放不下时按钮换到下一行靠右（同 7.11） */
+.im-ga-top { flex-wrap: wrap; row-gap: 4px; }
+.im-ga-top .im-ga-name { min-width: min(9em, 100%); }
+.im-ga-top .im-menu-wrap { flex: none; }
 .im-ga-refill { color: var(--ok); font-size: var(--fs-xs); overflow-wrap: anywhere; }
 .im-ga-refill.bad { color: var(--danger); }
 .im-ga-refill.muted { color: var(--faint); }
