@@ -9,7 +9,7 @@ import { cls } from './ui'
  * 正式产品走 SOP 插件的 POST /api/sop/flows/{id}/runs/batch（按 message_id 跳过已跑过的）和 GET /api/sop/runs?input_key=message_id。
  */
 
-/** 一次批量分诊最多几条（同正式产品） */
+/** 一次批量发起最多几条（同正式产品 SOP_BATCH_MAX）；更多时自动分批 */
 export const TRIAGE_MAX = 200
 /** 处理队列「最近结束」一段几条 */
 const QUEUE_RECENT = 20
@@ -200,26 +200,81 @@ export function GroupTriageAdvice({ msgs, runs, onOpenRun, onStart }: { msgs: Me
   )
 }
 
+/** 一次批量分诊最多多少条（自动分批前的总数，TSK-0492）；超过不发起。防误操作：每条都会调模型 */
+export const TRIAGE_TOTAL_MAX = 1000
+/** 原型里每批之间停一下，看得到分批进度（正式产品是等上一批的请求回来） */
+const BATCH_GAP_MS = 700
+
+type BatchState = { batches: number; batch: number; started: number; skipped: number; rest: string[]; stopping: boolean; done: boolean; stopped: boolean }
+
 /**
  * 批量分诊条：列表上方展开，挑流程（默认第一个）、「已跑过的也重跑」、发起。
- * 原型列表没有勾选，范围是当前筛选结果全部；超过 TRIAGE_MAX 条不发起，提示先缩小范围
+ * 范围：勾了的就是勾选的，没勾就是当前筛选结果全部（scope 写明）。超过 TRIAGE_MAX（200）条按每批 200 条依次发起（TSK-0492），
+ * 显示第 k/n 批、已发起、跳过，中途能停止（已发起的保留，剩下的能继续）；超过 TRIAGE_TOTAL_MAX（1000）条不发起。
+ * onBatch 发一批（正式产品是一次 POST /api/sop/flows/{id}/runs/batch），回发起、跳过各几条；原型不会失败，失败汇总和重试见正式产品
  */
-export function TriageBar({ sops, runs, targets, onStart, onCancel }: {
+export function TriageBar({ sops, runs, targets, scope, onBatch, onDone, onCancel }: {
   sops: Sop[]; runs: SopRun[]; targets: Message[]
-  onStart: (sopId: string, rerun: boolean) => void; onCancel: () => void
+  /** 「勾选的 N 条」或「当前筛选结果全部 N 条」 */
+  scope: string
+  onBatch: (sopId: string, ids: string[], rerun: boolean) => { started: number; skipped: number }
+  onDone: (r: { started: number; skipped: number }) => void
+  onCancel: () => void
 }) {
   const list = triageSops(sops)
   const [pick, setPick] = useState('')
   const sopId = pick || list[0]?.id || ''
   const [rerun, setRerun] = useState(false)
+  const [st, setSt] = useState<BatchState | null>(null)
+  const stopRef = useRef(false)
+  const timer = useRef<number | undefined>(undefined)
+  useEffect(() => () => window.clearTimeout(timer.current), [])
   const done = new Set(triageRuns(runs).filter((r) => r.sop_id === sopId).map(msgIdOf))
   const ran = targets.filter((m) => done.has(m.id)).length
-  const over = targets.length > TRIAGE_MAX
+  const over = targets.length > TRIAGE_TOTAL_MAX
   const n = rerun ? targets.length : targets.length - ran
+  const batches = Math.ceil(targets.length / TRIAGE_MAX)
+
+  // 逐批发：发一批、停一下再发下一批；停止后不再发，剩下的记在 rest
+  const run = (ids: string[], base: { started: number; skipped: number }) => {
+    const chunks: string[][] = []
+    for (let i = 0; i < ids.length; i += TRIAGE_MAX) chunks.push(ids.slice(i, i + TRIAGE_MAX))
+    stopRef.current = false
+    let acc = { ...base }
+    const step = (i: number) => {
+      if (stopRef.current) { setSt((x) => x && { ...x, stopped: true, done: true, stopping: false, rest: chunks.slice(i).flat() }); return }
+      const r = onBatch(sopId, chunks[i], rerun)
+      acc = { started: acc.started + r.started, skipped: acc.skipped + r.skipped }
+      const last = i === chunks.length - 1
+      setSt({ batches: chunks.length, batch: i + 1, ...acc, rest: [], stopping: stopRef.current && !last, done: last, stopped: false })
+      if (!last) timer.current = window.setTimeout(() => step(i + 1), BATCH_GAP_MS)
+      else if (chunks.length === 1 && !base.started && !base.skipped) onDone(acc)
+    }
+    setSt({ batches: chunks.length, batch: 0, ...acc, rest: [], stopping: false, done: false, stopped: false })
+    timer.current = window.setTimeout(() => step(0), chunks.length > 1 ? BATCH_GAP_MS : 0)
+  }
+
+  if (st) {
+    const pct = st.batches ? Math.round((st.batch / st.batches) * 100) : 100
+    const head = !st.done ? `第 ${Math.min(st.batch + 1, st.batches)}/${st.batches} 批发起中${st.stopping ? '，这批发完后停止' : ''}`
+      : st.stopped ? `已停止：发完 ${st.batch}/${st.batches} 批，剩 ${st.rest.length} 条没发起` : `${st.batches} 批都发完了`
+    return (
+      <div className="msg-triage-bar" aria-live="polite">
+        <b>批量分诊</b>
+        <span>{head}</span>
+        <span className="tri-prog" role="progressbar" aria-label="分批进度" aria-valuemin={0} aria-valuemax={st.batches} aria-valuenow={st.batch}><i style={{ width: `${pct}%` }} /></span>
+        <span className="muted">已发起 {st.started} · 跳过 {st.skipped} · 失败 0 · 共 {targets.length} 条</span>
+        <span className="spacer" />
+        {!st.done && <button className="btn btn-outline" disabled={st.stopping} onClick={() => { stopRef.current = true; setSt((x) => x && { ...x, stopping: true }) }}>停止</button>}
+        {st.done && st.rest.length > 0 && <button className="btn btn-outline" onClick={() => run(st.rest, { started: st.started, skipped: st.skipped })}>继续发起剩下的 {st.rest.length} 条</button>}
+        {st.done && <button className="btn btn-primary" onClick={() => onDone({ started: st.started, skipped: st.skipped })}>完成</button>}
+      </div>
+    )
+  }
   return (
     <div className="msg-triage-bar">
       <b>批量分诊</b>
-      <span className="muted">当前筛选结果全部 {targets.length} 条，各发起一次流程</span>
+      <span className="muted">{scope}，各发起一次流程</span>
       {list.length ? (
         <select value={sopId} onChange={(e) => setPick(e.target.value)} aria-label="分诊流程">
           {list.map((s) => <option key={s.id} value={s.id}>{s.trigger === 'im' ? `${s.name}（来消息自动跑）` : s.name}</option>)}
@@ -227,9 +282,12 @@ export function TriageBar({ sops, runs, targets, onStart, onCancel }: {
       ) : <span className="muted">还没有能分诊消息的流程（触发方式是 IM，或输入字段有 message_id）</span>}
       <label className="msg-triage-check"><input type="checkbox" checked={rerun} onChange={(e) => setRerun(e.target.checked)} />已跑过的也重跑</label>
       {!rerun && ran > 0 && <span className="muted">其中 {ran} 条已跑过，会跳过</span>}
-      {over && <span className="field-err">一次最多 {TRIAGE_MAX} 条，先用状态、渠道、群组、搜索缩小范围</span>}
+      {!over && batches > 1 && <span className="muted">超过一次 {TRIAGE_MAX} 条，按每批 {TRIAGE_MAX} 条分 {batches} 批依次发起</span>}
+      {over && <span className="field-err">一次最多分诊 {TRIAGE_TOTAL_MAX} 条，现在有 {targets.length} 条。先勾选，或用状态、渠道、群组、搜索缩小范围</span>}
       <span className="spacer" />
-      <button className="btn btn-primary" disabled={over || !sopId || n <= 0} onClick={() => onStart(sopId, rerun)}>发起 {Math.max(0, n)} 次</button>
+      <button className="btn btn-primary" disabled={over || !sopId || n <= 0} onClick={() => run(targets.map((m) => m.id), { started: 0, skipped: 0 })}>
+        发起 {Math.max(0, n)} 次{batches > 1 ? `，分 ${batches} 批` : ''}
+      </button>
       <button className="btn btn-ghost" onClick={onCancel}>取消</button>
     </div>
   )

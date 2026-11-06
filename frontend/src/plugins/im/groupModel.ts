@@ -170,6 +170,18 @@ export function toggleRow(sel: ReadonlySet<string>, r: Pick<Row, 'items'>): Set<
   return n
 }
 
+/**
+ * 常驻「全选」（TSK-0492）：已加载（列表上已经渲染出来的行，「加载更多」之前的不算）里能勾的消息。
+ * 一组按组里筛得出来、还没处理的算（同 toggleRow）；变淡的原消息行、收起的消息列回复不算
+ */
+export const loadedPicks = (shown: readonly Pick<Row, 'items'>[]) => shown.flatMap((r) => r.items.filter(canPick))
+
+/** 全选框的状态：已加载的能勾的都勾上了是 all，勾了一些（含没加载的）是 some，一条没勾是 none */
+export function selectAllState(loaded: readonly Pick<ImMessage, 'id'>[], sel: ReadonlySet<string>, picked: number): 'all' | 'some' | 'none' {
+  if (loaded.length && loaded.every((m) => sel.has(m.id))) return 'all'
+  return picked > 0 ? 'some' : 'none'
+}
+
 /** 行上的人名：私聊是对方，群里是发信人（同一组同一个人） */
 export const rowWho = (r: Row) => whoName(r.head)
 

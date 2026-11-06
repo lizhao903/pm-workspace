@@ -163,9 +163,6 @@ export const convIdOf = (conv: string) => (conv.startsWith('cv:') ? conv.slice(3
 
 // ---- 批量处理（PR-03） ----
 
-/** 后端一次最多带的 id 数 */
-export const BATCH_MAX = 500
-
 /** 还没处理的：待处理（含稍后）和已过期（IM-07），能标已处理、忽略 */
 export const isOpen = (m: Pick<ImMessage, 'status'>) => m.status === 'pending' || m.status === 'expired'
 
@@ -183,9 +180,6 @@ export function togglePick(sel: ReadonlySet<string>, id: string) {
   return n
 }
 
-/** 「全选」：当前筛选结果里能处理的，最多 BATCH_MAX 条 */
-export const pickAll = (rows: readonly ImMessage[]) => new Set(rows.filter(canPick).slice(0, BATCH_MAX).map((m) => m.id))
-
 export type ConvBatch = { n: number; input: { conversation_id: string; before: string } | { ids: string[] } }
 
 /** 「这个会话全部标为已处理」：这个会话里的待处理（不含稍后，同待处理视图），不受与我相关、搜索、未读筛选影响。
@@ -198,7 +192,8 @@ export function convBatch(list: readonly ImMessage[], conv: string, now = Date.n
     const before = xs.reduce((a, m) => (m.at > a ? m.at : a), xs[0].at)
     return { n: xs.length, input: { conversation_id: conv.slice(3), before } }
   }
-  return { n: xs.length, input: { ids: xs.slice(0, BATCH_MAX).map((m) => m.id) } }
+  // 不截断：超过后端一次的上限时 useImBatch 自动分批（TSK-0492）
+  return { n: xs.length, input: { ids: xs.map((m) => m.id) } }
 }
 
 /** 列表按天分段 */

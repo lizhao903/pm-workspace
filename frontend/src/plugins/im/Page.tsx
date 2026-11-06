@@ -9,7 +9,9 @@
 // 已过期（IM-07）：状态切换多一个「已过期」；已过期的行能标已处理、忽略、重新打开，也能勾选批量处理。过期天数在渠道配置里改。
 // 群组标签：选了渠道后列表上方按群组分标签（全部、各群、私聊合一个，多了收进「更多」），每个标签带待处理数；
 // 标签和「只看某个会话」是同一个会话筛选，选了渠道时由标签代替那个下拉。选中一个群时能设它默认归属的项目（GroupProject）。
-// 批量分诊、处理队列（SOP 插件在跑时才有）：标题行「批量分诊」给勾选的（没勾就是当前筛选结果全部，最多 200 条）各发起一次分诊流程（TriageDialog）；
+// 常驻全选（TSK-0492）：批量条左边一个全选框，选中已加载（已渲染出来的行）里能勾的全部消息，写「已选 N 条 / 已加载 M 条」；
+// 还有没加载的行时提示先「加载更多」，不偷偷去全选没加载的。批量标已处理、忽略不截断，超过后端一次的上限由 useImBatch 分批。
+// 批量分诊、处理队列（SOP 插件在跑时才有）：批量条「批量分诊」给勾选的（没勾就是当前筛选结果全部，最多 1000 条，超过 200 条自动分批）各发起一次分诊流程（TriageDialog）；
 // 「处理队列 N」打开抽屉看这些执行（QueueDrawer），地址记 ?queue=1；消息行上标最近一次分诊的状态。
 // 分诊建议：父执行和它起的子执行算同一次分诊（triageSummary）；「已分诊」小标悬停才取详情显示建议摘要，点了打开消息抽屉并滚到「分诊建议」一节
 // （分诊中、等确认、失败的仍打开处理队列，那里能看排队、终止、重试）。两种抽屉的「分诊建议」一节在 TriageAdvice，没分诊过时能单独发起。
@@ -22,7 +24,7 @@
 import { Fragment, Suspense, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { useNavigate, useSearchParams } from 'react-router'
 import {
-  SOP_BATCH_MAX, connectorsPagePath, errorText, isApiError, onServerEvent, useConnectorDefs, useConnectors, useContacts, useDictionaries, useEventsLive, useImAction, useImBatch, useImMessage,
+  connectorsPagePath, errorText, isApiError, onServerEvent, useConnectorDefs, useConnectors, useContacts, useDictionaries, useEventsLive, useImAction, useImBatch, useImMessage,
   useImMessages, useImSyncConnector, useNotifyChange, usePlugins, useSopRunsByInput, type ImAction, type ImMessage, type ImSessionIntent,
 } from '../../core/data'
 import { useObjectDrawer } from '../../core/plugin'
@@ -37,8 +39,8 @@ import { SendDialog } from './SendDialog'
 import { SentReplyTag, SentStrip } from './SentStrip'
 import { MessageDrawer } from './MessageDrawer'
 import {
-  BATCH_MAX, MSG_STATUS_DICT, PAGE, RELEVANCE, VIEW_SEG_MAX, baseOk, canPick, channelOf, channelTable, convBatch, convIdOf, convOptions, convTabs, dayLabel, filterRows,
-  inView, isOpen, isSnoozed, nextWake, pickAll, pickedRows, togglePick, replyBlocker, shortTime, snoozeOptions, statusItems, statusView, timeAgo, usedChannels, viewsOf, whoName, type Mine, type View,
+  MSG_STATUS_DICT, PAGE, RELEVANCE, VIEW_SEG_MAX, baseOk, canPick, channelOf, channelTable, convBatch, convIdOf, convOptions, convTabs, dayLabel, filterRows,
+  inView, isOpen, isSnoozed, nextWake, pickedRows, togglePick, replyBlocker, shortTime, snoozeOptions, statusItems, statusView, timeAgo, usedChannels, viewsOf, whoName, type Mine, type View,
 } from './model'
 import { AttachmentChips, Caret, ChannelMark, Gear, Menu, MentionText, QuickReplyItems, ThreadTag } from './parts'
 import { ToTaskDialog } from './ToTaskDialog'
@@ -49,11 +51,12 @@ import { ToMaterialDialog } from './ToMaterialDialog'
 import { materialPath } from './toMaterialModel'
 import { sessionPath } from './sessionModel'
 import {
-  MERGE_KEY, clusterMessages, countLabel, isMerged, nestThreads, openItems, pickState, previewText, rowTime, threadBadge, threadBadgeLabel, threadForMany, threadForTask, threadHint, threadOf, threadParent,
+  MERGE_KEY, clusterMessages, countLabel, isMerged, loadedPicks, nestThreads, openItems, pickState, previewText, selectAllState, rowTime, threadBadge, threadBadgeLabel, threadForMany, threadForTask, threadHint, threadOf, threadParent,
   toRows, toggleRow, type Row,
 } from './groupModel'
 import { TriageDialog } from './TriageDialog'
 import { isActiveRun, triageNote, triageTargets } from './triageModel'
+import { TRIAGE_TOTAL_MAX } from './triageBatch'
 import { triageAttempts, type TriageAttempt } from './triageSummary'
 import { GroupTriageSection, TriageSection, TriageTagButton } from './TriageAdvice'
 import { quickReplyAction } from './useMentions'
@@ -192,7 +195,6 @@ export default function Page() {
   const used = usedChannels(channels, list, imConnectors)
   const broken = imConnectors.filter((c) => c.status === 'error')
   const picked = pickedRows(listed, sel)
-  const pickable = listed.filter(canPick).length
   const cb = useMemo(() => convBatch(list, conv, now), [list, conv, now])
   const tabs = useMemo(() => convTabs(list, channel, now), [list, channel, now])
   const convName = conv.startsWith('dm:') ? '私聊' : convOpts.find((o) => o.value === conv)?.label ?? ''
@@ -210,6 +212,11 @@ export default function Page() {
   if (lim.sig !== sig) setLim({ sig, n: PAGE })
   const limit = lim.sig === sig ? lim.n : PAGE
   const shown = viewRows.slice(0, limit)
+  // 常驻全选只管已加载的行（TSK-0492）
+  const loaded = loadedPicks(shown)
+  const allState = selectAllState(loaded, sel, picked.length)
+  const unloaded = viewRows.length > limit
+  const toggleAll = () => setSel((x) => (allState === 'all' ? new Set<string>() : new Set([...x, ...loaded.map((m) => m.id)])))
   // 每天的条数按消息算（合并的一组算它筛得出来的条数），一组归在它最新一条那天
   const dayCount = new Map<string, number>()
   // 归到这一行的消息列回复也按条算（列表上不显示，但它们在筛选结果里），归在这一行排序用的那天
@@ -376,7 +383,7 @@ export default function Page() {
       } else if (e.key === 'e' && opened && isOpen(opened)) {
         run(opened, { kind: 'done' })
       } else if (e.key === 'e' && openedGroup && openItems({ items: openedGroup.all }).length) {
-        runBatch('done', { ids: openItems({ items: openedGroup.all }).slice(0, BATCH_MAX).map((m) => m.id) })
+        runBatch('done', { ids: openItems({ items: openedGroup.all }).map((m) => m.id) })
       }
     }
     window.addEventListener('keydown', onKey)
@@ -716,28 +723,34 @@ export default function Page() {
         </div>
       )}
       {body}
-      {/* 页面下方的批量处理条：勾选了时是已选和批量动作；没勾时只留批量分诊（对当前筛选结果）和处理队列，SOP 插件没跑且没勾选时不显示 */}
-      {(picked.length > 0 || triageOn) && (
+      {/* 页面下方的批量处理条：左边常驻全选框（已加载里能勾的）；勾选了时是已选和批量动作，没勾时只留批量分诊（对当前筛选结果）和处理队列。
+          已加载里没有能勾的、SOP 插件没跑、又没勾选时不显示 */}
+      {(picked.length > 0 || triageOn || loaded.length > 0) && (
         <div className={cls('im-bulk', !picked.length && 'im-bulk-idle')} role="toolbar" aria-label="批量处理">
-          {picked.length > 0 ? (
-            <>
-              <span className="im-bulk-n">已选 {picked.length} 条</span>
-              {picked.length < Math.min(pickable, BATCH_MAX) && (
-                <button type="button" className="btn btn-sm btn-ghost" onClick={() => setSel(pickAll(listed))}>全选 {Math.min(pickable, BATCH_MAX)} 条</button>
-              )}
-            </>
-          ) : <span className="im-muted">勾选消息后可批量标为{doneLabel}、忽略；不勾时批量分诊对当前筛选结果 {Math.min(rows.length, SOP_BATCH_MAX)} 条</span>}
+          <label className="im-bulk-all" title={loaded.length ? `选中已加载的 ${loaded.length} 条能处理的消息${unloaded ? '；还有没加载的，加载更多后再全选可包含更多' : ''}` : '已加载的消息里没有能勾选的（只有还没处理的能勾）'}>
+            <input type="checkbox" className="im-pick" aria-label="全选已加载的消息" disabled={!loaded.length} checked={allState === 'all'}
+              ref={(el) => { if (el) el.indeterminate = allState === 'some' }} onChange={toggleAll} />
+            全选
+          </label>
+          {picked.length > 0
+            ? <span className="im-bulk-n">已选 {picked.length} 条</span>
+            : null}
+          <span className="im-muted">{picked.length > 0 ? '/ ' : ''}已加载 {loaded.length} 条</span>
+          {unloaded && loaded.length > 0 && <span className="im-muted im-bulk-hint">还有未加载的，加载更多后再全选可包含更多</span>}
+          {!picked.length && (
+            <span className="im-muted im-bulk-hint">{triageOn ? `不勾时批量分诊对当前筛选结果 ${rows.length} 条` : `勾选后可批量标为${doneLabel}、忽略`}</span>
+          )}
           <span className="spacer" />
           {triageOn && (
             <button type="button" className="btn btn-sm btn-outline" onClick={() => setTriage(true)} disabled={!picked.length && !rows.length}
-              title={picked.length ? `给勾选的 ${picked.length} 条消息各发起一次分诊流程` : `给当前筛选结果全部 ${rows.length} 条消息各发起一次分诊流程（最多 ${SOP_BATCH_MAX} 条）`}>批量分诊</button>
+              title={picked.length ? `给勾选的 ${picked.length} 条消息各发起一次分诊流程` : `给当前筛选结果全部 ${rows.length} 条消息各发起一次分诊流程（最多 ${TRIAGE_TOTAL_MAX} 条，超过 200 条自动分批）`}>批量分诊</button>
           )}
           {picked.length > 0 && (
             <>
               <button type="button" className="btn btn-sm btn-primary" disabled={batch.isPending}
-                onClick={() => runBatch('done', { ids: picked.slice(0, BATCH_MAX).map((m) => m.id) })}>标为{doneLabel}</button>
+                onClick={() => runBatch('done', { ids: picked.map((m) => m.id) })}>标为{doneLabel}</button>
               <button type="button" className="btn btn-sm btn-outline" disabled={batch.isPending}
-                onClick={() => runBatch('ignore', { ids: picked.slice(0, BATCH_MAX).map((m) => m.id) })}>忽略</button>
+                onClick={() => runBatch('ignore', { ids: picked.map((m) => m.id) })}>忽略</button>
             </>
           )}
           {triageOn && (
@@ -780,7 +793,7 @@ export default function Page() {
           onClose={() => { setGroup(null); setLinkNote(null) }}
           onOpenContact={(id) => navigate(`/contacts?c=${encodeURIComponent(id)}`)}
           onLinkContact={(msg, mode) => setLinking({ msg, mode, group: groupKey })}
-          onBatch={(action, ids) => runBatch(action, { ids: ids.slice(0, BATCH_MAX) })}
+          onBatch={(action, ids) => runBatch(action, { ids })}
           onOpenMessage={(id) => setOpen(id)}
           onStart={(intent) => { if (openedGroup) startSession(openedGroup.all, intent) }}
           onToMaterial={() => { if (openedGroup) startMaterial(openedGroup.all) }} onOpenMaterial={openMaterial}
@@ -811,14 +824,14 @@ export default function Page() {
           }} />
       )}
       {triage && (() => {
-        const t = triageTargets(picked, rows, SOP_BATCH_MAX)
+        const t = triageTargets(picked, rows, TRIAGE_TOTAL_MAX)
         return (
           <TriageDialog targets={t.list} from={t.from} over={t.over} runs={tRuns} onCancel={() => setTriage(false)}
             onDone={(r) => { setTriage(false); setSel(new Set()); setSyncNote(triageNote(r)) }} />
         )
       })()}
       {triageFor && (
-        <TriageDialog targets={triageFor} from="drawer" over={triageFor.length > SOP_BATCH_MAX} runs={tRuns} onCancel={() => setTriageFor(null)}
+        <TriageDialog targets={triageFor} from="drawer" over={triageFor.length > TRIAGE_TOTAL_MAX} runs={tRuns} onCancel={() => setTriageFor(null)}
           onDone={(r) => { setTriageFor(null); setSyncNote(triageNote(r)) }} />
       )}
       {queueOpen && (
