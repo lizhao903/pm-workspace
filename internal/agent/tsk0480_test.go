@@ -23,6 +23,10 @@ type fakeCatalog struct {
 	err   error
 	// folders 是 ListSOPFolders 回的（TSK-0482）
 	folders schedule.SOPFolders
+	// guide 是 SOPGuide 回的（TSK-0490）；空串时 get_sop 退回只列节点类型
+	guide string
+	// warns 是 SaveSOP 回的警告（TSK-0490）
+	warns []string
 }
 
 func (f *fakeCatalog) ListSOPs(context.Context) ([]schedule.SOPFlowBrief, error) { return f.flows, nil }
@@ -44,12 +48,15 @@ func (f *fakeCatalog) SaveSOP(_ context.Context, q schedule.SOPSave) (*schedule.
 	var name, trig string
 	_ = json.Unmarshal(q.Body["name"], &name)
 	_ = json.Unmarshal(q.Body["trigger"], &trig)
-	return &schedule.SOPFlowDoc{SOPFlowBrief: schedule.SOPFlowBrief{ID: "sop_new", Name: name, Trigger: trig, Steps: 2, Version: 1}}, nil
+	return &schedule.SOPFlowDoc{SOPFlowBrief: schedule.SOPFlowBrief{ID: "sop_new", Name: name, Trigger: trig, Steps: 2, Version: 1}, Warnings: f.warns}, nil
 }
 
 func (f *fakeCatalog) ListSOPFolders(context.Context) (schedule.SOPFolders, error) {
 	return f.folders, nil
 }
+
+// SOPGuide 回空串：说明由 SOP 插件生成（插件测试里查），这里走退回只列节点类型的那条路
+func (f *fakeCatalog) SOPGuide(context.Context) (string, error) { return f.guide, nil }
 
 func (f *fakeCatalog) SOPNodeKinds(context.Context) ([]schedule.SOPNodeKind, error) {
 	return []schedule.SOPNodeKind{{Kind: "decide", Label: "条件分支", Branching: true, Cases: []string{"yes", "no"}},
@@ -177,9 +184,9 @@ func TestStepWarnings(t *testing.T) {
 		{"key":"s5","name":"好的","kind":"decide","rule":"relevance 不等于 me","after":["s1"]},
 		{"key":"s6","name":"分支下","kind":"auto","branch":{"of":"s5","case":"yes"}}]`))
 	want := []string{
-		"第 2 步「判断」的 rule 写在了 config 里，要写在步骤上（和 kind 同级）",
+		"第 2 步「判断」的条件写在了 config 里，要写成步骤上的 cond（和 kind 同级）",
 		"第 2 步「判断」没有 after 也不在分支下，会和第 1 步同时开始",
-		"第 3 步「人选」是条件分支但没有 rule，执行到这里会停下等人手动选",
+		"第 3 步「人选」是条件分支但没有 cond，执行到这里会停下等人手动选",
 		"第 4 步「忽略」没有 after 也不在分支下，会和第 1 步同时开始",
 	}
 	if !slices.Equal(got, want) {

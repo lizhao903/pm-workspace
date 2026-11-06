@@ -56,7 +56,7 @@ func runNode(def stepDef, input Json, deps []string) nodeResult {
 		if isManual(def) {
 			return nodeResult{output: input, review: true}
 		}
-		ok, err := evalRule(def.Rule, input)
+		ok, text, err := judge(def)(input)
 		if err != nil {
 			return nodeResult{err: err.Error()}
 		}
@@ -68,7 +68,11 @@ func runNode(def stepDef, input Json, deps []string) nodeResult {
 		if ok {
 			c, why = def.Cases[0], "成立"
 		}
-		return nodeResult{output: input, route: c.Key, reason: fmt.Sprintf("规则「%s」%s", strings.TrimSpace(def.Rule), why)}
+		word := "规则"
+		if def.Cond != nil {
+			word = "条件"
+		}
+		return nodeResult{output: input, route: c.Key, reason: fmt.Sprintf("%s「%s」%s", word, text, why)}
 	case loopbackKind:
 		// 条件回退（AUTO-02，loopback.go）：成立时由 runner 退回上游或走超限
 		return runLoopback(def, input)
@@ -86,8 +90,8 @@ func runNode(def stepDef, input Json, deps []string) nodeResult {
 	return nodeResult{err: notWired}
 }
 
-// isManual 同原型 isManualDecide：规则留空的条件分支是人工判断。
-func isManual(def stepDef) bool { return def.Kind == "decide" && strings.TrimSpace(def.Rule) == "" }
+// isManual 同原型 isManualDecide：没有条件（cond、旧规则都没有）的条件分支是人工判断。
+func isManual(def stepDef) bool { return def.Kind == "decide" && !hasCondition(def) }
 
 func with(input Json, key string, v any) Json {
 	out := make(Json, len(input)+1)

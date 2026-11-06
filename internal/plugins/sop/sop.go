@@ -77,6 +77,9 @@ func (p *Plugin) Register(r plugin.Registrar) error {
 		m.HandleFunc("PATCH /api/sop/flows/{id}", f.update)
 		m.HandleFunc("DELETE /api/sop/flows/{id}", f.remove)
 		m.HandleFunc("GET /api/sop/node-types", f.nodeTypes)
+		// 触发方式自动带入的字段、这一步能拿到的字段（TSK-0490，fields.go）
+		m.HandleFunc("GET /api/sop/triggers", triggersList)
+		m.HandleFunc("POST /api/sop/step-fields", f.stepFields)
 		// 流程库的文件夹（TSK-0482，folders.go）
 		m.HandleFunc("GET /api/sop/folders", fd.list)
 		m.HandleFunc("POST /api/sop/folders", fd.add)
@@ -130,10 +133,11 @@ func apiErr(kind error, format string, args ...any) error {
 // checkError 是保存前校验没过：message 是全部问题用「；」连起来，issues 逐条给前端定位。
 type checkError struct{ issues []Issue }
 
+// Error 只拼错误；issues 里另有的警告（TSK-0490）只逐条给前端。
 func (e *checkError) Error() string {
-	ts := make([]string, len(e.issues))
-	for i, x := range e.issues {
-		ts[i] = x.Text
+	var ts []string
+	for _, x := range errorsOf(e.issues) {
+		ts = append(ts, x.Text)
 	}
 	return strings.Join(ts, "；")
 }

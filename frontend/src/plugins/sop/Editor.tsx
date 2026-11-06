@@ -2,7 +2,7 @@
 // 编排页改的是草稿，保存时整体提交，位置一起存进 layout；有错误级问题不保存，后端 400 时把问题逐条标到节点上（SPEC-sop-8.30、8.35）。
 // 撤销历史最多 50 步；流程名连续输入算一步。照原型 web-next/src/sopedit.tsx 的 SopEditor
 import { useEffect, useMemo, useRef, useState, type PointerEvent as RPointerEvent } from 'react'
-import { errorText, isApiError, sopIssuesOf, useConversations, useSaveSopFlow, type SopDraft, type SopFlow, type SopRunBrief, type SopScheduleOff, type SopStepDef } from '../../core/data'
+import { errorText, isApiError, sopIssuesOf, useConversations, useSaveSopFlow, type SopDraft, type SopFlow, type SopIssue, type SopRunBrief, type SopScheduleOff, type SopStepDef } from '../../core/data'
 import { Button, ConfirmDialog, IconButton, PageTitle, cls, describeScheduleRule } from '../../core/ui'
 import { AiPanel } from './AiPanel'
 import {
@@ -10,6 +10,7 @@ import {
   paletteItems, removeEdge as dropEdge, removeStep, sameDraft, serverIssuesOf, topo, type Catalog, type Draft, type Issue, type PaletteItem,
   type Pos, type ServerIssue,
 } from './edit'
+import { blankCond, condLine } from './cond'
 import { isManualDecide } from './model'
 import { NodePanel, type TriggerOption } from './NodePanel'
 import { nodeInfo, type FieldCtx } from './nodes'
@@ -28,8 +29,10 @@ type Drag =
 
 type PaletteAt = { at: Pos; from: string; caseKey?: string }
 
-export function Editor({ initial, flowId, version, hasSchedule = false, catalog, ctx, triggers, runs, onCancel, onSaved }: {
+export function Editor({ initial, issues: initialIssues, flowId, version, hasSchedule = false, catalog, ctx, triggers, runs, onCancel, onSaved }: {
   initial: Draft
+  /** 打开时后端按现在的保存校验查出的问题（TSK-0490，GET 一条流程的 issues）：旧写法的条件、过不了新校验的旧流程，进检查列表 */
+  issues?: readonly SopIssue[]
   /** 编辑已有流程时有；新建没有 */
   flowId?: string
   version?: number
@@ -58,7 +61,7 @@ export function Editor({ initial, flowId, version, hasSchedule = false, catalog,
   const [showIssues, setShowIssues] = useState(false)
   const [tried, setTried] = useState(false)
   const [toast, setToast] = useState('')
-  const [server, setServer] = useState<ServerIssue[]>([])
+  const [server, setServer] = useState<ServerIssue[]>(() => serverIssuesOf(initialIssues ?? [], initial))
   const [saveError, setSaveError] = useState('')
   const [gone, setGone] = useState(false)
   const [leaving, setLeaving] = useState(false)
@@ -138,7 +141,8 @@ export function Editor({ initial, flowId, version, hasSchedule = false, catalog,
     const name = item.manual ? '人工判断' : item.label
     const step = makeStep(draft, catalog, item.kind, name, from === START ? [] : [from], {
       ...(caseKey ? { branch: { of: from, case: caseKey } } : {}),
-      ...(item.kind === 'decide' ? { rule: item.manual ? '' : '填写判断条件' } : {}),
+      // 条件分支带一条待选字段的结构化条件，人工判断不带（TSK-0490）
+      ...(item.kind === 'decide' && !item.manual ? { cond: blankCond() } : {}),
     })
     // 同一个节点后面已经有几个子节点就往下错开几格，免得叠在一起
     const siblings = childrenOf(draft, from).length
@@ -332,6 +336,7 @@ export function Editor({ initial, flowId, version, hasSchedule = false, catalog,
       onSuccess: (f) => {
         setBase(JSON.stringify(draft))
         setSchedSaved(!!f.schedule)
+        // 存上了但有警告（TSK-0490）：流程详情页顶上照样列出（取的是保存回来的这一份）
         onSaved(f, thenRun)
       },
       onError: (e) => {
@@ -431,7 +436,7 @@ export function Editor({ initial, flowId, version, hasSchedule = false, catalog,
               <div className="menu sop-cv-issues" role="list" aria-label="检查结果">
                 {issues.length ? issues.map((x, n) => (
                   <button key={n} type="button" role="listitem" className={cls('menu-item sop-cv-issue', `issue-${x.level}`)} onClick={() => openIssue(x)}>
-                    <span className={`sop-issue-dot dot-${x.level}`} aria-label={x.level === 'error' ? '必须改' : '建议'} />{x.text}
+                    <span className={`sop-issue-dot dot-${x.level}`} aria-label={x.level === 'error' ? '必须改' : '注意'} />{x.text}
                   </button>
                 )) : <div className="sop-io-empty">没发现问题</div>}
               </div>
@@ -547,8 +552,8 @@ function StepNode({ s, pos, catalog, ctx, sel, bad, onSelect }: {
           ))}
           <div className="sop-cv-rule ellipsis">
             {s.kind === 'classifier' ? 'AI 分类' : isManualDecide(s) ? '人工判断'
-              : s.kind === 'loopback' ? `${s.rule?.trim() ? `条件：${s.rule}` : '还没填回退条件'} · 退回 ${s.config?.target || '未选'}`
-                : s.rule?.trim() ? `规则：${s.rule}` : '按内置规则判断'}
+              : s.kind === 'loopback' ? `${condLine(s) ? `条件：${condLine(s)}` : '还没填回退条件'} · 退回 ${s.config?.target || '未选'}`
+                : s.cond ? `条件：${condLine(s)}` : s.rule?.trim() ? `规则：${s.rule}` : '按内置规则判断'}
           </div>
         </div>
       ) : (

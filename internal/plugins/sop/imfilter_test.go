@@ -159,7 +159,8 @@ func TestIMTriggerOrder(t *testing.T) {
 // 这就是用户要的样例：C0BNCBRL5C0 里非 @我 的消息由第一条流程接住（标为忽略），其他 IM 流程不再接；@我 的照常走其他流程。
 func TestIMTriggerFilterAndStop(t *testing.T) {
 	ctx := context.Background()
-	reg, h, d := setupDB(t, New())
+	sp := New()
+	reg, h, d := setupDB(t, sp)
 	addConv(t, d, "cv_octok", "slack", "C0BNCBRL5C0", "ai-octok-platform")
 	addConv(t, d, "cv_other", "slack", "C0OTHER", "random")
 	steps := `"steps":[{"key":"a","name":"甲","kind":"review"}]`
@@ -220,8 +221,14 @@ func TestIMTriggerFilterAndStop(t *testing.T) {
 	if got := flowsFor("m_plain"); !slices.Equal(got, []string{ignore}) {
 		t.Fatalf("重投：%v", got)
 	}
-	// 拦截流程发起失败（必填补不齐）不算命中，后面的照常
-	call(t, h, "PATCH", "/api/sop/flows/"+ignore, `{"fields":[{"key":"customer","label":"客户","type":"text","required":true}]}`)
+	// 拦截流程发起失败（必填补不齐）不算命中，后面的照常。这种流程现在存不上（TSK-0490），升级前存下的旧流程才会这样，直接改库
+	if code, _ := call(t, h, "PATCH", "/api/sop/flows/"+ignore, `{"fields":[{"key":"customer","label":"客户","type":"text","required":true}]}`); code != 400 {
+		t.Fatalf("IM 流程有补不上的必填字段要拦：%d", code)
+	}
+	if _, err := sp.core.Store().Exec(context.Background(), `UPDATE sop_flows SET fields = ? WHERE id = ?`,
+		`[{"key":"customer","label":"客户","type":"text","required":true}]`, ignore); err != nil {
+		t.Fatal(err)
+	}
 	deliver("m_fail", "cv_octok", "")
 	if got := flowsFor("m_fail"); !slices.Equal(got, []string{other}) {
 		t.Fatalf("发起失败不拦：%v", got)

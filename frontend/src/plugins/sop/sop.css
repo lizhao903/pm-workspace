@@ -556,3 +556,34 @@ button.sop-run-row:hover { background: var(--panel-2); }
 .sop-folder-edit { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; min-width: 0; }
 .sop-folder-edit .input { flex: 1 1 160px; min-width: 0; max-width: 280px; height: 28px; }
 .sop-folder-err { flex-basis: 100%; font-size: var(--fs-sm); color: var(--danger); }
+
+/* 结构化条件、这一步能拿到的字段、保存校验（TSK-0490） */
+.sop-cond { display: flex; flex-direction: column; gap: 6px; }
+.sop-cond-logic { display: flex; gap: 6px; flex-wrap: wrap; }
+.sop-cond-row { display: grid; grid-template-columns: minmax(0, 1.6fr) 84px minmax(0, 1fr) auto; gap: 6px; align-items: center; }
+.sop-cond-row .select, .sop-cond-row .input { min-width: 0; }
+.sop-cond-none { display: flex; flex-direction: column; gap: 6px; align-items: flex-start; }
+.sop-cond-legacy { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; padding: 8px 10px; border-radius: var(--r); font-size: var(--fs-sm);
+  background: var(--warn-soft); color: color-mix(in srgb, var(--warn) 70%, var(--text)); border: 1px solid color-mix(in srgb, var(--warn) 25%, transparent); }
+.sop-cond-legacy > span { flex: 1 1 220px; min-width: 0; overflow-wrap: anywhere; }
+.sop-cond-legacy.bad { background: var(--danger-soft); color: color-mix(in srgb, var(--danger) 75%, var(--text)); border-color: color-mix(in srgb, var(--danger) 25%, transparent); }
+.sop-fields-toggle { all: unset; cursor: pointer; display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px; font-weight: 500; }
+.sop-fields-groups { display: flex; flex-direction: column; gap: 8px; max-height: 320px; overflow: auto; border: 1px solid var(--line); border-radius: var(--r); padding: 6px; }
+.sop-fields-group-head { font-size: var(--fs-xs); color: var(--muted); padding: 2px 4px; display: flex; gap: 6px; flex-wrap: wrap; }
+.sop-field-pick { all: unset; box-sizing: border-box; cursor: pointer; display: grid; grid-template-columns: auto auto minmax(0, 1fr); gap: 2px 8px; align-items: baseline;
+  width: 100%; padding: 3px 6px; border-radius: var(--r-sm); font-size: var(--fs-sm); }
+.sop-field-pick:hover, .sop-field-pick:focus-visible { background: var(--accent-soft); }
+.sop-field-pick code { font-size: var(--fs-xs); color: var(--accent); }
+.sop-field-pick.undeclared code { color: var(--warn); }
+.sop-field-type { font-size: var(--fs-2xs); color: var(--faint); }
+.sop-field-desc { color: var(--muted); font-size: var(--fs-xs); }
+.sop-field-sample { grid-column: 1 / -1; color: var(--faint); font-size: var(--fs-2xs); }
+.sop-issues-bar { margin: 0 0 12px; padding: 10px 14px; border-radius: var(--r); font-size: var(--fs-sm);
+  background: var(--warn-soft); border: 1px solid color-mix(in srgb, var(--warn) 25%, transparent); }
+.sop-issues-bar.bad { background: var(--danger-soft); border-color: color-mix(in srgb, var(--danger) 25%, transparent); }
+.sop-issues-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.sop-issues-head > span:first-child { flex: 1 1 260px; min-width: 0; }
+.sop-issues-bar ul { margin: 6px 0 0; padding-left: 18px; }
+.sop-issues-bar li { overflow-wrap: anywhere; }
+.sop-issues-bar li.error { color: color-mix(in srgb, var(--danger) 75%, var(--text)); }
+.sop-issues-bar li.warn { color: color-mix(in srgb, var(--warn) 70%, var(--text)); }

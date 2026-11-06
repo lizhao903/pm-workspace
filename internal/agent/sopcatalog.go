@@ -66,8 +66,8 @@ func (tb *Toolbox) sopCatalogDefs() []ToolDef {
 		},
 		{
 			Name: toolGetSOP,
-			Description: "读取一个 SOP 流程的完整定义（输入字段 fields、步骤 steps）和能用的节点类型。" +
-				"修改流程之前先读它，照着原样改，再用 update_sop 存回去；结果末尾有能用的节点类型，新建流程前也可以读一个相近的流程参考。",
+			Description: "读取一个 SOP 流程的完整定义（输入字段 fields、步骤 steps）、它现在的问题，以及编排说明（能用的节点、每个节点的配置项和输出字段、触发方式自动带入的字段、条件写法）。" +
+				"修改流程之前先读它，照着原样改，再用 update_sop 存回去；新建流程前先读一个相近的流程，拿到末尾的编排说明再写。",
 			Parameters: obj(props{
 				"flow_id": str("流程 id（sop_ 开头），也接受流程名称"),
 			}, []string{"flow_id"}),
@@ -87,12 +87,14 @@ func (tb *Toolbox) sopCatalogDefs() []ToolDef {
 	}
 }
 
-// sopStepsHint 是 create_sop / update_sop 共用的步骤写法说明。
+// sopStepsHint 是 create_sop / update_sop 共用的步骤写法说明；节点目录、配置项、输出字段在 get_sop 末尾的编排说明里（TSK-0490，同编辑器 AI 协助）。
 const sopStepsHint = "steps 是步骤数组，每步 " +
-	`{"key":"s1","name":"步骤名","kind":"节点类型","after":["上一步 key"],"config":{"配置项":"值"}}；` +
-	`条件分支 kind=decide 再写 "rule":"字段 等于 值"（也支持 不等于/包含/不包含），成立走 yes、不成立走 no，cases 不用写；` +
-	`分支下的步骤写 "branch":{"of":"分支步骤 key","case":"yes 或 no"}。` +
-	"能用的节点类型和必填配置在 get_sop 的结果末尾。存不上时按返回的问题改了再存。" + sopIMHint
+	`{"key":"s1","name":"步骤名","kind":"节点类型","after":["上一步 key"],"config":{"配置项":"值"}}，config 只写这个节点声明了的配置项；` +
+	`条件分支 kind=decide 写结构化条件 "cond":{"logic":"and","items":[{"field":"字段路径","op":"eq","value":"值"}]}` +
+	`（op 是 eq/ne/contains/not_contains/empty/not_empty，logic 是 and 或 or），成立走 yes、不成立走 no，cases 不用写；` +
+	"field 只能用这一步真实拿得到的字段（触发方式自动带入的、输入字段、上游节点声明的输出），不要写 rule，也不要把一句话当条件，说明写进 desc；" +
+	`分支下的步骤写 "branch":{"of":"分支步骤 key","case":"yes 或 no"}。自动执行（auto）什么都不做，要改数据用对应的写节点。` +
+	"能用的节点、配置项和输出字段在 get_sop 结果末尾的编排说明里。存不上时按返回的问题改了再存；存上了但有警告时，结果里会列出来，按警告改掉。" + sopIMHint
 
 // sopIMHint 是 IM 触发的流程能拿到什么、现在做不到什么（TSK-0480 重放：模型拿会话名比 Slack 频道编号、拿正文找「@我」，
 // 用户要的「优先于其他流程」也没提）。做不到的几条由 TSK-0481 接。
@@ -260,6 +262,9 @@ func (tb *Toolbox) getSOP(ctx context.Context, args map[string]any) ToolResult {
 	}
 	fmt.Fprintf(&b, "fields=%s\n", clip(string(f.Fields), maxBodyRunes/2))
 	fmt.Fprintf(&b, "steps=%s\n", clip(string(f.StepDefs), maxBodyRunes))
+	if len(f.Warnings) > 0 {
+		b.WriteString("这条流程现在的问题（改它时一起改掉）：\n- " + strings.Join(f.Warnings, "\n- ") + "\n")
+	}
 	b.WriteString(nodeKindsText(ctx, cat))
 	return ToolResult{Summary: fmt.Sprintf("读取了 SOP「%s」", f.Name), Content: b.String()}
 }
@@ -272,8 +277,12 @@ func folderOr(name string) string {
 	return name
 }
 
-// nodeKindsText 是能用的节点类型，get_sop 和保存没存上时附上。
+// nodeKindsText 是编排说明（节点目录、配置项、输出字段、条件写法，TSK-0490），get_sop 和保存没存上时附上；
+// SOP 插件给不出说明时退回只列节点类型和必填配置。
 func nodeKindsText(ctx context.Context, cat schedule.SOPCatalog) string {
+	if g, err := cat.SOPGuide(ctx); err == nil && strings.TrimSpace(g) != "" {
+		return "\n编排说明：\n" + g
+	}
 	kinds, err := cat.SOPNodeKinds(ctx)
 	if err != nil || len(kinds) == 0 {
 		return ""
@@ -387,6 +396,11 @@ func (tb *Toolbox) saveSOP(ctx context.Context, tool string, args map[string]any
 		content += "IM 触发条件：" + f.IMTrigger + "。"
 	}
 	summary := fmt.Sprintf("已%s SOP「%s」（%s）", verb, f.Name, f.ID)
+	// 保存校验的警告（TSK-0490）：同编辑器保存后的提示
+	if len(f.Warnings) > 0 {
+		content += "保存校验有这几处警告，多半不是用户想要的，用 update_sop（version=" + fmt.Sprint(f.Version) + "）改掉，改不了的如实告诉用户：" +
+			strings.Join(f.Warnings, "；") + "。"
+	}
 	if warns := stepWarnings(f.StepDefs); len(warns) > 0 {
 		content += "存上了，但下面几处多半不是你想要的，用 update_sop（version=" + fmt.Sprint(f.Version) + "）改掉：" + strings.Join(warns, "；") + "。"
 	}
@@ -406,6 +420,7 @@ func stepWarnings(raw json.RawMessage) []string {
 		Name   string         `json:"name"`
 		Kind   string         `json:"kind"`
 		Rule   string         `json:"rule"`
+		Cond   any            `json:"cond"`
 		After  []string       `json:"after"`
 		Branch map[string]any `json:"branch"`
 		Config map[string]any `json:"config"`
@@ -416,11 +431,12 @@ func stepWarnings(raw json.RawMessage) []string {
 	var out []string
 	for i, st := range steps {
 		label := fmt.Sprintf("第 %d 步「%s」", i+1, st.Name)
-		if st.Kind == "decide" && strings.TrimSpace(st.Rule) == "" {
-			if _, ok := st.Config["rule"]; ok {
-				out = append(out, label+"的 rule 写在了 config 里，要写在步骤上（和 kind 同级）")
+		if st.Kind == "decide" && strings.TrimSpace(st.Rule) == "" && st.Cond == nil {
+			_, inCfg := st.Config["cond"]
+			if _, ok := st.Config["rule"]; ok || inCfg {
+				out = append(out, label+"的条件写在了 config 里，要写成步骤上的 cond（和 kind 同级）")
 			} else {
-				out = append(out, label+"是条件分支但没有 rule，执行到这里会停下等人手动选")
+				out = append(out, label+"是条件分支但没有 cond，执行到这里会停下等人手动选")
 			}
 		}
 		if i > 0 && len(st.After) == 0 && len(st.Branch) == 0 {

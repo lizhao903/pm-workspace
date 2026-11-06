@@ -135,6 +135,8 @@ func (p *Plugin) Register(r plugin.Registrar) error {
 		m.HandleFunc("POST /api/video/cover-tests/{id}/decide", h.decideCoverTest)
 	})
 	r.Subscribe(plugin.RunFinishedEvent, h.onRunFinished)
+	// SOP 节点登记时按 kind 补上节点声明（TSK-0490，sopspec.go）
+	r = plugin.WithSOPSpecs(r, sopSpecs)
 	h.registerSOP(r)
 	h.registerSchedule(r)
 	h.registerToday(r)

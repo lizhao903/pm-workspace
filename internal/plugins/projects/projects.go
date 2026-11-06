@@ -85,7 +85,8 @@ func (p *Plugin) Register(r plugin.Registrar) error {
 		m.HandleFunc("GET /api/projects/{id}/profile", pf.show)
 		m.HandleFunc("PATCH /api/projects/{id}/profile", pf.update)
 	})
-	// SOP 节点：列项目档案、读项目档案（AUTO-06，sopnodes.go）
+	// SOP 节点：列项目档案、读项目档案（AUTO-06，sopnodes.go）；登记时按 kind 补上节点声明（TSK-0490，sopspec.go）
+	r = plugin.WithSOPSpecs(r, sopSpecs)
 	registerSOPNodes(r)
 	// 需求级 git worktree：接口、SOP 节点「准备工作区」、任务完成或上线后自动清理（AUTO-07，worktrees.go）
 	ws := newWorktreeService(r.Core())

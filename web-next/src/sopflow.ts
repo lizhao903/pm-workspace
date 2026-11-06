@@ -11,6 +11,7 @@
 import { seedContacts, seedMessages } from './data'
 import { newId } from './ids'
 import type { ScheduleRule } from './scheduledata'
+import { condText, evalCond, type SopCond } from './sopcond'
 import { NODE_TYPES, evalRule, isBranching, loopRounds, render, typeOf, type Cfg, type StepKind } from './nodetypes'
 
 export type Json = Record<string, unknown>
@@ -39,8 +40,10 @@ export interface SopStepDef {
   cases?: SopCase[]
   /** 判断规则；判断步骤既没有 decide 也没有 rule 就是人工判断 */
   decide?: (input: Json) => { route: string; reason: string }
-  /** 用户自己写的判断规则描述；原型里不真的求值，按第一个分支模拟 */
+  /** 旧的一行规则（「字段 等于 值」），只为已有流程保留；新写的条件用 cond（TSK-0490） */
   rule?: string
+  /** 结构化条件（TSK-0490）：字段 + 运算符 + 值，可多条且 / 或，见 sopcond.tsx */
+  cond?: SopCond
   /** 节点类型自己的配置项，见 nodetypes 里各类型的 fields */
   config?: Cfg
 }
@@ -1200,7 +1203,7 @@ export function imMatches(im: SopIM | undefined, m: { conversation: string; rele
   const hit = im.relevance.includes(rel)
   return im.relevance_mode === 'exclude' ? !hit : hit
 }
-export const isManualDecide = (d: SopStepDef) => d.kind === 'decide' && !d.decide && !d.rule?.trim()
+export const isManualDecide = (d: SopStepDef) => d.kind === 'decide' && !d.decide && !d.cond && !d.rule?.trim()
 
 /** 用户新建的步骤没有写死的产出规则，原型里按类型给一个看得出是谁产出的占位结果 */
 function mockRun(def: SopStepDef, input: Json): Json {
@@ -1287,6 +1290,10 @@ export function tick(r: SopRun, now = Date.now()): SopRun {
     if (isBranching(def.kind) && !isManualDecide(def)) {
       const t = typeOf(def.kind)
       const { route, reason } = def.decide ? def.decide(s.input ?? {})
+        // 结构化条件真求值（TSK-0490），同后端
+        : def.cond ? (evalCond(def.cond, s.input ?? {})
+          ? { route: def.cases?.[0]?.key ?? '', reason: `条件「${condText(def.cond)}」成立` }
+          : { route: def.cases?.[1]?.key ?? '', reason: `条件「${condText(def.cond)}」不成立` })
         : t.route ? t.route(def.config ?? {}, s.input ?? {}, def)
           : { route: def.cases?.[0]?.key ?? '', reason: `按规则「${def.rule}」判断（原型模拟）` }
       const label = def.cases?.find((c) => c.key === route)?.label ?? route
@@ -1330,8 +1337,8 @@ function loopback(r: SopRun, i: number, now: number): SopRun {
   const def = r.sop.steps[i]
   const s = r.steps[i]
   const input = s.input ?? {}
-  const rule = def.rule?.trim() ?? ''
-  const ok = evalRule(rule, input)
+  const rule = def.cond ? condText(def.cond) : def.rule?.trim() ?? ''
+  const ok = def.cond ? evalCond(def.cond, input) : evalRule(rule, input)
   const fail = (err: string) => setStep(r, i, (x) => logged({ ...x, status: 'failed', error: err, ended_at: now }, now, `失败：${err}`))
   if (ok === null) return fail(rule ? `规则「${rule}」写法不对，要写成「字段 等于 值」或「字段 包含 值」` : '还没填回退条件')
   const label = (k: string) => def.cases?.find((c) => c.key === k)?.label ?? k

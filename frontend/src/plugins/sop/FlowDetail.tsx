@@ -2,7 +2,7 @@
 // 复制（SPEC-sop-5.16）：新建一条同样的流程，名字加「副本」，放进同一个文件夹（TSK-0482），建好进它的编排页；内置流程要改就走这里
 // 删除确认是标题行里的确认条：还有执行没走完时只能「知道了」（后端同样 409 拦着）；手机宽度下换行，按钮始终可见（SPEC-sop-0.1）
 import { useState } from 'react'
-import { errorText, useDeleteSopFlow, useSaveSopFlow, useSopFolders, type SopFlow, type SopRunBrief, type SopStepDef } from '../../core/data'
+import { errorText, useDeleteSopFlow, useSaveSopFlow, useSopFlow, useSopFolders, type SopFlow, type SopIssue, type SopRunBrief, type SopStepDef } from '../../core/data'
 import { Button, EmptyState, PageTitle } from '../../core/ui'
 import { FlowGraph, FlowLegend } from './FlowGraph'
 import { UNCATEGORIZED, folderOf, isManualDecide, isPendingRun } from './model'
@@ -14,6 +14,29 @@ import { imDraftOf } from './imtrigger'
 import { needsText } from './scope'
 
 const RECENT = 10
+const ISSUES_SHOWN = 6
+
+/** 按现在的保存校验查出的问题（TSK-0490）：旧流程照常打开、执行，这里提示下次保存前要改的；刚保存完是保存回来的警告 */
+function IssuesBar({ issues, steps, onEdit }: { issues: readonly SopIssue[]; steps: readonly SopStepDef[]; onEdit: () => void }) {
+  if (!issues.length) return null
+  const errs = issues.filter((x) => x.level !== 'warning').length
+  const warns = issues.length - errs
+  const at = (x: SopIssue) => (x.step !== undefined && steps[x.step] ? `第 ${x.step + 1} 步 ` : '')
+  return (
+    <div className={errs ? 'sop-issues-bar bad' : 'sop-issues-bar'} role="note" aria-label="保存校验">
+      <div className="sop-issues-head">
+        <span>保存校验：{[errs && `${errs} 处必须改`, warns && `${warns} 处注意`].filter(Boolean).join('，')}
+          {errs > 0 ? '。照常能执行，下次保存前要改掉「必须改」的' : '。能存、能执行，多半不是想要的'}</span>
+        <span className="spacer" />
+        <Button size="sm" onClick={onEdit}>到编辑里改</Button>
+      </div>
+      <ul>
+        {issues.slice(0, ISSUES_SHOWN).map((x, i) => <li key={i} className={x.level === 'warning' ? 'warn' : 'error'}>{at(x)}{x.text}</li>)}
+        {issues.length > ISSUES_SHOWN && <li className="faint">还有 {issues.length - ISSUES_SHOWN} 处，到编辑里看</li>}
+      </ul>
+    </div>
+  )
+}
 
 export function FlowDetail({ flow, runs, branching, needs = [], trigger, onStart, onOpenRun, onEdit, onAllRuns, onDeleted, onCopied, now }: {
   flow: SopFlow
@@ -32,6 +55,8 @@ export function FlowDetail({ flow, runs, branching, needs = [], trigger, onStart
   now: number
 }) {
   const [confirm, setConfirm] = useState(false)
+  // 列表里的流程不带 issues，单取一条（TSK-0490）
+  const full = useSopFlow(flow.id)
   const sourceOf = useSourceText()
   const del = useDeleteSopFlow()
   const save = useSaveSopFlow()
@@ -88,6 +113,7 @@ export function FlowDetail({ flow, runs, branching, needs = [], trigger, onStart
         <span>{reviews} 个需要人处理的节点</span>
         {needs.length > 0 && <span className="sop-need-text" title="这个工作台没开这个模块，执行时可能选不到要的数据">{needsText(needs)}</span>}
       </div>
+      <IssuesBar issues={full.data?.issues ?? []} steps={flow.steps} onEdit={onEdit} />
       <ScheduleBar flow={flow} now={now} className="sop-detail-sched" />
       <IMBar flow={flow} className="sop-detail-sched" />
 

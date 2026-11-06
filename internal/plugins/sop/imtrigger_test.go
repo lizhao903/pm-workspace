@@ -14,13 +14,18 @@ import (
 // 必填字段补不齐的跳过；别的触发方式的流程不动。
 func TestIMTriggerStartsFlows(t *testing.T) {
 	ctx := context.Background()
-	reg, h := setup(t, New())
+	p := New()
+	reg, h := setup(t, p)
 	im := newFlow(t, h, `{"name":"消息分诊","trigger":"im","fields":[{"key":"message_id","label":"消息","type":"text","required":true}],"steps":[
 		{"key":"t","name":"拼","kind":"template","after":[],"config":{"template":"{{message_id}}|{{channel}}|{{relevance}}|{{conversation_id}}","output":"text"}},
 		{"key":"check","name":"检查","kind":"review"}]}`)
 	newFlow(t, h, `{"name":"手动的","trigger":"manual","steps":[{"key":"a","name":"甲","kind":"review","after":[]}]}`)
-	newFlow(t, h, `{"name":"要客户","trigger":"im","fields":[{"key":"customer","label":"客户","type":"text","required":true}],
+	// 必填又补不上的 IM 流程现在存不上（TSK-0490），只有升级前存下的旧流程会这样：建成手动的再直接改库
+	need := newFlow(t, h, `{"name":"要客户","trigger":"manual","fields":[{"key":"customer","label":"客户","type":"text","required":true}],
 		"steps":[{"key":"a","name":"甲","kind":"review","after":[]}]}`)
+	if _, err := p.core.Store().Exec(ctx, `UPDATE sop_flows SET trigger_desc = 'im' WHERE id = ?`, need); err != nil {
+		t.Fatal(err)
+	}
 
 	deliver := func(id string, at time.Time) {
 		t.Helper()

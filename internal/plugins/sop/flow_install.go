@@ -34,7 +34,8 @@ func (e *engine) InstallFlow(ctx context.Context, caller string, t plugin.SOPFlo
 		raw["layout"] = t.Layout
 	}
 	f := Flow{ID: t.ID, Fields: json.RawMessage(`[]`), Steps: json.RawMessage(`[]`), Version: 1}
-	if err := apply(&f, raw, kindsOf(e.c)); err != nil {
+	// 只拦错误；警告（比如旧写法的一行规则）不拦内置流程写入（TSK-0490）
+	if _, err := apply(&f, raw, kindsOf(e.c)); err != nil {
 		return false, fmt.Errorf("插件 %s 的内置流程 %s 不合法：%w", caller, t.ID, err)
 	}
 	now := time.Now().UTC().Format(time.RFC3339)

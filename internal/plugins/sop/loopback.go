@@ -46,14 +46,13 @@ func loopRounds(s string) (int, error) {
 
 // runLoopback 求条件：成立回 loopBack（由 runner 决定退回还是超限），不成立走「通过」。
 func runLoopback(def stepDef, input Json) nodeResult {
-	if strings.TrimSpace(def.Rule) == "" {
+	if !hasCondition(def) {
 		return nodeResult{err: "还没填回退条件"}
 	}
-	ok, err := evalRule(def.Rule, input)
+	ok, rule, err := judge(def)(input)
 	if err != nil {
 		return nodeResult{err: err.Error()}
 	}
-	rule := strings.TrimSpace(def.Rule)
 	if ok {
 		return nodeResult{output: input, route: loopBack, reason: fmt.Sprintf("条件「%s」成立", rule)}
 	}
@@ -109,10 +108,8 @@ func descendants(steps []stepDef, idx map[string]int, j int) []int {
 func checkLoopback(steps []stepDef, idx map[string]int, i int) []string {
 	s := steps[i]
 	var out []string
-	if strings.TrimSpace(s.Rule) == "" {
+	if !hasCondition(s) {
 		out = append(out, "还没填回退条件")
-	} else if !ruleRe.MatchString(s.Rule) {
-		out = append(out, fmt.Sprintf("回退条件「%s」写法不对，要写成「字段 等于 值」或「字段 包含 值」", strings.TrimSpace(s.Rule)))
 	}
 	if t := strings.TrimSpace(s.Config["target"]); t != "" {
 		j, ok := idx[t]

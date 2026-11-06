@@ -107,7 +107,7 @@ func TestLoopbackCheck(t *testing.T) {
 		{loopFlowTpl("11", true, "x"), "1 到 10"},
 		{loopFlowTpl("0", true, "x"), "1 到 10"},
 		{strings.Replace(loopFlowTpl("", true, "x"), `"rule":"verdict 等于 reject",`, ``, 1), "还没填回退条件"},
-		{strings.Replace(loopFlowTpl("", true, "x"), `"rule":"verdict 等于 reject"`, `"rule":"verdict 是 reject"`, 1), "写法不对"},
+		{strings.Replace(loopFlowTpl("", true, "x"), `"rule":"verdict 等于 reject"`, `"rule":"verdict 是 reject"`, 1), "是一句话"},
 		{strings.Replace(loopFlowTpl("", false, "x"), `{"key":"over","label":"超限"}`, `{"key":"c2","label":"超限"}`, 1), "出口要有"},
 	}
 	for _, b := range bad {

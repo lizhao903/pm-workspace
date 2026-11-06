@@ -83,7 +83,7 @@ describe('SOP 编排页', () => {
     await user.click(await screen.findByRole('button', { name: '发布' }))
     expect(within(issueList()).getByText('还没有名称')).toBeInTheDocument()
     expect(within(issueList()).getByText('至少要有一个步骤')).toBeInTheDocument()
-    expect(calls.some((c) => c.method === 'POST')).toBe(false)
+    expect(calls.some((c) => c.method === 'POST' && c.path === '/api/sop/flows')).toBe(false)
   })
 
   it('新建：加一个节点、填名称后发布，位置一起存进 layout，回到流程详情', async () => {
@@ -102,7 +102,7 @@ describe('SOP 编排页', () => {
     await user.type(screen.getByRole('textbox', { name: 'SOP 名称' }), '新流程')
     await user.click(screen.getByRole('button', { name: '发布' }))
     await waitFor(() => expect(router.state.location.pathname).toBe('/sop/flows/sop_new'))
-    const post = calls.find((c) => c.method === 'POST')!.body!
+    const post = calls.find((c) => c.method === 'POST' && c.path === '/api/sop/flows')!.body!
     // 没有 sop_trigger 枚举时用内置的，存 key
     expect(post).toMatchObject({ name: '新流程', trigger: 'manual', steps: [{ key: 's1', name: '人工检查', kind: 'review', after: [] }] })
     expect(Object.keys(post.layout as object).sort()).toEqual(['__start', 's1'])
@@ -130,7 +130,7 @@ describe('SOP 编排页', () => {
     await user.click(within(screen.getByRole('dialog', { name: '选择节点' })).getByRole('button', { name: /人工检查/ }))
     await user.type(screen.getByRole('textbox', { name: 'SOP 名称' }), '新流程')
     await user.click(screen.getByRole('button', { name: '发布' }))
-    await waitFor(() => expect(calls.find((c) => c.method === 'POST')?.body).toMatchObject({ name: '新流程', folder_id: 'sfd_pm' }))
+    await waitFor(() => expect(calls.find((c) => c.method === 'POST' && c.path === '/api/sop/flows')?.body).toMatchObject({ name: '新流程', folder_id: 'sfd_pm' }))
   })
 
   it('必填配置没填时不保存，输入框标红', async () => {

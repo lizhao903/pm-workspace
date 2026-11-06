@@ -176,7 +176,11 @@ var contractSpecs = map[string]contractSpec{
 	// IM 触发的过滤条件、执行顺序与拦截（TSK-0481）：json 示例和字段表
 	"SopIMTrigger": {v: sop.IMTrigger{}},
 	"SOP 编排插件 sop / IM 触发#table1": {v: sop.IMTrigger{}},
-	"SopNodeType":    {v: sop.NodeType{}},
+	"SopNodeType": {v: sop.NodeType{}},
+	// 结构化条件、触发方式、这一步能拿到的字段（TSK-0490）
+	"SopCond":        {v: sop.Cond{}},
+	"SopTrigger":     {v: sop.Trigger{}},
+	"SopFieldGroup":  {v: sop.FieldGroup{}},
 	"SopRun":         {v: sop.Run{}},
 	"SopRunStep":     {v: sop.RunStep{}},
 	"SopRunBrief":    {v: sop.RunBrief{}},

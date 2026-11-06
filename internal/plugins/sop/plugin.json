@@ -3,7 +3,7 @@
   "name": "SOP 编排",
   "description": "标准工作流的编辑、节点和执行",
   "icon": "flow",
-  "version": "0.15.0",
+  "version": "0.16.0",
   "core": ">=1.0.0 <2.0.0",
   "depends": {},
   "optional_depends": {"im": ">=0.7.0 <1.0.0"},
