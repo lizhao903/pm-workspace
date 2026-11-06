@@ -7,7 +7,8 @@ import { request, requestList } from '../api'
 import { useNotifyChange } from './invalidate'
 import { dataKeys } from './keys'
 
-export type KbDocSource = 'library' | 'dir' | 'upload' | 'link' | 'note'
+/** file 是本机单个文件，只由插件同步加（TSK-0721，项目知识库） */
+export type KbDocSource = 'library' | 'dir' | 'upload' | 'link' | 'note' | 'file'
 export type KbDocStatus = 'indexed' | 'pending' | 'failed'
 
 export type KbDir = {
@@ -71,6 +72,10 @@ export type KbDoc = {
   status: KbDocStatus
   excluded: boolean
   error?: string
+  /** 谁加进来的（TSK-0721）：空串是人加的、目录和分类同步收进来的；插件同步加的是「插件 id:范围」，例 projects:obj_…（项目知识库同步进来的） */
+  origin: string
+  /** 插件那边对应的资料，人工加的为空串 */
+  origin_key: string
   created_at: string
   updated_at: string
 }

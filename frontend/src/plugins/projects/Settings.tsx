@@ -2,6 +2,7 @@
 // 输入停手片刻存一次，选图标、底色、状态、删关联目录这类一下就定的立即存；离开页面时没存的也存掉。
 // 本地项目目录存在对象的 workdir 列上，任务没设工作目录时执行就用它（后端 ResolveWorkdir 向上继承）。
 // 文档目录（TSK-0718）存在 props.docs_dir：相对项目目录或绝对路径，写法和控件同本地项目目录；文档标签列它下面的文件。
+// 项目知识库（TSK-0721）：绑定、新建、立即同步在 ProjectKbBlock，存在项目插件的 projects_kb，不在对象 props 里。
 // 「显示哪些标签」（SPEC-projects-13.19、13.20）：勾掉的标签存进 props.tabs_hidden，详情页不显示；概览、设置一直显示（设置里才开得回来）。
 // 同一块里拖动或上移、下移调标签先后，存进 props.tabs_order；概览固定第一、设置固定最后（见 TabPicks）。
 // 刚从列表新建、名称还是「新项目」就离开（切标签、回列表、换模块）时，用路由的 useBlocker 拦下来问要不要删（C-05）。
@@ -13,6 +14,7 @@ import { Button, IconButton, IconClose, Select } from '../../core/ui'
 import { MarkEditor, ProjectMarkView } from './Mark'
 import { NEW_PROJECT_NAME, colorOf, diffForm, docsDirAbs, docsDirPick, formOf, isFresh, markText, unmarkFresh, withPluginTabs, type Form } from './model'
 import { PathInput } from './PathInput'
+import { ProjectKbBlock } from './ProjectKb'
 import { TabPicks } from './TabPicks'
 
 /** 输入停手多久保存 */
@@ -180,6 +182,8 @@ export function Settings({ project, onDeleted }: { project: WorkObject; onDelete
           <span className="field-err">这是相对路径，要先填上面的本地项目目录，或者改填绝对路径</span>
         )}
       </section>
+
+      <ProjectKbBlock projectId={id} />
 
       <section className="pj-block" aria-label="关联目录">
         <div className="pj-block-head">

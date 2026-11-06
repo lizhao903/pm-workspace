@@ -6,7 +6,7 @@ import {
 } from '../../../core/data'
 import { Button, cls, EmptyState, Input, Pill, SearchSelect, Textarea } from '../../../core/ui'
 import {
-  ago, DOC_FILTERS, docRef, docStatus, fileBase64, hit, inFilter, KB_DOC_SOURCE, searchable, UPLOAD_ACCEPT, UPLOAD_EXT, UPLOAD_MAX,
+  ago, DOC_FILTERS, docRef, docStatus, fileBase64, hit, inFilter, KB_DOC_SOURCE, originLabel, searchable, UPLOAD_ACCEPT, UPLOAD_EXT, UPLOAD_MAX,
   type DocFilter,
 } from './model'
 import { KbSearchBox } from './parts'
@@ -100,7 +100,8 @@ export function KbDocs({ kb, docs, busy, adding, onAdding, onRead, onReindex }: 
                       {d.source.type === 'library' ? `分类：${catOf(d.source.ref)}` : docRef(d) || `${Array.from(d.text).length} 字`}
                     </span>}
                 </span>
-                <span role="cell"><span className="tag">{KB_DOC_SOURCE[d.source.type] ?? d.source.type}</span></span>
+                <span role="cell"><span className="tag">{KB_DOC_SOURCE[d.source.type] ?? d.source.type}</span>
+                  {originLabel(d) && <span className="tag" title="同步加进来的：以项目资料为准，移除或改了下次同步会恢复">{originLabel(d)}</span>}</span>
                 <span role="cell" className="kb-muted">{d.status === 'failed' ? '-' : d.chunks}</span>
                 <span role="cell" className="kbx-state">
                   <Pill label={st.label} color={st.color} />

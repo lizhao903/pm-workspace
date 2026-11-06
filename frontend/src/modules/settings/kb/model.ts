@@ -4,8 +4,11 @@ import { kindOf, uiKindOf } from '../providers/catalog'
 import { timeAgo } from '../providers/model'
 
 export const KB_DOC_SOURCE: Record<KbDocSource, string> = {
-  library: '工作台文档', dir: '本地目录文件', upload: '上传的文件', link: '网页链接', note: '手写笔记',
+  library: '工作台文档', dir: '本地目录文件', upload: '上传的文件', link: '网页链接', note: '手写笔记', file: '本机文件',
 }
+
+/** 插件同步加进来的（TSK-0721）：项目知识库同步的标「项目同步」，以项目资料为准 */
+export const originLabel = (d: Pick<KbDoc, 'origin'>) => (d.origin?.startsWith('projects:') ? '项目同步' : d.origin ? '插件同步' : '')
 
 // 文档状态是知识库自己的三态（不是字典），颜色走设计变量
 export const KB_DOC_STATUS = {

@@ -19,7 +19,7 @@ import (
 
 const (
 	kbCols    = `id, name, description, sources, auto_sync, dirs, chunk_size, overlap, top, embed, created_at, updated_at`
-	kbDocCols = `id, kb_id, title, source_type, source_ref, text, chunks, status, excluded, error, created_at, updated_at`
+	kbDocCols = `id, kb_id, title, source_type, source_ref, text, chunks, status, excluded, error, created_at, updated_at, origin, origin_key`
 )
 
 // 长度和个数上限，按字符数
@@ -357,7 +357,7 @@ func scanKbDoc(sc rowScanner) (*store.KbDoc, error) {
 	var d store.KbDoc
 	var created, updated string
 	if err := sc.Scan(&d.ID, &d.KbID, &d.Title, &d.Source.Type, &d.Source.Ref, &d.Text, &d.Chunks, &d.Status,
-		&d.Excluded, &d.Error, &created, &updated); err != nil {
+		&d.Excluded, &d.Error, &created, &updated, &d.Origin, &d.OriginKey); err != nil {
 		return nil, err
 	}
 	d.CreatedAt, d.UpdatedAt = parseTime(created), parseTime(updated)
@@ -406,8 +406,13 @@ func checkKbDoc(d *store.KbDoc) error {
 	}
 	switch d.Source.Type {
 	case store.KbSrcLibrary, store.KbSrcDir, store.KbSrcUpload, store.KbSrcLink, store.KbSrcNote:
+	case store.KbSrcFile:
+		// 本机单个文件只能由插件同步加（TSK-0721）
+		if d.Origin == "" {
+			return agentInvalid("本机文件只能由插件同步加进知识库")
+		}
 	default:
-		return agentInvalid("来源只能是 library、dir、upload、link、note")
+		return agentInvalid("来源只能是 library、dir、upload、link、note、file")
 	}
 	return nil
 }
@@ -418,8 +423,8 @@ func (s *Store) CreateKbDoc(ctx context.Context, d *store.KbDoc) (*store.KbDoc, 
 	}
 	id := idgen.Prefixed("kd")
 	now := agentTime()
-	if _, err := s.db.W.ExecContext(ctx, `INSERT INTO kb_docs (`+kbDocCols+`) VALUES (?,?,?,?,?,?,0,?,?,'',?,?)`,
-		id, d.KbID, d.Title, d.Source.Type, d.Source.Ref, d.Text, store.KbPending, d.Excluded, now, now); err != nil {
+	if _, err := s.db.W.ExecContext(ctx, `INSERT INTO kb_docs (`+kbDocCols+`) VALUES (?,?,?,?,?,?,0,?,?,'',?,?,?,?)`,
+		id, d.KbID, d.Title, d.Source.Type, d.Source.Ref, d.Text, store.KbPending, d.Excluded, now, now, d.Origin, d.OriginKey); err != nil {
 		if strings.Contains(err.Error(), "FOREIGN KEY") {
 			return nil, notFound("knowledge base")
 		}
@@ -435,6 +440,8 @@ func (s *Store) UpdateKbDoc(ctx context.Context, d *store.KbDoc) (*store.KbDoc, 
 		return nil, err
 	}
 	d.Source.Type = cur.Source.Type
+	// 谁加进来的不随修改变（TSK-0721）
+	d.Origin, d.OriginKey = cur.Origin, cur.OriginKey
 	if err := checkKbDoc(d); err != nil {
 		return nil, err
 	}

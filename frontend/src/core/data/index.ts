@@ -204,6 +204,9 @@ export type {
   KnowledgeBase, KbDoc, KbDocSource, KbDocStatus, KbDir, KbEmbed, KbSettings, KbCounts, KbAddInput, KbSettingsInput, KbInput, KbPatch,
   KbDocPatch, KbMissing, KbSyncResult, KbSyncProgress, KbHit, KbSearchResult, KbAgent,
 } from './knowledgeBases'
+// 项目知识库（TSK-0721）
+export { kbPagePath, kbSyncLine, projectKbApi, useBindProjectKb, useProjectKb, useSyncProjectKb } from './projectKb'
+export type { ProjectKb, ProjectKbBind, ProjectKbInfo, ProjectKbProblem, ProjectKbSources, ProjectKbSync } from './projectKb'
 
 export { agentConfigKeys } from './agentConfigKeys'
 export {

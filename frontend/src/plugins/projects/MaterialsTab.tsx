@@ -20,6 +20,7 @@ import {
   splitTags, switchableKinds, type EditDraft,
 } from './materialModel'
 import { PathInput } from './PathInput'
+import { ProjectKbStrip } from './ProjectKb'
 
 const kindLabel = (k: MaterialKind) => MATERIAL_KINDS.find((x) => x.key === k)?.label ?? k
 const lastSeg = (p: string) => p.replace(/\/+$/, '').split('/').pop() ?? ''
@@ -32,13 +33,15 @@ const MESSAGES_PATH = '/messages'
 type Draft = { kind: MaterialKind; name: string; value: string; tags: string }
 const EMPTY: Draft = { kind: 'file', name: '', value: '', tags: '' }
 
-export function MaterialsTab({ projectId, root, adding, onAdding }: {
+export function MaterialsTab({ projectId, root, adding, onAdding, onSettings }: {
   projectId: string
   /** 项目目录，相对路径按它补全 */
   root: string
   /** 加材料的内联表单开着没有；右上「加材料」打开 */
   adding: boolean
   onAdding: (on: boolean) => void
+  /** 去项目设置（项目知识库入口条用，TSK-0721） */
+  onSettings?: () => void
 }) {
   const list = useProjectMaterials(projectId)
   const add = useAddProjectMaterials(projectId)
@@ -218,6 +221,7 @@ export function MaterialsTab({ projectId, root, adding, onAdding }: {
 
   return (
     <div className="pj-tab">
+      <ProjectKbStrip projectId={projectId} onSettings={onSettings} />
       {form}
       {err && <div className="pj-err" role="alert">{err}</div>}
       {body}

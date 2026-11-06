@@ -50,6 +50,16 @@ type ObjectInfo struct {
 	ProjectID string
 	// OwnerID 是负责人（联系人 id），没有为空串（TSK-0411：SOP 的更新任务节点输出改后的负责人）。
 	OwnerID string
+	// Archived 是归档了（archived_at 非空，TSK-0721）。
+	Archived bool
+}
+
+// ObjectQuery 是 ObjectReader.List 的条件（TSK-0721）。
+type ObjectQuery struct {
+	Type      string // 必填，对象类型
+	ProjectID string // 非空时只看挂在这个项目下的
+	Archived  bool   // 为 true 时连归档的一起列；默认不列
+	Limit     int    // 默认 500，最多 2000
 }
 
 // ObjectReader 只读查内核对象。没有这个 id 返回 ErrNoRows。
@@ -60,6 +70,8 @@ type ObjectReader interface {
 	Find(ctx context.Context, typeID, key string) (ObjectInfo, error)
 	// TaskStages 按来源消息或提出人查任务阶段（AUTO-05，taskstages.go），给 IM 里「问进度」用。
 	TaskStages(ctx context.Context, q TaskStageQuery) ([]domain.TaskStageRow, error)
+	// List 按类型（可再按所属项目）列没删的对象，按建立先后（TSK-0721：项目资料同步列项目和项目的文档）。
+	List(ctx context.Context, q ObjectQuery) ([]ObjectInfo, error)
 }
 
 // ContactInfo 是干系人名册里的一个人；已归档的 Archived 为 true。
@@ -275,15 +287,16 @@ func (o objectReader) Get(ctx context.Context, id string) (ObjectInfo, error) {
 	return scanObject(d.R.QueryRowContext(ctx, `SELECT `+objectInfoCols+` FROM objects WHERE id = ?`, id))
 }
 
-const objectInfoCols = `id, type_id, ref, title, workdir, props, deleted_at, status, project_id, owner_id`
+const objectInfoCols = `id, type_id, ref, title, workdir, props, deleted_at, status, project_id, owner_id, archived_at`
 
-func scanObject(row *sql.Row) (ObjectInfo, error) {
+func scanObject(row interface{ Scan(dest ...any) error }) (ObjectInfo, error) {
 	var info ObjectInfo
-	var deleted, project, owner sql.NullString
+	var deleted, project, owner, archived sql.NullString
 	var props string
-	if err := row.Scan(&info.ID, &info.Type, &info.Ref, &info.Title, &info.Workdir, &props, &deleted, &info.Status, &project, &owner); err != nil {
+	if err := row.Scan(&info.ID, &info.Type, &info.Ref, &info.Title, &info.Workdir, &props, &deleted, &info.Status, &project, &owner, &archived); err != nil {
 		return ObjectInfo{}, err
 	}
+	info.Archived = archived.Valid
 	info.ProjectID = project.String
 	info.OwnerID = owner.String
 	info.Workdir = strings.TrimSpace(info.Workdir)
@@ -311,6 +324,43 @@ func (o objectReader) Find(ctx context.Context, typeID, key string) (ObjectInfo,
 		}
 	}
 	return ObjectInfo{}, ErrNoRows
+}
+
+func (o objectReader) List(ctx context.Context, q ObjectQuery) ([]ObjectInfo, error) {
+	d := o.c.db()
+	if d == nil {
+		return nil, ErrNoStore
+	}
+	if strings.TrimSpace(q.Type) == "" {
+		return nil, fmt.Errorf("列对象要给类型")
+	}
+	limit := q.Limit
+	if limit <= 0 {
+		limit = 500
+	}
+	limit = min(limit, 2000)
+	where, args := `type_id = ? AND deleted_at IS NULL`, []any{q.Type}
+	if q.ProjectID != "" {
+		where += ` AND project_id = ?`
+		args = append(args, q.ProjectID)
+	}
+	if !q.Archived {
+		where += ` AND archived_at IS NULL`
+	}
+	rows, err := d.R.QueryContext(ctx, `SELECT `+objectInfoCols+` FROM objects WHERE `+where+` ORDER BY created_at, id LIMIT ?`, append(args, limit)...)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	out := []ObjectInfo{}
+	for rows.Next() {
+		info, err := scanObject(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, info)
+	}
+	return out, rows.Err()
 }
 
 type contactReader struct{ c *core }

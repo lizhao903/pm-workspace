@@ -365,10 +365,17 @@ func (f *fakeSOP) has(id string) bool {
 	return ok
 }
 
+// logged 只列视频插件的写入、撤下：同时装着的项目插件也会写自己的内置流程（TSK-0721「每周一 10:00 整理项目知识库」）
 func (f *fakeSOP) logged() string {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	return strings.Join(f.log, "；")
+	var mine []string
+	for _, l := range f.log {
+		if strings.Contains(l, " video ") {
+			mine = append(mine, l)
+		}
+	}
+	return strings.Join(mine, "；")
 }
 
 func templateRows(t *testing.T, d *db.DB) int {

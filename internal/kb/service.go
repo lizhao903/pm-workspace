@@ -35,6 +35,8 @@ type Service struct {
 	St      Store
 	DataDir string // 上传的原文件存在 <DataDir>/kb/<知识库 id>/<文档 id>/ 下；空串不存
 	Allow   func(path string) bool
+	// AllowDir 是插件同步（Reconcile）收整个目录前的拦截：隐藏目录、数据目录和包住它的目录回 false（同挂目录）；nil 时用 Allow
+	AllowDir func(path string) bool
 	// Tracker 记正在跑的同步和进度；nil 不记，也不拦同一个知识库同时同步
 	Tracker *Tracker
 }
@@ -205,6 +207,13 @@ func (sv *Service) fetch(ctx context.Context, k *store.KnowledgeBase, d *store.K
 		return o.Title, o.Body, ""
 	case store.KbSrcDir:
 		body, why := sv.readDirFile(k, d.Source.Ref)
+		if why != "" {
+			return title, text, why
+		}
+		return title, body, ""
+	case store.KbSrcFile:
+		// 插件同步进来的本机文件（TSK-0721）：重新索引时重读
+		body, why := sv.readLocalFile(d.Source.Ref)
 		if why != "" {
 			return title, text, why
 		}

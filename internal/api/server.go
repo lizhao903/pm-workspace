@@ -145,6 +145,8 @@ func New(st store.Store, opts Options) *Server {
 		opts.Plugins.SetClaudeRunner(s.run)
 		opts.Plugins.SetRunCallback(opts.MCPBin, opts.PublicURL)
 		opts.Plugins.SetRunPresets(s.presetLookup)
+		// 插件同步知识库（TSK-0721）：读文件的拦截、和目录同步互斥都走这个 Server 的
+		opts.Plugins.SetKnowledge(pluginKB{s})
 	}
 	if opts.AgentRuns != nil {
 		opts.AgentRuns.Prepare = s.agentRunner
