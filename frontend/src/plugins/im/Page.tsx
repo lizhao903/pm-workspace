@@ -19,13 +19,15 @@
 // 只是展示（groupModel）；勾一组 = 勾组里全部能处理的，计数、批量仍按一条条消息。点一组打开组抽屉（GroupDrawer），地址记 ?g=<组>。
 // 交给 Agent（0008）：行上和抽屉里「发起会话」「拆分任务」，弹窗选 Agent（StartSessionDialog），建好跳到会话页；
 // 发起过的行上标「已发起会话」「已拆分 N 条任务」，点了跳过去。
+// 自动忽略（TSK-0495，SPEC-messages-9）：标题行「自动忽略 N」打开管理抽屉（MutesDrawer），地址记 ?mutes=1；「看消息」切到「已忽略」按名字搜。
+// 被自动忽略的行上状态小标悬停写「因发信人 X 被设为自动忽略」。
 // 转项目资料（0009）：行上「更多」菜单和两种抽屉里都能把这条（或这一组）存成项目的一条笔记资料（ToMaterialDialog）；
 // 转过的行上标「已转资料」，点了去项目资料页定位那一条。
 import { Fragment, Suspense, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { useNavigate, useSearchParams } from 'react-router'
 import {
   connectorsPagePath, errorText, isApiError, onServerEvent, useConnectorDefs, useConnectors, useContacts, useDictionaries, useEventsLive, useImAction, useImBatch, useImMessage,
-  useImMessages, useImSyncConnector, useNotifyChange, usePlugins, useSopRunsByInput, type ImAction, type ImMessage, type ImSessionIntent,
+  useImMessages, useImMutes, useImSyncConnector, useNotifyChange, usePlugins, useSopRunsByInput, type ImAction, type ImMessage, type ImSessionIntent,
 } from '../../core/data'
 import { useObjectDrawer } from '../../core/plugin'
 import { Avatar, ErrorState, LoadingState, PageTitle, SearchSelect, cls } from '../../core/ui'
@@ -35,6 +37,8 @@ import { LinkTags } from './AgentLinks'
 import { GroupDrawer } from './GroupDrawer'
 import { GroupProject } from './GroupProject'
 import { GroupAdminDrawer } from './GroupAdmin'
+import { MutesDrawer } from './MutesPanel'
+import { muteReason } from './muteModel'
 import { SendDialog } from './SendDialog'
 import { SentReplyTag, SentStrip } from './SentStrip'
 import { MessageDrawer } from './MessageDrawer'
@@ -101,6 +105,8 @@ export default function Page() {
   const channelsOpen = params.get('channels') === '1'
   const queueOpen = params.get('queue') === '1'
   const groupsOpen = params.get('groups') === '1'
+  const mutesOpen = params.get('mutes') === '1'
+  const mutes = useImMutes()
   const live = useEventsLive()
   const messages = useImMessages({ refetchInterval: live ? false : POLL_MS })
   const connectors = useConnectors()
@@ -273,6 +279,14 @@ export default function Page() {
       return n
     }, { replace: true })
   }, [setParams])
+  const setMutesOpen = useCallback((on: boolean) => {
+    setParams((p) => {
+      const n = new URLSearchParams(p)
+      if (on) n.set('mutes', '1')
+      else n.delete('mutes')
+      return n
+    }, { replace: true })
+  }, [setParams])
 
   const run = useCallback((m: ImMessage, a: ImAction) => {
     setRowErr('')
@@ -414,6 +428,13 @@ export default function Page() {
             <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true"><circle cx="6" cy="5.5" r="2.3" fill="none" stroke="currentColor" strokeWidth="1.4" /><path d="M1.8 13c.4-2.3 2.1-3.6 4.2-3.6s3.8 1.3 4.2 3.6M10.6 3.4a2.2 2.2 0 0 1 0 4.2M12 9.7c1.2.5 2 1.6 2.2 3.3" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" /></svg>
             <span className="im-tb-label">群组管理</span>
           </button>
+          {!mutes.isError && (
+            <button type="button" className="btn btn-ghost btn-outline" onClick={() => setMutesOpen(true)} aria-label="自动忽略"
+              title="自动忽略的发信人：他们的消息一收到就进「已忽略」，不计未读、不触发 SOP 和 Agent；在这里查看、取消">
+              <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true"><path d="M3 6.2h2.4L8.6 3.5v9L5.4 9.8H3Z" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" /><path d="m10.8 6.2 3 3.6M13.8 6.2l-3 3.6" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" /></svg>
+              <span className="im-tb-label">自动忽略</span>{(mutes.data?.length ?? 0) > 0 && <span className="seg-n">{mutes.data!.length}</span>}
+            </button>
+          )}
           <button type="button" className="btn btn-ghost btn-outline" onClick={() => setChannelsOpen(true)} title="接入和管理 IM 渠道：Slack、Telegram" aria-label="渠道配置">
             <Gear /><span className="im-tb-label">渠道配置</span>
             {broken.length > 0 && <span className="im-dot-alert" title={`${broken.length} 个连接器异常`} />}
@@ -569,7 +590,8 @@ export default function Page() {
                     <span className="spacer" />
                     {m.status !== 'pending' && (
                       <span className="im-state" style={stateStyle(sv.color(m.status))}
-                        title={m.status === 'expired' && m.expired_at ? `${shortTime(m.expired_at)} 超期没处理，标为${sv.label('expired')}` : undefined}>{sv.label(m.status)}</span>
+                        title={m.status === 'expired' && m.expired_at ? `${shortTime(m.expired_at)} 超期没处理，标为${sv.label('expired')}` : muteReason(m) || undefined}>
+                        {m.muted ? '自动忽略' : sv.label(m.status)}</span>
                     )}
                     {isSnoozed(m, now) && <span className="im-state im-state-snooze">{shortTime(m.snooze_until!)} 提醒</span>}
                     {sent > 0 && <span className="im-state">已回复 {sent}</span>}
@@ -845,6 +867,10 @@ export default function Page() {
           onSent={(_it, name) => { setSending(null); setSyncNote({ text: `已发到${name ? `「${name}」` : '会话'}`, bad: false }) }} />
       )}
       {channelsOpen && <ChannelPanel onClose={() => setChannelsOpen(false)} onManageAll={(to) => navigate(connectorsPagePath(to))} />}
+      {mutesOpen && (
+        <MutesDrawer onClose={() => setMutesOpen(false)}
+          onShowMessages={(name) => { setMutesOpen(false); setChannel(''); setConv(''); setMine(''); setUnreadOnly(false); setView('ignored'); setQ(name) }} />
+      )}
       {groupsOpen && (
         <GroupAdminDrawer onClose={() => setGroupsOpen(false)} onSend={(id) => setSending({ conversationId: id })}
           onOpenConversation={(ch, id) => { setGroupsOpen(false); setChannel(ch); setConv(`cv:${id}`) }} />

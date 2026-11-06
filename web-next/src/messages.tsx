@@ -1,4 +1,5 @@
 import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { MuteButton, MutesDrawer, muteReasonOf, useMutes } from './mutes'
 import { PageTitle } from './topbar'
 import { ALL_HANDLES, IM_CHANNELS, MY_HANDLES, QUICK_REPLIES, TOOLS, sendAsText, type Connector, type Contact, type Message } from './data'
 import { Avatar, ImMark, cls, timeAgo } from './ui'
@@ -214,6 +215,9 @@ export function MessagesPage({ messages, contacts, connectors, selected, onOpen,
   const [merge, setMerge] = useState(true)
   /** 群组管理抽屉（SPEC-messages-7） */
   const [groupsOpen, setGroupsOpen] = useState(false)
+  /** 自动忽略的管理抽屉（SPEC-messages-9） */
+  const [mutesOpen, setMutesOpen] = useState(false)
+  const muteList = useMutes()
   /** 主动发消息（SPEC-messages-8）：弹窗带上的会话键；发件记录原型只存在这里 */
   const [sending, setSending] = useState<{ key?: string } | null>(null)
   const [outbox, setOutbox] = useState<Sent[]>([])
@@ -239,7 +243,7 @@ export function MessagesPage({ messages, contacts, connectors, selected, onOpen,
   const relOk = (m: Message) => !mine || (mine === 'at' ? relOf(m) === 'me' : relOf(m) !== null)
   const rows = useMemo(() => messages
     .filter((m) => inView(m, view) && (!channel || m.channel === channel) && convOk(m, conv) && (!unreadOnly || !m.read) && relOk(m)
-      && (!kw || [m.text, m.sender_name, m.conversation, whoOf(m)?.name ?? ''].some((v) => v.toLowerCase().includes(kw))))
+      && (!kw || [m.text, m.sender_name, m.conversation, whoOf(m)?.name ?? '', m.sender_id].some((v) => v.toLowerCase().includes(kw))))
     .sort((a, b) => b.at.localeCompare(a.at)),
   // eslint-disable-next-line react-hooks/exhaustive-deps
   [messages, people, rels, view, channel, conv, unreadOnly, mine, kw])
@@ -488,6 +492,9 @@ export function MessagesPage({ messages, contacts, connectors, selected, onOpen,
         {triageNote && <span className="sync-note">{triageNote}</span>}
         <button className="btn btn-ghost btn-outline" onClick={() => setSending({})} title="主动发一条到群或私聊">发消息</button>
         <button className="btn btn-ghost btn-outline" onClick={() => setGroupsOpen(true)} title="给群和私聊设默认归属的项目，能批量设">群组管理</button>
+        <button className="btn btn-ghost btn-outline" onClick={() => setMutesOpen(true)} title="自动忽略的发信人：他们的消息一收到就进「已忽略」，不计未读、不触发 SOP 和 Agent；在这里查看、取消">
+          自动忽略{muteList.length > 0 && <span className="seg-n">{muteList.length}</span>}
+        </button>
         <button className="btn btn-ghost btn-outline" onClick={onGoConnectors} title="在设置里管理 IM 渠道的连接器">
           {gear}渠道配置
           {broken.length > 0 && <span className="dot-alert" title={`${broken.length} 个连接器异常`} />}
@@ -649,7 +656,7 @@ export function MessagesPage({ messages, contacts, connectors, selected, onOpen,
                     <span className="spacer" />
                     {m.status !== 'pending' && (
                       <span className="state" style={stateStyle(msgEnum.color(m.status))}
-                        title={m.status === 'expired' && m.expired_at ? `${fmtMD(m.expired_at)} 超期没处理，标为${msgEnum.label('expired')}` : undefined}>{msgEnum.label(m.status)}</span>
+                        title={m.status === 'expired' && m.expired_at ? `${fmtMD(m.expired_at)} 超期没处理，标为${msgEnum.label('expired')}` : muteReasonOf(m) || undefined}>{muteReasonOf(m) ? '自动忽略' : msgEnum.label(m.status)}</span>
                     )}
                     {isSnoozed(m) && <span className="state state-snooze">{new Date(m.snooze_until!).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })} 提醒</span>}
                     {m.replies.length > 0 && <span className="state">已回复 {m.replies.length}</span>}
@@ -701,6 +708,10 @@ export function MessagesPage({ messages, contacts, connectors, selected, onOpen,
           )}
         </div>
       )}
+      {mutesOpen && (
+        <MutesDrawer onClose={() => setMutesOpen(false)}
+          onShow={(name) => { setMutesOpen(false); setChannel(''); setConv(''); setMine(''); setUnreadOnly(false); setView('ignored'); setQ(name) }} />
+      )}
       {groupsOpen && (
         <GroupAdminDrawer messages={messages} contacts={contacts} projects={projects} groupProjects={groupProjects} onSetGroupProject={onSetGroupProject}
           onClose={() => setGroupsOpen(false)} onSend={(key) => setSending({ key })}
@@ -748,6 +759,10 @@ export function MessageDrawer({ msg, contact, connector, members = [], onClose, 
   const sendAs = blocker ? null : sendAsText(connector)
   const [text, setText] = useState('')
   const [alsoDone, setAlsoDone] = useState(true)
+  // 自动忽略（SPEC-messages-9）：发信人处的按钮、状态条里的原因
+  useMutes()
+  const muteReason = muteReasonOf(msg)
+  const [muteNote, setMuteNote] = useState('')
   // 回复时 @ 对方（SPEC-messages-2.46）：群聊才有开关，默认打开、记在本机；私聊不加
   const [atOn, setAtOn] = useReplyMention()
   const target: MentionPick | null = msg.conversation ? { id: msg.sender_id, name: contact?.name ?? msg.sender_name } : null
@@ -789,6 +804,7 @@ export function MessageDrawer({ msg, contact, connector, members = [], onClose, 
               {msg.status === 'expired' && msg.expired_at && <span className="ms-sub">{fmtMD(msg.expired_at)} 超期没处理</span>}
               {rel && rel !== 'dm' && <span className="ms-sub">{RELEVANCE[rel]}</span>}
               {msg.replies.length > 0 && <span className="ms-sub">已回复 {msg.replies.length} 次</span>}
+              {muteReason && <span className="ms-sub">{muteReason}</span>}
               <span className="spacer" />
               {msg.status === 'pending' ? (
                 <>
@@ -820,7 +836,9 @@ export function MessageDrawer({ msg, contact, connector, members = [], onClose, 
           {contact
             ? <button className="btn btn-ghost" onClick={() => onOpenContact(contact.id)}>查看联系人</button>
             : <button className="btn btn-ghost" onClick={onSaveContact}>存为联系人</button>}
+          <MuteButton msg={msg} onDone={setMuteNote} />
         </div>
+        {muteNote && <div className="ok-text mute-note">{muteNote}</div>}
 
         {msg.thread && (
           <div className="thread-from">

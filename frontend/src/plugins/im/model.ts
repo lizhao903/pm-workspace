@@ -101,7 +101,7 @@ export function filterRows(list: readonly ImMessage[], f: Filter, now = Date.now
   const kw = f.q.trim().toLowerCase()
   return list
     .filter((m) => inView(m, f.view, now) && baseOk(m, f) && (!f.unreadOnly || !m.read)
-      && (!kw || [m.text, m.sender_name, m.conversation, m.contact_name].some((v) => v.toLowerCase().includes(kw))))
+      && (!kw || [m.text, m.sender_name, m.conversation, m.contact_name, m.sender_id].some((v) => v.toLowerCase().includes(kw))))
     .sort((a, b) => b.at.localeCompare(a.at))
 }
 

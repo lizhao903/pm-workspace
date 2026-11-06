@@ -58,6 +58,7 @@ var Registry = []Entry{
 	{"att", "attachment", "im_attachments", "attachment"}, // IM 插件补的附件 id（IM-04a），附件本身在消息里，表里是获取状态
 	{"rp", "reply", "im_replies", "reply"},                // IM 插件的表（IM-02a）
 	{"ob", "outbox", "im_outbox", ""},                     // IM 插件主动发出的消息（0.17.0）
+	{"imu", "imMute", "im_mutes", "imMute"},               // IM 插件的自动忽略发信人（TSK-0495）
 	// 项目
 	{"mt", "material", "projects_materials", "material"},    // 项目插件的表（PJ-03a）
 	{"pd", "projectDoc", "", "projectDoc"},                  // PJ-03a 起项目文档并进资料用 mt，前缀保留

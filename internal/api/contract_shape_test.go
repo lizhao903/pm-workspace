@@ -171,6 +171,8 @@ var contractSpecs = map[string]contractSpec{
 	"MaterialSource":          {v: im.MaterialSource{}},
 	"OutboxItem":              {v: im.OutboxItem{}},
 	"NameRefillResult":        {v: im.NameRefillResult{}},
+	"Mute":                    {v: im.Mute{}}, // 自动忽略发信人（TSK-0495）
+	"MuteResult":              {v: im.MuteResult{}},
 	"IM 消息插件 im / 从 Slack 补联系人邮箱#table1": {v: im.EmailBackfillResult{}},
 
 	"SopFlow":   {v: sop.Flow{}},

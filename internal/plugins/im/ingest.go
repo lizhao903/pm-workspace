@@ -112,6 +112,10 @@ func (in *inbox) ingest(ctx context.Context, a Adapter, msgs []Incoming, strict 
 				return res, err
 			}
 		}
+		// 发信人被设为自动忽略（TSK-0495，mutes.go）：入库即已忽略、已读，不发事件（不触发 SOP、Agent 的 IM 触发）
+		if r.mutedBy, r.mutedName, err = in.muteFor(ctx, r); err != nil {
+			return res, err
+		}
 		ok, err := in.insert(ctx, r)
 		if err != nil {
 			return res, err
@@ -131,6 +135,9 @@ func (in *inbox) ingest(ctx context.Context, a Adapter, msgs []Incoming, strict 
 			continue
 		}
 		res.IDs = append(res.IDs, r.id)
+		if r.mutedBy != "" {
+			continue
+		}
 		ev := Received{MessageID: r.id, Channel: r.channel, ConnectorID: r.connectorID, ConversationID: r.convID,
 			IdentityID: r.identityID, StakeholderID: r.stakeholderID, Relevance: r.relevance, At: r.sentAt}
 		if err := in.c.Events().Publish(ctx, EventReceived, ev); err != nil {
@@ -215,6 +222,8 @@ type row struct {
 	adapter                              string
 	// 串里的回复（0010）：父消息的 external_id 和到达时的父消息快照
 	threadParent, threadSender, threadText string
+	// 命中的自动忽略（TSK-0495）：非空时落库为已忽略、已读，不发 im.message_received
+	mutedBy, mutedName string
 }
 
 // badInput 是一条消息本身不合法（和查库出错区分开）。
@@ -401,12 +410,13 @@ func (in *inbox) insert(ctx context.Context, r row) (bool, error) {
 	res, err := in.c.Store().Exec(ctx, `INSERT INTO im_messages (id, channel, connector_id, external_id,
 		conversation_id, conversation_external_id, conversation_kind, conversation_name,
 		sender_identity_id, sender_external_id, sender_name, text, attachments, relevance, sent_at, received_at, adapter,
-		thread_parent_external_id, thread_parent_sender, thread_parent_text)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		thread_parent_external_id, thread_parent_sender, thread_parent_text, status, is_read, muted_by, muted_name)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+			CASE WHEN ? <> '' THEN 'ignored' ELSE 'pending' END, CASE WHEN ? <> '' THEN 1 ELSE 0 END, ?, ?)
 		ON CONFLICT (channel, external_id) DO NOTHING`,
 		r.id, r.channel, r.connectorID, r.externalID, r.convID, r.convExt, r.convKind, r.convName,
 		r.identityID, r.senderExt, r.senderName, r.text, r.attachments, r.relevance, r.sentAt, r.receivedAt, r.adapter,
-		r.threadParent, r.threadSender, r.threadText)
+		r.threadParent, r.threadSender, r.threadText, r.mutedBy, r.mutedBy, r.mutedBy, r.mutedName)
 	if err != nil {
 		return false, fmt.Errorf("insert im message: %w", err)
 	}

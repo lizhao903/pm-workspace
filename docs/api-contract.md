@@ -2181,7 +2181,7 @@ SOP 输出 `sync`（六个节点共用）：`{id, project_id, trigger, status, c
 
 ## IM 消息插件 im
 
-IM-01a 起。插件 `im`（`internal/plugins/im`，清单 `plugin.json`，0.26.0（0.26.0 加群组管理「查询回填」（TSK-0494）：接口 `POST /api/im/conversations/{conversation_id}/refill-names`、`POST /api/im/conversations/refill-names`，会话统计加 `unresolved_users`、`name_unresolved`、`can_refill`、`refill_error`，收消息时发信人名字用本地已知的、并回补同一人旧消息，插件迁移 `0016_name_lookups.sql`，见「群组默认归属项目」下「查询回填」；0.25.0 汇总 TSK-0467、0468、0470：回执需求方、FDE 反馈转发、回复只带状态和结论，插件迁移 `0014_task_ack.sql`、`0015_fde_forward.sql`；TSK-0467 加回执需求方：SOP 节点 `im_ack_task`，插件迁移 `0014_task_ack.sql`，内置流程 `sop_im_auto_intake`、`sop_im_task_confirm` 建任务后加这一步，已写进 SOP 的旧版按升级口径换（版本号待定）；TSK-0468 加 FDE 反馈转发：SOP 节点 `im_message_digest`、`im_send_contact`，内置流程 `sop_im_fde_forward`，插件迁移 `0015_fde_forward.sql`，设置加 `fde_forward`（版本号待定）；0.24.0 加私信我确认、来消息确认派发（TSK-0411）：SOP 节点 `im_ask_me`、`im_tell_me`，内置流程 `sop_im_task_confirm`，插件迁移 `0013_ask_me.sql`；0.23.0 加原型同步（AUTO-11）：内置流程 `sop_im_proto_sync`，不加迁移、不改清单；0.22.0 加发布 pipeline（AUTO-10）：内置流程 `sop_im_release_pipeline`，研发 pipeline 验收通过后以子流程接它，不加迁移；0.21.0 加研发 pipeline（AUTO-09）：SOP 节点 `im_notify`、内置流程 `sop_im_dev_pipeline`，不加迁移；0.19.0 加 IM 任务回执 `im_wait_task`、`im_reply_message` 和内置流程「IM 任务回执」，插件迁移 `0012_task_reply.sql`；0.20.0 加 IM 需求自动受理（AUTO-06）：SOP 节点 `im_to_task`、`im_set_task_stage`，内置流程 `sop_im_auto_intake`，不加迁移；IM-06 加 Slack 本人身份；0.7.1 回复和推回来的本人消息只记一次；0.7.2 Slack 限流不算同步失败、不活跃私信轮流查，Telegram 后台连续 3 次连不上才算同步失败；0.8.0 加 SOP 节点读取消息、标记消息；0.9.0 加已过期和设置，插件迁移 `0005_expiry.sql`；0.11.0 加消息归到项目：`im_messages.project_id`、插件迁移 `0006_project.sql`、处理动作 `project`、SOP 节点 `im_set_project`；0.18.0 加回复、发消息里的 @（不加迁移，接口 `GET /api/im/conversations/{conversation_id}/members`，回复和 `POST /api/im/send` 的 body 加 `mentions`，`Outgoing` 加 `mentions`）；0.17.0 加主动发消息（插件迁移 `0011_outbox.sql`，接口 `POST /api/im/send`、`GET /api/im/conversations/{conversation_id}/sent`，会话统计加 `connector_id`、`sent`、`last_sent_at`，消息加 `replied_sent`）；0.16.0 加 Slack 消息列回复（插件迁移 `0010_threads.sql`，接口 `POST /api/im/connectors/{id}/backfill-threads`，`Message` 加 `thread`、`reply_count`，`Incoming` 加 `thread_parent_*`，`Outgoing` 加 `thread_of`）；0.15.0 加群组管理（接口 `GET /api/im/conversations/summary`、批量 `PUT /api/im/conversation-projects`，不加迁移）；0.14.0 加消息转项目资料（插件迁移 `0009_message_materials.sql`，接口 `POST/GET /api/im/materials`、`DELETE /api/im/materials/{material_id}`，消息加 `materials`）；0.13.0 加从消息发起会话、拆分任务（插件迁移 `0008_message_sessions.sql`），清单 `subscribes` 加 `object.created`；0.12.0 加群组默认归属项目（插件迁移 `0007_conversation_projects.sql`）、从 Slack 补联系人邮箱（接口 `POST /api/im/connectors/{id}/backfill-emails`、后台任务 `backfill_emails`）），权限 `network:im`：真实渠道出网，IM-01b 加，0.4.0 升上来要确认；域名清单是 `slack.com`、`*.slack.com`、`api.telegram.org` 等 IM 服务）。收各 IM 渠道的消息，落在插件表 `im_messages`（插件迁移 `0001_messages.sql`；IM-02a 的处理动作加了 `0002_actions.sql`，回复在 `im_replies`；IM-04a 的附件获取加了 `0003_attachments.sql`，获取状态在 `im_attachments`；SOP-02b 的等回复节点加了 `0004_sop_waits.sql`，挂起中的等待在 `im_sop_waits`；安装插件时应用）。发送人按 IM 身份（见「IM 身份 im-identities」）的 id 认、会话按会话（见「会话 conversations」）的 id 归，**不靠名字**。插件未安装或停用时，本节接口回 `not_found` 404（同「插件路由」）；停用时拉取也停下，数据不动。
+IM-01a 起。插件 `im`（`internal/plugins/im`，清单 `plugin.json`，0.27.0（0.27.0 加自动忽略发信人（TSK-0495）：接口 `GET /api/im/mutes`、`GET /api/im/mutes/pending`、`POST /api/im/mutes`、`DELETE /api/im/mutes/{mute_id}`，`Message` 加 `muted`，被自动忽略的消息入库即已忽略、不发 `im.message_received`，插件迁移 `0017_mutes.sql`，见「自动忽略发信人」；0.26.1 是 TSK-0490 给 SOP 节点补声明，0.27.0 一并包含；0.26.0 加群组管理「查询回填」（TSK-0494）：接口 `POST /api/im/conversations/{conversation_id}/refill-names`、`POST /api/im/conversations/refill-names`，会话统计加 `unresolved_users`、`name_unresolved`、`can_refill`、`refill_error`，收消息时发信人名字用本地已知的、并回补同一人旧消息，插件迁移 `0016_name_lookups.sql`，见「群组默认归属项目」下「查询回填」；0.25.0 汇总 TSK-0467、0468、0470：回执需求方、FDE 反馈转发、回复只带状态和结论，插件迁移 `0014_task_ack.sql`、`0015_fde_forward.sql`；TSK-0467 加回执需求方：SOP 节点 `im_ack_task`，插件迁移 `0014_task_ack.sql`，内置流程 `sop_im_auto_intake`、`sop_im_task_confirm` 建任务后加这一步，已写进 SOP 的旧版按升级口径换（版本号待定）；TSK-0468 加 FDE 反馈转发：SOP 节点 `im_message_digest`、`im_send_contact`，内置流程 `sop_im_fde_forward`，插件迁移 `0015_fde_forward.sql`，设置加 `fde_forward`（版本号待定）；0.24.0 加私信我确认、来消息确认派发（TSK-0411）：SOP 节点 `im_ask_me`、`im_tell_me`，内置流程 `sop_im_task_confirm`，插件迁移 `0013_ask_me.sql`；0.23.0 加原型同步（AUTO-11）：内置流程 `sop_im_proto_sync`，不加迁移、不改清单；0.22.0 加发布 pipeline（AUTO-10）：内置流程 `sop_im_release_pipeline`，研发 pipeline 验收通过后以子流程接它，不加迁移；0.21.0 加研发 pipeline（AUTO-09）：SOP 节点 `im_notify`、内置流程 `sop_im_dev_pipeline`，不加迁移；0.19.0 加 IM 任务回执 `im_wait_task`、`im_reply_message` 和内置流程「IM 任务回执」，插件迁移 `0012_task_reply.sql`；0.20.0 加 IM 需求自动受理（AUTO-06）：SOP 节点 `im_to_task`、`im_set_task_stage`，内置流程 `sop_im_auto_intake`，不加迁移；IM-06 加 Slack 本人身份；0.7.1 回复和推回来的本人消息只记一次；0.7.2 Slack 限流不算同步失败、不活跃私信轮流查，Telegram 后台连续 3 次连不上才算同步失败；0.8.0 加 SOP 节点读取消息、标记消息；0.9.0 加已过期和设置，插件迁移 `0005_expiry.sql`；0.11.0 加消息归到项目：`im_messages.project_id`、插件迁移 `0006_project.sql`、处理动作 `project`、SOP 节点 `im_set_project`；0.18.0 加回复、发消息里的 @（不加迁移，接口 `GET /api/im/conversations/{conversation_id}/members`，回复和 `POST /api/im/send` 的 body 加 `mentions`，`Outgoing` 加 `mentions`）；0.17.0 加主动发消息（插件迁移 `0011_outbox.sql`，接口 `POST /api/im/send`、`GET /api/im/conversations/{conversation_id}/sent`，会话统计加 `connector_id`、`sent`、`last_sent_at`，消息加 `replied_sent`）；0.16.0 加 Slack 消息列回复（插件迁移 `0010_threads.sql`，接口 `POST /api/im/connectors/{id}/backfill-threads`，`Message` 加 `thread`、`reply_count`，`Incoming` 加 `thread_parent_*`，`Outgoing` 加 `thread_of`）；0.15.0 加群组管理（接口 `GET /api/im/conversations/summary`、批量 `PUT /api/im/conversation-projects`，不加迁移）；0.14.0 加消息转项目资料（插件迁移 `0009_message_materials.sql`，接口 `POST/GET /api/im/materials`、`DELETE /api/im/materials/{material_id}`，消息加 `materials`）；0.13.0 加从消息发起会话、拆分任务（插件迁移 `0008_message_sessions.sql`），清单 `subscribes` 加 `object.created`；0.12.0 加群组默认归属项目（插件迁移 `0007_conversation_projects.sql`）、从 Slack 补联系人邮箱（接口 `POST /api/im/connectors/{id}/backfill-emails`、后台任务 `backfill_emails`）），权限 `network:im`：真实渠道出网，IM-01b 加，0.4.0 升上来要确认；域名清单是 `slack.com`、`*.slack.com`、`api.telegram.org` 等 IM 服务）。收各 IM 渠道的消息，落在插件表 `im_messages`（插件迁移 `0001_messages.sql`；IM-02a 的处理动作加了 `0002_actions.sql`，回复在 `im_replies`；IM-04a 的附件获取加了 `0003_attachments.sql`，获取状态在 `im_attachments`；SOP-02b 的等回复节点加了 `0004_sop_waits.sql`，挂起中的等待在 `im_sop_waits`；安装插件时应用）。发送人按 IM 身份（见「IM 身份 im-identities」）的 id 认、会话按会话（见「会话 conversations」）的 id 归，**不靠名字**。插件未安装或停用时，本节接口回 `not_found` 404（同「插件路由」）；停用时拉取也停下，数据不动。
 
 ### 适配器
 
@@ -2397,8 +2397,10 @@ IM 插件自己存（插件表，迁移 `0007_conversation_projects.sql`），�
   "reply_error": "", "expired_at": null, "project_id": "obj_..." | null, "project_name": "Acme", "project_source": "message",
   "sessions": [{ "session_id": "ags_...", "intent": "split", "at": "..." }], "split_tasks": [{ "id": "obj_...", "ref": "TSK-0031", "title": "..." }],
   "materials": [{ "material_id": "mt_...", "project_id": "obj_...", "project_name": "Acme", "kind": "messages", "attachment_id": "", "title": "#product 10月30日 的消息", "count": 3, "at": "..." }],
-  "thread": null, "reply_count": 0, "replied_sent": null }
+  "thread": null, "reply_count": 0, "replied_sent": null, "muted": null }
 ```
+
+- `muted`（0.27.0，TSK-0495）：这条是因为发信人被设为自动忽略才进「已忽略」的，没有为空值 null；有时是 `{mute_id, name, active}`：`mute_id` 是那条自动忽略（`imu_`），`name` 是标记时的显示名（界面写「因发信人 <name> 被设为自动忽略」），`active` 为 false 时那条自动忽略已经取消。标记时一并忽略的已有消息也带。改回待处理（`reopen`）、标为已处理（`done`）后清空为 null；再手动忽略不会补回。见下「自动忽略发信人」。
 
 - `project_id`、`project_name` 是这条消息归到的项目（消息分流，插件迁移 `0006_project.sql`）：由 SOP 节点 `im_set_project` 或下面的 `POST /api/im/messages/{id}/project` 设；没归为 `null` 和空串；项目删了（含软删）或不是项目时读出来按没归处理（不回写），同 `task_id`。
 - `sessions`：从这条消息发起的 Agent 会话（见下「从消息发起会话」），新的在前；会话删了跟着没（外键级联）。没有时为 `[]`。
@@ -2489,6 +2491,26 @@ IM-02a，口径照原型 `App.tsx` 的 `actOnMessage`。除单条读取外都是
 回复内容的兜底（TSK-0470）：`im_reply_message`（含 `im_notify` 里的回复原消息）、`im_tell_me`、`im_ack_task` 发送前对渲染好的文字做一遍清理：去掉以「[工具] 」「[工具失败] 」开头的行（去首尾空白后判断），再去掉末尾只有标签和冒号、值是空的行（最多 8 个字的标签，如「结果：」），最后去首尾空白；中间的「验收清单：」后面接着列表的不动。清理后为空时 `im_reply_message` 失败「要回复的内容是空的」。
 
 升级（TSK-0470）：TSK-0470 之前写进 SOP 的「IM 任务回执」（回复内容是「…已经处理完了…」）：后台任务（`sop_templates`）对还是第 1 版、没有进行中执行、没被定时任务引用的经 `RemoveFlow` 撤下、`InstallFlow` 按新版写回；用户改过（版本不是 1）的不动，发一条平台通知（`kind: im.notify`，标题「内置流程「IM 任务回执」没有自动换成新的回复内容」，正文给出新的回复内容怎么改）；用户删掉的不补回来。处理过一次在 `im_sop_templates` 记一行 `flow_id = "sop_im_task_reply#result"`，新写入的直接记上；有进行中执行（等任务完成的回执都算）、被定时任务引用的下次再试。不加迁移。
+
+### 自动忽略发信人（0.27.0）
+
+TSK-0495，插件迁移 `0017_mutes.sql`。把某个发信人标为「自动忽略」，之后收到的他的消息入库即「已忽略」（`status: ignored`）、已读，**不发 `im.message_received`**：所以不触发 SOP 的 IM 流程、Agent 的 IM 触发，消息页也不刷新提醒、不计未读（选的是「不发事件」，SOP、Agent 侧不用改；SOP 的 IM 触发记录里也就看不到这些消息）。典型对象是 Google Calendar、Confluence 这类机器人私信（Slack 机器人消息的发信人编号是 `bot_id`，`B…`）。
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| GET | `/api/im/mutes` | 全部自动忽略，`Mute[]` + `meta.total`，新标的在前 |
+| GET | `/api/im/mutes/pending` | 查询参数同 `POST` 的对象（`channel` + `sender_id`，或 `stakeholder_id`；可加 `conversation_id`）：此人现在有几条待处理消息，回 `{pending}`。「一并忽略」的条数确认用。待处理含设了稍后、已过期的（库里都是 `pending`）。参数错误同 `POST` |
+| POST | `/api/im/mutes` | 标记。body `{channel?, sender_id?, stakeholder_id?, conversation_id?, name?, ignore_pending?}`，回 `MuteResult`：新标的 201，同一对象同一范围已经标过回 200 和原来那条（`created: false`，`ignore_pending` 照样执行） |
+| DELETE | `/api/im/mutes/{mute_id}` | 取消。回 `{id, ignored}`，`ignored` 是被它自动忽略、现在还在「已忽略」里的条数。之后此人的新消息恢复正常；已被自动忽略的消息**不自动恢复**，在消息页「已忽略」里按发信人搜出来手动「重新打开」。不存在 404 |
+
+- 对象二选一：按渠道身份给 `channel` + `sender_id`（渠道里的发信人编号，规整同 IM 身份：渠道不分大小写，Telegram 去掉开头的 `@`），`kind: "sender"`；按联系人给 `stakeholder_id`，`kind: "contact"`，联系人名下全部 IM 身份一起生效，按收消息时认上的联系人算（之后把某个身份挂到这个联系人下，从那时起生效）。两样都给、都没给、渠道或编号缺 400 `validation`；联系人不存在 400。
+- 范围：`conversation_id` 不给是全部会话；给了（会话 id `cv_`）只在这个会话里忽略此人，会话不存在 400。同一条消息命中几条时只在这个会话里的优先，同级取先标的。
+- `name` 不给时：按联系人取联系人名；按渠道身份取认上的联系人名，没有取本地已知的发信人名（最近收到的消息），都没有用编号。最多 200 字。
+- `ignore_pending` 为 true 时把此人已有的待处理消息（含稍后、已过期；有范围时只这个会话的）一并标为已忽略、已读，记上 `muted`；不发事件、不动已处理和已忽略的。`MuteResult.ignored` 是这次一并忽略的条数。默认 false。
+- `MuteResult`：`{mute: Mute, created, ignored}`。
+- `Mute`：`{id, kind, channel, sender_id, stakeholder_id, contact_name, conversation_id, conversation, name, ignored, last_at, created_at}`；`id` 前缀 `imu`；`kind` 为 `sender` / `contact`；`kind=sender` 时 `stakeholder_id`、`contact_name` 是这个身份现在认上的联系人（认不上为 null 和空串），`kind=contact` 时 `channel`、`sender_id` 为空串；`conversation_id` 为 null 是全部会话，`conversation` 是群名（私聊、会话删了为空串）；`ignored` 是被它自动忽略的消息条数（含一并忽略的、后来被改回的不算），`last_at` 是其中最近一条的发送时间，没有为 null。
+- 表：`im_mutes(id, kind, channel, sender_external_id, stakeholder_id, conversation_id, name, created_at)`，`(kind, channel, sender_external_id, stakeholder_id, conversation_id)` 唯一，联系人、会话不建外键（删了这条照留，用户自己取消）；`im_messages` 加 `muted_by`、`muted_name`。
+- 升级：已装旧版本的，换新二进制后经 `POST /api/plugins/{id}/upgrade`（id 为 `im`）升级，应用 `0017_mutes.sql`；**迁移没应用完的插件启动时不加载**，升级前整个 IM 消息插件不可用（不收消息、不发事件，依赖它的 IM 触发也停）。升级后没有任何自动忽略，行为和升级前一样。
 
 ### 附件获取
 
@@ -2666,7 +2688,7 @@ TSK-0468，插件迁移 `0015_fde_forward.sql`。我在消息页手动把消息�
 
 ### 事件
 
-新消息落库后发 `im.message_received`（清单 `emits` 里声明，走事件总线），重复到达不发。我对「私信我确认」（`im_ask_me`）的回复不落库，也不发（TSK-0411）。payload：
+新消息落库后发 `im.message_received`（清单 `emits` 里声明，走事件总线），重复到达不发；发信人被设为自动忽略、入库即已忽略的也不发（0.27.0，见「自动忽略发信人」）。我对「私信我确认」（`im_ask_me`）的回复不落库，也不发（TSK-0411）。payload：
 
 ```json
 { "message_id": "msg_...", "channel": "slack", "connector_id": "", "conversation_id": "cv_..." | null,

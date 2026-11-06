@@ -8,6 +8,7 @@ import { pickFolder, readHandle, type LocalFolder } from './localdir'
 import { IM_CHANNELS, IM_EXPIRE_DAYS_DEFAULT, seedConnectors, seedContacts, seedContent, seedMessages, TOOLS, type Connector, type Contact, type Message } from './data'
 import { mentionMembers } from './mention'
 import { MessageDrawer, MessagesPage, contactFor, fetchBlocker, gear, withGroupProjects, type MsgAction } from './messages'
+import { applyMutes, bindMuteEnv } from './mutes'
 import { GroupTriageAdvice, QueueDrawer, TriageAdvice, triageRunsOf, triageSops } from './triage'
 import { SECTIONS, SettingsNav, type Section } from './settings'
 import { CommandPalette, type PaletteItem } from './palette'
@@ -430,7 +431,8 @@ export default function App() {
           attachments: m.attachments?.map((a) => ({ ...a, id: newId('att') })),
         }))
       })
-      if (fresh.length) setMessages((xs) => [...fresh, ...xs])
+      // 自动忽略的发信人（SPEC-messages-9）：命中的直接已忽略、已读
+      if (fresh.length) setMessages((xs) => [...applyMutes(fresh, contacts), ...xs])
       if (ok.length) setConnectors((xs) => xs.map((c) => (ok.some((o) => o.id === c.id) ? { ...c, last_sync_at: now } : c)))
       for (const c of bad) report({ fingerprint: `conn:${c.id}:sync`, level: 'warn', module: '连接器', title: `${c.name}同步失败`, message: c.error ?? '连接异常', context: { 连接器: c.name } })
       const parts = [fresh.length ? `收到 ${fresh.length} 条新消息` : ok.length ? '没有新消息' : '', bad.length ? `${bad.map((c) => c.name).join('、')}同步失败` : ''].filter(Boolean)
@@ -509,6 +511,8 @@ export default function App() {
     setImToMat(null)
   }
   const openSessionById = (id: string) => { setCurrentSession(id); setPage('sessions'); setSessionView('chats'); setDrawer(null) }
+  // 自动忽略（SPEC-messages-9）：交给 mutes.tsx 的各入口用，一并忽略走消息的「忽略」
+  bindMuteEnv(messages, contacts, (ids) => setMessages((xs) => xs.map((x) => (ids.includes(x.id) ? { ...x, status: 'ignored' as const, read: true, snooze_until: null, expired_at: null } : x))))
   const actOnMessage = (id: string, a: MsgAction) => {
     const m = messages.find((x) => x.id === id)
     if (!m) return

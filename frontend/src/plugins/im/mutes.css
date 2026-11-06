@@ -1,0 +1,21 @@
+/* 自动忽略发信人（IM 0.27.0，TSK-0495）：弹窗、管理抽屉、按钮已标状态 */
+.im-mute-form { display: flex; flex-direction: column; gap: var(--sp-3); }
+.im-mute-desc { margin: 0; color: var(--muted); font-size: var(--fs-sm); line-height: 1.6; }
+.im-mute-opt { border: 0; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.im-mute-opt legend { padding: 0; margin-bottom: 4px; font-size: var(--fs-xs); color: var(--muted); }
+.im-mute-opt label { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: var(--fs-sm); cursor: pointer; min-width: 0; }
+.im-mute-opt label .im-mono { overflow-wrap: anywhere; }
+.im-act.im-muted-on { color: var(--warn, var(--muted)); }
+.im-strip-muted { overflow-wrap: anywhere; }
+.im-mute-list { display: flex; flex-direction: column; border-top: 1px solid var(--line); }
+.im-mute-item { display: flex; align-items: center; gap: var(--sp-3); padding: 10px 0; border-bottom: 1px solid var(--line); min-width: 0; }
+.im-mute-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.im-mute-name { font-weight: 600; }
+.im-mute-sub { display: flex; gap: 10px; flex-wrap: wrap; font-size: var(--fs-xs); min-width: 0; }
+.im-mute-sub .ellipsis { min-width: 0; max-width: 100%; }
+.im-mute-acts { display: flex; gap: 6px; flex-shrink: 0; }
+/* 群组管理第二行的「成员」菜单：和第二行的灰字一样大，菜单靠右展开 */
+.im-ga-members { flex: none; white-space: nowrap; display: inline-flex; align-items: center; gap: 2px; padding: 0; font-size: var(--fs-xs); color: var(--muted); background: none; border: 0; cursor: pointer; }
+.im-ga-members:hover { color: var(--text); }
+.im-ga-sub .im-menu-wrap { position: relative; flex: none; }
+.im-ga-sub .menu { min-width: 240px; max-width: min(320px, 80vw); left: 0; right: auto; color: var(--text); font-size: var(--fs-sm); }

@@ -9,6 +9,7 @@ export const ID_PREFIX = {
   message: 'msg',
   attachment: 'att',
   reply: 'rp',
+  imMute: 'imu',
   // 文档（「文档」模块的 ContentItem）
   doc: 'dc',
   // 项目
