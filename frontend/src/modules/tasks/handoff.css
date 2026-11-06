@@ -47,3 +47,6 @@
 @media (max-width: 640px) {
   .ho-row { grid-template-columns: minmax(0, 1fr); }
 }
+
+/* 交给谁（TSK-0722）：不能用的执行器一行一句缺什么，链接去设置「执行器」 */
+.ho-who-off a { color: var(--accent); }

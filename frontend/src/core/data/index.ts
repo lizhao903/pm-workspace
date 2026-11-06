@@ -26,6 +26,7 @@ export { REVISION_LIMIT, useObjectRevisions, groupRevisions, rejectText, useReje
 export type { RevisionGroup } from './revisions'
 export { useArtifacts, useObjectArtifacts, useArtifactStats, useArtifactCount, useRecordArtifact, useArtifactsByObject } from './artifacts'
 export { runFinished, useTaskRuns, useTaskRun, useCancelRun, streamRun, decideRunCall, useRunPrompt, startTerminalRun, finishTerminalRun, useFinishRun, useRunPresets, useSaveRunPresets, useRunPermissions, useSaveRunPermissions } from './runs'
+export { useRunners, useDetectRunners, useDeepSeekSmoke, useStartDeepSeekSmoke } from './runners'
 export { workdirUsable, useWorkdirCheck, useFsBrowse, useFsShortcuts, useFsRoots, useAddFsRoot, useRemoveFsRoot, fsCrumbs } from './fs'
 export {
   useAgentProviders, useProviderModels, providerModelIds, loadProviderModels, defaultProvider, useAgentSessions, useAgentMessages, useCreateAgentSession, usePatchAgentSession,

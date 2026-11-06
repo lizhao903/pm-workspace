@@ -51,6 +51,7 @@ func addListProjectProfiles(s *mcp.Server, c *client) {
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "pmw_list_project_profiles",
 		Description: listProjectProfilesDesc,
+		InputSchema: noArgsSchema,
 		Annotations: readOnly("列出项目档案摘要"),
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, any, error) {
 		q := url.Values{"type": {"project"}, "limit": {"200"}, "sort": {"title"}}

@@ -167,6 +167,15 @@ func (s *Server) streamMCP(runID string) (path, reason string, cleanup func()) {
 	return p, "", func() { _ = os.RemoveAll(dir) }
 }
 
+// dshMCP 是交给 DeepSeek（dsh）时的工作台 MCP（TSK-0722）：程序和地址写进 dsh 的 patch，不写文件。
+// 接不上时回 nil 和原因，执行照跑，提示词写明没接上。
+func (s *Server) dshMCP() (*runner.MCPEndpoint, string) {
+	if err := runner.CheckMCP(s.opt.MCPBin, s.opt.PublicURL); err != nil {
+		return nil, err.Error()
+	}
+	return &runner.MCPEndpoint{Bin: strings.TrimSpace(s.opt.MCPBin), API: s.opt.PublicURL}, ""
+}
+
 // streamReport 是后台执行经 pmw_finish_run 回报的结论。
 type streamReport struct {
 	Status  string

@@ -80,6 +80,7 @@ var Registry = []Entry{
 	{"ag", "agent", "agents", "agent"},               // 内核的表（AG-01b1，0032）
 	{"atc", "agentToolCall", "agent_tool_calls", ""}, // 内核的表（AG-02a，0035），要人确认的工具调用
 	{"dbg", "agentDebugCall", "", ""},                // 调试对话里要人确认的调用，只在进程内存里（AG-02c）
+	{"smk", "runnerSmoke", "", ""},                   // 执行器集成检查（TSK-0722），最近一次存在 agent_settings 的 runner_smoke_deepseek 下，不单独建表
 	{"ar", "agentRun", "agent_runs", "agentRun"},     // 内核的表（AG-01b4，0036）
 	{"op", "output", "", "output"},
 	{"kb", "kb", "knowledge_bases", "kb"}, // 内核的表（AG-01b3，0034）

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import type { TaskRun } from '../../core/data'
+import type { AgentProvider, RunnerStatus, TaskRun } from '../../core/data'
 import {
+  canResumeDSH, deepseekRunRequest, dshProviderOptions, pickWho, writeProfileOptions,
   NO_PRESET, TERMINAL_OFF_HINT, pickedWriteProfile, writeProfileHint, defaultWorkdir, effectiveAllow, launchFailSummary, modeHint, pickedPreset, roleOptionLabel, runRequest, runningOf, submitLabel, terminalRequest,
 } from './handoffModel'
 import type { LiveRun } from './runLive'
@@ -80,5 +81,44 @@ describe('交给 Claude Code', () => {
     expect(writeProfileHint('edits_and_tests')).toContain('测试')
     expect(writeProfileHint('custom', [])).toContain('还是空的')
     expect(writeProfileHint('custom', ['Bash(git commit:*)'])).toContain('1 条')
+  })
+})
+
+// TSK-0722：交给谁、DeepSeek 的档位和请求体
+describe('交给谁', () => {
+  const st = (harness: RunnerStatus['harness'], blocking = false): RunnerStatus => ({
+    harness, label: harness, available: !blocking, modes: ['stream'], bin: '', bin_source: 'path', version: '', mcp: true,
+    provider_id: '', provider_name: '', model: '',
+    problems: blocking ? [{ code: 'not_installed', message: 'x', fix: '', steps: [], blocking: true }] : [], checked_at: '',
+  })
+  it('选过的能用就用它；否则按顺序第一个能用的；状态没到按可用', () => {
+    expect(pickWho(undefined, null)).toBe('claude')
+    expect(pickWho(undefined, 'deepseek')).toBe('deepseek')
+    expect(pickWho([st('claude', true), st('deepseek'), st('agent')], null)).toBe('deepseek')
+    expect(pickWho([st('claude'), st('deepseek', true), st('agent')], 'deepseek')).toBe('claude')
+    expect(pickWho([st('claude', true), st('deepseek', true), st('agent', true)], null)).toBe('claude')
+  })
+  it('DeepSeek 没有自定义白名单：选项置灰，设置默认它时退回允许改文件', () => {
+    expect(writeProfileOptions('claude').every((o) => !o.disabled)).toBe(true)
+    expect(writeProfileOptions('deepseek').find((o) => o.value === 'custom')?.disabled).toBe(true)
+    expect(pickedWriteProfile(null, { write_profile: 'custom' }, 'deepseek')).toBe('accept_edits')
+    expect(pickedWriteProfile(null, { write_profile: 'custom' }, 'claude')).toBe('custom')
+    expect(pickedWriteProfile('edits_and_tests', undefined, 'deepseek')).toBe('edits_and_tests')
+    expect(writeProfileHint('accept_edits', [], 'deepseek')).toContain('workspace-write')
+  })
+  it('服务商下拉只列 dsh 能接、启用的；默认那项写后端挑的', () => {
+    const ps = [
+      { id: 'a', name: 'DS', kind: 'openai', enabled: true }, { id: 'b', name: 'G', kind: 'gemini', enabled: true },
+      { id: 'c', name: 'off', kind: 'openai', enabled: false }, { id: 'd', name: 'Ol', kind: 'ollama', enabled: true },
+    ] as AgentProvider[]
+    const opts = dshProviderOptions(ps, { ...st('deepseek'), provider_id: 'a', provider_name: 'DS', model: 'deepseek-chat' })
+    expect(opts.map((o) => o.label)).toEqual(['默认（DS · deepseek-chat）', 'DS', 'Ol'])
+  })
+  it('请求体：空的不带；续跑看最近的 DeepSeek 会话', () => {
+    const base = runRequest('/w', '', false)
+    expect(deepseekRunRequest(base, { providerId: '', model: ' ', resume: false })).toEqual({ ...base, harness: 'deepseek' })
+    expect(deepseekRunRequest(base, { providerId: 'a', model: 'm', resume: true })).toMatchObject({ provider_id: 'a', model: 'm', resume_session: true })
+    expect(canResumeDSH([{ harness: 'agent', harness_session: 's' } as TaskRun])).toBe(false)
+    expect(canResumeDSH([{ harness: 'deepseek', harness_session: 'session-1' } as TaskRun])).toBe(true)
   })
 })

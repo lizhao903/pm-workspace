@@ -148,7 +148,7 @@ func TestWriteDSHPatch(t *testing.T) {
 		APIKey:  "sk-must-not-appear",
 	}
 
-	readOnly, err := writeDSHPatch(t.TempDir(), route, "openai-completions", "/work/a b", false, nil)
+	readOnly, err := writeDSHPatch(t.TempDir(), route, "openai-completions", "/work/a b", DSHReadOnly, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -177,7 +177,8 @@ func TestWriteDSHPatch(t *testing.T) {
 		t.Fatal("只读执行不该给额外的可写目录")
 	}
 
-	writable, err := writeDSHPatch(t.TempDir(), route, "openai-completions", "/work", true, []string{"/data/x"})
+	writable, err := writeDSHPatch(t.TempDir(), route, "openai-completions", "/work", DSHWorkspaceWrite, []string{"/data/x"},
+		&MCPEndpoint{Bin: "/opt/pmw/pmw-mcp", API: "http://127.0.0.1:7796/"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -187,6 +188,68 @@ func TestWriteDSHPatch(t *testing.T) {
 	}
 	if !strings.Contains(body, `- "/data/x"`) {
 		t.Fatalf("软链接进来的目录要进 additionalWritableRoots：\n%s", body)
+	}
+	// 工作台 MCP（TSK-0722）：同一个 server 名、stdio、--api 去掉末尾斜杠
+	for _, want := range []string{
+		"- insert:\n    - id: mcp-pmw-run", `name: "@deepseek-ai/dsh-mcp-client"`, `serverName: "pmw-run"`,
+		"transport: stdio", `command: "/opt/pmw/pmw-mcp"`, `- "--api"`, `- "http://127.0.0.1:7796"`, `- "--actor"`, `- "deepseek"`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("patch 里缺工作台 MCP 的 %q：\n%s", want, body)
+		}
+	}
+	if strings.Contains(mustRead(t, readOnly), "dsh-mcp-client") {
+		t.Fatal("没给 MCP 时不该挂 MCP 客户端")
+	}
+}
+
+// TestDSHSandboxMode 钉住权限档位到 dsh 沙箱档位的对应（TSK-0722）：两档写入同为 workspace-write，
+// 自定义白名单没有对应、必须拒绝而不是悄悄放宽；永远不给 danger-full-access。
+func TestDSHSandboxMode(t *testing.T) {
+	cases := []struct {
+		perm  string
+		allow bool
+		want  string
+		err   bool
+	}{
+		{"", false, DSHReadOnly, false},
+		{"", true, DSHWorkspaceWrite, false},
+		{PermReadOnly, true, DSHReadOnly, false},
+		{PermAcceptEdits, false, DSHWorkspaceWrite, false},
+		{PermEditsAndTests, false, DSHWorkspaceWrite, false},
+		{PermCustom, true, "", true},
+		{"danger", true, "", true},
+	}
+	for _, c := range cases {
+		got, err := DSHSandboxMode(c.perm, c.allow)
+		if (err != nil) != c.err || got != c.want {
+			t.Errorf("DSHSandboxMode(%q, %v) = %q, %v；期望 %q，出错=%v", c.perm, c.allow, got, err, c.want, c.err)
+		}
+		if got == "danger-full-access" {
+			t.Fatal("工作台不该替用户开 danger-full-access")
+		}
+	}
+}
+
+// TestDSHOllama：本机 Ollama 服务商按 OpenAI 兼容接，地址补 /v1（TSK-0722）；gemini 仍拒绝。
+func TestDSHOllama(t *testing.T) {
+	if api, err := dshAPI(domain.ProviderOllama); err != nil || api != "openai-completions" {
+		t.Fatalf("ollama 应按 openai-completions 接：%q %v", api, err)
+	}
+	if _, err := dshAPI(domain.ProviderGemini); err == nil {
+		t.Fatal("gemini 没有对应协议，应拒绝")
+	}
+	for in, want := range map[string]string{
+		"http://localhost:11434":     "http://localhost:11434/v1",
+		"http://localhost:11434/":    "http://localhost:11434/v1",
+		"http://localhost:11434/v1/": "http://localhost:11434/v1",
+	} {
+		if got := dshBaseURL(domain.ProviderOllama, in); got != want {
+			t.Errorf("dshBaseURL(ollama, %q) = %q，期望 %q", in, got, want)
+		}
+	}
+	if got := dshBaseURL(domain.ProviderOpenAI, "https://api.deepseek.com/"); got != "https://api.deepseek.com" {
+		t.Errorf("OpenAI 兼容的地址不该补 /v1：%q", got)
 	}
 }
 
@@ -363,10 +426,11 @@ func TestStartDSHRejectsMissingRoute(t *testing.T) {
 
 func TestStartDSHRejectsUnsupportedProtocol(t *testing.T) {
 	req := dshRequest(t, fakeDSH(t, "exit 0"))
-	req.DeepSeek.Kind = domain.ProviderOllama
+	// ollama 有 OpenAI 兼容端点，TSK-0722 起按 OpenAI 兼容接；gemini 没有对应协议
+	req.DeepSeek.Kind = domain.ProviderGemini
 	_, err := (&Runner{}).Start(context.Background(), req, nil)
 	if !errors.Is(err, domain.ErrValidation) {
-		t.Fatalf("ollama 没有对应的 dsh 协议，必须拒绝：%v", err)
+		t.Fatalf("gemini 没有对应的 dsh 协议，必须拒绝：%v", err)
 	}
 	if !strings.Contains(err.Error(), "OpenAI") {
 		t.Fatalf("要说清能用什么协议：%q", err.Error())

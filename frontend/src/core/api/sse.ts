@@ -236,13 +236,15 @@ export type RunRequest = {
   preset_id?: string
   /** 执行器，空是 claude（TSK-0460 加 agent） */
   harness?: 'claude' | 'deepseek' | 'agent'
-  /** deepseek / agent：用哪个服务商；agent 不给时用 Agent 设置的 */
+  /** deepseek / agent：用哪个服务商；agent 不给时用 Agent 设置的，deepseek 不给时后端挑（带 deepseek 的优先，TSK-0722） */
   provider_id?: string
   /** deepseek / agent：接着上次同一执行器的会话；没有可续的 400 */
   resume_session?: boolean
-  /** 以下只对 agent：交给哪个 Agent（空用场景「执行任务」选的）、模型、步数和时长上限、等确认多久按拒绝 */
+  /** 只对 agent：交给哪个 Agent（空用场景「执行任务」选的） */
   agent_id?: string
+  /** agent / deepseek：这一次用的模型，空用服务商（agent 没给服务商时用 Agent）设置的 */
   model?: string
+  /** 以下只对 agent：步数和时长上限、等确认多久按拒绝 */
   max_steps?: number
   max_minutes?: number
   confirm_wait_minutes?: number
