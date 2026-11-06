@@ -7,7 +7,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useBlocker, useLocation, useNavigate, useSearchParams } from 'react-router'
 import {
-  errorText, useAgentGrants, useAgentImpact, useCategoryTree, useConnectorDefs, useConnectors, useCreateAgent, useCreateKb, useDeleteAgent,
+  connectorLook, errorText, useAgentGrants, useAgentImpact, useCategoryTree, useConnectorDefs, useConnectors, useCreateAgent, useCreateKb, useDeleteAgent,
   useKnowledgeBases, usePatchAgent, usePutAgentGrants, useSkills, type Agent, type AgentGrantMode, type AgentThinking, type KnowledgeBase, type Skill,
 } from '../../../core/data'
 import { Button, Checkbox, cls, Input, PageTitle, Select, Switch, Tag, Textarea } from '../../../core/ui'
@@ -121,7 +121,7 @@ export function AgentEditor({ agent, models }: { agent: Agent | null; models: Mo
   const issues = editorIssues(d, curModel, badConns)
   // 连接器：挂着的按 mcps 顺序（删掉的不列），能挂的是还没挂、获取过工具清单、没暂停没断开的
   const defLabel = (tool: string) => defs.find((x) => x.tool === tool)?.label ?? tool
-  const { all: allConns, mountable } = mountableConns(conns, defLabel)
+  const { all: allConns, mountable } = mountableConns(conns, defLabel, (c) => connectorLook(defs.find((x) => x.tool === c.tool), c))
   const mountedConns = d.mcps.map((id) => allConns.find((c) => c.id === id)).filter((c) => !!c)
   const candidates = allConns.filter((c) => mountable.has(c.id) && !d.mcps.includes(c.id))
   const counts: Partial<Record<EditorTab, number>> = {

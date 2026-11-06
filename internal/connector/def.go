@@ -101,6 +101,7 @@ type Def struct {
 	Label    string     `json:"label"`
 	Category string     `json:"category"` // im / media / market / dev / other
 	Color    string     `json:"color"`
+	Logo     string     `json:"logo"` // 平台图标的键（TSK-0725），留空时 Prepare 按 builtinLogos 补，见 logo.go
 	Desc     string     `json:"desc"`
 	CanSend  bool       `json:"can_send"`
 	Auth     []AuthMode `json:"auth"` // 支持的认证方式，第一个是默认
@@ -134,6 +135,9 @@ func (d *Def) check() error {
 	}
 	if d.Label == "" {
 		return fmt.Errorf("connector %s: label is required", d.Tool)
+	}
+	if d.Logo != "" && !logoRe.MatchString(d.Logo) {
+		return fmt.Errorf("connector %s: logo %q must be lowercase letters and digits", d.Tool, d.Logo)
 	}
 	if len(d.Auth) == 0 {
 		return fmt.Errorf("connector %s: at least one auth mode is required", d.Tool)
@@ -224,6 +228,9 @@ func NewRegistry() *Registry { return &Registry{} }
 func Prepare(d Def) (Def, error) {
 	if d.Source == "" {
 		d.Source = "core"
+	}
+	if d.Logo == "" {
+		d.Logo = builtinLogos[d.Tool]
 	}
 	// 空的也给 []，接口里不出 null
 	d.Auth, d.Fields, d.Tools = nonNil(d.Auth), nonNil(d.Fields), nonNil(d.Tools)

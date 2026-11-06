@@ -99,11 +99,13 @@ export {
 export type { Identity, IdentityInput, IdentityOp, IdentityFailure } from './identities'
 export {
   connectorsApi, connectorsPagePath, normConnector, useConnectorDefs, useConnectors, useCreateConnector, usePatchConnector, useDeleteConnector,
-  useTestConnector, useRefreshConnectorTools, useSetConnectorToolModes, useStartConnectorOAuth,
+  useTestConnector, useRefreshConnectorTools, useSetConnectorToolModes, useStartConnectorOAuth, useFetchConnectorIcon,
 } from './connectors'
+export { PLATFORM_DOMAINS, addressFields, connectorLook, detectPlatform, detectedLogo } from './connectorLogo'
+export type { ConnectorLook } from './connectorLogo'
 export type {
   Connector, ConnectorDef, ConnectorField, ConnectorTool, ConnectorToolDef, ConnectorAuthMode, ConnectorToolMode, ConnectorStatus,
-  ConnectorDirection, ConnectorInput, ConnectorPatch, ConnectorTestResult, ConnectorRefreshResult,
+  ConnectorDirection, ConnectorInput, ConnectorPatch, ConnectorTestResult, ConnectorRefreshResult, ConnectorIconFetchResult,
   ConnectorOAuthDef, ConnectorOAuthState, ConnectorOAuthStart,
 } from './connectors'
 export { imChannelsApi, imConversationsKey, useImConversations } from './imChannels'

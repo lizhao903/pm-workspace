@@ -470,6 +470,7 @@ func (s *Server) routes(m routeRegistrar) {
 	m.HandleFunc("POST /api/connectors/{id}/test", s.handleTestConnector)
 	m.HandleFunc("POST /api/connectors/{id}/tools/refresh", s.handleRefreshConnectorTools)
 	m.HandleFunc("PATCH /api/connectors/{id}/tools", s.handleSetConnectorToolModes)
+	m.HandleFunc("POST /api/connectors/{id}/icon/fetch", s.handleFetchConnectorIcon) // TSK-0725
 	// OAuth（CONN-01b）：callback 是字面路径，优先于 {id}
 	m.HandleFunc("GET /api/connectors/oauth/callback", s.handleConnectorOAuthCallback)
 	m.HandleFunc("POST /api/connectors/{id}/oauth/start", s.handleStartConnectorOAuth)
