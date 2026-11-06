@@ -104,3 +104,75 @@ func (s sopService) Schedules(ctx context.Context, flowID string) ([]SOPSchedule
 	}
 	return []SOPScheduleRef{}, nil
 }
+
+// --- 流程目录（TSK-0480）：Agent 的 list_sops / get_sop / create_sop / update_sop 经注册表交给 SOP 插件 ---
+
+type (
+	// SOPCatalog 是发起入口可选实现的流程目录，见 schedule.SOPCatalog。
+	SOPCatalog = schedule.SOPCatalog
+	// SOPFlowBrief 是目录里的一项。
+	SOPFlowBrief = schedule.SOPFlowBrief
+	// SOPFlowDoc 是一条流程的完整定义。
+	SOPFlowDoc = schedule.SOPFlowDoc
+	// SOPNodeKind 是建流程能用的一种节点。
+	SOPNodeKind = schedule.SOPNodeKind
+	// SOPSave 是新建或修改一条流程。
+	SOPSave = schedule.SOPSave
+)
+
+// ErrSOPNotFound：流程目录里找不到这条流程（errors.Is 判断）。
+var ErrSOPNotFound = schedule.ErrSOPNotFound
+
+// sopCatalog 是在跑的、登记了发起入口且实现了 SOPCatalog 的那个；没有回 ErrNoSOPStarter。
+func (r *Registry) sopCatalog() (SOPCatalog, *entry, error) {
+	if r == nil {
+		return nil, nil, ErrNoSOPStarter
+	}
+	for _, id := range r.order {
+		e := r.entries[id]
+		a := e.active.Load()
+		if a == nil || a.sopStarter == nil {
+			continue
+		}
+		if c, ok := a.sopStarter.(SOPCatalog); ok {
+			return c, e, nil
+		}
+		return nil, nil, ErrNoSOPStarter
+	}
+	return nil, nil, ErrNoSOPStarter
+}
+
+// catalogCall 调一次流程目录，插件 panic 转成错误。
+func catalogCall[T any](r *Registry, fn func(c SOPCatalog) (T, error)) (out T, err error) {
+	c, e, err := r.sopCatalog()
+	if err != nil {
+		return out, err
+	}
+	defer func() {
+		if v := recover(); v != nil {
+			e.core.log.Error("plugin sop catalog panic", "panic", v, "stack", string(debug.Stack()))
+			err = fmt.Errorf("读写 SOP 流程出错")
+		}
+	}()
+	return fn(c)
+}
+
+// ListSOPs 列全部流程，按新建时间。满足 schedule.SOPCatalog。
+func (r *Registry) ListSOPs(ctx context.Context) ([]SOPFlowBrief, error) {
+	return catalogCall(r, func(c SOPCatalog) ([]SOPFlowBrief, error) { return c.ListSOPs(ctx) })
+}
+
+// GetSOP 按 id 或名称取一条流程。
+func (r *Registry) GetSOP(ctx context.Context, ref string) (*SOPFlowDoc, error) {
+	return catalogCall(r, func(c SOPCatalog) (*SOPFlowDoc, error) { return c.GetSOP(ctx, ref) })
+}
+
+// SaveSOP 新建或修改一条流程。
+func (r *Registry) SaveSOP(ctx context.Context, q SOPSave) (*SOPFlowDoc, error) {
+	return catalogCall(r, func(c SOPCatalog) (*SOPFlowDoc, error) { return c.SaveSOP(ctx, q) })
+}
+
+// SOPNodeKinds 是建流程能用的节点。
+func (r *Registry) SOPNodeKinds(ctx context.Context) ([]SOPNodeKind, error) {
+	return catalogCall(r, func(c SOPCatalog) ([]SOPNodeKind, error) { return c.SOPNodeKinds(ctx) })
+}

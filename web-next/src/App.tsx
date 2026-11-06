@@ -772,6 +772,14 @@ export default function App() {
       record('reply', `回复 ${String(c.input.to ?? '')}：${String(c.input.text ?? '').slice(0, 24)}`, m?.id)
       return { sent: true, message_id: m?.id ?? null }
     }
+    if (c.tool === 'write_sop') {
+      // 新建一条只有名字和触发方式的流程（TSK-0480），产出记成 SOP，点标题打开它
+      const trig = (c.input.trigger as { type?: string } | undefined)?.type ?? 'manual'
+      const sop = { ...newSopDraft(), name: String(c.input.name ?? '新流程'), trigger: trig }
+      setSops((xs) => [...xs, sop])
+      record('sop', `新建流程「${sop.name}」`, sop.id)
+      return { sop_id: sop.id }
+    }
     if (c.tool === 'run_sop') {
       // 记下是哪个 SOP，产出结果里点标题能打开它
       const sop = sops.find((x) => x.id === c.input.sop || x.name === c.input.sop)

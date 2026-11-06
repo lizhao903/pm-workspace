@@ -402,7 +402,7 @@ func (s *Store) CreateObject(ctx context.Context, o *domain.Object, a store.Acto
 		status = t.Statuses[0].Key
 	}
 	if _, ok := statusOf(t, status); !ok {
-		return nil, validation("status", "is not allowed for type "+t.ID+": "+status)
+		return nil, badStatus(t, status)
 	}
 	if o.CategoryID != nil && *o.CategoryID != "" {
 		cat, err := s.GetCategory(ctx, *o.CategoryID)
@@ -573,7 +573,7 @@ func (s *Store) UpdateObject(ctx context.Context, id string, p domain.ObjectPatc
 	if p.Status != nil {
 		st, ok := statusOf(t, *p.Status)
 		if !ok {
-			return nil, validation("status", "is not allowed for type "+t.ID+": "+*p.Status)
+			return nil, badStatus(t, *p.Status)
 		}
 		if st.Key != cur.Status {
 			change("status", cur.Status, st.Key, "status", st.Key)

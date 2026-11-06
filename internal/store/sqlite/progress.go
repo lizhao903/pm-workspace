@@ -223,7 +223,7 @@ func (s *Store) AppendProgress(ctx context.Context, objectID string, in domain.P
 			}
 			st, ok := statusOf(t, in.Status)
 			if !ok {
-				return validation("status", "is not allowed for type "+t.ID+": "+in.Status)
+				return badStatus(t, in.Status)
 			}
 			if err := switchStatusTx(ctx, tx, t, cur, st, a, now); err != nil {
 				return err
@@ -281,7 +281,7 @@ func (s *Store) ClaimObject(ctx context.Context, objectID string, in domain.Clai
 		}
 		st, ok := statusOf(t, target)
 		if !ok {
-			return validation("status", "is not allowed for type "+t.ID+": "+target)
+			return badStatus(t, target)
 		}
 		if st.Terminal {
 			return validation("status", "cannot claim into a terminal status: "+target)
