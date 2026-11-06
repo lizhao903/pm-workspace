@@ -157,8 +157,10 @@ func (s *Server) handleRunPrompt(w http.ResponseWriter, r *http.Request) {
 	case string(runner.HarnessAgent):
 		prompt = s.agentPromptFor(ctx, o, strings.TrimSpace(wd), q.Get("extra_prompt"), preset, q.Get("resume") == "true")
 	case string(runner.HarnessDeepSeek):
-		// dsh 没有工作台 MCP，不写回写一节（同 run.go）
-		prompt = s.promptWith(ctx, o, strings.TrimSpace(wd), q.Get("extra_prompt"), preset, nil)
+		// dsh 也接工作台 MCP（TSK-0722）：回写一节按后台执行口径、权限说法换成 dsh 沙箱（同 run.go）
+		_, noMCP := s.dshMCP()
+		wb := &runner.WriteBack{RunID: previewRunID, ObjectID: o.ID, Stream: true, DSH: true, NoMCP: noMCP}
+		prompt = s.promptWith(ctx, o, strings.TrimSpace(wd), q.Get("extra_prompt"), preset, wb)
 	default:
 		prompt = s.promptFor(ctx, o, strings.TrimSpace(wd), q.Get("extra_prompt"), mode, previewRunID, preset)
 	}
@@ -307,6 +309,16 @@ func (s *Server) handleFinishTaskRun(w http.ResponseWriter, r *http.Request) {
 			s.fail(w, r, conflictf("%s", perr.Error()))
 			return
 		}
+	}
+	// 执行器集成检查（TSK-0722，runnersmoke.go）里那几次 dsh 执行：不在 task_runs 里，结论记在检查上
+	if ok, mine := s.smoke.report(id, streamReport{Status: status, Summary: summary}); mine {
+		if !ok {
+			s.fail(w, r, conflictf("这次执行已经回报过结论了"))
+			return
+		}
+		respondData(w, http.StatusOK, map[string]any{"id": id, "status": domain.RunRunning, "mode": domain.RunModeStream,
+			"output": summary, "started_at": time.Now().UTC()})
+		return
 	}
 	run, err := s.st.GetTaskRun(ctx, id)
 	if err != nil {

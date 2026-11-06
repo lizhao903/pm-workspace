@@ -85,6 +85,9 @@ type WriteBack struct {
 	ObjectID string
 	Stream   bool
 	NoMCP    string
+	// DSH 为真是交给 DeepSeek（dsh）的后台执行（TSK-0722）：没有命令白名单，命令都在 dsh 的沙箱里跑，
+	// 最后那段权限说明换成沙箱的说法。
+	DSH bool
 }
 
 // MCPServerName 给模板用：工作台注入的 MCP server 名。
@@ -158,7 +161,9 @@ const promptTemplate = `你正在协助处理一个来自「产品工作台」�
 3. 过程中做完一个关键步骤，用 pmw_append_progress 记一条。
 {{if .Stream}}4. 结束前：调 pmw_finish_run，run_id={{.RunID}}，status 填 done 或 failed，summary 写结论摘要：做了什么、产出在哪、还剩什么没做。工作台在进程退出时收尾，这段结论放在执行记录最前面。
 {{else}}4. 结束时（做完、做不下去、或用户让你停下）：调 pmw_finish_run，run_id={{.RunID}}，status 填 done 或 failed，summary 写结论摘要：做了什么、产出在哪、还剩什么没做。任务做完了再用 pmw_update_object 改状态。
-{{end}}{{end}}{{if .Stream}}
+{{end}}{{end}}{{if .DSH}}
+命令都在 dsh 的沙箱里跑：只读执行写不了任何文件；允许改文件时只能写当前目录（和软链接进来的目录）。写入被沙箱拒绝时不要反复重试，在结论里说明。
+{{else if .Stream}}
 只读命令（git status / log / diff、ls、cat、grep、wc 等，含管道组合）已放行；查 SQLite 库用 sqlite3 -readonly -safe（不带 -safe 的会被拒）。
 {{end}}
 {{end}}## 约束

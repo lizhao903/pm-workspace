@@ -13,6 +13,7 @@ export {
   stakeholders,
   artifacts,
   runs,
+  runners,
   fs,
   agentWorkdir,
 } from './resources'

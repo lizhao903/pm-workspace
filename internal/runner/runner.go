@@ -198,6 +198,14 @@ type Request struct {
 	// SessionID 只在 Harness 是 deepseek 时用：接着这个会话继续跑。
 	// 空表示新开一个。未知 id 会让 dsh 直接失败，不会悄悄换成新会话。
 	SessionID string
+
+	// MCP 只在 Harness 是 deepseek 时用（TSK-0722）：工作台 MCP 的程序和地址，写进 dsh 的 patch。
+	// claude 用的是 MCPConfig 那份文件；dsh 的 MCP 配置是 profile 里的一条插件，没有单独的文件格式。
+	MCP *MCPEndpoint
+
+	// OnSpawn 可选：进程起来、登记好之后回调一次，参数是进程组 id（等于子进程 pid）。
+	// 集成检查（TSK-0722）拿它在收尾后确认整组都退干净了；正常执行不用。
+	OnSpawn func(pgid int)
 }
 
 // Result 是一次执行的收尾信息，调用方据此落库。
@@ -404,6 +412,9 @@ func (r *Runner) Start(ctx context.Context, req Request, on func(Event)) (*Resul
 		return nil, err
 	}
 	defer r.unregister(runID)
+	if req.OnSpawn != nil {
+		req.OnSpawn(p.pgid)
+	}
 
 	done := make(chan struct{})
 	var timedOut atomic.Bool

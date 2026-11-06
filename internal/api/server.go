@@ -128,6 +128,9 @@ type Server struct {
 	agentTimeUnit time.Duration
 	// streamReports 记后台执行经 MCP 回报、还没收尾的结论（TSK-0499，runperms.go）
 	streamReports streamReports
+	// bins 缓存执行器可执行文件的检测结果，smoke 是 DeepSeek 的集成检查（TSK-0722，runners.go、runnersmoke.go）
+	bins  binCache
+	smoke smokeState
 }
 
 func New(st store.Store, opts Options) *Server {
@@ -402,6 +405,10 @@ func (s *Server) routes(m routeRegistrar) {
 	// 后台执行的权限档位与自定义白名单（TSK-0499）
 	m.HandleFunc("GET /api/run-permissions", s.handleGetRunPermissions)
 	m.HandleFunc("PUT /api/run-permissions", s.handlePutRunPermissions)
+	// 执行器状态与 DeepSeek 集成检查（TSK-0722）
+	m.HandleFunc("GET /api/runners", s.handleListRunners)
+	m.HandleFunc("GET /api/runners/deepseek/smoke", s.handleGetDeepSeekSmoke)
+	m.HandleFunc("POST /api/runners/deepseek/smoke", s.handleStartDeepSeekSmoke)
 	m.HandleFunc("POST /api/objects/{id}/run/terminal", s.handleRunTerminal)
 	m.HandleFunc("POST /api/runs/{id}/finish", s.handleFinishTaskRun)
 

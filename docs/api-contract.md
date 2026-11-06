@@ -1107,10 +1107,10 @@ AG-01b3。字段对齐原型 `web-next/src/agentdata.ts` 的 `KnowledgeBase` 和
 | GET | `/api/objects/{id}/runs?limit=20` | `TaskRun[]`，**最近** N 条，倒序；limit 省略取 20，上限 100 |
 | GET | `/api/runs/{id}` | 单条执行记录，含完整输出 |
 | POST | `/api/runs/{id}/cancel` | 杀掉整个进程组 |
-| GET | `/api/objects/{id}/run/prompt?mode=&workdir=&extra_prompt=&preset_id=&harness=&resume=` | 提示词预览 `{prompt, workdir}`，和发起时同一套拼法；`preset_id` 是角色 id（接口沿用旧名），不存在 400；`mode` 是 `stream`（默认）或 `terminal`，其他值 400；`harness=agent` 时预览交给工作台 Agent 的那一份（`mode` 不看），`resume=true` 是续跑的说法（TSK-0460）；`harness=deepseek` 时不带「回写到工作台」一节（dsh 没有工作台 MCP，TSK-0499）；`workdir` 不传时按任务、所属项目继承，不校验目录；终端方式里执行 id 写成「<发起时生成的执行 id>」；对象不存在 404 |
+| GET | `/api/objects/{id}/run/prompt?mode=&workdir=&extra_prompt=&preset_id=&harness=&resume=` | 提示词预览 `{prompt, workdir}`，和发起时同一套拼法；`preset_id` 是角色 id（接口沿用旧名），不存在 400；`mode` 是 `stream`（默认）或 `terminal`，其他值 400；`harness=agent` 时预览交给工作台 Agent 的那一份（`mode` 不看），`resume=true` 是续跑的说法（TSK-0460）；`harness=deepseek` 时带后台执行口径的「回写到工作台」一节，权限说法换成 dsh 沙箱（TSK-0722，见下面「DeepSeek（dsh）的权限与回写」）；`workdir` 不传时按任务、所属项目继承，不校验目录；终端方式里执行 id 写成「<发起时生成的执行 id>」；对象不存在 404 |
 | POST | `/api/objects/{id}/run/terminal` | `{workdir?, extra_prompt?, preset_id?}`，切换到终端（0048）：建一条 `mode=terminal`、`status=running` 的执行记录，把提示词和 MCP 配置写到数据目录 `tmp/handoff/<执行 id>/prompt.md`、`mcp.json`（0600），不起进程；回 201 `{run, workdir, prompt_file, mcp_config}`。工作目录规则同 `/run`；找不到 MCP 程序（`--mcp-bin`，缺省按本程序位置推：`pmw`→`pmw-mcp`，`pmw-dev`→`pmw-mcp-dev`，退回同目录 `pmw-mcp`）或没有 `--public-url` 时 409 |
-| POST | `/api/runs/{id}/finish` | `{status, summary?, result?}`（MCP `pmw_finish_run` 和界面「标记结束」）。`status` 是 `done`、`failed`、`canceled`，否则 400。`result` 可选，要是 JSON 对象（否则 400「result 要是 JSON 对象」），最多 64 KB（超了 400「result 最多 64 KB」）；约定形状 `{verdict: "pass" \| "reject", issues?: [...], artifacts?: [...]}`，内核不校验里面的字段。**插件交给 Claude Code 的运行**（SOP「Claude Code 执行」节点发起的，AUTO-01）：先按插件运行认，只记下回报不收尾，`status`、`summary`、`result` 存进那次运行，进程退出时由内核按回报和退出码收尾（进程正常结束但回报 `failed` / `canceled` 时整条按回报算，`error` 为「Claude Code 回报做不下去：摘要前 300 字」）；回 200 + `TaskRun`（在任务上留了执行记录的回那条记录，状态仍是 `running`；没有的回同形状的 `{id, status, mode: "stream", output: summary, started_at}`）；已经结束或已经回报过 409；不是 Claude Code 的插件运行 409。**任务的流式执行（后台执行，TSK-0499）**：还在本工作台进程里跑时只记下回报、不收尾，回 200 + 那条 `TaskRun`（状态仍是 `running`）；进程退出收尾时 `summary` 放在 `output` 最前面（「摘要 + `---` + 过程记录」），进程正常结束但回报 `failed` / `canceled` 时按回报算（`error` 同插件运行的写法）；同一次执行只收一次回报，再报 409「这次执行已经回报过结论了」；已经结束、或进程不在本工作台手上的 409；`result` 不落库。**终端执行**：`summary` 最多 200 KB 写进 `output`；`failed` 没写 summary 时 `error` 记「标记为失败，没写原因」；已收尾的 409；不存在 404；收尾后删掉临时目录；照常投 `run.finished`；`result` 不落库（`task_runs` 没有这一列）。超过 7 天的临时目录在下次发起时清掉 |
-| POST | `/api/objects/{id}/run` | `{workdir?, extra_prompt?, allow_writes?, permission?, preset_id?, harness?, provider_id?, resume_session?, agent_id?, model?, max_steps?, max_minutes?, confirm_wait_minutes?}`，**SSE 流式响应**；`permission` 是权限档位（TSK-0499，见下面「后台执行的权限」），不认识的 400；后五个只对 `harness=agent`，见下面「交给工作台 Agent」 |
+| POST | `/api/runs/{id}/finish` | `{status, summary?, result?}`（MCP `pmw_finish_run` 和界面「标记结束」）。`status` 是 `done`、`failed`、`canceled`，否则 400。`result` 可选，要是 JSON 对象（否则 400「result 要是 JSON 对象」），最多 64 KB（超了 400「result 最多 64 KB」）；约定形状 `{verdict: "pass" \| "reject", issues?: [...], artifacts?: [...]}`，内核不校验里面的字段。**插件交给 Claude Code 的运行**（SOP「Claude Code 执行」节点发起的，AUTO-01）：先按插件运行认，只记下回报不收尾，`status`、`summary`、`result` 存进那次运行，进程退出时由内核按回报和退出码收尾（进程正常结束但回报 `failed` / `canceled` 时整条按回报算，`error` 为「Claude Code 回报做不下去：摘要前 300 字」）；回 200 + `TaskRun`（在任务上留了执行记录的回那条记录，状态仍是 `running`；没有的回同形状的 `{id, status, mode: "stream", output: summary, started_at}`）；已经结束或已经回报过 409；不是 Claude Code 的插件运行 409。**任务的流式执行（后台执行，TSK-0499）**：还在本工作台进程里跑时只记下回报、不收尾，回 200 + 那条 `TaskRun`（状态仍是 `running`）；进程退出收尾时 `summary` 放在 `output` 最前面（「摘要 + `---` + 过程记录」），进程正常结束但回报 `failed` / `canceled` 时按回报算（`error` 同插件运行的写法）；同一次执行只收一次回报，再报 409「这次执行已经回报过结论了」；已经结束、或进程不在本工作台手上的 409；`result` 不落库；`harness=deepseek` 的后台执行同这一条（TSK-0722）。**执行器集成检查里的执行**（id 形如 `smk_…_main`，TSK-0722，见「执行器」）：不在 `task_runs` 里，结论记到正在跑的那次检查上，回 200 + `{id, status: "running", mode: "stream", output: summary, started_at}`；同一次再报 409。**终端执行**：`summary` 最多 200 KB 写进 `output`；`failed` 没写 summary 时 `error` 记「标记为失败，没写原因」；已收尾的 409；不存在 404；收尾后删掉临时目录；照常投 `run.finished`；`result` 不落库（`task_runs` 没有这一列）。超过 7 天的临时目录在下次发起时清掉 |
+| POST | `/api/objects/{id}/run` | `{workdir?, extra_prompt?, allow_writes?, permission?, preset_id?, harness?, provider_id?, resume_session?, agent_id?, model?, max_steps?, max_minutes?, confirm_wait_minutes?}`，**SSE 流式响应**；`permission` 是权限档位（TSK-0499，见下面「后台执行的权限」），不认识的 400；`harness=deepseek` 时 `custom` 400（TSK-0722）；`model` 对 `agent` 和 `deepseek` 都认（只改这一次用的模型）；`agent_id`、`max_steps`、`max_minutes`、`confirm_wait_minutes` 只对 `harness=agent`，见下面「交给工作台 Agent」 |
 | GET | `/api/run-prompts` | 角色（原预置提示词，SPEC-tasks-6.18、SPEC-settings-24，AUTO-03）`[{id, scene, content, default, permission, output, dir_kind}]`，存在 `agent_settings.run_prompts`。`permission` 是 `read_only` 或 `accept_edits`，`output` 是输出要求（可空），`dir_kind` 是 `code` / `prototype` / `prd` / `any`（项目档案落地前只存不用）；读出来三项总是补齐，旧数据没带的按 `accept_edits`、空串、`any` 补（旧内置 `rp_research` 按 `read_only`）。没设过回内置六个：`rp_classify` 分类（只读）、`rp_pm` 产品经理工作台（默认）、`rp_review` 研发评审（只读，输出要求回报 `{verdict, issues}`）、`rp_dev` 研发、`rp_testdesign` 测试设计、`rp_protosync` 原型同步。设过的：把用户没见过的内置角色（按 id）补在末尾，不抢默认，和已有场景名重复的不补，满 30 个不补；见过哪些记在 `agent_settings.run_prompts_builtins`（id 数组，没有时按 `rp_pm`、`rp_dev`、`rp_research` 算） |
 | PUT | `/api/run-prompts` | `{items: [{id?, scene, content, default?, permission?, output?, dir_kind?}]}` 整组替换，回替换后的列表（新字段补齐）。`id` 空的补 `rp_` 开头的新 id；`scene` 去首尾空白后 1 到 40 字、不能重复，`content` 1 到 4000 字，`output` 最多 2000 字，`permission` 只认 `read_only` / `accept_edits`（空按 `accept_edits`），`dir_kind` 只认 `code` / `prototype` / `prd` / `any`（空按 `any`），最多 30 个，`default` 最多一个，违反任一条 400 整组不生效；空数组表示不要角色。保存成功后 `run_prompts_builtins` 写成当时全部内置 id（用户删掉的内置角色以后不再补回）。记一条 `config` 审计（`target_type` 为 `run_prompts`，`detail.scenes`） |
 | GET | `/api/run-permissions` | 后台执行的权限设置（TSK-0499）`{write_profile, custom, profiles, mcp_server}`，存在 `agent_settings.run_permissions`（`{write_profile, custom}`）。`write_profile` 是勾「允许写入」时默认选的档位：`accept_edits`（没设过时）、`edits_and_tests` 或 `custom`；`custom` 是自定义白名单（Claude Code 权限规则数组，没设过为 `[]`），只在 `custom` 档生效；`profiles` 是四个档位 `[{key, label, writes, allowed}]`（顺序固定：`read_only` 只读、`accept_edits` 允许改文件、`edits_and_tests` 允许改文件 + 跑测试构建、`custom` 自定义白名单），`writes` 是否放开文件编辑，`allowed` 是这一档实际传给 `--allowedTools` 的规则（不含 MCP）；`mcp_server` 是工作台注入的 MCP server 名 `pmw-run`，每一档都放行它的全部工具 |
@@ -1133,15 +1133,28 @@ AG-01b3。字段对齐原型 `web-next/src/agentdata.ts` 的 `KnowledgeBase` 和
 - 被拒时（`Error`，也作为流里的 `error` 事件）：列出被拒的工具，Bash 带上命令原文（去重、每条截到 120 字、最多 5 条，形如「被拒的命令：…。」）；只读执行里文件编辑被拒时说「请在发起时勾选「允许修改文件」」；能靠白名单放行的给出规则，固定格式「建议放行：\`规则\`、\`规则\`。」（Bash 按段取命令名，`git` / `go` / `npm` / `make` 等带子命令，`npm run x` 带脚本名；已在本次白名单里的段不出；`sqlite3` 指向 `-readonly -safe` 写法；文件编辑类不进白名单；MCP 工具和其他工具给原名），并说「到「设置 / 执行权限」把它们加进自定义白名单，发起时选「自定义白名单」档位」。前端认这个格式渲染「去设置放行」入口。推不出规则时指向 `~/.claude/settings.json` 和项目 `.claude/settings*.json`。
 
 `harness` 选执行器，空或 `claude` 走本机 Claude Code，`deepseek` 走 deepseek-harness（dsh）的 headless 模式，`agent` 交给工作台自己的 Agent（TSK-0460，见下面「交给工作台 Agent」），别的值 400。
-`provider_id` 对 `agent` 是这次用的服务商（见「交给工作台 Agent」）；对 `deepseek`：把哪个模型服务商交给 dsh，空用默认服务商；协议只支持 `openai`（DeepSeek 属于这类）和 `anthropic`，其它 400。
-dsh 那边的权限口径：`allow_writes=false` 译成沙箱 `read-only`，`true` 译成 `workspace-write`（软链接进来的目录进 `additionalWritableRoots`），
-审批策略恒为 `never`（headless 没有交互界面，选 ask 只会卡住，需要批准的调用被直接拒绝）。
-这些全部写在每次执行现生成的 `--patch` 里，不走命令行——0.2.x 的 headless 只认 `--json` 和 `--session-id`。
+`provider_id` 对 `agent` 是这次用的服务商（见「交给工作台 Agent」）；对 `deepseek`：把哪个模型服务商交给 dsh。空时按 TSK-0722 的口径挑：只看 dsh 能接的协议（`openai`，DeepSeek 属于这类；`anthropic`；`ollama`，按它的 OpenAI 兼容端点 `<base_url>/v1` 接）里启用的，名字、地址或模型里带 `deepseek` 的优先，其次标了默认的，再次第一个；一个都没有 400（说清该配哪种），**不**像工作台 Agent 那样自动建本机 Ollama。指定了但停用 400「服务商「X」已停用」；`gemini` 400。`model` 非空时只改这一次用的模型，空用服务商设置的；最终没有模型 400。
+
+**DeepSeek（dsh）的权限与回写（TSK-0722）。** dsh 没有 Claude Code 那种按命令放行的规则表，命令一律在它的沙箱里跑，能不能写由沙箱档位定。档位对应（`runner.DSHSandboxMode`）：
+
+| 工作台档位 | dsh 沙箱 | 说明 |
+|---|---|---|
+| `read_only` | `read-only` | 命令照跑，写任何文件都被沙箱挡下 |
+| `accept_edits` | `workspace-write` | 能写工作目录（和软链接进来的目录，进 `additionalWritableRoots`），命令在沙箱里都能跑 |
+| `edits_and_tests` | `workspace-write` | 同上：workspace-write 本来就能跑测试构建，两档在 dsh 里是同一档 |
+| `custom` | 没有对应 | 400「DeepSeek（dsh）没有命令白名单，不支持「自定义白名单」档位……」，开流前回、不建记录 |
+
+不会给 `danger-full-access`。审批策略恒为 `never`（headless 没有交互界面，选 ask 只会卡住；需要批准的调用被直接拒绝，MCP 工具不需要批准）。
+以上全部写在每次执行现生成的 `--patch` 里，不走命令行（0.2.1 的 headless 只认 `--json` 和 `--session-id`；0.2.2 多了 `--permission-mode` 等参数，仍走 patch 以兼容两版）。
+工作台 MCP 同 Claude Code：server 名 `pmw-run`，程序和地址同 `--mcp-bin` / `--public-url`；dsh 侧是 patch 里 `insert` 的一条 `@deepseek-ai/dsh-mcp-client`（stdio，`args: ["--api", <地址>, "--actor", "deepseek"]`：回写记成操作者 `deepseek`，不随工作台进程的环境变成 `claude-code`），工具名 `mcp__pmw-run__pmw_…`。接不上时照跑、提示词写明原因。提示词带后台执行口径的「回写到工作台」一节，末尾的权限说明换成「命令都在 dsh 的沙箱里跑……」，不写 Claude Code 的只读命令白名单。经 `pmw_finish_run` 回报的结论同 Claude Code 后台执行，收尾时放在 `output` 最前面。
+dsh 子进程的环境另加 `DSH_TELEMETRY_MODE=DISABLED`（关掉 dsh 的会话遥测）；密钥只经 `PMW_DSH_API_KEY`，`ollama` 没有密钥时给占位值。
 `resume_session` 对 `agent` 是续用上次的 Agent 会话（见「交给工作台 Agent」）；对 `deepseek`：为 `true` 时接着这个对象**上一次** dsh 会话继续跑（`--session-id`），
 没有可续的会话回 400，不悄悄新开一段。细节见 `docs/deepseek-harness.md`。
 执行记录（`TaskRun`）多两个字段：`harness`（0049）：`claude` / `deepseek` / `agent`（TSK-0460），0049 之前的记录都是 `claude`；
 `harness_session`（0050）：dsh 那次用的会话 id，续跑靠它；`agent` 的是 Agent 会话 id（能打开会话接着聊）；claude 的执行是空串。`status` 多一个 `waiting`（只有 `agent` 的执行会有：停在要人确认的写操作上，没结束），读的时候不按残留收尾。
 两者都只用于留档与展示，不参与收尾判定——收尾看 `status` 和 `exit_code`。
+
+**升级说明（TSK-0722）。** 内核行为变化，没有新迁移：换新二进制即生效。`harness=deepseek` 的提示词预览从「不带回写一节」改为带；`provider_id` 为空时不再走默认服务商（也不再自动建 Ollama），按上面的挑法；`ollama` 服务商从 400 变为可用。生产要用 DeepSeek 执行器，需要本机装 dsh 并在启动参数加 `--dsh-bin`（或环境变量 `DSH_BIN`），步骤见 `docs/deepseek-harness.md`。
 
 交给 Claude Code（流式发起、切换到终端）和交给工作台 Agent 时，任务（`type_id=task`）状态不是进行中、已完成、已取消的改成进行中（`doing`，SPEC-tasks-6.17），
 操作者是发起的人，照常记修订、发 `object.status_changed`；改不成只记日志，不挡执行。
@@ -1197,6 +1210,78 @@ SSE 事件（形状的唯一真相是 `internal/runner` 的 `Event.MarshalJSON`�
 - **取消**：`POST /api/runs/{id}/cancel` 停掉在途执行（等确认时也行），记录收尾成 `canceled`、`error`「已取消」，还在等的调用拒掉（`result`「执行已取消，没有执行」）；会话页「停止」（`POST /api/agent/sessions/{id}/stop`）也停得下正在跑模型的那一段，同样收尾成 `canceled`、`error`「在会话里手动停止了」。
 - **收尾**：完成 `done`、`exit_code` 0；失败 `failed`、`exit_code` 1，`error` 写原因：步数超限「超过步数上限（N 步）还没做完，已停下。已经执行的操作不会撤回；可以调大步数上限后续跑，或者把任务拆小」，时长超限「超过时长上限（N 分钟）还没做完，已停下……」，服务商不可用「服务商不可用，执行失败：<熔断或重试用完的原因>」（不无限重试：一次调模型最多 3 次，备用服务商再来一遍）；取消 `canceled`、`exit_code` -1。`output` 是过程记录，格式同 Claude Code（正文原样，`[工具] 名 · 参数`、`[工具失败] 名 · 原因`），另加 `[等待确认] <操作>` 和随后一行 `[已确认]` / `[已拒绝]` / `[等待超时，按拒绝处理]`。完成时给任务记一条进展（`kind=note`，操作者 `agent`，会话标识是这次的会话 id）「工作台 Agent「名称」执行完成（执行记录 <id 后 8 位>）：」加 Agent 最后一条回复；失败记「工作台 Agent「名称」执行失败（执行记录 <id 后 8 位>）：<原因>」；取消不记。会话里另落一句（失败「这一轮没跑完：<原因>……」，取消「已手动停止这一轮……」）。收尾照常投 `run.finished`（`origin` 为空）。不记运行异常，不登记产物（`write_file` 写的文件照常按会话登记、挂到任务上）。
 - 交给工作台 Agent 同样把任务改成进行中（SPEC-tasks-6.17 的规则），不领取；负责人改成这个 Agent（TSK-0500，见上面「负责人设为执行者」）。
+
+
+## 执行器 runners
+
+TSK-0722。分派任务（交给执行）和设置「执行器」页用的同一份执行器状态，加上 DeepSeek（dsh）的集成检查。三种执行器：`claude`（本机 Claude Code）、`deepseek`（deepseek-harness 的 dsh headless）、`agent`（工作台 Agent），和 `POST /api/objects/{id}/run` 的 `harness` 一一对应。
+
+| 方法 | 路径 | body / 说明 |
+|---|---|---|
+| GET | `/api/runners?refresh=` | `RunnerStatus[]`，顺序固定 `claude`、`deepseek`、`agent`。可执行文件的检测（按配置的名字找路径、跑一次 `--version`，15 秒超时，进程组超时整组杀）结果缓存一分钟，`refresh=true` 跳过缓存；服务商、Agent 每次现查 |
+| GET | `/api/runners/deepseek/smoke` | 最近一次集成检查 `RunnerSmoke`；正在跑时回进程里那份（每一项的进度），没在跑回库里存的那份（`agent_settings.runner_smoke_deepseek`），从没跑过回 `null`。库里停在 `running` 而进程里没有（跑的时候工作台重启了）的，回成 `failed`，没跑完的项记 `skip`「工作台重启，这次检查被中断」 |
+| POST | `/api/runners/deepseek/smoke` | `{provider_id?, model?}`，发起一次集成检查，回 202 + `RunnerSmoke`（`status=running`），在后台跑。服务商的挑法和校验同 `harness=deepseek` 的执行（没有能用的、停用、没模型、协议不支持都在发起前 400）；dsh 没装照样发起，「起进程」一项写明找不到。已经有一次在跑 409「已经有一次集成检查在跑了，等它跑完」 |
+
+`RunnerStatus`：
+
+```json
+{
+  "harness": "deepseek", "label": "DeepSeek", "available": true, "modes": ["stream"],
+  "bin": "/Users/me/.local/share/pmw-dsh/node_modules/.bin/dsh", "bin_source": "flag", "version": "0.2.2-rc.1",
+  "mcp": true, "provider_id": "apv_…", "provider_name": "DeepSeek", "model": "deepseek-chat",
+  "problems": [{ "code": "no_mcp", "message": "……", "fix": "……", "steps": [], "blocking": false }],
+  "checked_at": "2026-11-06T10:00:00Z"
+}
+```
+
+| 字段 | 说明 |
+|---|---|
+| `available` | 没有 `blocking` 的问题。分派入口按它置灰 |
+| `modes` | 能用的执行方式：`claude` 是 `["stream", "terminal"]`（终端还要终端插件在跑，前端判），`deepseek`、`agent` 是 `["stream"]` |
+| `bin` / `bin_source` | 解析后的可执行文件路径（找不到时是配置的名字）；`flag` 是启动时指定的（dsh：启动参数 `--dsh-bin` 或环境变量 `DSH_BIN`；claude 没有启动参数，生产上总是 `path`），`path` 是走 PATH，`builtin` 是工作台自己（`agent`，`bin` 为空） |
+| `version` | `--version` 输出的第一行；`agent` 是工作台版本 |
+| `mcp` | 发起时能不能接上工作台 MCP（`--mcp-bin` 的程序在、有 `--public-url`）；`agent` 恒为 `true`（不经 MCP） |
+| `provider_id` / `provider_name` / `model` | 只 `deepseek` 有：不指定服务商时默认用哪个（挑法见「任务执行 runs」里 `provider_id` 一段）和它的模型 |
+| `problems` | 缺什么，见下表；没有为 `[]`。`steps` 是要照做的几步（`not_installed` 时是 dsh 的安装步骤，和 `docs/deepseek-harness.md` 同一份），没有为 `[]` |
+
+| `code` | 谁会有 | blocking | 说明 |
+|---|---|---|---|
+| `not_installed` | `claude`、`deepseek` | 是 | 按配置的名字或路径找不到可执行文件 |
+| `broken` | `claude`、`deepseek` | 是 | 找到了，但 `--version` 跑不通（报错或 15 秒没返回） |
+| `no_provider` | `deepseek`、`agent` | 是 | `deepseek`：没有 dsh 能接的服务商（`openai` / `anthropic` / `ollama`）；`agent`：一个服务商都没有 |
+| `provider_disabled` | `deepseek`、`agent` | 是 | 有，但都停用了 |
+| `no_model` | `deepseek` | 否 | 默认服务商没设模型（分派时可以指定模型） |
+| `no_agent` | `agent` | 是 | 没有启用的 Agent |
+| `no_mcp` | `claude`、`deepseek` | 否 | 工作台 MCP 接不上：执行照常发起，进展和结论写在最后的回复里 |
+
+**集成检查（冒烟）。** 在系统临时目录里新建一个目录（放 `README.md`、`probe.txt` 两个文件，跑完删掉），用只读档、固定提示词（列目录 → 调 `mcp__pmw-run__pmw_finish_run` 回报「目录里有：…」→ 一句话答复）跑一次 dsh，再起两次验取消和超时。不建任务、不写 `task_runs`；三次执行都经同一个执行器（取消、进程组、超时同任务执行），执行 id 是 `<检查 id>_main` / `_cancel` / `_timeout`。正式那一次超时 5 分钟。
+
+`RunnerSmoke`：
+
+```json
+{
+  "id": "smk_…", "harness": "deepseek", "status": "passed",
+  "started_at": "2026-11-06T10:00:00Z", "finished_at": "2026-11-06T10:01:10Z",
+  "bin": "/…/dsh", "version": "0.2.2-rc.1", "provider_id": "apv_…", "provider_name": "本机 Ollama", "model": "qwen3:4b",
+  "session_id": "session-…", "conclusion": "目录里有：README.md、probe.txt", "answer": "……",
+  "checks": [{ "key": "spawn", "label": "起进程", "status": "pass", "detail": "……", "ms": 1500 }]
+}
+```
+
+`status`：`running` / `passed`（每一项都是 `pass`）/ `failed`。`conclusion` 是模型经 MCP 回报的结论，`answer` 是它最后的答复（截到 2000 字）。`checks` 八项，顺序固定，每项 `status` 是 `pending` / `running` / `pass` / `fail` / `skip`，`detail` 写结果或原因，`ms` 是这一项用的时间（没量的为 0）：
+
+| `key` | `label` | 怎么算过 |
+|---|---|---|
+| `spawn` | 起进程 | dsh 进程起来并开了会话（拿到 `session_id`）。没装、起不来记 `fail`，其余各项记 `skip` |
+| `model` | 模型路由 | 这一轮正常收尾（`done`），模型有答复或调了工具；否则 `detail` 是失败原因 |
+| `mcp` | MCP 回写 | 工作台收到了这次执行的 `pmw_finish_run`（见 `POST /api/runs/{id}/finish`）。MCP 没接上、模型没调这个工具（`detail` 列出它调过的工具）、调了但没到工作台，分别说明 |
+| `readonly` | 只读生效 | 临时目录里的文件一个都没被改（执行前后快照比对） |
+| `persist` | 结论落库 | 检查记录（含结论）写进 `agent_settings.runner_smoke_deepseek` 再读回一致 |
+| `cancel` | 取消收尾 | 再起一次（任务是 `sleep 30`），起来 2 秒后取消，按 `canceled` 收尾 |
+| `timeout` | 超时收尾 | 再起一次，超时 3 秒，按 `failed` 且原因含「超时」收尾 |
+| `cleanup` | 进程清理 | 三次执行收尾后 3 秒内各自的进程组都不在了（`kill(-pgid, 0)` 回 ESRCH）；还在的强制 SIGKILL 并记 `fail` |
+
+结束时（不论过没过）整条记录写进 `agent_settings.runner_smoke_deepseek`，只留最近一次。检查本身会调模型（三次，后两次很快被停掉）：用真实 DeepSeek 服务商时会花少量额度。
 
 ## 凭证保险箱 secrets
 

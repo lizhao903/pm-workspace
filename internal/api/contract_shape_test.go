@@ -77,6 +77,11 @@ var contractSpecs = map[string]contractSpec{
 	"TodayCard":     {v: domain.TodayCard{}},
 	"TodayRun":      {v: domain.TodayRun{}},
 
+	// 执行器（TSK-0722）
+	"RunnerStatus":       {v: RunnerStatus{}},
+	"RunnerSmoke":        {v: RunnerSmoke{}},
+	"执行器 runners#table1": {v: RunnerStatus{}, partial: true},
+
 	// 联系人字段表只列 0026 新加的列
 	"干系人名册 stakeholders#table1": {v: domain.Stakeholder{}, partial: true},
 	"Identity":                  {v: imident.Identity{}},

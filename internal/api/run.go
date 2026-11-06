@@ -170,7 +170,8 @@ type runObjectReq struct {
 	// PresetID 是选的角色（SPEC-tasks-6.18，AUTO-03），空表示不用；只读角色会把 AllowWrites 压成 false。
 	PresetID string `json:"preset_id"`
 	// Permission 是权限档位（TSK-0499）：read_only / accept_edits / edits_and_tests / custom。
-	// 给了以它为准（AllowWrites 跟着档位走），没给按 AllowWrites；只读角色一律压成 read_only。只对 claude 生效。
+	// 给了以它为准（AllowWrites 跟着档位走），没给按 AllowWrites；只读角色一律压成 read_only。
+	// harness=deepseek 时翻成 dsh 的沙箱档位（TSK-0722，runner.DSHSandboxMode），custom 没有对应、回 400。
 	Permission string `json:"permission"`
 	// Harness 是执行器：空或 claude 走本机 claude CLI，deepseek 走 deepseek-harness
 	// 的 headless 模式（dsh）。别的值 400，不兜底成 claude——
@@ -187,7 +188,7 @@ type runObjectReq struct {
 	// 以下只在 harness=agent（TSK-0460）时用，见 runagent.go。
 	// AgentID 是交给哪个 Agent，空用场景「执行任务」选的，没选用第一个启用的；续跑时用上次会话的 Agent，这项忽略。
 	AgentID string `json:"agent_id"`
-	// Model 是这次用的模型，空用服务商（没给服务商时用 Agent）设置的。
+	// Model 是这次用的模型，空用服务商（没给服务商时用 Agent）设置的。harness=deepseek 也认（TSK-0722）：空用服务商设置的。
 	Model string `json:"model"`
 	// MaxSteps / MaxMinutes 是步数和时长上限，ConfirmWaitMinutes 是等人确认多久后按拒绝处理；0 用默认值。
 	MaxSteps           int `json:"max_steps"`
@@ -256,8 +257,15 @@ func (s *Server) handleRunObject(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, err)
 		return
 	}
-	// 交给 Claude Code 的才接工作台 MCP、按档位放行（TSK-0499）；dsh 没有这两样，提示词也不写回写一节。
+	// 交给 Claude Code 的按档位放行命令（TSK-0499）；dsh 没有命令白名单，档位翻成它的沙箱档位（TSK-0722），
+	// 没有对应的档位（自定义白名单）在开流之前就回 400。两边都接工作台 MCP 回写。
 	claude := harness != runner.HarnessDeepSeek
+	if !claude {
+		if _, err := runner.DSHSandboxMode(perm, req.AllowWrites); err != nil {
+			s.fail(w, r, err)
+			return
+		}
+	}
 	var allowed []string
 	if claude {
 		perms, err := s.runPerms(ctx)
@@ -267,15 +275,12 @@ func (s *Server) handleRunObject(w http.ResponseWriter, r *http.Request) {
 		}
 		allowed = runner.PermAllowed(perm, perms.Custom)
 	}
-	var wb *runner.WriteBack
-	if claude {
-		wb = &runner.WriteBack{RunID: previewRunID, ObjectID: obj.ID, Stream: true}
-	}
+	wb := &runner.WriteBack{RunID: previewRunID, ObjectID: obj.ID, Stream: true, DSH: !claude}
 	prompt := s.promptWith(ctx, obj, workdir, req.ExtraPrompt, preset, wb)
 	var dsRoute *runner.DeepSeekRoute
 	var sessionID string
 	if harness == runner.HarnessDeepSeek {
-		dsRoute, err = s.deepseekRoute(ctx, req.ProviderID)
+		dsRoute, err = s.deepseekRoute(ctx, req.ProviderID, req.Model)
 		if err != nil {
 			s.fail(w, r, err)
 			return
@@ -310,20 +315,26 @@ func (s *Server) handleRunObject(w http.ResponseWriter, r *http.Request) {
 
 	// 工作台 MCP：配置写进数据目录的临时目录，执行收尾时删；接不上照跑，提示词写明原因。
 	// 提示词要带执行 id，建记录之后重拼一次补进记录（同终端交接）。
+	// dsh 的 MCP 是 patch 里的一条插件（TSK-0722），不用写文件，只要程序和地址。
 	mcpPath, cleanupMCP := "", func() {}
+	var dshMCP *runner.MCPEndpoint
 	if claude {
 		var noMCP string
 		mcpPath, noMCP, cleanupMCP = s.streamMCP(run.ID)
-		wb.RunID, wb.NoMCP = run.ID, noMCP
+		wb.NoMCP = noMCP
 		if mcpPath != "" {
 			allowed = append([]string{runner.MCPAllowRule()}, allowed...)
-		} else {
-			s.log.Warn("task run has no workbench mcp", "run", run.ID, "reason", noMCP)
 		}
-		prompt = s.promptWith(ctx, obj, workdir, req.ExtraPrompt, preset, wb)
-		if err := s.st.SetTaskRunPrompt(ctx, run.ID, prompt); err != nil {
-			s.log.Warn("task run prompt not saved", "run", run.ID, "err", err)
-		}
+	} else {
+		dshMCP, wb.NoMCP = s.dshMCP()
+	}
+	wb.RunID = run.ID
+	if wb.NoMCP != "" {
+		s.log.Warn("task run has no workbench mcp", "run", run.ID, "harness", harness, "reason", wb.NoMCP)
+	}
+	prompt = s.promptWith(ctx, obj, workdir, req.ExtraPrompt, preset, wb)
+	if err := s.st.SetTaskRunPrompt(ctx, run.ID, prompt); err != nil {
+		s.log.Warn("task run prompt not saved", "run", run.ID, "err", err)
 	}
 	defer cleanupMCP()
 
@@ -379,6 +390,7 @@ func (s *Server) handleRunObject(w http.ResponseWriter, r *http.Request) {
 		DeepSeek:     dsRoute,
 		SessionID:    sessionID,
 		MCPConfig:    mcpPath,
+		MCP:          dshMCP,
 		AllowedTools: allowed,
 		Permission:   perm,
 	}, emit)
@@ -625,10 +637,31 @@ func imSourceOf(o *domain.Object) *runner.Source {
 // 所以每次执行现生成一份临时 patch（见 internal/runner 的 writeDSHPatch），
 // 服务商地址、模型、密钥都从工作台这一侧带过去——密钥只经进程环境，
 // 不落文件、不进命令行。
-func (s *Server) deepseekRoute(ctx context.Context, providerID string) (*runner.DeepSeekRoute, error) {
-	p, err := s.resolveProvider(ctx, providerID)
-	if err != nil {
-		return nil, err
+//
+// 不指定服务商时按 pickDSHProvider 挑（带 deepseek 的优先，TSK-0722），不走 resolveProvider：
+// 那条路在一个服务商都没有时会自动建本机 Ollama，DeepSeek 执行器不该有这种副作用。
+// 指定了但停用了回 400。model 非空时只改这一次用的模型。
+func (s *Server) deepseekRoute(ctx context.Context, providerID, model string) (*runner.DeepSeekRoute, error) {
+	var p *domain.AgentProvider
+	if id := strings.TrimSpace(providerID); id != "" {
+		got, err := s.st.GetProvider(ctx, id)
+		if err != nil {
+			return nil, err
+		}
+		if !got.Enabled {
+			return nil, validationf("服务商「%s」已停用，到设置 > 模型服务商里启用，或换一个", got.Name)
+		}
+		p = got
+	} else {
+		list, err := s.st.ListProviders(ctx)
+		if err != nil {
+			return nil, err
+		}
+		got, prob := pickDSHProvider(list)
+		if got == nil {
+			return nil, validationf("%s：%s", prob.Message, prob.Fix)
+		}
+		p = got
 	}
 	key, err := s.st.ProviderAPIKey(ctx, p.ID)
 	if err != nil {
@@ -639,6 +672,9 @@ func (s *Server) deepseekRoute(ctx context.Context, providerID string) (*runner.
 		BaseURL: p.BaseURL,
 		Model:   p.Model,
 		APIKey:  key,
+	}
+	if m := strings.TrimSpace(model); m != "" {
+		route.Model = m
 	}
 	// 在这里就把「这条路由 dsh 能不能用」判掉：协议不支持、没设模型这类问题
 	// 用户改一下设置就能重试，不该变成流里的一条 error。

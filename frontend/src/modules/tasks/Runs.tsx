@@ -45,7 +45,7 @@ export function RunsBlock({ task, focus }: {
     <section className="dev-slot" data-slot="runs" data-task={task.id} aria-label="执行记录" ref={ref}>
       <div className="dev-slot-head">
         <span className="field-group-title">执行记录</span>
-        <span className="run-hint">从这里交给 Claude Code 或工作台 Agent 的每一次执行，最近的在前</span>
+        <span className="run-hint">从这里交给 Claude Code、DeepSeek 或工作台 Agent 的每一次执行，最近的在前</span>
       </div>
       {q.isPending && <LoadingState />}
       {q.isError && <ErrorState compact error={q.error} onRetry={() => q.refetch()} />}

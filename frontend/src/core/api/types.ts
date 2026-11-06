@@ -508,6 +508,68 @@ export type RunPermissions = {
 }
 export type RunPermissionsInput = { write_profile: RunWriteProfile; custom: string[] }
 
+// ---- 执行器（TSK-0722）----
+
+/** 执行器缺的一样东西；blocking 的让分派入口置灰 */
+export type RunnerProblemCode = 'not_installed' | 'broken' | 'no_provider' | 'provider_disabled' | 'no_model' | 'no_agent' | 'no_mcp'
+export type RunnerProblem = {
+  code: RunnerProblemCode | (string & {})
+  message: string
+  /** 一句话的修法 */
+  fix: string
+  /** 要照做的几步（命令原文），没有为空数组；没装 dsh 时是安装步骤 */
+  steps: string[]
+  blocking: boolean
+}
+/** GET /api/runners 的一项，顺序固定 claude、deepseek、agent */
+export type RunnerStatus = {
+  harness: RunHarness
+  label: string
+  available: boolean
+  /** 能用的执行方式；claude 的 terminal 还要终端插件在跑 */
+  modes: RunMode[]
+  bin: string
+  /** flag：启动参数或 DSH_BIN 指定；path：走 PATH；builtin：工作台自己 */
+  bin_source: 'flag' | 'path' | 'builtin'
+  version: string
+  /** 发起时能不能接上工作台 MCP 回写 */
+  mcp: boolean
+  /** 只 deepseek 有：不指定服务商时默认用哪个、哪个模型 */
+  provider_id: string
+  provider_name: string
+  model: string
+  problems: RunnerProblem[]
+  checked_at: string
+}
+export type SmokeCheckKey = 'spawn' | 'model' | 'mcp' | 'readonly' | 'persist' | 'cancel' | 'timeout' | 'cleanup'
+export type SmokeCheck = {
+  key: SmokeCheckKey | (string & {})
+  label: string
+  status: 'pending' | 'running' | 'pass' | 'fail' | 'skip'
+  detail: string
+  ms: number
+}
+/** DeepSeek 的集成检查（GET / POST /api/runners/deepseek/smoke） */
+export type RunnerSmoke = {
+  id: string
+  harness: RunHarness
+  status: 'running' | 'passed' | 'failed'
+  started_at: string
+  finished_at: string | null
+  bin: string
+  version: string
+  provider_id: string
+  provider_name: string
+  model: string
+  session_id: string
+  /** 模型经 MCP 回报的结论 */
+  conclusion: string
+  /** 它最后的答复（截到 2000 字） */
+  answer: string
+  checks: SmokeCheck[]
+}
+export type RunnerSmokeInput = { provider_id?: string; model?: string }
+
 // ---- 侧栏计数 ----
 
 export type Counts = {

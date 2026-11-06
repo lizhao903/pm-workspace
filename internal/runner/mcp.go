@@ -18,6 +18,13 @@ import (
 // 回写可能落到别处；独立起名后两者并存，提示词和 --allowedTools 只认这一个。
 const MCPServer = "pmw-run"
 
+// MCPEndpoint 是接回工作台的 MCP：程序路径和工作台地址。dsh 的 patch 用它（TSK-0722），
+// claude 用的是由同样两样东西生成的 MCPConfigJSON 文件。
+type MCPEndpoint struct {
+	Bin string
+	API string
+}
+
 // MCPConfigJSON 生成接回工作台的 MCP 配置：一个 stdio server，命令是本机工作台的 MCP 程序，
 // --api 指向当前工作台实例。不含任何凭证。
 func MCPConfigJSON(bin, api string) []byte {

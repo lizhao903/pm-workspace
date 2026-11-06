@@ -43,6 +43,9 @@ import type {
   FinishRunInput,
   RunPermissions,
   RunPermissionsInput,
+  RunnerSmoke,
+  RunnerSmokeInput,
+  RunnerStatus,
   RunPrompt,
   RunPromptParams,
   WorkdirCheck,
@@ -195,6 +198,14 @@ export const runs = {
   // 后台执行的权限档位与自定义白名单（TSK-0499）：PUT 整体替换，回同 GET
   permissions: (signal?: AbortSignal) => request<RunPermissions>('GET', '/api/run-permissions', { signal }),
   savePermissions: (body: RunPermissionsInput) => request<RunPermissions>('PUT', '/api/run-permissions', { body }),
+}
+
+// 执行器状态与 DeepSeek 集成检查（TSK-0722）：refresh 跳过后端一分钟的检测缓存
+export const runners = {
+  list: (refresh = false, signal?: AbortSignal) =>
+    request<RunnerStatus[]>('GET', '/api/runners', { query: refresh ? new URLSearchParams({ refresh: 'true' }) : undefined, signal }),
+  smoke: (signal?: AbortSignal) => request<RunnerSmoke | null>('GET', '/api/runners/deepseek/smoke', { signal }),
+  startSmoke: (body: RunnerSmokeInput) => request<RunnerSmoke>('POST', '/api/runners/deepseek/smoke', { body }),
 }
 
 // 不可用也是 200，看返回的字段，message 说明原因

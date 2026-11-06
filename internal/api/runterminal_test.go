@@ -82,9 +82,10 @@ func TestRunPromptPreview(t *testing.T) {
 		!strings.Contains(p, "sqlite3 -readonly -safe") || d["workdir"] == "" {
 		t.Fatalf("流式预览应有后台执行的回写一节，工作目录应继承自项目：%v", d)
 	}
-	// 交给 DeepSeek 的没有工作台 MCP，不写回写一节
-	if p := decodeEnvelope(t, do(s, "GET", "/api/objects/"+task.ID+"/run/prompt?harness=deepseek", ""))["data"].(map[string]any)["prompt"].(string); strings.Contains(p, "回写到工作台") {
-		t.Fatalf("DeepSeek 预览不该有回写一节:\n%s", p)
+	// TSK-0722：交给 DeepSeek 的也接工作台 MCP，回写一节同后台执行；权限说法是 dsh 沙箱，不提 Claude Code 的命令白名单
+	if p := decodeEnvelope(t, do(s, "GET", "/api/objects/"+task.ID+"/run/prompt?harness=deepseek", ""))["data"].(map[string]any)["prompt"].(string); !strings.Contains(p, "回写到工作台") ||
+		!strings.Contains(p, "server 名 pmw-run") || !strings.Contains(p, "dsh 的沙箱") || strings.Contains(p, "sqlite3 -readonly -safe") {
+		t.Fatalf("DeepSeek 预览应有回写一节、按 dsh 沙箱说权限:\n%s", p)
 	}
 	p = decodeEnvelope(t, do(s, "GET", "/api/objects/"+task.ID+"/run/prompt?mode=terminal", ""))["data"].(map[string]any)["prompt"].(string)
 	if !strings.Contains(p, "执行记录 <发起时生成的执行 id>") || !strings.Contains(p, "pmw_finish_run") {
