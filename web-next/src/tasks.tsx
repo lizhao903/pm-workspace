@@ -445,6 +445,10 @@ export function TaskDrawer({ task, initial, fromMessage, fromThread = [], thread
   /** 交给 Claude Code 的「切换到终端」（SPEC-tasks-6.10）：终端插件在跑才有 terminalOn；onTerminal 在终端页新开标签执行启动命令 */
   handoff?: {
     terminalOn: boolean; onTerminal: (o: { task: Task; runId: string; workdir: string; prompt: string }) => void; onManagePresets?: () => void
+    /** 「管理执行权限」（TSK-0499） */
+    onManagePerms?: () => void
+    /** 执行记录「去设置放行」（TSK-0499） */
+    onAllowRules?: (rules: string[]) => void
     /** 交给工作台 Agent（SPEC-tasks-6.20）：Agent、服务商、模型；没给就只有 Claude Code */
     agentRun?: Omit<AgentRunOptions, 'lastSession'>
     /** 发起工作台 Agent 执行时建会话（全局会话，来源标这条任务的这次执行），回会话 id */
@@ -700,7 +704,8 @@ export function TaskDrawer({ task, initial, fromMessage, fromThread = [], thread
             {cur === 'pipeline' && sop && <TaskPipelineBlock task={task} runs={sop.runs} gov={sop.gov} onAct={sop.onAct} onOpenRun={sop.onOpenRun} />}
             {cur === 'sop' && sop && <TaskSopBlock task={task} runs={sop.runs} sops={sop.sops} onStart={sop.onStart} onOpenRun={sop.onOpenRun} focus={focus.sop} />}
             {cur === 'runs' && dev && <RunsBlock runs={mine(dev.runs)} onCancel={dev.cancel} onFinish={dev.finish} focus={focus.run}
-              onDecide={dev.decide} onOpenSession={handoff?.onOpenSession} agentName={(id) => handoff?.agentRun?.agents.find((a) => a.id === id)?.name} />}
+              onDecide={dev.decide} onOpenSession={handoff?.onOpenSession} agentName={(id) => handoff?.agentRun?.agents.find((a) => a.id === id)?.name}
+              onAllowRules={handoff?.onAllowRules} />}
           </>
         )}
       </div>
@@ -711,6 +716,7 @@ export function TaskDrawer({ task, initial, fromMessage, fromThread = [], thread
             return { ...handoff.agentRun, lastSession: last ? { id: last.agent_session!, agent_id: last.agent_id, agent_name: last.agent_name } : undefined }
           })()}
           onManagePresets={handoff?.onManagePresets && (() => { setRunOpen(false); handoff.onManagePresets?.() })}
+          onManagePerms={handoff?.onManagePerms && (() => { setRunOpen(false); handoff.onManagePerms?.() })}
           onStart={(o) => {
             const runId = dev.start(task, o)
             // 工作台 Agent：建会话（续跑用上次的），记到执行记录上；不领取、不改负责人（SPEC-tasks-6.20）

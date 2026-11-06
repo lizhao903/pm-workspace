@@ -13,7 +13,7 @@ import { Button, ConfirmDialog, ErrorState, Field, IconChevronRight, LoadingStat
 import { timeAgo } from './model'
 import { useLiveRun, useLiveRuns, type LiveRun } from './runLive'
 import { RunOutput, RunStream, type DecideProps } from './RunStream'
-import { FINISH_OPTIONS, agentSessionOf, duration, extraOf, harnessLabel, modeLabel, parseOutput, runNote, runStatusOf } from './runsModel'
+import { FINISH_OPTIONS, agentSessionOf, allowRulesLink, allowRulesOf, duration, extraOf, harnessLabel, modeLabel, parseOutput, runNote, runStatusOf } from './runsModel'
 import './runs.css'
 
 export function RunsBlock({ task, focus }: {
@@ -200,6 +200,7 @@ function StreamRunRow({ run, lit }: { run: TaskRun; lit: boolean }) {
         <span className="run-at">{timeAgo(run.started_at)} · {duration(run.started_at, r.finished_at)}</span>
       </button>
       {note && <div className={cls('run-note', 'run-note-' + note.tone)}>{note.text}</div>}
+      <AllowRulesLink error={r.error} />
       {expanded && (
         <div className="run-body">
           <div className="run-meta">{r.workdir || '没有工作目录'} · 记录 {run.id.slice(-8)}{finished ? ` · exit ${r.exit_code}` : ''}</div>
@@ -229,6 +230,17 @@ function StreamRunRow({ run, lit }: { run: TaskRun; lit: boolean }) {
           )}
         </div>
       )}
+    </div>
+  )
+}
+
+/** 被拒提示带了「建议放行」规则时（TSK-0499），给一个去设置放行的直达入口，预填这些规则 */
+function AllowRulesLink({ error }: { error: string }) {
+  const rules = allowRulesOf(error)
+  if (!rules.length) return null
+  return (
+    <div className="run-note run-note-muted">
+      <Link to={allowRulesLink(rules)}>去设置放行这 {rules.length} 项</Link>（加进「执行权限」的自定义白名单，发起时选「自定义白名单」档位）
     </div>
   )
 }

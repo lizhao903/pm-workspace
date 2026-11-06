@@ -482,6 +482,22 @@ export type RunPreset = {
   id: string; scene: string; content: string; default: boolean
   permission?: RolePermission; output?: string; dir_kind?: RoleDirKind
 }
+/** 后台执行的权限档位（TSK-0499）：只读 / 允许改文件 / 允许改文件 + 跑测试构建 / 自定义白名单 */
+export type RunPermission = 'read_only' | 'accept_edits' | 'edits_and_tests' | 'custom'
+/** 写入档位：勾「允许写入」时可选的三档 */
+export type RunWriteProfile = Exclude<RunPermission, 'read_only'>
+/** 一个档位：是否放开文件编辑、实际传给 --allowedTools 的规则（不含 MCP） */
+export type RunPermProfile = { key: RunPermission; label: string; writes: boolean; allowed: string[] }
+/** GET / PUT /api/run-permissions（TSK-0499） */
+export type RunPermissions = {
+  write_profile: RunWriteProfile
+  /** 自定义白名单，只在 custom 档生效 */
+  custom: string[]
+  profiles: RunPermProfile[]
+  /** 工作台注入的 MCP server 名（pmw-run），每一档都放行它的全部工具 */
+  mcp_server: string
+}
+export type RunPermissionsInput = { write_profile: RunWriteProfile; custom: string[] }
 
 // ---- 侧栏计数 ----
 

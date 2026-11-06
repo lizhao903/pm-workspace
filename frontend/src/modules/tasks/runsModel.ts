@@ -143,6 +143,26 @@ export function runNote(r: Pick<TaskRun, 'status' | 'error'>): { text: string; t
   return { text: e, tone: r.status === 'failed' ? 'danger' : 'muted' }
 }
 
+/**
+ * 被拒提示里的「建议放行：`规则`、`规则`。」（TSK-0499，后端 internal/runner denialReason 固定的格式），
+ * 取出规则给「去设置放行」用；没有这一句回空数组
+ */
+export function allowRulesOf(error: string): string[] {
+  const i = error.indexOf('建议放行：')
+  if (i < 0) return []
+  const tail = error.slice(i + '建议放行：'.length)
+  const end = tail.indexOf('。')
+  const part = end < 0 ? tail : tail.slice(0, end)
+  const out: string[] = []
+  for (const m of part.matchAll(/`([^`]+)`/g)) if (!out.includes(m[1])) out.push(m[1])
+  return out
+}
+
+/** 去设置「执行权限」并预填这些规则的地址 */
+export function allowRulesLink(rules: readonly string[]): string {
+  return '/settings/run-permissions?add=' + encodeURIComponent(rules.join('\n'))
+}
+
 // 附加说明在提示词的「本次执行的补充要求」一节（internal/runner 的 promptTemplate；交给工作台 Agent 的 agentPromptTemplate 后面接「怎么做」）
 export function extraOf(prompt: string): string {
   const m = /## 本次执行的补充要求\n([\s\S]*?)\n\n## (?:约束|怎么做)/.exec(prompt)

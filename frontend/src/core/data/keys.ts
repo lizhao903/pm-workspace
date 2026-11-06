@@ -79,6 +79,8 @@ export const dataKeys = {
     prompt: (objectId: string, params: object) => ['runs', 'prompt', objectId, params] as const,
     /** 预置提示词（SPEC-settings-24）；不在 runs 前缀下：执行收尾刷 runs 时不该跟着刷它 */
     presets: ['run-presets'] as const,
+    /** 后台执行的权限（TSK-0499），同理不在 runs 前缀下 */
+    permissions: ['run-permissions'] as const,
   },
   workdir: (path: string) => ['agent', 'workdir', path] as const,
   fs: {

@@ -1,5 +1,5 @@
 // 交给 Claude Code（DEV-09）的纯函数：默认工作目录、请求体、运行中的那条；两种方式（0048）的文案和终端执行的善后。
-import { runFinished, type RunMode, type RunPreset, type RunRequest, type TaskRun, type TerminalRunRequest } from '../../core/data'
+import { runFinished, type RunMode, type RunPermissions, type RunPreset, type RunRequest, type RunWriteProfile, type TaskRun, type TerminalRunRequest } from '../../core/data'
 import type { LiveRun } from './runLive'
 
 // 弹窗打开时的工作目录：任务上设的优先，没设用所属项目的
@@ -9,9 +9,33 @@ export function defaultWorkdir(taskDir: string, inheritDir?: string): { dir: str
   return { dir: '', from: '' }
 }
 
-// 请求体（契约 POST /api/objects/{id}/run）：三个字段，选了角色时多一个 preset_id（SPEC-tasks-6.18）
-export function runRequest(workdir: string, extra: string, allowWrites: boolean, presetId = ''): RunRequest {
-  return { workdir: workdir.trim(), extra_prompt: extra.trim(), allow_writes: allowWrites, ...(presetId ? { preset_id: presetId } : {}) }
+// 请求体（契约 POST /api/objects/{id}/run）：目录、附加说明、允许写入、权限档位（TSK-0499：不允许写入时 read_only，
+// 允许时是选的写入档位），选了角色时多一个 preset_id（SPEC-tasks-6.18）
+export function runRequest(workdir: string, extra: string, allowWrites: boolean, presetId = '', writeProfile: RunWriteProfile = 'accept_edits'): RunRequest {
+  return {
+    workdir: workdir.trim(), extra_prompt: extra.trim(), allow_writes: allowWrites,
+    permission: allowWrites ? writeProfile : 'read_only',
+    ...(presetId ? { preset_id: presetId } : {}),
+  }
+}
+
+/** 写入档位的选项（TSK-0499），顺序同后端；文字跟设置「执行权限」一致 */
+export const WRITE_PROFILE_OPTIONS: { value: RunWriteProfile; label: string }[] = [
+  { value: 'accept_edits', label: '允许改文件' },
+  { value: 'edits_and_tests', label: '允许改文件 + 跑测试构建' },
+  { value: 'custom', label: '自定义白名单' },
+]
+
+/** 弹窗里实际用的写入档位：用户选过的优先，没选过跟设置里的默认，设置还没到用 accept_edits */
+export function pickedWriteProfile(chosen: RunWriteProfile | null, settings?: Pick<RunPermissions, 'write_profile'>): RunWriteProfile {
+  return chosen ?? settings?.write_profile ?? 'accept_edits'
+}
+
+/** 写入档位下面那行说明：每档额外放开什么 */
+export function writeProfileHint(p: RunWriteProfile, custom: readonly string[] = []): string {
+  if (p === 'edits_and_tests') return '再放行测试、构建命令（go test、npm test、make test 等）：会执行项目自己的代码'
+  if (p === 'custom') return custom.length ? `再放行设置里的自定义白名单（${custom.length} 条）` : '自定义白名单还是空的，等同「允许改文件」；到设置「执行权限」里加'
+  return '只放开文件编辑；命令只放行只读的'
 }
 
 /** 角色选「不用」时的值 */

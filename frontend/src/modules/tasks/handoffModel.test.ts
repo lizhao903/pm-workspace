@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { TaskRun } from '../../core/data'
 import {
-  NO_PRESET, TERMINAL_OFF_HINT, defaultWorkdir, effectiveAllow, launchFailSummary, modeHint, pickedPreset, roleOptionLabel, runRequest, runningOf, submitLabel, terminalRequest,
+  NO_PRESET, TERMINAL_OFF_HINT, pickedWriteProfile, writeProfileHint, defaultWorkdir, effectiveAllow, launchFailSummary, modeHint, pickedPreset, roleOptionLabel, runRequest, runningOf, submitLabel, terminalRequest,
 } from './handoffModel'
 import type { LiveRun } from './runLive'
 
@@ -15,14 +15,14 @@ describe('交给 Claude Code', () => {
     expect(defaultWorkdir('  ')).toEqual({ dir: '', from: '' })
   })
 
-  it('请求体只有三个字段，去掉首尾空白', () => {
+  it('请求体四个字段（TSK-0499 加 permission），去掉首尾空白', () => {
     const r = runRequest(' /w ', ' 只读 a.txt ', false)
-    expect(Object.keys(r).sort()).toEqual(['allow_writes', 'extra_prompt', 'workdir'])
-    expect(r).toEqual({ workdir: '/w', extra_prompt: '只读 a.txt', allow_writes: false })
+    expect(Object.keys(r).sort()).toEqual(['allow_writes', 'extra_prompt', 'permission', 'workdir'])
+    expect(r).toEqual({ workdir: '/w', extra_prompt: '只读 a.txt', allow_writes: false, permission: 'read_only' })
   })
 
   it('选了预置提示词时请求体带 preset_id，没选不带（SPEC-tasks-6.18）', () => {
-    expect(runRequest('/w', '', true, 'rp_pm')).toEqual({ workdir: '/w', extra_prompt: '', allow_writes: true, preset_id: 'rp_pm' })
+    expect(runRequest('/w', '', true, 'rp_pm')).toEqual({ workdir: '/w', extra_prompt: '', allow_writes: true, permission: 'accept_edits', preset_id: 'rp_pm' })
     expect(terminalRequest('/w', '', 'rp_pm')).toEqual({ workdir: '/w', extra_prompt: '', preset_id: 'rp_pm' })
     expect(terminalRequest('/w', '', NO_PRESET)).toEqual({ workdir: '/w', extra_prompt: '' })
   })
@@ -68,5 +68,17 @@ describe('交给 Claude Code', () => {
     expect(modeHint('terminal', true)).toContain('MCP 回写')
     expect(terminalRequest(' /w ', ' 只改文档 ')).toEqual({ workdir: '/w', extra_prompt: '只改文档' })
     expect(launchFailSummary('x')).toBe('终端没打开：x')
+  })
+
+  // TSK-0499：写入档位
+  it('不允许写入时档位恒为 read_only；允许时是选的写入档位，默认跟设置', () => {
+    expect(runRequest('/w', '', false, '', 'custom').permission).toBe('read_only')
+    expect(runRequest('/w', '', true, '', 'edits_and_tests').permission).toBe('edits_and_tests')
+    expect(pickedWriteProfile(null, undefined)).toBe('accept_edits')
+    expect(pickedWriteProfile(null, { write_profile: 'custom' })).toBe('custom')
+    expect(pickedWriteProfile('edits_and_tests', { write_profile: 'custom' })).toBe('edits_and_tests')
+    expect(writeProfileHint('edits_and_tests')).toContain('测试')
+    expect(writeProfileHint('custom', [])).toContain('还是空的')
+    expect(writeProfileHint('custom', ['Bash(git commit:*)'])).toContain('1 条')
   })
 })

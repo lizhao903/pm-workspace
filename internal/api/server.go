@@ -126,6 +126,8 @@ type Server struct {
 	agentTasks agentTaskRuns
 	// agentTimeUnit 是预算里「一分钟」有多长，零值是一分钟；测试调短
 	agentTimeUnit time.Duration
+	// streamReports 记后台执行经 MCP 回报、还没收尾的结论（TSK-0499，runperms.go）
+	streamReports streamReports
 }
 
 func New(st store.Store, opts Options) *Server {
@@ -393,6 +395,9 @@ func (s *Server) routes(m routeRegistrar) {
 	m.HandleFunc("GET /api/objects/{id}/run/prompt", s.handleRunPrompt)
 	m.HandleFunc("GET /api/run-prompts", s.handleListRunPrompts)
 	m.HandleFunc("PUT /api/run-prompts", s.handlePutRunPrompts)
+	// 后台执行的权限档位与自定义白名单（TSK-0499）
+	m.HandleFunc("GET /api/run-permissions", s.handleGetRunPermissions)
+	m.HandleFunc("PUT /api/run-permissions", s.handlePutRunPermissions)
 	m.HandleFunc("POST /api/objects/{id}/run/terminal", s.handleRunTerminal)
 	m.HandleFunc("POST /api/runs/{id}/finish", s.handleFinishTaskRun)
 

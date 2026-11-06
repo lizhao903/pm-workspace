@@ -401,9 +401,10 @@ const ev = {
 export const seedRuns: TaskRun[] = [
   {
     id: 'run_d1', task_id: 'tk_dev1', status: 'done', workdir: PMW, allow_writes: false, extra_prompt: '先别改，看看超时卡在哪', exit_code: 0,
-    error: '有 1 次工具调用被权限挡下（只读运行），没有改文件', session_id: SS_A, started_at: minsAgo(310), ended_at: minsAgo(306), pending: [],
+    error: '这次执行有 2 个工具调用被权限策略拒绝（Edit、Bash），其余步骤已执行，但被挡下的部分可能没有生效。被拒的命令：go test ./internal/export/...。本次为只读执行；要让它真正改文件，请在发起时勾选「允许修改文件」（选一个写入档位）。本次档位「只读」没放行这些调用；建议放行：`Bash(go test:*)`。到「设置 / 执行权限」把它们加进自定义白名单，发起时选「自定义白名单」档位。', session_id: SS_A, started_at: minsAgo(310), ended_at: minsAgo(306), pending: [],
     events: [ev.d('先读任务和验收标准。\n'), ev.t('t1', 'pmw_get_object', 'T-015'), ev.r('t1'), ev.t('t2', 'Grep', 'runExport'), ev.r('t2'), ev.t('t3', 'Read', 'internal/export/runner.go'), ev.r('t3'),
       ev.t('t4', 'Edit', 'internal/export/runner.go'), ev.r('t4', false, '只读运行，没有写入权限'),
+      ev.t('t5', 'Bash', 'go test ./internal/export/...'), ev.r('t5', false, 'This command requires approval'),
       ev.d('卡在 runExport 一次读完所有行。打算：\n1. 改成每 5000 行一批读\n2. 边读边写 CSV\n勾选「允许写入」再执行一次就会真的改。')],
   },
   {

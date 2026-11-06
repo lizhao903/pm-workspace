@@ -7,18 +7,21 @@
 // 打开时选上标了默认的那个；在设置「角色」里管理。流式执行的「允许写入」跟着角色走：只读角色锁成只读，
 // 允许改文件的角色默认勾上（用户可取消）；没选角色时同以前，默认只读、勾选要二次确认。终端方式的权限由启动命令决定。
 // 发起后任务由后端改成进行中（SPEC-tasks-6.17），数据层的 run-started 跟着刷任务。
+// 写入档位（TSK-0499）：勾了允许写入后多一个下拉选档位（允许改文件 / 再加测试构建 / 自定义白名单），默认取设置「执行权限」；
+// 任何档位都放行工作台 MCP 和只读命令，不用 --dangerously-skip-permissions。
 import { useEffect, useId, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Link, useNavigate } from 'react-router'
 import {
-  errorText, finishTerminalRun, startTerminalRun, useRunPresets, useRunPrompt, useTaskRuns, useWorkdirCheck, workdirUsable, type RunMode, type WorkObject,
+  errorText, finishTerminalRun, startTerminalRun, useRunPermissions, useRunPresets, useRunPrompt, useTaskRuns, useWorkdirCheck, workdirUsable,
+  type RunMode, type RunWriteProfile, type WorkObject,
 } from '../../core/data'
 import { useTerminalLauncher } from '../../core/plugin'
 import { Button, Checkbox, ConfirmDialog, Field, IconButton, IconClose, Select, Textarea } from '../../core/ui'
 import { restoreFocus, trapTab } from '../../core/ui/focus'
 import {
-  MODE_LABEL, NO_PRESET, defaultWorkdir, effectiveAllow, launchFailSummary, modeHint, pickedPreset, roleOptionLabel, roleReadOnly,
-  runRequest, runningOf, submitLabel, terminalRequest,
+  MODE_LABEL, NO_PRESET, WRITE_PROFILE_OPTIONS, defaultWorkdir, effectiveAllow, launchFailSummary, modeHint, pickedPreset, pickedWriteProfile,
+  roleOptionLabel, roleReadOnly, runRequest, runningOf, submitLabel, terminalRequest, writeProfileHint,
 } from './handoffModel'
 import { AgentRunDialog } from './AgentHandOff'
 import { startRun, useLiveRuns } from './runLive'
@@ -100,6 +103,10 @@ export function RunDialog({ task, workdir, inherit, onStart, onClose }: {
   const preset = presets.data?.find((p) => p.id === presetId)
   const { allow, locked: allowLocked } = effectiveAllow(preset, allowChoice)
   const pickPreset = (v: string) => { setChosenPreset(v); setAllowChoice(null) }
+  const perms = useRunPermissions()
+  // null 是还没选过：跟设置里的默认写入档位
+  const [chosenProfile, setChosenProfile] = useState<RunWriteProfile | null>(null)
+  const writeProfile = pickedWriteProfile(chosenProfile, perms.data)
   const [checked, setChecked] = useState(init.dir)
   // 预览跟着附加说明变，也停手片刻再取
   const [extraSettled, setExtraSettled] = useState('')
@@ -167,7 +174,7 @@ export function RunDialog({ task, workdir, inherit, onStart, onClose }: {
   const submit = () => {
     if (!ready) return
     if (effMode === 'stream') {
-      startRun(task.id, runRequest(dir, extra, allow, presetId))
+      startRun(task.id, runRequest(dir, extra, allow, presetId, writeProfile))
       onStart()
       return
     }
@@ -259,6 +266,19 @@ export function RunDialog({ task, workdir, inherit, onStart, onClose }: {
                 : allow ? `会以 acceptEdits 权限模式运行：可以直接改工作目录里的文件${preset && allowChoice === null ? `（按角色「${preset.scene}」）` : ''}`
                   : '默认只读：只跑一遍看它打算怎么做，不改文件'}
             </span>
+            {allow && (
+              <div className="ho-profile">
+                <div className="ho-preset-head">
+                  <label className="field-label" htmlFor={`${id}-profile`}>写入档位</label>
+                  <span className="spacer" />
+                  <Link className="ho-preset-manage" to="/settings/run-permissions" onClick={onClose}>管理执行权限</Link>
+                </div>
+                <Select id={`${id}-profile`} value={writeProfile} disabled={busy}
+                  onValueChange={(v) => setChosenProfile(v as RunWriteProfile)} options={WRITE_PROFILE_OPTIONS} />
+                <span className="field-hint-line">{writeProfileHint(writeProfile, perms.data?.custom)}</span>
+              </div>
+            )}
+            <span className="field-hint-line">任何档位都放行工作台 MCP（回写进展和结论）和只读命令（git log、grep、sqlite3 -readonly -safe 等）</span>
           </div>}
           <Field label="附加说明">
             <Textarea rows={3} value={extra} autoFocus
