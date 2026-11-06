@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import type { Connector, ImMessage } from '../../core/data'
 import {
   GROUP_TAB_MAX, replyNoteOf, channelTable, convBatch, convIdOf, convKey, convOk, convTabs, dmTab, pickedRows, togglePick, convOptions, dayLabel, filterRows, fmtSize, inView, mentionParts, nextWake, replyBlocker, replyWarning, snoozeOptions, statusItems, statusView, viewsOf,
-  taskTitleOf, clip100, contactCandidates, nameCloseness,
+  taskTitleOf, clip100, contactCandidates, nameCloseness, PROJECT_NONE, baseOk, projectCounts, projectFilterOptions, projectOk,
 } from './model'
 
 let seq = 0
@@ -235,5 +235,40 @@ describe('转任务回执没发起的提示（SPEC-messages-2.50）', () => {
     expect(replyNoteOf(true, { enabled: true, run_id: 'run_1' })).toBeUndefined()
     expect(replyNoteOf(false, { enabled: false })).toBeUndefined()
     expect(replyNoteOf(true, undefined)).toBeUndefined()
+  })
+})
+
+describe('项目筛选（TSK-0723）', () => {
+  const a = msg({ project_id: 'obj_a', project_source: 'message', conversation_id: 'cv_1' })
+  const b = msg({ project_id: 'obj_a', project_source: 'conversation', conversation_id: 'cv_2', status: 'done' })
+  const c = msg({ conversation_id: 'cv_1' })
+  const d = msg({ project_id: 'obj_b', project_source: 'message', conversation_id: 'cv_1', relevance: 'me' })
+  const all = [a, b, c, d]
+
+  it('按读出的 project_id 筛：空串不筛，none 是没归的', () => {
+    expect(all.filter((m) => projectOk(m, '')).length).toBe(4)
+    expect(all.filter((m) => projectOk(m, 'obj_a'))).toEqual([a, b])
+    expect(all.filter((m) => projectOk(m, PROJECT_NONE))).toEqual([c])
+    expect(all.filter((m) => baseOk(m, { channel: '', conv: 'cv:cv_1', mine: '', project: 'obj_a' }))).toEqual([a])
+    const f = { view: 'all' as const, channel: '', conv: '', unreadOnly: false, mine: 'at' as const, q: '', project: 'obj_b' }
+    expect(filterRows(all, f, NOW)).toEqual([d])
+    expect(filterRows(all, { ...f, project: 'obj_a' }, NOW)).toEqual([])
+  })
+
+  it('各项目条数按当前视图算、不算项目本身；选项未归项目在前，没归档、没删的项目按条数排', () => {
+    const counts = projectCounts(all, { view: 'pending', channel: '', conv: '', unreadOnly: false, mine: '', q: '', project: 'obj_b' }, NOW)
+    expect([...counts.entries()].sort()).toEqual([['none', 1], ['obj_a', 1], ['obj_b', 1]])
+    const opts = projectFilterOptions([
+      { id: 'obj_b', title: 'Beta', archived_at: null, deleted_at: null },
+      { id: 'obj_z', title: 'Zeta', archived_at: null, deleted_at: null },
+      { id: 'obj_a', title: 'Alpha', archived_at: null, deleted_at: null },
+      { id: 'obj_old', title: '归档的', archived_at: '2026-01-01', deleted_at: null },
+      { id: 'obj_del', title: '删了的', archived_at: null, deleted_at: '2026-01-01' },
+    ], new Map([['obj_b', 3], ['obj_a', 1], ['none', 2]]))
+    expect(opts.map((o) => `${o.label} ${o.hint}`)).toEqual(['未归项目 2 条', 'Beta 3 条', 'Alpha 1 条', 'Zeta 0 条'])
+  })
+
+  it('选了项目时「这个会话全部标为已处理」按 id，不连别的项目的一起标', () => {
+    expect(convBatch([a], 'cv:cv_1', NOW, true)).toEqual({ n: 1, input: { ids: [a.id] } })
   })
 })

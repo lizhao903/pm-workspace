@@ -23,11 +23,14 @@
 // 被自动忽略的行上状态小标悬停写「因发信人 X 被设为自动忽略」。
 // 转项目资料（0009）：行上「更多」菜单和两种抽屉里都能把这条（或这一组）存成项目的一条笔记资料（ToMaterialDialog）；
 // 转过的行上标「已转资料」，点了去项目资料页定位那一条。
+// 项目筛选（TSK-0723，SPEC-messages-1.67）：工具条「全部项目」下拉，选项是「未归项目」和没归档的项目，带当前视图下的条数；
+// 口径同后端读出的 project_id（消息自己归的优先，其次群默认项目），记在地址 ?project=<项目 id | none>。
+// 它和状态、渠道、会话、与我相关、未读、搜索一起筛，状态数字、会话下拉和群组标签、全选、批量分诊、「这个会话全部标为已处理」都只算筛出来的。
 import { Fragment, Suspense, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { useNavigate, useSearchParams } from 'react-router'
 import {
   connectorsPagePath, errorText, isApiError, onServerEvent, useConnectorDefs, useConnectors, useContacts, useDictionaries, useEventsLive, useImAction, useImBatch, useImMessage,
-  useImMessages, useImMutes, useImSyncConnector, useNotifyChange, usePlugins, useSopRunsByInput, type ImAction, type ImMessage, type ImSessionIntent,
+  useImMessages, useImMutes, useImSyncConnector, useNotifyChange, usePlugins, useProjects, useSopRunsByInput, type ImAction, type ImMessage, type ImSessionIntent,
 } from '../../core/data'
 import { useObjectDrawer } from '../../core/plugin'
 import { Avatar, ErrorState, LoadingState, PageTitle, SearchSelect, cls } from '../../core/ui'
@@ -44,7 +47,7 @@ import { SentReplyTag, SentStrip } from './SentStrip'
 import { MessageDrawer } from './MessageDrawer'
 import {
   MSG_STATUS_DICT, PAGE, RELEVANCE, VIEW_SEG_MAX, baseOk, canPick, channelOf, channelTable, convBatch, convIdOf, convOptions, convTabs, dayLabel, filterRows,
-  inView, isOpen, isSnoozed, nextWake, pickedRows, togglePick, replyBlocker, shortTime, snoozeOptions, statusItems, statusView, timeAgo, usedChannels, viewsOf, whoName, type Mine, type View,
+  inView, isOpen, isSnoozed, nextWake, pickedRows, projectCounts, projectFilterOptions, projectOk, togglePick, replyBlocker, shortTime, snoozeOptions, statusItems, statusView, timeAgo, usedChannels, viewsOf, whoName, type Mine, type View,
 } from './model'
 import { AttachmentChips, Caret, ChannelMark, Gear, Menu, MentionText, QuickReplyItems, ThreadTag } from './parts'
 import { ToTaskDialog } from './ToTaskDialog'
@@ -106,12 +109,15 @@ export default function Page() {
   const queueOpen = params.get('queue') === '1'
   const groupsOpen = params.get('groups') === '1'
   const mutesOpen = params.get('mutes') === '1'
+  // 项目筛选记在地址里（TSK-0723）：刷新、分享、从项目页跳过来都保持
+  const project = params.get('project') ?? ''
   const mutes = useImMutes()
   const live = useEventsLive()
   const messages = useImMessages({ refetchInterval: live ? false : POLL_MS })
   const connectors = useConnectors()
   const defs = useConnectorDefs()
   const contacts = useContacts()
+  const projects = useProjects()
   const dicts = useDictionaries({ withItems: true })
   const act = useImAction()
   const batch = useImBatch()
@@ -183,8 +189,12 @@ export default function Page() {
   // 主动发消息：conversationId 是带上的会话，不带时在弹窗里选
   const [sending, setSending] = useState<{ conversationId?: string } | null>(null)
 
-  const filter = { view, channel, conv, unreadOnly, mine, q }
-  const rows = useMemo(() => filterRows(list, { view, channel, conv, unreadOnly, mine, q }, now), [list, view, channel, conv, unreadOnly, mine, q, now])
+  const filter = { view, channel, conv, unreadOnly, mine, q, project }
+  const rows = useMemo(() => filterRows(list, { view, channel, conv, unreadOnly, mine, q, project }, now), [list, view, channel, conv, unreadOnly, mine, q, project, now])
+  // 选了项目时，会话下拉、群组标签、@我 数、「这个会话全部标为已处理」只看这个项目的消息
+  const plist = useMemo(() => (project ? list.filter((m) => projectOk(m, project)) : list), [list, project])
+  const pCounts = useMemo(() => projectCounts(list, { view, channel, conv, unreadOnly, mine, q }, now), [list, view, channel, conv, unreadOnly, mine, q, now])
+  const projectOpts = useMemo(() => projectFilterOptions(projects.data?.data ?? [], pCounts), [projects.data, pCounts])
   // 合并显示：分组看全部消息（连发、插话要看整段会话），摆行只用筛出来的
   const clusters = useMemo(() => clusterMessages(list), [list])
   // 消息列回复归到原消息那一行（不管合不合并），列表上不显示，只在原消息行上标「消息列 N 条未读回复」
@@ -196,13 +206,13 @@ export default function Page() {
   const segViews = views.length > VIEW_SEG_MAX + 1 ? views.slice(0, VIEW_SEG_MAX) : views
   const moreViews = views.slice(segViews.length)
   const count = (v: View) => list.filter((m) => inView(m, v, now) && baseOk(m, filter)).length
-  const atMe = list.filter((m) => m.status === 'pending' && !isSnoozed(m, now) && m.relevance === 'me').length
-  const convOpts = useMemo(() => convOptions(list, channel, now), [list, channel, now])
+  const atMe = plist.filter((m) => m.status === 'pending' && !isSnoozed(m, now) && m.relevance === 'me').length
+  const convOpts = useMemo(() => convOptions(plist, channel, now), [plist, channel, now])
   const used = usedChannels(channels, list, imConnectors)
   const broken = imConnectors.filter((c) => c.status === 'error')
   const picked = pickedRows(listed, sel)
-  const cb = useMemo(() => convBatch(list, conv, now), [list, conv, now])
-  const tabs = useMemo(() => convTabs(list, channel, now), [list, channel, now])
+  const cb = useMemo(() => convBatch(plist, conv, now, !!project), [plist, conv, now, project])
+  const tabs = useMemo(() => convTabs(plist, channel, now), [plist, channel, now])
   const convName = conv.startsWith('dm:') ? '私聊' : convOpts.find((o) => o.value === conv)?.label ?? ''
   const convId = convIdOf(conv)
   const moreOn = tabs.more.some((o) => o.value === conv)
@@ -213,7 +223,7 @@ export default function Page() {
   const lastSync = imConnectors.map((c) => c.last_sync_at).filter((x): x is string => !!x).sort().pop()
 
   // 先渲染 PAGE 条；筛选一变就回到前 PAGE 条
-  const sig = [view, channel, conv, unreadOnly, mine, q.trim(), merge].join('|')
+  const sig = [view, channel, conv, unreadOnly, mine, q.trim(), merge, project].join('|')
   const [lim, setLim] = useState({ sig, n: PAGE })
   if (lim.sig !== sig) setLim({ sig, n: PAGE })
   const limit = lim.sig === sig ? lim.n : PAGE
@@ -276,6 +286,16 @@ export default function Page() {
       const n = new URLSearchParams(p)
       if (on) n.set('groups', '1')
       else n.delete('groups')
+      return n
+    }, { replace: true })
+  }, [setParams])
+  // close：同时关掉的抽屉（同一次改地址，连着调两次 setParams 后一次会盖掉前一次）
+  const setProject = useCallback((v: string, close?: string) => {
+    setParams((p) => {
+      const n = new URLSearchParams(p)
+      if (v) n.set('project', v)
+      else n.delete('project')
+      if (close) n.delete(close)
       return n
     }, { replace: true })
   }, [setParams])
@@ -542,7 +562,7 @@ export default function Page() {
     body = (
       <div className="empty">
         <div className="empty-title">{mine === 'at' ? '没有 @我 的消息' : view === 'pending' && !conv ? `${pendingLabel}的消息都清完了` : '这里没有消息'}</div>
-        <div className="empty-desc">{view === 'pending' && !conv ? '新消息会按连接器的同步间隔收进来' : '换个状态、渠道或会话看看'}</div>
+        <div className="empty-desc">{view === 'pending' && !conv && !project ? '新消息会按连接器的同步间隔收进来' : `换个状态、渠道、会话${project ? '或项目' : ''}看看`}</div>
       </div>
     )
   } else {
@@ -687,11 +707,17 @@ export default function Page() {
           title="同一个私聊合成一行，群里同一人连发、重复的消息合成一行；只是显示，消息不变">合并显示</button>
         {!channel && (convOpts.length > 1 || conv) && (
           <SearchSelect value={conv} onChange={setConv} noneLabel="全部会话" searchPlaceholder="搜群名、发信人" aria-label="只看某个会话"
-            missingLabel={() => '这个渠道下没有这个会话'}
+            missingLabel={() => (project ? '这个项目下没有这个会话' : '这个渠道下没有这个会话')}
             options={convOpts.map((o) => ({
               value: o.value, group: o.group, label: o.label, keywords: o.keywords,
               hint: `${channelOf(channels, o.channel).label} · ${o.pending ? `${o.pending} 条${pendingLabel}` : `${o.n} 条`}`,
             }))} />
+        )}
+        {(projectOpts.length > 1 || project) && (
+          <SearchSelect value={project} onChange={(v) => setProject(v)} noneLabel="全部项目" searchPlaceholder="搜项目" aria-label="按项目筛"
+            title="消息自己归的项目优先，其次所在群的默认项目；「未归项目」是两者都没有的"
+            missingLabel={(v) => list.find((m) => m.project_id === v)?.project_name || '已归档或已删除的项目'}
+            options={projectOpts} />
         )}
         <div className="spacer" />
         <div className="im-channels" role="group" aria-label="渠道">
@@ -708,7 +734,7 @@ export default function Page() {
       {channel && (tabs.groups.length > 0 || tabs.dm) && (
         <div className="im-tabs-row">
           <div className="im-tabs" role="tablist" aria-label="群组">
-            {[{ value: '', label: '全部', pending: list.filter((m) => m.channel === channel && inView(m, 'pending', now)).length },
+            {[{ value: '', label: '全部', pending: plist.filter((m) => m.channel === channel && inView(m, 'pending', now)).length },
               ...(tabs.dm ? [tabs.dm] : []), ...tabs.groups].map((t) => (
               <button key={t.value || 'all'} type="button" role="tab" aria-selected={conv === t.value} className={cls(conv === t.value && 'on')}
                 ref={conv === t.value ? scrollToTab : undefined}
@@ -869,11 +895,11 @@ export default function Page() {
       {channelsOpen && <ChannelPanel onClose={() => setChannelsOpen(false)} onManageAll={(to) => navigate(connectorsPagePath(to))} />}
       {mutesOpen && (
         <MutesDrawer onClose={() => setMutesOpen(false)}
-          onShowMessages={(name) => { setMutesOpen(false); setChannel(''); setConv(''); setMine(''); setUnreadOnly(false); setView('ignored'); setQ(name) }} />
+          onShowMessages={(name) => { setProject('', 'mutes'); setChannel(''); setConv(''); setMine(''); setUnreadOnly(false); setView('ignored'); setQ(name) }} />
       )}
       {groupsOpen && (
         <GroupAdminDrawer onClose={() => setGroupsOpen(false)} onSend={(id) => setSending({ conversationId: id })}
-          onOpenConversation={(ch, id) => { setGroupsOpen(false); setChannel(ch); setConv(`cv:${id}`) }} />
+          onOpenConversation={(ch, id) => { setProject('', 'groups'); setChannel(ch); setConv(`cv:${id}`) }} />
       )}
       {toTask && (
         <ToTaskDialog msg={toTask} thread={threadForTask(toTask, list)} doneLabel={doneLabel} onCancel={() => setToTask(null)}
