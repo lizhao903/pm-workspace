@@ -684,11 +684,21 @@ export interface SopNodeRegistry { register(def: SopNodeView): Disposable }
 type SOPNodeDef struct {
 	Kind     string         // = provides.sop_nodes 里的一项，以 <id>_ 开头
 	Group    string         // 节点面板分组，空为「插件」
-	Required []SOPNodeField // {Key, Label}，保存时校验的必填配置项
+	Required []SOPNodeField // {Key, Label}，保存时校验的必填配置项；Spec.Params 里 Required 的也并进来
+	// Spec 是节点的声明（TSK-0490）：做什么、认哪些配置、往输出里加哪些字段
+	Spec SOPNodeSpec
 	// Run 拿到上游输入和节点配置，返回输出字段；返回 ErrWaiting 表示挂起等外部事件（例：等对方回复）。
 	// c 是提供节点的插件自己的 Core。
 	Run func(ctx context.Context, c Core, in SOPNodeInput) (map[string]any, error)
 }
+// 节点声明（TSK-0490）。Params、Outputs 为 nil 是没声明；空切片是不认配置 / 只透传
+type SOPNodeSpec struct {
+	Label, Desc string
+	Params      []SOPParam  // {Key, Label, Desc, Required, Default, Template（能写 {{字段}}）, Options []SOPOption, Source（现取的选项：conversations、projects……）}
+	Outputs     []SOPOutput // {Path（a.b，{配置项} 换成配置值）, Type（string/number/bool/object/list/any）, Label, Values []SOPOption, Example, Open}
+}
+// 把声明集中写在一个文件里时，Register 开头包一层，登记节点时按 kind 补上 Spec：
+//   r = plugin.WithSOPSpecs(r, sopSpecs) // sopSpecs map[string]SOPNodeSpec
 type SOPNodeInput struct {
 	RunID, FlowID, Step string // Step 是步骤 key，唤醒时用
 	Attempt             int    // 从 1 起，重试、退回重做加 1；服务重启后重跑同一次尝试不加（POL-02）
@@ -701,7 +711,8 @@ type SOPNodeInput struct {
 
 后端的实现情况（SOP-03a）：
 
-- `Registrar.SOPNode` 已实现。登记不对（kind 不在 `provides.sop_nodes`、不以 `<id>_` 开头、没有 `Run`、必填项缺 key 或 label、本插件内重复）时 `Register` 整体失败，插件起不来，错误写明哪一项。
+- `Registrar.SOPNode` 已实现。登记不对（kind 不在 `provides.sop_nodes`、不以 `<id>_` 开头、没有 `Run`、必填项或声明的配置项缺 key 或 label、本插件内重复）时 `Register` 整体失败，插件起不来，错误写明哪一项。
+- 节点声明 `Spec`（TSK-0490）：SOP 插件拿它做保存校验（多余的配置键给警告、条件引用的字段要在上游声明的输出里）、编辑器的「这一步能拿到的字段」和配置表单、AI 协助的节点目录、Agent 的编排说明（`GET /api/sop/node-types` 的 `label`、`desc`、`params`、`outputs`，契约「SOP 编排插件 sop」的「节点类型」）。**新加节点要写声明**，输出写 `with(input, …)` 加上去的那几个字段，子字段列全或标 `Open`；没声明的节点照样能用，只是 `outputs_open: true`，下游引用它的字段只给警告、AI 不知道它输出什么。第一方的 IM、项目、视频插件各有 `sopspec.go` 和守卫测试 `sopspec_test.go`（清单里的节点都要有声明）。`Spec` 只是元数据，改它要照常升插件版本。
 - 内核只存登记，执行由 SOP 插件经 `Core.SOP()` 取到：`Nodes()` 是在跑的插件登记的节点（`Source` 为插件 id），`RunNode` 用提供方的 Core 跑一次（panic 转成错误），提供方没在跑回 `ErrNodeUnavailable`（「提供这个节点的插件已停用」）。
 - `GET /api/sop/node-types` 在内置节点后面接上插件节点，带 `source`；停用后消失。用到它的流程定义不动，保存照常（不查必填项），执行到这一步失败并写「提供这个节点的插件已停用」。
 - 挂起：`Run` 返回 `ErrWaiting`（可以包一层写原因，如 `fmt.Errorf("等对方回复：%w", plugin.ErrWaiting)`）时步骤停在 `running`，挂起状态落在步骤输出里，服务重启后不重跑、接着等。之后提供节点的插件调 `c.SOP().Resume(ctx, runID, step, output)` 唤醒，这一步 `done`、输出是 `output`，下游接着跑；只能唤醒自己提供的节点，步骤没在等、执行已结束都回错误。SOP 插件没在跑时回 `ErrNoSOPEngine`。`Resume` 要在 `Run` 返回之后调，先存下 `RunID`、`Step`。
@@ -744,11 +755,12 @@ type SOPStarter interface {
   	SaveSOP(ctx, q SOPSave) (*SOPFlowDoc, error)       // q.ID 为空新建，否则修改；q.Body 同 POST / PATCH /api/sop/flows 的请求体
   	SOPNodeKinds(ctx) ([]SOPNodeKind, error)           // {Kind, Label, Group, Branching, Cases, Required}，内置的和在跑的插件登记的
   	ListSOPFolders(ctx) (SOPFolders, error)            // TSK-0482：{Folders: [{ID, Name, Count}], Uncategorized}，按新建先后
+  	SOPGuide(ctx) (string, error)                      // TSK-0490：给模型看的编排说明（节点目录含配置项和输出、触发方式字段、条件写法、IM 过滤、文件夹），同编辑器 AI 协助
   }
-  type SOPFlowDoc struct { SOPFlowBrief; Fields, StepDefs json.RawMessage; FolderCreated bool }
+  type SOPFlowDoc struct { SOPFlowBrief; Fields, StepDefs json.RawMessage; FolderCreated bool; Warnings []string }
   ```
 
-  `Folder`（TSK-0482）是流程所在文件夹的名字，未分类为空串。`SaveSOP` 的 body 另认 `folder`：文件夹名字（不分大小写）或 `sfd_` id，空串或「未分类」放回未分类，对不上时按这个名字新建文件夹（流程没存上时删掉这个还空着的新文件夹），`FolderCreated` 为真；给了 `folder` 就不看 `folder_id`。新实现 `SOPCatalog` 的要补 `ListSOPFolders`（接口加了方法）。
+  `Folder`（TSK-0482）是流程所在文件夹的名字，未分类为空串。`SaveSOP` 的 body 另认 `folder`：文件夹名字（不分大小写）或 `sfd_` id，空串或「未分类」放回未分类，对不上时按这个名字新建文件夹（流程没存上时删掉这个还空着的新文件夹），`FolderCreated` 为真；给了 `folder` 就不看 `folder_id`。新实现 `SOPCatalog` 的要补 `ListSOPFolders`（接口加了方法）。`Warnings`（TSK-0490）：`SaveSOP` 存上了但有保存校验警告时逐条列出（「第 n 步：…」），`GetSOP` 时是打开这条流程会看到的全部问题（警告前标「（警告）」）；没存上的错误照旧在 `error` 里，后面接一并要改的警告。
 
   `IMTrigger`（TSK-0481）是触发方式为 `im` 时的过滤条件、执行顺序和拦截，一句给人看的话（如「会话 ai-octok-platform（slack C0BNCBRL5C0，cv_…）；排除 @我；第 1 个判断；命中后不再触发后面的 IM 流程」），不是 `im` 为空串；`SaveSOP` 的 body 可带 `im`，同 `POST` / `PATCH` 的 `im`。
 
@@ -2115,6 +2127,8 @@ stateDiagram-v2
 |---|---|---|
 | 1.0.0 | 2026-10-28 | 初版（CORE-01a） |
 | 1.1.0 | 2026-10-29 | `Core` 加 `Runs()`：发起 Agent、SOP 运行和交给 Claude Code，跑完给发起的插件投 `run.finished`（VID-03a） |
+
+补记（不改版本号，2026-11-06，TSK-0490）：SOP 节点扩展点（2.7）`SOPNodeDef`、`SOPNode` 加 `Spec SOPNodeSpec`（`Label`、`Desc`、`Params []SOPParam`、`Outputs []SOPOutput`），加 `WithSOPSpecs(r, specs)` 在登记时按 kind 补声明；`Spec.Params` 里必填的并进 `Required`。流程目录 `SOPCatalog` 加 `SOPGuide`，`SOPFlowDoc` 加 `Warnings`。只增不改：不给 `Spec` 的节点照旧能用（`outputs_open: true`）；`SOPCatalog` 现有唯一实现是 SOP 编排插件（实际清单 0.16.0，不加迁移）。IM（0.26.1）、项目（0.17.1）、视频（0.8.1）插件给各自的节点补了声明，不加迁移。
 
 补记（不改版本号，2026-11-06，TSK-0482）：流程目录 `SOPCatalog`（2.7）加 `ListSOPFolders`，类型 `SOPFolders`、`SOPFolderBrief`；`SOPFlowBrief` 加 `Folder`，`SOPFlowDoc` 加 `FolderCreated`，`SaveSOP` 的 body 认 `folder`。接口加方法，现有唯一实现是 SOP 编排插件（实际清单 0.15.0，迁移加 `0009_folders.sql`，表 `sop_folders`），没有第三方实现。`RemoveFlow` 不再删用户放进了文件夹的内置流程。
 

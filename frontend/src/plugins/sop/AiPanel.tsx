@@ -16,7 +16,11 @@ const EXAMPLES = [
 ]
 
 /** 发给接口的草稿：去掉画布位置（AI 不管位置） */
-const forAssist = (d: Draft): SopDraft => ({ ...(d.id ? { id: d.id } : {}), name: d.name, desc: d.desc, trigger: d.trigger, fields: d.fields, steps: d.steps })
+// IM 触发的过滤、顺序、拦截和文件夹也带上（TSK-0490），AI 改的时候照着现在的设置
+const forAssist = (d: Draft): SopDraft => ({
+  ...(d.id ? { id: d.id } : {}), name: d.name, desc: d.desc, trigger: d.trigger, fields: d.fields, steps: d.steps,
+  ...(d.trigger === 'im' && d.im ? { im: d.im } : {}), ...(d.folder_id ? { folder_id: d.folder_id } : {}),
+})
 
 export function AiPanel({ hidden, draft, selected, onApply, onUndo, canUndo, onClose }: {
   hidden: boolean

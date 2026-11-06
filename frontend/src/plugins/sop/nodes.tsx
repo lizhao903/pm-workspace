@@ -177,7 +177,7 @@ const INFO: Record<string, NodeInfo> = {
     summary: (c) => (c.language === 'python' ? 'Python' : 'JavaScript'),
   },
   decide: {
-    label: KIND_LABEL.decide, desc: '按规则选分支；规则留空就是人工判断', color: '#0f8a8a',
+    label: KIND_LABEL.decide, desc: '按条件（字段 + 运算符 + 值）选分支；没有条件就是人工判断', color: '#0f8a8a',
     icon: <>{line('M4 3v3.5a2 2 0 0 0 2 2h4M10 8.5 12.5 6M10 8.5 12.5 11M4 6.5V13')}</>, fields: [],
   },
   classifier: {

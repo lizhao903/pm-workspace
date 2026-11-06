@@ -52,7 +52,17 @@ type NodeType struct {
 	Required     []ConfigField `json:"required"`
 	// Source 是 builtin 或提供节点的插件 id（SOP-03a），只在 GET /api/sop/node-types 里填
 	Source string `json:"source,omitempty"`
+	// Label、Desc、Params、Outputs 是节点的声明（TSK-0490，spec.go）；插件节点没声明时 Params、Outputs 为 nil，
+	// 接口里是 [] 加 outputs_open: true（输出字段未知，下游引用它的字段只给警告）
+	Label       string   `json:"label"`
+	Desc        string   `json:"desc"`
+	Params      []Param  `json:"params"`
+	Outputs     []Output `json:"outputs"`
+	OutputsOpen bool     `json:"outputs_open"`
 }
+
+// declared 是节点声明了输出（含只透传的空声明）。
+func (t NodeType) declared() bool { return t.Outputs != nil }
 
 // NodeTypes 和原型 NODE_TYPES 同序；加节点类型两边一起加。插件登记的节点在 nodes_plugin.go（SOP-03a）。
 var NodeTypes = []NodeType{
@@ -117,12 +127,17 @@ type Flow struct {
 	IM IMTrigger `json:"im"`
 	// FolderID 是流程所在的文件夹（TSK-0482，folders.go），nil 是「未分类」
 	FolderID *string `json:"folder_id"`
+	// Issues 是按现在的保存校验查出来的问题（TSK-0490），只在 GET 一条、新建、修改的回包里带：
+	// 打开编辑时提示旧规则要改成结构化条件、存上了但有警告；列表和执行快照里不带
+	Issues []Issue `json:"issues,omitempty"`
 }
 
-// Issue 是一处校验问题，step 是步骤下标（原型 checkSop 的 Issue 去掉 level，这里只收拦保存的）。
+// Issue 是一处校验问题，step 是步骤下标。level 是 error（拦保存）或 warning（能存，提示），code 见 check.go（TSK-0490）。
 type Issue struct {
-	Text string `json:"text"`
-	Step *int   `json:"step,omitempty"`
+	Text  string `json:"text"`
+	Step  *int   `json:"step,omitempty"`
+	Level string `json:"level"`
+	Code  string `json:"code,omitempty"`
 }
 
 type flows struct {
@@ -178,6 +193,7 @@ func (h *flows) show(w http.ResponseWriter, r *http.Request) {
 		fail(w, r, h.c, err)
 		return
 	}
+	f.Issues = checkFlow(&f, kindsOf(h.c))
 	writeJSON(w, http.StatusOK, map[string]any{"data": f})
 }
 
@@ -222,7 +238,8 @@ func (h *flows) create(ctx context.Context, raw map[string]json.RawMessage) (Flo
 	if f.FolderID, _, err = readFolderID(ctx, h.c, raw); err != nil {
 		return Flow{}, err
 	}
-	if err := apply(&f, raw, kindsOf(h.c)); err != nil {
+	warns, err := apply(&f, raw, kindsOf(h.c))
+	if err != nil {
 		return Flow{}, err
 	}
 	normalizeTrigger(&f, sched)
@@ -239,7 +256,9 @@ func (h *flows) create(ctx context.Context, raw map[string]json.RawMessage) (Flo
 	if err := syncSchedule(ctx, h.c, f, "", sched); err != nil {
 		return Flow{}, scheduleErr(err)
 	}
-	return h.getFull(ctx, f.ID)
+	out, err := h.getFull(ctx, f.ID)
+	out.Issues = warns
+	return out, err
 }
 
 func (h *flows) update(w http.ResponseWriter, r *http.Request) {
@@ -286,7 +305,8 @@ func (h *flows) patch(ctx context.Context, id string, raw map[string]json.RawMes
 	} else if ok {
 		f.FolderID = folder
 	}
-	if err := apply(&f, raw, kindsOf(h.c)); err != nil {
+	warns, err := apply(&f, raw, kindsOf(h.c))
+	if err != nil {
 		return Flow{}, err
 	}
 	normalizeTrigger(&f, sched)
@@ -308,7 +328,9 @@ func (h *flows) patch(ctx context.Context, id string, raw map[string]json.RawMes
 	if err := syncSchedule(ctx, h.c, f, prev, sched); err != nil {
 		return Flow{}, scheduleErr(err)
 	}
-	return h.getFull(ctx, id)
+	out, err := h.getFull(ctx, id)
+	out.Issues = warns
+	return out, err
 }
 
 func (h *flows) remove(w http.ResponseWriter, r *http.Request) {
@@ -359,16 +381,28 @@ func (h *flows) remove(w http.ResponseWriter, r *http.Request) {
 func (h *flows) nodeTypes(w http.ResponseWriter, _ *http.Request) {
 	out := make([]NodeType, 0, len(NodeTypes))
 	for _, t := range NodeTypes {
-		if t.Required == nil {
-			t.Required = []ConfigField{}
-		}
 		t.Source = "builtin"
-		out = append(out, t)
+		out = append(out, t.forAPI())
 	}
 	for _, n := range h.c.SOP().Nodes() {
-		out = append(out, pluginNodeType(n))
+		out = append(out, pluginNodeType(n).forAPI())
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"data": out, "meta": map[string]int{"total": len(out)}})
+}
+
+// forAPI 是 node-types 里的样子：nil 换成 []，没声明输出的标 outputs_open。
+func (t NodeType) forAPI() NodeType {
+	if t.Required == nil {
+		t.Required = []ConfigField{}
+	}
+	t.OutputsOpen = !t.declared()
+	if t.Params == nil {
+		t.Params = []Param{}
+	}
+	if t.Outputs == nil {
+		t.Outputs = []Output{}
+	}
+	return t
 }
 
 func (h *flows) get(ctx context.Context, id string) (Flow, error) {
@@ -437,7 +471,8 @@ func layoutCol(l json.RawMessage) any {
 }
 
 // apply 把 body 里传了的字段写进 f，再对整条定义做一遍校验；新建和修改同一套口径。
-func apply(f *Flow, raw map[string]json.RawMessage, kinds kindLookup) error {
+// 有错误回 checkError（issues 里错误在前、警告在后）；没有错误时回警告（可能为 nil）。
+func apply(f *Flow, raw map[string]json.RawMessage, kinds kindLookup) ([]Issue, error) {
 	strField := func(key string, dst *string, limit int) error {
 		v, ok := raw[key]
 		if !ok {
@@ -452,14 +487,14 @@ func apply(f *Flow, raw map[string]json.RawMessage, kinds kindLookup) error {
 		}
 		return nil
 	}
-	if err := strField("name", &f.Name, maxName); err != nil {
-		return err
-	}
-	if err := strField("desc", &f.Desc, maxDesc); err != nil {
-		return err
-	}
-	if err := strField("trigger", &f.Trigger, maxTrigger); err != nil {
-		return err
+	for _, x := range []struct {
+		key   string
+		dst   *string
+		limit int
+	}{{"name", &f.Name, maxName}, {"desc", &f.Desc, maxDesc}, {"trigger", &f.Trigger, maxTrigger}} {
+		if err := strField(x.key, x.dst, x.limit); err != nil {
+			return nil, err
+		}
 	}
 	for key, dst := range map[string]*json.RawMessage{"fields": &f.Fields, "steps": &f.Steps} {
 		v, ok := raw[key]
@@ -468,7 +503,7 @@ func apply(f *Flow, raw map[string]json.RawMessage, kinds kindLookup) error {
 		}
 		v = bytes.TrimSpace(v)
 		if len(v) == 0 || v[0] != '[' {
-			return apiErr(errValidation, "%s 必须是数组", key)
+			return nil, apiErr(errValidation, "%s 必须是数组", key)
 		}
 		*dst = compact(v)
 	}
@@ -480,13 +515,14 @@ func apply(f *Flow, raw map[string]json.RawMessage, kinds kindLookup) error {
 		case len(v) > 0 && v[0] == '{':
 			f.Layout = compact(v)
 		default:
-			return apiErr(errValidation, "layout 必须是对象或 null")
+			return nil, apiErr(errValidation, "layout 必须是对象或 null")
 		}
 	}
-	if issues := CheckWith(f, kinds); len(issues) > 0 {
-		return &checkError{issues}
+	all := checkFlow(f, kinds)
+	if errs := errorsOf(all); len(errs) > 0 {
+		return nil, &checkError{append(errs, warningsOf(all)...)}
 	}
-	return nil
+	return warningsOf(all), nil
 }
 
 func compact(v json.RawMessage) json.RawMessage {
@@ -522,23 +558,28 @@ type stepDef struct {
 		Of   string `json:"of"`
 		Case string `json:"case"`
 	} `json:"branch"`
-	Cases  []Case            `json:"cases"`
+	Cases []Case `json:"cases"`
+	// Rule 是旧的一行规则（「字段 等于 值」），只为已有流程保留，执行仍按它判断；新写的条件用 Cond（TSK-0490，cond.go）
 	Rule   string            `json:"rule"`
+	Cond   *Cond             `json:"cond"`
 	Config map[string]string `json:"config"`
 }
 
 var fieldTypes = []string{"text", "textarea", "select"}
 
-// Check 是保存前的校验，口径同原型编辑器的「检查」（web-next/src/sopedit.tsx 的 checkSop）里拦保存的那几条，
-// 另加原型靠编辑器保证、接口要自己查的：步骤 key 唯一、依赖无环、分支 case 存在、字段和配置的类型。
-// 原型里只是提醒的（没有人工检查点、分支下没有步骤、多个起点）不拦。
+// Check 是保存前的校验里拦保存的（错误），口径同原型编辑器的「检查」（web-next/src/sopedit.tsx 的 checkSop）里拦保存的那几条，
+// 另加原型靠编辑器保证、接口要自己查的：步骤 key 唯一、依赖无环、分支 case 存在、字段和配置的类型，
+// 以及按节点声明查的（TSK-0490，check.go）。原型里只是提醒的（没有人工检查点、分支下没有步骤、多个起点）不拦。
 func Check(f *Flow) []Issue { return CheckWith(f, nodeType) }
 
 // CheckWith 同 Check，节点类型按 kinds 查，插件登记的节点也认（SOP-03a）。
-func CheckWith(f *Flow, kinds kindLookup) []Issue {
+func CheckWith(f *Flow, kinds kindLookup) []Issue { return errorsOf(checkFlow(f, kinds)) }
+
+// checkFlow 是全部问题：错误在前，警告在后（TSK-0490）。
+func checkFlow(f *Flow, kinds kindLookup) []Issue {
 	var out []Issue
 	add := func(step int, format string, args ...any) {
-		x := Issue{Text: fmt.Sprintf(format, args...)}
+		x := Issue{Text: fmt.Sprintf(format, args...), Level: levelError}
 		if step >= 0 {
 			s := step
 			x.Step = &s
@@ -701,6 +742,8 @@ func CheckWith(f *Flow, kinds kindLookup) []Issue {
 		add(cyc[0], "依赖成环：%s", strings.Join(names, " → "))
 	}
 
+	out = append(out, declIssues(f, steps, ok, idx, kinds, label)...)
+
 	if len(f.Layout) > 0 {
 		var pos map[string]struct {
 			X *float64 `json:"x"`
@@ -716,7 +759,7 @@ func CheckWith(f *Flow, kinds kindLookup) []Issue {
 			}
 		}
 	}
-	return out
+	return append(errorsOf(out), warningsOf(out)...)
 }
 
 func isBranching(kind string) bool {

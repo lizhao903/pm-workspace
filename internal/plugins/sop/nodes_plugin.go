@@ -31,7 +31,8 @@ func kindsOf(c plugin.Core) kindLookup {
 			}
 		}
 		if id, ok := s.Provider(kind); ok {
-			return NodeType{Kind: kind, Group: "插件", Required: []ConfigField{}, Source: id}, true
+			// 插件停用了：不知道它认哪些配置、输出什么，不查多余的配置，输出当未知
+			return NodeType{Kind: kind, Group: "插件", Required: []ConfigField{}, Source: id, Label: kind}, true
 		}
 		return NodeType{}, false
 	}
@@ -42,7 +43,12 @@ func pluginNodeType(n plugin.SOPNode) NodeType {
 	for i, f := range n.Required {
 		req[i] = ConfigField{Key: f.Key, Label: f.Label}
 	}
-	return NodeType{Kind: n.Kind, Group: n.Group, Required: req, Source: n.Source}
+	label := n.Spec.Label
+	if label == "" {
+		label = n.Kind
+	}
+	return NodeType{Kind: n.Kind, Group: n.Group, Required: req, Source: n.Source,
+		Label: label, Desc: n.Spec.Desc, Params: n.Spec.Params, Outputs: n.Spec.Outputs}
 }
 
 // isPluginKind：不是内置节点的都按插件节点执行。

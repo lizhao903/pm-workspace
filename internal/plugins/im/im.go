@@ -148,7 +148,8 @@ func (p *Plugin) Register(r plugin.Registrar) error {
 	// 补登记之前没登记的会话，启用时跑一次（PR-02）
 	r.Job(plugin.Job{Name: "register_conversations", Run: in.registerJob})
 	r.ConnectorImpact(plugin.ConnectorImpactDef{Key: "messages", Load: messagesImpact})
-	// SOP 节点：发消息、等回复（SOP-02b，sopnodes.go）
+	// SOP 节点：发消息、等回复（SOP-02b，sopnodes.go）；登记时按 kind 补上节点声明（TSK-0490，sopspec.go）
+	r = plugin.WithSOPSpecs(r, sopSpecs)
 	in.registerSOPNodes(r)
 	in.registerTaskReply(r)
 	in.registerAskMe(r)      // 私信我确认（TSK-0411，askme.go）

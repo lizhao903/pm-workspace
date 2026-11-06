@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { PageTitle } from './topbar'
 import { DataView, triggerLabel } from './sop'
-import { NODE_GROUPS, NODE_TYPES, KindIcon, KindTag, claudeTimeout, defaultConfig, evalRule, isBranching, loopRounds, missingFields, typeOf, type ConfigField, type FieldCtx } from './nodetypes'
+import { NODE_GROUPS, NODE_TYPES, KindIcon, KindTag, claudeTimeout, defaultConfig, isBranching, loopRounds, missingFields, typeOf, type ConfigField, type FieldCtx } from './nodetypes'
 import { IM_RELEVANCES, IM_REL_LABEL, SOPS, SOP_FOLDERS, STEP_KIND, UNCATEGORIZED, folderOf, depsOf, emptyIM, imFilterText, imSops, stepLook, isManualDecide, ranks, upstreamOf, type Sop, type SopField, type SopIM, type SopRun, type SopStepDef, type StepKind } from './sopflow'
 import { SearchSelect } from './searchselect'
 import { IM_CONVERSATIONS } from './data'
@@ -10,6 +10,7 @@ import { useEnum } from './enumdata'
 import { newId } from './ids'
 import { RuleFields } from './schedule'
 import { describeRule, emptyRule } from './scheduledata'
+import { CondEditor, FieldsList, blankCond, condProblems, condText, legacyCond, stepFields } from './sopcond'
 
 /** 新选「定时」时的默认规则：每天 09:00（TSK-0463） */
 const defaultSched = () => ({ rule: { ...emptyRule(), freq: 'daily' as const, time: '09:00' }, enabled: true })
@@ -44,11 +45,17 @@ export function checkSop(sop: Sop): Issue[] {
       // 条件回退（AUTO-02），同后端 checkLoopback：回退目标不是依赖，不算环，但必须是上游
       const t = s.config?.target?.trim()
       const j = sop.steps.findIndex((x) => x.key === t)
-      if (!s.rule?.trim()) out.push({ level: 'error', text: `「${s.name}」还没填回退条件`, step: i })
-      else if (evalRule(s.rule, {}) === null) out.push({ level: 'error', text: `「${s.name}」回退条件写法不对，要写成「字段 等于 值」或「字段 包含 值」`, step: i })
+      if (!s.cond && !s.rule?.trim()) out.push({ level: 'error', text: `「${s.name}」还没填回退条件`, step: i })
       if (t && j === i) out.push({ level: 'error', text: `「${s.name}」不能退回到自己`, step: i })
       else if (t && (j < 0 || !upstreamOf(sop, i).includes(j))) out.push({ level: 'error', text: `「${s.name}」只能退回到上游的步骤`, step: i })
       if (loopRounds(s.config?.max_rounds) === null) out.push({ level: 'error', text: `「${s.name}」最多退回几轮要是 1 到 10 的整数`, step: i })
+    }
+    // 条件（TSK-0490，同后端 declIssues）：结构化条件查写法；旧规则是一句话的拦，旧写法的提示转换
+    if (s.kind === 'decide' || s.kind === 'loopback') {
+      const rule = s.rule?.trim() ?? ''
+      if (s.cond) condProblems(s.cond).forEach((t) => out.push({ level: 'error', text: `「${s.name}」${t}`, step: i }))
+      else if (rule && !legacyCond(rule)) out.push({ level: 'error', text: `「${s.name}」的条件「${rule}」是一句话，程序没法照着判断：改成结构化条件（字段 + 运算符 + 值），这句话可以写进说明`, step: i })
+      else if (rule) out.push({ level: 'warn', text: `「${s.name}」的条件还是旧写法「${rule}」，执行仍按它判断；建议转成结构化条件`, step: i })
     }
     if (s.kind === 'claude_code' && claudeTimeout(s.config?.timeout) === null) out.push({ level: 'error', text: `「${s.name}」超时写法不对，要写成「30 分钟」「2 小时」这样，最多 24 小时`, step: i })
     if (s.branch && !sop.steps.some((x) => x.key === s.branch!.of && isBranching(x.kind))) out.push({ level: 'error', text: `「${s.name}」挂在一个不存在的判断上`, step: i })
@@ -526,7 +533,9 @@ function NodePanel({ draft, nodeKey, runs, sopList, tried, onChange, onPatchSop,
   onClose: () => void
 }) {
   const [tab, setTab] = useState<'set' | 'last'>('set')
-  useEffect(() => { setTab('set') }, [nodeKey])
+  // 最近编辑的文字配置项：「这一步能拿到的字段」点了往它末尾追加 {{路径}}（TSK-0490）
+  const [lastCfg, setLastCfg] = useState<string | null>(null)
+  useEffect(() => { setTab('set'); setLastCfg(null) }, [nodeKey])
   const s = draft.steps.find((x) => x.key === nodeKey)
   const kids = draft.steps.filter((x) => (nodeKey === START ? !(x.after ?? []).length : x.after?.includes(nodeKey)))
   const addBtn = (caseKey?: string) => (e: React.MouseEvent) => { const r = (e.currentTarget as HTMLElement).getBoundingClientRect(); onAddNext({ x: r.left - 300, y: r.top }, nodeKey, caseKey) }
@@ -672,8 +681,10 @@ function NodePanel({ draft, nodeKey, runs, sopList, tried, onChange, onPatchSop,
             </select>
           </label>
           {(typeOf(s.kind).fields ?? []).filter((f) => !f.hidden?.(s.config ?? {})).map((f) => (
-            <ConfigInput key={f.key} field={f} value={s.config?.[f.key] ?? ''} cfg={s.config ?? {}} ctx={{ sops: sopList, ups: ancestors }} bad={tried && f.required && !s.config?.[f.key]?.trim()}
-              onChange={(v) => onChange({ config: { ...(s.config ?? {}), ...Object.fromEntries((f.clears ?? []).map((k) => [k, ''])), [f.key]: v } })} />
+            <div key={f.key} onFocus={() => setLastCfg(f.key)}>
+              <ConfigInput field={f} value={s.config?.[f.key] ?? ''} cfg={s.config ?? {}} ctx={{ sops: sopList, ups: ancestors }} bad={tried && f.required && !s.config?.[f.key]?.trim()}
+                onChange={(v) => onChange({ config: { ...(s.config ?? {}), ...Object.fromEntries((f.clears ?? []).map((k) => [k, ''])), [f.key]: v } })} />
+            </div>
           ))}
           <label className="field">
             <span className="field-label">{typeOf(s.kind).descLabel ?? '说明'}</span>
@@ -683,17 +694,9 @@ function NodePanel({ draft, nodeKey, runs, sopList, tried, onChange, onPatchSop,
           </label>
           {isBranching(s.kind) && (
             <>
-              {s.kind === 'decide' && (
-                <label className="field">
-                  <span className="field-label">判断规则<span className="field-hint">留空就是人工判断</span></span>
-                  <input value={s.rule ?? ''} placeholder="比如：金额大于 5000" onChange={(e) => onChange({ rule: e.target.value })} />
-                </label>
-              )}
-              {s.kind === 'loopback' && (
-                <label className="field">
-                  <span className="field-label">回退条件<span className="field-hint">成立就退回上面选的步骤重做，写法同条件分支</span></span>
-                  <input className={cls(tried && !s.rule?.trim() && 'bad')} value={s.rule ?? ''} placeholder="result.verdict 等于 reject" onChange={(e) => onChange({ rule: e.target.value })} />
-                </label>
+              {(s.kind === 'decide' || s.kind === 'loopback') && (
+                <CondEditor step={s} loop={s.kind === 'loopback'} tried={tried} onChange={onChange}
+                  groups={stepFields(draft, draft.steps.indexOf(s), (i) => upstreamOf(draft, i))} />
               )}
               <div className="field">
                 <span className="field-label">{s.kind === 'classifier' ? '类别' : s.kind === 'loopback' ? '出口' : '分支'}<span className="field-hint">{s.kind === 'classifier' ? '每一类一个出口；类别名写清楚，分类更准' : s.kind === 'loopback' ? '条件不成立走「通过」；退回轮次用完还成立走「超限」，没接步骤时这一步失败' : ''}</span></span>
@@ -711,6 +714,12 @@ function NodePanel({ draft, nodeKey, runs, sopList, tried, onChange, onPatchSop,
               </div>
             </>
           )}
+          <FieldsList groups={stepFields(draft, draft.steps.indexOf(s), (i) => upstreamOf(draft, i))}
+            onPick={(p) => {
+              const k = lastCfg && (typeOf(s.kind).fields ?? []).some((f) => f.key === lastCfg) ? lastCfg : null
+              if (k) onChange({ config: { ...(s.config ?? {}), [k]: `${s.config?.[k] ?? ''}{{${p}}}` } })
+              else void navigator.clipboard?.writeText(`{{${p}}}`)
+            }} />
           <div className="field">
             <span className="field-label">上游<span className="field-hint">{ups.length > 1 ? '汇合：等这几个都完成才开始' : '从画布上拖线可以再连一个上游'}</span></span>
             <div className="np-links">
@@ -888,7 +897,7 @@ export function SopEditor({ initial, creating, runs, sopList, hasSchedule = fals
 
   const addNode = (item: PaletteItem, from: string, caseKey?: string) => {
     const step = makeStep(draft, item.kind, item.manual ? '人工判断' : item.id === 'rule' ? '条件分支' : item.label, from === START ? [] : [from],
-      { ...(caseKey ? { branch: { of: from, case: caseKey } } : {}), ...(item.kind === 'decide' ? { rule: item.manual ? '' : '填写判断条件' } : {}) })
+      { ...(caseKey ? { branch: { of: from, case: caseKey } } : {}), ...(item.kind === 'decide' && !item.manual ? { cond: blankCond() } : {}) })
     // 同一个节点后面已经有几个子节点就往下错开几格，不管它们在哪个分支，免得叠在一起
     const siblings = draft.steps.filter((x) => (from === START ? !(x.after ?? []).length : x.after?.includes(from))).length
     const base = lay[from] ?? { x: 60, y: 80 }
@@ -1130,7 +1139,7 @@ export function SopEditor({ initial, creating, runs, sopList, hasSchedule = fals
                         <span className="cv-handle cv-handle-case" data-out={s.key} data-case={c.key} title={`拖动连线，或点击在「${c.label}」分支加节点`}>+</span>
                       </div>
                     ))}
-                    <div className="cv-rule ellipsis">{s.kind === 'classifier' ? 'AI 分类' : isManualDecide(s) ? '人工判断' : s.kind === 'loopback' ? `${s.rule?.trim() ? `条件：${s.rule}` : '还没填回退条件'} · 退回 ${draft.steps.find((x) => x.key === s.config?.target)?.name ?? '未选'}` : s.rule?.trim() ? `规则：${s.rule}` : '按内置规则判断'}</div>
+                    <div className="cv-rule ellipsis">{s.kind === 'classifier' ? 'AI 分类' : isManualDecide(s) ? '人工判断' : s.kind === 'loopback' ? `${s.cond ? `条件：${condText(s.cond)}` : s.rule?.trim() ? `条件：${s.rule}` : '还没填回退条件'} · 退回 ${draft.steps.find((x) => x.key === s.config?.target)?.name ?? '未选'}` : s.cond ? `条件：${condText(s.cond)}` : s.rule?.trim() ? `规则：${s.rule}` : '按内置规则判断'}</div>
                   </div>
                 ) : (
                   <>

@@ -79,6 +79,7 @@ export function EditPage({ id, folderId, flows, runs, onCancel, onSaved }: {
         <QueryState query={flow} errorTitle="流程没取到">
           {(f) => (
             <Editor key={f.id} initial={{ id: f.id, name: f.name, desc: f.desc, ...draftScheduleOf(f), im: imDraftOf(f), fields: f.fields, steps: f.steps, layout: f.layout, folder_id: f.folder_id ?? null }}
+              issues={f.issues}
               flowId={f.id} version={f.version} hasSchedule={!!f.schedule} catalog={catalog} ctx={ctx} triggers={triggers} runs={runs} onCancel={onCancel} onSaved={onSaved} />
           )}
         </QueryState>

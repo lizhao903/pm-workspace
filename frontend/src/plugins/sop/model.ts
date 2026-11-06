@@ -108,8 +108,8 @@ export function branchingOf(types: readonly SopNodeType[] | undefined) {
   const m = new Map((types ?? []).map((t) => [t.kind, t.branching]))
   return (d: SopStepDef) => m.get(d.kind) ?? !!d.cases?.length
 }
-/** 规则留空的条件分支是人工判断 */
-export const isManualDecide = (d: SopStepDef) => d.kind === 'decide' && !d.rule?.trim()
+/** 没有条件（结构化条件 cond、旧规则 rule 都没有）的条件分支是人工判断（TSK-0490） */
+export const isManualDecide = (d: SopStepDef) => d.kind === 'decide' && !d.cond && !d.rule?.trim()
 
 /** 补全默认依赖：没写 after 的接在上一步后面 */
 export const depsOf = (flow: Pick<SopFlow, 'steps'>, i: number): string[] => flow.steps[i].after ?? (i === 0 ? [] : [flow.steps[i - 1].key])

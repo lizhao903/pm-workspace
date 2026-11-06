@@ -182,6 +182,8 @@ export const dataKeys = {
     /** 流程库的文件夹（TSK-0482）：带各自的流程数，流程增删改、移动时一起刷 */
     folders: ['sop', 'folders'] as const,
     nodeTypes: ['sop', 'node-types'] as const,
+    /** 这一步能拿到的字段（TSK-0490）：按草稿的 JSON 和步骤 key 缓存 */
+    stepFields: (draft: string, step: string) => ['sop', 'step-fields', draft, step] as const,
     runs: ['sop', 'runs'] as const,
     runList: ['sop', 'runs', 'list'] as const,
     run: (id: string) => ['sop', 'runs', 'get', id] as const,

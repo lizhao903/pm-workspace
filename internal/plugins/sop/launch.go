@@ -155,7 +155,10 @@ func (s *starter) GetSOP(ctx context.Context, ref string) (*plugin.SOPFlowDoc, e
 	if err != nil {
 		return nil, plainErr(err)
 	}
-	return s.doc(ctx, f), nil
+	doc := s.doc(ctx, f)
+	// 打开这条流程会看到的问题（含旧写法规则的提示，TSK-0490）
+	doc.Warnings = issueLines(checkFlow(&f, kindsOf(s.c)))
+	return doc, nil
 }
 
 func (s *starter) SaveSOP(ctx context.Context, q plugin.SOPSave) (*plugin.SOPFlowDoc, error) {
@@ -212,13 +215,27 @@ func (s *starter) SaveSOP(ctx context.Context, q plugin.SOPSave) (*plugin.SOPFlo
 		dropEmptyFolder(ctx, s.c, created)
 		var ce *checkError
 		if errors.As(err, &ce) {
-			return nil, errors.New(issuesText(ce.issues))
+			return nil, errors.New(issuesText(errorsOf(ce.issues)) + warnTail(warningsOf(ce.issues)))
 		}
 		return nil, plainErr(err)
 	}
 	doc := s.doc(ctx, f)
 	doc.FolderCreated = created != nil
+	doc.Warnings = issueLines(f.Issues)
 	return doc, nil
+}
+
+// issueLines 是给模型看的问题，一条一行，带「第 n 步：」；警告前面标「（警告）」。
+func issueLines(issues []Issue) []string {
+	out := make([]string, 0, len(issues))
+	for _, x := range issues {
+		t := issueText(x)
+		if x.Level == levelWarning {
+			t = "（警告）" + t
+		}
+		out = append(out, t)
+	}
+	return out
 }
 
 // dropEmptyFolder 删掉 SaveSOP 为这次保存新建、流程却没存上的文件夹（还空着才删）。
@@ -255,6 +272,8 @@ func (s *starter) SOPNodeKinds(_ context.Context) ([]plugin.SOPNodeKind, error) 
 // fillStepDefaults 补模型常漏的两样，编辑器里这两样是画布自动带的：分支节点没写 cases 时用节点类型的默认出口，
 // 挂在分支下（有 branch.of）却没写 after 的依赖那个分支步骤。别的不动，解析不了的原样交给保存校验。
 func fillStepDefaults(v json.RawMessage, kinds kindLookup) json.RawMessage {
+	// 旧写法的一行规则换成结构化条件（TSK-0490）
+	v = normalizeSteps(v)
 	var steps []map[string]any
 	if json.Unmarshal(v, &steps) != nil {
 		return v
@@ -280,6 +299,18 @@ func fillStepDefaults(v json.RawMessage, kinds kindLookup) json.RawMessage {
 		return v
 	}
 	return out
+}
+
+// warnTail 是没存上时一并告诉模型的警告（改的时候顺手改掉）。
+func warnTail(w []Issue) string {
+	if len(w) == 0 {
+		return ""
+	}
+	ts := make([]string, len(w))
+	for i, x := range w {
+		ts[i] = issueText(x)
+	}
+	return "。另有几处警告，改的时候一起改掉：" + strings.Join(ts, "；")
 }
 
 // issuesText 把保存校验的问题拼成一段，带上第几步，给模型看了能对着改。

@@ -165,6 +165,9 @@ export type {
 // SOP 的定时触发（TSK-0463）：规则存在随流程管理的定时任务里
 export { SOP_IM_RELEVANCES, SOP_TRIGGER_IM, SOP_TRIGGER_SCHEDULE } from './sop'
 export type { SopIMDraft, SopIMRelevance, SopIMTrigger, SopScheduleDraft, SopScheduleOff } from './sop'
+// 结构化条件、节点声明、这一步能拿到的字段（TSK-0490）
+export { SOP_COND_OPS, normIssues, useSopStepFields } from './sop'
+export type { SopCond, SopCondItem, SopCondOp, SopFieldGroup, SopFieldInfo, SopOption, SopOutput, SopParam, SopStepFieldsDraft, SopTrigger } from './sop'
 // 挂起等服务商恢复（TSK-0392）
 export { isSopProviderWait } from './sop'
 export type { SopProviderWait } from './sop'

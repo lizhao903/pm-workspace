@@ -44,6 +44,8 @@ type SOPFlowDoc struct {
 	StepDefs json.RawMessage
 	// FolderCreated 是这次保存按 folder 的名字新建了文件夹（TSK-0482），只在 SaveSOP 的结果里有
 	FolderCreated bool
+	// Warnings 是保存校验的警告（存上了但要提醒的，TSK-0490），带「第 n 步：」；GetSOP 时是打开这条流程会看到的全部问题
+	Warnings []string
 }
 
 // SOPNodeKind 是建流程时能用的一种节点：内置的和在跑的插件登记的。
@@ -74,6 +76,9 @@ type SOPCatalog interface {
 	SOPNodeKinds(ctx context.Context) ([]SOPNodeKind, error)
 	// ListSOPFolders 列流程库的文件夹和未分类的流程数（TSK-0482）
 	ListSOPFolders(ctx context.Context) (SOPFolders, error)
+	// SOPGuide 是给模型看的编排说明：节点目录（配置项、输出字段）、触发方式自动带入的字段、结构化条件和 IM 过滤的写法、文件夹（TSK-0490），
+	// 和编辑器 AI 协助用的是同一份
+	SOPGuide(ctx context.Context) (string, error)
 }
 
 // ErrSOPNotFound：流程不存在。

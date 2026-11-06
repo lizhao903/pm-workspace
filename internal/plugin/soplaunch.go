@@ -181,6 +181,11 @@ func (r *Registry) SOPNodeKinds(ctx context.Context) ([]SOPNodeKind, error) {
 	return catalogCall(r, func(c SOPCatalog) ([]SOPNodeKind, error) { return c.SOPNodeKinds(ctx) })
 }
 
+// SOPGuide 是给模型看的编排说明（TSK-0490）。
+func (r *Registry) SOPGuide(ctx context.Context) (string, error) {
+	return catalogCall(r, func(c SOPCatalog) (string, error) { return c.SOPGuide(ctx) })
+}
+
 // ListSOPFolders 列流程库的文件夹和未分类的流程数（TSK-0482）。
 func (r *Registry) ListSOPFolders(ctx context.Context) (SOPFolders, error) {
 	return catalogCall(r, func(c SOPCatalog) (SOPFolders, error) { return c.ListSOPFolders(ctx) })
