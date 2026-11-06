@@ -5,7 +5,8 @@ import { useSetStage, type ArtifactObjectSummary, type ObjectStatus, type WorkOb
 import {
   Avatar, Button, Checkbox, EmptyState, ErrorState, IconClose, IconSearch, LoadingState, PageTitle, Pill, SearchSelect, cls,
 } from '../../core/ui'
-import { matchQuery } from './model'
+import { OWNER_AI, matchOwner, matchQuery } from './model'
+import { OwnerMark, type AgentLooks } from './OwnerMark'
 import {
   ATTENTION_STAGES, NO_REQUESTER, NO_STAGE, STAGES, matchRequester, requesterOf, requesterOptions, stageColumns, stageOf,
 } from './stageModel'
@@ -14,7 +15,7 @@ import { OUTPUTS_FILTERS, matchOutputs, type KindInfo, type OutputsFilter } from
 import './stageboard.css'
 
 export function StageBoard({
-  tasks, loading, error, onRetry, statuses, selected, onOpen, search, onSearch, q, outputs, kinds = [], onOpenOutputs,
+  tasks, loading, error, onRetry, statuses, selected, onOpen, search, onSearch, q, outputs, kinds = [], onOpenOutputs, agents,
 }: {
   tasks: WorkObject[]
   loading?: boolean
@@ -32,15 +33,19 @@ export function StageBoard({
   kinds?: readonly KindInfo[]
   /** 点卡片上的产出标记：打开抽屉的产出物面板 */
   onOpenOutputs?: (t: WorkObject) => void
+  /** Agent 头像（TSK-0500）：负责人是 Agent 时用 */
+  agents?: AgentLooks
 }) {
   const [who, setWho] = useState('')
   const [withNone, setWithNone] = useState(false)
   const [out, setOut] = useState<OutputsFilter>('')
+  // 只看 AI 负责的（TSK-0500，SPEC-tasks-11.17）
+  const [ai, setAi] = useState(false)
   const setStage = useSetStage()
 
   const terminal = (k: string) => !!statuses.find((s) => s.key === k)?.terminal
   // 没设阶段又已经结束（已完成、已取消）的老任务不进看板：它们没走过流程，放进「未设阶段」只会把这一列撑满
-  const base = tasks.filter((t) => matchRequester(t, who) && matchQuery(t, q) && matchOutputs(t.id, out, outputs) && (STAGES.some((s) => s.key === stageOf(t)) || !terminal(t.status)))
+  const base = tasks.filter((t) => matchRequester(t, who) && matchQuery(t, q) && matchOutputs(t.id, out, outputs) && matchOwner(t, ai ? OWNER_AI : '', '') && (STAGES.some((s) => s.key === stageOf(t)) || !terminal(t.status)))
   const noneN = base.filter((t) => !STAGES.some((s) => s.key === stageOf(t))).length
   const cols = stageColumns(base, withNone)
   const shown = cols.reduce((n, c) => n + c.rows.length, 0)
@@ -60,6 +65,7 @@ export function StageBoard({
         <span className="stage-card-who" title={r?.channel && !r.contact_id ? `${r.name}（${r.channel}，还没认到联系人）` : r?.name}>
           {r ? <><Avatar name={r.name} size={18} /><span className="ellipsis">{r.name}</span></> : <span className="run-muted">没有提出人</span>}
         </span>
+        {t.owner_ai_kind && <OwnerMark t={t} agents={agents} className="stage-card-ai" />}
         <OutputsBadge summary={outputs?.get(t.id)} kinds={kinds} className="stage-card-out"
           onOpen={onOpenOutputs ? () => onOpenOutputs(t) : undefined} />
         <span className="stage-card-foot">
@@ -84,7 +90,7 @@ export function StageBoard({
   else if (loading) body = <LoadingState />
   else if (tasks.length === 0) body = <EmptyState title="这里还没有任务" desc="IM 消息转来的任务会从「已接收」开始往右走" />
   else if (base.length === 0) {
-    body = <EmptyState title="没有匹配的任务" action={<Button variant="outline" onClick={() => { setWho(''); setOut(''); onSearch('') }}>清掉筛选条件</Button>} />
+    body = <EmptyState title="没有匹配的任务" action={<Button variant="outline" onClick={() => { setWho(''); setOut(''); setAi(false); onSearch('') }}>清掉筛选条件</Button>} />
   } else if (shown === 0) {
     body = (
       <EmptyState title="还没有任务进入流程" desc={`这 ${noneN} 条任务都没设阶段`}
@@ -122,6 +128,7 @@ export function StageBoard({
             {OUTPUTS_FILTERS.map((o) => <option key={o.key} value={o.key}>{o.label}</option>)}
           </select>
         </div>
+        <Checkbox checked={ai} onCheckedChange={setAi}>AI 负责的</Checkbox>
         <Checkbox checked={withNone} onCheckedChange={setWithNone}>
           显示未设阶段{showCounts ? `（${noneN}）` : ''}
         </Checkbox>

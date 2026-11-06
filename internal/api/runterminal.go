@@ -235,7 +235,7 @@ func (s *Server) handleRunTerminal(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, werr)
 		return
 	}
-	s.markDoing(ctx, r, o)
+	s.markDoing(ctx, r, o, cliExecutor(domain.RunHarnessClaude))
 	respondData(w, http.StatusCreated, TerminalHandoff{Run: run, Workdir: workdir, PromptFile: promptFile, MCPConfig: mcpFile})
 }
 

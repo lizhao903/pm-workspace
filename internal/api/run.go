@@ -327,7 +327,7 @@ func (s *Server) handleRunObject(w http.ResponseWriter, r *http.Request) {
 	}
 	defer cleanupMCP()
 
-	s.markDoing(ctx, r, obj)
+	s.markDoing(ctx, r, obj, cliExecutor(string(harness)))
 
 	// 从这里开始就是流了。
 	h := w.Header()
@@ -466,20 +466,47 @@ func (s *Server) recordRunArtifacts(ctx context.Context, runID, objID, workdir s
 	}
 }
 
-// markDoing 交给 Claude Code（流式或终端）时把任务改成进行中（SPEC-tasks-6.17）：
-// 只改任务，已经是进行中、已完成、已取消的不动；待验收、受阻的重新交出去算重新开工。
+// markDoing 交给 Claude Code（流式或终端）、DeepSeek、工作台 Agent 时把任务改成进行中（SPEC-tasks-6.17），
+// 负责人设为这次的执行者（TSK-0500，SPEC-tasks-6.33）：只改任务，已完成、已取消的都不动；
+// 待验收、受阻的重新交出去算重新开工。状态和负责人一次写，负责人变了另记一条进展。
 // 改不动只记日志：执行已经建好了，不能因为状态没改成让这次执行起不来。
-func (s *Server) markDoing(ctx context.Context, r *http.Request, o *domain.Object) {
+func (s *Server) markDoing(ctx context.Context, r *http.Request, o *domain.Object, ex runExecutor) {
 	if o == nil || o.TypeID != "task" {
 		return
 	}
 	switch o.Status {
-	case taskDoing, "done", "cancelled":
+	case "done", "cancelled":
 		return
 	}
-	st := taskDoing
-	if _, err := s.st.UpdateObject(ctx, o.ID, domain.ObjectPatch{Status: &st}, actorFrom(r)); err != nil {
+	var p domain.ObjectPatch
+	if o.Status != taskDoing {
+		st := taskDoing
+		p.Status = &st
+	}
+	// 负责人设为这次的执行者（TSK-0500）：原来是谁都覆盖，覆盖前是谁记进展；执行结束不改回。
+	owner := s.runOwner(ctx, ex)
+	prev, prevName := "", strings.TrimSpace(o.OwnerName)
+	if o.OwnerID != nil {
+		prev = *o.OwnerID
+	}
+	if owner != nil && owner.ID != prev {
+		p.OwnerID = &owner.ID
+	}
+	if p.Status == nil && p.OwnerID == nil {
+		return
+	}
+	if _, err := s.st.UpdateObject(ctx, o.ID, p, actorFrom(r)); err != nil {
 		s.log.Warn("mark task doing on run failed", "object", o.ID, "err", err)
+		return
+	}
+	if p.OwnerID != nil {
+		text := fmt.Sprintf("负责人由「%s」改为「%s」（%s）", prevName, owner.Name, ex.label())
+		if prevName == "" {
+			text = fmt.Sprintf("负责人设为「%s」（%s）", owner.Name, ex.label())
+		}
+		if _, err := s.st.AppendProgress(ctx, o.ID, domain.ProgressInput{Kind: domain.ProgressNote, Text: text}, actorFrom(r)); err != nil {
+			s.log.Warn("record run owner change failed", "object", o.ID, "err", err)
+		}
 	}
 }
 

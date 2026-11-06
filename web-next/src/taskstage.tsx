@@ -9,6 +9,7 @@ import { SearchSelect } from './searchselect'
 import { TaskStatusPill } from './tasks'
 import { OUTPUTS_FILTERS, OutputsBadge, matchOutputs, summarize, type OutputsFilter } from './taskoutputs'
 import './taskstage.css'
+import { AiOwner } from './aiowner'
 
 export const STAGES: readonly { key: string; label: string }[] = [
   { key: 'received', label: '已接收' },
@@ -40,10 +41,12 @@ export function StageBoard({ tasks, selected, onOpen, onStage, artifacts = [], o
   const [out, setOut] = useState<OutputsFilter>('')
   const [who, setWho] = useState('')
   const [withNone, setWithNone] = useState(false)
+  // 只看 AI 负责的（TSK-0500，SPEC-tasks-11.17）
+  const [ai, setAi] = useState(false)
   const [q, setQ] = useState('')
   const kw = q.trim().toLowerCase()
   // 没设阶段又已经结束的老任务不进看板：它们没走过流程，放进「未设阶段」只会把这一列撑满
-  const base = tasks.filter((t) => (known(t.stage) || isOpenTask(t.status)) && (!who || whoKey(t.requester) === who) && matchOutputs(t.id, out, outputs)
+  const base = tasks.filter((t) => (known(t.stage) || isOpenTask(t.status)) && (!who || whoKey(t.requester) === who) && matchOutputs(t.id, out, outputs) && (!ai || !!t.assignee_ai)
     && (!kw || [t.title, t.desc, t.ref, t.assignee].some((v) => v.toLowerCase().includes(kw))))
   const noneN = base.filter((t) => !known(t.stage)).length
   const cols = [
@@ -66,6 +69,7 @@ export function StageBoard({ tasks, selected, onOpen, onStage, artifacts = [], o
       <span className="stage-card-who" title={t.requester?.channel && !t.requester.contact_id ? `${t.requester.name}（${t.requester.channel}，还没认到联系人）` : t.requester?.name}>
         {t.requester ? <><Avatar name={t.requester.name} size={18} /><span className="ellipsis">{t.requester.name}</span></> : <span className="run-muted">没有提出人</span>}
       </span>
+      {t.assignee_ai && <AiOwner name={t.assignee} kind={t.assignee_ai} className="stage-card-ai" />}
       <OutputsBadge s={outputs.get(t.id)} onOpen={() => (onOpenOutputs ?? onOpen)(t.id)} />
       <span className="stage-card-foot">
         <TaskStatusPill s={t.status} />
@@ -91,6 +95,7 @@ export function StageBoard({ tasks, selected, onOpen, onStage, artifacts = [], o
             {OUTPUTS_FILTERS.map(([k, l]) => <option key={k} value={k}>{l}</option>)}
           </select>
         </div>
+        <label className="check"><input type="checkbox" checked={ai} onChange={(e) => setAi(e.target.checked)} />AI 负责的</label>
         <label className="check"><input type="checkbox" checked={withNone} onChange={(e) => setWithNone(e.target.checked)} />显示未设阶段（{noneN}）</label>
         <span className="spacer" />
         <div className="search">
@@ -102,7 +107,7 @@ export function StageBoard({ tasks, selected, onOpen, onStage, artifacts = [], o
         <div className="empty"><div className="empty-title">这里还没有任务</div><div className="list-sub">IM 消息转来的任务会从「已接收」开始往右走</div></div>
       ) : base.length === 0 ? (
         <div className="empty"><div className="empty-title">没有匹配的任务</div>
-          <button className="btn btn-ghost" onClick={() => { setWho(''); setQ('') }}>清掉筛选条件</button></div>
+          <button className="btn btn-ghost" onClick={() => { setWho(''); setQ(''); setAi(false) }}>清掉筛选条件</button></div>
       ) : shown === 0 ? (
         <div className="empty"><div className="empty-title">还没有任务进入流程</div><div className="list-sub">这 {noneN} 条任务都没设阶段</div>
           <button className="btn btn-ghost" onClick={() => setWithNone(true)}>显示未设阶段的任务</button></div>

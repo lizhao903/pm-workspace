@@ -376,7 +376,9 @@ func addNextTask(s *mcp.Server, c *client) {
 		// 可做 = 没人负责，或者负责人就是 Agent 自己。派给别人的不碰。
 		cands := items[:0]
 		for _, o := range items {
-			if o.OwnerID == nil || *o.OwnerID == "" || o.OwnerName == c.agentOwner {
+			mine := o.OwnerName == c.agentOwner ||
+				(c.agentOwner == defaultAgentOwner && o.OwnerAIKind == domain.AIKindCLI && o.OwnerAIRef == domain.RunHarnessClaude)
+			if o.OwnerID == nil || *o.OwnerID == "" || mine {
 				cands = append(cands, o)
 			}
 		}

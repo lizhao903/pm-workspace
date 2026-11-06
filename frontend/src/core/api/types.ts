@@ -39,6 +39,9 @@ export type ObjectTypePatch = Partial<Omit<ObjectTypeInput, 'id'>>
 
 export type StakeholderRef = { id: string; name: string; color: string }
 
+/** 名册里的 AI 成员（TSK-0500）：agent 是工作台 Agent（ref 是 Agent id），cli 是命令行执行器（ref 是 claude / deepseek） */
+export type AIKind = 'agent' | 'cli'
+
 export type Stakeholder = {
   id: string
   name: string
@@ -52,6 +55,9 @@ export type Stakeholder = {
   updated_at: string
   owned_count: number
   participating_count: number
+  /** '' 是人；AI 成员由工作台自动维护，名字和在岗状态不能手工改（TSK-0500） */
+  ai_kind?: AIKind | ''
+  ai_ref?: string
 }
 
 export type StakeholderInput = {
@@ -100,6 +106,9 @@ export type WorkObject = {
   project_title?: string
   link_count: number
   owner_name?: string
+  /** 负责人是 AI 成员时的类型与引用（TSK-0500）；负责人是人或没有时不出现 */
+  owner_ai_kind?: AIKind
+  owner_ai_ref?: string
   participants: StakeholderRef[]
 }
 

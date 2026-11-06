@@ -1,0 +1,10 @@
+/* AI 负责人（TSK-0500）：头像或终端标 + 名字 + 小标签，不换行，放不下名字省略 */
+.ai-owner { display: inline-flex; align-items: center; gap: 4px; min-width: 0; max-width: 100%; }
+.ai-owner > .ellipsis { min-width: 0; }
+.ai-tag { flex: none; padding: 0 5px; border-radius: 99px; font-size: 10px; line-height: 16px; font-weight: 600; background: var(--accent-soft); color: var(--accent); }
+.ai-glyph { display: inline-grid; place-items: center; flex: none; border-radius: 30%; font-weight: 700; line-height: 1; }
+.ai-glyph-agent { background: var(--accent); color: #fff; }
+.ai-glyph-cli { background: var(--text); color: var(--panel); }
+.ai-glyph svg { display: block; }
+.ai-badge { margin-left: 6px; vertical-align: middle; }
+.stage-card-ai { font-size: 11.5px; color: var(--muted); }

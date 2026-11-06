@@ -22,7 +22,7 @@ const objectCols = `o.id,o.type_id,o.ref,o.title,o.body,o.status,o.priority,o.ow
 // 负责人姓名走 JOIN 而不是按 owner_id 逐行回查：列表一次 50 行，回查就是 50 次往返。
 const objectSelect = `SELECT ` + objectCols + `,
 	IFNULL(c.name,''), IFNULL(c.path,''), IFNULL(c.color,''), IFNULL(p.title,''),
-	IFNULL(sh.name,''),
+	IFNULL(sh.name,''), IFNULL(sh.ai_kind,''), IFNULL(sh.ai_ref,''),
 	(SELECT COUNT(*) FROM links l WHERE l.from_id = o.id OR l.to_id = o.id)
 	FROM objects o
 	LEFT JOIN categories c ON c.id = o.category_id
@@ -40,19 +40,20 @@ func scanObject(sc rowScanner) (*domain.Object, error) {
 		archived, deleted                                    sql.NullString
 		props, created, updated                              string
 		categoryName, categoryPath, categoryColor, projTitle string
-		ownerName                                            string
+		ownerName, ownerAIKind, ownerAIRef                   string
 		linkCount                                            int
 	)
 	if err := sc.Scan(&o.ID, &o.TypeID, &o.Ref, &o.Title, &o.Body, &o.Status, &o.Priority, &o.Owner, &owner,
 		&category, &project, &o.Source, &props, &o.Workdir, &due, &started, &completed,
 		&archived, &deleted, &created, &updated,
-		&categoryName, &categoryPath, &categoryColor, &projTitle, &ownerName, &linkCount); err != nil {
+		&categoryName, &categoryPath, &categoryColor, &projTitle, &ownerName, &ownerAIKind, &ownerAIRef, &linkCount); err != nil {
 		return nil, err
 	}
 	o.OwnerID = strPtr(owner)
 	// owner_id 为空时用 0010 之前的自由文本兜底：迁移判断错了某条的话，界面仍显示得出
 	// 个人名来，不会因为漏迁而变成一片空白。前端只读 owner_name 这一个字段。
 	o.OwnerName = ownerName
+	o.OwnerAIKind, o.OwnerAIRef = ownerAIKind, ownerAIRef
 	if o.OwnerName == "" {
 		o.OwnerName = o.Owner
 	}

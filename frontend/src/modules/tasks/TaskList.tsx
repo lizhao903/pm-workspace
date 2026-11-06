@@ -7,13 +7,14 @@ import {
   SearchSelect, cls,
 } from '../../core/ui'
 import {
-  ALL, MORE_STEP, OPEN, OWNER_ME, OWNER_NONE, PAGE, REVIEW, SORTS, dueText, isOverdue, loadMe, matchOwner, matchQuery, matchStatus,
+  ALL, MORE_STEP, OPEN, OWNER_AI, OWNER_ME, OWNER_NONE, PAGE, REVIEW, SORTS, dueText, isOverdue, loadMe, matchOwner, matchQuery, matchStatus,
   ownerOptions, prioText, priorityRank, saveMe, segment, sortSeg, statusButtons, terminalOf, timeAgo, type DueSeg, type StatusFilter,
   type TaskSort,
 } from './model'
 import { SOURCE_VIEW, isSourceKind, type SourceKind } from './sourceModel'
 import { SourceTag } from './SourceTag'
 import { OutputsBadge } from './OutputsBadge'
+import { OwnerMark, type AgentLooks } from './OwnerMark'
 import { OUTPUTS_FILTERS, matchOutputs, type KindInfo, type OutputsFilter } from './outputSummary'
 
 /** 全部任务、逾期，加五个来源视图（SPEC-tasks-3） */
@@ -30,7 +31,7 @@ const NO_PROJECT = '-'
 export function TaskList({
   view, tasks, loading, error, onRetry, statuses, priorities, projects, people = [],
   status, onStatus, search, onSearch, q, selected, drawerOpen, onOpen, onNew, onToggleDone, now: nowProp, hookName = noHook, onGoHooks,
-  outputs, kinds = [], onOpenOutputs,
+  outputs, kinds = [], onOpenOutputs, agents,
 }: {
   view: TaskView
   tasks: WorkObject[]
@@ -68,6 +69,8 @@ export function TaskList({
   kinds?: readonly KindInfo[]
   /** 点行上的产出标记：打开抽屉的产出物面板 */
   onOpenOutputs?: (t: WorkObject) => void
+  /** Agent 头像（TSK-0500）：负责人是 Agent 时用 */
+  agents?: AgentLooks
 }) {
   // 「今天」取页面打开那一刻，渲染里不直接 new Date()
   const [opened] = useState(() => new Date())
@@ -146,7 +149,7 @@ export function TaskList({
             </span>
           )}
         </span>
-        <span className="ellipsis run-muted">{t.owner_name || t.owner || '未分配'}</span>
+        <OwnerMark t={t} agents={agents} className="run-muted" tag={false} />
         <span className={cls('run-muted', overdue && 'danger-text')}>{dueText(t, today)}{overdue ? ' 逾期' : ''}</span>
         <span><Pill label={st?.label ?? t.status} color={st?.color} /></span>
       </div>
@@ -230,6 +233,7 @@ export function TaskList({
           options={[
             { value: OWNER_ME, label: meName ? `我（${meName}）` : '我' },
             { value: OWNER_NONE, label: '未分配' },
+            { value: OWNER_AI, label: 'AI 负责的', hint: 'Agent / CLI' },
             ...owners.filter((o) => o.id !== me).map((o) => ({ value: o.id, label: o.name || '已归档的干系人', hint: String(o.n) })),
           ]}
           missingLabel={() => '已归档的干系人'} />
