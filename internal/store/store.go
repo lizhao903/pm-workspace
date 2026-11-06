@@ -179,6 +179,9 @@ type Store interface {
 	GetAgentSession(ctx context.Context, id string) (*domain.AgentSession, error)
 	CreateAgentSession(ctx context.Context, s *domain.AgentSession) (*domain.AgentSession, error)
 	UpdateAgentSession(ctx context.Context, id string, title, workdir, providerID, model *string) (*domain.AgentSession, error)
+	// SetAgentSessionModel 换会话用的服务商和模型（TSK-0720）：override 为 true 是会话单独选的，false 是改回跟随 Agent 默认
+	// （providerID / model 记成快照）。回读出来的会话，provider_id / model 是实际用的。
+	SetAgentSessionModel(ctx context.Context, id, providerID, model string, override bool) (*domain.AgentSession, error)
 	DeleteAgentSession(ctx context.Context, id string) error
 	// DeleteAgentMessages 从会话里移除指定的几条消息（界面上一个气泡可能是几条：工具调用加回复），
 	// 回实际删掉的条数；不属于这个会话的 id 忽略。会话不存在回 not found。移除后不再进模型的上下文

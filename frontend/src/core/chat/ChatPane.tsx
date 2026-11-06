@@ -3,12 +3,14 @@
 // 要人确认的调用（AG-02b）：卡片上「确认执行 / 拒绝」，点了接着跑，回复照常流式显示。调用 id 来自 confirm 事件，
 // 执行记录建的会话从执行记录详情里找回；都找不到（页面刷新过）的只显示状态。
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { AGENT_RUN_PAGE_MAX, errorText, useAgentMessages, useAgentRun, useAgentRunList, useRemoveAgentMessages, useStopAgentSession, type AgentSession } from '../data'
+import {
+  AGENT_RUN_PAGE_MAX, errorText, useAgentMessages, useAgentProviders, useAgentRun, useAgentRunList, useRemoveAgentMessages, useStopAgentSession, type AgentSession,
+} from '../data'
 import { Button, ErrorState, LoadingState, cls } from '../ui'
 import { CallCard } from './CallCard'
 import { decideCall, dismissChat, sendChat, useCallState, useDeciding, useLiveChat } from './chatLive'
 import {
-  CHAT_EXAMPLES, NEW_TITLE, answerText, bubbleIds, foldHistory, foldLive, overlayCalls, titleFrom, toolAbility, whoName, whoUsable, type CallRef, type CallView,
+  CHAT_EXAMPLES, NEW_TITLE, answerText, bubbleIds, foldHistory, foldLive, modelLabel, overlayCalls, titleFrom, toolAbility, whoName, whoUsable, type CallRef, type CallView,
   type ChatMsgView, type ChatWho, type QuestionView,
 } from './chatModel'
 import { WhoAvatar } from './WhoAvatar'
@@ -79,10 +81,12 @@ function RemoveAction({ sessionId, ids, disabled }: { sessionId: string; ids: st
   )
 }
 
-function AgentBubble({ m, avatar, children, renderCall, noGrant, action }: {
+function AgentBubble({ m, avatar, children, renderCall, noGrant, action, model }: {
   m: ChatMsgView
   avatar: ReactNode
   children?: ReactNode
+  /** 这条回复用的「服务商 · 模型」（TSK-0720），悬停时在气泡底下显示；没记的不显示 */
+  model?: string
   /** 气泡旁的操作（历史消息的「移除」） */
   action?: ReactNode
   /** 卡片里多放的东西（确认、拒绝按钮） */
@@ -92,7 +96,7 @@ function AgentBubble({ m, avatar, children, renderCall, noGrant, action }: {
   return (
     <div className="ai-msg ai-ai" data-role="agent">
       {avatar}
-      <div className="ai-bubble">
+      <div className="ai-bubble" title={model ? `回复用的模型：${model}` : undefined}>
         {m.calls.length > 0 && (
           <div className="call-list">{m.calls.map((c, i) => <CallCard key={c.id ?? i} call={c} noGrant={noGrant?.(c)}>{renderCall?.(c)}</CallCard>)}</div>
         )}
@@ -101,6 +105,7 @@ function AgentBubble({ m, avatar, children, renderCall, noGrant, action }: {
           <ul className="ai-files">{m.files.map((f) => <li key={f.path}>写出文件 <code>{f.path}</code></li>)}</ul>
         )}
         {children}
+        {model && <div className="ai-msg-model">{model}</div>}
       </div>
       {action}
     </div>
@@ -120,6 +125,8 @@ export function ChatPane({ session, who, head, autoSend, onRetitle, onOpenTools 
   onOpenTools?: () => void
 }) {
   const msgs = useAgentMessages(session.id)
+  const providers = useAgentProviders()
+  const modelOf = (m: ChatMsgView) => (m.model ? modelLabel(m.providerId ?? '', m.model, providers.data ?? []).text : undefined)
   const liveRaw = useLiveChat(session.id)
   const { refs: liveRefs, decisions } = useCallState(session.id)
   const [text, setText] = useState('')
@@ -202,7 +209,10 @@ export function ChatPane({ session, who, head, autoSend, onRetitle, onOpenTools 
             {CHAT_EXAMPLES.map((e) => <button key={e} type="button" className="ai-example" disabled={!usable} onClick={() => send(e)}>{e}</button>)}
           </div>
         )}
-        {history.map((m, i) => (m.role === 'user'
+        {history.map((m, i) => (m.role === 'notice'
+          // 换模型这类系统提示（TSK-0720）：居中一行，不算谁说的，也不进模型的上下文
+          ? <div key={m.id} className="ai-notice" role="note" data-role="notice"><span>{m.text}</span></div>
+          : m.role === 'user'
           ? (
             <div key={m.id} className="ai-msg ai-user" data-role="user">
               <RemoveAction sessionId={session.id} ids={bubbleIds(m)} disabled={busy} />
@@ -210,7 +220,7 @@ export function ChatPane({ session, who, head, autoSend, onRetitle, onOpenTools 
             </div>
           )
           : (
-            <AgentBubble key={m.id} m={m} avatar={avatar} renderCall={renderCall} noGrant={noGrant}
+            <AgentBubble key={m.id} m={m} avatar={avatar} renderCall={renderCall} noGrant={noGrant} model={modelOf(m)}
               action={<RemoveAction sessionId={session.id} ids={bubbleIds(m)} disabled={busy} />}>
               {m.question && (
                 <QuestionCard q={m.question} active={canAnswer && !live && i === history.length - 1} onAnswer={answer} />

@@ -582,9 +582,9 @@ IM 里的群聊和私聊（CT-02，0028，表 `conversations`、`conversation_me
 | POST | `/api/agent/sessions` | `{title?,provider_id,model,workdir?,object_id?,agent_id?,source_ref?}`，`object_id` 省略即全局会话；`agent_id` 见下面「会话挂 Agent」；`source_ref` 见下面「会话来源」 |
 | POST | `/api/agent/sessions/{id}/stop` | 停掉这个会话里正在跑的一轮（`/api/agent/chat` 发起的和确认、拒绝后接着跑的都算）。已经执行的工具调用不撤回，会话里记一句「已手动停止这一轮。上面已经执行的工具调用不会撤回，要接着做可以再发一句。」，流里发 `error`「已手动停止」；确认后接着跑的执行记录照常重算状态。回 `{session_id, stopped}`，`stopped` 是停了几轮，没在跑的为 0（不算错）；会话不存在 404。一轮对话和浏览器连接脱钩，关掉页面后要停只能靠它 |
 | GET | `/api/agent/running` | 正在跑的会话 `{session_ids}`（按 id 排），界面据此在会话头部显示「停止」。只含会话里的对话（任务交给工作台 Agent 执行时正在跑模型的那一段也算，TSK-0460），触发器、Agent 执行记录起的 Agent 运行不在内 |
-| PATCH | `/api/agent/sessions/{id}` | |
+| PATCH | `/api/agent/sessions/{id}` | `{title?,workdir?,provider_id?,model?,model_override?}`，只改给了的；`object_id`、`agent_id`、`source_ref` 不认。带 `provider_id` / `model` / `model_override` 是换模型，见下面「会话换模型」；回改完的会话 |
 | DELETE | `/api/agent/sessions/{id}` | 消息级联删除；**产物保留**，只把它的 `session_id` 置空（见「输出产物」一节） |
-| GET | `/api/agent/sessions/{id}/messages` | `AgentMessage[]`，**按时间正序**（最旧在前） |
+| GET | `/api/agent/sessions/{id}/messages` | `AgentMessage[]`，**按时间正序**（最旧在前）。`AgentMessage`：`{id, session_id, role, content, tool_name?, tool_args?, provider_id?, model?, created_at}`，`role` 是 `user` / `assistant` / `tool` / `notice`；`provider_id`、`model` 见下面「会话换模型」 |
 | POST | `/api/agent/sessions/{id}/messages/remove` | 从会话里移除几条消息（SPEC-sessions-1.43）：body `{ids}`（1 到 500 条，去重、去空），只删属于这个会话的，别的 id 忽略；回 `{session_id, removed}`。移除后不再进模型的上下文，会话 `updated_at` 不变，已经执行的工具调用不撤回。空 ids 或超过 500 条 400，会话不存在 404，这一轮还在跑 409（先停止或等跑完）。删掉了的记一条审计「从 Agent 会话「<标题>」移除 N 条消息」 |
 | GET | `/api/agent/sessions/{id}/artifacts` | `Artifact[]`，等价于 `/api/artifacts?session_id={id}`；会话不存在报 404（而不是回空列表） |
 | POST | `/api/agent/workdir/check` | `{path}`，校验产物目录是否存在且可写 |
@@ -642,8 +642,19 @@ chat 带了不同的 `object_id` 也不会让已有会话搬家——搬走会�
 
 - 会话多两个字段：`agent_id`（挂的 Agent，`null` 是不挂 Agent 的会话，0032 之前的都是）和 `agent_deleted`（挂了 Agent 但 Agent 已删除时为 `true`，其余为 `false`）。`agent_id` 建的时候定下，PATCH 改不了。
 - `POST /api/agent/sessions` 带 `agent_id` 时用这个 Agent 的 `provider_id` 和 `model`，请求里的这两项忽略；Agent 不存在 404。停用的 Agent 也能建会话，只是不能发消息。
-- `POST /api/agent/chat`：会话挂了 Agent 时按 Agent **当前**的服务商和模型跑（和会话里的快照不同就先写回会话），请求里的 `provider_id`、`model` 不认；Agent 的名称、说明和 `instructions` 拼在系统提示词最后。Agent 停用回 409「Agent 已停用」，删了回 409「Agent 已删除」，都在开流之前、用户消息不落库。不带 `session_id` 但带 `agent_id` 时先查 Agent，再新建会话。
+- `POST /api/agent/chat`：会话挂了 Agent 时，没在会话里单独换过模型的（`model_override: false`）按 Agent **当前**的服务商和模型跑，换过的按会话自己的（见「会话换模型」），请求里的 `provider_id`、`model` 都不认；Agent 的名称、说明和 `instructions` 拼在系统提示词最后。Agent 停用回 409「Agent 已停用」，删了回 409「Agent 已删除」，都在开流之前、用户消息不落库。不带 `session_id` 但带 `agent_id` 时先查 Agent，再新建会话。
 - 删除 Agent 不动会话：消息、产物都在，`agent_id` 原样留着，读出来 `agent_deleted: true`。不带 `agent_id` 的会话行为不变。
+
+### 会话换模型（TSK-0720，内核迁移 0053）
+
+- 会话多一个字段 `model_override`（`agent_sessions.model_override`，0053 加列，默认 0）：挂 Agent 的会话在会话里单独换过模型时为 `true`。不挂 Agent 的会话恒为 `false`，它的 `provider_id`、`model` 本来就是自己的。
+- **跟随规则**：`model_override` 为 `false` 时会话跟随 Agent 当前的默认——读会话（列表、单条、PATCH、新建）时 `provider_id`、`model` 现取 Agent 的，Agent 改了默认，这些会话下一次读、下一轮对话就是新的，不用写回；Agent 删了退回会话里的快照（建会话或最后一次换模型时记下的）。为 `true` 时按会话自己的 `provider_id`、`model`，Agent 改默认不影响它。以前「每轮把 Agent 的服务商和模型写回会话」不再做。
+- **换模型**：`PATCH /api/agent/sessions/{id}` 带 `provider_id` 和/或 `model`。挂 Agent 的会话换完 `model_override` 为 `true`；只给 `provider_id`（和原来不同）时模型取那个服务商的默认模型。`{"model_override": false}` 是改回跟随 Agent 默认，这时不能同时给 `provider_id`、`model`（400）。`{"model_override": true}` 不带别的是把当前实际用的固定下来。换模型不改 Agent 的默认；要同时设为 Agent 默认，另调 `PATCH /api/agents/{id}`（前端先改 Agent，再把会话改回跟随）。
+- 校验：`provider_id` 空 400「provider_id 不能为空」；服务商不存在 400「服务商 <id> 不存在」；服务商停用 400「服务商「<名称>」已停用，换一个」；模型空且服务商没默认模型 400；模型名超过 200 字 400；不挂 Agent 的会话给 `model_override` 400；`model_override` 不是布尔 400；会话不存在 404；Agent 已删除 409「Agent 已删除，这个会话只能回看，换不了模型」。模型名不校验是否在服务商的模型列表里（同 Agent 配置）。
+- **回复中不能换**：这一轮（含确认后接着跑的）还在跑、实际用的服务商或模型要变时 409「正在回复，等这一轮跑完再换模型」，不排队。只改 `model_override`、实际用的没变的不拦。
+- **切换提示**：实际用的服务商或模型变了，会话里追加一条 `role: "notice"` 的消息「已切换到 <服务商名称> · <模型>，之后的回复用它，之前的回复不变」，改回跟随时模型后面带「（跟随 Agent 默认）」；带 `provider_id`、`model`（换到的那个）。notice 只给人看，**不进模型的上下文**，会推会话的 `updated_at`，能像别的消息一样移除。值没变的 PATCH 不记。
+- **每条回复记模型**：`assistant` 消息多 `provider_id`、`model`（0053 加列 `agent_messages.provider_id`、`model`），是这条回复当时实际用的；0053 之前的、执行器补的说明（「这一轮没跑完」「已手动停止」）为空，响应里不带这两个键。历史消息不重算。
+- 任务交给工作台 Agent 执行时另选了服务商或模型（`provider_id` / `model`），建的会话 `model_override` 为 `true`，读出来是实际跑的那个；续跑（`resume_session`）没另给时，会话换过模型的用会话的，没换过的用 Agent 的。
 
 ### 会话来源（0047）
 

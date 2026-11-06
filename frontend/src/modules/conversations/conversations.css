@@ -53,6 +53,23 @@
 .chat-title:hover { text-decoration: underline dashed var(--line-2); }
 .chat-title-input { height: 30px; padding: 0 var(--sp-4); border: 1px solid var(--accent-line); border-radius: var(--r-sm); background: var(--panel); color: var(--text); font-weight: 600; outline: 0; }
 .chat-agent { font-size: var(--fs-sm); min-width: 0; }
+.chat-item-model { display: block; color: var(--faint); font-size: var(--fs-xs); }
+.chat-item-model.warn, .chat-model.warn { color: var(--danger); }
+/* 头部的模型（TSK-0720）：点了在下面展开换模型的面板 */
+.model-switch-wrap { position: relative; min-width: 0; display: inline-flex; max-width: 100%; }
+.chat-model { display: inline-flex; align-items: center; gap: var(--sp-3); min-width: 0; max-width: 100%; height: 26px; padding: 0 var(--sp-4); border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--panel); color: var(--muted); font-size: var(--fs-sm); }
+.chat-model:not(:disabled):hover { border-color: var(--line-2); color: var(--text); }
+.chat-model:disabled { cursor: default; opacity: 0.8; }
+.chat-model.gone { color: var(--faint); }
+.chat-model .ellipsis { min-width: 0; }
+.chat-model-tag { flex: none; padding: 0 6px; border-radius: 999px; background: var(--panel-2); color: var(--faint); font-size: var(--fs-xs); }
+.model-panel { position: absolute; top: calc(100% + 4px); left: 0; z-index: 30; width: 360px; max-width: calc(100vw - 32px); margin: 0; }
+.model-mode { padding-bottom: var(--sp-2); margin-bottom: var(--sp-2); border-bottom: 1px solid var(--line); }
+.model-mode .menu-item { justify-content: space-between; }
+.model-mode .menu-item .list-sub { flex: 0 1 auto; max-width: 60%; text-align: right; }
+.agent-pick-model { padding: var(--sp-3) var(--sp-3) 0; }
+.model-default { padding: var(--sp-4) var(--sp-3) 0; font-size: var(--fs-sm); }
+.model-confirm { display: flex; flex-direction: column; gap: var(--sp-3); font-size: var(--fs-sm); }
 .chat-head-err { padding: var(--sp-3) var(--sp-8); }
 .chat-outputs { flex: none; padding: var(--sp-3) var(--sp-8); border-bottom: 1px solid var(--line); background: var(--panel-2); font-size: var(--fs-sm); }
 .chat-source { flex: none; display: flex; gap: var(--sp-4); align-items: baseline; min-width: 0; padding: var(--sp-3) var(--sp-8); border-bottom: 1px solid var(--line); font-size: var(--fs-sm); }
@@ -119,6 +136,8 @@
   .ai-input { padding: var(--sp-4) var(--sp-6) var(--sp-6); }
   .chat-head { padding: var(--sp-4) var(--sp-6); }
   .conv-page { padding: var(--sp-8) var(--sp-8) var(--sp-16); }
+  /* 头部按钮换行后位置不定，换模型面板贴着屏幕两边，不撑出横向滚动 */
+  .model-panel { position: fixed; left: 12px; right: 12px; top: auto; width: auto; max-width: none; max-height: 70vh; overflow-y: auto; }
 }
 
 /* ---------- 新会话面板的「更多」（AG-01b8） ---------- */

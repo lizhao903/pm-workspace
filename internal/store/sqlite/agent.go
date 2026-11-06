@@ -17,6 +17,15 @@ const sessionCols = `id, title, object_id, provider_id, model, workdir, created_
 // sessionAgentDeleted 算 agent_deleted：挂了 Agent 但 agents 里已经没有它（0032 不建外键，会话保留）。
 const sessionAgentDeleted = `(agent_sessions.agent_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM agents a WHERE a.id = agent_sessions.agent_id))`
 
+// sessionSelect 读会话用（取别名 s）：provider_id / model 是「实际用的」——挂 Agent、没单独换过模型（model_override = 0）
+// 的会话取 Agent 当前的服务商和模型，Agent 删了退回会话里的快照（0053，TSK-0720）。
+// 后面跟 agent_deleted，消息数由调用方接上。
+var sessionSelect = `SELECT s.id, s.title, s.object_id,
+       CASE WHEN s.model_override = 0 THEN COALESCE((SELECT a.provider_id FROM agents a WHERE a.id = s.agent_id), s.provider_id) ELSE s.provider_id END,
+       CASE WHEN s.model_override = 0 THEN COALESCE((SELECT a.model FROM agents a WHERE a.id = s.agent_id), s.model) ELSE s.model END,
+       s.workdir, s.created_at, s.updated_at, s.agent_id, s.source_ref, s.model_override,
+       ` + strings.ReplaceAll(sessionAgentDeleted, "agent_sessions.", "s.")
+
 // agentTimeLayout 是这三张表专用的时间格式：带固定 9 位小数的 RFC3339。
 //
 // 不能用 store 通用的 nowStr()——它只到秒。一轮对话里「用户提问、工具调用、
@@ -61,9 +70,7 @@ func (s *Store) ListAgentSessions(ctx context.Context, f domain.AgentSessionFilt
 		return []*domain.AgentSession{}, nil
 	}
 
-	rows, err := s.db.R.QueryContext(ctx, `
-		SELECT s.id, s.title, s.object_id, s.provider_id, s.model, s.workdir, s.created_at, s.updated_at,
-		       s.agent_id, s.source_ref, `+strings.ReplaceAll(sessionAgentDeleted, "agent_sessions.", "s.")+`,
+	rows, err := s.db.R.QueryContext(ctx, sessionSelect+`,
 		       COUNT(m.id)
 		  FROM agent_sessions s
 		  LEFT JOIN agent_messages m ON m.session_id = s.id
@@ -87,12 +94,7 @@ func (s *Store) ListAgentSessions(ctx context.Context, f domain.AgentSessionFilt
 }
 
 func (s *Store) GetAgentSession(ctx context.Context, id string) (*domain.AgentSession, error) {
-	row := s.db.R.QueryRowContext(ctx, `
-		SELECT s.id, s.title, s.object_id, s.provider_id, s.model, s.workdir, s.created_at, s.updated_at,
-		       s.agent_id, s.source_ref, `+strings.ReplaceAll(sessionAgentDeleted, "agent_sessions.", "s.")+`,
-		       (SELECT COUNT(*) FROM agent_messages WHERE session_id = s.id)
-		  FROM agent_sessions s WHERE s.id = ?`, id)
-	sess, err := scanSession(row, true)
+	sess, err := getSession(ctx, s.db.R, id)
 	if noRows(err) {
 		return nil, notFound("agent session")
 	}
@@ -100,6 +102,44 @@ func (s *Store) GetAgentSession(ctx context.Context, id string) (*domain.AgentSe
 		return nil, fmt.Errorf("get agent session: %w", err)
 	}
 	return sess, nil
+}
+
+// queryRower 是 *sql.DB 和 *sql.Tx 共有的那一个方法
+type queryRower interface {
+	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
+}
+
+// getSession 按 sessionSelect 读一条会话，带消息数；事务里写完要读回「实际用的」模型时也用它
+func getSession(ctx context.Context, q queryRower, id string) (*domain.AgentSession, error) {
+	return scanSession(q.QueryRowContext(ctx, sessionSelect+`,
+		       (SELECT COUNT(*) FROM agent_messages WHERE session_id = s.id)
+		  FROM agent_sessions s WHERE s.id = ?`, id), true)
+}
+
+// SetAgentSessionModel 换会话用的服务商和模型（TSK-0720）。override 为 true 是会话单独选的，之后按它跑；
+// 为 false 是改回跟随 Agent 默认，providerID / model 记成当前的快照。是否挂 Agent、服务商在不在由调用方先查。
+func (s *Store) SetAgentSessionModel(ctx context.Context, id, providerID, model string, override bool) (*domain.AgentSession, error) {
+	var out *domain.AgentSession
+	err := s.withTx(ctx, func(tx *sql.Tx) error {
+		res, err := tx.ExecContext(ctx,
+			`UPDATE agent_sessions SET provider_id=?, model=?, model_override=?, updated_at=? WHERE id=?`,
+			strings.TrimSpace(providerID), strings.TrimSpace(model), boolInt(override), nowAgent(), id)
+		if err != nil {
+			return fmt.Errorf("set agent session model: %w", err)
+		}
+		if n, _ := res.RowsAffected(); n == 0 {
+			return notFound("agent session")
+		}
+		out, err = getSession(ctx, tx, id)
+		if err != nil {
+			return fmt.Errorf("get agent session: %w", err)
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 // CreateAgentSession 不校验 workdir 是否存在：目录检查是 internal/agent 的事，
@@ -154,11 +194,13 @@ func (s *Store) CreateAgentSession(ctx context.Context, in *domain.AgentSession)
 	sess.ID = idgen.Prefixed("ags")
 	now := nowAgent()
 	if _, err := s.db.W.ExecContext(ctx,
-		`INSERT INTO agent_sessions (`+sessionCols+`) VALUES (?,?,?,?,?,?,?,?,?,?)`,
-		sess.ID, sess.Title, objectID, sess.ProviderID, sess.Model, sess.Workdir, now, now, ptrArg(sess.AgentID), sourceRef); err != nil {
+		`INSERT INTO agent_sessions (`+sessionCols+`, model_override) VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
+		sess.ID, sess.Title, objectID, sess.ProviderID, sess.Model, sess.Workdir, now, now, ptrArg(sess.AgentID), sourceRef,
+		boolInt(sess.ModelOverride && sess.AgentID != nil)); err != nil {
 		return nil, fmt.Errorf("insert agent session: %w", err)
 	}
 	sess.CreatedAt, sess.UpdatedAt = parseTime(now), parseTime(now)
+	sess.ModelOverride = sess.ModelOverride && sess.AgentID != nil
 	sess.MessageCount = 0
 	return &sess, nil
 }
@@ -168,7 +210,7 @@ func (s *Store) CreateAgentSession(ctx context.Context, in *domain.AgentSession)
 func (s *Store) UpdateAgentSession(ctx context.Context, id string, title, workdir, providerID, model *string) (*domain.AgentSession, error) {
 	var out *domain.AgentSession
 	err := s.withTx(ctx, func(tx *sql.Tx) error {
-		row := tx.QueryRowContext(ctx, `SELECT `+sessionCols+`, `+sessionAgentDeleted+` FROM agent_sessions WHERE id = ?`, id)
+		row := tx.QueryRowContext(ctx, `SELECT `+sessionCols+`, model_override, `+sessionAgentDeleted+` FROM agent_sessions WHERE id = ?`, id)
 		cur, err := scanSession(row, false)
 		if noRows(err) {
 			return notFound("agent session")
@@ -198,13 +240,10 @@ func (s *Store) UpdateAgentSession(ctx context.Context, id string, title, workdi
 			cur.Title, cur.ProviderID, cur.Model, cur.Workdir, now, id); err != nil {
 			return fmt.Errorf("update agent session: %w", err)
 		}
-		cur.UpdatedAt = parseTime(now)
-
-		if err := tx.QueryRowContext(ctx,
-			`SELECT COUNT(*) FROM agent_messages WHERE session_id = ?`, id).Scan(&cur.MessageCount); err != nil {
-			return fmt.Errorf("count agent messages: %w", err)
+		// 读回「实际用的」服务商和模型（跟随 Agent 的会话是 Agent 当前的），带消息数
+		if out, err = getSession(ctx, tx, id); err != nil {
+			return fmt.Errorf("get agent session: %w", err)
 		}
-		out = cur
 		return nil
 	})
 	if err != nil {
@@ -260,15 +299,15 @@ func (s *Store) ListAgentMessages(ctx context.Context, sessionID string, limit i
 	if err := s.assertSession(ctx, sessionID); err != nil {
 		return nil, err
 	}
-	q := `SELECT id, session_id, role, content, tool_name, tool_args, created_at
+	q := `SELECT id, session_id, role, content, tool_name, tool_args, provider_id, model, created_at
 	        FROM agent_messages WHERE session_id = ? ORDER BY created_at, rowid`
 	args := []any{sessionID}
 	if limit > 0 {
 		// 先按倒序取 N 条，再在外层翻回正序。
 		// rowid 要在子查询里显式选出来（起名 rid）：子查询只投影了列清单，
 		// 外层看不到底表的隐式 rowid，不带出来的话外层这个 ORDER BY 就是空转。
-		q = `SELECT id, session_id, role, content, tool_name, tool_args, created_at FROM (` +
-			`SELECT rowid AS rid, id, session_id, role, content, tool_name, tool_args, created_at
+		q = `SELECT id, session_id, role, content, tool_name, tool_args, provider_id, model, created_at FROM (` +
+			`SELECT rowid AS rid, id, session_id, role, content, tool_name, tool_args, provider_id, model, created_at
 			   FROM agent_messages WHERE session_id = ? ORDER BY created_at DESC, rid DESC LIMIT ?` +
 			`) ORDER BY created_at, rid`
 		args = append(args, limit)
@@ -285,7 +324,7 @@ func (s *Store) ListAgentMessages(ctx context.Context, sessionID string, limit i
 		var m domain.AgentMessage
 		var created string
 		if err := rows.Scan(&m.ID, &m.SessionID, &m.Role, &m.Content,
-			&m.ToolName, &m.ToolArgs, &created); err != nil {
+			&m.ToolName, &m.ToolArgs, &m.ProviderID, &m.Model, &created); err != nil {
 			return nil, err
 		}
 		m.CreatedAt = parseTime(created)
@@ -321,9 +360,9 @@ func (s *Store) AppendAgentMessage(ctx context.Context, in *domain.AgentMessage)
 		}
 
 		if _, err := tx.ExecContext(ctx,
-			`INSERT INTO agent_messages (id, session_id, role, content, tool_name, tool_args, created_at)
-			 VALUES (?,?,?,?,?,?,?)`,
-			m.ID, m.SessionID, m.Role, m.Content, m.ToolName, m.ToolArgs, now); err != nil {
+			`INSERT INTO agent_messages (id, session_id, role, content, tool_name, tool_args, provider_id, model, created_at)
+			 VALUES (?,?,?,?,?,?,?,?,?)`,
+			m.ID, m.SessionID, m.Role, m.Content, m.ToolName, m.ToolArgs, m.ProviderID, m.Model, now); err != nil {
 			return fmt.Errorf("insert agent message: %w", err)
 		}
 		if _, err := tx.ExecContext(ctx,
@@ -347,7 +386,7 @@ func scanSession(sc rowScanner, withCount bool) (*domain.AgentSession, error) {
 	// object_id 可空，必须过一层 NullString——直接扫进 *string 会在 NULL 上报错。
 	var objectID, agentID sql.NullString
 	var sourceRef string
-	dest := []any{&s.ID, &s.Title, &objectID, &s.ProviderID, &s.Model, &s.Workdir, &created, &updated, &agentID, &sourceRef, &s.AgentDeleted}
+	dest := []any{&s.ID, &s.Title, &objectID, &s.ProviderID, &s.Model, &s.Workdir, &created, &updated, &agentID, &sourceRef, &s.ModelOverride, &s.AgentDeleted}
 	if withCount {
 		dest = append(dest, &s.MessageCount)
 	}
@@ -385,11 +424,11 @@ func (s *Store) assertSession(ctx context.Context, sessionID string) error {
 
 func checkRole(role string) error {
 	switch role {
-	case domain.RoleUser, domain.RoleAssistant, domain.RoleTool:
+	case domain.RoleUser, domain.RoleAssistant, domain.RoleTool, domain.RoleNotice:
 		return nil
 	case "":
 		return validation("role", "is required")
 	default:
-		return validation("role", "must be one of user, assistant, tool")
+		return validation("role", "must be one of user, assistant, tool, notice")
 	}
 }

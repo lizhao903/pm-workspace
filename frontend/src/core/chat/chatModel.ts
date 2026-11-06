@@ -43,13 +43,17 @@ export type CallView = {
 export type QuestionView = { id?: string; question: string; options: QuestionOption[]; multi: boolean }
 export type ChatMsgView = {
   id: string
-  role: 'user' | 'agent'
+  /** notice 是换模型这类系统提示（TSK-0720），居中一行，不算谁说的 */
+  role: 'user' | 'agent' | 'notice'
   text: string
   calls: CallView[]
   question?: QuestionView
   /** 流里写出的文件（相对产物目录） */
   files?: { path: string; size: number }[]
   at?: string
+  /** 这条回复当时用的服务商和模型（TSK-0720）；0053 之前的、执行器补的说明没有 */
+  providerId?: string
+  model?: string
 }
 
 // 后端落库时把提问拼成这段文字（internal/agent 的 renderQuestion）：
@@ -150,9 +154,17 @@ export function foldHistory(msgs: readonly AgentMessage[]): ChatMsgView[] {
       out.push({ id: m.id, role: 'user', text: m.content, calls: [], at: m.created_at })
       continue
     }
+    if (m.role === 'notice') {
+      flush()
+      out.push({ id: m.id, role: 'notice', text: m.content, calls: [], at: m.created_at })
+      continue
+    }
     const content = m.content.replace(CONFIRM_LINE, '').trim()
     const q = parseQuestion(content)
-    out.push({ id: m.id, role: 'agent', text: q ? q.text : content, calls, question: q?.question, at: m.created_at })
+    out.push({
+      id: m.id, role: 'agent', text: q ? q.text : content, calls, question: q?.question, at: m.created_at,
+      ...(m.model ? { providerId: m.provider_id ?? '', model: m.model } : {}),
+    })
     calls = []
   }
   flush()
@@ -299,6 +311,16 @@ export function whoUsable(w: ChatWho): { usable: boolean; note?: string } {
       if (!w.provider) return { usable: false, note: '这个服务商已删除，只能回看' }
       return w.provider.enabled ? { usable: true } : { usable: false, note: '这个服务商已停用，只能回看' }
   }
+}
+
+/**
+ * 「服务商 · 模型」（TSK-0720）：会话列表、头部、回复悬停都用这一句。服务商删了写「已删除的服务商」；
+ * 停用的标出来，disabled 给调用方着色
+ */
+export function modelLabel(providerId: string, model: string, providers: readonly AgentProvider[]): { text: string; disabled: boolean; gone: boolean } {
+  const p = providers.find((x) => x.id === providerId)
+  const name = p ? p.name || '未命名' : '已删除的服务商'
+  return { text: `${name} · ${model || '默认模型'}${p && !p.enabled ? '（已停用）' : ''}`, disabled: !!p && !p.enabled, gone: !p }
 }
 
 /** 会话筛选的取值：Agent id，或者下面两个特殊值 */

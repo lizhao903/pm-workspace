@@ -45,6 +45,9 @@ export type AgentSession = {
   agent_id?: string | null
   /** 挂了 Agent 但 Agent 已删除：只能回看 */
   agent_deleted?: boolean
+  /** 挂 Agent 的会话在会话里单独换过模型（TSK-0720，0053）。false 时跟随 Agent 当前的默认，provider_id / model 就是 Agent 当前的；
+   * 不挂 Agent 的会话恒为 false */
+  model_override?: boolean
   /** 会话的来源（0047）：从哪条记录发起的，建的时候给、之后不改；不是从别的记录发起的没有这个键。
    * kind 说是哪种记录（im_message 是 IM 消息），label 是给人看的一句，其余由发起方定；
    * 会话里 Agent 新建的对象缺省把它记进 props.source_ref，有 project_id 时缺省挂到这个项目 */
@@ -54,7 +57,8 @@ export type AgentSession = {
   message_count: number
 }
 
-export type AgentMessageRole = 'user' | 'assistant' | 'tool'
+/** notice 是会话里给人看的系统提示（如「已切换到 X」，TSK-0720），不进模型的上下文 */
+export type AgentMessageRole = 'user' | 'assistant' | 'tool' | 'notice'
 
 export type AgentMessage = {
   id: string
@@ -64,6 +68,9 @@ export type AgentMessage = {
   content: string
   tool_name?: string
   tool_args?: string
+  /** 这条回复（或换模型的提示）当时用的服务商和模型（TSK-0720）；别的角色、0053 之前的没有 */
+  provider_id?: string
+  model?: string
   created_at: string
 }
 
@@ -72,7 +79,9 @@ export type AgentSessionInput = { title?: string; provider_id?: string; model?: 
 /** 会话来源（0047），JSON 对象，最多 16KB */
 export type SessionSourceRef = { kind?: string; label?: string; project_id?: string } & Record<string, unknown>
 // 改不了 object_id
-export type AgentSessionPatch = { title?: string; provider_id?: string; model?: string; workdir?: string }
+// provider_id / model / model_override 是换模型（TSK-0720）：挂 Agent 的会话给了前两个就固定成本会话自己的，
+// model_override: false 改回跟随 Agent 默认（这时不能带前两个）
+export type AgentSessionPatch = { title?: string; provider_id?: string; model?: string; workdir?: string; model_override?: boolean }
 
 // ---- 请求 ----
 
@@ -170,6 +179,15 @@ export function usePatchAgentSession() {
   return useMutation({
     mutationFn: ({ id, patch }: { id: string; patch: AgentSessionPatch }) => agentApi.patchSession(id, patch),
     onSuccess: () => notify({ kind: 'agent-session' }),
+  })
+}
+
+/** 换会话用的模型（TSK-0720）：会话里多一条切换提示，所以按一轮对话收尾的口径刷新（消息和列表） */
+export function useSwitchSessionModel() {
+  const notify = useNotifyChange()
+  return useMutation({
+    mutationFn: ({ id, patch }: { id: string; patch: Pick<AgentSessionPatch, 'provider_id' | 'model' | 'model_override'> }) => agentApi.patchSession(id, patch),
+    onSettled: (_d, _e, { id }) => notify({ kind: 'agent-chat', sessionId: id }),
   })
 }
 

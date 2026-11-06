@@ -1097,9 +1097,9 @@ func (f *fakeStore) ListAgentSessions(_ context.Context, flt domain.AgentSession
 		default:
 			continue
 		}
-		c := *sess
+		c := f.effectiveSession(sess)
 		c.MessageCount = len(f.messages[c.ID])
-		out = append(out, &c)
+		out = append(out, c)
 	}
 	sort.Slice(out, func(i, j int) bool {
 		if out[i].UpdatedAt.Equal(out[j].UpdatedAt) {
@@ -1117,9 +1117,9 @@ func (f *fakeStore) GetAgentSession(_ context.Context, id string) (*domain.Agent
 	if !ok {
 		return nil, domain.ErrNotFound
 	}
-	c := *sess
+	c := f.effectiveSession(sess)
 	c.MessageCount = len(f.messages[id])
-	return &c, nil
+	return c, nil
 }
 
 func (f *fakeStore) CreateAgentSession(_ context.Context, sess *domain.AgentSession) (*domain.AgentSession, error) {
@@ -1166,9 +1166,35 @@ func (f *fakeStore) UpdateAgentSession(_ context.Context, id string, title, work
 		sess.Model = *model
 	}
 	sess.UpdatedAt = time.Now()
-	c := *sess
+	c := f.effectiveSession(sess)
 	c.MessageCount = len(f.messages[id])
-	return &c, nil
+	return c, nil
+}
+
+// SetAgentSessionModel 同 sqlite：记下会话的服务商、模型和是否单独换过；读出来的「实际用的」由 effectiveSession 现算
+func (f *fakeStore) SetAgentSessionModel(_ context.Context, id, providerID, model string, override bool) (*domain.AgentSession, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	sess, ok := f.sessions[id]
+	if !ok {
+		return nil, domain.ErrNotFound
+	}
+	sess.ProviderID, sess.Model, sess.ModelOverride = providerID, model, override
+	sess.UpdatedAt = time.Now()
+	c := f.effectiveSession(sess)
+	c.MessageCount = len(f.messages[id])
+	return c, nil
+}
+
+// effectiveSession 照 sqlite 的 sessionSelect：挂 Agent、没单独换过模型的会话读出来是 Agent 当前的服务商和模型。调用方持锁
+func (f *fakeStore) effectiveSession(sess *domain.AgentSession) *domain.AgentSession {
+	c := *sess
+	if !c.ModelOverride && c.AgentID != nil {
+		if a, ok := f.agents[*c.AgentID]; ok {
+			c.ProviderID, c.Model = a.ProviderID, a.Model
+		}
+	}
+	return &c
 }
 
 // DeleteAgentSession 删消息，但**不删产物**——这跟 0007 时的行为是反的。
