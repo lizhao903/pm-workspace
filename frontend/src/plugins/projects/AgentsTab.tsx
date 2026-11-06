@@ -130,7 +130,7 @@ export function AgentsTab({ project }: { project: WorkObject }) {
             ) : <div className="pj-mount-empty">还没有项目会话；点上面的「对话」开一个</div>}
       </section>
       {openId && (
-        <section className="pj-chat" aria-label="项目会话">
+        <section className="pj-agent-pane" aria-label="项目会话">
           {cur && curWho ? (
             <ChatPane key={cur.id} session={cur} who={curWho}
               onRetitle={(title) => patch.mutate({ id: cur.id, patch: { title } })}
