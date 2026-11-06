@@ -12,6 +12,7 @@ import { ScheduleBar } from './ScheduleBar'
 import { useSourceText } from './source'
 import { imDraftOf } from './imtrigger'
 import { needsText } from './scope'
+import { IMExplainPanel, SkipList } from './Debug'
 
 const RECENT = 10
 const ISSUES_SHOWN = 6
@@ -55,6 +56,8 @@ export function FlowDetail({ flow, runs, branching, needs = [], trigger, onStart
   now: number
 }) {
   const [confirm, setConfirm] = useState(false)
+  // 模拟 IM 触发（TSK-0491）：打开时可带一条消息（从「最近未发起」点「模拟」进来）
+  const [explain, setExplain] = useState<{ msg?: string; n: number } | null>(null)
   // 列表里的流程不带 issues，单取一条（TSK-0490）
   const full = useSopFlow(flow.id)
   const sourceOf = useSourceText()
@@ -87,6 +90,7 @@ export function FlowDetail({ flow, runs, branching, needs = [], trigger, onStart
       <PageTitle parent="SOP" desc={flow.desc} actions={!confirm && <>
         <Button variant="danger-ghost" onClick={() => { del.reset(); setConfirm(true) }}>删除</Button>
         <Button variant="ghost" disabled={save.isPending} onClick={copy}>{save.isPending ? '复制中' : '复制'}</Button>
+        {flow.trigger === 'im' && <Button variant="ghost" onClick={() => setExplain({ n: Date.now() })}>模拟 IM 触发</Button>}
         <Button variant="outline" onClick={onEdit}>编辑</Button>
         <Button variant="primary" onClick={onStart}><IconPlay />执行</Button>
       </>}>{flow.name}</PageTitle>
@@ -116,6 +120,7 @@ export function FlowDetail({ flow, runs, branching, needs = [], trigger, onStart
       <IssuesBar issues={full.data?.issues ?? []} steps={flow.steps} onEdit={onEdit} />
       <ScheduleBar flow={flow} now={now} className="sop-detail-sched" />
       <IMBar flow={flow} className="sop-detail-sched" />
+      {explain && <IMExplainPanel key={explain.n} flowId={flow.id} initial={explain.msg} onClose={() => setExplain(null)} />}
 
       <div className="sop-section-label">流程</div>
       <div className="sop-flow-card"><FlowGraph flow={flow} branching={branching} /></div>
@@ -126,6 +131,13 @@ export function FlowDetail({ flow, runs, branching, needs = [], trigger, onStart
         {flow.fields.length ? flow.fields.map((f) => <span key={f.key} className="tag">{f.label}{f.required ? '（必填）' : ''}</span>)
           : <span className="sop-muted">没有输入字段</span>}
       </div>
+
+      {(flow.trigger === 'im' || flow.trigger === 'schedule') && (
+        <>
+          <div className="sop-section-label">最近未发起<span className="sop-section-hint">自动触发没有发起执行的原因</span></div>
+          <SkipList flowId={flow.id} onExplain={flow.trigger === 'im' ? (msg) => setExplain({ msg, n: Date.now() }) : undefined} />
+        </>
+      )}
 
       <div className="sop-section-label">最近执行{mine.length > 0 && <span className="sop-section-hint">共 {mine.length} 次</span>}</div>
       {!mine.length ? (

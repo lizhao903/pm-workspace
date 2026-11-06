@@ -59,6 +59,10 @@ type NodeType struct {
 	Params      []Param  `json:"params"`
 	Outputs     []Output `json:"outputs"`
 	OutputsOpen bool     `json:"outputs_open"`
+	// Effect、DryRun 是调试时怎么对待这个节点（TSK-0491，debug.go）：compute（只按输入算）、read（只读取数）、model（调模型）
+	// 真实执行；write（改数据、对外发）、wait（等外部事件）、human（等人）不执行，按 DryRun 说的模拟
+	Effect string `json:"effect"`
+	DryRun string `json:"dry_run"`
 }
 
 // declared 是节点声明了输出（含只透传的空声明）。
@@ -369,6 +373,10 @@ func (h *flows) remove(w http.ResponseWriter, r *http.Request) {
 	if _, err := h.c.Store().Exec(ctx, `DELETE FROM sop_flows WHERE id = ?`, id); err != nil {
 		fail(w, r, h.c, err)
 		return
+	}
+	// 没发起的记录跟着流程删（TSK-0491）
+	if _, err := h.c.Store().Exec(ctx, `DELETE FROM sop_skips WHERE flow_id = ?`, id); err != nil {
+		h.c.Log().Warn("sop skips not deleted", "flow", id, "err", err)
 	}
 	if _, err := h.c.SOP().DeleteFlowSchedule(ctx, id); err != nil && !errors.Is(err, plugin.ErrNoSOPSchedules) {
 		fail(w, r, h.c, err)

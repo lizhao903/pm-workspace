@@ -2,7 +2,7 @@
 // 编排页改的是草稿，保存时整体提交，位置一起存进 layout；有错误级问题不保存，后端 400 时把问题逐条标到节点上（SPEC-sop-8.30、8.35）。
 // 撤销历史最多 50 步；流程名连续输入算一步。照原型 web-next/src/sopedit.tsx 的 SopEditor
 import { useEffect, useMemo, useRef, useState, type PointerEvent as RPointerEvent } from 'react'
-import { errorText, isApiError, sopIssuesOf, useConversations, useSaveSopFlow, type SopDraft, type SopFlow, type SopIssue, type SopRunBrief, type SopScheduleOff, type SopStepDef } from '../../core/data'
+import { errorText, isApiError, sopIssuesOf, useConversations, useSaveSopFlow, type SopDebugStep, type SopDraft, type SopFlow, type SopIssue, type SopRunBrief, type SopScheduleOff, type SopStepDef } from '../../core/data'
 import { Button, ConfirmDialog, IconButton, PageTitle, cls, describeScheduleRule } from '../../core/ui'
 import { AiPanel } from './AiPanel'
 import {
@@ -18,6 +18,7 @@ import { Palette } from './Palette'
 import { SCHEDULE } from './schedule'
 import { IM, filterText } from './imtrigger'
 import { IconBack, IconPlay, KindIcon } from './parts'
+import { DebugBadge, DebugBar, type DebugRun } from './Debug'
 
 const HISTORY = 50
 const TOAST_MS = 2400
@@ -71,6 +72,12 @@ export function Editor({ initial, issues: initialIssues, flowId, version, hasSch
   const [schedSaved, setSchedSaved] = useState(hasSchedule)
   // AI 提案的撤销只撤这次提案：记下应用后的草稿，之后有别的改动就不再给「撤销」
   const [aiMark, setAiMark] = useState<Draft | null>(null)
+  // 调试（TSK-0491）：结果留到下次调试或离开编排页；画布角标、节点面板「调试」页、字段候选都读当前这一条
+  const [dbgOpen, setDbgOpen] = useState(false)
+  const [dbgRuns, setDbgRuns] = useState<DebugRun[]>([])
+  const [dbgActive, setDbgActive] = useState(0)
+  const dbg = dbgRuns[dbgActive]?.res
+  const dbgStep = (key: string): SopDebugStep | undefined => dbg?.steps.find((x) => x.key === key)
   const canvasRef = useRef<HTMLDivElement>(null)
   const drag = useRef<Drag | null>(null)
   const nameEdit = useRef<Draft | null>(null)
@@ -379,9 +386,16 @@ export function Editor({ initial, issues: initialIssues, flowId, version, hasSch
             {edges.map((ed) => {
               const d = curve(outPt(ed.from, ed.caseKey), { x: lay[ed.to].x, y: lay[ed.to].y + 30 })
               const on = selEdge?.from === ed.from && selEdge.to === ed.to
+              // 调试时走过的连线高亮、没走的变淡（TSK-0491）
+              const walked = dbg && (() => {
+                const to = dbgStep(ed.to)?.status
+                const from = ed.from === START ? 'done' : dbgStep(ed.from)?.status
+                const live = (x?: string) => x === 'done' || x === 'simulated' || x === 'skipped_model' || x === 'failed'
+                return live(from) && live(to)
+              })()
               return (
                 <g key={`${ed.from}-${ed.to}`}>
-                  <path d={d} className={cls('sop-cv-edge', on && 'on', ed.caseKey && 'branch')} />
+                  <path d={d} className={cls('sop-cv-edge', on && 'on', ed.caseKey && 'branch', dbg && (walked ? 'dbg-on' : 'dbg-off'))} />
                   {ed.from !== START && (
                     <path d={d} className="sop-edge-hit" data-edge={`${ed.from}>${ed.to}`}
                       onPointerDown={(e) => { e.stopPropagation(); setSelEdge({ from: ed.from, to: ed.to }); setSel(null) }} />
@@ -414,7 +428,7 @@ export function Editor({ initial, issues: initialIssues, flowId, version, hasSch
           </div>
 
           {draft.steps.map((s) => (
-            <StepNode key={s.key} s={s} pos={lay[s.key]} catalog={catalog} ctx={ctx} sel={sel === s.key} bad={stepIssues(s.key)} onSelect={() => select(s.key)} />
+            <StepNode key={s.key} s={s} pos={lay[s.key]} catalog={catalog} ctx={ctx} sel={sel === s.key} bad={stepIssues(s.key)} dbg={dbgStep(s.key)} onSelect={() => select(s.key)} />
           ))}
         </div>
 
@@ -442,9 +456,14 @@ export function Editor({ initial, issues: initialIssues, flowId, version, hasSch
               </div>
             )}
           </div>
+          <Button variant="outline" className={cls(dbgOpen && 'sop-btn-on')} aria-expanded={dbgOpen} onClick={() => setDbgOpen(!dbgOpen)}
+            title="真实取数走一遍，写操作不执行，不建执行记录">调试{dbgRuns.length ? ` · ${dbgRuns.length}` : ''}</Button>
           <Button variant="outline" disabled={saveM.isPending} onClick={() => save(true)}><IconPlay />测试运行</Button>
           <Button variant="primary" disabled={saveM.isPending} onClick={() => save(false)}>{saveLabel}</Button>
         </div>
+        {dbgOpen && (
+          <DebugBar draft={draft} flowId={flowId} runs={dbgRuns} active={dbgActive} onRuns={setDbgRuns} onActive={setDbgActive} onClose={() => setDbgOpen(false)} />
+        )}
         {(saveError || gone) && (
           <div className="sop-cv-ui sop-cv-error" role="alert">
             {gone ? '这个 SOP 已经在别处删除，点「另存为新流程」把现在的编排存成一条新流程' : saveError}
@@ -494,7 +513,7 @@ export function Editor({ initial, issues: initialIssues, flowId, version, hasSch
 
       {sel && (
         <NodePanel draft={draft} nodeKey={sel} catalog={catalog} ctx={{ ...ctx, flows: ctx.flows.filter((f) => f.id !== flowId) }} tried={tried}
-          triggers={triggers} flowId={flowId} runs={runs}
+          triggers={triggers} flowId={flowId} runs={runs} debug={dbg}
           onChange={(p) => changeStep(sel, p)} onPatchDraft={(p) => commit({ ...draft, ...p })}
           onRemove={() => removeNode(sel)} onRemoveEdge={removeEdge} onSelect={select}
           onAddNext={(at, from, caseKey) => setPalette({ at, from, caseKey })} onClose={() => setSel(null)} />
@@ -519,20 +538,22 @@ export function Editor({ initial, issues: initialIssues, flowId, version, hasSch
 }
 
 /** 画布上的步骤节点（SPEC-sop-8.6） */
-function StepNode({ s, pos, catalog, ctx, sel, bad, onSelect }: {
+function StepNode({ s, pos, catalog, ctx, sel, bad, dbg, onSelect }: {
   s: SopStepDef
   pos: Pos
   catalog: Catalog
   ctx: FieldCtx
   sel: boolean
   bad: Issue[]
+  /** 这一步的调试结果（TSK-0491） */
+  dbg?: SopDebugStep
   onSelect: () => void
 }) {
   const info = nodeInfo(s.kind)
   const branching = isBranching(catalog, s.kind)
   const hasErr = bad.some((x) => x.level === 'error')
   return (
-    <div className={cls('sop-cv-node', `sop-cvk-${s.kind}`, sel && 'sel', hasErr && 'bad')} data-node={s.key}
+    <div className={cls('sop-cv-node', `sop-cvk-${s.kind}`, sel && 'sel', hasErr && 'bad', dbg && `dbg-node-${dbg.status}`)} data-node={s.key}
       style={{ left: pos.x, top: pos.y, width: NW }} role="button" tabIndex={0} aria-label={`节点 ${s.name || '未命名'}`}
       aria-invalid={hasErr || undefined} onKeyDown={(e) => { if (e.key === 'Enter') onSelect() }}>
       <span className="sop-cv-in" />
@@ -562,6 +583,7 @@ function StepNode({ s, pos, catalog, ctx, sel, bad, onSelect }: {
           <span className="sop-cv-handle" data-out={s.key} role="button" aria-label={`在「${s.name || '未命名'}」之后加节点`} title="拖动连线，或点击添加下一个节点">+</span>
         </>
       )}
+      {dbg && <DebugBadge s={dbg} />}
     </div>
   )
 }

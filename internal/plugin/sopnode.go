@@ -73,7 +73,20 @@ type SOPNodeSpec struct {
 	Params []SOPParam
 	// Outputs 是这一步加到输出里的字段；nil 是没声明（下游引用字段时只给警告），空切片是只透传
 	Outputs []SOPOutput
+	// Effect 是这个节点有没有副作用（TSK-0491，SOP 调试按它决定真跑还是模拟）：SOPEffectRead 只读，调试时真实执行；
+	// SOPEffectWrite 会改数据或对外发东西（标记消息、发消息、建任务、写文件、调外部系统……），调试时不执行，只显示将做什么；
+	// SOPEffectWait 要停下等外部事件（等回复、等任务完成），调试时不等，用占位输出往下走。空串当 SOPEffectWrite（没声明的一律不真跑）
+	Effect string
+	// DryRun 是调试时这个节点怎么模拟，一句给人看的话（例：「不发消息，sent 为占位」）；空串按 Effect 的默认说法
+	DryRun string
 }
+
+// SOP 节点的副作用（SOPNodeSpec.Effect，TSK-0491）。
+const (
+	SOPEffectRead  = "read"
+	SOPEffectWrite = "write"
+	SOPEffectWait  = "wait"
+)
 
 // SOPParam 是节点的一个配置项。
 type SOPParam struct {

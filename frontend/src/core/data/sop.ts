@@ -2,7 +2,7 @@
 // 执行列表一次拉最近 500 条放一份缓存，执行记录、待我处理、流程库的统计、二级菜单的「最近用过」都从它算。
 // 状态变化靠事件流（sop.run_status_changed、sop.step_status_changed）报 sop-run 刷新；动作的响应是改后的整条执行，先写回缓存。
 import { useMutation, useQuery, useQueryClient, type QueryClient, type UseQueryOptions } from '@tanstack/react-query'
-import { isApiError, request, requestList } from '../api'
+import { isApiError, request, requestEnvelope, requestList } from '../api'
 import { useNotifyChange } from './invalidate'
 import { dataKeys } from './keys'
 import type { Schedule, ScheduleRule } from './schedules'
@@ -65,7 +65,8 @@ export type SopOutput = { path: string; type: string; label: string; values?: So
 /** 这一步能拿到的一个字段；declared 为 false、sample 是 TSK-0491 调试时叠加上去的 */
 export type SopFieldInfo = SopOutput & { declared: boolean; sample?: unknown }
 /** 按来源分的一组字段：trigger 触发自动带入、input 输入字段、step 上游步骤的输出、loopback 被退回重做时带上的 */
-export type SopFieldGroup = { source: 'trigger' | 'input' | 'step' | 'loopback'; step?: string; kind?: string; label: string; open: boolean; fields: SopFieldInfo[] }
+/** source=sample 是调试时实际拿到、没声明的字段（TSK-0491） */
+export type SopFieldGroup = { source: 'trigger' | 'input' | 'step' | 'loopback' | 'sample'; step?: string; kind?: string; label: string; open: boolean; fields: SopFieldInfo[] }
 /** 触发方式和它自动带进输入的字段（TSK-0490） */
 export type SopTrigger = { key: string; label: string; desc: string; outputs: SopOutput[]; auto: boolean }
 export type SopFlow = {
@@ -132,6 +133,9 @@ export type SopNodeType = {
   params?: SopParam[]
   outputs?: SopOutput[]
   outputs_open?: boolean
+  /** 调试时怎么对待（TSK-0491）：compute / read / model 真实执行，write / wait / human 模拟；dry_run 是模拟口径的一句话 */
+  effect?: SopEffect
+  dry_run?: string
 }
 
 export type SopStepStatus = 'pending' | 'running' | 'paused' | 'review' | 'done' | 'failed' | 'skipped' | 'bypassed'
@@ -333,7 +337,96 @@ type SopFlowBody = Omit<SopDraft, 'id' | 'layout' | 'sched' | 'im'> & {
   schedule_off?: SopScheduleOff
 }
 /** AI 协助的回复；draft 是改好的整条草稿，不带 layout */
-export type SopAssistReply = { text: string; draft?: SopDraft; notes?: string[] }
+export type SopAssistReply = { text: string; draft?: SopDraft; notes?: string[]; test?: string }
+
+/* ---------- 调试（TSK-0491） ---------- */
+
+export type SopEffect = 'compute' | 'read' | 'model' | 'write' | 'wait' | 'human'
+/** 调试里一步的结果：done 真实执行、simulated 模拟（写操作、等待、人工）、skipped_model 跳过调模型、failed、bypassed 分支没走、not_reached 上游没走通 */
+export type SopDebugStatus = 'done' | 'simulated' | 'skipped_model' | 'failed' | 'bypassed' | 'not_reached'
+export type SopDebugCondItem = { field: string; op: string; op_label: string; value: string; actual: unknown; found: boolean; ok: boolean }
+export type SopDebugCond = { logic: string; text: string; items: SopDebugCondItem[]; result: boolean }
+export type SopDebugAction = { text: string; params: { key: string; label: string; value: string }[] }
+export type SopDebugStep = {
+  key: string
+  name: string
+  kind: string
+  effect: SopEffect | string
+  status: SopDebugStatus
+  input: SopJson | null
+  output: SopJson | null
+  route?: string
+  route_label?: string
+  route_reason?: string
+  cond?: SopDebugCond
+  action?: SopDebugAction
+  error?: string
+  note?: string
+  log?: string
+  /** 这一步加到输出里的字段：声明的带 sample，实际返回但没声明的 declared=false */
+  fields: SopFieldInfo[]
+  ms: number
+}
+export type SopDebugSource = 'input' | 'message' | 'latest_run' | 'latest_skip' | 'defaults'
+export type SopDebug = {
+  id: string
+  flow_id: string
+  flow_name: string
+  trigger: string
+  source: SopDebugSource
+  message_id?: string
+  message: SopJson | null
+  input: SopJson
+  input_error?: string
+  status: 'done' | 'failed' | 'stopped'
+  summary: string
+  notes: string[]
+  skip_models: boolean
+  issues: SopIssue[]
+  steps: SopDebugStep[]
+  started_at: string
+  ms: number
+}
+export type SopDebugInput = {
+  flow_id?: string
+  draft?: SopDraft
+  input?: Record<string, unknown>
+  message_id?: string
+  skip_models?: boolean
+  routes?: Record<string, string>
+}
+export type SopIMVerdict = 'start' | 'already' | 'filtered' | 'missing' | 'stopped' | 'muted'
+export type SopIMExplainFlow = {
+  flow_id: string
+  name: string
+  order: number
+  stop: boolean
+  verdict: SopIMVerdict
+  reason: string
+  input: SopJson | null
+  checks: { key: 'conversation' | 'relevance'; ok: boolean; want: string[]; mode?: string; got: string; text: string }[]
+  missing: { key: string; label: string }[]
+  by_flow_id?: string
+  by_flow?: string
+  run_id?: string
+  draft?: boolean
+}
+export type SopIMExplain = {
+  message_id?: string
+  message: SopJson | null
+  event: SopJson
+  delivered: boolean
+  muted: SopJson | null
+  sender_muted: SopJson | null
+  stale: boolean
+  flows: SopIMExplainFlow[]
+  will_start: string[]
+  summary: string
+  notes: string[]
+}
+export type SopSkipReason = 'filtered' | 'stopped' | 'muted' | 'missing' | 'start_failed'
+export type SopSkip = { id: string; flow_id: string; source: 'im' | 'schedule' | string; source_ref: string; reason: SopSkipReason; detail: string; info: SopJson; at: string }
+export type SopSkips = { items: SopSkip[]; total: number; reasons: Partial<Record<SopSkipReason, number>> }
 export type SopAssistInput = { message: string; draft?: SopDraft; selected?: number }
 
 /** 保存被后端拒绝（validation 400）时的逐条问题；不是校验错误回空数组 */
@@ -387,8 +480,27 @@ export const sopApi = {
   /** 触发方式和自动带进输入的字段（TSK-0490） */
   triggers: async (signal?: AbortSignal) => (await requestList<SopTrigger>('/api/sop/triggers', { signal })).data,
   /** 这一步能拿到的字段（TSK-0490）：step 是步骤 key，__start 是开始节点交出去的；按声明静态推，不用跑 */
-  stepFields: async (draft: SopStepFieldsDraft, step: string, signal?: AbortSignal) =>
-    ((await request<SopFieldGroup[] | null>('POST', '/api/sop/step-fields', { body: { draft, step }, signal })) ?? []).map((g) => ({ ...g, fields: g.fields ?? [] })),
+  stepFields: async (draft: SopStepFieldsDraft, step: string, signal?: AbortSignal, sample?: SopJson | null) =>
+    ((await request<SopFieldGroup[] | null>('POST', '/api/sop/step-fields', { body: { draft, step, ...(sample ? { sample } : {}) }, signal })) ?? [])
+      .map((g) => ({ ...g, fields: g.fields ?? [] })),
+  /** 调试一次（TSK-0491）：真实取数，写操作只显示将做什么，不建执行、不改数据 */
+  debug: async (body: SopDebugInput) => {
+    const r = await request<SopDebug>('POST', '/api/sop/debug', { body })
+    return { ...r, notes: r.notes ?? [], issues: r.issues ?? [], steps: (r.steps ?? []).map((s) => ({ ...s, fields: s.fields ?? [] })) }
+  },
+  /** 模拟 IM 触发（TSK-0491）：不真发起 */
+  imExplain: async (body: { message_id?: string; draft?: SopDraft }) => {
+    const r = await request<SopIMExplain>('POST', '/api/sop/im-explain', { body })
+    return { ...r, notes: r.notes ?? [], flows: (r.flows ?? []).map((f) => ({ ...f, checks: f.checks ?? [], missing: f.missing ?? [] })), will_start: r.will_start ?? [] }
+  },
+  /** 自动触发没发起的记录（TSK-0491），最近的在前 */
+  skips: async (flowId: string, reason: string, signal?: AbortSignal): Promise<SopSkips> => {
+    const query = new URLSearchParams({ limit: '50', ...(reason ? { reason } : {}) })
+    const r = await requestEnvelope<SopSkip[] | null>('GET', `${flowPath(flowId)}/skips`, { query, signal })
+    const meta = r.meta as { total?: number; reasons?: SopSkips['reasons'] } | undefined
+    const items = (r.data ?? []).map((x) => ({ ...x, info: x.info ?? {} }))
+    return { items, total: meta?.total ?? items.length, reasons: meta?.reasons ?? {} }
+  },
   runs: async (signal?: AbortSignal) => {
     const query = new URLSearchParams({ limit: String(SOP_RUNS_MAX) })
     return (await requestList<SopRunBrief>('/api/sop/runs', { query, signal })).data.map(normBrief)
@@ -432,11 +544,12 @@ export function useSopFlows(opts: Poll & { enabled?: boolean } = {}) {
 export type SopStepFieldsDraft = Pick<SopDraft, 'trigger' | 'fields' | 'steps'>
 
 /** 这一步能拿到的字段（TSK-0490）：草稿的触发方式、输入字段、步骤变了才重取；stepKey 为 null 时不取 */
-export function useSopStepFields(draft: SopStepFieldsDraft, stepKey: string | null) {
+export function useSopStepFields(draft: SopStepFieldsDraft, stepKey: string | null, sample?: SopJson | null) {
   const d: SopStepFieldsDraft = { trigger: draft.trigger, fields: draft.fields, steps: draft.steps }
   return useQuery({
-    queryKey: dataKeys.sop.stepFields(JSON.stringify(d), stepKey ?? ''),
-    queryFn: ({ signal }) => sopApi.stepFields(d, stepKey!, signal),
+    // 带调试真实值时（TSK-0491）另算一份：字段补 sample、多一组「未声明」
+    queryKey: dataKeys.sop.stepFields(JSON.stringify(d) + (sample ? `#${JSON.stringify(sample)}` : ''), stepKey ?? ''),
+    queryFn: ({ signal }) => sopApi.stepFields(d, stepKey!, signal, sample),
     enabled: stepKey !== null,
     retry: noRetry404,
     staleTime: 60_000,
@@ -564,6 +677,20 @@ export function usePatchSopSettings() {
 }
 
 /** AI 协助：不保存，草稿要前端应用后照常保存 */
+/** 调试（TSK-0491）：结果留在编排页本地，不进缓存 */
+export function useSopDebug() {
+  return useMutation({ mutationFn: (body: SopDebugInput) => sopApi.debug(body) })
+}
+
+export function useSopIMExplain() {
+  return useMutation({ mutationFn: (body: { message_id?: string; draft?: SopDraft }) => sopApi.imExplain(body) })
+}
+
+/** 流程最近没发起的记录（TSK-0491）；reason 同接口（如 -filtered 是排除过滤不符） */
+export function useSopSkips(flowId: string, reason = '') {
+  return useQuery({ queryKey: [...dataKeys.sop.all, 'skips', flowId, reason] as const, queryFn: ({ signal }) => sopApi.skips(flowId, reason, signal), retry: noRetry404 })
+}
+
 export function useSopAssist() {
   return useMutation({ mutationFn: (body: SopAssistInput) => sopApi.assist(body) })
 }

@@ -18,6 +18,8 @@ import (
 type starter struct {
 	c plugin.Core
 	e *engine
+	// dbg 是调试、模拟 IM 触发（TSK-0491），Agent 的 test_sop、explain_im_trigger 经它
+	dbg *debugger
 }
 
 func (s *starter) StartSOP(ctx context.Context, q plugin.SOPStartRequest) (*plugin.SOPStarted, error) {
@@ -33,9 +35,17 @@ func (s *starter) StartSOP(ctx context.Context, q plugin.SOPStartRequest) (*plug
 	for k, v := range q.Input {
 		input[k] = v
 	}
-	if input, err = fillInput(f, input); err != nil {
+	filled, err := fillInput(f, input)
+	if err != nil {
+		// 定时到点补不齐必填输入：记一行没发起的原因（TSK-0491，skips.go），流程详情看得到
+		if q.Source == SourceSchedule {
+			_, msg, _ := cutKind(err)
+			recordSkip(ctx, s.c, f.ID, SourceSchedule, strings.TrimSpace(q.SourceID), skipMissing, "输入"+msg+"，定时发起不带字段，又没有默认值",
+				map[string]any{"missing": missingFields(f, input), "schedule": strings.TrimSpace(q.SourceName)})
+		}
 		return nil, plainErr(err)
 	}
+	input = filled
 	objectID, err := checkObject(ctx, s.c, q.ObjectID)
 	if err != nil {
 		s.c.Log().Warn("sop run object skipped", "flow", f.ID, "object", q.ObjectID, "err", err)
@@ -44,6 +54,11 @@ func (s *starter) StartSOP(ctx context.Context, q plugin.SOPStartRequest) (*plug
 	run, err := s.e.create(ctx, f, input, false, origin{ObjectID: objectID, Source: hookSource(q.Source),
 		SourceRef: strings.TrimSpace(q.SourceID), SourceName: strings.TrimSpace(q.SourceName)})
 	if err != nil {
+		if q.Source == SourceSchedule {
+			_, msg, _ := cutKind(err)
+			recordSkip(ctx, s.c, f.ID, SourceSchedule, strings.TrimSpace(q.SourceID), skipStartFailed, "发起出错："+msg,
+				map[string]any{"schedule": strings.TrimSpace(q.SourceName)})
+		}
 		return nil, plainErr(err)
 	}
 	s.c.Log().Info("sop run started", "run", run.ID, "flow", f.ID, "source", q.Source, "source_id", q.SourceID, "object", objectID)
@@ -344,4 +359,35 @@ func (s *starter) brief(ctx context.Context, f Flow, names map[string]string) pl
 
 func (s *starter) doc(ctx context.Context, f Flow) *plugin.SOPFlowDoc {
 	return &plugin.SOPFlowDoc{SOPFlowBrief: s.brief(ctx, f, nil), Fields: f.Fields, StepDefs: f.Steps}
+}
+
+// --- 调试（TSK-0491）：Agent 的 test_sop、explain_im_trigger 经内核注册表到这里，同 POST /api/sop/debug、/api/sop/im-explain ---
+
+var _ plugin.SOPCatalogDebugger = (*starter)(nil)
+
+func (s *starter) TestSOP(ctx context.Context, q plugin.SOPTest) (string, error) {
+	f, err := findFlow(ctx, s.c, strings.TrimSpace(q.FlowID))
+	if err != nil {
+		if errors.Is(err, errNotFound) {
+			return "", fmt.Errorf("%w：%s", plugin.ErrSOPNotFound, strings.TrimSpace(q.FlowID))
+		}
+		return "", plainErr(err)
+	}
+	res, err := s.dbg.run(ctx, f, checkFlow(&f, kindsOf(s.c)), DebugReq{Input: q.Input, MessageID: strings.TrimSpace(q.MessageID), SkipModels: q.SkipModels})
+	if err != nil {
+		return "", plainErr(err)
+	}
+	return debugReport(res), nil
+}
+
+func (s *starter) ExplainIMTrigger(ctx context.Context, messageID string) (string, error) {
+	id := strings.TrimSpace(messageID)
+	if id == "" {
+		return "", errors.New("message_id 是必填的")
+	}
+	res, err := s.dbg.explain(ctx, id, nil, nil)
+	if err != nil {
+		return "", plainErr(err)
+	}
+	return explainReport(res), nil
 }

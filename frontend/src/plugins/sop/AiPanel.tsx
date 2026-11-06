@@ -7,7 +7,7 @@ import { Button, IconButton, IconClose, cls } from '../../core/ui'
 import type { Draft } from './edit'
 import { KindTag } from './parts'
 
-export type AiMsg = { id: number; role: 'user' | 'ai'; text: string; notes?: string[]; proposal?: SopDraft; state?: 'new' | 'applied' | 'undone'; error?: boolean }
+export type AiMsg = { id: number; role: 'user' | 'ai'; text: string; notes?: string[]; test?: string; proposal?: SopDraft; state?: 'new' | 'applied' | 'undone'; error?: boolean }
 
 const EXAMPLES = [
   '报销审核流程：收到报销单，AI 识别发票金额，如果金额大于 5000 就经理审批，否则财务直接复核，最后打款并通知申请人',
@@ -61,7 +61,7 @@ export function AiPanel({ hidden, draft, selected, onApply, onUndo, canUndo, onC
     push({ role: 'user', text: t })
     setText('')
     assist.mutate({ message: t, draft: forAssist(draft), ...(selected !== null ? { selected } : {}) }, {
-      onSuccess: (r) => push({ role: 'ai', text: r.text, notes: r.notes, proposal: r.draft, state: r.draft ? 'new' : undefined }),
+      onSuccess: (r) => push({ role: 'ai', text: r.text, notes: r.notes, test: r.test, proposal: r.draft, state: r.draft ? 'new' : undefined }),
       onError: (e) => push({ role: 'ai', text: `没能生成流程：${errorText(e)}`, error: true }),
     })
   }
@@ -85,6 +85,7 @@ export function AiPanel({ hidden, draft, selected, onApply, onUndo, canUndo, onC
             <div className={cls('sop-ai-bubble', m.error && 'sop-ai-error')}>
               <div>{m.text}</div>
               {!!m.notes?.length && <ul className="sop-ai-notes">{m.notes.map((n, i) => <li key={i}>{n}</li>)}</ul>}
+              {m.test && <div className="sop-ai-test" role="note">{m.test}</div>}
               {m.proposal && (
                 <div className={cls('sop-ai-proposal', m.state === 'undone' && 'undone')}>
                   <ol className="sop-ai-steps">

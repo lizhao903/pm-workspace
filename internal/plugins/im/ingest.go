@@ -36,6 +36,13 @@ type Received struct {
 	At             string  `json:"at"`
 }
 
+// Muted 是 im.message_muted 的 payload（0.28.0，TSK-0491）：发信人被自动忽略、入库即已忽略的消息，同 Received 加命中的自动忽略。
+type Muted struct {
+	Received
+	MuteID   string `json:"mute_id"`
+	MuteName string `json:"mute_name"`
+}
+
 // IngestResult 是一批消息的落库结果。
 type IngestResult struct {
 	IDs        []string `json:"ids"`        // 新落库的消息 id
@@ -136,6 +143,12 @@ func (in *inbox) ingest(ctx context.Context, a Adapter, msgs []Incoming, strict 
 		}
 		res.IDs = append(res.IDs, r.id)
 		if r.mutedBy != "" {
+			// 不发 im.message_received；另发 im.message_muted（0.28.0，TSK-0491），SOP 记「发信人被自动忽略、没发起」
+			mev := Muted{Received: Received{MessageID: r.id, Channel: r.channel, ConnectorID: r.connectorID, ConversationID: r.convID,
+				IdentityID: r.identityID, StakeholderID: r.stakeholderID, Relevance: r.relevance, At: r.sentAt}, MuteID: r.mutedBy, MuteName: r.mutedName}
+			if err := in.c.Events().Publish(ctx, EventMuted, mev); err != nil {
+				in.c.Log().Warn("publish im event failed", "message", r.id, "err", err)
+			}
 			continue
 		}
 		ev := Received{MessageID: r.id, Channel: r.channel, ConnectorID: r.connectorID, ConversationID: r.convID,

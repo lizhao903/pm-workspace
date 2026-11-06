@@ -200,6 +200,10 @@ func (tb *Toolbox) Invoke(ctx context.Context, call ToolCall) ToolResult {
 		return tb.createSOP(ctx, args)
 	case toolUpdateSOP:
 		return tb.updateSOP(ctx, args)
+	case toolTestSOP:
+		return tb.testSOP(ctx, args)
+	case toolExplainIM:
+		return tb.explainIMTrigger(ctx, args)
 	default:
 		return failed(call.Name, fmt.Sprintf("没有名为 %s 的工具", call.Name))
 	}

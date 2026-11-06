@@ -13,8 +13,8 @@ import (
 // 被条件回退退回的目标步骤多一个 feedback。插件停用、没声明输出的上游让这一组标 open（可能还有别的字段）。
 //
 // 结构化条件的字段校验（check.go）、编辑器的字段候选（POST /api/sop/step-fields）用这一份。
-// TSK-0491（试跑 / 调试）衔接：FieldInfo 的 Sample 是调试时取到的真实值，Declared 为 false 的是「实际返回了但没声明」的字段，
-// 由调试结果叠加进来；这里只出静态声明（Declared 都是 true，Sample 都没有）。
+// TSK-0491（调试）：请求带 sample（调试时这一步真实拿到的输入）时，FieldInfo 的 Sample 是真实值，
+// 实际有、没声明的字段另列一组 source=sample、Declared=false（withSamples）；不带 sample 时只出静态声明。
 
 // FieldInfo 是能拿到的一个字段。
 type FieldInfo struct {
@@ -33,7 +33,8 @@ type FieldInfo struct {
 
 // FieldGroup 是按来源分的一组字段。
 type FieldGroup struct {
-	// Source 是 trigger（触发方式自动带入）、input（输入字段）、step（上游步骤的输出）、loopback（被退回重做时带上的）
+	// Source 是 trigger（触发方式自动带入）、input（输入字段）、step（上游步骤的输出）、loopback（被退回重做时带上的）、
+	// sample（调试时实际拿到、没声明的字段，TSK-0491）
 	Source string `json:"source"`
 	Step   string `json:"step,omitempty"`
 	Kind   string `json:"kind,omitempty"`
@@ -306,7 +307,7 @@ func (ff *flowFields) names(i, n int, near string) (list []string, total int) {
 	return all, len(all)
 }
 
-// stepFields 是 POST /api/sop/step-fields：{draft, step}，draft 同 AI 协助的草稿（形状同 SopFlow，可只给 trigger、fields、steps），
+// stepFields 是 POST /api/sop/step-fields：{draft, step, sample?}，sample 见 withSamples（TSK-0491），draft 同 AI 协助的草稿（形状同 SopFlow，可只给 trigger、fields、steps），
 // step 是步骤 key，"__start" 或不给是开始节点交出去的。回 FieldGroup[]。草稿校验没过也照算（编辑中途常有）。
 func (h *flows) stepFields(w http.ResponseWriter, r *http.Request) {
 	raw, err := readBody(r)
@@ -340,7 +341,43 @@ func (h *flows) stepFields(w http.ResponseWriter, r *http.Request) {
 	if groups == nil {
 		groups = []FieldGroup{}
 	}
+	// 调试时这一步真实拿到的输入（TSK-0491）：每个字段补上真实值，实际有、声明里没有的另列一组「未声明」
+	if v, ok := raw["sample"]; ok && string(v) != "null" {
+		var sample Json
+		if json.Unmarshal(v, &sample) != nil || sample == nil {
+			fail(w, r, h.c, apiErr(errValidation, "sample 必须是对象（调试时这一步的输入）"))
+			return
+		}
+		groups = withSamples(groups, sample)
+	}
 	writeJSON(w, http.StatusOK, map[string]any{"data": groups, "meta": map[string]int{"total": len(groups)}})
+}
+
+// withSamples 给字段补上调试时的真实值（取不到的不带 sample），实际有、哪组都没声明的叶子字段另列一组 source=sample、declared=false。
+func withSamples(groups []FieldGroup, sample Json) []FieldGroup {
+	var all []FieldInfo
+	out := make([]FieldGroup, len(groups))
+	for i, g := range groups {
+		ng := g
+		ng.Fields = make([]FieldInfo, len(g.Fields))
+		for j, f := range g.Fields {
+			if v := getPath(sample, f.Path); v != nil {
+				f.Sample = sampleOf(v, 0)
+			}
+			ng.Fields[j] = f
+		}
+		// 组内「列了子字段的对象只认列出来的」，按组算覆盖
+		all = append(all, g.Fields...)
+		out[i] = ng
+	}
+	extra := undeclaredIn(sample, nil, all)
+	if len(extra) > 0 {
+		for i := range extra {
+			extra[i].Label = "未声明：调试时实际拿到了，上游节点的字段表里没有"
+		}
+		out = append(out, FieldGroup{Source: "sample", Label: "调试时实际拿到、没声明的字段", Fields: extra})
+	}
+	return out
 }
 
 // parseDefs 把步骤 JSON 解成 stepDef，ok 标出解得开的，idx 是 key → 下标（重复的取第一个）。

@@ -23,6 +23,9 @@ var migrationsFS embed.FS
 // EventReceived 是新消息落库后发的事件，payload 见 Received。
 const EventReceived = "im.message_received"
 
+// EventMuted 是发信人被自动忽略、入库即已忽略的消息（0.28.0，TSK-0491），不发 EventReceived，改发它。
+const EventMuted = "im.message_muted"
+
 // Plugin 是 IM 插件的入口，cmd/pmw 用 Registry.Add 登记。适配器在 New 时给定，启用后不再变。
 type Plugin struct {
 	m        plugin.Manifest
