@@ -101,6 +101,9 @@ button.sop-run-row:hover { background: var(--panel-2); }
 .sop-run-origin { color: var(--accent); }
 .sop-run-origin:hover { text-decoration: underline; }
 .sop-rerun-note.bad { background: var(--warn-soft); }
+/* 停止（TSK-0717）：不能停的行勾选框位置留空，列对齐；确认框里停什么 */
+.sop-pick-none { visibility: hidden; cursor: default; }
+.sop-stop-what { font-size: var(--fs-sm); font-weight: 600; line-height: 1.6; }
 
 /* ---------- 流程库 ---------- */
 .sop-lib-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px; }

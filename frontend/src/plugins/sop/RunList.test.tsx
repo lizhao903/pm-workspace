@@ -204,3 +204,73 @@ describe('重跑后离开「失败」、幂等', () => {
     expect(calls.filter((c) => c.path === '/api/sop/runs/batch-actions')).toHaveLength(2)
   })
 })
+
+function stubStop() {
+  const calls: { path: string; body?: Record<string, unknown> }[] = []
+  vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const u = new URL(String(input), 'http://x')
+    const body = init?.body ? JSON.parse(String(init.body)) : undefined
+    calls.push({ path: u.pathname, body })
+    if (u.pathname === '/api/sop/runs/batch-actions') {
+      const data = { done: body.run_ids.map((id: string) => ({ run_id: id })), skipped: [], failed: [] }
+      return new Response(JSON.stringify({ data }), { status: 200 })
+    }
+    if (u.pathname === '/api/sop/runs/stop') {
+      const summary = { running: 7, waiting: 2, done: 0, failed: 0, stopped: 0 }
+      const data = body.dry_run
+        ? { matched: 9, stopped: [], skipped: [], failed: [], summary, dry_run: true }
+        : { matched: 9, stopped: Array.from({ length: 9 }, (_, i) => `spr_${i}`), skipped: [], failed: [], summary: { ...summary, running: 0, waiting: 0, stopped: 9 }, dry_run: false }
+      return new Response(JSON.stringify({ data }), { status: 200 })
+    }
+    return new Response(JSON.stringify({ data: [], meta: { total: 0 } }), { status: 200 })
+  }))
+  return calls
+}
+
+describe('停止（TSK-0717）', () => {
+  it('执行中、待我处理的行有「停止」，确认后按 id 停；已完成、失败的没有', async () => {
+    const calls = stubStop()
+    const user = userEvent.setup()
+    renderList([run(1, 'running'), run(2, 'waiting'), run(3, 'done'), run(4, 'failed')])
+    expect(screen.getByRole('button', { name: '停止 写纪要 · 1' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: '停止 写纪要 · 2' })).toBeTruthy()
+    expect(screen.queryByRole('button', { name: '停止 写纪要 · 3' })).toBeNull()
+    expect(screen.queryByRole('button', { name: '停止 写纪要 · 4' })).toBeNull()
+    await user.click(screen.getByRole('button', { name: '停止 写纪要 · 1' }))
+    const dlg = screen.getByRole('alertdialog')
+    expect(within(dlg).getByText(/已经建出的任务、写出的文档、发出的消息不会撤回/)).toBeTruthy()
+    await user.click(within(dlg).getByRole('button', { name: '停止 1 条' }))
+    await waitFor(() => expect(screen.getByRole('status').textContent).toContain('已停止 1 条'))
+    expect(calls.find((c) => c.path === '/api/sop/runs/batch-actions')!.body).toEqual({ run_ids: ['spr_1'], action: 'stop' })
+  })
+
+  it('「执行中」分段能勾选批量停止，只有能停的行有勾选框；「全部」分段没有勾选框', async () => {
+    const calls = stubStop()
+    const user = userEvent.setup()
+    renderList([run(1, 'running'), run(2, 'running'), run(3, 'done')])
+    expect(screen.queryByRole('checkbox')).toBeNull()
+    await user.click(screen.getByRole('button', { name: /^执行中/ }))
+    await user.click(screen.getByRole('checkbox', { name: '选中 写纪要 · 1' }))
+    const bar = screen.getByRole('toolbar', { name: '批量停止' })
+    await user.click(within(bar).getByRole('button', { name: '全选当前筛选结果 2 条' }))
+    await user.click(within(bar).getByRole('button', { name: '批量停止' }))
+    await user.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: '停止 2 条' }))
+    await waitFor(() => expect(screen.getByRole('status').textContent).toContain('已停止 2 条'))
+    expect(calls.find((c) => c.path === '/api/sop/runs/batch-actions')!.body).toEqual({ run_ids: ['spr_1', 'spr_2'], action: 'stop' })
+    expect(screen.queryByRole('toolbar', { name: '批量停止' })).toBeNull()
+  })
+
+  it('「停止全部运行中」先数出将停几条，确认后按条件停，回报停了多少', async () => {
+    const calls = stubStop()
+    const user = userEvent.setup()
+    renderList([run(1, 'running'), run(2, 'done')])
+    await user.click(screen.getByRole('button', { name: '停止全部运行中' }))
+    const dlg = screen.getByRole('alertdialog')
+    expect(within(dlg).getByText('停止全部流程运行中的执行')).toBeTruthy()
+    await within(dlg).findByText(/全部流程现在有 9 条执行中或等你处理的执行/)
+    expect(within(dlg).getByText(/其中 2 条在等你处理/)).toBeTruthy()
+    await user.click(within(dlg).getByRole('button', { name: '停止 9 条' }))
+    await waitFor(() => expect(screen.getByRole('status').textContent).toContain('已停止 9 条'))
+    expect(calls.filter((c) => c.path === '/api/sop/runs/stop').map((c) => c.body).slice(0, 2)).toEqual([{ all_running: true, dry_run: true }, { all_running: true }])
+  })
+})

@@ -94,6 +94,8 @@ func (p *Plugin) Register(r plugin.Registrar) error {
 		m.HandleFunc("POST /api/sop/runs/{id}/actions", rn.act)
 		// 失败执行批量重跑（执行记录「失败」页，runbatch.go）
 		m.HandleFunc("POST /api/sop/runs/batch-actions", rn.batchAct)
+		// 按条件停止执行（TSK-0717，runstop.go）：执行记录「停止全部运行中」、批量分诊「立即停止」
+		m.HandleFunc("POST /api/sop/runs/stop", rn.stopWhere)
 		m.HandleFunc("POST /api/sop/assist", as.handle)
 		m.HandleFunc("GET /api/sop/settings", sg.get)
 		m.HandleFunc("PATCH /api/sop/settings", sg.patch)
@@ -181,6 +183,12 @@ func fail(w http.ResponseWriter, r *http.Request, c plugin.Core, err error) {
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": map[string]any{
 			"code": "validation", "message": ce.Error(), "issues": ce.issues,
 		}})
+		return
+	}
+	if errors.Is(err, context.Canceled) && r.Context().Err() != nil {
+		// 客户端先断开了（前端刷新列表时取消了上一次请求）：不是服务端出错，不记 ERROR，也不用回（TSK-0717 验收时
+		// 停止后列表刷新留下的「request failed … context canceled」）
+		c.Log().Debug("request canceled by client", "method", r.Method, "path", r.URL.Path)
 		return
 	}
 	status, code, msg := http.StatusInternalServerError, "internal", err.Error()

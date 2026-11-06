@@ -2721,7 +2721,7 @@ TSK-0468，插件迁移 `0015_fde_forward.sql`。我在消息页手动把消息�
 
 ## SOP 编排插件 sop
 
-SOP-01a 起。插件 `sop`（`internal/plugins/sop`，清单 `plugin.json`，0.16.0（0.16.0 保存校验分错误和警告、条件改成结构化条件、节点和触发方式的声明、这一步能拿到的字段、AI 协助按声明出稿并自动返修（TSK-0490，见「保存校验」「结构化条件」「节点类型」「触发方式与字段」「AI 协助」），不加迁移、不改库里的流程；同时 IM 插件升到 0.26.1、项目插件 0.17.1、视频插件 0.8.1，只是给各自的 SOP 节点补声明（`SOPNodeDef.Spec`），节点执行不变、不加迁移。已装旧版本的，换新二进制后经 `POST /api/plugins/{id}/upgrade` 依次升级 `sop`、`im`、`projects`、`video`；不加迁移的版本升级不会让插件不加载，但没升级前 `GET /api/sop/node-types` 里这几个插件的节点没有声明（`outputs_open: true`），引用它们输出的条件只给警告。升级后已有流程照常打开、执行：旧写法的一行规则照旧按原语法判断，只在打开和保存时提示改成结构化条件；生产库 2026-11-06 的 18 条流程（含内置）过新校验没有错误，警告见 TSK-0490 进展；0.15.0 流程库加文件夹（TSK-0482，见「文件夹」），插件迁移 `0009_folders.sql`（建 `sop_folders`，`sop_flows` 加 `folder_id`），新增后台任务 `folder_seed`（启用时按名字前缀把已有流程归进文件夹，只做一次），已装旧版本的，换新二进制后经 `POST /api/plugins/{id}/upgrade`（id 为 `sop`）升级；**迁移没应用完的插件启动时不加载**，升级前 SOP 编排整个不可用（流程、执行、IM 触发、定时发起都停）；生产上还是 0.12.0 的，一次升级依次应用 `0008_im_trigger.sql`、`0009_folders.sql`，升级后已有流程不丢、不改名、版本号不变，名字带「xxx · 」前缀的归进同名文件夹，其余在「未分类」；0.14.0 IM 触发加过滤条件（会话、与我的关系）、执行顺序与拦截（TSK-0481，见「IM 触发」），插件迁移 `0008_im_trigger.sql`（`sop_flows` 加 `im_filter`、`im_order`、`im_stop` 三列），已装旧版本的，换新二进制后经 `POST /api/plugins/{id}/upgrade`（id 为 `sop`）升级；**迁移没应用完的插件启动时不加载**，升级前 SOP 编排整个不可用（流程、执行、IM 触发、定时发起都停），升级后已有流程不过滤、不拦截、顺序按新建先后，行为不变；0.13.0 实现内核流程目录，Agent 的 `list_sops`、`get_sop`、`create_sop`、`update_sop` 经它查、建、改流程（TSK-0480），不加迁移，已装旧版本的，换新二进制后经 `POST /api/plugins/{id}/upgrade`（id 为 `sop`）升级，升级前 Agent 看不到这三个工具；0.12.0 触发方式「定时」可配置规则、随流程管理的定时任务（TSK-0463），Claude Code 执行没回报时 summary 只取结论，不加迁移；0.11.0 加执行任务 `task_run`、改任务 `task_update` 节点（TSK-0411）和等服务商恢复（TSK-0391/0392），不加迁移；SOP-05 加 IM 触发，可选依赖 `im`、订阅 `im.message_received`；0.5.0 执行关联工作对象；0.6.0 加写进项目目录节点 `local_append`、建任务认项目编号和名字；0.7.0 加执行并发设置、批量发起和按输入字段查执行；0.7.1 加失败执行批量重跑；0.8.0 重跑后移出失败列表、重跑幂等；0.9.0 加 Claude Code 执行和条件回退；0.10.0 加流水线视图与治理（AUTO-12）），权限 `network:any`、`fs:write:project`：HTTP 节点要访问任意地址，高风险，安装时在 `permissions` 里单独确认；`fs:write:project` 是写进项目目录要的，0.6.0 升上来时要确认）。流程定义落在插件表 `sop_flows`（插件迁移 `0001_flows.sql`，安装插件时应用），id 前缀 `sop`；执行（SOP-01b）落在 `sop_runs`、`sop_run_steps`（插件迁移 `0002_runs.sql`），id 前缀 `spr`。AI 类和外部节点 SOP-01c 起；定时任务的 `sop` 动作和 Agent 的 `run_sop` 工具经内核「发起 SOP」钩子发起执行（SOP-01d）。插件未安装或停用时，本节接口回 `not_found` 404（同「插件路由」），数据不动。
+SOP-01a 起。插件 `sop`（`internal/plugins/sop`，清单 `plugin.json`，0.17.0（0.17.0 执行可批量停止（TSK-0717，见「运行」下「批量停止」）：`POST /api/sop/runs/batch-actions` 加 `action: "stop"`，新接口 `POST /api/sop/runs/stop` 按流程、来源、批次一次停掉全部执行中和待我处理的执行，批量发起加 `batch_id`、结果加 `batch_id` 和 `cancelled`，不加迁移、不改库里的执行；已装旧版本的，换新二进制后经 `POST /api/plugins/{id}/upgrade`（id 为 `sop`）升级，不加迁移的版本升级不会让插件不加载，没升级前这两个接口不认 `stop`、批量发起不带批次（IM 消息页批量分诊的「立即停止」停不到这次发起的执行）；0.16.0 保存校验分错误和警告、条件改成结构化条件、节点和触发方式的声明、这一步能拿到的字段、AI 协助按声明出稿并自动返修（TSK-0490，见「保存校验」「结构化条件」「节点类型」「触发方式与字段」「AI 协助」），不加迁移、不改库里的流程；同时 IM 插件升到 0.26.1、项目插件 0.17.1、视频插件 0.8.1，只是给各自的 SOP 节点补声明（`SOPNodeDef.Spec`），节点执行不变、不加迁移。已装旧版本的，换新二进制后经 `POST /api/plugins/{id}/upgrade` 依次升级 `sop`、`im`、`projects`、`video`；不加迁移的版本升级不会让插件不加载，但没升级前 `GET /api/sop/node-types` 里这几个插件的节点没有声明（`outputs_open: true`），引用它们输出的条件只给警告。升级后已有流程照常打开、执行：旧写法的一行规则照旧按原语法判断，只在打开和保存时提示改成结构化条件；生产库 2026-11-06 的 18 条流程（含内置）过新校验没有错误，警告见 TSK-0490 进展；0.15.0 流程库加文件夹（TSK-0482，见「文件夹」），插件迁移 `0009_folders.sql`（建 `sop_folders`，`sop_flows` 加 `folder_id`），新增后台任务 `folder_seed`（启用时按名字前缀把已有流程归进文件夹，只做一次），已装旧版本的，换新二进制后经 `POST /api/plugins/{id}/upgrade`（id 为 `sop`）升级；**迁移没应用完的插件启动时不加载**，升级前 SOP 编排整个不可用（流程、执行、IM 触发、定时发起都停）；生产上还是 0.12.0 的，一次升级依次应用 `0008_im_trigger.sql`、`0009_folders.sql`，升级后已有流程不丢、不改名、版本号不变，名字带「xxx · 」前缀的归进同名文件夹，其余在「未分类」；0.14.0 IM 触发加过滤条件（会话、与我的关系）、执行顺序与拦截（TSK-0481，见「IM 触发」），插件迁移 `0008_im_trigger.sql`（`sop_flows` 加 `im_filter`、`im_order`、`im_stop` 三列），已装旧版本的，换新二进制后经 `POST /api/plugins/{id}/upgrade`（id 为 `sop`）升级；**迁移没应用完的插件启动时不加载**，升级前 SOP 编排整个不可用（流程、执行、IM 触发、定时发起都停），升级后已有流程不过滤、不拦截、顺序按新建先后，行为不变；0.13.0 实现内核流程目录，Agent 的 `list_sops`、`get_sop`、`create_sop`、`update_sop` 经它查、建、改流程（TSK-0480），不加迁移，已装旧版本的，换新二进制后经 `POST /api/plugins/{id}/upgrade`（id 为 `sop`）升级，升级前 Agent 看不到这三个工具；0.12.0 触发方式「定时」可配置规则、随流程管理的定时任务（TSK-0463），Claude Code 执行没回报时 summary 只取结论，不加迁移；0.11.0 加执行任务 `task_run`、改任务 `task_update` 节点（TSK-0411）和等服务商恢复（TSK-0391/0392），不加迁移；SOP-05 加 IM 触发，可选依赖 `im`、订阅 `im.message_received`；0.5.0 执行关联工作对象；0.6.0 加写进项目目录节点 `local_append`、建任务认项目编号和名字；0.7.0 加执行并发设置、批量发起和按输入字段查执行；0.7.1 加失败执行批量重跑；0.8.0 重跑后移出失败列表、重跑幂等；0.9.0 加 Claude Code 执行和条件回退；0.10.0 加流水线视图与治理（AUTO-12）），权限 `network:any`、`fs:write:project`：HTTP 节点要访问任意地址，高风险，安装时在 `permissions` 里单独确认；`fs:write:project` 是写进项目目录要的，0.6.0 升上来时要确认）。流程定义落在插件表 `sop_flows`（插件迁移 `0001_flows.sql`，安装插件时应用），id 前缀 `sop`；执行（SOP-01b）落在 `sop_runs`、`sop_run_steps`（插件迁移 `0002_runs.sql`），id 前缀 `spr`。AI 类和外部节点 SOP-01c 起；定时任务的 `sop` 动作和 Agent 的 `run_sop` 工具经内核「发起 SOP」钩子发起执行（SOP-01d）。插件未安装或停用时，本节接口回 `not_found` 404（同「插件路由」），数据不动。
 
 ### 流程定义
 
@@ -2918,8 +2918,9 @@ SOP-01b 起。执行语义同原型 `web-next/src/sopflow.ts` 的 `startRun`、`
 |---|---|---|
 | POST | `/api/sop/flows/{id}/runs` | `{input?, step_through?, object_id?}`（`object_id` 见下面「执行关联到工作对象、发起来源」），用流程当前定义的快照发起一次执行，回 201 + `SopRun`；没传的字段取 `default`，`required` 的空着 400（`「客户」必填`）；流程不存在 404 |
 | GET | `/api/sop/runs` | `SopRunBrief[]` + `meta.total`，按开始时间倒序；`flow_id=` 按流程，`object_id=` 只回关联到这个对象的执行（含子执行），`status=` 按运行状态（逗号隔开多个），`mine=true` 待我处理（`waiting` 加 `failed`；`failed` 和 `mine` 都不含 `relaunched_to` 非空的，即已按最新流程重跑过的失败执行），`input_key=<字段>` 只列输入里这个字段非空的执行（每条多回 `input_value`），`input_value=<值,值>` 再按值筛（最多 500 个，必须和 `input_key` 一起用，否则 400），`limit=` 默认 200、最多 500 |
-| POST | `/api/sop/flows/{id}/runs/batch` | 批量发起，body `{inputs: [{...}], skip_existing_key?}`：`inputs` 1 到 200 个，每个发起一次执行（补默认值，必填空着的记进 `failed`）；给了 `skip_existing_key`（字母数字下划线）时，这条流程已有执行（任意状态）输入里该字段值相同的跳过，同一批里重复的也跳过。来源 `manual`、`source_name` 为「批量发起」。回 200 `{started: [{index, run_id, key}], skipped: [{index, run_id, key}], failed: [{index, key, error}]}`；`inputs` 为空、不是数组、超过 200 个或 `skip_existing_key` 不合法 400，流程不存在 404 |
-| POST | `/api/sop/runs/batch-actions` | 失败执行批量重跑，body `{run_ids: [...], action: "retry" \| "relaunch"}`，`run_ids` 1 到 200 个。`retry`：在原执行里重试它所有 `failed` 的步骤（同单条 `retry` 动作，沿用快照）。`relaunch`：用原执行的 `input`、流程当前定义新发起一条（补默认值，必填空着的记进 `failed`），原执行不动；子执行（`parent_run_id` 非空）沿父链换成顶层执行，同一批里落到同一条顶层执行的只发起一次；新执行 `source` 为 `manual`、`source_ref` 为被重新发起的（顶层）执行 id、`source_name` 为「批量重跑」，`step_through`、`object_id` 照原执行（对象已不在则不关联）。状态不是 `failed`、执行不存在、同一批里重复的跳过。幂等（SOP-08，0.8.0）：`relaunch` 成功后原（顶层）执行记 `relaunched_to` 为新执行 id（顶层下失败的子执行一起记），已重跑过的再 `relaunch` 跳过，`reason`「已重跑过」并带 `new_run_id`；先用条件更新占位（`relaunched_to` 为空才写占位），占不到的跳过，`reason`「正在重跑」，所以并发请求只建一条；建失败清掉占位。`retry` 也跳过已重跑的（「已重跑过」），同一执行的动作串行处理，并发重试只重试一次，后到的按「不是失败状态（执行中）」跳过。回 200 `{done: [{run_id, new_run_id?, steps?}], skipped: [{run_id, reason, new_run_id?}], failed: [{run_id, error}]}`：`retry` 的 `done` 带重试了的步骤 key，`relaunch` 的 `done` 带新执行 id，因同一顶层执行去重跳过的 `skipped` 也带那条新执行 id；`reason` 例：「不是失败状态（执行中）」「执行不存在」「重复或为空」「和同一批里的执行同属顶层执行 {id}，已一起重新发起」；`error` 例：「流程「X」已删除」「「客户」必填」「这次执行没在调度里，稍后再试」。新执行和重试的步骤照常受「执行并发」排队。`action` 不是这两个、`run_ids` 为空、不是字符串数组或超过 200 个 400 |
+| POST | `/api/sop/flows/{id}/runs/batch` | 批量发起，body `{inputs: [{...}], skip_existing_key?, batch_id?}`：`inputs` 1 到 200 个，每个发起一次执行（补默认值，必填空着的记进 `failed`）；给了 `skip_existing_key`（字母数字下划线）时，这条流程已有执行（任意状态）输入里该字段值相同的跳过，同一批里重复的也跳过。来源 `manual`、`source_name` 为「批量发起」、`source_ref` 为批次 `batch_id`（TSK-0717，0.17.0：`spb_` 加 8 到 32 个小写字母或数字，一次分诊分几批发都带同一个；不带由后端生成）。批次被 `POST /api/sop/runs/stop {batch_id}` 停止后，这一批还没发起的不再发起，记进 `cancelled`；刚建好就发现批次停了的当场停掉，仍记在 `started`。回 200 `{batch_id, started: [{index, run_id, key}], skipped: [{index, run_id, key}], failed: [{index, key, error}], cancelled: [{index, key}]}`；`inputs` 为空、不是数组、超过 200 个，`skip_existing_key` 或 `batch_id` 不合法 400，流程不存在 404 |
+| POST | `/api/sop/runs/batch-actions` | 失败执行批量重跑、批量停止，body `{run_ids: [...], action: "retry" \| "relaunch" \| "stop"}`，`run_ids` 1 到 200 个。`stop` 见下面「批量停止」。`retry`：在原执行里重试它所有 `failed` 的步骤（同单条 `retry` 动作，沿用快照）。`relaunch`：用原执行的 `input`、流程当前定义新发起一条（补默认值，必填空着的记进 `failed`），原执行不动；子执行（`parent_run_id` 非空）沿父链换成顶层执行，同一批里落到同一条顶层执行的只发起一次；新执行 `source` 为 `manual`、`source_ref` 为被重新发起的（顶层）执行 id、`source_name` 为「批量重跑」，`step_through`、`object_id` 照原执行（对象已不在则不关联）。状态不是 `failed`、执行不存在、同一批里重复的跳过。幂等（SOP-08，0.8.0）：`relaunch` 成功后原（顶层）执行记 `relaunched_to` 为新执行 id（顶层下失败的子执行一起记），已重跑过的再 `relaunch` 跳过，`reason`「已重跑过」并带 `new_run_id`；先用条件更新占位（`relaunched_to` 为空才写占位），占不到的跳过，`reason`「正在重跑」，所以并发请求只建一条；建失败清掉占位。`retry` 也跳过已重跑的（「已重跑过」），同一执行的动作串行处理，并发重试只重试一次，后到的按「不是失败状态（执行中）」跳过。回 200 `{done: [{run_id, new_run_id?, steps?}], skipped: [{run_id, reason, new_run_id?}], failed: [{run_id, error}]}`：`retry` 的 `done` 带重试了的步骤 key，`relaunch` 的 `done` 带新执行 id，因同一顶层执行去重跳过的 `skipped` 也带那条新执行 id；`reason` 例：「不是失败状态（执行中）」「执行不存在」「重复或为空」「和同一批里的执行同属顶层执行 {id}，已一起重新发起」；`error` 例：「流程「X」已删除」「「客户」必填」「这次执行没在调度里，稍后再试」。新执行和重试的步骤照常受「执行并发」排队。`action` 不是这三个、`run_ids` 为空、不是字符串数组或超过 200 个 400（「一次最多重跑 200 条」，`stop` 为「一次最多停止 200 条」） |
+| POST | `/api/sop/runs/stop` | 按条件停止（TSK-0717），body `{flow_id?, source?, batch_id?, all_running?, dry_run?}`，回 200 `SopRunStopResult`；见下面「批量停止」 |
 | GET | `/api/sop/runs/{id}` | 一条 `SopRun`，带快照和每步的输入输出、日志；不存在 404 |
 | POST | `/api/sop/runs/{id}/actions` | 一个动作 `SopRunAction`，做完回 `SopRun`；见下表 |
 
@@ -2950,8 +2951,40 @@ SOP-01b 起。执行语义同原型 `web-next/src/sopflow.ts` 的 `startRun`、`
 | `rework` | 人工检查步骤 `review`，且有走到的上游 | 这一步回到 `pending`；上游（没走到的分支除外）重新执行，`attempts` 加 1、清掉 `edited` |
 | `retry` | 步骤 `failed` | 转 `running`，清掉错误，`attempts` 加 1 |
 | `skip` | 步骤 `failed`；或 `paused` 且不是分支节点 | 转 `skipped`，输出等于输入，放出下游 |
-| `stop` | 执行没结束 | `stopped`、写 `ended_at`；`running`、`paused`、`review` 的步骤回到 `pending`；子流程起的子执行一起终止 |
+| `stop` | 执行没结束 | `stopped`、写 `ended_at`；`running`、`paused`、`review` 的步骤回到 `pending`；子流程起的子执行一起终止。排队等模型或 Claude Code 名额的步骤立即出队，正在调模型的请求随之取消，挂起等服务商恢复的一起清掉（TSK-0717）；已经建出的任务、写出的文档等不回滚 |
 | `step-through` | 执行没结束，带 `on` | 改逐步确认，只影响之后放出的步骤 |
+
+**批量停止**（TSK-0717，0.17.0，`internal/plugins/sop/runstop.go`）。都是单条 `stop` 动作批量做，口径同上表：
+
+- 只停**执行中**（`running`）、**待我处理**（`waiting`）且没结束、没终止的执行；失败（`failed`）、已完成、已终止的不停。停了的执行 `status` 为 `stopped`，不算待我处理（`mine`、今日卡片「SOP 待我处理」都不含），今日计数口径不变。
+- 已经建出的任务、写出的文档、发出的消息**不回滚**；界面在确认框里写明。
+- 先停排队的：有步骤在排队（等模型名额、等 Claude Code 名额）的先停，其余按发起时间从后往前停，最后才停占着名额的，免得停一条放一条进来开始调模型。
+- 幂等：已终止的再停跳过（`reason`「已终止」）；按条件再停一次 `matched` 为 0。
+- 请求中途断开也会停完（服务端不随请求取消）。每次真停了记一条审计：`action` 为 `stop`、`target_type` 为 `sop_runs`，`target_id` 是批次（按批次停时，否则为空），`detail` 带条件、停了的 `run_ids`、跳过和出错的条数；操作者记为插件 `sop`。
+
+`POST /api/sop/runs/batch-actions` 的 `stop`：`run_ids` 1 到 200 个，逐条停；不是执行中、待我处理的跳过，`reason` 例：「不在执行中或待我处理（已完成）」「不在执行中或待我处理（失败）」「已终止」「执行不存在」「重复或为空」。回 `{done: [{run_id}], skipped, failed}`（形状同重跑；`done` 的顺序是实际停的顺序，不一定是请求里的顺序）。`error` 例：「这次执行没在调度里，稍后再试」（服务刚启动、还没接着调度时）。
+
+`POST /api/sop/runs/stop`：
+
+| 字段 | 说明 |
+|---|---|
+| `flow_id` | 只停这条流程的执行（子执行属于子流程，按它自己的流程算） |
+| `source` | 只停这个来源的执行，取值同 `source`：`manual`、`agent`、`schedule`、`im`、`subflow`、`plugin` |
+| `batch_id` | 只停这一次批量发起的执行（`source` 为 `manual`、`source_name` 为「批量发起」、`source_ref` 为这个批次）。同时把批次记成已停止：这一批之后再发起的不再新起执行（见 `POST /api/sop/flows/{id}/runs/batch`）；只记在内存里，服务重启后不记，24 小时后清掉 |
+| `all_running` | `true` 时可以不给上面三个条件，停掉全部执行中、待我处理的执行。三个条件都没给又不是 `true` 时 400「要给 flow_id、source、batch_id 中至少一个；要停全部执行中的执行，明确传 all_running: true」 |
+| `dry_run` | `true` 时只数不停，不记批次、不记审计：回将停止的条数和范围里各状态的条数，确认框用 |
+
+几个条件同时给是「且」。父执行和它的子执行都在范围里时只停父执行，子执行随父执行一起终止，不重复算。`source` 不在取值里、`batch_id` 格式不对、字段类型不对 400。
+
+`SopRunStopResult`：
+
+```json
+{ "matched": 300, "stopped": ["spr_..."], "skipped": [{ "run_id": "spr_...", "reason": "已终止" }], "failed": [{ "run_id": "spr_...", "error": "..." }],
+  "summary": { "running": 0, "waiting": 0, "done": 12, "failed": 1, "stopped": 300 }, "dry_run": false }
+```
+
+- `matched`：符合条件、要停的执行数（随父执行一起停的子执行不算）。`stopped` 是这次停了的执行 id；`skipped` 是要停时已经结束或被别处停了的；`failed` 是没停成的。`dry_run` 时 `stopped`、`skipped`、`failed` 都是 `[]`。
+- `summary`：范围内（不看状态）各运行状态的条数，五个键都在；停完之后算，`dry_run` 时是现在的。按批次停时就是这次分诊发起的执行里停了多少、已完成多少、失败多少。`all_running` 不带别的条件时是整张执行表。
 
 节点执行（`notify` 在 SOP-02b 之前执行直接失败，`error` 为 `这个节点还没接上`，可重试、可跳过；写节点 `task`、`doc`、`contact` 见下面「写节点」）：
 

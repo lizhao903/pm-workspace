@@ -187,11 +187,27 @@ function fakeBackend(rows: ImMessage[], opts: {
         for (const [index, x] of (body.inputs as { message_id: string }[]).entries()) {
           const had = sop.runs.find((r) => r.flow_id === b[1] && r.input_value === x.message_id)
           if (had && body.skip_existing_key) { skipped.push({ index, key: x.message_id, run_id: had.id }); continue }
-          const r = sopRun({ flow_id: b[1], input_value: x.message_id })
+          const r = sopRun({ flow_id: b[1], input_value: x.message_id, source_ref: body.batch_id as string })
           sop.runs.unshift(r)
           started.push({ index, key: x.message_id, run_id: r.id })
         }
-        return json({ started, skipped, failed: [] })
+        return json({ batch_id: body.batch_id, started, skipped, failed: [], cancelled: [] })
+      }
+      const stop = (r: SopInputRun) => Object.assign(r, { status: 'stopped', stopped: true, ended_at: new Date().toISOString() })
+      const live = (r: SopInputRun) => r.status === 'running' || r.status === 'waiting'
+      // 批量停止（TSK-0717）：勾选的按 id、批量分诊按批次
+      if (u.pathname === '/api/sop/runs/batch-actions' && body.action === 'stop') {
+        const hit = sop.runs.filter((r) => (body.run_ids as string[]).includes(r.id) && live(r))
+        hit.forEach(stop)
+        return json({ done: hit.map((r) => ({ run_id: r.id })), skipped: [], failed: [] })
+      }
+      if (u.pathname === '/api/sop/runs/stop') {
+        const scope = sop.runs.filter((r) => r.source_ref === body.batch_id)
+        const hit = scope.filter(live)
+        if (!body.dry_run) hit.forEach(stop)
+        const summary = { running: 0, waiting: 0, done: 0, failed: 0, stopped: 0 }
+        for (const r of scope) summary[r.status as keyof typeof summary] += 1
+        return json({ matched: hit.length, stopped: body.dry_run ? [] : hit.map((r) => r.id), skipped: [], failed: [], summary, dry_run: !!body.dry_run })
       }
       const d = u.pathname.match(/^\/api\/sop\/runs\/([^/]+)$/)
       if (d && sop.details?.[d[1]]) return json(sop.details[d[1]])
@@ -411,7 +427,11 @@ describe('IM 消息页', () => {
     await waitFor(() => expect(calls.find((c) => c.path === '/api/sop/flows/sop_im/runs/batch')).toBeTruthy())
     const sent = calls.find((c) => c.path === '/api/sop/flows/sop_im/runs/batch')!.body!
     expect(sent.skip_existing_key).toBe('message_id')
+    expect(sent.batch_id).toMatch(/^spb_[0-9a-z]{16}$/)
     expect((sent.inputs as { message_id: string }[]).map((x) => x.message_id).sort()).toEqual([rows[0].id, rows[1].id].sort())
+    // 发起后留在对话框里（TSK-0717）：显示这次分诊的执行，能立即停止；点完成才关
+    expect(await within(dialog).findByRole('button', { name: '立即停止' })).toBeInTheDocument()
+    await userEvent.click(within(dialog).getByRole('button', { name: '完成' }))
     expect(await screen.findByText('分诊发起 1 条，跳过 1 条已跑过的')).toBeInTheDocument()
     expect(await screen.findByRole('button', { name: '分诊中' })).toBeInTheDocument()
 
@@ -422,7 +442,7 @@ describe('IM 消息页', () => {
     expect(within(q).getByText('读取消息 · 执行中')).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: '全部终止' }))
     await userEvent.click(await screen.findByRole('button', { name: '终止 1 条' }))
-    await waitFor(() => expect(calls.some((c) => c.path.endsWith('/actions') && c.body?.kind === 'stop')).toBe(true))
+    await waitFor(() => expect(calls.some((c) => c.path === '/api/sop/runs/batch-actions' && c.body?.action === 'stop')).toBe(true))
     expect(await screen.findByText('没有进行中的分诊')).toBeInTheDocument()
   })
 
@@ -469,8 +489,9 @@ describe('IM 消息页', () => {
     expect(batches().map((c) => (c.body!.inputs as unknown[]).length)).toEqual([200, 200, 50])
     expect(batches().every((c) => c.body!.skip_existing_key === 'message_id')).toBe(true)
     // 第 2 批整批失败：第 1、3 批照常发起（第 1 批里一条已跑过的跳过）
-    expect(within(dialog).getByText('已发起').querySelector('b')).toHaveTextContent('249')
-    expect(within(dialog).getByText('失败').querySelector('b')).toHaveTextContent('200')
+    const launchedCounts = within(dialog).getByLabelText('发起情况')
+    expect(within(launchedCounts).getByText('已发起').querySelector('b')).toHaveTextContent('249')
+    expect(within(launchedCounts).getByText('失败').querySelector('b')).toHaveTextContent('200')
     expect(within(dialog).getByRole('progressbar', { name: '分批进度' })).toHaveAttribute('aria-valuenow', '3')
     expect(within(dialog).getByRole('list', { name: '失败原因' })).toHaveTextContent('200 条：模型服务没响应')
     await userEvent.click(within(dialog).getByRole('button', { name: '重试失败的 200 条' }))
@@ -480,6 +501,32 @@ describe('IM 消息页', () => {
     expect(within(dialog).queryByRole('list', { name: '失败原因' })).toBeNull()
     await userEvent.click(within(dialog).getByRole('button', { name: '完成' }))
     expect(await screen.findByText('分诊发起 449 条，跳过 1 条已跑过的')).toBeInTheDocument()
+  })
+
+  it('批量分诊立即停止：发完后按批次停掉这次发起的全部执行，显示停了多少、完成多少（TSK-0717）', async () => {
+    const rows = Array.from({ length: 3 }, (_, i) => msg({ text: `消息 ${i}`, sender_id: `U${i}`, sender_name: `人${i}`, at: new Date(Date.now() - i * 60_000).toISOString() }))
+    const other = sopRun({ input_value: 'msg_other', status: 'running' })
+    const sop = { flows: [flow({})], runs: [other] }
+    const calls = fakeBackend(rows, { sop })
+    renderPage()
+    await screen.findByText('3 条待处理')
+    await userEvent.click(within(screen.getByRole('toolbar', { name: '批量处理' })).getByRole('button', { name: '批量分诊' }))
+    const dialog = await screen.findByRole('alertdialog')
+    await userEvent.click(within(dialog).getByRole('button', { name: '发起 3 次' }))
+    const counts = await within(dialog).findByLabelText('这次分诊的执行')
+    await waitFor(() => expect(within(counts).getByText('执行中').querySelector('b')).toHaveTextContent('3'))
+    // 其中一条已经跑完
+    sop.runs.find((r) => r.input_value === rows[0].id)!.status = 'done'
+    await userEvent.click(within(dialog).getByRole('button', { name: '立即停止' }))
+    const req = calls.find((c) => c.path === '/api/sop/runs/stop' && !c.body?.dry_run)!
+    expect(req.body).toEqual({ batch_id: calls.find((c) => c.path === '/api/sop/flows/sop_im/runs/batch')!.body!.batch_id })
+    expect(await within(dialog).findByRole('status')).toHaveTextContent('已立即停止：停了 2 条，已完成 1 条')
+    expect(within(dialog).getByRole('status')).toHaveTextContent('已建出的任务不会撤回')
+    expect(within(dialog).queryByRole('button', { name: '立即停止' })).toBeNull()
+    // 别的分诊不受影响
+    expect(other.status).toBe('running')
+    await userEvent.click(within(dialog).getByRole('button', { name: '完成' }))
+    expect(await screen.findByText('分诊发起 3 条')).toBeInTheDocument()
   })
 
   it('分诊建议：点「已分诊」打开抽屉看建议、能进 SOP 运行页；没分诊过的在抽屉里单独发起', async () => {

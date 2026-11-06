@@ -2669,6 +2669,11 @@ input.mono { font-family: var(--mono); }
 .rerun-note { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; padding: 8px 12px; border-radius: var(--r); background: color-mix(in srgb, var(--accent) 8%, var(--panel)); font-size: 13px; line-height: 1.6; }
 .rerun-note > span { flex: 1; min-width: 0; }
 .rerun-note.bad { background: color-mix(in srgb, #b0570b 12%, var(--panel)); }
+/* 停止（TSK-0717）：不能停的行勾选框位置留空；行内、工具栏的「停止」灰字、悬停变红（同正式产品 btn-danger-ghost）；确认框里停什么 */
+.run-pick-none { visibility: hidden; cursor: default; }
+.act-danger-quiet { border-color: transparent; color: var(--muted); background: none; }
+.act-danger-quiet:hover { color: var(--danger); background: var(--danger-soft); }
+.stop-what { font-size: 13px; font-weight: 600; line-height: 1.6; }
 .run-origin { color: var(--accent); font-size: inherit; }
 .run-origin:hover { text-decoration: underline; }
 

@@ -62,4 +62,18 @@ describe('批量分诊自动分批（TSK-0492）', () => {
     expect(p.rest).toEqual(ids(450).slice(200))
     expect(last.at(-1)?.finished).toBe(true)
   })
+
+  it('批次被立即停止：后端回 cancelled 的记成没发起，之后的批不再发（TSK-0717）', async () => {
+    const sent: number[] = []
+    const p = await runTriageBatches(ids(450), 200, async (part) => {
+      sent.push(part.length)
+      // 第一批发到一半批次被停：前 50 条发起了，后 150 条没发起
+      return { started: part.slice(0, 50).map((key, index) => ({ index, key, run_id: `spr_${key}` })), skipped: [], failed: [],
+        cancelled: part.slice(50).map((_, i) => ({ index: i + 50, key: '' })) }
+    }, { shouldStop: () => false, onProgress: () => {}, errorText })
+    expect(sent).toEqual([200])
+    expect(p).toMatchObject({ batch: 1, stopped: true, finished: true })
+    expect(p.started).toHaveLength(50)
+    expect(p.rest).toEqual(ids(450).slice(50))
+  })
 })

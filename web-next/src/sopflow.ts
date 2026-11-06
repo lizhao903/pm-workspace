@@ -1441,6 +1441,34 @@ export function rerunRuns(runs: SopRun[], ids: string[], action: RerunAction, no
   return { runs: [...fresh, ...runs.map((r) => byId.get(r.id) ?? r)], result }
 }
 
+/** 批量发起的执行在来源上的名字（正式产品 source_name「批量发起」，source_ref 记批次 spb_） */
+export const BATCH_SOURCE_NAME = '批量发起'
+
+/** 能停：执行中、待我处理（SPEC-sop-4.23）；失败、已完成、已终止、已重跑的不停 */
+export const isStoppable = (r: SopRun) => { const s = runShow(r); return s === 'running' || s === 'waiting' }
+
+/**
+ * 批量停止（TSK-0717，SPEC-sop-4.23~4.27）：同单条「终止」，不是执行中、待我处理的跳过并给原因（同正式产品的写法）。
+ * 正式产品是 POST /api/sop/runs/batch-actions {action:"stop"}（勾选的）和 POST /api/sop/runs/stop（按流程、批次、全部）；
+ * 排队等模型的步骤立即出队，正在调模型的请求取消，已建出的任务不回滚
+ */
+export function stopRuns(runs: SopRun[], ids: string[], now = Date.now()): { runs: SopRun[]; result: RerunResult } {
+  const result: RerunResult = { done: [], skipped: [], failed: [] }
+  const byId = new Map(runs.map((r) => [r.id, r]))
+  const seen = new Set<string>()
+  for (const id of ids) {
+    const r = byId.get(id)
+    if (seen.has(id)) { result.skipped.push({ run_id: id, reason: '重复或为空' }); continue }
+    seen.add(id)
+    if (!r) { result.skipped.push({ run_id: id, reason: '执行不存在' }); continue }
+    if (r.stopped) { result.skipped.push({ run_id: id, reason: '已终止' }); continue }
+    if (!isStoppable(r)) { result.skipped.push({ run_id: id, reason: `不在执行中或待我处理（${RUN_STATUS[runShow(r)].label}）` }); continue }
+    byId.set(id, act(r, { kind: 'stop' }, now))
+    result.done.push({ run_id: id })
+  }
+  return { runs: runs.map((r) => byId.get(r.id) ?? r), result }
+}
+
 export function act(r: SopRun, a: RunAction, now = Date.now()): SopRun {
   const sop = r.sop
   switch (a.kind) {

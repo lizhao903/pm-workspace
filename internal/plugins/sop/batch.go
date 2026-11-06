@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/lizhao903/pm-workspace/internal/idgen"
 	"github.com/lizhao903/pm-workspace/internal/plugin"
 )
 
@@ -17,8 +18,12 @@ import (
 // 每个输入发起一次执行（同 POST /api/sop/flows/{id}/runs：当前定义的快照、补默认值、必填空着记失败），最多 batchMax 个。
 // 给了 skip_existing_key 时，这条流程里已经有执行（任意状态）的输入里这个字段值相同的跳过，同一批里重复的也只发起一次；
 // 不给就都发起（「已跑过的也重跑」）。来源记 manual（界面上发起），source_name 记「批量发起」。
-// 回 200 {started:[{index, run_id, key}], skipped:[{index, run_id, key}], failed:[{index, key, error}]}，
+// 回 200 {batch_id, started:[{index, run_id, key}], skipped:[{index, run_id, key}], failed:[{index, key, error}], cancelled:[{index, key}]}，
 // index 是 inputs 里的下标，key 是 skip_existing_key 字段的值（没给 skip_existing_key 时为空串）；一条失败不影响别的。
+//
+// 批次（TSK-0717）：body 可带 batch_id（spb_ 加 8 到 32 个小写字母数字，前端一次分诊生成一个，分几批发都带同一个），
+// 不带由后端生成；这一批新起的执行 source_ref 记批次，POST /api/sop/runs/stop {batch_id} 能一次停掉。
+// 批次被停止后（runstop.go 的 stoppedBatches），还没发起的不再发起，记进 cancelled；刚建好就发现批次停了的当场停掉（仍算 started）。
 //
 // GET /api/sop/runs 加两个筛选（runs.go 的 list）：input_key=<字段> 只列输入里这个字段非空的执行，
 // 每条多回 input_value（这个字段的值）；input_value=<值,值> 再按值筛。列表的步骤带 queue（在排队等模型名额时，同 RunStep.queue）。
@@ -43,9 +48,21 @@ type BatchItem struct {
 
 // BatchResult 是批量发起的结果。
 type BatchResult struct {
+	// BatchID 是这一批的批次（请求带的，没带是新生成的）
+	BatchID string      `json:"batch_id"`
 	Started []BatchItem `json:"started"`
 	Skipped []BatchItem `json:"skipped"`
 	Failed  []BatchItem `json:"failed"`
+	// Cancelled 是批次已被停止、没发起的
+	Cancelled []BatchItem `json:"cancelled"`
+}
+
+// batchKey 是输入里 skip_existing_key 字段的值，没给 key 时为空串。
+func batchKey(in Json, key string) string {
+	if key == "" {
+		return ""
+	}
+	return strings.TrimSpace(txt(in[key]))
 }
 
 func (h *runs) startBatch(w http.ResponseWriter, r *http.Request) {
@@ -85,11 +102,29 @@ func (h *runs) startBatch(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	out := BatchResult{Started: []BatchItem{}, Skipped: []BatchItem{}, Failed: []BatchItem{}}
+	batchID := ""
+	if v, ok := raw["batch_id"]; ok && string(v) != "null" {
+		if err := json.Unmarshal(v, &batchID); err != nil {
+			fail(w, r, h.c, apiErr(errValidation, "batch_id 必须是字符串"))
+			return
+		}
+		if batchID = strings.TrimSpace(batchID); batchID != "" && !batchIDRe.MatchString(batchID) {
+			fail(w, r, h.c, apiErr(errValidation, "batch_id 不对：要是 spb_ 加 8 到 32 个小写字母或数字"))
+			return
+		}
+	}
+	if batchID == "" {
+		batchID = idgen.Prefixed("spb")
+	}
+	out := BatchResult{BatchID: batchID, Started: []BatchItem{}, Skipped: []BatchItem{}, Failed: []BatchItem{}, Cancelled: []BatchItem{}}
 	seen := map[string]string{} // 这一批里已发起的值 → 执行 id
 	for i, in := range inputs {
 		if in == nil {
 			in = Json{}
+		}
+		if h.e.batches.stopped(batchID) {
+			out.Cancelled = append(out.Cancelled, BatchItem{Index: i, Key: batchKey(in, key)})
+			continue
 		}
 		val := ""
 		if key != "" {
@@ -115,17 +150,24 @@ func (h *runs) startBatch(w http.ResponseWriter, r *http.Request) {
 			out.Failed = append(out.Failed, BatchItem{Index: i, Key: val, Error: plainErr(err).Error()})
 			continue
 		}
-		run, err := h.e.create(ctx, f, filled, false, origin{Source: SourceManual, SourceName: batchSourceName})
+		run, err := h.e.create(ctx, f, filled, false, origin{Source: SourceManual, SourceRef: batchID, SourceName: batchSourceName})
 		if err != nil {
 			out.Failed = append(out.Failed, BatchItem{Index: i, Key: val, Error: plainErr(err).Error()})
 			continue
+		}
+		if h.e.batches.stopped(batchID) {
+			// 建的时候批次刚被停止，按条件停止那边可能没查到它：当场停掉
+			if _, err := h.e.stopRun(context.WithoutCancel(ctx), run.ID); err != nil {
+				h.c.Log().Warn("sop batch run not stopped", "run", run.ID, "batch", batchID, "err", err)
+			}
 		}
 		if val != "" {
 			seen[val] = run.ID
 		}
 		out.Started = append(out.Started, BatchItem{Index: i, RunID: run.ID, Key: val})
 	}
-	h.c.Log().Info("sop batch started", "flow", f.ID, "started", len(out.Started), "skipped", len(out.Skipped), "failed", len(out.Failed))
+	h.c.Log().Info("sop batch started", "flow", f.ID, "batch", batchID, "started", len(out.Started), "skipped", len(out.Skipped),
+		"failed", len(out.Failed), "cancelled", len(out.Cancelled))
 	writeJSON(w, http.StatusOK, map[string]any{"data": out})
 }
 

@@ -146,6 +146,11 @@ span.im-pick { visibility: hidden; }
 .im-tri-counts { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: var(--fs-sm); }
 .im-tri-counts .bad { color: var(--danger); }
 .im-tri-fails { margin: 0; padding-left: 18px; font-size: var(--fs-sm); color: var(--danger); overflow-wrap: anywhere; }
+/* 批量分诊立即停止（TSK-0717）：这次分诊的执行现在怎样、停了多少 */
+.im-tri-runs { display: flex; flex-direction: column; gap: 8px; padding-top: 10px; border-top: 1px solid var(--line); }
+.im-tri-halted { font-size: var(--fs-sm); line-height: 1.6; padding: 6px 10px; border-radius: var(--r); background: var(--warn-soft); }
+.im-tri-stop { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 10px; }
+.im-tri-stop .im-muted { flex: 1; min-width: 12em; font-size: var(--fs-xs); }
 
 /* ---------- 抽屉 ---------- */
 .im-kicker { display: inline-flex; align-items: center; gap: 6px; min-width: 0; }
