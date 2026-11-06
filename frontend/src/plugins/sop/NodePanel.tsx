@@ -2,7 +2,7 @@
 // 所有改动交给编排页进撤销历史；配置项按 nodes.tsx 的 fields 渲染，必填以后端节点目录为准。
 // 上次运行：这个流程最近一次走到这一步（不是 pending）的执行，详情按需取
 import { useEffect, useMemo, useRef, useState, type FocusEvent, type MouseEvent, type ReactNode } from 'react'
-import { useSopRun, type SopField, type SopRunBrief, type SopStepDef } from '../../core/data'
+import { useSopRun, type SopDebug, type SopField, type SopRunBrief, type SopStepDef } from '../../core/data'
 import { Button, Checkbox, IconButton, IconClose, Input, Pill, SearchSelect, Select, Textarea, cls } from '../../core/ui'
 import { changeKind, childrenOf, isBranching, isRequired, LOOPBACK, START, type Catalog, type Draft, HIDDEN_KINDS, fieldTypePatch, upstreamSteps } from './edit'
 import { UNCATEGORIZED, stepLook, timeAgo } from './model'
@@ -14,6 +14,7 @@ import { StartSchedule } from './StartSchedule'
 import { IM, emptyIM } from './imtrigger'
 import { StartIM } from './StartIM'
 import { CondEditor, FieldsPanel } from './StepFields'
+import { DEBUG_LOOK, DebugStartView, DebugStepView } from './Debug'
 
 type AddAt = (at: { x: number; y: number }, from: string, caseKey?: string) => void
 
@@ -119,7 +120,7 @@ let optSeq = 0
 const optKey = () => `o${Date.now().toString(36)}${(optSeq += 1).toString(36)}`
 const fieldKey = () => `f${Date.now().toString(36)}${(optSeq += 1).toString(36)}`
 
-export function NodePanel({ draft, nodeKey, catalog, ctx, tried, triggers, flowId, runs, onChange, onPatchDraft, onRemove, onRemoveEdge, onSelect, onAddNext, onClose }: {
+export function NodePanel({ draft, nodeKey, catalog, ctx, tried, triggers, flowId, runs, debug, onChange, onPatchDraft, onRemove, onRemoveEdge, onSelect, onAddNext, onClose }: {
   draft: Draft
   nodeKey: string
   catalog: Catalog
@@ -129,6 +130,8 @@ export function NodePanel({ draft, nodeKey, catalog, ctx, tried, triggers, flowI
   /** 新建还没保存时没有 */
   flowId?: string
   runs: readonly SopRunBrief[]
+  /** 编排页当前的调试结果（TSK-0491）：有时多一页「调试」，字段候选叠真实值 */
+  debug?: SopDebug
   onChange: (p: Partial<SopStepDef>) => void
   onPatchDraft: (p: Partial<Draft>) => void
   onRemove: () => void
@@ -137,13 +140,17 @@ export function NodePanel({ draft, nodeKey, catalog, ctx, tried, triggers, flowI
   onAddNext: AddAt
   onClose: () => void
 }) {
-  const [tab, setTab] = useState<{ key: string; tab: 'set' | 'last' }>({ key: nodeKey, tab: 'set' })
+  const [tab, setTab] = useState<{ key: string; tab: 'set' | 'last' | 'debug' }>({ key: '', tab: 'set' })
   // 最近编辑的文字配置项（或说明）：「这一步能拿到的字段」点了往它的光标处插 {{路径}}（TSK-0490）
   const focused = useRef<{ node: string; key: string; el: HTMLInputElement | HTMLTextAreaElement } | null>(null)
   const [copied, setCopied] = useState('')
   // 换节点时回到「设置」
-  const cur = tab.key === nodeKey ? tab.tab : 'set'
   const s = draft.steps.find((x) => x.key === nodeKey)
+  const dstep = debug?.steps.find((x) => x.key === nodeKey)
+  // 有调试结果时换节点默认看「调试」，就地看到这一步的真实输入输出（TSK-0491）
+  const cur = tab.key === nodeKey ? (tab.tab === 'debug' && !debug ? 'set' : tab.tab) : debug && (dstep || nodeKey === START) ? 'debug' : 'set'
+  // 这一步拿到的真实输入，字段候选和条件下拉叠真实值、列出没声明的
+  const sample = nodeKey === START ? debug?.input : dstep?.input ?? undefined
   const kids = childrenOf(draft, nodeKey)
   const addBtn = (caseKey?: string) => (e: MouseEvent) => {
     const r = (e.currentTarget as HTMLElement).getBoundingClientRect()
@@ -162,6 +169,13 @@ export function NodePanel({ draft, nodeKey, catalog, ctx, tried, triggers, flowI
     return (
       <aside className="sop-node-panel" aria-label="开始节点">
         <Head kind="start" title={<span className="sop-np-name-static">开始</span>} onClose={onClose} />
+        {debug && (
+          <div className="sop-np-tabs" role="tablist">
+            <button type="button" role="tab" aria-selected={cur !== 'debug'} className={cls(cur !== 'debug' && 'on')} onClick={() => setTab({ key: nodeKey, tab: 'set' })}>设置</button>
+            <button type="button" role="tab" aria-selected={cur === 'debug'} className={cls(cur === 'debug' && 'on')} onClick={() => setTab({ key: nodeKey, tab: 'debug' })}>调试</button>
+          </div>
+        )}
+        {cur === 'debug' && debug ? <DebugStartView res={debug} /> : (
         <div className="sop-np-body form">
           <div className="sop-muted">执行时要填的内容，第一批节点拿它当输入。</div>
           {/* 文件夹（TSK-0482）：流程库里按它分类，保存时一起存；文件夹在流程库里建 */}
@@ -219,9 +233,10 @@ export function NodePanel({ draft, nodeKey, catalog, ctx, tried, triggers, flowI
             </div>
           </div>
           <NextList kids={kids} onSelect={onSelect} onAdd={addBtn()} />
-          <FieldsPanel draft={draft} stepKey={START} onPick={(p) => copyPath(p)} />
+          <FieldsPanel draft={draft} stepKey={START} sample={sample} onPick={(p) => copyPath(p)} />
           {copied && <span className="sop-muted" role="status">{copied}</span>}
         </div>
+        )}
       </aside>
     )
   }
@@ -259,6 +274,11 @@ export function NodePanel({ draft, nodeKey, catalog, ctx, tried, triggers, flowI
       <div className="sop-np-tabs" role="tablist">
         <button type="button" role="tab" aria-selected={cur === 'set'} className={cls(cur === 'set' && 'on')} onClick={() => setTab({ key: nodeKey, tab: 'set' })}>设置</button>
         <button type="button" role="tab" aria-selected={cur === 'last'} className={cls(cur === 'last' && 'on')} onClick={() => setTab({ key: nodeKey, tab: 'last' })}>上次运行</button>
+        {debug && (
+          <button type="button" role="tab" aria-selected={cur === 'debug'} className={cls(cur === 'debug' && 'on')} onClick={() => setTab({ key: nodeKey, tab: 'debug' })}>
+            调试{dstep ? ` · ${DEBUG_LOOK[dstep.status].label}` : ''}
+          </button>
+        )}
       </div>
       {cur === 'set' ? (
         <div className="sop-np-body form">
@@ -288,7 +308,7 @@ export function NodePanel({ draft, nodeKey, catalog, ctx, tried, triggers, flowI
           </label>
           {branching && (
             <>
-              {(s.kind === 'decide' || loop) && <CondEditor step={s} draft={draft} tried={tried} loop={loop} onChange={onChange} />}
+              {(s.kind === 'decide' || loop) && <CondEditor step={s} draft={draft} tried={tried} loop={loop} sample={sample} onChange={onChange} />}
               <div className="field" role="group" aria-label={s.kind === 'classifier' ? '类别' : loop ? '出口' : '分支'}>
                 <span className="field-label">{s.kind === 'classifier' ? '类别' : loop ? '出口' : '分支'}
                   {s.kind === 'classifier' && <span className="sop-field-hint">每一类一个出口；类别名写清楚，分类更准</span>}
@@ -327,9 +347,11 @@ export function NodePanel({ draft, nodeKey, catalog, ctx, tried, triggers, flowI
             </div>
           </div>
           {!branching && <NextList kids={kids} onSelect={onSelect} onAdd={addBtn()} />}
-          <FieldsPanel draft={draft} stepKey={s.key} onPick={pick} />
+          <FieldsPanel draft={draft} stepKey={s.key} sample={sample} onPick={pick} />
           {copied && <span className="sop-muted" role="status">{copied}</span>}
         </div>
+      ) : cur === 'debug' && debug ? (
+        dstep ? <DebugStepView s={dstep} res={debug} /> : <div className="sop-np-body"><div className="sop-io-empty">这次调试时还没有这一步，再调试一次</div></div>
       ) : (
         <LastRun flowId={flowId} stepKey={s.key} step={s} runs={runs} />
       )}

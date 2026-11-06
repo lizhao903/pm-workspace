@@ -22,6 +22,9 @@ const (
 	toolGetSOP    = "get_sop"
 	toolCreateSOP = "create_sop"
 	toolUpdateSOP = "update_sop"
+	// toolTestSOP、toolExplainIM 是调试（TSK-0491）：只读，归「查 SOP 流程」
+	toolTestSOP   = "test_sop"
+	toolExplainIM = "explain_im_trigger"
 
 	// ReadSOPAbility / WriteSOPAbility 是查、改 SOP 流程的内置能力
 	ReadSOPAbility  = "read_sop"
@@ -50,11 +53,21 @@ func currentSOPCatalog() schedule.SOPCatalog {
 	return nil
 }
 
+// currentSOPDebugger 是发起入口实现了调试接口时的它（TSK-0491），SOP 插件旧版本没有时为 nil。
+func currentSOPDebugger() schedule.SOPDebugger {
+	if st := currentSOPStarter(); st != nil {
+		if d, ok := st.(schedule.SOPDebugger); ok {
+			return d
+		}
+	}
+	return nil
+}
+
 func (tb *Toolbox) sopCatalogDefs() []ToolDef {
 	if tb.sopAgent == nil || currentSOPCatalog() == nil {
 		return nil
 	}
-	return []ToolDef{
+	return append([]ToolDef{
 		{
 			Name: toolListSOPs,
 			Description: "列出系统里已有的 SOP 流程（id、名称、触发方式、步骤数、所在文件夹），开头列出流程库的文件夹和各自的流程数。" +
@@ -84,7 +97,89 @@ func (tb *Toolbox) sopCatalogDefs() []ToolDef {
 				"先用 get_sop 读出它和版本号，version 必须带上读到的版本号。" + sopStepsHint,
 			Parameters: obj(sopParams(true), []string{"flow_id", "version"}),
 		},
+	}, tb.sopDebugDefs()...)
+}
+
+// sopDebugDefs 是调试的两个只读工具（TSK-0491）；SOP 插件没实现调试接口时不给。
+func (tb *Toolbox) sopDebugDefs() []ToolDef {
+	if currentSOPDebugger() == nil {
+		return nil
 	}
+	return []ToolDef{
+		{
+			Name: toolTestSOP,
+			Description: "调试一个 SOP 流程：用一条真实消息（或给的输入）把流程按真实引擎走一遍，只读、算、调模型的节点真实执行，" +
+				"写操作（标记消息、发消息、建任务、写文件、调外部接口……）不执行、只列出将做什么，不建执行记录、不改任何数据。" +
+				"回每一步的真实输入输出、条件分支每条条件的真实值和走向、失败原因、实际多返回的没声明字段。" +
+				"建完或改完流程后必须先用它调试一遍，再把调试结论（走了哪些步、分支怎么走、将做什么、有没有失败）告诉用户；用户问流程为什么不对时也先用它。",
+			Parameters: obj(props{
+				"flow_id":     str("流程 id（sop_ 开头），也接受流程名称"),
+				"message_id":  str("用作输入的真实消息 id（msg_ 开头）；IM 触发的流程不给时取这条流程最近一次执行或没发起的那条消息"),
+				"input":       map[string]any{"type": "object", "description": "手填的输入字段 {key: 值}，和消息带进来的字段合并（手填优先）；可留空"},
+				"skip_models": boolean("true 时调模型的节点不调，用占位输出（省时间、省钱）；默认 false 照常调"),
+			}, []string{"flow_id"}),
+		},
+		{
+			Name: toolExplainIM,
+			Description: "模拟一条 IM 消息触发 IM 流程：按真实口径把每条触发方式是 IM 的流程按执行顺序判一遍——过滤条件哪条不符、" +
+				"是否已经为这条消息发起过、必填输入补不补得齐、有没有被前面的流程拦截、发信人是不是被自动忽略，最后会发起哪几条。不真发起、不改数据。" +
+				"用户问「这条消息为什么没触发」「这条消息会跑哪些流程」时用它。",
+			Parameters: obj(props{
+				"message_id": str("消息 id（msg_ 开头）"),
+			}, []string{"message_id"}),
+		},
+	}
+}
+
+func (tb *Toolbox) testSOP(ctx context.Context, args map[string]any) ToolResult {
+	dbg := currentSOPDebugger()
+	if tb.sopAgent == nil || dbg == nil {
+		return failed(toolTestSOP, "这个会话不能调试 SOP 流程")
+	}
+	ref := strings.TrimSpace(argStr(args, "flow_id"))
+	if ref == "" {
+		return failed(toolTestSOP, "flow_id 是必填的，先用 list_sops 查到流程 id")
+	}
+	q := schedule.SOPTest{FlowID: ref, MessageID: strings.TrimSpace(argStr(args, "message_id")), SkipModels: argBool(args, "skip_models")}
+	if v, ok := args["input"]; ok && v != nil {
+		m, ok := v.(map[string]any)
+		if !ok {
+			if s, isStr := v.(string); isStr && strings.TrimSpace(s) != "" {
+				if json.Unmarshal([]byte(s), &m) != nil {
+					return failed(toolTestSOP, "input 必须是对象 {key: 值}")
+				}
+			} else if !isStr {
+				return failed(toolTestSOP, "input 必须是对象 {key: 值}")
+			}
+		}
+		q.Input = m
+	}
+	out, err := dbg.TestSOP(ctx, q)
+	if errors.Is(err, schedule.ErrSOPNotFound) {
+		if cat := currentSOPCatalog(); cat != nil {
+			return notFoundSOP(ctx, toolTestSOP, cat, err)
+		}
+	}
+	if err != nil {
+		return failed(toolTestSOP, sopErrText(err))
+	}
+	return ToolResult{Summary: "调试了 SOP " + ref + "（不真写）", Content: out}
+}
+
+func (tb *Toolbox) explainIMTrigger(ctx context.Context, args map[string]any) ToolResult {
+	dbg := currentSOPDebugger()
+	if tb.sopAgent == nil || dbg == nil {
+		return failed(toolExplainIM, "这个会话不能调试 SOP 流程")
+	}
+	id := strings.TrimSpace(argStr(args, "message_id"))
+	if id == "" {
+		return failed(toolExplainIM, "message_id 是必填的")
+	}
+	out, err := dbg.ExplainIMTrigger(ctx, id)
+	if err != nil {
+		return failed(toolExplainIM, sopErrText(err))
+	}
+	return ToolResult{Summary: "模拟了消息 " + id + " 触发 IM 流程（不真发起）", Content: out}
 }
 
 // sopStepsHint 是 create_sop / update_sop 共用的步骤写法说明；节点目录、配置项、输出字段在 get_sop 末尾的编排说明里（TSK-0490，同编辑器 AI 协助）。
@@ -94,7 +189,8 @@ const sopStepsHint = "steps 是步骤数组，每步 " +
 	`（op 是 eq/ne/contains/not_contains/empty/not_empty，logic 是 and 或 or），成立走 yes、不成立走 no，cases 不用写；` +
 	"field 只能用这一步真实拿得到的字段（触发方式自动带入的、输入字段、上游节点声明的输出），不要写 rule，也不要把一句话当条件，说明写进 desc；" +
 	`分支下的步骤写 "branch":{"of":"分支步骤 key","case":"yes 或 no"}。自动执行（auto）什么都不做，要改数据用对应的写节点。` +
-	"能用的节点、配置项和输出字段在 get_sop 结果末尾的编排说明里。存不上时按返回的问题改了再存；存上了但有警告时，结果里会列出来，按警告改掉。" + sopIMHint
+	"能用的节点、配置项和输出字段在 get_sop 结果末尾的编排说明里。存不上时按返回的问题改了再存；存上了但有警告时，结果里会列出来，按警告改掉。" +
+	"存上之后先用 test_sop 调试一遍（IM 触发的流程带一条真实消息的 message_id），把调试结论告诉用户再结束，不要只说「建好了」。" + sopIMHint
 
 // sopIMHint 是 IM 触发的流程能拿到什么、现在做不到什么（TSK-0480 重放：模型拿会话名比 Slack 频道编号、拿正文找「@我」，
 // 用户要的「优先于其他流程」也没提）。做不到的几条由 TSK-0481 接。
@@ -394,6 +490,9 @@ func (tb *Toolbox) saveSOP(ctx context.Context, tool string, args map[string]any
 	}
 	if f.IMTrigger != "" {
 		content += "IM 触发条件：" + f.IMTrigger + "。"
+	}
+	if currentSOPDebugger() != nil {
+		content += "接着用 test_sop（flow_id=" + f.ID + "）调试一遍，把调试结论告诉用户。"
 	}
 	summary := fmt.Sprintf("已%s SOP「%s」（%s）", verb, f.Name, f.ID)
 	// 保存校验的警告（TSK-0490）：同编辑器保存后的提示

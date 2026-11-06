@@ -66,7 +66,8 @@ func (p *Plugin) Register(r plugin.Registrar) error {
 	rn := &runs{c: c, e: e}
 	sg := &settings{c: c, e: e}
 	ph := &pipelineHandlers{c: c, e: e}
-	as := &assist{c: c, complete: p.complete}
+	dbg := &debugger{c: c, e: e}
+	as := &assist{c: c, complete: p.complete, dbg: dbg}
 	if as.complete == nil {
 		as.complete = coreCompleter(c)
 	}
@@ -80,6 +81,10 @@ func (p *Plugin) Register(r plugin.Registrar) error {
 		// 触发方式自动带入的字段、这一步能拿到的字段（TSK-0490，fields.go）
 		m.HandleFunc("GET /api/sop/triggers", triggersList)
 		m.HandleFunc("POST /api/sop/step-fields", f.stepFields)
+		// 调试、模拟 IM 触发、没发起的记录（TSK-0491，debug.go、imexplain.go、skips.go）
+		m.HandleFunc("POST /api/sop/debug", dbg.handle)
+		m.HandleFunc("POST /api/sop/im-explain", dbg.explainIM)
+		m.HandleFunc("GET /api/sop/flows/{id}/skips", f.listSkips)
 		// 流程库的文件夹（TSK-0482，folders.go）
 		m.HandleFunc("GET /api/sop/folders", fd.list)
 		m.HandleFunc("POST /api/sop/folders", fd.add)
@@ -111,10 +116,12 @@ func (p *Plugin) Register(r plugin.Registrar) error {
 	// 别的插件登记的节点挂起后经内核 SOP().Resume 唤醒，交给这个引擎（SOP-03a）
 	r.SOPEngine(e)
 	// 定时任务的 sop 动作和 Agent 的 run_sop 经内核钩子发起执行（SOP-01d，launch.go）
-	st := &starter{c: c, e: e}
+	st := &starter{c: c, e: e, dbg: dbg}
 	r.SOPStarter(st)
 	// 触发方式是 im 的流程来消息自动发起（SOP-05，imtrigger.go）
 	r.Subscribe(imReceivedEvent, st.onIMMessage)
+	// 被自动忽略的消息（IM 插件 0.28.0 起发 im.message_muted）记「没发起」的原因（TSK-0491，skips.go）
+	r.Subscribe(imMutedEvent, st.onIMMuted)
 	// Claude Code 节点等的运行结束了叫醒它（AUTO-01，nodes_claude.go）；兜底还有轮询
 	r.Subscribe(plugin.RunFinishedEvent, e.onRunFinished)
 	r.TodayCard(plugin.TodayCardDef{Key: "sop_pending", Title: "SOP 待我处理", Order: 50, Load: pendingCard})

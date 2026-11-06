@@ -520,6 +520,23 @@ func fillInput(f Flow, input Json) (Json, error) {
 	return out, nil
 }
 
+// missingFields 是 fillInput 补不齐的必填输入字段 {key, label}（TSK-0491，没发起的记录和调试里列出）。
+func missingFields(f Flow, input Json) []map[string]string {
+	var fields []sopField
+	_ = json.Unmarshal(f.Fields, &fields)
+	out := []map[string]string{}
+	for _, fd := range fields {
+		v, ok := input[fd.Key]
+		if !ok || v == nil {
+			v = fd.Default
+		}
+		if fd.Required && strings.TrimSpace(txt(v)) == "" {
+			out = append(out, map[string]string{"key": fd.Key, "label": fd.Label})
+		}
+	}
+	return out
+}
+
 // runTitle 同原型：流程名 · 第一个输入值的第一行（按换行或 | 切，前 16 个字）。
 func runTitle(f Flow, input Json) string {
 	var fields []sopField

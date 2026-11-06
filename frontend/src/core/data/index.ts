@@ -112,7 +112,7 @@ export {
   projectStakeholdersApi, useAddProjectStakeholder, useAddProjectStakeholders, usePatchProjectStakeholder, useRemoveProjectStakeholder,
 } from './projectStakeholders'
 export type { ProjectStakeholderInput, ProjectStakeholderPatch, ProjectStakeholdersAdded } from './projectStakeholders'
-export { IM_EXPIRE_DAYS_MAX, IM_QUICK_REPLIES_MAX, IM_QUICK_REPLY_TEXT_MAX, IM_PAGE_MAX, imApi, normMessage, useImMessages, useImMessage, useImAction, useImBatch, useImToTask, useImPendingCount, useImSyncConnector, useImSettings, usePatchImSettings, useImConversationProjects, useSetImConversationProject, useImStartSession } from './im'
+export { IM_EXPIRE_DAYS_MAX, IM_QUICK_REPLIES_MAX, IM_QUICK_REPLY_TEXT_MAX, IM_PAGE_MAX, imApi, normMessage, useImMessages, useImMessage, useImRecentMessages, useImAction, useImBatch, useImToTask, useImPendingCount, useImSyncConnector, useImSettings, usePatchImSettings, useImConversationProjects, useSetImConversationProject, useImStartSession } from './im'
 export type { ImMaterialKind, ImMessageMaterial, ImMessageThread, ImMaterialSource, ImMaterialLinkInput, ImMaterialLinkResult, ImMessage, ImMsgStatus, ImRelevance, ImAttachment, ImReply, ImAction, ImBatchInput, ImBatchResult, ImTaskInput, ImTaskResult, ImTaskReply, ImSyncResult, ImSettings, ImQuickReply, ImConversationProject, ImMessageSession, ImSplitTask, ImSessionIntent, ImSessionLinkInput, ImSessionLinkResult, ImStartSessionInput } from './im'
 export { imEmailApi, useImBackfillEmails } from './imEmails'
 export { IM_CONV_BATCH_MAX, IM_MENTIONS_MAX, IM_SEND_MAX, imGroupsApi, useImConversationSummary, useImMembers, useImSendToConversation, useImSent, useRefillImNames, useSetImConversationProjects } from './imGroups'
@@ -170,6 +170,9 @@ export { SOP_IM_RELEVANCES, SOP_TRIGGER_IM, SOP_TRIGGER_SCHEDULE } from './sop'
 export type { SopIMDraft, SopIMRelevance, SopIMTrigger, SopScheduleDraft, SopScheduleOff } from './sop'
 // 结构化条件、节点声明、这一步能拿到的字段（TSK-0490）
 export { SOP_COND_OPS, normIssues, useSopStepFields } from './sop'
+// 调试（TSK-0491）
+export { useSopDebug, useSopIMExplain, useSopSkips } from './sop'
+export type { SopDebug, SopDebugAction, SopDebugCond, SopDebugCondItem, SopDebugInput, SopDebugSource, SopDebugStatus, SopDebugStep, SopEffect, SopIMExplain, SopIMExplainFlow, SopIMVerdict, SopSkip, SopSkipReason, SopSkips } from './sop'
 export type { SopCond, SopCondItem, SopCondOp, SopFieldGroup, SopFieldInfo, SopOption, SopOutput, SopParam, SopStepFieldsDraft, SopTrigger } from './sop'
 // 挂起等服务商恢复（TSK-0392）
 export { isSopProviderWait } from './sop'

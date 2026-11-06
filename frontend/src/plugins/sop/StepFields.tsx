@@ -1,17 +1,21 @@
 // 结构化条件和「这一步能拿到的字段」（TSK-0490，SPEC-sop-9.11、9.33）。
 // 字段候选来自 POST /api/sop/step-fields：触发方式自动带入的、输入字段、沿依赖往上每一步声明的输出，按来源分组，静态推出来不用跑一次。
 // 条件从这里点选字段、选运算符、填值（字段有取值说明时值也是下拉）；旧的一行规则给「转成结构化条件」，写成一句话的只能挪进说明。
-// TSK-0491（试跑 / 调试）衔接：字段带 sample（真实值）、declared=false（实际返回但没声明）时这里照样列出，样式另标。
+// TSK-0491（调试）：编排页有调试结果时带上这一步的真实输入（sample），字段旁显示真实值，实际有、没声明的另列一组标「未声明」，条件下拉里同样能选。
 import { useState } from 'react'
-import { SOP_COND_OPS, useSopStepFields, type SopCond, type SopCondItem, type SopFieldGroup, type SopFieldInfo, type SopStepDef } from '../../core/data'
+import { SOP_COND_OPS, useSopStepFields, type SopCond, type SopCondItem, type SopFieldGroup, type SopFieldInfo, type SopJson, type SopStepDef } from '../../core/data'
 import { Button, IconButton, IconClose, Input, cls } from '../../core/ui'
 import { blankItem, condProblems, legacyCond, unaryOp } from './cond'
 import type { Draft } from './edit'
 
 const typeLabel: Record<string, string> = { string: '文字', number: '数字', bool: '是 / 否', object: '对象', list: '列表', any: '任意' }
 
-/** 字段在下拉里的一行：路径 · 说明 */
-const fieldText = (f: SopFieldInfo) => `${f.path}${f.label ? ` · ${f.label}` : ''}`
+const sampleText = (v: unknown) => {
+  const t = typeof v === 'string' ? v : JSON.stringify(v)
+  return t.length > 30 ? `${t.slice(0, 30)}…` : t
+}
+/** 字段在下拉里的一行：路径 · 说明（调试时带真实值，没声明的标出来） */
+const fieldText = (f: SopFieldInfo) => `${f.path}${!f.declared ? ' · 未声明' : f.label ? ` · ${f.label}` : ''}${f.sample !== undefined ? ` = ${sampleText(f.sample)}` : ''}`
 
 function findField(groups: readonly SopFieldGroup[], path: string): SopFieldInfo | undefined {
   for (const g of groups) {
@@ -22,15 +26,17 @@ function findField(groups: readonly SopFieldGroup[], path: string): SopFieldInfo
 }
 
 /** 条件编辑：且 / 或、每条「字段 运算符 值」；没有条件的条件分支是人工判断，条件回退必须有 */
-export function CondEditor({ step, draft, tried, loop, onChange }: {
+export function CondEditor({ step, draft, tried, loop, sample, onChange }: {
   step: SopStepDef
   draft: Draft
   tried: boolean
   /** 条件回退：必须有条件，没有「人工判断」 */
   loop: boolean
+  /** 调试时这一步的真实输入（TSK-0491） */
+  sample?: SopJson | null
   onChange: (p: Partial<SopStepDef>) => void
 }) {
-  const fields = useSopStepFields(draft, step.key)
+  const fields = useSopStepFields(draft, step.key, sample)
   const groups = fields.data ?? []
   const rule = step.rule?.trim() ?? ''
   const legacy = rule ? legacyCond(rule) : null
@@ -119,21 +125,23 @@ export function CondEditor({ step, draft, tried, loop, onChange }: {
 }
 
 /** 这一步能拿到的字段：按来源分组，点一下插进刚才编辑的配置项（{{路径}}），没在编辑配置项时复制到剪贴板 */
-export function FieldsPanel({ draft, stepKey, onPick }: {
+export function FieldsPanel({ draft, stepKey, sample, onPick }: {
   draft: Draft
   /** 步骤 key；开始节点是 __start（第一步拿到的） */
   stepKey: string
+  /** 调试时这一步的真实输入（TSK-0491） */
+  sample?: SopJson | null
   onPick: (path: string) => void
 }) {
   const [open, setOpen] = useState(true)
-  const fields = useSopStepFields(draft, stepKey)
+  const fields = useSopStepFields(draft, stepKey, sample)
   const groups = fields.data ?? []
   const total = groups.reduce((n, g) => n + g.fields.length, 0)
   return (
     <div className="field sop-fields-panel">
       <button type="button" className="field-label sop-fields-toggle" aria-expanded={open} onClick={() => setOpen(!open)}>
         这一步能拿到的字段{total > 0 && ` · ${total} 个`}
-        <span className="sop-field-hint">点字段插入 {'{{路径}}'}；按节点声明列出，不用先跑一次</span>
+        <span className="sop-field-hint">点字段插入 {'{{路径}}'}；按节点声明列出{sample ? '，旁边是这次调试的真实值' : '，不用先跑一次'}</span>
       </button>
       {open && (fields.isPending ? <span className="sop-muted">加载中</span> : !groups.length ? <span className="sop-muted">还没有能用的字段</span> : (
         <div className="sop-fields-groups">
@@ -144,9 +152,10 @@ export function FieldsPanel({ draft, stepKey, onPick }: {
                 <button key={f.path} type="button" className={cls('sop-field-pick', !f.declared && 'undeclared')} title={[f.label, f.example && `例：${f.example}`].filter(Boolean).join('\n')}
                   onClick={() => onPick(f.path)}>
                   <code>{f.path}</code>
+                  {!f.declared && <span className="sop-field-undecl">未声明</span>}
                   <span className="sop-field-type">{typeLabel[f.type] ?? f.type}</span>
                   <span className="sop-field-desc ellipsis">{f.label}{f.values?.length ? `（${f.values.map((v) => (v.value === '' ? `空=${v.label}` : `${v.value}=${v.label}`)).join('、')}）` : ''}</span>
-                  {f.sample !== undefined && <span className="sop-field-sample ellipsis">{JSON.stringify(f.sample)}</span>}
+                  {f.sample !== undefined && <span className="sop-field-sample ellipsis" title={JSON.stringify(f.sample)}>{sampleText(f.sample)}</span>}
                 </button>
               ))}
             </div>

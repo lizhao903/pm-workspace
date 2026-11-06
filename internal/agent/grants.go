@@ -60,6 +60,8 @@ var ToolAbility = map[string]string{
 	toolRunSOP:       RunSOPAbility,
 	toolListSOPs:     ReadSOPAbility,
 	toolGetSOP:       ReadSOPAbility,
+	toolTestSOP:      ReadSOPAbility,
+	toolExplainIM:    ReadSOPAbility,
 	toolCreateSOP:    WriteSOPAbility,
 	toolUpdateSOP:    WriteSOPAbility,
 	toolAskUser:      "",

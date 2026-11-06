@@ -30,6 +30,8 @@ var errNoModel = errors.New("模型还没接上")
 type assist struct {
 	c        plugin.Core
 	complete completer
+	// dbg 是出稿后的自查调试（TSK-0491）；nil 时不调试
+	dbg *debugger
 }
 
 // Reply 同原型 Reply，proposal 改叫 draft。
@@ -37,6 +39,8 @@ type Reply struct {
 	Text  string   `json:"text"`
 	Draft *Draft   `json:"draft,omitempty"`
 	Notes []string `json:"notes,omitempty"`
+	// Test 是出稿后自查调试的结论（TSK-0491）：跳过调模型、不真写；IM 触发用这条流程最近一次执行的消息，取不到时说明原因
+	Test string `json:"test,omitempty"`
 }
 
 // kindLabels 是节点类型的显示名，同原型 NODE_TYPES 的 label，用在概要和提示词里。
@@ -142,7 +146,31 @@ func (h *assist) handle(w http.ResponseWriter, r *http.Request) {
 		}
 		user = repairPrompt(msg, out, fix)
 	}
+	if valid && reply.Draft != nil {
+		reply.Test = h.selfTest(ctx, reply.Draft)
+	}
 	writeJSON(w, http.StatusOK, map[string]any{"data": reply})
+}
+
+// selfTest 是出稿后的自查调试（TSK-0491）：跳过调模型、不真写，回一段结论；调试不了时回原因。
+func (h *assist) selfTest(ctx context.Context, d *Draft) string {
+	if h.dbg == nil {
+		return ""
+	}
+	b, _ := json.Marshal(d)
+	f, issues, err := readDraft(b, kindsOf(h.c))
+	if err != nil {
+		return ""
+	}
+	if len(errorsOf(issues)) > 0 {
+		return "草稿还有必须改的问题，改好后再调试"
+	}
+	res, err := h.dbg.run(ctx, f, issues, DebugReq{SkipModels: true})
+	if err != nil {
+		_, msg, _ := cutKind(err)
+		return "没有自动调试：" + msg + "；在编辑器里点「调试」选一条消息再看"
+	}
+	return "自动调试（跳过调模型、不真写）：" + res.Summary
 }
 
 // repairPrompt 是返修那一轮的用户消息：原来的要求、上一稿、校验查出的问题。

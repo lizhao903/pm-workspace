@@ -239,11 +239,54 @@ var builtinSpecs = map[string]plugin.SOPNodeSpec{
 		Outputs: []Output{}},
 }
 
+// 调试（TSK-0491，debug.go）时内置节点的副作用口径：compute 只按输入算、read 只读取数、model 调模型，这三种真实执行
+// （model 可选跳过）；write 改数据或对外发、wait 等外部事件、human 等人，都不执行，按 dry 说的模拟。
+const (
+	effCompute = "compute"
+	effRead    = plugin.SOPEffectRead
+	effModel   = "model"
+	effWrite   = plugin.SOPEffectWrite
+	effWait    = plugin.SOPEffectWait
+	effHuman   = "human"
+)
+
+type builtinEffect struct{ effect, dry string }
+
+var builtinEffects = map[string]builtinEffect{
+	"auto":         {effCompute, "原样透传，真实执行"},
+	"ai":           {effModel, "真实调模型；选了「跳过调模型」时输出字段是占位文字"},
+	"knowledge":    {effRead, "真实检索知识库"},
+	"extract":      {effModel, "真实调模型；跳过时每个字段是空串"},
+	"template":     {effCompute, "真实拼模板"},
+	"aggregate":    {effCompute, "真实合并"},
+	"code":         {effCompute, "后端不执行代码，调试同样报失败"},
+	"decide":       {effCompute, "按真实值判断条件，列出每条条件的取值和结果；人工判断按调试时指定的分支走，没指定走第一个"},
+	"classifier":   {effModel, "真实调模型分类；跳过时按调试时指定的分支走，没指定走第一个"},
+	"iterate":      {effModel, "真实调模型；跳过时 results 每项的 result 是占位文字"},
+	"wait":         {effWait, "不等，直接往下走"},
+	loopbackKind:   {effCompute, "按真实值判断；条件成立时不真退回，记「将退回某一步重做」，下游不再走"},
+	"review":       {effHuman, "不停下，按「检查通过、输出不改」往下走"},
+	"http":         {effWrite, "不发请求，列出方法、地址、请求头和请求体（渲染后）；http 为占位（status 0）"},
+	"notify":       {effWrite, "正式产品不执行这个节点，调试同样报失败"},
+	"task":         {effWrite, "不建任务，列出标题、优先级、负责人、项目、正文（渲染后）；task 为占位"},
+	"doc":          {effWrite, "不写文档，列出方式、标题或目标文档、正文（渲染后）；doc 为占位"},
+	"contact":      {effWrite, "不写联系人，列出要写的字段；contact 为占位"},
+	"local_append": {effWrite, "不写文件，列出项目、文件路径和内容（渲染后）；file 为占位"},
+	"agent":        {effWrite, "不交给 Agent（它可能调写工具），列出交代给它的话；agent_reply 为占位"},
+	"subflow":      {effWrite, "不起子执行，检查子流程在不在；子流程可以单独调试"},
+	claudeKind:     {effWrite, "不交给 Claude Code，列出工作目录、提示词和权限；status 记 done，其余为占位"},
+	taskRunKind:    {effWrite, "不交给 Claude Code，列出任务和附加要求；status 记 done，其余为占位"},
+	taskUpdateKind: {effWrite, "不改任务，列出要改的负责人、状态；task 为占位"},
+	"end":          {effCompute, "真实挑出保留的字段"},
+}
+
 func init() {
 	for i := range NodeTypes {
 		sp := builtinSpecs[NodeTypes[i].Kind]
 		NodeTypes[i].Label, NodeTypes[i].Desc = sp.Label, sp.Desc
 		NodeTypes[i].Params, NodeTypes[i].Outputs = sp.Params, sp.Outputs
+		eff := builtinEffects[NodeTypes[i].Kind]
+		NodeTypes[i].Effect, NodeTypes[i].DryRun = eff.effect, eff.dry
 		if kindLabels[NodeTypes[i].Kind] == "" {
 			kindLabels[NodeTypes[i].Kind] = sp.Label
 		}

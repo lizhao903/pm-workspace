@@ -696,6 +696,11 @@ type SOPNodeSpec struct {
 	Label, Desc string
 	Params      []SOPParam  // {Key, Label, Desc, Required, Default, Template（能写 {{字段}}）, Options []SOPOption, Source（现取的选项：conversations、projects……）}
 	Outputs     []SOPOutput // {Path（a.b，{配置项} 换成配置值）, Type（string/number/bool/object/list/any）, Label, Values []SOPOption, Example, Open}
+	// Effect 是副作用（TSK-0491，SOP 调试按它决定真跑还是模拟）：SOPEffectRead 只读，调试时真实执行（Run 不能改任何数据）；
+	// SOPEffectWrite 改数据或对外发，调试时不调 Run，只列出渲染后的配置、声明的输出填占位值；SOPEffectWait 停下等外部事件，调试时不等、输出填占位值。
+	// 空串按 SOPEffectWrite（没声明的一律不真跑）
+	Effect string
+	DryRun string // 调试时怎么模拟的一句话，空串按 Effect 的默认说法
 }
 // 把声明集中写在一个文件里时，Register 开头包一层，登记节点时按 kind 补上 Spec：
 //   r = plugin.WithSOPSpecs(r, sopSpecs) // sopSpecs map[string]SOPNodeSpec
@@ -2127,6 +2132,8 @@ stateDiagram-v2
 |---|---|---|
 | 1.0.0 | 2026-10-28 | 初版（CORE-01a） |
 | 1.1.0 | 2026-10-29 | `Core` 加 `Runs()`：发起 Agent、SOP 运行和交给 Claude Code，跑完给发起的插件投 `run.finished`（VID-03a） |
+
+补记（不改版本号，2026-11-06，TSK-0491）：SOP 节点扩展点（2.7）`SOPNodeSpec` 加 `Effect`（`SOPEffectRead` / `SOPEffectWrite` / `SOPEffectWait`）、`DryRun`，SOP 调试按它决定真跑还是模拟；声明 `read` 的节点 `Run` 必须不改任何数据。流程目录加可选接口 `SOPDebugger`（`TestSOP`、`ExplainIMTrigger`，类型 `SOPTest`，内核别名 `SOPCatalogDebugger`），Agent 的 `test_sop`、`explain_im_trigger` 经注册表 `Registry.TestSOP` / `ExplainIMTrigger` 调；SOP 插件旧版本没实现时这两个工具不出现。只增不改。IM（0.28.0）、视频（0.8.2）插件声明了各自节点的 `Effect`；IM 插件 `emits` 加 `im.message_muted`。
 
 补记（不改版本号，2026-11-06，TSK-0490）：SOP 节点扩展点（2.7）`SOPNodeDef`、`SOPNode` 加 `Spec SOPNodeSpec`（`Label`、`Desc`、`Params []SOPParam`、`Outputs []SOPOutput`），加 `WithSOPSpecs(r, specs)` 在登记时按 kind 补声明；`Spec.Params` 里必填的并进 `Required`。流程目录 `SOPCatalog` 加 `SOPGuide`，`SOPFlowDoc` 加 `Warnings`。只增不改：不给 `Spec` 的节点照旧能用（`outputs_open: true`）；`SOPCatalog` 现有唯一实现是 SOP 编排插件（实际清单 0.16.0，不加迁移）。IM（0.26.1）、项目（0.17.1）、视频（0.8.1）插件给各自的节点补了声明，不加迁移。
 

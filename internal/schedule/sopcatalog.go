@@ -83,3 +83,19 @@ type SOPCatalog interface {
 
 // ErrSOPNotFound：流程不存在。
 var ErrSOPNotFound = errors.New("流程不存在")
+
+// SOPTest 是一次调试（TSK-0491，Agent 的 test_sop）：FlowID 认 id 也认名称；MessageID、Input 都不给时
+// IM 触发的流程取最近一次执行的消息，其余用输入字段的默认值。
+type SOPTest struct {
+	FlowID     string
+	MessageID  string
+	Input      map[string]any
+	SkipModels bool
+}
+
+// SOPDebugger 是 SOP 插件发起入口可选实现的调试接口（TSK-0491）：Agent 的 test_sop、explain_im_trigger 经它。
+// 回给模型看的一段文字；只读，不建执行、不写库。
+type SOPDebugger interface {
+	TestSOP(ctx context.Context, q SOPTest) (string, error)
+	ExplainIMTrigger(ctx context.Context, messageID string) (string, error)
+}

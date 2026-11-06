@@ -73,6 +73,8 @@ var Registry = []Entry{
 	{"spr", "sopRun", "sop_runs", ""},                // SOP 插件的执行（SOP-01b）；run 已给开发执行，原型的 sopRun 还用 run
 	{"sfd", "sopFolder", "sop_folders", "sopFolder"}, // SOP 插件的流程库文件夹（TSK-0482）
 	{"spb", "sopBatch", "", ""},                      // SOP 插件的批量发起批次（TSK-0717），记在 sop_runs.source_ref，不单独建表
+	{"spk", "sopSkip", "sop_skips", ""},              // SOP 插件的自动触发没发起的记录（TSK-0491）
+	{"sdb", "sopDebug", "", ""},                      // SOP 插件的一次调试（TSK-0491），不落库，只在回包和日志里
 	{"inc", "incident", "incidents", "incident"},     // 内核的表（INC-01a，0043），运行异常
 	// Agent 与模型
 	{"ag", "agent", "agents", "agent"},               // 内核的表（AG-01b1，0032）

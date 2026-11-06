@@ -190,6 +190,12 @@ var contractSpecs = map[string]contractSpec{
 	"SopRunBrief":    {v: sop.RunBrief{}},
 	"SopRunAction":   {v: sop.Action{}},
 	"SopAssistReply": {v: sop.Reply{}},
+	// 调试（TSK-0491）
+	"SopDebug":         {v: sop.Debug{}},
+	"SopDebugStep":     {v: sop.DebugStep{}},
+	"SopIMExplain":     {v: sop.IMExplain{}},
+	"SopIMExplainFlow": {v: sop.IMExplainFlow{}},
+	"SopSkip":          {v: sop.Skip{}},
 	// 流水线视图与治理（AUTO-12）
 	"SopStepHold":       {v: sop.StepHold{}},
 	"SopStepQueue":      {v: sop.StepQueue{}},
