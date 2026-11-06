@@ -12,6 +12,7 @@ import { IM_CHANNELS, type Contact, type Message } from './data'
 import type { Project } from './projectdata'
 import { SearchSelect, type SearchOption } from './searchselect'
 import { ImMark, cls, timeAgo } from './ui'
+import { MembersMenu } from './mutes'
 
 /** 一次批量最多几个会话（同正式产品后端） */
 export const GROUP_BATCH_MAX = 200
@@ -223,7 +224,7 @@ export function GroupAdminDrawer({ messages, contacts, projects, groupProjects, 
                   <div className="ga-main">
                     <div className={cls('ga-top', s.unresolved.length > 0 && 'ga-top-refill')}>{ch && used.length > 1 && <ImMark ch={ch} compact />}<button className="ga-name" onClick={() => onOpenConversation(s.channel, s.key)} title="看这个会话的消息">{displayName(s)}</button><span className="spacer" />{s.unresolved.length > 0 && <button className="act" disabled={!REFILL_CHANNELS.includes(s.channel)} onClick={() => refillOne(s)}
                       title={REFILL_CHANNELS.includes(s.channel) ? `回渠道查 ${s.unresolved.length} 个只有编号的人（${s.unresolved.slice(0, 3).join('、')}）的名字并补上；只补空的，不改联系人和手动改过的名字` : '这个渠道查不了编号对应的名字'}>查询回填</button>}<button className="act" onClick={() => onSend(s.key)} title="直接发到这个会话，不挂在哪条消息的消息列里">发消息</button></div>
-                    <div className="ga-sub"><span className="ga-who">{s.direct ? '私聊' : s.participants.join('、')}</span><span>{timeAgo(s.last_at)}</span></div>
+                    <div className="ga-sub"><span className="ga-who">{s.direct ? '私聊' : s.participants.join('、')}</span><span>{timeAgo(s.last_at)}</span><MembersMenu msgs={messages.filter((m) => keyOf(m) === s.key)} onDone={setNote} /></div>
                     {rowNote[s.key] ? <div className={cls('ga-refill', rowNote[s.key].bad && 'bad')}>{rowNote[s.key].text}</div>
                       : s.unresolved.some((id) => lookedError(s.channel, id)) ? <div className="ga-refill muted">上次没查到：{s.unresolved.map((id) => lookedError(s.channel, id)).find(Boolean)}</div> : null}
                   </div>

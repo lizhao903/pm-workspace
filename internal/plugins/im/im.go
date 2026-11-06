@@ -114,6 +114,11 @@ func (p *Plugin) Register(r plugin.Registrar) error {
 		m.HandleFunc("GET /api/im/conversations/{conversation_id}/sent", in.listSent)
 		// @ 候选（0.18.0，members.go）：会话里发过言的人 + 联系人里在这个渠道有 IM 身份的人
 		m.HandleFunc("GET /api/im/conversations/{conversation_id}/members", in.listMembers)
+		// 自动忽略发信人（TSK-0495，mutes.go）
+		m.HandleFunc("GET /api/im/mutes", in.listMutes)
+		m.HandleFunc("GET /api/im/mutes/pending", in.mutePendingCount)
+		m.HandleFunc("POST /api/im/mutes", in.createMute)
+		m.HandleFunc("DELETE /api/im/mutes/{mute_id}", in.deleteMute)
 		// 批量处理完、忽略（PR-03，actions.go）
 		m.HandleFunc("POST /api/im/messages/batch", in.batch)
 		// 附件获取（IM-04a，attachments.go）

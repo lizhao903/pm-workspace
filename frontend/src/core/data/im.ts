@@ -7,6 +7,7 @@ import { agentApi, setFirstMessage, type SessionSourceRef } from './agent'
 import { useNotifyChange } from './invalidate'
 import { dataKeys } from './keys'
 import type { ImMention } from './imGroups'
+import type { ImMessageMute } from './imMutes'
 
 /** expired 已过期（IM-07）：待处理超过设置的天数没处理，后台标的；不算待处理 */
 export type ImMsgStatus = 'pending' | 'done' | 'ignored' | 'expired'
@@ -76,6 +77,8 @@ export type ImMessage = {
   reply_count: number
   /** 这条来信回复的「我发出的」那条（0.17.0）：thread 是在它的消息列里回复，next 是发出后同会话第一条来信；对不上为 null */
   replied_sent?: { outbox_id: string; text: string; at: string; via: 'thread' | 'next' | string } | null
+  /** 因发信人被设为自动忽略才进「已忽略」的（0.27.0，TSK-0495）：被改回待处理、标为已处理后为 null */
+  muted?: ImMessageMute | null
 }
 
 /**
@@ -206,7 +209,7 @@ export const normMessage = (m: ImMessage): ImMessage => ({
   reply_error: m.reply_error ?? '', task_ref: m.task_ref ?? '', relevance: m.relevance ?? '', expired_at: m.expired_at ?? null,
   project_id: m.project_id ?? null, project_name: m.project_name ?? '', project_source: m.project_source ?? '',
   sessions: m.sessions ?? [], split_tasks: m.split_tasks ?? [], materials: m.materials ?? [],
-  thread: m.thread ?? null, reply_count: m.reply_count ?? 0, replied_sent: m.replied_sent ?? null,
+  thread: m.thread ?? null, reply_count: m.reply_count ?? 0, replied_sent: m.replied_sent ?? null, muted: m.muted ?? null,
 })
 
 const path = (id: string) => `/api/im/messages/${encodeURIComponent(id)}`

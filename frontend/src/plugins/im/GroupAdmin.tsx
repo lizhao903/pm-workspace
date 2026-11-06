@@ -5,6 +5,7 @@
 // 改默认归属和选中群标签时那一行（GroupProject）是同一份数据：群里没单独归项目的消息都算到这个项目，消息上单独设的优先。
 // 每行「发消息」带上这个会话打开发消息弹窗（SendDialog，Page 里渲染）；发过的行上写「已发 N 条」。
 // 只显示渠道编号的行（成员是 Slack 的 U…、群名为空或就是编号）右侧「查询回填」，工具条「回填全部缺失」批量补（IM 0.26.0，TSK-0494）。
+// 每行「成员」菜单列会话里发过言的人，能把某人（含机器人）设为自动忽略、或取消（IM 0.27.0，TSK-0495，GroupMembers）。
 import { useMemo, useState, type CSSProperties } from 'react'
 import {
   errorText, useConnectorDefs, useImConversationSummary, useProjects, useRefillImNames, useSetImConversationProjects,
@@ -17,6 +18,7 @@ import {
 } from './groupAdminModel'
 import { channelOf, channelTable, timeAgo } from './model'
 import { ChannelMark } from './parts'
+import { GroupMembersMenu } from './GroupMembers'
 import './groupAdmin.css'
 
 type Note = { text: string; bad: boolean }
@@ -168,7 +170,8 @@ export function GroupAdminDrawer({ onClose, onOpenConversation, onSend }: {
                 refill={rowRefill.get(s.conversation_id)} refillLocked={!!allRefilling} onRefill={() => void refillOne(s)}
                 onPick={() => setSel((x) => togglePick(x, s.conversation_id))}
                 onSet={(pid) => setOne(s, pid)}
-                onOpen={() => onOpenConversation(s.channel, s.conversation_id)} onSend={() => onSend(s.conversation_id)} />
+                onOpen={() => onOpenConversation(s.channel, s.conversation_id)} onSend={() => onSend(s.conversation_id)}
+                memberLabel={channelOf(channels, s.channel).label} onMuted={(text) => setNote({ text, bad: false })} />
             ))}
             {rows.length > limit && (
               <button type="button" className="im-more" onClick={() => setLimit(limit + GROUP_PAGE)}>
@@ -242,7 +245,7 @@ export function GroupAdminDrawer({ onClose, onOpenConversation, onSend }: {
   )
 }
 
-function GroupRow({ s, chLabel, picked, busy, options, projectsLoading, projectsError, sugg, titleOf, refill, refillLocked, onRefill, onPick, onSet, onOpen, onSend }: {
+function GroupRow({ s, chLabel, picked, busy, options, projectsLoading, projectsError, sugg, titleOf, refill, refillLocked, onRefill, onPick, onSet, onOpen, onSend, memberLabel, onMuted }: {
   s: ImConversationSummary
   /** 只有一个渠道时不标渠道 */
   chLabel: ReturnType<typeof channelOf> | null
@@ -262,6 +265,9 @@ function GroupRow({ s, chLabel, picked, busy, options, projectsLoading, projects
   onSet: (pid: string | null) => void
   onOpen: () => void
   onSend: () => void
+  /** 「成员」菜单里写的渠道名；onMuted 是标了、取消自动忽略的结果 */
+  memberLabel: string
+  onMuted: (text: string) => void
 }) {
   const name = displayName(s)
   const direct = s.kind === 'direct'
@@ -285,6 +291,8 @@ function GroupRow({ s, chLabel, picked, busy, options, projectsLoading, projects
           {sub && <span className="im-ga-who" title={sub}>{sub}</span>}
           {s.last_at && <span title={new Date(s.last_at).toLocaleString('zh-CN')}>{timeAgo(s.last_at)}</span>}
           {s.sent > 0 && <span title={s.last_sent_at ? `最近一次 ${new Date(s.last_sent_at).toLocaleString('zh-CN')}` : undefined}>已发 {s.sent} 条</span>}
+          {/* 「成员」放在第二行，不占名字那一行的宽度（名字至少留 9 个字宽，SPEC-messages-7.11） */}
+          {s.total > 0 && <GroupMembersMenu s={s} chLabel={memberLabel} onDone={onMuted} />}
         </div>
         {refill?.note ? (
           <div className={cls('im-ga-refill', refill.note.bad && 'bad')} role={refill.note.bad ? 'alert' : 'status'}>{refill.note.text}</div>

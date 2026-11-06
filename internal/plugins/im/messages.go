@@ -90,12 +90,14 @@ type Message struct {
 	ReplyCount int            `json:"reply_count"`
 	// RepliedSent 是这条来信回复的「我发出的」那条（0.17.0，outbox.go fillSentLinks），对不上为 null
 	RepliedSent *SentRef `json:"replied_sent"`
+	// Muted 是「因发信人 X 被设为自动忽略」（TSK-0495，mutes.go）：被自动忽略掉的才有，改回待处理、标为已处理后为 null
+	Muted *MessageMute `json:"muted"`
 }
 
 const messageCols = `id, channel, connector_id, external_id, conversation_id, conversation_external_id, conversation_kind,
 	conversation_name, sender_identity_id, sender_external_id, sender_name, text, attachments, relevance, ` + statusCol + `,
 	is_read, snooze_until, sent_at, received_at, adapter, task_id, task_ref, reply_error, expired_at, project_id,
-	thread_parent_external_id, thread_parent_sender, thread_parent_text`
+	thread_parent_external_id, thread_parent_sender, thread_parent_text, muted_by, muted_name`
 
 func (in *inbox) list(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
@@ -210,17 +212,19 @@ func (in *inbox) query(ctx context.Context, sql string, args ...any) ([]Message,
 		return nil, err
 	}
 	out := []Message{}
+	var mutedBy, mutedName []string
 	for rows.Next() {
 		var m Message
-		var convName, attachments, tParent, tSender, tText string
+		var convName, attachments, tParent, tSender, tText, mBy, mName string
 		var read int
 		if err := rows.Scan(&m.ID, &m.Channel, &m.ConnectorID, &m.ExternalID, &m.ConversationID, &m.ConversationExternalID,
 			&m.ConversationKind, &convName, &m.IdentityID, &m.SenderID, &m.SenderName, &m.Text, &attachments, &m.Relevance,
 			&m.Status, &read, &m.SnoozeUntil, &m.At, &m.ReceivedAt, &m.Adapter, &m.TaskID, &m.TaskRef, &m.ReplyError, &m.ExpiredAt, &m.ProjectID,
-			&tParent, &tSender, &tText); err != nil {
+			&tParent, &tSender, &tText, &mBy, &mName); err != nil {
 			_ = rows.Close()
 			return nil, err
 		}
+		mutedBy, mutedName = append(mutedBy, mBy), append(mutedName, mName)
 		m.Conversation, m.Read, m.Attachments = convName, read != 0, json.RawMessage(attachments)
 		if tParent != "" {
 			m.Thread = &MessageThread{ParentExternalID: tParent, ParentSenderName: tSender, ParentText: tText}
@@ -254,6 +258,9 @@ func (in *inbox) query(ctx context.Context, sql string, args ...any) ([]Message,
 		return nil, err
 	}
 	if err := in.fillSentLinks(ctx, out); err != nil {
+		return nil, err
+	}
+	if err := in.fillMutes(ctx, out, mutedBy, mutedName); err != nil {
 		return nil, err
 	}
 	return out, nil

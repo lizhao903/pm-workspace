@@ -1,10 +1,12 @@
 // 联系人抽屉的查看态（SPEC-contacts-2）：资料、快捷动作、IM 渠道、备注；底部编辑和删除。
+// IM 渠道下面一行「自动忽略此人的全部消息」（IM 插件 0.27.0，TSK-0495，MuteRow），IM 插件没在跑时不显示。
 // 删除前看负责、参与的事项数：有就拦下，给「改为归档」；名册只在零引用时允许删（回收站里的也算），后端 409 时同样改走归档。
 import { useState, type ReactNode } from 'react'
 import { errorText, isApiError, useDeleteContact, useUpdateContact, type Contact } from '../../core/data'
 import { Avatar, Button, Drawer, IconButton, Tag, Tags, cls } from '../../core/ui'
 import { IM_CHANNELS, ago, deleteBlock, groupsOf, type GroupItem } from './model'
 import { CopyButton, GroupPills, ImMark, PhotoPicker } from './parts'
+import { ContactMuteRow } from './MuteRow'
 
 type Foot =
   | { kind: 'idle' }
@@ -145,6 +147,7 @@ export function ContactView({ contact, groups, star, imCount, onEdit, onClose }:
               )
             })}
           </div>
+          <ContactMuteRow id={c.id} name={c.name} />
         </>
       )}
       <div className="ct-note-title">备注</div>

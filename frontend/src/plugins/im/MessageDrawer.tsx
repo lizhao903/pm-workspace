@@ -3,6 +3,7 @@
 // 视频插件在跑时多一节「收进素材箱」（VID-08b，ToClipRow）和「转为商单」（VID-08e，ToDealRow）。
 // 回复经后端适配器发出：发送失败时回复框保留内容，底部红字说原因，消息状态不变（SPEC-messages-2.25）。
 // 发信人对不上联系人时给「关联到联系人」「新建联系人」，认上了的给「不是这个人」（IM-05，弹窗在 ContactLink）。
+// 发信人处另有「自动忽略」（TSK-0495）；被自动忽略的消息状态条写「因发信人 X 被设为自动忽略」。
 // Slack 的回复框写明以谁的身份发出（IM-06）：我本人身份「以 <本人名> 身份发送」，Bot 身份「以 Bot <名> 发送」。
 // 已过期（IM-07）的状态条写何时标的，给「标为已处理」「重新打开」「忽略」；不能稍后。
 // 「项目」一节（消息分流）：显示归到的项目，能改、能清除；分流流程的 im_set_project 节点也改这一项。
@@ -36,6 +37,7 @@ import { threadHint } from './groupModel'
 import { MentionBox } from './MentionBox'
 import { defaultMention } from './mentionModel'
 import { useMentions } from './useMentions'
+import { muteReason } from './muteModel'
 
 type AgentProps = {
   /** 带上这条消息发起会话、拆分任务 */
@@ -99,6 +101,7 @@ function DrawerBody({ msg, ch, connectors, sv, photo, note, triage, onClose, onO
   const projectOptions = (projects.data?.data ?? []).filter((p) => !p.deleted_at).map((p) => ({ value: p.id, label: p.title }))
   const [text, setText] = useState('')
   const [alsoDone, setAlsoDone] = useState(true)
+  const [muteNote, setMuteNote] = useState('')
   const conn = connectors?.find((c) => c.id === msg.connector_id)
   const blocker = replyBlocker(msg, connectors)
   const warning = replyWarning(msg, connectors)
@@ -166,6 +169,7 @@ function DrawerBody({ msg, ch, connectors, sv, photo, note, triage, onClose, onO
         {msg.status === 'expired' && msg.expired_at && <span className="im-strip-sub">{shortTime(msg.expired_at)} 超期没处理</span>}
         {rel && rel !== 'dm' && <span className="im-strip-sub">{RELEVANCE[rel]}</span>}
         {sent > 0 && <span className="im-strip-sub">已回复 {sent} 次</span>}
+        {msg.muted && <span className="im-strip-sub im-strip-muted">{muteReason(msg)}</span>}
         <span className="spacer" />
         {msg.status === 'pending' ? (
           <>
@@ -194,9 +198,10 @@ function DrawerBody({ msg, ch, connectors, sv, photo, note, triage, onClose, onO
           <div className="im-muted im-mono">{ch.label} · {msg.sender_id}</div>
         </div>
         <span className="spacer" />
-        <SenderContactActs msg={msg} chLabel={ch.label} onOpenContact={onOpenContact} onLinkContact={onLinkContact} />
+        <SenderContactActs msg={msg} chLabel={ch.label} onOpenContact={onOpenContact} onLinkContact={onLinkContact} onMuted={setMuteNote} />
       </div>
       {note && <LinkNote note={note} onOpenContact={onOpenContact} />}
+      {muteNote && <div className="im-link-note" role="status"><span>{muteNote}</span></div>}
 
       {msg.thread && (
         <div className="im-thread-from">

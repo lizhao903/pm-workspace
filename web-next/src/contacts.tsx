@@ -5,6 +5,7 @@ import { useEnumView } from './enumdata'
 import { MarkEditor } from './imagepick'
 import { Avatar, GroupPill, ImBadges, ImMark, Star, ago, cls } from './ui'
 import { SearchSelect } from './searchselect'
+import { ContactMuteRow } from './mutes'
 
 /* ---------- 联系人 ---------- */
 
@@ -380,6 +381,8 @@ export function ContactDrawer({ contact, initial, onClose, onSave, onDelete, onT
             )
           })}
         </div>
+        {/* 自动忽略此人的全部消息（SPEC-contacts-2.11a、SPEC-messages-9.12） */}
+        <ContactMuteRow contact={c} />
         <div className="section-label">备注</div>
         <div className="prose">{c.note ? c.note.split('\n').map((l, i) => <p key={i}>{l || ' '}</p>) : <p className="faint">还没有备注</p>}</div>
       </div>
