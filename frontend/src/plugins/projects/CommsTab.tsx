@@ -143,7 +143,8 @@ export function CommsTab({ projectId, onAttachments }: {
     if (bq) setBq('')
     else setAdding(false)
   }
-  const openMessage = (m: ImMessage) => navigate(`${MESSAGES_PATH}?m=${encodeURIComponent(m.id)}`)
+  // 这条归到本项目时带上项目筛选（TSK-0723），消息页列表只看这个项目；绑定的群里归到别处的不带，免得列表里找不到它
+  const openMessage = (m: ImMessage) => navigate(`${MESSAGES_PATH}?m=${encodeURIComponent(m.id)}${m.project_id === projectId ? `&project=${encodeURIComponent(projectId)}` : ''}`)
   const onDone = (m: ImMessage) => {
     setErr('')
     act.mutate({ id: m.id, action: { kind: 'done' } }, { onError: (e) => setErr(`${whoName(m)} 的消息没标上${doneLabel}：${errorText(e)}`) })

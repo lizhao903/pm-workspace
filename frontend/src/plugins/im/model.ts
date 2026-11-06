@@ -84,7 +84,8 @@ export function convKey(m: ImMessage) {
 /** 显示的人名：认上联系人用联系人姓名，否则渠道上的名字 */
 export const whoName = (m: ImMessage) => m.contact_name || m.sender_name
 
-export type Filter = { view: View; channel: string; conv: string; unreadOnly: boolean; mine: Mine; q: string }
+/** project：'' 全部项目；PROJECT_NONE 未归项目；其余是项目 id（TSK-0723） */
+export type Filter = { view: View; channel: string; conv: string; unreadOnly: boolean; mine: Mine; q: string; project?: string }
 
 /** 群组标签里「私聊」合成一个标签，键是 dm:<渠道> */
 export const dmTab = (channel: string) => `dm:${channel}`
@@ -93,9 +94,43 @@ export const dmTab = (channel: string) => `dm:${channel}`
 export const convOk = (m: ImMessage, conv: string) =>
   !conv || (conv.startsWith('dm:') ? !isGroup(m) && m.channel === conv.slice(3) : convKey(m) === conv)
 
-/** 只按渠道、会话、与我相关筛（seg 上的数字用它，不受搜索和只看未读影响） */
-export const baseOk = (m: ImMessage, f: Pick<Filter, 'channel' | 'conv' | 'mine'>) =>
-  (!f.channel || m.channel === f.channel) && convOk(m, f.conv) && relOk(m, f.mine)
+/** 只按渠道、会话、与我相关、项目筛（seg 上的数字用它，不受搜索和只看未读影响） */
+export const baseOk = (m: ImMessage, f: Pick<Filter, 'channel' | 'conv' | 'mine' | 'project'>) =>
+  (!f.channel || m.channel === f.channel) && convOk(m, f.conv) && relOk(m, f.mine) && projectOk(m, f.project)
+
+// ---- 项目筛选（TSK-0723） ----
+
+/** 项目筛选的「未归项目」，同后端 GET /api/im/messages?project_id=none */
+export const PROJECT_NONE = 'none'
+
+/** 按项目筛：口径同后端读出的 project_id——消息自己归的项目优先，其次所在会话的默认项目，项目删了按没归；
+ * 未归项目是两者都没有的（读出 project_id 为 null） */
+export const projectOk = (m: Pick<ImMessage, 'project_id'>, project = '') =>
+  !project || (project === PROJECT_NONE ? !m.project_id : m.project_id === project)
+
+/** 各项目在当前视图（状态、渠道、会话、与我相关、未读、搜索，不算项目本身）下的消息数；未归项目记在 PROJECT_NONE 下 */
+export function projectCounts(list: readonly ImMessage[], f: Filter, now = Date.now()) {
+  const out = new Map<string, number>()
+  for (const m of filterRows(list, { ...f, project: '' }, now)) {
+    const k = m.project_id ?? PROJECT_NONE
+    out.set(k, (out.get(k) ?? 0) + 1)
+  }
+  return out
+}
+
+export type ProjectOption = { value: string; label: string; group?: string; hint: string }
+
+/** 项目下拉的选项：先「未归项目」，再没归档、没删的项目，按当前视图下的条数、再按名字排 */
+export function projectFilterOptions(
+  projects: readonly { id: string; title: string; archived_at: string | null; deleted_at: string | null }[],
+  counts: ReadonlyMap<string, number>,
+): ProjectOption[] {
+  const n = (k: string) => counts.get(k) ?? 0
+  const live = projects.filter((p) => !p.archived_at && !p.deleted_at)
+    .map((p) => ({ value: p.id, label: p.title, group: '项目', hint: `${n(p.id)} 条` }))
+    .sort((a, b) => n(b.value) - n(a.value) || a.label.localeCompare(b.label, 'zh-CN'))
+  return [{ value: PROJECT_NONE, label: '未归项目', hint: `${n(PROJECT_NONE)} 条` }, ...live]
+}
 
 export function filterRows(list: readonly ImMessage[], f: Filter, now = Date.now()) {
   const kw = f.q.trim().toLowerCase()
@@ -182,13 +217,14 @@ export function togglePick(sel: ReadonlySet<string>, id: string) {
 
 export type ConvBatch = { n: number; input: { conversation_id: string; before: string } | { ids: string[] } }
 
-/** 「这个会话全部标为已处理」：这个会话里的待处理（不含稍后，同待处理视图），不受与我相关、搜索、未读筛选影响。
+/** 「这个会话全部标为已处理」：这个会话里的待处理（不含稍后，同待处理视图），不受与我相关、搜索、未读筛选影响（项目筛选由调用方先筛 list、带 byIds）。
  * 登记过的会话按会话 + 最近一条的时间点交给后端，后面新到的不动；没登记的按 id */
-export function convBatch(list: readonly ImMessage[], conv: string, now = Date.now()): ConvBatch | null {
+export function convBatch(list: readonly ImMessage[], conv: string, now = Date.now(), byIds = false): ConvBatch | null {
   if (!conv) return null
   const xs = list.filter((m) => convOk(m, conv) && inView(m, 'pending', now))
   if (!xs.length) return null
-  if (conv.startsWith('cv:')) {
+  // byIds：选了项目时只处理这个会话里归到这个项目的，按会话交给后端会连别的项目的一起标掉（TSK-0723）
+  if (conv.startsWith('cv:') && !byIds) {
     const before = xs.reduce((a, m) => (m.at > a ? m.at : a), xs[0].at)
     return { n: xs.length, input: { conversation_id: conv.slice(3), before } }
   }

@@ -366,6 +366,53 @@ describe('IM 消息页', () => {
     expect(rows[2].status).toBe('pending')
   })
 
+  it('项目筛选（TSK-0723）：地址带 ?project=，和会话组合；会话下拉只列这个项目的；全选、会话全部标为已处理只算筛出来的；未归项目', async () => {
+    const rows = [
+      msg({ text: '甲归 Acme', conversation_id: 'cv_1', project_id: 'obj_p1', project_name: 'Acme', project_source: 'message' }),
+      msg({ text: '乙没归', conversation_id: 'cv_1' }),
+      msg({ text: '丙群默认', conversation_id: 'cv_2', conversation: '#ops', conversation_external_id: 'C02', project_id: 'obj_p1', project_name: 'Acme', project_source: 'conversation' }),
+      msg({ text: '丁杂项', conversation_id: 'cv_3', conversation: '#misc', conversation_external_id: 'C03' }),
+    ]
+    const calls = fakeBackend(rows)
+    const router = renderPage('/messages?project=obj_p1')
+    expect(await screen.findByText('2 条待处理')).toBeInTheDocument()
+    expect(screen.getByRole('listitem', { name: /甲归 Acme/ })).toBeInTheDocument()
+    expect(screen.getByRole('listitem', { name: /丙群默认/ })).toBeInTheDocument()
+    expect(screen.queryByRole('listitem', { name: /乙没归/ })).toBeNull()
+    // 会话下拉只列这个项目相关的
+    await userEvent.click(screen.getByRole('button', { name: '只看某个会话' }))
+    expect(screen.queryByRole('option', { name: /#misc/ })).toBeNull()
+    await userEvent.click(await screen.findByRole('option', { name: /#product/ }))
+    // 「这个会话全部标为已处理」只算这个项目的，按 id 交给后端（不连没归的乙一起标掉）
+    expect(await screen.findByText('「#product」还有 1 条待处理')).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: '这个会话全部标为已处理' }))
+    await waitFor(() => expect(calls.find((c) => c.path === '/api/im/messages/batch')?.body).toEqual({ action: 'done', ids: [rows[0].id] }))
+    expect(rows[1].status).toBe('pending')
+
+    // 切到未归项目：地址跟着改，全选只选筛出来的
+    await userEvent.click(screen.getByRole('button', { name: '只看某个会话' }))
+    await userEvent.click(await screen.findByRole('option', { name: '全部会话' }))
+    await userEvent.click(screen.getByRole('button', { name: '按项目筛' }))
+    const none = await screen.findByRole('option', { name: /未归项目/ })
+    expect(none).toHaveTextContent('2 条')
+    await userEvent.click(none)
+    expect(router.state.location.search).toBe('?project=none')
+    expect(await screen.findByRole('listitem', { name: /乙没归/ })).toBeInTheDocument()
+    expect(screen.queryByRole('listitem', { name: /丙群默认/ })).toBeNull()
+    const bar = screen.getByRole('toolbar', { name: '批量处理' })
+    await userEvent.click(within(bar).getByRole('checkbox', { name: '全选已加载的消息' }))
+    await userEvent.click(within(bar).getByRole('button', { name: '忽略' }))
+    await waitFor(() => expect(calls.filter((c) => c.path === '/api/im/messages/batch').at(-1)?.body)
+      .toEqual({ action: 'ignore', ids: [rows[1].id, rows[3].id] }))
+    expect(rows[2].status).toBe('pending')
+
+    // 回到全部项目：地址里去掉
+    await userEvent.click(screen.getByRole('button', { name: '按项目筛' }))
+    await userEvent.click(await screen.findByRole('option', { name: '全部项目' }))
+    expect(router.state.location.search).toBe('')
+    expect(await screen.findByRole('listitem', { name: /丙群默认/ })).toBeInTheDocument()
+  })
+
   it('选了渠道：按群组分标签，带待处理数；选中群能设默认归属的项目', async () => {
     const rows = [
       msg({ text: '群里一', conversation_id: 'cv_1' }), msg({ text: '群里二', conversation_id: 'cv_1', status: 'done' }),
