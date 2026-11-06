@@ -1,10 +1,10 @@
 // SOP 插件的页面（SPEC-sop-1 到 7）：二级菜单 + 执行记录（默认）、待我处理、流程库、流程详情、运行页，发起执行抽屉。
-// 路由挂在 sop/* 下：/sop 执行记录（?flow= 按流程筛），/sop/waiting，/sop/library，/sop/flows/<id> 流程详情（?start=1 打开发起执行抽屉），/sop/runs/<id> 运行页。
+// 路由挂在 sop/* 下：/sop 执行记录（?flow= 按流程筛），/sop/waiting，/sop/library（?folder= 按文件夹筛，TSK-0482；none 是未分类），/sop/flows/<id> 流程详情（?start=1 打开发起执行抽屉），/sop/runs/<id> 运行页。
 // 编排页（SOP-04c）：/sop/new 新建，/sop/flows/<id>/edit 编辑，保存后回流程详情，「测试运行」再打开发起执行抽屉；流程详情「复制」出的新流程直接进它的编排页。打开运行页时把来处记在 location.state，「返回」回到那里
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { Navigate, useLocation, useNavigate, useParams, useSearchParams } from 'react-router'
 import {
-  QueryState, isApiError, useEventsLive, useSopFlows, useSopNodeTypes, useSopOpenRuns, useSopRun, useSopRunAction, useSopRuns, type SopFlow, type SopJson,
+  QueryState, isApiError, useEventsLive, useSopFlows, useSopFolders, useSopNodeTypes, useSopOpenRuns, useSopRun, useSopRunAction, useSopRuns, type SopFlow, type SopJson,
   type SopRunBrief,
 } from '../../core/data'
 import { useSopNodeViews } from '../../core/plugin'
@@ -60,6 +60,8 @@ export default function Page() {
   // 二级菜单「待我处理」的数字和今日同一份取数、同一个计数；阶段任务也列在待我处理页
   const waitingQ = useWaitingData({ refetchInterval: live ? false : POLL_MS })
   const types = useSopNodeTypes()
+  // 文件夹（TSK-0482）：没取到时流程库照常显示，只是没有文件夹那一行的内容
+  const folders = useSopFolders()
   // 插件节点的名字、颜色在注册表里，登记变了重画
   useSopNodeViews()
   const branching = useMemo(() => branchingOf(types.data), [types.data])
@@ -99,6 +101,8 @@ export default function Page() {
   const openFlow = (id: string) => go(`${root}/flows/${encodeURIComponent(id)}`)
   const runsOf = (flowId: string) => go(`${root}?flow=${encodeURIComponent(flowId)}`)
   const onNew = () => go(`${root}/new`)
+  // 在某个文件夹里新建：新流程默认放进这个文件夹（TSK-0482）
+  const onNewIn = (folderId: string | null) => go(`${root}/new${folderId ? `?folder=${encodeURIComponent(folderId)}` : ''}`)
   const select = (k: NavKey) => {
     if (k === 'runs') go(root)
     else if (k === 'waiting' || k === 'library') go(`${root}/${k}`)
@@ -146,7 +150,20 @@ export default function Page() {
       </Loaded>
     )
   } else if (route.kind === 'library') {
-    body = <Loaded q={both}>{(fl) => <Library flows={fl} stats={stats} needs={needs} trigger={trigger} onOpen={openFlow} onNew={onNew} now={now} />}</Loaded>
+    body = (
+      <Loaded q={both}>
+        {(fl) => (
+          <Library flows={fl} folders={folders.data ?? []} folder={params.get('folder') ?? ''} stats={stats} needs={needs} trigger={trigger}
+            onOpen={openFlow} onNew={onNewIn} now={now}
+            onFolder={(k) => {
+              const next = new URLSearchParams(params)
+              if (k) next.set('folder', k)
+              else next.delete('folder')
+              setParams(next, { replace: true })
+            }} />
+        )}
+      </Loaded>
+    )
   } else if (route.kind === 'flow') {
     const id = route.id
     body = (
@@ -179,7 +196,7 @@ export default function Page() {
     body = (
       <Loaded q={both}>
         {(fl, rs) => (
-          <EditPage key={id ?? 'new'} id={id} flows={fl} runs={rs}
+          <EditPage key={id ?? 'new'} id={id} flows={fl} runs={rs} folderId={id ? undefined : params.get('folder') || undefined}
             onCancel={() => (id ? openFlow(id) : go(root))}
             onSaved={(f, thenRun) => {
               navigate(`${root}/flows/${encodeURIComponent(f.id)}`, { replace: true })

@@ -118,6 +118,10 @@ type (
 	SOPNodeKind = schedule.SOPNodeKind
 	// SOPSave 是新建或修改一条流程。
 	SOPSave = schedule.SOPSave
+	// SOPFolders 是流程库的文件夹和未分类的流程数（TSK-0482）。
+	SOPFolders = schedule.SOPFolders
+	// SOPFolderBrief 是一个文件夹。
+	SOPFolderBrief = schedule.SOPFolderBrief
 )
 
 // ErrSOPNotFound：流程目录里找不到这条流程（errors.Is 判断）。
@@ -175,4 +179,9 @@ func (r *Registry) SaveSOP(ctx context.Context, q SOPSave) (*SOPFlowDoc, error) 
 // SOPNodeKinds 是建流程能用的节点。
 func (r *Registry) SOPNodeKinds(ctx context.Context) ([]SOPNodeKind, error) {
 	return catalogCall(r, func(c SOPCatalog) ([]SOPNodeKind, error) { return c.SOPNodeKinds(ctx) })
+}
+
+// ListSOPFolders 列流程库的文件夹和未分类的流程数（TSK-0482）。
+func (r *Registry) ListSOPFolders(ctx context.Context) (SOPFolders, error) {
+	return catalogCall(r, func(c SOPCatalog) (SOPFolders, error) { return c.ListSOPFolders(ctx) })
 }

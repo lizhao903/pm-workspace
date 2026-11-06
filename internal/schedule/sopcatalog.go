@@ -20,6 +20,21 @@ type SOPFlowBrief struct {
 	Version int
 	// IMTrigger 是触发方式为 im 时的过滤条件、执行顺序和拦截，一句给人看的话（TSK-0481）；不是 im 为空串
 	IMTrigger string
+	// Folder 是所在文件夹的名字（TSK-0482），没放进文件夹（未分类）为空串
+	Folder string
+}
+
+// SOPFolderBrief 是流程库的一个文件夹（TSK-0482）。
+type SOPFolderBrief struct {
+	ID    string
+	Name  string
+	Count int // 里面的流程数
+}
+
+// SOPFolders 是全部文件夹（按新建先后）和未分类的流程数。
+type SOPFolders struct {
+	Folders       []SOPFolderBrief
+	Uncategorized int
 }
 
 // SOPFlowDoc 是一条流程的完整定义，Fields、StepDefs 同 GET /api/sop/flows/{id} 的 fields、steps。
@@ -27,6 +42,8 @@ type SOPFlowDoc struct {
 	SOPFlowBrief
 	Fields   json.RawMessage
 	StepDefs json.RawMessage
+	// FolderCreated 是这次保存按 folder 的名字新建了文件夹（TSK-0482），只在 SaveSOP 的结果里有
+	FolderCreated bool
 }
 
 // SOPNodeKind 是建流程时能用的一种节点：内置的和在跑的插件登记的。
@@ -40,8 +57,9 @@ type SOPNodeKind struct {
 }
 
 // SOPSave 是新建或修改一条流程。ID 为空是新建；修改时只改 Body 里给了的字段。
-// Body 的口径同 POST / PATCH /api/sop/flows 的请求体（name、desc、trigger、fields、steps、version），
+// Body 的口径同 POST / PATCH /api/sop/flows 的请求体（name、desc、trigger、fields、steps、version、folder_id），
 // 校验也同那两个接口；Version 非 0 时按它做冲突检查。
+// Body 另认 folder（TSK-0482）：文件夹名字或 id，空串或「未分类」是放回未分类，名字对不上已有文件夹时新建一个；给了 folder 就不看 folder_id。
 type SOPSave struct {
 	ID   string
 	Body map[string]json.RawMessage
@@ -54,6 +72,8 @@ type SOPCatalog interface {
 	GetSOP(ctx context.Context, ref string) (*SOPFlowDoc, error)
 	SaveSOP(ctx context.Context, q SOPSave) (*SOPFlowDoc, error)
 	SOPNodeKinds(ctx context.Context) ([]SOPNodeKind, error)
+	// ListSOPFolders 列流程库的文件夹和未分类的流程数（TSK-0482）
+	ListSOPFolders(ctx context.Context) (SOPFolders, error)
 }
 
 // ErrSOPNotFound：流程不存在。

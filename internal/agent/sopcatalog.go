@@ -57,10 +57,11 @@ func (tb *Toolbox) sopCatalogDefs() []ToolDef {
 	return []ToolDef{
 		{
 			Name: toolListSOPs,
-			Description: "列出系统里已有的 SOP 流程（id、名称、触发方式、步骤数）。" +
-				"要发起、查看或修改某个流程前先用它拿到真实的流程 id，不要自己编 id。",
+			Description: "列出系统里已有的 SOP 流程（id、名称、触发方式、步骤数、所在文件夹），开头列出流程库的文件夹和各自的流程数。" +
+				"要发起、查看或修改某个流程前先用它拿到真实的流程 id，不要自己编 id。用户说「某个文件夹里的流程」时用 folder 只列那个文件夹。",
 			Parameters: obj(props{
-				"query": str("按名称或说明过滤，可留空列全部"),
+				"query":  str("按名称或说明过滤，可留空列全部"),
+				"folder": str("只列这个文件夹里的流程：文件夹名字或 id；写「未分类」列没放进文件夹的；留空列全部"),
 			}, nil),
 		},
 		{
@@ -122,6 +123,7 @@ func sopParams(update bool) props {
 			}},
 		"fields": map[string]any{"type": "array", "description": "发起时要填的输入字段，每项 {key,label,type:text|textarea|select}；可留空", "items": map[string]any{"type": "object"}},
 		"steps":  map[string]any{"type": "array", "description": "步骤数组，至少一步", "items": map[string]any{"type": "object"}},
+		"folder": str("放进流程库的哪个文件夹：文件夹名字（list_sops 开头列着已有的）；没有这个名字的文件夹会新建一个；写「未分类」放回未分类；不给就不放进文件夹（修改时不给就不动）"),
 	}
 	if update {
 		p["flow_id"] = str("要修改的流程 id（sop_ 开头），也接受流程名称")
@@ -140,6 +142,26 @@ func (tb *Toolbox) listSOPs(ctx context.Context, args map[string]any) ToolResult
 	if err != nil {
 		return failed(toolListSOPs, sopErrText(err))
 	}
+	// 下面按文件夹、关键字原地筛，先拷一份，不动目录回来的切片
+	list = slices.Clone(list)
+	folders, err := cat.ListSOPFolders(ctx)
+	if err != nil {
+		return failed(toolListSOPs, sopErrText(err))
+	}
+	head := sopFoldersText(folders)
+	// 按文件夹列（TSK-0482）：认文件夹名字（不分大小写）或 id，「未分类」是没放进文件夹的
+	where := ""
+	if ref := strings.TrimSpace(argStr(args, "folder")); ref != "" {
+		name, ok := matchSOPFolder(folders, ref)
+		if !ok {
+			return failed(toolListSOPs, fmt.Sprintf("没有叫「%s」的文件夹。%s", ref, head))
+		}
+		where = "文件夹「" + name + "」"
+		if name == sopUncategorized {
+			name, where = "", "「未分类」"
+		}
+		list = slices.DeleteFunc(list, func(f schedule.SOPFlowBrief) bool { return f.Folder != name })
+	}
 	q := strings.ToLower(strings.TrimSpace(argStr(args, "query")))
 	if q != "" {
 		list = slices.DeleteFunc(list, func(f schedule.SOPFlowBrief) bool {
@@ -147,15 +169,48 @@ func (tb *Toolbox) listSOPs(ctx context.Context, args map[string]any) ToolResult
 		})
 	}
 	if len(list) == 0 {
-		if q != "" {
-			return ToolResult{Summary: fmt.Sprintf("SOP 流程里没有「%s」", q), Content: "没有匹配的流程。要新建就用 create_sop。"}
+		switch {
+		case q != "":
+			return ToolResult{Summary: fmt.Sprintf("SOP 流程里没有「%s」", q), Content: "没有匹配的流程。要新建就用 create_sop。" + head}
+		case where != "":
+			return ToolResult{Summary: where + "里没有 SOP 流程", Content: where + "里还没有流程。" + head}
 		}
 		return ToolResult{Summary: "还没有 SOP 流程", Content: "系统里还没有任何 SOP 流程。要新建就用 create_sop。"}
 	}
-	return ToolResult{
-		Summary: fmt.Sprintf("查看了 %d 个 SOP 流程", len(list)),
-		Content: sopListText(list),
+	summary := fmt.Sprintf("查看了 %d 个 SOP 流程", len(list))
+	if where != "" {
+		summary = fmt.Sprintf("查看了%s里的 %d 个 SOP 流程", where, len(list))
 	}
+	return ToolResult{Summary: summary, Content: head + sopListText(list)}
+}
+
+// sopUncategorized 是没放进文件夹的流程的叫法，同流程库界面。
+const sopUncategorized = "未分类"
+
+// sopFoldersText 是流程库的文件夹一行，给模型看；一个文件夹都没有时为空串。
+func sopFoldersText(f schedule.SOPFolders) string {
+	if len(f.Folders) == 0 {
+		return ""
+	}
+	parts := make([]string, 0, len(f.Folders)+1)
+	for _, x := range f.Folders {
+		parts = append(parts, fmt.Sprintf("%s（%d 个）", x.Name, x.Count))
+	}
+	parts = append(parts, fmt.Sprintf("%s（%d 个）", sopUncategorized, f.Uncategorized))
+	return "文件夹：" + strings.Join(parts, "、") + "\n"
+}
+
+// matchSOPFolder 按名字（不分大小写）或 id 认文件夹，回它的名字；「未分类」回 sopUncategorized。
+func matchSOPFolder(f schedule.SOPFolders, ref string) (string, bool) {
+	if ref == sopUncategorized {
+		return sopUncategorized, true
+	}
+	for _, x := range f.Folders {
+		if x.ID == ref || strings.EqualFold(x.Name, ref) {
+			return x.Name, true
+		}
+	}
+	return "", false
 }
 
 // sopListText 是给模型看的流程清单，一行一条，超过上限截断并说明。
@@ -167,7 +222,7 @@ func sopListText(list []schedule.SOPFlowBrief) string {
 			fmt.Fprintf(&b, "……还有 %d 个没列出，用 query 缩小范围\n", len(list)-maxSOPList)
 			break
 		}
-		fmt.Fprintf(&b, "- flow_id=%s 名称=%s 触发=%s 步骤=%d 版本=%d", f.ID, f.Name, dash(f.Trigger), f.Steps, f.Version)
+		fmt.Fprintf(&b, "- flow_id=%s 名称=%s 文件夹=%s 触发=%s 步骤=%d 版本=%d", f.ID, f.Name, folderOr(f.Folder), dash(f.Trigger), f.Steps, f.Version)
 		if f.IMTrigger != "" {
 			fmt.Fprintf(&b, " IM 条件=%s", f.IMTrigger)
 		}
@@ -196,7 +251,7 @@ func (tb *Toolbox) getSOP(ctx context.Context, args map[string]any) ToolResult {
 		return failed(toolGetSOP, sopErrText(err))
 	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "flow_id=%s 名称=%s 触发=%s 版本=%d\n", f.ID, f.Name, dash(f.Trigger), f.Version)
+	fmt.Fprintf(&b, "flow_id=%s 名称=%s 文件夹=%s 触发=%s 版本=%d\n", f.ID, f.Name, folderOr(f.Folder), dash(f.Trigger), f.Version)
 	if f.IMTrigger != "" {
 		fmt.Fprintf(&b, "IM 触发条件=%s\n", f.IMTrigger)
 	}
@@ -207,6 +262,14 @@ func (tb *Toolbox) getSOP(ctx context.Context, args map[string]any) ToolResult {
 	fmt.Fprintf(&b, "steps=%s\n", clip(string(f.StepDefs), maxBodyRunes))
 	b.WriteString(nodeKindsText(ctx, cat))
 	return ToolResult{Summary: fmt.Sprintf("读取了 SOP「%s」", f.Name), Content: b.String()}
+}
+
+// folderOr 是给模型看的文件夹名，没放进文件夹的写「未分类」。
+func folderOr(name string) string {
+	if name == "" {
+		return sopUncategorized
+	}
+	return name
 }
 
 // nodeKindsText 是能用的节点类型，get_sop 和保存没存上时附上。
@@ -266,7 +329,7 @@ func (tb *Toolbox) saveSOP(ctx context.Context, tool string, args map[string]any
 	} else if strings.TrimSpace(argStr(args, "name")) == "" {
 		return failed(tool, "name 是必填的")
 	}
-	for _, k := range []string{"name", "desc"} {
+	for _, k := range []string{"name", "desc", "folder"} {
 		if v, ok := argStrOK(args, k); ok {
 			put(k, v)
 		}
@@ -316,7 +379,10 @@ func (tb *Toolbox) saveSOP(ctx context.Context, tool string, args map[string]any
 	if update {
 		verb = "修改"
 	}
-	content := fmt.Sprintf("已%s SOP「%s」：flow_id=%s 触发=%s 步骤=%d 版本=%d。", verb, f.Name, f.ID, dash(f.Trigger), f.Steps, f.Version)
+	content := fmt.Sprintf("已%s SOP「%s」：flow_id=%s 文件夹=%s 触发=%s 步骤=%d 版本=%d。", verb, f.Name, f.ID, folderOr(f.Folder), dash(f.Trigger), f.Steps, f.Version)
+	if f.FolderCreated {
+		content += "新建了文件夹「" + f.Folder + "」。"
+	}
 	if f.IMTrigger != "" {
 		content += "IM 触发条件：" + f.IMTrigger + "。"
 	}

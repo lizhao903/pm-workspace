@@ -59,6 +59,7 @@ func (p *Plugin) Register(r plugin.Registrar) error {
 		active = func(ctx context.Context, id string) (int, error) { return countActive(ctx, c.Store(), id) }
 	}
 	f := &flows{c: c, activeRuns: active}
+	fd := &folders{c: c}
 	// 每次启用一个新引擎，停用时后台任务取消、引擎跟着停
 	e := newEngine(c)
 	e.hook = p.stepHook
@@ -76,6 +77,12 @@ func (p *Plugin) Register(r plugin.Registrar) error {
 		m.HandleFunc("PATCH /api/sop/flows/{id}", f.update)
 		m.HandleFunc("DELETE /api/sop/flows/{id}", f.remove)
 		m.HandleFunc("GET /api/sop/node-types", f.nodeTypes)
+		// 流程库的文件夹（TSK-0482，folders.go）
+		m.HandleFunc("GET /api/sop/folders", fd.list)
+		m.HandleFunc("POST /api/sop/folders", fd.add)
+		m.HandleFunc("PATCH /api/sop/folders/{id}", fd.rename)
+		m.HandleFunc("DELETE /api/sop/folders/{id}", fd.remove)
+		m.HandleFunc("POST /api/sop/flows/move", fd.move)
 		m.HandleFunc("POST /api/sop/flows/{id}/runs", rn.start)
 		// 批量发起（IM 页批量分诊，batch.go）
 		m.HandleFunc("POST /api/sop/flows/{id}/runs/batch", rn.startBatch)
@@ -94,6 +101,8 @@ func (p *Plugin) Register(r plugin.Registrar) error {
 	r.Job(plugin.Job{Name: "engine", Run: e.job})
 	// 旧触发方式 daily、weekly 转成随流程管理的定时任务（TSK-0463，flowsched.go），幂等
 	r.Job(plugin.Job{Name: "legacy_trigger", Every: legacyEvery, Run: legacyJob})
+	// 已有流程按名字前缀「xxx · 」归进文件夹，只做一次（TSK-0482，folders.go）
+	r.Job(plugin.Job{Name: "folder_seed", Run: folderSeedJob})
 	// 别的插件登记的节点挂起后经内核 SOP().Resume 唤醒，交给这个引擎（SOP-03a）
 	r.SOPEngine(e)
 	// 定时任务的 sop 动作和 Agent 的 run_sop 经内核钩子发起执行（SOP-01d，launch.go）

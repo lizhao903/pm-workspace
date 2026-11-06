@@ -68,9 +68,10 @@ var Registry = []Entry{
 	{"psy", "protoSync", "projects_proto_syncs", ""},        // 项目插件的原型同步记录（AUTO-11）
 	{"ch", "projectChat", "", "projectChat"},
 	// 任务与自动化
-	{"sop", "sop", "sop_flows", "sop"},           // SOP 插件的表（SOP-01a）
-	{"spr", "sopRun", "sop_runs", ""},            // SOP 插件的执行（SOP-01b）；run 已给开发执行，原型的 sopRun 还用 run
-	{"inc", "incident", "incidents", "incident"}, // 内核的表（INC-01a，0043），运行异常
+	{"sop", "sop", "sop_flows", "sop"},               // SOP 插件的表（SOP-01a）
+	{"spr", "sopRun", "sop_runs", ""},                // SOP 插件的执行（SOP-01b）；run 已给开发执行，原型的 sopRun 还用 run
+	{"sfd", "sopFolder", "sop_folders", "sopFolder"}, // SOP 插件的流程库文件夹（TSK-0482）
+	{"inc", "incident", "incidents", "incident"},     // 内核的表（INC-01a，0043），运行异常
 	// Agent 与模型
 	{"ag", "agent", "agents", "agent"},               // 内核的表（AG-01b1，0032）
 	{"atc", "agentToolCall", "agent_tool_calls", ""}, // 内核的表（AG-02a，0035），要人确认的工具调用

@@ -735,17 +735,20 @@ type SOPStarter interface {
 - 登记方的 `StartSOP` 自己负责找流程、补默认值和必填校验，错误文字给人看（定时任务记进执行记录、Agent 回给模型）；panic 转成「发起 SOP 出错」。SOP 编排插件的实现同 `POST /api/sop/flows/{id}/runs`，不逐步确认，人工检查点照常停下。
 - `ObjectID`（SOP-06）：这次执行关联的工作对象。Agent 的 `run_sop` 在挂着对象的会话（任务分配给 Agent 触发的、在任务详情里对话的）里调用时带上会话的 `object_id`，定时任务不带。SOP 编排插件把它记进 `sop_runs.object_id`，对象已经不在了只记日志、照常发起不关联。
 - 来源（SOP-06）：SOP 编排插件把 `Source` 记进 `sop_runs.source`，只认 `schedule`、`agent`、`plugin`（内核运行句柄 `Runs().StartSOP` 发起的），别的记空串；`SourceID`、`SourceName` 记进 `source_ref`、`source_name`。界面发起记 `manual`、IM 触发记 `im`、子流程记 `subflow`，这三种不经钩子。
-- 流程目录（TSK-0480，`internal/schedule/sopcatalog.go`、`internal/plugin/soplaunch.go`）：登记的发起入口可以另外实现 `SOPCatalog`（别名 `schedule.SOPCatalog`），内核的 `Registry.ListSOPs`、`GetSOP`、`SaveSOP`、`SOPNodeKinds` 转给它，Agent 的内置工具 `list_sops`、`get_sop`、`create_sop`、`update_sop` 走这里。没实现或没有在跑的登记方时回 `ErrNoSOPStarter`，插件 panic 转成「读写 SOP 流程出错」。
+- 流程目录（TSK-0480，`internal/schedule/sopcatalog.go`、`internal/plugin/soplaunch.go`）：登记的发起入口可以另外实现 `SOPCatalog`（别名 `schedule.SOPCatalog`），内核的 `Registry.ListSOPs`、`GetSOP`、`SaveSOP`、`SOPNodeKinds`、`ListSOPFolders`（TSK-0482）转给它，Agent 的内置工具 `list_sops`、`get_sop`、`create_sop`、`update_sop` 走这里。没实现或没有在跑的登记方时回 `ErrNoSOPStarter`，插件 panic 转成「读写 SOP 流程出错」。
 
   ```go
   type SOPCatalog interface {
-  	ListSOPs(ctx) ([]SOPFlowBrief, error)              // {ID, Name, Desc, Trigger, Steps（步骤数）, Version, IMTrigger}，按新建时间
+  	ListSOPs(ctx) ([]SOPFlowBrief, error)              // {ID, Name, Desc, Trigger, Steps（步骤数）, Version, IMTrigger, Folder}，按新建时间
   	GetSOP(ctx, ref string) (*SOPFlowDoc, error)       // ref 认 id 和名称；找不到 errors.Is(err, ErrSOPNotFound)
   	SaveSOP(ctx, q SOPSave) (*SOPFlowDoc, error)       // q.ID 为空新建，否则修改；q.Body 同 POST / PATCH /api/sop/flows 的请求体
   	SOPNodeKinds(ctx) ([]SOPNodeKind, error)           // {Kind, Label, Group, Branching, Cases, Required}，内置的和在跑的插件登记的
+  	ListSOPFolders(ctx) (SOPFolders, error)            // TSK-0482：{Folders: [{ID, Name, Count}], Uncategorized}，按新建先后
   }
-  type SOPFlowDoc struct { SOPFlowBrief; Fields, StepDefs json.RawMessage }
+  type SOPFlowDoc struct { SOPFlowBrief; Fields, StepDefs json.RawMessage; FolderCreated bool }
   ```
+
+  `Folder`（TSK-0482）是流程所在文件夹的名字，未分类为空串。`SaveSOP` 的 body 另认 `folder`：文件夹名字（不分大小写）或 `sfd_` id，空串或「未分类」放回未分类，对不上时按这个名字新建文件夹（流程没存上时删掉这个还空着的新文件夹），`FolderCreated` 为真；给了 `folder` 就不看 `folder_id`。新实现 `SOPCatalog` 的要补 `ListSOPFolders`（接口加了方法）。
 
   `IMTrigger`（TSK-0481）是触发方式为 `im` 时的过滤条件、执行顺序和拦截，一句给人看的话（如「会话 ai-octok-platform（slack C0BNCBRL5C0，cv_…）；排除 @我；第 1 个判断；命中后不再触发后面的 IM 流程」），不是 `im` 为空串；`SaveSOP` 的 body 可带 `im`，同 `POST` / `PATCH` 的 `im`。
 
@@ -1485,7 +1488,7 @@ var ErrNoSOPFlowInstaller error
 
 - 谁能调：任何插件，只能写入、撤下 id 以 `sop_<本插件 id>_` 开头的流程（前缀不对直接回错误，不转给引擎）。用户复制出来的副本是新 id，不归插件。
 - 权限：不要权限。
-- SOP 插件没在跑、或它的引擎没实现 `SOPFlowInstaller` 回 `ErrNoSOPFlowInstaller`，调用方下次再试。写入时已有同 id 的不动、回 `false`；撤下只删还是第 1 版、没有进行中的执行、没被定时任务引用的，别的回 `false` 和原因（不算出错）。
+- SOP 插件没在跑、或它的引擎没实现 `SOPFlowInstaller` 回 `ErrNoSOPFlowInstaller`，调用方下次再试。写入时已有同 id 的不动、回 `false`（用户放的文件夹也不动，TSK-0482）；撤下只删还是第 1 版、没放进文件夹、没有进行中的执行、没被定时任务引用的，别的回 `false` 和原因（不算出错；放进了文件夹的原因是「流程放进了文件夹，留给用户」）。写进来的流程在「未分类」。
 - 插件自己记「写过没有」（视频插件用 `video_sop_templates` 表），用户删掉内置流程后不会被再写回来。
 
 例子（`internal/plugins/video/sopnodes.go`）：
@@ -2112,6 +2115,8 @@ stateDiagram-v2
 |---|---|---|
 | 1.0.0 | 2026-10-28 | 初版（CORE-01a） |
 | 1.1.0 | 2026-10-29 | `Core` 加 `Runs()`：发起 Agent、SOP 运行和交给 Claude Code，跑完给发起的插件投 `run.finished`（VID-03a） |
+
+补记（不改版本号，2026-11-06，TSK-0482）：流程目录 `SOPCatalog`（2.7）加 `ListSOPFolders`，类型 `SOPFolders`、`SOPFolderBrief`；`SOPFlowBrief` 加 `Folder`，`SOPFlowDoc` 加 `FolderCreated`，`SaveSOP` 的 body 认 `folder`。接口加方法，现有唯一实现是 SOP 编排插件（实际清单 0.15.0，迁移加 `0009_folders.sql`，表 `sop_folders`），没有第三方实现。`RemoveFlow` 不再删用户放进了文件夹的内置流程。
 
 补记（不改版本号，2026-11-05，TSK-0455）：`ConnectorReader` 加 `SaveSession(ctx, id, secrets, account)`（2.13.27），插件把自己拿到的登录态（`_` 开头的键）写进本插件登记的实例的保险箱条目，记只有键名的审计。视频插件实际清单升到 0.8.0：`provides.connectors` 加 `bilibili_web`（B 站网页端，扫码登录，非官方接口），迁移加 `0013_bilibili_web.sql`（表 `video_bili_profiles`、`video_bili_snapshots`、`video_bili_trends`、`video_bili_sessions`、`video_bili_messages`），后台任务加 `bili_inbox`（每 60 秒拉私信）、`bili_daily`（每小时看一遍当天快照），通知 kind 加 `video.bili_dm`；id 前缀登记 `bpm`（`video_bili_messages`）。权限不变：网页端域名都在 `network:media-platforms` 已有的 `*.bilibili.com` 里。只增不改。
 

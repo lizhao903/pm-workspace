@@ -3,9 +3,9 @@
 // 上次运行：这个流程最近一次走到这一步（不是 pending）的执行，详情按需取
 import { useEffect, useMemo, useState, type MouseEvent, type ReactNode } from 'react'
 import { useSopRun, type SopField, type SopRunBrief, type SopStepDef } from '../../core/data'
-import { Button, Checkbox, IconButton, IconClose, Input, Pill, Select, Textarea, cls } from '../../core/ui'
+import { Button, Checkbox, IconButton, IconClose, Input, Pill, SearchSelect, Select, Textarea, cls } from '../../core/ui'
 import { changeKind, childrenOf, isBranching, isRequired, LOOPBACK, START, type Catalog, type Draft, HIDDEN_KINDS, fieldTypePatch, upstreamSteps } from './edit'
-import { stepLook, timeAgo } from './model'
+import { UNCATEGORIZED, stepLook, timeAgo } from './model'
 import { nodeInfo, useLiveOptions, type ConfigField, type FieldCtx } from './nodes'
 import { KindIcon } from './parts'
 import { DataView } from './RunView'
@@ -152,6 +152,14 @@ export function NodePanel({ draft, nodeKey, catalog, ctx, tried, triggers, flowI
         <Head kind="start" title={<span className="sop-np-name-static">开始</span>} onClose={onClose} />
         <div className="sop-np-body form">
           <div className="sop-muted">执行时要填的内容，第一批节点拿它当输入。</div>
+          {/* 文件夹（TSK-0482）：流程库里按它分类，保存时一起存；文件夹在流程库里建 */}
+          <div className="field">
+            <span className="field-label">文件夹</span>
+            <SearchSelect variant="field" value={draft.folder_id ?? ''} placeholder={UNCATEGORIZED} noneLabel={UNCATEGORIZED} searchPlaceholder="搜文件夹"
+              aria-label="文件夹" emptyText="还没有文件夹，在流程库里新建" missingLabel={() => '文件夹已删除，换一个'}
+              options={(ctx.folders ?? []).map((f) => ({ value: f.id, label: f.name }))}
+              onChange={(v) => onPatchDraft({ folder_id: v || null })} />
+          </div>
           <label className="field">
             <span className="field-label">触发方式</span>
             <Select value={draft.trigger} options={trigOpts}

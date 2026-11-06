@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { PageTitle } from './topbar'
 import { DataView, triggerLabel } from './sop'
 import { NODE_GROUPS, NODE_TYPES, KindIcon, KindTag, claudeTimeout, defaultConfig, evalRule, isBranching, loopRounds, missingFields, typeOf, type ConfigField, type FieldCtx } from './nodetypes'
-import { IM_RELEVANCES, IM_REL_LABEL, SOPS, STEP_KIND, depsOf, emptyIM, imFilterText, imSops, stepLook, isManualDecide, ranks, upstreamOf, type Sop, type SopField, type SopIM, type SopRun, type SopStepDef, type StepKind } from './sopflow'
+import { IM_RELEVANCES, IM_REL_LABEL, SOPS, SOP_FOLDERS, STEP_KIND, UNCATEGORIZED, folderOf, depsOf, emptyIM, imFilterText, imSops, stepLook, isManualDecide, ranks, upstreamOf, type Sop, type SopField, type SopIM, type SopRun, type SopStepDef, type StepKind } from './sopflow'
 import { SearchSelect } from './searchselect'
 import { IM_CONVERSATIONS } from './data'
 import { cls, timeAgo } from './ui'
@@ -559,6 +559,13 @@ function NodePanel({ draft, nodeKey, runs, sopList, tried, onChange, onPatchSop,
         {head('start', <span className="np-name-static">开始</span>)}
         <div className="np-body form">
           <div className="list-sub">执行时要填的内容，第一批节点拿它当输入。</div>
+          {/* 文件夹（TSK-0482，SPEC-sop-9.32）：流程库里按它分类，保存时一起存；文件夹在流程库里建 */}
+          <div className="field">
+            <span className="field-label">文件夹</span>
+            <SearchSelect variant="field" value={folderOf(draft) ?? ''} noneLabel={UNCATEGORIZED} placeholder={UNCATEGORIZED} searchPlaceholder="搜文件夹"
+              aria-label="文件夹" emptyText="还没有文件夹，在流程库里新建" options={SOP_FOLDERS.map((f) => ({ value: f.id, label: f.name }))}
+              onChange={(v) => onPatchSop({ folder_id: v || null })} />
+          </div>
           <label className="field">
             <span className="field-label">触发方式</span>
             <select value={draft.trigger} onChange={(e) => onPatchSop(e.target.value === 'schedule' && !draft.sched ? { trigger: e.target.value, sched: defaultSched() } : e.target.value === 'im' && !draft.im ? { trigger: e.target.value, im: emptyIM() } : { trigger: e.target.value })}>
@@ -811,9 +818,10 @@ function StartIM({ sop, onChange }: { sop: Sop; onChange: (im: SopIM) => void })
 
 /* ---------- 编辑器 ---------- */
 
-export function newSopDraft(): Sop {
+/** folderId：在流程库的某个文件夹里点的新建，新流程默认放进去（TSK-0482） */
+export function newSopDraft(folderId: string | null = null): Sop {
   return {
-    id: newId('sop'), name: '', desc: '', trigger: 'manual',
+    id: newId('sop'), name: '', desc: '', trigger: 'manual', folder_id: folderId,
     fields: [{ key: 'input', label: '输入内容', type: 'textarea', required: true, default: '' }],
     steps: [],
   }

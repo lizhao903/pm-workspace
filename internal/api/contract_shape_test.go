@@ -170,7 +170,8 @@ var contractSpecs = map[string]contractSpec{
 	"OutboxItem":              {v: im.OutboxItem{}},
 	"IM 消息插件 im / 从 Slack 补联系人邮箱#table1": {v: im.EmailBackfillResult{}},
 
-	"SopFlow": {v: sop.Flow{}},
+	"SopFlow":   {v: sop.Flow{}},
+	"SopFolder": {v: sop.Folder{}},
 	// IM 触发的过滤条件、执行顺序与拦截（TSK-0481）：json 示例和字段表
 	"SopIMTrigger": {v: sop.IMTrigger{}},
 	"SOP 编排插件 sop / IM 触发#table1": {v: sop.IMTrigger{}},

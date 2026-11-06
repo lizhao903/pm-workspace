@@ -21,6 +21,8 @@ type fakeCatalog struct {
 	flows []schedule.SOPFlowBrief
 	saved []schedule.SOPSave
 	err   error
+	// folders 是 ListSOPFolders 回的（TSK-0482）
+	folders schedule.SOPFolders
 }
 
 func (f *fakeCatalog) ListSOPs(context.Context) ([]schedule.SOPFlowBrief, error) { return f.flows, nil }
@@ -43,6 +45,10 @@ func (f *fakeCatalog) SaveSOP(_ context.Context, q schedule.SOPSave) (*schedule.
 	_ = json.Unmarshal(q.Body["name"], &name)
 	_ = json.Unmarshal(q.Body["trigger"], &trig)
 	return &schedule.SOPFlowDoc{SOPFlowBrief: schedule.SOPFlowBrief{ID: "sop_new", Name: name, Trigger: trig, Steps: 2, Version: 1}}, nil
+}
+
+func (f *fakeCatalog) ListSOPFolders(context.Context) (schedule.SOPFolders, error) {
+	return f.folders, nil
 }
 
 func (f *fakeCatalog) SOPNodeKinds(context.Context) ([]schedule.SOPNodeKind, error) {
@@ -342,5 +348,49 @@ func TestSOPTriggerIMKeys(t *testing.T) {
 	got, _, _ = sopTrigger(map[string]any{"type": "im"})
 	if len(got.IM) != 0 {
 		t.Fatalf("没给条件时 im 应为空：%v", got.IM)
+	}
+}
+
+// TSK-0482：list_sops 开头列文件夹、每行带文件夹，folder 只列那个文件夹（「未分类」列没放进去的）；
+// create_sop / update_sop 的 folder 原样交给流程目录，结果写明放进了哪个文件夹、新建了文件夹。
+func TestSOPCatalogFolders(t *testing.T) {
+	chat := &grantChat{script: []func(func(Event)){
+		grantCall(toolListSOPs, `{"folder":"产品经理"}`),
+		grantCall(toolListSOPs, `{"folder":"未分类"}`),
+		grantCall(toolListSOPs, `{"folder":"没有的"}`),
+		grantCall(toolCreateSOP, `{"name":"选题","folder":"视频博主","steps":[{"key":"a","kind":"auto"}]}`),
+		grantSay("好了。"),
+	}}
+	r, cat, ctx := sopRunner(t, chat, map[string]string{ReadSOPAbility: store.GrantAuto, WriteSOPAbility: store.GrantAuto})
+	cat.flows = []schedule.SOPFlowBrief{
+		{ID: "sop_a", Name: "产品经理 · 写周报", Trigger: "manual", Steps: 1, Version: 1, Folder: "产品经理"},
+		{ID: "sop_b", Name: "消息分诊", Trigger: "im", Steps: 2, Version: 1},
+	}
+	cat.folders = schedule.SOPFolders{Folders: []schedule.SOPFolderBrief{{ID: "sfd_pm", Name: "产品经理", Count: 1}}, Uncategorized: 1}
+	var evs []StreamEvent
+	if _, err := r.Run(ctx, "看看产品经理文件夹", func(ev StreamEvent) { evs = append(evs, ev) }); err != nil {
+		t.Fatal(err)
+	}
+	got := lastToolContent(chat.reqs[1])
+	if !strings.Contains(got, "文件夹：产品经理（1 个）、未分类（1 个）") || !strings.Contains(got, "flow_id=sop_a 名称=产品经理 · 写周报 文件夹=产品经理") || strings.Contains(got, "sop_b") {
+		t.Errorf("按文件夹列 = %q", got)
+	}
+	if got := lastToolContent(chat.reqs[2]); !strings.Contains(got, "flow_id=sop_b 名称=消息分诊 文件夹=未分类") || strings.Contains(got, "sop_a") {
+		t.Errorf("未分类 = %q", got)
+	}
+	if got := lastToolContent(chat.reqs[3]); !strings.Contains(got, "没有叫「没有的」的文件夹") || !strings.Contains(got, "产品经理（1 个）") {
+		t.Errorf("文件夹不存在 = %q", got)
+	}
+	if len(cat.saved) != 1 || string(cat.saved[0].Body["folder"]) != `"视频博主"` {
+		t.Fatalf("保存请求 = %+v", cat.saved)
+	}
+	summaries := []string{}
+	for _, ev := range evs {
+		if ev.Type == "tool_result" {
+			summaries = append(summaries, ev.Summary)
+		}
+	}
+	if !slices.Contains(summaries, "查看了文件夹「产品经理」里的 1 个 SOP 流程") || !slices.Contains(summaries, "查看了「未分类」里的 1 个 SOP 流程") {
+		t.Errorf("summary = %q", summaries)
 	}
 }

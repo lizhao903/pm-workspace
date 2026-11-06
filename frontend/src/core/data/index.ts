@@ -170,6 +170,9 @@ export { isSopProviderWait } from './sop'
 export type { SopProviderWait } from './sop'
 // 没走完和待我处理的执行，不受最近 500 条限制（TSK-0486）
 export { fetchSopOpenRuns, sopOpenRunsKey, useSopOpenRuns } from './sop'
+// 流程库的文件夹（TSK-0482）
+export { SOP_FOLDER_NAME_MAX, SOP_FOLDER_RESERVED, useDeleteSopFolder, useMoveSopFlows, useSaveSopFolder, useSopFolders } from './sop'
+export type { SopFolder } from './sop'
 // 任务阶段全集和阶段变化历史（AUTO-05、AUTO-12）
 export { TASK_STAGES, WAITING_STAGES, taskStageLabel, stageHistoryApi, useStageHistory } from './stageHistory'
 export type { TaskStage, StageChange } from './stageHistory'

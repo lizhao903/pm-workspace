@@ -70,15 +70,77 @@ func (s *starter) ListSOPs(ctx context.Context) ([]plugin.SOPFlowBrief, error) {
 		return nil, err
 	}
 	defer func() { _ = rows.Close() }()
-	out := []plugin.SOPFlowBrief{}
+	var list []Flow
 	for rows.Next() {
 		f, err := scanFlow(rows)
 		if err != nil {
 			return nil, err
 		}
-		out = append(out, s.brief(ctx, f))
+		list = append(list, f)
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	_ = rows.Close()
+	names, err := folderNames(ctx, s.c)
+	if err != nil {
+		return nil, err
+	}
+	out := []plugin.SOPFlowBrief{}
+	for _, f := range list {
+		out = append(out, s.brief(ctx, f, names))
+	}
+	return out, nil
+}
+
+// ListSOPFolders 列文件夹和未分类的流程数（TSK-0482），同 GET /api/sop/folders。
+func (s *starter) ListSOPFolders(ctx context.Context) (plugin.SOPFolders, error) {
+	list, none, err := listFolders(ctx, s.c)
+	if err != nil {
+		return plugin.SOPFolders{}, err
+	}
+	out := plugin.SOPFolders{Folders: []plugin.SOPFolderBrief{}, Uncategorized: none}
+	for _, f := range list {
+		out.Folders = append(out.Folders, plugin.SOPFolderBrief{ID: f.ID, Name: f.Name, Count: f.Count})
+	}
+	return out, nil
+}
+
+// folderNames 是文件夹 id → 名字。
+func folderNames(ctx context.Context, c plugin.Core) (map[string]string, error) {
+	list, _, err := listFolders(ctx, c)
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[string]string, len(list))
+	for _, f := range list {
+		out[f.ID] = f.Name
+	}
+	return out, nil
+}
+
+// resolveFolder 认 Agent 给的 folder：空串、「未分类」是未分类；文件夹 id 或名字（不分大小写）对上已有的就用它；
+// 都对不上时 create 为真，name 是要新建的文件夹名（已校验），由调用方在流程校验通过后再建。
+func resolveFolder(ctx context.Context, c plugin.Core, ref string) (id *string, name string, create bool, err error) {
+	ref = strings.TrimSpace(ref)
+	if ref == "" || ref == uncategorized {
+		return nil, "", false, nil
+	}
+	if f, err := getFolder(ctx, c, ref); err == nil {
+		return &f.ID, f.Name, false, nil
+	} else if !errors.Is(err, errNotFound) {
+		return nil, "", false, err
+	}
+	if f, err := folderByName(ctx, c, ref); err == nil {
+		return &f.ID, f.Name, false, nil
+	} else if !errors.Is(err, errNotFound) {
+		return nil, "", false, err
+	}
+	name, err = checkFolderName(ref)
+	if err != nil {
+		return nil, "", false, err
+	}
+	return nil, name, true, nil
 }
 
 func (s *starter) GetSOP(ctx context.Context, ref string) (*plugin.SOPFlowDoc, error) {
@@ -107,6 +169,28 @@ func (s *starter) SaveSOP(ctx context.Context, q plugin.SOPSave) (*plugin.SOPFlo
 	if v, ok := raw["steps"]; ok {
 		raw["steps"] = fillStepDefaults(v, kindsOf(s.c))
 	}
+	// folder 是文件夹名字或 id（TSK-0482）：对不上已有的就新建；新建的文件夹在流程存不上时删掉，不留空文件夹
+	var created *Folder
+	if v, ok := raw["folder"]; ok {
+		delete(raw, "folder")
+		var ref string
+		if err := json.Unmarshal(v, &ref); err != nil && string(v) != "null" {
+			return nil, errors.New("folder 必须是文件夹名字")
+		}
+		fid, name, create, err := resolveFolder(ctx, s.c, ref)
+		if err != nil {
+			return nil, plainErr(err)
+		}
+		if create {
+			fd, err := createFolder(ctx, s.c, name)
+			if err != nil {
+				return nil, plainErr(err)
+			}
+			created, fid = &fd, &fd.ID
+		}
+		b, _ := json.Marshal(fid)
+		raw["folder_id"] = b
+	}
 	var f Flow
 	var err error
 	if id := strings.TrimSpace(q.ID); id == "" {
@@ -114,21 +198,37 @@ func (s *starter) SaveSOP(ctx context.Context, q plugin.SOPSave) (*plugin.SOPFlo
 	} else {
 		cur, ferr := findFlow(ctx, s.c, id)
 		if errors.Is(ferr, errNotFound) {
-			return nil, fmt.Errorf("流程 %s 不存在：%w", id, plugin.ErrSOPNotFound)
+			ferr = fmt.Errorf("流程 %s 不存在：%w", id, plugin.ErrSOPNotFound)
+		} else if ferr != nil {
+			ferr = plainErr(ferr)
 		}
 		if ferr != nil {
-			return nil, plainErr(ferr)
+			dropEmptyFolder(ctx, s.c, created)
+			return nil, ferr
 		}
 		f, err = h.patch(ctx, cur.ID, raw)
 	}
 	if err != nil {
+		dropEmptyFolder(ctx, s.c, created)
 		var ce *checkError
 		if errors.As(err, &ce) {
 			return nil, errors.New(issuesText(ce.issues))
 		}
 		return nil, plainErr(err)
 	}
-	return s.doc(ctx, f), nil
+	doc := s.doc(ctx, f)
+	doc.FolderCreated = created != nil
+	return doc, nil
+}
+
+// dropEmptyFolder 删掉 SaveSOP 为这次保存新建、流程却没存上的文件夹（还空着才删）。
+func dropEmptyFolder(ctx context.Context, c plugin.Core, f *Folder) {
+	if f == nil {
+		return
+	}
+	if _, err := c.Store().Exec(ctx, `DELETE FROM sop_folders WHERE id = ? AND NOT EXISTS (SELECT 1 FROM sop_flows WHERE folder_id = ?)`, f.ID, f.ID); err != nil {
+		c.Log().Warn("sop folder cleanup failed", "folder", f.ID, "err", err)
+	}
 }
 
 func (s *starter) SOPNodeKinds(_ context.Context) ([]plugin.SOPNodeKind, error) {
@@ -195,13 +295,22 @@ func issuesText(issues []Issue) string {
 	return "流程没存上：" + strings.Join(ts, "；")
 }
 
-func (s *starter) brief(ctx context.Context, f Flow) plugin.SOPFlowBrief {
+// brief 是目录里的一项；names 是文件夹 id → 名字，nil 时现查这一条的文件夹。
+func (s *starter) brief(ctx context.Context, f Flow, names map[string]string) plugin.SOPFlowBrief {
 	var steps []json.RawMessage
 	_ = json.Unmarshal(f.Steps, &steps)
-	return plugin.SOPFlowBrief{ID: f.ID, Name: f.Name, Desc: f.Desc, Trigger: f.Trigger, Steps: len(steps), Version: f.Version,
+	b := plugin.SOPFlowBrief{ID: f.ID, Name: f.Name, Desc: f.Desc, Trigger: f.Trigger, Steps: len(steps), Version: f.Version,
 		IMTrigger: imDescribe(ctx, s.c, f)}
+	if f.FolderID != nil {
+		if names != nil {
+			b.Folder = names[*f.FolderID]
+		} else if fd, err := getFolder(ctx, s.c, *f.FolderID); err == nil {
+			b.Folder = fd.Name
+		}
+	}
+	return b
 }
 
 func (s *starter) doc(ctx context.Context, f Flow) *plugin.SOPFlowDoc {
-	return &plugin.SOPFlowDoc{SOPFlowBrief: s.brief(ctx, f), Fields: f.Fields, StepDefs: f.Steps}
+	return &plugin.SOPFlowDoc{SOPFlowBrief: s.brief(ctx, f, nil), Fields: f.Fields, StepDefs: f.Steps}
 }

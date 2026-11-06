@@ -115,6 +115,8 @@ type Flow struct {
 	Schedule *plugin.SOPFlowSchedule `json:"schedule"`
 	// IM 是 IM 触发的过滤条件、执行顺序与拦截（TSK-0481，imfilter.go），触发方式不是 im 时照常存着、不起作用
 	IM IMTrigger `json:"im"`
+	// FolderID 是流程所在的文件夹（TSK-0482，folders.go），nil 是「未分类」
+	FolderID *string `json:"folder_id"`
 }
 
 // Issue 是一处校验问题，step 是步骤下标（原型 checkSop 的 Issue 去掉 level，这里只收拦保存的）。
@@ -133,8 +135,8 @@ var flowIDRe = regexp.MustCompile(`^sop_[a-z0-9_]{1,60}$`)
 
 const flowCols = `id, name, description, trigger_desc, fields, steps, layout, version, created_at, updated_at`
 
-// flowSel 是读流程的列：flowCols 加 IM 触发设置（TSK-0481），scanFlow 按它读
-const flowSel = flowCols + `, im_filter, im_stop, ` + imRankSQL
+// flowSel 是读流程的列：flowCols 加 IM 触发设置（TSK-0481）和所在文件夹（TSK-0482），scanFlow 按它读
+const flowSel = flowCols + `, im_filter, im_stop, ` + imRankSQL + `, ` + folderIDSQL
 
 func (h *flows) list(w http.ResponseWriter, r *http.Request) {
 	rows, err := h.c.Store().Query(r.Context(), `SELECT `+flowSel+` FROM sop_flows ORDER BY created_at, rowid`)
@@ -217,6 +219,9 @@ func (h *flows) create(ctx context.Context, raw map[string]json.RawMessage) (Flo
 	if err != nil {
 		return Flow{}, err
 	}
+	if f.FolderID, _, err = readFolderID(ctx, h.c, raw); err != nil {
+		return Flow{}, err
+	}
 	if err := apply(&f, raw, kindsOf(h.c)); err != nil {
 		return Flow{}, err
 	}
@@ -224,8 +229,8 @@ func (h *flows) create(ctx context.Context, raw map[string]json.RawMessage) (Flo
 	im.applyIM(&f.IM)
 	now := time.Now().UTC().Format(time.RFC3339)
 	// 新流程在 IM 顺序里先排最后，给了 order 的再挪（placeIM）
-	if _, err := h.c.Store().Exec(ctx, `INSERT INTO sop_flows (`+flowCols+`, im_filter, im_stop, im_order) VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, `+nextIMOrder+`)`,
-		f.ID, f.Name, f.Desc, f.Trigger, string(f.Fields), string(f.Steps), layoutCol(f.Layout), now, now, f.IM.filterJSON(), f.IM.Stop); err != nil {
+	if _, err := h.c.Store().Exec(ctx, `INSERT INTO sop_flows (`+flowCols+`, im_filter, im_stop, folder_id, im_order) VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, `+nextIMOrder+`)`,
+		f.ID, f.Name, f.Desc, f.Trigger, string(f.Fields), string(f.Steps), layoutCol(f.Layout), now, now, f.IM.filterJSON(), f.IM.Stop, f.FolderID); err != nil {
 		return Flow{}, err
 	}
 	if err := placeIM(ctx, h.c, f, imTrigger, im.Order); err != nil {
@@ -275,6 +280,12 @@ func (h *flows) patch(ctx context.Context, id string, raw map[string]json.RawMes
 	if err != nil {
 		return Flow{}, err
 	}
+	// 没给 folder_id 的保持原样（含未分类）
+	if folder, ok, err := readFolderID(ctx, h.c, raw); err != nil {
+		return Flow{}, err
+	} else if ok {
+		f.FolderID = folder
+	}
 	if err := apply(&f, raw, kindsOf(h.c)); err != nil {
 		return Flow{}, err
 	}
@@ -283,8 +294,8 @@ func (h *flows) patch(ctx context.Context, id string, raw map[string]json.RawMes
 	now := time.Now().UTC().Format(time.RFC3339)
 	// 按读到的版本号更新，中间有人改过就算冲突
 	res, err := h.c.Store().Exec(ctx, `UPDATE sop_flows SET name = ?, description = ?, trigger_desc = ?, fields = ?, steps = ?,
-		layout = ?, im_filter = ?, im_stop = ?, version = version + 1, updated_at = ? WHERE id = ? AND version = ?`,
-		f.Name, f.Desc, f.Trigger, string(f.Fields), string(f.Steps), layoutCol(f.Layout), f.IM.filterJSON(), f.IM.Stop, now, id, base)
+		layout = ?, im_filter = ?, im_stop = ?, folder_id = ?, version = version + 1, updated_at = ? WHERE id = ? AND version = ?`,
+		f.Name, f.Desc, f.Trigger, string(f.Fields), string(f.Steps), layoutCol(f.Layout), f.IM.filterJSON(), f.IM.Stop, f.FolderID, now, id, base)
 	if err != nil {
 		return Flow{}, err
 	}
@@ -405,7 +416,7 @@ func scanFlow(row plugin.Row) (Flow, error) {
 	var fields, steps, created, updated, filter string
 	var layout *string
 	if err := row.Scan(&f.ID, &f.Name, &f.Desc, &f.Trigger, &fields, &steps, &layout, &f.Version, &created, &updated,
-		&filter, &f.IM.Stop, &f.IM.Order); err != nil {
+		&filter, &f.IM.Stop, &f.IM.Order, &f.FolderID); err != nil {
 		return Flow{}, err
 	}
 	readIMFilter(filter, &f.IM)

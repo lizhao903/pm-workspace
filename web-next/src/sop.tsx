@@ -3,6 +3,7 @@ import { PageTitle } from './topbar'
 import {
   GOVERNANCE_MAX, MODEL_CONCURRENCY_MAX, RERUN_MAX, RUN_STATUS, SOPS, depsOf, emptyIM, imFilterText, isHeld, flowChanged, sourceText, focusIndex, isFinished, isClaudeKind, isManualDecide, isModelKind, isProviderWait, isQueued, needsMe, ranks,
   RERUN_REASON_RELAUNCHED, runShow, runStatus, stepLook,
+  SOP_FOLDERS, UNCATEGORIZED, addFolder, folderNameError, folderOf, moveSops, newSopFolder, removeFolder, renameFolder,
   type Governance, type Json, type RerunAction, type RerunResult, type RunAction, type RunStep, type Sop, type SopRun,
 } from './sopflow'
 import { KindTag, isBranching } from './nodetypes'
@@ -176,7 +177,7 @@ function daySegOf() {
   return (t: number): DaySeg => (t >= today ? 'today' : t >= yesterday ? 'yesterday' : t >= week ? 'week' : 'older')
 }
 
-export function SopRunsPage({ runs, view, onOpen, sops, sop, onOpenSop, onNew, onRerun, stageItems }: {
+export function SopRunsPage({ runs, view, onOpen, sops, sop, onOpenSop, onNew, onRerun, stageItems, onSopsChange }: {
   runs: SopRun[]; view: 'runs' | 'waiting' | 'library'; onOpen: (id: string) => void
   /** 待我处理里「停在等人阶段的任务」一组：今日「待我处理」组的阶段那几条（TSK-0486），点了去任务的流水线 */
   stageItems?: TodayItem[]
@@ -189,8 +190,10 @@ export function SopRunsPage({ runs, view, onOpen, sops, sop, onOpenSop, onNew, o
   /** 流程库点卡片打开流程详情 */
   onOpenSop?: (id: string) => void
   onNew?: () => void
+  /** 流程库里改了文件夹（建、改名、删、移流程，TSK-0482）：App 按 SOPS 重新取一份 */
+  onSopsChange?: () => void
 }) {
-  if (view === 'library') return <SopLibraryPage sops={sops ?? SOPS} runs={runs} onOpen={onOpenSop} onNew={onNew} />
+  if (view === 'library') return <SopLibraryPage sops={sops ?? SOPS} runs={runs} onOpen={onOpenSop} onNew={onNew} onChange={onSopsChange} />
   return <RunList runs={runs} view={view} onOpen={onOpen} sops={sops ?? SOPS} initialSop={sop} onRerun={onRerun} stageItems={view === 'waiting' ? stageItems : undefined} />
 }
 
@@ -423,9 +426,18 @@ function RunList({ runs, view, onOpen, sops, initialSop, onRerun, stageItems }: 
 
 type LibFilter = '' | 'pending' | 'never'
 
-function SopLibraryPage({ sops, runs, onOpen, onNew }: { sops: Sop[]; runs: SopRun[]; onOpen?: (id: string) => void; onNew?: () => void }) {
+/**
+ * 流程库（SPEC-sop-2）。文件夹（TSK-0482，SPEC-sop-2.15 到 2.22）：只有一级；顶部一行文件夹筛选，写法同文档顶栏的分类筛选
+ * （fchip「名字 + 数量」，点选、再点回到全部）；「+」新建、选中一个文件夹后铅笔进行内改名 / 删除（同交易自选组的组管理）；
+ * 删非空文件夹先确认，里面的流程回「未分类」；搜索不分文件夹；卡片右下角的文件夹名点开移到别的文件夹
+ */
+function SopLibraryPage({ sops, runs, onOpen, onNew, onChange }: { sops: Sop[]; runs: SopRun[]; onOpen?: (id: string) => void; onNew?: () => void; onChange?: () => void }) {
   const [q, setQ] = useState('')
   const [f, setF] = useState<LibFilter>('')
+  // 文件夹筛选：'' 全部，'none' 未分类，其余是文件夹 id
+  const [folder, setFolder] = useState('')
+  const [, setTick] = useState(0)
+  const changed = () => { setTick((n) => n + 1); onChange?.() }
   const last = useMemo(() => lastRunAt(runs), [runs])
   const stat = useMemo(() => {
     const m = new Map<string, { n: number; pending: number }>()
@@ -437,16 +449,22 @@ function SopLibraryPage({ sops, runs, onOpen, onNew }: { sops: Sop[]; runs: SopR
     }
     return m
   }, [runs])
+  const folders = SOP_FOLDERS
+  const cur = folders.find((x) => x.id === folder)
+  const key = folder && folder !== 'none' && !cur ? '' : folder
+  const inFolder = (s: Sop, k: string) => !k || (k === 'none' ? !folderOf(s) : folderOf(s) === k)
+  const nameOf = (s: Sop) => folders.find((x) => x.id === folderOf(s))?.name ?? ''
   const pass = (s: Sop, k: LibFilter) => !k || (k === 'pending' ? (stat.get(s.id)?.pending ?? 0) > 0 : !last.has(s.id))
   const kw = q.trim().toLowerCase()
   const triggers = useEnum('sop_trigger')
-  // 有待处理的在前，其余按最近执行时间，没执行过的按名字排在最后
-  const rows = sops.filter((s) => pass(s, f) && (!kw || `${s.name} ${s.desc} ${triggerLabel(triggers, s.trigger)}`.toLowerCase().includes(kw)))
+  // 有待处理的在前，其余按最近执行时间，没执行过的按名字排在最后；搜索时不看文件夹，文件夹名也能搜到
+  const rows = sops.filter((s) => pass(s, f) && (kw ? `${s.name} ${s.desc} ${triggerLabel(triggers, s.trigger)} ${nameOf(s)}`.toLowerCase().includes(kw) : inFolder(s, key)))
     .sort((a, b) => Number((stat.get(b.id)?.pending ?? 0) > 0) - Number((stat.get(a.id)?.pending ?? 0) > 0) || (last.get(b.id) ?? 0) - (last.get(a.id) ?? 0) || a.name.localeCompare(b.name))
+  const newHere = () => { newSopFolder.id = cur?.id ?? null; onNew?.() }
   return (
     <div className="page page-fill">
       <PageTitle parent="SOP" count={sops.length} desc="全部标准流程；有执行停下来等你的排在前面" actions={onNew && (
-        <button className="btn btn-primary" onClick={onNew}>
+        <button className="btn btn-primary" onClick={newHere}>
           <svg viewBox="0 0 16 16" width="12" height="12"><path d="M8 3v10M3 8h10" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" /></svg>
           新建 SOP
         </button>
@@ -454,29 +472,32 @@ function SopLibraryPage({ sops, runs, onOpen, onNew }: { sops: Sop[]; runs: SopR
       <div className="toolbar">
         <div className="seg">
           {([['', '全部'], ['pending', '有待处理'], ['never', '没执行过']] as [LibFilter, string][]).map(([k, l]) => (
-            <button key={k} className={cls(f === k && 'on')} onClick={() => setF(k)}>{l}<span className="seg-n">{sops.filter((s) => pass(s, k)).length}</span></button>
+            <button key={k} className={cls(f === k && 'on')} onClick={() => setF(k)}>{l}<span className="seg-n">{sops.filter((s) => pass(s, k) && (!!kw || inFolder(s, key))).length}</span></button>
           ))}
         </div>
         <span className="spacer" />
         <div className="search">
           <svg viewBox="0 0 16 16" width="14" height="14"><circle cx="7" cy="7" r="4.5" fill="none" stroke="currentColor" strokeWidth="1.5" /><path d="M10.5 10.5 14 14" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" /></svg>
-          <input placeholder="搜索流程名、说明、触发方式" value={q} onChange={(e) => setQ(e.target.value)} />
+          <input placeholder="搜索流程名、说明、触发方式、文件夹" value={q} onChange={(e) => setQ(e.target.value)} />
         </div>
       </div>
+      <FolderBar sops={sops} current={key} searching={!!kw} onPick={setFolder} onChange={changed} />
       {!rows.length ? (
         <div className="empty">
-          <div className="empty-title">{kw || f ? '没有匹配的流程' : '还没有标准流程'}</div>
-          <div className="list-sub">{kw || f ? '换个筛选条件试试' : '把反复做的事情编排成 SOP，每次按同样的步骤执行'}</div>
+          <div className="empty-title">{kw || f ? '没有匹配的流程' : key ? '这个文件夹里还没有流程' : '还没有标准流程'}</div>
+          <div className="list-sub">{kw || f ? '换个筛选条件试试' : key ? '在别的文件夹的卡片上点文件夹名移过来，或在这里新建' : '把反复做的事情编排成 SOP，每次按同样的步骤执行'}</div>
         </div>
       ) : (
         <div className="sop-lib-grid">
           {rows.map((s) => {
             const x = stat.get(s.id)
             const at = last.get(s.id)
-            // 定时触发的卡片下面接一行规则、下次执行和启停（TSK-0463）；开关不能放进按钮里，挂在卡片外面
+            const fid = folderOf(s)
+            // 定时触发的卡片下面接一行规则、下次执行和启停（TSK-0463）；开关不能放进按钮里，挂在卡片外面。移到文件夹（TSK-0482）同理
             return (
               <div key={s.id} className="sop-lib-cell">
-              <button className="sop-lib-card" disabled={!onOpen} onClick={() => onOpen?.(s.id)}>
+              <div className="sop-lib-main">
+              <button className={cls('sop-lib-card', folders.length > 0 && 'with-folder')} disabled={!onOpen} onClick={() => onOpen?.(s.id)}>
                 <span className="sop-lib-head">
                   <span className="sop-lib-name ellipsis" title={s.name}>{s.name}</span>
                   {!!x?.pending && <span className="sop-lib-pending">{x.pending} 个待处理</span>}
@@ -488,6 +509,13 @@ function SopLibraryPage({ sops, runs, onOpen, onNew }: { sops: Sop[]; runs: SopR
                   {at && <span>{timeAgo(iso(at))}执行</span>}
                 </span>
               </button>
+              {folders.length > 0 && (
+                <SearchSelect variant="plain" className={cls('sop-lib-move', !fid && 'none')} value={fid ?? ''} noneLabel={UNCATEGORIZED} placeholder={UNCATEGORIZED}
+                  searchPlaceholder="搜文件夹" align="end" aria-label={`「${s.name}」移到文件夹`} title="移到文件夹"
+                  options={folders.map((d) => ({ value: d.id, label: d.name }))}
+                  onChange={(v) => { if ((v || null) !== fid) { moveSops([s.id], v || null); changed() } }} />
+              )}
+              </div>
               <SchedLine sop={s} className="sop-lib-sched" />
               <IMLine sop={s} className="sop-lib-sched" />
               </div>
@@ -496,6 +524,72 @@ function SopLibraryPage({ sops, runs, onOpen, onNew }: { sops: Sop[]; runs: SopR
         </div>
       )}
     </div>
+  )
+}
+
+/** 文件夹一行（SPEC-sop-2.15 到 2.19）：全部、各文件夹、未分类（各带数量，按全部流程算），后面是新建和改名 / 删除当前文件夹 */
+function FolderBar({ sops, current, searching, onPick, onChange }: { sops: Sop[]; current: string; searching: boolean; onPick: (k: string) => void; onChange: () => void }) {
+  const [edit, setEdit] = useState<{ id: string; name: string } | null>(null)
+  const [ask, setAsk] = useState(false)
+  const folders = SOP_FOLDERS
+  const cur = folders.find((x) => x.id === current)
+  const count = (k: string) => sops.filter((s) => (k === 'none' ? !folderOf(s) : folderOf(s) === k)).length
+  const issue = edit ? folderNameError(edit.name, edit.id === 'new' ? undefined : edit.id) : ''
+  const commit = () => {
+    if (!edit || issue) return
+    if (edit.id === 'new') onPick(addFolder(edit.name).id)
+    else renameFolder(edit.id, edit.name)
+    setEdit(null)
+    onChange()
+  }
+  const remove = () => {
+    if (!cur) return
+    removeFolder(cur.id)
+    setAsk(false); setEdit(null); onPick(''); onChange()
+  }
+  const plus = <svg viewBox="0 0 16 16" width="12" height="12"><path d="M8 3v10M3 8h10" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" /></svg>
+  return (
+    <>
+      <div className={cls('sop-folders', searching && 'searching')} role="group" aria-label="按文件夹筛选">
+        {folders.length > 0 && (
+          <>
+            <button className={cls('fchip', !current && 'on')} onClick={() => onPick('')}>全部<span className="seg-n">{sops.length}</span></button>
+            {[...folders.map((x) => ({ key: x.id, label: x.name })), { key: 'none', label: UNCATEGORIZED }].map((c) => (
+              <button key={c.key} className={cls('fchip', current === c.key && 'on')} title={c.key === 'none' ? '没放进文件夹的流程' : c.label}
+                onClick={() => onPick(current === c.key ? '' : c.key)}>
+                <span className="sop-folder-name">{c.label}</span><span className="seg-n">{count(c.key)}</span>
+              </button>
+            ))}
+          </>
+        )}
+        <button className="icon-btn icon-btn-sm" title="新建文件夹" aria-label="新建文件夹" onClick={() => { setAsk(false); setEdit({ id: 'new', name: '' }) }}>{plus}</button>
+        {!folders.length && <button className="sop-folder-hint" onClick={() => setEdit({ id: 'new', name: '' })}>新建文件夹，给流程分类</button>}
+        {cur && (
+          <button className="icon-btn icon-btn-sm" title={`改名或删除「${cur.name}」`} aria-label={`改名或删除「${cur.name}」`} onClick={() => { setAsk(false); setEdit({ id: cur.id, name: cur.name }) }}>
+            <svg viewBox="0 0 16 16" width="12" height="12"><path d="M3 13h2.5L13 5.5 10.5 3 3 10.5V13Z" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" /></svg>
+          </button>
+        )}
+        {searching && folders.length > 0 && <span className="sop-folder-note">搜索时在全部文件夹里找</span>}
+      </div>
+      {edit && !ask && (
+        <div className="sop-folder-edit">
+          <input autoFocus value={edit.name} placeholder="文件夹名称" aria-label="文件夹名称" onChange={(e) => setEdit({ ...edit, name: e.target.value })}
+            onKeyDown={(e) => { if (e.key === 'Enter') commit(); if (e.key === 'Escape') setEdit(null) }} />
+          <button className="btn btn-primary btn-sm" disabled={!!issue} onClick={commit}>{edit.id === 'new' ? '新建' : '保存'}</button>
+          {edit.id !== 'new' && cur && <button className="btn btn-ghost btn-sm danger-text" onClick={() => (count(cur.id) ? setAsk(true) : remove())}>删除文件夹</button>}
+          <button className="btn btn-ghost btn-sm" onClick={() => setEdit(null)}>取消</button>
+          {edit.name.trim() && issue && <span className="sop-folder-err">{issue}</span>}
+        </div>
+      )}
+      {/* 删非空文件夹先确认（SPEC-sop-2.18）；正式产品是确认弹窗 */}
+      {ask && cur && (
+        <div className="sop-folder-edit sop-folder-ask" role="alertdialog" aria-label={`删除文件夹「${cur.name}」？`}>
+          <span><b>删除文件夹「{cur.name}」？</b>里面的 {count(cur.id)} 个流程移到「{UNCATEGORIZED}」，流程本身不删、不改。</span>
+          <button className="btn btn-ghost btn-sm" onClick={() => setAsk(false)}>取消</button>
+          <button className="btn btn-danger btn-sm" onClick={remove}>删除文件夹</button>
+        </div>
+      )}
+    </>
   )
 }
 
@@ -539,6 +633,8 @@ export function SopDetailPage({ sop, runs, onStart, onOpen, onEdit, onDelete, de
       {/* 窄屏时确认条从标题行挪到这里，文字换行，按钮不会被挤出去 */}
       {confirmDel && <div className="sop-del-bar" role="alert"><span className="danger-text">{delText}</span><span className="act-row">{delActs}</span></div>}
       <div className="sop-facts sop-facts-top">
+        {/* 所在文件夹（TSK-0482，SPEC-sop-5.19）：有文件夹时才写 */}
+        {SOP_FOLDERS.length > 0 && <span>文件夹：{SOP_FOLDERS.find((x) => x.id === folderOf(sop))?.name ?? UNCATEGORIZED}</span>}
         <span>触发：{triggerLabel(triggers, sop.trigger)}</span>
         <span>{sop.steps.length} 个步骤</span>
         <span>{decides} 个分支节点</span>

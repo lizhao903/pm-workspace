@@ -42,6 +42,8 @@ export type FieldCtx = {
   ups?: { key: string; name: string }[]
   /** 现在的 IM 流程，按执行顺序（TSK-0481），开始节点选顺序用 */
   imFlows?: { id: string; name: string; order: number; stop: boolean }[]
+  /** 流程库的文件夹（TSK-0482），开始节点选放进哪个文件夹 */
+  folders?: { id: string; name: string }[]
 }
 export const EMPTY_CTX: FieldCtx = { flows: [], agents: [], kbs: [], docCats: [], providers: [], projects: [] }
 

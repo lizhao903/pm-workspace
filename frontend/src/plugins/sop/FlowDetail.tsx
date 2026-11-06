@@ -1,11 +1,11 @@
 // 流程详情（SPEC-sop-5）：流程图、输入、最近执行；从这里执行、编辑、复制、删除。
-// 复制（SPEC-sop-5.16）：新建一条同样的流程，名字加「副本」，建好进它的编排页；内置流程要改就走这里
+// 复制（SPEC-sop-5.16）：新建一条同样的流程，名字加「副本」，放进同一个文件夹（TSK-0482），建好进它的编排页；内置流程要改就走这里
 // 删除确认是标题行里的确认条：还有执行没走完时只能「知道了」（后端同样 409 拦着）；手机宽度下换行，按钮始终可见（SPEC-sop-0.1）
 import { useState } from 'react'
-import { errorText, useDeleteSopFlow, useSaveSopFlow, type SopFlow, type SopRunBrief, type SopStepDef } from '../../core/data'
+import { errorText, useDeleteSopFlow, useSaveSopFlow, useSopFolders, type SopFlow, type SopRunBrief, type SopStepDef } from '../../core/data'
 import { Button, EmptyState, PageTitle } from '../../core/ui'
 import { FlowGraph, FlowLegend } from './FlowGraph'
-import { isManualDecide, isPendingRun } from './model'
+import { UNCATEGORIZED, folderOf, isManualDecide, isPendingRun } from './model'
 import { IconPlay, RunHead, RunRow } from './parts'
 import { IMBar } from './IMBar'
 import { ScheduleBar } from './ScheduleBar'
@@ -35,6 +35,10 @@ export function FlowDetail({ flow, runs, branching, needs = [], trigger, onStart
   const sourceOf = useSourceText()
   const del = useDeleteSopFlow()
   const save = useSaveSopFlow()
+  // 所在文件夹（TSK-0482）：概要里写一句，复制时副本放进同一个文件夹
+  const folders = useSopFolders()
+  const fid = folderOf(flow, folders.data ?? [])
+  const folderName = folders.data?.find((f) => f.id === fid)?.name
   const mine = runs.filter((r) => r.flow_id === flow.id).sort((a, b) => Date.parse(b.started_at) - Date.parse(a.started_at))
   // 已重跑过的失败执行算处理完了（同后端删流程前的检查）
   const live = mine.filter((r) => r.status === 'running' || isPendingRun(r)).length
@@ -48,7 +52,7 @@ export function FlowDetail({ flow, runs, branching, needs = [], trigger, onStart
     // IM 触发的副本带上同样的过滤条件，排在最后、不拦截，免得复制出来就把原流程的消息截走（TSK-0481）
     { draft: { name: `${flow.name} 副本`, desc: flow.desc, trigger: flow.trigger, fields: flow.fields, steps: flow.steps, layout: flow.layout,
       ...(flow.schedule ? { sched: { rule: flow.schedule.rule, enabled: false } } : {}),
-      im: { ...imDraftOf(flow), stop: false } } },
+      im: { ...imDraftOf(flow), stop: false }, folder_id: fid } },
     { onSuccess: onCopied },
   )
   const confirmText = del.isError ? `删除失败：${errorText(del.error)}` : block ? `不能删除：${block}` : '删除后已有的执行记录保留'
@@ -77,6 +81,7 @@ export function FlowDetail({ flow, runs, branching, needs = [], trigger, onStart
         </div>
       )}
       <div className="sop-facts">
+        {(folders.data?.length ?? 0) > 0 && <span>文件夹：{folderName ?? UNCATEGORIZED}</span>}
         <span>触发：{trigger(flow.trigger)}</span>
         <span>{flow.steps.length} 个步骤</span>
         <span>{decides} 个分支节点</span>
