@@ -12,7 +12,7 @@ import { applyMutes, bindMuteEnv } from './mutes'
 import { GroupTriageAdvice, QueueDrawer, TriageAdvice, triageRunsOf, triageSops } from './triage'
 import { SECTIONS, SettingsNav, type Section } from './settings'
 import { CommandPalette, type PaletteItem } from './palette'
-import { GOVERNANCE_DEFAULT, MODEL_CONCURRENCY_DEFAULT, SOPS, newSopFolder, act as actOnRun, gateRuns, governRuns, isHeld, type Governance, rerunRuns, seedRuns, sopById, tick, runShow, runStatus, startRun, upsertSop, type Json, type RunAction, type Sop, type SopIMRelevance } from './sopflow'
+import { GOVERNANCE_DEFAULT, MODEL_CONCURRENCY_DEFAULT, SOPS, newSopFolder, act as actOnRun, gateRuns, governRuns, isHeld, type Governance, rerunRuns, seedRuns, sopById, stopRuns, tick, runShow, runStatus, startRun, upsertSop, type Json, type RunAction, type Sop, type SopIMRelevance } from './sopflow'
 import { SopEditor, newSopDraft } from './sopedit'
 import { ingest, newTask, seedDeliveries, seedHooks, seedTasks, type TaskStatus, isOpenTask, localDay } from './taskdata'
 import { waitOf } from './taskpipeline'
@@ -1890,15 +1890,17 @@ export default function App() {
               selectedGroup={drawer?.kind === 'im-group' ? drawer.key : null} onOpenGroup={(key) => setDrawer({ kind: 'im-group', key })}
               onStartSession={(ids, intent) => setImStart({ ids, intent })} linksOf={imLinksOf} onOpenSession={openSessionById}
               onToMaterial={setImToMat} onOpenMaterial={openMaterial}
-              onBatchTriage={(sopId, ids, rerun) => {
+              onStopRuns={(ids) => setRuns((xs) => stopRuns(xs, ids).runs)}
+              onBatchTriage={(sopId, ids, rerun, batchId) => {
                 // 正式产品是 SOP 插件的批量发起接口：按 message_id 跳过这条流程已经跑过的（任意状态），来源记手动「批量发起」
                 const sop = sops.find((x) => x.id === sopId)
                 if (!sop) return { started: 0, skipped: 0 }
                 const ran = new Set(runs.filter((r) => r.sop_id === sopId).map((r) => r.input.message_id))
                 const now = Date.now()
                 const todo = rerun ? ids : ids.filter((id) => !ran.has(id))
+                // 批次记在 source_ref（TSK-0717），批量分诊「立即停止」按它停这次发起的全部执行
                 const fresh = todo.map((id, i) => startRun(sop, { ...Object.fromEntries(sop.fields.map((f) => [f.key, f.default ?? ''])), message_id: id }, false, now + i,
-                  { source: 'manual', sourceName: '批量发起' }))
+                  { source: 'manual', sourceRef: batchId, sourceName: '批量发起' }))
                 setRuns((xs) => [...fresh, ...xs])
                 return { started: fresh.length, skipped: ids.length - todo.length }
               }} />
@@ -1943,6 +1945,7 @@ export default function App() {
             return <SopSchedules.Provider value={sopSched}><SopRunsPage key={`${sopView}:${sopFilter ?? ''}`} runs={runs} view={sopView as 'runs' | 'waiting' | 'library'} sop={sopFilter} onOpen={setOpenRun}
               stageItems={todayNeeds.filter((x) => x.id.startsWith('stg-'))}
               onRerun={(ids, action) => { const x = rerunRuns(runs, ids, action); setRuns(x.runs); return x.result }}
+              onStop={(ids) => { const x = stopRuns(runs, ids); setRuns(x.runs); return x.result }}
               sops={sops} onOpenSop={(id) => setSopView(`sop:${id}`)} onNew={() => { setSopView('edit:new'); setOpenRun(null) }}
               onSopsChange={() => setSops([...SOPS])} /></SopSchedules.Provider>
           })()}

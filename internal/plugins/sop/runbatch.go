@@ -13,7 +13,8 @@ import (
 
 // 失败执行批量重跑（执行记录「失败」页的多选）。
 //
-// POST /api/sop/runs/batch-actions：body {"run_ids": [...], "action": "retry" | "relaunch"}，run_ids 1 到 batchMax 个。
+// POST /api/sop/runs/batch-actions：body {"run_ids": [...], "action": "retry" | "relaunch" | "stop"}，run_ids 1 到 batchMax 个。
+// stop（TSK-0717）见 runstop.go：只停执行中、待我处理的，别的跳过并写明原因。
 //   - retry：在原执行里重试它所有失败的步骤（同单条 retry 动作，沿用发起时的流程快照）；
 //   - relaunch：用原执行的输入、流程当前定义新发起一条执行（同 POST /api/sop/flows/{id}/runs），原执行保留不动。
 //     子执行（parent_run_id 非空）不单独重新发起，换成它的顶层执行；同一批里落到同一条顶层执行的只发起一次。
@@ -76,8 +77,8 @@ func (h *runs) batchAct(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var action string
-	if v, ok := raw["action"]; !ok || json.Unmarshal(v, &action) != nil || (action != actRetry && action != actRelaunch) {
-		fail(w, r, h.c, apiErr(errValidation, "action 只能是 retry 或 relaunch"))
+	if v, ok := raw["action"]; !ok || json.Unmarshal(v, &action) != nil || (action != actRetry && action != actRelaunch && action != actStop) {
+		fail(w, r, h.c, apiErr(errValidation, "action 只能是 retry、relaunch 或 stop"))
 		return
 	}
 	var ids []string
@@ -90,7 +91,18 @@ func (h *runs) batchAct(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if len(ids) > batchMax {
-		fail(w, r, h.c, apiErr(errValidation, "一次最多重跑 %d 条，这次有 %d 条", batchMax, len(ids)))
+		verb := "重跑"
+		if action == actStop {
+			verb = "停止"
+		}
+		fail(w, r, h.c, apiErr(errValidation, "一次最多%s %d 条，这次有 %d 条", verb, batchMax, len(ids)))
+		return
+	}
+	if action == actStop {
+		// 批量停止（TSK-0717，runstop.go）：只停执行中、待我处理的
+		out := h.batchStop(context.WithoutCancel(ctx), ids)
+		h.c.Log().Info("sop runs batch action", "action", action, "done", len(out.Done), "skipped", len(out.Skipped), "failed", len(out.Failed))
+		writeJSON(w, http.StatusOK, map[string]any{"data": out})
 		return
 	}
 	out := RunBatchResult{Done: []RunBatchDone{}, Skipped: []RunBatchSkipped{}, Failed: []RunBatchFailed{}}

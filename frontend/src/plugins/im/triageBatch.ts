@@ -3,6 +3,8 @@
 // 每批的结果按 index 对回消息编号；整批请求失败（网络、流程被删）算这批每条都失败，接着发下一批。
 // 中途停止：当前这批发出去了就等它回来（已发起的保留），之后的批不再发，记成「没发起」。
 // 去重口径不变：每批都带同一个 skip_existing_key（不勾「已跑过的也重跑」时为 message_id），由后端按这条流程已有执行跳过。
+// 立即停止（TSK-0717）：每批都带同一个批次 batch_id（TriageDialog 生成），按批次一次停掉这次分诊已发起的全部执行；
+// 批次停了以后后端不再发起，回 cancelled，这里记进「没发起」并且不再发下一批。
 import type { SopBatchResult } from '../../core/data'
 
 /** 一次批量分诊最多多少条（自动分批前的总数）；超过不发起，让人先缩小范围。防误操作：每条都会调模型 */
@@ -57,11 +59,18 @@ export async function runTriageBatches(ids: readonly string[], size: number, sta
     const at = (x: { index: number; key: string }) => part[x.index] ?? x.key
     try {
       const r = await start(part)
+      const cancelled = (r.cancelled ?? []).map(at)
       p = {
         ...p, batch: i + 1,
         started: [...p.started, ...r.started.map(at)],
         skipped: [...p.skipped, ...r.skipped.map(at)],
         failed: [...p.failed, ...r.failed.map((x) => ({ id: at(x), error: x.error ?? '没发起成' }))],
+      }
+      if (cancelled.length) {
+        // 批次已被立即停止：这批里没发起的和之后的批都不发
+        p = { ...p, stopped: true, rest: [...cancelled, ...chunks.slice(i + 1).flat()] }
+        opts.onProgress(p)
+        break
       }
     } catch (e) {
       const error = opts.errorText(e)

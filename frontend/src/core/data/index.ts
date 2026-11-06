@@ -186,6 +186,9 @@ export type { TaskStage, StageChange } from './stageHistory'
 // 批量发起、按输入字段查执行（IM 页批量分诊、处理队列）
 export { SOP_BATCH_MAX, SOP_RERUN_REASON_RELAUNCHED, applyRerun, sopBatchApi, triageFlows, useRerunSopRuns, useSopRunsByInput, useStartSopBatch, useStopSopRuns } from './sopBatch'
 export type { SopBatchItem, SopBatchResult, SopInputRun, SopRerunAction, SopRerunResult } from './sopBatch'
+// 批量停止（TSK-0717）
+export { newSopBatchId, useSopStopPreview, useStopSopWhere } from './sopBatch'
+export type { SopRunStatusCounts, SopStopResult, SopStopScope } from './sopBatch'
 
 export { skillKeys } from './skillKeys'
 export { skillsApi, skillReadonly, useSkills, useCreateSkill, usePatchSkill, useDeleteSkill } from './skills'

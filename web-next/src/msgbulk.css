@@ -7,6 +7,9 @@ span.msg-pick { visibility: hidden; }
 .msg-bulk-hint { min-width: 0; }
 .tri-prog { display: inline-block; width: 120px; height: 6px; border-radius: 3px; background: var(--hover); overflow: hidden; }
 .tri-prog > i { display: block; height: 100%; background: var(--accent); transition: width .2s; }
+/* 批量分诊立即停止（1.66，TSK-0717）：这次分诊的执行各几条、停了多少，换行占满一行 */
+.tri-runs { flex-basis: 100%; color: var(--muted); }
+.tri-halted { flex-basis: 100%; padding: 6px 10px; border-radius: var(--r); background: color-mix(in srgb, #b0570b 12%, var(--panel)); line-height: 1.6; }
 @media (max-width: 640px) {
   .msg-bulk-hint { flex-basis: 100%; order: 1; }
   .tri-prog { width: 100%; }

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import type { Message } from './data'
-import { focusIndex, runStatus, STEP_STATUS, type Json, type RunStep, type Sop, type SopRun, type SopStepDef } from './sopflow'
+import { focusIndex, runShow, runStatus, STEP_STATUS, type Json, type RunStep, type Sop, type SopRun, type SopStepDef } from './sopflow'
 import { cls } from './ui'
 
 /*
@@ -212,12 +212,17 @@ type BatchState = { batches: number; batch: number; started: number; skipped: nu
  * 范围：勾了的就是勾选的，没勾就是当前筛选结果全部（scope 写明）。超过 TRIAGE_MAX（200）条按每批 200 条依次发起（TSK-0492），
  * 显示第 k/n 批、已发起、跳过，中途能停止（已发起的保留，剩下的能继续）；超过 TRIAGE_TOTAL_MAX（1000）条不发起。
  * onBatch 发一批（正式产品是一次 POST /api/sop/flows/{id}/runs/batch），回发起、跳过各几条；原型不会失败，失败汇总和重试见正式产品
+ * 立即停止（TSK-0717，SPEC-messages-1.66）：这条展开一次生成一个批次，每批都带它（记在执行的 source_ref）；发起中、发完后都能
+ * 「立即停止」：停掉这次分诊已发起的全部执行（正式产品 POST /api/sop/runs/stop {batch_id}），之后的批不再发；
+ * 发起后留在条上，显示这批执行现在执行中、等你处理、已完成、失败、已停止各几条，停完写停了多少、完成多少，已建出的任务不撤回
  */
-export function TriageBar({ sops, runs, targets, scope, onBatch, onDone, onCancel }: {
+export function TriageBar({ sops, runs, targets, scope, onBatch, onStopRuns, onDone, onCancel }: {
   sops: Sop[]; runs: SopRun[]; targets: Message[]
   /** 「勾选的 N 条」或「当前筛选结果全部 N 条」 */
   scope: string
-  onBatch: (sopId: string, ids: string[], rerun: boolean) => { started: number; skipped: number }
+  onBatch: (sopId: string, ids: string[], rerun: boolean, batchId: string) => { started: number; skipped: number }
+  /** 立即停止：停这些执行（这次分诊发起的、还在跑的） */
+  onStopRuns: (runIds: string[]) => void
   onDone: (r: { started: number; skipped: number }) => void
   onCancel: () => void
 }) {
@@ -227,6 +232,12 @@ export function TriageBar({ sops, runs, targets, scope, onBatch, onDone, onCance
   const [rerun, setRerun] = useState(false)
   const [st, setSt] = useState<BatchState | null>(null)
   const stopRef = useRef(false)
+  // 这次分诊的批次（正式产品前端生成 spb_ 加 16 位，后端校验格式）
+  const [batchId] = useState(() => `spb_${Math.random().toString(36).slice(2, 10)}${Date.now().toString(36)}`)
+  const [halted, setHalted] = useState<number | null>(null)
+  const mine = runs.filter((r) => r.source_ref === batchId)
+  const count = (k: string) => mine.filter((r) => runShow(r) === k).length
+  const live = mine.filter((r) => { const k = runShow(r); return k === 'running' || k === 'waiting' })
   const timer = useRef<number | undefined>(undefined)
   useEffect(() => () => window.clearTimeout(timer.current), [])
   const done = new Set(triageRuns(runs).filter((r) => r.sop_id === sopId).map(msgIdOf))
@@ -243,12 +254,13 @@ export function TriageBar({ sops, runs, targets, scope, onBatch, onDone, onCance
     let acc = { ...base }
     const step = (i: number) => {
       if (stopRef.current) { setSt((x) => x && { ...x, stopped: true, done: true, stopping: false, rest: chunks.slice(i).flat() }); return }
-      const r = onBatch(sopId, chunks[i], rerun)
+      const r = onBatch(sopId, chunks[i], rerun, batchId)
       acc = { started: acc.started + r.started, skipped: acc.skipped + r.skipped }
       const last = i === chunks.length - 1
       setSt({ batches: chunks.length, batch: i + 1, ...acc, rest: [], stopping: stopRef.current && !last, done: last, stopped: false })
       if (!last) timer.current = window.setTimeout(() => step(i + 1), BATCH_GAP_MS)
-      else if (chunks.length === 1 && !base.started && !base.skipped) onDone(acc)
+      // 一条都没发起（全跳过）直接收起；发起了的留着，能看这批执行、能立即停止（TSK-0717）
+      else if (chunks.length === 1 && !base.started && !base.skipped && !acc.started) onDone(acc)
     }
     setSt({ batches: chunks.length, batch: 0, ...acc, rest: [], stopping: false, done: false, stopped: false })
     timer.current = window.setTimeout(() => step(0), chunks.length > 1 ? BATCH_GAP_MS : 0)
@@ -265,9 +277,19 @@ export function TriageBar({ sops, runs, targets, scope, onBatch, onDone, onCance
         <span className="tri-prog" role="progressbar" aria-label="分批进度" aria-valuemin={0} aria-valuemax={st.batches} aria-valuenow={st.batch}><i style={{ width: `${pct}%` }} /></span>
         <span className="muted">已发起 {st.started} · 跳过 {st.skipped} · 失败 0 · 共 {targets.length} 条</span>
         <span className="spacer" />
-        {!st.done && <button className="btn btn-outline" disabled={st.stopping} onClick={() => { stopRef.current = true; setSt((x) => x && { ...x, stopping: true }) }}>停止</button>}
-        {st.done && st.rest.length > 0 && <button className="btn btn-outline" onClick={() => run(st.rest, { started: st.started, skipped: st.skipped })}>继续发起剩下的 {st.rest.length} 条</button>}
+        {!st.done && halted === null && <button className="btn btn-outline" disabled={st.stopping} onClick={() => { stopRef.current = true; setSt((x) => x && { ...x, stopping: true }) }}>不再发下一批</button>}
+        {(live.length > 0 || !st.done) && halted === null && (
+          <button className="btn btn-danger" title="停掉这次分诊已发起的全部执行，后面的批也不再发；已建出的任务不撤回"
+            onClick={() => { stopRef.current = true; setHalted(live.length); onStopRuns(live.map((r) => r.id)) }}>立即停止</button>
+        )}
+        {st.done && st.rest.length > 0 && halted === null && <button className="btn btn-outline" onClick={() => run(st.rest, { started: st.started, skipped: st.skipped })}>继续发起剩下的 {st.rest.length} 条</button>}
         {st.done && <button className="btn btn-primary" onClick={() => onDone({ started: st.started, skipped: st.skipped })}>完成</button>}
+        {mine.length > 0 && (
+          <span className="tri-runs" aria-label="这次分诊的执行">
+            这次分诊的执行：执行中 {count('running')} · 等你处理 {count('waiting')} · 已完成 {count('done')} · 失败 {count('failed')} · 已停止 {count('stopped')}
+          </span>
+        )}
+        {halted !== null && <span className="tri-halted" role="status">已立即停止：停了 {halted} 条，已完成 {count('done')} 条。已建出的任务不会撤回</span>}
       </div>
     )
   }

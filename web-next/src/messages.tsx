@@ -178,7 +178,7 @@ const fmtMD = (iso: string) => new Date(iso).toLocaleString('zh-CN', { month: 'n
 /** 状态小标签按枚举颜色上色，和原来「已处理」的绿色标签同一种做法 */
 const stateStyle = (c: string): React.CSSProperties => ({ color: c, background: `color-mix(in srgb, ${c} 12%, transparent)` })
 
-export function MessagesPage({ messages, contacts, connectors, selected, onOpen, onAct, onGoConnectors, onToTask, taskOf, onSync, syncing, syncResult, projects, groupProjects, onSetGroupProject, sops, runs, onBatchTriage, onOpenQueue, onOpenTriage, selectedGroup, onOpenGroup, onStartSession, linksOf, onOpenSession, onToMaterial, onOpenMaterial }: {
+export function MessagesPage({ messages, contacts, connectors, selected, onOpen, onAct, onGoConnectors, onToTask, taskOf, onSync, syncing, syncResult, projects, groupProjects, onSetGroupProject, sops, runs, onBatchTriage, onOpenQueue, onOpenTriage, selectedGroup, onOpenGroup, onStartSession, linksOf, onOpenSession, onToMaterial, onOpenMaterial, onStopRuns }: {
   /** 转项目资料（SPEC-messages-6）：带上这些消息打开弹窗；转过的去项目资料页定位那一条 */
   onToMaterial: (ids: string[]) => void
   onOpenMaterial: (projectId: string, materialId: string) => void
@@ -189,7 +189,9 @@ export function MessagesPage({ messages, contacts, connectors, selected, onOpen,
   linksOf: (ids: string[]) => { sessions: string[]; tasks: number }
   onOpenSession: (id: string) => void
   /** 批量分诊、处理队列（SPEC-messages-1.51~1.53）：分诊用的流程和执行；onBatchTriage 回发起、跳过各几条 */
-  sops: Sop[]; runs: SopRun[]; onBatchTriage: (sopId: string, messageIds: string[], rerun: boolean) => { started: number; skipped: number }; onOpenQueue: () => void
+  sops: Sop[]; runs: SopRun[]; onBatchTriage: (sopId: string, messageIds: string[], rerun: boolean, batchId: string) => { started: number; skipped: number }; onOpenQueue: () => void
+  /** 批量分诊「立即停止」（TSK-0717，SPEC-messages-1.66）：停这次分诊发起的执行 */
+  onStopRuns: (runIds: string[]) => void
   /** 分诊建议（SPEC-messages-1.53）：点「已分诊」打开这条消息的抽屉并滚到「分诊建议」 */
   onOpenTriage: (id: string) => void
   /** 群组默认归属的项目：群的会话键 -> 项目 id；选中一个群标签时能设、改、清除（null） */
@@ -574,7 +576,7 @@ export function MessagesPage({ messages, contacts, connectors, selected, onOpen,
         <TriageBar sops={sops} runs={runs} targets={picked.length ? picked : rows}
           scope={picked.length ? `勾选的 ${picked.length} 条` : `当前筛选结果全部 ${rows.length} 条`}
           onCancel={() => setTriaging(false)}
-          onBatch={(sopId, ids, rerun) => onBatchTriage(sopId, ids, rerun)}
+          onBatch={(sopId, ids, rerun, batchId) => onBatchTriage(sopId, ids, rerun, batchId)} onStopRuns={onStopRuns}
           onDone={(r) => {
             setTriaging(false)
             setSel(new Set())

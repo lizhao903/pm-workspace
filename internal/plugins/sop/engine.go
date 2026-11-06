@@ -43,6 +43,8 @@ type engine struct {
 	claude claudeWaiters
 	// pwaits 是挂起等服务商恢复的步骤（TSK-0392，provider_wait.go）
 	pwaits providerWaits
+	// batches 是被停止过的批量发起批次（TSK-0717，runstop.go）：同一批后面的发起不再新起执行
+	batches stoppedBatches
 
 	mu    sync.Mutex
 	ctx   context.Context // 后台任务的 ctx，ready 关闭后才有
@@ -1022,6 +1024,8 @@ func (r *runner) apply(ctx context.Context, a Action) error {
 					}()
 				}
 				r.cancelStep(i)
+				// 挂起等服务商恢复的也一起清掉，免得之后按服务商重跑时还算它（TSK-0717）
+				r.e.pwaits.drop(r.run.ID, r.defs[i].Key)
 				s.Status = stPending
 				r.log(i, t, "执行被终止")
 			}

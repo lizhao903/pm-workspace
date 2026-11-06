@@ -200,6 +200,9 @@ var contractSpecs = map[string]contractSpec{
 	"SopPipelineBudget": {v: sop.PipelineBudget{}},
 	"SopClaudeUsage":    {v: sop.ClaudeUsage{}},
 	"SopWaitingItem":    {v: sop.WaitingItem{}},
+	// 批量停止（TSK-0717）
+	"SopRunStopResult":         {v: sop.RunStopResult{}},
+	"SOP 编排插件 sop / 运行#table1": {skip: "POST /api/sop/runs/stop 的请求体，按 map 读，无结构"},
 
 	"TerminalSession": {v: terminal.Session{}},
 

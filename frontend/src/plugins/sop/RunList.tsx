@@ -5,6 +5,8 @@
 // 失败的行另有一个「重试」按钮（各视图都有）：单条重跑，流程发起后改过就按最新流程重新发起，否则在原执行里重试。
 // 重跑成功后结果先写进缓存（core/data 的 applyRerun）：重试的变执行中，重新发起的原执行变「已重跑」，都立即离开「失败」和「待我处理」。
 // 「已重跑」（sopRunShow）只在「全部」里出现，灰色，行右边「新执行」打开重跑出来的那条
+// 停止（TSK-0717，SPEC-sop-4.20~4.25）：执行中、待我处理的行右边有「停止」；「执行中」「待我处理」分段和待我处理页能勾选批量停止
+// （只有能停的行有勾选框）；工具栏「停止全部运行中」按条件停（选了流程只停这条流程的），确认框先数出将停几条（StopDialog）
 // 待我处理（TSK-0486）：执行由 Page 合并「没走完和待我处理」的那份给，不受最近 500 条限制；执行下面另一组「停在等人阶段的任务」，
 // 同今日「待我处理」的阶段那几条（没有等人步骤算到它头上的），点了去任务的流水线标签。按流程筛选时这组不出现，搜索按编号和标题
 import { useMemo, useRef, useState } from 'react'
@@ -19,6 +21,8 @@ import { RunHead, RunRow } from './parts'
 import { RerunDialog } from './RerunDialog'
 import { defaultRerun, rerunNote, staleRuns } from './rerun'
 import { useSourceText } from './source'
+import { isStoppable } from './stop'
+import { StopDialog, type StopTarget } from './StopDialog'
 
 const PAGE = 30
 const STATUS_SEG: [('' | SopRunStatus), string][] = [['', '全部'], ['running', '执行中'], ['waiting', '待我处理'], ['failed', '失败'], ['done', '已完成']]
@@ -43,11 +47,12 @@ export function RunList({ runs, flows, view, flow, onFlow, onOpen, now, stageTas
   const [more, setMore] = useState<Partial<Record<DaySeg, number>>>({})
   const [sel, setSel] = useState<ReadonlySet<string>>(() => new Set())
   const [rerunOpen, setRerunOpen] = useState(false)
+  const [stopping, setStopping] = useState<StopTarget | null>(null)
   const [note, setNote] = useState<{ text: string; bad: boolean } | null>(null)
   const waiting = view === 'waiting'
   const status = waiting ? '' : st
-  // 只有「失败」分段能多选重跑
-  const picking = status === 'failed'
+  // 「失败」分段多选重跑；「执行中」「待我处理」分段和待我处理页多选停止（只有能停的行能勾）
+  const pickMode: 'rerun' | 'stop' | null = status === 'failed' ? 'rerun' : status === 'running' || status === 'waiting' || waiting ? 'stop' : null
 
   const options = useMemo(() => flowOptions(flows, runs), [flows, runs])
   const base = baseRuns(runs, { flow, q, waitingOnly: waiting })
@@ -59,7 +64,9 @@ export function RunList({ runs, flows, view, flow, onFlow, onOpen, now, stageTas
   const kw = q.trim().toLowerCase()
   const tasks = waiting && !flow ? (stageTasks ?? []).filter((t) => !kw || `${t.ref} ${t.title}`.toLowerCase().includes(kw)) : []
   // 勾选只认当前筛选结果里的；全选按列表顺序取前 200 条（含折叠、没显示出来的）
-  const ordered = segs.flatMap((s) => s.xs)
+  const pickable = (r: SopRunBrief) => pickMode === 'rerun' || (pickMode === 'stop' && isStoppable(r))
+  const ordered = segs.flatMap((s) => s.xs).filter(pickable)
+  const picking = ordered.length > 0
   const picked = picking ? ordered.filter((r) => sel.has(r.id)) : []
   const allN = Math.min(ordered.length, SOP_BATCH_MAX)
   const allPicked = picked.length > 0 && picked.length >= allN
@@ -75,19 +82,34 @@ export function RunList({ runs, flows, view, flow, onFlow, onOpen, now, stageTas
     setSel(new Set())
     setNote(rerunNote(action, r))
   }
+  const onStopDone = (n: { text: string; bad: boolean }) => {
+    setStopping(null)
+    setSel(new Set())
+    setNote(n)
+  }
+  // 「停止全部运行中」：选了流程只停这条流程的；按钮在列表里有能停的执行时出现，条数以后端数的为准
+  const anyStoppable = base.some(isStoppable)
+  const flowName = flow ? options.find((o) => o.value === flow)?.label ?? '这条流程' : ''
+  const stopAll = () => setStopping(flow ? { kind: 'where', scope: { flow_id: flow }, label: `流程「${flowName}」` } : { kind: 'where', scope: { all_running: true }, label: '全部流程' })
 
-  // 有失败、已重跑的行时每行右边留一格放「重试」「新执行」，列才对得齐
-  const hasFailed = rows.some((r) => sopRunShow(r) === 'failed' || sopRunShow(r) === 'relaunched')
+  // 有失败、已重跑、能停的行时每行右边留一格放「重试」「新执行」「停止」，列才对得齐
+  const hasFailed = rows.some((r) => sopRunShow(r) === 'failed' || sopRunShow(r) === 'relaunched' || isStoppable(r))
   const rowOf = (r: SopRunBrief) => {
     const row = <RunRow r={r} onOpen={onOpen} now={now} source={sourceOf(r)} />
     if (!picking && !hasFailed) return <RunRow key={r.id} r={r} onOpen={onOpen} now={now} source={sourceOf(r)} />
     const shown = sopRunShow(r)
     return (
       <div key={r.id} className={cls('sop-run-pick', !picking && 'sop-run-nopick', sel.has(r.id) && 'picked')}>
-        {picking && <input type="checkbox" className="sop-pick" checked={sel.has(r.id)} aria-label={`选中 ${r.title}`} onChange={() => togglePick(r.id)} />}
+        {picking && (pickable(r)
+          ? <input type="checkbox" className="sop-pick" checked={sel.has(r.id)} aria-label={`选中 ${r.title}`} onChange={() => togglePick(r.id)} />
+          : <span className="sop-pick sop-pick-none" aria-hidden="true" />)}
         {row}
         {hasFailed && (
           <span className="sop-run-act">
+            {isStoppable(r) && (
+              <button type="button" className="btn btn-sm btn-danger-ghost" title="停止这条执行：排队的步骤出队，正在调模型的请求取消，已建出的任务不撤回"
+                aria-label={`停止 ${r.title}`} onClick={() => setStopping({ kind: 'ids', runs: [r] })}>停止</button>
+            )}
             {shown === 'failed' && <RetryButton r={r} flows={flows} onDone={(a, res) => setNote(rerunNote(a, res))} onError={(text) => setNote({ text, bad: true })} />}
             {shown === 'relaunched' && (
               <button type="button" className="btn btn-sm btn-ghost" title="这条失败的执行已按最新流程重跑，打开重跑出来的新执行"
@@ -125,6 +147,11 @@ export function RunList({ runs, flows, view, flow, onFlow, onOpen, now, stageTas
         <SearchSelect value={flow} onChange={(v) => { onFlow(v); setMore({}) }} noneLabel="全部流程" searchPlaceholder="搜流程" options={options}
           missingLabel={() => '已删除的流程'} />
         <span className="spacer" />
+        {anyStoppable && (
+          <Button variant="danger-ghost" size="sm" onClick={stopAll} title={flow ? '停止这条流程全部执行中、等你处理的执行' : '停止全部执行中、等你处理的执行'}>
+            停止全部运行中
+          </Button>
+        )}
         <div className="search">
           <IconSearch />
           <input placeholder="搜索执行标题、流程名" aria-label="搜索执行" value={q} onChange={(e) => { setQ(e.target.value); setMore({}) }} />
@@ -145,7 +172,7 @@ export function RunList({ runs, flows, view, flow, onFlow, onOpen, now, stageTas
           {picking || hasFailed ? (
             <div className={cls('sop-run-pick sop-run-pick-th', !picking && 'sop-run-nopick')}>
               {picking && (
-                <input type="checkbox" className="sop-pick" checked={allPicked} aria-label={`全选当前筛选结果（最多 ${SOP_BATCH_MAX} 条）`}
+                <input type="checkbox" className="sop-pick" checked={allPicked} aria-label={`全选当前筛选结果${pickMode === 'stop' ? '里能停的' : ''}（最多 ${SOP_BATCH_MAX} 条）`}
                   ref={(el) => { if (el) el.indeterminate = picked.length > 0 && !allPicked }}
                   onChange={() => (allPicked ? setSel(new Set()) : pickAll())} />
               )}
@@ -182,22 +209,25 @@ export function RunList({ runs, flows, view, flow, onFlow, onOpen, now, stageTas
         </div>
       )}
       {picked.length > 0 && (
-        <div className="sop-bulk" role="toolbar" aria-label="批量重跑">
+        <div className="sop-bulk" role="toolbar" aria-label={pickMode === 'stop' ? '批量停止' : '批量重跑'}>
           <span className="sop-bulk-n">已选 {picked.length} 条</span>
           {picked.length < allN && (
             <button type="button" className="btn btn-sm btn-ghost" onClick={pickAll}>全选当前筛选结果 {allN} 条</button>
           )}
           {ordered.length > SOP_BATCH_MAX && picked.length >= SOP_BATCH_MAX && (
-            <span className="sop-bulk-hint" role="note">当前筛选结果有 {ordered.length} 条，一次最多重跑 {SOP_BATCH_MAX} 条，已选列表里的前 {SOP_BATCH_MAX} 条</span>
+            <span className="sop-bulk-hint" role="note">当前筛选结果有 {ordered.length} 条，一次最多{pickMode === 'stop' ? '停止' : '重跑'} {SOP_BATCH_MAX} 条，已选列表里的前 {SOP_BATCH_MAX} 条</span>
           )}
           <span className="spacer" />
-          <Button variant="primary" size="sm" onClick={() => setRerunOpen(true)}>批量重跑</Button>
+          {pickMode === 'stop'
+            ? <Button variant="danger" size="sm" onClick={() => setStopping({ kind: 'ids', runs: picked.slice(0, SOP_BATCH_MAX) })}>批量停止</Button>
+            : <Button variant="primary" size="sm" onClick={() => setRerunOpen(true)}>批量重跑</Button>}
           <button type="button" className="btn btn-sm btn-ghost" onClick={() => setSel(new Set())}>取消选择</button>
         </div>
       )}
       {rerunOpen && (
         <RerunDialog runs={picked.slice(0, SOP_BATCH_MAX)} flows={flows} onCancel={() => setRerunOpen(false)} onDone={onRerunDone} />
       )}
+      {stopping && <StopDialog target={stopping} onCancel={() => setStopping(null)} onDone={onStopDone} />}
     </div>
   )
 }
