@@ -207,6 +207,15 @@ export function progressText(r: SopRunBrief) {
   return `${doneN}/${walked.length} ${r.steps[r.focus]?.name ?? ''}`.trim()
 }
 
+/**
+ * 最近 N 条执行和「没走完、待我处理」的执行合成一份（TSK-0486）：较早的等人、失败、执行中的执行不会因为被新执行挤出窗口而看不见。
+ * 两边都有的取最近那份（同一次刷新取的），只在没走完那份里的补在后面
+ */
+export function mergeRuns<T extends { id: string }>(recent: readonly T[], open: readonly T[]): T[] {
+  const seen = new Set(recent.map((r) => r.id))
+  return [...recent, ...open.filter((r) => !seen.has(r.id))]
+}
+
 export type FlowStat = { n: number; pending: number; last: number }
 /** 每个流程的执行次数、待处理次数、最近一次开始时间 */
 export function flowStats(runs: readonly SopRunBrief[]) {

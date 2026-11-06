@@ -490,3 +490,17 @@ export function useSopPipeline(taskId: string | null, opts: { refetchInterval?: 
     refetchInterval: opts.refetchInterval,
   })
 }
+
+/**
+ * 没走完和待我处理的执行（TSK-0486）：running、waiting 和没重跑过的 failed（后端 status 过滤不含已重跑的），最多 500 条。
+ * 「最近 500 条」里可能一条等人的都没有（较早的失败执行被新的已完成执行挤出窗口），SOP 页把这份和最近的合起来用。
+ * 在 runs 前缀下：事件一来跟着刷，重跑的乐观更新（applyRerun）也改它
+ */
+export const sopOpenRunsKey = ['sop', 'runs', 'open'] as const
+export async function fetchSopOpenRuns(signal?: AbortSignal) {
+  const query = new URLSearchParams({ status: 'running,waiting,failed', limit: String(SOP_RUNS_MAX) })
+  return (await requestList<SopRunBrief>('/api/sop/runs', { query, signal })).data.map(normBrief)
+}
+export function useSopOpenRuns(opts: Poll = {}) {
+  return useQuery({ queryKey: sopOpenRunsKey, queryFn: ({ signal }) => fetchSopOpenRuns(signal), retry: noRetry404, refetchInterval: opts.refetchInterval })
+}
