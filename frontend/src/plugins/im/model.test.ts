@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { Connector, ImMessage } from '../../core/data'
 import {
-  BATCH_MAX, GROUP_TAB_MAX, replyNoteOf, channelTable, convBatch, convIdOf, convKey, convOk, convTabs, dmTab, pickAll, pickedRows, togglePick, convOptions, dayLabel, filterRows, fmtSize, inView, mentionParts, nextWake, replyBlocker, replyWarning, snoozeOptions, statusItems, statusView, viewsOf,
+  GROUP_TAB_MAX, replyNoteOf, channelTable, convBatch, convIdOf, convKey, convOk, convTabs, dmTab, pickedRows, togglePick, convOptions, dayLabel, filterRows, fmtSize, inView, mentionParts, nextWake, replyBlocker, replyWarning, snoozeOptions, statusItems, statusView, viewsOf,
   taskTitleOf, clip100, contactCandidates, nameCloseness,
 } from './model'
 
@@ -149,8 +149,6 @@ describe('批量处理（PR-03）', () => {
     sel = togglePick(sel, 'msg_gone')
     expect(pickedRows([a, b, c], sel).map((m) => m.id)).toEqual([a.id])
     expect(togglePick(sel, a.id).has(a.id)).toBe(false)
-    expect([...pickAll([a, b, c])]).toEqual([a.id, c.id])
-    expect(pickAll(Array.from({ length: BATCH_MAX + 3 }, () => msg())).size).toBe(BATCH_MAX)
   })
 
   it('会话：登记过的按会话 + 最近一条时间点，没登记的按 id；不含稍后和已处理', () => {
@@ -163,6 +161,9 @@ describe('批量处理（PR-03）', () => {
     const loose = msg({ conversation_external_id: 'C09' })
     expect(convBatch([loose], convKey(loose), NOW)).toEqual({ n: 1, input: { ids: [loose.id] } })
     expect(convBatch(xs, '', NOW)).toBeNull()
+    // 没登记的会话超过后端一次 500 的上限也不截断（TSK-0492），由 useImBatch 分批
+    const many = Array.from({ length: 503 }, () => msg({ conversation_external_id: 'C08' }))
+    expect(convBatch(many, convKey(many[0]), NOW)?.input).toEqual({ ids: many.map((m) => m.id) })
     expect(convBatch([xs[3]], 'cv:cv_1', NOW)).toBeNull()
   })
 })

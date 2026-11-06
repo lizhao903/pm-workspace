@@ -12,12 +12,11 @@
 .im-dot-alert { width: 7px; height: 7px; border-radius: 50%; background: var(--danger); }
 .im-spin { animation: im-spin 0.9s linear infinite; }
 /* 顶栏窄时按钮只留图标，标题不被挤成省略号（同 SPEC-projects-14.1）：
-   375 宽照常带字（顶栏是容器，宽度按去掉内边距算）；有同步结果或按渠道同步（字更长）时才收；再窄一律收 */
+   顶栏（容器，宽度按去掉内边距算）不到 460 时四个按钮都只留图标——四个都带字要 416px，375 宽会横向滚动、标题被挤成「IM…」（TSK-0492 验收时发现） */
 @container (max-width: 460px) {
-  .tb-actions:has(.im-sync-note) .im-tb-label, .tb-actions .im-sync-ch .im-tb-label { display: none; }
+  .tb-actions .im-tb-label { display: none; }
   .tb-actions .im-sync-note { max-width: 120px; }
 }
-@container (max-width: 300px) { .tb-actions .im-tb-label { display: none; } }
 @keyframes im-spin { to { transform: rotate(360deg); } }
 
 /* ---------- 工具条 ---------- */
@@ -128,6 +127,24 @@ span.im-pick { visibility: hidden; }
 /* 没勾选时的批量条：不抢眼，只留批量分诊和处理队列 */
 .im-bulk-idle { box-shadow: none; background: var(--panel-2); }
 .im-bulk-idle .im-muted { font-size: var(--fs-xs); }
+/* 常驻全选（TSK-0492）：勾选框和「全选」一起点 */
+.im-bulk-all { display: inline-flex; align-items: center; gap: 6px; font-size: var(--fs-sm); cursor: pointer; user-select: none; }
+.im-bulk-all .im-pick { margin: 0; }
+.im-bulk-all:has(input:disabled) { cursor: default; color: var(--muted); }
+.im-bulk-hint { font-size: var(--fs-xs); min-width: 0; }
+@media (max-width: 640px) {
+  .im-bulk { gap: 6px 8px; padding: 8px 10px; }
+  .im-bulk-hint { flex-basis: 100%; order: 1; }
+}
+
+/* 批量分诊分批进度（TSK-0492） */
+.im-tri-prog { display: flex; flex-direction: column; gap: 8px; }
+.im-tri-prog-head { font-size: var(--fs-sm); font-weight: 600; }
+.im-tri-bar { height: 6px; border-radius: 3px; background: var(--panel-2); overflow: hidden; }
+.im-tri-bar > i { display: block; height: 100%; background: var(--accent); transition: width .2s; }
+.im-tri-counts { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: var(--fs-sm); }
+.im-tri-counts .bad { color: var(--danger); }
+.im-tri-fails { margin: 0; padding-left: 18px; font-size: var(--fs-sm); color: var(--danger); overflow-wrap: anywhere; }
 
 /* ---------- 抽屉 ---------- */
 .im-kicker { display: inline-flex; align-items: center; gap: 6px; min-width: 0; }

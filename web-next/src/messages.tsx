@@ -7,7 +7,8 @@ import type { Project } from './projectdata'
 import { useEnumView } from './enumdata'
 import { SearchSelect, type SearchOption } from './searchselect'
 import type { Sop, SopRun } from './sopflow'
-import { TriageBar, TriageTag, activeTriage, latestTriage } from './triage'
+import { TRIAGE_TOTAL_MAX, TriageBar, TriageTag, activeTriage, latestTriage } from './triage'
+import './msgbulk.css'
 import { AgentSection, ReplyBarActions } from './msgagent'
 import { MaterialSection, notesOf } from './msgmaterial'
 import { clusterMessages, countLabel, isOpenMsg, nestThreads, previewText, rowTime, threadHint, threadOf, toRows, type MsgRow, type SessionIntent } from './msggroup'
@@ -315,6 +316,35 @@ export function MessagesPage({ messages, contacts, connectors, selected, onOpen,
   const viewRows = useMemo(() => nestThreads(toRows(rows, clusters, merge), messages), [rows, clusters, merge, messages])
   const byId = useMemo(() => new Map(messages.map((m) => [m.id, m])), [messages])
   const shown = viewRows.slice(0, limit)
+  // 勾选和常驻全选（SPEC-messages-1.40、1.41，TSK-0492）：还没处理的（待处理含稍后、已过期）能勾；
+  // 已选按列表上看得到的消息算（不含收起的消息列回复），全选只选已加载（已渲染出来的行）里能勾的
+  const [sel, setSel] = useState<ReadonlySet<string>>(() => new Set())
+  const picked = viewRows.flatMap((r) => r.items).filter((m) => sel.has(m.id) && isOpenMsg(m))
+  const loaded = shown.flatMap((r) => r.items.filter(isOpenMsg))
+  const allState = loaded.length && loaded.every((m) => sel.has(m.id)) ? 'all' : picked.length ? 'some' : 'none'
+  const unloaded = viewRows.length > limit
+  const toggleAll = () => setSel((x) => (allState === 'all' ? new Set<string>() : new Set([...x, ...loaded.map((m) => m.id)])))
+  const toggleIds = (ids: string[]) => setSel((x) => {
+    const n = new Set(x)
+    const on = ids.every((id) => n.has(id))
+    for (const id of ids) { if (on) n.delete(id); else n.add(id) }
+    return n
+  })
+  const bulk = (kind: 'done' | 'ignore') => {
+    picked.forEach((m) => onAct(m.id, { kind }))
+    setTriageNote(`已把 ${picked.length} 条标为${msgEnum.label(kind === 'done' ? 'done' : 'ignored')}`)
+    setSel(new Set())
+  }
+  const pickBox = (ms: Message[], label: string) => {
+    const xs = ms.filter(isOpenMsg)
+    if (!xs.length) return <span className="msg-pick" aria-hidden="true" />
+    const n = xs.filter((m) => sel.has(m.id)).length
+    return (
+      <input type="checkbox" className="msg-pick" aria-label={label} checked={n > 0 && n === xs.length}
+        ref={(el) => { if (el) el.indeterminate = n > 0 && n < xs.length }}
+        onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()} onChange={() => toggleIds(xs.map((m) => m.id))} />
+    )
+  }
   // 每天的条数按消息算（归来的消息列回复也算），一组归在它最新一条那天
   const dayCount = new Map<string, number>()
   for (const r of viewRows) {
@@ -411,6 +441,7 @@ export function MessagesPage({ messages, contacts, connectors, selected, onOpen,
       <div role="button" tabIndex={0} className={cls('msg msg-group', selectedGroup === r.key && 'sel', unread > 0 && 'unread', !open.length && 'msg-closed')}
         onClick={() => onOpenGroup(r.key)} onKeyDown={(e) => e.key === 'Enter' && onOpenGroup(r.key)}>
         <span className="msg-unread" />
+        {pickBox(r.items, `选中 ${who?.name ?? m.sender_name} 这一组`)}
         <Avatar name={who?.name ?? m.sender_name} size={34} src={who?.photo} />
         <div className="msg-main">
           <div className="msg-top">
@@ -508,18 +539,38 @@ export function MessagesPage({ messages, contacts, connectors, selected, onOpen,
         </div>
       </div>
 
-      {/* 页面下方的批量处理条（SPEC-messages-1.51、1.52）：原型列表不能勾选，只有批量分诊（对当前筛选结果）和处理队列 */}
-      <div className="run-bulk msg-bulk-idle" role="toolbar" aria-label="批量处理">
-        <span className="list-sub">批量分诊对当前筛选结果（最多 200 条）</span>
+      {/* 页面下方的批量处理条（SPEC-messages-1.41、1.51、1.52，TSK-0492）：左边常驻全选框（已加载里能勾的）和「已选 N 条 / 已加载 M 条」；
+          勾了时多「标为已处理」「忽略」「取消选择」；批量分诊对勾选的，没勾时对当前筛选结果 */}
+      <div className={cls('run-bulk', !picked.length && 'msg-bulk-idle')} role="toolbar" aria-label="批量处理">
+        <label className="msg-bulk-all" title={loaded.length ? `选中已加载的 ${loaded.length} 条能处理的消息` : '已加载的消息里没有能勾选的（只有还没处理的能勾）'}>
+          <input type="checkbox" className="msg-pick" aria-label="全选已加载的消息" disabled={!loaded.length} checked={allState === 'all'}
+            ref={(el) => { if (el) el.indeterminate = allState === 'some' }} onChange={toggleAll} />
+          全选
+        </label>
+        {picked.length > 0 && <b>已选 {picked.length} 条</b>}
+        <span className="list-sub">{picked.length > 0 ? '/ ' : ''}已加载 {loaded.length} 条</span>
+        {unloaded && loaded.length > 0 && <span className="list-sub msg-bulk-hint">还有未加载的，加载更多后再全选可包含更多</span>}
+        {!picked.length && <span className="list-sub msg-bulk-hint">不勾时批量分诊对当前筛选结果 {rows.length} 条</span>}
         <span className="spacer" />
-        <button className="btn btn-outline" onClick={() => setTriaging(true)} title="给当前筛选结果全部的消息各发起一次分诊流程（最多 200 条）">批量分诊</button>
+        <button className="btn btn-outline" onClick={() => setTriaging(true)} disabled={!picked.length && !rows.length}
+          title={picked.length ? `给勾选的 ${picked.length} 条消息各发起一次分诊流程` : `给当前筛选结果全部的消息各发起一次分诊流程（最多 ${TRIAGE_TOTAL_MAX} 条，超过 200 条自动分批）`}>批量分诊</button>
+        {picked.length > 0 && (
+          <>
+            <button className="btn btn-primary" onClick={() => bulk('done')}>标为{msgEnum.label('done')}</button>
+            <button className="btn btn-outline" onClick={() => bulk('ignore')}>忽略</button>
+          </>
+        )}
         <button className="btn btn-outline" onClick={onOpenQueue} title="分诊这类按消息发起的流程执行：进行中的和最近结束的">处理队列{activeN > 0 && <span className="seg-n">{activeN}</span>}</button>
+        {picked.length > 0 && <button className="btn btn-ghost" onClick={() => setSel(new Set())}>取消选择</button>}
       </div>
       {triaging && (
-        <TriageBar sops={sops} runs={runs} targets={rows} onCancel={() => setTriaging(false)}
-          onStart={(sopId, rerun) => {
-            const r = onBatchTriage(sopId, rows.map((m) => m.id), rerun)
+        <TriageBar sops={sops} runs={runs} targets={picked.length ? picked : rows}
+          scope={picked.length ? `勾选的 ${picked.length} 条` : `当前筛选结果全部 ${rows.length} 条`}
+          onCancel={() => setTriaging(false)}
+          onBatch={(sopId, ids, rerun) => onBatchTriage(sopId, ids, rerun)}
+          onDone={(r) => {
             setTriaging(false)
+            setSel(new Set())
             setTriageNote(`分诊发起 ${r.started} 条${r.skipped ? `，跳过 ${r.skipped} 条已跑过的` : ''}`)
           }} />
       )}
@@ -580,6 +631,7 @@ export function MessagesPage({ messages, contacts, connectors, selected, onOpen,
                 title={r.faded ? '原消息不在当前筛选里，消息列有新回复才显示' : undefined}
                 onClick={() => onOpen(m.id)} onKeyDown={(e) => e.key === 'Enter' && onOpen(m.id)}>
                 <span className="msg-unread" />
+                {pickBox(r.faded ? [] : [m], `选中 ${who?.name ?? m.sender_name} 的消息`)}
                 <Avatar name={who?.name ?? m.sender_name} size={34} src={who?.photo} />
                 <div className="msg-main">
                   <div className="msg-top">

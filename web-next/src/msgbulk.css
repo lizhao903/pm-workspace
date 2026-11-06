@@ -1,0 +1,13 @@
+/* IM 消息页的勾选和常驻全选（SPEC-messages-1.40、1.41，TSK-0492）、批量分诊分批进度（1.51） */
+.msg-pick { flex: none; width: 16px; height: 16px; margin: 9px 0 0; accent-color: var(--accent); cursor: pointer; }
+span.msg-pick { visibility: hidden; }
+.msg-bulk-all { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; user-select: none; }
+.msg-bulk-all .msg-pick { margin: 0; }
+.msg-bulk-all:has(input:disabled) { cursor: default; color: var(--muted); }
+.msg-bulk-hint { min-width: 0; }
+.tri-prog { display: inline-block; width: 120px; height: 6px; border-radius: 3px; background: var(--hover); overflow: hidden; }
+.tri-prog > i { display: block; height: 100%; background: var(--accent); transition: width .2s; }
+@media (max-width: 640px) {
+  .msg-bulk-hint { flex-basis: 100%; order: 1; }
+  .tri-prog { width: 100%; }
+}
