@@ -1,6 +1,6 @@
 // Package projects 是「项目」插件的后端（PJ-01a 起）。清单 plugin.json 只有这一份，前端构建时也读它。
 // 项目本身仍是内核 type=project 的对象，字段约定见 docs/api-contract.md「项目插件」；
-// 插件自己的表放项目干系人（PJ-01b）、绑定的 IM 会话（PJ-02a）、项目资料（PJ-03a）、原型定义和崩溃记录（PJ-04a）、项目档案（AUTO-04）、需求工作区（AUTO-07）、测试记录（AUTO-08）、发布记录（AUTO-10）、原型同步记录（AUTO-11）。
+// 插件自己的表放项目干系人（PJ-01b）、绑定的 IM 会话（PJ-02a）、项目资料（PJ-03a）、原型定义和崩溃记录（PJ-04a）、项目档案（AUTO-04）、需求工作区（AUTO-07）、测试记录（AUTO-08）、发布记录（AUTO-10）、原型同步记录（AUTO-11）、项目绑定的知识库（TSK-0721）。
 package projects
 
 import (
@@ -104,6 +104,8 @@ func (p *Plugin) Register(r plugin.Registrar) error {
 	ps.register(r, h)
 	rs.onReleased = ps.onReleased
 	p.protoSyncs = ps
+	// 项目知识库：绑定接口、SOP 节点「项目资料同步到知识库」、内置流程「每周一 10:00 整理项目知识库」（TSK-0721，kb.go）
+	newKBService(r.Core(), h).register(r)
 	// 交给 Claude Code 时内核经这个入口取项目登记的原型目录
 	r.ProjectPrototypes(prototypeDirs(r.Core()))
 	// 常驻任务只等取消：插件停用、服务关闭时停掉这次启用起的全部原型进程

@@ -125,7 +125,7 @@ export function ProjectPage({ id, tab, onTab, onAll, onSwitch }: {
         {tab === 'sop' && <SopTab key={o.id} project={o} />}
         {tab === 'agents' && <AgentsTab key={o.id} project={o} />}
         {tab === 'docs' && <DocsTab key={o.id} projectId={o.id} docsDir={p.docsDir} root={p.root} onSettings={() => onTab('settings')} adding={docAdding} onAdding={setDocAdding} />}
-        {tab === 'materials' && <MaterialsTab key={o.id} projectId={o.id} root={p.root} adding={matAdding} onAdding={setMatAdding} />}
+        {tab === 'materials' && <MaterialsTab key={o.id} projectId={o.id} root={p.root} adding={matAdding} onAdding={setMatAdding} onSettings={() => onTab('settings')} />}
         {tab === 'prototypes' && <PrototypesTab key={o.id} projectId={o.id} projectName={p.name} root={p.root} adding={protoAdding} onAdding={setProtoAdding} />}
         {plug && <Suspense fallback={<LoadingState />}><plug.page key={o.id} projectId={o.id} /></Suspense>}
         {cur.todo && <EmptyState title={`「${cur.label}」还在开发中`} desc={cur.todo} />}

@@ -120,6 +120,8 @@ type Core interface {
 	CacheDir() string
 	// Agent 用默认服务商补全、按 Agent 的授权跑一轮、搜指定知识库（SOP-01c，agent.go）。
 	Agent() AgentService
+	// Knowledge 取、建知识库，按插件自己的资料同步知识库里它加进来的篇目，把知识库挂到 Agent（TSK-0721，knowledge.go）。
+	Knowledge() KnowledgeService
 	// Granted 看用户确认过这项权限没有，只认状态表里确认过的（SEC-01，permissions.go）。
 	Granted(perm string) bool
 	// RevokePermission 收回自己单独授予的权限（如 trade:live），只能收回不能授予（TRD-08c，separate.go）。

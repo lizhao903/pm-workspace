@@ -246,6 +246,7 @@ type Core interface {
 	WorktreeDir() string                     // 数据目录下 worktrees/ 的绝对路径，没接数据目录为空串；项目插件在这里建需求工作区（AUTO-07）
 	CacheDir() string                        // 数据目录下 cache/<插件 id>/ 的绝对路径，没接数据目录为空串；放缩略图这类能重新生成的东西（TSK-0456）
 	Agent() AgentService                     // 用默认服务商补全、按 Agent 的授权跑一轮、搜指定知识库（SOP-01c）
+	Knowledge() KnowledgeService             // 取、建知识库，按插件自己的资料同步它加进来的篇目，挂到 Agent（TSK-0721，下面「知识库句柄」）
 	Granted(perm string) bool                // 用户确认过这项权限没有（SEC-01，2.13.16）
 	RevokePermission(ctx context.Context, perm string) error // 收回自己单独授予的权限（如 trade:live），只能收回不能授予（TRD-08c，2.13.26）
 	SOP() SOPService                         // SOP 节点、唤醒和失败、内置流程、指向流程的定时任务（2.7、2.13.14、2.13.15）
@@ -263,6 +264,19 @@ type Core interface {
 `RouteRegistrar` 沿用 `internal/api/server.go` 里的同名接口（`HandleFunc(pattern, handler)`），路径必须以 `/api/<id>/` 开头；内核在外面包一层，停用时整组返回 404。加了路由照旧要写进 `docs/api-contract.md`（契约测试双向检查）。
 
 内核对象只读句柄（已实现，`internal/plugin/store.go`）：`Objects().Get(ctx, id)` 返回 `ObjectInfo{ID, Type, Ref, Title, Workdir, Props, Deleted, Status, ProjectID, OwnerID}`（`ProjectID` 是对象所属项目，没挂项目为空串，AUTO-07 加；`OwnerID` 是负责人联系人 id，没有为空串，TSK-0411 加），没有这个 id 返回 `ErrNoRows`。`Status` 是状态 key（按类型隔离，IM 的「等任务执行完成」节点看任务是不是 `done`，0.19.0 加）。`Props` 是对象的自定义字段（JSON 解开的 `map[string]any`，解不开为空 map），`Ref` 是给人看的编号（消息分流加，SOP 的写进项目目录要读项目的 `props.related`）。`Objects().Find(ctx, typeID, key)` 在一个类型里按 id、`ref`（不分大小写）、标题（完全相同）依次找没删的对象，标题重名取最早建的，都找不到返回 `ErrNoRows`（消息分流加，SOP 节点和 IM 的归到项目按「项目 id、编号或名字」认项目）。`Workdir` 是对象自身的 `workdir` 列，对项目就是 `root`，没设为空串，不往所属项目继承（TERM-01c 加）。项目根目录可能存成了 `file://` 地址，拿来当目录用之前过一遍 `plugin.LocalDir`（SEC-01 加：去掉前缀、按 URL 解码，不是 `file://` 的原样返回）。
+
+`Objects().List(ctx, ObjectQuery{Type, ProjectID, Archived, Limit})`（TSK-0721）按类型（可再按所属项目）列没删的对象，按建立先后；默认不列归档的（`Archived: true` 一起列），`Limit` 默认 500、最多 2000。`ObjectInfo` 加 `Archived`（`archived_at` 非空）。项目插件列项目、项目下的文档用。
+
+知识库句柄（TSK-0721，`internal/plugin/knowledge.go`，实现在内核接口层 `internal/api/kbplugin.go`，`api.New` 接上，没接上回 `ErrNoKnowledge`）：
+
+| 方法 | 说明 |
+|---|---|
+| `Knowledge().Get(ctx, id)` | `KnowledgeBaseInfo{ID, Name, Desc, Docs, Agents}`（`Agents` 是挂着它的 Agent id），不存在回 `ErrNoRows` |
+| `Knowledge().Create(ctx, name, desc)` | 建一个知识库（默认切分设置、不选分类、不挂目录），名称规则同 `POST /api/knowledge-bases`；记审计 `knowledge_base`/`create`，操作者插件 |
+| `Knowledge().Sync(ctx, kbID, scope, items []KBItem)` | 让知识库里 `origin` 为 `<插件 id>:<scope>` 的篇目和 `items` 一致（新的加、变了的重新索引、没了的移出），人工加的、别的插件和别的 scope 的不动，和它们重复的跳过；`KBItem{Key, Kind, Ref, Title, Text, Label}`，`Kind` 是 `file`、`dir`、`note`、`link`、`library`。读本机文件同知识库目录同步的拦截（只收 md、markdown、txt、text，库文件、密钥证书、数据目录里的不收，数据目录下的 `attachments/` 例外；单个文件超过 1MB 跳过），整目录收时目录本身不能是隐藏目录、数据目录或包住它的。回 `KBSyncResult{Added, Updated, Removed, Unchanged, Skipped, Failed, Failures, Skips}`；和知识库页的同步互斥，撞上回冲突错误。有增删改时记审计 `knowledge_base`/`sync` |
+| `Knowledge().AttachAgent(ctx, agentID, kbID)` | 把知识库挂到 Agent 的 `kbs`，已挂回 `false`；记审计 `agent`/`update` |
+
+谁能调：任何插件，不要权限（读文件走内核的拦截，插件拿不到文件内容以外的东西；只能改自己 origin 下的篇目）。
 
 产物登记句柄（已实现，`internal/plugin/artifacts_write.go`，AUTO-08 加）：`Artifacts().Record(ctx, NewArtifact{ObjectID, Title, Path, BaseDir, Kind, Note, Props})` 回产物 id。走 `cmd/pmw` 交的外层 store（同 Claude Code 运行的产物登记），`source` 固定 `run`、`actor_type` 固定 `run`、`actor_id` / `actor_label` 为插件 id，`platform` 为 `local`，插件改不了；`ObjectID` 空串不挂对象；`Path` 可以是相对 `BaseDir` 的路径；`Kind` 是字典 `artifact_kind` 的 key（不认的回 `domain.ErrValidation`）。没接 store 回 `ErrNoObjectWriter`。只登记，不改、不删。项目插件用它把测试报告、截图登记为任务产出。
 
@@ -1501,6 +1515,12 @@ type SOPFlowTemplate struct { // 形状同 POST /api/sop/flows 的请求体
 	Fields  json.RawMessage `json:"fields"`
 	Steps   json.RawMessage `json:"steps"`
 	Layout  json.RawMessage `json:"layout,omitempty"`
+	// 触发方式是 schedule 时随流程一起建的定时任务（TSK-0721）；nil 时流程是「定时，未配置」
+	Schedule *SOPFlowTemplateSchedule `json:"schedule,omitempty"`
+}
+type SOPFlowTemplateSchedule struct {
+	Rule    SOPScheduleRule `json:"rule"`    // 同 /api/schedules 的 rule
+	Enabled bool            `json:"enabled"` // 建出来启不启用；到点自动跑的事建议 false，由用户确认后启用
 }
 var ErrNoSOPFlowInstaller error
 ```
@@ -1509,6 +1529,7 @@ var ErrNoSOPFlowInstaller error
 - 权限：不要权限。
 - SOP 插件没在跑、或它的引擎没实现 `SOPFlowInstaller` 回 `ErrNoSOPFlowInstaller`，调用方下次再试。写入时已有同 id 的不动、回 `false`（用户放的文件夹也不动，TSK-0482）；撤下只删还是第 1 版、没放进文件夹、没有进行中的执行、没被定时任务引用的，别的回 `false` 和原因（不算出错；放进了文件夹的原因是「流程放进了文件夹，留给用户」）。写进来的流程在「未分类」。
 - 插件自己记「写过没有」（视频插件用 `video_sop_templates` 表），用户删掉内置流程后不会被再写回来。
+- 定时规则（TSK-0721，SOP 插件 0.19.0 起）：`Schedule` 给了且 `Trigger` 是 `schedule` 时，第一次写入同时建随流程管理的定时任务（按 `Enabled` 启停）；流程已有、还是第 1 版、又没有这一条时（上次写入时内核没接定时任务、SOP 插件是旧版）补建，用户改过的不动。内核没接定时任务时不建，不算出错。
 
 例子（`internal/plugins/video/sopnodes.go`）：
 
@@ -2136,6 +2157,8 @@ stateDiagram-v2
 | 1.1.0 | 2026-10-29 | `Core` 加 `Runs()`：发起 Agent、SOP 运行和交给 Claude Code，跑完给发起的插件投 `run.finished`（VID-03a） |
 
 补记（不改版本号，2026-11-06，TSK-0491）：SOP 节点扩展点（2.7）`SOPNodeSpec` 加 `Effect`（`SOPEffectRead` / `SOPEffectWrite` / `SOPEffectWait`）、`DryRun`，SOP 调试按它决定真跑还是模拟；声明 `read` 的节点 `Run` 必须不改任何数据。流程目录加可选接口 `SOPDebugger`（`TestSOP`、`ExplainIMTrigger`，类型 `SOPTest`，内核别名 `SOPCatalogDebugger`），Agent 的 `test_sop`、`explain_im_trigger` 经注册表 `Registry.TestSOP` / `ExplainIMTrigger` 调；SOP 插件旧版本没实现时这两个工具不出现。只增不改。IM（0.28.0）、视频（0.8.2）插件声明了各自节点的 `Effect`；IM 插件 `emits` 加 `im.message_muted`。
+
+补记（不改版本号，2026-11-06，TSK-0721）：`Core` 加 `Knowledge()`（类型 `KnowledgeService`、`KnowledgeBackend`、`KnowledgeBaseInfo`、`KBItem`、`KBSyncResult`、`KBProblem`，钩子 `Registry.SetKnowledge`）；`ObjectReader` 加 `List`、类型 `ObjectQuery`，`ObjectInfo` 加 `Archived`；`SOPFlowTemplate` 加 `Schedule`（类型 `SOPFlowTemplateSchedule`）。内核迁移 `0054_kb_doc_origin.sql`（`kb_docs.origin`、`origin_key`，来源类型多 `file`）。项目插件实际清单（0.19.0）`sop_nodes` 加 `projects_kb_sync`，迁移加 `0012_kb.sql`（表 `projects_kb`、`projects_sop_templates`），后台任务加 `kb_flow_template`，实现 `Uninstaller`；全部节点补 `Spec.Effect`。SOP 插件 0.19.0 的 `InstallFlow` 认 `Schedule`。只增不改。
 
 补记（不改版本号，2026-11-06，TSK-0490）：SOP 节点扩展点（2.7）`SOPNodeDef`、`SOPNode` 加 `Spec SOPNodeSpec`（`Label`、`Desc`、`Params []SOPParam`、`Outputs []SOPOutput`），加 `WithSOPSpecs(r, specs)` 在登记时按 kind 补声明；`Spec.Params` 里必填的并进 `Required`。流程目录 `SOPCatalog` 加 `SOPGuide`，`SOPFlowDoc` 加 `Warnings`。只增不改：不给 `Spec` 的节点照旧能用（`outputs_open: true`）；`SOPCatalog` 现有唯一实现是 SOP 编排插件（实际清单 0.16.0，不加迁移）。IM（0.26.1）、项目（0.17.1）、视频（0.8.1）插件给各自的节点补了声明，不加迁移。
 

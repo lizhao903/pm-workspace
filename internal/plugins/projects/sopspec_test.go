@@ -3,6 +3,8 @@ package projects
 import (
 	"encoding/json"
 	"testing"
+
+	"github.com/lizhao903/pm-workspace/internal/plugin"
 )
 
 // 清单里登记的 SOP 节点都要有声明（TSK-0490）：名字、说明、配置项、输出字段；配置项要有 key 和 label。
@@ -25,6 +27,16 @@ func TestSOPNodeSpecsComplete(t *testing.T) {
 			t.Errorf("节点 %s 没写名字或说明", k)
 		case sp.Params == nil || sp.Outputs == nil:
 			t.Errorf("节点 %s 的配置项或输出没声明（没有就写空切片）", k)
+		}
+		// 副作用声明（TSK-0491 并入 TSK-0721）：调试按它决定真跑还是模拟，没声明的一律当写操作
+		switch sp.Effect {
+		case plugin.SOPEffectRead, plugin.SOPEffectWait:
+		case plugin.SOPEffectWrite:
+			if sp.DryRun == "" {
+				t.Errorf("写节点 %s 没写调试时怎么模拟（DryRun）", k)
+			}
+		default:
+			t.Errorf("节点 %s 没声明副作用（Effect）", k)
 		}
 		for _, p := range sp.Params {
 			if p.Key == "" || p.Label == "" {

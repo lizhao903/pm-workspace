@@ -138,6 +138,8 @@ var contractSpecs = map[string]contractSpec{
 	"ProjectStakeholder":         {v: projects.Stakeholder{}},
 	"ProjectConversation":        {v: projects.ProjectConversation{}},
 	"ProjectMaterial":            {v: projects.Material{}},
+	"ProjectKB":                  {v: projects.ProjectKB{}},
+	"ProjectKBSync":              {v: projects.ProjectKBSync{}},
 	"ProjectPrototype":           {v: projects.Prototype{}},
 	"PrototypeLogLine":           {v: projects.LogLine{}},
 	"PrototypeCrash":             {v: projects.Crash{}},

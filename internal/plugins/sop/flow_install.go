@@ -19,8 +19,8 @@ var _ plugin.SOPFlowInstaller = (*engine)(nil)
 
 func (e *engine) InstallFlow(ctx context.Context, caller string, t plugin.SOPFlowTemplate) (bool, error) {
 	h := &flows{c: e.c}
-	if _, err := h.get(ctx, t.ID); err == nil {
-		return false, nil
+	if cur, err := h.get(ctx, t.ID); err == nil {
+		return false, e.templateSchedule(ctx, cur, t, false)
 	} else if !errors.Is(err, errNotFound) {
 		return false, err
 	}
@@ -45,7 +45,34 @@ func (e *engine) InstallFlow(ctx context.Context, caller string, t plugin.SOPFlo
 		f.ID, f.Name, f.Desc, f.Trigger, string(f.Fields), string(f.Steps), layoutCol(f.Layout), now, now); err != nil {
 		return false, err
 	}
-	return true, nil
+	return true, e.templateSchedule(ctx, f, t, true)
+}
+
+// templateSchedule 给触发方式是定时的内置流程建随它管理的定时任务（TSK-0721）：刚写入的直接建；已有的流程只在还是第 1 版、
+// 触发方式仍是定时、还没有这一条时补上（上次写入时内核没接定时任务）。内核没接定时任务时不建，不算出错（流程显示「定时，未配置」）。
+func (e *engine) templateSchedule(ctx context.Context, f Flow, t plugin.SOPFlowTemplate, fresh bool) error {
+	if t.Schedule == nil || f.Trigger != triggerSchedule {
+		return nil
+	}
+	svc := e.c.SOP()
+	if !fresh {
+		if f.Version != 1 {
+			return nil
+		}
+		cur, err := svc.FlowSchedule(ctx, f.ID)
+		if errors.Is(err, plugin.ErrNoSOPSchedules) || (err == nil && cur != nil) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+	}
+	rule, on := t.Schedule.Rule, t.Schedule.Enabled
+	_, err := svc.SaveFlowSchedule(ctx, f.ID, plugin.SOPFlowScheduleInput{Name: f.Name, Rule: &rule, Enabled: &on})
+	if errors.Is(err, plugin.ErrNoSOPSchedules) {
+		return nil
+	}
+	return err
 }
 
 func (e *engine) RemoveFlow(ctx context.Context, _ string, id string) (bool, string, error) {

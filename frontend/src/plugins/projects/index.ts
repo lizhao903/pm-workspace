@@ -158,6 +158,22 @@ export default definePlugin({
       fields: [syncField, { key: 'outcome', label: '结果', type: 'text', hint: '写 no_change 记成「没有涉及界面或接口的改动」；留空按有没有改动定' }],
       summary: (c) => (c.outcome === 'no_change' ? '只前移同步点' : '记同步点'),
     })
+    // 项目资料同步到知识库（TSK-0721）：内置流程「每周一 10:00 整理项目知识库」用它；增量、只动同步加进来的由后端管
+    api.sopNodes.register({
+      kind: 'projects_kb_sync', label: '项目资料同步到知识库', group: '项目', color: '#1c7ed6',
+      desc: '把项目资料（本机文件和文件夹、笔记、链接的标题和备注、关联的文档、文档目录）同步进项目知识库：新增的加，变了的重新索引，删了的移出，只动同步加进来的；没有知识库的新建并绑定。输出 kb_sync',
+      fields: [
+        { key: 'project', label: '项目', type: 'text', default: '全部', hint: '项目 id、编号或名字，支持 {{字段}}；留空或「全部」是所有没归档的项目' },
+        { key: 'files', label: '收本机文件和文件夹', type: 'select', default: 'yes', hint: '只收 md、markdown、txt、text，单个超过 1MB 跳过', options: () => [{ value: 'yes', label: '收' }, { value: 'no', label: '不收' }] },
+        { key: 'notes', label: '收笔记', type: 'select', default: 'yes', hint: '项目资料里的笔记', options: () => [{ value: 'yes', label: '收' }, { value: 'no', label: '不收' }] },
+        { key: 'links', label: '收链接', type: 'select', default: 'yes', hint: '只收标题和备注，不抓网页正文', options: () => [{ value: 'yes', label: '收' }, { value: 'no', label: '不收' }] },
+        { key: 'docs', label: '收关联的文档', type: 'select', default: 'yes', hint: '挂在项目下的工作台文档', options: () => [{ value: 'yes', label: '收' }, { value: 'no', label: '不收' }] },
+        { key: 'docs_dir', label: '收文档目录', type: 'select', default: 'yes', hint: '项目设置里的文档目录', options: () => [{ value: 'yes', label: '收' }, { value: 'no', label: '不收' }] },
+        { key: 'notify', label: '通知我', type: 'select', options: () => [
+          { value: '', label: '不通知' }, { value: 'changed', label: '有变化或失败时' }, { value: 'always', label: '每次都通知' }] },
+      ],
+      summary: (c) => (!c.project || c.project === '全部' || c.project === 'all' ? '所有项目' : c.project),
+    })
     offWorktree = onServerEvent('projects.worktree_changed', () => void queryClient.invalidateQueries({ queryKey: worktreeKeys.all }))
     offTests = onServerEvent('projects.test_changed', () => void queryClient.invalidateQueries({ queryKey: testRunKeys.all }))
     offReleases = onServerEvent('projects.release_changed', () => void queryClient.invalidateQueries({ queryKey: releaseKeys.all }))

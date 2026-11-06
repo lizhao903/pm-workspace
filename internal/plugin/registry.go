@@ -50,6 +50,8 @@ type Registry struct {
 	sopSchedules atomic.Pointer[sopSchedulesBox]
 	// notifier 是插件发通知用的通知中心（VID-06b，notify.go），SetNotifier 接上
 	notifier atomic.Pointer[notifierBox]
+	// knowledge 是插件读写知识库用的实现（TSK-0721，knowledge.go），SetKnowledge 接上
+	knowledge atomic.Pointer[knowledgeBox]
 	// incidents 是插件记运行异常用的（INC-01a，incidents.go），SetIncidents 接上
 	incidents atomic.Pointer[incidentsBox]
 	// claude 是插件交给 Claude Code 用的执行器，runs 是插件发起的运行（VID-03a，runs.go）

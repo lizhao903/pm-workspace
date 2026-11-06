@@ -211,6 +211,8 @@ export const dataKeys = {
     /** 正在跑的同步的进度，同步请求没回来时轮询 */
     syncProgress: (id: string) => ['knowledge-bases', 'sync-progress', id] as const,
     agents: ['knowledge-bases', 'agents'] as const,
+    /** 项目绑定的知识库（TSK-0721），知识库一变跟着刷 */
+    project: (projectId: string) => ['knowledge-bases', 'project', projectId] as const,
   },
   /** 运行异常（INC-01b）：一次拉全，设置页、二级菜单红点、今日待办共用 */
   incidents: {
