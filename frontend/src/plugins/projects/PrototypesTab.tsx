@@ -265,18 +265,6 @@ export function ProtoTabLight({ projectId }: { projectId: string }) {
   return n ? <span className="pj-tab-light" title={`${n} 个原型在运行`} /> : null
 }
 
-/** 概览的数字卡片「原型运行中 运行数 / 总数」（SPEC-projects-3.1） */
-export function ProtoStat({ projectId, onOpen }: { projectId: string; onOpen: () => void }) {
-  const list = useProjectPrototypes(projectId)
-  const rows = list.data
-  return (
-    <button type="button" className="pj-stat" onClick={onOpen}>
-      <span className="pj-stat-label">原型运行中</span>
-      <span className="pj-stat-value ok">{rows ? `${rows.filter((p) => prototypeUp(p.status)).length} / ${rows.length}` : '-'}</span>
-    </button>
-  )
-}
-
 /** 概览的「原型」块（SPEC-projects-3.7）：排好序的前 PROTO_PEEK 个，按钮文字和卡片一致 */
 export function ProtoBlock({ projectId, projectName, onAll }: { projectId: string; projectName: string; onAll: () => void }) {
   const list = useProjectPrototypes(projectId)

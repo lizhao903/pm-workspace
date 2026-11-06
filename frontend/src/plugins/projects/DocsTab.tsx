@@ -1,17 +1,20 @@
 // 文档标签（SPEC-projects-8）：列出 type=doc 且 project_id 为本项目的文档。
 // 「加文档」把「文档」里的一篇归到本项目（改它的 project_id），「移除」只是移出项目，文档本身不动；状态取文档类型的状态集。
-// 规格里「项目目录里的文件」和文档类型（PRD、技术方案）等项目资料合并时做（PJ-03），这里只关联工作台文档。
+// 另外列出项目设置里「文档目录」（props.docs_dir，TSK-0718）下的文档文件，来源列写「文档目录」；没设时表格上方提示去设置，
+// 越界、不存在也在那里说清（DocsDirFiles.tsx）。两种来源并存：先工作台文档，后目录里的文件。
 // 表单还能「新建一篇」（SPEC-projects-8.16，C-03）：建一篇 project_id 为本项目的文档，再去「文档」打开它的编辑区写正文。
 import { useMemo, useState, type CSSProperties } from 'react'
 import { useNavigate } from 'react-router'
 import {
-  errorText, useAllObjects, useCategoryTree, useCreateObject, useObjectTypes, usePatchObject, useSetStatus, type Category, type WorkObject,
+  errorText, useAllObjects, useCategoryTree, useCreateObject, useObjectTypes, usePatchObject, useProjectDocFiles, useSetStatus,
+  type Category, type LocalFileEntry, type WorkObject,
 } from '../../core/data'
 import { Button, cls, EmptyState, ErrorState, Input, LoadingState, SearchSelect, Select } from '../../core/ui'
+import { DocFilePreview, DocFileRow, docsDirError } from './DocsDirFiles'
 import { ago } from './model'
 
 const DOC = 'doc'
-/** 来源列：现在只关联工作台文档；项目目录里的文件等「项目资料与文档合并」（P-2）再加，到时显示路径 */
+/** 来源列：工作台文档写「文档库」，文档目录里的文件写「文档目录」（DocsDirFiles） */
 const LIBRARY = '文档库'
 
 /** 分类下拉：分类树摊平，子分类显示「父 / 子」，最后是未分类（同 SPEC-library-1.42） */
@@ -28,8 +31,14 @@ function categoryOptions(tree: Category[]) {
   return out
 }
 
-export function DocsTab({ projectId, adding, onAdding }: {
+export function DocsTab({ projectId, docsDir, root, onSettings, adding, onAdding }: {
   projectId: string
+  /** 项目设置里的文档目录（原样，相对项目目录或绝对路径）；空串是没设 */
+  docsDir: string
+  /** 本地项目目录，只用来区分文件清单的缓存 */
+  root: string
+  /** 去项目设置 */
+  onSettings: () => void
   /** 加文档的内联表单开着没有；右上「加文档」打开 */
   adding: boolean
   onAdding: (on: boolean) => void
@@ -45,9 +54,12 @@ export function DocsTab({ projectId, adding, onAdding }: {
   // 表单两种：从「文档」里挑一篇，或新建一篇
   const [mode, setMode] = useState<'pick' | 'new'>('pick')
   const [err, setErr] = useState('')
+  const files = useProjectDocFiles(projectId, docsDir, root)
+  const [preview, setPreview] = useState<LocalFileEntry | null>(null)
 
   const statuses = useMemo(() => types.data?.find((t) => t.id === DOC)?.statuses ?? [], [types.data])
   const rows = docs.data?.data ?? []
+  const fileRows = docsDir ? files.data?.files ?? [] : []
   const cands = (library.data?.data ?? []).filter((d) => d.project_id !== projectId)
 
   const close = () => { setPick(''); setMode('pick'); setErr(''); onAdding(false) }
@@ -88,7 +100,13 @@ export function DocsTab({ projectId, adding, onAdding }: {
   let body
   if (docs.isError) body = <ErrorState title="文档没加载出来" error={errorText(docs.error)} onRetry={() => void docs.refetch()} />
   else if (docs.isPending || types.isPending) body = <LoadingState />
-  else if (!rows.length) body = !adding && <EmptyState title="还没有产品文档" desc="把「文档」里的 PRD、方案归到这个项目，或者新建一篇，在这里集中看" action={<Button variant="primary" onClick={() => onAdding(true)}>加文档</Button>} />
+  else if (!rows.length && !fileRows.length) {
+    body = !adding && (files.isPending ? <LoadingState /> : (
+      <EmptyState title="还没有产品文档"
+        desc={docsDir ? '把「文档」里的 PRD、方案归到这个项目，或者新建一篇；文档目录里还没有文档文件' : '把「文档」里的 PRD、方案归到这个项目，或者新建一篇；也可以在项目设置里指定文档目录，列出目录里的文档文件'}
+        action={<Button variant="primary" onClick={() => onAdding(true)}>加文档</Button>} />
+    ))
+  }
   else {
     body = (
       <div className="pj-table" role="table" aria-label="项目文档">
@@ -117,15 +135,33 @@ export function DocsTab({ projectId, adding, onAdding }: {
             </div>
           )
         })}
+        {fileRows.map((f) => <DocFileRow key={f.path} f={f} onPreview={() => setPreview(f)} />)}
       </div>
     )
+  }
+
+  // 文档目录的状态：没设提示去设置；读不出来（越界、不存在、相对路径没项目目录）说清原因；目录太大只列了一部分
+  let dirNote
+  if (!docsDir) {
+    dirNote = <div className="pj-block-empty pj-docsdir-note">还没设文档目录，设了之后这里会列出目录里的文档文件。<button type="button" className="pj-link" onClick={onSettings}>去设置</button></div>
+  } else if (files.isError) {
+    dirNote = (
+      <div className="pj-err pj-docsdir-note" role="alert">{docsDirError(files.error, docsDir)}
+        <button type="button" className="pj-link" onClick={onSettings}>去设置</button>
+        <button type="button" className="pj-link" onClick={() => void files.refetch()}>重试</button>
+      </div>
+    )
+  } else if (files.data?.truncated) {
+    dirNote = <div className="pj-muted pj-docsdir-note">文档目录太大，{files.data.reason === 'depth' ? '太深的子目录没往下列' : '只列出了一部分'}</div>
   }
 
   return (
     <div className="pj-tab">
       {form}
       {err && <div className="pj-err" role="alert">{err}</div>}
+      {dirNote}
       {body}
+      {preview && <DocFilePreview key={preview.path} file={preview} onClose={() => setPreview(null)} />}
     </div>
   )
 }

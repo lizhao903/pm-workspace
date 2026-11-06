@@ -13,7 +13,7 @@ const FolderIcon = () => (
   </svg>
 )
 
-export function PathInput({ value, onChange, placeholder, label, check, pickAs, start }: {
+export function PathInput({ value, onChange, placeholder, label, check, checkAs, pickAs, start }: {
   value: string
   onChange: (v: string) => void
   placeholder?: string
@@ -21,21 +21,24 @@ export function PathInput({ value, onChange, placeholder, label, check, pickAs, 
   label: string
   /** 停手后校验目录在不在，不在时提示「找不到这个目录」（仍允许保存） */
   check?: boolean
+  /** 校验的是哪个路径，默认就是输入框里的（相对路径接到项目目录后面再查时传，TSK-0718） */
+  checkAs?: (v: string) => string
   /** 选好目录后填进输入框的值，默认就是目录本身（选文件时填「目录/」再补文件名） */
   pickAs?: (dir: string) => string
   /** 选目录从哪开始，默认输入框里的路径 */
   start?: string
 }) {
   const [picking, setPicking] = useState(false)
-  const [checked, setChecked] = useState(value.trim())
+  const target = (checkAs ? checkAs(value) : value).trim()
+  const [checked, setChecked] = useState(target)
   useEffect(() => {
-    const p = value.trim()
+    const p = target
     if (p === checked) return
     const id = setTimeout(() => setChecked(p), CHECK_DELAY)
     return () => clearTimeout(id)
-  }, [value, checked])
+  }, [target, checked])
   const res = useWorkdirCheck(check ? checked : '')
-  const missing = !!check && !!checked && checked === value.trim() && !!res.data && !(res.data.exists && res.data.is_dir)
+  const missing = !!check && !!checked && checked === target && !!res.data && !(res.data.exists && res.data.is_dir)
 
   return (
     <div className="pj-path">
@@ -47,7 +50,7 @@ export function PathInput({ value, onChange, placeholder, label, check, pickAs, 
           {picking ? '收起' : '选择'}
         </button>
       </span>
-      {missing && <span className="field-err">找不到这个目录</span>}
+      {missing && <span className="field-err">找不到这个目录{target !== value.trim() && `：${target}`}</span>}
       {picking && <DirPicker start={start ?? value.trim()} onPick={(p) => { onChange(pickAs ? pickAs(p) : p); setPicking(false) }} onClose={() => setPicking(false)} />}
     </div>
   )

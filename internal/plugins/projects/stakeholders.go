@@ -18,8 +18,23 @@ import (
 // 项目干系人（PJ-01b）：表 projects_stakeholders，接口 /api/projects/{id}/stakeholders，
 // 契约见 docs/api-contract.md「项目插件」。
 
-// Roles 是项目里的五种角色，顺序和原型 STAKE_ROLE 一致。
+// Roles 是内置的五种角色，顺序和原型 STAKE_ROLE 一致。TSK-0718 起角色以内核字典 project_role 为准
+// （内核迁移 0052 按这五个 key 种进去），这里只在字典还没有条目时兜底。
 var Roles = []string{"decider", "contact", "owner", "member", "informed"}
+
+// RoleDict 是项目干系人角色的字典 id（设置 / 枚举值里维护）。
+const RoleDict = "project_role"
+
+// roleExpr 是干系人的实际角色：插件迁移 0011 起存在 role_key，老数据 role_key 为空时用 role。
+const roleExpr = `CASE WHEN role_key <> '' THEN role_key ELSE role END`
+
+// checkedRole 是写进 role 列的值：0001 的 CHECK 只认内置五个，别的 key 写 member 占位，实际值在 role_key。
+func checkedRole(key string) string {
+	if slices.Contains(Roles, key) {
+		return key
+	}
+	return "member"
+}
 
 const maxFocus = 500 // 关注点上限（字），原型里是一句话
 
@@ -54,7 +69,7 @@ func (h *stakeholders) list(w http.ResponseWriter, r *http.Request) {
 		h.fail(w, r, err)
 		return
 	}
-	rows, err := h.c.Store().Query(ctx, `SELECT project_id, stakeholder_id, role, focus, sort_order, created_at, updated_at
+	rows, err := h.c.Store().Query(ctx, `SELECT project_id, stakeholder_id, `+roleExpr+`, focus, sort_order, created_at, updated_at
 		FROM projects_stakeholders WHERE project_id = ? ORDER BY sort_order, created_at`, pid)
 	if err != nil {
 		h.fail(w, r, err)
@@ -100,7 +115,7 @@ func (h *stakeholders) add(w http.ResponseWriter, r *http.Request) {
 		h.fail(w, r, apiErr(errValidation, "stakeholder_id is required"))
 		return
 	}
-	if err := checkRole(in.Role); err != nil {
+	if err := h.checkRole(ctx, in.Role, ""); err != nil {
 		h.fail(w, r, err)
 		return
 	}
@@ -131,9 +146,9 @@ func (h *stakeholders) add(w http.ResponseWriter, r *http.Request) {
 	now := time.Now().UTC().Format(time.RFC3339)
 	// 排在最后：sort_order 取本项目现有最大值加一
 	_, err = h.c.Store().Exec(ctx, `INSERT INTO projects_stakeholders
-		(project_id, stakeholder_id, role, focus, sort_order, created_at, updated_at)
-		SELECT ?, ?, ?, ?, COALESCE(MAX(sort_order), 0) + 1, ?, ? FROM projects_stakeholders WHERE project_id = ?`,
-		pid, in.StakeholderID, in.Role, focus, now, now, pid)
+		(project_id, stakeholder_id, role, role_key, focus, sort_order, created_at, updated_at)
+		SELECT ?, ?, ?, ?, ?, COALESCE(MAX(sort_order), 0) + 1, ?, ? FROM projects_stakeholders WHERE project_id = ?`,
+		pid, in.StakeholderID, checkedRole(in.Role), in.Role, focus, now, now, pid)
 	if err != nil {
 		if strings.Contains(err.Error(), "UNIQUE constraint failed") {
 			err = apiErr(errConflict, "stakeholder %s is already in this project; change the role instead", ct.Name)
@@ -173,7 +188,7 @@ func (h *stakeholders) update(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if in.Role != nil {
-		if err := checkRole(*in.Role); err != nil {
+		if err := h.checkRole(ctx, *in.Role, cur.Role); err != nil {
 			h.fail(w, r, err)
 			return
 		}
@@ -189,8 +204,8 @@ func (h *stakeholders) update(w http.ResponseWriter, r *http.Request) {
 		cur.SortOrder = *in.SortOrder
 	}
 	now := time.Now().UTC().Format(time.RFC3339)
-	if _, err := h.c.Store().Exec(ctx, `UPDATE projects_stakeholders SET role = ?, focus = ?, sort_order = ?, updated_at = ?
-		WHERE project_id = ? AND stakeholder_id = ?`, cur.Role, cur.Focus, cur.SortOrder, now, pid, sid); err != nil {
+	if _, err := h.c.Store().Exec(ctx, `UPDATE projects_stakeholders SET role = ?, role_key = ?, focus = ?, sort_order = ?, updated_at = ?
+		WHERE project_id = ? AND stakeholder_id = ?`, checkedRole(cur.Role), cur.Role, cur.Focus, cur.SortOrder, now, pid, sid); err != nil {
 		h.fail(w, r, err)
 		return
 	}
@@ -231,7 +246,7 @@ func (h *stakeholders) project(ctx context.Context, id string) error {
 }
 
 func (h *stakeholders) get(ctx context.Context, pid, sid string) (Stakeholder, error) {
-	s, err := scan(h.c.Store().QueryRow(ctx, `SELECT project_id, stakeholder_id, role, focus, sort_order, created_at, updated_at
+	s, err := scan(h.c.Store().QueryRow(ctx, `SELECT project_id, stakeholder_id, `+roleExpr+`, focus, sort_order, created_at, updated_at
 		FROM projects_stakeholders WHERE project_id = ? AND stakeholder_id = ?`, pid, sid))
 	if errors.Is(err, plugin.ErrNoRows) {
 		return Stakeholder{}, apiErr(errNotFound, "stakeholder %s is not in this project", sid)
@@ -250,11 +265,35 @@ func scan(row plugin.Row) (Stakeholder, error) {
 	return s, nil
 }
 
-func checkRole(role string) error {
-	if !slices.Contains(Roles, role) {
-		return apiErr(errValidation, "role must be one of %s", strings.Join(Roles, ", "))
+// checkRole 按字典 project_role 校验角色（TSK-0718）：要是字典里没停用的条目；停用的只有和原来的角色相同时放行
+// （改关注点、排序时带着原角色不报错）。字典还没有条目（内核迁移没跑）时退回内置五个。
+func (h *stakeholders) checkRole(ctx context.Context, role, current string) error {
+	items, err := h.c.Dicts().Items(ctx, RoleDict)
+	if err != nil {
+		return err
 	}
-	return nil
+	if len(items) == 0 {
+		if !slices.Contains(Roles, role) {
+			return apiErr(errValidation, "role must be one of %s", strings.Join(Roles, ", "))
+		}
+		return nil
+	}
+	var active []string
+	for _, it := range items {
+		if it.Key == role {
+			if it.Archived && role != current {
+				return apiErr(errValidation, "role %s (%s) is archived; pick another role or re-enable it in Settings / Enums", role, it.Label)
+			}
+			return nil
+		}
+		if !it.Archived {
+			active = append(active, it.Key)
+		}
+	}
+	if role != "" && role == current {
+		return nil // 字典里删掉了的旧值，原样留着
+	}
+	return apiErr(errValidation, "role must be one of %s (dictionary %s)", strings.Join(active, ", "), RoleDict)
 }
 
 func cleanFocus(p *string) (string, error) {

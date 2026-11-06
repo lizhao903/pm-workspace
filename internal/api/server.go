@@ -383,6 +383,8 @@ func (s *Server) routes(m routeRegistrar) {
 	m.HandleFunc("PATCH /api/local-dirs/{id}", s.handleUpdateLocalDir)
 	m.HandleFunc("DELETE /api/local-dirs/{id}", s.handleDeleteLocalDir)
 	m.HandleFunc("GET /api/local-dirs/{id}/files", s.handleListLocalDirFiles)
+	// 项目设置里的文档目录下的文件（TSK-0718，projectdocs.go）；读、预览、打开同挂载目录走 /api/fs/*
+	m.HandleFunc("GET /api/objects/{id}/docs-dir/files", s.handleListProjectDocFiles)
 
 	// 用本机 Claude Code 执行任务。/api/objects/{id}/run 与 .../runs 是两段不同的
 	// 字面量，互不遮挡；/api/runs/{id}/cancel 比 /api/runs/{id} 多一段，

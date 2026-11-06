@@ -43,7 +43,7 @@ const (
 
 // projectOf 拼任务所属项目的上下文；没挂项目、项目已删时回 nil。
 //
-// 文档目录取项目 props.related 的第一个关联目录；原型目录经插件钩子问项目插件
+// 文档目录取项目设置里的文档目录（props.docs_dir，TSK-0718），没设时取 props.related 的第一个关联目录；原型目录经插件钩子问项目插件
 // （原型登记在它自己的表里）。项目插件没启用或查询出错时按「没有登记原型目录」写，
 // 不能因为辅助信息缺失让整次执行起不来。
 func (s *Server) projectOf(ctx context.Context, o *domain.Object) *runner.Project {
@@ -55,7 +55,12 @@ func (s *Server) projectOf(ctx context.Context, o *domain.Object) *runner.Projec
 		return nil
 	}
 	out := &runner.Project{Name: p.Title, Ref: p.Ref, Workdir: strings.TrimSpace(p.Workdir)}
-	out.DocsDir, out.DocsLabel = firstRelated(p.Props)
+	// 项目设置里的文档目录优先（TSK-0718）；没设（或相对路径但没项目目录）时退回第一个关联目录
+	if _, abs, err := projectDocsDir(p); err == nil && abs != "" {
+		out.DocsDir, out.DocsSetting = abs, true
+	} else {
+		out.DocsDir, out.DocsLabel = firstRelated(p.Props)
+	}
 	if s.opt.Plugins != nil {
 		protos, err := s.opt.Plugins.ProjectPrototypes(ctx, p.ID)
 		if err != nil && !errors.Is(err, plugin.ErrNoProjectPrototypes) {

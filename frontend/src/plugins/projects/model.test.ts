@@ -1,13 +1,13 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import type { DictItem, ObjectStatus, ProjectStakeholder, ProjectView, WorkObject } from '../../core/data'
 import {
-  RECENT_MAX, ago, colorOf, doneStatus, isOpenStatus, reopenStatus, sortByPriority, sortStakeholders, diffForm, dirName, activityOf, groupByActivity, showStatusTag, loadRecent, markText, matchQuery, resetRecentMemo, sortProjects, tabOf,
+  RECENT_MAX, ago, colorOf, docsDirAbs, docsDirPick, doneStatus, isOpenStatus, reopenStatus, sortByPriority, sortStakeholders, diffForm, dirName, activityOf, groupByActivity, showStatusTag, loadRecent, markText, matchQuery, resetRecentMemo, sortProjects, tabOf,
   touchRecent, hiddenTabsOf, tabsOrderOf, weaveKeys, orderTabs, moveTab, isDefaultOrder, withPluginTabs, TABS, type Form,
 } from './model'
 import { PROJECT_COLORS } from './markIcons'
 
 const pv = (id: string, x: Partial<ProjectView> = {}): ProjectView => ({
-  id, ref: id, name: id, desc: '', status: 'planning', color: '', mark: { text: '' }, root: '', related: [], sopIds: [], agentIds: [], sessionIds: [],
+  id, ref: id, name: id, desc: '', status: 'planning', color: '', mark: { text: '' }, root: '', related: [], docsDir: '', sopIds: [], agentIds: [], sessionIds: [],
   created_at: '', updated_at: '', ...x,
 })
 
@@ -94,7 +94,19 @@ describe('最近打开', () => {
 })
 
 describe('设置的保存口径', () => {
-  const base: Form = { name: '工作台', desc: '', status: 'planning', root: '', color: '#3d4fd6', mark: { text: '', icon: 'folder' }, related: [], hidden: [], order: [] }
+  const base: Form = { name: '工作台', desc: '', status: 'planning', root: '', docsDir: '', color: '#3d4fd6', mark: { text: '', icon: 'folder' }, related: [], hidden: [], order: [] }
+
+  it('文档目录（TSK-0718）：去首尾空白存进 props.docs_dir，清空存空串；相对路径接项目目录，选到项目目录里的存相对路径', () => {
+    expect(diffForm({ ...base, docsDir: ' docs ' }, base).props).toEqual({ docs_dir: 'docs' })
+    expect(diffForm(base, { ...base, docsDir: 'docs' }).props).toEqual({ docs_dir: '' })
+    expect(docsDirAbs('docs/prd/', '/Users/me/app')).toBe('/Users/me/app/docs/prd')
+    expect(docsDirAbs('../shared', '/Users/me/app')).toBe('/Users/me/shared')
+    expect(docsDirAbs('file:///Volumes/x/', '')).toBe('/Volumes/x')
+    expect(docsDirAbs('docs', '')).toBe('')
+    expect(docsDirPick('/Users/me/app/docs', '/Users/me/app/')).toBe('docs')
+    expect(docsDirPick('/Users/me/app', '/Users/me/app')).toBe('.')
+    expect(docsDirPick('/Volumes/x', '/Users/me/app')).toBe('/Volumes/x')
+  })
 
   it('名称清空不存，目录去首尾空白', () => {
     expect(diffForm({ ...base, name: '  ' }, base)).toEqual({ patch: {}, props: {} })

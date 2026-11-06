@@ -98,6 +98,8 @@ type Core interface {
 	Objects() ObjectReader
 	Contacts() ContactReader
 	Conversations() ConversationReader
+	// Dicts 只读查内核枚举字典的条目，含停用的（TSK-0718，dicts.go）。
+	Dicts() DictReader
 	// ConversationWriter 收消息时登记还没登记的会话，只建不改（PR-02，conversations_write.go）。
 	ConversationWriter() ConversationWriter
 	// Identities 只读查 IM 身份（IM-01a，identities.go）。

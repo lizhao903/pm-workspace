@@ -114,6 +114,8 @@ export const dataKeys = {
     list: ['local-dirs', 'list'] as const,
     files: (id: string) => ['local-dirs', 'files', id] as const,
     read: (path: string) => ['local-dirs', 'read', path] as const,
+    /** 项目设置里的文档目录下的文件（TSK-0718）；目录写法和项目目录都进键，改了设置换一份 */
+    projectDocs: (projectId: string, dir: string, root: string) => ['local-dirs', 'project-docs', projectId, dir, root] as const,
   },
   /** 定时任务的列表在 todayKeys.schedules（今日页共用）；这里是执行记录和规则预览 */
   schedules: {
