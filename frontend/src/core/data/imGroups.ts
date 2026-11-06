@@ -35,7 +35,22 @@ export type ImConversationSummary = {
   /** 主动发出去的（发成功的）条数和最近一次的时间（0.17.0），没发过为 0 和 null */
   sent: number
   last_sent_at: string | null
+  /** participants 里只能显示渠道编号的人（0.26.0，TSK-0494），给的是编号 */
+  unresolved_users: string[]
+  /** 群名为空或就是编号 */
+  name_unresolved: boolean
+  /** 能回渠道按编号查名字（渠道支持、有消息所在的连接器；现在只有 Slack） */
+  can_refill: boolean
+  /** 之前查过没查到的原因，没查过或都查到了为空串 */
+  refill_error: string
 }
+
+/** 查询回填补上的一个名字：kind user 是发信人，conversation 是群名；source local 是本地已有、channel 是回渠道查的 */
+export type ImNameFilled = { conversation_id: string; kind: 'user' | 'conversation' | string; external_id: string; name: string; source: 'local' | 'channel' | string }
+/** 没补上的一个；external_id 为空是整个会话没查（渠道没连接等），message 是给人看的原因 */
+export type ImNameFailed = { conversation_id: string; kind: 'user' | 'conversation' | string; external_id: string; code: string; message: string }
+/** 一次查询回填的结果：skipped 是之前查不到、这次没重查的，remaining 是限流或到了上限没来得及查的 */
+export type ImNameRefillResult = { conversations: number; checked: number; filled: ImNameFilled[]; failed: ImNameFailed[]; skipped: number; remaining: number }
 
 /** 主动发出的一条（0.17.0）：群组管理里手动发的（manual）或 SOP 节点发的（sop），失败的也有 */
 export type ImOutboxItem = {
@@ -100,7 +115,10 @@ export type ImConvProjectBatchResult = { updated: ImConversationProject[]; faile
 const norm = (s: ImConversationSummary): ImConversationSummary => ({
   ...s, name: s.name ?? '', participants: s.participants ?? [], project_ref: s.project_ref ?? '', project_name: s.project_name ?? '',
   sent: s.sent ?? 0, last_sent_at: s.last_sent_at ?? null, connector_id: s.connector_id ?? '',
+  unresolved_users: s.unresolved_users ?? [], name_unresolved: s.name_unresolved ?? false, can_refill: s.can_refill ?? false, refill_error: s.refill_error ?? '',
 })
+
+const normRefill = (r: ImNameRefillResult): ImNameRefillResult => ({ ...r, filled: r.filled ?? [], failed: r.failed ?? [], skipped: r.skipped ?? 0, remaining: r.remaining ?? 0 })
 
 export const imGroupsApi = {
   summary: async (channel: string, signal?: AbortSignal) => {
@@ -119,6 +137,12 @@ export const imGroupsApi = {
     (await requestList<ImMember>(`/api/im/conversations/${encodeURIComponent(conversationId)}/members`, { signal })).data.map((m) => ({
       ...m, sender_name: m.sender_name ?? '', identity_id: m.identity_id ?? '', contact_id: m.contact_id ?? '', last_at: m.last_at ?? '',
     })),
+  /** 查询回填一个会话（0.26.0）：之前查不到的也重查；渠道查不了、连接器暂停或断开 409，渠道整次调不了 502 */
+  refillNames: async (conversationId: string) =>
+    normRefill(await request<ImNameRefillResult>('POST', `/api/im/conversations/${encodeURIComponent(conversationId)}/refill-names`)),
+  /** 批量查询回填：不给 ids 是全部有缺的会话；一次最多回渠道查 100 个，之前查不到的默认跳过 */
+  refillAllNames: async (input: { conversation_ids?: string[]; retry_failed?: boolean } = {}) =>
+    normRefill(await request<ImNameRefillResult>('POST', '/api/im/conversations/refill-names', { body: input })),
   /** 这个会话发出的消息，新的在前 */
   sent: async (conversationId: string, signal?: AbortSignal) =>
     (await requestList<ImOutboxItem>(`/api/im/conversations/${encodeURIComponent(conversationId)}/sent`, { signal })).data,
@@ -142,6 +166,16 @@ export function useSetImConversationProjects() {
   return useMutation({
     mutationFn: (items: ImConvProjectBatchInput) => imGroupsApi.setProjects(items),
     onSuccess: (r) => (r.updated.length ? notify({ kind: 'im-message' }) : undefined),
+  })
+}
+
+/** 查询回填（单个会话或批量）：补上的名字在消息和会话统计里，消息、统计一起刷（都在 im 前缀下） */
+export function useRefillImNames() {
+  const notify = useNotifyChange()
+  return useMutation({
+    mutationFn: (x: { conversationId: string } | { all: true; retryFailed?: boolean }) =>
+      'conversationId' in x ? imGroupsApi.refillNames(x.conversationId) : imGroupsApi.refillAllNames(x.retryFailed ? { retry_failed: true } : {}),
+    onSettled: () => notify({ kind: 'im-message' }),
   })
 }
 

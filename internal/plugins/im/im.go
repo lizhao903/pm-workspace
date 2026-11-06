@@ -106,6 +106,9 @@ func (p *Plugin) Register(r plugin.Registrar) error {
 		// 群组管理：会话统计、批量设默认项目（0.15.0，convsummary.go）
 		m.HandleFunc("GET /api/im/conversations/summary", in.conversationSummary)
 		m.HandleFunc("PUT /api/im/conversation-projects", in.setConversationProjects)
+		// 查询回填：只显示渠道编号的人名、群名回渠道查了补上（TSK-0494，names.go）
+		m.HandleFunc("POST /api/im/conversations/refill-names", in.refillNamesBatch)
+		m.HandleFunc("POST /api/im/conversations/{conversation_id}/refill-names", in.refillNamesOne)
 		// 群组管理里主动发消息、发出的记录（0.17.0，outbox.go）
 		m.HandleFunc("POST /api/im/send", in.send)
 		m.HandleFunc("GET /api/im/conversations/{conversation_id}/sent", in.listSent)

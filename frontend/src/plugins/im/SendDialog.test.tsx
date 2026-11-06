@@ -7,7 +7,7 @@ import { SentStrip } from './SentStrip'
 
 const SUMMARY = [
   { conversation_id: 'cv_g', channel: 'slack', kind: 'group', name: '#product', external_id: 'C1', connector_id: 'cn_a', participants: ['林原'], total: 3, pending: 0, unread: 0,
-    last_at: '2026-03-01T00:00:00Z', project_id: null, project_ref: '', project_name: '', sent: 0, last_sent_at: null },
+    last_at: '2026-03-01T00:00:00Z', project_id: null, project_ref: '', project_name: '', sent: 0, last_sent_at: null, unresolved_users: [], name_unresolved: false, can_refill: true, refill_error: '' },
 ]
 const CONNECTORS = [{ id: 'cn_a', tool: 'slack', name: '公司 Slack', status: 'connected', direction: 'both', account: '林原（U01）', config: { identity: 'user' }, secret_hints: {} }]
 const DEFS = [{ tool: 'slack', label: 'Slack', category: 'im', color: '#611f69', fields: [] }]

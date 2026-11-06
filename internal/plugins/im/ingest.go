@@ -102,11 +102,25 @@ func (in *inbox) ingest(ctx context.Context, a Adapter, msgs []Incoming, strict 
 		r.adapter = a.Key()
 		rows = append(rows, r)
 	}
+	named := map[string]bool{} // 这一批里已经把名字回补过的发信人
 	for _, r := range rows {
 		in.register(ctx, &r)
+		// 发信人名字（TSK-0494）：渠道这次没给名字（Slack 一轮最多查 50 个人名、限流时查不到），先用本地已知的；
+		// 这次给了名字，把同一个人以前没名字的消息补上
+		if r.senderName == "" {
+			if r.senderName, err = in.knownName(ctx, ch, r.senderExt); err != nil {
+				return res, err
+			}
+		}
 		ok, err := in.insert(ctx, r)
 		if err != nil {
 			return res, err
+		}
+		if ok && r.senderName != "" && !named[r.senderExt] {
+			named[r.senderExt] = true
+			if _, err := in.fillSender(ctx, ch, r.senderExt, r.senderName); err != nil {
+				return res, err
+			}
 		}
 		if !ok {
 			res.Duplicates++

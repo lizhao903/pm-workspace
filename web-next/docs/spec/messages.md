@@ -600,6 +600,9 @@
 | SPEC-messages-7.8 | 勾选和批量条 | 勾选 / 点击 | 勾了会话后抽屉底部一条：「已选 N 个」、没勾满时「全选 M 个」（M 是当前筛选结果，最多 200）、项目下拉「选项目」、「设为默认归属」（没选项目时置灰）、「清除归属」（勾的都没设时置灰）、「取消选择」。表头全选框勾当前筛选结果的前 200 个，部分勾上时半选；最多勾 200 个，再勾不进去。换了筛选，看不见的勾选不算进「已选」。全部成功时清掉勾选和下拉；有没设成的保留勾选，方便再来一次 |
 | SPEC-messages-7.9 | 批量结果 | 显示 | 全部成功绿字「已设为「Globex」：N 个会话」「已清除归属：N 个会话」「已采纳建议：N 个会话」；有没设成的红字「已设为「Globex」：N 个会话；M 个没设成：<会话>：<原因>；…」（最多列 3 个，多了加「等」）；整批被拒（如超过上限）红字「没<动作>：<原因>」 |
 | SPEC-messages-7.10 | 「发消息」 | 点击 | 每行名字右边，打开 `SPEC-messages-8` 的弹窗，会话带上；还没收到过消息（只设了默认归属）的会话置灰，悬停「这个会话还没收到过消息，不知道用哪个账号发」。发过的行第二行灰字多「已发 N 条」（只算发成功的，悬停最近一次的时间） |
+| SPEC-messages-7.11 | 只显示编号的行 | 显示 | 名字或第二行成员里有只能显示渠道编号的（Slack 的 `U…`：收消息时渠道没给名字、也没认上有名字的联系人；群名为空或就是编号），这一行「发消息」左边多一个「查询回填」，其余行没有；名字至少留 9 个字宽，放不下时两个按钮换到下一行靠右。悬停「回渠道查 N 个只有编号的人（U…、U…）的名字并补上；只补空的，不改联系人和手动改过的名字」（群名缺时说「群名、…」）。渠道查不了的（现在只有 Slack 能查；Telegram 收消息时就带名字）按钮置灰，悬停「这个渠道查不了编号对应的名字…」。之前查过没查到的，第二行下面灰字「上次没查到：<原因>」 |
+| SPEC-messages-7.12 | 「查询回填」 | 点击 | 回渠道查这一行缺的名字（私聊查对方、群聊查群名和缺名字的成员），之前没查到的也重查。查的时候按钮写「查询中…」并置灰；查完列表刷新，名字换成查到的，这一行下面绿字「已补上：<名字>、…」；没查到的红字「没查到 N 个：<原因>」（如「Slack 里查不到这个人：可能是别的工作区的外部成员（Slack Connect），或已被删除」「机器人没权限：Slack App 缺 users:read…」）；限流没查完的加「渠道限流，还有 N 个没查，稍后再点」；整次没查成（连接器暂停、断开、Token 失效）红字「没查成：<原因>」。只补空的名字，联系人、手动改过的名字不动，不新增会话、不改消息状态、不触发 SOP 和通知 |
+| SPEC-messages-7.13 | 「回填全部缺失 N」 | 点击 | 工具条上，N 是渠道能查、有缺名字、之前没查失败过的会话数（查失败过的批量时跳过，行上「查询回填」重查），0 时不显示。悬停「名字只显示渠道编号的会话，回渠道查了补上；一次最多查 100 个、撞上限流就停，之前查不到的跳过（行上「查询回填」会重查）」。查的时候写「回填中…」并置灰（行上的「查询回填」也置灰）；查完列表上方一句「补上 X 个名字，Y 个没查到（<原因>），Z 个之前就没查到，这次跳过，还剩 W 个没查（…），再点一次接着查」（一个都没补上时开头写「没补上新的名字」，其余为 0 的部分不写；一个都没缺「没有缺名字的会话」），全没补上且有没查到的时红字 |
 
 ### 空状态和异常状态
 
@@ -614,6 +617,8 @@
 
 - 原型：会话从消息里汇总（群按渠道 + 群名，私聊按渠道 + 发信人），默认归属存在 `App.tsx` 的 `groupProjects`（会话键 → 项目 id，私聊的键是 `d:<渠道>:<发信人>`），`withGroupProjects` 对群和私聊都兜底。
 - 正式产品（IM 插件 0.15.0，不加迁移）：`GET /api/im/conversations/summary?channel=` 一次列出有消息或设了默认项目的会话 `{conversation_id, channel, kind, name, external_id, participants, total, pending, unread, last_at, project_id, project_ref, project_name}`；`PUT /api/im/conversation-projects` 批量设，body `{items: [{conversation_id, project_id}]}` 或 `{conversation_ids, project_id}`（`project_id` 认 id、编号、名字，`null` 或空串清除），一次最多 200 个，逐条校验（会话不存在、项目不存在或已删、同一会话出现两次），回 `{updated, failed: [{conversation_id, project_id, code, message}]}`；每个值有变化的会话记一条审计（`action=update`、`target_type=conversation`，detail 带 `from`、`to`、`batch`），单个的 `PUT /api/im/conversation-projects/{conversation_id}` 改了也记。
+
+- 查询回填（IM 插件 0.26.0，TSK-0494，插件迁移 `0016_name_lookups.sql`）：会话统计每项多 `unresolved_users`（只能显示编号的成员）、`name_unresolved`、`can_refill`、`refill_error`；`POST /api/im/conversations/{conversation_id}/refill-names` 补一个会话，`POST /api/im/conversations/refill-names`（body `{conversation_ids?, retry_failed?}`）批量补，回 `{conversations, checked, filled, failed, skipped, remaining}`。先用本地已知的名字（同一个人别的消息、IM 身份上的），找不到才回渠道查；名字写回消息里空着的发信人名字、群名，每个编号查的结果记下来，查不到的批量时不重查。收消息时渠道没给名字的也先用本地已知的，给了名字的把同一个人以前没名字的消息补上。原型用 `groupadmin.tsx` 的 `DEMO_DIRECTORY` 模拟渠道通讯录，种子数据里两条名字只有编号的 Slack 消息（私聊 `U02JW5GKB50` 能查到「Mia Chen」，`#ext-xaue-corpcard` 的 `U0BFYG7EVDZ` 查不到）；查到的只在群组管理里显示，不改原型的消息。
 
 ### 联动
 

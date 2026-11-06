@@ -7,7 +7,7 @@ import { GroupAdminDrawer } from './GroupAdmin'
 
 const conv = (p: Partial<ImConversationSummary> & { conversation_id: string }): ImConversationSummary => ({
   channel: 'slack', kind: 'group', name: '', external_id: 'C0', participants: [], total: 3, pending: 1, unread: 0, last_at: '2026-03-01T00:00:00Z',
-  project_id: null, project_ref: '', project_name: '', connector_id: 'cn_sl', sent: 0, last_sent_at: null, ...p,
+  project_id: null, project_ref: '', project_name: '', connector_id: 'cn_sl', sent: 0, last_sent_at: null, unresolved_users: [], name_unresolved: false, can_refill: true, refill_error: '', ...p,
 })
 
 const SUMMARY = [
@@ -143,5 +143,75 @@ describe('群组管理抽屉', () => {
     const onOpen = renderIt()
     await userEvent.click(await screen.findByRole('button', { name: '阿青' }))
     expect(onOpen).toHaveBeenCalledWith('slack', 'cv_dm')
+  })
+})
+
+// 查询回填（TSK-0494）：只显示编号的行右侧有「查询回填」，其余行没有；点了回渠道查、列表刷新、行下写补上了什么或没查到的原因
+describe('群组管理：查询回填', () => {
+  const RAW = [
+    conv({ conversation_id: 'cv_raw', kind: 'direct', participants: ['U02JW5GKB50'], unresolved_users: ['U02JW5GKB50'] }),
+    conv({ conversation_id: 'cv_gone', name: '#ext-xaue', participants: ['林原', 'U0BFYG7EVDZ'], unresolved_users: ['U0BFYG7EVDZ'], refill_error: 'Slack 里查不到这个人' }),
+    conv({ conversation_id: 'cv_tg', channel: 'telegram', kind: 'direct', participants: ['12345'], unresolved_users: ['12345'], can_refill: false }),
+    conv({ conversation_id: 'cv_ok', name: '#product', participants: ['周舟'] }),
+  ]
+  function refillBackend() {
+    const calls: Call[] = []
+    let filled = false
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = new URL(String(input), 'http://x')
+      const method = init?.method ?? 'GET'
+      calls.push({ method, path: url.pathname, body: init?.body ? JSON.parse(String(init.body)) : undefined })
+      const json = (data: unknown) => new Response(JSON.stringify({ data, meta: { total: Array.isArray(data) ? data.length : 0 } }), { status: 200 })
+      if (url.pathname === '/api/im/conversations/cv_raw/refill-names') {
+        filled = true
+        return json({ conversations: 1, checked: 1, filled: [{ conversation_id: 'cv_raw', kind: 'user', external_id: 'U02JW5GKB50', name: 'Mia', source: 'channel' }], failed: [], skipped: 0, remaining: 0 })
+      }
+      if (url.pathname === '/api/im/conversations/cv_gone/refill-names') {
+        return json({ conversations: 1, checked: 1, filled: [], failed: [{ conversation_id: 'cv_gone', kind: 'user', external_id: 'U0BFYG7EVDZ', code: 'user_not_found', message: 'Slack 里查不到这个人' }], skipped: 0, remaining: 0 })
+      }
+      if (url.pathname === '/api/im/conversations/refill-names') {
+        return json({ conversations: 2, checked: 2, filled: [{ conversation_id: 'cv_raw', kind: 'user', external_id: 'U02JW5GKB50', name: 'Mia', source: 'channel' }], failed: [], skipped: 1, remaining: 0 })
+      }
+      if (url.pathname === '/api/im/conversations/summary') {
+        return json(filled ? [conv({ ...RAW[0], participants: ['Mia'], unresolved_users: [] }), ...RAW.slice(1)] : RAW)
+      }
+      return json([])
+    }))
+    return calls
+  }
+
+  it('只有缺名字的行有按钮；渠道查不了的置灰；上次没查到的写原因', async () => {
+    refillBackend()
+    renderIt()
+    const raw = await screen.findByRole('listitem', { name: 'U02JW5GKB50' })
+    expect(within(raw).getByRole('button', { name: '查询回填 U02JW5GKB50' })).toBeTruthy()
+    expect(within(screen.getByRole('listitem', { name: '#product' })).queryByRole('button', { name: /查询回填/ })).toBeNull()
+    const tg = within(screen.getByRole('listitem', { name: '12345' })).getByRole('button', { name: '查询回填 12345' }) as HTMLButtonElement
+    expect(tg.disabled).toBe(true)
+    expect(tg.title).toContain('查不了')
+    expect(within(screen.getByRole('listitem', { name: '#ext-xaue' })).getByText('上次没查到：Slack 里查不到这个人')).toBeTruthy()
+    // 工具条只数渠道能查、之前没查失败的
+    expect(screen.getByRole('button', { name: /回填全部缺失/ }).textContent).toBe('回填全部缺失1')
+  })
+
+  it('点了补上名字、列表刷新；没查到的写原因', async () => {
+    const calls = refillBackend()
+    renderIt()
+    await userEvent.click(within(await screen.findByRole('listitem', { name: 'U02JW5GKB50' })).getByRole('button', { name: '查询回填 U02JW5GKB50' }))
+    const row = await screen.findByRole('listitem', { name: 'Mia' })
+    expect(within(row).getByRole('status').textContent).toBe('已补上：Mia')
+    expect(within(row).queryByRole('button', { name: /查询回填/ })).toBeNull()
+    expect(calls.filter((c) => c.method === 'POST').map((c) => c.path)).toEqual(['/api/im/conversations/cv_raw/refill-names'])
+
+    await userEvent.click(within(screen.getByRole('listitem', { name: '#ext-xaue' })).getByRole('button', { name: '查询回填 #ext-xaue' }))
+    expect((await within(screen.getByRole('listitem', { name: '#ext-xaue' })).findByRole('alert')).textContent).toBe('没查到 1 个：Slack 里查不到这个人')
+  })
+
+  it('回填全部缺失：显示补了多少、跳过多少', async () => {
+    const calls = refillBackend()
+    renderIt()
+    await userEvent.click(await screen.findByRole('button', { name: /回填全部缺失/ }))
+    expect((await screen.findByText(/补上 1 个名字/)).textContent).toBe('补上 1 个名字，1 个之前就没查到，这次跳过')
+    expect(calls.find((c) => c.path === '/api/im/conversations/refill-names')?.body).toEqual({})
   })
 })

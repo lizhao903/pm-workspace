@@ -2719,6 +2719,11 @@ input.mono { font-family: var(--mono); }
 
 /* ---------- 群组管理抽屉（groupadmin.tsx，SPEC-messages-7） ---------- */
 .ga-drawer { width: var(--drawer-w); }
+.ga-top-refill { flex-wrap: wrap; row-gap: 4px; }
+.ga-top-refill .ga-name { min-width: min(9em, 100%); }
+.ga-refill { color: var(--ok, #1a7f37); font-size: 12px; overflow-wrap: anywhere; }
+.ga-refill.bad { color: var(--danger, #c0392b); }
+.ga-refill.muted { color: var(--faint, #999); }
 .ga-title { margin: 0 0 6px; font-size: 16px; font-weight: 600; }
 .ga-desc { margin: 0 0 14px; color: var(--muted); font-size: 12.5px; }
 .ga-drawer .toolbar .search { flex: 1 1 200px; }
@@ -2743,6 +2748,13 @@ input.mono { font-family: var(--mono); }
 .ga-adopt { height: 20px; padding: 0 8px; border-radius: 99px; border: 1px dashed var(--accent-line); color: var(--accent); font-size: 12px; }
 .ga-adopt:hover { background: var(--accent-soft); border-style: solid; }
 .ga-bulk-n { font-weight: 600; font-size: 12.5px; }
+/* 窄抽屉（手机宽）：同正式产品 groupAdmin.css，数字列表头收起，默认归属换到第二行，名字不被挤没 */
+.ga-drawer .drawer-body { container-type: inline-size; }
+@container (max-width: 560px) {
+  .ga-row { flex-wrap: wrap; }
+  .ga-head .ga-col, .ga-head .ga-proj { display: none; }
+  .ga-proj { width: 100%; align-items: flex-start; padding-left: 26px; }
+  .ga-sugg { justify-content: flex-start; }
 
 /* 文档默认工作目录（SPEC-library-1.53） */
 .ws-default { flex: none; margin-left: auto; padding: 0 6px; border-radius: 999px; font-size: 11px; color: var(--accent); background: var(--accent-soft); }
