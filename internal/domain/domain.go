@@ -721,6 +721,8 @@ type Artifact struct {
 	RelPath     string `json:"rel_path"`
 	ObjectRef   string `json:"object_ref,omitempty"`
 	ObjectTitle string `json:"object_title,omitempty"`
+	// DisplayKind = Kind，Kind 为空（历史登记）时按备注、链接、扩展名推断（TSK-0497，见 artifactkind.go）。
+	DisplayKind string `json:"display_kind"`
 }
 
 // ArtifactSource 的取值。放常量而不是各处写字面量：统计页要按来源分组，
@@ -812,8 +814,14 @@ type ArtifactFilter struct {
 	HasPath  *bool
 	Q        string // 匹配 title / path / url / note
 	Unscoped bool   // 只看没有归属对象的
-	Limit    int
-	Offset   int
+	// 以下是 TSK-0497 加的：登记时间区间（含两端），归属对象的类型和所属项目。
+	// ProjectID 为 "-" 时是「归属对象不属于任何项目」。
+	Since      *time.Time
+	Until      *time.Time
+	ObjectType string
+	ProjectID  string
+	Limit      int
+	Offset     int
 }
 
 // ArtifactStats 是产物页顶部那几个数。

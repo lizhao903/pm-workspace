@@ -1,0 +1,26 @@
+/* 任务产出物（TSK-0497）：行内产出标记和「产出物」视图，正式前端在 frontend/src/modules/tasks/tasks.css 同名类 */
+.out-badge { display: inline-block; height: 18px; line-height: 18px; padding: 0 6px; border-radius: 4px; flex: 0 1 auto; min-width: 0; max-width: 220px; font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; background: color-mix(in srgb, var(--ok) 10%, transparent); color: color-mix(in srgb, var(--ok) 80%, var(--text)); cursor: pointer; }
+.out-badge:hover { background: color-mix(in srgb, var(--ok) 18%, transparent); }
+.stage-card .out-badge { align-self: flex-start; max-width: 100%; }
+.outs-table { container-type: inline-size; }
+.outs-row { display: grid; align-items: center; grid-template-columns: 14px minmax(200px, 1fr) 92px minmax(120px, 200px) 92px 84px; gap: 12px; min-height: 54px; padding: 8px 16px; border-bottom: 1px solid var(--line); cursor: pointer; }
+.outs-row.task-th { cursor: default; }
+.outs-row:not(.task-th):hover, .outs-item.open > .outs-row { background: var(--panel-2); }
+.outs-row.sel { background: var(--accent-soft); box-shadow: inset 3px 0 0 var(--accent); }
+.outs-caret { color: var(--faint); font-size: 11px; }
+.outs-kinds { font-size: 12.5px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.outs-detail { display: flex; flex-direction: column; gap: 4px; padding: 8px 16px 12px 42px; border-bottom: 1px solid var(--line); background: var(--panel-2); }
+.outs-kind { flex: none; display: inline-flex; align-items: center; height: 18px; padding: 0 6px; border-radius: 4px; font-size: 11px; background: var(--hover); color: var(--muted); white-space: nowrap; }
+@container (max-width: 640px) {
+  .outs-row { grid-template-columns: 14px minmax(0, 1fr) 80px minmax(0, 120px); }
+  .outs-row > :nth-child(5), .outs-row > :nth-child(6) { display: none; }
+}
+@container (max-width: 480px) {
+  .outs-table .outs-row { grid-template-columns: 14px auto minmax(0, 1fr); column-gap: 8px; row-gap: 6px; padding: 10px 12px; }
+  .outs-table .task-th { display: none; }
+  .outs-row > .task-main { grid-row: 1; grid-column: 2 / -1; min-width: 0; }
+  .outs-row > :nth-child(3) { grid-row: 2; grid-column: 2; }
+  .outs-row > .outs-kinds { grid-row: 2; grid-column: 3; }
+  .outs-detail { padding: 8px 12px; }
+  .outs-detail .dev-art { flex-wrap: wrap; }
+}

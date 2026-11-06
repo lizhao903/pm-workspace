@@ -86,6 +86,7 @@ function fakeBackend(hooks: Webhook[], deliveries: Delivery[] = [], tasks: WorkO
     }
     const om = u.pathname.match(/^\/api\/objects\/([^/]+)$/)
     if (om) return json(tasks.find((t) => t.id === om[1]))
+    if (u.pathname === '/api/artifacts/by-object') return json({ objects: [], total: 0, by_kind: {}, by_source: {} })
     return json([], { total: 0 })
   }))
   return calls

@@ -6,6 +6,7 @@ import { ArtifactsPanel } from './ArtifactsPanel'
 import { ChangesPanel } from './Changes'
 import { ProgressTimeline } from './ProgressTimeline'
 import { RunsBlock } from './Runs'
+import { FOCUS_ARTIFACTS } from './drawerTabs'
 
 type SlotProps = { task: WorkObject }
 
@@ -13,8 +14,8 @@ export function ProgressSlot({ task }: SlotProps) {
   return <ProgressTimeline task={task} />
 }
 
-export function ArtifactsSlot({ task }: SlotProps) {
-  return <ArtifactsPanel task={task} />
+export function ArtifactsSlot({ task, focused }: SlotProps & { focused?: boolean }) {
+  return <ArtifactsPanel task={task} focused={focused} />
 }
 
 export function RunsSlot({ task, focus }: SlotProps & { focus?: string }) {
@@ -25,12 +26,14 @@ export function ChangesSlot({ task }: SlotProps) {
   return <ChangesPanel task={task} />
 }
 
-export function DevSlots({ task, reviewing }: SlotProps & { reviewing?: boolean }) {
+/** focus：地址上的 ?focus=（TSK-0497，artifacts 是产出物面板） */
+export function DevSlots({ task, reviewing, focus }: SlotProps & { reviewing?: boolean; focus?: string }) {
+  const artFocused = focus === FOCUS_ARTIFACTS
   if (reviewing) {
     return (
       <div className="dev-slots">
         <ChangesSlot task={task} />
-        <ArtifactsSlot task={task} />
+        <ArtifactsSlot task={task} focused={artFocused} />
         <ProgressSlot task={task} />
       </div>
     )
@@ -38,7 +41,7 @@ export function DevSlots({ task, reviewing }: SlotProps & { reviewing?: boolean 
   return (
     <div className="dev-slots">
       <ProgressSlot task={task} />
-      <ArtifactsSlot task={task} />
+      <ArtifactsSlot task={task} focused={artFocused} />
       <ChangesSlot task={task} />
     </div>
   )

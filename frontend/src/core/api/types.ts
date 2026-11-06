@@ -308,12 +308,16 @@ export type Artifact = {
   size: number
   source: ArtifactSource
   note: string
+  /** 字典 artifact_kind 的 key，空 = 登记时没分类（TSK-0497 之前执行扫目录登记的） */
+  kind: string
   created_at: string
   updated_at: string
   // 派生字段，不接受写入
   rel_path: string
   object_ref?: string
   object_title?: string
+  /** kind 非空就是 kind，为空时后端按备注、链接、扩展名推断（TSK-0497） */
+  display_kind: string
 }
 
 // source 由请求头 X-Actor-Source 判定，不在这里传。path 和 url 至少一个非空。
@@ -353,8 +357,39 @@ export type ArtifactListParams = {
   has_url?: boolean
   has_path?: boolean
   q?: string
+  // TSK-0497：种类（按对象汇总时按 display_kind 比）、登记时间区间、归属对象的类型和项目（- 是不属于项目）
+  kind?: string
+  since?: string
+  until?: string
+  object_type?: string
+  project_id?: string
   limit?: number
   offset?: number
+}
+
+/** GET /api/artifacts/by-object 的一行：一个对象的产出汇总（TSK-0497） */
+export type ArtifactObjectSummary = {
+  object_id: string
+  object_ref: string
+  object_title: string
+  object_type: string
+  status: string
+  project_id: string | null
+  project_title: string
+  completed_at: string | null
+  total: number
+  /** 按 display_kind */
+  by_kind: Record<string, number>
+  by_source: Record<string, number>
+  last_at: string
+}
+
+/** by_kind 不受 kind 条件影响、by_source 不受 source 条件影响；total、objects 是全部条件生效后的 */
+export type ArtifactsByObject = {
+  objects: ArtifactObjectSummary[]
+  total: number
+  by_kind: Record<string, number>
+  by_source: Record<string, number>
 }
 
 export type ArtifactStats = {
@@ -364,6 +399,8 @@ export type ArtifactStats = {
   unscoped: number
   by_platform: Record<string, number>
   by_source: Record<string, number>
+  /** 按库里的 kind，未分类的在 "" 下 */
+  by_kind: Record<string, number>
   total_size: number
 }
 

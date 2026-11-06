@@ -20,10 +20,12 @@ import { buildPrompt, projectContext } from './handoff'
 import { threadTaskBody } from './msggroup'
 import type { Project } from './projectdata'
 import { StageBoard } from './taskstage'
+import { OUTPUTS_FILTERS, OutputsBadge, OutputsPage, matchOutputs, summarize, type OutputsFilter } from './taskoutputs'
+import type { TaskArtifact } from './taskdata'
 
 /** 任务页的二级菜单 key */
 /** schedule：定时任务建出来的任务；schedules：定时任务本身的管理页；due：逾期未完成；hooks：Webhook 列表 */
-export type TaskView = 'all' | 'due' | 'board' | 'manual' | 'im' | 'webhook' | 'schedule' | 'incident' | 'schedules' | 'hooks' | `hook:${string}`
+export type TaskView = 'all' | 'due' | 'board' | 'outputs' | 'manual' | 'im' | 'webhook' | 'schedule' | 'incident' | 'schedules' | 'hooks' | `hook:${string}`
 
 const channelLabel = (k: string) => IM_CHANNELS.find((c) => c.key === k)?.label ?? k
 // 「今天」按本地日期；addDays、weekEnd 只做日历日加减，用 UTC 解析不受时区影响
@@ -81,10 +83,13 @@ export function SourceTag({ task, hooks }: { task: Task; hooks: Webhook[] }) {
   return <span className="src-tag">人工</span>
 }
 
-export function TasksNav({ tasks, hooks, deliveries, view, onSelect, onNewHook }: {
+export function TasksNav({ tasks, hooks, deliveries, view, onSelect, onNewHook, artifacts = [] }: {
   tasks: Task[]; hooks: Webhook[]; deliveries: Delivery[]; view: TaskView
   onSelect: (v: TaskView) => void; onNewHook: () => void
+  /** 产出物（TSK-0497）：「产出物」视图的条数 */
+  artifacts?: TaskArtifact[]
 }) {
+  const outN = useMemo(() => summarize(artifacts).size, [artifacts])
   // 最近一次推送失败的 Webhook 标红：多半是对方改了字段，映射没跟上
   const last = useMemo(() => lastDeliveries(deliveries), [deliveries])
   const failing = (h: Webhook) => (last.get(h.id)?.result === 'failed' ? 1 : 0)
@@ -98,6 +103,7 @@ export function TasksNav({ tasks, hooks, deliveries, view, onSelect, onNewHook }
       { key: 'all' as TaskView, label: '全部任务', group: '视图' },
       { key: 'due' as TaskView, label: '逾期', desc: dueN ? `${dueN} 条过了截止日还没完成` : '没有逾期的任务', alert: dueN, group: '视图' },
       { key: 'board' as TaskView, label: '阶段看板', desc: '按阶段分列，按提出人看进度', group: '视图' },
+      { key: 'outputs' as TaskView, label: '产出物', desc: `${outN} 条任务有产出`, group: '视图' },
       { key: 'manual' as TaskView, label: '人工创建', group: '来源' },
       { key: 'im' as TaskView, label: 'IM 消息', group: '来源' },
       { key: 'webhook' as TaskView, label: 'Webhook', group: '来源' },
@@ -140,15 +146,28 @@ export function TasksPage(props: {
   onStage?: (id: string, stage: string) => void
   /** 看板上点卡片：打开任务抽屉并停在「流水线」标签（AUTO-12，SPEC-tasks-11.15）；不给时同 onOpen */
   onOpenBoard?: (id: string) => void
+  /** 产出物（TSK-0497）：行和卡片上的产出标记、「产出物」视图 */
+  artifacts?: TaskArtifact[]
+  /** 点产出标记、「在任务里看」：打开抽屉的开发任务标签（产出物在那里）；不给时同 onOpen */
+  onOpenOutputs?: (id: string) => void
 }) {
-  if (props.view === 'board') return <StageBoard tasks={props.tasks} selected={props.selected} onOpen={props.onOpenBoard ?? props.onOpen} onStage={(id, s) => props.onStage?.(id, s)} />
+  const arts = props.artifacts ?? []
+  const openOutputs = props.onOpenOutputs ?? props.onOpen
+  if (props.view === 'board') return <StageBoard tasks={props.tasks} selected={props.selected} onOpen={props.onOpenBoard ?? props.onOpen} onStage={(id, s) => props.onStage?.(id, s)} artifacts={arts} onOpenOutputs={openOutputs} />
+  if (props.view === 'outputs') return <OutputsWrap tasks={props.tasks} artifacts={arts} projects={props.projects} selected={props.selected} onOpen={openOutputs} />
   if (props.view === 'hooks') return <WebhooksPage hooks={props.hooks} deliveries={props.deliveries} tasks={props.tasks} onOpen={props.onOpenHook} onNew={props.onNewHook} />
-  return <TaskList {...props} view={props.view} />
+  return <TaskList {...props} view={props.view} artifacts={arts} onOpenOutputs={openOutputs} />
 }
 
-function TaskList({ tasks, hooks, projects, view, selected, onOpen, onNew, onStatus, onApprove }: {
-  tasks: Task[]; hooks: Webhook[]; projects: { id: string; name: string }[]; view: Exclude<ListView, 'hooks' | 'board'>; selected: string | null
+function OutputsWrap(p: { tasks: Task[]; artifacts: TaskArtifact[]; projects: { id: string; name: string }[]; selected: string | null; onOpen: (id: string) => void }) {
+  const statusEnum = useEnumView('task_status')
+  return <OutputsPage {...p} statusLabel={(s) => statusEnum.label(s)} />
+}
+
+function TaskList({ tasks, hooks, projects, view, selected, onOpen, onNew, onStatus, onApprove, artifacts, onOpenOutputs }: {
+  tasks: Task[]; hooks: Webhook[]; projects: { id: string; name: string }[]; view: Exclude<ListView, 'hooks' | 'board' | 'outputs'>; selected: string | null
   onOpen: (id: string) => void; onNew: () => void; onStatus: (id: string, s: TaskStatus) => void; onApprove?: (id: string) => void
+  artifacts: TaskArtifact[]; onOpenOutputs: (id: string) => void
 }) {
   const statusEnum = useEnumView('task_status')
   const prioEnum = useEnumView('task_priority')
@@ -156,15 +175,18 @@ function TaskList({ tasks, hooks, projects, view, selected, onOpen, onNew, onSta
   const [prio, setPrio] = useState('')
   const [proj, setProj] = useState('')
   const [q, setQ] = useState('')
+  // 有产出 / 无产出（TSK-0497），和状态组合：「已完成」加「无产出」就是做完了却没留下东西的
+  const [out, setOut] = useState<OutputsFilter>('')
+  const outputs = useMemo(() => summarize(artifacts), [artifacts])
   const [closed, setClosed] = useState<Set<DueSeg>>(new Set())
   const [more, setMore] = useState<Partial<Record<DueSeg, number>>>({})
   const [ask, setAsk] = useState<Task | null>(null)
   const kw = q.trim().toLowerCase()
   // 换了筛选，各段重新只露前 30 条
-  useEffect(() => { setMore({}) }, [view, st, prio, proj, kw])
+  useEffect(() => { setMore({}) }, [view, st, prio, proj, kw, out])
   const now = today()
   const end = weekEnd(now)
-  const base = tasks.filter((t) => (view === 'all' || (view === 'due' ? isOverdue(t) : t.source.kind === view)) && (!proj || (proj === '-' ? !t.project_id : t.project_id === proj)))
+  const base = tasks.filter((t) => (view === 'all' || (view === 'due' ? isOverdue(t) : t.source.kind === view)) && (!proj || (proj === '-' ? !t.project_id : t.project_id === proj)) && matchOutputs(t.id, out, outputs))
   const match = (t: Task, s: StatusFilter) => s === 'all' || (s === 'open' ? isOpenTask(t.status) : t.status === s)
   const rows = base
     .filter((t) => match(t, st) && (!prio || t.priority === prio) && (!kw || [t.title, t.desc, t.ref, t.assignee].some((v) => v.toLowerCase().includes(kw))))
@@ -197,7 +219,7 @@ function TaskList({ tasks, hooks, projects, view, selected, onOpen, onNew, onSta
         </button>
         <span className="task-main">
           <span className="task-title"><span className="task-ref">{t.ref}</span><span className="ellipsis">{t.title}</span></span>
-          <span className="task-meta"><SourceTag task={t} hooks={hooks} />{t.project_id && <span className="src-tag src-proj" title={projName(t.project_id)}>{projName(t.project_id) ?? '已删除的项目'}</span>}{!t.project_id && t.project_removed && <span className="src-tag src-proj" title={`原属项目「${t.project_removed}」`}>原属项目已删除</span>}<span>{timeAgo(t.created_at)}创建</span></span>
+          <span className="task-meta"><SourceTag task={t} hooks={hooks} />{t.project_id && <span className="src-tag src-proj" title={projName(t.project_id)}>{projName(t.project_id) ?? '已删除的项目'}</span>}{!t.project_id && t.project_removed && <span className="src-tag src-proj" title={`原属项目「${t.project_removed}」`}>原属项目已删除</span>}<OutputsBadge s={outputs.get(t.id)} onOpen={() => onOpenOutputs(t.id)} /><span>{timeAgo(t.created_at)}创建</span></span>
         </span>
         <span><PriorityTag p={t.priority} /></span>
         <span className="ellipsis run-muted">{t.assignee || '未分配'}</span>
@@ -235,6 +257,11 @@ function TaskList({ tasks, hooks, projects, view, selected, onOpen, onNew, onSta
         <SearchSelect value={proj} onChange={setProj} noneLabel="全部项目" searchPlaceholder="搜项目"
           options={[...projects.map((x) => ({ value: x.id, label: x.name })), { value: '-', label: '不属于项目' }]}
           missingLabel={() => '已删除的项目'} />
+        <div className="chip chip-select">
+          <select value={out} onChange={(e) => setOut(e.target.value as OutputsFilter)}>
+            {OUTPUTS_FILTERS.map(([k, l]) => <option key={k} value={k}>{l}</option>)}
+          </select>
+        </div>
         <span className="spacer" />
         <div className="search">
           {searchIcon}
@@ -243,7 +270,7 @@ function TaskList({ tasks, hooks, projects, view, selected, onOpen, onNew, onSta
       </div>
       {rows.length === 0 ? (
         // 搜索、优先级、项目筛空了；只是状态筛空了（视图里有任务）；视图里一条都没有，三种分开说
-        kw || prio || proj ? (
+        kw || prio || proj || out ? (
           <div className="empty">
             <div className="empty-title">没有匹配的任务</div>
             <div className="list-sub">换个筛选条件试试</div>

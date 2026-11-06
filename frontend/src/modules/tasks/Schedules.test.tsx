@@ -56,6 +56,7 @@ function fakeBackend(rows: Schedule[], runs: Record<string, ScheduleRun[]> = {},
       }
       return json(s)
     }
+    if (u.pathname === '/api/artifacts/by-object') return json({ objects: [], total: 0, by_kind: {}, by_source: {} })
     return json([], { total: 0 })
   }))
   return calls

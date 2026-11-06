@@ -14,7 +14,7 @@ import {
 } from '../../core/ui'
 import { ObjectSectionBadge, ObjectSections } from '../../core/shell/extensionHosts'
 import { DevSlots, RunsSlot } from './DevSlots'
-import { HOST_TABS, RUN_PARAM, currentTab, isDevTask, useTaskTabParams, visibleTabs, wantedTab, type HostTab } from './drawerTabs'
+import { FOCUS_PARAM, HOST_TABS, RUN_PARAM, currentTab, isDevTask, useTaskTabParams, visibleTabs, wantedTab, type HostTab } from './drawerTabs'
 import { HandOffButton } from './HandOff'
 import { runningOf } from './handoffModel'
 import { buildCreate, buildSave, draftOf, emptyDraft, sameDraft, type TaskDraft } from './draft'
@@ -230,7 +230,7 @@ export function TaskDrawer({ task, statuses, priorities, projects, init, returnT
         <>
           {reviewing && <ReviewBar task={task} statuses={statuses} acceptance={base.acceptance} onReviewed={reviewed} />}
           {!reviewing && devFields}
-          <DevSlots task={task} reviewing={reviewing} />
+          <DevSlots task={task} reviewing={reviewing} focus={tabs.params.get(FOCUS_PARAM) || undefined} />
           {reviewing && devFields}
         </>
       )

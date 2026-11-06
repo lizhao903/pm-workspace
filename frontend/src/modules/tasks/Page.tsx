@@ -2,6 +2,7 @@
 // /tasks 全部任务，/tasks/overdue 逾期；状态筛选记在 ?status=，可以直接链接到「待验收」这类视图；?t=<id> 打开某条任务的抽屉。
 // 抽屉的标签记在 ?tab=，?run= / ?sop_run= 定位某次执行（drawerTabs.ts）；从列表换一条任务、新建时清掉，新打开的从默认标签开始。
 // /tasks/board 阶段看板（AUTO-05，SPEC-tasks-11）：按 props.stage 分列、按提出人筛。
+// /tasks/outputs 产出物（TSK-0497，SPEC-tasks-12）：按任务汇总的产出物清单，和看板一样是「视图」组里的一项，不另起菜单。
 // /tasks/schedules 定时任务（SPEC-tasks-7、8，TASK-04a），二级菜单「自动化」组。
 // /tasks/source/<来源> 来源视图（SPEC-tasks-3），/tasks/webhooks Webhook 接入、/tasks/webhooks/<id|new> 配置页（SPEC-tasks-9、10，TASK-04b）。
 import { useEffect, useState } from 'react'
@@ -11,14 +12,16 @@ import {
 } from '../../core/data'
 import { Button, ErrorState, InSubnavHost, LoadingState, Subnav, type SubnavItem } from '../../core/ui'
 import { timeAgo } from './model'
-import { useProjectOptions, useSourceCounts, useTaskCounts, useTaskList } from './queries'
+import { ARTIFACT_KIND_DICT, useProjectOptions, useSourceCounts, useTaskCounts, useTaskList, useTaskOutputs } from './queries'
 import { ApproveDialog } from './ApproveDialog'
 import { OPEN, REVIEW, doneKey, reopenKey, terminalOf, type StatusFilter } from './model'
 import { SchedulesView } from './Schedules'
 import { TaskDrawer } from './TaskDrawer'
-import { useTaskTabParams } from './drawerTabs'
+import { FOCUS_ARTIFACTS, FOCUS_PARAM, useTaskTabParams } from './drawerTabs'
 import { TaskList, type TaskView } from './TaskList'
 import { StageBoard } from './StageBoard'
+import { OutputsView } from './Outputs'
+import { kindTable } from './outputSummary'
 import { PIPELINE_TAB } from './stageModel'
 import { SOURCE_KINDS, SOURCE_VIEW, isSourceKind } from './sourceModel'
 import { LAST_DELIVERY_POLL_MS, WebhooksView } from './Webhooks'
@@ -30,14 +33,14 @@ const SEARCH_DELAY = 300
 // 优先级字典的 id（/api/dictionaries）
 const PRIORITY_DICT = 'priority'
 
-type View = TaskView | 'board' | 'schedules' | 'hooks' | `hook:${string}`
+type View = TaskView | 'board' | 'outputs' | 'schedules' | 'hooks' | `hook:${string}`
 
 const isHookView = (v: View): v is `hook:${string}` => v.startsWith('hook:')
 
 /** 子路径和视图互转；hook:new 是新建 Webhook */
 function viewOf(rest: string): View | null {
   if (rest === '') return 'all'
-  if (rest === 'overdue' || rest === 'schedules' || rest === 'board') return rest
+  if (rest === 'overdue' || rest === 'schedules' || rest === 'board' || rest === 'outputs') return rest
   if (rest === 'webhooks') return 'hooks'
   const [a, b, ...more] = rest.split('/')
   if (more.length || !b) return null
@@ -47,7 +50,7 @@ function viewOf(rest: string): View | null {
 }
 function subpath(v: View): string {
   if (v === 'all') return ''
-  if (v === 'overdue' || v === 'schedules' || v === 'board') return v
+  if (v === 'overdue' || v === 'schedules' || v === 'board' || v === 'outputs') return v
   if (v === 'hooks') return 'webhooks'
   if (isHookView(v)) return `webhooks/${encodeURIComponent(v.slice(5))}`
   return `source/${v}`
@@ -105,6 +108,10 @@ export default function Page() {
   // 搜索在拉全的列表上本地匹配（要搜负责人名，后端 q 不管负责人），不传 q
   const list = useTaskList({ overdue: view === 'overdue', source: view && isSourceKind(view) ? SOURCE_VIEW[view].filter : undefined })
   const people = useStakeholders()
+  // 每条任务的产出汇总和种类名（TSK-0497）：列表行、看板卡片、产出物视图共用
+  const outputs = useTaskOutputs()
+  const kindDict = useDictItems(ARTIFACT_KIND_DICT)
+  const kinds = kindTable(kindDict.data)
   const hooks = useWebhooks()
   const hookList = hooks.data ?? []
   const lastDeliveries = useLastDeliveries(hookList.map((h) => h.id), LAST_DELIVERY_POLL_MS)
@@ -133,6 +140,20 @@ export default function Page() {
     const sub = subpath(v)
     navigate(sub ? `${root}/${sub}` : root)
   }
+  // 点产出标记、产出物视图的「在任务里看」：打开抽屉、停在开发任务标签并滚到产出物面板（TSK-0497）
+  const openOutputs = (id: string, t: WorkObject | undefined) => {
+    if (t) {
+      drawerTab.select('dev', { [FOCUS_PARAM]: FOCUS_ARTIFACTS })
+      setOpened({ kind: 'task', task: t })
+    } else {
+      // 不在已取到的列表里（比如列表还没回来）：走 ?t= 取到再打开
+      const next = new URLSearchParams(params)
+      next.set('t', id)
+      next.set('tab', 'dev')
+      next.set(FOCUS_PARAM, FOCUS_ARTIFACTS)
+      setParams(next, { replace: true })
+    }
+  }
   // 来源标签上的 Webhook 名：列表没取到时不说「已删除」
   const hookName = (id: string) => (hooks.data ? hooks.data.find((h) => h.id === id)?.name ?? null : undefined)
   const setStatus = (f: StatusFilter) => {
@@ -158,7 +179,15 @@ export default function Page() {
           }
           setOpened({ kind: 'task', task: t })
         }}
-        search={search} onSearch={setSearch} q={q} />
+        search={search} onSearch={setSearch} q={q}
+        outputs={outputs.map} kinds={kinds} onOpenOutputs={(t) => openOutputs(t.id, t)} />
+    )
+  } else if (view === 'outputs') {
+    main = (
+      <OutputsView tasks={list.data?.data ?? []} statuses={statuses} kinds={kinds}
+        projects={(projects.data?.data ?? []).map((p) => ({ id: p.id, title: p.title }))}
+        search={search} onSearch={setSearch} q={q} selected={opened?.kind === 'task' ? opened.task.id : null}
+        onOpenTask={openOutputs} />
     )
   } else if (view === 'schedules') main = <SchedulesView statuses={statuses} priorities={prios.data ?? []} projects={projects.data?.data ?? []} />
   else if (view === 'hooks' || isHookView(view)) {
@@ -195,6 +224,9 @@ export default function Page() {
         onNew={() => { drawerTab.clear(); setOpened({ kind: 'new' }) }}
         hookName={hookName}
         onGoHooks={() => selectView('hooks')}
+        outputs={outputs.map}
+        kinds={kinds}
+        onOpenOutputs={(t) => openOutputs(t.id, t)}
       />
     )
   }
@@ -221,6 +253,11 @@ export default function Page() {
             alert: overdueN ?? 0,
           },
           { key: 'board', label: '阶段看板', group: '视图', desc: '按阶段分列，按提出人看进度' },
+          {
+            key: 'outputs', label: '产出物', group: '视图',
+            // 有产出的任务数；汇总没取到时不显示数字
+            desc: outputs.query.data ? `${outputs.query.data.objects.length} 条任务有产出` : '按任务看提交、文档、原型等产出',
+          },
           ...SOURCE_KINDS.map((k): SubnavItem<View> => ({
             key: k, label: SOURCE_VIEW[k].label, group: '来源',
             // 条数和来源视图「全部」一致：同一个 source 筛选的 total

@@ -69,6 +69,7 @@ export const dataKeys = {
     all: ['artifacts'] as const,
     list: (f?: ArtifactListParams) => ['artifacts', 'list', normFilter(f)] as const,
     stats: (f?: ArtifactListParams) => ['artifacts', 'stats', normFilter(f)] as const,
+    byObject: (f?: ArtifactListParams) => ['artifacts', 'by-object', normFilter(f)] as const,
   },
   runs: {
     all: ['runs'] as const,

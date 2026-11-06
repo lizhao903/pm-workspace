@@ -167,6 +167,7 @@
 .pj-task-title { flex: 1; }
 .pj-task-owner { flex: 0 0 72px; overflow: hidden; text-overflow: ellipsis; }
 .pj-task-due { flex: 0 0 80px; font-family: var(--mono); }
+.pj-task-out { flex: none; white-space: nowrap; font-size: var(--fs-xs); }
 .pj-check { flex: none; width: 18px; height: 18px; padding: 0; border-radius: 50%; border: 1.5px solid var(--line-2); background: none; cursor: pointer; display: grid; place-items: center; }
 .pj-check:not(:disabled):hover { border-color: var(--ok); }
 .pj-check.on { background: var(--ok); border-color: var(--ok); }
