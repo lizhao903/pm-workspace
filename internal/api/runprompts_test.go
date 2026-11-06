@@ -189,14 +189,14 @@ func TestMarkDoingRules(t *testing.T) {
 			t.Fatal(err)
 		}
 		o, _ := f.GetObject(t.Context(), task.ID)
-		s.markDoing(t.Context(), httptest.NewRequest("POST", "/", nil), o)
+		s.markDoing(t.Context(), httptest.NewRequest("POST", "/", nil), o, runExecutor{})
 		if o, _ = f.GetObject(t.Context(), task.ID); o.Status != want {
 			t.Errorf("%s 交出后应是 %s，得到 %s", from, want, o.Status)
 		}
 	}
 	// 不是任务的不动
 	prj, _ := f.GetObject(t.Context(), *task.ProjectID)
-	s.markDoing(t.Context(), httptest.NewRequest("POST", "/", nil), prj)
+	s.markDoing(t.Context(), httptest.NewRequest("POST", "/", nil), prj, runExecutor{})
 	if p, _ := f.GetObject(t.Context(), prj.ID); p.Status == "doing" {
 		t.Error("项目不该被改成进行中")
 	}

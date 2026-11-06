@@ -5,10 +5,10 @@
 // /tasks/outputs 产出物（TSK-0497，SPEC-tasks-12）：按任务汇总的产出物清单，和看板一样是「视图」组里的一项，不另起菜单。
 // /tasks/schedules 定时任务（SPEC-tasks-7、8，TASK-04a），二级菜单「自动化」组。
 // /tasks/source/<来源> 来源视图（SPEC-tasks-3），/tasks/webhooks Webhook 接入、/tasks/webhooks/<id|new> 配置页（SPEC-tasks-9、10，TASK-04b）。
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Navigate, useLocation, useNavigate, useParams, useSearchParams } from 'react-router'
 import {
-  useApprove, useDictItems, useLastDeliveries, useObject, useObjectTypes, useSetStatus, useStakeholders, useWebhooks, type WorkObject,
+  useAgents, useApprove, useDictItems, useLastDeliveries, useObject, useObjectTypes, useSetStatus, useStakeholders, useWebhooks, type WorkObject,
 } from '../../core/data'
 import { Button, ErrorState, InSubnavHost, LoadingState, Subnav, type SubnavItem } from '../../core/ui'
 import { timeAgo } from './model'
@@ -108,6 +108,9 @@ export default function Page() {
   // 搜索在拉全的列表上本地匹配（要搜负责人名，后端 q 不管负责人），不传 q
   const list = useTaskList({ overdue: view === 'overdue', source: view && isSourceKind(view) ? SOURCE_VIEW[view].filter : undefined })
   const people = useStakeholders()
+  // 负责人是 Agent 时显示它的头像（TSK-0500）
+  const agentList = useAgents()
+  const agents = useMemo(() => new Map((agentList.data ?? []).map((a) => [a.id, a])), [agentList.data])
   // 每条任务的产出汇总和种类名（TSK-0497）：列表行、看板卡片、产出物视图共用
   const outputs = useTaskOutputs()
   const kindDict = useDictItems(ARTIFACT_KIND_DICT)
@@ -180,7 +183,7 @@ export default function Page() {
           setOpened({ kind: 'task', task: t })
         }}
         search={search} onSearch={setSearch} q={q}
-        outputs={outputs.map} kinds={kinds} onOpenOutputs={(t) => openOutputs(t.id, t)} />
+        outputs={outputs.map} kinds={kinds} onOpenOutputs={(t) => openOutputs(t.id, t)} agents={agents} />
     )
   } else if (view === 'outputs') {
     main = (
@@ -227,6 +230,7 @@ export default function Page() {
         outputs={outputs.map}
         kinds={kinds}
         onOpenOutputs={(t) => openOutputs(t.id, t)}
+        agents={agents}
       />
     )
   }

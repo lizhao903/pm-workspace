@@ -324,6 +324,9 @@ AUTO-05。阶段和状态是两套：状态是负责人的工作状态，阶段�
 检查和写入必须同事务，否则两个会话会同时看到「没人领」然后都写进去
 （`TestClaimObjectConcurrentOnlyOneWins`：8 个会话并发领同一条，恰好 1 个成功）。
 
+负责人确实变了时（TSK-0500），那条 `claim` 进展的正文后面另起一行写明：原来有负责人是「负责人由「张三」改为「Claude Code」」，原来没有是「负责人设为「Claude Code」」；负责人没变不加。
+MCP 的 `pmw_claim_task` 领取者先认名册里 `ai_kind=cli`、`ai_ref=claude` 的 AI 成员（工作台自动维护的「Claude Code」），没有时才按名字「Claude Code」找、找不到再建；`pmw_next_task` 把负责人是这个成员的也算「可做」。
+
 409 的情况（`takeover=true` 时放行，归档除外）：
 
 | 情况 | 说明 |
@@ -444,7 +447,20 @@ message 形如 `stakeholder 王磊 already exists; add a qualifier to tell them 
 `objects.owner` 这一列**保留但只读**：迁移是单向的，留着原文本是兜底；
 `owner_id` 为空而 `owner` 非空时，界面回退显示这段文本。新写入一律只写 `owner_id`。
 
-工作对象上的相关字段：`GET` 回 `owner_id` / `owner_name` / `participants[]`；
+**AI 成员（TSK-0500，内核迁移 0051）。** 负责人可以是工作台 Agent 或 CLI 执行器：名册里为每个工作台 Agent、每种 CLI 各维护一条「AI 成员」，负责人照旧是 `owner_id` 指向名册，
+所以负责人筛选（`owner_id`）、`owned_count` 统计、MCP 按名字传 `owner` 都不变。`Stakeholder` 多两个字段：
+`ai_kind`（string）：`""` 是人，`agent` 是工作台 Agent，`cli` 是命令行执行器；
+`ai_ref`（string）：`agent` 时是 Agent id，`cli` 时是执行器 `claude` / `deepseek`（同 `TaskRun.harness`），人是 `""`。
+
+- **谁来维护**：工作台启动时、Agent 新建 / 修改 / 删除后自动对齐，发起执行时取不到也先对齐一次。CLI 两条：「Claude Code」（`cli` / `claude`）、「DeepSeek」（`cli` / `deepseek`）。
+  每个 Agent 一条，名字跟着 Agent 改；Agent 删掉时那条**归档**（不删，负责过的事项照样显示名字），再出现（同 id）时复岗；停用的 Agent 不归档。新建的分组是「AI 成员」，角色「工作台 Agent」/「CLI 执行器」。
+- **收编**：名册里已有 pmw-mcp 第一次领任务时自建的「Claude Code」（角色 `AI Agent`、还不是 AI 成员）时直接标成 `cli` / `claude`，不另建，已有任务的负责人不变。
+- **撞名**：名字仍全局唯一；Agent 和某个人同名时 AI 成员叫「名字（Agent）」（CLI 是「（CLI）」），再撞加 Agent id 末 4 位，不抢人的名字。
+- **不能手工改的**：`POST` / `PATCH` 不收 `ai_kind` / `ai_ref`；AI 成员 `PATCH` 改 `name`（和现名不同）或 `archived`（和现状不同）回 409 `AI 成员的名字和在岗状态由工作台维护……`，其他字段（备注、颜色、分组等）照常改；`DELETE` 回 409 `AI 成员由工作台维护，不能删除……`。
+- **手动选 AI 成员当负责人只是记录**，不发起执行；发起执行时负责人怎么改见「任务执行」下「负责人设为执行者」。
+- `GET /api/agents/{id}/impact` 在负责人是这个 Agent 的事项数大于 0 时多一项 `{key: "owned", count, effect: "keep", text: "N 条事项的负责人是它，负责人保留，显示为已归档的 AI 成员"}`。
+
+工作对象上的相关字段：`GET` 回 `owner_id` / `owner_name` / `participants[]`，负责人是 AI 成员时另有 `owner_ai_kind` / `owner_ai_ref`（同上两个字段，负责人是人或没有时不出现）；
 `PATCH` 收 `owner_id`（空串 = 清空）与 `participant_ids`（**全量替换**：省略 = 不改，`[]` = 清空）。
 列表 query 用 `owner_id` 筛负责人——原来的 `owner` 文本匹配已移除，一个语义只留一个定义。
 
@@ -1104,6 +1120,12 @@ dsh 那边的权限口径：`allow_writes=false` 译成沙箱 `read-only`，`tru
 交给 Claude Code（流式发起、切换到终端）和交给工作台 Agent 时，任务（`type_id=task`）状态不是进行中、已完成、已取消的改成进行中（`doing`，SPEC-tasks-6.17），
 操作者是发起的人，照常记修订、发 `object.status_changed`；改不成只记日志，不挡执行。
 
+**负责人设为执行者（TSK-0500，SPEC-tasks-6.33）。** 同一时机（开流之前、执行记录建好之后），没完成、没取消的任务负责人改成这次执行者在名册里的 AI 成员（见「干系人名册」下「AI 成员」）：
+后台执行和切换到终端是「Claude Code」（`cli` / `claude`），`harness=deepseek` 是「DeepSeek」（`cli` / `deepseek`），交给工作台 Agent 是那个 Agent（`agent` / Agent id）。
+原负责人是谁都覆盖（人也覆盖，不另存「指派人」），和改状态同一次写（一条修订）；负责人确实变了时再记一条进展（`kind=note`，操作者是发起的人）：
+「负责人由「张三」改为「Claude Code」（交给 Claude Code 执行）」，原来没有负责人时是「负责人设为「Claude Code」（交给 Claude Code 执行）」；负责人已经是它的不改、不记。
+执行结束（完成、失败、取消）都**不改回**。名册里取不到成员时只记日志，不改负责人、不挡执行。已有执行记录的历史任务**不回填**负责人。
+
 提示词：选了角色时加「执行要求（<角色场景>）」一节：执行要求原文；只读角色再加一段「这个角色只读：不要创建、修改或删除任何文件，结论写在回复里。」；有输出要求时再加「输出要求：」和原文；任务 `props.source_ref` 带 `message_id`（IM 转来的）时加「来源消息」一节，
 写渠道、会话、发送人和原文，`reply_on_done` 为真时说明执行结束后工作台会把结论回复到这条消息。
 
@@ -1148,7 +1170,7 @@ SSE 事件（形状的唯一真相是 `internal/runner` 的 `Event.MarshalJSON`�
 - **要确认的写操作**：Agent 的工具授权是「需确认」的调用照会话里的口径记一条 `agent_tool_calls`（`session_id` 是这次的会话，`run_id` 为空），执行停下：执行记录状态改成 `waiting`（没结束，`finished_at` 为空），流里发 `confirm`。人点确认、拒绝走 `POST /api/agent/tool-calls/{id}/confirm` / `reject`（执行面板和会话页都行）：这次调用有在途的执行在等时，那两个接口只记下决定、记审计，把决定交给执行，SSE 里只回一个 `done`（`{type, session_id}`），后面的过程在执行自己的流里接着出；执行发 `decision`，状态回到 `running`，确认的执行这次调用、拒绝的不执行，模型接着跑（换办法或收尾）。到 `confirm_wait_minutes` 没人决定按拒绝处理：调用记 `rejected`，`result` 为「等待确认超时，按拒绝处理：<操作>，没有执行」，审计 `agent` / `reject`，摘要「等待确认超时，按拒绝处理 Agent「名称」的调用 <工具>」，`detail` 多 `run_id`。工作台重启后在途执行没了，还在等的调用照常可以在会话里确认、拒绝（按会话口径接着跑）。
 - **取消**：`POST /api/runs/{id}/cancel` 停掉在途执行（等确认时也行），记录收尾成 `canceled`、`error`「已取消」，还在等的调用拒掉（`result`「执行已取消，没有执行」）；会话页「停止」（`POST /api/agent/sessions/{id}/stop`）也停得下正在跑模型的那一段，同样收尾成 `canceled`、`error`「在会话里手动停止了」。
 - **收尾**：完成 `done`、`exit_code` 0；失败 `failed`、`exit_code` 1，`error` 写原因：步数超限「超过步数上限（N 步）还没做完，已停下。已经执行的操作不会撤回；可以调大步数上限后续跑，或者把任务拆小」，时长超限「超过时长上限（N 分钟）还没做完，已停下……」，服务商不可用「服务商不可用，执行失败：<熔断或重试用完的原因>」（不无限重试：一次调模型最多 3 次，备用服务商再来一遍）；取消 `canceled`、`exit_code` -1。`output` 是过程记录，格式同 Claude Code（正文原样，`[工具] 名 · 参数`、`[工具失败] 名 · 原因`），另加 `[等待确认] <操作>` 和随后一行 `[已确认]` / `[已拒绝]` / `[等待超时，按拒绝处理]`。完成时给任务记一条进展（`kind=note`，操作者 `agent`，会话标识是这次的会话 id）「工作台 Agent「名称」执行完成（执行记录 <id 后 8 位>）：」加 Agent 最后一条回复；失败记「工作台 Agent「名称」执行失败（执行记录 <id 后 8 位>）：<原因>」；取消不记。会话里另落一句（失败「这一轮没跑完：<原因>……」，取消「已手动停止这一轮……」）。收尾照常投 `run.finished`（`origin` 为空）。不记运行异常，不登记产物（`write_file` 写的文件照常按会话登记、挂到任务上）。
-- 交给工作台 Agent 同样把任务改成进行中（SPEC-tasks-6.17 的规则），不领取、不改负责人。
+- 交给工作台 Agent 同样把任务改成进行中（SPEC-tasks-6.17 的规则），不领取；负责人改成这个 Agent（TSK-0500，见上面「负责人设为执行者」）。
 
 ## 凭证保险箱 secrets
 

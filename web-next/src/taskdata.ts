@@ -43,6 +43,8 @@ export interface Task {
   status: TaskStatus
   priority: Priority
   assignee: string
+  /** 负责人是 AI 成员（TSK-0500）：工作台 Agent 或 CLI；人时不设 */
+  assignee_ai?: 'agent' | 'cli'
   /** yyyy-mm-dd */
   due: string | null
   source: TaskSource
@@ -218,17 +220,17 @@ export const seedDeliveries: Delivery[] = [
 
 export const seedTasks: Task[] = [
   // 交给 Claude Code 做的开发任务：进展、产出物、执行记录在文件末尾的 seedProgress / seedArtifacts / seedRuns
-  { id: 'tk_dev3', stage: 'accepting', requester: { contact_id: 'ct_005', name: '许知行', channel: 'lark', sender_id: 'ou_7f3a9c21' }, project_id: 'pj_perm', ref: 'T-017', title: '权限变更缓存改成按部门失效', desc: '对应 T-009：权限变更要 1 分钟内生效。现在整租户缓存 10 分钟，改成按部门打版本号，改了哪个部门只失效哪个部门。', status: 'review', priority: 'P1', assignee: 'Claude Code', due: dayOffset(2), source: { kind: 'manual' },
+  { id: 'tk_dev3', stage: 'accepting', requester: { contact_id: 'ct_005', name: '许知行', channel: 'lark', sender_id: 'ou_7f3a9c21' }, project_id: 'pj_perm', ref: 'T-017', title: '权限变更缓存改成按部门失效', desc: '对应 T-009：权限变更要 1 分钟内生效。现在整租户缓存 10 分钟，改成按部门打版本号，改了哪个部门只失效哪个部门。', status: 'review', priority: 'P1', assignee: 'Claude Code', assignee_ai: 'cli', due: dayOffset(2), source: { kind: 'manual' },
     acceptance: '- [ ] 改了某个部门的角色，1 分钟内该部门成员的权限生效\n- [ ] 其他部门的缓存不受影响\n- [ ] 500 并发下权限查询 p99 不超过 20ms',
     workdir: '/Volumes/project/clients/yuanchuan-permission/server', repo: '/Volumes/project/clients/yuanchuan-permission', created_at: minsAgo(60 * 4), updated_at: minsAgo(50) },
   { id: 'tk_dev2', stage: 'developing', stage_log: [
     { at: minsAgo(60 * 2), from: '', to: 'received' }, { at: minsAgo(115), from: 'received', to: 'designing' },
     { at: minsAgo(100), from: 'designing', to: 'reviewing' }, { at: minsAgo(97), from: 'reviewing', to: 'designing' },
     { at: minsAgo(95), from: 'designing', to: 'reviewing' }, { at: minsAgo(92), from: 'reviewing', to: 'developing' },
-  ], project_id: 'pj_pmw', ref: 'T-016', title: '旧版设置页的错误横幅改成行内提示', desc: '旧版问题清单里的「列表页错误横幅太占地方」。保存失败时在出错的字段下面提示，不在页顶铺一条横幅。', status: 'doing', priority: 'P2', assignee: 'Claude Code', due: dayOffset(4), source: { kind: 'manual' },
+  ], project_id: 'pj_pmw', ref: 'T-016', title: '旧版设置页的错误横幅改成行内提示', desc: '旧版问题清单里的「列表页错误横幅太占地方」。保存失败时在出错的字段下面提示，不在页顶铺一条横幅。', status: 'doing', priority: 'P2', assignee: 'Claude Code', assignee_ai: 'cli', due: dayOffset(4), source: { kind: 'manual' },
     acceptance: '- [ ] 连接器、模型服务商、Agent 三个设置页保存失败时在字段下提示\n- [ ] 页顶不再出现错误横幅\n- [ ] npm run build 通过',
     workdir: '/Volumes/project/example/pm-workspace/web', repo: '/Volumes/project/example/pm-workspace', created_at: minsAgo(60 * 2), updated_at: minsAgo(25) },
-  { id: 'tk_dev1', stage: 'testing', requester: { contact_id: 'ct_002', name: '周屿', channel: 'slack', sender_id: 'U04ZHOUYU0' }, project_id: 'pj_pmw', ref: 'T-015', title: '导出改成分批写文件，修掉 300 秒超时', desc: '对应 T-012。Sentry 报 runExport 300 秒超时：大租户的审计日志一次读进内存再写文件。改成分批读、边读边写。', status: 'review', priority: 'P1', assignee: 'Claude Code', due: dayOffset(1), source: { kind: 'manual' },
+  { id: 'tk_dev1', stage: 'testing', requester: { contact_id: 'ct_002', name: '周屿', channel: 'slack', sender_id: 'U04ZHOUYU0' }, project_id: 'pj_pmw', ref: 'T-015', title: '导出改成分批写文件，修掉 300 秒超时', desc: '对应 T-012。Sentry 报 runExport 300 秒超时：大租户的审计日志一次读进内存再写文件。改成分批读、边读边写。', status: 'review', priority: 'P1', assignee: 'Claude Code', assignee_ai: 'cli', due: dayOffset(1), source: { kind: 'manual' },
     acceptance: '- [ ] 12 万行的导出 60 秒内完成\n- [ ] 导出过程中内存峰值不超过 200MB\n- [ ] 界面上不再显示「导出超时」\n- [ ] go test ./internal/export/... 通过',
     repo: '/Volumes/project/example/pm-workspace', created_at: minsAgo(60 * 6), updated_at: minsAgo(100) },
   { id: 'tk_a1', project_id: 'pj_perm', ref: 'T-014', title: '确认演示环境能不能打开自定义角色', desc: '消息分诊助手在会话里建的，跟 T-010 配套：先确认演示环境的开关', status: 'todo', priority: 'P2', assignee: '我', due: dayOffset(2), source: { kind: 'manual' }, created_at: minsAgo(24), updated_at: minsAgo(24) },

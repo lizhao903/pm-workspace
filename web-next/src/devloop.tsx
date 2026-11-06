@@ -11,6 +11,7 @@ import { buildPrompt, type HandoffMode, type ProjectContext } from './handoff'
 import { useRunPresets, type RunPreset } from './runpresets'
 import { WRITE_PROFILE_OPTIONS, allowRulesOf, useRunPerms, writeProfileHint, type RunPermission, type RunWriteProfile } from './runperms'
 import type { Agent } from './agentdata'
+import { ownerNote } from './aiowner'
 import type { ModelConf, Provider } from './modeldata'
 
 // 开发任务闭环：交给 Claude Code 做，它领取、记进展、登记产出、提交验收；你在任务抽屉里验收通过或退回
@@ -102,8 +103,14 @@ export function useDevLoop(patchTask: (id: string, p: Partial<Task>) => void) {
       const sid = newSession()
       const id = newId('run')
       const at = new Date().toISOString()
-      // 交出去就算开工（SPEC-tasks-6.17）：流式、终端都把任务改成进行中，已完成、已取消的不动
-      if (task.status !== 'doing' && task.status !== 'done' && task.status !== 'cancelled') patchTask(task.id, { status: 'doing' })
+      // 交出去就算开工（SPEC-tasks-6.17）：流式、终端都把任务改成进行中，已完成、已取消的不动；
+      // 负责人改成这次的执行者（TSK-0500，SPEC-tasks-6.33）：原来是人也覆盖，进展里记一句，执行结束不改回
+      if (task.status !== 'done' && task.status !== 'cancelled') {
+        const who = o.harness === 'agent' ? (o.agent_name || '工作台 Agent') : 'Claude Code'
+        const kind = o.harness === 'agent' ? 'agent' as const : 'cli' as const
+        if (task.assignee !== who) add(task.id, { kind: 'note', text: ownerNote(task.assignee, who) })
+        patchTask(task.id, { status: 'doing', assignee: who, assignee_ai: kind })
+      }
       // 交给工作台 Agent（SPEC-tasks-6.20）：没有进程，不领取；要确认的写操作停下等
       if (o.harness === 'agent') {
         setRuns((xs) => [{
@@ -119,10 +126,9 @@ export function useDevLoop(patchTask: (id: string, p: Partial<Task>) => void) {
       }
       const files = progress.filter((p) => p.task_id === task.id).flatMap((p) => p.files)
       setRuns((xs) => [{ id, task_id: task.id, status: 'running', session_id: sid, started_at: at, events: [], pending: runScript(task, o.allow_writes, o.extra_prompt, files), ...o, mode: 'stream' }, ...xs])
-      // 允许写入时 Claude Code 先领取任务
+      // 允许写入时 Claude Code 先领取任务（负责人上面已经改成它了）
       if (o.allow_writes) {
         add(task.id, { kind: 'claim', text: '领取了任务', status: 'doing', actor_name: 'claude-code', session_id: sid, source: 'agent' })
-        patchTask(task.id, { status: 'doing', assignee: 'Claude Code' })
       }
       return id
     },

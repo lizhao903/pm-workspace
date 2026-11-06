@@ -41,6 +41,18 @@ describe('阶段看板', () => {
   const lin = { contact_id: 'stk_lin', name: '林原', channel: 'slack', sender_id: 'U1' }
   const guest = { name: '访客', channel: 'slack', sender_id: 'U9', sender_name: '访客' }
 
+  it('AI 负责的（TSK-0500）：卡片显示 AI 负责人，勾「AI 负责的」只留它们', async () => {
+    renderBoard([
+      task({ title: '人做的', props: { stage: 'developing' }, owner_id: 'stk_me', owner_name: '张三' }),
+      task({ title: 'Agent 做的', props: { stage: 'developing' }, owner_id: 'stk_ag', owner_name: '平台助手', owner_ai_kind: 'agent', owner_ai_ref: 'ag_1' }),
+    ])
+    expect(within(col('开发中')).getByTitle('平台助手（工作台 Agent）')).toBeInTheDocument()
+    expect(within(col('开发中')).queryByText('张三')).not.toBeInTheDocument()
+    await userEvent.click(screen.getByLabelText('AI 负责的'))
+    expect(screen.queryByText('人做的')).not.toBeInTheDocument()
+    expect(screen.getByText('Agent 做的')).toBeInTheDocument()
+  })
+
   it('按阶段分列，卡片显示提出人和状态；未设阶段的默认不出列，勾上才出，已结束的不算', async () => {
     renderBoard([
       task({ title: '导出', status: 'doing', props: { stage: 'developing', requester: lin } }),

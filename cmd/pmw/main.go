@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/lizhao903/pm-workspace/internal/agent"
+	"github.com/lizhao903/pm-workspace/internal/aimember"
 	"github.com/lizhao903/pm-workspace/internal/api"
 	"github.com/lizhao903/pm-workspace/internal/audit"
 	"github.com/lizhao903/pm-workspace/internal/connector"
@@ -182,6 +183,12 @@ func run(cfg config) error {
 		return fmt.Errorf("迁移模型服务商密钥失败: %w", err)
 	} else if n > 0 {
 		slog.Info("模型服务商密钥已搬进凭证保险箱", "count", n)
+	}
+
+	// 名册里的 AI 成员（TSK-0500）：每个 Agent、每种 CLI 一条，任务交给它们执行时设为负责人。
+	// 对不齐不拦启动，发起执行时还会再对一次。
+	if err := aimember.Sync(ctx, st); err != nil {
+		slog.Warn("同步名册里的 AI 成员失败", "err", err)
 	}
 
 	// 插件注册表：第一方插件编译进二进制，在这里 Add（PJ-01a 起）；启停状态存在 plugins 表。

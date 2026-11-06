@@ -110,6 +110,10 @@ type Object struct {
 	// OwnerName 是 OwnerID 指向的干系人名字；OwnerID 为空时回退到 Owner 文本。
 	// 列表要显示人名，而按 id 逐行回查是 N+1——这个字段由 store 一次 JOIN 填好。
 	OwnerName string `json:"owner_name,omitempty"`
+	// OwnerAIKind / OwnerAIRef 是负责人为 AI 成员时它的类型与引用（TSK-0500，0051）：
+	// agent + Agent id，或 cli + 执行器（claude / deepseek）；负责人是人或没有负责人时都不出现。
+	OwnerAIKind string `json:"owner_ai_kind,omitempty"`
+	OwnerAIRef  string `json:"owner_ai_ref,omitempty"`
 	// Participants 只带渲染需要的三个字段。列表里一行可能有好几个参与人，
 	// 每个都带上 email/note/时间戳的话，一次 50 行的查询会凭空多搬几十 KB。
 	Participants []StakeholderRef `json:"participants"`
@@ -149,10 +153,31 @@ type Stakeholder struct {
 	Starred       bool       `json:"starred"`
 	LastContactAt *time.Time `json:"last_contact_at"`
 
+	// AIKind / AIRef 标出名册里的 AI 成员（TSK-0500，0051）：'' 是人；agent 是工作台 Agent，
+	// AIRef 是 Agent id；cli 是命令行执行器，AIRef 是 claude / deepseek。由工作台自动维护，
+	// 新建、PATCH 都不收这两个字段。
+	AIKind string `json:"ai_kind"`
+	AIRef  string `json:"ai_ref"`
+
 	// 以下为查询时填充的展示字段，不落 stakeholders 表。
 	// OwnedCount / ParticipatingCount 是删除前的确认依据，也是名册页上的「他手上有多少事」。
 	OwnedCount         int `json:"owned_count"`
 	ParticipatingCount int `json:"participating_count"`
+}
+
+// AI 成员的类型（Stakeholder.AIKind）。
+const (
+	AIKindAgent = "agent" // 工作台 Agent，AIRef 是 agents.id
+	AIKindCLI   = "cli"   // 命令行执行器，AIRef 是 RunHarnessClaude / RunHarnessDeepSeek
+)
+
+// AIMember 是名册里一条 AI 成员应有的样子，SyncAIMembers 按它建、改名、复岗。
+type AIMember struct {
+	Kind  string
+	Ref   string
+	Name  string
+	Color string
+	Note  string
 }
 
 type StakeholderPatch struct {

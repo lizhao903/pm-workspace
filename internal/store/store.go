@@ -141,6 +141,11 @@ type Store interface {
 	// DeleteStakeholder 仅在无引用时允许；有对象引用返回 ErrConflict，让调用方改走归档。
 	// 「归档而不是删除」和 dict_items 一致：人被历史对象引用过，删掉会留下查不出来源的空位。
 	DeleteStakeholder(ctx context.Context, id string) error
+	// SyncAIMembers 让名册里的 AI 成员（TSK-0500）和 want 对齐：缺的建、改了名的跟着改、
+	// 归档了的复岗；want 里没有的 Agent 成员归档（不删，负责过的任务还要显示名字）。CLI 成员只增不归档。
+	SyncAIMembers(ctx context.Context, want []domain.AIMember) error
+	// GetAIMember 按 (kind, ref) 取 AI 成员，没有回 ErrNotFound。
+	GetAIMember(ctx context.Context, kind, ref string) (*domain.Stakeholder, error)
 
 	// 任务执行记录（本机 Claude Code）
 	// ListTaskRuns 返回该对象**最近** limit 条执行记录，按开始时间倒序（最近的在前）——

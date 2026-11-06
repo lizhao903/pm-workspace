@@ -313,6 +313,7 @@ func (f *fakeStore) CreateObject(_ context.Context, o *domain.Object, a store.Ac
 	// 负责人姓名与参与人的展示字段由 store 填，和 sqlite 的 JOIN 同构——
 	// 替身不填的话，「列表要显示人名」这条性质在 API 层永远测不到。
 	o.OwnerName = f.ownerNameLocked(o.OwnerID, o.Owner)
+	o.OwnerAIKind, o.OwnerAIRef = f.ownerAILocked(o.OwnerID)
 	o.Participants = f.refsLocked(idsOfRefs(o.Participants))
 	f.objs[o.ID] = o
 	return o, nil
@@ -357,6 +358,60 @@ func (f *fakeStore) ownerNameLocked(ownerID *string, legacy string) string {
 	return legacy
 }
 
+// ownerAILocked 与 sqlite 同构：负责人是 AI 成员时带出类型与引用（TSK-0500）。调用方必须已持锁。
+func (f *fakeStore) ownerAILocked(ownerID *string) (string, string) {
+	if ownerID != nil && *ownerID != "" {
+		if sh, ok := f.stakeholdersMap()[*ownerID]; ok {
+			return sh.AIKind, sh.AIRef
+		}
+	}
+	return "", ""
+}
+
+// SyncAIMembers 是 sqlite 版的简化：按 (kind, ref) 建或改名、复岗，不在 want 里的 Agent 成员归档。
+// 撞名加区分、收编 pmw-mcp 自建那条只在 sqlite 测（stakeholders_ai_test.go）。
+func (f *fakeStore) SyncAIMembers(_ context.Context, want []domain.AIMember) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	keep := map[string]bool{}
+	now := time.Now()
+	for _, m := range want {
+		keep[m.Kind+"\x00"+m.Ref] = true
+		var hit *domain.Stakeholder
+		for _, sh := range f.stakeholdersMap() {
+			if sh.AIKind == m.Kind && sh.AIRef == m.Ref {
+				hit = sh
+			}
+		}
+		if hit == nil {
+			id := "stk_fake_ai_" + m.Kind + "_" + m.Ref
+			f.stakeholdersMap()[id] = &domain.Stakeholder{ID: id, Name: m.Name, AIKind: m.Kind, AIRef: m.Ref,
+				Group: "AI 成员", Tags: []string{}, CreatedAt: now, UpdatedAt: now}
+			continue
+		}
+		hit.Name, hit.ArchivedAt = m.Name, nil
+	}
+	for _, sh := range f.stakeholdersMap() {
+		if sh.AIKind == domain.AIKindAgent && !keep[sh.AIKind+"\x00"+sh.AIRef] && sh.ArchivedAt == nil {
+			t := now
+			sh.ArchivedAt = &t
+		}
+	}
+	return nil
+}
+
+func (f *fakeStore) GetAIMember(_ context.Context, kind, ref string) (*domain.Stakeholder, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for _, sh := range f.stakeholdersMap() {
+		if sh.AIKind == kind && sh.AIRef == ref {
+			c := *sh
+			return &c, nil
+		}
+	}
+	return nil, domain.ErrNotFound
+}
+
 func (f *fakeStore) UpdateObject(_ context.Context, id string, p domain.ObjectPatch, a store.Actor) (*domain.Object, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -385,6 +440,7 @@ func (f *fakeStore) UpdateObject(_ context.Context, id string, p domain.ObjectPa
 			o.OwnerID = &v
 		}
 		o.OwnerName = f.ownerNameLocked(o.OwnerID, o.Owner)
+		o.OwnerAIKind, o.OwnerAIRef = f.ownerAILocked(o.OwnerID)
 	}
 	// 全量替换，不是增量：nil = 不改，空切片 = 清空。
 	if p.ParticipantIDs != nil {

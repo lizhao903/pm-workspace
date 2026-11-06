@@ -304,7 +304,7 @@ func (s *Server) runObjectWithAgent(w http.ResponseWriter, r *http.Request, flus
 	}
 	run.HarnessSession = sess.ID
 
-	s.markDoing(ctx, r, obj)
+	s.markDoing(ctx, r, obj, agentExecutor(ag))
 
 	h := w.Header()
 	h.Set("Content-Type", "text/event-stream; charset=utf-8")
