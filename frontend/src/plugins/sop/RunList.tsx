@@ -5,12 +5,16 @@
 // 失败的行另有一个「重试」按钮（各视图都有）：单条重跑，流程发起后改过就按最新流程重新发起，否则在原执行里重试。
 // 重跑成功后结果先写进缓存（core/data 的 applyRerun）：重试的变执行中，重新发起的原执行变「已重跑」，都立即离开「失败」和「待我处理」。
 // 「已重跑」（sopRunShow）只在「全部」里出现，灰色，行右边「新执行」打开重跑出来的那条
+// 待我处理（TSK-0486）：执行由 Page 合并「没走完和待我处理」的那份给，不受最近 500 条限制；执行下面另一组「停在等人阶段的任务」，
+// 同今日「待我处理」的阶段那几条（没有等人步骤算到它头上的），点了去任务的流水线标签。按流程筛选时这组不出现，搜索按编号和标题
 import { useMemo, useRef, useState } from 'react'
 import {
   SOP_BATCH_MAX, errorText, sopRunShow, useRerunSopRuns, type SopFlow, type SopRerunAction, type SopRerunResult, type SopRunBrief, type SopRunStatus,
+  type WorkObject,
 } from '../../core/data'
-import { Button, EmptyState, IconSearch, ListSegHead, ListSegMore, PageTitle, SearchSelect, cls } from '../../core/ui'
-import { DAY_SEGS, baseRuns, daySegOf, flowOptions, sortRuns, type DaySeg } from './model'
+import { Button, EmptyState, IconSearch, ListSegHead, ListSegMore, PageTitle, Pill, SearchSelect, cls } from '../../core/ui'
+import { DAY_SEGS, baseRuns, daySegOf, flowOptions, sortRuns, timeAgo, type DaySeg } from './model'
+import { stageWaitLook } from './pipelineModel'
 import { RunHead, RunRow } from './parts'
 import { RerunDialog } from './RerunDialog'
 import { defaultRerun, rerunNote, staleRuns } from './rerun'
@@ -19,7 +23,7 @@ import { useSourceText } from './source'
 const PAGE = 30
 const STATUS_SEG: [('' | SopRunStatus), string][] = [['', '全部'], ['running', '执行中'], ['waiting', '待我处理'], ['failed', '失败'], ['done', '已完成']]
 
-export function RunList({ runs, flows, view, flow, onFlow, onOpen, now }: {
+export function RunList({ runs, flows, view, flow, onFlow, onOpen, now, stageTasks, onOpenTask }: {
   runs: readonly SopRunBrief[]
   flows: readonly SopFlow[]
   view: 'runs' | 'waiting'
@@ -28,11 +32,14 @@ export function RunList({ runs, flows, view, flow, onFlow, onOpen, now }: {
   onFlow: (id: string) => void
   onOpen: (id: string) => void
   now: number
+  /** 待我处理才给：停在等人阶段、没有等人步骤算到它头上的任务（pipelineModel.stageWaitTasks） */
+  stageTasks?: readonly WorkObject[]
+  onOpenTask?: (id: string) => void
 }) {
   const sourceOf = useSourceText()
   const [st, setSt] = useState<'' | SopRunStatus>('')
   const [q, setQ] = useState('')
-  const [closed, setClosed] = useState<Set<DaySeg>>(() => new Set())
+  const [closed, setClosed] = useState<Set<DaySeg | 'stage'>>(() => new Set())
   const [more, setMore] = useState<Partial<Record<DaySeg, number>>>({})
   const [sel, setSel] = useState<ReadonlySet<string>>(() => new Set())
   const [rerunOpen, setRerunOpen] = useState(false)
@@ -49,6 +56,8 @@ export function RunList({ runs, flows, view, flow, onFlow, onOpen, now }: {
   const segOf = daySegOf(new Date(now))
   const segs = DAY_SEGS.map((s) => ({ ...s, xs: rows.filter((r) => segOf(r.started_at) === s.key) })).filter((s) => s.xs.length)
   const filtered = !!(status || flow || q.trim())
+  const kw = q.trim().toLowerCase()
+  const tasks = waiting && !flow ? (stageTasks ?? []).filter((t) => !kw || `${t.ref} ${t.title}`.toLowerCase().includes(kw)) : []
   // 勾选只认当前筛选结果里的；全选按列表顺序取前 200 条（含折叠、没显示出来的）
   const ordered = segs.flatMap((s) => s.xs)
   const picked = picking ? ordered.filter((r) => sel.has(r.id)) : []
@@ -90,7 +99,7 @@ export function RunList({ runs, flows, view, flow, onFlow, onOpen, now }: {
     )
   }
 
-  const toggle = (k: DaySeg) => setClosed((s) => {
+  const toggle = (k: DaySeg | 'stage') => setClosed((s) => {
     const n = new Set(s)
     if (n.has(k)) n.delete(k)
     else n.add(k)
@@ -99,7 +108,7 @@ export function RunList({ runs, flows, view, flow, onFlow, onOpen, now }: {
 
   return (
     <div className="sop-page">
-      <PageTitle parent="SOP" count={rows.length}
+      <PageTitle parent="SOP" count={rows.length + tasks.length}
         desc={waiting ? '这些执行停下来等你：检查输出、确认输入，或处理失败的步骤' : '每一步都留着输入和输出，点进去可以逐步查看'}>
         {waiting ? '待我处理' : '执行记录'}
       </PageTitle>
@@ -127,7 +136,7 @@ export function RunList({ runs, flows, view, flow, onFlow, onOpen, now }: {
           <button type="button" className="btn btn-sm btn-ghost" onClick={() => setNote(null)}>知道了</button>
         </div>
       )}
-      {!rows.length ? (
+      {!rows.length && !tasks.length ? (
         <EmptyState
           title={filtered ? '没有匹配的执行记录' : waiting ? '没有等你处理的执行' : '没有执行记录'}
           desc={filtered ? '换个筛选条件试试' : waiting ? '检查点都处理完了' : '从流程库里选一个标准流程开始执行'} />
@@ -156,6 +165,20 @@ export function RunList({ runs, flows, view, flow, onFlow, onOpen, now }: {
               </div>
             )
           })}
+          {tasks.length > 0 && (
+            <div role="group" aria-label="停在等人阶段的任务">
+              <ListSegHead label="停在等人阶段的任务" n={tasks.length} open={!closed.has('stage')} onToggle={() => toggle('stage')} />
+              {!closed.has('stage') && tasks.map((t) => {
+                const row = <StageRow key={t.id} t={t} now={now} onOpen={(id) => onOpenTask?.(id)} />
+                return picking || hasFailed ? (
+                  <div key={t.id} className={cls('sop-run-pick', !picking && 'sop-run-nopick')}>
+                    {row}
+                    {hasFailed && <span className="sop-run-act" aria-hidden="true" />}
+                  </div>
+                ) : row
+              })}
+            </div>
+          )}
         </div>
       )}
       {picked.length > 0 && (
@@ -176,6 +199,23 @@ export function RunList({ runs, flows, view, flow, onFlow, onOpen, now }: {
         <RerunDialog runs={picked.slice(0, SOP_BATCH_MAX)} flows={flows} onCancel={() => setRerunOpen(false)} onDone={onRerunDone} />
       )}
     </div>
+  )
+}
+
+/** 停在等人阶段的任务一行：列同执行行（任务、阶段、等什么、更新时间、动作），点了去任务的流水线标签 */
+function StageRow({ t, now, onOpen }: { t: WorkObject; now: number; onOpen: (id: string) => void }) {
+  const look = stageWaitLook(t)
+  return (
+    <button type="button" className="sop-run-row" title={`${look.action}：打开任务的流水线`} onClick={() => onOpen(t.id)}>
+      <span className="sop-run-name">
+        <span className="ellipsis" title={`${t.ref} ${t.title}`}>{t.ref} {t.title}</span>
+        <span className="sop-run-sub ellipsis">任务 · {look.label}</span>
+      </span>
+      <span><Pill label={look.stage} color={look.danger ? 'var(--danger)' : 'var(--warn)'} /></span>
+      <span className="sop-run-muted">{look.action}</span>
+      <span className="sop-run-muted">{timeAgo(t.updated_at, now)}</span>
+      <span className="sop-run-muted" />
+    </button>
   )
 }
 

@@ -1814,7 +1814,7 @@ export default function App() {
       {page === 'strategy' && <StrategyNav strategies={strategies} backtests={backtests} runs={tradeRuns} view={strategyView} onSelect={setStrategyView} onNew={newStrategy} />}
       {page === 'trading' && <TradingNav view={tradingView} onSelect={setTradingView} accounts={accounts} runs={tradeRuns} risk={risk}
         onKill={() => { const s = killAll({ runs: tradeRuns, orders, risk }, '手动一键全停'); setTradeRuns(s.runs); setOrders(s.orders); setRisk(s.risk) }} />}
-      {page === 'sop' && !sopView.startsWith('edit:') && <SopNav sops={sops} runs={runs} view={sopView} onSelect={(v) => { setSopView(v); setOpenRun(null); setSopFilter(undefined) }} onNew={() => { setSopView('edit:new'); setOpenRun(null) }} />}
+      {page === 'sop' && !sopView.startsWith('edit:') && <SopNav sops={sops} runs={runs} view={sopView} waitingN={todayNeeds.filter((x) => x.kind === '待我处理').length} onSelect={(v) => { setSopView(v); setOpenRun(null); setSopFilter(undefined) }} onNew={() => { setSopView('edit:new'); setOpenRun(null) }} />}
       {page === 'settings' && (
         <SettingsNav active={section} alerts={{ connectors: brokenConnectors, providers: brokenProviders, incidents: openIncidents }}
           onSelect={(k) => leaveAgent(() => { setSection(k as Section); if (k === 'agents') setAgentView('list'); setDrawer(null) })} />
@@ -1929,7 +1929,9 @@ export default function App() {
                 delPlan={sopPlan(sop.id)} onDelete={() => { if (!sopPlan(sop.id).block) deleteSop(sop.id) }} /></SopSchedules.Provider>
             }
             // 流程库（library）也走这里；带着 SOP 筛选进来时换 key 重置页面里的筛选
+            // 待我处理也列今日「待我处理」组里阶段那几条（stg-），跳过去看到的和今日一致（TSK-0486）
             return <SopSchedules.Provider value={sopSched}><SopRunsPage key={`${sopView}:${sopFilter ?? ''}`} runs={runs} view={sopView as 'runs' | 'waiting' | 'library'} sop={sopFilter} onOpen={setOpenRun}
+              stageItems={todayNeeds.filter((x) => x.id.startsWith('stg-'))}
               onRerun={(ids, action) => { const x = rerunRuns(runs, ids, action); setRuns(x.runs); return x.result }}
               sops={sops} onOpenSop={(id) => setSopView(`sop:${id}`)} onNew={() => { setSopView('edit:new'); setOpenRun(null) }} /></SopSchedules.Provider>
           })()}

@@ -138,10 +138,8 @@ const stageOfTask = (t: WorkObject) => (typeof t.props?.stage === 'string' ? t.p
  */
 export function waitingTodayItems(steps: readonly SopWaitingItem[], tasks: readonly WorkObject[]): { total: number; items: TodayItem[] } {
   const byId = new Map(tasks.map((t) => [t.id, t]))
-  const covered = new Set<string>()
   const items: TodayItem[] = steps.map((w) => {
     const t = w.task_id ? byId.get(w.task_id) : undefined
-    if (w.task_id) covered.add(w.task_id)
     const look = WAIT_TEXT[w.wait] ?? WAIT_TEXT.review
     const st = t ? stageOfTask(t) : ''
     const who = t ? `${t.ref} ${t.title}${st ? ` · ${taskStageLabel(st)}` : ''}` : w.run_title
@@ -151,16 +149,31 @@ export function waitingTodayItems(steps: readonly SopWaitingItem[], tasks: reado
       at: w.since, action: look.action, to: runPath(w.run_id), rank: w.wait === 'hold' ? -1 : 0,
     }
   })
-  for (const t of tasks) {
+  for (const t of stageWaitTasks(steps, tasks)) {
     const st = stageOfTask(t)
     const look = STAGE_WAIT[st]
-    if (!look || covered.has(t.id)) continue
     items.push({
       id: `stage-${t.id}`, tone: st === 'need_human' ? 'danger' : 'warn', title: `${t.ref} ${t.title}`,
       sub: `${taskStageLabel(st)} · ${look.label}`, at: t.updated_at, action: look.action, to: pipelinePath(t.id),
     })
   }
   return { total: items.length, items }
+}
+
+/**
+ * 停在等人阶段、又没有等人的 SOP 步骤算到它头上的任务（今日「待我处理」和 SOP「待我处理」共用这一个口径，TSK-0486）。
+ * 同一个需求已经有等人的步骤时不重复列，处理入口在步骤那条
+ */
+export function stageWaitTasks(steps: readonly SopWaitingItem[], tasks: readonly WorkObject[]): WorkObject[] {
+  const covered = new Set(steps.map((w) => w.task_id).filter(Boolean))
+  return tasks.filter((t) => !!STAGE_WAIT[stageOfTask(t)] && !covered.has(t.id))
+}
+
+/** 阶段任务一行的说法：阶段名、等什么、动作、颜色（需人工红，其余橙） */
+export function stageWaitLook(t: WorkObject): { stage: string; label: string; action: string; danger: boolean } {
+  const st = stageOfTask(t)
+  const look = STAGE_WAIT[st] ?? { label: '', action: '去处理' }
+  return { stage: taskStageLabel(st), label: look.label, action: look.action, danger: st === 'need_human' }
 }
 
 /** 从流水线标签去执行页后「返回」回到哪：宿主给的地址（或当前地址）带上 ?tab=pipeline */

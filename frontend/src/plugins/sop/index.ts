@@ -2,10 +2,9 @@
 // 执行状态变化靠事件流：sop.run_status_changed、sop.step_status_changed 报 sop-run，一批事件合成一次刷新；停用插件时退订
 import { lazy } from 'react'
 import { TODAY_ORDER, definePlugin } from '../../core/plugin'
-import {
-  WAITING_STAGES, listAllObjects, notifyChange, onServerEvent, sopApi, todayKeys, type SopWaitingItem, type WorkObject,
-} from '../../core/data'
+import { notifyChange, onServerEvent } from '../../core/data'
 import { waitingTodayItems } from './pipelineModel'
+import { fetchWaiting, waitingQueryKey, type WaitingData } from './waitingSource'
 
 const EVENTS = ['sop.run_status_changed', 'sop.step_status_changed']
 // 一次动作往往连着发好几条（步骤、执行各一条），合成一次失效
@@ -49,18 +48,12 @@ export default definePlugin({
       tab: { key: 'pipeline', label: '流水线', badge: lazy(() => import('./PipelineBadge')) },
     })
     // 今日「需要你处理」里的「待我处理」（AUTO-12，SPEC-today-1.30）：SOP 里等人的步骤，加停在等人阶段的任务。
-    // 键挂在今日前缀下：执行变化（sop-run）和任务变化都会刷今日
+    // 取数在 waitingSource.ts，SOP 页二级菜单的数字共用这份（TSK-0486）；「查看全部」去 SOP 待我处理，那里执行和阶段任务都列
     api.todaySources.register({
       key: 'waiting', slot: 'need', label: '待我处理', order: TODAY_ORDER.sop, more: '/sop/waiting',
-      queryKey: [...todayKeys.all, 'sop-waiting'],
-      queryFn: async ({ signal }) => {
-        const [steps, tasks] = await Promise.all([
-          sopApi.waiting(signal),
-          listAllObjects({ type: ['task'], stage: [...WAITING_STAGES], not_terminal: true }, signal),
-        ])
-        return { steps, tasks: tasks.data }
-      },
-      select: (d: { steps: SopWaitingItem[]; tasks: WorkObject[] }) => waitingTodayItems(d.steps, d.tasks),
+      queryKey: waitingQueryKey,
+      queryFn: fetchWaiting,
+      select: (d: WaitingData) => waitingTodayItems(d.steps, d.tasks),
     })
     offs = EVENTS.map((t) => onServerEvent(t, onEvent))
   },

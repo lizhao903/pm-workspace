@@ -12,6 +12,7 @@ import { SearchSelect } from './searchselect'
 import { useEnum } from './enumdata'
 import { ListSegHead, ListSegMore } from './tasks'
 import { describeRule, flowSchedule, nextRun, whenText, type Schedule } from './scheduledata'
+import type { TodayItem } from './today'
 
 /**
  * 定时触发（TSK-0463）：触发方式「定时」的规则在随流程管理的定时任务里。App 把定时任务列表和启停放进这个上下文，
@@ -76,8 +77,14 @@ const lastRunAt = (runs: SopRun[]) => {
 // 已重跑过的失败执行不算（SPEC-sop-4.21）
 const isPending = (r: SopRun) => ['waiting', 'failed'].includes(runShow(r))
 
-export function SopNav({ sops, runs, view, onSelect, onNew }: { sops: Sop[]; runs: SopRun[]; view: SopView; onSelect: (v: SopView) => void; onNew: () => void }) {
-  const waiting = runs.filter(isPending).length
+/**
+ * waitingN：「待我处理」的数字，App 传今日「待我处理」组的条数（等人的步骤 + 没被步骤覆盖的阶段任务），两边一致（TSK-0486）；
+ * 不传时按执行算
+ */
+export function SopNav({ sops, runs, view, onSelect, onNew, waitingN }: {
+  sops: Sop[]; runs: SopRun[]; view: SopView; onSelect: (v: SopView) => void; onNew: () => void; waitingN?: number
+}) {
+  const waiting = waitingN ?? runs.filter(isPending).length
   // 菜单只放最近执行过的 5 个流程，完整列表在「流程库」里
   const last = useMemo(() => lastRunAt(runs), [runs])
   const recent = sops.filter((s) => last.has(s.id)).sort((a, b) => last.get(b.id)! - last.get(a.id)!).slice(0, 5)
@@ -169,8 +176,10 @@ function daySegOf() {
   return (t: number): DaySeg => (t >= today ? 'today' : t >= yesterday ? 'yesterday' : t >= week ? 'week' : 'older')
 }
 
-export function SopRunsPage({ runs, view, onOpen, sops, sop, onOpenSop, onNew, onRerun }: {
+export function SopRunsPage({ runs, view, onOpen, sops, sop, onOpenSop, onNew, onRerun, stageItems }: {
   runs: SopRun[]; view: 'runs' | 'waiting' | 'library'; onOpen: (id: string) => void
+  /** 待我处理里「停在等人阶段的任务」一组：今日「待我处理」组的阶段那几条（TSK-0486），点了去任务的流水线 */
+  stageItems?: TodayItem[]
   /** 失败页批量重跑（SPEC-sop-4.13~4.19），回各几条 */
   onRerun?: (ids: string[], action: RerunAction) => RerunResult
   /** 流程库（view = library）用的全部 SOP；不传用 sopflow 里的 SOPS（App 增删时会同步它） */
@@ -182,7 +191,7 @@ export function SopRunsPage({ runs, view, onOpen, sops, sop, onOpenSop, onNew, o
   onNew?: () => void
 }) {
   if (view === 'library') return <SopLibraryPage sops={sops ?? SOPS} runs={runs} onOpen={onOpenSop} onNew={onNew} />
-  return <RunList runs={runs} view={view} onOpen={onOpen} sops={sops ?? SOPS} initialSop={sop} onRerun={onRerun} />
+  return <RunList runs={runs} view={view} onOpen={onOpen} sops={sops ?? SOPS} initialSop={sop} onRerun={onRerun} stageItems={view === 'waiting' ? stageItems : undefined} />
 }
 
 /** 两种重跑的说明，确认框里二选一 */
@@ -234,14 +243,15 @@ function RerunDialog({ runs, onCancel, onConfirm }: { runs: SopRun[]; onCancel: 
   )
 }
 
-function RunList({ runs, view, onOpen, sops, initialSop, onRerun }: {
+function RunList({ runs, view, onOpen, sops, initialSop, onRerun, stageItems }: {
   runs: SopRun[]; view: 'runs' | 'waiting'; onOpen: (id: string) => void; sops?: Sop[]; initialSop?: string
   onRerun?: (ids: string[], action: RerunAction) => RerunResult
+  stageItems?: TodayItem[]
 }) {
   const [st, setSt] = useState<'' | 'running' | 'waiting' | 'done' | 'failed'>('')
   const [sopF, setSopF] = useState(initialSop ?? '')
   const [q, setQ] = useState('')
-  const [closed, setClosed] = useState<Set<DaySeg>>(new Set())
+  const [closed, setClosed] = useState<Set<DaySeg | 'stage'>>(new Set())
   const [more, setMore] = useState<Partial<Record<DaySeg, number>>>({})
   // 失败页多选批量重跑
   const [sel, setSel] = useState<Set<string>>(new Set())
@@ -265,8 +275,10 @@ function RunList({ runs, view, onOpen, sops, initialSop, onRerun }: {
     .sort((a, b) => ORDER[runShow(a)] - ORDER[runShow(b)] || b.started_at - a.started_at)
   const segOf = daySegOf()
   const segs = DAY_SEGS.map((s) => ({ ...s, xs: rows.filter((r) => segOf(r.started_at) === s.key) })).filter((s) => s.xs.length)
-  const toggle = (k: DaySeg) => setClosed((s) => { const n = new Set(s); if (n.has(k)) n.delete(k); else n.add(k); return n })
+  const toggle = (k: DaySeg | 'stage') => setClosed((s) => { const n = new Set(s); if (n.has(k)) n.delete(k); else n.add(k); return n })
   const filtered = !!(st || sopF || kw)
+  // 待我处理：执行下面一组「停在等人阶段的任务」（TSK-0486，同今日阶段那几条）；按流程筛选时不出现，搜索按编号和标题
+  const stage = view === 'waiting' && !sopF ? (stageItems ?? []).filter((x) => !kw || x.title.toLowerCase().includes(kw)) : []
   const picking = view === 'runs' && st === 'failed' && !!onRerun
   const ordered = segs.flatMap((s) => s.xs)
   const picked = picking ? ordered.filter((r) => sel.has(r.id)) : []
@@ -305,7 +317,7 @@ function RunList({ runs, view, onOpen, sops, initialSop, onRerun }: {
   }
   return (
     <div className="page page-fill">
-      <PageTitle parent="SOP" count={rows.length} desc={view === 'waiting' ? '这些执行停下来等你：检查输出、确认输入，或处理失败的步骤' : '每一步都留着输入和输出，点进去可以逐步查看'}>{view === 'waiting' ? '待我处理' : '执行记录'}</PageTitle>
+      <PageTitle parent="SOP" count={rows.length + stage.length} desc={view === 'waiting' ? '这些执行停下来等你：检查输出、确认输入，或处理失败的步骤' : '每一步都留着输入和输出，点进去可以逐步查看'}>{view === 'waiting' ? '待我处理' : '执行记录'}</PageTitle>
       <div className="toolbar">
         {view === 'runs' && (
           <div className="seg">
@@ -329,7 +341,7 @@ function RunList({ runs, view, onOpen, sops, initialSop, onRerun }: {
           <button className="act act-quiet" onClick={() => setNote(null)}>知道了</button>
         </div>
       )}
-      {!rows.length ? (
+      {!rows.length && !stage.length ? (
         <div className="empty">
           <div className="empty-title">{filtered ? '没有匹配的执行记录' : view === 'waiting' ? '没有等你处理的执行' : '没有执行记录'}</div>
           <div className="list-sub">{filtered ? '换个筛选条件试试' : view === 'waiting' ? '检查点都处理完了' : '从流程库里选一个标准流程开始执行'}</div>
@@ -358,6 +370,28 @@ function RunList({ runs, view, onOpen, sops, initialSop, onRerun }: {
               </div>
             )
           })}
+          {stage.length > 0 && (
+            <div role="group" aria-label="停在等人阶段的任务">
+              <ListSegHead label="停在等人阶段的任务" n={stage.length} open={!closed.has('stage')} onToggle={() => toggle('stage')} />
+              {!closed.has('stage') && stage.map((x) => {
+                // 列同执行行：任务、阶段、动作、更新时间；sub 是「阶段 · 等什么」
+                const [stg, why] = x.sub.split(' · ')
+                const row = (
+                  <button key={x.id} className="run-row" title={`${x.action}：打开任务的流水线`} onClick={x.onClick}>
+                    <span className="run-name">
+                      <span className="ellipsis" title={x.title}>{x.title}</span>
+                      <span className="run-sop ellipsis">任务 · {why ?? ''}</span>
+                    </span>
+                    <span><Pill label={stg} color={x.tone === 'danger' ? '#c0352b' : '#b0570b'} /></span>
+                    <span className="run-muted">{x.action}</span>
+                    <span className="run-muted">{x.at ? timeAgo(x.at) : ''}</span>
+                    <span className="run-muted" />
+                  </button>
+                )
+                return hasFailed ? <div key={x.id} className="run-pick run-nopick">{row}<span className="run-act" /></div> : row
+              })}
+            </div>
+          )}
         </div>
       )}
       {picked.length > 0 && (
