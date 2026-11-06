@@ -310,15 +310,21 @@ function reply(agent: Agent, text: string, ctx: Ctx, permHint = PERM_HINT): { te
       lines.push('起草了一条回复，发之前请你确认。')
     } else denied.push('回复 IM 消息')
   }
-  // 建 / 改流程（TSK-0480）：用 write_sop，不拿建任务凑；触发条件里按会话过滤、只要 @我、执行顺序现在不支持，如实说
+  // 建 / 改流程（TSK-0480）：用 write_sop，不拿建任务凑。IM 触发的过滤、顺序、拦截（TSK-0481）从话里认：
+  // 会话（#群名 或 C0… 编号）、「除了 @我」「只要 @我」、「优先 / 先于其他流程」= 排第 1 并拦截
   const mkSop = /(?:建|新建|创建|改|修改)(?:一个|一条)?(?:SOP|流程|工作流)/i.test(text)
   if (mkSop) {
     if (can('write_sop')) {
       const name = text.replace(/^.*?(?:建|新建|创建|改|修改)(?:一个|一条)?(?:SOP|流程|工作流)[：:，,]?/i, '').slice(0, 30) || '新流程'
       const trigger = /消息|IM|群|会话/i.test(text) ? 'im' : 'manual'
-      calls.push({ tool: 'write_sop', input: { name, trigger: { type: trigger } }, state: mode('write_sop') })
+      const conv = text.match(/#[\w-]+|\bC0[A-Z0-9]{6,}\b/)?.[0]
+      const meRule = /(?:除了|除去|排除)\s*@?我/.test(text) ? { relevance: ['me'], relevance_mode: 'exclude' } : /只要\s*@?我|只看\s*@?我/.test(text) ? { relevance: ['me'], relevance_mode: 'include' } : {}
+      const first = /优先|先于|最先|拦截/.test(text) ? { order: 1, stop: true } : {}
+      const trig = trigger === 'im' ? { type: trigger, ...(conv ? { conversations: [conv] } : {}), ...meRule, ...first } : { type: trigger }
+      calls.push({ tool: 'write_sop', input: { name, trigger: trig }, state: mode('write_sop') })
       lines.push(agent.abilities.write_sop === 'auto' ? `已新建流程「${name}」，触发方式${trigger === 'im' ? '「IM 消息」' : '「手动」'}，步骤到 SOP 编排页里补。` : `我准备新建流程「${name}」，确认后保存。`)
-      if (/优先|除了|除去|只要|仅/.test(text)) lines.push('「只看某个会话、排除 @我、优先于其他流程」这几条触发条件现在还不支持：流程会对每条新消息各跑一遍，条件只能写在流程里的条件分支上，执行顺序没法排。')
+      const conds = [conv && `只接 ${conv}`, 'relevance' in meRule && (meRule.relevance_mode === 'exclude' ? '除了 @我' : '只要 @我'), 'order' in first && '排第 1 个、接住的消息别的 IM 流程不再处理'].filter(Boolean)
+      if (trigger === 'im' && conds.length) lines.push(`触发条件：${conds.join('；')}。`)
     } else denied.push('新建 / 修改 SOP 流程')
   } else if (/SOP|流程|执行/.test(text)) {
     if (can('run_sop')) {

@@ -2,7 +2,7 @@
 // 编排页改的是草稿，保存时整体提交，位置一起存进 layout；有错误级问题不保存，后端 400 时把问题逐条标到节点上（SPEC-sop-8.30、8.35）。
 // 撤销历史最多 50 步；流程名连续输入算一步。照原型 web-next/src/sopedit.tsx 的 SopEditor
 import { useEffect, useMemo, useRef, useState, type PointerEvent as RPointerEvent } from 'react'
-import { errorText, isApiError, sopIssuesOf, useSaveSopFlow, type SopDraft, type SopFlow, type SopRunBrief, type SopScheduleOff, type SopStepDef } from '../../core/data'
+import { errorText, isApiError, sopIssuesOf, useConversations, useSaveSopFlow, type SopDraft, type SopFlow, type SopRunBrief, type SopScheduleOff, type SopStepDef } from '../../core/data'
 import { Button, ConfirmDialog, IconButton, PageTitle, cls, describeScheduleRule } from '../../core/ui'
 import { AiPanel } from './AiPanel'
 import {
@@ -15,6 +15,7 @@ import { NodePanel, type TriggerOption } from './NodePanel'
 import { nodeInfo, type FieldCtx } from './nodes'
 import { Palette } from './Palette'
 import { SCHEDULE } from './schedule'
+import { IM, filterText } from './imtrigger'
 import { IconBack, IconPlay, KindIcon } from './parts'
 
 const HISTORY = 50
@@ -73,6 +74,7 @@ export function Editor({ initial, flowId, version, hasSchedule = false, catalog,
   const fitted = useRef(false)
   const toastTimer = useRef<number | undefined>(undefined)
   const saveM = useSaveSopFlow()
+  const convs = useConversations({ enabled: draft.trigger === IM }).data ?? []
 
   const lay = useMemo(() => layoutOf(draft, catalog), [draft, catalog])
   const local = useMemo(() => checkDraft(draft, catalog), [draft, catalog])
@@ -82,7 +84,9 @@ export function Editor({ initial, flowId, version, hasSchedule = false, catalog,
   const items = useMemo(() => paletteItems(catalog), [catalog])
   const triggerLabel = triggers.find((t) => t.value === draft.trigger)?.label ?? draft.trigger
   // 画布开始节点上定时的写出规则（TSK-0463）
-  const startLabel = draft.trigger === SCHEDULE ? (draft.sched ? `${triggerLabel} · ${describeScheduleRule(draft.sched.rule)}` : `${triggerLabel}，未配置`) : triggerLabel
+  // IM 触发写出过滤条件（TSK-0481）
+  const startLabel = draft.trigger === SCHEDULE ? (draft.sched ? `${triggerLabel} · ${describeScheduleRule(draft.sched.rule)}` : `${triggerLabel}，未配置`)
+    : draft.trigger === IM && draft.im ? `${triggerLabel} · ${filterText(draft.im, convs)}${draft.im.stop ? ' · 拦截后续' : ''}` : triggerLabel
 
   const commit = (next: Draft) => {
     setPast((p) => [...p.slice(-(HISTORY - 1)), draft])
@@ -395,7 +399,7 @@ export function Editor({ initial, flowId, version, hasSchedule = false, catalog,
           {/* 开始节点 */}
           <div className={cls('sop-cv-node', sel === START && 'sel')} data-node={START} style={{ left: lay[START].x, top: lay[START].y, width: NW }}
             role="button" tabIndex={0} aria-label="开始节点" onKeyDown={(e) => { if (e.key === 'Enter') select(START) }}>
-            <div className="sop-cv-node-head"><KindIcon kind="start" /><span className="sop-cv-node-name">开始</span><span className="sop-cv-node-kind">{startLabel}</span></div>
+            <div className="sop-cv-node-head"><KindIcon kind="start" /><span className="sop-cv-node-name">开始</span><span className="sop-cv-node-kind" title={startLabel}>{startLabel}</span></div>
             <div className="sop-cv-fields">
               {draft.fields.map((f) => (
                 <span key={f.key} className="sop-cv-field"><span className="mono">{'{x}'}</span>{f.label || '未命名字段'}{f.required && <em>*</em>}</span>

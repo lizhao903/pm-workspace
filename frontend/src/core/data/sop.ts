@@ -48,7 +48,26 @@ export type SopFlow = {
    * 触发方式是 schedule 而它为 null 时是「定时，未配置」（比如在定时任务页删掉了）
    */
   schedule?: Schedule | null
+  /** IM 触发的过滤条件、执行顺序与拦截（TSK-0481）；后端总是带（normFlow 补齐），可选只是为了老的执行快照和测试数据 */
+  im?: SopIMTrigger
 }
+/** 与我的关系：@我、@所有人、私聊、无关（事件里 relevance 为空串） */
+export type SopIMRelevance = 'me' | 'all' | 'dm' | 'none'
+export const SOP_IM_RELEVANCES: readonly SopIMRelevance[] = ['me', 'all', 'dm', 'none']
+/**
+ * IM 触发设置（TSK-0481，契约「IM 触发」）：conversations 是会话 id，空为全部；relevance 空为不限，relevance_mode 是只要 / 除了；
+ * order 是在 IM 流程里排第几（1 起，不是 IM 触发为 0）；stop 是命中并发起后后面的 IM 流程不再接这条消息
+ */
+export type SopIMTrigger = {
+  conversations: string[]
+  relevance: SopIMRelevance[]
+  relevance_mode: 'include' | 'exclude'
+  order: number
+  stop: boolean
+}
+/** 编排页里 IM 触发的草稿：order 为 null 是不改（新的、刚改成 IM 的排最后） */
+export type SopIMDraft = Omit<SopIMTrigger, 'order'> & { order: number | null }
+export const SOP_TRIGGER_IM = 'im'
 /** 触发方式「定时」的 key；旧的 daily、weekly、cron 后端转成它（TSK-0463） */
 export const SOP_TRIGGER_SCHEDULE = 'schedule'
 /** 编排页里定时触发的草稿：规则和启停，保存时写进随流程管理的定时任务 */
@@ -249,12 +268,14 @@ export type SopPipeline = { task_id: string; runs: SopPipelineRun[]; claude: Sop
 export type SopStartInput = { input?: Record<string, string>; step_through?: boolean; object_id?: string }
 
 /** 编排页的草稿：形状同 SopFlow 去掉版本和时间，可以没保存过、可以不合格 */
-export type SopDraft = Pick<SopFlow, 'name' | 'desc' | 'trigger' | 'fields' | 'steps' | 'layout'> & { id?: string; sched?: SopScheduleDraft }
+export type SopDraft = Pick<SopFlow, 'name' | 'desc' | 'trigger' | 'fields' | 'steps' | 'layout'> & { id?: string; sched?: SopScheduleDraft; im?: SopIMDraft }
 /** 保存校验的一条问题；step 是步骤下标（从 0 起），整条流程的问题没有 */
 export type SopIssue = { text: string; step?: number }
 /** 新建、修改流程的 body；layout 为 null 时清掉手动位置 */
-type SopFlowBody = Omit<SopDraft, 'id' | 'layout' | 'sched'> & {
+type SopFlowBody = Omit<SopDraft, 'id' | 'layout' | 'sched' | 'im'> & {
   layout: SopFlow['layout'] | null
+  /** IM 触发设置（TSK-0481）；order 不给是不改 */
+  im?: Omit<SopIMTrigger, 'order'> & { order?: number }
   /** 触发方式是定时时的规则和启停（TSK-0463） */
   schedule?: SopScheduleDraft
   schedule_off?: SopScheduleOff
@@ -276,7 +297,11 @@ export function sopIssuesOf(e: unknown): SopIssue[] {
 export const SOP_RUNS_MAX = 500
 
 // 后端的空数组可能是 null，这里一次补齐
-const normFlow = (f: SopFlow): SopFlow => ({ ...f, desc: f.desc ?? '', trigger: f.trigger ?? '', fields: f.fields ?? [], steps: f.steps ?? [], schedule: f.schedule ?? null })
+const normIM = (x?: Partial<SopIMTrigger> | null): SopIMTrigger => ({
+  conversations: x?.conversations ?? [], relevance: x?.relevance ?? [], relevance_mode: x?.relevance_mode === 'exclude' ? 'exclude' : 'include',
+  order: x?.order ?? 0, stop: !!x?.stop,
+})
+const normFlow = (f: SopFlow): SopFlow => ({ ...f, desc: f.desc ?? '', trigger: f.trigger ?? '', fields: f.fields ?? [], steps: f.steps ?? [], schedule: f.schedule ?? null, im: normIM(f.im) })
 const normRun = (r: SopRun): SopRun => ({
   ...r, source: r.source ?? '', flow: normFlow(r.flow), input: r.input ?? {},
   steps: (r.steps ?? []).map((s) => ({ ...s, log: s.log ?? [], attempts: s.attempts ?? 0, input: s.input ?? null, output: s.output ?? null })),
@@ -401,9 +426,15 @@ export function useSaveSopFlow() {
       const body: SopFlowBody = { name: draft.name, desc: draft.desc, trigger: draft.trigger, fields: draft.fields, steps: draft.steps, layout: draft.layout ?? null }
       if (draft.trigger === SOP_TRIGGER_SCHEDULE && draft.sched) body.schedule = draft.sched
       if (scheduleOff) body.schedule_off = scheduleOff
+      if (draft.im) {
+        const { order, ...rest } = draft.im
+        body.im = order != null && draft.trigger === SOP_TRIGGER_IM ? { ...rest, order } : rest
+      }
       return id ? sopApi.patchFlow(id, { ...body, version }) : sopApi.createFlow(body)
     },
     onSuccess: (f) => {
+      // IM 流程的顺序是大家一起排的（TSK-0481）：这一条插进去、改成或改掉 IM，别的流程的 order 跟着变，整份列表重取
+      void qc.invalidateQueries({ queryKey: dataKeys.sop.flows, exact: true })
       // 列表先换上新的，回流程详情时不用等重新取（新建的不然会先显示「已经删除」）
       qc.setQueryData(dataKeys.sop.flow(f.id), f)
       qc.setQueryData<SopFlow[]>(dataKeys.sop.flows, (list) => list && (list.some((x) => x.id === f.id) ? list.map((x) => (x.id === f.id ? f : x)) : [...list, f]))

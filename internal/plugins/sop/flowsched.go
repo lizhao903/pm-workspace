@@ -186,7 +186,7 @@ func migrateLegacy(ctx context.Context, c plugin.Core) ([]legacyResult, error) {
 	if _, err := svc.FlowSchedules(ctx); err != nil {
 		return nil, err
 	}
-	rows, err := c.Store().Query(ctx, `SELECT `+flowCols+` FROM sop_flows WHERE trigger_desc IN ('daily', 'weekly', 'cron') ORDER BY created_at, rowid`)
+	rows, err := c.Store().Query(ctx, `SELECT `+flowSel+` FROM sop_flows WHERE trigger_desc IN ('daily', 'weekly', 'cron') ORDER BY created_at, rowid`)
 	if err != nil {
 		return nil, err
 	}

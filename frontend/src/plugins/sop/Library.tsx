@@ -5,6 +5,7 @@ import type { SopFlow } from '../../core/data'
 import { Button, EmptyState, IconSearch, PageTitle, cls } from '../../core/ui'
 import { libPass, libraryRows, timeAgo, type FlowStat, type LibFilter } from './model'
 import { IconPlus } from './parts'
+import { IMBar } from './IMBar'
 import { ScheduleBar } from './ScheduleBar'
 import { needsText } from './scope'
 
@@ -72,6 +73,8 @@ export function Library({ flows, stats, needs, trigger, onOpen, onNew, now }: {
                 </span>
               </button>
               <ScheduleBar flow={s} now={now} className="sop-lib-sched" />
+              {/* IM 触发的顺序、过滤条件、拦截（TSK-0481） */}
+              <IMBar flow={s} className="sop-lib-sched" />
               </div>
             )
           })}

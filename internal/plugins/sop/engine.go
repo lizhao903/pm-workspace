@@ -963,7 +963,7 @@ func findFlow(ctx context.Context, c plugin.Core, ref string) (Flow, error) {
 	if err == nil || !errors.Is(err, errNotFound) {
 		return f, err
 	}
-	f, err = scanFlow(c.Store().QueryRow(ctx, `SELECT `+flowCols+` FROM sop_flows WHERE name = ? ORDER BY created_at LIMIT 1`, ref))
+	f, err = scanFlow(c.Store().QueryRow(ctx, `SELECT `+flowSel+` FROM sop_flows WHERE name = ? ORDER BY created_at LIMIT 1`, ref))
 	if errors.Is(err, plugin.ErrNoRows) {
 		return Flow{}, apiErr(errNotFound, "流程 %s 不存在", ref)
 	}

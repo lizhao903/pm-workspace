@@ -717,7 +717,7 @@ AG-02a。表 `agent_tool_grants`（0035）存每个 Agent 自己的授权，`age
   SOP 流程的查询与编辑（TSK-0480）：只给挂了 Agent 的会话，经内核注册表交给 SOP 编排插件（插件实现了流程目录才有，见 plugin-api.md 2.7），插件没启用时三个工具都不出现在工具列表里。
   - `list_sops` `{query?}`：列流程（`query` 按名称、说明、id 不分大小写过滤），格式同上面的候选清单；`summary`「查看了 N 个 SOP 流程」。
   - `get_sop` `{flow_id}`（id 或名称）：回 `flow_id`、名称、触发方式、版本、说明、`fields`、`steps` 的 JSON 原文，后接能用的节点类型（内置的和在跑的插件登记的：kind、显示名、必填 config 项、分支出口）；`summary`「读取了 SOP「名称」」。不存在同 `run_sop` 回候选清单。
-  - `create_sop` `{name, steps, desc?, trigger?, fields?}` 新建，没有 `flow_id` 参数（给了也不认，id 由插件生成）；`update_sop` `{flow_id, version, name?, desc?, trigger?, fields?, steps?}` 修改，`flow_id` 认 id 和名称，`version` 必填（缺了工具失败「version 是必填的：先用 get_sop 读出这条流程……」），只改给了的字段，`steps` 给了是整套替换。分成两个工具是因为合在一起时（`flow_id` 可选）模型会把「参照已有流程」做成「改已有流程」，新建时又自己编 `flow_id`（临时实例重放实测）。口径、校验同 `POST /api/sop/flows` / `PATCH /api/sop/flows/{id}`（含版本冲突、随流程管理的定时任务）；`fields`、`steps` 也认数组的 JSON 字符串；`steps` 里分支节点没写 `cases` 的补节点类型的默认出口（条件分支 `yes` 是 / `no` 否），有 `branch.of` 却没写 `after` 的补成 `[branch.of]`（编辑器画布本来就自动带这两样），别的照原样校验。`trigger` 是对象 `{type, rule?}`：`type` 为 `manual` / `im` / `schedule`（别的值工具失败），`rule` 只在 `schedule` 时用、即 `PATCH` 的 `schedule.rule`；也认一个字符串（当成 `type`）。两个工具的 `trigger` 里别的键（如按会话过滤、只要 @我、执行顺序——TSK-0481 接）现在不认：照常保存，结果里写明这些键没存上、要如实告诉用户，`summary` 加「，触发条件 X 不支持没存上」。保存校验没过时工具结果是「流程没存上：第 n 步：…；…」并附节点类型清单；版本冲突时后面接「用 get_sop 重新读出最新的版本号和内容……」；`update_sop` 流程不存在同 `run_sop` 回候选清单。存上了但结构多半写错时（条件分支没写 `rule` 会停下等人选、`rule` 写进了 `config`、第一步以外的步骤既没有 `after` 也不在分支下会和第一步同时开始），回给模型的结果后面接「存上了，但下面几处多半不是你想要的，用 update_sop（version=N）改掉：第 n 步「名称」…」，`summary` 不变。工具说明里写明 IM 触发的输入字段（`conversation_id` 是内核会话 id 不是渠道频道编号，`relevance` 为 `me` / `all` / `dm` / 空串）和现在做不到的（流程之间的执行顺序、触发层按会话或 @我 过滤），要求模型如实告诉用户。`summary`「已新建 SOP「名称」（sop_…）」/「已修改 …」；确认卡片写「新建 SOP「名称」」/「修改 SOP <flow_id>」。
+  - `create_sop` `{name, steps, desc?, trigger?, fields?}` 新建，没有 `flow_id` 参数（给了也不认，id 由插件生成）；`update_sop` `{flow_id, version, name?, desc?, trigger?, fields?, steps?}` 修改，`flow_id` 认 id 和名称，`version` 必填（缺了工具失败「version 是必填的：先用 get_sop 读出这条流程……」），只改给了的字段，`steps` 给了是整套替换。分成两个工具是因为合在一起时（`flow_id` 可选）模型会把「参照已有流程」做成「改已有流程」，新建时又自己编 `flow_id`（临时实例重放实测）。口径、校验同 `POST /api/sop/flows` / `PATCH /api/sop/flows/{id}`（含版本冲突、随流程管理的定时任务）；`fields`、`steps` 也认数组的 JSON 字符串；`steps` 里分支节点没写 `cases` 的补节点类型的默认出口（条件分支 `yes` 是 / `no` 否），有 `branch.of` 却没写 `after` 的补成 `[branch.of]`（编辑器画布本来就自动带这两样），别的照原样校验。`trigger` 是对象 `{type, rule?}`：`type` 为 `manual` / `im` / `schedule`（别的值工具失败），`rule` 只在 `schedule` 时用、即 `PATCH` 的 `schedule.rule`；也认一个字符串（当成 `type`）。`trigger` 还认 IM 触发的 `conversations`、`relevance`、`relevance_mode`、`order`、`stop`（TSK-0481），原样映射成保存请求的 `im`（见 SOP 插件「IM 触发」）；`conversation`、`conversation_id`、`conversation_ids` 当 `conversations`；`conversations`、`relevance` 写成字符串时按逗号、顿号拆开；一个都没给时不带 `im`（不清掉已有条件）。除此之外的键不认：照常保存，结果里写明这些键没存上、要如实告诉用户，`summary` 加「，触发条件 X 不支持没存上」。保存成功、触发方式是 `im` 时结果里接「IM 触发条件：会话 …（slack C0BNCBRL5C0，cv_…）；排除 @我；第 1 个判断；命中后不再触发后面的 IM 流程。」；`list_sops` 每行、`get_sop` 开头同样带这一句。保存校验没过时工具结果是「流程没存上：第 n 步：…；…」并附节点类型清单；版本冲突时后面接「用 get_sop 重新读出最新的版本号和内容……」；`update_sop` 流程不存在同 `run_sop` 回候选清单。存上了但结构多半写错时（条件分支没写 `rule` 会停下等人选、`rule` 写进了 `config`、第一步以外的步骤既没有 `after` 也不在分支下会和第一步同时开始），回给模型的结果后面接「存上了，但下面几处多半不是你想要的，用 update_sop（version=N）改掉：第 n 步「名称」…」，`summary` 不变。工具说明里写明 IM 触发的输入字段（`conversation_id` 是内核会话 id，`relevance` 为 `me` / `all` / `dm` / 空串）、过滤条件和顺序拦截的写法（「除了 @我」写 `relevance: [me]` 加 `relevance_mode: exclude`，「先于其他流程、别的流程不再管」写 `order: 1` 加 `stop: true`）和标为忽略用 `im_mark_message`。`summary`「已新建 SOP「名称」（sop_…）」/「已修改 …」；确认卡片写「新建 SOP「名称」」/「修改 SOP <flow_id>」。
   `append_progress`（TSK-0460）参数 `{ref, text}`：给对象追加一条进展（`kind=note`，操作者 `agent`），只追加不改正文；`summary` 为「已给 TSK-0009 记了一条进展」，确认卡片写「给 <ref> 记进展」。`create_object` 多一个可选参数 `parent_ref`（父任务编号或 id）：先查父任务，查不到不建；建好后和父任务建 `parent` 关联（父 → 子），没指定项目时挂到父任务的项目；关联没建上不撤回新建的对象，`summary` 里写明。
 - **执行时**：给模型的工具列表只有实际档位不是关闭的。连接器工具给模型的名字是 `<连接器定义 tool>__<工具名>`（非字母数字的字符换成 `_`，最长 64）；同一定义挂了多个实例（CONN-04）撞名时，按 `mcps` 的顺序第一个保持原名，后面的在定义 key 后加序号，如 `custom_mcp_2__search`。工具带参数 Schema（`tools[].schema`）时原样给模型，没有时给空对象。模型硬调关闭的工具不执行，工具结果是「错误：没有授权……」，`tool_result` 的 `summary` 为「<工具> 没有授权，没有执行」。需确认的发 `confirm` 事件后本轮结束，见「Agent 对话」。
 - **连接器工具真正调用**：经连接器定义上可选的 `Call` 调对方，参数是模型给的 JSON 原文，对方错误里的凭证原文换成 `***`，单次 15 秒超时。定义没实现 `Call` 时工具结果是「这个连接器的工具还不能调用」。现在只有假连接器 `fake` 实现了：`list_items` 回两条固定条目，`get_item` / `create_item` / `delete_item` 回 `{tool, ok, args}`，`token` 含 `invalid` 时失败。
@@ -2608,20 +2608,20 @@ TSK-0468，插件迁移 `0015_fde_forward.sql`。我在消息页手动把消息�
 
 ## SOP 编排插件 sop
 
-SOP-01a 起。插件 `sop`（`internal/plugins/sop`，清单 `plugin.json`，0.13.0（0.13.0 实现内核流程目录，Agent 的 `list_sops`、`get_sop`、`create_sop`、`update_sop` 经它查、建、改流程（TSK-0480），不加迁移，已装旧版本的，换新二进制后经 `POST /api/plugins/{id}/upgrade`（id 为 `sop`）升级，升级前 Agent 看不到这三个工具；0.12.0 触发方式「定时」可配置规则、随流程管理的定时任务（TSK-0463），Claude Code 执行没回报时 summary 只取结论，不加迁移；0.11.0 加执行任务 `task_run`、改任务 `task_update` 节点（TSK-0411）和等服务商恢复（TSK-0391/0392），不加迁移；SOP-05 加 IM 触发，可选依赖 `im`、订阅 `im.message_received`；0.5.0 执行关联工作对象；0.6.0 加写进项目目录节点 `local_append`、建任务认项目编号和名字；0.7.0 加执行并发设置、批量发起和按输入字段查执行；0.7.1 加失败执行批量重跑；0.8.0 重跑后移出失败列表、重跑幂等；0.9.0 加 Claude Code 执行和条件回退；0.10.0 加流水线视图与治理（AUTO-12）），权限 `network:any`、`fs:write:project`：HTTP 节点要访问任意地址，高风险，安装时在 `permissions` 里单独确认；`fs:write:project` 是写进项目目录要的，0.6.0 升上来时要确认）。流程定义落在插件表 `sop_flows`（插件迁移 `0001_flows.sql`，安装插件时应用），id 前缀 `sop`；执行（SOP-01b）落在 `sop_runs`、`sop_run_steps`（插件迁移 `0002_runs.sql`），id 前缀 `spr`。AI 类和外部节点 SOP-01c 起；定时任务的 `sop` 动作和 Agent 的 `run_sop` 工具经内核「发起 SOP」钩子发起执行（SOP-01d）。插件未安装或停用时，本节接口回 `not_found` 404（同「插件路由」），数据不动。
+SOP-01a 起。插件 `sop`（`internal/plugins/sop`，清单 `plugin.json`，0.14.0（0.14.0 IM 触发加过滤条件（会话、与我的关系）、执行顺序与拦截（TSK-0481，见「IM 触发」），插件迁移 `0008_im_trigger.sql`（`sop_flows` 加 `im_filter`、`im_order`、`im_stop` 三列），已装旧版本的，换新二进制后经 `POST /api/plugins/{id}/upgrade`（id 为 `sop`）升级；**迁移没应用完的插件启动时不加载**，升级前 SOP 编排整个不可用（流程、执行、IM 触发、定时发起都停），升级后已有流程不过滤、不拦截、顺序按新建先后，行为不变；0.13.0 实现内核流程目录，Agent 的 `list_sops`、`get_sop`、`create_sop`、`update_sop` 经它查、建、改流程（TSK-0480），不加迁移，已装旧版本的，换新二进制后经 `POST /api/plugins/{id}/upgrade`（id 为 `sop`）升级，升级前 Agent 看不到这三个工具；0.12.0 触发方式「定时」可配置规则、随流程管理的定时任务（TSK-0463），Claude Code 执行没回报时 summary 只取结论，不加迁移；0.11.0 加执行任务 `task_run`、改任务 `task_update` 节点（TSK-0411）和等服务商恢复（TSK-0391/0392），不加迁移；SOP-05 加 IM 触发，可选依赖 `im`、订阅 `im.message_received`；0.5.0 执行关联工作对象；0.6.0 加写进项目目录节点 `local_append`、建任务认项目编号和名字；0.7.0 加执行并发设置、批量发起和按输入字段查执行；0.7.1 加失败执行批量重跑；0.8.0 重跑后移出失败列表、重跑幂等；0.9.0 加 Claude Code 执行和条件回退；0.10.0 加流水线视图与治理（AUTO-12）），权限 `network:any`、`fs:write:project`：HTTP 节点要访问任意地址，高风险，安装时在 `permissions` 里单独确认；`fs:write:project` 是写进项目目录要的，0.6.0 升上来时要确认）。流程定义落在插件表 `sop_flows`（插件迁移 `0001_flows.sql`，安装插件时应用），id 前缀 `sop`；执行（SOP-01b）落在 `sop_runs`、`sop_run_steps`（插件迁移 `0002_runs.sql`），id 前缀 `spr`。AI 类和外部节点 SOP-01c 起；定时任务的 `sop` 动作和 Agent 的 `run_sop` 工具经内核「发起 SOP」钩子发起执行（SOP-01d）。插件未安装或停用时，本节接口回 `not_found` 404（同「插件路由」），数据不动。
 
 ### 流程定义
 
 | 方法 | 路径 | body / 说明 |
 |---|---|---|
 | GET | `/api/sop/flows` | `SopFlow[]` + `meta.total`，不分页，按新建先后；每条带随它管理的定时任务 `schedule`（TSK-0463） |
-| POST | `/api/sop/flows` | `{name, desc?, trigger?, fields?, steps, layout?, id?, schedule?}`，校验通过回 201 + `SopFlow`；`schedule` 见「定时触发」 |
+| POST | `/api/sop/flows` | `{name, desc?, trigger?, fields?, steps, layout?, id?, schedule?, im?}`，校验通过回 201 + `SopFlow`；`schedule` 见「定时触发」，`im` 见「IM 触发」 |
 | GET | `/api/sop/flows/{id}` | 一条 `SopFlow`；不存在 404 |
-| PATCH | `/api/sop/flows/{id}` | 只传要改的：`name` / `desc` / `trigger` / `fields` / `steps` / `layout`，数组和 `layout` 整体替换，`layout: null` 清掉；可带 `version`，和库里不一致 409。改完对整条定义重新校验，`version` 加 1。另可带 `schedule`、`schedule_off`（见「定时触发」），不算进 `version` 的校验 |
+| PATCH | `/api/sop/flows/{id}` | 只传要改的：`name` / `desc` / `trigger` / `fields` / `steps` / `layout`，数组和 `layout` 整体替换，`layout: null` 清掉；可带 `version`，和库里不一致 409。改完对整条定义重新校验，`version` 加 1。另可带 `schedule`、`schedule_off`（见「定时触发」）、`im`（见「IM 触发」，给哪项改哪项），不算进 `version` 的校验 |
 | DELETE | `/api/sop/flows/{id}` | 彻底删除，`data` 为 `null`；有进行中的执行（没结束也没终止）、有用户手建的定时任务指向它时 409；不存在 404；执行记录不跟着删；随它管理的定时任务一起删（TSK-0463） |
 | GET | `/api/sop/node-types` | 节点类型 `SopNodeType[]` + `meta.total`：先是内置的，和原型 `NODE_TYPES` 同序；后面接在跑的插件登记的（SOP-03a） |
 
-`SopFlow`：`{id, name, desc, trigger, fields, steps, layout?, version, created_at, updated_at, schedule}`。`schedule` 是随这个流程管理的定时任务（形状同 `/api/schedules` 的 `Schedule`），没有为 `null`（TSK-0463，见「定时触发」）。形状同原型 `web-next/src/sopflow.ts` 的 `Sop`：`fields` 是 `SopField[]`，`steps` 是 `SopStepDef[]`，`layout` 是 `{<步骤 key 或 __start>: {x, y}}`，没有就不返回这个字段。
+`SopFlow`：`{id, name, desc, trigger, fields, steps, layout?, version, created_at, updated_at, schedule, im}`。`schedule` 是随这个流程管理的定时任务（形状同 `/api/schedules` 的 `Schedule`），没有为 `null`（TSK-0463，见「定时触发」）。`im` 是 IM 触发的过滤条件、执行顺序与拦截 `SopIMTrigger`，总是带（TSK-0481，见「IM 触发」）。形状同原型 `web-next/src/sopflow.ts` 的 `Sop`：`fields` 是 `SopField[]`，`steps` 是 `SopStepDef[]`，`layout` 是 `{<步骤 key 或 __start>: {x, y}}`，没有就不返回这个字段。
 
 - `fields`、`steps`、`layout` 校验后按原样存 JSON，取回来和存进去一致，没认的字段（`rule`、`ms` 等）原样保留。步骤里原型的函数字段（`run`、`fail`、`decide`）不在 JSON 里；没有 `decide` 也没有 `rule` 的判断节点就是人工判断（同原型 `isManualDecide`）。
 - `after` 不写就接在上一步后面、第一步是起点（同原型 `depsOf`），存的时候不补写。
@@ -2685,6 +2685,37 @@ SOP-05。触发方式（`trigger`）是 `im` 的流程，来一条新消息自�
 - 只发起发送时间（`at`）在 24 小时以内的：连接器第一次同步会带进每个会话最近的若干条历史，不逐条跑。
 - 同一条流程、同一条消息只发起一次（按执行输入里的 `message_id` 查）。事件总线最多投一次，服务停着时到的消息不补发起。
 - 别的插件写进来的内置流程默认用 `manual` 表示停用（如 IM 插件的 `sop_im_auto_intake`，见 IM 插件「内置流程：IM 需求自动受理」），用户改成 `im` 才按新消息发起。
+
+**过滤条件、执行顺序与拦截**（TSK-0481，0.14.0，插件迁移 `0008_im_trigger.sql`）。
+
+`SopIMTrigger`：
+
+```json
+{ "conversations": ["cv_06gsnrd375m90zt0"], "relevance": ["me"], "relevance_mode": "exclude", "order": 1, "stop": true }
+```
+
+| 字段 | 说明 |
+|---|---|
+| `conversations` | 只接这些会话的消息（内核会话 id），`[]` 是全部会话。消息没有会话（`conversation_id` 空）时，选了会话的流程不命中 |
+| `relevance` | 与我的关系：`me`（@我）、`all`（@所有人）、`dm`（私聊）、`none`（无关，事件里 `relevance` 为空串），按这个顺序存、去重；`[]` 是不限 |
+| `relevance_mode` | `include`（只要 `relevance` 里的几种，缺省）或 `exclude`（除了这几种）；`relevance` 为空时不起作用 |
+| `order` | 在 IM 流程里排第几（1 起，连续）；触发方式不是 `im` 的流程为 `0` |
+| `stop` | 拦截：命中并发起后，排在后面的 IM 流程对这条消息不再发起 |
+
+- **写**：`POST /api/sop/flows`、`PATCH /api/sop/flows/{id}` 的 body 可带 `im`，给哪项改哪项（`PATCH` 没给的保持原样），先于流程校验，不对时 400、流程不改：
+  - `conversations` 每项认内核会话 id（`cv_`）、渠道里的会话编号（Slack 的 `C0BNCBRL5C0`，不用写渠道）、`渠道:编号`（`slack:C0BNCBRL5C0`）、会话名（`#ai-octok-platform` 或 `ai-octok-platform`，不分大小写），存成 `cv_` id，去重，最多 50 个。会话 id 不存在「会话 cv_x 不存在」；都找不到「找不到会话 X：填会话 id（cv_ 开头）、渠道里的会话编号（如 Slack 的 C0…）或会话名」；对上多个（不同渠道同编号、同名的群）「会话 X 对上了 2 个：cv_a（slack X 名称）、cv_b（…），改填其中一个的 cv_ id」。会话后来被删，id 照旧留着，不再有消息命中。
+  - `relevance` 不是字符串数组「im.relevance 必须是字符串数组」，有别的值「im.relevance 只能是 me（@我）、all（@所有人）、dm（私聊）、none（无关），不认 x」；空串当 `none`。
+  - `relevance_mode` 别的值「im.relevance_mode 只能是 include（只要）或 exclude（除了）」。
+  - `order` 不是从 1 起的整数「im.order 要是从 1 起的整数（在 IM 流程里排第几）」。插到第 `order` 个、其余顺延，超过总数排最后；只对触发方式（写完后的）是 `im` 的流程起作用。不给时：新建的 IM 流程、从别的触发方式改成 `im` 的排最后，本来就是 `im` 的不动。改成别的触发方式就退出顺序（`order` 为 `0`），过滤条件和 `stop` 照存，改回 `im` 时还在。
+  - `im` 不是对象「im 必须是对象：{conversations, relevance, relevance_mode, order, stop}」。
+- **发起**：来一条消息，IM 流程按 `order` 逐条判断。
+  - 不符合过滤条件的**不发起、不留执行记录**。
+  - 命中后照旧：同一流程同一消息只发起一次，必填字段补不齐的跳过、记日志。
+  - **拦截以「命中并发起」为准**：`stop` 的流程命中过滤、发起了执行（或这条消息此前已经为它发起过，事件重投时）后，排在它后面的 IM 流程对这条消息都不再发起，日志 `sop im trigger stopped`（`flow`、`message`、`skipped_flows`）。不等这次执行跑完，也不看它最后成没成功——执行可能停在人工检查点等很久，后面的流程不能一直等；发起失败（必填补不齐、建执行出错）不算命中，不拦。
+  - **拦截只管 SOP 的 IM 流程**：IM 插件收消息时自己做的事（认人、认会话、算与我相关、未读计数、问进度和确认私信的回复）、Agent 的 IM 触发（「Agent 的触发」）都不受顺序和拦截影响，照常处理每一条。IM 插件写进 SOP 的内置流程（IM 需求自动受理、来消息确认派发、FDE 反馈转发等）本身就是 SOP 流程，改成 `im` 后照常排进顺序、可以被前面的拦截流程截住。
+  - 例（用户要的样例）：一条 IM 流程 `im = {conversations: [<C0BNCBRL5C0 的会话 id>], relevance: [me], relevance_mode: exclude, order: 1, stop: true}`，一步 IM 插件的 `im_mark_message`（`state: ignore`，`message_id: {{message_id}}`）：这个群里不是 @我 的消息被标为忽略，其他 IM 流程不再接这条；@我 的不命中它，照常往下给其他流程。
+- **已有流程**：迁移后 `im_filter` 为 `{}`（不过滤）、`im_stop` 为 0（不拦截）、`im_order` 都是 0，同值按新建先后，和以前逐条发起的顺序一样；之后新建的 IM 流程排在最后。第一次调整顺序（带 `order` 保存）时 IM 流程重新从 1 编号。
+- 执行快照里的流程带 `im`（以前的执行没有这个键）。
 
 ### 节点类型
 

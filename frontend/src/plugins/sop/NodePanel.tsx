@@ -11,6 +11,8 @@ import { KindIcon } from './parts'
 import { DataView } from './RunView'
 import { SCHEDULE, defaultSched } from './schedule'
 import { StartSchedule } from './StartSchedule'
+import { IM, emptyIM } from './imtrigger'
+import { StartIM } from './StartIM'
 
 type AddAt = (at: { x: number; y: number }, from: string, caseKey?: string) => void
 
@@ -153,11 +155,15 @@ export function NodePanel({ draft, nodeKey, catalog, ctx, tried, triggers, flowI
           <label className="field">
             <span className="field-label">触发方式</span>
             <Select value={draft.trigger} options={trigOpts}
-              onValueChange={(v) => onPatchDraft(v === SCHEDULE && !draft.sched ? { trigger: v, sched: defaultSched() } : { trigger: v })} />
+              onValueChange={(v) => onPatchDraft(v === SCHEDULE && !draft.sched ? { trigger: v, sched: defaultSched() } : v === IM && !draft.im ? { trigger: v, im: emptyIM() } : { trigger: v })} />
           </label>
           {/* 定时（TSK-0463）：时间规则在这里配，保存时写进随流程管理的定时任务 */}
           {draft.trigger === SCHEDULE && (
             <StartSchedule sched={draft.sched} fields={draft.fields} onChange={(sched) => onPatchDraft({ sched })} />
+          )}
+          {/* IM 消息（TSK-0481）：会话、与我的关系过滤，执行顺序与拦截 */}
+          {draft.trigger === IM && (
+            <StartIM im={draft.im ?? emptyIM()} flowId={flowId} imFlows={ctx.imFlows ?? []} onChange={(im) => onPatchDraft({ im })} />
           )}
           <div className="field">
             <span className="field-label">输入字段</span>

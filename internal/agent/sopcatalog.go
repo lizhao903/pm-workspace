@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"slices"
 	"sort"
 	"strings"
@@ -33,9 +34,12 @@ const (
 // sopTriggers 是 trigger.type 能取的值，同编辑器的三种触发方式。
 var sopTriggers = []string{"manual", "im", "schedule"}
 
-// sopTriggerKeys 是 create_sop / update_sop 的 trigger 对象里现在认的键。别的键（按会话过滤、只要 @我、执行顺序……）
-// 还不支持（TSK-0481 接），不报错也不存，结果里写明「没存上」，让模型如实告诉用户。
-var sopTriggerKeys = []string{"type", "rule"}
+// sopTriggerKeys 是 create_sop / update_sop 的 trigger 对象里认的键：type、rule（定时规则），
+// 以及 IM 触发的过滤、执行顺序、拦截（TSK-0481），映射成保存请求的 im。别的键不报错也不存，结果里写明「没存上」，让模型如实告诉用户。
+var sopTriggerKeys = []string{"type", "rule", "conversations", "relevance", "relevance_mode", "order", "stop"}
+
+// sopConvAliases 是模型常写的「会话」别名，都当 conversations。
+var sopConvAliases = []string{"conversation", "conversation_id", "conversation_ids"}
 
 func currentSOPCatalog() schedule.SOPCatalog {
 	if st := currentSOPStarter(); st != nil {
@@ -91,10 +95,13 @@ const sopStepsHint = "steps 是步骤数组，每步 " +
 
 // sopIMHint 是 IM 触发的流程能拿到什么、现在做不到什么（TSK-0480 重放：模型拿会话名比 Slack 频道编号、拿正文找「@我」，
 // 用户要的「优先于其他流程」也没提）。做不到的几条由 TSK-0481 接。
-const sopIMHint = "trigger.type=im 时流程输入有 message_id、channel、conversation_id（内核会话 id，cv_ 开头，不是 Slack / Telegram 的频道编号，" +
-	"现在没有工具能把频道编号换成它）、relevance（me=@我、all=@所有人、dm=私聊、空串=无关），条件分支直接用这些字段，比如 relevance 不等于 me。" +
-	"现在不支持：流程之间的执行顺序 / 优先级；在触发这一层按会话或 @我 过滤（每条新消息都会起一次执行，过滤只能写在条件分支里）。" +
-	"用户要求这些时，回复里要明确说哪几条没做到，不要说全部完成。"
+const sopIMHint = "trigger.type=im 时流程输入有 message_id、channel、conversation_id（内核会话 id，cv_ 开头）、relevance（me=@我、all=@所有人、dm=私聊、空串=无关）。" +
+	"要只处理某些消息时，优先在 trigger 里写过滤条件，不符合的消息不会发起执行：" +
+	`conversations 是会话数组，可以直接写渠道里的会话编号（如 Slack 的 "C0BNCBRL5C0"）、会话名或 cv_ id；` +
+	`relevance 是与我的关系数组（me / all / dm / none，none=无关），relevance_mode 是 include（只要这几种，默认）或 exclude（除了这几种），` +
+	`比如「除了 @我 的」写 "relevance":["me"],"relevance_mode":"exclude"。` +
+	"order 是在所有 IM 流程里排第几（1 最先执行）；stop=true 表示这条流程命中并发起后，排在它后面的 IM 流程不再处理这条消息（「先于其他流程」「处理完别的流程不要再管」就用 order=1 加 stop=true）。" +
+	"把消息标为忽略用 IM 插件的标记消息节点（im_mark_message，state=ignore）。"
 
 // sopParams 是 create_sop / update_sop 的参数；update 多 flow_id 和 version。
 func sopParams(update bool) props {
@@ -105,6 +112,13 @@ func sopParams(update bool) props {
 			"properties": map[string]any{
 				"type": map[string]any{"type": "string", "enum": sopTriggers},
 				"rule": map[string]any{"type": "object", "description": "定时规则，只有 type=schedule 时用"},
+				"conversations": map[string]any{"type": "array", "items": map[string]any{"type": "string"},
+					"description": "只有 type=im 时用：只处理这些会话的消息，写会话编号（如 Slack 的 C0BNCBRL5C0）、会话名或 cv_ id；空数组表示全部会话"},
+				"relevance": map[string]any{"type": "array", "items": map[string]any{"type": "string", "enum": []string{"me", "all", "dm", "none"}},
+					"description": "只有 type=im 时用：与我的关系，me=@我、all=@所有人、dm=私聊、none=无关；空数组表示不限"},
+				"relevance_mode": map[string]any{"type": "string", "enum": []string{"include", "exclude"}, "description": "include 只要 relevance 里的几种（默认），exclude 除了这几种"},
+				"order":          map[string]any{"type": "integer", "description": "只有 type=im 时用：在所有 IM 流程里排第几执行，1 最先；不给时新流程排最后"},
+				"stop":           map[string]any{"type": "boolean", "description": "只有 type=im 时用：true 表示这条流程命中并发起后，排在后面的 IM 流程不再处理这条消息"},
 			}},
 		"fields": map[string]any{"type": "array", "description": "发起时要填的输入字段，每项 {key,label,type:text|textarea|select}；可留空", "items": map[string]any{"type": "object"}},
 		"steps":  map[string]any{"type": "array", "description": "步骤数组，至少一步", "items": map[string]any{"type": "object"}},
@@ -154,6 +168,9 @@ func sopListText(list []schedule.SOPFlowBrief) string {
 			break
 		}
 		fmt.Fprintf(&b, "- flow_id=%s 名称=%s 触发=%s 步骤=%d 版本=%d", f.ID, f.Name, dash(f.Trigger), f.Steps, f.Version)
+		if f.IMTrigger != "" {
+			fmt.Fprintf(&b, " IM 条件=%s", f.IMTrigger)
+		}
 		if d := strings.TrimSpace(f.Desc); d != "" {
 			fmt.Fprintf(&b, " 说明=%s", clip(oneLine(d), 60))
 		}
@@ -180,6 +197,9 @@ func (tb *Toolbox) getSOP(ctx context.Context, args map[string]any) ToolResult {
 	}
 	var b strings.Builder
 	fmt.Fprintf(&b, "flow_id=%s 名称=%s 触发=%s 版本=%d\n", f.ID, f.Name, dash(f.Trigger), f.Version)
+	if f.IMTrigger != "" {
+		fmt.Fprintf(&b, "IM 触发条件=%s\n", f.IMTrigger)
+	}
 	if d := strings.TrimSpace(f.Desc); d != "" {
 		fmt.Fprintf(&b, "说明=%s\n", d)
 	}
@@ -274,6 +294,9 @@ func (tb *Toolbox) saveSOP(ctx context.Context, tool string, args map[string]any
 		if trig.Rule != nil {
 			put("schedule", map[string]any{"rule": trig.Rule})
 		}
+		if len(trig.IM) > 0 {
+			put("im", trig.IM)
+		}
 	}
 	f, err := cat.SaveSOP(ctx, schedule.SOPSave{ID: id, Body: body})
 	if err != nil {
@@ -294,6 +317,9 @@ func (tb *Toolbox) saveSOP(ctx context.Context, tool string, args map[string]any
 		verb = "修改"
 	}
 	content := fmt.Sprintf("已%s SOP「%s」：flow_id=%s 触发=%s 步骤=%d 版本=%d。", verb, f.Name, f.ID, dash(f.Trigger), f.Steps, f.Version)
+	if f.IMTrigger != "" {
+		content += "IM 触发条件：" + f.IMTrigger + "。"
+	}
 	summary := fmt.Sprintf("已%s SOP「%s」（%s）", verb, f.Name, f.ID)
 	if warns := stepWarnings(f.StepDefs); len(warns) > 0 {
 		content += "存上了，但下面几处多半不是你想要的，用 update_sop（version=" + fmt.Sprint(f.Version) + "）改掉：" + strings.Join(warns, "；") + "。"
@@ -341,6 +367,8 @@ func stepWarnings(raw json.RawMessage) []string {
 type sopTrig struct {
 	Type string
 	Rule map[string]any
+	// IM 是保存请求里的 im：conversations、relevance、relevance_mode、order、stop，没给的不带（TSK-0481）
+	IM map[string]any
 }
 
 // sopTrigger 解析 create_sop / update_sop 的 trigger：对象 {type, rule, …}，也认一个字符串（当成 type）和对象的 JSON 字符串。
@@ -367,12 +395,40 @@ func sopTrigger(v any) (*sopTrig, []string, error) {
 	default:
 		return nil, nil, errors.New("trigger 必须是对象 {type, …}")
 	}
+	m = maps.Clone(m) // 下面会改别名，不动调用方的参数
 	t := &sopTrig{Type: strings.TrimSpace(fmt.Sprint(m["type"]))}
 	if m["type"] == nil || !slices.Contains(sopTriggers, t.Type) {
 		return nil, nil, fmt.Errorf("trigger.type 只能是 %s 之一", strings.Join(sopTriggers, " / "))
 	}
 	if r, ok := m["rule"].(map[string]any); ok && t.Type == "schedule" {
 		t.Rule = r
+	}
+	t.IM = map[string]any{}
+	for _, k := range sopConvAliases {
+		if v, ok := m[k]; ok && m["conversations"] == nil {
+			m["conversations"] = v
+		}
+		delete(m, k)
+	}
+	for _, k := range []string{"conversations", "relevance"} {
+		if v, ok := m[k]; ok && v != nil {
+			// 模型常把一个值写成字符串，或写成逗号隔开的一串
+			if s, isStr := v.(string); isStr {
+				var list []string
+				for _, x := range strings.FieldsFunc(s, func(r rune) bool { return r == ',' || r == '，' || r == '、' }) {
+					if x = strings.TrimSpace(x); x != "" {
+						list = append(list, x)
+					}
+				}
+				v = list
+			}
+			t.IM[k] = v
+		}
+	}
+	for _, k := range []string{"relevance_mode", "order", "stop"} {
+		if v, ok := m[k]; ok && v != nil {
+			t.IM[k] = v
+		}
 	}
 	var ignored []string
 	for k := range m {

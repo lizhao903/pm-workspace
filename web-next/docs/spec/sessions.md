@@ -129,7 +129,7 @@
 | `read_content` | 读文档 | 否 | |
 | `write_content` | 写文档 | 是 | 「笔记」分类新建一篇草稿；记一条 `doc` 产出（`SPEC-library-0`） |
 | `read_sop` | 查 SOP 流程 | 否 | 原型不模拟。正式产品是 `list_sops`、`get_sop` 两个工具 |
-| `write_sop` | 新建 / 修改 SOP 流程 | 是 | 原型：用户说「建 / 改 一个 SOP / 流程 / 工作流」时调它，新建一条只有名字和触发方式（话里有消息、群、会话就是「IM 消息」，否则「手动」）的流程，步骤到编排页补；记一条 `sop` 产出，`target` 为新流程 id。话里有「优先」「除了 / 除去」「只要」这类条件时，回复里说明按会话过滤、排除 @我、执行顺序现在不支持（TSK-0481 接）。正式产品是 `create_sop`（新建，不接受流程 id）和 `update_sop`（修改，要带读到的版本号），见 `docs/api-contract.md`「Agent 工具授权」 |
+| `write_sop` | 新建 / 修改 SOP 流程 | 是 | 原型：用户说「建 / 改 一个 SOP / 流程 / 工作流」时调它，新建一条只有名字和触发方式（话里有消息、群、会话就是「IM 消息」，否则「手动」）的流程，步骤到编排页补；记一条 `sop` 产出，`target` 为新流程 id。话里有 IM 触发条件时一起存进流程（TSK-0481）：`#群名` 或 `C0…` 编号是只接这个会话，「除了 @我」「只要 @我」是与我的关系，「优先 / 先于其他流程」是排第 1 个并拦截后续，回复里写出「触发条件：只接 #random；除了 @我；排第 1 个、接住的消息别的 IM 流程不再处理。」。正式产品是 `create_sop`（新建，不接受流程 id）和 `update_sop`（修改，要带读到的版本号），见 `docs/api-contract.md`「Agent 工具授权」 |
 | `run_sop` | 发起 SOP | 是 | 原型只回 `{ queued: true, sop_id }`；记一条 `sop` 产出，`target` 为按 `input.sop`（名字或 id）找到的 SOP id。正式产品流程不存在时把现有流程列给模型，不让它编 id |
 
 和现有后端接口的差异（给 AG-01a）：`docs/api-contract.md`「Agent 对话」里的会话是 `{ provider_id, model, workdir, object_id }`，没有 `agent_id`，归属对象一经创建不能改；原型的会话挂 `agent_id` 和 `project_id`。接口层要么在 AG-01 的 Agent 配置落地前用 `provider_id + model` 代替 Agent，要么等 AG-01 给会话加 `agent_id`。产出结果对应 `/api/artifacts`（`session_id` / `run_id` 过滤），删除会话时产物保留、`session_id` 置空，和原型「删除会话，产出不受影响」一致。

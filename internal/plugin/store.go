@@ -91,6 +91,9 @@ type ConversationReader interface {
 	Get(ctx context.Context, id string) (ConversationInfo, error)
 	// Find 按渠道和会话编号找（identities.go）。
 	Find(ctx context.Context, channel, externalID string) (ConversationInfo, error)
+	// Match 不知道渠道时按一句话找会话（TSK-0481，SOP 的 IM 触发按会话过滤时用）：先按各渠道里的会话编号原样比（Slack 的 C0BNCBRL5C0），
+	// 都没有再按会话名比（不分大小写，开头的 # 去掉）。按渠道、编号排序，可能多条（不同渠道同一个编号、同名的群）；都没有回空。
+	Match(ctx context.Context, ref string) ([]ConversationInfo, error)
 }
 
 // database 是插件句柄用的库：注册表的 DB，没设时取 SQL 迁移记录用的那个（cmd/pmw 两者是同一个连接）。
