@@ -2,7 +2,7 @@
 // 色值写在这里（.tsx 里不出现色值），单元测试盯着模型可选项、草稿改动和问题汇总。
 import type {
   Agent, AgentGrantMode, AgentInput, AgentPatch, AgentProvider, AgentThinking, AgentTrigger, AgentTriggerKind, AgentTriggerMatch, Connector,
-  ProviderCheck,
+  ConnectorLook, ProviderCheck,
 } from '../../../core/data'
 import { kindOf, splitIds, uiKindOf } from '../providers/catalog'
 
@@ -213,15 +213,17 @@ export type MountableConn = {
   kind: string
   ok: boolean
   tools: { key: string; name: string; desc: string; write: boolean; cap: AgentGrantMode }[]
+  /** 怎么显示它的标志（TSK-0725）；没给时用通用的插头图标 */
+  look?: ConnectorLook
 }
 
 /**
  * 连接器换成挂载用的形状。mountable 是能新挂的：获取过工具清单、没暂停、没断开、定义还在；
  * 已经挂着的不管状态都列出来（卡片上要能看到、能卸下）。
  */
-export function mountableConns(conns: readonly Connector[], label: (tool: string) => string): { all: MountableConn[]; mountable: Set<string> } {
+export function mountableConns(conns: readonly Connector[], label: (tool: string) => string, lookOf?: (c: Connector) => ConnectorLook): { all: MountableConn[]; mountable: Set<string> } {
   const all: MountableConn[] = conns.map((c) => ({
-    id: c.id, name: c.name, kind: label(c.tool), ok: c.status !== 'error',
+    id: c.id, name: c.name, kind: label(c.tool), ok: c.status !== 'error', ...(lookOf && { look: lookOf(c) }),
     tools: c.tools.filter((t) => t.mode !== 'off').map((t) => ({ key: connKey(c.id, t.name), name: t.name, desc: t.desc, write: t.write, cap: t.mode })),
   }))
   const mountable = new Set(conns.filter((c) => !!c.tools_at && c.available && c.status !== 'paused' && c.status !== 'disconnected').map((c) => c.id))

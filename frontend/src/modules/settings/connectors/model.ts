@@ -240,3 +240,50 @@ export function ago(iso: string, now = Date.now()): string {
   if (m < 1440) return `${Math.floor(m / 60)} 小时前`
   return `${Math.floor(m / 1440)} 天前`
 }
+
+// --- 列表的状态筛选（TSK-0725 追加：顶部统计卡片换成筛选），选择写在地址 ?status= 上 ---
+
+export type StatusFilter = '' | 'connected' | 'error' | 'off' | 'unlinked'
+
+/** 筛选项：全部 / 已连接 / 异常 / 已断开·暂停 / 未接入；「连接中」（接入后还没测过）只在全部里 */
+export const STATUS_FILTERS: { key: StatusFilter; label: string }[] = [
+  { key: '', label: '全部' },
+  { key: 'connected', label: '已连接' },
+  { key: 'error', label: '异常' },
+  { key: 'off', label: '已断开·暂停' },
+  { key: 'unlinked', label: '未接入' },
+]
+
+/** 地址上的值：不认识的当「全部」 */
+export const parseStatusFilter = (raw: string | null): StatusFilter =>
+  STATUS_FILTERS.some((f) => f.key && f.key === raw) ? (raw as StatusFilter) : ''
+
+/** 实例在不在这个状态筛选里（「未接入」不是实例的状态，实例都不在） */
+export function inStatus(c: Pick<Connector, 'status'>, f: StatusFilter): boolean {
+  switch (f) {
+    case '': return true
+    case 'connected': return c.status === 'connected'
+    case 'error': return c.status === 'error'
+    case 'off': return c.status === 'paused' || c.status === 'disconnected'
+    case 'unlinked': return false
+  }
+}
+
+/**
+ * 某个工具卡片在筛选下列哪些实例；null 表示这张卡片不显示。
+ * 全部：卡片都显示，列它的全部实例；未接入：只显示一个都没接过的（含提供方停用的实例也算接过）；
+ * 其余：只显示有这个状态实例的工具，卡片里只列这些实例。mine 是这个工具能用的实例。
+ */
+export function cardRows(f: StatusFilter, mine: Connector[], everLinked: boolean): Connector[] | null {
+  if (f === '') return mine
+  if (f === 'unlinked') return everLinked ? null : []
+  const hit = mine.filter((c) => inStatus(c, f))
+  return hit.length ? hit : null
+}
+
+/** 各筛选项的数字：实例状态数实例，「未接入」数工具，「全部」数工具 */
+export function statusCounts(defs: Pick<ConnectorDef, 'tool'>[], list: Connector[]): Record<StatusFilter, number> {
+  const linked = (tool: string) => list.some((c) => c.tool === tool)
+  const n = (f: StatusFilter) => list.filter((c) => inStatus(c, f)).length
+  return { '': defs.length, connected: n('connected'), error: n('error'), off: n('off'), unlinked: defs.filter((d) => !linked(d.tool)).length }
+}

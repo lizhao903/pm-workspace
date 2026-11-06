@@ -550,6 +550,7 @@ type Def struct {
 	Label    string     // 必填
 	Category string     // im / media / market / dev / other
 	Color    string
+	Logo     string     // 平台图标的键（TSK-0725），小写字母和数字；留空时内核按 Tool 补内置的（internal/connector/logo.go），前端不认识的键退回文字图标
 	Desc     string
 	CanSend  bool       // 能往外发（IM 回复）；只收不发的为 false
 	Auth     []AuthMode // 支持的认证方式，至少一个，第一个是默认：AuthNone / AuthOAuth2 / AuthToken

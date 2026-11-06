@@ -181,6 +181,22 @@ func (s *Server) handleRefreshConnectorTools(w http.ResponseWriter, r *http.Requ
 	respondData(w, http.StatusOK, res)
 }
 
+// handleFetchConnectorIcon 是 POST /api/connectors/{id}/icon/fetch（TSK-0725）：用户点「从网站取图标」时
+// 按已保存的地址去对方网站取图标、存进 icon。不是自定义分类、没填地址 400，取不到 409，图标不动。
+func (s *Server) handleFetchConnectorIcon(w http.ResponseWriter, r *http.Request) {
+	if !s.connectorsConfigured(w) {
+		return
+	}
+	res, err := s.opt.Connectors.FetchIcon(r.Context(), r.PathValue("id"))
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	s.auditConfig(r, "update", "connector", res.Connector.ID, "从网站取连接器「"+res.Connector.Name+"」的图标",
+		map[string]any{"fields": []string{"icon"}, "source": res.Source})
+	respondData(w, http.StatusOK, res)
+}
+
 // handleSetConnectorToolModes 是 PATCH /api/connectors/{id}/tools：body {modes: {工具名: off/confirm/auto}}。
 func (s *Server) handleSetConnectorToolModes(w http.ResponseWriter, r *http.Request) {
 	if !s.connectorsConfigured(w) {

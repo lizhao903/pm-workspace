@@ -387,11 +387,11 @@ Agent、知识库、技能、枚举值、运行异常、内网域名几节目前
 | 编号 | 元素 | 操作 | 结果 |
 |---|---|---|---|
 | SPEC-settings-3.1 | 顶栏 | 看 | 「设置 / 连接器」，数量「N 个已接入」，说明「把外部工具接进工作台，按分类管理；每个工具接一个账号」 |
-| SPEC-settings-3.2 | 统计卡片 | 看 | 已连接（绿色）、异常（大于 0 时红色）、已断开 / 暂停、可接未接（目录里还没有连接器的工具数） |
-| SPEC-settings-3.3 | 分类分段按钮 | 点击 | 「全部分类」或某一分类，后面是该分类的工具数；只显示所选分类的区块。从 IM 消息「渠道配置」进来时选中即时通讯，从视频进来时选中内容平台 |
+| SPEC-settings-3.2 | 状态筛选分段按钮 | 点击 | 原型是四张统计卡片（已连接、异常、已断开 / 暂停、可接未接）；正式产品（TSK-0725，用户 2026-11-06「卡片没意义」）去掉卡片，换成和分类同样写法的分段按钮：全部 / 已连接 / 异常 / 已断开·暂停 / 未接入，后面带数字（全部、未接入数工具，其余数连接器；按当前选的分类算），「异常」大于 0 时用红色。选某个状态时只显示有该状态连接器的工具、卡片里只列该状态的连接器；「未接入」只显示一个都没接过的工具卡片；「连接中」（接入后还没测过）只在「全部」里。和分类筛选同时生效，都筛空时显示「没有符合条件的连接器」。选择写在地址 `?status=`（`connected` / `error` / `off` / `unlinked`，不认识的当全部），刷新、分享保留 |
+| SPEC-settings-3.3 | 分类分段按钮 | 点击 | 「全部分类」或某一分类，后面是该分类的工具数（按当前状态筛选算）；只显示所选分类的区块。从 IM 消息「渠道配置」进来时选中即时通讯，从视频进来时选中内容平台 |
 | SPEC-settings-3.4 | 分类区块 | 看 | 标题是分类名和分类说明，下面是工具卡片网格 |
-| SPEC-settings-3.5 | 工具卡片 | 看 | 标志（IM 用渠道短名，其他取名称前两个字）、名称、说明；有连接器异常时卡片标红边 |
-| SPEC-settings-3.6 | 卡片里的连接器行 | 看 | 自定义图标（有才显示）、连接器名称、账号、状态点；第二行：应用类是「<认证方式> · <开着的工具数>/<工具总数> 个工具可用」，IM 类是「收发 / 只收 · N 条 · <上次同步>」（没同步过写「未同步」） |
+| SPEC-settings-3.5 | 工具卡片 | 看 | 标志（正式产品 TSK-0725：有平台图标的用平台图标，见下「平台图标」；没有的退回原型写法，IM 用渠道短名，其他取名称前两个字加品牌底色）、名称、说明；有连接器异常时卡片标红边 |
+| SPEC-settings-3.6 | 卡片里的连接器行 | 看 | 自定义图标（有才显示；正式产品里自定义类每行都带这个连接器自己的小标志：换过的图标，或按地址认出的平台图标，都没有时用 MCP / OpenAPI 的通用标志）、连接器名称、账号、状态点；第二行：应用类是「<认证方式> · <开着的工具数>/<工具总数> 个工具可用」，IM 类是「收发 / 只收 · N 条 · <上次同步>」（没同步过写「未同步」） |
 | SPEC-settings-3.7 | 连接器行 | 点击或回车 | 打开配置抽屉（IM 类见 `SPEC-settings-4`，其他见 `SPEC-settings-5`） |
 | SPEC-settings-3.8 | 行上「连接」/「重连」 | 点击 | 已断开、已暂停时是「连接」，异常时是「重连」；不打开抽屉。状态变「连接中」，0.9 秒后：凭证（`config` 或 token）里带 `expired` / `invalid` 的变异常（「凭证已失效，改好配置后再连接」）并记一条运行异常 `conn:<id>:auth`；OAuth 断开过的视为重新授权成功；其余变已连接、更新同步时间 |
 | SPEC-settings-3.9 | 行上「断开」 | 点击 | 只在已连接时出现，悬停「断开后配置保留，随时可以再连」；和抽屉里一样先确认：行内按钮换成「取消」「断开」，第二行换成红字「断开后收不到消息，Agent 也调不了它的工具」（和抽屉同一句）；都不打开抽屉。确认后状态变已断开，OAuth 的授权账号和到期时间清掉 |
@@ -404,8 +404,61 @@ Agent、知识库、技能、枚举值、运行异常、内网域名几节目前
 | SPEC-settings-3.11 | 工具还没接 | 卡片里「还没有接入」 | 「接入」 |
 | SPEC-settings-3.12 | 连接器异常 | 卡片红边，行上状态「异常」，二级菜单「连接器」红点，今日出现「连接异常」待办 | 「重连」或打开抽屉改配置 |
 | SPEC-settings-3.13 | 连接中 | 行上状态「连接中」，没有连接 / 断开按钮 | 等待 |
-| SPEC-settings-3.14 | 一个连接器都没有 | 统计全为 0，每张卡片都是「还没有接入」；原型没有单独的空状态，正式产品沿用这样即可 | 「接入」 |
-| SPEC-settings-3.15 | 加载失败 | 原型未做；正式产品在统计卡片上方显示错误信息和「重试」 | 重试 |
+| SPEC-settings-3.14 | 一个连接器都没有 | 状态筛选的数字除「全部」「未接入」外全为 0，每张卡片都是「还没有接入」；原型没有单独的空状态，正式产品沿用这样即可 | 「接入」 |
+| SPEC-settings-3.15 | 加载失败 | 原型未做；正式产品在状态筛选上方显示错误信息和「重试」 | 重试 |
+| SPEC-settings-3.15a | 筛选后没有工具 | 正式产品（TSK-0725）：「没有符合条件的连接器 / 换个状态或分类看看」 | 换筛选 |
+
+### 平台图标
+
+正式产品（TSK-0725）。原型的标志是「底色加名称前两个字」，正式产品给连接器配平台的真实图标，所有显示连接器的地方（连接器列表的卡片、行、添加目录，配置抽屉，Agent「工具与权限」的挂载下拉和已挂的连接器，IM 消息的渠道配置）用同一个标志组件。
+
+- **显示顺序**：连接器自己的图标（自定义类上传的，或「从网站取图标」取到的）> 自定义类按地址认出的平台 > 定义的平台图标 > 底色加名称前两个字。
+- **图标资源**：随前端打包的 SVG（`frontend/src/core/ui/connector-logos`），运行时不访问外网；平台品牌色做底、标志用白色（底色很浅的币安、Hugging Face、Intercom、Supabase 用深色标志），Slack 是官方多色标志放白底。来源与授权见该目录 README（Simple Icons 16.36.0，CC0；Slack 用官网公开标志）。
+- **内置连接器**：Google Drive、Google 日历、MCP 服务（Model Context Protocol 标志）、OpenAPI 接口（OpenAPI Initiative 标志）、Slack、Telegram、币安（行情、交易账户）、OKX（行情、交易账户）、B 站（含网页登录）、YouTube 用各自平台图标；抖音用同属字节跳动、标志相同的 TikTok 图标。
+- **按地址认平台**（只对自定义类，纯前端，不出网、不写库）：MCP 看服务地址，OpenAPI 先看接口地址再看文档地址；主机名等于下表的域名或是它的子域名就算，最长的优先。抽屉里改地址时标志跟着变，说明行写「已按地址认出 <平台>」。
+
+| 域名 | 平台 |
+|---|---|
+| `notion.com`、`notion.so` | Notion |
+| `linear.app` | Linear |
+| `atlassian.com`、`atlassian.net` | Atlassian |
+| `githubcopilot.com`、`github.com`、`githubusercontent.com` | GitHub |
+| `gitlab.com` | GitLab |
+| `figma.com` | Figma |
+| `slack.com` | Slack |
+| `googleapis.com`、`google.com` | Google |
+| `sentry.io`、`sentry.dev` | Sentry |
+| `stripe.com` | Stripe |
+| `cloudflare.com`、`workers.dev` | Cloudflare |
+| `vercel.com`、`vercel.app` | Vercel |
+| `supabase.com`、`supabase.co` | Supabase |
+| `asana.com` | Asana |
+| `hubspot.com`、`hubapi.com` | HubSpot |
+| `zapier.com` | Zapier |
+| `airtable.com` | Airtable |
+| `discord.com` | Discord |
+| `huggingface.co` | Hugging Face |
+| `anthropic.com` | Anthropic |
+| `postman.com`、`getpostman.com` | Postman |
+| `trello.com` | Trello |
+| `todoist.com` | Todoist |
+| `clickup.com` | ClickUp |
+| `paypal.com` | PayPal |
+| `shopify.com`、`myshopify.com` | Shopify |
+| `intercom.com`、`intercom.io` | Intercom |
+| `netlify.com`、`netlify.app` | Netlify |
+| `grafana.com`、`grafana.net` | Grafana |
+| `datadoghq.com` | Datadog |
+| `pagerduty.com` | PagerDuty |
+| `dropbox.com`、`dropboxapi.com` | Dropbox |
+| `telegram.org` | Telegram |
+| `binance.com` | 币安 |
+| `okx.com` | OKX |
+| `bilibili.com` | B 站 |
+| `youtube.com` | YouTube |
+| `modelcontextprotocol.io` | Model Context Protocol |
+
+- **从网站取图标**：见 `SPEC-settings-5.2`。
 
 ### 数据
 
@@ -502,7 +555,7 @@ Agent、知识库、技能、枚举值、运行异常、内网域名几节目前
 | 编号 | 元素 | 操作 | 结果 |
 |---|---|---|---|
 | SPEC-settings-5.1 | 抽屉头、状态条 | 看 | 同 `SPEC-settings-4.1`、`4.3` 到 `4.5` |
-| SPEC-settings-5.2 | 标志 | 点击 | 只有自定义分类（MCP、OpenAPI）能换图标（上传图片，没有图片时用默认图标）；内置应用用品牌标志，不能改 |
+| SPEC-settings-5.2 | 标志 | 点击 | 只有自定义分类（MCP、OpenAPI）能换图标（上传图片，没有图片时用默认图标）；内置应用用品牌标志，不能改。正式产品（TSK-0725）：没上传时按地址认平台（见 `SPEC-settings-3`「平台图标」）；已接入的自定义连接器在标志下多一个「从网站取图标」：按**已保存**的地址由后端去对方网站取 apple-touch-icon / favicon，取到直接存为这个连接器的图标（之后可以再换或「移除图标」），按钮取的时候显示「正在取…」；地址或图标有没保存的改动、还没保存过地址时按钮置灰，说明行写原因；取不到红字「没取到图标：<原因>」，图标不动。新建时没有这个按钮（说明「接入后可以从网站取图标」）。自己上传的图标优先，认平台不覆盖它 |
 | SPEC-settings-5.3 | 名称 | 输入 | 必填，新建默认工具名；标题跟着变 |
 | SPEC-settings-5.4 | 工具自带的字段 | 输入 | 例如 Jira「站点地址」、富途「OpenD 地址」、MCP「服务地址」「传输方式」、OpenAPI「OpenAPI 文档地址」「接口地址」；必填带星号 |
 | SPEC-settings-5.5 | 认证方式分段按钮 | 点击 | 只列工具支持的方式（`Tool.auth`，第一个是默认）；下面一行说明：无授权「公开接口，不需要凭证。只适合不涉及账号数据的服务」，OAuth「跳转到对方页面登录授权，拿到的令牌到期前会自动续期」，Token「填 API Key 或个人访问令牌，请求时放在请求头里」；切换后测试结果清掉 |

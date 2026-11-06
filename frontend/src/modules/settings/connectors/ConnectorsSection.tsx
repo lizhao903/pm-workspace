@@ -7,6 +7,8 @@
 // - OAuth 授权回调回到这一页（带 ?oauth=）时只显示结果，那是授权弹出的窗口（CONN-04b）。
 // - 别处带 ?tool=<工具 key> 跳来（SHELL-02）：分类切到这个工具的分类，接过的打开它的抽屉（有异常的优先），没接过的打开新建抽屉；用过就从地址上去掉。
 // - 带 ?connector=<实例 id>（POL-01，今日、IM 的「去修复」）：直接打开这个实例的抽屉，分类切到它的分类；不认识的只去掉参数。
+// - 顶部不放统计卡片，改成状态筛选（TSK-0725 追加）：全部 / 已连接 / 异常 / 已断开·暂停 / 未接入，和分类筛选一起生效，选择写在 ?status= 上。
+// - 标志按 TSK-0725：内置工具用平台图标；自定义类的每一行带自己的小标志（换的图标或按地址认出的平台）。
 import { useEffect, useRef, useState, type MouseEvent } from 'react'
 import { useSearchParams } from 'react-router'
 import {
@@ -16,7 +18,7 @@ import {
 import { Button, cls, Drawer, EmptyState, PageTitle } from '../../../core/ui'
 import { AUTH_LABEL, CATEGORIES, categoryOf, OFF_HINT, OTHER } from './catalog'
 import { ConnectorDrawer } from './ConnectorDrawer'
-import { fallbackDef, rowSummary, type ConnCheck } from './model'
+import { cardRows, fallbackDef, inStatus, isCustom, parseStatusFilter, rowSummary, STATUS_FILTERS, statusCounts, type ConnCheck, type StatusFilter } from './model'
 import { OAuthDone, StatusDot, ToolLogo } from './parts'
 import { oauthResult } from './oauth'
 import './connectors.css'
@@ -46,6 +48,13 @@ function Connectors() {
   const [search, setSearch] = useSearchParams()
   const toolParam = search.get('tool')
   const connParam = search.get('connector')
+  const status = parseStatusFilter(search.get('status'))
+  const setStatus = (f: StatusFilter) => {
+    const next = new URLSearchParams(search)
+    if (f) next.set('status', f)
+    else next.delete('status')
+    setSearch(next, { replace: true })
+  }
 
   // 定义随插件启停出现、隐藏（CONN-02），插件管理那边改了不会通知这里：进来时缓存里已有的重新取一次，
   // 免得停用的插件的工具还在、重新启用的还挂在「提供方已停用」里
@@ -130,12 +139,19 @@ function Connectors() {
   }
 
   const editing = open?.mode === 'edit' ? list.find((c) => c.id === open.id) : undefined
-  const n = (...s: Connector['status'][]) => list.filter((c) => s.includes(c.status)).length
-  const notLinked = defs.filter((d) => !list.some((c) => c.tool === d.tool)).length
   // 只列有工具的分类；不认识的分类归「其他」，排最后
   const cats = [...CATEGORIES, OTHER].filter((c) => defs.some((d) => categoryOf(d.category).key === c.key))
-  const shownCats = cats.filter((c) => !cat || c.key === cat)
   const orphans = list.filter((c) => !c.available || !defOf(c.tool))
+  // 状态筛选和分类筛选一起生效：卡片里列哪些实例，null 是这张卡片不显示
+  const rowsOf = (d: ConnectorDef) => cardRows(status, list.filter((c) => c.tool === d.tool && c.available), list.some((c) => c.tool === d.tool))
+  const inCat = (d: ConnectorDef, key: string) => categoryOf(d.category).key === key
+  const shownDefs = (key: string) => defs.filter((d) => inCat(d, key) && rowsOf(d) !== null)
+  const shownCats = cats.filter((c) => (!cat || c.key === cat) && shownDefs(c.key).length > 0)
+  const shownOrphans = cat ? [] : orphans.filter((c) => inStatus(c, status))
+  // 状态的数字按选中的分类算（全部分类时含提供方停用的实例），分类的数字按选中的状态算
+  const scopeDefs = cat ? defs.filter((d) => inCat(d, cat)) : defs
+  const counts = statusCounts(scopeDefs, cat ? list.filter((c) => c.available && scopeDefs.some((d) => d.tool === c.tool)) : list)
+  const catCount = (key: string) => defs.filter((d) => inCat(d, key) && rowsOf(d) !== null).length
 
   const row = (c: Connector, def: ConnectorDef | undefined) => {
     const busy = !!pending[c.id]
@@ -146,7 +162,9 @@ function Connectors() {
         onClick={() => setOpen({ mode: 'edit', id: c.id })}
         onKeyDown={(e) => { if (e.key === 'Enter' && e.target === e.currentTarget) setOpen({ mode: 'edit', id: c.id }) }}>
         <div className="cn-row-main">
-          {c.icon && <img className="cn-row-icon" src={c.icon} alt="" aria-hidden="true" />}
+          {/* 自定义类的卡片是通用标志，行上带这个实例自己的（换的图标或按地址认出的平台）；提供方停用的只有换过的图标 */}
+          {def && isCustom(def) ? <ToolLogo def={def} connector={c} size={18} />
+            : c.icon && <img className="cn-row-icon" src={c.icon} alt="" aria-hidden="true" />}
           <span className="cn-name ellipsis" title={c.name}>{c.name}</span>
           <span className="cn-account ellipsis">{c.account}</span>
           <span className="spacer" />
@@ -175,7 +193,8 @@ function Connectors() {
   }
 
   const card = (d: ConnectorDef) => {
-    const mine = list.filter((c) => c.tool === d.tool && c.available)
+    const all = list.filter((c) => c.tool === d.tool && c.available)
+    const mine = rowsOf(d) ?? []
     return (
       <div key={d.tool} className={cls('cn-card', mine.some((c) => c.status === 'error') && 'cn-card-bad')} data-tool={d.tool}>
         <div className="cn-card-top">
@@ -188,7 +207,7 @@ function Connectors() {
         {mine.length ? <div className="cn-list">{mine.map((c) => row(c, d))}</div> : <div className="cn-none">还没有接入</div>}
         {/* 同一工具可以接多个：接过了给「再接一个」，改配置点上面那一行 */}
         <div className="cn-card-foot">
-          {mine.length
+          {all.length
             ? <Button variant="outline" onClick={() => add(d.tool)}>再接一个</Button>
             : <Button variant="primary" onClick={() => add(d.tool)}>接入</Button>}
         </div>
@@ -209,12 +228,15 @@ function Connectors() {
           <QueryState query={listQ}>
             {() => (
               <>
-                <section className="cn-stats" aria-label="统计">
-                  <div className="cn-stat"><div className="cn-stat-label">已连接</div><div className="cn-stat-value cn-ok">{n('connected')}</div></div>
-                  <div className="cn-stat"><div className="cn-stat-label">异常</div><div className={cls('cn-stat-value', n('error') > 0 && 'cn-danger')}>{n('error')}</div></div>
-                  <div className="cn-stat"><div className="cn-stat-label">已断开 / 暂停</div><div className="cn-stat-value">{n('disconnected', 'paused')}</div></div>
-                  <div className="cn-stat"><div className="cn-stat-label">可接未接</div><div className="cn-stat-value">{notLinked}</div></div>
-                </section>
+                <div className="cn-seg cn-status-seg" role="group" aria-label="状态">
+                  {STATUS_FILTERS.map((f) => (
+                    <button key={f.key || 'all'} type="button" aria-pressed={status === f.key}
+                      className={cls(status === f.key && 'on', f.key === 'error' && counts.error > 0 && 'cn-seg-danger')}
+                      onClick={() => setStatus(f.key)}>
+                      {f.label}<span className="seg-n">{counts[f.key]}</span>
+                    </button>
+                  ))}
+                </div>
 
                 {!defs.length && !orphans.length ? (
                   <EmptyState title="还没有可以接入的工具"
@@ -224,11 +246,11 @@ function Connectors() {
                     {cats.length > 0 && (
                       <div className="cn-seg" role="group" aria-label="分类">
                         <button type="button" className={cls(!cat && 'on')} aria-pressed={!cat} onClick={() => setCat('')}>
-                          全部分类<span className="seg-n">{defs.length}</span>
+                          全部分类<span className="seg-n">{defs.filter((d) => rowsOf(d) !== null).length}</span>
                         </button>
                         {cats.map((c) => (
                           <button key={c.key} type="button" className={cls(cat === c.key && 'on')} aria-pressed={cat === c.key} onClick={() => setCat(c.key)}>
-                            {c.label}<span className="seg-n">{defs.filter((d) => categoryOf(d.category).key === c.key).length}</span>
+                            {c.label}<span className="seg-n">{catCount(c.key)}</span>
                           </button>
                         ))}
                       </div>
@@ -236,13 +258,16 @@ function Connectors() {
                     {shownCats.map((c) => (
                       <section key={c.key} className="cn-section" aria-label={c.label}>
                         <div className="cn-section-head"><h2>{c.label}</h2>{c.desc && <span className="cn-faint">{c.desc}</span>}</div>
-                        <div className="cn-grid">{defs.filter((d) => categoryOf(d.category).key === c.key).map(card)}</div>
+                        <div className="cn-grid">{shownDefs(c.key).map(card)}</div>
                       </section>
                     ))}
-                    {!cat && orphans.length > 0 && (
+                    {!shownCats.length && !shownOrphans.length && (
+                      <EmptyState title="没有符合条件的连接器" desc="换个状态或分类看看" />
+                    )}
+                    {shownOrphans.length > 0 && (
                       <section className="cn-section" aria-label="提供方已停用">
                         <div className="cn-section-head"><h2>提供方已停用</h2><span className="cn-faint">提供它们的插件停用了，只能改名、启停和删除</span></div>
-                        <div className="cn-list cn-orphans">{orphans.map((c) => row(c, undefined))}</div>
+                        <div className="cn-list cn-orphans">{shownOrphans.map((c) => row(c, undefined))}</div>
                       </section>
                     )}
                   </>

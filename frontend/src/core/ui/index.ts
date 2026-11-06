@@ -43,3 +43,7 @@ export { ScheduleRuleFields } from './ScheduleRuleEditor'
 export { useRuleCheck } from './useRuleCheck'
 export type { RuleCheck } from './useRuleCheck'
 export { describeRule as describeScheduleRule, emptyRule as emptyScheduleRule, fullRule as fullScheduleRule, whenText as scheduleWhenText } from './scheduleRule'
+// 连接器标志：平台图标 / 自定义图标 / 文字图标（TSK-0725）
+export { ConnectorLogo } from './ConnectorLogo'
+export type { ConnectorLogoProps } from './ConnectorLogo'
+export { LOGOS as CONNECTOR_LOGOS, logoUrl as connectorLogoUrl } from './connector-logos'
