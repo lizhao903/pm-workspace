@@ -24,7 +24,7 @@ export {
 } from './progress'
 export { REVISION_LIMIT, useObjectRevisions, groupRevisions, rejectText, useReject } from './revisions'
 export type { RevisionGroup } from './revisions'
-export { useArtifacts, useObjectArtifacts, useArtifactStats, useArtifactCount, useRecordArtifact } from './artifacts'
+export { useArtifacts, useObjectArtifacts, useArtifactStats, useArtifactCount, useRecordArtifact, useArtifactsByObject } from './artifacts'
 export { runFinished, useTaskRuns, useTaskRun, useCancelRun, streamRun, decideRunCall, useRunPrompt, startTerminalRun, finishTerminalRun, useFinishRun, useRunPresets, useSaveRunPresets } from './runs'
 export { workdirUsable, useWorkdirCheck, useFsBrowse, useFsShortcuts, useFsRoots, useAddFsRoot, useRemoveFsRoot, fsCrumbs } from './fs'
 export {

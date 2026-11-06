@@ -1,12 +1,13 @@
 // 阶段看板（AUTO-05，SPEC-tasks-11）：任务按阶段分列，按提出人筛选；卡片显示阶段、提出人和状态。
 // 阶段和状态是两套：状态是负责人的工作状态，阶段是提出人在看板上看到的流程进度（docs/auto-delivery-flow.md 第 3 节），
 // 由自动交付流程推进，也可以在卡片上手动改。正式产品里阶段在 props.stage、提出人在 props.requester。
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { PageTitle } from './topbar'
-import { isOpenTask, type Task, type TaskRequester } from './taskdata'
+import { isOpenTask, type Task, type TaskArtifact, type TaskRequester } from './taskdata'
 import { Avatar, cls } from './ui'
 import { SearchSelect } from './searchselect'
 import { TaskStatusPill } from './tasks'
+import { OUTPUTS_FILTERS, OutputsBadge, matchOutputs, summarize, type OutputsFilter } from './taskoutputs'
 import './taskstage.css'
 
 export const STAGES: readonly { key: string; label: string }[] = [
@@ -30,15 +31,19 @@ export const stageLabel = (s?: string) => (s ? STAGES.find((x) => x.key === s)?.
 /** 提出人筛选的值：联系人 c:<id>，认不上的发送者 s:<渠道>:<编号>，没有提出人 - */
 const whoKey = (r?: TaskRequester) => (!r ? '-' : r.contact_id ? `c:${r.contact_id}` : r.channel && r.sender_id ? `s:${r.channel}:${r.sender_id}` : `n:${r.name}`)
 
-export function StageBoard({ tasks, selected, onOpen, onStage }: {
+export function StageBoard({ tasks, selected, onOpen, onStage, artifacts = [], onOpenOutputs }: {
   tasks: Task[]; selected: string | null; onOpen: (id: string) => void; onStage: (id: string, stage: string) => void
+  /** 产出物（TSK-0497）：卡片上的产出标记、「产出」筛选；点标记打开抽屉的开发任务标签 */
+  artifacts?: TaskArtifact[]; onOpenOutputs?: (id: string) => void
 }) {
+  const outputs = useMemo(() => summarize(artifacts), [artifacts])
+  const [out, setOut] = useState<OutputsFilter>('')
   const [who, setWho] = useState('')
   const [withNone, setWithNone] = useState(false)
   const [q, setQ] = useState('')
   const kw = q.trim().toLowerCase()
   // 没设阶段又已经结束的老任务不进看板：它们没走过流程，放进「未设阶段」只会把这一列撑满
-  const base = tasks.filter((t) => (known(t.stage) || isOpenTask(t.status)) && (!who || whoKey(t.requester) === who)
+  const base = tasks.filter((t) => (known(t.stage) || isOpenTask(t.status)) && (!who || whoKey(t.requester) === who) && matchOutputs(t.id, out, outputs)
     && (!kw || [t.title, t.desc, t.ref, t.assignee].some((v) => v.toLowerCase().includes(kw))))
   const noneN = base.filter((t) => !known(t.stage)).length
   const cols = [
@@ -61,6 +66,7 @@ export function StageBoard({ tasks, selected, onOpen, onStage }: {
       <span className="stage-card-who" title={t.requester?.channel && !t.requester.contact_id ? `${t.requester.name}（${t.requester.channel}，还没认到联系人）` : t.requester?.name}>
         {t.requester ? <><Avatar name={t.requester.name} size={18} /><span className="ellipsis">{t.requester.name}</span></> : <span className="run-muted">没有提出人</span>}
       </span>
+      <OutputsBadge s={outputs.get(t.id)} onOpen={() => (onOpenOutputs ?? onOpen)(t.id)} />
       <span className="stage-card-foot">
         <TaskStatusPill s={t.status} />
         <span className="chip chip-select stage-pick" onClick={(e) => e.stopPropagation()}>
@@ -80,6 +86,11 @@ export function StageBoard({ tasks, selected, onOpen, onStage }: {
         <SearchSelect value={who} onChange={setWho} noneLabel="全部提出人" placeholder="全部提出人" searchPlaceholder="搜提出人"
           options={[...[...opts.values()].sort((a, b) => b.n - a.n).map((o) => ({ value: o.value, label: o.label, hint: String(o.n) })), { value: '-', label: '没有提出人' }]}
           missingLabel={() => '没有这位提出人的任务'} />
+        <div className="chip chip-select">
+          <select value={out} onChange={(e) => setOut(e.target.value as OutputsFilter)}>
+            {OUTPUTS_FILTERS.map(([k, l]) => <option key={k} value={k}>{l}</option>)}
+          </select>
+        </div>
         <label className="check"><input type="checkbox" checked={withNone} onChange={(e) => setWithNone(e.target.checked)} />显示未设阶段（{noneN}）</label>
         <span className="spacer" />
         <div className="search">

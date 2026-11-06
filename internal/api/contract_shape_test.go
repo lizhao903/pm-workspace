@@ -101,6 +101,8 @@ var contractSpecs = map[string]contractSpec{
 
 	// 溯源字段表只列 0031 补的列
 	"输出产物 artifacts / 溯源字段（AG-03b，0031）#table1": {v: domain.Artifact{}, partial: true},
+	// 按对象汇总（TSK-0497）
+	"ArtifactsByObject": {v: domain.ArtifactsByObject{}},
 
 	"LocalDir":   {v: localdir.Dir{}},
 	"FsFile":     {v: fsbrowse.FileContent{}},

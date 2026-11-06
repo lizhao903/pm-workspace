@@ -1,6 +1,6 @@
 // 任务抽屉的产出物（DEV-08b，SPEC-tasks-5）：按提交、分支、PR、文件分组，有链接的新窗口打开，
 // 只有本机路径的显示相对路径、可复制绝对路径；可以手工登记一条（来源记成 manual）。
-import { useState } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import {
   QueryState, errorText, useObjectArtifacts, useRecordArtifact, type Artifact, type ArtifactSource, type WorkObject,
 } from '../../core/data'
@@ -11,13 +11,17 @@ import './artifacts.css'
 
 const SOURCE_LABEL: Record<ArtifactSource, string> = { manual: '手动登记', agent: 'Agent', run: '执行扫描', mcp: 'MCP 回写' }
 
-function ArtifactRow({ a, p, copied, onCopy }: { a: Artifact; p: ParsedNote; copied: boolean; onCopy: (a: Artifact) => void }) {
+/** lead：行首额外的内容（产出物视图放种类标签，TSK-0497） */
+export function ArtifactRow({ a, p, copied, onCopy, lead }: {
+  a: Artifact; p: ParsedNote; copied: boolean; onCopy: (a: Artifact) => void; lead?: ReactNode
+}) {
   const file = p.kind === 'file'
   const label = file ? (a.url ? a.title || a.url : a.rel_path || a.path) : p.text || a.title || a.url || a.rel_path
   // 文件的备注放第二行；代码类的备注已经当标题用了
   const sub = file ? p.text : ''
   return (
     <li className="art-row" data-kind={p.kind}>
+      {lead}
       <span className="art-main">
         {p.kind === 'commit' && p.sha && <span className="art-sha" title={p.sha}>{shortSha(p.sha)}</span>}
         {p.branch && <span className="art-branch"><Tag>{p.branch}</Tag></span>}
@@ -61,9 +65,14 @@ function AddForm({ objectId, onDone }: { objectId: string; onDone: () => void })
   )
 }
 
-export function ArtifactsPanel({ task }: { task: WorkObject }) {
+/** focused：从任务行、看板、产出物视图点产出标记进来（?focus=artifacts，TSK-0497），打开后滚到这一块 */
+export function ArtifactsPanel({ task, focused }: { task: WorkObject; focused?: boolean }) {
   const q = useObjectArtifacts(task.id)
   const [adding, setAdding] = useState(false)
+  const ref = useRef<HTMLElement>(null)
+  useEffect(() => {
+    if (focused) ref.current?.scrollIntoView?.({ block: 'start', behavior: 'smooth' })
+  }, [focused, task.id])
   const [copied, setCopied] = useState('')
   const items = q.data?.data ?? []
   const groups = groupArtifacts(items)
@@ -71,7 +80,7 @@ export function ArtifactsPanel({ task }: { task: WorkObject }) {
     navigator.clipboard?.writeText(a.path).then(() => setCopied(a.id), () => setCopied(''))
   }
   return (
-    <section className="dev-slot" data-slot="artifacts" data-task={task.id} aria-label="产出物">
+    <section ref={ref} className="dev-slot" data-slot="artifacts" data-task={task.id} aria-label="产出物">
       <div className="dev-slot-head">
         <span className="field-group-title">产出物<span className="art-hint">提交、分支、PR、文件</span></span>
         <span className="art-spacer" />

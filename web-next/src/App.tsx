@@ -1807,7 +1807,7 @@ export default function App() {
           </button>
         </div>
       </aside>
-      {page === 'tasks' && <TasksNav tasks={tasks} hooks={hooks} deliveries={deliveries} view={taskView} onSelect={(v) => { setTaskView(v); setDrawer(null) }} onNewHook={() => { setTaskView('hook:new'); setDrawer(null) }} />}
+      {page === 'tasks' && <TasksNav tasks={tasks} hooks={hooks} deliveries={deliveries} artifacts={dev.artifacts} view={taskView} onSelect={(v) => { setTaskView(v); setDrawer(null) }} onNewHook={() => { setTaskView('hook:new'); setDrawer(null) }} />}
       {page === 'library' && <LibraryTree ws={ws} model={lib} items={content} folders={folders} selected={reading} onSelect={setReading} onSwitch={switchWs}
         defaultWs={defaultWs} onSetDefault={setDefaultWs}
         onAddFolder={addFolder} onRemoveFolder={removeFolder} q={libQ} onQ={setLibQ} adding={folderBusy} error={folderError} />}
@@ -1866,7 +1866,8 @@ export default function App() {
                 if (!t || (t.stage ?? '') === stage) return
                 patchTask(id, { stage: stage || undefined, stage_log: [...(t.stage_log ?? []), { at: new Date().toISOString(), from: t.stage ?? '', to: stage }] })
               }}
-              onOpenBoard={(id) => setDrawer({ kind: 'task', id, tab: 'pipeline' })} />
+              onOpenBoard={(id) => setDrawer({ kind: 'task', id, tab: 'pipeline' })}
+              artifacts={dev.artifacts} onOpenOutputs={(id) => setDrawer({ kind: 'task', id, tab: 'dev' })} />
           ))}
           {page === 'messages' && (
             <MessagesPage messages={messages} contacts={contacts} connectors={connectors} selected={selectedId}
@@ -1989,6 +1990,7 @@ export default function App() {
                   onOpenTask: (id) => setDrawer({ kind: 'task', id }),
                   // 待验收的任务点圆圈和任务页一样先弹确认，确认后等于验收通过
                   onTaskStatus: (id, st) => patchTask(id, { status: st }), onApproveTask: (id) => dev.review(id, true, ''),
+                  artifacts: dev.artifacts,
                   onStartSop: (id) => setDrawer({ kind: 'sop-start', sopId: id }),
                   onOpenRun: (id) => { setPage('sop'); setOpenRun(id) },
                   onOpenSop: (id) => { setPage('sop'); setSopView(`sop:${id}`); setOpenRun(null) },

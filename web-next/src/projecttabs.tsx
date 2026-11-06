@@ -7,7 +7,8 @@ import { MentionText, contactIndex, isSnoozed, senderKey } from './messages'
 import { SearchSelect, matchOption } from './searchselect'
 import { STAKE_ROLE, type Project, type ProjectChat, type StakeRole } from './projectdata'
 import { RUN_STATUS, runStatus, type Sop, type SopRun } from './sopflow'
-import type { Task, TaskStatus } from './taskdata'
+import type { Task, TaskArtifact, TaskStatus } from './taskdata'
+import { summarize } from './taskoutputs'
 import { isOpenTask } from './taskdata'
 import { PriorityTag, TaskStatusPill } from './tasks'
 import { useEnumView } from './enumdata'
@@ -218,11 +219,14 @@ export function StakeholdersTab({ p, contacts, messages, onChange, onOpenContact
 
 /* ---------- 任务 ---------- */
 
-export function ProjectTasksTab({ p, tasks, onNew, onOpen, onStatus, onApprove }: {
+export function ProjectTasksTab({ p, tasks, onNew, onOpen, onStatus, onApprove, artifacts = [] }: {
   p: Project; tasks: Task[]; onNew: () => void; onOpen: (id: string) => void; onStatus: (id: string, s: TaskStatus) => void
   /** 待验收的任务点完成圆圈：确认后等于验收通过，和任务列表同一套 */
   onApprove?: (id: string) => void
+  /** 产出物：每行显示件数（TSK-0497） */
+  artifacts?: TaskArtifact[]
 }) {
+  const outN = useMemo(() => summarize(artifacts), [artifacts])
   const statusEnum = useEnumView('task_status')
   const [all, setAll] = useState(false)
   const [ask, setAsk] = useState<Task | null>(null)
@@ -249,6 +253,7 @@ export function ProjectTasksTab({ p, tasks, onNew, onOpen, onStatus, onApprove }
               <PriorityTag p={t.priority} />
               <span className="task-ref">{t.ref}</span>
               <span className="ellipsis pt-task-title">{t.title}</span>
+              {outN.get(t.id) && <span className="run-muted" title="这条任务的产出物件数，点开任务在「开发任务」里看">产出 {outN.get(t.id)!.total}</span>}
               <span className="run-muted">{t.assignee || '未分配'}</span>
               <span className="run-muted">{t.due ?? '-'}</span>
               <TaskStatusPill s={t.status} />

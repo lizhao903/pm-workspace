@@ -29,6 +29,18 @@ export function useArtifactStats(filter: ArtifactListParams, opts: { enabled?: b
   })
 }
 
+/**
+ * 按对象汇总的产出（TSK-0497）：任务列表每行的产出数、任务模块「产出物」视图。一次拿全，不分页；
+ * 同一套过滤，kind 按 display_kind 比。登记、执行结束都报 artifact 变化，跟着 artifacts.all 一起刷新
+ */
+export function useArtifactsByObject(filter: ArtifactListParams, opts: { enabled?: boolean } = {}) {
+  return useQuery({
+    queryKey: dataKeys.artifacts.byObject(filter),
+    queryFn: ({ signal }) => artifacts.byObject(filter, signal),
+    enabled: opts.enabled,
+  })
+}
+
 /** 删除确认里列的产出物数；null 不查 */
 export function useArtifactCount(objectId: string | null) {
   const filter = { object_id: objectId ?? '' }

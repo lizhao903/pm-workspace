@@ -865,6 +865,7 @@ AG-01b3。字段对齐原型 `web-next/src/agentdata.ts` 的 `KnowledgeBase` 和
 |---|---|---|
 | GET | `/api/artifacts` | `Artifact[]` + `meta.total`，最近登记的在前。过滤见下 |
 | GET | `/api/artifacts/stats` | `ArtifactStats`，走**同一套**过滤参数，忽略 `limit`/`offset` |
+| GET | `/api/artifacts/by-object` | `ArtifactsByObject`，按归属对象汇总（TSK-0497），走同一套过滤参数，`kind` 按 `display_kind` 比；不分页，忽略 `limit`/`offset`；`unscoped=true` 报 400。见下「按对象汇总」 |
 | POST | `/api/artifacts` | `ArtifactInput`。`source` 由**请求头** `X-Actor-Source` 判定，无条件覆盖请求体里的值 |
 | GET | `/api/artifacts/{id}` | 单条 |
 | PATCH | `/api/artifacts/{id}` | `{object_id?,title?,path?,base_dir?,url?,platform?,note?,kind?,status?,scope_type?,scope_id?,props?}`。`props` 整体替换；产出者 `actor_*` 不经 PATCH 改 |
@@ -884,9 +885,52 @@ AG-01b3。字段对齐原型 `web-next/src/agentdata.ts` 的 `KnowledgeBase` 和
 | `scope_type` / `scope_id` | 按非对象归属过滤；`scope_id` 要和 `scope_type` 一起给，单给报 400（不同模块的 id 可能撞） |
 | `has_url` / `has_path` | **三态**：不传=不过滤，`true`=该字段非空，`false`=该字段为空。`has_url=false` 就是「还没发出去的本地文件」 |
 | `q` | 同时匹配 title / path / url / note |
+| `since` / `until` | 登记时间（`created_at`）区间，含两端；RFC3339 或 `YYYY-MM-DD`（本地时区，`since` 补当天 00:00:00、`until` 补 23:59:59）。TSK-0497 |
+| `object_type` | 归属对象的类型（如 `task`）。TSK-0497 |
+| `project_id` | 归属对象所属的项目；`-` 表示归属对象不属于任何项目。未归属的产物不会命中。TSK-0497 |
 | `limit` / `offset` | 默认 100，上限 500 |
 
 `ArtifactStats` 另有 `by_kind`（未分类的计在 `""` 下），口径和其余分组一样只统计 artifacts。
+
+### 显示种类 display_kind 与登记时补 kind（TSK-0497）
+
+`Artifact` 响应多一个派生字段 `display_kind`，**不接受写入**：`kind` 非空时等于 `kind`；为空（历史登记）时按下面的规则推断，库里的 `kind` 不改。
+登记（`POST /api/artifacts`、Agent 写盘、执行后扫目录、MCP 回写）时没给 `kind` 的，按同一套规则补上再入库；推出来的种类在字典里被停用了就留空，不因此拒掉登记。调用方明确给了 `kind` 的照旧校验。
+
+推断规则（`internal/domain/artifactkind.go`，依次）：
+
+1. 备注以 `[commit]` / `[branch]` / `[pr]` 开头 → 对应种类（同「代码类产物」）。
+2. 只有链接：GitHub 的 `/pull/<n>` → `pr`，`/commit/<sha>` → `commit`，`/tree/` → `branch`；否则按平台，`confluence` / `feishu` / `gdrive` / `pagehub` → `doc`，`figma` → `prototype`；都不是 → `other`。
+3. 有本地路径按扩展名：源码、样式、脚本、配置（`go`、`ts`、`tsx`、`js`、`css`、`py`、`sql`、`yaml` 等）→ `code`；`md`、`txt`、`pdf`、`docx`、`pptx`、`mmd` 等 → `doc`；`html`、`htm`、`fig`、`sketch` → `prototype`；`json`、`csv`、`xlsx`、`db`、`db-wal`、`sqlite`、`log` 等 → `data`。
+4. 其余 → `other`，不返回空串。
+
+2026-11-06 线上未分类的 116 条全部来自 `source=run`（Claude Code 执行后扫工作目录，`recordRunArtifacts` 从来没填 kind），按上面的规则显示为代码、文档、数据、其他。
+
+### 按对象汇总（TSK-0497）
+
+`GET /api/artifacts/by-object` 回答「哪些对象有产出、各有什么」：任务列表每行的产出数、任务模块「产出物」视图都用它，一次请求拿全，不受列表接口一页 500 条的限制。
+
+- 只算挂在对象上、且对象不在回收站里的产物；未归属的不属于任何一行。手工登记的（`source=manual`）照样计入。
+- `kind` 按 `display_kind` 比，所以历史上没填 kind 的也能按类型筛到。
+- `by_kind` 不受 `kind` 条件影响、`by_source` 不受 `source` 条件影响（其余条件都生效），给类型、来源按钮上显示条数；`total` 和 `objects` 是全部条件都生效后的。
+- `objects` 按 `last_at` 倒序（最近有产出的在前）。
+
+`ArtifactsByObject`：
+
+```json
+{
+  "objects": [
+    {
+      "object_id": "obj_…", "object_ref": "TSK-0497", "object_title": "任务产出物一览", "object_type": "task",
+      "status": "done", "project_id": "obj_…", "project_title": "一人之下控制台", "completed_at": "2026-11-06T10:00:00Z",
+      "total": 3, "by_kind": { "commit": 2, "doc": 1 }, "by_source": { "mcp": 3 }, "last_at": "2026-11-06T09:58:00Z"
+    }
+  ],
+  "total": 3, "by_kind": { "commit": 2, "doc": 1 }, "by_source": { "mcp": 3 }
+}
+```
+
+`ArtifactObjectSummary`（`objects` 的一行）：`project_id` 不属于项目时为 `null`、`project_title` 为空串；`completed_at` 没完成为 `null`；`last_at` 是这个对象下满足条件的最近一次登记时间。
 
 ### 溯源字段（AG-03b，0031）
 

@@ -4,7 +4,7 @@ import { commitSha, groupObjects, groupOutputs } from './outputsModel'
 
 const art = (id: string, over: Partial<Artifact> = {}): Artifact => ({
   id, object_id: null, session_id: null, run_id: null, title: '', path: '/p', base_dir: '', url: '', platform: 'local', size: 0,
-  source: 'mcp', note: '', created_at: '', updated_at: '', rel_path: '/p', ...over,
+  source: 'mcp', note: '', created_at: '', updated_at: '', rel_path: '/p', kind: '', display_kind: 'other', ...over,
 })
 const commit = (id: string, sha: string, obj: string, repo = 'fullstack') => art(id, {
   title: '第三十七批提交', note: `[commit] sha=${sha} branch=b repo=/r/${repo}`, object_id: 'obj_' + obj, object_ref: 'TSK-' + obj, object_title: '任务 ' + obj,

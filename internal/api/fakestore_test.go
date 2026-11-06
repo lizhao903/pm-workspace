@@ -1243,6 +1243,30 @@ func (f *fakeStore) artifactMatch(a *domain.Artifact, fl domain.ArtifactFilter) 
 	if fl.HasPath != nil && (a.Path != "") != *fl.HasPath {
 		return false
 	}
+	// TSK-0497：时间区间、归属对象的类型和项目
+	if fl.Since != nil && a.CreatedAt.Before(*fl.Since) {
+		return false
+	}
+	if fl.Until != nil && a.CreatedAt.After(*fl.Until) {
+		return false
+	}
+	if fl.ObjectType != "" || fl.ProjectID != "" {
+		o := f.objs[ptr(a.ObjectID)]
+		if o == nil || (fl.ObjectType != "" && o.TypeID != fl.ObjectType) {
+			return false
+		}
+		switch fl.ProjectID {
+		case "":
+		case "-":
+			if o.ProjectID != nil {
+				return false
+			}
+		default:
+			if ptr(o.ProjectID) != fl.ProjectID {
+				return false
+			}
+		}
+	}
 	if q := strings.TrimSpace(fl.Q); q != "" {
 		hay := a.Title + "\x00" + a.Path + "\x00" + a.URL + "\x00" + a.Note
 		if !strings.Contains(strings.ToLower(hay), strings.ToLower(q)) {
@@ -1348,6 +1372,11 @@ func (f *fakeStore) putArtifact(in domain.ArtifactInput) (*domain.Artifact, erro
 	if a.Props == nil {
 		a.Props = map[string]any{}
 	}
+	// 同 sqlite：kind 没给就推一个（TSK-0497）；替身不查字典，内置种类都算启用
+	if a.Kind == "" {
+		a.Kind = domain.InferArtifactKind(a.Note, a.URL, a.Platform, a.Path)
+	}
+	a.DisplayKind = domain.DisplayKindOf(a)
 	a.RelPath = a.Path
 	f.artifacts = append(f.artifacts, a)
 	return a, nil
@@ -1442,6 +1471,60 @@ func (f *fakeStore) ArtifactStats(ctx context.Context, fl domain.ArtifactFilter)
 		st.ByKind[a.Kind]++
 	}
 	return st, nil
+}
+
+// ArtifactsByObject 复刻 sqlite 的口径（TSK-0497）：kind 按 display_kind 比，by_kind / by_source
+// 各自不受自己那个条件影响，只算挂在没进回收站的对象上的。
+func (f *fakeStore) ArtifactsByObject(ctx context.Context, fl domain.ArtifactFilter) (*domain.ArtifactsByObject, error) {
+	kind, source := fl.Kind, fl.Source
+	fl.Kind, fl.Source, fl.Limit, fl.Offset = "", "", 1<<30, 0
+	items, _, err := f.ListArtifacts(ctx, fl)
+	if err != nil {
+		return nil, err
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	out := &domain.ArtifactsByObject{Objects: []domain.ArtifactObjectSummary{}, ByKind: map[string]int{}, BySource: map[string]int{}}
+	idx := map[string]int{}
+	for _, a := range items {
+		if a.ObjectID == nil {
+			continue
+		}
+		o := f.objs[*a.ObjectID]
+		if o == nil || o.DeletedAt != nil {
+			continue
+		}
+		k := domain.DisplayKindOf(a)
+		kindOK, sourceOK := kind == "" || k == kind, source == "" || a.Source == source
+		if sourceOK {
+			out.ByKind[k]++
+		}
+		if kindOK {
+			out.BySource[a.Source]++
+		}
+		if !kindOK || !sourceOK {
+			continue
+		}
+		i, ok := idx[o.ID]
+		if !ok {
+			out.Objects = append(out.Objects, domain.ArtifactObjectSummary{
+				ObjectID: o.ID, ObjectRef: o.Ref, ObjectTitle: o.Title, ObjectType: o.TypeID, Status: o.Status,
+				ProjectID: o.ProjectID, CompletedAt: o.CompletedAt,
+				ByKind: map[string]int{}, BySource: map[string]int{}, LastAt: a.CreatedAt,
+			})
+			i = len(out.Objects) - 1
+			idx[o.ID] = i
+		}
+		s := &out.Objects[i]
+		s.Total++
+		s.ByKind[k]++
+		s.BySource[a.Source]++
+		if a.CreatedAt.After(s.LastAt) {
+			s.LastAt = a.CreatedAt
+		}
+		out.Total++
+	}
+	return out, nil
 }
 
 // ResolveWorkdir 复刻「自身没设就回退到所属项目」这一条规则——API 层的 fake

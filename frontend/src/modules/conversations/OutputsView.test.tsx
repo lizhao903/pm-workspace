@@ -8,7 +8,7 @@ import { OutputsView } from './OutputsView'
 
 const art = (id: string, over: Partial<Artifact> = {}): Artifact => ({
   id, object_id: null, session_id: null, run_id: null, title: '', path: '/p', base_dir: '', url: '', platform: 'local', size: 0,
-  source: 'mcp', note: '', created_at: new Date().toISOString(), updated_at: '', rel_path: '/p', ...over,
+  source: 'mcp', note: '', created_at: new Date().toISOString(), updated_at: '', rel_path: '/p', kind: '', display_kind: 'other', ...over,
 })
 const commit = (id: string, obj: string) => art(id, {
   title: '第三十七批提交', note: '[commit] sha=995ce6e branch=b repo=/r', object_id: 'obj_' + obj, object_ref: 'TSK-' + obj, object_title: '任务标题 ' + obj,

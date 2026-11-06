@@ -9,6 +9,7 @@ import type {
   ArtifactListParams,
   ArtifactPatch,
   ArtifactStats,
+  ArtifactsByObject,
   ClaimInput,
   ClaimResult,
   Counts,
@@ -148,6 +149,9 @@ export const artifacts = {
   // 同一套过滤参数，忽略 limit / offset
   stats: (params?: ArtifactListParams) =>
     request<ArtifactStats>('GET', '/api/artifacts/stats', { query: artifactListQuery(params) }),
+  /** 按对象汇总（TSK-0497），不分页 */
+  byObject: (params?: ArtifactListParams, signal?: AbortSignal) =>
+    request<ArtifactsByObject>('GET', '/api/artifacts/by-object', { query: artifactListQuery(params), signal }),
   get: (id: string) => request<Artifact>('GET', `/api/artifacts/${seg(id)}`),
   create: (input: ArtifactInput) => request<Artifact>('POST', '/api/artifacts', { body: input }),
   patch: (id: string, patch: ArtifactPatch) =>

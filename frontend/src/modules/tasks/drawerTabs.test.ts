@@ -38,8 +38,8 @@ describe('任务详情标签', () => {
   })
 
   it('切标签去掉定位参数，关抽屉全去掉，别的参数不动', () => {
-    expect(tabParams(sop)).toEqual(['tab', 'run', 'sop_run'])
-    expect(withTab(q('t=o1&status=all&run=r1&sop_run=s1'), 'info', sop).toString()).toBe('t=o1&status=all&tab=info')
+    expect(tabParams(sop)).toEqual(['tab', 'run', 'focus', 'sop_run'])
+    expect(withTab(q('t=o1&status=all&run=r1&sop_run=s1&focus=artifacts'), 'info', sop).toString()).toBe('t=o1&status=all&tab=info')
     expect(withoutTabParams(q('status=all&tab=runs&run=r1'), sop).toString()).toBe('status=all')
   })
 })

@@ -8,6 +8,9 @@ import { sectionTabs, useObjectSections } from '../../core/plugin'
 export const TAB_PARAM = 'tab'
 /** 定位某次 Claude Code 执行 */
 export const RUN_PARAM = 'run'
+/** 定位「开发任务」标签里的某一块（TSK-0497：focus=artifacts 是产出物面板），打开后滚到那里 */
+export const FOCUS_PARAM = 'focus'
+export const FOCUS_ARTIFACTS = 'artifacts'
 
 export type HostTab = 'info' | 'dev' | 'runs'
 export const HOST_TABS: Record<HostTab, string> = { info: '基础信息', dev: '开发任务', runs: '执行记录' }
@@ -25,7 +28,7 @@ export function wantedTab(params: URLSearchParams, plugins: readonly PluginTabRe
 
 /** 关抽屉、换一条任务时从地址上去掉的参数 */
 export function tabParams(plugins: readonly PluginTabRef[]): string[] {
-  return [TAB_PARAM, RUN_PARAM, ...plugins.flatMap((p) => (p.focusParam ? [p.focusParam] : []))]
+  return [TAB_PARAM, RUN_PARAM, FOCUS_PARAM, ...plugins.flatMap((p) => (p.focusParam ? [p.focusParam] : []))]
 }
 
 export function withoutTabParams(params: URLSearchParams, plugins: readonly PluginTabRef[]): URLSearchParams {

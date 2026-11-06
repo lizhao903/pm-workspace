@@ -354,6 +354,7 @@ func (s *Server) routes(m routeRegistrar) {
 	// ServeMux 优先匹配它——不会有 id="stats" 的请求打到 GetArtifact 上。
 	m.HandleFunc("GET /api/artifacts", s.handleListArtifacts)
 	m.HandleFunc("GET /api/artifacts/stats", s.handleArtifactStats)
+	m.HandleFunc("GET /api/artifacts/by-object", s.handleArtifactsByObject)
 	m.HandleFunc("POST /api/artifacts", s.handleCreateArtifact)
 	m.HandleFunc("GET /api/artifacts/{id}", s.handleGetArtifact)
 	m.HandleFunc("PATCH /api/artifacts/{id}", s.handleUpdateArtifact)

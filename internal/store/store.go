@@ -241,6 +241,9 @@ type Store interface {
 	// filter，所以「筛选后的统计」和「筛选后的列表」永远对得上——
 	// 各写一套 WHERE 的话，两个数字会在某个条件下悄悄分叉。
 	ArtifactStats(ctx context.Context, f domain.ArtifactFilter) (*domain.ArtifactStats, error)
+	// ArtifactsByObject 按归属对象汇总（TSK-0497）：同一套过滤，kind 按 display_kind 比，
+	// 每个对象一行，带分种类、分来源的条数和最近一次登记时间。不分页。
+	ArtifactsByObject(ctx context.Context, f domain.ArtifactFilter) (*domain.ArtifactsByObject, error)
 
 	// 备份与导出
 	Migrations(ctx context.Context) ([]domain.MigrationRecord, error)

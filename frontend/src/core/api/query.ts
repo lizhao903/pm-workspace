@@ -72,6 +72,11 @@ export function artifactListQuery(p: ArtifactListParams = {}): URLSearchParams {
   tri(qs, 'has_url', p.has_url)
   tri(qs, 'has_path', p.has_path)
   str(qs, 'q', p.q)
+  str(qs, 'kind', p.kind)
+  str(qs, 'since', p.since)
+  str(qs, 'until', p.until)
+  str(qs, 'object_type', p.object_type)
+  str(qs, 'project_id', p.project_id)
   num(qs, 'limit', p.limit)
   num(qs, 'offset', p.offset)
   return qs
