@@ -1,22 +1,22 @@
-// 概览（SPEC-projects-3）：五个数字卡片和七个摘要块，每块都能点进对应标签。
+// 概览（SPEC-projects-3）：四个数字卡片和七个摘要块，每块都能点进对应标签。TSK-0718 去掉了「原型运行中」卡片（原型块还在）。
 // 待回复、最新沟通用沟通标签同一份项目消息（useProjectMessages）；产品文档数和文档标签同一个查询；
-// 项目 Agent 显示默认 Agent（agent_ids 里第一个还在的），「和它对话」同 Agent 标签的「对话」（PR-21）
+// 项目 Agent 显示默认 Agent（agent_ids 里第一个还在的）的名字，不带头像和说明（TSK-0718），「和它对话」同 Agent 标签的「对话」（PR-21）
+// 干系人的角色名从枚举字典 project_role 取（TSK-0718），停用的照常显示名字、标「已停用」
 import { Suspense, useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router'
 import {
-  PROJECT_ROLES, errorText, projectView, useAgents, useAllObjects, useContacts, useDictItems, useProjectMaterials, useProjectStakeholders,
+  errorText, projectView, useAgents, useAllObjects, useContacts, useDictItems, useProjectMaterials, useProjectRoles, useProjectStakeholders,
   type ImMessage, type WorkObject,
 } from '../../core/data'
 import { useObjectDrawer } from '../../core/plugin'
 import { Button, ErrorState, cls } from '../../core/ui'
-import { AgentAvatar } from '../../core/ui/AgentAvatar'
 import { SESSION_PARAM, useProjectChat } from './projectChat'
 import { defaultAgent } from './agentModel'
 import { awaitingCount, awaitingReply, whoName } from './commsModel'
 import { recentDocsAndMaterials } from './materialModel'
 import { useProjectMessages } from './projectMessages'
-import { STAKE_PEEK, TASK_PEEK, ago, isKnownRole, sortStakeholders, type ProjectTab } from './model'
-import { ProtoBlock, ProtoStat } from './PrototypesTab'
+import { STAKE_PEEK, TASK_PEEK, ago, roleOf, sortStakeholders, type ProjectTab } from './model'
+import { ProtoBlock } from './PrototypesTab'
 
 const PRIORITY_DICT = 'priority'
 const DOC = 'doc'
@@ -47,9 +47,9 @@ export function Overview({ project, onTab }: { project: WorkObject; onTab: (t: P
   }, [tasks.data, prios.data])
 
   const people = useMemo(() => new Map((contacts.data ?? []).map((c) => [c.id, c])), [contacts.data])
-  // 不认识的角色排最后，显示原值并标红（E-02）
-  const stakeList = useMemo(() => sortStakeholders(stakes.data ?? []), [stakes.data])
-  const roleLabel = (role: string) => PROJECT_ROLES.find((x) => x.key === role)?.label ?? role
+  // 不认识的角色排最后，显示原值并标红（E-02）；按字典顺序排
+  const { roles } = useProjectRoles()
+  const stakeList = useMemo(() => sortStakeholders(stakes.data ?? [], roles), [stakes.data, roles])
   // 相对时间、稍后到点每分钟重算一次
   const [now, setNow] = useState(() => Date.now())
   useEffect(() => {
@@ -98,7 +98,6 @@ export function Overview({ project, onTab }: { project: WorkObject; onTab: (t: P
         {stat('未完成任务', tasks.data?.data.length, 'tasks')}
         {stat('干系人', stakes.data?.length, 'stakeholders')}
         {stat('产品文档', docs.data?.data.length, 'docs')}
-        <ProtoStat projectId={p.id} onOpen={() => onTab('prototypes')} />
       </div>
       <div className="pj-ov-grid">
         <section className="pj-block" aria-label="最新沟通">
@@ -132,13 +131,13 @@ export function Overview({ project, onTab }: { project: WorkObject; onTab: (t: P
                 <div className="pj-chips">
                   {stakeList.slice(0, STAKE_PEEK).map((x) => {
                     const name = people.get(x.stakeholder_id)?.name ?? '已删除的联系人'
-                    const known = isKnownRole(x.role)
+                    const role = roleOf(x.role, roles)
                     const tip = x.focus ? `${name}：${x.focus}` : name
                     return (
-                      <button key={x.stakeholder_id} type="button" className={cls('tag pj-chip', !known && 'pj-role-unknown')}
-                        title={known ? tip : `${tip}（不认识的角色「${x.role}」，去干系人标签改一个）`}
+                      <button key={x.stakeholder_id} type="button" className={cls('tag pj-chip', !role && 'pj-role-unknown')}
+                        title={role ? (role.enabled ? tip : `${tip}（角色「${role.label}」已停用）`) : `${tip}（不认识的角色「${x.role}」，去干系人标签改一个）`}
                         onClick={() => navigate(`/contacts?c=${encodeURIComponent(x.stakeholder_id)}`)}>
-                        {name} · {roleLabel(x.role)}
+                        {name} · {role ? role.label : x.role}{role && !role.enabled && '（已停用）'}
                       </button>
                     )
                   })}
@@ -187,7 +186,7 @@ export function Overview({ project, onTab }: { project: WorkObject; onTab: (t: P
   )
 }
 
-/** 概览的「项目 Agent」（SPEC-projects-3.6）：默认 Agent 的头像、名称、说明和「和它对话」，停用时置灰 */
+/** 概览的「项目 Agent」（SPEC-projects-3.6）：默认 Agent 的名称和「和它对话」，不带头像和说明（TSK-0718）；停用时标「已停用」、按钮置灰 */
 function AgentBlock({ project, onTab }: { project: WorkObject; onTab: (t: ProjectTab, query?: string) => void }) {
   const p = projectView(project)
   const agents = useAgents()
@@ -203,8 +202,7 @@ function AgentBlock({ project, onTab }: { project: WorkObject; onTab: (t: Projec
   return (
     <>
       <div className="pj-ov-agent">
-        <AgentAvatar agent={a} size={36} />
-        <span className="pj-ov-agent-text"><b className="ellipsis">{a.name || '未命名'}</b><span className="pj-muted pj-wrap">{a.enabled ? a.desc : '已停用'}</span></span>
+        <span className="pj-ov-agent-text"><b className="ellipsis">{a.name || '未命名'}</b>{!a.enabled && <span className="pj-muted">已停用</span>}</span>
         <Button variant="primary" size="sm" disabled={!a.enabled || chat.pending} onClick={() => chat.start(a.id)}>和它对话</Button>
       </div>
       {chat.err && <div className="pj-err" role="alert">{chat.err}</div>}

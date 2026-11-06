@@ -395,6 +395,7 @@ MCP 的 `pmw_claim_task` 领取者先认名册里 `ai_kind=cli`、`ai_ref=claude
 | `artifact_kind` | 0031 | `artifacts.kind` | 产物数 |
 | `contact_group` | 0041 | `stakeholders.contact_group` | 联系人数（含已归档）。分组按「、」（也认逗号、斜杠、分号）拆开各算一次，没填的算 `其他`；key 就是显示名，内置客户、合作伙伴、同事、供应商、其他（默认） |
 | `msg_status` | 0041、0044 | im 插件的 `im_messages.status` | 消息数；im 插件没装（表不存在）时为 0。`pending`（默认）、`done`、`ignored` 由表的约束定死；`expired`（0044，IM-07）是待处理加 `expired_at`，按它单算，插件还没升级到有这一列时按旧口径算（都在 `pending` 里） |
+| `project_role` | 0052（TSK-0718） | projects 插件的 `projects_stakeholders`（插件 0011 起 `role_key`，空时 `role`） | 项目干系人行数（含软删项目的）；projects 插件没装时为 0，插件还没升级到 0011 时按 `role` 算。内置 `decider` 决策人（拍板、验收）、`contact` 对接人（日常沟通、需求来源）、`owner` 负责人（我方交付负责）、`member` 参与（一起做事，`meta.default`）、`informed` 知会（有进展告诉他就行），key 同原来的 `PROJECT_ROLES`；可加新角色、改名、换色、停用、排序，被用着的删不掉（409） |
 
 任务状态（对象类型的 `statuses`）和文档分类（`/api/categories`）不进字典表，设置的枚举值页直接读写它们各自的接口。
 
@@ -1055,12 +1056,13 @@ AG-01b3。字段对齐原型 `web-next/src/agentdata.ts` 的 `KnowledgeBase` 和
 
 | 方法 | 路径 | body / 说明 |
 |---|---|---|
-| GET | `/api/fs/read?path=/abs/file.md` | `FsFile`，只读。**只能读已挂载目录里的文件**，挂载目录以下任何一段是隐藏项（`.` 开头，如 `.env`、`.git/`）也不行，否则 403：允许根包含主目录，不能借这个接口读 `~/.ssh`、`vault.key` 这类凭证。库文件和密钥证书类文件（`vault.key`、`.db`、`.db-wal`、`.db-shm`、`.sqlite`、`.key`、`.pem`、`.p12`、`.pfx`）在任何挂载目录里都不给读。目录、管道等非普通文件回 400，不存在回 404 |
+| GET | `/api/fs/read?path=/abs/file.md` | `FsFile`，只读。**只能读已挂载目录（或项目设置里的文档目录，见下「项目文档目录」）里的文件**，挂载目录以下任何一段是隐藏项（`.` 开头，如 `.env`、`.git/`）也不行，否则 403：允许根包含主目录，不能借这个接口读 `~/.ssh`、`vault.key` 这类凭证。库文件和密钥证书类文件（`vault.key`、`.db`、`.db-wal`、`.db-shm`、`.sqlite`、`.key`、`.pem`、`.p12`、`.pfx`）在任何挂载目录里都不给读。目录、管道等非普通文件回 400，不存在回 404 |
 | GET | `/api/local-dirs` | `LocalDir[]`，按 `position` |
 | POST | `/api/local-dirs` | `{path, name?}` 挂载，201。`path` 须是允许根内存在的目录，存解析软链后的路径；`name` 省略取目录名。同一目录挂两次 409。路径里有隐藏段（如 `~/.ssh`），或是工作台自己的数据目录（库文件所在目录，含 `vault.key`、`backups/`）、或包住了数据目录（比如挂整个仓库根），回 403 |
 | POST | `/api/local-dirs/reorder` | `{ids}` 按给定顺序重排，必须正好列出全部挂载各一次，否则 400；回重排后的 `LocalDir[]` |
 | PATCH | `/api/local-dirs/{id}` | `{name}` 改名。路径不能改，换目录就移除再挂 |
 | DELETE | `/api/local-dirs/{id}` | 移除挂载，只删记录不动磁盘 |
+| GET | `/api/objects/{id}/docs-dir/files?cursor=&limit=` | 项目设置里的文档目录（`props.docs_dir`，TSK-0718）下认得的文件，`FsFileList` 的一页，分页、`limit`、`cursor`、走查规则同下一行。`path` 是解析后的绝对目录。见下「项目文档目录」的错误 |
 | GET | `/api/local-dirs/{id}/files?cursor=&limit=` | `FsFileList` 的一页：目录下认得的文件（文本、PDF、图片、Office 等）。`limit` 默认 2000、最大 10000（超出按最大），不是正整数 400；`cursor` 是上一页的 `next_cursor`，不给从头列，不认得 400。客户端一页页拉到 `next_cursor` 为空就是全量。每次重新校验边界，目录已不在回 404 |
 | GET | `/api/fs/raw?path=/abs/file.pdf` | 原样回能预览的文件（阅读区的 iframe、img 用），只认 pdf、png、jpg、jpeg、gif、webp、svg、bmp、avif，别的扩展名 400。边界同 `/api/fs/read`（挂载目录、隐藏段、数据目录、库文件和密钥证书类文件 403，不存在 404，非普通文件 400）。`Content-Type` 按扩展名固定，`X-Content-Type-Options: nosniff`，`Content-Disposition: inline`，支持 Range；svg 另加 `Content-Security-Policy: default-src 'none'; img-src data:; style-src 'unsafe-inline'; sandbox` |
 | POST | `/api/fs/open` | `{path, reveal?}` 用本机默认应用打开（`reveal: true` 时在访达中选中）。边界同 `/api/fs/read`；只能是普通文件或目录形式的 key/pages/numbers。打开（`reveal` 为 false）只认 `FsFileList` 收的文件种类，别的（脚本、程序等）403「这类文件不能直接打开，可以在访达中显示」；在访达中显示不限种类。非 macOS 或 `open` 失败 400。回 `{path, reveal}`，`path` 是解析软链后的路径 |
@@ -1073,6 +1075,16 @@ AG-01b3。字段对齐原型 `web-next/src/agentdata.ts` 的 `KnowledgeBase` 和
 
 `FsFileList`（一页）：`{path, files, skipped, truncated, reason, next_cursor, visited}`，`files` 是 `{rel, path, name, ext, kind, size, modified}[]`，按目录走查顺序（每层按名字字节序，目录先自己再里面）；`rel` 相对挂载目录、分隔符 `/`。`kind`：`text`（读内容拿 `path` 调 `/api/fs/read`）、`pdf`、`image`（原文件走 `/api/fs/raw`）、`office`（不预览，可 `/api/fs/open`）。`skipped` 是这一页里扩展名不认得的文件数（多页累加）。`next_cursor` 空串表示走完了。`visited` 是到这一页为止累计走查的项数。
 种类按扩展名：text 为 md、markdown、txt、text、log、csv、json、yaml、yml、toml、xml、html、sql、htm、jsonl、ndjson、tsv、mmd、rst、ini、conf、cfg；pdf 为 pdf；image 为 png、jpg、jpeg、gif、webp、svg、bmp、avif；office 为 doc、docx、xls、xlsx、ppt、pptx、key、pages、numbers、odt、ods、odp、rtf、epub（目录形式的 key、pages、numbers 当一个文件列出，`size` 为 0，不往里走）；其它扩展名计入 `skipped`。跳过隐藏项和 `node_modules`、`.git`、`dist`、`build`、`.venv`、`__pycache__`。软链不跟。不限文件数；防爆保护触到了才 `truncated: true`：`reason` 为 `visited`（整个目录累计走查超过 200000 项，停下，`next_cursor` 为空）或 `depth`（比挂载目录深 32 层以上的子目录没往下走）；没触到时 `reason` 为空串。每页走查有 8 秒时间预算，超了先交回已列的并给 `next_cursor`，不算截断。
+
+#### 项目文档目录（TSK-0718）
+
+项目在「设置」里填文档目录（`props.docs_dir`，见「项目插件」的「项目字段」），项目「文档」标签用 `GET /api/objects/{id}/docs-dir/files` 列出里面的文件，和关联的工作台文档并列（来源列区分）。
+
+- 解析：去首尾空白和 `file://` 前缀；绝对路径原样清理；相对路径接在项目的本地项目目录（`workdir`）后面（`..` 照常解析，最后按允许根判越界）。
+- 支持的文件：同 `FsFileList` 的种类——文本（md、markdown、txt 等，阅读区渲染）、pdf、图片（`/api/fs/raw` 预览）、Office（doc、docx、xls、xlsx、ppt、pptx、key、pages、numbers 等，不预览，`/api/fs/open` 用本机应用打开）；别的扩展名计入 `skipped`；跳过隐藏项和依赖目录，软链不跟。
+- 读、预览、打开：`/api/fs/read`、`/api/fs/raw`、`/api/fs/open` 把没删的项目的文档目录和挂载目录一样当作可读范围；目录以下有隐藏段、库文件和密钥证书类文件、数据目录照旧 403。项目进回收站后它的文档目录不再算。
+- 错误：不是项目 400「只有项目有文档目录」；没设 400「这个项目还没设文档目录，在项目的「设置」里填」；相对路径但项目没填本地项目目录 400；目录本身有隐藏段、是或包住数据目录 403；允许根以外 403（message 同浏览的越界说明）；不存在 404；是文件不是目录 400；对象不存在或在回收站 404。
+- 执行任务的提示词（「任务执行 runs」的「所属项目」）：「文档在哪里操作」优先写这个目录的绝对路径并注明「（项目设置里的文档目录）」，没设（或相对路径没项目目录）时退回第一个关联目录。
 
 ## 任务执行 runs
 
@@ -1158,7 +1170,7 @@ SSE 事件（形状的唯一真相是 `internal/runner` 的 `Event.MarshalJSON`�
 **两种执行方式（0048）**
 
 - `TaskRun` 多一个字段 `mode`：`stream`（工作台起进程流式回推，0048 之前的都是）或 `terminal`（在终端里交互执行）。终端执行的开始时间是发起时，结束和结论由终端里的 claude 经 MCP 回写，或用户手动标记结束。读记录时不会因为「进程不在本工作台手上」把终端执行判成失败；对终端执行 `POST /api/runs/{id}/cancel` 只把记录标成 `canceled`，`error` 写「在终端里执行的会话不归工作台管，记录已标记为取消；终端标签需要自己关」。
-- 两种方式的提示词都带「所属项目」一节（任务挂在项目下才有）：名称、编号、项目工作目录（有才写）。文档目录取项目 `props.related` 第一个有路径的目录（`file://` 去掉前缀）；原型目录经插件钩子 `Registrar.ProjectPrototypes` 由项目插件给出（项目插件 0.10.0）。没有时写明「这个项目没有关联文档目录 / 没有登记原型目录，可在项目设置里补」。有项目时约束放宽到这两类目录。终端方式另加「回写到工作台」一节（`pmw_update_object`、`pmw_append_progress`、`pmw_record_artifact` 带 `run_id`、`pmw_finish_run`）；流式（Claude Code）按后台执行口径也加这一节（TSK-0499，见上「后台执行的权限」）。
+- 两种方式的提示词都带「所属项目」一节（任务挂在项目下才有）：名称、编号、项目工作目录（有才写）。文档目录取项目设置里的文档目录（`props.docs_dir`，TSK-0718，解析规则见「项目文档目录」，写「（项目设置里的文档目录）」），没设时取 `props.related` 第一个有路径的目录（`file://` 去掉前缀）；原型目录经插件钩子 `Registrar.ProjectPrototypes` 由项目插件给出（项目插件 0.10.0）。没有时写明「这个项目没有设文档目录 / 没有登记原型目录，可在项目设置里补」。有项目时约束放宽到这两类目录。终端方式另加「回写到工作台」一节（`pmw_update_object`、`pmw_append_progress`、`pmw_record_artifact` 带 `run_id`、`pmw_finish_run`）；流式（Claude Code）按后台执行口径也加这一节（TSK-0499，见上「后台执行的权限」）。
 - MCP 配置是 `{"mcpServers":{"pmw-run":{"type":"stdio","command":<MCP 程序>,"args":["--api",<public-url 去掉末尾斜杠>]}}}`，不含凭证；终端交接、后台执行、插件交给 Claude Code 的运行共用同一份生成逻辑（`runner.MCPConfigJSON`）。server 名 TSK-0499 起由 `pm-workspace` 改为 `pmw-run`：不和工作目录 `.mcp.json` 里同名的 `pm-workspace`（可能指向别的工作台实例）撞名，两者并存，提示词只认 `pmw-run`。MCP 新增工具 `pmw_finish_run`（收终端执行，也收 SOP 自动交给 Claude Code 的执行；可选参数 `result` 是结构化结论，至少带 `verdict`），`pmw_record_artifact` 加可选参数 `run_id`。
 
 **交给工作台 Agent（TSK-0460，`harness=agent`）**
@@ -1733,6 +1745,7 @@ PJ-01b。插件 `projects`（`internal/plugins/projects`，清单 `plugin.json`�
 | `skipped_attachments` | `props.skipped_attachments` | `string[]`，附件标签里选了「不加入」的附件，记「消息 id:附件 id」 |
 | `tabs_hidden` | `props.tabs_hidden` | `string[]`，详情页不显示的标签 key；概览、设置不认；没有时全部显示 |
 | `tabs_order` | `props.tabs_order` | `string[]`，详情页标签的先后（标签 key 的顺序）；不含概览、设置（固定一头一尾，写了也不认）；没有或空数组时按默认顺序；没列进来的标签按默认位置插入（跟在默认顺序里它前一个标签后面）；认不出的 key 跳过但保留 |
+| `docs_dir` | `props.docs_dir` | 文档目录（TSK-0718），字符串：相对本地项目目录（`workdir`）的路径或绝对路径，`file://` 前缀去掉；空串或没有表示没设。项目「文档」标签列这个目录下的文件，见「文件读取和挂载目录」的「项目文档目录」；执行任务的提示词「文档在哪里操作」优先用它 |
 | `stakeholders` | 插件表 `projects_stakeholders` | 见下方「项目干系人」，不放 props |
 | `created_at` | `created_at` | |
 | `chats` | 插件表 `projects_conversations` | 见下方「项目绑定的会话」，按会话 id 绑，不放 props |
@@ -1740,11 +1753,11 @@ PJ-01b。插件 `projects`（`internal/plugins/projects`，清单 `plugin.json`�
 | `prototypes` | 插件表 `projects_prototypes` | 定义落库，状态和日志在内存，见下方「项目原型」，不放 props |
 
 - 后端不校验这几个 props key 的取值，按上表写；`PATCH` 的 `props` 整体替换，改一个 key 要先读回再拼（同开发任务）。
-- props 里没有的 key 按空值处理：`related`、`agent_ids`、`sop_ids`、`skipped_attachments`、`tabs_hidden`、`tabs_order` 当 `[]`，`color` 当空串（前端按顺序给一个）。
+- props 里没有的 key 按空值处理：`related`、`agent_ids`、`sop_ids`、`skipped_attachments`、`tabs_hidden`、`tabs_order` 当 `[]`，`color`、`docs_dir` 当空串（前端按顺序给一个颜色）。
 
 ### 项目干系人
 
-表 `projects_stakeholders`（插件迁移 `0001_stakeholders.sql`，安装插件时应用）。人是干系人名册里的人（`stakeholders`，即联系人），原型的 `contact_id` 对应这里的 `stakeholder_id`。一个人在一个项目里只有一行、一个角色。
+表 `projects_stakeholders`（插件迁移 `0001_stakeholders.sql`，安装插件时应用；`0011_stakeholder_role_key.sql` 加 `role_key`，插件 0.18.0，TSK-0718：**已装 0.17.x 的，换新二进制后经 `POST /api/plugins/{id}/upgrade`（`{id}` 为 `projects`）升级应用 0011，升级前项目插件不启动**）。人是干系人名册里的人（`stakeholders`，即联系人），原型的 `contact_id` 对应这里的 `stakeholder_id`。一个人在一个项目里只有一行、一个角色。
 
 | 方法 | 路径 | body / 说明 |
 |---|---|---|
@@ -1755,7 +1768,8 @@ PJ-01b。插件 `projects`（`internal/plugins/projects`，清单 `plugin.json`�
 
 `ProjectStakeholder`：`{project_id, stakeholder_id, role, focus, sort_order, created_at, updated_at}`，不带人名，人名、头像从 `/api/stakeholders` 取。
 
-- `role` 必须是五种之一，和原型 `STAKE_ROLE` 一致：`decider` 决策人、`contact` 对接人、`owner` 负责人、`member` 参与、`informed` 知会；别的值（含大小写不同、空串）400 `validation`。表上有 CHECK 兜底。
+- `role` 是枚举字典 `project_role`（内核迁移 0052，设置 / 枚举值里维护，TSK-0718）里的 key，内置五个同原型 `STAKE_ROLE`：`decider` 决策人、`contact` 对接人、`owner` 负责人、`member` 参与（默认）、`informed` 知会。字典里没有的值（含大小写不同、空串）400 `validation`，message 列出能用的 key；已停用的角色不能新选（400），但 `PATCH` 带着和原来相同的角色（停用或已从字典删掉的旧值）照常放行，其余字段照改。字典还没有条目（内核迁移没跑）时退回只认内置五个。
+- 存法（插件迁移 `0011_stakeholder_role_key.sql`，插件 0.18.0）：0001 的 `role` 列有 CHECK 只认内置五个，插件迁移去不掉，所以加 `role_key` 列存实际的 key；读的时候 `role_key` 非空用它、空用 `role`（老数据不迁移）。写入时 `role_key` 总写，`role` 在内置五个之一时写同值、否则写 `member` 占位，不当真。接口上只有 `role`，就是实际的 key。
 - `focus` 是关注点，去首尾空白，最多 500 字，默认空串。
 - `{id}` 不是项目、不存在或在回收站里 404；`stakeholder_id` 在名册里查不到或已归档 400；这个人已在项目里 409 `conflict`（改角色用 `PATCH`）；`PATCH` / `DELETE` 的人不在项目里 404。
 - 硬删项目、删名册里的人时关联行一起删（外键 `ON DELETE CASCADE`）；软删项目不动，恢复后干系人还在。名册 `DELETE` 的引用检查不算项目干系人。

@@ -278,6 +278,10 @@ describe('详情页的标签设置和切换项目', () => {
     await waitFor(() => expect(router.state.location.pathname).toBe(`/projects/${a.id}`))
     const bar = await screen.findByRole('tablist', { name: '项目标签' })
     expect(within(bar).queryByRole('tab', { name: 'SOP' })).not.toBeInTheDocument()
+    // TSK-0718：标签条和项目名称在同一行（标题行里，名称后面），不另起一行
+    const row = bar.closest('.page-title, .tb-slot')
+    expect(row).not.toBeNull()
+    expect(within(row as HTMLElement).getByRole('heading', { level: 1 })).toHaveTextContent('工作台')
     expect(within(bar).getByRole('tab', { name: 'Agent' })).toBeInTheDocument()
 
     await userEvent.click(within(bar).getByRole('tab', { name: '设置' }))

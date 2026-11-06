@@ -235,6 +235,7 @@ type Core interface {
 	Objects() ObjectReader                   // 只读：Get(ctx, id)、Find(ctx, typeID, key) ObjectInfo（下面「内核对象只读句柄」）；TaskStages(ctx, TaskStageQuery{MessageID, RequesterID, Channel, SenderID, Limit}) 按来源消息或提出人查任务阶段，口径同 GET /api/tasks/stages（AUTO-05）
 	Contacts() ContactReader                 // 只读：Get、FindByName；ContactInfo 带 ID、Name、Email、Archived
 	Conversations() ConversationReader       // 只读：IM 会话（2.13.2）
+	Dicts() DictReader                       // 只读：内核枚举字典的条目，含停用的（TSK-0718）
 	ConversationWriter() ConversationWriter  // 登记 IM 会话，只建不改（PR-02，2.13.5 后）
 	Identities() IdentityReader              // 只读：IM 身份（2.13.3）
 	ObjectWriter() ObjectWriter              // 建对象、追加正文、改任务阶段（2.13.4）
@@ -290,6 +291,7 @@ type Core interface {
 | `ContactWriter().Create(ctx, NewContact, WriteMeta)` | 建联系人（干系人名册），`Name` 必填，校验同 `POST /api/stakeholders` |
 | `ContactWriter().Merge(ctx, id, ContactPatch, WriteMeta)` | 把非 nil 的字段写进已有联系人，回 `WrittenContact{ID, Name, Fields}`，`Fields` 是改了的字段 |
 | `Contacts().FindByName(ctx, name)` | 只读：按名字找没归档的联系人，重名取最早建的，没有回 `ErrNoRows` |
+| `Dicts().Item(ctx, dictID, key)` / `Dicts().Items(ctx, dictID)` | 只读：内核枚举字典（`dict_items`，只看 `type_id` 为空的全局条目）。`DictItemInfo` 带 `Key`、`Label`、`Archived`、`Default`（`meta.default`）；`Item` 没有这条或字典不存在回 `ErrNoRows`，`Items` 按 `sort_order` 含停用的，字典不存在回空。项目插件按 `project_role` 校验干系人角色用（TSK-0718）；改字典走内核接口 |
 
 写内核数据不在 3.1 的权限清单里，暂不按权限收窄；能写哪些类型等 `ObjectService` 落地时按「本插件声明或认领的类型」收。
 

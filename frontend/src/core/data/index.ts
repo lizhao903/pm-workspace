@@ -59,7 +59,7 @@ export type {
   Workspace, WorkspaceGroup, WorkspaceGroupInput, WorkspaceMark, WorkspaceTemplate, WorkspaceInput, WorkspacePatch,
 } from './workspaces'
 export {
-  docsApi, useCategoryTree, useTags, useLocalDirs, useLocalDirFiles, useLocalFile, useMountLocalDir, useUnmountLocalDir,
+  docsApi, useCategoryTree, useTags, useLocalDirs, useLocalDirFiles, useProjectDocFiles, useLocalFile, useMountLocalDir, useUnmountLocalDir,
   useOpenLocalFile, localRawUrl, mergeFilePages, useSetStarred, setStarred, isStarred, PROP_STARRED,
 } from './docs'
 export type { Category, TagInfo, LocalDir, LocalFileEntry, LocalFileKind, LocalFileList, LocalListReason, LocalFile } from './docs'
@@ -83,12 +83,12 @@ export type { Incident, IncidentLevel, IncidentReport, IncidentStatus, IncidentT
 export { contactsApi, useContacts, useSetContactStarred } from './contacts'
 export type { Contact, ContactPatch } from './contacts'
 export {
-  PROJECT_TYPE, PROJECT_ROLES, projectView, mergeProjectProps, isLiveProject, saveProject, projectsApi, useProjects, useProject,
+  PROJECT_TYPE, PROJECT_ROLES, PROJECT_ROLE_DICT, DEFAULT_PROJECT_ROLE, projectRoleItems, defaultProjectRole, useProjectRoles, projectView, mergeProjectProps, isLiveProject, saveProject, projectsApi, useProjects, useProject,
   useCreateProject, useSaveProject, useProjectStakeholders,
 } from './projects'
 // 项目下拉选项（读缓存），插件登记的 SOP 节点用（消息分流）
 export { projectOptions } from './projects'
-export type { ProjectView, ProjectMark, RelatedDir, ProjectProps, ProjectCreate, ProjectSave, ProjectRole, ProjectStakeholder } from './projects'
+export type { ProjectView, ProjectMark, RelatedDir, ProjectProps, ProjectCreate, ProjectSave, ProjectRole, ProjectRoleItem, ProjectStakeholder } from './projects'
 export { useSaveContact, useUpdateContact, useDeleteContact } from './contacts'
 export type { ContactInput, ContactUpdate, ContactSave, ContactSaved } from './contacts'
 export { CONTACT_GROUP_DICT, DEFAULT_CONTACT_GROUP, contactGroupOptions, useCreateContactLinked } from './contacts'

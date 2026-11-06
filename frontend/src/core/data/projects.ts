@@ -2,9 +2,10 @@
 // 字段约定见 docs/api-contract.md「项目插件 projects」：name=title、desc=body、root=workdir，color、mark、related 在 props 里。
 // 写完报 { kind: 'object' }；干系人的键挂在 stakeholders 前缀下，名册和对象一变一起刷。
 import { useMutation, useQuery } from '@tanstack/react-query'
-import { objects, request, type ObjectPatch, type WorkObject } from '../api'
+import { objects, request, type Dictionary, type ObjectPatch, type WorkObject } from '../api'
 import { useNotifyChange } from './invalidate'
 import { dataKeys } from './keys'
+import { useDictionaries } from './meta'
 import { listAllObjects, useAllObjects, useObject, type ObjectFilter } from './objects'
 import { queryClient } from './queryClient'
 
@@ -26,6 +27,8 @@ export type ProjectView = {
   mark: ProjectMark
   root: string
   related: RelatedDir[]
+  /** props.docs_dir：文档目录（TSK-0718），相对项目目录或绝对路径；空串是没设 */
+  docsDir: string
   /** props.sop_ids：关联的 SOP 流程 id，按关联先后 */
   sopIds: string[]
   /** props.agent_ids：项目 Agent，第一个是默认（SPEC-projects-10） */
@@ -54,13 +57,15 @@ export function projectView(o: WorkObject): ProjectView {
   const sopIds = idList(p.sop_ids)
   return {
     id: o.id, ref: o.ref, name: o.title, desc: o.body, status: o.status, color: str(p.color), mark,
-    root: o.workdir, related, sopIds, agentIds: idList(p.agent_ids), sessionIds: idList(p.session_ids), created_at: o.created_at, updated_at: o.updated_at,
+    root: o.workdir, related, docsDir: str(p.docs_dir).trim(), sopIds, agentIds: idList(p.agent_ids), sessionIds: idList(p.session_ids), created_at: o.created_at, updated_at: o.updated_at,
   }
 }
 
 /** 存在 props 里的几个字段 */
 export type ProjectProps = {
   color?: string; mark?: ProjectMark; related?: RelatedDir[]; sop_ids?: string[]; agent_ids?: string[]; session_ids?: string[]
+  /** 文档目录（TSK-0718）：相对项目目录或绝对路径；空串是清掉 */
+  docs_dir?: string
   /** 详情页不显示的标签 key（SPEC-projects-13.19）；没有这个 key 时全部显示，以后新加的标签默认也显示 */
   tabs_hidden?: string[]
   /** 详情页标签的先后（SPEC-projects-13.20）：标签 key 的顺序，不含概览、设置（固定一头一尾）；没有或空时按默认顺序，没列进来的新标签按默认位置插入 */
@@ -78,6 +83,10 @@ export function mergeProjectProps(current: Record<string, unknown> | null, edit:
     out.mark = m
   }
   if (edit.related !== undefined) out.related = edit.related.map((r) => ({ path: r.path, label: r.label }))
+  if (edit.docs_dir !== undefined) {
+    if (edit.docs_dir.trim()) out.docs_dir = edit.docs_dir.trim()
+    else delete out.docs_dir
+  }
   if (edit.sop_ids !== undefined) out.sop_ids = [...edit.sop_ids]
   if (edit.agent_ids !== undefined) out.agent_ids = [...edit.agent_ids]
   if (edit.session_ids !== undefined) out.session_ids = [...edit.session_ids]
@@ -152,16 +161,48 @@ export function useSaveProject() {
 
 // ---- 项目干系人 ----
 
-export type ProjectRole = 'decider' | 'contact' | 'owner' | 'member' | 'informed'
+/** 角色是枚举字典 project_role 里的 key（TSK-0718，设置 / 枚举值里维护）；内置五个见 PROJECT_ROLES */
+export type ProjectRole = string
 
-/** 显示顺序固定，和原型 STAKE_ORDER 一致 */
-export const PROJECT_ROLES: { key: ProjectRole; label: string; desc: string }[] = [
-  { key: 'decider', label: '决策人', desc: '拍板、验收' },
-  { key: 'contact', label: '对接人', desc: '日常沟通、需求来源' },
-  { key: 'owner', label: '负责人', desc: '我方交付负责' },
-  { key: 'member', label: '参与', desc: '一起做事' },
-  { key: 'informed', label: '知会', desc: '有进展告诉他就行' },
+/** 角色在界面上用的字段；enabled 为 false 是已停用（已有干系人照常显示，下拉里不再能选） */
+export type ProjectRoleItem = { key: string; label: string; desc: string; color: string; enabled: boolean }
+
+/** 项目干系人角色的字典 id（内核迁移 0052） */
+export const PROJECT_ROLE_DICT = 'project_role'
+/** 新加干系人的默认角色：字典里标了默认的，没有时用它 */
+export const DEFAULT_PROJECT_ROLE = 'member'
+
+/** 内置五个角色，顺序和原型 STAKE_ORDER 一致；字典还没有条目（后端没迁移）时兜底 */
+export const PROJECT_ROLES: ProjectRoleItem[] = [
+  { key: 'decider', label: '决策人', desc: '拍板、验收', color: '#c0352b', enabled: true },
+  { key: 'contact', label: '对接人', desc: '日常沟通、需求来源', color: '#3d4fd6', enabled: true },
+  { key: 'owner', label: '负责人', desc: '我方交付负责', color: '#e8590c', enabled: true },
+  { key: 'member', label: '参与', desc: '一起做事', color: '#0c8599', enabled: true },
+  { key: 'informed', label: '知会', desc: '有进展告诉他就行', color: '#a19d92', enabled: true },
 ]
+
+/** 字典里的角色（含停用的，按 sort_order）；没有字典或没有条目时用内置五个 */
+export function projectRoleItems(dicts: Dictionary[] | undefined): ProjectRoleItem[] {
+  const items = dicts?.find((d) => d.id === PROJECT_ROLE_DICT)?.items
+  if (!items?.length) return PROJECT_ROLES
+  return [...items].sort((a, b) => a.sort_order - b.sort_order || a.key.localeCompare(b.key))
+    .map((i) => ({ key: i.key, label: i.label, desc: i.description, color: i.color, enabled: !i.archived_at }))
+}
+
+/** 新加干系人的默认角色：字典里标了默认且没停用的，其次「参与」，再其次第一个没停用的 */
+export function defaultProjectRole(dicts: Dictionary[] | undefined): string {
+  const items = dicts?.find((d) => d.id === PROJECT_ROLE_DICT)?.items ?? []
+  const marked = items.find((i) => i.meta?.default === true && !i.archived_at)?.key
+  if (marked) return marked
+  const roles = projectRoleItems(dicts)
+  return roles.find((r) => r.key === DEFAULT_PROJECT_ROLE && r.enabled)?.key ?? roles.find((r) => r.enabled)?.key ?? DEFAULT_PROJECT_ROLE
+}
+
+/** 项目干系人角色（字典 project_role，含停用的）和默认角色；字典没取到时按内置五个 */
+export function useProjectRoles() {
+  const q = useDictionaries({ withItems: true })
+  return { roles: projectRoleItems(q.data), defaultRole: defaultProjectRole(q.data), isPending: q.isPending }
+}
 
 export type ProjectStakeholder = {
   project_id: string

@@ -419,6 +419,8 @@ const (
 	DictContactGroup = "contact_group"
 	// DictMsgStatus 是 IM 消息的处理状态，落在 im 插件的 im_messages.status（0041）。
 	DictMsgStatus = "msg_status"
+	// DictProjectRole 是项目干系人的角色，落在项目插件的 projects_stakeholders.role（0052，TSK-0718）。
+	DictProjectRole = "project_role"
 )
 
 type Dictionary struct {

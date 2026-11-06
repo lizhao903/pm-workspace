@@ -209,3 +209,45 @@ func TestStakeholdersAPI(t *testing.T) {
 		t.Fatalf("重新启用后应 200：%d", code)
 	}
 }
+
+// TSK-0718：角色按字典 project_role 校验——新加的角色能用；停用的不能新选，原来就是它的照常改别的字段；
+// 字典里删掉的旧值原样留着；被用着的角色在字典里删不掉（引用数统计到插件表）。
+func TestStakeholderRolesFromDict(t *testing.T) {
+	_, h, d := setup(t)
+	base := "/api/projects/obj_p1/stakeholders"
+	now := time.Now().UTC().Format(time.RFC3339)
+	if _, err := d.W.Exec(`INSERT INTO dict_items (id,dict_id,key,label,sort_order,meta,created_at,updated_at)
+		VALUES ('dit_role_sponsor','project_role','sponsor','出资人',60,'{}',?,?)`, now, now); err != nil {
+		t.Fatal(err)
+	}
+	if code, out := call(t, h, "POST", base, `{"stakeholder_id":"stk_a","role":"sponsor"}`); code != 201 {
+		t.Fatalf("字典里新加的角色应能用：%d %v", code, out)
+	}
+	if _, err := d.W.Exec(`UPDATE dict_items SET archived_at = ? WHERE id = 'dit_role_sponsor'`, now); err != nil {
+		t.Fatal(err)
+	}
+	if code, out := call(t, h, "POST", base, `{"stakeholder_id":"stk_b","role":"sponsor"}`); code != 400 {
+		t.Fatalf("停用的角色不能新选：%d %v", code, out)
+	}
+	if code, out := call(t, h, "PATCH", base+"/stk_a", `{"role":"sponsor","focus":"预算"}`); code != 200 || out["data"].(map[string]any)["role"] != "sponsor" {
+		t.Fatalf("原来就是停用角色的照常改关注点：%d %v", code, out)
+	}
+	var n int
+	if err := d.R.QueryRow(`SELECT COUNT(*) FROM projects_stakeholders WHERE ` + roleExpr + ` = 'sponsor' AND role = 'member'`).Scan(&n); err != nil || n != 1 {
+		t.Fatalf("引用数：%d %v", n, err)
+	}
+	// 内置五个照旧
+	if code, out := call(t, h, "POST", base, `{"stakeholder_id":"stk_b","role":"informed"}`); code != 201 {
+		t.Fatalf("内置角色：%d %v", code, out)
+	}
+	// 字典里删掉的旧值（直接删库模拟）：不改角色时放行，改成它 400
+	if _, err := d.W.Exec(`DELETE FROM dict_items WHERE id = 'dit_role_sponsor'`); err != nil {
+		t.Fatal(err)
+	}
+	if code, out := call(t, h, "PATCH", base+"/stk_a", `{"role":"sponsor","focus":"预算二"}`); code != 200 {
+		t.Fatalf("删掉的旧值原样留着：%d %v", code, out)
+	}
+	if code, _ := call(t, h, "PATCH", base+"/stk_b", `{"role":"sponsor"}`); code != 400 {
+		t.Fatalf("改成字典里没有的角色应 400：%d", code)
+	}
+}

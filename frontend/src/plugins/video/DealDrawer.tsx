@@ -5,7 +5,7 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router'
 import {
   errorText, useContacts, useCreateDeal, useDealReport, useDeleteDeal, useImMessage, useImMessages, usePatchDeal, usePlugins,
-  useProjectStakeholders, useProjects, useVideoQuoteRef, PROJECT_ROLES, type ImMessage, type Video, type VideoDeal,
+  useProjectStakeholders, useProjects, useVideoQuoteRef, useProjectRoles, type ImMessage, type Video, type VideoDeal,
 } from '../../core/data'
 import { Button, ConfirmDialog, Drawer, Field, Input, Pill, SearchSelect, Select, Textarea, cls } from '../../core/ui'
 import {
@@ -42,6 +42,7 @@ export function DealDrawer({ deal, initial, videos, onClose, onCreated }: {
   const [confirmDel, setConfirmDel] = useState(false)
   const [saved, setSaved] = useState(false)
   const stakes = useProjectStakeholders(d.project_id || null)
+  const { roles } = useProjectRoles()
   const ref = useVideoQuoteRef(d.platforms)
 
   const set = (x: Partial<DealDraft>) => { setSaved(false); setD({ ...d, ...x }) }
@@ -54,7 +55,11 @@ export function DealDrawer({ deal, initial, videos, onClose, onCreated }: {
 
   const allContacts = contacts.data ?? []
   const people = (stakes.data ?? []).map((s) => ({ s, c: allContacts.find((c) => c.id === s.stakeholder_id) })).filter((x) => !!x.c)
-  const roleLabel = (r: string) => PROJECT_ROLES.find((x) => x.key === r)?.label ?? r
+  // 角色名从枚举字典 project_role 取（TSK-0718），停用的照常显示名字并标出，字典里没有的显示原值
+  const roleLabel = (r: string) => {
+    const x = roles.find((y) => y.key === r)
+    return x ? (x.enabled ? x.label : `${x.label}（已停用）`) : r
+  }
   const contactOpts = [
     ...people.map(({ s, c }) => ({ value: c!.id, label: c!.name, hint: [roleLabel(s.role), c!.company].filter(Boolean).join(' · '), group: '项目干系人' })),
     ...allContacts.filter((c) => !people.some((x) => x.c!.id === c.id)).map((c) => ({ value: c.id, label: c.name, hint: c.company || c.group || undefined, group: '其他联系人' })),

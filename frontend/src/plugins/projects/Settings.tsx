@@ -1,6 +1,7 @@
 // 设置（SPEC-projects-13）：名称、标志、说明、状态、本地项目目录、关联目录、删除项目。边改边保存，没有「保存」按钮：
 // 输入停手片刻存一次，选图标、底色、状态、删关联目录这类一下就定的立即存；离开页面时没存的也存掉。
 // 本地项目目录存在对象的 workdir 列上，任务没设工作目录时执行就用它（后端 ResolveWorkdir 向上继承）。
+// 文档目录（TSK-0718）存在 props.docs_dir：相对项目目录或绝对路径，写法和控件同本地项目目录；文档标签列它下面的文件。
 // 「显示哪些标签」（SPEC-projects-13.19、13.20）：勾掉的标签存进 props.tabs_hidden，详情页不显示；概览、设置一直显示（设置里才开得回来）。
 // 同一块里拖动或上移、下移调标签先后，存进 props.tabs_order；概览固定第一、设置固定最后（见 TabPicks）。
 // 刚从列表新建、名称还是「新项目」就离开（切标签、回列表、换模块）时，用路由的 useBlocker 拦下来问要不要删（C-05）。
@@ -10,7 +11,7 @@ import { PROJECT_TYPE, errorText, useDeleteObject, useObjectTypes, useObjects, u
 import { useProjectTabs } from '../../core/plugin'
 import { Button, IconButton, IconClose, Select } from '../../core/ui'
 import { MarkEditor, ProjectMarkView } from './Mark'
-import { NEW_PROJECT_NAME, colorOf, diffForm, formOf, isFresh, markText, unmarkFresh, withPluginTabs, type Form } from './model'
+import { NEW_PROJECT_NAME, colorOf, diffForm, docsDirAbs, docsDirPick, formOf, isFresh, markText, unmarkFresh, withPluginTabs, type Form } from './model'
 import { PathInput } from './PathInput'
 import { TabPicks } from './TabPicks'
 
@@ -168,6 +169,16 @@ export function Settings({ project, onDeleted }: { project: WorkObject; onDelete
       <section className="pj-block" aria-label="本地项目目录">
         <h2 className="pj-sec-title">本地项目目录<span className="pj-hint">原型、文件类材料和文档的路径都相对它；任务没设工作目录时用它</span></h2>
         <PathInput label="本地项目目录" check value={form.root} placeholder="/Users/me/projects/xxx" onChange={(root) => update({ root })} />
+      </section>
+
+      <section className="pj-block" aria-label="文档目录">
+        <h2 className="pj-sec-title">文档目录<span className="pj-hint">文档标签列出这里的文档文件（md、docx、pdf 等）；执行任务时告诉 Agent 文档写在这里。相对本地项目目录，也可以填绝对路径</span></h2>
+        <PathInput label="文档目录" check value={form.docsDir} placeholder={form.root.trim() ? 'docs' : '/Users/me/projects/xxx/docs'}
+          checkAs={(v) => docsDirAbs(v, form.root)} start={docsDirAbs(form.docsDir, form.root) || form.root.trim()}
+          pickAs={(dir) => docsDirPick(dir, form.root)} onChange={(docsDir) => update({ docsDir })} />
+        {form.docsDir.trim() && !form.docsDir.trim().replace(/^file:\/\//, '').startsWith('/') && !form.root.trim() && (
+          <span className="field-err">这是相对路径，要先填上面的本地项目目录，或者改填绝对路径</span>
+        )}
       </section>
 
       <section className="pj-block" aria-label="关联目录">

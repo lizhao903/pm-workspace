@@ -54,16 +54,19 @@ type Source struct {
 	Reply        bool
 }
 
-// Project 是所属项目的上下文。DocsDir 取项目 props.related 的第一个关联目录，
+// Project 是所属项目的上下文。DocsDir 取项目设置里的文档目录（DocsSetting 为 true，TSK-0718），
+// 没设时取 props.related 的第一个关联目录（DocsLabel 是它的名称），
 // Prototypes 是项目「原型」里登记的目录；都没有时提示词写明可在项目设置里补，
 // 不让模型自己猜一个位置。
 type Project struct {
-	Name       string
-	Ref        string
-	Workdir    string // 项目的工作目录，没设为空
-	DocsDir    string
-	DocsLabel  string
-	Prototypes []PrototypeDir
+	Name      string
+	Ref       string
+	Workdir   string // 项目的工作目录，没设为空
+	DocsDir   string
+	DocsLabel string
+	// DocsSetting 为 true 表示 DocsDir 来自项目设置里的文档目录
+	DocsSetting bool
+	Prototypes  []PrototypeDir
 }
 
 // PrototypeDir 是项目登记的一个原型。
@@ -122,8 +125,8 @@ const promptTemplate = `你正在协助处理一个来自「产品工作台」�
 {{end}}{{with .Project}}## 所属项目
 名称：{{.Name}}{{if .Ref}}（{{.Ref}}）{{end}}
 {{if .Workdir}}项目工作目录：{{.Workdir}}
-{{end}}{{if .DocsDir}}文档在哪里操作：{{.DocsDir}}{{if .DocsLabel}}（项目关联目录「{{.DocsLabel}}」）{{end}}
-{{else}}文档在哪里操作：这个项目没有关联文档目录，可在项目设置里补；需要写文档时先问用户放哪里。
+{{end}}{{if .DocsDir}}文档在哪里操作：{{.DocsDir}}{{if .DocsSetting}}（项目设置里的文档目录）{{else if .DocsLabel}}（项目关联目录「{{.DocsLabel}}」）{{end}}
+{{else}}文档在哪里操作：这个项目没有设文档目录，可在项目设置里补；需要写文档时先问用户放哪里。
 {{end}}{{if .Prototypes}}原型在哪里操作：
 {{range .Prototypes}}  - {{if .Name}}{{.Name}}：{{end}}{{.Dir}}
 {{end}}{{else}}原型在哪里操作：这个项目没有登记原型目录，可在项目设置里补；需要改原型时先问用户在哪里改。
