@@ -2861,8 +2861,26 @@ button.thread-tag:hover { color: var(--text); border-color: var(--text); }
 
 /* SOP 定时触发（TSK-0463）：流程库卡片下面、流程详情概要下面的一行规则、下次执行和启停；开始节点里的规则编辑 */
 .sop-lib-cell { display: flex; flex-direction: column; min-width: 0; }
-.sop-lib-cell > .sop-lib-card { flex: 1; }
-.sop-lib-cell:has(.sop-lib-sched) > .sop-lib-card { border-bottom-left-radius: 0; border-bottom-right-radius: 0; }
+.sop-lib-cell > .sop-lib-main { position: relative; display: flex; flex-direction: column; flex: 1; min-width: 0; }
+.sop-lib-main > .sop-lib-card { flex: 1; }
+.sop-lib-cell:has(.sop-lib-sched) .sop-lib-card { border-bottom-left-radius: 0; border-bottom-right-radius: 0; }
+/* 流程库的文件夹（TSK-0482，SPEC-sop-2.15 起）：卡片右下角的文件夹名点开移到别的文件夹，挂在卡片按钮外面 */
+.sop-lib-card.with-folder .sop-lib-meta { padding-right: 104px; }
+.sop-lib-main > .sop-lib-move { position: absolute; right: 12px; bottom: 10px; max-width: 96px; height: 20px; font-size: 11.5px; color: var(--muted); }
+.sop-lib-main > .sop-lib-move.none { color: var(--faint); }
+.sop-folders { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; min-width: 0; margin-bottom: 12px; }
+.sop-folders .fchip { flex: none; max-width: 100%; white-space: nowrap; }
+.sop-folders.searching .fchip { opacity: 0.55; }
+.sop-folder-name { min-width: 0; max-width: 12em; overflow: hidden; text-overflow: ellipsis; }
+.sop-folder-hint { font-size: 12.5px; color: var(--muted); }
+.sop-folder-hint:hover { color: var(--accent); }
+.sop-folder-note { font-size: 11.5px; color: var(--faint); }
+.sop-folder-edit { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; min-width: 0; margin-bottom: 12px; }
+.sop-folder-edit input { flex: 1 1 160px; min-width: 0; max-width: 280px; height: 28px; padding: 0 8px; border: 1px solid var(--accent-line); border-radius: var(--r-sm); background: var(--panel); outline: 0; box-shadow: 0 0 0 3px var(--accent-soft); }
+.sop-folder-edit .btn { height: 28px; padding: 0 10px; font-size: 12.5px; }
+.sop-folder-err { flex-basis: 100%; font-size: 12.5px; color: var(--danger); }
+.sop-folder-ask { padding: 8px 12px; border: 1px solid var(--danger-soft); border-radius: var(--r); background: var(--panel); font-size: 13px; }
+.sop-folder-ask > span { flex: 1 1 240px; min-width: 0; }
 .sop-sched { display: flex; align-items: center; gap: 10px; min-width: 0; font-size: var(--fs-xs); color: var(--muted); }
 .sop-sched-text { display: flex; flex-wrap: wrap; gap: 2px 10px; flex: 1; min-width: 0; }
 .sop-sched-next { color: var(--accent); }

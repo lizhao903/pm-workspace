@@ -179,6 +179,8 @@ export const dataKeys = {
     flows: ['sop', 'flows'] as const,
     /** 单条流程在 flows 前缀下，删改流程时一起刷 */
     flow: (id: string) => ['sop', 'flows', 'get', id] as const,
+    /** 流程库的文件夹（TSK-0482）：带各自的流程数，流程增删改、移动时一起刷 */
+    folders: ['sop', 'folders'] as const,
     nodeTypes: ['sop', 'node-types'] as const,
     runs: ['sop', 'runs'] as const,
     runList: ['sop', 'runs', 'list'] as const,

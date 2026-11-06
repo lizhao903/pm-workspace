@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { render, screen, waitFor, within } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { createMemoryRouter, RouterProvider } from 'react-router'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -37,6 +37,7 @@ function fakeBackend(opts: { saveIssues?: { text: string; step?: number }[]; ass
     calls.push({ method, path: u.pathname, body })
     if (u.pathname === '/api/sop/node-types') return json(TYPES)
     if (u.pathname === '/api/sop/runs') return json([])
+    if (u.pathname === '/api/sop/folders') return json([{ id: 'sfd_pm', name: '产品经理', count: 0, created_at: '', updated_at: '' }])
     if (u.pathname === '/api/sop/assist') return opts.assist ? opts.assist(body) : json({ text: '好' })
     if (u.pathname === '/api/sop/flows' && method === 'POST') {
       if (opts.saveIssues) return json({ error: { code: 'validation', message: opts.saveIssues.map((x) => x.text).join('；'), issues: opts.saveIssues } }, 400)
@@ -105,6 +106,31 @@ describe('SOP 编排页', () => {
     // 没有 sop_trigger 枚举时用内置的，存 key
     expect(post).toMatchObject({ name: '新流程', trigger: 'manual', steps: [{ key: 's1', name: '人工检查', kind: 'review', after: [] }] })
     expect(Object.keys(post.layout as object).sort()).toEqual(['__start', 's1'])
+  })
+
+  it('开始节点选文件夹，保存时带 folder_id；在文件夹里点的新建默认放进那个文件夹（TSK-0482）', async () => {
+    const user = userEvent.setup()
+    const { calls } = fakeBackend()
+    renderPage('/sop/flows/sop_fb/edit')
+    fireEvent.keyDown(await screen.findByRole('button', { name: '开始节点' }), { key: 'Enter' })
+    const panel = screen.getByRole('complementary', { name: '开始节点' })
+    const pick = within(panel).getByRole('button', { name: '文件夹' })
+    expect(pick).toHaveTextContent('未分类')
+    await user.click(pick)
+    await user.click(await screen.findByRole('option', { name: /产品经理/ }))
+    await user.click(screen.getByRole('button', { name: '保存' }))
+    await waitFor(() => expect(calls.find((c) => c.method === 'PATCH')?.body).toMatchObject({ folder_id: 'sfd_pm', version: 3 }))
+  })
+
+  it('在文件夹里新建：草稿带上那个文件夹', async () => {
+    const user = userEvent.setup()
+    const { calls } = fakeBackend()
+    renderPage('/sop/new?folder=sfd_pm')
+    await user.click(await screen.findByRole('button', { name: '添加节点' }))
+    await user.click(within(screen.getByRole('dialog', { name: '选择节点' })).getByRole('button', { name: /人工检查/ }))
+    await user.type(screen.getByRole('textbox', { name: 'SOP 名称' }), '新流程')
+    await user.click(screen.getByRole('button', { name: '发布' }))
+    await waitFor(() => expect(calls.find((c) => c.method === 'POST')?.body).toMatchObject({ name: '新流程', folder_id: 'sfd_pm' }))
   })
 
   it('必填配置没填时不保存，输入框标红', async () => {

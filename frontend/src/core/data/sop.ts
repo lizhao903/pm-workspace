@@ -50,7 +50,15 @@ export type SopFlow = {
   schedule?: Schedule | null
   /** IM 触发的过滤条件、执行顺序与拦截（TSK-0481）；后端总是带（normFlow 补齐），可选只是为了老的执行快照和测试数据 */
   im?: SopIMTrigger
+  /** 所在文件夹（TSK-0482），null 是「未分类」；后端总是带（normFlow 补齐），可选只是为了老的执行快照和测试数据 */
+  folder_id?: string | null
 }
+/** 流程库的文件夹（TSK-0482，契约「文件夹」）：只有一级；count 是里面的流程数 */
+export type SopFolder = { id: string; name: string; count: number; created_at: string; updated_at: string }
+/** 文件夹名字最多几个字（同后端） */
+export const SOP_FOLDER_NAME_MAX = 30
+/** 界面上已经占用的叫法，不能拿来当文件夹名 */
+export const SOP_FOLDER_RESERVED: readonly string[] = ['全部', '未分类']
 /** 与我的关系：@我、@所有人、私聊、无关（事件里 relevance 为空串） */
 export type SopIMRelevance = 'me' | 'all' | 'dm' | 'none'
 export const SOP_IM_RELEVANCES: readonly SopIMRelevance[] = ['me', 'all', 'dm', 'none']
@@ -268,7 +276,7 @@ export type SopPipeline = { task_id: string; runs: SopPipelineRun[]; claude: Sop
 export type SopStartInput = { input?: Record<string, string>; step_through?: boolean; object_id?: string }
 
 /** 编排页的草稿：形状同 SopFlow 去掉版本和时间，可以没保存过、可以不合格 */
-export type SopDraft = Pick<SopFlow, 'name' | 'desc' | 'trigger' | 'fields' | 'steps' | 'layout'> & { id?: string; sched?: SopScheduleDraft; im?: SopIMDraft }
+export type SopDraft = Pick<SopFlow, 'name' | 'desc' | 'trigger' | 'fields' | 'steps' | 'layout' | 'folder_id'> & { id?: string; sched?: SopScheduleDraft; im?: SopIMDraft }
 /** 保存校验的一条问题；step 是步骤下标（从 0 起），整条流程的问题没有 */
 export type SopIssue = { text: string; step?: number }
 /** 新建、修改流程的 body；layout 为 null 时清掉手动位置 */
@@ -301,7 +309,10 @@ const normIM = (x?: Partial<SopIMTrigger> | null): SopIMTrigger => ({
   conversations: x?.conversations ?? [], relevance: x?.relevance ?? [], relevance_mode: x?.relevance_mode === 'exclude' ? 'exclude' : 'include',
   order: x?.order ?? 0, stop: !!x?.stop,
 })
-const normFlow = (f: SopFlow): SopFlow => ({ ...f, desc: f.desc ?? '', trigger: f.trigger ?? '', fields: f.fields ?? [], steps: f.steps ?? [], schedule: f.schedule ?? null, im: normIM(f.im) })
+const normFlow = (f: SopFlow): SopFlow => ({
+  ...f, desc: f.desc ?? '', trigger: f.trigger ?? '', fields: f.fields ?? [], steps: f.steps ?? [], schedule: f.schedule ?? null, im: normIM(f.im),
+  folder_id: f.folder_id || null,
+})
 const normRun = (r: SopRun): SopRun => ({
   ...r, source: r.source ?? '', flow: normFlow(r.flow), input: r.input ?? {},
   steps: (r.steps ?? []).map((s) => ({ ...s, log: s.log ?? [], attempts: s.attempts ?? 0, input: s.input ?? null, output: s.output ?? null })),
@@ -339,6 +350,14 @@ export const sopApi = {
     return { ...p, runs: (p.runs ?? []).map((r) => ({ ...r, steps: r.steps ?? [] })), claude: p.claude ?? [], blockers: p.blockers ?? [] }
   },
   waiting: async (signal?: AbortSignal) => (await requestList<SopWaitingItem>('/api/sop/waiting', { signal })).data,
+  /** 文件夹（TSK-0482）：按新建先后；流程库的各文件夹、未分类数量按流程列表现算，和筛选同一份数据 */
+  folders: async (signal?: AbortSignal) => (await requestList<SopFolder>('/api/sop/folders', { signal })).data,
+  createFolder: (name: string) => request<SopFolder>('POST', '/api/sop/folders', { body: { name } }),
+  renameFolder: (id: string, name: string) => request<SopFolder>('PATCH', `/api/sop/folders/${encodeURIComponent(id)}`, { body: { name } }),
+  /** 删文件夹，里面的流程回未分类；回放回了几条 */
+  deleteFolder: (id: string) => request<{ moved: number }>('DELETE', `/api/sop/folders/${encodeURIComponent(id)}`),
+  /** 只换文件夹，不升版本；folderId 为 null 是移回未分类 */
+  moveFlows: (flowIds: string[], folderId: string | null) => request<{ moved: number }>('POST', '/api/sop/flows/move', { body: { flow_ids: flowIds, folder_id: folderId } }),
 }
 
 /** 插件没装或停用时接口 404，不重试 */
@@ -424,6 +443,8 @@ export function useSaveSopFlow() {
   return useMutation({
     mutationFn: ({ id, draft, version, scheduleOff }: { id?: string; draft: SopDraft; version?: number; scheduleOff?: SopScheduleOff }) => {
       const body: SopFlowBody = { name: draft.name, desc: draft.desc, trigger: draft.trigger, fields: draft.fields, steps: draft.steps, layout: draft.layout ?? null }
+      // 文件夹（TSK-0482）：草稿里没有这个键时不带，修改时保持原样
+      if (draft.folder_id !== undefined) body.folder_id = draft.folder_id
       if (draft.trigger === SOP_TRIGGER_SCHEDULE && draft.sched) body.schedule = draft.sched
       if (scheduleOff) body.schedule_off = scheduleOff
       if (draft.im) {
@@ -435,6 +456,7 @@ export function useSaveSopFlow() {
     onSuccess: (f) => {
       // IM 流程的顺序是大家一起排的（TSK-0481）：这一条插进去、改成或改掉 IM，别的流程的 order 跟着变，整份列表重取
       void qc.invalidateQueries({ queryKey: dataKeys.sop.flows, exact: true })
+      void qc.invalidateQueries({ queryKey: dataKeys.sop.folders })
       // 列表先换上新的，回流程详情时不用等重新取（新建的不然会先显示「已经删除」）
       qc.setQueryData(dataKeys.sop.flow(f.id), f)
       qc.setQueryData<SopFlow[]>(dataKeys.sop.flows, (list) => list && (list.some((x) => x.id === f.id) ? list.map((x) => (x.id === f.id ? f : x)) : [...list, f]))
@@ -470,6 +492,42 @@ export function usePatchSopSettings() {
 /** AI 协助：不保存，草稿要前端应用后照常保存 */
 export function useSopAssist() {
   return useMutation({ mutationFn: (body: SopAssistInput) => sopApi.assist(body) })
+}
+
+/** 流程库的文件夹（TSK-0482） */
+export function useSopFolders() {
+  return useQuery({ queryKey: dataKeys.sop.folders, queryFn: ({ signal }) => sopApi.folders(signal), retry: noRetry404 })
+}
+
+/** 新建（没有 id）或改名文件夹 */
+export function useSaveSopFolder() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, name }: { id?: string; name: string }) => (id ? sopApi.renameFolder(id, name) : sopApi.createFolder(name)),
+    onSuccess: () => qc.invalidateQueries({ queryKey: dataKeys.sop.folders }),
+  })
+}
+
+/** 删文件夹：里面的流程回未分类，流程列表跟着刷 */
+export function useDeleteSopFolder() {
+  const notify = useNotifyChange()
+  return useMutation({
+    mutationFn: (id: string) => sopApi.deleteFolder(id),
+    onSuccess: () => notify({ kind: 'sop-flow' }),
+  })
+}
+
+/** 把流程移进文件夹（null 是移回未分类）：先改缓存里的 folder_id，界面不用等重新取 */
+export function useMoveSopFlows() {
+  const qc = useQueryClient()
+  const notify = useNotifyChange()
+  return useMutation({
+    mutationFn: ({ flowIds, folderId }: { flowIds: string[]; folderId: string | null }) => sopApi.moveFlows(flowIds, folderId),
+    onSuccess: (_r, v) => {
+      qc.setQueryData<SopFlow[]>(dataKeys.sop.flows, (list) => list?.map((f) => (v.flowIds.includes(f.id) ? { ...f, folder_id: v.folderId } : f)))
+      void notify({ kind: 'sop-flow' })
+    },
+  })
 }
 
 export function useDeleteSopFlow() {

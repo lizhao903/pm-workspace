@@ -11,7 +11,7 @@ import { MessageDrawer, MessagesPage, contactFor, fetchBlocker, gear, withGroupP
 import { GroupTriageAdvice, QueueDrawer, TriageAdvice, triageRunsOf, triageSops } from './triage'
 import { SECTIONS, SettingsNav, type Section } from './settings'
 import { CommandPalette, type PaletteItem } from './palette'
-import { GOVERNANCE_DEFAULT, MODEL_CONCURRENCY_DEFAULT, SOPS, act as actOnRun, gateRuns, governRuns, isHeld, type Governance, rerunRuns, seedRuns, sopById, tick, runShow, runStatus, startRun, upsertSop, type Json, type RunAction, type Sop, type SopIMRelevance } from './sopflow'
+import { GOVERNANCE_DEFAULT, MODEL_CONCURRENCY_DEFAULT, SOPS, newSopFolder, act as actOnRun, gateRuns, governRuns, isHeld, type Governance, rerunRuns, seedRuns, sopById, tick, runShow, runStatus, startRun, upsertSop, type Json, type RunAction, type Sop, type SopIMRelevance } from './sopflow'
 import { SopEditor, newSopDraft } from './sopedit'
 import { ingest, newTask, seedDeliveries, seedHooks, seedTasks, type TaskStatus, isOpenTask, localDay } from './taskdata'
 import { waitOf } from './taskpipeline'
@@ -1197,7 +1197,7 @@ export default function App() {
       { id: 'c-sched', group: '操作', title: '新建定时任务', keywords: 'schedule 定时', run: () => { setPage('tasks'); setTaskView('schedules'); setDrawer({ kind: 'new-schedule' }) } }] : []),
     ...(has('contacts') ? [{ id: 'c-contact', group: '操作', title: '新建联系人', keywords: 'contact', run: () => { setPage('contacts'); setDrawer({ kind: 'new-contact' }) } }] : []),
     ...(has('sessions') ? [{ id: 'c-chat', group: '操作', title: '和 Agent 开个新会话', keywords: '会话 对话 chat', run: () => { setPage('sessions'); setSessionView('chats'); setPickAgent((n) => n + 1) } }] : []),
-    ...(has('sop') ? [{ id: 'c-sop', group: '操作', title: '新建 SOP', keywords: '流程 工作流', run: () => { setPage('sop'); setSopView('edit:new'); setOpenRun(null) } }] : []),
+    ...(has('sop') ? [{ id: 'c-sop', group: '操作', title: '新建 SOP', keywords: '流程 工作流', run: () => { newSopFolder.id = null; setPage('sop'); setSopView('edit:new'); setOpenRun(null) } }] : []),
     ...(has('projects') ? [{ id: 'c-proj', group: '操作', title: '新建项目', keywords: 'project', run: () => { setPage('projects'); newProject() } }] : []),
     { id: 'c-theme', group: '操作', title: theme === 'dark' ? '切换到浅色' : '切换到深色', keywords: '配色 主题 dark light 外观', run: () => setTheme(theme === 'dark' ? 'light' : 'dark') },
     { id: 'c-side', group: '操作', title: collapsed ? '展开左侧菜单' : '收起左侧菜单', keywords: '侧栏 菜单', run: () => setCollapsed(!collapsed) },
@@ -1814,7 +1814,7 @@ export default function App() {
       {page === 'strategy' && <StrategyNav strategies={strategies} backtests={backtests} runs={tradeRuns} view={strategyView} onSelect={setStrategyView} onNew={newStrategy} />}
       {page === 'trading' && <TradingNav view={tradingView} onSelect={setTradingView} accounts={accounts} runs={tradeRuns} risk={risk}
         onKill={() => { const s = killAll({ runs: tradeRuns, orders, risk }, '手动一键全停'); setTradeRuns(s.runs); setOrders(s.orders); setRisk(s.risk) }} />}
-      {page === 'sop' && !sopView.startsWith('edit:') && <SopNav sops={sops} runs={runs} view={sopView} waitingN={todayNeeds.filter((x) => x.kind === '待我处理').length} onSelect={(v) => { setSopView(v); setOpenRun(null); setSopFilter(undefined) }} onNew={() => { setSopView('edit:new'); setOpenRun(null) }} />}
+      {page === 'sop' && !sopView.startsWith('edit:') && <SopNav sops={sops} runs={runs} view={sopView} waitingN={todayNeeds.filter((x) => x.kind === '待我处理').length} onSelect={(v) => { setSopView(v); setOpenRun(null); setSopFilter(undefined) }} onNew={() => { newSopFolder.id = null; setSopView('edit:new'); setOpenRun(null) }} />}
       {page === 'settings' && (
         <SettingsNav active={section} alerts={{ connectors: brokenConnectors, providers: brokenProviders, incidents: openIncidents }}
           onSelect={(k) => leaveAgent(() => { setSection(k as Section); if (k === 'agents') setAgentView('list'); setDrawer(null) })} />
@@ -1908,7 +1908,7 @@ export default function App() {
               const existing = id === 'new' ? null : sopById(id)
               return (
                 <SopEditor key={sopView} runs={runs} sopList={sops.map((x) => ({ id: x.id, name: x.name }))}
-                  initial={existing ? { ...existing, sched: (() => { const sc = flowSchedule(schedules, existing.id); return sc ? { rule: sc.rule, enabled: sc.enabled } : undefined })() } : newSopDraft()}
+                  initial={existing ? { ...existing, sched: (() => { const sc = flowSchedule(schedules, existing.id); return sc ? { rule: sc.rule, enabled: sc.enabled } : undefined })() } : newSopDraft(newSopFolder.id)}
                   creating={!existing} hasSchedule={!!existing && !!flowSchedule(schedules, existing.id)}
                   onCancel={() => setSopView(existing ? `sop:${existing.id}` : 'runs')}
                   onSave={(sop, thenRun, off) => {
@@ -1933,7 +1933,8 @@ export default function App() {
             return <SopSchedules.Provider value={sopSched}><SopRunsPage key={`${sopView}:${sopFilter ?? ''}`} runs={runs} view={sopView as 'runs' | 'waiting' | 'library'} sop={sopFilter} onOpen={setOpenRun}
               stageItems={todayNeeds.filter((x) => x.id.startsWith('stg-'))}
               onRerun={(ids, action) => { const x = rerunRuns(runs, ids, action); setRuns(x.runs); return x.result }}
-              sops={sops} onOpenSop={(id) => setSopView(`sop:${id}`)} onNew={() => { setSopView('edit:new'); setOpenRun(null) }} /></SopSchedules.Provider>
+              sops={sops} onOpenSop={(id) => setSopView(`sop:${id}`)} onNew={() => { setSopView('edit:new'); setOpenRun(null) }}
+              onSopsChange={() => setSops([...SOPS])} /></SopSchedules.Provider>
           })()}
           {page === 'overview' && <OverviewPage benches={benches} current={bench.id} onOpen={openFromOverview} />}
           {page === 'today' && (

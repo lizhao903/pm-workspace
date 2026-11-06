@@ -181,7 +181,8 @@ export function invalidationsFor(c: Change): QueryKey[] {
       return [dataKeys.projectConversations(c.projectId), dataKeys.projectSummary, dataKeys.conversations.all]
     case 'sop-flow':
       // 保存、删流程时随流程管理的定时任务跟着建、改、删（TSK-0463），定时任务列表一起刷
-      return [dataKeys.sop.flows, todayKeys.schedules]
+      // 文件夹的流程数跟着流程走（TSK-0482）；删文件夹、移动流程也报这一种
+      return [dataKeys.sop.flows, dataKeys.sop.folders, todayKeys.schedules]
     case 'sop-run':
       // 列表（流程库统计、菜单「最近用过」同一份）和单次执行；今日的「SOP 待我处理」卡片也跟着变
       return [dataKeys.sop.runs, todayKeys.all]

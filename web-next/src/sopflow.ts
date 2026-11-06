@@ -94,6 +94,8 @@ export interface Sop {
    * conversations 是会话（原型用会话名，正式产品存内核会话 id），空为全部；relevance 空为不限；order 是在 IM 流程里排第几（1 起）
    */
   im?: SopIM
+  /** 所在文件夹（TSK-0482，SPEC-sop-2.15）：SOP_FOLDERS 里的 id；没有或指向已删的文件夹是「未分类」 */
+  folder_id?: string | null
   fields: SopField[]
   steps: SopStepDef[]
   /** 编排画布上的节点位置，key 是步骤 key，__start 是开始节点；没有就按依赖自动排 */
@@ -407,9 +409,76 @@ const str = (v: unknown) => (typeof v === 'string' ? v : '')
 const rid = () => Math.random().toString(36).slice(2, 7)
 type Demand = { title: string; evidence: string; type: 'feature' | 'bug'; priority: string }
 
+/* ---------- 流程库的文件夹（TSK-0482，SPEC-sop-2.15 起） ---------- */
+
+/** 一级文件夹，不分层；正式产品存在 SOP 插件表 sop_folders，id 前缀 sfd */
+export interface SopFolder { id: string; name: string }
+export const UNCATEGORIZED = '未分类'
+export const FOLDER_NAME_MAX = 30
+/** 界面上已经占用的叫法，不能拿来当文件夹名 */
+export const FOLDER_RESERVED = ['全部', UNCATEGORIZED]
+
+export const SOP_FOLDERS: SopFolder[] = [
+  { id: 'sfd_product', name: '产品经理' },
+  { id: 'sfd_video', name: '视频博主' },
+  { id: 'sfd_im', name: 'IM 分诊' },
+]
+
+/** 流程实际所在的文件夹 id；指向已删的按未分类（null） */
+export const folderOf = (s: Sop, folders: readonly SopFolder[] = SOP_FOLDERS) =>
+  (s.folder_id && folders.some((f) => f.id === s.folder_id) ? s.folder_id : null)
+
+/** 文件夹名字检查（同后端）：去空白后 1 到 30 字，不能叫「全部」「未分类」，不分大小写不能重名；没问题回空串 */
+export function folderNameError(name: string, self?: string): string {
+  const v = name.trim()
+  if (!v) return '文件夹名称不能为空'
+  if ([...v].length > FOLDER_NAME_MAX) return `文件夹名称最多 ${FOLDER_NAME_MAX} 字`
+  if (FOLDER_RESERVED.includes(v)) return `「${v}」是界面上已经占用的叫法，换个名字`
+  if (SOP_FOLDERS.some((f) => f.id !== self && f.name.toLowerCase() === v.toLowerCase())) return `已经有叫「${v}」的文件夹了`
+  return ''
+}
+
+/**
+ * 名字前缀「xxx · 名称」的前缀（同后端 folderPrefix，SPEC-sop-2.21）：按第一个「空格 · 空格」切开，两边去空白都不为空、
+ * 前缀合文件夹名字规则才算；否则空串。正式产品升级到 SOP 0.15.0 后第一次启用时按它把已有流程归进同名文件夹，只做一次
+ */
+export function folderPrefix(name: string): string {
+  const i = name.indexOf(' · ')
+  if (i < 0) return ''
+  const head = name.slice(0, i).trim()
+  const rest = name.slice(i + 3).trim()
+  if (!head || !rest || [...head].length > FOLDER_NAME_MAX || FOLDER_RESERVED.includes(head)) return ''
+  return head
+}
+
+export function addFolder(name: string): SopFolder {
+  const f = { id: newId('sfd'), name: name.trim() }
+  SOP_FOLDERS.push(f)
+  return f
+}
+export function renameFolder(id: string, name: string) {
+  const f = SOP_FOLDERS.find((x) => x.id === id)
+  if (f) f.name = name.trim()
+}
+/** 删文件夹：里面的流程回未分类，流程本身不动；回放回了几条 */
+export function removeFolder(id: string): number {
+  const i = SOP_FOLDERS.findIndex((x) => x.id === id)
+  if (i >= 0) SOP_FOLDERS.splice(i, 1)
+  let n = 0
+  SOPS.forEach((s, k) => { if (s.folder_id === id) { SOPS[k] = { ...s, folder_id: null }; n += 1 } })
+  return n
+}
+/** 移到文件夹（null 回未分类）：只换文件夹，正式产品不升版本 */
+export function moveSops(ids: string[], folderId: string | null) {
+  SOPS.forEach((s, k) => { if (ids.includes(s.id)) SOPS[k] = { ...s, folder_id: folderId } })
+}
+/** 在某个文件夹里点「新建 SOP」时记下，编排页的新草稿默认放进去 */
+export const newSopFolder: { id: string | null } = { id: null }
+
 export const SOPS: Sop[] = [
   {
     id: 'sop_feedback',
+    folder_id: 'sfd_product',
     name: '客户反馈转需求',
     desc: '把 IM 里的客户反馈提炼成诉求，按功能需求和缺陷分开处理，回复客户并同步研发',
     trigger: 'im',
@@ -614,6 +683,7 @@ export const SOPS: Sop[] = [
   },  {
     // 视频模块的阶段执行器可以直接选它；检查点对应视频的四个检查点，人放行了才往下走
     id: 'sop_video_weekly',
+    folder_id: 'sfd_video',
     name: '视频周更',
     desc: '按 web-video-presentation 技能把一集从原文做到分发包：AI 出稿、Agent 开发第 1 章、并行做其余章节、渲染，四处停下等人检查',
     trigger: 'manual',
@@ -688,6 +758,7 @@ export const SOPS: Sop[] = [
   // 消息抽屉「分诊建议」一节按这些输出字段取结论，不认步骤 key。原型的判断是写死的规则
   {
     id: 'sop_triage',
+    folder_id: 'sfd_im',
     name: '消息分诊：要不要我处理',
     desc: '读消息、判断要不要我处理。要处理的写一句处理建议；不用管的标成已忽略',
     trigger: 'manual',
@@ -735,6 +806,7 @@ export const SOPS: Sop[] = [
   // 不通过自动退回产品带着意见重写，最多 3 轮，超限转人工裁决。原型里评审首轮不通过、第 2 轮通过
   {
     id: 'sop_prd_review',
+    folder_id: 'sfd_product',
     name: '需求评审闭环',
     desc: 'Claude Code 按产品角色写 PRD，再按研发评审角色只读评审；不通过自动退回重写，最多 3 轮，超限转人工',
     trigger: 'manual',
@@ -1079,6 +1151,7 @@ export const SOPS: Sop[] = [
   {
     // TSK-0481 的验收样例：某个群里不是 @我 的消息一律标为忽略，排第 1 个并拦截，别的 IM 流程不再接；@我 的照常往下走
     id: 'sop_im_mute',
+    folder_id: 'sfd_im',
     name: '群消息忽略',
     desc: '#random 里除了 @我 的消息一律标为忽略；排在最前面，接住的消息别的 IM 流程不再处理',
     trigger: 'im',

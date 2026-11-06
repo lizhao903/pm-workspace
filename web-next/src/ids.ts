@@ -24,6 +24,7 @@ export const ID_PREFIX = {
   schedule: 'sc',
   sop: 'sop',
   sopRun: 'run',
+  sopFolder: 'sfd',
   incident: 'inc',
   // Agent 与模型
   agent: 'ag',

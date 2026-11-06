@@ -12,7 +12,8 @@ import (
 
 // 别的插件随安装写进来的内置流程（VID-03d）：引擎实现 plugin.SOPFlowInstaller，内核的 Core.SOP().InstallFlow、RemoveFlow 转到这里。
 // id 前缀（sop_<插件 id>_）内核已经查过；定义按 POST /api/sop/flows 的口径校验，节点认在跑的和清单里声明过的插件节点。
-// 已有同 id 的流程不动（用户可能改过）；撤下只删还是第 1 版、没有进行中的执行、没被定时任务引用的。
+// 已有同 id 的流程不动（用户可能改过，含放进的文件夹）；撤下只删还是第 1 版、没放进文件夹（TSK-0482）、没有进行中的执行、
+// 没被定时任务引用的。
 
 var _ plugin.SOPFlowInstaller = (*engine)(nil)
 
@@ -58,6 +59,10 @@ func (e *engine) RemoveFlow(ctx context.Context, _ string, id string) (bool, str
 	if f.Version != 1 {
 		return false, fmt.Sprintf("流程改过（第 %d 版），留给用户", f.Version), nil
 	}
+	// 用户把它放进了文件夹（TSK-0482）：也算动过，留着；删了再装回来就回到未分类，用户的归类丢了
+	if f.FolderID != nil {
+		return false, "流程放进了文件夹，留给用户", nil
+	}
 	n, err := countActive(ctx, e.c.Store(), id)
 	if err != nil {
 		return false, "", err
@@ -72,7 +77,7 @@ func (e *engine) RemoveFlow(ctx context.Context, _ string, id string) (bool, str
 	if len(refs) > 0 {
 		return false, fmt.Sprintf("有 %d 个定时任务会发起它", len(refs)), nil
 	}
-	res, err := e.c.Store().Exec(ctx, `DELETE FROM sop_flows WHERE id = ? AND version = 1`, id)
+	res, err := e.c.Store().Exec(ctx, `DELETE FROM sop_flows WHERE id = ? AND version = 1 AND folder_id IS NULL`, id)
 	if err != nil {
 		return false, "", err
 	}

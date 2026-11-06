@@ -4,7 +4,7 @@
 // 字典列表带条目一起取，不直接取 sop_trigger 的条目，免得没有这本字典时控制台报 404
 import { useMemo } from 'react'
 import {
-  QueryState, isApiError, useAgentProviders, useAgents, useCategoryTree, useDictionaries, useKnowledgeBases, useProjects, useRunPresets, useSopFlow, useSopNodeTypes, type Category,
+  QueryState, isApiError, useAgentProviders, useAgents, useCategoryTree, useDictionaries, useKnowledgeBases, useProjects, useRunPresets, useSopFlow, useSopFolders, useSopNodeTypes, type Category,
   type SopFlow, type SopRunBrief,
 } from '../../core/data'
 import { useSopNodeViews } from '../../core/plugin'
@@ -19,9 +19,11 @@ import type { FieldCtx } from './nodes'
 const flat = (list: readonly Category[] | undefined, depth = 0): { id: string; name: string }[] =>
   (list ?? []).flatMap((c) => [{ id: c.id, name: `${'　'.repeat(depth)}${c.name}` }, ...flat(c.children, depth + 1)])
 
-export function EditPage({ id, flows, runs, onCancel, onSaved }: {
+export function EditPage({ id, folderId, flows, runs, onCancel, onSaved }: {
   /** 编辑已有流程时有 */
   id?: string
+  /** 新建时默认放进的文件夹（在流程库的某个文件夹里点的新建，TSK-0482） */
+  folderId?: string
   flows: readonly SopFlow[]
   runs: readonly SopRunBrief[]
   onCancel: () => void
@@ -38,6 +40,8 @@ export function EditPage({ id, flows, runs, onCancel, onSaved }: {
   const projects = useProjects()
   // Claude Code 节点选角色（AUTO-01）
   const presets = useRunPresets()
+  // 开始节点选文件夹（TSK-0482）
+  const folders = useSopFolders()
 
   // 插件登记、撤掉节点展示时目录换新，节点选择器和画布跟着重画（SOP-03b）
   const views = useSopNodeViews()
@@ -52,7 +56,8 @@ export function EditPage({ id, flows, runs, onCancel, onSaved }: {
     projects: (projects.data?.data ?? []).filter((p) => !p.deleted_at).map((p) => ({ id: p.id, name: p.title })),
     presets: (presets.data ?? []).map((p) => ({ id: p.id, scene: p.scene, permission: p.permission })),
     imFlows: imFlowsOf(flows).map((f) => ({ id: f.id, name: f.name, order: imOf(f).order, stop: imOf(f).stop })),
-  }), [flows, agents.data, kbs.data, cats.data, providers.data, projects.data, presets.data])
+    folders: (folders.data ?? []).map((f) => ({ id: f.id, name: f.name })),
+  }), [flows, agents.data, kbs.data, cats.data, providers.data, projects.data, presets.data, folders.data])
   const triggers = useMemo<TriggerOption[]>(() => {
     const items = dicts.data?.find((d) => d.id === 'sop_trigger')?.items ?? []
     const live = items.filter((x) => !x.archived_at || x.key === flow.data?.trigger)
@@ -73,12 +78,12 @@ export function EditPage({ id, flows, runs, onCancel, onSaved }: {
       {() => id ? (
         <QueryState query={flow} errorTitle="流程没取到">
           {(f) => (
-            <Editor key={f.id} initial={{ id: f.id, name: f.name, desc: f.desc, ...draftScheduleOf(f), im: imDraftOf(f), fields: f.fields, steps: f.steps, layout: f.layout }}
+            <Editor key={f.id} initial={{ id: f.id, name: f.name, desc: f.desc, ...draftScheduleOf(f), im: imDraftOf(f), fields: f.fields, steps: f.steps, layout: f.layout, folder_id: f.folder_id ?? null }}
               flowId={f.id} version={f.version} hasSchedule={!!f.schedule} catalog={catalog} ctx={ctx} triggers={triggers} runs={runs} onCancel={onCancel} onSaved={onSaved} />
           )}
         </QueryState>
       ) : (
-        <Editor initial={{ ...newDraft(triggers[0].value), im: emptyIM() }} catalog={catalog} ctx={ctx} triggers={triggers} runs={runs} onCancel={onCancel} onSaved={onSaved} />
+        <Editor initial={{ ...newDraft(triggers[0].value), im: emptyIM(), folder_id: folderId ?? null }} catalog={catalog} ctx={ctx} triggers={triggers} runs={runs} onCancel={onCancel} onSaved={onSaved} />
       )}
     </QueryState>
   )
