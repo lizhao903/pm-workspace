@@ -168,6 +168,7 @@ var contractSpecs = map[string]contractSpec{
 	"IM 消息插件 im / 事件#json1":   {v: im.Received{}},
 	"MaterialSource":          {v: im.MaterialSource{}},
 	"OutboxItem":              {v: im.OutboxItem{}},
+	"NameRefillResult":        {v: im.NameRefillResult{}},
 	"IM 消息插件 im / 从 Slack 补联系人邮箱#table1": {v: im.EmailBackfillResult{}},
 
 	"SopFlow":   {v: sop.Flow{}},

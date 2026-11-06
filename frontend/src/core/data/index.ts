@@ -115,8 +115,8 @@ export type { ProjectStakeholderInput, ProjectStakeholderPatch, ProjectStakehold
 export { IM_EXPIRE_DAYS_MAX, IM_QUICK_REPLIES_MAX, IM_QUICK_REPLY_TEXT_MAX, IM_PAGE_MAX, imApi, normMessage, useImMessages, useImMessage, useImAction, useImBatch, useImToTask, useImPendingCount, useImSyncConnector, useImSettings, usePatchImSettings, useImConversationProjects, useSetImConversationProject, useImStartSession } from './im'
 export type { ImMaterialKind, ImMessageMaterial, ImMessageThread, ImMaterialSource, ImMaterialLinkInput, ImMaterialLinkResult, ImMessage, ImMsgStatus, ImRelevance, ImAttachment, ImReply, ImAction, ImBatchInput, ImBatchResult, ImTaskInput, ImTaskResult, ImTaskReply, ImSyncResult, ImSettings, ImQuickReply, ImConversationProject, ImMessageSession, ImSplitTask, ImSessionIntent, ImSessionLinkInput, ImSessionLinkResult, ImStartSessionInput } from './im'
 export { imEmailApi, useImBackfillEmails } from './imEmails'
-export { IM_CONV_BATCH_MAX, IM_MENTIONS_MAX, IM_SEND_MAX, imGroupsApi, useImConversationSummary, useImMembers, useImSendToConversation, useImSent, useSetImConversationProjects } from './imGroups'
-export type { ImConvProjectBatchInput, ImConvProjectBatchResult, ImConvProjectFailure, ImConversationSummary, ImMember, ImMention, ImOutboxItem, ImSendInput } from './imGroups'
+export { IM_CONV_BATCH_MAX, IM_MENTIONS_MAX, IM_SEND_MAX, imGroupsApi, useImConversationSummary, useImMembers, useImSendToConversation, useImSent, useRefillImNames, useSetImConversationProjects } from './imGroups'
+export type { ImConvProjectBatchInput, ImConvProjectBatchResult, ImConvProjectFailure, ImConversationSummary, ImMember, ImMention, ImNameFailed, ImNameFilled, ImNameRefillResult, ImOutboxItem, ImSendInput } from './imGroups'
 export type { ImEmailBackfillResult, ImEmailConflict, ImEmailFilled } from './imEmails'
 export {
   MATERIAL_KINDS, MATERIAL_NOTE_MAX, MATERIAL_KIND_GROUPS, projectMaterialsApi, useProjectMaterials, useAddProjectMaterials, usePatchProjectMaterial, useRemoveProjectMaterial,

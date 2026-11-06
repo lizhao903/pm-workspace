@@ -555,6 +555,11 @@ export const seedMessages: Message[] = [
     text: 'dev 构建失败：web-app 单测 3 个没过' }),
   m({ channel: 'slack', connector_id: 'cn_slack', conversation: '#deploy', sender_name: 'CI Bot', sender_id: 'B01CIBOT', at: minsAgo(3), read: true,
     text: 'dev 构建失败：web-app 单测 3 个没过' }),
+  // 首次接入那一轮没查到名字的（Slack 一轮最多查 50 个人名）：名字只能显示编号（同正式产品，名字为空时显示编号），群组管理「查询回填」演示用（SPEC-messages-7.12）
+  m({ channel: 'slack', connector_id: 'cn_slack', conversation: '', sender_name: 'U02JW5GKB50', sender_id: 'U02JW5GKB50', at: minsAgo(9000), read: true, status: 'done',
+    text: '上次说的对账接口文档我放到共享盘了。' }),
+  m({ channel: 'slack', connector_id: 'cn_slack', conversation: '#ext-xaue-corpcard', sender_name: 'U0BFYG7EVDZ', sender_id: 'U0BFYG7EVDZ', at: minsAgo(9100), read: true, status: 'done',
+    text: 'Card issuing limits for the pilot are confirmed on our side.' }),
 ]
 
 // 消息列回复（0010）：放在最后，前面消息的编号不变。原消息已处理，消息列里又来了 4 条回复（列表上不显示回复，原消息变淡并标「消息列 N 条未读回复」），

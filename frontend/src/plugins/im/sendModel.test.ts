@@ -4,7 +4,7 @@ import { parseTarget, sendBlocker, sendInput, sendOptions, sentReplyTitle } from
 
 const conv = (p: Partial<ImConversationSummary> & { conversation_id: string }): ImConversationSummary => ({
   channel: 'slack', kind: 'group', name: '', external_id: 'C0', connector_id: 'cn_a', participants: [], total: 1, pending: 0, unread: 0,
-  last_at: '2026-03-01T00:00:00Z', project_id: null, project_ref: '', project_name: '', sent: 0, last_sent_at: null, ...p,
+  last_at: '2026-03-01T00:00:00Z', project_id: null, project_ref: '', project_name: '', sent: 0, last_sent_at: null, unresolved_users: [], name_unresolved: false, can_refill: true, refill_error: '', ...p,
 })
 const rows = [
   conv({ conversation_id: 'cv_dm', kind: 'direct', participants: ['阿青'], external_id: 'D1' }),
