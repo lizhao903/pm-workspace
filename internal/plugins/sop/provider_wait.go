@@ -212,13 +212,13 @@ type outageCore struct {
 
 func (c outageCore) Agent() plugin.AgentService { return c.ag }
 
-// execGuarded 同 execNode；会挂起的节点失败时标上是不是服务商不可用。
-func execGuarded(ctx context.Context, c plugin.Core, def stepDef, input Json, deps []string) nodeResult {
+// execGuarded 同 execNode；会挂起的节点失败时标上是不是服务商不可用。im 是流程的触发方式是不是 IM 消息（失败文案要用）。
+func execGuarded(ctx context.Context, c plugin.Core, def stepDef, input Json, deps []string, im bool) nodeResult {
 	if !waitsForProvider(def.Kind) {
-		return execNode(ctx, c, def, input, deps)
+		return execNode(ctx, c, def, input, deps, im)
 	}
 	ag := &outageAgent{AgentService: c.Agent()}
-	res := execNode(ctx, outageCore{Core: c, ag: ag}, def, input, deps)
+	res := execNode(ctx, outageCore{Core: c, ag: ag}, def, input, deps, im)
 	if res.err != "" && ctx.Err() == nil {
 		res.outage = ag.last()
 	}
@@ -267,7 +267,7 @@ func (r *runner) holdForProvider(i int, t time.Time, ue *providerOutage) bool {
 	}
 	first := r.e.pwaits.hold(r.run.ID, def.Key, ue, t, retry)
 	s := &r.run.Steps[i]
-	s.Error, s.Output = "", nil
+	s.Error, s.ErrorCode, s.Output = "", "", nil
 	if first {
 		r.log(i, t, fmt.Sprintf("服务商「%s」不可用（%s），先挂起，等它恢复后自动重跑这一步；%s 先探测一次，最多等到执行发起后 %s",
 			ue.Provider, ue.Cause, retry.Local().Format("15:04:05"), waitLimitText()))
@@ -317,7 +317,7 @@ func (r *runner) failOnOutage(i int, t time.Time, res nodeResult) {
 	}
 	r.e.pwaits.drop(r.run.ID, r.defs[i].Key)
 	s := &r.run.Steps[i]
-	s.Status, s.Error, s.EndedAt = stFailed, msg, &t
+	s.Status, s.Error, s.ErrorCode, s.EndedAt = stFailed, msg, "", &t
 	r.log(i, t, "失败："+msg)
 	r.noteProviderIncident(i, ue, msg)
 }

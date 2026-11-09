@@ -184,6 +184,7 @@ export default function Page() {
     body = (
       <RunPage id={route.id} live={live} branching={branching} onBack={() => navigate(fromState.back ?? root)}
         onOpenRun={(rid) => openRun(rid, fromState.nav)}
+        onEditFlow={(flowId) => go(`${root}/flows/${encodeURIComponent(flowId)}/edit`)}
         onRerun={(flowId, input) => {
           const flow = flowList.find((f) => f.id === flowId)
           if (flow) setStart({ flow, initial: input })
@@ -258,12 +259,14 @@ function Gone({ title, onBack, backLabel }: { title: string; onBack: () => void;
   )
 }
 
-function RunPage({ id, live, branching, onBack, onOpenRun, onRerun }: {
+function RunPage({ id, live, branching, onBack, onOpenRun, onEditFlow, onRerun }: {
   id: string
   onOpenRun: (id: string) => void
   live: boolean
   branching: ReturnType<typeof branchingOf>
   onBack: () => void
+  /** 条件是一句话的失败点「去改流程」（TSK-0498）：打开这条流程的编辑页 */
+  onEditFlow: (flowId: string) => void
   /** 返回 false 表示流程已删除 */
   onRerun: (flowId: string, input: SopJson) => boolean
 }) {
@@ -277,6 +280,7 @@ function RunPage({ id, live, branching, onBack, onOpenRun, onRerun }: {
         <>
           {gone && <div className="sop-act-error" role="alert">这个 SOP 已删除，不能再执行</div>}
           <RunView run={r} branching={branching} busy={act.isPending} actError={act.error} onBack={onBack} onOpenRun={onOpenRun}
+            onEditFlow={() => onEditFlow(r.flow_id)}
             onAct={(a) => act.mutateAsync({ runId: r.id, action: a }).catch(() => undefined)}
             onRerun={() => setGone(!onRerun(r.flow_id, r.input))} />
         </>

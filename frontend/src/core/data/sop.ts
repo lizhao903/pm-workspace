@@ -89,7 +89,10 @@ export type SopFlow = {
   im?: SopIMTrigger
   /** 所在文件夹（TSK-0482），null 是「未分类」；后端总是带（normFlow 补齐），可选只是为了老的执行快照和测试数据 */
   folder_id?: string | null
-  /** 按现在的保存校验查出的问题（TSK-0490）：取一条时是全部问题，保存成功时是警告；列表里不带 */
+  /**
+   * 按现在的保存校验查出的问题（TSK-0490）：读的时候算，流程列表、流程详情都带（TSK-0498 起列表也带，
+   * 一句话条件的问题 code 是 rule_text，流程库卡片据此提前标「需修复」）；保存成功时带回的是警告
+   */
   issues?: SopIssue[]
 }
 /** 流程库的文件夹（TSK-0482，契约「文件夹」）：只有一级；count 是里面的流程数 */
@@ -161,6 +164,8 @@ export type SopRunStep = {
   started_at?: string
   ended_at?: string
   error?: string
+  /** 失败错误码（TSK-0498）：条件是一句话导致的失败是 rule_text，失败面板据此不给「重试」；其他原因没有 */
+  error_code?: string
   edited?: 'input' | 'output' | 'route'
   attempts: number
   log: { at: string; text: string }[]

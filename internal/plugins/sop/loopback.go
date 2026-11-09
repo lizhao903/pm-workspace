@@ -44,14 +44,14 @@ func loopRounds(s string) (int, error) {
 	return n, nil
 }
 
-// runLoopback 求条件：成立回 loopBack（由 runner 决定退回还是超限），不成立走「通过」。
-func runLoopback(def stepDef, input Json) nodeResult {
+// runLoopback 求条件：成立回 loopBack（由 runner 决定退回还是超限），不成立走「通过」；im 是流程的触发方式是不是 IM 消息。
+func runLoopback(def stepDef, input Json, im bool) nodeResult {
 	if !hasCondition(def) {
 		return nodeResult{err: "还没填回退条件"}
 	}
-	ok, rule, err := judge(def)(input)
+	ok, rule, err := judge(def, im)(input)
 	if err != nil {
-		return nodeResult{err: err.Error()}
+		return nodeResult{err: err.Error(), errCode: errorCode(err)}
 	}
 	if ok {
 		return nodeResult{output: input, route: loopBack, reason: fmt.Sprintf("条件「%s」成立", rule)}

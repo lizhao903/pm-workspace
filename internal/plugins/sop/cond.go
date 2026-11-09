@@ -2,6 +2,7 @@ package sop
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"reflect"
 	"slices"
@@ -216,13 +217,43 @@ func hasCondition(def stepDef) bool {
 	return def.Cond != nil || strings.TrimSpace(def.Rule) != ""
 }
 
-// judge 求条件分支、条件回退的条件，回成立不成立和给人看的条件原文；写法不认时回错误（只有旧规则会这样）。
-func judge(def stepDef) func(input Json) (bool, string, error) {
+// ruleTextError 是条件存成一句话导致的失败（TSK-0498），错误码 codeRuleText；judge 只在旧规则解析不了时回它。
+type ruleTextError struct{ msg string }
+
+func (e *ruleTextError) Error() string { return e.msg }
+
+// ruleSentenceMessage 是条件是一句话时的失败文字（TSK-0498，口径见 PRD §4.3）：
+// 写清原因、去哪改、改成什么；IM 触发的流程再多一句用触发过滤，不用判断步骤。
+func ruleSentenceMessage(rule string, im bool) string {
+	msg := fmt.Sprintf("条件「%s」是一句话，程序没法照着判断。到流程编辑里把这一步的条件改成「字段 + 运算符 + 值」"+
+		"（从这一步能拿到的字段里选，可多条且 / 或），这句话可以留在步骤说明里", strings.TrimSpace(rule))
+	if im {
+		msg += "；按来源会话、是否 @我 筛消息不用判断步骤，在触发方式「IM 消息」下面选「只接这些会话」和「与我的关系」，" +
+			"要拦住后面的流程就打开「命中后不再触发后面的 IM 流程」"
+	}
+	return msg
+}
+
+// errorCode 是失败的错误码：条件是写成一句话的是 codeRuleText，其余为空（TSK-0498）。
+func errorCode(err error) string {
+	var rte *ruleTextError
+	if errors.As(err, &rte) {
+		return codeRuleText
+	}
+	return ""
+}
+
+// judge 求条件分支、条件回退的条件，回成立不成立和给人看的条件原文；im 是流程的触发方式是不是 IM 消息。
+// 旧写法的规则换算成等价的结构化条件执行（语义同 evalRule）；不是旧写法（一句话）的失败，回 4.3 的说明。
+func judge(def stepDef, im bool) func(input Json) (bool, string, error) {
 	return func(input Json) (bool, string, error) {
 		if def.Cond != nil {
 			return evalCond(def.Cond, input), condText(def.Cond), nil
 		}
-		ok, err := evalRule(def.Rule, input)
-		return ok, strings.TrimSpace(def.Rule), err
+		r := strings.TrimSpace(def.Rule)
+		if c, ok := legacyCond(r); ok {
+			return evalCond(c, input), r, nil
+		}
+		return false, r, &ruleTextError{msg: ruleSentenceMessage(r, im)}
 	}
 }

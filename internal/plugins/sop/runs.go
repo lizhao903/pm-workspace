@@ -63,11 +63,14 @@ type RunStep struct {
 	StartedAt   *time.Time `json:"started_at,omitempty"`
 	EndedAt     *time.Time `json:"ended_at,omitempty"`
 	Error       string     `json:"error,omitempty"`
-	Edited      string     `json:"edited,omitempty"`
-	Attempts    int        `json:"attempts"`
-	Log         []LogLine  `json:"log"`
-	WakeAt      *time.Time `json:"wake_at,omitempty"`
-	ChildRunID  string     `json:"child_run_id,omitempty"`
+	// ErrorCode 是失败的错误码（TSK-0498，插件迁移 0011）：rule_text 表示条件是写成一句话导致的失败，
+	// 前端据此不给「重试」（原执行沿用发起时的流程快照，重试必然原样失败）
+	ErrorCode  string     `json:"error_code,omitempty"`
+	Edited     string     `json:"edited,omitempty"`
+	Attempts   int        `json:"attempts"`
+	Log        []LogLine  `json:"log"`
+	WakeAt     *time.Time `json:"wake_at,omitempty"`
+	ChildRunID string     `json:"child_run_id,omitempty"`
 	// Claude 是 Claude Code 节点发起的运行（AUTO-01，nodes_claude.go）
 	Claude *StepClaude `json:"claude,omitempty"`
 	// Round 是这一步当前第几轮：被条件回退退回重做后为 2、3……，首轮为 0（AUTO-02，loopback.go）
@@ -267,7 +270,7 @@ func scanRun(row plugin.Row, withFlow bool) (*Run, error) {
 }
 
 const stepCols = `idx, step_key, status, input, output, route, route_reason, error, edited, attempts, log, started_at, ended_at, wake_at, child_run_id,
-	claude, round, rework_reason, loops, hold`
+	claude, round, rework_reason, loops, hold, error_code`
 
 func scanStep(row plugin.Row) (int, RunStep, error) {
 	var s RunStep
@@ -275,7 +278,7 @@ func scanStep(row plugin.Row) (int, RunStep, error) {
 	var input, output, started, ended, wake, child, claude, hold *string
 	var logs string
 	if err := row.Scan(&idx, &s.Key, &s.Status, &input, &output, &s.Route, &s.RouteReason, &s.Error, &s.Edited, &s.Attempts,
-		&logs, &started, &ended, &wake, &child, &claude, &s.Round, &s.ReworkReason, &s.Loops, &hold); err != nil {
+		&logs, &started, &ended, &wake, &child, &claude, &s.Round, &s.ReworkReason, &s.Loops, &hold, &s.ErrorCode); err != nil {
 		return 0, s, err
 	}
 	if claude != nil && *claude != "" {
@@ -359,10 +362,10 @@ func insertRun(ctx context.Context, st plugin.Store, r *Run) error {
 	}
 	for i, s := range r.Steps {
 		logs, _ := json.Marshal(s.Log)
-		if _, err := st.Exec(ctx, `INSERT INTO sop_run_steps (run_id, `+stepCols+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		if _, err := st.Exec(ctx, `INSERT INTO sop_run_steps (run_id, `+stepCols+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			r.ID, i, s.Key, s.Status, jsonCol(s.Input), jsonCol(s.Output), s.Route, s.RouteReason, s.Error, s.Edited, s.Attempts,
 			string(logs), tsPtr(s.StartedAt), tsPtr(s.EndedAt), tsPtr(s.WakeAt), nullStr(s.ChildRunID),
-			claudeCol(s.Claude), s.Round, s.ReworkReason, s.Loops, holdCol(s.Hold)); err != nil {
+			claudeCol(s.Claude), s.Round, s.ReworkReason, s.Loops, holdCol(s.Hold), s.ErrorCode); err != nil {
 			return err
 		}
 	}
@@ -372,10 +375,12 @@ func insertRun(ctx context.Context, st plugin.Store, r *Run) error {
 func updateStep(ctx context.Context, st plugin.Store, runID string, i int, s RunStep) error {
 	logs, _ := json.Marshal(s.Log)
 	_, err := st.Exec(ctx, `UPDATE sop_run_steps SET status = ?, input = ?, output = ?, route = ?, route_reason = ?, error = ?, edited = ?,
-		attempts = ?, log = ?, started_at = ?, ended_at = ?, wake_at = ?, child_run_id = ?, claude = ?, round = ?, rework_reason = ?, loops = ?, hold = ?
+		attempts = ?, log = ?, started_at = ?, ended_at = ?, wake_at = ?, child_run_id = ?, claude = ?, round = ?, rework_reason = ?, loops = ?, hold = ?,
+		error_code = ?
 		WHERE run_id = ? AND idx = ?`,
 		s.Status, jsonCol(s.Input), jsonCol(s.Output), s.Route, s.RouteReason, s.Error, s.Edited, s.Attempts, string(logs),
-		tsPtr(s.StartedAt), tsPtr(s.EndedAt), tsPtr(s.WakeAt), nullStr(s.ChildRunID), claudeCol(s.Claude), s.Round, s.ReworkReason, s.Loops, holdCol(s.Hold), runID, i)
+		tsPtr(s.StartedAt), tsPtr(s.EndedAt), tsPtr(s.WakeAt), nullStr(s.ChildRunID), claudeCol(s.Claude), s.Round, s.ReworkReason, s.Loops, holdCol(s.Hold),
+		s.ErrorCode, runID, i)
 	return err
 }
 

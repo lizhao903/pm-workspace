@@ -520,7 +520,7 @@ func (d *debugger) exec(ctx context.Context, f Flow, def stepDef, s *DebugStep, 
 			}
 			release = rel
 		}
-		res := execNode(ctx, d.c, def, input, keys)
+		res := execNode(ctx, d.c, def, input, keys, f.Trigger == imTrigger)
 		release()
 		d.settle(def, s, res)
 	default:
@@ -531,7 +531,7 @@ func (d *debugger) exec(ctx context.Context, f Flow, def stepDef, s *DebugStep, 
 // real 真实执行只读、只算的节点：内置的走 execNode，插件的经 SOP().RunNode。
 func (d *debugger) real(ctx context.Context, f Flow, def stepDef, input Json, keys []string, debugID string) nodeResult {
 	if !isPluginKind(def.Kind) {
-		return execNode(ctx, d.c, def, input, keys)
+		return execNode(ctx, d.c, def, input, keys, f.Trigger == imTrigger)
 	}
 	cfg := make(map[string]string, len(def.Config))
 	for k, v := range def.Config {

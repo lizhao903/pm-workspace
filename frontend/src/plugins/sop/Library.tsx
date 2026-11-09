@@ -14,6 +14,7 @@ import { IconPlus } from './parts'
 import { IMBar } from './IMBar'
 import { ScheduleBar } from './ScheduleBar'
 import { needsText } from './scope'
+import { ruleTextFixes } from './repair'
 
 const FILTERS: [LibFilter, string][] = [['', '全部'], ['pending', '有待处理'], ['never', '没执行过']]
 
@@ -94,6 +95,8 @@ function Card({ s, x, need, folders, now, onOpen }: {
 }) {
   const move = useMoveSopFlows()
   const fid = folderOf(s, folders)
+  // 条件是一句话的步骤（TSK-0498）：执行到必然失败，卡片右上角红标「需修复」，悬停写明是哪几步
+  const fixes = ruleTextFixes(s.issues, s.steps, s.trigger)
   // 定时触发的流程卡片下面接一行规则、下次执行和启停开关（TSK-0463）；开关不能放进按钮里，挂在卡片外面。
   // 移到文件夹（TSK-0482）同理挂在卡片按钮外面，右下角
   return (
@@ -102,6 +105,11 @@ function Card({ s, x, need, folders, now, onOpen }: {
         <button type="button" className={cls('sop-lib-card', need.length > 0 && 'elsewhere', folders.length > 0 && 'with-folder')} onClick={() => onOpen(s.id)}>
           <span className="sop-lib-head">
             <span className="sop-lib-name ellipsis" title={s.name}>{s.name}</span>
+            {fixes.length > 0 && (
+              <span className="sop-lib-pending sop-lib-broken" title={`这些步骤的条件是一句话，执行到这里会失败：${fixes.map((f) => `「${f.name}」`).join('、')}`}>
+                需修复
+              </span>
+            )}
             {!!x?.pending && <span className="sop-lib-pending">{x.pending} 个待处理</span>}
             {need.length > 0 && <span className="sop-lib-need" title="这个工作台没开这个模块，执行时可能选不到要的数据">{needsText(need)}</span>}
           </span>

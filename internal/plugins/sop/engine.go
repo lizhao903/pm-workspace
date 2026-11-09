@@ -535,7 +535,7 @@ func (r *runner) advance(t time.Time) {
 				r.log(i, t, "所在分支未被选中，不执行")
 			} else {
 				s.Input, _ = r.inputFor(i)
-				s.Output, s.Error, s.WakeAt, s.ChildRunID, s.Claude = nil, "", nil, "", nil
+				s.Output, s.Error, s.ErrorCode, s.WakeAt, s.ChildRunID, s.Claude = nil, "", "", nil, "", nil
 				if r.run.StepThrough {
 					s.Status = stPaused
 					r.log(i, t, "执行前暂停，等待确认输入")
@@ -645,7 +645,9 @@ func (r *runner) dispatch(ctx context.Context) {
 			} else if isPluginKind(def.Kind) {
 				res = runPluginNode(sctx, r.e.c, wr, def, orEmpty(input))
 			} else {
-				res = execGuarded(sctx, r.e.c, def, orEmpty(input), keys)
+				// IM 触发看发起时的流程快照（TSK-0498）：条件是一句话时失败文字多一句用触发过滤
+				im := r.run.Flow != nil && r.run.Flow.Trigger == imTrigger
+				res = execGuarded(sctx, r.e.c, def, orEmpty(input), keys, im)
 			}
 			// 调完模型马上还名额，不等 runner 收结果
 			release()
@@ -750,8 +752,13 @@ func orDefault(s, d string) string {
 }
 
 func (r *runner) fail(i int, t time.Time, msg string) {
+	r.failCode(i, t, msg, "")
+}
+
+// failCode 同 fail，多记失败的错误码（TSK-0498）：codeRuleText（条件是一句话）让前端不给重试。
+func (r *runner) failCode(i int, t time.Time, msg, code string) {
 	s := &r.run.Steps[i]
-	s.Status, s.Error, s.EndedAt = stFailed, msg, &t
+	s.Status, s.Error, s.ErrorCode, s.EndedAt = stFailed, msg, code, &t
 	r.log(i, t, "失败："+msg)
 	r.noteIncident(i, msg)
 }
@@ -807,7 +814,7 @@ func (r *runner) finish(m resultMsg) {
 	case res.outage != nil:
 		r.failOnOutage(m.step, t, res)
 	case res.err != "":
-		r.fail(m.step, t, res.err)
+		r.failCode(m.step, t, res.err, res.errCode)
 	case res.waiting != "":
 		s.Output = waitingMark(def.Kind, res.waiting)
 		r.inflight[m.step] = inflight{token: -1, cancel: func() {}}
@@ -1099,7 +1106,7 @@ func (r *runner) apply(ctx context.Context, a Action) error {
 			u := &r.run.Steps[j]
 			r.cancelStep(j)
 			u.Status, u.Output, u.StartedAt, u.EndedAt, u.Edited = stRunning, nil, &t, nil, ""
-			u.Route, u.RouteReason, u.Error, u.WakeAt, u.ChildRunID, u.Claude = "", "", "", nil, "", nil
+			u.Route, u.RouteReason, u.Error, u.ErrorCode, u.WakeAt, u.ChildRunID, u.Claude = "", "", "", "", nil, "", nil
 			u.Attempts++
 			r.log(j, t, "被下游退回，重新执行")
 		}
@@ -1107,14 +1114,14 @@ func (r *runner) apply(ctx context.Context, a Action) error {
 		if s.Status != stFailed {
 			return apiErr(errConflict, "这一步没有失败")
 		}
-		s.Status, s.Error, s.StartedAt, s.EndedAt, s.WakeAt, s.ChildRunID, s.Claude = stRunning, "", &t, nil, nil, "", nil
+		s.Status, s.Error, s.ErrorCode, s.StartedAt, s.EndedAt, s.WakeAt, s.ChildRunID, s.Claude = stRunning, "", "", &t, nil, nil, "", nil
 		s.Attempts++
 		r.log(i, t, fmt.Sprintf("第 %d 次尝试", s.Attempts))
 	case "skip":
 		if s.Status != stFailed && (s.Status != stPaused || branching) {
 			return apiErr(errConflict, "只有失败的步骤、或等确认输入的非分支步骤能跳过")
 		}
-		s.Status, s.Output, s.Error, s.EndedAt = stSkipped, clone(s.Input), "", &t
+		s.Status, s.Output, s.Error, s.ErrorCode, s.EndedAt = stSkipped, clone(s.Input), "", "", &t
 		r.log(i, t, "已跳过，输入原样传给下游")
 	}
 	return nil

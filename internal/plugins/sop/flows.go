@@ -131,8 +131,8 @@ type Flow struct {
 	IM IMTrigger `json:"im"`
 	// FolderID 是流程所在的文件夹（TSK-0482，folders.go），nil 是「未分类」
 	FolderID *string `json:"folder_id"`
-	// Issues 是按现在的保存校验查出来的问题（TSK-0490），只在 GET 一条、新建、修改的回包里带：
-	// 打开编辑时提示旧规则要改成结构化条件、存上了但有警告；列表和执行快照里不带
+	// Issues 是按现在的保存校验查出来的问题（TSK-0490），在列表（TSK-0498 起）、GET 一条、新建、修改的回包里带：
+	// 打开编辑时提示旧规则要改成结构化条件、存上了但有警告，流程列表据此显示「需修复」；执行快照里不带
 	Issues []Issue `json:"issues,omitempty"`
 }
 
@@ -164,6 +164,7 @@ func (h *flows) list(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer func() { _ = rows.Close() }()
+	kinds := kindsOf(h.c)
 	out := []Flow{}
 	for rows.Next() {
 		f, err := scanFlow(rows)
@@ -171,6 +172,8 @@ func (h *flows) list(w http.ResponseWriter, r *http.Request) {
 			fail(w, r, h.c, err)
 			return
 		}
+		// 读的时候算体检问题（不是保存时才算）：库里的旧流程也可能有条件是一句话，列表据此标「需修复」（TSK-0498）
+		f.Issues = checkFlow(&f, kinds)
 		out = append(out, f)
 	}
 	if err := rows.Err(); err != nil {

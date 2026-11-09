@@ -24,10 +24,12 @@ const notWired = "这个节点还没接上"
 type nodeResult struct {
 	output Json
 	err    string
-	route  string
-	reason string
-	review bool
-	log    string
+	// errCode 是失败的错误码（TSK-0498），目前有 codeRuleText（条件是写成一句话），其余为空
+	errCode string
+	route   string
+	reason  string
+	review  bool
+	log     string
 	// waiting 非空表示插件节点挂起等唤醒，是挂起的原因（SOP-03a）
 	waiting string
 	// outage 是这一步失败是因为模型服务商不可用（TSK-0392，provider_wait.go）
@@ -35,8 +37,8 @@ type nodeResult struct {
 }
 
 // runNode 执行能当场算出结果、不用内核句柄的节点。wait、subflow 不走这里，AI 类和外部节点先过 execNode。
-// deps 是上游步骤 key，按依赖顺序，变量聚合按这个顺序合并。
-func runNode(def stepDef, input Json, deps []string) nodeResult {
+// deps 是上游步骤 key，按依赖顺序，变量聚合按这个顺序合并；im 是流程的触发方式是不是 IM 消息（失败文案要用）。
+func runNode(def stepDef, input Json, deps []string, im bool) nodeResult {
 	cfg := def.Config
 	switch def.Kind {
 	case "auto":
@@ -56,9 +58,9 @@ func runNode(def stepDef, input Json, deps []string) nodeResult {
 		if isManual(def) {
 			return nodeResult{output: input, review: true}
 		}
-		ok, text, err := judge(def)(input)
+		ok, text, err := judge(def, im)(input)
 		if err != nil {
-			return nodeResult{err: err.Error()}
+			return nodeResult{err: err.Error(), errCode: errorCode(err)}
 		}
 		if len(def.Cases) < 2 {
 			return nodeResult{err: "判断节点至少要有两个分支"}
@@ -75,7 +77,7 @@ func runNode(def stepDef, input Json, deps []string) nodeResult {
 		return nodeResult{output: input, route: c.Key, reason: fmt.Sprintf("%s「%s」%s", word, text, why)}
 	case loopbackKind:
 		// 条件回退（AUTO-02，loopback.go）：成立时由 runner 退回上游或走超限
-		return runLoopback(def, input)
+		return runLoopback(def, input, im)
 	case "end":
 		keys := list(cfg["outputs"])
 		if len(keys) == 0 {

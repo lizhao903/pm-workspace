@@ -190,10 +190,11 @@ func TestLegacyRuleStillRunsAndWarns(t *testing.T) {
 	if d := step(run, "d"); d["route"] != "yes" || d["route_reason"] != "规则「amount 等于 1」成立" {
 		t.Fatalf("%v", d)
 	}
-	// 列表不带 issues
+	// 列表也带体检问题（TSK-0498 起，同详情）
 	_, out = call(t, h, "GET", "/api/sop/flows", "")
-	if _, ok := out["data"].([]any)[0].(map[string]any)["issues"]; ok {
-		t.Fatal("列表不带 issues")
+	li := out["data"].([]any)[0].(map[string]any)["issues"].([]any)
+	if len(li) != 1 || li[0].(map[string]any)["code"] != "legacy_rule" || li[0].(map[string]any)["step"] != float64(0) {
+		t.Fatalf("列表 issues = %v", li)
 	}
 }
 

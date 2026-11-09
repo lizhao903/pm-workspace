@@ -112,6 +112,8 @@ button.sop-run-row:hover { background: var(--panel-2); }
 .sop-lib-head { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .sop-lib-name { flex: 1; min-width: 0; font-weight: 600; }
 .sop-lib-pending { flex: none; height: 18px; padding: 0 6px; border-radius: 4px; font-size: var(--fs-2xs); line-height: 18px; color: var(--warn); background: var(--warn-soft); white-space: nowrap; }
+/* 条件是一句话、执行到就失败的流程（TSK-0498） */
+.sop-lib-pending.sop-lib-broken { color: var(--danger); background: var(--danger-soft); }
 /* 要当前工作台没开的模块的流程（SPEC-sop-2.11） */
 .sop-lib-need { flex: none; height: 18px; padding: 0 6px; border-radius: 4px; font-size: var(--fs-2xs); line-height: 18px; color: var(--muted); background: var(--panel-2); border: 1px solid var(--line); white-space: nowrap; }
 .sop-lib-card.elsewhere .sop-lib-name { color: var(--muted); }
@@ -124,6 +126,8 @@ button.sop-run-row:hover { background: var(--panel-2); }
 .sop-section-label { margin: 14px 0 -4px; font-size: var(--fs-xs); color: var(--faint); font-weight: 500; display: flex; align-items: baseline; gap: 8px; }
 .sop-section-hint { font-weight: 400; }
 .sop-fields { display: flex; flex-wrap: wrap; gap: 6px; }
+/* 条件是一句话（TSK-0498）：流程详情标题下的红色「需修复」提示条 */
+.sop-banner.sop-broken { overflow-wrap: anywhere; }
 /* 删除确认条：窄屏换行，按钮始终可见 */
 .sop-confirm { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; padding: 10px 14px; border-radius: var(--r); border: 1px solid color-mix(in srgb, var(--danger) 25%, transparent); background: var(--danger-soft); }
 .sop-confirm .danger-text { min-width: 0; flex: 1 1 260px; overflow-wrap: anywhere; }

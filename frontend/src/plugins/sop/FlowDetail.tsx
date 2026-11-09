@@ -13,15 +13,18 @@ import { useSourceText } from './source'
 import { imDraftOf } from './imtrigger'
 import { needsText } from './scope'
 import { IMExplainPanel, SkipList } from './Debug'
+import { RULE_TEXT_CODE, ruleTextFixes } from './repair'
 
 const RECENT = 10
 const ISSUES_SHOWN = 6
 
 /** 按现在的保存校验查出的问题（TSK-0490）：旧流程照常打开、执行，这里提示下次保存前要改的；刚保存完是保存回来的警告 */
 function IssuesBar({ issues, steps, onEdit }: { issues: readonly SopIssue[]; steps: readonly SopStepDef[]; onEdit: () => void }) {
-  if (!issues.length) return null
-  const errs = issues.filter((x) => x.level !== 'warning').length
-  const warns = issues.length - errs
+  // 条件是一句话（TSK-0498）由标题下的红色「需修复」提示条单独展示，这里排除掉，别把同一个问题列两遍
+  const rest = issues.filter((x) => x.code !== RULE_TEXT_CODE)
+  if (!rest.length) return null
+  const errs = rest.filter((x) => x.level !== 'warning').length
+  const warns = rest.length - errs
   const at = (x: SopIssue) => (x.step !== undefined && steps[x.step] ? `第 ${x.step + 1} 步 ` : '')
   return (
     <div className={errs ? 'sop-issues-bar bad' : 'sop-issues-bar'} role="note" aria-label="保存校验">
@@ -32,8 +35,8 @@ function IssuesBar({ issues, steps, onEdit }: { issues: readonly SopIssue[]; ste
         <Button size="sm" onClick={onEdit}>到编辑里改</Button>
       </div>
       <ul>
-        {issues.slice(0, ISSUES_SHOWN).map((x, i) => <li key={i} className={x.level === 'warning' ? 'warn' : 'error'}>{at(x)}{x.text}</li>)}
-        {issues.length > ISSUES_SHOWN && <li className="faint">还有 {issues.length - ISSUES_SHOWN} 处，到编辑里看</li>}
+        {rest.slice(0, ISSUES_SHOWN).map((x, i) => <li key={i} className={x.level === 'warning' ? 'warn' : 'error'}>{at(x)}{x.text}</li>)}
+        {rest.length > ISSUES_SHOWN && <li className="faint">还有 {rest.length - ISSUES_SHOWN} 处，到编辑里看</li>}
       </ul>
     </div>
   )
@@ -58,8 +61,12 @@ export function FlowDetail({ flow, runs, branching, needs = [], trigger, onStart
   const [confirm, setConfirm] = useState(false)
   // 模拟 IM 触发（TSK-0491）：打开时可带一条消息（从「最近未发起」点「模拟」进来）
   const [explain, setExplain] = useState<{ msg?: string; n: number } | null>(null)
-  // 列表里的流程不带 issues，单取一条（TSK-0490）
+  // 单取一条流程（TSK-0490：列表里的 issues 也带，但详情以这条为准）
   const full = useSopFlow(flow.id)
+  // 列表里的流程也带 issues（TSK-0498），详情取回来之前先用列表那份，不用等一次请求才标出来
+  const issues = full.data?.issues ?? flow.issues ?? []
+  // 条件是一句话（TSK-0498）：执行到就失败，标题下逐条写明是哪几步、怎么改
+  const fixes = ruleTextFixes(issues, flow.steps, flow.trigger)
   const sourceOf = useSourceText()
   const del = useDeleteSopFlow()
   const save = useSaveSopFlow()
@@ -94,6 +101,17 @@ export function FlowDetail({ flow, runs, branching, needs = [], trigger, onStart
         <Button variant="outline" onClick={onEdit}>编辑</Button>
         <Button variant="primary" onClick={onStart}><IconPlay />执行</Button>
       </>}>{flow.name}</PageTitle>
+      {/* 条件是一句话（TSK-0498）：执行到就失败，进详情就写明是哪几步、怎么改 */}
+      {fixes.length > 0 && (
+        <div className="sop-banner danger sop-broken" role="alert">
+          <div>
+            <b>需修复</b>
+            {fixes.length > 1 ? `有 ${fixes.length} 个步骤的条件是一句话，执行到这些步骤会失败` : '有一个步骤的条件是一句话，执行到这一步会失败'}
+          </div>
+          {fixes.map((f, i) => <div key={i}>{f.name}：{f.text}</div>)}
+          <div className="sop-act-row"><Button variant="primary" size="sm" onClick={onEdit}>去改流程</Button></div>
+        </div>
+      )}
       {save.isError && !confirm && (
         <div className="sop-confirm" role="alert">
           <span className="danger-text">复制失败：{errorText(save.error)}</span>
@@ -117,7 +135,7 @@ export function FlowDetail({ flow, runs, branching, needs = [], trigger, onStart
         <span>{reviews} 个需要人处理的节点</span>
         {needs.length > 0 && <span className="sop-need-text" title="这个工作台没开这个模块，执行时可能选不到要的数据">{needsText(needs)}</span>}
       </div>
-      <IssuesBar issues={full.data?.issues ?? []} steps={flow.steps} onEdit={onEdit} />
+      <IssuesBar issues={issues} steps={flow.steps} onEdit={onEdit} />
       <ScheduleBar flow={flow} now={now} className="sop-detail-sched" />
       <IMBar flow={flow} className="sop-detail-sched" />
       {explain && <IMExplainPanel key={explain.n} flowId={flow.id} initial={explain.msg} onClose={() => setExplain(null)} />}
