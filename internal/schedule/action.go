@@ -2,6 +2,7 @@ package schedule
 
 import (
 	"encoding/json"
+	"path/filepath"
 	"strings"
 )
 
@@ -14,6 +15,8 @@ const (
 	ActionIncidentSweep = "incident_sweep"
 	// ActionRemind 是到点在工作台里发一条提醒通知，可以关联一个对象（任务），内核动作，见 remind.go
 	ActionRemind = "remind"
+	// ActionGitPull 是到点在本机一个 git 仓库里 git pull --ff-only，内核动作，见 git_pull.go
+	ActionGitPull = "git_pull"
 )
 
 // 运行异常巡检的默认值。
@@ -56,6 +59,11 @@ type Action struct {
 	// Popup 是提醒怎么弹（SPEC-tasks-8.26）：toast 右下角非模态（默认），modal 屏幕中间模态弹窗、点了才关
 	Popup string `json:"popup"`
 
+	// kind = git_pull：Repo 是仓库的绝对路径；Remote、Branch 可空，空时按仓库自己的上游拉，Branch 非空时 Remote 必填
+	Repo   string `json:"repo"`
+	Remote string `json:"remote"`
+	Branch string `json:"branch"`
+
 	// 插件动作：除 kind 外的全部字段，校验交给插件
 	Params map[string]any `json:"-"`
 }
@@ -86,6 +94,12 @@ func (a Action) Normalize() Action {
 			popup = PopupToast
 		}
 		return Action{Kind: a.Kind, Title: strings.TrimSpace(a.Title), Body: strings.TrimSpace(a.Body), ObjectID: strings.TrimSpace(a.ObjectID), Popup: popup}
+	case ActionGitPull:
+		repo := strings.TrimSpace(a.Repo)
+		if repo != "" {
+			repo = filepath.Clean(repo)
+		}
+		return Action{Kind: a.Kind, Repo: repo, Remote: strings.TrimSpace(a.Remote), Branch: strings.TrimSpace(a.Branch)}
 	}
 	return Action{Kind: a.Kind, Params: a.Params}
 }
@@ -117,6 +131,8 @@ func (a Action) Validate() error {
 		}
 	case ActionRemind:
 		return a.validateRemind()
+	case ActionGitPull:
+		return a.validateGitPull()
 	default:
 		return invalid("action.kind must be task / sop / agent, got %q", a.Kind)
 	}
@@ -137,6 +153,8 @@ func (a Action) MarshalJSON() ([]byte, error) {
 		m["min_level"], m["min_count"] = a.MinLevel, a.MinCount
 	case ActionRemind:
 		m["title"], m["body"], m["object_id"], m["popup"] = a.Title, a.Body, a.ObjectID, a.Popup
+	case ActionGitPull:
+		m["repo"], m["remote"], m["branch"] = a.Repo, a.Remote, a.Branch
 	default:
 		for k, v := range a.Params {
 			if k != "kind" {

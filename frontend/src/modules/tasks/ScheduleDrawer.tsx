@@ -243,6 +243,20 @@ export function ScheduleDrawer({ schedule, onClose, onCreated, onOpenTask }: {
               <div className="list-sub">到点把满足条件、未处理、还没有任务的运行异常各建一条任务，带 claude-code 标签交给 Claude Code 修；同一条异常不会重复建。结果记在下面的执行记录里</div>
             </>
           )}
+          {a.kind === 'git_pull' && (
+            <>
+              <Field label="仓库路径" required error={tried && !a.repo.trim() ? '必填' : undefined}
+                hint="本机 git 仓库的绝对路径，保存时会检查是不是 git 仓库">
+                <Input className="mono-input" value={a.repo} invalid={tried && !a.repo.trim()} placeholder="/Users/me/code/project"
+                  onChange={(e) => setAction({ repo: e.target.value })} />
+              </Field>
+              <div className="field-row">
+                <Field label="远端"><Input className="mono-input" value={a.remote} placeholder="不填按上游" onChange={(e) => setAction({ remote: e.target.value })} /></Field>
+                <Field label="分支"><Input className="mono-input" value={a.branch} placeholder="不填按上游" onChange={(e) => setAction({ branch: e.target.value })} /></Field>
+              </div>
+              <div className="list-sub">到点在这个仓库里跑 git pull --ff-only：只做快进，本地有没推的提交、和远端分叉或改动挡住时不合并，记一条失败。不会弹密码，要用 ssh key 或已存的凭证；最多等 90 秒。结果记在下面的执行记录里</div>
+            </>
+          )}
           {a.kind === 'remind' && <RemindFields title={a.title} body={a.body} objectId={a.object_id} popup={a.popup} titleBad={titleBad} dirty={dirty}
             onChange={setAction} onOpenTask={onOpenTask} />}
           {isPluginAction(a.kind) && <div className="list-sub">{actionLabel(a.kind)}：这种动作由插件登记，这里只读</div>}

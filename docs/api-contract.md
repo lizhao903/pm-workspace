@@ -1686,6 +1686,7 @@ TASK-03a、TASK-03b。定义存在表 `schedules`（0020），执行记录存在
 | `agent` | `agent_id`（必填）、`prompt` | 让一个 Agent 去做 |
 | `incident_sweep` | `min_level`（`error` 只看错误 / `warn` 警告和错误都看，缺省 `error`）、`min_count`（次数下限，1 到 1000000，缺省 1） | 运行异常巡检（INC-01a），内核动作，见「运行异常 incidents」；保存时补上缺省值 |
 | `remind` | `title`（必填，去首尾空白，最多 100 字）、`body`（可空，最多 2000 字）、`object_id`（关联的对象，可空）、`popup`（弹窗方式，`toast` 或 `modal`，不传或空串按 `toast`，别的值 400；SPEC-tasks-8.26） | 提醒：到点在工作台里发一条通知（只进通知列表和事件流，不外发 IM），`toast` 在前端外壳右下角弹出，`modal` 在屏幕中间模态弹出、只有按钮能关。`object_id` 非空时保存会查对象，不存在或在回收站回 400「action.object_id: object … not found」。规则为 `once` 时到点（执行了或错过了）后自动停用（`enabled` 变 `false`），手动执行不停用 |
+| `git_pull` | `repo`（必填，本机 git 仓库的绝对路径，去首尾空白、规范化）、`remote`、`branch`（可空，空时按仓库自己的上游拉；`branch` 非空时 `remote` 必填；只认字母数字和 `._/-`，不许 `-` 开头） | 拉取代码：到点在这个仓库里跑 `git pull --ff-only`，内核动作。保存时查目录存在且是 git 工作区，不是回 400「action.repo: … is not a git working tree」 |
 | `<插件 id>_<动作>` | 插件定的参数，和 `kind` 平铺 | 插件登记的动作（VID-06a，`docs/plugin-api.md` 2.12），例 `video_publish` |
 
 - `sop_id`、`agent_id` 只查非空、不查是否存在（SOP 是插件，可能还没装），到点执行时找不到记 `failed`。
@@ -1707,6 +1708,7 @@ TASK-03a、TASK-03b。定义存在表 `schedules`（0020），执行记录存在
 - 动作 `sop`（SOP-01d）：经内核「发起 SOP」钩子（`docs/plugin-api.md` 2.7）交给 SOP 编排插件起一条执行，同 `POST /api/sop/flows/{id}/runs`：流程当前定义的快照、输入全用字段默认值、不逐步确认，流程里的人工检查点照常停下；不等它跑完。发起了记 `ok`「发起了 SOP「周会纪要」，执行记录 spr_…」；流程不存在、必填字段没有默认值记 `failed`「没执行：流程 sop_x 不存在」「没执行：「客户」必填」。SOP 编排插件没装、停用（没有插件登记发起入口）记 `unsupported`「没执行：SOP 编排插件没启用」。执行的结果看 SOP 运行页。
 - 动作 `agent`（AG-01b4）：交给这个 Agent 跑一次，不等它跑完，不看 Agent 上有没有配 `schedule` 触发。发起了记 `ok`「交给了 Agent「周报助手」，执行记录 ar_…」；Agent 不存在、已停用记 `failed`「没执行：Agent「周报助手」已停用」；执行记录建了但没跑起来（服务商不对等）记 `failed`「Agent「周报助手」没跑起来：…，执行记录 ar_…」。Agent 的结果看「Agent 执行记录」。服务没接 Agent 执行时仍记 `unsupported`「没执行：让 Agent 去做暂不支持，M4 之后才有」。
 - 动作 `incident_sweep`（INC-01a）：把状态未处理、还没有任务、级别和次数够的运行异常各建一条任务（口径见「运行异常 incidents」的「巡检」），老的先建。结果文字「建了 2 条修复任务 TSK-0101、TSK-0102，跳过 3 条（级别或次数不够）」「没有要处理的运行异常」，有留给用户的追加「2 条留给你处理（修复任务被删过，或是 Claude Code 执行失败）」；有没建成的追加「1 条没建成：…」，一条都没建成时记 `failed`。`object_id`、`ref` 是建的第一条。服务没接运行异常时记 `unsupported`「没执行：运行异常模块没接上」。服务启动时不会自动建这个定时任务，由用户在定时任务页建。
+- 动作 `git_pull`：在 `repo` 里跑 `git pull --ff-only [remote [branch]]`，只做快进：本地有没推的提交、和远端分叉、工作区改动挡住时 git 拒绝，记 `failed`「没拉成：<git 输出末尾>」，不产生合并提交。无人值守：`GIT_TERMINAL_PROMPT=0`，没设 `GIT_SSH_COMMAND` 时 ssh 用 `BatchMode=yes`，不会卡在密码或主机指纹提示上，要靠 ssh key（agent）或已存的凭证。一次最多等 90 秒（比到点宽限 2 分钟短，调度串行，卡住的拉取不会把别的定时任务挤成错过），超时记 `failed`「没拉成：超过 90 秒没拉完，已中止」。成功记 `ok`「pm-workspace（main）拉了 2 个新提交 abc1234 → def5678」或「pm-workspace（main）已是最新 def5678」；目录被删、不再是仓库记 `failed`。`object_id`、`ref` 为 `null`。
 - 插件动作（VID-06a）：交给声明它的插件执行，`object_id`、`ref` 是插件给的产出（可以为 `null`）。成功记 `ok`，文字由插件给，没给时为「执行了 <kind>」；插件回错误记 `failed`「没执行：<原因>」；插件停用、卸载记 `failed`「没执行：提供这个动作的插件没启用：<插件名>（<id>）」，定义不动，启用后下次照常。
 
 `ScheduleRun`：`{id, schedule_id, at, status, ok, text, manual, missed, object_id, ref, started_at, finished_at}`，与原型 `ScheduleRun {at, ok, text, ref, manual}` 同名字段同义。

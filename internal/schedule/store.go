@@ -62,6 +62,8 @@ type Store struct {
 	plugins PluginActions
 	// objects 查提醒关联的对象在不在，SetObjects 接上（remind.go）
 	objects ObjectLookup
+	// git 执行动作 git_pull，SetGit 换掉；nil 时用本机 git 命令（git_pull.go）
+	git GitPuller
 	// flowMu 串起随流程管理的定时任务的查找和新建，同一个流程不会建出两条（flowsched.go）
 	flowMu sync.Mutex
 }
@@ -130,7 +132,10 @@ func (s *Store) checkAction(ctx context.Context, a Action) (Action, error) {
 	if err := a.Validate(); err != nil {
 		return a, err
 	}
-	return a, s.checkRemindObject(ctx, a)
+	if err := s.checkRemindObject(ctx, a); err != nil {
+		return a, err
+	}
+	return a, s.checkGitRepo(ctx, a)
 }
 
 // Create 新建一个定时任务。随流程管理的标记（action.managed）在这里不认，只有 SaveFlowSchedule 能建（TSK-0463）。

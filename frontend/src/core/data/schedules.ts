@@ -23,8 +23,8 @@ export type ScheduleRule = {
   cron: string
 }
 
-/** incident_sweep：运行异常巡检（INC-01a），内核动作，不属于插件；remind：到点在工作台里弹一条提醒通知 */
-export type ScheduleActionKind = 'task' | 'sop' | 'agent' | 'incident_sweep' | 'remind'
+/** incident_sweep：运行异常巡检（INC-01a），内核动作，不属于插件；remind：到点在工作台里弹一条提醒通知；git_pull：到点在本机仓库 git pull --ff-only */
+export type ScheduleActionKind = 'task' | 'sop' | 'agent' | 'incident_sweep' | 'remind' | 'git_pull'
 
 /** 后端按 kind 只输出自己的字段 */
 export type ScheduleAction =
@@ -36,6 +36,8 @@ export type ScheduleAction =
   | { kind: 'incident_sweep'; min_level: 'error' | 'warn'; min_count: number }
   /** 到点在工作台里发一条通知（不外发 IM）；object_id 是关联的对象（任务），点通知打开它，空串为不关联 */
   | { kind: 'remind'; title: string; body: string; object_id: string; popup?: 'toast' | 'modal' }
+  /** 到点在本机仓库里 git pull --ff-only；repo 是绝对路径，remote、branch 空串时按仓库自己的上游拉，branch 非空时 remote 必填 */
+  | { kind: 'git_pull'; repo: string; remote: string; branch: string }
 
 export type Schedule = {
   id: string
