@@ -77,7 +77,9 @@ const isLocked = (dictId: string, key: string) => {
 }
 
 export function toGroup(d: Dictionary, items: DictItem[]): EnumGroup {
-  const sorted = [...items].sort((a, b) => a.sort_order - b.sort_order || a.key.localeCompare(b.key))
+  // 显示顺序按中文排序固定下来：不写 locale 时结果取决于运行环境的 LANG（CI 上是 C.UTF-8），
+  // 同一个字典在不同机器上顺序会不一样，测试也跟着环境红
+  const sorted = [...items].sort((a, b) => a.sort_order - b.sort_order || a.key.localeCompare(b.key, 'zh-CN'))
   const wired = WIRED.has(d.id)
   const out: EnumItem[] = sorted.map((i) => ({
     id: i.id, key: i.key, label: i.label, color: i.color, desc: i.description, enabled: !i.archived_at,
