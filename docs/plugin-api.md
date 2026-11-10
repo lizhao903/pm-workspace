@@ -284,7 +284,7 @@ type Core interface {
 
 | 方法 | 做什么 |
 |---|---|
-| `Complete(ctx, CompleteRequest{System, Prompt, Provider, Model, Agent, Scenario})` | 不带工具补全一次，回模型说的原文。`Agent`（id 或名称）给了就用这个 Agent 的服务商、模型、思考档位，它的指令拼在 `System` 前面，`Provider`、`Model` 忽略；指定的 Agent 不存在或停用了报错。`Agent`、`Provider`、`Model` 都没给时按 `Scenario`（`plugin.ScenarioSOPAssist` / `plugin.ScenarioBackground`，空的算 background）用「设置 / Agent」里选的场景默认 Agent，没选或用不了照老样子。服务商取 `Provider`，没给取默认的（没有默认的取第一个启用的），`Model` 为空用服务商的模型；一个服务商都没有回 `agent.ErrNoProvider`。思考档位翻成各家参数、模型不认时自动去掉重来，插件不用管。服务商不可用（熔断中，或自动重试 2 次仍是 5xx / 连不上）时：服务商设了「失败时改用」（`extra.fallback_id`）先改用备用服务商和它的默认模型；还不行回 `*plugin.ProviderUnavailableError`（即 `agent.UnavailableError`：`ProviderID`、`Provider`、`Cause` 原始失败、`Open` 是否已熔断、`RetryAt` 下次探测时间、`Fallback` 试过的备用服务商名），用 `plugin.AsProviderUnavailable(err)` 取，插件可以据此等服务商恢复再跑（SOP 的做法见 api-contract「等服务商恢复」）。`RunAgent` 也经过熔断，熔断中直接回这个错误，不改用备用 |
+| `Complete(ctx, CompleteRequest{System, Prompt, Provider, Model, Agent, Scenario, Thinking})` | 不带工具补全一次，回模型说的原文。`Agent`（id 或名称）给了就用这个 Agent 的服务商、模型、思考档位，它的指令拼在 `System` 前面，`Provider`、`Model` 忽略；指定的 Agent 不存在或停用了报错。`Agent`、`Provider`、`Model` 都没给时按 `Scenario`（`plugin.ScenarioSOPAssist` / `plugin.ScenarioBackground`，空的算 background）用「设置 / Agent」里选的场景默认 Agent，没选或用不了照老样子。服务商取 `Provider`，没给取默认的（没有默认的取第一个启用的），`Model` 为空用服务商的模型；一个服务商都没有回 `agent.ErrNoProvider`。`Thinking`（`default`/`off`/`low`/`medium`/`high`，空串跟 Agent/服务商默认）可以覆盖这次调用的思考档位：结构化输出这类不需要长思考的调用传 `plugin.ThinkingOff` 能明显省时间。思考档位翻成各家参数、模型不认时自动去掉重来，插件不用管。服务商不可用（熔断中，或自动重试 2 次仍是 5xx / 连不上）时：服务商设了「失败时改用」（`extra.fallback_id`）先改用备用服务商和它的默认模型；还不行回 `*plugin.ProviderUnavailableError`（即 `agent.UnavailableError`：`ProviderID`、`Provider`、`Cause` 原始失败、`Open` 是否已熔断、`RetryAt` 下次探测时间、`Fallback` 试过的备用服务商名），用 `plugin.AsProviderUnavailable(err)` 取，插件可以据此等服务商恢复再跑（SOP 的做法见 api-contract「等服务商恢复」）。`RunAgent` 也经过熔断，熔断中直接回这个错误，不改用备用 |
 | `RunAgent(ctx, AgentRunRequest{Agent, Prompt, Title})` | `Agent` 是 id 或名称，停用的不跑。新建一个挂这个 Agent 的会话（标题 `Title`），按它当前的服务商、模型、技能、工具授权跑一轮。遇到授权是「需确认」的工具不执行，回 `Waiting: true`、`Pending`（给人看的一句话）、`CallIDs`；人在会话里确认或拒绝后由对话接口接着跑 |
 | `AgentState(ctx, sessionID)` | 会话里最新一条 Agent 回复（`MessageID`、`Reply`）；回复里还有确认卡片时 `Waiting` 为真。插件靠「`MessageID` 变了、`Waiting` 为假」判断确认后这一轮跑完了 |
 | `SearchKB(ctx, kbIDs, query, top)` | 只在给的知识库里检索，回前 `top` 段（`KBHit` 即 `kb.SearchHit`）；`kbIDs` 为空直接报错，不搜全部 |
@@ -1884,6 +1884,7 @@ if err := os.MkdirAll(dir, 0o755); err != nil { return err }
 | `network:im` | 访问 IM 平台（Slack、Telegram、飞书、企业微信的接口域名） | 普通 |
 | `network:media-platforms` | 访问视频平台 | 普通 |
 | `network:market-data` | 访问行情源 | 普通 |
+| `network:model` | 下载本地模型（HuggingFace 与镜像，录音转写插件用，REC-01a） | 普通 |
 | `network:exchanges` | 访问交易所的账户和交易接口（交易套件 0.5.0 起用它只读同步交易所账户，0.7.0 起加实盘闸门放行的下单、撤单、查单，见 3.3） | 高 |
 | `network:any` | 访问任意外网地址 | 高 |
 | `secrets:<scope>` | 取凭证保险箱里该范围的凭证，例 `secrets:im`、`secrets:media` | 普通 |
@@ -1898,6 +1899,7 @@ if err := os.MkdirAll(dir, 0o755); err != nil { return err }
 | `im` | `slack.com`、`*.slack.com`、`api.telegram.org`、`open.feishu.cn`、`open.larksuite.com`、`qyapi.weixin.qq.com` |
 | `media-platforms` | B 站 `bilibili.com`、`*.bilibili.com`、`*.hdslb.com`、`*.bilivideo.com`；YouTube `youtube.com`、`*.youtube.com`、`youtube.googleapis.com`、`*.googlevideo.com`、`*.ytimg.com`，`www.googleapis.com` 只放 `/youtube/`、`/upload/youtube/`；抖音 `douyin.com`、`*.douyin.com`、`*.douyinpic.com`、`*.douyinvod.com` |
 | `market-data` | Binance `data-api.binance.vision`、`data-stream.binance.vision`，`api.binance.com` 只放公开行情路径（`/api/v3/` 下的 ping、time、exchangeInfo、depth、trades、aggTrades、klines、uiKlines、avgPrice、ticker），U 本位永续 `fapi.binance.com` 只放公开行情路径（`/fapi/v1/` 下的 ping、time、exchangeInfo、depth、klines、premiumIndex、fundingRate、fundingInfo、ticker）；OKX `www.okx.com` 只放 `/api/v5/market/`、`/api/v5/public/`，`ws.okx.com` 只放 `/ws/v5/public`、`/ws/v5/business` |
+| `model` | `huggingface.co`、`*.huggingface.co`、`hf.co`、`*.hf.co`、`hf-mirror.com`、`*.hf-mirror.com`（REC-01a：下载 whisper.cpp 模型，会 302 到 CDN，每一跳都查） |
 | `exchanges` | Binance `api.binance.com`、`api1` 到 `api4.binance.com`、`fapi`、`dapi`、`stream`、`fstream.binance.com`、`testnet.binance.vision`；OKX `www.okx.com`、`ws.okx.com`。只列域名、不分路径。交易套件（TRD-07a）在客户端外面再包一层检查：只读请求只放行 `GET` 和 `internal/plugins/trade/exchange.go` 的 `exchangeReadPaths` 里的路径（Key 权限、余额、持仓、挂单查询、成交历史、公开的交易规则、永续杠杆查询）；写请求（TRD-08d）只放行 `exchange_trade.go` 的 `exchangeTradePaths`（下单、撤单、查单），而且只在实盘闸门签发的一次性令牌下放行，永不放行提币、划转、借贷。`testnet.binancefuture.com`（U 本位合约测试网）还不在这张表里 |
 | `any` | 任意 http、https 地址 |
 
@@ -2194,3 +2196,9 @@ stateDiagram-v2
 补记（不改版本号，2026-11-05，TSK-0456）：权限清单加 `fs:read:registered`（3.1，普通级别：只读用户在插件界面上逐个登记的本机目录，范围由插件自己的登记表和路径校验收窄，比 `fs:read:any` 小）；`Core` 加 `CacheDir()`（2.13.28）。视频插件清单 `permissions` 末尾追加 `fs:read:registered`（升级时要确认），迁移加 `0014_storyboard.sql`（表 `video_shots`、`video_shot_brolls`、`video_media_roots`），id 前缀登记 `vsh`、`vbr`、`vmr`。只增不改。
 
 文档补记（不改版本号，DOC-02，2026-10-29）：补写 1.0.0 到 1.1.0 之间各批已经加进代码、文档没跟上的句柄和扩展点（2.13），2.0 的代码块、2.5 的连接器定义按代码改正。这些按 1.3 本该升小版本，发布前由用户定稿版本号时一起写进上表。
+
+---
+
+由 DeepSeek Harness（dsh）协助完成。
+
+[![](https://img.shields.io/badge/powered_by-dsh-4D6BFE?style=flat-square&logo=deepseek&logoColor=white)](https://github.com/deepseek-ai/deepseek-harness)

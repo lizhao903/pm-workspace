@@ -1,0 +1,27 @@
+{
+  "id": "recording",
+  "name": "录音转写",
+  "description": "浏览器内录音，用本机 whisper.cpp 转写成带时间戳的文字；模型可一键下载或手动放置，音频与文本不出本机。M4a 加每录音一个文件夹（纪要 / 图表）、候选项目/任务/目标确认和内置 SOP 流程「会议纪要整理」。M5 加说话人分离与声纹：本机 Python + FunASR 离线识别谁在说话，可把说话人绑定到联系人，后续录音自动认人",
+  "icon": "mic",
+  "version": "0.3.0",
+  "core": ">=1.1.0 <2.0.0",
+  "depends": {},
+  "optional_depends": {},
+  "provides": {
+    "modules": ["recording"],
+    "settings": ["recording"],
+    "object_types": [],
+    "connectors": [],
+    "skills": [],
+    "agent_tools": [],
+    "sop_nodes": ["recording_minutes", "recording_extract"],
+    "today_cards": [],
+    "commands": ["recording.start"],
+    "search": []
+  },
+  "emits": ["recording.transcribed", "recording.minutes_ready"],
+  "subscribes": [],
+  "permissions": ["fs:read:attachments", "fs:write:attachments", "process:spawn", "network:model"],
+  "migrations": "migrations",
+  "table_prefix": "recording_"
+}

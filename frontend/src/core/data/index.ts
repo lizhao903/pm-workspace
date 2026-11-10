@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 数据访问层（CORE-03a）：模块和插件取数、写数据只走这里，不直接调用 core/api（lint 规则拦着）。
 // 这里封装资源级 hook、缓存键和失效规则、统一的错误和加载状态；core/api 只管发请求。
 export { dataKeys, normFilter } from './keys'
@@ -396,3 +398,18 @@ export type {
   BiliAccount, BiliLogin, BiliGuard, BiliSnapshot, BiliTrend, BiliTrendMetric, BiliOverview, BiliSession, BiliMessage, BiliMessageStatus,
   BiliQRCode, BiliPoll, BiliPollState, BiliSessions, BiliMessages,
 } from './videoBili'
+// 录音转写插件 recording（M1 + M4a + M5）
+export {
+  recordingKeys, recordingApi, recordingAudioUrl, recordingFileUrl, recordingLive, recordingPolling,
+  useRecordingList, useRecording, useRecordingFiles, useRecordingSpeakers, useVoiceprints, useRecordingSettings, useRecordingMeta,
+  useCreateRecording, useUploadAudio, useRetranscribe, usePatchRecording, useDeleteRecording,
+  useGenerateMinutes, useStartSop, useConfirmTodo, useIgnoreTodo, useDiarize, useRenameSpeaker, useBindSpeaker,
+  useDeleteVoiceprint, useSaveSettings, useDownloadModel, useDeleteModel,
+} from './recording'
+export type {
+  RecordingStatus, RecordingJobStatus, RecordingJob, Segment, RecordingSummary, Recording, RecordingInput, RecordingPatch,
+  RecordingListFilter, ToolInfo, ModelStatus, ModelInfo, RecordingSettings, RecordingSettingsInput, RecordingMeta,
+  RecordingAction, RecordingProject, RecordingGoal, RecordingQuestion, RecordingFlowNode, RecordingFlowEdge, RecordingFlow,
+  RecordingTreeNode, RecordingTree, RecordingDiagrams, RecordingMinutes, RecordingFile, RecordingFileKind, TodoKind, TodoStatus,
+  RecordingTodo, TodoConfirmInput, RecordingSopResult, RecordingSpeaker, Voiceprint,
+} from './recording'

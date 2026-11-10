@@ -4624,6 +4624,81 @@ BR-01a。插件 `browser`（`internal/plugins/browser`，清单 `plugin.json`，
 
 更新用的是源码目录磁盘上的当前内容（含未提交的改动），不拉远端。任何一步失败都不碰正在跑的二进制，`.new` 删掉。替换时旧程序改名 `<程序>.prev` 留着回退；之后进程收尾（停监听、关库、停插件）再原地 exec 新程序，参数、环境、进程号不变，数据目录和 `vault.key` 跟着不变。重启后内存里的 `job` 没了，前端按 `running.commit` 变没变判断更新成功。同一时间只跑一次。开始更新记一条审计（`kind: config`、`target_type: system`）。
 
+## 录音转写插件 recording
+
+REC-01a 起，本地优先的录音转写：浏览器内录音，音频存数据目录的 `attachments/recording/<id>/`，后台队列用本机 `ffmpeg` 转 16k 单声道 wav、再用本机 `whisper-cli`（whisper.cpp）转写成带时间戳的文本。音频与文本不出本机，唯一联网点是「下载模型」（`network:model`，只放行 HuggingFace 与镜像；也可以手动放模型文件）。插件 `recording`（`internal/plugins/recording`，清单 `plugin.json`，0.3.0），不依赖别的插件，权限 `fs:read:attachments`、`fs:write:attachments`、`process:spawn`、`network:model`。功能模块 key 是 `recording`（页面「录音」），表前缀 `recording_`，迁移 `migrations/0001_recording.sql` 建 `recording_settings`、`recording_recordings`、`recording_segments`、`recording_jobs`、`recording_todos`、`recording_archives`；`0002_minutes.sql`（0.2.0）给 `recording_todos` 加候选字段、设置加纪要 SOP 流程与置信度阈值、建 `recording_flows`（内置流程安装记录）；`0003_voiceprints.sql`（0.3.0）建 `recording_speakers`（每录音说话人/绑定联系人/声纹质心）与 `recording_voiceprints`（联系人声纹），设置加声纹相关 5 项。后台任务 `recording_worker` 常驻（每 2 秒取一条到期的 pending 任务，转写串行），插件停用或进程退出时任务留在库里，下次启用接着跑。插件未安装或停用时本节接口回 `not_found` 404（同「插件路由」）。M1 是录音/转写/编辑/删除/模型管理；**M4a（0.2.0）加**每录音一个文件夹（`attachments/recording/<id>/` 下的 `transcript.md`、`minutes.md`、`minutes.json`、`diagrams/*.mmd`）、纪要生成（本机 Agent，可自动/手动，可经内置 SOP 流程「会议纪要整理」触发）、候选项目/任务/目标（带置信度，高置信度通知推送，确认后建任务并挂项目）、文件列表与下载。**M5（0.3.0）加**说话人分离与声纹：后台用本机 `python3`（需 `pip install funasr`）离线跑 VAD + CAM++ 说话人分离，给转写段落标 `spk_1`、`spk_2` 等；可把某位说话人绑定到联系人（声纹质心存 `recording_voiceprints`），后续录音自动认出同一个人。M3 的导出/归档/搜索还没实现。
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| GET | `/api/recording/meta` | 工具、模型、设置、默认值汇总，见下方 `RecordingMeta` |
+| GET | `/api/recording/recordings?status=&project_id=&q=&limit=&offset=` | `RecordingSummary[]` + `meta.total/limit/offset`，按创建时间倒序；`q` 同时过滤标题和转写文本；`limit` 默认 50、1 到 200 |
+| POST | `/api/recording/recordings` | `{title?, project_id?, model?, language?}`，回 201 + `Recording`；`title` 空时用「录音 年月日 时分」；`model`、`language` 空时取设置默认值 |
+| GET | `/api/recording/recordings/{id}` | `Recording`（含 `segments`），不存在 404 |
+| PATCH | `/api/recording/recordings/{id}` | 只传要改的：`{title?, project_id?, transcript?}`，回 `Recording`；标题空或超 200 字 400 |
+| DELETE | `/api/recording/recordings/{id}` | 删录音、段落、任务记录和音频文件（已建的任务/文档/知识库篇目不删），回 `{ok: true}` |
+| POST | `/api/recording/recordings/{id}/audio` | multipart：`audio` 文件必填，`duration_ms` 可选；保存后排队转写，回 202 + `Recording`；空文件 400，超过 1GB 400 |
+| GET | `/api/recording/recordings/{id}/audio` | 音频流，支持 Range；没有音频或文件不见了 404 |
+| POST | `/api/recording/recordings/{id}/transcribe` | 重新排队转写（失败重试或换模型重跑），回 202 + `Recording`；没有音频 400，已经在排队/转写 409 |
+| GET | `/api/recording/settings` | `RecordingSettings` |
+| PUT | `/api/recording/settings` | 全量设置，回 `RecordingSettings`；校验不过 400 |
+| GET | `/api/recording/models` | `RecordingModel[]` + `meta.total/model_dir` |
+| POST | `/api/recording/models/{name}/download` | 后台下载模型，回 202 + `RecordingModel`；不认识的模型 400，已经下好或正在下载 409，权限未确认 403 |
+| DELETE | `/api/recording/models/{name}` | 删已下载的模型文件，回 `RecordingModel`（status `missing`）；正在下载 409 |
+| POST | `/api/recording/recordings/{id}/minutes` | 重新生成纪要（插件内直连 Agent，不等跑完），回 202 + `Recording`；没有转写全文 400，正在生成 409 |
+| POST | `/api/recording/recordings/{id}/sop` | 发起纪要 SOP：`{flow?}`（空用设置 `minutes_flow`，再空用内置流程 `sop_recording_minutes`），回 202 `{flow, run_id}`；SOP 编排插件没启用 409，流程不存在 400 |
+| GET | `/api/recording/recordings/{id}/files` | 生成的文件清单 `RecordingFile[]` + `meta.total`，现查磁盘 |
+| GET | `/api/recording/recordings/{id}/files/{name}` | 下载一个文件；`name` 只认 `transcript.md`、`minutes.md`、`minutes.json`、`diagrams/flow.mmd`、`diagrams/tree.mmd`，没有或不在白名单 404 |
+| POST | `/api/recording/recordings/{id}/todos/{index}/confirm` | 确认一条候选：项目候选挂项目（`{project_id?}`），任务/目标候选建任务，可覆盖 `{title?, project_id?, owner_id?, priority?, due_at?}`；回 `RecordingTodo`，已确认 409 |
+| POST | `/api/recording/recordings/{id}/todos/{index}/ignore` | 忽略一条候选，回 `RecordingTodo` |
+| POST | `/api/recording/recordings/{id}/diarize` | 重新跑说话人识别（本机 Python sidecar，不等跑完），回 202 + `Recording`；没有音频或还没有转写段落 400，已经在识别 409；本机没装 `funasr` 时任务失败，原因见 `job.last_error` |
+| GET | `/api/recording/recordings/{id}/speakers` | 说话人列表 `RecordingSpeaker[]` + `meta.total`，按 `label` 顺序 |
+| PATCH | `/api/recording/recordings/{id}/speakers/{label}` | 只改显示名：`{name}`，回 `RecordingSpeaker`；名字空或超 40 字 400，没有该 `label` 404 |
+| POST | `/api/recording/recordings/{id}/speakers/{label}/bind` | 绑定联系人并登记声纹：`{contact_id}`，回 `RecordingSpeaker`；联系人不存在 400，没有该 `label` 404（已有声纹会被这次覆盖） |
+| GET | `/api/recording/voiceprints` | 已登记的联系人声纹 `Voiceprint[]` + `meta.total` |
+| DELETE | `/api/recording/voiceprints/{contact_id}` | 删掉某个联系人的声纹，回 `{ok: true}`；没有 404 |
+
+`RecordingSummary`：`{id, title, status, model, language, duration_ms, audio_size, has_audio, has_minutes, project_id, project_title, error, attempts, job, task_count, todos_pending, speaker_count, created_at, updated_at}`。`status` 是 `draft` / `uploaded` / `transcribing` / `transcribed` / `summarizing` / `ready` / `failed`；`job` 是最近一条任务 `{kind, status, progress, attempts, last_error}` 或 `null`，`progress` 0–100；`project_title` 按 `project_id` 现查，查不到空串；`speaker_count` 是识别出的说话人数（没识别 0）。
+
+`Recording`：`RecordingSummary` 的全部字段，再加 `{engine, audio_mime, transcript, segments, minutes, minutes_model, todos, speakers}`。`engine` 现在是 `whisper_local`；`transcript` 是可编辑的全文（段落用换行拼起来）；`segments` 是 `{seq, start_ms, end_ms, text, speaker}[]`，`speaker` 是说话人 `label`（如 `spk_1`，M5 识别后填，没识别空串）；`speakers` 是 `RecordingSpeaker[]`（识别出的说话人列表）；`minutes` 是 `RecordingMinutes` 或 `null`（还没生成）；`todos` 是 `RecordingTodo[]`（`pending/confirmed/ignored` 全列，按 `todo_index`）。
+
+`RecordingSettings`：`{default_engine, model, model_dir, whisper_path, ffmpeg_path, language, threads, default_project_id, minutes_provider, minutes_model, minutes_flow, minutes_threshold, auto_diarize, python_path, voiceprint_model_dir, max_speakers, match_threshold, auto_summarize, retention_mode, updated_at}`。`model` 是 `base` / `small` / `medium` / `large-v3-turbo`，默认 `small`；`model_dir`、`whisper_path`、`ffmpeg_path` 空串表示自动（模型在 `cache/recording/models`，工具先找 PATH 再找 `/opt/homebrew/bin`、`/usr/local/bin`）；`language` 是 whisper 语言码或 `auto`（默认 `zh`）；`threads` 0 表示自动（最多 8）；`minutes_provider` / `minutes_model` 是纪要用的服务商/模型（空串用默认服务商）；`minutes_flow` 是自动生成纪要时发起的 SOP 流程（id 或名称，空串=插件内直连 Agent）；`minutes_threshold` 是「高置信度」阈值 0–1、默认 0.7；`auto_summarize` 是「转写完成后自动生成纪要」；`auto_diarize` 是「转写完成后自动识别说话人」；`python_path` 是跑声纹 sidecar 的 Python（空串=自动找 `python3`）；`voiceprint_model_dir` 是 FunASR 模型目录（空串=ModelScope 默认缓存，首次自动下载约 33MB）；`max_speakers` 是最多识别几个说话人（1–16，默认 8；0 或空设置按默认 8 处理，别的值 400）；`match_threshold` 是声纹匹配阈值 0–1（默认 0.65，余弦相似度 ≥ 阈值算同一个人）；`retention_mode` 是 `keep` 或 `delete_audio_after_ready`（M3 才生效）。
+
+`RecordingModel`：`{name, size, status, progress, downloaded_at, error, path}`。`size` 是已下载文件的字节数（没下载为 0）；`status` 是 `missing` / `downloading` / `ready` / `error`；`downloading` 时 `progress` 0–100，前端轮询 `meta` 或 `models` 取进度；文件大小和官方发布对不上时 `error` 说明原因。
+
+`RecordingMinutes`：`{summary_md, conclusions, actions, projects, goals, questions, diagrams, generated_at, model}`
+
+`RecordingAction`：`{title, detail, owner, due, project, confidence, kind}`
+
+`RecordingProject`：`{name, confidence, reason, project_id, project_title}`
+
+`RecordingGoal`：`{title, confidence, reason}`
+
+`RecordingQuestion`：`{question, why, confidence}`
+
+`RecordingDiagrams`：`{flow, tree}`
+
+`RecordingFlow`：`{title, nodes, edges}`
+
+`RecordingFlowNode`：`{id, label, kind}`
+
+`RecordingFlowEdge`：`{from, to, label}`
+
+`RecordingTree`：`{title, root}`
+
+`RecordingTreeNode`：`{label, children}`
+
+`RecordingFile`：`{name, kind, bytes, updated_at}`
+
+`RecordingTodo`：`{index, kind, title, detail, confidence, status, project_id, project_title, object_id, object_ref, reason, owner_name, due_at, created_at, updated_at}`
+
+`RecordingSpeaker`：`{label, name, contact_id, contact_name, similarity, segments, duration_ms, detected}`
+
+`Voiceprint`：`{contact_id, contact_name, model, source_recording_id, created_at, updated_at}`
+
+口径：`RecordingMinutes` 是结构化纪要（`minutes.json` 同结构），`summary_md` 是 Markdown 摘要；`conclusions` 是字符串数组；`actions` 是待办建议（`kind` 为 `task` 或 `goal`，置信度 0–1）；`projects` 的 `project_id` 是插件按名字匹配到的已有项目，没匹配到空串；`goals` 是工作目标候选；`questions` 是 AI 没把握、留给用户确认的问题；`diagrams.flow` / `diagrams.tree` 是流程图/树形图（`RecordingFlowNode.kind` 为 `start` / `process` / `decision` / `end`，`RecordingTreeNode` 递归 `children`）。`RecordingTodo` 的 `kind` 为 `project` / `task` / `goal`，`status` 为 `pending` / `confirmed` / `ignored`，`object_id` / `object_ref` 是确认后建出来的任务（项目候选为空），`confidence` 0–1，`owner_name` 是 AI 建议的负责人名字。`RecordingFile.name` 是相对录音目录的路径（如 `minutes.md`、`diagrams/flow.mmd`），`kind` 为 `transcript` / `minutes` / `minutes_json` / `diagram_flow` / `diagram_tree`。`RecordingSpeaker` 的 `label` 是稳定标识（`spk_1`…，按首次出现顺序），`name` 是显示名（用户改过用改的，否则联系人名，否则「说话人 N」），`contact_id` / `contact_name` 是绑定或自动匹配到的联系人，`similarity` 是与已登记声纹的最高余弦相似度（0–1，没匹配 0），`segments` 是分到该说话人的转写段落数，`duration_ms` 是说话总时长，`detected` 表示是自动匹配到联系人（不是手动绑定）。`Voiceprint.model` 是声纹模型名（`campplus_cn_common`），`source_recording_id` 是登记这条声纹的录音。
+
+`RecordingMeta`：`{tools, models, settings, model_dir, defaults}`。`tools` 是 `{whisper: {path, version, ok, error}, ffmpeg: {...}}`；`defaults` 是 `{model, language, threads}`（`threads` 是实际生效值）。
+
 ## 约定
 
 - 时间一律 RFC3339 带时区字符串；可空时间用 `null`。

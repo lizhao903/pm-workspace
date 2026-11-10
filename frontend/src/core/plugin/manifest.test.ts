@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 import { describe, expect, it } from 'vitest'
 import {
   EXTENSION_POINTS,
@@ -128,7 +130,7 @@ describe('环境检查', () => {
     const b = mustParse({ ...base, id: 'beta', depends: { gamma: '^1.0.0' } })
     const g = mustParse({ ...base, id: 'gamma', depends: { alpha: '^1.0.0' } })
     expect(checkManifest(a, { plugins: [b, g] }).map(formatIssue)).toEqual([
-      'core 不包含当前插件 API 版本 1.0.0：>=2.0.0',
+      `core 不包含当前插件 API 版本 ${PLUGIN_API_VERSION}：>=2.0.0`,
       'depends 形成循环依赖：alpha -> beta -> gamma -> alpha',
     ])
   })

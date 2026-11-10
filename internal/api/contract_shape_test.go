@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 package api
 
 import (
@@ -26,6 +28,7 @@ import (
 	"github.com/lizhao903/pm-workspace/internal/plugins/etf"
 	"github.com/lizhao903/pm-workspace/internal/plugins/im"
 	"github.com/lizhao903/pm-workspace/internal/plugins/projects"
+	"github.com/lizhao903/pm-workspace/internal/plugins/recording"
 	"github.com/lizhao903/pm-workspace/internal/plugins/sop"
 	"github.com/lizhao903/pm-workspace/internal/plugins/terminal"
 	"github.com/lizhao903/pm-workspace/internal/plugins/trade"
@@ -334,6 +337,29 @@ var contractSpecs = map[string]contractSpec{
 	"BrowserAllowEntry":  {v: browser.AllowEntry{}},
 	"BrowserGoogleState": {v: browser.GoogleState{}},
 	"BrowserGoogleConn":  {v: browser.ConnRef{}},
+
+	// 录音转写插件（REC-01a）
+	"RecordingSummary":  {v: recording.RecordingSummary{}},
+	"RecordingSettings": {v: recording.Settings{}},
+	"RecordingModel":    {v: recording.ModelInfo{}},
+	"RecordingMeta":     {v: recording.MetaView{}},
+
+	// 录音转写插件 M4a（文件/纪要候选）
+	"RecordingMinutes":  {v: recording.RecordingMinutes{}},
+	"RecordingAction":   {v: recording.RecordingAction{}},
+	"RecordingProject":  {v: recording.RecordingProject{}},
+	"RecordingGoal":     {v: recording.RecordingGoal{}},
+	"RecordingQuestion": {v: recording.RecordingQuestion{}},
+	"RecordingDiagrams": {v: recording.RecordingDiagrams{}},
+	"RecordingFlow":     {v: recording.RecordingFlow{}},
+	"RecordingFlowNode": {v: recording.RecordingFlowNode{}},
+	"RecordingFlowEdge": {v: recording.RecordingFlowEdge{}},
+	"RecordingTree":     {v: recording.RecordingTree{}},
+	"RecordingTreeNode": {v: recording.RecordingTreeNode{}},
+	"RecordingFile":     {v: recording.RecordingFile{}},
+	"RecordingTodo":     {v: recording.RecordingTodo{}},
+	"RecordingSpeaker":  {v: recording.RecordingSpeaker{}},
+	"Voiceprint":        {v: recording.Voiceprint{}},
 }
 
 // docShape 是从文档里抽出来的一个对象：字段名和（如果有）字段的嵌套对象。

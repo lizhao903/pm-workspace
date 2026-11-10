@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // Command pmw 是产品工作台的单二进制入口：一个进程同时提供 API 与前端静态资源。
 package main
 
@@ -36,6 +38,7 @@ import (
 	"github.com/lizhao903/pm-workspace/internal/plugins/etf"
 	"github.com/lizhao903/pm-workspace/internal/plugins/im"
 	"github.com/lizhao903/pm-workspace/internal/plugins/projects"
+	"github.com/lizhao903/pm-workspace/internal/plugins/recording"
 	"github.com/lizhao903/pm-workspace/internal/plugins/sop"
 	"github.com/lizhao903/pm-workspace/internal/plugins/terminal"
 	"github.com/lizhao903/pm-workspace/internal/plugins/trade"
@@ -246,6 +249,10 @@ func run(cfg config) error {
 	}
 	// 内置浏览器插件（BR-01a）：标签页、地址白名单；Google 账号用 Google Drive 连接器实例
 	if err := plugins.Add(browser.New()); err != nil {
+		return fmt.Errorf("登记插件失败: %w", err)
+	}
+	// 录音转写插件（REC-01a）：浏览器录音、本机 whisper.cpp 转写、模型下载
+	if err := plugins.Add(recording.New()); err != nil {
 		return fmt.Errorf("登记插件失败: %w", err)
 	}
 	if err := plugins.Start(ctx); err != nil {
