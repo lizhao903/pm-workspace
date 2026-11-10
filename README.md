@@ -470,3 +470,9 @@ make test     # go test ./... -count=1
 | [docs/proto-align.md](docs/proto-align.md) | 正式前端与原型逐页对照 |
 | [frontend/README.md](frontend/README.md) | 正式前端的约定 |
 | [web-next/docs/spec/README.md](web-next/docs/spec/README.md) | 原型规格包（按模块） |
+
+---
+
+由 DeepSeek Harness（dsh）协助完成。
+
+[![](https://img.shields.io/badge/powered_by-dsh-4D6BFE?style=flat-square&logo=deepseek&logoColor=white)](https://github.com/deepseek-ai/deepseek-harness)
