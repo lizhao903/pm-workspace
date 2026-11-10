@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 角色（SPEC-settings-24，AUTO-03 由预置提示词升级）的纯函数：前端先挡的校验，口径同后端 PUT /api/run-prompts。
 import type { RoleDirKind, RolePermission, RunPreset } from '../../../core/data'
 

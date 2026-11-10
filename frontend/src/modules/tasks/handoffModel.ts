@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 交给 Claude Code（DEV-09）的纯函数：默认工作目录、请求体、运行中的那条；两种方式（0048）的文案和终端执行的善后。
 import {
   runFinished, type AgentProvider, type RunMode, type RunnerProblem, type RunnerStatus, type RunPermissions, type RunPreset, type RunRequest, type RunWriteProfile,

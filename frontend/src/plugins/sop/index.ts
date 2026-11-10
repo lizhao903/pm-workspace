@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // SOP 编排插件（SOP-04b 起）：清单在后端 internal/plugins/sop/plugin.json，这里只有入口。
 // 执行状态变化靠事件流：sop.run_status_changed、sop.step_status_changed 报 sop-run，一批事件合成一次刷新；停用插件时退订
 import { lazy } from 'react'

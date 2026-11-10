@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 内置图标：项目、工作台这些标志没传图片时可以直接挑一个，用作默认
 // 统一 24 宽高、2 像素描边、圆头；在 Mark 里画成白色，压在底色上
 

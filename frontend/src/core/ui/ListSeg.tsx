@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 import { cls } from './cls'
 import { IconChevronRight } from './icons'
 

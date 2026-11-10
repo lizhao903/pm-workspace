@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // TSK-0498 前端：条件是一句话的提前发现（流程库「需修复」、流程详情修复提示）与失败面板换按钮。
 // 接口口径（与后端并行）：流程列表 / 详情每项带 issues（code=rule_text）；执行步骤带 error_code=rule_text。
 // 固定文案必须与后端逐字一致，这里把全文抄下来断言，改动文案时测试会先红。

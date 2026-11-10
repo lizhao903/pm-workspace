@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 消息附件（IM-04b）：获取到本地、读内容的地址、加进项目资料、项目里选了「不加入」的记录。
 // 契约见 docs/api-contract.md「IM 消息插件 im」的「附件获取」（IM-04a）。插件之间不能互调，加进资料由这里组合两次请求：
 // 文件、图片还没获取的先 POST .../fetch，再 POST /api/projects/{id}/materials（value 填 local，链接填 url，打「消息附件」标签）。

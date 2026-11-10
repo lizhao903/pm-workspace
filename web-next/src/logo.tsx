@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 「一人之下」的标志：上面一横是「一」，下面一个「人」；和 public/logo.svg 是同一个图形
 export function AppLogo({ size = 30 }: { size?: number }) {
   return (

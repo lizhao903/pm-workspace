@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 视频列表（SPEC-videos-1、2）：全部视频按系列分组，有搜索或筛选时换成平铺表；待我处理、单集、某个系列都是平铺表。
 // 阶段分布条按阶段筛；项目筛选可搜索；平铺表可按集数或更新排序。
 // 系列详情（SPEC-videos-6，VID-01d）：共用部分、待同步的集、加入已有视频、编排集数（失焦或回车才改，重复的标红）、系列设置

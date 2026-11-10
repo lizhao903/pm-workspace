@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 package main
 
 // 项目档案（AUTO-04）的只读工具：分类 Agent 拿它判断一条需求属于哪个项目，pipeline 拿它找目录和命令。

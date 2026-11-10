@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 package im
 
 // 串里的回复（0010）：Slack 在串里回复、没勾「同时发送到频道」的消息不在 conversations.history 里，

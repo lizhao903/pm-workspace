@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 项目详情的「商单」标签（SPEC-videos-16.1 到 16.3、16.15，照原型 web-next/src/videodeals.tsx 的 DealsTab）。
 // 经 core/plugin 的 projectTabs 登记，项目插件只负责摆标签。抽屉用查询参数：?deal=<id> 打开一单（今日卡片跳过来也是它），
 // ?new=1 新建，带 &message=<IM 消息 id> 时按这条消息预填询价人、品牌（IM 消息抽屉「转为商单」跳过来，VID-08e）。

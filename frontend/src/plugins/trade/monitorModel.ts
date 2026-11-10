@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 盯盘页的纯函数：条件表、适用性、当前值格式、规则筛选、触发记录分段、市场时段、抽屉草稿。
 // 交互照原型 web-next/src/monitor.tsx，规格 web-next/docs/spec/monitor.md。判定只在后端，这里不判定。
 import type { TradeAlert, TradeAlertCond, TradeAlertInput, TradeAlertNotify, TradeInstrument, TradeKind, TradeMarket } from '../../core/data'

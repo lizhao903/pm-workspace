@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 设置里的「运行异常」（INC-01b），照原型 web-next/src/incidents.tsx IncidentsPage（SPEC-settings-18）：
 // 按状态、级别、模块筛，同模块同指纹前缀到 5 条合并成一行，点行开抽屉（SPEC-settings-19）。
 // 顶栏右边是「自动巡检」：有没有动作为「运行异常巡检」的定时任务，没有时一键按默认建一条。

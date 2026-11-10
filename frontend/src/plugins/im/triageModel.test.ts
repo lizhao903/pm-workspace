@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 import { describe, expect, it } from 'vitest'
 import type { ImMessage, SopInputRun } from '../../core/data'
 import { alreadyRun, focusText, latestByMessage, messageBrief, queueSplit, QUEUE_RECENT, retryStep, triageNote, triageTag, triageTargets, waitFor } from './triageModel'

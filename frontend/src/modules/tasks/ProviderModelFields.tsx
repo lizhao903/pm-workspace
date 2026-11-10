@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 交给执行弹窗里的「服务商」「模型」两格（TSK-0460 起交给工作台 Agent 用，TSK-0722 交给 DeepSeek 共用）：
 // 服务商一个下拉（第一项是「按 … 设置 / 默认」），模型可手填，候选是这个服务商设置的、手录的和测出来的模型。
 // 只改这一次用的，不改 Agent 和服务商的设置。

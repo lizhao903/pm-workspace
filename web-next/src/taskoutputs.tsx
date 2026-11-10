@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 任务产出物一览（TSK-0497，SPEC-tasks-12）：任务列表、看板卡片上的「产出 3 · 提交 2 文档 1」，
 // 和任务模块二级菜单「视图」组里的「产出物」：按任务汇总，展开看每一件，「在任务里看」打开抽屉的开发任务标签。
 // 正式产品的数据来自 GET /api/artifacts/by-object，种类按后端的 display_kind；原型的产出物没有 kind 列，

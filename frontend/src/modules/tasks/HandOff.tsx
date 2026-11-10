@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 交给 Claude Code（DEV-09，照原型 devloop.tsx 的 RunDialog 和 quicksession.tsx 的弹窗样式）。
 // 弹窗里选执行方式（0048）、工作目录、附加说明，能展开看将要发出的提示词。
 // 流式执行：只读或允许写入（勾「允许写入」先二次确认），走 runLive.startRun，输出在执行记录里流式显示。

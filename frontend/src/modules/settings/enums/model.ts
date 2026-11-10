@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 枚举值的草稿模型（SPEC-settings-17），照原型 web-next/src/enumdata.ts、enums.tsx。
 // 后端的字典没有所属模块、默认值、系统值这几个字段：模块和系统值按字典 id 在这里登记，默认值存在条目的 meta.default（任务新建已经在读它）。
 // 任务状态（object_types.statuses）和文档分类（categories）不在字典表里，换成同样的组在这里一起编辑（PR-13）。

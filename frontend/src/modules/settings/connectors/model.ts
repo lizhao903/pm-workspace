@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 连接器抽屉的草稿和请求体（纯函数，单元测试盯着）。
 // 凭证三态：输入框空着就不带（不改），清掉走单独的确认（传空串），填了才覆盖；界面上只显示后端给的 secret_hints。
 // 工具授权的改动先记在草稿里（只记和后端不同的），保存时一次 PATCH /tools。

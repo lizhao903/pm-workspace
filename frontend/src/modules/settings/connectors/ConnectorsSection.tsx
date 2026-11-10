@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 设置里的「连接器」分节（CONN-01d），照原型 web-next/src/connectors.tsx ConnectorsSettings（SPEC-settings-3）。
 // 可以接哪些工具由后端定义列表决定，按分类分组；同一工具可以接多个（CONN-04），右上「添加连接器」打开按分类的目录。
 // 和原型不同的地方（后端决定的）：

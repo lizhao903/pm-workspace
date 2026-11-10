@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 import { describe, expect, it } from 'vitest'
 import type { ImMessage } from '../../core/data'
 import { clusterMessages, countLabel, loadedPicks, nestThreads, pickState, selectAllState, previewText, rowTime, threadBadge, threadBadgeLabel, threadForMany, threadForTask, threadHint, threadOf, threadTaskBody, THREAD_TASK_MAX, toggleRow, toRows } from './groupModel'

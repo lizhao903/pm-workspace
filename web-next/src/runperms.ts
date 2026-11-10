@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 import { useSyncExternalStore } from 'react'
 
 // 后台执行的权限（TSK-0499，SPEC-settings-26）：交给 Claude Code 流式执行（claude -p，没人值守）时放行什么。

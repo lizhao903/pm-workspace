@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // Webhook（TASK-02a、TASK-02b、TASK-04b）：配置、密钥轮换、投递记录、往收件地址推一次。契约见 docs/api-contract.md「Webhook 配置 webhooks」。
 // 密钥明文只在新建、轮换由服务端生成的那一次响应里有（secret 字段），之后只剩 secret_hint。
 import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query'

@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 package api
 
 // 会话里换模型（TSK-0720）：PATCH /api/agent/sessions/{id} 带 provider_id / model / model_override 时走这里。

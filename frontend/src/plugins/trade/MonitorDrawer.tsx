@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 提醒抽屉（SPEC-monitor-3）：新建和编辑共用。条件按标的品种过滤，当前值由后端现算（/alerts/preview），保存失败抽屉不关、底部显示原因。
 import { useMemo, useState } from 'react'
 import {

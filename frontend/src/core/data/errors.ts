@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 统一的错误提示（CORE-03a）：接口层抛的 ApiError、StreamError 和普通 Error 都在这里转成给人看的一句话。
 import { isApiError, isStreamError, type ApiErrorCode } from '../api'
 

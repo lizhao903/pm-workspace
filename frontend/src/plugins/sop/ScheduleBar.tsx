@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 流程的定时一行（TSK-0463，SPEC-sop-2.12、SPEC-sop-5.18）：规则、下次执行、启停开关；在定时任务页删掉后显示「定时，未配置」。
 // 开关改的是随流程管理的那条定时任务（PATCH /api/schedules/{id}），和定时任务页同一条
 import { useState } from 'react'

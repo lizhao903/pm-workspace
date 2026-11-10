@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 运行页（SPEC-sop-7）：上方流程图标出每步状态，下方检查器看选中步骤的输入、输出、日志，做八种动作。
 // 状态变化靠事件流刷新（插件入口订阅 sop.* 事件报 sop-run）；动作的响应先写回缓存。没手动点过步骤时检查器跟着 focusIndex 走。
 import { useEffect, useState } from 'react'

@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { MuteButton, MutesDrawer, muteReasonOf, useMutes } from './mutes'
 import { PageTitle } from './topbar'

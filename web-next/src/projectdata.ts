@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 项目：把一个产品相关的东西归到一起——本地项目目录、支持材料、产品文档、产品原型、关联目录、项目 Agent
 // 原型的启停是模拟的：不真的起进程，只按端口占用规则走「启动中 → 运行中 / 失败」，日志是编出来的
 import { seedProtoSync, type ProtoSyncInfo } from './protosyncdata'

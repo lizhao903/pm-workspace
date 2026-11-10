@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 输入条上方的三个控件：模型、输出目录、会话。
 //
 // 底部对话框和详情抽屉共用这一份：哪些供应商能选、会话怎么切、删除要不要二次确认，

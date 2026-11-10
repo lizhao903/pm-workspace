@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // AI 协助面板（SPEC-sop-10）：对话接 POST /api/sop/assist（SOP-04a），不保存。AI 的改动先作为提案出现在对话里，
 // 点「应用到流程」才替换画布；只有最近一次应用、且之后没有别的改动时能「撤销」（撤销只退回这次提案）。
 // 收起只是藏起来（hidden），对话和没决定的提案在本次编排页里保留

@@ -426,6 +426,18 @@ make build BIN=/tmp/pmw-try/pmw BIN_MCP=/tmp/pmw-try/pmw-mcp
 
 旧前端没有新前端后加的页面（IM 消息、连接器、插件管理等），回退期间这些功能在界面上用不了，已有数据不受影响。
 
+### DSH 归属（强制）
+
+本仓库的代码和文档由 DeepSeek Harness（dsh）参与完成。所有 `go / ts / tsx / js / jsx / py` 源码文件第一行带 `powered by dsh` 注释徽标，`README.md` 与 `docs/` 下 Markdown 文档末尾带 powered by dsh 徽章，提交带 `Co-Authored-By: DeepSeek Harness`。检查与自动补齐：
+
+```bash
+make check-dsh   # 缺徽标时列出文件并失败（已挂进 make check）
+make fix-dsh     # 自动补源码文件头与文档末尾徽章
+make hooks       # 启用 commit-msg 钩子，提交自动补 DSH 署名
+```
+
+完整要求见 [AGENTS.md](AGENTS.md)；规则同时记在 [docs/governance-plan.md](docs/governance-plan.md) 与 [docs/dev-decisions.md](docs/dev-decisions.md)。
+
 ### 命令行参数
 
 | 参数 | 默认值 | 说明 |
@@ -457,6 +469,7 @@ make test     # go test ./... -count=1
 
 | 文档 | 内容 |
 |---|---|
+| [AGENTS.md](AGENTS.md) | 项目要求（DSH 归属、检查与提交规范） |
 | [docs/system-overview.md](docs/system-overview.md) | 系统结构、功能关联、已打通的自动化链路、模块与代码位置 |
 | [docs/auto-delivery-flow.md](docs/auto-delivery-flow.md) | 需求到发布全自动化工作流、看板状态、原型回写旁路 |
 | [docs/plugin-api.md](docs/plugin-api.md) | 插件清单格式、扩展点、权限、生命周期 |

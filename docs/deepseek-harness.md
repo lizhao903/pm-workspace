@@ -183,3 +183,9 @@ DSH_BIN=~/.local/share/pmw-dsh/node_modules/.bin/dsh go test ./internal/runner -
 已实测（0.2.1-rc.5）：工具往返事件解析、`--session-id` 续跑、沙箱不可用归类、失败原因取自
 `turn_end`。0.2.2-rc.1 补测（TSK-0722）：`workspace-write` 下真实写入能写进工作目录（`TestSmokeRealDSHWorkspaceWrite`），只读档写不进；
 这台机器上 `sandbox-exec` 可用，0.2.1 时被拒绝的情况没再出现。
+
+---
+
+由 DeepSeek Harness（dsh）协助完成。
+
+[![](https://img.shields.io/badge/powered_by-dsh-4D6BFE?style=flat-square&logo=deepseek&logoColor=white)](https://github.com/deepseek-ai/deepseek-harness)

@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 命令面板「任务」组（A-01）：后端 q 搜标题、正文、编号；回车去任务页打开抽屉（?t=<id>）
 import { fetchObjects, type WorkObject } from '../../core/data'
 import type { CommandDef } from '../../core/plugin'

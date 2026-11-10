@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 import { Fragment, useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { Subnav } from './subnav'
 import { PageTitle } from './topbar'

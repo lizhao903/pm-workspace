@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 连接器的平台图标（TSK-0725）：随前端打包的静态 SVG，运行时不访问外网。
 // 来源、版本与授权见同目录 README.md；新增图标时同时改 README 和这里的清单（index.test.ts 核对两边一致）。
 // 键名就是连接器定义的 logo（后端 internal/connector/logo.go）和按地址识别出的平台（core/data/connectorLogo.ts）。

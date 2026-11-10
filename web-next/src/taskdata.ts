@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 任务：三种来源
 //   人工创建
 //   IM 消息转任务：记下原消息，任务里能回看；消息那边显示「已转任务」

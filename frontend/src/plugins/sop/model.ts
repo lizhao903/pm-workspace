@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // SOP 插件的纯函数：状态和节点类型的显示、流程图分列、执行列表的筛选排序和进度文字。口径照原型 web-next/src/sopflow.ts、sop.tsx。
 // 运行状态由后端算好给（SopRun.status），这里不重算；节点是不是分支节点从 GET /api/sop/node-types 读，名字在前端
 import { SOP_FOLDER_NAME_MAX, SOP_FOLDER_RESERVED, isSopHeld, isSopProviderWait, sopRunShow, type SopFlow, type SopFolder, type SopJson, type SopNodeType, type SopRun, type SopRunBrief, type SopRunShow, type SopRunStatus, type SopRunStep, type SopStepDef, type SopStepStatus } from '../../core/data'

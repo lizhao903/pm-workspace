@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // Package domains 是「内网域名」插件的后端（DOM-01a）：接现有 bro.vip 方案（docs/local-domain.md），
 // 只读检测 hosts、pf 转发、本地证书的状态（status.go），生成 hosts 片段、pf anchor、Caddy、Nginx 配置和
 // 要用户自己执行的 sudo 命令（config.go）。插件不写任何系统文件、不执行 sudo。

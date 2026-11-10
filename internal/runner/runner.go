@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // Package runner 把一个工作对象交给本机的 claude CLI 去执行。
 //
 // 它只做四件事：拼提示词、起进程、把 stream-json 翻成界面能用的事件、

@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 群组管理（IM 插件 0.15.0）的纯逻辑：显示名、筛选、勾选、按群名关键字建议项目、批量请求的切分。
 // 数据来自 GET /api/im/conversations/summary（core/data/imGroups.ts），每行一个会话（群或私聊）。
 import type { ImConvProjectBatchInput, ImConvProjectBatchResult, ImConversationSummary, ImNameRefillResult } from '../../core/data'

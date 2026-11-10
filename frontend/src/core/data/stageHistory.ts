@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 任务阶段的全集和阶段变化历史（AUTO-05 阶段、AUTO-12 流水线时间线）。
 // 阶段全集同后端 domain.TaskStages（GET /api/task-stages）；历史取审计 kind=stage（契约「任务阶段与提出人」：
 // 每次阶段变化记一条审计 action=stage_change，detail 带 from、to）。键挂在对象前缀下，任务一改跟着刷。

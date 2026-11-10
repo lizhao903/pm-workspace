@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 文件夹选择器。
 //
 // 浏览器拿不到本地绝对路径——File System Access API 只给 handle，webkitdirectory 只给相对名——

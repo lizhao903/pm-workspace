@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 package connector
 
 // 自定义连接器（CONN-04）共用的部分：认证字段、出网限制、带认证的 HTTP 客户端。

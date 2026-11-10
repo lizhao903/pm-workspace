@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 编排页的纯函数（SPEC-sop-8 到 11）：节点目录、草稿增删改、连线、自动排版、保存前检查。照原型 web-next/src/sopedit.tsx。
 // 节点有哪些、是不是分支节点、哪些配置项必填按 GET /api/sop/node-types（目录 Catalog），展示在 nodes.tsx。
 // 保存前的检查是原型 checkSop 那一套（错误拦保存、建议只提示）；后端另查的（key 唯一、依赖无环、分支 case 存在）

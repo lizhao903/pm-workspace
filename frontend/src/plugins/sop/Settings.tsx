@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 设置 > 插件 > SOP 编排（SOP-07、AUTO-12）。
 // 执行并发：同时调模型的步骤数。整个插件跨所有执行算，ai、提取、分类、逐项处理、Agent 节点占名额；
 // 多出来的步骤排队（仍是执行中，运行页显示「排队中」），改了立即生效：调大马上放排队的进来，调小时在跑的不打断。

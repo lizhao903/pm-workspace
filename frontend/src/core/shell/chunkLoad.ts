@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 页面分包的懒加载带重试（TSK-0390 等 6 条）。
 // 分包没取到时先看服务是不是换了新版本：换了就刷新一次（同一版本只刷一次，见 staleBuild）；
 // 没换（服务正在重启、网络抖了一下）就退避后再取，重试成功就当没发生过，不上报。

@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 持仓（SPEC-trading-3）、委托（SPEC-trading-4）。现价、盈亏、强平价、保证金全部来自后端，前端不撮合、不算账。
 // 平仓走 POST /positions/{id}/close，挂止损是一笔仅减仓的止损单，都经统一下单入口：被风控拦下或要二次确认时就地显示。
 // 持仓只有模拟盘的（实盘持仓在交易账户的「交易所数据」里看、平仓）；委托里有实盘委托（TRD-08d，live）：标「实盘」，

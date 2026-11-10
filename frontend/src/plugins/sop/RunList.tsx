@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 执行记录和待我处理（SPEC-sop-3、SPEC-sop-4）：同一个页面，只差过滤条件、标题、说明和有没有状态分段按钮。
 // 按开始日期分段，每段先显示 30 条，点一次多 100 条，改筛选或搜索后回到 30 条。照原型 sop.tsx RunList
 // 「失败」分段能多选批量重跑（rerun.ts、RerunDialog）：每行一个勾选框，表头勾选框和底部「全选当前筛选结果」最多选 200 条；

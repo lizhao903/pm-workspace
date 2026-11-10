@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 交易页（TRD-05c、TRD-06b、TRD-07b、TRD-08c，SPEC-trading-1 到 12）：二级菜单 + 总览、持仓、委托、策略运行、交易账户、风控、交易设置；
 // 熔断条、一键全停、下单抽屉、部署抽屉、新增账户抽屉、对账抽屉、交易所数据抽屉、证据抽屉。
 // 交互照原型 web-next/src/trading.tsx。撮合、估值、风控、部署信号都在后端（TRD-05a、05b、06a），这里只发请求和显示。

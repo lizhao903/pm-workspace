@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 任务抽屉的执行记录（DEV-08c，SPEC-tasks-5.12 到 5.17）：列表、展开看完整输出、取消运行中的执行。
 // 每条标方式（0048）：流式的照旧；终端的进程不归工作台管，结论由终端里的 Claude Code 经 MCP 回写，
 // 进行中时给一个「标记结束」兜底（选完成、失败或取消，写一句结论）。

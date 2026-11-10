@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 联系人列表和抽屉共用的小件：星标、分组标签、IM 渠道徽标、复制按钮、换头像
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import { Pill, cls } from '../../core/ui'

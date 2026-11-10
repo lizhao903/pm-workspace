@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // Package idgen 生成时间有序的短 ID（毫秒时间戳 + 随机位，base32 小写），零依赖且可排序。
 package idgen
 

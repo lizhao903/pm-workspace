@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 联系人抽屉的表单态（SPEC-contacts-3）：新建和编辑共用，含 IM 身份编辑。
 // 资料先存，再按渠道比出身份的增删改；撞名 409 要求加区分（CT-01a），编号已属于别人时先提示，存不上的渠道列在底部。
 import { useState, type KeyboardEvent } from 'react'

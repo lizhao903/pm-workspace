@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 视频详情的设置（SPEC-videos-13）：标题、所属项目、系列和集数、章节数、视频目录边输边存（停手 600 毫秒存一次，失焦立刻存），
 // 画面比例只读，删除视频要确认。输入框用本地草稿，存回来不覆盖正在输的内容。计划首发日（VID-06d）选了就存，排内容日历、算进度落后用
 import { useEffect, useRef, useState } from 'react'

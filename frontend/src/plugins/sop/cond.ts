@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 结构化条件（TSK-0490，契约「结构化条件」）：条件分支、条件回退的条件存成「字段 + 运算符 + 值」的结构，可多条且 / 或。
 // 不做自然语言转规则：旧的一行规则只为已有流程保留，写法对得上的（「字段 等于 值」）能一键换成等价的结构化条件；
 // 写成一句话的执行不了，只能把话挪进说明、重新挑字段。口径同后端 internal/plugins/sop/cond.go。

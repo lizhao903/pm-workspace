@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 任务标签（SPEC-projects-7）：按 project_id 列出这个项目的任务。任务抽屉和待验收确认经 core/plugin 的「打开对象」
 // 拿任务模块登记的那一份，插件不 import 任务模块；在这里新建的任务预填所属项目。
 // 每行带产出物件数（TSK-0497）：这个项目下任务的产出汇总一次取全（/api/artifacts/by-object），点任务进抽屉看明细。

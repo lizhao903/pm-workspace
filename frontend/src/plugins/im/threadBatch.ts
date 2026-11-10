@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 原消息抽屉「消息列回复」一节的批量处理（SPEC-messages-2.51）：整列处理、勾选批量、连原消息一起。
 // 只有还没处理的（待处理、已过期）能勾、能算进「全部」；后端只改待处理的（含已过期、稍后），别的跳过，跳过数 = 送去的 - 改了的。
 import type { ImMessage } from '../../core/data'

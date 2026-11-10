@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 import { useMemo, useState, type ReactNode } from 'react'
 import type { Agent, Session } from './agentdata'
 import { AgentAvatar } from './agents'

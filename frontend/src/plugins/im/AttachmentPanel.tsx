@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 消息抽屉里的附件面板（SPEC-messages-3，IM-04b）：文件、图片获取到本地，挑项目加进支持材料；链接不用获取，直接能加。
 // 照原型 web-next/src/attachments.tsx AttachmentPanel。文件、图片点「预览」在弹窗里看（AttachmentPreview，SPEC-messages-3.16），已获取的图片带缩略图。
 //项目和资料经 core/data 读（不 import 项目插件）；项目插件没在跑时只能获取，不能加。

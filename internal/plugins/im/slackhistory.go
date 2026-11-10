@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 package im
 
 // Slack 的补全消息（TSK-0724，history.go）：按会话从新往旧翻 conversations.history（latest 往前挪，oldest 是范围起点），

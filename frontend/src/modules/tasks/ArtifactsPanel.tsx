@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 任务抽屉的产出物（DEV-08b，SPEC-tasks-5）：按提交、分支、PR、文件分组，有链接的新窗口打开，
 // 只有本机路径的显示相对路径、可复制绝对路径；可以手工登记一条（来源记成 manual）。
 import { useEffect, useRef, useState, type ReactNode } from 'react'

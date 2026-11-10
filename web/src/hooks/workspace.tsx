@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 工作台全局状态。所有组件通过 useWorkspace() 消费，禁止组件内自行 fetch。
 import {
   createContext, useCallback, useContext, useEffect, useMemo, useRef, useState,

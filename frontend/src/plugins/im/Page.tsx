@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // IM 消息页（SPEC-messages-1）：收件箱，按时间倒序、按天分段，行内能直接处理。照原型 web-next/src/messages.tsx MessagesPage。
 // 打开的消息记在地址 ?m=<id>，刷新、从别的模块跳过来都能直接打开；处理状态都在后端，刷新后保持。
 // 转任务：先确认标题，再由后端建任务，然后打开任务模块登记的任务抽屉（经 core/plugin 的「打开对象」，不 import 任务模块）。

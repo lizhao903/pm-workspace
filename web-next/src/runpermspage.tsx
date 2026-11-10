@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 设置「执行权限」（TSK-0499，SPEC-settings-26）：勾「允许写入」时默认的写入档位、自定义白名单，以及每一档实际放行的规则。
 // 原型只放内存（runperms.ts）；正式产品 frontend/src/modules/settings/runperms/RunPermsSection.tsx，接口 GET / PUT /api/run-permissions。
 // 执行记录被拒时的「去设置放行」带着规则过来（pending）：预填进白名单、档位切到自定义，确认后保存。

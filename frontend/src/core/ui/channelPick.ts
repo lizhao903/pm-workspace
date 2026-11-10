@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 「监听频道」的列表选择（纯函数，单元测试盯着）。值仍是一段文本：逗号、顿号、空白分隔，每项是会话编号或名字，# 可带可不带，
 // 拆法同后端 internal/plugins/im/slack.go 的 splitChannels。勾选新增的写编号（改名也不丢）；
 // 旧值里的 #名字 不主动改写，只要能按名字对上列表就显示成已选，取消勾选时一起去掉。

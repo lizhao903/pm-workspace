@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 执行器状态与 DeepSeek 集成检查（TSK-0722）。分派弹窗和设置「执行器」页用同一份。
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { runners, type RunnerSmoke, type RunnerSmokeInput, type RunnerStatus } from '../api'

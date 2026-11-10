@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 package connector
 
 // Slack 连接器（IM-01b）：Slack App 的 Bot Token（xoxb-）方式。定义由 IM 插件登记（tool 和渠道都是 slack），

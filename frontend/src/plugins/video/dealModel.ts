@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 商单（VID-08d）的纯函数：状态、账期提示、金额、草稿和改动，照原型 web-next/src/videodata.ts、videodeals.tsx。
 // 状态流转的校验以后端为准（丢单要原因、已收款不能丢单），这里只做提交前的提示
 import { localDay, type VideoDeal, type VideoDealCurrency, type VideoDealInput, type VideoDealStatus, type VideoPlatform } from '../../core/data'

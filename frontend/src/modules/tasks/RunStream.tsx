@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 流式输出（DEV-08c，DEV-09 复用）：正文连续拼成段落，工具调用和结果按 id 配成一张卡片。
 // 工作台 Agent 的执行（TSK-0460）另有确认卡片：在等的时候给「确认」「拒绝」两个按钮（onDecide 给了才有）。
 import { useLayoutEffect, useMemo, useRef } from 'react'

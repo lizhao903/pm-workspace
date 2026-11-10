@@ -82,3 +82,9 @@ graph LR
 需要新表的只有：`specs` / `spec_versions` / `decisions` / `change_requests`。其余都是数据配置。
 
 **这验证了 M1 的架构选择是对的**：单表多态 + 分类树 + 万物关联 + 字段级修订，四件事撑得起后面所有 PM 场景。
+
+---
+
+由 DeepSeek Harness（dsh）协助完成。
+
+[![](https://img.shields.io/badge/powered_by-dsh-4D6BFE?style=flat-square&logo=deepseek&logoColor=white)](https://github.com/deepseek-ai/deepseek-harness)

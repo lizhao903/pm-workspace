@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 各资源的请求函数，一个接口一个函数，路径和参数照 docs/api-contract.md。
 // 不做缓存（在 core/data），也不做 SSE（在 sse.ts）。
 

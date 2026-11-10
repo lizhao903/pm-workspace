@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // SSE 流式响应：/api/objects/{id}/run 和 /api/agent/chat。
 // 两个都是 POST 带 body，EventSource 只能 GET，所以用 fetch + ReadableStream 自己按空行切块。
 // 后端每条事件只写一行 `data: <json>`，类型在 JSON 的 type 字段里，不用 SSE 的 event: 行。

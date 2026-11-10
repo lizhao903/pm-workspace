@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 视频阶段执行器（VID-03c，接口是 VID-03b）。契约见 docs/api-contract.md「视频创作插件 video」的「阶段执行器」。
 // 配、删、跑都回整个 Video（看 runners、last_run），写进单个视频的缓存再刷整个 video 前缀。
 // 跑起来以后后端异步收尾：在跑的时候轮询这一个视频，跑完再刷一次前缀，产出物、列表跟着更新。

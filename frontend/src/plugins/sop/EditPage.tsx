@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 编排页的取数（SPEC-sop-8）：节点目录、要编辑的流程、子流程 / Agent / 知识库 / 文档分类 / 模型服务商 / 项目的下拉选项、触发方式，都回来了才渲染编辑器。
 // 触发方式：字典里有 sop_trigger 就用，没有就用内置的三种（手动、IM 消息、定时），都存 key；旧流程存的文字照原样列出（NodePanel）。
 // 定时只有一项（TSK-0463）：字典里旧的 daily、weekly、cron 不列，没有 schedule 时补一项「定时」，不会出现两个定时；时间规则在开始节点里配。

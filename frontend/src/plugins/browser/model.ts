@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 内置浏览器的纯函数（SPEC-browser-0 到 3）：地址转换、标签种类、标题、标签的增删改和前进后退、和后端记录互转。
 // 不发请求，store.ts 调它们。Drive 地址按普通网页处理（BR-01b 决策：真实 Drive 列表等连接器工具能调用后再做）
 import { PROTOTYPE_STATUS, prototypeUp, type BrowserTabKind, type BrowserTabRecord, type TerminalPrototype } from '../../core/data'

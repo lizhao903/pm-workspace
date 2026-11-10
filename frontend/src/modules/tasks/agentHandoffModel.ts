@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 交给工作台 Agent（TSK-0460，SPEC-tasks-6.20 起）的纯函数：默认 Agent、默认服务商和模型、能不能续跑、请求体。
 import type { Agent, AgentProvider, AgentScenario, RunRequest, TaskRun } from '../../core/data'
 

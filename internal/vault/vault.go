@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // Package vault 是凭证保险箱：连接器配置、API Key、Webhook 密钥等用 AES-256-GCM 加密后入库，
 // 对外只给脱敏提示。明文只有 Resolve 能取，它不经 HTTP 暴露，只给后端内部（连接器、模型调用）用。
 package vault

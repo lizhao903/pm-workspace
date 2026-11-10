@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 设置「执行器」（TSK-0722）的纯函数：状态文字、检查项的标记、时间。
 import type { RunnerSmoke, RunnerStatus, SmokeCheck } from '../../../core/data'
 

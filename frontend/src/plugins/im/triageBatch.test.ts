@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 import { describe, expect, it } from 'vitest'
 import type { SopBatchResult } from '../../core/data'
 import { batchCount, chunkIds, failReasons, progressResult, runTriageBatches, type TriageProgress } from './triageBatch'

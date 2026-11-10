@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // SOP 的定时触发（TSK-0463，SPEC-sop-9.3、SPEC-sop-2、SPEC-sop-5）：触发方式「定时」的时间规则存在随流程管理的定时任务里（flow.schedule），
 // 编排页改的是草稿（draft.sched），保存时一起提交；流程库卡片、流程详情显示下次执行和启停。
 import type { SopField, SopFlow, SopScheduleDraft } from '../../core/data'

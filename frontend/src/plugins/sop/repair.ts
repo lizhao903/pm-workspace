@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 条件是一句话的修复指引（TSK-0498）：TSK-0490 之前存进来的条件分支 / 条件回退，rule 写的是一句话，
 // 执行器只认「字段 + 运算符 + 值」，执行到这一步必然失败。这里判断哪些旧规则算一句话、生成失败说明（文案与后端逐字一致），
 // 流程库、流程详情、运行页共用；口径同后端 internal/plugins/sop 的 cond.go legacyCond 与 check.go codeRuleText。

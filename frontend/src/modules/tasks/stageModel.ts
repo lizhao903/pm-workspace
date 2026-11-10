@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 任务阶段与提出人（AUTO-05，SPEC-tasks-11）：阶段在 props.stage，提出人在 props.requester（契约「任务阶段与提出人」）。
 // 阶段和状态是两套：状态是负责人的工作状态，阶段是提出人在看板上看到的流程进度（docs/auto-delivery-flow.md 第 3 节）。
 import { TASK_STAGES, type WorkObject } from '../../core/data'

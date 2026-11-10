@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // AI 负责人（TSK-0500，SPEC-tasks-2.27、4.83、6.33、11.17）：任务交给工作台 Agent 或 CLI 执行时，
 // 负责人改成它；列表、看板、抽屉里带 Agent 头像或终端标和「Agent」/「CLI」小标签。
 // 正式产品在名册里为每个 Agent、每种 CLI 各维护一条「AI 成员」（docs/api-contract.md「干系人名册」下「AI 成员」）。

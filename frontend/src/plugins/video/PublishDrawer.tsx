@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 发布记录抽屉（SPEC-videos-9，照原型 videopublish.tsx 的 PublishDrawer）：状态、去向、简介、数据和按天曲线。
 // 失败的能重试，没发出去的能换封面；接通上传接口的平台「改为立即发布」，其余「填链接，标为已发布」（规格 9.6）；
 // 已发布的能回填（存一条手动快照，不覆盖）、从连接器拉取、打开链接

@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 产出物 note 前缀解析（docs/api-contract.md「代码类产物」）：
 // 「[commit] sha=… branch=… repo=…  自由备注」，种类看前缀，sha / branch / repo 从紧跟的 key=value 里取。
 import type { Artifact } from '../../core/data'

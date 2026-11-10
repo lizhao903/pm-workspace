@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 回复框、发消息弹窗里的 @（IM 插件 0.18.0）的纯逻辑：
 // - 群聊回复默认 @ 原发信人：回复框底部「回复时 @ 对方」开关（默认打开，记在本机），打开时发送拼到正文开头、放进 mentions；私聊没有开关。
 // - 输入 @ 弹出候选（联系人在前：认上联系人的发言人、这个渠道有 IM 身份的联系人，再是没认上的发言人；GET /api/im/conversations/{id}/members），

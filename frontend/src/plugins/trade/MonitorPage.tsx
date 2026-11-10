@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 盯盘页（TRD-03b）：市场时段、盯盘墙、提醒规则、触发记录、提醒抽屉。
 // 交互照原型 web-next/src/monitor.tsx（MonitorPage、SessionCards、Wall、RulesPanel、EventsPanel、AlertDrawer），规格 web-next/docs/spec/monitor.md。
 // 判定只在后端（TRD-03a，每 2 秒一轮，页面关着也提醒）：规则的「当前值」取后端上一轮算的，触发记录随 trade.alert_fired 实时刷新，

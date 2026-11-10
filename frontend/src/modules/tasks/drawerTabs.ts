@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 任务详情的标签（SPEC-tasks-4.35 起）：基础信息、开发任务、插件登记的标签（SOP）、执行记录。
 // 当前标签记在地址 ?tab= 上；?run=<执行 id> 定位某次 Claude Code 执行（切到执行记录），插件标签的 focusParam（?sop_run=）定位那个插件里的一行。
 // 什么时候显示哪个标签、停在哪个标签，都在这里算，抽屉只管摆。

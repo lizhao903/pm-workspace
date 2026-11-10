@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // Package audit 是审计日志（CORE-08）：记已成功的配置变更、删除、Agent 写操作和下单，按对象、时间、操作者查。
 //
 // 记录点分两处：对象和其它业务数据的删除、Agent 写操作在 store 外层包装（store.go）里记，

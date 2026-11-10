@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 package projects
 
 import "github.com/lizhao903/pm-workspace/internal/plugin"

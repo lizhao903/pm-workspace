@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 package im
 
 // 补全消息（TSK-0724，im 0.30.0，不加迁移）：群组管理里对单个会话回渠道拉历史消息补进来，顺带补正文为空的消息。

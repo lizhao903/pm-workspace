@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 贴在主工作区底部的 Agent 对话框。默认收起成一条输入条，展开后是可拖高的对话区。
 // 它是 .app-main 的子节点，所以只占中间那一栏——不盖侧栏、不盖详情抽屉。
 import { useCallback, useEffect, useRef, useState } from 'react'

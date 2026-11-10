@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // IM 消息（IM-02b）：IM 消息插件 im 的消息列表和处理动作。契约见 docs/api-contract.md「IM 消息插件 im」。
 // 列表按页拉完（每页 200）放一份缓存，筛选、计数、会话选项都在前端算，口径和原型 MessagesPage 一致。
 // 处理动作的响应是改后的整条消息，先写回缓存再按失效规则 im-message 刷一遍；转任务还建了任务，另报 object。

@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 项目资料（PJ-03b）：/api/projects/{id}/materials，契约见 docs/api-contract.md「项目资料」（PJ-03a）。
 // 只存路径和元信息，不读本机文件内容；文件、文件夹的 value 是绝对路径。增删报 { kind: 'project-material' }，只刷这个项目的资料。
 import { useMutation, useQuery } from '@tanstack/react-query'

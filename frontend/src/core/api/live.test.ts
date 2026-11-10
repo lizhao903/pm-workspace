@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 import { beforeAll, describe, expect, inject, it } from 'vitest'
 import { ApiError, setApiBase } from './client'
 import { counts, dictionaries, objectTypes, objects, stakeholders } from './resources'

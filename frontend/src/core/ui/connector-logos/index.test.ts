@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 平台图标清单（TSK-0725）：清单、SVG 文件、README 来源表、后端内置键、按地址认平台的域名表，几处要对得上。
 import { describe, expect, it } from 'vitest'
 import { PLATFORM_DOMAINS } from '../../data/connectorLogo'

@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 import { lazy } from 'react'
 import { afterEach, describe, expect, it } from 'vitest'
 import { projectTabRegistry, projectTabStore } from './projectTabs'

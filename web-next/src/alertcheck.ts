@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 import { ALERT_COND, bars, greeks, instOf, prevClose, priceAt, type AlertCond, type Instrument, type PriceAlert } from './tradedata'
 
 // 盯盘提醒的判定（纯函数，从 monitor.tsx 抽出来）。正式版的后端（internal/plugins/trade/alerts.go）逐行移植这里，

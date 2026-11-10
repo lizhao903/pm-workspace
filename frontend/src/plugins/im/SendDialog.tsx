@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 主动发消息的弹窗（IM 插件 0.17.0，SPEC-messages-8）：消息页标题行「发消息」打开时先选渠道 → 渠道有多个实例时选实例 → 选会话（可搜，群和私聊，
 // Slack 还列出账号所在、还没收过消息的频道）→ 写内容 → 发送；群组管理每行「发消息」打开时会话已带上，只写内容。
 // 写明以谁的身份发（同回复框，sendAsText）。内容框和回复框同一套 @（0.18.0，MentionBox）：候选是所选会话里发过言的人 + 联系人里

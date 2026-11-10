@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 群组管理「补全消息」与成员「加为联系人」（IM 0.30.0，TSK-0724，SPEC-messages-7.14 起）的纯规则：
 // 补全结果怎么说、批量补全的汇总、批量加联系人的候选名单。界面在 GroupAdmin.tsx、HistoryBackfill.tsx、GroupMembers.tsx、MemberContacts.tsx。
 import type { ImConversationSummary, ImHistoryBackfillResult, ImHistoryRange, ImMember } from '../../core/data'

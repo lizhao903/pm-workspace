@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 制作流程里一个阶段的执行器（VID-03c，同原型 web-next/src/videos.tsx 的 runnerBox）：配了就显示是谁、能不能跑、上次跑的结果，
 // 没配就在当前阶段给个入口。前置检查（检查点没过、不是当前阶段、别的阶段在跑）由后端 409 回原因，这里照原文提示。
 // 跑起来以后由 useWatchVideoRun 轮询这个视频，跑完产出物进「待验收」，检查点仍由人确认。

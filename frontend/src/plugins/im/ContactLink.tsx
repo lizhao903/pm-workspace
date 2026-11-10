@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 发信人认人（IM-05，SPEC-messages-2.12、2.27）：对不上联系人时关联到已有联系人或就地新建；认错了改挂或解除。
 // 关联就是给联系人挂一个 IM 身份（POST /api/im-identities），消息读取时按渠道和编号认人，这个人以前和以后的消息都认上。
 // 联系人和身份都走 core/data，不 import 联系人模块；新建只填姓名、公司、分组，别的去联系人页补全。

@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 执行记录的纯函数：事件折成显示块、落库输出解析成显示块、状态显示、附加说明、用时。
 import type { RunEvent, RunStatus, TaskRun } from '../../core/data'
 

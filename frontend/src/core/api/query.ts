@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // query 参数生成，严格按 docs/api-contract.md 的参数表。
 // 表里没有的参数后端会静默丢弃，所以这里只认表里的名字。
 

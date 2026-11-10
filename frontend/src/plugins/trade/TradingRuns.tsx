@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 策略运行（SPEC-trading-6）和新建策略运行抽屉（SPEC-trading-7）。部署到模拟盘账户，或闸门全开（trade_ready）的实盘账户（TRD-08d）：
 // 实盘要勾「我确认用真实资金运行」才能启动，实盘部署的恢复、启动也先出确认条；闸门失效时后端自动暂停实盘部署（error 写原因）。
 // 信号、下单、盈亏都在后端（TRD-05b）：K 线收盘时算信号、下市价单，每笔过风控。这里只启停和看日志。

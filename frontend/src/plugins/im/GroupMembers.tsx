@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 群组管理每行的「成员」菜单（TSK-0495，SPEC-messages-9）：列这个会话里发过言的人（含机器人），
 // 每人一项「自动忽略」或「已自动忽略」（只在这个群里的也算），点了打开 MuteDialog / UnmuteDialog；结果写回群组管理顶上的提示。
 // 加为联系人（IM 0.30.0，TSK-0724，SPEC-messages-9.13 起）：没认上联系人的人旁边「加为联系人」「关联已有」（ContactLinkDialog，同消息抽屉），

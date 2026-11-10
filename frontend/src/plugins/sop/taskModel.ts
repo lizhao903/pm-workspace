@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 任务详情里的 SOP（SOP-06）：发起时把任务的字段预填进流程开始节点的输入，执行行的进度文字。纯函数，测试在 taskModel.test.ts
 import { PROP_ACCEPTANCE, type SopField, type SopFlow, type SopJson, type SopRunBrief, type WorkObject } from '../../core/data'
 import { isFinished, needsMe } from './model'

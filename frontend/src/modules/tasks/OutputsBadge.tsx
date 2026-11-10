@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 任务行、看板卡片上的产出物标记（TSK-0497）：「产出 3 · 提交 2 文档 1」，点它打开任务抽屉的产出物面板。
 // 没有产出的不显示；汇总还没取到时也不显示（不当成「没有」）。
 import type { ArtifactObjectSummary } from '../../core/data'

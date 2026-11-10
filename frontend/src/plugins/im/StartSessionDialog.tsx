@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 从消息发起会话、拆分任务（0008）：选一个 Agent（默认挑上次用的、带 IM 触发的、像管任务的），看一眼要发的第一句话（能改），
 // 拆分任务时默认先挑「写任务」没关的；确定后建一个挂这个 Agent 的会话（来源指回这组消息，内核 0047），记到消息上，打开会话页自动发出第一句话。
 // 拆分任务时，会话里 Agent 用 create_object 建的任务自动挂到消息归属的项目、props.source_ref 指回消息；

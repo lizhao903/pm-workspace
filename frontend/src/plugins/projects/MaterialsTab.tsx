@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 支持材料标签（SPEC-projects-11，PJ-03b）：文件、文件夹、链接、笔记，按种类、标签筛选。
 // 数据走项目插件的 /api/projects/{id}/materials，只存路径和元信息，不读文件内容。
 // 原型用浏览器的选择器只拿得到名字；这里文件夹走后端选目录拿绝对路径，文件是「选目录 + 浏览器给的文件名」拼出绝对路径，

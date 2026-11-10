@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 package im
 
 // 补全已收消息的正文：早先没解析出来的消息（机器人卡片的正文在 attachments、blocks 里）落库时是空的，

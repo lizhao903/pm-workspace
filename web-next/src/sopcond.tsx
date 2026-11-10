@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 结构化条件和「这一步能拿到的字段」（TSK-0490，规格 SPEC-sop-9.11、9.21、9.33）。
 // 条件分支、条件回退的条件存成「字段 + 运算符 + 值」的结构（cond），可多条且 / 或；不做自然语言转规则，一句话只能写进说明。
 // 字段候选是静态声明推出来的：触发方式自动带入的、输入字段、上游每一步声明的输出（正式产品是 GET /api/sop/node-types 的 outputs、

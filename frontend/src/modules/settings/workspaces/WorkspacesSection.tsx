@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 设置里的「工作台与模块」分节（CORE-10b），照原型 web-next/src/workspaces.tsx WorkspacesPage。
 // 能改标志、名称、角色、默认模块、分组和模块顺序，从模板新建、删除。
 // 改动马上写后端，需要的插件按启用的模块推出来一起存。数据所有工作台共用，这里只改菜单

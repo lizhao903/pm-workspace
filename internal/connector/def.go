@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // Package connector 是连接器框架（CONN-01a）：连接器定义在代码里注册（Registry），接入的实例存在
 // connectors 表（0029，store.go）。凭证整组加密存进保险箱，表里只有条目 id 和脱敏提示；
 // 明文只在连通测试、拉取工具清单时经 Config 交给定义，调用结束即丢，不进响应、日志和错误文本。

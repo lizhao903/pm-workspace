@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 import type { Project } from './projectdata'
 import { TASK_STATUS, type Task } from './taskdata'
 

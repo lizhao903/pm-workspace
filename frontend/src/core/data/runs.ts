@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 执行记录的读写（DEV-08c 起，CORE-03a 迁进数据访问层）：某个对象的执行历史、单条详情、取消，以及发起执行的流。
 // 执行开始报 run-started，收尾报 run-settled（执行过程中可能改了对象、登记了产出物），取消报 run-canceled。
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'

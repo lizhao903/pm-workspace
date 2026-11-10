@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 会话旁边工具面板的状态（SPEC-sessions-1.34 到 1.38），纯函数
 
 export type DockState = {

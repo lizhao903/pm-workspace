@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 自动忽略发信人（IM 插件 0.27.0，TSK-0495）：把某个发信人标为「自动忽略」，之后他的消息入库即已忽略、已读，
 // 不发 im.message_received（不触发 SOP 的 IM 流程、Agent 的 IM 触发）。契约见 docs/api-contract.md「自动忽略发信人」。
 // 键在 im 前缀下：消息一变（im-message 失效）跟着刷，标记、取消时也刷消息。

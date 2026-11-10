@@ -7,7 +7,7 @@ VERSION ?= 0.2.0
 LDFLAGS := -X main.version=$(VERSION)
 
 .DEFAULT_GOAL := build
-.PHONY: deps web frontend ui build build-mcp run dev seed test vet fmt clean placeholder
+.PHONY: deps web frontend ui build build-mcp run dev seed test vet fmt clean placeholder check check-dsh fix-dsh hooks
 
 # 嵌哪套前端：new 是正式前端 frontend/（默认），legacy 是旧前端 web/，保留一个版本做回退，下个版本删。
 FRONTEND ?= new
@@ -75,6 +75,25 @@ vet: placeholder
 
 fmt:
 	gofmt -w ./cmd ./internal
+
+# DSH 归属（AGENTS.md）：源码文件头注释 + README/docs 徽章，缺了 make check 失败。
+check-dsh:
+	@scripts/dsh-badge.sh check
+
+fix-dsh:
+	@scripts/dsh-badge.sh fix
+
+# 提交自动补 Co-Authored-By: DeepSeek Harness（commit-msg 钩子），每台机器跑一次。
+hooks:
+	@git config core.hooksPath .githooks
+	@echo "已启用 .githooks：提交信息缺 DSH 署名时自动补"
+
+# 合入前全量检查：DSH 归属、gofmt、go vet、go test。
+check: placeholder check-dsh
+	@files="$$(gofmt -l ./cmd ./internal)"; \
+	if [ -n "$$files" ]; then echo "gofmt 未通过："; echo "$$files"; exit 1; fi
+	go vet ./...
+	go test ./... -count=1
 
 clean:
 	rm -rf bin $(DIST)

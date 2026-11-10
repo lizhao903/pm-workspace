@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 今日来源（ALIGN-08）：插件给今日页「需要你处理」贡献一组、给「正在运行」贡献几行。
 // 插件给一个查询和把数据转成条目的函数，今日页用 useQueries 一起取，汇总数字跟着相加；停用插件时按 id 撤掉。
 // 和今日卡片（2.8）不同，这里不进清单 provides：条目长什么样由内核定，插件只给数据。

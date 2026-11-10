@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 群组管理「成员」菜单的「全部加为联系人」（IM 0.30.0，TSK-0724，SPEC-messages-9.13 起）：
 // 先列名单确认（这个会话里发过言、没认上联系人的真人，排除机器人和自己），可去掉某人、改名字；分组、公司对这批统一生效。
 // 逐个建联系人并挂上渠道身份（同消息抽屉的「新建联系人」，useCreateContactLinked），某个人失败不拦别的，失败的留在名单里写原因。

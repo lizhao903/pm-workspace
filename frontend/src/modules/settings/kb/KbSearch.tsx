@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 检索测试（SPEC-settings-12）：后端按关键词打分（口径同原型 searchKb），列命中的段落，检索词高亮，点标题跳到那一段。
 // 示例问题原型是按种子知识库写死的，真实的库没有对应的示例，不显示。
 import { useState } from 'react'

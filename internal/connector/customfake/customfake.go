@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // Package customfake 是测试用的假 MCP 服务和假 OpenAPI 服务（CONN-04），配合自定义连接器 custom_mcp、custom_openapi。
 // 只给测试用，不进正式路由；都跑在本机 httptest 上，不联网。
 package customfake

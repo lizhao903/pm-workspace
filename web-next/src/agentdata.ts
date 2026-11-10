@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 import { newId } from './ids'
 
 // Agent：工作助手。每个 Agent 有自己的指令、模型、能用的工具（以及每个工具的权限）、能读的内容和触发方式

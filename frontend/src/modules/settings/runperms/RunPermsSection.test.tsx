@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 设置「执行权限」（TSK-0499，SPEC-settings-26）：默认写入档位、自定义白名单整体保存；前端先挡等于放开任意命令的规则；
 // 执行记录「去设置放行」带 ?add= 过来时预填规则、档位切到自定义
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'

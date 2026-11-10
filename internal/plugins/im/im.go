@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // Package im 是「IM 消息」插件的后端（IM-01a 起）。清单 plugin.json 只有这一份，前端构建时也读它。
 // 每个渠道一个适配器（拉取或回调，adapter.go），消息落在插件表 im_messages，按 IM 身份 id 认人、按会话 id 归档，
 // 到达时发 im.message_received。接口契约见 docs/api-contract.md「IM 消息插件 im」。

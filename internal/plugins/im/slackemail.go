@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 package im
 
 // Slack 资料里的邮箱（补联系人邮箱，emails.go）：users.info 的 profile.email，Token 要有 users:read.email。

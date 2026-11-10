@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 商单抽屉（SPEC-videos-16.4 到 16.13，照原型 web-next/src/videodeals.tsx 的 DealDrawer）：来源消息、账期提示、品牌名称项目询价人、
 // 状态流转、报价和交付（报价参考读后端快照）、挂视频、结案报告。改草稿、点「创建」「保存」才写，关掉时有未保存提示。
 // 客户审核意见（SPEC-videos-16.10）要产出物验收记录带外部审核人，后端还没有这个字段，这一节先不做

@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 原型标签（SPEC-projects-12，PJ-04b）：原型卡片的启停、状态、日志、端口编辑和冲突提示。
 // 数据走项目插件的 /api/projects/{id}/prototypes（PJ-04a）。状态和日志靠轮询（后端不发事件）：列表在有原型启动中、运行中时自己刷，
 // 日志框开着且原型在跑时每秒取新增的行。后端只收绝对路径，目录按项目目录换算；保留端口、别的项目和本机占用由后端判断，原因原样显示。

@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // Package projects 是「项目」插件的后端（PJ-01a 起）。清单 plugin.json 只有这一份，前端构建时也读它。
 // 项目本身仍是内核 type=project 的对象，字段约定见 docs/api-contract.md「项目插件」；
 // 插件自己的表放项目干系人（PJ-01b）、绑定的 IM 会话（PJ-02a）、项目资料（PJ-03a）、原型定义和崩溃记录（PJ-04a）、项目档案（AUTO-04）、需求工作区（AUTO-07）、测试记录（AUTO-08）、发布记录（AUTO-10）、原型同步记录（AUTO-11）、项目绑定的知识库（TSK-0721）。

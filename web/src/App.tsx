@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 三栏 shell 组装 + 全局快捷键。业务状态全在 useWorkspace()，这里只管布局与键盘。
 import { useCallback, useEffect, useRef, useState } from 'react'
 import TopBar from './components/TopBar'

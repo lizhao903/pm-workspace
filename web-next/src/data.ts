@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 演示数据，人名和公司都是编的。原型阶段只存在内存里，刷新即复原。
 
 export const GROUPS = ['客户', '合作伙伴', '同事', '供应商', '其他'] as const

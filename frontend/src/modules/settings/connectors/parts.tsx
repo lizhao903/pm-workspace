@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 列表和抽屉共用的小件：工具标志、状态点、抽屉顶部的连接状态条，照原型 web-next/src/connectors.tsx ToolLogo、StatusDot、ConnBar。
 // OAuthDone 是授权回调回到的窗口（CONN-04b）。
 import { useEffect, useState } from 'react'

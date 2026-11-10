@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 阶段看板（AUTO-05，SPEC-tasks-11）：任务按阶段（props.stage）分列，可按提出人筛选；卡片显示阶段、提出人和状态。
 // 只管展示和本地筛选，数据由 Page 从接口层取好传进来；改阶段走 PUT /api/objects/{id}/stage（useSetStage）。
 import { useState } from 'react'

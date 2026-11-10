@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 import { useState } from 'react'
 import { CLAUDE_COMMAND_DEFAULT, handoffFiles, renderClaudeCommand } from './handoff'
 

@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 import { describe, expect, it } from 'vitest'
 import type { SopField, SopRunBrief, WorkObject } from '../../core/data'
 import { backToRun, dueText, focusRow, objectRunProgress, taskPrefill, topRuns } from './taskModel'

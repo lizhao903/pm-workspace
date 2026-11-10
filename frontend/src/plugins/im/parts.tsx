@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 列表和抽屉共用的小件：弹出菜单、快捷回复菜单项、正文 @ 高亮、渠道标记、附件小标签。照原型 web-next/src/messages.tsx、attachments.tsx
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import type { ImAttachment } from '../../core/data'

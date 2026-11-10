@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 package connector
 
 // Google Drive 连接器（CONN-01e1）：只读，范围 drive.readonly。工具：搜文件、列目录、取文件信息、读文档正文。

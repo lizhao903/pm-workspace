@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 任务的产出物汇总（TSK-0497）：任务列表、看板卡片上的「3 · 提交 2 文档 1」，「产出物」视图的筛选口径。
 // 数据来自 GET /api/artifacts/by-object，种类按后端给的 display_kind（历史上没填 kind 的后端按备注、链接、扩展名推断），
 // 前端不再推一遍；种类名和顺序取字典 artifact_kind，字典没取到时用这里的内置名。

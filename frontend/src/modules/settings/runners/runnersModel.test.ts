@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 import { describe, expect, it } from 'vitest'
 import type { RunnerSmoke, RunnerStatus } from '../../../core/data'
 import { fmtMs, runnerState, smokeSummary } from './runnersModel'

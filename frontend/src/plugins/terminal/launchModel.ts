@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 启动命令的渲染（终端插件 0.2.0）：设置页的预览用，规则和后端 internal/plugins/terminal/launch.go 的 RenderClaudeCommand 一致，
 // 真正执行的那条以后端渲染的为准（新建会话响应里的 command）
 export const DEFAULT_CLAUDE_COMMAND = 'gogogo'

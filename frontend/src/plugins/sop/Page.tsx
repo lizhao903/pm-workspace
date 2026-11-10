@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // SOP 插件的页面（SPEC-sop-1 到 7）：二级菜单 + 执行记录（默认）、待我处理、流程库、流程详情、运行页，发起执行抽屉。
 // 路由挂在 sop/* 下：/sop 执行记录（?flow= 按流程筛），/sop/waiting，/sop/library（?folder= 按文件夹筛，TSK-0482；none 是未分类），/sop/flows/<id> 流程详情（?start=1 打开发起执行抽屉），/sop/runs/<id> 运行页。
 // 编排页（SOP-04c）：/sop/new 新建，/sop/flows/<id>/edit 编辑，保存后回流程详情，「测试运行」再打开发起执行抽屉；流程详情「复制」出的新流程直接进它的编排页。打开运行页时把来处记在 location.state，「返回」回到那里

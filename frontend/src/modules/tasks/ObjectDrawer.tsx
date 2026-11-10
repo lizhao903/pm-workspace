@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 给插件和别的模块用的任务抽屉、待验收确认（PJ-01d）：经 core/plugin 的「打开对象」登记，按 id 打开。
 // 状态、优先级、项目列表在这里自己取，调用方只给 id 和新建时的预填。
 import { useState } from 'react'

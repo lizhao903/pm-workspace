@@ -211,3 +211,9 @@ Agent 执行是流水线的一种步骤类型（详见 `design-pipeline-agent.md
 其中只有两件是「新造」，其余都是把已有能力换个形态接上：**花名册与能力声明**（产品当前完全缺失的一层），以及**拒绝原因回流**（让 Agent 越用越准的闭环）。其余功能在数据层与执行层都已有依托。
 
 最重要的一个产品判断是：**把 Agent 从「对话框」改成「工位」** —— 它不该等用户来打开，而该在活出现时被派过去，干完把东西交回对象上。
+
+---
+
+由 DeepSeek Harness（dsh）协助完成。
+
+[![](https://img.shields.io/badge/powered_by-dsh-4D6BFE?style=flat-square&logo=deepseek&logoColor=white)](https://github.com/deepseek-ai/deepseek-harness)

@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 知识库抽屉（SPEC-settings-14）：新建，或改名称、说明、来源分类，以及删除。
 // 来源分类是「文档」的分类（后端 categories，type 为 doc）；分类没有启停，已经选了但被删掉的照样列出来方便取消。
 // 保存后抽屉不关：新建的切成编辑这一个。

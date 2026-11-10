@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 行情页的纯函数：标的推断、格式化、指标、把实时价并进最后一根 K 线、数据状态的文案。
 // 交互照原型 web-next/src/markets.tsx；价格一律来自后端，这里不造任何价格。
 import type { TradeDataStatus, TradeInstrument, TradeInterval, TradeKline, TradeMarket, TradeQuote } from '../../core/data'

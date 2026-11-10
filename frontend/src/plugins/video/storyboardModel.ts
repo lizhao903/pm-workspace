@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 分镜和 B-roll 素材的纯函数（TSK-0456，同原型 web-next/src/videodata.ts 的 shotSeconds、fmtSec）。
 import type { VideoBroll, VideoMediaFile, VideoShot } from '../../core/data'
 

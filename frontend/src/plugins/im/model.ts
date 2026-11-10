@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // IM 消息页的纯函数：视图、会话键、按天分段、稍后选项、回不了的原因、@ 解析、渠道显示。照原型 web-next/src/messages.tsx。
 import type { Connector, ConnectorDef, DictItem, ImMessage, ImMsgStatus, ImTaskReply } from '../../core/data'
 import { matchOption } from '../../core/ui/searchMatch'

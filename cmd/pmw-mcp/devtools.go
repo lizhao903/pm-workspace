@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 package main
 
 // 开发任务闭环的工具：领任务、记进展、提交验收、取下一个任务、拆子任务、看执行记录。

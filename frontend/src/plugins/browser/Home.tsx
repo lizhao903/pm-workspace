@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 新标签页（SPEC-browser-2）：最近打开、项目原型、Google 账号三块卡片。
 // 原型列表和状态读项目插件的接口（经 core/data），浏览器插件不存原型。Drive 的文件浏览正式版不搬，卡片里只给账号状态和打开 Drive 网页
 import { useState } from 'react'

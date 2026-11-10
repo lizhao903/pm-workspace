@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // Package workspace 读写工作台配置（CORE-10a，0023）。
 // 工作台只决定菜单（模块、分组、默认模块、标识）和需要哪些插件，不隔离数据。
 package workspace

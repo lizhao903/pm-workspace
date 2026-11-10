@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 沟通标签（SPEC-projects-4，PJ-02b）的纯函数：渠道名、待回复口径、消息筛选、会话显示名、绑定面板的候选、正文 @ 切分。
 // 照原型 web-next/src/projecttabs.tsx 的 CommsTab；插件之间不能 import，IM 插件里的同类小函数这里各写一份，口径保持一致。
 import type { Contact, Conversation, ConnectorDef, DictItem, Identity, ImMessage, ProjectConversation } from '../../core/data'

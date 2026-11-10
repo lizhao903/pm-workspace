@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 阶段看板（AUTO-05，SPEC-tasks-11）：任务按阶段分列，按提出人筛选；卡片显示阶段、提出人和状态。
 // 阶段和状态是两套：状态是负责人的工作状态，阶段是提出人在看板上看到的流程进度（docs/auto-delivery-flow.md 第 3 节），
 // 由自动交付流程推进，也可以在卡片上手动改。正式产品里阶段在 props.stage、提出人在 props.requester。

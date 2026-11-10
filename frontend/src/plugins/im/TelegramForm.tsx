@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 渠道配置里的 Telegram 表单（IM-01c）：只接 Bot，填 BotFather 给的 Token（进保险箱，界面只显示脱敏提示），
 // 可选填公网地址改用 webhook。保存后自动做一次连通测试，账号写成「名字（@用户名）」，群里 @它 算 @我。
 import { useState } from 'react'

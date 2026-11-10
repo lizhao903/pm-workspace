@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 连接器显示哪个图标（TSK-0725）。规格见 web-next/docs/spec/settings.md SPEC-settings-3「平台图标」。
 // 顺序：用户自己换的图标（icon，data URL；「从网站取图标」取到的也存在这里）> 自定义连接器按服务地址认出的平台 > 定义的 logo > 文字图标。
 // 认平台只看地址里的主机名，纯前端算，不出网；认不出就用定义的（MCP、OpenAPI 的通用标志）。

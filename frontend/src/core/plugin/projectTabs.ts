@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 项目详情的插件标签（VID-08d）：插件给项目详情加一个标签（视频插件的「商单」），项目插件按 after 插进自己的标签条。
 // 插件之间互不 import，项目插件只认这里登记的定义；停用插件时按 id 撤掉，标签跟着消失。和今日来源一样不进清单 provides
 import { useSyncExternalStore, type ComponentType, type LazyExoticComponent } from 'react'

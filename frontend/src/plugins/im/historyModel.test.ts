@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 import { describe, expect, it } from 'vitest'
 import type { ImHistoryBackfillResult, ImMember } from '../../core/data'
 import { addToBatch, backfillBlock, backfillText, batchText, contactCandidates, emptyBatch } from './historyModel'

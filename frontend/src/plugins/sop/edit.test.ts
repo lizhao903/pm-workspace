@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 import { describe, expect, it, vi } from 'vitest'
 import type { AgentProvider, SopNodeType, SopStepDef } from '../../core/data'
 import { sopNodeStore } from '../../core/plugin'

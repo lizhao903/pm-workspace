@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 策略编辑页（SPEC-strategy-3、4、5）：基本信息、条件规则或代码、风控和参数；右栏快速回测和最近一次回测。
 // 改动自动保存：本地草稿立刻生效，停 500ms 后整份 PATCH；同一时间只有一个保存在路上，期间的改动等它回来再存。
 // 保存失败时底部换成红字和「重试」，改动留在界面上（SPEC-strategy-3.30）。

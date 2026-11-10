@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 交易页的纯函数：状态文案、金额格式、下单前的预检查提示、实盘账户能不能交易。
 // 交互照原型 web-next/src/trading.tsx；撮合、估值、风控只在后端做，这里的预检查只做提示，不拦提交（SPEC-trading-0.12）。
 import type {

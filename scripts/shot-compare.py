@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 """原型和正式前端的截图对照：同一模块两边各截一张，三种宽度 x 亮暗两种主题，出一份并排的 HTML 报告。
 
 用法（make shot-compare 调的就是这个）：

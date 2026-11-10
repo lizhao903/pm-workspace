@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // Google 账号（SPEC-browser-4）：工具栏右边的账号按钮、账号面板、登录弹窗。
 // 账号以 Google Drive 连接器实例为准（BR-01a）：登录是拿 Drive（和日历）实例的 OAuth 授权地址，在新窗口里由 Google 选账号、授权，
 // 这里轮询 /api/browser/google 等授权完成；原型里的模拟选账号一步正式版没有。退出断开 Drive 和日历两个实例，不弹确认。

@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 批量分诊自动分批（TSK-0492，SPEC-messages-1.51）：要分诊的消息超过一次批量发起的上限（SOP_BATCH_MAX，200）时，
 // 按每批 200 条依次（串行）调 POST /api/sop/flows/{id}/runs/batch，不并发，免得一下子把模型名额排满。
 // 每批的结果按 index 对回消息编号；整批请求失败（网络、流程被删）算这批每条都失败，接着发下一批。

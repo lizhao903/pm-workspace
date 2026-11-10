@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 知识库详情的「文档」标签（SPEC-settings-11.4 到 11.19、11.24 到 11.29）：未收进来的提示、筛选、文档表、加文档表单。
 import { useMemo, useState } from 'react'
 import {

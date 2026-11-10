@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 干系人名册：负责人与参与人都指向这里。
 //
 // 两条硬规矩，界面要把它们讲清楚而不是等后端 409 才说：

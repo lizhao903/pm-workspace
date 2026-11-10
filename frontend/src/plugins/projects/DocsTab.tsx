@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 文档标签（SPEC-projects-8）：列出 type=doc 且 project_id 为本项目的文档。
 // 「加文档」把「文档」里的一篇归到本项目（改它的 project_id），「移除」只是移出项目，文档本身不动；状态取文档类型的状态集。
 // 另外列出项目设置里「文档目录」（props.docs_dir，TSK-0718）下的文档文件，来源列写「文档目录」；没设时表格上方提示去设置，

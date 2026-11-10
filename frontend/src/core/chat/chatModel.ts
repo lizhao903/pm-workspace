@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 会话页的纯函数（AG-01a）：把落库的消息、流里的事件折成界面上的一条条消息，时间分段，提问的解析。
 import type { Agent, AgentMessage, AgentProvider, AgentSession, Artifact, ChatEvent, QuestionOption } from '../data'
 

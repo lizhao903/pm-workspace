@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 执行记录的停止确认框（TSK-0717）：勾选的、单条的按 id 停（batch-actions 的 stop），
 // 「停止全部运行中」按条件停（POST /api/sop/runs/stop，按当前流程筛选时只停这条流程的），先 dry_run 数出将停止几条。
 // 照失败页批量重跑（RerunDialog）的样子，结果一行提示留在列表上

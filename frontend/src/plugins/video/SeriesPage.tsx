@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 系列列表（SPEC-videos-5）：一个系列一张卡片，只看整体进度；点卡片进系列详情（/videos/series/<id>）。
 // 右上「新建系列」开系列设置抽屉，建好打开它的详情
 import { useState } from 'react'

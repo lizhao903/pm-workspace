@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 import { describe, expect, it } from 'vitest'
 import type { VideoTopic } from '../../core/data'
 import { dayGroup, directions, draftOf, filterTopics, makeBlock, parseLines, pastedClip, topicPatch, topicPriority } from './topicModel'

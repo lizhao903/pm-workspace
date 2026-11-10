@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // B-roll 素材浏览抽屉（TSK-0456，同原型 storyboard.tsx 的 MediaDrawer，规格 SPEC-videos-17.10 到 17.20）。
 // 左上选素材目录（工程目录默认就有，其他目录登记绝对路径或用目录选择器选），下面面包屑、子目录、类型筛选、按文件名搜、分页；
 // 文件一格一个：缩略图、文件名、尺寸 / 时长 / 大小、修改时间；勾选多个加到指定分镜，也能直接拖到分镜上。

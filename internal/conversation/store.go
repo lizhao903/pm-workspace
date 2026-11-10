@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // Package conversation 读写 IM 会话（CT-02，0028）。
 // 群聊和私聊有稳定 id，项目绑定、消息都指向 id；改名只改 name，id 和渠道里的编号不变。
 package conversation

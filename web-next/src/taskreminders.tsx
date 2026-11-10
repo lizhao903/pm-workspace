@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 import { useState } from 'react'
 import { describeRule, emptyRule, nextText, ruleError, type Schedule } from './scheduledata'
 import type { Task } from './taskdata'

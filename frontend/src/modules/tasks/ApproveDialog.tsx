@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 列表上点待验收任务的完成圆圈：先确认再验收通过（SPEC-tasks-5.27）。
 // 三个按钮「取消」「打开任务」「验收通过」，默认焦点在「验收通过」；Esc、点遮罩同取消。
 import { useEffect, useId, useRef, useState } from 'react'

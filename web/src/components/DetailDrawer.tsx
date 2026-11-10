@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 右栏抽屉：详情 / AI 助手 / 执行 / 产物 / 活动 / 关联，共用一个对象上下文（对齐线框稿的 tab 次序）。
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useWorkspace } from '../hooks/workspace'

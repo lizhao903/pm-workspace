@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 节点属性面板（SPEC-sop-13）：开始节点（触发方式、输入字段、下一步）和步骤节点（设置 / 上次运行）。
 // 所有改动交给编排页进撤销历史；配置项按 nodes.tsx 的 fields 渲染，必填以后端节点目录为准。
 // 上次运行：这个流程最近一次走到这一步（不是 pending）的执行，详情按需取

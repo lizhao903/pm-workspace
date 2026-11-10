@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 package connector
 
 // 从网站取图标（TSK-0725）：只在用户在自定义连接器的抽屉里点「从网站取图标」时由后端去取，不定时、不自动。

@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 内网域名：给本机跑的服务配好记的域名（app.pmw.lan、状态看板.pmw.lan），自己和局域网里的同事不用记端口
 // 解析靠 hosts 文件、本机 DNS 或路由器 DNS；同一个 80 / 443 端口上按域名转发到各服务，靠反向代理
 // 原型里只生成配置、模拟解析测试，不真的改系统

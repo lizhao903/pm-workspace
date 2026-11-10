@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 宽基监控插件 etf（ETF-01a 起，ETF-01b 加指标、异动、规则）：宽基清单、每日快照、派生指标、命中记录、异动规则。
 // 契约见 docs/api-contract.md「宽基监控插件 etf」。只读公开数据，没有任何交易相关的接口。
 // 写操作（采集、确认或忽略、改规则）成功后整个 etf 前缀一起刷：采集会改快照、指标和命中，改规则后下次采集才重判。

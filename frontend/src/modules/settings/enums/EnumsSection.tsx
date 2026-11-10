@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 设置里的「枚举值」（ALIGN-14），照原型 web-next/src/enums.tsx EnumsPage（SPEC-settings-17）。
 // 左边按模块分组的字典，右边选中字典的值；改动攒在草稿里，保存时按差异写 /api/dictionaries 的接口。
 // 后端没有建字典、删字典、合并数据的接口：「新建枚举」置灰，被用过的值不能删，只能停用。

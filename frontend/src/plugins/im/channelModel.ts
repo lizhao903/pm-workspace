@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 渠道配置（IM-01b）的纯函数：哪些是 IM 渠道、状态文案、同步结果的说明、Slack 表单的校验。面板见 ChannelPanel.tsx。
 import { errorText, isApiError, type Connector, type ConnectorDef, type ConnectorStatus, type ImEmailBackfillResult, type ImSyncResult } from '../../core/data'
 

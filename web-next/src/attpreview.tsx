@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 import { useEffect, useState } from 'react'
 import type { Message, MsgAttachment } from './data'
 import { cls } from './ui'

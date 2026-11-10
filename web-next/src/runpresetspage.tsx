@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 设置「角色」（SPEC-settings-24，AUTO-03 由预置提示词升级）：交给 Claude Code 时选的角色。
 // 逐个改场景名、权限、默认目录、执行要求、输出要求，设为默认（单选）、删除、加一个，整组保存。原型只放内存（runpresets.ts）；
 // 正式产品 frontend/src/modules/settings/runprompts/RunPresetsSection.tsx，接口 GET / PUT /api/run-prompts。

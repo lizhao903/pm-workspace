@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 流程库的文件夹（TSK-0482）：筛选、搜索跨文件夹、新建、删非空文件夹先确认、卡片移到文件夹
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { render, screen, within } from '@testing-library/react'

@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 登记 / 编辑一件产物。
 //
 // 表单最要紧的一条：本地路径和链接**可以同时填**，那是同一份交付物的两个位置。

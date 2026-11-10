@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 选题和素材的小部件：状态胶囊、优先级分、素材类型（照原型 topics.tsx 的 StatusPill、PriorityBadge、KindTag）
 import type { CSSProperties } from 'react'
 import type { VideoClipKind, VideoTopicScore, VideoTopicStatus } from '../../core/data'

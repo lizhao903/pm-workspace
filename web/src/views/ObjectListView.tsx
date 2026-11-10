@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 中栏工作对象视图：工具栏 + 按 viewMode 分发的主体。数据全部来自 useWorkspace()。
 // 侧栏只负责「作用域」（哪类工作对象 / 哪个分类），所有筛选条件都收在这里的工具条上。
 import { useCallback, useEffect, useMemo, useState, type DragEvent, type ReactNode } from 'react'

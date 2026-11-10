@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 项目知识库（TSK-0721）：/api/projects/{id}/kb，契约见 docs/api-contract.md「项目插件」的「项目知识库」。
 // 每个项目绑一个内核知识库，项目资料同步进去。键放在 ['knowledge-bases'] 前缀下：知识库页增删改、同步都会改篇数和绑定显示，
 // 换绑、新建、同步一律报 { kind: 'knowledge-base' }（同时刷 Agent 配置：挂到项目默认 Agent 会改它的 kbs）。

@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 任务抽屉（SPEC-tasks-4、DEV-07b）：新建、查看、编辑、删除。
 // 已有任务以打开那一刻的值为基准：保存只传改过的字段，props 由接口层读回最新的再合并；未保存的改动关闭前先确认。
 // 已有任务分成标签（SPEC-tasks-4.35 到 4.41）：基础信息、开发任务、插件登记的标签（SOP）、执行记录，当前标签记在地址 ?tab= 上，

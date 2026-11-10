@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 import { useState } from 'react'
 import { PageTitle } from './topbar'
 import { AUTH_LABEL, IM_CHANNELS, TOOL_CATEGORIES, TOOLS, fieldView, testedAccount, tokenProblem, type ConnStatus, type Connector, type Tool } from './data'

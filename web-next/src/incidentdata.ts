@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 运行异常：系统运行中出的问题集中记一份，同一个问题按指纹合并，只累加次数
 // 能转成研发任务：任务里带上异常详情、上下文，来源标为「异常」，两边互相能跳
 import type { Priority } from './taskdata'

@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 视图层共用小原子。只依赖 tokens.css 变量与外壳层全局类名，不引任何第三方库。
 import {
   useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState,

@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 概览（SPEC-projects-3）：四个数字卡片和七个摘要块，每块都能点进对应标签。TSK-0718 去掉了「原型运行中」卡片（原型块还在）。
 // 待回复、最新沟通用沟通标签同一份项目消息（useProjectMessages）；产品文档数和文档标签同一个查询；
 // 项目 Agent 显示默认 Agent（agent_ids 里第一个还在的）的名字，不带头像和说明（TSK-0718），「和它对话」同 Agent 标签的「对话」（PR-21）

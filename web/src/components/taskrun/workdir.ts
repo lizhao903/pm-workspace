@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 「生效工作区」的计算：对象自己设了就用自己的，没设就向上取所属项目的。
 // 详情页的字段和执行页的顶部都要用同一套判断，所以抽出来一处。
 import { useEffect, useState } from 'react'

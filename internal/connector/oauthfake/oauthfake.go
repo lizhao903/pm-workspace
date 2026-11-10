@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // Package oauthfake 是测试用的假 OAuth 2.0 服务（CONN-01b）：授权码 + PKCE（S256）+ refresh_token 轮换，
 // 配合内置的 fake_oauth 连接器（config.base_url 填它的地址）。只给测试用，不进正式路由。
 package oauthfake

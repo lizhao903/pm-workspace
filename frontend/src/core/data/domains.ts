@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 内网域名插件 domains（DOM-01b）：设置、路由、本机状态、生成的配置。契约见 docs/api-contract.md「内网域名插件 domains」（DOM-01a）。
 // 插件只读检测、只生成配置和命令，不改系统；状态每次现测，进分节测一次，「重新检测」再测，不跟着窗口聚焦重测。
 // 写操作报 { kind: 'domains' }：后缀、端口、路由一变，完整域名、状态、配置都跟着变，整个前缀一起刷。

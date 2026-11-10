@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 import { useEffect, useState } from 'react'
 import type { Message } from './data'
 import { cls, timeAgo } from './ui'

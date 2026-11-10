@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 消息和 Agent 会话互相追溯（0008）：列表行上的「已发起会话」「已拆分 N 条任务」小标，抽屉里的「交给 Agent」一节（只列发起过的）。
 // 拆分任务、发起会话、转项目资料三个动作放在抽屉底部发送按钮那一行（ReplyBarActions）。
 import type { ImMessage, ImSessionIntent } from '../../core/data'

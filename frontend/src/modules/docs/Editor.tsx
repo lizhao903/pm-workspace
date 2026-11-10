@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 文档的新建和编辑（SPEC-library-1.40 到 1.50，C-03）：在阅读区位置换成编辑区，标题、分类、正文；正文的编辑和预览切换照任务抽屉的描述。
 // 已有文档以打开那一刻的值为基准，保存只传改过的字段，后端逐字段记修订。是否有没保存的改动报给页面，离开前由页面确认。
 import { useEffect, useId, useState, type KeyboardEvent } from 'react'

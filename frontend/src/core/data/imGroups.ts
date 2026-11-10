@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 群组管理（IM 插件 0.15.0）：会话统计 GET /api/im/conversations/summary、批量设默认项目 PUT /api/im/conversation-projects。
 // 统计一次列出有消息（或设了默认项目）的会话：消息总数、待处理数（不含稍后、已过期）、未读数、最近一条时间、默认项目。
 // 批量设逐条校验，过了的写上、没过的列在 failed（全没过也是 200）；一次最多 200 个会话。

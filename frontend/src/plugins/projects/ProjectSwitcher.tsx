@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 详情页标题里的项目名（SPEC-projects-2.9）：点开是可搜索的项目菜单，选了切到那个项目、停在同一个标签。
 // 用 core/ui 的 SearchSelect（plain 外观，同屏 Agent、SOP 标签的挑选也是它），键盘：上下选、回车切、Esc 关。
 // 列全部没删的项目，最近打开的在前（和项目列表「最近打开」同一份本机记录），其余按名称；当前项目打勾。

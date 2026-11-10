@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 知识库详情（SPEC-settings-11.1 到 11.3）：顶栏、标签条，下面是文档、检索测试、设置三个标签。
 // 「索引中」：后端在请求里同步索引，请求没回来的那几篇就是正在跑的，记在这一层，文档表和阅读视图共用。
 import { useState } from 'react'

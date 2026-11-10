@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 package im
 
 // 查询回填名字（TSK-0494，插件迁移 0016_name_lookups.sql）：群组管理里只显示渠道编号的行（私聊对方、群成员是 Slack 的 U…，

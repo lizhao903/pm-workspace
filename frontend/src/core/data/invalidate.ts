@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 失效规则（CORE-03a）：写操作说清楚「改了什么」，这里决定刷新哪些缓存。
 // 组件和模块不自己拼键去失效，一律报一个 Change，规则集中在 invalidationsFor 里，有单元测试盯着。
 import { useQueryClient, type QueryClient, type QueryKey } from '@tanstack/react-query'

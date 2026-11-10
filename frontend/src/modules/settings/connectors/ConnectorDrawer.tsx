@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 连接器配置抽屉，新建和编辑共用。即时通讯类照原型 web-next/src/connectors.tsx ConnectorDrawer（SPEC-settings-4），
 // 其余照 web-next/src/apiconn.tsx ApiConnectorDrawer（SPEC-settings-5）。字段、认证方式、工具清单都按后端定义渲染。
 // 和原型不同的地方（后端决定的）：

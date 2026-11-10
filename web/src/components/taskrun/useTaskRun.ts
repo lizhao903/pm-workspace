@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 「用本机 Claude Code 执行这个任务」的全部状态机：发起 / 流式收事件 / 停止 / 历史记录。
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { api } from '../../lib/api'

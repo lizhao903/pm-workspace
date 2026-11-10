@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // Markdown 的块级解析，只认常用写法，见 Markdown.tsx（DOC-01b 从 tasks 挪来）
 
 export type Block =

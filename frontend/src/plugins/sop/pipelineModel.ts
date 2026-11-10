@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 流水线视图和待我处理的纯函数（AUTO-12，SPEC-sop-16、SPEC-today-1.30）。
 // 时间线 = 阶段变化（审计 kind=stage）+ 跟这条需求有关的 SOP 执行和步骤（GET /api/sop/pipeline/{id}），按时间排；
 // 阶段耗时 = 这次进入到下一次变化（当前阶段算到现在）；卡点 = 等人、失败、超时、超出上限暂停的步骤。

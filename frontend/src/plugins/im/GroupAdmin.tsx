@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 群组管理（IM 插件 0.15.0，SPEC-messages-7）：IM 消息页标题行「群组管理」打开的右侧抽屉，地址记 ?groups=1。
 // 列出全部有消息的群和私聊（GET /api/im/conversations/summary），每行渠道、名字（私聊是对方）、消息数、待处理数、最近一条时间、默认归属项目；
 // 默认归属在行上直接改（可搜索下拉，「不归项目」清除），选了马上生效；勾选后底部一条能批量设、清除（一次最多 200 个）。

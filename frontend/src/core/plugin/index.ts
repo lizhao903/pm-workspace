@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 内核模块和插件共用的模块描述、插件清单、插件入口和注册表。
 import type { ComponentType } from 'react'
 

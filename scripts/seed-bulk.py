@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+# powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 """往测试实例灌大量数据，作为列表、菜单的压测夹具（QA-03）。
 
 用法：

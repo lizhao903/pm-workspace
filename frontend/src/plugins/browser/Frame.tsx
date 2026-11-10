@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 原型标签和网页标签（SPEC-browser-3）：iframe 加载；登记过的原型没在运行时不加载，显示启动提示。
 // 不能嵌入的站点（BR-02a，SPEC-browser-3.12）：不在白名单的不挂 iframe，直接出卡片；白名单内 8 秒没 load 盖一层卡片，可以「继续等」。
 // 白名单内但站点自己拒绝嵌入、load 照样触发时仍是空白或浏览器自带的拒绝页，这时用工具栏的「在系统浏览器打开」

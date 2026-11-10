@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 连接器标志（TSK-0725）：设置的连接器页、Agent 工具授权等所有显示连接器的地方共用。
 // 顺序：用户自己换的图标（src，data URL）> 平台图标（logo 键，随前端打包）> 定义的底色加名称前两个字。
 import type { CSSProperties } from 'react'

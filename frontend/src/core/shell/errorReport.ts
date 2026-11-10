@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 页面报错自动记成运行异常（INC-01b，SPEC-settings-18「页面本身出的问题」）。
 // 四个入口：路由出错（「出错了」页，换版本自动刷新的检查之后仍是错误的才报）、全局 error、unhandledrejection、
 // 分包加载失败但不是换版本。都调 POST /api/incidents/report，级别 error，模块取当前路由所属模块。

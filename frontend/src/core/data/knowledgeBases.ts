@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 知识库（AG-01b7）：契约见 docs/api-contract.md「知识库 knowledge-bases」（AG-01b3）。
 // 知识库、文档、来源分类里还没收进来的篇目、检索都在 ['knowledge-bases'] 前缀下，增删改一律报 { kind: 'knowledge-base' }：
 // 加文档、重新索引、同步都会改知识库上的篇数和状态，整个前缀一起刷最省事。

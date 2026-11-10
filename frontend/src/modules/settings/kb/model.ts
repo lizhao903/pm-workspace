@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 知识库页的纯函数：切块（和后端 internal/kb/chunk.go 同一套，按码点算）、整体状态、筛选、目录校验、向量化模型选项。
 import type { AgentProvider, Category, KbDoc, KbDocSource, KnowledgeBase } from '../../../core/data'
 import { kindOf, uiKindOf } from '../providers/catalog'

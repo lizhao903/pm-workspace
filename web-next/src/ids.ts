@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 统一的 id 生成：<前缀>_<时间戳 base36><序号><随机段>
 // 前缀一类实体一个，登记在 ID_PREFIX 里，不许两类共用；种子数据的老 id（ct_001、af1 这种）保持原样
 // 序号在同一毫秒内递增，加上随机段，同一毫秒连建多条也不会撞

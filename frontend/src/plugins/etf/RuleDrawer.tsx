@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 规则抽屉（SPEC-etf-3）：新建和编辑共用。内置规则可以改阈值、范围、严重度和启停，本期没有删除。
 import { useState } from 'react'
 import { errorText, useCreateEtfRule, usePatchEtfRule, type EtfFund, type EtfOperator, type EtfRule, type EtfScope, type EtfSeverity } from '../../core/data'

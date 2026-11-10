@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // Package fsbrowse 给界面提供本机目录列表，让用户能「点着选」工作目录。
 //
 // 为什么要放在服务端：浏览器拿不到本地绝对路径——File System Access API 只给

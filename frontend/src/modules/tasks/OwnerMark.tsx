@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 负责人显示（TSK-0500，SPEC-tasks-2.27）：负责人是工作台 Agent 时带 Agent 头像和「Agent」标，
 // 是 CLI（Claude Code、DeepSeek）时带终端标和「CLI」标，是人时只写名字。列表、看板共用。
 import type { WorkObject } from '../../core/data'

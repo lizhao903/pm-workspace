@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 import type { ReactNode } from 'react'
 import { Subnav, type SubnavItem } from './subnav'
 

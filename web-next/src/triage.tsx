@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 import { useEffect, useRef, useState } from 'react'
 import type { Message } from './data'
 import { focusIndex, runShow, runStatus, STEP_STATUS, type Json, type RunStep, type Sop, type SopRun, type SopStepDef } from './sopflow'

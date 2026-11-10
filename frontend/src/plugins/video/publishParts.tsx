@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 发布记录页的小部件：平台标签、封面色块、发布状态、判定进度（照原型 videopublish.tsx 的 PlatformTag、CoverSwatch，covertest.tsx 的 RuleChips）
 import type { CSSProperties } from 'react'
 import type { VideoArtifact, VideoCoverTest, VideoPlatform, VideoPublishStatus } from '../../core/data'

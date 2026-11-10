@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 沟通标签（SPEC-projects-4，PJ-02b）：左边是项目绑定的群聊和私聊，右边只显示这些会话里的消息。
 // 绑定按会话 id 存在项目插件里（PJ-02a），群聊候选从内核会话表列（含还没收到消息的群，收到消息的群 IM 插件会登记）；
 // 私聊候选按联系人的 IM 身份列，还没有私聊会话的绑定前按身份建一个，没填 IM 编号的置灰（PR-02）。消息按绑定的会话逐个取（IM-01a）。

@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 流程的 IM 触发一行（TSK-0481，SPEC-sop-2.14、SPEC-sop-5.18）：第几个判断、过滤条件、拦截标记。只在触发方式是 IM 时显示，不能在这里改，改到编辑里
 import { useConversations, type SopFlow } from '../../core/data'
 import { cls } from '../../core/ui'

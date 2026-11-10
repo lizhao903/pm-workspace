@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 设置「执行权限」（TSK-0499，SPEC-settings-26）：任务交给 Claude Code 后台执行（claude -p，没人值守）时放行什么。
 // 上面选「允许写入」时默认的写入档位，下面是自定义白名单（一行一条 Claude Code 权限规则，只在「自定义白名单」档生效）；
 // 再往下列出每一档实际放行的规则（GET /api/run-permissions 给的，不在前端另抄）。保存整体替换（PUT）。

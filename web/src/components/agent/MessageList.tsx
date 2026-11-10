@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 消息区：每种流事件长一个样，用户右对齐、assistant 左对齐。
 // question 是唯一可交互的一种——它的选项要能点，点完就作为一条普通消息发回去。
 import { useEffect, useRef } from 'react'

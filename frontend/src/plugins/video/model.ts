@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 视频插件的纯函数：阶段、比例常量和视频状态。阶段、比例是插件自己的约定，后端 internal/plugins/video/data.go 同一份，
 // 没有字典接口，两边同序，加值两边一起加（同原型 web-next/src/videodata.ts 的 STAGES、ORIENT、videoState）
 import type { Video, VideoCheckpoint, VideoCheckpointStage, VideoOrientation, VideoSeries, VideoStageKey } from '../../core/data'

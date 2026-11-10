@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 全部文档：文件清单分页拉全量、按种类预览（PDF 内嵌、图片、Office 给打开）、大目录的内容树只渲染可见的一段。
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { render, screen, waitFor, within } from '@testing-library/react'

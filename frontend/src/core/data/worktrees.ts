@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 需求级 git worktree（AUTO-07）：项目插件给进研发的任务在代码库建独立 worktree 和分支 auto/<任务 ref>，放在数据目录下，
 // 并分一段端口给测试环境用。任务完成、取消或阶段到已上线时后端自动清理；这里是任务详情「工作区」和设置里端口范围用的接口。
 // 契约见 docs/api-contract.md「项目插件 / 工作区」。变化时后端发 projects.worktree_changed，项目插件入口据此标脏缓存。

@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 设置里的「知识库」分节（AG-01b7），照原型 web-next/src/kbskills.tsx 的 KnowledgePage、KbDrawer（SPEC-settings-10 到 14）。
 // 打开的知识库和标签记在地址的 ?kb=&tab= 上，刷新、后退都回得来；抽屉（新建、改名称和分类）在这一层，列表和详情共用。
 import { useState } from 'react'

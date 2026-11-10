@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 设置 > 插件 > 终端（终端插件 0.2.0）：交给 Claude Code「切换到终端」时，在新开的终端标签里执行的启动命令。
 // 命令在登录 shell（zsh -l，带 pty，是交互式的）里执行，会读 ~/.zshrc，所以别名能用。留空保存等于恢复默认
 import { useState } from 'react'

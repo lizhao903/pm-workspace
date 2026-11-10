@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 批量分诊：挑一个分诊流程，给要分诊的每条消息发起一次执行（输入 {message_id}），走 SOP 的批量发起接口。
 // 流程列表：触发方式是 IM 的在前，再列输入字段里有 message_id 的其他流程，默认第一个。
 // 这条流程对这条消息已有执行（任意状态）的默认跳过；勾「已跑过的也重跑」就都发起。

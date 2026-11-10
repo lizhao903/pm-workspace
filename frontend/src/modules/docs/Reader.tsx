@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 阅读区（SPEC-library-1.15 到 1.24）：工具条（类型、路径、目录下拉、字号、复制、星标）、标题、元信息、标签、正文、右侧目录。
 // 写法照原型 library.tsx 的 LibraryReader。本地文件打开时才读内容（/api/fs/read）。
 // 工作台文档多「编辑」「修订」（SPEC-library-1.41、1.47）；本地文件只读，没有这两个。

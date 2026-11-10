@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // Package imident 读写联系人的 IM 身份（CT-01b，0027）。
 // 一个联系人多个渠道身份；同一渠道同一编号只属于一个联系人，收消息时按它认人，不按名字。
 package imident

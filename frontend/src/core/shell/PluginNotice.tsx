@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 import type { PluginProblem } from '../plugin'
 
 // 侧栏底部的提示：启用了但没加载的插件和原因（依赖缺失、版本不符、清单不合法、加载出错）

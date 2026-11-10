@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 宽基监控（SPEC-etf）：宽基 ETF 的份额与资金流、派生指标、异动规则和命中记录。
 // 字段名照后端 internal/plugins/etf（Fund、Daily、Metrics、Anomaly、Rule 的 JSON），snake_case。
 // 演示数据是确定性的：10 只宽基、截至 2026-11-04 的 70 个交易日；指标按设计口径现算（docs/etf-anomaly-design.md 第七节），

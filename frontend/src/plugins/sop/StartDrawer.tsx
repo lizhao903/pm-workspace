@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 发起执行抽屉（SPEC-sop-6）：按流程 fields 填输入、逐步确认开关；必填空着标红不关抽屉，发起失败抽屉不关、显示错误。
 // 成功后关抽屉、打开这次执行的运行页。在任务上发起（SOP-06）时带 object，执行关联到它，抽屉上写明是哪条任务
 import { useState } from 'react'

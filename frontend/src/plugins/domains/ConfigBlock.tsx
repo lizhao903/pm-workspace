@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 生成的配置（SPEC-settings-20.20、20.33）：解析、pf、代理三段，HTTPS 开着多一段证书；数据来自 GET /api/domains/config。
 // 每段是要写进 path 的内容加要用户自己执行的命令，内容和命令分别可复制
 import { useState } from 'react'

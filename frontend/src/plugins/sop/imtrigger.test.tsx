@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // SOP 的 IM 触发（TSK-0481）：过滤条件的写法、编排页开始节点里配会话（能按编号搜到）、与我的关系、顺序和拦截，保存带上 im；流程库卡片显示顺序和拦截
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'

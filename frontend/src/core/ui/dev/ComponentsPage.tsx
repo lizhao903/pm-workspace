@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 import { useState } from 'react'
 import {
   Avatar, Button, Checkbox, ConfirmDialog, Drawer, EmptyState, ErrorState, Field, IconButton, IconClose, Input,

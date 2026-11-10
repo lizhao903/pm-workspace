@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 package im
 
 // Slack 按编号查名字（TSK-0494，names.go 的 NameResolver）：人用 users.info（机器人编号 B… 用 bots.info），

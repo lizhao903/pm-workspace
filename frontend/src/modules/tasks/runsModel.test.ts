@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 import { describe, expect, it } from 'vitest'
 import type { RunEvent } from '../../core/data'
 import { allowRulesLink, allowRulesOf, duration, extraOf, foldEvents, parseOutput, runNote, runStatusOf } from './runsModel'

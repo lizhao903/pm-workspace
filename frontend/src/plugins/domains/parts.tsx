@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 内网域名分节的小部件：要用户自己执行的命令块、失焦才保存的输入框
 import { useState, type ComponentProps, type ReactNode } from 'react'
 import { Button, cls } from '../../core/ui'

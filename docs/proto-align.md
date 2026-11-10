@@ -109,3 +109,9 @@
 | 4 | F-16 | 枚举值、外观两节设置页 |
 | 等依赖 | F-06、F-09、F-10、F-12、F-13、F-17、T-06 | 等终端浏览器去留（用户定）、SOP、Agent、知识库、技能、运行异常、内网域名的后端 |
 | 改规格 | T-05、F-18 | 只改 `web-next/docs/spec`，不改代码 |
+
+---
+
+由 DeepSeek Harness（dsh）协助完成。
+
+[![](https://img.shields.io/badge/powered_by-dsh-4D6BFE?style=flat-square&logo=deepseek&logoColor=white)](https://github.com/deepseek-ai/deepseek-harness)

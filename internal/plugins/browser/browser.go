@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // Package browser 是「内置浏览器」插件的后端（BR-01a）。清单 plugin.json 只有这一份，前端构建时也读它。
 // 标签页落在 browser_tabs（形状同原型 web-next/src/browserdata.ts 的 BrowserTab，多顺序和是否当前），
 // 允许嵌入的地址白名单落在 browser_allowlist。Google 账号不单独存：以 Google Drive 连接器实例为准，

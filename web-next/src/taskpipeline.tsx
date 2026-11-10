@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 任务详情的「流水线」（AUTO-12，SPEC-sop-16）：一条需求从接收到上线的流水线时间线。
 // 上面是卡点（等人、失败、超时、超出上限暂停，能直接处理）和预算用量，中间是每个阶段累计耗时，下面按时间排：
 // 阶段变化（task.stage_log）、SOP 执行开始、每一步的耗时、轮次和重试。点执行、步骤去 SOP 运行页。

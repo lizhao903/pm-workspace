@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 对话框的全部状态机：供应商 / 会话 / 输出目录 / 消息流 / SSE 收发与中断。
 // 组件只负责渲染，异步都收在这里。
 import { useCallback, useEffect, useRef, useState } from 'react'

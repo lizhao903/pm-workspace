@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 项目档案标签（AUTO-04，SPEC-projects-15）的纯逻辑：表单、拆关键词、算要存的改动。
 import { PROFILE_COMMANDS, type ProfileCommand, type ProfileCommandKey, type ProjectProfile, type ProjectProfilePatch } from '../../core/data'
 

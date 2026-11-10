@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 文档页的数据（DOC-01b）：分类树、标签、挂载的本地目录和目录里的文件、读文件，以及文档星标。
 // 契约见 docs/api-contract.md「分类 categories」「标签 tags」「文件读取和挂载目录」。
 // 文档本身是 type=doc 的对象，列表走 objects.ts 的 useAllObjects；星标改的是对象，报 { kind: 'object' }。

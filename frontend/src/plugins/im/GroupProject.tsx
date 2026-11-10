@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 群组默认归属的项目：选了某个群组标签时在列表上方显示，能设、改、清除。
 // 存在 IM 插件里（GET/PUT /api/im/conversation-projects），一个群最多一个默认项目；
 // 群里没单独归项目的消息都算到这个项目（项目「沟通」里能看到），消息上单独设的优先。

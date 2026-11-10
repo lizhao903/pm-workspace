@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 全局样式必须在 import App 之前引入。
 // App 组件树里传递导入的组件级样式（settings.css / agent.css 等）会跟着模块图
 // 排在 App 之后——只有全局样式先落，组件样式才能正常覆盖它。

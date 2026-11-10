@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 路径输入（照原型 PathInput）：带文件夹图标、等宽，可以手填。
 // 「选择」和任务抽屉的工作目录一样走后端的 /api/fs/browse 选目录，拿到的是绝对路径；
 // 原型用浏览器的目录选择器只能拿到目录名，正式产品不用它。

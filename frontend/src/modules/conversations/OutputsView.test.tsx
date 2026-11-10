@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 产出结果（SPEC-sessions-3、B-08）：同一次提交登记到多个任务时合并成一行，点「N 个任务」展开。
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { render, screen, within } from '@testing-library/react'

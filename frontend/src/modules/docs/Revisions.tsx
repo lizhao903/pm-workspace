@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 文档的修订记录（SPEC-library-1.47）：最近的在前，正文改动只说字数变化，分类、状态用显示名。
 import { REVISION_LIMIT, errorText, useObjectRevisions } from '../../core/data'
 import { Button } from '../../core/ui'

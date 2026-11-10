@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 会话模块（SPEC-sessions，AG-01a、AG-01b8）：没有二级菜单，进来就是会话页（左边会话清单，右边会话窗口）；
 // 清单底部两个并排按钮去执行记录、产出结果，那两页标题上的「会话」点了回来。路由挂在 conversations/* 下：
 // /conversations 会话（?s= 当前会话），/conversations/runs 执行记录（?run= 定位到一条），/conversations/outputs 产出结果。

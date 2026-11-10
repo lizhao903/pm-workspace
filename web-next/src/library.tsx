@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { CONTENT_CATEGORIES, type ContentCategory, type ContentItem } from './data'
 import { isMarkdown, MAX_DEPTH, MAX_VISITED, type FileKind, type LocalFolder } from './localdir'

@@ -103,3 +103,9 @@
 3. 第三批（P3，可合成一个小批）：A-07、A-08、A-09、B-12、C-05、T-01 到 T-04、E-02。
 
 需要用户拍板的两件：B-01（群消息不算待回复，改今日和项目的口径）、C-03（文档模块能新建和编辑，改 `SPEC-library-0`）。
+
+---
+
+由 DeepSeek Harness（dsh）协助完成。
+
+[![](https://img.shields.io/badge/powered_by-dsh-4D6BFE?style=flat-square&logo=deepseek&logoColor=white)](https://github.com/deepseek-ai/deepseek-harness)

@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 自动忽略发信人（SPEC-messages-9，TSK-0495）：把某个发信人标为「自动忽略」，之后收到的他的消息直接进「已忽略」、已读，
 // 不触发 SOP 的 IM 流程和 Agent 的 IM 触发（正式产品是后端不发 im.message_received）。
 // 原型把自动忽略和「哪条消息是被它忽略的」放在这个模块的本地状态里（刷新就没了），不改 Message 结构：

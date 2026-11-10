@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 import { describe, expect, it } from 'vitest'
 import type { ImMember } from '../../core/data'
 import { activeMention, composeMentions, defaultMention, filterMembers, insertMention } from './mentionModel'

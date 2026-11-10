@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 枚举值：系统里各处下拉、筛选、状态标签用到的选项集中在这里管
 // 规则：
 //   key 一经创建不改，数据里存的是 key；显示名、颜色、说明、顺序随时可改

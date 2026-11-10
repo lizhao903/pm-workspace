@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // Agent 标签（SPEC-projects-10）的纯函数：项目 Agent（props.agent_ids，第一个是默认）、候选、项目里的会话。
 // 后端会话没有 project_id，项目里开的会话记在 props.session_ids，按它从全局会话里挑
 import type { Agent, AgentSession } from '../../core/data'

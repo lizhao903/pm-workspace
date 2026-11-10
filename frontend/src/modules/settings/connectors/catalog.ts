@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 连接器分节的显示用常量：分类、状态、认证方式、工具授权的中文名，照原型 web-next/src/data.ts、connectors.tsx、apiconn.tsx。
 // 定义本身（有哪些工具、字段、认证方式）一律从后端 /api/connectors/defs 读，这里不写厂商。
 import type { ConnectorAuthMode, ConnectorStatus, ConnectorToolMode } from '../../../core/data'

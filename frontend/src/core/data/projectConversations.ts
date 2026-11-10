@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 项目绑定的会话（PJ-02b）：项目插件的 /api/projects/{id}/conversations（PJ-02a），按会话 id 绑，改群名不断。
 // 项目里的消息按绑定的会话逐个取 /api/im/messages?conversation_id=（IM-01a），只取绑定会话的，不拉全部消息再筛。
 // 绑定、解绑报 { kind: 'project-conversation' }；消息的键挂在 im 前缀下，消息一变（im-message）跟着刷。

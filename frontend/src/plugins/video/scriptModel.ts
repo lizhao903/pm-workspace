@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 内容编写的纯函数和本地草稿（VID-09b，同原型 web-next/src/videodata.ts 的 textStats、ScriptText）。
 // 后端只存版本（文件和 .versions/ 里的旧版），没有草稿存放处：没保存的草稿和「初稿已处理」只记在本机浏览器里，
 // 存不进去（隐私模式、被禁用）时只留在内存，刷新就没了。

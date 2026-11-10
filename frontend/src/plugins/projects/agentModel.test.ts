@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 import { describe, expect, it } from 'vitest'
 import type { Agent, AgentSession } from '../../core/data'
 import { addAgent, addSession, availAgents, defaultAgent, linkedAgents, makeDefault, projectSessions, removeAgent } from './agentModel'

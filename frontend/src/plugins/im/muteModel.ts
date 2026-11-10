@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 自动忽略发信人（IM 0.27.0，TSK-0495）的显示口径：管理列表、取消确认、消息详情里的说明共用。
 import type { ImMessage, ImMute } from '../../core/data'
 

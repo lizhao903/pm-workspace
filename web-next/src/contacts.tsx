@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 import { Fragment, useMemo, useState } from 'react'
 import { PageTitle } from './topbar'
 import { IM_CHANNELS, type Contact, type Group } from './data'

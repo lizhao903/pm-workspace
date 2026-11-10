@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 执行记录的停止（TSK-0717，SPEC-sop-4.20~4.25）：哪些行能停、确认框的说明、停完的一句话结果。
 // 只停执行中、待我处理的（失败、已完成、已终止、已重跑的不停）；后端按 batch-actions 的 stop、按条件的 POST /api/sop/runs/stop 做。
 import { sopRunShow, type SopRunBrief, type SopStopResult } from '../../core/data'

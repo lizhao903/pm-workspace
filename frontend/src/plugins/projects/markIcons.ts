@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 项目标志的内置图标（照原型 web-next/src/markicons.tsx）：24 宽高、2 像素描边、圆头，在标志里画成白色压在底色上。
 // 底色候选也放这里：.tsx 里不写色值
 

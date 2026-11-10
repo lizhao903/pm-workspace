@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 统一的加载和出错状态（CORE-03a）：查询还没数据时显示加载中，出错且没有旧数据时显示错误和「重试」，
 // 有数据就交给 children 渲染。刷新失败但手上还有旧数据时照常显示旧数据，不整块换成错误。
 import type { ReactNode } from 'react'

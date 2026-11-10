@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 交给工作台 Agent（TSK-0460，SPEC-tasks-6.20 起）：任务抽屉「开发」组「交给执行」里的工作台 Agent（TSK-0722 起三个执行器同一个入口，最上面选交给谁）。
 // 弹窗里选 Agent（默认场景「执行任务」选的）、服务商和模型（默认按 Agent 设置）、角色、补充说明，能勾「接着上次的会话」，
 // 步数和时长上限收在「预算」里。发起走 runLive.startRun（同一个 /run 接口，harness=agent），过程在执行记录里流式显示；

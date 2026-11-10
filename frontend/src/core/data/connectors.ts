@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 连接器（CONN-01d、CONN-04、CONN-04b）：定义列表、实例增删改查、连通测试、拉工具清单、改工具授权、发起 OAuth 授权。契约见 docs/api-contract.md「连接器 connectors」。
 // 定义在后端代码里登记（不进库），界面按定义渲染认证字段，不写死厂商。凭证只写不读，响应里只有 secret_hints。
 // 测试、拉清单的响应带着最新的实例，先写进列表缓存再按失效规则刷一遍。

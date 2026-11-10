@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 import { describe, expect, it } from 'vitest'
 import { failMsg, finishMsg, markDecided, reduceEvent, transcript, type DbgMsg } from './debugModel'
 

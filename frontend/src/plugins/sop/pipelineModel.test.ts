@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 import { describe, expect, it } from 'vitest'
 import type { SopPipeline, SopWaitingItem, StageChange, WorkObject } from '../../core/data'
 import { backToPipeline, durationText, stageSpans, stageTotals, stepTags, timelineRows, waitingTodayItems } from './pipelineModel'

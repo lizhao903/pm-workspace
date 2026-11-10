@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // Telegram 渠道的纯函数（IM-01c）：Token、公网地址的校验，口径和后端 internal/plugins/im/telegram.go 一致。
 import type { Connector } from '../../core/data'
 

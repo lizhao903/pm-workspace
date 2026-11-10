@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 设置「执行器」（TSK-0722，SPEC-settings-27）：交给执行时能选的三个执行器装没装、什么版本、缺什么。
 // 和分派弹窗用同一份 GET /api/runners；「检测」跳过后端一分钟的缓存重新找可执行文件、跑 --version。
 // 缺东西时照后端给的步骤列出来（没装 dsh 时是安装步骤，和 docs/deepseek-harness.md 同一份）。

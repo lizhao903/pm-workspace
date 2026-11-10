@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 文档标签里「文档目录」的文件（TSK-0718，SPEC-projects-8.17 起）：项目设置里填的文档目录（props.docs_dir），
 // 列出目录下认得的文件（GET /api/objects/{id}/docs-dir/files，规则同挂载目录）。点文件名在抽屉里预览：
 // 文本读 /api/fs/read（md 按 Markdown 渲染），PDF、图片走 /api/fs/raw，Office 等不预览、用本机应用打开；都能在访达中显示。

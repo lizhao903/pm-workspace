@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 群组管理「补全消息」按钮（IM 0.30.0，TSK-0724，SPEC-messages-7.14）：行上和批量条共用。
 // 点开选范围（最近 7 天 / 30 天 / 全部），上次没补完的行菜单顶上多「继续补全」；渠道不支持、还没消息时置灰，悬停写原因。
 import type { ImHistoryRange } from '../../core/data'

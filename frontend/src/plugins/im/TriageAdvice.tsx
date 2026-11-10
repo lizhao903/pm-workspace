@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 分诊建议：消息抽屉、组抽屉里的「分诊建议」一节，和列表行「已分诊」小标的悬停摘要。
 // 执行列表（GET /api/sop/runs?input_key=message_id）只有每步状态，不带输出；建议、项目、任务要读执行详情
 // （GET /api/sop/runs/{id}，分流套分诊时再读子执行），只在抽屉里这一节显示、或悬停小标时才取，列表不逐行取。

@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 import { useMemo } from 'react'
 import { useConnectorDefs, useConnectors } from '../../core/data'
 

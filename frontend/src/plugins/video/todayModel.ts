@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 视频今日卡片（VID-07b）的条目类型和文案，字段同后端 internal/plugins/video/today.go 的 TodayWaiting、TodayPublish
 import type { VideoOrientation } from '../../core/data'
 import { ORIENT } from './model'

@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 制作流程的选题一步（VID-09b，SPEC-videos-10.26 到 10.30、10.43）：挂了选题显示要点，点标题打开选题抽屉（复用 VID-08c 的 TopicDrawer）；
 // 没挂的从选题库挑一个或新建一个；挂了的右上角能换。两边的回写（选题的 video_id、状态，视频的标题、比例）由后端 PUT /topic 做
 import { useMemo, useState } from 'react'

@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // SOP 的 IM 触发设置（TSK-0481，SPEC-sop-9.27 到 9.31、SPEC-sop-2.14、SPEC-sop-5.18）：按会话、与我的关系过滤，执行顺序与拦截。
 // 编排页改的是草稿（draft.im），保存时随流程一起提交；顺序只在改了时提交（order 为 null 是不改，新的、刚改成 IM 的排最后）。
 import { SOP_IM_RELEVANCES, type Conversation, type SopFlow, type SopIMDraft, type SopIMRelevance, type SopIMTrigger } from '../../core/data'

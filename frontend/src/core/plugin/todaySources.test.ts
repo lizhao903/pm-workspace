@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 import { afterEach, describe, expect, it } from 'vitest'
 import type { PluginManifest } from './manifest'
 import { pluginApi } from './registry'

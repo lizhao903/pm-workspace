@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // SOP 批量发起和按输入字段查执行（IM 消息页的批量分诊、处理队列）。契约见 docs/api-contract.md「SOP 编排插件 sop」。
 // 批量发起 POST /api/sop/flows/{id}/runs/batch：每个输入一次执行，按 skip_existing_key 跳过这条流程已经跑过的；
 // 按输入字段查 GET /api/sop/runs?input_key=message_id：只列输入里带这个字段的执行，每条回 input_value。

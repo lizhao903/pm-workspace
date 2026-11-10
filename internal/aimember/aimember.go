@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // Package aimember 维护名册里的「AI 成员」（TSK-0500）：每个工作台 Agent、每种 CLI 执行器
 // 在干系人名册里各有一条，任务交给它们执行时负责人就设成这一条。
 //

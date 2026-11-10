@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 后端返回的类型，按 docs/api-contract.md 和 internal/domain/domain.go 手写。
 // 时间一律是 RFC3339 字符串，可空时间是 null。状态、类型、优先级的取值从后端读，这里只写 string。
 

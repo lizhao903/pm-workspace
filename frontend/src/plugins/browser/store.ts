@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 内置浏览器的状态：模块级，切菜单再回来标签都还在；标签整体存后端（BR-01a 的 GET/PUT /api/browser/tabs），
 // 启动时读回，变化后防抖整体 PUT，页面关掉、刷新前再补存一次。存不上不打断浏览，地址栏右边提示，下次变化时再试（SPEC-browser-1.19）。
 // 副作用都在这里的动作函数里，不进 setState。

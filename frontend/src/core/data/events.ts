@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 事件流订阅（CORE-07c）：EventSource 连 GET /api/events，按事件类型走失效规则（invalidate.ts）刷新缓存。
 // 连接状态给轮询做开关：连着时靠推送，断开时各处退回原来的轮询。契约见 docs/api-contract.md「事件流」。
 import { useSyncExternalStore } from 'react'

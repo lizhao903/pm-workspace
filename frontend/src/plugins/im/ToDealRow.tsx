@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 消息抽屉里的「转为商单」（SPEC-videos-16.11，VID-08e）：品牌在 IM 里问报价，转成视频插件的商单。
 // 不 import 视频插件，经 core/data 的商单接口读；video 插件没在跑时整节不显示。商单挂在项目下，项目插件没在跑时只给提示。
 // 没转过：跳到项目「商单」标签新建，带 message 参数由那边按消息预填询价人、品牌；转过：打开那个商单

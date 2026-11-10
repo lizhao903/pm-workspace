@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 内置浏览器页（BR-01b，SPEC-browser-1 到 4）：整页没有顶栏，最上面一排标签，下面一行工具栏（后退、前进、刷新、地址栏、
 // 在系统浏览器打开、账号），再下面是当前标签的内容。标签存后端，刷新后恢复（store.ts）。
 // 别的模块要在这里打开地址时跳 /browser?open=<地址>&title=<标题>，处理完从地址栏去掉。

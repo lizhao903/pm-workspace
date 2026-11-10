@@ -135,3 +135,9 @@ flowchart TD
 
 1. 条件是一句话的流程，执行失败后要不要自动停用它的触发？停用能避免同一群每条消息都失败一次，但这条流程开了「拦截后续」，停用后后面的 IM 流程会开始接这个群的消息。本 PRD 默认不停用。
 2. 「忽略 ai-octok-platform 自动消息」这条线上流程，要不要我直接按第 2 节改掉（改的是生产 7796 的数据）？
+
+---
+
+由 DeepSeek Harness（dsh）协助完成。
+
+[![](https://img.shields.io/badge/powered_by-dsh-4D6BFE?style=flat-square&logo=deepseek&logoColor=white)](https://github.com/deepseek-ai/deepseek-harness)

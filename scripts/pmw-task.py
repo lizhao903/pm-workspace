@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 """按开发任务编号（docs/dev-tasks.json 里的 key，如 FE-00a）回写工作台：领任务、记进展、登记产出、提交验收。
 
 走 pmw-mcp 的工具（stdio），所以负责人、状态切换、会话标识的处理和 Claude Code 用 /task 时完全一样。

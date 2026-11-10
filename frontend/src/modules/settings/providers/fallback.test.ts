@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 「失败时改用」（TSK-0392，SPEC-settings-7.22）：存在 extra.fallback_id，选项不含自己、停用的不能选。
 import { describe, expect, it } from 'vitest'
 import type { AgentProvider } from '../../../core/data'

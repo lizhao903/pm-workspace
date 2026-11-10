@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 产出物的读写（DEV-08b 起，CORE-03a 迁进数据访问层）：某个对象的产出物、统计、手工登记。
 // 登记后报 { kind: 'artifact' }，列表和统计（删除确认里的产出物数）一起刷新。
 import { useMutation, useQuery } from '@tanstack/react-query'

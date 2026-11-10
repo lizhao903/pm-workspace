@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 终端页的状态：模块级，切菜单、切工作台再回来都还在（SPEC-terminal-1.10）；布局存本机，刷新后按会话列表重连。
 // 会话的新建、结束走 core/data 的 terminalApi，完了报 terminal-session。副作用都在这里的动作函数里，不进 setState。
 import { useSyncExternalStore } from 'react'

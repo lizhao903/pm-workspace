@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 联系人列表（SPEC-contacts-1，CT-03a）：搜索、分组和渠道筛选、星标、按最近联系或姓名首字母分段、每次渲染 100 行。
 // 联系人就是干系人名册（/api/stakeholders），一次拉全在前端筛；打开的联系人放在地址里（?c=<id>），别的模块可以直接链过来。
 // IM 身份（/api/im-identities）也一次拉全，按联系人合进 im；新建、编辑、删除在抽屉里（CT-03b）。

@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 工具调用卡片（SPEC-sessions-1.17）：头部圆点（写操作着色）、工具名、状态、展开箭头，展开看输入和结果。
 // 会话里只有执行中和已执行；执行记录里要人确认的调用多三种状态，等你确认的默认展开（AG-01b8）。
 // 确认、拒绝按钮由用的地方放进 children（AG-02b）；权限没开时 noGrant 是提示要开哪项、去哪里开。

@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 回测引擎：纯函数，不碰 React。行情一律用 tradedata 的 bars() 取
 // 约定：
 // 1. 信号在 K 线收盘时评估，按收盘价加减滑点成交；止损止盈在下一根 K 线内按最高最低价触发

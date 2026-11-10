@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 设置「执行权限」（TSK-0499，SPEC-settings-26）的纯函数：白名单文本和数组互转、前端先挡的规则、地址里带来的待加规则。
 // 规则格式和后端 internal/runner/permissions.go 的 CheckRule 一致，前端只挡明显不对的，其余以后端 400 为准。
 

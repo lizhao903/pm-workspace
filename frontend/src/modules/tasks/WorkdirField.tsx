@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 工作目录：可以手填，也可以用 /api/fs/browse 选；改动后停手片刻就用 /api/agent/workdir/check 校验（SPEC-tasks-4.27）。
 import { useEffect, useId, useState } from 'react'
 import { errorText, useWorkdirCheck, workdirUsable } from '../../core/data'
