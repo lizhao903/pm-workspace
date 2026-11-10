@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 项目（PJ-01c）：项目是 type=project 的工作对象，读写走 /api/objects；项目干系人走项目插件的 /api/projects/{id}/stakeholders。
 // 字段约定见 docs/api-contract.md「项目插件 projects」：name=title、desc=body、root=workdir，color、mark、related 在 props 里。
 // 写完报 { kind: 'object' }；干系人的键挂在 stakeholders 前缀下，名册和对象一变一起刷。
@@ -31,6 +33,8 @@ export type ProjectView = {
   docsDir: string
   /** props.sop_ids：关联的 SOP 流程 id，按关联先后 */
   sopIds: string[]
+  /** props.sop_ids_hidden：自动关联出来、被用户点了「不自动关联」的 SOP 流程 id */
+  sopHidden: string[]
   /** props.agent_ids：项目 Agent，第一个是默认（SPEC-projects-10） */
   agentIds: string[]
   /** props.session_ids：在项目里开的会话；后端会话没有 project_id，先记在项目这边（PR-21） */
@@ -57,13 +61,15 @@ export function projectView(o: WorkObject): ProjectView {
   const sopIds = idList(p.sop_ids)
   return {
     id: o.id, ref: o.ref, name: o.title, desc: o.body, status: o.status, color: str(p.color), mark,
-    root: o.workdir, related, docsDir: str(p.docs_dir).trim(), sopIds, agentIds: idList(p.agent_ids), sessionIds: idList(p.session_ids), created_at: o.created_at, updated_at: o.updated_at,
+    root: o.workdir, related, docsDir: str(p.docs_dir).trim(), sopIds, sopHidden: idList(p.sop_ids_hidden), agentIds: idList(p.agent_ids), sessionIds: idList(p.session_ids), created_at: o.created_at, updated_at: o.updated_at,
   }
 }
 
 /** 存在 props 里的几个字段 */
 export type ProjectProps = {
   color?: string; mark?: ProjectMark; related?: RelatedDir[]; sop_ids?: string[]; agent_ids?: string[]; session_ids?: string[]
+  /** 不自动关联的 SOP 流程 id（SOP 标签的自动反向关联里点掉的） */
+  sop_ids_hidden?: string[]
   /** 文档目录（TSK-0718）：相对项目目录或绝对路径；空串是清掉 */
   docs_dir?: string
   /** 详情页不显示的标签 key（SPEC-projects-13.19）；没有这个 key 时全部显示，以后新加的标签默认也显示 */
@@ -88,6 +94,7 @@ export function mergeProjectProps(current: Record<string, unknown> | null, edit:
     else delete out.docs_dir
   }
   if (edit.sop_ids !== undefined) out.sop_ids = [...edit.sop_ids]
+  if (edit.sop_ids_hidden !== undefined) out.sop_ids_hidden = [...edit.sop_ids_hidden]
   if (edit.agent_ids !== undefined) out.agent_ids = [...edit.agent_ids]
   if (edit.session_ids !== undefined) out.session_ids = [...edit.session_ids]
   if (edit.tabs_hidden !== undefined) out.tabs_hidden = [...edit.tabs_hidden]

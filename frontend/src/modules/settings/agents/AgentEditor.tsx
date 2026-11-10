@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // Agent 配置页，照原型 web-next/src/agents.tsx AgentEditor（SPEC-settings-9）。
 // 和原型不同的地方：
 // - 工具与权限（AG-02b）存在单独的授权接口：草稿里另记一份，保存时先存 Agent 再整组 PUT 授权。
@@ -293,7 +295,7 @@ export function AgentEditor({ agent, models }: { agent: Agent | null; models: Mo
         )}
 
         {tab === 'tools' && (gBase ? (
-          <ToolsTab grants={g} mounted={mountedConns} candidates={candidates} open={openConn} onOpen={setOpenConn} onMode={setMode}
+          <ToolsTab grants={g} mounted={mountedConns} candidates={candidates} open={openConn} onOpen={setOpenConn} onMode={setMode} onModes={(p) => setGrants({ ...g, ...p })}
             onMount={mountConn} onUnmount={unmountConn} onGoConnectors={() => void navigate('/settings/connectors')} />
         ) : <div className="ag-mount-empty">正在读工具权限</div>)}
 

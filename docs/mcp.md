@@ -152,9 +152,11 @@ Agent 看到这条应当把启动命令转达给用户，而不是反复重试�
 演练领任务、记进展、提交验收这一串写操作时，用真实库的副本，不碰 7777 和 `data/pm.db`：
 
 ```bash
-PMW_DEV_DIR=/path/to/devinst scripts/dev-instance.sh start   # 编译 bin/pmw-dev、bin/pmw-mcp-dev，复制真实库，在 127.0.0.1:7796 启动
+scripts/dev-instance.sh start    # 编译 bin/pmw-dev、bin/pmw-mcp-dev，在 127.0.0.1:7796 启动；库不存在时报错，不自动复制
 scripts/dev-instance.sh status
-scripts/dev-instance.sh reset    # 丢弃副本，重新从 data/pm.db 复制
+scripts/dev-instance.sh reset --wipe-production-data
+                                 # 清库重来：丢弃 data-dev/pm.db，重新从 data/pm.db 复制。7796 已是生产，务必慎用：
+                                 # 不带确认参数直接拒绝；源库是空库时拒绝且不停服务；目标库有数据时先整库备份到 data-dev/backups/
 scripts/dev-instance.sh stop     # 只按 pid 文件停，并核对命令行确实是 pmw-dev + 副本库
 claude --mcp-config .mcp.dev.json   # 加载指向测试实例的 MCP（服务器名 pm-workspace-dev）
 ```
@@ -213,3 +215,9 @@ make build-mcp
 ```
 
 进程会在 stdin 上等 newline-delimited JSON-RPC。按顺序喂 `initialize`、`notifications/initialized`、`tools/list`、`tools/call` 即可。注意 stdin 一旦 EOF 会话就结束，用管道一次性灌完请求往往来不及读到响应，要用能保持 stdin 打开的客户端驱动。
+
+---
+
+由 DeepSeek Harness（dsh）协助完成。
+
+[![](https://img.shields.io/badge/powered_by-dsh-4D6BFE?style=flat-square&logo=deepseek&logoColor=white)](https://github.com/deepseek-ai/deepseek-harness)

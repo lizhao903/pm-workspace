@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 任务列表（SPEC-tasks-2）：状态分段按钮筛选、按截止日分段可折叠、每段先露 30 条。
 // 负责人筛选、排序、搜索都在本地算（B-06、B-07）；只管展示和本地筛选，数据由 Page 从接口层取好传进来。
 import { useMemo, useState, type CSSProperties } from 'react'
@@ -11,14 +13,13 @@ import {
   ownerOptions, prioText, priorityRank, saveMe, segment, sortSeg, statusButtons, terminalOf, timeAgo, type DueSeg, type StatusFilter,
   type TaskSort,
 } from './model'
-import { SOURCE_VIEW, isSourceKind, type SourceKind } from './sourceModel'
 import { SourceTag } from './SourceTag'
 import { OutputsBadge } from './OutputsBadge'
 import { OwnerMark, type AgentLooks } from './OwnerMark'
 import { OUTPUTS_FILTERS, matchOutputs, type KindInfo, type OutputsFilter } from './outputSummary'
 
-/** 全部任务、逾期，加五个来源视图（SPEC-tasks-3） */
-export type TaskView = 'all' | 'overdue' | SourceKind
+/** 全部任务、逾期。来源分类视图已去掉，来源只在列表的来源标签上看 */
+export type TaskView = 'all' | 'overdue'
 
 const TITLE: Record<'all' | 'overdue', string> = { all: '全部任务', overdue: '逾期任务' }
 const DESC: Record<'all' | 'overdue', string> = {
@@ -30,7 +31,7 @@ const NO_PROJECT = '-'
 
 export function TaskList({
   view, tasks, loading, error, onRetry, statuses, priorities, projects, people = [],
-  status, onStatus, search, onSearch, q, selected, drawerOpen, onOpen, onNew, onToggleDone, now: nowProp, hookName = noHook, onGoHooks,
+  status, onStatus, search, onSearch, q, selected, drawerOpen, onOpen, onNew, onToggleDone, now: nowProp, hookName = noHook,
   outputs, kinds = [], onOpenOutputs, agents,
 }: {
   view: TaskView
@@ -61,8 +62,6 @@ export function TaskList({
   now?: Date
   /** 来源标签上的 Webhook 名；undefined 是还没取到，null 是已删除 */
   hookName?: (id: string) => string | null | undefined
-  /** Webhook 来源视图空状态里的「Webhook 接入」 */
-  onGoHooks?: () => void
   /** 每条任务的产出汇总（TSK-0497）；undefined 是还没取到，这时不显示产出、「产出」筛选不生效 */
   outputs?: ReadonlyMap<string, ArtifactObjectSummary>
   /** 产出物种类的名字和顺序（字典 artifact_kind） */
@@ -171,11 +170,6 @@ export function TaskList({
         : <EmptyState title="没有处于该状态的任务" action={<Button variant="outline" onClick={() => onStatus(OPEN)}>切回「未完成」</Button>} />
     } else if (view === 'overdue') {
       body = <EmptyState title="没有逾期的任务" desc="截止日都还没到，或者已经做完了" />
-    } else if (isSourceKind(view)) {
-      // 来源视图各有各的空状态（SPEC-tasks-3.5 到 3.7）；在这里新建的是人工任务，只有人工创建给「新建任务」
-      const action = view === 'manual' ? <Button variant="outline" onClick={onNew}>新建任务</Button>
-        : view === 'webhook' && onGoHooks ? <Button variant="outline" onClick={onGoHooks}>Webhook 接入</Button> : undefined
-      body = <EmptyState title="这里还没有任务" desc={SOURCE_VIEW[view].empty} action={action} />
     } else {
       body = <EmptyState title="这里还没有任务" desc="点右上角新建一个" />
     }
@@ -201,9 +195,9 @@ export function TaskList({
   const filters: [StatusFilter, string][] = [[OPEN, '未完成'], ...head.map((s): [string, string] => [s.key, s.label]), [ALL, '全部']]
   return (
     <div className="tasks-page">
-      <PageTitle parent="任务" count={showCounts ? rows.length : undefined} desc={isSourceKind(view) ? SOURCE_VIEW[view].desc : DESC[view]}
+      <PageTitle parent="任务" count={showCounts ? rows.length : undefined} desc={DESC[view]}
         actions={<Button variant="primary" onClick={onNew}><PlusMark />新建任务</Button>}>
-        {isSourceKind(view) ? SOURCE_VIEW[view].title : TITLE[view]}
+        {TITLE[view]}
       </PageTitle>
       <div className="toolbar">
         <div className="seg" role="group" aria-label="状态">

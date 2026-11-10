@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 package agent
 
 import (
@@ -478,8 +480,9 @@ func (r *Runner) record(ctx context.Context, m *domain.AgentMessage) (*domain.Ag
 // 不值得为了完整回放再单独存一份模型视角的内容。
 func (r *Runner) buildHistory(ctx context.Context, types []*domain.ObjectType) ([]Message, error) {
 	out := []Message{{
-		Role:    RoleSystem,
-		Content: BuildSystemPrompt(types, time.Now(), r.Object) + sourceSection(r.Session) + agentSection(r.Agent) + skillSection(r.Skills),
+		Role: RoleSystem,
+		Content: BuildSystemPrompt(types, time.Now(), r.Object) + sourceSection(r.Session) + agentSection(r.Agent) +
+			skillSection(r.Skills) + instructionSection(r.Session),
 	}}
 	if r.Debug != nil {
 		past := r.debugTranscript()

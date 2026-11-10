@@ -578,15 +578,16 @@ IM 里的群聊和私聊（CT-02，0028，表 `conversations`、`conversation_me
 
 | 方法 | 路径 | body / 说明 |
 |---|---|---|
-| GET | `/api/agent/sessions?object_id=X` / `?unscoped=true` | **必须二选一**：`object_id` 给某个对象的会话（详情抽屉用），`unscoped=true` 给 `object_id IS NULL` 的全局会话（底部对话框用）。两个都不给返回空列表，不是全部；两个都给以 `object_id` 为准（不报 400——这俩是前端两处独立代码各自拼的，真撞上时给一批说得通的数据比让抽屉整个打不开好） |
-| POST | `/api/agent/sessions` | `{title?,provider_id,model,workdir?,object_id?,agent_id?,source_ref?}`，`object_id` 省略即全局会话；`agent_id` 见下面「会话挂 Agent」；`source_ref` 见下面「会话来源」 |
+| GET | `/api/agent/sessions?object_id=X` / `?unscoped=true` / `?project_id=X` / `?q=关键词` | **必须给一个范围**：`object_id` 给某个对象的会话（详情抽屉用），`unscoped=true` 给 `object_id IS NULL` 的全局会话（底部对话框用），`project_id` 给项目归属的会话（见下面「会话归属与检索（P0-S1）」）。三个都不给返回空列表，不是全部；`project_id` 和 `unscoped` 同时给时以 `project_id` 为准。`q` 可和任意范围组合：标题或会话内消息正文包含它。列表项另带 `last_message`（最后一条消息正文，截前 200 字）和 `last_message_at`（无消息时整个键不出现） |
+| POST | `/api/agent/sessions` | `{title?,provider_id,model,workdir?,object_id?,agent_id?,source_ref?,instruction?}`，`object_id` 省略即全局会话；`instruction` 是会话级追加要求（见「会话级追加要求与上下文预览（P0-S2）」）；`agent_id` 见下面「会话挂 Agent」；`source_ref` 见下面「会话来源」。带 `agent_id` 时同时给了 `provider_id`（可带 `model`，不给用该服务商的默认模型），这个会话一开始就单独用它：`model_override` 为 `true`，规则同「会话换模型」；服务商不存在或已停用 400。只给 `agent_id` 时跟随 Agent 默认 |
 | POST | `/api/agent/sessions/{id}/stop` | 停掉这个会话里正在跑的一轮（`/api/agent/chat` 发起的和确认、拒绝后接着跑的都算）。已经执行的工具调用不撤回，会话里记一句「已手动停止这一轮。上面已经执行的工具调用不会撤回，要接着做可以再发一句。」，流里发 `error`「已手动停止」；确认后接着跑的执行记录照常重算状态。回 `{session_id, stopped}`，`stopped` 是停了几轮，没在跑的为 0（不算错）；会话不存在 404。一轮对话和浏览器连接脱钩，关掉页面后要停只能靠它 |
 | GET | `/api/agent/running` | 正在跑的会话 `{session_ids}`（按 id 排），界面据此在会话头部显示「停止」。只含会话里的对话（任务交给工作台 Agent 执行时正在跑模型的那一段也算，TSK-0460），触发器、Agent 执行记录起的 Agent 运行不在内 |
-| PATCH | `/api/agent/sessions/{id}` | `{title?,workdir?,provider_id?,model?,model_override?}`，只改给了的；`object_id`、`agent_id`、`source_ref` 不认。带 `provider_id` / `model` / `model_override` 是换模型，见下面「会话换模型」；回改完的会话 |
+| PATCH | `/api/agent/sessions/{id}` | `{title?,workdir?,provider_id?,model?,model_override?,instruction?}`，只改给了的；`object_id`、`agent_id`、`source_ref` 不认。带 `provider_id` / `model` / `model_override` 是换模型，见下面「会话换模型」；`instruction` 是会话级追加要求（空串清除，见「会话级追加要求与上下文预览（P0-S2）」）；回改完的会话 |
 | DELETE | `/api/agent/sessions/{id}` | 消息级联删除；**产物保留**，只把它的 `session_id` 置空（见「输出产物」一节） |
 | GET | `/api/agent/sessions/{id}/messages` | `AgentMessage[]`，**按时间正序**（最旧在前）。`AgentMessage`：`{id, session_id, role, content, tool_name?, tool_args?, provider_id?, model?, created_at}`，`role` 是 `user` / `assistant` / `tool` / `notice`；`provider_id`、`model` 见下面「会话换模型」 |
 | POST | `/api/agent/sessions/{id}/messages/remove` | 从会话里移除几条消息（SPEC-sessions-1.43）：body `{ids}`（1 到 500 条，去重、去空），只删属于这个会话的，别的 id 忽略；回 `{session_id, removed}`。移除后不再进模型的上下文，会话 `updated_at` 不变，已经执行的工具调用不撤回。空 ids 或超过 500 条 400，会话不存在 404，这一轮还在跑 409（先停止或等跑完）。删掉了的记一条审计「从 Agent 会话「<标题>」移除 N 条消息」 |
 | GET | `/api/agent/sessions/{id}/artifacts` | `Artifact[]`，等价于 `/api/artifacts?session_id={id}`；会话不存在报 404（而不是回空列表） |
+| GET | `/api/agent/sessions/{id}/context` | 上下文预览（P0-S2，见下面「会话级追加要求与上下文预览（P0-S2）」）：`{session_id, instruction, history_limit, total_messages, dropped_count, sent_chars, approx_tokens, messages[]}`，`messages` 按时间正序、前 `dropped_count` 条 `dropped: true`（不会发给模型）；会话不存在 404 |
 | POST | `/api/agent/workdir/check` | `{path}`，校验产物目录是否存在且可写 |
 | POST | `/api/agent/chat` | `{session_id?,provider_id?,model?,workdir?,object_id?,agent_id?,message}`，**SSE 流式响应**，见下；`agent_id` 只在不带 `session_id`、新建会话时用 |
 
@@ -663,6 +664,31 @@ chat 带了不同的 `object_id` 也不会让已有会话搬家——搬走会�
 - 内容由发起方定，内核只认三个键：`kind` 是来源种类（前端按它找插件登记的显示方式，扩展点 `sessionSources`），`label` 是给人看的一句（系统提示词里用），`project_id` 是缺省项目。现在 IM 插件用 `kind: "im_message"`，见「IM 消息插件 im」的「从消息发起会话」；任务交给工作台 Agent 执行建的会话用 `kind: "task_run"`（内核自己写，带 `object_id`、`ref`、`run_id`），见「任务执行」的「交给工作台 Agent」。
 - 会话里 Agent 用 `create_object` 新建对象时：`props.source_ref` 缺省记为会话的 `source_ref`（原样复制）；来源里有 `project_id`、对象没指定项目、建的不是项目本身、并且这个项目在且没删时，对象挂到这个项目。`source` 仍是 `agent`。
 - 有来源时系统提示词在「用户当前打开的对象」之后多一段「这个会话的来源」：「这个会话是从<label>发起的，内容见用户的第一条消息」，并说明新建的对象会自动记上来源、自动挂到来源所属的项目。
+
+### 会话归属与检索（P0-S1）
+
+会话列表在「挂对象 / 全局」两种范围之外多了项目范围和搜索，返回里也多两个展示字段。
+
+- **项目归属**：`GET /api/agent/sessions?project_id=<项目 id>` 返回属于这个项目的会话：
+  1. `object_id` 挂在属于这个项目的对象上的会话（`objects.project_id` = 这个项目）；
+  2. 项目对象 `props.session_ids` 里列出的会话（项目页里「对话」建的会话，`object_id` 为 null）。
+  给了 `project_id` 时忽略 `unscoped`；`project_id` 不存在或不是项目按 `GetObject` 的口径回 404。
+- **搜索**：`q` 去首尾空白后，匹配标题、或「这个会话里有消息正文包含它」；SQLite 的 `LIKE` 对 ASCII 大小写不敏感，用户输入的 `%`、`_` 转义成字面量（不是通配符）。只给 `q`、不给范围时仍是空列表。
+- **最后一条消息**：列表项新增 `last_message`（该会话最后一条消息的正文，截前 200 字；没有消息为空串，响应里不带）和 `last_message_at`（那条消息的时间；没有消息时整个键不出现）。它取自 `role` 不限的最后一条消息——`notice`（换模型提示）也会显示，和服务端发给模型的上下文不是一回事。
+- 前端会话页据此把搜索框改成服务端搜索（输入防抖 300ms）、列表第二行显示最后一条消息、加项目下拉；「N 条消息」只在没有消息时兜底。
+
+### 会话级追加要求与上下文预览（P0-S2，内核迁移 0057）
+
+- 会话多一个字段 `instruction`（`agent_sessions.instruction`，0057 加列，`TEXT NOT NULL DEFAULT ''`）：用户给**这一条会话**写的追加要求，比如「这次只讨论前端，不要建任务」。和 Agent 的 `instructions` 不是一回事——它只对这条会话生效，改 Agent 不影响已经建立的会话。
+  - `POST /api/agent/sessions` 可带 `instruction`；`PATCH /api/agent/sessions/{id}` 可改（空串清除）。去首尾空白，最多 2000 字（超了 400）；只影响之后拼的系统提示词，不追溯已经发生的回复。
+  - 拼法：系统提示词在原有内容（含会话来源、Agent 指令、技能）之后多一段「这次会话的追加要求」，写明和前面的说法冲突时以它为准。
+- `GET /api/agent/sessions/{id}/context` 是「下一条消息实际会发什么」的预览：
+  - `history_limit` 是执行器回灌的最大消息条数（现在是 40，`internal/agent/runner.go` 的 `historyLimit`）。
+  - `total_messages` 是会话里全部消息数；`dropped_count = max(0, total_messages - history_limit)`，即前 `dropped_count` 条不会发给模型。
+  - `messages` 按时间正序，全部消息都在：前 `dropped_count` 条 `dropped: true`，其余 `false`；每条是 `{id, role, content, tool_name, tool_args, created_at, dropped}`。
+  - `sent_chars` 是这轮会发的消息 `content` 字符数之和，`approx_tokens ≈ ceil(sent_chars / 2)`——**粗估**，只用来给人看还要不要清理上下文，不等于模型的实际计费 token。
+  - `instruction` 是会话当前的追加要求，前端打开面板时回显。
+  - 这一版只做预览和会话级追加要求，**没有自动压缩/摘要**：超出的部分仍然按 40 条截断（要压缩得等下一批）。
 
 ## Agent 配置 agents
 
@@ -778,10 +804,12 @@ AG-01b4。表 `agent_runs`（0036），id 前缀 `ar`，对应原型 `web-next/s
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
-| GET | `/api/agent-runs` | `AgentRun[]` + `meta.total`（不含分页）。等确认的（`waiting`）在前，其余按开始时间倒序。query：`agent`（Agent id）、`status`（逗号分隔多选，别的值 400）、`since` / `until`（按开始时间，两端都含，RFC3339 或 YYYY-MM-DD）、`limit`（缺省 50、最大 500）、`offset` |
+| GET | `/api/agent-runs` | `AgentRun[]` + `meta.total`（不含分页）。等确认的（`waiting`）在前，其余按开始时间倒序。query：`agent`（Agent id）、`status`（逗号分隔多选，别的值 400，认 `running` / `done` / `waiting` / `rejected` / `failed` / `canceled`）、`since` / `until`（按开始时间，两端都含，RFC3339 或 YYYY-MM-DD）、`limit`（缺省 50、最大 500）、`offset` |
 | GET | `/api/agent-runs/{id}` | `AgentRunDetail`；不存在 404 |
+| POST | `/api/agent-runs/{id}/stop` | 停止一条还在 `running` 的触发执行：取消它的上下文，执行收尾记 `canceled`，`summary` 为「已手动停止，已经执行的操作不会撤回。」。只停触发执行（P0-O2）；任务交给工作台 Agent 的执行用 `POST /api/runs/{id}/cancel`。回 `data` `{run_id, status:"canceled"}`；不存在 404；不是 `running`（或不在本进程里跑）409 |
+| POST | `/api/agent-runs/{id}/retry` | 按失败或已停止的执行（`failed` / `canceled`）再跑一次：新建一条执行记录和新会话，异步执行。`prompt` 沿用原执行保存的第一句话（0056 之前的旧记录没有，409「这次执行没有留下提示词，不能重试」），`event_key` 为空串（不占原事件的去重键），`trigger` 加「（重试）」，会话标题「重试 · 」+原触发说明。Agent 删除 / 停用 409。回 202 `data` `{run, session_id}` |
 
-`AgentRun`：`{id, agent_id, trigger_kind, trigger, source_id, event_key, session_id, status, summary, started_at, finished_at, pending}`。
+`AgentRun`：`{id, agent_id, trigger_kind, trigger, source_id, event_key, session_id, status, summary, prompt, started_at, finished_at, pending}`。
 
 | 字段 | 说明 |
 |---|---|
@@ -790,14 +818,15 @@ AG-01b4。表 `agent_runs`（0036），id 前缀 `ar`，对应原型 `web-next/s
 | `source_id` | 触发来源：任务的对象 id、IM 消息 id、定时任务 id |
 | `event_key` | 去重键：`task:<对象 id>`、`im:<消息 id>`、`schedule:<定时任务执行记录 id>` |
 | `session_id` | 这次执行建的会话；还没建出会话就失败了为 `null` |
-| `status` | `running` 执行中 / `waiting` 等你确认 / `done` 已完成 / `rejected` 已拒绝 / `failed` 失败。`running` 原型没有：后端在后台跑，跑完才有结果 |
-| `summary` | Agent 最后一条回复（500 字截断），失败时是原因 |
+| `status` | `running` 执行中 / `waiting` 等你确认 / `done` 已完成 / `rejected` 已拒绝 / `failed` 失败 / `canceled` 已手动停止（P0-O2，不是失败，可重试）。`running` 原型没有：后端在后台跑，跑完才有结果 |
+| `summary` | Agent 最后一条回复（500 字截断），失败时是原因，手动停止时是「已手动停止，已经执行的操作不会撤回。」 |
+| `prompt` | 这次执行交给 Agent 的第一句话（0056 起保存），重试时原样再用；旧记录为空串 |
 | `finished_at` | `running` 时为 `null`；`waiting` 也有值（这一轮已经跑完，停在等确认） |
 | `pending` | 还在等确认的调用数 |
 
 `AgentRunDetail`：`AgentRun` 的字段加 `calls`、`tool_calls`。`calls` 是会话里的工具调用记录 `{tool, args, summary, at}[]`，按时间正序（含「等待确认：…」那条）；`tool_calls` 是这次执行里要人确认的调用，结构同「Agent 工具授权」的 `agent_tool_calls`，先记的在前。
 
-**触发**：订阅事件总线，命中的**启用中**的 Agent 各跑一次：建一条会话（挂 Agent，按 Agent 当前的服务商和模型）、记执行记录、在后台跑一轮（10 分钟上限），口径同「Agent 对话」（授权、技能、知识库都生效）。停用的 Agent 不触发。
+**触发**：订阅事件总线，命中的**启用中**的 Agent 各跑一次：建一条会话（挂 Agent，按 Agent 当前的服务商和模型）、记执行记录、在后台跑一轮（10 分钟上限），口径同「Agent 对话」（授权、技能、知识库都生效）。停用的 Agent 不触发。触发执行是**无人值守**的（P0-O2）：不给模型 `ask_user`，步数上限 30（`DefaultRunSteps`，一次执行里 Run + Resume 合起来算），超了记 `failed` 并写明原因；`prompt` 落库供重试。停止走 `POST /api/agent-runs/{id}/stop`，重试走 `POST /api/agent-runs/{id}/retry`（见上表）。
 
 - `task`：`object.created`，以及 `fields` 含 `props` 或 `tags` 的 `object.updated`，只看 `type_id = task`、没删没归档的。任务分配给 Agent 记在 `props.agent_id`（`owner_id` 是干系人的外键，放不了 Agent）。会话挂在这条任务下（`object_id` 为任务 id），交给模型的第一句是「任务 TSK-0012「…」分配给了你……」。
 - `im`：IM 插件的 `im.message_received`。会话不挂对象；交给模型的第一句带渠道、消息 id、和我的关系、会话 id、联系人 id，正文要等读消息的工具（现在还没有）。
@@ -815,6 +844,18 @@ AG-01b4。表 `agent_runs`（0036），id 前缀 `ar`，对应原型 `web-next/s
 - **失败**：建会话失败、服务商或模型不对记 `failed`「没跑起来：…」；模型出错、超时记 `failed`「执行失败：…」。服务退出时还在 `running` 的，下次启动记为 `failed`「执行中服务退出了，结果不确定，没有重跑」。
 - 删除 Agent：执行记录保留；它还有等确认的调用（会话里或执行记录里）时删除被拦，见「Agent 配置」影响检查的 `pending_calls`。
 - 执行记录不记审计；Agent 在执行里的写操作照常按 `agent` 记。
+
+## Agent 注意力 attention
+
+P0-O3。一个只读聚合接口，给「今日 / 需要你处理」的 Agent 待确认组、一级菜单「会话」红点、会话列表的「等你确认」圆点，以及页面刷新后恢复会话里的确认卡用。数据源是 `agent_tool_calls`（`state = 'pending'`）和 `agent_runs.status = 'waiting'`。
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| GET | `/api/agent/attention` | 等确认聚合。query：`session_id`（给了就只回这个会话的）。回 `data`：`{total, pending_calls, waiting_runs}`；`total` 等于 `pending_calls` 条数；两列都最多 100 条、空的时候是 `[]` |
+
+`pending_calls` 每条：`call_id`（`agent_tool_calls` 的主键 `atc_…`，确认、拒绝按它调 `/api/agent/tool-calls/{id}/confirm|reject`）、`session_id`（会话删了为空串）、`session_title`、`agent_id`、`agent_name`（Agent 删了为空串）、`tool`、`args`、`summary`（按工具和参数生成的一句话）、`at`。`waiting_runs` 每条：`run_id`、`agent_id`、`agent_name`、`trigger`、`session_id`、`session_title`、`since`（开始时间）。
+
+前端轮询它（30 秒一次）做提示；它不产生通知、不改任何状态，处理确认仍走 `/api/agent/tool-calls/{id}/confirm|reject`。
 
 ## 技能 skills
 
@@ -1107,6 +1148,7 @@ AG-01b3。字段对齐原型 `web-next/src/agentdata.ts` 的 `KnowledgeBase` 和
 | GET | `/api/objects/{id}/runs?limit=20` | `TaskRun[]`，**最近** N 条，倒序；limit 省略取 20，上限 100 |
 | GET | `/api/runs/{id}` | 单条执行记录，含完整输出 |
 | POST | `/api/runs/{id}/cancel` | 杀掉整个进程组 |
+| GET | `/api/runs/all` | 统一运行中心（P0-O1）：Agent 触发执行 + 任务执行聚合成一页，见下面「统一运行中心（P0-O1）」 |
 | GET | `/api/objects/{id}/run/prompt?mode=&workdir=&extra_prompt=&preset_id=&harness=&resume=` | 提示词预览 `{prompt, workdir}`，和发起时同一套拼法；`preset_id` 是角色 id（接口沿用旧名），不存在 400；`mode` 是 `stream`（默认）或 `terminal`，其他值 400；`harness=agent` 时预览交给工作台 Agent 的那一份（`mode` 不看），`resume=true` 是续跑的说法（TSK-0460）；`harness=deepseek` 时带后台执行口径的「回写到工作台」一节，权限说法换成 dsh 沙箱（TSK-0722，见下面「DeepSeek（dsh）的权限与回写」）；`workdir` 不传时按任务、所属项目继承，不校验目录；终端方式里执行 id 写成「<发起时生成的执行 id>」；对象不存在 404 |
 | POST | `/api/objects/{id}/run/terminal` | `{workdir?, extra_prompt?, preset_id?}`，切换到终端（0048）：建一条 `mode=terminal`、`status=running` 的执行记录，把提示词和 MCP 配置写到数据目录 `tmp/handoff/<执行 id>/prompt.md`、`mcp.json`（0600），不起进程；回 201 `{run, workdir, prompt_file, mcp_config}`。工作目录规则同 `/run`；找不到 MCP 程序（`--mcp-bin`，缺省按本程序位置推：`pmw`→`pmw-mcp`，`pmw-dev`→`pmw-mcp-dev`，退回同目录 `pmw-mcp`）或没有 `--public-url` 时 409 |
 | POST | `/api/runs/{id}/finish` | `{status, summary?, result?}`（MCP `pmw_finish_run` 和界面「标记结束」）。`status` 是 `done`、`failed`、`canceled`，否则 400。`result` 可选，要是 JSON 对象（否则 400「result 要是 JSON 对象」），最多 64 KB（超了 400「result 最多 64 KB」）；约定形状 `{verdict: "pass" \| "reject", issues?: [...], artifacts?: [...]}`，内核不校验里面的字段。**插件交给 Claude Code 的运行**（SOP「Claude Code 执行」节点发起的，AUTO-01）：先按插件运行认，只记下回报不收尾，`status`、`summary`、`result` 存进那次运行，进程退出时由内核按回报和退出码收尾（进程正常结束但回报 `failed` / `canceled` 时整条按回报算，`error` 为「Claude Code 回报做不下去：摘要前 300 字」）；回 200 + `TaskRun`（在任务上留了执行记录的回那条记录，状态仍是 `running`；没有的回同形状的 `{id, status, mode: "stream", output: summary, started_at}`）；已经结束或已经回报过 409；不是 Claude Code 的插件运行 409。**任务的流式执行（后台执行，TSK-0499）**：还在本工作台进程里跑时只记下回报、不收尾，回 200 + 那条 `TaskRun`（状态仍是 `running`）；进程退出收尾时 `summary` 放在 `output` 最前面（「摘要 + `---` + 过程记录」），进程正常结束但回报 `failed` / `canceled` 时按回报算（`error` 同插件运行的写法）；同一次执行只收一次回报，再报 409「这次执行已经回报过结论了」；已经结束、或进程不在本工作台手上的 409；`result` 不落库；`harness=deepseek` 的后台执行同这一条（TSK-0722）。**执行器集成检查里的执行**（id 形如 `smk_…_main`，TSK-0722，见「执行器」）：不在 `task_runs` 里，结论记到正在跑的那次检查上，回 200 + `{id, status: "running", mode: "stream", output: summary, started_at}`；同一次再报 409。**终端执行**：`summary` 最多 200 KB 写进 `output`；`failed` 没写 summary 时 `error` 记「标记为失败，没写原因」；已收尾的 409；不存在 404；收尾后删掉临时目录；照常投 `run.finished`；`result` 不落库（`task_runs` 没有这一列）。超过 7 天的临时目录在下次发起时清掉 |
@@ -1210,6 +1252,20 @@ SSE 事件（形状的唯一真相是 `internal/runner` 的 `Event.MarshalJSON`�
 - **取消**：`POST /api/runs/{id}/cancel` 停掉在途执行（等确认时也行），记录收尾成 `canceled`、`error`「已取消」，还在等的调用拒掉（`result`「执行已取消，没有执行」）；会话页「停止」（`POST /api/agent/sessions/{id}/stop`）也停得下正在跑模型的那一段，同样收尾成 `canceled`、`error`「在会话里手动停止了」。
 - **收尾**：完成 `done`、`exit_code` 0；失败 `failed`、`exit_code` 1，`error` 写原因：步数超限「超过步数上限（N 步）还没做完，已停下。已经执行的操作不会撤回；可以调大步数上限后续跑，或者把任务拆小」，时长超限「超过时长上限（N 分钟）还没做完，已停下……」，服务商不可用「服务商不可用，执行失败：<熔断或重试用完的原因>」（不无限重试：一次调模型最多 3 次，备用服务商再来一遍）；取消 `canceled`、`exit_code` -1。`output` 是过程记录，格式同 Claude Code（正文原样，`[工具] 名 · 参数`、`[工具失败] 名 · 原因`），另加 `[等待确认] <操作>` 和随后一行 `[已确认]` / `[已拒绝]` / `[等待超时，按拒绝处理]`。完成时给任务记一条进展（`kind=note`，操作者 `agent`，会话标识是这次的会话 id）「工作台 Agent「名称」执行完成（执行记录 <id 后 8 位>）：」加 Agent 最后一条回复；失败记「工作台 Agent「名称」执行失败（执行记录 <id 后 8 位>）：<原因>」；取消不记。会话里另落一句（失败「这一轮没跑完：<原因>……」，取消「已手动停止这一轮……」）。收尾照常投 `run.finished`（`origin` 为空）。不记运行异常，不登记产物（`write_file` 写的文件照常按会话登记、挂到任务上）。
 - 交给工作台 Agent 同样把任务改成进行中（SPEC-tasks-6.17 的规则），不领取；负责人改成这个 Agent（TSK-0500，见上面「负责人设为执行者」）。
+
+### 统一运行中心（P0-O1）
+
+`GET /api/runs/all` 把两类执行合并成一页：`agent_runs`（`kind=agent`，手动、IM、定时触发，以及任务交给工作台 Agent 的执行）和 `task_runs`（`kind=task`，本机 Claude Code / DeepSeek 的执行）。SOP 执行不在内——它有自己的执行记录页，混进来的话状态口径对不上。
+
+- 查询参数：`status` 逗号分隔，允许 `running` / `waiting` / `done` / `failed` / `canceled` / `rejected`（agent 侧六种状态都有；task 侧走不到 `waiting`、`rejected`，但取并集后统一传，不报错）；`source` 逗号分隔 `agent` / `task`，缺省两类都查；`limit` 缺省 50、上限 200，`offset` 缺省 0。非法 `status` / `source` 400。
+- 响应 `data` 是 `RunCenterItem[]`，`meta` 照列表口径带 `total`（过滤后两类相加）、`limit`、`offset`。按 `started_at` 倒序；同一时刻 agent 行在前。两类各取 `offset+limit` 条再合并切页，深页码也不会因为只取本页而缺数据。
+- `RunCenterItem` 两种 kind 共用一套字段，用不到的是空串 / `null` / 0：
+  - `kind`（`agent` / `task`）、`id`、`status`（原样，见上）、`started_at`、`finished_at`（还在跑是 `null`）、`summary`。
+  - `title`：agent 是 Agent 名（Agent 删了回 `agent_id`）；task 是「编号 标题」（编号空就是标题）。
+  - `sub`：agent 是触发说明（`trigger` 的人话）；task 是执行器中文名（`Claude Code` / `DeepSeek Harness` / `工作台 Agent` / `本机执行`）。
+  - agent 侧另带 `pending`（等确认的调用数）、`agent_id`、`agent_name`、`trigger`、`session_id`；task 侧另带 `object_id`、`object_ref`、`object_title`、`harness`。
+- task 的 `running` 记录会先按任务抽屉同一口径收尾（工作台重启后残留的变 `failed`）再输出，不会永远显示一条不结束的执行。
+- 前端「运行」模块用它做运行中心：停止/重试 Agent 执行走 `POST /api/agent-runs/{id}/stop` / `retry`，取消 task 执行走 `POST /api/runs/{id}/cancel`，点行跳会话 / 执行记录 / 任务抽屉。
 
 
 ## 执行器 runners
@@ -1649,16 +1705,18 @@ TASK-03a、TASK-03b。定义存在表 `schedules`（0020），执行记录存在
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
-| GET | `/api/schedules` | `Schedule[]` + `meta.total`，不分页。下次执行早的在前，不再执行的（停用、一次性已过）排最后，同组按新建时间倒序。query `object_id=<对象 id>` 时只回动作为 `remind`、`object_id` 是它的定时任务（任务抽屉里的「提醒」），排序同上，停用的、已提醒过的也在；没有时回空数组 |
-| POST | `/api/schedules` | 新建，body `{name, enabled?, rule, action}`，`enabled` 缺省 `true`；回 201 + `Schedule` |
+| GET | `/api/schedules` | `Schedule[]` + `meta.total`，不分页。下次执行早的在前，不再执行的（停用、一次性已过）排最后，同组按新建时间倒序。query `object_id=<对象 id>` 时只回动作为 `remind`、`object_id` 是它的定时任务（任务抽屉里的「提醒」），排序同上，停用的、已提醒过的也在；没有时回空数组。query `project=<项目 id>` 时只回属于这个项目的（项目详情的「定时任务」标签），排序同上 |
+| POST | `/api/schedules` | 新建，body `{name, enabled?, rule, action, project_id?}`，`enabled` 缺省 `true`，`project_id` 缺省、`null`、空串为不属于任何项目；回 201 + `Schedule` |
 | POST | `/api/schedules/preview` | 编辑时预览没保存的规则：body `{rule, count?}`，`count` 缺省 3、最大 10；回 `{rule, next_runs, time_zone}`，`rule` 是规范化后的，`next_runs` 可能少于 `count`（一次性只有一个） |
 | GET | `/api/schedules/{id}` | 一个 `Schedule`；不存在 404 |
-| PATCH | `/api/schedules/{id}` | 只传要改的：`name` / `enabled` / `rule` / `action`，`rule`、`action` 整体替换；回 `Schedule` |
+| PATCH | `/api/schedules/{id}` | 只传要改的：`name` / `enabled` / `rule` / `action` / `project_id`，`rule`、`action` 整体替换，`project_id` 传 `null` 或空串为清空；回 `Schedule` |
 | DELETE | `/api/schedules/{id}` | 彻底删除，`data` 为 `null`；不存在 404。执行记录一起删，已经建出来的任务保留 |
 | GET | `/api/schedules/{id}/runs?limit=50` | 执行记录 `ScheduleRun[]`，计划时刻新的在前；`limit` 缺省 50、最大 500，`meta.total` 是本页条数。定时任务不存在 404 |
 | POST | `/api/schedules/{id}/run` | 立即执行一次：按**已保存**的配置执行，停用的也能跑，不影响下次执行时间；回 201 + 这次的 `ScheduleRun`（`manual: true`）。不存在 404 |
 
-`Schedule`：`{id, name, enabled, rule, action, next_run_at, created_at, updated_at}`。
+`Schedule`：`{id, name, enabled, rule, action, project_id, next_run_at, created_at, updated_at}`。
+
+- `project_id` 是所属项目（0055），`null` 为不属于任何项目。保存时核对：要存在、`type_id` 为 `project`、不在回收站，否则 400「project_id: project … not found」「project_id: … is not a project」。项目被彻底删除时置 `null`。动作 `task` 到点建的任务 `project_id` 同这条定时任务。
 
 - `next_run_at` 读的时候按规则现算，不落库；停用、一次性已过、cron 在四年内碰不上时为 `null`。带服务所在时区的偏移（如 `2026-11-02T09:00:00+08:00`）。
 - `name` 去首尾空白后必填，最多 100 字。
@@ -4713,3 +4771,9 @@ REC-01a 起，本地优先的录音转写：浏览器内录音，音频存数据
 - `--dev` 下 CORS 的 `Access-Control-Allow-Headers` 含 `Content-Type, X-Actor-Source, X-Actor-Name, X-Actor-Session`。
 - 路由表与本文档由 `TestEveryRouteIsInTheContractDoc` / `TestContractDocHasNoDeadRoutes`
   双向盯着：加了路由不记文档、或文档里留了已删除的路由，测试都会红。
+
+---
+
+由 DeepSeek Harness（dsh）协助完成。
+
+[![](https://img.shields.io/badge/powered_by-dsh-4D6BFE?style=flat-square&logo=deepseek&logoColor=white)](https://github.com/deepseek-ai/deepseek-harness)

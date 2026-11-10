@@ -4,7 +4,7 @@
       "command": "./bin/pmw-mcp-dev",
       "args": [
         "--api",
-        "http://127.0.0.1:7796"
+        "http://bro.vip"
       ],
       "env": {}
     }

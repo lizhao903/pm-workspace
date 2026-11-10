@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 import { Navigate, useNavigate, useParams } from 'react-router'
 import { Placeholder } from '../../core/shell/Placeholder'
 import { PluginSettingsPage } from '../../core/shell/extensionHosts'
@@ -52,7 +54,8 @@ export default function Page() {
   const navigate = useNavigate()
   const path = useParams()['*'] ?? ''
   // Agent 配置页在 agents/<id>、agents/new 下，二级菜单仍停在 Agent（AG-01b5）
-  const active = path.startsWith('agents/') ? 'agents' : path
+  // 角色的编辑页在 run-prompts/<id>、run-prompts/new 下，二级菜单仍停在角色
+  const active = path.startsWith('agents/') ? 'agents' : path.startsWith('run-prompts/') ? 'run-prompts' : path
   const sections = useSettingsSections()
   // 连接器异常的数量挂在二级菜单的红点上（SPEC-settings-1.3）
   const connErrors = (useConnectors().data ?? []).filter((c) => c.status === 'error').length

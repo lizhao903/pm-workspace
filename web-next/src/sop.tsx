@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 import { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import { PageTitle } from './topbar'
 import {
@@ -7,7 +9,7 @@ import {
   SOP_FOLDERS, UNCATEGORIZED, addFolder, folderNameError, folderOf, moveSops, newSopFolder, removeFolder, renameFolder,
   type Governance, type Json, type RerunAction, type RerunResult, type RunAction, type RunStep, type Sop, type SopRun,
 } from './sopflow'
-import { KindTag, isBranching } from './nodetypes'
+import { KindTag, isBranching, ruleIsSentence, ruleSentenceError } from './nodetypes'
 import { Subnav } from './subnav'
 import { cls, timeAgo } from './ui'
 import { SearchSelect } from './searchselect'
@@ -56,6 +58,12 @@ function IMLine({ sop, className }: { sop: Sop; className: string }) {
     </div>
   )
 }
+
+/**
+ * 条件是一句话的步骤（TSK-0498）：判断 / 回退步骤的条件不是「字段 运算符 值」，TSK-0490 之前存进来的。
+ * 执行到这一步必然失败，所以流程库卡片标「需修复」、详情页顶上写明哪几步要改，不等它失败了才发现
+ */
+const sentenceSteps = (s: Sop) => s.steps.filter((d) => (d.kind === 'decide' || d.kind === 'loopback') && !d.decide && ruleIsSentence(d.rule))
 
 /** SOP 页的二级菜单 key；library：流程库（全部 SOP 的卡片列表） */
 export type SopView = 'runs' | 'waiting' | 'library' | `sop:${string}` | `edit:${string}`
@@ -565,6 +573,7 @@ function SopLibraryPage({ sops, runs, onOpen, onNew, onChange }: { sops: Sop[]; 
               <button className={cls('sop-lib-card', folders.length > 0 && 'with-folder')} disabled={!onOpen} onClick={() => onOpen?.(s.id)}>
                 <span className="sop-lib-head">
                   <span className="sop-lib-name ellipsis" title={s.name}>{s.name}</span>
+                  {sentenceSteps(s).length > 0 && <span className="sop-lib-pending sop-lib-broken" title={`${sentenceSteps(s).map((d) => `「${d.name}」`).join('、')}的条件是一句话，执行到这里会失败，点进去看怎么改`}>需修复</span>}
                   {!!x?.pending && <span className="sop-lib-pending">{x.pending} 个待处理</span>}
                 </span>
                 <span className="sop-lib-desc" title={s.desc}>{s.desc || '没有说明'}</span>
@@ -697,6 +706,14 @@ export function SopDetailPage({ sop, runs, onStart, onOpen, onEdit, onDelete, de
       </>}>{sop.name}</PageTitle>
       {/* 窄屏时确认条从标题行挪到这里，文字换行，按钮不会被挤出去 */}
       {confirmDel && <div className="sop-del-bar" role="alert"><span className="danger-text">{delText}</span><span className="act-row">{delActs}</span></div>}
+      {/* 条件是一句话的步骤（TSK-0498）：执行到就失败，进详情就写明是哪几步、怎么改 */}
+      {sentenceSteps(sop).length > 0 && (
+        <div className="insp-banner danger sop-broken" role="alert">
+          <div><b>需修复</b>{sentenceSteps(sop).length > 1 ? `有 ${sentenceSteps(sop).length} 个步骤的条件是一句话，执行到这些步骤会失败` : '有一个步骤的条件是一句话，执行到这一步会失败'}</div>
+          {sentenceSteps(sop).map((d) => <div key={d.key}>「{d.name}」：{ruleSentenceError(d.rule!, sop.trigger)}</div>)}
+          <div className="act-row"><button className="act act-primary" onClick={onEdit}>去改流程</button></div>
+        </div>
+      )}
       <div className="sop-facts sop-facts-top">
         {/* 所在文件夹（TSK-0482，SPEC-sop-5.19）：有文件夹时才写 */}
         {SOP_FOLDERS.length > 0 && <span>文件夹：{SOP_FOLDERS.find((x) => x.id === folderOf(sop))?.name ?? UNCATEGORIZED}</span>}
@@ -923,10 +940,12 @@ export function DataView({ data }: { data: Json }) {
 
 type Tab = 'input' | 'output' | 'log'
 
-function Inspector({ run, index, onAct, onOpenSettings }: { run: SopRun; index: number; onAct: (a: RunAction) => void; onOpenSettings?: () => void }) {
+function Inspector({ run, index, onAct, onOpenSettings, onEditFlow, onRerun }: { run: SopRun; index: number; onAct: (a: RunAction) => void; onOpenSettings?: () => void; onEditFlow?: () => void; onRerun?: () => void }) {
   const sop = run.sop
   const def = sop.steps[index]
   const step: RunStep = run.steps[index]
+  // 条件是一句话导致的失败（TSK-0498）：在原执行里重试会原样再失败，换成「去改流程」，改完按最新流程重新发起
+  const sentence = (def.kind === 'decide' || def.kind === 'loopback') && !def.decide && ruleIsSentence(def.rule)
   const manualDecide = isManualDecide(def)
   const defaultTab: Tab = step.status === 'paused' || step.status === 'failed' || step.status === 'running' || (manualDecide && step.status === 'review') ? 'input' : step.output ? 'output' : 'input'
   const [tab, setTab] = useState<Tab>(defaultTab)
@@ -1064,7 +1083,16 @@ function Inspector({ run, index, onAct, onOpenSettings }: { run: SopRun; index: 
         <div className="insp-banner danger">
           <b>执行失败</b>{step.error}
           {/* 已按最新流程重跑过的不能再重试、跳过（SPEC-sop-7.43） */}
-          {run.relaunched_to ? <div>这次执行已按最新流程重跑，不能再重试或跳过，到新执行里处理</div> : (
+          {run.relaunched_to ? <div>这次执行已按最新流程重跑，不能再重试或跳过，到新执行里处理</div> : sentence ? (
+            <>
+              <div>原样重试还会失败。先改流程里这一步的条件，再按最新流程重新发起这条执行；不想等可以先跳过这一步。</div>
+              <div className="act-row">
+                {onEditFlow && <button className="act act-primary" onClick={onEditFlow}>去改流程</button>}
+                {onRerun && <button className="act" onClick={onRerun}>按最新流程重新发起</button>}
+                <button className="act act-quiet" onClick={() => onAct({ kind: 'skip', step: index })}>跳过这一步</button>
+              </div>
+            </>
+          ) : (
             <div className="act-row">
               <button className="act act-primary" onClick={() => onAct({ kind: 'retry', step: index })}>重试</button>
               <button className="act act-quiet" onClick={() => onAct({ kind: 'skip', step: index })}>跳过这一步</button>
@@ -1147,7 +1175,7 @@ function Inspector({ run, index, onAct, onOpenSettings }: { run: SopRun; index: 
   )
 }
 
-export function SopRunView({ run, onBack, onAct, onRerun, onOpenSettings, onOpenRun }: {
+export function SopRunView({ run, onBack, onAct, onRerun, onOpenSettings, onOpenRun, onEditFlow }: {
   run: SopRun
   onBack: () => void
   onAct: (a: RunAction) => void
@@ -1156,6 +1184,8 @@ export function SopRunView({ run, onBack, onAct, onRerun, onOpenSettings, onOpen
   onOpenSettings?: () => void
   /** 批量重跑新发起的执行点「重跑自原执行」打开原执行（SPEC-sop-7.40） */
   onOpenRun?: (id: string) => void
+  /** 条件是一句话导致的失败（TSK-0498）点「去改流程」打开这条流程的编辑 */
+  onEditFlow?: () => void
 }) {
   const sop = run.sop
   const st = runShow(run)
@@ -1201,7 +1231,7 @@ export function SopRunView({ run, onBack, onAct, onRerun, onOpenSettings, onOpen
       <div className="run-flow">
         <FlowGraph sop={sop} run={run} selected={index} onSelect={(i) => setPicked(i === focus ? null : i)} />
       </div>
-      <Inspector key={index} run={run} index={index} onAct={act} onOpenSettings={onOpenSettings} />
+      <Inspector key={index} run={run} index={index} onAct={act} onOpenSettings={onOpenSettings} onEditFlow={onEditFlow} onRerun={onRerun} />
     </div>
   )
 }

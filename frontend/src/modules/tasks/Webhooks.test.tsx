@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -145,12 +147,9 @@ describe('Webhook 页（TASK-04b）', () => {
     // 推送记录多一条
     expect(await screen.findByText('1 次')).toBeInTheDocument()
 
-    // 来源视图：Webhook 条数和 source 筛选一致，任务带「Webhook · 名称」
-    router.navigate('/tasks/source/webhook')
+    // 全部任务里这条带「Webhook · 名称」来源标签（来源分类视图已去掉）
+    router.navigate('/tasks')
     expect(await screen.findByText('Webhook · 表单推送')).toBeInTheDocument()
-    expect(calls).toContain('GET /api/objects?source=webhook')
-    const nav = screen.getByRole('navigation', { name: '任务' })
-    await waitFor(() => expect(within(nav).getByRole('button', { name: /^Webhook\s*1 条$/ })).toBeInTheDocument())
   })
 
   it('没有 Secret 明文时测试推送不可用；粘贴错的 Secret 推送被拒收，给出说明', async () => {
@@ -184,14 +183,14 @@ describe('Webhook 页（TASK-04b）', () => {
     expect(await screen.findByText('这个 Webhook 已删除')).toBeInTheDocument()
   })
 
-  it('人工创建视图用 source=manual,import 筛，空的来源视图给各自的说明', async () => {
-    const calls = fakeBackend([], [], [task('obj_0001', '导入的任务', 'import'), task('obj_0002', '手建的', 'manual')])
+  it('二级菜单没有「来源」分类，旧的来源视图地址回到全部任务，列表照样显示来源标签', async () => {
+    fakeBackend([], [], [task('obj_0001', '导入的任务', 'import'), task('obj_0002', '手建的', 'manual')])
     const router = renderPage('/tasks/source/manual')
-    expect(await screen.findByText('人工创建的任务')).toBeInTheDocument()
     expect(await screen.findByText('导入的任务')).toBeInTheDocument()
+    await waitFor(() => expect(router.state.location.pathname).toBe('/tasks'))
     expect(screen.getAllByText('人工').map((el) => el.getAttribute('title')).sort()).toEqual(['人工', '导入：导入脚本建的任务'].sort())
-    expect(calls).toContain('GET /api/objects?source=manual,import')
-    router.navigate('/tasks/source/schedule')
-    expect(await screen.findByText('定时任务到点会建在这里')).toBeInTheDocument()
+    const nav = screen.getByRole('navigation', { name: '任务' })
+    expect(within(nav).queryByText('来源')).not.toBeInTheDocument()
+    expect(within(nav).queryByRole('button', { name: /^人工/ })).not.toBeInTheDocument()
   })
 })

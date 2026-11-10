@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -325,13 +327,13 @@ describe('详情页的标签设置和切换项目', () => {
     calls.filter((c) => c.method === 'PATCH').map((c) => (c.body as { props?: { tabs_order?: string[] } }).props?.tabs_order).filter(Boolean).at(-1)
 
   it('详情页标签按 props.tabs_order 排：概览第一、设置最后；藏掉的不显示', async () => {
-    const order = ['prototypes', 'sop', 'comms', 'attachments', 'stakeholders', 'tasks', 'docs', 'agents', 'materials', 'profile']
+    const order = ['prototypes', 'sop', 'comms', 'attachments', 'stakeholders', 'tasks', 'schedules', 'docs', 'agents', 'materials', 'profile']
     const a = obj({ title: '工作台', props: { tabs_order: ['settings', ...order], tabs_hidden: ['docs'] } })
     fakeBackend([a])
     mount(`/projects/${a.id}`)
     const bar = await screen.findByRole('tablist', { name: '项目标签' })
     // 附件在 IM 插件没在跑时本来就不显示
-    expect(tabNames(bar)).toEqual(['概览', '原型', 'SOP', '沟通', '干系人', '任务', 'Agent', '支持材料', '档案', '设置'])
+    expect(tabNames(bar)).toEqual(['概览', '原型', 'SOP', '沟通', '干系人', '任务', '定时任务', 'Agent', '支持材料', '档案', '设置'])
   })
 
   it('设置里用上移、下移调顺序：立即保存，焦点留在按钮上，标签条跟着变；固定项没有按钮；恢复默认顺序', async () => {
@@ -342,7 +344,7 @@ describe('详情页的标签设置和切换项目', () => {
     const sec = await screen.findByRole('region', { name: '显示的标签' })
     const reset = within(sec).getByRole('button', { name: '恢复默认顺序' })
     expect(reset).toBeDisabled()
-    expect(pickNames(sec)).toEqual(['概览', '沟通', '附件', '干系人', '任务', '文档', 'SOP', 'Agent', '支持材料', '原型', '档案', '设置'])
+    expect(pickNames(sec)).toEqual(['概览', '沟通', '附件', '干系人', '任务', '定时任务', '文档', 'SOP', 'Agent', '支持材料', '原型', '档案', '设置'])
     expect(within(sec).queryByRole('button', { name: '上移「概览」' })).toBeNull()
     expect(within(sec).queryByRole('button', { name: '下移「设置」' })).toBeNull()
     // 第一个能排的上不去，最后一个下不去
@@ -353,7 +355,7 @@ describe('详情页的标签设置和切换项目', () => {
     const down = within(sec).getByRole('button', { name: '下移「沟通」' })
     down.focus()
     await userEvent.keyboard('{Enter}')
-    await waitFor(() => expect(patchedOrder(calls)).toEqual(['attachments', 'comms', 'stakeholders', 'tasks', 'docs', 'sop', 'agents', 'materials', 'prototypes', 'profile']))
+    await waitFor(() => expect(patchedOrder(calls)).toEqual(['attachments', 'comms', 'stakeholders', 'tasks', 'schedules', 'docs', 'sop', 'agents', 'materials', 'prototypes', 'profile']))
     expect(within(sec).getByRole('button', { name: '下移「沟通」' })).toHaveFocus()
     await userEvent.keyboard(' ')
     await waitFor(() => expect(pickNames(sec).slice(0, 4)).toEqual(['概览', '附件', '干系人', '沟通']))
@@ -364,7 +366,7 @@ describe('详情页的标签设置和切换项目', () => {
     await userEvent.click(within(sec).getByRole('button', { name: '上移「原型」' }))
     const up = within(sec).getByRole('button', { name: '上移「SOP」' })
     up.focus()
-    for (let i = 0; i < 5; i += 1) await userEvent.keyboard('{Enter}')
+    for (let i = 0; i < 6; i += 1) await userEvent.keyboard('{Enter}')
     await waitFor(() => expect(pickNames(sec).slice(0, 3)).toEqual(['概览', 'SOP', '附件']))
     expect(within(sec).getByRole('button', { name: '上移「SOP」' })).toBeDisabled()
     expect(within(sec).getByRole('button', { name: '下移「SOP」' })).toHaveFocus()
@@ -373,7 +375,7 @@ describe('详情页的标签设置和切换项目', () => {
     expect(reset).toBeEnabled()
     await userEvent.click(reset)
     await waitFor(() => expect(patchedOrder(calls)).toEqual([]))
-    await waitFor(() => expect(tabNames(bar)).toEqual(['概览', '沟通', '干系人', '任务', '文档', 'SOP', 'Agent', '支持材料', '原型', '档案', '设置']))
+    await waitFor(() => expect(tabNames(bar)).toEqual(['概览', '沟通', '干系人', '任务', '定时任务', '文档', 'SOP', 'Agent', '支持材料', '原型', '档案', '设置']))
     expect(reset).toBeDisabled()
   })
 
@@ -381,7 +383,7 @@ describe('详情页的标签设置和切换项目', () => {
     const reg = projectTabRegistry('video').register({ key: 'deals', label: '商单', after: 'tasks', page: lazy(async () => ({ default: () => <div>商单内容</div> })) })
     try {
       // 存的顺序里没有商单（插件后来才开）：跟在默认顺序里它前面的「任务」后面
-      const order = ['tasks', 'comms', 'attachments', 'stakeholders', 'docs', 'sop', 'agents', 'materials', 'prototypes']
+      const order = ['tasks', 'comms', 'attachments', 'stakeholders', 'docs', 'sop', 'agents', 'materials', 'prototypes', 'schedules']
       const a = obj({ title: '工作台', props: { tabs_order: order } })
       const calls = fakeBackend([a])
       mount(`/projects/${a.id}/settings`)
@@ -396,8 +398,8 @@ describe('详情页的标签设置和切换项目', () => {
       fireEvent.dragStart(row('商单'), { dataTransfer: dt })
       fireEvent.dragOver(row('原型'), { dataTransfer: dt })
       fireEvent.drop(row('原型'), { dataTransfer: dt })
-      await waitFor(() => expect(patchedOrder(calls)).toEqual(['tasks', 'comms', 'attachments', 'stakeholders', 'docs', 'sop', 'agents', 'materials', 'prototypes', 'deals', 'profile']))
-      await waitFor(() => expect(tabNames(bar).slice(-4)).toEqual(['原型', '商单', '档案', '设置']))
+      await waitFor(() => expect(patchedOrder(calls)).toEqual(['tasks', 'comms', 'attachments', 'stakeholders', 'docs', 'sop', 'agents', 'materials', 'prototypes', 'deals', 'profile', 'schedules']))
+      await waitFor(() => expect(tabNames(bar).slice(-5)).toEqual(['原型', '商单', '档案', '定时任务', '设置']))
       // 拖到设置上也只到可排的最后，设置不动；拖到概览上到第一个
       fireEvent.dragStart(row('沟通'), { dataTransfer: dt })
       fireEvent.drop(row('概览'), { dataTransfer: dt })

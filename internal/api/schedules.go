@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 package api
 
 import (
@@ -33,8 +35,11 @@ func (s *Server) handleListSchedules(w http.ResponseWriter, r *http.Request) {
 		err   error
 	)
 	// ?object_id= 只看关联这个对象的提醒（任务抽屉里的「提醒」）
+	// ?project= 只看属于这个项目的（项目详情的「定时任务」标签）
 	if id := strings.TrimSpace(r.URL.Query().Get("object_id")); id != "" {
 		items, err = s.opt.Schedules.ListByObject(r.Context(), id)
+	} else if pid := strings.TrimSpace(r.URL.Query().Get("project")); pid != "" {
+		items, err = s.opt.Schedules.ListByProject(r.Context(), pid)
 	} else {
 		items, err = s.opt.Schedules.List(r.Context())
 	}
@@ -92,6 +97,16 @@ func (s *Server) handleUpdateSchedule(w http.ResponseWriter, r *http.Request) {
 	var p schedule.Patch
 	if err := json.Unmarshal(body, &p); err != nil {
 		s.fail(w, r, validationf("malformed JSON body: %v", err))
+		return
+	}
+	// project_id 要区分「没给」「null 清空」「给了值」，按原始 body 读
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(body, &raw); err != nil {
+		s.fail(w, r, validationf("malformed JSON body: %v", err))
+		return
+	}
+	if p.ProjectID, err = patchNullable[string](raw, "project_id", "a string or null"); err != nil {
+		s.fail(w, r, err)
 		return
 	}
 	sc, err := s.opt.Schedules.Update(r.Context(), r.PathValue("id"), p)

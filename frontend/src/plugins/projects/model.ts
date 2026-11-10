@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 项目列表和设置的纯函数：搜索、状态筛选和分组、排序、最近打开、底色、关联目录的保存口径。
 import { PROJECT_ROLES, localDay, projectView, type DictItem, type ObjectStatus, type ProjectMark, type ProjectProps, type ProjectSave, type ProjectRoleItem, type ProjectStakeholder, type ProjectView, type RelatedDir, type WorkObject } from '../../core/data'
 import type { PluginProjectTab } from '../../core/plugin'
@@ -150,7 +152,7 @@ export const unmarkFresh = (id: string) => { fresh.delete(id) }
 
 // ---- 详情的标签（顺序和显示名见 SPEC-projects-0 ProjectTab）；todo 是还没做的标签由谁补 ----
 
-export type ProjectTab = 'overview' | 'comms' | 'attachments' | 'stakeholders' | 'tasks' | 'docs' | 'sop' | 'agents' | 'materials' | 'prototypes' | 'profile' | 'settings'
+export type ProjectTab = 'overview' | 'comms' | 'attachments' | 'stakeholders' | 'tasks' | 'schedules' | 'docs' | 'sop' | 'agents' | 'materials' | 'prototypes' | 'profile' | 'settings'
 
 export const TABS: { key: ProjectTab; label: string; todo?: string }[] = [
   { key: 'overview', label: '概览' },
@@ -158,6 +160,7 @@ export const TABS: { key: ProjectTab; label: string; todo?: string }[] = [
   { key: 'attachments', label: '附件' },
   { key: 'stakeholders', label: '干系人' },
   { key: 'tasks', label: '任务' },
+  { key: 'schedules', label: '定时任务' },
   { key: 'docs', label: '文档' },
   { key: 'sop', label: 'SOP' },
   { key: 'agents', label: 'Agent' },

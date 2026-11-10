@@ -825,6 +825,9 @@ button.run-row:hover { background: var(--panel-2); }
 .sop-lib-head { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .sop-lib-name { flex: 1; min-width: 0; font-weight: 600; }
 .sop-lib-pending { flex: none; height: 18px; padding: 0 6px; border-radius: 4px; font-size: 11px; line-height: 18px; color: var(--warn); background: var(--warn-soft); white-space: nowrap; }
+/* 条件是一句话、执行到就失败的流程（TSK-0498） */
+.sop-lib-pending.sop-lib-broken { color: var(--danger); background: var(--danger-soft); }
+.insp-banner.sop-broken { margin-bottom: 12px; }
 .sop-lib-desc { font-size: 12.5px; color: var(--muted); line-height: 1.5; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
 .sop-lib-meta { display: flex; flex-wrap: wrap; gap: 2px 12px; font-size: 11.5px; color: var(--faint); }
 .sop-fields { display: flex; flex-wrap: wrap; gap: 6px; }
@@ -2760,6 +2763,7 @@ input.mono { font-family: var(--mono); }
   .ga-head .ga-col, .ga-head .ga-proj { display: none; }
   .ga-proj { width: 100%; align-items: flex-start; padding-left: 26px; }
   .ga-sugg { justify-content: flex-start; }
+}
 
 /* 文档默认工作目录（SPEC-library-1.53） */
 .ws-default { flex: none; margin-left: auto; padding: 0 6px; border-radius: 999px; font-size: 11px; color: var(--accent); background: var(--accent-soft); }

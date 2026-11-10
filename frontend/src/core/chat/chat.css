@@ -80,3 +80,58 @@
 .ai-notice { display: flex; justify-content: center; padding: 0 var(--sp-8); }
 .ai-notice span { max-width: 100%; padding: 2px 10px; border-radius: 999px; background: var(--panel-2); color: var(--muted); font-size: var(--fs-xs); text-align: center; overflow-wrap: anywhere; }
 @media (hover: none) { .ai-msg-act { opacity: 1; } .ai-msg-model { max-height: 3em; opacity: 1; margin-top: var(--sp-2); } }
+
+/* ---------- 换模型（TSK-0720），从会话模块挪来：会话页和项目详情的 Agent 标签共用 ---------- */
+.agent-pick { margin: 0 var(--sp-5) var(--sp-4); padding: var(--sp-2); border: 1px solid var(--line); border-radius: var(--r); background: var(--panel); box-shadow: var(--shadow-sm); }
+.agent-pick .menu-item { display: flex; align-items: center; gap: var(--sp-4); width: 100%; }
+.agent-pick .menu-item .ellipsis { flex: 1; min-width: 0; }
+.agent-pick .menu-item.on { background: var(--accent-soft); color: var(--accent); }
+.agent-pick .menu-item:disabled { opacity: 0.5; cursor: default; }
+.agent-pick-search { width: auto; margin: 2px var(--sp-2) var(--sp-3); }
+.agent-pick-list { max-height: 240px; overflow-y: auto; }
+.agent-pick-form { display: flex; flex-direction: column; gap: var(--sp-4); padding: var(--sp-4) var(--sp-3) var(--sp-3); border-top: 1px solid var(--line); margin-top: var(--sp-2); }
+.agent-pick-field { display: flex; flex-direction: column; gap: var(--sp-2); min-width: 0; }
+.agent-pick .mono-input { font-family: var(--mono); font-size: var(--fs-sm); }
+.model-switch-wrap { position: relative; min-width: 0; display: inline-flex; max-width: 100%; }
+.chat-model { display: inline-flex; align-items: center; gap: var(--sp-3); min-width: 0; max-width: 100%; height: 26px; padding: 0 var(--sp-4); border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--panel); color: var(--muted); font-size: var(--fs-sm); }
+.chat-model:not(:disabled):hover { border-color: var(--line-2); color: var(--text); }
+.chat-model:disabled { cursor: default; opacity: 0.8; }
+.chat-model.gone { color: var(--faint); }
+.chat-model .ellipsis { min-width: 0; }
+.chat-model-tag { flex: none; padding: 0 6px; border-radius: 999px; background: var(--panel-2); color: var(--faint); font-size: var(--fs-xs); }
+.model-panel { position: absolute; top: calc(100% + 4px); left: 0; z-index: 30; width: 360px; max-width: calc(100vw - 32px); margin: 0; }
+.model-mode { padding-bottom: var(--sp-2); margin-bottom: var(--sp-2); border-bottom: 1px solid var(--line); }
+.model-mode .menu-item { justify-content: space-between; }
+.model-mode .menu-item .list-sub { flex: 0 1 auto; max-width: 60%; text-align: right; }
+.agent-pick-model { padding: var(--sp-3) var(--sp-3) 0; }
+.model-default { padding: var(--sp-4) var(--sp-3) 0; font-size: var(--fs-sm); }
+.model-confirm { display: flex; flex-direction: column; gap: var(--sp-3); font-size: var(--fs-sm); }
+.chat-model.warn { color: var(--danger); }
+@media (max-width: 760px) {
+  /* 头部按钮换行后位置不定，换模型面板贴着屏幕两边，不撑出横向滚动 */
+  .model-panel { position: fixed; left: 12px; right: 12px; top: auto; width: auto; max-width: none; max-height: 70vh; overflow-y: auto; }
+}
+
+/* ---------- 会话上下文面板（P0-S2）：头部右侧的「上下文」按钮 + 打开后的抽屉 ---------- */
+.chat-ctx-bar { flex: none; display: flex; justify-content: flex-end; padding: 0 var(--sp-8) var(--sp-3); }
+.chat-context { flex: none; max-height: 46vh; overflow-y: auto; display: flex; flex-direction: column; gap: var(--sp-4); padding: var(--sp-5) var(--sp-8) var(--sp-6); border-bottom: 1px solid var(--line); background: var(--panel); }
+.chat-context-head { display: flex; align-items: baseline; gap: var(--sp-4); flex-wrap: wrap; }
+.chat-context-title { font-size: var(--fs-md); font-weight: 600; }
+.chat-context-hint { flex: 1; min-width: 0; color: var(--faint); font-size: var(--fs-xs); }
+.chat-context-loading { padding: var(--sp-3) 0; }
+.chat-context-stats { font-size: var(--fs-sm); color: var(--muted); }
+.chat-context-label { font-size: var(--fs-sm); font-weight: 500; }
+.chat-context-inst { display: flex; flex-direction: column; gap: var(--sp-2); }
+.chat-context-inst textarea { width: 100%; min-height: 64px; resize: vertical; padding: 8px 10px; border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--panel-2); color: var(--text); font: inherit; line-height: 1.55; }
+.chat-context-inst textarea:focus { outline: 0; border-color: var(--accent-line); box-shadow: 0 0 0 3px var(--accent-soft); }
+.chat-context-inst-foot { display: flex; align-items: center; gap: var(--sp-3); }
+.chat-context-inst-foot .field-hint-line { flex: 1; min-width: 0; }
+.chat-context-ok { color: var(--ok); font-size: var(--fs-sm); }
+.chat-context-msgs { display: flex; flex-direction: column; gap: var(--sp-2); max-height: 30vh; overflow-y: auto; padding: var(--sp-3) var(--sp-4); border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--panel-2); }
+.chat-context-msg { display: flex; align-items: flex-start; gap: var(--sp-3); font-size: var(--fs-sm); }
+.chat-context-msg.dropped { opacity: 0.55; }
+.chat-context-role { flex: none; min-width: 34px; padding-top: 1px; color: var(--faint); font-size: var(--fs-xs); }
+.chat-context-body { flex: 1; min-width: 0; }
+.chat-context-tool { color: var(--faint); font-size: var(--fs-xs); font-family: var(--mono); }
+.chat-context-text { white-space: pre-wrap; overflow-wrap: anywhere; }
+.chat-context-dropped { flex: none; color: var(--warn); font-size: var(--fs-xs); }

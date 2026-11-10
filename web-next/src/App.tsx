@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { ConnectorDrawer, ConnectorsSettings } from './connectors'
 import { ApiConnectorDrawer } from './apiconn'
@@ -1913,7 +1915,8 @@ export default function App() {
                 onAct={(a: RunAction) => setRuns((xs) => xs.map((r) => (r.id === run.id ? actOnRun(r, a) : r)))}
                 onRerun={() => setDrawer({ kind: 'sop-start', sopId: run.sop_id, initial: run.input })}
                 onOpenSettings={() => { go('settings'); setSection('sop') }}
-                onOpenRun={(id) => { if (runs.some((r) => r.id === id)) setOpenRun(id) }} />
+                onOpenRun={(id) => { if (runs.some((r) => r.id === id)) setOpenRun(id) }}
+                onEditFlow={sopById(run.sop_id) ? () => { setOpenRun(null); setSopView(`edit:${run.sop_id}`) } : undefined} />
             )
             if (sopView.startsWith('edit:')) {
               const id = sopView.slice(5)

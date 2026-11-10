@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 package api
 
 import (
@@ -172,5 +174,49 @@ func TestSessionModelSwitch(t *testing.T) {
 	mustCode(t, w, http.StatusOK, "plain switch")
 	if d := envelopeData(t, w); d["model"] != "p2-default" || d["model_override"] != false {
 		t.Errorf("只换服务商取它的默认模型：%v", d)
+	}
+}
+
+// 新建挂 Agent 的会话时就选模型：给了 provider_id（可带 model）就单独用它，model_override 为真；只给 agent_id 照旧跟随 Agent 默认。
+func TestCreateSessionWithModel(t *testing.T) {
+	s, st, _ := newAgentServer(t)
+	ctx := context.Background()
+	pid := firstProviderID(t, st)
+	base, err := st.GetProvider(ctx, pid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p2, err := st.CreateProvider(ctx, &domain.AgentProvider{Name: "第二家", Kind: domain.ProviderOllama, BaseURL: base.BaseURL, Model: "p2-default", Enabled: true}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	off, err := st.CreateProvider(ctx, &domain.AgentProvider{Name: "停用的", Kind: domain.ProviderOllama, BaseURL: base.BaseURL, Model: "x", Enabled: false}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	agentID := createAgent(t, s, `{"name":"周报助手","provider_id":"`+pid+`","model":"m1"}`)["id"].(string)
+
+	w := do(s, http.MethodPost, "/api/agent/sessions", `{"agent_id":"`+agentID+`","provider_id":"`+p2.ID+`","model":"x9"}`)
+	mustCode(t, w, http.StatusCreated, "create with model")
+	if d := envelopeData(t, w); d["model_override"] != true || d["provider_id"] != p2.ID || d["model"] != "x9" || d["agent_id"] != agentID {
+		t.Fatalf("指定模型建会话：%v", d)
+	}
+	// 只给服务商：用它的默认模型
+	w = do(s, http.MethodPost, "/api/agent/sessions", `{"agent_id":"`+agentID+`","provider_id":"`+p2.ID+`"}`)
+	mustCode(t, w, http.StatusCreated, "create with provider only")
+	if d := envelopeData(t, w); d["model_override"] != true || d["model"] != "p2-default" {
+		t.Fatalf("只给服务商：%v", d)
+	}
+	// 只给 Agent：跟随 Agent 默认
+	w = do(s, http.MethodPost, "/api/agent/sessions", `{"agent_id":"`+agentID+`"}`)
+	mustCode(t, w, http.StatusCreated, "create follow")
+	if d := envelopeData(t, w); d["model_override"] != false || d["provider_id"] != pid || d["model"] != "m1" {
+		t.Fatalf("跟随 Agent：%v", d)
+	}
+	for name, body := range map[string]string{
+		"服务商不存在": `{"agent_id":"` + agentID + `","provider_id":"apv_nope"}`,
+		"服务商停用":  `{"agent_id":"` + agentID + `","provider_id":"` + off.ID + `"}`,
+	} {
+		mustCode(t, do(s, http.MethodPost, "/api/agent/sessions", body), http.StatusBadRequest, name)
 	}
 }

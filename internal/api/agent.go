@@ -1,15 +1,22 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 package api
 
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/lizhao903/pm-workspace/internal/agent"
+	"github.com/lizhao903/pm-workspace/internal/audit"
 	"github.com/lizhao903/pm-workspace/internal/domain"
+	"github.com/lizhao903/pm-workspace/internal/events"
+	"github.com/lizhao903/pm-workspace/internal/store"
 )
 
 // defaultOllama 是「一个供应商都没配」时自动建出来的那一条。
@@ -24,12 +31,14 @@ const (
 // --- 会话 ---
 
 // handleListAgentSessions 要求调用方明确说自己要哪一批：object_id 给某个工作对象的
-// （详情抽屉用），unscoped=true 给全局的（底部对话框用）。两个都不给返回空列表——
-// 这个默认值是故意反直觉的，理由见 store.ListAgentSessions。
+// （详情抽屉用），unscoped=true 给全局的（底部对话框用），project_id 给某个项目的（S-1）。
+// 一个 scope 都不给返回空列表——这个默认值是故意反直觉的，理由见 store.ListAgentSessions。
 //
-// 两个都给时以 object_id 为准，不报 400：这两个参数在前端是两处独立代码各自拼的，
-// 真同时出现只可能是拼串出错，而此时返回「这个对象的会话」至少还是一批说得通的数据，
-// 400 则会让抽屉整个打不开。
+// object_id 和 unscoped 都给时以 object_id 为准，不报 400：这两个参数在前端是两处独立代码
+// 各自拼的，真同时出现只可能是拼串出错，而此时返回「这个对象的会话」至少还是一批说得通的数据，
+// 400 则会让抽屉整个打不开。project_id 给了时 unscoped 不算数（契约如此）。
+//
+// q 全文搜标题和会话内消息正文，可以和任意 scope 组合；大小写不敏感、% 和 _ 按字面量匹配。
 func (s *Server) handleListAgentSessions(w http.ResponseWriter, r *http.Request) {
 	p := newParams(r)
 	unscoped, err := p.boolean("unscoped")
@@ -37,10 +46,28 @@ func (s *Server) handleListAgentSessions(w http.ResponseWriter, r *http.Request)
 		s.fail(w, r, err)
 		return
 	}
-	items, err := s.st.ListAgentSessions(r.Context(), domain.AgentSessionFilter{
+	f := domain.AgentSessionFilter{
 		ObjectID: p.str("object_id"),
 		Unscoped: unscoped,
-	})
+		Q:        p.str("q"),
+	}
+	if projectID := p.str("project_id"); projectID != "" {
+		// 项目归属要靠对象上的两处信息：哪些对象属于这个项目（store 查 objects.project_id），
+		// 以及项目对象 props.session_ids 里列出来的会话。先确认这是一个真实存在的项目对象，
+		// 免得给一个不存在的 id 时安静地回空列表（和「这个项目确实没有会话」分不开）。
+		o, err := s.st.GetObject(r.Context(), projectID)
+		if err != nil {
+			s.fail(w, r, err)
+			return
+		}
+		if o.TypeID != projectType {
+			s.fail(w, r, notFoundf("项目 %s 不存在", projectID))
+			return
+		}
+		f.ProjectID = o.ID
+		f.ProjectSessionIDs = projectSessionIDs(o)
+	}
+	items, err := s.st.ListAgentSessions(r.Context(), f)
 	if err != nil {
 		s.fail(w, r, err)
 		return
@@ -48,11 +75,47 @@ func (s *Server) handleListAgentSessions(w http.ResponseWriter, r *http.Request)
 	respondList(w, nonNil(items), Meta{Total: len(items)})
 }
 
+// projectSessionIDs 从项目对象的 props.session_ids 里取会话 id 列表。
+// 老数据里可能是 []any（JSON 解出来就是），也可能是 []string（程序内构造），两种都认；
+// 不是字符串的项、空串都跳过，不因为一个脏值让整个项目列表打不开。
+func projectSessionIDs(o *domain.Object) []string {
+	if o == nil || o.Props == nil {
+		return nil
+	}
+	raw, ok := o.Props["session_ids"]
+	if !ok {
+		return nil
+	}
+	var out []string
+	switch v := raw.(type) {
+	case []string:
+		out = v
+	case []any:
+		for _, x := range v {
+			if s, ok := x.(string); ok {
+				out = append(out, s)
+			}
+		}
+	}
+	// 去空白、去重，保持原有顺序
+	seen := make(map[string]bool, len(out))
+	ids := make([]string, 0, len(out))
+	for _, id := range out {
+		if id = strings.TrimSpace(id); id != "" && !seen[id] {
+			seen[id] = true
+			ids = append(ids, id)
+		}
+	}
+	return ids
+}
+
 type createSessionReq struct {
 	Title      string `json:"title"`
 	ProviderID string `json:"provider_id"`
 	Model      string `json:"model"`
 	Workdir    string `json:"workdir"`
+	// Instruction 是这次会话的追加要求（S-2，0057），每一轮拼进系统提示词最后；空串是没有。
+	Instruction string `json:"instruction"`
 	// ObjectID 省略即全局会话。挂给一个不存在的对象是 404，不是静默落成全局——
 	// 这是前端显式指定的归属，猜错了会话就出现在错误的地方。
 	// （/api/agent/chat 里的同名字段是另一回事，见 sessionForChat。）
@@ -62,6 +125,41 @@ type createSessionReq struct {
 	// SourceRef 是会话的来源（0047），JSON 对象，最多 sourceRefMax 字节；null 和不给一样。
 	// 只在 POST /api/agent/sessions 认，chat 里新建会话不带。
 	SourceRef json.RawMessage `json:"source_ref"`
+}
+
+// sessionInstructionMax 是会话级追加要求的字数上限（S-2）：够写一段补充说明，又不至于把
+// 本地小模型的上下文挤掉。和 Agent 的 instructions（20000 字）分开，因为它是临时的。
+const sessionInstructionMax = 2000
+
+// agentSessionInstructionStore 是写会话追加要求的入口（S-2，0057）。
+// 不进 store.Store 接口：只有设会话的两个接口用得到，为一个方法给所有替身加一遍不划算。
+type agentSessionInstructionStore interface {
+	SetAgentSessionInstruction(ctx context.Context, id, instruction string) (*domain.AgentSession, error)
+}
+
+// sessionInstructionStore 找到真正实现 SetAgentSessionInstruction 的 store。
+// 线上的 s.st 外面包了 audit / events 两层，它们只嵌入 store.Store 接口、额外的方法不会跟着转发，
+// 所以要先逐层拆开再断言；拆不到就是 500（这个实例的 store 不完整）。
+func sessionInstructionStore(st store.Store) (agentSessionInstructionStore, bool) {
+	if s, ok := st.(agentSessionInstructionStore); ok {
+		return s, true
+	}
+	switch w := st.(type) {
+	case *audit.Store:
+		return sessionInstructionStore(w.Store)
+	case *events.Store:
+		return sessionInstructionStore(w.Store)
+	}
+	return nil, false
+}
+
+// checkSessionInstruction 校验追加要求：去首尾空白后不超过上限。空串合法，表示清空。
+func checkSessionInstruction(v string) (string, error) {
+	v = strings.TrimSpace(v)
+	if utf8.RuneCountInString(v) > sessionInstructionMax {
+		return "", validationf("会话追加要求太长了，最多 %d 字", sessionInstructionMax)
+	}
+	return v, nil
 }
 
 // sourceRefMax 是会话来源 JSON 的上限：来源只放定位用的几项和一段摘录，不放全文
@@ -100,14 +198,41 @@ func (s *Server) handleCreateAgentSession(w http.ResponseWriter, r *http.Request
 
 // newSession 建会话，并在 provider_id / model 缺省时补上默认值。
 func (s *Server) newSession(ctx context.Context, req createSessionReq) (*domain.AgentSession, error) {
+	instruction, err := checkSessionInstruction(req.Instruction)
+	if err != nil {
+		return nil, err
+	}
 	providerID, model := strings.TrimSpace(req.ProviderID), strings.TrimSpace(req.Model)
 	var agentID *string
+	override := false
 	if v := strings.TrimSpace(req.AgentID); v != "" {
 		ag, err := s.st.GetAgent(ctx, v)
 		if err != nil {
 			return nil, err
 		}
-		agentID, providerID, model = &ag.ID, ag.ProviderID, ag.Model
+		agentID = &ag.ID
+		// 挂 Agent 时也给了服务商：这个会话一开始就单独用它（同会话里换模型，model_override 置 1），不跟 Agent 默认走
+		if providerID != "" {
+			p, err := s.st.GetProvider(ctx, providerID)
+			if errors.Is(err, domain.ErrNotFound) {
+				return nil, validationf("服务商 %s 不存在", providerID)
+			}
+			if err != nil {
+				return nil, err
+			}
+			if !p.Enabled {
+				return nil, validationf("服务商「%s」已停用，换一个", p.Name)
+			}
+			if utf8.RuneCountInString(model) > sessionModelMax {
+				return nil, validationf("模型名太长了，最多 %d 字", sessionModelMax)
+			}
+			if model == "" {
+				model = p.Model
+			}
+			override = true
+		} else {
+			providerID, model = ag.ProviderID, ag.Model
+		}
 	}
 	if agentID == nil && (providerID == "" || model == "") {
 		p, err := s.resolveProvider(ctx, providerID)
@@ -128,13 +253,16 @@ func (s *Server) newSession(ctx context.Context, req createSessionReq) (*domain.
 		return nil, err
 	}
 	return s.st.CreateAgentSession(ctx, &domain.AgentSession{
-		Title:      req.Title,
-		ObjectID:   objectID,
-		ProviderID: providerID,
-		Model:      model,
-		Workdir:    strings.TrimSpace(req.Workdir),
-		AgentID:    agentID,
-		SourceRef:  sourceRef,
+		Title:       req.Title,
+		ObjectID:    objectID,
+		ProviderID:  providerID,
+		Model:       model,
+		Workdir:     strings.TrimSpace(req.Workdir),
+		AgentID:     agentID,
+		SourceRef:   sourceRef,
+		Instruction: instruction,
+		// 挂 Agent 且指定了模型时为真；不挂 Agent 的会话 store 恒存 0
+		ModelOverride: override,
 	})
 }
 
@@ -174,6 +302,19 @@ func (s *Server) handleUpdateAgentSession(w http.ResponseWriter, r *http.Request
 		s.fail(w, r, err)
 		return
 	}
+	instruction, err := patchField[string](raw, "instruction", "a string")
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	// 追加要求先校验：校验不过整条 PATCH 不生效（和换模型同一口径）
+	var newInstruction string
+	if instruction != nil {
+		if newInstruction, err = checkSessionInstruction(*instruction); err != nil {
+			s.fail(w, r, err)
+			return
+		}
+	}
 
 	// 换模型（TSK-0720）先做：校验不过整条 PATCH 不生效
 	var out *domain.AgentSession
@@ -185,6 +326,17 @@ func (s *Server) handleUpdateAgentSession(w http.ResponseWriter, r *http.Request
 	}
 	if out == nil || title != nil || workdir != nil {
 		if out, err = s.st.UpdateAgentSession(r.Context(), r.PathValue("id"), title, workdir, nil, nil); err != nil {
+			s.fail(w, r, err)
+			return
+		}
+	}
+	if instruction != nil {
+		st, ok := sessionInstructionStore(s.st)
+		if !ok {
+			s.fail(w, r, fmt.Errorf("store does not support session instruction"))
+			return
+		}
+		if out, err = st.SetAgentSessionInstruction(r.Context(), r.PathValue("id"), newInstruction); err != nil {
 			s.fail(w, r, err)
 			return
 		}

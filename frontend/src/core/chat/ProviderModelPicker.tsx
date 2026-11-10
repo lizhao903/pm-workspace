@@ -1,9 +1,11 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 选服务商和模型（新会话「更多」里的旧方式，SPEC-sessions-1.6；会话头部换模型，SPEC-sessions-1.46）：
 // 服务商一列（停用的置灰），模型拉得到列表就从列表挑（当前默认模型一定在里面），拉不到就手填。
 import { useState } from 'react'
-import { useProviderModels, type AgentProvider } from '../../core/data'
-import { Avatar, Input, SearchSelect, cls } from '../../core/ui'
-import { avatarName } from '../../core/chat/chatModel'
+import { useProviderModels, type AgentProvider } from '../data'
+import { Avatar, Input, SearchSelect, cls } from '../ui'
+import { avatarName } from './chatModel'
 
 export type ProviderModelState = {
   pid: string

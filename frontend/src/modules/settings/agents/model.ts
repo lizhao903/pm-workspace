@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // Agent 列表和配置页的纯函数（AG-01b5），照原型 web-next/src/agents.tsx、agentdata.ts、App.tsx 的 modelChoices。
 // 色值写在这里（.tsx 里不出现色值），单元测试盯着模型可选项、草稿改动和问题汇总。
 import type {
@@ -296,4 +298,33 @@ export function scenarioProblem(current: string, agents: Agent[]): string | unde
   if (!a) return '选的 Agent 已删除，现在用默认服务商，换一个'
   if (!a.enabled) return `「${a.name || '未命名'}」已停用，现在用默认服务商`
   return undefined
+}
+
+// ---- 一键全量设置权限：一组工具（内置工具，或一个连接器的全部工具）统一设成某一档，每个工具不超过它自己的上限 ----
+
+/** off 全部关闭；read 只开读、写关闭；rw_confirm 读自动、写需确认；rw_auto 读写都自动 */
+export type BulkLevel = 'off' | 'read' | 'rw_confirm' | 'rw_auto'
+export const BULK_LEVELS: BulkLevel[] = ['off', 'read', 'rw_confirm', 'rw_auto']
+export const BULK_LABEL: Record<BulkLevel, string> = { off: '全部关闭', read: '只读', rw_confirm: '读写（写需确认）', rw_auto: '读写全自动' }
+
+type BulkItem = { key: string; write: boolean; cap?: AgentGrantMode }
+
+/** 这一档下这个工具该是什么：先按档位定，再压到它能选的最高档（连接器那边的上限） */
+function bulkMode(it: BulkItem, level: BulkLevel): AgentGrantMode {
+  const want: AgentGrantMode = level === 'off' ? 'off'
+    : !it.write ? 'auto'
+      : level === 'read' ? 'off' : level === 'rw_confirm' ? 'confirm' : 'auto'
+  const opts = modeOptions(it.write, it.cap ?? 'auto')
+  return opts.filter((m) => RANK[m] <= RANK[want]).at(-1) ?? 'off'
+}
+
+/** 整组设成这一档的授权改动（只含这组工具的 key） */
+export function bulkGrants(items: readonly BulkItem[], level: BulkLevel): Grants {
+  return Object.fromEntries(items.map((it) => [it.key, bulkMode(it, level)]))
+}
+
+/** 整组现在正好是哪一档（按显示的档位比）；对不上任何一档是自定义，回 null。没有写工具时「只读」和读写两档一样，按「只读」算 */
+export function bulkLevelOf(items: readonly BulkItem[], grants: Grants): BulkLevel | null {
+  if (!items.length) return null
+  return BULK_LEVELS.find((lv) => items.every((it) => shownMode(grants[it.key], modeOptions(it.write, it.cap ?? 'auto')) === bulkMode(it, lv))) ?? null
 }

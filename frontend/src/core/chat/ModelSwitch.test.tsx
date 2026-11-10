@@ -1,11 +1,13 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 会话里换模型（TSK-0720，SPEC-sessions-1.46 到 1.49）：头部显示实际用的模型；只换本会话；同时设为 Agent 默认要确认，
 // 依次「换本会话 → 改 Agent → 本会话改回跟随」；正在回复时不能换。
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { Agent, AgentMessage, AgentProvider, AgentSession } from '../../core/data'
-import { foldHistory, modelLabel } from '../../core/chat/chatModel'
+import type { Agent, AgentMessage, AgentProvider, AgentSession } from '../data'
+import { foldHistory, modelLabel } from './chatModel'
 import { ModelSwitch } from './ModelSwitch'
 
 const now = new Date().toISOString()

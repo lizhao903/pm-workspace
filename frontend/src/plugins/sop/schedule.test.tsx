@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // SOP 的定时触发（TSK-0463）：草稿初值、卡片显示、触发方式选项，和编排页里配规则、改回别的触发方式时的确认
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
@@ -12,7 +14,7 @@ import { draftScheduleOf, fieldsWithoutDefault, scheduleStateOf, triggerOptionsO
 const RULE = { freq: 'weekly' as const, time: '18:00', weekdays: [1], day: 1, date: '', cron: '' }
 const SCHED: Schedule = {
   id: 'sch_1', name: '周报', enabled: true, rule: RULE, action: { kind: 'sop', sop_id: 'sop_w', managed: true },
-  next_run_at: '2026-11-09T10:00:00Z', created_at: '', updated_at: '',
+  project_id: null, next_run_at: '2026-11-09T10:00:00Z', created_at: '', updated_at: '',
 }
 
 describe('定时规则：每隔几小时', () => {

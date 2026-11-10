@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // Agent 标签（SPEC-projects-10）：项目 Agent（props.agent_ids，第一个是默认）和在项目里开的会话。
 // 「对话」建一个挂这个 Agent 的会话，工作目录用项目目录，会话 id 记进 props.session_ids，然后就在这个标签里打开它
 // （地址 ?s=<会话 id>）：左边项目会话列表，右边对话面板，不跳到会话页（SPEC-projects-10.13）。
@@ -5,6 +7,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router'
 import { ChatPane } from '../../core/chat/ChatPane'
+import { ModelSwitch } from '../../core/chat/ModelSwitch'
 import { whoOf, whoName } from '../../core/chat/chatModel'
 import {
   errorText, projectView, useAgentProviders, useAgentSessions, useAgents, usePatchAgentSession, useRunningAgentSessions, useSaveProject,
@@ -140,6 +143,11 @@ export function AgentsTab({ project }: { project: WorkObject }) {
                   <button type="button" className="pj-chat-back" onClick={closeSession} title="关掉对话，回到会话列表">返回</button>
                   <b className="ellipsis">{cur.title || NEW_TITLE}</b>
                   <span className="pj-muted ellipsis">{whoName(curWho)}</span>
+                  {/* 用的模型，点了换（同会话页，TSK-0720）；Agent 删了、服务商删了的只显示 */}
+                  {curWho.kind !== 'pending' && (
+                    <ModelSwitch session={cur} agent={curWho.kind === 'agent' ? curWho.agent : undefined} providers={providersQ.data ?? []}
+                      busy={!!running.data?.includes(cur.id)} readOnly={curWho.kind === 'gone' || (curWho.kind === 'provider' && !curWho.provider)} />
+                  )}
                   <span className="spacer" />
                   {running.data?.includes(cur.id) && (
                     <Button size="sm" variant="danger" disabled={stop.isPending} title="停掉正在跑的这一轮；已经执行的操作不会撤回"

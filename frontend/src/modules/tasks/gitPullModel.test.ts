@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 import { describe, expect, it } from 'vitest'
 import { actionOf, actionText, draftErrors, emptyAction, emptyRule, gitPullError, isPluginAction } from './scheduleModel'
 
@@ -22,7 +24,7 @@ describe('动作「拉取代码」', () => {
     expect(gitPullError('/code/app', '', 'dev')).toBe('填了分支也要填远端')
     expect(gitPullError('/code/app', 'origin', 'dev')).toBe('')
     expect(gitPullError('/code/app', '', '')).toBe('')
-    const d = { name: '拉代码', enabled: true, rule: { ...emptyRule(now), freq: 'daily' as const, time: '09:00' }, action: emptyAction('git_pull', 'P2') }
+    const d = { name: '拉代码', enabled: true, rule: { ...emptyRule(now), freq: 'daily' as const, time: '09:00' }, action: emptyAction('git_pull', 'P2'), project_id: '' }
     expect(draftErrors(d, now)).toEqual(['填仓库路径'])
   })
 })

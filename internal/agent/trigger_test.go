@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 package agent
 
 import (
@@ -107,6 +109,9 @@ func TestTaskTriggerAssigned(t *testing.T) {
 	if r.Status != store.AgentRunDone || r.TriggerKind != domain.TriggerTask || r.SourceID != o.ID ||
 		!strings.Contains(r.Trigger, "任务分配给它") || r.Summary != "看过了，没什么要做的。" || r.FinishedAt == nil {
 		t.Fatalf("执行记录 = %+v", r)
+	}
+	if !strings.Contains(r.Prompt, o.Ref) || !strings.Contains(r.Prompt, "整理演示环境") {
+		t.Fatalf("提示词没落库：%q", r.Prompt)
 	}
 	s, err := f.st.GetAgentSession(f.ctx, *r.SessionID)
 	if err != nil || s.ObjectID == nil || *s.ObjectID != o.ID || s.AgentID == nil || *s.AgentID != ag.ID {
@@ -287,4 +292,160 @@ func TestRecoverInterruptedRuns(t *testing.T) {
 	if got.Status != store.AgentRunFailed || got.FinishedAt == nil || !strings.Contains(got.Summary, "服务退出") {
 		t.Fatalf("%+v", got)
 	}
+}
+
+// --- 停止 / 重试（P0-O2，0056） ---
+
+// hangChat 一次模型调用一直不返回，直到执行上下文被取消：模拟一次能跑很久的执行。
+type hangChat struct{ started chan struct{} }
+
+func (c *hangChat) Stream(ctx context.Context, _ Request, _ func(Event)) error {
+	select {
+	case c.started <- struct{}{}:
+	default:
+	}
+	<-ctx.Done()
+	return ctx.Err()
+}
+
+// waitRuns 等执行记录出现到至少 n 条，回列表。
+func (f *triggerFixture) waitRuns(agentID string, n int) []*store.AgentRun {
+	f.t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		rs := f.agentRuns(agentID)
+		if len(rs) >= n {
+			return rs
+		}
+		if time.Now().After(deadline) {
+			f.t.Fatalf("等执行记录超时：想要 %d 条，只有 %d 条", n, len(rs))
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+}
+
+// 手动停止：登记过取消函数的执行被取消，收尾记 canceled（不是 failed），总结说明已经做的操作不撤回。
+func TestDispatcherStopRun(t *testing.T) {
+	f := newTriggerFixture(t)
+	ag := f.agent("跑长活的", domain.AgentTrigger{Kind: domain.TriggerIM})
+	chat := &hangChat{started: make(chan struct{}, 1)}
+	f.d.Prepare = func(ctx context.Context, ag *domain.Agent, s *domain.AgentSession) (*Runner, error) {
+		return &Runner{Store: f.st, Chat: chat, Model: "m", Session: s, Agent: ag, Policy: &Policy{Grants: map[string]string{}}}, nil
+	}
+	f.d.HandleEvent(eventIMReceived, mustJSON(t, map[string]any{"message_id": "msg_stop", "channel": "slack"}))
+	rs := f.waitRuns(ag.ID, 1)
+	select {
+	case <-chat.started:
+	case <-time.After(5 * time.Second):
+		t.Fatal("执行没开始调模型")
+	}
+	if !f.d.Stop(rs[0].ID) {
+		t.Fatal("在跑的应该能停")
+	}
+	if !f.d.Wait(5 * time.Second) {
+		t.Fatal("停止后执行没结束")
+	}
+	got, err := f.st.GetAgentRun(f.ctx, rs[0].ID)
+	if err != nil || got.Status != store.AgentRunCanceled || got.FinishedAt == nil ||
+		got.Summary != "已手动停止，已经执行的操作不会撤回。" {
+		t.Fatalf("停止后 = %+v，%v", got, err)
+	}
+	if f.d.Stop(got.ID) {
+		t.Fatal("已经结束的不再能停")
+	}
+	// 停止是收尾成 canceled，不是失败
+	if got.Status == store.AgentRunFailed {
+		t.Fatal("停止不该记失败")
+	}
+	// 提示词落库了，重试用得上
+	if !strings.Contains(got.Prompt, "IM 消息") {
+		t.Fatalf("提示词没落库：%q", got.Prompt)
+	}
+}
+
+// 重试：失败 / 停止的记录新建一条记录和新会话，提示词沿用、触发说明加（重试）、event_key 留空；跑完按新执行收尾。
+func TestDispatcherRetryRun(t *testing.T) {
+	f := newTriggerFixture(t)
+	ag := f.agent("重试助手", domain.AgentTrigger{Kind: domain.TriggerManual})
+	orig, err := f.st.CreateAgentRun(f.ctx, &store.AgentRun{
+		AgentID: ag.ID, TriggerKind: domain.TriggerIM, Trigger: "收到 slack 消息", SourceID: "msg_1",
+		EventKey: "im:msg_1", Prompt: "处理这条消息",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.st.FinishAgentRun(f.ctx, orig.ID, store.AgentRunFailed, "执行失败：boom"); err != nil {
+		t.Fatal(err)
+	}
+	orig, _ = f.st.GetAgentRun(f.ctx, orig.ID)
+
+	next, err := f.d.Retry(f.ctx, orig)
+	if err != nil || next == nil {
+		t.Fatalf("重试 = %+v，%v", next, err)
+	}
+	if next.ID == orig.ID || next.Status != store.AgentRunRunning {
+		t.Fatalf("应新建一条 running 的：%+v", next)
+	}
+	if next.Prompt != "处理这条消息" || next.EventKey != "" || next.SourceID != "msg_1" ||
+		next.TriggerKind != domain.TriggerIM || next.Trigger != "收到 slack 消息（重试）" {
+		t.Fatalf("新记录 = %+v", next)
+	}
+	if next.SessionID == nil || *next.SessionID == "" {
+		t.Fatalf("没建新会话：%+v", next)
+	}
+	sess, err := f.st.GetAgentSession(f.ctx, *next.SessionID)
+	if err != nil || !strings.HasPrefix(sess.Title, "重试 · ") || sess.AgentID == nil || *sess.AgentID != ag.ID {
+		t.Fatalf("新会话 = %+v，%v", sess, err)
+	}
+	if !f.d.Wait(5 * time.Second) {
+		t.Fatal("重试的执行没跑完")
+	}
+	done, _ := f.st.GetAgentRun(f.ctx, next.ID)
+	if done.Status != store.AgentRunDone || done.Summary != "看过了，没什么要做的。" {
+		t.Fatalf("重试执行完 = %+v", done)
+	}
+
+	// 成功的、没有提示词的不能重试
+	if _, err := f.d.Retry(f.ctx, done); err == nil {
+		t.Fatal("done 的不该能重试")
+	}
+	empty, _ := f.st.CreateAgentRun(f.ctx, &store.AgentRun{AgentID: ag.ID, TriggerKind: domain.TriggerIM, Trigger: "没有提示词"})
+	empty, _ = f.st.FinishAgentRun(f.ctx, empty.ID, store.AgentRunCanceled, "")
+	if _, err := f.d.Retry(f.ctx, empty); err == nil || !strings.Contains(err.Error(), "提示词") {
+		t.Fatalf("没有提示词：%v", err)
+	}
+	// Agent 停用
+	off := false
+	if _, err := f.st.UpdateAgent(f.ctx, ag.ID, domain.AgentInput{Enabled: &off}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.d.Retry(f.ctx, orig); err == nil || !strings.Contains(err.Error(), "已停用") {
+		t.Fatalf("停用：%v", err)
+	}
+}
+
+// 超时和手动停止不是一回事：超时仍记 failed，不能混成 canceled。
+func TestDispatcherTimeoutStillFailed(t *testing.T) {
+	f := newTriggerFixture(t)
+	ag := f.agent("超时的", domain.AgentTrigger{Kind: domain.TriggerIM})
+	f.d.Timeout = 20 * time.Millisecond
+	f.d.Prepare = func(ctx context.Context, ag *domain.Agent, s *domain.AgentSession) (*Runner, error) {
+		return &Runner{Store: f.st, Chat: &hangChat{started: make(chan struct{}, 1)}, Model: "m", Session: s, Agent: ag,
+			Policy: &Policy{Grants: map[string]string{}}}, nil
+	}
+	f.fire(eventIMReceived, map[string]any{"message_id": "msg_timeout", "channel": "slack"})
+	rs := f.agentRuns(ag.ID)
+	if len(rs) != 1 || rs[0].Status != store.AgentRunFailed || !strings.Contains(rs[0].Summary, "执行失败") {
+		t.Fatalf("超时应记失败：%+v", rs)
+	}
+}
+
+// mustJSON 把 payload 编成事件总线要的字节。
+func mustJSON(t *testing.T, v any) []byte {
+	t.Helper()
+	b, err := json.Marshal(v)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return b
 }

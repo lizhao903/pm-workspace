@@ -15,6 +15,7 @@ const MODULE_ICONS: Record<string, ReactNode> = {
   docs: svg(<><path d="M4 1.8h5.5L12.5 5v9.2H4Z" {...line} strokeLinejoin="round" /><path d="M9.3 2v3.2h3M6 8h4.5M6 10.5h4.5" {...line} strokeLinecap="round" /></>),
   contacts: svg(<><circle cx="6" cy="5.5" r="2.5" {...line} /><path d="M1.5 13.5c.6-2.4 2.3-3.6 4.5-3.6s3.9 1.2 4.5 3.6M11 3.2a2.4 2.4 0 0 1 0 4.6M12.6 10.2c1 .5 1.6 1.6 1.9 3.3" {...line} strokeLinecap="round" /></>),
   conversations: svg(<><path d="M2 3.5h8.5v5.5H6l-2.5 2V9H2Z" {...line} strokeLinejoin="round" /><path d="M10.5 6H14v5.5h-1.5v2l-2.5-2H7.5V9" {...line} strokeLinejoin="round" /></>),
+  runs: svg(<><circle cx="8" cy="8" r="5.8" {...line} /><path d="M6.6 5.4v5.2L11 8Z" {...line} strokeLinejoin="round" /></>),
   settings: svg(<><circle cx="8" cy="8" r="2.2" {...line} /><path d="M8 1.8v1.6M8 12.6v1.6M1.8 8h1.6M12.6 8h1.6M3.6 3.6l1.1 1.1M11.3 11.3l1.1 1.1M3.6 12.4l1.1-1.1M11.3 4.7l1.1-1.1" {...line} strokeLinecap="round" /></>),
 }
 

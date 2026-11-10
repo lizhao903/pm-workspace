@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 package schedule
 
 import (
@@ -50,7 +52,7 @@ type SOPRef struct {
 // SOPRefs 是动作 sop 指向这个流程的定时任务，按新建时间倒序；停用的也算。
 func (s *Store) SOPRefs(ctx context.Context, flowID string) ([]SOPRef, error) {
 	rows, err := s.db.R.QueryContext(ctx,
-		`SELECT id, name, enabled, rule, action, created_at, updated_at FROM schedules ORDER BY created_at DESC, rowid DESC`)
+		`SELECT `+cols+` FROM schedules ORDER BY created_at DESC, rowid DESC`)
 	if err != nil {
 		return nil, fmt.Errorf("list schedules: %w", err)
 	}

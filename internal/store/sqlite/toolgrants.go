@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 package sqlite
 
 import (
@@ -186,6 +188,36 @@ func (s *Store) SetAgentToolCallResult(ctx context.Context, id, result string) e
 		return fmt.Errorf("set agent tool call result: %w", err)
 	}
 	return nil
+}
+
+// 等确认聚合接口（P0-O3）一次最多回这么多条：界面要的是「现在有几处等我」，不是全量历史。
+const attentionToolCallLimit = 100
+
+func (s *Store) ListPendingToolCalls(ctx context.Context, sessionID string) ([]*store.AgentToolCall, error) {
+	q := `SELECT ` + toolCallCols + ` FROM agent_tool_calls WHERE state = ?`
+	args := []any{store.ToolCallPending}
+	// 用 = ? 而不是 LIKE：session_id 里可能有下划线，LIKE 会当通配符。
+	if sessionID != "" {
+		q += ` AND session_id = ?`
+		args = append(args, sessionID)
+	}
+	// created_at 只到秒，同一秒里先记的靠 rowid 兜底，顺序才稳定。
+	q += ` ORDER BY created_at, rowid LIMIT ?`
+	args = append(args, attentionToolCallLimit)
+	rows, err := s.db.R.QueryContext(ctx, q, args...)
+	if err != nil {
+		return nil, fmt.Errorf("list pending agent tool calls: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+	out := []*store.AgentToolCall{}
+	for rows.Next() {
+		c, err := scanToolCall(rows)
+		if err != nil {
+			return nil, fmt.Errorf("scan pending agent tool call: %w", err)
+		}
+		out = append(out, c)
+	}
+	return out, rows.Err()
 }
 
 func (s *Store) CountPendingToolCalls(ctx context.Context, agentID string) (int, error) {

@@ -1,7 +1,9 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 会话页的执行记录（AG-01b8，SPEC-sessions-2）：GET /api/agent-runs 按 Agent、状态筛的一页，各状态的条数，单条详情。
 // 契约见 docs/api-contract.md「Agent 执行记录 agent-runs」。执行记录由后端在触发时写，前端只读；
 // 确认、拒绝调用走 /api/agent/tool-calls（AG-02b），收尾按 agent-chat 刷新，规则里带着执行记录。
-import { keepPreviousData, useQueries, useQuery } from '@tanstack/react-query'
+import { keepPreviousData, useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
 import { request, requestList } from '../api'
 import { agentConfigKeys } from './agentConfigKeys'
 import type { AgentRunStatus } from './agents'
@@ -53,14 +55,20 @@ export type AgentRunDetail = AgentRun & { calls: AgentRunCall[]; tool_calls: Age
 
 export type AgentRunFilter = { agent?: string; status?: string[]; limit?: number; offset?: number }
 
-/** 执行记录的状态，同契约 AgentRun.status；颜色照原型 RUN_STATUS，running 原型没有 */
+/** 执行记录的状态，同契约 AgentRun.status；颜色照原型 RUN_STATUS，running 原型没有，canceled 是人手动停的（O-2） */
 export const AGENT_RUN_STATUS: Record<AgentRunStatus, { label: string; color: string }> = {
   running: { label: '执行中', color: 'var(--accent)' },
   waiting: { label: '等你确认', color: '#b0570b' },
   done: { label: '已完成', color: '#2f7d43' },
   rejected: { label: '已拒绝', color: '#a19d92' },
   failed: { label: '失败', color: '#c0352b' },
+  canceled: { label: '已停止', color: 'var(--muted)' },
 }
+
+/** 停止一次在跑的执行（O-2）：回停掉的那条和它的状态 */
+export type AgentRunStopResult = { run_id: string; status: AgentRunStatus }
+/** 按原来那次执行的输入重新发起（O-2）：回新的执行和它建的会话 */
+export type AgentRunRetryResult = { run: AgentRun; session_id: string }
 
 /** 要人确认的调用的状态 */
 export const TOOL_CALL_STATE: Record<AgentToolCallState, string> = { pending: '等你确认', confirmed: '已确认执行', rejected: '已拒绝' }
@@ -80,6 +88,7 @@ function runQuery(f: AgentRunFilter): URLSearchParams {
 }
 
 const norm = <T extends AgentRun>(r: T): T => ({ ...r, summary: r.summary ?? '', pending: r.pending ?? 0 })
+const runPath = (id: string) => `/api/agent-runs/${encodeURIComponent(id)}`
 
 export const agentRunsApi = {
   /** 等确认的在前，其余按开始时间倒序；total 不含分页 */
@@ -88,10 +97,19 @@ export const agentRunsApi = {
     return { ...r, data: r.data.map(norm) }
   },
   get: async (id: string, signal?: AbortSignal) => {
-    const d = await request<AgentRunDetail>('GET', `/api/agent-runs/${encodeURIComponent(id)}`, { signal })
+    const d = await request<AgentRunDetail>('GET', runPath(id), { signal })
     return { ...norm(d), calls: d.calls ?? [], tool_calls: d.tool_calls ?? [] }
   },
+  /** 停掉一次在跑的执行（O-2）：已经执行的调用不撤回；不是 running 时 409 */
+  stop: (id: string) => request<AgentRunStopResult>('POST', `${runPath(id)}/stop`, { body: {} }),
+  /** 按原来那次执行的输入重新发起（O-2）：只有失败、已停止的能重试，其余 409；回新的执行和它的会话 */
+  retry: (id: string) => request<AgentRunRetryResult>('POST', `${runPath(id)}/retry`, { body: {} }),
 }
+
+/** 停掉一次在跑的执行（O-2），失败时（比如已经跑完）抛 ApiError */
+export const stopAgentRun = (id: string) => agentRunsApi.stop(id)
+/** 重新发起一次执行（O-2），失败时（比如还在跑）抛 ApiError */
+export const retryAgentRun = (id: string) => agentRunsApi.retry(id)
 
 const normFilter = (f: AgentRunFilter) => {
   const out: Record<string, unknown> = {}
@@ -133,5 +151,25 @@ export function useAgentRun(id: string | null, enabled = true) {
     queryFn: ({ signal }) => agentRunsApi.get(id ?? '', signal),
     enabled: enabled && !!id,
     refetchInterval: (q) => (q.state.data?.status === 'running' ? RUNNING_POLL_MS : false),
+  })
+}
+
+// ---- 写（O-2）：停止、重新执行 ----
+
+/** 停掉一次在跑的执行：完了刷新执行记录的列表、各状态条数和这条详情（状态会变成 canceled） */
+export function useStopAgentRun() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (id: string) => stopAgentRun(id),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: agentConfigKeys.runs }),
+  })
+}
+
+/** 重新发起一次执行（只有失败、已停止的能重试）：完了刷新执行记录，新的那条会在列表里 */
+export function useRetryAgentRun() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (id: string) => retryAgentRun(id),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: agentConfigKeys.runs }),
   })
 }

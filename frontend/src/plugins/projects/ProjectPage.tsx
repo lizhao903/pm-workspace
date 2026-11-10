@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 项目详情的框架（SPEC-projects-2）：顶栏一行是「项目 /」回列表、标志、名称（切换菜单）、标签条、各标签的右上按钮。
 // 标签条放在项目名称同一行的右侧（TSK-0718，PageTitle 的 tabs），挤不下时标签条自己横向滚动、切过去的标签滚进视野；
 // 项目说明不再占顶栏（在设置里看、改）。
@@ -21,6 +23,7 @@ import { Settings } from './Settings'
 import { SopTab } from './SopTab'
 import { StakeholdersTab } from './StakeholdersTab'
 import { TasksTab } from './TasksTab'
+import { SchedulesTab } from './SchedulesTab'
 import { TABS, hiddenTabsOf, orderTabs, tabsOrderOf, withPluginTabs, type ProjectTab } from './model'
 import { ProjectSwitcher } from './ProjectSwitcher'
 import { useProjectMessages } from './projectMessages'
@@ -122,6 +125,7 @@ export function ProjectPage({ id, tab, onTab, onAll, onSwitch }: {
         {tab === 'profile' && <ProfileTab key={o.id} projectId={o.id} />}
         {tab === 'stakeholders' && <StakeholdersTab key={o.id} projectId={o.id} />}
         {tab === 'tasks' && <TasksTab key={o.id} projectId={o.id} />}
+        {tab === 'schedules' && <SchedulesTab key={o.id} projectId={o.id} />}
         {tab === 'sop' && <SopTab key={o.id} project={o} />}
         {tab === 'agents' && <AgentsTab key={o.id} project={o} />}
         {tab === 'docs' && <DocsTab key={o.id} projectId={o.id} docsDir={p.docsDir} root={p.root} onSettings={() => onTab('settings')} adding={docAdding} onAdding={setDocAdding} />}

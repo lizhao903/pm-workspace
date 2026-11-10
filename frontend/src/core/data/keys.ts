@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 缓存键（CORE-03a）。所有查询键都在这里生成，按资源分前缀，失效规则（invalidate.ts）按前缀刷新。
 // 对象列表一律挂在 ['objects', 'list'] 下：任务列表、今日、项目的任务标签页都是它，改了对象一起刷新。
 import type { ArtifactListParams, ObjectListParams } from '../api'
@@ -197,6 +199,8 @@ export const dataKeys = {
     run: (id: string) => ['sop', 'runs', 'get', id] as const,
     /** 关联到某个工作对象的执行（SOP-06，任务详情用） */
     objectRuns: (objectId: string) => ['sop', 'runs', 'object', objectId] as const,
+    /** 输入里某个字段取这些值的执行（项目 SOP 标签的自动反向关联）；在 runs 前缀下，事件一来跟着刷 */
+    inputRuns: (key: string, values: string) => ['sop', 'runs', 'input', key, values] as const,
     /** 插件设置（SOP-07）：放在 runs 前缀下，执行一变跟着刷在调模型、排队的个数 */
     settings: ['sop', 'runs', 'settings'] as const,
     /** 一条需求的流水线（AUTO-12）：在 runs 前缀下，执行一变跟着刷 */

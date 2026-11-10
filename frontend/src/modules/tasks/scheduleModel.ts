@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 定时任务页的纯函数（SPEC-tasks-7、8）：规则说成一句话、前端先挡的规则错误、「做什么」的文字、表单草稿和提交体。
 // 下次执行、接下来几次由后端算（next_run_at、POST /api/schedules/preview），这里不重复算。
 import type {
@@ -99,7 +101,8 @@ export type ActionDraft = {
   branch: string
 }
 
-export type ScheduleDraft = { name: string; enabled: boolean; rule: ScheduleRule; action: ActionDraft }
+/** project_id 空串为不属于任何项目 */
+export type ScheduleDraft = { name: string; enabled: boolean; rule: ScheduleRule; action: ActionDraft; project_id: string }
 
 /** 优先级字典的默认值：meta.default，没有就 P2，和新建任务一致 */
 export function defaultPriority(priorities: readonly DictItem[]): string {
@@ -111,8 +114,9 @@ export function emptyAction(kind: ScheduleActionKind, priority: string): ActionD
   return { kind, title: '', desc: '', priority, assignee: '', due_days: 0, sop_id: '', agent_id: '', prompt: '', min_level: 'error', min_count: 1, body: '', object_id: '', popup: 'toast', repo: '', remote: '', branch: '' }
 }
 
-export function emptyScheduleDraft(priorities: readonly DictItem[], now: Date = new Date()): ScheduleDraft {
-  return { name: '', enabled: true, rule: emptyRule(now), action: emptyAction('task', defaultPriority(priorities)) }
+/** projectId：从项目里新建时预填所属项目 */
+export function emptyScheduleDraft(priorities: readonly DictItem[], now: Date = new Date(), projectId = ''): ScheduleDraft {
+  return { name: '', enabled: true, rule: emptyRule(now), action: emptyAction('task', defaultPriority(priorities)), project_id: projectId }
 }
 
 export function scheduleDraftOf(s: Schedule, priorities: readonly DictItem[], now: Date = new Date()): ScheduleDraft {
@@ -120,7 +124,7 @@ export function scheduleDraftOf(s: Schedule, priorities: readonly DictItem[], no
   const action = { ...a, ...s.action } as ActionDraft
   // 旧提醒没有 popup（或为空），按右下角
   action.popup = action.popup === 'modal' ? 'modal' : 'toast'
-  return { name: s.name, enabled: s.enabled, rule: fullRule(s.rule, now), action }
+  return { name: s.name, enabled: s.enabled, rule: fullRule(s.rule, now), action, project_id: s.project_id ?? '' }
 }
 
 /** 按类型只留自己的字段 */
@@ -164,7 +168,7 @@ export function remindError(title: string, body: string): string {
 }
 
 export function buildScheduleInput(d: ScheduleDraft): ScheduleInput {
-  return { name: d.name.trim(), enabled: d.enabled, rule: d.rule, action: actionOf(d.action) }
+  return { name: d.name.trim(), enabled: d.enabled, rule: d.rule, action: actionOf(d.action), project_id: d.project_id || null }
 }
 
 const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b)
@@ -177,6 +181,7 @@ export function buildSchedulePatch(base: ScheduleDraft, d: ScheduleDraft): Sched
   const p: SchedulePatch = {}
   if (d.name.trim() !== base.name.trim()) p.name = d.name.trim()
   if (d.enabled !== base.enabled) p.enabled = d.enabled
+  if (d.project_id !== base.project_id) p.project_id = d.project_id || null
   if (!same(ruleKey(d.rule), ruleKey(base.rule))) p.rule = d.rule
   if (!same(actionOf(d.action), actionOf(base.action))) p.action = actionOf(d.action)
   return p

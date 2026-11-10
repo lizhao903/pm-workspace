@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // SOP：标准工作流。步骤之间是一张有向图：
 //   after    这一步依赖哪几步；依赖多于一步就是汇合，依赖同一步的几步会并行跑
 //   判断步骤  产出 route，决定走哪个分支；没走到的分支上的步骤标为「未走此分支」
@@ -12,7 +14,7 @@ import { seedContacts, seedMessages } from './data'
 import { newId } from './ids'
 import type { ScheduleRule } from './scheduledata'
 import { condText, evalCond, type SopCond } from './sopcond'
-import { NODE_TYPES, evalRule, isBranching, loopRounds, render, typeOf, type Cfg, type StepKind } from './nodetypes'
+import { NODE_TYPES, evalRule, isBranching, loopRounds, render, ruleIsSentence, ruleSentenceError, typeOf, type Cfg, type StepKind } from './nodetypes'
 
 export type Json = Record<string, unknown>
 export type { StepKind }
@@ -1287,6 +1289,12 @@ export function tick(r: SopRun, now = Date.now()): SopRun {
         now, v ? `Claude Code 跑完了，回报结论 ${v}` : 'Claude Code 跑完了，没有回报结构化结论'))
       return
     }
+    // 条件是一句话的判断步骤（TSK-0498，TSK-0490 之前存进来的）：失败，错误里写清怎么改，不再只说「写法不对」
+    if (def.kind === 'decide' && !def.decide && ruleIsSentence(def.rule)) {
+      const err = ruleSentenceError(def.rule!, sop.trigger)
+      r = setStep(r, i, (x) => logged({ ...x, status: 'failed', error: err, ended_at: now }, now, `失败：${err}`))
+      return
+    }
     if (isBranching(def.kind) && !isManualDecide(def)) {
       const t = typeOf(def.kind)
       const { route, reason } = def.decide ? def.decide(s.input ?? {})
@@ -1340,7 +1348,7 @@ function loopback(r: SopRun, i: number, now: number): SopRun {
   const rule = def.cond ? condText(def.cond) : def.rule?.trim() ?? ''
   const ok = def.cond ? evalCond(def.cond, input) : evalRule(rule, input)
   const fail = (err: string) => setStep(r, i, (x) => logged({ ...x, status: 'failed', error: err, ended_at: now }, now, `失败：${err}`))
-  if (ok === null) return fail(rule ? `规则「${rule}」写法不对，要写成「字段 等于 值」或「字段 包含 值」` : '还没填回退条件')
+  if (ok === null) return fail(rule ? ruleSentenceError(rule, r.sop.trigger) : '还没填回退条件')
   const label = (k: string) => def.cases?.find((c) => c.key === k)?.label ?? k
   if (!ok) return setStep(r, i, (x) => logged({ ...x, status: 'done', output: input, route: 'pass', route_reason: `条件「${rule}」不成立`, ended_at: now }, now, `判断结果：走「${label('pass')}」，条件「${rule}」不成立`))
   const max = loopRounds(def.config?.max_rounds) ?? 3

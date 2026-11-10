@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 import { describe, expect, it } from 'vitest'
 import type { Today } from '../data'
 import { menuMarks } from './marks'
@@ -16,6 +18,12 @@ describe('menuMarks', () => {
   it('IM 消息有待处理才出红点，清掉后消失', () => {
     expect(menuMarks({ imPending: 3 }).messages).toEqual({ alert: true, hint: '3 条消息待处理' })
     expect(menuMarks({ imPending: 0 }).messages).toBeUndefined()
+  })
+
+  it('Agent 有调用等你确认：会话菜单出红点，条数在提示里（P0-O3）', () => {
+    expect(menuMarks({ agentPending: 2 }).conversations).toEqual({ alert: true, hint: '2 个 Agent 调用等你确认' })
+    expect(menuMarks({ agentPending: 0 }).conversations).toBeUndefined()
+    expect(menuMarks({}).conversations).toBeUndefined()
   })
 
   it('视频：待验收、待发布、发布失败有条目才出红点，清掉后消失', () => {

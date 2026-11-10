@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 执行记录页：打桩 fetch，/api/agent-runs 按 query 在桩里筛，详情回调用记录和要确认的调用。
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { render, screen, waitFor, within } from '@testing-library/react'
@@ -24,6 +26,8 @@ const RUNS = [
 ]
 let urls: string[] = []
 let decided: string[] = []
+// O-2 的停止、重新执行，记成 stop:<id> / retry:<id>
+let acted: string[] = []
 
 function backend(input: RequestInfo | URL): Promise<Response> {
   const url = new URL(String(input), 'http://x')
@@ -47,6 +51,22 @@ function backend(input: RequestInfo | URL): Promise<Response> {
       { type: 'done', session_id: 'ags_ar_1', message_id: 'm9' },
     ]
     return Promise.resolve(new Response(events.map((e) => `data: ${JSON.stringify(e)}\n\n`).join(''), { status: 200, headers: { 'Content-Type': 'text/event-stream' } }))
+  }
+  // O-2：停止、重新执行（202 走 202，409 用后端的错误信封）
+  const act = /^\/api\/agent-runs\/([^/]+)\/(stop|retry)$/.exec(url.pathname)
+  if (act) {
+    const r = RUNS.find((x) => x.id === act[1])
+    if (!r) return Promise.resolve(new Response(JSON.stringify({ error: { code: 'not_found', message: '不存在' } }), { status: 404 }))
+    acted.push(`${act[2]}:${r.id}`)
+    if (act[2] === 'stop') {
+      if (r.status !== 'running') return Promise.resolve(new Response(JSON.stringify({ error: { code: 'conflict', message: '这次执行已经不在跑了' } }), { status: 409 }))
+      r.status = 'canceled'
+      r.finished_at = new Date().toISOString()
+      return ok({ run_id: r.id, status: 'canceled' })
+    }
+    if (r.status !== 'failed' && r.status !== 'canceled') return Promise.resolve(new Response(JSON.stringify({ error: { code: 'conflict', message: '这次执行不能重试' } }), { status: 409 }))
+    const next = { ...r, id: `${r.id}_retry`, status: 'running', started_at: new Date().toISOString() }
+    return Promise.resolve(new Response(JSON.stringify({ data: { run: next, session_id: `ags_${next.id}` } }), { status: 202 }))
   }
   const m = /^\/api\/agent-runs\/(.+)$/.exec(url.pathname)
   if (m) {
@@ -79,6 +99,7 @@ const card = (id: string) => document.querySelector<HTMLElement>(`[data-run="${i
 beforeEach(() => {
   urls = []
   decided = []
+  acted = []
   resetLiveChats()
   vi.stubGlobal('fetch', vi.fn(backend))
 })
@@ -157,5 +178,45 @@ describe('执行记录', () => {
   it('失败的总结写原因', async () => {
     show({ focus: 'ar_4' })
     expect(await screen.findByText('执行失败：模型不可用')).toBeInTheDocument()
+  })
+
+  it('在跑的执行能停止：点「停止」发 POST，状态变「已停止」（O-2）', async () => {
+    RUNS.push(run('ar_6', 'ag_a', 'running'))
+    try {
+      show()
+      const c = await waitFor(() => { const x = card('ar_6'); expect(x).not.toBeNull(); return x! })
+      await userEvent.click(within(c).getByRole('button', { name: '停止' }))
+      await waitFor(() => expect(acted).toEqual(['stop:ar_6']))
+      expect(await within(c).findByText('已停止')).toBeInTheDocument()
+      expect(within(c).getByRole('button', { name: '重新执行' })).toBeInTheDocument()
+    } finally {
+      RUNS.pop()
+    }
+  })
+
+  it('失败的执行能重新执行：点「重新执行」发 POST，并提示已重新发起（O-2）', async () => {
+    show()
+    const c = await waitFor(() => { const x = card('ar_4'); expect(x).not.toBeNull(); return x! })
+    await userEvent.click(within(c).getByRole('button', { name: '重新执行' }))
+    await waitFor(() => expect(acted).toEqual(['retry:ar_4']))
+    expect(await within(c).findByText('已重新发起')).toBeInTheDocument()
+  })
+
+  it('已停止的执行：状态标「已停止」，筛选里能选到（O-2）', async () => {
+    RUNS.push(run('ar_7', 'ag_a', 'canceled'))
+    try {
+      show()
+      const tabs = await screen.findByRole('tablist', { name: '状态' })
+      const tab = await within(tabs).findByRole('tab', { name: /已停止/ })
+      await waitFor(() => expect(tab).toHaveTextContent('1'))
+      const c = await waitFor(() => { const x = card('ar_7'); expect(x).not.toBeNull(); return x! })
+      expect(within(c).getByText('已停止')).toBeInTheDocument()
+      expect(within(c).getByRole('button', { name: '重新执行' })).toBeInTheDocument()
+      await userEvent.click(tab)
+      await waitFor(() => expect(card('ar_1')).toBeNull())
+      expect(card('ar_7')).not.toBeNull()
+    } finally {
+      RUNS.pop()
+    }
   })
 })

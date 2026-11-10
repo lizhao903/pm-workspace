@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 package schedule
 
 import (
@@ -300,6 +302,8 @@ func (r *Runner) createTask(ctx context.Context, sc *Schedule, planned time.Time
 		Source:   domain.TaskSourceSchedule,
 		DueAt:    &due,
 		Props:    map[string]any{domain.PropSourceRef: map[string]any{"schedule_id": sc.ID, "name": sc.Name}},
+		// 定时任务归了项目时，建的任务也挂到这个项目（0055）
+		ProjectID: sc.ProjectID,
 	}
 	note := ""
 	if owner := a.Assignee; strings.HasPrefix(owner, "stk_") {

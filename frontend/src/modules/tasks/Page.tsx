@@ -1,10 +1,12 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 任务模块（SPEC-tasks-1、SPEC-tasks-2）：二级菜单 + 列表。路由挂在 tasks/* 下：
 // /tasks 全部任务，/tasks/overdue 逾期；状态筛选记在 ?status=，可以直接链接到「待验收」这类视图；?t=<id> 打开某条任务的抽屉。
 // 抽屉的标签记在 ?tab=，?run= / ?sop_run= 定位某次执行（drawerTabs.ts）；从列表换一条任务、新建时清掉，新打开的从默认标签开始。
 // /tasks/board 阶段看板（AUTO-05，SPEC-tasks-11）：按 props.stage 分列、按提出人筛。
 // /tasks/outputs 产出物（TSK-0497，SPEC-tasks-12）：按任务汇总的产出物清单，和看板一样是「视图」组里的一项，不另起菜单。
 // /tasks/schedules 定时任务（SPEC-tasks-7、8，TASK-04a），二级菜单「自动化」组。
-// /tasks/source/<来源> 来源视图（SPEC-tasks-3），/tasks/webhooks Webhook 接入、/tasks/webhooks/<id|new> 配置页（SPEC-tasks-9、10，TASK-04b）。
+// 来源分类视图已去掉，旧链接 /tasks/source/<来源> 回到全部任务；/tasks/webhooks Webhook 接入、/tasks/webhooks/<id|new> 配置页（SPEC-tasks-9、10，TASK-04b）。
 import { useEffect, useMemo, useState } from 'react'
 import { Navigate, useLocation, useNavigate, useParams, useSearchParams } from 'react-router'
 import {
@@ -12,7 +14,7 @@ import {
 } from '../../core/data'
 import { Button, ErrorState, InSubnavHost, LoadingState, Subnav, type SubnavItem } from '../../core/ui'
 import { timeAgo } from './model'
-import { ARTIFACT_KIND_DICT, useProjectOptions, useSourceCounts, useTaskCounts, useTaskList, useTaskOutputs } from './queries'
+import { ARTIFACT_KIND_DICT, useProjectOptions, useTaskCounts, useTaskList, useTaskOutputs } from './queries'
 import { ApproveDialog } from './ApproveDialog'
 import { OPEN, REVIEW, doneKey, reopenKey, terminalOf, type StatusFilter } from './model'
 import { SchedulesView } from './Schedules'
@@ -23,7 +25,6 @@ import { StageBoard } from './StageBoard'
 import { OutputsView } from './Outputs'
 import { kindTable } from './outputSummary'
 import { PIPELINE_TAB } from './stageModel'
-import { SOURCE_KINDS, SOURCE_VIEW, isSourceKind } from './sourceModel'
 import { LAST_DELIVERY_POLL_MS, WebhooksView } from './Webhooks'
 import { isFailing, recentHooks } from './webhookModel'
 import './tasks.css'
@@ -44,7 +45,6 @@ function viewOf(rest: string): View | null {
   if (rest === 'webhooks') return 'hooks'
   const [a, b, ...more] = rest.split('/')
   if (more.length || !b) return null
-  if (a === 'source' && isSourceKind(b)) return b
   if (a === 'webhooks') return `hook:${b}`
   return null
 }
@@ -52,8 +52,7 @@ function subpath(v: View): string {
   if (v === 'all') return ''
   if (v === 'overdue' || v === 'schedules' || v === 'board' || v === 'outputs') return v
   if (v === 'hooks') return 'webhooks'
-  if (isHookView(v)) return `webhooks/${encodeURIComponent(v.slice(5))}`
-  return `source/${v}`
+  return `webhooks/${encodeURIComponent(v.slice(5))}`
 }
 
 type Opened = { kind: 'task'; task: WorkObject } | { kind: 'new' }
@@ -104,9 +103,8 @@ export default function Page() {
   const prios = useDictItems(PRIORITY_DICT)
   const projects = useProjectOptions()
   const counts = useTaskCounts()
-  const sourceCounts = useSourceCounts()
   // 搜索在拉全的列表上本地匹配（要搜负责人名，后端 q 不管负责人），不传 q
-  const list = useTaskList({ overdue: view === 'overdue', source: view && isSourceKind(view) ? SOURCE_VIEW[view].filter : undefined })
+  const list = useTaskList({ overdue: view === 'overdue' })
   const people = useStakeholders()
   // 负责人是 Agent 时显示它的头像（TSK-0500）
   const agentList = useAgents()
@@ -226,7 +224,6 @@ export default function Page() {
         onOpen={(t) => { if (opened?.kind !== 'task' || opened.task.id !== t.id) drawerTab.clear(); setOpened({ kind: 'task', task: t }) }}
         onNew={() => { drawerTab.clear(); setOpened({ kind: 'new' }) }}
         hookName={hookName}
-        onGoHooks={() => selectView('hooks')}
         outputs={outputs.map}
         kinds={kinds}
         onOpenOutputs={(t) => openOutputs(t.id, t)}
@@ -262,11 +259,6 @@ export default function Page() {
             // 有产出的任务数；汇总没取到时不显示数字
             desc: outputs.query.data ? `${outputs.query.data.objects.length} 条任务有产出` : '按任务看提交、文档、原型等产出',
           },
-          ...SOURCE_KINDS.map((k): SubnavItem<View> => ({
-            key: k, label: SOURCE_VIEW[k].label, group: '来源',
-            // 条数和来源视图「全部」一致：同一个 source 筛选的 total
-            desc: sourceCounts[k] === undefined ? undefined : `${sourceCounts[k]} 条`,
-          })),
           { key: 'schedules', label: '定时任务', group: '自动化', desc: '到点自动建任务、跑 SOP、叫 Agent' },
           {
             key: 'hooks', label: 'Webhook 接入', group: '自动化',

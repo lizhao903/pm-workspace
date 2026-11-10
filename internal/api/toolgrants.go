@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 package api
 
 import (
@@ -314,6 +316,10 @@ func (s *Server) decideToolCall(w http.ResponseWriter, r *http.Request, approved
 	}
 	if tc.RunID != nil {
 		runner.RunID = *tc.RunID
+		// 执行记录里的调用来自无人值守的触发执行（P0-O2）：确认后接着跑同样不给 ask_user，
+		// 步数另给一份预算（和这次执行之前的步数分开算）。
+		runner.Unattended = true
+		runner.Budget = &agent.Budget{MaxSteps: agent.DefaultRunSteps}
 	}
 	state, action, verb := store.ToolCallRejected, "reject", "拒绝"
 	if approved {

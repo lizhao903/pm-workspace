@@ -1,10 +1,12 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 执行记录（SPEC-sessions-2，AG-01b8）：Agent 被任务、IM 消息、定时任务触发后的每一次执行，接 /api/agent-runs。
 // 状态、Agent 在后端筛，等你确认的在前（后端排序）；卡片展开时取详情看调用。?run= 定位到一条：清掉筛选、展开、滚到中间、高亮约 2 秒。
 // 等确认的调用卡片默认展开，卡片上直接「确认执行 / 拒绝」（AG-02b，SPEC-sessions-2.5），接着跑的回复在它的会话里，跑完执行记录的状态重算。
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import {
   AGENT_RUN_STATUS, errorText, useAgentRun, useAgentRunCounts, useAgentRunList, useAgentRuns, useAgents,
-  type Agent, type AgentRun, type AgentRunStatus,
+  useRetryAgentRun, useStopAgentRun, type Agent, type AgentRun, type AgentRunStatus,
 } from '../../core/data'
 import { Button, EmptyState, ErrorState, IconChevronRight, LoadingState, PageTitle, Pill, SearchSelect, cls } from '../../core/ui'
 import { AgentAvatar } from '../../core/ui/AgentAvatar'
@@ -17,9 +19,9 @@ import { runCallViews, topAgents } from './runModel'
 const PAGE = 50
 // 高亮多久
 const LIT_MS = 2400
-// 状态切换：全部 + 原型的四种；「执行中」只在有的时候出现
-const SEG: ('' | AgentRunStatus)[] = ['', 'waiting', 'done', 'rejected', 'failed']
-const COUNTED: string[] = ['', 'waiting', 'done', 'rejected', 'failed', 'running']
+// 状态切换：全部 + 原型四种 + 已停止；「执行中」只在有的时候出现
+const SEG: ('' | AgentRunStatus)[] = ['', 'waiting', 'done', 'rejected', 'failed', 'canceled']
+const COUNTED: string[] = ['', 'waiting', 'done', 'rejected', 'failed', 'canceled', 'running']
 
 const statusOf = (s: string) => AGENT_RUN_STATUS[s as AgentRunStatus] ?? { label: s, color: undefined }
 
@@ -44,13 +46,23 @@ function RunConfirm({ call, sessionId, agentOk, goSession }: { call: CallView; s
   )
 }
 
-function RunCard({ run, agent, open, lit, onToggle, onOpenSession }: {
+function RunCard({ run, agent, open, lit, onToggle, onOpenSession, onStop, onRetry, stopPending, stopError, retryPending, retryError, retried }: {
   run: AgentRun
   agent: Agent | undefined
   open: boolean
   lit: boolean
   onToggle: () => void
   onOpenSession: (id: string) => void
+  /** 在跑时的「停止」（O-2） */
+  onStop: () => void
+  /** 失败、已停止时的「重新执行」（O-2） */
+  onRetry: () => void
+  stopPending: boolean
+  stopError: string
+  retryPending: boolean
+  retryError: string
+  /** 点过「重新执行」并成功发起了（本地状态，刷新列表后新的那条会出现在列表里） */
+  retried: boolean
 }) {
   const detail = useAgentRun(run.id, open)
   const st = statusOf(run.status)
@@ -74,6 +86,24 @@ function RunCard({ run, agent, open, lit, onToggle, onOpenSession }: {
         {!open && detail.data && <span className="run-muted agent-run-n">{calls.length} 次调用</span>}
         <span className="run-muted agent-run-n" title={run.started_at}>{timeAgo(run.started_at)}</span>
       </button>
+      {/* O-2：在跑的能停，失败、已停止的能按原输入重新发起；409 等错误只在这里提示，不挡别的卡片 */}
+      {(run.status === 'running' || run.status === 'failed' || run.status === 'canceled') && (
+        <div className="act-row">
+          {run.status === 'running' && (
+            <Button size="sm" variant="danger" disabled={stopPending} title="停掉这次执行；已经执行的调用不会撤回" onClick={onStop}>
+              {stopPending ? '停止中…' : '停止'}
+            </Button>
+          )}
+          {(run.status === 'failed' || run.status === 'canceled') && (
+            <Button size="sm" disabled={retryPending} title="按这次执行的输入重新发起一次" onClick={onRetry}>
+              {retryPending ? '正在重新发起…' : '重新执行'}
+            </Button>
+          )}
+          {retried && <span className="run-muted">已重新发起</span>}
+          {stopError && <span className="field-err" role="alert">没停下：{stopError}</span>}
+          {retryError && <span className="field-err" role="alert">没能重新执行：{retryError}</span>}
+        </div>
+      )}
       {open && (
         <>
           {run.summary && <div className={cls('agent-run-summary', run.status === 'failed' && 'danger-text')}>{run.summary}</div>}
@@ -128,6 +158,9 @@ export function RunsView({ focus, onOpenSession, onFocused, onBack }: {
   const list = useAgentRunList({ agent: filter || undefined, status: st ? [st] : undefined, limit })
   const counts = useAgentRunCounts(COUNTED)
   const agentsQ = useAgents()
+  // 停止、重新执行（O-2）：pending / error 按这次点的 run id 对到卡片上，别处的卡片不受影响
+  const stop = useStopAgentRun()
+  const retry = useRetryAgentRun()
   const agents = useMemo(() => agentsQ.data ?? [], [agentsQ.data])
   // chip 按执行记录数排：用设置页那份最近 200 条（等确认的在前）估一下
   const brief = useAgentRuns()
@@ -177,7 +210,13 @@ export function RunsView({ focus, onOpenSession, onFocused, onBack }: {
           const open = toggled[r.id] ?? r.status === 'waiting'
           return (
             <RunCard key={r.id} run={r} agent={agents.find((a) => a.id === r.agent_id)} open={open} lit={lit === r.id}
-              onToggle={() => setToggled({ ...toggled, [r.id]: !open })} onOpenSession={onOpenSession} />
+              onToggle={() => setToggled({ ...toggled, [r.id]: !open })} onOpenSession={onOpenSession}
+              onStop={() => stop.mutate(r.id)} onRetry={() => retry.mutate(r.id)}
+              stopPending={stop.isPending && stop.variables === r.id}
+              stopError={stop.isError && stop.variables === r.id ? errorText(stop.error) : ''}
+              retryPending={retry.isPending && retry.variables === r.id}
+              retryError={retry.isError && retry.variables === r.id ? errorText(retry.error) : ''}
+              retried={retry.isSuccess && retry.variables === r.id} />
           )
         })}
         {total > rows.length && (

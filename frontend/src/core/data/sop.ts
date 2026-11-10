@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // SOP 编排插件 sop（SOP-04b）：流程定义、节点类型、执行和动作。契约见 docs/api-contract.md「SOP 编排插件 sop」。
 // 执行列表一次拉最近 500 条放一份缓存，执行记录、待我处理、流程库的统计、二级菜单的「最近用过」都从它算。
 // 状态变化靠事件流（sop.run_status_changed、sop.step_status_changed）报 sop-run 刷新；动作的响应是改后的整条执行，先写回缓存。
@@ -515,6 +517,11 @@ export const sopApi = {
     const query = new URLSearchParams({ object_id: objectId, limit: String(SOP_RUNS_MAX) })
     return (await requestList<SopRunBrief>('/api/sop/runs', { query, signal })).data.map(normBrief)
   },
+  /** 输入里 key 字段取 values 之一的执行，最近的在前（契约 input_key / input_value） */
+  inputRuns: async (key: string, values: readonly string[], signal?: AbortSignal) => {
+    const query = new URLSearchParams({ input_key: key, input_value: values.join(','), limit: String(SOP_RUNS_MAX) })
+    return (await requestList<SopRunBrief>('/api/sop/runs', { query, signal })).data.map(normBrief)
+  },
   run: async (id: string, signal?: AbortSignal) => normRun(await request<SopRun>('GET', runPath(id), { signal })),
   start: async (flowId: string, body: SopStartInput) => normRun(await request<SopRun>('POST', `${flowPath(flowId)}/runs`, { body })),
   act: async (runId: string, action: SopRunAction) => normRun(await request<SopRun>('POST', `${runPath(runId)}/actions`, { body: action })),
@@ -570,6 +577,18 @@ export function useSopNodeTypes() {
 /** 最近 500 次执行；refetchInterval 给事件流断开时轮询用 */
 export function useSopRuns(opts: Poll = {}) {
   return useQuery({ queryKey: dataKeys.sop.runList, queryFn: ({ signal }) => sopApi.runs(signal), retry: noRetry404, refetchInterval: opts.refetchInterval })
+}
+
+/** 输入里 key 字段取 values 之一的执行；key 为空或 values 为空时不取 */
+export function useSopInputRuns(key: string, values: readonly string[], opts: { enabled?: boolean; refetchInterval?: number | false } = {}) {
+  const vs = values.filter(Boolean)
+  return useQuery({
+    queryKey: dataKeys.sop.inputRuns(key, vs.join(',')),
+    queryFn: ({ signal }) => sopApi.inputRuns(key, vs, signal),
+    retry: noRetry404,
+    enabled: (opts.enabled ?? true) && !!key && vs.length > 0,
+    refetchInterval: opts.refetchInterval,
+  })
 }
 
 /** 关联到某个工作对象的执行（SOP-06）：在 runs 前缀下，事件一来跟着刷；objectId 为 null 时不取 */

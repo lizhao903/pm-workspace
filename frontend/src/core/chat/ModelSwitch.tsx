@@ -1,12 +1,15 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 会话头部的模型（SPEC-sessions-1.46 到 1.49，TSK-0720）：显示这个会话实际用的「服务商 · 模型」，点了换。
 // 挂 Agent 的会话：「跟随 Agent 默认」或「这个会话单独用」；单独用时可勾「同时设为 Agent 的默认模型」，要再确认一次。
 // 只改这个会话，后续消息用新模型，会话里多一条「已切换到 X」；正在回复时不能换。
 import { useState } from 'react'
+import './chat.css'
 import {
   errorText, usePatchAgent, useSwitchSessionModel, type Agent, type AgentProvider, type AgentSession,
-} from '../../core/data'
-import { Button, Checkbox, cls } from '../../core/ui'
-import { modelLabel } from '../../core/chat/chatModel'
+} from '../data'
+import { Button, Checkbox, cls } from '../ui'
+import { modelLabel } from './chatModel'
 import { ProviderModelPicker, useProviderModelState } from './ProviderModelPicker'
 
 type Mode = 'follow' | 'custom'

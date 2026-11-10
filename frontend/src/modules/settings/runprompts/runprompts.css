@@ -11,3 +11,17 @@
 .rp-err { color: var(--danger); font-size: var(--fs-sm); }
 .rp-row.rp-opts { align-items: flex-start; }
 .rp-opts > * { flex: 1; min-width: 200px; }
+
+/* 角色列表：一行一个角色，点了进编辑页 */
+.rp-table { border: 1px solid var(--line); border-radius: var(--r); background: var(--panel); overflow: hidden; }
+.rp-table > * + * { border-top: 1px solid var(--line); }
+.rp-trow { display: grid; grid-template-columns: minmax(0, 1fr) 96px 96px; align-items: center; gap: var(--sp-5); width: 100%; padding: var(--sp-4) var(--sp-6); background: none; color: var(--text); text-align: left; font-size: var(--fs-sm); }
+button.rp-trow { cursor: pointer; }
+button.rp-trow:hover { background: var(--hover); }
+.rp-th { color: var(--faint); font-size: var(--fs-xs); padding-top: var(--sp-3); padding-bottom: var(--sp-3); }
+.rp-cell-main { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.rp-scene { display: flex; align-items: center; gap: var(--sp-3); min-width: 0; }
+@media (max-width: 640px) {
+  .rp-trow { grid-template-columns: minmax(0, 1fr) 72px; }
+  .rp-trow > :nth-child(3) { display: none; }
+}

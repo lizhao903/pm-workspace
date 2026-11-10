@@ -49,7 +49,7 @@ export {
 export type { Today, TodayCard, TodayRun } from './today'
 export {
   SCHEDULE_RUNS_LIMIT, useSchedules, useScheduleRuns, useLastScheduleRuns, useSchedulePreview, useCreateSchedule, usePatchSchedule,
-  useDeleteSchedule, useRunSchedule, useObjectReminders,
+  useDeleteSchedule, useRunSchedule, useObjectReminders, useProjectSchedules,
 } from './schedules'
 export type {
   Schedule, ScheduleRule, ScheduleFreq, ScheduleAction, ScheduleActionKind, ScheduleRun, ScheduleRunStatus, ScheduleInput, SchedulePatch,
@@ -94,7 +94,7 @@ export { projectOptions } from './projects'
 export type { ProjectView, ProjectMark, RelatedDir, ProjectProps, ProjectCreate, ProjectSave, ProjectRole, ProjectRoleItem, ProjectStakeholder } from './projects'
 export { useSaveContact, useUpdateContact, useDeleteContact } from './contacts'
 export type { ContactInput, ContactUpdate, ContactSave, ContactSaved } from './contacts'
-export { CONTACT_GROUP_DICT, DEFAULT_CONTACT_GROUP, contactGroupOptions, useCreateContactLinked } from './contacts'
+export { CONTACT_GROUP_DICT, DEFAULT_CONTACT_GROUP, contactGroupOptions, contactGroupsOf, useCreateContactLinked } from './contacts'
 export type { ContactQuick, ContactLinked } from './contacts'
 export {
   identitiesApi, useIdentities, useCreateIdentity, useRelinkIdentity, useDeleteIdentity, normExternalId, identitiesByContact, imOf, identityOwner, identityPlan, applyIdentityPlan,
@@ -165,7 +165,7 @@ export {
 export type { TerminalSession, TerminalSessionInput, TerminalSessionCreated, TerminalSettings, TerminalPrototype } from './terminal'
 export {
   SOP_RUNS_MAX, sopApi, useSopFlows, useSopNodeTypes, useSopRuns, useSopRun, useStartSopRun, useSopRunAction, useDeleteSopFlow,
-  useSopFlow, useSaveSopFlow, useSopAssist, sopIssuesOf, useSopObjectRuns, useSopSettings, usePatchSopSettings, SOP_MODEL_CONCURRENCY_MAX,
+  useSopFlow, useSaveSopFlow, useSopAssist, sopIssuesOf, useSopObjectRuns, useSopInputRuns, useSopSettings, usePatchSopSettings, SOP_MODEL_CONCURRENCY_MAX,
   isSopRunRelaunched, sopRunShow, isSopHeld, useSopPipeline, SOP_CLAUDE_CONCURRENCY_MAX, SOP_TASK_MAX_RUNS_MAX, SOP_TASK_MAX_MINUTES_MAX,
 } from './sop'
 export type {
@@ -227,10 +227,22 @@ export type {
 } from './agents'
 export {
   AGENT_RUN_STATUS, AGENT_RUN_PAGE_MAX, TOOL_CALL_STATE, agentRunsApi, useAgentRunList, useAgentRunCounts, useAgentRun,
+  stopAgentRun, retryAgentRun, useStopAgentRun, useRetryAgentRun,
 } from './agentRuns'
 export type {
   AgentRun, AgentRunCall, AgentRunDetail, AgentRunFilter, AgentRunTriggerKind, AgentToolCall, AgentToolCallState,
 } from './agentRuns'
+// 等确认注意力（P0-O3）：菜单红点、今日「Agent 待确认」组、会话列表圆点、刷新后恢复确认卡
+export { agentAttentionApi, agentAttentionKeys, useAgentAttention } from './agentAttention'
+export type { AgentAttention, AgentPendingCall, AgentWaitingRun } from './agentAttention'
+// 统一运行中心（P0-O1）：Agent 触发执行 + 任务执行聚合成一页
+export {
+  RUN_CENTER_LIMIT, RUN_CENTER_POLL_MS, runElapsed, runCenterApi, cancelTaskRun, useRunCenter, useCancelTaskRun,
+} from './runCenter'
+export type { RunCenterKind, RunCenterStatus, RunCenterItem, RunCenterFilter } from './runCenter'
+// 会话上下文治理（P0-S2）：下一条消息会发什么的预览、会话级追加要求
+export { agentContextKeys, agentContextApi, useAgentSessionContext, useSaveSessionInstruction } from './agentContext'
+export type { AgentContextMessage, AgentSessionContext } from './agentContext'
 
 export { domainKeys } from './domainKeys'
 export {

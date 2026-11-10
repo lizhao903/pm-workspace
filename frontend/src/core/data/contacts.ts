@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 联系人（CT-03a）：沿用干系人名册 /api/stakeholders，带 CT-01a（0026）加的联系人字段。契约见 docs/api-contract.md「干系人名册」。
 // 缓存键挂在 stakeholders 前缀下，干系人一变（含对象改动带来的任务数变化）联系人列表一起刷。
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
@@ -124,6 +126,12 @@ export function contactGroupOptions(dicts: Dictionary[] | undefined): { value: s
   const items = dicts?.find((d) => d.id === CONTACT_GROUP_DICT)?.items
   if (!items?.length) return BUILTIN_GROUPS.map((g) => ({ value: g, label: g }))
   return [...items].filter((i) => !i.archived_at).sort((a, b) => a.sort_order - b.sort_order).map((i) => ({ value: i.key, label: i.label }))
+}
+
+/** 联系人的分组 key 列表：分组可以多个，存成一个字符串（「、」连接，也认逗号、斜杠、分号）；空串按默认分组算 */
+export function contactGroupsOf(c: { group?: string | null }): string[] {
+  const out = [...new Set((c.group ?? '').split(/[、,，/／;；]/).map((g) => g.trim()).filter(Boolean))]
+  return out.length ? out : [DEFAULT_CONTACT_GROUP]
 }
 
 export type ContactQuick = Pick<ContactInput, 'name' | 'company' | 'group'>

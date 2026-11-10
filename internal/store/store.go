@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // Package store 定义数据访问的单一入口。API 层只依赖这个接口，不直接碰 SQL。
 package store
 
@@ -165,6 +167,12 @@ type Store interface {
 	// SetTaskRunStatus 改一条还没结束的执行的状态，只认 running / waiting（TSK-0460：交给工作台 Agent 的执行
 	// 停下等人确认时是 waiting）。已经结束的回 conflict，不存在回 not found。
 	SetTaskRunStatus(ctx context.Context, id, status string) error
+	// ListAllTaskRuns 是运行中心（P0-O1）用的跨对象读法：不按对象筛，返回全部 task 执行里
+	// 按 started_at 倒序的 limit 条，并从 offset 起。statuses 为空表示不过滤，否则只要这些状态。
+	// total 是过滤后的命中总数（不含 Limit/Offset），供列表显示「共 N 条」。
+	// 和 ListTaskRuns 的区别只有「不按对象筛 + 带总数」；每条的完整 output 照样带回来，
+	// 运行中心点开任意一条就要能看全过程。limit <= 0 取 DefaultRunLimit。
+	ListAllTaskRuns(ctx context.Context, statuses []string, limit, offset int) ([]*RunCenterTaskRun, int, error)
 	// ResolveWorkdir 取对象的有效工作区：自身没设时回退到所属项目的，都没有返回空串。
 	ResolveWorkdir(ctx context.Context, objectID string) (string, error)
 

@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 定时任务抽屉（SPEC-tasks-8）：配「什么时候」和「做什么」，下面是执行记录和「立即执行一次」。
 // 接下来几次由后端预览（POST /api/schedules/preview）；立即执行按已保存的配置跑，有没保存的改动时先保存再执行。
 // 视频发布动作（SPEC-videos-15.13）跟着发布记录走：名称和规则只读，两段换成「发布哪条」，不预览也不校验规则。
@@ -25,9 +27,13 @@ function withPrio(d: ScheduleDraft, def: string): ScheduleDraft {
   return d.action.kind === 'task' && !d.action.priority && def ? { ...d, action: { ...d.action, priority: def } } : d
 }
 
-export function ScheduleDrawer({ schedule, onClose, onCreated, onOpenTask }: {
+export function ScheduleDrawer({ schedule, projects = [], initProjectId = '', onClose, onCreated, onOpenTask }: {
   /** null 表示新建 */
   schedule: Schedule | null
+  /** type=project 的对象，选所属项目 */
+  projects?: readonly { id: string; title: string; ref?: string }[]
+  /** 新建时预填的所属项目（从项目详情进来） */
+  initProjectId?: string
   onClose: () => void
   /** 新建成功后切到这条定时任务 */
   onCreated: (s: Schedule) => void
@@ -40,7 +46,7 @@ export function ScheduleDrawer({ schedule, onClose, onCreated, onOpenTask }: {
   // 「现在」取抽屉打开那一刻，渲染里不直接 new Date()
   const [now] = useState(() => new Date())
   const [base, setBase] = useState<ScheduleDraft>(() =>
-    schedule ? scheduleDraftOf(schedule, prios.data ?? [], now) : emptyScheduleDraft(prios.data ?? [], now))
+    schedule ? scheduleDraftOf(schedule, prios.data ?? [], now) : emptyScheduleDraft(prios.data ?? [], now, initProjectId))
   const [d, setD] = useState<ScheduleDraft>(base)
   const [tried, setTried] = useState(false)
   const [confirmDel, setConfirmDel] = useState(false)
@@ -154,6 +160,11 @@ export function ScheduleDrawer({ schedule, onClose, onCreated, onOpenTask }: {
             onChange={(e) => setD((x) => ({ ...x, name: e.target.value }))} />
         </Field>
       )}
+      <Field label="所属项目" hint="按项目归类；动作是建任务时，建的任务也归到这个项目" wrap={false}>
+        <SearchSelect variant="field" aria-label="所属项目" value={d.project_id} noneLabel="不属于项目" placeholder="不属于项目"
+          searchPlaceholder="搜项目" options={projects.map((p) => ({ value: p.id, label: p.title, hint: p.ref }))}
+          missingLabel={() => '已删除的项目'} onChange={(v) => setD((x) => ({ ...x, project_id: v }))} />
+      </Field>
 
       {locked ? (
         <section className="field-group" aria-label="发布哪条">

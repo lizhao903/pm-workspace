@@ -1,12 +1,15 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 新会话面板（SPEC-sessions-1.6、1.7）：「和哪个 Agent 聊」，最近聊过的在前，停用的置灰；点一个就建会话并打开。
+// 默认跟随 Agent 的默认模型；勾「这次指定模型」先选服务商和模型，再点 Agent，会话一开始就单独用它（同会话里换模型）。
 // 不选 Agent、按「服务商 + 模型」开的旧方式收在「更多」里（AG-01b8），可选产物目录和第一句话。
 import { useState } from 'react'
 import {
   errorText, useWorkdirCheck, workdirUsable, type Agent, type AgentProvider, type AgentSessionInput,
 } from '../../core/data'
-import { Button, Input, Textarea } from '../../core/ui'
+import { Button, Checkbox, Input, Textarea } from '../../core/ui'
 import { AgentAvatar } from '../../core/ui/AgentAvatar'
-import { ProviderModelPicker, useProviderModelState } from './ProviderModelPicker'
+import { ProviderModelPicker, useProviderModelState } from '../../core/chat/ProviderModelPicker'
 
 // 多于这个数时出搜索框
 const MANY = 6
@@ -28,12 +31,25 @@ export function NewSession({ agents, agentsLoading, providers, busy, error, onCr
   const [q, setQ] = useState('')
   const kw = q.trim().toLowerCase()
   const shown = kw ? agents.filter((a) => `${a.name} ${a.desc}`.toLowerCase().includes(kw)) : agents
-  const pick = (a: Agent) => { if (a.enabled && !busy) onCreate({ agent_id: a.id }, '') }
+  const [pickModel, setPickModel] = useState(false)
+  const choice = useProviderModelState(providers)
+  const modelOk = !pickModel || (!!choice.provider?.enabled && !!choice.model.trim())
+  const pick = (a: Agent) => {
+    if (!a.enabled || busy || !modelOk) return
+    onCreate(pickModel ? { agent_id: a.id, provider_id: choice.pid, model: choice.model.trim() } : { agent_id: a.id }, '')
+  }
 
   return (
     <div className="agent-pick" role="dialog" aria-label="新会话"
       onKeyDown={(e) => { if (e.key === 'Escape' && !document.querySelector('.ss-menu')) { e.stopPropagation(); onClose() } }}>
       <div className="menu-label">和哪个 Agent 聊</div>
+      <Checkbox className="ns-model-check" checked={pickModel} onCheckedChange={setPickModel}>这次指定模型（不跟 Agent 的默认模型）</Checkbox>
+      {pickModel && (
+        <div className="agent-pick-modelbox">
+          <ProviderModelPicker providers={providers} state={choice} label="用哪个模型" />
+          {!modelOk && <span className="list-sub">先选一个能用的服务商和模型，再点下面的 Agent</span>}
+        </div>
+      )}
       {agents.length > MANY && (
         <div className="search search-sm agent-pick-search">
           <input autoFocus placeholder="搜 Agent，最近聊过的在前" value={q} aria-label="搜 Agent" onChange={(e) => setQ(e.target.value)}
@@ -42,7 +58,7 @@ export function NewSession({ agents, agentsLoading, providers, busy, error, onCr
       )}
       <div className="agent-pick-list" aria-label="Agent">
         {shown.map((a) => (
-          <button key={a.id} type="button" className="menu-item" disabled={!a.enabled || busy} title={a.desc || undefined} onClick={() => pick(a)}>
+          <button key={a.id} type="button" className="menu-item" disabled={!a.enabled || busy || !modelOk} title={a.desc || undefined} onClick={() => pick(a)}>
             <AgentAvatar agent={a} size={20} />
             <span className="ellipsis">{a.name || '未命名'}</span>
             {!a.enabled && <span className="list-sub">已停用</span>}

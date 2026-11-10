@@ -244,3 +244,7 @@
 .ag-scene { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 8px 0; }
 .ag-scene-text { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 220px; }
 .ag-scene-pick { display: flex; flex-direction: column; gap: 4px; width: 260px; max-width: 100%; }
+
+/* 一键全量设置权限（内置工具、每个连接器的全部工具） */
+.ag-bulk { display: flex; align-items: center; gap: var(--sp-4); flex-wrap: wrap; justify-content: flex-end; }
+.ag-conn-bulk { padding: var(--sp-3) var(--sp-6); border-top: 1px solid var(--line); background: var(--panel-2); }

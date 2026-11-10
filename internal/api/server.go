@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // Package api 是工作台的 HTTP 层：解析参数、调 store、按契约写响应。
 // 业务规则一律留在 store，这里只做协议转换。
 package api
@@ -8,6 +10,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"regexp"
 	"runtime/debug"
 	"time"
 
@@ -32,6 +35,13 @@ import (
 
 // maxBodyBytes 限制单次请求体，避免手滑把大文件 POST 进来撑爆内存。
 const maxBodyBytes = 2 << 20
+
+// maxUploadBytes 是音频上传的上限（REC-01a）：浏览器录的 webm 一两小时也到不了 1GB，
+// 插件自己还会再包一层 MaxBytesReader。只有录音插件的音频上传路径放宽，其它接口维持 2MB。
+const maxUploadBytes = 1 << 30
+
+// recordingAudioPath 匹配 POST /api/recording/recordings/{id}/audio（录音转写插件 REC-01a）。
+var recordingAudioPath = regexp.MustCompile(`^/api/recording/recordings/[^/]+/audio$`)
 
 type Options struct {
 	Version string
@@ -308,6 +318,7 @@ func (s *Server) routes(m routeRegistrar) {
 	// 不存在被 {id} 吃掉的问题。
 	m.HandleFunc("GET /api/agent/sessions", s.handleListAgentSessions)
 	m.HandleFunc("POST /api/agent/sessions", s.handleCreateAgentSession)
+	m.HandleFunc("GET /api/agent/sessions/{id}/context", s.handleAgentSessionContext)
 	m.HandleFunc("GET /api/agent/sessions/{id}/messages", s.handleListAgentMessages)
 	m.HandleFunc("POST /api/agent/sessions/{id}/messages/remove", s.handleRemoveAgentMessages)
 	m.HandleFunc("GET /api/agent/sessions/{id}/artifacts", s.handleListAgentArtifacts)
@@ -332,9 +343,13 @@ func (s *Server) routes(m routeRegistrar) {
 	m.HandleFunc("PUT /api/agents/{id}/grants", s.handlePutAgentGrants)
 	m.HandleFunc("POST /api/agent/tool-calls/{id}/confirm", s.handleConfirmToolCall)
 	m.HandleFunc("POST /api/agent/tool-calls/{id}/reject", s.handleRejectToolCall)
-	// Agent 执行记录（AG-01b4，0036）
+	// Agent 执行记录（AG-01b4，0036；停止 / 重试在 P0-O2，0056）
 	m.HandleFunc("GET /api/agent-runs", s.handleListAgentRuns)
 	m.HandleFunc("GET /api/agent-runs/{id}", s.handleGetAgentRun)
+	m.HandleFunc("POST /api/agent-runs/{id}/stop", s.handleStopAgentRun)
+	m.HandleFunc("POST /api/agent-runs/{id}/retry", s.handleRetryAgentRun)
+	// Agent 等确认聚合（P0-O3）：今日 / 菜单红点 / 会话圆点 / 刷新恢复确认卡
+	m.HandleFunc("GET /api/agent/attention", s.handleAgentAttention)
 	// Agent 调试对话（AG-02c）
 	m.HandleFunc("POST /api/agents/debug/chat", s.handleAgentDebugChat)
 	m.HandleFunc("GET /api/skills", s.handleListSkills)
@@ -396,6 +411,9 @@ func (s *Server) routes(m routeRegistrar) {
 	// ServeMux 按最具体的模式匹配。
 	m.HandleFunc("GET /api/objects/{id}/runs", s.handleListTaskRuns)
 	m.HandleFunc("POST /api/objects/{id}/run", s.handleRunObject)
+	// 统一运行中心（P0-O1）：Agent 触发执行 + 任务执行聚合一页。字面量 all 比 {id} 更具体，
+	// ServeMux 不会把 /api/runs/all 当成一条执行记录。
+	m.HandleFunc("GET /api/runs/all", s.handleListRunsAll)
 	m.HandleFunc("GET /api/runs/{id}", s.handleGetTaskRun)
 	m.HandleFunc("POST /api/runs/{id}/cancel", s.handleCancelTaskRun)
 	// 交给 Claude Code 的另一种方式：切换到终端（0048，runterminal.go）
@@ -560,7 +578,12 @@ func (s *Server) recoverer(next http.Handler) http.Handler {
 func limitBody(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Body != nil && r.Body != http.NoBody {
-			r.Body = http.MaxBytesReader(w, r.Body, maxBodyBytes)
+			limit := int64(maxBodyBytes)
+			// 音频上传是 multipart，上限单独放到 1GB（REC-01a）
+			if r.Method == http.MethodPost && recordingAudioPath.MatchString(r.URL.Path) {
+				limit = maxUploadBytes
+			}
+			r.Body = http.MaxBytesReader(w, r.Body, limit)
 		}
 		next.ServeHTTP(w, r)
 	})
