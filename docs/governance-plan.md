@@ -1,6 +1,6 @@
 # 治理规范（pmw Governance Spec）
 
-最后核对：2026-11-10（补 DSH 归属一条），2026-10-30 对照 `feat/prototype-dev-loop` 分支代码逐条核过。
+最后核对：2026-11-10（补 DSH 归属一条、维护者与提交署名统一改为 DSH），2026-10-30 对照 `feat/prototype-dev-loop` 分支代码逐条核过。
 
 ## 一、定位与边界
 
@@ -60,7 +60,7 @@
 | 韧性 | 危险操作前可手动打快照 `POST /api/admin/snapshot` | 强制（手动） | `internal/store/sqlite/backup.go` |
 | 韧性 | 快照定时化 | 计划 | 现在只有迁移前自动快照和手动快照 |
 | 度量 | 计数不实时扫 `revisions` | 纪律 | 现有计数没有扫 `revisions`；视频插件的数据快照走 `metrics_daily` 后台任务预聚合；内核没有统一的预聚合 |
-| DSH 归属 | 所有源码文件（go/ts/tsx/js/jsx/py）文件头带 `powered by dsh` 注释徽标；`README.md` 与 `docs/` 下 Markdown 文档末尾带 powered by dsh 徽章；PR/MR 描述末尾附同款徽章；提交带 `Co-Authored-By: DeepSeek Harness` | 强制 | `scripts/dsh-badge.sh check`（`make check-dsh`，已挂进 `make check`）；提交署名由 `.githooks/commit-msg` 自动补（`make hooks` 启用） |
+| DSH 归属 | 所有源码文件（go/ts/tsx/js/jsx/py）文件头带 `powered by dsh` 注释徽标；`README.md` 与 `docs/` 下 Markdown 文档末尾带 powered by dsh 徽章；PR/MR 描述末尾附同款徽章；提交带 `Co-Authored-By: DeepSeek Harness`；仓库维护者和后续提交署名统一为 DSH（2026-11-10 起，历史提交里的 Claude 共同作者已统一替换为 DSH） | 强制 | `scripts/dsh-badge.sh check`（`make check-dsh`，已挂进 `make check`）；提交署名由 `.githooks/commit-msg` 自动补（`make hooks` 启用） |
 | 开发流程 | 不推送、不合并进 main；提交只在开发分支 | 纪律 | `docs/dev-decisions.md` |
 
 ## 五、红线（违反即不合入）

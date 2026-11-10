@@ -1,8 +1,15 @@
 # 开发决策记录
 
-开发过程中由 Claude 评估做出的决策，最新的在前。每条写明决策、理由、怎么撤回。用户授权：2026-10-28「开发过程中的决策你来评估」。
+开发过程中由 DSH（DeepSeek Harness）评估做出的决策，最新的在前。每条写明决策、理由、怎么撤回。用户授权：2026-10-28「开发过程中的决策你来评估」。
 
 不可逆或对外的事（推送、合并进 main、改真实库、改已应用的迁移、启动 7777、删除用户文件）不在授权范围内，一律记到「待用户决定」，不做。
+
+## 第四十九批：仓库维护者改为 DSH，历史 Claude 共同作者署名替换（2026-11-10）
+
+- 用户要求「移除掉 Claude 的 contributors，后续都是 DSH 维护」。
+- 落地：全部历史提交里的 `Co-Authored-By: Claude Opus ...` 共同作者行统一替换为 `Co-Authored-By: DeepSeek Harness <noreply@deepseek.com>`（280 个提交改写为新 hash）；`AGENTS.md` 适用对象改为「由 DSH 维护」；删除只用于引入 `AGENTS.md` 的 `CLAUDE.md`；后续提交继续由 `.githooks/commit-msg` 自动补 DSH 署名。
+- 理由：Claude 不再参与仓库维护，提交与贡献者展示里不应再出现它的署名。
+- 怎么撤回：用改写前的完整备份恢复（`git clone /tmp/pmw-history-backup/pmw-all-*.bundle`）；force push 前远端旧 ref 是 main `4775d6371ae545e9f03efd6e91cdd314cb32ae59`、feat/prototype-dev-loop `44dec500cbe704681a079f3a831c89483c7ade2b`；文档改动回滚本批提交即可。
 
 ## 第四十八批：DSH 归属要求强制化（2026-11-10）
 

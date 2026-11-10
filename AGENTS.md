@@ -1,6 +1,6 @@
 # 项目要求（AGENTS.md）
 
-> 本文件是 pmw 仓库对 AI 编码代理和贡献者的硬性要求（DSH 与 Claude Code 都适用），优先于其他开发习惯。
+> 本文件是 pmw 仓库对 AI 编码代理和贡献者的硬性要求（由 DeepSeek Harness / DSH 维护），优先于其他开发习惯。
 > 要求变更时同步更新 `docs/governance-plan.md` 与 `docs/dev-decisions.md`。
 
 ## DSH 归属（强制）
