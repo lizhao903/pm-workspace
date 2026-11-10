@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 渠道配置（IM-01b）：IM 消息页右上角「渠道配置」打开的抽屉，只列 IM 类连接器。
 // 每个渠道显示状态、账号、最近同步时间、出错原因，能测试连接、立即同步、停用和启用、改配置；Slack 渠道还能从 Slack 补联系人邮箱（EmailBackfill.tsx）；
 // 没接过时给「接入 Slack」「接入 Telegram」两个入口。各渠道的表单在 channelForms.ts 里登记，没登记的去设置里的连接器页配，
@@ -8,7 +10,7 @@ import {
   IM_EXPIRE_DAYS_MAX, IM_QUICK_REPLIES_MAX, IM_QUICK_REPLY_TEXT_MAX, errorText, useConnectorDefs, useConnectors, useImSettings, useImSyncConnector, usePatchConnector, usePatchImSettings, useTestConnector,
   type Connector, type ConnectorDef, type ImQuickReply,
 } from '../../core/data'
-import { Button, Checkbox, Drawer, ErrorState, Field, IconButton, IconClose, Input, LoadingState, cls } from '../../core/ui'
+import { Button, Checkbox, ConnectorLogo, Drawer, ErrorState, Field, IconButton, IconClose, Input, LoadingState, cls } from '../../core/ui'
 import { CHANNEL_FORMS } from './channelForms'
 import { EmailBackfill } from './EmailBackfill'
 import { addableDefs, ENTRY_TOOLS, imConnectors, imDefs, intervalLabel, SELF_NAMES_FIELD, STATUS_TEXT, syncErrorText, syncText } from './channelModel'
@@ -45,7 +47,7 @@ export function ChannelPanel({ onClose, onManageAll }: { onClose: () => void; on
       <div className="im-chpanel">
         <button type="button" className="im-chback" onClick={() => setView({ kind: 'list' })}>返回渠道列表</button>
         <div className="im-chform-title">
-          <i className="im-ch-dot" style={{ '--c': formDef?.color } as CSSProperties} />
+          <ChLogo def={formDef} size={20} />
           {formConn ? [formDef?.label ?? view.tool, formConn.name].filter((x, i, a) => a.indexOf(x) === i).join('：') : `接入 ${formDef?.label ?? view.tool}`}
         </div>
         {/* key 按渠道：新建保存后换成编辑同一条，表单不重置，结果提示留着 */}
@@ -99,12 +101,18 @@ export function ChannelPanel({ onClose, onManageAll }: { onClose: () => void; on
   )
 }
 
+/** 渠道的标志（TSK-0725）：定义有平台图标就用它，没有退回品牌色圆点 */
+function ChLogo({ def, size }: { def?: ConnectorDef; size: number }) {
+  if (!def?.logo) return <i className="im-ch-dot" style={{ '--c': def?.color } as CSSProperties} />
+  return <ConnectorLogo label={def.label} color={def.color} logo={def.logo} size={size} />
+}
+
 function EntryButton({ tool, def, onOpen }: { tool: string; def?: ConnectorDef; onOpen: () => void }) {
   const label = def?.label ?? (tool === 'slack' ? 'Slack' : tool === 'telegram' ? 'Telegram' : tool)
   return (
     <button type="button" className="btn btn-outline im-chentry-btn" disabled={!def} onClick={onOpen}
       title={def ? def.desc : `${label} 渠道还没装好：IM 插件没登记它的连接器`} style={{ '--c': def?.color } as CSSProperties}>
-      <i className="im-ch-dot" />接入 {label}
+      {def?.logo ? <ConnectorLogo label={label} logo={def.logo} size={16} /> : <i className="im-ch-dot" />}接入 {label}
     </button>
   )
 }
@@ -146,7 +154,7 @@ function ChannelCard({ c, def, hasForm, onEdit }: { c: Connector; def?: Connecto
     <div role="listitem" className={cls('im-chcard', c.status === 'error' && 'bad', off && 'off')} aria-label={c.name}
       style={{ '--c': def?.color } as CSSProperties}>
       <div className="im-chcard-top">
-        <i className="im-ch-dot" />
+        <ChLogo def={def} size={18} />
         <span className="im-chcard-name">{c.name}</span>
         {(def?.label ?? c.tool) !== c.name && <span className="im-muted">{def?.label ?? c.tool}</span>}
         <span className="spacer" />

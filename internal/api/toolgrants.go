@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 package api
 
 import (
@@ -314,6 +316,10 @@ func (s *Server) decideToolCall(w http.ResponseWriter, r *http.Request, approved
 	}
 	if tc.RunID != nil {
 		runner.RunID = *tc.RunID
+		// 执行记录里的调用来自无人值守的触发执行（P0-O2）：确认后接着跑同样不给 ask_user，
+		// 步数另给一份预算（和这次执行之前的步数分开算）。
+		runner.Unattended = true
+		runner.Budget = &agent.Budget{MaxSteps: agent.DefaultRunSteps}
 	}
 	state, action, verb := store.ToolCallRejected, "reject", "拒绝"
 	if approved {
@@ -372,14 +378,9 @@ func (s *Server) decideToolCall(w http.ResponseWriter, r *http.Request, approved
 	emit(agent.StreamEvent{Type: "done", SessionID: session.ID, MessageID: msgID})
 }
 
-// resumeRunner 照 handleAgentChat 的口径备好 Runner：按 Agent 当前的服务商和模型跑。
+// resumeRunner 照 handleAgentChat 的口径备好 Runner：没单独换过模型的按 Agent 当前的服务商和模型跑，换过的按会话的（TSK-0720）。
 func (s *Server) resumeRunner(ctx context.Context, session *domain.AgentSession, ag *domain.Agent, policy *agent.Policy) (*agent.Runner, error) {
-	var err error
-	if ag.ProviderID != session.ProviderID || ag.Model != session.Model {
-		if session, err = s.st.UpdateAgentSession(ctx, session.ID, nil, nil, &ag.ProviderID, &ag.Model); err != nil {
-			return nil, err
-		}
-	}
+	session = followAgentModel(session, ag)
 	provider, err := s.resolveProvider(ctx, session.ProviderID)
 	if err != nil {
 		return nil, err

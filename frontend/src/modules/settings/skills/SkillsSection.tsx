@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 设置里的「技能」分节（AG-01b6），照原型 web-next/src/kbskills.tsx SkillsPage（SPEC-settings-15）。
 // 来源分内置、自定义、插件三组（插件技能原型里没有，有才出现这一档）；点行开技能抽屉（SPEC-settings-16）。
 import { useState } from 'react'

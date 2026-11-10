@@ -1,7 +1,7 @@
 # deepseek-harness 接入（执行器 `deepseek`）
 
 2026-11-04 · 目标：让 DeepSeek 模型在它自己的 harness（dsh）里跑，工作台只做派单、收事件、留档。
-实测版本：`@deepseek-ai/dsh` 0.2.1-rc.5（macOS）。
+实测版本：`@deepseek-ai/dsh` 0.2.1-rc.5（macOS，首版）；0.2.2-rc.1（macOS，2026-11-06，TSK-0722：分派入口、执行器状态、集成检查、MCP 回写）。
 
 ---
 
@@ -13,16 +13,46 @@
 |---|---|---|
 | `claude`（默认） | 本机 Claude Code | 改代码、动文件、跑测试 |
 | `deepseek` | deepseek-harness（`dsh`）的 headless 模式 | 读需求写方案、结构化整理、分析 |
+| `agent` | 工作台自己的 Agent（不起外部进程） | 读写工作台里的对象：记进展、改状态、建子任务 |
 
-两者共用任务单、事件流、产物登记（扫工作目录差集）、取消、历史记录。区别只在起哪个进程、
-谁来拼提示词、按谁的安全边界执行。
+`claude` 和 `deepseek` 共用任务单、事件流、工作台 MCP 回写（`pmw-run`）、产物登记（扫工作目录差集）、取消、历史记录。
+区别只在起哪个进程、权限怎么映射、按谁的安全边界执行。
 
-## 二、装 dsh
+界面入口（TSK-0722）：任务抽屉「开发任务」里一个「交给执行」按钮，弹窗最上面选交给谁（Claude Code / DeepSeek / 工作台 Agent），
+不能用的置灰并写缺什么；设置「执行器」页显示同一份状态（`GET /api/runners`），能一键做集成检查。
+
+## 二、装 dsh（照做）
+
+不建议全局安装（`npm i -g`）：装到一个固定目录，升级、回退都只动那一个目录，也不会和别的 node 项目的全局包打架。
 
 ```sh
-npm i -g @deepseek-ai/dsh     # 或 npx @deepseek-ai/dsh
-pmw --dsh-bin "$(which dsh)"  # 也可以 export DSH_BIN=...，或留空走 PATH
+# 1. 装到固定目录（要 node 20+；第一次大约 1 分钟，700 多个包）
+npm i --prefix ~/.local/share/pmw-dsh @deepseek-ai/dsh
+~/.local/share/pmw-dsh/node_modules/.bin/dsh --version     # 实测 0.2.2-rc.1
+
+# 2. 启动工作台时指过去（二选一），然后重启工作台
+pmw ... --dsh-bin ~/.local/share/pmw-dsh/node_modules/.bin/dsh
+DSH_BIN=~/.local/share/pmw-dsh/node_modules/.bin/dsh pmw ...
 ```
+
+3. 到「设置 / 模型服务商」配服务商（见下「服务商要求」）。
+4. 到「设置 / 执行器」点「检测」：DeepSeek 应显示「可用」、路径和版本；再点「跑一次集成检查」，八项都过就能在任务上「交给执行 → DeepSeek」了。
+
+没装、路径不对时，设置「执行器」和分派弹窗里都会提示同一份步骤（后端 `internal/api/runners.go` 的 `dshInstallSteps`，改步骤两处一起改）。
+
+dsh 的数据（会话、headless profile）在 `$DSH_HOME`（默认在用户主目录下），工作台不改它；要隔离可以在启动工作台的环境里设 `DSH_HOME`。
+
+**服务商要求。** dsh 只接两种协议：OpenAI Chat Completions、Anthropic Messages。工作台里能交给 dsh 的服务商：
+
+| 工作台服务商协议 | 交给 dsh 的 | 说明 |
+|---|---|---|
+| `openai` | `openai-completions` | DeepSeek 属于这类：Base URL `https://api.deepseek.com`，填 API Key 和模型（如 `deepseek-chat`） |
+| `anthropic` | `anthropic-messages` | |
+| `ollama` | `openai-completions`，地址补 `/v1` | 本机 Ollama 的 OpenAI 兼容端点；没有密钥时给占位值。模型要支持工具调用（实测 `qwen3:4b` 能跑通，慢：一轮约 3 分钟） |
+| `gemini` | 不支持 | 发起前 400 |
+
+不指定服务商时默认挑：名字、地址或模型里带 `deepseek` 的优先，其次标了默认的，再次第一个；不会自动建 Ollama。
+分派时可以只改这一次用的服务商和模型。
 
 **不需要建 profile**。工作台用的就是随包发布的 `headless`（`$DSH_HOME/profiles/headless`，
 首次启动自动生成），每次执行用 `--patch` 叠一份临时配置；`--patch` 只作用于这一次执行、
@@ -32,7 +62,7 @@ pmw --dsh-bin "$(which dsh)"  # 也可以 export DSH_BIN=...，或留空走 PATH
 
 ## 三、工作台做了什么
 
-命令行只有四个参数——0.2.x 的 headless 就认这些：
+命令行只有四个参数——0.2.1 的 headless 就认这些（0.2.2 多了 `--permission-mode` / `--approval-policy` / `--add-dir`，为兼容两版仍全走 patch）：
 
 ```sh
 dsh --profile headless --patch <临时文件> --json [--session-id <id>] -
@@ -53,11 +83,26 @@ patch 六块，各自解决一个必须解决的问题：
 | `approval` | `policy: never` | headless 没有交互界面，`ask` 只会停在一个没人回答的确认上 |
 | `permission` | 预设表把三个档位的 `approval` 都改成 `never`，`defaultPreset` 指到当前档位 | dsh 启动时校验「沙箱档位 + 审批策略能对上某个预设」，对不上整条 permission 插件不激活（实测报 `composed sandbox and approval defaults match no preset`） |
 
-密钥只走进程环境 `PMW_DSH_API_KEY`，patch 里用 `apiKeyEnv` 引用：写进文件就留在磁盘上，
-放命令行会被 `ps` 看见。
+| `insert` 一条 `@deepseek-ai/dsh-mcp-client`（id `mcp-pmw-run`） | `serverName: pmw-run`，stdio，`command` 是工作台的 MCP 程序（`--mcp-bin`），`args: ["--api", <--public-url>, "--actor", "deepseek"]` | 工作台 MCP 回写（TSK-0722）。**必须用 `insert`**：headless profile 里没有 MCP 客户端这一条，按 id 覆盖的写法只得到一句 `patch: entry "mcp-pmw-run" not found` 的警告，进程照常起、工具里却没有 pmw-run（0.2.2 实测） |
 
-权限映射：不勾「允许修改文件」→ `read-only`；勾了 → `workspace-write`，
-工作目录里软链接指向的外部目录进 `additionalWritableRoots`。
+密钥只走进程环境 `PMW_DSH_API_KEY`，patch 里用 `apiKeyEnv` 引用：写进文件就留在磁盘上，
+放命令行会被 `ps` 看见。另设 `DSH_TELEMETRY_MODE=DISABLED` 关掉 dsh 的会话遥测（headless 下本来就没人点反馈、不会上传，这里显式关）。
+
+**工作台 MCP 回写（TSK-0722）。** 和 Claude Code 后台执行同一个 server 名 `pmw-run`、同一个程序和地址，工具名 `mcp__pmw-run__pmw_…`；
+提示词带后台执行口径的「回写到工作台」一节（读任务、记进展、登记产出带 `run_id`、结束前 `pmw_finish_run`），`pmw_finish_run` 的结论收尾时放在执行记录最前面。
+审批策略 `never` 不挡 MCP 工具（实测）。MCP 接不上（没有 `--mcp-bin` 的程序或 `--public-url`）时照跑，提示词写明原因。
+dsh 的 MCP 客户端起 stdio 子进程时会滤掉名字带 KEY / TOKEN / SECRET 的环境变量，pmw-mcp 也不需要凭证。
+
+**权限映射（TSK-0499 的档位 → dsh 沙箱，`runner.DSHSandboxMode`）。** dsh 没有按命令放行的规则表，命令一律在沙箱里跑：
+
+| 工作台档位 | dsh 沙箱 | 说明 |
+|---|---|---|
+| 只读（`read_only`） | `read-only` | 命令照跑，写任何文件都被挡（EROFS / EPERM） |
+| 允许改文件（`accept_edits`） | `workspace-write` | 能写工作目录；软链接指向的外部目录进 `additionalWritableRoots` |
+| 允许改文件 + 跑测试构建（`edits_and_tests`） | `workspace-write` | 同上：workspace-write 本来就能跑测试构建，两档在 dsh 里是同一档 |
+| 自定义白名单（`custom`） | 没有对应 | 分派弹窗里置灰；接口回 400，不悄悄放宽成 workspace-write |
+
+工作台永远不给 `danger-full-access`。
 
 ## 四、事件映射
 
@@ -100,21 +145,47 @@ dsh 用 `session-<uuid>` 标识一段会话，`--session-id` 接着它跑（实�
 
 ## 七、边界
 
-- 只接流式发起（`POST /api/objects/{id}/run`）。「切换到终端」仍只走 claude：
+- 只接流式发起（`POST /api/objects/{id}/run`），分派弹窗里 DeepSeek 只有「后台执行」。「切换到终端」仍只走 claude：
   终端方式的价值是**人在环里操作**，而 dsh 的交互形态是 `dsh tui` 那套，接进来是另一个功能。
 - 插件发起的运行（`StartClaudeCode`，走 `pmw_finish_run` 回写）仍只走 claude：
   那是已发布的插件契约，加执行器维度要同时改插件 API 与每个插件的假设。
 - 不做逐条写入审计：被拒次数是从错误文本里数出来的，只用于判定「做成了没有」。
-- 不校验 dsh 版本：命令行参数与事件字段的差异由冒烟测试兜（`dsh_smoke_test.go`），
-  上游换词汇表会先在那里红。
+- 不校验 dsh 版本：`GET /api/runners` 只显示 `dsh --version`，不设最低版本；命令行参数与事件字段的差异由
+  冒烟测试（`dsh_smoke_test.go`）和设置页的集成检查兜，上游换词汇表会先在那里红。
+- 本机 Ollama 的工具模板解析很严：任何一个工具的入参 schema 根上没有 `properties` 对象，整个请求 400
+  「properties must be an object」。pmw-mcp 里不带参数的工具因此显式写了 `{"type":"object","properties":{}}`
+  （`cmd/pmw-mcp/schema_test.go` 守着）。
+- 0.2.2 的 `final` 行开始带 `reason`，成败判定仍以退出码和 `turn_end` 为准，两版都对。
 
 ## 八、验收
 
+**单测（真 dsh + 假模型端点）。** 没装 dsh 自动跳过；不全局安装时用 `DSH_BIN` 指过去：
+
 ```sh
-# 真 dsh + 假模型端点，跑通工具往返、事件解析、会话 id、失败归类
-go test ./internal/runner -run 'TestSmokeRealDSH' -v
+DSH_BIN=~/.local/share/pmw-dsh/node_modules/.bin/dsh go test ./internal/runner -run 'SmokeRealDSH' -v
 ```
 
+| 测试 | 验什么 |
+|---|---|
+| `TestSmokeRealDSH` | 工具往返、事件解析、会话 id、失败归类；只读档模型让 bash 写的文件不能真写出来 |
+| `TestSmokeRealDSHResume` | `--session-id` 续跑，会话不换 |
+| `TestSmokeRealDSHWriteBack` | patch 里 `insert` 的 pmw-run 被 dsh 拉起，模型调 `mcp__pmw-run__pmw_finish_run`，请求经现编的 pmw-mcp 到了工作台 `POST /api/runs/{id}/finish` |
+| `TestSmokeRealDSHCancelAndTimeout` | 模型端点不回时取消（2 秒后）收尾成「已取消」、超时（3 秒）收尾成「超时」，收尾后整个进程组都不在了 |
+
+**集成检查（设置「执行器」→「跑一次集成检查」，`POST /api/runners/deepseek/smoke`）。** 用真机上配好的 dsh 和服务商，
+在临时目录里只读跑一次固定任务，逐项给结果：起进程、模型路由、MCP 回写、只读生效、结论落库、取消收尾、超时收尾、进程清理。
+口径见 `docs/api-contract.md`「执行器 runners」。
+
+2026-11-06 实测（TSK-0722，临时实例，dsh 0.2.2-rc.1，本机 Ollama `qwen3:4b`）：八项全过；模型路由一轮约 184 秒；
+经 pmw-run 回报「目录里有：probe.txt、README.md」；取消 2.07 秒、超时 3.09 秒收尾，三次执行的进程组都退干净。
+第一次跑时「模型路由」失败（Ollama 400 `properties must be an object`，见上「边界」），修了 pmw-mcp 的 schema 后通过。
+
 已实测（0.2.1-rc.5）：工具往返事件解析、`--session-id` 续跑、沙箱不可用归类、失败原因取自
-`turn_end`。**未实测**：`workspace-write` 下的真实写入——本机 `sandbox-exec` 被拒绝，
-dsh 直接拒绝执行命令；换一台 sandbox-exec 正常的机器再验一次写入路径。
+`turn_end`。0.2.2-rc.1 补测（TSK-0722）：`workspace-write` 下真实写入能写进工作目录（`TestSmokeRealDSHWorkspaceWrite`），只读档写不进；
+这台机器上 `sandbox-exec` 可用，0.2.1 时被拒绝的情况没再出现。
+
+---
+
+由 DeepSeek Harness（dsh）协助完成。
+
+[![](https://img.shields.io/badge/powered_by-dsh-4D6BFE?style=flat-square&logo=deepseek&logoColor=white)](https://github.com/deepseek-ai/deepseek-harness)

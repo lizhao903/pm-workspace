@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 import { ConfirmDialog } from '../ui'
 import { canInstallSome, missingText, type MissingPlugin } from './workspace'
 

@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // Agent 会话和服务商的缓存键（AG-01a）。单独一个文件，keys.ts 和失效规则都从这里引。
 // 前缀不用 'agent'：keys.ts 的 workdir 校验已经挂在 ['agent', 'workdir'] 下，按前缀失效会把它一起刷掉。
 export const agentKeys = {

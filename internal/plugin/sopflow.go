@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 package plugin
 
 import (
@@ -26,6 +28,15 @@ type SOPFlowTemplate struct {
 	Fields  json.RawMessage `json:"fields"`
 	Steps   json.RawMessage `json:"steps"`
 	Layout  json.RawMessage `json:"layout,omitempty"`
+	// Schedule 是触发方式为 schedule 时随流程一起建的定时任务（TSK-0721）；nil 时流程是「定时，未配置」。
+	// 只在第一次写入时建（流程已有、还是第 1 版、又没有这一条时补上）；用户改过的不动
+	Schedule *SOPFlowTemplateSchedule `json:"schedule,omitempty"`
+}
+
+// SOPFlowTemplateSchedule 是内置流程的定时规则和建出来时启不启用（默认停用：到点自动跑的事要用户确认后再开）。
+type SOPFlowTemplateSchedule struct {
+	Rule    SOPScheduleRule `json:"rule"`
+	Enabled bool            `json:"enabled"`
 }
 
 // SOPFlowInstaller 是 SOP 插件的执行引擎可选实现的接口。caller 是调用的插件 id，id 前缀内核已经查过。

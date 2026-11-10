@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 封面 A/B（SPEC-videos-7.15、SPEC-videos-14，照原型 web-next/src/covertest.tsx）：发布记录页上的「封面 A/B」一节和测试抽屉。
 // 判定在后端（VID-05b）：快照落库、新建、修改、evaluate 后重算，到线了自动判出，胜者设为主封面、其余归档。
 // 原型的「模拟拉取数据」换成：小号分发经连接器拉各条发布的数据，原生测试手动回填各版的曝光、点击率；

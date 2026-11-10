@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 详情抽屉「AI 助手」页签里的对话面板：对象内的对话，和底部那个全局对话框各聊各的。
 //
 // 和 AgentDock 的唯一区别是它知道自己挂在哪个对象上，并把 object_id 一起发给后端——

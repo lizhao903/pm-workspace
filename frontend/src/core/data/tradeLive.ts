@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 交易所实盘账户（TRD-07a 后端，TRD-07b 前端）、对账（TRD-08b）、交易审计（TRD-08a）、实盘评审闸门和实盘开关（TRD-08c）。
 // 契约见 docs/api-contract.md「交易套件插件 trade」的「交易所账户只读接入」「交易审计和停用前全停」「对账和自动熔断」「实盘评审闸门」。
 //

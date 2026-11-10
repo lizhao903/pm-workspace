@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 本机状态（SPEC-settings-20.29 到 20.32）：数据来自 GET /api/domains/status，每项一行，有问题的写怎么修、给可复制的命令
 import { errorText, type DomainStatus, type DomainStatusItem } from '../../core/data'
 import { Button, cls } from '../../core/ui'

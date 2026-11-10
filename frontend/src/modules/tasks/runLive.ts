@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 本页发起的执行的流式状态（DEV-08c，DEV-09 复用）。
 // 执行记录的输出只在收尾时落库，运行中的过程只有发起方的 SSE 流里有，
 // 所以流的状态放在模块级，抽屉关了再打开、执行记录列表都能读到同一份。

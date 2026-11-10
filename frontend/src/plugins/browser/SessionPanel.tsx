@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 会话旁边的浏览器（SPEC-sessions-1.36）：和一级菜单「浏览器」是同一套标签（存后端，两边看到的一样）。
 // 会话里出现过链接时，工具栏下面多一行「会话里的链接」，点一个就在这里打开：已经有同一地址的标签切过去，否则新开
 import type { SessionToolProps } from '../../core/plugin'

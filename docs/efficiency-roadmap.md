@@ -218,3 +218,9 @@
 - `specs` / `spec_versions` 基线治理四张表：其设计目的是解决"Agent 读到废弃方案"，当前库里还没有多版本方案。等方案库真出现多版本再建
 - 关联图可视化、日历视图、时间线视图：等跟踪闭环跑起来、数据侧证明需要再做
 - 深色/浅色之外的主题定制、移动端原生 App
+
+---
+
+由 DeepSeek Harness（dsh）协助完成。
+
+[![](https://img.shields.io/badge/powered_by-dsh-4D6BFE?style=flat-square&logo=deepseek&logoColor=white)](https://github.com/deepseek-ai/deepseek-harness)

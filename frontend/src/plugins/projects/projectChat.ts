@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 在项目里开会话（SPEC-projects-10.5、3.6）：Agent 标签的「对话」和概览的「和它对话」共用。
 // 后端会话没有 project_id：建成全局会话，工作目录用项目目录，会话 id 记进项目的 props.session_ids。
 // 建好后在项目的 Agent 标签里就地打开（地址 ?s=<会话 id>），不跳到会话页

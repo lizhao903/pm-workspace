@@ -84,3 +84,4 @@
 .sched-popup-opt.on b { color: var(--accent); }
 .sched-popup-opt input { margin: 3px 0 0; }
 .sched-popup-opt > span { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.sched-row .task-title .src-proj { flex: none; max-width: 10em; }

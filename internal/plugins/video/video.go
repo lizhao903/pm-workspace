@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // Package video 是「视频创作」插件的后端（VID-01a 起）。清单 plugin.json 只有这一份，前端构建时也读它。
 // 系列、视频、检查点、发布记录落在插件表 video_series、video_videos、video_checkpoints、video_publishes，
 // 产出物和验收记录（VID-01b）落在 video_artifacts、video_artifact_reviews，形状同原型 web-next/src/videodata.ts。
@@ -135,6 +137,8 @@ func (p *Plugin) Register(r plugin.Registrar) error {
 		m.HandleFunc("POST /api/video/cover-tests/{id}/decide", h.decideCoverTest)
 	})
 	r.Subscribe(plugin.RunFinishedEvent, h.onRunFinished)
+	// SOP 节点登记时按 kind 补上节点声明（TSK-0490，sopspec.go）
+	r = plugin.WithSOPSpecs(r, sopSpecs)
 	h.registerSOP(r)
 	h.registerSchedule(r)
 	h.registerToday(r)

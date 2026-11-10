@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 商单抽屉（SPEC-videos-16.4 到 16.13，照原型 web-next/src/videodeals.tsx 的 DealDrawer）：来源消息、账期提示、品牌名称项目询价人、
 // 状态流转、报价和交付（报价参考读后端快照）、挂视频、结案报告。改草稿、点「创建」「保存」才写，关掉时有未保存提示。
 // 客户审核意见（SPEC-videos-16.10）要产出物验收记录带外部审核人，后端还没有这个字段，这一节先不做
@@ -5,7 +7,7 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router'
 import {
   errorText, useContacts, useCreateDeal, useDealReport, useDeleteDeal, useImMessage, useImMessages, usePatchDeal, usePlugins,
-  useProjectStakeholders, useProjects, useVideoQuoteRef, PROJECT_ROLES, type ImMessage, type Video, type VideoDeal,
+  useProjectStakeholders, useProjects, useVideoQuoteRef, useProjectRoles, type ImMessage, type Video, type VideoDeal,
 } from '../../core/data'
 import { Button, ConfirmDialog, Drawer, Field, Input, Pill, SearchSelect, Select, Textarea, cls } from '../../core/ui'
 import {
@@ -42,6 +44,7 @@ export function DealDrawer({ deal, initial, videos, onClose, onCreated }: {
   const [confirmDel, setConfirmDel] = useState(false)
   const [saved, setSaved] = useState(false)
   const stakes = useProjectStakeholders(d.project_id || null)
+  const { roles } = useProjectRoles()
   const ref = useVideoQuoteRef(d.platforms)
 
   const set = (x: Partial<DealDraft>) => { setSaved(false); setD({ ...d, ...x }) }
@@ -54,7 +57,11 @@ export function DealDrawer({ deal, initial, videos, onClose, onCreated }: {
 
   const allContacts = contacts.data ?? []
   const people = (stakes.data ?? []).map((s) => ({ s, c: allContacts.find((c) => c.id === s.stakeholder_id) })).filter((x) => !!x.c)
-  const roleLabel = (r: string) => PROJECT_ROLES.find((x) => x.key === r)?.label ?? r
+  // 角色名从枚举字典 project_role 取（TSK-0718），停用的照常显示名字并标出，字典里没有的显示原值
+  const roleLabel = (r: string) => {
+    const x = roles.find((y) => y.key === r)
+    return x ? (x.enabled ? x.label : `${x.label}（已停用）`) : r
+  }
   const contactOpts = [
     ...people.map(({ s, c }) => ({ value: c!.id, label: c!.name, hint: [roleLabel(s.role), c!.company].filter(Boolean).join(' · '), group: '项目干系人' })),
     ...allContacts.filter((c) => !people.some((x) => x.c!.id === c.id)).map((c) => ({ value: c.id, label: c.name, hint: c.company || c.group || undefined, group: '其他联系人' })),

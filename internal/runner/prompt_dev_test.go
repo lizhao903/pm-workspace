@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 package runner
 
 import (
@@ -45,7 +47,7 @@ func TestBuildPromptProjectWithoutDirs(t *testing.T) {
 	p := BuildPrompt(Task{Title: "x", Workdir: "/w", Project: &Project{Name: "Acme"}})
 	for _, want := range []string{
 		"名称：Acme\n",
-		"这个项目没有关联文档目录，可在项目设置里补",
+		"这个项目没有设文档目录，可在项目设置里补",
 		"这个项目没有登记原型目录，可在项目设置里补",
 	} {
 		if !strings.Contains(p, want) {

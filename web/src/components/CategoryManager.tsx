@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 工作对象分类管理器：左侧切类型，右侧管该类型的分类树（增 / 改 / 移 / 删）。
 import { useCallback, useEffect, useState } from 'react'
 import { useWorkspace } from '../hooks/workspace'

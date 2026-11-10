@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 import { describe, expect, it } from 'vitest'
 import type { ImMessage, ImMessageMaterial } from '../../core/data'
 import { attachmentsOf, dayLabel, lineTime, materialBody, materialTitle, noteMaterials, priorMaterials } from './toMaterialModel'

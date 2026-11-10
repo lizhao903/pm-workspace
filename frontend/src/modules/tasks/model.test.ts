@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 import { describe, expect, it, vi } from 'vitest'
 import type { DictItem, ObjectStatus, WorkObject } from '../../core/data'
 import {

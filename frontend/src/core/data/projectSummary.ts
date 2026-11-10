@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 项目汇总（ALIGN-05）：项目插件的 /api/projects/summary，每个项目的原型总数、运行中数和绑定的会话，项目列表一次取齐。
 // 待回复数不在汇总里（消息在 IM 插件），拿一次与我相关的待处理消息（不含稍后），按会话对上项目，口径见契约「项目汇总」。
 // 原型启停、会话绑定解绑时刷汇总（invalidate.ts）；待处理消息挂在 im 前缀下，消息一变跟着刷。

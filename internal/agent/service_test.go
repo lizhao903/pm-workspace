@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 package agent
 
 import (
@@ -58,6 +60,19 @@ func TestServiceComplete(t *testing.T) {
 	}
 	if r0.Messages[0].Role != RoleSystem || r0.Messages[1].Content != "hi" || r1.Messages[0].Role != domain.RoleUser {
 		t.Fatalf("消息 %+v %+v", r0.Messages, r1.Messages)
+	}
+}
+
+// 调用点可以显式指定思考档位（结构化 JSON 任务用 off 省时间）：要传到 Chat 请求里。
+func TestServiceCompleteThinkingOverride(t *testing.T) {
+	chat := &recordingChat{script: []func(func(Event)){grantSay("一")}}
+	s, st, ctx := newService(t, chat)
+	addProvider(t, st, ctx)
+	if _, err := s.Complete(ctx, CompleteRequest{Prompt: "hi", Thinking: domain.ThinkingOff}); err != nil {
+		t.Fatal(err)
+	}
+	if chat.reqs[0].Thinking != domain.ThinkingOff {
+		t.Fatalf("思考档位 = %q，期望 off", chat.reqs[0].Thinking)
 	}
 }
 

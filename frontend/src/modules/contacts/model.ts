@@ -1,5 +1,7 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 联系人列表的纯函数（SPEC-contacts-1）：分组（可多个）、搜索、排序、分段、相对时间。页面状态和渲染在 Page.tsx。
-import { imOf, type Contact, type DictItem, type Dictionary, type Identity } from '../../core/data'
+import { contactGroupsOf, imOf, type Contact, type DictItem, type Dictionary, type Identity } from '../../core/data'
 import { initialRank, nameInitial } from '../../core/ui/pinyin'
 
 /** 分组切换里最多放几个分组，其余收进「更多分组」 */
@@ -39,10 +41,7 @@ export function groupItems(dicts: Dictionary[] | undefined): GroupItem[] {
 export const GROUP_SEP = '、'
 
 /** 联系人的分组 key 列表：拆开、去空白、去重；后端默认空串，按默认分组算 */
-export function groupsOf(c: Pick<Contact, 'group'>): string[] {
-  const out = [...new Set(c.group.split(/[、,，/／;；]/).map((g) => g.trim()).filter(Boolean))]
-  return out.length ? out : [DEFAULT_GROUP]
-}
+export const groupsOf = (c: Pick<Contact, 'group'>): string[] => contactGroupsOf(c)
 
 /** 存回后端的分组字符串 */
 export const joinGroups = (gs: string[]) => gs.join(GROUP_SEP)

@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 import { useState } from 'react'
 import { PageTitle } from './topbar'
 import { cls, timeAgo } from './ui'

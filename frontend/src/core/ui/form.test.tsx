@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 import { fireEvent, render, screen } from '@testing-library/react'
 import { useState } from 'react'
 import { afterAll, afterEach, describe, expect, it, vi } from 'vitest'

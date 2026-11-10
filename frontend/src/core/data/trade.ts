@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 交易套件 trade（TRD-01a 起）：行情源、标的、自选，行情快照、K 线和推送（TRD-02a、TRD-02b）。
 // 契约见 docs/api-contract.md「交易套件插件 trade」。只读行情，没有下单、撤单、划转、提币。
 //

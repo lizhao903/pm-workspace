@@ -1,6 +1,8 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 import { describe, expect, it } from 'vitest'
 import type { ImMessage } from '../../core/data'
-import { clusterMessages, countLabel, nestThreads, pickState, previewText, rowTime, threadBadge, threadBadgeLabel, threadForMany, threadForTask, threadHint, threadOf, threadTaskBody, THREAD_TASK_MAX, toggleRow, toRows } from './groupModel'
+import { clusterMessages, countLabel, loadedPicks, nestThreads, pickState, selectAllState, previewText, rowTime, threadBadge, threadBadgeLabel, threadForMany, threadForTask, threadHint, threadOf, threadTaskBody, THREAD_TASK_MAX, toggleRow, toRows } from './groupModel'
 
 let seq = 0
 const T0 = Date.parse('2026-11-02T10:00:00Z')
@@ -62,6 +64,19 @@ describe('合并显示的分组', () => {
     sel = toggleRow(sel, r)
     expect(pickState(r, sel)).toBe('all')
     expect(pickState(r, toggleRow(sel, r))).toBe('none')
+  })
+
+  it('常驻全选（TSK-0492）：只算已加载的行里能勾的，组按筛得出来的，变淡的原消息行不算', () => {
+    const a = msg({}), b = msg({}), c = msg({ status: 'done' }), d = msg({ status: 'expired' })
+    const shown = [{ items: [a] }, { items: [b, c] }, { items: [] }, { items: [d] }]
+    const loaded = loadedPicks(shown)
+    expect(loaded.map((m) => m.id)).toEqual([a.id, b.id, d.id])
+    expect(selectAllState(loaded, new Set(), 0)).toBe('none')
+    expect(selectAllState(loaded, new Set([a.id]), 1)).toBe('some')
+    expect(selectAllState(loaded, new Set(loaded.map((m) => m.id)), 3)).toBe('all')
+    // 已加载的都勾了、另外还勾着没加载的，也算全选（再点取消全部）
+    expect(selectAllState(loaded, new Set([...loaded.map((m) => m.id), 'msg_later']), 4)).toBe('all')
+    expect(selectAllState([], new Set(), 0)).toBe('none')
   })
 })
 

@@ -1,0 +1,46 @@
+/* 自动忽略发信人（IM 0.27.0，TSK-0495）：弹窗、管理抽屉、按钮已标状态 */
+.im-mute-form { display: flex; flex-direction: column; gap: var(--sp-3); }
+.im-mute-desc { margin: 0; color: var(--muted); font-size: var(--fs-sm); line-height: 1.6; }
+.im-mute-opt { border: 0; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.im-mute-opt legend { padding: 0; margin-bottom: 4px; font-size: var(--fs-xs); color: var(--muted); }
+.im-mute-opt label { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: var(--fs-sm); cursor: pointer; min-width: 0; }
+.im-mute-opt label .im-mono { overflow-wrap: anywhere; }
+.im-act.im-muted-on { color: var(--warn, var(--muted)); }
+.im-strip-muted { overflow-wrap: anywhere; }
+.im-mute-list { display: flex; flex-direction: column; border-top: 1px solid var(--line); }
+.im-mute-item { display: flex; align-items: center; gap: var(--sp-3); padding: 10px 0; border-bottom: 1px solid var(--line); min-width: 0; }
+.im-mute-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.im-mute-name { font-weight: 600; }
+.im-mute-sub { display: flex; gap: 10px; flex-wrap: wrap; font-size: var(--fs-xs); min-width: 0; }
+.im-mute-sub .ellipsis { min-width: 0; max-width: 100%; }
+.im-mute-acts { display: flex; gap: 6px; flex-shrink: 0; }
+/* 群组管理第二行的「成员」菜单：和第二行的灰字一样大，菜单靠右展开 */
+.im-ga-members { flex: none; white-space: nowrap; display: inline-flex; align-items: center; gap: 2px; padding: 0; font-size: var(--fs-xs); color: var(--muted); background: none; border: 0; cursor: pointer; }
+.im-ga-members:hover { color: var(--text); }
+.im-ga-sub .im-menu-wrap { position: relative; flex: none; }
+.im-ga-sub .menu { min-width: 240px; max-width: min(320px, 80vw); left: 0; right: auto; color: var(--text); font-size: var(--fs-sm); }
+/* 成员菜单加为联系人（IM 0.30.0，TSK-0724）：一人一行，名字在左，操作在右；放不下时操作换到下一行 */
+.im-ga-sub .menu:has(.im-mem-menu) { min-width: min(340px, calc(100vw - 32px)); max-width: min(400px, calc(100vw - 32px)); }
+.im-mem-menu { display: flex; flex-direction: column; min-width: 0; max-height: min(420px, 60vh); overflow-y: auto; }
+.im-mem-all { font-weight: 500; }
+.im-mem-row { flex: none; display: flex; align-items: center; flex-wrap: wrap; gap: 2px var(--sp-3); min-height: 32px; padding: 4px var(--sp-5); border-radius: var(--r-sm); min-width: 0; }
+.im-mem-row:hover { background: var(--hover); }
+.im-mem-who { flex: 1 1 100px; min-width: 0; display: flex; align-items: center; gap: 6px; }
+.im-mem-tag { flex: none; padding: 0 4px; border-radius: var(--r-sm); background: var(--hover); color: var(--muted); font-size: var(--fs-2xs); }
+.im-mem-acts { display: flex; gap: 8px; margin-left: auto; flex: none; }
+.im-mem-act { padding: 0; border: 0; background: none; font-size: var(--fs-xs); color: var(--accent); cursor: pointer; white-space: nowrap; }
+.im-mem-act:disabled { color: var(--muted); cursor: default; }
+.im-mem-act.im-muted-on, .im-mem-contact { color: var(--muted); }
+.im-mem-contact:not(:disabled):hover { color: var(--text); text-decoration: underline; }
+/* 全部加为联系人的名单 */
+.im-bc-list { display: flex; flex-direction: column; border: 1px solid var(--line); border-radius: var(--r); max-height: 320px; overflow: auto; }
+.im-bc-row { flex: none; display: flex; align-items: flex-start; gap: 8px; padding: 6px 10px; border-bottom: 1px solid var(--line); min-width: 0; }
+.im-bc-row:last-child { border-bottom: 0; }
+.im-bc-row > input { margin-top: 9px; flex: none; }
+.im-bc-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.im-bc-ext { font-size: var(--fs-xs); overflow-wrap: anywhere; }
+.im-bc-fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: var(--sp-4); }
+/* 窄屏：成员菜单从「成员」往右展开会被裁掉，改成贴着左右两边 */
+@media (max-width: 600px) {
+  .im-ga-sub .menu:has(.im-mem-menu) { position: fixed; left: 12px; right: 12px; top: auto; min-width: 0; max-width: none; }
+}

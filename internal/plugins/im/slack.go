@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 package im
 
 import (
@@ -735,7 +737,7 @@ func (s *Slack) userName(id string) string {
 // mentionRe 认正文里的 <@U123>、<@U123|name>。
 var mentionRe = regexp.MustCompile(`<@([UW][A-Z0-9]+)(?:\|[^>]*)?>`)
 
-// lookupUsers 查这批消息里发送人和被 @ 的人的名字，记进缓存；查不到的不报错，显示编号。
+// lookupUsers 查这批消息里发送人和被 @ 的人的名字，记进缓存（slacknames.go 的 lookupOne）；查不到的不报错，显示编号。
 func (s *Slack) lookupUsers(ctx context.Context, hc *http.Client, token string, msgs []slackMsg) {
 	need := []string{}
 	for _, m := range msgs {
@@ -753,34 +755,9 @@ func (s *Slack) lookupUsers(ctx context.Context, hc *http.Client, token string, 
 		if i >= slackLookupLimit || ctx.Err() != nil {
 			return
 		}
-		var out struct {
-			User struct {
-				Name    string `json:"name"`
-				Profile struct {
-					Display string `json:"display_name"`
-					Real    string `json:"real_name"`
-					Email   string `json:"email"` // 有 users:read.email 时才有，顺手记下给补联系人邮箱用
-				} `json:"profile"`
-			} `json:"user"`
-		}
-		if err := s.call(ctx, hc, token, "users.info", url.Values{"user": {id}}, &out); err != nil {
-			continue
-		}
-		s.mail.remember(id, out.User.Profile.Email)
-		name := out.User.Profile.Display
-		if name == "" {
-			name = out.User.Profile.Real
-		}
-		if name == "" {
-			name = out.User.Name
-		}
-		if name != "" {
-			s.mu.Lock()
-			if len(s.users) >= slackNameCacheN {
-				s.users = map[string]string{}
-			}
-			s.users[id] = name
-			s.mu.Unlock()
+		// 撞上限流后面的也查不到，停下（TSK-0494）；查不到的名字之后收到这个人的消息、或群组管理「查询回填」时补回
+		if _, err := s.lookupOne(ctx, hc, token, id); slackRateLimited(err) {
+			return
 		}
 	}
 }

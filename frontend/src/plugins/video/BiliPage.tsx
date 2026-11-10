@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // B 站组件（TSK-0455，SPEC-videos B 站一节，照原型 web-next/src/videobili.tsx）：视频模块标签栏里的「B 站」页。
 // 一个 bilibili_web 连接器实例一个 B 站账号：没登录时显示扫码登录（二维码由后端生成，用户自己用 B 站 App 扫），
 // 登录后两个小标签：账户概览（数字卡加按天趋势，手动刷新）、私信（会话列表加会话详情加发送框）。

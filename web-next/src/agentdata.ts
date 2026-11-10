@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 import { newId } from './ids'
 
 // Agent：工作助手。每个 Agent 有自己的指令、模型、能用的工具（以及每个工具的权限）、能读的内容和触发方式
@@ -20,6 +22,8 @@ export const ABILITIES: Ability[] = [
   { key: 'write_tasks', label: '新建 / 更新任务', group: '任务', write: true, desc: '' },
   { key: 'read_content', label: '读文档', group: '文档', write: false, desc: '只能读挂载的知识库里的资料' },
   { key: 'write_content', label: '写文档', group: '文档', write: true, desc: '新建笔记、摘录' },
+  { key: 'read_sop', label: '查 SOP 流程', group: 'SOP', write: false, desc: '列出流程、读流程的步骤和能用的节点' },
+  { key: 'write_sop', label: '新建 / 修改 SOP 流程', group: 'SOP', write: true, desc: '按描述建流程或改步骤，保存前照编辑器的规则校验' },
   { key: 'run_sop', label: '发起 SOP', group: 'SOP', write: true, desc: '按标准流程执行，流程里的人工检查点照常停下' },
 ]
 

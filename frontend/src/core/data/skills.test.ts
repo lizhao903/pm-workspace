@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 import { describe, expect, it } from 'vitest'
 import { invalidationsFor } from './invalidate'
 import { skillKeys } from './skillKeys'

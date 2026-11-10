@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 任务抽屉的执行记录（DEV-08c，SPEC-tasks-5.12 到 5.17）：列表、展开看完整输出、取消运行中的执行。
 // 每条标方式（0048）：流式的照旧；终端的进程不归工作台管，结论由终端里的 Claude Code 经 MCP 回写，
 // 进行中时给一个「标记结束」兜底（选完成、失败或取消，写一句结论）。
@@ -13,7 +15,7 @@ import { Button, ConfirmDialog, ErrorState, Field, IconChevronRight, LoadingStat
 import { timeAgo } from './model'
 import { useLiveRun, useLiveRuns, type LiveRun } from './runLive'
 import { RunOutput, RunStream, type DecideProps } from './RunStream'
-import { FINISH_OPTIONS, agentSessionOf, duration, extraOf, harnessLabel, modeLabel, parseOutput, runNote, runStatusOf } from './runsModel'
+import { FINISH_OPTIONS, agentSessionOf, allowRulesLink, allowRulesOf, duration, extraOf, harnessLabel, modeLabel, parseOutput, runNote, runStatusOf } from './runsModel'
 import './runs.css'
 
 export function RunsBlock({ task, focus }: {
@@ -45,7 +47,7 @@ export function RunsBlock({ task, focus }: {
     <section className="dev-slot" data-slot="runs" data-task={task.id} aria-label="执行记录" ref={ref}>
       <div className="dev-slot-head">
         <span className="field-group-title">执行记录</span>
-        <span className="run-hint">从这里交给 Claude Code 或工作台 Agent 的每一次执行，最近的在前</span>
+        <span className="run-hint">从这里交给 Claude Code、DeepSeek 或工作台 Agent 的每一次执行，最近的在前</span>
       </div>
       {q.isPending && <LoadingState />}
       {q.isError && <ErrorState compact error={q.error} onRetry={() => q.refetch()} />}
@@ -200,6 +202,7 @@ function StreamRunRow({ run, lit }: { run: TaskRun; lit: boolean }) {
         <span className="run-at">{timeAgo(run.started_at)} · {duration(run.started_at, r.finished_at)}</span>
       </button>
       {note && <div className={cls('run-note', 'run-note-' + note.tone)}>{note.text}</div>}
+      <AllowRulesLink error={r.error} />
       {expanded && (
         <div className="run-body">
           <div className="run-meta">{r.workdir || '没有工作目录'} · 记录 {run.id.slice(-8)}{finished ? ` · exit ${r.exit_code}` : ''}</div>
@@ -229,6 +232,17 @@ function StreamRunRow({ run, lit }: { run: TaskRun; lit: boolean }) {
           )}
         </div>
       )}
+    </div>
+  )
+}
+
+/** 被拒提示带了「建议放行」规则时（TSK-0499），给一个去设置放行的直达入口，预填这些规则 */
+function AllowRulesLink({ error }: { error: string }) {
+  const rules = allowRulesOf(error)
+  if (!rules.length) return null
+  return (
+    <div className="run-note run-note-muted">
+      <Link to={allowRulesLink(rules)}>去设置放行这 {rules.length} 项</Link>（加进「执行权限」的自定义白名单，发起时选「自定义白名单」档位）
     </div>
   )
 }

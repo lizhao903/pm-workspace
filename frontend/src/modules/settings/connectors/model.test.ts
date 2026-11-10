@@ -1,9 +1,11 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 import { describe, expect, it } from 'vitest'
 import type { Connector, ConnectorDef } from '../../../core/data'
 import {
   fieldHint,
   bulkModes, createBody, fieldOn, initialDraft, missingFields, modesFor, needsRetest, nextName, notReady, oauthLack, oauthReturnTo, oauthState, patchBody,
-  pruneModes, refreshNote, rowSummary, tokenPreview,
+  pruneModes, refreshNote, rowSummary, tokenPreview, cardRows, parseStatusFilter, statusCounts,
 } from './model'
 import { oauthResult } from './oauth'
 
@@ -200,5 +202,30 @@ describe('字段说明（IM-06）', () => {
     expect(fieldHint(slack, { key: 'channels' }, {})).toBeUndefined()
     expect(fieldHint({ tool: 'github' }, { key: 'bot_token' }, {})).toBeUndefined()
     expect(fieldHint({ tool: 'custom_mcp' }, { key: 'transport' }, {})).toMatch(/stdio/)
+  })
+})
+
+describe('状态筛选（TSK-0725）', () => {
+  const mk = (id: string, tool: string, status: Connector['status']) => ({ id, tool, status }) as Connector
+  const list = [mk('a', 'github', 'connected'), mk('b', 'github', 'error'), mk('c', 'slack', 'paused'), mk('d', 'slack', 'connecting')]
+
+  it('不认识的地址参数当全部', () => {
+    expect(parseStatusFilter('error')).toBe('error')
+    expect(parseStatusFilter('weird')).toBe('')
+    expect(parseStatusFilter(null)).toBe('')
+  })
+
+  it('卡片列哪些实例', () => {
+    expect(cardRows('', list.slice(0, 2), true)).toHaveLength(2)
+    expect(cardRows('error', list.slice(0, 2), true)?.map((c) => c.id)).toEqual(['b'])
+    expect(cardRows('off', list.slice(0, 2), true)).toBeNull()
+    expect(cardRows('off', list.slice(2), true)?.map((c) => c.id)).toEqual(['c'])
+    expect(cardRows('unlinked', [], false)).toEqual([])
+    expect(cardRows('unlinked', [], true)).toBeNull()
+  })
+
+  it('各项的数字：实例按状态数，全部和未接入数工具；连接中只算在全部里', () => {
+    expect(statusCounts([{ tool: 'github' }, { tool: 'slack' }, { tool: 'custom_mcp' }], list))
+      .toEqual({ '': 3, connected: 1, error: 1, off: 1, unlinked: 1 })
   })
 })

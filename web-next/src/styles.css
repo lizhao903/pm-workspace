@@ -825,6 +825,9 @@ button.run-row:hover { background: var(--panel-2); }
 .sop-lib-head { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .sop-lib-name { flex: 1; min-width: 0; font-weight: 600; }
 .sop-lib-pending { flex: none; height: 18px; padding: 0 6px; border-radius: 4px; font-size: 11px; line-height: 18px; color: var(--warn); background: var(--warn-soft); white-space: nowrap; }
+/* 条件是一句话、执行到就失败的流程（TSK-0498） */
+.sop-lib-pending.sop-lib-broken { color: var(--danger); background: var(--danger-soft); }
+.insp-banner.sop-broken { margin-bottom: 12px; }
 .sop-lib-desc { font-size: 12.5px; color: var(--muted); line-height: 1.5; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
 .sop-lib-meta { display: flex; flex-wrap: wrap; gap: 2px 12px; font-size: 11.5px; color: var(--faint); }
 .sop-fields { display: flex; flex-wrap: wrap; gap: 6px; }
@@ -1225,7 +1228,7 @@ button.run-row:hover { background: var(--panel-2); }
 .cv-node.bad { border-color: color-mix(in srgb, var(--danger) 60%, var(--line)); }
 .cv-node-head { display: flex; align-items: center; gap: 8px; height: 44px; padding: 0 12px; cursor: move; }
 .cv-node-name { font-weight: 600; font-size: 13px; flex: 1; min-width: 0; }
-.cv-node-kind { font-size: 11px; color: var(--faint); }
+.cv-node-kind { font-size: 11px; color: var(--faint); white-space: nowrap; max-width: 65%; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .cv-desc { margin: 0 10px 10px; padding: 6px 8px; border-radius: 6px; background: var(--panel-2); font-size: 12px; color: var(--muted); }
 .cv-desc .faint { color: var(--faint); }
 .cv-fields { display: flex; flex-direction: column; gap: 4px; padding: 0 10px 10px; }
@@ -2669,6 +2672,11 @@ input.mono { font-family: var(--mono); }
 .rerun-note { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; padding: 8px 12px; border-radius: var(--r); background: color-mix(in srgb, var(--accent) 8%, var(--panel)); font-size: 13px; line-height: 1.6; }
 .rerun-note > span { flex: 1; min-width: 0; }
 .rerun-note.bad { background: color-mix(in srgb, #b0570b 12%, var(--panel)); }
+/* 停止（TSK-0717）：不能停的行勾选框位置留空；行内、工具栏的「停止」灰字、悬停变红（同正式产品 btn-danger-ghost）；确认框里停什么 */
+.run-pick-none { visibility: hidden; cursor: default; }
+.act-danger-quiet { border-color: transparent; color: var(--muted); background: none; }
+.act-danger-quiet:hover { color: var(--danger); background: var(--danger-soft); }
+.stop-what { font-size: 13px; font-weight: 600; line-height: 1.6; }
 .run-origin { color: var(--accent); font-size: inherit; }
 .run-origin:hover { text-decoration: underline; }
 
@@ -2719,6 +2727,11 @@ input.mono { font-family: var(--mono); }
 
 /* ---------- 群组管理抽屉（groupadmin.tsx，SPEC-messages-7） ---------- */
 .ga-drawer { width: var(--drawer-w); }
+.ga-top-refill { flex-wrap: wrap; row-gap: 4px; }
+.ga-top-refill .ga-name { min-width: min(9em, 100%); }
+.ga-refill { color: var(--ok, #1a7f37); font-size: 12px; overflow-wrap: anywhere; }
+.ga-refill.bad { color: var(--danger, #c0392b); }
+.ga-refill.muted { color: var(--faint, #999); }
 .ga-title { margin: 0 0 6px; font-size: 16px; font-weight: 600; }
 .ga-desc { margin: 0 0 14px; color: var(--muted); font-size: 12.5px; }
 .ga-drawer .toolbar .search { flex: 1 1 200px; }
@@ -2743,6 +2756,14 @@ input.mono { font-family: var(--mono); }
 .ga-adopt { height: 20px; padding: 0 8px; border-radius: 99px; border: 1px dashed var(--accent-line); color: var(--accent); font-size: 12px; }
 .ga-adopt:hover { background: var(--accent-soft); border-style: solid; }
 .ga-bulk-n { font-weight: 600; font-size: 12.5px; }
+/* 窄抽屉（手机宽）：同正式产品 groupAdmin.css，数字列表头收起，默认归属换到第二行，名字不被挤没 */
+.ga-drawer .drawer-body { container-type: inline-size; }
+@container (max-width: 560px) {
+  .ga-row { flex-wrap: wrap; }
+  .ga-head .ga-col, .ga-head .ga-proj { display: none; }
+  .ga-proj { width: 100%; align-items: flex-start; padding-left: 26px; }
+  .ga-sugg { justify-content: flex-start; }
+}
 
 /* 文档默认工作目录（SPEC-library-1.53） */
 .ws-default { flex: none; margin-left: auto; padding: 0 6px; border-radius: 999px; font-size: 11px; color: var(--accent); background: var(--accent-soft); }
@@ -2861,8 +2882,26 @@ button.thread-tag:hover { color: var(--text); border-color: var(--text); }
 
 /* SOP 定时触发（TSK-0463）：流程库卡片下面、流程详情概要下面的一行规则、下次执行和启停；开始节点里的规则编辑 */
 .sop-lib-cell { display: flex; flex-direction: column; min-width: 0; }
-.sop-lib-cell > .sop-lib-card { flex: 1; }
-.sop-lib-cell:has(.sop-lib-sched) > .sop-lib-card { border-bottom-left-radius: 0; border-bottom-right-radius: 0; }
+.sop-lib-cell > .sop-lib-main { position: relative; display: flex; flex-direction: column; flex: 1; min-width: 0; }
+.sop-lib-main > .sop-lib-card { flex: 1; }
+.sop-lib-cell:has(.sop-lib-sched) .sop-lib-card { border-bottom-left-radius: 0; border-bottom-right-radius: 0; }
+/* 流程库的文件夹（TSK-0482，SPEC-sop-2.15 起）：卡片右下角的文件夹名点开移到别的文件夹，挂在卡片按钮外面 */
+.sop-lib-card.with-folder .sop-lib-meta { padding-right: 104px; }
+.sop-lib-main > .sop-lib-move { position: absolute; right: 12px; bottom: 10px; max-width: 96px; height: 20px; font-size: 11.5px; color: var(--muted); }
+.sop-lib-main > .sop-lib-move.none { color: var(--faint); }
+.sop-folders { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; min-width: 0; margin-bottom: 12px; }
+.sop-folders .fchip { flex: none; max-width: 100%; white-space: nowrap; }
+.sop-folders.searching .fchip { opacity: 0.55; }
+.sop-folder-name { min-width: 0; max-width: 12em; overflow: hidden; text-overflow: ellipsis; }
+.sop-folder-hint { font-size: 12.5px; color: var(--muted); }
+.sop-folder-hint:hover { color: var(--accent); }
+.sop-folder-note { font-size: 11.5px; color: var(--faint); }
+.sop-folder-edit { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; min-width: 0; margin-bottom: 12px; }
+.sop-folder-edit input { flex: 1 1 160px; min-width: 0; max-width: 280px; height: 28px; padding: 0 8px; border: 1px solid var(--accent-line); border-radius: var(--r-sm); background: var(--panel); outline: 0; box-shadow: 0 0 0 3px var(--accent-soft); }
+.sop-folder-edit .btn { height: 28px; padding: 0 10px; font-size: 12.5px; }
+.sop-folder-err { flex-basis: 100%; font-size: 12.5px; color: var(--danger); }
+.sop-folder-ask { padding: 8px 12px; border: 1px solid var(--danger-soft); border-radius: var(--r); background: var(--panel); font-size: 13px; }
+.sop-folder-ask > span { flex: 1 1 240px; min-width: 0; }
 .sop-sched { display: flex; align-items: center; gap: 10px; min-width: 0; font-size: var(--fs-xs); color: var(--muted); }
 .sop-sched-text { display: flex; flex-wrap: wrap; gap: 2px 10px; flex: 1; min-width: 0; }
 .sop-sched-next { color: var(--accent); }
@@ -2874,5 +2913,29 @@ button.thread-tag:hover { color: var(--text); border-color: var(--text); }
 .sop-start-sched { display: flex; flex-direction: column; gap: 10px; padding: 10px; border: 1px solid var(--line); border-radius: var(--r); min-width: 0; }
 .sop-start-sched.unset { flex-direction: row; flex-wrap: wrap; align-items: center; color: var(--warn); font-size: var(--fs-sm); }
 .sop-start-sched-warn { font-size: var(--fs-sm); color: var(--warn); }
+/* IM 触发（TSK-0481） */
+.sop-start-im-rel { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; }
+.sop-start-im-rel select { width: auto; }
+.sop-start-im-rel .check { white-space: nowrap; flex-direction: row; }
+.sop-start-im-rel .check input { width: auto; }
+.sop-im-stop { padding: 0 6px; border-radius: var(--r); color: var(--warn); border: 1px solid currentColor; white-space: nowrap; font-size: var(--fs-xs); }
 .sop-off-ask { display: flex; flex-direction: column; gap: 8px; }
 .sop-off-ask label { display: flex; align-items: flex-start; gap: 8px; cursor: pointer; }
+
+/* 自动忽略发信人（SPEC-messages-9，mutes.tsx） */
+.mute-dlg { display: flex; flex-direction: column; gap: 10px; }
+.mute-desc { margin: 0; line-height: 1.6; font-size: 13px; }
+.mute-opt { border: 0; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.mute-opt legend { padding: 0; margin-bottom: 4px; font-size: 12px; color: var(--muted); }
+.mute-opt label, .mute-also { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 13px; min-width: 0; }
+.act.mute-on { color: var(--warn); }
+.mute-note { font-size: 12px; margin-top: 6px; }
+.mute-list { display: flex; flex-direction: column; border-top: 1px solid var(--line); }
+.mute-item { display: flex; align-items: center; gap: 8px; padding: 10px 0; border-bottom: 1px solid var(--line); min-width: 0; }
+.mute-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.mute-sub { display: flex; gap: 10px; flex-wrap: wrap; font-size: 12px; min-width: 0; }
+.mute-members { min-width: 240px; left: 0; right: auto; color: var(--text); font-size: 13px; }
+.mute-members-btn { flex: none; white-space: nowrap; padding: 0; border: 0; background: none; color: var(--muted); font-size: 12px; cursor: pointer; }
+.mute-member { display: flex; align-items: center; gap: 8px; }
+.mute-ct { margin-top: 8px; font-size: 13px; display: flex; flex-direction: column; gap: 4px; }
+.mute-ct-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }

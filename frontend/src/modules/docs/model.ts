@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 文档页的视图模型（SPEC-library-0）：工作台文档（type=doc 的对象）和挂载目录里的文件都转成 Doc，
 // 内容树、筛选、空状态文案都在这里算，纯函数，有单测。
 import type { Category, LocalDir, LocalFileEntry, LocalFileKind, LocalFileList, WorkObject } from '../../core/data'

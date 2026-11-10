@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // Package db 负责 SQLite 连接与 schema 迁移。驱动用纯 Go 的 modernc.org/sqlite，免 CGO 交叉编译。
 package db
 

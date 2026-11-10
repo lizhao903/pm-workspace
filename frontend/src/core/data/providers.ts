@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 模型服务商的增删改、设默认、测试连接（MP-01b）。契约见 docs/api-contract.md「Agent 供应商」。
 // 列表和类型沿用 agent.ts（AG-01a）；测试结果写进 agentKeys.models(id)，Agent 的模型下拉同一份缓存。
 // 改了连接配置的服务商把它的测试结果丢掉：凭证或地址变了，上次的结论不作数。

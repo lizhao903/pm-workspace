@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 package plugin
 
 import (
@@ -32,11 +34,14 @@ type SOPNodeField struct {
 	Label string `json:"label"`
 }
 
-// SOPNodeDef 是插件登记的一个节点类型。名字、说明、颜色、配置表单在前端（SopNodeView）。
+// SOPNodeDef 是插件登记的一个节点类型。颜色、图标、配置表单的样子在前端（SopNodeView）；
+// 节点做什么、认哪些配置、输出哪些字段在 Spec（TSK-0490），保存校验、编辑器的字段候选、AI 协助和 Agent 的节点目录都用它。
 type SOPNodeDef struct {
 	Kind     string         // = 清单 provides.sop_nodes 里的一项，以 <插件 id>_ 开头
 	Group    string         // 节点面板里的分组，空为「插件」
-	Required []SOPNodeField // 保存时校验的必填配置项
+	Required []SOPNodeField // 保存时校验的必填配置项；Spec.Params 里 Required 的也算
+	// Spec 是节点的声明（TSK-0490）。没声明（Params、Outputs 都是 nil）的节点：配置不查多余的键，输出当作未知
+	Spec SOPNodeSpec
 	// Run 拿到上游输入和节点配置，返回输出字段；返回 ErrWaiting 表示挂起等外部事件（例：等对方回复）。
 	// c 是提供节点的插件自己的 Core。
 	Run func(ctx context.Context, c Core, in SOPNodeInput) (map[string]any, error)
@@ -58,6 +63,81 @@ type SOPNode struct {
 	Group    string
 	Required []SOPNodeField
 	Source   string
+	Spec     SOPNodeSpec
+}
+
+// SOPNodeSpec 是节点的声明（TSK-0490）：名字、做什么、认哪些配置、输出哪些字段。
+// 输出默认是「输入原样往下传，再加上 Outputs 这几个字段」（插件节点几乎都是 with(input, …)）。
+type SOPNodeSpec struct {
+	Label string
+	Desc  string
+	// Params 是认的配置项，顺序即表单顺序；nil 是没声明（不查多余的键），空切片是这个节点不认任何配置
+	Params []SOPParam
+	// Outputs 是这一步加到输出里的字段；nil 是没声明（下游引用字段时只给警告），空切片是只透传
+	Outputs []SOPOutput
+	// Effect 是这个节点有没有副作用（TSK-0491，SOP 调试按它决定真跑还是模拟）：SOPEffectRead 只读，调试时真实执行；
+	// SOPEffectWrite 会改数据或对外发东西（标记消息、发消息、建任务、写文件、调外部系统……），调试时不执行，只显示将做什么；
+	// SOPEffectWait 要停下等外部事件（等回复、等任务完成），调试时不等，用占位输出往下走。空串当 SOPEffectWrite（没声明的一律不真跑）
+	Effect string
+	// DryRun 是调试时这个节点怎么模拟，一句给人看的话（例：「不发消息，sent 为占位」）；空串按 Effect 的默认说法
+	DryRun string
+}
+
+// SOP 节点的副作用（SOPNodeSpec.Effect，TSK-0491）。
+const (
+	SOPEffectRead  = "read"
+	SOPEffectWrite = "write"
+	SOPEffectWait  = "wait"
+)
+
+// SOPParam 是节点的一个配置项。
+type SOPParam struct {
+	Key      string `json:"key"`
+	Label    string `json:"label"`
+	Desc     string `json:"desc,omitempty"`
+	Required bool   `json:"required"`
+	// Default 是留空时按什么算（执行时的口径），新建节点时编辑器也填它
+	Default string `json:"default,omitempty"`
+	// Template 是值里能写 {{字段}}，执行时按输入渲染
+	Template bool `json:"template"`
+	// Options 是固定的可选值；Source 是要现取的选项（会话、项目、Agent……），都没有是自由填写
+	Options []SOPOption `json:"options,omitempty"`
+	Source  string      `json:"source,omitempty"`
+}
+
+// SOPOption 是一个可选值或取值说明。
+type SOPOption struct {
+	Value string `json:"value"`
+	Label string `json:"label"`
+}
+
+// SOPOutput 是输出里的一个字段。Path 用模板写法（a.b、a[0].b）；路径里 {key} 换成同名配置项的值（没填用 Default），
+// 比如 AI 处理的 {output}。Type 是 string、number、bool、object、list、any。
+// object、list 下面没列子字段的，子字段都算存在；列了子字段的只认列出来的，除非 Open（下面还有没列全的，比如 Claude Code 回报的 result）。
+type SOPOutput struct {
+	Path    string      `json:"path"`
+	Type    string      `json:"type"`
+	Label   string      `json:"label"`
+	Values  []SOPOption `json:"values,omitempty"`
+	Example string      `json:"example,omitempty"`
+	Open    bool        `json:"open,omitempty"`
+}
+
+// WithSOPSpecs 包一层 Registrar：登记节点时按 kind 从 specs 里补上 Spec（插件把声明集中写在一个文件里时用）。
+func WithSOPSpecs(r Registrar, specs map[string]SOPNodeSpec) Registrar {
+	return specRegistrar{Registrar: r, specs: specs}
+}
+
+type specRegistrar struct {
+	Registrar
+	specs map[string]SOPNodeSpec
+}
+
+func (s specRegistrar) SOPNode(d SOPNodeDef) {
+	if sp, ok := s.specs[d.Kind]; ok && d.Spec.Params == nil && d.Spec.Outputs == nil && d.Spec.Label == "" {
+		d.Spec = sp
+	}
+	s.Registrar.SOPNode(d)
 }
 
 // SOPEngine 是 SOP 插件登记的执行引擎入口。caller 是调 Resume 的插件 id，只能唤醒它自己提供的节点。
@@ -110,7 +190,7 @@ func (s sopService) Nodes() []SOPNode {
 			continue
 		}
 		for _, d := range a.sopNodes {
-			out = append(out, SOPNode{Kind: d.Kind, Group: d.Group, Required: slices.Clone(d.Required), Source: id})
+			out = append(out, SOPNode{Kind: d.Kind, Group: d.Group, Required: slices.Clone(d.Required), Source: id, Spec: d.Spec})
 		}
 	}
 	return out
@@ -210,6 +290,16 @@ func (c *collector) SOPNode(d SOPNodeDef) {
 			if strings.TrimSpace(f.Key) == "" || strings.TrimSpace(f.Label) == "" {
 				c.add("SOP 节点 %s 的必填配置项要有 key 和 label", d.Kind)
 				return
+			}
+		}
+		// 声明里必填的配置项也进 Required，保存校验只看 Required（TSK-0490）
+		for _, p := range d.Spec.Params {
+			if strings.TrimSpace(p.Key) == "" || strings.TrimSpace(p.Label) == "" {
+				c.add("SOP 节点 %s 的配置项要有 key 和 label", d.Kind)
+				return
+			}
+			if p.Required && !slices.ContainsFunc(d.Required, func(f SOPNodeField) bool { return f.Key == p.Key }) {
+				d.Required = append(d.Required, SOPNodeField{Key: p.Key, Label: p.Label})
 			}
 		}
 		c.a.sopNodes = append(c.a.sopNodes, d)

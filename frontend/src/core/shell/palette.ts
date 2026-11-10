@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 命令面板的条目和过滤规则，照原型 web-next/src/palette.tsx
 
 export interface PaletteItem {

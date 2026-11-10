@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 """原型冒烟测试：逐个点一级菜单、二级菜单和标签，收集 console error 和页面横向滚动。
 
 用法（make smoke-proto 调的就是这个）：

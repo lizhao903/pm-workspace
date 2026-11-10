@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 设置 > 内网域名（DOM-01b），照原型 web-next/src/domains.tsx（SPEC-settings-20）。
 // 正式版多了本机状态（20.29 到 20.32）和分三段的生成配置（20.33）；插件不改系统，要改的都给命令让用户自己执行。
 // 顶栏的标题由外壳给（插件分节的宿主），总开关和说明放在本节第一行

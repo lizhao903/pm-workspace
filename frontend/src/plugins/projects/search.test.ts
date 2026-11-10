@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 import { describe, expect, it } from 'vitest'
 import type { WorkObject } from '../../core/data'
 import { firstLine, searchProjects, SEARCH_MAX } from './search'

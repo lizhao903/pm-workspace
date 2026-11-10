@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 import { describe, expect, it } from 'vitest'
 import type { Agent, AgentRunCall, AgentToolCall } from '../../core/data'
 import { matchAgentFilter, recentAgents, whoOf, whoUsable, FILTER_GONE, FILTER_NO_AGENT } from '../../core/chat/chatModel'

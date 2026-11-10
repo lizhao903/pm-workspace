@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // Package sqlite 用直白的 SQL 实现 store.Store。个人工具没有换库需求，不引 ORM。
 package sqlite
 

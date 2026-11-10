@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // Agent 头像（照原型 web-next/src/agents.tsx AgentAvatar）：上传的图片 / 内置图标 / 文字，底色是 Agent 的 color。
 // 会话页和外壳的快速新建共用；设置页的头像编辑器另有一份（AG-01b5）。
 import type { ReactNode } from 'react'

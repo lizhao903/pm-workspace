@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // Agent 运行状态的极简外部 store：AgentDock 写，StatusBar 读。
 // 不塞进 WorkspaceProvider 是因为 hooks/ 不归本组件改；用 useSyncExternalStore
 // 能让分处 main 与 footer 的两个组件共享状态，而不动全局 Provider 结构。

@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 版本号和版本范围，规则见 docs/plugin-api.md 1.2；后端 internal/plugin/semver.go 是同一套。
 
 export type Version = readonly [number, number, number]

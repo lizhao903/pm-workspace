@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 列表行内联编辑：状态 / 优先级 / 负责人点开即改，不必开详情抽屉。
 //
 // 可选值一律来自配置数据，不写死在这里：

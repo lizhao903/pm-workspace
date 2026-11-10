@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // IM 消息页：合并的一组消息的抽屉（SPEC-messages-4）和「发起会话 / 拆分任务」弹窗（SPEC-messages-5）。
 // 正式产品见 frontend/src/plugins/im/GroupDrawer.tsx、StartSessionDialog.tsx。
 import { useState, type ReactNode } from 'react'

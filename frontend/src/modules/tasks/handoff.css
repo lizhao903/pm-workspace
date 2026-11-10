@@ -13,6 +13,8 @@
 .ho-sub { min-width: 0; color: var(--muted); font-size: var(--fs-sm); }
 .ho-dir { display: flex; flex-direction: column; gap: var(--sp-2); }
 .ho-perm { display: flex; flex-direction: column; gap: var(--sp-2); }
+/* 写入档位（TSK-0499） */
+.ho-profile { display: flex; flex-direction: column; gap: var(--sp-2); padding-left: var(--sp-5); }
 /* 角色（SPEC-tasks-6.18） */
 .ho-preset { display: flex; flex-direction: column; gap: var(--sp-2); }
 .ho-preset-head { display: flex; align-items: baseline; gap: var(--sp-3); }
@@ -45,3 +47,6 @@
 @media (max-width: 640px) {
   .ho-row { grid-template-columns: minmax(0, 1fr); }
 }
+
+/* 交给谁（TSK-0722）：不能用的执行器一行一句缺什么，链接去设置「执行器」 */
+.ho-who-off a { color: var(--accent); }

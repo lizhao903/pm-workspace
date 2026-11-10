@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 package sqlite
 
 import (
@@ -36,9 +38,9 @@ func TestMigrationSeedsBuiltinDictionaries(t *testing.T) {
 	if err != nil {
 		t.Fatalf("list dictionaries: %v", err)
 	}
-	// priority、link_relation、artifact_platform（0012）、artifact_kind（0031）、contact_group、msg_status（0041）。
-	if len(dicts) != 6 {
-		t.Fatalf("want 6 builtin dictionaries, got %d", len(dicts))
+	// priority、link_relation、artifact_platform（0012）、artifact_kind（0031）、contact_group、msg_status（0041）、project_role（0052）。
+	if len(dicts) != 7 {
+		t.Fatalf("want 7 builtin dictionaries, got %d", len(dicts))
 	}
 
 	byID := map[string]*domain.Dictionary{}
@@ -523,6 +525,48 @@ func TestContactGroupAndMsgStatusUsage(t *testing.T) {
 	}
 	if n, err := s.DictItemUsage(ctx, expired.ID); err != nil || n != 1 {
 		t.Errorf("expired 单条 usage = %d, %v; want 1", n, err)
+	}
+}
+
+// TSK-0718：项目干系人角色字典按原 PROJECT_ROLES 种五个 key，「参与」是默认；引用数统计项目插件的表，
+// 插件 0011 加了 role_key 后按 role_key（空时 role）算，没加时按 role 算；被用着的删不掉。
+func TestProjectRoleDictUsage(t *testing.T) {
+	s, ctx := newStore(t)
+	items := mustDictItems(t, s, ctx, domain.DictProjectRole, false)
+	var keys []string
+	for _, it := range items {
+		keys = append(keys, it.Key)
+	}
+	if strings.Join(keys, ",") != "decider,contact,owner,member,informed" || findDictItem(items, "member").Meta["default"] != true ||
+		findDictItem(items, "decider").Label != "决策人" || findDictItem(items, "decider").Description != "拍板、验收" {
+		t.Fatalf("project_role items = %+v", items)
+	}
+	member := findDictItem(items, "member")
+	if n, err := s.DictItemUsage(ctx, member.ID); err != nil || n != 0 {
+		t.Errorf("没有插件表时 usage = %d, %v; want 0", n, err)
+	}
+	if _, err := s.db.W.ExecContext(ctx, `CREATE TABLE projects_stakeholders (project_id TEXT, stakeholder_id TEXT, role TEXT)`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.db.W.ExecContext(ctx, `INSERT INTO projects_stakeholders VALUES ('p','a','member'),('p','b','owner')`); err != nil {
+		t.Fatal(err)
+	}
+	if n, err := s.DictItemUsage(ctx, member.ID); err != nil || n != 1 {
+		t.Errorf("旧口径 usage = %d, %v; want 1", n, err)
+	}
+	if _, err := s.db.W.ExecContext(ctx, `ALTER TABLE projects_stakeholders ADD COLUMN role_key TEXT NOT NULL DEFAULT ''`); err != nil {
+		t.Fatal(err)
+	}
+	// 自定义角色：role 写 member 占位，role_key 是实际值，不算到 member 上
+	if _, err := s.db.W.ExecContext(ctx, `INSERT INTO projects_stakeholders VALUES ('p','c','member','sponsor')`); err != nil {
+		t.Fatal(err)
+	}
+	items = mustDictItems(t, s, ctx, domain.DictProjectRole, false)
+	if findDictItem(items, "member").Usage != 1 || findDictItem(items, "owner").Usage != 1 {
+		t.Errorf("usage member/owner = %d/%d, want 1/1", findDictItem(items, "member").Usage, findDictItem(items, "owner").Usage)
+	}
+	if err := s.DeleteDictItem(ctx, findDictItem(items, "owner").ID); !errors.Is(err, domain.ErrConflict) {
+		t.Errorf("被用着的角色删除 err = %v, want conflict", err)
 	}
 }
 

@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 项目设置「显示哪些标签」（SPEC-projects-13.19、13.20）：一行一个标签，勾选决定显示不显示，拖动或上移、下移按钮调先后。
 // 概览固定第一、设置固定最后，不能勾掉也不参与排序（概览是默认标签，设置里才能把藏掉的开回来）。顺序存 tabs_order。
 import { useEffect, useRef, useState } from 'react'

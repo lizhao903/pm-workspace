@@ -133,3 +133,9 @@ flowchart LR
 - 跟踪误差用近 20 日 ETF 收益率与指数收益率之差的年化标准差；样本不足 20 日不判定。
 - 分红、拆分、份额折算会让份额跳变但不代表资金流；接公告前先按"单日变动 > 10% 且无行情配合"标记为待核。
 - 事件同一天同标的同规则只留一条，重跑覆盖不改状态（ack 过的保持 ack）。
+
+---
+
+由 DeepSeek Harness（dsh）协助完成。
+
+[![](https://img.shields.io/badge/powered_by-dsh-4D6BFE?style=flat-square&logo=deepseek&logoColor=white)](https://github.com/deepseek-ai/deepseek-harness)

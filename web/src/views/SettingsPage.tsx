@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 设置页：左侧二级导航 + 右侧内容区，整页占据主内容区。
 // 收口原则——工作对象本身的增删改归主界面，所有枚举值维护和需要读写数据库的配置都在这里。
 import { useWorkspace, type SettingsSection } from '../hooks/workspace'

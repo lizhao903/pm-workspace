@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 姓名的拼音首字母（CT-03a）：联系人按姓名排序、分段用；放在 core 里，插件（项目干系人）也能用。
 // 不引拼音库：常用字表在 pinyinData.ts（GB2312 6763 字，约 20KB），名字的第一个字是姓，
 // 所以多音字一律按姓氏读音处理（单 Shan、解 Xie、曾 Zeng），复姓先认两个字。

@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 终端页（TERM-01b，SPEC-terminal-1）：整页都是终端，没有顶栏；上面一排标签，下面是当前标签的格子，每个标签最多 2x2 四格。
 // 每格一个后端 pty 会话。格子目录是项目原型目录时，格子头上能启停那个原型（经 core/data 调项目插件的接口）。
 import { useEffect, useRef, useState, type ReactNode } from 'react'

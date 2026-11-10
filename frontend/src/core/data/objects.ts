@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 对象的读写（CORE-03a）：列表、单个对象，以及新建、编辑、改状态、删除。
 // 写操作成功后报 { kind: 'object' }，按失效规则刷新所有对象列表、计数和干系人。
 import { keepPreviousData, useMutation, useQuery } from '@tanstack/react-query'

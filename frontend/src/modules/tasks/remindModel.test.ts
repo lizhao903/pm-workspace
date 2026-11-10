@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 import { describe, expect, it } from 'vitest'
 import type { Schedule } from '../../core/data'
 import {
@@ -10,7 +12,7 @@ const now = new Date(2026, 9, 29, 8, 0)
 function remind(p: Partial<Schedule> = {}): Schedule {
   return {
     id: 'sch_r', name: '提醒：回电话', enabled: true, rule: { ...emptyRule(now), freq: 'once', date: '2026-10-29', time: '09:00' },
-    action: { kind: 'remind', title: '回电话', body: '', object_id: 'obj_1' }, next_run_at: '2026-10-29T09:00:00+08:00',
+    action: { kind: 'remind', title: '回电话', body: '', object_id: 'obj_1' }, project_id: null, next_run_at: '2026-10-29T09:00:00+08:00',
     created_at: '', updated_at: '', ...p,
   }
 }
@@ -39,7 +41,7 @@ describe('动作「提醒」', () => {
     expect(actionText({ kind: 'remind', title: '喝水', body: '', object_id: '' })).toBe('提醒「喝水」')
     expect(nextCellText(remind(), undefined, now)).toBe('今天 09:00')
     const after = new Date(2026, 9, 29, 9, 5)
-    const done = remind({ enabled: false, next_run_at: null })
+    const done = remind({ enabled: false, project_id: null, next_run_at: null })
     expect(nextCellText(done, { status: 'ok' }, after)).toBe('已提醒')
     expect(nextCellText(done, undefined, after)).toBe('已提醒')
     expect(nextCellText(done, { status: 'missed' }, after)).toBe('已错过')

@@ -1,8 +1,24 @@
 # 开发决策记录
 
-开发过程中由 Claude 评估做出的决策，最新的在前。每条写明决策、理由、怎么撤回。用户授权：2026-10-28「开发过程中的决策你来评估」。
+开发过程中由 DSH（DeepSeek Harness）评估做出的决策，最新的在前。每条写明决策、理由、怎么撤回。用户授权：2026-10-28「开发过程中的决策你来评估」。
 
 不可逆或对外的事（推送、合并进 main、改真实库、改已应用的迁移、启动 7777、删除用户文件）不在授权范围内，一律记到「待用户决定」，不做。
+
+## 第四十九批：仓库维护者改为 DSH，历史 Claude 共同作者署名替换（2026-11-10）
+
+- 用户要求「移除掉 Claude 的 contributors，后续都是 DSH 维护」。
+- 落地：全部历史提交里的 `Co-Authored-By: Claude Opus ...` 共同作者行统一替换为 `Co-Authored-By: DeepSeek Harness <noreply@deepseek.com>`（280 个提交改写为新 hash）；`AGENTS.md` 适用对象改为「由 DSH 维护」；删除只用于引入 `AGENTS.md` 的 `CLAUDE.md`；后续提交继续由 `.githooks/commit-msg` 自动补 DSH 署名。
+- 理由：Claude 不再参与仓库维护，提交与贡献者展示里不应再出现它的署名。
+- 怎么撤回：用改写前的完整备份恢复（`git clone /tmp/pmw-history-backup/pmw-all-*.bundle`）；force push 前远端旧 ref 是 main `4775d6371ae545e9f03efd6e91cdd314cb32ae59`、feat/prototype-dev-loop `44dec500cbe704681a079f3a831c89483c7ade2b`；文档改动回滚本批提交即可。
+
+## 第四十八批：DSH 归属要求强制化（2026-11-10）
+
+- 用户要求「给当前项目增加要求，所有代码都要加上 DSH 徽标」。落地：根目录新增 `AGENTS.md`（`CLAUDE.md` 用 `@AGENTS.md` 引入），写死 DSH 归属规则；`docs/governance-plan.md` 加「DSH 归属」强制行与红线第 8 条；`README.md` 开发一节加说明。
+- 自动检查与修复：`scripts/dsh-badge.sh` 提供 `check`/`fix`，Makefile 加 `check-dsh`、`fix-dsh`、`hooks`，并把 `check-dsh` 挂进 `make check`（`make check` 同时跑 gofmt、go vet、go test）。
+- 提交署名：`.githooks/commit-msg` 在提交信息缺 `Co-Authored-By: DeepSeek Harness` 时自动补，`make hooks` 启用（`git config core.hooksPath .githooks`）。
+- 一次性补齐：全部 go/ts/tsx/js/py 源码文件头加 `powered by dsh` 注释徽标；`docs/` 下原来没徽章的文档末尾补 powered by dsh 徽章。
+- 例外：`docs/dev-tasks.md` 由 JSON 生成，不加；构建产物（`frontend/dist`、`internal/webui/dist`）和 `node_modules` 不检查。
+- 撤回：删 `AGENTS.md`、`CLAUDE.md`、`.githooks/`、`scripts/dsh-badge.sh`，去掉 Makefile 新增目标与 `check`，再 `git checkout` 回源码文件头。
 
 ## 第四十七批：角色工作流、来消息自动分诊、Agent 断开不再丢回复（2026-10-31）
 
@@ -1121,3 +1137,9 @@ M1 的开发功能到 DEV-09 已经齐了：任务列表、抽屉、进展、产
 - **决策**：不复用现有的 runs 表，新增定时任务执行记录表（迁移从 0014 起，只加不改）。
 - **理由**：现有 runs 是「Claude Code 执行任务」的记录，字段和语义都不同，混用会让开发任务闭环的执行记录变乱。
 - **撤回**：新表独立，删掉不影响其他功能。
+
+---
+
+由 DeepSeek Harness（dsh）协助完成。
+
+[![](https://img.shields.io/badge/powered_by-dsh-4D6BFE?style=flat-square&logo=deepseek&logoColor=white)](https://github.com/deepseek-ai/deepseek-harness)

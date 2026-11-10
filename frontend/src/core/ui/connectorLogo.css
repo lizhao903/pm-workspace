@@ -1,0 +1,9 @@
+/* 连接器标志（TSK-0725）：设置的连接器页、Agent 工具授权等共用；圆角按尺寸在组件里算 */
+.cn-logo {
+  display: inline-grid; place-items: center; flex: none; overflow: hidden;
+  background: var(--c); color: #fff; font-weight: 700; letter-spacing: -0.02em; line-height: 1;
+}
+.cn-logo-img { object-fit: cover; background: var(--panel-2); }
+/* 平台图标：品牌色图块，标志占六成；深色、白色底都描一圈细边，亮暗主题下都看得出边界 */
+.cn-logo-brand { box-shadow: inset 0 0 0 1px rgb(128 128 128 / 0.22); }
+.cn-logo-brand > img { width: 60%; height: 60%; object-fit: contain; display: block; }

@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { ConnectorDrawer, ConnectorsSettings } from './connectors'
 import { ApiConnectorDrawer } from './apiconn'
@@ -8,10 +10,11 @@ import { pickFolder, readHandle, type LocalFolder } from './localdir'
 import { IM_CHANNELS, IM_EXPIRE_DAYS_DEFAULT, seedConnectors, seedContacts, seedContent, seedMessages, TOOLS, type Connector, type Contact, type Message } from './data'
 import { mentionMembers } from './mention'
 import { MessageDrawer, MessagesPage, contactFor, fetchBlocker, gear, withGroupProjects, type MsgAction } from './messages'
+import { applyMutes, bindMuteEnv } from './mutes'
 import { GroupTriageAdvice, QueueDrawer, TriageAdvice, triageRunsOf, triageSops } from './triage'
 import { SECTIONS, SettingsNav, type Section } from './settings'
 import { CommandPalette, type PaletteItem } from './palette'
-import { GOVERNANCE_DEFAULT, MODEL_CONCURRENCY_DEFAULT, SOPS, act as actOnRun, gateRuns, governRuns, isHeld, type Governance, rerunRuns, seedRuns, sopById, tick, runShow, runStatus, startRun, upsertSop, type Json, type RunAction, type Sop } from './sopflow'
+import { GOVERNANCE_DEFAULT, MODEL_CONCURRENCY_DEFAULT, SOPS, newSopFolder, act as actOnRun, gateRuns, governRuns, isHeld, type Governance, rerunRuns, seedRuns, sopById, stopRuns, tick, runShow, runStatus, startRun, upsertSop, type Json, type RunAction, type Sop, type SopIMRelevance } from './sopflow'
 import { SopEditor, newSopDraft } from './sopedit'
 import { ingest, newTask, seedDeliveries, seedHooks, seedTasks, type TaskStatus, isOpenTask, localDay } from './taskdata'
 import { waitOf } from './taskpipeline'
@@ -47,6 +50,7 @@ import { TopbarContext } from './topbar'
 import { AppearancePage, type ThemePref } from './appearance'
 import { UpdatePage } from './update'
 import { RunPresetsPage } from './runpresetspage'
+import { RunPermsPage } from './runpermspage'
 import { cls } from './ui'
 import { PLATFORMS, PLATFORM_TOOL, STAGES, checkPublish, coverRatioOf, dealReport, seedArtifacts, seedDeals, seedPublishes, seedSeries, seedTexts, seedVideos, videoState, type Deal, type PlatformKey, type Publish, type Video } from './videodata'
 import { CalendarPage } from './videocalendar'
@@ -155,6 +159,8 @@ export default function App() {
   useEffect(() => { saveWorkspaces(benches, bench.id) }, [benches, bench.id])
   const [page, setPage] = useState<Page>(() => (bench.home as Page) ?? 'projects')
   const [section, setSection] = useState<Section>('connectors')
+  // 执行记录「去设置放行」带过来的规则（TSK-0499），设置 > 执行权限预填
+  const [permsPending, setPermsPending] = useState<string[]>([])
   // Agent 配置页有未保存的改动时，切二级菜单先让它确认
   const agentGuard = useRef<((leave: () => void) => boolean) | null>(null)
   const leaveAgent = (go: () => void) => { if (!agentGuard.current || agentGuard.current(go)) go() }
@@ -427,7 +433,8 @@ export default function App() {
           attachments: m.attachments?.map((a) => ({ ...a, id: newId('att') })),
         }))
       })
-      if (fresh.length) setMessages((xs) => [...fresh, ...xs])
+      // 自动忽略的发信人（SPEC-messages-9）：命中的直接已忽略、已读
+      if (fresh.length) setMessages((xs) => [...applyMutes(fresh, contacts), ...xs])
       if (ok.length) setConnectors((xs) => xs.map((c) => (ok.some((o) => o.id === c.id) ? { ...c, last_sync_at: now } : c)))
       for (const c of bad) report({ fingerprint: `conn:${c.id}:sync`, level: 'warn', module: '连接器', title: `${c.name}同步失败`, message: c.error ?? '连接异常', context: { 连接器: c.name } })
       const parts = [fresh.length ? `收到 ${fresh.length} 条新消息` : ok.length ? '没有新消息' : '', bad.length ? `${bad.map((c) => c.name).join('、')}同步失败` : ''].filter(Boolean)
@@ -506,6 +513,8 @@ export default function App() {
     setImToMat(null)
   }
   const openSessionById = (id: string) => { setCurrentSession(id); setPage('sessions'); setSessionView('chats'); setDrawer(null) }
+  // 自动忽略（SPEC-messages-9）：交给 mutes.tsx 的各入口用，一并忽略走消息的「忽略」
+  bindMuteEnv(messages, contacts, (ids) => setMessages((xs) => xs.map((x) => (ids.includes(x.id) ? { ...x, status: 'ignored' as const, read: true, snooze_until: null, expired_at: null } : x))))
   const actOnMessage = (id: string, a: MsgAction) => {
     const m = messages.find((x) => x.id === id)
     if (!m) return
@@ -771,6 +780,17 @@ export default function App() {
       if (m) actOnMessage(m.id, { kind: 'reply', text: String(c.input.text ?? ''), done: false })
       record('reply', `回复 ${String(c.input.to ?? '')}：${String(c.input.text ?? '').slice(0, 24)}`, m?.id)
       return { sent: true, message_id: m?.id ?? null }
+    }
+    if (c.tool === 'write_sop') {
+      // 新建一条只有名字和触发方式的流程（TSK-0480），产出记成 SOP，点标题打开它
+      const t = (c.input.trigger ?? {}) as { type?: string; conversations?: string[]; relevance?: SopIMRelevance[]; relevance_mode?: string; order?: number; stop?: boolean }
+      const trig = t.type ?? 'manual'
+      // IM 触发的过滤、顺序、拦截（TSK-0481）照 trigger 里给的存
+      const im = trig === 'im' ? { conversations: t.conversations ?? [], relevance: t.relevance ?? [], relevance_mode: t.relevance_mode === 'exclude' ? 'exclude' as const : 'include' as const, order: t.order ?? 0, stop: !!t.stop } : undefined
+      const sop = { ...newSopDraft(), name: String(c.input.name ?? '新流程'), trigger: trig, im }
+      setSops((xs) => [...xs, sop])
+      record('sop', `新建流程「${sop.name}」`, sop.id)
+      return { sop_id: sop.id }
     }
     if (c.tool === 'run_sop') {
       // 记下是哪个 SOP，产出结果里点标题能打开它
@@ -1186,7 +1206,7 @@ export default function App() {
       { id: 'c-sched', group: '操作', title: '新建定时任务', keywords: 'schedule 定时', run: () => { setPage('tasks'); setTaskView('schedules'); setDrawer({ kind: 'new-schedule' }) } }] : []),
     ...(has('contacts') ? [{ id: 'c-contact', group: '操作', title: '新建联系人', keywords: 'contact', run: () => { setPage('contacts'); setDrawer({ kind: 'new-contact' }) } }] : []),
     ...(has('sessions') ? [{ id: 'c-chat', group: '操作', title: '和 Agent 开个新会话', keywords: '会话 对话 chat', run: () => { setPage('sessions'); setSessionView('chats'); setPickAgent((n) => n + 1) } }] : []),
-    ...(has('sop') ? [{ id: 'c-sop', group: '操作', title: '新建 SOP', keywords: '流程 工作流', run: () => { setPage('sop'); setSopView('edit:new'); setOpenRun(null) } }] : []),
+    ...(has('sop') ? [{ id: 'c-sop', group: '操作', title: '新建 SOP', keywords: '流程 工作流', run: () => { newSopFolder.id = null; setPage('sop'); setSopView('edit:new'); setOpenRun(null) } }] : []),
     ...(has('projects') ? [{ id: 'c-proj', group: '操作', title: '新建项目', keywords: 'project', run: () => { setPage('projects'); newProject() } }] : []),
     { id: 'c-theme', group: '操作', title: theme === 'dark' ? '切换到浅色' : '切换到深色', keywords: '配色 主题 dark light 外观', run: () => setTheme(theme === 'dark' ? 'light' : 'dark') },
     { id: 'c-side', group: '操作', title: collapsed ? '展开左侧菜单' : '收起左侧菜单', keywords: '侧栏 菜单', run: () => setCollapsed(!collapsed) },
@@ -1583,6 +1603,8 @@ export default function App() {
             go('terminal')
           },
           onManagePresets: () => { setDrawer(null); go('settings'); setSection('run-prompts') },
+          onManagePerms: () => { setDrawer(null); go('settings'); setSection('run-permissions') },
+          onAllowRules: (rules) => { setPermsPending(rules); setDrawer(null); go('settings'); setSection('run-permissions') },
           // 交给工作台 Agent（SPEC-tasks-6.20）：Agent 默认取场景「执行任务」的；会话是全局的，来源标这次执行（SPEC-sessions-1.44）
           agentRun: { agents, defaultAgentId: taskRunAgent(agents, agentScenarios)?.id, providers, models },
           onAgentSession: ({ task: t, runId, agentId, prompt }) => {
@@ -1796,14 +1818,14 @@ export default function App() {
           </button>
         </div>
       </aside>
-      {page === 'tasks' && <TasksNav tasks={tasks} hooks={hooks} deliveries={deliveries} view={taskView} onSelect={(v) => { setTaskView(v); setDrawer(null) }} onNewHook={() => { setTaskView('hook:new'); setDrawer(null) }} />}
+      {page === 'tasks' && <TasksNav tasks={tasks} hooks={hooks} deliveries={deliveries} artifacts={dev.artifacts} view={taskView} onSelect={(v) => { setTaskView(v); setDrawer(null) }} onNewHook={() => { setTaskView('hook:new'); setDrawer(null) }} />}
       {page === 'library' && <LibraryTree ws={ws} model={lib} items={content} folders={folders} selected={reading} onSelect={setReading} onSwitch={switchWs}
         defaultWs={defaultWs} onSetDefault={setDefaultWs}
         onAddFolder={addFolder} onRemoveFolder={removeFolder} q={libQ} onQ={setLibQ} adding={folderBusy} error={folderError} />}
       {page === 'strategy' && <StrategyNav strategies={strategies} backtests={backtests} runs={tradeRuns} view={strategyView} onSelect={setStrategyView} onNew={newStrategy} />}
       {page === 'trading' && <TradingNav view={tradingView} onSelect={setTradingView} accounts={accounts} runs={tradeRuns} risk={risk}
         onKill={() => { const s = killAll({ runs: tradeRuns, orders, risk }, '手动一键全停'); setTradeRuns(s.runs); setOrders(s.orders); setRisk(s.risk) }} />}
-      {page === 'sop' && !sopView.startsWith('edit:') && <SopNav sops={sops} runs={runs} view={sopView} onSelect={(v) => { setSopView(v); setOpenRun(null); setSopFilter(undefined) }} onNew={() => { setSopView('edit:new'); setOpenRun(null) }} />}
+      {page === 'sop' && !sopView.startsWith('edit:') && <SopNav sops={sops} runs={runs} view={sopView} waitingN={todayNeeds.filter((x) => x.kind === '待我处理').length} onSelect={(v) => { setSopView(v); setOpenRun(null); setSopFilter(undefined) }} onNew={() => { newSopFolder.id = null; setSopView('edit:new'); setOpenRun(null) }} />}
       {page === 'settings' && (
         <SettingsNav active={section} alerts={{ connectors: brokenConnectors, providers: brokenProviders, incidents: openIncidents }}
           onSelect={(k) => leaveAgent(() => { setSection(k as Section); if (k === 'agents') setAgentView('list'); setDrawer(null) })} />
@@ -1855,7 +1877,8 @@ export default function App() {
                 if (!t || (t.stage ?? '') === stage) return
                 patchTask(id, { stage: stage || undefined, stage_log: [...(t.stage_log ?? []), { at: new Date().toISOString(), from: t.stage ?? '', to: stage }] })
               }}
-              onOpenBoard={(id) => setDrawer({ kind: 'task', id, tab: 'pipeline' })} />
+              onOpenBoard={(id) => setDrawer({ kind: 'task', id, tab: 'pipeline' })}
+              artifacts={dev.artifacts} onOpenOutputs={(id) => setDrawer({ kind: 'task', id, tab: 'dev' })} />
           ))}
           {page === 'messages' && (
             <MessagesPage messages={messages} contacts={contacts} connectors={connectors} selected={selectedId}
@@ -1869,15 +1892,17 @@ export default function App() {
               selectedGroup={drawer?.kind === 'im-group' ? drawer.key : null} onOpenGroup={(key) => setDrawer({ kind: 'im-group', key })}
               onStartSession={(ids, intent) => setImStart({ ids, intent })} linksOf={imLinksOf} onOpenSession={openSessionById}
               onToMaterial={setImToMat} onOpenMaterial={openMaterial}
-              onBatchTriage={(sopId, ids, rerun) => {
+              onStopRuns={(ids) => setRuns((xs) => stopRuns(xs, ids).runs)}
+              onBatchTriage={(sopId, ids, rerun, batchId) => {
                 // 正式产品是 SOP 插件的批量发起接口：按 message_id 跳过这条流程已经跑过的（任意状态），来源记手动「批量发起」
                 const sop = sops.find((x) => x.id === sopId)
                 if (!sop) return { started: 0, skipped: 0 }
                 const ran = new Set(runs.filter((r) => r.sop_id === sopId).map((r) => r.input.message_id))
                 const now = Date.now()
                 const todo = rerun ? ids : ids.filter((id) => !ran.has(id))
+                // 批次记在 source_ref（TSK-0717），批量分诊「立即停止」按它停这次发起的全部执行
                 const fresh = todo.map((id, i) => startRun(sop, { ...Object.fromEntries(sop.fields.map((f) => [f.key, f.default ?? ''])), message_id: id }, false, now + i,
-                  { source: 'manual', sourceName: '批量发起' }))
+                  { source: 'manual', sourceRef: batchId, sourceName: '批量发起' }))
                 setRuns((xs) => [...fresh, ...xs])
                 return { started: fresh.length, skipped: ids.length - todo.length }
               }} />
@@ -1890,14 +1915,15 @@ export default function App() {
                 onAct={(a: RunAction) => setRuns((xs) => xs.map((r) => (r.id === run.id ? actOnRun(r, a) : r)))}
                 onRerun={() => setDrawer({ kind: 'sop-start', sopId: run.sop_id, initial: run.input })}
                 onOpenSettings={() => { go('settings'); setSection('sop') }}
-                onOpenRun={(id) => { if (runs.some((r) => r.id === id)) setOpenRun(id) }} />
+                onOpenRun={(id) => { if (runs.some((r) => r.id === id)) setOpenRun(id) }}
+                onEditFlow={sopById(run.sop_id) ? () => { setOpenRun(null); setSopView(`edit:${run.sop_id}`) } : undefined} />
             )
             if (sopView.startsWith('edit:')) {
               const id = sopView.slice(5)
               const existing = id === 'new' ? null : sopById(id)
               return (
                 <SopEditor key={sopView} runs={runs} sopList={sops.map((x) => ({ id: x.id, name: x.name }))}
-                  initial={existing ? { ...existing, sched: (() => { const sc = flowSchedule(schedules, existing.id); return sc ? { rule: sc.rule, enabled: sc.enabled } : undefined })() } : newSopDraft()}
+                  initial={existing ? { ...existing, sched: (() => { const sc = flowSchedule(schedules, existing.id); return sc ? { rule: sc.rule, enabled: sc.enabled } : undefined })() } : newSopDraft(newSopFolder.id)}
                   creating={!existing} hasSchedule={!!existing && !!flowSchedule(schedules, existing.id)}
                   onCancel={() => setSopView(existing ? `sop:${existing.id}` : 'runs')}
                   onSave={(sop, thenRun, off) => {
@@ -1918,9 +1944,13 @@ export default function App() {
                 delPlan={sopPlan(sop.id)} onDelete={() => { if (!sopPlan(sop.id).block) deleteSop(sop.id) }} /></SopSchedules.Provider>
             }
             // 流程库（library）也走这里；带着 SOP 筛选进来时换 key 重置页面里的筛选
+            // 待我处理也列今日「待我处理」组里阶段那几条（stg-），跳过去看到的和今日一致（TSK-0486）
             return <SopSchedules.Provider value={sopSched}><SopRunsPage key={`${sopView}:${sopFilter ?? ''}`} runs={runs} view={sopView as 'runs' | 'waiting' | 'library'} sop={sopFilter} onOpen={setOpenRun}
+              stageItems={todayNeeds.filter((x) => x.id.startsWith('stg-'))}
               onRerun={(ids, action) => { const x = rerunRuns(runs, ids, action); setRuns(x.runs); return x.result }}
-              sops={sops} onOpenSop={(id) => setSopView(`sop:${id}`)} onNew={() => { setSopView('edit:new'); setOpenRun(null) }} /></SopSchedules.Provider>
+              onStop={(ids) => { const x = stopRuns(runs, ids); setRuns(x.runs); return x.result }}
+              sops={sops} onOpenSop={(id) => setSopView(`sop:${id}`)} onNew={() => { setSopView('edit:new'); setOpenRun(null) }}
+              onSopsChange={() => setSops([...SOPS])} /></SopSchedules.Provider>
           })()}
           {page === 'overview' && <OverviewPage benches={benches} current={bench.id} onOpen={openFromOverview} />}
           {page === 'today' && (
@@ -1975,6 +2005,7 @@ export default function App() {
                   onOpenTask: (id) => setDrawer({ kind: 'task', id }),
                   // 待验收的任务点圆圈和任务页一样先弹确认，确认后等于验收通过
                   onTaskStatus: (id, st) => patchTask(id, { status: st }), onApproveTask: (id) => dev.review(id, true, ''),
+                  artifacts: dev.artifacts,
                   onStartSop: (id) => setDrawer({ kind: 'sop-start', sopId: id }),
                   onOpenRun: (id) => { setPage('sop'); setOpenRun(id) },
                   onOpenSop: (id) => { setPage('sop'); setSopView(`sop:${id}`); setOpenRun(null) },
@@ -2162,6 +2193,7 @@ export default function App() {
           {page === 'settings' && section === 'appearance' && <AppearancePage theme={theme} onTheme={setTheme} collapsed={collapsed} onCollapsed={setCollapsed} />}
           {page === 'settings' && section === 'update' && <UpdatePage />}
           {page === 'settings' && section === 'run-prompts' && <RunPresetsPage />}
+          {page === 'settings' && section === 'run-permissions' && <RunPermsPage key={permsPending.join('\n')} pending={permsPending} />}
           {page === 'settings' && section === 'enums' && (
             <EnumsPage groups={enums} usage={enumUsage} onMigrate={migrateEnum}
               onSave={(g) => setEnums((xs) => (xs.some((x) => x.key === g.key) ? xs.map((x) => (x.key === g.key ? g : x)) : [...xs, g]))}

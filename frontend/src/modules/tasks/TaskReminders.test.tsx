@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -19,7 +21,7 @@ const ymd = `${tomorrow.getFullYear()}-${pad(tomorrow.getMonth() + 1)}-${pad(tom
 function sched(p: Partial<Schedule>): Schedule {
   return {
     id: 'sch_1', name: '提醒：问报价', enabled: true, rule: { freq: 'once', time: '15:00', weekdays: [], day: 1, date: ymd, cron: '' },
-    action: { kind: 'remind', title: '问报价', body: '', object_id: 'obj_1' }, next_run_at: `${ymd}T15:00:00+08:00`, created_at: at, updated_at: at, ...p,
+    action: { kind: 'remind', title: '问报价', body: '', object_id: 'obj_1' }, project_id: null, next_run_at: `${ymd}T15:00:00+08:00`, created_at: at, updated_at: at, ...p,
   }
 }
 

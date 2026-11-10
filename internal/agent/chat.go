@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // Package agent 是工作台对话框的服务端：把四种模型供应商收敛成一个流式接口，
 // 挂上一组直接操作 store 的工具，再用一个循环把「模型说话 → 调工具 → 把结果喂回去」串起来。
 //

@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 对话面板：打桩 fetch，消息列表回 JSON，/api/agent/chat 回一段 SSE。
 // 流收尾后的刷新作用在应用唯一的缓存上（streamChat 用的是它），所以这里也用它渲染，用例之间清空。
 import { QueryClientProvider } from '@tanstack/react-query'
@@ -25,8 +27,9 @@ const sse = (events: ChatEvent[]) => new Response(events.map((e) => `data: ${JSO
   status: 200, headers: { 'Content-Type': 'text/event-stream' },
 })
 
-// 每次 chat 依次取一段流、发完后消息列表换成对应的那一份
-function stub(rounds: { events: ChatEvent[]; after: AgentMessage[] }[], initial: AgentMessage[] = []) {
+// 每次 chat 依次取一段流、发完后消息列表换成对应的那一份；attention 是等确认注意力接口的返回（P0-O3）
+function stub(rounds: { events: ChatEvent[]; after: AgentMessage[] }[], initial: AgentMessage[] = [],
+  attention: unknown = { total: 0, pending_calls: [], waiting_runs: [] }) {
   let messages = initial
   const chats: { session_id?: string; message: string }[] = []
   vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -40,6 +43,9 @@ function stub(rounds: { events: ChatEvent[]; after: AgentMessage[] }[], initial:
     }
     if (/\/api\/agent\/sessions\/ags_1\/messages$/.test(url)) {
       return new Response(JSON.stringify({ data: messages, meta: { total: messages.length } }), { status: 200 })
+    }
+    if (url.includes('/api/agent/attention')) {
+      return new Response(JSON.stringify({ data: attention, meta: {} }), { status: 200 })
     }
     return new Response(JSON.stringify({ data: [], meta: { total: 0 } }), { status: 200 })
   }))
@@ -246,5 +252,121 @@ describe('移除历史消息（SPEC-sessions-1.43）', () => {
     await waitFor(() => expect(screen.queryByText('回答一')).toBeNull())
     expect(removed).toEqual([['a1', 't1']])
     expect(screen.getByText('第一句')).toBeInTheDocument()
+  })
+})
+
+// 页面刷新后历史里的等确认卡片没有调用 id：从等确认注意力接口补（P0-O3）
+const ASKED_ARGS = '{"type_id":"task","title":"开通试点账号"}'
+const ASKED: AgentMessage[] = [
+  m('u1', 'user', '建一条任务：开通试点账号'),
+  m('t1', 'tool', '等待确认：新建「开通试点账号」', { tool_name: 'create_object', tool_args: ASKED_ARGS }),
+  m('a1', 'assistant', '我准备建这条任务。\n【等你确认】新建「开通试点账号」，确认后才会执行。\n'),
+]
+
+describe('刷新后恢复确认卡（P0-O3）', () => {
+  it('attention 里有这个会话的 pending 调用：历史卡片补上 id，出现可点的确认按钮', async () => {
+    stub([], ASKED, {
+      total: 1,
+      pending_calls: [{
+        call_id: 'atc_7', session_id: 'ags_1', session_title: '新会话', agent_id: 'ag_1', agent_name: '周报助手',
+        tool: 'create_object', args: ASKED_ARGS, summary: '新建「开通试点账号」', at: now,
+      }],
+      waiting_runs: [],
+    })
+    renderPane({ session: { ...session, message_count: 3 } })
+    const btn = await screen.findByRole('button', { name: '确认执行' })
+    await waitFor(() => expect(btn).toBeEnabled())
+    expect(document.querySelector('[data-call="atc_7"]')).not.toBeNull()
+    expect(screen.queryByText(/页面刷新过，这里确认不了/)).toBeNull()
+  })
+
+  it('attention 里没有这个会话的 pending：仍是刷新过的样子，说明点不了', async () => {
+    stub([], ASKED)
+    renderPane({ session: { ...session, message_count: 3 } })
+    expect(await screen.findByText(/页面刷新过，这里确认不了/)).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '确认执行' })).toBeNull()
+  })
+})
+
+// 会话上下文面板（P0-S2）：GET .../context 和 PATCH instruction 另打桩；messages/attention 也照旧回。
+function stubContext(opts: { context: unknown; messages?: AgentMessage[]; attention?: unknown }) {
+  const patches: { instruction: string }[] = []
+  const urls: string[] = []
+  vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input)
+    urls.push(`${init?.method ?? 'GET'} ${url}`)
+    if (url.endsWith('/api/agent/sessions/ags_1/context')) {
+      return new Response(JSON.stringify({ data: opts.context }), { status: 200 })
+    }
+    if (url.endsWith('/api/agent/sessions/ags_1') && init?.method === 'PATCH') {
+      const body = JSON.parse(String(init.body)) as { instruction: string }
+      patches.push(body)
+      return new Response(JSON.stringify({ data: { ...session, instruction: body.instruction } }), { status: 200 })
+    }
+    if (url.includes('/api/agent/attention')) {
+      return new Response(JSON.stringify({ data: opts.attention ?? { total: 0, pending_calls: [], waiting_runs: [] }, meta: {} }), { status: 200 })
+    }
+    if (/\/api\/agent\/sessions\/ags_1\/messages$/.test(url)) {
+      const messages = opts.messages ?? []
+      return new Response(JSON.stringify({ data: messages, meta: { total: messages.length } }), { status: 200 })
+    }
+    return new Response(JSON.stringify({ data: [], meta: { total: 0 } }), { status: 200 })
+  }))
+  return { patches, urls }
+}
+
+const CONTEXT = {
+  session_id: 'ags_1', history_limit: 40, total_messages: 45, dropped_count: 5, sent_chars: 1200, approx_tokens: 800,
+  instruction: '旧的追加要求',
+  messages: [
+    { id: 'c0', role: 'tool', content: '很老的工具结果', tool_name: 'create_object', tool_args: '{}', created_at: now, dropped: true },
+    { id: 'c1', role: 'user', content: '会被发送的一句', created_at: now, dropped: false },
+  ],
+}
+
+describe('会话上下文面板（P0-S2）', () => {
+  it('打开才读上下文：显示统计、裁掉标记和消息预览，收起后不再请求', async () => {
+    const { urls } = stubContext({ context: CONTEXT, messages: [m('u1', 'user', '随便聊聊')] })
+    renderPane()
+    const user = userEvent.setup()
+    const open = await screen.findByRole('button', { name: '上下文' })
+    expect(open).toHaveAttribute('aria-expanded', 'false')
+    // 面板没开不请求
+    expect(urls.some((u) => u.includes('/context'))).toBe(false)
+
+    await user.click(open)
+    expect(open).toHaveAttribute('aria-expanded', 'true')
+    expect(await screen.findByText(/将发送最近 40 条（总 45 条，前 5 条已裁掉） · 约 800 tokens/)).toBeInTheDocument()
+    expect(screen.getByText('会被发送的一句')).toBeInTheDocument()
+    expect(screen.getByText('工具 create_object')).toBeInTheDocument()
+    // 裁掉的那条置灰并标明不会发送
+    const dropped = screen.getByText('很老的工具结果').closest('.chat-context-msg') as HTMLElement
+    expect(dropped).toHaveClass('dropped')
+    expect(within(dropped).getByText('已裁掉（不会发送）')).toBeInTheDocument()
+    // 后端带回的当前追加要求初始化输入框
+    expect(screen.getByRole('textbox', { name: '会话追加要求' })).toHaveValue('旧的追加要求')
+    expect(screen.getByRole('textbox', { name: '会话追加要求' })).toHaveAttribute('maxlength', '2000')
+
+    const before = urls.filter((u) => u.includes('/context')).length
+    await user.click(screen.getByRole('button', { name: '收起' }))
+    expect(screen.queryByText(/将发送最近 40 条/)).toBeNull()
+    expect(urls.filter((u) => u.includes('/context'))).toHaveLength(before)
+  })
+
+  it('保存追加要求：PATCH instruction，成功后显示已保存并重读上下文', async () => {
+    const { patches, urls } = stubContext({ context: CONTEXT })
+    renderPane()
+    const user = userEvent.setup()
+    await user.click(await screen.findByRole('button', { name: '上下文' }))
+    const ta = await screen.findByRole('textbox', { name: '会话追加要求' })
+    await user.clear(ta)
+    await user.type(ta, '回答尽量简短')
+    await user.click(screen.getByRole('button', { name: '保存' }))
+    await waitFor(() => expect(patches).toEqual([{ instruction: '回答尽量简短' }]))
+    expect(await screen.findByText('已保存')).toBeInTheDocument()
+    // 保存后按会话失效，上下文重新读一遍（mock 里回的还是旧值）
+    await waitFor(() => expect(urls.filter((u) => u.includes('/context')).length).toBeGreaterThanOrEqual(2))
+    // refetch 不覆盖：以这次保存的值/用户正在写的为准，不回退成后端旧值
+    expect(ta).toHaveValue('回答尽量简短')
   })
 })

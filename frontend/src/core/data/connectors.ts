@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 连接器（CONN-01d、CONN-04、CONN-04b）：定义列表、实例增删改查、连通测试、拉工具清单、改工具授权、发起 OAuth 授权。契约见 docs/api-contract.md「连接器 connectors」。
 // 定义在后端代码里登记（不进库），界面按定义渲染认证字段，不写死厂商。凭证只写不读，响应里只有 secret_hints。
 // 测试、拉清单的响应带着最新的实例，先写进列表缓存再按失效规则刷一遍。
@@ -67,6 +69,8 @@ export type ConnectorDef = {
   /** im / dev / media / market 等，分类名前端按原型对照 */
   category: string
   color: string
+  /** 平台图标的键（core/ui/connector-logos），没有为空串；老测试桩里可能没有（TSK-0725） */
+  logo?: string
   desc: string
   can_send: boolean
   /** 支持的认证方式，第一个是默认 */
@@ -127,9 +131,11 @@ export type ConnectorPatch = Partial<Omit<ConnectorInput, 'tool'>>
 /** 连不上不是接口错误：ok=false，message 是对方的说明（凭证原文已被后端抹掉） */
 export type ConnectorTestResult = { ok: boolean; account: string; message: string; connector: Connector }
 export type ConnectorRefreshResult = { added: string[]; removed: string[]; connector: Connector }
+/** 从网站取图标（TSK-0725）：取到的图标已存进连接器的 icon；source 是实际取到图标的地址 */
+export type ConnectorIconFetchResult = { source: string; connector: Connector }
 
 // 后端的空数组、空对象可能是 null，这里一次补齐
-const normDef = (d: ConnectorDef): ConnectorDef => ({ ...d, auth: d.auth ?? [], fields: d.fields ?? [], tools: d.tools ?? [] })
+const normDef = (d: ConnectorDef): ConnectorDef => ({ ...d, logo: d.logo ?? '', auth: d.auth ?? [], fields: d.fields ?? [], tools: d.tools ?? [] })
 export const normConnector = (c: Connector): Connector => ({
   ...c, config: c.config ?? {}, secret_hints: c.secret_hints ?? {}, tools: c.tools ?? [], error: c.error ?? '', account: c.account ?? '',
   icon: c.icon ?? '',
@@ -160,6 +166,11 @@ export const connectorsApi = {
   /** 按已保存的配置发起授权；returnTo 是授权结束后浏览器回到哪 */
   oauthStart: (id: string, returnTo?: string) =>
     request<ConnectorOAuthStart>('POST', `${path(id)}/oauth/start`, { body: returnTo ? { return_to: returnTo } : {} }),
+  /** 只有自定义连接器能取；按已保存的地址去对方网站取，取不到回 409 */
+  fetchIcon: async (id: string) => {
+    const r = await request<ConnectorIconFetchResult>('POST', `${path(id)}/icon/fetch`, { body: {} })
+    return { ...r, connector: normConnector(r.connector) }
+  },
   setToolModes: async (id: string, modes: Record<string, ConnectorToolMode>) =>
     normConnector(await request<Connector>('PATCH', `${path(id)}/tools`, { body: { modes } })),
 }
@@ -240,6 +251,19 @@ export function useSetConnectorToolModes() {
     mutationFn: ({ id, modes }: { id: string; modes: Record<string, ConnectorToolMode> }) => connectorsApi.setToolModes(id, modes),
     onSuccess: (c) => {
       putConnector(qc, c)
+      return notify({ kind: 'connector' })
+    },
+  })
+}
+
+/** 从网站取图标：取到后写回列表缓存（TSK-0725） */
+export function useFetchConnectorIcon() {
+  const qc = useQueryClient()
+  const notify = useNotifyChange()
+  return useMutation({
+    mutationFn: (id: string) => connectorsApi.fetchIcon(id),
+    onSuccess: (r) => {
+      putConnector(qc, r.connector)
       return notify({ kind: 'connector' })
     },
   })

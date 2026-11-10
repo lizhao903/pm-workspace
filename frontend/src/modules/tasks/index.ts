@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 import { lazy } from 'react'
 import { defineCoreModule, registerCoreObjectDrawer, registerCoreSearch } from '../../core/plugin'
 import { searchTasks } from './search'

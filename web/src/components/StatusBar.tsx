@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 底部状态栏：本地工具要让人对数据有掌控感，所以把 db 路径/体积/写入时间直接摊开。
 import { useEffect, useState, useSyncExternalStore } from 'react'
 import { useWorkspace } from '../hooks/workspace'

@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 项目干系人的增删改（PJ-01d）：/api/projects/{id}/stakeholders，契约见 docs/api-contract.md「项目干系人」。
 // 读在 projects.ts 的 useProjectStakeholders。改角色、关注点成功后直接把返回的一行写回缓存（关注点边输边存，不每次重新取）；
 // 加人（含一次加多人）、移除报 { kind: 'project-stakeholder' }，只刷这个项目的干系人。

@@ -170,3 +170,9 @@ sequenceDiagram
 | 原型与规格 | 演示原型、SPEC 文档 | web-next/、web-next/docs/spec |
 
 交易套件（internal/plugins/trade）整体暂停，图中未画。
+
+---
+
+由 DeepSeek Harness（dsh）协助完成。
+
+[![](https://img.shields.io/badge/powered_by-dsh-4D6BFE?style=flat-square&logo=deepseek&logoColor=white)](https://github.com/deepseek-ai/deepseek-harness)

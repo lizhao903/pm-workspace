@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 """更新规格包截图：调 scripts/smoke-proto.py 把原型逐页截一遍，按模块分到 shots/<模块 key>/；
 再按本文件 STEPS 里写好的步骤截抽屉、弹窗这类点进去才看得到的界面。
 

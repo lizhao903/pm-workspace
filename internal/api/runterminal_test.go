@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 package api
 
 import (
@@ -57,7 +59,8 @@ func TestMCPConfig(t *testing.T) {
 	if err := json.Unmarshal(MCPConfig("/x/bin/pmw-mcp-dev", "http://127.0.0.1:7796/"), &cfg); err != nil {
 		t.Fatal(err)
 	}
-	sv, ok := cfg.MCPServers["pm-workspace"]
+	// TSK-0499：server 名和后台执行、插件运行同一个，不和工作目录 .mcp.json 里的 pm-workspace 撞名
+	sv, ok := cfg.MCPServers["pmw-run"]
 	if !ok || len(cfg.MCPServers) != 1 || sv.Type != "stdio" || sv.Command != "/x/bin/pmw-mcp-dev" ||
 		strings.Join(sv.Args, " ") != "--api http://127.0.0.1:7796" {
 		t.Fatalf("MCP 配置：%+v", cfg)
@@ -76,8 +79,15 @@ func TestRunPromptPreview(t *testing.T) {
 			t.Fatalf("预览里应有 %q:\n%s", want, p)
 		}
 	}
-	if strings.Contains(p, "回写到工作台") || d["workdir"] == "" {
-		t.Fatalf("流式预览不该有回写一节，工作目录应继承自项目：%v", d)
+	// TSK-0499：流式（后台执行）也经 MCP 回写，按无人值守的口径写；MCP 接上了就写 server 名
+	if !strings.Contains(p, "交给你在后台执行的（执行记录 <发起时生成的执行 id>）") || !strings.Contains(p, "server 名 pmw-run") ||
+		!strings.Contains(p, "sqlite3 -readonly -safe") || d["workdir"] == "" {
+		t.Fatalf("流式预览应有后台执行的回写一节，工作目录应继承自项目：%v", d)
+	}
+	// TSK-0722：交给 DeepSeek 的也接工作台 MCP，回写一节同后台执行；权限说法是 dsh 沙箱，不提 Claude Code 的命令白名单
+	if p := decodeEnvelope(t, do(s, "GET", "/api/objects/"+task.ID+"/run/prompt?harness=deepseek", ""))["data"].(map[string]any)["prompt"].(string); !strings.Contains(p, "回写到工作台") ||
+		!strings.Contains(p, "server 名 pmw-run") || !strings.Contains(p, "dsh 的沙箱") || strings.Contains(p, "sqlite3 -readonly -safe") {
+		t.Fatalf("DeepSeek 预览应有回写一节、按 dsh 沙箱说权限:\n%s", p)
 	}
 	p = decodeEnvelope(t, do(s, "GET", "/api/objects/"+task.ID+"/run/prompt?mode=terminal", ""))["data"].(map[string]any)["prompt"].(string)
 	if !strings.Contains(p, "执行记录 <发起时生成的执行 id>") || !strings.Contains(p, "pmw_finish_run") {

@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 终端新标签的默认目录和主目录：一级菜单的终端页和会话旁边的终端共用
 import { useFsShortcuts, useProjects } from '../../core/data'
 

@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 终端的图标：会话头部入口用，和原型项目标题行的「终端」按钮同一个
 export function IconTerminal() {
   return (

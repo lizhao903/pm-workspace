@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -166,7 +168,11 @@ describe('概览的项目 Agent 块（PR-21）', () => {
     mount(<Overview project={p} onTab={onTab} />)
     const block = await screen.findByRole('region', { name: '项目 Agent' })
     expect(await within(block).findByText('SOP 助手')).toBeInTheDocument()
-    expect(within(block).getByText('SOP 助手的说明')).toBeInTheDocument()
+    // TSK-0718：只显示名字，不带头像和说明
+    expect(within(block).queryByText('SOP 助手的说明')).toBeNull()
+    expect(block.querySelector('.agent-av')).toBeNull()
+    // 概览不再有「原型运行中」数字卡片（原型块还在）
+    expect(screen.queryByText('原型运行中')).toBeNull()
     await userEvent.click(within(block).getByRole('button', { name: '和它对话' }))
     await waitFor(() => expect(onTab).toHaveBeenCalledWith('agents', 's=ags_new'))
     expect(calls.find((c) => c.method === 'POST')?.body).toMatchObject({ agent_id: 'ag_sop' })
@@ -178,6 +184,7 @@ describe('概览的项目 Agent 块（PR-21）', () => {
     mount(<Overview project={p} onTab={() => {}} />)
     const block = await screen.findByRole('region', { name: '项目 Agent' })
     expect(await within(block).findByRole('button', { name: '和它对话' })).toBeDisabled()
+    expect(block).toHaveTextContent('已停用')
   })
 
   it('没配 Agent 时显示去设置，点了切到 Agent 标签', async () => {

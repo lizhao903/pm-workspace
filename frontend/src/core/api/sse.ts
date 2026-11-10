@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // SSE 流式响应：/api/objects/{id}/run 和 /api/agent/chat。
 // 两个都是 POST 带 body，EventSource 只能 GET，所以用 fetch + ReadableStream 自己按空行切块。
 // 后端每条事件只写一行 `data: <json>`，类型在 JSON 的 type 字段里，不用 SSE 的 event: 行。
@@ -231,16 +233,20 @@ export type RunRequest = {
   workdir?: string
   extra_prompt?: string
   allow_writes?: boolean
+  /** 权限档位（TSK-0499）：给了以它为准，不给按 allow_writes；只读角色后端压成 read_only */
+  permission?: 'read_only' | 'accept_edits' | 'edits_and_tests' | 'custom'
   preset_id?: string
   /** 执行器，空是 claude（TSK-0460 加 agent） */
   harness?: 'claude' | 'deepseek' | 'agent'
-  /** deepseek / agent：用哪个服务商；agent 不给时用 Agent 设置的 */
+  /** deepseek / agent：用哪个服务商；agent 不给时用 Agent 设置的，deepseek 不给时后端挑（带 deepseek 的优先，TSK-0722） */
   provider_id?: string
   /** deepseek / agent：接着上次同一执行器的会话；没有可续的 400 */
   resume_session?: boolean
-  /** 以下只对 agent：交给哪个 Agent（空用场景「执行任务」选的）、模型、步数和时长上限、等确认多久按拒绝 */
+  /** 只对 agent：交给哪个 Agent（空用场景「执行任务」选的） */
   agent_id?: string
+  /** agent / deepseek：这一次用的模型，空用服务商（agent 没给服务商时用 Agent）设置的 */
   model?: string
+  /** 以下只对 agent：步数和时长上限、等确认多久按拒绝 */
   max_steps?: number
   max_minutes?: number
   confirm_wait_minutes?: number

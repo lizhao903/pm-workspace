@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { domainKeys } from './domainKeys'
 import { domainsApi } from './domains'

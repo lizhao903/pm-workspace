@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // IM 消息「转项目资料」（SPEC-messages-6）：把一条消息或合并显示的一组，按时间拼成一段对话记录，存成项目支持材料里的一条笔记。
 // 正式产品见 frontend/src/plugins/im/ToMaterialDialog.tsx、toMaterialModel.ts、MaterialLinks.tsx；出处由 IM 插件记（POST /api/im/materials）。
 // 原型里出处记在材料的 from 上（message_ids 是这组消息，attachment_id 为空），消息上的「已转资料」按它反查。

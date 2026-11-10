@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 import { useState } from 'react'
 import {
   CAP_LABEL, PROVIDER_GROUPS, PROVIDER_KINDS, catalogModel, kindOf, testProvider,

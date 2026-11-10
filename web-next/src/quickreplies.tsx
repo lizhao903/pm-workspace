@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 import { useState } from 'react'
 import { QUICK_REPLIES } from './data'
 import { cls } from './ui'

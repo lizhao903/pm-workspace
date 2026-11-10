@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // Package domain 定义工作台的领域模型。这是前后端与各层之间的契约，改动需同步 web/src/lib/types.ts。
 package domain
 
@@ -110,6 +112,10 @@ type Object struct {
 	// OwnerName 是 OwnerID 指向的干系人名字；OwnerID 为空时回退到 Owner 文本。
 	// 列表要显示人名，而按 id 逐行回查是 N+1——这个字段由 store 一次 JOIN 填好。
 	OwnerName string `json:"owner_name,omitempty"`
+	// OwnerAIKind / OwnerAIRef 是负责人为 AI 成员时它的类型与引用（TSK-0500，0051）：
+	// agent + Agent id，或 cli + 执行器（claude / deepseek）；负责人是人或没有负责人时都不出现。
+	OwnerAIKind string `json:"owner_ai_kind,omitempty"`
+	OwnerAIRef  string `json:"owner_ai_ref,omitempty"`
 	// Participants 只带渲染需要的三个字段。列表里一行可能有好几个参与人，
 	// 每个都带上 email/note/时间戳的话，一次 50 行的查询会凭空多搬几十 KB。
 	Participants []StakeholderRef `json:"participants"`
@@ -149,10 +155,31 @@ type Stakeholder struct {
 	Starred       bool       `json:"starred"`
 	LastContactAt *time.Time `json:"last_contact_at"`
 
+	// AIKind / AIRef 标出名册里的 AI 成员（TSK-0500，0051）：'' 是人；agent 是工作台 Agent，
+	// AIRef 是 Agent id；cli 是命令行执行器，AIRef 是 claude / deepseek。由工作台自动维护，
+	// 新建、PATCH 都不收这两个字段。
+	AIKind string `json:"ai_kind"`
+	AIRef  string `json:"ai_ref"`
+
 	// 以下为查询时填充的展示字段，不落 stakeholders 表。
 	// OwnedCount / ParticipatingCount 是删除前的确认依据，也是名册页上的「他手上有多少事」。
 	OwnedCount         int `json:"owned_count"`
 	ParticipatingCount int `json:"participating_count"`
+}
+
+// AI 成员的类型（Stakeholder.AIKind）。
+const (
+	AIKindAgent = "agent" // 工作台 Agent，AIRef 是 agents.id
+	AIKindCLI   = "cli"   // 命令行执行器，AIRef 是 RunHarnessClaude / RunHarnessDeepSeek
+)
+
+// AIMember 是名册里一条 AI 成员应有的样子，SyncAIMembers 按它建、改名、复岗。
+type AIMember struct {
+	Kind  string
+	Ref   string
+	Name  string
+	Color string
+	Note  string
 }
 
 type StakeholderPatch struct {
@@ -394,6 +421,8 @@ const (
 	DictContactGroup = "contact_group"
 	// DictMsgStatus 是 IM 消息的处理状态，落在 im 插件的 im_messages.status（0041）。
 	DictMsgStatus = "msg_status"
+	// DictProjectRole 是项目干系人的角色，落在项目插件的 projects_stakeholders.role（0052，TSK-0718）。
+	DictProjectRole = "project_role"
 )
 
 type Dictionary struct {
@@ -541,13 +570,27 @@ type AgentSession struct {
 	AgentID *string `json:"agent_id"`
 	// AgentDeleted：挂了 Agent 但 Agent 已删除，会话照常能看、不能再发消息。
 	AgentDeleted bool `json:"agent_deleted"`
+	// ModelOverride（0053，TSK-0720）：挂 Agent 的会话单独换过模型。为 true 时 ProviderID / Model 是会话自己选的；
+	// 为 false 时跟随 Agent 当前的默认，读出来的 ProviderID / Model 就是 Agent 当前的（Agent 删了是最后的快照）。
+	// 不挂 Agent 的会话恒为 false，ProviderID / Model 本来就是自己的。
+	ModelOverride bool `json:"model_override"`
 
 	// SourceRef 是会话的来源（0047）：从哪条记录发起的，JSON 对象，建的时候给、之后不改；
 	// 不是从别的记录发起的为 nil，响应里不带这个键。会话里 Agent 新建的对象缺省把它记进 props.source_ref，
 	// 里面有 project_id 时对象缺省挂到这个项目。
 	SourceRef map[string]any `json:"source_ref,omitempty"`
 
+	// Instruction 是这次会话的追加要求（0057，S-2）：每一轮拼进系统提示词的最后，空串是没有。
+	// 和 Agent 的 instructions 的区别是它只对这条会话生效，改 Agent 不影响已经建立的会话。
+	Instruction string `json:"instruction"`
+
 	MessageCount int `json:"message_count"`
+
+	// 以下为列表查询时填充的展示字段，不落 agent_sessions 表（S-1）。
+	// LastMessage 是该会话最后一条消息的正文，截前 200 字；没有消息为空串。
+	LastMessage string `json:"last_message,omitempty"`
+	// LastMessageAt 是最后一条消息的时间；没有消息是零值，序列化时整个键不输出（omitzero）。
+	LastMessageAt time.Time `json:"last_message_at,omitzero"`
 }
 
 // ---- Agent 配置（AG-01b1，0032）----
@@ -651,12 +694,21 @@ type AgentSessionFilter struct {
 	// 命名沿用 ObjectFilter.Uncategorized 的先例——同样是「那一列为 NULL」这件事，
 	// 同一个仓库里同一种语义用同一种表达。
 	Unscoped bool
+	// Q 非空：标题或会话内消息正文包含它（ASCII 大小写不敏感），可和任意 scope 组合（S-1）。
+	Q string
+	// ProjectID 非空：项目归属的会话——挂在属于这个项目的对象上的，加上
+	// ProjectSessionIDs 里列出的（项目对象 props.session_ids）。给了它时 Unscoped 不算数。
+	ProjectID string
+	// ProjectSessionIDs 是项目对象 props.session_ids 里列的会话 id，由 handler 从对象上解析后传入。
+	ProjectSessionIDs []string
 }
 
 const (
 	RoleUser      = "user"
 	RoleAssistant = "assistant"
 	RoleTool      = "tool"
+	// RoleNotice 是会话里给人看的系统提示（如「已切换到 X」，TSK-0720），不进模型的上下文。
+	RoleNotice = "notice"
 )
 
 type AgentMessage struct {
@@ -665,9 +717,12 @@ type AgentMessage struct {
 	Role      string `json:"role"`
 	Content   string `json:"content"`
 	// ToolName / ToolArgs 仅 role=tool 时有值，用于在界面上回放 Agent 做了什么。
-	ToolName  string    `json:"tool_name,omitempty"`
-	ToolArgs  string    `json:"tool_args,omitempty"`
-	CreatedAt time.Time `json:"created_at"`
+	ToolName string `json:"tool_name,omitempty"`
+	ToolArgs string `json:"tool_args,omitempty"`
+	// ProviderID / Model 是这条助手回复（和换模型的提示）当时用的服务商和模型（0053，TSK-0720）；别的角色和 0053 之前的为空，不出现。
+	ProviderID string    `json:"provider_id,omitempty"`
+	Model      string    `json:"model,omitempty"`
+	CreatedAt  time.Time `json:"created_at"`
 }
 
 // Artifact 是一件输出产物：这项工作实际产出的、能被打开的东西。
@@ -721,6 +776,8 @@ type Artifact struct {
 	RelPath     string `json:"rel_path"`
 	ObjectRef   string `json:"object_ref,omitempty"`
 	ObjectTitle string `json:"object_title,omitempty"`
+	// DisplayKind = Kind，Kind 为空（历史登记）时按备注、链接、扩展名推断（TSK-0497，见 artifactkind.go）。
+	DisplayKind string `json:"display_kind"`
 }
 
 // ArtifactSource 的取值。放常量而不是各处写字面量：统计页要按来源分组，
@@ -812,8 +869,14 @@ type ArtifactFilter struct {
 	HasPath  *bool
 	Q        string // 匹配 title / path / url / note
 	Unscoped bool   // 只看没有归属对象的
-	Limit    int
-	Offset   int
+	// 以下是 TSK-0497 加的：登记时间区间（含两端），归属对象的类型和所属项目。
+	// ProjectID 为 "-" 时是「归属对象不属于任何项目」。
+	Since      *time.Time
+	Until      *time.Time
+	ObjectType string
+	ProjectID  string
+	Limit      int
+	Offset     int
 }
 
 // ArtifactStats 是产物页顶部那几个数。

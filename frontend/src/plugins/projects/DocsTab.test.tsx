@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -35,7 +37,7 @@ function Where() {
 
 function Harness() {
   const [adding, setAdding] = useState(true)
-  return <DocsTab projectId="obj_p1" adding={adding} onAdding={setAdding} />
+  return <DocsTab projectId="obj_p1" docsDir="" root="" onSettings={() => {}} adding={adding} onAdding={setAdding} />
 }
 
 afterEach(() => vi.unstubAllGlobals())
@@ -72,5 +74,55 @@ describe('项目文档标签的新建一篇', () => {
     await userEvent.click(within(group).getByRole('button', { name: '从「文档」里挑' }))
     expect(screen.getByRole('button', { name: '加上' })).toBeInTheDocument()
     expect(screen.queryByRole('textbox', { name: '新文档的标题' })).toBeNull()
+  })
+})
+
+describe('项目文档标签的文档目录（TSK-0718）', () => {
+  const file = (rel: string, kind: string) => ({ rel, path: `/p/docs/${rel}`, name: rel.split('/').pop()!, ext: rel.split('.').pop()!, kind, size: 3, modified: '2026-11-06T00:00:00Z' })
+  function backend(filesResp: () => Response) {
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+      const u = new URL(String(input), 'http://x')
+      const json = (data: unknown, status = 200, meta?: unknown) => new Response(JSON.stringify(status < 300 ? { data, meta } : data), { status })
+      if (u.pathname === '/api/objects') return json([], 200, { total: 0 })
+      if (u.pathname === '/api/object-types') return json([{ id: 'doc', name: '文档', statuses: [] }])
+      if (u.pathname === '/api/objects/obj_p1/docs-dir/files') return filesResp()
+      if (u.pathname === '/api/fs/read') return json({ path: u.searchParams.get('path'), name: 'a.md', ext: 'md', size: 8, modified: '', binary: false, truncated: false, limit: 1048576, content: '# 方案正文' })
+      return json({ error: { code: 'not_found', message: u.pathname } }, 404)
+    }))
+  }
+  const mount = (docsDir: string, onSettings = () => {}) => {
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const router = createMemoryRouter([{ path: '/', element: <DocsTab projectId="obj_p1" docsDir={docsDir} root="/p" onSettings={onSettings} adding={false} onAdding={() => {}} /> }])
+    render(<QueryClientProvider client={qc}><RouterProvider router={router} /></QueryClientProvider>)
+  }
+
+  it('没设文档目录时提示去设置', async () => {
+    backend(() => new Response('{}', { status: 500 }))
+    const onSettings = vi.fn()
+    mount('', onSettings)
+    await userEvent.click(await screen.findByRole('button', { name: '去设置' }))
+    expect(onSettings).toHaveBeenCalled()
+    expect(screen.getByText(/还没设文档目录/)).toBeInTheDocument()
+  })
+
+  it('列出目录里的文件，来源写文档目录，点名称在抽屉里预览', async () => {
+    backend(() => new Response(JSON.stringify({ data: { path: '/p/docs', files: [file('a.md', 'text'), file('prd/b.pdf', 'pdf'), file('c.docx', 'office')], skipped: 0, truncated: false, next_cursor: '' } })))
+    mount('docs')
+    const table = await screen.findByRole('table', { name: '项目文档' })
+    expect(await within(table).findByText('文档目录 / prd')).toBeInTheDocument()
+    expect(within(table).getByText('DOCX')).toBeInTheDocument()
+    await userEvent.click(within(table).getByRole('button', { name: 'a.md' }))
+    expect(await screen.findByRole('heading', { name: '方案正文' })).toBeInTheDocument()
+  })
+
+  it('目录不存在、越界时说清原因', async () => {
+    backend(() => new Response(JSON.stringify({ error: { code: 'not_found', message: '目录不存在：/p/nope' } }), { status: 404 }))
+    mount('nope')
+    expect(await screen.findByText(/文档目录「nope」不存在/)).toBeInTheDocument()
+  })
+  it('越界 403 时带上后端的说明', async () => {
+    backend(() => new Response(JSON.stringify({ error: { code: 'forbidden', message: '/etc 不在可浏览范围内' } }), { status: 403 }))
+    mount('/etc')
+    expect(await screen.findByText(/文档目录「\/etc」不能读：\/etc 不在可浏览范围内/)).toBeInTheDocument()
   })
 })

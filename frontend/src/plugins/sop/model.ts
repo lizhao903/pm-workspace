@@ -1,6 +1,8 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // SOP 插件的纯函数：状态和节点类型的显示、流程图分列、执行列表的筛选排序和进度文字。口径照原型 web-next/src/sopflow.ts、sop.tsx。
 // 运行状态由后端算好给（SopRun.status），这里不重算；节点是不是分支节点从 GET /api/sop/node-types 读，名字在前端
-import { isSopHeld, isSopProviderWait, sopRunShow, type SopFlow, type SopJson, type SopNodeType, type SopRun, type SopRunBrief, type SopRunShow, type SopRunStatus, type SopRunStep, type SopStepDef, type SopStepStatus } from '../../core/data'
+import { SOP_FOLDER_NAME_MAX, SOP_FOLDER_RESERVED, isSopHeld, isSopProviderWait, sopRunShow, type SopFlow, type SopFolder, type SopJson, type SopNodeType, type SopRun, type SopRunBrief, type SopRunShow, type SopRunStatus, type SopRunStep, type SopStepDef, type SopStepStatus } from '../../core/data'
 import { sopNodeView } from '../../core/plugin'
 import { describeRule as describeScheduleRule, fullRule as fullScheduleRule } from '../../core/ui/scheduleRule'
 
@@ -108,8 +110,8 @@ export function branchingOf(types: readonly SopNodeType[] | undefined) {
   const m = new Map((types ?? []).map((t) => [t.kind, t.branching]))
   return (d: SopStepDef) => m.get(d.kind) ?? !!d.cases?.length
 }
-/** 规则留空的条件分支是人工判断 */
-export const isManualDecide = (d: SopStepDef) => d.kind === 'decide' && !d.rule?.trim()
+/** 没有条件（结构化条件 cond、旧规则 rule 都没有）的条件分支是人工判断（TSK-0490） */
+export const isManualDecide = (d: SopStepDef) => d.kind === 'decide' && !d.cond && !d.rule?.trim()
 
 /** 补全默认依赖：没写 after 的接在上一步后面 */
 export const depsOf = (flow: Pick<SopFlow, 'steps'>, i: number): string[] => flow.steps[i].after ?? (i === 0 ? [] : [flow.steps[i - 1].key])
@@ -207,6 +209,15 @@ export function progressText(r: SopRunBrief) {
   return `${doneN}/${walked.length} ${r.steps[r.focus]?.name ?? ''}`.trim()
 }
 
+/**
+ * 最近 N 条执行和「没走完、待我处理」的执行合成一份（TSK-0486）：较早的等人、失败、执行中的执行不会因为被新执行挤出窗口而看不见。
+ * 两边都有的取最近那份（同一次刷新取的），只在没走完那份里的补在后面
+ */
+export function mergeRuns<T extends { id: string }>(recent: readonly T[], open: readonly T[]): T[] {
+  const seen = new Set(recent.map((r) => r.id))
+  return [...recent, ...open.filter((r) => !seen.has(r.id))]
+}
+
 export type FlowStat = { n: number; pending: number; last: number }
 /** 每个流程的执行次数、待处理次数、最近一次开始时间 */
 export function flowStats(runs: readonly SopRunBrief[]) {
@@ -230,14 +241,50 @@ export type LibFilter = '' | 'pending' | 'never'
 export const libPass = (f: SopFlow, k: LibFilter, stats: Map<string, FlowStat>) =>
   !k || (k === 'pending' ? (stats.get(f.id)?.pending ?? 0) > 0 : !stats.has(f.id))
 
-/** 流程库：有待处理的在前，其余按最近执行时间，没执行过的按名字排在后面；要当前工作台没开的模块的（elsewhere）排在最后 */
+/* ---------- 流程库的文件夹（TSK-0482，SPEC-sop-2.15 起） ---------- */
+
+/** 文件夹筛选：'' 全部，'none' 未分类，其余是文件夹 id */
+export type FolderKey = '' | 'none' | (string & {})
+export const FOLDER_ALL = ''
+export const FOLDER_NONE = 'none'
+export const UNCATEGORIZED = '未分类'
+
+/** 流程实际所在的文件夹：folder_id 指向的文件夹不在列表里（刚删掉、还没刷到）按未分类算 */
+export const folderOf = (f: SopFlow, folders: readonly SopFolder[]) =>
+  (f.folder_id && folders.some((x) => x.id === f.folder_id) ? f.folder_id : null)
+
+export const folderPass = (f: SopFlow, key: FolderKey, folders: readonly SopFolder[]) =>
+  !key || (key === FOLDER_NONE ? !folderOf(f, folders) : folderOf(f, folders) === key)
+
+/** 顶部文件夹一行：各文件夹按新建先后，未分类排最后；数量按全部流程算，不随上面的筛选和搜索变（同文档的分类筛选） */
+export function folderChips(flows: readonly SopFlow[], folders: readonly SopFolder[]) {
+  const n = (key: FolderKey) => flows.filter((f) => folderPass(f, key, folders)).length
+  return [
+    ...folders.map((x) => ({ key: x.id as FolderKey, label: x.name, count: n(x.id) })),
+    { key: FOLDER_NONE as FolderKey, label: UNCATEGORIZED, count: n(FOLDER_NONE) },
+  ]
+}
+
+/** 文件夹名字的检查，同后端：去空白后 1 到 30 字、不能叫「全部」「未分类」、不分大小写不能和别的重名；没问题回空串 */
+export function folderNameError(name: string, folders: readonly SopFolder[], self?: string) {
+  const v = name.trim()
+  if (!v) return '文件夹名称不能为空'
+  if ([...v].length > SOP_FOLDER_NAME_MAX) return `文件夹名称最多 ${SOP_FOLDER_NAME_MAX} 字`
+  if (SOP_FOLDER_RESERVED.includes(v)) return `「${v}」是界面上已经占用的叫法，换个名字`
+  if (folders.some((x) => x.id !== self && x.name.toLowerCase() === v.toLowerCase())) return `已经有叫「${v}」的文件夹了`
+  return ''
+}
+
+/** 流程库：有待处理的在前，其余按最近执行时间，没执行过的按名字排在后面；要当前工作台没开的模块的（elsewhere）排在最后。
+ *  folder 是文件夹筛选；搜索时不看文件夹，在全部文件夹里搜，文件夹名也能搜到（folderName） */
 export function libraryRows(flows: readonly SopFlow[], stats: Map<string, FlowStat>, k: LibFilter, q: string,
-  opts: { trigger?: (t: string) => string; elsewhere?: (f: SopFlow) => boolean } = {}) {
+  opts: { trigger?: (t: string) => string; elsewhere?: (f: SopFlow) => boolean; folder?: (f: SopFlow) => boolean; folderName?: (f: SopFlow) => string } = {}) {
   const kw = q.trim().toLowerCase()
   const trig = opts.trigger ?? ((t: string) => t)
   const away = (f: SopFlow) => Number(!!opts.elsewhere?.(f))
   const pend = (f: SopFlow) => Number((stats.get(f.id)?.pending ?? 0) > 0)
-  return flows.filter((f) => libPass(f, k, stats) && (!kw || `${f.name} ${f.desc} ${f.trigger} ${trig(f.trigger)} ${f.schedule ? describeScheduleRule(fullScheduleRule(f.schedule.rule)) : ''}`.toLowerCase().includes(kw)))
+  const inFolder = (f: SopFlow) => !!kw || !opts.folder || opts.folder(f)
+  return flows.filter((f) => libPass(f, k, stats) && inFolder(f) && (!kw || `${f.name} ${f.desc} ${f.trigger} ${trig(f.trigger)} ${f.schedule ? describeScheduleRule(fullScheduleRule(f.schedule.rule)) : ''} ${opts.folderName?.(f) ?? ''}`.toLowerCase().includes(kw)))
     .sort((a, b) => away(a) - away(b) || pend(b) - pend(a) || (stats.get(b.id)?.last ?? 0) - (stats.get(a.id)?.last ?? 0) || a.name.localeCompare(b.name, 'zh-CN'))
 }
 

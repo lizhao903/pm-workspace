@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 package store
 
 import (
@@ -60,4 +62,7 @@ type ToolGrantStore interface {
 	SetAgentToolCallResult(ctx context.Context, id, result string) error
 	// CountPendingToolCalls 数这个 Agent 还在等确认的调用，删除前的影响检查用。
 	CountPendingToolCalls(ctx context.Context, agentID string) (int, error)
+	// ListPendingToolCalls 是等确认聚合接口（GET /api/agent/attention）用的：还在等确认的调用，
+	// 先记的在前，最多 100 条。sessionID 非空时只回这个会话的。空结果回空切片，不是 nil。
+	ListPendingToolCalls(ctx context.Context, sessionID string) ([]*AgentToolCall, error)
 }

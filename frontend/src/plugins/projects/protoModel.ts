@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 原型标签的纯函数（SPEC-projects-12）：排序、已停止折叠、默认端口、本项目内的端口冲突、目录的相对和绝对换算。
 // 保留端口、别的项目占着、本机别的程序占着由后端在新增、修改、启动时判断，原因原样显示。
 import type { ProjectPrototype } from '../../core/data'

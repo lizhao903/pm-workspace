@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 视频插件的选题和素材箱（VID-08c，接口是 VID-08a）。契约见 docs/api-contract.md「选题和素材箱（VID-08a）」。
 // 选题、素材都不分页，一次取完由前端分组、筛选、搜索。写操作报 { kind: 'video' }：立项会生成视频，素材和选题互相记着 id，整个前缀一起刷
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'

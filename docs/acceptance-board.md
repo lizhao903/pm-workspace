@@ -448,3 +448,9 @@
 - 验收意见统一注明：代码与对应测试已落地；UI/交互类验收项需用户在界面目测确认。
 - 结果：task:review 由 67 → 0；task:done 由 167 → 234。task:todo 25、requirement:backlog 29 未动。
 - 重要提醒：本次收口基于「代码落地 + 全局测试」层级判定，并非逐条界面点验。带 UI/交互的任务（尤其是 M4 的窄屏排版、抽屉、红点、筛选与 M5 的视频/商单页）建议你抽验；若发现未达标，可将其退回 doing/todo 并附意见。
+
+---
+
+由 DeepSeek Harness（dsh）协助完成。
+
+[![](https://img.shields.io/badge/powered_by-dsh-4D6BFE?style=flat-square&logo=deepseek&logoColor=white)](https://github.com/deepseek-ai/deepseek-harness)

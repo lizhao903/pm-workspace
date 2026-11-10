@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { ABILITIES, type Agent, type KnowledgeBase, type Skill } from './agentdata'
 import { seedContent, type ContentItem } from './data'

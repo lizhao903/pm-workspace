@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 import { Fragment, useEffect, useMemo, useState } from 'react'
 import { PageTitle } from './topbar'
 import { ENUM_COLORS, KEY_RE, MODULES, type EnumGroup, type EnumItem } from './enumdata'

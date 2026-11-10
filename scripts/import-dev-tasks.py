@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+# powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 """把 docs/dev-tasks.json 导入产品工作台（pmw），建成工作对象。
 
 用法：

@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 阅读视图（SPEC-settings-11.20 到 11.23、11.28）：按段显示正文，标出和下一段重叠的字；笔记可以直接改。
 // 笔记改了先存在草稿里，停笔约 0.9 秒提交一次（后端改了标题、正文当场重新索引），「改完了」时还有没提交的就立即提交。
 import { useEffect, useMemo, useRef, useState } from 'react'

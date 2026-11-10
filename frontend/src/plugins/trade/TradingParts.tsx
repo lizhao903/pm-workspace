@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 交易页几处共用的小件：页面顶部的提示条内容、没有模拟盘账户时的入口
 import { errorText, useCreateTradeAccount } from '../../core/data'
 import { Button, EmptyState } from '../../core/ui'

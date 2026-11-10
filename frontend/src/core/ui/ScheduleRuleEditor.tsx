@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 定时规则编辑（SPEC-tasks-8「什么时候」）：频率、周几、日期、几号、时间、每隔几小时、Cron，下面是后端算的接下来几次。
 // 定时任务抽屉和 SOP 流程编辑的「定时」触发（TSK-0463）共用；compact 时频率用下拉（窄的属性面板放不下一排按钮）。
 import type { ScheduleRule } from '../data'

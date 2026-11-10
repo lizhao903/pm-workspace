@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { useState } from 'react'
@@ -179,6 +181,21 @@ describe('任务列表', () => {
     await user.type(screen.getByRole('searchbox', { name: '搜索任务' }), 'claude')
     expect(all()).toEqual(['开发任务'])
     localStorage.removeItem('pmw-tasks-me')
+  })
+
+  it('AI 负责的（TSK-0500）：负责人是 Agent 或 CLI 的行带标识，「AI 负责的」只留它们', async () => {
+    const user = userEvent.setup()
+    render(<Harness tasks={[
+      task({ title: '人做的', owner_id: 'stk_me', owner_name: '张三' }),
+      task({ title: 'CLI 做的', owner_id: 'stk_cc', owner_name: 'Claude Code', owner_ai_kind: 'cli', owner_ai_ref: 'claude' }),
+      task({ title: 'Agent 做的', owner_id: 'stk_ag', owner_name: '平台助手', owner_ai_kind: 'agent', owner_ai_ref: 'ag_1' }),
+    ]} />)
+    expect(screen.getByTitle('Claude Code（CLI 执行器）')).toHaveTextContent('Claude Code')
+    expect(screen.getByTitle('平台助手（工作台 Agent）')).toHaveTextContent('平台助手')
+    await user.click(screen.getByRole('button', { name: '负责人' }))
+    await user.click(screen.getByRole('option', { name: /AI 负责的/ }))
+    const titles = screen.queryAllByRole('button', { name: /^TSK-/ }).map((r) => r.querySelector('.ellipsis')?.textContent)
+    expect([...titles].sort()).toEqual(['Agent 做的', 'CLI 做的'])
   })
 
   it('点完成圆圈不打开抽屉，悬停提示按状态区分', async () => {

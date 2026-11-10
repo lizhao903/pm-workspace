@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // Markdown 预览：只认常用的几种写法（标题、列表、清单、引用、代码块、行内代码、加粗、链接），
 // 一律生成 React 元素，不拼 HTML，原文里的标签按文字显示。
 // DEV-07b 写在 tasks 模块里，DOC-01b 挪到这里给文档阅读器共用；tasks 里原来的导出改成从这里再导出。

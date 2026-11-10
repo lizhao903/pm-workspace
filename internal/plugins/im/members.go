@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 package im
 
 import (
@@ -32,6 +34,10 @@ type Member struct {
 	ContactID  string `json:"contact_id"`
 	Source     string `json:"source"`
 	LastAt     string `json:"last_at"`
+	// IsBot 是机器人（Slack 的 B 开头编号，Telegram 用户名以 bot 结尾）；IsSelf 是「我」（编号或名字对上连接器账号、「我的称呼」），
+	// 群组管理「全部加为联系人」排除这两种（TSK-0724）
+	IsBot  bool `json:"is_bot"`
+	IsSelf bool `json:"is_self"`
 }
 
 func (in *inbox) listMembers(w http.ResponseWriter, r *http.Request) {
@@ -130,7 +136,44 @@ func (in *inbox) listMembers(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	out = append(append(append([]Member{}, linked...), fromContacts...), unlinked...)
+	connID, err := in.lastConnector(ctx, cv.ID)
+	if err != nil {
+		fail(w, r, in.c, err)
+		return
+	}
+	var self []string
+	if a := in.adapterFor(Message{Channel: cv.Channel}); a != nil {
+		if self, err = newSelfHandles(a).forConnector(ctx, in.c, connID); err != nil {
+			fail(w, r, in.c, err)
+			return
+		}
+	}
+	for i := range out {
+		out[i].IsBot = botSender(cv.Channel, out[i].ExternalID)
+		out[i].IsSelf = selfSender(self, out[i].ExternalID, out[i].SenderName)
+	}
 	writeJSON(w, http.StatusOK, map[string]any{"data": out, "meta": map[string]int{"total": len(out)}})
+}
+
+// botSender 按编号认机器人：Slack 机器人发的消息发信人是 bot_id（B 开头），Telegram 机器人的用户名必须以 bot 结尾。
+func botSender(channel, ext string) bool {
+	switch channel {
+	case "slack":
+		return strings.HasPrefix(ext, "B")
+	case "telegram":
+		return strings.HasSuffix(strings.ToLower(ext), "bot")
+	}
+	return false
+}
+
+// selfSender 编号或渠道里的名字对上「我」的称呼（不分大小写）。
+func selfSender(self []string, ext, name string) bool {
+	for _, h := range self {
+		if h != "" && (strings.EqualFold(h, ext) || (name != "" && strings.EqualFold(h, name))) {
+			return true
+		}
+	}
+	return false
 }
 
 // normExt 是去重用的编号：Telegram 的用户名不分大小写、身份里不带 @。

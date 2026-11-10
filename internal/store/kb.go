@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 package store
 
 import (
@@ -15,6 +17,8 @@ const (
 	KbSrcUpload  = "upload"  // 上传的文件，ref 是文件名，原文件存在数据目录的 kb/ 下
 	KbSrcLink    = "link"    // 网页链接，ref 是网址；不联网抓取，正文是用户贴的
 	KbSrcNote    = "note"    // 手写笔记，没有 ref
+	// KbSrcFile 是本机单个文件，ref 是绝对路径，重新索引时重读（TSK-0721）。只能由插件同步加（Origin 非空），接口不能直接加
+	KbSrcFile = "file"
 )
 
 // 索引状态，同原型 KbDocStatus。
@@ -84,15 +88,19 @@ type KbSource struct {
 
 // KbDoc 是知识库里的一篇资料。Chunks 是上次索引切出的段数，切分设置改了要重新索引才变。
 type KbDoc struct {
-	ID        string    `json:"id"`
-	KbID      string    `json:"kb_id"`
-	Title     string    `json:"title"`
-	Source    KbSource  `json:"source"`
-	Text      string    `json:"text"`
-	Chunks    int       `json:"chunks"`
-	Status    string    `json:"status"`
-	Excluded  bool      `json:"excluded"`
-	Error     string    `json:"error,omitempty"`
+	ID       string   `json:"id"`
+	KbID     string   `json:"kb_id"`
+	Title    string   `json:"title"`
+	Source   KbSource `json:"source"`
+	Text     string   `json:"text"`
+	Chunks   int      `json:"chunks"`
+	Status   string   `json:"status"`
+	Excluded bool     `json:"excluded"`
+	Error    string   `json:"error,omitempty"`
+	// Origin 是谁加进来的（TSK-0721，0054）：空串是人加的或目录、分类同步收进来的；插件同步加的是「<插件 id>:<范围>」，
+	// 例 projects:obj_…（这个项目的资料同步进来的）。OriginKey 是插件那边对应的资料，同一 Origin 下唯一
+	Origin    string    `json:"origin"`
+	OriginKey string    `json:"origin_key"`
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
 }

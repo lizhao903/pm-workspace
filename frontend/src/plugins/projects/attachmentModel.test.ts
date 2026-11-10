@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 import { describe, expect, it } from 'vitest'
 import type { ImAttachmentFile, ImMessage, ProjectMaterial } from '../../core/data'
 import { attachmentRows, fetchLabel, filterRows, kindCounts, segCounts, todoCount } from './attachmentModel'

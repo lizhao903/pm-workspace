@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 import type { ComponentType } from 'react'
 
 // 四个模块的 id、名字和页面；说明照原型 web-next/src/workspacedata.ts MODULES

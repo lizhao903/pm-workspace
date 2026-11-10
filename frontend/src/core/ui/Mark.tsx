@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 标志编辑（照原型 imagepick.tsx 的 MarkEditor），从项目插件 plugins/projects/Mark.tsx 挪来一份：
 // 点标志弹出编辑图标、文字、底色、图片，改了立即生效。props 和项目插件那份一致，项目插件改从这里引用时只改 import
 import { useEffect, useRef, useState, type ReactNode } from 'react'

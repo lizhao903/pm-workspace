@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 package api
 
 import (
@@ -112,7 +114,7 @@ func sensitiveFile(p string) bool {
 	return strings.HasSuffix(base, ".db-wal") || strings.HasSuffix(base, ".db-shm") || strings.HasSuffix(base, ".db-journal")
 }
 
-// insideMountedDir 判断 p（绝对路径）解析软链后是否落在某个挂载目录内、且挂载目录以下没有隐藏段。
+// insideMountedDir 判断 p（绝对路径）解析软链后是否落在某个挂载目录（或项目的文档目录）内、且目录以下没有隐藏段。
 // 路径不存在时按字面量判断，让 ReadFile 回 404 而不是 403。
 func (s *Server) insideMountedDir(r *http.Request, p string) (bool, error) {
 	if !filepath.IsAbs(p) {
@@ -132,7 +134,8 @@ func (s *Server) insideMountedDir(r *http.Request, p string) (bool, error) {
 			return true, nil
 		}
 	}
-	return false, nil
+	// 项目设置里的文档目录也算（TSK-0718，projectdocs.go）
+	return s.insideProjectDocsDir(r.Context(), real)
 }
 
 func (s *Server) localDirsConfigured(w http.ResponseWriter) bool {

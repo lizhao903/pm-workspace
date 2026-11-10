@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 import { Navigate } from 'react-router'
 import { useWorkspaces } from '../data'
 import { useActiveModules, type ModuleDef } from '../plugin'

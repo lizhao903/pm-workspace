@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 package sop
 
 import (
@@ -65,7 +67,7 @@ func TestAssistAddReview(t *testing.T) {
 		t.Fatalf("保存返回的草稿 code=%d out=%v", code, out)
 	}
 	// 提示词里带节点类型目录、当前草稿和选中的步骤
-	for _, want := range []string{`"kind":"subflow"`, `"label":"人工检查"`, "客户反馈转需求", "「AI 提炼诉求」"} {
+	for _, want := range []string{"- subflow「子流程」", "review「人工检查」", "客户反馈转需求", "「AI 提炼诉求」", `"cond"`, "message_id（string）消息 id"} {
 		if !strings.Contains(seen[0], want) {
 			t.Fatalf("提示词里没有 %s：\n%s", want, seen[0])
 		}
@@ -145,7 +147,8 @@ func TestAssistDraftIssuesInNotes(t *testing.T) {
 		t.Fatalf("code=%d out=%v", code, out)
 	}
 	notes := out["data"].(map[string]any)["notes"].([]any)
-	want := []string{"地址要你填", "必须改：还没有名称", "必须改：「调接口」还没填「地址」", "建议：整个流程没有人工检查点，执行时不会停下来让人看输出"}
+	want := []string{"地址要你填", "必须改：还没有名称", "必须改：「调接口」还没填「地址」", "建议：整个流程没有人工检查点，执行时不会停下来让人看输出",
+		"草稿没过保存校验，自动让模型返修了 2 轮，仍有问题没改好，见下面「必须改」"}
 	if len(notes) != len(want) {
 		t.Fatalf("notes=%v", notes)
 	}

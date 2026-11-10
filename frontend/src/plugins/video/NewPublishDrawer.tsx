@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 新建发布（SPEC-videos-8，照原型 videopublish.tsx 的 NewPublishDrawer）：选视频、平台、账号、比例、封面，写标题简介标签，按平台规则边改边校验，
 // 有一项不过就不能提交。接通了上传接口的平台才自动发（建好后马上投稿，或定时），其余只登记一条「计划中」，发完回来填链接
 import { useMemo, useState, type CSSProperties } from 'react'

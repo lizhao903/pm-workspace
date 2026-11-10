@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 import { describe, expect, it } from 'vitest'
 import type { SopFlow, SopRunBrief, SopRunStep } from '../../core/data'
 import {
@@ -107,7 +109,7 @@ describe('流程库', () => {
     const w = flow({
       id: 'sop_w', name: '周报', trigger: 'schedule',
       schedule: { id: 'sch_1', name: '周报', enabled: true, rule: { freq: 'weekly', time: '18:00', weekdays: [1], day: 1, date: '', cron: '' },
-        action: { kind: 'sop', sop_id: 'sop_w', managed: true }, next_run_at: null, created_at: '', updated_at: '' },
+        action: { kind: 'sop', sop_id: 'sop_w', managed: true }, project_id: null, next_run_at: null, created_at: '', updated_at: '' },
     })
     const label = triggerLabelOf()
     expect(libraryRows([a, w], stats, '', '每周一', { trigger: label }).map((f) => f.id)).toEqual(['sop_w'])

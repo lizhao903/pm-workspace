@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 import { describe, expect, it } from 'vitest'
 import type { AgentProvider } from '../data'
 import { CHIPS, chipsOf, lastUsedOf, pickDefault, usableProvider } from './quickSessionModel'

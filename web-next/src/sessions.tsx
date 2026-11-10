@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 import { Fragment, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { OUTPUT_KIND, type Agent, type AgentOutput, type AgentRun, type ChatMsg, type OutputKind, type Session, type ToolCall } from './agentdata'
 import { AgentAvatar, CHAT_EXAMPLES, CallCard, ChatPane, Pill, RUN_STATUS, type Ctx } from './agents'

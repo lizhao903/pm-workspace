@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 视频插件的发布记录、平台、账号、按天快照和封面 A/B（VID-05c，接口是 VID-04b、VID-05a、VID-05b）。
 // 契约见 docs/api-contract.md「平台账号、发布规则和按天快照」「封面 A/B 测试」。都不分页，一次取完由前端分组、筛选。
 // 缓存键都在 video 前缀下，写操作报 { kind: 'video' }：回填会重算封面测试，判出胜者会改封面的选用和归档，整个前缀一起刷

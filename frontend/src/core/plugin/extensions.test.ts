@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 import { lazy } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { definePlugin, type PluginApi } from './api'

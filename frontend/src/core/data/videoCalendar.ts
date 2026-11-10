@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 视频插件的内容日历（VID-06d，接口是 VID-06c 的 GET /api/video/calendar）。契约见 docs/api-contract.md「定时发布和内容日历」。
 // 日历只读：改日期走发布记录的 PATCH scheduled_at、视频的 PATCH target_date，写完报 { kind: 'video' }，日历在 video 前缀下一起刷。
 // 到点发布成功后端不发事件，失败发 notification.created（kind 是 video.publish_failed），所以这里两路都接：

@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 标签维护：重命名、改色、合并、删除。标签是跨类型的交叉维度，和分类树正交。
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useWorkspace } from '../../hooks/workspace'

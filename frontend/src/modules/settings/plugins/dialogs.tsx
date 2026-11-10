@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 插件管理的确认弹窗：安装（列权限、高风险单独勾选）、升级（只列新增的权限，同样勾选）、停用（被依赖时列出要一起停的）、
 // 卸载（保留或删除数据，删除要二次确认）
 import { useState } from 'react'

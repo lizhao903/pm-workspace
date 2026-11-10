@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 视频的分镜和 B-roll 素材（TSK-0456）。契约见 docs/api-contract.md「分镜和 B-roll 素材（TSK-0456）」。
 // 分镜的写操作都回整份分镜（序号、缺失标记由后端现算），直接换进缓存；素材目录的增删只刷素材目录。
 // 缓存键都在 video 前缀下，视频那边报 { kind: 'video' } 时一起刷新。

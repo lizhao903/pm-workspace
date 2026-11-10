@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 快捷回复取设置里的（GET /api/im/settings 的 quick_replies），抽屉「反馈」和列表「回复」菜单共用。
 import { useImSettings } from '../../core/data'
 import { QUICK_REPLIES } from './model'

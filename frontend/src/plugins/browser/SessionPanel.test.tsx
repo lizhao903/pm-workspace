@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 会话旁边的浏览器（SPEC-sessions-1.36）：会话里有链接时多一行「会话里的链接」，点了在这里打开，同一地址的标签切过去
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { render, screen, waitFor, within } from '@testing-library/react'

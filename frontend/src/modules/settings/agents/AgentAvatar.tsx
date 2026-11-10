@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // Agent 头像和头像设置，照原型 web-next/src/agents.tsx AgentAvatar、AvatarEditor（SPEC-settings-9.4）。
 // 底色是 Agent 的 color（后端存的 #rrggbb），图标、文字都是白色。
 import { useEffect, useRef, useState, type ReactNode } from 'react'

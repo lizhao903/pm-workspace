@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 package plugin
 
 import (
@@ -5,8 +7,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
-	"path/filepath"
 	"runtime/debug"
 	"slices"
 	"strings"
@@ -543,33 +543,14 @@ func clipText(s string, n int) string {
 	return string(rs[:n]) + "…"
 }
 
-// CallbackMCPServer 是回写用的 MCP server 名。不叫 pm-workspace：工作目录里的 .mcp.json 可能已经有一个同名的、
-// 指向别的工作台实例，分开起名免得回写到别处。
-const CallbackMCPServer = "pmw-run"
-
-var errNoCallback = errors.New("没配工作台的 MCP 程序或本实例地址")
+// CallbackMCPServer 是回写用的 MCP server 名，和任务执行、终端交接共用 runner.MCPServer（TSK-0499）。
+// 不叫 pm-workspace：工作目录里的 .mcp.json 可能已经有一个同名的、指向别的工作台实例，分开起名免得回写到别处。
+const CallbackMCPServer = runner.MCPServer
 
 // writeCallbackMCP 把回写用的 MCP 配置写进临时目录（只有本人可读写），回路径和删掉它的函数。
+// 配置内容由 runner.MCPConfigJSON 生成，三条路同一份。
 func writeCallbackMCP(bin, api string) (string, func(), error) {
-	if bin == "" || api == "" {
-		return "", nil, errNoCallback
-	}
-	if st, err := os.Stat(bin); err != nil || st.IsDir() {
-		return "", nil, fmt.Errorf("工作台的 MCP 程序 %s 不存在", bin)
-	}
-	dir, err := os.MkdirTemp("", "pmw-run-")
-	if err != nil {
-		return "", nil, err
-	}
-	b, _ := json.MarshalIndent(map[string]any{"mcpServers": map[string]any{
-		CallbackMCPServer: map[string]any{"type": "stdio", "command": bin, "args": []string{"--api", api}},
-	}}, "", "  ")
-	path := filepath.Join(dir, "mcp.json")
-	if err := os.WriteFile(path, b, 0o600); err != nil {
-		_ = os.RemoveAll(dir)
-		return "", nil, err
-	}
-	return path, func() { _ = os.RemoveAll(dir) }, nil
+	return runner.TempMCPConfig(bin, api)
 }
 
 // reportBackSection 是 ReportBack 时加在提示词末尾的一节：结束前用 pmw_finish_run 回报结论，下游按 result 判断。

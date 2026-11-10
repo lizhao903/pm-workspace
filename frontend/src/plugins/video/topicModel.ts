@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 选题和素材箱的纯函数和常量（VID-08c）。选题状态、素材类型、平台是插件自己的约定，后端 internal/plugins/video/topics.go 同一份，
 // 没有字典接口，两边同序，加值两边一起加（同原型 web-next/src/topicdata.ts 的 TOPIC_STATUS、CLIP_KIND、topicPriority）
 import type { VideoClip, VideoClipKind, VideoPlatform, VideoTopic, VideoTopicScore, VideoTopicStatus } from '../../core/data'

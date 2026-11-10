@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 定时规则的校验和预览（ScheduleRuleEditor 配套）：前端先挡一遍，再停手一会儿请求后端预览接下来几次。
 import { useEffect, useState } from 'react'
 import { errorText, useSchedulePreview, type ScheduleRule } from '../data'

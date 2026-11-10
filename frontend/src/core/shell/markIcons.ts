@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 工作台标识的内置图标：key 到 24 宽高的路径，和项目插件 plugins/projects/markIcons.ts 同一套（照原型 web-next/src/markicons.tsx）。
 // 外壳不能 import 插件，这里留一份只有路径的副本；以后挪进 core/ui 时两处合并
 export const MARK_PATHS: Readonly<Record<string, string>> = {

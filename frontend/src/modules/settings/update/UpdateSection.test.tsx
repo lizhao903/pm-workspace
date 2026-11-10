@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 版本更新（SYS-UPD）：显示正在跑和源码目录的版本、新提交；点更新先确认，进度轮询，重启后新进程起来自动刷新；失败写清楚、旧版本不动
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { render, screen, waitFor, within } from '@testing-library/react'

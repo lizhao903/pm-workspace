@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 分类：复用 CategoryManager 的嵌入模式，和侧栏弹窗是同一套逻辑，不分叉。
 import { CategoryManagerPanel } from '../../components/CategoryManager'
 import { SectionHead } from './common'

@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 流程图（SPEC-sop-5.9、7.7）：按依赖分列，同一列的步骤互不依赖；判断后的分支也落在同一列，连线上写分支名。
 // 给了 run 就按步骤状态着色、标「人」、高亮走过的连线；给了 onSelect 节点可点。照原型 sop.tsx FlowGraph
 import { useEffect, useRef } from 'react'

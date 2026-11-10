@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 主动发消息（SPEC-messages-8）：标题行「发消息」弹窗（选渠道 → 多实例选账号 → 选会话 → 写内容 → 发送）、群组管理每行「发消息」（会话带上）、
 // 选中会话时列表上方的「发消息」「我发出的 N 条」（失败的能重发），消息行上的「回复了我发出的」。
 // 内容框同回复框一样能 @（SPEC-messages-8.9，mention.tsx）：候选是所选会话的人（联系人在前），不默认 @ 谁。

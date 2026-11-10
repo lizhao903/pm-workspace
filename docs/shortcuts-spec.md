@@ -141,3 +141,9 @@ graph TD
 ## 与「资源」类型的关系
 
 `resource` 工作对象类型仍然存在，管的是需要归档、打标签、被关联引用的资源（合同、素材、账号说明）。快捷入口是**纯导航**，轻量、无需建对象。两者互通：资源详情页可「提升为快捷入口」，一键生成一条 shortcut 指向它的 url。
+
+---
+
+由 DeepSeek Harness（dsh）协助完成。
+
+[![](https://img.shields.io/badge/powered_by-dsh-4D6BFE?style=flat-square&logo=deepseek&logoColor=white)](https://github.com/deepseek-ai/deepseek-harness)

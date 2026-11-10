@@ -1,10 +1,12 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 今日（SPEC-today-1、TODAY-02）：今天要处理的事集中在一页。内核部分走 GET /api/today?type=task，
 // 插件卡片走不带 type 的聚合（PluginCards）。只有完成圆圈在本页直接改数据，点任务在本页打开任务抽屉。
-// ALIGN-08 起「需要你处理」按来源分组：任务待验收、插件贡献的组（IM 消息）、运行异常（INC-01b）、连接异常；「正在运行」先列插件贡献的（运行中的原型）。
+// ALIGN-08 起「需要你处理」按来源分组：任务待验收、插件贡献的组（IM 消息）、运行异常（INC-01b）、连接异常、Agent 待确认（P0-O3）；「正在运行」先列插件贡献的（运行中的原型）。
 import { Suspense, useState } from 'react'
 import { useNavigate } from 'react-router'
 import {
-  dueTodayCard, errorText, localDay, overdueCard, reviewCard, runningCard, schedulesToday, useAllObjects, useApprove,
+  dueTodayCard, errorText, localDay, overdueCard, reviewCard, runningCard, schedulesToday, useAgentAttention, useAllObjects, useApprove,
   useConnectors, useDictItems, useIncidents, useObject, useObjectTypes, useProgress, useSchedules, useSetStatus, useToday, type WorkObject,
 } from '../../core/data'
 import { TODAY_ORDER, useTodaySourceData, useTodaySources, type TodayItem } from '../../core/plugin'
@@ -62,6 +64,8 @@ export default function Page() {
   const sources = useTodaySourceData(useTodaySources())
   const connectors = useConnectors()
   const incidents = useIncidents()
+  // 等确认注意力（P0-O3）：Agent 工具调用等你确认，按会话去处理
+  const att = useAgentAttention()
 
   // 打开的任务：先在页面已有的数据里找，找不到（点的是运行中的执行）再单独取
   const [openId, setOpenId] = useState<string | null>(null)
@@ -92,6 +96,15 @@ export default function Page() {
   const inc = incidentNeeds(incidents.data ?? [])
   const groups = needGroups([
     { key: 'review', label: '任务待验收', order: TODAY_ORDER.review, total: review?.total ?? 0, items: [], more: `${TASKS}?status=${REVIEW}`, moreAlways: true },
+    // Agent 待确认（P0-O3）：一条调用一行，点了去那个会话确认；waiting_runs 不单列（等确认的调用已覆盖）
+    {
+      key: 'agent', label: 'Agent 待确认', order: TODAY_ORDER.agent, total: att.data?.total ?? 0,
+      items: (att.data?.pending_calls ?? []).map((c): TodayItem => ({
+        id: c.call_id, tone: 'warn', title: `${c.agent_name} 等你确认「${c.tool}」`, sub: c.session_title || c.summary,
+        at: c.at, action: '去确认', to: `/conversations?s=${encodeURIComponent(c.session_id)}`,
+      })),
+      error: att.isError, retry: () => void att.refetch(),
+    },
     ...needSrc.map((x) => ({
       key: `${x.def.plugin}:${x.def.key}`, label: x.def.label, order: x.def.order, total: x.total, items: x.items, more: x.def.more,
       error: x.error, retry: x.refetch,

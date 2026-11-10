@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // Command pmw 是产品工作台的单二进制入口：一个进程同时提供 API 与前端静态资源。
 package main
 
@@ -19,6 +21,7 @@ import (
 	"time"
 
 	"github.com/lizhao903/pm-workspace/internal/agent"
+	"github.com/lizhao903/pm-workspace/internal/aimember"
 	"github.com/lizhao903/pm-workspace/internal/api"
 	"github.com/lizhao903/pm-workspace/internal/audit"
 	"github.com/lizhao903/pm-workspace/internal/connector"
@@ -35,6 +38,7 @@ import (
 	"github.com/lizhao903/pm-workspace/internal/plugins/etf"
 	"github.com/lizhao903/pm-workspace/internal/plugins/im"
 	"github.com/lizhao903/pm-workspace/internal/plugins/projects"
+	"github.com/lizhao903/pm-workspace/internal/plugins/recording"
 	"github.com/lizhao903/pm-workspace/internal/plugins/sop"
 	"github.com/lizhao903/pm-workspace/internal/plugins/terminal"
 	"github.com/lizhao903/pm-workspace/internal/plugins/trade"
@@ -184,6 +188,12 @@ func run(cfg config) error {
 		slog.Info("模型服务商密钥已搬进凭证保险箱", "count", n)
 	}
 
+	// 名册里的 AI 成员（TSK-0500）：每个 Agent、每种 CLI 一条，任务交给它们执行时设为负责人。
+	// 对不齐不拦启动，发起执行时还会再对一次。
+	if err := aimember.Sync(ctx, st); err != nil {
+		slog.Warn("同步名册里的 AI 成员失败", "err", err)
+	}
+
 	// 插件注册表：第一方插件编译进二进制，在这里 Add（PJ-01a 起）；启停状态存在 plugins 表。
 	// Start 必须在 api.New 之前：插件路由在 New 时挂上。defer 先于关库执行，后台任务先停。
 	// 状态表和迁移记录复用 store 的连接，不另开一组（写池单连接，插件迁移和内核写入排同一个队）。
@@ -239,6 +249,10 @@ func run(cfg config) error {
 	}
 	// 内置浏览器插件（BR-01a）：标签页、地址白名单；Google 账号用 Google Drive 连接器实例
 	if err := plugins.Add(browser.New()); err != nil {
+		return fmt.Errorf("登记插件失败: %w", err)
+	}
+	// 录音转写插件（REC-01a）：浏览器录音、本机 whisper.cpp 转写、模型下载
+	if err := plugins.Add(recording.New()); err != nil {
 		return fmt.Errorf("登记插件失败: %w", err)
 	}
 	if err := plugins.Start(ctx); err != nil {

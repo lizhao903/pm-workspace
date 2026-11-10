@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 任务抽屉的表单值和保存时的请求体（SPEC-tasks-4 数据、DEV-07b）。
 // 编辑只传改动的字段；截止日按本地日期比较，props 里的验收标准、关联仓库单独挑出来，由接口层读回再合并。
 import {

@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 项目插件的页面（PJ-01c）：没有二级菜单，模块根是全部项目列表，/<根>/<项目 id>[/<标签>] 是详情。
 // 一级菜单点「项目」回到根路径，也就是列表；打开项目时记进最近打开，列表按它排序。
 import { Navigate, useLocation, useNavigate, useParams } from 'react-router'

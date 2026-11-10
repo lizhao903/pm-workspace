@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 package sqlite
 
 import (
@@ -223,7 +225,7 @@ func (s *Store) AppendProgress(ctx context.Context, objectID string, in domain.P
 			}
 			st, ok := statusOf(t, in.Status)
 			if !ok {
-				return validation("status", "is not allowed for type "+t.ID+": "+in.Status)
+				return badStatus(t, in.Status)
 			}
 			if err := switchStatusTx(ctx, tx, t, cur, st, a, now); err != nil {
 				return err
@@ -247,7 +249,8 @@ func (s *Store) ClaimObject(ctx context.Context, objectID string, in domain.Clai
 	if in.OwnerID == "" {
 		return nil, validation("owner_id", "is required")
 	}
-	if _, err := s.GetStakeholder(ctx, in.OwnerID); err != nil {
+	claimer, err := s.GetStakeholder(ctx, in.OwnerID)
+	if err != nil {
 		return nil, err
 	}
 	pin, err := normalizeProgress(domain.ProgressInput{Kind: domain.ProgressClaim, Text: in.Text}, true)
@@ -281,7 +284,7 @@ func (s *Store) ClaimObject(ctx context.Context, objectID string, in domain.Clai
 		}
 		st, ok := statusOf(t, target)
 		if !ok {
-			return validation("status", "is not allowed for type "+t.ID+": "+target)
+			return badStatus(t, target)
 		}
 		if st.Terminal {
 			return validation("status", "cannot claim into a terminal status: "+target)
@@ -334,6 +337,12 @@ func (s *Store) ClaimObject(ctx context.Context, objectID string, in domain.Clai
 			}
 			if err := addRevision(ctx, tx, cur.ID, "owner_id", curOwner, in.OwnerID, a, now); err != nil {
 				return err
+			}
+			// 负责人换了在进展里写明（TSK-0500）：接手别人的、或 AI 领走人的任务，翻进展就看得到原来是谁
+			if curOwner != "" {
+				pin.Text += fmt.Sprintf("\n负责人由「%s」改为「%s」", cur.OwnerName, claimer.Name)
+			} else {
+				pin.Text += fmt.Sprintf("\n负责人设为「%s」", claimer.Name)
 			}
 		}
 		pin.Status = st.Key

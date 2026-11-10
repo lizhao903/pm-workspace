@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 package plugin
 
 import (
@@ -61,6 +63,13 @@ var NetworkHosts = map[string][]HostRule{
 		{Host: "push2.eastmoney.com"}, {Host: "push2his.eastmoney.com"},
 		{Host: "datacenter-web.eastmoney.com"},
 		{Host: "fund.eastmoney.com"}, {Host: "fundf10.eastmoney.com"},
+	},
+	// 本地模型下载（REC-01a，录音转写插件）：只放 HuggingFace 的模型文件域名和镜像。
+	// 下载会 302 到 CDN，客户端每一跳都按这组清单查。
+	"model": {
+		{Host: "huggingface.co"}, {Host: "*.huggingface.co"},
+		{Host: "hf.co"}, {Host: "*.hf.co"},
+		{Host: "hf-mirror.com"}, {Host: "*.hf-mirror.com"},
 	},
 	// 交易接口：先只列域名，实盘（trade:live、TRD-08）之前不用
 	"exchanges": {

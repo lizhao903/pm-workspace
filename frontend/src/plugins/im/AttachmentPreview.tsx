@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 附件预览弹窗（SPEC-messages-3.16）：在消息页里直接看附件，不用下载。
 // 图片、PDF、音视频按 inline 读（后端只对这几类按 inline 回）；文本读出来显示前 512K 字节；别的只给下载。
 // 还没获取的先获取再看。同一条消息的附件左右切（← →），Esc、点遮罩关；焦点关在弹窗里，关掉后回到打开前的位置。

@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 附件预览弹窗（SPEC-messages-3.16）放在 core：项目的「附件」标签要用，插件之间不能 import IM 插件里那份。
 // 行为同 IM 消息抽屉的预览：图片、PDF、音视频按 inline 读，文本读前 512K 字节，别的只给下载；还没获取的先获取再看。
 // 和 IM 那份的差别只在列表：这里传一串「消息 + 附件」，可以跨消息左右切（项目附件标签按当前筛选的结果切）。

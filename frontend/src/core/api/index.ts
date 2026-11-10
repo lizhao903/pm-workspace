@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 export { api, request, requestEnvelope, requestList, setApiBase, isApiError, codeForStatus, ApiError, fetchAppIndex, readRawText } from './client'
 export type { Meta, Method, RequestOptions, ListResult, ApiErrorCode } from './client'
 export { objectListQuery, artifactListQuery, focusParams, localDay, changedFields } from './query'
@@ -13,6 +15,7 @@ export {
   stakeholders,
   artifacts,
   runs,
+  runners,
   fs,
   agentWorkdir,
 } from './resources'

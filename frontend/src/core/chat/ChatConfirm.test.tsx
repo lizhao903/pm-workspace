@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 会话里要人确认的调用（AG-02b，SPEC-sessions-1.17、1.18）：打桩 fetch，对话和确认、拒绝都回一段 SSE，
 // 每段流发完后消息列表换成对应的那一份。
 import { QueryClientProvider } from '@tanstack/react-query'

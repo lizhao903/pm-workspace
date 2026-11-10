@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 会话旁边的工具（SPEC-sessions-1.34 到 1.38）：会话头部右上角的「终端」「浏览器」入口，点了在对话右边展开插件给的面板。
 // 入口和面板都来自插件登记（core/plugin 的 sessionTools），插件停用了入口就没有。面板打开过就一直挂着，收起、切到另一个工具只是藏起来，
 // 终端的输出和网页都留着；离开会话页才卸载（终端会话、浏览器标签在插件那边，回来还在）。

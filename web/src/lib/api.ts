@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 唯一的后端访问层。组件不得自行 fetch，一律走这里。
 import type {
   Category, CategoryInput, Counts, CreateObjectInput, LinkView,

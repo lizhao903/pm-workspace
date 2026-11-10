@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 设置里的「插件」分节（CORE-09）：已安装、可安装两组卡片，点卡片开详情抽屉。
 // 原型里还没有这页，卡片加抽屉照原型 connectors.tsx，生命周期照 docs/plugin-api.md 第 4 节。
 // 后端写成功后由这里让前端跟着变：启用调 activatePlugin（启动时没路由的整页重新加载），停用调 deactivatePlugin

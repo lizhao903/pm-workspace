@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 会话旁边的工具（SPEC-sessions-1.34）：插件给会话头部右上角加一个入口（终端插件的「终端」、浏览器插件的「浏览器」），
 // 点了在对话右边展开插件给的面板。会话模块和插件互不 import，会话页只认这里登记的定义；停用插件时按 id 撤掉，入口跟着消失。
 // 和项目标签、对象区块一样不进清单 provides

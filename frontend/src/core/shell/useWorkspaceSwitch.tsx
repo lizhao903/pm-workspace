@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 import { useState } from 'react'
 import { useNavigate } from 'react-router'
 import { usePlugins, type Workspace } from '../data'

@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 回复、发消息里的 @（SPEC-messages-2.46、8.9）：
 // - 群聊回复底部「回复时 @ 对方」开关：默认打开，改了记在本机（localStorage），打开时发送在正文开头写「@原发信人」；私聊没有开关、不加 @。
 // - 输入 @ 弹出候选：联系人在前（会话里发过言、认上联系人的 → 这个渠道有 IM 身份的别的联系人，显示联系人名），

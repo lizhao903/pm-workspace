@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 知识库详情的「设置」标签（SPEC-settings-13）：来源分类、本地目录、切分方式、向量化模型、挂了这个库的 Agent。
 // 和原型不同的地方（后端决定的）：
 // - 本地目录存不存在、有没有读权限由后端判，挂上时报「找不到这个目录」「没有读权限」，不加进来。

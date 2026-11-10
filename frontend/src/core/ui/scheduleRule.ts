@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 定时规则的纯函数（SPEC-tasks-7、8）：规则说成一句话、前端先挡的规则错误、「几点」的文字、编辑用的模式。
 // 定时任务页和 SOP 流程编辑（TSK-0463）共用；下次执行、接下来几次由后端算（POST /api/schedules/preview），这里不重复算。
 import type { ScheduleFreq, ScheduleRule } from '../data'

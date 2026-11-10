@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 import { useEffect, useMemo, useState, type CSSProperties, type ReactNode } from 'react'
 import { PageTitle } from './topbar'
 import { MODULES, type ModuleKey, type Workbench } from './workspacedata'

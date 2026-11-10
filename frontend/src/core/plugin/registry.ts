@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 插件注册表（FE-00b）：按启用列表挑出能加载的插件，动态 import 入口并调 activate，收集它们注册的模块。
 // 清单在构建时用 glob 读进来（只是数据），入口是懒加载的 glob，每个插件一个代码块，没启用的不会被请求。
 // CORE-02b 起 activate 拿到完整的 PluginApi，注册按插件 id 记账，deactivatePlugin 一次撤掉。

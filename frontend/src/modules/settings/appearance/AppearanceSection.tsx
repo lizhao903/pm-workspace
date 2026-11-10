@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 设置里的「外观」（ALIGN-14），照原型 web-next/src/appearance.tsx AppearancePage（SPEC-settings-21）。
 // 配色用 core/ui/theme.ts 的偏好，收起和侧栏左上角的按钮是同一个状态；都只存在这台电脑的浏览器里
 import { useSideCollapsed } from '../../../core/shell/sideCollapse'

@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 沟通标签（SPEC-projects-4，PJ-02b）：左边是项目绑定的群聊和私聊，右边只显示这些会话里的消息。
 // 绑定按会话 id 存在项目插件里（PJ-02a），群聊候选从内核会话表列（含还没收到消息的群，收到消息的群 IM 插件会登记）；
 // 私聊候选按联系人的 IM 身份列，还没有私聊会话的绑定前按身份建一个，没填 IM 编号的置灰（PR-02）。消息按绑定的会话逐个取（IM-01a）。
@@ -143,7 +145,8 @@ export function CommsTab({ projectId, onAttachments }: {
     if (bq) setBq('')
     else setAdding(false)
   }
-  const openMessage = (m: ImMessage) => navigate(`${MESSAGES_PATH}?m=${encodeURIComponent(m.id)}`)
+  // 这条归到本项目时带上项目筛选（TSK-0723），消息页列表只看这个项目；绑定的群里归到别处的不带，免得列表里找不到它
+  const openMessage = (m: ImMessage) => navigate(`${MESSAGES_PATH}?m=${encodeURIComponent(m.id)}${m.project_id === projectId ? `&project=${encodeURIComponent(projectId)}` : ''}`)
   const onDone = (m: ImMessage) => {
     setErr('')
     act.mutate({ id: m.id, action: { kind: 'done' } }, { onError: (e) => setErr(`${whoName(m)} 的消息没标上${doneLabel}：${errorText(e)}`) })

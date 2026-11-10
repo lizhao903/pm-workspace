@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 package runner
 
 import (
@@ -28,7 +30,8 @@ type Task struct {
 	Repo       string
 	// Project 是任务所属的项目（任务挂在项目下才有）：告诉模型文档、原型各在哪里操作。
 	Project *Project
-	// WriteBack 不为 nil 表示这次是在终端里交互执行，要模型经工作台 MCP 自己回写（0048）。
+	// WriteBack 不为 nil 表示要模型经工作台 MCP 自己回写：终端交互执行（0048），
+	// 以及后台执行（TSK-0499，Stream 为真）。
 	WriteBack *WriteBack
 }
 
@@ -53,16 +56,19 @@ type Source struct {
 	Reply        bool
 }
 
-// Project 是所属项目的上下文。DocsDir 取项目 props.related 的第一个关联目录，
+// Project 是所属项目的上下文。DocsDir 取项目设置里的文档目录（DocsSetting 为 true，TSK-0718），
+// 没设时取 props.related 的第一个关联目录（DocsLabel 是它的名称），
 // Prototypes 是项目「原型」里登记的目录；都没有时提示词写明可在项目设置里补，
 // 不让模型自己猜一个位置。
 type Project struct {
-	Name       string
-	Ref        string
-	Workdir    string // 项目的工作目录，没设为空
-	DocsDir    string
-	DocsLabel  string
-	Prototypes []PrototypeDir
+	Name      string
+	Ref       string
+	Workdir   string // 项目的工作目录，没设为空
+	DocsDir   string
+	DocsLabel string
+	// DocsSetting 为 true 表示 DocsDir 来自项目设置里的文档目录
+	DocsSetting bool
+	Prototypes  []PrototypeDir
 }
 
 // PrototypeDir 是项目登记的一个原型。
@@ -71,11 +77,23 @@ type PrototypeDir struct {
 	Dir  string
 }
 
-// WriteBack 是终端执行的回写信息。RunID 在预览时还没有，用占位文字。
+// WriteBack 是回写信息。RunID 在预览时还没有，用占位文字。
+//
+// Stream 为真是后台执行（claude -p，没人值守）：工作台已把状态改成进行中、进程结束时自己收尾，
+// pmw_finish_run 只是把结论交给工作台放在执行记录最前面。NoMCP 非空表示这次没接上工作台 MCP
+// （没配 MCP 程序或地址），写明原因、让模型把结论写在回复里，不去调一个不存在的工具。
 type WriteBack struct {
 	RunID    string
 	ObjectID string
+	Stream   bool
+	NoMCP    string
+	// DSH 为真是交给 DeepSeek（dsh）的后台执行（TSK-0722）：没有命令白名单，命令都在 dsh 的沙箱里跑，
+	// 最后那段权限说明换成沙箱的说法。
+	DSH bool
 }
+
+// MCPServerName 给模板用：工作台注入的 MCP server 名。
+func (WriteBack) MCPServerName() string { return MCPServer }
 
 // promptTemplate 是喂给 claude 的任务描述。
 //
@@ -112,8 +130,8 @@ const promptTemplate = `你正在协助处理一个来自「产品工作台」�
 {{end}}{{with .Project}}## 所属项目
 名称：{{.Name}}{{if .Ref}}（{{.Ref}}）{{end}}
 {{if .Workdir}}项目工作目录：{{.Workdir}}
-{{end}}{{if .DocsDir}}文档在哪里操作：{{.DocsDir}}{{if .DocsLabel}}（项目关联目录「{{.DocsLabel}}」）{{end}}
-{{else}}文档在哪里操作：这个项目没有关联文档目录，可在项目设置里补；需要写文档时先问用户放哪里。
+{{end}}{{if .DocsDir}}文档在哪里操作：{{.DocsDir}}{{if .DocsSetting}}（项目设置里的文档目录）{{else if .DocsLabel}}（项目关联目录「{{.DocsLabel}}」）{{end}}
+{{else}}文档在哪里操作：这个项目没有设文档目录，可在项目设置里补；需要写文档时先问用户放哪里。
 {{end}}{{if .Prototypes}}原型在哪里操作：
 {{range .Prototypes}}  - {{if .Name}}{{.Name}}：{{end}}{{.Dir}}
 {{end}}{{else}}原型在哪里操作：这个项目没有登记原型目录，可在项目设置里补；需要改原型时先问用户在哪里改。
@@ -135,12 +153,21 @@ const promptTemplate = `你正在协助处理一个来自「产品工作台」�
 {{.Extra}}
 
 {{end}}{{with .WriteBack}}## 回写到工作台
-这次是从「产品工作台」交给你、在终端里交互执行的（执行记录 {{.RunID}}）。工作台的 MCP（server 名 pm-workspace）已经接上，进展和结果请用它写回这条任务，不要只在终端里说：
-1. 开始时：用 pmw_update_object（id={{.ObjectID}}）把任务状态改成进行中（状态 key 用 pmw_list_types 查，任务一般是 doing；已经是进行中就不用改），再用 pmw_append_progress 记一句你打算怎么做。
-2. 每产出一件交付物（文档、原型、代码提交等）：调 pmw_record_artifact，带 object_id={{.ObjectID}}、run_id={{.RunID}}。
+{{if .Stream}}这次是从「产品工作台」交给你在后台执行的（执行记录 {{.RunID}}）：没有人在旁边确认，需要确认的操作会被直接拒绝，被拒了不要反复重试，换个办法或在结论里说明。
+{{else}}这次是从「产品工作台」交给你、在终端里交互执行的（执行记录 {{.RunID}}）。
+{{end}}{{if .NoMCP}}工作台的 MCP 这次没接上（{{.NoMCP}}），进展和结论直接写在最后的回复里，工作台会把它记进执行记录。
+{{else}}工作台的 MCP（server 名 {{.MCPServerName}}，工具名形如 mcp__{{.MCPServerName}}__pmw_append_progress）已经接上{{if .Stream}}并放行{{end}}，进展和结果请用它写回这条任务{{if not .Stream}}，不要只在终端里说{{end}}。工作目录里如果另有名为 pm-workspace 的 MCP server，不要用它回写，它可能指向别的工作台：
+{{if .Stream}}1. 开始时：工作台已经把任务改成进行中；用 pmw_get_object（id={{.ObjectID}}）读任务和验收标准，再用 pmw_append_progress 记一句你打算怎么做。
+{{else}}1. 开始时：用 pmw_update_object（id={{.ObjectID}}）把任务状态改成进行中（状态 key 用 pmw_list_types 查，任务一般是 doing；已经是进行中就不用改），再用 pmw_append_progress 记一句你打算怎么做。
+{{end}}2. 每产出一件交付物（文档、原型、代码提交等）：调 pmw_record_artifact，带 object_id={{.ObjectID}}、run_id={{.RunID}}。
 3. 过程中做完一个关键步骤，用 pmw_append_progress 记一条。
-4. 结束时（做完、做不下去、或用户让你停下）：调 pmw_finish_run，run_id={{.RunID}}，status 填 done 或 failed，summary 写结论摘要：做了什么、产出在哪、还剩什么没做。任务做完了再用 pmw_update_object 改状态。
-
+{{if .Stream}}4. 结束前：调 pmw_finish_run，run_id={{.RunID}}，status 填 done 或 failed，summary 写结论摘要：做了什么、产出在哪、还剩什么没做。工作台在进程退出时收尾，这段结论放在执行记录最前面。
+{{else}}4. 结束时（做完、做不下去、或用户让你停下）：调 pmw_finish_run，run_id={{.RunID}}，status 填 done 或 failed，summary 写结论摘要：做了什么、产出在哪、还剩什么没做。任务做完了再用 pmw_update_object 改状态。
+{{end}}{{end}}{{if .DSH}}
+命令都在 dsh 的沙箱里跑：只读执行写不了任何文件；允许改文件时只能写当前目录（和软链接进来的目录）。写入被沙箱拒绝时不要反复重试，在结论里说明。
+{{else if .Stream}}
+只读命令（git status / log / diff、ls、cat、grep、wc 等，含管道组合）已放行；查 SQLite 库用 sqlite3 -readonly -safe（不带 -safe 的会被拒）。
+{{end}}
 {{end}}## 约束
 {{if .Project}}- 所有产出只写在当前目录、以及上面「所属项目」里写明的文档目录和原型目录里，不要改动其他位置的文件。
 {{else}}- 所有产出只写在当前目录内，不要改动工作区之外的任何文件。

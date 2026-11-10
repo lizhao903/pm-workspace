@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
 import type { Project, Prototype } from './projectdata'
 import { cls } from './ui'

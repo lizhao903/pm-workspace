@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // Package runner 把一个工作对象交给本机的 claude CLI 去执行。
 //
 // 它只做四件事：拼提示词、起进程、把 stream-json 翻成界面能用的事件、
@@ -177,10 +179,15 @@ type Request struct {
 	// 见 denialReason。
 	AllowWrites bool
 
-	// MCPConfig 可选，额外的 MCP 配置文件（--mcp-config），插件运行回写结论用（AUTO-01）；
-	// AllowedTools 是不用确认就能调的工具（--allowedTools），只放开回写那个 MCP server。
+	// MCPConfig 可选，额外的 MCP 配置文件（--mcp-config）：插件运行回写结论用（AUTO-01），
+	// 任务的后台执行也用它接上工作台 MCP（TSK-0499，见 mcp.go）。
+	// AllowedTools 是不用确认就能调的工具（--allowedTools）：工作台 MCP 加上档位的命令白名单（permissions.go）。
 	MCPConfig    string
 	AllowedTools []string
+
+	// Permission 是这次的权限档位（permissions.go），只用在被拒提示里说「这次是哪一档」；
+	// 真正生效的是 AllowWrites 和 AllowedTools。空按 AllowWrites 推（只读 / 允许改文件）。
+	Permission string
 
 	// Harness 指定这次交给谁跑，空由 Runner.Harness 决定，两者都空是 claude。
 	//
@@ -193,6 +200,14 @@ type Request struct {
 	// SessionID 只在 Harness 是 deepseek 时用：接着这个会话继续跑。
 	// 空表示新开一个。未知 id 会让 dsh 直接失败，不会悄悄换成新会话。
 	SessionID string
+
+	// MCP 只在 Harness 是 deepseek 时用（TSK-0722）：工作台 MCP 的程序和地址，写进 dsh 的 patch。
+	// claude 用的是 MCPConfig 那份文件；dsh 的 MCP 配置是 profile 里的一条插件，没有单独的文件格式。
+	MCP *MCPEndpoint
+
+	// OnSpawn 可选：进程起来、登记好之后回调一次，参数是进程组 id（等于子进程 pid）。
+	// 集成检查（TSK-0722）拿它在收尾后确认整组都退干净了；正常执行不用。
+	OnSpawn func(pgid int)
 }
 
 // Result 是一次执行的收尾信息，调用方据此落库。
@@ -399,6 +414,9 @@ func (r *Runner) Start(ctx context.Context, req Request, on func(Event)) (*Resul
 		return nil, err
 	}
 	defer r.unregister(runID)
+	if req.OnSpawn != nil {
+		req.OnSpawn(p.pgid)
+	}
 
 	done := make(chan struct{})
 	var timedOut atomic.Bool
@@ -566,13 +584,13 @@ func (r *Runner) finish(in finishInput) *Result {
 		// 说明 claude 绕过去把事做成了（Write 被拒就改用 Bash 重定向，实测见过）。
 		// 那种一律判失败会把真正干成事的执行标红，比漏报更烦人。
 		res.Status = domain.RunFailed
-		res.Error = denialReason(in.stream.denials, in.req.AllowWrites, false)
+		res.Error = denialReason(in.stream.denials, in.req, false)
 	case in.exitCode == 0 && !in.stream.finalErr:
 		res.Status = domain.RunDone
 		if len(in.stream.denials) > 0 {
 			// 做成了，但路上有东西被挡。状态是 done，Error 里仍要留一句——
 			// 「它绕过去了」不等于「它做的和你要的一样」，用户有权知道。
-			res.Error = denialReason(in.stream.denials, in.req.AllowWrites, true)
+			res.Error = denialReason(in.stream.denials, in.req, true)
 		}
 	default:
 		res.Status = domain.RunFailed
@@ -596,21 +614,90 @@ func (r *Runner) finish(in finishInput) *Result {
 // denialReason 说清「它想做什么、被什么挡住了、你该点哪里」。
 //
 // 不能只说「有工具调用被拒绝」——用户看不懂那是什么意思，也不知道下一步做什么。
-// 这句话是他唯一能看到的指引，必须自带解法。
-func denialReason(denials []Denial, allowWrites, partial bool) string {
+// 这句话是他唯一能看到的指引，必须自带解法（TSK-0499）：
+//   - 列出被拒的工具，Bash 带上命令原文（截短），一眼看出是哪条命令；
+//   - 文件编辑被拒且这次是只读：叫用户勾「允许修改文件」（选一个写入档位）；
+//   - 其余能靠白名单放行的：给出规则，固定写成「建议放行：`规则`、`规则`。」——
+//     前端认这个格式，渲染成「去设置放行」的直达入口（设置 / 执行权限，预填这些规则）。
+func denialReason(denials []Denial, req Request, partial bool) string {
 	names := uniqueToolNames(denials)
 	tail := "任务没有真正完成。"
 	if partial {
 		// 别的调用成功了，不能断言整件事没做成——只能说有步骤被挡过。
 		tail = "其余步骤已执行，但被挡下的部分可能没有生效。"
 	}
-	head := fmt.Sprintf("这次执行有 %d 个工具调用被权限策略拒绝（%s），%s",
-		len(denials), strings.Join(names, "、"), tail)
-	if allowWrites {
-		// 已经勾了开关还被拒，那就不是工作台挡的，是用户自己的配置。
-		return head + "「允许修改文件」已经打开，说明这些调用是被你自己的权限配置挡下的，请检查 ~/.claude/settings.json。"
+	perm := req.Permission
+	if perm == "" {
+		perm = PermReadOnly
+		if req.AllowWrites {
+			perm = PermAcceptEdits
+		}
 	}
-	return head + "本次为只读执行；要让它真正改文件，请在发起时勾选「允许修改文件」。"
+	var b strings.Builder
+	fmt.Fprintf(&b, "这次执行有 %d 个工具调用被权限策略拒绝（%s），%s", len(denials), strings.Join(names, "、"), tail)
+	if cmds := deniedCommands(denials); len(cmds) > 0 {
+		b.WriteString("被拒的命令：" + strings.Join(cmds, "；") + "。")
+		if unsafeSqlite(denials) {
+			b.WriteString("查库要写成 sqlite3 -readonly -safe（已在只读白名单里）；不带 -safe 时 .shell 能跑任意命令，不放行。")
+		}
+	}
+	edits := false
+	for _, d := range denials {
+		if editTools[d.ToolName] {
+			edits = true
+		}
+	}
+	if edits && !req.AllowWrites {
+		b.WriteString("本次为只读执行；要让它真正改文件，请在发起时勾选「允许修改文件」（选一个写入档位）。")
+	}
+	if rules := SuggestRules(denials, req.AllowedTools); len(rules) > 0 {
+		quoted := make([]string, len(rules))
+		for i, r := range rules {
+			quoted[i] = "`" + r + "`"
+		}
+		fmt.Fprintf(&b, "本次档位「%s」没放行这些调用；建议放行：%s。到「设置 / 执行权限」把它们加进自定义白名单，发起时选「%s」档位。",
+			PermLabel(perm), strings.Join(quoted, "、"), PermLabel(PermCustom))
+	} else if !edits || req.AllowWrites {
+		// 推不出规则、又不是只读挡了编辑：多半是用户自己的 deny 规则。
+		b.WriteString("本次档位是「" + PermLabel(perm) + "」，这些调用不在工作台的放行范围内，或被你自己的权限配置挡下，请检查 ~/.claude/settings.json 和项目的 .claude/settings*.json。")
+	}
+	return b.String()
+}
+
+// unsafeSqlite 报告被拒的命令里有没有不带 -safe 的 sqlite3。
+func unsafeSqlite(denials []Denial) bool {
+	for _, d := range denials {
+		cmd, _ := d.ToolInput["command"].(string)
+		for _, seg := range splitCommand(cmd) {
+			if f := strings.Fields(seg); len(f) > 0 && f[0] == "sqlite3" && !strings.Contains(seg, "-safe") {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// deniedCommands 是被拒的 Bash 命令原文（去重、截短），最多列 5 条。
+func deniedCommands(denials []Denial) []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, d := range denials {
+		if d.ToolName != "Bash" {
+			continue
+		}
+		cmd, _ := d.ToolInput["command"].(string)
+		cmd = oneLine(cmd, 120)
+		if cmd == "" || seen[cmd] {
+			continue
+		}
+		if len(out) == 5 {
+			out = append(out, "……")
+			break
+		}
+		seen[cmd] = true
+		out = append(out, cmd)
+	}
+	return out
 }
 
 // uniqueToolNames 去重并保序。同一个工具被拒十次，列十遍没有任何信息量。

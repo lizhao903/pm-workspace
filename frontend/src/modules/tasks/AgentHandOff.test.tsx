@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -79,7 +81,8 @@ describe('交给工作台 Agent', () => {
     const bodies = stub({ scenario: 'ag_b' })
     renderUI()
     const user = userEvent.setup()
-    await user.click(await screen.findByRole('button', { name: '交给工作台 Agent' }))
+    await user.click(await screen.findByRole('button', { name: '交给执行' }))
+    await user.click(screen.getByRole('radio', { name: '工作台 Agent' }))
     const pick = await screen.findByRole('combobox', { name: 'Agent' })
     await waitFor(() => expect(pick).toHaveValue('ag_b'))
     // 停用的不在下拉里
@@ -99,7 +102,8 @@ describe('交给工作台 Agent', () => {
     const bodies = stub({ rows })
     renderUI()
     const user = userEvent.setup()
-    await user.click(await screen.findByRole('button', { name: '交给工作台 Agent' }))
+    await user.click(await screen.findByRole('button', { name: '交给执行' }))
+    await user.click(screen.getByRole('radio', { name: '工作台 Agent' }))
     await waitFor(() => expect(screen.getByRole('combobox', { name: 'Agent' })).toHaveValue('ag_a'))
     const resume = screen.getByRole('checkbox', { name: '接着上次的会话' })
     await waitFor(() => expect(resume).toBeEnabled())
@@ -128,7 +132,8 @@ describe('交给工作台 Agent', () => {
     })
     renderUI()
     const user = userEvent.setup()
-    await user.click(await screen.findByRole('button', { name: '交给工作台 Agent' }))
+    await user.click(await screen.findByRole('button', { name: '交给执行' }))
+    await user.click(screen.getByRole('radio', { name: '工作台 Agent' }))
     await waitFor(() => expect(screen.getByRole('button', { name: '开始执行' })).toBeEnabled())
     await user.click(screen.getByRole('button', { name: '开始执行' }))
     const card = await screen.findByRole('group', { name: '等你确认的操作' })

@@ -95,6 +95,7 @@
               "network:im",
               "network:media-platforms",
               "network:market-data",
+              "network:model",
               "network:exchanges",
               "network:any",
               "process:spawn",

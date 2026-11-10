@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 内容编写的编辑区（VID-09b，SPEC-videos-10.31 到 10.41、10.44、10.45，照原型 videos.tsx 的 ScriptDesk、TextPane）。
 // 口播稿按比例一栏一个，大纲一栏（多个比例时栏头切换），原文可选。正文读写走 GET/PUT /api/video/artifacts/{id}/content：
 // 「保存为 vN」存成下一版（还没有产出物的先登记一条 v1 再写），「交给验收」把当前版标待验收。没保存的草稿记在本机（scriptModel）。

@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 视频插件的 B 站组件（TSK-0455）：网页端扫码登录、账户概览和按天趋势、私信会话和消息、发文字私信。
 // 契约见 docs/api-contract.md「B 站组件（TSK-0455）」。接口不给 Cookie、csrf 等凭证，只给登录状态、昵称、头像和数据。
 // 被限频、风控时后端回 429，error.guard 是退避说明（到什么时候、为什么），界面照着显示，不自己重试。

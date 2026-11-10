@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 

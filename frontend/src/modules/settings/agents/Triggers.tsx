@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 配置页的「触发方式」标签（SPEC-settings-9.24、9.25），结构化条件 match 见 AG-01b4：
 // 任务触发选「分配给它」或填标签；IM 触发选连接器、会话、只看与我相关；定时由定时任务的 Agent 动作指过来。
 import { useConnectors, useConversations, type AgentTrigger, type AgentTriggerKind, type AgentTriggerMatch } from '../../../core/data'

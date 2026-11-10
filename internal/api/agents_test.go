@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 package api
 
 import (
@@ -182,7 +184,8 @@ func TestAgentSessionUsesAgentInstructions(t *testing.T) {
 
 	mustCode(t, do(s, "POST", "/api/agent/sessions", `{"agent_id":"ag_nope"}`), http.StatusNotFound, "unknown agent")
 
-	w := do(s, "POST", "/api/agent/sessions", `{"agent_id":"`+agentID+`","provider_id":"apv_other","model":"other"}`)
+	// 只给 agent_id：用 Agent 的服务商和模型（同时给服务商是建会话就指定模型，见 TestCreateSessionWithModel）
+	w := do(s, "POST", "/api/agent/sessions", `{"agent_id":"`+agentID+`"}`)
 	mustCode(t, w, http.StatusCreated, "create session")
 	sess := envelopeData(t, w)
 	if sess["agent_id"] != agentID || sess["provider_id"] != pid || sess["model"] != "agent-model" || sess["agent_deleted"] != false {

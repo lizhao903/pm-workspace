@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 package sop
 
 import (
@@ -30,8 +32,8 @@ const (
 	iterateMax      = 100
 )
 
-// execNode 执行一个节点：要模型、知识库、网络的走这里，其余交给 runNode。
-func execNode(ctx context.Context, c plugin.Core, def stepDef, input Json, deps []string) nodeResult {
+// execNode 执行一个节点：要模型、知识库、网络的走这里，其余交给 runNode；im 是流程的触发方式是不是 IM 消息（失败文案要用）。
+func execNode(ctx context.Context, c plugin.Core, def stepDef, input Json, deps []string, im bool) nodeResult {
 	switch def.Kind {
 	case "ai":
 		return runAI(ctx, c.Agent(), def, input)
@@ -54,7 +56,7 @@ func execNode(ctx context.Context, c plugin.Core, def stepDef, input Json, deps 
 	case "code":
 		return nodeResult{err: codeUnsupported}
 	}
-	return runNode(def, input, deps)
+	return runNode(def, input, deps, im)
 }
 
 // mainText 同原型：指定了字段就取它，否则取输入里最长的那段文字。

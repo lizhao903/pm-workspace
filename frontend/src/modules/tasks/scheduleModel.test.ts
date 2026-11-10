@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 import { describe, expect, it } from 'vitest'
 import type { DictItem, Schedule } from '../../core/data'
 import {
@@ -13,7 +15,7 @@ const prio = (key: string, meta: Record<string, unknown> = {}): DictItem => ({
 const sch = (p: Partial<Schedule> = {}): Schedule => ({
   id: 'sch_a', name: '周会前整理议程', enabled: true, rule: { ...emptyRule(now) },
   action: { kind: 'task', title: '整理 {{date}} 周会议程', desc: '', priority: 'P2', assignee: '', due_days: 0 },
-  next_run_at: null, created_at: '', updated_at: '', ...p,
+  project_id: null, next_run_at: null, created_at: '', updated_at: '', ...p,
 })
 
 describe('定时任务的规则', () => {

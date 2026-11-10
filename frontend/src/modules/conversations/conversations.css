@@ -33,16 +33,6 @@
 .lib-reader-empty { height: 100%; display: grid; place-items: center; color: var(--faint); }
 
 /* 新会话面板 */
-.agent-pick { margin: 0 var(--sp-5) var(--sp-4); padding: var(--sp-2); border: 1px solid var(--line); border-radius: var(--r); background: var(--panel); box-shadow: var(--shadow-sm); }
-.agent-pick .menu-item { display: flex; align-items: center; gap: var(--sp-4); width: 100%; }
-.agent-pick .menu-item .ellipsis { flex: 1; min-width: 0; }
-.agent-pick .menu-item.on { background: var(--accent-soft); color: var(--accent); }
-.agent-pick .menu-item:disabled { opacity: 0.5; cursor: default; }
-.agent-pick-search { width: auto; margin: 2px var(--sp-2) var(--sp-3); }
-.agent-pick-list { max-height: 240px; overflow-y: auto; }
-.agent-pick-form { display: flex; flex-direction: column; gap: var(--sp-4); padding: var(--sp-4) var(--sp-3) var(--sp-3); border-top: 1px solid var(--line); margin-top: var(--sp-2); }
-.agent-pick-field { display: flex; flex-direction: column; gap: var(--sp-2); min-width: 0; }
-.agent-pick .mono-input { font-family: var(--mono); font-size: var(--fs-sm); }
 .io-empty { padding: 20px 14px; text-align: center; color: var(--faint); font-size: var(--fs-sm); }
 .act-row { display: flex; align-items: center; gap: var(--sp-3); flex-wrap: wrap; }
 
@@ -53,6 +43,11 @@
 .chat-title:hover { text-decoration: underline dashed var(--line-2); }
 .chat-title-input { height: 30px; padding: 0 var(--sp-4); border: 1px solid var(--accent-line); border-radius: var(--r-sm); background: var(--panel); color: var(--text); font-weight: 600; outline: 0; }
 .chat-agent { font-size: var(--fs-sm); min-width: 0; }
+.chat-item-model { display: block; color: var(--faint); font-size: var(--fs-xs); }
+/* 会话行第二行（P0-S1）：最后一条消息，单行截断，弱化成说明文字 */
+.chat-item-last { display: block; min-width: 0; color: var(--muted); }
+.chat-item-model.warn, .chat-model.warn { color: var(--danger); }
+/* 头部的模型（TSK-0720）：点了在下面展开换模型的面板 */
 .chat-head-err { padding: var(--sp-3) var(--sp-8); }
 .chat-outputs { flex: none; padding: var(--sp-3) var(--sp-8); border-bottom: 1px solid var(--line); background: var(--panel-2); font-size: var(--fs-sm); }
 .chat-source { flex: none; display: flex; gap: var(--sp-4); align-items: baseline; min-width: 0; padding: var(--sp-3) var(--sp-8); border-bottom: 1px solid var(--line); font-size: var(--fs-sm); }
@@ -181,3 +176,7 @@
 
 /* 任务交给工作台 Agent 执行建的会话（TSK-0460） */
 .chat-item-tag { flex: none; padding: 0 5px; border-radius: 4px; border: 1px solid var(--line); color: var(--muted); font-size: var(--fs-2xs, 11px); line-height: 16px; }
+
+/* 新会话：这次指定模型 */
+.ns-model-check { padding: 0 var(--sp-4) var(--sp-3); font-size: var(--fs-sm); }
+.agent-pick-modelbox { display: flex; flex-direction: column; gap: var(--sp-3); padding: 0 0 var(--sp-4); border-bottom: 1px solid var(--line); margin-bottom: var(--sp-3); }

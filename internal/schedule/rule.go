@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // Package schedule 是定时任务（TASK-03a）：规则、下次执行时间的计算，和 schedules 表（0020）的读写。
 // 调度执行与执行记录归 TASK-03b，这里不跑任何东西。
 //

@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 package main
 
 // 项目档案（AUTO-04）的只读工具：分类 Agent 拿它判断一条需求属于哪个项目，pipeline 拿它找目录和命令。
@@ -51,6 +53,7 @@ func addListProjectProfiles(s *mcp.Server, c *client) {
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "pmw_list_project_profiles",
 		Description: listProjectProfilesDesc,
+		InputSchema: noArgsSchema,
 		Annotations: readOnly("列出项目档案摘要"),
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, any, error) {
 		q := url.Values{"type": {"project"}, "limit": {"200"}, "sort": {"title"}}

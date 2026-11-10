@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 待验收的任务在抽屉里验收通过或退回（DEV-08d，照原型 devloop.tsx 的 ReviewBar）。
 // 验收通过和列表完成圆圈走同一个 useApprove（kind=note、status=done）；退回意见必填，状态回初始状态。
 // 栏里放最近一条提交验收的全文（含改动文件、测试结果）、提交号和验收标准清单（PR-07，SPEC-tasks-5.21），不用滚到底读说明。

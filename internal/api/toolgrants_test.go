@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 package api
 
 import (
@@ -157,7 +159,7 @@ func TestAgentGrantsAPI(t *testing.T) {
 
 	g := r.call("GET", "/api/agents/"+id+"/grants", "", http.StatusOK)
 	grants := g["grants"].(map[string]any)
-	if g["agent_id"] != id || grants["read_tasks"] != "auto" || grants["read_contacts"] != "auto" || grants["write_tasks"] != "off" || len(grants) != 9 {
+	if g["agent_id"] != id || grants["read_tasks"] != "auto" || grants["read_contacts"] != "auto" || grants["write_tasks"] != "off" || grants["write_sop"] != "off" || len(grants) != 11 {
 		t.Fatalf("默认授权 = %v", g)
 	}
 

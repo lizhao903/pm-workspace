@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 数据访问层（CORE-03a）：模块和插件取数、写数据只走这里，不直接调用 core/api（lint 规则拦着）。
 // 这里封装资源级 hook、缓存键和失效规则、统一的错误和加载状态；core/api 只管发请求。
 export { dataKeys, normFilter } from './keys'
@@ -24,12 +26,13 @@ export {
 } from './progress'
 export { REVISION_LIMIT, useObjectRevisions, groupRevisions, rejectText, useReject } from './revisions'
 export type { RevisionGroup } from './revisions'
-export { useArtifacts, useObjectArtifacts, useArtifactStats, useArtifactCount, useRecordArtifact } from './artifacts'
-export { runFinished, useTaskRuns, useTaskRun, useCancelRun, streamRun, decideRunCall, useRunPrompt, startTerminalRun, finishTerminalRun, useFinishRun, useRunPresets, useSaveRunPresets } from './runs'
+export { useArtifacts, useObjectArtifacts, useArtifactStats, useArtifactCount, useRecordArtifact, useArtifactsByObject } from './artifacts'
+export { runFinished, useTaskRuns, useTaskRun, useCancelRun, streamRun, decideRunCall, useRunPrompt, startTerminalRun, finishTerminalRun, useFinishRun, useRunPresets, useSaveRunPresets, useRunPermissions, useSaveRunPermissions } from './runs'
+export { useRunners, useDetectRunners, useDeepSeekSmoke, useStartDeepSeekSmoke } from './runners'
 export { workdirUsable, useWorkdirCheck, useFsBrowse, useFsShortcuts, useFsRoots, useAddFsRoot, useRemoveFsRoot, fsCrumbs } from './fs'
 export {
   useAgentProviders, useProviderModels, providerModelIds, loadProviderModels, defaultProvider, useAgentSessions, useAgentMessages, useCreateAgentSession, usePatchAgentSession,
-  useDeleteAgentSession, useRemoveAgentMessages, useRunningAgentSessions, useStopAgentSession, streamChat, streamDecision, streamDebugChat, setFirstMessage, firstMessageOf,
+  useDeleteAgentSession, useRemoveAgentMessages, useRunningAgentSessions, useStopAgentSession, useSwitchSessionModel, streamChat, streamDecision, streamDebugChat, setFirstMessage, firstMessageOf,
 } from './agent'
 export type {
   AgentProvider, AgentProviderKind, ProviderTestResult, AgentSession, AgentMessage, AgentMessageRole, AgentSessionInput, AgentSessionPatch, SessionSourceRef,
@@ -46,7 +49,7 @@ export {
 export type { Today, TodayCard, TodayRun } from './today'
 export {
   SCHEDULE_RUNS_LIMIT, useSchedules, useScheduleRuns, useLastScheduleRuns, useSchedulePreview, useCreateSchedule, usePatchSchedule,
-  useDeleteSchedule, useRunSchedule, useObjectReminders,
+  useDeleteSchedule, useRunSchedule, useObjectReminders, useProjectSchedules,
 } from './schedules'
 export type {
   Schedule, ScheduleRule, ScheduleFreq, ScheduleAction, ScheduleActionKind, ScheduleRun, ScheduleRunStatus, ScheduleInput, SchedulePatch,
@@ -59,7 +62,7 @@ export type {
   Workspace, WorkspaceGroup, WorkspaceGroupInput, WorkspaceMark, WorkspaceTemplate, WorkspaceInput, WorkspacePatch,
 } from './workspaces'
 export {
-  docsApi, useCategoryTree, useTags, useLocalDirs, useLocalDirFiles, useLocalFile, useMountLocalDir, useUnmountLocalDir,
+  docsApi, useCategoryTree, useTags, useLocalDirs, useLocalDirFiles, useProjectDocFiles, useLocalFile, useMountLocalDir, useUnmountLocalDir,
   useOpenLocalFile, localRawUrl, mergeFilePages, useSetStarred, setStarred, isStarred, PROP_STARRED,
 } from './docs'
 export type { Category, TagInfo, LocalDir, LocalFileEntry, LocalFileKind, LocalFileList, LocalListReason, LocalFile } from './docs'
@@ -83,15 +86,15 @@ export type { Incident, IncidentLevel, IncidentReport, IncidentStatus, IncidentT
 export { contactsApi, useContacts, useSetContactStarred } from './contacts'
 export type { Contact, ContactPatch } from './contacts'
 export {
-  PROJECT_TYPE, PROJECT_ROLES, projectView, mergeProjectProps, isLiveProject, saveProject, projectsApi, useProjects, useProject,
+  PROJECT_TYPE, PROJECT_ROLES, PROJECT_ROLE_DICT, DEFAULT_PROJECT_ROLE, projectRoleItems, defaultProjectRole, useProjectRoles, projectView, mergeProjectProps, isLiveProject, saveProject, projectsApi, useProjects, useProject,
   useCreateProject, useSaveProject, useProjectStakeholders,
 } from './projects'
 // 项目下拉选项（读缓存），插件登记的 SOP 节点用（消息分流）
 export { projectOptions } from './projects'
-export type { ProjectView, ProjectMark, RelatedDir, ProjectProps, ProjectCreate, ProjectSave, ProjectRole, ProjectStakeholder } from './projects'
+export type { ProjectView, ProjectMark, RelatedDir, ProjectProps, ProjectCreate, ProjectSave, ProjectRole, ProjectRoleItem, ProjectStakeholder } from './projects'
 export { useSaveContact, useUpdateContact, useDeleteContact } from './contacts'
 export type { ContactInput, ContactUpdate, ContactSave, ContactSaved } from './contacts'
-export { CONTACT_GROUP_DICT, DEFAULT_CONTACT_GROUP, contactGroupOptions, useCreateContactLinked } from './contacts'
+export { CONTACT_GROUP_DICT, DEFAULT_CONTACT_GROUP, contactGroupOptions, contactGroupsOf, useCreateContactLinked } from './contacts'
 export type { ContactQuick, ContactLinked } from './contacts'
 export {
   identitiesApi, useIdentities, useCreateIdentity, useRelinkIdentity, useDeleteIdentity, normExternalId, identitiesByContact, imOf, identityOwner, identityPlan, applyIdentityPlan,
@@ -99,11 +102,13 @@ export {
 export type { Identity, IdentityInput, IdentityOp, IdentityFailure } from './identities'
 export {
   connectorsApi, connectorsPagePath, normConnector, useConnectorDefs, useConnectors, useCreateConnector, usePatchConnector, useDeleteConnector,
-  useTestConnector, useRefreshConnectorTools, useSetConnectorToolModes, useStartConnectorOAuth,
+  useTestConnector, useRefreshConnectorTools, useSetConnectorToolModes, useStartConnectorOAuth, useFetchConnectorIcon,
 } from './connectors'
+export { PLATFORM_DOMAINS, addressFields, connectorLook, detectPlatform, detectedLogo } from './connectorLogo'
+export type { ConnectorLook } from './connectorLogo'
 export type {
   Connector, ConnectorDef, ConnectorField, ConnectorTool, ConnectorToolDef, ConnectorAuthMode, ConnectorToolMode, ConnectorStatus,
-  ConnectorDirection, ConnectorInput, ConnectorPatch, ConnectorTestResult, ConnectorRefreshResult,
+  ConnectorDirection, ConnectorInput, ConnectorPatch, ConnectorTestResult, ConnectorRefreshResult, ConnectorIconFetchResult,
   ConnectorOAuthDef, ConnectorOAuthState, ConnectorOAuthStart,
 } from './connectors'
 export { imChannelsApi, imConversationsKey, useImConversations } from './imChannels'
@@ -112,12 +117,18 @@ export {
   projectStakeholdersApi, useAddProjectStakeholder, useAddProjectStakeholders, usePatchProjectStakeholder, useRemoveProjectStakeholder,
 } from './projectStakeholders'
 export type { ProjectStakeholderInput, ProjectStakeholderPatch, ProjectStakeholdersAdded } from './projectStakeholders'
-export { IM_EXPIRE_DAYS_MAX, IM_QUICK_REPLIES_MAX, IM_QUICK_REPLY_TEXT_MAX, IM_PAGE_MAX, imApi, normMessage, useImMessages, useImMessage, useImAction, useImBatch, useImToTask, useImPendingCount, useImSyncConnector, useImSettings, usePatchImSettings, useImConversationProjects, useSetImConversationProject, useImStartSession } from './im'
+export { IM_EXPIRE_DAYS_MAX, IM_QUICK_REPLIES_MAX, IM_QUICK_REPLY_TEXT_MAX, IM_PAGE_MAX, imApi, normMessage, useImMessages, useImMessage, useImRecentMessages, useImAction, useImBatch, useImToTask, useImPendingCount, useImSyncConnector, useImSettings, usePatchImSettings, useImConversationProjects, useSetImConversationProject, useImStartSession } from './im'
 export type { ImMaterialKind, ImMessageMaterial, ImMessageThread, ImMaterialSource, ImMaterialLinkInput, ImMaterialLinkResult, ImMessage, ImMsgStatus, ImRelevance, ImAttachment, ImReply, ImAction, ImBatchInput, ImBatchResult, ImTaskInput, ImTaskResult, ImTaskReply, ImSyncResult, ImSettings, ImQuickReply, ImConversationProject, ImMessageSession, ImSplitTask, ImSessionIntent, ImSessionLinkInput, ImSessionLinkResult, ImStartSessionInput } from './im'
 export { imEmailApi, useImBackfillEmails } from './imEmails'
-export { IM_CONV_BATCH_MAX, IM_MENTIONS_MAX, IM_SEND_MAX, imGroupsApi, useImConversationSummary, useImMembers, useImSendToConversation, useImSent, useSetImConversationProjects } from './imGroups'
-export type { ImConvProjectBatchInput, ImConvProjectBatchResult, ImConvProjectFailure, ImConversationSummary, ImMember, ImMention, ImOutboxItem, ImSendInput } from './imGroups'
+export { IM_CONV_BATCH_MAX, IM_MENTIONS_MAX, IM_SEND_MAX, imGroupsApi, useImConversationSummary, useImMembers, useImSendToConversation, useImSent, useRefillImNames, useSetImConversationProjects } from './imGroups'
+export type { ImConvProjectBatchInput, ImConvProjectBatchResult, ImConvProjectFailure, ImConversationSummary, ImMember, ImMention, ImNameFailed, ImNameFilled, ImNameRefillResult, ImOutboxItem, ImSendInput } from './imGroups'
 export type { ImEmailBackfillResult, ImEmailConflict, ImEmailFilled } from './imEmails'
+// 群组管理补全消息（IM 0.30.0，TSK-0724）
+export { useImBackfillConversation } from './imGroups'
+export type { ImHistoryBackfillResult, ImHistoryRange } from './imGroups'
+// 自动忽略发信人（IM 0.27.0，TSK-0495）
+export { findMute, imMutesApi, useCreateImMute, useImMutePending, useImMutes, useRemoveImMute } from './imMutes'
+export type { ImMessageMute, ImMute, ImMuteInput, ImMuteResult, ImMuteTarget } from './imMutes'
 export {
   MATERIAL_KINDS, MATERIAL_NOTE_MAX, MATERIAL_KIND_GROUPS, projectMaterialsApi, useProjectMaterials, useAddProjectMaterials, usePatchProjectMaterial, useRemoveProjectMaterial,
 } from './materials'
@@ -154,7 +165,7 @@ export {
 export type { TerminalSession, TerminalSessionInput, TerminalSessionCreated, TerminalSettings, TerminalPrototype } from './terminal'
 export {
   SOP_RUNS_MAX, sopApi, useSopFlows, useSopNodeTypes, useSopRuns, useSopRun, useStartSopRun, useSopRunAction, useDeleteSopFlow,
-  useSopFlow, useSaveSopFlow, useSopAssist, sopIssuesOf, useSopObjectRuns, useSopSettings, usePatchSopSettings, SOP_MODEL_CONCURRENCY_MAX,
+  useSopFlow, useSaveSopFlow, useSopAssist, sopIssuesOf, useSopObjectRuns, useSopInputRuns, useSopSettings, usePatchSopSettings, SOP_MODEL_CONCURRENCY_MAX,
   isSopRunRelaunched, sopRunShow, isSopHeld, useSopPipeline, SOP_CLAUDE_CONCURRENCY_MAX, SOP_TASK_MAX_RUNS_MAX, SOP_TASK_MAX_MINUTES_MAX,
 } from './sop'
 export type {
@@ -163,11 +174,22 @@ export type {
   SopSettingsPatch, SopStepQueue, SopStepHold, SopWaitKind, SopWaitingItem, SopPipelineStep, SopPipelineRun, SopClaudeUsage, SopPipelineBudget, SopPipeline,
 } from './sop'
 // SOP 的定时触发（TSK-0463）：规则存在随流程管理的定时任务里
-export { SOP_TRIGGER_SCHEDULE } from './sop'
-export type { SopScheduleDraft, SopScheduleOff } from './sop'
+export { SOP_IM_RELEVANCES, SOP_TRIGGER_IM, SOP_TRIGGER_SCHEDULE } from './sop'
+export type { SopIMDraft, SopIMRelevance, SopIMTrigger, SopScheduleDraft, SopScheduleOff } from './sop'
+// 结构化条件、节点声明、这一步能拿到的字段（TSK-0490）
+export { SOP_COND_OPS, normIssues, useSopStepFields } from './sop'
+// 调试（TSK-0491）
+export { useSopDebug, useSopIMExplain, useSopSkips } from './sop'
+export type { SopDebug, SopDebugAction, SopDebugCond, SopDebugCondItem, SopDebugInput, SopDebugSource, SopDebugStatus, SopDebugStep, SopEffect, SopIMExplain, SopIMExplainFlow, SopIMVerdict, SopSkip, SopSkipReason, SopSkips } from './sop'
+export type { SopCond, SopCondItem, SopCondOp, SopFieldGroup, SopFieldInfo, SopOption, SopOutput, SopParam, SopStepFieldsDraft, SopTrigger } from './sop'
 // 挂起等服务商恢复（TSK-0392）
 export { isSopProviderWait } from './sop'
 export type { SopProviderWait } from './sop'
+// 没走完和待我处理的执行，不受最近 500 条限制（TSK-0486）
+export { fetchSopOpenRuns, sopOpenRunsKey, useSopOpenRuns } from './sop'
+// 流程库的文件夹（TSK-0482）
+export { SOP_FOLDER_NAME_MAX, SOP_FOLDER_RESERVED, useDeleteSopFolder, useMoveSopFlows, useSaveSopFolder, useSopFolders } from './sop'
+export type { SopFolder } from './sop'
 // 任务阶段全集和阶段变化历史（AUTO-05、AUTO-12）
 export { TASK_STAGES, WAITING_STAGES, taskStageLabel, stageHistoryApi, useStageHistory } from './stageHistory'
 export type { TaskStage, StageChange } from './stageHistory'
@@ -175,6 +197,9 @@ export type { TaskStage, StageChange } from './stageHistory'
 // 批量发起、按输入字段查执行（IM 页批量分诊、处理队列）
 export { SOP_BATCH_MAX, SOP_RERUN_REASON_RELAUNCHED, applyRerun, sopBatchApi, triageFlows, useRerunSopRuns, useSopRunsByInput, useStartSopBatch, useStopSopRuns } from './sopBatch'
 export type { SopBatchItem, SopBatchResult, SopInputRun, SopRerunAction, SopRerunResult } from './sopBatch'
+// 批量停止（TSK-0717）
+export { newSopBatchId, useSopStopPreview, useStopSopWhere } from './sopBatch'
+export type { SopRunStatusCounts, SopStopResult, SopStopScope } from './sopBatch'
 
 export { skillKeys } from './skillKeys'
 export { skillsApi, skillReadonly, useSkills, useCreateSkill, usePatchSkill, useDeleteSkill } from './skills'
@@ -187,6 +212,9 @@ export type {
   KnowledgeBase, KbDoc, KbDocSource, KbDocStatus, KbDir, KbEmbed, KbSettings, KbCounts, KbAddInput, KbSettingsInput, KbInput, KbPatch,
   KbDocPatch, KbMissing, KbSyncResult, KbSyncProgress, KbHit, KbSearchResult, KbAgent,
 } from './knowledgeBases'
+// 项目知识库（TSK-0721）
+export { kbPagePath, kbSyncLine, projectKbApi, useBindProjectKb, useProjectKb, useSyncProjectKb } from './projectKb'
+export type { ProjectKb, ProjectKbBind, ProjectKbInfo, ProjectKbProblem, ProjectKbSources, ProjectKbSync } from './projectKb'
 
 export { agentConfigKeys } from './agentConfigKeys'
 export {
@@ -199,10 +227,22 @@ export type {
 } from './agents'
 export {
   AGENT_RUN_STATUS, AGENT_RUN_PAGE_MAX, TOOL_CALL_STATE, agentRunsApi, useAgentRunList, useAgentRunCounts, useAgentRun,
+  stopAgentRun, retryAgentRun, useStopAgentRun, useRetryAgentRun,
 } from './agentRuns'
 export type {
   AgentRun, AgentRunCall, AgentRunDetail, AgentRunFilter, AgentRunTriggerKind, AgentToolCall, AgentToolCallState,
 } from './agentRuns'
+// 等确认注意力（P0-O3）：菜单红点、今日「Agent 待确认」组、会话列表圆点、刷新后恢复确认卡
+export { agentAttentionApi, agentAttentionKeys, useAgentAttention } from './agentAttention'
+export type { AgentAttention, AgentPendingCall, AgentWaitingRun } from './agentAttention'
+// 统一运行中心（P0-O1）：Agent 触发执行 + 任务执行聚合成一页
+export {
+  RUN_CENTER_LIMIT, RUN_CENTER_POLL_MS, runElapsed, runCenterApi, cancelTaskRun, useRunCenter, useCancelTaskRun,
+} from './runCenter'
+export type { RunCenterKind, RunCenterStatus, RunCenterItem, RunCenterFilter } from './runCenter'
+// 会话上下文治理（P0-S2）：下一条消息会发什么的预览、会话级追加要求
+export { agentContextKeys, agentContextApi, useAgentSessionContext, useSaveSessionInstruction } from './agentContext'
+export type { AgentContextMessage, AgentSessionContext } from './agentContext'
 
 export { domainKeys } from './domainKeys'
 export {
@@ -370,3 +410,18 @@ export type {
   BiliAccount, BiliLogin, BiliGuard, BiliSnapshot, BiliTrend, BiliTrendMetric, BiliOverview, BiliSession, BiliMessage, BiliMessageStatus,
   BiliQRCode, BiliPoll, BiliPollState, BiliSessions, BiliMessages,
 } from './videoBili'
+// 录音转写插件 recording（M1 + M4a + M5）
+export {
+  recordingKeys, recordingApi, recordingAudioUrl, recordingFileUrl, recordingLive, recordingPolling,
+  useRecordingList, useRecording, useRecordingFiles, useRecordingSpeakers, useVoiceprints, useRecordingSettings, useRecordingMeta,
+  useCreateRecording, useUploadAudio, useRetranscribe, usePatchRecording, useDeleteRecording,
+  useGenerateMinutes, useStartSop, useConfirmTodo, useIgnoreTodo, useDiarize, useRenameSpeaker, useBindSpeaker,
+  useDeleteVoiceprint, useSaveSettings, useDownloadModel, useDeleteModel,
+} from './recording'
+export type {
+  RecordingStatus, RecordingJobStatus, RecordingJob, Segment, RecordingSummary, Recording, RecordingInput, RecordingPatch,
+  RecordingListFilter, ToolInfo, ModelStatus, ModelInfo, RecordingSettings, RecordingSettingsInput, RecordingMeta,
+  RecordingAction, RecordingProject, RecordingGoal, RecordingQuestion, RecordingFlowNode, RecordingFlowEdge, RecordingFlow,
+  RecordingTreeNode, RecordingTree, RecordingDiagrams, RecordingMinutes, RecordingFile, RecordingFileKind, TodoKind, TodoStatus,
+  RecordingTodo, TodoConfirmInput, RecordingSopResult, RecordingSpeaker, Voiceprint,
+} from './recording'

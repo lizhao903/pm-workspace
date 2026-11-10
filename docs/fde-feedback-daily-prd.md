@@ -196,3 +196,9 @@ B. FDE 清单
 - Q4：清单里的新增需求要不要自动在工作台建成需求对象？本期默认不建。
 - Q5：本地是否允许留表格原始快照（便于追溯）？默认不留。
 - Q6：周末和节假日也跑吗？默认每天都跑。
+
+---
+
+由 DeepSeek Harness（dsh）协助完成。
+
+[![](https://img.shields.io/badge/powered_by-dsh-4D6BFE?style=flat-square&logo=deepseek&logoColor=white)](https://github.com/deepseek-ai/deepseek-harness)

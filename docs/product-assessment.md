@@ -269,3 +269,9 @@
 节拍一旦立住，项目经理视角的那些台账才有被填的动力——否则它们只会是第二批空转的界面。
 
 三条最该做的事，按顺序：**接上备份定时器 → 让 Agent 变成提醒源（每日扫停滞 + 每周摘要）→ 拆查询词修检索**。
+
+---
+
+由 DeepSeek Harness（dsh）协助完成。
+
+[![](https://img.shields.io/badge/powered_by-dsh-4D6BFE?style=flat-square&logo=deepseek&logoColor=white)](https://github.com/deepseek-ai/deepseek-harness)

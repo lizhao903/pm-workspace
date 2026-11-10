@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 元数据和计数：后端健康、对象类型、字典、干系人、/api/counts。
 // 状态、类型、优先级一律从后端读，不在前端写死。
 import { useQuery } from '@tanstack/react-query'

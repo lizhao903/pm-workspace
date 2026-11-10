@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 import { describe, expect, it } from 'vitest'
 import type { SopInputRun, SopRun, SopRunStep, SopStepDef } from '../../core/data'
 import { attemptChildId, attemptStatus, summarizeTriage, triageAttempts, triageBrief } from './triageSummary'

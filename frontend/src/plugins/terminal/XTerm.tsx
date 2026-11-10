@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 一格里的 xterm：连后端会话的 WebSocket（二进制收发终端字节，文本帧是 JSON 控制消息），见契约「终端收发」。
 // 断线自动重连（带 after 只补发没收到的）；会话没了显示「会话已结束」，shell 退出显示退出码，两种都能「重新打开」。
 import { useEffect, useRef, useState } from 'react'

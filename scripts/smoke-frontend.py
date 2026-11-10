@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 """正式前端冒烟测试：逐个打开已启用模块，亮暗两种主题 x 三种宽度，收集 console error、页面异常和横向滚动。
 
 用法（make smoke-frontend 调的就是这个）：

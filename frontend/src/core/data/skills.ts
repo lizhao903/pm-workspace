@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 技能（AG-01b6）：列表、新建（含复制）、修改、删除。契约见 docs/api-contract.md「技能 skills」。
 // 内置和插件的技能只读，只有自定义的能改、能删；写完报 { kind: 'skill' }。
 import { useMutation, useQuery } from '@tanstack/react-query'

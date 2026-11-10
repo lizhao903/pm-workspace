@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 package agent
 
 import (
@@ -52,6 +54,9 @@ type CompleteRequest struct {
 	Model    string
 	Agent    string
 	Scenario string
+	// Thinking 覆盖思考档位（default/off/low/medium/high）：空串跟 Agent 或服务商默认，
+	// 结构化输出这类不需要长思考的调用可以传 off 省时间（TSK：纪要生成慢）。
+	Thinking string
 }
 
 // AgentRunRequest 让一个 Agent 跑一轮。Agent 是 id 或名称；Title 是新会话的标题。
@@ -148,6 +153,10 @@ func (s *Service) Complete(ctx context.Context, req CompleteRequest) (string, er
 	req, thinking, err := s.completeAgent(ctx, req)
 	if err != nil {
 		return "", err
+	}
+	// 调用点显式指定思考档位时以它为准（比如 JSON 结构化任务关掉思考）。
+	if v := strings.TrimSpace(req.Thinking); v != "" {
+		thinking = v
 	}
 	if id := strings.TrimSpace(req.Provider); id != "" {
 		p, err := s.provider(ctx, id)

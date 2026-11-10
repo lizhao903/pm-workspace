@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 从 Slack 补联系人邮箱：渠道配置里 Slack 渠道卡片下面的一行。联系人经 IM 身份（Slack Member ID）认到 Slack 里的人，
 // 资料里有邮箱时补进联系人的邮箱：只填空的，不覆盖已有值；不一样的列出来，不改。
 // Slack 缺 users:read.email 时不算失败，给出要去 Slack 后台加权限的提示。之后收到新身份、新消息时后台会顺带补。

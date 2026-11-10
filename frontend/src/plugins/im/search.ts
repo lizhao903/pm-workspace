@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 命令面板的「消息」数据源（SPEC-messages-0 联动）：按正文、发信人、群名搜，多个词按空格拆开、每个词都要命中
 import type { ImMessage } from '../../core/data'
 

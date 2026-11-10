@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 连接器的 OAuth 授权（CONN-04b）：抽屉点「去授权」在新窗口打开对方的授权页，授权结束后那个窗口回到
 // /settings/connectors?oauth=ok|error&connector=…&message=…，只显示结果并经 BroadcastChannel 告诉抽屉（成功以轮询到的实例为准）。
 

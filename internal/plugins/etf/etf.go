@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // Package etf 是 A 股宽基监控插件的后端（ETF-01a 起）：盯每天的基金份额变动与交易大盘情况，
 // 落库留存；ETF-01b 起采集后补跟踪指数行情、算派生指标、按规则判定异动并发通知。
 //

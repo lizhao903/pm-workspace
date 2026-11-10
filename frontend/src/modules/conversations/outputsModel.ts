@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 产出结果的分组（B-08）：MCP 回写时一次提交会给涉及的每个任务各登记一条，同一提交号合并成一行。
 // 提交号从备注「[commit] sha=...」里取；没有提交号的、不是提交的，一条一行。
 import type { Artifact } from '../../core/data'

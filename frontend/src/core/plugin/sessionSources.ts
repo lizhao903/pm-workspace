@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 会话来源（内核 0047）：从别的记录发起的会话带 source_ref，会话页头部显示「来源：…」并能跳回去。
 // 来源是哪种记录、怎么显示、跳到哪，由发起它的插件按 source_ref.kind 登记（IM 插件登记 im_message）；
 // 会话模块和插件互不 import，会话页只认这里登记的定义；停用插件时按 id 撤掉，退回只显示 source_ref.label、不能跳。

@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 定时任务（TASK-03a、TASK-03b、TASK-04a）：定义、执行记录、规则预览、立即执行。契约见 docs/api-contract.md「定时任务 schedules」。
 // 列表的缓存键沿用今日页的 todayKeys.schedules（今日「今天还会自动执行」和定时任务页共用一份）；执行记录、预览在 dataKeys.schedules 下。
 import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
@@ -23,8 +25,8 @@ export type ScheduleRule = {
   cron: string
 }
 
-/** incident_sweep：运行异常巡检（INC-01a），内核动作，不属于插件；remind：到点在工作台里弹一条提醒通知 */
-export type ScheduleActionKind = 'task' | 'sop' | 'agent' | 'incident_sweep' | 'remind'
+/** incident_sweep：运行异常巡检（INC-01a），内核动作，不属于插件；remind：到点在工作台里弹一条提醒通知；git_pull：到点在本机仓库 git pull --ff-only */
+export type ScheduleActionKind = 'task' | 'sop' | 'agent' | 'incident_sweep' | 'remind' | 'git_pull'
 
 /** 后端按 kind 只输出自己的字段 */
 export type ScheduleAction =
@@ -36,6 +38,8 @@ export type ScheduleAction =
   | { kind: 'incident_sweep'; min_level: 'error' | 'warn'; min_count: number }
   /** 到点在工作台里发一条通知（不外发 IM）；object_id 是关联的对象（任务），点通知打开它，空串为不关联 */
   | { kind: 'remind'; title: string; body: string; object_id: string; popup?: 'toast' | 'modal' }
+  /** 到点在本机仓库里 git pull --ff-only；repo 是绝对路径，remote、branch 空串时按仓库自己的上游拉，branch 非空时 remote 必填 */
+  | { kind: 'git_pull'; repo: string; remote: string; branch: string }
 
 export type Schedule = {
   id: string
@@ -43,6 +47,8 @@ export type Schedule = {
   enabled: boolean
   rule: ScheduleRule
   action: ScheduleAction
+  /** 所属项目（0055），null 为不属于任何项目；动作「建一条任务」建的任务也挂到这个项目 */
+  project_id: string | null
   /** 按规则现算，带服务时区偏移；停用、一次性已过时为 null */
   next_run_at: string | null
   created_at: string
@@ -68,7 +74,7 @@ export type ScheduleRun = {
   finished_at: string | null
 }
 
-export type ScheduleInput = { name: string; enabled?: boolean; rule: ScheduleRule; action: ScheduleAction }
+export type ScheduleInput = { name: string; enabled?: boolean; rule: ScheduleRule; action: ScheduleAction; project_id?: string | null }
 export type SchedulePatch = Partial<ScheduleInput>
 export type SchedulePreview = { rule: ScheduleRule; next_runs: string[]; time_zone: string }
 
@@ -82,6 +88,9 @@ export const schedulesApi = {
   /** 关联这个对象的提醒（动作 remind），停用的、已提醒过的也在 */
   byObject: (objectId: string, signal?: AbortSignal) =>
     requestList<Schedule>('/api/schedules', { query: new URLSearchParams({ object_id: objectId }), signal }).then((r) => r.data),
+  /** 属于这个项目的定时任务（项目详情的「定时任务」标签） */
+  byProject: (projectId: string, signal?: AbortSignal) =>
+    requestList<Schedule>('/api/schedules', { query: new URLSearchParams({ project: projectId }), signal }).then((r) => r.data),
   create: (body: ScheduleInput) => request<Schedule>('POST', '/api/schedules', { body }),
   patch: (id: string, body: SchedulePatch) => request<Schedule>('PATCH', path(id), { body }),
   delete: (id: string) => request<null>('DELETE', path(id)),
@@ -103,6 +112,15 @@ export function useObjectReminders(objectId: string | null) {
     queryKey: [...todayKeys.schedules, 'object', objectId ?? ''] as const,
     queryFn: ({ signal }) => schedulesApi.byObject(objectId!, signal),
     enabled: !!objectId,
+  })
+}
+
+/** 项目详情的「定时任务」标签：属于这个项目的。键挂在列表键下面，新建、改、删定时任务时跟着刷新 */
+export function useProjectSchedules(projectId: string | null) {
+  return useQuery({
+    queryKey: [...todayKeys.schedules, 'project', projectId ?? ''] as const,
+    queryFn: ({ signal }) => schedulesApi.byProject(projectId!, signal),
+    enabled: !!projectId,
   })
 }
 

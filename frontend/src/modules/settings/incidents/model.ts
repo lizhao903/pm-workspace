@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 运行异常页的纯函数（SPEC-settings-18、19），照原型 web-next/src/incidents.tsx、incidentdata.ts：
 // 筛选、同类合并、顶栏数字、转任务的预填、自动巡检的默认定时任务。
 import { INCIDENT_MODULES, type DictItem, type Incident, type IncidentStatus, type Schedule, type ScheduleInput } from '../../../core/data'

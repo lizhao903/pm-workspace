@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 发布记录（VID-05c，SPEC-videos-7，照原型 web-next/src/videopublish.tsx 的 PublishPage）：汇总数字、只看一集时的按平台对比、封面 A/B 一节、
 // 搜索和平台、状态筛选，全部记录按视频分组。地址上记着 ?video=<只看的视频>、plat、st，抽屉 ?p=<发布 id 或 new>、?t=<测试 id 或 new>，刷新还在。
 // 原型的「模拟发布」换成经连接器投稿（POST submit），接通了上传接口的平台才自动发，其余只登记

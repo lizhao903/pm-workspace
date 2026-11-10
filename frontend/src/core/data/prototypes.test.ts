@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 import { describe, expect, it } from 'vitest'
 import { PROTOTYPE_LOG_MAX, mergeLogs, prototypeUp, prototypesPollMs, type ProjectPrototype, type PrototypeLogLine } from './prototypes'
 

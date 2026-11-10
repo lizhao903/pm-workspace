@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 package im
 
 import (
@@ -136,9 +138,10 @@ func (in *inbox) fillActions(ctx context.Context, ms []Message) error {
 // setState 是处理完、忽略、重新打开、已读四个动作：照原型改状态、清稍后、标已读。
 // stateSet 是处理动作改哪些列；SOP 的标记消息节点（im_mark_message）同用这一份。
 var stateSet = map[string]string{
-	"done":   `status = 'done', snooze_until = NULL, is_read = 1, expired_at = NULL`,
+	// 改回待处理、标为已处理时清掉「因发信人被设为自动忽略」（TSK-0495）；手动忽略保留
+	"done":   `status = 'done', snooze_until = NULL, is_read = 1, expired_at = NULL, muted_by = '', muted_name = ''`,
 	"ignore": `status = 'ignored', snooze_until = NULL, is_read = 1, expired_at = NULL`,
-	"reopen": `status = 'pending', snooze_until = NULL, expired_at = NULL, expire_from = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')`,
+	"reopen": `status = 'pending', snooze_until = NULL, expired_at = NULL, expire_from = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), muted_by = '', muted_name = ''`,
 	"read":   `is_read = 1`,
 }
 

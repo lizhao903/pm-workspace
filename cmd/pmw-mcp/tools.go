@@ -1,7 +1,10 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/url"
 	"regexp"
@@ -459,10 +462,16 @@ const listTypesDesc = `【只读】列出工作台里所有工作对象类型，
 
 返回：每个类型的 id、名称、ref 前缀，以及它的状态 key 列表（含中文标签、哪些是终态）；再附上全局的优先级与关联关系取值。`
 
+// noArgsSchema 是不带参数的工具的入参 schema（TSK-0722）。按空结构体反射出来的只有 {"type":"object"}，
+// 没有 properties；Claude Code 收，但交给 DeepSeek（dsh）再转给本机 Ollama 时，Ollama 的工具模板解析
+// 整个请求 400「properties must be an object」，一轮都跑不起来。显式写上空的 properties。
+var noArgsSchema = json.RawMessage(`{"type":"object","properties":{}}`)
+
 func addListTypes(s *mcp.Server, c *client) {
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "pmw_list_types",
 		Description: listTypesDesc,
+		InputSchema: noArgsSchema,
 		Annotations: readOnly("列出类型与合法状态"),
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, _ listTypesArgs) (*mcp.CallToolResult, any, error) {
 		types, err := c.listObjectTypes(ctx)

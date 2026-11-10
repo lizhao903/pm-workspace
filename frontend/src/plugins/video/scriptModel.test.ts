@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 import { beforeEach, describe, expect, it } from 'vitest'
 import type { Video, VideoArtifact, VideoCheckpoint } from '../../core/data'
 import {

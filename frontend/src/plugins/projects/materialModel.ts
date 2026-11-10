@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 支持材料标签的纯函数（SPEC-projects-11）：路径补全、选文件时的目录前缀、标签拆分、筛选。
 import {
   MATERIAL_KINDS, MATERIAL_KIND_GROUPS, MATERIAL_NOTE_MAX, type ImMaterialSource, type MaterialKind, type ProjectMaterial, type ProjectMaterialPatch, type WorkObject,

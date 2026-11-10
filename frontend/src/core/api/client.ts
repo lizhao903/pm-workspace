@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 接口层：所有请求都从这里发，组件里不直接 fetch（lint 规则 no-restricted-globals 盯着）。
 // 后端统一返回 { data, meta? }，出错返回 { error: { code, message } }（见 docs/api-contract.md）。
 
@@ -122,6 +124,54 @@ export async function requestEnvelope<T>(
 
 export async function request<T>(method: Method, path: string, opts?: RequestOptions): Promise<T> {
   return (await requestEnvelope<T>(method, path, opts)).data
+}
+
+export type UploadOptions = {
+  /** 文件字段名，默认 file；录音上传是 audio */
+  fileField?: string
+  /** 文件名，默认取 File.name，没有就按 audio 传 */
+  filename?: string
+  signal?: AbortSignal
+}
+
+/**
+ * multipart 上传（录音音频用）：不设 Content-Type，交给浏览器带 boundary。
+ * 响应仍是统一信封 { data, meta? }，错误映射同 requestEnvelope。
+ */
+export async function uploadFile<T>(path: string, file: Blob, fields: Record<string, string> = {}, opts: UploadOptions = {}): Promise<T> {
+  const headers = new Headers()
+  headers.set('X-Actor-Source', 'ui')
+  const form = new FormData()
+  for (const [k, v] of Object.entries(fields)) form.append(k, v)
+  const filename = opts.filename ?? (file instanceof File ? file.name : 'audio')
+  form.append(opts.fileField ?? 'file', file, filename)
+
+  let res: Response
+  try {
+    res = await fetch(base + path, { method: 'POST', headers, body: form, signal: opts.signal })
+  } catch (e) {
+    if (e instanceof DOMException && e.name === 'AbortError') throw e
+    throw new ApiError(0, 'network', e instanceof Error ? e.message : '网络错误')
+  }
+
+  let body: Envelope<T> | null = null
+  try {
+    body = (await res.json()) as Envelope<T>
+  } catch {
+    // 非 JSON 响应（代理报错页），按状态码处理
+  }
+  if (!res.ok || body?.error) {
+    const code = errorCode(body?.error?.code, res.status)
+    const message = body?.error?.message || res.statusText || 'HTTP ' + res.status
+    const extra: Record<string, unknown> = { ...body?.error }
+    delete extra.code
+    delete extra.message
+    throw new ApiError(res.status, code, message, extra)
+  }
+  if (!body || typeof body !== 'object' || !('data' in body)) {
+    throw new ApiError(res.status, 'internal', '响应格式不对：缺少 data')
+  }
+  return body.data as T
 }
 
 // 列表接口：data 加上 meta.total。没有 meta 时 total 取本页条数。

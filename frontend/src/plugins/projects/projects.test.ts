@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 import { describe, expect, it } from 'vitest'
 import { discoverPlugins, loadPlugins, PLUGIN_API_VERSION, type PluginManifest } from '../../core/plugin'
 import { buildMenu } from '../../core/shell/menu'

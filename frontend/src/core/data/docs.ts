@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 文档页的数据（DOC-01b）：分类树、标签、挂载的本地目录和目录里的文件、读文件，以及文档星标。
 // 契约见 docs/api-contract.md「分类 categories」「标签 tags」「文件读取和挂载目录」。
 // 文档本身是 type=doc 的对象，列表走 objects.ts 的 useAllObjects；星标改的是对象，报 { kind: 'object' }。
@@ -164,6 +166,32 @@ export function useLocalDirFiles(id: string | null) {
     pageError: q.isError && !!data ? q.error : null,
     retryPage: () => void fetchNextPage(),
   }
+}
+
+/**
+ * 项目设置里的文档目录下的文件（TSK-0718，GET /api/objects/{id}/docs-dir/files）；dir 为空不查。
+ * dir、root 只用来区分缓存（改了设置换一份），解析在后端。没设、越界、不存在回错误，不重试；分页同 useLocalDirFiles
+ */
+export function useProjectDocFiles(projectId: string, dir: string, root: string) {
+  const q = useInfiniteQuery({
+    queryKey: dataKeys.localDirs.projectDocs(projectId, dir, root),
+    queryFn: ({ signal, pageParam }) => {
+      const query = new URLSearchParams()
+      if (pageParam) query.set('cursor', pageParam)
+      return request<LocalFileList>('GET', `/api/objects/${encodeURIComponent(projectId)}/docs-dir/files`, { query, signal })
+    },
+    initialPageParam: '',
+    getNextPageParam: (last: LocalFileList) => last.next_cursor || undefined,
+    enabled: !!dir,
+    retry: false,
+  })
+  const { hasNextPage, isFetchingNextPage, isError, fetchNextPage } = q
+  const loaded = q.data?.pages.length ?? 0
+  useEffect(() => {
+    if (hasNextPage && !isFetchingNextPage && !isError) void fetchNextPage({ cancelRefetch: false })
+  }, [hasNextPage, isFetchingNextPage, isError, fetchNextPage, loaded])
+  const data = useMemo(() => (q.data ? mergeFilePages(q.data.pages, !!hasNextPage) : undefined), [q.data, hasNextPage])
+  return { data, isError: q.isError && !data, error: q.error, isPending: !!dir && q.isPending, refetch: q.refetch, isFetching: q.isFetching }
 }
 
 /** 用本机应用打开、在访达中显示 */

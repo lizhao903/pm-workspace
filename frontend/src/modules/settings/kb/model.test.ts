@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 import { describe, expect, it } from 'vitest'
 import type { AgentProvider } from '../../../core/data'
 import { checkDir, embedOptions, fitOverlap, flatCategories, inFilter, kbState, markParts, parseEmbed, plain, splitChunks } from './model'

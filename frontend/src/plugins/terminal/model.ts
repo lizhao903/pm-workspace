@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 终端页的纯函数（SPEC-terminal-1）：标签、格子、布局、对会话列表重连。不发请求，store.ts 调它们。
 import type { TerminalPrototype, TerminalSession } from '../../core/data'
 

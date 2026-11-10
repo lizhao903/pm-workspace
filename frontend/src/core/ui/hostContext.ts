@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 import { createContext } from 'react'
 
 /** 外壳留给二级菜单的位置：侧栏右边、顶栏左边的一整栏 */

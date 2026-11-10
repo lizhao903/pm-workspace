@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 package agent
 
 import (
@@ -38,6 +40,13 @@ const summaryMax = 500
 // DefaultRunTimeout 是一次自动执行的上限。
 const DefaultRunTimeout = 10 * time.Minute
 
+// DefaultRunSteps 是触发执行（无人值守）默认的步数上限（P0-O2）：一次执行要读任务、读关联、
+// 记进展、改状态，会话里一轮对话的 8 轮不够用。接口层建 Runner 时填进 Budget。
+const DefaultRunSteps = 30
+
+// runStoppedSummary 是手动停止的执行记录的总结（P0-O2）。停止不撤回已经做过的操作，这一点要写给人看。
+const runStoppedSummary = "已手动停止，已经执行的操作不会撤回。"
+
 // PrepareFunc 照会话对话的口径备好 Runner（服务商、模型、授权、技能、当前对象），由接口层提供。
 type PrepareFunc func(ctx context.Context, ag *domain.Agent, session *domain.AgentSession) (*Runner, error)
 
@@ -50,6 +59,9 @@ type Dispatcher struct {
 	Timeout time.Duration
 
 	wg sync.WaitGroup
+	// mu 护着 cancels：在跑的执行的 run id → 取消这次执行上下文的函数，手动停止（P0-O2）靠它。
+	mu      sync.Mutex
+	cancels map[string]context.CancelFunc
 }
 
 // NewDispatcher 建一个调度。st 要传外层包装过的 store：Agent 的写操作照常记审计、发事件。
@@ -57,7 +69,8 @@ func NewDispatcher(st store.Store, log *slog.Logger) *Dispatcher {
 	if log == nil {
 		log = slog.Default()
 	}
-	return &Dispatcher{st: st, log: log.With("component", "agent-trigger"), Timeout: DefaultRunTimeout}
+	return &Dispatcher{st: st, log: log.With("component", "agent-trigger"), Timeout: DefaultRunTimeout,
+		cancels: map[string]context.CancelFunc{}}
 }
 
 // Recover 把上次退出时还在跑的执行记录记为失败，启动时调一次。
@@ -325,10 +338,22 @@ func (d *Dispatcher) StartAgent(ctx context.Context, q schedule.AgentRequest) (*
 func (d *Dispatcher) start(ctx context.Context, ag *domain.Agent, t trigger) (*store.AgentRun, error) {
 	run, err := d.st.CreateAgentRun(ctx, &store.AgentRun{
 		AgentID: ag.ID, TriggerKind: t.kind, Trigger: t.label, SourceID: t.sourceID, EventKey: t.eventKey,
+		Prompt: t.prompt,
 	})
 	if err != nil || run == nil {
 		return nil, err
 	}
+	// 先把取消函数登记上，再慢慢建会话：接口看到记录是 running 后点停止，任何时刻都能取消到。
+	runCtx, cancelRun := context.WithTimeout(context.Background(), d.Timeout)
+	d.setCancel(run.ID, cancelRun)
+	started := false
+	defer func() {
+		// 没起后台执行（下面任一步失败）就自己清理，否则交给 execute 收尾。
+		if !started {
+			d.clearCancel(run.ID)
+			cancelRun()
+		}
+	}()
 	fail := func(reason string) (*store.AgentRun, error) {
 		out, err := d.st.FinishAgentRun(ctx, run.ID, store.AgentRunFailed, reason)
 		if err != nil {
@@ -358,28 +383,95 @@ func (d *Dispatcher) start(ctx context.Context, ag *domain.Agent, t trigger) (*s
 		return fail("没跑起来：" + err.Error())
 	}
 	runner.RunID = run.ID
+	started = true
 	d.wg.Add(1)
 	go func() {
 		defer d.wg.Done()
-		d.execute(runner, run.ID, t.prompt)
+		defer d.clearCancel(run.ID)
+		d.execute(runCtx, runner, run.ID, t.prompt)
 	}()
 	return run, nil
 }
 
-func (d *Dispatcher) execute(runner *Runner, runID, prompt string) {
-	ctx, cancel := context.WithTimeout(context.Background(), d.Timeout)
-	defer cancel()
+// setCancel 登记 run id 的取消函数。
+func (d *Dispatcher) setCancel(runID string, cancel context.CancelFunc) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.cancels == nil {
+		d.cancels = map[string]context.CancelFunc{}
+	}
+	d.cancels[runID] = cancel
+}
+
+// clearCancel 去掉登记；执行结束或没跑起来时调。
+func (d *Dispatcher) clearCancel(runID string) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	delete(d.cancels, runID)
+}
+
+// Stop 停止一次在跑的执行（P0-O2）：取消它的上下文，执行收尾记 canceled。
+// 这条记录不是本进程在跑的回 false。
+func (d *Dispatcher) Stop(runID string) bool {
+	d.mu.Lock()
+	cancel, ok := d.cancels[runID]
+	d.mu.Unlock()
+	if ok {
+		cancel()
+	}
+	return ok
+}
+
+// Retry 按一条失败或停止的执行记录再跑一次（P0-O2）：新建一条记录和新会话，提示词沿用原来的，
+// 触发说明加「（重试）」；event_key 留空，不受去重唯一索引约束。
+func (d *Dispatcher) Retry(ctx context.Context, run *store.AgentRun) (*store.AgentRun, error) {
+	if run == nil {
+		return nil, fmt.Errorf("没有可重试的执行记录")
+	}
+	if run.Status != store.AgentRunFailed && run.Status != store.AgentRunCanceled {
+		return nil, fmt.Errorf("只有失败或已停止的执行才能重试")
+	}
+	prompt := strings.TrimSpace(run.Prompt)
+	if prompt == "" {
+		return nil, fmt.Errorf("这次执行没有留下提示词，不能重试")
+	}
+	ag, err := d.st.GetAgent(ctx, run.AgentID)
+	if errors.Is(err, domain.ErrNotFound) {
+		return nil, fmt.Errorf("Agent 已删除")
+	}
+	if err != nil {
+		return nil, err
+	}
+	if !ag.Enabled {
+		return nil, fmt.Errorf("Agent「%s」已停用", ag.Name)
+	}
+	return d.start(ctx, ag, trigger{
+		kind: run.TriggerKind, label: run.Trigger + "（重试）", sourceID: run.SourceID, eventKey: "",
+		title: "重试 · " + run.Trigger, prompt: prompt,
+	})
+}
+
+func (d *Dispatcher) execute(ctx context.Context, runner *Runner, runID, prompt string) {
 	_, err := runner.Run(ctx, prompt, func(StreamEvent) {})
+	// 配置的模型客户端把取消/超时翻译成了人读的错误，上下文本身的状态更可靠：
+	// 手动停止（Stop 取消 ctx）记 canceled，超时和其他失败仍记 failed。
+	if err != nil && ctx.Err() == context.Canceled && !errors.Is(err, context.Canceled) {
+		err = fmt.Errorf("执行被手动停止：%w", context.Canceled)
+	}
 	if err := SettleRun(context.Background(), d.st, runID, err); err != nil {
 		d.log.Warn("save agent run failed", "run", runID, "err", err)
 	}
 }
 
 // SettleRun 按这次执行里要确认的调用重算状态并写总结（同原型 SPEC-sessions-2.5）：还有等确认的为 waiting；
-// 都处理完了，有调用且全部拒绝为 rejected，其余为 done。runErr 非 nil 时记为失败。
-// 确认、拒绝接着跑完之后也调它。
+// 都处理完了，有调用且全部拒绝为 rejected，其余为 done。runErr 非 nil 时：手动停止（context.Canceled）记 canceled，
+// 其余记失败。确认、拒绝接着跑完之后也调它。
 func SettleRun(ctx context.Context, st store.Store, runID string, runErr error) error {
 	if runErr != nil {
+		if errors.Is(runErr, context.Canceled) {
+			_, err := st.FinishAgentRun(ctx, runID, store.AgentRunCanceled, runStoppedSummary)
+			return err
+		}
 		_, err := st.FinishAgentRun(ctx, runID, store.AgentRunFailed, clipRunes("执行失败："+runErr.Error(), summaryMax))
 		return err
 	}

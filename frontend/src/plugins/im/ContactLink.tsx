@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 发信人认人（IM-05，SPEC-messages-2.12、2.27）：对不上联系人时关联到已有联系人或就地新建；认错了改挂或解除。
 // 关联就是给联系人挂一个 IM 身份（POST /api/im-identities），消息读取时按渠道和编号认人，这个人以前和以后的消息都认上。
 // 联系人和身份都走 core/data，不 import 联系人模块；新建只填姓名、公司、分组，别的去联系人页补全。
@@ -11,6 +13,11 @@ import { clip100, contactCandidates } from './model'
 
 export type ContactLinkMode = 'link' | 'create' | 'fix'
 
+/**
+ * 要认的发信人：消息抽屉给整条消息，群组管理「成员」菜单（TSK-0724）按成员拼出这几项
+ */
+export type ContactLinkSubject = Pick<ImMessage, 'channel' | 'connector_id' | 'sender_id' | 'sender_name' | 'identity_id' | 'stakeholder_id' | 'contact_name'>
+
 /** 做成了：text 是给人看的结果，created 时给「去联系人页补全」 */
 export type ContactLinkResult = { text: string; contactId?: string; created?: boolean }
 
@@ -18,7 +25,7 @@ export type ContactLinkResult = { text: string; contactId?: string; created?: bo
 const SHOW_MAX = 8
 
 export function ContactLinkDialog({ msg, mode: initial, chLabel, connectors, onCancel, onDone, onOpenContact }: {
-  msg: ImMessage
+  msg: ContactLinkSubject
   mode: ContactLinkMode
   chLabel: string
   connectors: Connector[] | undefined

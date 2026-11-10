@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 来源分类的名字：分类树按 doc 类型取（来源只能是文档分类），拍平成「上级 / 名字」。
 import { useMemo } from 'react'
 import { useCategoryTree } from '../../../core/data'

@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 插件入口和插件 API（docs/plugin-api.md 2.0）。CORE-02b 接通功能模块、设置分节、今日卡片、命令面板命令、
 // 对象类型渲染器五个扩展点，SOP-03b 接通 SOP 节点；数据迁移、连接器、技能和 Agent 工具、事件订阅只有类型，调用时抛「还没实现」
 import type { ComponentType, LazyExoticComponent } from 'react'

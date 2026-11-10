@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // SOP 批量发起和按输入字段查执行（IM 消息页的批量分诊、处理队列）。契约见 docs/api-contract.md「SOP 编排插件 sop」。
 // 批量发起 POST /api/sop/flows/{id}/runs/batch：每个输入一次执行，按 skip_existing_key 跳过这条流程已经跑过的；
 // 按输入字段查 GET /api/sop/runs?input_key=message_id：只列输入里带这个字段的执行，每条回 input_value。
@@ -6,13 +8,45 @@ import { useMutation, useQuery, useQueryClient, type QueryClient } from '@tansta
 import { isApiError, request, requestList } from '../api'
 import { useNotifyChange } from './invalidate'
 import { dataKeys } from './keys'
-import { SOP_RUNS_MAX, sopApi, type SopFlow, type SopRunBrief } from './sop'
+import { SOP_RUNS_MAX, type SopFlow, type SopRunBrief } from './sop'
 
 /** 一次批量发起的上限（同后端） */
 export const SOP_BATCH_MAX = 200
 
 export type SopBatchItem = { index: number; run_id?: string; key: string; error?: string }
-export type SopBatchResult = { started: SopBatchItem[]; skipped: SopBatchItem[]; failed: SopBatchItem[] }
+/**
+ * batch_id 是这一批的批次（TSK-0717）：分几批发都带同一个，停止时按它一次停掉；
+ * cancelled 是批次已被停止、没发起的
+ */
+export type SopBatchResult = { batch_id?: string; started: SopBatchItem[]; skipped: SopBatchItem[]; failed: SopBatchItem[]; cancelled?: SopBatchItem[] }
+
+/** 新的批量发起批次编号：spb_ 加 16 个小写字母数字（同后端 idgen 的写法，后端只认这个格式） */
+export function newSopBatchId(): string {
+  const alphabet = '0123456789abcdefghjkmnpqrstvwxyz'
+  const b = new Uint8Array(16)
+  crypto.getRandomValues(b)
+  return `spb_${Array.from(b, (x) => alphabet[x % 32]).join('')}`
+}
+
+/** 运行状态的条数（按条件停止的 summary） */
+export type SopRunStatusCounts = { running: number; waiting: number; done: number; failed: number; stopped: number }
+
+/**
+ * 按条件停止（POST /api/sop/runs/stop）：flow_id、source、batch_id 至少一个，或 all_running；dry_run 只数不停
+ */
+export type SopStopScope = { flow_id?: string; source?: string; batch_id?: string; all_running?: boolean }
+export type SopStopResult = {
+  /** 符合条件、要停的条数（随父执行一起停的子执行不算） */
+  matched: number
+  stopped: string[]
+  skipped: { run_id: string; reason: string }[]
+  failed: { run_id: string; error: string }[]
+  /** 范围里各状态的条数（停完之后算） */
+  summary: SopRunStatusCounts
+  dry_run: boolean
+}
+
+const emptyCounts = (): SopRunStatusCounts => ({ running: 0, waiting: 0, done: 0, failed: 0, stopped: 0 })
 
 /** 按输入字段查到的执行：input_value 是那个字段的值；步骤带 queue（在排队等模型名额） */
 export type SopInputRun = Omit<SopRunBrief, 'steps'> & {
@@ -39,10 +73,23 @@ export type SopRerunResult = {
 const noRetry404 = (n: number, e: unknown) => !isApiError(e, 'not_found') && n < 2
 
 export const sopBatchApi = {
-  start: async (flowId: string, inputs: Record<string, string>[], skipExistingKey?: string) => {
+  start: async (flowId: string, inputs: Record<string, string>[], skipExistingKey?: string, batchId?: string): Promise<SopBatchResult> => {
     const r = await request<SopBatchResult>('POST', `/api/sop/flows/${encodeURIComponent(flowId)}/runs/batch`,
-      { body: { inputs, ...(skipExistingKey ? { skip_existing_key: skipExistingKey } : {}) } })
-    return { started: r.started ?? [], skipped: r.skipped ?? [], failed: r.failed ?? [] }
+      { body: { inputs, ...(skipExistingKey ? { skip_existing_key: skipExistingKey } : {}), ...(batchId ? { batch_id: batchId } : {}) } })
+    return { batch_id: r.batch_id, started: r.started ?? [], skipped: r.skipped ?? [], failed: r.failed ?? [], cancelled: r.cancelled ?? [] }
+  },
+  /** 勾选的执行批量停止（batch-actions 的 stop），run_ids 最多 SOP_BATCH_MAX 条；只停执行中、待我处理的，别的跳过 */
+  stop: async (runIds: readonly string[]) => {
+    const r = await request<SopRerunResult>('POST', '/api/sop/runs/batch-actions', { body: { run_ids: runIds, action: 'stop' } })
+    return { done: r.done ?? [], skipped: r.skipped ?? [], failed: r.failed ?? [] }
+  },
+  /** 按条件停止；dryRun 只数不停 */
+  stopWhere: async (scope: SopStopScope, dryRun = false): Promise<SopStopResult> => {
+    const r = await request<SopStopResult>('POST', '/api/sop/runs/stop', { body: { ...scope, ...(dryRun ? { dry_run: true } : {}) } })
+    return {
+      matched: r.matched ?? 0, stopped: r.stopped ?? [], skipped: r.skipped ?? [], failed: r.failed ?? [],
+      summary: { ...emptyCounts(), ...(r.summary ?? {}) }, dry_run: !!r.dry_run,
+    }
   },
   /** 失败执行批量重跑，run_ids 最多 SOP_BATCH_MAX 条 */
   rerun: async (runIds: readonly string[], action: SopRerunAction) => {
@@ -81,8 +128,8 @@ export function triageFlows(flows: readonly SopFlow[]): SopFlow[] {
 export function useStartSopBatch() {
   const notify = useNotifyChange()
   return useMutation({
-    mutationFn: ({ flowId, inputs, skipExistingKey }: { flowId: string; inputs: Record<string, string>[]; skipExistingKey?: string }) =>
-      sopBatchApi.start(flowId, inputs, skipExistingKey),
+    mutationFn: ({ flowId, inputs, skipExistingKey, batchId }: { flowId: string; inputs: Record<string, string>[]; skipExistingKey?: string; batchId?: string }) =>
+      sopBatchApi.start(flowId, inputs, skipExistingKey, batchId),
     onSettled: () => notify({ kind: 'sop-run' }),
   })
 }
@@ -131,23 +178,48 @@ export function useRerunSopRuns() {
   })
 }
 
-/** 一批执行逐个终止（已结束的 409 算跳过）；回终止了几个、失败的原因 */
+/**
+ * 一批执行停止（TSK-0717 起走 batch-actions 的 stop，每 SOP_BATCH_MAX 条一次）：已结束、已终止的算跳过；
+ * 回停了几个、跳过几个、失败的原因
+ */
 export function useStopSopRuns() {
   const notify = useNotifyChange()
   return useMutation({
     mutationFn: async (ids: readonly string[]) => {
       let stopped = 0
+      let skipped = 0
       const errors: string[] = []
-      for (const id of ids) {
-        try {
-          await sopApi.act(id, { kind: 'stop' })
-          stopped += 1
-        } catch (e) {
-          if (!isApiError(e, 'conflict')) errors.push(e instanceof Error ? e.message : String(e))
-        }
+      for (let i = 0; i < ids.length; i += SOP_BATCH_MAX) {
+        const r = await sopBatchApi.stop(ids.slice(i, i + SOP_BATCH_MAX))
+        stopped += r.done.length
+        skipped += r.skipped.length
+        errors.push(...r.failed.map((f) => f.error))
       }
-      return { stopped, errors }
+      return { stopped, skipped, errors }
     },
     onSettled: () => notify({ kind: 'sop-run' }),
+  })
+}
+
+/** 按条件停止（执行记录「停止全部运行中」、批量分诊「立即停止」）；做完报 sop-run，列表和计数跟着刷 */
+export function useStopSopWhere() {
+  const notify = useNotifyChange()
+  return useMutation({
+    mutationFn: (scope: SopStopScope) => sopBatchApi.stopWhere(scope),
+    onSettled: () => notify({ kind: 'sop-run' }),
+  })
+}
+
+/**
+ * 按条件将停止几条、范围里各状态几条（dry_run）：确认框和批量分诊进度用。
+ * 键挂在 sop runs 前缀下，执行一变跟着刷；refetchInterval 给批量分诊对话框轮询这批执行的进度
+ */
+export function useSopStopPreview(scope: SopStopScope | null, opts: { refetchInterval?: number | false } = {}) {
+  return useQuery({
+    queryKey: [...dataKeys.sop.runs, 'stop-preview', scope] as const,
+    queryFn: () => sopBatchApi.stopWhere(scope!, true),
+    enabled: !!scope,
+    retry: noRetry404,
+    refetchInterval: opts.refetchInterval,
   })
 }

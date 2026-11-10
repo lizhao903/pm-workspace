@@ -504,3 +504,9 @@ iframe 加载失败（被挡、n8n 没起）要有明确的降级卡片，而不
 - 不把 n8n 的凭据管理搬进 pmw 设置页（凭据留在 n8n，它有自己的加密）。
 - 不做队列模式 / 多 worker（本地个人工具，用不上）。
 - 不自动安装 n8n。
+
+---
+
+由 DeepSeek Harness（dsh）协助完成。
+
+[![](https://img.shields.io/badge/powered_by-dsh-4D6BFE?style=flat-square&logo=deepseek&logoColor=white)](https://github.com/deepseek-ai/deepseek-harness)

@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // Package sop 是「SOP 编排」插件的后端（SOP-01a 起）。清单 plugin.json 只有这一份，前端构建时也读它。
 // 流程定义落在插件表 sop_flows，形状同原型 web-next/src/sopflow.ts 的 Sop，保存前校验（flows.go）。
 // 执行引擎（SOP-01b）：运行落在 sop_runs、sop_run_steps，调度见 engine.go，节点执行见 nodes.go。
@@ -59,13 +61,15 @@ func (p *Plugin) Register(r plugin.Registrar) error {
 		active = func(ctx context.Context, id string) (int, error) { return countActive(ctx, c.Store(), id) }
 	}
 	f := &flows{c: c, activeRuns: active}
+	fd := &folders{c: c}
 	// 每次启用一个新引擎，停用时后台任务取消、引擎跟着停
 	e := newEngine(c)
 	e.hook = p.stepHook
 	rn := &runs{c: c, e: e}
 	sg := &settings{c: c, e: e}
 	ph := &pipelineHandlers{c: c, e: e}
-	as := &assist{c: c, complete: p.complete}
+	dbg := &debugger{c: c, e: e}
+	as := &assist{c: c, complete: p.complete, dbg: dbg}
 	if as.complete == nil {
 		as.complete = coreCompleter(c)
 	}
@@ -76,6 +80,19 @@ func (p *Plugin) Register(r plugin.Registrar) error {
 		m.HandleFunc("PATCH /api/sop/flows/{id}", f.update)
 		m.HandleFunc("DELETE /api/sop/flows/{id}", f.remove)
 		m.HandleFunc("GET /api/sop/node-types", f.nodeTypes)
+		// 触发方式自动带入的字段、这一步能拿到的字段（TSK-0490，fields.go）
+		m.HandleFunc("GET /api/sop/triggers", triggersList)
+		m.HandleFunc("POST /api/sop/step-fields", f.stepFields)
+		// 调试、模拟 IM 触发、没发起的记录（TSK-0491，debug.go、imexplain.go、skips.go）
+		m.HandleFunc("POST /api/sop/debug", dbg.handle)
+		m.HandleFunc("POST /api/sop/im-explain", dbg.explainIM)
+		m.HandleFunc("GET /api/sop/flows/{id}/skips", f.listSkips)
+		// 流程库的文件夹（TSK-0482，folders.go）
+		m.HandleFunc("GET /api/sop/folders", fd.list)
+		m.HandleFunc("POST /api/sop/folders", fd.add)
+		m.HandleFunc("PATCH /api/sop/folders/{id}", fd.rename)
+		m.HandleFunc("DELETE /api/sop/folders/{id}", fd.remove)
+		m.HandleFunc("POST /api/sop/flows/move", fd.move)
 		m.HandleFunc("POST /api/sop/flows/{id}/runs", rn.start)
 		// 批量发起（IM 页批量分诊，batch.go）
 		m.HandleFunc("POST /api/sop/flows/{id}/runs/batch", rn.startBatch)
@@ -84,6 +101,8 @@ func (p *Plugin) Register(r plugin.Registrar) error {
 		m.HandleFunc("POST /api/sop/runs/{id}/actions", rn.act)
 		// 失败执行批量重跑（执行记录「失败」页，runbatch.go）
 		m.HandleFunc("POST /api/sop/runs/batch-actions", rn.batchAct)
+		// 按条件停止执行（TSK-0717，runstop.go）：执行记录「停止全部运行中」、批量分诊「立即停止」
+		m.HandleFunc("POST /api/sop/runs/stop", rn.stopWhere)
 		m.HandleFunc("POST /api/sop/assist", as.handle)
 		m.HandleFunc("GET /api/sop/settings", sg.get)
 		m.HandleFunc("PATCH /api/sop/settings", sg.patch)
@@ -94,13 +113,17 @@ func (p *Plugin) Register(r plugin.Registrar) error {
 	r.Job(plugin.Job{Name: "engine", Run: e.job})
 	// 旧触发方式 daily、weekly 转成随流程管理的定时任务（TSK-0463，flowsched.go），幂等
 	r.Job(plugin.Job{Name: "legacy_trigger", Every: legacyEvery, Run: legacyJob})
+	// 已有流程按名字前缀「xxx · 」归进文件夹，只做一次（TSK-0482，folders.go）
+	r.Job(plugin.Job{Name: "folder_seed", Run: folderSeedJob})
 	// 别的插件登记的节点挂起后经内核 SOP().Resume 唤醒，交给这个引擎（SOP-03a）
 	r.SOPEngine(e)
 	// 定时任务的 sop 动作和 Agent 的 run_sop 经内核钩子发起执行（SOP-01d，launch.go）
-	st := &starter{c: c, e: e}
+	st := &starter{c: c, e: e, dbg: dbg}
 	r.SOPStarter(st)
 	// 触发方式是 im 的流程来消息自动发起（SOP-05，imtrigger.go）
 	r.Subscribe(imReceivedEvent, st.onIMMessage)
+	// 被自动忽略的消息（IM 插件 0.28.0 起发 im.message_muted）记「没发起」的原因（TSK-0491，skips.go）
+	r.Subscribe(imMutedEvent, st.onIMMuted)
 	// Claude Code 节点等的运行结束了叫醒它（AUTO-01，nodes_claude.go）；兜底还有轮询
 	r.Subscribe(plugin.RunFinishedEvent, e.onRunFinished)
 	r.TodayCard(plugin.TodayCardDef{Key: "sop_pending", Title: "SOP 待我处理", Order: 50, Load: pendingCard})
@@ -121,10 +144,11 @@ func apiErr(kind error, format string, args ...any) error {
 // checkError 是保存前校验没过：message 是全部问题用「；」连起来，issues 逐条给前端定位。
 type checkError struct{ issues []Issue }
 
+// Error 只拼错误；issues 里另有的警告（TSK-0490）只逐条给前端。
 func (e *checkError) Error() string {
-	ts := make([]string, len(e.issues))
-	for i, x := range e.issues {
-		ts[i] = x.Text
+	var ts []string
+	for _, x := range errorsOf(e.issues) {
+		ts = append(ts, x.Text)
 	}
 	return strings.Join(ts, "；")
 }
@@ -168,6 +192,12 @@ func fail(w http.ResponseWriter, r *http.Request, c plugin.Core, err error) {
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": map[string]any{
 			"code": "validation", "message": ce.Error(), "issues": ce.issues,
 		}})
+		return
+	}
+	if errors.Is(err, context.Canceled) && r.Context().Err() != nil {
+		// 客户端先断开了（前端刷新列表时取消了上一次请求）：不是服务端出错，不记 ERROR，也不用回（TSK-0717 验收时
+		// 停止后列表刷新留下的「request failed … context canceled」）
+		c.Log().Debug("request canceled by client", "method", r.Method, "path", r.URL.Path)
 		return
 	}
 	status, code, msg := http.StatusInternalServerError, "internal", err.Error()

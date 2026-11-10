@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 输出产物页：「这些事一共产出了什么」的唯一汇总处。
 //
 // 统计和列表走同一套过滤参数（api.artifactStats 与 api.artifacts 共用 ArtifactFilter），

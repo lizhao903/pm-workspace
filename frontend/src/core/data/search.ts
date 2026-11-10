@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 命令面板数据源取数（A-01）：组件外调用，走同一份缓存。
 // 联系人和身份整份拉、前端过滤（62 人量级）；任务交给后端 q 搜（标题、正文、编号）。
 import { objects, type ObjectListParams } from '../api'

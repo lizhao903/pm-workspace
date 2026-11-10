@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 import { describe, expect, it } from 'vitest'
 import type { ImConversationOption } from '../data'
 import { convLabel, isPicked, orderChannels, removeToken, resolveChannels, splitChannelTokens, toggleChannel } from './channelPick'

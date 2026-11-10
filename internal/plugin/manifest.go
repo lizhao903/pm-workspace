@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // Package plugin 是插件清单的类型、解析和校验（CORE-01b），规范见 docs/plugin-api.md。
 // 前端 frontend/src/core/plugin/manifest.ts 是同一套规则，两边共用
 // docs/plugin-manifest-examples/ 里的样例和期望错误，错误信息逐字一致。
@@ -103,7 +105,7 @@ var Permissions = []string{
 	"fs:read:project", "fs:write:project", "fs:read:attachments", "fs:write:attachments",
 	"fs:read:any", "fs:write:any", "fs:read:registered",
 	"network:localhost", "network:im", "network:media-platforms", "network:market-data",
-	"network:exchanges", "network:any",
+	"network:model", "network:exchanges", "network:any",
 	"process:spawn", "trade:live",
 }
 

@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // AI 协助面板（SPEC-sop-10）：对话接 POST /api/sop/assist（SOP-04a），不保存。AI 的改动先作为提案出现在对话里，
 // 点「应用到流程」才替换画布；只有最近一次应用、且之后没有别的改动时能「撤销」（撤销只退回这次提案）。
 // 收起只是藏起来（hidden），对话和没决定的提案在本次编排页里保留
@@ -7,7 +9,7 @@ import { Button, IconButton, IconClose, cls } from '../../core/ui'
 import type { Draft } from './edit'
 import { KindTag } from './parts'
 
-export type AiMsg = { id: number; role: 'user' | 'ai'; text: string; notes?: string[]; proposal?: SopDraft; state?: 'new' | 'applied' | 'undone'; error?: boolean }
+export type AiMsg = { id: number; role: 'user' | 'ai'; text: string; notes?: string[]; test?: string; proposal?: SopDraft; state?: 'new' | 'applied' | 'undone'; error?: boolean }
 
 const EXAMPLES = [
   '报销审核流程：收到报销单，AI 识别发票金额，如果金额大于 5000 就经理审批，否则财务直接复核，最后打款并通知申请人',
@@ -16,7 +18,11 @@ const EXAMPLES = [
 ]
 
 /** 发给接口的草稿：去掉画布位置（AI 不管位置） */
-const forAssist = (d: Draft): SopDraft => ({ ...(d.id ? { id: d.id } : {}), name: d.name, desc: d.desc, trigger: d.trigger, fields: d.fields, steps: d.steps })
+// IM 触发的过滤、顺序、拦截和文件夹也带上（TSK-0490），AI 改的时候照着现在的设置
+const forAssist = (d: Draft): SopDraft => ({
+  ...(d.id ? { id: d.id } : {}), name: d.name, desc: d.desc, trigger: d.trigger, fields: d.fields, steps: d.steps,
+  ...(d.trigger === 'im' && d.im ? { im: d.im } : {}), ...(d.folder_id ? { folder_id: d.folder_id } : {}),
+})
 
 export function AiPanel({ hidden, draft, selected, onApply, onUndo, canUndo, onClose }: {
   hidden: boolean
@@ -57,7 +63,7 @@ export function AiPanel({ hidden, draft, selected, onApply, onUndo, canUndo, onC
     push({ role: 'user', text: t })
     setText('')
     assist.mutate({ message: t, draft: forAssist(draft), ...(selected !== null ? { selected } : {}) }, {
-      onSuccess: (r) => push({ role: 'ai', text: r.text, notes: r.notes, proposal: r.draft, state: r.draft ? 'new' : undefined }),
+      onSuccess: (r) => push({ role: 'ai', text: r.text, notes: r.notes, test: r.test, proposal: r.draft, state: r.draft ? 'new' : undefined }),
       onError: (e) => push({ role: 'ai', text: `没能生成流程：${errorText(e)}`, error: true }),
     })
   }
@@ -81,6 +87,7 @@ export function AiPanel({ hidden, draft, selected, onApply, onUndo, canUndo, onC
             <div className={cls('sop-ai-bubble', m.error && 'sop-ai-error')}>
               <div>{m.text}</div>
               {!!m.notes?.length && <ul className="sop-ai-notes">{m.notes.map((n, i) => <li key={i}>{n}</li>)}</ul>}
+              {m.test && <div className="sop-ai-test" role="note">{m.test}</div>}
               {m.proposal && (
                 <div className={cls('sop-ai-proposal', m.state === 'undone' && 'undone')}>
                   <ol className="sop-ai-steps">

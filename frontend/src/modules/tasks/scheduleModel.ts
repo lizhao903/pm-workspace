@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 定时任务页的纯函数（SPEC-tasks-7、8）：规则说成一句话、前端先挡的规则错误、「做什么」的文字、表单草稿和提交体。
 // 下次执行、接下来几次由后端算（next_run_at、POST /api/schedules/preview），这里不重复算。
 import type {
@@ -7,8 +9,8 @@ import { describeRule, emptyRule, fullRule, ruleError, whenText } from '../../co
 // 规则的纯函数挪到 core/ui/scheduleRule.ts（TSK-0463：SOP 流程编辑复用同一个规则编辑），这里照旧导出
 export { FREQS, FREQ_LABEL, WEEK, WEEK_ORDER, describeRule, emptyRule, fullRule, ruleError, whenText } from '../../core/ui/scheduleRule'
 
-export const ACTION_KINDS: ScheduleActionKind[] = ['task', 'remind', 'sop', 'agent', 'incident_sweep']
-export const ACTION_LABEL: Record<ScheduleActionKind, string> = { task: '建一条任务', remind: '提醒', sop: '执行 SOP', agent: '让 Agent 去做', incident_sweep: '运行异常巡检' }
+export const ACTION_KINDS: ScheduleActionKind[] = ['task', 'remind', 'sop', 'agent', 'incident_sweep', 'git_pull']
+export const ACTION_LABEL: Record<ScheduleActionKind, string> = { task: '建一条任务', remind: '提醒', sop: '执行 SOP', agent: '让 Agent 去做', incident_sweep: '运行异常巡检', git_pull: '拉取代码' }
 /** 提醒的字数上限，和后端一致 */
 export const REMIND_TITLE_MAX = 100
 export const REMIND_BODY_MAX = 2000
@@ -18,7 +20,7 @@ export const SWEEP_COUNTS = [1, 2, 3, 5, 10]
 /** 插件登记的动作（VID-06a）：后端原样回，这里只给认得的起名字，其余显示 kind */
 const PLUGIN_ACTION_LABEL: Record<string, string> = { video_publish: '发布视频' }
 export const actionLabel = (kind: string) => ACTION_LABEL[kind as ScheduleActionKind] ?? PLUGIN_ACTION_LABEL[kind] ?? kind
-/** 不是内核的五种动作 */
+/** 不是内核的几种动作 */
 export const isPluginAction = (kind: string) => !(ACTION_KINDS as string[]).includes(kind)
 /** 视频发布动作（video_publish）的发布记录 id */
 export function publishIdOf(a: ScheduleAction): string | undefined {
@@ -42,6 +44,7 @@ export function actionText(a: ScheduleAction, names: ActionNames = {}): string {
   if (a.kind === 'task') return `建任务「${a.title || '未填标题'}」`
   if (a.kind === 'remind') return `提醒「${a.title || '未填标题'}」${a.object_id ? '，关联任务' : ''}`
   if (a.kind === 'sop') return `执行「${(a.sop_id && names.flows?.[a.sop_id]) || a.sop_id || '未选 SOP'}」${a.managed ? '，随流程管理' : ''}`
+  if (a.kind === 'git_pull') return `git pull ${a.repo || '未填仓库'}${a.remote ? ` ${a.remote}${a.branch ? ` ${a.branch}` : ''}` : ''}`
   if (a.kind === 'incident_sweep') return `巡检运行异常：${SWEEP_LEVEL_LABEL[a.min_level] ?? SWEEP_LEVEL_LABEL.error}${a.min_count > 1 ? `，至少 ${a.min_count} 次` : ''}，建任务交给 Claude Code`
   const kind = (a as { kind: string }).kind
   if (kind === 'video_publish') {
@@ -92,9 +95,14 @@ export type ActionDraft = {
   object_id: string
   /** 提醒的弹窗方式（SPEC-tasks-8.26）：toast 右下角，modal 屏幕中间 */
   popup: 'toast' | 'modal'
+  /** 拉取代码：仓库绝对路径，remote、branch 可空 */
+  repo: string
+  remote: string
+  branch: string
 }
 
-export type ScheduleDraft = { name: string; enabled: boolean; rule: ScheduleRule; action: ActionDraft }
+/** project_id 空串为不属于任何项目 */
+export type ScheduleDraft = { name: string; enabled: boolean; rule: ScheduleRule; action: ActionDraft; project_id: string }
 
 /** 优先级字典的默认值：meta.default，没有就 P2，和新建任务一致 */
 export function defaultPriority(priorities: readonly DictItem[]): string {
@@ -103,11 +111,12 @@ export function defaultPriority(priorities: readonly DictItem[]): string {
 }
 
 export function emptyAction(kind: ScheduleActionKind, priority: string): ActionDraft {
-  return { kind, title: '', desc: '', priority, assignee: '', due_days: 0, sop_id: '', agent_id: '', prompt: '', min_level: 'error', min_count: 1, body: '', object_id: '', popup: 'toast' }
+  return { kind, title: '', desc: '', priority, assignee: '', due_days: 0, sop_id: '', agent_id: '', prompt: '', min_level: 'error', min_count: 1, body: '', object_id: '', popup: 'toast', repo: '', remote: '', branch: '' }
 }
 
-export function emptyScheduleDraft(priorities: readonly DictItem[], now: Date = new Date()): ScheduleDraft {
-  return { name: '', enabled: true, rule: emptyRule(now), action: emptyAction('task', defaultPriority(priorities)) }
+/** projectId：从项目里新建时预填所属项目 */
+export function emptyScheduleDraft(priorities: readonly DictItem[], now: Date = new Date(), projectId = ''): ScheduleDraft {
+  return { name: '', enabled: true, rule: emptyRule(now), action: emptyAction('task', defaultPriority(priorities)), project_id: projectId }
 }
 
 export function scheduleDraftOf(s: Schedule, priorities: readonly DictItem[], now: Date = new Date()): ScheduleDraft {
@@ -115,7 +124,7 @@ export function scheduleDraftOf(s: Schedule, priorities: readonly DictItem[], no
   const action = { ...a, ...s.action } as ActionDraft
   // 旧提醒没有 popup（或为空），按右下角
   action.popup = action.popup === 'modal' ? 'modal' : 'toast'
-  return { name: s.name, enabled: s.enabled, rule: fullRule(s.rule, now), action }
+  return { name: s.name, enabled: s.enabled, rule: fullRule(s.rule, now), action, project_id: s.project_id ?? '' }
 }
 
 /** 按类型只留自己的字段 */
@@ -123,6 +132,7 @@ export function actionOf(a: ActionDraft): ScheduleAction {
   if (a.kind === 'sop') return { kind: 'sop', sop_id: a.sop_id.trim() }
   if (a.kind === 'agent') return { kind: 'agent', agent_id: a.agent_id.trim(), prompt: a.prompt.trim() }
   if (a.kind === 'incident_sweep') return { kind: 'incident_sweep', min_level: a.min_level, min_count: a.min_count }
+  if (a.kind === 'git_pull') return { kind: 'git_pull', repo: a.repo.trim(), remote: a.remote.trim(), branch: a.branch.trim() }
   if (a.kind === 'remind') return { kind: 'remind', title: a.title.trim(), body: a.body.trim(), object_id: a.object_id, popup: a.popup }
   return { kind: 'task', title: a.title.trim(), desc: a.desc.trim(), priority: a.priority, assignee: a.assignee, due_days: a.due_days }
 }
@@ -133,6 +143,7 @@ export function draftErrors(d: ScheduleDraft, now: Date = new Date()): string[] 
   // 插件动作在这里只读，校验交给插件
   const aErr = isPluginAction(a.kind) ? '' : a.kind === 'task' ? (!a.title.trim() ? '任务标题必填' : '')
     : a.kind === 'remind' ? remindError(a.title, a.body)
+    : a.kind === 'git_pull' ? gitPullError(a.repo, a.remote, a.branch)
     : a.kind === 'sop' ? (!a.sop_id.trim() ? '选一个 SOP' : '')
       : a.kind === 'incident_sweep' ? (Number.isInteger(a.min_count) && a.min_count >= 1 ? '' : '最少次数要是 1 以上的整数')
       : !a.agent_id.trim() ? '选一个 Agent' : !a.prompt.trim() ? '写一下要它做什么' : ''
@@ -140,6 +151,15 @@ export function draftErrors(d: ScheduleDraft, now: Date = new Date()): string[] 
 }
 
 /** 提醒的标题、内容：标题必填，都有字数上限 */
+/** 拉取代码的前端先挡：仓库要绝对路径，填了分支要填远端；是不是 git 仓库由后端查 */
+export function gitPullError(repo: string, remote: string, branch: string): string {
+  const r = repo.trim()
+  if (!r) return '填仓库路径'
+  if (!r.startsWith('/') && !/^[A-Za-z]:[\\/]/.test(r)) return '仓库路径要写绝对路径'
+  if (branch.trim() && !remote.trim()) return '填了分支也要填远端'
+  return ''
+}
+
 export function remindError(title: string, body: string): string {
   if (!title.trim()) return '提醒标题必填'
   if (title.trim().length > REMIND_TITLE_MAX) return `提醒标题最多 ${REMIND_TITLE_MAX} 字`
@@ -148,7 +168,7 @@ export function remindError(title: string, body: string): string {
 }
 
 export function buildScheduleInput(d: ScheduleDraft): ScheduleInput {
-  return { name: d.name.trim(), enabled: d.enabled, rule: d.rule, action: actionOf(d.action) }
+  return { name: d.name.trim(), enabled: d.enabled, rule: d.rule, action: actionOf(d.action), project_id: d.project_id || null }
 }
 
 const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b)
@@ -161,6 +181,7 @@ export function buildSchedulePatch(base: ScheduleDraft, d: ScheduleDraft): Sched
   const p: SchedulePatch = {}
   if (d.name.trim() !== base.name.trim()) p.name = d.name.trim()
   if (d.enabled !== base.enabled) p.enabled = d.enabled
+  if (d.project_id !== base.project_id) p.project_id = d.project_id || null
   if (!same(ruleKey(d.rule), ruleKey(base.rule))) p.rule = d.rule
   if (!same(actionOf(d.action), actionOf(base.action))) p.action = actionOf(d.action)
   return p

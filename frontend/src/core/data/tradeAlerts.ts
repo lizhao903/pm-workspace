@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 盯盘提醒（TRD-03a、TRD-03b）：规则、当前值、触发记录。契约见 docs/api-contract.md「交易套件插件 trade / 盯盘提醒」。
 // 判定只在后端：后台任务每 2 秒检查一次，页面关着也照常提醒；前端不再自己判定，只显示后端算的当前值和触发记录。
 // 触发时后端发 trade.alert_fired，这里收到后刷新规则（上次触发）和触发记录；事件流断开时退回定时重取。

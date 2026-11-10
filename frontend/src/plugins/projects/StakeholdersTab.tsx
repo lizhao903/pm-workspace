@@ -1,17 +1,22 @@
-// 干系人标签（SPEC-projects-6）：人从联系人里挑，按角色顺序（决策人、对接人、负责人、参与、知会）显示，同角色按加入顺序。
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
+// 干系人标签（SPEC-projects-6）：人从联系人里挑，按角色顺序显示，同角色按加入顺序。
+// 角色来自枚举字典 project_role（TSK-0718，设置 / 枚举值里维护，内置决策人、对接人、负责人、参与、知会）：下拉只列没停用的，
+// 已停用的角色在已有干系人上照常显示名字并标「已停用」，字典里没有的旧值显示原值并标红（E-02）。
 // 增删改走项目插件的 /api/projects/{id}/stakeholders。关注点边输边存（停顿一下或离开输入框就存），存不上留着输入、行内提示。
 // 「最近沟通」是这个人在本项目绑定的会话里最近的一条（SPEC-projects-6.7），和沟通标签同一份项目消息；点了去 IM 消息页打开。
 // 加干系人能多选（B-05）：按姓名、公司、职位、分组、标签搜，候选按姓名拼音排（同联系人页），勾好了「加 N 人」一次加进来。
+// 按联系人分组筛：干系人覆盖两个及以上分组时出现切换，只列有人的分组（一个人在几个分组里就各算一次），顺序同分组字典。
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router'
 import {
-  PROJECT_ROLES, errorText, useAddProjectStakeholders, useContacts, useIdentities, usePatchProjectStakeholder, useProjectStakeholders,
-  useRemoveProjectStakeholder, type Contact, type ImMessage, type ProjectRole, type ProjectStakeholder,
+  CONTACT_GROUP_DICT, contactGroupsOf, errorText, useAddProjectStakeholders, useContacts, useDictItems, useIdentities, usePatchProjectStakeholder, useProjectRoles, useProjectStakeholders,
+  useRemoveProjectStakeholder, type Contact, type ImMessage, type ProjectRole, type ProjectRoleItem, type ProjectStakeholder,
 } from '../../core/data'
 import { Avatar, Button, EmptyState, ErrorState, Input, LoadingState, SearchSelect, cls } from '../../core/ui'
 import { compareNames, nameInitial } from '../../core/ui/pinyin'
 import { latestByContact, snippet } from './commsModel'
-import { ago, isKnownRole, sortStakeholders } from './model'
+import { ago, roleOf, sortStakeholders } from './model'
 import { useProjectMessages } from './projectMessages'
 
 /** 关注点停顿多久后保存 */
@@ -35,10 +40,25 @@ export function StakeholdersTab({ projectId }: { projectId: string }) {
   const [pickKey, setPickKey] = useState(0)
   const pm = useProjectMessages(projectId)
   const identities = useIdentities()
+  const { roles, defaultRole } = useProjectRoles()
+  const groupDict = useDictItems(CONTACT_GROUP_DICT)
+  const [group, setGroup] = useState('')
 
   const people = useMemo(() => new Map((contacts.data ?? []).map((c) => [c.id, c])), [contacts.data])
   // 引用的联系人已删的行不显示（SPEC-projects-6.12）
-  const rows = useMemo(() => sortStakeholders(stakes.data ?? []).filter((s) => people.has(s.stakeholder_id)), [stakes.data, people])
+  const rows = useMemo(() => sortStakeholders(stakes.data ?? [], roles).filter((s) => people.has(s.stakeholder_id)), [stakes.data, people, roles])
+  // 干系人里出现的分组和人数，按字典顺序；字典里没有的（删掉了的分组）排最后
+  const groups = useMemo(() => {
+    const n = new Map<string, number>()
+    for (const s of rows) for (const g of contactGroupsOf(people.get(s.stakeholder_id)!)) n.set(g, (n.get(g) ?? 0) + 1)
+    const dict = [...(groupDict.data ?? [])].sort((a, b) => a.sort_order - b.sort_order)
+    const known = dict.filter((d) => n.has(d.key)).map((d) => ({ key: d.key, label: d.label, n: n.get(d.key)! }))
+    const rest = [...n.keys()].filter((k) => !dict.some((d) => d.key === k)).map((k) => ({ key: k, label: k, n: n.get(k)! }))
+    return [...known, ...rest]
+  }, [rows, people, groupDict.data])
+  // 选中的分组已经没人了（人被移除、改了分组）就回到全部
+  const curGroup = groups.some((g) => g.key === group) ? group : ''
+  const shown = curGroup ? rows.filter((s) => contactGroupsOf(people.get(s.stakeholder_id)!).includes(curGroup)) : rows
   // 候选：还不是干系人的联系人，按姓名拼音排（同联系人页「按姓名」）
   const avail = useMemo(() => {
     const taken = new Set((stakes.data ?? []).map((s) => s.stakeholder_id))
@@ -63,7 +83,7 @@ export function StakeholdersTab({ projectId }: { projectId: string }) {
     const ids = avail.filter((c) => chosen.includes(c.id)).map((c) => c.id)
     if (!ids.length) return
     setErr('')
-    add.mutate({ ids, role: 'member' }, {
+    add.mutate({ ids, role: defaultRole }, {
       onSuccess: (r) => {
         setPicked(r.failed.map((f) => f.id))
         if (!r.failed.length) setPickKey((k) => k + 1)
@@ -82,7 +102,16 @@ export function StakeholdersTab({ projectId }: { projectId: string }) {
 
   const head = (
     <div className="pj-tab-head">
-      <span className="pj-muted pj-wrap">谁拍板、谁对接、谁负责，每个人关心什么。人从联系人里挑</span>
+      {groups.length > 1 ? (
+        <div className="pj-seg" role="group" aria-label="联系人分组">
+          <button type="button" className={cls(!curGroup && 'on')} aria-pressed={!curGroup} onClick={() => setGroup('')}>全部<span className="pj-seg-n">{rows.length}</span></button>
+          {groups.map((g) => (
+            <button key={g.key} type="button" className={cls(curGroup === g.key && 'on')} aria-pressed={curGroup === g.key} onClick={() => setGroup(g.key)}>
+              {g.label}<span className="pj-seg-n">{g.n}</span>
+            </button>
+          ))}
+        </div>
+      ) : <span className="pj-muted pj-wrap">谁拍板、谁对接、谁负责，每个人关心什么。人从联系人里挑</span>}
       <span className="spacer" />
       <SearchSelect key={pickKey} multiple value={chosen} placeholder="加干系人" searchPlaceholder="搜姓名、公司、职位、分组、标签" align="end"
         aria-label="加干系人" disabled={!contacts.data || add.isPending} limit={PICK_LIMIT}
@@ -113,8 +142,8 @@ export function StakeholdersTab({ projectId }: { projectId: string }) {
           <span role="columnheader">人</span><span role="columnheader">角色</span><span role="columnheader">关注点</span>
           <span role="columnheader">最近沟通</span><span role="columnheader" aria-label="操作" />
         </div>
-        {rows.map((s) => (
-          <StakeRow key={s.stakeholder_id} projectId={projectId} s={s} c={people.get(s.stakeholder_id)!} last={lastOf(s.stakeholder_id)}
+        {shown.map((s) => (
+          <StakeRow key={s.stakeholder_id} projectId={projectId} s={s} roles={roles} c={people.get(s.stakeholder_id)!} last={lastOf(s.stakeholder_id)}
             onOpen={() => navigate(`/contacts?c=${encodeURIComponent(s.stakeholder_id)}`)}
             onOpenMessage={(m) => navigate(`${MESSAGES_PATH}?m=${encodeURIComponent(m.id)}`)}
             onRemove={() => onRemove(s)} removing={remove.isPending && remove.variables === s.stakeholder_id} />
@@ -132,7 +161,9 @@ export function StakeholdersTab({ projectId }: { projectId: string }) {
   )
 }
 
-function StakeRow({ projectId, s, c, last, onOpen, onOpenMessage, onRemove, removing }: {
+function StakeRow({ projectId, s, roles, c, last, onOpen, onOpenMessage, onRemove, removing }: {
+  /** 字典里的角色，含停用的 */
+  roles: ProjectRoleItem[]
   projectId: string
   s: ProjectStakeholder
   c: Contact
@@ -148,8 +179,9 @@ function StakeRow({ projectId, s, c, last, onOpen, onOpenMessage, onRemove, remo
   // 最后一次送出去的关注点：后端回来的值和它一样就不算改动
   const sent = useRef(s.focus)
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
-  const role = PROJECT_ROLES.find((r) => r.key === s.role)
-  const known = isKnownRole(s.role)
+  const role = roleOf(s.role, roles)
+  const known = !!role
+  const builtin = ['decider', 'contact', 'owner'].includes(s.role)
 
   const save = (p: { role?: ProjectRole; focus?: string }) => {
     setErr('')
@@ -184,12 +216,14 @@ function StakeRow({ projectId, s, c, last, onOpen, onOpenMessage, onRemove, remo
         </span>
       </button>
       <span role="cell">
-        <select className={cls('pj-chip-select', 'pj-role', known ? `pj-role-${s.role}` : 'pj-role-unknown')} aria-label={`${c.name} 的角色`} value={s.role}
-          title={role?.desc ?? `不认识的角色「${s.role}」，选一个改掉`} aria-invalid={!known || undefined}
+        <select className={cls('pj-chip-select', 'pj-role', !known ? 'pj-role-unknown' : !role.enabled ? 'pj-role-off' : builtin && `pj-role-${s.role}`)}
+          aria-label={`${c.name} 的角色`} value={s.role}
+          title={!role ? `不认识的角色「${s.role}」，选一个改掉` : !role.enabled ? `角色「${role.label}」已停用，可以照旧留着，也可以换一个` : role.desc || role.label}
+          aria-invalid={!known || undefined}
           disabled={patch.isPending} onChange={(e) => save({ role: e.target.value as ProjectRole })}>
-          {/* 库里的角色不是五个之一时照原值列出来，不让下拉悄悄停在别的角色上（E-02） */}
+          {/* 库里的角色不在字典里时照原值列出来，不让下拉悄悄停在别的角色上（E-02）；停用的只给正用着它的人列出来 */}
           {!known && <option value={s.role} disabled>{s.role}</option>}
-          {PROJECT_ROLES.map((r) => <option key={r.key} value={r.key}>{r.label}</option>)}
+          {roles.filter((r) => r.enabled || r.key === s.role).map((r) => <option key={r.key} value={r.key} disabled={!r.enabled}>{r.enabled ? r.label : `${r.label}（已停用）`}</option>)}
         </select>
       </span>
       <span role="cell" className="pj-focus-cell">

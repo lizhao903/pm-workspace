@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 原消息抽屉里的「消息列回复 N」一节（SPEC-messages-2.45）：按时间列整个消息列，每条能单独处理，点姓名打开那一条。
 // 批量处理（SPEC-messages-2.51）：
 // - 没勾选时标题行右边「全部标为已处理」「全部忽略」，范围是这个消息列里还没处理的回复（待处理、已过期），不含原消息；先确认再调批量接口。

@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 import type { ReactNode } from 'react'
 
 // 一级菜单和外壳按钮的图标，线条照原型 web-next/src/App.tsx 的 icons；跟 currentColor 走
@@ -13,6 +15,7 @@ const MODULE_ICONS: Record<string, ReactNode> = {
   docs: svg(<><path d="M4 1.8h5.5L12.5 5v9.2H4Z" {...line} strokeLinejoin="round" /><path d="M9.3 2v3.2h3M6 8h4.5M6 10.5h4.5" {...line} strokeLinecap="round" /></>),
   contacts: svg(<><circle cx="6" cy="5.5" r="2.5" {...line} /><path d="M1.5 13.5c.6-2.4 2.3-3.6 4.5-3.6s3.9 1.2 4.5 3.6M11 3.2a2.4 2.4 0 0 1 0 4.6M12.6 10.2c1 .5 1.6 1.6 1.9 3.3" {...line} strokeLinecap="round" /></>),
   conversations: svg(<><path d="M2 3.5h8.5v5.5H6l-2.5 2V9H2Z" {...line} strokeLinejoin="round" /><path d="M10.5 6H14v5.5h-1.5v2l-2.5-2H7.5V9" {...line} strokeLinejoin="round" /></>),
+  runs: svg(<><circle cx="8" cy="8" r="5.8" {...line} /><path d="M6.6 5.4v5.2L11 8Z" {...line} strokeLinejoin="round" /></>),
   settings: svg(<><circle cx="8" cy="8" r="2.2" {...line} /><path d="M8 1.8v1.6M8 12.6v1.6M1.8 8h1.6M12.6 8h1.6M3.6 3.6l1.1 1.1M11.3 11.3l1.1 1.1M3.6 12.4l1.1-1.1M11.3 4.7l1.1-1.1" {...line} strokeLinecap="round" /></>),
 }
 
@@ -25,6 +28,7 @@ const PLUGIN_ICONS: Readonly<Record<string, ReactNode>> = {
   video: svg(<><rect x="1.8" y="3.2" width="9.2" height="9.6" rx="1.8" {...round} /><path d="m11 6.6 3.2-1.8v6.4L11 9.4" {...round} /></>),
   candles: svg(<><path d="M4 3v10M4 5h-.01M12 4v8M8 6v7" {...round} /><rect x="2.8" y="5.5" width="2.4" height="4.5" rx=".5" {...round} /><rect x="6.8" y="7.5" width="2.4" height="3.5" rx=".5" {...round} /><rect x="10.8" y="5" width="2.4" height="4" rx=".5" {...round} /></>),
   pulse: svg(<path d="M1.8 8h2.6l1.6-4 3 8 1.6-4h3.6" {...round} />),
+  mic: svg(<><rect x="5.9" y="1.8" width="4.2" height="7.4" rx="2.1" {...line} /><path d="M3.5 7.6a4.5 4.5 0 0 0 9 0M8 12.1v2.1M5.6 14.2h4.8" {...round} /></>),
   chart: svg(<><path d="M2 13.5h12M3.5 11l3-3.5 2.5 2 4-5" {...round} /><path d="M10.5 4.5h2.5V7" {...round} /></>),
   swap: svg(<path d="M3 5h9.5l-2.5-2.5M13 11H3.5L6 13.5" {...round} />),
   flow: svg(<><rect x="1.8" y="2" width="4.4" height="3.6" rx="1" {...line} /><rect x="9.8" y="6.2" width="4.4" height="3.6" rx="1" {...line} /><rect x="1.8" y="10.4" width="4.4" height="3.6" rx="1" {...line} /><path d="M6.2 3.8h2.2a1.4 1.4 0 0 1 1.4 1.4V8M9.8 8v2.8a1.4 1.4 0 0 1-1.4 1.4H6.2" {...line} /></>),

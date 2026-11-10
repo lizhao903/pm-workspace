@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 快速捕获：对标 GTD 的三秒录入，提交后弹窗不关、清空标题继续录。
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useWorkspace } from '../hooks/workspace'

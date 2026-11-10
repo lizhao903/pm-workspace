@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 视频插件的小部件：阶段进度条、状态胶囊、比例标签、模块标签栏、阶段分布条（照原型 videos.tsx 的 StageBar、VideosTabs、StageDist）
 import type { CSSProperties } from 'react'
 import { useVideoClips, type Video, type VideoCoverRatio, type VideoOrientation } from '../../core/data'

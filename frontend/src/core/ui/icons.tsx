@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 组件里用到的小图标，线条跟 currentColor 走
 export function IconClose({ size = 14 }: { size?: number }) {
   return (

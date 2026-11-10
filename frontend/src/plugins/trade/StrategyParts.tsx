@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 策略与回测页共用的小件：进度条、状态、数字输入、折线图、小资金曲线、标的标签。照原型 web-next/src/strategy.tsx 搬。
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { TradeBacktestStatus } from '../../core/data'

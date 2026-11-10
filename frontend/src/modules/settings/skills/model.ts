@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 技能页的纯函数：来源分组、搜索、工具选项、表单和请求体（SPEC-settings-15、16）。
 import type { Connector, Skill, SkillInput, SkillPatch } from '../../../core/data'
 

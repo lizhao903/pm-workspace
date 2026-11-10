@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+# powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+#
+# DSH 归属：提交信息里没有 DSH 署名时自动补上。
+# 启用：make hooks（等价于 git config core.hooksPath .githooks）。
+msg_file="${1:-}"
+[ -n "$msg_file" ] || exit 0
+[ -f "$msg_file" ] || exit 0
+# 已经有署名就不动（大小写不敏感；只看行首 trailer，避免正文提到时误判）
+if grep -qiE '^co-authored-by:[[:space:]]*deepseek harness' "$msg_file"; then
+  exit 0
+fi
+printf '\nCo-Authored-By: DeepSeek Harness <noreply@deepseek.com>\n' >> "$msg_file"

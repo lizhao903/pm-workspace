@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 package main
 
 import (
@@ -416,6 +418,15 @@ func (c *client) agentOwnerID(ctx context.Context) (string, bool, error) {
 	people, err := c.listStakeholders(ctx)
 	if err != nil {
 		return "", false, err
+	}
+	// 先认名册里 Claude Code 这个 AI 成员（TSK-0500）：工作台启动时自动维护它，名字撞了人时
+	// 会带「（CLI）」，按名字找会找到那个人。只有配置了别的 agentOwner 时才按名字找。
+	if c.agentOwner == defaultAgentOwner {
+		for _, p := range people {
+			if p.AIKind == domain.AIKindCLI && p.AIRef == domain.RunHarnessClaude {
+				return p.ID, false, nil
+			}
+		}
 	}
 	for _, p := range people {
 		if p.Name == c.agentOwner {

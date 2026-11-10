@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 视频博主的选题管理和信息收集
 // 素材（Clip）是收进来的原始信息：链接、笔记、热榜、评论、竞品、IM 消息；选题（Topic）是从素材里挑出来、打过分、准备做的题
 // 选题「立项」后生成一集视频（Video），两边互相记着 id

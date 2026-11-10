@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 插件管理页的文字：权限的人话说明和风险级别（docs/plugin-api.md 3.1）、扩展点分组名（1.5）、状态
 import type { PluginInfo } from '../../../core/data'
 

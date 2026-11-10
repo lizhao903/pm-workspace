@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 连接器配置抽屉，新建和编辑共用。即时通讯类照原型 web-next/src/connectors.tsx ConnectorDrawer（SPEC-settings-4），
 // 其余照 web-next/src/apiconn.tsx ApiConnectorDrawer（SPEC-settings-5）。字段、认证方式、工具清单都按后端定义渲染。
 // 和原型不同的地方（后端决定的）：
@@ -9,12 +11,14 @@
 // - 字段可以只属于某种认证方式（定义的 auth），切换认证方式时跟着显示、隐藏（CONN-04）。
 // - 改了地址、认证或凭证保存后不关抽屉，提示重新测试、重新获取工具清单。
 // - 字段带 picker=im_channels（Slack 监听频道）时用列表勾选，列表按已保存的 Token 现查；新建还没保存时是文本框。
+// - 标志（TSK-0725）：自定义类填了地址就按域名认平台换图标（跟着输入变，不用先保存）；「从网站取图标」按已保存的地址
+//   由后端去对方网站取、直接存进图标，地址或图标有没保存的改动时先保存。自己上传的图标优先，认平台不覆盖它。
 import { useEffect, useState, type ChangeEvent } from 'react'
 import {
-  errorText, useConnectors, useCreateConnector, useDeleteConnector, usePatchConnector, useRefreshConnectorTools, useSetConnectorToolModes,
+  addressFields, detectedLogo, errorText, useConnectors, useCreateConnector, useDeleteConnector, useFetchConnectorIcon, usePatchConnector, useRefreshConnectorTools, useSetConnectorToolModes,
   useStartConnectorOAuth, type Connector, type ConnectorDef, type ConnectorField, type ConnectorToolMode,
 } from '../../../core/data'
-import { Button, cls, ConfirmDialog, Drawer, Field, Input, Select, Textarea } from '../../../core/ui'
+import { Button, cls, ConfirmDialog, CONNECTOR_LOGOS, Drawer, Field, Input, Select, Textarea } from '../../../core/ui'
 import { ChannelPicker } from '../../../core/ui/ChannelPicker'
 import { AUTH_HINT, AUTH_LABEL, categoryOf, INTERVALS, MODE_LABEL } from './catalog'
 import {
@@ -69,12 +73,13 @@ export function ConnectorDrawer({ def, connector: c, taken, check, pending, test
   const refresh = useRefreshConnectorTools()
   const setModes = useSetConnectorToolModes()
   const oauthStart = useStartConnectorOAuth()
+  const fetchIcon = useFetchConnectorIcon()
   const authAt = c?.oauth?.authorized_at ?? null
   const authDone = !!authRun && c?.id === authRun.id && !!authAt && authAt !== authRun.before && c.status !== 'disconnected'
   const authWait = authDone ? null : authRun
   // 等授权时定时重取实例列表，c 跟着变
   const listQ = useConnectors(authWait ? OAUTH_POLL_MS : false)
-  const busy = create.isPending || patch.isPending || remove.isPending || refresh.isPending || setModes.isPending || oauthStart.isPending
+  const busy = create.isPending || patch.isPending || remove.isPending || refresh.isPending || setModes.isPending || oauthStart.isPending || fetchIcon.isPending
 
   const missing = missingFields(def, draft, c)
   const nameBad = tried && !draft.name.trim()
@@ -217,6 +222,29 @@ export function ConnectorDrawer({ def, connector: c, taken, check, pending, test
     r.onerror = () => setIconError('读取图片失败')
     r.readAsDataURL(f)
   }
+
+  // 从网站取图标：按已保存的地址；取到的已经存进实例，草稿和基线的图标一起换，别的没保存的改动不动
+  const addrs = addressFields(def.tool)
+  const savedAddr = !!c && addrs.some((k) => !!c.config[k])
+  const addrDirty = !!c && addrs.some((k) => (draft.config[k] ?? '') !== (c.config[k] ?? ''))
+  const iconDirty = !!c && draft.icon !== (c.icon ?? '')
+  const platform = detectedLogo(def.tool, draft.config)
+  function siteIcon() {
+    if (!c) return
+    setIconError('')
+    fetchIcon.mutate(c.id, {
+      onSuccess: (r) => {
+        const icon = r.connector.icon ?? ''
+        setDraft((d) => ({ ...d, icon }))
+        setBaseline((b) => ({ ...b, icon }))
+      },
+      onError: (e) => setIconError(`没取到图标：${errorText(e)}`),
+    })
+  }
+  const iconHint = creating ? '点标志上传图标；接入后可以从网站取图标'
+    : !savedAddr ? '点标志上传图标；保存了地址才能从网站取图标'
+    : addrDirty || iconDirty ? '地址或图标还没保存，保存后才能从网站取图标'
+    : '点标志上传图标，或从对方网站取一个'
 
   function clearSecret(f: ConnectorField) {
     if (!c) return
@@ -449,16 +477,27 @@ export function ConnectorDrawer({ def, connector: c, taken, check, pending, test
             // 自定义类可以换成自己的图标；内置的用品牌标志，不给改
             <span className="cn-icon-edit">
               <label className="cn-icon-btn" title="上传图标">
-                <ToolLogo def={def} size={48} src={draft.icon || undefined} />
+                <ToolLogo def={def} size={48} config={draft.config} src={draft.icon} />
                 <input type="file" accept="image/*" hidden aria-label="上传图标" onChange={pickIcon} />
               </label>
               {draft.icon && <Button size="sm" variant="ghost" onClick={() => set({ icon: '' })}>移除图标</Button>}
+              {c && (
+                <Button size="sm" variant="ghost" disabled={busy || !savedAddr || addrDirty || iconDirty || !available}
+                  title="去服务地址所在的网站取它的图标（favicon / apple-touch-icon），取到后直接保存" onClick={siteIcon}>
+                  {fetchIcon.isPending ? '正在取…' : '从网站取图标'}
+                </Button>
+              )}
             </span>
           ) : <ToolLogo def={def} size={48} />}
           <div className="cn-profile-text">
             <h2 className="ellipsis">{draft.name.trim() || def.label}</h2>
             <div className="cn-faint">{categoryOf(def.category).label}{def.desc && ` · ${def.desc}`}</div>
-            {isCustom(def) && <div className="cn-faint">{iconError ? <span className="danger-text">{iconError}</span> : '点标志上传图标，没有图片时用默认图标'}</div>}
+            {isCustom(def) && (
+              <div className="cn-faint">
+                {iconError ? <span className="danger-text">{iconError}</span> : iconHint}
+                {!draft.icon && platform && <span className="cn-platform">；已按地址认出 {CONNECTOR_LOGOS[platform]?.title ?? platform}</span>}
+              </div>
+            )}
           </div>
         </div>
 

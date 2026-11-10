@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 import { useOpenUrl, useProtoDomain } from './openurl'
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 import type { Agent, Session } from './agentdata'
@@ -8,7 +10,7 @@ import { CommsTab, ProjectAgentTab, ProjectSopTab, ProjectTasksTab, Stakeholders
 import { contactIndex, isSnoozed, senderKey } from './messages'
 import { SearchSelect } from './searchselect'
 import type { Sop, SopRun } from './sopflow'
-import type { Task, TaskStatus } from './taskdata'
+import type { Task, TaskArtifact, TaskStatus } from './taskdata'
 import { isOpenTask } from './taskdata'
 import {
   DOC_KINDS, DOC_STATUS, MATERIAL_KIND, PROTO_STATUS, STAKE_ROLE, portConflict,
@@ -271,6 +273,8 @@ export interface ProjectLinks {
   onNewTask: () => void; onOpenTask: (id: string) => void; onTaskStatus: (id: string, s: TaskStatus) => void
   /** 待验收任务确认后验收通过 */
   onApproveTask?: (id: string) => void
+  /** 任务的产出物，任务标签每行显示件数（TSK-0497） */
+  artifacts?: TaskArtifact[]
   onStartSop: (id: string) => void; onOpenRun: (id: string) => void; onOpenSop: (id: string) => void
   onOpenSession: (id: string) => void
   /** 去会话页看这个项目的全部会话（会话页按项目筛）；不传就在项目里就地展开 */
@@ -493,7 +497,7 @@ export function ProjectPage({ project, projects, agents, content, tab, onTab, on
         onSkip={(ids, skip) => set({ skipped_attachments: skip ? [...new Set([...(p.skipped_attachments ?? []), ...ids])] : (p.skipped_attachments ?? []).filter((x) => !ids.includes(x)) })} />}
       {tab === 'stakeholders' && <StakeholdersTab p={p} contacts={L.contacts} messages={L.messages} onChange={set} onOpenContact={L.onOpenContact} onOpenMessage={L.onOpenMessage} />}
       {tab === 'deals' && deals}
-      {tab === 'tasks' && <ProjectTasksTab p={p} tasks={L.tasks} onNew={L.onNewTask} onOpen={L.onOpenTask} onStatus={L.onTaskStatus} onApprove={L.onApproveTask} />}
+      {tab === 'tasks' && <ProjectTasksTab p={p} tasks={L.tasks} onNew={L.onNewTask} onOpen={L.onOpenTask} onStatus={L.onTaskStatus} onApprove={L.onApproveTask} artifacts={L.artifacts} />}
       {tab === 'sop' && <ProjectSopTab p={p} sops={L.sops} runs={L.runs} onChange={set} onStart={L.onStartSop} onOpenRun={L.onOpenRun} onOpenSop={L.onOpenSop} />}
       {tab === 'agents' && <ProjectAgentTab p={p} agents={agents} sessions={L.sessions} onChange={set} onChat={onChat} onOpenAgent={onOpenAgent} onOpenSession={L.onOpenSession} onAllSessions={L.onAllSessions}
         chatOpen={L.chatOpen ?? null} onChatOpen={L.onChatOpen} renderChat={L.renderChat} />}

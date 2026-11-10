@@ -1,8 +1,10 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // Agent 列表和配置页的纯函数（AG-01b5），照原型 web-next/src/agents.tsx、agentdata.ts、App.tsx 的 modelChoices。
 // 色值写在这里（.tsx 里不出现色值），单元测试盯着模型可选项、草稿改动和问题汇总。
 import type {
   Agent, AgentGrantMode, AgentInput, AgentPatch, AgentProvider, AgentThinking, AgentTrigger, AgentTriggerKind, AgentTriggerMatch, Connector,
-  ProviderCheck,
+  ConnectorLook, ProviderCheck,
 } from '../../../core/data'
 import { kindOf, splitIds, uiKindOf } from '../providers/catalog'
 
@@ -29,6 +31,8 @@ export const ABILITIES: { key: string; label: string; write: boolean; group: str
   { key: 'write_tasks', label: '新建 / 更新任务', write: true, group: '任务', desc: '' },
   { key: 'read_content', label: '读文档', write: false, group: '文档', desc: '只能读挂载的知识库里的资料' },
   { key: 'write_content', label: '写文档', write: true, group: '文档', desc: '新建笔记、摘录' },
+  { key: 'read_sop', label: '查 SOP 流程', write: false, group: 'SOP', desc: '列出流程、读流程的步骤和能用的节点' },
+  { key: 'write_sop', label: '新建 / 修改 SOP 流程', write: true, group: 'SOP', desc: '按描述建流程或改步骤，保存前照编辑器的规则校验' },
   { key: 'run_sop', label: '发起 SOP', write: true, group: 'SOP', desc: '按标准流程执行，流程里的人工检查点照常停下' },
 ]
 
@@ -211,15 +215,17 @@ export type MountableConn = {
   kind: string
   ok: boolean
   tools: { key: string; name: string; desc: string; write: boolean; cap: AgentGrantMode }[]
+  /** 怎么显示它的标志（TSK-0725）；没给时用通用的插头图标 */
+  look?: ConnectorLook
 }
 
 /**
  * 连接器换成挂载用的形状。mountable 是能新挂的：获取过工具清单、没暂停、没断开、定义还在；
  * 已经挂着的不管状态都列出来（卡片上要能看到、能卸下）。
  */
-export function mountableConns(conns: readonly Connector[], label: (tool: string) => string): { all: MountableConn[]; mountable: Set<string> } {
+export function mountableConns(conns: readonly Connector[], label: (tool: string) => string, lookOf?: (c: Connector) => ConnectorLook): { all: MountableConn[]; mountable: Set<string> } {
   const all: MountableConn[] = conns.map((c) => ({
-    id: c.id, name: c.name, kind: label(c.tool), ok: c.status !== 'error',
+    id: c.id, name: c.name, kind: label(c.tool), ok: c.status !== 'error', ...(lookOf && { look: lookOf(c) }),
     tools: c.tools.filter((t) => t.mode !== 'off').map((t) => ({ key: connKey(c.id, t.name), name: t.name, desc: t.desc, write: t.write, cap: t.mode })),
   }))
   const mountable = new Set(conns.filter((c) => !!c.tools_at && c.available && c.status !== 'paused' && c.status !== 'disconnected').map((c) => c.id))
@@ -292,4 +298,33 @@ export function scenarioProblem(current: string, agents: Agent[]): string | unde
   if (!a) return '选的 Agent 已删除，现在用默认服务商，换一个'
   if (!a.enabled) return `「${a.name || '未命名'}」已停用，现在用默认服务商`
   return undefined
+}
+
+// ---- 一键全量设置权限：一组工具（内置工具，或一个连接器的全部工具）统一设成某一档，每个工具不超过它自己的上限 ----
+
+/** off 全部关闭；read 只开读、写关闭；rw_confirm 读自动、写需确认；rw_auto 读写都自动 */
+export type BulkLevel = 'off' | 'read' | 'rw_confirm' | 'rw_auto'
+export const BULK_LEVELS: BulkLevel[] = ['off', 'read', 'rw_confirm', 'rw_auto']
+export const BULK_LABEL: Record<BulkLevel, string> = { off: '全部关闭', read: '只读', rw_confirm: '读写（写需确认）', rw_auto: '读写全自动' }
+
+type BulkItem = { key: string; write: boolean; cap?: AgentGrantMode }
+
+/** 这一档下这个工具该是什么：先按档位定，再压到它能选的最高档（连接器那边的上限） */
+function bulkMode(it: BulkItem, level: BulkLevel): AgentGrantMode {
+  const want: AgentGrantMode = level === 'off' ? 'off'
+    : !it.write ? 'auto'
+      : level === 'read' ? 'off' : level === 'rw_confirm' ? 'confirm' : 'auto'
+  const opts = modeOptions(it.write, it.cap ?? 'auto')
+  return opts.filter((m) => RANK[m] <= RANK[want]).at(-1) ?? 'off'
+}
+
+/** 整组设成这一档的授权改动（只含这组工具的 key） */
+export function bulkGrants(items: readonly BulkItem[], level: BulkLevel): Grants {
+  return Object.fromEntries(items.map((it) => [it.key, bulkMode(it, level)]))
+}
+
+/** 整组现在正好是哪一档（按显示的档位比）；对不上任何一档是自定义，回 null。没有写工具时「只读」和读写两档一样，按「只读」算 */
+export function bulkLevelOf(items: readonly BulkItem[], grants: Grants): BulkLevel | null {
+  if (!items.length) return null
+  return BULK_LEVELS.find((lv) => items.every((it) => shownMode(grants[it.key], modeOptions(it.write, it.cap ?? 'auto')) === bulkMode(it, lv))) ?? null
 }

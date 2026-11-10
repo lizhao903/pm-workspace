@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 流程和当前工作台（PR-14，C-06）：流程里有插件节点、提供它的插件不在当前工作台里时，流程库和流程详情标「需要视频模块」。
 // 工作台开了哪些插件 = 它的模块要的插件加它记的插件；工作台、插件列表还没取到时不标。触发方式的显示名也在这里读字典
 import { useMemo } from 'react'

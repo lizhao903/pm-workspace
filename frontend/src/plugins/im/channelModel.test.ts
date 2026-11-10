@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 import { describe, expect, it } from 'vitest'
 import type { Connector, ConnectorDef } from '../../core/data'
 import { accountName, addableDefs, callbackUrl, imConnectors, memberIdError, SLACK_AS_USER, slackAs, slackTokenError, sendAsText, syncText } from './channelModel'

@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 执行的发起来源（SOP-06）：「手动」「手动（批量重跑）」「Agent：分诊助手」「定时：周一例会」「IM 消息」「子流程」「插件：video」。
 // Agent、定时任务的名字现查（改名后跟着变），查不到用发起那一刻记下的 source_name，再没有用 id；以前的执行没有来源，不显示
 import { useMemo } from 'react'

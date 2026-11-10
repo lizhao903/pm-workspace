@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 内容树（SPEC-library-1.1 到 1.11）：搜索框、按文件夹分组的文档树、底部切换工作目录。
 // 写法照原型 web-next/src/library.tsx 的 LibraryTree。几千上万个文件也不卡：文件夹默认收起，
 // 展开的树摊成一行行（每行 30px），行数多时只渲染滚动到的那一段（虚拟滚动），搜索时全部展开也一样。

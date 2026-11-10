@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 package sqlite
 
 import (
@@ -103,5 +105,62 @@ func TestAgentToolCallDecideOnce(t *testing.T) {
 	}
 	if _, err := s.GetAgentToolCall(ctx, "atc_nope"); !errors.Is(err, domain.ErrNotFound) {
 		t.Errorf("不存在应 404：%v", err)
+	}
+}
+
+// 等确认聚合接口（P0-O3）的列表：只看 pending、先记的在前、可按会话筛、空回空切片。
+func TestListPendingToolCalls(t *testing.T) {
+	s, ctx := newStore(t)
+	sa, sb := "ags_a", "ags_b"
+	mk := func(session *string, tool string) *store.AgentToolCall {
+		t.Helper()
+		c, err := s.CreateAgentToolCall(ctx, &store.AgentToolCall{
+			AgentID: "ag_1", SessionID: session, CallID: "call_" + tool,
+			Tool: tool, GrantKey: "write_tasks", Args: `{"ref":"TSK-1"}`,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return c
+	}
+	c1 := mk(&sa, "update_object")
+	c2 := mk(&sa, "create_object")
+	c3 := mk(&sb, "write_file")
+	decided := mk(nil, "append_progress")
+	if _, err := s.DecideAgentToolCall(ctx, decided.ID, store.ToolCallRejected); err != nil {
+		t.Fatal(err)
+	}
+
+	all, err := s.ListPendingToolCalls(ctx, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var ids []string
+	for _, c := range all {
+		ids = append(ids, c.ID)
+	}
+	// 已决定的不出现；同一毫秒里先记的靠 rowid 在前
+	if want := []string{c1.ID, c2.ID, c3.ID}; !slices.Equal(ids, want) {
+		t.Fatalf("全部待确认 = %v，期望 %v", ids, want)
+	}
+
+	gotA, err := s.ListPendingToolCalls(ctx, sa)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(gotA) != 2 || *gotA[0].SessionID != sa || *gotA[1].SessionID != sa {
+		t.Fatalf("会话 %s 的待确认 = %+v", sa, gotA)
+	}
+	gotB, _ := s.ListPendingToolCalls(ctx, sb)
+	if len(gotB) != 1 || gotB[0].ID != c3.ID {
+		t.Fatalf("会话 %s 的待确认 = %+v", sb, gotB)
+	}
+
+	none, err := s.ListPendingToolCalls(ctx, "ags_none")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if none == nil || len(none) != 0 {
+		t.Fatalf("没有待确认时应回空切片，得到 %#v", none)
 	}
 }

@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // Package store 定义数据访问的单一入口。API 层只依赖这个接口，不直接碰 SQL。
 package store
 
@@ -141,6 +143,11 @@ type Store interface {
 	// DeleteStakeholder 仅在无引用时允许；有对象引用返回 ErrConflict，让调用方改走归档。
 	// 「归档而不是删除」和 dict_items 一致：人被历史对象引用过，删掉会留下查不出来源的空位。
 	DeleteStakeholder(ctx context.Context, id string) error
+	// SyncAIMembers 让名册里的 AI 成员（TSK-0500）和 want 对齐：缺的建、改了名的跟着改、
+	// 归档了的复岗；want 里没有的 Agent 成员归档（不删，负责过的任务还要显示名字）。CLI 成员只增不归档。
+	SyncAIMembers(ctx context.Context, want []domain.AIMember) error
+	// GetAIMember 按 (kind, ref) 取 AI 成员，没有回 ErrNotFound。
+	GetAIMember(ctx context.Context, kind, ref string) (*domain.Stakeholder, error)
 
 	// 任务执行记录（本机 Claude Code）
 	// ListTaskRuns 返回该对象**最近** limit 条执行记录，按开始时间倒序（最近的在前）——
@@ -160,6 +167,12 @@ type Store interface {
 	// SetTaskRunStatus 改一条还没结束的执行的状态，只认 running / waiting（TSK-0460：交给工作台 Agent 的执行
 	// 停下等人确认时是 waiting）。已经结束的回 conflict，不存在回 not found。
 	SetTaskRunStatus(ctx context.Context, id, status string) error
+	// ListAllTaskRuns 是运行中心（P0-O1）用的跨对象读法：不按对象筛，返回全部 task 执行里
+	// 按 started_at 倒序的 limit 条，并从 offset 起。statuses 为空表示不过滤，否则只要这些状态。
+	// total 是过滤后的命中总数（不含 Limit/Offset），供列表显示「共 N 条」。
+	// 和 ListTaskRuns 的区别只有「不按对象筛 + 带总数」；每条的完整 output 照样带回来，
+	// 运行中心点开任意一条就要能看全过程。limit <= 0 取 DefaultRunLimit。
+	ListAllTaskRuns(ctx context.Context, statuses []string, limit, offset int) ([]*RunCenterTaskRun, int, error)
 	// ResolveWorkdir 取对象的有效工作区：自身没设时回退到所属项目的，都没有返回空串。
 	ResolveWorkdir(ctx context.Context, objectID string) (string, error)
 
@@ -174,6 +187,9 @@ type Store interface {
 	GetAgentSession(ctx context.Context, id string) (*domain.AgentSession, error)
 	CreateAgentSession(ctx context.Context, s *domain.AgentSession) (*domain.AgentSession, error)
 	UpdateAgentSession(ctx context.Context, id string, title, workdir, providerID, model *string) (*domain.AgentSession, error)
+	// SetAgentSessionModel 换会话用的服务商和模型（TSK-0720）：override 为 true 是会话单独选的，false 是改回跟随 Agent 默认
+	// （providerID / model 记成快照）。回读出来的会话，provider_id / model 是实际用的。
+	SetAgentSessionModel(ctx context.Context, id, providerID, model string, override bool) (*domain.AgentSession, error)
 	DeleteAgentSession(ctx context.Context, id string) error
 	// DeleteAgentMessages 从会话里移除指定的几条消息（界面上一个气泡可能是几条：工具调用加回复），
 	// 回实际删掉的条数；不属于这个会话的 id 忽略。会话不存在回 not found。移除后不再进模型的上下文
@@ -241,6 +257,9 @@ type Store interface {
 	// filter，所以「筛选后的统计」和「筛选后的列表」永远对得上——
 	// 各写一套 WHERE 的话，两个数字会在某个条件下悄悄分叉。
 	ArtifactStats(ctx context.Context, f domain.ArtifactFilter) (*domain.ArtifactStats, error)
+	// ArtifactsByObject 按归属对象汇总（TSK-0497）：同一套过滤，kind 按 display_kind 比，
+	// 每个对象一行，带分种类、分来源的条数和最近一次登记时间。不分页。
+	ArtifactsByObject(ctx context.Context, f domain.ArtifactFilter) (*domain.ArtifactsByObject, error)
 
 	// 备份与导出
 	Migrations(ctx context.Context) ([]domain.MigrationRecord, error)

@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 命令面板的「项目」数据源（SPEC-projects-0 联动）：按名称、说明、目录搜，多个词按空格拆开、每个词都要命中
 import { projectView, type ProjectView, type WorkObject } from '../../core/data'
 

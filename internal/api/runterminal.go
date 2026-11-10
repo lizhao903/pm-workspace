@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 package api
 
 import (
@@ -36,12 +38,14 @@ const (
 	// previewRunID 是预览时执行 id 的占位：真发起时才有 id。
 	previewRunID = "<发起时生成的执行 id>"
 	// MCPServerName 是写进 MCP 配置的 server 名，提示词里也按这个名字说。
-	MCPServerName = "pm-workspace"
+	// 终端交接、后台执行、插件运行共用 runner.MCPServer（TSK-0499）：不叫 pm-workspace，
+	// 免得和工作目录里 .mcp.json 的同名 server（可能指向别的工作台）撞名。
+	MCPServerName = runner.MCPServer
 )
 
 // projectOf 拼任务所属项目的上下文；没挂项目、项目已删时回 nil。
 //
-// 文档目录取项目 props.related 的第一个关联目录；原型目录经插件钩子问项目插件
+// 文档目录取项目设置里的文档目录（props.docs_dir，TSK-0718），没设时取 props.related 的第一个关联目录；原型目录经插件钩子问项目插件
 // （原型登记在它自己的表里）。项目插件没启用或查询出错时按「没有登记原型目录」写，
 // 不能因为辅助信息缺失让整次执行起不来。
 func (s *Server) projectOf(ctx context.Context, o *domain.Object) *runner.Project {
@@ -53,7 +57,12 @@ func (s *Server) projectOf(ctx context.Context, o *domain.Object) *runner.Projec
 		return nil
 	}
 	out := &runner.Project{Name: p.Title, Ref: p.Ref, Workdir: strings.TrimSpace(p.Workdir)}
-	out.DocsDir, out.DocsLabel = firstRelated(p.Props)
+	// 项目设置里的文档目录优先（TSK-0718）；没设（或相对路径但没项目目录）时退回第一个关联目录
+	if _, abs, err := projectDocsDir(p); err == nil && abs != "" {
+		out.DocsDir, out.DocsSetting = abs, true
+	} else {
+		out.DocsDir, out.DocsLabel = firstRelated(p.Props)
+	}
 	if s.opt.Plugins != nil {
 		protos, err := s.opt.Plugins.ProjectPrototypes(ctx, p.ID)
 		if err != nil && !errors.Is(err, plugin.ErrNoProjectPrototypes) {
@@ -84,14 +93,31 @@ func firstRelated(props map[string]any) (string, string) {
 	return "", ""
 }
 
-// promptFor 是两种方式共用的提示词拼法：任务本身加所属项目，终端方式再加回写一节。
+// promptFor 是两种方式共用的提示词拼法：任务本身加所属项目，再加回写一节——
+// 终端方式按交互执行写；流式（后台执行 Claude Code）按无人值守写，MCP 接不上时写明原因（TSK-0499）。
 func (s *Server) promptFor(ctx context.Context, o *domain.Object, workdir, extra, mode, runID string, preset *runner.Preset) string {
+	var wb *runner.WriteBack
+	switch mode {
+	case domain.RunModeTerminal:
+		wb = &runner.WriteBack{RunID: runID, ObjectID: o.ID}
+	case domain.RunModeStream:
+		if runID == "" {
+			runID = previewRunID
+		}
+		wb = &runner.WriteBack{RunID: runID, ObjectID: o.ID, Stream: true}
+		if err := runner.CheckMCP(s.opt.MCPBin, s.opt.PublicURL); err != nil {
+			wb.NoMCP = err.Error()
+		}
+	}
+	return s.promptWith(ctx, o, workdir, extra, preset, wb)
+}
+
+// promptWith 拼提示词，回写一节由调用方给（nil 不写，如交给 DeepSeek 的执行：dsh 没有工作台 MCP）。
+func (s *Server) promptWith(ctx context.Context, o *domain.Object, workdir, extra string, preset *runner.Preset, wb *runner.WriteBack) string {
 	t := s.taskOf(ctx, o, workdir, extra)
 	t.Project = s.projectOf(ctx, o)
 	t.Preset = preset
-	if mode == domain.RunModeTerminal {
-		t.WriteBack = &runner.WriteBack{RunID: runID, ObjectID: o.ID}
-	}
+	t.WriteBack = wb
 	return runner.BuildPrompt(t)
 }
 
@@ -129,9 +155,15 @@ func (s *Server) handleRunPrompt(w http.ResponseWriter, r *http.Request) {
 	}
 	// harness=agent（TSK-0460）预览交给工作台 Agent 的那一份；resume=true 是续跑的说法
 	var prompt string
-	if strings.TrimSpace(q.Get("harness")) == string(runner.HarnessAgent) {
+	switch strings.TrimSpace(q.Get("harness")) {
+	case string(runner.HarnessAgent):
 		prompt = s.agentPromptFor(ctx, o, strings.TrimSpace(wd), q.Get("extra_prompt"), preset, q.Get("resume") == "true")
-	} else {
+	case string(runner.HarnessDeepSeek):
+		// dsh 也接工作台 MCP（TSK-0722）：回写一节按后台执行口径、权限说法换成 dsh 沙箱（同 run.go）
+		_, noMCP := s.dshMCP()
+		wb := &runner.WriteBack{RunID: previewRunID, ObjectID: o.ID, Stream: true, DSH: true, NoMCP: noMCP}
+		prompt = s.promptWith(ctx, o, strings.TrimSpace(wd), q.Get("extra_prompt"), preset, wb)
+	default:
 		prompt = s.promptFor(ctx, o, strings.TrimSpace(wd), q.Get("extra_prompt"), mode, previewRunID, preset)
 	}
 	respondData(w, http.StatusOK, map[string]string{"prompt": prompt, "workdir": strings.TrimSpace(wd)})
@@ -212,7 +244,7 @@ func (s *Server) handleRunTerminal(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, werr)
 		return
 	}
-	s.markDoing(ctx, r, o)
+	s.markDoing(ctx, r, o, cliExecutor(domain.RunHarnessClaude))
 	respondData(w, http.StatusCreated, TerminalHandoff{Run: run, Workdir: workdir, PromptFile: promptFile, MCPConfig: mcpFile})
 }
 
@@ -228,7 +260,8 @@ const maxRunResult = 64 << 10
 
 // handleFinishTaskRun 给终端执行收尾：POST /api/runs/{id}/finish {status, summary?}。
 // 终端里的 claude 经 MCP 的 pmw_finish_run 调它，界面上的「标记结束」也调它。
-// 流式执行由工作台自己收尾，不收这个请求。
+// 流式执行由工作台自己收尾：还在跑时只记下回报的结论（TSK-0499），进程退出收尾时放在输出最前面；
+// 已经结束的、或不是这个工作台进程在跑的回 409。
 func (s *Server) handleFinishTaskRun(w http.ResponseWriter, r *http.Request) {
 	var req finishRunReq
 	if err := decodeBody(r, &req); err != nil {
@@ -279,13 +312,31 @@ func (s *Server) handleFinishTaskRun(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	// 执行器集成检查（TSK-0722，runnersmoke.go）里那几次 dsh 执行：不在 task_runs 里，结论记在检查上
+	if ok, mine := s.smoke.report(id, streamReport{Status: status, Summary: summary}); mine {
+		if !ok {
+			s.fail(w, r, conflictf("这次执行已经回报过结论了"))
+			return
+		}
+		respondData(w, http.StatusOK, map[string]any{"id": id, "status": domain.RunRunning, "mode": domain.RunModeStream,
+			"output": summary, "started_at": time.Now().UTC()})
+		return
+	}
 	run, err := s.st.GetTaskRun(ctx, id)
 	if err != nil {
 		s.fail(w, r, err)
 		return
 	}
 	if run.Mode != domain.RunModeTerminal {
-		s.fail(w, r, conflictf("流式执行由工作台自己收尾，不能手动标记结束"))
+		if run.FinishedAt != nil || !s.run.Running(id) {
+			s.fail(w, r, conflictf("流式执行由工作台自己收尾，这次执行已经结束了，不能再回报结论"))
+			return
+		}
+		if !s.streamReports.put(id, streamReport{Status: status, Summary: summary}) {
+			s.fail(w, r, conflictf("这次执行已经回报过结论了"))
+			return
+		}
+		respondData(w, http.StatusOK, run)
 		return
 	}
 	if run.FinishedAt != nil {
@@ -315,19 +366,10 @@ func (s *Server) reportedRun(ctx context.Context, info plugin.RunInfo) *domain.T
 	return &domain.TaskRun{ID: info.ID, Status: info.Status, Mode: domain.RunModeStream, Output: info.Summary, StartedAt: info.StartedAt}
 }
 
-// MCPConfig 生成接回工作台的 MCP 配置：一个 stdio server，名字 pm-workspace，
+// MCPConfig 生成接回工作台的 MCP 配置：一个 stdio server，名字 runner.MCPServer，
 // 命令是本机工作台的 MCP 程序，--api 指向当前工作台实例。不含任何凭证。
-func MCPConfig(bin, api string) []byte {
-	cfg := map[string]any{"mcpServers": map[string]any{
-		MCPServerName: map[string]any{
-			"type":    "stdio",
-			"command": bin,
-			"args":    []string{"--api", strings.TrimRight(api, "/")},
-		},
-	}}
-	b, _ := json.MarshalIndent(cfg, "", "  ")
-	return append(b, '\n')
-}
+// 和后台执行、插件运行是同一份生成逻辑（runner.MCPConfigJSON，TSK-0499）。
+func MCPConfig(bin, api string) []byte { return runner.MCPConfigJSON(bin, api) }
 
 // mcpBin 是写进 MCP 配置的 MCP 程序；没配或文件不在时回 409，说清怎么补。
 func (s *Server) mcpBin() (string, error) {

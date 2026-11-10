@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 package im
 
 // 从渠道资料补联系人邮箱：联系人经 IM 身份（渠道 + 编号）认到渠道里的人，渠道资料里有邮箱（Slack 的 profile.email，

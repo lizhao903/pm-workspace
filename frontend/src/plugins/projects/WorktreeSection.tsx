@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 任务详情里的「工作区」（AUTO-07，SPEC-tasks-4.50 起）：经 core/plugin 的对象区块登记，摆在基础信息标签末尾。
 // 在用的工作区：执行目录（可复制）、分支、基于哪个提交、端口段、状态；「清理工作区」删掉 worktree（分支合并了才删），
 // 有没提交的改动时后端拒绝，按钮换成「强制清理」并二次确认。没有在用的、任务挂了项目且项目设了代码库时给「准备工作区」。

@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 import { createBrowserRouter } from 'react-router'
 import type { ModuleDef } from '../plugin'
 import { loadChunk } from './chunkLoad'

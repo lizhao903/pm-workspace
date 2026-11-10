@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 修订和退回（DEV-08d 起，CORE-03a 迁进数据访问层）。修订按会话分组；验收通过在 progress.ts 的 useApprove。
 // 修订挂在对象的缓存键下，对象改动时一起失效。
 import { useMutation, useQuery } from '@tanstack/react-query'

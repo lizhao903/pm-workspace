@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 视频创作插件（VID-01a 起）：清单在后端 internal/plugins/video/plugin.json，这里只有入口。
 // 模块 key 是 videos，同工作台目录（core/shell/workspace.ts）；视频列表和详情的制作流程、设置是 VID-01c，产出物和系列页是 VID-01d。
 // 另登记两个 SOP 节点的展示（名字、颜色、配置项），不登记时流程图上只能显示 kind；商单（VID-08d）登记项目标签和今日卡片；VID-07b 登记视频的三张今日卡片

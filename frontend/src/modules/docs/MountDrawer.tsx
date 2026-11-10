@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 挂载本地目录（SPEC-library-1.11 的正式版）：用 /api/fs/browse 选目录，POST /api/local-dirs 挂上，存在后端，刷新页面还在。
 // 只读：后端只列文本文件、只读挂载目录里的非隐藏文件；数据目录和包住数据目录的路径不让挂（403）。
 import { useState } from 'react'

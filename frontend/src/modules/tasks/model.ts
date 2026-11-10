@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 任务列表的纯函数：截止分段、状态筛选、排序。规格见 web-next/docs/spec/tasks.md SPEC-tasks-2。
 // 「是否结束」一律看 /api/object-types 里状态的 terminal 标记，和后端 overdue / not_terminal 的判定同一来源。
 import { localDay, type DictItem, type ObjectStatus, type WorkObject } from '../../core/data'
@@ -143,6 +145,8 @@ export function sortSeg(rows: WorkObject[], seg: DueSeg, sort: TaskSort, rank: (
 /** 负责人筛选（B-07）：'' 全部，其余是干系人 id */
 export const OWNER_NONE = '-'
 export const OWNER_ME = 'me'
+/** 负责人是工作台 Agent 或 CLI 的（TSK-0500，SPEC-tasks-2.27） */
+export const OWNER_AI = 'ai'
 
 /** 「我」没有后端标记，记的是这台浏览器上选的干系人 id；存不了、读不到都当没选 */
 const ME_KEY = 'pmw-tasks-me'
@@ -161,7 +165,15 @@ export function matchOwner(t: WorkObject, f: string, me: string): boolean {
   if (!f) return true
   if (f === OWNER_NONE) return !t.owner_id && !t.owner
   if (f === OWNER_ME) return !!me && t.owner_id === me
+  if (f === OWNER_AI) return !!t.owner_id && !!t.owner_ai_kind
   return t.owner_id === f
+}
+
+/** AI 负责人的标识文字：Agent 或 CLI 名（TSK-0500）；负责人是人时为空 */
+export function aiOwnerTag(t: Pick<WorkObject, 'owner_ai_kind'>): string {
+  if (t.owner_ai_kind === 'agent') return 'Agent'
+  if (t.owner_ai_kind === 'cli') return 'CLI'
+  return ''
 }
 
 /** 列表里出现过的负责人，任务多的在前 */

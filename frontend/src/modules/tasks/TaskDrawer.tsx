@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 任务抽屉（SPEC-tasks-4、DEV-07b）：新建、查看、编辑、删除。
 // 已有任务以打开那一刻的值为基准：保存只传改过的字段，props 由接口层读回最新的再合并；未保存的改动关闭前先确认。
 // 已有任务分成标签（SPEC-tasks-4.35 到 4.41）：基础信息、开发任务、插件登记的标签（SOP）、执行记录，当前标签记在地址 ?tab= 上，
@@ -6,7 +8,7 @@
 // 新建不分标签：基础字段加可展开的开发字段。
 import { useId, useState, type CSSProperties, type ReactNode } from 'react'
 import {
-  errorText, isApiError, useArtifactCount, useCreateObject, useDeleteObject, useObject, usePatchObject, useProgress, useStakeholders,
+  errorText, isApiError, useAgents, useArtifactCount, useCreateObject, useDeleteObject, useObject, usePatchObject, useProgress, useStakeholders,
   useTaskRuns, type DictItem, type ObjectStatus, type WorkObject,
 } from '../../core/data'
 import {
@@ -14,8 +16,9 @@ import {
 } from '../../core/ui'
 import { ObjectSectionBadge, ObjectSections } from '../../core/shell/extensionHosts'
 import { DevSlots, RunsSlot } from './DevSlots'
-import { HOST_TABS, RUN_PARAM, currentTab, isDevTask, useTaskTabParams, visibleTabs, wantedTab, type HostTab } from './drawerTabs'
+import { FOCUS_PARAM, HOST_TABS, RUN_PARAM, currentTab, isDevTask, useTaskTabParams, visibleTabs, wantedTab, type HostTab } from './drawerTabs'
 import { HandOffButton } from './HandOff'
+import { AiBadge } from './OwnerMark'
 import { runningOf } from './handoffModel'
 import { buildCreate, buildSave, draftOf, emptyDraft, sameDraft, type TaskDraft } from './draft'
 import { Markdown } from './Markdown'
@@ -51,6 +54,7 @@ export function TaskDrawer({ task, statuses, priorities, projects, init, returnT
   const [error, setError] = useState('')
 
   const people = useStakeholders()
+  const agentList = useAgents()
   const live = useObject(task?.id ?? null)
   const artifactN = useArtifactCount(task?.id ?? null)
   const progress = useProgress(task?.id ?? null)
@@ -131,9 +135,18 @@ export function TaskDrawer({ task, statuses, priorities, projects, init, returnT
     priorities.filter((p) => !p.archived_at || p.key === d.priority).map((p) => ({ key: p.key, label: prioText(p.key, p), title: p.description || undefined })),
     d.priority,
   )
-  const peopleOpts: SearchOption[] = (people.data ?? []).map((s) => ({ value: s.id, label: s.name, hint: s.role || undefined, keywords: s.email }))
+  // AI 成员（TSK-0500）在选项旁标「Agent」/「CLI」；选它只是记录负责人，不发起执行
+  const peopleOpts: SearchOption[] = (people.data ?? []).map((s) => ({
+    value: s.id, label: s.name, keywords: s.ai_kind ? `${s.email} AI` : s.email,
+    hint: s.ai_kind === 'agent' ? 'Agent' : s.ai_kind === 'cli' ? 'CLI' : s.role || undefined,
+  }))
   const nameOf = (id: string) =>
     task?.owner_id === id ? task.owner_name : task?.participants.find((p) => p.id === id)?.name
+  const ownerSh = (people.data ?? []).find((s) => s.id === d.owner_id)
+  const ownerAI = ownerSh?.ai_kind || (task && task.owner_id === d.owner_id ? task.owner_ai_kind : undefined)
+  const ownerRef = ownerSh?.ai_ref || (task && task.owner_id === d.owner_id ? task.owner_ai_ref : undefined)
+  const ownerName = ownerSh?.name ?? (d.owner_id ? nameOf(d.owner_id) : undefined) ?? ''
+  const ownerLook = ownerAI === 'agent' && ownerRef ? agentList.data?.find((a) => a.id === ownerRef) : undefined
   const projectOpts: SearchOption[] = projects.map((p) => ({ value: p.id, label: p.title, hint: p.ref }))
   const project = projects.find((p) => p.id === d.project_id)
   const inherit = project?.workdir ? { project: project.title, dir: project.workdir } : undefined
@@ -160,8 +173,9 @@ export function TaskDrawer({ task, statuses, priorities, projects, init, returnT
           color={(k) => priorities.find((p) => p.key === k)?.color} />
       </Field>
       <div className="field-row">
-        <Field label="负责人" wrap={false}
-          hint={!d.owner_id && task && !task.owner_id && task.owner ? `原来记的是「${task.owner}」，选一位干系人替换` : undefined}>
+        <Field label={<>负责人{d.owner_id && ownerAI && <AiBadge kind={ownerAI} name={ownerName} look={ownerLook} />}</>} wrap={false}
+          hint={!d.owner_id && task && !task.owner_id && task.owner ? `原来记的是「${task.owner}」，选一位干系人替换`
+            : d.owner_id && ownerAI ? '在这里选 Agent / CLI 只是记录负责人，不会发起执行；要它干活用开发任务里的「交给…」' : undefined}>
           <SearchSelect variant="field" aria-label="负责人" value={d.owner_id} noneLabel="未分配" placeholder="未分配"
             searchPlaceholder="搜干系人" options={peopleOpts} emptyText={people.isPending ? '加载中' : '名册里还没有人'}
             missingLabel={(id) => nameOf(id) ?? '已归档的干系人'} onChange={(v) => set({ owner_id: v })} />
@@ -230,7 +244,7 @@ export function TaskDrawer({ task, statuses, priorities, projects, init, returnT
         <>
           {reviewing && <ReviewBar task={task} statuses={statuses} acceptance={base.acceptance} onReviewed={reviewed} />}
           {!reviewing && devFields}
-          <DevSlots task={task} reviewing={reviewing} />
+          <DevSlots task={task} reviewing={reviewing} focus={tabs.params.get(FOCUS_PARAM) || undefined} />
           {reviewing && devFields}
         </>
       )

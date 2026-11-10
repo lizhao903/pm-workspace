@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // Webhook 页（SPEC-tasks-9、10）用的纯函数：映射预览、过滤预览、列表排序、配置草稿、签名。
 // 映射和过滤的写法照原型 web-next/src/taskdata.ts 的 getPath、mapFields、passFilter；真正建任务以后端为准，这里只做编辑时的预览。
 import type { Delivery, DeliveryResult, LastDelivery, Webhook, WebhookInput, WebhookMapping, WebhookPatch } from '../../core/data'

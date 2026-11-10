@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 import { useState } from 'react'
 import { CLAUDE_COMMAND_DEFAULT, handoffFiles, renderClaudeCommand } from './handoff'
 
@@ -36,7 +38,7 @@ export function TerminalSettingsPage({ value, onSave }: { value: string; onSave:
         <span className="field-label">占位符</span>
         <ul className="field-hint-line" style={{ margin: 0, paddingLeft: 18 }}>
           <li><code>{'{{prompt_file}}'}</code> 工作台写好的提示词文件路径（任务内容、所属项目的文档和原型位置、回写要求）</li>
-          <li><code>{'{{mcp_config}}'}</code> 工作台生成的 MCP 配置文件路径：server 名 pm-workspace，接回当前这个工作台，claude 用它回写进展和结论</li>
+          <li><code>{'{{mcp_config}}'}</code> 工作台生成的 MCP 配置文件路径：server 名 pmw-run（不和工作目录 .mcp.json 里的 pm-workspace 撞名），接回当前这个工作台，claude 用它回写进展和结论</li>
           <li><code>{'{{workdir}}'}</code> 这次执行的工作目录（终端标签也开在这里）</li>
           <li>占位符会换成已经加好引号的路径，不用再自己加引号</li>
           <li>没写 <code>{'{{prompt_file}}'}</code> 就在末尾补 <code>{'"$(cat {{prompt_file}})"'}</code>，没写 <code>{'{{mcp_config}}'}</code> 再补 <code>{'--mcp-config {{mcp_config}}'}</code>。提示词放在 --mcp-config 前面：--mcp-config 能接多个值，写在它后面的参数会被它吞掉</li>

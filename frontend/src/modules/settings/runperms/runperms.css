@@ -1,0 +1,12 @@
+/* 设置「执行权限」（TSK-0499，SPEC-settings-26） */
+.rperm-page { display: flex; flex-direction: column; gap: var(--sp-5); min-width: 0; max-width: 860px; }
+.rperm-muted { color: var(--muted); font-size: var(--fs-sm); }
+.rperm-incoming { padding: var(--sp-4) var(--sp-5); border: 1px solid var(--line); border-radius: var(--r); background: var(--panel); font-size: var(--fs-sm); }
+.rperm-actions { display: flex; align-items: center; gap: var(--sp-3); }
+.rperm-ok { color: var(--ok); font-size: var(--fs-sm); }
+.rperm-err { color: var(--danger); font-size: var(--fs-sm); }
+.rperm-sub { font-weight: 500; }
+.rperm-profiles { display: flex; flex-direction: column; gap: var(--sp-3); }
+.rperm-profile { border: 1px solid var(--line); border-radius: var(--r); padding: var(--sp-4) var(--sp-5); background: var(--panel); }
+.rperm-profile summary { cursor: pointer; }
+.rperm-rules { display: block; margin-top: var(--sp-3); white-space: pre-wrap; overflow-wrap: anywhere; font-size: var(--fs-sm); }

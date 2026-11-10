@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 行情页（TRD-02b）：左自选、中 K 线、右盘口与数据源；另一个标签是期权（数据源未接）。
 // 交互照原型 web-next/src/markets.tsx（MarketsPage、WatchPanel、KChart、SymbolHead、BookPanel、OptionBoard），规格 web-next/docs/spec/markets.md。
 // 价格全部来自后端：实时价走 /api/trade/stream（连不上退回轮询），K 线走 /api/trade/klines。

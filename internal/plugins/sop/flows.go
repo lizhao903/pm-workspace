@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 package sop
 
 import (
@@ -52,7 +54,21 @@ type NodeType struct {
 	Required     []ConfigField `json:"required"`
 	// Source 是 builtin 或提供节点的插件 id（SOP-03a），只在 GET /api/sop/node-types 里填
 	Source string `json:"source,omitempty"`
+	// Label、Desc、Params、Outputs 是节点的声明（TSK-0490，spec.go）；插件节点没声明时 Params、Outputs 为 nil，
+	// 接口里是 [] 加 outputs_open: true（输出字段未知，下游引用它的字段只给警告）
+	Label       string   `json:"label"`
+	Desc        string   `json:"desc"`
+	Params      []Param  `json:"params"`
+	Outputs     []Output `json:"outputs"`
+	OutputsOpen bool     `json:"outputs_open"`
+	// Effect、DryRun 是调试时怎么对待这个节点（TSK-0491，debug.go）：compute（只按输入算）、read（只读取数）、model（调模型）
+	// 真实执行；write（改数据、对外发）、wait（等外部事件）、human（等人）不执行，按 DryRun 说的模拟
+	Effect string `json:"effect"`
+	DryRun string `json:"dry_run"`
 }
+
+// declared 是节点声明了输出（含只透传的空声明）。
+func (t NodeType) declared() bool { return t.Outputs != nil }
 
 // NodeTypes 和原型 NODE_TYPES 同序；加节点类型两边一起加。插件登记的节点在 nodes_plugin.go（SOP-03a）。
 var NodeTypes = []NodeType{
@@ -113,12 +129,21 @@ type Flow struct {
 	// Schedule 是随流程管理的定时任务（TSK-0463，flowsched.go），形状同 /api/schedules 的一项；没有为 null。
 	// 触发方式是 schedule 而它为 null 时是「定时，未配置」（比如在定时任务页删掉了）
 	Schedule *plugin.SOPFlowSchedule `json:"schedule"`
+	// IM 是 IM 触发的过滤条件、执行顺序与拦截（TSK-0481，imfilter.go），触发方式不是 im 时照常存着、不起作用
+	IM IMTrigger `json:"im"`
+	// FolderID 是流程所在的文件夹（TSK-0482，folders.go），nil 是「未分类」
+	FolderID *string `json:"folder_id"`
+	// Issues 是按现在的保存校验查出来的问题（TSK-0490），在列表（TSK-0498 起）、GET 一条、新建、修改的回包里带：
+	// 打开编辑时提示旧规则要改成结构化条件、存上了但有警告，流程列表据此显示「需修复」；执行快照里不带
+	Issues []Issue `json:"issues,omitempty"`
 }
 
-// Issue 是一处校验问题，step 是步骤下标（原型 checkSop 的 Issue 去掉 level，这里只收拦保存的）。
+// Issue 是一处校验问题，step 是步骤下标。level 是 error（拦保存）或 warning（能存，提示），code 见 check.go（TSK-0490）。
 type Issue struct {
-	Text string `json:"text"`
-	Step *int   `json:"step,omitempty"`
+	Text  string `json:"text"`
+	Step  *int   `json:"step,omitempty"`
+	Level string `json:"level"`
+	Code  string `json:"code,omitempty"`
 }
 
 type flows struct {
@@ -131,13 +156,17 @@ var flowIDRe = regexp.MustCompile(`^sop_[a-z0-9_]{1,60}$`)
 
 const flowCols = `id, name, description, trigger_desc, fields, steps, layout, version, created_at, updated_at`
 
+// flowSel 是读流程的列：flowCols 加 IM 触发设置（TSK-0481）和所在文件夹（TSK-0482），scanFlow 按它读
+const flowSel = flowCols + `, im_filter, im_stop, ` + imRankSQL + `, ` + folderIDSQL
+
 func (h *flows) list(w http.ResponseWriter, r *http.Request) {
-	rows, err := h.c.Store().Query(r.Context(), `SELECT `+flowCols+` FROM sop_flows ORDER BY created_at, rowid`)
+	rows, err := h.c.Store().Query(r.Context(), `SELECT `+flowSel+` FROM sop_flows ORDER BY created_at, rowid`)
 	if err != nil {
 		fail(w, r, h.c, err)
 		return
 	}
 	defer func() { _ = rows.Close() }()
+	kinds := kindsOf(h.c)
 	out := []Flow{}
 	for rows.Next() {
 		f, err := scanFlow(rows)
@@ -145,6 +174,8 @@ func (h *flows) list(w http.ResponseWriter, r *http.Request) {
 			fail(w, r, h.c, err)
 			return
 		}
+		// 读的时候算体检问题（不是保存时才算）：库里的旧流程也可能有条件是一句话，列表据此标「需修复」（TSK-0498）
+		f.Issues = checkFlow(&f, kinds)
 		out = append(out, f)
 	}
 	if err := rows.Err(); err != nil {
@@ -171,54 +202,17 @@ func (h *flows) show(w http.ResponseWriter, r *http.Request) {
 		fail(w, r, h.c, err)
 		return
 	}
+	f.Issues = checkFlow(&f, kindsOf(h.c))
 	writeJSON(w, http.StatusOK, map[string]any{"data": f})
 }
 
 func (h *flows) add(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
 	raw, err := readBody(r)
 	if err != nil {
 		fail(w, r, h.c, err)
 		return
 	}
-	f := Flow{Fields: json.RawMessage(`[]`), Steps: json.RawMessage(`[]`), Version: 1}
-	if v, ok := raw["id"]; ok && string(v) != "null" {
-		// 带 id 是为了导入原型或别处导出的流程，id 照旧
-		if err := json.Unmarshal(v, &f.ID); err != nil || !flowIDRe.MatchString(f.ID) {
-			fail(w, r, h.c, apiErr(errValidation, "id 必须是 sop_ 开头，后面只能是小写字母、数字、下划线，最多 60 个"))
-			return
-		}
-		if _, err := h.get(ctx, f.ID); err == nil {
-			fail(w, r, h.c, apiErr(errConflict, "流程 %s 已经存在", f.ID))
-			return
-		} else if !errors.Is(err, errNotFound) {
-			fail(w, r, h.c, err)
-			return
-		}
-	} else {
-		f.ID = idgen.Prefixed("sop")
-	}
-	sched, err := readSchedIn(h.c, raw)
-	if err != nil {
-		fail(w, r, h.c, err)
-		return
-	}
-	if err := apply(&f, raw, kindsOf(h.c)); err != nil {
-		fail(w, r, h.c, err)
-		return
-	}
-	normalizeTrigger(&f, sched)
-	now := time.Now().UTC().Format(time.RFC3339)
-	if _, err := h.c.Store().Exec(ctx, `INSERT INTO sop_flows (`+flowCols+`) VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`,
-		f.ID, f.Name, f.Desc, f.Trigger, string(f.Fields), string(f.Steps), layoutCol(f.Layout), now, now); err != nil {
-		fail(w, r, h.c, err)
-		return
-	}
-	if err := syncSchedule(ctx, h.c, f, "", sched); err != nil {
-		fail(w, r, h.c, scheduleErr(err))
-		return
-	}
-	out, err := h.getFull(ctx, f.ID)
+	out, err := h.create(r.Context(), raw)
 	if err != nil {
 		fail(w, r, h.c, err)
 		return
@@ -226,64 +220,126 @@ func (h *flows) add(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, map[string]any{"data": out})
 }
 
+// create 是新建一条流程，raw 是 POST /api/sop/flows 的请求体；Agent 的 create_sop 也走这里（TSK-0480，launch.go）。
+func (h *flows) create(ctx context.Context, raw map[string]json.RawMessage) (Flow, error) {
+	f := Flow{Fields: json.RawMessage(`[]`), Steps: json.RawMessage(`[]`), Version: 1}
+	if v, ok := raw["id"]; ok && string(v) != "null" {
+		// 带 id 是为了导入原型或别处导出的流程，id 照旧
+		if err := json.Unmarshal(v, &f.ID); err != nil || !flowIDRe.MatchString(f.ID) {
+			return Flow{}, apiErr(errValidation, "id 必须是 sop_ 开头，后面只能是小写字母、数字、下划线，最多 60 个")
+		}
+		if _, err := h.get(ctx, f.ID); err == nil {
+			return Flow{}, apiErr(errConflict, "流程 %s 已经存在", f.ID)
+		} else if !errors.Is(err, errNotFound) {
+			return Flow{}, err
+		}
+	} else {
+		f.ID = idgen.Prefixed("sop")
+	}
+	sched, err := readSchedIn(h.c, raw)
+	if err != nil {
+		return Flow{}, err
+	}
+	im, err := readIMIn(ctx, h.c, raw)
+	if err != nil {
+		return Flow{}, err
+	}
+	if f.FolderID, _, err = readFolderID(ctx, h.c, raw); err != nil {
+		return Flow{}, err
+	}
+	warns, err := apply(&f, raw, kindsOf(h.c))
+	if err != nil {
+		return Flow{}, err
+	}
+	normalizeTrigger(&f, sched)
+	im.applyIM(&f.IM)
+	now := time.Now().UTC().Format(time.RFC3339)
+	// 新流程在 IM 顺序里先排最后，给了 order 的再挪（placeIM）
+	if _, err := h.c.Store().Exec(ctx, `INSERT INTO sop_flows (`+flowCols+`, im_filter, im_stop, folder_id, im_order) VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, `+nextIMOrder+`)`,
+		f.ID, f.Name, f.Desc, f.Trigger, string(f.Fields), string(f.Steps), layoutCol(f.Layout), now, now, f.IM.filterJSON(), f.IM.Stop, f.FolderID); err != nil {
+		return Flow{}, err
+	}
+	if err := placeIM(ctx, h.c, f, imTrigger, im.Order); err != nil {
+		return Flow{}, err
+	}
+	if err := syncSchedule(ctx, h.c, f, "", sched); err != nil {
+		return Flow{}, scheduleErr(err)
+	}
+	out, err := h.getFull(ctx, f.ID)
+	out.Issues = warns
+	return out, err
+}
+
 func (h *flows) update(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
-	id := r.PathValue("id")
 	raw, err := readBody(r)
 	if err != nil {
 		fail(w, r, h.c, err)
 		return
 	}
-	f, err := h.get(ctx, id)
-	if err != nil {
-		fail(w, r, h.c, err)
-		return
-	}
-	if v, ok := raw["version"]; ok && string(v) != "null" {
-		var want int
-		if err := json.Unmarshal(v, &want); err != nil {
-			fail(w, r, h.c, apiErr(errValidation, "version 必须是整数"))
-			return
-		}
-		if want != f.Version {
-			fail(w, r, h.c, apiErr(errConflict, "流程已经被改过（现在是第 %d 版），刷新后再改", f.Version))
-			return
-		}
-	}
-	base, prev := f.Version, f.Trigger
-	sched, err := readSchedIn(h.c, raw)
-	if err != nil {
-		fail(w, r, h.c, err)
-		return
-	}
-	if err := apply(&f, raw, kindsOf(h.c)); err != nil {
-		fail(w, r, h.c, err)
-		return
-	}
-	normalizeTrigger(&f, sched)
-	now := time.Now().UTC().Format(time.RFC3339)
-	// 按读到的版本号更新，中间有人改过就算冲突
-	res, err := h.c.Store().Exec(ctx, `UPDATE sop_flows SET name = ?, description = ?, trigger_desc = ?, fields = ?, steps = ?,
-		layout = ?, version = version + 1, updated_at = ? WHERE id = ? AND version = ?`,
-		f.Name, f.Desc, f.Trigger, string(f.Fields), string(f.Steps), layoutCol(f.Layout), now, id, base)
-	if err != nil {
-		fail(w, r, h.c, err)
-		return
-	}
-	if n, _ := res.RowsAffected(); n == 0 {
-		fail(w, r, h.c, apiErr(errConflict, "流程刚被别处改过，刷新后再改"))
-		return
-	}
-	if err := syncSchedule(ctx, h.c, f, prev, sched); err != nil {
-		fail(w, r, h.c, scheduleErr(err))
-		return
-	}
-	out, err := h.getFull(ctx, id)
+	out, err := h.patch(r.Context(), r.PathValue("id"), raw)
 	if err != nil {
 		fail(w, r, h.c, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"data": out})
+}
+
+// patch 是修改一条流程，raw 是 PATCH /api/sop/flows/{id} 的请求体；Agent 的 update_sop 也走这里（TSK-0480）。
+func (h *flows) patch(ctx context.Context, id string, raw map[string]json.RawMessage) (Flow, error) {
+	f, err := h.get(ctx, id)
+	if err != nil {
+		return Flow{}, err
+	}
+	if v, ok := raw["version"]; ok && string(v) != "null" {
+		var want int
+		if err := json.Unmarshal(v, &want); err != nil {
+			return Flow{}, apiErr(errValidation, "version 必须是整数")
+		}
+		if want != f.Version {
+			return Flow{}, apiErr(errConflict, "流程已经被改过（现在是第 %d 版），刷新后再改", f.Version)
+		}
+	}
+	base, prev := f.Version, f.Trigger
+	sched, err := readSchedIn(h.c, raw)
+	if err != nil {
+		return Flow{}, err
+	}
+	im, err := readIMIn(ctx, h.c, raw)
+	if err != nil {
+		return Flow{}, err
+	}
+	// 没给 folder_id 的保持原样（含未分类）
+	if folder, ok, err := readFolderID(ctx, h.c, raw); err != nil {
+		return Flow{}, err
+	} else if ok {
+		f.FolderID = folder
+	}
+	warns, err := apply(&f, raw, kindsOf(h.c))
+	if err != nil {
+		return Flow{}, err
+	}
+	normalizeTrigger(&f, sched)
+	im.applyIM(&f.IM)
+	now := time.Now().UTC().Format(time.RFC3339)
+	// 按读到的版本号更新，中间有人改过就算冲突
+	res, err := h.c.Store().Exec(ctx, `UPDATE sop_flows SET name = ?, description = ?, trigger_desc = ?, fields = ?, steps = ?,
+		layout = ?, im_filter = ?, im_stop = ?, folder_id = ?, version = version + 1, updated_at = ? WHERE id = ? AND version = ?`,
+		f.Name, f.Desc, f.Trigger, string(f.Fields), string(f.Steps), layoutCol(f.Layout), f.IM.filterJSON(), f.IM.Stop, f.FolderID, now, id, base)
+	if err != nil {
+		return Flow{}, err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return Flow{}, apiErr(errConflict, "流程刚被别处改过，刷新后再改")
+	}
+	if err := placeIM(ctx, h.c, f, prev, im.Order); err != nil {
+		return Flow{}, err
+	}
+	if err := syncSchedule(ctx, h.c, f, prev, sched); err != nil {
+		return Flow{}, scheduleErr(err)
+	}
+	out, err := h.getFull(ctx, id)
+	out.Issues = warns
+	return out, err
 }
 
 func (h *flows) remove(w http.ResponseWriter, r *http.Request) {
@@ -323,6 +379,10 @@ func (h *flows) remove(w http.ResponseWriter, r *http.Request) {
 		fail(w, r, h.c, err)
 		return
 	}
+	// 没发起的记录跟着流程删（TSK-0491）
+	if _, err := h.c.Store().Exec(ctx, `DELETE FROM sop_skips WHERE flow_id = ?`, id); err != nil {
+		h.c.Log().Warn("sop skips not deleted", "flow", id, "err", err)
+	}
 	if _, err := h.c.SOP().DeleteFlowSchedule(ctx, id); err != nil && !errors.Is(err, plugin.ErrNoSOPSchedules) {
 		fail(w, r, h.c, err)
 		return
@@ -334,20 +394,32 @@ func (h *flows) remove(w http.ResponseWriter, r *http.Request) {
 func (h *flows) nodeTypes(w http.ResponseWriter, _ *http.Request) {
 	out := make([]NodeType, 0, len(NodeTypes))
 	for _, t := range NodeTypes {
-		if t.Required == nil {
-			t.Required = []ConfigField{}
-		}
 		t.Source = "builtin"
-		out = append(out, t)
+		out = append(out, t.forAPI())
 	}
 	for _, n := range h.c.SOP().Nodes() {
-		out = append(out, pluginNodeType(n))
+		out = append(out, pluginNodeType(n).forAPI())
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"data": out, "meta": map[string]int{"total": len(out)}})
 }
 
+// forAPI 是 node-types 里的样子：nil 换成 []，没声明输出的标 outputs_open。
+func (t NodeType) forAPI() NodeType {
+	if t.Required == nil {
+		t.Required = []ConfigField{}
+	}
+	t.OutputsOpen = !t.declared()
+	if t.Params == nil {
+		t.Params = []Param{}
+	}
+	if t.Outputs == nil {
+		t.Outputs = []Output{}
+	}
+	return t
+}
+
 func (h *flows) get(ctx context.Context, id string) (Flow, error) {
-	f, err := scanFlow(h.c.Store().QueryRow(ctx, `SELECT `+flowCols+` FROM sop_flows WHERE id = ?`, id))
+	f, err := scanFlow(h.c.Store().QueryRow(ctx, `SELECT `+flowSel+` FROM sop_flows WHERE id = ?`, id))
 	if errors.Is(err, plugin.ErrNoRows) {
 		return Flow{}, apiErr(errNotFound, "流程 %s 不存在", id)
 	}
@@ -388,11 +460,13 @@ func scheduleErr(err error) error {
 
 func scanFlow(row plugin.Row) (Flow, error) {
 	var f Flow
-	var fields, steps, created, updated string
+	var fields, steps, created, updated, filter string
 	var layout *string
-	if err := row.Scan(&f.ID, &f.Name, &f.Desc, &f.Trigger, &fields, &steps, &layout, &f.Version, &created, &updated); err != nil {
+	if err := row.Scan(&f.ID, &f.Name, &f.Desc, &f.Trigger, &fields, &steps, &layout, &f.Version, &created, &updated,
+		&filter, &f.IM.Stop, &f.IM.Order, &f.FolderID); err != nil {
 		return Flow{}, err
 	}
+	readIMFilter(filter, &f.IM)
 	f.Fields, f.Steps = json.RawMessage(fields), json.RawMessage(steps)
 	if layout != nil {
 		f.Layout = json.RawMessage(*layout)
@@ -410,7 +484,8 @@ func layoutCol(l json.RawMessage) any {
 }
 
 // apply 把 body 里传了的字段写进 f，再对整条定义做一遍校验；新建和修改同一套口径。
-func apply(f *Flow, raw map[string]json.RawMessage, kinds kindLookup) error {
+// 有错误回 checkError（issues 里错误在前、警告在后）；没有错误时回警告（可能为 nil）。
+func apply(f *Flow, raw map[string]json.RawMessage, kinds kindLookup) ([]Issue, error) {
 	strField := func(key string, dst *string, limit int) error {
 		v, ok := raw[key]
 		if !ok {
@@ -425,14 +500,14 @@ func apply(f *Flow, raw map[string]json.RawMessage, kinds kindLookup) error {
 		}
 		return nil
 	}
-	if err := strField("name", &f.Name, maxName); err != nil {
-		return err
-	}
-	if err := strField("desc", &f.Desc, maxDesc); err != nil {
-		return err
-	}
-	if err := strField("trigger", &f.Trigger, maxTrigger); err != nil {
-		return err
+	for _, x := range []struct {
+		key   string
+		dst   *string
+		limit int
+	}{{"name", &f.Name, maxName}, {"desc", &f.Desc, maxDesc}, {"trigger", &f.Trigger, maxTrigger}} {
+		if err := strField(x.key, x.dst, x.limit); err != nil {
+			return nil, err
+		}
 	}
 	for key, dst := range map[string]*json.RawMessage{"fields": &f.Fields, "steps": &f.Steps} {
 		v, ok := raw[key]
@@ -441,7 +516,7 @@ func apply(f *Flow, raw map[string]json.RawMessage, kinds kindLookup) error {
 		}
 		v = bytes.TrimSpace(v)
 		if len(v) == 0 || v[0] != '[' {
-			return apiErr(errValidation, "%s 必须是数组", key)
+			return nil, apiErr(errValidation, "%s 必须是数组", key)
 		}
 		*dst = compact(v)
 	}
@@ -453,13 +528,14 @@ func apply(f *Flow, raw map[string]json.RawMessage, kinds kindLookup) error {
 		case len(v) > 0 && v[0] == '{':
 			f.Layout = compact(v)
 		default:
-			return apiErr(errValidation, "layout 必须是对象或 null")
+			return nil, apiErr(errValidation, "layout 必须是对象或 null")
 		}
 	}
-	if issues := CheckWith(f, kinds); len(issues) > 0 {
-		return &checkError{issues}
+	all := checkFlow(f, kinds)
+	if errs := errorsOf(all); len(errs) > 0 {
+		return nil, &checkError{append(errs, warningsOf(all)...)}
 	}
-	return nil
+	return warningsOf(all), nil
 }
 
 func compact(v json.RawMessage) json.RawMessage {
@@ -495,23 +571,28 @@ type stepDef struct {
 		Of   string `json:"of"`
 		Case string `json:"case"`
 	} `json:"branch"`
-	Cases  []Case            `json:"cases"`
+	Cases []Case `json:"cases"`
+	// Rule 是旧的一行规则（「字段 等于 值」），只为已有流程保留，执行仍按它判断；新写的条件用 Cond（TSK-0490，cond.go）
 	Rule   string            `json:"rule"`
+	Cond   *Cond             `json:"cond"`
 	Config map[string]string `json:"config"`
 }
 
 var fieldTypes = []string{"text", "textarea", "select"}
 
-// Check 是保存前的校验，口径同原型编辑器的「检查」（web-next/src/sopedit.tsx 的 checkSop）里拦保存的那几条，
-// 另加原型靠编辑器保证、接口要自己查的：步骤 key 唯一、依赖无环、分支 case 存在、字段和配置的类型。
-// 原型里只是提醒的（没有人工检查点、分支下没有步骤、多个起点）不拦。
+// Check 是保存前的校验里拦保存的（错误），口径同原型编辑器的「检查」（web-next/src/sopedit.tsx 的 checkSop）里拦保存的那几条，
+// 另加原型靠编辑器保证、接口要自己查的：步骤 key 唯一、依赖无环、分支 case 存在、字段和配置的类型，
+// 以及按节点声明查的（TSK-0490，check.go）。原型里只是提醒的（没有人工检查点、分支下没有步骤、多个起点）不拦。
 func Check(f *Flow) []Issue { return CheckWith(f, nodeType) }
 
 // CheckWith 同 Check，节点类型按 kinds 查，插件登记的节点也认（SOP-03a）。
-func CheckWith(f *Flow, kinds kindLookup) []Issue {
+func CheckWith(f *Flow, kinds kindLookup) []Issue { return errorsOf(checkFlow(f, kinds)) }
+
+// checkFlow 是全部问题：错误在前，警告在后（TSK-0490）。
+func checkFlow(f *Flow, kinds kindLookup) []Issue {
 	var out []Issue
 	add := func(step int, format string, args ...any) {
-		x := Issue{Text: fmt.Sprintf(format, args...)}
+		x := Issue{Text: fmt.Sprintf(format, args...), Level: levelError}
 		if step >= 0 {
 			s := step
 			x.Step = &s
@@ -674,6 +755,8 @@ func CheckWith(f *Flow, kinds kindLookup) []Issue {
 		add(cyc[0], "依赖成环：%s", strings.Join(names, " → "))
 	}
 
+	out = append(out, declIssues(f, steps, ok, idx, kinds, label)...)
+
 	if len(f.Layout) > 0 {
 		var pos map[string]struct {
 			X *float64 `json:"x"`
@@ -689,7 +772,7 @@ func CheckWith(f *Flow, kinds kindLookup) []Issue {
 			}
 		}
 	}
-	return out
+	return append(errorsOf(out), warningsOf(out)...)
 }
 
 func isBranching(kind string) bool {

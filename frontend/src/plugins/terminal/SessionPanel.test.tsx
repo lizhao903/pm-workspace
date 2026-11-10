@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 会话旁边的终端（SPEC-sessions-1.35）：和一级菜单同一套标签；每次从会话头部打开，定位到停在会话目录的格子，没有就新开标签
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { render, screen, waitFor } from '@testing-library/react'

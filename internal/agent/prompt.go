@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 package agent
 
 import (
@@ -210,4 +212,23 @@ func agentSection(a *domain.Agent) string {
 func weekdayCN(d time.Weekday) string {
 	names := [...]string{"周日", "周一", "周二", "周三", "周四", "周五", "周六"}
 	return names[int(d)%7]
+}
+
+// instructionSection 是用户在会话上写的追加要求（S-2，0057）：放在系统提示词最后，
+// 和 Agent 的指令同一层——它只对这一次会话生效，比如「这次只讨论前端，不要建任务」。
+// 空指令返回空串，系统提示词的既有结构不变。
+func instructionSection(sess *domain.AgentSession) string {
+	if sess == nil {
+		return ""
+	}
+	ins := strings.TrimSpace(sess.Instruction)
+	if ins == "" {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("\n\n## 这次会话的追加要求\n\n")
+	b.WriteString("这次会话的追加要求，和上面的说法冲突时以这里为准：\n\n")
+	b.WriteString(ins)
+	b.WriteString("\n")
+	return b.String()
 }

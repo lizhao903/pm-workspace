@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // Cmd/Ctrl+K 命令面板：跳转 + 搜索对象 + 命令，三类结果共用一条上下键序列。
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
 import { api } from '../lib/api'

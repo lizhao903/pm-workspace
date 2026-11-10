@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 知识库页的小部件：书本图标、搜索框、来源分类标签、Agent 头像。
 import { Avatar, IconClose, IconSearch } from '../../../core/ui'
 import { useDocCategories } from './categories'

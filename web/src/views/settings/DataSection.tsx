@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 数据与备份：库在哪、多大、schema 是什么版本、怎么拿走。
 // 本地单文件工具的信任基础在这一页——用户要能确认自己的数据没被锁在工具里。
 import { useCallback, useEffect, useState } from 'react'

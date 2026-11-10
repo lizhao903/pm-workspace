@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 附件标签（SPEC-projects-5）：项目沟通消息里的全部附件集中管理——已加入资料的、不加入的、待决定的都列出来。
 // 原来是沟通标签顶部的「消息里的附件」收件箱，挪成独立标签；沟通标签只留一行「N 个附件待决定」的入口。
 // 消息来源同沟通标签（useProjectMessages：绑定会话 + 归到项目的消息）；获取、加入资料、不加入用 core/data 的 attachments，

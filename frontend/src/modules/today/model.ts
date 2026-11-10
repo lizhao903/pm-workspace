@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 今日页的纯函数：问候语、今天的任务、插件卡片合并。规格见 web-next/docs/spec/today.md SPEC-today-1。
 import type { ComponentType } from 'react'
 import type { PluginTodayCard, TodayItem, TodayTone } from '../../core/plugin'

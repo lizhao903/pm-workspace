@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -30,7 +32,9 @@ const types = [
     { key: 'published', label: '已发布', color: '', terminal: true },
   ] },
 ]
-const contacts = ['张甲', '李乙', '王丙', '赵丁', '钱戊'].map((name, i) => ({ id: `sh_${i}`, name, company: '', title: '', photo: '' }))
+// 分组：李乙在两个分组里，赵丁没填按默认「其他」
+const GROUPS = ['客户', '客户、同事', '同事', '', '供应商']
+const contacts = ['张甲', '李乙', '王丙', '赵丁', '钱戊'].map((name, i) => ({ id: `sh_${i}`, name, company: '', title: '', photo: '', group: GROUPS[i] }))
 
 function fakeBackend(rows: WorkObject[], stakes: { stakeholder_id: string; role: string }[]) {
   const calls: { method: string; path: string; body?: unknown }[] = []
@@ -142,6 +146,34 @@ describe('项目的干系人标签', () => {
     expect(roles).toEqual(['决策人', '对接人', '负责人', '参与', '知会'])
     expect(within(table).getAllByRole('row').slice(1).map((r) => within(r).getByTitle('打开联系人').querySelector('b')?.textContent))
       .toEqual(['钱戊', '赵丁', '王丙', '李乙', '张甲'])
+  })
+
+  it('按联系人分组筛：只列有人的分组，一人多组各算一次，没填分组算「其他」', async () => {
+    const p = obj({ type_id: 'project' })
+    fakeBackend([p], [
+      { stakeholder_id: 'sh_0', role: 'member' }, { stakeholder_id: 'sh_1', role: 'member' }, { stakeholder_id: 'sh_2', role: 'member' },
+      { stakeholder_id: 'sh_3', role: 'member' },
+    ])
+    mount(`/projects/${p.id}/stakeholders`)
+    const table = await screen.findByRole('table', { name: '干系人' })
+    await within(table).findByText('赵丁')
+    const seg = screen.getByRole('group', { name: '联系人分组' })
+    const names = () => within(table).getAllByRole('row').slice(1).map((r) => within(r).getByTitle('打开联系人').querySelector('b')?.textContent)
+    expect(within(seg).getAllByRole('button').map((b) => b.textContent)).toEqual(['全部4', '客户2', '同事2', '其他1'])
+    await userEvent.click(within(seg).getByRole('button', { name: /^同事/ }))
+    expect(names()).toEqual(['李乙', '王丙'])
+    await userEvent.click(within(seg).getByRole('button', { name: /^其他/ }))
+    expect(names()).toEqual(['赵丁'])
+    await userEvent.click(within(seg).getByRole('button', { name: /^全部/ }))
+    expect(names()).toHaveLength(4)
+  })
+
+  it('干系人只在一个分组里时不显示分组切换', async () => {
+    const p = obj({ type_id: 'project' })
+    fakeBackend([p], [{ stakeholder_id: 'sh_2', role: 'member' }])
+    mount(`/projects/${p.id}/stakeholders`)
+    await screen.findByText('王丙')
+    expect(screen.queryByRole('group', { name: '联系人分组' })).toBeNull()
   })
 
   it('移除走 DELETE，联系人本身不动', async () => {

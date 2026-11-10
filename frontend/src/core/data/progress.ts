@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 进展的读写（DEV-08a 起，CORE-03a 迁进数据访问层）：进展列表、追加进展、验收通过。
 // 只记进展报 { kind: 'progress' }；带 status 的（同一事务改了状态）按对象改动处理，列表和计数一起刷新。
 import { useMutation, useQuery } from '@tanstack/react-query'

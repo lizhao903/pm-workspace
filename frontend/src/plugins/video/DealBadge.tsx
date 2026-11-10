@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 项目「商单」标签上的红点（SPEC-videos-16.1）：这个项目有账期快到的单
 import { useVideoDeals } from '../../core/data'
 import { payState } from './dealModel'

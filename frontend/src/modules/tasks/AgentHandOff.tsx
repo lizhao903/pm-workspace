@@ -1,15 +1,18 @@
-// 交给工作台 Agent（TSK-0460，SPEC-tasks-6.20 起）：任务抽屉「开发」组「交给…」里的第二个执行器。
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
+// 交给工作台 Agent（TSK-0460，SPEC-tasks-6.20 起）：任务抽屉「开发」组「交给执行」里的工作台 Agent（TSK-0722 起三个执行器同一个入口，最上面选交给谁）。
 // 弹窗里选 Agent（默认场景「执行任务」选的）、服务商和模型（默认按 Agent 设置）、角色、补充说明，能勾「接着上次的会话」，
 // 步数和时长上限收在「预算」里。发起走 runLive.startRun（同一个 /run 接口，harness=agent），过程在执行记录里流式显示；
 // Agent 要做需要确认的写操作时，执行记录里出确认卡片，确认或拒绝后接着跑。工作目录不用选：有就是 write_file 的产物目录。
-import { useEffect, useId, useRef, useState } from 'react'
+import { useEffect, useId, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { Link } from 'react-router'
 import {
-  errorText, providerModelIds, useAgentProviders, useAgentScenarios, useAgents, useProviderModels, useRunPresets, useRunPrompt, useTaskRuns,
+  errorText, useAgentProviders, useAgentScenarios, useAgents, useRunPresets, useRunPrompt, useTaskRuns,
   type WorkObject,
 } from '../../core/data'
 import { Button, Checkbox, Field, IconButton, IconClose, Input, Select, Textarea } from '../../core/ui'
+import { ProviderModelFields } from './ProviderModelFields'
 import { restoreFocus, trapTab } from '../../core/ui/focus'
 import { AGENT_RUN_DEFAULTS, agentRunRequest, canResume, clampInt, pickAgent, providerOptions } from './agentHandoffModel'
 import { NO_PRESET, defaultWorkdir, pickedPreset, roleOptionLabel, roleReadOnly } from './handoffModel'
@@ -18,16 +21,20 @@ import './handoff.css'
 
 const PREVIEW_DELAY = 400
 
-export function AgentRunDialog({ task, workdir, inherit, onStart, onClose }: {
+export function AgentRunDialog({ task, workdir, inherit, onStart, onClose, picker, restoreTo }: {
   task: WorkObject
   workdir: string
   inherit?: { project: string; dir: string }
   onStart: () => void
   onClose: () => void
+  /** 「交给谁」（TSK-0722），放在标题下面 */
+  picker?: ReactNode
+  /** 关掉时焦点回到哪里；换执行器时弹窗会重建，由外层记住打开前的焦点 */
+  restoreTo?: Element | null
 }) {
   const id = useId()
   const ref = useRef<HTMLDivElement>(null)
-  const [prev] = useState(() => document.activeElement)
+  const [prev] = useState(() => restoreTo ?? document.activeElement)
   const agents = useAgents()
   const scenarios = useAgentScenarios()
   const providers = useAgentProviders()
@@ -54,8 +61,6 @@ export function AgentRunDialog({ task, workdir, inherit, onStart, onClose }: {
 
   // 模型下拉：选了服务商列那个服务商的；没选按 Agent 的服务商
   const effProvider = providers.data?.find((p) => p.id === (providerId || agent?.provider_id))
-  const tested = useProviderModels(effProvider?.id ?? '', !!effProvider)
-  const modelIds = effProvider ? [...new Set([...providerModelIds(effProvider), ...(tested.data ?? [])])] : []
   const dir = defaultWorkdir(workdir, inherit?.dir).dir
   const prompt = useRunPrompt(task.id, { harness: 'agent', resume, extra_prompt: extraSettled, preset_id: presetId || undefined }, preview)
 
@@ -110,9 +115,11 @@ export function AgentRunDialog({ task, workdir, inherit, onStart, onClose }: {
           <span className="spacer" />
           <IconButton label="关闭 (Esc)" onClick={onClose}><IconClose /></IconButton>
         </div>
-        <span className="field-hint-line">
-          工作台自己的 Agent 用它的工具处理这条任务：读任务和关联、记进展、改状态、建子任务。改代码类的任务仍建议交给 Claude Code
-        </span>
+        {picker ?? (
+          <span className="field-hint-line">
+            工作台自己的 Agent 用它的工具处理这条任务：读任务和关联、记进展、改状态、建子任务。改代码类的任务仍建议交给 Claude Code
+          </span>
+        )}
 
         <div className="ho-perm">
           <Checkbox className="ho-check" checked={resume} disabled={!resumable} onCheckedChange={setResumeChoice}>接着上次的会话</Checkbox>
@@ -138,17 +145,9 @@ export function AgentRunDialog({ task, workdir, inherit, onStart, onClose }: {
           </div>
         )}
 
-        <div className="ho-row">
-          <Field label="服务商">
-            <Select aria-label="服务商" value={providerId} onValueChange={(v) => { setProviderId(v); setModel('') }}
-              options={providerOptions(providers.data, agent)} />
-          </Field>
-          <Field label="模型">
-            <Input aria-label="模型" list={`${id}-models`} value={model} placeholder={providerId ? (effProvider?.model || '按服务商设置') : (agent?.model || '按 Agent 设置')}
-              onChange={(e) => setModel(e.target.value)} />
-            <datalist id={`${id}-models`}>{modelIds.map((m) => <option key={m} value={m} />)}</datalist>
-          </Field>
-        </div>
+        <ProviderModelFields options={providerOptions(providers.data, agent)} providerId={providerId} onProvider={setProviderId}
+          model={model} onModel={setModel} provider={effProvider}
+          placeholder={providerId ? (effProvider?.model || '按服务商设置') : (agent?.model || '按 Agent 设置')} />
 
         <div className="ho-preset">
           <div className="ho-preset-head">

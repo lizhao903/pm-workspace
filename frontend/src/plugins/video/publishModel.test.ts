@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 import { describe, expect, it } from 'vitest'
 import type { VideoArtifact, VideoPlatformInfo, VideoPublishRule } from '../../core/data'
 import { channelOf, checkPublish, coversFor, fillBad, fillOf, fillToMetrics, isPast, parseTags, peekOf, tomorrow10 } from './publishModel'

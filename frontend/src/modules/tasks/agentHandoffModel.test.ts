@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 import { describe, expect, it } from 'vitest'
 import type { Agent, AgentScenario, TaskRun } from '../../core/data'
 import { AGENT_RUN_DEFAULTS, agentRunRequest, canResume, clampInt, pickAgent } from './agentHandoffModel'

@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 package sqlite
 
 import (
@@ -13,7 +15,8 @@ import (
 
 const stakeholderCols = `s.id, s.name, s.role, s.email, s.note, s.color, s.sort_order,
 	s.archived_at, s.created_at, s.updated_at,
-	s.contact_group, s.company, s.title, s.phone, s.tags, s.photo, s.starred, s.last_contact_at`
+	s.contact_group, s.company, s.title, s.phone, s.tags, s.photo, s.starred, s.last_contact_at,
+	s.ai_kind, s.ai_ref`
 
 // stakeholderSelect 把两个引用数一起带出来，不让调用方逐个回查（那就是 N+1，
 // 而名册页一次就要展示全部人）。用相关子查询而不是两次 LEFT JOIN + GROUP BY：
@@ -40,6 +43,7 @@ func scanStakeholder(sc rowScanner) (*domain.Stakeholder, error) {
 	if err := sc.Scan(&sh.ID, &sh.Name, &sh.Role, &sh.Email, &sh.Note, &sh.Color, &sh.SortOrder,
 		&archived, &created, &updated,
 		&sh.Group, &sh.Company, &sh.Title, &sh.Phone, &tags, &sh.Photo, &sh.Starred, &lastContact,
+		&sh.AIKind, &sh.AIRef,
 		&sh.OwnedCount, &sh.ParticipatingCount); err != nil {
 		return nil, err
 	}
@@ -174,6 +178,13 @@ func (s *Store) UpdateStakeholder(ctx context.Context, id string, p domain.Stake
 		return nil, err
 	}
 
+	// AI 成员（TSK-0500）的名字跟着 Agent、在不在岗跟着 Agent 是否还在，由工作台维护；
+	// 这里放开会被下一次同步改回去，用户以为改成功了。
+	if cur.AIKind != "" && ((p.Name != nil && strings.TrimSpace(*p.Name) != cur.Name) ||
+		(p.Archived != nil && *p.Archived != (cur.ArchivedAt != nil))) {
+		return nil, conflict("AI 成员的名字和在岗状态由工作台维护：改 Agent 的名字、删除 Agent 会自动同步")
+	}
+
 	sets := []string{}
 	args := []any{}
 	add := func(col string, v any) {
@@ -264,13 +275,16 @@ func (s *Store) UpdateStakeholder(ctx context.Context, id string, p domain.Stake
 // 而这个丢失不报错、不崩溃，只是那一行从此空着。
 func (s *Store) DeleteStakeholder(ctx context.Context, id string) error {
 	return s.withTx(ctx, func(tx *sql.Tx) error {
-		var exists int
-		err := tx.QueryRowContext(ctx, `SELECT 1 FROM stakeholders WHERE id = ?`, id).Scan(&exists)
+		var aiKind string
+		err := tx.QueryRowContext(ctx, `SELECT ai_kind FROM stakeholders WHERE id = ?`, id).Scan(&aiKind)
 		if noRows(err) {
 			return notFound("stakeholder")
 		}
 		if err != nil {
 			return fmt.Errorf("get stakeholder: %w", err)
+		}
+		if aiKind != "" {
+			return conflict("AI 成员由工作台维护，不能删除：删掉 Agent 时它会自动归档")
 		}
 
 		var owned, participating int

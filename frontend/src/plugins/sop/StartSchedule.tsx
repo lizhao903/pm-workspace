@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 开始节点的「定时」（TSK-0463，SPEC-sop-9.3）：触发方式选「定时」后在这里配时间规则，复用定时任务的规则编辑（core/ui ScheduleRuleFields），
 // 下面是接下来 5 次；保存流程时规则写进随流程管理的定时任务，定时任务页看到、改到的是同一条。
 // 没有那一条（在定时任务页删掉了）时是「定时，未配置」，点「设定时间」从每天 09:00 开始配。

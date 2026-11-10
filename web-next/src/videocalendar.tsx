@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 import { useMemo, useState, type ReactNode } from 'react'
 import {
   DEAL_STATUS, LATE_DAYS, PLATFORMS, PUBLISH_STATUS, STAGES, calendarItems, daysBetween, isBehind, localYmd, videoState,

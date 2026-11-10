@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 模拟盘交易（TRD-05a、05b、06a 后端，TRD-05c、06b 前端）：账户、委托、持仓、部署、风控、熔断。
 // 实盘下单（TRD-08d）走同一套接口：统一下单、撤单、平仓、部署都接受闸门全开（trade_ready）的实盘账户，委托带 live。
 // 契约见 docs/api-contract.md「交易套件插件 trade / 模拟盘账户、委托和撮合」「策略部署」「风控」。

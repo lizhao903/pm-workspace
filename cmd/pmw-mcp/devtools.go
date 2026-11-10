@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 package main
 
 // 开发任务闭环的工具：领任务、记进展、提交验收、取下一个任务、拆子任务、看执行记录。
@@ -376,7 +378,9 @@ func addNextTask(s *mcp.Server, c *client) {
 		// 可做 = 没人负责，或者负责人就是 Agent 自己。派给别人的不碰。
 		cands := items[:0]
 		for _, o := range items {
-			if o.OwnerID == nil || *o.OwnerID == "" || o.OwnerName == c.agentOwner {
+			mine := o.OwnerName == c.agentOwner ||
+				(c.agentOwner == defaultAgentOwner && o.OwnerAIKind == domain.AIKindCLI && o.OwnerAIRef == domain.RunHarnessClaude)
+			if o.OwnerID == nil || *o.OwnerID == "" || mine {
 				cands = append(cands, o)
 			}
 		}

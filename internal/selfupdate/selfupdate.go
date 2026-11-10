@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // Package selfupdate 是设置页「版本更新」（SYS-UPD）的后端：看源码目录比正在跑的版本新多少，
 // 点了就按固定几步把工作台更新到源码目录里的最新代码并原地重启。
 //

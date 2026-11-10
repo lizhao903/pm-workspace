@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 package api
 
 import (
@@ -45,6 +47,7 @@ func (s *Server) handleCreateAgent(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, err)
 		return
 	}
+	s.syncAIMembers(r.Context())
 	s.auditConfig(r, "create", "agent", a.ID, "新建 Agent「"+a.Name+"」",
 		map[string]any{"name": a.Name, "provider_id": a.ProviderID, "model": a.Model, "enabled": a.Enabled})
 	respondData(w, http.StatusCreated, a)
@@ -79,6 +82,7 @@ func (s *Server) handleUpdateAgent(w http.ResponseWriter, r *http.Request) {
 	if fields["enabled"] {
 		detail["enabled"] = a.Enabled
 	}
+	s.syncAIMembers(r.Context())
 	s.auditConfig(r, "update", "agent", a.ID, "修改 Agent「"+a.Name+"」", detail)
 	respondData(w, http.StatusOK, a)
 }
@@ -114,6 +118,7 @@ func (s *Server) handleDeleteAgent(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, err)
 		return
 	}
+	s.syncAIMembers(r.Context())
 	s.auditConfig(r, "delete", "agent", out.ID, "删除 Agent「"+out.Name+"」",
 		map[string]any{"name": out.Name, "provider_id": out.ProviderID, "model": out.Model})
 	respondData(w, http.StatusOK, out)
@@ -189,6 +194,11 @@ func (s *Server) agentImpact(ctx context.Context, a *domain.Agent) (*agentImpact
 	if len(used) > 0 {
 		out.Items = append(out.Items, agentImpactItem{Key: "scenarios", Count: len(used), Effect: plugin.ImpactFallback,
 			Text: fmt.Sprintf("%s的默认 Agent 是它，删了改回用默认服务商和模型", strings.Join(used, "、"))})
+	}
+	// 负责人是它的对象（TSK-0500）：名册里那条归档，负责人保留
+	if m, err := s.st.GetAIMember(ctx, domain.AIKindAgent, a.ID); err == nil && m.OwnedCount > 0 {
+		out.Items = append(out.Items, agentImpactItem{Key: "owned", Count: m.OwnedCount, Effect: plugin.ImpactKeep,
+			Text: fmt.Sprintf("%d 条事项的负责人是它，负责人保留，显示为已归档的 AI 成员", m.OwnedCount)})
 	}
 	n, err := s.st.CountAgentSessions(ctx, a.ID)
 	if err != nil {

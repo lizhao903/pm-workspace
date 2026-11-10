@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 从 Slack 补联系人邮箱（SPEC-settings-4.7d）：联系人的 Slack 身份（Member ID）认到 Slack 里的人，资料里有邮箱时补进联系人。
 // 只填联系人邮箱为空的，不覆盖已有值；不一样的列出来不改。正式产品是 POST /api/im/connectors/{id}/backfill-emails
 // （Slack users.info 的 profile.email，要 users:read.email），原型用下面一份 Slack 资料种子模拟。

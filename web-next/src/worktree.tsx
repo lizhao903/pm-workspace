@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 import { useEffect, useState, useSyncExternalStore } from 'react'
 import type { Project } from './projectdata'
 import { TaskReleaseBlock } from './release'

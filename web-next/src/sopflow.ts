@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // SOP：标准工作流。步骤之间是一张有向图：
 //   after    这一步依赖哪几步；依赖多于一步就是汇合，依赖同一步的几步会并行跑
 //   判断步骤  产出 route，决定走哪个分支；没走到的分支上的步骤标为「未走此分支」
@@ -11,7 +13,8 @@
 import { seedContacts, seedMessages } from './data'
 import { newId } from './ids'
 import type { ScheduleRule } from './scheduledata'
-import { NODE_TYPES, evalRule, isBranching, loopRounds, render, typeOf, type Cfg, type StepKind } from './nodetypes'
+import { condText, evalCond, type SopCond } from './sopcond'
+import { NODE_TYPES, evalRule, isBranching, loopRounds, render, ruleIsSentence, ruleSentenceError, typeOf, type Cfg, type StepKind } from './nodetypes'
 
 export type Json = Record<string, unknown>
 export type { StepKind }
@@ -39,8 +42,10 @@ export interface SopStepDef {
   cases?: SopCase[]
   /** 判断规则；判断步骤既没有 decide 也没有 rule 就是人工判断 */
   decide?: (input: Json) => { route: string; reason: string }
-  /** 用户自己写的判断规则描述；原型里不真的求值，按第一个分支模拟 */
+  /** 旧的一行规则（「字段 等于 值」），只为已有流程保留；新写的条件用 cond（TSK-0490） */
   rule?: string
+  /** 结构化条件（TSK-0490）：字段 + 运算符 + 值，可多条且 / 或，见 sopcond.tsx */
+  cond?: SopCond
   /** 节点类型自己的配置项，见 nodetypes 里各类型的 fields */
   config?: Cfg
 }
@@ -55,6 +60,29 @@ export interface SopField {
   default?: string
 }
 
+/** 与我的关系：@我、@所有人、私聊、无关 */
+export type SopIMRelevance = 'me' | 'all' | 'dm' | 'none'
+export const IM_RELEVANCES: SopIMRelevance[] = ['me', 'all', 'dm', 'none']
+export const IM_REL_LABEL: Record<SopIMRelevance, string> = { me: '@我', all: '@所有人', dm: '私聊', none: '无关' }
+export interface SopIM {
+  conversations: string[]
+  relevance: SopIMRelevance[]
+  relevance_mode: 'include' | 'exclude'
+  order: number
+  stop: boolean
+}
+export const emptyIM = (): SopIM => ({ conversations: [], relevance: [], relevance_mode: 'include', order: 0, stop: false })
+/** 过滤条件写成一句：「#random · 除了 @我」；没有过滤为「全部消息」 */
+export function imFilterText(im: SopIM): string {
+  const parts: string[] = []
+  if (im.conversations.length) parts.push(im.conversations.join('、'))
+  if (im.relevance.length) parts.push(`${im.relevance_mode === 'exclude' ? '除了' : '只要'} ${im.relevance.map((r) => IM_REL_LABEL[r]).join('、')}`)
+  return parts.length ? parts.join(' · ') : '全部消息'
+}
+/** IM 流程按顺序排好（同序号按在表里的先后） */
+export const imSops = (list: readonly Sop[]) => list.filter((s) => s.trigger === 'im').map((s, i) => ({ s, i }))
+  .sort((a, b) => (a.s.im?.order || Infinity) - (b.s.im?.order || Infinity) || a.i - b.i).map((x) => x.s)
+
 export interface Sop {
   id: string
   name: string
@@ -66,6 +94,13 @@ export interface Sop {
    * 流程本身不存；打开编排页时从那条定时任务带出来，没有那条时为空（「定时，未配置」）
    */
   sched?: { rule: ScheduleRule; enabled: boolean }
+  /**
+   * IM 触发的过滤条件、执行顺序与拦截（TSK-0481，SPEC-sop-9.27）：只在触发方式是 im 时起作用，没有时是不过滤、排最后、不拦截。
+   * conversations 是会话（原型用会话名，正式产品存内核会话 id），空为全部；relevance 空为不限；order 是在 IM 流程里排第几（1 起）
+   */
+  im?: SopIM
+  /** 所在文件夹（TSK-0482，SPEC-sop-2.15）：SOP_FOLDERS 里的 id；没有或指向已删的文件夹是「未分类」 */
+  folder_id?: string | null
   fields: SopField[]
   steps: SopStepDef[]
   /** 编排画布上的节点位置，key 是步骤 key，__start 是开始节点；没有就按依赖自动排 */
@@ -379,12 +414,81 @@ const str = (v: unknown) => (typeof v === 'string' ? v : '')
 const rid = () => Math.random().toString(36).slice(2, 7)
 type Demand = { title: string; evidence: string; type: 'feature' | 'bug'; priority: string }
 
+/* ---------- 流程库的文件夹（TSK-0482，SPEC-sop-2.15 起） ---------- */
+
+/** 一级文件夹，不分层；正式产品存在 SOP 插件表 sop_folders，id 前缀 sfd */
+export interface SopFolder { id: string; name: string }
+export const UNCATEGORIZED = '未分类'
+export const FOLDER_NAME_MAX = 30
+/** 界面上已经占用的叫法，不能拿来当文件夹名 */
+export const FOLDER_RESERVED = ['全部', UNCATEGORIZED]
+
+export const SOP_FOLDERS: SopFolder[] = [
+  { id: 'sfd_product', name: '产品经理' },
+  { id: 'sfd_video', name: '视频博主' },
+  { id: 'sfd_im', name: 'IM 分诊' },
+]
+
+/** 流程实际所在的文件夹 id；指向已删的按未分类（null） */
+export const folderOf = (s: Sop, folders: readonly SopFolder[] = SOP_FOLDERS) =>
+  (s.folder_id && folders.some((f) => f.id === s.folder_id) ? s.folder_id : null)
+
+/** 文件夹名字检查（同后端）：去空白后 1 到 30 字，不能叫「全部」「未分类」，不分大小写不能重名；没问题回空串 */
+export function folderNameError(name: string, self?: string): string {
+  const v = name.trim()
+  if (!v) return '文件夹名称不能为空'
+  if ([...v].length > FOLDER_NAME_MAX) return `文件夹名称最多 ${FOLDER_NAME_MAX} 字`
+  if (FOLDER_RESERVED.includes(v)) return `「${v}」是界面上已经占用的叫法，换个名字`
+  if (SOP_FOLDERS.some((f) => f.id !== self && f.name.toLowerCase() === v.toLowerCase())) return `已经有叫「${v}」的文件夹了`
+  return ''
+}
+
+/**
+ * 名字前缀「xxx · 名称」的前缀（同后端 folderPrefix，SPEC-sop-2.21）：按第一个「空格 · 空格」切开，两边去空白都不为空、
+ * 前缀合文件夹名字规则才算；否则空串。正式产品升级到 SOP 0.15.0 后第一次启用时按它把已有流程归进同名文件夹，只做一次
+ */
+export function folderPrefix(name: string): string {
+  const i = name.indexOf(' · ')
+  if (i < 0) return ''
+  const head = name.slice(0, i).trim()
+  const rest = name.slice(i + 3).trim()
+  if (!head || !rest || [...head].length > FOLDER_NAME_MAX || FOLDER_RESERVED.includes(head)) return ''
+  return head
+}
+
+export function addFolder(name: string): SopFolder {
+  const f = { id: newId('sfd'), name: name.trim() }
+  SOP_FOLDERS.push(f)
+  return f
+}
+export function renameFolder(id: string, name: string) {
+  const f = SOP_FOLDERS.find((x) => x.id === id)
+  if (f) f.name = name.trim()
+}
+/** 删文件夹：里面的流程回未分类，流程本身不动；回放回了几条 */
+export function removeFolder(id: string): number {
+  const i = SOP_FOLDERS.findIndex((x) => x.id === id)
+  if (i >= 0) SOP_FOLDERS.splice(i, 1)
+  let n = 0
+  SOPS.forEach((s, k) => { if (s.folder_id === id) { SOPS[k] = { ...s, folder_id: null }; n += 1 } })
+  return n
+}
+/** 移到文件夹（null 回未分类）：只换文件夹，正式产品不升版本 */
+export function moveSops(ids: string[], folderId: string | null) {
+  SOPS.forEach((s, k) => { if (ids.includes(s.id)) SOPS[k] = { ...s, folder_id: folderId } })
+}
+/** 在某个文件夹里点「新建 SOP」时记下，编排页的新草稿默认放进去 */
+export const newSopFolder: { id: string | null } = { id: null }
+
 export const SOPS: Sop[] = [
   {
     id: 'sop_feedback',
+    folder_id: 'sfd_product',
     name: '客户反馈转需求',
     desc: '把 IM 里的客户反馈提炼成诉求，按功能需求和缺陷分开处理，回复客户并同步研发',
     trigger: 'im',
+    // IM 流程里排第 2，排在「群消息忽略」后面（TSK-0481）
+    im: { conversations: [], relevance: [], relevance_mode: 'include', order: 2, stop: false },
     fields: [
       { key: 'customer', label: '客户', type: 'text', required: true, default: '梁晚晴', placeholder: '联系人姓名' },
       { key: 'channel', label: '回复渠道', type: 'select', default: 'lark', options: [
@@ -584,6 +688,7 @@ export const SOPS: Sop[] = [
   },  {
     // 视频模块的阶段执行器可以直接选它；检查点对应视频的四个检查点，人放行了才往下走
     id: 'sop_video_weekly',
+    folder_id: 'sfd_video',
     name: '视频周更',
     desc: '按 web-video-presentation 技能把一集从原文做到分发包：AI 出稿、Agent 开发第 1 章、并行做其余章节、渲染，四处停下等人检查',
     trigger: 'manual',
@@ -658,6 +763,7 @@ export const SOPS: Sop[] = [
   // 消息抽屉「分诊建议」一节按这些输出字段取结论，不认步骤 key。原型的判断是写死的规则
   {
     id: 'sop_triage',
+    folder_id: 'sfd_im',
     name: '消息分诊：要不要我处理',
     desc: '读消息、判断要不要我处理。要处理的写一句处理建议；不用管的标成已忽略',
     trigger: 'manual',
@@ -705,6 +811,7 @@ export const SOPS: Sop[] = [
   // 不通过自动退回产品带着意见重写，最多 3 轮，超限转人工裁决。原型里评审首轮不通过、第 2 轮通过
   {
     id: 'sop_prd_review',
+    folder_id: 'sfd_product',
     name: '需求评审闭环',
     desc: 'Claude Code 按产品角色写 PRD，再按研发评审角色只读评审；不通过自动退回重写，最多 3 轮，超限转人工',
     trigger: 'manual',
@@ -1046,6 +1153,24 @@ export const SOPS: Sop[] = [
       },
     ],
   },
+  {
+    // TSK-0481 的验收样例：某个群里不是 @我 的消息一律标为忽略，排第 1 个并拦截，别的 IM 流程不再接；@我 的照常往下走
+    id: 'sop_im_mute',
+    folder_id: 'sfd_im',
+    name: '群消息忽略',
+    desc: '#random 里除了 @我 的消息一律标为忽略；排在最前面，接住的消息别的 IM 流程不再处理',
+    trigger: 'im',
+    im: { conversations: ['#random'], relevance: ['me'], relevance_mode: 'exclude', order: 1, stop: true },
+    fields: [{ key: 'message_id', label: 'IM 消息', type: 'text', required: true, default: 'm1', placeholder: '消息 id；IM 触发时自动带上' }],
+    steps: [
+      {
+        key: 'mark', name: '标记消息', kind: 'auto', ms: 200, after: [],
+        config: { message_id: '{{message_id}}', state: 'ignore' },
+        desc: '标记消息（IM 插件 im_mark_message）：把这条消息标为忽略，不进待处理',
+        run: (i) => ({ ...i, marked: { message_id: i.message_id, state: 'ignore' } }),
+      },
+    ],
+  },
 ]
 
 // 新建和编辑的 SOP 也放进这张表，引擎和界面都从这里按 id 取。App 里另有一份 state 负责触发重渲染
@@ -1054,8 +1179,33 @@ export function upsertSop(sop: Sop) {
   const i = SOPS.findIndex((s) => s.id === sop.id)
   if (i >= 0) SOPS[i] = sop
   else SOPS.push(sop)
+  placeIM(sop.id)
 }
-export const isManualDecide = (d: SopStepDef) => d.kind === 'decide' && !d.decide && !d.rule?.trim()
+
+/**
+ * 定 IM 流程的顺序（TSK-0481，同后端 placeIM）：这一条的 im.order 是想排第几，插进去、其余顺延，全部重新从 1 编号；
+ * 没有 order（新的、刚改成 IM 的）排最后。不是 IM 的 order 清成 0
+ */
+function placeIM(id: string) {
+  const me = SOPS.find((s) => s.id === id)
+  if (!me) return
+  if (me.trigger !== 'im') { if (me.im) me.im = { ...me.im, order: 0 }; return }
+  const rest = imSops(SOPS).filter((s) => s.id !== id)
+  const want = me.im?.order || rest.length + 1
+  rest.splice(Math.min(want - 1, rest.length), 0, me)
+  rest.forEach((s, k) => { s.im = { ...(s.im ?? emptyIM()), order: k + 1 } })
+}
+
+/** 一条消息符不符合 IM 触发的过滤条件（原型按会话名比） */
+export function imMatches(im: SopIM | undefined, m: { conversation: string; relevance?: string }): boolean {
+  if (!im) return true
+  if (im.conversations.length && !im.conversations.includes(m.conversation)) return false
+  if (!im.relevance.length) return true
+  const rel = (m.relevance || 'none') as SopIMRelevance
+  const hit = im.relevance.includes(rel)
+  return im.relevance_mode === 'exclude' ? !hit : hit
+}
+export const isManualDecide = (d: SopStepDef) => d.kind === 'decide' && !d.decide && !d.cond && !d.rule?.trim()
 
 /** 用户新建的步骤没有写死的产出规则，原型里按类型给一个看得出是谁产出的占位结果 */
 function mockRun(def: SopStepDef, input: Json): Json {
@@ -1139,9 +1289,19 @@ export function tick(r: SopRun, now = Date.now()): SopRun {
         now, v ? `Claude Code 跑完了，回报结论 ${v}` : 'Claude Code 跑完了，没有回报结构化结论'))
       return
     }
+    // 条件是一句话的判断步骤（TSK-0498，TSK-0490 之前存进来的）：失败，错误里写清怎么改，不再只说「写法不对」
+    if (def.kind === 'decide' && !def.decide && ruleIsSentence(def.rule)) {
+      const err = ruleSentenceError(def.rule!, sop.trigger)
+      r = setStep(r, i, (x) => logged({ ...x, status: 'failed', error: err, ended_at: now }, now, `失败：${err}`))
+      return
+    }
     if (isBranching(def.kind) && !isManualDecide(def)) {
       const t = typeOf(def.kind)
       const { route, reason } = def.decide ? def.decide(s.input ?? {})
+        // 结构化条件真求值（TSK-0490），同后端
+        : def.cond ? (evalCond(def.cond, s.input ?? {})
+          ? { route: def.cases?.[0]?.key ?? '', reason: `条件「${condText(def.cond)}」成立` }
+          : { route: def.cases?.[1]?.key ?? '', reason: `条件「${condText(def.cond)}」不成立` })
         : t.route ? t.route(def.config ?? {}, s.input ?? {}, def)
           : { route: def.cases?.[0]?.key ?? '', reason: `按规则「${def.rule}」判断（原型模拟）` }
       const label = def.cases?.find((c) => c.key === route)?.label ?? route
@@ -1185,10 +1345,10 @@ function loopback(r: SopRun, i: number, now: number): SopRun {
   const def = r.sop.steps[i]
   const s = r.steps[i]
   const input = s.input ?? {}
-  const rule = def.rule?.trim() ?? ''
-  const ok = evalRule(rule, input)
+  const rule = def.cond ? condText(def.cond) : def.rule?.trim() ?? ''
+  const ok = def.cond ? evalCond(def.cond, input) : evalRule(rule, input)
   const fail = (err: string) => setStep(r, i, (x) => logged({ ...x, status: 'failed', error: err, ended_at: now }, now, `失败：${err}`))
-  if (ok === null) return fail(rule ? `规则「${rule}」写法不对，要写成「字段 等于 值」或「字段 包含 值」` : '还没填回退条件')
+  if (ok === null) return fail(rule ? ruleSentenceError(rule, r.sop.trigger) : '还没填回退条件')
   const label = (k: string) => def.cases?.find((c) => c.key === k)?.label ?? k
   if (!ok) return setStep(r, i, (x) => logged({ ...x, status: 'done', output: input, route: 'pass', route_reason: `条件「${rule}」不成立`, ended_at: now }, now, `判断结果：走「${label('pass')}」，条件「${rule}」不成立`))
   const max = loopRounds(def.config?.max_rounds) ?? 3
@@ -1287,6 +1447,34 @@ export function rerunRuns(runs: SopRun[], ids: string[], action: RerunAction, no
     result.done.push({ run_id: id, new_run_id: n.id })
   }
   return { runs: [...fresh, ...runs.map((r) => byId.get(r.id) ?? r)], result }
+}
+
+/** 批量发起的执行在来源上的名字（正式产品 source_name「批量发起」，source_ref 记批次 spb_） */
+export const BATCH_SOURCE_NAME = '批量发起'
+
+/** 能停：执行中、待我处理（SPEC-sop-4.23）；失败、已完成、已终止、已重跑的不停 */
+export const isStoppable = (r: SopRun) => { const s = runShow(r); return s === 'running' || s === 'waiting' }
+
+/**
+ * 批量停止（TSK-0717，SPEC-sop-4.23~4.27）：同单条「终止」，不是执行中、待我处理的跳过并给原因（同正式产品的写法）。
+ * 正式产品是 POST /api/sop/runs/batch-actions {action:"stop"}（勾选的）和 POST /api/sop/runs/stop（按流程、批次、全部）；
+ * 排队等模型的步骤立即出队，正在调模型的请求取消，已建出的任务不回滚
+ */
+export function stopRuns(runs: SopRun[], ids: string[], now = Date.now()): { runs: SopRun[]; result: RerunResult } {
+  const result: RerunResult = { done: [], skipped: [], failed: [] }
+  const byId = new Map(runs.map((r) => [r.id, r]))
+  const seen = new Set<string>()
+  for (const id of ids) {
+    const r = byId.get(id)
+    if (seen.has(id)) { result.skipped.push({ run_id: id, reason: '重复或为空' }); continue }
+    seen.add(id)
+    if (!r) { result.skipped.push({ run_id: id, reason: '执行不存在' }); continue }
+    if (r.stopped) { result.skipped.push({ run_id: id, reason: '已终止' }); continue }
+    if (!isStoppable(r)) { result.skipped.push({ run_id: id, reason: `不在执行中或待我处理（${RUN_STATUS[runShow(r)].label}）` }); continue }
+    byId.set(id, act(r, { kind: 'stop' }, now))
+    result.done.push({ run_id: id })
+  }
+  return { runs: runs.map((r) => byId.get(r.id) ?? r), result }
 }
 
 export function act(r: SopRun, a: RunAction, now = Date.now()): SopRun {

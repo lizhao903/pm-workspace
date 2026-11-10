@@ -1,4 +1,7 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { MuteButton, MutesDrawer, muteReasonOf, useMutes } from './mutes'
 import { PageTitle } from './topbar'
 import { ALL_HANDLES, IM_CHANNELS, MY_HANDLES, QUICK_REPLIES, TOOLS, sendAsText, type Connector, type Contact, type Message } from './data'
 import { Avatar, ImMark, cls, timeAgo } from './ui'
@@ -7,7 +10,8 @@ import type { Project } from './projectdata'
 import { useEnumView } from './enumdata'
 import { SearchSelect, type SearchOption } from './searchselect'
 import type { Sop, SopRun } from './sopflow'
-import { TriageBar, TriageTag, activeTriage, latestTriage } from './triage'
+import { TRIAGE_TOTAL_MAX, TriageBar, TriageTag, activeTriage, latestTriage } from './triage'
+import './msgbulk.css'
 import { AgentSection, ReplyBarActions } from './msgagent'
 import { MaterialSection, notesOf } from './msgmaterial'
 import { clusterMessages, countLabel, isOpenMsg, nestThreads, previewText, rowTime, threadHint, threadOf, toRows, type MsgRow, type SessionIntent } from './msggroup'
@@ -176,7 +180,7 @@ const fmtMD = (iso: string) => new Date(iso).toLocaleString('zh-CN', { month: 'n
 /** 状态小标签按枚举颜色上色，和原来「已处理」的绿色标签同一种做法 */
 const stateStyle = (c: string): React.CSSProperties => ({ color: c, background: `color-mix(in srgb, ${c} 12%, transparent)` })
 
-export function MessagesPage({ messages, contacts, connectors, selected, onOpen, onAct, onGoConnectors, onToTask, taskOf, onSync, syncing, syncResult, projects, groupProjects, onSetGroupProject, sops, runs, onBatchTriage, onOpenQueue, onOpenTriage, selectedGroup, onOpenGroup, onStartSession, linksOf, onOpenSession, onToMaterial, onOpenMaterial }: {
+export function MessagesPage({ messages, contacts, connectors, selected, onOpen, onAct, onGoConnectors, onToTask, taskOf, onSync, syncing, syncResult, projects, groupProjects, onSetGroupProject, sops, runs, onBatchTriage, onOpenQueue, onOpenTriage, selectedGroup, onOpenGroup, onStartSession, linksOf, onOpenSession, onToMaterial, onOpenMaterial, onStopRuns }: {
   /** 转项目资料（SPEC-messages-6）：带上这些消息打开弹窗；转过的去项目资料页定位那一条 */
   onToMaterial: (ids: string[]) => void
   onOpenMaterial: (projectId: string, materialId: string) => void
@@ -187,7 +191,9 @@ export function MessagesPage({ messages, contacts, connectors, selected, onOpen,
   linksOf: (ids: string[]) => { sessions: string[]; tasks: number }
   onOpenSession: (id: string) => void
   /** 批量分诊、处理队列（SPEC-messages-1.51~1.53）：分诊用的流程和执行；onBatchTriage 回发起、跳过各几条 */
-  sops: Sop[]; runs: SopRun[]; onBatchTriage: (sopId: string, messageIds: string[], rerun: boolean) => { started: number; skipped: number }; onOpenQueue: () => void
+  sops: Sop[]; runs: SopRun[]; onBatchTriage: (sopId: string, messageIds: string[], rerun: boolean, batchId: string) => { started: number; skipped: number }; onOpenQueue: () => void
+  /** 批量分诊「立即停止」（TSK-0717，SPEC-messages-1.66）：停这次分诊发起的执行 */
+  onStopRuns: (runIds: string[]) => void
   /** 分诊建议（SPEC-messages-1.53）：点「已分诊」打开这条消息的抽屉并滚到「分诊建议」 */
   onOpenTriage: (id: string) => void
   /** 群组默认归属的项目：群的会话键 -> 项目 id；选中一个群标签时能设、改、清除（null） */
@@ -213,6 +219,9 @@ export function MessagesPage({ messages, contacts, connectors, selected, onOpen,
   const [merge, setMerge] = useState(true)
   /** 群组管理抽屉（SPEC-messages-7） */
   const [groupsOpen, setGroupsOpen] = useState(false)
+  /** 自动忽略的管理抽屉（SPEC-messages-9） */
+  const [mutesOpen, setMutesOpen] = useState(false)
+  const muteList = useMutes()
   /** 主动发消息（SPEC-messages-8）：弹窗带上的会话键；发件记录原型只存在这里 */
   const [sending, setSending] = useState<{ key?: string } | null>(null)
   const [outbox, setOutbox] = useState<Sent[]>([])
@@ -238,7 +247,7 @@ export function MessagesPage({ messages, contacts, connectors, selected, onOpen,
   const relOk = (m: Message) => !mine || (mine === 'at' ? relOf(m) === 'me' : relOf(m) !== null)
   const rows = useMemo(() => messages
     .filter((m) => inView(m, view) && (!channel || m.channel === channel) && convOk(m, conv) && (!unreadOnly || !m.read) && relOk(m)
-      && (!kw || [m.text, m.sender_name, m.conversation, whoOf(m)?.name ?? ''].some((v) => v.toLowerCase().includes(kw))))
+      && (!kw || [m.text, m.sender_name, m.conversation, whoOf(m)?.name ?? '', m.sender_id].some((v) => v.toLowerCase().includes(kw))))
     .sort((a, b) => b.at.localeCompare(a.at)),
   // eslint-disable-next-line react-hooks/exhaustive-deps
   [messages, people, rels, view, channel, conv, unreadOnly, mine, kw])
@@ -315,6 +324,35 @@ export function MessagesPage({ messages, contacts, connectors, selected, onOpen,
   const viewRows = useMemo(() => nestThreads(toRows(rows, clusters, merge), messages), [rows, clusters, merge, messages])
   const byId = useMemo(() => new Map(messages.map((m) => [m.id, m])), [messages])
   const shown = viewRows.slice(0, limit)
+  // 勾选和常驻全选（SPEC-messages-1.40、1.41，TSK-0492）：还没处理的（待处理含稍后、已过期）能勾；
+  // 已选按列表上看得到的消息算（不含收起的消息列回复），全选只选已加载（已渲染出来的行）里能勾的
+  const [sel, setSel] = useState<ReadonlySet<string>>(() => new Set())
+  const picked = viewRows.flatMap((r) => r.items).filter((m) => sel.has(m.id) && isOpenMsg(m))
+  const loaded = shown.flatMap((r) => r.items.filter(isOpenMsg))
+  const allState = loaded.length && loaded.every((m) => sel.has(m.id)) ? 'all' : picked.length ? 'some' : 'none'
+  const unloaded = viewRows.length > limit
+  const toggleAll = () => setSel((x) => (allState === 'all' ? new Set<string>() : new Set([...x, ...loaded.map((m) => m.id)])))
+  const toggleIds = (ids: string[]) => setSel((x) => {
+    const n = new Set(x)
+    const on = ids.every((id) => n.has(id))
+    for (const id of ids) { if (on) n.delete(id); else n.add(id) }
+    return n
+  })
+  const bulk = (kind: 'done' | 'ignore') => {
+    picked.forEach((m) => onAct(m.id, { kind }))
+    setTriageNote(`已把 ${picked.length} 条标为${msgEnum.label(kind === 'done' ? 'done' : 'ignored')}`)
+    setSel(new Set())
+  }
+  const pickBox = (ms: Message[], label: string) => {
+    const xs = ms.filter(isOpenMsg)
+    if (!xs.length) return <span className="msg-pick" aria-hidden="true" />
+    const n = xs.filter((m) => sel.has(m.id)).length
+    return (
+      <input type="checkbox" className="msg-pick" aria-label={label} checked={n > 0 && n === xs.length}
+        ref={(el) => { if (el) el.indeterminate = n > 0 && n < xs.length }}
+        onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()} onChange={() => toggleIds(xs.map((m) => m.id))} />
+    )
+  }
   // 每天的条数按消息算（归来的消息列回复也算），一组归在它最新一条那天
   const dayCount = new Map<string, number>()
   for (const r of viewRows) {
@@ -411,6 +449,7 @@ export function MessagesPage({ messages, contacts, connectors, selected, onOpen,
       <div role="button" tabIndex={0} className={cls('msg msg-group', selectedGroup === r.key && 'sel', unread > 0 && 'unread', !open.length && 'msg-closed')}
         onClick={() => onOpenGroup(r.key)} onKeyDown={(e) => e.key === 'Enter' && onOpenGroup(r.key)}>
         <span className="msg-unread" />
+        {pickBox(r.items, `选中 ${who?.name ?? m.sender_name} 这一组`)}
         <Avatar name={who?.name ?? m.sender_name} size={34} src={who?.photo} />
         <div className="msg-main">
           <div className="msg-top">
@@ -457,6 +496,9 @@ export function MessagesPage({ messages, contacts, connectors, selected, onOpen,
         {triageNote && <span className="sync-note">{triageNote}</span>}
         <button className="btn btn-ghost btn-outline" onClick={() => setSending({})} title="主动发一条到群或私聊">发消息</button>
         <button className="btn btn-ghost btn-outline" onClick={() => setGroupsOpen(true)} title="给群和私聊设默认归属的项目，能批量设">群组管理</button>
+        <button className="btn btn-ghost btn-outline" onClick={() => setMutesOpen(true)} title="自动忽略的发信人：他们的消息一收到就进「已忽略」，不计未读、不触发 SOP 和 Agent；在这里查看、取消">
+          自动忽略{muteList.length > 0 && <span className="seg-n">{muteList.length}</span>}
+        </button>
         <button className="btn btn-ghost btn-outline" onClick={onGoConnectors} title="在设置里管理 IM 渠道的连接器">
           {gear}渠道配置
           {broken.length > 0 && <span className="dot-alert" title={`${broken.length} 个连接器异常`} />}
@@ -508,18 +550,38 @@ export function MessagesPage({ messages, contacts, connectors, selected, onOpen,
         </div>
       </div>
 
-      {/* 页面下方的批量处理条（SPEC-messages-1.51、1.52）：原型列表不能勾选，只有批量分诊（对当前筛选结果）和处理队列 */}
-      <div className="run-bulk msg-bulk-idle" role="toolbar" aria-label="批量处理">
-        <span className="list-sub">批量分诊对当前筛选结果（最多 200 条）</span>
+      {/* 页面下方的批量处理条（SPEC-messages-1.41、1.51、1.52，TSK-0492）：左边常驻全选框（已加载里能勾的）和「已选 N 条 / 已加载 M 条」；
+          勾了时多「标为已处理」「忽略」「取消选择」；批量分诊对勾选的，没勾时对当前筛选结果 */}
+      <div className={cls('run-bulk', !picked.length && 'msg-bulk-idle')} role="toolbar" aria-label="批量处理">
+        <label className="msg-bulk-all" title={loaded.length ? `选中已加载的 ${loaded.length} 条能处理的消息` : '已加载的消息里没有能勾选的（只有还没处理的能勾）'}>
+          <input type="checkbox" className="msg-pick" aria-label="全选已加载的消息" disabled={!loaded.length} checked={allState === 'all'}
+            ref={(el) => { if (el) el.indeterminate = allState === 'some' }} onChange={toggleAll} />
+          全选
+        </label>
+        {picked.length > 0 && <b>已选 {picked.length} 条</b>}
+        <span className="list-sub">{picked.length > 0 ? '/ ' : ''}已加载 {loaded.length} 条</span>
+        {unloaded && loaded.length > 0 && <span className="list-sub msg-bulk-hint">还有未加载的，加载更多后再全选可包含更多</span>}
+        {!picked.length && <span className="list-sub msg-bulk-hint">不勾时批量分诊对当前筛选结果 {rows.length} 条</span>}
         <span className="spacer" />
-        <button className="btn btn-outline" onClick={() => setTriaging(true)} title="给当前筛选结果全部的消息各发起一次分诊流程（最多 200 条）">批量分诊</button>
+        <button className="btn btn-outline" onClick={() => setTriaging(true)} disabled={!picked.length && !rows.length}
+          title={picked.length ? `给勾选的 ${picked.length} 条消息各发起一次分诊流程` : `给当前筛选结果全部的消息各发起一次分诊流程（最多 ${TRIAGE_TOTAL_MAX} 条，超过 200 条自动分批）`}>批量分诊</button>
+        {picked.length > 0 && (
+          <>
+            <button className="btn btn-primary" onClick={() => bulk('done')}>标为{msgEnum.label('done')}</button>
+            <button className="btn btn-outline" onClick={() => bulk('ignore')}>忽略</button>
+          </>
+        )}
         <button className="btn btn-outline" onClick={onOpenQueue} title="分诊这类按消息发起的流程执行：进行中的和最近结束的">处理队列{activeN > 0 && <span className="seg-n">{activeN}</span>}</button>
+        {picked.length > 0 && <button className="btn btn-ghost" onClick={() => setSel(new Set())}>取消选择</button>}
       </div>
       {triaging && (
-        <TriageBar sops={sops} runs={runs} targets={rows} onCancel={() => setTriaging(false)}
-          onStart={(sopId, rerun) => {
-            const r = onBatchTriage(sopId, rows.map((m) => m.id), rerun)
+        <TriageBar sops={sops} runs={runs} targets={picked.length ? picked : rows}
+          scope={picked.length ? `勾选的 ${picked.length} 条` : `当前筛选结果全部 ${rows.length} 条`}
+          onCancel={() => setTriaging(false)}
+          onBatch={(sopId, ids, rerun, batchId) => onBatchTriage(sopId, ids, rerun, batchId)} onStopRuns={onStopRuns}
+          onDone={(r) => {
             setTriaging(false)
+            setSel(new Set())
             setTriageNote(`分诊发起 ${r.started} 条${r.skipped ? `，跳过 ${r.skipped} 条已跑过的` : ''}`)
           }} />
       )}
@@ -580,6 +642,7 @@ export function MessagesPage({ messages, contacts, connectors, selected, onOpen,
                 title={r.faded ? '原消息不在当前筛选里，消息列有新回复才显示' : undefined}
                 onClick={() => onOpen(m.id)} onKeyDown={(e) => e.key === 'Enter' && onOpen(m.id)}>
                 <span className="msg-unread" />
+                {pickBox(r.faded ? [] : [m], `选中 ${who?.name ?? m.sender_name} 的消息`)}
                 <Avatar name={who?.name ?? m.sender_name} size={34} src={who?.photo} />
                 <div className="msg-main">
                   <div className="msg-top">
@@ -597,7 +660,7 @@ export function MessagesPage({ messages, contacts, connectors, selected, onOpen,
                     <span className="spacer" />
                     {m.status !== 'pending' && (
                       <span className="state" style={stateStyle(msgEnum.color(m.status))}
-                        title={m.status === 'expired' && m.expired_at ? `${fmtMD(m.expired_at)} 超期没处理，标为${msgEnum.label('expired')}` : undefined}>{msgEnum.label(m.status)}</span>
+                        title={m.status === 'expired' && m.expired_at ? `${fmtMD(m.expired_at)} 超期没处理，标为${msgEnum.label('expired')}` : muteReasonOf(m) || undefined}>{muteReasonOf(m) ? '自动忽略' : msgEnum.label(m.status)}</span>
                     )}
                     {isSnoozed(m) && <span className="state state-snooze">{new Date(m.snooze_until!).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })} 提醒</span>}
                     {m.replies.length > 0 && <span className="state">已回复 {m.replies.length}</span>}
@@ -649,6 +712,10 @@ export function MessagesPage({ messages, contacts, connectors, selected, onOpen,
           )}
         </div>
       )}
+      {mutesOpen && (
+        <MutesDrawer onClose={() => setMutesOpen(false)}
+          onShow={(name) => { setMutesOpen(false); setChannel(''); setConv(''); setMine(''); setUnreadOnly(false); setView('ignored'); setQ(name) }} />
+      )}
       {groupsOpen && (
         <GroupAdminDrawer messages={messages} contacts={contacts} projects={projects} groupProjects={groupProjects} onSetGroupProject={onSetGroupProject}
           onClose={() => setGroupsOpen(false)} onSend={(key) => setSending({ key })}
@@ -696,6 +763,10 @@ export function MessageDrawer({ msg, contact, connector, members = [], onClose, 
   const sendAs = blocker ? null : sendAsText(connector)
   const [text, setText] = useState('')
   const [alsoDone, setAlsoDone] = useState(true)
+  // 自动忽略（SPEC-messages-9）：发信人处的按钮、状态条里的原因
+  useMutes()
+  const muteReason = muteReasonOf(msg)
+  const [muteNote, setMuteNote] = useState('')
   // 回复时 @ 对方（SPEC-messages-2.46）：群聊才有开关，默认打开、记在本机；私聊不加
   const [atOn, setAtOn] = useReplyMention()
   const target: MentionPick | null = msg.conversation ? { id: msg.sender_id, name: contact?.name ?? msg.sender_name } : null
@@ -737,6 +808,7 @@ export function MessageDrawer({ msg, contact, connector, members = [], onClose, 
               {msg.status === 'expired' && msg.expired_at && <span className="ms-sub">{fmtMD(msg.expired_at)} 超期没处理</span>}
               {rel && rel !== 'dm' && <span className="ms-sub">{RELEVANCE[rel]}</span>}
               {msg.replies.length > 0 && <span className="ms-sub">已回复 {msg.replies.length} 次</span>}
+              {muteReason && <span className="ms-sub">{muteReason}</span>}
               <span className="spacer" />
               {msg.status === 'pending' ? (
                 <>
@@ -768,7 +840,9 @@ export function MessageDrawer({ msg, contact, connector, members = [], onClose, 
           {contact
             ? <button className="btn btn-ghost" onClick={() => onOpenContact(contact.id)}>查看联系人</button>
             : <button className="btn btn-ghost" onClick={onSaveContact}>存为联系人</button>}
+          <MuteButton msg={msg} onDone={setMuteNote} />
         </div>
+        {muteNote && <div className="ok-text mute-note">{muteNote}</div>}
 
         {msg.thread && (
           <div className="thread-from">

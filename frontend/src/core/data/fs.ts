@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 工作目录校验和选目录（DEV-07b 起，CORE-03a 迁进数据访问层）。只读，不参与失效规则。
 import { keepPreviousData, useMutation, useQuery } from '@tanstack/react-query'
 import { agentWorkdir, fs, type WorkdirCheck } from '../api'

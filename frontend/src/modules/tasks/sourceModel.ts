@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 任务来源（SPEC-tasks-0 TaskSource、SPEC-tasks-3）：来源视图的标题、说明、空状态，和列表上的来源标签文字。
 // 来源种类在 objects.source，详情在 props.source_ref（契约「任务来源」）。
 import type { WorkObject } from '../../core/data'

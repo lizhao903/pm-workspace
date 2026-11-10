@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 package api
 
 import (
@@ -313,6 +315,7 @@ func (f *fakeStore) CreateObject(_ context.Context, o *domain.Object, a store.Ac
 	// 负责人姓名与参与人的展示字段由 store 填，和 sqlite 的 JOIN 同构——
 	// 替身不填的话，「列表要显示人名」这条性质在 API 层永远测不到。
 	o.OwnerName = f.ownerNameLocked(o.OwnerID, o.Owner)
+	o.OwnerAIKind, o.OwnerAIRef = f.ownerAILocked(o.OwnerID)
 	o.Participants = f.refsLocked(idsOfRefs(o.Participants))
 	f.objs[o.ID] = o
 	return o, nil
@@ -357,6 +360,60 @@ func (f *fakeStore) ownerNameLocked(ownerID *string, legacy string) string {
 	return legacy
 }
 
+// ownerAILocked 与 sqlite 同构：负责人是 AI 成员时带出类型与引用（TSK-0500）。调用方必须已持锁。
+func (f *fakeStore) ownerAILocked(ownerID *string) (string, string) {
+	if ownerID != nil && *ownerID != "" {
+		if sh, ok := f.stakeholdersMap()[*ownerID]; ok {
+			return sh.AIKind, sh.AIRef
+		}
+	}
+	return "", ""
+}
+
+// SyncAIMembers 是 sqlite 版的简化：按 (kind, ref) 建或改名、复岗，不在 want 里的 Agent 成员归档。
+// 撞名加区分、收编 pmw-mcp 自建那条只在 sqlite 测（stakeholders_ai_test.go）。
+func (f *fakeStore) SyncAIMembers(_ context.Context, want []domain.AIMember) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	keep := map[string]bool{}
+	now := time.Now()
+	for _, m := range want {
+		keep[m.Kind+"\x00"+m.Ref] = true
+		var hit *domain.Stakeholder
+		for _, sh := range f.stakeholdersMap() {
+			if sh.AIKind == m.Kind && sh.AIRef == m.Ref {
+				hit = sh
+			}
+		}
+		if hit == nil {
+			id := "stk_fake_ai_" + m.Kind + "_" + m.Ref
+			f.stakeholdersMap()[id] = &domain.Stakeholder{ID: id, Name: m.Name, AIKind: m.Kind, AIRef: m.Ref,
+				Group: "AI 成员", Tags: []string{}, CreatedAt: now, UpdatedAt: now}
+			continue
+		}
+		hit.Name, hit.ArchivedAt = m.Name, nil
+	}
+	for _, sh := range f.stakeholdersMap() {
+		if sh.AIKind == domain.AIKindAgent && !keep[sh.AIKind+"\x00"+sh.AIRef] && sh.ArchivedAt == nil {
+			t := now
+			sh.ArchivedAt = &t
+		}
+	}
+	return nil
+}
+
+func (f *fakeStore) GetAIMember(_ context.Context, kind, ref string) (*domain.Stakeholder, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for _, sh := range f.stakeholdersMap() {
+		if sh.AIKind == kind && sh.AIRef == ref {
+			c := *sh
+			return &c, nil
+		}
+	}
+	return nil, domain.ErrNotFound
+}
+
 func (f *fakeStore) UpdateObject(_ context.Context, id string, p domain.ObjectPatch, a store.Actor) (*domain.Object, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -385,6 +442,7 @@ func (f *fakeStore) UpdateObject(_ context.Context, id string, p domain.ObjectPa
 			o.OwnerID = &v
 		}
 		o.OwnerName = f.ownerNameLocked(o.OwnerID, o.Owner)
+		o.OwnerAIKind, o.OwnerAIRef = f.ownerAILocked(o.OwnerID)
 	}
 	// 全量替换，不是增量：nil = 不改，空切片 = 清空。
 	if p.ParticipantIDs != nil {
@@ -1041,9 +1099,9 @@ func (f *fakeStore) ListAgentSessions(_ context.Context, flt domain.AgentSession
 		default:
 			continue
 		}
-		c := *sess
+		c := f.effectiveSession(sess)
 		c.MessageCount = len(f.messages[c.ID])
-		out = append(out, &c)
+		out = append(out, c)
 	}
 	sort.Slice(out, func(i, j int) bool {
 		if out[i].UpdatedAt.Equal(out[j].UpdatedAt) {
@@ -1061,9 +1119,9 @@ func (f *fakeStore) GetAgentSession(_ context.Context, id string) (*domain.Agent
 	if !ok {
 		return nil, domain.ErrNotFound
 	}
-	c := *sess
+	c := f.effectiveSession(sess)
 	c.MessageCount = len(f.messages[id])
-	return &c, nil
+	return c, nil
 }
 
 func (f *fakeStore) CreateAgentSession(_ context.Context, sess *domain.AgentSession) (*domain.AgentSession, error) {
@@ -1110,9 +1168,35 @@ func (f *fakeStore) UpdateAgentSession(_ context.Context, id string, title, work
 		sess.Model = *model
 	}
 	sess.UpdatedAt = time.Now()
-	c := *sess
+	c := f.effectiveSession(sess)
 	c.MessageCount = len(f.messages[id])
-	return &c, nil
+	return c, nil
+}
+
+// SetAgentSessionModel 同 sqlite：记下会话的服务商、模型和是否单独换过；读出来的「实际用的」由 effectiveSession 现算
+func (f *fakeStore) SetAgentSessionModel(_ context.Context, id, providerID, model string, override bool) (*domain.AgentSession, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	sess, ok := f.sessions[id]
+	if !ok {
+		return nil, domain.ErrNotFound
+	}
+	sess.ProviderID, sess.Model, sess.ModelOverride = providerID, model, override
+	sess.UpdatedAt = time.Now()
+	c := f.effectiveSession(sess)
+	c.MessageCount = len(f.messages[id])
+	return c, nil
+}
+
+// effectiveSession 照 sqlite 的 sessionSelect：挂 Agent、没单独换过模型的会话读出来是 Agent 当前的服务商和模型。调用方持锁
+func (f *fakeStore) effectiveSession(sess *domain.AgentSession) *domain.AgentSession {
+	c := *sess
+	if !c.ModelOverride && c.AgentID != nil {
+		if a, ok := f.agents[*c.AgentID]; ok {
+			c.ProviderID, c.Model = a.ProviderID, a.Model
+		}
+	}
+	return &c
 }
 
 // DeleteAgentSession 删消息，但**不删产物**——这跟 0007 时的行为是反的。
@@ -1243,6 +1327,30 @@ func (f *fakeStore) artifactMatch(a *domain.Artifact, fl domain.ArtifactFilter) 
 	if fl.HasPath != nil && (a.Path != "") != *fl.HasPath {
 		return false
 	}
+	// TSK-0497：时间区间、归属对象的类型和项目
+	if fl.Since != nil && a.CreatedAt.Before(*fl.Since) {
+		return false
+	}
+	if fl.Until != nil && a.CreatedAt.After(*fl.Until) {
+		return false
+	}
+	if fl.ObjectType != "" || fl.ProjectID != "" {
+		o := f.objs[ptr(a.ObjectID)]
+		if o == nil || (fl.ObjectType != "" && o.TypeID != fl.ObjectType) {
+			return false
+		}
+		switch fl.ProjectID {
+		case "":
+		case "-":
+			if o.ProjectID != nil {
+				return false
+			}
+		default:
+			if ptr(o.ProjectID) != fl.ProjectID {
+				return false
+			}
+		}
+	}
 	if q := strings.TrimSpace(fl.Q); q != "" {
 		hay := a.Title + "\x00" + a.Path + "\x00" + a.URL + "\x00" + a.Note
 		if !strings.Contains(strings.ToLower(hay), strings.ToLower(q)) {
@@ -1348,6 +1456,11 @@ func (f *fakeStore) putArtifact(in domain.ArtifactInput) (*domain.Artifact, erro
 	if a.Props == nil {
 		a.Props = map[string]any{}
 	}
+	// 同 sqlite：kind 没给就推一个（TSK-0497）；替身不查字典，内置种类都算启用
+	if a.Kind == "" {
+		a.Kind = domain.InferArtifactKind(a.Note, a.URL, a.Platform, a.Path)
+	}
+	a.DisplayKind = domain.DisplayKindOf(a)
 	a.RelPath = a.Path
 	f.artifacts = append(f.artifacts, a)
 	return a, nil
@@ -1442,6 +1555,60 @@ func (f *fakeStore) ArtifactStats(ctx context.Context, fl domain.ArtifactFilter)
 		st.ByKind[a.Kind]++
 	}
 	return st, nil
+}
+
+// ArtifactsByObject 复刻 sqlite 的口径（TSK-0497）：kind 按 display_kind 比，by_kind / by_source
+// 各自不受自己那个条件影响，只算挂在没进回收站的对象上的。
+func (f *fakeStore) ArtifactsByObject(ctx context.Context, fl domain.ArtifactFilter) (*domain.ArtifactsByObject, error) {
+	kind, source := fl.Kind, fl.Source
+	fl.Kind, fl.Source, fl.Limit, fl.Offset = "", "", 1<<30, 0
+	items, _, err := f.ListArtifacts(ctx, fl)
+	if err != nil {
+		return nil, err
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	out := &domain.ArtifactsByObject{Objects: []domain.ArtifactObjectSummary{}, ByKind: map[string]int{}, BySource: map[string]int{}}
+	idx := map[string]int{}
+	for _, a := range items {
+		if a.ObjectID == nil {
+			continue
+		}
+		o := f.objs[*a.ObjectID]
+		if o == nil || o.DeletedAt != nil {
+			continue
+		}
+		k := domain.DisplayKindOf(a)
+		kindOK, sourceOK := kind == "" || k == kind, source == "" || a.Source == source
+		if sourceOK {
+			out.ByKind[k]++
+		}
+		if kindOK {
+			out.BySource[a.Source]++
+		}
+		if !kindOK || !sourceOK {
+			continue
+		}
+		i, ok := idx[o.ID]
+		if !ok {
+			out.Objects = append(out.Objects, domain.ArtifactObjectSummary{
+				ObjectID: o.ID, ObjectRef: o.Ref, ObjectTitle: o.Title, ObjectType: o.TypeID, Status: o.Status,
+				ProjectID: o.ProjectID, CompletedAt: o.CompletedAt,
+				ByKind: map[string]int{}, BySource: map[string]int{}, LastAt: a.CreatedAt,
+			})
+			i = len(out.Objects) - 1
+			idx[o.ID] = i
+		}
+		s := &out.Objects[i]
+		s.Total++
+		s.ByKind[k]++
+		s.BySource[a.Source]++
+		if a.CreatedAt.After(s.LastAt) {
+			s.LastAt = a.CreatedAt
+		}
+		out.Total++
+	}
+	return out, nil
 }
 
 // ResolveWorkdir 复刻「自身没设就回退到所属项目」这一条规则——API 层的 fake

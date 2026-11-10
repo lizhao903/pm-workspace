@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 设置 > 版本更新（SPEC-settings-23，SYS-UPD）。正式产品 frontend/src/modules/settings/update/UpdateSection.tsx。
 // 原型没有后端：正在运行一个旧提交、源码目录多 3 条提交，点更新后按步骤假装推进，最后显示「已更新」（不真的刷新页面）。
 // 「让第二步失败」是演示开关，勾上后构建前端那一步失败，旧版本不动。

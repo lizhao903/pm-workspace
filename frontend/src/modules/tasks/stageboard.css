@@ -20,3 +20,4 @@
 @media (max-width: 760px) {
   .stage-col { flex-basis: 78vw; max-height: none; }
 }
+.stage-card-ai { font-size: var(--fs-xs); color: var(--muted); }

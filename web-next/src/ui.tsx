@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 import { useLayoutEffect, useRef, type TextareaHTMLAttributes } from 'react'
 import { IM_CHANNELS, type Contact, type Group, type ImChannel } from './data'
 import { useEnum } from './enumdata'

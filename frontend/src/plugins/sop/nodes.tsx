@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 节点的展示信息（SPEC-sop-11）：名称、说明、颜色、图标、配置项、画布上的一行摘要。照原型 web-next/src/nodetypes.tsx 的 NODE_TYPES。
 // 有哪些节点、分组、是不是分支节点、哪些配置项必填，以后端 GET /api/sop/node-types 为准（目录见 edit.ts 的 catalogOf）；
 // 这里只管怎么显示。插件节点的显示由插件经 api.sopNodes 登记（SOP-03b，pluginInfo）；后端给了前端没登记的 kind 时
@@ -40,6 +42,10 @@ export type FieldCtx = {
   presets?: { id: string; scene: string; permission?: string }[]
   /** 正在配的节点沿依赖往上的所有步骤，条件回退选退回目标（AUTO-02）；节点面板按选中的节点填 */
   ups?: { key: string; name: string }[]
+  /** 现在的 IM 流程，按执行顺序（TSK-0481），开始节点选顺序用 */
+  imFlows?: { id: string; name: string; order: number; stop: boolean }[]
+  /** 流程库的文件夹（TSK-0482），开始节点选放进哪个文件夹 */
+  folders?: { id: string; name: string }[]
 }
 export const EMPTY_CTX: FieldCtx = { flows: [], agents: [], kbs: [], docCats: [], providers: [], projects: [] }
 
@@ -173,7 +179,7 @@ const INFO: Record<string, NodeInfo> = {
     summary: (c) => (c.language === 'python' ? 'Python' : 'JavaScript'),
   },
   decide: {
-    label: KIND_LABEL.decide, desc: '按规则选分支；规则留空就是人工判断', color: '#0f8a8a',
+    label: KIND_LABEL.decide, desc: '按条件（字段 + 运算符 + 值）选分支；没有条件就是人工判断', color: '#0f8a8a',
     icon: <>{line('M4 3v3.5a2 2 0 0 0 2 2h4M10 8.5 12.5 6M10 8.5 12.5 11M4 6.5V13')}</>, fields: [],
   },
   classifier: {

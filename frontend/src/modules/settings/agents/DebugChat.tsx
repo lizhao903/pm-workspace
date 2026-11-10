@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 配置页右边的调试对话（AG-02b，SPEC-settings-9.31、9.32、9.42），接 AG-02c 的 /api/agents/debug/chat。
 // 用当前（没保存的）配置跑，不写会话；对话只在这个面板里，「清空」就是前端清掉。停用的 Agent 照常能调。
 // 需确认的调用出「确认执行 / 拒绝」，点了走 /api/agent/tool-calls/{dbg_id}，接着的回复另起一条。

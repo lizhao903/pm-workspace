@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 在终端里开 Claude Code（交给 Claude Code「切换到终端」，内核 0048）：终端插件登记一个入口，
 // 任务模块经它在终端里新开标签、执行设置里的启动命令。任务模块和终端插件互不 import，只认这里的定义；
 // 同一时间只有一个入口，终端插件停用时按插件 id 撤掉，任务弹窗里「切换到终端」随之置灰。不进清单 provides

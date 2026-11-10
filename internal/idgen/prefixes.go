@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 package idgen
 
 import "fmt"
@@ -58,6 +60,7 @@ var Registry = []Entry{
 	{"att", "attachment", "im_attachments", "attachment"}, // IM 插件补的附件 id（IM-04a），附件本身在消息里，表里是获取状态
 	{"rp", "reply", "im_replies", "reply"},                // IM 插件的表（IM-02a）
 	{"ob", "outbox", "im_outbox", ""},                     // IM 插件主动发出的消息（0.17.0）
+	{"imu", "imMute", "im_mutes", "imMute"},               // IM 插件的自动忽略发信人（TSK-0495）
 	// 项目
 	{"mt", "material", "projects_materials", "material"},    // 项目插件的表（PJ-03a）
 	{"pd", "projectDoc", "", "projectDoc"},                  // PJ-03a 起项目文档并进资料用 mt，前缀保留
@@ -68,13 +71,18 @@ var Registry = []Entry{
 	{"psy", "protoSync", "projects_proto_syncs", ""},        // 项目插件的原型同步记录（AUTO-11）
 	{"ch", "projectChat", "", "projectChat"},
 	// 任务与自动化
-	{"sop", "sop", "sop_flows", "sop"},           // SOP 插件的表（SOP-01a）
-	{"spr", "sopRun", "sop_runs", ""},            // SOP 插件的执行（SOP-01b）；run 已给开发执行，原型的 sopRun 还用 run
-	{"inc", "incident", "incidents", "incident"}, // 内核的表（INC-01a，0043），运行异常
+	{"sop", "sop", "sop_flows", "sop"},               // SOP 插件的表（SOP-01a）
+	{"spr", "sopRun", "sop_runs", ""},                // SOP 插件的执行（SOP-01b）；run 已给开发执行，原型的 sopRun 还用 run
+	{"sfd", "sopFolder", "sop_folders", "sopFolder"}, // SOP 插件的流程库文件夹（TSK-0482）
+	{"spb", "sopBatch", "", ""},                      // SOP 插件的批量发起批次（TSK-0717），记在 sop_runs.source_ref，不单独建表
+	{"spk", "sopSkip", "sop_skips", ""},              // SOP 插件的自动触发没发起的记录（TSK-0491）
+	{"sdb", "sopDebug", "", ""},                      // SOP 插件的一次调试（TSK-0491），不落库，只在回包和日志里
+	{"inc", "incident", "incidents", "incident"},     // 内核的表（INC-01a，0043），运行异常
 	// Agent 与模型
 	{"ag", "agent", "agents", "agent"},               // 内核的表（AG-01b1，0032）
 	{"atc", "agentToolCall", "agent_tool_calls", ""}, // 内核的表（AG-02a，0035），要人确认的工具调用
 	{"dbg", "agentDebugCall", "", ""},                // 调试对话里要人确认的调用，只在进程内存里（AG-02c）
+	{"smk", "runnerSmoke", "", ""},                   // 执行器集成检查（TSK-0722），最近一次存在 agent_settings 的 runner_smoke_deepseek 下，不单独建表
 	{"ar", "agentRun", "agent_runs", "agentRun"},     // 内核的表（AG-01b4，0036）
 	{"op", "output", "", "output"},
 	{"kb", "kb", "knowledge_bases", "kb"}, // 内核的表（AG-01b3，0034）

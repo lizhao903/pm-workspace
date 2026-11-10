@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 与 internal/domain/domain.go 一一对应。改动需同步后端与 docs/api-contract.md。
 
 export interface Status {

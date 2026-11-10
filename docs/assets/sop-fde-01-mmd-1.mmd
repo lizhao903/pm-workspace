@@ -1,0 +1,18 @@
+sequenceDiagram
+    participant T as 定时任务（每天 10:00）
+    participant P as fde_feedback_daily.py
+    participant G as Google Sheet（只读 CSV 导出）
+    participant L as data/fde-feedback/lists/
+    T->>P: 启动脚本
+    P->>G: GET export?format=csv&gid=1115809405
+    alt 读不到或表头缺列
+        P-->>T: 退出码 2 + 一行原因
+        T->>T: 记失败，不落文件，通知人工
+    else 读到
+        P->>P: 校验表头、清洗、按编号归并
+        P->>L: 读上一份清单（latest.json）
+        P->>P: 比对 change：new / updated / closed / unchanged
+        P->>L: 写 YYYY-MM-DD.md、YYYY-MM-DD.json、latest.json
+        P-->>T: 退出码 0 + 一行统计
+        T->>T: 复核新增与变更条目（第 5 节）
+    end

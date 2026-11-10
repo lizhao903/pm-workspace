@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -183,6 +185,76 @@ describe('SOP 页面', () => {
     expect(await screen.findByText('这次执行不存在')).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: '返回' }))
     expect(router.state.location.pathname).toBe('/sop')
+  })
+
+  // TSK-0486：最近 500 条全是已完成时，较早的失败执行仍在待我处理；菜单数字和今日同一个口径；阶段任务也列；已重跑的不算
+  it('待我处理不受最近 500 条限制：较早的失败执行、停在等人阶段的任务都列，菜单数字同今日', async () => {
+    const user = userEvent.setup()
+    const at = (h: number) => new Date(Date.parse('2026-11-02T06:10:00Z') + h * 3_600_000).toISOString()
+    const run = (id: string, status: SopRunBrief['status'], h: number, extra: Partial<SopRunBrief> = {}): SopRunBrief => ({
+      id, flow_id: FLOW.id, flow_name: FLOW.name, flow_version: 1, title: `执行 ${id}`, step_through: false, stopped: false, status,
+      started_at: at(h), updated_at: at(h), focus: 0, steps: [{ key: 'extract', name: '整理反馈', kind: 'template', status: status === 'failed' ? 'failed' : 'done' }], ...extra,
+    })
+    // 「最近 500 条」：都是后来的已完成执行，外加一条已重跑过的失败执行
+    const recent = [run('spr_new1', 'done', 40), run('spr_new2', 'done', 39), run('spr_relaunched', 'failed', 38, { relaunched_to: 'spr_new1' })]
+    // 后端按 status=running,waiting,failed 回：不含已重跑的
+    const open = [run('spr_old', 'failed', 0)]
+    const queries: string[] = []
+    const json = (data: unknown) => new Response(JSON.stringify({ data, meta: { total: (data as unknown[]).length } }))
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+      const u = new URL(String(input), 'http://x')
+      if (u.pathname === '/api/sop/flows') return json([FLOW])
+      if (u.pathname === '/api/sop/node-types') return json([])
+      if (u.pathname === '/api/sop/runs') {
+        queries.push(u.search)
+        return json(u.searchParams.get('status') ? open : recent)
+      }
+      if (u.pathname === '/api/sop/waiting') {
+        return json([{ run_id: 'spr_old', run_title: '执行 spr_old', flow_id: FLOW.id, flow_name: FLOW.name, step_key: 'extract', step_name: '整理反馈',
+          step_kind: 'template', step_status: 'failed', wait: 'failed', reason: '模型连不上', since: at(0), task_id: 'obj_a' }])
+      }
+      if (u.pathname === '/api/objects') {
+        return json([
+          { id: 'obj_a', type_id: 'task', ref: 'TSK-0001', title: '加验证码', props: { stage: 'accepting' }, updated_at: at(1) },
+          { id: 'obj_b', type_id: 'task', ref: 'TSK-0002', title: '导出报表', props: { stage: 'confirm_project' }, updated_at: at(2) },
+        ])
+      }
+      return new Response(JSON.stringify({ error: { code: 'not_found', message: u.pathname } }), { status: 404 })
+    }))
+    const router = renderPage('/sop/waiting')
+    expect(await screen.findByText('执行 spr_old')).toBeInTheDocument()
+    expect(queries).toContain('?status=running%2Cwaiting%2Cfailed&limit=500')
+    // 已重跑的失败执行、已完成的都不在待我处理
+    expect(screen.queryByText('执行 spr_relaunched')).not.toBeInTheDocument()
+    expect(screen.queryByText('执行 spr_new1')).not.toBeInTheDocument()
+    // 阶段任务：已有等人步骤算到它头上的（TSK-0001）不重复列
+    const group = screen.getByRole('group', { name: '停在等人阶段的任务' })
+    expect(within(group).getByText('TSK-0002 导出报表')).toBeInTheDocument()
+    expect(screen.queryByText('TSK-0001 加验证码')).not.toBeInTheDocument()
+    // 菜单数字同今日：1 个等人步骤 + 1 个阶段任务
+    const nav = screen.getByRole('navigation', { name: 'SOP' })
+    await waitFor(() => expect(within(nav).getByTitle('2 项需要处理')).toBeInTheDocument())
+    await user.click(within(group).getByRole('button', { name: /TSK-0002 导出报表/ }))
+    expect(router.state.location.pathname).toBe('/tasks')
+    expect(router.state.location.search).toBe('?t=obj_b&tab=pipeline')
+  })
+
+  it('执行记录的状态分段也算上较早的失败执行', async () => {
+    const recent: SopRunBrief[] = []
+    const old: SopRunBrief = {
+      id: 'spr_old', flow_id: FLOW.id, flow_name: FLOW.name, flow_version: 1, title: '较早的失败', step_through: false, stopped: false, status: 'failed',
+      started_at: '2026-11-02T06:10:00Z', updated_at: '2026-11-02T06:10:00Z', focus: 0, steps: [],
+    }
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+      const u = new URL(String(input), 'http://x')
+      const json = (data: unknown[]) => new Response(JSON.stringify({ data, meta: { total: data.length } }))
+      if (u.pathname === '/api/sop/flows') return json([FLOW])
+      if (u.pathname === '/api/sop/runs') return json(u.searchParams.get('status') ? [old] : recent)
+      return json([])
+    }))
+    renderPage('/sop')
+    expect(await screen.findByText('较早的失败')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /^失败/ })).toHaveTextContent('失败1')
   })
 
   it('详情的触发方式显示中文名；复制出新流程并进它的编排页', async () => {

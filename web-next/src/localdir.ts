@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 读本地目录：Chrome / Edge 走 showDirectoryPicker，能保留句柄、原地重新读取；
 // 其他浏览器退到 <input webkitdirectory>，只能拿到当次选择的快照，刷新要重新选
 // 全部文档：文本读进内存（单个最多 1MB），PDF、图片给一个本页有效的对象地址用来预览，Office 等只记文件信息；

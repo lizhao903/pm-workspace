@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 命令面板的命令注册（docs/plugin-api.md 2.9）。插件经 api.commands 注册，外壳打开命令面板时读一次。
 import type { Disposable } from './api'
 import { CORE_OWNER } from './extensions'

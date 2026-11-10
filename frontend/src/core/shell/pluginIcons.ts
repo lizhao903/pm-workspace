@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 插件模块的菜单图标和所属插件：都按插件清单算。清单在构建时就打进来了（registry 的 discoverPlugins），
 // 插件有没有启用不影响这两样，所以只算一次
 import { discoverPlugins, parseManifest, type PluginManifest } from '../plugin'

@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 package sqlite
 
 import (
@@ -364,7 +366,9 @@ func (s *Store) DictItemUsage(ctx context.Context, id string) (int, error) {
 	if !ok {
 		return 0, nil
 	}
-	if live, err := src.present(ctx, s.db.R); err != nil || !live {
+	// 按表里有没有新列选统计语句（插件新迁移没跑时用旧口径），同 dictUsageTx
+	src, live, err := src.ready(ctx, s.db.R)
+	if err != nil || !live {
 		return 0, err
 	}
 	var n int
@@ -509,6 +513,9 @@ func (src dictUsageSource) present(ctx context.Context, q rowQueryer) (bool, err
 	return n > 0, nil
 }
 
+// projectRoleExpr 同 projects 插件的 roleExpr：role_key 非空用它，空用 role。
+const projectRoleExpr = `CASE WHEN role_key <> '' THEN role_key ELSE role END`
+
 // msgStatusExpr 同 im 插件的 statusCol：待处理且标了过期的算 expired。
 const msgStatusExpr = `CASE WHEN status = 'pending' AND expired_at IS NOT NULL THEN 'expired' ELSE status END`
 
@@ -568,6 +575,18 @@ func dictUsageSourceOf(dictID string) (dictUsageSource, bool) {
 			column:   "expired_at",
 			oldOne:   `SELECT COUNT(*) FROM im_messages WHERE status = ?`,
 			oldAll:   `SELECT status, COUNT(*) FROM im_messages GROUP BY status`,
+		}, true
+	case domain.DictProjectRole:
+		// 项目插件的表，插件没装时按 0 算；软删项目的干系人还在，也算（TSK-0718）。
+		// 插件迁移 0011 起实际角色在 role_key（空时用 role，见 projects 插件 roleExpr）；0011 还没跑时只有 role
+		return dictUsageSource{
+			noun:     "project stakeholders",
+			countOne: `SELECT COUNT(*) FROM projects_stakeholders WHERE ` + projectRoleExpr + ` = ?`,
+			countAll: `SELECT ` + projectRoleExpr + ` AS r, COUNT(*) FROM projects_stakeholders GROUP BY r`,
+			table:    "projects_stakeholders",
+			column:   "role_key",
+			oldOne:   `SELECT COUNT(*) FROM projects_stakeholders WHERE role = ?`,
+			oldAll:   `SELECT role, COUNT(*) FROM projects_stakeholders GROUP BY role`,
 		}, true
 	}
 	return dictUsageSource{}, false

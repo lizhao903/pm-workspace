@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // IM 消息页（SPEC-messages-1）：收件箱，按时间倒序、按天分段，行内能直接处理。照原型 web-next/src/messages.tsx MessagesPage。
 // 打开的消息记在地址 ?m=<id>，刷新、从别的模块跳过来都能直接打开；处理状态都在后端，刷新后保持。
 // 转任务：先确认标题，再由后端建任务，然后打开任务模块登记的任务抽屉（经 core/plugin 的「打开对象」，不 import 任务模块）。
@@ -9,7 +11,9 @@
 // 已过期（IM-07）：状态切换多一个「已过期」；已过期的行能标已处理、忽略、重新打开，也能勾选批量处理。过期天数在渠道配置里改。
 // 群组标签：选了渠道后列表上方按群组分标签（全部、各群、私聊合一个，多了收进「更多」），每个标签带待处理数；
 // 标签和「只看某个会话」是同一个会话筛选，选了渠道时由标签代替那个下拉。选中一个群时能设它默认归属的项目（GroupProject）。
-// 批量分诊、处理队列（SOP 插件在跑时才有）：标题行「批量分诊」给勾选的（没勾就是当前筛选结果全部，最多 200 条）各发起一次分诊流程（TriageDialog）；
+// 常驻全选（TSK-0492）：批量条左边一个全选框，选中已加载（已渲染出来的行）里能勾的全部消息，写「已选 N 条 / 已加载 M 条」；
+// 还有没加载的行时提示先「加载更多」，不偷偷去全选没加载的。批量标已处理、忽略不截断，超过后端一次的上限由 useImBatch 分批。
+// 批量分诊、处理队列（SOP 插件在跑时才有）：批量条「批量分诊」给勾选的（没勾就是当前筛选结果全部，最多 1000 条，超过 200 条自动分批）各发起一次分诊流程（TriageDialog）；
 // 「处理队列 N」打开抽屉看这些执行（QueueDrawer），地址记 ?queue=1；消息行上标最近一次分诊的状态。
 // 分诊建议：父执行和它起的子执行算同一次分诊（triageSummary）；「已分诊」小标悬停才取详情显示建议摘要，点了打开消息抽屉并滚到「分诊建议」一节
 // （分诊中、等确认、失败的仍打开处理队列，那里能看排队、终止、重试）。两种抽屉的「分诊建议」一节在 TriageAdvice，没分诊过时能单独发起。
@@ -17,13 +21,18 @@
 // 只是展示（groupModel）；勾一组 = 勾组里全部能处理的，计数、批量仍按一条条消息。点一组打开组抽屉（GroupDrawer），地址记 ?g=<组>。
 // 交给 Agent（0008）：行上和抽屉里「发起会话」「拆分任务」，弹窗选 Agent（StartSessionDialog），建好跳到会话页；
 // 发起过的行上标「已发起会话」「已拆分 N 条任务」，点了跳过去。
+// 自动忽略（TSK-0495，SPEC-messages-9）：标题行「自动忽略 N」打开管理抽屉（MutesDrawer），地址记 ?mutes=1；「看消息」切到「已忽略」按名字搜。
+// 被自动忽略的行上状态小标悬停写「因发信人 X 被设为自动忽略」。
 // 转项目资料（0009）：行上「更多」菜单和两种抽屉里都能把这条（或这一组）存成项目的一条笔记资料（ToMaterialDialog）；
 // 转过的行上标「已转资料」，点了去项目资料页定位那一条。
+// 项目筛选（TSK-0723，SPEC-messages-1.67）：工具条「全部项目」下拉，选项是「未归项目」和没归档的项目，带当前视图下的条数；
+// 口径同后端读出的 project_id（消息自己归的优先，其次群默认项目），记在地址 ?project=<项目 id | none>。
+// 它和状态、渠道、会话、与我相关、未读、搜索一起筛，状态数字、会话下拉和群组标签、全选、批量分诊、「这个会话全部标为已处理」都只算筛出来的。
 import { Fragment, Suspense, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { useNavigate, useSearchParams } from 'react-router'
 import {
-  SOP_BATCH_MAX, connectorsPagePath, errorText, isApiError, onServerEvent, useConnectorDefs, useConnectors, useContacts, useDictionaries, useEventsLive, useImAction, useImBatch, useImMessage,
-  useImMessages, useImSyncConnector, useNotifyChange, usePlugins, useSopRunsByInput, type ImAction, type ImMessage, type ImSessionIntent,
+  connectorsPagePath, errorText, isApiError, onServerEvent, useConnectorDefs, useConnectors, useContacts, useDictionaries, useEventsLive, useImAction, useImBatch, useImMessage,
+  useImMessages, useImMutes, useImSyncConnector, useNotifyChange, usePlugins, useProjects, useSopRunsByInput, type ImAction, type ImMessage, type ImSessionIntent,
 } from '../../core/data'
 import { useObjectDrawer } from '../../core/plugin'
 import { Avatar, ErrorState, LoadingState, PageTitle, SearchSelect, cls } from '../../core/ui'
@@ -33,12 +42,14 @@ import { LinkTags } from './AgentLinks'
 import { GroupDrawer } from './GroupDrawer'
 import { GroupProject } from './GroupProject'
 import { GroupAdminDrawer } from './GroupAdmin'
+import { MutesDrawer } from './MutesPanel'
+import { muteReason } from './muteModel'
 import { SendDialog } from './SendDialog'
 import { SentReplyTag, SentStrip } from './SentStrip'
 import { MessageDrawer } from './MessageDrawer'
 import {
-  BATCH_MAX, MSG_STATUS_DICT, PAGE, RELEVANCE, VIEW_SEG_MAX, baseOk, canPick, channelOf, channelTable, convBatch, convIdOf, convOptions, convTabs, dayLabel, filterRows,
-  inView, isOpen, isSnoozed, nextWake, pickAll, pickedRows, togglePick, replyBlocker, shortTime, snoozeOptions, statusItems, statusView, timeAgo, usedChannels, viewsOf, whoName, type Mine, type View,
+  MSG_STATUS_DICT, PAGE, RELEVANCE, VIEW_SEG_MAX, baseOk, canPick, channelOf, channelTable, convBatch, convIdOf, convOptions, convTabs, dayLabel, filterRows,
+  inView, isOpen, isSnoozed, nextWake, pickedRows, projectCounts, projectFilterOptions, projectOk, togglePick, replyBlocker, shortTime, snoozeOptions, statusItems, statusView, timeAgo, usedChannels, viewsOf, whoName, type Mine, type View,
 } from './model'
 import { AttachmentChips, Caret, ChannelMark, Gear, Menu, MentionText, QuickReplyItems, ThreadTag } from './parts'
 import { ToTaskDialog } from './ToTaskDialog'
@@ -49,11 +60,12 @@ import { ToMaterialDialog } from './ToMaterialDialog'
 import { materialPath } from './toMaterialModel'
 import { sessionPath } from './sessionModel'
 import {
-  MERGE_KEY, clusterMessages, countLabel, isMerged, nestThreads, openItems, pickState, previewText, rowTime, threadBadge, threadBadgeLabel, threadForMany, threadForTask, threadHint, threadOf, threadParent,
+  MERGE_KEY, clusterMessages, countLabel, isMerged, loadedPicks, nestThreads, openItems, pickState, previewText, selectAllState, rowTime, threadBadge, threadBadgeLabel, threadForMany, threadForTask, threadHint, threadOf, threadParent,
   toRows, toggleRow, type Row,
 } from './groupModel'
 import { TriageDialog } from './TriageDialog'
 import { isActiveRun, triageNote, triageTargets } from './triageModel'
+import { TRIAGE_TOTAL_MAX } from './triageBatch'
 import { triageAttempts, type TriageAttempt } from './triageSummary'
 import { GroupTriageSection, TriageSection, TriageTagButton } from './TriageAdvice'
 import { quickReplyAction } from './useMentions'
@@ -98,11 +110,16 @@ export default function Page() {
   const channelsOpen = params.get('channels') === '1'
   const queueOpen = params.get('queue') === '1'
   const groupsOpen = params.get('groups') === '1'
+  const mutesOpen = params.get('mutes') === '1'
+  // 项目筛选记在地址里（TSK-0723）：刷新、分享、从项目页跳过来都保持
+  const project = params.get('project') ?? ''
+  const mutes = useImMutes()
   const live = useEventsLive()
   const messages = useImMessages({ refetchInterval: live ? false : POLL_MS })
   const connectors = useConnectors()
   const defs = useConnectorDefs()
   const contacts = useContacts()
+  const projects = useProjects()
   const dicts = useDictionaries({ withItems: true })
   const act = useImAction()
   const batch = useImBatch()
@@ -174,8 +191,12 @@ export default function Page() {
   // 主动发消息：conversationId 是带上的会话，不带时在弹窗里选
   const [sending, setSending] = useState<{ conversationId?: string } | null>(null)
 
-  const filter = { view, channel, conv, unreadOnly, mine, q }
-  const rows = useMemo(() => filterRows(list, { view, channel, conv, unreadOnly, mine, q }, now), [list, view, channel, conv, unreadOnly, mine, q, now])
+  const filter = { view, channel, conv, unreadOnly, mine, q, project }
+  const rows = useMemo(() => filterRows(list, { view, channel, conv, unreadOnly, mine, q, project }, now), [list, view, channel, conv, unreadOnly, mine, q, project, now])
+  // 选了项目时，会话下拉、群组标签、@我 数、「这个会话全部标为已处理」只看这个项目的消息
+  const plist = useMemo(() => (project ? list.filter((m) => projectOk(m, project)) : list), [list, project])
+  const pCounts = useMemo(() => projectCounts(list, { view, channel, conv, unreadOnly, mine, q }, now), [list, view, channel, conv, unreadOnly, mine, q, now])
+  const projectOpts = useMemo(() => projectFilterOptions(projects.data?.data ?? [], pCounts), [projects.data, pCounts])
   // 合并显示：分组看全部消息（连发、插话要看整段会话），摆行只用筛出来的
   const clusters = useMemo(() => clusterMessages(list), [list])
   // 消息列回复归到原消息那一行（不管合不合并），列表上不显示，只在原消息行上标「消息列 N 条未读回复」
@@ -187,14 +208,13 @@ export default function Page() {
   const segViews = views.length > VIEW_SEG_MAX + 1 ? views.slice(0, VIEW_SEG_MAX) : views
   const moreViews = views.slice(segViews.length)
   const count = (v: View) => list.filter((m) => inView(m, v, now) && baseOk(m, filter)).length
-  const atMe = list.filter((m) => m.status === 'pending' && !isSnoozed(m, now) && m.relevance === 'me').length
-  const convOpts = useMemo(() => convOptions(list, channel, now), [list, channel, now])
+  const atMe = plist.filter((m) => m.status === 'pending' && !isSnoozed(m, now) && m.relevance === 'me').length
+  const convOpts = useMemo(() => convOptions(plist, channel, now), [plist, channel, now])
   const used = usedChannels(channels, list, imConnectors)
   const broken = imConnectors.filter((c) => c.status === 'error')
   const picked = pickedRows(listed, sel)
-  const pickable = listed.filter(canPick).length
-  const cb = useMemo(() => convBatch(list, conv, now), [list, conv, now])
-  const tabs = useMemo(() => convTabs(list, channel, now), [list, channel, now])
+  const cb = useMemo(() => convBatch(plist, conv, now, !!project), [plist, conv, now, project])
+  const tabs = useMemo(() => convTabs(plist, channel, now), [plist, channel, now])
   const convName = conv.startsWith('dm:') ? '私聊' : convOpts.find((o) => o.value === conv)?.label ?? ''
   const convId = convIdOf(conv)
   const moreOn = tabs.more.some((o) => o.value === conv)
@@ -205,11 +225,16 @@ export default function Page() {
   const lastSync = imConnectors.map((c) => c.last_sync_at).filter((x): x is string => !!x).sort().pop()
 
   // 先渲染 PAGE 条；筛选一变就回到前 PAGE 条
-  const sig = [view, channel, conv, unreadOnly, mine, q.trim(), merge].join('|')
+  const sig = [view, channel, conv, unreadOnly, mine, q.trim(), merge, project].join('|')
   const [lim, setLim] = useState({ sig, n: PAGE })
   if (lim.sig !== sig) setLim({ sig, n: PAGE })
   const limit = lim.sig === sig ? lim.n : PAGE
   const shown = viewRows.slice(0, limit)
+  // 常驻全选只管已加载的行（TSK-0492）
+  const loaded = loadedPicks(shown)
+  const allState = selectAllState(loaded, sel, picked.length)
+  const unloaded = viewRows.length > limit
+  const toggleAll = () => setSel((x) => (allState === 'all' ? new Set<string>() : new Set([...x, ...loaded.map((m) => m.id)])))
   // 每天的条数按消息算（合并的一组算它筛得出来的条数），一组归在它最新一条那天
   const dayCount = new Map<string, number>()
   // 归到这一行的消息列回复也按条算（列表上不显示，但它们在筛选结果里），归在这一行排序用的那天
@@ -263,6 +288,24 @@ export default function Page() {
       const n = new URLSearchParams(p)
       if (on) n.set('groups', '1')
       else n.delete('groups')
+      return n
+    }, { replace: true })
+  }, [setParams])
+  // close：同时关掉的抽屉（同一次改地址，连着调两次 setParams 后一次会盖掉前一次）
+  const setProject = useCallback((v: string, close?: string) => {
+    setParams((p) => {
+      const n = new URLSearchParams(p)
+      if (v) n.set('project', v)
+      else n.delete('project')
+      if (close) n.delete(close)
+      return n
+    }, { replace: true })
+  }, [setParams])
+  const setMutesOpen = useCallback((on: boolean) => {
+    setParams((p) => {
+      const n = new URLSearchParams(p)
+      if (on) n.set('mutes', '1')
+      else n.delete('mutes')
       return n
     }, { replace: true })
   }, [setParams])
@@ -376,7 +419,7 @@ export default function Page() {
       } else if (e.key === 'e' && opened && isOpen(opened)) {
         run(opened, { kind: 'done' })
       } else if (e.key === 'e' && openedGroup && openItems({ items: openedGroup.all }).length) {
-        runBatch('done', { ids: openItems({ items: openedGroup.all }).slice(0, BATCH_MAX).map((m) => m.id) })
+        runBatch('done', { ids: openItems({ items: openedGroup.all }).map((m) => m.id) })
       }
     }
     window.addEventListener('keydown', onKey)
@@ -407,6 +450,13 @@ export default function Page() {
             <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true"><circle cx="6" cy="5.5" r="2.3" fill="none" stroke="currentColor" strokeWidth="1.4" /><path d="M1.8 13c.4-2.3 2.1-3.6 4.2-3.6s3.8 1.3 4.2 3.6M10.6 3.4a2.2 2.2 0 0 1 0 4.2M12 9.7c1.2.5 2 1.6 2.2 3.3" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" /></svg>
             <span className="im-tb-label">群组管理</span>
           </button>
+          {!mutes.isError && (
+            <button type="button" className="btn btn-ghost btn-outline" onClick={() => setMutesOpen(true)} aria-label="自动忽略"
+              title="自动忽略的发信人：他们的消息一收到就进「已忽略」，不计未读、不触发 SOP 和 Agent；在这里查看、取消">
+              <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true"><path d="M3 6.2h2.4L8.6 3.5v9L5.4 9.8H3Z" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" /><path d="m10.8 6.2 3 3.6M13.8 6.2l-3 3.6" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" /></svg>
+              <span className="im-tb-label">自动忽略</span>{(mutes.data?.length ?? 0) > 0 && <span className="seg-n">{mutes.data!.length}</span>}
+            </button>
+          )}
           <button type="button" className="btn btn-ghost btn-outline" onClick={() => setChannelsOpen(true)} title="接入和管理 IM 渠道：Slack、Telegram" aria-label="渠道配置">
             <Gear /><span className="im-tb-label">渠道配置</span>
             {broken.length > 0 && <span className="im-dot-alert" title={`${broken.length} 个连接器异常`} />}
@@ -514,7 +564,7 @@ export default function Page() {
     body = (
       <div className="empty">
         <div className="empty-title">{mine === 'at' ? '没有 @我 的消息' : view === 'pending' && !conv ? `${pendingLabel}的消息都清完了` : '这里没有消息'}</div>
-        <div className="empty-desc">{view === 'pending' && !conv ? '新消息会按连接器的同步间隔收进来' : '换个状态、渠道或会话看看'}</div>
+        <div className="empty-desc">{view === 'pending' && !conv && !project ? '新消息会按连接器的同步间隔收进来' : `换个状态、渠道、会话${project ? '或项目' : ''}看看`}</div>
       </div>
     )
   } else {
@@ -562,7 +612,8 @@ export default function Page() {
                     <span className="spacer" />
                     {m.status !== 'pending' && (
                       <span className="im-state" style={stateStyle(sv.color(m.status))}
-                        title={m.status === 'expired' && m.expired_at ? `${shortTime(m.expired_at)} 超期没处理，标为${sv.label('expired')}` : undefined}>{sv.label(m.status)}</span>
+                        title={m.status === 'expired' && m.expired_at ? `${shortTime(m.expired_at)} 超期没处理，标为${sv.label('expired')}` : muteReason(m) || undefined}>
+                        {m.muted ? '自动忽略' : sv.label(m.status)}</span>
                     )}
                     {isSnoozed(m, now) && <span className="im-state im-state-snooze">{shortTime(m.snooze_until!)} 提醒</span>}
                     {sent > 0 && <span className="im-state">已回复 {sent}</span>}
@@ -658,11 +709,17 @@ export default function Page() {
           title="同一个私聊合成一行，群里同一人连发、重复的消息合成一行；只是显示，消息不变">合并显示</button>
         {!channel && (convOpts.length > 1 || conv) && (
           <SearchSelect value={conv} onChange={setConv} noneLabel="全部会话" searchPlaceholder="搜群名、发信人" aria-label="只看某个会话"
-            missingLabel={() => '这个渠道下没有这个会话'}
+            missingLabel={() => (project ? '这个项目下没有这个会话' : '这个渠道下没有这个会话')}
             options={convOpts.map((o) => ({
               value: o.value, group: o.group, label: o.label, keywords: o.keywords,
               hint: `${channelOf(channels, o.channel).label} · ${o.pending ? `${o.pending} 条${pendingLabel}` : `${o.n} 条`}`,
             }))} />
+        )}
+        {(projectOpts.length > 1 || project) && (
+          <SearchSelect value={project} onChange={(v) => setProject(v)} noneLabel="全部项目" searchPlaceholder="搜项目" aria-label="按项目筛"
+            title="消息自己归的项目优先，其次所在群的默认项目；「未归项目」是两者都没有的"
+            missingLabel={(v) => list.find((m) => m.project_id === v)?.project_name || '已归档或已删除的项目'}
+            options={projectOpts} />
         )}
         <div className="spacer" />
         <div className="im-channels" role="group" aria-label="渠道">
@@ -679,7 +736,7 @@ export default function Page() {
       {channel && (tabs.groups.length > 0 || tabs.dm) && (
         <div className="im-tabs-row">
           <div className="im-tabs" role="tablist" aria-label="群组">
-            {[{ value: '', label: '全部', pending: list.filter((m) => m.channel === channel && inView(m, 'pending', now)).length },
+            {[{ value: '', label: '全部', pending: plist.filter((m) => m.channel === channel && inView(m, 'pending', now)).length },
               ...(tabs.dm ? [tabs.dm] : []), ...tabs.groups].map((t) => (
               <button key={t.value || 'all'} type="button" role="tab" aria-selected={conv === t.value} className={cls(conv === t.value && 'on')}
                 ref={conv === t.value ? scrollToTab : undefined}
@@ -716,28 +773,34 @@ export default function Page() {
         </div>
       )}
       {body}
-      {/* 页面下方的批量处理条：勾选了时是已选和批量动作；没勾时只留批量分诊（对当前筛选结果）和处理队列，SOP 插件没跑且没勾选时不显示 */}
-      {(picked.length > 0 || triageOn) && (
+      {/* 页面下方的批量处理条：左边常驻全选框（已加载里能勾的）；勾选了时是已选和批量动作，没勾时只留批量分诊（对当前筛选结果）和处理队列。
+          已加载里没有能勾的、SOP 插件没跑、又没勾选时不显示 */}
+      {(picked.length > 0 || triageOn || loaded.length > 0) && (
         <div className={cls('im-bulk', !picked.length && 'im-bulk-idle')} role="toolbar" aria-label="批量处理">
-          {picked.length > 0 ? (
-            <>
-              <span className="im-bulk-n">已选 {picked.length} 条</span>
-              {picked.length < Math.min(pickable, BATCH_MAX) && (
-                <button type="button" className="btn btn-sm btn-ghost" onClick={() => setSel(pickAll(listed))}>全选 {Math.min(pickable, BATCH_MAX)} 条</button>
-              )}
-            </>
-          ) : <span className="im-muted">勾选消息后可批量标为{doneLabel}、忽略；不勾时批量分诊对当前筛选结果 {Math.min(rows.length, SOP_BATCH_MAX)} 条</span>}
+          <label className="im-bulk-all" title={loaded.length ? `选中已加载的 ${loaded.length} 条能处理的消息${unloaded ? '；还有没加载的，加载更多后再全选可包含更多' : ''}` : '已加载的消息里没有能勾选的（只有还没处理的能勾）'}>
+            <input type="checkbox" className="im-pick" aria-label="全选已加载的消息" disabled={!loaded.length} checked={allState === 'all'}
+              ref={(el) => { if (el) el.indeterminate = allState === 'some' }} onChange={toggleAll} />
+            全选
+          </label>
+          {picked.length > 0
+            ? <span className="im-bulk-n">已选 {picked.length} 条</span>
+            : null}
+          <span className="im-muted">{picked.length > 0 ? '/ ' : ''}已加载 {loaded.length} 条</span>
+          {unloaded && loaded.length > 0 && <span className="im-muted im-bulk-hint">还有未加载的，加载更多后再全选可包含更多</span>}
+          {!picked.length && (
+            <span className="im-muted im-bulk-hint">{triageOn ? `不勾时批量分诊对当前筛选结果 ${rows.length} 条` : `勾选后可批量标为${doneLabel}、忽略`}</span>
+          )}
           <span className="spacer" />
           {triageOn && (
             <button type="button" className="btn btn-sm btn-outline" onClick={() => setTriage(true)} disabled={!picked.length && !rows.length}
-              title={picked.length ? `给勾选的 ${picked.length} 条消息各发起一次分诊流程` : `给当前筛选结果全部 ${rows.length} 条消息各发起一次分诊流程（最多 ${SOP_BATCH_MAX} 条）`}>批量分诊</button>
+              title={picked.length ? `给勾选的 ${picked.length} 条消息各发起一次分诊流程` : `给当前筛选结果全部 ${rows.length} 条消息各发起一次分诊流程（最多 ${TRIAGE_TOTAL_MAX} 条，超过 200 条自动分批）`}>批量分诊</button>
           )}
           {picked.length > 0 && (
             <>
               <button type="button" className="btn btn-sm btn-primary" disabled={batch.isPending}
-                onClick={() => runBatch('done', { ids: picked.slice(0, BATCH_MAX).map((m) => m.id) })}>标为{doneLabel}</button>
+                onClick={() => runBatch('done', { ids: picked.map((m) => m.id) })}>标为{doneLabel}</button>
               <button type="button" className="btn btn-sm btn-outline" disabled={batch.isPending}
-                onClick={() => runBatch('ignore', { ids: picked.slice(0, BATCH_MAX).map((m) => m.id) })}>忽略</button>
+                onClick={() => runBatch('ignore', { ids: picked.map((m) => m.id) })}>忽略</button>
             </>
           )}
           {triageOn && (
@@ -780,7 +843,7 @@ export default function Page() {
           onClose={() => { setGroup(null); setLinkNote(null) }}
           onOpenContact={(id) => navigate(`/contacts?c=${encodeURIComponent(id)}`)}
           onLinkContact={(msg, mode) => setLinking({ msg, mode, group: groupKey })}
-          onBatch={(action, ids) => runBatch(action, { ids: ids.slice(0, BATCH_MAX) })}
+          onBatch={(action, ids) => runBatch(action, { ids })}
           onOpenMessage={(id) => setOpen(id)}
           onStart={(intent) => { if (openedGroup) startSession(openedGroup.all, intent) }}
           onToMaterial={() => { if (openedGroup) startMaterial(openedGroup.all) }} onOpenMaterial={openMaterial}
@@ -811,14 +874,14 @@ export default function Page() {
           }} />
       )}
       {triage && (() => {
-        const t = triageTargets(picked, rows, SOP_BATCH_MAX)
+        const t = triageTargets(picked, rows, TRIAGE_TOTAL_MAX)
         return (
           <TriageDialog targets={t.list} from={t.from} over={t.over} runs={tRuns} onCancel={() => setTriage(false)}
             onDone={(r) => { setTriage(false); setSel(new Set()); setSyncNote(triageNote(r)) }} />
         )
       })()}
       {triageFor && (
-        <TriageDialog targets={triageFor} from="drawer" over={triageFor.length > SOP_BATCH_MAX} runs={tRuns} onCancel={() => setTriageFor(null)}
+        <TriageDialog targets={triageFor} from="drawer" over={triageFor.length > TRIAGE_TOTAL_MAX} runs={tRuns} onCancel={() => setTriageFor(null)}
           onDone={(r) => { setTriageFor(null); setSyncNote(triageNote(r)) }} />
       )}
       {queueOpen && (
@@ -832,9 +895,14 @@ export default function Page() {
           onSent={(_it, name) => { setSending(null); setSyncNote({ text: `已发到${name ? `「${name}」` : '会话'}`, bad: false }) }} />
       )}
       {channelsOpen && <ChannelPanel onClose={() => setChannelsOpen(false)} onManageAll={(to) => navigate(connectorsPagePath(to))} />}
+      {mutesOpen && (
+        <MutesDrawer onClose={() => setMutesOpen(false)}
+          onShowMessages={(name) => { setProject('', 'mutes'); setChannel(''); setConv(''); setMine(''); setUnreadOnly(false); setView('ignored'); setQ(name) }} />
+      )}
       {groupsOpen && (
         <GroupAdminDrawer onClose={() => setGroupsOpen(false)} onSend={(id) => setSending({ conversationId: id })}
-          onOpenConversation={(ch, id) => { setGroupsOpen(false); setChannel(ch); setConv(`cv:${id}`) }} />
+          onOpenConversation={(ch, id) => { setProject('', 'groups'); setChannel(ch); setConv(`cv:${id}`) }}
+          onOpenContact={(id) => navigate(`/contacts?c=${encodeURIComponent(id)}`)} />
       )}
       {toTask && (
         <ToTaskDialog msg={toTask} thread={threadForTask(toTask, list)} doneLabel={doneLabel} onCancel={() => setToTask(null)}

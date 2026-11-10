@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 从消息发起会话、拆分任务（0008）的纯函数：默认挑哪个 Agent、会话标题、会话来源、第一句话。
 // 会话来源 source_ref 的形状同「转任务」写进任务的那份（后端 toTask），多一个 message_ids（合并显示的一组）、kind、label、project_id；
 // 内核把它记进会话，会话里 Agent 建的任务缺省带上它、挂到 project_id 的项目（内核 0047）。

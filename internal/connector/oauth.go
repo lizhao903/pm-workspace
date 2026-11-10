@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 package connector
 
 // OAuth 2.0 授权码流程（CONN-01b）：state 防伪（一次性、10 分钟有效）、PKCE（S256）、回调换令牌、

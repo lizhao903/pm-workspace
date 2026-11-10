@@ -1,0 +1,34 @@
+/* 运行中心（P0-O1）样式：一页列出 Agent 执行和任务执行；颜色全走 tokens.css 的变量 */
+.runs-page { display: flex; flex-direction: column; gap: var(--sp-6); min-width: 0; }
+
+/* 工具条：状态、来源两组分段 */
+.runs-toolbar { display: flex; align-items: center; gap: var(--sp-4); flex-wrap: wrap; }
+.runs-seg { display: flex; padding: 2px; border-radius: var(--r-sm); background: var(--hover); max-width: 100%; overflow-x: auto; }
+.runs-seg button { display: flex; align-items: center; gap: 5px; height: 28px; padding: 0 var(--sp-5); border-radius: 4px; color: var(--muted); font-size: var(--fs-sm); white-space: nowrap; }
+.runs-seg button:hover { color: var(--text); }
+.runs-seg button.on { background: var(--panel); color: var(--text); box-shadow: var(--shadow-sm); font-weight: 500; }
+.runs-err { font-size: var(--fs-sm); }
+
+/* 列表 */
+.runs-list { display: flex; flex-direction: column; gap: var(--sp-3); min-width: 0; }
+.runs-row { display: flex; align-items: center; gap: var(--sp-6); padding: var(--sp-5) var(--sp-7); border: 1px solid var(--line); border-radius: var(--r-lg); background: var(--panel); min-width: 0; }
+.runs-row:hover { border-color: var(--line-2); }
+.runs-row-main { display: flex; flex-direction: column; gap: var(--sp-2); flex: 1; min-width: 0; }
+.runs-row-top { display: flex; align-items: center; gap: var(--sp-4); min-width: 0; }
+.runs-row-top .pill { flex: none; }
+.runs-title { flex: 0 1 auto; min-width: 0; font-weight: 600; font-size: var(--fs-sm); text-align: left; color: var(--text); }
+.runs-title:hover { color: var(--accent); }
+.runs-time { flex: none; font-size: var(--fs-xs); color: var(--muted); font-variant-numeric: tabular-nums; }
+.runs-elapsed { flex: none; font-size: var(--fs-xs); color: var(--faint); font-variant-numeric: tabular-nums; }
+.runs-row-sub { display: flex; align-items: center; gap: var(--sp-4); min-width: 0; font-size: var(--fs-sm); color: var(--muted); }
+.runs-sub { min-width: 0; }
+.runs-wait { flex: none; font-size: var(--fs-xs); color: var(--warn); }
+.runs-summary { font-size: var(--fs-sm); color: var(--faint); min-width: 0; }
+.runs-acts { display: flex; align-items: center; gap: var(--sp-3); flex: none; flex-wrap: wrap; }
+.runs-more { align-self: center; margin-top: var(--sp-2); padding: var(--sp-3) var(--sp-7); font-size: var(--fs-sm); color: var(--muted); border: 1px dashed var(--line-2); border-radius: var(--r-sm); }
+.runs-more:hover { color: var(--text); border-color: var(--line); }
+
+@media (max-width: 760px) {
+  .runs-row { flex-direction: column; align-items: stretch; gap: var(--sp-4); }
+  .runs-acts { justify-content: flex-end; }
+}

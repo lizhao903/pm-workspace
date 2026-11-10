@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 风控（SPEC-trading-10，TRD-06b）：当日亏损、规则、一键全停、熔断记录。规则和熔断都在后端强制（TRD-06a），
 // 这里改规则（PATCH /api/trade/risk，离开输入框生效）、发起一键全停、看熔断记录；解除熔断在熔断条上，要写原因。
 import { useState } from 'react'

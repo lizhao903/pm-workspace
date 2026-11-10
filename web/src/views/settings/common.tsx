@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 设置页六个二级页共用的小件。类名一律 st- 前缀，样式在 ../../settings.css。
 import { useCallback, useState, type ReactNode } from 'react'
 import { ApiError } from '../../lib/api'

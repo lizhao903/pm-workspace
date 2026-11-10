@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 设置里的「本机目录」（FS-01）：选目录时能走到哪些地方。默认是主目录、/Volumes、/tmp，
 // 这里加的额外目录存在后端（数据目录的 fs-roots.json），所有选目录的地方都认。
 import { useState } from 'react'

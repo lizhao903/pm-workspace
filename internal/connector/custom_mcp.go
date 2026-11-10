@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 package connector
 
 // 自定义 MCP 服务（CONN-04，原型 custom_mcp）：用户填服务地址、传输方式和认证。

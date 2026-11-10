@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 通知（CORE-07b）：GET /api/notifications、标已读。契约见 docs/api-contract.md「通知与事件流」。
 // 目前前端只用到提醒（定时任务动作 remind，kind 为 schedule.remind）：外壳右下角弹出，点了打开关联的任务，看过标已读。
 import { useEffect } from 'react'

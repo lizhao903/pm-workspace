@@ -1,7 +1,7 @@
 #!/bin/bash
 # 开发任务闭环的端到端演练（DEV-11）：在测试实例上建一条演示任务，交给 Claude Code 用 /task 做完，再逐项检查。
 #
-#   scripts/dev-loop-drill.sh setup [--yes]   重置测试实例、建沙箱仓库和演示任务，打印编号和下一步命令
+#   scripts/dev-loop-drill.sh setup           重置测试实例、建沙箱仓库和演示任务，打印编号和下一步命令
 #   scripts/dev-loop-drill.sh check <编号>    逐项检查这条任务是否按 /task 流程走完，全过才 0 退出
 #   scripts/dev-loop-drill.sh stop            停掉本次演练用的测试实例（转给 dev-instance.sh stop）
 #
@@ -14,7 +14,7 @@
 #   PMW_SRC_DB    被复制的源库（dev-instance.sh 的默认值是正式库，只读复制）
 #
 # 几条约束：
-#   1. setup 会 reset 测试实例，丢掉上面所有数据。7796 是大家共用的测试实例，对它 setup 必须带 --yes；
+#   1. setup 会 reset 测试实例，丢掉上面所有数据。7796 已是生产，对它 setup 一律拒绝；
 #      自己演练请用 PMW_DEV_DIR + PMW_DEV_ADDR 起一个独立实例。
 #   2. 拒绝 7777 端口：那是正式实例。本脚本不直接读写正式库，只经由 dev-instance.sh 做只读复制。
 #   3. 停进程只走 dev-instance.sh stop（按 pid 文件并核对命令行），不用 pkill。
@@ -246,11 +246,12 @@ EOF
 
 setup() {
   guard
-  if [ "$PORT" = "7796" ] && [ "${1:-}" != "--yes" ]; then
-    die "7796 是共用的测试实例，setup 会 reset 它、丢掉别人的演练数据。确认要这么做就加 --yes；
-自己演练请指定独立实例：PMW_DEV_DIR=/某个目录 PMW_DEV_ADDR=127.0.0.1:7795 PMW_SRC_DB=<库副本> $0 setup"
+  # 7796 是生产（data-dev 是日常在用的真实数据），setup 会 reset 清库，一律不许对它跑
+  if [ "$PORT" = "7796" ]; then
+    die "7796 是生产实例，setup 会 reset 清掉生产库，不允许。
+演练请指定独立实例：PMW_DEV_DIR=/某个目录 PMW_DEV_ADDR=127.0.0.1:7795 PMW_SRC_DB=<库副本> $0 setup"
   fi
-  "$REPO/scripts/dev-instance.sh" reset
+  "$REPO/scripts/dev-instance.sh" reset --wipe-production-data
   "$REPO/scripts/dev-instance.sh" status >/dev/null || die "测试实例没起来"
   make_sandbox
   local ref cfg
@@ -282,5 +283,5 @@ case "${1:-}" in
   setup) shift; setup "$@" ;;
   check) shift; check "$@" ;;
   stop) guard; "$REPO/scripts/dev-instance.sh" stop ;;
-  *) echo "用法：$0 setup [--yes] | check <编号> | stop" >&2; exit 2 ;;
+  *) echo "用法：$0 setup | check <编号> | stop" >&2; exit 2 ;;
 esac

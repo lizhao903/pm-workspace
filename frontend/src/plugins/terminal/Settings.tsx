@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 设置 > 插件 > 终端（终端插件 0.2.0）：交给 Claude Code「切换到终端」时，在新开的终端标签里执行的启动命令。
 // 命令在登录 shell（zsh -l，带 pty，是交互式的）里执行，会读 ~/.zshrc，所以别名能用。留空保存等于恢复默认
 import { useState } from 'react'
@@ -68,7 +70,7 @@ function Body({ s }: { s: TerminalSettings }) {
       <div className="tset-sub">占位符</div>
       <dl className="tset-dl">
         <dt><code>{'{{prompt_file}}'}</code></dt><dd>工作台写好的提示词文件（任务内容、所属项目的文档和原型目录、回写要求）</dd>
-        <dt><code>{'{{mcp_config}}'}</code></dt><dd>工作台生成的 MCP 配置文件：server 名 pm-workspace，接回当前这个工作台，Claude Code 靠它回写进展、产出和结论</dd>
+        <dt><code>{'{{mcp_config}}'}</code></dt><dd>工作台生成的 MCP 配置文件：server 名 pmw-run（不和工作目录 .mcp.json 里的 pm-workspace 撞名），接回当前这个工作台，Claude Code 靠它回写进展、产出和结论</dd>
         <dt><code>{'{{workdir}}'}</code></dt><dd>这次执行的工作目录</dd>
       </dl>
       <ul className="tset-list">

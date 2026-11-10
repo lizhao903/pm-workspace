@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 下单抽屉（SPEC-trading-5）：标的、账户、方向、类型、价格、数量、合约设置。
 // 模拟盘账户和闸门全开（trade_ready）的实盘账户能下；提交走后端统一下单入口（POST /api/trade/orders），风控、二次确认都以后端为准（SPEC-trading-0.12）：
 // - 前端的预检查只做提示，不拦提交；

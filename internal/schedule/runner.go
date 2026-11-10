@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 package schedule
 
 import (
@@ -233,7 +235,7 @@ func (r *Runner) execute(ctx context.Context, sc *Schedule, planned time.Time, m
 		if r.Reminders == nil {
 			return r.s.insertRun(ctx, sc.ID, planned, manual, runResult{status: RunUnsupported, text: remindUnavailableText}, 0)
 		}
-	case ActionTask:
+	case ActionTask, ActionGitPull:
 	default:
 		if r.s.plugins == nil {
 			return r.s.insertRun(ctx, sc.ID, planned, manual, runResult{status: RunFailed, text: fmt.Sprintf("没执行：不认识的动作 %q", sc.Action.Kind)}, 0)
@@ -256,6 +258,8 @@ func (r *Runner) execute(ctx context.Context, sc *Schedule, planned time.Time, m
 		res = r.sweepIncidents(ctx, sc, run)
 	case ActionRemind:
 		res = r.remind(ctx, sc, run, planned, manual)
+	case ActionGitPull:
+		res = r.gitPull(ctx, sc)
 	default:
 		res = r.runPlugin(ctx, sc, run, planned, manual)
 	}
@@ -298,6 +302,8 @@ func (r *Runner) createTask(ctx context.Context, sc *Schedule, planned time.Time
 		Source:   domain.TaskSourceSchedule,
 		DueAt:    &due,
 		Props:    map[string]any{domain.PropSourceRef: map[string]any{"schedule_id": sc.ID, "name": sc.Name}},
+		// 定时任务归了项目时，建的任务也挂到这个项目（0055）
+		ProjectID: sc.ProjectID,
 	}
 	note := ""
 	if owner := a.Assignee; strings.HasPrefix(owner, "stk_") {

@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 失败执行批量重跑（执行记录「失败」页的多选）：两种做法、默认选哪种、结果一行提示。
 // 接口 POST /api/sop/runs/batch-actions（core/data 的 useRerunSopRuns），一次最多 SOP_BATCH_MAX 条
 import { SOP_RERUN_REASON_RELAUNCHED, type SopFlow, type SopRerunAction, type SopRerunResult, type SopRunBrief } from '../../core/data'

@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 服务商目录，照原型 web-next/src/modeldata.ts PROVIDER_KINDS 抄过来，多了一列 api：前端类型到后端协议的对应。
 // 对应关系见 docs/api-contract.md「Agent 供应商」：kind 是协议，兼容 OpenAI 的厂商用 kind=openai 加 extra.preset（取前端类型名）。
 // 后端只给 deepseek 补默认地址，其余兼容厂商的接口地址必填，新建时预填官方地址。

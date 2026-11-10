@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 缓存键（CORE-03a）。所有查询键都在这里生成，按资源分前缀，失效规则（invalidate.ts）按前缀刷新。
 // 对象列表一律挂在 ['objects', 'list'] 下：任务列表、今日、项目的任务标签页都是它，改了对象一起刷新。
 import type { ArtifactListParams, ObjectListParams } from '../api'
@@ -69,6 +71,7 @@ export const dataKeys = {
     all: ['artifacts'] as const,
     list: (f?: ArtifactListParams) => ['artifacts', 'list', normFilter(f)] as const,
     stats: (f?: ArtifactListParams) => ['artifacts', 'stats', normFilter(f)] as const,
+    byObject: (f?: ArtifactListParams) => ['artifacts', 'by-object', normFilter(f)] as const,
   },
   runs: {
     all: ['runs'] as const,
@@ -78,6 +81,11 @@ export const dataKeys = {
     prompt: (objectId: string, params: object) => ['runs', 'prompt', objectId, params] as const,
     /** 预置提示词（SPEC-settings-24）；不在 runs 前缀下：执行收尾刷 runs 时不该跟着刷它 */
     presets: ['run-presets'] as const,
+    /** 后台执行的权限（TSK-0499），同理不在 runs 前缀下 */
+    permissions: ['run-permissions'] as const,
+    /** 执行器状态与 DeepSeek 集成检查（TSK-0722），同理不在 runs 前缀下 */
+    runners: ['runners'] as const,
+    smoke: ['runners', 'smoke', 'deepseek'] as const,
   },
   workdir: (path: string) => ['agent', 'workdir', path] as const,
   fs: {
@@ -111,6 +119,8 @@ export const dataKeys = {
     list: ['local-dirs', 'list'] as const,
     files: (id: string) => ['local-dirs', 'files', id] as const,
     read: (path: string) => ['local-dirs', 'read', path] as const,
+    /** 项目设置里的文档目录下的文件（TSK-0718）；目录写法和项目目录都进键，改了设置换一份 */
+    projectDocs: (projectId: string, dir: string, root: string) => ['local-dirs', 'project-docs', projectId, dir, root] as const,
   },
   /** 定时任务的列表在 todayKeys.schedules（今日页共用）；这里是执行记录和规则预览 */
   schedules: {
@@ -179,12 +189,18 @@ export const dataKeys = {
     flows: ['sop', 'flows'] as const,
     /** 单条流程在 flows 前缀下，删改流程时一起刷 */
     flow: (id: string) => ['sop', 'flows', 'get', id] as const,
+    /** 流程库的文件夹（TSK-0482）：带各自的流程数，流程增删改、移动时一起刷 */
+    folders: ['sop', 'folders'] as const,
     nodeTypes: ['sop', 'node-types'] as const,
+    /** 这一步能拿到的字段（TSK-0490）：按草稿的 JSON 和步骤 key 缓存 */
+    stepFields: (draft: string, step: string) => ['sop', 'step-fields', draft, step] as const,
     runs: ['sop', 'runs'] as const,
     runList: ['sop', 'runs', 'list'] as const,
     run: (id: string) => ['sop', 'runs', 'get', id] as const,
     /** 关联到某个工作对象的执行（SOP-06，任务详情用） */
     objectRuns: (objectId: string) => ['sop', 'runs', 'object', objectId] as const,
+    /** 输入里某个字段取这些值的执行（项目 SOP 标签的自动反向关联）；在 runs 前缀下，事件一来跟着刷 */
+    inputRuns: (key: string, values: string) => ['sop', 'runs', 'input', key, values] as const,
     /** 插件设置（SOP-07）：放在 runs 前缀下，执行一变跟着刷在调模型、排队的个数 */
     settings: ['sop', 'runs', 'settings'] as const,
     /** 一条需求的流水线（AUTO-12）：在 runs 前缀下，执行一变跟着刷 */
@@ -202,6 +218,8 @@ export const dataKeys = {
     /** 正在跑的同步的进度，同步请求没回来时轮询 */
     syncProgress: (id: string) => ['knowledge-bases', 'sync-progress', id] as const,
     agents: ['knowledge-bases', 'agents'] as const,
+    /** 项目绑定的知识库（TSK-0721），知识库一变跟着刷 */
+    project: (projectId: string) => ['knowledge-bases', 'project', projectId] as const,
   },
   /** 运行异常（INC-01b）：一次拉全，设置页、二级菜单红点、今日待办共用 */
   incidents: {

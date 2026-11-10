@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 项目原型（PJ-04b）：/api/projects/{id}/prototypes，契约见 docs/api-contract.md「项目原型」（PJ-04a）。
 // 定义落库，状态和日志在服务进程内存里；后端这几个写操作不发事件，所以状态和日志都靠轮询：
 // 列表在有原型启动中时每秒、运行中时每 3 秒取一次（看得到启动完成和崩溃），日志按 after=last_seq 只取新增的行。

@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 主动发消息（IM 插件 0.17.0）的纯逻辑：可选的会话、发不了的原因、请求体、「回复了我发出的」的说明。
 // 能发给：已有会话（收到过消息的群和私聊，来自会话统计）+ Slack 里账号所在、还没收过消息的频道（GET /api/im/connectors/{id}/conversations）；
 // 不支持给没联系过的人新开私聊。

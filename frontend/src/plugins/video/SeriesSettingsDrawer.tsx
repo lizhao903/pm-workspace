@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 系列设置抽屉（SPEC-videos-5.5 到 5.10、6.11 到 6.15、6.19）：名称、说明、共用开场收尾模板。series 为 null 是新建。
 // 改了共用部分且系列里有集时，保存前弹「影响范围」，默认全勾，勾上的集标为待同步、没勾的从待同步里去掉；
 // 原型没有删除系列，正式版补在底部，删除后各集变回单集

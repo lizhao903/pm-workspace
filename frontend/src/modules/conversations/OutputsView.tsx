@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 产出结果（SPEC-sessions-3）：Agent 登记下来的产出物，对应 /api/artifacts。
 // 后端的产出物没有「任务 / 文档 / IM 回复」这种类型，类型切换按位置和备注标记分（文件、链接、提交、分支、PR）；
 // Agent 列和筛选按来源（内置 Agent、任务执行、MCP 回写）。手工登记的不算 Agent 产出，不列。

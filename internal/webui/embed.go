@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // Package webui 把 vite 构建产物嵌进二进制，让 pmw 单文件即可分发。
 package webui
 

@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 列表和抽屉共用的小件：弹出菜单、快捷回复菜单项、正文 @ 高亮、渠道标记、附件小标签。照原型 web-next/src/messages.tsx、attachments.tsx
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import type { ImAttachment } from '../../core/data'
@@ -10,8 +12,8 @@ export const Caret = () => <svg viewBox="0 0 16 16" width="10" height="10" aria-
 export const Gear = () => <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><circle cx="8" cy="8" r="2.2" fill="none" stroke="currentColor" strokeWidth="1.4" /><path d="M8 1.8v1.6M8 12.6v1.6M1.8 8h1.6M12.6 8h1.6M3.6 3.6l1.1 1.1M11.3 11.3l1.1 1.1M3.6 12.4l1.1-1.1M11.3 4.7l1.1-1.1" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" /></svg>
 
 /** 行内和抽屉共用的小弹出菜单：点外面、按 Esc 收起；点菜单和按钮不触发行点击 */
-export function Menu({ label, className, title, children }: {
-  label: ReactNode; className?: string; title?: string; children: (close: () => void) => ReactNode
+export function Menu({ label, className, title, ariaLabel, children }: {
+  label: ReactNode; className?: string; title?: string; ariaLabel?: string; children: (close: () => void) => ReactNode
 }) {
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
@@ -33,7 +35,7 @@ export function Menu({ label, className, title, children }: {
   }, [open])
   return (
     <div className="im-menu-wrap" ref={ref} onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>
-      <button type="button" className={className} title={title} aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen(!open)}>{label}</button>
+      <button type="button" className={className} title={title} aria-label={ariaLabel} aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen(!open)}>{label}</button>
       {open && <div className="menu" role="menu">{children(() => setOpen(false))}</div>}
     </div>
   )

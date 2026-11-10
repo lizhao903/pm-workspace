@@ -55,6 +55,7 @@ Agent、知识库、技能、枚举值、运行异常、内网域名几节目前
 | [SPEC-settings-22](#spec-settings-22-终端) | 终端 | 二级菜单「终端」（正式产品：设置 > 插件 > 终端） | Claude Code 启动命令：任务「切换到终端」时执行的命令 |
 | [SPEC-settings-23](#spec-settings-23-版本更新) | 版本更新 | 二级菜单「版本更新」 | 正在运行和源码目录的版本、新提交，更新到最新版本并重启 |
 | [SPEC-settings-24](#spec-settings-24-角色) | 角色 | 二级菜单「角色」（Agent 下面）；交给 Claude Code 弹窗的「管理角色」 | 录交给 Claude Code 时可选的角色：执行要求、权限、输出要求、默认目录，设默认 |
+| [SPEC-settings-27](#spec-settings-27-执行器) | 执行器 | 二级菜单「执行器」（「执行权限」下面）；交给执行弹窗里「设置 / 执行器」链接 | 三个执行器装没装、版本、缺什么和安装步骤；DeepSeek 一键集成检查（TSK-0722） |
 
 ### 共用数据结构
 
@@ -387,11 +388,11 @@ Agent、知识库、技能、枚举值、运行异常、内网域名几节目前
 | 编号 | 元素 | 操作 | 结果 |
 |---|---|---|---|
 | SPEC-settings-3.1 | 顶栏 | 看 | 「设置 / 连接器」，数量「N 个已接入」，说明「把外部工具接进工作台，按分类管理；每个工具接一个账号」 |
-| SPEC-settings-3.2 | 统计卡片 | 看 | 已连接（绿色）、异常（大于 0 时红色）、已断开 / 暂停、可接未接（目录里还没有连接器的工具数） |
-| SPEC-settings-3.3 | 分类分段按钮 | 点击 | 「全部分类」或某一分类，后面是该分类的工具数；只显示所选分类的区块。从 IM 消息「渠道配置」进来时选中即时通讯，从视频进来时选中内容平台 |
+| SPEC-settings-3.2 | 状态筛选分段按钮 | 点击 | 原型是四张统计卡片（已连接、异常、已断开 / 暂停、可接未接）；正式产品（TSK-0725，用户 2026-11-06「卡片没意义」）去掉卡片，换成和分类同样写法的分段按钮：全部 / 已连接 / 异常 / 已断开·暂停 / 未接入，后面带数字（全部、未接入数工具，其余数连接器；按当前选的分类算），「异常」大于 0 时用红色。选某个状态时只显示有该状态连接器的工具、卡片里只列该状态的连接器；「未接入」只显示一个都没接过的工具卡片；「连接中」（接入后还没测过）只在「全部」里。和分类筛选同时生效，都筛空时显示「没有符合条件的连接器」。选择写在地址 `?status=`（`connected` / `error` / `off` / `unlinked`，不认识的当全部），刷新、分享保留 |
+| SPEC-settings-3.3 | 分类分段按钮 | 点击 | 「全部分类」或某一分类，后面是该分类的工具数（按当前状态筛选算）；只显示所选分类的区块。从 IM 消息「渠道配置」进来时选中即时通讯，从视频进来时选中内容平台 |
 | SPEC-settings-3.4 | 分类区块 | 看 | 标题是分类名和分类说明，下面是工具卡片网格 |
-| SPEC-settings-3.5 | 工具卡片 | 看 | 标志（IM 用渠道短名，其他取名称前两个字）、名称、说明；有连接器异常时卡片标红边 |
-| SPEC-settings-3.6 | 卡片里的连接器行 | 看 | 自定义图标（有才显示）、连接器名称、账号、状态点；第二行：应用类是「<认证方式> · <开着的工具数>/<工具总数> 个工具可用」，IM 类是「收发 / 只收 · N 条 · <上次同步>」（没同步过写「未同步」） |
+| SPEC-settings-3.5 | 工具卡片 | 看 | 标志（正式产品 TSK-0725：有平台图标的用平台图标，见下「平台图标」；没有的退回原型写法，IM 用渠道短名，其他取名称前两个字加品牌底色）、名称、说明；有连接器异常时卡片标红边 |
+| SPEC-settings-3.6 | 卡片里的连接器行 | 看 | 自定义图标（有才显示；正式产品里自定义类每行都带这个连接器自己的小标志：换过的图标，或按地址认出的平台图标，都没有时用 MCP / OpenAPI 的通用标志）、连接器名称、账号、状态点；第二行：应用类是「<认证方式> · <开着的工具数>/<工具总数> 个工具可用」，IM 类是「收发 / 只收 · N 条 · <上次同步>」（没同步过写「未同步」） |
 | SPEC-settings-3.7 | 连接器行 | 点击或回车 | 打开配置抽屉（IM 类见 `SPEC-settings-4`，其他见 `SPEC-settings-5`） |
 | SPEC-settings-3.8 | 行上「连接」/「重连」 | 点击 | 已断开、已暂停时是「连接」，异常时是「重连」；不打开抽屉。状态变「连接中」，0.9 秒后：凭证（`config` 或 token）里带 `expired` / `invalid` 的变异常（「凭证已失效，改好配置后再连接」）并记一条运行异常 `conn:<id>:auth`；OAuth 断开过的视为重新授权成功；其余变已连接、更新同步时间 |
 | SPEC-settings-3.9 | 行上「断开」 | 点击 | 只在已连接时出现，悬停「断开后配置保留，随时可以再连」；和抽屉里一样先确认：行内按钮换成「取消」「断开」，第二行换成红字「断开后收不到消息，Agent 也调不了它的工具」（和抽屉同一句）；都不打开抽屉。确认后状态变已断开，OAuth 的授权账号和到期时间清掉 |
@@ -404,8 +405,61 @@ Agent、知识库、技能、枚举值、运行异常、内网域名几节目前
 | SPEC-settings-3.11 | 工具还没接 | 卡片里「还没有接入」 | 「接入」 |
 | SPEC-settings-3.12 | 连接器异常 | 卡片红边，行上状态「异常」，二级菜单「连接器」红点，今日出现「连接异常」待办 | 「重连」或打开抽屉改配置 |
 | SPEC-settings-3.13 | 连接中 | 行上状态「连接中」，没有连接 / 断开按钮 | 等待 |
-| SPEC-settings-3.14 | 一个连接器都没有 | 统计全为 0，每张卡片都是「还没有接入」；原型没有单独的空状态，正式产品沿用这样即可 | 「接入」 |
-| SPEC-settings-3.15 | 加载失败 | 原型未做；正式产品在统计卡片上方显示错误信息和「重试」 | 重试 |
+| SPEC-settings-3.14 | 一个连接器都没有 | 状态筛选的数字除「全部」「未接入」外全为 0，每张卡片都是「还没有接入」；原型没有单独的空状态，正式产品沿用这样即可 | 「接入」 |
+| SPEC-settings-3.15 | 加载失败 | 原型未做；正式产品在状态筛选上方显示错误信息和「重试」 | 重试 |
+| SPEC-settings-3.15a | 筛选后没有工具 | 正式产品（TSK-0725）：「没有符合条件的连接器 / 换个状态或分类看看」 | 换筛选 |
+
+### 平台图标
+
+正式产品（TSK-0725）。原型的标志是「底色加名称前两个字」，正式产品给连接器配平台的真实图标，所有显示连接器的地方（连接器列表的卡片、行、添加目录，配置抽屉，Agent「工具与权限」的挂载下拉和已挂的连接器，IM 消息的渠道配置）用同一个标志组件。
+
+- **显示顺序**：连接器自己的图标（自定义类上传的，或「从网站取图标」取到的）> 自定义类按地址认出的平台 > 定义的平台图标 > 底色加名称前两个字。
+- **图标资源**：随前端打包的 SVG（`frontend/src/core/ui/connector-logos`），运行时不访问外网；平台品牌色做底、标志用白色（底色很浅的币安、Hugging Face、Intercom、Supabase 用深色标志），Slack 是官方多色标志放白底。来源与授权见该目录 README（Simple Icons 16.36.0，CC0；Slack 用官网公开标志）。
+- **内置连接器**：Google Drive、Google 日历、MCP 服务（Model Context Protocol 标志）、OpenAPI 接口（OpenAPI Initiative 标志）、Slack、Telegram、币安（行情、交易账户）、OKX（行情、交易账户）、B 站（含网页登录）、YouTube 用各自平台图标；抖音用同属字节跳动、标志相同的 TikTok 图标。
+- **按地址认平台**（只对自定义类，纯前端，不出网、不写库）：MCP 看服务地址，OpenAPI 先看接口地址再看文档地址；主机名等于下表的域名或是它的子域名就算，最长的优先。抽屉里改地址时标志跟着变，说明行写「已按地址认出 <平台>」。
+
+| 域名 | 平台 |
+|---|---|
+| `notion.com`、`notion.so` | Notion |
+| `linear.app` | Linear |
+| `atlassian.com`、`atlassian.net` | Atlassian |
+| `githubcopilot.com`、`github.com`、`githubusercontent.com` | GitHub |
+| `gitlab.com` | GitLab |
+| `figma.com` | Figma |
+| `slack.com` | Slack |
+| `googleapis.com`、`google.com` | Google |
+| `sentry.io`、`sentry.dev` | Sentry |
+| `stripe.com` | Stripe |
+| `cloudflare.com`、`workers.dev` | Cloudflare |
+| `vercel.com`、`vercel.app` | Vercel |
+| `supabase.com`、`supabase.co` | Supabase |
+| `asana.com` | Asana |
+| `hubspot.com`、`hubapi.com` | HubSpot |
+| `zapier.com` | Zapier |
+| `airtable.com` | Airtable |
+| `discord.com` | Discord |
+| `huggingface.co` | Hugging Face |
+| `anthropic.com` | Anthropic |
+| `postman.com`、`getpostman.com` | Postman |
+| `trello.com` | Trello |
+| `todoist.com` | Todoist |
+| `clickup.com` | ClickUp |
+| `paypal.com` | PayPal |
+| `shopify.com`、`myshopify.com` | Shopify |
+| `intercom.com`、`intercom.io` | Intercom |
+| `netlify.com`、`netlify.app` | Netlify |
+| `grafana.com`、`grafana.net` | Grafana |
+| `datadoghq.com` | Datadog |
+| `pagerduty.com` | PagerDuty |
+| `dropbox.com`、`dropboxapi.com` | Dropbox |
+| `telegram.org` | Telegram |
+| `binance.com` | 币安 |
+| `okx.com` | OKX |
+| `bilibili.com` | B 站 |
+| `youtube.com` | YouTube |
+| `modelcontextprotocol.io` | Model Context Protocol |
+
+- **从网站取图标**：见 `SPEC-settings-5.2`。
 
 ### 数据
 
@@ -502,7 +556,7 @@ Agent、知识库、技能、枚举值、运行异常、内网域名几节目前
 | 编号 | 元素 | 操作 | 结果 |
 |---|---|---|---|
 | SPEC-settings-5.1 | 抽屉头、状态条 | 看 | 同 `SPEC-settings-4.1`、`4.3` 到 `4.5` |
-| SPEC-settings-5.2 | 标志 | 点击 | 只有自定义分类（MCP、OpenAPI）能换图标（上传图片，没有图片时用默认图标）；内置应用用品牌标志，不能改 |
+| SPEC-settings-5.2 | 标志 | 点击 | 只有自定义分类（MCP、OpenAPI）能换图标（上传图片，没有图片时用默认图标）；内置应用用品牌标志，不能改。正式产品（TSK-0725）：没上传时按地址认平台（见 `SPEC-settings-3`「平台图标」）；已接入的自定义连接器在标志下多一个「从网站取图标」：按**已保存**的地址由后端去对方网站取 apple-touch-icon / favicon，取到直接存为这个连接器的图标（之后可以再换或「移除图标」），按钮取的时候显示「正在取…」；地址或图标有没保存的改动、还没保存过地址时按钮置灰，说明行写原因；取不到红字「没取到图标：<原因>」，图标不动。新建时没有这个按钮（说明「接入后可以从网站取图标」）。自己上传的图标优先，认平台不覆盖它 |
 | SPEC-settings-5.3 | 名称 | 输入 | 必填，新建默认工具名；标题跟着变 |
 | SPEC-settings-5.4 | 工具自带的字段 | 输入 | 例如 Jira「站点地址」、富途「OpenD 地址」、MCP「服务地址」「传输方式」、OpenAPI「OpenAPI 文档地址」「接口地址」；必填带星号 |
 | SPEC-settings-5.5 | 认证方式分段按钮 | 点击 | 只列工具支持的方式（`Tool.auth`，第一个是默认）；下面一行说明：无授权「公开接口，不需要凭证。只适合不涉及账号数据的服务」，OAuth「跳转到对方页面登录授权，拿到的令牌到期前会自动续期」，Token「填 API Key 或个人访问令牌，请求时放在请求头里」；切换后测试结果清掉 |
@@ -807,7 +861,11 @@ Agent、知识库、技能、枚举值、运行异常、内网域名几节目前
 | `write_tasks` | 新建 / 更新任务 | 任务 | 是 |
 | `read_content` | 读文档 | 文档 | 否 |
 | `write_content` | 写文档 | 文档 | 是 |
+| `read_sop` | 查 SOP 流程 | SOP | 否 |
+| `write_sop` | 新建 / 修改 SOP 流程 | SOP | 是 |
 | `run_sop` | 发起 SOP | SOP | 是 |
+
+`read_sop`、`write_sop` 是 TSK-0480 加的：「SOP 编排助手」以前只有「发起 SOP」，建不了流程，只能拿建任务凑。已有的 Agent 这两项默认关闭，要用在「工具与权限」里打开。
 
 新建默认（`newAgent`）：全部关闭，只开 `read_tasks`、`read_contacts` 自动；模型取第一个可用的（没有就 `claude-sonnet-5-5`）；头像文字留空；触发方式一条手动。
 
@@ -889,7 +947,7 @@ Agent、知识库、技能、枚举值、运行异常、内网域名几节目前
 | SPEC-settings-11.6 | 状态筛选 | 点击 | 全部、待索引、失败、已排除，各带数量 |
 | SPEC-settings-11.7 | 搜索框 | 输入 | 按标题、路径、正文筛 |
 | SPEC-settings-11.8 | 参与检索统计 | 看 | 「参与检索 N 篇 · M 段」（已索引且没排除的） |
-| SPEC-settings-11.9 | 文档表 | 看 | 列：文档（标题；第二行失败时红字原因，否则工作台文档写「分类：<分类>」，其他写路径或网址，笔记写「N 字」）、来源（工作台文档 / 本地目录文件 / 上传的文件 / 网页链接 / 手写笔记）、段数（失败写 -）、状态（已索引 / 待索引 / 索引中 / 失败，排除的加「已排除」）、更新时间、操作；排除的行变淡 |
+| SPEC-settings-11.9 | 文档表 | 看 | 列：文档（标题；第二行失败时红字原因，否则工作台文档写「分类：<分类>」，其他写路径或网址，笔记写「N 字」）、来源（工作台文档 / 本地目录文件 / 上传的文件 / 网页链接 / 手写笔记；正式产品另有「本机文件」，同步加进来的再加一个「项目同步」标签，悬停「同步加进来的：以项目资料为准，移除或改了下次同步会恢复」，TSK-0721，见 `SPEC-projects-16`）、段数（失败写 -）、状态（已索引 / 待索引 / 索引中 / 失败，排除的加「已排除」）、更新时间、操作；排除的行变淡 |
 | SPEC-settings-11.10 | 行操作「开始索引」/「重新索引」 | 点击 | 待索引时写「开始索引」，正在索引时「索引中」置灰；只索引这一篇 |
 | SPEC-settings-11.11 | 行操作「排除」/「恢复」 | 点击 | 排除：资料留着，暂时不参与检索；恢复：重新参与检索 |
 | SPEC-settings-11.12 | 行操作「移除」 | 点击 | 变成「确认移除」「取消」；确认后从库里删掉这篇（原文档不受影响） |
@@ -933,7 +991,7 @@ Agent、知识库、技能、枚举值、运行异常、内网域名几节目前
 | `error` | `string` | 否 | 失败原因 | `PDF 是扫描出来的图片，没有可提取的文字；导出成带文字的 PDF 再传` |
 | `updated_at` | `string` | 是 | 更新时间 | |
 
-`KbDocSource`：`library` 工作台文档 / `dir` 本地目录文件 / `upload` 上传的文件 / `link` 网页链接 / `note` 手写笔记（`KB_DOC_SOURCE`）。`KB_DOC_STATUS` 颜色：已索引 `#2f7d43`、待索引 `#b0570b`、失败 `#c0352b`；「索引中」是待索引且在 `busy` 里，`#3d4fd6`。
+`KbDocSource`：`library` 工作台文档 / `dir` 本地目录文件 / `upload` 上传的文件 / `link` 网页链接 / `note` 手写笔记（`KB_DOC_SOURCE`）；正式产品多 `file` 本机文件（单个文件，只由插件同步加，重新索引时重读，TSK-0721）。正式产品的 `KbDoc` 多 `origin`、`origin_key`：谁加进来的，空串是人加的、目录和分类同步收进来的，项目知识库同步加的是 `projects:<项目 id>`（原型暂停更新，未加）。`KB_DOC_STATUS` 颜色：已索引 `#2f7d43`、待索引 `#b0570b`、失败 `#c0352b`；「索引中」是待索引且在 `busy` 里，`#3d4fd6`。
 
 切分 `splitChunks(text, size, overlap)`：返回 `Chunk[]`（`{ start: number; end: number }`），按段长切，尽量在段长 60% 之后的换行、句号、分号处断开，相邻两段重叠 `overlap` 字（不超过段长一半）。
 
@@ -1271,10 +1329,11 @@ store（原型）：`{ docs: KbDoc[]; settings: KbSettings[]; busy: string[] }`�
 
 | 编号 | 元素 | 操作 | 结果 |
 |---|---|---|---|
-| SPEC-settings-17.29 | 枚举从哪来 | 看 | 优先级、关联关系、产物平台、产物种类、联系人分组、IM 消息状态是后端字典；任务状态是任务类型的状态集，文档分类是文档树的一级分类，不另建字典，改了直接写回原处。产物平台、产物种类归「产出物」模块，排在 SOP 后面 |
-| SPEC-settings-17.30 | 枚举列表 | 看 | 当前工作台没开的模块整组不显示（任务、联系人、文档、IM 消息、SOP、产出物分别对应菜单的 tasks、contacts、library、messages、sop、videos）；其他、自定义一直显示 |
+| SPEC-settings-17.29 | 枚举从哪来 | 看 | 优先级、关联关系、产物平台、产物种类、联系人分组、IM 消息状态、项目干系人角色（TSK-0718）是后端字典；任务状态是任务类型的状态集，文档分类是文档树的一级分类，不另建字典，改了直接写回原处。产物平台、产物种类归「产出物」模块，排在 SOP 后面 |
+| SPEC-settings-17.30 | 枚举列表 | 看 | 当前工作台没开的模块整组不显示（任务、联系人、项目、文档、IM 消息、SOP、产出物分别对应菜单的 tasks、contacts、projects、library、messages、sop、videos）；其他、自定义一直显示 |
 | SPEC-settings-17.31 | 任务状态、IM 消息状态 | 看 | 全是系统值，不能加值；默认单选置灰，悬停说明默认怎么定（任务「新建任务用排在第一个的状态」，消息「新收到的消息都是待处理」）。使用中：任务按状态计，消息按处理状态计（没装 IM 插件时为 0） |
 | SPEC-settings-17.32 | 联系人分组 | 看、删除 | key 就是名字；「其他」是系统值（没填分组的联系人算在这里）；一个人在几个组里各算一次。导入时带进来、字典里没有的分组不在这里列 |
+| SPEC-settings-17.34 | 项目干系人角色（TSK-0718） | 看、增删改、停用、排序 | 归「项目」模块（排在联系人后面），字典 `project_role`，内置决策人 `decider`（拍板、验收）、对接人 `contact`（日常沟通、需求来源）、负责人 `owner`（我方交付负责）、参与 `member`（一起做事，默认值）、知会 `informed`（有进展告诉他就行），key 同原来写死的五个，已有干系人不迁移。能加新角色、改名、换色、改说明、停用、拖动排序（项目干系人表格和概览按这个顺序排）；使用中是项目干系人的行数（含回收站里项目的），被用着的不能删只能停用；默认值是新加干系人时的角色。停用的角色在已有干系人上照常显示名字并标「已停用」，下拉里不能再选 |
 | SPEC-settings-17.33 | 文档分类 | 看、删除 | 只列一级分类，Key 是 slug，子分类在文档页管；分类没有停用（开关置灰，悬停「分类不能停用；不用了可以删除」）。使用中含子分类里的文档；有文档或有子分类时点删除只提示「「<分类>」有 N 条数据在用，不能删除；先在文档页把它们挪到别的分类」（或「下面还有 N 个子分类」）+「知道了」，不合并 |
 
 ### 数据
@@ -1623,7 +1682,7 @@ PROTO-04f2 复核时补的：原型里没有、但 DOM-01a 到 DOM-02b 要做的
 | SPEC-settings-22.1 | 「Claude Code 启动命令」输入框 | 输入，回车或「保存」 | 等宽单行，默认 `gogogo`（用户本机的 shell 别名，展开是 `cd /Volumes/docs/Know\ Me && claude --dangerously-skip-permissions`）。保存后提示「已保存，下次「在终端中打开」生效」；和已存的一样时「保存」不可点。留空保存等于恢复默认，提示「留空等于默认值，已恢复成 gogogo」 |
 | SPEC-settings-22.2 | 「恢复默认」 | 点击 | 存成 `gogogo`；已经是默认时不可点 |
 | SPEC-settings-22.3 | 输入框下的说明 | 看 | 「任务里「交给 Claude Code」选「切换到终端」时，在新开的终端标签里执行这行命令。终端是登录 shell，会加载 ~/.zshrc，所以 shell 别名可以直接用。默认 gogogo；留空保存等于恢复默认」 |
-| SPEC-settings-22.4 | 「占位符」 | 看 | `{{prompt_file}}` 工作台写好的提示词文件路径（任务内容、所属项目的文档和原型位置、回写要求）；`{{mcp_config}}` 工作台生成的 MCP 配置文件路径：server 名 pm-workspace，接回当前这个工作台，claude 用它回写进展和结论；`{{workdir}}` 这次执行的工作目录（终端标签也开在这里）。占位符会换成已经加好引号的路径（单引号，值里的单引号转义），不用再自己加引号；自己包了一层引号的（`"{{workdir}}"`）也认，去掉那层 |
+| SPEC-settings-22.4 | 「占位符」 | 看 | `{{prompt_file}}` 工作台写好的提示词文件路径（任务内容、所属项目的文档和原型位置、回写要求）；`{{mcp_config}}` 工作台生成的 MCP 配置文件路径：server 名 pmw-run（TSK-0499 起，不和工作目录 `.mcp.json` 里的 `pm-workspace` 撞名），接回当前这个工作台，claude 用它回写进展和结论；`{{workdir}}` 这次执行的工作目录（终端标签也开在这里）。占位符会换成已经加好引号的路径（单引号，值里的单引号转义），不用再自己加引号；自己包了一层引号的（`"{{workdir}}"`）也认，去掉那层 |
 | SPEC-settings-22.5 | 自动补参数 | 渲染 | 没写 `{{prompt_file}}` 就在末尾补 `"$(cat {{prompt_file}})"`，没写 `{{mcp_config}}` 再补 `--mcp-config {{mcp_config}}`。提示词放在 `--mcp-config` 前面：`--mcp-config` 能接多个值，写在它后面的参数会被它吞掉。默认的 `gogogo` 渲染成 `gogogo "$(cat '<数据目录>/tmp/handoff/<执行 id>/prompt.md')" --mcp-config '<数据目录>/tmp/handoff/<执行 id>/mcp.json'`，别名展开后参数落在 claude 上 |
 | SPEC-settings-22.6 | 「示例」 | 看 | `gogogo`（默认）；`cd {{workdir}} && claude --mcp-config {{mcp_config}} -- "$(cat {{prompt_file}})"`；`claude "$(cat {{prompt_file}})" --mcp-config {{mcp_config}}`（和上一条等价，不切目录） |
 | SPEC-settings-22.7 | 「实际执行的命令（预览）」 | 看 | 按输入框当前内容、用示例路径实时渲染出的整行命令 |
@@ -1637,7 +1696,7 @@ PROTO-04f2 复核时补的：原型里没有、但 DOM-01a 到 DOM-02b 要做的
 
 ### 数据
 
-原型：`App.tsx` 的 state `claudeCommand`（默认 `CLAUDE_COMMAND_DEFAULT = 'gogogo'`），刷新复原。正式产品：终端插件的表 `terminal_settings`（key / value，插件迁移），接口 `GET / PATCH /api/terminal/settings` `{claude_command}`；提示词文件和 MCP 配置由内核写在工作台数据目录下的临时子目录 `tmp/handoff/<执行 id>/`（原型示例路径 `/Users/me/pm-workspace/data/tmp/handoff/`），不进仓库，用完可清理。MCP 配置的 server 名 `pm-workspace`，`command` 是本机工作台的 MCP 二进制，`--api` 指向当前工作台地址，都由服务自己推出来。
+原型：`App.tsx` 的 state `claudeCommand`（默认 `CLAUDE_COMMAND_DEFAULT = 'gogogo'`），刷新复原。正式产品：终端插件的表 `terminal_settings`（key / value，插件迁移），接口 `GET / PATCH /api/terminal/settings` `{claude_command}`；提示词文件和 MCP 配置由内核写在工作台数据目录下的临时子目录 `tmp/handoff/<执行 id>/`（原型示例路径 `/Users/me/pm-workspace/data/tmp/handoff/`），不进仓库，用完可清理。MCP 配置的 server 名 `pmw-run`（TSK-0499 前是 `pm-workspace`；和后台执行、插件运行共用同一份生成逻辑），`command` 是本机工作台的 MCP 二进制，`--api` 指向当前工作台地址，都由服务自己推出来。
 
 ### 联动
 
@@ -1780,6 +1839,84 @@ PROTO-04f2 复核时补的：原型里没有、但 DOM-01a 到 DOM-02b 要做的
 |---|---|---|---|---|
 | 出去 | 任务 | 准备工作区 | 按这里的范围分端口段，显示在任务抽屉「工作区」里 | `SPEC-tasks-4.51` |
 
+## SPEC-settings-26 执行权限
+
+任务交给 Claude Code 后台执行（流式执行，`claude -p`，没人值守）时放行什么（TSK-0499）。需要确认的调用在后台执行里一律被拒，所以每一档都放行工作台 MCP（server 名 `pmw-run`）和只读命令白名单，按档位再放开改文件、测试构建或自定义白名单；任何档位都不用 `--dangerously-skip-permissions`。原型 `web-next/src/runpermspage.tsx`（数据 `runperms.ts`，存内存，刷新回到默认）；正式产品 `frontend/src/modules/settings/runperms/RunPermsSection.tsx`，接口 `GET / PUT /api/run-permissions`，存 `agent_settings.run_permissions`。档位清单的唯一真相是 `internal/runner/permissions.go`。
+
+### 截图
+
+暂缺：等 `shots.py` 补「设置 > 执行权限」的步骤。
+
+### 交互
+
+| 编号 | 元素 | 操作 | 结果 |
+|---|---|---|---|
+| SPEC-settings-26.1 | 说明 | 看 | 标题「执行权限」，灰字说明：后台执行没人值守，需要确认的调用会被直接拒绝；每一档都放行工作台 MCP（server 名 pmw-run：读任务、记进展、登记产出、回写结论）和一份只读命令白名单；不勾「允许写入」就是只读档；任何档位都不用 --dangerously-skip-permissions；管道、&& 连起来的命令按每一段分别判定，每段都要在白名单里；写文件的重定向（> 文件）在只读档照旧被拒 |
+| SPEC-settings-26.2 | 「勾「允许写入」时默认的写入档位」 | 选择 | 下拉三项：允许改文件（默认）/ 允许改文件 + 跑测试构建 / 自定义白名单。交给 Claude Code 弹窗里写入档位打开时选它（`SPEC-tasks-6.32`），弹窗里还能逐次改 |
+| SPEC-settings-26.3 | 「自定义白名单」 | 输入 | 多行文本框，一行一条 Claude Code 权限规则，只在「自定义白名单」档生效；灰字举例 `Bash(git commit:*)`、`Bash(make deploy:*)`、`mcp__slack`、`WebFetch`。空行跳过、重复的去掉 |
+| SPEC-settings-26.4 | 校验 | 输入 | 红字，「保存」不可点：`Bash`、`Bash(*)`、`Bash(:*)` 这类「「…」等于放开任意命令，不收；按命令前缀写，如 Bash(git commit:*)」；`Bash(` 少右括号；`mcp__` 少 server 名；不像规则的「不像 Claude Code 的权限规则……」；超过 200 字符；超过 100 条 |
+| SPEC-settings-26.5 | 「保存」/「撤销改动」 | 点击 | 有改动且没有错时可点；成功绿字「已保存：默认写入档位「…」，自定义白名单 N 条」；「撤销改动」回到已保存的 |
+| SPEC-settings-26.6 | 「每一档实际放行的命令」 | 展开 | 四个可展开块：只读（不改文件）、允许改文件、允许改文件 + 跑测试构建、自定义白名单（放开文件编辑），标题后写条数，展开是 `mcp__pmw-run` 加该档全部规则，一行一条 |
+| SPEC-settings-26.7 | 从执行记录过来 | 进入 | 执行记录「去设置放行这 N 项」（`SPEC-tasks-5.38`）带着规则过来：已在白名单里的不重复加，其余加在白名单末尾，写入档位切到「自定义白名单」，上面一行「从执行记录带来 N 条待放行的规则，已加在白名单末尾，写入档位切到「自定义白名单」；确认无误后保存」。不自动保存 |
+
+### 空状态和异常状态
+
+| 编号 | 场景 | 显示 | 可做的操作 |
+|---|---|---|---|
+| SPEC-settings-26.8 | 后端拒收（400） | 红字「没保存：<后端的原因>」，改动留着 | 改了再存 |
+| SPEC-settings-26.9 | 没加载出来 | 「执行权限没加载出来」+ 原因 +「重试」 | 重试 |
+
+### 数据
+
+`{ write_profile: 'accept_edits' | 'edits_and_tests' | 'custom', custom: string[], profiles: [{ key, label, writes, allowed }], mcp_server: 'pmw-run' }`，PUT 只收前两个。只读命令白名单：`git status / log / diff / show / blame / ls-files / rev-parse`、`ls`、`cat`、`head`、`tail`、`wc`、`grep`、`sort`、`uniq`、`cut`、`jq`、`pwd`、`sqlite3 -readonly -safe`（两种参数顺序）。测试构建：`go test / vet / build`、`gofmt -l`、`make test / build`、`npm test`、`npm run test / typecheck / build / lint`、`npx tsc / vitest`、`pytest`、`cargo test / build`。安全边界：不收不带 `-safe` 的 `sqlite3`（`.shell` 能跑任意命令）、`rg`（`--pre`）、`find`、`sed`、`awk`；测试构建会执行项目自己的代码，所以单独一档；`git diff --output` 能写文件，属已知边界。
+
+### 联动
+
+| 方向 | 对方模块 | 触发 | 结果 | 见 |
+|---|---|---|---|---|
+| 出去 | 任务 | 交给 Claude Code，勾「允许写入」 | 写入档位默认取这里的；发起时按档位拼 `--allowedTools` | `SPEC-tasks-6.32` |
+| 进来 | 任务 | 执行记录「去设置放行这 N 项」 | 预填规则、档位切到自定义 | `SPEC-tasks-5.38` |
+
+
+## SPEC-settings-27 执行器
+
+TSK-0722。交给执行（`SPEC-tasks-6.34` 起）能选的三个执行器装没装、什么版本、缺什么：Claude Code（本机 claude）、DeepSeek（deepseek-harness 的 dsh headless）、工作台 Agent。和分派弹窗用同一份状态（`GET /api/runners`）。DeepSeek 还能一键做集成检查（`POST /api/runners/deepseek/smoke`）。二级菜单「执行器」在「执行权限」下面。**原型暂停修改，这一节原型没有**（见「原型和规格对不上的地方」P-20）。正式前端 `frontend/src/modules/settings/runners/`。
+
+### 截图
+
+暂缺：原型没有这一页；正式前端验证截图不入库。
+
+### 交互
+
+| 编号 | 元素 | 操作 | 结果 |
+|---|---|---|---|
+| SPEC-settings-27.1 | 标题和「检测」 | 看、点击 | 标题「执行器」，灰字「交给执行时能选的执行器：装没装、什么版本、缺什么；DeepSeek 可以一键做集成检查」。「检测」按钮旁写「上次检测 <时间>；重新找可执行文件、跑一次 --version，结果缓存一分钟」；点了跳过后端缓存重新检测（`?refresh=true`），按钮变「检测中…」，结果同时更新分派弹窗用的那份 |
+| SPEC-settings-27.2 | 每个执行器一张卡片 | 看 | 顺序 Claude Code、DeepSeek、工作台 Agent。标题旁状态：「可用」绿 /「可用，有提示」橙（只有不挡发起的提示，比如工作台 MCP 接不上）/「不可用」红。下面一组键值：可执行文件（路径，括号写来源：「按名字在 PATH 里找」/「启动参数 --dsh-bin 或环境变量 DSH_BIN 指定」，工作台 Agent 不显示）、版本（`--version` 第一行，取不到写「取不到」）、执行方式（「后台执行」，Claude Code 另有「切换到终端（要终端插件在跑）」）、工作台 MCP（「能接上（pmw-run），回写进展和结论」/「接不上，结论写在最后的回复里」）、DeepSeek 另有「默认服务商」（「<名称> · <模型>」，没有能用的写「没有能用的」） |
+| SPEC-settings-27.3 | 缺什么 | 看 | 有问题时卡片里逐条列：挡发起的红框「缺：<原因>」，不挡的「提示：<原因>」；下面灰字一句修法；有步骤时编号列出（命令原样，等宽）。没装 dsh 时的步骤：1）`npm i --prefix ~/.local/share/pmw-dsh @deepseek-ai/dsh`；2）启动工作台时加 `--dsh-bin ~/.local/share/pmw-dsh/node_modules/.bin/dsh`（或设环境变量 `DSH_BIN`），重启工作台；3）到「设置 / 模型服务商」配一个 DeepSeek；4）回到这里点「检测」，再跑一次集成检查。同 `docs/deepseek-harness.md`「二、装 dsh」 |
+| SPEC-settings-27.4 | 集成检查：服务商和模型 | 选择、输入 | DeepSeek 卡片下面「集成检查」一块，灰字说明「在系统临时目录里新建一个目录，只读、用固定提示词跑一次 dsh（列目录、经工作台 MCP 回报结论），再起两次验取消和超时；不建任务、不写执行记录，跑完删掉目录。会调三次模型，后两次很快被停掉：用真实服务商会花少量额度」。服务商下拉第一项「默认（<名称> · <模型>）」，其余只列 dsh 能接的、启用的（OpenAI 兼容、Anthropic、Ollama）；模型可手填，候选同分派弹窗 |
+| SPEC-settings-27.5 | 「跑一次集成检查」 | 点击 | 发起后按钮变「检查中…」不可点，每 1.5 秒取一次进度；结果见 27.6。已经有一次在跑（别的标签页发起的）时红字「没发起：已经有一次集成检查在跑了，等它跑完」；服务商不可用（没有、停用、没模型）红字「没发起：<原因>」 |
+| SPEC-settings-27.6 | 检查结果 | 看 | 一句话：在跑「检查中：N / 8 项有结果」；全过绿字「全部 8 项通过」；没过红字「N 项没通过：<项名>、…」。下面一行灰字「<开始时间> 开始，<结束时间> 结束 · dsh <版本> · <服务商> · <模型> · 会话 <id>」。八项一行一个：标记（通过 绿 / 失败 红 / 跳过、等待 灰 / 进行中 蓝，文字不用图标）、项名、说明（后端给的结果或原因，量了时间的括号写用时）。八项依次：起进程、模型路由、MCP 回写、只读生效、结论落库、取消收尾、超时收尾、进程清理，各自怎么算过见 `docs/api-contract.md`「执行器 runners」。有结论时「经 MCP 回报的结论」引用块，有答复时「最后的答复」引用块。最近一次的结果存在库里，下次打开直接显示 |
+
+### 空状态和异常状态
+
+| 编号 | 场景 | 显示 | 可做的操作 |
+|---|---|---|---|
+| SPEC-settings-27.7 | 状态没取到 | 「执行器状态没取到」+ 原因 +「重试」 | 重试 |
+| SPEC-settings-27.8 | 还没跑过集成检查 | 结果处灰字「还没跑过集成检查」 | 跑一次 |
+| SPEC-settings-27.9 | 跑的时候工作台重启了 | 结果显示为没通过，没跑完的项「跳过：工作台重启，这次检查被中断」 | 再跑一次 |
+| SPEC-settings-27.10 | 「检测」失败 | 按钮旁红字「没检测成：<原因>」 | 再点 |
+
+### 数据
+
+`RunnerStatus`、`RunnerSmoke`（`frontend/src/core/api/types.ts`，契约「执行器 runners」）。状态查询键 `['runners']`（一分钟内不重取），集成检查 `['runners', 'smoke', 'deepseek']`。
+
+### 联动
+
+| 方向 | 对方模块 | 触发 | 结果 | 见 |
+|---|---|---|---|---|
+| 出去 | 任务 | 交给执行弹窗「交给谁」 | 同一份状态：不可用的置灰，写缺什么，链接到这里 | `SPEC-tasks-6.34` |
+| 进来 | 任务 | 弹窗里「设置 / 执行器」链接 | 关掉弹窗来这里 | `SPEC-tasks-6.34` |
+
 ## 原型和规格对不上的地方
 
 PROTO-04e 整理时发现的问题，PROTO-11 逐条处理；「处理」列写怎么修的或不修的理由。P-1 是开发计划和原型的口径不一致，要等插件管理的原型定下后再补。
@@ -1805,6 +1942,7 @@ PROTO-04e 整理时发现的问题，PROTO-11 逐条处理；「处理」列写�
 | P-17 | `SPEC-settings-9.22`、`SPEC-settings-14.4`、`SPEC-settings-13.8` | 本地目录有两种挂法：知识库来源里的 `dir:<名称>`（抽屉和 Agent 内联新建）和知识库设置里的本地目录（`KbSettings.dirs`），两处数据不通 | 统一到知识库设置的本地目录，来源里只留文档分类 | 已修（PROTO-11）：来源只留文档分类，`dir:` 去掉；Agent 内联新建填的目录写进 `KbSettings.dirs`，和知识库设置同一份，见 `SPEC-settings-9.22`、`13.8`、`14.4` |
 | P-18 | `SPEC-settings-8.4`、`SPEC-settings-15.6` | Agent 卡片、技能行是可点击的 `div`，键盘不能聚焦和打开（连接器行有 `role="button"` 和回车） | 改成按钮，或补 `role`、`tabIndex` 和回车 | 已修（PROTO-11）：Agent 卡片、技能行加 `role="button"`、`tabIndex` 和回车，见 `SPEC-settings-8.4`、`15.6` |
 | P-19 | `SPEC-settings-18.1`、`SPEC-settings-1.3` | 顶栏「N 个未处理」含警告，二级菜单红点只算错误，数字对不上时容易误会 | 顶栏写「N 个未处理，M 个是错误」，或红点悬停写清只算错误 | 已修（PROTO-11）：顶栏有警告时写「N 个未处理，M 个是错误」；一级菜单红点悬停改成「N 个运行错误未处理」，见 `SPEC-settings-18.1`、`1.7` |
+| P-20 | `SPEC-settings-27` | 设置「执行器」（TSK-0722）只在正式产品做了；用户 2026-11-06 要求原型代码暂停修改，原型没有这一页，原型的「交给…」也没有 DeepSeek | 原型恢复修改后补：二级菜单「执行器」、三张卡片、集成检查结果（演示数据一份通过、一份「MCP 回写」失败） | 保留差异：正式产品 `frontend/src/modules/settings/runners/RunnersSection.tsx`，原型暂未做 |
 
 ## 插件（正式前端先做，原型待补）
 

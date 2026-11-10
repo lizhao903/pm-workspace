@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { cls } from './ui'
 import { ICON_GROUPS, MARK_ICONS, MarkIconSvg } from './markicons'
