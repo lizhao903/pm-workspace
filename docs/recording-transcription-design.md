@@ -109,6 +109,11 @@ recording_archives   -- recording_id, target, ref_id, created_at, PK(recording_i
 | DELETE | `/api/recording/recordings/{id}` | 删录音与音频文件，回 `{data:{ok:true}}` |
 | POST | `/api/recording/recordings/{id}/audio` | multipart：`audio` 文件 + `duration_ms` 可选；保存后建转写任务，回 202 + Recording |
 | GET | `/api/recording/recordings/{id}/audio` | 音频流，支持 Range；没有音频 404 |
+| GET | `/api/recording/audio-devices` | M6：本机音频输入设备列表 + `meta.supported/platform/ffmpeg/error` |
+| POST | `/api/recording/recordings/{id}/capture/start` | M6：`{device}` 开始采集系统音频，回 202 + `RecordingCapture`；冲突 409 |
+| GET | `/api/recording/recordings/{id}/capture` | M6：采集状态；没有在采集 404 |
+| POST | `/api/recording/recordings/{id}/capture/stop` | M6：停止并保存，multipart 可选 `mic`/`mic_offset_ms`/`duration_ms`，回 202 + Recording |
+| DELETE | `/api/recording/recordings/{id}/capture` | M6：放弃采集、删临时文件，回 `{data:{ok:true}}` |
 | POST | `/api/recording/recordings/{id}/transcribe` | 重跑/重试转写；已有排队任务回 409 conflict；回 202 + Recording |
 | POST | `/api/recording/recordings/{id}/summarize` | M2：`{provider?, model?}` 可覆盖设置；建纪要任务，回 202 + Recording |
 | POST | `/api/recording/recordings/{id}/todos/{index}/task` | M2：`{title?, project_id?, owner_id?, due_at?}`；幂等，回 `{data:{task_id, reused}}` |
@@ -263,6 +268,8 @@ M4：云引擎、长录音断点、说话人、实时、IM 语音（不做）。
 - 说话人字段预留但不展示；实时转写不做。
 - 应用退出会打断转写（任务可重试，不续跑）。
 - 模型目录在 cache 下，不入备份；换机需重新下载或重新指定目录。
+- 系统音频采集（M6）目前只支持 macOS；要录原生 App 的声音需要虚拟声卡（BlackHole / Loopback / 腾讯会议 WeMeet 等），
+  浏览器「分享标签页声音」不需要安装但只能录浏览器里的声音；Windows/Linux 的本机采集后续再做。
 
 ## 13. M4a：文件目录、纪要/SOP、置信度确认（2026-11-10 确认）
 
@@ -539,6 +546,45 @@ CREATE TABLE recording_voiceprints (
 - 升级注意：已有安装需 `POST /api/plugins/recording/upgrade`（或在插件页点升级）应用 0003 迁移；之后在设置「声纹」区填 Python 路径
   （如 `/tmp/m5-poc/venv/bin/python`）并保持「自动识别」开启。`max_speakers=0` 视为未填（默认 8），1–16 之外 400。
 - 未做：M2 模型管理增强、M3 导出/归档/搜索；真实会议录音（远场/交叉说话）尚未用于校准阈值；POC 脚本保留在 `scripts/voiceprint-poc/`，生产不依赖。
+
+## 15. M6：系统音频采集（0.4.0，2026-11-11）
+
+用户要求「录音转写需要支持获取系统内音频信息，不要只获取麦克风音频输入」。确认的口径：
+
+- 来源三种 + 浏览器分享：
+  1. `mic`：只录麦克风（原有行为）。
+  2. `share`：浏览器 `getDisplayMedia({video:true,audio:true})` 分享标签页/屏幕声音，拿到音轨后丢掉视频轨再
+     `MediaRecorder`，走原来的 `/audio` 上传；不需要安装，但只能录浏览器里播放的声音（网页版会议、视频网站）。
+  3. `system`：本机 `ffmpeg -f avfoundation -i ":<设备编号>"` 直接录一块音频输入设备（虚拟声卡），
+     覆盖原生会议 App、系统播放器；macOS 需要先装虚拟声卡并配多输出设备。
+  4. `mic_system`：前端先开麦克风 `MediaRecorder`，再让后端开系统采集；停止时把麦克风 Blob 一起 multipart 提交，
+     后端用 ffmpeg `atrim`（对齐麦克风多录的开头）+ `amix` 混成一条 16k 单声道 wav 再排队转写。
+- 后端采集管理：插件内存里 `captures[recordingID]`；同一时间只允许一路采集；开始/结束都按录音记录，
+  停止用 SIGINT 让 ffmpeg 写完 wav 头；`recording_capture_guard` 常驻 job 在插件停用/进程退出时收掉 ffmpeg；
+  详情页的 `capture` 字段让刷新后的页面还能「停止并保存 / 放弃采集」。
+- 设备枚举：解析 ffmpeg `-list_devices` 的 audio 段（`[N] 名称`），用 `system_profiler` 标默认输入，
+  按名称里的 blackhole/loopback/wemeet 等关键字标 `virtual`；非 macOS 回 200 + `supported=false`。
+- 转写、声纹、纪要、候选等 M1–M5 流程不变：系统音频最终仍是 `attachments/recording/<id>/audio.wav`。
+- 未做：Windows/Linux 设备采集、系统音频+麦克风分别转写后再合并说话人、暂停系统采集。
+
+## 16. 录音常驻（切页面不停，2026-11-11）
+
+用户要求「录音的功能我需常驻在后台，无论我是否切换页面，必须等用户手动停止后才停止录音」。确认口径（核心版）：
+站内切模块、切浏览器标签页都继续录；刷新/关标签页/浏览器崩溃会丢（浏览器端拿不到跨页面生命周期，本次不做本地分片持久化），
+不做原生桌面壳。
+
+- 录音引擎从录音页组件里挪到模块级单例 `frontend/src/plugins/recording/recorder.ts`（`useSyncExternalStore` 订阅）：
+  `MediaRecorder`、音频流、分片、草稿 id、计时都在模块作用域，页面卸载不清理；只有用户点「停止并转写」才停并保存，
+  「放弃」才丢弃。计时按 `performance.now()` 算，后台标签页定时器被节流也不影响时长；切回前台立即校正。
+- 页面 `Page.tsx` 和外壳状态条 `RecorderStatus.tsx` 都只是视图；后者经内核新增的前端扩展点 `shellStatus`
+  （`Shell.tsx` 顶栏下方，docs/plugin-api.md 2.13.29）常驻渲染，任意页面都能看到计时并暂停/停止。
+- 保存/上传也在引擎里：停止后建草稿（没有就建）→ 上传音频 → `queryClient` 刷新列表；录音页挂载时收到保存事件跳详情，
+  没挂载时列表刷新后可见。系统来源（M6）的 `/capture/start|stop|cancel` 同样由引擎调，切页面不影响后端采集。
+- 保护：同标签页重入锁 + Web Locks（`navigator.locks` 可用时）跨标签页互斥，避免两个页面同时开麦克风；
+  `beforeunload` 在录音/上传时提示；浏览器「停止共享」或麦克风被拔（音轨 ended）自动停下并保存已录部分。
+- 限制（已和用户对齐，不在本次范围）：刷新/关标签页/崩溃丢录音；要扛住这些需要 IndexedDB 分片持久化 +
+  `/audio/chunk|finalize` 后端接口，或原生桌面壳。测试：`frontend/src/plugins/recording/background.test.tsx`
+  （切走不关麦、切回仍在录、手动停止才上传、状态条在别的页面可停）与 `shellStatus` 扩展点单测。
 
 ---
 

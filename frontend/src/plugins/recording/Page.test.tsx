@@ -4,7 +4,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes } from 'react-router'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Recording, RecordingSettings, RecordingSummary } from '../../core/data'
 import Page from './Page'
 
@@ -46,17 +46,52 @@ const SPEAKERS = [
   { label: 'spk_2', name: '', contact_id: '', contact_name: '', similarity: 0, segments: 1, duration_ms: 2600, detected: false },
 ]
 
+/** M6：本机音频设备（含一块虚拟声卡） */
+const DEVICES = [
+  { index: 0, name: 'MacBook Pro麦克风', default: true, virtual: false },
+  { index: 1, name: 'WeMeet Audio Device', default: false, virtual: true },
+]
+
 function fakeBackend(opts: { empty?: boolean } = {}) {
   const calls: string[] = []
+  const uploads: { path: string; form: FormData }[] = []
   const rows = opts.empty ? [] : LIST.map((r) => ({ ...r }))
   vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const u = new URL(String(input), 'http://x')
     const method = (init?.method || 'GET').toUpperCase()
     calls.push(`${method} ${u.pathname}`)
-    const ok = (data: unknown, status = 200) => new Response(JSON.stringify({ data, meta: {} }), { status })
+    if (typeof FormData !== 'undefined' && init?.body instanceof FormData) uploads.push({ path: u.pathname, form: init.body })
+    const ok = (data: unknown, status = 200, meta: Record<string, unknown> = {}) =>
+      new Response(JSON.stringify({ data, meta }), { status })
     const fail = (status: number) => new Response(JSON.stringify({ error: { code: 'not_found', message: u.pathname } }), { status })
     if (u.pathname === '/api/recording/recordings' && method === 'GET') return ok(rows)
     if (u.pathname === '/api/recording/settings') return ok(settings)
+    if (u.pathname === '/api/recording/audio-devices') {
+      return ok(DEVICES, 200, { supported: true, platform: 'darwin', ffmpeg: true, error: '' })
+    }
+    if (u.pathname === '/api/recording/recordings' && method === 'POST') {
+      const body = JSON.parse(String(init?.body ?? '{}')) as { title?: string }
+      const row = summary('rec_new', { title: body.title || '', status: 'draft', has_audio: false, audio_size: 0 })
+      rows.unshift(row)
+      return ok(toDetail(row), 201)
+    }
+    const cap = u.pathname.match(/^\/api\/recording\/recordings\/([^/]+)\/capture(?:\/(start|stop))?$/)
+    if (cap) {
+      const id = decodeURIComponent(cap[1])
+      const row = rows.find((r) => r.id === id)
+      if (method === 'POST' && cap[2] === 'start') {
+        return ok({ running: true, device: 1, device_name: 'WeMeet Audio Device', started_at: '2026-11-11T10:40:00Z', duration_ms: 0 }, 202)
+      }
+      if (method === 'POST' && cap[2] === 'stop') {
+        if (row) {
+          row.status = 'uploaded'
+          row.has_audio = true
+        }
+        return ok(toDetail(row ?? summary(id, { status: 'uploaded', has_audio: true })), 202)
+      }
+      if (method === 'DELETE') return ok({ ok: true })
+      return fail(404)
+    }
     const m = u.pathname.match(/^\/api\/recording\/recordings\/([^/]+)$/)
     if (m) {
       const id = decodeURIComponent(m[1])
@@ -79,7 +114,7 @@ function fakeBackend(opts: { empty?: boolean } = {}) {
     if (/^\/api\/recording\/recordings\/[^/]+\/files$/.test(u.pathname)) return ok([])
     return fail(404)
   }))
-  return { calls, rows }
+  return { calls, rows, uploads }
 }
 
 function renderAt(path = '/recording') {
@@ -166,5 +201,79 @@ describe('录音列表页', () => {
     await userEvent.type(input, '周会录音（改）{Enter}')
     await waitFor(() => expect(calls.some((c) => c.startsWith('PATCH /api/recording/recordings/rec_failed'))).toBe(true))
     expect(await screen.findByText('周会录音（改）')).toBeInTheDocument()
+  })
+})
+
+
+describe('M6 系统音频采集', () => {
+  beforeEach(() => localStorage.clear())
+  afterEach(() => vi.unstubAllGlobals())
+
+  it('选「系统声音（本机设备）」后读设备并自动挑虚拟声卡', async () => {
+    const { calls } = fakeBackend()
+    renderAt()
+    await userEvent.click(await screen.findByRole('radio', { name: '系统声音（本机设备）' }))
+    const picker = await screen.findByRole('combobox', { name: '声音设备' })
+    expect(calls).toContain('GET /api/recording/audio-devices')
+    expect((picker as HTMLSelectElement).value).toBe('1')
+    expect(screen.getByRole('option', { name: /WeMeet Audio Device/ })).toBeInTheDocument()
+  })
+
+  it('只录系统声音：建草稿→开始采集→停止→保存进详情', async () => {
+    const { calls, uploads } = fakeBackend()
+    renderAt()
+    const region = await screen.findByRole('region', { name: '录音工作区' })
+    await userEvent.click(within(region).getByRole('radio', { name: '系统声音（本机设备）' }))
+    await screen.findByRole('combobox', { name: '声音设备' })
+    await userEvent.click(within(region).getByRole('button', { name: '开始录音' }))
+    await waitFor(() => expect(calls).toContain('POST /api/recording/recordings/rec_new/capture/start'))
+    expect(within(region).getByText(/系统声音（本机设备） · 录音中/)).toBeInTheDocument()
+    await userEvent.click(within(region).getByRole('button', { name: '停止并转写' }))
+    await waitFor(() => expect(calls).toContain('POST /api/recording/recordings/rec_new/capture/stop'))
+    expect(await screen.findByText('转写全文')).toBeInTheDocument()
+    const stop = uploads.find((u) => u.path.endsWith('/capture/stop'))
+    expect(stop).toBeTruthy()
+    expect(stop!.form.has('mic')).toBe(false)
+    expect(stop!.form.get('duration_ms')).not.toBeNull()
+  })
+
+  it('麦克风+系统声音：停止时把麦克风音频一起提交混音', async () => {
+    const track = { stop: vi.fn(), addEventListener: vi.fn() }
+    const stream = { getTracks: () => [track], getAudioTracks: () => [track] }
+    Object.defineProperty(navigator, 'mediaDevices', {
+      configurable: true,
+      value: { getUserMedia: vi.fn(async () => stream), getDisplayMedia: vi.fn() },
+    })
+    class FakeRecorder {
+      static isTypeSupported(): boolean { return true }
+      state = 'inactive'
+      mimeType = 'audio/webm'
+      ondataavailable: ((e: { data: Blob }) => void) | null = null
+      onstop: (() => void) | null = null
+      start(): void { this.state = 'recording' }
+      pause(): void { this.state = 'paused' }
+      resume(): void { this.state = 'recording' }
+      stop(): void {
+        this.state = 'inactive'
+        this.ondataavailable?.({ data: new Blob(['mic'], { type: 'audio/webm' }) })
+        this.onstop?.()
+      }
+    }
+    vi.stubGlobal('MediaRecorder', FakeRecorder)
+    Object.defineProperty(window, 'isSecureContext', { configurable: true, value: true })
+
+    const { calls, uploads } = fakeBackend()
+    renderAt()
+    const region = await screen.findByRole('region', { name: '录音工作区' })
+    await userEvent.click(within(region).getByRole('radio', { name: '麦克风 + 系统声音' }))
+    await screen.findByRole('combobox', { name: '声音设备' })
+    await userEvent.click(within(region).getByRole('button', { name: '开始录音' }))
+    await waitFor(() => expect(calls).toContain('POST /api/recording/recordings/rec_new/capture/start'))
+    await userEvent.click(within(region).getByRole('button', { name: '停止并转写' }))
+    await waitFor(() => expect(calls).toContain('POST /api/recording/recordings/rec_new/capture/stop'))
+    const stop = uploads.find((u) => u.path.endsWith('/capture/stop'))
+    expect(stop).toBeTruthy()
+    expect(stop!.form.has('mic')).toBe(true)
+    expect(stop!.form.get('mic_offset_ms')).not.toBeNull()
   })
 })

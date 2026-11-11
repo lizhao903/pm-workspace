@@ -4,7 +4,7 @@
 // M4a 的候选/文件文案、置信度、流程图布局与树形图扁平化（Diagrams.tsx 只负责画，算都放这里测）、
 // M5 的说话人颜色/显示名映射。
 import type {
-  RecordingFileKind, RecordingFlow, RecordingJob, RecordingSpeaker, RecordingStatus, RecordingTodo, RecordingTree,
+  RecordingAudioDeviceList, RecordingFileKind, RecordingFlow, RecordingJob, RecordingSpeaker, RecordingStatus, RecordingTodo, RecordingTree,
 } from '../../core/data'
 
 /** 列表一次取上限 200 条，在本地按状态筛（后端 status 只支持单值，转写中要含 uploaded/transcribing） */
@@ -501,4 +501,61 @@ export function speakerMap(speakers: RecordingSpeaker[] | null | undefined): Map
     if (spk && typeof spk.label === 'string' && spk.label.trim()) map.set(spk.label, spk)
   }
   return map
+}
+
+
+/* ---------- M6：系统音频采集来源 ---------- */
+
+export const CAPTURE_SOURCES = [
+  { key: 'mic', label: '麦克风', desc: '只录你说话，最省事：口述、面对面、电话开免提都行。' },
+  { key: 'share', label: '系统声音（浏览器分享）', desc: '开始后浏览器会让你分享标签页或屏幕，记得勾选「分享声音」；不用装任何东西，但只能录浏览器里的声音（网页版会议、视频、直播）。' },
+  { key: 'system', label: '系统声音（本机设备）', desc: '用本机虚拟声卡录整个电脑/会议 App 的声音，需要先装 BlackHole 等虚拟声卡。' },
+  { key: 'mic_system', label: '麦克风 + 系统声音', desc: '会议推荐：你的麦克风 + 电脑里对方的声音，停止后混成一条再转写。' },
+] as const
+
+export type CaptureSource = (typeof CAPTURE_SOURCES)[number]['key']
+
+export function captureSourceText(source: CaptureSource): string {
+  return CAPTURE_SOURCES.find((s) => s.key === source)?.label ?? source
+}
+
+export function captureSourceShort(source: CaptureSource): string {
+  switch (source) {
+    case 'mic': return '麦克风'
+    case 'share': return '浏览器分享的声音'
+    case 'system': return '系统声音'
+    case 'mic_system': return '麦克风和系统声音'
+  }
+}
+
+/** getDisplayMedia 失败转成中文提示（和麦克风的错误名不完全一样） */
+export function shareErrorText(e: unknown): string {
+  switch (errName(e)) {
+    case 'NotAllowedError':
+    case 'PermissionDeniedError':
+      return '没有开始分享：可能是取消了共享，或浏览器拒绝了屏幕录制权限。点「开始录音」重试，选标签页/整个屏幕并勾选「分享声音」'
+    case 'SecurityError':
+      return '浏览器不允许分享声音：请用 http://127.0.0.1 或 https://localhost 打开工作台'
+    case 'NotReadableError':
+      return '共享被系统拦住了：检查系统设置里是否允许这个浏览器录屏/录音'
+    case 'AbortError':
+      return '分享被中断了：再点一次「开始录音」重试'
+    default:
+      return `打不开系统声音分享：${e instanceof Error ? e.message : String(e)}`
+  }
+}
+
+/** 系统音频设备区的一句提示：优先说清为什么用不了 / 怎么装虚拟声卡 */
+export function systemDeviceHint(info: RecordingAudioDeviceList | undefined): string {
+  if (!info) return '正在读取本机音频设备…'
+  if (!info.supported) {
+    return `系统音频（本机设备）目前只支持 macOS，当前是 ${info.platform || '其他平台'}；先用「麦克风」或「系统声音（浏览器分享）」`
+  }
+  if (!info.ffmpeg) return '没找到 ffmpeg，先 brew install ffmpeg，再点「重新检测」'
+  if (info.error) return `读取音频设备失败：${info.error}`
+  if (info.devices.length === 0) return '没有找到音频输入设备：检查系统「声音」设置里的输入设备'
+  if (!info.devices.some((d) => d.virtual)) {
+    return '没看到虚拟声卡，录不到整个电脑/会议 App 的声音。装一个：brew install blackhole-2ch，再用「音频 MIDI 设置」建多输出设备，把系统输出接过去；装好后点「重新检测」。只想录网页声音可以先用「系统声音（浏览器分享）」'
+  }
+  return '选一个虚拟声卡（标了「虚拟声卡/系统声音」的）就能录电脑里别的 App 的声音'
 }

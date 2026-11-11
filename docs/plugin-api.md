@@ -129,7 +129,7 @@
 
 ## 2. 扩展点
 
-十个扩展点，每个给出前端注册函数、后端注册接口和一个例子；另有只在后端的按 Host 分发（2.11）、定时任务动作（2.12）。后来加的句柄（2.0 的 `Core`）和不进清单的扩展点（`ConnectorImpact`、前端 `todaySources`）逐项见 2.13。
+十个扩展点，每个给出前端注册函数、后端注册接口和一个例子；另有只在后端的按 Host 分发（2.11）、定时任务动作（2.12）。后来加的句柄（2.0 的 `Core`）和不进清单的扩展点（`ConnectorImpact`、前端 `todaySources`、`shellStatus`）逐项见 2.13。
 
 ### 2.0 公共部分
 
@@ -162,6 +162,7 @@ export interface PluginApi {
   todaySources: TodaySourceRegistry // 今日「需要你处理」「正在运行」的来源（ALIGN-08，见 2.13.17）
   projectTabs: ProjectTabRegistry  // 项目详情的插件标签（VID-08d）
   objectSections: ObjectSectionRegistry // 对象详情的插件区块（SOP-06，见 2.13.21）
+  shellStatus: ShellStatusRegistry // 任意页面都可见的后台状态条（录音常驻，见 2.13.29）
   sessionTools: SessionToolRegistry // 会话头部的工具入口和面板（SPEC-sessions-1.34，见 2.13.22）
   sessionSources: SessionSourceRegistry // 会话来源怎么显示、跳到哪（SPEC-sessions-1.42，见 2.13.23）
   terminalLauncher: TerminalLauncherRegistry // 在终端里开 Claude Code 的入口（内核 0048，见 2.13.25）
@@ -1867,6 +1868,30 @@ dir := filepath.Join(h.c.CacheDir(), "thumbs", name[:2])
 if err := os.MkdirAll(dir, 0o755); err != nil { return err }
 ```
 
+#### 2.13.29 前端扩展点 `shellStatus`（2026-11-11，录音常驻）
+
+```ts
+// frontend/src/core/plugin/shellStatus.ts
+export interface ShellStatusDef {
+  key: string                       // 本插件内唯一
+  order?: number                    // 越小越靠前，没有算 100；同 order 按登记顺序
+  render: ComponentType             // 状态条内容；常驻，不随路由卸载
+}
+export interface ShellStatusRegistry { register(def: ShellStatusDef): Disposable }
+// PluginApi.shellStatus；外壳（frontend/src/core/shell/ShellStatus.tsx）用 useShellStatus() 读
+```
+
+- 谁能调：任何插件，在 `activate` 里调 `api.shellStatus.register`。不进清单 `provides`（同今日来源、项目标签、对象区块）；同一插件 `key` 重复时抛错，不同插件可以重名。停用插件时按插件 id 撤掉。
+- 权限：不要权限；状态条里的数据照常走 `api.data`。
+- 宿主：外壳顶栏下面居中悬浮（`Shell.tsx` 里的 `<ShellStatus />`），每个插件一块、各自出错边界；切模块、切路由都不卸载，插件自己的页面组件卸载也不影响。渲染在路由树里，可以用 `useNavigate` 跳站内页面。
+- 现在的登记：录音插件 `recording`（录音常驻时在任意页面显示计时和暂停/停止，只有用户手动停止才保存；见 `frontend/src/plugins/recording/RecorderStatus.tsx`）。
+
+例子（录音插件，`frontend/src/plugins/recording/index.ts`）：
+
+```ts
+api.shellStatus.register({ key: 'recorder', order: 10, render: RecorderStatus })
+```
+
 ### 3.1 权限清单
 
 格式 `<类别>:<动作>[:<范围>]`。内核只认下表里的权限，未知权限 CORE-01b 校验报错。
@@ -2158,6 +2183,8 @@ stateDiagram-v2
 |---|---|---|
 | 1.0.0 | 2026-10-28 | 初版（CORE-01a） |
 | 1.1.0 | 2026-10-29 | `Core` 加 `Runs()`：发起 Agent、SOP 运行和交给 Claude Code，跑完给发起的插件投 `run.finished`（VID-03a） |
+
+补记（不改版本号，2026-11-11，录音常驻）：前端 `PluginApi` 加 `shellStatus`（2.13.29），插件在任意页面常驻渲染一块状态（录音插件用它显示录音计时/暂停/停止）。不进清单 `provides`，只增不改；录音插件本身没改清单和权限。
 
 补记（不改版本号，2026-11-06，TSK-0491）：SOP 节点扩展点（2.7）`SOPNodeSpec` 加 `Effect`（`SOPEffectRead` / `SOPEffectWrite` / `SOPEffectWait`）、`DryRun`，SOP 调试按它决定真跑还是模拟；声明 `read` 的节点 `Run` 必须不改任何数据。流程目录加可选接口 `SOPDebugger`（`TestSOP`、`ExplainIMTrigger`，类型 `SOPTest`，内核别名 `SOPCatalogDebugger`），Agent 的 `test_sop`、`explain_im_trigger` 经注册表 `Registry.TestSOP` / `ExplainIMTrigger` 调；SOP 插件旧版本没实现时这两个工具不出现。只增不改。IM（0.28.0）、视频（0.8.2）插件声明了各自节点的 `Effect`；IM 插件 `emits` 加 `im.message_muted`。
 

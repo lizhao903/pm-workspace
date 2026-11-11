@@ -33,11 +33,15 @@ type Plugin struct {
 	mu        sync.Mutex
 	downloads map[string]*downloadState
 	workerCtx context.Context
+
+	// capMu 守着正在跑的系统音频采集（M6）：handlers 和退出时的清理都会读写。
+	capMu    sync.Mutex
+	captures map[string]*captureState
 }
 
 // New 建插件；清单写错（第一方插件）直接 panic。
 func New() *Plugin {
-	return &Plugin{m: plugin.MustParse(manifestJSON), downloads: map[string]*downloadState{}}
+	return &Plugin{m: plugin.MustParse(manifestJSON), downloads: map[string]*downloadState{}, captures: map[string]*captureState{}}
 }
 
 func (p *Plugin) Manifest() plugin.Manifest { return p.m }
@@ -66,6 +70,12 @@ func (p *Plugin) Register(r plugin.Registrar) error {
 	r.Job(plugin.Job{Name: "recording_worker", Every: 0, Run: func(ctx context.Context, c plugin.Core) error {
 		return runWorker(ctx, p, c)
 	}})
+	// 插件停用/进程退出时把还在跑的系统音频采集收掉，别留孤儿 ffmpeg。
+	r.Job(plugin.Job{Name: "recording_capture_guard", Every: 0, Run: func(ctx context.Context, _ plugin.Core) error {
+		<-ctx.Done()
+		p.stopAllCaptures()
+		return nil
+	}})
 	return nil
 }
 
@@ -85,6 +95,11 @@ func (h *handlers) routes(m plugin.RouteRegistrar) {
 	m.HandleFunc("DELETE /api/recording/recordings/{id}", h.deleteRecording)
 	m.HandleFunc("POST /api/recording/recordings/{id}/audio", h.uploadAudio)
 	m.HandleFunc("GET /api/recording/recordings/{id}/audio", h.getAudio)
+	m.HandleFunc("GET /api/recording/audio-devices", h.listAudioDevices)
+	m.HandleFunc("POST /api/recording/recordings/{id}/capture/start", h.startCapture)
+	m.HandleFunc("GET /api/recording/recordings/{id}/capture", h.getCapture)
+	m.HandleFunc("POST /api/recording/recordings/{id}/capture/stop", h.stopCapture)
+	m.HandleFunc("DELETE /api/recording/recordings/{id}/capture", h.deleteCapture)
 	m.HandleFunc("POST /api/recording/recordings/{id}/transcribe", h.retranscribe)
 	m.HandleFunc("POST /api/recording/recordings/{id}/minutes", h.postMinutes)
 	m.HandleFunc("POST /api/recording/recordings/{id}/sop", h.postSOP)

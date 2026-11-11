@@ -40,8 +40,9 @@ const maxBodyBytes = 2 << 20
 // 插件自己还会再包一层 MaxBytesReader。只有录音插件的音频上传路径放宽，其它接口维持 2MB。
 const maxUploadBytes = 1 << 30
 
-// recordingAudioPath 匹配 POST /api/recording/recordings/{id}/audio（录音转写插件 REC-01a）。
-var recordingAudioPath = regexp.MustCompile(`^/api/recording/recordings/[^/]+/audio$`)
+// recordingAudioPath 匹配录音插件带音频的 multipart 上传：/audio（REC-01a）和 /capture/stop（M6 系统音频
+// 带麦克风混音，会带上整段麦克风音频，同样放宽到 1GB）。
+var recordingAudioPath = regexp.MustCompile(`^/api/recording/recordings/[^/]+/(audio|capture/stop)$`)
 
 type Options struct {
 	Version string

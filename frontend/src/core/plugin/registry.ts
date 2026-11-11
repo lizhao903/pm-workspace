@@ -17,6 +17,7 @@ import { objectSectionRegistry, objectSectionStore } from './objectSections'
 import { sessionToolRegistry, sessionToolStore } from './sessionTools'
 import { terminalLauncherRegistry, terminalLauncherStore } from './terminalLaunch'
 import { sessionSourceRegistry, sessionSourceStore } from './sessionSources'
+import { shellStatusRegistry, shellStatusStore } from './shellStatus'
 import { checkManifest, formatIssue, parseManifest, PLUGIN_API_VERSION, type PluginManifest } from './manifest'
 import { enabledPlugins } from '../../plugins/enabled'
 import { requestList } from '../api'
@@ -206,6 +207,7 @@ export function pluginApi(m: PluginManifest, reasons: string[], strict: boolean)
     todaySources: todaySourceRegistry(m.id),
     projectTabs: projectTabRegistry(m.id),
     objectSections: objectSectionRegistry(m.id),
+    shellStatus: shellStatusRegistry(m.id),
     sessionTools: sessionToolRegistry(m.id),
     sessionSources: sessionSourceRegistry(m.id),
     terminalLauncher: terminalLauncherRegistry(m.id),
@@ -226,6 +228,7 @@ function disposeAll(owner: string) {
   todaySourceStore.removeOwner(owner)
   projectTabStore.removeOwner(owner)
   objectSectionStore.removeOwner(owner)
+  shellStatusStore.removeOwner(owner)
   sessionToolStore.removeOwner(owner)
   sessionSourceStore.removeOwner(owner)
   terminalLauncherStore.removeOwner(owner)

@@ -1,6 +1,6 @@
 # 一人之下 · 系统结构与功能关联
 
-> 2026-11-04 依据 feat/prototype-dev-loop 分支代码整理。7796（data-dev）为生产实例。
+> 2026-11-04 依据 feat/prototype-dev-loop 分支代码整理，2026-11-11 补录音转写插件。7796（data-dev）为生产实例。
 
 ## 1. 系统结构
 
@@ -12,7 +12,7 @@ graph TB
     direction LR
     SHELL["外壳<br/>导航 / 通知 / 提醒弹窗"]
     MODS["内核页面<br/>今日 / 任务（交给 CLI、定时任务）/ 文档<br/>联系人 / 对话（AI 助手）/ 设置（预置提示词、连接器、版本）"]
-    PUI["插件页面<br/>消息 / 项目 / SOP / 终端 / 视频 / 域名 / 浏览器"]
+    PUI["插件页面<br/>消息 / 项目 / SOP / 终端 / 视频 / 域名 / 浏览器 / 录音"]
   end
 
   subgraph CORE["内核层 · Go cmd/pmw"]
@@ -38,6 +38,7 @@ graph TB
     TERM["终端"]
     VID["视频创作"]
     DOM["内网域名 / 内置浏览器"]
+    REC["录音转写<br/>本机 whisper / ffmpeg"]
   end
 
   subgraph EXT["外部系统"]
@@ -163,9 +164,9 @@ sequenceDiagram
 | --- | --- | --- |
 | 前端外壳 | 导航、通知、提醒弹窗 | frontend/src/core/shell |
 | 前端模块 | 今日、任务、文档、联系人、对话、设置 | frontend/src/modules/* |
-| 前端插件 | 消息、项目、SOP、终端、视频、浏览器、域名 | frontend/src/plugins/* |
+| 前端插件 | 消息、项目、SOP、终端、视频、浏览器、域名、录音 | frontend/src/plugins/* |
 | 内核 | HTTP API、执行器、Agent、定时任务、通知、连接器、保险箱、审计 | internal/{api,runner,agent,schedule,notify,connector,vault,audit} |
-| 插件 | IM、SOP、项目、终端、视频、域名、浏览器 | internal/plugins/* |
+| 插件 | IM、SOP、项目、终端、视频、域名、浏览器、录音 | internal/plugins/* |
 | MCP | 给 Claude Code 用的工作台工具 | cmd/pmw-mcp |
 | 原型与规格 | 演示原型、SPEC 文档 | web-next/、web-next/docs/spec |
 

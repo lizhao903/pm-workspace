@@ -1,18 +1,21 @@
 // powered by dsh - https://github.com/deepseek-ai/deepseek-harness
 
 // 录音页（/recording）：顶部「开始录音」，下面是录音工作区（未开始/授权中/录音中/暂停/上传中/失败重试）和录音列表。
-// 录音走浏览器 getUserMedia + MediaRecorder，停止后先把 Blob 传到 attachments，再跳详情看转写。
+// 录音本身常驻在模块级（recorder.ts）：切到别的模块、切浏览器标签页都继续录，只有用户点「停止并转写」才停并保存；
+// 外壳状态条（RecorderStatus.tsx）负责在任意页面显示计时和停止入口。这里只是它的视图。
 // 列表按状态本地筛（转写中要含排队与转写中两态），行的进度条和状态每 2 秒刷新由数据层轮询。
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router'
-import {
-  errorText, useCreateRecording, useRecordingList, useUploadAudio, type RecordingSummary,
-} from '../../core/data'
+import { errorText, useRecordingList, type RecordingSummary } from '../../core/data'
 import { Button, EmptyState, ErrorState, Input, LoadingState, PageTitle, Pill, Tag, cls } from '../../core/ui'
 import {
-  LIST_FILTERS, LIST_LIMIT, clampPct, fmtCreatedAt, fmtDuration, matchesFilter, mediaErrorText, recordingPath, statusText, statusTone,
-  type ListFilter,
+  CAPTURE_SOURCES, LIST_FILTERS, LIST_LIMIT, captureSourceShort, captureSourceText, clampPct, fmtCreatedAt, fmtDuration,
+  matchesFilter, recordingPath, statusText, statusTone, systemDeviceHint, type ListFilter,
 } from './model'
+import {
+  discardRecording, ensureDevices, isSystemSource, pauseRecording, retryRecording, resumeRecording, setRecorderDevice,
+  setRecorderSource, setRecorderTitle, startRecording, stopRecording, subscribeRecorderSaved, useRecorder,
+} from './recorder'
 import { Detail } from './Detail'
 import { InlineRename } from './Rename'
 import './recording.css'
@@ -23,31 +26,23 @@ export default function Page() {
   return rest ? <Detail /> : <ListPage />
 }
 
-type Phase = 'idle' | 'requesting' | 'recording' | 'paused' | 'uploading' | 'error'
-
-/** 录音文件格式优先级：opus 的 webm 最小最稳，Safari 只有 mp4，最后交给浏览器默认 */
-const MIME_CANDIDATES = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4']
-
-function pickMimeType(): string {
-  if (typeof MediaRecorder === 'undefined' || typeof MediaRecorder.isTypeSupported !== 'function') return ''
-  return MIME_CANDIDATES.find((t) => MediaRecorder.isTypeSupported(t)) ?? ''
-}
-
 function ListPage() {
   const list = useRecordingList({ limit: LIST_LIMIT })
   const [filter, setFilter] = useState<ListFilter>('')
-  const [startSignal, setStartSignal] = useState(0)
   const navigate = useNavigate()
   const rows = (list.data ?? []).filter((r) => matchesFilter(filter, r.status))
+
+  // 保存成功（不管是不是在这个页面点的停止）都跳详情；页面没显示时不听，列表刷新后能看到新录音
+  useEffect(() => subscribeRecorderSaved((id) => { void navigate(recordingPath(id)) }), [navigate])
 
   return (
     <section className="rec-page">
       <PageTitle desc="浏览器内录音，本机 whisper.cpp 转写；音频和文本都不出本机"
-        actions={<Button variant="primary" size="sm" onClick={() => setStartSignal((n) => n + 1)}>开始录音</Button>}>
+        actions={<Button variant="primary" size="sm" onClick={() => void startRecording()}>开始录音</Button>}>
         录音
       </PageTitle>
 
-      <Recorder startSignal={startSignal} onDone={(id) => navigate(recordingPath(id))} />
+      <Recorder />
 
       <div className="rec-filters" role="group" aria-label="状态筛选">
         {LIST_FILTERS.map((f) => (
@@ -62,7 +57,7 @@ function ListPage() {
         <ErrorState title="录音列表没加载出来" error={errorText(list.error)} onRetry={() => void list.refetch()} />
       ) : !list.data.length ? (
         <EmptyState title="还没有录音" desc="点右上「开始录音」，录完会自动保存到本机并排队转写"
-          action={<Button variant="primary" onClick={() => setStartSignal((n) => n + 1)}>开始录音</Button>} />
+          action={<Button variant="primary" onClick={() => void startRecording()}>开始录音</Button>} />
       ) : !rows.length ? (
         <EmptyState title="没有符合条件的录音" action={<Button size="sm" onClick={() => setFilter('')}>清除筛选</Button>} />
       ) : (
@@ -109,284 +104,118 @@ function Row({ r, onOpen }: { r: RecordingSummary; onOpen: () => void }) {
   )
 }
 
-/* ---------- 录音工作区 ---------- */
+/* ---------- 录音工作区（引擎在 recorder.ts，常驻） ---------- */
 
-function Recorder({ startSignal, onDone }: { startSignal: number; onDone: (id: string) => void }) {
-  const create = useCreateRecording()
-  const upload = useUploadAudio()
-  const [phase, setPhase] = useState<Phase>('idle')
-  const [elapsed, setElapsed] = useState(0)
-  const [title, setTitle] = useState('')
-  const [error, setError] = useState('')
+function Recorder() {
+  const { phase, elapsedMs, title, error, source, deviceIndex, devices, devicesPending, devicesError } = useRecorder()
+  const needsDevice = isSystemSource(source)
 
-  const mountedRef = useRef(true)
-  const streamRef = useRef<MediaStream | null>(null)
-  const recRef = useRef<MediaRecorder | null>(null)
-  const chunksRef = useRef<Blob[]>([])
-  const blobRef = useRef<Blob | null>(null)
-  const draftIdRef = useRef<string | null>(null)
-  const discardRef = useRef(false)
-  /** 从开始申请麦克风到录完保存之间禁止重入（连点、StrictMode 双跑 effect） */
-  const lockRef = useRef(false)
-  const startedAtRef = useRef(0)
-  const accumulatedRef = useRef(0)
-  const tickRef = useRef<number | null>(null)
-  const titleRef = useRef(title)
-  const finishRef = useRef<() => Promise<void>>(async () => {})
-
-  useEffect(() => { titleRef.current = title }, [title])
-
-  const stopTick = () => {
-    if (tickRef.current !== null) window.clearInterval(tickRef.current)
-    tickRef.current = null
-  }
-
-  const runTick = () => {
-    stopTick()
-    tickRef.current = window.setInterval(() => {
-      setElapsed(accumulatedRef.current + (performance.now() - startedAtRef.current))
-    }, 200)
-  }
-
-  const stopStream = () => {
-    streamRef.current?.getTracks().forEach((t) => t.stop())
-    streamRef.current = null
-  }
-
-  /** 保存并上传：content 是音频 Blob，durationMs 是实际录了多久 */
-  async function save(blob: Blob, durationMs: number) {
-    setPhase('uploading')
-    setError('')
-    try {
-      let id = draftIdRef.current
-      if (!id) {
-        const created = await create.mutateAsync({ title: titleRef.current.trim() })
-        id = created.id
-        draftIdRef.current = id
-      }
-      await upload.mutateAsync({ id, file: blob, durationMs })
-      draftIdRef.current = null
-      blobRef.current = null
-      accumulatedRef.current = 0
-      setElapsed(0)
-      setTitle('')
-      setPhase('idle')
-      lockRef.current = false
-      onDone(id)
-    } catch (e) {
-      // 草稿已建好就留着，重试只重传音频，不重复建录音
-      setError(`保存失败：${errorText(e)}`)
-      setPhase('error')
-      lockRef.current = false
-    }
-  }
-
-  /** MediaRecorder 停了：收拾流、组 Blob、进入上传 */
-  async function finish() {
-    stopTick()
-    const mime = recRef.current?.mimeType || chunksRef.current[0]?.type || 'audio/webm'
-    recRef.current = null
-    const durationMs = Math.round(accumulatedRef.current)
-    setElapsed(durationMs)
-    stopStream()
-    if (discardRef.current) {
-      discardRef.current = false
-      chunksRef.current = []
-      return
-    }
-    const blob = new Blob(chunksRef.current, { type: mime })
-    chunksRef.current = []
-    if (!blob.size) {
-      setError('没有录到声音：检查麦克风是否静音，或换一个输入设备再试')
-      setPhase('error')
-      lockRef.current = false
-      return
-    }
-    blobRef.current = blob
-    await save(blob, durationMs)
-  }
-
-  useEffect(() => { finishRef.current = finish })
-
-  async function start() {
-    if (lockRef.current) return
-    lockRef.current = true
-    discardRef.current = false
-    blobRef.current = null
-    draftIdRef.current = null
-    setError('')
-    setPhase('requesting')
-
-    if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia) {
-      setError('浏览器不允许录音：当前页面不是安全上下文。请用 http://127.0.0.1 或 https://localhost 打开工作台（内网 http 域名用不了麦克风）')
-      setPhase('error')
-      lockRef.current = false
-      return
-    }
-    if (typeof MediaRecorder === 'undefined') {
-      setError('这个浏览器不支持录音（没有 MediaRecorder）：换 Chrome、Edge 或新版 Safari 再试')
-      setPhase('error')
-      lockRef.current = false
-      return
-    }
-
-    let stream: MediaStream
-    try {
-      stream = await navigator.mediaDevices.getUserMedia({ audio: true })
-    } catch (e) {
-      setError(mediaErrorText(e))
-      setPhase('error')
-      lockRef.current = false
-      return
-    }
-    // 申请期间组件已经卸载：直接把流关掉，别让麦克风一直开着
-    if (!mountedRef.current) {
-      stream.getTracks().forEach((t) => t.stop())
-      return
-    }
-    streamRef.current = stream
-
-    const mimeType = pickMimeType()
-    let rec: MediaRecorder
-    try {
-      rec = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream)
-    } catch {
-      stopStream()
-      setError('这个浏览器不支持当前的录音格式：换一个浏览器再试')
-      setPhase('error')
-      lockRef.current = false
-      return
-    }
-    recRef.current = rec
-    chunksRef.current = []
-    rec.ondataavailable = (e: BlobEvent) => {
-      if (e.data.size > 0) chunksRef.current.push(e.data)
-    }
-    rec.onstop = () => { void finishRef.current() }
-    accumulatedRef.current = 0
-    startedAtRef.current = performance.now()
-    setElapsed(0)
-    runTick()
-    rec.start(1000)
-    setPhase('recording')
-  }
-
-  const pause = () => {
-    const rec = recRef.current
-    if (!rec || rec.state !== 'recording') return
-    accumulatedRef.current += performance.now() - startedAtRef.current
-    stopTick()
-    setElapsed(accumulatedRef.current)
-    rec.pause()
-    setPhase('paused')
-  }
-
-  const resume = () => {
-    const rec = recRef.current
-    if (!rec || rec.state !== 'paused') return
-    startedAtRef.current = performance.now()
-    runTick()
-    rec.resume()
-    setPhase('recording')
-  }
-
-  /** 停止：累计时长后交给 onstop 去组 Blob、上传 */
-  const stop = () => {
-    const rec = recRef.current
-    if (!rec) return
-    if (rec.state === 'recording') accumulatedRef.current += performance.now() - startedAtRef.current
-    stopTick()
-    setElapsed(accumulatedRef.current)
-    rec.stop()
-  }
-
-  /** 放弃：不保存，直接关掉麦克风和计时 */
-  const discard = () => {
-    discardRef.current = true
-    stopTick()
-    stopStream()
-    const rec = recRef.current
-    recRef.current = null
-    if (rec && rec.state !== 'inactive') rec.stop()
-    chunksRef.current = []
-    blobRef.current = null
-    draftIdRef.current = null
-    accumulatedRef.current = 0
-    setElapsed(0)
-    setTitle('')
-    setError('')
-    setPhase('idle')
-    lockRef.current = false
-  }
-
-  /** 失败重试：有录好的 Blob 就只重传音频，否则重新申请麦克风 */
-  const retry = () => {
-    if (blobRef.current) void save(blobRef.current, accumulatedRef.current)
-    else void start()
-  }
-
-  // 外面点「开始录音」：只在空闲或失败时起录，录音中/上传中不重入
+  // 上次选的是系统来源，进页面先把设备读出来（选来源时 recorder 里也会读，这里兜住直接进页面的情况）
   useEffect(() => {
-    if (startSignal <= 0) return
-    if (!lockRef.current && (phase === 'idle' || phase === 'error')) void start()
-    // 只响应外部信号，内部状态用 lockRef 防重入
-  }, [startSignal]) // eslint-disable-line react-hooks/exhaustive-deps
-
-  // 卸载：停计时、关麦克风、丢掉半截录音
-  useEffect(() => {
-    mountedRef.current = true
-    return () => {
-      mountedRef.current = false
-      discardRef.current = true
-      stopTick()
-      stopStream()
-      const rec = recRef.current
-      recRef.current = null
-      if (rec && rec.state !== 'inactive') {
-        try { rec.stop() } catch { /* 已经停了就不用管 */ }
-      }
-    }
-    // 卸载时只清资源
-  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+    if (needsDevice && !devices && !devicesPending && !devicesError) void ensureDevices()
+  }, [needsDevice, devices, devicesPending, devicesError])
 
   const active = phase === 'recording' || phase === 'paused'
+  const systemMode = isSystemSource(source)
+  const sourceDesc = CAPTURE_SOURCES.find((s) => s.key === source)?.desc ?? ''
+  const hasVirtual = !!devices?.devices.some((d) => d.virtual)
   return (
     <section className={cls('rec-work', active && 'on')} aria-label="录音工作区">
       <div className="rec-work-head">
         <span className={cls('rec-dot', phase === 'recording' && 'live', phase === 'paused' && 'paused')} aria-hidden="true" />
         <b className="rec-work-title">
-          {phase === 'idle' ? '准备录音' : phase === 'requesting' ? '正在申请麦克风' : phase === 'recording' ? '录音中'
-            : phase === 'paused' ? '已暂停' : phase === 'uploading' ? '正在保存' : '录音没保存上'}
+          {phase === 'idle' ? '准备录音'
+            : phase === 'requesting' ? `正在申请${captureSourceShort(source)}`
+              : phase === 'recording' ? `${captureSourceText(source)} · 录音中`
+                : phase === 'paused' ? '已暂停'
+                  : phase === 'uploading' ? (systemMode ? '正在停止采集并混音保存' : '正在保存')
+                    : '录音没保存上'}
         </b>
-        {active && <span className="rec-timer" aria-label="录音时长">{fmtDuration(elapsed)}</span>}
+        {active && <span className="rec-timer" aria-label="录音时长">{fmtDuration(elapsedMs)}</span>}
       </div>
 
       {phase === 'idle' && (
         <>
           <Input className="rec-title-input" aria-label="录音标题（可空）" placeholder="标题（可空，之后也能在详情里改）"
-            value={title} onChange={(e) => setTitle(e.target.value)} />
-          <div className="rec-work-actions">
-            <Button variant="primary" onClick={() => void start()}>开始录音</Button>
-            <span className="rec-work-hint">先允许使用麦克风；停止后自动保存到本机并排队转写</span>
+            value={title} onChange={(e) => setRecorderTitle(e.target.value)} />
+
+          <div className="rec-source" role="radiogroup" aria-label="录音来源">
+            {CAPTURE_SOURCES.map((s) => (
+              <button key={s.key} type="button" role="radio" aria-checked={source === s.key}
+                className={cls('rec-source-opt', source === s.key && 'on')} onClick={() => setRecorderSource(s.key)}>
+                {s.label}
+              </button>
+            ))}
           </div>
+          <p className="rec-work-hint">{sourceDesc}</p>
+
+          {needsDevice && (
+            <div className="rec-devices">
+              {devicesPending ? <span className="rec-faint">正在读取本机音频设备…</span>
+                : devicesError ? <span className="rec-row-err">设备列表没读出来：{devicesError}</span>
+                  : !devices || !devices.supported || !devices.ffmpeg || devices.devices.length === 0 ? (
+                    <span className="rec-row-err">{systemDeviceHint(devices ?? undefined)}</span>
+                  ) : (
+                    <>
+                      <label className="rec-device-label" htmlFor="rec-device">声音设备</label>
+                      <select id="rec-device" className="rec-device-select" value={deviceIndex ?? ''}
+                        onChange={(e) => setRecorderDevice(Number(e.target.value))}>
+                        {devices.devices.map((d) => (
+                          <option key={d.index} value={d.index}>
+                            {d.name}{d.virtual ? '（虚拟声卡/系统声音）' : ''}{d.default ? ' · 默认' : ''}
+                          </option>
+                        ))}
+                      </select>
+                      <Button size="sm" variant="ghost" onClick={() => void ensureDevices(true)}>重新检测</Button>
+                      {!hasVirtual && <span className="rec-work-hint">{systemDeviceHint(devices)}</span>}
+                    </>
+                  )}
+            </div>
+          )}
+
+          <div className="rec-work-actions">
+            <Button variant="primary" onClick={() => void startRecording()}>开始录音</Button>
+            <span className="rec-work-hint">
+              {systemMode ? '先允许访问声音设备；停止后在本机混音并排队转写'
+                : source === 'share' ? '浏览器会弹出分享窗口，记得勾选「分享标签页声音」'
+                  : '先允许使用麦克风；停止后自动保存到本机并排队转写'}
+            </span>
+          </div>
+
+          {systemMode && (
+            <p className="rec-work-hint">
+              macOS 要录整个电脑/会议 App 的声音需要虚拟声卡：<code>brew install blackhole-2ch</code>，
+              再用「音频 MIDI 设置」建一个多输出设备、把系统输出接过去；装好后点「重新检测」。
+              只想录网页里的声音可以直接用「系统声音（浏览器分享）」，不用装。
+            </p>
+          )}
         </>
       )}
 
-      {phase === 'requesting' && <LoadingState text="正在请求麦克风授权…" />}
+      {phase === 'requesting' && <LoadingState text={`正在申请${captureSourceShort(source)}授权…`} />}
 
       {active && (
         <div className="rec-work-actions">
-          {phase === 'recording'
-            ? <Button variant="outline" onClick={pause}>暂停</Button>
-            : <Button variant="primary" onClick={resume}>继续</Button>}
-          <Button variant="primary" onClick={stop}>停止并转写</Button>
-          <Button onClick={discard}>放弃</Button>
+          {!systemMode && (phase === 'recording'
+            ? <Button variant="outline" onClick={pauseRecording}>暂停</Button>
+            : <Button variant="primary" onClick={resumeRecording}>继续</Button>)}
+          <Button variant="primary" onClick={stopRecording}>停止并转写</Button>
+          <Button onClick={discardRecording}>放弃</Button>
         </div>
       )}
 
-      {phase === 'uploading' && <LoadingState text="正在保存录音，保存后开始转写…" />}
+      {phase === 'uploading' && (
+        <LoadingState text={systemMode ? '正在停止采集、混音并保存，保存后开始转写…' : '正在保存录音，保存后开始转写…'} />
+      )}
 
-      {phase === 'error' && <ErrorState compact title="录音失败" error={error} onRetry={retry} />}
+      {phase === 'error' && (
+        <>
+          <ErrorState compact title="录音失败" error={error} onRetry={retryRecording} />
+          <div className="rec-work-actions">
+            <Button onClick={discardRecording}>放弃这次录音</Button>
+          </div>
+        </>
+      )}
     </section>
   )
 }

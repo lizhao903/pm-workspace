@@ -1,8 +1,8 @@
 // powered by dsh - https://github.com/deepseek-ai/deepseek-harness
 
-// 文档标签里「文档目录」的文件（TSK-0718，SPEC-projects-8.17 起）：项目设置里填的文档目录（props.docs_dir），
-// 列出目录下认得的文件（GET /api/objects/{id}/docs-dir/files，规则同挂载目录）。点文件名在抽屉里预览：
-// 文本读 /api/fs/read（md 按 Markdown 渲染），PDF、图片走 /api/fs/raw，Office 等不预览、用本机应用打开；都能在访达中显示。
+// 文档标签里「文档目录」的文件预览与错误文案（TSK-0718，SPEC-projects-8.17 起）：项目设置里填的文档目录（props.docs_dir），
+// 列出目录下认得的文件（GET /api/objects/{id}/docs-dir/files，规则同挂载目录），按目录层级显示成树（DocsDirTree.tsx）。
+// 点文件名在抽屉里预览：文本读 /api/fs/read（md 按 Markdown 渲染），PDF、图片走 /api/fs/raw，Office 等不预览、用本机应用打开；都能在访达中显示。
 // 预览写法照「文档」阅读区的本地文件（modules/docs/Reader.tsx），这里只做抽屉里能看的那一份。
 import { useState } from 'react'
 import {
@@ -91,23 +91,5 @@ export function DocFilePreview({ file, onClose }: { file: LocalFileEntry; onClos
       {op.err && <div className="pj-err" role="alert">{op.err}</div>}
       <div className="pj-docfile-body">{content}</div>
     </Drawer>
-  )
-}
-
-/** 表格里文档目录的一行：名称点开预览，操作是用本机应用打开 */
-export function DocFileRow({ f, onPreview }: { f: LocalFileEntry; onPreview: () => void }) {
-  const op = useOpener(f.path)
-  return (
-    <div className="pj-doc" role="row">
-      <span role="cell" className="ellipsis">
-        <button type="button" className="pj-link pj-doc-title" title={`在工作台里预览 ${f.rel}`} onClick={onPreview}>{f.name}</button>
-        {op.err && <span className="pj-err" role="alert">{op.err}</span>}
-      </span>
-      <span role="cell"><span className="tag">{fileTypeLabel(f)}</span></span>
-      <span role="cell" className="pj-doc-src ellipsis" title={f.path}>{fileSourceLabel(f)}</span>
-      <span role="cell" className="pj-muted">-</span>
-      <span role="cell" className="pj-muted" title={f.modified}>{ago(f.modified)}</span>
-      <span role="cell"><Button size="sm" disabled={op.pending} title="用本机默认应用打开" onClick={() => op.open(false)}>打开</Button></span>
-    </div>
   )
 }

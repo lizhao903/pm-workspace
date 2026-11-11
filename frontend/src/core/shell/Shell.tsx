@@ -17,6 +17,7 @@ import { useSideCollapsed } from './sideCollapse'
 import { arrangeFound, modKey, type PaletteItem } from './palette'
 import { PluginNotice } from './PluginNotice'
 import { ReminderPopups } from './ReminderPopups'
+import { ShellStatus } from './ShellStatus'
 import { CATALOG_IDS, homeModule, resolveCurrent, useCurrentWorkspaceId, workspaceMenuGroups } from './workspace'
 import { useWorkspaceSwitch } from './useWorkspaceSwitch'
 import { WorkspaceSwitcher } from './WorkspaceSwitcher'
@@ -224,6 +225,8 @@ export function Shell({ modules }: { modules: ModuleDef[] }) {
         </main>
       </div>
       <div className="shell-drawer" ref={setDrawerSlot} />
+      {/* 插件登记的后台状态条（如录音中），切页面一直在 */}
+      <ShellStatus />
       {switchPrompt}
       {palette && <CommandPalette items={palette} search={search} onClose={() => setPalette(null)} />}
       {/* 定时任务的提醒到点在右下角弹出；关联了任务的点了打开它 */}

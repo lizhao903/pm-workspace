@@ -244,6 +244,13 @@
   .pal-mask, .shell-scrim, .qs-mask { animation: none; }
 }
 
+/* 插件登记的后台状态条（shellStatus）：顶栏下方居中悬浮，切页面一直在；里面画什么由插件决定 */
+.shell-status { position: fixed; top: calc(var(--top-h) + var(--sp-6)); left: 50%; transform: translateX(-50%); z-index: 55; display: flex; flex-direction: column; align-items: center; gap: var(--sp-4); max-width: calc(100vw - 2 * var(--sp-8)); pointer-events: none; }
+.shell-status > * { pointer-events: auto; }
+@media (max-width: 760px) {
+  .shell-status { top: calc(var(--top-h) + 4px); max-width: calc(100vw - 16px); }
+}
+
 /* 提醒弹窗（定时任务动作 remind）：右下角叠起来，点「知道了」或「打开任务」才收 */
 /* 底边让出抽屉底栏的高度，不挡「保存」 */
 .shell-reminders { position: fixed; right: var(--sp-8); bottom: calc(var(--foot-h) + var(--sp-8)); z-index: 60; width: min(340px, calc(100vw - 2 * var(--sp-8))); display: flex; flex-direction: column; gap: var(--sp-4); }

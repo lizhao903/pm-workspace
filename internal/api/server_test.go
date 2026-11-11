@@ -3,6 +3,7 @@
 package api
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"io"
@@ -349,6 +350,44 @@ func TestRequestBodyTooLarge(t *testing.T) {
 	big := `{"type_id":"task","title":"` + strings.Repeat("x", maxBodyBytes+1) + `"}`
 	w := do(newTestServer(newFakeStore()), http.MethodPost, "/api/objects", big)
 	assertError(t, w, http.StatusBadRequest, "validation")
+}
+
+// 录音插件的音频上传（/audio）和系统音频停止保存（/capture/stop）都带整段音频，
+// 请求体上限单独放宽；其它路径仍是 2MB。之前漏了 capture/stop，双轨混音时前端上传麦克风会 400。
+func TestRecordingUploadPathsAllowLargeBody(t *testing.T) {
+	for _, p := range []string{
+		"/api/recording/recordings/rec_1/audio",
+		"/api/recording/recordings/rec_1/capture/stop",
+	} {
+		if !recordingAudioPath.MatchString(p) {
+			t.Fatalf("%s 应该放宽请求体上限", p)
+		}
+	}
+	if recordingAudioPath.MatchString("/api/recording/recordings/rec_1/capture/start") {
+		t.Fatal("capture/start 是 JSON，不该走大文件上限")
+	}
+
+	// 3MB 的请求体：放宽路径能完整读到，普通路径会被 2MB 上限拦下。
+	big := bytes.Repeat([]byte("x"), 3<<20)
+	readAll := limitBody(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if _, err := io.Copy(io.Discard, r.Body); err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	for path, want := range map[string]int{
+		"/api/recording/recordings/rec_1/capture/stop": http.StatusOK,
+		"/api/recording/recordings/rec_1/audio":        http.StatusOK,
+		"/api/objects":                                 http.StatusBadRequest,
+	} {
+		req := httptest.NewRequest(http.MethodPost, path, bytes.NewReader(big))
+		rr := httptest.NewRecorder()
+		readAll.ServeHTTP(rr, req)
+		if rr.Code != want {
+			t.Errorf("%s 状态码 = %d，想要 %d", path, rr.Code, want)
+		}
+	}
 }
 
 // API 的 404 必须是 JSON，不能掉进 SPA fallback 回 index.html。

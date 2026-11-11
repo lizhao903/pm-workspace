@@ -138,13 +138,15 @@ export type UploadOptions = {
  * multipart 上传（录音音频用）：不设 Content-Type，交给浏览器带 boundary。
  * 响应仍是统一信封 { data, meta? }，错误映射同 requestEnvelope。
  */
-export async function uploadFile<T>(path: string, file: Blob, fields: Record<string, string> = {}, opts: UploadOptions = {}): Promise<T> {
+export async function uploadFile<T>(path: string, file?: Blob, fields: Record<string, string> = {}, opts: UploadOptions = {}): Promise<T> {
   const headers = new Headers()
   headers.set('X-Actor-Source', 'ui')
   const form = new FormData()
   for (const [k, v] of Object.entries(fields)) form.append(k, v)
-  const filename = opts.filename ?? (file instanceof File ? file.name : 'audio')
-  form.append(opts.fileField ?? 'file', file, filename)
+  if (file) {
+    const filename = opts.filename ?? (file instanceof File ? file.name : 'audio')
+    form.append(opts.fileField ?? 'file', file, filename)
+  }
 
   let res: Response
   try {

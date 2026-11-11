@@ -248,3 +248,42 @@
   .rec-speaker-actions { margin-left: 0; flex-basis: 100%; }
   .rec-speaker-input { width: 140px; }
 }
+
+/* ---------- M6：系统音频采集 ---------- */
+.rec-source { display: flex; flex-wrap: wrap; gap: var(--sp-2); }
+.rec-source-opt {
+  font: inherit; font-size: var(--fs-sm); color: var(--muted); padding: 4px 10px; cursor: pointer;
+  background: transparent; border: 1px solid var(--line); border-radius: var(--r-sm);
+}
+.rec-source-opt:hover { color: var(--text); }
+.rec-source-opt.on { color: var(--text); font-weight: 600; background: var(--panel); border-color: var(--accent-line); }
+.rec-devices { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-3); }
+.rec-device-label { font-size: var(--fs-sm); color: var(--muted); }
+.rec-device-select {
+  font: inherit; font-size: var(--fs-sm); color: var(--text); padding: 4px 8px; max-width: 340px;
+  background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-sm);
+}
+.rec-capture { flex-wrap: wrap; }
+.rec-capture-text { font-size: var(--fs-sm); font-weight: 600; }
+
+/* ---------- 外壳状态条（常驻录音）：任意页面可见，切路由不卸载 ---------- */
+.rec-status {
+  display: flex; align-items: center; gap: var(--sp-4);
+  padding: 6px 8px 6px 12px; border-radius: 999px;
+  border: 1px solid var(--accent-line); background: var(--panel); box-shadow: var(--shadow);
+  max-width: min(620px, calc(100vw - 2 * var(--sp-8)));
+}
+.rec-status-open {
+  display: flex; align-items: center; gap: var(--sp-3); min-width: 0;
+  padding: 0; border: 0; background: none; color: inherit; font: inherit; cursor: pointer;
+}
+.rec-status-open:hover .rec-status-text { color: var(--text); }
+.rec-status-text { font-size: var(--fs-sm); color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rec-status-timer { font-family: var(--mono); font-variant-numeric: tabular-nums; font-weight: 600; color: var(--text); }
+.rec-status-acts { display: flex; align-items: center; gap: var(--sp-2); flex: none; }
+.rec-status-acts .btn { height: 26px; }
+
+@media (max-width: 560px) {
+  .rec-status { max-width: calc(100vw - 24px); padding-left: 10px; }
+  .rec-status-text { display: none; }
+}

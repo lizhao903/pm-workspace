@@ -529,8 +529,23 @@ a.pj-att-name:hover { text-decoration: underline; }
   .pj-profile-people { grid-template-columns: minmax(0, 1fr); }
 }
 
-/* 文档目录（TSK-0718）：表格上方的提示、预览抽屉 */
+/* 文档目录（TSK-0718）：表格上方的提示、目录树、预览抽屉 */
 .pj-docsdir-note { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-3); }
+.pj-docs { display: flex; flex-direction: column; gap: var(--sp-6); min-width: 0; }
+.pj-docsdir { display: flex; flex-direction: column; gap: var(--sp-4); min-width: 0; }
+.pj-tree-path { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.pj-tree { padding: var(--sp-3); border: 1px solid var(--line); border-radius: var(--r-lg); background: var(--panel); overflow: hidden; }
+.pj-tree-row { display: flex; align-items: center; gap: 6px; width: 100%; min-height: 34px; padding-right: var(--sp-5); border-radius: var(--r-sm); text-align: left; color: var(--text); }
+.pj-tree-row:hover { background: var(--hover); }
+.pj-tree-dir { color: var(--muted); font-weight: 500; }
+.pj-tree-chev { display: inline-grid; place-items: center; flex: none; width: 10px; color: var(--faint); transition: transform 0.12s; }
+.pj-tree-chev.open { transform: rotate(90deg); }
+.pj-tree-icon { display: inline-grid; place-items: center; flex: none; color: var(--faint); }
+.pj-tree-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; }
+.pj-tree-count { flex: none; margin-left: auto; font-size: var(--fs-2xs); font-weight: 400; color: var(--faint); }
+.pj-tree-elide { color: var(--faint); font-weight: 400; }
+.pj-tree-meta { flex: none; color: var(--faint); font-size: var(--fs-xs); white-space: nowrap; }
+.pj-tree-file .pj-err { flex-basis: 100%; padding: 0 0 var(--sp-2); }
 .pj-docfile-title { margin: 0 0 var(--sp-2); font-size: var(--fs-lg); font-weight: 600; word-break: break-all; }
 .pj-docfile-meta { margin-bottom: var(--sp-6); font-size: var(--fs-xs); word-break: break-all; }
 .pj-docfile-body { min-width: 0; }
@@ -561,3 +576,7 @@ a.pj-att-name:hover { text-decoration: underline; }
 
 /* SOP 标签里自动反向关联出来的流程 */
 .pj-auto-tag { display: inline-flex; align-items: center; height: 16px; margin-left: var(--sp-3); padding: 0 5px; border-radius: 4px; background: var(--accent-soft); color: var(--accent); font-size: var(--fs-xs); font-weight: 500; vertical-align: 1px; }
+@media (max-width: 760px) {
+  /* 窄屏树只留名称和操作，类型、更新时间让位（SPEC-projects-8.21） */
+  .pj-tree-meta { display: none; }
+}

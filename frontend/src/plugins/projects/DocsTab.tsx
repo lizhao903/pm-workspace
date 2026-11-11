@@ -2,8 +2,8 @@
 
 // 文档标签（SPEC-projects-8）：列出 type=doc 且 project_id 为本项目的文档。
 // 「加文档」把「文档」里的一篇归到本项目（改它的 project_id），「移除」只是移出项目，文档本身不动；状态取文档类型的状态集。
-// 另外列出项目设置里「文档目录」（props.docs_dir，TSK-0718）下的文档文件，来源列写「文档目录」；没设时表格上方提示去设置，
-// 越界、不存在也在那里说清（DocsDirFiles.tsx）。两种来源并存：先工作台文档，后目录里的文件。
+// 另外列出项目设置里「文档目录」（props.docs_dir，TSK-0718）下的文档文件，按目录层级显示成树（DocsDirTree.tsx）；
+// 没设时表格上方提示去设置，越界、不存在也在那里说清（DocsDirFiles.tsx）。工作台文档一块、文档目录一块，先工作台文档。
 // 表单还能「新建一篇」（SPEC-projects-8.16，C-03）：建一篇 project_id 为本项目的文档，再去「文档」打开它的编辑区写正文。
 import { useMemo, useState, type CSSProperties } from 'react'
 import { useNavigate } from 'react-router'
@@ -12,7 +12,8 @@ import {
   type Category, type LocalFileEntry, type WorkObject,
 } from '../../core/data'
 import { Button, cls, EmptyState, ErrorState, Input, LoadingState, SearchSelect, Select } from '../../core/ui'
-import { DocFilePreview, DocFileRow, docsDirError } from './DocsDirFiles'
+import { DocFilePreview, docsDirError } from './DocsDirFiles'
+import { DocsDirTree } from './DocsDirTree'
 import { ago } from './model'
 
 const DOC = 'doc'
@@ -110,34 +111,39 @@ export function DocsTab({ projectId, docsDir, root, onSettings, adding, onAdding
     ))
   }
   else {
+    // 工作台文档（归到本项目的 type=doc）保持表格单列一块，文档目录里的文件按真实层级的树单列一块（SPEC-projects-8.17、8.21）
     body = (
-      <div className="pj-table" role="table" aria-label="项目文档">
-        <div className="pj-doc pj-th" role="row">
-          <span role="columnheader">文档</span><span role="columnheader">类型</span><span role="columnheader">来源</span><span role="columnheader">状态</span>
-          <span role="columnheader">更新</span><span role="columnheader" aria-label="操作" />
-        </div>
-        {rows.map((d) => {
-          const st = statuses.find((s) => s.key === d.status)
-          return (
-            <div key={d.id} className="pj-doc" role="row">
-              <span role="cell" className="ellipsis">
-                <button type="button" className="pj-link pj-doc-title" title="在「文档」里打开" onClick={() => navigate(`/docs?doc=${encodeURIComponent(d.id)}`)}>{d.title || '未命名'}</button>
-              </span>
-              <span role="cell"><span className="tag">{d.category_name || '未分类'}</span></span>
-              <span role="cell" className="pj-doc-src ellipsis">{LIBRARY}</span>
-              <span role="cell">
-                <select className="pj-chip-select pj-doc-status" aria-label={`${d.title} 的状态`} value={d.status}
-                  style={{ '--c': st?.color || 'var(--faint)' } as CSSProperties} onChange={(e) => changeStatus(d, e.target.value)}>
-                  {!st && <option value={d.status}>{d.status}</option>}
-                  {statuses.map((s) => <option key={s.key} value={s.key}>{s.label}</option>)}
-                </select>
-              </span>
-              <span role="cell" className="pj-muted" title={d.updated_at}>{ago(d.updated_at)}</span>
-              <span role="cell"><Button size="sm" disabled={link.isPending} onClick={() => unlink(d)}>移除</Button></span>
+      <div className="pj-docs">
+        {rows.length > 0 && (
+          <div className="pj-table" role="table" aria-label="工作台文档">
+            <div className="pj-doc pj-th" role="row">
+              <span role="columnheader">文档</span><span role="columnheader">类型</span><span role="columnheader">来源</span><span role="columnheader">状态</span>
+              <span role="columnheader">更新</span><span role="columnheader" aria-label="操作" />
             </div>
-          )
-        })}
-        {fileRows.map((f) => <DocFileRow key={f.path} f={f} onPreview={() => setPreview(f)} />)}
+            {rows.map((d) => {
+              const st = statuses.find((s) => s.key === d.status)
+              return (
+                <div key={d.id} className="pj-doc" role="row">
+                  <span role="cell" className="ellipsis">
+                    <button type="button" className="pj-link pj-doc-title" title="在「文档」里打开" onClick={() => navigate(`/docs?doc=${encodeURIComponent(d.id)}`)}>{d.title || '未命名'}</button>
+                  </span>
+                  <span role="cell"><span className="tag">{d.category_name || '未分类'}</span></span>
+                  <span role="cell" className="pj-doc-src ellipsis">{LIBRARY}</span>
+                  <span role="cell">
+                    <select className="pj-chip-select pj-doc-status" aria-label={`${d.title} 的状态`} value={d.status}
+                      style={{ '--c': st?.color || 'var(--faint)' } as CSSProperties} onChange={(e) => changeStatus(d, e.target.value)}>
+                      {!st && <option value={d.status}>{d.status}</option>}
+                      {statuses.map((s) => <option key={s.key} value={s.key}>{s.label}</option>)}
+                    </select>
+                  </span>
+                  <span role="cell" className="pj-muted" title={d.updated_at}>{ago(d.updated_at)}</span>
+                  <span role="cell"><Button size="sm" disabled={link.isPending} onClick={() => unlink(d)}>移除</Button></span>
+                </div>
+              )
+            })}
+          </div>
+        )}
+        {fileRows.length > 0 && <DocsDirTree files={fileRows} path={files.data?.path ?? ''} onPreview={setPreview} />}
       </div>
     )
   }

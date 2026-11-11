@@ -2,10 +2,11 @@
 
 import { describe, expect, it } from 'vitest'
 import {
-  LIST_FILTERS, MODEL_STATUS_TEXT, clampPct, confidencePct, confidenceTone, confirmedTodos, fileKindText, fmtBytes, fmtCreatedAt,
-  fmtDuration, fmtMB, jobText, layoutFlow, lowConfidenceTodos, matchesFilter, mediaErrorText, minutesThreshold, pendingTodos,
-  recordingPath, speakerColor, speakerDisplayName, speakerIndex, speakerMap, speakerSimilarityPct, statusText, statusTone,
-  todoKindText, todoObjectPath, todoStatusText, treeRows, wrapLabel, type ListFilter,
+  CAPTURE_SOURCES, LIST_FILTERS, MODEL_STATUS_TEXT, captureSourceShort, captureSourceText, clampPct, confidencePct, confidenceTone,
+  confirmedTodos, fileKindText, fmtBytes, fmtCreatedAt, fmtDuration, fmtMB, jobText, layoutFlow, lowConfidenceTodos, matchesFilter,
+  mediaErrorText, minutesThreshold, pendingTodos, recordingPath, shareErrorText, speakerColor, speakerDisplayName, speakerIndex,
+  speakerMap, speakerSimilarityPct, statusText, statusTone, systemDeviceHint, todoKindText, todoObjectPath, todoStatusText, treeRows,
+  wrapLabel, type ListFilter,
 } from './model'
 
 describe('录音转写页的纯函数', () => {
@@ -278,5 +279,34 @@ describe('M5：说话人颜色、显示名与映射', () => {
     expect(jobText({ kind: 'diarize', status: 'pending', progress: 0, attempts: 0, last_error: '' })).toBe('排队等待说话人识别')
     expect(jobText({ kind: 'diarize', status: 'running', progress: 40, attempts: 0, last_error: '' })).toBe('说话人识别中 40%')
     expect(jobText({ kind: 'diarize', status: 'failed', progress: 0, attempts: 0, last_error: '缺 funasr' })).toBe('说话人识别失败')
+  })
+})
+
+
+describe('M6：系统音频采集来源', () => {
+  it('来源文案齐全，四种来源 key 不重复', () => {
+    expect(CAPTURE_SOURCES.map((s) => s.key)).toEqual(['mic', 'share', 'system', 'mic_system'])
+    expect(captureSourceText('mic_system')).toBe('麦克风 + 系统声音')
+    expect(captureSourceShort('share')).toBe('浏览器分享的声音')
+    expect(captureSourceText('system')).toContain('系统声音')
+    expect(new Set(CAPTURE_SOURCES.map((s) => s.key)).size).toBe(CAPTURE_SOURCES.length)
+  })
+
+  it('shareErrorText 把分享失败说清楚', () => {
+    expect(shareErrorText({ name: 'NotAllowedError' })).toContain('取消')
+    expect(shareErrorText({ name: 'NotAllowedError' })).toContain('分享声音')
+    expect(shareErrorText({ name: 'SecurityError' })).toContain('127.0.0.1')
+    expect(shareErrorText({ name: 'AbortError' })).toContain('再点一次')
+    expect(shareErrorText(new Error('boom'))).toContain('boom')
+  })
+
+  it('systemDeviceHint 按平台/工具/设备给出下一步', () => {
+    const base = { devices: [], supported: true, platform: 'darwin', ffmpeg: true, error: '' }
+    expect(systemDeviceHint(undefined)).toContain('读取')
+    expect(systemDeviceHint({ ...base, supported: false, platform: 'linux' })).toContain('只支持 macOS')
+    expect(systemDeviceHint({ ...base, ffmpeg: false })).toContain('brew install ffmpeg')
+    expect(systemDeviceHint({ ...base, devices: [{ index: 0, name: '麦克风', default: true, virtual: false }] })).toContain('blackhole-2ch')
+    expect(systemDeviceHint({ ...base, devices: [{ index: 1, name: 'BlackHole 2ch', default: false, virtual: true }] })).toContain('虚拟声卡')
+    expect(systemDeviceHint({ ...base, error: '没权限' })).toContain('没权限')
   })
 })

@@ -12,6 +12,7 @@ import type { ObjectSectionRegistry } from './objectSections'
 import type { SessionToolRegistry } from './sessionTools'
 import type { TerminalLauncherRegistry } from './terminalLaunch'
 import type { SessionSourceRegistry } from './sessionSources'
+import type { ShellStatusRegistry } from './shellStatus'
 import type { ProjectTabRegistry } from './projectTabs'
 import type { TodaySourceRegistry } from './todaySources'
 
@@ -157,6 +158,8 @@ export interface PluginApi {
   projectTabs: ProjectTabRegistry
   // 对象详情的插件区块（SOP-06）
   objectSections: ObjectSectionRegistry
+  // 任意页面都可见的外壳状态条（后台常驻，如录音中；不进清单 provides）
+  shellStatus: ShellStatusRegistry
   // 会话头部右上角的工具入口和面板（SPEC-sessions-1.34）
   sessionTools: SessionToolRegistry
   // 从别的记录发起的会话，头部「来源」怎么显示、跳到哪（内核 0047）

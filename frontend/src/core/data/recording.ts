@@ -7,7 +7,7 @@
 // 都会改列表、详情、文件、设置和 meta，一起刷。轮询：转写/纪要/说话人任务在跑时列表与详情每 2 秒刷一次；
 // 详情在还有待确认候选时也刷（SOP/后台可能继续写候选）。
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { request, requestList } from '../api'
+import { request, requestEnvelope, requestList } from '../api'
 import { apiBase, uploadFile } from '../api/client'
 
 export type RecordingStatus = 'draft' | 'uploaded' | 'transcribing' | 'transcribed' | 'summarizing' | 'ready' | 'failed'
@@ -212,6 +212,32 @@ export type RecordingSummary = {
   updated_at: string
 }
 
+/** 系统里能采集的一块音频设备（GET /audio-devices）；virtual 多半是虚拟声卡，录系统声音选它 */
+export type RecordingAudioDevice = {
+  index: number
+  name: string
+  default: boolean
+  virtual: boolean
+}
+
+/** 设备列表 + 平台/工具信息：supported=false 时（非 macOS）本机采集不可用 */
+export type RecordingAudioDeviceList = {
+  devices: RecordingAudioDevice[]
+  supported: boolean
+  platform: string
+  ffmpeg: boolean
+  error: string
+}
+
+/** 一次进行中的系统音频采集（详情里的 capture 字段 / 采集状态接口） */
+export type RecordingCapture = {
+  running: boolean
+  device: number
+  device_name: string
+  started_at: string
+  duration_ms: number
+}
+
 /** 详情：在列表字段之外带引擎、语言、正文、纪要、候选 */
 export type Recording = Omit<RecordingSummary, 'has_minutes'> & {
   engine: string
@@ -224,6 +250,8 @@ export type Recording = Omit<RecordingSummary, 'has_minutes'> & {
   todos: RecordingTodo[]
   speakers: RecordingSpeaker[]
   attempts: number
+  /** 正在采集系统声音时才有；没有这个字段表示不在采集 */
+  capture?: RecordingCapture | null
 }
 
 export type RecordingInput = {
@@ -320,6 +348,7 @@ export const recordingKeys = {
   files: (id: string, revision = '') => ['recording', 'files', id, revision] as const,
   speakers: (id: string, revision = '') => ['recording', 'speakers', id, revision] as const,
   voiceprints: ['recording', 'voiceprints'] as const,
+  audioDevices: ['recording', 'audio-devices'] as const,
   meta: ['recording', 'meta'] as const,
   settings: ['recording', 'settings'] as const,
 }
@@ -352,6 +381,30 @@ export const recordingApi = {
   uploadAudio: (id: string, file: Blob, durationMs: number, filename?: string) =>
     uploadFile<Recording>(`${idPath(id)}/audio`, file, { duration_ms: String(Math.max(0, Math.round(durationMs))) },
       { fileField: 'audio', filename }),
+  /** 本机能采集的音频设备；meta 里带平台/ffmpeg 支持情况 */
+  audioDevices: async (signal?: AbortSignal): Promise<RecordingAudioDeviceList> => {
+    const res = await requestEnvelope<RecordingAudioDevice[] | null>('GET', `${base}/audio-devices`, { signal })
+    const meta = (res.meta ?? {}) as unknown as { supported?: boolean; platform?: string; ffmpeg?: boolean; error?: string }
+    return {
+      devices: res.data ?? [],
+      supported: meta.supported ?? false,
+      platform: meta.platform ?? '',
+      ffmpeg: meta.ffmpeg ?? false,
+      error: meta.error ?? '',
+    }
+  },
+  /** 开始采集系统音频（本机 ffmpeg + 虚拟声卡），回 202 + RecordingCapture */
+  startCapture: (id: string, device: number) => request<RecordingCapture>('POST', `${idPath(id)}/capture/start`, { body: { device } }),
+  /** 查采集状态；没有在采集 404（调用方当 null 处理） */
+  captureStatus: (id: string, signal?: AbortSignal) => request<RecordingCapture>('GET', `${idPath(id)}/capture`, { signal }),
+  /** 停止并保存；有麦克风就一起混音（multipart 字段 mic），回 202 + Recording */
+  stopCapture: (id: string, opts: { mic?: Blob; durationMs: number; micOffsetMs?: number }) =>
+    uploadFile<Recording>(`${idPath(id)}/capture/stop`, opts.mic, {
+      duration_ms: String(Math.max(0, Math.round(opts.durationMs))),
+      mic_offset_ms: String(Math.max(0, Math.round(opts.micOffsetMs ?? 0))),
+    }, { fileField: 'mic', filename: 'mic.webm' }),
+  /** 放弃采集，删临时文件；录音本身用 DELETE /recordings/{id} */
+  cancelCapture: (id: string) => request<{ ok: boolean }>('DELETE', `${idPath(id)}/capture`),
   retranscribe: (id: string) => request<Recording>('POST', `${idPath(id)}/transcribe`, { body: {} }),
   /** 重新生成纪要（插件内直连 Agent，不等跑完），回 202 + Recording */
   generateMinutes: (id: string) => request<Recording>('POST', `${idPath(id)}/minutes`, { body: {} }),
@@ -471,7 +524,26 @@ function useRecordingMutation<V, R>(fn: (v: V) => Promise<R>) {
   return useMutation({ mutationFn: fn, onSuccess: () => qc.invalidateQueries({ queryKey: recordingKeys.all }) })
 }
 
+/** 本机音频设备；只在选系统音频来源时才查，设备列表半分钟缓存 */
+export function useRecordingAudioDevices(enabled = true) {
+  return useQuery({
+    queryKey: recordingKeys.audioDevices,
+    queryFn: ({ signal }) => recordingApi.audioDevices(signal),
+    enabled,
+    staleTime: 30_000,
+  })
+}
+
 export const useCreateRecording = () => useRecordingMutation((body: RecordingInput) => recordingApi.create(body))
+
+export const useStartCapture = () =>
+  useRecordingMutation(({ id, device }: { id: string; device: number }) => recordingApi.startCapture(id, device))
+
+export const useStopCapture = () =>
+  useRecordingMutation(({ id, mic, durationMs, micOffsetMs }: { id: string; mic?: Blob; durationMs: number; micOffsetMs?: number }) =>
+    recordingApi.stopCapture(id, { mic, durationMs, micOffsetMs }))
+
+export const useCancelCapture = () => useRecordingMutation((id: string) => recordingApi.cancelCapture(id))
 
 export const useUploadAudio = () =>
   useRecordingMutation(({ id, file, durationMs }: { id: string; file: Blob; durationMs: number }) => recordingApi.uploadAudio(id, file, durationMs))

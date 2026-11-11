@@ -360,6 +360,10 @@ var contractSpecs = map[string]contractSpec{
 	"RecordingTodo":     {v: recording.RecordingTodo{}},
 	"RecordingSpeaker":  {v: recording.RecordingSpeaker{}},
 	"Voiceprint":        {v: recording.Voiceprint{}},
+
+	// 系统音频采集 M6
+	"RecordingAudioDevice": {v: recording.AudioDevice{}},
+	"RecordingCapture":     {v: recording.RecordingCapture{}},
 }
 
 // docShape 是从文档里抽出来的一个对象：字段名和（如果有）字段的嵌套对象。

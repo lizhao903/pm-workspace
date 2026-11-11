@@ -347,6 +347,22 @@ flowchart LR
 真实实例库 0.1.0→0.2.0 升级通过，内置 SOP 流程「会议纪要整理」已写入；真 Ollama qwen3.5:0.8b/4b 冒烟产出可解析纪要。
 3（声纹）已实现（插件 0.3.0，2026-11-10）：本机 Python + FunASR 说话人分离、说话人绑定联系人、后续录音自动认人；POC 见 `docs/recording-voiceprint-poc.md`，实现与验证见 `docs/recording-transcription-design.md` §14。真实会议录音（远场/交叉说话）还需样本校准阈值。
 
+## 16. 追加需求（2026-11-11，系统音频）
+
+用户要求「录音转写需要支持获取系统内音频信息，不要只获取麦克风音频输入」。确认后的决策：
+
+| # | 需求 | 决策 |
+|---|---|---|
+| 1 | 录音来源不只麦克风，要能录电脑/会议 App 的声音 | 三种来源都提供：麦克风 / 系统声音 / 麦克风+系统声音；系统声音同做「本机虚拟声卡 + ffmpeg 采集」和「浏览器分享标签页声音」，macOS 优先 |
+| 2 | 会议场景「我 + 对方」都要录到 | 麦克风+系统声音双轨：前端录麦克风、后端 ffmpeg 录虚拟声卡，停止时后端 `amix` 混成一条再转写（`atrim` 对齐开头） |
+| 3 | 尽量不装东西也能录网页声音 | 「系统声音（浏览器分享）」用 `getDisplayMedia` 分享标签页/屏幕声音，零安装；只覆盖浏览器里的声音 |
+| 4 | 原生 App（腾讯会议、飞书、Zoom 等）的声音 | 需要虚拟声卡（BlackHole / Loopback / WeMeet 等）：界面列出设备、自动挑虚拟声卡、没有时给 `brew install blackhole-2ch` 与多输出设备引导 |
+
+落地状态（2026-11-11）：已实现并验证（插件 0.4.0，`/audio-devices` + `/capture` 系列接口，
+前端录音页来源切换 + 详情页采集中横幅）。本机真实采集验证：`WeMeet Audio Device` 单轨采集 8s 成功转写；
+麦克风（65s 中文语音）+ 系统轨混音后转写内容正确。设计见 `docs/recording-transcription-design.md` §15，
+接口见 `docs/api-contract.md`「录音转写插件 recording」。Windows/Linux 本机采集后续再做。
+
 ---
 
 由 DeepSeek Harness（dsh）协助完成。

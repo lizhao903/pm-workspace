@@ -417,6 +417,7 @@ export {
   useCreateRecording, useUploadAudio, useRetranscribe, usePatchRecording, useDeleteRecording,
   useGenerateMinutes, useStartSop, useConfirmTodo, useIgnoreTodo, useDiarize, useRenameSpeaker, useBindSpeaker,
   useDeleteVoiceprint, useSaveSettings, useDownloadModel, useDeleteModel,
+  useRecordingAudioDevices, useStartCapture, useStopCapture, useCancelCapture,
 } from './recording'
 export type {
   RecordingStatus, RecordingJobStatus, RecordingJob, Segment, RecordingSummary, Recording, RecordingInput, RecordingPatch,
@@ -424,4 +425,5 @@ export type {
   RecordingAction, RecordingProject, RecordingGoal, RecordingQuestion, RecordingFlowNode, RecordingFlowEdge, RecordingFlow,
   RecordingTreeNode, RecordingTree, RecordingDiagrams, RecordingMinutes, RecordingFile, RecordingFileKind, TodoKind, TodoStatus,
   RecordingTodo, TodoConfirmInput, RecordingSopResult, RecordingSpeaker, Voiceprint,
+  RecordingAudioDevice, RecordingAudioDeviceList, RecordingCapture,
 } from './recording'

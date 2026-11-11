@@ -193,7 +193,7 @@ describe('项目的文档标签', () => {
     const d = obj({ type_id: 'doc', title: '权限 PRD', status: 'draft', project_id: p.id })
     const calls = fakeBackend([p, d, obj({ type_id: 'doc', title: '别的文档' })], [])
     mount(`/projects/${p.id}/docs`)
-    const table = await screen.findByRole('table', { name: '项目文档' })
+    const table = await screen.findByRole('table', { name: '工作台文档' })
     expect(within(table).getByText('权限 PRD')).toBeInTheDocument()
     expect(within(table).getByRole('columnheader', { name: '来源' })).toBeInTheDocument()
     expect(within(table).getByText('文档库')).toBeInTheDocument()

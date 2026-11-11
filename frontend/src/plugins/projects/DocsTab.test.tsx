@@ -79,11 +79,11 @@ describe('项目文档标签的新建一篇', () => {
 
 describe('项目文档标签的文档目录（TSK-0718）', () => {
   const file = (rel: string, kind: string) => ({ rel, path: `/p/docs/${rel}`, name: rel.split('/').pop()!, ext: rel.split('.').pop()!, kind, size: 3, modified: '2026-11-06T00:00:00Z' })
-  function backend(filesResp: () => Response) {
+  function backend(filesResp: () => Response, docs: unknown[] = []) {
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
       const u = new URL(String(input), 'http://x')
       const json = (data: unknown, status = 200, meta?: unknown) => new Response(JSON.stringify(status < 300 ? { data, meta } : data), { status })
-      if (u.pathname === '/api/objects') return json([], 200, { total: 0 })
+      if (u.pathname === '/api/objects') return json(docs, 200, { total: docs.length })
       if (u.pathname === '/api/object-types') return json([{ id: 'doc', name: '文档', statuses: [] }])
       if (u.pathname === '/api/objects/obj_p1/docs-dir/files') return filesResp()
       if (u.pathname === '/api/fs/read') return json({ path: u.searchParams.get('path'), name: 'a.md', ext: 'md', size: 8, modified: '', binary: false, truncated: false, limit: 1048576, content: '# 方案正文' })
@@ -105,14 +105,35 @@ describe('项目文档标签的文档目录（TSK-0718）', () => {
     expect(screen.getByText(/还没设文档目录/)).toBeInTheDocument()
   })
 
-  it('列出目录里的文件，来源写文档目录，点名称在抽屉里预览', async () => {
-    backend(() => new Response(JSON.stringify({ data: { path: '/p/docs', files: [file('a.md', 'text'), file('prd/b.pdf', 'pdf'), file('c.docx', 'office')], skipped: 0, truncated: false, next_cursor: '' } })))
+  it('按目录树列出文件：第一层默认展开、更深收起，点名称在抽屉里预览', async () => {
+    backend(() => new Response(JSON.stringify({ data: { path: '/p/docs', files: [file('a.md', 'text'), file('prd/b.pdf', 'pdf'), file('prd/2026/c.docx', 'office')], skipped: 0, truncated: false, next_cursor: '' } })))
     mount('docs')
-    const table = await screen.findByRole('table', { name: '项目文档' })
-    expect(await within(table).findByText('文档目录 / prd')).toBeInTheDocument()
-    expect(within(table).getByText('DOCX')).toBeInTheDocument()
-    await userEvent.click(within(table).getByRole('button', { name: 'a.md' }))
+    const tree = await screen.findByRole('tree', { name: '文档目录文件' })
+    // 第一层文件夹展开：顶层文件和 prd 下的文件都看得见；二级文件夹 2026 收起
+    expect(within(tree).getByText('a.md')).toBeInTheDocument()
+    expect(within(tree).getByText('b.pdf')).toBeInTheDocument()
+    expect(within(tree).queryByText('c.docx')).toBeNull()
+    expect(within(tree).getByRole('button', { name: /prd/ })).toHaveAttribute('aria-expanded', 'true')
+    // 展开二级文件夹后露出里面的文件
+    await userEvent.click(within(tree).getByRole('button', { name: /2026/ }))
+    expect(within(tree).getByText('c.docx')).toBeInTheDocument()
+    // 再点收起，正文消失
+    await userEvent.click(within(tree).getByRole('button', { name: /2026/ }))
+    expect(within(tree).queryByText('c.docx')).toBeNull()
+    await userEvent.click(within(tree).getByRole('button', { name: 'a.md' }))
     expect(await screen.findByRole('heading', { name: '方案正文' })).toBeInTheDocument()
+  })
+
+  it('工作台文档一张表、文档目录一棵树，各列各的', async () => {
+    const doc = { id: 'obj_d1', type_id: 'doc', title: '权限 PRD', status: 'draft', category_id: 'cat_prd', category_name: '需求文档', project_id: 'obj_p1', updated_at: '2026-11-10T00:00:00Z' }
+    backend(() => new Response(JSON.stringify({ data: { path: '/p/docs', files: [file('prd/b.pdf', 'pdf')], skipped: 0, truncated: false, next_cursor: '' } })), [doc])
+    mount('docs')
+    const table = await screen.findByRole('table', { name: '工作台文档' })
+    expect(within(table).getByText('权限 PRD')).toBeInTheDocument()
+    const tree = await screen.findByRole('tree', { name: '文档目录文件' })
+    expect(within(tree).getByText('b.pdf')).toBeInTheDocument()
+    expect(within(tree).queryByText('权限 PRD')).toBeNull()
+    expect(within(table).queryByText('b.pdf')).toBeNull()
   })
 
   it('目录不存在、越界时说清原因', async () => {

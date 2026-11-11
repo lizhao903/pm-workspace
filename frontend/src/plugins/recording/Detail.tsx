@@ -7,8 +7,8 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router'
 import {
-  errorText, isApiError, recordingAudioUrl, useDeleteRecording, usePatchRecording, useRecording, useRecordingSettings,
-  useRetranscribe,
+  errorText, isApiError, recordingAudioUrl, useCancelCapture, useDeleteRecording, usePatchRecording, useRecording,
+  useRecordingSettings, useRetranscribe, useStopCapture, type Recording,
 } from '../../core/data'
 import { Button, ConfirmDialog, ErrorState, LoadingState, PageTitle, Pill, Textarea, cls } from '../../core/ui'
 import { FilesSection } from './Files'
@@ -34,6 +34,8 @@ export function Detail() {
   const patch = usePatchRecording()
   const retranscribe = useRetranscribe()
   const del = useDeleteRecording()
+  const stopCapture = useStopCapture()
+  const cancelCapture = useCancelCapture()
   const navigate = useNavigate()
 
   const audioRef = useRef<HTMLAudioElement>(null)
@@ -147,6 +149,29 @@ export function Detail() {
   const threshold = minutesThreshold(settings.data?.minutes_threshold)
   const spkMap = speakerMap(r.speakers)
 
+  /** 系统音频采集中刷新了页面：还能从这里停下保存，或放弃（停采集并删草稿） */
+  function doStopCapture() {
+    if (!r.capture) return
+    setActionError('')
+    stopCapture.mutate({ id: r.id, durationMs: r.capture.duration_ms }, {
+      onError: (e) => setActionError(`停止采集失败：${errorText(e)}`),
+    })
+  }
+
+  function doCancelCapture() {
+    if (!r.capture) return
+    setActionError('')
+    cancelCapture.mutate(r.id, {
+      onError: (e) => setActionError(`放弃采集失败：${errorText(e)}`),
+      onSuccess: () => {
+        del.mutate(r.id, {
+          onSuccess: () => navigate(recordingPath()),
+          onError: (e) => setActionError(`删草稿失败：${errorText(e)}`),
+        })
+      },
+    })
+  }
+
   return (
     <section className="rec-page">
       <Link className="rec-back" to={recordingPath()}>← 返回录音列表</Link>
@@ -165,6 +190,11 @@ export function Detail() {
       </PageTitle>
 
       {actionError && <div className="rec-err" role="alert">{actionError}</div>}
+
+      {r.capture?.running && (
+        <CaptureBanner capture={r.capture} busy={stopCapture.isPending || cancelCapture.isPending || del.isPending}
+          onStop={doStopCapture} onCancel={doCancelCapture} />
+      )}
 
       {r.job && activeJob && (
         <div className="rec-job">
@@ -246,5 +276,35 @@ export function Detail() {
         删除后列表里不再出现这条录音；已经转成的任务或文档不会跟着删。
       </ConfirmDialog>
     </section>
+  )
+}
+
+
+/** 系统音频采集中的横幅：时长本地走秒，停止/放弃都在这里（页面刷新后也能操作） */
+function CaptureBanner({ capture, busy, onStop, onCancel }: {
+  capture: NonNullable<Recording['capture']>
+  busy: boolean
+  onStop: () => void
+  onCancel: () => void
+}) {
+  const baseRef = useRef(0)
+  const [elapsed, setElapsed] = useState(capture.duration_ms)
+  useEffect(() => {
+    baseRef.current = performance.now()
+    const tick = () => setElapsed(capture.duration_ms + (performance.now() - baseRef.current))
+    tick()
+    const t = window.setInterval(tick, 500)
+    return () => window.clearInterval(t)
+  }, [capture.duration_ms, capture.started_at])
+  return (
+    <div className="rec-job rec-capture" role="status" aria-label="正在采集系统音频">
+      <span className="rec-capture-text">
+        正在采集系统声音：{capture.device_name} · {fmtDuration(elapsed)}
+      </span>
+      <span className="rec-section-actions">
+        <Button size="sm" variant="primary" disabled={busy} onClick={onStop}>停止并保存</Button>
+        <Button size="sm" variant="ghost" disabled={busy} onClick={onCancel}>放弃采集</Button>
+      </span>
+    </div>
   )
 }

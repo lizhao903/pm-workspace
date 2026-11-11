@@ -115,6 +115,7 @@ type RecordingDetail struct {
 	MinutesModel string             `json:"minutes_model"`
 	Todos        []RecordingTodo    `json:"todos"`
 	Speakers     []RecordingSpeaker `json:"speakers"`
+	Capture      *RecordingCapture  `json:"capture,omitempty"`
 }
 
 // MetaView 是 GET /meta 的返回：工具、模型、设置、默认值。
@@ -197,6 +198,7 @@ func (h *handlers) view(r *http.Request, rec recordingRow) (RecordingDetail, err
 		MinutesModel:     rec.MinutesModel,
 		Todos:            todoViews(todos),
 		Speakers:         speakers,
+		Capture:          h.p.captureView(rec.ID),
 	}, nil
 }
 
@@ -420,6 +422,9 @@ func (h *handlers) deleteRecording(w http.ResponseWriter, r *http.Request) {
 	if err := plugin.Require(h.c, "fs:write:attachments"); err != nil {
 		h.fail(w, r, err)
 		return
+	}
+	if h.p.captureView(rec.ID) != nil {
+		_ = h.p.dropCapture(rec.ID) // 采集中的临时文件随目录一起删，先停进程再删
 	}
 	if err := os.RemoveAll(audioDir(h.c, rec.ID)); err != nil {
 		h.fail(w, r, fmt.Errorf("删音频文件失败：%w", err))
