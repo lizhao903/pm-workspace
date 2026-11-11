@@ -58,8 +58,10 @@ describe('Claude Code 执行的配置', () => {
   it('角色下拉标出只读，摘要写角色和目录；超时写法', () => {
     const ctx = { ...EMPTY_CTX, presets: [{ id: 'rp_review', scene: '研发评审', permission: 'read_only' }, { id: 'rp_dev', scene: '研发' }] }
     const info = nodeInfo('claude_code')
-    expect(info.fields.map((f) => f.key)).toEqual(['preset', 'workdir', 'prompt', 'task', 'permission', 'timeout'])
-    expect(info.fields[0].options?.(ctx, {}).map((o) => o.label)).toEqual(['不选角色', '研发评审（只读）', '研发'])
+    expect(info.fields.map((f) => f.key)).toEqual(['executor', 'preset', 'workdir', 'prompt', 'task', 'permission', 'timeout'])
+    expect(info.fields.find((f) => f.key === 'preset')?.options?.(ctx, {}).map((o) => o.label)).toEqual(['不选角色', '研发评审（只读）', '研发'])
+    expect(info.fields[0].options?.({ ...ctx, executors: [{ id: 'cx', name: 'Codex', enabled: true }] }, {}).map((o) => o.value)).toEqual(['', 'cx'])
+    expect(info.fields[0].options?.(ctx, { executor: 'deleted' }).at(-1)?.label).toContain('不可用')
     expect(info.summary?.({ preset: 'rp_dev', workdir: '/w' }, ctx)).toBe('研发 · /w')
     expect(claudeTimeoutMs('')).toBe(2 * 3600e3)
     expect(claudeTimeoutMs('30 分钟')).toBe(30 * 60e3)

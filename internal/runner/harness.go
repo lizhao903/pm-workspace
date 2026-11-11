@@ -17,6 +17,7 @@ type Harness string
 const (
 	// HarnessClaude 是本机的 claude CLI，默认值，也是历史行为。
 	HarnessClaude Harness = "claude"
+	HarnessCodex  Harness = "codex"
 	// HarnessDeepSeek 是 deepseek-harness（dsh）的 headless 一次性任务模式：
 	// dsh 用 DeepSeek 的模型、自己的工具与沙箱，工作台只负责派单、收事件、留档。
 	HarnessDeepSeek Harness = "deepseek"
@@ -30,10 +31,10 @@ func ParseHarness(s string) (Harness, error) {
 	switch h := Harness(strings.TrimSpace(s)); h {
 	case "":
 		return HarnessClaude, nil
-	case HarnessClaude, HarnessDeepSeek:
+	case HarnessClaude, HarnessDeepSeek, HarnessCodex:
 		return h, nil
 	default:
-		return "", validationErr("不认识执行器「" + string(h) + "」，只能是 claude 或 deepseek")
+		return "", validationErr("不认识执行器「" + string(h) + "」，只能是 claude、deepseek 或 codex")
 	}
 }
 

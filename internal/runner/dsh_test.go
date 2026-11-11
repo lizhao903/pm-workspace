@@ -86,7 +86,8 @@ func TestParseHarness(t *testing.T) {
 		{"claude", HarnessClaude, false},
 		{"deepseek", HarnessDeepSeek, false},
 		{"  deepseek  ", HarnessDeepSeek, false},
-		{"codex", "", true},
+		{"codex", HarnessCodex, false},
+		{"unknown", "", true},
 	}
 	for _, c := range cases {
 		got, err := ParseHarness(c.in)

@@ -29,6 +29,7 @@ export type ConfigField = {
 
 /** 配置项选项的上下文：子流程可选的流程（不含正在编辑的）、Agent、知识库、文档分类、模型服务商、项目，都从后端读 */
 export type FieldCtx = {
+  executors?: { id: string; name: string; enabled: boolean; warnings?: string[]; model?: string; provider_name?: string }[]
   flows: { id: string; name: string }[]
   agents: { id: string; name: string }[]
   kbs: { id: string; name: string }[]
@@ -313,6 +314,14 @@ const INFO: Record<string, NodeInfo> = {
     label: KIND_LABEL.claude_code, desc: '交给本机 Claude Code 在指定目录里做一件事，等它做完把结论交给下游', color: '#b0570b',
     icon: <>{line('M3 4.5 6 8l-3 3.5M8 12h5')}</>,
     fields: [
+      {
+        key: 'executor', label: '执行器', type: 'select', default: '', hint: '在设置中管理本地执行器；留空使用原有 Claude Code 配置',
+        options: (ctx, cfg) => {
+          const list = [{ value: '', label: '默认 Claude Code' }, ...(ctx.executors ?? []).map((e) => ({ value: e.id, label: `${e.name}${!e.enabled ? '（已停用）' : e.warnings?.length ? '（配置缺失）' : ''}${e.model ? ` · ${e.provider_name ?? ''} / ${e.model}` : ''}` }))]
+          if (cfg.executor && !list.some((e) => e.value === cfg.executor)) list.push({ value: cfg.executor, label: `${cfg.executor}（不可用）` })
+          return list
+        },
+      },
       {
         key: 'preset', label: '角色', type: 'select', default: '', hint: '执行要求和输出要求拼进提示词；权限留空时按角色',
         options: (ctx, cfg) => {

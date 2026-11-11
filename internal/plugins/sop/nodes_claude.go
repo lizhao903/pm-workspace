@@ -159,7 +159,7 @@ func (r *runner) startClaude(ctx context.Context, i int, release func()) {
 	}
 	id, err := r.e.c.Runs().StartClaudeCode(ctx, plugin.ClaudeCodeStart{
 		Workdir: workdir, Prompt: p.prompt, AllowWrites: writes, ObjectID: task, RecordOnTask: task != "",
-		ReportBack: true, PresetID: preset, FollowPreset: follow, Timeout: timeout,
+		ExecutorID: p.executor, ReportBack: true, PresetID: preset, FollowPreset: follow, Timeout: timeout,
 	})
 	if err != nil {
 		r.claudeFail(i, t, "交给 Claude Code 失败："+claudeStartErr(err))
@@ -210,7 +210,7 @@ func (r *runner) claudeCodeParams(i int, t time.Time, def stepDef, input Json) (
 	preset := strings.TrimSpace(cfg["preset"])
 	// 权限留空、选了角色时按角色的权限（只读 / 可写）；角色只读时内核一律不放开写
 	return claudeParams{
-		workdir: workdir, prompt: prompt, task: strings.TrimSpace(render(cfg["task"], input)), preset: preset,
+		executor: strings.TrimSpace(cfg["executor"]), workdir: workdir, prompt: prompt, task: strings.TrimSpace(render(cfg["task"], input)), preset: preset,
 		writes: cfg["permission"] == "write", follow: cfg["permission"] == "" && preset != "", timeout: timeout,
 	}, true
 }

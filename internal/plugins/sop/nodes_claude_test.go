@@ -335,3 +335,21 @@ func TestClaudeNodeLoopback(t *testing.T) {
 		t.Fatalf("第 2 轮评审提示词 = %s", last)
 	}
 }
+
+func TestClaudeNodeSelectedExecutor(t *testing.T) {
+	r, h, f, wd := setupClaude(t)
+	r.SetRunExecutors(func(_ context.Context, id string) (clauderun.Request, error) {
+		if id != "local_codex" {
+			return clauderun.Request{}, fmt.Errorf("unexpected executor %s", id)
+		}
+		return clauderun.Request{Harness: clauderun.HarnessCodex, CodexBin: "/custom/codex"}, nil
+	})
+	fid := newFlow(t, h, claudeFlow(wd, `,"executor":"local_codex"`))
+	startRun(t, h, fid, fmt.Sprintf(`{"input":{"topic":"test","dir":%q}}`, wd))
+	recvRun(t, f)
+	req := f.req(0)
+	if req.Harness != clauderun.HarnessCodex || req.CodexBin != "/custom/codex" || req.Workdir != wd || req.Timeout != 2*time.Hour {
+		t.Fatalf("%+v", req)
+	}
+	f.results <- &clauderun.Result{Status: domain.RunDone}
+}

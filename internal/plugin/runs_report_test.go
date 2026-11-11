@@ -283,3 +283,29 @@ func TestClaudeRunOnTask(t *testing.T) {
 		t.Fatalf("记录的提示词 = %s", st.prompts[id])
 	}
 }
+
+func TestClaudeRunSelectedExecutor(t *testing.T) {
+	r, _, runs, g := reportEnv(t)
+	r.SetRunExecutors(func(_ context.Context, id string) (runner.Request, error) {
+		if id != "cx" {
+			return runner.Request{}, errors.New("执行器不存在")
+		}
+		return runner.Request{Harness: runner.HarnessCodex, CodexBin: "/custom/codex"}, nil
+	})
+	if _, err := runs.StartClaudeCode(context.Background(), plugin.ClaudeCodeStart{Workdir: t.TempDir(), Prompt: "test", ExecutorID: "deleted"}); err == nil {
+		t.Fatal("missing executor accepted")
+	}
+	id, err := runs.StartClaudeCode(context.Background(), plugin.ClaudeCodeStart{Workdir: t.TempDir(), Prompt: "test", ExecutorID: "cx", Timeout: time.Minute})
+	if err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case req := <-g.got:
+		if req.Harness != runner.HarnessCodex || req.CodexBin != "/custom/codex" || req.Timeout != time.Minute || req.RunID != id || req.AllowWrites {
+			t.Fatalf("%+v", req)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("executor not started")
+	}
+	g.release <- &runner.Result{Status: domain.RunDone}
+}

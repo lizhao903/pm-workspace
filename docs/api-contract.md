@@ -2560,7 +2560,7 @@ SOP-01a 起。插件 `sop`（`internal/plugins/sop`，清单 `plugin.json`，0.1
 | DELETE | `/api/sop/flows/{id}` | 彻底删除，`data` 为 `null`；有进行中的执行（没结束也没终止）、有定时任务指向它时 409；不存在 404；执行记录不跟着删 |
 | GET | `/api/sop/node-types` | 节点类型 `SopNodeType[]` + `meta.total`：先是内置的，和原型 `NODE_TYPES` 同序；后面接在跑的插件登记的（SOP-03a） |
 
-`SopFlow`：`{id, name, desc, trigger, fields, steps, layout?, version, created_at, updated_at}`。形状同原型 `web-next/src/sopflow.ts` 的 `Sop`：`fields` 是 `SopField[]`，`steps` 是 `SopStepDef[]`，`layout` 是 `{<步骤 key 或 __start>: {x, y}}`，没有就不返回这个字段。
+`SopFlow`：`{id, ownership, name, desc, trigger, fields, steps, layout?, version, created_at, updated_at}`。形状同原型 `web-next/src/sopflow.ts` 的 `Sop`：`fields` 是 `SopField[]`，`steps` 是 `SopStepDef[]`，`layout` 是 `{<步骤 key 或 __start>: {x, y}}`，没有就不返回这个字段。
 
 - `fields`、`steps`、`layout` 校验后按原样存 JSON，取回来和存进去一致，没认的字段（`rule`、`ms` 等）原样保留。步骤里原型的函数字段（`run`、`fail`、`decide`）不在 JSON 里；没有 `decide` 也没有 `rule` 的判断节点就是人工判断（同原型 `isManualDecide`）。
 - `after` 不写就接在上一步后面、第一步是起点（同原型 `depsOf`），存的时候不补写。
@@ -4041,3 +4041,22 @@ BR-01a。插件 `browser`（`internal/plugins/browser`，清单 `plugin.json`，
 - `--dev` 下 CORS 的 `Access-Control-Allow-Headers` 含 `Content-Type, X-Actor-Source, X-Actor-Name, X-Actor-Session`。
 - 路由表与本文档由 `TestEveryRouteIsInTheContractDoc` / `TestContractDocHasNoDeadRoutes`
   双向盯着：加了路由不记文档、或文档里留了已删除的路由，测试都会红。
+
+
+### 本地执行器
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| GET | `/api/executors` | 执行器列表，支持 `q` 搜索，附带配置 warnings、provider_name、model |
+| GET | `/api/executors/{id}` | 执行器详情 |
+| POST | `/api/executors` | 新建执行器，返回 201 |
+| PUT | `/api/executors/{id}` | 替换执行器配置 |
+| DELETE | `/api/executors/{id}` | 删除执行器 |
+| POST | `/api/executors/command` | 接收 Codex 执行器配置，返回 `{command}` bash 命令预览；不执行，不返回密钥 |
+| POST | `/api/executors/probe` | 接收执行器配置，探测程序路径和版本，返回 path、version、warnings |
+| POST | `/api/executors/test` | 接收 `{executor, prompt, messages?}`，`messages` 为当前面板的历史 `{role, content}[]`（最多 20 条，不持久化），返回 `{reply, model}`；所有类型均实际调用所选本机 CLI，使用与 SOP 相同的程序路径和模型路由解析，临时目录只读测试 |
+
+执行器配置字段：`id, name, kind, bin, desc, enabled, provider_id, use_cli_config`。
+`kind` 为 `claude`、`deepseek`、`codex`；程序路径保存为绝对路径。Codex 的 `use_cli_config=true` 使用本机登录和配置，其他情况必须选择模型服务商。
+
+现有 SOP `claude_code` 节点的 `config.executor` 可保存执行器 ID，留空使用原来的 Claude Code 配置。运行时重新查询执行器并固定本次的程序和服务商配置；不存在、停用、配置缺失时失败，不自动切换执行器。角色、目录、提示词、权限、超时继续沿用节点配置。Codex 支持工作台回写 MCP；DeepSeek 沿用结束文本作为结论的回退机制。

@@ -50,9 +50,9 @@ func checkTaskRun(cfg map[string]string) []string {
 
 // claudeParams 是一次 Claude Code 发起要的参数。
 type claudeParams struct {
-	workdir, prompt, task, preset string
-	writes, follow                bool
-	timeout                       time.Duration
+	workdir, prompt, task, preset, executor string
+	writes, follow                          bool
+	timeout                                 time.Duration
 }
 
 // taskRunContinue 是这一步失败时不停、把失败交给下游。

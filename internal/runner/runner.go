@@ -160,7 +160,11 @@ type Request struct {
 	//
 	// 单次覆盖而不是全局配置：同一个工作台上，「改代码」这类活给 claude，
 	// 「读需求写方案」这类活给 DeepSeek，是同时存在的两种情况。
-	Harness Harness
+	Harness   Harness
+	ClaudeBin string
+	ClaudeEnv []string
+	CodexBin  string
+	Codex     *DeepSeekRoute
 	// DeepSeek 只在 Harness 是 deepseek 时用：模型路由。为 nil 时直接回
 	// 「先配服务商」，不会退回 claude——那会让用户以为自己换了模型其实没换。
 	DeepSeek *DeepSeekRoute
@@ -304,7 +308,10 @@ func (r *Runner) Start(ctx context.Context, req Request, on func(Event)) (*Resul
 	if timeout <= 0 {
 		timeout = DefaultTimeout
 	}
-	bin := r.Bin
+	bin := req.ClaudeBin
+	if bin == "" {
+		bin = r.Bin
+	}
 	if bin == "" {
 		bin = DefaultBin
 	}
@@ -316,6 +323,11 @@ func (r *Runner) Start(ctx context.Context, req Request, on func(Event)) (*Resul
 	}
 	var spec cmdSpec
 	switch h {
+	case HarnessCodex:
+		spec, err = prepareCodex(req, prompt)
+		if err != nil {
+			return nil, err
+		}
 	case HarnessDeepSeek:
 		spec, err = r.prepareDSH(req, prompt, workdir)
 		if err != nil {
@@ -325,6 +337,7 @@ func (r *Runner) Start(ctx context.Context, req Request, on func(Event)) (*Resul
 		spec = cmdSpec{
 			bin:  bin,
 			name: "claude",
+			env:  req.ClaudeEnv,
 			hint: "请确认本机已安装 Claude Code",
 			args: claudeArgs(req, prompt, workdir),
 			read: readStream,

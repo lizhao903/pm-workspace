@@ -86,8 +86,9 @@ type SOPRunStart struct {
 
 // ClaudeCodeStart 是交给 Claude Code 跑一次。
 type ClaudeCodeStart struct {
-	Workdir string // 绝对路径，必填
-	Prompt  string // 必填，原样交给 claude
+	ExecutorID string // 可选，本地执行器配置 ID；空保留默认行为
+	Workdir    string // 绝对路径，必填
+	Prompt     string // 必填，原样交给 claude
 	// AllowWrites 放开文件编辑，要用户确认过 process:spawn；默认只读
 	AllowWrites bool
 	// ObjectID 可选，产物挂到这个对象
@@ -160,7 +161,8 @@ type claudeBox struct {
 	// mcpBin、apiURL 是回写用的 MCP：工作台的 MCP 程序和本实例地址（ReportBack 时用）
 	mcpBin, apiURL string
 	// presets 按 id 取预置提示词
-	presets PresetLookup
+	presets   PresetLookup
+	executors func(context.Context, string) (runner.Request, error)
 }
 
 // PresetLookup 按 id 取一个角色（预置提示词），找不到回错误（文案给用户看）。
@@ -194,6 +196,11 @@ func (r *Registry) SetRunCallback(mcpBin, apiURL string) {
 // SetRunPresets 接上预置提示词的查询（AUTO-01），ClaudeCodeStart.PresetID 用它取内容。
 func (r *Registry) SetRunPresets(f PresetLookup) {
 	r.updateClaude(func(b *claudeBox) { b.presets = f })
+}
+
+// SetRunExecutors 接入本地执行器查询；每次启动读取最新配置。
+func (r *Registry) SetRunExecutors(f func(context.Context, string) (runner.Request, error)) {
+	r.updateClaude(func(b *claudeBox) { b.executors = f })
 }
 
 // taskRunRecorder 是在任务上建、收尾执行记录的 store 方法，cmd/pmw 交的外层 store 满足它。
@@ -375,6 +382,16 @@ func (s runService) StartClaudeCode(ctx context.Context, q ClaudeCodeStart) (str
 			box = *b
 		}
 	}
+	req := runner.Request{}
+	if id := strings.TrimSpace(q.ExecutorID); id != "" {
+		if box.executors == nil {
+			return "", errors.New("未接入本地执行器配置")
+		}
+		req, err = box.executors(ctx, id)
+		if err != nil {
+			return "", err
+		}
+	}
 	prompt := q.Prompt
 	if q.PresetID != "" {
 		if box.presets == nil {
@@ -408,7 +425,7 @@ func (s runService) StartClaudeCode(ctx context.Context, q ClaudeCodeStart) (str
 	if q.RecordOnTask && q.ObjectID != "" {
 		if rec, ok := r.objectCreator().(taskRunRecorder); ok {
 			run, err := rec.CreateTaskRun(ctx, &domain.TaskRun{ObjectID: q.ObjectID, Workdir: workdir, Prompt: prompt,
-				Status: domain.RunRunning, Mode: domain.RunModeStream})
+				Status: domain.RunRunning, Mode: domain.RunModeStream, Harness: string(req.Harness)})
 			if err != nil {
 				return "", fmt.Errorf("在任务上建执行记录失败：%w", err)
 			}
@@ -416,7 +433,7 @@ func (s runService) StartClaudeCode(ctx context.Context, q ClaudeCodeStart) (str
 		}
 	}
 	info, err := s.begin(ctx, id, RunKindClaudeCode, "交给 Claude Code："+workdir,
-		map[string]any{"workdir": workdir, "allow_writes": q.AllowWrites, "object_id": q.ObjectID, "preset_id": q.PresetID})
+		map[string]any{"workdir": workdir, "allow_writes": q.AllowWrites, "object_id": q.ObjectID, "preset_id": q.PresetID, "executor_id": q.ExecutorID})
 	if err != nil {
 		if tr != nil {
 			_, _ = tr.FinishTaskRun(domain.WithRunOrigin(context.WithoutCancel(ctx), "plugin:"+s.c.id), id, domain.RunFailed, -1, "", err.Error())
@@ -424,10 +441,14 @@ func (s runService) StartClaudeCode(ctx context.Context, q ClaudeCodeStart) (str
 		return "", err
 	}
 	info.TaskRun = tr != nil
-	req := runner.Request{RunID: info.ID, Workdir: workdir, AllowWrites: q.AllowWrites, Timeout: q.Timeout}
+	req.RunID, req.Workdir, req.AllowWrites, req.Timeout = info.ID, workdir, q.AllowWrites, q.Timeout
 	cleanup := func() {}
 	if q.ReportBack {
 		path, done, cbErr := writeCallbackMCP(box.mcpBin, box.apiURL)
+		if req.Harness == runner.HarnessDeepSeek && cbErr == nil {
+			done()
+			cbErr = errNoCallback
+		}
 		if cbErr != nil {
 			s.c.log.Warn("claude code run has no write-back mcp", "run", info.ID, "err", cbErr)
 		} else {
