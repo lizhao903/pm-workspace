@@ -100,6 +100,7 @@ func nodeType(kind string) (NodeType, bool) {
 // Flow 是一条流程定义，形状同原型 Sop，多 version 和时间。
 type Flow struct {
 	ID        string          `json:"id"`
+	Ownership string          `json:"ownership"`
 	Name      string          `json:"name"`
 	Desc      string          `json:"desc"`
 	Trigger   string          `json:"trigger"`
@@ -125,7 +126,7 @@ type flows struct {
 
 var flowIDRe = regexp.MustCompile(`^sop_[a-z0-9_]{1,60}$`)
 
-const flowCols = `id, name, description, trigger_desc, fields, steps, layout, version, created_at, updated_at`
+const flowCols = `id, ownership, name, description, trigger_desc, fields, steps, layout, version, created_at, updated_at`
 
 func (h *flows) list(w http.ResponseWriter, r *http.Request) {
 	rows, err := h.c.Store().Query(r.Context(), `SELECT `+flowCols+` FROM sop_flows ORDER BY created_at, rowid`)
@@ -166,7 +167,7 @@ func (h *flows) add(w http.ResponseWriter, r *http.Request) {
 		fail(w, r, h.c, err)
 		return
 	}
-	f := Flow{Fields: json.RawMessage(`[]`), Steps: json.RawMessage(`[]`), Version: 1}
+	f := Flow{Ownership: "nobuild-in", Fields: json.RawMessage(`[]`), Steps: json.RawMessage(`[]`), Version: 1}
 	if v, ok := raw["id"]; ok && string(v) != "null" {
 		// 带 id 是为了导入原型或别处导出的流程，id 照旧
 		if err := json.Unmarshal(v, &f.ID); err != nil || !flowIDRe.MatchString(f.ID) {
@@ -188,8 +189,8 @@ func (h *flows) add(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	now := time.Now().UTC().Format(time.RFC3339)
-	if _, err := h.c.Store().Exec(ctx, `INSERT INTO sop_flows (`+flowCols+`) VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`,
-		f.ID, f.Name, f.Desc, f.Trigger, string(f.Fields), string(f.Steps), layoutCol(f.Layout), now, now); err != nil {
+	if _, err := h.c.Store().Exec(ctx, `INSERT INTO sop_flows (`+flowCols+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`,
+		f.ID, f.Ownership, f.Name, f.Desc, f.Trigger, string(f.Fields), string(f.Steps), layoutCol(f.Layout), now, now); err != nil {
 		fail(w, r, h.c, err)
 		return
 	}
@@ -212,6 +213,10 @@ func (h *flows) update(w http.ResponseWriter, r *http.Request) {
 	f, err := h.get(ctx, id)
 	if err != nil {
 		fail(w, r, h.c, err)
+		return
+	}
+	if f.Ownership == "buildin" {
+		fail(w, r, h.c, apiErr(errConflict, "内置 SOP 只读，请复制后编辑"))
 		return
 	}
 	if v, ok := raw["version"]; ok && string(v) != "null" {
@@ -254,8 +259,11 @@ func (h *flows) update(w http.ResponseWriter, r *http.Request) {
 func (h *flows) remove(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	id := r.PathValue("id")
-	if _, err := h.get(ctx, id); err != nil {
+	if f, err := h.get(ctx, id); err != nil {
 		fail(w, r, h.c, err)
+		return
+	} else if f.Ownership == "buildin" {
+		fail(w, r, h.c, apiErr(errConflict, "内置 SOP 只读，不能删除"))
 		return
 	}
 	n, err := h.activeRuns(ctx, id)
@@ -319,7 +327,7 @@ func scanFlow(row plugin.Row) (Flow, error) {
 	var f Flow
 	var fields, steps, created, updated string
 	var layout *string
-	if err := row.Scan(&f.ID, &f.Name, &f.Desc, &f.Trigger, &fields, &steps, &layout, &f.Version, &created, &updated); err != nil {
+	if err := row.Scan(&f.ID, &f.Ownership, &f.Name, &f.Desc, &f.Trigger, &fields, &steps, &layout, &f.Version, &created, &updated); err != nil {
 		return Flow{}, err
 	}
 	f.Fields, f.Steps = json.RawMessage(fields), json.RawMessage(steps)

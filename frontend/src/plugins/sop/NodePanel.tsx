@@ -112,7 +112,8 @@ let optSeq = 0
 const optKey = () => `o${Date.now().toString(36)}${(optSeq += 1).toString(36)}`
 const fieldKey = () => `f${Date.now().toString(36)}${(optSeq += 1).toString(36)}`
 
-export function NodePanel({ draft, nodeKey, catalog, ctx, tried, triggers, flowId, runs, onChange, onPatchDraft, onRemove, onRemoveEdge, onSelect, onAddNext, onClose }: {
+export function NodePanel({ readOnly = false, draft, nodeKey, catalog, ctx, tried, triggers, flowId, runs, onChange, onPatchDraft, onRemove, onRemoveEdge, onSelect, onAddNext, onClose }: {
+  readOnly?: boolean
   draft: Draft
   nodeKey: string
   catalog: Catalog
@@ -146,7 +147,7 @@ export function NodePanel({ draft, nodeKey, catalog, ctx, tried, triggers, flowI
     return (
       <aside className="sop-node-panel" aria-label="开始节点">
         <Head kind="start" title={<span className="sop-np-name-static">开始</span>} onClose={onClose} />
-        <div className="sop-np-body form">
+        <fieldset disabled={readOnly} className="sop-np-body sop-np-fields form">
           <div className="sop-muted">执行时要填的内容，第一批节点拿它当输入。</div>
           <label className="field">
             <span className="field-label">触发方式</span>
@@ -186,7 +187,7 @@ export function NodePanel({ draft, nodeKey, catalog, ctx, tried, triggers, flowI
             </div>
           </div>
           <NextList kids={kids} onSelect={onSelect} onAdd={addBtn()} />
-        </div>
+        </fieldset>
       </aside>
     )
   }
@@ -204,8 +205,8 @@ export function NodePanel({ draft, nodeKey, catalog, ctx, tried, triggers, flowI
   return (
     <aside className="sop-node-panel" aria-label="节点属性">
       <Head kind={s.kind} onClose={onClose}
-        title={<input className="sop-np-name" value={s.name} placeholder="节点名称" aria-label="节点名称" onChange={(e) => onChange({ name: e.target.value })} />}
-        actions={<IconButton label="删除节点" title="删除节点 (Delete)" className="sop-np-del" onClick={onRemove}>
+        title={<input className="sop-np-name" readOnly={readOnly} value={s.name} placeholder="节点名称" aria-label="节点名称" onChange={(e) => onChange({ name: e.target.value })} />}
+        actions={!readOnly && <IconButton label="删除节点" title="删除节点 (Delete)" className="sop-np-del" onClick={onRemove}>
           <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M3 4.5h10M6.5 4.5V3h3v1.5M4.5 4.5l.6 8.5h5.8l.6-8.5" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" /></svg>
         </IconButton>} />
       <div className="sop-np-tabs" role="tablist">
@@ -213,7 +214,11 @@ export function NodePanel({ draft, nodeKey, catalog, ctx, tried, triggers, flowI
         <button type="button" role="tab" aria-selected={cur === 'last'} className={cls(cur === 'last' && 'on')} onClick={() => setTab({ key: nodeKey, tab: 'last' })}>上次运行</button>
       </div>
       {cur === 'set' ? (
-        <div className="sop-np-body form">
+        <fieldset disabled={readOnly} className="sop-np-body sop-np-fields form">
+          <label className="field">
+            <span className="field-label">kind</span>
+            <Input value={s.kind} readOnly aria-label="kind" />
+          </label>
           <label className="field">
             <span className="field-label">类型<span className="sop-field-hint">{info.desc}</span></span>
             <select className="select" value={s.kind} onChange={(e) => onChange(changeKind(catalog, s, e.target.value))}>
@@ -289,7 +294,7 @@ export function NodePanel({ draft, nodeKey, catalog, ctx, tried, triggers, flowI
             </div>
           </div>
           {!branching && <NextList kids={kids} onSelect={onSelect} onAdd={addBtn()} />}
-        </div>
+        </fieldset>
       ) : (
         <LastRun flowId={flowId} stepKey={s.key} step={s} runs={runs} />
       )}

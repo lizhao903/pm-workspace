@@ -1,0 +1,419 @@
+{
+  "desc": "IM 消息是需求就建任务、回执提出人，按项目档案分类（拿不准问提出人），Claude Code 写 PRD、研发评审，不通过自动退回最多 3 轮，通过后进入开发，接着走研发 pipeline。默认停用：触发方式是「手动」，把触发方式改成「IM 消息」才会自动处理新消息",
+  "fields": [
+    {
+      "key": "message_id",
+      "label": "IM 消息",
+      "placeholder": "消息 id；IM 触发时自动带上",
+      "required": true,
+      "type": "text"
+    },
+    {
+      "key": "conversation_id",
+      "label": "会话",
+      "placeholder": "留空取消息所在的会话",
+      "type": "text"
+    }
+  ],
+  "id": "sop_im_auto_intake",
+  "name": "IM 需求自动受理",
+  "steps": [
+    {
+      "key": "read",
+      "name": "读取消息",
+      "kind": "im_get_message",
+      "desc": "按消息 id 取出正文、发信人和会话",
+      "after": []
+    },
+    {
+      "key": "is_req",
+      "name": "是不是需求",
+      "kind": "classifier",
+      "desc": "要做新功能、改进、修问题、改产品的算需求；闲聊、通知、问进度、单纯提问不算",
+      "after": [
+        "read"
+      ],
+      "cases": [
+        {
+          "key": "req",
+          "label": "是需求"
+        },
+        {
+          "key": "other",
+          "label": "不是需求"
+        }
+      ],
+      "config": {
+        "from": "message.text",
+        "hint": "要做新功能、改进现有功能、修问题、改产品的算需求；闲聊、通知、问进度、单纯提问不算"
+      }
+    },
+    {
+      "key": "skip",
+      "name": "普通消息不建任务",
+      "kind": "end",
+      "desc": "不是需求，流程到此结束，消息照常留在消息页",
+      "after": [
+        "is_req"
+      ],
+      "branch": {
+        "of": "is_req",
+        "case": "other"
+      }
+    },
+    {
+      "key": "to_task",
+      "name": "建需求任务",
+      "kind": "im_to_task",
+      "desc": "建任务，记来源消息和提出人，阶段「已接收」；这条消息转过任务就用那条",
+      "after": [
+        "is_req"
+      ],
+      "branch": {
+        "of": "is_req",
+        "case": "req"
+      },
+      "config": {
+        "message": "{{message_id}}"
+      }
+    },
+    {
+      "key": "ack",
+      "name": "回执提出人",
+      "kind": "im_reply_message",
+      "desc": "在原消息的串里回复：已收到，附看板链接",
+      "after": [
+        "to_task"
+      ],
+      "config": {
+        "message": "{{message_id}}",
+        "text": "收到，已记为需求 {{task.ref}}「{{task.title}}」，进度可以在看板上看：{{task.url}}"
+      }
+    },
+    {
+      "key": "profiles",
+      "name": "读项目档案",
+      "kind": "projects_list_profiles",
+      "desc": "取建过档案的项目摘要，给分类用",
+      "after": [
+        "ack"
+      ]
+    },
+    {
+      "key": "classify",
+      "name": "判断归属项目",
+      "kind": "ai",
+      "desc": "判断这条需求该归到哪个项目。\n需求原文：{{message.text}}\n各项目档案：\n{{profiles_text}}\n\n只回一个 JSON 对象，不要别的内容：{\"project_id\": \"最可能的项目 id（obj_ 开头），拿不准时留空\", \"project\": \"项目名\", \"confidence\": 0 到 1 的置信度, \"sure\": \"置信度不低于 0.7 且 project_id 不为空时填 yes，否则填 no\", \"candidates_text\": \"候选项目，每行一个，写成「序号. 项目名（编号）」，最多 3 个\", \"reason\": \"一句话理由\"}",
+      "after": [
+        "profiles"
+      ],
+      "config": {
+        "output": "classify"
+      }
+    },
+    {
+      "key": "parse",
+      "name": "整理分类结果",
+      "kind": "extract",
+      "desc": "把分类回答整理成字段",
+      "after": [
+        "classify"
+      ],
+      "config": {
+        "fields": "project_id、project、confidence、sure、candidates_text、reason",
+        "from": "classify"
+      }
+    },
+    {
+      "key": "sure",
+      "name": "拿得准吗",
+      "kind": "decide",
+      "desc": "置信度够（不低于 0.7）直接绑项目，不够问提出人",
+      "after": [
+        "parse"
+      ],
+      "cases": [
+        {
+          "key": "yes",
+          "label": "拿得准"
+        },
+        {
+          "key": "no",
+          "label": "拿不准"
+        }
+      ],
+      "rule": "extracted.sure 等于 yes"
+    },
+    {
+      "key": "bind_auto",
+      "name": "绑定项目",
+      "kind": "im_set_task_stage",
+      "desc": "任务归到分类给出的项目",
+      "after": [
+        "sure"
+      ],
+      "branch": {
+        "of": "sure",
+        "case": "yes"
+      },
+      "config": {
+        "project": "{{extracted.project_id}}",
+        "task": "{{task.id}}"
+      }
+    },
+    {
+      "key": "ask_stage",
+      "name": "阶段改为待确认项目",
+      "kind": "im_set_task_stage",
+      "after": [
+        "sure"
+      ],
+      "branch": {
+        "of": "sure",
+        "case": "no"
+      },
+      "config": {
+        "stage": "confirm_project",
+        "task": "{{task.id}}"
+      }
+    },
+    {
+      "key": "ask",
+      "name": "问提出人归哪个项目",
+      "kind": "im_reply_message",
+      "desc": "在原消息的串里列出候选项目",
+      "after": [
+        "ask_stage"
+      ],
+      "config": {
+        "message": "{{message_id}}",
+        "text": "这条需求（{{task.ref}}）我拿不准该归到哪个项目，可能是：\n{{extracted.candidates_text}}\n回复项目名或编号就行。"
+      }
+    },
+    {
+      "key": "wait",
+      "name": "等提出人回复",
+      "kind": "im_wait_reply",
+      "desc": "等会话里对方的下一条消息",
+      "after": [
+        "ask"
+      ],
+      "config": {
+        "conversation": "{{conversation_id}}",
+        "timeout": "2 天"
+      }
+    },
+    {
+      "key": "pick",
+      "name": "认出选的项目",
+      "kind": "ai",
+      "desc": "提出人的回复：{{reply.text}}\n给过的候选：\n{{extracted.candidates_text}}\n全部项目：\n{{profiles_text}}\n\n从回复里认出提出人选的是哪个项目，只回这个项目的 id（obj_ 开头），不要别的字；认不出就只回 none。",
+      "after": [
+        "wait"
+      ],
+      "config": {
+        "output": "picked"
+      }
+    },
+    {
+      "key": "bind_pick",
+      "name": "绑定项目",
+      "kind": "im_set_task_stage",
+      "desc": "任务归到提出人选的项目",
+      "after": [
+        "pick"
+      ],
+      "config": {
+        "project": "{{picked}}",
+        "task": "{{task.id}}"
+      }
+    },
+    {
+      "key": "profile",
+      "name": "读项目档案",
+      "kind": "projects_get_profile",
+      "desc": "取绑定项目的原型库、PRD、代码库目录",
+      "after": [
+        "bind_auto",
+        "bind_pick"
+      ],
+      "config": {
+        "project": "{{project.id}}"
+      }
+    },
+    {
+      "key": "design",
+      "name": "阶段改为设计中",
+      "kind": "im_set_task_stage",
+      "desc": "评审退回时也从这里重来",
+      "after": [
+        "profile"
+      ],
+      "config": {
+        "stage": "designing",
+        "task": "{{task.id}}"
+      }
+    },
+    {
+      "key": "prd",
+      "name": "产品：写 PRD 和原型",
+      "kind": "claude_code",
+      "desc": "Claude Code 按产品角色在原型库目录写 PRD、更新原型与规格",
+      "after": [
+        "design"
+      ],
+      "config": {
+        "permission": "",
+        "preset": "rp_pm",
+        "prompt": "按需求任务 {{task.ref}}（id {{task.id}}）写 PRD、更新原型与规格。\n项目：{{profile.name}}；PRD 目录 {{profile.dirs.prd}}，原型库 {{profile.dirs.prototype}}。\n需求原文（提出人 {{message.sender}}）：\n{{message.text}}\n\n上一轮研发评审退回的意见（第一轮为空；有的话逐条改掉）：{{feedback.result.issues}}",
+        "task": "{{task.id}}",
+        "timeout": "2 小时",
+        "workdir": "{{profile.dirs.prototype}}"
+      }
+    },
+    {
+      "key": "to_review",
+      "name": "阶段改为评审中",
+      "kind": "im_set_task_stage",
+      "after": [
+        "prd"
+      ],
+      "config": {
+        "stage": "reviewing",
+        "task": "{{task.id}}"
+      }
+    },
+    {
+      "key": "review",
+      "name": "研发评审",
+      "kind": "claude_code",
+      "desc": "Claude Code 按研发评审角色只读评审，回报 verdict 和 issues",
+      "after": [
+        "to_review"
+      ],
+      "config": {
+        "permission": "read",
+        "preset": "rp_review",
+        "prompt": "评审需求任务 {{task.ref}}（id {{task.id}}）的 PRD、原型和规格。\n项目：{{profile.name}}；PRD 目录 {{profile.dirs.prd}}，原型库 {{profile.dirs.prototype}}，代码库 {{profile.dirs.code}}。\n产品这一轮的说明：{{summary}}",
+        "task": "{{task.id}}",
+        "timeout": "1 小时",
+        "workdir": "{{profile.dirs.code}}"
+      }
+    },
+    {
+      "key": "gate",
+      "name": "评审不通过就退回",
+      "kind": "loopback",
+      "desc": "不通过退回「阶段改为设计中」重写，意见作为 feedback 带回去；最多 3 轮",
+      "after": [
+        "review"
+      ],
+      "cases": [
+        {
+          "key": "pass",
+          "label": "通过"
+        },
+        {
+          "key": "over",
+          "label": "超限"
+        }
+      ],
+      "rule": "result.verdict 等于 reject",
+      "config": {
+        "max_rounds": "3",
+        "target": "design"
+      }
+    },
+    {
+      "key": "dev",
+      "name": "阶段改为开发中",
+      "kind": "im_set_task_stage",
+      "after": [
+        "gate"
+      ],
+      "branch": {
+        "of": "gate",
+        "case": "pass"
+      },
+      "config": {
+        "stage": "developing",
+        "task": "{{task.id}}"
+      }
+    },
+    {
+      "key": "tell_dev",
+      "name": "告诉提出人进入开发",
+      "kind": "im_reply_message",
+      "after": [
+        "dev"
+      ],
+      "config": {
+        "message": "{{message_id}}",
+        "text": "需求 {{task.ref}} 设计评审通过，进入开发。进度：{{task.url}}"
+      }
+    },
+    {
+      "key": "pipeline_in",
+      "name": "交给研发 pipeline",
+      "kind": "template",
+      "desc": "把任务 id 写成 task_id，研发 pipeline 按它取任务",
+      "after": [
+        "tell_dev"
+      ],
+      "config": {
+        "output": "task_id",
+        "template": "{{task.id}}"
+      }
+    },
+    {
+      "key": "pipeline_args",
+      "name": "只带任务和来源消息",
+      "kind": "end",
+      "desc": "子流程拿这一步的输出当输入：只留 task_id、message_id、conversation_id，评审的 summary、feedback 不带进研发",
+      "after": [
+        "pipeline_in"
+      ],
+      "config": {
+        "outputs": "task_id, message_id, conversation_id"
+      }
+    },
+    {
+      "key": "pipeline",
+      "name": "研发 pipeline",
+      "kind": "subflow",
+      "desc": "开发、测试、通知验收、人工验收；这一步等研发 pipeline 走完",
+      "after": [
+        "pipeline_args"
+      ],
+      "config": {
+        "sop": "sop_im_dev_pipeline"
+      }
+    },
+    {
+      "key": "human_stage",
+      "name": "阶段改为需人工",
+      "kind": "im_set_task_stage",
+      "after": [
+        "gate"
+      ],
+      "branch": {
+        "of": "gate",
+        "case": "over"
+      },
+      "config": {
+        "stage": "need_human",
+        "task": "{{task.id}}"
+      }
+    },
+    {
+      "key": "human",
+      "name": "人工裁决",
+      "kind": "review",
+      "desc": "退回 3 轮仍不通过：看评审意见决定放行还是打回",
+      "after": [
+        "human_stage"
+      ]
+    }
+  ],
+  "trigger": "manual"
+}

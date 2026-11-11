@@ -26,8 +26,9 @@ type Drag =
 
 type PaletteAt = { at: Pos; from: string; caseKey?: string }
 
-export function Editor({ initial, flowId, version, catalog, ctx, triggers, runs, onCancel, onSaved }: {
+export function Editor({ initial, readOnly = false, flowId, version, catalog, ctx, triggers, runs, onCancel, onSaved }: {
   initial: Draft
+  readOnly?: boolean
   /** 编辑已有流程时有；新建没有 */
   flowId?: string
   version?: number
@@ -39,13 +40,16 @@ export function Editor({ initial, flowId, version, catalog, ctx, triggers, runs,
   onSaved: (f: SopFlow, thenRun: boolean) => void
 }) {
   const creating = !flowId
+  const [importOpen, setImportOpen] = useState(false)
+  const [importText, setImportText] = useState('')
+  const [importError, setImportError] = useState('')
   const [draft, setDraft] = useState<Draft>(() => explicit(initial))
   const [base, setBase] = useState(() => JSON.stringify(explicit(initial)))
   const [past, setPast] = useState<Draft[]>([])
   const [future, setFuture] = useState<Draft[]>([])
   const [sel, setSel] = useState<string | null>(null)
   const [selEdge, setSelEdge] = useState<{ from: string; to: string } | null>(null)
-  const [aiOpen, setAiOpen] = useState(() => window.matchMedia('(min-width: 1101px)').matches)
+  const [aiOpen, setAiOpen] = useState(() => !readOnly && window.matchMedia('(min-width: 1101px)').matches)
   const [palette, setPalette] = useState<PaletteAt | null>(null)
   const [zoom, setZoom] = useState(1)
   const [pan, setPan] = useState<Pos>({ x: 0, y: 0 })
@@ -68,7 +72,12 @@ export function Editor({ initial, flowId, version, catalog, ctx, triggers, runs,
   const saveM = useSaveSopFlow()
 
   const lay = useMemo(() => layoutOf(draft, catalog), [draft, catalog])
-  const local = useMemo(() => checkDraft(draft, catalog), [draft, catalog])
+  const local = useMemo(() => {
+    const result = checkDraft(draft, catalog)
+    if (draft.id && !/^sop_[a-z0-9_]{1,60}$/.test(draft.id)) result.push({ level: 'error', text: 'ID 必须是 sop_ 开头，后接小写字母、数字或下划线（最多 60 个）' })
+    if (creating && draft.id && ctx.flows.some((f) => f.id === draft.id)) result.push({ level: 'error', text: `ID ${draft.id} 已存在，请修改 ID` })
+    return result
+  }, [draft, catalog, creating, ctx.flows])
   const issues = useMemo(() => mergeIssues(local, server, draft), [local, server, draft])
   const errors = local.filter((x) => x.level === 'error')
   const dirty = !sameDraft(draft, JSON.parse(base) as Draft)
@@ -76,6 +85,7 @@ export function Editor({ initial, flowId, version, catalog, ctx, triggers, runs,
   const triggerLabel = triggers.find((t) => t.value === draft.trigger)?.label ?? draft.trigger
 
   const commit = (next: Draft) => {
+    if (readOnly) return
     setPast((p) => [...p.slice(-(HISTORY - 1)), draft])
     setFuture([])
     setDraft(next)
@@ -96,6 +106,7 @@ export function Editor({ initial, flowId, version, catalog, ctx, triggers, runs,
   }
   // 流程名连续输入只记一步撤销
   const rename = (name: string) => {
+    if (readOnly) return
     const next = { ...draft, name }
     if (nameEdit.current === draft) setDraft(next)
     else commit(next)
@@ -166,6 +177,7 @@ export function Editor({ initial, flowId, version, catalog, ctx, triggers, runs,
   // 键盘：删除选中的节点或连线，撤销 / 重做；在输入框里不生效
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      if (readOnly) return
       if ((e.target as HTMLElement | null)?.closest?.('input, textarea, select')) return
       if ((e.key === 'Delete' || e.key === 'Backspace') && (selEdge || (sel && sel !== START))) {
         e.preventDefault()
@@ -229,6 +241,7 @@ export function Editor({ initial, flowId, version, catalog, ctx, triggers, runs,
     if (e.button > 0) return
     const handle = t.closest<HTMLElement>('[data-out]')
     const node = t.closest<HTMLElement>('[data-node]')
+    if (readOnly && node) { select(node.dataset.node!); return }
     if (handle) {
       const r = handle.getBoundingClientRect()
       drag.current = { kind: 'link', from: handle.dataset.out!, caseKey: handle.dataset.case || undefined, sx: e.clientX, sy: e.clientY, at: { x: r.right + 8, y: r.top - 10 } }
@@ -307,6 +320,7 @@ export function Editor({ initial, flowId, version, catalog, ctx, triggers, runs,
   }
 
   const save = (thenRun: boolean) => {
+    if (readOnly) return
     setTried(true)
     if (errors.length) { setShowIssues(true); return }
     if (saveM.isPending) return
@@ -346,11 +360,11 @@ export function Editor({ initial, flowId, version, catalog, ctx, triggers, runs,
   }
 
   return (
-    <div className={cls('sop-editor', aiOpen && 'with-ai', sel && 'with-panel')}>
-      <PageTitle parent="SOP">{creating ? '新建 SOP' : `编排 · ${draft.name || '未命名'}`}</PageTitle>
+    <div className={cls('sop-editor', readOnly && 'sop-editor-readonly', aiOpen && 'with-ai', sel && 'with-panel')}>
+      <PageTitle parent="SOP">{creating ? '新建 SOP' : `${readOnly ? '详情' : '编排'} · ${draft.name || '未命名'}`}</PageTitle>
       {/* 收起只是藏起来，对话和没决定的提案在本次编排页里留着 */}
-      <AiPanel hidden={!aiOpen} draft={draft} selected={selStep ? draft.steps.indexOf(selStep) : null} onApply={applyAi}
-        onUndo={() => { undo(); setAiMark(null) }} canUndo={aiMark !== null && aiMark === draft && past.length > 0} onClose={() => setAiOpen(false)} />
+      {!readOnly && <AiPanel hidden={!aiOpen} draft={draft} selected={selStep ? draft.steps.indexOf(selStep) : null} onApply={applyAi}
+        onUndo={() => { undo(); setAiMark(null) }} canUndo={aiMark !== null && aiMark === draft && past.length > 0} onClose={() => setAiOpen(false)} />}
       <div ref={canvasRef} className={cls('sop-canvas', panning && 'panning')} data-testid="sop-canvas"
         style={{ backgroundSize: `${20 * zoom}px ${20 * zoom}px`, backgroundPosition: `${pan.x}px ${pan.y}px` }}
         onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp}>
@@ -362,7 +376,7 @@ export function Editor({ initial, flowId, version, catalog, ctx, triggers, runs,
               return (
                 <g key={`${ed.from}-${ed.to}`}>
                   <path d={d} className={cls('sop-cv-edge', on && 'on', ed.caseKey && 'branch')} />
-                  {ed.from !== START && (
+                  {!readOnly && ed.from !== START && (
                     <path d={d} className="sop-edge-hit" data-edge={`${ed.from}>${ed.to}`}
                       onPointerDown={(e) => { e.stopPropagation(); setSelEdge({ from: ed.from, to: ed.to }); setSel(null) }} />
                   )}
@@ -401,12 +415,14 @@ export function Editor({ initial, flowId, version, catalog, ctx, triggers, runs,
         {/* 画布上的浮层 */}
         <div className="sop-cv-ui sop-cv-top-left">
           <IconButton label={creating ? '取消' : '返回'} onClick={back}><IconBack /></IconButton>
-          <input className={cls('sop-cv-title', tried && !draft.name.trim() && 'bad')} value={draft.name} placeholder="SOP 名称" aria-label="SOP 名称"
+          <input className={cls('sop-cv-title', tried && !draft.name.trim() && 'bad')} readOnly={readOnly} value={draft.name} placeholder="SOP 名称" aria-label="SOP 名称"
             onChange={(e) => rename(e.target.value)} />
-          <span className="sop-cv-status">{status}</span>
+          {creating && <input aria-label="SOP ID" placeholder="SOP ID（留空自动生成）" value={draft.id ?? ''} onChange={(e) => commit({ ...draft, id: e.target.value || undefined })} />}
+          <span className="sop-cv-status">{readOnly ? '只读' : status}</span>
         </div>
         <div className="sop-cv-ui sop-cv-top-right">
-          {!aiOpen && <Button variant="outline" className="sop-ai-open" onClick={() => setAiOpen(true)}><span className="sop-ai-mark sop-ai-mark-sm" aria-hidden="true">AI</span>AI 协助</Button>}
+          {creating && <Button variant="outline" onClick={() => { setImportError(''); setImportOpen(true) }}>导入</Button>}
+          {!readOnly && !aiOpen && <Button variant="outline" className="sop-ai-open" onClick={() => setAiOpen(true)}><span className="sop-ai-mark sop-ai-mark-sm" aria-hidden="true">AI</span>AI 协助</Button>}
           <div className="sop-menu-wrap">
             <Button variant="outline" className={cls(hasError && 'sop-btn-danger', !hasError && issues.length > 0 && 'sop-btn-warn')}
               aria-expanded={showIssues} onClick={() => setShowIssues(!showIssues)}>
@@ -422,8 +438,8 @@ export function Editor({ initial, flowId, version, catalog, ctx, triggers, runs,
               </div>
             )}
           </div>
-          <Button variant="outline" disabled={saveM.isPending} onClick={() => save(true)}><IconPlay />测试运行</Button>
-          <Button variant="primary" disabled={saveM.isPending} onClick={() => save(false)}>{saveLabel}</Button>
+          {!readOnly && <Button variant="outline" disabled={saveM.isPending} onClick={() => save(true)}><IconPlay />测试运行</Button>}
+          {!readOnly && <Button variant="primary" disabled={saveM.isPending} onClick={() => save(false)}>{saveLabel}</Button>}
         </div>
         {(saveError || gone) && (
           <div className="sop-cv-ui sop-cv-error" role="alert">
@@ -431,7 +447,7 @@ export function Editor({ initial, flowId, version, catalog, ctx, triggers, runs,
           </div>
         )}
         <div className="sop-cv-ui sop-cv-tools">
-          <IconButton label="添加节点" onClick={(e) => {
+          {!readOnly && <><IconButton label="添加节点" onClick={(e) => {
             const r = (e.currentTarget as HTMLElement).getBoundingClientRect()
             setPalette({ at: { x: r.right + 8, y: r.top }, from: sel ?? (draft.steps.length ? draft.steps[draft.steps.length - 1].key : START) })
           }}>
@@ -440,11 +456,12 @@ export function Editor({ initial, flowId, version, catalog, ctx, triggers, runs,
           <IconButton label="自动整理" onClick={() => { commit({ ...draft, layout: undefined }); fitted.current = false }}>
             <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true"><rect x="2" y="2.5" width="4" height="4" rx="1" fill="none" stroke="currentColor" strokeWidth="1.3" /><rect x="10" y="2.5" width="4" height="4" rx="1" fill="none" stroke="currentColor" strokeWidth="1.3" /><rect x="10" y="9.5" width="4" height="4" rx="1" fill="none" stroke="currentColor" strokeWidth="1.3" /><path d="M6 4.5h4M8 4.5v7h2" fill="none" stroke="currentColor" strokeWidth="1.3" /></svg>
           </IconButton>
+          </>}
           <IconButton label="适配视口" onClick={fit}>
             <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true"><path d="M2.5 6V2.5H6M10 2.5h3.5V6M13.5 10v3.5H10M6 13.5H2.5V10" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" /></svg>
           </IconButton>
         </div>
-        <div className="sop-cv-ui sop-cv-bottom-left">
+        {!readOnly && <div className="sop-cv-ui sop-cv-bottom-left">
           <IconButton label="撤销" title="撤销 (⌘Z)" disabled={!past.length} onClick={undo}>
             <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M5 3 2.5 5.5 5 8M2.5 5.5h7a3.5 3.5 0 0 1 0 7H6" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /></svg>
           </IconButton>
@@ -452,7 +469,7 @@ export function Editor({ initial, flowId, version, catalog, ctx, triggers, runs,
             <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M11 3l2.5 2.5L11 8M13.5 5.5h-7a3.5 3.5 0 0 0 0 7H10" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /></svg>
           </IconButton>
           <span className="sop-cv-hint">拖空白处平移，⌘ + 滚轮缩放，Delete 删除选中的节点或连线</span>
-        </div>
+        </div>}
         <div className="sop-cv-ui sop-cv-bottom-right">
           <IconButton label="缩小" onClick={() => zoomAt(zoom / 1.15)}>
             <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><circle cx="7" cy="7" r="4.5" fill="none" stroke="currentColor" strokeWidth="1.4" /><path d="M5 7h4M10.5 10.5 14 14" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" /></svg>
@@ -462,24 +479,43 @@ export function Editor({ initial, flowId, version, catalog, ctx, triggers, runs,
             <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><circle cx="7" cy="7" r="4.5" fill="none" stroke="currentColor" strokeWidth="1.4" /><path d="M5 7h4M7 5v4M10.5 10.5 14 14" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" /></svg>
           </IconButton>
         </div>
-        {!draft.steps.length && (
+        {!readOnly && !draft.steps.length && (
           <div className="sop-cv-ui sop-cv-empty">
             <div className="empty-title">从开始节点右边的 + 加第一个节点</div>
             <div className="sop-muted">或者在左边用一段话告诉 AI 这个流程怎么走</div>
-            {!aiOpen && <Button variant="primary" onClick={() => setAiOpen(true)}>让 AI 帮我建</Button>}
+            {creating && <Button variant="outline" onClick={() => { setImportError(''); setImportOpen(true) }}>导入</Button>}
+          {!readOnly && !aiOpen && <Button variant="primary" onClick={() => setAiOpen(true)}>让 AI 帮我建</Button>}
           </div>
         )}
         {toast && <div className="sop-cv-ui sop-cv-toast" role="status">{toast}</div>}
       </div>
 
       {sel && (
-        <NodePanel draft={draft} nodeKey={sel} catalog={catalog} ctx={{ ...ctx, flows: ctx.flows.filter((f) => f.id !== flowId) }} tried={tried}
+        <NodePanel readOnly={readOnly} draft={draft} nodeKey={sel} catalog={catalog} ctx={{ ...ctx, flows: ctx.flows.filter((f) => f.id !== flowId) }} tried={tried}
           triggers={triggers} flowId={flowId} runs={runs}
           onChange={(p) => changeStep(sel, p)} onPatchDraft={(p) => commit({ ...draft, ...p })}
           onRemove={() => removeNode(sel)} onRemoveEdge={removeEdge} onSelect={select}
           onAddNext={(at, from, caseKey) => setPalette({ at, from, caseKey })} onClose={() => setSel(null)} />
       )}
       {palette && <Palette at={palette.at} items={items} onClose={() => setPalette(null)} onPick={(p) => addNode(p, palette.from, palette.caseKey)} />}
+      <ConfirmDialog open={importOpen} title="导入 SOP" confirmLabel="导入" onCancel={() => setImportOpen(false)} onConfirm={() => {
+        try {
+          const value: unknown = JSON.parse(importText)
+          if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('请输入 SOP JSON 对象')
+          const v = value as Record<string, unknown>
+          if (typeof v.id !== 'string' || typeof v.name !== 'string' || !Array.isArray(v.fields) || !Array.isArray(v.steps)) throw new Error('JSON 必须包含 id、name、fields、steps')
+          if (v.fields.some((x) => !x || typeof x !== 'object' || typeof x.key !== 'string' || typeof x.label !== 'string' || typeof x.type !== 'string') || v.steps.some((x) => !x || typeof x !== 'object' || typeof x.key !== 'string' || typeof x.name !== 'string' || typeof x.kind !== 'string')) throw new Error('输入字段或步骤格式不正确')
+          if (typeof v.desc !== 'string' || typeof v.trigger !== 'string') throw new Error('desc、trigger 必须是字符串')
+          if (v.layout != null && (typeof v.layout !== 'object' || Array.isArray(v.layout))) throw new Error('layout 必须是对象')
+          commit(explicit({ id: v.id, name: v.name, desc: v.desc, trigger: v.trigger, fields: v.fields, steps: v.steps, layout: v.layout ?? undefined } as Draft))
+          setSel(null); fitted.current = false; setImportOpen(false); setShowIssues(true)
+        } catch (e) { setImportError(e instanceof Error ? e.message : 'JSON 格式错误') }
+      }}>
+        <p>粘贴 JSON 后点击导入；重复 ID 请在草稿中修改后再发布。</p>
+        <Button onClick={() => { void navigator.clipboard.readText().then(setImportText, () => setImportError('无法读取剪贴板，请在输入框中按 Ctrl+V / ⌘V')) }}>从剪贴板粘贴</Button>
+        <textarea aria-label="SOP JSON" rows={12} style={{ width: '100%' }} value={importText} onChange={(e) => setImportText(e.target.value)} placeholder="在这里按 Ctrl+V / ⌘V 粘贴 SOP JSON" />
+        {importError && <div role="alert">{importError}</div>}
+      </ConfirmDialog>
       <ConfirmDialog open={leaving} title="离开编排页？" confirmLabel="不保存，离开" danger onCancel={() => setLeaving(false)}
         onConfirm={() => { setLeaving(false); onCancel() }}>
         有未保存的修改，离开后这些改动会丢掉。

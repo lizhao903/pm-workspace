@@ -20,6 +20,7 @@ export function Library({ flows, stats, needs, trigger, onOpen, onNew, now }: {
   onNew: () => void
   now: number
 }) {
+  const [message, setMessage] = useState('')
   const [q, setQ] = useState('')
   const [f, setF] = useState<LibFilter>('')
   const rows = libraryRows(flows, stats, f, q, { trigger, elsewhere: (x) => needs(x).length > 0 })
@@ -44,18 +45,22 @@ export function Library({ flows, stats, needs, trigger, onOpen, onNew, now }: {
           <input placeholder="搜索流程名、说明、触发方式" aria-label="搜索流程" value={q} onChange={(e) => setQ(e.target.value)} />
         </div>
       </div>
+      {message && <div role="status">{message}</div>}
       {!rows.length ? (
         <EmptyState
           title={filtered ? '没有匹配的流程' : '还没有标准流程'}
           desc={filtered ? '换个筛选条件试试' : '把反复做的事情编排成 SOP，每次按同样的步骤执行'}
           action={!filtered && <Button variant="primary" onClick={onNew}><IconPlus />新建 SOP</Button>} />
       ) : (
-        <div className="sop-lib-grid">
-          {rows.map((s) => {
+        <div>
+        {(['nobuild-in', 'buildin'] as const).map((ownership) => <section key={ownership} className="sop-library-section">
+          <h2>{ownership === 'buildin' ? '内置 SOP（只读）' : '我的 SOP（只有我可以看见）'}</h2>
+          <div className="sop-lib-grid">
+          {rows.filter((s) => (s.ownership ?? 'nobuild-in') === ownership).map((s) => {
             const x = stats.get(s.id)
             const need = needs(s)
             return (
-              <button key={s.id} type="button" className={cls('sop-lib-card', need.length > 0 && 'elsewhere')} onClick={() => onOpen(s.id)}>
+              <div key={s.id} role="button" tabIndex={0} onKeyDown={(e) => { if (e.target === e.currentTarget && e.key === 'Enter') onOpen(s.id) }} className={cls('sop-lib-card', need.length > 0 && 'elsewhere')} onClick={() => onOpen(s.id)}>
                 <span className="sop-lib-head">
                   <span className="sop-lib-name ellipsis" title={s.name}>{s.name}</span>
                   {!!x?.pending && <span className="sop-lib-pending">{x.pending} 个待处理</span>}
@@ -67,9 +72,11 @@ export function Library({ flows, stats, needs, trigger, onOpen, onNew, now }: {
                   <span>{x ? `执行 ${x.n} 次` : '没执行过'}</span>
                   {x && <span>{timeAgo(new Date(x.last).toISOString(), now)}执行</span>}
                 </span>
-              </button>
+                <Button variant="ghost" onClick={(e) => { e.stopPropagation(); void navigator.clipboard.writeText(JSON.stringify({ id: s.id, name: s.name, desc: s.desc, trigger: s.trigger, fields: s.fields, steps: s.steps, ...(s.layout ? { layout: s.layout } : {}) }, null, 2)).then(() => setMessage('已导出到剪贴板'), () => setMessage('无法写入剪贴板，请检查浏览器权限')) }}>导出</Button>
+              </div>
             )
           })}
+        </div></section>)}
         </div>
       )}
     </div>

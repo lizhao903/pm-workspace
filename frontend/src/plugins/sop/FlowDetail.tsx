@@ -49,9 +49,9 @@ export function FlowDetail({ flow, runs, branching, needs = [], trigger, onStart
   return (
     <div className="sop-page">
       <PageTitle parent="SOP" desc={flow.desc} actions={!confirm && <>
-        <Button variant="danger-ghost" onClick={() => { del.reset(); setConfirm(true) }}>删除</Button>
+        {flow.ownership !== 'buildin' && <Button variant="danger-ghost" onClick={() => { del.reset(); setConfirm(true) }}>删除</Button>}
         <Button variant="ghost" disabled={save.isPending} onClick={copy}>{save.isPending ? '复制中' : '复制'}</Button>
-        <Button variant="outline" onClick={onEdit}>编辑</Button>
+        <Button variant="outline" onClick={onEdit}>{flow.ownership === 'buildin' ? '详情' : '编辑'}</Button>
         <Button variant="primary" onClick={onStart}><IconPlay />执行</Button>
       </>}>{flow.name}</PageTitle>
       {save.isError && !confirm && (

@@ -38,3 +38,4 @@
 # 手工备份的前端构建产物
 /frontend/dist.bak*/
 /internal/webui/dist.bak*/
+.idea

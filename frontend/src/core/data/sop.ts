@@ -32,6 +32,7 @@ export type SopStepDef = {
   config?: Record<string, string>
 }
 export type SopFlow = {
+  ownership?: 'buildin' | 'nobuild-in'
   id: string
   name: string
   desc: string
@@ -241,7 +242,7 @@ export type SopDraft = Pick<SopFlow, 'name' | 'desc' | 'trigger' | 'fields' | 's
 /** 保存校验的一条问题；step 是步骤下标（从 0 起），整条流程的问题没有 */
 export type SopIssue = { text: string; step?: number }
 /** 新建、修改流程的 body；layout 为 null 时清掉手动位置 */
-type SopFlowBody = Omit<SopDraft, 'id' | 'layout'> & { layout: SopFlow['layout'] | null }
+type SopFlowBody = Omit<SopDraft, 'layout'> & { layout: SopFlow['layout'] | null }
 /** AI 协助的回复；draft 是改好的整条草稿，不带 layout */
 export type SopAssistReply = { text: string; draft?: SopDraft; notes?: string[] }
 export type SopAssistInput = { message: string; draft?: SopDraft; selected?: number }
@@ -378,7 +379,7 @@ export function useSaveSopFlow() {
   return useMutation({
     mutationFn: ({ id, draft, version }: { id?: string; draft: SopDraft; version?: number }) => {
       const body: SopFlowBody = { name: draft.name, desc: draft.desc, trigger: draft.trigger, fields: draft.fields, steps: draft.steps, layout: draft.layout ?? null }
-      return id ? sopApi.patchFlow(id, { ...body, version }) : sopApi.createFlow(body)
+      return id ? sopApi.patchFlow(id, { ...body, version }) : sopApi.createFlow({ ...body, id: draft.id })
     },
     onSuccess: (f) => {
       // 列表先换上新的，回流程详情时不用等重新取（新建的不然会先显示「已经删除」）

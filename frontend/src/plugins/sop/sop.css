@@ -508,3 +508,12 @@ button.sop-run-row:hover { background: var(--panel-2); }
 .sop-pl-tag { font-size: var(--fs-xs, 11px); padding: 0 6px; border-radius: 99px; background: var(--hover); color: var(--muted); font-weight: 400; }
 .sop-pl-row.bad .sop-pl-tag { background: var(--danger-soft); color: var(--danger); }
 .sop-pl-dur { color: var(--faint); font-size: var(--fs-sm); white-space: nowrap; }
+
+.sop-library-section { margin-top: 24px; }
+.sop-library-section + .sop-library-section { padding-top: 24px; border-top: 1px solid var(--line); }
+.sop-library-section h2 { margin: 0 0 14px; font-size: 18px; }
+.sop-lib-card { cursor: pointer; }
+.sop-lib-card > button { align-self: flex-end; }
+
+.sop-np-fields { border: 0; margin: 0; min-width: 0; }
+.sop-editor-readonly .sop-cv-handle { display: none; }

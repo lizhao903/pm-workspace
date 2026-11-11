@@ -78,7 +78,7 @@ type config struct {
 
 func main() {
 	var cfg config
-	flag.StringVar(&cfg.addr, "addr", "127.0.0.1:7777", "明文 HTTP 监听地址")
+	flag.StringVar(&cfg.addr, "addr", "127.0.0.1:7796", "明文 HTTP 监听地址")
 	flag.StringVar(&cfg.tlsAddr, "tls-addr", "", "额外的 HTTPS 监听地址；留空则不单独监听（此时若给了证书就把 --addr 本身升级成 HTTPS）")
 	flag.StringVar(&cfg.tlsCert, "tls-cert", "", "TLS 证书路径（需与 --tls-key 同时给出）")
 	flag.StringVar(&cfg.tlsKey, "tls-key", "", "TLS 私钥路径（需与 --tls-cert 同时给出）")

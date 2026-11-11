@@ -1,0 +1,432 @@
+{
+  "desc": "IM 消息要建任务时先私信我确认：回「执行」派 Claude Code 在任务继承的工作目录里开工、做完私信回报；回「分配 某人」改负责人；回「不做」取消任务；认不出再问一次、超时提醒一次，仍没有就不执行。可单独用（触发方式改成「IM 消息」），也可接在「消息分流」建任务之后当子流程（带上任务），同一条消息只建一次任务。默认停用：触发方式是「手动」",
+  "fields": [
+    {
+      "key": "message_id",
+      "label": "IM 消息",
+      "placeholder": "消息 id；IM 触发时自动带上",
+      "required": true,
+      "type": "text"
+    },
+    {
+      "key": "task_id",
+      "label": "任务",
+      "placeholder": "已经建好的任务 id；留空时按消息判断要不要建",
+      "type": "text"
+    }
+  ],
+  "id": "sop_im_task_confirm",
+  "name": "来消息确认派发",
+  "steps": [
+    {
+      "key": "read",
+      "name": "读取消息",
+      "kind": "im_get_message",
+      "desc": "按消息 id 取出正文、发信人和会话",
+      "after": [],
+      "config": {
+        "message": "{{message_id}}"
+      }
+    },
+    {
+      "key": "given_id",
+      "name": "带了任务 id 吗",
+      "kind": "decide",
+      "desc": "接在别的流程建任务之后时，输入里带着任务，不再分类、不再建",
+      "after": [
+        "read"
+      ],
+      "cases": [
+        {
+          "key": "yes",
+          "label": "带了"
+        },
+        {
+          "key": "no",
+          "label": "没带"
+        }
+      ],
+      "rule": "task_id 不等于 \"\""
+    },
+    {
+      "key": "given_obj",
+      "name": "带了任务吗",
+      "kind": "decide",
+      "after": [
+        "given_id"
+      ],
+      "branch": {
+        "of": "given_id",
+        "case": "no"
+      },
+      "cases": [
+        {
+          "key": "yes",
+          "label": "带了"
+        },
+        {
+          "key": "no",
+          "label": "没带"
+        }
+      ],
+      "rule": "task.id 不等于 \"\""
+    },
+    {
+      "key": "need",
+      "name": "要不要建任务",
+      "kind": "classifier",
+      "desc": "要我或团队去做的事算要建任务；闲聊、通知、问进度、客套不算",
+      "after": [
+        "given_obj"
+      ],
+      "branch": {
+        "of": "given_obj",
+        "case": "no"
+      },
+      "cases": [
+        {
+          "key": "task",
+          "label": "要建任务"
+        },
+        {
+          "key": "none",
+          "label": "不用"
+        }
+      ],
+      "config": {
+        "from": "message.text",
+        "hint": "要我或团队去做的事（新需求、改进现有功能、修问题、要交付的东西）算要建任务；闲聊、通知、广播、问进度、单纯提问、客套、表情不算。拿不准时算不用"
+      }
+    },
+    {
+      "key": "skip",
+      "name": "不用建任务",
+      "kind": "end",
+      "desc": "流程到此结束，消息照常留在消息页",
+      "after": [
+        "need"
+      ],
+      "branch": {
+        "of": "need",
+        "case": "none"
+      }
+    },
+    {
+      "key": "to_task",
+      "name": "建任务",
+      "kind": "im_to_task",
+      "desc": "建任务（来源消息、提出人）；这条消息已经被别的流程建过任务时取回那条，不再建",
+      "after": [
+        "need"
+      ],
+      "branch": {
+        "of": "need",
+        "case": "task"
+      },
+      "config": {
+        "message": "{{message_id}}"
+      }
+    },
+    {
+      "key": "use_id",
+      "name": "用带来的任务",
+      "kind": "auto",
+      "after": [
+        "given_id"
+      ],
+      "branch": {
+        "of": "given_id",
+        "case": "yes"
+      }
+    },
+    {
+      "key": "use_obj",
+      "name": "用带来的任务",
+      "kind": "auto",
+      "after": [
+        "given_obj"
+      ],
+      "branch": {
+        "of": "given_obj",
+        "case": "yes"
+      }
+    },
+    {
+      "key": "join",
+      "name": "任务",
+      "kind": "aggregate",
+      "after": [
+        "use_id",
+        "use_obj",
+        "to_task"
+      ],
+      "config": {
+        "mode": "first"
+      }
+    },
+    {
+      "key": "info",
+      "name": "读任务",
+      "kind": "task_update",
+      "desc": "取任务的编号、标题、项目和继承后的工作目录，给私信摘要用",
+      "after": [
+        "join"
+      ]
+    },
+    {
+      "key": "ask",
+      "name": "私信我确认",
+      "kind": "im_ask_me",
+      "desc": "私信我任务摘要和三种回复方式；认不出再问一次，超时提醒一次，仍没有就不执行",
+      "after": [
+        "info"
+      ],
+      "config": {
+        "text": "要处理吗：{{task.ref}}「{{task.title}}」\n项目：{{task.project}}\n工作目录：{{task.workdir}}\n来自 {{message.sender}}（{{message.conversation}}）：{{message.text}}\n任务：{{task.url}}",
+        "timeout": "1 天"
+      }
+    },
+    {
+      "key": "is_exec",
+      "name": "回复执行？",
+      "kind": "decide",
+      "after": [
+        "ask"
+      ],
+      "cases": [
+        {
+          "key": "yes",
+          "label": "执行"
+        },
+        {
+          "key": "no",
+          "label": "不是"
+        }
+      ],
+      "rule": "answer.choice 等于 execute"
+    },
+    {
+      "key": "run",
+      "name": "执行任务",
+      "kind": "task_run",
+      "desc": "派 Claude Code 在任务继承的工作目录里执行；没有工作目录、目录不可写、执行失败都交给下一步回报",
+      "after": [
+        "is_exec"
+      ],
+      "branch": {
+        "of": "is_exec",
+        "case": "yes"
+      },
+      "config": {
+        "on_fail": "continue",
+        "task": "{{task.id}}",
+        "timeout": "2 小时"
+      }
+    },
+    {
+      "key": "run_ok",
+      "name": "执行成功？",
+      "kind": "decide",
+      "after": [
+        "run"
+      ],
+      "cases": [
+        {
+          "key": "yes",
+          "label": "成功"
+        },
+        {
+          "key": "no",
+          "label": "失败"
+        }
+      ],
+      "rule": "status 等于 done"
+    },
+    {
+      "key": "tell_done",
+      "name": "回报结果",
+      "kind": "im_tell_me",
+      "after": [
+        "run_ok"
+      ],
+      "branch": {
+        "of": "run_ok",
+        "case": "yes"
+      },
+      "config": {
+        "text": "{{task.ref}}「{{task.title}}」执行完了。\n{{summary}}\n任务：{{task.url}}"
+      }
+    },
+    {
+      "key": "tell_fail",
+      "name": "回报失败",
+      "kind": "im_tell_me",
+      "after": [
+        "run_ok"
+      ],
+      "branch": {
+        "of": "run_ok",
+        "case": "no"
+      },
+      "config": {
+        "text": "{{task.ref}}「{{task.title}}」没执行成功：{{error}}\n任务：{{task.url}}"
+      }
+    },
+    {
+      "key": "is_assign",
+      "name": "回复分配？",
+      "kind": "decide",
+      "after": [
+        "is_exec"
+      ],
+      "branch": {
+        "of": "is_exec",
+        "case": "no"
+      },
+      "cases": [
+        {
+          "key": "yes",
+          "label": "分配"
+        },
+        {
+          "key": "no",
+          "label": "不是"
+        }
+      ],
+      "rule": "answer.choice 等于 assign"
+    },
+    {
+      "key": "assign",
+      "name": "改负责人",
+      "kind": "task_update",
+      "desc": "负责人要是名册里的人；对不上不改，交给下一步回话",
+      "after": [
+        "is_assign"
+      ],
+      "branch": {
+        "of": "is_assign",
+        "case": "yes"
+      },
+      "config": {
+        "assignee": "{{answer.assignee}}",
+        "task": "{{task.id}}"
+      }
+    },
+    {
+      "key": "assigned",
+      "name": "分配上了？",
+      "kind": "decide",
+      "after": [
+        "assign"
+      ],
+      "cases": [
+        {
+          "key": "yes",
+          "label": "分配上了"
+        },
+        {
+          "key": "no",
+          "label": "没找到人"
+        }
+      ],
+      "rule": "task.assign_ok 等于 yes"
+    },
+    {
+      "key": "tell_assigned",
+      "name": "回话：已分配",
+      "kind": "im_tell_me",
+      "after": [
+        "assigned"
+      ],
+      "branch": {
+        "of": "assigned",
+        "case": "yes"
+      },
+      "config": {
+        "text": "已把 {{task.ref}}「{{task.title}}」分配给 {{task.assignee}}。"
+      }
+    },
+    {
+      "key": "tell_noone",
+      "name": "回话：没找到人",
+      "kind": "im_tell_me",
+      "after": [
+        "assigned"
+      ],
+      "branch": {
+        "of": "assigned",
+        "case": "no"
+      },
+      "config": {
+        "text": "{{task.assign_note}}（{{task.ref}}「{{task.title}}」）：{{task.url}}"
+      }
+    },
+    {
+      "key": "is_cancel",
+      "name": "回复不做？",
+      "kind": "decide",
+      "after": [
+        "is_assign"
+      ],
+      "branch": {
+        "of": "is_assign",
+        "case": "no"
+      },
+      "cases": [
+        {
+          "key": "yes",
+          "label": "不做"
+        },
+        {
+          "key": "no",
+          "label": "没答复"
+        }
+      ],
+      "rule": "answer.choice 等于 cancel"
+    },
+    {
+      "key": "cancel",
+      "name": "标为已取消",
+      "kind": "task_update",
+      "after": [
+        "is_cancel"
+      ],
+      "branch": {
+        "of": "is_cancel",
+        "case": "yes"
+      },
+      "config": {
+        "status": "cancelled",
+        "task": "{{task.id}}"
+      }
+    },
+    {
+      "key": "tell_cancel",
+      "name": "回话：已取消",
+      "kind": "im_tell_me",
+      "after": [
+        "cancel"
+      ],
+      "config": {
+        "text": "已取消 {{task.ref}}「{{task.title}}」。"
+      }
+    },
+    {
+      "key": "tell_idle",
+      "name": "回话：先不执行",
+      "kind": "im_tell_me",
+      "desc": "认不出、超时：不执行，任务留在未开工",
+      "after": [
+        "is_cancel"
+      ],
+      "branch": {
+        "of": "is_cancel",
+        "case": "no"
+      },
+      "config": {
+        "text": "{{answer.reason_text}}，{{task.ref}}「{{task.title}}」先不执行，留在未开工：{{task.url}}"
+      }
+    }
+  ],
+  "trigger": "manual"
+}

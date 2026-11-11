@@ -75,6 +75,33 @@ const ai = () => screen.getByRole('complementary', { name: 'AI 协助' })
 afterEach(() => vi.unstubAllGlobals())
 
 describe('SOP 编排页', () => {
+  it('内置 SOP 详情：可以查看节点和 kind，禁止修改及保存', async () => {
+    const user = userEvent.setup()
+    const { calls, flows } = fakeBackend()
+    flows[0].ownership = 'buildin'
+    const router = renderPage('/sop/flows/sop_fb')
+    await user.click(await screen.findByRole('button', { name: '详情' }))
+    await waitFor(() => expect(router.state.location.pathname).toBe('/sop/flows/sop_fb/edit'))
+    expect(await screen.findByText('只读')).toBeInTheDocument()
+    expect(screen.getByRole('textbox', { name: 'SOP 名称' })).toHaveAttribute('readonly')
+    for (const name of ['保存', '测试运行', '添加节点', '自动整理', '撤销', '重做', 'AI 协助']) {
+      expect(screen.queryByRole('button', { name })).not.toBeInTheDocument()
+    }
+    await user.click(screen.getByRole('button', { name: '节点 复核' }))
+    const panel = within(screen.getByRole('complementary', { name: '节点属性' }))
+    expect(panel.getByRole('textbox', { name: 'kind' })).toHaveValue('review')
+    expect(panel.getByRole('textbox', { name: '节点名称' })).toHaveAttribute('readonly')
+    expect(panel.getByRole('combobox')).toBeDisabled()
+    expect(panel.queryByRole('button', { name: '删除节点' })).not.toBeInTheDocument()
+    await user.keyboard('{Delete}{Control>}z{/Control}')
+    expect(screen.getByRole('button', { name: '节点 复核' })).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: '开始节点' }))
+    expect(within(screen.getByRole('complementary', { name: '开始节点' })).getByRole('combobox', { name: '触发方式' })).toBeDisabled()
+    await user.click(screen.getByRole('button', { name: '返回' }))
+    await waitFor(() => expect(router.state.location.pathname).toBe('/sop/flows/sop_fb'))
+    expect(calls.filter((c) => ['POST', 'PATCH', 'DELETE'].includes(c.method))).toEqual([])
+  })
+
   it('新建：没填名称、没有步骤时发布不提交，列出问题', async () => {
     const user = userEvent.setup()
     const { calls } = fakeBackend()
