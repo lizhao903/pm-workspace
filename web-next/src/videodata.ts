@@ -311,6 +311,9 @@ export interface Series {
   template: string
   /** 改过共用部分但还没同步到的集（视频 id） */
   stale: string[]
+  /** 配音（TTS-01）：音色和语速，空音色用「语音合成」插件的默认音色 */
+  voice?: string
+  voice_speed?: number
 }
 
 /** 阶段执行器：这一步交给谁跑（技能、SOP、Agent）；检查点仍由人确认，执行器只把产出物推到待验收 */

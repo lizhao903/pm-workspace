@@ -49,7 +49,7 @@ function fakeBackend(seed: { videos: Video[]; series?: VideoSeries[]; artifacts?
     }
     if (p === '/api/video/series' && method === 'GET') return json(series, 200, { total: series.length })
     if (p === '/api/video/series' && method === 'POST') {
-      const s: VideoSeries = { id: `sr_${(n += 1)}`, name: '', desc: '', intro: '', outro: '', template: '', stale: [], created_at: T, updated_at: T, ...body }
+      const s: VideoSeries = { id: `sr_${(n += 1)}`, name: '', desc: '', intro: '', outro: '', template: '', voice: '', voice_speed: 1, stale: [], created_at: T, updated_at: T, ...body }
       series.push(s)
       return json(s, 201)
     }
@@ -282,7 +282,7 @@ describe('制作流程里的产出物（VID-02b）', () => {
 })
 
 describe('系列', () => {
-  const S: VideoSeries = { id: 'sr_a', name: 'AI 系列', desc: '', intro: 'shared/intro.tsx', outro: '', template: '', stale: [], created_at: T, updated_at: T }
+  const S: VideoSeries = { id: 'sr_a', name: 'AI 系列', desc: '', intro: 'shared/intro.tsx', outro: '', template: '', voice: '', voice_speed: 1, stale: [], created_at: T, updated_at: T }
   const eps = () => [
     vid('e1', { title: '第 1 集', series_id: 'sr_a', episode: 1 }),
     vid('e2', { title: '第 2 集', series_id: 'sr_a', episode: 2 }),
@@ -305,7 +305,7 @@ describe('系列', () => {
     await user.type(within(dr).getByRole('textbox', { name: /名称/ }), '  新系列 ')
     await user.click(within(dr).getByRole('button', { name: '创建' }))
     await waitFor(() => expect(router.state.location.pathname).toBe('/videos/series/sr_1'))
-    expect(be.calls.find((c) => c.method === 'POST')?.body).toEqual({ name: '新系列', desc: '', intro: '', outro: '', template: '' })
+    expect(be.calls.find((c) => c.method === 'POST')?.body).toEqual({ name: '新系列', desc: '', intro: '', outro: '', template: '', voice: '', voice_speed: 1 })
   })
 
   it('系列详情：共用部分、标记已同步、加入已有视频、编排集数和移出', async () => {

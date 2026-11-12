@@ -11,6 +11,13 @@
 - 两侧已发布的 SOP 迁移分别含 `0008_flow_ownership.sql` 和 `0008_im_trigger.sql`。不改文件名、内容或 checksum，只为 SOP 的这两个历史文件允许同编号；仍以文件全名判重，其他编号重复继续拒绝。新增回归测试约束这个例外。
 - 撤回：切回备份分支；不涉及真实数据库变更。
 
+## 第五十三批：语音合成插件与视频配音零配置（2026-11-12）
+
+- 用户要求「把配音相关配置加上，用户不要有配置这方面的困扰」，确认口径：做一个语音合成插件，配置放系列/视频设置和 设置 → 连接器。
+- 落地：新增插件 `tts`（`internal/plugins/tts`，0.1.0，权限 `process:spawn`，无自己的表）：自动检测本机 `indextts`、`ffmpeg` 和 `*.voice.pt` 音色目录（`INDEXTTS_VOICE_DIR`、`~/web-video`、`/Volumes/*/web-video` 等），默认音色优先 `voice-broleez`；登记连接器工具 `voice`（设置 → 连接器 → 内容平台 → 语音合成，字段可全部留空），新增 `GET /api/tts/voices`、`GET /api/tts/status`、`POST /api/tts/preview`（试听直接回 mp3）。视频插件迁移 `0015_voiceover.sql` 给系列加 `voice`、`voice_speed`，系列设置里加「配音」（音色下拉来自 tts，留空用插件默认）；音频合成阶段没配执行器时默认用技能 `sk_video` 跑，并把系列音色/语速写进提示词，不让模型回头问用户 TTS 配置。原型 `web-next/src/videodata.ts` 的 `Series` 补两个可选字段。
+- 理由：原来音频合成必须自己配执行器，还得在技能里回答用哪个 TTS / 音色 / API key；本机已经有 IndexTTS 和音色，插件自动检测就能直接跑，用户不用配置。
+- 怎么撤回：卸载/停用 `tts` 插件、回滚本批提交；`video_series` 的两个新列只加不改，老数据不受影响（迁移不回退）。
+
 ## 第四十九批：仓库维护者改为 DSH，历史 Claude 共同作者署名替换（2026-11-10）
 
 - 用户要求「移除掉 Claude 的 contributors，后续都是 DSH 维护」。

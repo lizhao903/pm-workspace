@@ -361,6 +361,20 @@ func (h *handler) startStage(ctx context.Context, id, stage string) (rowID int64
 	if err != nil {
 		return 0, nil, err
 	}
+	// 配音（TTS-01）：音频合成没配执行器也能跑，默认用技能并带上系列里的音色/语速
+	if stage == "audio" {
+		series := h.seriesOf(ctx, v)
+		if sr == nil {
+			d := voiceoverRunner(series)
+			sr = &d
+		} else if brief := voiceoverBrief(series); brief != "" {
+			if strings.TrimSpace(sr.Prompt) == "" {
+				sr.Prompt = brief
+			} else {
+				sr.Prompt = strings.TrimSpace(sr.Prompt) + "\n\n" + brief
+			}
+		}
+	}
 	if sr == nil && stage == "script" && v.TopicID != nil {
 		// 按选题大纲起草：没配执行器用技能「网页演示做视频」（VID-09a）
 		d := draftRunner

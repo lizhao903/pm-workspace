@@ -4,10 +4,11 @@
 // 改了共用部分且系列里有集时，保存前弹「影响范围」，默认全勾，勾上的集标为待同步、没勾的从待同步里去掉；
 // 原型没有删除系列，正式版补在底部，删除后各集变回单集
 import { useState } from 'react'
-import { errorText, useCreateSeries, useDeleteSeries, usePatchSeries, type Video, type VideoSeries } from '../../core/data'
-import { Button, Checkbox, ConfirmDialog, Drawer, Field, Input, Textarea, cls } from '../../core/ui'
+import { errorText, isApiError, useCreateSeries, useDeleteSeries, usePatchSeries, type Video, type VideoSeries } from '../../core/data'
+import { Button, Checkbox, ConfirmDialog, Drawer, Field, Input, Select, Textarea, cls } from '../../core/ui'
 import { SHARED, changedShared, cleanSeries, episodesOf, seriesDraftOf, staleAfter, type SeriesDraft } from './artifactModel'
 import { videoState } from './model'
+import { useTtsVoices } from './ttsVoices'
 
 export function SeriesSettingsDrawer({ series, videos, onClose, onCreated, onDeleted }: {
   series: VideoSeries | null
@@ -22,6 +23,7 @@ export function SeriesSettingsDrawer({ series, videos, onClose, onCreated, onDel
   const patch = usePatchSeries()
   const del = useDeleteSeries()
   const [d, setD] = useState<SeriesDraft>(() => seriesDraftOf(series))
+  const tts = useTtsVoices()
   const [tried, setTried] = useState(false)
   // 影响范围确认：勾上的集
   const [confirm, setConfirm] = useState<string[] | null>(null)
@@ -89,6 +91,28 @@ export function SeriesSettingsDrawer({ series, videos, onClose, onCreated, onDel
               <Input className="vd-mono" value={d[f.key]} placeholder={f.ph} onChange={(e) => setD({ ...d, [f.key]: e.target.value })} />
             </Field>
           ))}
+        </section>
+        <section className="vd-sec-plain">
+          <div className="vd-sec-title">配音
+            <span className="vd-hint">音频合成阶段用；留空用「语音合成」插件的默认音色和语速</span>
+          </div>
+          <Field label="音色" hint={tts.data?.default_voice ? `插件默认：${tts.data.default_voice}` : undefined}>
+            {tts.isSuccess ? (
+              <Select aria-label="配音音色" value={d.voice}
+                options={[{ value: '', label: `默认音色${tts.data.default_voice ? `（${tts.data.default_voice}）` : ''}` },
+                  ...tts.data.voices.map((v) => ({ value: v.name, label: v.name })),
+                  ...(d.voice && !tts.data.voices.some((v) => v.name === d.voice) ? [{ value: d.voice, label: `${d.voice}（不在当前音色目录）` }] : [])]}
+                onValueChange={(voice) => setD({ ...d, voice })} />
+            ) : (
+              <Input aria-label="配音音色" value={d.voice} placeholder="voice-broleez"
+                onChange={(e) => setD({ ...d, voice: e.target.value })} />
+            )}
+          </Field>
+          {tts.isError && <div className="vd-hint">{isApiError(tts.error, 'not_found') ? '语音合成插件还没安装/启用：可以留空，先到 设置 → 插件 安装「语音合成」。' : errorText(tts.error)}</div>}
+          <Field label="语速" hint="0.5 – 2.0，默认 1.0">
+            <Input aria-label="配音语速" type="number" min={0.5} max={2} step={0.05} value={d.voice_speed}
+              onChange={(e) => setD({ ...d, voice_speed: e.target.value === '' ? 0 : Number(e.target.value) })} />
+          </Field>
         </section>
         {creating && <div className="vd-col-empty">建好后在系列详情里新建一集，或者把已有的视频加进来</div>}
         <button type="submit" hidden />

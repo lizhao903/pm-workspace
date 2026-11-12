@@ -15,7 +15,7 @@ const cps = (x: Partial<Record<string, Omit<VideoCheckpoint, 'stage'>>> = {}): V
 const vid = (id: string, x: Partial<Video>): Video => ({
   id, title: id, orientations: ['landscape'], stage: 'script', checkpoints: cps(), root: `videos/${id}`, chapters: 3, created_at: T, updated_at: T, ...x,
 })
-const SERIES: VideoSeries[] = [{ id: 'sr_a', name: 'AI 系列', desc: '', intro: '', outro: '', template: '', stale: [], created_at: T, updated_at: T }]
+const SERIES: VideoSeries[] = [{ id: 'sr_a', name: 'AI 系列', desc: '', intro: '', outro: '', template: '', voice: '', voice_speed: 1, stale: [], created_at: T, updated_at: T }]
 
 type Call = { method: string; path: string; body?: Record<string, unknown> }
 

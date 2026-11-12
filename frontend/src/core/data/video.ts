@@ -79,13 +79,16 @@ export type VideoSeries = {
   intro: string
   outro: string
   template: string
+  /** 配音（TTS-01）：音色和语速；音色空串表示用「语音合成」插件的默认音色 */
+  voice: string
+  voice_speed: number
   /** 改过共用部分还没同步的集（视频 id），按集数排 */
   stale: string[]
   created_at: string
   updated_at: string
 }
 
-export type VideoSeriesInput = { name?: string; desc?: string; intro?: string; outro?: string; template?: string; stale?: string[] }
+export type VideoSeriesInput = { name?: string; desc?: string; intro?: string; outro?: string; template?: string; voice?: string; voice_speed?: number; stale?: string[] }
 
 // 产出物（VID-01b 接口，VID-01d 前端）。ratio、lang、字幕是 VID-02a 加的，老数据没有 ratio 的封面按比例的默认封面比例算
 export type VideoArtifactKind = 'article' | 'script' | 'outline' | 'presentation' | 'audio' | 'video' | 'subtitle' | 'cover' | 'description' | 'chapters'

@@ -1,0 +1,14 @@
+{
+  "id": "tts",
+  "name": "语音合成",
+  "description": "本机语音合成：自动检测 IndexTTS 和音色，视频配音不用再配置；连接器里可换音色和语速",
+  "icon": "voice",
+  "version": "0.1.0",
+  "core": ">=1.0.0 <2.0.0",
+  "depends": {},
+  "provides": { "modules": [], "settings": [], "connectors": ["voice"] },
+  "permissions": ["process:spawn"],
+  "emits": [],
+  "subscribes": [],
+  "table_prefix": "tts_"
+}

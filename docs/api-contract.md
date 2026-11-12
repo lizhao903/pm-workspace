@@ -1196,6 +1196,11 @@ dsh 子进程的环境另加 `DSH_TELEMETRY_MODE=DISABLED`（关掉 dsh 的会�
 `harness_session`（0050）：dsh 那次用的会话 id，续跑靠它；`agent` 的是 Agent 会话 id（能打开会话接着聊）；claude 的执行是空串。`status` 多一个 `waiting`（只有 `agent` 的执行会有：停在要人确认的写操作上，没结束），读的时候不按残留收尾。
 两者都只用于留档与展示，不参与收尾判定——收尾看 `status` 和 `exit_code`。
 
+**模块前缀复用（0058，2026-11）。** `harness=deepseek` 的新会话会在提示词最前面拼一段**程序化生成**的模块简报，提高服务商前缀缓存命中率（实验数据见 `docs/agent-module-session-cache-design.md`）：模块从任务对象派生——挂了项目是 `project:<项目 id>`，否则是 `workdir:<规范化绝对路径>`，都没有则不加前缀；简报里带同模块最近任务的结论（从库里记录拼，不额外调模型），只追加、超长才轮换。续跑（`resume_session: true`）不拼前缀；提示词预览 `GET /api/objects/{id}/run/prompt?harness=deepseek` 与实际执行同口径（带前缀）。`TaskRun` 相应的新增字段：
+- `module_key`：这次用的模块键（`project:` / `workdir:`），没复用前缀时为 `""`（不输出）。
+- `prefix_version`：这次用的简报版本（超过 0 才输出）。
+- `cache_read_tokens` / `uncached_input_tokens` / `output_tokens`：从 dsh 持久化会话日志（`~/.dsh/sessions/...` 的 `assistant/message` 事件）读出的本次用量；命中率 = `cache_read_tokens / (cache_read_tokens + uncached_input_tokens)`。日志缺失/解析失败时三个数都是 0，不影响执行收尾。
+
 **升级说明（TSK-0722）。** 内核行为变化，没有新迁移：换新二进制即生效。`harness=deepseek` 的提示词预览从「不带回写一节」改为带；`provider_id` 为空时不再走默认服务商（也不再自动建 Ollama），按上面的挑法；`ollama` 服务商从 400 变为可用。生产要用 DeepSeek 执行器，需要本机装 dsh 并在启动参数加 `--dsh-bin`（或环境变量 `DSH_BIN`），步骤见 `docs/deepseek-harness.md`。
 
 交给 Claude Code（流式发起、切换到终端）和交给工作台 Agent 时，任务（`type_id=task`）状态不是进行中、已完成、已取消的改成进行中（`doing`，SPEC-tasks-6.17），
@@ -1263,7 +1268,7 @@ SSE 事件（形状的唯一真相是 `internal/runner` 的 `Event.MarshalJSON`�
   - `kind`（`agent` / `task`）、`id`、`status`（原样，见上）、`started_at`、`finished_at`（还在跑是 `null`）、`summary`。
   - `title`：agent 是 Agent 名（Agent 删了回 `agent_id`）；task 是「编号 标题」（编号空就是标题）。
   - `sub`：agent 是触发说明（`trigger` 的人话）；task 是执行器中文名（`Claude Code` / `DeepSeek Harness` / `工作台 Agent` / `本机执行`）。
-  - agent 侧另带 `pending`（等确认的调用数）、`agent_id`、`agent_name`、`trigger`、`session_id`；task 侧另带 `object_id`、`object_ref`、`object_title`、`harness`。
+  - agent 侧另带 `pending`（等确认的调用数）、`agent_id`、`agent_name`、`trigger`、`session_id`；task 侧另带 `object_id`、`object_ref`、`object_title`、`harness`、`module_key`（模块键，没走模块前缀为空串）与 `cache_hit_ratio`（0~1，`cache_read/(cache_read+uncached)`，没有用量为 0；agent 行为 0）。
 - task 的 `running` 记录会先按任务抽屉同一口径收尾（工作台重启后残留的变 `failed`）再输出，不会永远显示一条不结束的执行。
 - 前端「运行」模块用它做运行中心：停止/重试 Agent 执行走 `POST /api/agent-runs/{id}/stop` / `retry`，取消 task 执行走 `POST /api/runs/{id}/cancel`，点行跳会话 / 执行记录 / 任务抽屉。
 
@@ -4178,14 +4183,14 @@ ETF-01a 起，ETF-01b 加派生指标、异动规则和命中记录。插件 `et
 
 ## 视频创作插件 video
 
-VID-01a 起。插件 `video`（`internal/plugins/video`，清单 `plugin.json`，0.4.0），强依赖 `projects`，弱依赖 `im`，权限 `fs:read:project`、`fs:write:project`、`network:media-platforms`、`process:spawn`（前三个是普通级别；`process:spawn` 是高风险，VID-03b 加，技能执行器要它才能让 Claude Code 在工程目录里写文件，0.3.0 升上来要重新确认；产出物路径按 `fs:read:project` 的范围限制在视频工程目录内，登记时不查磁盘；经连接器投稿时读成片和封面，内容平台出网用 `network:media-platforms`，VID-04b 起）。功能模块 key 是 `videos`（同工作台目录和 `ws_video` 模板）。表前缀 `video_`，迁移在插件目录：`migrations/0001_video.sql` 建 `video_series`、`video_videos`、`video_checkpoints`、`video_publishes`，`0002_artifacts.sql`（VID-01b）建 `video_artifacts`、`video_artifact_reviews`，`0003_artifact_ratio.sql`（VID-02a）给产出物加 `ratio`、`lang` 和按封面比例分组的序号、选用列，`0005_runners.sql`（VID-03b）建阶段执行器 `video_runners` 和执行记录 `video_runs`，`0007_video_topic.sql`（VID-09a）给视频加 `topic_id`，`0008_publish_snapshots.sql`（VID-05a）给发布记录加账号、标签、分区、合集和校验结果，建平台账号 `video_accounts`、数据快照 `video_metric_snapshots`，`0010_cover_tests.sql`（VID-05b）建封面 A/B 测试 `video_cover_tests`、`video_cover_test_arms`，给产出物加归档列，`0011_target_date.sql`（VID-06c）给视频加计划首发日 `target_date`、给发布记录加到点查询的索引；0.1.0、0.2.0 装过的要走升级（`POST /api/plugins/{id}/upgrade`）应用新迁移，没升级前插件不启动。形状同原型 `web-next/src/videodata.ts`。前端两页是 VID-01c、VID-01d。内容平台连接器有 B 站 `bilibili`（VID-04b）、YouTube `youtube`、抖音 `douyin`（VID-04d），见下「内容平台」；B 站组件（TSK-0455，0.8.0）另登记网页端连接器 `bilibili_web`（扫码登录，非官方网页接口），见下「B 站组件（TSK-0455）」；视频号、小红书不做连接器，发布记录只登记、回填链接，数据手填。插件未安装或停用时本节接口回 `not_found` 404（同「插件路由」），数据不动，再启用照旧。停用 `projects` 时 `video` 在 `dependents` 里（同「插件管理」）。
+VID-01a 起。插件 `video`（`internal/plugins/video`，清单 `plugin.json`，0.9.0），强依赖 `projects`，弱依赖 `im`，权限 `fs:read:project`、`fs:write:project`、`network:media-platforms`、`process:spawn`（前三个是普通级别；`process:spawn` 是高风险，VID-03b 加，技能执行器要它才能让 Claude Code 在工程目录里写文件，0.3.0 升上来要重新确认；产出物路径按 `fs:read:project` 的范围限制在视频工程目录内，登记时不查磁盘；经连接器投稿时读成片和封面，内容平台出网用 `network:media-platforms`，VID-04b 起）。功能模块 key 是 `videos`（同工作台目录和 `ws_video` 模板）。表前缀 `video_`，迁移在插件目录：`migrations/0001_video.sql` 建 `video_series`、`video_videos`、`video_checkpoints`、`video_publishes`，`0002_artifacts.sql`（VID-01b）建 `video_artifacts`、`video_artifact_reviews`，`0003_artifact_ratio.sql`（VID-02a）给产出物加 `ratio`、`lang` 和按封面比例分组的序号、选用列，`0005_runners.sql`（VID-03b）建阶段执行器 `video_runners` 和执行记录 `video_runs`，`0007_video_topic.sql`（VID-09a）给视频加 `topic_id`，`0008_publish_snapshots.sql`（VID-05a）给发布记录加账号、标签、分区、合集和校验结果，建平台账号 `video_accounts`、数据快照 `video_metric_snapshots`，`0010_cover_tests.sql`（VID-05b）建封面 A/B 测试 `video_cover_tests`、`video_cover_test_arms`，给产出物加归档列，`0011_target_date.sql`（VID-06c）给视频加计划首发日 `target_date`、给发布记录加到点查询的索引，`0015_voiceover.sql`（TTS-01）给系列加配音音色 `voice` 和语速 `voice_speed`；0.1.0、0.2.0 装过的要走升级（`POST /api/plugins/{id}/upgrade`）应用新迁移，没升级前插件不启动。形状同原型 `web-next/src/videodata.ts`。前端两页是 VID-01c、VID-01d。内容平台连接器有 B 站 `bilibili`（VID-04b）、YouTube `youtube`、抖音 `douyin`（VID-04d），见下「内容平台」；B 站组件（TSK-0455，0.8.0）另登记网页端连接器 `bilibili_web`（扫码登录，非官方网页接口），见下「B 站组件（TSK-0455）」；视频号、小红书不做连接器，发布记录只登记、回填链接，数据手填。插件未安装或停用时本节接口回 `not_found` 404（同「插件路由」），数据不动，再启用照旧。停用 `projects` 时 `video` 在 `dependents` 里（同「插件管理」）。
 
 | 方法 | 路径 | body / 说明 |
 |---|---|---|
 | GET | `/api/video/series` | `VideoSeries[]` + `meta.total`，不分页，按新建先后 |
-| POST | `/api/video/series` | `{name, desc?, intro?, outro?, template?}`，回 201 + `VideoSeries` |
+| POST | `/api/video/series` | `{name, desc?, intro?, outro?, template?, voice?, voice_speed?}`，回 201 + `VideoSeries` |
 | GET | `/api/video/series/{id}` | 一个 `VideoSeries`；不存在 404 |
-| PATCH | `/api/video/series/{id}` | 只传要改的：`name` / `desc` / `intro` / `outro` / `template` / `stale`，回 `VideoSeries` |
+| PATCH | `/api/video/series/{id}` | 只传要改的：`name` / `desc` / `intro` / `outro` / `template` / `voice` / `voice_speed` / `stale`，回 `VideoSeries` |
 | DELETE | `/api/video/series/{id}` | `data` 为 `null`；系列里的集变回单集（清掉 `series_id`、`episode` 和待同步，同规格 `SPEC-videos-6.19`） |
 | GET | `/api/video/videos?series_id=&project_id=` | `Video[]` + `meta.total`，不分页，按新建先后；两个筛选都可选 |
 | POST | `/api/video/videos` | `{title?, project_id?, series_id?, episode?, orientations?, root?, chapters?}`，回 201 + `Video`，阶段是 `topic`（选题，VID-09a 起，原来是 `script`），4 个检查点都是 `pending` |
@@ -4225,7 +4230,7 @@ VID-01a 起。插件 `video`（`internal/plugins/video`，清单 `plugin.json`�
 | PUT | `/api/video/artifacts/{id}/content` | `{content, new_version?, from?}`，写正文；`new_version` 为 `true` 时存成下一版，旧版本另存；回 `{artifact, content}`（VID-09a） |
 | PUT | `/api/video/videos/{id}/topic` | `{topic_id}`，选定、换掉或（传 `null`）摘下这一集的选题，两边一起回写；回 `{video, topic}`（VID-09a） |
 
-`VideoSeries`：`{id, name, desc, intro, outro, template, stale, created_at, updated_at}`，同原型 `Series` 多时间。`stale` 是改过共用部分还没同步的集（视频 id），按集数排。
+`VideoSeries`：`{id, name, desc, intro, outro, template, voice, voice_speed, stale, created_at, updated_at}`，同原型 `Series` 多时间与配音字段。`stale` 是改过共用部分还没同步的集（视频 id），按集数排。`voice` 是默认音色（空表示用「语音合成」插件的默认音色），`voice_speed` 是语速（TTS-01）。
 
 - `id` 是 `sr_` 前缀（已登记）。`name` 去首尾空白后必填，最多 100 字；`desc` 最多 1000 字；`intro`、`outro`、`template` 是共用开场、收尾、模板（路径或说明），各最多 500 字。
 - `stale` 整体替换，只能是这个系列的集，别的 400。改共用部分时，前端把用户勾选的受影响的集并进原来的 `stale` 一起传（同原型「影响范围确认」）；「标记已同步」就是传去掉那几集的数组。待同步记在视频上：视频移出或换了系列、被删掉，就不再算待同步。
@@ -4253,6 +4258,7 @@ VID-01a 起。插件 `video`（`internal/plugins/video`，清单 `plugin.json`�
 - `runners` 是 `{stage, type, ref_id, prompt?}[]`，按阶段先后排，没配是 `[]`。能配的阶段同原型 `RUN_KINDS`：`script`、`web`、`chapters`、`audio`、`record`、`distribution`；`plan`、`ch1` 只有人能做，400「「规划检查」只有人能做，不能配执行器」。`type` 是 `skill` / `sop` / `agent`，必填；`ref_id` 必填，最多 100 字：技能是技能 id，现在只认 `sk_video`（网页演示做视频，即本机 Claude Code 的 web-video-presentation 技能），别的 400；SOP 是流程 id 或名称，Agent 是 id 或名称，插件读不到这两张表，**只存不查**，跑的时候才知道在不在。`prompt` 最多 2000 字。
 - `last_run` 是最近一次执行 `{type, id, stage, status, started_at, ended_at?, error?, artifact_ids?, ref?}`，没跑过不返回。`type` 是 `agent`（技能和 Agent 都按 Agent 运行记，同原型）或 `sop`；`id` 是内核插件运行的 id（`run_`，`Core.Runs`，只在进程内存里，没有查询接口），发起时就失败的为空串；`ref` 是原型没有的，Agent 会话 id（`ags_`）或 SOP 执行 id（`spr_`）：SOP 发起成功时就写上，运行中也能查这次执行（POL-02）；Agent 的会话 id 跑完才有。`status` 是 `running` / `done` / `failed`；`artifact_ids` 是这次登记或升版的产出物。
 - 跑之前的检查，不过 409 并说明原因，**不记执行**：这个阶段前面的检查点都要通过或跳过，否则 409「「规划检查」还没通过，不能开始「网页开发」」（退回的是「被退回了，改好通过后才能开始……」）；只能跑视频当前所在的阶段（409「视频还在「内容编写」，做到「网页开发」再跑」或「视频已经过了……只能跑当前阶段」）；检查点阶段（`audio`、`distribution`）已经确认过的 409；没配执行器 409；这个视频有执行在跑 409「正在跑，等它跑完再试」（同一视频同一时间只跑一条，靠表上的部分唯一索引，并发时也是 409）。
+- 音频合成的配音（TTS-01）：这一阶段**没配执行器也能跑**——默认用技能 `sk_video`，提示词里写明用本机 IndexTTS 合成口播音频，音色和语速取系列设置（`VideoSeries.voice` / `voice_speed`；空音色用「语音合成」插件默认音色），并要求不要询问用户 TTS/音色/API key。配了执行器时，这段配音要求追加在它自己的 `prompt` 后面。
 - 发起：技能交给本机 Claude Code（`Core.Runs().StartClaudeCode`，放开写文件，产物归属 `video` + 视频 id），工作目录是视频的 `root`：绝对路径直接用；相对路径接在所属项目（`project_id`）的工作区目录后面，不能越出去；提示词写明用 web-video-presentation 技能、这个阶段对应的 Phase（`script` 是 Phase 1，`web` 是 2.1 加 2.2 第 1 章，`chapters` 是 2.3、2.4，`audio` 是 3，`record` 是 4，`distribution` 是 5）、标题、画面比例（两个方向提示布局 B）、章节数、执行器的 `prompt`，并要求做完这一阶段就停。Agent 用 `StartAgent`（提示词同上，工程目录写在提示词里），SOP 用 `StartSOP`，入参 `{video_id, title, stage, root, prompt}`。
 - **发起时就失败的记一条失败的执行，回 200**（同原型 `runError`）：这一阶段的产出物按比例区分但视频还没选比例「还没定画面比例，先在规划检查里选好」、工程目录没填或是相对路径又没挂有工作区目录的项目、目录不存在或不可写（文案同任务执行）、没确认 `process:spawn`、SOP 插件没启用、本机 Claude Code 或 Agent 没接上、流程不存在等。
 - 收尾：运行结束时内核投 `run.finished`（清单 `subscribes` 写了），插件把执行记成 `done` 或 `failed`；错过的（结束得比回写运行 id 还快、插件停用期间结束的）在读视频（列表、详情）和下一次发起时补收；内核查不到的运行（服务重启过）记失败「工作台重启过，这次运行的结果拿不到了，重试一次」，写了执行记录一分钟还没拿到运行 id 的记失败。Agent 停在要确认的调用上、被取消、SOP 被停止都记失败并写明原因。
@@ -4800,6 +4806,16 @@ REC-01a 起，本地优先的录音转写：浏览器内录音，音频存数据
 
 现有 SOP `claude_code` 节点的 `config.executor` 可保存执行器 ID，留空使用原来的 Claude Code 配置。运行时重新查询执行器并固定本次的程序和服务商配置；不存在、停用、配置缺失时失败，不自动切换执行器。角色、目录、提示词、权限、超时继续沿用节点配置。Codex 支持工作台回写 MCP；DeepSeek 沿用结束文本作为结论的回退机制。
 
+## 语音合成插件 tts
+
+TTS-01。把本机 IndexTTS 配音能力接进工作台：自动检测 `indextts` 命令、音色目录里的 `*.voice.pt` 和默认音色（优先 `voice-broleez`），不建连接器也能用；要换引擎/音色/语速到 设置 → 连接器 → 语音合成 建一个实例覆盖。插件没有自己的表，配置都在连接器实例里；试听要起本机进程，需要插件权限 `process:spawn`。
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| GET | `/api/tts/voices` | 可用音色与检测结果 `{engine, voice_dir, default_voice, voices, configured, warnings}`，`meta.total` 是音色数；给视频插件的「配音」选项用 |
+| GET | `/api/tts/status` | 完整检测结果 `{engine, bin, ffmpeg, voice_dir, default_voice, speed, voices, configured, warnings, ready}`；`ready` 为真表示找得到 `indextts`、`ffmpeg` 且至少一个音色 |
+| POST | `/api/tts/preview` | `{text, voice?, speed?}`，现场合成一段试听音频，**直接回音频字节，不是 JSON 信封**：`text` 必填、最多 2000 字，`speed` 0.5–2.0；成功回 200 + 对应音频 `Content-Type`（`Cache-Control: no-store`）；缺 `process:spawn` 权限 400 `validation`，引擎/音色不可用 400 `validation`，合成失败 502 `internal` |
+
 ## 后台任务插件 jobs
 
 可安装、启用、停用和卸载；无数据库迁移及额外权限。内核持续采集统计，停用本插件仅关闭查询接口和设置页面，不影响其他插件的任务。页面入口：设置 → 插件分组 → 后台任务（`/settings/plugins/jobs/jobs`）。
@@ -4807,6 +4823,18 @@ REC-01a 起，本地优先的录音转写：浏览器内录音，音频存数据
 | 方法 | 路径 | 说明 |
 |---|---|---|
 | GET | `/api/jobs/stats` | 插件后台 Job 内存统计列表，返回 `data: JobStats[]` 和 `meta`。仅记录本进程启动过的 Job，重启清零，不写数据库。按最近一小时失败次数降序、执行中优先、插件 id 和任务名升序排列。字段：`plugin_id, plugin_name, name, every_ms, enabled, running, total, success, failed, canceled, last_started_at, last_finished_at, last_duration_ms, last_error`。次数按完成时间统计最近 3600 秒（秒级精度）；总数=成功+失败+取消，执行中不计数。正常返回（含无工作可做）算成功，panic 算失败，context 取消时单列取消。`every_ms=0` 表示启动一次或常驻。最近时间未执行时为 null；`last_error` 在成功后清空。前端每 10 秒刷新。 |
+## 语音合成插件 tts
+
+可安装、启用、停用和卸载；TTS-01 起，给视频配音用的本机语音合成。**零配置**：不建连接器也能用——自动在 PATH 和常见安装位置找 `indextts`、`ffmpeg`，自动找含 `*.voice.pt` 的音色目录（`INDEXTTS_VOICE_DIR`、`~/web-video`、`/Volumes/*/web-video` 等），默认音色优先 `voice-broleez`。权限 `process:spawn`（起本机 indextts/ffmpeg）。没有自己的表，配置都放「语音合成」连接器实例里（工具 `voice`，设置 → 连接器 → 内容平台 → 语音合成，认证 `none`）；实例字段全部可留空用自动检测：`engine`（只有 indextts）、`voice`（默认音色）、`voice_dir`（音色目录）、`speed`（0.5–2.0，默认 1.0）、`bin`、`ffmpeg`。视频插件的系列「配音」从这里取音色。
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| GET | `/api/tts/voices` | 可用音色与默认值：`{engine, voice_dir, default_voice, voices: [{name, path}], configured, warnings}`；`configured` 表示是否建了连接器实例 |
+| GET | `/api/tts/status` | 完整检测结果，多 `bin`、`ffmpeg`、`speed`、`ready`（引擎、音色、ffmpeg 都在为真） |
+| POST | `/api/tts/preview` | 试听：`{text, voice?, speed?}`，现场调本机 indextts 合成并回 `audio/mpeg`；文字最多 2000 字，要确认过 `process:spawn` |
+
+插件未安装或停用时本节接口回 `not_found` 404（同「插件路由」）。
+
 ---
 
 由 DeepSeek Harness（dsh）协助完成。

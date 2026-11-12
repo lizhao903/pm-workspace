@@ -7,6 +7,8 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"strings"
+	"unicode"
 
 	"github.com/lizhao903/pm-workspace/internal/idgen"
 	"github.com/lizhao903/pm-workspace/internal/plugin"
@@ -14,9 +16,9 @@ import (
 
 // 系列：表 video_series，接口 /api/video/series。stale 记在视频的 stale 列上，这里按集数汇总。
 
-const seriesCols = `id, name, description, intro, outro, template, created_at, updated_at`
+const seriesCols = `id, name, description, intro, outro, template, voice, voice_speed, created_at, updated_at`
 
-var seriesFields = []string{"name", "desc", "intro", "outro", "template"}
+var seriesFields = []string{"name", "desc", "intro", "outro", "template", "voice", "voice_speed"}
 
 func (h *handler) loadSeries(ctx context.Context, where string, args ...any) ([]Series, error) {
 	rows, err := h.c.Store().Query(ctx, `SELECT `+seriesCols+` FROM video_series `+where+` ORDER BY created_at, rowid`, args...)
@@ -27,7 +29,7 @@ func (h *handler) loadSeries(ctx context.Context, where string, args ...any) ([]
 	out := []Series{}
 	for rows.Next() {
 		var s Series
-		if err := rows.Scan(&s.ID, &s.Name, &s.Desc, &s.Intro, &s.Outro, &s.Template, &s.CreatedAt, &s.UpdatedAt); err != nil {
+		if err := rows.Scan(&s.ID, &s.Name, &s.Desc, &s.Intro, &s.Outro, &s.Template, &s.Voice, &s.VoiceSpeed, &s.CreatedAt, &s.UpdatedAt); err != nil {
 			return nil, err
 		}
 		s.Stale = []string{}
@@ -104,6 +106,25 @@ func applySeries(s *Series, raw map[string]json.RawMessage) error {
 			return err
 		}
 	}
+	if err := strField(raw, "voice", "配音音色", &s.Voice, 100); err != nil {
+		return err
+	}
+	if strings.ContainsAny(s.Voice, `/\\`) || strings.ContainsFunc(s.Voice, unicode.IsControl) {
+		return apiErr(errValidation, "配音音色不能带路径分隔符或控制字符")
+	}
+	if v, ok := raw["voice_speed"]; ok {
+		var f float64
+		if err := json.Unmarshal(v, &f); err != nil {
+			return apiErr(errValidation, "配音语速必须是数字")
+		}
+		if f < 0.5 || f > 2.0 {
+			return apiErr(errValidation, "配音语速要在 0.5 到 2.0 之间")
+		}
+		s.VoiceSpeed = f
+	} else if s.VoiceSpeed == 0 {
+		// 新建没给时用 1.0；老数据读出来是 1.0，不会走到这里
+		s.VoiceSpeed = 1
+	}
 	if s.Name == "" {
 		return apiErr(errValidation, "名称必填")
 	}
@@ -123,8 +144,8 @@ func (h *handler) addSeries(w http.ResponseWriter, r *http.Request) {
 	}
 	s.ID = idgen.Prefixed("sr")
 	now := nowStr()
-	if _, err := h.c.Store().Exec(r.Context(), `INSERT INTO video_series (`+seriesCols+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-		s.ID, s.Name, s.Desc, s.Intro, s.Outro, s.Template, now, now); err != nil {
+	if _, err := h.c.Store().Exec(r.Context(), `INSERT INTO video_series (`+seriesCols+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		s.ID, s.Name, s.Desc, s.Intro, s.Outro, s.Template, s.Voice, s.VoiceSpeed, now, now); err != nil {
 		fail(w, r, h.c, err)
 		return
 	}
@@ -173,8 +194,8 @@ func (h *handler) updateSeries(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	if _, err := h.c.Store().Exec(ctx, `UPDATE video_series SET name = ?, description = ?, intro = ?, outro = ?, template = ?, updated_at = ? WHERE id = ?`,
-		s.Name, s.Desc, s.Intro, s.Outro, s.Template, nowStr(), id); err != nil {
+	if _, err := h.c.Store().Exec(ctx, `UPDATE video_series SET name = ?, description = ?, intro = ?, outro = ?, template = ?, voice = ?, voice_speed = ?, updated_at = ? WHERE id = ?`,
+		s.Name, s.Desc, s.Intro, s.Outro, s.Template, s.Voice, s.VoiceSpeed, nowStr(), id); err != nil {
 		fail(w, r, h.c, err)
 		return
 	}

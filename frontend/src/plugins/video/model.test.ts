@@ -14,7 +14,7 @@ const vid = (id: string, x: Partial<Video> = {}): Video => ({
   id, title: id, orientations: [], stage: 'script', checkpoints: cps(), root: `videos/${id}`, chapters: 3, created_at: '2026-10-01T00:00:00Z',
   updated_at: '2026-10-01T00:00:00Z', ...x,
 })
-const sr = (id: string, name: string): VideoSeries => ({ id, name, desc: '', intro: '', outro: '', template: '', stale: [], created_at: '', updated_at: '' })
+const sr = (id: string, name: string): VideoSeries => ({ id, name, desc: '', intro: '', outro: '', template: '', voice: '', voice_speed: 1, stale: [], created_at: '', updated_at: '' })
 
 describe('视频状态', () => {
   it('检查点待确认、退回是等我处理；非检查点阶段是阶段名；分发包通过算已完成', () => {

@@ -131,15 +131,18 @@ type LastRun struct {
 
 // Series 同原型 Series，多时间。stale 是改过共用部分还没同步的集，按集数排。
 type Series struct {
-	ID        string   `json:"id"`
-	Name      string   `json:"name"`
-	Desc      string   `json:"desc"`
-	Intro     string   `json:"intro"`
-	Outro     string   `json:"outro"`
-	Template  string   `json:"template"`
-	Stale     []string `json:"stale"`
-	CreatedAt string   `json:"created_at"`
-	UpdatedAt string   `json:"updated_at"`
+	ID       string `json:"id"`
+	Name     string `json:"name"`
+	Desc     string `json:"desc"`
+	Intro    string `json:"intro"`
+	Outro    string `json:"outro"`
+	Template string `json:"template"`
+	// 配音（TTS-01）：音色和语速，空音色表示用「语音合成」插件的默认音色
+	Voice      string   `json:"voice"`
+	VoiceSpeed float64  `json:"voice_speed"`
+	Stale      []string `json:"stale"`
+	CreatedAt  string   `json:"created_at"`
+	UpdatedAt  string   `json:"updated_at"`
 }
 
 // Metrics 同原型 Metrics：平台回填的播放数据。扩展的几项（VID-05a）平台不提供的留空、不返回。

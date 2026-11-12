@@ -175,11 +175,11 @@ export const SHARED: { key: 'intro' | 'outro' | 'template'; label: string; ph: s
   { key: 'template', label: '共用模板', ph: '比如 templates/theme（主题、字体、配色）' },
 ]
 
-export type SeriesDraft = { name: string; desc: string; intro: string; outro: string; template: string }
+export type SeriesDraft = { name: string; desc: string; intro: string; outro: string; template: string; voice: string; voice_speed: number }
 export const seriesDraftOf = (s: VideoSeries | null): SeriesDraft =>
-  ({ name: s?.name ?? '', desc: s?.desc ?? '', intro: s?.intro ?? '', outro: s?.outro ?? '', template: s?.template ?? '' })
+  ({ name: s?.name ?? '', desc: s?.desc ?? '', intro: s?.intro ?? '', outro: s?.outro ?? '', template: s?.template ?? '', voice: s?.voice ?? '', voice_speed: s?.voice_speed || 1 })
 export const cleanSeries = (d: SeriesDraft): SeriesDraft =>
-  ({ name: d.name.trim(), desc: d.desc.trim(), intro: d.intro.trim(), outro: d.outro.trim(), template: d.template.trim() })
+  ({ name: d.name.trim(), desc: d.desc.trim(), intro: d.intro.trim(), outro: d.outro.trim(), template: d.template.trim(), voice: d.voice.trim(), voice_speed: Number(d.voice_speed) >= 0.5 && Number(d.voice_speed) <= 2 ? Number(d.voice_speed) : 1 })
 
 /** 改过的共用部分 */
 export const changedShared = (s: VideoSeries, d: SeriesDraft) => SHARED.filter((f) => d[f.key].trim() !== s[f.key].trim())

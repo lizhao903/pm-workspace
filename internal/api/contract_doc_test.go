@@ -23,6 +23,7 @@ import (
 	"github.com/lizhao903/pm-workspace/internal/plugins/sop"
 	"github.com/lizhao903/pm-workspace/internal/plugins/terminal"
 	"github.com/lizhao903/pm-workspace/internal/plugins/trade"
+	"github.com/lizhao903/pm-workspace/internal/plugins/tts"
 	"github.com/lizhao903/pm-workspace/internal/plugins/video"
 )
 
@@ -66,6 +67,9 @@ func registeredRoutes(t *testing.T) []string {
 		t.Fatal(err)
 	}
 	if err := plugins.Add(jobs.New(plugins.JobStats)); err != nil {
+		t.Fatal(err)
+	}
+	if err := plugins.Add(tts.New()); err != nil {
 		t.Fatal(err)
 	}
 	if err := plugins.Add(recording.New()); err != nil {

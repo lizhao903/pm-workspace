@@ -206,6 +206,8 @@ flowchart LR
 
 插件 `video`。一集视频从选题、内容编写、规划检查、网页开发、音频、录屏渲染走到分发，四个检查点要人确认；每个阶段可以配执行器（技能、SOP、Agent）。
 
+插件 `tts`。本机 IndexTTS 配音，自动检测命令和音色目录（默认音色 `voice-broleez`），不用配置；视频系列设置的「配音」从这里选音色和语速，音频合成阶段没配执行器也能直接跑，不会再问用户用哪个 TTS / API key。
+
 | 全部视频（按系列分组） | 视频详情：制作流程和文稿 |
 |---|---|
 | ![视频列表](docs/images/readme/videos.png) | ![视频详情](docs/images/readme/video-detail.png) |

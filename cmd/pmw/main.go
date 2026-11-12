@@ -43,6 +43,7 @@ import (
 	"github.com/lizhao903/pm-workspace/internal/plugins/sop"
 	"github.com/lizhao903/pm-workspace/internal/plugins/terminal"
 	"github.com/lizhao903/pm-workspace/internal/plugins/trade"
+	"github.com/lizhao903/pm-workspace/internal/plugins/tts"
 	"github.com/lizhao903/pm-workspace/internal/plugins/video"
 	"github.com/lizhao903/pm-workspace/internal/runner"
 	"github.com/lizhao903/pm-workspace/internal/schedule"
@@ -253,6 +254,10 @@ func run(cfg config) error {
 		return fmt.Errorf("登记插件失败: %w", err)
 	}
 	if err := plugins.Add(jobs.New(plugins.JobStats)); err != nil {
+		return fmt.Errorf("登记插件失败: %w", err)
+	}
+	// 语音合成插件（TTS-01）：自动检测本机 IndexTTS 和音色，视频配音不用配置
+	if err := plugins.Add(tts.New()); err != nil {
 		return fmt.Errorf("登记插件失败: %w", err)
 	}
 	if err := plugins.PrepareStartup(ctx, "sop", func(ctx context.Context) (string, error) {
