@@ -37,6 +37,13 @@ type Installer interface {
 	OnInstall(ctx context.Context, c Core) error
 }
 
+// StartupInitializer performs synchronous, repeatable data initialization after
+// schema migrations and before any plugin jobs start. The host opts plugins in
+// explicitly through PrepareStartup; it is not called from Register.
+type StartupInitializer interface {
+	PrepareStartup(context.Context, Core) error
+}
+
 // Uninstaller 是可选接口：卸载时调，deleteData 为 true 时插件前缀的表已经备份、马上要删（4.4）。
 // 出错整次卸载失败，表和状态都不动。
 type Uninstaller interface {

@@ -301,7 +301,10 @@ func TestRetrySecondTimeSkipped(t *testing.T) {
 // 失败的子执行跟着顶层；手动发起的同 source_ref 不算；补过再跑一遍不变
 func TestBackfillRelaunched(t *testing.T) {
 	ctx := context.Background()
-	_, _, d := setupDB(t, New())
+	r, _, d := setupDB(t, New())
+	// This test invokes backfill itself after seeding all historical runs. Stop
+	// the engine so its startup backfill cannot race the fixture inserts.
+	r.Close()
 	exec := func(q string, args ...any) {
 		t.Helper()
 		if _, err := d.W.ExecContext(ctx, q, args...); err != nil {

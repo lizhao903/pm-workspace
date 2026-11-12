@@ -245,6 +245,15 @@ func run(cfg config) error {
 	if err := plugins.Add(jobs.New(plugins.JobStats)); err != nil {
 		return fmt.Errorf("登记插件失败: %w", err)
 	}
+	if err := plugins.PrepareStartup(ctx, "sop", func(ctx context.Context) (string, error) {
+		info, err := st.Snapshot(ctx, "")
+		if err != nil {
+			return "", err
+		}
+		return info.Path, nil
+	}); err != nil {
+		return fmt.Errorf("启动前准备 SOP 失败（数据库 %s）: %w", pdb.Path, err)
+	}
 	if err := plugins.Start(ctx); err != nil {
 		return fmt.Errorf("启动插件失败: %w", err)
 	}

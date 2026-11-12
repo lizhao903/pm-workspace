@@ -45,6 +45,71 @@ type MigrationStore interface {
 	DropData(ctx context.Context, pluginID, prefix string) ([]string, error)
 }
 
+// PrepareStartup upgrades an explicitly selected installed plugin's schema,
+// then initializes its data before Registry.Start. Versions, permissions and
+// enabled state are preserved. Each migration and its record share a transaction.
+func (r *Registry) PrepareStartup(ctx context.Context, id string, backup func(context.Context) (string, error)) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.started {
+		return fmt.Errorf("plugin registry: PrepareStartup after Start")
+	}
+	e, err := r.get(id)
+	if err != nil {
+		return err
+	}
+	states, err := r.store.Load(ctx)
+	if err != nil {
+		return err
+	}
+	applied, err := r.appliedByPlugin(ctx)
+	if err != nil {
+		return err
+	}
+	// Validate all registered history before making any changes.
+	for _, pluginID := range r.order {
+		if err := verifyMigrations(pluginID, r.entries[pluginID].migs, applied[pluginID]); err != nil {
+			r.log.Error("plugin startup migration history invalid", "plugin", pluginID, "err", err)
+			return err
+		}
+	}
+	if !states[id].Installed {
+		e.core.log.Info("plugin startup preparation skipped", "reason", "not installed")
+		return nil
+	}
+	files := pending(e.migs, applied[id])
+	e.core.log.Info("plugin startup preparation started", "pending_migrations", len(files))
+	if len(files) > 0 {
+		if backup == nil {
+			return fmt.Errorf("plugin %s startup migration requires backup", id)
+		}
+		e.core.log.Info("plugin startup migration backup started")
+		path, err := backup(ctx)
+		if err != nil || strings.TrimSpace(path) == "" {
+			if err == nil {
+				err = fmt.Errorf("empty backup path")
+			}
+			e.core.log.Error("plugin startup migration backup failed", "err", err)
+			return fmt.Errorf("backup before plugin %s startup migration: %w", id, err)
+		}
+		e.core.log.Info("plugin startup migration backup completed", "snapshot", path)
+		if err := r.migrate(ctx, e); err != nil {
+			e.core.log.Error("plugin startup migration failed", "snapshot", path, "err", err)
+			return fmt.Errorf("plugin %s startup migration failed (snapshot: %s): %w", id, path, err)
+		}
+	} else {
+		e.core.log.Info("plugin startup migrations skipped", "reason", "already applied")
+	}
+	if init, ok := e.p.(StartupInitializer); ok {
+		if err := init.PrepareStartup(ctx, e.core); err != nil {
+			e.core.log.Error("plugin startup initialization failed", "err", err)
+			return fmt.Errorf("plugin %s startup initialization: %w", id, err)
+		}
+	}
+	e.core.log.Info("plugin startup preparation completed")
+	return nil
+}
+
 // MemMigrationStore 只记录不执行 SQL，测试用（注册表默认也用它，cmd/pmw 换成 SQL 的）。
 type MemMigrationStore struct {
 	mu sync.Mutex

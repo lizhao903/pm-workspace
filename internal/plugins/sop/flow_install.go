@@ -37,7 +37,7 @@ func (e *engine) InstallFlow(ctx context.Context, caller string, t plugin.SOPFlo
 		return false, fmt.Errorf("插件 %s 的内置流程 %s 不合法：%w", caller, t.ID, err)
 	}
 	now := time.Now().UTC().Format(time.RFC3339)
-	if _, err := e.c.Store().Exec(ctx, `INSERT INTO sop_flows (`+flowCols+`) VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
+	if _, err := e.c.Store().Exec(ctx, `INSERT INTO sop_flows (`+flowCols+`) VALUES (?, 'nobuild-in', ?, ?, ?, ?, ?, ?, 1, ?, ?)
 		ON CONFLICT (id) DO NOTHING`,
 		f.ID, f.Name, f.Desc, f.Trigger, string(f.Fields), string(f.Steps), layoutCol(f.Layout), now, now); err != nil {
 		return false, err

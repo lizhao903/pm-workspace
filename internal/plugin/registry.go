@@ -579,7 +579,9 @@ func (r *Registry) migrate(ctx context.Context, e *entry) error {
 	for _, f := range pending(e.migs, applied[e.m.ID]) {
 		a := AppliedMigration{Plugin: e.m.ID, File: f.name, Checksum: f.checksum,
 			PluginVersion: e.m.Version, AppliedAt: time.Now().UTC()}
+		e.core.log.Info("plugin migration started", "file", f.name)
 		if err := r.Migrations.Apply(ctx, a, f.body); err != nil {
+			e.core.log.Error("plugin migration failed", "file", f.name, "err", err)
 			return err
 		}
 		e.core.log.Info("plugin migration applied", "file", f.name)

@@ -59,9 +59,6 @@ func newEngine(c plugin.Core) *engine {
 // job 是常驻后台任务：接着调度没结束的执行，然后等取消，取消后等全部协程退出。
 func (e *engine) job(ctx context.Context, _ plugin.Core) error {
 	defer e.wg.Wait()
-	if err := importBuiltins(ctx, e.c); err != nil {
-		e.c.Log().Error("import builtin SOPs", "err", err)
-	}
 	e.mu.Lock()
 	e.ctx = ctx
 	e.mu.Unlock()
