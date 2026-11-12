@@ -977,6 +977,29 @@ type TaskRun struct {
 	// HarnessSession 是 dsh 这次用的会话 id（0050）。带上它再跑一次就是续跑；
 	// claude 没有这个概念，留空串。harness=agent 时是 Agent 会话 id（TSK-0460），能打开会话接着聊。
 	HarnessSession string `json:"harness_session"`
+
+	// ModuleKey / PrefixVersion 是模块前缀复用（0058）：这次执行的提示词开头拼了哪个模块的简报、
+	// 用的是哪一版（模块简报每追加一条历史任务就 +1）。空串 / 0 表示没走模块前缀（非 deepseek、没有项目也没有工作目录、或续跑）。
+	ModuleKey     string `json:"module_key,omitempty"`
+	PrefixVersion int    `json:"prefix_version,omitempty"`
+	// 三个 token 列来自 dsh 会话日志（0058）：命中前缀缓存的输入、未命中的输入、输出。
+	// 缓存命中率 = cache_read / (cache_read + uncached_input)，无输入时为 0；claude 没有这个数据，恒 0。
+	CacheReadTokens     int `json:"cache_read_tokens,omitempty"`
+	UncachedInputTokens int `json:"uncached_input_tokens,omitempty"`
+	OutputTokens        int `json:"output_tokens,omitempty"`
+}
+
+// ModulePrefix 是一个模块（项目或工作目录）的当前前缀简报（0058）。
+// 简报只追加不重写以保证服务商前缀缓存能连续命中；Version 每写一次 +1，
+// 执行记录上的 prefix_version 记下这次实际用的是哪一版。
+type ModulePrefix struct {
+	// ModuleKey 是 project:<项目 id> 或 workdir:<绝对路径>。
+	ModuleKey string `json:"module_key"`
+	// Briefing 是逐字节发给模型的模块简报（头部 + 同模块最近任务行）。
+	Briefing string `json:"briefing"`
+	// Version 是简报版本，首次 seed 为 1，每追加一条就 +1。
+	Version   int       `json:"version"`
+	UpdatedAt time.Time `json:"updated_at"`
 }
 
 // 执行器。值必须和 internal/runner 的 Harness 常量逐字一致——

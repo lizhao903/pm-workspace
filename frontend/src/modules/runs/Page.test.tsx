@@ -144,4 +144,15 @@ describe('运行中心', () => {
     await waitFor(() => expect(router.state.location.pathname).toBe('/tasks'))
     expect(router.state.location.search).toBe('?t=obj_1&tab=runs&run=run_t1')
   })
+
+  it('任务行有命中率时显示缓存 xx%，Agent 行和无数据的任务行不显示（模块前缀复用 P0）', async () => {
+    rows = [row(), taskRow({ cache_hit_ratio: 0.87, module_key: 'project:obj_1' }), taskRow({ id: 'run_t2', title: 'TSK-0002 另一条' })]
+    show()
+    await waitFor(() => expect(rowEl('run_t1')).not.toBeNull())
+    await waitFor(() => expect(rowEl('run_t2')).not.toBeNull())
+    const hit = within(rowEl('run_t1')!).getByText('缓存 87%')
+    expect(hit.getAttribute('title')).toContain('project:obj_1')
+    expect(within(rowEl('ar_1')!).queryByText(/缓存/)).toBeNull()
+    expect(within(rowEl('run_t2')!).queryByText(/缓存/)).toBeNull()
+  })
 })

@@ -163,6 +163,11 @@ func (s *Server) handleRunPrompt(w http.ResponseWriter, r *http.Request) {
 		_, noMCP := s.dshMCP()
 		wb := &runner.WriteBack{RunID: previewRunID, ObjectID: o.ID, Stream: true, DSH: true, NoMCP: noMCP}
 		prompt = s.promptWith(ctx, o, strings.TrimSpace(wd), q.Get("extra_prompt"), preset, wb)
+		// 预览要和后台执行一致（0058）：deepseek 的提示词开头也拼模块简报。
+		// 预览只算 key 和 seed，不写执行记录；claude / agent 预览不加。
+		if _, prefix, _ := s.modulePrefixForRun(ctx, o, strings.TrimSpace(wd)); prefix != "" {
+			prompt = modulePrompt(prefix, prompt)
+		}
 	default:
 		prompt = s.promptFor(ctx, o, strings.TrimSpace(wd), q.Get("extra_prompt"), mode, previewRunID, preset)
 	}

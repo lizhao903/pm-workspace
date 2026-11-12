@@ -2,7 +2,7 @@
 
 import { describe, expect, it } from 'vitest'
 import type { RunEvent } from '../../core/data'
-import { allowRulesLink, allowRulesOf, duration, extraOf, foldEvents, parseOutput, runNote, runStatusOf } from './runsModel'
+import { allowRulesLink, allowRulesOf, cacheHitLabel, cacheHitRatio, cacheHitTitle, duration, extraOf, foldEvents, moduleLabel, parseOutput, runNote, runStatusOf } from './runsModel'
 
 describe('foldEvents', () => {
   it('delta 连续拼成一段，tool 和 tool_result 按 id 配对，交错到达也配得上', () => {
@@ -92,5 +92,37 @@ describe('建议放行', () => {
     expect(allowRulesOf(e)).toEqual(['Bash(git commit:*)', 'mcp__x'])
     expect(allowRulesOf('执行超时')).toEqual([])
     expect(allowRulesLink(['Bash(a:*)', 'mcp__x'])).toBe('/settings/run-permissions?add=' + encodeURIComponent('Bash(a:*)\nmcp__x'))
+  })
+})
+
+// P0（2026-11）：模块前缀复用的缓存命中，只在有 token 数据时显示
+describe('模块前缀复用的缓存命中', () => {
+  it('命中率 = 命中 / (命中 + 未命中)；没有 token 数据回 null', () => {
+    expect(cacheHitRatio({ cache_read_tokens: 8700, uncached_input_tokens: 1300 })).toBeCloseTo(0.87)
+    expect(cacheHitRatio({ cache_read_tokens: 0, uncached_input_tokens: 1000 })).toBe(0)
+    expect(cacheHitRatio({ cache_read_tokens: 100 })).toBe(1)
+    expect(cacheHitRatio({ uncached_input_tokens: 100 })).toBe(0)
+    expect(cacheHitRatio({})).toBeNull()
+    expect(cacheHitRatio({ cache_read_tokens: 0, uncached_input_tokens: 0 })).toBeNull()
+  })
+
+  it('标签显示百分比，没有数据回空串', () => {
+    expect(cacheHitLabel({ cache_read_tokens: 8700, uncached_input_tokens: 1300 })).toBe('缓存 87%')
+    expect(cacheHitLabel({ cache_read_tokens: 1, uncached_input_tokens: 2 })).toBe('缓存 33%')
+    expect(cacheHitLabel({})).toBe('')
+  })
+
+  it('悬停说明带命中和未命中的 token 数、模块前缀复用', () => {
+    expect(cacheHitTitle({ cache_read_tokens: 8700, uncached_input_tokens: 1300, module_key: 'project:obj_x' }))
+      .toBe('命中缓存 8700 tokens / 未命中 1300 tokens；模块前缀复用（项目 obj_x）')
+    expect(cacheHitTitle({})).toBe('命中缓存 0 tokens / 未命中 0 tokens；模块前缀复用')
+  })
+
+  it('模块键给人看：project / workdir 的说明，别的原样', () => {
+    expect(moduleLabel('project:obj_1')).toBe('项目 obj_1')
+    expect(moduleLabel('workdir:/tmp/w')).toBe('目录 /tmp/w')
+    expect(moduleLabel('other')).toBe('other')
+    expect(moduleLabel('')).toBe('')
+    expect(moduleLabel(undefined)).toBe('')
   })
 })

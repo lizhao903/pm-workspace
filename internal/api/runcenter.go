@@ -59,6 +59,11 @@ type runCenterItem struct {
 	ObjectRef   string `json:"object_ref"`
 	ObjectTitle string `json:"object_title"`
 	Harness     string `json:"harness"`
+
+	// ModuleKey / CacheHitRatio 是模块前缀复用（0058）：task 行是这次执行复用的模块和
+	// dsh 会话的缓存命中率（0~1，无 token 为 0）；agent 行没有这个概念，恒空串 / 0。
+	ModuleKey     string  `json:"module_key"`
+	CacheHitRatio float64 `json:"cache_hit_ratio"`
 }
 
 // runCenterHarnessLabel 把执行器的内部 key 翻成界面上给人看的名字。
@@ -185,17 +190,19 @@ func (s *Server) handleListRunsAll(w http.ResponseWriter, r *http.Request) {
 		for _, tr := range taskRuns {
 			run := tr.Run
 			items = append(items, runCenterItem{
-				Kind:        "task",
-				ID:          run.ID,
-				Status:      run.Status,
-				Title:       strings.TrimSpace(tr.ObjectRef + " " + tr.ObjectTitle),
-				Sub:         runCenterHarnessLabel(run.Harness),
-				StartedAt:   run.StartedAt,
-				FinishedAt:  run.FinishedAt,
-				ObjectID:    run.ObjectID,
-				ObjectRef:   tr.ObjectRef,
-				ObjectTitle: tr.ObjectTitle,
-				Harness:     run.Harness,
+				Kind:          "task",
+				ID:            run.ID,
+				Status:        run.Status,
+				Title:         strings.TrimSpace(tr.ObjectRef + " " + tr.ObjectTitle),
+				Sub:           runCenterHarnessLabel(run.Harness),
+				StartedAt:     run.StartedAt,
+				FinishedAt:    run.FinishedAt,
+				ObjectID:      run.ObjectID,
+				ObjectRef:     tr.ObjectRef,
+				ObjectTitle:   tr.ObjectTitle,
+				Harness:       run.Harness,
+				ModuleKey:     run.ModuleKey,
+				CacheHitRatio: runCacheHitRatio(run),
 			})
 		}
 	}
@@ -232,4 +239,18 @@ func (s *Server) runCenterAgentNames(ctx context.Context) (map[string]string, er
 		out[a.ID] = a.Name
 	}
 	return out, nil
+}
+
+// runCacheHitRatio 是 task 行的缓存命中率：命中前缀缓存的输入 / 全部输入（0~1）。
+// 没有输入 token（老记录、claude 执行、日志还没写）时为 0——0 在这里表示「没有数据」，
+// 和「命中率 0%」在界面上要靠 ModuleKey / Harness 一起区分。
+func runCacheHitRatio(run *domain.TaskRun) float64 {
+	if run == nil {
+		return 0
+	}
+	total := run.CacheReadTokens + run.UncachedInputTokens
+	if total <= 0 {
+		return 0
+	}
+	return float64(run.CacheReadTokens) / float64(total)
 }

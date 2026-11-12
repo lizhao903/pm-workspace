@@ -105,6 +105,24 @@ describe('执行记录', () => {
     expect(screen.queryByRole('button', { name: /取消执行|正在取消/ })).not.toBeInTheDocument()
     expect(screen.getByText('执行已被取消')).toBeInTheDocument()
   })
+
+  it('有缓存 token 时显示缓存命中标签和模块键，没有数据不显示（模块前缀复用 P0）', async () => {
+    stub([
+      run({ id: 'run_cache01', harness: 'deepseek', cache_read_tokens: 8700, uncached_input_tokens: 1300, module_key: 'project:obj_x' }),
+      run({ id: 'run_plain02', harness: 'deepseek' }),
+    ])
+    renderBlock()
+    const tag = await screen.findByText('缓存 87%')
+    const cached = tag.closest('[data-run]') as HTMLElement
+    expect(cached).toHaveAttribute('data-run', 'run_cache01')
+    expect(within(cached).getByText('模块 项目 obj_x')).toBeInTheDocument()
+    expect(tag.getAttribute('title')).toContain('命中缓存 8700 tokens / 未命中 1300 tokens')
+    expect(tag.getAttribute('title')).toContain('模块前缀复用')
+    await waitFor(() => expect(document.querySelector('[data-run="run_plain02"]')).not.toBeNull())
+    const plain = document.querySelector('[data-run="run_plain02"]') as HTMLElement
+    expect(within(plain).queryByText(/缓存 \d+%/)).not.toBeInTheDocument()
+    expect(within(plain).queryByText(/^模块 /)).not.toBeInTheDocument()
+  })
 })
 
 describe('流式输出', () => {

@@ -278,9 +278,11 @@ func (s *Server) handleRunObject(w http.ResponseWriter, r *http.Request) {
 		allowed = runner.PermAllowed(perm, perms.Custom)
 	}
 	wb := &runner.WriteBack{RunID: previewRunID, ObjectID: obj.ID, Stream: true, DSH: !claude}
-	prompt := s.promptWith(ctx, obj, workdir, req.ExtraPrompt, preset, wb)
 	var dsRoute *runner.DeepSeekRoute
 	var sessionID string
+	// moduleKey / modulePrefix / moduleVersion 是这次执行复用的模块前缀（0058），非 deepseek 恒为空。
+	var moduleKey, modulePrefix string
+	var moduleVersion int
 	if harness == runner.HarnessDeepSeek {
 		dsRoute, err = s.deepseekRoute(ctx, req.ProviderID, req.Model)
 		if err != nil {
@@ -300,15 +302,23 @@ func (s *Server) handleRunObject(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		}
+		// 模块前缀复用（0058）：每次新会话的提示词都从同一段模块简报开头，吃服务商的前缀缓存。
+		// 续跑不拼：那是「接着整段会话跑」，不是「新会话 + 固定前缀」的形态。
+		if !req.ResumeSession {
+			moduleKey, modulePrefix, moduleVersion = s.modulePrefixForRun(ctx, obj, workdir)
+		}
 	}
 
+	prompt := modulePrompt(modulePrefix, s.promptWith(ctx, obj, workdir, req.ExtraPrompt, preset, wb))
 	run, err := s.st.CreateTaskRun(ctx, &domain.TaskRun{
-		ObjectID: objID,
-		Workdir:  workdir,
-		Prompt:   prompt,
-		Status:   domain.RunRunning,
-		Mode:     domain.RunModeStream,
-		Harness:  string(harness),
+		ObjectID:      objID,
+		Workdir:       workdir,
+		Prompt:        prompt,
+		Status:        domain.RunRunning,
+		Mode:          domain.RunModeStream,
+		Harness:       string(harness),
+		ModuleKey:     moduleKey,
+		PrefixVersion: moduleVersion,
 	})
 	if err != nil {
 		s.fail(w, r, err)
@@ -334,7 +344,7 @@ func (s *Server) handleRunObject(w http.ResponseWriter, r *http.Request) {
 	if wb.NoMCP != "" {
 		s.log.Warn("task run has no workbench mcp", "run", run.ID, "harness", harness, "reason", wb.NoMCP)
 	}
-	prompt = s.promptWith(ctx, obj, workdir, req.ExtraPrompt, preset, wb)
+	prompt = modulePrompt(modulePrefix, s.promptWith(ctx, obj, workdir, req.ExtraPrompt, preset, wb))
 	if err := s.st.SetTaskRunPrompt(ctx, run.ID, prompt); err != nil {
 		s.log.Warn("task run prompt not saved", "run", run.ID, "err", err)
 	}
@@ -418,6 +428,11 @@ func (s *Server) handleRunObject(w http.ResponseWriter, r *http.Request) {
 		if err := s.st.SetTaskRunSession(bg, run.ID, res.SessionID); err != nil {
 			s.log.Warn("save dsh session failed", "run", run.ID, "err", err)
 		}
+	}
+	// 落 dsh 会话的 token 用量，并把这次任务的一行结论追加进模块简报（0058）。
+	// 成功 / 失败 / 取消都记；任何一步失败只记日志，不影响收尾。
+	if harness == runner.HarnessDeepSeek {
+		s.recordDeepSeekRunBookkeeping(bg, run.ID, obj, moduleKey, res)
 	}
 
 	// 先落库再发 done：前端看到 done 就认为「这次执行已经留痕」，

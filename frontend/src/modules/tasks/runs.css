@@ -54,6 +54,10 @@
 
 /* 执行器标签（0049、TSK-0460）：Claude Code 不标，别的执行器标出来 */
 .run-mode.agent { border-color: var(--ok); color: var(--ok); }
+
+/* 模块前缀复用的缓存命中（P0，2026-11）：命中率小标签和模块键，都弱化，不抢状态和执行器 */
+.run-cache { border-color: color-mix(in srgb, var(--ok) 40%, var(--line)); color: var(--muted); font-variant-numeric: tabular-nums; }
+.run-module { display: inline-block; max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; border-style: dashed; color: var(--faint); }
 .run-tool-sum { padding: 0 var(--sp-5) var(--sp-4); color: var(--muted); font-size: var(--fs-xs); overflow-wrap: anywhere; }
 .run-link { flex: none; padding: 0; border: 0; background: none; color: var(--accent); font-size: var(--fs-xs); cursor: pointer; }
 .run-link:hover { text-decoration: underline; }

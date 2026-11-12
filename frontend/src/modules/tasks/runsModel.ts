@@ -178,6 +178,40 @@ export function duration(from: string, to: string | null, now: Date = new Date()
   return `${Math.floor(s / 3600)} 小时 ${Math.round((s % 3600) / 60)} 分钟`
 }
 
+// ---- 模块前缀复用的缓存命中（P0，2026-11）----
+// 后端按任务所属模块（project:<id> / workdir:<路径>）复用系统提示前缀，命中缓存的输入不重算；
+// 命中率 = cache_read_tokens / (cache_read_tokens + uncached_input_tokens)，没有 token 数据时为空、不显示。
+type CacheTokens = Pick<TaskRun, 'cache_read_tokens' | 'uncached_input_tokens'>
+
+/** 缓存命中率 0~1；两个 token 数都没有、或加起来是 0 时回 null */
+export function cacheHitRatio(run: CacheTokens): number | null {
+  if (run.cache_read_tokens === undefined && run.uncached_input_tokens === undefined) return null
+  const hit = run.cache_read_tokens ?? 0
+  const total = hit + (run.uncached_input_tokens ?? 0)
+  return total > 0 ? hit / total : null
+}
+
+/** 缓存命中的小标签，如「缓存 87%」；没有 token 数据回空串（调用方不显示） */
+export function cacheHitLabel(run: CacheTokens): string {
+  const ratio = cacheHitRatio(run)
+  return ratio === null ? '' : `缓存 ${Math.round(ratio * 100)}%`
+}
+
+/** 缓存标签的悬停说明：命中和未命中的 token 数、模块前缀复用（带模块给人看的样子） */
+export function cacheHitTitle(run: CacheTokens & Pick<TaskRun, 'module_key'>): string {
+  const mod = moduleLabel(run.module_key)
+  return `命中缓存 ${run.cache_read_tokens ?? 0} tokens / 未命中 ${run.uncached_input_tokens ?? 0} tokens；模块前缀复用${mod ? `（${mod}）` : ''}`
+}
+
+/** 模块键给人看：project:<id> → 项目 <id>，workdir:<路径> → 目录 <路径>，别的原样；空键回空串 */
+export function moduleLabel(moduleKey: string | undefined): string {
+  const key = (moduleKey ?? '').trim()
+  if (!key) return ''
+  if (key.startsWith('project:')) return '项目 ' + key.slice('project:'.length)
+  if (key.startsWith('workdir:')) return '目录 ' + key.slice('workdir:'.length)
+  return key
+}
+
 /** 执行器的名字（0049、TSK-0460）；老记录没有 harness 按 Claude Code 算 */
 export function harnessLabel(h: TaskRun['harness']): string {
   if (h === 'agent') return '工作台 Agent'

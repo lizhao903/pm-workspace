@@ -4,6 +4,7 @@ package sqlite
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -194,9 +195,9 @@ func TestListAllTaskRunsTiebreakIsInsertionOrder(t *testing.T) {
 	same := nowRun()
 	for _, id := range []string{"run_c", "run_a", "run_b"} {
 		if _, err := s.db.W.ExecContext(ctx,
-			`INSERT INTO task_runs (`+taskRunCols+`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+			`INSERT INTO task_runs (`+taskRunCols+`) VALUES (`+placeholders(strings.Count(taskRunCols, ",")+1)+`)`,
 			id, obj.ID, "/tmp/demo", "", domain.RunRunning, 0, "", "", same, nil,
-			domain.RunModeStream, domain.RunHarnessClaude, ""); err != nil {
+			domain.RunModeStream, domain.RunHarnessClaude, "", "", 0, 0, 0, 0); err != nil {
 			t.Fatalf("插入 %s: %v", id, err)
 		}
 	}

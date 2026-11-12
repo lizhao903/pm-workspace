@@ -167,6 +167,16 @@ type Store interface {
 	// SetTaskRunStatus 改一条还没结束的执行的状态，只认 running / waiting（TSK-0460：交给工作台 Agent 的执行
 	// 停下等人确认时是 waiting）。已经结束的回 conflict，不存在回 not found。
 	SetTaskRunStatus(ctx context.Context, id, status string) error
+	// SetTaskRunUsage 落这次 dsh 执行的缓存用量（0058）：命中前缀缓存 / 未命中的输入、输出 token。
+	// 执行记录不存在回 not found；收尾前后都可写（会话 id 和用量要等进程跑完才有）。
+	SetTaskRunUsage(ctx context.Context, id string, cacheRead, uncached, output int) error
+	// SetTaskRunModule 记这次执行用的是哪个模块的哪一版前缀简报（0058），创建后补写用。
+	SetTaskRunModule(ctx context.Context, id, moduleKey string, prefixVersion int) error
+	// GetModulePrefix 读一个模块的当前前缀简报（0058）：不存在回 (nil, nil)，不是 ErrNotFound——
+	// 「这个模块还没跑过任务」是正常状态，调用方要据此 seed 一份。
+	GetModulePrefix(ctx context.Context, moduleKey string) (*domain.ModulePrefix, error)
+	// SaveModulePrefix 整条写下模块简报（upsert），version 由调用方递增后一起给。
+	SaveModulePrefix(ctx context.Context, p *domain.ModulePrefix) error
 	// ListAllTaskRuns 是运行中心（P0-O1）用的跨对象读法：不按对象筛，返回全部 task 执行里
 	// 按 started_at 倒序的 limit 条，并从 offset 起。statuses 为空表示不过滤，否则只要这些状态。
 	// total 是过滤后的命中总数（不含 Limit/Offset），供列表显示「共 N 条」。

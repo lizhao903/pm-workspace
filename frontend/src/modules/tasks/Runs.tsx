@@ -15,7 +15,10 @@ import { Button, ConfirmDialog, ErrorState, Field, IconChevronRight, LoadingStat
 import { timeAgo } from './model'
 import { useLiveRun, useLiveRuns, type LiveRun } from './runLive'
 import { RunOutput, RunStream, type DecideProps } from './RunStream'
-import { FINISH_OPTIONS, agentSessionOf, allowRulesLink, allowRulesOf, duration, extraOf, harnessLabel, modeLabel, parseOutput, runNote, runStatusOf } from './runsModel'
+import {
+  FINISH_OPTIONS, agentSessionOf, allowRulesLink, allowRulesOf, cacheHitLabel, cacheHitTitle, duration, extraOf, harnessLabel,
+  modeLabel, moduleLabel, parseOutput, runNote, runStatusOf,
+} from './runsModel'
 import './runs.css'
 
 export function RunsBlock({ task, focus }: {
@@ -95,6 +98,25 @@ function HarnessTag({ harness }: { harness: TaskRun['harness'] }) {
   return <span className={cls('run-mode', harness === 'agent' && 'agent')} data-harness={harness}>{harnessLabel(harness)}</span>
 }
 
+// 模块前缀复用的缓存命中（P0，2026-11）：有 token 数据才显示；悬停说明命中、未命中的 token 数
+function CacheTag({ run }: { run: TaskRun }) {
+  const label = cacheHitLabel(run)
+  if (!label) return null
+  const title = cacheHitTitle(run)
+  return <span className="run-mode run-cache" title={title} aria-label={title}>{label}</span>
+}
+
+// 这轮执行复用的模块键（P0，2026-11）：弱化显示，长路径看悬停提示
+function ModuleTag({ run }: { run: TaskRun }) {
+  const label = moduleLabel(run.module_key)
+  if (!label) return null
+  return (
+    <span className="run-mode run-module" title={`模块前缀复用的模块：${run.module_key}`} aria-label={`模块 ${run.module_key}`}>
+      模块 {label}
+    </span>
+  )
+}
+
 const sessionHref = (id: string) => `/conversations?s=${encodeURIComponent(id)}`
 
 // 本页流里的确认卡片：点了走数据层，过程在执行自己的流里接着出
@@ -128,6 +150,8 @@ function TerminalRunRow({ run, lit }: { run: TaskRun; lit: boolean }) {
         <span className={cls('run-chev', expanded && 'open')}><IconChevronRight /></span>
         <StatusTag status={run.status} label={finished ? undefined : '进行中'} />
         <ModeTag mode="terminal" />
+        <CacheTag run={run} />
+        <ModuleTag run={run} />
         <span className={cls('run-extra', !extra && 'none')} title={extra || undefined}>{extra || '没有附加说明'}</span>
         <span className="spacer" />
         <span className="run-at">{timeAgo(run.started_at)} · {duration(run.started_at, run.finished_at)}</span>
@@ -197,6 +221,8 @@ function StreamRunRow({ run, lit }: { run: TaskRun; lit: boolean }) {
         <StatusTag status={r.status} />
         <HarnessTag harness={run.harness} />
         <ModeTag mode="stream" />
+        <CacheTag run={r} />
+        <ModuleTag run={r} />
         <span className={cls('run-extra', !extra && 'none')} title={extra || undefined}>{extra || '没有附加说明'}</span>
         <span className="spacer" />
         <span className="run-at">{timeAgo(run.started_at)} · {duration(run.started_at, r.finished_at)}</span>

@@ -52,6 +52,11 @@ function RunCenterRow({ item, now, onOpenRun, onOpenSession, onOpenTask, onStop,
           <button type="button" className="runs-title ellipsis" title={isAgent ? `打开执行记录 · ${item.title}` : `打开任务 · ${item.title}`}
             onClick={() => (isAgent ? onOpenRun(item.id) : onOpenTask(item))}>{item.title}</button>
           <span className="spacer" />
+          {!isAgent && item.cache_hit_ratio !== undefined && (
+            <span className="runs-elapsed" title={`命中率（模块前缀复用）${item.module_key ? ` · ${item.module_key}` : ''}`}>
+              缓存 {Math.round(item.cache_hit_ratio * 100)}%
+            </span>
+          )}
           <span className="runs-time" title={item.started_at}>{timeAgo(item.started_at, now)}</span>
           {elapsed && <span className="runs-elapsed" title="耗时">{elapsed}</span>}
         </div>

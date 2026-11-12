@@ -41,7 +41,8 @@ func scanRunCenterTaskRun(sc rowScanner) (*store.RunCenterTaskRun, error) {
 	)
 	if err := sc.Scan(&r.ID, &r.ObjectID, &r.Workdir, &r.Prompt, &r.Status,
 		&r.ExitCode, &r.Output, &r.Error, &started, &finished, &r.Mode, &r.Harness,
-		&r.HarnessSession, &ref, &title); err != nil {
+		&r.HarnessSession, &r.ModuleKey, &r.PrefixVersion, &r.CacheReadTokens,
+		&r.UncachedInputTokens, &r.OutputTokens, &ref, &title); err != nil {
 		return nil, err
 	}
 	r.StartedAt = parseTime(started)

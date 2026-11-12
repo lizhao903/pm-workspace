@@ -14,7 +14,9 @@ import (
 	"github.com/lizhao903/pm-workspace/internal/store"
 )
 
-const taskRunCols = `id, object_id, workdir, prompt, status, exit_code, output, error, started_at, finished_at, mode, harness, harness_session`
+// 列清单保持单行、用 ", " 分隔：runcenter.go 的 runCenterSelectCols 按 ", " 切开补 r. 前缀，
+// 换行会让后面几列补不上前缀（SQL 不一定报错，但和相邻列的处理口径就不一致了）。
+const taskRunCols = `id, object_id, workdir, prompt, status, exit_code, output, error, started_at, finished_at, mode, harness, harness_session, module_key, prefix_version, cache_read_tokens, uncached_input_tokens, output_tokens`
 
 // runTimeLayout 与 agent 三张表用的是同一套格式：带固定 9 位小数的 RFC3339。
 //
@@ -35,7 +37,8 @@ func scanTaskRun(sc rowScanner) (*domain.TaskRun, error) {
 	)
 	if err := sc.Scan(&r.ID, &r.ObjectID, &r.Workdir, &r.Prompt, &r.Status,
 		&r.ExitCode, &r.Output, &r.Error, &started, &finished, &r.Mode, &r.Harness,
-		&r.HarnessSession); err != nil {
+		&r.HarnessSession, &r.ModuleKey, &r.PrefixVersion, &r.CacheReadTokens,
+		&r.UncachedInputTokens, &r.OutputTokens); err != nil {
 		return nil, err
 	}
 	r.StartedAt = parseTime(started)
@@ -150,9 +153,10 @@ func (s *Store) CreateTaskRun(ctx context.Context, in *domain.TaskRun) (*domain.
 	r.ID = idgen.Prefixed("run")
 	now := nowRun()
 	if _, err := s.db.W.ExecContext(ctx,
-		`INSERT INTO task_runs (`+taskRunCols+`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		`INSERT INTO task_runs (`+taskRunCols+`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		r.ID, r.ObjectID, r.Workdir, r.Prompt, r.Status, r.ExitCode, r.Output, r.Error, now, nil,
 		r.Mode, r.Harness, r.HarnessSession,
+		r.ModuleKey, r.PrefixVersion, r.CacheReadTokens, r.UncachedInputTokens, r.OutputTokens,
 	); err != nil {
 		return nil, fmt.Errorf("insert task run: %w", err)
 	}
@@ -250,6 +254,81 @@ func (s *Store) SetTaskRunPrompt(ctx context.Context, id, prompt string) error {
 			return err
 		}
 		return conflict("这次执行已经结束了")
+	}
+	return nil
+}
+
+// SetTaskRunUsage 见 store.Store。
+func (s *Store) SetTaskRunUsage(ctx context.Context, id string, cacheRead, uncached, output int) error {
+	return s.updateTaskRunCols(ctx, id,
+		`UPDATE task_runs SET cache_read_tokens = ?, uncached_input_tokens = ?, output_tokens = ? WHERE id = ?`,
+		max(cacheRead, 0), max(uncached, 0), max(output, 0), id)
+}
+
+// SetTaskRunModule 见 store.Store。
+func (s *Store) SetTaskRunModule(ctx context.Context, id, moduleKey string, prefixVersion int) error {
+	return s.updateTaskRunCols(ctx, id,
+		`UPDATE task_runs SET module_key = ?, prefix_version = ? WHERE id = ?`,
+		strings.TrimSpace(moduleKey), max(prefixVersion, 0), id)
+}
+
+// updateTaskRunCols 是上面两个「创建后补写列」的公共实现：只关心记录在不在，
+// 不限制收尾状态（用量和会话 id 一样，是进程跑完才有的数据，和收尾可能前后脚）。
+func (s *Store) updateTaskRunCols(ctx context.Context, id, query string, args ...any) error {
+	res, err := s.db.W.ExecContext(ctx, query, args...)
+	if err != nil {
+		return fmt.Errorf("update task run columns: %w", err)
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return notFound("task run")
+	}
+	return nil
+}
+
+// GetModulePrefix 见 store.Store。
+func (s *Store) GetModulePrefix(ctx context.Context, moduleKey string) (*domain.ModulePrefix, error) {
+	key := strings.TrimSpace(moduleKey)
+	if key == "" {
+		return nil, nil
+	}
+	var (
+		p       domain.ModulePrefix
+		updated string
+	)
+	err := s.db.R.QueryRowContext(ctx,
+		`SELECT module_key, briefing, version, updated_at FROM module_prefixes WHERE module_key = ?`, key).
+		Scan(&p.ModuleKey, &p.Briefing, &p.Version, &updated)
+	if noRows(err) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("get module prefix: %w", err)
+	}
+	p.UpdatedAt = parseTime(updated)
+	return &p, nil
+}
+
+// SaveModulePrefix 见 store.Store。
+func (s *Store) SaveModulePrefix(ctx context.Context, p *domain.ModulePrefix) error {
+	if p == nil {
+		return validation("module prefix", "is required")
+	}
+	key := strings.TrimSpace(p.ModuleKey)
+	if key == "" {
+		return validation("module_key", "is required")
+	}
+	updated := p.UpdatedAt
+	if updated.IsZero() {
+		updated = time.Now().UTC()
+	}
+	if _, err := s.db.W.ExecContext(ctx,
+		`INSERT INTO module_prefixes (module_key, briefing, version, updated_at) VALUES (?,?,?,?)
+		 ON CONFLICT(module_key) DO UPDATE SET
+		   briefing = excluded.briefing,
+		   version = excluded.version,
+		   updated_at = excluded.updated_at`,
+		key, p.Briefing, p.Version, updated.Format(runTimeLayout)); err != nil {
+		return fmt.Errorf("save module prefix: %w", err)
 	}
 	return nil
 }

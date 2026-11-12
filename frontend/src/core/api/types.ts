@@ -461,6 +461,17 @@ export type TaskRun = {
   harness?: RunHarness | (string & {})
   /** 执行器的会话（0050）：deepseek 是 dsh 会话，agent 是 Agent 会话 id（能打开会话接着聊）；没有为空串 */
   harness_session?: string
+  // ---- 模块前缀复用（P0，2026-11）：deepseek 执行按任务所属模块复用系统提示前缀，记下这轮用的模块和缓存量 ----
+  /** 复用的模块键：project:<对象 id> 或 workdir:<路径>；老记录没有 */
+  module_key?: string
+  /** 模块前缀的版本：前缀变了版本加一，缓存按版本对 */
+  prefix_version?: number
+  /** 命中缓存、没重算的输入 token 数；和 uncached_input_tokens 一起算命中率 */
+  cache_read_tokens?: number
+  /** 没命中缓存、按输入重算的 token 数 */
+  uncached_input_tokens?: number
+  /** 这次执行输出的 token 数 */
+  output_tokens?: number
 }
 
 export type RunMode = 'stream' | 'terminal'

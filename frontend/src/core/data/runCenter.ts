@@ -31,6 +31,11 @@ export type RunCenterItem = {
   object_ref: string
   object_title: string
   harness: string
+  // ---- 模块前缀复用（P0，2026-11）：只有任务行有 ----
+  /** 这次任务执行复用的模块键：project:<对象 id> 或 workdir:<路径> */
+  module_key?: string
+  /** 缓存命中率 0~1 = cache_read / (cache_read + uncached_input)；没有 token 数据时缺省 */
+  cache_hit_ratio?: number
 }
 
 export type RunCenterFilter = { status?: string; source?: string; limit?: number; offset?: number }
