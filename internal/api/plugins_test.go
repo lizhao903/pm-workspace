@@ -5,11 +5,13 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/lizhao903/pm-workspace/internal/plugin"
 	"github.com/lizhao903/pm-workspace/internal/plugin/plugintest"
+	"github.com/lizhao903/pm-workspace/internal/plugins/jobs"
 )
 
 func newPluginServer(t *testing.T) (*Server, *plugin.Registry, *plugintest.Demo) {
@@ -146,4 +148,33 @@ func TestMigrationsIncludePlugins(t *testing.T) {
 		t.Fatalf("插件迁移的顺序不对：%v", all[1:])
 	}
 	assertError(t, do(s, http.MethodGet, "/api/admin/migrations?plugin=nope", ""), http.StatusNotFound, "not_found")
+}
+
+func TestPluginJobsEndpoint(t *testing.T) {
+	reg := plugin.NewRegistry(plugin.NewMemStateStore(), slog.New(slog.DiscardHandler))
+	if err := reg.Add(jobs.New(func() []plugin.JobStats {
+		return []plugin.JobStats{{PluginID: "demo", Name: "tick", Success: 2, Total: 2}}
+	})); err != nil {
+		t.Fatal(err)
+	}
+	if err := reg.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(reg.Close)
+	s := newTestServer(newFakeStore(), func(o *Options) { o.Plugins = reg })
+	assertError(t, do(s, "GET", "/api/jobs/stats", ""), 404, "not_found")
+	if err := reg.Install(context.Background(), "jobs", nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := reg.Enable(context.Background(), "jobs"); err != nil {
+		t.Fatal(err)
+	}
+	w := do(s, "GET", "/api/jobs/stats", "")
+	if w.Code != 200 || !strings.Contains(w.Body.String(), `"plugin_id":"demo"`) {
+		t.Fatalf("bad stats: %d %s", w.Code, w.Body.String())
+	}
+	if err := reg.Disable(context.Background(), "jobs"); err != nil {
+		t.Fatal(err)
+	}
+	assertError(t, do(s, "GET", "/api/jobs/stats", ""), 404, "not_found")
 }

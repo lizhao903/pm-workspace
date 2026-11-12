@@ -2269,6 +2269,7 @@ IM 插件自己存（插件表，迁移 `0007_conversation_projects.sql`），�
 |---|---|
 | `status` | `pending` / `done` / `ignored` / `expired`，和原型 `MsgStatus` 一致；`pending` 不含已过期的；别的值 400 |
 | `channel` | 渠道 key，不分大小写 |
+| `connector_id` | 只取指定连接器实例的消息；与分页组合可读取最新一条（`limit=1`），不会混入同渠道的其他实例 |
 | `conversation_id` | 会话 id（`cv_`）；到达时还没登记、后来登记了的会话的消息也算进来。会话不存在 400 |
 | `mine` | 与我相关：`any` 是 @我、@所有人、私聊，`at` 只看 @我（同原型筛选）；别的值 400 |
 | `unread` | `true` 只看未读 |
@@ -4060,3 +4061,11 @@ BR-01a。插件 `browser`（`internal/plugins/browser`，清单 `plugin.json`，
 `kind` 为 `claude`、`deepseek`、`codex`；程序路径保存为绝对路径。Codex 的 `use_cli_config=true` 使用本机登录和配置，其他情况必须选择模型服务商。
 
 现有 SOP `claude_code` 节点的 `config.executor` 可保存执行器 ID，留空使用原来的 Claude Code 配置。运行时重新查询执行器并固定本次的程序和服务商配置；不存在、停用、配置缺失时失败，不自动切换执行器。角色、目录、提示词、权限、超时继续沿用节点配置。Codex 支持工作台回写 MCP；DeepSeek 沿用结束文本作为结论的回退机制。
+
+## 后台任务插件 jobs
+
+可安装、启用、停用和卸载；无数据库迁移及额外权限。内核持续采集统计，停用本插件仅关闭查询接口和设置页面，不影响其他插件的任务。页面入口：设置 → 插件分组 → 后台任务（`/settings/plugins/jobs/jobs`）。
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| GET | `/api/jobs/stats` | 插件后台 Job 内存统计列表，返回 `data: JobStats[]` 和 `meta`。仅记录本进程启动过的 Job，重启清零，不写数据库。按最近一小时失败次数降序、执行中优先、插件 id 和任务名升序排列。字段：`plugin_id, plugin_name, name, every_ms, enabled, running, total, success, failed, canceled, last_started_at, last_finished_at, last_duration_ms, last_error`。次数按完成时间统计最近 3600 秒（秒级精度）；总数=成功+失败+取消，执行中不计数。正常返回（含无工作可做）算成功，panic 算失败，context 取消时单列取消。`every_ms=0` 表示启动一次或常驻。最近时间未执行时为 null；`last_error` 在成功后清空。前端每 10 秒刷新。 |

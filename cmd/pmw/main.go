@@ -34,6 +34,7 @@ import (
 	"github.com/lizhao903/pm-workspace/internal/plugins/domains"
 	"github.com/lizhao903/pm-workspace/internal/plugins/etf"
 	"github.com/lizhao903/pm-workspace/internal/plugins/im"
+	"github.com/lizhao903/pm-workspace/internal/plugins/jobs"
 	"github.com/lizhao903/pm-workspace/internal/plugins/projects"
 	"github.com/lizhao903/pm-workspace/internal/plugins/sop"
 	"github.com/lizhao903/pm-workspace/internal/plugins/terminal"
@@ -239,6 +240,9 @@ func run(cfg config) error {
 	}
 	// 内置浏览器插件（BR-01a）：标签页、地址白名单；Google 账号用 Google Drive 连接器实例
 	if err := plugins.Add(browser.New()); err != nil {
+		return fmt.Errorf("登记插件失败: %w", err)
+	}
+	if err := plugins.Add(jobs.New(plugins.JobStats)); err != nil {
 		return fmt.Errorf("登记插件失败: %w", err)
 	}
 	if err := plugins.Start(ctx); err != nil {

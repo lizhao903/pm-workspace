@@ -23,6 +23,7 @@ import {
 } from './model'
 import { listenOAuth, OAUTH_POLL_MS, openBlank } from './oauth'
 import { ConnBar, ToolLogo } from './parts'
+import { LatestMessage } from './LatestMessage'
 
 /** 自定义图标上限：data URL 存在库里，后端最多 512KB */
 const MAX_ICON = 256 * 1024
@@ -499,6 +500,9 @@ export function ConnectorDrawer({ def, connector: c, taken, check, pending, test
               </Field>
               {enabledRow}
             </section>
+            {def.tool === 'telegram' && c && freshCheck?.ok && !pending && !testError && (
+              <LatestMessage key={freshCheck.at} connector={c} testedAt={freshCheck.at} />
+            )}
           </>
         ) : (
           <>

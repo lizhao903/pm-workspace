@@ -1,0 +1,13 @@
+{
+  "id": "jobs",
+  "name": "后台任务",
+  "description": "查看插件后台任务的运行状态、最近一小时执行统计及错误，每 10 秒刷新；统计仅存内存",
+  "version": "0.1.0",
+  "core": ">=1.0.0 <2.0.0",
+  "depends": {},
+  "provides": { "modules": [], "settings": ["jobs"] },
+  "permissions": [],
+  "emits": [],
+  "subscribes": [],
+  "table_prefix": "jobs_"
+}

@@ -153,3 +153,19 @@ export function useUninstallPlugin() {
     onSettled: () => notify({ kind: 'plugin' }),
   })
 }
+
+export type PluginJob = {
+  plugin_id: string; plugin_name: string; name: string; every_ms: number
+  enabled: boolean; running: boolean
+  total: number; success: number; failed: number; canceled: number
+  last_started_at: string | null; last_finished_at: string | null
+  last_duration_ms: number; last_error: string
+}
+
+export function usePluginJobs() {
+  return useQuery({
+    queryKey: ['plugins', 'jobs'],
+    queryFn: ({ signal }) => requestList<PluginJob>('/api/jobs/stats', { signal }).then((r) => r.data),
+    refetchInterval: 10_000,
+  })
+}
