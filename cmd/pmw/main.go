@@ -37,6 +37,7 @@ import (
 	"github.com/lizhao903/pm-workspace/internal/plugins/domains"
 	"github.com/lizhao903/pm-workspace/internal/plugins/etf"
 	"github.com/lizhao903/pm-workspace/internal/plugins/im"
+	"github.com/lizhao903/pm-workspace/internal/plugins/jobs"
 	"github.com/lizhao903/pm-workspace/internal/plugins/projects"
 	"github.com/lizhao903/pm-workspace/internal/plugins/recording"
 	"github.com/lizhao903/pm-workspace/internal/plugins/sop"
@@ -82,7 +83,7 @@ type config struct {
 
 func main() {
 	var cfg config
-	flag.StringVar(&cfg.addr, "addr", "127.0.0.1:7777", "明文 HTTP 监听地址")
+	flag.StringVar(&cfg.addr, "addr", "127.0.0.1:7796", "明文 HTTP 监听地址")
 	flag.StringVar(&cfg.tlsAddr, "tls-addr", "", "额外的 HTTPS 监听地址；留空则不单独监听（此时若给了证书就把 --addr 本身升级成 HTTPS）")
 	flag.StringVar(&cfg.tlsCert, "tls-cert", "", "TLS 证书路径（需与 --tls-key 同时给出）")
 	flag.StringVar(&cfg.tlsKey, "tls-key", "", "TLS 私钥路径（需与 --tls-cert 同时给出）")
@@ -250,6 +251,18 @@ func run(cfg config) error {
 	// 内置浏览器插件（BR-01a）：标签页、地址白名单；Google 账号用 Google Drive 连接器实例
 	if err := plugins.Add(browser.New()); err != nil {
 		return fmt.Errorf("登记插件失败: %w", err)
+	}
+	if err := plugins.Add(jobs.New(plugins.JobStats)); err != nil {
+		return fmt.Errorf("登记插件失败: %w", err)
+	}
+	if err := plugins.PrepareStartup(ctx, "sop", func(ctx context.Context) (string, error) {
+		info, err := st.Snapshot(ctx, "")
+		if err != nil {
+			return "", err
+		}
+		return info.Path, nil
+	}); err != nil {
+		return fmt.Errorf("启动前准备 SOP 失败（数据库 %s）: %w", pdb.Path, err)
 	}
 	// 录音转写插件（REC-01a）：浏览器录音、本机 whisper.cpp 转写、模型下载
 	if err := plugins.Add(recording.New()); err != nil {

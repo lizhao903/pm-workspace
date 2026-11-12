@@ -288,3 +288,27 @@ func mustRead(t *testing.T, fsys fs.FS, name string) []byte {
 	}
 	return b
 }
+
+// Both deployed SOP histories must keep their original migration names and
+// checksums, while unrelated duplicate numbers remain invalid.
+func TestSOPHistoricalMigrationNumberCollision(t *testing.T) {
+	for _, third := range []bool{false, true} {
+		t.Run(map[bool]string{false: "historical_pair", true: "new_duplicate_rejected"}[third], func(t *testing.T) {
+			files := fstest.MapFS{
+				"0008_flow_ownership.sql": {Data: []byte("ALTER TABLE sop_flows ADD COLUMN ownership TEXT;")},
+				"0008_im_trigger.sql":     {Data: []byte("ALTER TABLE sop_flows ADD COLUMN im_filter TEXT;")},
+			}
+			if third {
+				files["0008_other.sql"] = &fstest.MapFile{Data: []byte("ALTER TABLE sop_flows ADD COLUMN other TEXT;")}
+			}
+			p := migPlugin{fakePlugin: &fakePlugin{m: manifest(t, "sop", `,"migrations":"m","table_prefix":"sop_"`)}, migs: files}
+			err := plugin.NewRegistry(plugin.NewMemStateStore(), quiet).Add(p)
+			if third && (err == nil || !strings.Contains(err.Error(), "编号重复")) {
+				t.Fatalf("got %v", err)
+			}
+			if !third && err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}

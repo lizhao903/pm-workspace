@@ -18,6 +18,7 @@ import { SkillsSection } from './skills/SkillsSection'
 import { LocalFsSection } from './localfs/LocalFsSection'
 import { IncidentsSection } from './incidents/IncidentsSection'
 import { RunPresetsSection } from './runprompts/RunPresetsSection'
+import { ExecutorsSection } from './executors/ExecutorsSection'
 import { RunPermsSection } from './runperms/RunPermsSection'
 import { RunnersSection } from './runners/RunnersSection'
 import { UpdateSection } from './update/UpdateSection'
@@ -29,6 +30,7 @@ const KERNEL: SubnavItem<string>[] = [
   { key: 'plugins', label: '插件', desc: '安装、启停、卸载功能插件' },
   { key: 'connectors', label: '连接器', desc: '对接外部工具' },
   { key: 'providers', label: '模型服务商', desc: 'API Key 与接口地址' },
+  { key: 'executors', label: '执行器', desc: '本机 CLI 执行器配置' },
   { key: 'agents', label: 'Agent', desc: '工作助手' },
   // SPEC-settings-24：交给 Claude Code 时可选的执行要求
   { key: 'run-prompts', label: '角色', desc: '交给 Claude Code 的角色：执行要求、权限、输出要求' },
@@ -82,6 +84,7 @@ export default function Page() {
         : kernel!.key === 'connectors' ? <ConnectorsSection />
         : kernel!.key === 'workspace' ? <WorkspacesSection />
         : kernel!.key === 'enums' ? <EnumsSection />
+        : kernel!.key === 'executors' ? <ExecutorsSection />
         : kernel!.key === 'agents' ? <AgentsSection />
         : kernel!.key === 'run-prompts' ? <RunPresetsSection />
         : kernel!.key === 'run-permissions' ? <RunPermsSection />

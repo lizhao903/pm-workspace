@@ -106,6 +106,9 @@ func (in *inbox) list(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	var where []string
 	var args []any
+	if cid := strings.TrimSpace(q.Get("connector_id")); cid != "" {
+		where, args = append(where, "connector_id = ?"), append(args, cid)
+	}
 	if s := q.Get("status"); s != "" {
 		if !slices.Contains(Statuses, s) {
 			fail(w, r, in.c, apiErr(errValidation, "status must be one of %s", strings.Join(Statuses, ", ")))

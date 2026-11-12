@@ -40,6 +40,8 @@ export { Markdown } from './Markdown'
 export { parseBlocks, mdHeadings } from './mdParse'
 export type { Block as MdBlock, MdHeading } from './mdParse'
 export { IconCheck, IconChevronDown, IconChevronRight, IconClose, IconSearch } from './icons'
+export { ChatPanel } from './ChatPanel'
+export type { ChatMessage, ChatPanelProps } from './ChatPanel'
 // 定时规则编辑（定时任务抽屉、SOP 流程的定时触发共用，TSK-0463）
 export { ScheduleRuleFields } from './ScheduleRuleEditor'
 export { useRuleCheck } from './useRuleCheck'

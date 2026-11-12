@@ -32,4 +32,3 @@ export function useRuleCheck(rule: ScheduleRule, opts: { now: Date; count?: numb
   const serverError = previewRule && preview.isError ? `规则不对：${errorText(preview.error).replace(/^validation failed:\s*/, '')}` : ''
   return { error: clientErr || serverError, serverError, upcoming: !clientErr && preview.data ? preview.data.next_runs : null }
 }
-

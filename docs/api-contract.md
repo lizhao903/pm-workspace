@@ -2633,6 +2633,7 @@ IM 插件自己存（插件表，迁移 `0007_conversation_projects.sql`），�
 |---|---|
 | `status` | `pending` / `done` / `ignored` / `expired`，和原型 `MsgStatus` 一致；`pending` 不含已过期的；别的值 400 |
 | `channel` | 渠道 key，不分大小写 |
+| `connector_id` | 只取指定连接器实例的消息；与分页组合可读取最新一条（`limit=1`），不会混入同渠道的其他实例 |
 | `conversation_id` | 会话 id（`cv_`）；到达时还没登记、后来登记了的会话的消息也算进来。会话不存在 400 |
 | `mine` | 与我相关：`any` 是 @我、@所有人、私聊，`at` 只看 @我（同原型筛选）；别的值 400 |
 | `unread` | `true` 只看未读 |
@@ -2977,7 +2978,7 @@ SOP-01a 起。插件 `sop`（`internal/plugins/sop`，清单 `plugin.json`，0.2
 | POST | `/api/sop/im-explain` | `{message_id?, message?, draft?}`，模拟 IM 触发，回 `SopIMExplain`（TSK-0491，见「调试」） |
 | GET | `/api/sop/flows/{id}/skips` | `?limit=50&reason=`，自动触发没发起的记录 `SopSkip[]` + `meta.total`、`meta.reasons`（TSK-0491，见「调试」） |
 
-`SopFlow`：`{id, name, desc, trigger, fields, steps, layout?, version, created_at, updated_at, schedule, im, folder_id, issues?}`。`issues` 是按现在的保存校验查出来的问题 `SopIssue[]`（TSK-0490，见「保存校验」），在流程列表（TSK-0498 起，读的时候算，前端据此在卡片上标「需修复」）、`GET /api/sop/flows/{id}`（全部问题，含错误：库里的旧流程可能过不了新校验，打开时提示）和 `POST` / `PATCH` 成功的回包（只有警告）里带，没有问题时不带；执行快照里不带。`folder_id` 是所在文件夹的 id，`null` 是「未分类」，总是带（TSK-0482，见「文件夹」）。`schedule` 是随这个流程管理的定时任务（形状同 `/api/schedules` 的 `Schedule`），没有为 `null`（TSK-0463，见「定时触发」）。`im` 是 IM 触发的过滤条件、执行顺序与拦截 `SopIMTrigger`，总是带（TSK-0481，见「IM 触发」）。形状同原型 `web-next/src/sopflow.ts` 的 `Sop`：`fields` 是 `SopField[]`，`steps` 是 `SopStepDef[]`，`layout` 是 `{<步骤 key 或 __start>: {x, y}}`，没有就不返回这个字段。
+`SopFlow`：`{id, ownership, name, desc, trigger, fields, steps, layout?, version, created_at, updated_at, schedule, im, folder_id, issues?}`。`issues` 是按现在的保存校验查出来的问题 `SopIssue[]`（TSK-0490，见「保存校验」），在流程列表（TSK-0498 起，读的时候算，前端据此在卡片上标「需修复」）、`GET /api/sop/flows/{id}`（全部问题，含错误：库里的旧流程可能过不了新校验，打开时提示）和 `POST` / `PATCH` 成功的回包（只有警告）里带，没有问题时不带；执行快照里不带。`folder_id` 是所在文件夹的 id，`null` 是「未分类」，总是带（TSK-0482，见「文件夹」）。`schedule` 是随这个流程管理的定时任务（形状同 `/api/schedules` 的 `Schedule`），没有为 `null`（TSK-0463，见「定时触发」）。`im` 是 IM 触发的过滤条件、执行顺序与拦截 `SopIMTrigger`，总是带（TSK-0481，见「IM 触发」）。形状同原型 `web-next/src/sopflow.ts` 的 `Sop`：`fields` 是 `SopField[]`，`steps` 是 `SopStepDef[]`，`layout` 是 `{<步骤 key 或 __start>: {x, y}}`，没有就不返回这个字段。
 
 - `fields`、`steps`、`layout` 校验后按原样存 JSON，取回来和存进去一致，没认的字段（`rule`、`ms` 等）原样保留。步骤里原型的函数字段（`run`、`fail`、`decide`）不在 JSON 里；没有 `decide` 也没有 `rule` 的判断节点就是人工判断（同原型 `isManualDecide`）。
 - `after` 不写就接在上一步后面、第一步是起点（同原型 `depsOf`），存的时候不补写。
@@ -4772,6 +4773,32 @@ REC-01a 起，本地优先的录音转写：浏览器内录音，音频存数据
 - 路由表与本文档由 `TestEveryRouteIsInTheContractDoc` / `TestContractDocHasNoDeadRoutes`
   双向盯着：加了路由不记文档、或文档里留了已删除的路由，测试都会红。
 
+
+### 本地执行器
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| GET | `/api/executors` | 执行器列表，支持 `q` 搜索，附带配置 warnings、provider_name、model |
+| GET | `/api/executors/{id}` | 执行器详情 |
+| POST | `/api/executors` | 新建执行器，返回 201 |
+| PUT | `/api/executors/{id}` | 替换执行器配置 |
+| DELETE | `/api/executors/{id}` | 删除执行器 |
+| POST | `/api/executors/command` | 接收 Codex 执行器配置，返回 `{command}` bash 命令预览；不执行，不返回密钥 |
+| POST | `/api/executors/probe` | 接收执行器配置，探测程序路径和版本，返回 path、version、warnings |
+| POST | `/api/executors/test` | 接收 `{executor, prompt, messages?}`，`messages` 为当前面板的历史 `{role, content}[]`（最多 20 条，不持久化），返回 `{reply, model}`；所有类型均实际调用所选本机 CLI，使用与 SOP 相同的程序路径和模型路由解析，临时目录只读测试 |
+
+执行器配置字段：`id, name, kind, bin, desc, enabled, provider_id, use_cli_config`。
+`kind` 为 `claude`、`deepseek`、`codex`；程序路径保存为绝对路径。Codex 的 `use_cli_config=true` 使用本机登录和配置，其他情况必须选择模型服务商。
+
+现有 SOP `claude_code` 节点的 `config.executor` 可保存执行器 ID，留空使用原来的 Claude Code 配置。运行时重新查询执行器并固定本次的程序和服务商配置；不存在、停用、配置缺失时失败，不自动切换执行器。角色、目录、提示词、权限、超时继续沿用节点配置。Codex 支持工作台回写 MCP；DeepSeek 沿用结束文本作为结论的回退机制。
+
+## 后台任务插件 jobs
+
+可安装、启用、停用和卸载；无数据库迁移及额外权限。内核持续采集统计，停用本插件仅关闭查询接口和设置页面，不影响其他插件的任务。页面入口：设置 → 插件分组 → 后台任务（`/settings/plugins/jobs/jobs`）。
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| GET | `/api/jobs/stats` | 插件后台 Job 内存统计列表，返回 `data: JobStats[]` 和 `meta`。仅记录本进程启动过的 Job，重启清零，不写数据库。按最近一小时失败次数降序、执行中优先、插件 id 和任务名升序排列。字段：`plugin_id, plugin_name, name, every_ms, enabled, running, total, success, failed, canceled, last_started_at, last_finished_at, last_duration_ms, last_error`。次数按完成时间统计最近 3600 秒（秒级精度）；总数=成功+失败+取消，执行中不计数。正常返回（含无工作可做）算成功，panic 算失败，context 取消时单列取消。`every_ms=0` 表示启动一次或常驻。最近时间未执行时为 null；`last_error` 在成功后清空。前端每 10 秒刷新。 |
 ---
 
 由 DeepSeek Harness（dsh）协助完成。

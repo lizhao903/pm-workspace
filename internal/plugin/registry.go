@@ -64,10 +64,12 @@ type Registry struct {
 	// httpBase 是插件出网的底层 RoundTripper（VID-04a，network.go），测试用 SetHTTPTransport 换成假服务
 	httpBase atomic.Pointer[transportBox]
 
-	mu      sync.Mutex // 串行化生命周期操作，也守着 entry.state
-	order   []string
-	entries map[string]*entry
-	started bool
+	mu         sync.Mutex // 串行化生命周期操作，也守着 entry.state
+	order      []string
+	entries    map[string]*entry
+	started    bool
+	jobStatsMu sync.Mutex
+	jobStats   map[string]*jobStats
 }
 
 type entry struct {
@@ -583,7 +585,9 @@ func (r *Registry) migrate(ctx context.Context, e *entry) error {
 	for _, f := range pending(e.migs, applied[e.m.ID]) {
 		a := AppliedMigration{Plugin: e.m.ID, File: f.name, Checksum: f.checksum,
 			PluginVersion: e.m.Version, AppliedAt: time.Now().UTC()}
+		e.core.log.Info("plugin migration started", "file", f.name)
 		if err := r.Migrations.Apply(ctx, a, f.body); err != nil {
+			e.core.log.Error("plugin migration failed", "file", f.name, "err", err)
 			return err
 		}
 		e.core.log.Info("plugin migration applied", "file", f.name)
@@ -684,6 +688,7 @@ func (r *Registry) start(e *entry, a *activation) {
 	// 先标在跑再起任务：任务一启动就可能发通知（Notify 只认在跑的插件）
 	e.active.Store(a)
 	for _, j := range a.jobs {
+		r.registerJobStats(e.m.ID, e.m.Name, j)
 		a.done.Add(1)
 		e.jobs.Add(1)
 		go r.runJob(ctx, e, a, j)
@@ -735,13 +740,19 @@ func (r *Registry) runJob(ctx context.Context, e *entry, a *activation, j Job) {
 
 // runOnce 跑一次任务；出错、panic 只记日志，不影响别的插件和下一轮。
 func (r *Registry) runOnce(ctx context.Context, e *entry, j Job) {
+	started := time.Now()
+	r.jobStarted(e.m.ID, j.Name, started)
+	var runErr error
 	defer func() {
 		if v := recover(); v != nil {
+			runErr = fmt.Errorf("panic: %v", v)
 			e.core.log.Error("plugin job panic", "job", j.Name, "panic", v, "stack", string(debug.Stack()))
 		}
+		r.jobFinished(e.m.ID, j.Name, started, runErr, ctx.Err() != nil)
 	}()
-	if err := j.Run(ctx, e.core); err != nil && ctx.Err() == nil {
-		e.core.log.Warn("plugin job failed", "job", j.Name, "err", err)
+	runErr = j.Run(ctx, e.core)
+	if runErr != nil && ctx.Err() == nil {
+		e.core.log.Warn("plugin job failed", "job", j.Name, "err", runErr)
 	}
 }
 

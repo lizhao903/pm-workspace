@@ -982,6 +982,7 @@ type TaskRun struct {
 // 执行器。值必须和 internal/runner 的 Harness 常量逐字一致——
 // 那边决定起哪个进程，这边只负责把它记下来。
 const (
+	RunHarnessCodex    = "codex"    // 本机 Codex CLI
 	RunHarnessClaude   = "claude"   // 本机 claude CLI
 	RunHarnessDeepSeek = "deepseek" // deepseek-harness（dsh）的 headless 模式
 	// RunHarnessAgent 是工作台自己的 Agent（TSK-0460）：在工作台进程里跑 internal/agent 的工具循环，

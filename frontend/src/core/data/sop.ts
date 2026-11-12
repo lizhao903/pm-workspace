@@ -72,6 +72,7 @@ export type SopFieldGroup = { source: 'trigger' | 'input' | 'step' | 'loopback' 
 /** 触发方式和它自动带进输入的字段（TSK-0490） */
 export type SopTrigger = { key: string; label: string; desc: string; outputs: SopOutput[]; auto: boolean }
 export type SopFlow = {
+  ownership?: 'buildin' | 'nobuild-in'
   id: string
   name: string
   desc: string
@@ -335,7 +336,7 @@ export type SopDraft = Pick<SopFlow, 'name' | 'desc' | 'trigger' | 'fields' | 's
 /** 保存校验的一条问题；step 是步骤下标（从 0 起），整条流程的问题没有；level 是 error（拦保存）或 warning（能存，提示），code 见契约（TSK-0490） */
 export type SopIssue = { text: string; step?: number; level?: 'error' | 'warning'; code?: string }
 /** 新建、修改流程的 body；layout 为 null 时清掉手动位置 */
-type SopFlowBody = Omit<SopDraft, 'id' | 'layout' | 'sched' | 'im'> & {
+type SopFlowBody = Omit<SopDraft, 'layout' | 'sched' | 'im'> & {
   layout: SopFlow['layout'] | null
   /** IM 触发设置（TSK-0481）；order 不给是不改 */
   im?: Omit<SopIMTrigger, 'order'> & { order?: number }
@@ -662,7 +663,7 @@ export function useSaveSopFlow() {
         const { order, ...rest } = draft.im
         body.im = order != null && draft.trigger === SOP_TRIGGER_IM ? { ...rest, order } : rest
       }
-      return id ? sopApi.patchFlow(id, { ...body, version }) : sopApi.createFlow(body)
+      return id ? sopApi.patchFlow(id, { ...body, version }) : sopApi.createFlow({ ...body, id: draft.id })
     },
     onSuccess: (f) => {
       // IM 流程的顺序是大家一起排的（TSK-0481）：这一条插进去、改成或改掉 IM，别的流程的 order 跟着变，整份列表重取
