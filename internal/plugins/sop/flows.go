@@ -117,6 +117,7 @@ func nodeType(kind string) (NodeType, bool) {
 // Flow 是一条流程定义，形状同原型 Sop，多 version 和时间。
 type Flow struct {
 	ID        string          `json:"id"`
+	Ownership string          `json:"ownership"`
 	Name      string          `json:"name"`
 	Desc      string          `json:"desc"`
 	Trigger   string          `json:"trigger"`
@@ -154,7 +155,7 @@ type flows struct {
 
 var flowIDRe = regexp.MustCompile(`^sop_[a-z0-9_]{1,60}$`)
 
-const flowCols = `id, name, description, trigger_desc, fields, steps, layout, version, created_at, updated_at`
+const flowCols = `id, ownership, name, description, trigger_desc, fields, steps, layout, version, created_at, updated_at`
 
 // flowSel 是读流程的列：flowCols 加 IM 触发设置（TSK-0481）和所在文件夹（TSK-0482），scanFlow 按它读
 const flowSel = flowCols + `, im_filter, im_stop, ` + imRankSQL + `, ` + folderIDSQL
@@ -222,7 +223,7 @@ func (h *flows) add(w http.ResponseWriter, r *http.Request) {
 
 // create 是新建一条流程，raw 是 POST /api/sop/flows 的请求体；Agent 的 create_sop 也走这里（TSK-0480，launch.go）。
 func (h *flows) create(ctx context.Context, raw map[string]json.RawMessage) (Flow, error) {
-	f := Flow{Fields: json.RawMessage(`[]`), Steps: json.RawMessage(`[]`), Version: 1}
+	f := Flow{Ownership: "nobuild-in", Fields: json.RawMessage(`[]`), Steps: json.RawMessage(`[]`), Version: 1}
 	if v, ok := raw["id"]; ok && string(v) != "null" {
 		// 带 id 是为了导入原型或别处导出的流程，id 照旧
 		if err := json.Unmarshal(v, &f.ID); err != nil || !flowIDRe.MatchString(f.ID) {
@@ -255,8 +256,8 @@ func (h *flows) create(ctx context.Context, raw map[string]json.RawMessage) (Flo
 	im.applyIM(&f.IM)
 	now := time.Now().UTC().Format(time.RFC3339)
 	// 新流程在 IM 顺序里先排最后，给了 order 的再挪（placeIM）
-	if _, err := h.c.Store().Exec(ctx, `INSERT INTO sop_flows (`+flowCols+`, im_filter, im_stop, folder_id, im_order) VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, `+nextIMOrder+`)`,
-		f.ID, f.Name, f.Desc, f.Trigger, string(f.Fields), string(f.Steps), layoutCol(f.Layout), now, now, f.IM.filterJSON(), f.IM.Stop, f.FolderID); err != nil {
+	if _, err := h.c.Store().Exec(ctx, `INSERT INTO sop_flows (`+flowCols+`, im_filter, im_stop, folder_id, im_order) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, `+nextIMOrder+`)`,
+		f.ID, f.Ownership, f.Name, f.Desc, f.Trigger, string(f.Fields), string(f.Steps), layoutCol(f.Layout), now, now, f.IM.filterJSON(), f.IM.Stop, f.FolderID); err != nil {
 		return Flow{}, err
 	}
 	if err := placeIM(ctx, h.c, f, imTrigger, im.Order); err != nil {
@@ -289,6 +290,9 @@ func (h *flows) patch(ctx context.Context, id string, raw map[string]json.RawMes
 	f, err := h.get(ctx, id)
 	if err != nil {
 		return Flow{}, err
+	}
+	if f.Ownership == "buildin" {
+		return Flow{}, apiErr(errConflict, "内置 SOP 只读，请复制后编辑")
 	}
 	if v, ok := raw["version"]; ok && string(v) != "null" {
 		var want int
@@ -345,8 +349,11 @@ func (h *flows) patch(ctx context.Context, id string, raw map[string]json.RawMes
 func (h *flows) remove(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	id := r.PathValue("id")
-	if _, err := h.get(ctx, id); err != nil {
+	if f, err := h.get(ctx, id); err != nil {
 		fail(w, r, h.c, err)
+		return
+	} else if f.Ownership == "buildin" {
+		fail(w, r, h.c, apiErr(errConflict, "内置 SOP 只读，不能删除"))
 		return
 	}
 	n, err := h.activeRuns(ctx, id)
@@ -462,7 +469,7 @@ func scanFlow(row plugin.Row) (Flow, error) {
 	var f Flow
 	var fields, steps, created, updated, filter string
 	var layout *string
-	if err := row.Scan(&f.ID, &f.Name, &f.Desc, &f.Trigger, &fields, &steps, &layout, &f.Version, &created, &updated,
+	if err := row.Scan(&f.ID, &f.Ownership, &f.Name, &f.Desc, &f.Trigger, &fields, &steps, &layout, &f.Version, &created, &updated,
 		&filter, &f.IM.Stop, &f.IM.Order, &f.FolderID); err != nil {
 		return Flow{}, err
 	}

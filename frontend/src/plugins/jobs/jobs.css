@@ -1,0 +1,10 @@
+
+.plg-jobs-scroll { overflow-x: auto; border: 1px solid var(--line); border-radius: 8px; }
+.plg-jobs-table { width: 100%; min-width: 1050px; border-collapse: collapse; text-align: left; font-size: 12px; }
+.plg-jobs-table th { background: var(--panel-2); color: var(--muted); font-weight: 500; }
+.plg-jobs-table th, .plg-jobs-table td { padding: 10px 12px; vertical-align: top; border-bottom: 1px solid var(--line); }
+.plg-jobs-table tr:last-child td { border-bottom: 0; }
+.plg-jobs-table td { line-height: 1.6; }
+.plg-job-error { max-width: 260px; overflow-wrap: anywhere; white-space: pre-wrap; }
+.jobs-page { display: flex; flex-direction: column; gap: 16px; min-width: 0; padding: 24px; }
+.jobs-page .plg-muted { color: var(--muted); font-size: 12px; line-height: 1.7; margin: 0; }

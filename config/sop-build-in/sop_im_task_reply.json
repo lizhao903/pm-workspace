@@ -1,0 +1,44 @@
+{
+  "desc": "IM 消息转成任务时自动发起：任务执行完成后在原消息里回复对方。要改回复内容直接改这条流程",
+  "fields": [
+    {
+      "key": "message_id",
+      "label": "原消息",
+      "placeholder": "IM 消息 id",
+      "required": true,
+      "type": "text"
+    },
+    {
+      "key": "task_id",
+      "label": "任务",
+      "placeholder": "任务 id",
+      "required": true,
+      "type": "text"
+    }
+  ],
+  "id": "sop_im_task_reply",
+  "name": "IM 任务回执",
+  "steps": [
+    {
+      "key": "wait",
+      "name": "等任务执行完成",
+      "kind": "im_wait_task",
+      "desc": "任务交给 Claude Code 执行成功结束，或者被改成已完成时往下走；执行失败、取消接着等",
+      "config": {
+        "task": "{{task_id}}",
+        "timeout": "14 天"
+      }
+    },
+    {
+      "key": "reply",
+      "name": "回复原消息",
+      "kind": "im_reply_message",
+      "desc": "在原消息所在的串里回复对方，带上执行结论",
+      "config": {
+        "message": "{{message_id}}",
+        "text": "「{{task.title}}」已经处理完了（{{task.ref}}）。\n{{task.summary}}"
+      }
+    }
+  ],
+  "trigger": "manual"
+}

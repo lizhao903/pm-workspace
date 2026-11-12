@@ -1,0 +1,299 @@
+{
+  "desc": "版本号与更新日志、打包，通知负责人上线审批；批准后备份与核对密钥、发布、线上冒烟，冒烟没过自动回滚并通知；成功后阶段改为已上线、回复原 IM 消息。审批前不跑任何动生产的命令。默认停用：手动发起，或由「研发 pipeline」验收通过后接上",
+  "fields": [
+    {
+      "key": "task_id",
+      "label": "任务",
+      "placeholder": "任务 id；任务要有在用的工作区，项目档案里设了发布命令",
+      "required": true,
+      "type": "text"
+    },
+    {
+      "key": "message_id",
+      "label": "来源消息",
+      "placeholder": "IM 消息 id，上线后在原消息里回复提出人",
+      "type": "text"
+    },
+    {
+      "key": "conversation_id",
+      "label": "会话",
+      "placeholder": "来源消息所在的会话，可空",
+      "type": "text"
+    }
+  ],
+  "id": "sop_im_release_pipeline",
+  "name": "发布 pipeline",
+  "steps": [
+    {
+      "key": "start",
+      "name": "阶段改为待发布",
+      "kind": "im_set_task_stage",
+      "desc": "取任务信息（编号、标题、所属项目、看板链接）",
+      "after": [],
+      "config": {
+        "stage": "releasing",
+        "task": "{{task_id}}"
+      }
+    },
+    {
+      "key": "profile",
+      "name": "读项目档案",
+      "kind": "projects_get_profile",
+      "desc": "取负责人，通知审批和失败时用",
+      "after": [
+        "start"
+      ],
+      "config": {
+        "project": "{{task.project_id}}"
+      }
+    },
+    {
+      "key": "prepare",
+      "name": "版本号、更新日志与打包",
+      "kind": "projects_prepare_release",
+      "desc": "按项目档案在任务的工作区里跑版本号与更新日志、打包两步，只在工作区里跑，不碰生产；跑完定下审批后要跑的命令，等审批",
+      "after": [
+        "profile"
+      ],
+      "config": {
+        "task": "{{task.id}}"
+      }
+    },
+    {
+      "key": "prep_gate",
+      "name": "打包成了吗",
+      "kind": "decide",
+      "after": [
+        "prepare"
+      ],
+      "cases": [
+        {
+          "key": "ok",
+          "label": "成了"
+        },
+        {
+          "key": "fail",
+          "label": "没成"
+        }
+      ],
+      "rule": "release.ok 等于 true"
+    },
+    {
+      "key": "prep_human_stage",
+      "name": "阶段改为需人工",
+      "kind": "im_set_task_stage",
+      "after": [
+        "prep_gate"
+      ],
+      "branch": {
+        "of": "prep_gate",
+        "case": "fail"
+      },
+      "config": {
+        "stage": "need_human",
+        "task": "{{task.id}}"
+      }
+    },
+    {
+      "key": "prep_human_notify",
+      "name": "通知：打包没成",
+      "kind": "im_notify",
+      "after": [
+        "prep_human_stage"
+      ],
+      "config": {
+        "level": "error",
+        "task": "{{task.id}}",
+        "text": "需求 {{task.ref}}「{{task.title}}」发布准备没成：{{release.text}}\n发布报告：{{release.report_url}}\n看板：{{task.url}}",
+        "title": "{{task.ref}} 打包没成"
+      }
+    },
+    {
+      "key": "prep_end",
+      "name": "结束",
+      "kind": "end",
+      "desc": "修好后重新发起发布 pipeline",
+      "after": [
+        "prep_human_notify"
+      ]
+    },
+    {
+      "key": "ask_approve",
+      "name": "通知负责人审批",
+      "kind": "im_notify",
+      "after": [
+        "prep_gate"
+      ],
+      "branch": {
+        "of": "prep_gate",
+        "case": "ok"
+      },
+      "config": {
+        "level": "info",
+        "task": "{{task.id}}",
+        "text": "需求 {{task.ref}}「{{task.title}}」已打包，等上线审批。\n版本：{{release.version}}\n更新日志：\n{{release.changelog}}\n\n发布报告（含审批后要跑的发布前检查、发布、线上冒烟命令）：{{release.report_url}}\n负责人：{{profile.owners_text}}\n看板：{{task.url}}\n到 SOP 执行页的「上线审批」选「批准上线」或「暂缓」。",
+        "title": "{{task.ref}} 待上线审批"
+      }
+    },
+    {
+      "key": "approve",
+      "name": "上线审批",
+      "kind": "decide",
+      "desc": "人工确认：看发布报告里的版本、更新日志和审批后要跑的命令，批准才会动生产；暂缓则这次不上线，阶段保持待发布",
+      "after": [
+        "ask_approve"
+      ],
+      "cases": [
+        {
+          "key": "approve",
+          "label": "批准上线"
+        },
+        {
+          "key": "hold",
+          "label": "暂缓"
+        }
+      ]
+    },
+    {
+      "key": "hold_notify",
+      "name": "通知：暂缓上线",
+      "kind": "im_notify",
+      "after": [
+        "approve"
+      ],
+      "branch": {
+        "of": "approve",
+        "case": "hold"
+      },
+      "config": {
+        "level": "info",
+        "task": "{{task.id}}",
+        "text": "需求 {{task.ref}}「{{task.title}}」上线审批选了暂缓，这次不上线，阶段保持待发布；要上线时重新发起发布 pipeline。看板：{{task.url}}",
+        "title": "{{task.ref}} 暂缓上线"
+      }
+    },
+    {
+      "key": "hold_end",
+      "name": "结束",
+      "kind": "end",
+      "after": [
+        "hold_notify"
+      ]
+    },
+    {
+      "key": "deploy",
+      "name": "备份、核对密钥、发布、线上冒烟",
+      "kind": "projects_release",
+      "desc": "按项目档案跑发布前检查（备份数据库、核对密钥）、发布、线上冒烟；发布或冒烟没过自动回滚",
+      "after": [
+        "approve"
+      ],
+      "branch": {
+        "of": "approve",
+        "case": "approve"
+      },
+      "config": {
+        "release": "{{release.id}}"
+      }
+    },
+    {
+      "key": "deploy_gate",
+      "name": "上线成功了吗",
+      "kind": "decide",
+      "after": [
+        "deploy"
+      ],
+      "cases": [
+        {
+          "key": "ok",
+          "label": "成功"
+        },
+        {
+          "key": "fail",
+          "label": "没成功"
+        }
+      ],
+      "rule": "release.ok 等于 true"
+    },
+    {
+      "key": "stage_released",
+      "name": "阶段改为已上线",
+      "kind": "im_set_task_stage",
+      "desc": "工作区随之清理",
+      "after": [
+        "deploy_gate"
+      ],
+      "branch": {
+        "of": "deploy_gate",
+        "case": "ok"
+      },
+      "config": {
+        "stage": "released",
+        "task": "{{task.id}}"
+      }
+    },
+    {
+      "key": "tell_released",
+      "name": "回复原消息：已上线",
+      "kind": "im_notify",
+      "after": [
+        "stage_released"
+      ],
+      "config": {
+        "level": "success",
+        "message": "{{message_id}}",
+        "task": "{{task.id}}",
+        "text": "需求 {{task.ref}}「{{task.title}}」已上线，版本 {{release.version}}。\n更新日志：\n{{release.changelog}}\n看板：{{task.url}}",
+        "title": "{{task.ref}} 已上线"
+      }
+    },
+    {
+      "key": "done",
+      "name": "结束",
+      "kind": "end",
+      "after": [
+        "tell_released"
+      ]
+    },
+    {
+      "key": "fail_stage",
+      "name": "阶段改为需人工",
+      "kind": "im_set_task_stage",
+      "after": [
+        "deploy_gate"
+      ],
+      "branch": {
+        "of": "deploy_gate",
+        "case": "fail"
+      },
+      "config": {
+        "stage": "need_human",
+        "task": "{{task.id}}"
+      }
+    },
+    {
+      "key": "fail_notify",
+      "name": "通知：上线没成功",
+      "kind": "im_notify",
+      "after": [
+        "fail_stage"
+      ],
+      "config": {
+        "level": "error",
+        "task": "{{task.id}}",
+        "text": "需求 {{task.ref}}「{{task.title}}」上线没成功：{{release.text}}\n发布报告：{{release.report_url}}\n负责人：{{profile.owners_text}}\n看板：{{task.url}}",
+        "title": "{{task.ref}} 上线没成功"
+      }
+    },
+    {
+      "key": "fail_end",
+      "name": "结束",
+      "kind": "end",
+      "desc": "看发布报告处理；修好后重新发起发布 pipeline",
+      "after": [
+        "fail_notify"
+      ]
+    }
+  ],
+  "trigger": "manual"
+}

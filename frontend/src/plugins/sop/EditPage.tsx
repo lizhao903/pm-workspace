@@ -5,6 +5,7 @@
 // 定时只有一项（TSK-0463）：字典里旧的 daily、weekly、cron 不列，没有 schedule 时补一项「定时」，不会出现两个定时；时间规则在开始节点里配。
 // 字典列表带条目一起取，不直接取 sop_trigger 的条目，免得没有这本字典时控制台报 404
 import { useMemo } from 'react'
+import { useExecutors } from '../../core/data/executors'
 import {
   QueryState, isApiError, useAgentProviders, useAgents, useCategoryTree, useDictionaries, useKnowledgeBases, useProjects, useRunPresets, useSopFlow, useSopFolders, useSopNodeTypes, type Category,
   type SopFlow, type SopRunBrief,
@@ -42,6 +43,7 @@ export function EditPage({ id, folderId, flows, runs, onCancel, onSaved }: {
   const projects = useProjects()
   // Claude Code 节点选角色（AUTO-01）
   const presets = useRunPresets()
+  const executors = useExecutors()
   // 开始节点选文件夹（TSK-0482）
   const folders = useSopFolders()
 
@@ -56,10 +58,11 @@ export function EditPage({ id, folderId, flows, runs, onCancel, onSaved }: {
     docCats: flat(cats.data),
     providers: providers.data ?? [],
     projects: (projects.data?.data ?? []).filter((p) => !p.deleted_at).map((p) => ({ id: p.id, name: p.title })),
+    executors: executors.data ?? [],
     presets: (presets.data ?? []).map((p) => ({ id: p.id, scene: p.scene, permission: p.permission })),
     imFlows: imFlowsOf(flows).map((f) => ({ id: f.id, name: f.name, order: imOf(f).order, stop: imOf(f).stop })),
     folders: (folders.data ?? []).map((f) => ({ id: f.id, name: f.name })),
-  }), [flows, agents.data, kbs.data, cats.data, providers.data, projects.data, presets.data, folders.data])
+  }), [flows, agents.data, kbs.data, cats.data, providers.data, projects.data, presets.data, executors.data, folders.data])
   const triggers = useMemo<TriggerOption[]>(() => {
     const items = dicts.data?.find((d) => d.id === 'sop_trigger')?.items ?? []
     const live = items.filter((x) => !x.archived_at || x.key === flow.data?.trigger)
@@ -81,7 +84,7 @@ export function EditPage({ id, folderId, flows, runs, onCancel, onSaved }: {
         <QueryState query={flow} errorTitle="流程没取到">
           {(f) => (
             <Editor key={f.id} initial={{ id: f.id, name: f.name, desc: f.desc, ...draftScheduleOf(f), im: imDraftOf(f), fields: f.fields, steps: f.steps, layout: f.layout, folder_id: f.folder_id ?? null }}
-              issues={f.issues}
+              readOnly={f.ownership === 'buildin'} issues={f.issues}
               flowId={f.id} version={f.version} hasSchedule={!!f.schedule} catalog={catalog} ctx={ctx} triggers={triggers} runs={runs} onCancel={onCancel} onSaved={onSaved} />
           )}
         </QueryState>

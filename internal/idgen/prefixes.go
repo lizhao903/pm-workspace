@@ -33,6 +33,8 @@ var Registry = []Entry{
 	{"sgr", "shortcutGroup", "shortcut_groups", ""},
 	{"sct", "shortcut", "shortcuts", ""},
 	// Agent 与执行
+	{"exec", "localExecutor", "agent_settings", ""},
+	{"prb", "executorProbe", "", ""},
 	{"apv", "provider", "agent_providers", ""},
 	{"ags", "agentSession", "agent_sessions", ""},
 	{"agm", "agentMessage", "agent_messages", ""},

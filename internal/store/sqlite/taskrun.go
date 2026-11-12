@@ -131,9 +131,9 @@ func (s *Store) CreateTaskRun(ctx context.Context, in *domain.TaskRun) (*domain.
 	switch r.Harness {
 	case "":
 		r.Harness = domain.RunHarnessClaude
-	case domain.RunHarnessClaude, domain.RunHarnessDeepSeek, domain.RunHarnessAgent:
+	case domain.RunHarnessClaude, domain.RunHarnessDeepSeek, domain.RunHarnessCodex, domain.RunHarnessAgent:
 	default:
-		return nil, validation("harness", "must be claude, deepseek or agent")
+		return nil, validation("harness", "must be claude, deepseek, codex or agent")
 	}
 
 	// 先确认对象存在：外键失败回的是一条驱动层的字符串，映射成 500，

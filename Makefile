@@ -63,6 +63,12 @@ dev: placeholder
 	@echo "终端 1: scripts/dev-instance.sh start   测试实例 7796，用的是真实库副本"
 	@echo "终端 2: cd frontend && npm run dev   然后打开 http://127.0.0.1:7780，/api 代理到 7796"
 	@echo "旧前端：cd web && npm run dev，http://127.0.0.1:5173，/api 代理到 7777"
+	@original_dir="$$(pwd)"; \
+	echo "缓存当前目录 $$original_dir"; \
+	cd frontend && npm run dev; \
+	dev_status=$$?; \
+	cd "$$original_dir" || exit 1; \
+	exit $$dev_status
 
 seed: placeholder
 	go run ./cmd/pmw --seed-demo

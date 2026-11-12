@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"regexp"
 	"runtime/debug"
+	"sync"
 	"time"
 
 	"github.com/lizhao903/pm-workspace/internal/agent"
@@ -121,10 +122,11 @@ type Options struct {
 }
 
 type Server struct {
-	st  store.Store
-	opt Options
-	log *slog.Logger
-	h   http.Handler
+	executorsMu sync.Mutex
+	st          store.Store
+	opt         Options
+	log         *slog.Logger
+	h           http.Handler
 	// run 持有所有正在跑的 claude 进程，取消要靠它。它必须是 Server 级的单例：
 	// 每次请求新建一个的话，取消接口就找不到别的请求起的那个进程了。
 	run *runner.Runner
@@ -159,6 +161,7 @@ func New(st store.Store, opts Options) *Server {
 		opts.Plugins.SetClaudeRunner(s.run)
 		opts.Plugins.SetRunCallback(opts.MCPBin, opts.PublicURL)
 		opts.Plugins.SetRunPresets(s.presetLookup)
+		opts.Plugins.SetRunExecutors(s.executorRequest)
 		// 插件同步知识库（TSK-0721）：读文件的拦截、和目录同步互斥都走这个 Server 的
 		opts.Plugins.SetKnowledge(pluginKB{s})
 	}
@@ -419,6 +422,14 @@ func (s *Server) routes(m routeRegistrar) {
 	m.HandleFunc("POST /api/runs/{id}/cancel", s.handleCancelTaskRun)
 	// 交给 Claude Code 的另一种方式：切换到终端（0048，runterminal.go）
 	m.HandleFunc("GET /api/objects/{id}/run/prompt", s.handleRunPrompt)
+	m.HandleFunc("POST /api/executors/probe", s.handleProbeExecutor)
+	m.HandleFunc("POST /api/executors/test", s.handleTestExecutor)
+	m.HandleFunc("POST /api/executors/command", s.handleExecutorCommand)
+	m.HandleFunc("GET /api/executors", s.handleListExecutors)
+	m.HandleFunc("POST /api/executors", s.handleWriteExecutor)
+	m.HandleFunc("GET /api/executors/{id}", s.handleGetExecutor)
+	m.HandleFunc("PUT /api/executors/{id}", s.handleWriteExecutor)
+	m.HandleFunc("DELETE /api/executors/{id}", s.handleDeleteExecutor)
 	m.HandleFunc("GET /api/run-prompts", s.handleListRunPrompts)
 	m.HandleFunc("PUT /api/run-prompts", s.handlePutRunPrompts)
 	// 后台执行的权限档位与自定义白名单（TSK-0499）

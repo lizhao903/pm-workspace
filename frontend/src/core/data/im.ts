@@ -217,6 +217,11 @@ export const normMessage = (m: ImMessage): ImMessage => ({
 const path = (id: string) => `/api/im/messages/${encodeURIComponent(id)}`
 
 export const imApi = {
+  latest: async (connectorId: string, signal?: AbortSignal) => {
+    const query = new URLSearchParams({ connector_id: connectorId, limit: '3', offset: '0' })
+    const r = await requestList<ImMessage>('/api/im/messages', { query, signal })
+    return r.data.map(normMessage)
+  },
   page: async (offset: number, signal?: AbortSignal) => {
     const query = new URLSearchParams({ limit: String(IM_PAGE_MAX), offset: String(offset) })
     const r = await requestList<ImMessage>('/api/im/messages', { query, signal })
@@ -238,8 +243,8 @@ export const imApi = {
     return normMessage(await request<ImMessage>('POST', `${path(id)}/${a.kind}`, { body }))
   },
   /** 立即同步一个 IM 渠道：渠道出错回 502 sync_failed（连接器已置为异常），暂停、不能同步 409 */
-  syncConnector: async (connectorId: string) => {
-    const r = await request<ImSyncResult>('POST', `/api/im/connectors/${encodeURIComponent(connectorId)}/sync`, { body: {} })
+  syncConnector: async (connectorId: string, signal?: AbortSignal) => {
+    const r = await request<ImSyncResult>('POST', `/api/im/connectors/${encodeURIComponent(connectorId)}/sync`, { body: {}, signal })
     return { ...r, ids: r.ids ?? [] }
   },
   batch: async (input: ImBatchInput) => {

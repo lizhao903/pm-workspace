@@ -1,0 +1,97 @@
+{
+  "desc": "按 web-video-presentation 技能把一集从原文做到分发包：各阶段交给视频里配的执行器，四个检查点停下等人在视频页确认。要改先复制一份",
+  "fields": [
+    {
+      "key": "video_id",
+      "label": "视频",
+      "placeholder": "视频 id，在视频详情的地址栏里",
+      "required": true,
+      "type": "text"
+    }
+  ],
+  "id": "sop_video_weekly",
+  "name": "视频周更",
+  "steps": [
+    {
+      "key": "script",
+      "name": "文稿处理",
+      "kind": "video_run_stage",
+      "desc": "用「内容编写」配的执行器把原文改成口播稿和大纲；双方向的横版、竖版各写一套",
+      "config": {
+        "stage": "script",
+        "video": "{{video_id}}"
+      }
+    },
+    {
+      "key": "plan",
+      "name": "规划检查",
+      "kind": "video_wait_checkpoint",
+      "desc": "对齐稿子、大纲、主题、素材和画面比例；在视频页通过后比例锁定，接着往下走",
+      "config": {
+        "checkpoint": "plan",
+        "video": "{{video_id}}"
+      }
+    },
+    {
+      "key": "ch1",
+      "name": "开发第 1 章",
+      "kind": "video_run_stage",
+      "desc": "用「网页开发」配的执行器搭演示工程，第 1 章做完整，作为后面各章的样板",
+      "config": {
+        "stage": "web",
+        "video": "{{video_id}}"
+      }
+    },
+    {
+      "key": "ch1_review",
+      "name": "检查第 1 章",
+      "kind": "video_wait_checkpoint",
+      "desc": "第 1 章是样板：版式、节奏、动效都在这里定，不行就在视频页退回重做",
+      "config": {
+        "checkpoint": "ch1",
+        "video": "{{video_id}}"
+      }
+    },
+    {
+      "key": "rest",
+      "name": "并行开发其余章节",
+      "kind": "video_run_stage",
+      "desc": "用「其余章节」配的执行器照第 1 章的样板开发第 2 到 N 章",
+      "config": {
+        "stage": "chapters",
+        "video": "{{video_id}}"
+      }
+    },
+    {
+      "key": "audio",
+      "name": "音频检查",
+      "kind": "video_wait_checkpoint",
+      "desc": "决定要不要合成口播音频；要的话按章节听一遍，不要就在视频页跳过",
+      "config": {
+        "checkpoint": "audio",
+        "video": "{{video_id}}"
+      }
+    },
+    {
+      "key": "render",
+      "name": "渲染",
+      "kind": "video_run_stage",
+      "desc": "用「录屏渲染」配的执行器逐章录屏，合成 mp4，按章节时间点出字幕",
+      "config": {
+        "stage": "record",
+        "video": "{{video_id}}"
+      }
+    },
+    {
+      "key": "dist",
+      "name": "分发包检查",
+      "kind": "video_wait_checkpoint",
+      "desc": "封面、简介、章节时间轴都齐了再放行，之后去发布记录按平台发",
+      "config": {
+        "checkpoint": "distribution",
+        "video": "{{video_id}}"
+      }
+    }
+  ],
+  "trigger": "manual"
+}

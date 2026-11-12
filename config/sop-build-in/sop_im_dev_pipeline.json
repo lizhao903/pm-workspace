@@ -1,0 +1,497 @@
+{
+  "desc": "准备工作区，研发、测试用例、自动化测试三路并行，汇合后部署测试；没通过自动退回研发最多 3 轮；通过后保留测试环境、通知提出人和验收人员，人工验收通过进待发布、接着走发布 pipeline，实现缺陷退回研发、需求偏差退回产品。默认停用：手动发起，或由「IM 需求自动受理」接上",
+  "fields": [
+    {
+      "key": "task_id",
+      "label": "任务",
+      "placeholder": "任务 id；任务要已归到项目、项目档案里设了代码库和测试命令",
+      "required": true,
+      "type": "text"
+    },
+    {
+      "key": "message_id",
+      "label": "来源消息",
+      "placeholder": "IM 消息 id，有的话通知时在原消息里回复提出人",
+      "type": "text"
+    },
+    {
+      "key": "conversation_id",
+      "label": "会话",
+      "placeholder": "来源消息所在的会话，可空",
+      "type": "text"
+    }
+  ],
+  "id": "sop_im_dev_pipeline",
+  "name": "研发 pipeline",
+  "steps": [
+    {
+      "key": "start",
+      "name": "阶段改为开发中",
+      "kind": "im_set_task_stage",
+      "desc": "取任务信息（编号、标题、所属项目、看板链接）",
+      "after": [],
+      "config": {
+        "stage": "developing",
+        "task": "{{task_id}}"
+      }
+    },
+    {
+      "key": "profile",
+      "name": "读项目档案",
+      "kind": "projects_get_profile",
+      "desc": "取验收人员，通知时用",
+      "after": [
+        "start"
+      ],
+      "config": {
+        "project": "{{task.project_id}}"
+      }
+    },
+    {
+      "key": "worktree",
+      "name": "准备工作区",
+      "kind": "projects_prepare_worktree",
+      "desc": "在项目代码库建任务独立的 worktree 和分支 auto/<任务编号>，分一段端口",
+      "after": [
+        "profile"
+      ],
+      "config": {
+        "task": "{{task.id}}"
+      }
+    },
+    {
+      "key": "dev_stage",
+      "name": "回到开发中",
+      "kind": "im_set_task_stage",
+      "desc": "测试没通过、验收发现实现缺陷时退回到这里，阶段先回到开发中",
+      "after": [
+        "worktree"
+      ],
+      "config": {
+        "stage": "developing",
+        "task": "{{task.id}}"
+      }
+    },
+    {
+      "key": "dev",
+      "name": "研发：功能开发",
+      "kind": "claude_code",
+      "desc": "Claude Code 按研发角色在工作区里改代码、跑单测、提交",
+      "after": [
+        "dev_stage"
+      ],
+      "config": {
+        "permission": "write",
+        "preset": "rp_dev",
+        "prompt": "按任务 {{task.ref}}（id {{task.id}}）「{{task.title}}」的内容和验收标准开发。先用 pmw_get_object 读任务正文、验收标准和最近的进展。\n项目：{{profile.name}}。工作目录是这个任务独立的工作区（分支 {{worktree.branch}}），只改这里面的代码；改完跑通构建和相关单测，提交到当前分支。\n测试用例（docs/test-cases/）和自动化测试脚本由另外两路同时在写，不要改它们新增的文件。\n\n上一轮退回的原因（第一轮为空）：{{feedback.reason}}\n自动测试没通过时：没过的步骤 {{feedback.test.failed_step}}，原因 {{feedback.test.error}}，测试报告 {{feedback.test.report_path}}，先读报告再改。\n人工验收退回时（原因里提到验收）：验收意见写在任务最近的进展里，逐条改掉。\nsummary 写成给提出人和验收人员看的变更说明：改了什么、怎么用。",
+        "task": "{{task.id}}",
+        "timeout": "4 小时",
+        "workdir": "{{worktree.path}}"
+      }
+    },
+    {
+      "key": "cases",
+      "name": "测试用例设计",
+      "kind": "claude_code",
+      "desc": "对照验收标准写测试用例，summary 是验收清单",
+      "after": [
+        "worktree"
+      ],
+      "config": {
+        "permission": "write",
+        "preset": "rp_testdesign",
+        "prompt": "为任务 {{task.ref}}（id {{task.id}}）「{{task.title}}」设计测试用例：先用 pmw_get_object 读任务的验收标准，逐条写出用例（前置条件、步骤、预期），写进工作区的 docs/test-cases/{{task.ref}}.md（目录没有就建）。\n不改业务代码，不写自动化脚本（另一路在写）。写完只提交这一个文件：git commit -- docs/test-cases/{{task.ref}}.md，提交信息「test: {{task.ref}} 测试用例」；遇到 git 锁冲突等几秒重试。\nsummary 写成给验收人员用的验收清单，每条一行「- [ ] 要验证的事」。",
+        "task": "{{task.id}}",
+        "timeout": "4 小时",
+        "workdir": "{{worktree.path}}"
+      }
+    },
+    {
+      "key": "cases_note",
+      "name": "记下验收清单",
+      "kind": "template",
+      "desc": "汇合时研发的 summary 会盖掉这一路的，先存一份",
+      "after": [
+        "cases"
+      ],
+      "config": {
+        "output": "test_cases",
+        "template": "{{summary}}"
+      }
+    },
+    {
+      "key": "autotest",
+      "name": "自动化测试脚本",
+      "kind": "claude_code",
+      "desc": "写单测、接口、端到端脚本，产物写进 TEST_REPORT_DIR",
+      "after": [
+        "worktree"
+      ],
+      "config": {
+        "permission": "write",
+        "preset": "rp_testdesign",
+        "prompt": "为任务 {{task.ref}}（id {{task.id}}）「{{task.title}}」写自动化测试：先用 pmw_get_object 读验收标准，再看项目现有的测试怎么组织，按同样的方式写单测、接口测试或端到端脚本，放进项目的测试目录，要能被项目档案里的测试命令跑到。\n端到端测试的截图和 junit xml 写到环境变量 TEST_REPORT_DIR 指的目录（测试环境地址是 http://127.0.0.1:$PORT），工作台会收进测试报告。\n不改业务代码（功能还在另一路开发，现在跑不过是正常的）。写完只提交你新增的测试文件（git commit -- <文件>），提交信息「test: {{task.ref}} 自动化测试」；遇到 git 锁冲突等几秒重试。\nsummary 里列出新增的测试文件和覆盖了哪几条验收标准。",
+        "task": "{{task.id}}",
+        "timeout": "4 小时",
+        "workdir": "{{worktree.path}}"
+      }
+    },
+    {
+      "key": "autotest_note",
+      "name": "记下自动化测试",
+      "kind": "template",
+      "after": [
+        "autotest"
+      ],
+      "config": {
+        "output": "autotest",
+        "template": "{{summary}}"
+      }
+    },
+    {
+      "key": "join",
+      "name": "三路汇合",
+      "kind": "aggregate",
+      "desc": "合并三路的输出，研发排最后，summary 是研发的变更说明",
+      "after": [
+        "cases_note",
+        "autotest_note",
+        "dev"
+      ],
+      "config": {
+        "mode": "merge"
+      }
+    },
+    {
+      "key": "stage_test",
+      "name": "阶段改为测试中",
+      "kind": "im_set_task_stage",
+      "after": [
+        "join"
+      ],
+      "config": {
+        "stage": "testing",
+        "task": "{{task.id}}"
+      }
+    },
+    {
+      "key": "test",
+      "name": "部署测试",
+      "kind": "projects_run_test",
+      "desc": "按项目档案构建、起测试环境、跑测试和冒烟，写测试报告；通过时保留测试环境给人工验收",
+      "after": [
+        "stage_test"
+      ],
+      "config": {
+        "keep_env": "是",
+        "task": "{{task.id}}"
+      }
+    },
+    {
+      "key": "test_gate",
+      "name": "测试没通过就退回研发",
+      "kind": "loopback",
+      "desc": "退回「回到开发中」重做，失败步骤和报告作为 feedback 带回去；最多 3 轮",
+      "after": [
+        "test"
+      ],
+      "cases": [
+        {
+          "key": "pass",
+          "label": "通过"
+        },
+        {
+          "key": "over",
+          "label": "超限"
+        }
+      ],
+      "rule": "test.ok 等于 false",
+      "config": {
+        "max_rounds": "3",
+        "target": "dev_stage"
+      }
+    },
+    {
+      "key": "test_human_stage",
+      "name": "阶段改为需人工",
+      "kind": "im_set_task_stage",
+      "after": [
+        "test_gate"
+      ],
+      "branch": {
+        "of": "test_gate",
+        "case": "over"
+      },
+      "config": {
+        "stage": "need_human",
+        "task": "{{task.id}}"
+      }
+    },
+    {
+      "key": "test_human_notify",
+      "name": "通知：测试修复超限",
+      "kind": "im_notify",
+      "after": [
+        "test_human_stage"
+      ],
+      "config": {
+        "level": "error",
+        "task": "{{task.id}}",
+        "text": "需求 {{task.ref}}「{{task.title}}」自动测试退回研发 3 轮仍没通过，转人工处理。\n最近一次：{{test.error}}\n测试报告：{{test.report_url}}\n看板：{{task.url}}",
+        "title": "{{task.ref}} 自动测试修复 3 轮仍没通过"
+      }
+    },
+    {
+      "key": "test_human",
+      "name": "人工处理",
+      "kind": "review",
+      "desc": "看测试报告决定怎么办：改好代码后放行，或者终止这次执行",
+      "after": [
+        "test_human_notify"
+      ]
+    },
+    {
+      "key": "stage_accept",
+      "name": "阶段改为待验收",
+      "kind": "im_set_task_stage",
+      "after": [
+        "test_gate"
+      ],
+      "branch": {
+        "of": "test_gate",
+        "case": "pass"
+      },
+      "config": {
+        "stage": "accepting",
+        "task": "{{task.id}}"
+      }
+    },
+    {
+      "key": "notify",
+      "name": "通知提出人与验收人员",
+      "kind": "im_notify",
+      "after": [
+        "stage_accept"
+      ],
+      "config": {
+        "level": "info",
+        "message": "{{message_id}}",
+        "task": "{{task.id}}",
+        "text": "需求 {{task.ref}}「{{task.title}}」开发完成，自动测试通过，请验收。\n测试环境：{{test.env_text}}\n测试报告：{{test.report_url}}\n看板：{{task.url}}\n验收人员：{{profile.acceptors_text}}\n\n变更说明：\n{{summary}}\n\n验收清单：\n{{test_cases}}",
+        "title": "{{task.ref}} 待验收"
+      }
+    },
+    {
+      "key": "accept",
+      "name": "人工验收",
+      "kind": "decide",
+      "desc": "在测试环境上验收。通过选「通过」；不通过先在任务里写一条进展说明问题，再按归属选「实现缺陷」（退回研发）或「需求偏差」（退回产品）",
+      "after": [
+        "notify"
+      ],
+      "cases": [
+        {
+          "key": "pass",
+          "label": "通过"
+        },
+        {
+          "key": "defect",
+          "label": "实现缺陷"
+        },
+        {
+          "key": "deviation",
+          "label": "需求偏差"
+        }
+      ]
+    },
+    {
+      "key": "stage_release",
+      "name": "阶段改为待发布",
+      "kind": "im_set_task_stage",
+      "desc": "验收结束，保留的测试环境随之回收",
+      "after": [
+        "accept"
+      ],
+      "branch": {
+        "of": "accept",
+        "case": "pass"
+      },
+      "config": {
+        "stage": "releasing",
+        "task": "{{task.id}}"
+      }
+    },
+    {
+      "key": "tell_release",
+      "name": "告诉提出人验收通过",
+      "kind": "im_notify",
+      "after": [
+        "stage_release"
+      ],
+      "config": {
+        "level": "success",
+        "message": "{{message_id}}",
+        "task": "{{task.id}}",
+        "text": "需求 {{task.ref}}「{{task.title}}」验收通过，进入发布。进度：{{task.url}}",
+        "title": "{{task.ref}} 验收通过"
+      }
+    },
+    {
+      "key": "release_in",
+      "name": "交给发布 pipeline",
+      "kind": "template",
+      "desc": "把任务 id 写成 task_id，发布 pipeline 按它取任务",
+      "after": [
+        "tell_release"
+      ],
+      "config": {
+        "output": "task_id",
+        "template": "{{task.id}}"
+      }
+    },
+    {
+      "key": "release_args",
+      "name": "只带任务和来源消息",
+      "kind": "end",
+      "desc": "子流程拿这一步的输出当输入：只留 task_id、message_id、conversation_id",
+      "after": [
+        "release_in"
+      ],
+      "config": {
+        "outputs": "task_id, message_id, conversation_id"
+      }
+    },
+    {
+      "key": "release",
+      "name": "发布 pipeline",
+      "kind": "subflow",
+      "desc": "版本号、打包、上线审批、发布、线上冒烟（没过自动回滚）；这一步等发布 pipeline 走完",
+      "after": [
+        "release_args"
+      ],
+      "config": {
+        "sop": "sop_im_release_pipeline"
+      }
+    },
+    {
+      "key": "back_dev",
+      "name": "阶段改回开发中",
+      "kind": "im_set_task_stage",
+      "after": [
+        "accept"
+      ],
+      "branch": {
+        "of": "accept",
+        "case": "defect"
+      },
+      "config": {
+        "stage": "developing",
+        "task": "{{task.id}}"
+      }
+    },
+    {
+      "key": "accept_gate",
+      "name": "验收不通过退回研发",
+      "kind": "loopback",
+      "desc": "退回「回到开发中」重做，研发从任务进展里读验收意见；最多 3 轮",
+      "after": [
+        "back_dev"
+      ],
+      "cases": [
+        {
+          "key": "pass",
+          "label": "通过"
+        },
+        {
+          "key": "over",
+          "label": "超限"
+        }
+      ],
+      "rule": "task.stage 等于 developing",
+      "config": {
+        "max_rounds": "3",
+        "target": "dev_stage"
+      }
+    },
+    {
+      "key": "accept_human_stage",
+      "name": "阶段改为需人工",
+      "kind": "im_set_task_stage",
+      "after": [
+        "accept_gate"
+      ],
+      "branch": {
+        "of": "accept_gate",
+        "case": "over"
+      },
+      "config": {
+        "stage": "need_human",
+        "task": "{{task.id}}"
+      }
+    },
+    {
+      "key": "accept_human_notify",
+      "name": "通知：验收退回超限",
+      "kind": "im_notify",
+      "after": [
+        "accept_human_stage"
+      ],
+      "config": {
+        "level": "error",
+        "task": "{{task.id}}",
+        "text": "需求 {{task.ref}}「{{task.title}}」验收退回研发 3 轮仍没通过，转人工处理。看板：{{task.url}}",
+        "title": "{{task.ref}} 验收退回 3 轮仍没通过"
+      }
+    },
+    {
+      "key": "accept_human",
+      "name": "人工处理",
+      "kind": "review",
+      "desc": "验收退回 3 轮仍不通过：看验收意见决定怎么办",
+      "after": [
+        "accept_human_notify"
+      ]
+    },
+    {
+      "key": "back_design",
+      "name": "阶段改回设计中",
+      "kind": "im_set_task_stage",
+      "after": [
+        "accept"
+      ],
+      "branch": {
+        "of": "accept",
+        "case": "deviation"
+      },
+      "config": {
+        "stage": "designing",
+        "task": "{{task.id}}"
+      }
+    },
+    {
+      "key": "tell_pm",
+      "name": "通知产品：需求偏差",
+      "kind": "im_notify",
+      "after": [
+        "back_design"
+      ],
+      "config": {
+        "level": "error",
+        "message": "{{message_id}}",
+        "task": "{{task.id}}",
+        "text": "需求 {{task.ref}}「{{task.title}}」验收发现需求偏差，已退回产品重新设计，验收意见见任务进展。看板：{{task.url}}",
+        "title": "{{task.ref}} 验收发现需求偏差"
+      }
+    },
+    {
+      "key": "to_design",
+      "name": "结束",
+      "kind": "end",
+      "desc": "产品改完 PRD 后重新走评审和研发",
+      "after": [
+        "tell_pm"
+      ]
+    }
+  ],
+  "trigger": "manual"
+}

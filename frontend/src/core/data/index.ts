@@ -15,6 +15,7 @@ export { QueryState } from './QueryState'
 export { useHealth, useObjectTypes, useDictionaries, useDictItems, useStakeholders, useCounts } from './meta'
 export { dictItemsApi, useDictItemsAll, saveDictItems, useSaveDictItems } from './dictionaries'
 export type { DictSavePlan, EnumTarget } from './dictionaries'
+export { usePluginJobs, type PluginJob } from './plugins'
 export {
   listAllObjects, useObjects, useAllObjects, useObject, useCreateObject, usePatchObject, useSetStatus, useSetStage, useDeleteObject,
   saveObject, mergeProps, PROP_ACCEPTANCE, PROP_REPO,
