@@ -61,6 +61,9 @@ describe('版本更新', () => {
     expect(src).toHaveTextContent('3 个文件有未提交的改动')
     expect(within(screen.getByRole('region', { name: '新提交' })).getAllByRole('listitem')).toHaveLength(2)
     expect(screen.getByRole('button', { name: '更新到最新版本' })).toBeEnabled()
+    // 有版本差异：页面上有绿色底框提示
+    expect(screen.getByText('有版本差异')).toBeInTheDocument()
+    expect(screen.getByText(/源码目录比正在运行的新 2 个提交/)).toBeInTheDocument()
   })
 
   it('不能更新时写原因，按钮置灰；已经是最新写「已经是最新版本」', async () => {
@@ -68,6 +71,8 @@ describe('版本更新', () => {
     mount()
     expect(await screen.findByText('已经是最新版本')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '更新到最新版本' })).toBeDisabled()
+    // 没版本差异就不显示绿色提示
+    expect(screen.queryByText('有版本差异')).not.toBeInTheDocument()
   })
 
   it('点更新先确认；进度走完、重启时请求失败照样等，新进程起来后自动刷新', async () => {

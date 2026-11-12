@@ -66,6 +66,8 @@ export function UpdateSection({ reload = () => window.location.reload() }: { rel
       <PageTitle parent="设置" desc="把工作台更新到本机源码目录里的最新代码，并自动重启">版本更新</PageTitle>
       {st && <Versions st={st} />}
 
+      {st?.available && !busy && !updated && !restarting && <DiffNotice st={st} />}
+
       {updated ? (
         <div className="up-banner up-ok" role="status">已更新到 {short(st!.running.commit)}，正在刷新页面…
           <Button size="sm" onClick={reload}>现在刷新</Button>
@@ -97,6 +99,24 @@ export function UpdateSection({ reload = () => window.location.reload() }: { rel
         ]}>
         构建要几分钟，期间工作台照常能用。
       </ConfirmDialog>
+    </div>
+  )
+}
+
+/** 有版本差异时的绿色提示：新提交数 / 不在同一分支 / 编译时带改动，说清楚为什么可以更新。 */
+function DiffNotice({ st }: { st: UpdateStatus }) {
+  const src = st.source
+  const why = src && src.ahead_total > 0
+    ? `源码目录比正在运行的新 ${src.ahead_total} 个提交`
+    : src?.diverged
+      ? '正在运行的提交不在当前源码分支的历史里（换过分支或改过历史）'
+      : src && src.dirty > 0
+        ? `源码目录有 ${src.dirty} 个文件没提交`
+        : '正在运行的版本和源码目录不一样'
+  return (
+    <div className="up-notice" role="status">
+      <b>有版本差异</b>
+      <span>{why}，可以更新到最新代码并自动重启。</span>
     </div>
   )
 }
