@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 会话里「和谁聊」的头像：Agent 用 Agent 头像，已删除的用灰色机器人，旧会话用服务商的字母头像。
 import { Avatar } from '../ui'
 import { AgentAvatar, type AgentAvatarSource } from '../ui/AgentAvatar'

@@ -8,10 +8,6 @@
   background: var(--danger-soft); font-size: var(--fs-sm); line-height: 1.55;
 }
 
-.cn-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: var(--sp-6); }
-.cn-stat { padding: var(--sp-6) var(--sp-8); border-radius: var(--r-lg); background: var(--panel); border: 1px solid var(--line); box-shadow: var(--shadow-sm); }
-.cn-stat-label { color: var(--muted); font-size: var(--fs-xs); white-space: nowrap; }
-.cn-stat-value { font-size: var(--fs-2xl); font-weight: 600; letter-spacing: -0.02em; }
 .cn-ok { color: var(--ok); }
 .cn-danger { color: var(--danger); }
 
@@ -24,6 +20,8 @@
 .cn-seg button:disabled { cursor: not-allowed; opacity: 0.5; }
 .cn-seg button.on { background: var(--panel); color: var(--text); box-shadow: var(--shadow-sm); font-weight: 500; }
 .cn-seg button.on.risky { color: var(--danger); }
+/* 状态筛选的「异常」有数时用危险色（TSK-0725） */
+.cn-seg button.cn-seg-danger, .cn-seg button.cn-seg-danger .seg-n { color: var(--danger); }
 .cn-seg-full { align-self: stretch; }
 .cn-seg-full button { flex: 1; justify-content: center; }
 .cn-seg-sm { flex: none; }
@@ -44,10 +42,7 @@
 .cn-tool-desc { color: var(--muted); font-size: var(--fs-xs); line-height: 1.55; }
 .cn-card-foot { margin-top: auto; display: flex; justify-content: flex-end; }
 /* 标志底色来自后端定义，字一律白色 */
-.cn-logo {
-  display: inline-grid; place-items: center; flex: none; border-radius: 10px;
-  background: var(--c); color: #fff; font-weight: 700; letter-spacing: -0.02em;
-}
+/* .cn-logo（连接器标志）在 core/ui/connectorLogo.css，TSK-0725 */
 
 .cn-list { display: flex; flex-direction: column; border: 1px solid var(--line); border-radius: var(--r); overflow: hidden; }
 .cn-row { display: flex; flex-direction: column; gap: 3px; padding: 9px 11px; border-bottom: 1px solid var(--line); cursor: pointer; min-width: 0; }

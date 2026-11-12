@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // Agent 配置页，照原型 web-next/src/agents.tsx AgentEditor（SPEC-settings-9）。
 // 和原型不同的地方：
 // - 工具与权限（AG-02b）存在单独的授权接口：草稿里另记一份，保存时先存 Agent 再整组 PUT 授权。
@@ -7,7 +9,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useBlocker, useLocation, useNavigate, useSearchParams } from 'react-router'
 import {
-  errorText, useAgentGrants, useAgentImpact, useCategoryTree, useConnectorDefs, useConnectors, useCreateAgent, useCreateKb, useDeleteAgent,
+  connectorLook, errorText, useAgentGrants, useAgentImpact, useCategoryTree, useConnectorDefs, useConnectors, useCreateAgent, useCreateKb, useDeleteAgent,
   useKnowledgeBases, usePatchAgent, usePutAgentGrants, useSkills, type Agent, type AgentGrantMode, type AgentThinking, type KnowledgeBase, type Skill,
 } from '../../../core/data'
 import { Button, Checkbox, cls, Input, PageTitle, Select, Switch, Tag, Textarea } from '../../../core/ui'
@@ -121,7 +123,7 @@ export function AgentEditor({ agent, models }: { agent: Agent | null; models: Mo
   const issues = editorIssues(d, curModel, badConns)
   // 连接器：挂着的按 mcps 顺序（删掉的不列），能挂的是还没挂、获取过工具清单、没暂停没断开的
   const defLabel = (tool: string) => defs.find((x) => x.tool === tool)?.label ?? tool
-  const { all: allConns, mountable } = mountableConns(conns, defLabel)
+  const { all: allConns, mountable } = mountableConns(conns, defLabel, (c) => connectorLook(defs.find((x) => x.tool === c.tool), c))
   const mountedConns = d.mcps.map((id) => allConns.find((c) => c.id === id)).filter((c) => !!c)
   const candidates = allConns.filter((c) => mountable.has(c.id) && !d.mcps.includes(c.id))
   const counts: Partial<Record<EditorTab, number>> = {
@@ -293,7 +295,7 @@ export function AgentEditor({ agent, models }: { agent: Agent | null; models: Mo
         )}
 
         {tab === 'tools' && (gBase ? (
-          <ToolsTab grants={g} mounted={mountedConns} candidates={candidates} open={openConn} onOpen={setOpenConn} onMode={setMode}
+          <ToolsTab grants={g} mounted={mountedConns} candidates={candidates} open={openConn} onOpen={setOpenConn} onMode={setMode} onModes={(p) => setGrants({ ...g, ...p })}
             onMount={mountConn} onUnmount={unmountConn} onGoConnectors={() => void navigate('/settings/connectors')} />
         ) : <div className="ag-mount-empty">正在读工具权限</div>)}
 
@@ -449,7 +451,7 @@ function KbTab({ mounted, all, mountedIds, onToggle, onCreated }: {
             ))}
             {!cats.length && <span className="ag-sub">还没有文档分类</span>}
           </div>
-          <Input className="ag-mono" invalid={!!dirErr} value={form.dir} aria-label="本地目录" placeholder="本地目录（可选），比如 /Volumes/docs/客户/远川科技"
+          <Input className="ag-mono" invalid={!!dirErr} value={form.dir} aria-label="本地目录" placeholder="本地目录（可选），比如 /Volumes/docs/example-client"
             onChange={(e) => setForm({ ...form, dir: e.target.value })} />
           {dirErr && <span className="field-err">{dirErr}</span>}
           {err && <span className="field-err" role="alert">{err}</span>}

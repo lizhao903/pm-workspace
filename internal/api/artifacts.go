@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 package api
 
 import (
@@ -41,6 +43,15 @@ func artifactFilter(r *http.Request) (domain.ArtifactFilter, error) {
 		return f, err
 	}
 	if f.HasPath, err = p.triBool("has_path"); err != nil {
+		return f, err
+	}
+	// TSK-0497：登记时间区间，归属对象的类型和所属项目（project_id=- 是不属于项目）
+	f.ObjectType = p.str("object_type")
+	f.ProjectID = p.str("project_id")
+	if f.Since, err = p.timeAt("since", dayStart); err != nil {
+		return f, err
+	}
+	if f.Until, err = p.timeAt("until", dayEnd); err != nil {
 		return f, err
 	}
 	if f.Limit, err = p.limit("limit", store.DefaultArtifactLimit, maxArtifactLimit); err != nil {
@@ -92,6 +103,28 @@ func (s *Server) handleArtifactStats(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	respondData(w, http.StatusOK, st)
+}
+
+// handleArtifactsByObject 按归属对象汇总（TSK-0497）：任务列表的产出数、任务模块「产出物」视图。
+// 过滤参数同列表；kind 按 display_kind 比（历史上没填 kind 的也能筛到）。不分页，limit/offset 忽略。
+func (s *Server) handleArtifactsByObject(w http.ResponseWriter, r *http.Request) {
+	f, err := artifactFilter(r)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	// 未归属的产物不属于任何一行，unscoped=true 的结果必然是空——静默回空会被读成「没有产出」
+	if f.Unscoped {
+		s.fail(w, r, validationf("按对象汇总不支持 unscoped"))
+		return
+	}
+	f.Limit, f.Offset = 0, 0
+	res, err := s.st.ArtifactsByObject(r.Context(), f)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	respondData(w, http.StatusOK, res)
 }
 
 // artifactSourceOf 把调用方身份翻成产物来源。

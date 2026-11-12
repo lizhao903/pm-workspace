@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 会话旁边的终端、浏览器（SPEC-sessions-1.34 到 1.38）：入口来自插件登记，没登记就没有；点了在对话右边展开，
 // 再点收起；面板拿到会话的工作目录、会话里的链接和「打开」次数
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'

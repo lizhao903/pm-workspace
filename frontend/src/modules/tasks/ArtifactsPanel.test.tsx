@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -9,7 +11,7 @@ const at = new Date().toISOString()
 function art(p: Partial<Artifact>): Artifact {
   return {
     id: 'art_' + Math.random().toString(36).slice(2), object_id: 'obj_1', session_id: null, run_id: null, title: '', path: '',
-    base_dir: '', url: '', platform: '', size: 0, source: 'mcp', note: '', created_at: at, updated_at: at, rel_path: '', ...p,
+    base_dir: '', url: '', platform: '', size: 0, source: 'mcp', note: '', created_at: at, updated_at: at, rel_path: '', kind: '', display_kind: 'other', ...p,
   }
 }
 const task = { id: 'obj_1', ref: 'TSK-0001', title: '任务' } as WorkObject

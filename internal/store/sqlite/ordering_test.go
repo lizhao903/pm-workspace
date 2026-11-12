@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 package sqlite
 
 import (
@@ -24,7 +26,7 @@ func TestRevisionOrderWithinOneUpdate(t *testing.T) {
 	o := mustCreate(t, s, ctx, &domain.Object{
 		TypeID: "task", Title: "原标题", Status: "todo", Priority: "P2",
 	})
-	sh, err := s.CreateStakeholder(ctx, &domain.Stakeholder{Name: "李钊"})
+	sh, err := s.CreateStakeholder(ctx, &domain.Stakeholder{Name: "张三"})
 	if err != nil {
 		t.Fatalf("create stakeholder: %v", err)
 	}

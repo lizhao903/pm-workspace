@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // Command pmw 是产品工作台的单二进制入口：一个进程同时提供 API 与前端静态资源。
 package main
 
@@ -19,6 +21,7 @@ import (
 	"time"
 
 	"github.com/lizhao903/pm-workspace/internal/agent"
+	"github.com/lizhao903/pm-workspace/internal/aimember"
 	"github.com/lizhao903/pm-workspace/internal/api"
 	"github.com/lizhao903/pm-workspace/internal/audit"
 	"github.com/lizhao903/pm-workspace/internal/connector"
@@ -36,6 +39,7 @@ import (
 	"github.com/lizhao903/pm-workspace/internal/plugins/im"
 	"github.com/lizhao903/pm-workspace/internal/plugins/jobs"
 	"github.com/lizhao903/pm-workspace/internal/plugins/projects"
+	"github.com/lizhao903/pm-workspace/internal/plugins/recording"
 	"github.com/lizhao903/pm-workspace/internal/plugins/sop"
 	"github.com/lizhao903/pm-workspace/internal/plugins/terminal"
 	"github.com/lizhao903/pm-workspace/internal/plugins/trade"
@@ -185,6 +189,12 @@ func run(cfg config) error {
 		slog.Info("模型服务商密钥已搬进凭证保险箱", "count", n)
 	}
 
+	// 名册里的 AI 成员（TSK-0500）：每个 Agent、每种 CLI 一条，任务交给它们执行时设为负责人。
+	// 对不齐不拦启动，发起执行时还会再对一次。
+	if err := aimember.Sync(ctx, st); err != nil {
+		slog.Warn("同步名册里的 AI 成员失败", "err", err)
+	}
+
 	// 插件注册表：第一方插件编译进二进制，在这里 Add（PJ-01a 起）；启停状态存在 plugins 表。
 	// Start 必须在 api.New 之前：插件路由在 New 时挂上。defer 先于关库执行，后台任务先停。
 	// 状态表和迁移记录复用 store 的连接，不另开一组（写池单连接，插件迁移和内核写入排同一个队）。
@@ -253,6 +263,10 @@ func run(cfg config) error {
 		return info.Path, nil
 	}); err != nil {
 		return fmt.Errorf("启动前准备 SOP 失败（数据库 %s）: %w", pdb.Path, err)
+	}
+	// 录音转写插件（REC-01a）：浏览器录音、本机 whisper.cpp 转写、模型下载
+	if err := plugins.Add(recording.New()); err != nil {
+		return fmt.Errorf("登记插件失败: %w", err)
 	}
 	if err := plugins.Start(ctx); err != nil {
 		return fmt.Errorf("启动插件失败: %w", err)
@@ -363,7 +377,9 @@ func run(cfg config) error {
 	// 插件建内核对象（IM-02a 转任务）走同一个外层包装，修订、审计、事件照常；来源记为插件 id
 	plugins.SetObjectCreator(objects)
 	// 插件用模型和 Agent（SOP-01c）：口径同对话接口，Agent 的写操作走外层包装，审计、事件照常
-	plugins.SetAgent(&agent.Service{Store: objects, Connectors: opts.Connectors, PluginSkills: plugins.Skills})
+	// 任务交给工作台 Agent 执行（TSK-0460）用同一份：服务商熔断状态插件和任务执行共用
+	opts.Agent = &agent.Service{Store: objects, Connectors: opts.Connectors, PluginSkills: plugins.Skills}
+	plugins.SetAgent(opts.Agent)
 	// 插件交给 Claude Code（VID-03a）：插件发起的运行只在内存里，退出时最多等 5 秒在途的
 	plugins.SetClaudeRunner(&runner.Runner{Logger: slog.Default()})
 	defer plugins.WaitRuns(5 * time.Second)
@@ -386,6 +402,8 @@ func run(cfg config) error {
 	opts.ScheduleRunner.SOPs = plugins
 	agent.SetSOPStarter(plugins)
 	plugins.SetSOPRefs(opts.Schedules.SOPRefs)
+	// 随流程管理的定时任务（TSK-0463）：SOP 流程触发方式选「定时」时，规则存在一条定时任务里，SOP 插件经这里建、改、删
+	plugins.SetSOPSchedules(opts.Schedules)
 	// 按 Host 分发（DOM-02a）：内网域名插件接原型等子域名，--public-url 的主机和 IP、localhost 永远进工作台
 	handler := plugins.HostDispatch(api.New(objects, opts), cfg.publicURL)
 	// 在 api.New 之后启动：agent 动作要用 New 接上的 Runner

@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // SOP：标准工作流。步骤之间是一张有向图：
 //   after    这一步依赖哪几步；依赖多于一步就是汇合，依赖同一步的几步会并行跑
 //   判断步骤  产出 route，决定走哪个分支；没走到的分支上的步骤标为「未走此分支」
@@ -10,7 +12,9 @@
 // 原型里步骤由前端定时器模拟，每步的产出是写死的规则，不连真服务
 import { seedContacts, seedMessages } from './data'
 import { newId } from './ids'
-import { NODE_TYPES, evalRule, isBranching, loopRounds, render, typeOf, type Cfg, type StepKind } from './nodetypes'
+import type { ScheduleRule } from './scheduledata'
+import { condText, evalCond, type SopCond } from './sopcond'
+import { NODE_TYPES, evalRule, isBranching, loopRounds, render, ruleIsSentence, ruleSentenceError, typeOf, type Cfg, type StepKind } from './nodetypes'
 
 export type Json = Record<string, unknown>
 export type { StepKind }
@@ -38,8 +42,10 @@ export interface SopStepDef {
   cases?: SopCase[]
   /** 判断规则；判断步骤既没有 decide 也没有 rule 就是人工判断 */
   decide?: (input: Json) => { route: string; reason: string }
-  /** 用户自己写的判断规则描述；原型里不真的求值，按第一个分支模拟 */
+  /** 旧的一行规则（「字段 等于 值」），只为已有流程保留；新写的条件用 cond（TSK-0490） */
   rule?: string
+  /** 结构化条件（TSK-0490）：字段 + 运算符 + 值，可多条且 / 或，见 sopcond.tsx */
+  cond?: SopCond
   /** 节点类型自己的配置项，见 nodetypes 里各类型的 fields */
   config?: Cfg
 }
@@ -54,12 +60,47 @@ export interface SopField {
   default?: string
 }
 
+/** 与我的关系：@我、@所有人、私聊、无关 */
+export type SopIMRelevance = 'me' | 'all' | 'dm' | 'none'
+export const IM_RELEVANCES: SopIMRelevance[] = ['me', 'all', 'dm', 'none']
+export const IM_REL_LABEL: Record<SopIMRelevance, string> = { me: '@我', all: '@所有人', dm: '私聊', none: '无关' }
+export interface SopIM {
+  conversations: string[]
+  relevance: SopIMRelevance[]
+  relevance_mode: 'include' | 'exclude'
+  order: number
+  stop: boolean
+}
+export const emptyIM = (): SopIM => ({ conversations: [], relevance: [], relevance_mode: 'include', order: 0, stop: false })
+/** 过滤条件写成一句：「#random · 除了 @我」；没有过滤为「全部消息」 */
+export function imFilterText(im: SopIM): string {
+  const parts: string[] = []
+  if (im.conversations.length) parts.push(im.conversations.join('、'))
+  if (im.relevance.length) parts.push(`${im.relevance_mode === 'exclude' ? '除了' : '只要'} ${im.relevance.map((r) => IM_REL_LABEL[r]).join('、')}`)
+  return parts.length ? parts.join(' · ') : '全部消息'
+}
+/** IM 流程按顺序排好（同序号按在表里的先后） */
+export const imSops = (list: readonly Sop[]) => list.filter((s) => s.trigger === 'im').map((s, i) => ({ s, i }))
+  .sort((a, b) => (a.s.im?.order || Infinity) - (b.s.im?.order || Infinity) || a.i - b.i).map((x) => x.s)
+
 export interface Sop {
   id: string
   name: string
   desc: string
   /** sop_trigger 枚举的 key */
   trigger: string
+  /**
+   * 编排页里定时触发的草稿（TSK-0463）：规则和启停。保存时写进随流程管理的定时任务（定时任务列表里 action.managed 的那条），
+   * 流程本身不存；打开编排页时从那条定时任务带出来，没有那条时为空（「定时，未配置」）
+   */
+  sched?: { rule: ScheduleRule; enabled: boolean }
+  /**
+   * IM 触发的过滤条件、执行顺序与拦截（TSK-0481，SPEC-sop-9.27）：只在触发方式是 im 时起作用，没有时是不过滤、排最后、不拦截。
+   * conversations 是会话（原型用会话名，正式产品存内核会话 id），空为全部；relevance 空为不限；order 是在 IM 流程里排第几（1 起）
+   */
+  im?: SopIM
+  /** 所在文件夹（TSK-0482，SPEC-sop-2.15）：SOP_FOLDERS 里的 id；没有或指向已删的文件夹是「未分类」 */
+  folder_id?: string | null
   fields: SopField[]
   steps: SopStepDef[]
   /** 编排画布上的节点位置，key 是步骤 key，__start 是开始节点；没有就按依赖自动排 */
@@ -373,12 +414,81 @@ const str = (v: unknown) => (typeof v === 'string' ? v : '')
 const rid = () => Math.random().toString(36).slice(2, 7)
 type Demand = { title: string; evidence: string; type: 'feature' | 'bug'; priority: string }
 
+/* ---------- 流程库的文件夹（TSK-0482，SPEC-sop-2.15 起） ---------- */
+
+/** 一级文件夹，不分层；正式产品存在 SOP 插件表 sop_folders，id 前缀 sfd */
+export interface SopFolder { id: string; name: string }
+export const UNCATEGORIZED = '未分类'
+export const FOLDER_NAME_MAX = 30
+/** 界面上已经占用的叫法，不能拿来当文件夹名 */
+export const FOLDER_RESERVED = ['全部', UNCATEGORIZED]
+
+export const SOP_FOLDERS: SopFolder[] = [
+  { id: 'sfd_product', name: '产品经理' },
+  { id: 'sfd_video', name: '视频博主' },
+  { id: 'sfd_im', name: 'IM 分诊' },
+]
+
+/** 流程实际所在的文件夹 id；指向已删的按未分类（null） */
+export const folderOf = (s: Sop, folders: readonly SopFolder[] = SOP_FOLDERS) =>
+  (s.folder_id && folders.some((f) => f.id === s.folder_id) ? s.folder_id : null)
+
+/** 文件夹名字检查（同后端）：去空白后 1 到 30 字，不能叫「全部」「未分类」，不分大小写不能重名；没问题回空串 */
+export function folderNameError(name: string, self?: string): string {
+  const v = name.trim()
+  if (!v) return '文件夹名称不能为空'
+  if ([...v].length > FOLDER_NAME_MAX) return `文件夹名称最多 ${FOLDER_NAME_MAX} 字`
+  if (FOLDER_RESERVED.includes(v)) return `「${v}」是界面上已经占用的叫法，换个名字`
+  if (SOP_FOLDERS.some((f) => f.id !== self && f.name.toLowerCase() === v.toLowerCase())) return `已经有叫「${v}」的文件夹了`
+  return ''
+}
+
+/**
+ * 名字前缀「xxx · 名称」的前缀（同后端 folderPrefix，SPEC-sop-2.21）：按第一个「空格 · 空格」切开，两边去空白都不为空、
+ * 前缀合文件夹名字规则才算；否则空串。正式产品升级到 SOP 0.15.0 后第一次启用时按它把已有流程归进同名文件夹，只做一次
+ */
+export function folderPrefix(name: string): string {
+  const i = name.indexOf(' · ')
+  if (i < 0) return ''
+  const head = name.slice(0, i).trim()
+  const rest = name.slice(i + 3).trim()
+  if (!head || !rest || [...head].length > FOLDER_NAME_MAX || FOLDER_RESERVED.includes(head)) return ''
+  return head
+}
+
+export function addFolder(name: string): SopFolder {
+  const f = { id: newId('sfd'), name: name.trim() }
+  SOP_FOLDERS.push(f)
+  return f
+}
+export function renameFolder(id: string, name: string) {
+  const f = SOP_FOLDERS.find((x) => x.id === id)
+  if (f) f.name = name.trim()
+}
+/** 删文件夹：里面的流程回未分类，流程本身不动；回放回了几条 */
+export function removeFolder(id: string): number {
+  const i = SOP_FOLDERS.findIndex((x) => x.id === id)
+  if (i >= 0) SOP_FOLDERS.splice(i, 1)
+  let n = 0
+  SOPS.forEach((s, k) => { if (s.folder_id === id) { SOPS[k] = { ...s, folder_id: null }; n += 1 } })
+  return n
+}
+/** 移到文件夹（null 回未分类）：只换文件夹，正式产品不升版本 */
+export function moveSops(ids: string[], folderId: string | null) {
+  SOPS.forEach((s, k) => { if (ids.includes(s.id)) SOPS[k] = { ...s, folder_id: folderId } })
+}
+/** 在某个文件夹里点「新建 SOP」时记下，编排页的新草稿默认放进去 */
+export const newSopFolder: { id: string | null } = { id: null }
+
 export const SOPS: Sop[] = [
   {
     id: 'sop_feedback',
+    folder_id: 'sfd_product',
     name: '客户反馈转需求',
     desc: '把 IM 里的客户反馈提炼成诉求，按功能需求和缺陷分开处理，回复客户并同步研发',
     trigger: 'im',
+    // IM 流程里排第 2，排在「群消息忽略」后面（TSK-0481）
+    im: { conversations: [], relevance: [], relevance_mode: 'include', order: 2, stop: false },
     fields: [
       { key: 'customer', label: '客户', type: 'text', required: true, default: '梁晚晴', placeholder: '联系人姓名' },
       { key: 'channel', label: '回复渠道', type: 'select', default: 'lark', options: [
@@ -472,7 +582,8 @@ export const SOPS: Sop[] = [
     id: 'sop_meeting',
     name: '周会纪要整理',
     desc: '转写稿拆开后并行生成纪要、待办和发言统计，校对后同时归档和同步到群里',
-    trigger: 'weekly',
+    // 定时：每周一 18:00，规则在随流程管理的定时任务 sc_meeting 里（TSK-0463，原来是写死的 weekly）
+    trigger: 'schedule',
     fields: [
       { key: 'meeting', label: '会议', type: 'text', required: true, default: '产品周会 10/26' },
       { key: 'transcript', label: '转写稿', type: 'textarea', required: true, default: '林予安：权限点清单周三前和后端对齐。\n周屿：导出异步化要先评估存储成本。\n陈若溪：远川的时区问题这周先给临时方案。\n周屿：好，缓存方案我周五前出。' },
@@ -577,6 +688,7 @@ export const SOPS: Sop[] = [
   },  {
     // 视频模块的阶段执行器可以直接选它；检查点对应视频的四个检查点，人放行了才往下走
     id: 'sop_video_weekly',
+    folder_id: 'sfd_video',
     name: '视频周更',
     desc: '按 web-video-presentation 技能把一集从原文做到分发包：AI 出稿、Agent 开发第 1 章、并行做其余章节、渲染，四处停下等人检查',
     trigger: 'manual',
@@ -651,6 +763,7 @@ export const SOPS: Sop[] = [
   // 消息抽屉「分诊建议」一节按这些输出字段取结论，不认步骤 key。原型的判断是写死的规则
   {
     id: 'sop_triage',
+    folder_id: 'sfd_im',
     name: '消息分诊：要不要我处理',
     desc: '读消息、判断要不要我处理。要处理的写一句处理建议；不用管的标成已忽略',
     trigger: 'manual',
@@ -698,12 +811,13 @@ export const SOPS: Sop[] = [
   // 不通过自动退回产品带着意见重写，最多 3 轮，超限转人工裁决。原型里评审首轮不通过、第 2 轮通过
   {
     id: 'sop_prd_review',
+    folder_id: 'sfd_product',
     name: '需求评审闭环',
     desc: 'Claude Code 按产品角色写 PRD，再按研发评审角色只读评审；不通过自动退回重写，最多 3 轮，超限转人工',
     trigger: 'manual',
     fields: [
       { key: 'task_id', label: '需求任务', type: 'text', required: true, placeholder: '任务 id' },
-      { key: 'dir', label: '项目目录', type: 'text', required: true, default: '/Volumes/project/octok', placeholder: '本机绝对路径' },
+      { key: 'dir', label: '项目目录', type: 'text', required: true, default: '/Volumes/project/acme', placeholder: '本机绝对路径' },
     ],
     steps: [
       {
@@ -739,7 +853,7 @@ export const SOPS: Sop[] = [
   {
     id: 'sop_im_auto_intake',
     name: 'IM 需求自动受理',
-    desc: 'IM 消息是需求就建任务、回执提出人，按项目档案分类（拿不准问提出人），Claude Code 写 PRD、研发评审，不通过自动退回最多 3 轮，通过后进入开发。默认停用：触发方式是「手动」，改成「IM 消息」才会自动处理新消息',
+    desc: 'IM 消息是需求就建任务、回执需求方，按项目档案分类（拿不准问提出人），Claude Code 写 PRD、研发评审，不通过自动退回最多 3 轮，通过后进入开发。默认停用：触发方式是「手动」，改成「IM 消息」才会自动处理新消息',
     trigger: 'manual',
     fields: [
       { key: 'message_id', label: 'IM 消息', type: 'text', required: true, default: 'm1', placeholder: '消息 id；IM 触发时自动带上' },
@@ -768,12 +882,13 @@ export const SOPS: Sop[] = [
         run: (i) => ({ ...i, task: { id: 'tsk_auto1', ref: 'TSK-0101', title: str((i.message as Json | undefined)?.text).slice(0, 40), stage: 'received', url: 'https://pmw.local/tasks/board?t=tsk_auto1' } }),
       },
       {
-        key: 'ack', name: '回执提出人', kind: 'auto', ms: 400, after: ['to_task'], desc: '回复原消息（IM 插件 im_reply_message）：已收到，附看板链接',
-        run: (i) => ({ ...i, replied: { text: `收到，已记为需求 ${str((i.task as Json).ref)}，进度可以在看板上看：${str((i.task as Json).url)}` } }),
+        key: 'ack', name: '回执需求方', kind: 'auto', ms: 400, after: ['to_task'],
+        desc: '回执需求方（IM 插件 im_ack_task，TSK-0467）：在原消息所在的会话里回复「已创建任务 TSK-x，开始进行需求规划」；同一条消息只回一次，我自己发的、只收不发的不回，回复失败不影响任务',
+        run: (i) => ({ ...i, acked: { status: 'sent', task_ref: str((i.task as Json).ref), text: `已创建任务 ${str((i.task as Json).ref)}，开始进行需求规划` } }),
       },
       {
         key: 'profiles', name: '读项目档案', kind: 'auto', ms: 300, after: ['ack'], desc: '列项目档案（项目插件 projects_list_profiles）：建过档案的项目摘要，给分类用',
-        run: (i) => ({ ...i, profiles_text: '- 产品工作台（PRJ-0001）：个人产品管理工具；关键词：需求、SOP\n- Octok（PRJ-0002）：桌面客户端；关键词：客户端、导出' }),
+        run: (i) => ({ ...i, profiles_text: '- 产品工作台（PRJ-0001）：个人产品管理工具；关键词：需求、SOP\n- Acme（PRJ-0002）：桌面客户端；关键词：客户端、导出' }),
       },
       {
         key: 'classify', name: '判断归属项目', kind: 'ai', ms: 1500, after: ['profiles'], config: { output: 'classify' },
@@ -783,7 +898,7 @@ export const SOPS: Sop[] = [
       {
         key: 'parse', name: '整理分类结果', kind: 'extract', ms: 600, after: ['classify'], config: { from: 'classify', fields: 'project_id、project、confidence、sure、candidates_text、reason' },
         desc: '把分类回答整理成字段',
-        run: (i) => ({ ...i, extracted: { project_id: 'p2', project: 'Octok', confidence: 0.9, sure: 'yes', candidates_text: '1. Octok（PRJ-0002）', reason: '说的是客户端导出' } }),
+        run: (i) => ({ ...i, extracted: { project_id: 'p2', project: 'Acme', confidence: 0.9, sure: 'yes', candidates_text: '1. Acme（PRJ-0002）', reason: '说的是客户端导出' } }),
       },
       {
         key: 'sure', name: '拿得准吗', kind: 'decide', ms: 300, after: ['parse'], rule: 'extracted.sure 等于 yes',
@@ -794,16 +909,16 @@ export const SOPS: Sop[] = [
       {
         key: 'bind_auto', name: '绑定项目', kind: 'auto', ms: 300, after: ['sure'], branch: { of: 'sure', case: 'yes' },
         desc: '设置任务阶段（IM 插件 im_set_task_stage）：任务归到分类给出的项目',
-        run: (i) => ({ ...i, project: { id: 'p2', name: 'Octok' } }),
+        run: (i) => ({ ...i, project: { id: 'p2', name: 'Acme' } }),
       },
       { key: 'ask_stage', name: '阶段改为待确认项目', kind: 'auto', ms: 300, after: ['sure'], branch: { of: 'sure', case: 'no' }, desc: '设置任务阶段：confirm_project' },
       { key: 'ask', name: '问提出人归哪个项目', kind: 'auto', ms: 400, after: ['ask_stage'], desc: '回复原消息：列出候选项目，请对方回复项目名或编号' },
       { key: 'wait', name: '等提出人回复', kind: 'wait', ms: 2500, after: ['ask'], desc: '等待回复（IM 插件 im_wait_reply）：会话里对方的下一条消息，最多 2 天', config: { duration: '2 天' } },
       { key: 'pick', name: '认出选的项目', kind: 'ai', ms: 900, after: ['wait'], desc: '从回复里认出选的项目，只回项目 id', config: { output: 'picked' }, run: (i) => ({ ...i, picked: 'p2' }) },
-      { key: 'bind_pick', name: '绑定项目', kind: 'auto', ms: 300, after: ['pick'], desc: '设置任务阶段：任务归到提出人选的项目', run: (i) => ({ ...i, project: { id: str(i.picked), name: 'Octok' } }) },
+      { key: 'bind_pick', name: '绑定项目', kind: 'auto', ms: 300, after: ['pick'], desc: '设置任务阶段：任务归到提出人选的项目', run: (i) => ({ ...i, project: { id: str(i.picked), name: 'Acme' } }) },
       {
         key: 'profile', name: '读项目档案', kind: 'auto', ms: 300, after: ['bind_auto', 'bind_pick'], desc: '读项目档案（项目插件 projects_get_profile）：取原型库、PRD、代码库目录',
-        run: (i) => ({ ...i, profile: { name: 'Octok', dirs: { code: '/Volumes/project/octok', prototype: '/Volumes/project/octok/web-next', prd: '/Volumes/project/octok/docs/prd' } } }),
+        run: (i) => ({ ...i, profile: { name: 'Acme', dirs: { code: '/Volumes/project/acme', prototype: '/Volumes/project/acme/web-next', prd: '/Volumes/project/acme/docs/prd' } } }),
       },
       { key: 'design', name: '阶段改为设计中', kind: 'auto', ms: 300, after: ['profile'], desc: '设置任务阶段：designing；评审退回时也从这里重来' },
       {
@@ -857,7 +972,7 @@ export const SOPS: Sop[] = [
       },
       {
         key: 'worktree', name: '准备工作区', kind: 'auto', ms: 500, after: ['profile'], desc: '准备工作区（项目插件 projects_prepare_worktree）：任务独立的 worktree 和分支 auto/<任务编号>，分一段端口',
-        run: (i) => ({ ...i, worktree: { path: '/Volumes/project/0xBroleez/pm-workspace/data-dev/worktrees/pj_perm/T-017', branch: 'auto/T-017', port_start: 7920 } }),
+        run: (i) => ({ ...i, worktree: { path: '/Volumes/project/example/pm-workspace/data-dev/worktrees/pj_perm/T-017', branch: 'auto/T-017', port_start: 7920 } }),
       },
       { key: 'dev_stage', name: '回到开发中', kind: 'auto', ms: 200, after: ['worktree'], desc: '设置任务阶段：developing；测试没通过、验收发现实现缺陷时退回到这里' },
       {
@@ -943,7 +1058,7 @@ export const SOPS: Sop[] = [
   {
     id: 'sop_im_task_confirm',
     name: '来消息确认派发',
-    desc: 'IM 消息要建任务时先私信我确认：回「执行」派 Claude Code 在任务继承的工作目录里开工、做完私信回报；回「分配 某人」改负责人；回「不做」取消任务；认不出再问一次、超时提醒一次，仍没有就不执行。默认停用：触发方式是「手动」',
+    desc: 'IM 消息要建任务时先在原会话回执需求方「已创建任务 TSK-x，开始进行需求规划」，再私信我确认：回「执行」派 Claude Code 在任务继承的工作目录里开工、做完私信回报；回「分配 某人」改负责人；回「不做」取消任务；认不出再问一次、超时提醒一次，仍没有就不执行。默认停用：触发方式是「手动」',
     trigger: 'manual',
     fields: [
       { key: 'message_id', label: 'IM 消息', type: 'text', required: true, default: 'm1', placeholder: '消息 id；IM 触发时自动带上' },
@@ -976,7 +1091,12 @@ export const SOPS: Sop[] = [
       { key: 'join', name: '任务', desc: '', kind: 'aggregate', ms: 200, after: ['use_id', 'to_task'], config: { mode: 'first' } },
       { key: 'info', name: '读任务', kind: 'task_update', ms: 300, after: ['join'], desc: '取任务的编号、标题、项目和继承后的工作目录，给私信摘要用', config: {} },
       {
-        key: 'ask', name: '私信我确认', kind: 'auto', ms: 1200, after: ['info'],
+        key: 'ack', name: '回执需求方', kind: 'auto', ms: 400, after: ['info'],
+        desc: '回执需求方（IM 插件 im_ack_task，TSK-0467）：先在原消息所在的会话里回复需求方「已创建任务 TSK-x，开始进行需求规划」，再私信我；同一条消息只回一次（别的流程回过就不回）',
+        run: (i) => ({ ...i, acked: { status: 'sent', task_ref: str((i.task as Json).ref), text: `已创建任务 ${str((i.task as Json).ref)}，开始进行需求规划` } }),
+      },
+      {
+        key: 'ask', name: '私信我确认', kind: 'auto', ms: 1200, after: ['ack'],
         desc: '私信我确认（IM 插件 im_ask_me）：私信我任务摘要和「执行 / 分配 某人 / 不做」；认不出再问一次，超时提醒一次，仍没有就不执行',
         run: (i) => {
           const r = str(i.reply).trim()
@@ -1001,6 +1121,56 @@ export const SOPS: Sop[] = [
       { key: 'tell_idle', name: '回话：先不执行', kind: 'auto', ms: 300, after: ['is_cancel'], branch: { of: 'is_cancel', case: 'no' }, desc: '私信我：认不出或超时，先不执行，任务留在未开工' },
     ],
   },
+  // FDE 反馈转发（TSK-0468，SPEC-sop-12.51）：正式产品由 IM 插件写进 SOP 的内置流程 sop_im_fde_forward，默认停用（IM 设置「FDE 反馈转发」打开后，
+  // 我在消息页手动转任务、拆分任务时由 IM 插件发起；流程自动建的任务不发）。整理摘要、私信联系人是 IM 插件的 im_message_digest、im_send_contact，原型用 auto 模拟
+  {
+    id: 'sop_im_fde_forward',
+    name: 'FDE 反馈转发',
+    desc: '我在 IM 消息页手动把消息转成任务（转任务、拆分任务）后，私信 Robot.CyberBroleez 一条「FDE 反馈」+ 原始消息 + 任务编号和链接；同一条消息只发一次，拆分出几条任务汇成一条。默认停用：在 IM 消息页「渠道配置」里打开「FDE 反馈转发」才会自动发；收件人、开头文字在「私信 FDE 反馈收件人」这一步里改',
+    trigger: 'manual',
+    fields: [
+      { key: 'message_id', label: 'IM 消息', type: 'text', required: true, default: 'm1', placeholder: '消息 id；手动转任务时自动带上' },
+      { key: 'message_ids', label: '同组消息', type: 'text', placeholder: '拆分任务时会话带的一组消息 id，可空' },
+      { key: 'task_ids', label: '任务', type: 'text', placeholder: '新建的任务 id，可空（空时取这条消息转成、拆出来的任务）' },
+    ],
+    steps: [
+      {
+        key: 'digest', name: '整理消息摘要', kind: 'auto', ms: 300, after: [],
+        desc: '整理消息摘要（IM 插件 im_message_digest）：原始消息的发信人、会话、时间、原文、附件名，和新任务编号、链接；拆分出几条任务时都列上',
+        run: (i) => {
+          const m = seedMessages.find((x) => x.id === i.message_id) ?? seedMessages[0]
+          return { ...i, digest: {
+            messages_text: `发信人：${m.sender_name}\n会话：${m.conversation || '私聊'}（${m.channel}）\n时间：2026-11-05 10:30\n原文：${m.text}`,
+            tasks_text: '任务：TSK-0103「' + m.text.slice(0, 20) + '」https://pmw.local/tasks/board?t=tsk_fde1',
+          } }
+        },
+      },
+      {
+        key: 'send', name: '私信 FDE 反馈收件人', kind: 'auto', ms: 500, after: ['digest'],
+        config: { contact: 'Robot.CyberBroleez', to: 'U0BQZG8LSTB', channel: 'slack', text: 'FDE 反馈\n{{digest.messages_text}}\n{{digest.tasks_text}}' },
+        desc: '私信联系人（IM 插件 im_send_contact）：按联系人找到 Slack 身份 U0BQZG8LSTB 私信「FDE 反馈」+ 摘要；联系人没有这个身份时失败「联系人 Robot.CyberBroleez 没有 Slack 身份 U0BQZG8LSTB」，发送失败记运行异常，任务不受影响',
+        run: (i) => ({ ...i, sent_to: { contact: 'Robot.CyberBroleez', to: 'U0BQZG8LSTB' } }),
+      },
+    ],
+  },
+  {
+    // TSK-0481 的验收样例：某个群里不是 @我 的消息一律标为忽略，排第 1 个并拦截，别的 IM 流程不再接；@我 的照常往下走
+    id: 'sop_im_mute',
+    folder_id: 'sfd_im',
+    name: '群消息忽略',
+    desc: '#random 里除了 @我 的消息一律标为忽略；排在最前面，接住的消息别的 IM 流程不再处理',
+    trigger: 'im',
+    im: { conversations: ['#random'], relevance: ['me'], relevance_mode: 'exclude', order: 1, stop: true },
+    fields: [{ key: 'message_id', label: 'IM 消息', type: 'text', required: true, default: 'm1', placeholder: '消息 id；IM 触发时自动带上' }],
+    steps: [
+      {
+        key: 'mark', name: '标记消息', kind: 'auto', ms: 200, after: [],
+        config: { message_id: '{{message_id}}', state: 'ignore' },
+        desc: '标记消息（IM 插件 im_mark_message）：把这条消息标为忽略，不进待处理',
+        run: (i) => ({ ...i, marked: { message_id: i.message_id, state: 'ignore' } }),
+      },
+    ],
+  },
 ]
 
 // 新建和编辑的 SOP 也放进这张表，引擎和界面都从这里按 id 取。App 里另有一份 state 负责触发重渲染
@@ -1009,8 +1179,33 @@ export function upsertSop(sop: Sop) {
   const i = SOPS.findIndex((s) => s.id === sop.id)
   if (i >= 0) SOPS[i] = sop
   else SOPS.push(sop)
+  placeIM(sop.id)
 }
-export const isManualDecide = (d: SopStepDef) => d.kind === 'decide' && !d.decide && !d.rule?.trim()
+
+/**
+ * 定 IM 流程的顺序（TSK-0481，同后端 placeIM）：这一条的 im.order 是想排第几，插进去、其余顺延，全部重新从 1 编号；
+ * 没有 order（新的、刚改成 IM 的）排最后。不是 IM 的 order 清成 0
+ */
+function placeIM(id: string) {
+  const me = SOPS.find((s) => s.id === id)
+  if (!me) return
+  if (me.trigger !== 'im') { if (me.im) me.im = { ...me.im, order: 0 }; return }
+  const rest = imSops(SOPS).filter((s) => s.id !== id)
+  const want = me.im?.order || rest.length + 1
+  rest.splice(Math.min(want - 1, rest.length), 0, me)
+  rest.forEach((s, k) => { s.im = { ...(s.im ?? emptyIM()), order: k + 1 } })
+}
+
+/** 一条消息符不符合 IM 触发的过滤条件（原型按会话名比） */
+export function imMatches(im: SopIM | undefined, m: { conversation: string; relevance?: string }): boolean {
+  if (!im) return true
+  if (im.conversations.length && !im.conversations.includes(m.conversation)) return false
+  if (!im.relevance.length) return true
+  const rel = (m.relevance || 'none') as SopIMRelevance
+  const hit = im.relevance.includes(rel)
+  return im.relevance_mode === 'exclude' ? !hit : hit
+}
+export const isManualDecide = (d: SopStepDef) => d.kind === 'decide' && !d.decide && !d.cond && !d.rule?.trim()
 
 /** 用户新建的步骤没有写死的产出规则，原型里按类型给一个看得出是谁产出的占位结果 */
 function mockRun(def: SopStepDef, input: Json): Json {
@@ -1094,9 +1289,19 @@ export function tick(r: SopRun, now = Date.now()): SopRun {
         now, v ? `Claude Code 跑完了，回报结论 ${v}` : 'Claude Code 跑完了，没有回报结构化结论'))
       return
     }
+    // 条件是一句话的判断步骤（TSK-0498，TSK-0490 之前存进来的）：失败，错误里写清怎么改，不再只说「写法不对」
+    if (def.kind === 'decide' && !def.decide && ruleIsSentence(def.rule)) {
+      const err = ruleSentenceError(def.rule!, sop.trigger)
+      r = setStep(r, i, (x) => logged({ ...x, status: 'failed', error: err, ended_at: now }, now, `失败：${err}`))
+      return
+    }
     if (isBranching(def.kind) && !isManualDecide(def)) {
       const t = typeOf(def.kind)
       const { route, reason } = def.decide ? def.decide(s.input ?? {})
+        // 结构化条件真求值（TSK-0490），同后端
+        : def.cond ? (evalCond(def.cond, s.input ?? {})
+          ? { route: def.cases?.[0]?.key ?? '', reason: `条件「${condText(def.cond)}」成立` }
+          : { route: def.cases?.[1]?.key ?? '', reason: `条件「${condText(def.cond)}」不成立` })
         : t.route ? t.route(def.config ?? {}, s.input ?? {}, def)
           : { route: def.cases?.[0]?.key ?? '', reason: `按规则「${def.rule}」判断（原型模拟）` }
       const label = def.cases?.find((c) => c.key === route)?.label ?? route
@@ -1140,10 +1345,10 @@ function loopback(r: SopRun, i: number, now: number): SopRun {
   const def = r.sop.steps[i]
   const s = r.steps[i]
   const input = s.input ?? {}
-  const rule = def.rule?.trim() ?? ''
-  const ok = evalRule(rule, input)
+  const rule = def.cond ? condText(def.cond) : def.rule?.trim() ?? ''
+  const ok = def.cond ? evalCond(def.cond, input) : evalRule(rule, input)
   const fail = (err: string) => setStep(r, i, (x) => logged({ ...x, status: 'failed', error: err, ended_at: now }, now, `失败：${err}`))
-  if (ok === null) return fail(rule ? `规则「${rule}」写法不对，要写成「字段 等于 值」或「字段 包含 值」` : '还没填回退条件')
+  if (ok === null) return fail(rule ? ruleSentenceError(rule, r.sop.trigger) : '还没填回退条件')
   const label = (k: string) => def.cases?.find((c) => c.key === k)?.label ?? k
   if (!ok) return setStep(r, i, (x) => logged({ ...x, status: 'done', output: input, route: 'pass', route_reason: `条件「${rule}」不成立`, ended_at: now }, now, `判断结果：走「${label('pass')}」，条件「${rule}」不成立`))
   const max = loopRounds(def.config?.max_rounds) ?? 3
@@ -1242,6 +1447,34 @@ export function rerunRuns(runs: SopRun[], ids: string[], action: RerunAction, no
     result.done.push({ run_id: id, new_run_id: n.id })
   }
   return { runs: [...fresh, ...runs.map((r) => byId.get(r.id) ?? r)], result }
+}
+
+/** 批量发起的执行在来源上的名字（正式产品 source_name「批量发起」，source_ref 记批次 spb_） */
+export const BATCH_SOURCE_NAME = '批量发起'
+
+/** 能停：执行中、待我处理（SPEC-sop-4.23）；失败、已完成、已终止、已重跑的不停 */
+export const isStoppable = (r: SopRun) => { const s = runShow(r); return s === 'running' || s === 'waiting' }
+
+/**
+ * 批量停止（TSK-0717，SPEC-sop-4.23~4.27）：同单条「终止」，不是执行中、待我处理的跳过并给原因（同正式产品的写法）。
+ * 正式产品是 POST /api/sop/runs/batch-actions {action:"stop"}（勾选的）和 POST /api/sop/runs/stop（按流程、批次、全部）；
+ * 排队等模型的步骤立即出队，正在调模型的请求取消，已建出的任务不回滚
+ */
+export function stopRuns(runs: SopRun[], ids: string[], now = Date.now()): { runs: SopRun[]; result: RerunResult } {
+  const result: RerunResult = { done: [], skipped: [], failed: [] }
+  const byId = new Map(runs.map((r) => [r.id, r]))
+  const seen = new Set<string>()
+  for (const id of ids) {
+    const r = byId.get(id)
+    if (seen.has(id)) { result.skipped.push({ run_id: id, reason: '重复或为空' }); continue }
+    seen.add(id)
+    if (!r) { result.skipped.push({ run_id: id, reason: '执行不存在' }); continue }
+    if (r.stopped) { result.skipped.push({ run_id: id, reason: '已终止' }); continue }
+    if (!isStoppable(r)) { result.skipped.push({ run_id: id, reason: `不在执行中或待我处理（${RUN_STATUS[runShow(r)].label}）` }); continue }
+    byId.set(id, act(r, { kind: 'stop' }, now))
+    result.done.push({ run_id: id })
+  }
+  return { runs: runs.map((r) => byId.get(r.id) ?? r), result }
 }
 
 export function act(r: SopRun, a: RunAction, now = Date.now()): SopRun {

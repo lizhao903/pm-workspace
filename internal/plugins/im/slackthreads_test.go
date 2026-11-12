@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 package im
 
 import (
@@ -251,14 +253,14 @@ func TestSlackThreadBackfill(t *testing.T) {
 		"C01": {
 			{"type": "message", "user": "U04LIN", "text": "很早的话题", "ts": tooOld},
 			{"type": "message", "user": "U04LIN", "text": "上周的话题", "ts": old},
-			{"type": "message", "user": "U07ME", "text": "我发起的讨论", "ts": mine},
+			{"type": "message", "user": "U0EXAMPLE", "text": "我发起的讨论", "ts": mine},
 		},
 	}
 	e.fake.addReply("C01", tooOld, map[string]any{"user": "U09ZHOU", "text": "很早的回复", "ts": agoTS(19*24*time.Hour, 1)})
 	e.fake.addReply("C01", old, map[string]any{"user": "U09ZHOU", "text": "老串回复一", "ts": agoTS(3*24*time.Hour-time.Hour, 1)})
 	e.fake.addReply("C01", old, map[string]any{"user": "U09ZHOU", "text": "老串回复二", "ts": agoTS(2*24*time.Hour, 5)})
-	e.fake.addReply("C01", mine, map[string]any{"user": "U04LIN", "text": "我觉得可以", "ts": agoTS(24*time.Hour, 1), "parent_user_id": "U07ME"})
-	e.fake.addReply("C01", mine, map[string]any{"user": "U07ME", "text": "好那就这么定", "ts": agoTS(23*time.Hour, 1), "parent_user_id": "U07ME"})
+	e.fake.addReply("C01", mine, map[string]any{"user": "U04LIN", "text": "我觉得可以", "ts": agoTS(24*time.Hour, 1), "parent_user_id": "U0EXAMPLE"})
+	e.fake.addReply("C01", mine, map[string]any{"user": "U0EXAMPLE", "text": "好那就这么定", "ts": agoTS(23*time.Hour, 1), "parent_user_id": "U0EXAMPLE"})
 	every := 0
 	c, err := e.conns.Create(ctx, connector.Input{Tool: connector.SlackTool, Direction: "both", Interval: &every,
 		Config:  map[string]string{"identity": connector.SlackAsUser, "channels": "#product"},

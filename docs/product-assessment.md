@@ -152,7 +152,7 @@
 | 执行 Tab | 安全默认到位：未设工作区时给前置引导；「允许修改文件」默认不勾；空态诚实 |
 | 设置页 | 七页完整；不可改字段逐项说明原因；迁移 checksum 表如实暴露 0001-0004 空值 |
 | 数据与备份 | **只提供「立即快照」**——界面层证实无定时备份 |
-| 快捷访问页 | 仅次于需求池的第二大真实使用能力：3 个外链（NS系统、Octok 任务反馈、Confluence）+ 1 个内跳动作 |
+| 快捷访问页 | 仅次于需求池的第二大真实使用能力：3 个外链（NS系统、Acme 任务反馈、Confluence）+ 1 个内跳动作 |
 
 **走查新发现两条：**
 
@@ -269,3 +269,9 @@
 节拍一旦立住，项目经理视角的那些台账才有被填的动力——否则它们只会是第二批空转的界面。
 
 三条最该做的事，按顺序：**接上备份定时器 → 让 Agent 变成提醒源（每日扫停滞 + 每周摘要）→ 拆查询词修检索**。
+
+---
+
+由 DeepSeek Harness（dsh）协助完成。
+
+[![](https://img.shields.io/badge/powered_by-dsh-4D6BFE?style=flat-square&logo=deepseek&logoColor=white)](https://github.com/deepseek-ai/deepseek-harness)

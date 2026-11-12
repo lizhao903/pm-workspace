@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 视频插件的页面（VID-01c，SPEC-videos-1、2、10、13）：没有二级菜单，顶栏下面一排标签（全部视频、待我处理）。
 // 路由挂在 videos/* 下：/videos 全部视频，/videos/review 待我处理，/videos/single 单集，/videos/series/<id> 某个系列的集，
 // /videos/v/<id> 视频详情的制作流程，/videos/v/<id>/settings 设置。打开详情时把来处的标签记在 location.state，标签栏高亮它。

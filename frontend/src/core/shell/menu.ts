@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 一级菜单的分组、侧栏收起和分组折叠的本地记忆。
 // 分组来自当前工作台（CORE-10b，见 workspace.ts）；后端取不到工作台时用这里的默认分组。
 // 没进任何组的模块放进「未分组」，传了 hide 的除外（工作台目录里的模块在不在菜单由工作台决定）。
@@ -9,7 +11,7 @@ export type MenuGroup = { id: string; name: string; items: ModuleDef[]; collapse
 export const DEFAULT_GROUPS: readonly MenuGroupDef[] = [
   { id: 'home', name: '', modules: ['today'] },
   { id: 'work', name: '工作', modules: ['projects', 'tasks', 'docs'] },
-  { id: 'talk', name: '沟通', modules: ['contacts', 'conversations'] },
+  { id: 'talk', name: '沟通', modules: ['contacts', 'conversations', 'runs'] },
 ]
 
 // 放在侧栏底部的模块

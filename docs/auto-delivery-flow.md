@@ -13,7 +13,7 @@ flowchart TB
     T2["平台新建任务"]
     T3{"是不是需求？<br/>意图识别"}
     T4["建需求任务<br/>记录提出人、来源消息、附件"]
-    T5["回执提出人<br/>已收到 + 看板链接"]
+    T5["回执需求方<br/>已创建任务 + 开始需求规划"]
     T0["普通消息<br/>不建任务"]
     T1 --> T3
     T3 -->|"是"| T4
@@ -284,3 +284,9 @@ stateDiagram-v2
 - **测试环境不带生产凭证**：临时实例不复制密钥，避免和生产抢 IM 机器人。
 - **原型跟着代码走**：每次上线后由旁路把原型库拉齐到上线代码，下一条需求的产品 Agent 始终在最新原型上设计。
 - **全程留痕**：每一步的产出登记到任务（PRD、原型、commit、测试报告、版本号），看板状态随之更新，结束时回复原 IM 消息。
+
+---
+
+由 DeepSeek Harness（dsh）协助完成。
+
+[![](https://img.shields.io/badge/powered_by-dsh-4D6BFE?style=flat-square&logo=deepseek&logoColor=white)](https://github.com/deepseek-ai/deepseek-harness)

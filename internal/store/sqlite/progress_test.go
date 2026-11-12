@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 package sqlite
 
 import (
@@ -159,7 +161,7 @@ func TestAppendProgressSwitchesStatusAtomically(t *testing.T) {
 func TestClaimObject(t *testing.T) {
 	s, ctx := newStore(t)
 	cc := mustStakeholder(t, s, ctx, "Claude Code")
-	other := mustStakeholder(t, s, ctx, "李钊")
+	other := mustStakeholder(t, s, ctx, "张三")
 	o := mustCreate(t, s, ctx, &domain.Object{TypeID: "task", Title: "领取"})
 
 	res, err := s.ClaimObject(ctx, o.ID, domain.ClaimInput{OwnerID: cc.ID}, agentActor("s1"))
@@ -199,7 +201,7 @@ func TestClaimObject(t *testing.T) {
 	// 负责人是别人：拒绝。
 	o2 := mustCreate(t, s, ctx, &domain.Object{TypeID: "task", Title: "别人的", OwnerID: &other.ID})
 	_, err = s.ClaimObject(ctx, o2.ID, domain.ClaimInput{OwnerID: cc.ID}, agentActor("s1"))
-	if !errors.Is(err, domain.ErrConflict) || !strings.Contains(err.Error(), "李钊") {
+	if !errors.Is(err, domain.ErrConflict) || !strings.Contains(err.Error(), "张三") {
 		t.Fatalf("负责人是别人时应 409 并说出是谁，实际 %v", err)
 	}
 	got, _ := s.GetObject(ctx, o2.ID)

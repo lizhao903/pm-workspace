@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 package api
 
 import (
@@ -17,6 +19,7 @@ import (
 	"github.com/lizhao903/pm-workspace/internal/plugins/im"
 	"github.com/lizhao903/pm-workspace/internal/plugins/jobs"
 	"github.com/lizhao903/pm-workspace/internal/plugins/projects"
+	"github.com/lizhao903/pm-workspace/internal/plugins/recording"
 	"github.com/lizhao903/pm-workspace/internal/plugins/sop"
 	"github.com/lizhao903/pm-workspace/internal/plugins/terminal"
 	"github.com/lizhao903/pm-workspace/internal/plugins/trade"
@@ -63,6 +66,9 @@ func registeredRoutes(t *testing.T) []string {
 		t.Fatal(err)
 	}
 	if err := plugins.Add(jobs.New(plugins.JobStats)); err != nil {
+		t.Fatal(err)
+	}
+	if err := plugins.Add(recording.New()); err != nil {
 		t.Fatal(err)
 	}
 	(&Server{opt: Options{Plugins: plugins}}).routes(rec)

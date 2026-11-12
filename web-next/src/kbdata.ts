@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 import { useSyncExternalStore } from 'react'
 import { seedContent } from './data'
 import { newId } from './ids'
@@ -144,10 +146,10 @@ let n = 0
 const own = (kb_id: string, title: string, source: KbDoc['source'], text: string, mins: number, extra: Partial<KbDoc> = {}): KbDoc =>
   ({ id: `kd_${kb_id.slice(3)}_${(n += 1)}`, kb_id, title, source, text, chunks: 0, status: 'indexed', excluded: false, updated_at: minsAgo(mins), ...extra })
 
-const PMW_DOCS = '/Volumes/project/0xBroleez/pm-workspace/docs'
-const PMW_WEB = '/Volumes/project/0xBroleez/pm-workspace/web-next'
+const PMW_DOCS = '/Volumes/project/example/pm-workspace/docs'
+const PMW_WEB = '/Volumes/project/example/pm-workspace/web-next'
 const YC_DOCS = '/Volumes/project/clients/yuanchuan-permission/docs'
-const YC_CLIENT = '/Volumes/docs/客户/远川科技'
+const YC_CLIENT = '/Volumes/docs/example-client'
 
 const seedDocs: KbDoc[] = [
   // 产品文档库：PRD、方案、例会，加上两个项目目录里的说明文件

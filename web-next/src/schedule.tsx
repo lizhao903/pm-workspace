@@ -1,9 +1,11 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 import { useState } from 'react'
 import { SearchSelect } from './searchselect'
 import { ListSegHead } from './tasks'
 import {
-  ACTION_LABEL, FREQ_LABEL, SWEEP_LEVEL_LABEL, WEEK, claudeActionError, claudeOutPath, describeRule, emptyRule, nextRun, nextText, ruleError, sweepText, whenText,
-  type Freq, type Schedule, type ScheduleAction,
+  ACTION_LABEL, INTERVAL_HOURS, RULE_MODES, RULE_MODE_LABEL, SWEEP_LEVEL_LABEL, WEEK, claudeActionError, claudeOutPath, describeRule, emptyRule, intervalCron, intervalOf,
+  modeOf, nextRun, nextText, ruleError, sweepText, whenText, withMode, type RuleMode, type Schedule, type ScheduleAction, type ScheduleRule,
 } from './scheduledata'
 import type { Priority } from './taskdata'
 import { useEnumView } from './enumdata'
@@ -20,7 +22,7 @@ interface Named { id: string; name: string; enabled?: boolean }
 export const actionText = (a: ScheduleAction, sops: Named[], agents: Named[], publishes: Named[] = []) => (a.kind === 'task'
   ? `建任务「${a.title || '未填标题'}」`
   : a.kind === 'remind' ? `提醒「${a.title || '未填标题'}」${a.task_id ? '，关联任务' : ''}`
-  : a.kind === 'sop' ? `执行「${sops.find((s) => s.id === a.sop_id)?.name ?? '已删除的 SOP'}」`
+  : a.kind === 'sop' ? `执行「${sops.find((s) => s.id === a.sop_id)?.name ?? '已删除的 SOP'}」${a.managed ? '，随流程管理' : ''}`
     : a.kind === 'publish' ? `发布「${publishes.find((x) => x.id === a.publish_id)?.name ?? '已删除的发布记录'}」`
       : a.kind === 'incident_sweep' ? `巡检运行异常：${sweepText(a)}，建任务交给 Claude Code`
       : a.kind === 'claude' ? a.prompt || '未填要求'
@@ -135,7 +137,6 @@ export function ScheduleDrawer({ schedule, sops, agents, publishes = [], assigne
   const [askWrite, setAskWrite] = useState(false)
   const presets = useRunPresets()
   const r = d.rule
-  const setRule = (p: Partial<typeof r>) => setD({ ...d, rule: { ...r, ...p } })
   const setKind = (k: ScheduleAction['kind']) => setD({
     ...d, action: k === 'task' ? { kind: 'task', title: '', desc: '', priority: defPrio, assignee: '我', due_days: 0 }
       : k === 'remind' ? { kind: 'remind', title: '', body: '', task_id: '', popup: 'toast' }
@@ -151,13 +152,9 @@ export function ScheduleDrawer({ schedule, sops, agents, publishes = [], assigne
   const aErr = a.kind === 'task' ? (!a.title.trim() ? '任务标题必填' : '') : a.kind === 'remind' ? (!a.title.trim() ? '提醒标题必填' : a.title.trim().length > 100 ? '提醒标题最多 100 字' : '') : a.kind === 'sop' ? (!a.sop_id ? '选一个 SOP' : '') : a.kind === 'publish' || a.kind === 'incident_sweep' ? '' : a.kind === 'claude' ? claudeActionError(a) : (!a.agent_id ? '选一个 Agent' : !a.prompt.trim() ? '写一下要它做什么' : '')
   const errors = [!d.name.trim() && '名称必填', rErr, aErr].filter(Boolean) as string[]
   const next = nextRun(r)
-  // 列出接下来三次，帮人确认规则是不是自己想的那样
-  const upcoming = (() => {
-    const out: Date[] = []
-    let from = new Date()
-    for (let i = 0; i < 3; i += 1) { const n = nextRun(r, from); if (!n) break; out.push(n); from = new Date(n.getTime() + 60000) }
-    return out
-  })()
+  // 随 SOP 流程管理的那条（TSK-0463）：名称跟流程名、动作锁定，规则和启停照常改
+  const managed = a.kind === 'sop' && !!a.managed
+  const flowName = a.kind === 'sop' ? sops.find((x) => x.id === a.sop_id)?.name ?? '已删除的 SOP' : ''
   const save = () => { setTried(true); if (!errors.length) onSave({ ...d, name: d.name.trim() }) }
 
   return (
@@ -172,7 +169,8 @@ export function ScheduleDrawer({ schedule, sops, agents, publishes = [], assigne
       <div className="drawer-body form">
         <label className="field">
           <span className="field-label">名称<em>*</em></span>
-          <input value={d.name} autoFocus={creating} readOnly={pub} className={cls(tried && !d.name.trim() && 'bad')} placeholder="比如：周会前整理议程" onChange={(e) => setD({ ...d, name: e.target.value })} />
+          <input value={d.name} autoFocus={creating} readOnly={pub || managed} className={cls(tried && !d.name.trim() && 'bad')} placeholder="比如：周会前整理议程" onChange={(e) => setD({ ...d, name: e.target.value })} />
+          {managed && <span className="field-hint-line">名称跟着 SOP 流程名，改流程名时一起改</span>}
         </label>
 
         {a.kind === 'publish' ? (
@@ -194,42 +192,17 @@ export function ScheduleDrawer({ schedule, sops, agents, publishes = [], assigne
         ) : <>
         <section className="field-group">
           <div className="field-group-title">什么时候</div>
-          <div className="seg seg-full sched-freq">
-            {(Object.keys(FREQ_LABEL) as Freq[]).map((f) => <button key={f} className={cls(r.freq === f && 'on')} onClick={() => setRule({ freq: f })}>{FREQ_LABEL[f].replace('只执行', '')}</button>)}
-          </div>
-          {r.freq === 'weekly' && (
-            <div className="week-pick">
-              {[1, 2, 3, 4, 5, 6, 0].map((w) => (
-                <button key={w} className={cls('week-day', r.weekdays.includes(w) && 'on')} onClick={() => setRule({ weekdays: r.weekdays.includes(w) ? r.weekdays.filter((x) => x !== w) : [...r.weekdays, w] })}>{WEEK[w]}</button>
-              ))}
-            </div>
-          )}
-          <div className="field-row">
-            {r.freq === 'once' && <label className="field"><span className="field-label">日期</span><input type="date" value={r.date} onChange={(e) => setRule({ date: e.target.value })} /></label>}
-            {r.freq === 'monthly' && (
-              <label className="field"><span className="field-label">几号</span>
-                <select value={r.day} onChange={(e) => setRule({ day: Number(e.target.value) })}>
-                  {Array.from({ length: 31 }, (_, i) => i + 1).map((n) => <option key={n} value={n}>{n === 31 ? '31（小月按月底）' : n} 号</option>)}
-                </select>
-              </label>
-            )}
-            {r.freq === 'cron' ? (
-              <label className="field"><span className="field-label">Cron 表达式<span className="field-hint">分 时 日 月 周</span></span><input className="mono" value={r.cron} placeholder="0 9 * * 1" onChange={(e) => setRule({ cron: e.target.value })} /></label>
-            ) : (
-              <label className="field"><span className="field-label">时间</span><input type="time" value={r.time} onChange={(e) => setRule({ time: e.target.value })} /></label>
-            )}
-          </div>
-          {rErr ? <div className="field-err">{rErr}</div> : (
-            <div className="sched-preview">
-              <span className="list-sub">{describeRule(r)}，接下来：</span>
-              {upcoming.map((u) => <span key={u.toISOString()} className="tag">{whenText(u)}</span>)}
-              {!upcoming.length && <span className="list-sub">不会再执行</span>}
-            </div>
-          )}
+          <RuleFields rule={r} onChange={(rule) => setD({ ...d, rule })} />
         </section>
 
         <section className="field-group">
           <div className="field-group-title">做什么</div>
+          {managed ? (
+            <>
+              <div className="sched-pub"><span className="sched-kind sk-sop">{ACTION_LABEL.sop}</span><span className="ellipsis">{flowName}</span></div>
+              <span className="field-hint-line">这条定时跟着 SOP 流程走：规则、启停在这里改和在流程编辑里改是同一条；要换动作或不再定时，到流程编辑里改触发方式。删掉它，流程的触发方式变成「定时，未配置」</span>
+            </>
+          ) : <>
           <div className="seg seg-full">
             {(Object.keys(ACTION_LABEL) as ScheduleAction['kind'][]).filter((k) => k !== 'publish').map((k) => <button key={k} className={cls(a.kind === k && 'on')} onClick={() => setKind(k)}>{ACTION_LABEL[k]}</button>)}
           </div>
@@ -373,6 +346,7 @@ export function ScheduleDrawer({ schedule, sops, agents, publishes = [], assigne
               </label>
             </>
           )}
+          </>}
         </section>
         </>}
 
@@ -413,7 +387,7 @@ export function ScheduleDrawer({ schedule, sops, agents, publishes = [], assigne
       <div className="drawer-foot">
         {confirmDel ? (
           <>
-            <span className="danger-text">删除后不再执行，已经建出来的任务保留</span>
+            <span className="danger-text">{managed ? `删除后不再执行，流程「${flowName}」的触发方式变成「定时，未配置」` : '删除后不再执行，已经建出来的任务保留'}</span>
             <div className="spacer" />
             <button className="btn btn-ghost" onClick={() => setConfirmDel(false)}>取消</button>
             <button className="btn btn-danger" onClick={onDelete}>删除</button>
@@ -429,5 +403,81 @@ export function ScheduleDrawer({ schedule, sops, agents, publishes = [], assigne
         )}
       </div>
     </aside>
+  )
+}
+
+/**
+ * 定时规则的编辑（「什么时候」）：频率、周几、日期、几号、时间、每隔几小时、Cron，下面是接下来几次。
+ * 定时任务抽屉和 SOP 开始节点的「定时」触发（TSK-0463）共用；compact 时频率用下拉（窄的属性面板放不下一排按钮）
+ */
+export function RuleFields({ rule: r, onChange, count = 3, compact }: { rule: ScheduleRule; onChange: (r: ScheduleRule) => void; count?: number; compact?: boolean }) {
+  const set = (p: Partial<ScheduleRule>) => onChange({ ...r, ...p })
+  const mode = modeOf(r)
+  const iv = intervalOf(r)
+  const rErr = ruleError(r)
+  // 列出接下来几次，帮人确认规则是不是自己想的那样
+  const upcoming = (() => {
+    const out: Date[] = []
+    let from = new Date()
+    for (let i = 0; i < count; i += 1) { const n = nextRun(r, from); if (!n) break; out.push(n); from = new Date(n.getTime() + 60000) }
+    return out
+  })()
+  return (
+    <>
+      {compact ? (
+        <label className="field"><span className="field-label">频率</span>
+          <select value={mode} onChange={(e) => onChange(withMode(r, e.target.value as RuleMode))}>
+            {RULE_MODES.map((m) => <option key={m} value={m}>{RULE_MODE_LABEL[m]}</option>)}
+          </select>
+        </label>
+      ) : (
+        <div className="seg seg-full sched-freq rule-modes">
+          {RULE_MODES.map((m) => <button key={m} className={cls(mode === m && 'on')} onClick={() => onChange(withMode(r, m))}>{RULE_MODE_LABEL[m]}</button>)}
+        </div>
+      )}
+      {mode === 'weekly' && (
+        <div className="week-pick">
+          {[1, 2, 3, 4, 5, 6, 0].map((w) => (
+            <button key={w} className={cls('week-day', r.weekdays.includes(w) && 'on')} onClick={() => set({ weekdays: r.weekdays.includes(w) ? r.weekdays.filter((x) => x !== w) : [...r.weekdays, w] })}>{WEEK[w]}</button>
+          ))}
+        </div>
+      )}
+      <div className="field-row">
+        {mode === 'once' && <label className="field"><span className="field-label">日期</span><input type="date" value={r.date} onChange={(e) => set({ date: e.target.value })} /></label>}
+        {mode === 'monthly' && (
+          <label className="field"><span className="field-label">几号</span>
+            <select value={r.day} onChange={(e) => set({ day: Number(e.target.value) })}>
+              {Array.from({ length: 31 }, (_, i) => i + 1).map((n) => <option key={n} value={n}>{n === 31 ? '31（小月按月底）' : n} 号</option>)}
+            </select>
+          </label>
+        )}
+        {mode === 'interval' && iv ? (
+          <>
+            <label className="field"><span className="field-label">每隔</span>
+              <select value={iv.hours} onChange={(e) => set({ cron: intervalCron(Number(e.target.value), iv.minute) })}>
+                {[...new Set([...INTERVAL_HOURS, iv.hours])].sort((x, y) => x - y).map((h) => <option key={h} value={h}>{h} 小时</option>)}
+              </select>
+            </label>
+            <label className="field"><span className="field-label">在第几分</span>
+              <select value={iv.minute} onChange={(e) => set({ cron: intervalCron(iv.hours, Number(e.target.value)) })}>
+                {[...new Set([...Array.from({ length: 12 }, (_, i) => i * 5), iv.minute])].sort((x, y) => x - y).map((m) => <option key={m} value={m}>{m ? `${m} 分` : '整点'}</option>)}
+              </select>
+            </label>
+          </>
+        ) : mode === 'cron' ? (
+          <label className="field"><span className="field-label">Cron 表达式<span className="field-hint">分 时 日 月 周</span></span><input className="mono" value={r.cron} placeholder="0 9 * * 1" onChange={(e) => set({ cron: e.target.value })} /></label>
+        ) : (
+          <label className="field"><span className="field-label">时间</span><input type="time" value={r.time} onChange={(e) => set({ time: e.target.value })} /></label>
+        )}
+      </div>
+      {mode === 'interval' && <span className="field-hint-line">从 0 点起算，每天在固定的几个整点（或第几分）执行</span>}
+      {rErr ? <div className="field-err">{rErr}</div> : (
+        <div className="sched-preview">
+          <span className="list-sub">{describeRule(r)}，接下来：</span>
+          {upcoming.map((u) => <span key={u.toISOString()} className="tag">{whenText(u)}</span>)}
+          {!upcoming.length && <span className="list-sub">不会再执行</span>}
+        </div>
+      )}
+    </>
   )
 }

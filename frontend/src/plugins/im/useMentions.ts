@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 回复框、发消息弹窗里 @ 的状态（IM 插件 0.18.0）：「回复时 @ 对方」开关、从候选里选过谁；发送时由 compose 拼正文、筛 mentions。
 // 开关只在群聊回复时有（def 不为空），默认打开；改了记在本机（localStorage），下次打开回复框按上次的设置。
 import { useState } from 'react'

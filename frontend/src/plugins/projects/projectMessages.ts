@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 项目消息（SPEC-projects-0 projectMessages）：项目绑定的会话、IM 插件在不在跑、这些会话里的消息，加上归到这个项目的消息。
 // 沟通标签、概览（待回复、最新沟通）、标签条红点、干系人的最近沟通都用它，同一份缓存。
 import { useMemo } from 'react'

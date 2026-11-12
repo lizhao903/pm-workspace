@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 本页发起的执行的流式状态（DEV-08c，DEV-09 复用）。
 // 执行记录的输出只在收尾时落库，运行中的过程只有发起方的 SSE 流里有，
 // 所以流的状态放在模块级，抽屉关了再打开、执行记录列表都能读到同一份。
@@ -12,6 +14,8 @@ export type LiveRun = {
   objectId: string
   runId?: string
   workdir?: string
+  /** 交给工作台 Agent 时这次用的会话（start 事件带来） */
+  sessionId?: string
   phase: LivePhase
   events: RunEvent[]
   // 流里的 error 事件（不是终止事件）和开流失败、断流的原因
@@ -53,7 +57,7 @@ export function startRun(objectId: string, req: RunRequest = {}, opts: { signal?
     onEvent: (e) => {
       patch(key, (r) => {
         const next = { ...r, events: [...r.events, e] }
-        if (e.type === 'start') return { ...next, runId: e.run_id, workdir: e.workdir, phase: 'streaming' }
+        if (e.type === 'start') return { ...next, runId: e.run_id, workdir: e.workdir, sessionId: e.session_id, phase: 'streaming' }
         if (e.type === 'error') return { ...next, errors: [...r.errors, e.message] }
         if (e.type === 'done') return { ...next, done: e, phase: 'done' }
         return next

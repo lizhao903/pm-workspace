@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 产出物和系列的纯函数（VID-01d）：类型、状态、封面比例、默认名称路径、时长、预览地址、来源跳转、系列待同步。
 // 类型、状态、封面比例是插件自己的约定，没有字典接口，同原型 web-next/src/videodata.ts 的 ARTIFACT_KIND、ARTIFACT_STATUS、COVER_RATIO，
 // 后端 internal/plugins/video/data.go 同一份，加值两边一起加

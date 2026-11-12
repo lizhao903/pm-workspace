@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 各资源的请求函数，一个接口一个函数，路径和参数照 docs/api-contract.md。
 // 不做缓存（在 core/data），也不做 SSE（在 sse.ts）。
 
@@ -9,6 +11,7 @@ import type {
   ArtifactListParams,
   ArtifactPatch,
   ArtifactStats,
+  ArtifactsByObject,
   ClaimInput,
   ClaimResult,
   Counts,
@@ -40,6 +43,11 @@ import type {
   TerminalRunRequest,
   RunPreset,
   FinishRunInput,
+  RunPermissions,
+  RunPermissionsInput,
+  RunnerSmoke,
+  RunnerSmokeInput,
+  RunnerStatus,
   RunPrompt,
   RunPromptParams,
   WorkdirCheck,
@@ -148,6 +156,9 @@ export const artifacts = {
   // 同一套过滤参数，忽略 limit / offset
   stats: (params?: ArtifactListParams) =>
     request<ArtifactStats>('GET', '/api/artifacts/stats', { query: artifactListQuery(params) }),
+  /** 按对象汇总（TSK-0497），不分页 */
+  byObject: (params?: ArtifactListParams, signal?: AbortSignal) =>
+    request<ArtifactsByObject>('GET', '/api/artifacts/by-object', { query: artifactListQuery(params), signal }),
   get: (id: string) => request<Artifact>('GET', `/api/artifacts/${seg(id)}`),
   create: (input: ArtifactInput) => request<Artifact>('POST', '/api/artifacts', { body: input }),
   patch: (id: string, patch: ArtifactPatch) =>
@@ -162,6 +173,8 @@ function runPromptQuery(p: RunPromptParams): URLSearchParams {
   if (p.workdir?.trim()) q.set('workdir', p.workdir.trim())
   if (p.extra_prompt?.trim()) q.set('extra_prompt', p.extra_prompt.trim())
   if (p.preset_id) q.set('preset_id', p.preset_id)
+  if (p.harness) q.set('harness', p.harness)
+  if (p.resume) q.set('resume', 'true')
   return q
 }
 
@@ -184,6 +197,17 @@ export const runs = {
   // 预置提示词（SPEC-settings-24）：PUT 整组替换，回替换后的列表
   presets: (signal?: AbortSignal) => request<RunPreset[]>('GET', '/api/run-prompts', { signal }),
   savePresets: (items: RunPreset[]) => request<RunPreset[]>('PUT', '/api/run-prompts', { body: { items } }),
+  // 后台执行的权限档位与自定义白名单（TSK-0499）：PUT 整体替换，回同 GET
+  permissions: (signal?: AbortSignal) => request<RunPermissions>('GET', '/api/run-permissions', { signal }),
+  savePermissions: (body: RunPermissionsInput) => request<RunPermissions>('PUT', '/api/run-permissions', { body }),
+}
+
+// 执行器状态与 DeepSeek 集成检查（TSK-0722）：refresh 跳过后端一分钟的检测缓存
+export const runners = {
+  list: (refresh = false, signal?: AbortSignal) =>
+    request<RunnerStatus[]>('GET', '/api/runners', { query: refresh ? new URLSearchParams({ refresh: 'true' }) : undefined, signal }),
+  smoke: (signal?: AbortSignal) => request<RunnerSmoke | null>('GET', '/api/runners/deepseek/smoke', { signal }),
+  startSmoke: (body: RunnerSmokeInput) => request<RunnerSmoke>('POST', '/api/runners/deepseek/smoke', { body }),
 }
 
 // 不可用也是 200，看返回的字段，message 说明原因

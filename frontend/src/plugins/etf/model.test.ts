@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 import { describe, expect, it } from 'vitest'
 import type { EtfDaily, EtfFund, EtfMetrics } from '../../core/data'
 import { blankRule, buildRows, draftErrors, fmtMoney, fmtPct, ruleCond, scopeText, sparkPoints, streakText, summarize } from './model'

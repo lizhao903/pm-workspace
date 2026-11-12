@@ -101,6 +101,9 @@ button.sop-run-row:hover { background: var(--panel-2); }
 .sop-run-origin { color: var(--accent); }
 .sop-run-origin:hover { text-decoration: underline; }
 .sop-rerun-note.bad { background: var(--warn-soft); }
+/* 停止（TSK-0717）：不能停的行勾选框位置留空，列对齐；确认框里停什么 */
+.sop-pick-none { visibility: hidden; cursor: default; }
+.sop-stop-what { font-size: var(--fs-sm); font-weight: 600; line-height: 1.6; }
 
 /* ---------- 流程库 ---------- */
 .sop-lib-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px; }
@@ -109,6 +112,8 @@ button.sop-run-row:hover { background: var(--panel-2); }
 .sop-lib-head { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .sop-lib-name { flex: 1; min-width: 0; font-weight: 600; }
 .sop-lib-pending { flex: none; height: 18px; padding: 0 6px; border-radius: 4px; font-size: var(--fs-2xs); line-height: 18px; color: var(--warn); background: var(--warn-soft); white-space: nowrap; }
+/* 条件是一句话、执行到就失败的流程（TSK-0498） */
+.sop-lib-pending.sop-lib-broken { color: var(--danger); background: var(--danger-soft); }
 /* 要当前工作台没开的模块的流程（SPEC-sop-2.11） */
 .sop-lib-need { flex: none; height: 18px; padding: 0 6px; border-radius: 4px; font-size: var(--fs-2xs); line-height: 18px; color: var(--muted); background: var(--panel-2); border: 1px solid var(--line); white-space: nowrap; }
 .sop-lib-card.elsewhere .sop-lib-name { color: var(--muted); }
@@ -121,6 +126,8 @@ button.sop-run-row:hover { background: var(--panel-2); }
 .sop-section-label { margin: 14px 0 -4px; font-size: var(--fs-xs); color: var(--faint); font-weight: 500; display: flex; align-items: baseline; gap: 8px; }
 .sop-section-hint { font-weight: 400; }
 .sop-fields { display: flex; flex-wrap: wrap; gap: 6px; }
+/* 条件是一句话（TSK-0498）：流程详情标题下的红色「需修复」提示条 */
+.sop-banner.sop-broken { overflow-wrap: anywhere; }
 /* 删除确认条：窄屏换行，按钮始终可见 */
 .sop-confirm { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; padding: 10px 14px; border-radius: var(--r); border: 1px solid color-mix(in srgb, var(--danger) 25%, transparent); background: var(--danger-soft); }
 .sop-confirm .danger-text { min-width: 0; flex: 1 1 260px; overflow-wrap: anywhere; }
@@ -279,6 +286,8 @@ button.sop-run-row:hover { background: var(--panel-2); }
 .sop-cv-node-head { display: flex; align-items: center; gap: 8px; height: 44px; padding: 0 12px; cursor: move; }
 .sop-cv-node-name { font-weight: 600; font-size: var(--fs); flex: 1; min-width: 0; }
 .sop-cv-node-kind { font-size: var(--fs-2xs); color: var(--faint); white-space: nowrap; }
+/* 开始节点的触发方式可能很长（IM 触发带过滤条件，TSK-0481）：截断，悬停看全文 */
+.sop-cv-node-kind { max-width: 65%; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .sop-cv-desc { margin: 0 10px 10px; padding: 6px 8px; border-radius: 6px; background: var(--panel-2); font-size: var(--fs-xs); color: var(--muted); }
 .sop-cv-desc .faint { color: var(--faint); }
 .sop-cv-fields { display: flex; flex-direction: column; gap: 4px; padding: 0 10px 10px; }
@@ -517,3 +526,158 @@ button.sop-run-row:hover { background: var(--panel-2); }
 
 .sop-np-fields { border: 0; margin: 0; min-width: 0; }
 .sop-editor-readonly .sop-cv-handle { display: none; }
+/* 定时触发（TSK-0463）：流程库卡片下面、流程详情概要下面的一行规则、下次执行和启停 */
+.sop-lib-cell { display: flex; flex-direction: column; min-width: 0; }
+.sop-lib-cell > .sop-lib-main { position: relative; display: flex; flex-direction: column; flex: 1; min-width: 0; }
+.sop-lib-main > .sop-lib-card { flex: 1; }
+.sop-lib-cell:has(.sop-lib-sched) .sop-lib-card { border-bottom-left-radius: 0; border-bottom-right-radius: 0; }
+/* 卡片右下角的文件夹名，点开移到别的文件夹（TSK-0482）；挂在卡片按钮外面，给它在底部那行留出位置 */
+.sop-lib-card.with-folder .sop-lib-meta { padding-right: 104px; }
+.sop-lib-main > .sop-lib-move { position: absolute; right: 12px; bottom: 10px; max-width: 96px; height: 20px; font-size: var(--fs-xs); color: var(--muted); }
+.sop-lib-main > .sop-lib-move.none { color: var(--faint); }
+.sop-sched { display: flex; align-items: center; gap: 10px; min-width: 0; font-size: var(--fs-xs); color: var(--muted); }
+.sop-sched-text { display: flex; flex-wrap: wrap; gap: 2px 10px; flex: 1; min-width: 0; }
+.sop-sched-next { color: var(--accent); }
+.sop-sched.off .sop-sched-text { color: var(--faint); }
+.sop-sched.unset .sop-sched-text { color: var(--warn); }
+.sop-lib-sched { padding: 8px 16px; border: 1px solid var(--line); border-top: 0; border-radius: 0 0 var(--r-lg) var(--r-lg); background: var(--panel); }
+.sop-detail-sched { margin-top: 8px; padding: 8px 12px; border: 1px solid var(--line); border-radius: var(--r); background: var(--panel); font-size: var(--fs-sm); }
+.sop-start-sched { display: flex; flex-direction: column; gap: 10px; padding: 10px; border: 1px solid var(--line); border-radius: var(--r); min-width: 0; }
+.sop-start-sched.unset { flex-direction: row; flex-wrap: wrap; align-items: center; color: var(--warn); font-size: var(--fs-sm); }
+.sop-start-sched-warn { font-size: var(--fs-sm); color: var(--warn); }
+.sop-off-ask { display: flex; flex-direction: column; gap: 8px; }
+.sop-off-ask label { display: flex; align-items: flex-start; gap: 8px; cursor: pointer; }
+.sop-off-ask input { margin-top: 3px; }
+/* IM 触发（TSK-0481）：开始节点里的过滤、顺序、拦截；流程库卡片、流程详情的一行 */
+.sop-start-im { display: flex; flex-direction: column; gap: 10px; padding: 10px; border: 1px solid var(--line); border-radius: var(--r); min-width: 0; }
+.sop-start-im-rel { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; }
+.sop-start-im-rel .select { width: auto; }
+.sop-im-bar { display: flex; align-items: center; gap: 10px; min-width: 0; font-size: var(--fs-xs); color: var(--muted); }
+.sop-im-order { color: var(--accent); white-space: nowrap; }
+.sop-im-filter { flex: 1; min-width: 0; }
+.sop-im-stop { padding: 0 6px; border-radius: var(--r); color: var(--warn); border: 1px solid currentColor; white-space: nowrap; }
+
+/* ---------- 流程库的文件夹（TSK-0482）：写法同文档顶栏的分类筛选（fchip），行内编辑同交易自选组 ---------- */
+.sop-folders { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; min-width: 0; }
+.sop-folders .fchip { flex: none; display: inline-flex; align-items: center; gap: 5px; max-width: 100%; height: 26px; padding: 0 var(--sp-5); border-radius: 13px; border: 1px solid var(--line); background: var(--panel); color: var(--muted); font-size: var(--fs-sm); white-space: nowrap; }
+.sop-folders .fchip:hover { color: var(--text); border-color: var(--line-2); }
+.sop-folders .fchip.on { border-color: var(--accent-line); background: var(--accent-soft); color: var(--accent); font-weight: 500; }
+.sop-folders .fchip.on .seg-n { color: inherit; opacity: 0.7; }
+.sop-folders.searching .fchip { opacity: 0.55; }
+.sop-folder-name { min-width: 0; max-width: 12em; overflow: hidden; text-overflow: ellipsis; }
+.sop-folder-hint { font-size: var(--fs-sm); color: var(--muted); }
+.sop-folder-hint:hover { color: var(--accent); }
+.sop-folder-note { font-size: var(--fs-xs); color: var(--faint); }
+.sop-folder-edit { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; min-width: 0; }
+.sop-folder-edit .input { flex: 1 1 160px; min-width: 0; max-width: 280px; height: 28px; }
+.sop-folder-err { flex-basis: 100%; font-size: var(--fs-sm); color: var(--danger); }
+
+/* 结构化条件、这一步能拿到的字段、保存校验（TSK-0490） */
+.sop-cond { display: flex; flex-direction: column; gap: 6px; }
+.sop-cond-logic { display: flex; gap: 6px; flex-wrap: wrap; }
+.sop-cond-row { display: grid; grid-template-columns: minmax(0, 1.6fr) 84px minmax(0, 1fr) auto; gap: 6px; align-items: center; }
+.sop-cond-row .select, .sop-cond-row .input { min-width: 0; }
+.sop-cond-none { display: flex; flex-direction: column; gap: 6px; align-items: flex-start; }
+.sop-cond-legacy { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; padding: 8px 10px; border-radius: var(--r); font-size: var(--fs-sm);
+  background: var(--warn-soft); color: color-mix(in srgb, var(--warn) 70%, var(--text)); border: 1px solid color-mix(in srgb, var(--warn) 25%, transparent); }
+.sop-cond-legacy > span { flex: 1 1 220px; min-width: 0; overflow-wrap: anywhere; }
+.sop-cond-legacy.bad { background: var(--danger-soft); color: color-mix(in srgb, var(--danger) 75%, var(--text)); border-color: color-mix(in srgb, var(--danger) 25%, transparent); }
+.sop-fields-toggle { all: unset; cursor: pointer; display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px; font-weight: 500; }
+.sop-fields-groups { display: flex; flex-direction: column; gap: 8px; max-height: 320px; overflow: auto; border: 1px solid var(--line); border-radius: var(--r); padding: 6px; }
+.sop-fields-group-head { font-size: var(--fs-xs); color: var(--muted); padding: 2px 4px; display: flex; gap: 6px; flex-wrap: wrap; }
+.sop-field-pick { all: unset; box-sizing: border-box; cursor: pointer; display: grid; grid-template-columns: auto auto minmax(0, 1fr); gap: 2px 8px; align-items: baseline;
+  width: 100%; padding: 3px 6px; border-radius: var(--r-sm); font-size: var(--fs-sm); }
+.sop-field-pick:hover, .sop-field-pick:focus-visible { background: var(--accent-soft); }
+.sop-field-pick code { font-size: var(--fs-xs); color: var(--accent); }
+.sop-field-pick.undeclared code { color: var(--warn); }
+.sop-field-type { font-size: var(--fs-2xs); color: var(--faint); }
+.sop-field-desc { color: var(--muted); font-size: var(--fs-xs); }
+.sop-field-sample { grid-column: 1 / -1; color: var(--faint); font-size: var(--fs-2xs); }
+.sop-issues-bar { margin: 0 0 12px; padding: 10px 14px; border-radius: var(--r); font-size: var(--fs-sm);
+  background: var(--warn-soft); border: 1px solid color-mix(in srgb, var(--warn) 25%, transparent); }
+.sop-issues-bar.bad { background: var(--danger-soft); border-color: color-mix(in srgb, var(--danger) 25%, transparent); }
+.sop-issues-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.sop-issues-head > span:first-child { flex: 1 1 260px; min-width: 0; }
+.sop-issues-bar ul { margin: 6px 0 0; padding-left: 18px; }
+.sop-issues-bar li { overflow-wrap: anywhere; }
+.sop-issues-bar li.error { color: color-mix(in srgb, var(--danger) 75%, var(--text)); }
+.sop-issues-bar li.warn { color: color-mix(in srgb, var(--warn) 70%, var(--text)); }
+
+/* ---------- 调试（TSK-0491，SPEC-sop-17） ---------- */
+.sop-field-pick { display: flex; flex-wrap: wrap; column-gap: 8px; }
+.sop-field-pick .sop-field-desc { flex: 1 1 120px; min-width: 0; }
+.sop-field-pick .sop-field-sample { flex: 1 0 100%; color: var(--text); opacity: 0.75; font-family: var(--mono, ui-monospace, monospace); }
+.sop-field-undecl { font-size: var(--fs-2xs); color: var(--warn); border: 1px solid color-mix(in srgb, var(--warn) 40%, transparent); border-radius: var(--r-sm); padding: 0 4px; }
+.sop-cv-top-right .sop-btn-on { border-color: var(--accent-line); color: var(--accent); background: var(--accent-soft); }
+.sop-dbg-bar { z-index: 12; top: 60px; right: 12px; width: min(460px, calc(100% - 24px)); max-height: calc(100% - 140px); overflow: auto;
+  display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; border-radius: var(--r); background: var(--panel);
+  border: 1px solid var(--line); box-shadow: var(--shadow-lg); font-size: var(--fs-sm); }
+.sop-dbg-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.sop-dbg-head .sop-muted { font-size: var(--fs-xs); }
+.sop-dbg-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.sop-dbg-row > .select, .sop-dbg-row > .input { flex: 1 1 140px; min-width: 0; }
+.sop-dbg-label { flex: 0 0 90px; color: var(--muted); font-size: var(--fs-xs); }
+.sop-dbg-inputs { display: flex; flex-direction: column; gap: 6px; }
+.sop-dbg-picker { display: flex; flex-direction: column; gap: 6px; }
+.sop-dbg-msgs { display: flex; flex-direction: column; gap: 2px; max-height: 220px; overflow: auto; border: 1px solid var(--line); border-radius: var(--r); padding: 4px; }
+.sop-dbg-all { all: unset; cursor: pointer; align-self: flex-end; font-size: var(--fs-xs); color: var(--accent); padding: 0 4px; }
+.sop-dbg-msg { display: grid; grid-template-columns: auto auto minmax(0, 1fr) auto; align-items: center; gap: 6px; padding: 4px 6px; border-radius: var(--r-sm); cursor: pointer; }
+.sop-dbg-msg:hover, .sop-dbg-msg.on { background: var(--accent-soft); }
+.sop-dbg-msg-who { font-weight: 500; white-space: nowrap; max-width: 110px; overflow: hidden; text-overflow: ellipsis; }
+.sop-dbg-msg .sop-muted { font-size: var(--fs-2xs); white-space: nowrap; }
+.sop-dbg-tabs { display: flex; flex-wrap: wrap; gap: 4px; }
+.sop-dbg-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 5px; background: var(--ok); vertical-align: middle; flex: none; }
+.sop-dbg-dot.failed { background: var(--danger); }
+.sop-dbg-dot.stopped { background: var(--warn); }
+.sop-dbg-summary { display: flex; flex-direction: column; gap: 4px; line-height: 1.55; overflow-wrap: anywhere; }
+.sop-dbg-message { display: flex; flex-direction: column; gap: 2px; padding: 6px 8px; border-radius: var(--r-sm); background: var(--bg-2, var(--accent-soft)); }
+.sop-dbg-message-text { white-space: pre-wrap; max-height: 120px; overflow: auto; }
+.sop-dbg-warn { color: color-mix(in srgb, var(--warn) 75%, var(--text)); }
+.sop-cv-dbg { display: flex; align-items: center; gap: 6px; margin: 4px 10px 8px; padding: 2px 6px; border-radius: var(--r-sm); font-size: var(--fs-2xs);
+  background: color-mix(in srgb, var(--ok) 10%, transparent); color: var(--muted); min-width: 0; }
+.sop-cv-dbg .ellipsis { min-width: 0; flex: 1; }
+.sop-cv-dbg.dbg-simulated { background: var(--accent-soft); }
+.sop-cv-dbg.dbg-failed { background: var(--danger-soft); color: color-mix(in srgb, var(--danger) 80%, var(--text)); }
+.sop-cv-dbg.dbg-bypassed, .sop-cv-dbg.dbg-not_reached { background: none; }
+.sop-cv-node.dbg-node-bypassed, .sop-cv-node.dbg-node-not_reached { opacity: 0.5; }
+.sop-cv-node.dbg-node-failed { border-color: var(--danger); }
+.sop-cv-edge.dbg-on { stroke: var(--ok); stroke-width: 2.5; }
+.sop-cv-edge.dbg-off { opacity: 0.35; }
+.sop-dbg-step { display: flex; flex-direction: column; gap: 8px; }
+.sop-dbg-cond { width: 100%; border-collapse: collapse; font-size: var(--fs-xs); table-layout: fixed; }
+.sop-dbg-cond th, .sop-dbg-cond td { text-align: left; padding: 4px 6px; border-bottom: 1px solid var(--line); overflow-wrap: anywhere; vertical-align: top; }
+.sop-dbg-cond th { color: var(--faint); font-weight: 500; }
+.sop-dbg-cond tr.ok td:last-child { color: var(--ok); }
+.sop-dbg-cond tr.no td:last-child { color: var(--danger); }
+.sop-dbg-action { padding: 6px 8px; border-radius: var(--r-sm); background: var(--accent-soft); overflow-wrap: anywhere; }
+.sop-ai-test { margin-top: 6px; padding: 6px 8px; border-radius: var(--r-sm); background: var(--accent-soft); font-size: var(--fs-xs); line-height: 1.55; }
+.sop-explain { display: flex; flex-direction: column; gap: 8px; margin: 0 0 12px; padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--r); background: var(--panel); font-size: var(--fs-sm); }
+.sop-explain-res { display: flex; flex-direction: column; gap: 6px; }
+.sop-explain-flows { display: flex; flex-direction: column; border: 1px solid var(--line); border-radius: var(--r); }
+.sop-explain-flow { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 4px 10px; align-items: center; padding: 6px 10px; border-bottom: 1px solid var(--line); }
+.sop-explain-flow:last-child { border-bottom: 0; }
+.sop-explain-flow.me { background: var(--accent-soft); }
+.sop-explain-name { font-weight: 500; }
+.sop-explain-reason, .sop-explain-checks { grid-column: 1 / -1; color: var(--muted); font-size: var(--fs-xs); overflow-wrap: anywhere; }
+.sop-explain-checks { display: flex; flex-direction: column; }
+.sop-explain-checks .no { color: color-mix(in srgb, var(--danger) 70%, var(--text)); }
+.sop-skips { display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; }
+.sop-skips .sop-dbg-row > .select { flex: 0 1 240px; }
+.sop-skips .sop-dbg-row .sop-muted { font-size: var(--fs-xs); }
+.sop-skip-list { display: flex; flex-direction: column; border: 1px solid var(--line); border-radius: var(--r); }
+.sop-skip-row { display: grid; grid-template-columns: 72px 110px minmax(0, 1fr) auto auto; gap: 10px; align-items: center; padding: 6px 10px; border-bottom: 1px solid var(--line); font-size: var(--fs-sm); }
+.sop-skip-row:last-child { border-bottom: 0; }
+.sop-skip-detail { overflow-wrap: anywhere; }
+.sop-skip-reason { font-size: var(--fs-xs); color: var(--muted); }
+.sop-skip-reason.r-missing, .sop-skip-reason.r-start_failed { color: var(--danger); }
+.sop-skip-reason.r-stopped, .sop-skip-reason.r-muted { color: color-mix(in srgb, var(--warn) 75%, var(--text)); }
+@container (max-width: 760px) {
+  /* 窄屏右上按钮换成两行，调试条放在它们下面、左右铺开，盖住左边的画布工具 */
+  .sop-dbg-bar { top: 168px; left: 12px; right: 12px; width: auto; max-height: calc(100% - 230px); }
+}
+@media (max-width: 760px) {
+  .sop-skip-row { grid-template-columns: minmax(0, 1fr) auto; }
+  .sop-skip-row .sop-skip-detail { grid-column: 1 / -1; }
+  .sop-dbg-msg { grid-template-columns: auto minmax(0, 1fr); }
+  .sop-dbg-msg .sop-dbg-msg-text { grid-column: 1 / -1; }
+}

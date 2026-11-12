@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 产出物的读写（DEV-08b 起，CORE-03a 迁进数据访问层）：某个对象的产出物、统计、手工登记。
 // 登记后报 { kind: 'artifact' }，列表和统计（删除确认里的产出物数）一起刷新。
 import { useMutation, useQuery } from '@tanstack/react-query'
@@ -25,6 +27,18 @@ export function useArtifactStats(filter: ArtifactListParams, opts: { enabled?: b
   return useQuery({
     queryKey: dataKeys.artifacts.stats(filter),
     queryFn: () => artifacts.stats(filter),
+    enabled: opts.enabled,
+  })
+}
+
+/**
+ * 按对象汇总的产出（TSK-0497）：任务列表每行的产出数、任务模块「产出物」视图。一次拿全，不分页；
+ * 同一套过滤，kind 按 display_kind 比。登记、执行结束都报 artifact 变化，跟着 artifacts.all 一起刷新
+ */
+export function useArtifactsByObject(filter: ArtifactListParams, opts: { enabled?: boolean } = {}) {
+  return useQuery({
+    queryKey: dataKeys.artifacts.byObject(filter),
+    queryFn: ({ signal }) => artifacts.byObject(filter, signal),
     enabled: opts.enabled,
   })
 }

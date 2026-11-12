@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 项目档案（AUTO-04，SPEC-projects-15）：给分类 Agent 和各 pipeline 用的项目信息。
 // 和设置一样边改边存，没有「保存」按钮。目录存在性由正式产品的后端校验，原型不查，只说明规则。
 // 末尾是原型同步（AUTO-11，protosync.tsx）。

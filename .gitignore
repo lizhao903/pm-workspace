@@ -39,3 +39,7 @@
 /frontend/dist.bak*/
 /internal/webui/dist.bak*/
 .idea
+
+# Python 编译缓存（web-next/docs/spec/shots.py 跑完会生成，不入库）
+__pycache__/
+*.pyc

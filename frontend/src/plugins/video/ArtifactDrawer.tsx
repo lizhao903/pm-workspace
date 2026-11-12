@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 产出物抽屉（SPEC-videos-12）：名称、路径边输边存（停手 600 毫秒或失焦），状态四选一，封面选用，验收（退回必须写意见），
 // 升版本，预览，删除。来源是 Agent、SOP 的能跳到那次运行。预览用系统浏览器新开窗口：内置浏览器还没有插件提供
 import { useEffect, useRef, useState } from 'react'

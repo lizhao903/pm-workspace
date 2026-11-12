@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 package plugin
 
 import (
@@ -5,6 +7,7 @@ import (
 	"errors"
 
 	"github.com/lizhao903/pm-workspace/internal/agent"
+	"github.com/lizhao903/pm-workspace/internal/domain"
 )
 
 // 模型、Agent、知识库句柄（SOP-01c），见 docs/plugin-api.md 2.0。
@@ -26,6 +29,8 @@ type (
 const (
 	ScenarioSOPAssist  = agent.ScenarioSOPAssist
 	ScenarioBackground = agent.ScenarioBackground
+	// ThinkingOff 让补全明确不思考；结构化输出（如纪要 JSON）用它省时间。
+	ThinkingOff = domain.ThinkingOff
 )
 
 // AgentService 是插件用模型和 Agent 的入口。

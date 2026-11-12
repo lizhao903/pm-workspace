@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // query 参数生成，严格按 docs/api-contract.md 的参数表。
 // 表里没有的参数后端会静默丢弃，所以这里只认表里的名字。
 
@@ -72,6 +74,11 @@ export function artifactListQuery(p: ArtifactListParams = {}): URLSearchParams {
   tri(qs, 'has_url', p.has_url)
   tri(qs, 'has_path', p.has_path)
   str(qs, 'q', p.q)
+  str(qs, 'kind', p.kind)
+  str(qs, 'since', p.since)
+  str(qs, 'until', p.until)
+  str(qs, 'object_type', p.object_type)
+  str(qs, 'project_id', p.project_id)
   num(qs, 'limit', p.limit)
   num(qs, 'offset', p.offset)
   return qs

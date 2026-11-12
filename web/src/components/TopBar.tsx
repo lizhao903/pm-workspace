@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 顶栏：品牌 / 工作区 / 全局搜索 / 快速捕获 / 主题 / 通知 / 头像。
 import { useEffect, useRef, useState } from 'react'
 import { useWorkspace } from '../hooks/workspace'

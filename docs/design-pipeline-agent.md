@@ -394,3 +394,9 @@ CREATE TABLE agent_steps (
 3. **流水线扫描成本随流水线数量线性增长**。万级下每条流水线每次扫描都必须是索引命中的窄查询（`scope` 必须带 `status` 或 `updated_at` 条件），否则 20 条流水线会被扫成全表遍历。
 4. **外部执行的"取消"不可靠**，产品语义上要如实呈现为"已请求取消"，不要显示成已终止。
 5. **单进程队列**决定了工作台必须常驻。若将来要多机，`agent_tasks` 的认领需要改成 `UPDATE ... WHERE status='queued'` 的原子抢占（表结构已支持，无需改）。
+
+---
+
+由 DeepSeek Harness（dsh）协助完成。
+
+[![](https://img.shields.io/badge/powered_by-dsh-4D6BFE?style=flat-square&logo=deepseek&logoColor=white)](https://github.com/deepseek-ai/deepseek-harness)

@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 交易设置（TRD-08c，SPEC-trading-11）：实盘开关、评审清单（每项带证据链接）、trade:live 申请、停用插件；证据抽屉。
 // 交互照原型 web-next/src/trading.tsx 的 SettingsView，口径以后端为准（web-next/docs/spec/trading.md「正式前端」）：
 // - 评审项的条件、证据、评审结论都由后端现算和记录（GET /api/trade/live），前端不算；

@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 import { describe, expect, it } from 'vitest'
 import { PROFILE_COMMANDS, PROFILE_COMMAND_GROUPS, type ProjectProfile } from '../../core/data'
 import { commandsOf, formOfProfile, platformsOf, profileDiff, profileGaps, readyError, splitTags, timeoutError, timeoutOf } from './profileModel'

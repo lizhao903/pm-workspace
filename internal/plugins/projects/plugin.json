@@ -1,9 +1,9 @@
 {
   "id": "projects",
   "name": "项目",
-  "description": "项目目录、沟通渠道绑定、项目资料、原型启停、需求工作区、测试环境（可保留给人工验收）、发布（审批后上线，冒烟失败自动回滚）、按上线代码回写原型库（同步点、同步分支）",
+  "description": "项目目录、沟通渠道绑定、项目资料、原型启停、需求工作区、测试环境（可保留给人工验收）、发布（审批后上线，冒烟失败自动回滚）、按上线代码回写原型库（同步点、同步分支）、项目知识库（项目资料同步到知识库）",
   "icon": "folder",
-  "version": "0.17.0",
+  "version": "0.19.0",
   "core": ">=1.0.0 <2.0.0",
   "depends": {},
   "optional_depends": {},
@@ -14,7 +14,7 @@
     "connectors": [],
     "skills": [],
     "agent_tools": [],
-    "sop_nodes": ["projects_list_profiles", "projects_get_profile", "projects_prepare_worktree", "projects_run_test", "projects_prepare_release", "projects_release", "projects_proto_sync_range", "projects_proto_sync_branch", "projects_proto_sync_classify", "projects_proto_sync_verdict", "projects_proto_sync_commit", "projects_proto_sync_record"],
+    "sop_nodes": ["projects_list_profiles", "projects_get_profile", "projects_prepare_worktree", "projects_run_test", "projects_prepare_release", "projects_release", "projects_proto_sync_range", "projects_proto_sync_branch", "projects_proto_sync_classify", "projects_proto_sync_verdict", "projects_proto_sync_commit", "projects_proto_sync_record", "projects_kb_sync"],
     "today_cards": [],
     "commands": [],
     "search": ["projects"]

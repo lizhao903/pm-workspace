@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 知识库列表（SPEC-settings-10）：卡片网格，篇数和状态读后端算好的 counts；按文档标题搜时才去取各库的文档。
 import { useState } from 'react'
 import { useKbDocsOf, type KnowledgeBase } from '../../../core/data'

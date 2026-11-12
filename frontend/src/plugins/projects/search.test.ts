@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 import { describe, expect, it } from 'vitest'
 import type { WorkObject } from '../../core/data'
 import { firstLine, searchProjects, SEARCH_MAX } from './search'
@@ -6,16 +8,16 @@ const proj = (id: string, title: string, body = '', workdir = '') => ({ id, titl
 
 describe('searchProjects', () => {
   const rows = [
-    proj('p1', '客户端改版', 'Octok 的桌面客户端', '/work/octok-desktop'),
-    proj('p2', 'Octok 官网', '营销站', '/work/site'),
+    proj('p1', '客户端改版', 'Acme 的桌面客户端', '/work/acme-desktop'),
+    proj('p2', 'Acme 官网', '营销站', '/work/site'),
     proj('p3', '内部工具', '', '/work/tools'),
   ]
   it('按名称、说明、目录搜，不分大小写；名称开头命中的排前面', () => {
-    expect(searchProjects(rows, 'octok').map((p) => p.id)).toEqual(['p2', 'p1'])
+    expect(searchProjects(rows, 'acme').map((p) => p.id)).toEqual(['p2', 'p1'])
     expect(searchProjects(rows, 'TOOLS').map((p) => p.id)).toEqual(['p3'])
   })
   it('多个词每个都要命中；空输入不出结果', () => {
-    expect(searchProjects(rows, 'octok 桌面').map((p) => p.id)).toEqual(['p1'])
+    expect(searchProjects(rows, 'acme 桌面').map((p) => p.id)).toEqual(['p1'])
     expect(searchProjects(rows, '  ')).toEqual([])
   })
   it('最多给 SEARCH_MAX 条', () => {

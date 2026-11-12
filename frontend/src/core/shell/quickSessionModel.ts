@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 快速新建会话的挑选规则，界面在 QuickSession.tsx
 import type { Agent, AgentProvider } from '../data'
 

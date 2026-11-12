@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // Agent 供应商：配置 Agent 到底调哪家模型服务。三种接入方式——OpenAI 兼容端点、
 // Google Gemini、本机 Ollama。
 //

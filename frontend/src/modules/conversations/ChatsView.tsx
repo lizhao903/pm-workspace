@@ -1,13 +1,17 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 会话（SPEC-sessions-1）：左边全局会话列表（搜索、按 Agent 筛、按时间分段），右边当前会话的对话。
 // 当前会话记在 ?s=，别的页面能直接链接到某个会话。会话挂 Agent（AG-01b8）；0032 之前和「更多」里按服务商开的会话不挂 Agent。
 // 空会话不堆积（B-09）：没有消息的会话只在打开时列出，从它切走时删掉。
 // 头部右上角是插件登记的工具入口（终端、浏览器，SPEC-sessions-1.34），点了在对话右边展开面板。
 // 从别的记录发起的会话（内核 0047，如 IM 消息的「发起会话」「拆分任务」）头部下面显示「来源」，按插件登记的定义跳回去。
+// 列表每条、头部都显示实际用的「服务商 · 模型」，头部能换（SPEC-sessions-1.46 到 1.49，TSK-0720）。
+// P0-S1：搜索走服务端（防抖 300ms，后端搜标题+消息正文），第二行显示最后一条消息，项目下拉按 project_id 筛。
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router'
 import {
-  firstMessageOf, useAgentMessages, useAgentProviders, useAgentSessions, useAgents, useArtifacts, useCreateAgentSession, useDeleteAgentSession,
-  usePatchAgentSession, useRunningAgentSessions, useStopAgentSession, type AgentSession, type AgentSessionInput, type SessionSourceRef,
+  firstMessageOf, useAgentAttention, useAgentMessages, useAgentProviders, useAgentSessions, useAgents, useArtifacts, useCreateAgentSession, useDeleteAgentSession,
+  usePatchAgentSession, useProjects, useRunningAgentSessions, useStopAgentSession, type AgentProvider, type AgentSession, type AgentSessionInput, type SessionSourceRef,
 } from '../../core/data'
 import { useSessionSource, useSessionTools } from '../../core/plugin'
 import { Button, ErrorState, IconSearch, LoadingState, PageTitle, SearchSelect, cls } from '../../core/ui'
@@ -15,9 +19,10 @@ import { AgentAvatar } from '../../core/ui/AgentAvatar'
 import { ChatPane } from '../../core/chat/ChatPane'
 import { hasLiveChat, useLiveChat } from '../../core/chat/chatLive'
 import {
-  FILTER_GONE, FILTER_NO_AGENT, GONE_AGENT, NEW_TITLE, matchAgentFilter, recentAgents, sessionLinks, timeAgo, whenGroup, whoName, whoOf, type ChatWho,
+  FILTER_GONE, FILTER_NO_AGENT, GONE_AGENT, NEW_TITLE, matchAgentFilter, modelLabel, recentAgents, sessionLinks, timeAgo, whenGroup, whoName, whoOf, type ChatWho,
 } from '../../core/chat/chatModel'
 import { EMPTY_DOCK, switchTool, toggleTool } from './dockModel'
+import { ModelSwitch } from '../../core/chat/ModelSwitch'
 import { NewSession } from './NewSession'
 import { ToolButtons, ToolDock } from './ToolDock'
 import { WhoAvatar } from '../../core/chat/WhoAvatar'
@@ -26,20 +31,28 @@ import { WhoAvatar } from '../../core/chat/WhoAvatar'
 const PAGE = 50
 // 会话产出列表取一页就够
 const ARTIFACT_LIMIT = 100
+// 搜索防抖（P0-S1）：输入停下 300ms 才走服务端，免得每敲一个字发一次请求
+const SEARCH_DEBOUNCE_MS = 300
 
 /** 还没有消息、也没在发第一句话的会话 */
 function isEmpty(s: AgentSession): boolean {
   return !s.message_count && !hasLiveChat(s.id) && !firstMessageOf(s.id)
 }
 
-function SessionItem({ s, who, selected, onOpen }: {
+function SessionItem({ s, who, providers, selected, onOpen, waiting = 0 }: {
   s: AgentSession
   who: ChatWho
+  providers: readonly AgentProvider[]
   selected: boolean
   onOpen: () => void
+  /** 这个会话里等你确认的工具调用数（P0-O3），有就标题右侧出红点 */
+  waiting?: number
 }) {
   const live = useLiveChat(s.id)
-  const sub = live?.phase === 'streaming' ? '正在回复…' : s.message_count ? `${s.message_count} 条消息` : '还没有消息'
+  const used = modelLabel(s.provider_id, s.model, providers)
+  // 第二行：正在回复时先说这个；否则是最后一条消息（P0-S1），没有消息时仍是条数
+  const last = s.last_message?.trim()
+  const sub = live?.phase === 'streaming' ? '正在回复…' : last || (s.message_count ? `${s.message_count} 条消息` : '还没有消息')
   return (
     <button type="button" className={cls('chat-item', selected && 'sel')} aria-current={selected || undefined} onClick={onOpen}>
       {/* 已删除的 Agent、已删除的服务商不放头像（SPEC-sessions-1.27） */}
@@ -47,8 +60,18 @@ function SessionItem({ s, who, selected, onOpen }: {
         ? <WhoAvatar who={who} size={30} />
         : who.kind !== 'gone' && <span className="chat-item-noavatar" aria-hidden="true" />}
       <span className="chat-item-text">
-        <span className="chat-item-top"><span className="ellipsis chat-item-title">{s.title || NEW_TITLE}</span></span>
-        <span className="ellipsis list-sub">{whoName(who)}{who.kind === 'provider' ? ` · ${s.model}` : ''} · {sub}</span>
+        <span className="chat-item-top">
+          <span className="ellipsis chat-item-title">{s.title || NEW_TITLE}</span>
+          {/* 这个会话有 Agent 工具调用等你确认：标题右侧红点，条数放悬停提示（P0-O3） */}
+          {waiting > 0 && <span className="side-dot" title={`${waiting} 个调用等你确认`} aria-label={`${waiting} 个调用等你确认`} />}
+          {/* 任务交给工作台 Agent 执行建的会话（TSK-0460）：标出来自任务，悬停是哪条 */}
+          {s.source_ref?.kind === 'task_run' && (
+            <span className="chat-item-tag" title={typeof s.source_ref.label === 'string' ? s.source_ref.label : undefined}>任务执行</span>
+          )}
+        </span>
+        <span className="ellipsis list-sub chat-item-last" title={last || undefined}>{whoName(who)} · {sub}</span>
+        {/* 实际用的服务商和模型（TSK-0720）：Agent 会话没单独换过的是 Agent 当前的默认；停用的标出来 */}
+        <span className={cls('ellipsis chat-item-model', used.disabled && 'warn')} title={`用的模型：${used.text}${s.model_override ? '（这个会话单独选的）' : ''}`}>{used.text}</span>
       </span>
       <span className="chat-item-time">{timeAgo(s.updated_at)}</span>
     </button>
@@ -112,7 +135,14 @@ export function ChatsView({ current, onOpen, onOpenAgent, pickRequest = 0, onOpe
   /** 等你确认的执行记录数，「执行记录」按钮上的红点 */
   runsWaiting?: number
 }) {
-  const sessions = useAgentSessions()
+  // 列表筛选（P0-S1）：搜索、项目都交给服务端，输入防抖 300ms 再请求
+  const [serverQ, setServerQ] = useState('')
+  const [projectId, setProjectId] = useState('')
+  const filtered = !!serverQ || !!projectId
+  const sessions = useAgentSessions({ q: serverQ, projectId })
+  // 当前会话可能不在筛选结果里：单独读一份不筛选的（没筛选时和上面是同一份缓存，不额外请求）
+  const base = useAgentSessions(undefined, { enabled: filtered })
+  const projects = useProjects()
   const providers = useAgentProviders()
   const agentsQ = useAgents()
   const create = useCreateAgentSession()
@@ -126,6 +156,11 @@ export function ChatsView({ current, onOpen, onOpenAgent, pickRequest = 0, onOpe
 
   const [filter, setFilter] = useState('')
   const [q, setQ] = useState('')
+  // 输入停下 300ms 再更新给查询的 q（搜索期间列表保留上一份，不闪）
+  useEffect(() => {
+    const t = setTimeout(() => setServerQ(q.trim()), SEARCH_DEBOUNCE_MS)
+    return () => clearTimeout(t)
+  }, [q])
   const [limit, setLimit] = useState(PAGE)
   const [picking, setPicking] = useState(pickRequest > 0)
   // 渲染时对一下上次看到的请求号，变了就打开面板（不用 effect 再渲染一遍）
@@ -140,13 +175,22 @@ export function ChatsView({ current, onOpen, onOpenAgent, pickRequest = 0, onOpe
   const [first, setFirst] = useState<{ sessionId: string; text: string } | null>(null)
 
   const all = useMemo(() => sessions.data ?? [], [sessions.data])
+  // 完整列表：筛选后当前会话、B-09 切走清空、新会话面板的 Agent / 服务商排序都要看全量
+  const allSessions = useMemo(() => base.data ?? all, [base.data, all])
   const provs = useMemo(() => providers.data ?? [], [providers.data])
+  // 等确认注意力（P0-O3）：按会话数出圆点，不按 Agent 筛也不影响
+  const attention = useAgentAttention()
+  const waitingBy = useMemo(() => {
+    const n = new Map<string, number>()
+    for (const c of attention.data?.pending_calls ?? []) {
+      if (c.session_id) n.set(c.session_id, (n.get(c.session_id) ?? 0) + 1)
+    }
+    return n
+  }, [attention.data])
   const agents = agentsQ.data
   const who = (s: AgentSession) => whoOf(s, agents, provs)
-  const kw = q.trim().toLowerCase()
-  // 后端已按 updated_at 倒序；列表接口不带消息，搜索匹配标题、Agent 名和模型。没有消息的只列正打开的那条
-  const rows = all.filter((s) => (s.id === current || !isEmpty(s))
-    && matchAgentFilter(s, filter) && (!kw || `${s.title} ${whoName(who(s))} ${s.model}`.toLowerCase().includes(kw)))
+  // 后端已按 updated_at 倒序；q 已由后端搜标题+消息正文，这里只做 Agent 筛选和空会话处理。没有消息的只列正打开的那条
+  const rows = all.filter((s) => (s.id === current || !isEmpty(s)) && matchAgentFilter(s, filter))
   const shown = rows.slice(0, limit)
   const setF = (f: () => void) => { f(); setLimit(PAGE) }
 
@@ -171,16 +215,18 @@ export function ChatsView({ current, onOpen, onOpenAgent, pickRequest = 0, onOpe
       ...(none ? [{ value: FILTER_NO_AGENT, label: '不挂 Agent 的会话', hint: n(none) }] : []),
     ]
   }, [all, agents])
+  // 项目筛选（P0-S1）：选项是全部项目，选中后按 project_id 让后端筛这个项目的会话
+  const projectOpts = useMemo(() => (projects.data?.data ?? []).map((p) => ({ value: p.id, label: p.title || p.ref })), [projects.data])
   // 新会话选 Agent：最近聊过的在前（SPEC-sessions-1.6）
-  const recentA = useMemo(() => recentAgents(agents ?? [], all), [agents, all])
+  const recentA = useMemo(() => recentAgents(agents ?? [], allSessions), [agents, allSessions])
   // 「更多」里选服务商：最近聊过的在前
   const recent = useMemo(() => {
     const last = new Map<string, string>()
-    for (const s of all) if ((last.get(s.provider_id) ?? '') < s.updated_at) last.set(s.provider_id, s.updated_at)
+    for (const s of allSessions) if ((last.get(s.provider_id) ?? '') < s.updated_at) last.set(s.provider_id, s.updated_at)
     return [...provs].sort((a, b) => (last.get(b.id) ?? '').localeCompare(last.get(a.id) ?? ''))
-  }, [provs, all])
+  }, [provs, allSessions])
 
-  const cur = all.find((s) => s.id === current) ?? null
+  const cur = allSessions.find((s) => s.id === current) ?? null
 
   // 会话旁边的工具（SPEC-sessions-1.34）：插件登记了才有入口；面板跟着会话页，切会话不收起
   const tools = useSessionTools()
@@ -192,8 +238,8 @@ export function ChatsView({ current, onOpen, onOpenAgent, pickRequest = 0, onOpe
 
   // 从一个空会话切走（点了别的会话、又新建了一个、从别处链接过来）就删掉它。
   // 按 current 的变化判断，不放在卸载时：离开会话页留下的空会话只是不列出来
-  const latest = useRef(all)
-  useEffect(() => { latest.current = all })
+  const latest = useRef(allSessions)
+  useEffect(() => { latest.current = allSessions })
   const prevCur = useRef(current)
   const { mutate: dropSession } = drop
   useEffect(() => {
@@ -211,7 +257,8 @@ export function ChatsView({ current, onOpen, onOpenAgent, pickRequest = 0, onOpe
         // 建好就关面板、清筛选，新会话在最前并打开（SPEC-sessions-1.7）
         setPicking(false)
         setFirst(text ? { sessionId: s.id, text } : null)
-        setF(() => { setQ(''); setFilter('') })
+        // 清掉搜索和筛选，新会话在最前并打开
+        setF(() => { setQ(''); setServerQ(''); setFilter(''); setProjectId('') })
         open(s.id)
       },
     })
@@ -243,19 +290,23 @@ export function ChatsView({ current, onOpen, onOpenAgent, pickRequest = 0, onOpe
           return (
             <Fragment key={s.id}>
               {g !== (i ? whenGroup(shown[i - 1].updated_at) : '') && <div className="menu-label chat-group">{g}</div>}
-              <SessionItem s={s} who={who(s)} selected={s.id === current} onOpen={() => open(s.id)} />
+              <SessionItem s={s} who={who(s)} providers={provs} selected={s.id === current} onOpen={() => open(s.id)}
+                waiting={waitingBy.get(s.id) ?? 0} />
             </Fragment>
           )
         })}
         {rows.length > shown.length && (
           <button type="button" className="agent-more" onClick={() => setLimit(limit + PAGE)}>显示更多（还有 {rows.length - shown.length} 条）</button>
         )}
-        {!rows.length && <div className="tree-empty">{kw || filter ? '没有匹配的会话' : '还没有会话，点「新会话」和 Agent 聊聊'}</div>}
+        {!rows.length && <div className="tree-empty">{serverQ || filter || projectId ? '没有匹配的会话' : '还没有会话，点「新会话」和 Agent 聊聊'}</div>}
       </>
     )
   }
 
   const curWho = cur ? who(cur) : null
+  // 正在回复（这个页面发的、或者后台还在跑的）时不能换模型
+  const curLive = useLiveChat(cur?.id ?? null)
+  const curBusy = !!cur && (curLive?.phase === 'streaming' || !!running.data?.includes(cur.id))
   return (
     <div className={cls('chats', dockOpen && 'with-dock')}>
       <PageTitle parent="会话" count={rows.length} desc="和 Agent 的对话都留在这里，能接着聊，也能回看每次调用了什么工具"
@@ -264,11 +315,13 @@ export function ChatsView({ current, onOpen, onOpenAgent, pickRequest = 0, onOpe
         <div className="chat-list-head">
           <div className="search search-full search-sm">
             <IconSearch />
-            <input placeholder="搜会话标题、Agent 和模型" value={q} aria-label="搜会话" onChange={(e) => setF(() => setQ(e.target.value))} />
+            <input placeholder="搜会话标题和消息" value={q} aria-label="搜会话" onChange={(e) => setF(() => setQ(e.target.value))} />
           </div>
           <div className="chat-filters">
             <SearchSelect value={filter} noneLabel="全部 Agent" placeholder="全部 Agent" searchPlaceholder="搜 Agent" options={agentOpts}
               missingLabel={() => GONE_AGENT} aria-label="按 Agent 筛选" onChange={(v) => setF(() => setFilter(v))} />
+            <SearchSelect value={projectId} noneLabel="全部项目" placeholder="全部项目" searchPlaceholder="搜项目" options={projectOpts}
+              missingLabel={() => '项目已删除'} aria-label="按项目筛选" onChange={(v) => setF(() => setProjectId(v))} />
           </div>
         </div>
         {picking && (
@@ -310,12 +363,17 @@ export function ChatsView({ current, onOpen, onOpenAgent, pickRequest = 0, onOpe
                     <button type="button" className="chat-title ellipsis" title="点一下改标题" onClick={() => setEditing(true)}>{cur.title || NEW_TITLE}</button>
                   )}
                   {curWho.kind === 'agent' ? (
-                    <button type="button" className="link-btn chat-agent ellipsis" title={`${curWho.agent.model || cur.model}；点一下去「设置 > Agent」看它的配置`}
+                    <button type="button" className="link-btn chat-agent ellipsis" title="点一下去「设置 > Agent」看它的配置"
                       onClick={() => onOpenAgent?.(curWho.agent.id)}>
                       {whoName(curWho)}
                     </button>
-                  ) : (
-                    <span className="list-sub chat-agent ellipsis">{whoName(curWho)}{curWho.kind === 'provider' ? ` · ${cur.model}` : ''}</span>
+                  ) : curWho.kind !== 'provider' && (
+                    <span className="list-sub chat-agent ellipsis">{whoName(curWho)}</span>
+                  )}
+                  {/* 用的模型，点了换（SPEC-sessions-1.46）；Agent 删了、服务商删了的只显示 */}
+                  {curWho.kind !== 'pending' && (
+                    <ModelSwitch session={cur} agent={curWho.kind === 'agent' ? curWho.agent : undefined} providers={provs} busy={curBusy}
+                      readOnly={curWho.kind === 'gone' || (curWho.kind === 'provider' && !curWho.provider)} />
                   )}
                   <span className="spacer" />
                   {!confirmDel && (

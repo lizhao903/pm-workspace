@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 package api
 
 import (
@@ -16,10 +18,15 @@ import (
 	"github.com/lizhao903/pm-workspace/internal/domain"
 	"github.com/lizhao903/pm-workspace/internal/events"
 	"github.com/lizhao903/pm-workspace/internal/plugin"
+	"github.com/lizhao903/pm-workspace/internal/store"
 	"github.com/lizhao903/pm-workspace/internal/store/sqlite"
 )
 
+// hangLine 是剧本里的特殊一行：模型一直不返回，直到请求被取消——用来测停止一次在跑的执行。
+const hangLine = "__hang__"
+
 // newRunServer 是接了事件总线和触发调度的服务，模型是假 Ollama：按剧本一次回一段，剧本空了回一句话。
+// 剧本里放 hangLine 时这次模型调用会挂着不返回，直到执行被取消。
 func newRunServer(t *testing.T) (*connRec, *sqlite.Store, *agent.Dispatcher, func(lines ...string)) {
 	t.Helper()
 	ctx := context.Background()
@@ -39,6 +46,14 @@ func newRunServer(t *testing.T) (*connRec, *sqlite.Store, *agent.Dispatcher, fun
 		}
 		mu.Unlock()
 		w.Header().Set("Content-Type", "application/x-ndjson")
+		if line == hangLine {
+			w.WriteHeader(http.StatusOK)
+			if f, ok := w.(http.Flusher); ok {
+				f.Flush()
+			}
+			<-r.Context().Done()
+			return
+		}
 		_, _ = io.WriteString(w, line+"\n")
 	}))
 	t.Cleanup(up.Close)
@@ -149,5 +164,171 @@ func TestAgentRunDisabledAgent(t *testing.T) {
 	}
 	if !strings.HasPrefix(ag["id"].(string), "ag_") {
 		t.Fatal(ag)
+	}
+}
+
+// --- 停止 / 重试（P0-O2，0056） ---
+
+// 停止一次还在跑的执行：记录收尾 canceled（不是 failed），总结写明已做的操作不撤回；接口回 run_id + canceled。
+func TestAgentRunStop(t *testing.T) {
+	r, st, d, push := newRunServer(t)
+	pid := firstProviderID(t, st)
+	ag := r.call("POST", "/api/agents", `{"name":"长活助手","provider_id":"`+pid+`","triggers":[{"kind":"task","detail":""}]}`, http.StatusCreated)
+	agID := ag["id"].(string)
+	push(hangLine)
+	r.call("POST", "/api/objects", `{"type_id":"task","title":"慢慢做","props":{"agent_id":"`+agID+`"}}`, http.StatusCreated)
+
+	deadline := time.Now().Add(5 * time.Second)
+	var runID string
+	for runID == "" {
+		items, _ := r.list("/api/agent-runs?agent=" + agID)
+		if len(items) > 0 {
+			runID = items[0].(map[string]any)["id"].(string)
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("执行记录没出现")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+
+	// 记录建出来到取消函数登记有先后，碰上刚建好就 409，等一拍再试
+	var stopped map[string]any
+	for {
+		w := do(r.s, "POST", "/api/agent-runs/"+runID+"/stop", "")
+		if w.Code == http.StatusOK {
+			env := decodeEnvelope(t, w)
+			stopped, _ = env["data"].(map[string]any)
+			break
+		}
+		if w.Code != http.StatusConflict || time.Now().After(deadline) {
+			t.Fatalf("停止 = %d %s", w.Code, w.Body.String())
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if stopped["run_id"] != runID || stopped["status"] != "canceled" {
+		t.Fatalf("停止响应 = %v", stopped)
+	}
+	if !d.Wait(5 * time.Second) {
+		t.Fatal("停止后执行没结束")
+	}
+	got := r.call("GET", "/api/agent-runs/"+runID, "", http.StatusOK)
+	if got["status"] != "canceled" || got["summary"] != "已手动停止，已经执行的操作不会撤回。" || got["finished_at"] == nil {
+		t.Fatalf("停止后 = %v", got)
+	}
+	if p, _ := got["prompt"].(string); !strings.Contains(p, "慢慢做") {
+		t.Fatalf("提示词没落库：%v", got["prompt"])
+	}
+	// 已经结束的再停 409，按 canceled 筛得到它，不存在的 404
+	mustCode(t, do(r.s, "POST", "/api/agent-runs/"+runID+"/stop", ""), http.StatusConflict, "stop twice")
+	if items, _ := r.list("/api/agent-runs?status=canceled"); len(items) != 1 || items[0].(map[string]any)["id"] != runID {
+		t.Fatalf("按 canceled 筛：%v", items)
+	}
+	mustCode(t, do(r.s, "POST", "/api/agent-runs/ar_nope/stop", ""), http.StatusNotFound, "stop missing")
+}
+
+// 重试失败 / 停止的执行：新建一条记录和新会话，提示词沿用、触发加（重试）、event_key 留空，异步跑完。
+func TestAgentRunRetry(t *testing.T) {
+	r, st, d, push := newRunServer(t)
+	ctx := context.Background()
+	pid := firstProviderID(t, st)
+	ag := r.call("POST", "/api/agents", `{"name":"重试助手","provider_id":"`+pid+`","triggers":[{"kind":"manual","detail":""}]}`, http.StatusCreated)
+	agID := ag["id"].(string)
+
+	orig, err := st.CreateAgentRun(ctx, &store.AgentRun{
+		AgentID: agID, TriggerKind: "task", Trigger: "任务分配给它 · TSK-1", SourceID: "obj_1",
+		EventKey: "task:obj_1", Prompt: "把这条任务处理完",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.FinishAgentRun(ctx, orig.ID, store.AgentRunFailed, "执行失败：boom"); err != nil {
+		t.Fatal(err)
+	}
+
+	push(`{"message":{"role":"assistant","content":"重试好了。"},"done":true}`)
+	out := r.call("POST", "/api/agent-runs/"+orig.ID+"/retry", "", http.StatusAccepted)
+	run, _ := out["run"].(map[string]any)
+	if run["id"] == orig.ID || run["event_key"] != "" || run["source_id"] != "obj_1" || run["trigger_kind"] != "task" {
+		t.Fatalf("重试记录 = %v", run)
+	}
+	if trig, _ := run["trigger"].(string); !strings.Contains(trig, "（重试）") {
+		t.Fatalf("触发说明 = %v", run["trigger"])
+	}
+	if run["prompt"] != "把这条任务处理完" {
+		t.Fatalf("提示词没沿用：%v", run["prompt"])
+	}
+	sessionID, _ := out["session_id"].(string)
+	if sessionID == "" || run["session_id"] != sessionID {
+		t.Fatalf("新会话 = %v", out["session_id"])
+	}
+	sess, err := st.GetAgentSession(ctx, sessionID)
+	if err != nil || !strings.HasPrefix(sess.Title, "重试 · ") {
+		t.Fatalf("新会话 = %+v，%v", sess, err)
+	}
+	if !d.Wait(5 * time.Second) {
+		t.Fatal("重试的执行没跑完")
+	}
+	done := r.call("GET", "/api/agent-runs/"+run["id"].(string), "", http.StatusOK)
+	if done["status"] != "done" || done["summary"] != "重试好了。" {
+		t.Fatalf("重试执行完 = %v", done)
+	}
+	// 成功的不能重试；没有提示词的不能重试；不存在的 404
+	mustCode(t, do(r.s, "POST", "/api/agent-runs/"+run["id"].(string)+"/retry", ""), http.StatusConflict, "retry done")
+	empty, err := st.CreateAgentRun(ctx, &store.AgentRun{AgentID: agID, TriggerKind: "im", Trigger: "旧执行"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.FinishAgentRun(ctx, empty.ID, store.AgentRunCanceled, ""); err != nil {
+		t.Fatal(err)
+	}
+	mustCode(t, do(r.s, "POST", "/api/agent-runs/"+empty.ID+"/retry", ""), http.StatusConflict, "retry no prompt")
+	mustCode(t, do(r.s, "POST", "/api/agent-runs/ar_nope/retry", ""), http.StatusNotFound, "retry missing")
+
+	// Agent 停用：409，不新建记录
+	off := false
+	if _, err := st.UpdateAgent(ctx, agID, domain.AgentInput{Enabled: &off}); err != nil {
+		t.Fatal(err)
+	}
+	disabled, err := st.CreateAgentRun(ctx, &store.AgentRun{AgentID: agID, TriggerKind: "im", Trigger: "停用后", Prompt: "做点什么"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.FinishAgentRun(ctx, disabled.ID, store.AgentRunFailed, "执行失败：x"); err != nil {
+		t.Fatal(err)
+	}
+	w := do(r.s, "POST", "/api/agent-runs/"+disabled.ID+"/retry", "")
+	mustCode(t, w, http.StatusConflict, "retry disabled agent")
+	// 一共：原记录、重试出来的、没提示词的、停用 Agent 的
+	if items, _ := r.list("/api/agent-runs?agent=" + agID); len(items) != 4 {
+		t.Fatalf("停用后不该新建执行记录：%d", len(items))
+	}
+}
+
+// 触发执行无人值守：Runner 不给 ask_user、步数按 DefaultRunSteps 给预算（确认后接着跑那条路径同口径）。
+func TestAgentRunnerUnattendedBudget(t *testing.T) {
+	r, st, _, _ := newRunServer(t)
+	ctx := context.Background()
+	pid := firstProviderID(t, st)
+	name := "触发助手"
+	ag, err := st.CreateAgent(ctx, domain.AgentInput{Name: &name, ProviderID: &pid})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sess, err := st.CreateAgentSession(ctx, &domain.AgentSession{
+		Title: "测试会话", ProviderID: pid, Model: "qwen3.5:4b", AgentID: &ag.ID,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	runner, err := r.s.agentRunner(ctx, ag, sess)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !runner.Unattended {
+		t.Fatal("触发执行应无人值守")
+	}
+	if runner.Budget == nil || runner.Budget.MaxSteps != agent.DefaultRunSteps {
+		t.Fatalf("预算 = %+v，想要 %d 步", runner.Budget, agent.DefaultRunSteps)
 	}
 }

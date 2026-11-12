@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 import type { CSSProperties } from 'react'
 import { cls } from './cls'
 import { prioText } from './prioText'

@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 import { describe, expect, it } from 'vitest'
 import type { SopFlow, SopRunBrief } from '../../core/data'
 import { SOP_RUN_PEEK, addSop, availFlows, linkedFlows, recentRuns, removeSop, runLook } from './sopModel'

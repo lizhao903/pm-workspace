@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 消息转任务的确认（SPEC-messages-2.15、SPEC-tasks-4.3、4.14）：标题预填正文前 40 字，勾着时建好后把消息标为已处理。
 // 确认后调 POST /api/im/messages/{id}/task 由后端建任务（来源 im、props.source_ref 指回消息），再打开建好的任务抽屉补别的字段。
 // 这条消息在消息列里（是原消息且有回复，或本身是回复）时，可以勾「附上消息列」把整段消息列拼进任务正文（默认勾上）。

@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // Package webhook 存 Webhook 配置（TASK-02a，0022）：名称、字段映射、过滤条件、去重路径、默认值。
 // 接收密钥存在保险箱里，表里只有条目 id；对外只给脱敏提示，服务端生成的明文只在新建和轮换那一次给出。
 // 收件、映射执行、去重和投递记录（TASK-02b，0024）在 delivery.go、mapping.go。

@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 package main
 
 import (
@@ -223,7 +225,7 @@ func (c *client) listStakeholders(ctx context.Context) ([]*domain.Stakeholder, e
 
 // resolveStakeholder 把人名换成干系人 id。
 //
-// MCP 这层收人名而不是 id，是因为调用方是模型：它手上有「李钊」，没有 stk_xxx，
+// MCP 这层收人名而不是 id，是因为调用方是模型：它手上有「张三」，没有 stk_xxx，
 // 强行要 id 只会逼出「先查一次再调一次」的两步，而中间那步经常被省掉。
 //
 // 找不到时必须**报错**，不能返回空 id 静默放行。owner_id 传空串的语义是「清空负责人」——
@@ -416,6 +418,15 @@ func (c *client) agentOwnerID(ctx context.Context) (string, bool, error) {
 	people, err := c.listStakeholders(ctx)
 	if err != nil {
 		return "", false, err
+	}
+	// 先认名册里 Claude Code 这个 AI 成员（TSK-0500）：工作台启动时自动维护它，名字撞了人时
+	// 会带「（CLI）」，按名字找会找到那个人。只有配置了别的 agentOwner 时才按名字找。
+	if c.agentOwner == defaultAgentOwner {
+		for _, p := range people {
+			if p.AIKind == domain.AIKindCLI && p.AIRef == domain.RunHarnessClaude {
+				return p.ID, false, nil
+			}
+		}
 	}
 	for _, p := range people {
 		if p.Name == c.agentOwner {

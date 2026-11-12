@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 中栏工作对象视图：工具栏 + 按 viewMode 分发的主体。数据全部来自 useWorkspace()。
 // 侧栏只负责「作用域」（哪类工作对象 / 哪个分类），所有筛选条件都收在这里的工具条上。
 import { useCallback, useEffect, useMemo, useState, type DragEvent, type ReactNode } from 'react'
@@ -880,7 +882,7 @@ export default function ObjectListView() {
                 </Popover>
 
                 {/* 和单行内联编辑复用同一个 OwnerMenu：选中的是干系人 id，不是一段文本。
-                    自由文本输入框已经去掉——库里那条「宋一杰、李钊、振华」就是它的产物。 */}
+                    自由文本输入框已经去掉——库里那条「示例甲、示例乙、示例丙」就是它的产物。 */}
                 <Popover triggerClassName="btn btn-sm" trigger="负责人" width={230}>
                   {(close) => (
                     <OwnerMenu

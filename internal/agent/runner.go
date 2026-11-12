@@ -1,9 +1,12 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 package agent
 
 import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
 	"strings"
 	"time"
 
@@ -113,6 +116,54 @@ type Runner struct {
 	Debug *Debug
 	// Thinking 是思考档位，空串时取 Agent.Thinking，都没有按 default（不带思考参数），见 thinking.go。
 	Thinking string
+	// Budget 非 nil 是无人值守的执行（任务交给 Agent，TSK-0460）：步数按它算、用完就失败，不再按 maxTurns 软收尾。
+	// Run 和之后的 Resume 共用同一份，所以等确认前后的步数合起来算。
+	Budget *Budget
+	// Unattended 为真时没有人在旁边答问题：不给模型 ask_user，硬调也只回一句「不能提问」。
+	Unattended bool
+}
+
+// Budget 是一次无人值守执行的步数上限，每调一次模型算一步。
+type Budget struct {
+	MaxSteps int
+	Used     int
+}
+
+// BudgetError 是步数用完了模型还要接着调：这次执行失败，原因写给人看。
+type BudgetError struct{ MaxSteps int }
+
+func (e *BudgetError) Error() string {
+	return fmt.Sprintf("超过步数上限（%d 步）还没做完，已停下。已经执行的操作不会撤回；可以调大步数上限后续跑，或者把任务拆小", e.MaxSteps)
+}
+
+// take 记一步，用完了回 *BudgetError；nil 不限。
+func (b *Budget) take() error {
+	if b == nil {
+		return nil
+	}
+	if b.Used >= b.MaxSteps {
+		return &BudgetError{MaxSteps: b.MaxSteps}
+	}
+	b.Used++
+	return nil
+}
+
+// unattendedAsk 是无人值守时模型硬调 ask_user 回给它的话。
+const unattendedAsk = "这次是无人值守的执行，没有人能回答问题，ask_user 不可用。按你能确定的部分做完，拿不准的写进最后的结论里。"
+
+// tools 是这一轮给模型的工具：按授权过滤，无人值守时去掉 ask_user。
+func (r *Runner) tools(tb *Toolbox) []ToolDef {
+	defs := r.Policy.Tools(tb.Defs())
+	if !r.Unattended {
+		return defs
+	}
+	out := defs[:0:0]
+	for _, d := range defs {
+		if d.Name != toolAskUser {
+			out = append(out, d)
+		}
+	}
+	return out
 }
 
 // thinking 是这一轮用的思考档位：显式给的优先，再看挂的 Agent。
@@ -162,10 +213,16 @@ func (r *Runner) run(ctx context.Context, userText string, dec *Decision, emit f
 		}
 	}
 
+	// out 记这一轮实际做成和没做成的调用，收尾时如实补在回复后面（TSK-0480，outcome.go）
+	var out outcome
 	var note string
 	if dec != nil {
-		if note, err = r.applyDecision(ctx, tb, dec, emit); err != nil {
+		var res ToolResult
+		if note, res, err = r.applyDecision(ctx, tb, dec, emit); err != nil {
 			return "", err
+		}
+		if dec.Approved {
+			out.note(ToolCall{Name: dec.Call.Tool, Args: dec.Call.Args}, res, r.isWrite(dec.Call.Tool))
 		}
 	}
 
@@ -183,7 +240,18 @@ func (r *Runner) run(ctx context.Context, userText string, dec *Decision, emit f
 	// 用户问的是「这个需求怎么推进」，收场却是一句「好的，已经处理完了」。
 	usedTools, nudged := false, false
 
-	for turn := 0; turn < maxTurns; turn++ {
+	// 有人在旁边的对话最多 maxTurns 轮调工具，之后再给一轮收尾：这一轮只说话，调了工具也不执行。
+	// 以前没有这一轮——第 maxTurns 轮调完工具循环就结束了，「请总结」的提示从没发给模型，
+	// 回复落到兜底的「好的，已经处理完了」（会话 ags_06gtxj0d159ynhvd 第二轮正好 8 次调用）。
+	limit := maxTurns + 1
+	if r.Budget != nil {
+		limit = math.MaxInt
+	}
+	for turn := 0; turn < limit; turn++ {
+		wrapUp := r.Budget == nil && turn == maxTurns
+		if err := r.Budget.take(); err != nil {
+			return "", err
+		}
 		var text strings.Builder
 		var calls []ToolCall
 		var thinking []json.RawMessage
@@ -191,7 +259,7 @@ func (r *Runner) run(ctx context.Context, userText string, dec *Decision, emit f
 		err := r.Chat.Stream(ctx, Request{
 			Model:    r.Model,
 			Messages: msgs,
-			Tools:    r.Policy.Tools(tb.Defs()),
+			Tools:    r.tools(tb),
 			Thinking: r.thinking(),
 		}, func(ev Event) {
 			switch ev.Kind {
@@ -206,6 +274,10 @@ func (r *Runner) run(ctx context.Context, userText string, dec *Decision, emit f
 		})
 		if err != nil {
 			return "", err
+		}
+		if wrapUp {
+			// 收尾轮还要调工具的不执行；工具声明照旧带着，有的服务商见到历史里有工具调用却没有工具声明会报错
+			calls = nil
 		}
 
 		// 没有工具调用，这一轮就是最终回答。
@@ -236,6 +308,10 @@ func (r *Runner) run(ctx context.Context, userText string, dec *Decision, emit f
 
 		asked, confirming := false, false
 		for _, call := range calls {
+			if r.Unattended && call.Name == toolAskUser {
+				msgs = append(msgs, Message{Role: domain.RoleTool, Content: unattendedAsk, ToolCallID: call.ID, ToolName: call.Name})
+				continue
+			}
 			// 需确认的不执行：记下来、发 confirm 事件，本轮结束后等人点（AG-02a）
 			mode, key := r.Policy.ModeOf(call.Name)
 			if mode == store.GrantConfirm {
@@ -259,10 +335,17 @@ func (r *Runner) run(ctx context.Context, userText string, dec *Decision, emit f
 			}
 
 			var res ToolResult
-			if mode == store.GrantOff {
+			switch {
+			case mode == store.GrantOff:
 				res = deniedResult(call.Name)
-			} else {
+			case call.Name != toolAskUser && out.failedBefore(call):
+				// 同参重试：结果不会变，不再执行，告诉模型改参数或停下（会话里 create_object 同参失败了两遍）
+				res = repeatedFailure(call.Name)
+			default:
 				res = r.invoke(ctx, tb, call)
+			}
+			if call.Name != toolAskUser {
+				out.note(call, res, r.isWrite(call.Name))
 			}
 
 			// ask_user 被打回（选项缺 detail、问题写成了开场白……）时，这条结果是给**模型**的
@@ -335,7 +418,7 @@ func (r *Runner) run(ctx context.Context, userText string, dec *Decision, emit f
 		}
 
 		// 轮数用尽仍在调工具：告诉模型别再调了，让它用已有结果收个尾。
-		if turn == maxTurns-1 {
+		if r.Budget == nil && turn == maxTurns-1 {
 			msgs = append(msgs, Message{
 				Role:    RoleSystem,
 				Content: "已达到本轮工具调用上限，请不要再调用任何工具，直接用一两句话总结你已经完成的事情。",
@@ -345,15 +428,27 @@ func (r *Runner) run(ctx context.Context, userText string, dec *Decision, emit f
 
 	final := strings.TrimSpace(finalText.String())
 	if final == "" {
-		// 模型只调了工具没说话时兜一句，否则对话框里会留一个空气泡。
-		final = "好的，已经处理完了。"
-		emit(StreamEvent{Type: "delta", Text: final})
+		// 模型没说话时按实际结果兜一句，否则对话框里会留一个空气泡；有失败的交给下面的执行情况说
+		if final = out.fallback(usedTools); final != "" {
+			emit(StreamEvent{Type: "delta", Text: final})
+		}
+	}
+	if f := out.footer(); f != "" {
+		sep := "\n\n"
+		if final == "" {
+			sep = ""
+		}
+		emit(StreamEvent{Type: "delta", Text: sep + f})
+		final += sep + f
 	}
 
+	// 记下这条回复用的服务商和模型（TSK-0720）：会话中途换了模型，历史里看得出哪条是谁答的
 	saved, err := r.record(ctx, &domain.AgentMessage{
-		SessionID: r.Session.ID,
-		Role:      domain.RoleAssistant,
-		Content:   final,
+		SessionID:  r.Session.ID,
+		Role:       domain.RoleAssistant,
+		Content:    final,
+		ProviderID: r.Session.ProviderID,
+		Model:      r.Model,
 	})
 	if err != nil {
 		return "", fmt.Errorf("保存回复失败")
@@ -385,8 +480,9 @@ func (r *Runner) record(ctx context.Context, m *domain.AgentMessage) (*domain.Ag
 // 不值得为了完整回放再单独存一份模型视角的内容。
 func (r *Runner) buildHistory(ctx context.Context, types []*domain.ObjectType) ([]Message, error) {
 	out := []Message{{
-		Role:    RoleSystem,
-		Content: BuildSystemPrompt(types, time.Now(), r.Object) + sourceSection(r.Session) + agentSection(r.Agent) + skillSection(r.Skills),
+		Role: RoleSystem,
+		Content: BuildSystemPrompt(types, time.Now(), r.Object) + sourceSection(r.Session) + agentSection(r.Agent) +
+			skillSection(r.Skills) + instructionSection(r.Session),
 	}}
 	if r.Debug != nil {
 		past := r.debugTranscript()

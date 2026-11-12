@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 package im
 
 import (
@@ -46,6 +48,17 @@ type ConversationSummary struct {
 	// Sent、LastSentAt 是主动发出去的（发成功的）条数和最近一次的时间（0.17.0，outbox.go），没发过为 0 和 null
 	Sent       int     `json:"sent"`
 	LastSentAt *string `json:"last_sent_at"`
+	// 查询回填（TSK-0494，names.go）：UnresolvedUsers 是 participants 里只能显示编号的人（渠道没给名字、也没认上有名字的联系人）；
+	// NameUnresolved 是群名为空或就是编号；CanRefill 是能回渠道按编号查（渠道支持、有消息所在的连接器）；
+	// RefillError 是之前查过、没查到的原因（几个都没查到取第一个），没查过或都查到了为空串
+	UnresolvedUsers []string `json:"unresolved_users"`
+	NameUnresolved  bool     `json:"name_unresolved"`
+	CanRefill       bool     `json:"can_refill"`
+	RefillError     string   `json:"refill_error"`
+	// 补全消息（TSK-0724，history.go）：CanBackfill 是能回渠道拉这个会话的历史（渠道支持、有消息所在的连接器）；
+	// BackfillNote 是不能的原因（按钮置灰时的说明），能的为空串
+	CanBackfill  bool   `json:"can_backfill"`
+	BackfillNote string `json:"backfill_note"`
 }
 
 func (in *inbox) conversationSummary(w http.ResponseWriter, r *http.Request) {
@@ -99,6 +112,11 @@ func (in *inbox) conversationSummary(w http.ResponseWriter, r *http.Request) {
 		fail(w, r, in.c, err)
 		return
 	}
+	lookups, err := in.allLookups(ctx)
+	if err != nil {
+		fail(w, r, in.c, err)
+		return
+	}
 	rs := newResolver(in.c)
 	// 设了默认项目、还没收过消息的会话也列出来
 	for cid := range defaults {
@@ -127,6 +145,7 @@ func (in *inbox) conversationSummary(w http.ResponseWriter, r *http.Request) {
 		if s.Kind == "direct" {
 			s.Name = ""
 		}
+		in.markUnresolved(&s, cv, lookups)
 		if at, ok := sentAt[s.ConversationID]; ok {
 			s.Sent, s.LastSentAt = sentN[s.ConversationID], &at
 		}
@@ -214,11 +233,15 @@ func (in *inbox) fillParticipants(ctx context.Context, out []ConversationSummary
 				name = ct.Name
 			}
 		}
-		if name == "" {
+		raw := name == ""
+		if raw {
 			name = s.ext
 		}
 		if !slices.Contains(out[i].Participants, name) {
 			out[i].Participants = append(out[i].Participants, name)
+			if raw {
+				out[i].UnresolvedUsers = append(out[i].UnresolvedUsers, s.ext)
+			}
 		}
 	}
 	for i := range out {
@@ -227,6 +250,50 @@ func (in *inbox) fillParticipants(ctx context.Context, out []ConversationSummary
 		}
 	}
 	return nil
+}
+
+// allLookups 读查询回填的记录（channel/kind/编号 -> 结果），列表上标没查到的原因、补群名用。
+func (in *inbox) allLookups(ctx context.Context) (map[string]lookupRec, error) {
+	rows, err := in.c.Store().Query(ctx, `SELECT channel, kind, external_id, name, code, message FROM im_name_lookups`)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	out := map[string]lookupRec{}
+	for rows.Next() {
+		var ch, kind, ext string
+		var r lookupRec
+		if err := rows.Scan(&ch, &kind, &ext, &r.name, &r.code, &r.message); err != nil {
+			return nil, err
+		}
+		out[ch+"/"+kind+"/"+ext] = r
+	}
+	return out, rows.Err()
+}
+
+// markUnresolved 补一行的查询回填字段：群名缺的用查到的会话名，没查到的写原因。
+func (in *inbox) markUnresolved(s *ConversationSummary, cv *plugin.ConversationInfo, lookups map[string]lookupRec) {
+	if s.UnresolvedUsers == nil {
+		s.UnresolvedUsers = []string{}
+	}
+	if cv != nil && convNameMissing(*cv) {
+		rec := lookups[s.Channel+"/conversation/"+cv.ExternalID]
+		if rec.name != "" {
+			s.Name = rec.name
+		} else {
+			s.NameUnresolved = true
+			s.RefillError = rec.message
+		}
+	}
+	for _, x := range s.UnresolvedUsers {
+		if s.RefillError != "" {
+			break
+		}
+		s.RefillError = lookups[s.Channel+"/user/"+x].message
+	}
+	s.CanRefill = s.ConnectorID != "" && in.nameResolverFor(s.Channel) != nil
+	s.BackfillNote = in.backfillNote(s.Channel, s.ConnectorID)
+	s.CanBackfill = s.BackfillNote == ""
 }
 
 // ConversationProjectFailure 是批量设默认项目里没写成的一条；Message 是给人看的中文原因。

@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { PageTitle } from './topbar'
 import { IM_CHANNELS, type Message } from './data'
@@ -9,7 +11,7 @@ import {
 import { GrowArea, cls, timeAgo } from './ui'
 import { SearchSelect } from './searchselect'
 import { useEnumView } from './enumdata'
-import { ApproveConfirm, ArtifactsBlock, DevFields, ProgressBlock, ReviewBar, RunDialog, RunsBlock, isDevTask, type DevLoop } from './devloop'
+import { ApproveConfirm, ArtifactsBlock, DevFields, ProgressBlock, ReviewBar, RunDialog, RunsBlock, isDevTask, type AgentRunOptions, type DevLoop } from './devloop'
 import { runStatus, type Governance, type RunAction, type Sop, type SopRun } from './sopflow'
 import { TaskSopBlock } from './tasksop'
 import { TaskPipelineBlock, taskRuns, waitOf } from './taskpipeline'
@@ -20,10 +22,13 @@ import { buildPrompt, projectContext } from './handoff'
 import { threadTaskBody } from './msggroup'
 import type { Project } from './projectdata'
 import { StageBoard } from './taskstage'
+import { OUTPUTS_FILTERS, OutputsBadge, OutputsPage, matchOutputs, summarize, type OutputsFilter } from './taskoutputs'
+import type { TaskArtifact } from './taskdata'
+import { AiBadge, AiOwner, CLI_MEMBERS, aiKindOf } from './aiowner'
 
 /** 任务页的二级菜单 key */
 /** schedule：定时任务建出来的任务；schedules：定时任务本身的管理页；due：逾期未完成；hooks：Webhook 列表 */
-export type TaskView = 'all' | 'due' | 'board' | 'manual' | 'im' | 'webhook' | 'schedule' | 'incident' | 'schedules' | 'hooks' | `hook:${string}`
+export type TaskView = 'all' | 'due' | 'board' | 'outputs' | 'manual' | 'im' | 'webhook' | 'schedule' | 'incident' | 'schedules' | 'hooks' | `hook:${string}`
 
 const channelLabel = (k: string) => IM_CHANNELS.find((c) => c.key === k)?.label ?? k
 // 「今天」按本地日期；addDays、weekEnd 只做日历日加减，用 UTC 解析不受时区影响
@@ -81,10 +86,13 @@ export function SourceTag({ task, hooks }: { task: Task; hooks: Webhook[] }) {
   return <span className="src-tag">人工</span>
 }
 
-export function TasksNav({ tasks, hooks, deliveries, view, onSelect, onNewHook }: {
+export function TasksNav({ tasks, hooks, deliveries, view, onSelect, onNewHook, artifacts = [] }: {
   tasks: Task[]; hooks: Webhook[]; deliveries: Delivery[]; view: TaskView
   onSelect: (v: TaskView) => void; onNewHook: () => void
+  /** 产出物（TSK-0497）：「产出物」视图的条数 */
+  artifacts?: TaskArtifact[]
 }) {
+  const outN = useMemo(() => summarize(artifacts).size, [artifacts])
   // 最近一次推送失败的 Webhook 标红：多半是对方改了字段，映射没跟上
   const last = useMemo(() => lastDeliveries(deliveries), [deliveries])
   const failing = (h: Webhook) => (last.get(h.id)?.result === 'failed' ? 1 : 0)
@@ -98,6 +106,7 @@ export function TasksNav({ tasks, hooks, deliveries, view, onSelect, onNewHook }
       { key: 'all' as TaskView, label: '全部任务', group: '视图' },
       { key: 'due' as TaskView, label: '逾期', desc: dueN ? `${dueN} 条过了截止日还没完成` : '没有逾期的任务', alert: dueN, group: '视图' },
       { key: 'board' as TaskView, label: '阶段看板', desc: '按阶段分列，按提出人看进度', group: '视图' },
+      { key: 'outputs' as TaskView, label: '产出物', desc: `${outN} 条任务有产出`, group: '视图' },
       { key: 'manual' as TaskView, label: '人工创建', group: '来源' },
       { key: 'im' as TaskView, label: 'IM 消息', group: '来源' },
       { key: 'webhook' as TaskView, label: 'Webhook', group: '来源' },
@@ -140,15 +149,28 @@ export function TasksPage(props: {
   onStage?: (id: string, stage: string) => void
   /** 看板上点卡片：打开任务抽屉并停在「流水线」标签（AUTO-12，SPEC-tasks-11.15）；不给时同 onOpen */
   onOpenBoard?: (id: string) => void
+  /** 产出物（TSK-0497）：行和卡片上的产出标记、「产出物」视图 */
+  artifacts?: TaskArtifact[]
+  /** 点产出标记、「在任务里看」：打开抽屉的开发任务标签（产出物在那里）；不给时同 onOpen */
+  onOpenOutputs?: (id: string) => void
 }) {
-  if (props.view === 'board') return <StageBoard tasks={props.tasks} selected={props.selected} onOpen={props.onOpenBoard ?? props.onOpen} onStage={(id, s) => props.onStage?.(id, s)} />
+  const arts = props.artifacts ?? []
+  const openOutputs = props.onOpenOutputs ?? props.onOpen
+  if (props.view === 'board') return <StageBoard tasks={props.tasks} selected={props.selected} onOpen={props.onOpenBoard ?? props.onOpen} onStage={(id, s) => props.onStage?.(id, s)} artifacts={arts} onOpenOutputs={openOutputs} />
+  if (props.view === 'outputs') return <OutputsWrap tasks={props.tasks} artifacts={arts} projects={props.projects} selected={props.selected} onOpen={openOutputs} />
   if (props.view === 'hooks') return <WebhooksPage hooks={props.hooks} deliveries={props.deliveries} tasks={props.tasks} onOpen={props.onOpenHook} onNew={props.onNewHook} />
-  return <TaskList {...props} view={props.view} />
+  return <TaskList {...props} view={props.view} artifacts={arts} onOpenOutputs={openOutputs} />
 }
 
-function TaskList({ tasks, hooks, projects, view, selected, onOpen, onNew, onStatus, onApprove }: {
-  tasks: Task[]; hooks: Webhook[]; projects: { id: string; name: string }[]; view: Exclude<ListView, 'hooks' | 'board'>; selected: string | null
+function OutputsWrap(p: { tasks: Task[]; artifacts: TaskArtifact[]; projects: { id: string; name: string }[]; selected: string | null; onOpen: (id: string) => void }) {
+  const statusEnum = useEnumView('task_status')
+  return <OutputsPage {...p} statusLabel={(s) => statusEnum.label(s)} />
+}
+
+function TaskList({ tasks, hooks, projects, view, selected, onOpen, onNew, onStatus, onApprove, artifacts, onOpenOutputs }: {
+  tasks: Task[]; hooks: Webhook[]; projects: { id: string; name: string }[]; view: Exclude<ListView, 'hooks' | 'board' | 'outputs'>; selected: string | null
   onOpen: (id: string) => void; onNew: () => void; onStatus: (id: string, s: TaskStatus) => void; onApprove?: (id: string) => void
+  artifacts: TaskArtifact[]; onOpenOutputs: (id: string) => void
 }) {
   const statusEnum = useEnumView('task_status')
   const prioEnum = useEnumView('task_priority')
@@ -156,15 +178,20 @@ function TaskList({ tasks, hooks, projects, view, selected, onOpen, onNew, onSta
   const [prio, setPrio] = useState('')
   const [proj, setProj] = useState('')
   const [q, setQ] = useState('')
+  // 有产出 / 无产出（TSK-0497），和状态组合：「已完成」加「无产出」就是做完了却没留下东西的
+  const [out, setOut] = useState<OutputsFilter>('')
+  // 只看 AI 负责的（TSK-0500，SPEC-tasks-2.27）
+  const [ai, setAi] = useState(false)
+  const outputs = useMemo(() => summarize(artifacts), [artifacts])
   const [closed, setClosed] = useState<Set<DueSeg>>(new Set())
   const [more, setMore] = useState<Partial<Record<DueSeg, number>>>({})
   const [ask, setAsk] = useState<Task | null>(null)
   const kw = q.trim().toLowerCase()
   // 换了筛选，各段重新只露前 30 条
-  useEffect(() => { setMore({}) }, [view, st, prio, proj, kw])
+  useEffect(() => { setMore({}) }, [view, st, prio, proj, kw, out, ai])
   const now = today()
   const end = weekEnd(now)
-  const base = tasks.filter((t) => (view === 'all' || (view === 'due' ? isOverdue(t) : t.source.kind === view)) && (!proj || (proj === '-' ? !t.project_id : t.project_id === proj)))
+  const base = tasks.filter((t) => (view === 'all' || (view === 'due' ? isOverdue(t) : t.source.kind === view)) && (!proj || (proj === '-' ? !t.project_id : t.project_id === proj)) && matchOutputs(t.id, out, outputs) && (!ai || !!t.assignee_ai))
   const match = (t: Task, s: StatusFilter) => s === 'all' || (s === 'open' ? isOpenTask(t.status) : t.status === s)
   const rows = base
     .filter((t) => match(t, st) && (!prio || t.priority === prio) && (!kw || [t.title, t.desc, t.ref, t.assignee].some((v) => v.toLowerCase().includes(kw))))
@@ -197,10 +224,10 @@ function TaskList({ tasks, hooks, projects, view, selected, onOpen, onNew, onSta
         </button>
         <span className="task-main">
           <span className="task-title"><span className="task-ref">{t.ref}</span><span className="ellipsis">{t.title}</span></span>
-          <span className="task-meta"><SourceTag task={t} hooks={hooks} />{t.project_id && <span className="src-tag src-proj" title={projName(t.project_id)}>{projName(t.project_id) ?? '已删除的项目'}</span>}{!t.project_id && t.project_removed && <span className="src-tag src-proj" title={`原属项目「${t.project_removed}」`}>原属项目已删除</span>}<span>{timeAgo(t.created_at)}创建</span></span>
+          <span className="task-meta"><SourceTag task={t} hooks={hooks} />{t.project_id && <span className="src-tag src-proj" title={projName(t.project_id)}>{projName(t.project_id) ?? '已删除的项目'}</span>}{!t.project_id && t.project_removed && <span className="src-tag src-proj" title={`原属项目「${t.project_removed}」`}>原属项目已删除</span>}<OutputsBadge s={outputs.get(t.id)} onOpen={() => onOpenOutputs(t.id)} /><span>{timeAgo(t.created_at)}创建</span></span>
         </span>
         <span><PriorityTag p={t.priority} /></span>
-        <span className="ellipsis run-muted">{t.assignee || '未分配'}</span>
+        <AiOwner name={t.assignee} kind={t.assignee_ai} className="run-muted" tag={false} />
         <span className={cls('run-muted', overdue && 'danger-text')}>{t.due ? (t.due === now ? '今天' : t.due.slice(5)) : '-'}{overdue ? ' 逾期' : ''}</span>
         <span><TaskStatusPill s={t.status} /></span>
       </div>
@@ -235,6 +262,12 @@ function TaskList({ tasks, hooks, projects, view, selected, onOpen, onNew, onSta
         <SearchSelect value={proj} onChange={setProj} noneLabel="全部项目" searchPlaceholder="搜项目"
           options={[...projects.map((x) => ({ value: x.id, label: x.name })), { value: '-', label: '不属于项目' }]}
           missingLabel={() => '已删除的项目'} />
+        <div className="chip chip-select">
+          <select value={out} onChange={(e) => setOut(e.target.value as OutputsFilter)}>
+            {OUTPUTS_FILTERS.map(([k, l]) => <option key={k} value={k}>{l}</option>)}
+          </select>
+        </div>
+        <button className={cls('chip', ai && 'chip-on')} aria-pressed={ai} onClick={() => setAi((v) => !v)}>AI 负责的</button>
         <span className="spacer" />
         <div className="search">
           {searchIcon}
@@ -243,7 +276,7 @@ function TaskList({ tasks, hooks, projects, view, selected, onOpen, onNew, onSta
       </div>
       {rows.length === 0 ? (
         // 搜索、优先级、项目筛空了；只是状态筛空了（视图里有任务）；视图里一条都没有，三种分开说
-        kw || prio || proj ? (
+        kw || prio || proj || out || ai ? (
           <div className="empty">
             <div className="empty-title">没有匹配的任务</div>
             <div className="list-sub">换个筛选条件试试</div>
@@ -367,8 +400,8 @@ function WebhooksPage({ hooks, deliveries, tasks, onOpen, onNew }: {
 
 /* ---------- 抽屉：新建 / 查看任务 ---------- */
 
-export interface TaskDraft { title: string; desc: string; status: TaskStatus; priority: Priority; assignee: string; due: string | null; project_id?: string; acceptance?: string; workdir?: string; repo?: string }
-const draftOf = (t: Task): TaskDraft => ({ title: t.title, desc: t.desc, status: t.status, priority: t.priority, assignee: t.assignee, due: t.due, project_id: t.project_id, acceptance: t.acceptance, workdir: t.workdir, repo: t.repo })
+export interface TaskDraft { title: string; desc: string; status: TaskStatus; priority: Priority; assignee: string; assignee_ai?: 'agent' | 'cli'; due: string | null; project_id?: string; acceptance?: string; workdir?: string; repo?: string }
+const draftOf = (t: Task): TaskDraft => ({ title: t.title, desc: t.desc, status: t.status, priority: t.priority, assignee: t.assignee, assignee_ai: t.assignee_ai, due: t.due, project_id: t.project_id, acceptance: t.acceptance, workdir: t.workdir, repo: t.repo })
 /** 两份草稿内容一样：空串、null、undefined 都当没填 */
 const sameDraft = (a: TaskDraft, b: TaskDraft) => (Object.keys({ ...a, ...b }) as (keyof TaskDraft)[]).every((k) => (a[k] || '') === (b[k] || ''))
 
@@ -416,7 +449,19 @@ export function TaskDrawer({ task, initial, fromMessage, fromThread = [], thread
   /** SOP 插件在跑时有：执行、流程、发起、去运行页；gov、onAct 给「流水线」标签（AUTO-12，SPEC-sop-16）用 */
   sop?: { runs: SopRun[]; sops: Sop[]; onStart: (sopId: string) => void; onOpenRun: (runId: string) => void; gov: Governance; onAct: (runId: string, a: RunAction) => void }
   /** 交给 Claude Code 的「切换到终端」（SPEC-tasks-6.10）：终端插件在跑才有 terminalOn；onTerminal 在终端页新开标签执行启动命令 */
-  handoff?: { terminalOn: boolean; onTerminal: (o: { task: Task; runId: string; workdir: string; prompt: string }) => void; onManagePresets?: () => void }
+  handoff?: {
+    terminalOn: boolean; onTerminal: (o: { task: Task; runId: string; workdir: string; prompt: string }) => void; onManagePresets?: () => void
+    /** 「管理执行权限」（TSK-0499） */
+    onManagePerms?: () => void
+    /** 执行记录「去设置放行」（TSK-0499） */
+    onAllowRules?: (rules: string[]) => void
+    /** 交给工作台 Agent（SPEC-tasks-6.20）：Agent、服务商、模型；没给就只有 Claude Code */
+    agentRun?: Omit<AgentRunOptions, 'lastSession'>
+    /** 发起工作台 Agent 执行时建会话（全局会话，来源标这条任务的这次执行），回会话 id */
+    onAgentSession?: (o: { task: Task; runId: string; agentId: string; prompt: string }) => string
+    /** 执行记录里「打开会话继续」（SPEC-tasks-5.36） */
+    onOpenSession?: (sessionId: string) => void
+  }
 }) {
   const statusEnum = useEnumView('task_status')
   const prioEnum = useEnumView('task_priority')
@@ -425,10 +470,13 @@ export function TaskDrawer({ task, initial, fromMessage, fromThread = [], thread
   // 新建时的默认状态、优先级取设置里的默认值
   const [d, setD] = useState<TaskDraft>(() => ({
     title: task?.title ?? '', desc: task?.desc ?? '', status: task?.status ?? (statusEnum.defaultKey as TaskStatus | undefined) ?? 'todo', priority: task?.priority ?? (prioEnum.defaultKey as Priority | undefined) ?? 'P2',
-    assignee: task?.assignee ?? '我', due: task?.due ?? null, project_id: task?.project_id,
+    assignee: task?.assignee ?? '我', assignee_ai: task?.assignee_ai, due: task?.due ?? null, project_id: task?.project_id,
     acceptance: task?.acceptance, workdir: task?.workdir, repo: task?.repo, ...initial,
   }))
   const [runOpen, setRunOpen] = useState(false)
+  // AI 成员（TSK-0500）：CLI 和工作台 Agent，负责人候选里排在人后面
+  const agentNames = (handoff?.agentRun?.agents ?? []).map((a) => a.name)
+  const aiNames = [...CLI_MEMBERS.filter((n) => n !== 'DeepSeek'), ...agentNames].filter((n) => !assignees.includes(n))
   const inheritDir = projects.find((x) => x.id === d.project_id)?.root
   const proj = projects.find((x) => x.id === d.project_id)
   const projectCtx = proj ? projectContext({ name: proj.name, root: proj.root ?? '', related: proj.related ?? [], prototypes: proj.prototypes ?? [] }) : undefined
@@ -447,7 +495,7 @@ export function TaskDrawer({ task, initial, fromMessage, fromThread = [], thread
   const sopMine = task && sop ? sop.runs.filter((r) => r.object_id === task.id) : []
   // 流水线标签上的卡点数（等人、失败、超时、超出上限）
   const pipeBlocks = task && sop ? taskRuns(task, sop.runs).reduce((n, r) => n + r.steps.filter((_, i) => waitOf(r, i)).length, 0) : 0
-  const runningId = dev && mine(dev.runs).find((r) => r.status === 'running')?.id
+  const runningId = dev && mine(dev.runs).find((r) => r.status === 'running' || r.status === 'waiting')?.id
   const [markDone, setMarkDone] = useState(true)
   const [replyOnDone, setReplyOnDone] = useState(true)
   // 转任务附上消息列：默认勾上，存时拼进描述后面
@@ -513,9 +561,11 @@ export function TaskDrawer({ task, initial, fromMessage, fromThread = [], thread
       </div>
       <div className="field-row">
         <label className="field">
-          <span className="field-label">负责人</span>
-          <input list="task-assignees" value={d.assignee} onChange={(e) => setD({ ...d, assignee: e.target.value })} />
-          <datalist id="task-assignees">{assignees.map((a) => <option key={a} value={a} />)}</datalist>
+          <span className="field-label">负责人{d.assignee_ai && <AiBadge name={d.assignee} kind={d.assignee_ai} />}</span>
+          {/* 候选里有 AI 成员（TSK-0500，SPEC-tasks-4.83）：Claude Code 和各个 Agent；在这里选只是记录，不发起执行 */}
+          <input list="task-assignees" value={d.assignee} onChange={(e) => setD({ ...d, assignee: e.target.value, assignee_ai: aiKindOf(e.target.value, agentNames) })} />
+          <datalist id="task-assignees">{[...assignees, ...aiNames].map((a) => <option key={a} value={a} />)}</datalist>
+          {d.assignee_ai && <span className="field-hint-line">在这里选 Agent / CLI 只是记录负责人，不会发起执行；要它干活用开发任务里的「交给…」</span>}
         </label>
         <label className="field">
           <span className="field-label">截止日期</span>
@@ -664,22 +714,40 @@ export function TaskDrawer({ task, initial, fromMessage, fromThread = [], thread
             )}
             {cur === 'pipeline' && sop && <TaskPipelineBlock task={task} runs={sop.runs} gov={sop.gov} onAct={sop.onAct} onOpenRun={sop.onOpenRun} />}
             {cur === 'sop' && sop && <TaskSopBlock task={task} runs={sop.runs} sops={sop.sops} onStart={sop.onStart} onOpenRun={sop.onOpenRun} focus={focus.sop} />}
-            {cur === 'runs' && dev && <RunsBlock runs={mine(dev.runs)} onCancel={dev.cancel} onFinish={dev.finish} focus={focus.run} />}
+            {cur === 'runs' && dev && <RunsBlock runs={mine(dev.runs)} onCancel={dev.cancel} onFinish={dev.finish} focus={focus.run}
+              onDecide={dev.decide} onOpenSession={handoff?.onOpenSession} agentName={(id) => handoff?.agentRun?.agents.find((a) => a.id === id)?.name}
+              onAllowRules={handoff?.onAllowRules} />}
           </>
         )}
       </div>
       {runOpen && task && dev && (
         <RunDialog task={{ ...task, workdir: d.workdir }} inheritDir={inheritDir} project={projectCtx} terminalOn={!!handoff?.terminalOn} onClose={() => setRunOpen(false)}
+          agentRun={handoff?.agentRun && (() => {
+            const last = mine(dev.runs).filter((r) => r.harness === 'agent' && r.agent_session).sort((a, b) => b.started_at.localeCompare(a.started_at))[0]
+            return { ...handoff.agentRun, lastSession: last ? { id: last.agent_session!, agent_id: last.agent_id, agent_name: last.agent_name } : undefined }
+          })()}
           onManagePresets={handoff?.onManagePresets && (() => { setRunOpen(false); handoff.onManagePresets?.() })}
+          onManagePerms={handoff?.onManagePerms && (() => { setRunOpen(false); handoff.onManagePerms?.() })}
           onStart={(o) => {
             const runId = dev.start(task, o)
+            // 工作台 Agent：建会话（续跑用上次的），记到执行记录上；不领取，负责人改成它（SPEC-tasks-6.20、6.33）
+            if (o.harness === 'agent') {
+              const sid = o.agent_session ?? handoff?.onAgentSession?.({ task, runId, agentId: o.agent_id ?? '', prompt: `交给你执行任务 ${task.ref}「${task.title}」${o.extra_prompt ? `，补充说明：${o.extra_prompt}` : ''}` })
+              if (sid) dev.bindSession(runId, sid)
+              // 负责人改成这个 Agent（SPEC-tasks-6.33），dev.start 已经改了任务、记了进展
+              setD((x) => (x.status === 'done' || x.status === 'cancelled' ? x : { ...x, status: 'doing', assignee: o.agent_name || x.assignee, assignee_ai: 'agent' }))
+              setRunOpen(false)
+              pick('runs')
+              return
+            }
             if (o.mode === 'terminal') {
+              setD((x) => (x.status === 'done' || x.status === 'cancelled' ? x : { ...x, status: 'doing', assignee: 'Claude Code', assignee_ai: 'cli' }))
               setRunOpen(false)
               handoff?.onTerminal({ task, runId, workdir: o.workdir, prompt: buildPrompt({ task, workdir: o.workdir, extra: o.extra_prompt, mode: 'terminal', project: projectCtx, runId, preset: o.preset }) })
               return
             }
-            // 交出去就算开工（SPEC-tasks-6.17）；允许写入时 Claude Code 还会领取，负责人改成它
-            setD((x) => ({ ...x, status: x.status === 'done' || x.status === 'cancelled' ? x.status : 'doing', ...(o.allow_writes ? { assignee: 'Claude Code' } : {}) }))
+            // 交出去就算开工（SPEC-tasks-6.17），负责人改成 Claude Code（SPEC-tasks-6.33）；允许写入时它还会领取
+            setD((x) => (x.status === 'done' || x.status === 'cancelled' ? x : { ...x, status: 'doing', assignee: 'Claude Code', assignee_ai: 'cli' }))
             setRunOpen(false)
             // 流式执行发起后切到执行记录看输出（SPEC-tasks-4.41）
             pick('runs')

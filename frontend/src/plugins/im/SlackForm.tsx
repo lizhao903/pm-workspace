@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 渠道配置里的 Slack 表单（IM-01b）：Slack App 的 Bot Token（xoxb-）和 Signing Secret 进保险箱，界面只显示脱敏提示；
 // 监听频道（已保存的从列表勾选，core/ui/ChannelPicker）、我的 Member ID、同步间隔是普通配置。保存后自动做一次连通测试，账号写成「Bot 名（Member ID）」。
 // 工作台不在公网上时 Slack 的事件推不进来，靠同步间隔定时拉；在公网上可以再配事件订阅，回调地址见表单底部。
@@ -136,7 +138,7 @@ export function SlackForm({ connector, onSaved, onCancel }: {
         </Field>
       )}
       <Field label="我的称呼" hint={SELF_NAMES_HINT}>
-        <Input value={names} placeholder="李钊, Zhao" onChange={(e) => setNames(e.target.value)} />
+        <Input value={names} placeholder="张三, Zhang" onChange={(e) => setNames(e.target.value)} />
       </Field>
       <Field label="同步间隔" hint="工作台不在公网上时 Slack 推不进来，靠定时拉 conversations.history 收消息">
         <Select value={String(every)} onValueChange={(v) => setEvery(Number(v))}

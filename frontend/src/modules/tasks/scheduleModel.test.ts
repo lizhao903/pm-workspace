@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 import { describe, expect, it } from 'vitest'
 import type { DictItem, Schedule } from '../../core/data'
 import {
@@ -13,7 +15,7 @@ const prio = (key: string, meta: Record<string, unknown> = {}): DictItem => ({
 const sch = (p: Partial<Schedule> = {}): Schedule => ({
   id: 'sch_a', name: '周会前整理议程', enabled: true, rule: { ...emptyRule(now) },
   action: { kind: 'task', title: '整理 {{date}} 周会议程', desc: '', priority: 'P2', assignee: '', due_days: 0 },
-  next_run_at: null, created_at: '', updated_at: '', ...p,
+  project_id: null, next_run_at: null, created_at: '', updated_at: '', ...p,
 })
 
 describe('定时任务的规则', () => {
@@ -94,6 +96,8 @@ describe('列表的文字', () => {
     expect(actionText({ kind: 'task', title: '', desc: '', priority: '', assignee: '', due_days: 0 })).toBe('建任务「未填标题」')
     expect(actionText({ kind: 'agent', agent_id: 'ag_1', prompt: '' })).toBe('ag_1：未填要求')
     expect(actionText({ kind: 'sop', sop_id: 'sop_1' })).toBe('执行「sop_1」')
+    // 随流程管理的（TSK-0463）：有流程名时显示名字
+    expect(actionText({ kind: 'sop', sop_id: 'sop_1', managed: true }, { flows: { sop_1: '周报' } })).toBe('执行「周报」，随流程管理')
   })
 
   it('搜索名称、规则文字、做什么', () => {

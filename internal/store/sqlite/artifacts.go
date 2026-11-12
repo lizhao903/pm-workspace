@@ -1,12 +1,16 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 package sqlite
 
 import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -97,6 +101,7 @@ func scanArtifact(sc rowScanner) (*domain.Artifact, error) {
 	a.ObjectRef, a.ObjectTitle = objRef.String, objTitle.String
 	a.CreatedAt, a.UpdatedAt = parseTime(created), parseTime(updated)
 	a.RelPath = relPath(a.BaseDir, a.Path)
+	a.DisplayKind = domain.DisplayKindOf(&a)
 	return &a, nil
 }
 
@@ -186,6 +191,27 @@ func artifactWhere(f domain.ArtifactFilter) (string, []any) {
 		} else {
 			conds = append(conds, `a.path = ''`)
 		}
+	}
+	// 时间区间、归属对象的类型和项目（TSK-0497）。created_at 是定宽的纳秒 UTC 串，按字符串比就是按时间比。
+	if f.Since != nil {
+		conds = append(conds, `a.created_at >= ?`)
+		args = append(args, f.Since.UTC().Format(artifactTimeLayout))
+	}
+	if f.Until != nil {
+		conds = append(conds, `a.created_at <= ?`)
+		args = append(args, f.Until.UTC().Format(artifactTimeLayout))
+	}
+	if f.ObjectType != "" {
+		conds = append(conds, `a.object_id IN (SELECT id FROM objects WHERE type_id = ?)`)
+		args = append(args, f.ObjectType)
+	}
+	switch f.ProjectID {
+	case "":
+	case "-":
+		conds = append(conds, `a.object_id IN (SELECT id FROM objects WHERE project_id IS NULL)`)
+	default:
+		conds = append(conds, `a.object_id IN (SELECT id FROM objects WHERE project_id = ?)`)
+		args = append(args, f.ProjectID)
 	}
 	if q := strings.TrimSpace(f.Q); q != "" {
 		// 关键词同时扫标题、路径、链接和备注：用户记得住的可能是文件名，
@@ -395,6 +421,25 @@ func (s *Store) checkArtifactKind(ctx context.Context, kind string) error {
 	return nil
 }
 
+// settleArtifactKind 定下入库的 kind（TSK-0497）：调用方给了就校验；没给就按备注、链接、平台、
+// 扩展名推一个（domain.InferArtifactKind）。推出来的种类在字典里被停用了就留空，不因此拒掉登记——
+// 调用方没要求种类，为一个推断出来的值报 400 只会让人困惑。
+// 平台要先定下来（只有链接时按平台推），所以放在 detectPlatform 之后调。
+func (s *Store) settleArtifactKind(ctx context.Context, in *domain.ArtifactInput) error {
+	if in.Kind != "" {
+		return s.checkArtifactKind(ctx, in.Kind)
+	}
+	k := domain.InferArtifactKind(in.Note, in.URL, in.Platform, in.Path)
+	if err := s.checkArtifactKind(ctx, k); err != nil {
+		if errors.Is(err, domain.ErrValidation) {
+			return nil
+		}
+		return err
+	}
+	in.Kind = k
+	return nil
+}
+
 func encodeArtifactProps(p map[string]any) (string, error) {
 	if p == nil {
 		return "{}", nil
@@ -450,11 +495,11 @@ func (s *Store) CreateArtifact(ctx context.Context, in domain.ArtifactInput) (*d
 	if err := normalizeArtifact(&in); err != nil {
 		return nil, err
 	}
-	if err := s.checkArtifactKind(ctx, in.Kind); err != nil {
-		return nil, err
-	}
 	if in.Platform == "" {
 		in.Platform = s.detectPlatform(ctx, in.URL)
+	}
+	if err := s.settleArtifactKind(ctx, &in); err != nil {
+		return nil, err
 	}
 	fillSize(&in)
 	return s.insertArtifact(ctx, in)
@@ -470,11 +515,11 @@ func (s *Store) RecordArtifact(ctx context.Context, in domain.ArtifactInput) (*d
 	if err := normalizeArtifact(&in); err != nil {
 		return nil, err
 	}
-	if err := s.checkArtifactKind(ctx, in.Kind); err != nil {
-		return nil, err
-	}
 	if in.Platform == "" {
 		in.Platform = s.detectPlatform(ctx, in.URL)
+	}
+	if err := s.settleArtifactKind(ctx, &in); err != nil {
+		return nil, err
 	}
 	fillSize(&in)
 
@@ -679,4 +724,101 @@ func (s *Store) ArtifactStats(ctx context.Context, f domain.ArtifactFilter) (*do
 		}
 	}
 	return st, nil
+}
+
+// ArtifactsByObject 按归属对象汇总产物（TSK-0497）。
+//
+// 和 ArtifactStats 走同一个 artifactWhere，但 kind、source 两个条件不进 SQL：
+//   - kind 要按 display_kind 比——历史上没填 kind 的那批（Claude Code 执行扫出来的）
+//     在库里是空串，SQL 里比 a.kind 会把它们全漏掉，而漏掉的数字看起来完全正常；
+//   - 两者的分面计数（by_kind / by_source）各自不受自己那个条件影响，按钮上的数才不会一点就变成只剩一个。
+//
+// 只算挂在对象上且对象没进回收站的；未归属的产物不属于任何一行。
+// 一次把满足条件的产物逐行读出来在内存里聚合：只读几列短字段，几千条也就几百 KB，
+// 换来推断口径只有 Go 这一份。
+func (s *Store) ArtifactsByObject(ctx context.Context, f domain.ArtifactFilter) (*domain.ArtifactsByObject, error) {
+	kind, source := f.Kind, f.Source
+	g := f
+	g.Kind, g.Source, g.Limit, g.Offset = "", "", 0, 0
+	where, args := artifactWhere(g)
+
+	rows, err := s.db.R.QueryContext(ctx, `SELECT a.object_id, a.kind, a.note, a.url, a.platform, a.path,
+		a.source, a.created_at, o.ref, o.title, o.type_id, o.status, o.project_id, COALESCE(p.title, ''), o.completed_at
+		FROM artifacts a
+		JOIN objects o ON o.id = a.object_id AND o.deleted_at IS NULL
+		LEFT JOIN objects p ON p.id = o.project_id`+where, args...)
+	if err != nil {
+		return nil, fmt.Errorf("artifacts by object: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	out := &domain.ArtifactsByObject{
+		// 同 ArtifactStats：nil 切片和 nil map 序列化成 null，前端一 map 就白屏
+		Objects:  []domain.ArtifactObjectSummary{},
+		ByKind:   map[string]int{},
+		BySource: map[string]int{},
+	}
+	idx := map[string]int{}
+	for rows.Next() {
+		var (
+			a                 domain.Artifact
+			objID             string
+			created           string
+			ref, title, typ   string
+			status, projTitle string
+			projID, completed sql.NullString
+		)
+		if err := rows.Scan(&objID, &a.Kind, &a.Note, &a.URL, &a.Platform, &a.Path, &a.Source, &created,
+			&ref, &title, &typ, &status, &projID, &projTitle, &completed); err != nil {
+			return nil, fmt.Errorf("scan artifacts by object: %w", err)
+		}
+		k := domain.DisplayKindOf(&a)
+		kindOK := kind == "" || k == kind
+		sourceOK := source == "" || a.Source == source
+		if sourceOK {
+			out.ByKind[k]++
+		}
+		if kindOK {
+			out.BySource[a.Source]++
+		}
+		if !kindOK || !sourceOK {
+			continue
+		}
+		at := parseTime(created)
+		i, ok := idx[objID]
+		if !ok {
+			sum := domain.ArtifactObjectSummary{
+				ObjectID: objID, ObjectRef: ref, ObjectTitle: title, ObjectType: typ, Status: status,
+				ProjectID: nullStrPtr(projID), ProjectTitle: projTitle,
+				ByKind: map[string]int{}, BySource: map[string]int{}, LastAt: at,
+			}
+			if completed.Valid && completed.String != "" {
+				t := parseTime(completed.String)
+				sum.CompletedAt = &t
+			}
+			out.Objects = append(out.Objects, sum)
+			i = len(out.Objects) - 1
+			idx[objID] = i
+		}
+		o := &out.Objects[i]
+		o.Total++
+		o.ByKind[k]++
+		o.BySource[a.Source]++
+		if at.After(o.LastAt) {
+			o.LastAt = at
+		}
+		out.Total++
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	// 最近有产出的在前；同一时刻按编号，顺序稳定
+	sort.SliceStable(out.Objects, func(i, j int) bool {
+		a, b := out.Objects[i], out.Objects[j]
+		if !a.LastAt.Equal(b.LastAt) {
+			return a.LastAt.After(b.LastAt)
+		}
+		return a.ObjectRef > b.ObjectRef
+	})
+	return out, nil
 }

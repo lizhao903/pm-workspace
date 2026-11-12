@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 消息抽屉里的「收进素材箱」（VID-08b）：把这条消息收进视频插件的素材箱（kind im，带 message_id），做选题时回看。
 // 不 import 视频插件，经 core/data 的素材接口写；video 插件没在跑时整节不显示。同一条消息后端只收一份。
 import { errorText, useCreateClip, usePlugins, useVideoClips, type ImMessage } from '../../core/data'

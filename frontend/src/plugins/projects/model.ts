@@ -1,5 +1,7 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 项目列表和设置的纯函数：搜索、状态筛选和分组、排序、最近打开、底色、关联目录的保存口径。
-import { PROJECT_ROLES, localDay, projectView, type DictItem, type ObjectStatus, type ProjectMark, type ProjectProps, type ProjectSave, type ProjectStakeholder, type ProjectView, type RelatedDir, type WorkObject } from '../../core/data'
+import { PROJECT_ROLES, localDay, projectView, type DictItem, type ObjectStatus, type ProjectMark, type ProjectProps, type ProjectSave, type ProjectRoleItem, type ProjectStakeholder, type ProjectView, type RelatedDir, type WorkObject } from '../../core/data'
 import type { PluginProjectTab } from '../../core/plugin'
 import { PROJECT_COLORS } from './markIcons'
 
@@ -76,6 +78,34 @@ export function openTaskCounts(tasks: WorkObject[]): Map<string, number> {
   return out
 }
 
+/**
+ * 文档目录（TSK-0718）的绝对路径：绝对路径原样（去掉 file:// 和末尾斜杠），相对路径接在项目目录后面；
+ * 相对路径但没有项目目录时回空串。只给界面校验、显示用，实际解析在后端（同一规则）
+ */
+export function docsDirAbs(dir: string, root: string): string {
+  const d = dir.trim().replace(/^file:\/\//, '')
+  if (!d) return ''
+  const join = (a: string, b: string) => {
+    const out: string[] = []
+    for (const seg of `${a}/${b}`.split('/')) {
+      if (!seg || seg === '.') continue
+      if (seg === '..') out.pop()
+      else out.push(seg)
+    }
+    return `/${out.join('/')}`
+  }
+  if (d.startsWith('/')) return join('', d)
+  const r = root.trim()
+  return r ? join(r, d) : ''
+}
+
+/** 选目录拿到的绝对路径：在项目目录里的存成相对路径（项目目录挪了也跟着走），否则原样 */
+export function docsDirPick(abs: string, root: string): string {
+  const r = root.trim().replace(/\/+$/, '')
+  if (r && abs === r) return '.'
+  return r && abs.startsWith(`${r}/`) ? abs.slice(r.length + 1) : abs
+}
+
 /** 关联目录存哪些：路径为空的行不保存（SPEC-projects-13.16），首尾空白去掉 */
 export const relatedToSave = (rows: RelatedDir[]): RelatedDir[] =>
   rows.map((r) => ({ path: r.path.trim(), label: r.label.trim() })).filter((r) => r.path)
@@ -85,11 +115,11 @@ export const sameRelated = (a: RelatedDir[], b: RelatedDir[]) =>
 
 // ---- 设置：边改边保存，和上次存下的比 ----
 
-export type Form = { name: string; desc: string; status: string; root: string; color: string; mark: ProjectMark; related: RelatedDir[]; hidden: string[]; order: string[] }
+export type Form = { name: string; desc: string; status: string; root: string; docsDir: string; color: string; mark: ProjectMark; related: RelatedDir[]; hidden: string[]; order: string[] }
 
 export const formOf = (o: WorkObject): Form => {
   const p = projectView(o)
-  return { name: p.name, desc: p.desc, status: p.status, root: p.root, color: p.color, mark: p.mark, related: p.related, hidden: hiddenTabsOf(o), order: tabsOrderOf(o) }
+  return { name: p.name, desc: p.desc, status: p.status, root: p.root, docsDir: p.docsDir, color: p.color, mark: p.mark, related: p.related, hidden: hiddenTabsOf(o), order: tabsOrderOf(o) }
 }
 export const sameMark = (a: ProjectMark, b: ProjectMark) => a.text === b.text && (a.icon ?? '') === (b.icon ?? '') && (a.image ?? '') === (b.image ?? '')
 
@@ -101,6 +131,7 @@ export function diffForm(f: Form, saved: Form): { patch: NonNullable<ProjectSave
   if (f.desc !== saved.desc) patch.body = f.desc
   if (f.status !== saved.status) patch.status = f.status
   if (f.root.trim() !== saved.root.trim()) patch.workdir = f.root.trim()
+  if (f.docsDir.trim() !== saved.docsDir.trim()) props.docs_dir = f.docsDir.trim()
   if (f.color !== saved.color) props.color = f.color
   if (!sameMark(f.mark, saved.mark)) props.mark = f.mark
   const rel = relatedToSave(f.related)
@@ -121,7 +152,7 @@ export const unmarkFresh = (id: string) => { fresh.delete(id) }
 
 // ---- 详情的标签（顺序和显示名见 SPEC-projects-0 ProjectTab）；todo 是还没做的标签由谁补 ----
 
-export type ProjectTab = 'overview' | 'comms' | 'attachments' | 'stakeholders' | 'tasks' | 'docs' | 'sop' | 'agents' | 'materials' | 'prototypes' | 'profile' | 'settings'
+export type ProjectTab = 'overview' | 'comms' | 'attachments' | 'stakeholders' | 'tasks' | 'schedules' | 'docs' | 'sop' | 'agents' | 'materials' | 'prototypes' | 'profile' | 'settings'
 
 export const TABS: { key: ProjectTab; label: string; todo?: string }[] = [
   { key: 'overview', label: '概览' },
@@ -129,6 +160,7 @@ export const TABS: { key: ProjectTab; label: string; todo?: string }[] = [
   { key: 'attachments', label: '附件' },
   { key: 'stakeholders', label: '干系人' },
   { key: 'tasks', label: '任务' },
+  { key: 'schedules', label: '定时任务' },
   { key: 'docs', label: '文档' },
   { key: 'sop', label: 'SOP' },
   { key: 'agents', label: 'Agent' },
@@ -276,16 +308,21 @@ export function sortByPriority(tasks: readonly WorkObject[], prios: readonly Dic
 
 // ---- 干系人标签（SPEC-projects-6）：按角色顺序（STAKE_ORDER），同角色按加入顺序 ----
 
-/** 不是五个角色之一（库里的旧数据或别处写进来的）：界面显示原值并标红（E-02） */
-export const isKnownRole = (role: string) => PROJECT_ROLES.some((x) => x.key === role)
+// 角色来自枚举字典 project_role（TSK-0718，useProjectRoles，含停用的）；没传时按内置五个
 
-export const roleRank = (role: string) => {
-  const i = PROJECT_ROLES.findIndex((x) => x.key === role)
-  return i < 0 ? PROJECT_ROLES.length : i
+/** 角色在字典里的那一条；字典里没有（库里的旧数据、字典里删掉了）回 undefined，界面显示原值并标红（E-02） */
+export const roleOf = (role: string, roles: readonly ProjectRoleItem[] = PROJECT_ROLES) => roles.find((x) => x.key === role)
+
+export const isKnownRole = (role: string, roles: readonly ProjectRoleItem[] = PROJECT_ROLES) => !!roleOf(role, roles)
+
+/** 按字典里的顺序排（停用的也按它的位置），不认识的排最后 */
+export const roleRank = (role: string, roles: readonly ProjectRoleItem[] = PROJECT_ROLES) => {
+  const i = roles.findIndex((x) => x.key === role)
+  return i < 0 ? roles.length : i
 }
 
-export function sortStakeholders(rows: readonly ProjectStakeholder[]): ProjectStakeholder[] {
-  return [...rows].sort((a, b) => roleRank(a.role) - roleRank(b.role) || a.sort_order - b.sort_order || a.created_at.localeCompare(b.created_at))
+export function sortStakeholders(rows: readonly ProjectStakeholder[], roles: readonly ProjectRoleItem[] = PROJECT_ROLES): ProjectStakeholder[] {
+  return [...rows].sort((a, b) => roleRank(a.role, roles) - roleRank(b.role, roles) || a.sort_order - b.sort_order || a.created_at.localeCompare(b.created_at))
 }
 
 /** 相对时间：刚刚、N 分钟前、N 小时前、N 天前，超过 30 天给日期 */

@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 package sop
 
 import (
@@ -43,7 +45,7 @@ func newDownModel(t *testing.T) *downModel {
 			w.WriteHeader(http.StatusServiceUnavailable)
 			return
 		}
-		_, _ = w.Write([]byte(`{"message":{"content":"Octok"},"done":true}` + "\n"))
+		_, _ = w.Write([]byte(`{"message":{"content":"Acme"},"done":true}` + "\n"))
 	}))
 	t.Cleanup(m.srv.Close)
 	return m
@@ -227,7 +229,7 @@ func TestProviderRecoveryRerunsHeldRuns(t *testing.T) {
 	for _, r := range list {
 		run := getRun(t, h, r["id"].(string))
 		st := step(run, "route")
-		if st["provider_wait"] != nil || st["output"].(map[string]any)["project"] != "Octok" {
+		if st["provider_wait"] != nil || st["output"].(map[string]any)["project"] != "Acme" {
 			t.Fatalf("重跑结果 %v %v", st["provider_wait"], st["output"])
 		}
 		logs, _ := json.Marshal(st["log"])

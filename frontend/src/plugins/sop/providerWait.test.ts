@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 等服务商恢复的步骤（TSK-0392，SPEC-sop-7.50）：仍是 running，带 provider_wait 时显示「等服务商恢复」。
 import { describe, expect, it } from 'vitest'
 import { PROVIDER_WAIT_LOOK, QUEUED_LOOK, runStepLook } from './model'

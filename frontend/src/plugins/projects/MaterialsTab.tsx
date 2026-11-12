@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 支持材料标签（SPEC-projects-11，PJ-03b）：文件、文件夹、链接、笔记，按种类、标签筛选。
 // 数据走项目插件的 /api/projects/{id}/materials，只存路径和元信息，不读文件内容。
 // 原型用浏览器的选择器只拿得到名字；这里文件夹走后端选目录拿绝对路径，文件是「选目录 + 浏览器给的文件名」拼出绝对路径，
@@ -20,6 +22,7 @@ import {
   splitTags, switchableKinds, type EditDraft,
 } from './materialModel'
 import { PathInput } from './PathInput'
+import { ProjectKbStrip } from './ProjectKb'
 
 const kindLabel = (k: MaterialKind) => MATERIAL_KINDS.find((x) => x.key === k)?.label ?? k
 const lastSeg = (p: string) => p.replace(/\/+$/, '').split('/').pop() ?? ''
@@ -32,13 +35,15 @@ const MESSAGES_PATH = '/messages'
 type Draft = { kind: MaterialKind; name: string; value: string; tags: string }
 const EMPTY: Draft = { kind: 'file', name: '', value: '', tags: '' }
 
-export function MaterialsTab({ projectId, root, adding, onAdding }: {
+export function MaterialsTab({ projectId, root, adding, onAdding, onSettings }: {
   projectId: string
   /** 项目目录，相对路径按它补全 */
   root: string
   /** 加材料的内联表单开着没有；右上「加材料」打开 */
   adding: boolean
   onAdding: (on: boolean) => void
+  /** 去项目设置（项目知识库入口条用，TSK-0721） */
+  onSettings?: () => void
 }) {
   const list = useProjectMaterials(projectId)
   const add = useAddProjectMaterials(projectId)
@@ -218,6 +223,7 @@ export function MaterialsTab({ projectId, root, adding, onAdding }: {
 
   return (
     <div className="pj-tab">
+      <ProjectKbStrip projectId={projectId} onSettings={onSettings} />
       {form}
       {err && <div className="pj-err" role="alert">{err}</div>}
       {body}

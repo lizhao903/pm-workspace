@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 package im
 
 import (
@@ -11,10 +13,10 @@ func seedProjects(t *testing.T, e sopEnv) {
 	t.Helper()
 	exec(t, e.st.DB(),
 		`INSERT INTO objects (id, type_id, ref, title, props, created_at, updated_at) VALUES
-		  ('obj_octok', 'project', 'PRJ-0001', 'Octok', '{"related":[{"label":"文档","path":"/tmp/x"}]}', '2026-01-01', '2026-01-01'),
-		  ('obj_xaue', 'project', 'PRJ-0002', 'XAUE', '{}', '2026-01-02', '2026-01-02'),
+		  ('obj_acme', 'project', 'PRJ-0001', 'Acme', '{"related":[{"label":"文档","path":"/tmp/x"}]}', '2026-01-01', '2026-01-01'),
+		  ('obj_globex', 'project', 'PRJ-0002', 'Globex', '{}', '2026-01-02', '2026-01-02'),
 		  ('obj_gone', 'project', 'PRJ-0003', '旧项目', '{}', '2026-01-03', '2026-01-03'),
-		  ('obj_task', 'task', 'T-0001', 'Octok', '{}', '2026-01-04', '2026-01-04')`,
+		  ('obj_task', 'task', 'T-0001', 'Acme', '{}', '2026-01-04', '2026-01-04')`,
 		`UPDATE objects SET deleted_at = '2026-02-01' WHERE id = 'obj_gone'`,
 	)
 }
@@ -22,7 +24,7 @@ func seedProjects(t *testing.T, e sopEnv) {
 func TestSetProjectByHand(t *testing.T) {
 	e := setupSOP(t)
 	seedProjects(t, e)
-	e.push(t, `{"external_id":"C01:p1","connector_id":"cn_ok","conversation_id":"C01","conversation_name":"#product","sender_id":"U1","sender_name":"林原","text":"Octok 的排期"}`)
+	e.push(t, `{"external_id":"C01:p1","connector_id":"cn_ok","conversation_id":"C01","conversation_name":"#product","sender_id":"U1","sender_name":"林原","text":"Acme 的排期"}`)
 	e.push(t, `{"external_id":"C01:p2","connector_id":"cn_ok","conversation_id":"C01","conversation_name":"#product","sender_id":"U1","sender_name":"林原","text":"别的事"}`)
 	_, all := list(t, e.h, "")
 	id := all["C01:p1"]["id"].(string)
@@ -32,17 +34,17 @@ func TestSetProjectByHand(t *testing.T) {
 
 	// 按 ref 认
 	code, out := call(t, e.h, "POST", "/api/im/messages/"+id+"/project", `{"project_id":"prj-0001"}`)
-	if code != 200 || data(out)["project_id"] != "obj_octok" || data(out)["project_name"] != "Octok" {
+	if code != 200 || data(out)["project_id"] != "obj_acme" || data(out)["project_name"] != "Acme" {
 		t.Fatalf("归到项目：%d %v", code, out)
 	}
-	if n, got := list(t, e.h, "?project_id=obj_octok"); n != 1 || got["C01:p1"] == nil {
+	if n, got := list(t, e.h, "?project_id=obj_acme"); n != 1 || got["C01:p1"] == nil {
 		t.Fatalf("按项目筛：%v", got)
 	}
-	if n, _ := list(t, e.h, "?project_id=obj_xaue"); n != 0 {
+	if n, _ := list(t, e.h, "?project_id=obj_globex"); n != 0 {
 		t.Fatalf("别的项目筛出 %d 条", n)
 	}
 	// 按名字改到另一个项目
-	if code, out := call(t, e.h, "POST", "/api/im/messages/"+id+"/project", `{"project_id":"XAUE"}`); code != 200 || data(out)["project_id"] != "obj_xaue" {
+	if code, out := call(t, e.h, "POST", "/api/im/messages/"+id+"/project", `{"project_id":"Globex"}`); code != 200 || data(out)["project_id"] != "obj_globex" {
 		t.Fatalf("改项目：%d %v", code, out)
 	}
 	// 不存在、已删除、不是项目的都 400
@@ -66,10 +68,10 @@ func TestSetProjectByHand(t *testing.T) {
 	}
 
 	// 项目进了回收站：接口上按没归
-	if code, _ := call(t, e.h, "POST", "/api/im/messages/"+id+"/project", `{"project_id":"obj_octok"}`); code != 200 {
+	if code, _ := call(t, e.h, "POST", "/api/im/messages/"+id+"/project", `{"project_id":"obj_acme"}`); code != 200 {
 		t.Fatal("再归一次")
 	}
-	exec(t, e.st.DB(), `UPDATE objects SET deleted_at = '2026-03-01' WHERE id = 'obj_octok'`)
+	exec(t, e.st.DB(), `UPDATE objects SET deleted_at = '2026-03-01' WHERE id = 'obj_acme'`)
 	if _, got := list(t, e.h, ""); got["C01:p1"]["project_id"] != nil {
 		t.Fatalf("项目删了按没归：%v", got["C01:p1"])
 	}
@@ -81,7 +83,7 @@ func TestSOPSetProjectNode(t *testing.T) {
 	if nt := nodeTypes(t, e.h)[NodeSetProject]; nt == nil || nt["source"] != "im" {
 		t.Fatalf("节点目录里要有 im_set_project：%v", nt)
 	}
-	e.push(t, `{"external_id":"C01:s1","connector_id":"cn_ok","conversation_id":"C01","conversation_name":"#product","sender_id":"U1","sender_name":"林原","text":"XAUE 的合同"}`)
+	e.push(t, `{"external_id":"C01:s1","connector_id":"cn_ok","conversation_id":"C01","conversation_name":"#product","sender_id":"U1","sender_name":"林原","text":"Globex 的合同"}`)
 	_, all := list(t, e.h, "")
 	mid := all["C01:s1"]["id"].(string)
 
@@ -89,14 +91,14 @@ func TestSOPSetProjectNode(t *testing.T) {
 	id := e.flow(t, `{"name":"分流","fields":[{"key":"message_id","label":"消息","type":"text"},{"key":"which","label":"项目","type":"text"}],"steps":[
 		{"key":"read","name":"读取消息","kind":"im_get_message","after":[]},
 		{"key":"p","name":"归到项目","kind":"im_set_project","after":["read"],"config":{"project":"{{which}}"}}]}`)
-	rid := e.start(t, id, `{"input":{"message_id":"`+mid+`","which":"XAUE"}}`)
+	rid := e.start(t, id, `{"input":{"message_id":"`+mid+`","which":"Globex"}}`)
 	run := e.until(t, rid, "跑完", func(r map[string]any) bool { return r["status"] == "done" })
 	p := sopStep(run, "p")["output"].(map[string]any)["project"].(map[string]any)
-	if p["id"] != "obj_xaue" || p["ref"] != "PRJ-0002" || p["name"] != "XAUE" || p["message_id"] != mid {
+	if p["id"] != "obj_globex" || p["ref"] != "PRJ-0002" || p["name"] != "Globex" || p["message_id"] != mid {
 		t.Fatalf("输出的 project：%v", p)
 	}
-	if _, got := list(t, e.h, "?project_id=obj_xaue"); got["C01:s1"] == nil {
-		t.Fatal("消息要归到 XAUE")
+	if _, got := list(t, e.h, "?project_id=obj_globex"); got["C01:s1"] == nil {
+		t.Fatal("消息要归到 Globex")
 	}
 
 	// 项目不存在、没填项目：这一步失败，原因写清楚

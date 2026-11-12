@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 场景默认 Agent（0045，SPEC-settings-8 列表页下方）：不挂 Agent 的模型调用按场景选一个 Agent，
 // 用它的服务商、模型、思考档位和指令；没选（或选的删了、停用了）照老样子用默认服务商、思考按模型默认。
 import { useState } from 'react'

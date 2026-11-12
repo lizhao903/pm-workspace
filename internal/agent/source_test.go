@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 package agent
 
 import (
@@ -10,7 +12,7 @@ import (
 // 会话来源（0047）：从 IM 消息发起的会话里建的任务，props.source_ref 记会话来源，缺省挂到来源的项目。
 func TestCreateObjectAppliesSessionSource(t *testing.T) {
 	tb, st, ctx, wd := newToolbox(t)
-	proj, err := st.CreateObject(ctx, &domain.Object{TypeID: "project", Title: "Octok"}, agentActor)
+	proj, err := st.CreateObject(ctx, &domain.Object{TypeID: "project", Title: "Acme"}, agentActor)
 	if err != nil {
 		t.Fatalf("建项目: %v", err)
 	}

@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 平台名单来自字典 artifact_platform，不在前端硬编码。
 //
 // 硬编码的话，用户在「设置 → 字典」里加一个平台之后，登记表单里仍然没有它——

@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 内容日历的纯函数（VID-06d，照原型 web-next/src/videocalendar.tsx 和 videodata.ts 的 calendarItems）：
 // 网格画哪些日子、同一天怎么排、拖动后的新时刻、能不能挪。发布和首发日由后端日历接口给，商单交付截止后端还没合进日历，在这里按商单补上
 import type { VideoCalendarItem, VideoCalendarKind, VideoCalendarTone, VideoDeal } from '../../core/data'

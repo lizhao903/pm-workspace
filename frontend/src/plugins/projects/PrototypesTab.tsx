@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 原型标签（SPEC-projects-12，PJ-04b）：原型卡片的启停、状态、日志、端口编辑和冲突提示。
 // 数据走项目插件的 /api/projects/{id}/prototypes（PJ-04a）。状态和日志靠轮询（后端不发事件）：列表在有原型启动中、运行中时自己刷，
 // 日志框开着且原型在跑时每秒取新增的行。后端只收绝对路径，目录按项目目录换算；保留端口、别的项目和本机占用由后端判断，原因原样显示。
@@ -263,18 +265,6 @@ export function ProtoTabLight({ projectId }: { projectId: string }) {
   const list = useProjectPrototypes(projectId)
   const n = (list.data ?? []).filter((p) => prototypeUp(p.status)).length
   return n ? <span className="pj-tab-light" title={`${n} 个原型在运行`} /> : null
-}
-
-/** 概览的数字卡片「原型运行中 运行数 / 总数」（SPEC-projects-3.1） */
-export function ProtoStat({ projectId, onOpen }: { projectId: string; onOpen: () => void }) {
-  const list = useProjectPrototypes(projectId)
-  const rows = list.data
-  return (
-    <button type="button" className="pj-stat" onClick={onOpen}>
-      <span className="pj-stat-label">原型运行中</span>
-      <span className="pj-stat-value ok">{rows ? `${rows.filter((p) => prototypeUp(p.status)).length} / ${rows.length}` : '-'}</span>
-    </button>
-  )
 }
 
 /** 概览的「原型」块（SPEC-projects-3.7）：排好序的前 PROTO_PEEK 个，按钮文字和卡片一致 */

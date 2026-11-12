@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 package agent
 
 import (
@@ -356,7 +358,7 @@ func TestServiceCompleteAgentAndScenario(t *testing.T) {
 	}
 
 	list, err := ListScenarios(ctx, st)
-	if err != nil || len(list) != 2 || list[1].Key != ScenarioBackground || list[1].AgentID != a.ID || list[0].AgentID != "" {
+	if err != nil || len(list) != 3 || list[2].Key != ScenarioTaskRun || list[1].Key != ScenarioBackground || list[1].AgentID != a.ID || list[0].AgentID != "" {
 		t.Fatalf("场景列表 %+v %v", list, err)
 	}
 }

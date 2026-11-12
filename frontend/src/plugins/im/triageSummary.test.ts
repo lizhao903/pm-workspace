@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 import { describe, expect, it } from 'vitest'
 import type { SopInputRun, SopRun, SopRunStep, SopStepDef } from '../../core/data'
 import { attemptChildId, attemptStatus, summarizeTriage, triageAttempts, triageBrief } from './triageSummary'
@@ -14,12 +16,12 @@ const TRIAGE_DEFS: SopStepDef[] = [
 ]
 const ROUTE_DEFS: SopStepDef[] = [
   { key: 'r_read', name: '读取消息', kind: 'im_get_message', after: [] },
-  { key: 'r_kw', name: '群名带 xaue', kind: 'decide', after: ['r_read'], rule: 'message.conversation 包含 xaue', cases: [{ key: 'yes', label: '是 XAUE 的群' }, { key: 'no', label: '不是' }] },
-  { key: 'r_cls', name: '按内容判断属于哪个项目', kind: 'classifier', after: ['r_kw'], branch: { of: 'r_kw', case: 'no' }, cases: [{ key: 'xaue', label: 'XAUE' }, { key: 'other', label: '非项目' }] },
-  { key: 'r_hit1', name: '按群名归 XAUE', kind: 'auto', after: ['r_kw'], branch: { of: 'r_kw', case: 'yes' } },
-  { key: 'r_hit2', name: '按内容归 XAUE', kind: 'auto', after: ['r_cls'], branch: { of: 'r_cls', case: 'xaue' } },
-  { key: 'r_join', name: 'XAUE', kind: 'aggregate', after: ['r_hit1', 'r_hit2'] },
-  { key: 'r_set', name: '归到 XAUE', kind: 'im_set_project', after: ['r_join'] },
+  { key: 'r_kw', name: '群名带 globex', kind: 'decide', after: ['r_read'], rule: 'message.conversation 包含 globex', cases: [{ key: 'yes', label: '是 Globex 的群' }, { key: 'no', label: '不是' }] },
+  { key: 'r_cls', name: '按内容判断属于哪个项目', kind: 'classifier', after: ['r_kw'], branch: { of: 'r_kw', case: 'no' }, cases: [{ key: 'globex', label: 'Globex' }, { key: 'other', label: '非项目' }] },
+  { key: 'r_hit1', name: '按群名归 Globex', kind: 'auto', after: ['r_kw'], branch: { of: 'r_kw', case: 'yes' } },
+  { key: 'r_hit2', name: '按内容归 Globex', kind: 'auto', after: ['r_cls'], branch: { of: 'r_cls', case: 'globex' } },
+  { key: 'r_join', name: 'Globex', kind: 'aggregate', after: ['r_hit1', 'r_hit2'] },
+  { key: 'r_set', name: '归到 Globex', kind: 'im_set_project', after: ['r_join'] },
   { key: 'r_sub', name: '走分诊', kind: 'subflow', after: ['r_set'] },
   { key: 'r_need', name: '要我处理吗', kind: 'decide', after: ['r_sub'], rule: 'subflow.output.need 等于 yes', cases: [{ key: 'handle', label: '要处理' }, { key: 'skip', label: '可忽略' }] },
   { key: 'r_task', name: '建任务', kind: 'task', after: ['r_need'], branch: { of: 'r_need', case: 'handle' } },
@@ -37,7 +39,7 @@ function detail(id: string, flowName: string, defs: SopStepDef[], st: Record<str
     ...p,
   }
 }
-const ADVICE = '对方报告 XAUE Shop 无法连接多签钱包并请求排查。\n回复「收到，正在检查」，定位后同步进展。'
+const ADVICE = '对方报告 Globex Shop 无法连接多签钱包并请求排查。\n回复「收到，正在检查」，定位后同步进展。'
 
 const handledChild = (p: Partial<SopRun> = {}) => detail('spr_child', '消息分诊', TRIAGE_DEFS, {
   s1: { status: 'done' },
@@ -50,13 +52,13 @@ const handledChild = (p: Partial<SopRun> = {}) => detail('spr_child', '消息分
 
 const routedTop = (p: Partial<SopRun> = {}) => detail('spr_top', '消息分流', ROUTE_DEFS, {
   r_read: { status: 'done' },
-  r_kw: { status: 'done', route: 'yes', route_reason: '规则「message.conversation 包含 xaue」成立' },
+  r_kw: { status: 'done', route: 'yes', route_reason: '规则「message.conversation 包含 globex」成立' },
   r_hit1: { status: 'done' },
   r_join: { status: 'done' },
-  r_set: { status: 'done', output: { project: { id: 'obj_x', ref: 'PRJ-0008', name: 'XAUE' } } },
+  r_set: { status: 'done', output: { project: { id: 'obj_x', ref: 'PRJ-0008', name: 'Globex' } } },
   r_sub: { status: 'done', child_run_id: 'spr_child', output: { project: { id: 'obj_x' }, subflow: { flow_id: 'sop_t', output: { advice: ADVICE, need: 'yes' } } } },
   r_need: { status: 'done', route: 'handle', route_reason: '规则「subflow.output.need 等于 yes」成立' },
-  r_task: { status: 'done', output: { project: { id: 'obj_x' }, task: { id: 'obj_t', ref: 'TSK-0385', title: '[#xaue-技术支持] Jenna 的消息待处理' } } },
+  r_task: { status: 'done', output: { project: { id: 'obj_x' }, task: { id: 'obj_t', ref: 'TSK-0385', title: '[#globex-技术支持] Jenna 的消息待处理' } } },
 }, p)
 
 describe('分诊结论：分流套分诊', () => {
@@ -66,9 +68,9 @@ describe('分诊结论：分流套分诊', () => {
     expect(s.label).toBe('要处理')
     expect(s.reason).toBe('模型判断属于「需要我处理」')
     expect(s.advice).toBe(ADVICE)
-    expect(s.project).toEqual({ id: 'obj_x', ref: 'PRJ-0008', name: 'XAUE' })
-    expect(s.by).toEqual({ how: '按群名', why: '规则「message.conversation 包含 xaue」成立' })
-    expect(s.tasks).toEqual([{ id: 'obj_t', ref: 'TSK-0385', title: '[#xaue-技术支持] Jenna 的消息待处理' }])
+    expect(s.project).toEqual({ id: 'obj_x', ref: 'PRJ-0008', name: 'Globex' })
+    expect(s.by).toEqual({ how: '按群名', why: '规则「message.conversation 包含 globex」成立' })
+    expect(s.tasks).toEqual([{ id: 'obj_t', ref: 'TSK-0385', title: '[#globex-技术支持] Jenna 的消息待处理' }])
     expect(s.flow).toBe('消息分流')
     expect(s.subFlow).toBe('消息分诊')
     expect(s.runId).toBe('spr_top')

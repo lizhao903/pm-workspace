@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // Agent 列表，照原型 web-next/src/agents.tsx AgentsPage（SPEC-settings-8）：卡片网格，搜索，卡片上直接启停。
 import { useState } from 'react'
 import {

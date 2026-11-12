@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 内网域名设置分节的纯函数：选项文案、校验（同后端 settings.go）、目标的显示、同名、搜索、自动分配的按项目分组
 import type { DomainProxy, DomainResolve, DomainRoute, DomainSettings, DomainStatusState, TerminalPrototype } from '../../core/data'
 

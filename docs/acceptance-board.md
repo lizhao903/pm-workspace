@@ -75,7 +75,7 @@
 
 ### TSK-0289 · IM 渠道配置里填「我的称呼」，按名字 @ 也算 @我  [P3]
 - 验收清单：
-  - 在渠道配置里填「李钊」后，「@李钊 …」算 @我（Go 测试）
+  - 在渠道配置里填「张三」后，「@张三 …」算 @我（Go 测试）
   - 改到的 Go 跑 gofmt、go vet、go test ./...；前端 npm test、typecheck、lint、build、smoke-frontend 通过
 
 ### TSK-0288 · 项目小问题：新建空项目、标题说明、未完成任务块、干系人角色校验  [P2]
@@ -161,7 +161,7 @@
 
 ### TSK-0274 · 联系人分组可多选，筛选按包含匹配  [P1]
 - 验收清单：
-  - 点「Octok」出 33 人（含两边都有的 9 人），点「XAUE」出 36 人
+  - 点「Acme」出 33 人（含两边都有的 9 人），点「Globex」出 36 人
   - 分组列标签不再挤到右边
   - 改到的 Go 跑 gofmt、go vet、go test ./...；前端 npm test、typecheck、lint、build、smoke-frontend 通过
 
@@ -179,12 +179,12 @@
 
 ### TSK-0271 · 命令面板能搜到项目和 IM 消息  [P1]
 - 验收清单：
-  - ⌘K 搜「Octok」能出项目，搜消息里的词能出 IM 消息，回车打开项目或消息抽屉
+  - ⌘K 搜「Acme」能出项目，搜消息里的词能出 IM 消息，回车打开项目或消息抽屉
   - 改到的 Go 跑 gofmt、go vet、go test ./...；前端 npm test、typecheck、lint、build、smoke-frontend 通过
 
 ### TSK-0270 · 命令面板能搜到任务和联系人  [P1]
 - 验收清单：
-  - ⌘K 搜「常乐」能出联系人，搜任务编号或标题能出任务，回车打开抽屉
+  - ⌘K 搜「周七」能出联系人，搜任务编号或标题能出任务，回车打开抽屉
   - 改到的 Go 跑 gofmt、go vet、go test ./...；前端 npm test、typecheck、lint、build、smoke-frontend 通过
 
 ### TSK-0269 · 补插件接口文档的欠账  [P2]
@@ -448,3 +448,9 @@
 - 验收意见统一注明：代码与对应测试已落地；UI/交互类验收项需用户在界面目测确认。
 - 结果：task:review 由 67 → 0；task:done 由 167 → 234。task:todo 25、requirement:backlog 29 未动。
 - 重要提醒：本次收口基于「代码落地 + 全局测试」层级判定，并非逐条界面点验。带 UI/交互的任务（尤其是 M4 的窄屏排版、抽屉、红点、筛选与 M5 的视频/商单页）建议你抽验；若发现未达标，可将其退回 doing/todo 并附意见。
+
+---
+
+由 DeepSeek Harness（dsh）协助完成。
+
+[![](https://img.shields.io/badge/powered_by-dsh-4D6BFE?style=flat-square&logo=deepseek&logoColor=white)](https://github.com/deepseek-ai/deepseek-harness)

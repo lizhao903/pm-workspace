@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 package agent
 
 import (
@@ -21,6 +23,8 @@ import (
 const (
 	ScenarioSOPAssist  = "sop_assist"
 	ScenarioBackground = "background"
+	// ScenarioTaskRun 是任务交给工作台 Agent 执行（TSK-0460）时默认用哪个 Agent；交的时候还能换
+	ScenarioTaskRun = "task_run"
 )
 
 // Scenario 是一个场景和它选的 Agent，AgentID 空串表示没选。
@@ -35,6 +39,7 @@ type Scenario struct {
 var Scenarios = []Scenario{
 	{Key: ScenarioSOPAssist, Label: "SOP 编排助手", Desc: "流程编辑器里帮你搭流程、改节点的助手"},
 	{Key: ScenarioBackground, Label: "其他后台调用", Desc: "插件在后台调模型、又没指定 Agent 的地方，包括没选 Agent 的 SOP 节点（AI 处理、提取、分类、逐项处理）"},
+	{Key: ScenarioTaskRun, Label: "执行任务", Desc: "任务交给工作台 Agent 执行时默认用的 Agent，交的时候还能换；没选时用第一个启用的 Agent"},
 }
 
 func scenarioKey(k string) string { return "scenario:" + k }

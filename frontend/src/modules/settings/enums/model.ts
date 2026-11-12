@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 枚举值的草稿模型（SPEC-settings-17），照原型 web-next/src/enumdata.ts、enums.tsx。
 // 后端的字典没有所属模块、默认值、系统值这几个字段：模块和系统值按字典 id 在这里登记，默认值存在条目的 meta.default（任务新建已经在读它）。
 // 任务状态（object_types.statuses）和文档分类（categories）不在字典表里，换成同样的组在这里一起编辑（PR-13）。
@@ -37,13 +39,13 @@ export type EnumGroup = {
   defaultHint?: string
 }
 
-/** 原型的 MODULES；后端的关联关系、产出物两本字典没有对应模块，分别归到任务、产出物 */
-export const MODULES = ['任务', '联系人', '文档', 'IM 消息', 'SOP', '产出物', '其他', '自定义']
+/** 原型的 MODULES；后端的关联关系、产出物两本字典没有对应模块，分别归到任务、产出物；项目干系人角色（TSK-0718）归到项目 */
+export const MODULES = ['任务', '联系人', '项目', '文档', 'IM 消息', 'SOP', '产出物', '其他', '自定义']
 const MODULE_OF: Record<string, string> = {
-  priority: '任务', link_relation: '任务', artifact_platform: '产出物', artifact_kind: '产出物', contact_group: '联系人', msg_status: 'IM 消息',
+  priority: '任务', link_relation: '任务', artifact_platform: '产出物', artifact_kind: '产出物', contact_group: '联系人', msg_status: 'IM 消息', project_role: '项目',
 }
 /** 枚举模块对应的菜单模块：当前工作台没开这个模块时整组不显示；没登记的（其他、自定义）一直显示 */
-const MENU_OF: Record<string, string> = { 任务: 'tasks', 联系人: 'contacts', 文档: 'library', 'IM 消息': 'messages', SOP: 'sop', 产出物: 'videos' }
+const MENU_OF: Record<string, string> = { 任务: 'tasks', 联系人: 'contacts', 项目: 'projects', 文档: 'library', 'IM 消息': 'messages', SOP: 'sop', 产出物: 'videos' }
 export const moduleShown = (module: string, menu: readonly string[] | undefined) => !menu || !MENU_OF[module] || menu.includes(MENU_OF[module])
 
 export const ENUM_COLORS = ['#3d4fd6', '#0c8599', '#2f7d43', '#b0570b', '#c0352b', '#7048e8', '#e8590c', '#a19d92']
@@ -65,9 +67,9 @@ const LOCKED: Record<string, string[] | '*'> = {
 /** 值由程序固定，不能加新值 */
 export const FIXED = new Set(['link_relation', 'msg_status', TASK_STATUS])
 /** 后端统计了引用数的字典（dictUsageSourceOf）；其余的「使用中」列为空，删除不用检查 */
-const WIRED = new Set(['priority', 'link_relation', 'artifact_platform', 'artifact_kind', 'contact_group', 'msg_status'])
+const WIRED = new Set(['priority', 'link_relation', 'artifact_platform', 'artifact_kind', 'contact_group', 'msg_status', 'project_role'])
 /** 没设默认值时的兜底，和任务新建（tasks/draft.ts）、联系人（contacts/model.ts 的 DEFAULT_GROUP）一致 */
-const FALLBACK_DEFAULT: Record<string, string> = { priority: 'P2', contact_group: '其他' }
+const FALLBACK_DEFAULT: Record<string, string> = { priority: 'P2', contact_group: '其他', project_role: 'member' }
 /** 默认值由程序定的字典 */
 const DEFAULT_HINT: Record<string, string> = { msg_status: '新收到的消息都是待处理' }
 
@@ -77,7 +79,9 @@ const isLocked = (dictId: string, key: string) => {
 }
 
 export function toGroup(d: Dictionary, items: DictItem[]): EnumGroup {
-  const sorted = [...items].sort((a, b) => a.sort_order - b.sort_order || a.key.localeCompare(b.key))
+  // 显示顺序按中文排序固定下来：不写 locale 时结果取决于运行环境的 LANG（CI 上是 C.UTF-8），
+  // 同一个字典在不同机器上顺序会不一样，测试也跟着环境红
+  const sorted = [...items].sort((a, b) => a.sort_order - b.sort_order || a.key.localeCompare(b.key, 'zh-CN'))
   const wired = WIRED.has(d.id)
   const out: EnumItem[] = sorted.map((i) => ({
     id: i.id, key: i.key, label: i.label, color: i.color, desc: i.description, enabled: !i.archived_at,

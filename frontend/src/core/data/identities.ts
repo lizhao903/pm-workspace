@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // IM 身份（CT-03b）：联系人在各渠道的编号，CT-01b 的 /api/im-identities。契约见 docs/api-contract.md「IM 身份 im-identities」。
 // 一次拉全，前端按联系人分组合进 Contact.im；一个渠道多个身份时界面只显示、只改第一个，其余原样保留。
 import { useMutation, useQuery } from '@tanstack/react-query'

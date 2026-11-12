@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 import { Fragment, useState } from 'react'
 import { INCIDENT_MODULES, INCIDENT_STATUS, levelPriority, taskDesc, type Incident, type IncidentStatus } from './incidentdata'
 import type { Priority, Task } from './taskdata'

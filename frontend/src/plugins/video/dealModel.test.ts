@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 import { describe, expect, it } from 'vitest'
 import type { VideoDeal } from '../../core/data'
 import { createBody, dealErrors, dealPatch, dealStats, draftOf, historyLine, money, payState, payText, quoteFill, splitDeals } from './dealModel'

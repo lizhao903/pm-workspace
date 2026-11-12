@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 运行异常（INC-01b，SPEC-settings-18、19）：系统运行中出的问题，同一个指纹合并记次数；能转成研发任务。
 // 契约见 docs/api-contract.md「运行异常」（INC-01a）。列表一次拉全，状态、级别、模块、搜索都在前端筛，各状态的数量也从这一份算。
 import { useMutation, useQuery } from '@tanstack/react-query'

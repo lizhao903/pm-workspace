@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 发布记录和封面 A/B 的纯函数（VID-05c）：平台颜色和推荐比例、状态、账号角色、测试方式、按平台规则校验、接入情况、回填表单。
 // 状态、角色、测试方式是插件自己的约定，没有字典接口，同原型 web-next/src/videodata.ts 的 PUBLISH_STATUS、ACCOUNT_ROLE、COVER_TEST_MODE；
 // 平台规则、收的封面比例从后端 GET /api/video/platforms 读

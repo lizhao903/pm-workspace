@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 模型服务商抽屉，照原型 web-next/src/models.tsx ProviderDrawer（SPEC-settings-7）。新建和编辑共用。
 // 和原型不同的地方（后端决定的）：
 // - 测试连接只能对已保存的服务商做：新建点「接入」先保存再自动测一次，抽屉留着看结果；编辑时有没保存的改动就「保存并测试」。

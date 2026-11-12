@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 设置「版本更新」（SYS-UPD）：GET/POST /api/admin/update。更新中、重启中每 1.5 秒轮询一次；
 // 重启那几秒请求会失败，照样接着轮询，等新进程起来
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'

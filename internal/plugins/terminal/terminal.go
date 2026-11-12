@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // Package terminal 是「终端」插件的后端（TERM-01a）：本机 pty 加 WebSocket，前端（TERM-01b）用 xterm 接。
 // 会话和输出只在服务进程内存里，接口和收发协议见 docs/api-contract.md「终端插件 terminal」。
 package terminal

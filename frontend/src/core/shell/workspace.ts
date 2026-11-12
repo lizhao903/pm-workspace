@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 工作台在前端这一侧的规则（CORE-10b）：模块 key 和前端模块的对应、模块要哪个插件、缺哪些插件、当前用哪个工作台。
 // 工作台配置存后端（core/data/workspaces.ts）；当前用哪个只记在这台浏览器里，切换只换菜单，不清缓存。
 import { useSyncExternalStore } from 'react'
@@ -15,6 +17,7 @@ export const MODULE_CATALOG: readonly { key: string; label: string; desc: string
   { key: 'library', label: '文档', desc: '工作台文档和本地目录' },
   { key: 'sop', label: 'SOP', desc: '标准流程的编排和执行' },
   { key: 'sessions', label: '会话', desc: '和 Agent 的对话、执行记录、产出' },
+  { key: 'runs', label: '运行', desc: 'Agent 与任务的执行一页看到' },
   { key: 'terminal', label: '终端', desc: '分屏终端，能启停项目原型' },
   { key: 'browser', label: '浏览器', desc: '内置浏览器：看原型、Google Drive 文件' },
   { key: 'videos', label: '视频', desc: '视频制作流程、产出物、系列和多平台发布' },
@@ -35,7 +38,7 @@ export const moduleKeyOf = (id: string) => BACK_KEY[id] ?? id
 /** 目录里的模块对应的前端模块 id：这些模块在不在菜单里完全由工作台决定 */
 export const CATALOG_IDS: ReadonlySet<string> = new Set(MODULE_CATALOG.map((m) => moduleIdOf(m.key)))
 
-const KERNEL_KEYS = new Set(['today', 'tasks', 'library', 'contacts', 'sessions'])
+const KERNEL_KEYS = new Set(['today', 'tasks', 'library', 'contacts', 'sessions', 'runs'])
 
 /** 插件列表里认模块归属只看 provides.modules */
 type ModuleProvider = { id: string; provides?: Record<string, string[] | undefined> }

@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 设计变量、基础排版、主题和基础组件
 import './tokens.css'
 import './base.css'
@@ -40,3 +42,12 @@ export type { Block as MdBlock, MdHeading } from './mdParse'
 export { IconCheck, IconChevronDown, IconChevronRight, IconClose, IconSearch } from './icons'
 export { ChatPanel } from './ChatPanel'
 export type { ChatMessage, ChatPanelProps } from './ChatPanel'
+// 定时规则编辑（定时任务抽屉、SOP 流程的定时触发共用，TSK-0463）
+export { ScheduleRuleFields } from './ScheduleRuleEditor'
+export { useRuleCheck } from './useRuleCheck'
+export type { RuleCheck } from './useRuleCheck'
+export { describeRule as describeScheduleRule, emptyRule as emptyScheduleRule, fullRule as fullScheduleRule, whenText as scheduleWhenText } from './scheduleRule'
+// 连接器标志：平台图标 / 自定义图标 / 文字图标（TSK-0725）
+export { ConnectorLogo } from './ConnectorLogo'
+export type { ConnectorLogoProps } from './ConnectorLogo'
+export { LOGOS as CONNECTOR_LOGOS, logoUrl as connectorLogoUrl } from './connector-logos'

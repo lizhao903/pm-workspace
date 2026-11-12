@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 import { ThemeSwitch, useTheme } from '..'
 import './tokens-page.css'
 

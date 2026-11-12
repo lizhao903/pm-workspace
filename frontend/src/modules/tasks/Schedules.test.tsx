@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -16,7 +18,7 @@ function sch(id: string, name: string, p: Partial<Schedule> = {}): Schedule {
   return {
     id, name, enabled: true, rule: { freq: 'weekly', time: '09:00', weekdays: [1], day: 1, date: '', cron: '' },
     action: { kind: 'task', title: '整理周会议程', desc: '', priority: 'P2', assignee: '', due_days: 0 },
-    next_run_at: later(3), created_at: '', updated_at: '', ...p,
+    project_id: null, next_run_at: later(3), created_at: '', updated_at: '', ...p,
   }
 }
 
@@ -56,6 +58,7 @@ function fakeBackend(rows: Schedule[], runs: Record<string, ScheduleRun[]> = {},
       }
       return json(s)
     }
+    if (u.pathname === '/api/artifacts/by-object') return json({ objects: [], total: 0, by_kind: {}, by_source: {} })
     return json([], { total: 0 })
   }))
   return calls

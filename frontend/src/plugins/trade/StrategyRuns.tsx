@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 策略的运行记录（SPEC-strategy-5.10、5.11、5.15，SPEC-strategy-8）：每次部署到模拟盘算一次运行，停了也留着。
 // 这里只看，启停到「交易 / 策略运行」里做。数据来自 GET /api/trade/runs（?strategy_id= 只取一个策略的）。
 import { useState } from 'react'

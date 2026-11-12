@@ -295,3 +295,9 @@ CREATE INDEX idx_object_origins_actor ON object_origins(actor_type, actor_id, cr
 1. `files.object_id` 用 SET NULL（和 artifacts 一致，可重新挂）还是 CASCADE（资料脱离项目意义不大）。本文选 SET NULL：可逆，且链接类资料可能是那个地址在本机唯一的记录。
 2. 视频是做成工作对象类型还是插件自有表，影响产出物用 `object_id` 还是 `scope_*`。本文倾向工作对象，最终由 VID-01 定。
 3. `object_origins` 放在 AG-03b 还是 AG-01。本文倾向 AG-03b 一起建表，AG-01 负责写入。
+
+---
+
+由 DeepSeek Harness（dsh）协助完成。
+
+[![](https://img.shields.io/badge/powered_by-dsh-4D6BFE?style=flat-square&logo=deepseek&logoColor=white)](https://github.com/deepseek-ai/deepseek-harness)

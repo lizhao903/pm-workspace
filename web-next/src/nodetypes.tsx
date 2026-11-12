@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 import type { ReactNode } from 'react'
 import { seedAgents } from './agentdata'
 import { seedModels, seedProviders } from './modeldata'
@@ -106,6 +108,19 @@ export function evalRule(rule: string, input: Json): boolean | null {
   let ok = op === '等于' ? txt(got) === want : Array.isArray(got) ? got.some((x) => txt(x) === want) : txt(got).includes(want)
   if (m[2].startsWith('不')) ok = !ok
   return ok
+}
+/**
+ * 条件是一句话（TSK-0498）：判断 / 回退步骤的 rule 有内容、但不是「字段 运算符 值」的写法，回 true。
+ * TSK-0490 之后这种条件存不进来；之前存进来的流程照旧会在执行时失败，这里用来提前标「需修复」、失败时给修复指引。
+ */
+export function ruleIsSentence(rule?: string): boolean {
+  const r = rule?.trim() ?? ''
+  return !!r && evalRule(r, {}) === null
+}
+/** 条件是一句话时执行失败的说明：说清为什么、怎么改；IM 触发的流程多说一句按会话 / @我 筛选去触发过滤里配 */
+export function ruleSentenceError(rule: string, trigger?: string): string {
+  const base = `条件「${rule.trim()}」是一句话，程序没法照着判断。到流程编辑里把这一步的条件改成「字段 + 运算符 + 值」（从这一步能拿到的字段里选，可多条且 / 或），这句话可以留在步骤说明里`
+  return trigger === 'im' ? `${base}；按来源会话、是否 @我 筛消息不用判断步骤，在触发方式「IM 消息」下面选「只接这些会话」和「与我的关系」，要拦住后面的流程就打开「命中后不再触发后面的 IM 流程」` : base
 }
 /** 条件回退最多退回几轮：留空 3，1 到 10 的整数；写法不对返回 null */
 export function loopRounds(s?: string): number | null {

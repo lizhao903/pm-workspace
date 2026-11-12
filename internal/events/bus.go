@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // Package events 是进程内的事件总线（CORE-07a，docs/plugin-api.md 2.10）。
 //
 // 发布方只管发：订阅者在各自的协程里异步执行，出错、panic、超时都只记日志，

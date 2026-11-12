@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 「监听频道」的列表选择（字段 picker=im_channels）：按已保存的连接器 Token 列出看得到的频道、私有频道、多人私信，
 // 搜索、勾选，已选的在上面单独一行，也排在列表前面。存回的还是同一个文本字段（逗号分隔的编号），见 channels.ts。
 // 拿不到列表（新建还没保存、没填 Token、渠道报错）时退回文本框；列表里没有的也能点「手动填写」直接写。

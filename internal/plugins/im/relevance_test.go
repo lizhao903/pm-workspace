@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 package im
 
 import (
@@ -17,8 +19,8 @@ func TestAccountHandles(t *testing.T) {
 	}{
 		{"", []string{}},
 		{"@broleez", []string{"broleez"}},
-		{"Zhao（@zhaoli，U012AB）", []string{"Zhao（@zhaoli，U012AB）", "Zhao", "zhaoli", "U012AB"}},
-		{"Lin Zhao", []string{"Lin Zhao"}},
+		{"Zhang（@zhangsan，U012AB）", []string{"Zhang（@zhangsan，U012AB）", "Zhang", "zhangsan", "U012AB"}},
+		{"Zhang San", []string{"Zhang San"}},
 		{"Broleez（@broleez，U012AB）", []string{"Broleez（@broleez，U012AB）", "Broleez", "U012AB"}},
 		{"Broleez @broleez", []string{"Broleez @broleez", "broleez"}},
 		{"broleez / BROLEEZ", []string{"broleez / BROLEEZ", "broleez"}},
@@ -33,7 +35,7 @@ func TestAccountHandles(t *testing.T) {
 func TestRelevanceFromConnectorAccount(t *testing.T) {
 	e := setup(t) // 假适配器自己的称呼是 Broleez
 	exec(t, e.d, `INSERT INTO connectors (id, tool, name, account, status, direction, created_at, updated_at) VALUES
-		('cn_slack', 'slack', '公司 Slack', 'Lin Zhao（@zhaoli，U07ME）', 'connected', 'both', 'x', 'x')`)
+		('cn_slack', 'slack', '公司 Slack', 'Zhang San（@zhangsan，U0EXAMPLE）', 'connected', 'both', 'x', 'x')`)
 
 	n := 0
 	send := func(conn, kind, text string) string {
@@ -60,17 +62,17 @@ func TestRelevanceFromConnectorAccount(t *testing.T) {
 	}
 
 	cases := []struct{ conn, kind, text, want string }{
-		{"cn_slack", "group", "@zhaoli 权限点清单看下", "me"},     // handle
-		{"cn_slack", "group", "@Lin Zhao 帮忙评审", "me"},      // 显示名
-		{"cn_slack", "group", "<@U07ME> 在吗 @u07me", "me"},  // 外部 id，不分大小写
-		{"cn_slack", "group", "@Broleez 适配器给的也认", "me"},    // 适配器自己的称呼
-		{"cn_slack", "group", "@zhaolin 不是我", ""},          // 称呼后面紧跟字母不算
-		{"cn_slack", "group", "@所有人 下午开会", "all"},          // @所有人
-		{"cn_slack", "group", "@channel @zhaoli 发版", "me"}, // @我 优先
-		{"cn_slack", "direct", "预发好了", "dm"},               // 私聊
-		{"", "group", "@zhaoli 没给连接器只认适配器的", ""},           // 没有连接器
-		{"cn_gone", "group", "@zhaoli 连接器已删", ""},          // 连接器不在
-		{"cn_gone", "group", "@Broleez 连接器已删", "me"},       // 只剩适配器的称呼
+		{"cn_slack", "group", "@zhangsan 权限点清单看下", "me"},      // handle
+		{"cn_slack", "group", "@Zhang San 帮忙评审", "me"},        // 显示名
+		{"cn_slack", "group", "<@U0EXAMPLE> 在吗 @u07me", "me"}, // 外部 id，不分大小写
+		{"cn_slack", "group", "@Broleez 适配器给的也认", "me"},       // 适配器自己的称呼
+		{"cn_slack", "group", "@zhangsann 不是我", ""},           // 称呼后面紧跟字母不算
+		{"cn_slack", "group", "@所有人 下午开会", "all"},             // @所有人
+		{"cn_slack", "group", "@channel @zhangsan 发版", "me"},  // @我 优先
+		{"cn_slack", "direct", "预发好了", "dm"},                  // 私聊
+		{"", "group", "@zhangsan 没给连接器只认适配器的", ""},            // 没有连接器
+		{"cn_gone", "group", "@zhangsan 连接器已删", ""},           // 连接器不在
+		{"cn_gone", "group", "@Broleez 连接器已删", "me"},          // 只剩适配器的称呼
 		{"cn_gone", "direct", "连接器已删的私聊", "dm"},
 	}
 	exts := make([]string, len(cases))
@@ -87,7 +89,7 @@ func TestRelevanceFromConnectorAccount(t *testing.T) {
 	// 改连接器账号：新到的按新称呼认
 	exec(t, e.d, `UPDATE connectors SET account = '@broleez_new' WHERE id = 'cn_slack'`)
 	newMe := send("cn_slack", "group", "@broleez_new 换了名字")
-	oldName := send("cn_slack", "group", "@zhaoli 旧名字")
+	oldName := send("cn_slack", "group", "@zhangsan 旧名字")
 	rel2 := relOf()
 	if rel2[newMe] != "me" || rel2[oldName] != "" {
 		t.Fatalf("改名后：新名字 %q（应为 me），旧名字 %q（应为空）", rel2[newMe], rel2[oldName])
@@ -114,8 +116,8 @@ func TestNameHandles(t *testing.T) {
 		want  []string
 	}{
 		{"", []string{}},
-		{"李钊", []string{"李钊"}},
-		{" 李钊, @Zhao，钊哥、zhao ; Lin Zhao\n", []string{"李钊", "Zhao", "钊哥", "Lin Zhao"}},
+		{"张三", []string{"张三"}},
+		{" 张三, @Zhang，三哥、zhang ; Zhang San\n", []string{"张三", "Zhang", "三哥", "Zhang San"}},
 	} {
 		if got := nameHandles(c.names); !slices.Equal(got, c.want) {
 			t.Errorf("%q：%q，应为 %q", c.names, got, c.want)
@@ -136,7 +138,7 @@ func TestSelfNamesField(t *testing.T) {
 func TestRelevanceFromSelfNames(t *testing.T) {
 	e := setup(t)
 	exec(t, e.d, `INSERT INTO connectors (id, tool, name, account, status, direction, config, created_at, updated_at) VALUES
-		('cn_tg', 'telegram', 'Telegram', 'PM Bot（@pm_bot）', 'connected', 'both', '{"self_names":"李钊, Zhao"}', 'x', 'x')`)
+		('cn_tg', 'telegram', 'Telegram', 'PM Bot（@pm_bot）', 'connected', 'both', '{"self_names":"张三, Zhang"}', 'x', 'x')`)
 	n := 0
 	send := func(text string) string {
 		t.Helper()
@@ -149,19 +151,19 @@ func TestRelevanceFromSelfNames(t *testing.T) {
 		return ext
 	}
 	cases := []struct{ text, want string }{
-		{"@李钊 验收标准麻烦再确认一下", "me"},
-		{"@zhao 看下", "me"},      // 不分大小写
+		{"@张三 验收标准麻烦再确认一下", "me"},
+		{"@zhang 看下", "me"},     // 不分大小写
 		{"@pm_bot 账号的也认", "me"}, // 账号照旧
-		{"@李钊们 都来", ""},         // 称呼后面紧跟字不算
-		{"李钊 没有 @ 的不算", ""},
+		{"@张三们 都来", ""},         // 称呼后面紧跟字不算
+		{"张三 没有 @ 的不算", ""},
 	}
 	exts := make([]string, len(cases))
 	for i, c := range cases {
 		exts[i] = send(c.text)
 	}
-	exec(t, e.d, `UPDATE connectors SET config = '{"self_names":"钊哥"}' WHERE id = 'cn_tg'`)
-	renamed := send("@钊哥 改了称呼")
-	old := send("@李钊 旧称呼")
+	exec(t, e.d, `UPDATE connectors SET config = '{"self_names":"三哥"}' WHERE id = 'cn_tg'`)
+	renamed := send("@三哥 改了称呼")
+	old := send("@张三 旧称呼")
 	_, got := list(t, e.h, "")
 	for i, c := range cases {
 		if r := got[exts[i]]["relevance"]; r != c.want {

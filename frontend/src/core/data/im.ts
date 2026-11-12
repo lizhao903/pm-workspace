@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // IM 消息（IM-02b）：IM 消息插件 im 的消息列表和处理动作。契约见 docs/api-contract.md「IM 消息插件 im」。
 // 列表按页拉完（每页 200）放一份缓存，筛选、计数、会话选项都在前端算，口径和原型 MessagesPage 一致。
 // 处理动作的响应是改后的整条消息，先写回缓存再按失效规则 im-message 刷一遍；转任务还建了任务，另报 object。
@@ -7,6 +9,7 @@ import { agentApi, setFirstMessage, type SessionSourceRef } from './agent'
 import { useNotifyChange } from './invalidate'
 import { dataKeys } from './keys'
 import type { ImMention } from './imGroups'
+import type { ImMessageMute } from './imMutes'
 
 /** expired 已过期（IM-07）：待处理超过设置的天数没处理，后台标的；不算待处理 */
 export type ImMsgStatus = 'pending' | 'done' | 'ignored' | 'expired'
@@ -76,6 +79,8 @@ export type ImMessage = {
   reply_count: number
   /** 这条来信回复的「我发出的」那条（0.17.0）：thread 是在它的消息列里回复，next 是发出后同会话第一条来信；对不上为 null */
   replied_sent?: { outbox_id: string; text: string; at: string; via: 'thread' | 'next' | string } | null
+  /** 因发信人被设为自动忽略才进「已忽略」的（0.27.0，TSK-0495）：被改回待处理、标为已处理后为 null */
+  muted?: ImMessageMute | null
 }
 
 /**
@@ -173,7 +178,11 @@ export type ImQuickReply = { text: string; done: boolean }
  * IM 插件的设置：expire_days 是多少天没处理算已过期，0 为不过期（IM-07）；
  * quick_replies 是消息抽屉「反馈」和列表快捷回复菜单里的那几条，没设过后端回内置的四条，PATCH 整组替换
  */
-export type ImSettings = { expire_days: number; quick_replies: ImQuickReply[] }
+export type ImSettings = {
+  expire_days: number; quick_replies: ImQuickReply[]
+  /** 手动转任务（转任务、拆分任务）后发起内置 SOP「FDE 反馈转发」，默认关（TSK-0468） */
+  fde_forward: boolean
+}
 /** 过期天数的取值范围（同后端校验） */
 export const IM_EXPIRE_DAYS_MAX = 365
 /** 快捷回复的条数和每条字数上限（同后端校验） */
@@ -202,7 +211,7 @@ export const normMessage = (m: ImMessage): ImMessage => ({
   reply_error: m.reply_error ?? '', task_ref: m.task_ref ?? '', relevance: m.relevance ?? '', expired_at: m.expired_at ?? null,
   project_id: m.project_id ?? null, project_name: m.project_name ?? '', project_source: m.project_source ?? '',
   sessions: m.sessions ?? [], split_tasks: m.split_tasks ?? [], materials: m.materials ?? [],
-  thread: m.thread ?? null, reply_count: m.reply_count ?? 0, replied_sent: m.replied_sent ?? null,
+  thread: m.thread ?? null, reply_count: m.reply_count ?? 0, replied_sent: m.replied_sent ?? null, muted: m.muted ?? null,
 })
 
 const path = (id: string) => `/api/im/messages/${encodeURIComponent(id)}`
@@ -284,6 +293,19 @@ export function useImMessages(opts: { refetchInterval?: number | false } = {}) {
     queryFn: ({ signal }) => imApi.all(signal),
     retry: noRetry404,
     refetchInterval: opts.refetchInterval,
+  })
+}
+
+/** 某个会话最近 N 条消息（SOP 调试选消息用，TSK-0491）；conversationId 为空时不取 */
+export function useImRecentMessages(conversationId: string, limit: number) {
+  return useQuery({
+    queryKey: [...dataKeys.im.all, 'recent', conversationId, limit] as const,
+    queryFn: async ({ signal }) => {
+      const query = new URLSearchParams({ conversation_id: conversationId, limit: String(limit) })
+      return (await requestList<ImMessage>('/api/im/messages', { query, signal })).data.map(normMessage)
+    },
+    enabled: !!conversationId,
+    retry: noRetry404,
   })
 }
 

@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 package im
 
 import (
@@ -133,8 +135,8 @@ func git(t *testing.T, dir string, args ...string) {
 	}
 }
 
-// setupPipeline：Octok 的代码库是临时 git 仓库，档案命令：起测试环境（python http.server）、测试（工作区里有 ok.flag 才过）；
-// 验收人员「验收甲」；任务由一条 IM 消息转来、归到 Octok。testCmd 为空用默认的。
+// setupPipeline：Acme 的代码库是临时 git 仓库，档案命令：起测试环境（python http.server）、测试（工作区里有 ok.flag 才过）；
+// 验收人员「验收甲」；任务由一条 IM 消息转来、归到 Acme。testCmd 为空用默认的。
 func setupPipeline(t *testing.T, testCmd string) (pipeEnv, string, *domain.Object) {
 	t.Helper()
 	if _, err := osexec.LookPath("python3"); err != nil {
@@ -146,7 +148,7 @@ func setupPipeline(t *testing.T, testCmd string) (pipeEnv, string, *domain.Objec
 	e.r.SetNotifier(e.notes)
 	e.repo = t.TempDir()
 	git(t, e.repo, "init", "-q", "-b", "main")
-	if err := os.WriteFile(filepath.Join(e.repo, "README.md"), []byte("octok\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(e.repo, "README.md"), []byte("acme\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	git(t, e.repo, "add", ".")
@@ -176,13 +178,13 @@ func setupPipeline(t *testing.T, testCmd string) (pipeEnv, string, *domain.Objec
 		`"release":{"command":` + strconv.Quote("touch "+e.prod+"/deployed") + `},` +
 		`"prod_smoke":{"command":` + strconv.Quote("test -f "+e.prod+"/smoke_ok") + `},` +
 		`"rollback":{"command":` + strconv.Quote("touch "+e.prod+"/rolled_back") + `}}}`
-	if code, out := call(t, e.h, "PATCH", "/api/projects/obj_octok/profile", body); code != 200 {
+	if code, out := call(t, e.h, "PATCH", "/api/projects/obj_acme/profile", body); code != 200 {
 		t.Fatalf("档案 %d %v", code, out)
 	}
 	e.push(t, `{"external_id":"C01:p1","connector_id":"cn_ok","conversation_id":"C01","conversation_name":"#product","sender_id":"U1","sender_name":"林原","text":"导出加 CSV"}`)
 	msg := e.msgID(t, "导出加 CSV")
 	task, _ := e.toTask(t, msg, `{"reply_on_done":false}`)
-	exec(t, e.st.DB(), `UPDATE objects SET project_id = 'obj_octok' WHERE id = '`+task["id"].(string)+`'`)
+	exec(t, e.st.DB(), `UPDATE objects SET project_id = 'obj_acme' WHERE id = '`+task["id"].(string)+`'`)
 	o, err := e.st.GetObject(context.Background(), task["id"].(string))
 	if err != nil {
 		t.Fatal(err)
@@ -417,7 +419,7 @@ func TestDevPipelineHappyPathWithRework(t *testing.T) {
 		t.Fatalf("三路要并行发起：%v", first)
 	}
 	wt := dev.Workdir
-	if !strings.Contains(wt, filepath.Join("worktrees", "obj_octok", task.Ref)) || cases.Workdir != wt || auto.Workdir != wt || !dev.AllowWrites || !cases.AllowWrites {
+	if !strings.Contains(wt, filepath.Join("worktrees", "obj_acme", task.Ref)) || cases.Workdir != wt || auto.Workdir != wt || !dev.AllowWrites || !cases.AllowWrites {
 		t.Fatalf("工作目录、权限：dev %s %v cases %s %v auto %s", dev.Workdir, dev.AllowWrites, cases.Workdir, cases.AllowWrites, auto.Workdir)
 	}
 	if !strings.Contains(dev.Prompt, task.Ref) || !strings.Contains(dev.Prompt, "auto/"+task.Ref) || strings.Contains(dev.Prompt, "评审不通过") ||

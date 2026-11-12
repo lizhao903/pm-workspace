@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 package api
 
 import (
@@ -769,8 +771,7 @@ func TestRunObjectDeepSeekNeedsUsableProvider(t *testing.T) {
 	s, f, obj, _ := runFixture(t, "exit 0")
 	s.run.DSHBin = fakeClaudeBin(t, "exit 0")
 
-	// fakestore 里一条服务商都没有时 resolveProvider 会建一条本机 ollama，
-	// 而 ollama 没有对应的 dsh 协议——这正是要拦下的那种配置。
+	// 一条服务商都没有：DeepSeek 不像工作台 Agent 那样自动建本机 Ollama（TSK-0722），直接 400 说清该配哪种。
 	w := do(s, http.MethodPost, "/api/objects/"+obj.ID+"/run", `{"harness":"deepseek"}`)
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("状态码 = %d，期望 400 (body=%s)", w.Code, w.Body.String())

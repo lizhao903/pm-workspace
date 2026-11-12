@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 import { kindOf } from './catalog'
 
 /** 服务商标志：内置 SVG，底色加一两个字，照原型 ProviderLogo；不引图片 */

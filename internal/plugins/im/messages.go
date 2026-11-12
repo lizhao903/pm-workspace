@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 package im
 
 import (
@@ -90,12 +92,14 @@ type Message struct {
 	ReplyCount int            `json:"reply_count"`
 	// RepliedSent 是这条来信回复的「我发出的」那条（0.17.0，outbox.go fillSentLinks），对不上为 null
 	RepliedSent *SentRef `json:"replied_sent"`
+	// Muted 是「因发信人 X 被设为自动忽略」（TSK-0495，mutes.go）：被自动忽略掉的才有，改回待处理、标为已处理后为 null
+	Muted *MessageMute `json:"muted"`
 }
 
 const messageCols = `id, channel, connector_id, external_id, conversation_id, conversation_external_id, conversation_kind,
 	conversation_name, sender_identity_id, sender_external_id, sender_name, text, attachments, relevance, ` + statusCol + `,
 	is_read, snooze_until, sent_at, received_at, adapter, task_id, task_ref, reply_error, expired_at, project_id,
-	thread_parent_external_id, thread_parent_sender, thread_parent_text`
+	thread_parent_external_id, thread_parent_sender, thread_parent_text, muted_by, muted_name`
 
 func (in *inbox) list(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
@@ -131,10 +135,24 @@ func (in *inbox) list(w http.ResponseWriter, r *http.Request) {
 	}
 	if pid := strings.TrimSpace(q.Get("project_id")); pid != "" {
 		// 只按归属筛，不校验项目在不在：项目删了，筛出来的是空列表。
-		// 消息自己没归的按所在会话的默认项目算（0007）
-		where = append(where, `(project_id = ? OR (project_id IS NULL AND conversation_id IN
-			(SELECT conversation_id FROM im_conversation_projects WHERE project_id = ?)))`)
-		args = append(args, pid, pid)
+		// 口径同读出时的 fillProject：消息自己归的项目（还在的）优先，其次所在会话的默认项目（0007，还在的）。
+		// project_id=none（TSK-0723）是「未归项目」：两者都没有（或归的项目都删了）
+		dead, err := in.deadProjects(ctx)
+		if err != nil {
+			fail(w, r, in.c, err)
+			return
+		}
+		own, ownArgs := liveProjectCond("project_id", dead)
+		convs, convArgs := liveProjectCond("project_id", dead)
+		if pid == ProjectNone {
+			where = append(where, `NOT `+own+` AND (conversation_id IS NULL OR conversation_id NOT IN
+				(SELECT conversation_id FROM im_conversation_projects WHERE `+convs+`))`)
+			args = append(append(args, ownArgs...), convArgs...)
+		} else {
+			where = append(where, `(project_id = ? OR (NOT `+own+` AND conversation_id IN
+				(SELECT conversation_id FROM im_conversation_projects WHERE project_id = ?)))`)
+			args = append(append(append(args, pid), ownArgs...), pid)
+		}
 	}
 	switch q.Get("mine") {
 	case "":
@@ -187,6 +205,57 @@ func (in *inbox) list(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"data": out, "meta": map[string]int{"total": total, "limit": limit, "offset": offset}})
 }
 
+// ProjectNone 是 GET /api/im/messages?project_id= 的「未归项目」（TSK-0723）。
+const ProjectNone = "none"
+
+// deadProjects 是消息和会话默认项目里引用到、但已经不在（删了、含软删，或不是项目）的项目 id。
+// 读出时这些按没归（fillProject），按项目筛也要一样算；引用到的项目数和项目总数同级，逐个查。
+func (in *inbox) deadProjects(ctx context.Context) ([]string, error) {
+	rows, err := in.c.Store().Query(ctx, `SELECT DISTINCT project_id FROM im_messages WHERE project_id IS NOT NULL
+		UNION SELECT project_id FROM im_conversation_projects`)
+	if err != nil {
+		return nil, err
+	}
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			_ = rows.Close()
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	err = rows.Err()
+	_ = rows.Close()
+	if err != nil {
+		return nil, err
+	}
+	rs := newResolver(in.c)
+	var dead []string
+	for _, id := range ids {
+		o, err := rs.project(ctx, id)
+		if err != nil {
+			return nil, err
+		}
+		if o == nil {
+			dead = append(dead, id)
+		}
+	}
+	return dead, nil
+}
+
+// liveProjectCond 是「col 归了一个还在的项目」的条件。
+func liveProjectCond(col string, dead []string) (string, []any) {
+	if len(dead) == 0 {
+		return "(" + col + " IS NOT NULL)", nil
+	}
+	args := make([]any, len(dead))
+	for i, id := range dead {
+		args[i] = id
+	}
+	return "(" + col + " IS NOT NULL AND " + col + " NOT IN (?" + strings.Repeat(", ?", len(dead)-1) + "))", args
+}
+
 func paging(l, o string) (int, int, error) {
 	limit, offset := defaultLimit, 0
 	if l != "" {
@@ -213,17 +282,19 @@ func (in *inbox) query(ctx context.Context, sql string, args ...any) ([]Message,
 		return nil, err
 	}
 	out := []Message{}
+	var mutedBy, mutedName []string
 	for rows.Next() {
 		var m Message
-		var convName, attachments, tParent, tSender, tText string
+		var convName, attachments, tParent, tSender, tText, mBy, mName string
 		var read int
 		if err := rows.Scan(&m.ID, &m.Channel, &m.ConnectorID, &m.ExternalID, &m.ConversationID, &m.ConversationExternalID,
 			&m.ConversationKind, &convName, &m.IdentityID, &m.SenderID, &m.SenderName, &m.Text, &attachments, &m.Relevance,
 			&m.Status, &read, &m.SnoozeUntil, &m.At, &m.ReceivedAt, &m.Adapter, &m.TaskID, &m.TaskRef, &m.ReplyError, &m.ExpiredAt, &m.ProjectID,
-			&tParent, &tSender, &tText); err != nil {
+			&tParent, &tSender, &tText, &mBy, &mName); err != nil {
 			_ = rows.Close()
 			return nil, err
 		}
+		mutedBy, mutedName = append(mutedBy, mBy), append(mutedName, mName)
 		m.Conversation, m.Read, m.Attachments = convName, read != 0, json.RawMessage(attachments)
 		if tParent != "" {
 			m.Thread = &MessageThread{ParentExternalID: tParent, ParentSenderName: tSender, ParentText: tText}
@@ -257,6 +328,9 @@ func (in *inbox) query(ctx context.Context, sql string, args ...any) ([]Message,
 		return nil, err
 	}
 	if err := in.fillSentLinks(ctx, out); err != nil {
+		return nil, err
+	}
+	if err := in.fillMutes(ctx, out, mutedBy, mutedName); err != nil {
 		return nil, err
 	}
 	return out, nil

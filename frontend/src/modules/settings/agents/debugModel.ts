@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 调试对话的纯函数（AG-02b，SPEC-settings-9.31）：对话由前端自己留着，每次整段带给 /api/agents/debug/chat；
 // 流里的事件折进正在回复的那条；确认、拒绝后接着跑的回复另起一条，执行结果写回原来那张卡片。
 import type { ChatEvent, DebugChatMessage } from '../../../core/data'

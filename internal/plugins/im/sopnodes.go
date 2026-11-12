@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 package im
 
 import (
@@ -112,7 +114,27 @@ func (in *inbox) getMessageNode(ctx context.Context, _ plugin.Core, n plugin.SOP
 		"relevance": relevanceLabel(m.Relevance), "status": m.Status, "at": m.At,
 		// 归到的项目（含群组默认项目兜底），没归为空串
 		"project_id": deref(m.ProjectID), "project": m.ProjectName,
+		// 归类（0.28.0，TSK-0491）：同 im.message_received 带的，SOP 调试、模拟 IM 触发按它判过滤条件
+		"conversation_id": deref(m.ConversationID), "connector_id": m.ConnectorID, "relevance_key": m.Relevance,
+		"muted": mutedOut(m.Muted), "sender_muted": in.senderMuted(ctx, m),
 	}), nil
+}
+
+// mutedOut 是消息入库时被自动忽略的那条（TSK-0495），没有为 nil。
+func mutedOut(m *MessageMute) any {
+	if m == nil {
+		return nil
+	}
+	return map[string]any{"mute_id": m.MuteID, "name": m.Name, "active": m.Active}
+}
+
+// senderMuted 是发信人现在命中的自动忽略（之后的新消息会被自动忽略），没有为 nil；查不了也当没有。
+func (in *inbox) senderMuted(ctx context.Context, m Message) any {
+	id, name, err := in.muteFor(ctx, row{channel: m.Channel, senderExt: m.SenderID, stakeholderID: m.StakeholderID, convID: m.ConversationID})
+	if err != nil || id == "" {
+		return nil
+	}
+	return map[string]any{"mute_id": id, "name": name}
 }
 
 func (in *inbox) markMessageNode(ctx context.Context, _ plugin.Core, n plugin.SOPNodeInput) (map[string]any, error) {

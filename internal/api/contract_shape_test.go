@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 package api
 
 import (
@@ -26,6 +28,7 @@ import (
 	"github.com/lizhao903/pm-workspace/internal/plugins/etf"
 	"github.com/lizhao903/pm-workspace/internal/plugins/im"
 	"github.com/lizhao903/pm-workspace/internal/plugins/projects"
+	"github.com/lizhao903/pm-workspace/internal/plugins/recording"
 	"github.com/lizhao903/pm-workspace/internal/plugins/sop"
 	"github.com/lizhao903/pm-workspace/internal/plugins/terminal"
 	"github.com/lizhao903/pm-workspace/internal/plugins/trade"
@@ -77,6 +80,11 @@ var contractSpecs = map[string]contractSpec{
 	"TodayCard":     {v: domain.TodayCard{}},
 	"TodayRun":      {v: domain.TodayRun{}},
 
+	// 执行器（TSK-0722）
+	"RunnerStatus":       {v: RunnerStatus{}},
+	"RunnerSmoke":        {v: RunnerSmoke{}},
+	"执行器 runners#table1": {v: RunnerStatus{}, partial: true},
+
 	// 联系人字段表只列 0026 新加的列
 	"干系人名册 stakeholders#table1": {v: domain.Stakeholder{}, partial: true},
 	"Identity":                  {v: imident.Identity{}},
@@ -101,6 +109,8 @@ var contractSpecs = map[string]contractSpec{
 
 	// 溯源字段表只列 0031 补的列
 	"输出产物 artifacts / 溯源字段（AG-03b，0031）#table1": {v: domain.Artifact{}, partial: true},
+	// 按对象汇总（TSK-0497）
+	"ArtifactsByObject": {v: domain.ArtifactsByObject{}},
 
 	"LocalDir":   {v: localdir.Dir{}},
 	"FsFile":     {v: fsbrowse.FileContent{}},
@@ -136,6 +146,8 @@ var contractSpecs = map[string]contractSpec{
 	"ProjectStakeholder":         {v: projects.Stakeholder{}},
 	"ProjectConversation":        {v: projects.ProjectConversation{}},
 	"ProjectMaterial":            {v: projects.Material{}},
+	"ProjectKB":                  {v: projects.ProjectKB{}},
+	"ProjectKBSync":              {v: projects.ProjectKBSync{}},
 	"ProjectPrototype":           {v: projects.Prototype{}},
 	"PrototypeLogLine":           {v: projects.LogLine{}},
 	"PrototypeCrash":             {v: projects.Crash{}},
@@ -168,15 +180,33 @@ var contractSpecs = map[string]contractSpec{
 	"IM 消息插件 im / 事件#json1":   {v: im.Received{}},
 	"MaterialSource":          {v: im.MaterialSource{}},
 	"OutboxItem":              {v: im.OutboxItem{}},
+	"NameRefillResult":        {v: im.NameRefillResult{}},
+	"HistoryBackfillResult":   {v: im.HistoryBackfillResult{}},
+	"Mute":                    {v: im.Mute{}}, // 自动忽略发信人（TSK-0495）
+	"MuteResult":              {v: im.MuteResult{}},
 	"IM 消息插件 im / 从 Slack 补联系人邮箱#table1": {v: im.EmailBackfillResult{}},
 
-	"SopFlow":        {v: sop.Flow{}},
-	"SopNodeType":    {v: sop.NodeType{}},
+	"SopFlow":   {v: sop.Flow{}},
+	"SopFolder": {v: sop.Folder{}},
+	// IM 触发的过滤条件、执行顺序与拦截（TSK-0481）：json 示例和字段表
+	"SopIMTrigger": {v: sop.IMTrigger{}},
+	"SOP 编排插件 sop / IM 触发#table1": {v: sop.IMTrigger{}},
+	"SopNodeType": {v: sop.NodeType{}},
+	// 结构化条件、触发方式、这一步能拿到的字段（TSK-0490）
+	"SopCond":        {v: sop.Cond{}},
+	"SopTrigger":     {v: sop.Trigger{}},
+	"SopFieldGroup":  {v: sop.FieldGroup{}},
 	"SopRun":         {v: sop.Run{}},
 	"SopRunStep":     {v: sop.RunStep{}},
 	"SopRunBrief":    {v: sop.RunBrief{}},
 	"SopRunAction":   {v: sop.Action{}},
 	"SopAssistReply": {v: sop.Reply{}},
+	// 调试（TSK-0491）
+	"SopDebug":         {v: sop.Debug{}},
+	"SopDebugStep":     {v: sop.DebugStep{}},
+	"SopIMExplain":     {v: sop.IMExplain{}},
+	"SopIMExplainFlow": {v: sop.IMExplainFlow{}},
+	"SopSkip":          {v: sop.Skip{}},
 	// 流水线视图与治理（AUTO-12）
 	"SopStepHold":       {v: sop.StepHold{}},
 	"SopStepQueue":      {v: sop.StepQueue{}},
@@ -187,6 +217,9 @@ var contractSpecs = map[string]contractSpec{
 	"SopPipelineBudget": {v: sop.PipelineBudget{}},
 	"SopClaudeUsage":    {v: sop.ClaudeUsage{}},
 	"SopWaitingItem":    {v: sop.WaitingItem{}},
+	// 批量停止（TSK-0717）
+	"SopRunStopResult":         {v: sop.RunStopResult{}},
+	"SOP 编排插件 sop / 运行#table1": {skip: "POST /api/sop/runs/stop 的请求体，按 map 读，无结构"},
 
 	"TerminalSession": {v: terminal.Session{}},
 
@@ -304,6 +337,29 @@ var contractSpecs = map[string]contractSpec{
 	"BrowserAllowEntry":  {v: browser.AllowEntry{}},
 	"BrowserGoogleState": {v: browser.GoogleState{}},
 	"BrowserGoogleConn":  {v: browser.ConnRef{}},
+
+	// 录音转写插件（REC-01a）
+	"RecordingSummary":  {v: recording.RecordingSummary{}},
+	"RecordingSettings": {v: recording.Settings{}},
+	"RecordingModel":    {v: recording.ModelInfo{}},
+	"RecordingMeta":     {v: recording.MetaView{}},
+
+	// 录音转写插件 M4a（文件/纪要候选）
+	"RecordingMinutes":  {v: recording.RecordingMinutes{}},
+	"RecordingAction":   {v: recording.RecordingAction{}},
+	"RecordingProject":  {v: recording.RecordingProject{}},
+	"RecordingGoal":     {v: recording.RecordingGoal{}},
+	"RecordingQuestion": {v: recording.RecordingQuestion{}},
+	"RecordingDiagrams": {v: recording.RecordingDiagrams{}},
+	"RecordingFlow":     {v: recording.RecordingFlow{}},
+	"RecordingFlowNode": {v: recording.RecordingFlowNode{}},
+	"RecordingFlowEdge": {v: recording.RecordingFlowEdge{}},
+	"RecordingTree":     {v: recording.RecordingTree{}},
+	"RecordingTreeNode": {v: recording.RecordingTreeNode{}},
+	"RecordingFile":     {v: recording.RecordingFile{}},
+	"RecordingTodo":     {v: recording.RecordingTodo{}},
+	"RecordingSpeaker":  {v: recording.RecordingSpeaker{}},
+	"Voiceprint":        {v: recording.Voiceprint{}},
 }
 
 // docShape 是从文档里抽出来的一个对象：字段名和（如果有）字段的嵌套对象。

@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // Package jobs exposes the kernel's in-memory job statistics as an optional plugin.
 package jobs
 

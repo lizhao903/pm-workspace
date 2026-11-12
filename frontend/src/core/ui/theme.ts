@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 import { useSyncExternalStore } from 'react'
 
 // 主题：浅色、深色、跟随系统。偏好存在这台电脑的浏览器里，拿不到存储时只在本次会话生效。

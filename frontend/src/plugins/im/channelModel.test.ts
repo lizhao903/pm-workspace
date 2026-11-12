@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 import { describe, expect, it } from 'vitest'
 import type { Connector, ConnectorDef } from '../../core/data'
 import { accountName, addableDefs, callbackUrl, imConnectors, memberIdError, SLACK_AS_USER, slackAs, slackTokenError, sendAsText, syncText } from './channelModel'
@@ -38,8 +40,8 @@ describe('渠道配置的纯函数', () => {
   })
 
   it('回复框写的发送身份：Slack 我本人「以 名 身份发送」，Bot「以 Bot 名 发送」，别的渠道不写', () => {
-    const slack = { ...conn('cn_1', 'slack'), name: '公司 Slack', account: 'broleez（U07ME）' }
-    expect(accountName('broleez（U07ME）')).toBe('broleez')
+    const slack = { ...conn('cn_1', 'slack'), name: '公司 Slack', account: 'broleez（U0EXAMPLE）' }
+    expect(accountName('broleez（U0EXAMPLE）')).toBe('broleez')
     expect(accountName('pmw')).toBe('pmw')
     expect(sendAsText({ ...slack, config: { identity: SLACK_AS_USER } })).toBe('以 broleez 身份发送')
     expect(sendAsText({ ...slack, account: 'pmw（UBOT）' })).toBe('以 Bot pmw 发送')

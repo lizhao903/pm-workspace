@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 消息和项目资料互相追溯（0009）：列表行上的「已转资料」小标，抽屉里的「项目资料」一节（转项目资料、转过的资料能点过去）。
 import type { ImMessage } from '../../core/data'
 import { materialHint, noteMaterials } from './toMaterialModel'

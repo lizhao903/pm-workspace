@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 节点选择器（SPEC-sop-11.1 到 11.4）：搜索、按分组列节点；点外面或 Esc 关闭，贴着屏幕边缘时往里收
 import { useEffect, useRef, useState } from 'react'
 import { IconSearch } from '../../core/ui'

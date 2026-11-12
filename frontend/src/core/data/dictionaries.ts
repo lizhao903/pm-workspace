@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 枚举值的编辑（ALIGN-14，SPEC-settings-17）：设置页按字典把条目连同已停用的一起拉回来，改动攒成一份草稿，保存时按差异逐条写。
 // 接口都是 docs/api-contract.md「枚举字典 dictionaries」已有的：建、改、停用、删、整组重排；没有建字典和合并数据的接口。
 import { useMutation, useQueries } from '@tanstack/react-query'

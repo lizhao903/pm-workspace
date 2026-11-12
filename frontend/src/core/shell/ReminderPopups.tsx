@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 import { useEffect, useId, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { reminderPopup, reminderTask, useReadNotification, useUnreadReminders, type AppNotification } from '../data'

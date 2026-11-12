@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 package sqlite
 
 import (
@@ -34,19 +36,19 @@ func participantIDs(o *domain.Object) []string {
 	return out
 }
 
-// 同名不许重复：干系人靠名字辨认，出现两个「李钊」时用户无从选择，
+// 同名不许重复：干系人靠名字辨认，出现两个「张三」时用户无从选择，
 // 而错选的后果是任务分配到了另一个人身上。
 func TestCreateStakeholderRejectsDuplicateName(t *testing.T) {
 	s, ctx := newStore(t)
-	mustStakeholder(t, s, ctx, "李钊")
+	mustStakeholder(t, s, ctx, "张三")
 
-	if _, err := s.CreateStakeholder(ctx, &domain.Stakeholder{Name: "李钊"}); !errors.Is(err, domain.ErrConflict) {
+	if _, err := s.CreateStakeholder(ctx, &domain.Stakeholder{Name: "张三"}); !errors.Is(err, domain.ErrConflict) {
 		t.Fatalf("重名应返回 ErrConflict, 得到 %v", err)
 	}
 	// 改名撞上已有的人同样要拦：否则绕一圈就能造出两个同名的人。
 	other := mustStakeholder(t, s, ctx, "王闯")
 	if _, err := s.UpdateStakeholder(ctx, other.ID,
-		domain.StakeholderPatch{Name: pstr("李钊")}); !errors.Is(err, domain.ErrConflict) {
+		domain.StakeholderPatch{Name: pstr("张三")}); !errors.Is(err, domain.ErrConflict) {
 		t.Fatalf("改成重名应返回 ErrConflict, 得到 %v", err)
 	}
 	if _, err := s.CreateStakeholder(ctx, &domain.Stakeholder{Name: "   "}); !errors.Is(err, domain.ErrValidation) {
@@ -128,7 +130,7 @@ func TestDeleteStakeholderBlockedByReferences(t *testing.T) {
 // 恢复回来时负责人已经没了，而这个丢失不报错、不崩溃，只是那一行从此空着。
 func TestDeleteStakeholderCountsSoftDeletedObjects(t *testing.T) {
 	s, ctx := newStore(t)
-	sh := mustStakeholder(t, s, ctx, "李钊")
+	sh := mustStakeholder(t, s, ctx, "张三")
 	o := mustCreate(t, s, ctx, &domain.Object{TypeID: "task", Title: "扔进回收站的", OwnerID: &sh.ID})
 	if err := s.DeleteObject(ctx, o.ID, false, store.DefaultActor); err != nil {
 		t.Fatalf("soft delete object: %v", err)
@@ -182,16 +184,16 @@ func TestStakeholderCounts(t *testing.T) {
 // 读路径要把人名和参与人带出来，否则列表里每行都得按 id 回查一次。
 func TestObjectCarriesOwnerNameAndParticipants(t *testing.T) {
 	s, ctx := newStore(t)
-	owner := mustStakeholder(t, s, ctx, "宋一杰")
-	p1 := mustStakeholder(t, s, ctx, "李钊")
-	p2 := mustStakeholder(t, s, ctx, "振华")
+	owner := mustStakeholder(t, s, ctx, "陈一")
+	p1 := mustStakeholder(t, s, ctx, "张三")
+	p2 := mustStakeholder(t, s, ctx, "陈二")
 
 	created := mustCreate(t, s, ctx, &domain.Object{
 		TypeID: "requirement", Title: "三个人一起做的事", OwnerID: &owner.ID,
 		Participants: []domain.StakeholderRef{{ID: p1.ID}, {ID: p2.ID}},
 	})
-	if created.OwnerName != "宋一杰" {
-		t.Errorf("CreateObject 回的 OwnerName = %q, want 宋一杰", created.OwnerName)
+	if created.OwnerName != "陈一" {
+		t.Errorf("CreateObject 回的 OwnerName = %q, want 陈一", created.OwnerName)
 	}
 
 	got, err := s.GetObject(ctx, created.ID)
@@ -201,14 +203,14 @@ func TestObjectCarriesOwnerNameAndParticipants(t *testing.T) {
 	if got.OwnerID == nil || *got.OwnerID != owner.ID {
 		t.Fatalf("OwnerID = %v, want %s", got.OwnerID, owner.ID)
 	}
-	if got.OwnerName != "宋一杰" {
-		t.Errorf("OwnerName = %q, want 宋一杰", got.OwnerName)
+	if got.OwnerName != "陈一" {
+		t.Errorf("OwnerName = %q, want 陈一", got.OwnerName)
 	}
 	// 参与人按写入顺序返回：那是界面上头像的排列顺序。
 	if ids := participantIDs(got); len(ids) != 2 || ids[0] != p1.ID || ids[1] != p2.ID {
 		t.Errorf("Participants = %v, want [%s %s]", ids, p1.ID, p2.ID)
 	}
-	if got.Participants[0].Name != "李钊" {
+	if got.Participants[0].Name != "张三" {
 		t.Errorf("参与人没带上名字: %+v", got.Participants[0])
 	}
 
@@ -220,7 +222,7 @@ func TestObjectCarriesOwnerNameAndParticipants(t *testing.T) {
 	if len(items) != 1 {
 		t.Fatalf("list = %d 条, want 1", len(items))
 	}
-	if items[0].OwnerName != "宋一杰" || len(items[0].Participants) != 2 {
+	if items[0].OwnerName != "陈一" || len(items[0].Participants) != 2 {
 		t.Errorf("列表里的 owner_name/participants 没填: %+v", items[0])
 	}
 }
@@ -291,7 +293,7 @@ func TestUpdateObjectParticipantsFullReplace(t *testing.T) {
 // owner_id 传空串就是清空：owner_id 没有「空串」和「未设置」的语义差别。
 func TestUpdateObjectOwnerIDClearAndValidate(t *testing.T) {
 	s, ctx := newStore(t)
-	sh := mustStakeholder(t, s, ctx, "李钊")
+	sh := mustStakeholder(t, s, ctx, "张三")
 	o := mustCreate(t, s, ctx, &domain.Object{TypeID: "task", Title: "某任务", OwnerID: &sh.ID})
 
 	got, err := s.UpdateObject(ctx, o.ID, domain.ObjectPatch{OwnerID: pstr("")}, store.DefaultActor)

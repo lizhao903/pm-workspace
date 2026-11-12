@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 拼音首字母表（CT-03a，生成的数据，不手改）：GB2312 一级、二级汉字共 6763 个，按首字母归堆，约 20KB。
 // 生成方法：一级 3755 字按 GB2312 区位的拼音边界（啊 B0A1、芭 B0C5、擦 B2C1 …… 匝 D4D1）切；
 // 二级 3008 字按 Intl.Collator('zh-CN') 和每个字母的第一个汉字比较离线算出。多音字取 GB2312 的排位读音，

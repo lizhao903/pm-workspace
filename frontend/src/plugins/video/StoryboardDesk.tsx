@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 内容编写的「分镜」视图（TSK-0456，同原型 storyboard.tsx 的 StoryboardDesk，规格 SPEC-videos-17.1 到 17.9）。
 // 每期视频一份有序的分镜：序号、对应的口播段落、画面说明、时长（手填，没填按口播字数估）、B-roll。
 // 「从口播稿生成」按当前口播稿（没有就用大纲）的标题或段落拆，已有分镜时先问追加还是覆盖。

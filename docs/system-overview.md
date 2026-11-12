@@ -47,7 +47,7 @@ graph TB
     IMX["Slack / Telegram"]
     LLM["Anthropic / OpenAI<br/>Gemini / Ollama"]
     GG["Google 日历 / 云盘"]
-    FS["本机目录<br/>Know Me / PRD"]
+    FS["本机目录<br/>示例资料库 / PRD"]
     VP["B站 / YouTube / 抖音"]
   end
 
@@ -154,7 +154,7 @@ sequenceDiagram
   CLI-->>K: 执行结束 run.finished（状态 + 摘要）
   K-->>SOP: 事件触发，继续流程
   SOP->>IM: 第 2 步 回复原消息
-  IM->>IMU: 「任务标题」已经处理完了 + 摘要
+  IM->>IMU: 「任务标题」（编号）已完成 + 结果（只回结论）
 ```
 
 ## 4. 模块与代码位置
@@ -170,3 +170,9 @@ sequenceDiagram
 | 原型与规格 | 演示原型、SPEC 文档 | web-next/、web-next/docs/spec |
 
 交易套件（internal/plugins/trade）整体暂停，图中未画。
+
+---
+
+由 DeepSeek Harness（dsh）协助完成。
+
+[![](https://img.shields.io/badge/powered_by-dsh-4D6BFE?style=flat-square&logo=deepseek&logoColor=white)](https://github.com/deepseek-ai/deepseek-harness)

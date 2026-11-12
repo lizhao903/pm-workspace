@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 终端插件（TERM-01b）：清单在后端 internal/plugins/terminal/plugin.json，这里只有入口。
 // 页面是多标签、每标签最多 2x2 的真终端，每格一个后端 pty 会话；没有二级菜单，也没有顶栏。
 // 另外给会话头部登记「终端」入口（SPEC-sessions-1.35），在对话右边展开同一套终端；

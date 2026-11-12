@@ -1,21 +1,25 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 任务列表（SPEC-tasks-2）：状态分段按钮筛选、按截止日分段可折叠、每段先露 30 条。
 // 负责人筛选、排序、搜索都在本地算（B-06、B-07）；只管展示和本地筛选，数据由 Page 从接口层取好传进来。
 import { useMemo, useState, type CSSProperties } from 'react'
-import { localDay, type DictItem, type ObjectStatus, type WorkObject } from '../../core/data'
+import { localDay, type ArtifactObjectSummary, type DictItem, type ObjectStatus, type WorkObject } from '../../core/data'
 import {
   Button, EmptyState, ErrorState, IconClose, IconSearch, ListSegHead, ListSegMore, LoadingState, PageTitle, Pill,
   SearchSelect, cls,
 } from '../../core/ui'
 import {
-  ALL, MORE_STEP, OPEN, OWNER_ME, OWNER_NONE, PAGE, REVIEW, SORTS, dueText, isOverdue, loadMe, matchOwner, matchQuery, matchStatus,
+  ALL, MORE_STEP, OPEN, OWNER_AI, OWNER_ME, OWNER_NONE, PAGE, REVIEW, SORTS, dueText, isOverdue, loadMe, matchOwner, matchQuery, matchStatus,
   ownerOptions, prioText, priorityRank, saveMe, segment, sortSeg, statusButtons, terminalOf, timeAgo, type DueSeg, type StatusFilter,
   type TaskSort,
 } from './model'
-import { SOURCE_VIEW, isSourceKind, type SourceKind } from './sourceModel'
 import { SourceTag } from './SourceTag'
+import { OutputsBadge } from './OutputsBadge'
+import { OwnerMark, type AgentLooks } from './OwnerMark'
+import { OUTPUTS_FILTERS, matchOutputs, type KindInfo, type OutputsFilter } from './outputSummary'
 
-/** 全部任务、逾期，加五个来源视图（SPEC-tasks-3） */
-export type TaskView = 'all' | 'overdue' | SourceKind
+/** 全部任务、逾期。来源分类视图已去掉，来源只在列表的来源标签上看 */
+export type TaskView = 'all' | 'overdue'
 
 const TITLE: Record<'all' | 'overdue', string> = { all: '全部任务', overdue: '逾期任务' }
 const DESC: Record<'all' | 'overdue', string> = {
@@ -27,7 +31,8 @@ const NO_PROJECT = '-'
 
 export function TaskList({
   view, tasks, loading, error, onRetry, statuses, priorities, projects, people = [],
-  status, onStatus, search, onSearch, q, selected, drawerOpen, onOpen, onNew, onToggleDone, now: nowProp, hookName = noHook, onGoHooks,
+  status, onStatus, search, onSearch, q, selected, drawerOpen, onOpen, onNew, onToggleDone, now: nowProp, hookName = noHook,
+  outputs, kinds = [], onOpenOutputs, agents,
 }: {
   view: TaskView
   tasks: WorkObject[]
@@ -57,8 +62,14 @@ export function TaskList({
   now?: Date
   /** 来源标签上的 Webhook 名；undefined 是还没取到，null 是已删除 */
   hookName?: (id: string) => string | null | undefined
-  /** Webhook 来源视图空状态里的「Webhook 接入」 */
-  onGoHooks?: () => void
+  /** 每条任务的产出汇总（TSK-0497）；undefined 是还没取到，这时不显示产出、「产出」筛选不生效 */
+  outputs?: ReadonlyMap<string, ArtifactObjectSummary>
+  /** 产出物种类的名字和顺序（字典 artifact_kind） */
+  kinds?: readonly KindInfo[]
+  /** 点行上的产出标记：打开抽屉的产出物面板 */
+  onOpenOutputs?: (t: WorkObject) => void
+  /** Agent 头像（TSK-0500）：负责人是 Agent 时用 */
+  agents?: AgentLooks
 }) {
   // 「今天」取页面打开那一刻，渲染里不直接 new Date()
   const [opened] = useState(() => new Date())
@@ -67,11 +78,13 @@ export function TaskList({
   const [proj, setProj] = useState('')
   const [owner, setOwner] = useState('')
   const [sort, setSort] = useState<TaskSort>('')
+  // 有产出 / 无产出（TSK-0497），和状态组合：「已完成」加「无产出」就是做完了却没留下东西的
+  const [out, setOut] = useState<OutputsFilter>('')
   // 「我」是哪位干系人，记在这台浏览器上
   const [me, setMe] = useState(loadMe)
   const [closed, setClosed] = useState<Set<DueSeg>>(() => new Set())
   // 各段多露的条数；换了视图或筛选条件（sig 变了）就作废，重新只露 30 条
-  const sig = [view, status, prio, proj, owner, me, sort, q].join('\n')
+  const sig = [view, status, prio, proj, owner, me, sort, q, out].join('\n')
   const [more, setMore] = useState<{ sig: string; n: Partial<Record<DueSeg, number>> }>({ sig, n: {} })
   const extra = more.sig === sig ? more.n : {}
 
@@ -82,9 +95,9 @@ export function TaskList({
   const prioOf = (k: string) => priorities.find((p) => p.key === k)
   const projName = (t: WorkObject) => t.project_title || projects.find((p) => p.id === t.project_id)?.title
 
-  // 状态按钮的条数跟着项目、负责人、搜索走，不跟状态和优先级
+  // 状态按钮的条数跟着项目、负责人、产出、搜索走，不跟状态和优先级
   const base = tasks.filter((t) => (!proj || (proj === NO_PROJECT ? !t.project_id : t.project_id === proj))
-    && matchOwner(t, owner, me) && matchQuery(t, q))
+    && matchOwner(t, owner, me) && matchQuery(t, q) && matchOutputs(t.id, out, outputs))
   const rows = base.filter((t) => matchStatus(t, status, terminal) && (!prio || t.priority === prio))
   const segs = segment(rows, terminal, now).map((s) => ({ ...s, rows: sortSeg(s.rows, s.key, sort, rank) }))
   const owners = ownerOptions(tasks)
@@ -100,7 +113,7 @@ export function TaskList({
     setClosed(n)
   }
   const showMore = (k: DueSeg) => setMore({ sig, n: { ...extra, [k]: (extra[k] ?? 0) + MORE_STEP } })
-  const clearFilters = () => { setPrio(''); setProj(''); setOwner(''); onSearch('') }
+  const clearFilters = () => { setPrio(''); setProj(''); setOwner(''); setOut(''); onSearch('') }
   const pickMe = (id: string) => { setMe(id); saveMe(id) }
 
   const row = (t: WorkObject) => {
@@ -124,6 +137,7 @@ export function TaskList({
           <span className="task-meta">
             <SourceTag task={t} hookName={hookName} />
             {t.project_id && <span className="src-tag src-proj" title={pname}>{pname ?? '已删除的项目'}</span>}
+            <OutputsBadge summary={outputs?.get(t.id)} kinds={kinds} onOpen={onOpenOutputs ? () => onOpenOutputs(t) : undefined} />
             <span>{timeAgo(t.created_at, now)}创建</span>
           </span>
         </span>
@@ -134,14 +148,14 @@ export function TaskList({
             </span>
           )}
         </span>
-        <span className="ellipsis run-muted">{t.owner_name || t.owner || '未分配'}</span>
+        <OwnerMark t={t} agents={agents} className="run-muted" tag={false} />
         <span className={cls('run-muted', overdue && 'danger-text')}>{dueText(t, today)}{overdue ? ' 逾期' : ''}</span>
         <span><Pill label={st?.label ?? t.status} color={st?.color} /></span>
       </div>
     )
   }
 
-  const filtered = !!(q || prio || proj || owner)
+  const filtered = !!(q || prio || proj || owner || (out && outputs))
   let body
   if (error) body = <ErrorState error={error} onRetry={onRetry} />
   else if (loading) body = <LoadingState />
@@ -156,11 +170,6 @@ export function TaskList({
         : <EmptyState title="没有处于该状态的任务" action={<Button variant="outline" onClick={() => onStatus(OPEN)}>切回「未完成」</Button>} />
     } else if (view === 'overdue') {
       body = <EmptyState title="没有逾期的任务" desc="截止日都还没到，或者已经做完了" />
-    } else if (isSourceKind(view)) {
-      // 来源视图各有各的空状态（SPEC-tasks-3.5 到 3.7）；在这里新建的是人工任务，只有人工创建给「新建任务」
-      const action = view === 'manual' ? <Button variant="outline" onClick={onNew}>新建任务</Button>
-        : view === 'webhook' && onGoHooks ? <Button variant="outline" onClick={onGoHooks}>Webhook 接入</Button> : undefined
-      body = <EmptyState title="这里还没有任务" desc={SOURCE_VIEW[view].empty} action={action} />
     } else {
       body = <EmptyState title="这里还没有任务" desc="点右上角新建一个" />
     }
@@ -186,9 +195,9 @@ export function TaskList({
   const filters: [StatusFilter, string][] = [[OPEN, '未完成'], ...head.map((s): [string, string] => [s.key, s.label]), [ALL, '全部']]
   return (
     <div className="tasks-page">
-      <PageTitle parent="任务" count={showCounts ? rows.length : undefined} desc={isSourceKind(view) ? SOURCE_VIEW[view].desc : DESC[view]}
+      <PageTitle parent="任务" count={showCounts ? rows.length : undefined} desc={DESC[view]}
         actions={<Button variant="primary" onClick={onNew}><PlusMark />新建任务</Button>}>
-        {isSourceKind(view) ? SOURCE_VIEW[view].title : TITLE[view]}
+        {TITLE[view]}
       </PageTitle>
       <div className="toolbar">
         <div className="seg" role="group" aria-label="状态">
@@ -218,6 +227,7 @@ export function TaskList({
           options={[
             { value: OWNER_ME, label: meName ? `我（${meName}）` : '我' },
             { value: OWNER_NONE, label: '未分配' },
+            { value: OWNER_AI, label: 'AI 负责的', hint: 'Agent / CLI' },
             ...owners.filter((o) => o.id !== me).map((o) => ({ value: o.id, label: o.name || '已归档的干系人', hint: String(o.n) })),
           ]}
           missingLabel={() => '已归档的干系人'} />
@@ -226,6 +236,12 @@ export function TaskList({
             options={people.map((p) => ({ value: p.id, label: `我是 ${p.name}` }))} active={!me}
             missingLabel={() => '我是 已归档的干系人'} />
         )}
+        <div className={cls('chip chip-select', out && 'chip-on')}>
+          <select value={out} aria-label="产出" disabled={!outputs} title={outputs ? undefined : '产出物汇总还没取到'}
+            onChange={(e) => setOut(e.target.value as OutputsFilter)}>
+            {OUTPUTS_FILTERS.map((o) => <option key={o.key} value={o.key}>{o.label}</option>)}
+          </select>
+        </div>
         <div className={cls('chip chip-select', sort && 'chip-on')}>
           <select value={sort} aria-label="排序" onChange={(e) => setSort(e.target.value as TaskSort)}>
             {SORTS.map((o) => <option key={o.key} value={o.key}>{o.label}</option>)}

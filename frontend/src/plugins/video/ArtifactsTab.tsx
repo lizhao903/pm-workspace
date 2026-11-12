@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 视频详情的产出物（SPEC-videos-11）：按类型分块（顺序同 ARTIFACT_KIND），按比例区分的类型再按比例分栏；
 // 封面在每个方向下按封面比例分组，每组 5 格，缺的格点一下预填登记表单。点产出物打开抽屉（地址里记 ?a=，刷新还在）
 import type { UseQueryResult } from '@tanstack/react-query'

@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 package connector
 
 // 自定义 OpenAPI 接口（CONN-04，原型 custom_openapi）：用户给 OpenAPI 文档（地址或粘贴原文）、接口地址和认证。

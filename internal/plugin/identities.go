@@ -1,8 +1,11 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 package plugin
 
 import (
 	"context"
 	"database/sql"
+	"strings"
 
 	"github.com/lizhao903/pm-workspace/internal/imident"
 )
@@ -98,6 +101,45 @@ func (r conversationReader) Find(ctx context.Context, channel, externalID string
 	err := d.R.QueryRowContext(ctx, `SELECT id, channel, external_id, kind, name FROM conversations WHERE channel = ? AND external_id = ?`, ch, ext).
 		Scan(&info.ID, &info.Channel, &info.ExternalID, &info.Kind, &info.Name)
 	return info, err
+}
+
+// Match 见 ConversationReader.Match。
+func (r conversationReader) Match(ctx context.Context, ref string) ([]ConversationInfo, error) {
+	d := r.c.db()
+	if d == nil {
+		return nil, ErrNoStore
+	}
+	ref = strings.TrimSpace(ref)
+	if ref == "" {
+		return nil, nil
+	}
+	const cols = `SELECT id, channel, external_id, kind, name FROM conversations WHERE `
+	scan := func(q string, args ...any) ([]ConversationInfo, error) {
+		rows, err := d.R.QueryContext(ctx, cols+q+` ORDER BY channel, external_id, id`, args...)
+		if err != nil {
+			return nil, err
+		}
+		defer func() { _ = rows.Close() }()
+		var out []ConversationInfo
+		for rows.Next() {
+			var info ConversationInfo
+			if err := rows.Scan(&info.ID, &info.Channel, &info.ExternalID, &info.Kind, &info.Name); err != nil {
+				return nil, err
+			}
+			out = append(out, info)
+		}
+		return out, rows.Err()
+	}
+	// telegram 的编号存的时候去掉了开头的 @，这里也认带 @ 的写法
+	out, err := scan(`external_id = ? OR (channel = 'telegram' AND external_id = ?)`, ref, strings.TrimPrefix(ref, "@"))
+	if err != nil || len(out) > 0 {
+		return out, err
+	}
+	name := strings.TrimSpace(strings.TrimPrefix(ref, "#"))
+	if name == "" {
+		return nil, nil
+	}
+	return scan(`lower(trim(name)) = lower(?) OR lower(trim(name)) = lower(?)`, name, "#"+name)
 }
 
 // normalizeIM 规整渠道和编号；格式不对的当查不到，不报校验错误。

@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // IM 消息页的合并显示和「交给 Agent」（SPEC-messages-1.54 起）：同一个私聊合成一行、群里同一人连发合成一行、重复消息合成一行。
 // 只是展示：消息不动，状态筛选、计数、勾选、批量仍按一条条消息。正式产品同口径，见 frontend/src/plugins/im/groupModel.ts、sessionModel.ts。
 import type { Message } from './data'

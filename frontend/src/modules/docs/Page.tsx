@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 文档模块（SPEC-library，DOC-01b）：二级菜单位置是内容树和工作目录切换，顶栏是目录名和筛选，右边阅读区。
 // 工作台文档是 type=doc 的对象，一次拉全，按分类树分组；本地目录是挂载在后端的目录（/api/local-dirs），刷新页面还在。
 // 当前工作目录和正在读的文档放在地址里（?dir=<挂载 id>&doc=<文档 id>），别的模块可以直接链过来；筛选、搜索是页面状态。

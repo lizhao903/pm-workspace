@@ -1,7 +1,9 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 import { describe, expect, it } from 'vitest'
 import type { Agent, AgentProvider, Connector } from '../../../core/data'
 import {
-  blankDraft, choiceKey, createBody, defaultChoice, draftChanged, draftOf, draftPatch, editorIssues, grantsBody, grantsEqual, hasAll, modeOptions,
+  blankDraft, bulkGrants, bulkLevelOf, choiceKey, createBody, defaultChoice, draftChanged, draftOf, draftPatch, editorIssues, grantsBody, grantsEqual, hasAll, modeOptions,
   modelChoices, mountableConns, mountGrants, newGrants, normDir, shownMode, toolsOn, unmountGrants,
   triggerHasCondition, triggerSummary,
 } from './model'
@@ -161,5 +163,29 @@ describe('工具与权限（SPEC-settings-9.15 到 9.20）', () => {
     expect(body).toEqual({ read_tasks: 'auto', read_contacts: 'auto', write_tasks: 'confirm', 'conn:cn_1:list_issues': 'auto' })
     expect(grantsEqual(newGrants(), { read_tasks: 'auto', read_contacts: 'auto' })).toBe(true)
     expect(grantsEqual(newGrants(), { read_tasks: 'auto' })).toBe(false)
+  })
+})
+
+describe('一键全量设置权限', () => {
+  const tools = [
+    { key: 'c:read', write: false },
+    { key: 'c:write', write: true },
+    // 连接器那边要求写操作必须确认
+    { key: 'c:send', write: true, cap: 'confirm' as const },
+    // 连接器那边关掉了
+    { key: 'c:drop', write: true, cap: 'off' as const },
+  ]
+  it('每一档按读写分别定，再压到工具自己的上限', () => {
+    expect(bulkGrants(tools, 'off')).toEqual({ 'c:read': 'off', 'c:write': 'off', 'c:send': 'off', 'c:drop': 'off' })
+    expect(bulkGrants(tools, 'read')).toEqual({ 'c:read': 'auto', 'c:write': 'off', 'c:send': 'off', 'c:drop': 'off' })
+    expect(bulkGrants(tools, 'rw_confirm')).toEqual({ 'c:read': 'auto', 'c:write': 'confirm', 'c:send': 'confirm', 'c:drop': 'off' })
+    expect(bulkGrants(tools, 'rw_auto')).toEqual({ 'c:read': 'auto', 'c:write': 'auto', 'c:send': 'confirm', 'c:drop': 'off' })
+  })
+  it('认出现在是哪一档，对不上是自定义', () => {
+    expect(bulkLevelOf(tools, bulkGrants(tools, 'rw_auto'))).toBe('rw_auto')
+    expect(bulkLevelOf(tools, bulkGrants(tools, 'read'))).toBe('read')
+    expect(bulkLevelOf(tools, {})).toBe('off')
+    expect(bulkLevelOf(tools, { ...bulkGrants(tools, 'read'), 'c:write': 'confirm' })).toBeNull()
+    expect(bulkLevelOf([], {})).toBeNull()
   })
 })

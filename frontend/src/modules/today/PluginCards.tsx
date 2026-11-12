@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 今日页的插件卡片（SPEC-today-1.22、1.23）：前端注册的卡片和聚合接口里的插件卡片按 order 合并。
 // 每张包一层出错边界，一个插件渲染出错只影响它自己那一张
 import { Component, type ReactNode } from 'react'

@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 package plugin
 
 import (
@@ -105,6 +107,8 @@ type Core interface {
 	Objects() ObjectReader
 	Contacts() ContactReader
 	Conversations() ConversationReader
+	// Dicts 只读查内核枚举字典的条目，含停用的（TSK-0718，dicts.go）。
+	Dicts() DictReader
 	// ConversationWriter 收消息时登记还没登记的会话，只建不改（PR-02，conversations_write.go）。
 	ConversationWriter() ConversationWriter
 	// Identities 只读查 IM 身份（IM-01a，identities.go）。
@@ -125,6 +129,8 @@ type Core interface {
 	CacheDir() string
 	// Agent 用默认服务商补全、按 Agent 的授权跑一轮、搜指定知识库（SOP-01c，agent.go）。
 	Agent() AgentService
+	// Knowledge 取、建知识库，按插件自己的资料同步知识库里它加进来的篇目，把知识库挂到 Agent（TSK-0721，knowledge.go）。
+	Knowledge() KnowledgeService
 	// Granted 看用户确认过这项权限没有，只认状态表里确认过的（SEC-01，permissions.go）。
 	Granted(perm string) bool
 	// RevokePermission 收回自己单独授予的权限（如 trade:live），只能收回不能授予（TRD-08c，separate.go）。

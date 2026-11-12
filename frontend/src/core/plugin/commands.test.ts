@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 import { afterEach, describe, expect, it } from 'vitest'
 import { definePlugin } from './api'
 import { commandProviders, commandRegistry, disposeCommandsOf, registerCoreSearch, registeredCommands, type CommandDef } from './commands'

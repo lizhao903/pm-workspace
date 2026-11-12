@@ -235,6 +235,7 @@ type Core interface {
 	Objects() ObjectReader                   // 只读：Get(ctx, id)、Find(ctx, typeID, key) ObjectInfo（下面「内核对象只读句柄」）；TaskStages(ctx, TaskStageQuery{MessageID, RequesterID, Channel, SenderID, Limit}) 按来源消息或提出人查任务阶段，口径同 GET /api/tasks/stages（AUTO-05）
 	Contacts() ContactReader                 // 只读：Get、FindByName；ContactInfo 带 ID、Name、Email、Archived
 	Conversations() ConversationReader       // 只读：IM 会话（2.13.2）
+	Dicts() DictReader                       // 只读：内核枚举字典的条目，含停用的（TSK-0718）
 	ConversationWriter() ConversationWriter  // 登记 IM 会话，只建不改（PR-02，2.13.5 后）
 	Identities() IdentityReader              // 只读：IM 身份（2.13.3）
 	ObjectWriter() ObjectWriter              // 建对象、追加正文、改任务阶段（2.13.4）
@@ -245,6 +246,7 @@ type Core interface {
 	WorktreeDir() string                     // 数据目录下 worktrees/ 的绝对路径，没接数据目录为空串；项目插件在这里建需求工作区（AUTO-07）
 	CacheDir() string                        // 数据目录下 cache/<插件 id>/ 的绝对路径，没接数据目录为空串；放缩略图这类能重新生成的东西（TSK-0456）
 	Agent() AgentService                     // 用默认服务商补全、按 Agent 的授权跑一轮、搜指定知识库（SOP-01c）
+	Knowledge() KnowledgeService             // 取、建知识库，按插件自己的资料同步它加进来的篇目，挂到 Agent（TSK-0721，下面「知识库句柄」）
 	Granted(perm string) bool                // 用户确认过这项权限没有（SEC-01，2.13.16）
 	RevokePermission(ctx context.Context, perm string) error // 收回自己单独授予的权限（如 trade:live），只能收回不能授予（TRD-08c，2.13.26）
 	SOP() SOPService                         // SOP 节点、唤醒和失败、内置流程、指向流程的定时任务（2.7、2.13.14、2.13.15）
@@ -263,13 +265,26 @@ type Core interface {
 
 内核对象只读句柄（已实现，`internal/plugin/store.go`）：`Objects().Get(ctx, id)` 返回 `ObjectInfo{ID, Type, Ref, Title, Workdir, Props, Deleted, Status, ProjectID, OwnerID}`（`ProjectID` 是对象所属项目，没挂项目为空串，AUTO-07 加；`OwnerID` 是负责人联系人 id，没有为空串，TSK-0411 加），没有这个 id 返回 `ErrNoRows`。`Status` 是状态 key（按类型隔离，IM 的「等任务执行完成」节点看任务是不是 `done`，0.19.0 加）。`Props` 是对象的自定义字段（JSON 解开的 `map[string]any`，解不开为空 map），`Ref` 是给人看的编号（消息分流加，SOP 的写进项目目录要读项目的 `props.related`）。`Objects().Find(ctx, typeID, key)` 在一个类型里按 id、`ref`（不分大小写）、标题（完全相同）依次找没删的对象，标题重名取最早建的，都找不到返回 `ErrNoRows`（消息分流加，SOP 节点和 IM 的归到项目按「项目 id、编号或名字」认项目）。`Workdir` 是对象自身的 `workdir` 列，对项目就是 `root`，没设为空串，不往所属项目继承（TERM-01c 加）。项目根目录可能存成了 `file://` 地址，拿来当目录用之前过一遍 `plugin.LocalDir`（SEC-01 加：去掉前缀、按 URL 解码，不是 `file://` 的原样返回）。
 
+`Objects().List(ctx, ObjectQuery{Type, ProjectID, Archived, Limit})`（TSK-0721）按类型（可再按所属项目）列没删的对象，按建立先后；默认不列归档的（`Archived: true` 一起列），`Limit` 默认 500、最多 2000。`ObjectInfo` 加 `Archived`（`archived_at` 非空）。项目插件列项目、项目下的文档用。
+
+知识库句柄（TSK-0721，`internal/plugin/knowledge.go`，实现在内核接口层 `internal/api/kbplugin.go`，`api.New` 接上，没接上回 `ErrNoKnowledge`）：
+
+| 方法 | 说明 |
+|---|---|
+| `Knowledge().Get(ctx, id)` | `KnowledgeBaseInfo{ID, Name, Desc, Docs, Agents}`（`Agents` 是挂着它的 Agent id），不存在回 `ErrNoRows` |
+| `Knowledge().Create(ctx, name, desc)` | 建一个知识库（默认切分设置、不选分类、不挂目录），名称规则同 `POST /api/knowledge-bases`；记审计 `knowledge_base`/`create`，操作者插件 |
+| `Knowledge().Sync(ctx, kbID, scope, items []KBItem)` | 让知识库里 `origin` 为 `<插件 id>:<scope>` 的篇目和 `items` 一致（新的加、变了的重新索引、没了的移出），人工加的、别的插件和别的 scope 的不动，和它们重复的跳过；`KBItem{Key, Kind, Ref, Title, Text, Label}`，`Kind` 是 `file`、`dir`、`note`、`link`、`library`。读本机文件同知识库目录同步的拦截（只收 md、markdown、txt、text，库文件、密钥证书、数据目录里的不收，数据目录下的 `attachments/` 例外；单个文件超过 1MB 跳过），整目录收时目录本身不能是隐藏目录、数据目录或包住它的。回 `KBSyncResult{Added, Updated, Removed, Unchanged, Skipped, Failed, Failures, Skips}`；和知识库页的同步互斥，撞上回冲突错误。有增删改时记审计 `knowledge_base`/`sync` |
+| `Knowledge().AttachAgent(ctx, agentID, kbID)` | 把知识库挂到 Agent 的 `kbs`，已挂回 `false`；记审计 `agent`/`update` |
+
+谁能调：任何插件，不要权限（读文件走内核的拦截，插件拿不到文件内容以外的东西；只能改自己 origin 下的篇目）。
+
 产物登记句柄（已实现，`internal/plugin/artifacts_write.go`，AUTO-08 加）：`Artifacts().Record(ctx, NewArtifact{ObjectID, Title, Path, BaseDir, Kind, Note, Props})` 回产物 id。走 `cmd/pmw` 交的外层 store（同 Claude Code 运行的产物登记），`source` 固定 `run`、`actor_type` 固定 `run`、`actor_id` / `actor_label` 为插件 id，`platform` 为 `local`，插件改不了；`ObjectID` 空串不挂对象；`Path` 可以是相对 `BaseDir` 的路径；`Kind` 是字典 `artifact_kind` 的 key（不认的回 `domain.ErrValidation`）。没接 store 回 `ErrNoObjectWriter`。只登记，不改、不删。项目插件用它把测试报告、截图登记为任务产出。
 
 模型和 Agent 句柄（已实现，`internal/plugin/agent.go`，SOP-01c 加）：实现是 `internal/agent` 的 `Service`，`cmd/pmw` 用 `Registry.SetAgent` 接上；没接上时每个方法回 `ErrNoAgent`。服务商、授权、技能的口径和对话接口（`/api/agent/chat`）一致。
 
 | 方法 | 做什么 |
 |---|---|
-| `Complete(ctx, CompleteRequest{System, Prompt, Provider, Model, Agent, Scenario})` | 不带工具补全一次，回模型说的原文。`Agent`（id 或名称）给了就用这个 Agent 的服务商、模型、思考档位，它的指令拼在 `System` 前面，`Provider`、`Model` 忽略；指定的 Agent 不存在或停用了报错。`Agent`、`Provider`、`Model` 都没给时按 `Scenario`（`plugin.ScenarioSOPAssist` / `plugin.ScenarioBackground`，空的算 background）用「设置 / Agent」里选的场景默认 Agent，没选或用不了照老样子。服务商取 `Provider`，没给取默认的（没有默认的取第一个启用的），`Model` 为空用服务商的模型；一个服务商都没有回 `agent.ErrNoProvider`。思考档位翻成各家参数、模型不认时自动去掉重来，插件不用管。服务商不可用（熔断中，或自动重试 2 次仍是 5xx / 连不上）时：服务商设了「失败时改用」（`extra.fallback_id`）先改用备用服务商和它的默认模型；还不行回 `*plugin.ProviderUnavailableError`（即 `agent.UnavailableError`：`ProviderID`、`Provider`、`Cause` 原始失败、`Open` 是否已熔断、`RetryAt` 下次探测时间、`Fallback` 试过的备用服务商名），用 `plugin.AsProviderUnavailable(err)` 取，插件可以据此等服务商恢复再跑（SOP 的做法见 api-contract「等服务商恢复」）。`RunAgent` 也经过熔断，熔断中直接回这个错误，不改用备用 |
+| `Complete(ctx, CompleteRequest{System, Prompt, Provider, Model, Agent, Scenario, Thinking})` | 不带工具补全一次，回模型说的原文。`Agent`（id 或名称）给了就用这个 Agent 的服务商、模型、思考档位，它的指令拼在 `System` 前面，`Provider`、`Model` 忽略；指定的 Agent 不存在或停用了报错。`Agent`、`Provider`、`Model` 都没给时按 `Scenario`（`plugin.ScenarioSOPAssist` / `plugin.ScenarioBackground`，空的算 background）用「设置 / Agent」里选的场景默认 Agent，没选或用不了照老样子。服务商取 `Provider`，没给取默认的（没有默认的取第一个启用的），`Model` 为空用服务商的模型；一个服务商都没有回 `agent.ErrNoProvider`。`Thinking`（`default`/`off`/`low`/`medium`/`high`，空串跟 Agent/服务商默认）可以覆盖这次调用的思考档位：结构化输出这类不需要长思考的调用传 `plugin.ThinkingOff` 能明显省时间。思考档位翻成各家参数、模型不认时自动去掉重来，插件不用管。服务商不可用（熔断中，或自动重试 2 次仍是 5xx / 连不上）时：服务商设了「失败时改用」（`extra.fallback_id`）先改用备用服务商和它的默认模型；还不行回 `*plugin.ProviderUnavailableError`（即 `agent.UnavailableError`：`ProviderID`、`Provider`、`Cause` 原始失败、`Open` 是否已熔断、`RetryAt` 下次探测时间、`Fallback` 试过的备用服务商名），用 `plugin.AsProviderUnavailable(err)` 取，插件可以据此等服务商恢复再跑（SOP 的做法见 api-contract「等服务商恢复」）。`RunAgent` 也经过熔断，熔断中直接回这个错误，不改用备用 |
 | `RunAgent(ctx, AgentRunRequest{Agent, Prompt, Title})` | `Agent` 是 id 或名称，停用的不跑。新建一个挂这个 Agent 的会话（标题 `Title`），按它当前的服务商、模型、技能、工具授权跑一轮。遇到授权是「需确认」的工具不执行，回 `Waiting: true`、`Pending`（给人看的一句话）、`CallIDs`；人在会话里确认或拒绝后由对话接口接着跑 |
 | `AgentState(ctx, sessionID)` | 会话里最新一条 Agent 回复（`MessageID`、`Reply`）；回复里还有确认卡片时 `Waiting` 为真。插件靠「`MessageID` 变了、`Waiting` 为假」判断确认后这一轮跑完了 |
 | `SearchKB(ctx, kbIDs, query, top)` | 只在给的知识库里检索，回前 `top` 段（`KBHit` 即 `kb.SearchHit`）；`kbIDs` 为空直接报错，不搜全部 |
@@ -290,6 +305,7 @@ type Core interface {
 | `ContactWriter().Create(ctx, NewContact, WriteMeta)` | 建联系人（干系人名册），`Name` 必填，校验同 `POST /api/stakeholders` |
 | `ContactWriter().Merge(ctx, id, ContactPatch, WriteMeta)` | 把非 nil 的字段写进已有联系人，回 `WrittenContact{ID, Name, Fields}`，`Fields` 是改了的字段 |
 | `Contacts().FindByName(ctx, name)` | 只读：按名字找没归档的联系人，重名取最早建的，没有回 `ErrNoRows` |
+| `Dicts().Item(ctx, dictID, key)` / `Dicts().Items(ctx, dictID)` | 只读：内核枚举字典（`dict_items`，只看 `type_id` 为空的全局条目）。`DictItemInfo` 带 `Key`、`Label`、`Archived`、`Default`（`meta.default`）；`Item` 没有这条或字典不存在回 `ErrNoRows`，`Items` 按 `sort_order` 含停用的，字典不存在回空。项目插件按 `project_role` 校验干系人角色用（TSK-0718）；改字典走内核接口 |
 
 写内核数据不在 3.1 的权限清单里，暂不按权限收窄；能写哪些类型等 `ObjectService` 落地时按「本插件声明或认领的类型」收。
 
@@ -534,6 +550,7 @@ type Def struct {
 	Label    string     // 必填
 	Category string     // im / media / market / dev / other
 	Color    string
+	Logo     string     // 平台图标的键（TSK-0725），小写字母和数字；留空时内核按 Tool 补内置的（internal/connector/logo.go），前端不认识的键退回文字图标
 	Desc     string
 	CanSend  bool       // 能往外发（IM 回复）；只收不发的为 false
 	Auth     []AuthMode // 支持的认证方式，至少一个，第一个是默认：AuthNone / AuthOAuth2 / AuthToken
@@ -684,11 +701,26 @@ export interface SopNodeRegistry { register(def: SopNodeView): Disposable }
 type SOPNodeDef struct {
 	Kind     string         // = provides.sop_nodes 里的一项，以 <id>_ 开头
 	Group    string         // 节点面板分组，空为「插件」
-	Required []SOPNodeField // {Key, Label}，保存时校验的必填配置项
+	Required []SOPNodeField // {Key, Label}，保存时校验的必填配置项；Spec.Params 里 Required 的也并进来
+	// Spec 是节点的声明（TSK-0490）：做什么、认哪些配置、往输出里加哪些字段
+	Spec SOPNodeSpec
 	// Run 拿到上游输入和节点配置，返回输出字段；返回 ErrWaiting 表示挂起等外部事件（例：等对方回复）。
 	// c 是提供节点的插件自己的 Core。
 	Run func(ctx context.Context, c Core, in SOPNodeInput) (map[string]any, error)
 }
+// 节点声明（TSK-0490）。Params、Outputs 为 nil 是没声明；空切片是不认配置 / 只透传
+type SOPNodeSpec struct {
+	Label, Desc string
+	Params      []SOPParam  // {Key, Label, Desc, Required, Default, Template（能写 {{字段}}）, Options []SOPOption, Source（现取的选项：conversations、projects……）}
+	Outputs     []SOPOutput // {Path（a.b，{配置项} 换成配置值）, Type（string/number/bool/object/list/any）, Label, Values []SOPOption, Example, Open}
+	// Effect 是副作用（TSK-0491，SOP 调试按它决定真跑还是模拟）：SOPEffectRead 只读，调试时真实执行（Run 不能改任何数据）；
+	// SOPEffectWrite 改数据或对外发，调试时不调 Run，只列出渲染后的配置、声明的输出填占位值；SOPEffectWait 停下等外部事件，调试时不等、输出填占位值。
+	// 空串按 SOPEffectWrite（没声明的一律不真跑）
+	Effect string
+	DryRun string // 调试时怎么模拟的一句话，空串按 Effect 的默认说法
+}
+// 把声明集中写在一个文件里时，Register 开头包一层，登记节点时按 kind 补上 Spec：
+//   r = plugin.WithSOPSpecs(r, sopSpecs) // sopSpecs map[string]SOPNodeSpec
 type SOPNodeInput struct {
 	RunID, FlowID, Step string // Step 是步骤 key，唤醒时用
 	Attempt             int    // 从 1 起，重试、退回重做加 1；服务重启后重跑同一次尝试不加（POL-02）
@@ -701,7 +733,8 @@ type SOPNodeInput struct {
 
 后端的实现情况（SOP-03a）：
 
-- `Registrar.SOPNode` 已实现。登记不对（kind 不在 `provides.sop_nodes`、不以 `<id>_` 开头、没有 `Run`、必填项缺 key 或 label、本插件内重复）时 `Register` 整体失败，插件起不来，错误写明哪一项。
+- `Registrar.SOPNode` 已实现。登记不对（kind 不在 `provides.sop_nodes`、不以 `<id>_` 开头、没有 `Run`、必填项或声明的配置项缺 key 或 label、本插件内重复）时 `Register` 整体失败，插件起不来，错误写明哪一项。
+- 节点声明 `Spec`（TSK-0490）：SOP 插件拿它做保存校验（多余的配置键给警告、条件引用的字段要在上游声明的输出里）、编辑器的「这一步能拿到的字段」和配置表单、AI 协助的节点目录、Agent 的编排说明（`GET /api/sop/node-types` 的 `label`、`desc`、`params`、`outputs`，契约「SOP 编排插件 sop」的「节点类型」）。**新加节点要写声明**，输出写 `with(input, …)` 加上去的那几个字段，子字段列全或标 `Open`；没声明的节点照样能用，只是 `outputs_open: true`，下游引用它的字段只给警告、AI 不知道它输出什么。第一方的 IM、项目、视频插件各有 `sopspec.go` 和守卫测试 `sopspec_test.go`（清单里的节点都要有声明）。`Spec` 只是元数据，改它要照常升插件版本。
 - 内核只存登记，执行由 SOP 插件经 `Core.SOP()` 取到：`Nodes()` 是在跑的插件登记的节点（`Source` 为插件 id），`RunNode` 用提供方的 Core 跑一次（panic 转成错误），提供方没在跑回 `ErrNodeUnavailable`（「提供这个节点的插件已停用」）。
 - `GET /api/sop/node-types` 在内置节点后面接上插件节点，带 `source`；停用后消失。用到它的流程定义不动，保存照常（不查必填项），执行到这一步失败并写「提供这个节点的插件已停用」。
 - 挂起：`Run` 返回 `ErrWaiting`（可以包一层写原因，如 `fmt.Errorf("等对方回复：%w", plugin.ErrWaiting)`）时步骤停在 `running`，挂起状态落在步骤输出里，服务重启后不重跑、接着等。之后提供节点的插件调 `c.SOP().Resume(ctx, runID, step, output)` 唤醒，这一步 `done`、输出是 `output`，下游接着跑；只能唤醒自己提供的节点，步骤没在等、执行已结束都回错误。SOP 插件没在跑时回 `ErrNoSOPEngine`。`Resume` 要在 `Run` 返回之后调，先存下 `RunID`、`Step`。
@@ -722,14 +755,40 @@ type SOPStarter interface {
 }
 // Registrar.SOPStarter(st SOPStarter)
 // Registry.StartSOP(ctx, q)：交给在跑的登记方；没有回 ErrNoSOPStarter（「SOP 编排插件没启用」，即 schedule.ErrSOPUnavailable）
-// Core.SOP().Schedules(ctx, flowID) ([]SOPScheduleRef, error)：动作 sop 指向这个流程的定时任务 {ID, Name}
+// Core.SOP().Schedules(ctx, flowID) ([]SOPScheduleRef, error)：动作 sop 指向这个流程的定时任务 {ID, Name, Managed}
+// 随流程管理的定时任务（TSK-0463，internal/plugin/sopschedule.go）：
+// Core.SOP().FlowSchedule(ctx, flowID) (*SOPFlowSchedule, error)：随这个流程管理的那条，没有回 nil
+// Core.SOP().FlowSchedules(ctx) (map[string]SOPFlowSchedule, error)：全部，按流程 id
+// Core.SOP().SaveFlowSchedule(ctx, flowID, SOPFlowScheduleInput{Name, Rule *SOPScheduleRule, Enabled *bool, Adopt bool}) (*SOPFlowScheduleResult, error)
+// Core.SOP().DeleteFlowSchedule(ctx, flowID) (int, error)
+// Core.SOP().CheckScheduleRule(rule SOPScheduleRule) (SOPScheduleRule, error)：规范化并校验（同 POST /api/schedules/preview）
 ```
 
 - 只有清单 `provides.modules` 含 `sop` 的插件能登记，**同一时间只有一个**：已有在跑的插件登记过时，后启用的那个启用失败（「发起 SOP 的入口已由插件 x 登记，同一时间只能有一个」），先停掉前一个再启用。本插件内重复登记、传 nil 也失败。
 - 登记方的 `StartSOP` 自己负责找流程、补默认值和必填校验，错误文字给人看（定时任务记进执行记录、Agent 回给模型）；panic 转成「发起 SOP 出错」。SOP 编排插件的实现同 `POST /api/sop/flows/{id}/runs`，不逐步确认，人工检查点照常停下。
 - `ObjectID`（SOP-06）：这次执行关联的工作对象。Agent 的 `run_sop` 在挂着对象的会话（任务分配给 Agent 触发的、在任务详情里对话的）里调用时带上会话的 `object_id`，定时任务不带。SOP 编排插件把它记进 `sop_runs.object_id`，对象已经不在了只记日志、照常发起不关联。
 - 来源（SOP-06）：SOP 编排插件把 `Source` 记进 `sop_runs.source`，只认 `schedule`、`agent`、`plugin`（内核运行句柄 `Runs().StartSOP` 发起的），别的记空串；`SourceID`、`SourceName` 记进 `source_ref`、`source_name`。界面发起记 `manual`、IM 触发记 `im`、子流程记 `subflow`，这三种不经钩子。
+- 流程目录（TSK-0480，`internal/schedule/sopcatalog.go`、`internal/plugin/soplaunch.go`）：登记的发起入口可以另外实现 `SOPCatalog`（别名 `schedule.SOPCatalog`），内核的 `Registry.ListSOPs`、`GetSOP`、`SaveSOP`、`SOPNodeKinds`、`ListSOPFolders`（TSK-0482）转给它，Agent 的内置工具 `list_sops`、`get_sop`、`create_sop`、`update_sop` 走这里。没实现或没有在跑的登记方时回 `ErrNoSOPStarter`，插件 panic 转成「读写 SOP 流程出错」。
+
+  ```go
+  type SOPCatalog interface {
+    ListSOPs(ctx) ([]SOPFlowBrief, error)              // {ID, Name, Desc, Trigger, Steps（步骤数）, Version, IMTrigger, Folder}，按新建时间
+    GetSOP(ctx, ref string) (*SOPFlowDoc, error)       // ref 认 id 和名称；找不到 errors.Is(err, ErrSOPNotFound)
+    SaveSOP(ctx, q SOPSave) (*SOPFlowDoc, error)       // q.ID 为空新建，否则修改；q.Body 同 POST / PATCH /api/sop/flows 的请求体
+    SOPNodeKinds(ctx) ([]SOPNodeKind, error)           // {Kind, Label, Group, Branching, Cases, Required}，内置的和在跑的插件登记的
+    ListSOPFolders(ctx) (SOPFolders, error)            // TSK-0482：{Folders: [{ID, Name, Count}], Uncategorized}，按新建先后
+    SOPGuide(ctx) (string, error)                      // TSK-0490：给模型看的编排说明（节点目录含配置项和输出、触发方式字段、条件写法、IM 过滤、文件夹），同编辑器 AI 协助
+  }
+  type SOPFlowDoc struct { SOPFlowBrief; Fields, StepDefs json.RawMessage; FolderCreated bool; Warnings []string }
+  ```
+
+  `Folder`（TSK-0482）是流程所在文件夹的名字，未分类为空串。`SaveSOP` 的 body 另认 `folder`：文件夹名字（不分大小写）或 `sfd_` id，空串或「未分类」放回未分类，对不上时按这个名字新建文件夹（流程没存上时删掉这个还空着的新文件夹），`FolderCreated` 为真；给了 `folder` 就不看 `folder_id`。新实现 `SOPCatalog` 的要补 `ListSOPFolders`（接口加了方法）。`Warnings`（TSK-0490）：`SaveSOP` 存上了但有保存校验警告时逐条列出（「第 n 步：…」），`GetSOP` 时是打开这条流程会看到的全部问题（警告前标「（警告）」）；没存上的错误照旧在 `error` 里，后面接一并要改的警告。
+
+  `IMTrigger`（TSK-0481）是触发方式为 `im` 时的过滤条件、执行顺序和拦截，一句给人看的话（如「会话 ai-octok-platform（slack C0BNCBRL5C0，cv_…）；排除 @我；第 1 个判断；命中后不再触发后面的 IM 流程」），不是 `im` 为空串；`SaveSOP` 的 body 可带 `im`，同 `POST` / `PATCH` 的 `im`。
+
+  SOP 编排插件的实现和 `POST /api/sop/flows`、`PATCH /api/sop/flows/{id}` 是同一段代码（同样的校验、版本冲突、随流程管理的定时任务），body 里的 `id` 忽略（新建一律生成 id），`steps` 里分支节点没写 `cases` 的补默认出口、有 `branch.of` 没写 `after` 的补成依赖分支步骤；保存校验没过的错误是「流程没存上：第 n 步：…；…」，其余错误去掉分类前缀给人看。
 - `Schedules` 由内核接上定时任务的查询（`Registry.SetSOPRefs`），没接时回空切片。SOP 插件删流程前用它拦下被定时任务引用的流程（契约「SOP 编排插件 sop」）。
+- 随流程管理的定时任务（TSK-0463）：SOP 流程触发方式是「定时」时，规则存在一条动作 `sop`、`action.managed` 为真的内核定时任务里，一个流程最多一条（契约「SOP 编排插件 sop」的「定时触发」）。类型是 `internal/schedule` 的别名：`SOPFlowSchedule = schedule.Schedule`、`SOPFlowScheduleInput = schedule.FlowScheduleInput`、`SOPFlowScheduleResult = schedule.FlowScheduleResult{Schedule, Created, Adopted}`、`SOPScheduleRule = schedule.Rule`。内核用 `Registry.SetSOPSchedules(*schedule.Store)` 接上（可以在 `Start` 之后调），没接时这几个方法回 `ErrNoSOPSchedules`。读（`FlowSchedule`、`FlowSchedules`、`CheckScheduleRule`）谁都能调；写（`SaveFlowSchedule`、`DeleteFlowSchedule`）只有 SOP 编排插件（id `sop`）能调，别的插件回 `ErrSOPScheduleForbidden`。`SaveFlowSchedule`：已有那一条就改（`Rule`、`Enabled` 为 nil 不改，`Name` 非空且不同就改名）；没有时 `Rule` 为 nil 不建，否则新建（`Enabled` 缺省启用）；`Adopt` 为真时先找用户手建、指向这个流程、规则等价的条目，有就认领（置 `managed`，名字、启停不动，`Adopted` 为真）。同一个流程的查找和新建串行，不会建出两条。`SOPScheduleRef` 多了 `Managed`：删流程前只拦 `Managed` 为假的。
 
 例子（IM 消息，发消息节点）：
 
@@ -1007,12 +1066,16 @@ type ConversationReader interface {
 	Get(ctx context.Context, id string) (ConversationInfo, error)
 	// Find 按渠道和渠道里的会话编号找；编号规整同 imident（telegram 去掉开头的 @），格式不对当查不到
 	Find(ctx context.Context, channel, externalID string) (ConversationInfo, error)
+	// Match 不知道渠道时按一句话找（TSK-0481）：先按各渠道的会话编号原样比（telegram 也认带 @ 的），
+	// 都没有再按会话名比（不分大小写，开头的 # 去掉）；按渠道、编号排序，可能多条，都没有回空切片（不是 ErrNoRows）
+	Match(ctx context.Context, ref string) ([]ConversationInfo, error)
 }
 ```
 
 - 谁能调：任何插件。只读，查内核的 IM 会话表（CT-02，`conversations`），不带成员；建会话、改成员走内核 `/api/conversations`。
 - 权限：不要权限。
-- 查不到回 `ErrNoRows`。
+- 查不到回 `ErrNoRows`（`Match` 除外，回空）。
+- `Match` 给 SOP 编排插件的 IM 触发按会话过滤用（用户、Agent 给的是 Slack 频道编号 `C0BNCBRL5C0` 或群名，不知道渠道）；对上多条时调用方自己决定怎么办（SOP 插件回 400 让改填 `cv_` id）。
 
 例子（IM 插件收到消息时认会话）：
 
@@ -1453,14 +1516,21 @@ type SOPFlowTemplate struct { // 形状同 POST /api/sop/flows 的请求体
 	Fields  json.RawMessage `json:"fields"`
 	Steps   json.RawMessage `json:"steps"`
 	Layout  json.RawMessage `json:"layout,omitempty"`
+	// 触发方式是 schedule 时随流程一起建的定时任务（TSK-0721）；nil 时流程是「定时，未配置」
+	Schedule *SOPFlowTemplateSchedule `json:"schedule,omitempty"`
+}
+type SOPFlowTemplateSchedule struct {
+	Rule    SOPScheduleRule `json:"rule"`    // 同 /api/schedules 的 rule
+	Enabled bool            `json:"enabled"` // 建出来启不启用；到点自动跑的事建议 false，由用户确认后启用
 }
 var ErrNoSOPFlowInstaller error
 ```
 
 - 谁能调：任何插件，只能写入、撤下 id 以 `sop_<本插件 id>_` 开头的流程（前缀不对直接回错误，不转给引擎）。用户复制出来的副本是新 id，不归插件。
 - 权限：不要权限。
-- SOP 插件没在跑、或它的引擎没实现 `SOPFlowInstaller` 回 `ErrNoSOPFlowInstaller`，调用方下次再试。写入时已有同 id 的不动、回 `false`；撤下只删还是第 1 版、没有进行中的执行、没被定时任务引用的，别的回 `false` 和原因（不算出错）。
+- SOP 插件没在跑、或它的引擎没实现 `SOPFlowInstaller` 回 `ErrNoSOPFlowInstaller`，调用方下次再试。写入时已有同 id 的不动、回 `false`（用户放的文件夹也不动，TSK-0482）；撤下只删还是第 1 版、没放进文件夹、没有进行中的执行、没被定时任务引用的，别的回 `false` 和原因（不算出错；放进了文件夹的原因是「流程放进了文件夹，留给用户」）。写进来的流程在「未分类」。
 - 插件自己记「写过没有」（视频插件用 `video_sop_templates` 表），用户删掉内置流程后不会被再写回来。
+- 定时规则（TSK-0721，SOP 插件 0.19.0 起）：`Schedule` 给了且 `Trigger` 是 `schedule` 时，第一次写入同时建随流程管理的定时任务（按 `Enabled` 启停）；流程已有、还是第 1 版、又没有这一条时（上次写入时内核没接定时任务、SOP 插件是旧版）补建，用户改过的不动。内核没接定时任务时不建，不算出错。
 
 例子（`internal/plugins/video/sopnodes.go`）：
 
@@ -1814,6 +1884,7 @@ if err := os.MkdirAll(dir, 0o755); err != nil { return err }
 | `network:im` | 访问 IM 平台（Slack、Telegram、飞书、企业微信的接口域名） | 普通 |
 | `network:media-platforms` | 访问视频平台 | 普通 |
 | `network:market-data` | 访问行情源 | 普通 |
+| `network:model` | 下载本地模型（HuggingFace 与镜像，录音转写插件用，REC-01a） | 普通 |
 | `network:exchanges` | 访问交易所的账户和交易接口（交易套件 0.5.0 起用它只读同步交易所账户，0.7.0 起加实盘闸门放行的下单、撤单、查单，见 3.3） | 高 |
 | `network:any` | 访问任意外网地址 | 高 |
 | `secrets:<scope>` | 取凭证保险箱里该范围的凭证，例 `secrets:im`、`secrets:media` | 普通 |
@@ -1828,6 +1899,7 @@ if err := os.MkdirAll(dir, 0o755); err != nil { return err }
 | `im` | `slack.com`、`*.slack.com`、`api.telegram.org`、`open.feishu.cn`、`open.larksuite.com`、`qyapi.weixin.qq.com` |
 | `media-platforms` | B 站 `bilibili.com`、`*.bilibili.com`、`*.hdslb.com`、`*.bilivideo.com`；YouTube `youtube.com`、`*.youtube.com`、`youtube.googleapis.com`、`*.googlevideo.com`、`*.ytimg.com`，`www.googleapis.com` 只放 `/youtube/`、`/upload/youtube/`；抖音 `douyin.com`、`*.douyin.com`、`*.douyinpic.com`、`*.douyinvod.com` |
 | `market-data` | Binance `data-api.binance.vision`、`data-stream.binance.vision`，`api.binance.com` 只放公开行情路径（`/api/v3/` 下的 ping、time、exchangeInfo、depth、trades、aggTrades、klines、uiKlines、avgPrice、ticker），U 本位永续 `fapi.binance.com` 只放公开行情路径（`/fapi/v1/` 下的 ping、time、exchangeInfo、depth、klines、premiumIndex、fundingRate、fundingInfo、ticker）；OKX `www.okx.com` 只放 `/api/v5/market/`、`/api/v5/public/`，`ws.okx.com` 只放 `/ws/v5/public`、`/ws/v5/business` |
+| `model` | `huggingface.co`、`*.huggingface.co`、`hf.co`、`*.hf.co`、`hf-mirror.com`、`*.hf-mirror.com`（REC-01a：下载 whisper.cpp 模型，会 302 到 CDN，每一跳都查） |
 | `exchanges` | Binance `api.binance.com`、`api1` 到 `api4.binance.com`、`fapi`、`dapi`、`stream`、`fstream.binance.com`、`testnet.binance.vision`；OKX `www.okx.com`、`ws.okx.com`。只列域名、不分路径。交易套件（TRD-07a）在客户端外面再包一层检查：只读请求只放行 `GET` 和 `internal/plugins/trade/exchange.go` 的 `exchangeReadPaths` 里的路径（Key 权限、余额、持仓、挂单查询、成交历史、公开的交易规则、永续杠杆查询）；写请求（TRD-08d）只放行 `exchange_trade.go` 的 `exchangeTradePaths`（下单、撤单、查单），而且只在实盘闸门签发的一次性令牌下放行，永不放行提币、划转、借贷。`testnet.binancefuture.com`（U 本位合约测试网）还不在这张表里 |
 | `any` | 任意 http、https 地址 |
 
@@ -2095,6 +2167,14 @@ SOP 在进程启动时自动完成表结构迁移和 JSON 补建：主程序在 
 | 1.0.0 | 2026-10-28 | 初版（CORE-01a） |
 | 1.1.0 | 2026-10-29 | `Core` 加 `Runs()`：发起 Agent、SOP 运行和交给 Claude Code，跑完给发起的插件投 `run.finished`（VID-03a） |
 
+补记（不改版本号，2026-11-06，TSK-0491）：SOP 节点扩展点（2.7）`SOPNodeSpec` 加 `Effect`（`SOPEffectRead` / `SOPEffectWrite` / `SOPEffectWait`）、`DryRun`，SOP 调试按它决定真跑还是模拟；声明 `read` 的节点 `Run` 必须不改任何数据。流程目录加可选接口 `SOPDebugger`（`TestSOP`、`ExplainIMTrigger`，类型 `SOPTest`，内核别名 `SOPCatalogDebugger`），Agent 的 `test_sop`、`explain_im_trigger` 经注册表 `Registry.TestSOP` / `ExplainIMTrigger` 调；SOP 插件旧版本没实现时这两个工具不出现。只增不改。IM（0.28.0）、视频（0.8.2）插件声明了各自节点的 `Effect`；IM 插件 `emits` 加 `im.message_muted`。
+
+补记（不改版本号，2026-11-06，TSK-0721）：`Core` 加 `Knowledge()`（类型 `KnowledgeService`、`KnowledgeBackend`、`KnowledgeBaseInfo`、`KBItem`、`KBSyncResult`、`KBProblem`，钩子 `Registry.SetKnowledge`）；`ObjectReader` 加 `List`、类型 `ObjectQuery`，`ObjectInfo` 加 `Archived`；`SOPFlowTemplate` 加 `Schedule`（类型 `SOPFlowTemplateSchedule`）。内核迁移 `0054_kb_doc_origin.sql`（`kb_docs.origin`、`origin_key`，来源类型多 `file`）。项目插件实际清单（0.19.0）`sop_nodes` 加 `projects_kb_sync`，迁移加 `0012_kb.sql`（表 `projects_kb`、`projects_sop_templates`），后台任务加 `kb_flow_template`，实现 `Uninstaller`；全部节点补 `Spec.Effect`。SOP 插件 0.19.0 的 `InstallFlow` 认 `Schedule`。只增不改。
+
+补记（不改版本号，2026-11-06，TSK-0490）：SOP 节点扩展点（2.7）`SOPNodeDef`、`SOPNode` 加 `Spec SOPNodeSpec`（`Label`、`Desc`、`Params []SOPParam`、`Outputs []SOPOutput`），加 `WithSOPSpecs(r, specs)` 在登记时按 kind 补声明；`Spec.Params` 里必填的并进 `Required`。流程目录 `SOPCatalog` 加 `SOPGuide`，`SOPFlowDoc` 加 `Warnings`。只增不改：不给 `Spec` 的节点照旧能用（`outputs_open: true`）；`SOPCatalog` 现有唯一实现是 SOP 编排插件（实际清单 0.16.0，不加迁移）。IM（0.26.1）、项目（0.17.1）、视频（0.8.1）插件给各自的节点补了声明，不加迁移。
+
+补记（不改版本号，2026-11-06，TSK-0482）：流程目录 `SOPCatalog`（2.7）加 `ListSOPFolders`，类型 `SOPFolders`、`SOPFolderBrief`；`SOPFlowBrief` 加 `Folder`，`SOPFlowDoc` 加 `FolderCreated`，`SaveSOP` 的 body 认 `folder`。接口加方法，现有唯一实现是 SOP 编排插件（实际清单 0.15.0，迁移加 `0009_folders.sql`，表 `sop_folders`），没有第三方实现。`RemoveFlow` 不再删用户放进了文件夹的内置流程。
+
 补记（不改版本号，2026-11-05，TSK-0455）：`ConnectorReader` 加 `SaveSession(ctx, id, secrets, account)`（2.13.27），插件把自己拿到的登录态（`_` 开头的键）写进本插件登记的实例的保险箱条目，记只有键名的审计。视频插件实际清单升到 0.8.0：`provides.connectors` 加 `bilibili_web`（B 站网页端，扫码登录，非官方接口），迁移加 `0013_bilibili_web.sql`（表 `video_bili_profiles`、`video_bili_snapshots`、`video_bili_trends`、`video_bili_sessions`、`video_bili_messages`），后台任务加 `bili_inbox`（每 60 秒拉私信）、`bili_daily`（每小时看一遍当天快照），通知 kind 加 `video.bili_dm`；id 前缀登记 `bpm`（`video_bili_messages`）。权限不变：网页端域名都在 `network:media-platforms` 已有的 `*.bilibili.com` 里。只增不改。
 
 补记（不改版本号，2026-11-02，交给 Claude Code 两种方式）：`Registrar` 加 `ProjectPrototypes`（2.13.24），前端 `PluginApi` 加 `terminalLauncher`（2.13.25）。只增不改，按 1.3 是小版本，和下一条一起等用户定稿。
@@ -2124,3 +2204,9 @@ SOP 在进程启动时自动完成表结构迁移和 JSON 补建：主程序在 
 补记（不改版本号，2026-11-05，TSK-0456）：权限清单加 `fs:read:registered`（3.1，普通级别：只读用户在插件界面上逐个登记的本机目录，范围由插件自己的登记表和路径校验收窄，比 `fs:read:any` 小）；`Core` 加 `CacheDir()`（2.13.28）。视频插件清单 `permissions` 末尾追加 `fs:read:registered`（升级时要确认），迁移加 `0014_storyboard.sql`（表 `video_shots`、`video_shot_brolls`、`video_media_roots`），id 前缀登记 `vsh`、`vbr`、`vmr`。只增不改。
 
 文档补记（不改版本号，DOC-02，2026-10-29）：补写 1.0.0 到 1.1.0 之间各批已经加进代码、文档没跟上的句柄和扩展点（2.13），2.0 的代码块、2.5 的连接器定义按代码改正。这些按 1.3 本该升小版本，发布前由用户定稿版本号时一起写进上表。
+
+---
+
+由 DeepSeek Harness（dsh）协助完成。
+
+[![](https://img.shields.io/badge/powered_by-dsh-4D6BFE?style=flat-square&logo=deepseek&logoColor=white)](https://github.com/deepseek-ai/deepseek-harness)

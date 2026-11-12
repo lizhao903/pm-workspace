@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 任务详情里的「SOP 执行」（SOP-06，SPEC-sop-13）：关联到这条任务的执行（在这里发起的、Agent 处理任务时用 run_sop 发起的），
 // 「执行 SOP」选流程后打开发起执行抽屉，按开始节点的输入字段从任务预填；点一行去 SOP 运行页，「返回」回到这条任务。
 // 正式前端在 frontend/src/plugins/sop/ObjectRuns.tsx（经 core/plugin 的对象区块登记）

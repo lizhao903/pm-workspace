@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 package im
 
 import (
@@ -254,8 +256,9 @@ func intakeFlow() plugin.SOPFlowTemplate {
 			Desc: "不是需求，流程到此结束，消息照常留在消息页"},
 		{Key: "to_task", Name: "建需求任务", Kind: NodeToTask, After: []string{"is_req"}, Branch: &intakeBranch{"is_req", "req"},
 			Desc: "建任务，记来源消息和提出人，阶段「已接收」；这条消息转过任务就用那条", Config: map[string]string{"message": "{{message_id}}"}},
-		{Key: "ack", Name: "回执提出人", Kind: NodeReplyMessage, After: []string{"to_task"}, Desc: "在原消息的串里回复：已收到，附看板链接",
-			Config: map[string]string{"message": "{{message_id}}", "text": "收到，已记为需求 {{task.ref}}「{{task.title}}」，进度可以在看板上看：{{task.url}}"}},
+		{Key: "ack", Name: "回执需求方", Kind: NodeAckTask, After: []string{"to_task"},
+			Desc:   "在原消息所在的会话里回复需求方（在消息列里的回在消息列里）；同一条消息只回一次，我自己发的、只收不发的不回，回复失败不影响任务（TSK-0467）",
+			Config: map[string]string{"message": "{{message_id}}", "task": task, "text": defaultAckText}},
 		{Key: "profiles", Name: "读项目档案", Kind: "projects_list_profiles", After: []string{"ack"}, Desc: "取建过档案的项目摘要，给分类用"},
 		{Key: "classify", Name: "判断归属项目", Kind: "ai", After: []string{"profiles"}, Desc: classifyAsk, Config: map[string]string{"output": "classify"}},
 		{Key: "parse", Name: "整理分类结果", Kind: "extract", After: []string{"classify"}, Desc: "把分类回答整理成字段",
@@ -310,7 +313,7 @@ func intakeFlow() plugin.SOPFlowTemplate {
 	fb, _ := json.Marshal(fields)
 	return plugin.SOPFlowTemplate{
 		ID: AutoIntakeFlowID, Name: "IM 需求自动受理", Trigger: "manual", Fields: fb, Steps: sb,
-		Desc: "IM 消息是需求就建任务、回执提出人，按项目档案分类（拿不准问提出人），Claude Code 写 PRD、研发评审，不通过自动退回最多 3 轮，通过后进入开发，接着走研发 pipeline。" +
+		Desc: "IM 消息是需求就建任务、回执需求方，按项目档案分类（拿不准问提出人），Claude Code 写 PRD、研发评审，不通过自动退回最多 3 轮，通过后进入开发，接着走研发 pipeline。" +
 			"默认停用：触发方式是「手动」，把触发方式改成「IM 消息」才会自动处理新消息",
 	}
 }
@@ -324,9 +327,18 @@ func (in *inbox) installIntake(ctx context.Context, c plugin.Core) error {
 	if _, err := in.installOnce(ctx, c, protoSyncFlow()); err != nil {
 		c.Log().Warn("im proto sync flow install failed", "err", err)
 	}
-	// 来消息确认派发（TSK-0411，taskconfirm.go）也不在这条链上，单独写；SOP 插件旧版（不认 task_update、task_run）时下次再试
-	if _, err := in.installOnce(ctx, c, taskConfirmFlow()); err != nil {
+	// 来消息确认派发（TSK-0411，taskconfirm.go）也不在这条链上，单独写；SOP 插件旧版（不认 task_update、task_run）时下次再试。
+	// 第 1 版没有「回执需求方」（TSK-0467）：没改过的换成新版，改过的不动、发一条通知提示（taskack.go 的 installAcked）
+	if err := in.installAcked(ctx, c, taskConfirmFlow(), confirmAckMark); err != nil {
 		c.Log().Warn("im task confirm flow install failed", "err", err)
+	}
+	// 「IM 任务回执」只回状态和结果（TSK-0470，taskreply.go）：写过的旧版没改过就换新版，改过的发通知提示
+	if err := in.upgradeTaskReply(ctx, c); err != nil {
+		c.Log().Warn("im task reply flow upgrade failed", "err", err)
+	}
+	// FDE 反馈转发（TSK-0468，fdeforward.go）：单独写，只写一次
+	if _, err := in.installOnce(ctx, c, fdeForwardFlow()); err != nil {
+		c.Log().Warn("im fde forward flow install failed", "err", err)
 	}
 	ok, err := in.installOnce(ctx, c, releasePipelineFlow())
 	if err != nil {
@@ -370,13 +382,25 @@ func (in *inbox) installIntake(ctx context.Context, c plugin.Core) error {
 		if ok, err := in.templateDone(ctx, c, AutoIntakeFlowID); err != nil || !ok {
 			return err
 		}
-		return in.markTemplate(ctx, c, intakeUpgradeMark)
+		if err := in.markTemplate(ctx, c, intakeUpgradeMark); err != nil {
+			return err
+		}
+		return in.markTemplate(ctx, c, intakeAckMark)
 	}
-	if done, err := in.templateDone(ctx, c, intakeUpgradeMark); err != nil || done {
+	if done, err := in.templateDone(ctx, c, intakeUpgradeMark); err != nil {
+		return err
+	} else if !done {
+		if err := in.upgradeIntake(ctx, c); err != nil {
+			c.Log().Warn("im auto intake flow upgrade failed", "err", err)
+		}
+		return nil
+	}
+	// 接研发 pipeline 的版本还没有「回执需求方」（TSK-0467）：同样没改过的换成新版，改过的不动、发通知提示
+	if done, err := in.templateDone(ctx, c, intakeAckMark); err != nil || done {
 		return err
 	}
-	if err := in.upgradeIntake(ctx, c); err != nil {
-		c.Log().Warn("im auto intake flow upgrade failed", "err", err)
+	if err := in.upgradeAck(ctx, c, intakeFlow(), intakeAckMark); err != nil {
+		c.Log().Warn("im auto intake flow ack upgrade failed", "err", err)
 	}
 	return nil
 }

@@ -1,18 +1,27 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 列表和抽屉共用的小件：工具标志、状态点、抽屉顶部的连接状态条，照原型 web-next/src/connectors.tsx ToolLogo、StatusDot、ConnBar。
 // OAuthDone 是授权回调回到的窗口（CONN-04b）。
-import { useEffect, useState, type CSSProperties } from 'react'
-import type { Connector, ConnectorDef, ConnectorStatus } from '../../../core/data'
-import { Button, cls } from '../../../core/ui'
+import { useEffect, useState } from 'react'
+import { connectorLook, type Connector, type ConnectorDef, type ConnectorStatus } from '../../../core/data'
+import { Button, cls, ConnectorLogo } from '../../../core/ui'
 import { OFF_HINT, STATUS } from './catalog'
 import { ago } from './model'
 import { OAUTH_CHANNEL, type OAuthMsg } from './oauth'
 
-/** 标志：定义给的底色加名称前两个字；没有底色用灰。src 是自定义分类换的图标（data URL） */
-export function ToolLogo({ def, size = 40, src }: { def: Pick<ConnectorDef, 'label' | 'color'>; size?: number; src?: string }) {
-  const short = def.label.slice(0, 2)
-  const style = { width: size, height: size, fontSize: size * 0.34, '--c': def.color || 'var(--faint)' } as CSSProperties
-  if (src) return <img className="cn-logo cn-logo-img" style={style} src={src} alt="" aria-hidden="true" />
-  return <span className="cn-logo" style={style} aria-hidden="true">{short}</span>
+/**
+ * 标志（TSK-0725）：自己换的图标 > 自定义连接器按地址认出的平台 > 定义的平台图标 > 底色加名称前两个字。
+ * 只给 def 时是这个工具的标志；给了 connector 是这个实例的；config 是抽屉里还没保存的配置（按它认平台），src 是还没保存的图标。
+ */
+export function ToolLogo({ def, size = 40, connector, config, src }: {
+  def: Pick<ConnectorDef, 'tool' | 'label' | 'color' | 'logo'>
+  size?: number
+  connector?: Pick<Connector, 'tool' | 'name' | 'icon' | 'config'>
+  config?: Readonly<Record<string, string>>
+  src?: string
+}) {
+  const look = connectorLook(def, connector, config)
+  return <ConnectorLogo label={look.label} color={look.color} logo={look.logo} src={src ?? look.src} size={size} />
 }
 
 export function StatusDot({ s, pending }: { s: ConnectorStatus; pending?: boolean }) {

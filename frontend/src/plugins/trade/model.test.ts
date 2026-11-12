@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 import { describe, expect, it } from 'vitest'
 import type { TradeQuote } from '../../core/data'
 import { digitsFor, guessInstrument, withLive, type Bar } from './model'

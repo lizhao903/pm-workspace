@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 import { createContext, useContext, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 

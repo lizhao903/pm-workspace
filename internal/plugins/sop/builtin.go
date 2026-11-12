@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 package sop
 
 import (
@@ -82,7 +84,7 @@ func importBuiltinsFrom(ctx context.Context, store plugin.Store, dir string, log
 		if err := json.Unmarshal(data, &raw); err != nil {
 			return err
 		}
-		if err := apply(&f, raw, func(k string) (NodeType, bool) {
+		if _, err := apply(&f, raw, func(k string) (NodeType, bool) {
 			if t, ok := nodeType(k); ok {
 				return t, true
 			}

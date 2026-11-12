@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 宽基监控页（ETF-01b，SPEC-etf-1 到 SPEC-etf-3）：没有二级菜单，顶部三个标签：份额与资金流、异动、规则。
 // 标签记在 ?tab=（flows 默认 / anomalies / rules），刷新和分享链接都回到同一个标签。
 // 只读公开数据：页面上的写操作只有立即采集、确认或忽略命中、改规则，没有任何交易相关的动作。

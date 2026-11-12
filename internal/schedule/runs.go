@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 package schedule
 
 import (
@@ -175,7 +177,7 @@ type dueRow struct {
 
 func (s *Store) listDue(ctx context.Context) ([]dueRow, error) {
 	rows, err := s.db.R.QueryContext(ctx,
-		`SELECT id, name, enabled, rule, action, created_at, updated_at, COALESCE(checked_at, created_at) FROM schedules ORDER BY created_at, rowid`)
+		`SELECT id, name, enabled, rule, action, project_id, created_at, updated_at, COALESCE(checked_at, created_at) FROM schedules ORDER BY created_at, rowid`)
 	if err != nil {
 		return nil, fmt.Errorf("list schedules to run: %w", err)
 	}
@@ -187,11 +189,15 @@ func (s *Store) listDue(ctx context.Context) ([]dueRow, error) {
 			enabled              int
 			rule, action, ca, ua string
 			checked              string
+			project              sql.NullString
 		)
-		if err := rows.Scan(&d.ID, &d.Name, &enabled, &rule, &action, &ca, &ua, &checked); err != nil {
+		if err := rows.Scan(&d.ID, &d.Name, &enabled, &rule, &action, &project, &ca, &ua, &checked); err != nil {
 			return nil, err
 		}
 		d.Enabled = enabled != 0
+		if project.Valid && project.String != "" {
+			d.ProjectID = &project.String
+		}
 		if err := json.Unmarshal([]byte(rule), &d.Rule); err != nil {
 			return nil, fmt.Errorf("schedule %s rule: %w", d.ID, err)
 		}

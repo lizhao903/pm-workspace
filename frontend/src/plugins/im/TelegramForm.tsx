@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 渠道配置里的 Telegram 表单（IM-01c）：只接 Bot，填 BotFather 给的 Token（进保险箱，界面只显示脱敏提示），
 // 可选填公网地址改用 webhook。保存后自动做一次连通测试，账号写成「名字（@用户名）」，群里 @它 算 @我。
 import { useState } from 'react'
@@ -83,7 +85,7 @@ export function TelegramForm({ connector, onSaved, onCancel }: {
         <Input value={webhook} invalid={touched && !!hookErr} placeholder="https://bro.vip" onChange={(e) => setWebhook(e.target.value)} />
       </Field>
       <Field label="我的称呼" hint={SELF_NAMES_HINT}>
-        <Input value={names} placeholder="李钊, Zhao" onChange={(e) => setNames(e.target.value)} />
+        <Input value={names} placeholder="张三, Zhang" onChange={(e) => setNames(e.target.value)} />
       </Field>
       <Checkbox checked={reply} onCheckedChange={setReply}>允许从这里回复（经 Bot 发 sendMessage）</Checkbox>
       {saveErr && <div className="im-err" role="alert">没保存：{errorText(saveErr)}</div>}

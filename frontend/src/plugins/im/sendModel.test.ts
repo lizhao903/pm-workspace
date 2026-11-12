@@ -1,10 +1,12 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 import { describe, expect, it } from 'vitest'
 import type { Connector, ImConversationSummary } from '../../core/data'
 import { parseTarget, sendBlocker, sendInput, sendOptions, sentReplyTitle } from './sendModel'
 
 const conv = (p: Partial<ImConversationSummary> & { conversation_id: string }): ImConversationSummary => ({
   channel: 'slack', kind: 'group', name: '', external_id: 'C0', connector_id: 'cn_a', participants: [], total: 1, pending: 0, unread: 0,
-  last_at: '2026-03-01T00:00:00Z', project_id: null, project_ref: '', project_name: '', sent: 0, last_sent_at: null, ...p,
+  last_at: '2026-03-01T00:00:00Z', project_id: null, project_ref: '', project_name: '', sent: 0, last_sent_at: null, unresolved_users: [], name_unresolved: false, can_refill: true, refill_error: '', can_backfill: true, backfill_note: '', ...p,
 })
 const rows = [
   conv({ conversation_id: 'cv_dm', kind: 'direct', participants: ['阿青'], external_id: 'D1' }),

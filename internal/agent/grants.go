@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 package agent
 
 import (
@@ -31,6 +33,8 @@ var Abilities = []Ability{
 	{"write_tasks", "新建 / 更新任务", "任务", true},
 	{"read_content", "读文档", "文档", false},
 	{"write_content", "写文档", "文档", true},
+	{"read_sop", "查 SOP 流程", "SOP", false},
+	{"write_sop", "新建 / 修改 SOP 流程", "SOP", true},
 	{"run_sop", "发起 SOP", "SOP", true},
 }
 
@@ -49,12 +53,19 @@ func AbilityOf(key string) (Ability, bool) {
 var ToolAbility = map[string]string{
 	"search_objects": "read_tasks",
 	"get_object":     "read_tasks",
+	toolProgress:     "write_tasks",
 	"list_types":     "",
 	"create_object":  "write_tasks",
 	"update_object":  "write_tasks",
 	"write_file":     "write_content",
 	toolKbSearch:     KbSearchAbility,
 	toolRunSOP:       RunSOPAbility,
+	toolListSOPs:     ReadSOPAbility,
+	toolGetSOP:       ReadSOPAbility,
+	toolTestSOP:      ReadSOPAbility,
+	toolExplainIM:    ReadSOPAbility,
+	toolCreateSOP:    WriteSOPAbility,
+	toolUpdateSOP:    WriteSOPAbility,
 	toolAskUser:      "",
 }
 
@@ -165,6 +176,28 @@ func (p *Policy) conn(name string) *ConnTool {
 	return nil
 }
 
+// ReadOnly 是只读的一份：写能力的授权去掉、会改对方数据的连接器工具关掉（TSK-0460，只读角色交给 Agent 执行）。
+// 不改原来那份；nil 回 nil（没挂 Agent 的会话不会走到这里，任务执行一定挂着 Agent）。
+func (p *Policy) ReadOnly() *Policy {
+	if p == nil {
+		return nil
+	}
+	out := &Policy{Grants: map[string]string{}}
+	for k, v := range p.Grants {
+		if a, ok := AbilityOf(k); ok && a.Write {
+			continue
+		}
+		out.Grants[k] = v
+	}
+	for _, c := range p.Conn {
+		if c.Write {
+			c.Mode = store.GrantOff
+		}
+		out.Conn = append(out.Conn, c)
+	}
+	return out
+}
+
 // Tools 是给模型的工具列表：内置的去掉关闭的，后面接上没关闭的连接器工具。
 func (p *Policy) Tools(builtin []ToolDef) []ToolDef {
 	if p == nil {
@@ -199,6 +232,7 @@ func (p *Policy) Tools(builtin []ToolDef) []ToolDef {
 // deniedResult 是硬调没授权的工具时回给模型的结果，不执行。
 func deniedResult(name string) ToolResult {
 	return ToolResult{
+		Failed:  true,
 		Summary: fmt.Sprintf("%s 没有授权，没有执行", name),
 		Content: "错误：没有授权。这个工具没有开给你，不要再调它；确实需要的话，请用户在 Agent 设置的「工具与权限」里打开。",
 	}
@@ -235,10 +269,16 @@ func (r *Runner) callBrief(call ToolCall) string {
 		return fmt.Sprintf("新建「%s」", oneLine(argStr(args, "title")))
 	case "update_object":
 		return fmt.Sprintf("修改 %s", argStr(args, "ref"))
+	case toolProgress:
+		return fmt.Sprintf("给 %s 记进展", argStr(args, "ref"))
 	case "write_file":
 		return fmt.Sprintf("写文件 %s", argStr(args, "path"))
 	case toolRunSOP:
 		return fmt.Sprintf("发起 SOP %s", argStr(args, "flow_id"))
+	case toolCreateSOP:
+		return fmt.Sprintf("新建 SOP「%s」", oneLine(argStr(args, "name")))
+	case toolUpdateSOP:
+		return fmt.Sprintf("修改 SOP %s", argStr(args, "flow_id"))
 	}
 	return "调用 " + call.Name
 }
@@ -281,7 +321,8 @@ func (r *Runner) requestConfirm(ctx context.Context, call ToolCall, key string, 
 }
 
 // applyDecision 执行（确认）或回绝（拒绝）那次调用，落库、发事件，回给模型的说明。
-func (r *Runner) applyDecision(ctx context.Context, tb *Toolbox, d *Decision, emit func(StreamEvent)) (string, error) {
+// 也回执行结果，记进这一轮的执行情况（拒绝的回空结果）。
+func (r *Runner) applyDecision(ctx context.Context, tb *Toolbox, d *Decision, emit func(StreamEvent)) (string, ToolResult, error) {
 	call := ToolCall{ID: d.Call.CallID, Name: d.Call.Tool, Args: d.Call.Args}
 	brief := r.callBrief(call)
 	var res ToolResult
@@ -298,14 +339,14 @@ func (r *Runner) applyDecision(ctx context.Context, tb *Toolbox, d *Decision, em
 	if _, err := r.record(ctx, &domain.AgentMessage{
 		SessionID: r.Session.ID, Role: domain.RoleTool, Content: res.Summary, ToolName: call.Name, ToolArgs: call.Args,
 	}); err != nil {
-		return "", fmt.Errorf("保存工具调用记录失败")
+		return "", ToolResult{}, fmt.Errorf("保存工具调用记录失败")
 	}
 	emit(StreamEvent{Type: "tool_result", Name: call.Name, Summary: res.Summary, ObjectID: res.ObjectID})
 	if a := res.Artifact; a != nil {
 		size := a.Size
 		emit(StreamEvent{Type: "artifact", Path: a.RelPath, Size: &size})
 	}
-	return note, nil
+	return note, res, nil
 }
 
 // renderConfirm 是并进最终回复的一句，历史回放时只剩纯文本也看得懂。

@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 import { useMemo, useState } from 'react'
 import { ConnBar, ToolLogo } from './connectors'
 import { MarkEditor } from './imagepick'

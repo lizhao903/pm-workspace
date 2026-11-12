@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 设置里的「模型服务商」分节（MP-01b），照原型 web-next/src/models.tsx ProvidersPage（SPEC-settings-6）。
 // 已接入的一组卡片，下面按分组列目录里的服务商，点「接入」开新建抽屉；同一类型可以接多个。
 // 连接状态后端不存：卡片上是这次打开页面以来最近一次测试的结论，没测过写「未测试」。

@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 对象详情的插件区块（SOP-06）：插件往某几类对象的详情里加一块（SOP 插件给任务加「SOP 执行」），宿主模块按 order 摆在自己的区块后面。
 // 模块和插件互不 import，宿主只认这里登记的定义；停用插件时按 id 撤掉，区块跟着消失。和项目标签一样不进清单 provides
 import { useMemo, useSyncExternalStore, type ComponentType, type LazyExoticComponent } from 'react'

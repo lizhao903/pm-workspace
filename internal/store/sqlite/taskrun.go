@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 package sqlite
 
 import (
@@ -110,7 +112,8 @@ func (s *Store) CreateTaskRun(ctx context.Context, in *domain.TaskRun) (*domain.
 	if r.ObjectID == "" {
 		return nil, validation("object_id", "is required")
 	}
-	if r.Workdir == "" {
+	// 工作台 Agent（TSK-0460）不起进程、只经 write_file 写产物目录，没有工作目录时就是不能写文件，不是事故
+	if r.Workdir == "" && r.Harness != domain.RunHarnessAgent {
 		return nil, validation("workdir", "is required")
 	}
 	if r.Status == "" {
@@ -128,9 +131,9 @@ func (s *Store) CreateTaskRun(ctx context.Context, in *domain.TaskRun) (*domain.
 	switch r.Harness {
 	case "":
 		r.Harness = domain.RunHarnessClaude
-	case domain.RunHarnessClaude, domain.RunHarnessDeepSeek, domain.RunHarnessCodex:
+	case domain.RunHarnessClaude, domain.RunHarnessDeepSeek, domain.RunHarnessCodex, domain.RunHarnessAgent:
 	default:
-		return nil, validation("harness", "must be claude, deepseek or codex")
+		return nil, validation("harness", "must be claude, deepseek, codex or agent")
 	}
 
 	// 先确认对象存在：外键失败回的是一条驱动层的字符串，映射成 500，
@@ -210,6 +213,27 @@ func (s *Store) SetTaskRunSession(ctx context.Context, id, session string) error
 	if _, err := s.db.W.ExecContext(ctx,
 		`UPDATE task_runs SET harness_session = ? WHERE id = ?`, session, id); err != nil {
 		return fmt.Errorf("set task run session: %w", err)
+	}
+	return nil
+}
+
+// SetTaskRunStatus 见 store.Store。
+func (s *Store) SetTaskRunStatus(ctx context.Context, id, status string) error {
+	switch status {
+	case domain.RunRunning, domain.RunWaiting:
+	default:
+		return validation("status", "must be running or waiting")
+	}
+	res, err := s.db.W.ExecContext(ctx,
+		`UPDATE task_runs SET status = ? WHERE id = ? AND finished_at IS NULL`, status, id)
+	if err != nil {
+		return fmt.Errorf("set task run status: %w", err)
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		if _, err := s.GetTaskRun(ctx, id); err != nil {
+			return err
+		}
+		return conflict("这次执行已经结束了")
 	}
 	return nil
 }

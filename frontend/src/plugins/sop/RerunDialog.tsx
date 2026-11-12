@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 失败执行批量重跑的确认框：两种做法二选一并说明区别，默认按 rerun.ts 的 defaultRerun。照 IM 批量分诊（TriageDialog）的样子
 import { useRef, useState } from 'react'
 import { errorText, useRerunSopRuns, type SopFlow, type SopRerunAction, type SopRerunResult, type SopRunBrief } from '../../core/data'

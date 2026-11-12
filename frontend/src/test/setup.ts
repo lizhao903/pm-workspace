@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 组件测试的公共准备（只在 jsdom 的 project 里加载）
 import '@testing-library/jest-dom/vitest'
 import { cleanup } from '@testing-library/react'

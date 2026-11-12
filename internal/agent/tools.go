@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 package agent
 
 import (
@@ -39,6 +41,8 @@ type ToolResult struct {
 	ObjectID string
 	Content  string
 	Artifact *domain.Artifact
+	// Failed 是这次调用没做成（failed、没授权、同参重试），执行器据此如实说明本轮结果，见 outcome.go
+	Failed bool
 	// Question 只有 ask_user 会填。Runner 见到它就发一条 question 事件并结束本轮——
 	// 答案走用户的下一条消息，流不挂在这里等。
 	Question *Question
@@ -95,6 +99,8 @@ func (tb *Toolbox) Defs() []ToolDef {
 				"priority": str("优先级 P0/P1/P2/P3，留空表示未定"),
 				"due_at":   str("到期时间。" + dueHint + "。用户说了具体时刻就带上时刻，不要只给日期"),
 				"tags":     arr("标签名列表"),
+				"parent_ref": str("父任务编号，如 TSK-0009。拆子任务时填：新对象会和父任务建父子关联，" +
+					"没指定项目时跟父任务挂在同一个项目下"),
 			}, []string{"type_id", "title"}),
 		},
 		{
@@ -111,6 +117,15 @@ func (tb *Toolbox) Defs() []ToolDef {
 				"category_id": str("新分类 id"),
 				"tags":        arr("整套标签，会覆盖原有标签"),
 			}, []string{"ref"}),
+		},
+		{
+			Name: toolProgress,
+			Description: "给一条任务（或需求）追加一条进展：做完一个关键步骤、得出结论、遇到卡点时用。" +
+				"只追加，不改正文，也不会覆盖别人写的进展。",
+			Parameters: obj(props{
+				"ref":  str("对象编号，如 TSK-0009；也接受对象 id"),
+				"text": str("这一步做了什么、结论或卡在哪，写给人看的一两句话，支持 Markdown"),
+			}, []string{"ref", "text"}),
 		},
 		{
 			Name: "get_object",
@@ -144,7 +159,7 @@ func (tb *Toolbox) Defs() []ToolDef {
 				"content": str("文件的完整内容"),
 			}, []string{"path", "content"}),
 		},
-	}, append(tb.kbDefs(), tb.sopDefs()...)...)
+	}, append(append(tb.kbDefs(), tb.sopDefs()...), tb.sopCatalogDefs()...)...)
 }
 
 // Invoke 执行一次工具调用。
@@ -169,6 +184,8 @@ func (tb *Toolbox) Invoke(ctx context.Context, call ToolCall) ToolResult {
 		return tb.updateObject(ctx, args)
 	case "get_object":
 		return tb.getObject(ctx, args)
+	case toolProgress:
+		return tb.appendProgress(ctx, args)
 	case "ask_user":
 		return tb.askUser(args)
 	case "write_file":
@@ -177,6 +194,18 @@ func (tb *Toolbox) Invoke(ctx context.Context, call ToolCall) ToolResult {
 		return tb.kbSearch(ctx, args)
 	case toolRunSOP:
 		return tb.runSOP(ctx, args)
+	case toolListSOPs:
+		return tb.listSOPs(ctx, args)
+	case toolGetSOP:
+		return tb.getSOP(ctx, args)
+	case toolCreateSOP:
+		return tb.createSOP(ctx, args)
+	case toolUpdateSOP:
+		return tb.updateSOP(ctx, args)
+	case toolTestSOP:
+		return tb.testSOP(ctx, args)
+	case toolExplainIM:
+		return tb.explainIMTrigger(ctx, args)
 	default:
 		return failed(call.Name, fmt.Sprintf("没有名为 %s 的工具", call.Name))
 	}
@@ -261,6 +290,20 @@ func (tb *Toolbox) createObject(ctx context.Context, args map[string]any) ToolRe
 		o.DueAt = t
 	}
 
+	// 父任务先查到再建：父任务写错了不该留下一条没挂上的孤儿
+	var parent *domain.Object
+	if pr := argStr(args, "parent_ref"); pr != "" {
+		p, err := tb.resolveRef(ctx, pr)
+		if err != nil {
+			return failed("create_object", fmt.Sprintf("找不到父任务 %s，先用 search_objects 查到编号再建", pr))
+		}
+		parent = p
+		if parent.ProjectID != nil && *parent.ProjectID != "" {
+			pid := *parent.ProjectID
+			o.ProjectID = &pid
+		}
+	}
+
 	tb.applySource(ctx, o)
 
 	out, err := tb.st.CreateObject(ctx, o, agentActor)
@@ -268,11 +311,42 @@ func (tb *Toolbox) createObject(ctx context.Context, args map[string]any) ToolRe
 		// store 的校验错误（类型不存在、状态非法）原样告诉模型，它据此改参数重试。
 		return failed("create_object", "创建失败："+err.Error())
 	}
+	summary := fmt.Sprintf("已创建 %s %s", out.Ref, out.Title)
+	content := fmt.Sprintf("创建成功：ref=%s id=%s type=%s status=%s title=%s",
+		out.Ref, out.ID, out.TypeID, out.Status, out.Title)
+	if parent != nil {
+		// 关联没建上不撤回新建的对象：对象已经在了，告诉模型和用户哪里没成，比悄悄删掉好
+		if _, err := tb.st.CreateLink(ctx, parent.ID, out.ID, domain.RelParent, ""); err != nil {
+			summary += fmt.Sprintf("（和父任务 %s 的关联没建上）", parent.Ref)
+			content += "；但和父任务的父子关联没建上：" + err.Error()
+		} else {
+			summary = fmt.Sprintf("已创建 %s 的子任务 %s %s", parent.Ref, out.Ref, out.Title)
+			content += "；已挂到父任务 " + parent.Ref + " 下"
+		}
+	}
+	return ToolResult{Summary: summary, ObjectID: out.ID, Content: content}
+}
+
+// toolProgress 是追加进展的工具名（TSK-0460）：交给 Agent 执行任务时它要能记进展，会话里也能用。
+const toolProgress = "append_progress"
+
+// appendProgress 给对象追加一条进展（kind=note），服务端追加，不碰正文。
+func (tb *Toolbox) appendProgress(ctx context.Context, args map[string]any) ToolResult {
+	ref, text := argStr(args, "ref"), strings.TrimSpace(argStr(args, "text"))
+	if ref == "" || text == "" {
+		return failed(toolProgress, "ref 和 text 都是必填的")
+	}
+	target, err := tb.resolveRef(ctx, ref)
+	if err != nil {
+		return failed(toolProgress, fmt.Sprintf("找不到编号为 %s 的对象", ref))
+	}
+	if _, err := tb.st.AppendProgress(ctx, target.ID, domain.ProgressInput{Kind: domain.ProgressNote, Text: text}, agentActor); err != nil {
+		return failed(toolProgress, "记进展失败："+err.Error())
+	}
 	return ToolResult{
-		Summary:  fmt.Sprintf("已创建 %s %s", out.Ref, out.Title),
-		ObjectID: out.ID,
-		Content: fmt.Sprintf("创建成功：ref=%s id=%s type=%s status=%s title=%s",
-			out.Ref, out.ID, out.TypeID, out.Status, out.Title),
+		Summary:  fmt.Sprintf("已给 %s 记了一条进展", target.Ref),
+		ObjectID: target.ID,
+		Content:  fmt.Sprintf("已记进展：%s %s", target.Ref, clip(text, 200)),
 	}
 }
 
@@ -769,9 +843,15 @@ func parseDue(s string) (*time.Time, error) {
 }
 
 func failed(tool, reason string) ToolResult {
+	return failedResult(tool, reason, "错误："+reason)
+}
+
+// failedResult 同 failed，回给模型的 content 另给。
+func failedResult(tool, reason, content string) ToolResult {
 	return ToolResult{
 		Summary: fmt.Sprintf("%s 执行失败：%s", tool, reason),
-		Content: "错误：" + reason,
+		Content: content,
+		Failed:  true,
 	}
 }
 

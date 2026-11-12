@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 import { describe, expect, it } from 'vitest'
 import type { SopFlow, SopRunBrief, SopRunStep } from '../../core/data'
 import {
@@ -103,8 +105,12 @@ describe('流程库', () => {
     expect(recentFlows([a, b, c], stats).map((f) => f.id)).toEqual(['sop_a', 'sop_b'])
   })
 
-  it('搜索认触发方式的显示名；要别的模块的排最后', () => {
-    const w = flow({ id: 'sop_w', name: '周报', trigger: 'weekly' })
+  it('搜索认触发方式的显示名和定时规则；要别的模块的排最后', () => {
+    const w = flow({
+      id: 'sop_w', name: '周报', trigger: 'schedule',
+      schedule: { id: 'sch_1', name: '周报', enabled: true, rule: { freq: 'weekly', time: '18:00', weekdays: [1], day: 1, date: '', cron: '' },
+        action: { kind: 'sop', sop_id: 'sop_w', managed: true }, project_id: null, next_run_at: null, created_at: '', updated_at: '' },
+    })
     const label = triggerLabelOf()
     expect(libraryRows([a, w], stats, '', '每周一', { trigger: label }).map((f) => f.id)).toEqual(['sop_w'])
     expect(libraryRows([a, b, c], stats, '', '', { elsewhere: (f) => f.id === 'sop_b' }).map((f) => f.id)).toEqual(['sop_a', 'sop_c', 'sop_b'])
@@ -114,7 +120,9 @@ describe('流程库', () => {
 describe('触发方式和插件', () => {
   it('触发方式：枚举优先，再内置中文名，都没有原样', () => {
     const l = triggerLabelOf([{ key: 'manual', label: '手工' }])
-    expect([l('manual'), l('weekly'), l('webhook'), l('IM 消息'), l('')]).toEqual(['手工', '每周一 18:00', 'Webhook', 'IM 消息', '手动'])
+    // 旧的 daily、weekly、cron 都按「定时」显示，不会出现两个定时（TSK-0463）
+    expect([l('manual'), l('weekly'), l('daily'), l('schedule'), l('webhook'), l('IM 消息'), l('')]).toEqual(['手工', '定时', '定时', '定时', 'Webhook', 'IM 消息', '手动'])
+    expect(triggerLabelOf([{ key: 'schedule', label: '按时间' }, { key: 'weekly', label: '每周一 18:00' }])('weekly')).toBe('按时间')
     expect(triggerLabelOf()('manual')).toBe('手动')
   })
 

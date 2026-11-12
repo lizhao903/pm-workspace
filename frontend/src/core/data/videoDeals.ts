@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 视频插件的商单（VID-08d）。契约见 docs/api-contract.md「商单（VID-08d）」。
 // 商单不分页，一次取完由前端按项目、状态分组。缓存键在 video 前缀下，写操作报 { kind: 'video' }；账期在今日卡片里，写完顺带刷今日。
 // 出结案报告会建一篇文档，另报 { kind: 'object' }，文档列表、项目文档标签跟着刷

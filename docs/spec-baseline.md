@@ -122,3 +122,9 @@ Agent 工具集里与基线相关的三个工具：
 | `list_stale_tasks(product_id)` | 列出基线漂移的任务 | 只读 |
 
 Agent 的**写操作一律产出草稿**（落 `knowledge_tier='process'` + 待确认标记），人工采纳后才由系统升为 canonical。Agent 永远不能自己把东西写成 canonical。
+
+---
+
+由 DeepSeek Harness（dsh）协助完成。
+
+[![](https://img.shields.io/badge/powered_by-dsh-4D6BFE?style=flat-square&logo=deepseek&logoColor=white)](https://github.com/deepseek-ai/deepseek-harness)

@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 失效规则（CORE-03a）：写操作说清楚「改了什么」，这里决定刷新哪些缓存。
 // 组件和模块不自己拼键去失效，一律报一个 Change，规则集中在 invalidationsFor 里，有单元测试盯着。
 import { useQueryClient, type QueryClient, type QueryKey } from '@tanstack/react-query'
@@ -138,8 +140,9 @@ export function invalidationsFor(c: Change): QueryKey[] {
       // 插件停用后它的今日卡片从聚合里消失，它登记的连接器定义、技能、SOP 节点也跟着出现或消失（CONN-02、AG-01b6、SOP-03b）
       return [dataKeys.plugins.all, dataKeys.objectTypes, todayKeys.all, dataKeys.connectors.all, skillKeys.all, dataKeys.sop.nodeTypes]
     case 'schedule':
-      // 列表（今日的「今天还会自动执行」同一份）；删除时执行记录一起没了
-      return c.id ? [todayKeys.schedules, dataKeys.schedules.runsOf(c.id)] : [todayKeys.schedules, dataKeys.schedules.all]
+      // 列表（今日的「今天还会自动执行」同一份）；删除时执行记录一起没了。
+      // SOP 流程带着随它管理的那条定时任务（TSK-0463），在定时任务页改、删了流程这边跟着刷
+      return c.id ? [todayKeys.schedules, dataKeys.schedules.runsOf(c.id), dataKeys.sop.flows] : [todayKeys.schedules, dataKeys.schedules.all, dataKeys.sop.flows]
     case 'schedule-run':
       // 建出来的任务要进任务列表、计数和今日；列表的「上次」也在执行记录前缀下
       return [dataKeys.schedules.runsOf(c.id), ...objectWide]
@@ -179,7 +182,9 @@ export function invalidationsFor(c: Change): QueryKey[] {
       // 绑定列表变了，绑了哪些会话的消息由组件按新列表去取；绑私聊时可能新建了会话
       return [dataKeys.projectConversations(c.projectId), dataKeys.projectSummary, dataKeys.conversations.all]
     case 'sop-flow':
-      return [dataKeys.sop.flows]
+      // 保存、删流程时随流程管理的定时任务跟着建、改、删（TSK-0463），定时任务列表一起刷
+      // 文件夹的流程数跟着流程走（TSK-0482）；删文件夹、移动流程也报这一种
+      return [dataKeys.sop.flows, dataKeys.sop.folders, todayKeys.schedules]
     case 'sop-run':
       // 列表（流程库统计、菜单「最近用过」同一份）和单次执行；今日的「SOP 待我处理」卡片也跟着变
       return [dataKeys.sop.runs, todayKeys.all]

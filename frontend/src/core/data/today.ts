@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 今日（TODAY-02）：今日聚合 GET /api/today，加上「今天还会自动执行」的挑法；定时任务列表的取数在 schedules.ts。
 // 契约见 docs/api-contract.md「今日聚合」「定时任务 schedules」。缓存键都在 ['today'] 下，对象、执行、插件一变就整体刷新（invalidate.ts）
 import { useQuery } from '@tanstack/react-query'

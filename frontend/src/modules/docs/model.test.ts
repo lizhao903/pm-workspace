@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 import { describe, expect, it } from 'vitest'
 import { mergeFilePages, type Category, type LocalDir, type LocalFileEntry, type LocalFileKind, type LocalFileList, type WorkObject } from '../../core/data'
 import {

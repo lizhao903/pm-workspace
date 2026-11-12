@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 项目标志和标志编辑（照原型 imagepick.tsx 的 Mark、MarkEditor）：优先级 上传的图片 > 内置图标 > 文字
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import type { ProjectMark, ProjectView } from '../../core/data'

@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 选题抽屉（照原型 topics.tsx 的 TopicDrawer）：标题、状态、放弃原因、计划开做、角度、受众、打分、系列、标签、平台、大纲、关联素材；
 // 原型边改边存，这里和视频插件别的抽屉一样改草稿、点「保存」才写，关掉时有未保存提示。取消关联素材、立项、删除是单独的写操作
 import { useState } from 'react'

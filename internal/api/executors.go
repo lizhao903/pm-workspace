@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 package api
 
 import (
@@ -369,7 +371,7 @@ func (s *Server) handleTestExecutor(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer os.RemoveAll(dir)
-	req.RunID, req.Workdir, req.Timeout = idgen.Prefixed("probe"), dir, 45*time.Second
+	req.RunID, req.Workdir, req.Timeout = idgen.Prefixed("prb"), dir, 45*time.Second
 	req.Prompt = "这是 CLI 测试对话。仅报告当前上下文确实可见的已加载项目名称，不要猜测；未知项目返回空数组。按用户要求的格式回复，不读取文件、不执行命令、不使用工具。\n" + input.Prompt
 	local := runner.Runner{}
 	result, err := local.Start(ctx, req, nil)

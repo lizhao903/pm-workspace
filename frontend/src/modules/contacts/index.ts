@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 import { defineCoreModule, registerCoreSearch } from '../../core/plugin'
 import { searchContacts } from './search'
 

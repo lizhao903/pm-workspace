@@ -231,6 +231,11 @@
 .tb-title .list-count { flex: none; }
 .tb-desc { min-width: 0; flex: 0 1 auto; font-size: var(--fs-sm); color: var(--muted); }
 .tb-actions { display: flex; align-items: center; gap: var(--sp-4); flex: none; }
+/* 标题右侧同一行的标签条（PageTitle 的 tabs）：挤不下时自己横向滚动，不撑宽页面、不露滚动条 */
+.tb-tabs { flex: 1 1 0; min-width: min(120px, 32%); align-self: stretch; display: flex; overflow-x: auto; overflow-y: hidden; scrollbar-width: none; }
+.tb-tabs::-webkit-scrollbar { display: none; }
+/* 有标签条时剩下的宽度都给它，按钮靠右 */
+.tb-tabs ~ .spacer { flex: 0 0 0; }
 
 /* ---------- 二级菜单 ---------- */
 .subnav {

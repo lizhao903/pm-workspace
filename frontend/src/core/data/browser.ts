@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 内置浏览器（BR-01b）：浏览器插件 browser 的接口，契约见 docs/api-contract.md「内置浏览器插件 browser」（BR-01a）。
 // 标签页启动时 GET 一次、之后整体 PUT（页面自己防抖），不走缓存。
 // Google 账号以 Google Drive 连接器实例为准：登录、退出报 { kind: 'browser-google' }，连接器列表一起刷；

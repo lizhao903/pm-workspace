@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 import { useEffect, useId, useState } from 'react'
 import { errorText, useAgentProviders } from '../../../core/data'
 import { useExecutors, useSaveExecutor, useDeleteExecutor, executorsApi, type ExecutorProbe, type Executor, type ExecutorInput } from '../../../core/data/executors'

@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 import { errorText, usePluginJobs } from '../../core/data'
 import { PageTitle } from '../../core/ui'
 import './jobs.css'

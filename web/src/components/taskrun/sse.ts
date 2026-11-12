@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 执行流的 SSE 解析。EventSource 只能发 GET，而 POST /api/objects/{id}/run 要带 body，
 // 所以走 fetch + ReadableStream 自己按空行切块。
 // 与 agent/sse.ts 同构但独立：那边的事件集合是对话的，两边各自演进，不互相牵制。

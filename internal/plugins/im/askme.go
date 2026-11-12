@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 package im
 
 import (
@@ -183,6 +185,11 @@ func (in *inbox) askTargetOf(ctx context.Context, n plugin.SOPNodeInput) (askTar
 // sendToMe 私信我一条：发、登记私信会话、记发件记录和审计（同主动发消息）。convExt 是已知的私信会话编号（再问、提醒时），
 // threadOf 是要串在哪条下面（渠道编号，空串不串）。回发出的那条的渠道编号和私信会话编号。
 func (in *inbox) sendToMe(ctx context.Context, t askTarget, convExt, text, threadOf, runID string, meta plugin.WriteMeta) (ext, conv string, err error) {
+	return in.sendDirect(ctx, t, convExt, text, threadOf, runID, meta, "私信我")
+}
+
+// sendDirect 私信 t.me 一条，label 是登记的私信会话名和审计摘要（「私信我」「私信 X」，TSK-0468 私信联系人也走它）。
+func (in *inbox) sendDirect(ctx context.Context, t askTarget, convExt, text, threadOf, runID string, meta plugin.WriteMeta, label string) (ext, conv string, err error) {
 	if utf8.RuneCountInString(text) > maxReply {
 		return "", "", fmt.Errorf("要发的内容超过 %d 字", maxReply)
 	}
@@ -202,21 +209,21 @@ func (in *inbox) sendToMe(ctx context.Context, t askTarget, convExt, text, threa
 	if conv == "" {
 		conv = t.me // 渠道没回会话编号（假适配器）：按「和我的私信」登记
 	}
-	cv, _, cerr := in.c.ConversationWriter().Ensure(ctx, plugin.NewConversation{Channel: t.channel, ExternalID: conv, Kind: "direct", Name: "私信我"})
+	cv, _, cerr := in.c.ConversationWriter().Ensure(ctx, plugin.NewConversation{Channel: t.channel, ExternalID: conv, Kind: "direct", Name: label})
 	if cerr != nil {
 		in.c.Log().Warn("im ask me conversation not registered", "channel", t.channel, "err", cerr)
 	} else {
 		in.recordOutbox(ctx, cv, t.connectorID, rp.Key(), text, ext, sendErr, "sop", runID)
 	}
-	detail := map[string]any{"channel": t.channel, "connector_id": t.connectorID, "adapter": rp.Key(), "conversation": "私信我",
+	detail := map[string]any{"channel": t.channel, "connector_id": t.connectorID, "adapter": rp.Key(), "conversation": label,
 		"conversation_external_id": conv, "to": t.me, "text": clip(text, auditTextMax), "source": "sop"}
 	if sendErr != nil {
 		detail["status"], detail["error"] = "failed", clip(sendErr.Error(), maxReplyError)
-		in.c.Audit().Note(ctx, plugin.AuditNote{Action: "send", TargetType: "conversation", TargetID: cv.ID, Summary: "私信我失败", Detail: detail}, meta)
+		in.c.Audit().Note(ctx, plugin.AuditNote{Action: "send", TargetType: "conversation", TargetID: cv.ID, Summary: label + "失败", Detail: detail}, meta)
 		return "", conv, fmt.Errorf("私信发不出去：%s", clip(sendErr.Error(), maxReplyError))
 	}
 	detail["status"], detail["external_id"] = "sent", ext
-	in.c.Audit().Note(ctx, plugin.AuditNote{Action: "send", TargetType: "conversation", TargetID: cv.ID, Summary: "私信我", Detail: detail}, meta)
+	in.c.Audit().Note(ctx, plugin.AuditNote{Action: "send", TargetType: "conversation", TargetID: cv.ID, Summary: label, Detail: detail}, meta)
 	return ext, conv, nil
 }
 
@@ -259,7 +266,8 @@ func (in *inbox) withTaskURL(input map[string]any) map[string]any {
 
 func (in *inbox) tellMeNode(ctx context.Context, c plugin.Core, n plugin.SOPNodeInput) (map[string]any, error) {
 	input := in.withTaskURL(n.Input)
-	text := strings.TrimSpace(render(n.Config["text"], input))
+	// 回报只发状态和结论，去掉执行过程的工具行（TSK-0470）
+	text := cleanReply(render(n.Config["text"], input))
 	if text == "" {
 		return nil, errors.New("要发的内容是空的")
 	}

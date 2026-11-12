@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 import { newId } from './ids'
 
 // Agent：工作助手。每个 Agent 有自己的指令、模型、能用的工具（以及每个工具的权限）、能读的内容和触发方式
@@ -20,6 +22,8 @@ export const ABILITIES: Ability[] = [
   { key: 'write_tasks', label: '新建 / 更新任务', group: '任务', write: true, desc: '' },
   { key: 'read_content', label: '读文档', group: '文档', write: false, desc: '只能读挂载的知识库里的资料' },
   { key: 'write_content', label: '写文档', group: '文档', write: true, desc: '新建笔记、摘录' },
+  { key: 'read_sop', label: '查 SOP 流程', group: 'SOP', write: false, desc: '列出流程、读流程的步骤和能用的节点' },
+  { key: 'write_sop', label: '新建 / 修改 SOP 流程', group: 'SOP', write: true, desc: '按描述建流程或改步骤，保存前照编辑器的规则校验' },
   { key: 'run_sop', label: '发起 SOP', group: 'SOP', write: true, desc: '按标准流程执行，流程里的人工检查点照常停下' },
 ]
 
@@ -66,7 +70,15 @@ export interface AgentScenario { key: string; label: string; desc: string; agent
 export const seedScenarios: AgentScenario[] = [
   { key: 'sop_assist', label: 'SOP 编排助手', desc: '流程编辑器里帮你搭流程、改节点的助手', agent_id: '' },
   { key: 'background', label: '其他后台调用', desc: '插件在后台调模型、又没指定 Agent 的地方，包括没选 Agent 的 SOP 节点（AI 处理、提取、分类、逐项处理）', agent_id: '' },
+  // SPEC-settings-8.16：任务交给工作台 Agent 执行时默认选谁，交的时候还能换；没选用第一个启用的
+  { key: 'task_run', label: '执行任务', desc: '任务交给工作台 Agent 执行时默认用的 Agent，交的时候还能换；没选时用第一个启用的 Agent', agent_id: '' },
 ]
+
+/** 交给工作台 Agent 执行时默认的 Agent（SPEC-tasks-6.21）：场景「执行任务」选的，删了、停了或没选用第一个启用的 */
+export function taskRunAgent(agents: Agent[], scenarios: AgentScenario[]): Agent | undefined {
+  const id = scenarios.find((s) => s.key === 'task_run')?.agent_id
+  return agents.find((a) => a.id === id && a.enabled) ?? agents.find((a) => a.enabled)
+}
 
 export interface ToolCall { tool: string; input: Record<string, unknown>; output?: unknown; state: 'done' | 'pending' | 'confirmed' | 'rejected' }
 
@@ -115,8 +127,14 @@ export interface KnowledgeBase { id: string; name: string; desc: string; sources
 /* ---------- 会话与产出 ---------- */
 
 export interface ChatMsg { id: number; role: 'user' | 'agent'; text: string; calls?: ToolCall[]; at?: string }
-/** 会话的来源（SPEC-sessions-1.42）：从哪条记录发起的；现在只有 IM 消息的「发起会话」「拆分任务」 */
-export interface SessionSource { kind: 'im_message'; message_ids: string[]; label: string; intent: 'chat' | 'split' }
+/**
+ * 会话的来源（SPEC-sessions-1.42）：从哪条记录发起的。im_message 是 IM 消息的「发起会话」「拆分任务」；
+ * task_run 是任务交给工作台 Agent 执行时建的会话（SPEC-sessions-1.44），带任务和执行记录 id，message_ids 为空
+ */
+export interface SessionSource {
+  kind: 'im_message' | 'task_run'; message_ids: string[]; label: string; intent: 'chat' | 'split'
+  task_id?: string; run_id?: string
+}
 export interface Session { id: string; agent_id: string; project_id?: string; title: string; created_at: string; updated_at: string; messages: ChatMsg[]; source?: SessionSource }
 
 /** Agent 真正落到数据上的东西：建的任务、写的文档、发的回复、发起的流程 */

@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 原型同步（AUTO-11，SPEC-projects-15.17 到 15.28）：以上线代码为准回写原型库和规格，只提交到原型库的同步分支 proto-sync/<日期>。
 // 正式产品存在项目插件的表 projects_proto_syncs（每次一行，同步点是最近一次已同步 / 没有界面改动 / 设为基线的代码 HEAD）
 // 和 projects_proto_sync_settings（三种触发的开关，默认都关）。

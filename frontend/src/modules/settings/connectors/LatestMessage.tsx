@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 import { useQuery } from '@tanstack/react-query'
 import { errorText, imApi, useNotifyChange, type Connector } from '../../../core/data'
 

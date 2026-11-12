@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 干系人选择器：负责人（单选）与参与人（多选）共用同一份名册。
 //
 // 名册一律只拉在岗的（api.stakeholders() 默认不带已归档）——

@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // Webhook 接入（SPEC-tasks-9）：列表，筛选全部 / 最近失败 / 已停用，最近失败的排在前面。
 // WebhooksView 按路由在列表、配置页（SPEC-tasks-10）之间切换，管从推送记录打开的任务抽屉。
 import { useState } from 'react'

@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // IM 连接器可选的会话（Slack「监听频道」的列表选择）：GET /api/im/connectors/{id}/conversations。契约见 docs/api-contract.md「IM 消息插件 im」。
 // 按连接器的 Token 现查渠道，慢、还受限流，所以缓存键不放在 im 前缀下（消息一变不跟着重查），只在打开抽屉或点「刷新」时取。
 import { useQuery } from '@tanstack/react-query'

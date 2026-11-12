@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 终端（TERM-01b）：终端插件 terminal 的会话接口，契约见 docs/api-contract.md「终端插件 terminal」（TERM-01a）。
 // 会话只在服务进程内存里：新建、结束报 { kind: 'terminal-session' }；收发走 WebSocket，地址由 terminalSocketUrl 拼。
 // 终端页要按目录认出项目原型，原型列表跨全部项目取一份，启停经这里调项目插件的接口（终端不 import 项目插件）。

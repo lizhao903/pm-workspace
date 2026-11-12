@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 正在进行的对话（AG-01a）。回复在流里一段段来，落库要等收尾，
 // 所以流的状态放在模块级：切到别的会话再切回来、离开会话页再回来，都还能看到这一轮。
 // 要人确认的调用（AG-02b）：confirm 事件里的 id 记在这里（落库的消息里没有 id）；点了确认、拒绝，

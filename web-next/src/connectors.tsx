@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 import { useState } from 'react'
 import { PageTitle } from './topbar'
 import { AUTH_LABEL, IM_CHANNELS, TOOL_CATEGORIES, TOOLS, fieldView, testedAccount, tokenProblem, type ConnStatus, type Connector, type Tool } from './data'
@@ -87,6 +89,26 @@ function ImExpiry({ days, onSave }: { days: number; onSave: (n: number) => void 
   )
 }
 
+/**
+ * FDE 反馈转发（TSK-0468）：手动转任务（转任务、拆分任务）后发起内置 SOP「FDE 反馈转发」（sop_im_fde_forward），
+ * 私信 Robot.CyberBroleez「FDE 反馈」+ 原始消息 + 任务编号。默认关；原型只记在本页状态里，正式产品是 IM 设置 fde_forward
+ */
+function ImFdeForward() {
+  const [on, setOn] = useState(false)
+  const [note, setNote] = useState<string | null>(null)
+  return (
+    <div className="im-expiry" role="group" aria-label="FDE 反馈转发">
+      <span className="im-expiry-label">FDE 反馈转发</span>
+      <label className="check">
+        <input type="checkbox" checked={on} onChange={(e) => { setOn(e.target.checked); setNote(e.target.checked ? '已打开：手动转任务后会转发 FDE 反馈' : '已关闭：手动转任务不再转发') }} />
+        手动转任务后转发 FDE 反馈
+      </label>
+      {note ? <span className="ok-text">{note}</span>
+        : <span className="field-hint-line">点「转任务」「拆分任务」建出任务后，私信 Robot.CyberBroleez「FDE 反馈」加原始消息和任务编号；同一条消息只发一次，拆分的汇成一条，流程自动建的不发。收件人、开头文字在 SOP 里改</span>}
+    </div>
+  )
+}
+
 /* ---------- 列表（设置页里的一个分项） ---------- */
 
 export function ConnectorsSettings({ connectors, messageCount, initialCat = '', onConfigure, onAdd, onConnect, onDisconnect, imExpireDays, onImExpireDays }: {
@@ -138,6 +160,7 @@ export function ConnectorsSettings({ connectors, messageCount, initialCat = '', 
             <span className="muted">{c.desc}</span>
           </div>
           {c.key === 'im' && <ImExpiry days={imExpireDays} onSave={onImExpireDays} />}
+          {c.key === 'im' && <ImFdeForward />}
           {c.key === 'im' && <ImQuickReplies />}
           <div className="tool-grid">
             {TOOLS.filter((t) => t.category === c.key).map((t) => {

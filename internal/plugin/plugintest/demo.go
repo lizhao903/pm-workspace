@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // Package plugintest 是只给测试用的示例插件，不编译进 cmd/pmw。迁移在 migrations/ 下，表前缀 demo_。
 // 它按第一方插件的写法来：清单 embed 进来、Register 里只登记、后台活动交给 Job。
 package plugintest

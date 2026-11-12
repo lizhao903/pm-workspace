@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 任务抽屉里的「提醒」：这条任务已有的提醒（定时任务动作 remind、object_id 是它），可以取消；「设个提醒」给它建一条只提醒一次的。
 // 到点在工作台右下角弹出（外壳的 ReminderPopups），点了打开这条任务。重复的提醒在定时任务页建，这里也列出来、能取消。
 import { useState } from 'react'

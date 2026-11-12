@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 运行页（SPEC-sop-7）：上方流程图标出每步状态，下方检查器看选中步骤的输入、输出、日志，做八种动作。
 // 状态变化靠事件流刷新（插件入口订阅 sop.* 事件报 sop-run）；动作的响应先写回缓存。没手动点过步骤时检查器跟着 focusIndex 走。
 import { useEffect, useState } from 'react'
@@ -11,6 +13,7 @@ import {
 } from './model'
 import { IconBack, KindTag } from './parts'
 import { useSourceText } from './source'
+import { RULE_TEXT_CODE } from './repair'
 
 /** 字段视图：短文本直接显示，长文本保留换行，数组和对象缩进成 JSON，空串显示「空」 */
 export function DataView({ data }: { data: SopJson }) {
@@ -34,8 +37,13 @@ export function DataView({ data }: { data: SopJson }) {
 
 const TAB_LABEL: Record<Tab, string> = { input: '输入', output: '输出', log: '日志' }
 
-function Inspector({ run, index, onAct, busy, now, branching }: {
-  run: SopRun; index: number; onAct: (a: SopRunAction) => void; busy: boolean; now: number; branching: (d: SopStepDef) => boolean
+function Inspector({ run, index, onAct, onRerun, onEditFlow, busy, now, branching }: {
+  run: SopRun; index: number; onAct: (a: SopRunAction) => void
+  /** 按最新流程重新发起（同页头「用同样的输入再执行」，打开发起执行抽屉） */
+  onRerun: () => void
+  /** 条件是一句话的失败（TSK-0498）：「去改流程」打开这条流程的编辑页 */
+  onEditFlow?: () => void
+  busy: boolean; now: number; branching: (d: SopStepDef) => boolean
 }) {
   const flow = run.flow
   const def = flow.steps[index]
@@ -190,6 +198,16 @@ function Inspector({ run, index, onAct, busy, now, branching }: {
           {/* 已按最新流程重跑过的不能再重试、跳过（后端 409），去新执行里处理 */}
           {run.relaunched_to ? (
             <div className="sop-banner-note">这次执行已按最新流程重跑，不能再重试或跳过，到新执行里处理</div>
+          ) : step.error_code === RULE_TEXT_CODE ? (
+            // 条件是一句话（TSK-0498）：沿用发起时的流程版本，重试必然原样失败，所以不给「重试」
+            <>
+              <div className="sop-banner-note">原样重试还会失败。先改流程里这一步的条件，再按最新流程重新发起这条执行；不想等可以先跳过这一步。</div>
+              <div className="sop-act-row">
+                {onEditFlow && <Button variant="primary" size="sm" onClick={onEditFlow}>去改流程</Button>}
+                <Button size="sm" disabled={busy} onClick={onRerun}>按最新流程重新发起</Button>
+                <Button size="sm" disabled={busy} onClick={() => onAct({ kind: 'skip', step: index })}>跳过这一步</Button>
+              </div>
+            </>
           ) : (
             <div className="sop-act-row">
               <Button variant="primary" size="sm" disabled={busy} onClick={() => onAct({ kind: 'retry', step: index })}>重试</Button>
@@ -274,12 +292,14 @@ function Inspector({ run, index, onAct, busy, now, branching }: {
   )
 }
 
-export function RunView({ run, onBack, onAct, onRerun, onOpenRun, busy, actError, branching }: {
+export function RunView({ run, onBack, onAct, onRerun, onEditFlow, onOpenRun, busy, actError, branching }: {
   run: SopRun
   onBack: () => void
   /** 请求结束（成功或失败）时 resolve */
   onAct: (a: SopRunAction) => Promise<unknown>
   onRerun: () => void
+  /** 条件是一句话的失败（TSK-0498）：「去改流程」打开这条流程的编辑页 */
+  onEditFlow?: () => void
   /** 打开另一次执行（批量重跑新发起的看原执行） */
   onOpenRun?: (id: string) => void
   busy: boolean
@@ -348,7 +368,7 @@ export function RunView({ run, onBack, onAct, onRerun, onOpenRun, busy, actError
       <div className="sop-run-flow">
         <FlowGraph flow={flow} run={run} selected={index} branching={branching} onSelect={(i) => setPicked(i === focus ? null : i)} />
       </div>
-      {step && <Inspector key={`${index}:${step.status}`} run={run} index={index} onAct={act} busy={busy} now={now} branching={branching} />}
+      {step && <Inspector key={`${index}:${step.status}`} run={run} index={index} onAct={act} onRerun={onRerun} onEditFlow={onEditFlow} busy={busy} now={now} branching={branching} />}
     </div>
   )
 }

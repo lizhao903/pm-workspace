@@ -144,3 +144,9 @@ graph TD
 1. **中文全文检索方案**：trigram（零依赖，推荐）vs 外挂分词（效果好但增加构建复杂度）。影响建表，必须先定。
 2. **单人 vs 预留多人**：影响是否从一开始带 `owner_id` 与权限层。
 3. **Agent 写权限边界**：建议一律走草稿确认；若要允许直写，需要限定白名单操作 + 可回滚。
+
+---
+
+由 DeepSeek Harness（dsh）协助完成。
+
+[![](https://img.shields.io/badge/powered_by-dsh-4D6BFE?style=flat-square&logo=deepseek&logoColor=white)](https://github.com/deepseek-ai/deepseek-harness)

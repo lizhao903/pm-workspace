@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 详情抽屉「执行」Tab：把当前工作对象交给本机 Claude Code 去做，并实时看它在动哪些文件。
 // 另外导出详情 Tab 用的「工作区」字段（WorkdirField），两处共用同一套「自己设的 / 继承自项目」判断。
 import { useEffect, useMemo, useRef, useState } from 'react'

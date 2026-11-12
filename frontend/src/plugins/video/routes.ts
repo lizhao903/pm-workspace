@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 视频页的路由：子路径和列表视图互转
 import type { DetailTab } from './Detail'
 

@@ -1,14 +1,20 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 群组管理（SPEC-messages-7）：IM 消息页标题行「群组管理」打开的右侧抽屉。
 // 列出出现过消息的群和私聊，每行渠道、名字（私聊是对方）、消息数、待处理数、最近一条时间、默认归属项目；
 // 行上直接改默认归属，勾选后底部一条批量设、清除（一次最多 200 个）；没设归属的群按群名关键字给建议，能单个采纳或全部采纳。
 // 原型的默认归属存在 App 的 groupProjects（会话键 -> 项目 id），和选中群标签时那一行（SPEC-messages-1.50）是同一份；
 // 正式产品走 IM 插件 GET /api/im/conversations/summary、PUT /api/im/conversation-projects（批量）。
-import { useMemo, useState } from 'react'
+// 查询回填（SPEC-messages-7.12～7.13，TSK-0494）：名字只能显示渠道编号的行右侧「查询回填」，工具条「回填全部缺失」；
+// 原型用 DEMO_DIRECTORY 模拟渠道的通讯录，查到的名字记在本模块（这次打开页面期间有效）；
+// 正式产品走 POST /api/im/conversations/{id}/refill-names、POST /api/im/conversations/refill-names，名字写回消息。
+import { useState } from 'react'
 import { createPortal } from 'react-dom'
 import { IM_CHANNELS, type Contact, type Message } from './data'
 import type { Project } from './projectdata'
 import { SearchSelect, type SearchOption } from './searchselect'
 import { ImMark, cls, timeAgo } from './ui'
+import { MembersMenu } from './mutes'
 
 /** 一次批量最多几个会话（同正式产品后端） */
 export const GROUP_BATCH_MAX = 200
@@ -19,23 +25,42 @@ const keyOf = (m: Message) => (m.conversation ? `g:${m.channel}|${m.conversation
 export type GroupSummary = {
   key: string; channel: string; direct: boolean; name: string; participants: string[]
   total: number; pending: number; last_at: string
+  /** participants 里只能显示编号的人（给的是编号） */
+  unresolved: string[]
 }
+
+/** 原型模拟的渠道通讯录：编号 -> 查到的名字或查不到的原因（正式产品是 Slack users.info / conversations.info） */
+const DEMO_DIRECTORY: Record<string, { name: string } | { error: string }> = {
+  U02JW5GKB50: { name: 'Mia Chen' },
+  U0BFYG7EVDZ: { error: 'Slack 里查不到这个人：可能是别的工作区的外部成员（Slack Connect），或已被删除' },
+}
+/** 能按编号查名字的渠道（正式产品现在只有 Slack；Telegram 收消息时就带名字） */
+const REFILL_CHANNELS = ['slack']
+/** 查过的结果（渠道|编号 -> 名字或原因），本次打开页面期间有效 */
+const looked = new Map<string, { name: string } | { error: string }>()
+const lookedName = (ch: string, id: string) => { const x = looked.get(`${ch}|${id}`); return x && 'name' in x ? x.name : '' }
+const lookedError = (ch: string, id: string) => { const x = looked.get(`${ch}|${id}`); return x && 'error' in x ? x.error : '' }
 
 /** 按会话汇总；待处理口径同群组标签：待处理、不在稍后里 */
 export function summarize(messages: Message[], contacts: Contact[]): GroupSummary[] {
-  const who = (m: Message) => contacts.find((c) => c.im[m.channel] === m.sender_id)?.name || m.sender_name || m.sender_id
+  // 渠道没给名字时显示编号（sender_name 就是编号）；查询回填查到的优先于编号
+  const who = (m: Message) => contacts.find((c) => c.im[m.channel] === m.sender_id)?.name
+    || (m.sender_name && m.sender_name !== m.sender_id ? m.sender_name : '') || lookedName(m.channel, m.sender_id) || m.sender_id
   const acc = new Map<string, GroupSummary>()
   for (const m of [...messages].sort((a, b) => b.at.localeCompare(a.at))) {
     const k = keyOf(m)
     let s = acc.get(k)
     if (!s) {
-      s = { key: k, channel: m.channel, direct: !m.conversation, name: m.conversation, participants: [], total: 0, pending: 0, last_at: m.at }
+      s = { key: k, channel: m.channel, direct: !m.conversation, name: m.conversation, participants: [], total: 0, pending: 0, last_at: m.at, unresolved: [] }
       acc.set(k, s)
     }
     s.total += 1
     if (m.status === 'pending' && !(m.snooze_until && new Date(m.snooze_until).getTime() > Date.now())) s.pending += 1
     const n = who(m)
-    if (s.participants.length < 5 && !s.participants.includes(n)) s.participants.push(n)
+    if (s.participants.length < 5 && !s.participants.includes(n)) {
+      s.participants.push(n)
+      if (n === m.sender_id) s.unresolved.push(n)
+    }
   }
   return [...acc.values()]
 }
@@ -44,12 +69,12 @@ export const displayName = (s: GroupSummary) => (s.direct ? s.participants[0] ||
 
 /**
  * 按群名关键字建议项目（同正式产品 groupAdminModel）：群名先转小写、去掉开头 #、空白和下划线换成 -、两头补 -；
- * 命中内置关键字（octok → Octok、xaue → XAUE、-ns- → NS 系统）或项目名（不少于 3 个字）的项目都是候选，
+ * 命中内置关键字（acme → Acme、globex → Globex、-ns- → NS 系统）或项目名（不少于 3 个字）的项目都是候选，
  * 按在群名里出现的先后排；只给没设归属的群，私聊不建议。一个候选能直接采纳，几个候选要人挑。
  */
 export const SUGGEST_RULES: { keyword: string; projects: string[] }[] = [
-  { keyword: 'octok', projects: ['Octok'] },
-  { keyword: 'xaue', projects: ['XAUE'] },
+  { keyword: 'acme', projects: ['Acme'] },
+  { keyword: 'globex', projects: ['Globex'] },
   { keyword: '-ns-', projects: ['NS 系统', 'NS'] },
 ]
 const norm = (s: string) => `-${s.toLowerCase().replace(/^#/, '').replace(/[\s_]+/g, '-')}-`
@@ -79,7 +104,8 @@ export function GroupAdminDrawer({ messages, contacts, projects, groupProjects, 
   /** 「发消息」：带上这个会话打开发消息弹窗（SPEC-messages-8） */
   onSend: (key: string) => void
 }) {
-  const all = useMemo(() => summarize(messages, contacts), [messages, contacts])
+  // 查询回填改的是模块里的 looked，每次渲染重算
+  const all = summarize(messages, contacts)
   const [q, setQ] = useState('')
   const [kind, setKind] = useState<KindFilter>('')
   const [unset, setUnset] = useState(false)
@@ -87,6 +113,8 @@ export function GroupAdminDrawer({ messages, contacts, projects, groupProjects, 
   const [sel, setSel] = useState<Set<string>>(new Set())
   const [batchPid, setBatchPid] = useState('')
   const [note, setNote] = useState('')
+  const [, setLookTick] = useState(0)
+  const [rowNote, setRowNote] = useState<Record<string, { text: string; bad: boolean }>>({})
   const pidOf = (s: GroupSummary) => (groupProjects[s.key] && projects.some((p) => p.id === groupProjects[s.key]) ? groupProjects[s.key] : '')
   const nameOf = (pid: string) => projects.find((p) => p.id === pid)?.name ?? '已删除的项目'
   const kw = q.trim().toLowerCase()
@@ -104,6 +132,38 @@ export function GroupAdminDrawer({ messages, contacts, projects, groupProjects, 
     for (const k of keys) onSetGroupProject(k, pid)
     setNote(`已${verb}：${keys.length} 个会话`)
   }
+  /** 查一行缺名字的编号；retry 为假（批量）时之前查不到的跳过。回补上的名字、没查到的原因、跳过几个 */
+  const lookup = (s: GroupSummary, retry: boolean) => {
+    const filled: string[] = []
+    const failed: string[] = []
+    let skipped = 0
+    for (const id of s.unresolved) {
+      if (!retry && lookedError(s.channel, id)) { skipped++; continue }
+      const x = DEMO_DIRECTORY[id] ?? { error: 'Slack 没返回这个人的名字' }
+      looked.set(`${s.channel}|${id}`, x)
+      if ('name' in x) filled.push(x.name)
+      else failed.push(x.error)
+    }
+    return { filled, failed, skipped }
+  }
+  const refillOne = (s: GroupSummary) => {
+    const r = lookup(s, true)
+    const parts = [...(r.filled.length ? [`已补上：${r.filled.join('、')}`] : []), ...(r.failed.length ? [`没查到 ${r.failed.length} 个：${[...new Set(r.failed)].join('；')}`] : [])]
+    setRowNote((x) => ({ ...x, [s.key]: { text: parts.join('；') || '没有要补的名字了', bad: !r.filled.length && r.failed.length > 0 } }))
+    setLookTick((t) => t + 1)
+  }
+  const refillAll = () => {
+    let filled = 0, failed = 0, skipped = 0
+    for (const s of all.filter((x) => x.unresolved.length && REFILL_CHANNELS.includes(x.channel))) {
+      const r = lookup(s, false)
+      filled += r.filled.length; failed += r.failed.length; skipped += r.skipped
+    }
+    setNote([filled ? `补上 ${filled} 个名字` : '没补上新的名字', ...(failed ? [`${failed} 个没查到`] : []), ...(skipped ? [`${skipped} 个之前就没查到，这次跳过`] : [])].join('，'))
+    setLookTick((t) => t + 1)
+  }
+  // 之前查失败过的批量时跳过，不算进数字（行上「查询回填」重查）
+  const missingN = all.filter((s) => s.unresolved.length && REFILL_CHANNELS.includes(s.channel) && !s.unresolved.some((id) => lookedError(s.channel, id))).length
+
   const toggle = (k: string) => setSel((x) => {
     const n = new Set(x)
     if (n.has(k)) n.delete(k)
@@ -130,6 +190,10 @@ export function GroupAdminDrawer({ messages, contacts, projects, groupProjects, 
             ))}
           </div>
           <button className={cls('chip', unset && 'chip-on')} onClick={() => setUnset(!unset)}>没设归属的{unsetN > 0 && <span className="seg-n">{unsetN}</span>}</button>
+          {missingN > 0 && (
+            <button className="btn btn-outline" onClick={refillAll}
+              title="名字只显示渠道编号的会话，回渠道查了补上；一次最多查 100 个、撞上限流就停，之前查不到的跳过（行上「查询回填」会重查）">回填全部缺失<span className="seg-n">{missingN}</span></button>
+          )}
           {used.length > 1 && (
             <div className="channel-filter">
               <button className={cls('ch-btn', !channel && 'on')} onClick={() => setChannel('')}>全部渠道</button>
@@ -160,8 +224,11 @@ export function GroupAdminDrawer({ messages, contacts, projects, groupProjects, 
                 <div key={s.key} className={cls('ga-row', sel.has(s.key) && 'picked')}>
                   <input type="checkbox" checked={sel.has(s.key)} onChange={() => toggle(s.key)} aria-label={`选中 ${displayName(s)}`} />
                   <div className="ga-main">
-                    <div className="ga-top">{ch && used.length > 1 && <ImMark ch={ch} compact />}<button className="ga-name" onClick={() => onOpenConversation(s.channel, s.key)} title="看这个会话的消息">{displayName(s)}</button><span className="spacer" /><button className="act" onClick={() => onSend(s.key)} title="直接发到这个会话，不挂在哪条消息的消息列里">发消息</button></div>
-                    <div className="ga-sub"><span className="ga-who">{s.direct ? '私聊' : s.participants.join('、')}</span><span>{timeAgo(s.last_at)}</span></div>
+                    <div className={cls('ga-top', s.unresolved.length > 0 && 'ga-top-refill')}>{ch && used.length > 1 && <ImMark ch={ch} compact />}<button className="ga-name" onClick={() => onOpenConversation(s.channel, s.key)} title="看这个会话的消息">{displayName(s)}</button><span className="spacer" />{s.unresolved.length > 0 && <button className="act" disabled={!REFILL_CHANNELS.includes(s.channel)} onClick={() => refillOne(s)}
+                      title={REFILL_CHANNELS.includes(s.channel) ? `回渠道查 ${s.unresolved.length} 个只有编号的人（${s.unresolved.slice(0, 3).join('、')}）的名字并补上；只补空的，不改联系人和手动改过的名字` : '这个渠道查不了编号对应的名字'}>查询回填</button>}<button className="act" onClick={() => onSend(s.key)} title="直接发到这个会话，不挂在哪条消息的消息列里">发消息</button></div>
+                    <div className="ga-sub"><span className="ga-who">{s.direct ? '私聊' : s.participants.join('、')}</span><span>{timeAgo(s.last_at)}</span><MembersMenu msgs={messages.filter((m) => keyOf(m) === s.key)} onDone={setNote} /></div>
+                    {rowNote[s.key] ? <div className={cls('ga-refill', rowNote[s.key].bad && 'bad')}>{rowNote[s.key].text}</div>
+                      : s.unresolved.some((id) => lookedError(s.channel, id)) ? <div className="ga-refill muted">上次没查到：{s.unresolved.map((id) => lookedError(s.channel, id)).find(Boolean)}</div> : null}
                   </div>
                   <span className="ga-col">{s.total}</span>
                   <span className={cls('ga-col', s.pending > 0 && 'ga-pending')}>{s.pending || '—'}</span>

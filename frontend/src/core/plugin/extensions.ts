@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 扩展点的注册表（CORE-02b）：每条注册记下是哪个插件的，停用时按插件 id 一起撤掉。
 // 外壳和页面用 use* 订阅，插件停用、注册撤掉后设置分节、今日卡片、菜单跟着消失。
 import { useMemo, useSyncExternalStore, type ComponentType, type LazyExoticComponent } from 'react'

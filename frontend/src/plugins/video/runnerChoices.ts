@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 执行器能选的技能、SOP、Agent（VID-03c），给 Runner.tsx 用
 import { useAgents, useSopFlows, type VideoRunnerType } from '../../core/data'
 import { RUNNER_SKILLS, type RunnerChoice } from './runnerModel'

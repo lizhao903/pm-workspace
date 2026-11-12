@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 package store
 
 import (
@@ -14,6 +16,8 @@ const (
 	AgentRunWaiting  = "waiting"
 	AgentRunRejected = "rejected"
 	AgentRunFailed   = "failed"
+	// AgentRunCanceled 是手动停止的执行（P0-O2，0056），不是失败：可以在执行记录上重试。
+	AgentRunCanceled = "canceled"
 )
 
 // DefaultAgentRunLimit 是执行记录列表不指定条数时的一页长度，同原型「先显示 50 条」。
@@ -21,17 +25,19 @@ const DefaultAgentRunLimit = 50
 
 // AgentRun 是一次被触发的执行。SessionID 为 nil 是还没建出会话就失败了。
 type AgentRun struct {
-	ID          string     `json:"id"`
-	AgentID     string     `json:"agent_id"`
-	TriggerKind string     `json:"trigger_kind"`
-	Trigger     string     `json:"trigger"`
-	SourceID    string     `json:"source_id"`
-	EventKey    string     `json:"event_key"`
-	SessionID   *string    `json:"session_id"`
-	Status      string     `json:"status"`
-	Summary     string     `json:"summary"`
-	StartedAt   time.Time  `json:"started_at"`
-	FinishedAt  *time.Time `json:"finished_at"`
+	ID          string  `json:"id"`
+	AgentID     string  `json:"agent_id"`
+	TriggerKind string  `json:"trigger_kind"`
+	Trigger     string  `json:"trigger"`
+	SourceID    string  `json:"source_id"`
+	EventKey    string  `json:"event_key"`
+	SessionID   *string `json:"session_id"`
+	Status      string  `json:"status"`
+	Summary     string  `json:"summary"`
+	// Prompt 是这次执行交给 Agent 的第一句话（0056），重试时原样再用；0056 之前的旧行为空串。
+	Prompt     string     `json:"prompt,omitempty"`
+	StartedAt  time.Time  `json:"started_at"`
+	FinishedAt *time.Time `json:"finished_at"`
 	// Pending 是还在等确认的调用数，查询时填
 	Pending int `json:"pending"`
 }

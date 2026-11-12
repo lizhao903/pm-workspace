@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // Package im 是「IM 消息」插件的后端（IM-01a 起）。清单 plugin.json 只有这一份，前端构建时也读它。
 // 每个渠道一个适配器（拉取或回调，adapter.go），消息落在插件表 im_messages，按 IM 身份 id 认人、按会话 id 归档，
 // 到达时发 im.message_received。接口契约见 docs/api-contract.md「IM 消息插件 im」。
@@ -22,6 +24,9 @@ var migrationsFS embed.FS
 
 // EventReceived 是新消息落库后发的事件，payload 见 Received。
 const EventReceived = "im.message_received"
+
+// EventMuted 是发信人被自动忽略、入库即已忽略的消息（0.28.0，TSK-0491），不发 EventReceived，改发它。
+const EventMuted = "im.message_muted"
 
 // Plugin 是 IM 插件的入口，cmd/pmw 用 Registry.Add 登记。适配器在 New 时给定，启用后不再变。
 type Plugin struct {
@@ -106,11 +111,21 @@ func (p *Plugin) Register(r plugin.Registrar) error {
 		// 群组管理：会话统计、批量设默认项目（0.15.0，convsummary.go）
 		m.HandleFunc("GET /api/im/conversations/summary", in.conversationSummary)
 		m.HandleFunc("PUT /api/im/conversation-projects", in.setConversationProjects)
+		// 查询回填：只显示渠道编号的人名、群名回渠道查了补上（TSK-0494，names.go）
+		m.HandleFunc("POST /api/im/conversations/refill-names", in.refillNamesBatch)
+		m.HandleFunc("POST /api/im/conversations/{conversation_id}/refill-names", in.refillNamesOne)
+		// 补全消息：回渠道拉单个会话的历史、补空正文，补进来的不当新消息（TSK-0724，history.go）
+		m.HandleFunc("POST /api/im/conversations/{conversation_id}/backfill", in.backfillConversation)
 		// 群组管理里主动发消息、发出的记录（0.17.0，outbox.go）
 		m.HandleFunc("POST /api/im/send", in.send)
 		m.HandleFunc("GET /api/im/conversations/{conversation_id}/sent", in.listSent)
 		// @ 候选（0.18.0，members.go）：会话里发过言的人 + 联系人里在这个渠道有 IM 身份的人
 		m.HandleFunc("GET /api/im/conversations/{conversation_id}/members", in.listMembers)
+		// 自动忽略发信人（TSK-0495，mutes.go）
+		m.HandleFunc("GET /api/im/mutes", in.listMutes)
+		m.HandleFunc("GET /api/im/mutes/pending", in.mutePendingCount)
+		m.HandleFunc("POST /api/im/mutes", in.createMute)
+		m.HandleFunc("DELETE /api/im/mutes/{mute_id}", in.deleteMute)
 		// 批量处理完、忽略（PR-03，actions.go）
 		m.HandleFunc("POST /api/im/messages/batch", in.batch)
 		// 附件获取（IM-04a，attachments.go）
@@ -145,10 +160,13 @@ func (p *Plugin) Register(r plugin.Registrar) error {
 	// 补登记之前没登记的会话，启用时跑一次（PR-02）
 	r.Job(plugin.Job{Name: "register_conversations", Run: in.registerJob})
 	r.ConnectorImpact(plugin.ConnectorImpactDef{Key: "messages", Load: messagesImpact})
-	// SOP 节点：发消息、等回复（SOP-02b，sopnodes.go）
+	// SOP 节点：发消息、等回复（SOP-02b，sopnodes.go）；登记时按 kind 补上节点声明（TSK-0490，sopspec.go）
+	r = plugin.WithSOPSpecs(r, sopSpecs)
 	in.registerSOPNodes(r)
 	in.registerTaskReply(r)
-	in.registerAskMe(r) // 私信我确认（TSK-0411，askme.go）
+	in.registerAskMe(r)      // 私信我确认（TSK-0411，askme.go）
+	in.registerTaskAck(r)    // 回执需求方（TSK-0467，taskack.go）
+	in.registerFDEForward(r) // FDE 反馈转发（TSK-0468，fdeforward.go）
 	// IM 需求自动受理：转成任务、设置任务阶段两个节点和内置流程（AUTO-06，autointake.go）
 	in.registerAutoIntake(r)
 	return nil

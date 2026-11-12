@@ -1,8 +1,11 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 package sop
 
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"time"
 
@@ -13,7 +16,9 @@ import (
 // 输入是事件里的归类：message_id、channel、connector_id、conversation_id、stakeholder_id、relevance、at（没有的为空串），
 // 正文不在事件里，流程里用 IM 插件的「读取消息」节点（im_get_message）按 message_id 取。
 // 只发起发送时间在 imTriggerMaxAge 以内的：连接器第一次同步会带进每个会话最近的若干条历史，不该每条都跑一遍。
-// 同一条流程、同一条消息只发起一次（按执行的输入里的 message_id 查）。必填字段补不齐的记一行日志跳过，不报运行异常。
+// 同一条流程、同一条消息只发起一次（按执行的输入里的 message_id 查）。必填字段补不齐的跳过，不报运行异常；
+// 没发起的（过滤不符、被拦截、补不齐、发起出错）记进 sop_skips（TSK-0491，skips.go）。
+// 按会话、与我的关系过滤，按执行顺序逐条判断，拦截流程命中后后面的不再发起（TSK-0481，口径见 imfilter.go）。
 
 const (
 	imTrigger       = "im"
@@ -50,42 +55,60 @@ func (s *starter) onIMMessage(ctx context.Context, _ plugin.Core, ev plugin.Even
 	if at, err := time.Parse(time.RFC3339Nano, m.At); err == nil && imTriggerNow().Sub(at) > imTriggerMaxAge {
 		return nil
 	}
-	rows, err := s.c.Store().Query(ctx, `SELECT `+flowCols+` FROM sop_flows WHERE trigger_desc = ? ORDER BY created_at, rowid`, imTrigger)
+	// 按执行顺序（TSK-0481）：不符合过滤条件的不发起；命中并发起了的拦截流程截住后面的。
+	// 没发起的都记一行原因（TSK-0491，skips.go），流程详情的「最近未发起」看得到
+	list, err := imFlows(ctx, s.c)
 	if err != nil {
 		return err
 	}
-	var list []Flow
-	for rows.Next() {
-		f, err := scanFlow(rows)
-		if err != nil {
-			_ = rows.Close()
-			return err
-		}
-		list = append(list, f)
-	}
-	_ = rows.Close()
 	base := Json{"message_id": m.MessageID, "channel": m.Channel, "connector_id": m.ConnectorID,
 		"conversation_id": deref(m.ConversationID), "stakeholder_id": deref(m.StakeholderID), "relevance": m.Relevance, "at": m.At}
-	for _, f := range list {
+	info := imInfo(m)
+	for i, f := range list {
+		if why, detail := f.IM.filterMiss(m); why != "" {
+			recordSkip(ctx, s.c, f.ID, SourceIM, m.MessageID, skipFiltered, why, mergeInfo(info, detail))
+			continue
+		}
 		var n int
 		if err := s.c.Store().QueryRow(ctx, `SELECT COUNT(*) FROM sop_runs WHERE flow_id = ? AND json_extract(input, '$.message_id') = ?`,
 			f.ID, m.MessageID).Scan(&n); err != nil {
 			return err
 		}
-		if n > 0 {
-			continue
+		started := n > 0
+		if !started {
+			input, err := fillInput(f, base)
+			if err != nil {
+				_, msg, _ := cutKind(err)
+				s.c.Log().Warn("sop im trigger skipped", "flow", f.ID, "message", m.MessageID, "err", err)
+				recordSkip(ctx, s.c, f.ID, SourceIM, m.MessageID, skipMissing, "输入"+msg+"，IM 消息没带上，补不齐",
+					mergeInfo(info, map[string]any{"missing": missingFields(f, base)}))
+				continue
+			}
+			run, err := s.e.create(ctx, f, input, false, origin{Source: SourceIM, SourceRef: m.MessageID})
+			if err != nil {
+				s.c.Log().Warn("sop im trigger failed", "flow", f.ID, "message", m.MessageID, "err", err)
+				_, msg, _ := cutKind(err)
+				recordSkip(ctx, s.c, f.ID, SourceIM, m.MessageID, skipStartFailed, "发起出错："+msg, info)
+				continue
+			}
+			started = true
+			s.c.Log().Info("sop run started", "run", run.ID, "flow", f.ID, "source", "im", "source_id", m.MessageID)
 		}
-		input, err := fillInput(f, base)
-		if err != nil {
-			s.c.Log().Warn("sop im trigger skipped", "flow", f.ID, "message", m.MessageID, "err", err)
-			continue
+		if started && f.IM.Stop {
+			if rest := len(list) - i - 1; rest > 0 {
+				s.c.Log().Info("sop im trigger stopped", "flow", f.ID, "message", m.MessageID, "skipped_flows", rest)
+			}
+			// 后面的流程过滤条件符合的记「被拦截」，不符合的本来也不会发起，记「过滤不符」
+			for _, g := range list[i+1:] {
+				if why, detail := g.IM.filterMiss(m); why != "" {
+					recordSkip(ctx, s.c, g.ID, SourceIM, m.MessageID, skipFiltered, why, mergeInfo(info, detail))
+					continue
+				}
+				recordSkip(ctx, s.c, g.ID, SourceIM, m.MessageID, skipStopped, fmt.Sprintf("被排在前面的「%s」拦截（它命中这条消息后不再交给后面的 IM 流程）", f.Name),
+					mergeInfo(info, map[string]any{"by_flow_id": f.ID, "by_flow": f.Name}))
+			}
+			break
 		}
-		run, err := s.e.create(ctx, f, input, false, origin{Source: SourceIM, SourceRef: m.MessageID})
-		if err != nil {
-			s.c.Log().Warn("sop im trigger failed", "flow", f.ID, "message", m.MessageID, "err", err)
-			continue
-		}
-		s.c.Log().Info("sop run started", "run", run.ID, "flow", f.ID, "source", "im", "source_id", m.MessageID)
 	}
 	return nil
 }

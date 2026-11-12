@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // B 站组件（TSK-0455）的纯函数：账户数据的指标、趋势、退避和时间的文案。页面见 BiliPage.tsx，照原型 web-next/src/videobili.tsx
 import type { BiliAccount, BiliGuard, BiliSnapshot, BiliTrend, BiliTrendMetric } from '../../core/data'
 

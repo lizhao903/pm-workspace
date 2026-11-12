@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 档案（AUTO-04，SPEC-projects-15）：给分类 Agent 和各 pipeline 用的项目信息——简介、关键词、平台，
 // 代码库、原型库、PRD 三个目录，构建到回滚十条命令，负责人和验收人员；末尾是原型同步（AUTO-11，ProtoSyncBlock）。
 // 和设置一样边改边存、没有「保存」按钮：输入停手片刻存一次，点选的立即存，离开标签时没存的也存掉。

@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 消息转项目资料（0009）：一条消息或合并显示的一组，正文按时间拼成一段对话记录，存成项目的一条笔记（kind=note）。
 // 插件之间不能互调，由这里组合请求：先 POST /api/projects/{id}/materials 建笔记，再 POST /api/im/materials 记出处（消息 id、渠道、会话、发信人、时间）；
 // 选了「连附件一起加入资料」的，逐个走附件面板同一条路径（addAttachmentToProject：没获取的先获取，加上后记出处 kind=attachment），

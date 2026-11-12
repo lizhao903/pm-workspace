@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 内置浏览器的数据：标签页、Google 账号、Drive 假数据和地址工具函数
 
 export type TabKind = 'web' | 'proto' | 'drive' | 'home'

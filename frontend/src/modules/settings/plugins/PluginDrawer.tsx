@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 插件详情抽屉：版本、依赖、权限、提供的扩展点；底栏是这个插件当下能做的操作。照原型 ConnectorDrawer 的头像加分组
 import type { ReactNode } from 'react'
 import type { PluginInfo } from '../../../core/data'

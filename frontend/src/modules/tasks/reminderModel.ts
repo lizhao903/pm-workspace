@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 任务抽屉里「设个提醒」的表单（TaskReminders）：默认值、校验、提交体。只提醒一次，关联这条任务。
 import type { ScheduleInput, WorkObject } from '../../core/data'
 import { REMIND_TITLE_MAX, fullRule, remindError, ruleError, type ScheduleDraft } from './scheduleModel'

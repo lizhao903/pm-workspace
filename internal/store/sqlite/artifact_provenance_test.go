@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 package sqlite
 
 import (
@@ -14,7 +16,8 @@ func TestArtifactActorDefaultsToSource(t *testing.T) {
 	s, ctx := newStore(t)
 
 	a := mustArtifact(t, s, ctx, domain.ArtifactInput{URL: "https://x/1"})
-	if a.ActorType != domain.ActorUser || a.Kind != "" || a.Status != "" || a.Props == nil {
+	// kind 没给时按推断补（TSK-0497）：认不出平台的链接是 other
+	if a.ActorType != domain.ActorUser || a.Kind != "other" || a.Status != "" || a.Props == nil {
 		t.Fatalf("手工登记默认值不对: actor=%q kind=%q status=%q props=%v", a.ActorType, a.Kind, a.Status, a.Props)
 	}
 	b, err := s.RecordArtifact(ctx, domain.ArtifactInput{Path: "/tmp/r.md", Source: domain.ArtifactSourceRun})
@@ -103,7 +106,8 @@ func TestArtifactFilterByProvenance(t *testing.T) {
 		{"按产出者 id 没命中", domain.ArtifactFilter{ActorType: domain.ActorSkill, ActorID: "x"}, 0},
 		{"按归属", domain.ArtifactFilter{ScopeType: "kb", ScopeID: "kb_1"}, 1},
 		{"按归属类型", domain.ArtifactFilter{ScopeType: "kb"}, 1},
-		{"对象加种类", domain.ArtifactFilter{ObjectID: obj.ID, Kind: "doc"}, 1},
+		// /tmp/r.md 登记时没给 kind，按扩展名补成 doc（TSK-0497）
+		{"对象加种类", domain.ArtifactFilter{ObjectID: obj.ID, Kind: "doc"}, 2},
 		// 关键词和别的条件一起用：以前的 ?1 会对到第一个参数上。
 		{"对象加关键词", domain.ArtifactFilter{ObjectID: obj.ID, Q: "方案"}, 1},
 	}
@@ -128,7 +132,8 @@ func TestArtifactFilterByProvenance(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if st.ByKind["doc"] != 1 || st.ByKind["commit"] != 1 || st.ByKind[""] != 2 {
+	// 没给 kind 的两条 .md 登记时补成 doc（TSK-0497），不再有未分类
+	if st.ByKind["doc"] != 3 || st.ByKind["commit"] != 1 || st.ByKind[""] != 0 {
 		t.Errorf("by_kind = %v", st.ByKind)
 	}
 }

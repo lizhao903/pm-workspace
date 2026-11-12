@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 package sop
 
 import (
@@ -101,7 +103,7 @@ func TestHTTPNodeNeedsConfirmedNetworkAny(t *testing.T) {
 // 写进项目目录要 fs:write:project：升级后没确认之前这一步失败，不碰磁盘
 func TestLocalAppendNeedsConfirmedWrite(t *testing.T) {
 	_, h := setupStale(t)
-	id := newFlow(t, h, `{"name":"写目录","steps":[{"key":"w","name":"写","kind":"local_append","after":[],"config":{"project":"Octok","path":"a.md","content":"x"}}]}`)
+	id := newFlow(t, h, `{"name":"写目录","steps":[{"key":"w","name":"写","kind":"local_append","after":[],"config":{"project":"Acme","path":"a.md","content":"x"}}]}`)
 	rid := startRun(t, h, id, `{}`)["id"].(string)
 	run := waitStatus(t, h, rid, "failed")
 	if got := step(run, "w")["error"]; got != "插件 sop 的 fs:write:project 权限还没确认，到插件管理里升级并确认" {

@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // Package kb 是知识库（AG-01b3）的切块、拆词、打分和来源同步。
 //
 // 切块和打分逐行照搬原型 web-next/src/kbdata.ts 的 splitChunks、queryTerms、searchKb，

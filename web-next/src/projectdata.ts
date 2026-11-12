@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 项目：把一个产品相关的东西归到一起——本地项目目录、支持材料、产品文档、产品原型、关联目录、项目 Agent
 // 原型的启停是模拟的：不真的起进程，只按端口占用规则走「启动中 → 运行中 / 失败」，日志是编出来的
 import { seedProtoSync, type ProtoSyncInfo } from './protosyncdata'
@@ -165,11 +167,11 @@ export const startLogs = bootLogs
 export const seedProjects: Project[] = [
   {
     id: 'pj_pmw', name: '产品工作台新版', desc: '把工作台前端重做一版，先出可点的原型', color: '#3d4fd6', mark: { text: '', icon: 'layout' },
-    root: '/Volumes/project/0xBroleez/pm-workspace',
+    root: '/Volumes/project/example/pm-workspace',
     profile: {
       intro: '个人产品管理工具：需求、任务、项目、文档、IM 消息和原型统一管，Claude Code 按任务开发',
       keywords: ['工作台', 'pmw', '需求管理', '原型'], platforms: ['web', '桌面'],
-      code_dir: '', proto_dir: '/Volumes/project/0xBroleez/pm-workspace/web-next', prd_dir: '/Volumes/project/0xBroleez/pm-workspace/docs',
+      code_dir: '', proto_dir: '/Volumes/project/example/pm-workspace/web-next', prd_dir: '/Volumes/project/example/pm-workspace/docs',
       commands: { build: { command: 'make build', dir: '', timeout_sec: 900 }, test: { command: 'go test ./... && npm --prefix frontend test', dir: '', timeout_sec: 1200 },
         test_env: { command: './pmw --addr :$PORT --data $TEST_REPORT_DIR/data', dir: '', timeout_sec: 60, ready: '/api/health' }, smoke: { command: 'curl -fsS http://127.0.0.1:$PORT/api/health', dir: '', timeout_sec: 0 },
         version: { command: './scripts/next-version.sh > $RELEASE_DIR/version.txt && git log --oneline main.. > $RELEASE_DIR/changelog.md', dir: '', timeout_sec: 0 },
@@ -182,8 +184,8 @@ export const seedProjects: Project[] = [
     },
     proto_sync: seedProtoSync,
     related: [
-      { path: '/Volumes/project/0xBroleez/pm-workspace/web', label: '旧版前端' },
-      { path: '/Volumes/project/0xBroleez/pm-workspace/docs', label: '接口契约与状态看板' },
+      { path: '/Volumes/project/example/pm-workspace/web', label: '旧版前端' },
+      { path: '/Volumes/project/example/pm-workspace/docs', label: '接口契约与状态看板' },
     ],
     agent_ids: ['ag_weekly', 'ag_sop'],
     chats: [{ id: 'ch1', kind: 'group', channel: 'slack', conversation: '#product' }, { id: 'ch2', kind: 'group', channel: 'slack', conversation: '#feedback' }, { id: 'ch3', kind: 'dm', contact_id: 'ct_002' }],
@@ -213,7 +215,7 @@ export const seedProjects: Project[] = [
   {
     id: 'pj_perm', name: '远川科技权限改造', desc: '按部门自定义角色，月底演示', color: '#0f8a8a', mark: { text: '', icon: 'shield' },
     root: '/Volumes/project/clients/yuanchuan-permission',
-    related: [{ path: '/Volumes/docs/客户/远川科技', label: '客户资料' }],
+    related: [{ path: '/Volumes/docs/example-client', label: '客户资料' }],
     agent_ids: ['ag_triage'],
     chats: [{ id: 'ch4', kind: 'group', channel: 'lark', conversation: '远川试点项目群' }, { id: 'ch5', kind: 'dm', contact_id: 'ct_005' }],
     stakeholders: [

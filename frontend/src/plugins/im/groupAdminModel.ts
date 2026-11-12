@@ -1,6 +1,8 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 群组管理（IM 插件 0.15.0）的纯逻辑：显示名、筛选、勾选、按群名关键字建议项目、批量请求的切分。
 // 数据来自 GET /api/im/conversations/summary（core/data/imGroups.ts），每行一个会话（群或私聊）。
-import type { ImConvProjectBatchInput, ImConvProjectBatchResult, ImConversationSummary } from '../../core/data'
+import type { ImConvProjectBatchInput, ImConvProjectBatchResult, ImConversationSummary, ImNameRefillResult } from '../../core/data'
 
 /** 一次批量最多几个会话（同后端 /api/im/conversation-projects 上限） */
 export const GROUP_BATCH_MAX = 200
@@ -64,8 +66,8 @@ export const pickedGroups = (rows: readonly ImConversationSummary[], sel: Readon
  * 所以「-ns-」能认出 #fde-bi-ns-support、#ns-ops，认不出 #dns、#ins。
  */
 export const SUGGEST_RULES: { keyword: string; projects: string[] }[] = [
-  { keyword: 'octok', projects: ['Octok'] },
-  { keyword: 'xaue', projects: ['XAUE'] },
+  { keyword: 'acme', projects: ['Acme'] },
+  { keyword: 'globex', projects: ['Globex'] },
   { keyword: '-ns-', projects: ['NS 系统', 'NS'] },
 ]
 /** 项目名本身也当关键字，太短的（少于 3 个字）不算，免得误认 */
@@ -132,7 +134,7 @@ export function adoptable(rows: readonly ImConversationSummary[], sugg: Readonly
   })
 }
 
-/** 把建议说成一句：「群名里有「octok」」，悬停用 */
+/** 把建议说成一句：「群名里有「acme」」，悬停用 */
 export const suggestReason = (x: Suggestion) => `群名里有${x.hits.map((h) => `「${h}」`).join('、')}`
 
 // ---- 批量请求 ----
@@ -148,10 +150,51 @@ export function chunks<T>(xs: readonly T[], size = GROUP_BATCH_MAX): T[][] {
 export const mergeResults = (rs: readonly ImConvProjectBatchResult[]): ImConvProjectBatchResult =>
   ({ updated: rs.flatMap((r) => r.updated), failed: rs.flatMap((r) => r.failed) })
 
-/** 批量结果的一句话；verb 是「设为 Octok」「清除归属」「采纳建议」这类 */
+/** 批量结果的一句话；verb 是「设为 Acme」「清除归属」「采纳建议」这类 */
 export function resultText(r: ImConvProjectBatchResult, verb: string, nameOf: (id: string) => string): { text: string; bad: boolean } {
   const ok = r.updated.length
   if (!r.failed.length) return { text: `已${verb}：${ok} 个会话`, bad: false }
   const why = r.failed.slice(0, 3).map((f) => `${nameOf(f.conversation_id) || f.conversation_id || '（没填会话）'}：${f.message}`).join('；')
   return { text: `${ok ? `已${verb}：${ok} 个会话；` : ''}${r.failed.length} 个没设成：${why}${r.failed.length > 3 ? ' 等' : ''}`, bad: true }
+}
+
+// ---- 查询回填（IM 插件 0.26.0，TSK-0494） ----
+
+/** 这一行有只能显示编号的：成员里有编号，或群名为空、就是编号 */
+export const needsRefill = (s: ImConversationSummary) => s.unresolved_users.length > 0 || s.name_unresolved
+
+/** 「回填全部缺失」会去查的行：有缺的、渠道能查、之前没查失败过（查失败过的批量时跳过，行上「查询回填」重查） */
+export const refillable = (rows: readonly ImConversationSummary[]) => rows.filter((s) => needsRefill(s) && s.can_refill && !s.refill_error)
+
+/** 行上「查询回填」的说明（悬停）：缺什么、渠道查不了时为什么 */
+export function refillTitle(s: ImConversationSummary): string {
+  if (!s.can_refill) return '这个渠道查不了编号对应的名字（只有 Slack 能查；Telegram 收消息时就带名字）'
+  const what = [
+    ...(s.name_unresolved ? ['群名'] : []),
+    ...(s.unresolved_users.length ? [`${s.unresolved_users.length} 个只有编号的人（${s.unresolved_users.slice(0, 3).join('、')}${s.unresolved_users.length > 3 ? ' 等' : ''}）`] : []),
+  ].join('、')
+  return `回渠道查${what}的名字并补上；只补空的，不改联系人和手动改过的名字`
+}
+
+/** 单个会话查询回填的结果说成一句：补上了什么、没查到的原因、限流没查完 */
+export function refillOneText(r: ImNameRefillResult): { text: string; bad: boolean } {
+  const parts: string[] = []
+  if (r.filled.length) parts.push(`已补上：${[...new Set(r.filled.map((f) => f.name))].join('、')}`)
+  if (r.failed.length) parts.push(`没查到 ${r.failed.length} 个：${[...new Set(r.failed.map((f) => f.message))].join('；')}`)
+  if (r.remaining) parts.push(`渠道限流，还有 ${r.remaining} 个没查，稍后再点`)
+  if (!parts.length) return { text: '没有要补的名字了', bad: false }
+  return { text: parts.join('；'), bad: !r.filled.length }
+}
+
+/** 批量查询回填的结果说成一句 */
+export function refillBatchText(r: ImNameRefillResult): { text: string; bad: boolean } {
+  const parts = [r.filled.length ? `补上 ${r.filled.length} 个名字` : '没补上新的名字']
+  if (r.failed.length) {
+    const why = [...new Set(r.failed.map((f) => f.message))]
+    parts.push(`${r.failed.length} 个没查到（${why.slice(0, 2).join('；')}${why.length > 2 ? ' 等' : ''}）`)
+  }
+  if (r.skipped) parts.push(`${r.skipped} 个之前就没查到，这次跳过`)
+  if (r.remaining) parts.push(`还剩 ${r.remaining} 个没查（一次最多查 100 个、撞上限流就停），再点一次接着查`)
+  if (!r.checked) return { text: '没有缺名字的会话', bad: false }
+  return { text: parts.join('，'), bad: !r.filled.length && r.failed.length > 0 }
 }

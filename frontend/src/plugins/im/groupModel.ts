@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 合并显示（IM 消息页）：同一个私聊合成一行、群里同一人连发合成一行、同会话同人同正文的重复消息合成一行。
 // 只是展示：库里的消息不动，状态筛选、计数、勾选、批量都还是按一条条消息算，一组只是把几条消息摆在一行。
 // 分组在前端算：列表接口按页拉完全部消息放在一份缓存里（core/data/im.ts），「连发」「插话」要看整段会话（含筛掉的），
@@ -168,6 +170,18 @@ export function toggleRow(sel: ReadonlySet<string>, r: Pick<Row, 'items'>): Set<
     else n.add(m.id)
   }
   return n
+}
+
+/**
+ * 常驻「全选」（TSK-0492）：已加载（列表上已经渲染出来的行，「加载更多」之前的不算）里能勾的消息。
+ * 一组按组里筛得出来、还没处理的算（同 toggleRow）；变淡的原消息行、收起的消息列回复不算
+ */
+export const loadedPicks = (shown: readonly Pick<Row, 'items'>[]) => shown.flatMap((r) => r.items.filter(canPick))
+
+/** 全选框的状态：已加载的能勾的都勾上了是 all，勾了一些（含没加载的）是 some，一条没勾是 none */
+export function selectAllState(loaded: readonly Pick<ImMessage, 'id'>[], sel: ReadonlySet<string>, picked: number): 'all' | 'some' | 'none' {
+  if (loaded.length && loaded.every((m) => sel.has(m.id))) return 'all'
+  return picked > 0 ? 'some' : 'none'
 }
 
 /** 行上的人名：私聊是对方，群里是发信人（同一组同一个人） */

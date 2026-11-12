@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 后端返回的类型，按 docs/api-contract.md 和 internal/domain/domain.go 手写。
 // 时间一律是 RFC3339 字符串，可空时间是 null。状态、类型、优先级的取值从后端读，这里只写 string。
 
@@ -39,6 +41,9 @@ export type ObjectTypePatch = Partial<Omit<ObjectTypeInput, 'id'>>
 
 export type StakeholderRef = { id: string; name: string; color: string }
 
+/** 名册里的 AI 成员（TSK-0500）：agent 是工作台 Agent（ref 是 Agent id），cli 是命令行执行器（ref 是 claude / deepseek） */
+export type AIKind = 'agent' | 'cli'
+
 export type Stakeholder = {
   id: string
   name: string
@@ -52,6 +57,9 @@ export type Stakeholder = {
   updated_at: string
   owned_count: number
   participating_count: number
+  /** '' 是人；AI 成员由工作台自动维护，名字和在岗状态不能手工改（TSK-0500） */
+  ai_kind?: AIKind | ''
+  ai_ref?: string
 }
 
 export type StakeholderInput = {
@@ -100,6 +108,9 @@ export type WorkObject = {
   project_title?: string
   link_count: number
   owner_name?: string
+  /** 负责人是 AI 成员时的类型与引用（TSK-0500）；负责人是人或没有时不出现 */
+  owner_ai_kind?: AIKind
+  owner_ai_ref?: string
   participants: StakeholderRef[]
 }
 
@@ -308,12 +319,16 @@ export type Artifact = {
   size: number
   source: ArtifactSource
   note: string
+  /** 字典 artifact_kind 的 key，空 = 登记时没分类（TSK-0497 之前执行扫目录登记的） */
+  kind: string
   created_at: string
   updated_at: string
   // 派生字段，不接受写入
   rel_path: string
   object_ref?: string
   object_title?: string
+  /** kind 非空就是 kind，为空时后端按备注、链接、扩展名推断（TSK-0497） */
+  display_kind: string
 }
 
 // source 由请求头 X-Actor-Source 判定，不在这里传。path 和 url 至少一个非空。
@@ -353,8 +368,39 @@ export type ArtifactListParams = {
   has_url?: boolean
   has_path?: boolean
   q?: string
+  // TSK-0497：种类（按对象汇总时按 display_kind 比）、登记时间区间、归属对象的类型和项目（- 是不属于项目）
+  kind?: string
+  since?: string
+  until?: string
+  object_type?: string
+  project_id?: string
   limit?: number
   offset?: number
+}
+
+/** GET /api/artifacts/by-object 的一行：一个对象的产出汇总（TSK-0497） */
+export type ArtifactObjectSummary = {
+  object_id: string
+  object_ref: string
+  object_title: string
+  object_type: string
+  status: string
+  project_id: string | null
+  project_title: string
+  completed_at: string | null
+  total: number
+  /** 按 display_kind */
+  by_kind: Record<string, number>
+  by_source: Record<string, number>
+  last_at: string
+}
+
+/** by_kind 不受 kind 条件影响、by_source 不受 source 条件影响；total、objects 是全部条件生效后的 */
+export type ArtifactsByObject = {
+  objects: ArtifactObjectSummary[]
+  total: number
+  by_kind: Record<string, number>
+  by_source: Record<string, number>
 }
 
 export type ArtifactStats = {
@@ -364,6 +410,8 @@ export type ArtifactStats = {
   unscoped: number
   by_platform: Record<string, number>
   by_source: Record<string, number>
+  /** 按库里的 kind，未分类的在 "" 下 */
+  by_kind: Record<string, number>
   total_size: number
 }
 
@@ -390,7 +438,11 @@ export type FsRoots = { defaults: string[]; extra: FsRoot[] }
 
 // ---- 任务执行 ----
 
-export type RunStatus = 'pending' | 'running' | 'done' | 'failed' | 'canceled'
+/** waiting：交给工作台 Agent 的执行（harness=agent）停在要人确认的写操作上，没结束 */
+export type RunStatus = 'pending' | 'running' | 'waiting' | 'done' | 'failed' | 'canceled'
+
+/** 执行器（0049、TSK-0460）：claude 本机 Claude Code，deepseek 是 deepseek-harness，agent 是工作台自己的 Agent */
+export type RunHarness = 'claude' | 'deepseek' | 'agent'
 
 export type TaskRun = {
   id: string
@@ -405,6 +457,10 @@ export type TaskRun = {
   finished_at: string | null
   /** 执行方式（0048）：stream 工作台起进程流式回推；terminal 在终端里交互执行，靠 MCP 回写或手动标记结束 */
   mode: RunMode
+  /** 执行器（0049），老记录是 claude */
+  harness?: RunHarness | (string & {})
+  /** 执行器的会话（0050）：deepseek 是 dsh 会话，agent 是 Agent 会话 id（能打开会话接着聊）；没有为空串 */
+  harness_session?: string
 }
 
 export type RunMode = 'stream' | 'terminal'
@@ -422,7 +478,8 @@ export type TerminalHandoff = {
 /** 终端执行收尾：终端里的 claude 经 MCP 或界面上的「标记结束」 */
 export type FinishRunInput = { status: 'done' | 'failed' | 'canceled'; summary?: string }
 /** GET /api/objects/{id}/run/prompt 的参数和响应 */
-export type RunPromptParams = { mode?: RunMode; workdir?: string; extra_prompt?: string; preset_id?: string }
+/** harness=agent 时预览交给工作台 Agent 的那一份（TSK-0460），resume 是续跑的说法 */
+export type RunPromptParams = { mode?: RunMode; workdir?: string; extra_prompt?: string; preset_id?: string; harness?: RunHarness; resume?: boolean }
 export type RunPrompt = { prompt: string; workdir: string }
 /** 角色的权限：只读不放开文件编辑；accept_edits 流式执行时加 --permission-mode acceptEdits（AUTO-03） */
 export type RolePermission = 'read_only' | 'accept_edits'
@@ -436,6 +493,84 @@ export type RunPreset = {
   id: string; scene: string; content: string; default: boolean
   permission?: RolePermission; output?: string; dir_kind?: RoleDirKind
 }
+/** 后台执行的权限档位（TSK-0499）：只读 / 允许改文件 / 允许改文件 + 跑测试构建 / 自定义白名单 */
+export type RunPermission = 'read_only' | 'accept_edits' | 'edits_and_tests' | 'custom'
+/** 写入档位：勾「允许写入」时可选的三档 */
+export type RunWriteProfile = Exclude<RunPermission, 'read_only'>
+/** 一个档位：是否放开文件编辑、实际传给 --allowedTools 的规则（不含 MCP） */
+export type RunPermProfile = { key: RunPermission; label: string; writes: boolean; allowed: string[] }
+/** GET / PUT /api/run-permissions（TSK-0499） */
+export type RunPermissions = {
+  write_profile: RunWriteProfile
+  /** 自定义白名单，只在 custom 档生效 */
+  custom: string[]
+  profiles: RunPermProfile[]
+  /** 工作台注入的 MCP server 名（pmw-run），每一档都放行它的全部工具 */
+  mcp_server: string
+}
+export type RunPermissionsInput = { write_profile: RunWriteProfile; custom: string[] }
+
+// ---- 执行器（TSK-0722）----
+
+/** 执行器缺的一样东西；blocking 的让分派入口置灰 */
+export type RunnerProblemCode = 'not_installed' | 'broken' | 'no_provider' | 'provider_disabled' | 'no_model' | 'no_agent' | 'no_mcp'
+export type RunnerProblem = {
+  code: RunnerProblemCode | (string & {})
+  message: string
+  /** 一句话的修法 */
+  fix: string
+  /** 要照做的几步（命令原文），没有为空数组；没装 dsh 时是安装步骤 */
+  steps: string[]
+  blocking: boolean
+}
+/** GET /api/runners 的一项，顺序固定 claude、deepseek、agent */
+export type RunnerStatus = {
+  harness: RunHarness
+  label: string
+  available: boolean
+  /** 能用的执行方式；claude 的 terminal 还要终端插件在跑 */
+  modes: RunMode[]
+  bin: string
+  /** flag：启动参数或 DSH_BIN 指定；path：走 PATH；builtin：工作台自己 */
+  bin_source: 'flag' | 'path' | 'builtin'
+  version: string
+  /** 发起时能不能接上工作台 MCP 回写 */
+  mcp: boolean
+  /** 只 deepseek 有：不指定服务商时默认用哪个、哪个模型 */
+  provider_id: string
+  provider_name: string
+  model: string
+  problems: RunnerProblem[]
+  checked_at: string
+}
+export type SmokeCheckKey = 'spawn' | 'model' | 'mcp' | 'readonly' | 'persist' | 'cancel' | 'timeout' | 'cleanup'
+export type SmokeCheck = {
+  key: SmokeCheckKey | (string & {})
+  label: string
+  status: 'pending' | 'running' | 'pass' | 'fail' | 'skip'
+  detail: string
+  ms: number
+}
+/** DeepSeek 的集成检查（GET / POST /api/runners/deepseek/smoke） */
+export type RunnerSmoke = {
+  id: string
+  harness: RunHarness
+  status: 'running' | 'passed' | 'failed'
+  started_at: string
+  finished_at: string | null
+  bin: string
+  version: string
+  provider_id: string
+  provider_name: string
+  model: string
+  session_id: string
+  /** 模型经 MCP 回报的结论 */
+  conclusion: string
+  /** 它最后的答复（截到 2000 字） */
+  answer: string
+  checks: SmokeCheck[]
+}
+export type RunnerSmokeInput = { provider_id?: string; model?: string }
 
 // ---- 侧栏计数 ----
 

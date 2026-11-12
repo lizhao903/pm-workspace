@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 产物列表。产物页和对象详情抽屉共用同一个组件。
 //
 // 共用是有意的：两处各写一份的话，「本地和云端同时有」这种形状总有一处显示不对，

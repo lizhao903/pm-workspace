@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 分镜和 B-roll 素材的数据约定（TSK-0456）。正式版：后端 internal/plugins/video/storyboard.go、media.go，
 // 表 video_shots、video_shot_brolls、video_media_roots；前端 frontend/src/plugins/video/StoryboardDesk.tsx、MediaDrawer.tsx。
 // 原型里没有真磁盘：素材目录和文件是下面的演示数据，缩略图是按色相画的 SVG，视频不播放。

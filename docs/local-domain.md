@@ -50,7 +50,7 @@ graph LR
 ### 0. 先构建
 
 ```bash
-cd /Volumes/project/0xBroleez/pm-workspace
+cd /Volumes/project/example/pm-workspace
 make build
 ```
 
@@ -113,11 +113,14 @@ sudo ./scripts/setup-local-domain.sh
 第 3 步不能省：macOS 上 pf 默认不开机自启，`pfctl -e` 也不持久。没有这个 LaunchDaemon
 的话重启一次域名就全挂了。
 
-端口可以改：
+端口可以改。变量要写在 `sudo` **后面**，写在前面会被 sudo 清掉、脚本按默认的 7777 写规则：
 
 ```bash
-PORT=7777 TLS_PORT=7443 sudo ./scripts/setup-local-domain.sh
+sudo PORT=7796 TLS_PORT=7443 ./scripts/setup-local-domain.sh
 ```
+
+当前生产是 7796（`scripts/dev-instance.sh` 起的），它在 `certs/` 有证书时会同时监听 7443 的 HTTPS，对外地址为 `https://bro.vip`。
+不要再跑下面第 5 步的 `install-autostart.sh`：它装的常驻服务指向旧库 `data/pm.db` 和 7777。
 
 ### 5. 装常驻服务
 
@@ -246,3 +249,9 @@ mkcert -uninstall
 
 只想退回「明文 + 域名」不要 HTTPS 的话，跑第 3 步再重跑 `./scripts/install-autostart.sh`
 即可：证书没了脚本会自动去掉 TLS 参数。pf 的 443 规则留着也无害，只是那个端口会连不上。
+
+---
+
+由 DeepSeek Harness（dsh）协助完成。
+
+[![](https://img.shields.io/badge/powered_by-dsh-4D6BFE?style=flat-square&logo=deepseek&logoColor=white)](https://github.com/deepseek-ai/deepseek-harness)

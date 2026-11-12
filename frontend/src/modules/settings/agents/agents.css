@@ -124,6 +124,8 @@
 .ag-icon-kb { background: var(--ok); }
 .ag-mount-text { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0; text-align: left; font-size: var(--fs); }
 .ag-mount-text .tag { margin-left: 8px; font-size: var(--fs-2xs); }
+/* 挂载下拉里连接器的一行：标志加名称（TSK-0725） */
+.ag-pick-conn { display: flex; align-items: center; gap: var(--sp-4); flex: 1; min-width: 0; }
 .ag-clamp { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .ag-uses { font-size: var(--fs-xs); color: var(--faint); }
 .ag-mount-empty { padding: 14px; text-align: center; color: var(--faint); font-size: var(--fs-sm); border: 1px dashed var(--line-2); border-radius: var(--r); }
@@ -242,3 +244,7 @@
 .ag-scene { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 8px 0; }
 .ag-scene-text { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 220px; }
 .ag-scene-pick { display: flex; flex-direction: column; gap: 4px; width: 260px; max-width: 100%; }
+
+/* 一键全量设置权限（内置工具、每个连接器的全部工具） */
+.ag-bulk { display: flex; align-items: center; gap: var(--sp-4); flex-wrap: wrap; justify-content: flex-end; }
+.ag-conn-bulk { padding: var(--sp-3) var(--sp-6); border-top: 1px solid var(--line); background: var(--panel-2); }

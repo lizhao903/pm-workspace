@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 任务详情「流水线」标签名后面的状态点（AUTO-12）：有卡点（等人、失败、超时、超出上限）时红点和个数，只是还在跑时绿点
 import { useSopPipeline } from '../../core/data'
 import type { ObjectSectionProps } from '../../core/plugin'

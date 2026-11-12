@@ -1,7 +1,10 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 package api
 
 import (
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -135,7 +138,7 @@ func TestFsShortcuts(t *testing.T) {
 			t.Fatalf("起跳点字段不完整：%v", m)
 		}
 		// 每个起跳点都得真能点开，否则界面上摆的是个死链。
-		bw := do(s, http.MethodGet, "/api/fs/browse?path="+path, "")
+		bw := do(s, http.MethodGet, "/api/fs/browse?path="+url.QueryEscape(path), "")
 		if bw.Code != http.StatusOK {
 			t.Fatalf("起跳点 %s (%s) 点不开：%d %s", label, path, bw.Code, bw.Body.String())
 		}

@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 import { describe, expect, it } from 'vitest'
 import type { Agent, ImMessage } from '../../core/data'
 import { pickAgent, relatedDir, sessionPrompt, sessionTitle, sourceRef } from './sessionModel'
@@ -31,12 +33,12 @@ describe('从消息发起会话', () => {
   })
 
   it('来源同转任务的形状，多 message_ids、项目；第一句话带原文、群、项目、附件和意图', () => {
-    const xs = [m({ id: 'm2', at: '2026-11-02T02:05:00Z', text: '附件里是需求', project_id: 'obj_p', project_name: 'Octok', attachments: [{ id: 'a', name: '需求.pdf', kind: 'file' }] }), m({})]
+    const xs = [m({ id: 'm2', at: '2026-11-02T02:05:00Z', text: '附件里是需求', project_id: 'obj_p', project_name: 'Acme', attachments: [{ id: 'a', name: '需求.pdf', kind: 'file' }] }), m({})]
     const ref = sourceRef(xs, 'Slack')
     expect(ref).toMatchObject({ kind: 'im_message', message_id: 'm2', message_ids: ['m1', 'm2'], conversation: '#product', sender: '林原', project_id: 'obj_p' })
     expect(String(ref.label)).toContain('等 2 条')
     const split = sessionPrompt(xs, 'split', { chLabel: 'Slack', grant: 'confirm' })
-    for (const want of ['群「#product」', '林原（Slack 编号 U1）', '归属项目：Octok', '附件：需求.pdf', '林原：登录页改版', '确认卡片', '项目「Octok」']) expect(split).toContain(want)
+    for (const want of ['群「#product」', '林原（Slack 编号 U1）', '归属项目：Acme', '附件：需求.pdf', '林原：登录页改版', '确认卡片', '项目「Acme」']) expect(split).toContain(want)
     expect(sessionPrompt(xs, 'split', { chLabel: 'Slack', grant: 'auto' })).toContain('列完先停下')
     expect(sessionPrompt([m({})], 'chat', { chLabel: 'Slack' })).toContain('未归项目')
     expect(sessionTitle(xs, 'split')).toMatch(/^拆分任务：林原「/)
@@ -45,8 +47,8 @@ describe('从消息发起会话', () => {
 
 describe('relatedDir：项目没设本地目录时用第一个关联目录', () => {
   it('取第一个有路径的关联目录，file:// 去掉，没有时空串', () => {
-    expect(relatedDir({ related: [{ label: 'a', path: '/Volumes/docs/Know Me/Octok项目' }, { path: '/x' }] })).toBe('/Volumes/docs/Know Me/Octok项目')
-    expect(relatedDir({ related: [{ label: '空' }, { path: 'file:///tmp/xaue' }] })).toBe('/tmp/xaue')
+    expect(relatedDir({ related: [{ label: 'a', path: '/Volumes/docs/example/acme-project' }, { path: '/x' }] })).toBe('/Volumes/docs/example/acme-project')
+    expect(relatedDir({ related: [{ label: '空' }, { path: 'file:///tmp/globex' }] })).toBe('/tmp/globex')
     expect(relatedDir({})).toBe('')
     expect(relatedDir(null)).toBe('')
   })

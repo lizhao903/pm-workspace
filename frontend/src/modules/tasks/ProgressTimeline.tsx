@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 任务抽屉的进展时间线（DEV-08a）：领取、进展、提交验收按时间顺序排，提交验收那条醒目显示；
 // 进行中的任务抽屉打开期间按事件流刷新，事件流断开时每 10 秒轮询；底部可以手工追加一条进展。样式借原型 monitor.tsx 的 mo-timeline。
 import { Fragment, useEffect, useId, useRef, useState, type Ref } from 'react'

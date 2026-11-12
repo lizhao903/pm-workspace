@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 package runner
 
 import (
@@ -9,6 +11,8 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+
+	"github.com/lizhao903/pm-workspace/internal/domain"
 )
 
 // dsh 适配：把 deepseek-harness 的 headless 一次性任务模式当成第二个执行器。
@@ -45,7 +49,54 @@ const (
 
 	// dshPatchName 是临时 patch 的文件名。
 	dshPatchName = "pmw.patch.yml"
+
+	// dshTelemetryEnv 关掉 dsh 的会话遥测（TSK-0722）。headless 下没人点反馈，按 dsh 的
+	// FEEDBACK_ONLY 口径本来就不会上传；这里再显式关一次，任务正文、工作目录里的东西
+	// 不该有任何一条路离开这台机器——除了发给用户自己选的模型服务商。
+	dshTelemetryEnv = "DSH_TELEMETRY_MODE=DISABLED"
+
+	// dshMCPPlugin 是 dsh 的 MCP 客户端插件包名（0.2.2 实测），patch 里按它挂工作台 MCP。
+	dshMCPPlugin = "@deepseek-ai/dsh-mcp-client"
+
+	// DSHActor 是 dsh 经工作台 MCP 写入时记的操作者名（pmw-mcp --actor）。
+	DSHActor = "deepseek"
 )
+
+// dsh 的沙箱档位（sandbox-policy.mode）。
+const (
+	DSHReadOnly       = "read-only"
+	DSHWorkspaceWrite = "workspace-write"
+)
+
+// DSHSandboxMode 把工作台的权限档位（TSK-0499，permissions.go）翻成 dsh 的沙箱档位（TSK-0722）。
+//
+// dsh 没有 claude 那种「按命令放行」的规则表：命令一律在它的沙箱里跑，能不能写由沙箱档位定。
+// 所以对应关系是：
+//
+//   - read_only → read-only：命令照跑，写任何文件都会被沙箱挡下（EROFS / EPERM）；
+//   - accept_edits、edits_and_tests → workspace-write：能写工作目录（和软链接进来的目录），
+//     命令在沙箱里都能跑——测试、构建也在内，所以这两档在 dsh 里是同一档；
+//   - custom → 没有对应：自定义白名单是 Claude Code 的权限规则，dsh 没有逐条放行命令的能力，
+//     与其悄悄当成 workspace-write（比用户写的白名单宽得多），不如拒绝并说清。
+//
+// 不会给出 danger-full-access：那一档连沙箱都没有，工作台不替用户开。
+// perm 为空时按 allowWrites 推（同 claude 那边的旧口径）。
+func DSHSandboxMode(perm string, allowWrites bool) (string, error) {
+	switch strings.TrimSpace(perm) {
+	case "":
+		if allowWrites {
+			return DSHWorkspaceWrite, nil
+		}
+		return DSHReadOnly, nil
+	case PermReadOnly:
+		return DSHReadOnly, nil
+	case PermAcceptEdits, PermEditsAndTests:
+		return DSHWorkspaceWrite, nil
+	case PermCustom:
+		return "", validationErr("DeepSeek（dsh）没有命令白名单，不支持「自定义白名单」档位；换「允许改文件」（dsh 的 workspace-write 沙箱）或改用 Claude Code")
+	}
+	return "", validationErr("不认识权限档位「" + perm + "」")
+}
 
 // buildDSHArgs 拼 dsh 的命令行。
 //
@@ -79,13 +130,13 @@ func buildDSHArgs(profile, patch, sessionID string) []string {
 // 用字符串拼而不是 yaml.Marshal：这里要的是三块人一眼能读懂的固定结构，
 // 走结构体反射反而会把字段名搞成小写驼峰，和 dsh 的 schema 对不上。
 // 所有取值都用双引号包住（strconv.Quote），路径里有空格、冒号、中文都不会坏。
-func writeDSHPatch(dir string, route DeepSeekRoute, api, workdir string, allowWrites bool,
-	writableRoots []string) (string, error) {
+func writeDSHPatch(dir string, route DeepSeekRoute, api, workdir, mode string,
+	writableRoots []string, mcp *MCPEndpoint) (string, error) {
 
-	mode := "read-only"
-	if allowWrites {
-		mode = "workspace-write"
+	if mode != DSHWorkspaceWrite {
+		mode = DSHReadOnly
 	}
+	allowWrites := mode == DSHWorkspaceWrite
 
 	var b strings.Builder
 	b.WriteString("# 由工作台生成，每次执行一份，跑完即删。\n")
@@ -140,6 +191,23 @@ func writeDSHPatch(dir string, route DeepSeekRoute, api, workdir string, allowWr
 		b.WriteString("        approval: never\n")
 	}
 	b.WriteString("    defaultPreset: " + mode + "\n")
+
+	// 工作台 MCP（TSK-0722）：和 claude 那边同一个 server 名（pmw-run）、同一个程序和地址，
+	// 工具名同样是 mcp__pmw-run__pmw_append_progress 这种形状。dsh 的 MCP 客户端起 stdio
+	// 子进程时会滤掉名字带 KEY / TOKEN / SECRET 的环境变量，这里也不需要传任何凭证。
+	//
+	// 必须用 insert：headless profile 里没有 MCP 客户端这一条，按 id 覆盖的写法只会得到一句
+	// 「patch: entry not found」的警告，进程照常起、工具列表里却没有 pmw-run（0.2.2 实测）。
+	if mcp != nil && strings.TrimSpace(mcp.Bin) != "" && strings.TrimSpace(mcp.API) != "" {
+		b.WriteString("- insert:\n    - id: mcp-" + MCPServer + "\n      name: " + quote(dshMCPPlugin) + "\n      config:\n")
+		b.WriteString("        serverName: " + quote(MCPServer) + "\n")
+		b.WriteString("        transport: stdio\n")
+		b.WriteString("        command: " + quote(strings.TrimSpace(mcp.Bin)) + "\n")
+		// --actor：回写的变更记录记成 deepseek。不给的话 pmw-mcp 按环境推，工作台若是从 Claude Code 里起的，
+		// dsh 子进程继承了 CLAUDECODE=1，进展会被记成 claude-code（实测）。
+		b.WriteString("        args:\n          - \"--api\"\n          - " + quote(strings.TrimRight(strings.TrimSpace(mcp.API), "/")) +
+			"\n          - \"--actor\"\n          - " + quote(DSHActor) + "\n")
+	}
 
 	path := filepath.Join(dir, dshPatchName)
 	if err := os.WriteFile(path, []byte(b.String()), 0o600); err != nil {
@@ -456,8 +524,15 @@ func (r *Runner) prepareDSH(req Request, prompt, workdir string) (cmdSpec, error
 	}
 	cleanup := func() { _ = os.RemoveAll(dir) }
 
+	mode, err := DSHSandboxMode(req.Permission, req.AllowWrites)
+	if err != nil {
+		cleanup()
+		return cmdSpec{}, err
+	}
 	linked := LinkedDirs(workdir)
-	patch, err := writeDSHPatch(dir, *route, api, workdir, req.AllowWrites, linked)
+	rt := *route
+	rt.BaseURL = dshBaseURL(rt.Kind, rt.BaseURL)
+	patch, err := writeDSHPatch(dir, rt, api, workdir, mode, linked, req.MCP)
 	if err != nil {
 		cleanup()
 		return cmdSpec{}, err
@@ -466,11 +541,20 @@ func (r *Runner) prepareDSH(req Request, prompt, workdir string) (cmdSpec, error
 	return cmdSpec{
 		bin:     bin,
 		name:    "dsh",
-		hint:    "先装 deepseek-harness（npm i -g @deepseek-ai/dsh），或用 DSH_BIN 指定路径",
+		hint:    DSHInstallHint,
 		args:    buildDSHArgs(profile, patch, req.SessionID),
-		env:     []string{dshAPIKeyEnv + "=" + route.APIKey},
+		env:     []string{dshAPIKeyEnv + "=" + dshAPIKey(*route), dshTelemetryEnv},
 		stdin:   prompt,
 		read:    readDSHStream,
 		cleanup: cleanup,
 	}, nil
+}
+
+// dshAPIKey 是交给 dsh 的密钥。本机 Ollama 不要密钥，但 dsh 见到空的 apiKeyEnv 会直接报
+// 「no API key」不发请求，所以给一个占位值；别的服务商没填密钥就照实交空串，让 dsh 报清楚。
+func dshAPIKey(rt DeepSeekRoute) string {
+	if strings.TrimSpace(rt.APIKey) == "" && rt.Kind == domain.ProviderOllama {
+		return "ollama"
+	}
+	return rt.APIKey
 }

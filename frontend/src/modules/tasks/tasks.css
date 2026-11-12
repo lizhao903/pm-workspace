@@ -140,3 +140,53 @@
 .src-schedule { background: var(--warn-soft); color: var(--warn); }
 .src-incident { background: var(--danger-soft); color: var(--danger); }
 .task-meta > .src-tag:first-child { min-width: 2.6em; }
+
+/* ---------- 产出物（TSK-0497） ---------- */
+/* 任务行、看板卡片上的产出标记：「产出 3 · 提交 2 文档 1」，点开看产出物面板 */
+.out-badge {
+  display: inline-flex; align-items: center; height: 18px; padding: 0 6px; border-radius: 4px; flex: 0 1 auto; min-width: 0;
+  font-size: var(--fs-xs); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  background: color-mix(in srgb, var(--ok) 10%, transparent); color: color-mix(in srgb, var(--ok) 80%, var(--text));
+}
+button.out-badge { border: 0; cursor: pointer; font: inherit; font-size: var(--fs-xs); }
+button.out-badge:hover { background: color-mix(in srgb, var(--ok) 18%, transparent); }
+button.out-badge:focus-visible { outline: 2px solid var(--accent-line); outline-offset: 1px; }
+.task-meta .out-badge { display: inline-block; line-height: 18px; max-width: 220px; flex: 0 0 auto; }
+/* 行窄时来源、项目标签先让位，产出标记至少露出「产出 N」 */
+@container (max-width: 480px) { .task-meta .out-badge { max-width: 9em; } }
+.stage-card-out { align-self: flex-start; max-width: 100%; }
+
+/* 产出物视图：任务、状态、产出、完成、最近产出 */
+.outs-row {
+  display: grid; align-items: center; grid-template-columns: 14px minmax(200px, 1fr) 92px minmax(120px, 200px) 92px 84px;
+  gap: var(--sp-6); min-height: 54px; padding: var(--sp-4) var(--sp-8); border-bottom: 1px solid var(--line); cursor: pointer;
+}
+.outs-row.task-th { cursor: default; }
+.outs-row:not(.task-th):hover { background: var(--panel-2); }
+.outs-row:focus-visible { outline: 2px solid var(--accent-line); outline-offset: -2px; }
+.outs-row.sel { background: var(--accent-soft); box-shadow: inset 3px 0 0 var(--accent); }
+.outs-caret { color: var(--muted); font-size: var(--fs-md); line-height: 1; }
+.outs-kinds { font-size: var(--fs-sm); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.outs-done, .outs-last { white-space: nowrap; }
+.outs-item.open > .outs-row { background: var(--panel-2); }
+.outs-table > .outs-item:last-of-type > :last-child { border-bottom: 0; }
+.outs-detail { display: flex; flex-direction: column; gap: var(--sp-3); padding: var(--sp-4) var(--sp-8) var(--sp-6) calc(var(--sp-8) + 14px + var(--sp-6)); border-bottom: 1px solid var(--line); background: var(--panel-2); }
+.outs-detail .art-row { min-width: 0; }
+.outs-detail .art-row:hover { background: var(--hover); }
+.outs-detail-acts { display: flex; gap: var(--sp-4); }
+.outs-kind { flex: none; display: inline-flex; align-items: center; height: 18px; padding: 0 6px; border-radius: 4px; font-size: var(--fs-xs); background: var(--hover); color: var(--muted); white-space: nowrap; }
+/* 正文不到 640px：不要完成、最近产出两列 */
+@container (max-width: 640px) {
+  .outs-row { grid-template-columns: 14px minmax(0, 1fr) 80px minmax(0, 120px); }
+  .outs-row > :nth-child(5), .outs-row > :nth-child(6) { display: none; }
+}
+/* 手机宽度：任务一行，状态和产出另起一行；表头不要 */
+@container (max-width: 480px) {
+  .outs-table .outs-row { grid-template-columns: 14px auto minmax(0, 1fr); column-gap: var(--sp-4); row-gap: 6px; padding: var(--sp-5) var(--sp-6); }
+  .outs-table .task-th { display: none; }
+  .outs-row > .task-main { grid-row: 1; grid-column: 2 / -1; min-width: 0; }
+  .outs-row > .outs-caret { grid-row: 1; grid-column: 1; }
+  .outs-row > :nth-child(3) { grid-row: 2; grid-column: 2; display: flex; }
+  .outs-row > .outs-kinds { grid-row: 2; grid-column: 3; }
+  .outs-detail { padding: var(--sp-4) var(--sp-6); }
+}

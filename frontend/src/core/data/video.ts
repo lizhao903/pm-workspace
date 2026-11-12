@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 视频创作插件 video（VID-01c）：视频、系列，阶段推进和检查点；VID-01d 加了产出物和系列的写操作。契约见 docs/api-contract.md「视频创作插件 video」（VID-01a）。
 // 视频和检查点一共几十集，列表不分页，一次取完由前端分组、筛选。写操作报 { kind: 'video' }，整个 video 前缀一起刷：
 // 阶段、检查点一变，列表的分布条、「待我处理」的数字都跟着变。

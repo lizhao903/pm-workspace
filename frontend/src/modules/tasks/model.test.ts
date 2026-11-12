@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 import { describe, expect, it, vi } from 'vitest'
 import type { DictItem, ObjectStatus, WorkObject } from '../../core/data'
 import {
@@ -146,7 +148,7 @@ describe('段内排序（B-06）', () => {
 })
 
 describe('负责人筛选和搜索（B-07）', () => {
-  const mine = task({ ref: 'TSK-0001', owner_id: 'stk_me', owner_name: '李钊' })
+  const mine = task({ ref: 'TSK-0001', owner_id: 'stk_me', owner_name: '张三' })
   const agent = task({ ref: 'TSK-0002', owner_id: 'stk_cc', owner_name: 'Claude Code', title: '接口' })
   const legacy = task({ ref: 'TSK-0003', owner: '老周' })
   const none = task({ ref: 'TSK-0004', body: '要导出 Excel' })
@@ -163,7 +165,7 @@ describe('负责人筛选和搜索（B-07）', () => {
   it('搜索覆盖标题、描述、编号、负责人名，不区分大小写', () => {
     const hit = (q: string) => [mine, agent, legacy, none].filter((t) => matchQuery(t, q)).map((t) => t.ref)
     expect(hit('claude')).toEqual(['TSK-0002'])
-    expect(hit('李钊')).toEqual(['TSK-0001'])
+    expect(hit('张三')).toEqual(['TSK-0001'])
     expect(hit('老周')).toEqual(['TSK-0003'])
     expect(hit('excel')).toEqual(['TSK-0004'])
     expect(hit('tsk-0002')).toEqual(['TSK-0002'])
@@ -172,7 +174,7 @@ describe('负责人筛选和搜索（B-07）', () => {
 
   it('负责人选项取列表里出现过的，任务多的在前', () => {
     expect(ownerOptions([mine, agent, agent, legacy, none])).toEqual([
-      { id: 'stk_cc', name: 'Claude Code', n: 2 }, { id: 'stk_me', name: '李钊', n: 1 },
+      { id: 'stk_cc', name: 'Claude Code', n: 2 }, { id: 'stk_me', name: '张三', n: 1 },
     ])
   })
 

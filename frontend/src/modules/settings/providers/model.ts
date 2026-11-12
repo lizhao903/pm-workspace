@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 服务商抽屉的表单和请求体（纯函数，单元测试盯着）。
 // api_key 的三态：输入框空着就不带（不改），清空走单独的确认（传空串），填了才覆盖。
 import type { AgentProvider, ProviderCheck, ProviderInput, ProviderPatch } from '../../../core/data'

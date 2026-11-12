@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 package im
 
 import (
@@ -5,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -46,6 +49,12 @@ func (in *inbox) registerTaskReply(r plugin.Registrar) {
 
 /* ---------- 内置流程 ---------- */
 
+// taskReplyText 是「IM 任务回执」的回复：状态 + 结果（TSK-0470）。没有结论时「结果：」这一行是空的，发送前去掉（cleanReply）。
+const taskReplyText = "「{{task.title}}」（{{task.ref}}）已完成。\n结果：{{task.summary}}"
+
+// taskReplyUpgradeMark 记在 im_sop_templates 里，表示「IM 任务回执」已经换成只回状态和结果的版本（或者用户改过、删了，不再换）。
+const taskReplyUpgradeMark = TaskReplyFlowID + "#result"
+
 func taskReplyFlow() plugin.SOPFlowTemplate {
 	type step struct {
 		Key    string            `json:"key"`
@@ -59,8 +68,8 @@ func taskReplyFlow() plugin.SOPFlowTemplate {
 			Desc:   "任务交给 Claude Code 执行成功结束，或者被改成已完成时往下走；执行失败、取消接着等",
 			Config: map[string]string{"task": "{{task_id}}", "timeout": "14 天"}},
 		{Key: "reply", Name: "回复原消息", Kind: NodeReplyMessage,
-			Desc:   "在原消息所在的串里回复对方，带上执行结论",
-			Config: map[string]string{"message": "{{message_id}}", "text": "「{{task.title}}」已经处理完了（{{task.ref}}）。\n{{task.summary}}"}},
+			Desc:   "在原消息所在的串里回复对方：只回状态和结论，不带执行过程；没有结论时只回状态一行（TSK-0470）",
+			Config: map[string]string{"message": "{{message_id}}", "text": taskReplyText}},
 	}
 	fields := []map[string]any{
 		{"key": "message_id", "label": "原消息", "type": "text", "required": true, "placeholder": "IM 消息 id"},
@@ -70,7 +79,7 @@ func taskReplyFlow() plugin.SOPFlowTemplate {
 	fb, _ := json.Marshal(fields)
 	return plugin.SOPFlowTemplate{
 		ID: TaskReplyFlowID, Name: "IM 任务回执", Trigger: "manual", Fields: fb, Steps: sb,
-		Desc: "IM 消息转成任务时自动发起：任务执行完成后在原消息里回复对方。要改回复内容直接改这条流程",
+		Desc: "IM 消息转成任务时自动发起：任务执行完成后在原消息里回复对方状态和结果（不带执行过程）。要改回复内容直接改这条流程",
 	}
 }
 
@@ -91,6 +100,10 @@ func (in *inbox) ensureTaskReplyFlow(ctx context.Context) (bool, string, error) 
 		}
 		if _, err := in.c.Store().Exec(ctx, `INSERT INTO im_sop_templates (flow_id, installed_at) VALUES (?, ?) ON CONFLICT (flow_id) DO NOTHING`,
 			TaskReplyFlowID, in.clock().UTC().Format(timeLayout)); err != nil {
+			return false, "", err
+		}
+		// 新写的就是只回状态和结果的版本（TSK-0470）
+		if err := in.markTemplate(ctx, in.c, taskReplyUpgradeMark); err != nil {
 			return false, "", err
 		}
 		return true, "", nil
@@ -165,8 +178,9 @@ func (in *inbox) waitTaskNode(ctx context.Context, _ plugin.Core, n plugin.SOPNo
 	return nil, fmt.Errorf("等任务 %s 执行完成，最多等 %s：%w", label, humanDur(d), plugin.ErrWaiting)
 }
 
+// taskOut 的 summary 只留结论：run.finished 带的已经是结论，这里再去掉万一混进来的工具行（TSK-0470）。
 func taskOut(o plugin.ObjectInfo, summary, via string) map[string]any {
-	return map[string]any{"id": o.ID, "ref": o.Ref, "title": o.Title, "status": o.Status, "summary": summary, "via": via}
+	return map[string]any{"id": o.ID, "ref": o.Ref, "title": o.Title, "status": o.Status, "summary": cleanReply(summary), "via": via}
 }
 
 // onTaskRunFinished：任务执行成功结束，记到等这条任务的行上。只认内核的任务执行（带 object_id），
@@ -282,7 +296,8 @@ func (in *inbox) replyMessageNode(ctx context.Context, c plugin.Core, n plugin.S
 	if id == "" {
 		return nil, errors.New("没有指定要回复的消息")
 	}
-	text := strings.TrimSpace(render(n.Config["text"], n.Input))
+	// 回给对方的只有状态和结论：去掉执行过程的工具行、末尾没填上的「结果：」（TSK-0470，cleanReply）
+	text := cleanReply(render(n.Config["text"], n.Input))
 	if text == "" {
 		return nil, errors.New("要回复的内容是空的")
 	}
@@ -329,4 +344,48 @@ func (in *inbox) replyMessageNode(ctx context.Context, c plugin.Core, n plugin.S
 		return nil, err
 	}
 	return with(n.Input, "replied", map[string]any{"message_id": m.ID, "reply_id": done.ID, "external_id": done.ExternalID, "text": text}), nil
+}
+
+/* ---------- 回复内容兜底（TSK-0470） ---------- */
+
+// cleanReply 是发给需求方、发给我的文字的兜底：去掉执行过程里的工具行（「[工具] 」「[工具失败] 」开头），
+// 去掉末尾值是空的标签行（如没有结论时的「结果：」），去首尾空白。中间的「验收清单：」后面接着列表的不动。
+func cleanReply(text string) string {
+	var keep []string
+	for _, l := range strings.Split(text, "\n") {
+		t := strings.TrimSpace(l)
+		if strings.HasPrefix(t, "[工具] ") || strings.HasPrefix(t, "[工具失败] ") {
+			continue
+		}
+		keep = append(keep, l)
+	}
+	for len(keep) > 0 {
+		t := strings.TrimSpace(keep[len(keep)-1])
+		if t == "" || bareLabelRe.MatchString(t) {
+			keep = keep[:len(keep)-1]
+			continue
+		}
+		break
+	}
+	return strings.TrimSpace(strings.Join(keep, "\n"))
+}
+
+// bareLabelRe 是只有标签、冒号后面什么都没有的一行，最多 8 个字的标签。
+var bareLabelRe = regexp.MustCompile(`^[\p{Han}A-Za-z ]{1,8}[：:]$`)
+
+// upgradeTaskReply 把已写进 SOP 的「IM 任务回执」换成只回状态和结果的版本（口径同 upgradeBuiltin），改过的发通知提示。
+func (in *inbox) upgradeTaskReply(ctx context.Context, c plugin.Core) error {
+	if had, err := in.templateDone(ctx, c, TaskReplyFlowID); err != nil || !had {
+		return err
+	}
+	if done, err := in.templateDone(ctx, c, taskReplyUpgradeMark); err != nil || done {
+		return err
+	}
+	t := taskReplyFlow()
+	return in.upgradeBuiltin(ctx, c, t, taskReplyUpgradeMark, func(why string) {
+		in.tellNotUpgraded(ctx, c, t, "内置流程「IM 任务回执」没有自动换成新的回复内容",
+			"新版回复需求方时只回状态和结果：「「标题」（TSK-x）已完成。」加一行「结果：<结论>」，没有结论只回状态，不带执行过程。"+
+				"这条流程你改过（"+why+"），为了不覆盖你的改动没有自动升级。要用的话，在 SOP 编排页打开它，把「回复原消息」的内容改成："+
+				"「{{task.title}}」（{{task.ref}}）已完成。换行 结果：{{task.summary}}。发送前仍会去掉执行过程的工具行。")
+	})
 }

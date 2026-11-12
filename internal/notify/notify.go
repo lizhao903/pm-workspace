@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // Package notify 是通知（CORE-07b）：订阅事件总线，把值得提醒人的事件存成通知（0019），
 // 供前端列表、标记已读；新通知同时作为 notification.created 推进事件流。
 //

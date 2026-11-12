@@ -1,7 +1,10 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 执行记录的读写（DEV-08c 起，CORE-03a 迁进数据访问层）：某个对象的执行历史、单条详情、取消，以及发起执行的流。
 // 执行开始报 run-started，收尾报 run-settled（执行过程中可能改了对象、登记了产出物），取消报 run-canceled。
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { runObject, runs, type FinishRunInput, type RunDone, type RunEvent, type RunPreset, type RunPromptParams, type RunRequest, type StreamOptions, type TaskRun, type TerminalRunRequest } from '../api'
+import { runObject, runs, type FinishRunInput, type RunDone, type RunEvent, type RunPermissionsInput, type RunPreset, type RunPromptParams, type RunRequest, type StreamOptions, type TaskRun, type TerminalRunRequest } from '../api'
+import { streamDecision } from './agent'
 import { notifyChange, useNotifyChange } from './invalidate'
 import { dataKeys } from './keys'
 
@@ -10,7 +13,8 @@ const LIMIT = 100
 // 有记录在跑时多久刷一次。输出只在收尾时落库，轮询只为拿到最终状态
 const POLL_MS = 2000
 
-export const runFinished = (r: Pick<TaskRun, 'status'>) => r.status !== 'running' && r.status !== 'pending'
+// waiting 是交给工作台 Agent 的执行在等人确认（TSK-0460），也没结束
+export const runFinished = (r: Pick<TaskRun, 'status'>) => r.status !== 'running' && r.status !== 'pending' && r.status !== 'waiting'
 
 // 最近的在前（后端排序）；有没收尾的记录时轮询
 export function useTaskRuns(objectId: string) {
@@ -57,6 +61,16 @@ export function streamRun(objectId: string, req: RunRequest = {}, opts: StreamOp
   }).finally(() => void notifyChange({ kind: 'run-settled', objectId }))
 }
 
+/**
+ * 确认或拒绝工作台 Agent 执行里一次要人确认的写操作（TSK-0460）：和会话里同一个接口，在途的执行接着跑，
+ * 过程在执行自己的流里；这里只等接口回 done，收尾按 run-settled 刷执行记录（状态从 waiting 回到 running）。
+ */
+export function decideRunCall(callId: string, approve: boolean, objectId: string, sessionId?: string): Promise<void> {
+  return streamDecision(callId, approve, sessionId).done
+    .then(() => undefined)
+    .finally(() => void notifyChange({ kind: 'run-settled', objectId }))
+}
+
 /** 提示词预览（0048）：弹窗里随方式、目录、附加说明变；切换参数时先留着上一份，免得闪空 */
 export function useRunPrompt(objectId: string, params: RunPromptParams, enabled = true) {
   return useQuery({
@@ -99,5 +113,19 @@ export function useSaveRunPresets() {
   return useMutation({
     mutationFn: (items: RunPreset[]) => runs.savePresets(items),
     onSuccess: (list) => qc.setQueryData(dataKeys.runs.presets, list),
+  })
+}
+
+/** 后台执行的权限档位与自定义白名单（TSK-0499）：没设过时写入档位是 accept_edits、白名单为空 */
+export function useRunPermissions() {
+  return useQuery({ queryKey: dataKeys.runs.permissions, queryFn: ({ signal }) => runs.permissions(signal) })
+}
+
+/** 整体保存，响应写回缓存；400 的 message 由调用方显示 */
+export function useSaveRunPermissions() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (body: RunPermissionsInput) => runs.savePermissions(body),
+    onSuccess: (v) => qc.setQueryData(dataKeys.runs.permissions, v),
   })
 }

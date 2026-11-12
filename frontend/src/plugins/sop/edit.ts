@@ -1,8 +1,11 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 编排页的纯函数（SPEC-sop-8 到 11）：节点目录、草稿增删改、连线、自动排版、保存前检查。照原型 web-next/src/sopedit.tsx。
 // 节点有哪些、是不是分支节点、哪些配置项必填按 GET /api/sop/node-types（目录 Catalog），展示在 nodes.tsx。
 // 保存前的检查是原型 checkSop 那一套（错误拦保存、建议只提示）；后端另查的（key 唯一、依赖无环、分支 case 存在）
 // 由保存时的 400 带回来，按步骤 key 记下标到节点上（serverIssuesOf）
 import type { SopDraft, SopField, SopIssue, SopNodeType, SopStepDef } from '../../core/data'
+import { blankCond, condProblems, legacyCond } from './cond'
 import { depsOf, isManualDecide, ranks } from './model'
 import { defaultConfig, nodeInfo } from './nodes'
 
@@ -74,12 +77,12 @@ export function newKey(d: Pick<Draft, 'steps'>, taken: readonly string[] = []) {
   return `s${n}`
 }
 
-/** 新节点：名称、默认配置、分支节点带默认分支（条件分支另带 rule） */
+/** 新节点：名称、默认配置、分支节点带默认分支（条件回退另带一条待选字段的结构化条件；条件分支的条件由调用方给，人工判断不给） */
 export function makeStep(d: Draft, cat: Catalog, kind: string, name: string, after: string[], extra: Partial<SopStepDef> = {}): SopStepDef {
   const t = cat.byKind.get(kind)
   return {
     key: newKey(d), name, kind, desc: '', after, config: defaultConfig(kind),
-    ...(t?.branching ? { cases: (t.default_cases ?? []).map((c) => ({ ...c })), ...(kind === 'decide' || kind === 'loopback' ? { rule: '' } : {}) } : {}),
+    ...(t?.branching ? { cases: (t.default_cases ?? []).map((c) => ({ ...c })), ...(kind === LOOPBACK ? { cond: blankCond() } : {}) } : {}),
     ...extra,
   }
 }
@@ -171,8 +174,8 @@ export function changeKind(cat: Catalog, s: SopStepDef, kind: string): Partial<S
     ...(t?.branching
       // 条件回退的两个出口 key 固定（pass / over），换成它或从它换走时一律用默认出口
       ? { cases: s.cases?.length && kind !== LOOPBACK && s.kind !== LOOPBACK ? s.cases : (t.default_cases ?? []).map((c) => ({ ...c })),
-        ...(kind === 'decide' || kind === LOOPBACK ? { rule: s.rule ?? '' } : { rule: undefined }) }
-      : { cases: undefined, rule: undefined }),
+        ...(kind === 'decide' || kind === LOOPBACK ? { rule: s.rule, cond: s.cond ?? (kind === LOOPBACK ? blankCond() : undefined) } : { rule: undefined, cond: undefined }) }
+      : { cases: undefined, rule: undefined, cond: undefined }),
   }
 }
 
@@ -226,7 +229,8 @@ export function fitView(d: Draft, cat: Catalog, lay: Layout, w: number, h: numbe
 
 /* ---------- 检查 ---------- */
 
-export type Issue = { level: 'error' | 'warn'; text: string; step?: number }
+/** code 是后端按节点声明查的分类（TSK-0490），legacy_rule 时节点面板给「转成结构化条件」 */
+export type Issue = { level: 'error' | 'warn'; text: string; step?: number; code?: string }
 
 const nameOf = (s: SopStepDef) => s.name.trim() || s.key
 
@@ -253,6 +257,7 @@ export function checkDraft(d: Draft, cat: Catalog): Issue[] {
         }
       })
     }
+    if (s.kind === 'decide') out.push(...condIssues(s, i))
     if (s.kind === LOOPBACK) out.push(...loopbackIssues(d, i))
     if ((s.kind === 'claude_code' || s.kind === 'task_run') && claudeTimeoutMs(s.config?.timeout) === null) {
       out.push({ level: 'error', text: `「${nameOf(s)}」超时写法不对，要写成「30 分钟」「2 小时」这样，最多 24 小时`, step: i })
@@ -273,7 +278,6 @@ export function checkDraft(d: Draft, cat: Catalog): Issue[] {
 /* ---------- 条件回退（AUTO-02）、Claude Code 执行（AUTO-01） ---------- */
 
 export const LOOPBACK = 'loopback'
-const RULE_RE = /^\s*(\S+)\s+(不等于|等于|不包含|包含)\s+(.*?)\s*$/
 
 /** 最多退回几轮：留空 3，1 到 10 的整数；写法不对回 null（同后端 loopRounds） */
 export function loopRounds(s?: string): number | null {
@@ -302,13 +306,26 @@ export function upstreamSteps(d: Pick<Draft, 'steps'>, i: number): SopStepDef[] 
   return d.steps.filter((s) => up.has(s.key))
 }
 
-/** 条件回退的检查，同后端 checkLoopback：条件写法、目标是上游（回退不是依赖，不算环）、上限、两个出口 */
+/** 条件分支、条件回退的条件（TSK-0490，同后端 declIssues 的前几条）：结构化条件的写法；旧规则是一句话的拦，旧写法的提示换掉。
+ * 字段这一步拿不拿得到由后端按节点声明查，保存时带回来 */
+export function condIssues(s: SopStepDef, i: number): Issue[] {
+  const name = nameOf(s)
+  const rule = s.rule?.trim() ?? ''
+  if (s.cond && rule) return [{ level: 'error', text: `「${name}」同时有结构化条件和旧规则，删掉旧规则`, step: i, code: 'cond' }]
+  if (s.cond) return condProblems(s.cond).map((t) => ({ level: 'error' as const, text: `「${name}」${t}`, step: i, code: 'cond' }))
+  if (!rule) return []
+  return legacyCond(rule)
+    ? [{ level: 'warn', text: `「${name}」的条件还是旧写法「${rule}」，执行仍按它判断；建议转成结构化条件`, step: i, code: 'legacy_rule' }]
+    : [{ level: 'error', text: `「${name}」的条件「${rule}」是一句话，程序没法照着判断：改成结构化条件（字段 + 运算符 + 值），这句话可以写进说明`, step: i, code: 'rule_text' }]
+}
+
+/** 条件回退的检查，同后端 checkLoopback：条件、目标是上游（回退不是依赖，不算环）、上限、两个出口 */
 export function loopbackIssues(d: Pick<Draft, 'steps'>, i: number): Issue[] {
   const s = d.steps[i]
   const name = nameOf(s)
   const out: Issue[] = []
-  if (!s.rule?.trim()) out.push({ level: 'error', text: `「${name}」还没填回退条件`, step: i })
-  else if (!RULE_RE.test(s.rule)) out.push({ level: 'error', text: `「${name}」回退条件写法不对，要写成「字段 等于 值」或「字段 包含 值」`, step: i })
+  if (!s.cond && !s.rule?.trim()) out.push({ level: 'error', text: `「${name}」还没填回退条件`, step: i })
+  else out.push(...condIssues(s, i))
   const t = s.config?.target?.trim()
   if (t) {
     if (t === s.key) out.push({ level: 'error', text: `「${name}」不能退回到自己`, step: i })
@@ -321,22 +338,31 @@ export function loopbackIssues(d: Pick<Draft, 'steps'>, i: number): Issue[] {
   return out
 }
 
-/** 后端拒绝保存时的问题：下标换成步骤 key 记下，之后步骤重排、增删也标得到 */
-export type ServerIssue = { text: string; key?: string }
-export const serverIssuesOf = (issues: readonly SopIssue[], d: Draft): ServerIssue[] =>
-  issues.map((x) => (x.step !== undefined && d.steps[x.step] ? { text: x.text, key: d.steps[x.step].key } : { text: x.text }))
+/** 后端带回来的问题（保存被拒、保存成功的警告、打开时的问题，TSK-0490）：下标换成步骤 key 记下，之后步骤重排、增删也标得到 */
+export type ServerIssue = { text: string; key?: string; level: 'error' | 'warn'; code?: string }
+export const serverIssuesOf = (issues: readonly SopIssue[], d: Pick<Draft, 'steps'>): ServerIssue[] =>
+  issues.map((x) => ({
+    text: x.text, level: x.level === 'warning' ? 'warn' as const : 'error' as const, ...(x.code ? { code: x.code } : {}),
+    ...(x.step !== undefined && d.steps[x.step] ? { key: d.steps[x.step].key } : {}),
+  }))
 
-/** 前端检查加上后端带回来的（都算错误）；后端的那条前端也查出来了就不重复列；步骤删掉了的不再列 */
+/** 前端检查加上后端带回来的；后端的那条前端也查出来了（同一步同一类，或同样的话）就不重复列；步骤删掉了的不再列。错误在前 */
 export function mergeIssues(local: readonly Issue[], server: readonly ServerIssue[], d: Draft): Issue[] {
   const seen = new Set(local.map((x) => x.text))
+  const same = new Set(local.filter((x) => x.code && x.step !== undefined).map((x) => `${x.step}:${x.code}`))
   const extra: Issue[] = []
   for (const x of server) {
     if (seen.has(x.text)) continue
-    if (x.key === undefined) { extra.push({ level: 'error', text: x.text }); continue }
+    const code = x.code ? { code: x.code } : {}
+    if (x.key === undefined) { extra.push({ level: x.level, text: x.text, ...code }); continue }
     const i = d.steps.findIndex((s) => s.key === x.key)
-    if (i >= 0) extra.push({ level: 'error', text: x.text, step: i })
+    if (i < 0 || (x.code && same.has(`${i}:${x.code}`))) continue
+    // 条件的写法类问题前端也查（condIssues），前端没查出来说明已经改掉了，后端那条是旧的
+    if (x.code === 'legacy_rule' || x.code === 'rule_text' || x.code === 'cond') continue
+    extra.push({ level: x.level, text: x.text, step: i, ...code })
   }
-  return [...local, ...extra]
+  const all = [...local, ...extra]
+  return [...all.filter((x) => x.level === 'error'), ...all.filter((x) => x.level !== 'error')]
 }
 
 /** 草稿有没有改过：按 JSON 比 */

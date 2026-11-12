@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 知识库详情的「设置」标签（SPEC-settings-13）：来源分类、本地目录、切分方式、向量化模型、挂了这个库的 Agent。
 // 和原型不同的地方（后端决定的）：
 // - 本地目录存不存在、有没有读权限由后端判，挂上时报「找不到这个目录」「没有读权限」，不加进来。
@@ -127,7 +129,7 @@ export function KbSettingsTab({ kb, docs, editing, onEdit, onReindex }: {
           <div className="kb-muted kbx-dir-progress" role="status">{progress.dir ? `${progress.dir} · ` : '文档分类 · '}{progressText(progress)}</div>
         )}
         <div className="kbx-search-line">
-          <Input className="kb-mono" value={dir} invalid={!!dirErr} aria-label="本地目录" placeholder="/Volumes/docs/客户/远川科技"
+          <Input className="kb-mono" value={dir} invalid={!!dirErr} aria-label="本地目录" placeholder="/Volumes/docs/example-client"
             onChange={(e) => { setDir(e.target.value); setDirErr('') }} onKeyDown={(e) => { if (e.key === 'Enter' && dir.trim()) addDir() }} />
           <Button disabled={!dir.trim() || patch.isPending} onClick={addDir}>挂上目录</Button>
         </div>

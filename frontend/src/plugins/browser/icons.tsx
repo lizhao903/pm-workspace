@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 浏览器页用到的小图标，照原型 web-next/src/browser.tsx
 import type { ReactNode } from 'react'
 import { cls } from '../../core/ui'

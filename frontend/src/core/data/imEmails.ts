@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 从 Slack 补联系人邮箱：IM 插件 im 的 POST /api/im/connectors/{id}/backfill-emails。
 // 联系人经 IM 身份认到渠道里的人，渠道资料里有邮箱时补进联系人 email；只填空的，不覆盖已有值，不一样的列在 conflicts。
 // Slack 缺 users:read.email 不算失败：200，missing_scope 为真，hint 写要做什么。

@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 package im
 
 import (
@@ -47,11 +49,11 @@ func (a *intakeAgent) Complete(_ context.Context, req plugin.CompleteRequest) (s
 		return text, nil
 	case strings.Contains(req.Prompt, "判断这条需求该归到哪个项目"):
 		if a.sure {
-			return `{"project_id":"obj_octok","project":"Octok","confidence":0.92,"sure":"yes","candidates_text":"1. Octok（PRJ-0001）","reason":"说的是客户端"}`, nil
+			return `{"project_id":"obj_acme","project":"Acme","confidence":0.92,"sure":"yes","candidates_text":"1. Acme（PRJ-0001）","reason":"说的是客户端"}`, nil
 		}
-		return "```json\n{\"project_id\":\"\",\"project\":\"\",\"confidence\":0.4,\"sure\":\"no\",\"candidates_text\":\"1. Octok（PRJ-0001）\\n2. XAUE（PRJ-0002）\",\"reason\":\"两个项目都有导出\"}\n```", nil
+		return "```json\n{\"project_id\":\"\",\"project\":\"\",\"confidence\":0.4,\"sure\":\"no\",\"candidates_text\":\"1. Acme（PRJ-0001）\\n2. Globex（PRJ-0002）\",\"reason\":\"两个项目都有导出\"}\n```", nil
 	case strings.Contains(req.Prompt, "从回复里认出"):
-		return " obj_octok。", nil
+		return " obj_acme。", nil
 	}
 	return "", nil
 }
@@ -113,8 +115,8 @@ type intakeEnv struct {
 	sopEnv
 	agent  *intakeAgent
 	claude *intakeClaude
-	proto  string // Octok 的原型库目录
-	code   string // Octok 的项目目录（代码库没设，用它）
+	proto  string // Acme 的原型库目录
+	code   string // Acme 的项目目录（代码库没设，用它）
 }
 
 func setupIntake(t *testing.T) intakeEnv {
@@ -178,10 +180,10 @@ func setupIntake(t *testing.T) intakeEnv {
 		`INSERT INTO conversations (id, channel, external_id, kind, name, created_at, updated_at) VALUES
 		  ('cv_prod', 'slack', 'C01', 'group', '#product', 'x', 'x')`,
 		`INSERT INTO objects (id, type_id, ref, title, props, workdir, created_at, updated_at) VALUES
-		  ('obj_octok', 'project', 'PRJ-0001', 'Octok', '{}', '`+e.code+`', '2026-01-01', '2026-01-01'),
-		  ('obj_xaue', 'project', 'PRJ-0002', 'XAUE', '{}', '', '2026-01-02', '2026-01-02')`,
+		  ('obj_acme', 'project', 'PRJ-0001', 'Acme', '{}', '`+e.code+`', '2026-01-01', '2026-01-01'),
+		  ('obj_globex', 'project', 'PRJ-0002', 'Globex', '{}', '', '2026-01-02', '2026-01-02')`,
 	)
-	if code, out := call(t, e.h, "PATCH", "/api/projects/obj_octok/profile", `{"intro":"桌面客户端","keywords":["客户端","导出"],"proto_dir":"`+e.proto+`"}`); code != 200 {
+	if code, out := call(t, e.h, "PATCH", "/api/projects/obj_acme/profile", `{"intro":"桌面客户端","keywords":["客户端","导出"],"proto_dir":"`+e.proto+`"}`); code != 200 {
 		t.Fatalf("建档案 %d %v", code, out)
 	}
 	e.waitFlow(t)
@@ -298,7 +300,7 @@ func TestIntakeFlowInstalledDisabled(t *testing.T) {
 	}
 }
 
-// TestIntakeHappyPathWithRework：需求消息 → 建任务（已接收）→ 回执带看板链接 → 分类拿得准、绑 Octok → 设计中 →
+// TestIntakeHappyPathWithRework：需求消息 → 建任务（已接收）→ 回执需求方 → 分类拿得准、绑 Acme → 设计中 →
 // 产品在原型库目录写 PRD → 评审中 → 评审退回一轮（意见带回产品）→ 第二轮通过 → 开发中，告诉提出人。
 func TestIntakeHappyPathWithRework(t *testing.T) {
 	e := setupIntake(t)
@@ -310,22 +312,22 @@ func TestIntakeHappyPathWithRework(t *testing.T) {
 	first := e.recv(t)
 	o := e.task(t, msg)
 	req := o.Props[domain.PropRequester].(map[string]any)
-	if o.TypeID != "task" || req["name"] != "林原" || o.ProjectID == nil || *o.ProjectID != "obj_octok" || domain.StageOf(o.Props) != "designing" {
+	if o.TypeID != "task" || req["name"] != "林原" || o.ProjectID == nil || *o.ProjectID != "obj_acme" || domain.StageOf(o.Props) != "designing" {
 		t.Fatalf("任务：%+v props %v", o, o.Props)
 	}
 	if src, _ := o.Props[domain.PropSourceRef].(map[string]any); src["message_id"] != msg {
 		t.Fatalf("来源消息：%v", o.Props)
 	}
 	sent := e.fake.Sent()
-	if len(sent) != 1 || sent[0].ReplyTo != "C01:h1" || !strings.Contains(sent[0].Text, o.Ref) ||
-		!strings.Contains(sent[0].Text, "http://pmw.test/tasks/board?t="+o.ID) {
+	// 回执需求方（TSK-0467）：默认文案「已创建任务 TSK-x，开始进行需求规划」
+	if len(sent) != 1 || sent[0].ReplyTo != "C01:h1" || sent[0].Text != "已创建任务 "+o.Ref+"，开始进行需求规划" {
 		t.Fatalf("回执：%+v", sent)
 	}
 	pm := e.claude.last()
 	if pm.Workdir != e.proto || !strings.Contains(pm.Prompt, "客户端导出能不能加个 CSV 格式") || !strings.Contains(pm.Prompt, o.Ref) {
 		t.Fatalf("产品这一步：workdir %s prompt %s", pm.Workdir, pm.Prompt)
 	}
-	if !e.agent.asked("判断这条需求该归到哪个项目", "Octok（编号 PRJ-0001，id obj_octok）：桌面客户端；关键词：客户端、导出") {
+	if !e.agent.asked("判断这条需求该归到哪个项目", "Acme（编号 PRJ-0001，id obj_acme）：桌面客户端；关键词：客户端、导出") {
 		t.Fatal("分类提示词应带项目档案摘要")
 	}
 	e.finish(t, first, "PRD 初稿写好了", map[string]any{"artifacts": []any{"prd/csv.md"}, "questions": []any{}})
@@ -347,7 +349,7 @@ func TestIntakeHappyPathWithRework(t *testing.T) {
 	review2 := e.recv(t)
 	e.finish(t, review2, "可以开发", map[string]any{"verdict": "pass", "issues": []any{}})
 
-	// 评审通过后接研发 pipeline（AUTO-09）：子流程带着任务 id 和来源消息起来；这里 Octok 的目录不是 git 仓库，研发 pipeline 停在准备工作区
+	// 评审通过后接研发 pipeline（AUTO-09）：子流程带着任务 id 和来源消息起来；这里 Acme 的目录不是 git 仓库，研发 pipeline 停在准备工作区
 	run := e.until(t, runID, "接上研发 pipeline", func(r map[string]any) bool { return sopStep(r, "pipeline")["child_run_id"] != nil })
 	e.stageIs(t, msg, "developing")
 	if sopStep(run, "gate")["loops"].(float64) != 1 || sopStep(run, "human")["status"] != "bypassed" || sopStep(run, "ask")["status"] != "bypassed" {
@@ -383,20 +385,20 @@ func TestIntakeAsksWhenUnsure(t *testing.T) {
 	})
 	e.stageIs(t, msg, "confirm_project")
 	sent := e.fake.Sent()
-	if len(sent) != 2 || !strings.Contains(sent[1].Text, "拿不准") || !strings.Contains(sent[1].Text, "XAUE（PRJ-0002）") || sent[1].ReplyTo != "C01:u1" {
+	if len(sent) != 2 || !strings.Contains(sent[1].Text, "拿不准") || !strings.Contains(sent[1].Text, "Globex（PRJ-0002）") || sent[1].ReplyTo != "C01:u1" {
 		t.Fatalf("应在原消息串里问提出人：%+v", sent)
 	}
 	if o := e.task(t, msg); o.ProjectID != nil {
 		t.Fatalf("问之前不该绑项目：%v", *o.ProjectID)
 	}
-	e.push(t, `{"external_id":"C01:u2","connector_id":"cn_ok","conversation_id":"C01","conversation_name":"#product","sender_id":"U1","sender_name":"林原","text":"Octok 的"}`)
+	e.push(t, `{"external_id":"C01:u2","connector_id":"cn_ok","conversation_id":"C01","conversation_name":"#product","sender_id":"U1","sender_name":"林原","text":"Acme 的"}`)
 	rid := e.recv(t)
 	o := e.task(t, msg)
-	if o.ProjectID == nil || *o.ProjectID != "obj_octok" || domain.StageOf(o.Props) != "designing" {
-		t.Fatalf("回复后应绑 Octok、设计中：%+v %v", o.ProjectID, o.Props)
+	if o.ProjectID == nil || *o.ProjectID != "obj_acme" || domain.StageOf(o.Props) != "designing" {
+		t.Fatalf("回复后应绑 Acme、设计中：%+v %v", o.ProjectID, o.Props)
 	}
 	run := e.until(t, runID, "", func(map[string]any) bool { return true })
-	if sopStep(run, "bind_auto")["status"] != "bypassed" || sopStep(run, "pick")["output"].(map[string]any)["picked"] != "obj_octok。" {
+	if sopStep(run, "bind_auto")["status"] != "bypassed" || sopStep(run, "pick")["output"].(map[string]any)["picked"] != "obj_acme。" {
 		t.Fatalf("执行：%v / %v", sopStep(run, "bind_auto"), sopStep(run, "pick")["output"])
 	}
 	if code, out := call(t, e.h, "POST", "/api/sop/runs/"+runID+"/actions", `{"kind":"stop"}`); code != 200 {
@@ -437,7 +439,7 @@ func TestSetTaskStageNodeErrors(t *testing.T) {
 	b := sopStep(run, "b")["output"].(map[string]any)["task"].(map[string]any)
 	c := sopStep(run, "c")["output"].(map[string]any)
 	if a["id"] != b["id"] || b["reused"] != true || a["stage"] != "received" || c["task"].(map[string]any)["stage"] != "testing" ||
-		c["project"].(map[string]any)["id"] != "obj_xaue" || c["conversation_id"] != "cv_prod" {
+		c["project"].(map[string]any)["id"] != "obj_globex" || c["conversation_id"] != "cv_prod" {
 		t.Fatalf("输出：a %v b %v c %v", a, b, c)
 	}
 	for _, tc := range []struct{ stage, project, want string }{

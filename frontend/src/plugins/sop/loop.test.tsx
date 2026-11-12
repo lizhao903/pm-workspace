@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -27,7 +29,7 @@ describe('条件回退的配置和检查', () => {
 
   it('新建带两个出口和空条件；换成别的分支类型时出口换成那个类型的', () => {
     const s = makeStep(draft([]), cat, 'loopback', '条件回退', [])
-    expect(s).toMatchObject({ rule: '', cases: [{ key: 'pass', label: '通过' }, { key: 'over', label: '超限' }], config: { max_rounds: '3' } })
+    expect(s).toMatchObject({ cond: { logic: 'and', items: [{ field: '', op: 'eq', value: '' }] }, cases: [{ key: 'pass', label: '通过' }, { key: 'over', label: '超限' }], config: { max_rounds: '3' } })
     expect(changeKind(cat, s, 'decide').cases?.map((c) => c.key)).toEqual(['yes', 'no'])
     expect(changeKind(cat, st('d', 'decide', [], { cases: [{ key: 'yes', label: '是' }, { key: 'no', label: '否' }] }), 'loopback').cases?.map((c) => c.key)).toEqual(['pass', 'over'])
   })
@@ -40,7 +42,7 @@ describe('条件回退的配置和检查', () => {
     expect(errs(draft([...base, loop({ target: 'later' }), st('later', 'template', ['gate'], { config: { template: 'z' } })]))).toContain('「gate」只能退回到上游的步骤')
     expect(errs(draft([...base, loop({ target: 'dev', max_rounds: '11' })]))).toContain('「gate」最多退回几轮要是 1 到 10 的整数')
     expect(errs(draft([...base, loop({ target: 'dev' }, '')]))).toContain('「gate」还没填回退条件')
-    expect(errs(draft([...base, loop({ target: 'dev' }, 'verdict 是 reject')]))[0]).toContain('写法不对')
+    expect(errs(draft([...base, loop({ target: 'dev' }, 'verdict 是 reject')]))[0]).toContain('是一句话')
     expect(errs(draft([...base, loop({ target: 'dev' }, undefined, [{ key: 'pass', label: '通过' }, { key: 'x', label: '别的' }])]))).toContain('「gate」出口要有「通过」和「超限」')
     expect(loopRounds('')).toBe(3)
     expect(loopRounds('0')).toBeNull()

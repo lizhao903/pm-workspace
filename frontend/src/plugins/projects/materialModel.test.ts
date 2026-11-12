@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 import { describe, expect, it } from 'vitest'
 import type { ImMaterialSource, ProjectMaterial, WorkObject } from '../../core/data'
 import { allTags, dirOf, editDraftOf, editPatch, foldNote, joinPath, matchMaterial, newestFirst, recentDocsAndMaterials, resolvePath, sourceLabel, sourceMessage, splitTags, switchableKinds, valueError } from './materialModel'

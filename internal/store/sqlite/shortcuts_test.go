@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 package sqlite
 
 import (
@@ -46,11 +48,11 @@ func TestShortcutURLSchemeWhitelist(t *testing.T) {
 	s, ctx := newStore(t)
 
 	ok := []string{
-		"https://antalpha.atlassian.net/jira/software/projects/AAA/boards/1",
+		"https://example.atlassian.net/jira/software/projects/AAA/boards/1",
 		"http://127.0.0.1:3000/admin",
 		"file:///Users/me/notes.md",
 		// 变量占位符必须能过，这是 url 类型最主要的用法。
-		`https://antalpha.atlassian.net/issues/?jql=text~"{{title}}"`,
+		`https://example.atlassian.net/issues/?jql=text~"{{title}}"`,
 		"https://example.test/{{ref}}/{{today}}",
 	}
 	for _, u := range ok {

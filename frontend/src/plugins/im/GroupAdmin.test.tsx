@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -7,19 +9,19 @@ import { GroupAdminDrawer } from './GroupAdmin'
 
 const conv = (p: Partial<ImConversationSummary> & { conversation_id: string }): ImConversationSummary => ({
   channel: 'slack', kind: 'group', name: '', external_id: 'C0', participants: [], total: 3, pending: 1, unread: 0, last_at: '2026-03-01T00:00:00Z',
-  project_id: null, project_ref: '', project_name: '', connector_id: 'cn_sl', sent: 0, last_sent_at: null, ...p,
+  project_id: null, project_ref: '', project_name: '', connector_id: 'cn_sl', sent: 0, last_sent_at: null, unresolved_users: [], name_unresolved: false, can_refill: true, refill_error: '', can_backfill: true, backfill_note: '', ...p,
 })
 
 const SUMMARY = [
-  conv({ conversation_id: 'cv_octok', name: '#ai-octok-platform', participants: ['林原', '周舟'], total: 31, pending: 4, sent: 2, last_sent_at: '2026-03-02T00:00:00Z' }),
-  conv({ conversation_id: 'cv_mix', name: '#octok-xaue-credit-card', total: 11, pending: 0 }),
+  conv({ conversation_id: 'cv_acme', name: '#ai-acme-platform', participants: ['林原', '周舟'], total: 31, pending: 4, sent: 2, last_sent_at: '2026-03-02T00:00:00Z' }),
+  conv({ conversation_id: 'cv_mix', name: '#acme-globex-credit-card', total: 11, pending: 0 }),
   conv({ conversation_id: 'cv_ns', name: '#fde-bi-ns-support', total: 19, project_id: 'obj_ns', project_ref: 'PRJ-0010', project_name: 'NS 系统' }),
   conv({ conversation_id: 'cv_dm', kind: 'direct', participants: ['阿青'], total: 2 }),
-  conv({ conversation_id: 'cv_empty', name: '#empty', total: 0, pending: 0, last_at: null, project_id: 'obj_xaue', project_name: 'XAUE' }),
+  conv({ conversation_id: 'cv_empty', name: '#empty', total: 0, pending: 0, last_at: null, project_id: 'obj_globex', project_name: 'Globex' }),
 ]
 const PROJECTS = [
-  { id: 'obj_octok', type_id: 'project', ref: 'PRJ-0009', title: 'Octok' },
-  { id: 'obj_xaue', type_id: 'project', ref: 'PRJ-0008', title: 'XAUE' },
+  { id: 'obj_acme', type_id: 'project', ref: 'PRJ-0009', title: 'Acme' },
+  { id: 'obj_globex', type_id: 'project', ref: 'PRJ-0008', title: 'Globex' },
   { id: 'obj_ns', type_id: 'project', ref: 'PRJ-0010', title: 'NS 系统' },
 ]
 
@@ -58,7 +60,7 @@ describe('群组管理抽屉', () => {
   it('列出群和私聊：名字、消息数、待处理、默认归属；私聊显示对方', async () => {
     backend(() => ok([]))
     renderIt()
-    const row = await screen.findByRole('listitem', { name: '#ai-octok-platform' })
+    const row = await screen.findByRole('listitem', { name: '#ai-acme-platform' })
     expect(within(row).getByText('31')).toBeTruthy()
     expect(within(row).getByText('4')).toBeTruthy()
     expect(within(row).getByText('林原、周舟')).toBeTruthy()
@@ -69,7 +71,7 @@ describe('群组管理抽屉', () => {
   it('没设归属的筛选和搜索', async () => {
     backend(() => ok([]))
     renderIt()
-    await screen.findByRole('listitem', { name: '#ai-octok-platform' })
+    await screen.findByRole('listitem', { name: '#ai-acme-platform' })
     await userEvent.click(screen.getByRole('button', { name: /没设归属的/ }))
     expect(screen.queryByRole('listitem', { name: '#fde-bi-ns-support' })).toBeNull()
     expect(screen.getAllByRole('listitem')).toHaveLength(3)
@@ -80,18 +82,18 @@ describe('群组管理抽屉', () => {
   it('按群名建议：单个采纳；全部采纳只带只有一个候选的', async () => {
     const calls = backend((b) => ok(b.items))
     renderIt()
-    const row = await screen.findByRole('listitem', { name: '#ai-octok-platform' })
+    const row = await screen.findByRole('listitem', { name: '#ai-acme-platform' })
     // 两个候选的那行列出两个，要人挑
-    const mix = screen.getByRole('listitem', { name: '#octok-xaue-credit-card' })
+    const mix = screen.getByRole('listitem', { name: '#acme-globex-credit-card' })
     expect(within(mix).getByText('可能是')).toBeTruthy()
-    expect(within(mix).getByRole('button', { name: '采纳建议：Octok' })).toBeTruthy()
-    expect(within(mix).getByRole('button', { name: '采纳建议：XAUE' })).toBeTruthy()
-    await userEvent.click(within(row).getByRole('button', { name: '采纳建议：Octok' }))
-    expect(await screen.findByText('已设为「Octok」：1 个会话')).toBeTruthy()
+    expect(within(mix).getByRole('button', { name: '采纳建议：Acme' })).toBeTruthy()
+    expect(within(mix).getByRole('button', { name: '采纳建议：Globex' })).toBeTruthy()
+    await userEvent.click(within(row).getByRole('button', { name: '采纳建议：Acme' }))
+    expect(await screen.findByText('已设为「Acme」：1 个会话')).toBeTruthy()
     await userEvent.click(screen.getByRole('button', { name: '全部采纳 1 个' }))
     expect(puts(calls).map((c) => c.body)).toEqual([
-      { items: [{ conversation_id: 'cv_octok', project_id: 'obj_octok' }] },
-      { items: [{ conversation_id: 'cv_octok', project_id: 'obj_octok' }] },
+      { items: [{ conversation_id: 'cv_acme', project_id: 'obj_acme' }] },
+      { items: [{ conversation_id: 'cv_acme', project_id: 'obj_acme' }] },
     ])
     expect(puts(calls).every((c) => c.path === '/api/im/conversation-projects')).toBe(true)
   })
@@ -99,18 +101,18 @@ describe('群组管理抽屉', () => {
   it('勾选后批量设、批量清除；有没设成的写出原因', async () => {
     const calls = backend((b) => ok(b.items.slice(1), [{ conversation_id: b.items[0].conversation_id, project_id: b.items[0].project_id, code: 'not_found', message: '会话不存在' }]))
     renderIt()
-    await screen.findByRole('listitem', { name: '#ai-octok-platform' })
-    await userEvent.click(screen.getByRole('checkbox', { name: '选中 #ai-octok-platform' }))
+    await screen.findByRole('listitem', { name: '#ai-acme-platform' })
+    await userEvent.click(screen.getByRole('checkbox', { name: '选中 #ai-acme-platform' }))
     await userEvent.click(screen.getByRole('checkbox', { name: '选中 阿青' }))
     const bar = screen.getByRole('toolbar', { name: '批量设默认归属' })
     expect(within(bar).getByText('已选 2 个')).toBeTruthy()
     expect((within(bar).getByRole('button', { name: '清除归属' }) as HTMLButtonElement).disabled).toBe(true)
     expect((within(bar).getByRole('button', { name: '设为默认归属' }) as HTMLButtonElement).disabled).toBe(true)
     await userEvent.click(within(bar).getByRole('button', { name: '批量设为哪个项目' }))
-    await userEvent.click(await screen.findByRole('option', { name: /XAUE/ }))
+    await userEvent.click(await screen.findByRole('option', { name: /Globex/ }))
     await userEvent.click(within(bar).getByRole('button', { name: '设为默认归属' }))
-    expect(puts(calls)[0].body).toEqual({ items: [{ conversation_id: 'cv_octok', project_id: 'obj_xaue' }, { conversation_id: 'cv_dm', project_id: 'obj_xaue' }] })
-    expect((await screen.findByRole('alert')).textContent).toBe('已设为「XAUE」：1 个会话；1 个没设成：#ai-octok-platform：会话不存在')
+    expect(puts(calls)[0].body).toEqual({ items: [{ conversation_id: 'cv_acme', project_id: 'obj_globex' }, { conversation_id: 'cv_dm', project_id: 'obj_globex' }] })
+    expect((await screen.findByRole('alert')).textContent).toBe('已设为「Globex」：1 个会话；1 个没设成：#ai-acme-platform：会话不存在')
     // 有没设成的，勾选留着，方便再来一次
     expect(screen.getByRole('toolbar', { name: '批量设默认归属' })).toBeTruthy()
   })
@@ -118,7 +120,7 @@ describe('群组管理抽屉', () => {
   it('全选当前筛出来的；整批被拒时写原因', async () => {
     const calls = backend(() => new Response(JSON.stringify({ error: { code: 'validation', message: 'at most 200 conversations at a time' } }), { status: 400 }))
     renderIt()
-    await screen.findByRole('listitem', { name: '#ai-octok-platform' })
+    await screen.findByRole('listitem', { name: '#ai-acme-platform' })
     await userEvent.click(screen.getByRole('checkbox', { name: '全选当前 5 个会话' }))
     const bar = screen.getByRole('toolbar', { name: '批量设默认归属' })
     expect(within(bar).getByText('已选 5 个')).toBeTruthy()
@@ -131,10 +133,10 @@ describe('群组管理抽屉', () => {
     backend(() => ok([]))
     const onSend = vi.fn()
     renderIt(vi.fn(), onSend)
-    const row = await screen.findByRole('listitem', { name: '#ai-octok-platform' })
+    const row = await screen.findByRole('listitem', { name: '#ai-acme-platform' })
     expect(within(row).getByText('已发 2 条')).toBeTruthy()
-    await userEvent.click(within(row).getByRole('button', { name: '发消息到 #ai-octok-platform' }))
-    expect(onSend).toHaveBeenCalledWith('cv_octok')
+    await userEvent.click(within(row).getByRole('button', { name: '发消息到 #ai-acme-platform' }))
+    expect(onSend).toHaveBeenCalledWith('cv_acme')
     expect((within(screen.getByRole('listitem', { name: '#empty' })).getByRole('button', { name: '发消息到 #empty' }) as HTMLButtonElement).disabled).toBe(true)
   })
 
@@ -143,5 +145,75 @@ describe('群组管理抽屉', () => {
     const onOpen = renderIt()
     await userEvent.click(await screen.findByRole('button', { name: '阿青' }))
     expect(onOpen).toHaveBeenCalledWith('slack', 'cv_dm')
+  })
+})
+
+// 查询回填（TSK-0494）：只显示编号的行右侧有「查询回填」，其余行没有；点了回渠道查、列表刷新、行下写补上了什么或没查到的原因
+describe('群组管理：查询回填', () => {
+  const RAW = [
+    conv({ conversation_id: 'cv_raw', kind: 'direct', participants: ['U02JW5GKB50'], unresolved_users: ['U02JW5GKB50'] }),
+    conv({ conversation_id: 'cv_gone', name: '#ext-xaue', participants: ['林原', 'U0BFYG7EVDZ'], unresolved_users: ['U0BFYG7EVDZ'], refill_error: 'Slack 里查不到这个人' }),
+    conv({ conversation_id: 'cv_tg', channel: 'telegram', kind: 'direct', participants: ['12345'], unresolved_users: ['12345'], can_refill: false }),
+    conv({ conversation_id: 'cv_ok', name: '#product', participants: ['周舟'] }),
+  ]
+  function refillBackend() {
+    const calls: Call[] = []
+    let filled = false
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = new URL(String(input), 'http://x')
+      const method = init?.method ?? 'GET'
+      calls.push({ method, path: url.pathname, body: init?.body ? JSON.parse(String(init.body)) : undefined })
+      const json = (data: unknown) => new Response(JSON.stringify({ data, meta: { total: Array.isArray(data) ? data.length : 0 } }), { status: 200 })
+      if (url.pathname === '/api/im/conversations/cv_raw/refill-names') {
+        filled = true
+        return json({ conversations: 1, checked: 1, filled: [{ conversation_id: 'cv_raw', kind: 'user', external_id: 'U02JW5GKB50', name: 'Mia', source: 'channel' }], failed: [], skipped: 0, remaining: 0 })
+      }
+      if (url.pathname === '/api/im/conversations/cv_gone/refill-names') {
+        return json({ conversations: 1, checked: 1, filled: [], failed: [{ conversation_id: 'cv_gone', kind: 'user', external_id: 'U0BFYG7EVDZ', code: 'user_not_found', message: 'Slack 里查不到这个人' }], skipped: 0, remaining: 0 })
+      }
+      if (url.pathname === '/api/im/conversations/refill-names') {
+        return json({ conversations: 2, checked: 2, filled: [{ conversation_id: 'cv_raw', kind: 'user', external_id: 'U02JW5GKB50', name: 'Mia', source: 'channel' }], failed: [], skipped: 1, remaining: 0 })
+      }
+      if (url.pathname === '/api/im/conversations/summary') {
+        return json(filled ? [conv({ ...RAW[0], participants: ['Mia'], unresolved_users: [] }), ...RAW.slice(1)] : RAW)
+      }
+      return json([])
+    }))
+    return calls
+  }
+
+  it('只有缺名字的行有按钮；渠道查不了的置灰；上次没查到的写原因', async () => {
+    refillBackend()
+    renderIt()
+    const raw = await screen.findByRole('listitem', { name: 'U02JW5GKB50' })
+    expect(within(raw).getByRole('button', { name: '查询回填 U02JW5GKB50' })).toBeTruthy()
+    expect(within(screen.getByRole('listitem', { name: '#product' })).queryByRole('button', { name: /查询回填/ })).toBeNull()
+    const tg = within(screen.getByRole('listitem', { name: '12345' })).getByRole('button', { name: '查询回填 12345' }) as HTMLButtonElement
+    expect(tg.disabled).toBe(true)
+    expect(tg.title).toContain('查不了')
+    expect(within(screen.getByRole('listitem', { name: '#ext-xaue' })).getByText('上次没查到：Slack 里查不到这个人')).toBeTruthy()
+    // 工具条只数渠道能查、之前没查失败的
+    expect(screen.getByRole('button', { name: /回填全部缺失/ }).textContent).toBe('回填全部缺失1')
+  })
+
+  it('点了补上名字、列表刷新；没查到的写原因', async () => {
+    const calls = refillBackend()
+    renderIt()
+    await userEvent.click(within(await screen.findByRole('listitem', { name: 'U02JW5GKB50' })).getByRole('button', { name: '查询回填 U02JW5GKB50' }))
+    const row = await screen.findByRole('listitem', { name: 'Mia' })
+    expect(within(row).getByRole('status').textContent).toBe('已补上：Mia')
+    expect(within(row).queryByRole('button', { name: /查询回填/ })).toBeNull()
+    expect(calls.filter((c) => c.method === 'POST').map((c) => c.path)).toEqual(['/api/im/conversations/cv_raw/refill-names'])
+
+    await userEvent.click(within(screen.getByRole('listitem', { name: '#ext-xaue' })).getByRole('button', { name: '查询回填 #ext-xaue' }))
+    expect((await within(screen.getByRole('listitem', { name: '#ext-xaue' })).findByRole('alert')).textContent).toBe('没查到 1 个：Slack 里查不到这个人')
+  })
+
+  it('回填全部缺失：显示补了多少、跳过多少', async () => {
+    const calls = refillBackend()
+    renderIt()
+    await userEvent.click(await screen.findByRole('button', { name: /回填全部缺失/ }))
+    expect((await screen.findByText(/补上 1 个名字/)).textContent).toBe('补上 1 个名字，1 个之前就没查到，这次跳过')
+    expect(calls.find((c) => c.path === '/api/im/conversations/refill-names')?.body).toEqual({})
   })
 })

@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 package im
 
 // 快捷回复（消息抽屉的「反馈」、列表行的快捷回复菜单）：存在 im_settings 的 quick_replies 里，

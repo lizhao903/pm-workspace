@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 选题库（VID-08c，照原型 web-next/src/topics.tsx 的 TopicsPage）：看板按状态分列，表格按优先级排；按方向（标签第一项）、系列筛，搜标题、角度、标签。
 // 抽屉用 ?t=<选题 id> 打开，刷新还在；看板 / 表格、方向、状态也记在地址上（view、dir、st）
 import { useMemo, useState } from 'react'

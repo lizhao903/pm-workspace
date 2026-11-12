@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 分诊建议（消息抽屉、组抽屉的「分诊建议」一节，列表行「已分诊」小标的悬停摘要）的纯函数。
 // 一次分诊 = 一条顶层执行 + 它起的子执行（例如「消息分流」用 subflow 节点跑「消息分诊」）；按输入 message_id 查到的执行列表里两者都在，
 // 子执行带 parent_run_id，这里先按它把同一次分诊归到一起（triageAttempts），再从执行详情（GET /api/sop/runs/{id}）里取结论。

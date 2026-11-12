@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 宽基监控页的纯函数（ETF-01b，SPEC-etf）：文案、数字格式、按只汇总最新一天、迷你折线的点。
 import type {
   EtfAnomalyStatus, EtfDaily, EtfFund, EtfMetrics, EtfOperator, EtfPremiumBasis, EtfRule, EtfScope, EtfSeverity,

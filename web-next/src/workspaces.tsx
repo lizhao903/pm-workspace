@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { MODULES, TEMPLATES, fromTemplate, groupId, moduleOf, withGroups, type MenuGroup, type ModuleKey, type Workbench } from './workspacedata'

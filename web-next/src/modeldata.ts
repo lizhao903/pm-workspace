@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 模型服务商和模型
 //   服务商：一个账号 / 一个端点，配 API Key、地址，测通了才能用
 //   模型：从服务商的模型目录里挑出来启用的那些，各自有显示名和默认参数

@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 import { useEffect, useState, useSyncExternalStore } from 'react'
 import type { ProfileCommand, ProfileCommandKey } from './projectdata'
 import type { Task } from './taskdata'

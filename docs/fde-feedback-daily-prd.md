@@ -4,7 +4,7 @@
 |---|---|
 | 工作台任务 | TSK-0429（P2，到期 2026-11-05） |
 | 版本 | v0.1 草稿，2026-11-04 |
-| 数据源 | Google Sheet `1f6DUdwuf7pJKKQ0HiquLKCFXZTO2e1POxmbWRMlsBWw`，工作表 gid `1115809405` |
+| 数据源 | Google Sheet `1AbCdEfGhIjKlMnOpQrStUvWxYz0123456789`，工作表 gid `1115809405` |
 | 原型 | `web-next`：任务 > 定时任务，演示数据「整理 FDE 反馈需求清单」；新增动作「交给 Claude Code」 |
 | 规格 | `web-next/docs/spec/tasks.md`：`SPEC-tasks-0` 的 `ScheduleAction.claude`、`ScheduleRun.files`，`SPEC-tasks-8.27` 到 `8.31` |
 
@@ -196,3 +196,9 @@ B. FDE 清单
 - Q4：清单里的新增需求要不要自动在工作台建成需求对象？本期默认不建。
 - Q5：本地是否允许留表格原始快照（便于追溯）？默认不留。
 - Q6：周末和节假日也跑吗？默认每天都跑。
+
+---
+
+由 DeepSeek Harness（dsh）协助完成。
+
+[![](https://img.shields.io/badge/powered_by-dsh-4D6BFE?style=flat-square&logo=deepseek&logoColor=white)](https://github.com/deepseek-ai/deepseek-harness)

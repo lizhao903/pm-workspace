@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 import type { Project } from './projectdata'
 import { TASK_STATUS, type Task } from './taskdata'
 
@@ -74,7 +76,7 @@ export function buildPrompt(o: {
   if (o.mode === 'terminal') {
     const run = o.runId || RUN_ID_PENDING
     lines.push('## 回写到工作台',
-      `这次是从「产品工作台」交给你、在终端里交互执行的（执行记录 ${run}）。工作台的 MCP（server 名 pm-workspace）已经接上，进展和结果请用它写回这条任务，不要只在终端里说：`,
+      `这次是从「产品工作台」交给你、在终端里交互执行的（执行记录 ${run}）。工作台的 MCP（server 名 pmw-run，工具名形如 mcp__pmw-run__pmw_append_progress）已经接上，进展和结果请用它写回这条任务，不要只在终端里说。工作目录里如果另有名为 pm-workspace 的 MCP server，不要用它回写，它可能指向别的工作台：`,
       `1. 开始时：用 pmw_update_object（id=${t.id}）把任务状态改成进行中（状态 key 用 pmw_list_types 查，任务一般是 doing；已经是进行中就不用改），再用 pmw_append_progress 记一句你打算怎么做。`,
       `2. 每产出一件交付物（文档、原型、代码提交等）：调 pmw_record_artifact，带 object_id=${t.id}、run_id=${run}。`,
       '3. 过程中做完一个关键步骤，用 pmw_append_progress 记一条。',

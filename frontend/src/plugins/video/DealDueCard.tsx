@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 今日卡片「商单账期」（video_deal_due，SPEC-videos-16.14）：已交付没收款、离账期不到 7 天或已过的单，点一条跳到项目的「商单」标签打开它
 // 插件入口直接引它，所以不引 core/ui：入口测试跑在 node 环境，core/ui 加载时要用 window
 import { Link } from 'react-router'

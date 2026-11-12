@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -21,7 +23,8 @@ function project(sop_ids: unknown): WorkObject {
   } as WorkObject
 }
 
-function fakeBackend(p: WorkObject, opts: { sop?: boolean; runs?: SopRunBrief[] } = {}) {
+/** inputs：按执行 id 给输入，假后端按 input_key / input_value 筛（同契约） */
+function fakeBackend(p: WorkObject, opts: { sop?: boolean; runs?: SopRunBrief[]; flows?: SopFlow[]; inputs?: Record<string, Record<string, string>> } = {}) {
   const calls: { method: string; path: string; body?: Record<string, unknown> }[] = []
   const json = (data: unknown, status = 200) => new Response(JSON.stringify(status < 300 ? { data, meta: {} } : data), { status })
   const on = opts.sop ?? true
@@ -32,8 +35,13 @@ function fakeBackend(p: WorkObject, opts: { sop?: boolean; runs?: SopRunBrief[] 
     calls.push({ method, path: u.pathname, body })
     if (u.pathname === '/api/plugins') return json([{ id: 'sop', running: on, enabled: on, installed: on }])
     if (u.pathname.startsWith('/api/sop/') && !on) return json({ error: { code: 'not_found', message: 'plugin' } }, 404)
-    if (u.pathname === '/api/sop/flows') return json(FLOWS)
-    if (u.pathname === '/api/sop/runs') return json(opts.runs ?? [])
+    if (u.pathname === '/api/sop/flows') return json(opts.flows ?? FLOWS)
+    if (u.pathname === '/api/sop/runs') {
+      const key = u.searchParams.get('input_key')
+      if (!key) return json(opts.runs ?? [])
+      const vals = (u.searchParams.get('input_value') ?? '').split(',')
+      return json((opts.runs ?? []).filter((r) => vals.includes(opts.inputs?.[r.id]?.[key] ?? '\u0000')))
+    }
     if (u.pathname === `/api/objects/${p.id}`) {
       if (method === 'PATCH') Object.assign(p, body)
       return json(p)
@@ -128,5 +136,61 @@ describe('项目的 SOP 标签', () => {
     mount(p)
     expect(await screen.findByText('SOP 编排插件还没启用')).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /关联 SOP/ })).toBeNull()
+  })
+})
+
+describe('项目 SOP 标签的自动反向关联', () => {
+  const auto = [
+    flow('sop_week', '周会纪要'),
+    // 流程里写了本项目的编号
+    { ...flow('sop_def', '读项目档案'), steps: [{ key: 'a', name: '读档案', kind: 'projects_get_profile', config: { project: 'PRJ-1' } }] } as SopFlow,
+    // 编号只是前缀相同，不算
+    { ...flow('sop_near', '别的项目'), steps: [{ key: 'a', name: 'x', kind: 'ai', config: { project: 'PRJ-10' } }] } as SopFlow,
+    flow('sop_name', '工作台 · 按生产代码更新原型'),
+    flow('sop_namex', '工作台周报'),
+    flow('sop_ran', '发版检查'),
+    flow('sop_obj', '客户回访'),
+  ]
+
+  it('没手动关联的流程按引用、执行、流程名自动列出并写明原因；前缀相同的编号、名字没分隔的不算', async () => {
+    const p = project(['sop_week'])
+    fakeBackend(p, {
+      flows: auto,
+      runs: [run('spr_in', 'sop_ran', 'done', '2026-10-29T00:00:00Z'), { ...run('spr_ob', 'sop_obj', 'done', '2026-10-28T00:00:00Z'), object_id: 'obj_p' }],
+      inputs: { spr_in: { project_id: 'PRJ-1' } },
+    })
+    mount(p)
+    const list = await screen.findByRole('list', { name: '关联的 SOP' })
+    await waitFor(() => expect(within(list).getAllByRole('listitem')).toHaveLength(5))
+    const items = within(list).getAllByRole('listitem')
+    expect(items.map((x) => x.querySelector('b')?.firstChild?.textContent)).toEqual(['周会纪要', '读项目档案', '工作台 · 按生产代码更新原型', '发版检查', '客户回访'])
+    expect(within(items[0]).queryByText('自动')).toBeNull()
+    expect(within(items[1]).getByText('流程里引用了本项目')).toBeInTheDocument()
+    expect(within(items[2]).getByText('流程名以项目名开头')).toBeInTheDocument()
+    expect(within(items[3]).getByText('执行时用的是本项目')).toBeInTheDocument()
+    expect(within(items[4]).getByText('执行时用的是本项目')).toBeInTheDocument()
+    // 自动关联的流程的执行也进最近执行
+    const recent = await screen.findByRole('region', { name: '最近执行' })
+    expect(within(recent).getAllByRole('button').map((b) => b.textContent)).toEqual([expect.stringContaining('spr_in'), expect.stringContaining('spr_ob')])
+  })
+
+  it('固定关联进 sop_ids；不自动关联进 sop_ids_hidden，能一键恢复', async () => {
+    const p = project(['sop_week'])
+    const calls = fakeBackend(p, { flows: auto })
+    mount(p)
+    const list = await screen.findByRole('list', { name: '关联的 SOP' })
+    const item = (name: string) => within(list).getAllByRole('listitem').find((li) => li.textContent?.includes(name))!
+    await waitFor(() => expect(item('读项目档案')).toBeTruthy())
+    await userEvent.click(within(item('读项目档案')).getByRole('button', { name: '固定关联' }))
+    await waitFor(() => expect(calls.filter((c) => c.method === 'PATCH')).toHaveLength(1))
+    expect(calls.filter((c) => c.method === 'PATCH').at(-1)!.body?.props).toMatchObject({ sop_ids: ['sop_week', 'sop_def'] })
+
+    await userEvent.click(within(item('工作台 · 按生产代码更新原型')).getByRole('button', { name: '不自动关联' }))
+    await waitFor(() => expect(calls.filter((c) => c.method === 'PATCH')).toHaveLength(2))
+    expect(calls.filter((c) => c.method === 'PATCH').at(-1)!.body?.props).toMatchObject({ sop_ids_hidden: ['sop_name'] })
+    expect(await screen.findByText(/1 个流程设成了不自动关联/)).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: '恢复' }))
+    await waitFor(() => expect(calls.filter((c) => c.method === 'PATCH')).toHaveLength(3))
+    expect(calls.filter((c) => c.method === 'PATCH').at(-1)!.body?.props).toMatchObject({ sop_ids_hidden: [] })
   })
 })

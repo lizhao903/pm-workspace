@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // Package api 是工作台的 HTTP 层：解析参数、调 store、按契约写响应。
 // 业务规则一律留在 store，这里只做协议转换。
 package api
@@ -8,6 +10,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"regexp"
 	"runtime/debug"
 	"sync"
 	"time"
@@ -33,6 +36,13 @@ import (
 
 // maxBodyBytes 限制单次请求体，避免手滑把大文件 POST 进来撑爆内存。
 const maxBodyBytes = 2 << 20
+
+// maxUploadBytes 是音频上传的上限（REC-01a）：浏览器录的 webm 一两小时也到不了 1GB，
+// 插件自己还会再包一层 MaxBytesReader。只有录音插件的音频上传路径放宽，其它接口维持 2MB。
+const maxUploadBytes = 1 << 30
+
+// recordingAudioPath 匹配 POST /api/recording/recordings/{id}/audio（录音转写插件 REC-01a）。
+var recordingAudioPath = regexp.MustCompile(`^/api/recording/recordings/[^/]+/audio$`)
 
 type Options struct {
 	Version string
@@ -75,6 +85,10 @@ type Options struct {
 	Schedules *schedule.Store
 	// ScheduleRunner 是调度器（TASK-03b），手动执行要用；为 nil 时 POST /api/schedules/{id}/run 回 500。
 	ScheduleRunner *schedule.Runner
+
+	// Agent 是插件句柄背后那个 agent.Service（cmd/pmw 建一份，插件和任务执行共用，熔断状态也共用）。
+	// 任务交给工作台 Agent 执行（TSK-0460）经它拿带熔断、重试、失败改用的模型客户端；为 nil 时 New 自己建一份。
+	Agent *agent.Service
 
 	// AgentRuns 是 Agent 的触发和执行记录（AG-01b4，0036）；New 给它接上 Prepare。为 nil 时不自动触发，列表照常读库。
 	AgentRuns *agent.Dispatcher
@@ -119,6 +133,16 @@ type Server struct {
 	kbSync *kb.Tracker
 	// turns 记会话里正在跑的一轮对话，「停止」靠它（agentstop.go）
 	turns activeTurns
+	// agentSvc 给任务交给工作台 Agent 执行用（runagent.go）；agentTasks 记在跑的这类执行和它们在等的确认
+	agentSvc   *agent.Service
+	agentTasks agentTaskRuns
+	// agentTimeUnit 是预算里「一分钟」有多长，零值是一分钟；测试调短
+	agentTimeUnit time.Duration
+	// streamReports 记后台执行经 MCP 回报、还没收尾的结论（TSK-0499，runperms.go）
+	streamReports streamReports
+	// bins 缓存执行器可执行文件的检测结果，smoke 是 DeepSeek 的集成检查（TSK-0722，runners.go、runnersmoke.go）
+	bins  binCache
+	smoke smokeState
 }
 
 func New(st store.Store, opts Options) *Server {
@@ -137,9 +161,18 @@ func New(st store.Store, opts Options) *Server {
 		opts.Plugins.SetRunCallback(opts.MCPBin, opts.PublicURL)
 		opts.Plugins.SetRunPresets(s.presetLookup)
 		opts.Plugins.SetRunExecutors(s.executorRequest)
+		// 插件同步知识库（TSK-0721）：读文件的拦截、和目录同步互斥都走这个 Server 的
+		opts.Plugins.SetKnowledge(pluginKB{s})
 	}
 	if opts.AgentRuns != nil {
 		opts.AgentRuns.Prepare = s.agentRunner
+	}
+	s.agentSvc = opts.Agent
+	if s.agentSvc == nil {
+		s.agentSvc = &agent.Service{Store: st}
+		if opts.Connectors != nil {
+			s.agentSvc.Connectors = opts.Connectors
+		}
 	}
 	s.loadFsRoots()
 	s.h = s.build()
@@ -288,6 +321,7 @@ func (s *Server) routes(m routeRegistrar) {
 	// 不存在被 {id} 吃掉的问题。
 	m.HandleFunc("GET /api/agent/sessions", s.handleListAgentSessions)
 	m.HandleFunc("POST /api/agent/sessions", s.handleCreateAgentSession)
+	m.HandleFunc("GET /api/agent/sessions/{id}/context", s.handleAgentSessionContext)
 	m.HandleFunc("GET /api/agent/sessions/{id}/messages", s.handleListAgentMessages)
 	m.HandleFunc("POST /api/agent/sessions/{id}/messages/remove", s.handleRemoveAgentMessages)
 	m.HandleFunc("GET /api/agent/sessions/{id}/artifacts", s.handleListAgentArtifacts)
@@ -312,9 +346,13 @@ func (s *Server) routes(m routeRegistrar) {
 	m.HandleFunc("PUT /api/agents/{id}/grants", s.handlePutAgentGrants)
 	m.HandleFunc("POST /api/agent/tool-calls/{id}/confirm", s.handleConfirmToolCall)
 	m.HandleFunc("POST /api/agent/tool-calls/{id}/reject", s.handleRejectToolCall)
-	// Agent 执行记录（AG-01b4，0036）
+	// Agent 执行记录（AG-01b4，0036；停止 / 重试在 P0-O2，0056）
 	m.HandleFunc("GET /api/agent-runs", s.handleListAgentRuns)
 	m.HandleFunc("GET /api/agent-runs/{id}", s.handleGetAgentRun)
+	m.HandleFunc("POST /api/agent-runs/{id}/stop", s.handleStopAgentRun)
+	m.HandleFunc("POST /api/agent-runs/{id}/retry", s.handleRetryAgentRun)
+	// Agent 等确认聚合（P0-O3）：今日 / 菜单红点 / 会话圆点 / 刷新恢复确认卡
+	m.HandleFunc("GET /api/agent/attention", s.handleAgentAttention)
 	// Agent 调试对话（AG-02c）
 	m.HandleFunc("POST /api/agents/debug/chat", s.handleAgentDebugChat)
 	m.HandleFunc("GET /api/skills", s.handleListSkills)
@@ -341,6 +379,7 @@ func (s *Server) routes(m routeRegistrar) {
 	// ServeMux 优先匹配它——不会有 id="stats" 的请求打到 GetArtifact 上。
 	m.HandleFunc("GET /api/artifacts", s.handleListArtifacts)
 	m.HandleFunc("GET /api/artifacts/stats", s.handleArtifactStats)
+	m.HandleFunc("GET /api/artifacts/by-object", s.handleArtifactsByObject)
 	m.HandleFunc("POST /api/artifacts", s.handleCreateArtifact)
 	m.HandleFunc("GET /api/artifacts/{id}", s.handleGetArtifact)
 	m.HandleFunc("PATCH /api/artifacts/{id}", s.handleUpdateArtifact)
@@ -367,12 +406,17 @@ func (s *Server) routes(m routeRegistrar) {
 	m.HandleFunc("PATCH /api/local-dirs/{id}", s.handleUpdateLocalDir)
 	m.HandleFunc("DELETE /api/local-dirs/{id}", s.handleDeleteLocalDir)
 	m.HandleFunc("GET /api/local-dirs/{id}/files", s.handleListLocalDirFiles)
+	// 项目设置里的文档目录下的文件（TSK-0718，projectdocs.go）；读、预览、打开同挂载目录走 /api/fs/*
+	m.HandleFunc("GET /api/objects/{id}/docs-dir/files", s.handleListProjectDocFiles)
 
 	// 用本机 Claude Code 执行任务。/api/objects/{id}/run 与 .../runs 是两段不同的
 	// 字面量，互不遮挡；/api/runs/{id}/cancel 比 /api/runs/{id} 多一段，
 	// ServeMux 按最具体的模式匹配。
 	m.HandleFunc("GET /api/objects/{id}/runs", s.handleListTaskRuns)
 	m.HandleFunc("POST /api/objects/{id}/run", s.handleRunObject)
+	// 统一运行中心（P0-O1）：Agent 触发执行 + 任务执行聚合一页。字面量 all 比 {id} 更具体，
+	// ServeMux 不会把 /api/runs/all 当成一条执行记录。
+	m.HandleFunc("GET /api/runs/all", s.handleListRunsAll)
 	m.HandleFunc("GET /api/runs/{id}", s.handleGetTaskRun)
 	m.HandleFunc("POST /api/runs/{id}/cancel", s.handleCancelTaskRun)
 	// 交给 Claude Code 的另一种方式：切换到终端（0048，runterminal.go）
@@ -387,6 +431,13 @@ func (s *Server) routes(m routeRegistrar) {
 	m.HandleFunc("DELETE /api/executors/{id}", s.handleDeleteExecutor)
 	m.HandleFunc("GET /api/run-prompts", s.handleListRunPrompts)
 	m.HandleFunc("PUT /api/run-prompts", s.handlePutRunPrompts)
+	// 后台执行的权限档位与自定义白名单（TSK-0499）
+	m.HandleFunc("GET /api/run-permissions", s.handleGetRunPermissions)
+	m.HandleFunc("PUT /api/run-permissions", s.handlePutRunPermissions)
+	// 执行器状态与 DeepSeek 集成检查（TSK-0722）
+	m.HandleFunc("GET /api/runners", s.handleListRunners)
+	m.HandleFunc("GET /api/runners/deepseek/smoke", s.handleGetDeepSeekSmoke)
+	m.HandleFunc("POST /api/runners/deepseek/smoke", s.handleStartDeepSeekSmoke)
 	m.HandleFunc("POST /api/objects/{id}/run/terminal", s.handleRunTerminal)
 	m.HandleFunc("POST /api/runs/{id}/finish", s.handleFinishTaskRun)
 
@@ -455,6 +506,7 @@ func (s *Server) routes(m routeRegistrar) {
 	m.HandleFunc("POST /api/connectors/{id}/test", s.handleTestConnector)
 	m.HandleFunc("POST /api/connectors/{id}/tools/refresh", s.handleRefreshConnectorTools)
 	m.HandleFunc("PATCH /api/connectors/{id}/tools", s.handleSetConnectorToolModes)
+	m.HandleFunc("POST /api/connectors/{id}/icon/fetch", s.handleFetchConnectorIcon) // TSK-0725
 	// OAuth（CONN-01b）：callback 是字面路径，优先于 {id}
 	m.HandleFunc("GET /api/connectors/oauth/callback", s.handleConnectorOAuthCallback)
 	m.HandleFunc("POST /api/connectors/{id}/oauth/start", s.handleStartConnectorOAuth)
@@ -537,7 +589,12 @@ func (s *Server) recoverer(next http.Handler) http.Handler {
 func limitBody(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Body != nil && r.Body != http.NoBody {
-			r.Body = http.MaxBytesReader(w, r.Body, maxBodyBytes)
+			limit := int64(maxBodyBytes)
+			// 音频上传是 multipart，上限单独放到 1GB（REC-01a）
+			if r.Method == http.MethodPost && recordingAudioPath.MatchString(r.URL.Path) {
+				limit = maxUploadBytes
+			}
+			r.Body = http.MaxBytesReader(w, r.Body, limit)
 		}
 		next.ServeHTTP(w, r)
 	})

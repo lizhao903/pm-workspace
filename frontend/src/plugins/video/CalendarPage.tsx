@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 内容日历（VID-06d，SPEC-videos 日历一节，照原型 web-next/src/videocalendar.tsx）：月、周两种视图，格子里是发布（计划中、已定时、已发布、失败）、
 // 计划首发日和商单交付截止。计划中、已定时的发布和没完成的首发日能拖到别的日子（发布改 scheduled_at、时刻不变，首发日改 target_date）；
 // 离首发日不到 7 天还没过第一章验收的标红（后端算的 behind）。点一条在下面看详情，从详情打开发布抽屉（?p=）或视频详情。

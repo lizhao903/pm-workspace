@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 package fsbrowse
 
 import (
@@ -212,7 +214,7 @@ func TestListAllowsSymlinkInsideBounds(t *testing.T) {
 }
 
 // TestBoundaryRequiresSeparator 是最容易写错的一条：只比字符串前缀的话，
-// /Users/broleez 会把隔壁的 /Users/broleezevil 一起放进来。
+// /Users/example 会把隔壁的 /Users/exampleevil 一起放进来。
 func TestBoundaryRequiresSeparator(t *testing.T) {
 	base := t.TempDir()
 	mkdirs(t, base, "broleez/work", "broleezevil")

@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 package im
 
 import (
@@ -167,7 +169,7 @@ func TestConfirmExecute(t *testing.T) {
 	rid := e.startConfirm(t, fmt.Sprintf(`{"message_id":%q}`, mid))
 	e.asking(t, rid)
 	task := e.task(t, mid)
-	exec(t, e.st.DB(), `UPDATE objects SET project_id = 'obj_octok' WHERE id = '`+task.ID+`'`)
+	exec(t, e.st.DB(), `UPDATE objects SET project_id = 'obj_acme' WHERE id = '`+task.ID+`'`)
 	ask := e.waitDM(t, 1, task.Ref)
 	if !strings.Contains(ask.Text, askHint) || !strings.Contains(ask.Text, "客户端导出要支持 CSV") || !strings.Contains(ask.Text, "http://pmw.test/tasks/board?t=") {
 		t.Fatalf("问题 = %q", ask.Text)
@@ -203,14 +205,14 @@ func TestConfirmExecute(t *testing.T) {
 // TestConfirmExecuteNoWorkdir：任务没有工作目录时不派发，私信回报原因和任务链接，执行照常结束。
 func TestConfirmExecuteNoWorkdir(t *testing.T) {
 	e := setupConfirm(t)
-	task := e.mkTask(t, "没目录的任务", "obj_xaue")
+	task := e.mkTask(t, "没目录的任务", "obj_globex")
 	rid := e.startConfirm(t, fmt.Sprintf(`{"message_id":%q,"task_id":%q}`, e.msg(t, "看一下"), task.ID))
 	e.asking(t, rid)
 	e.waitDM(t, 1, task.Ref)
 	e.reply(t, "好")
 	e.ended(t, rid, "done")
 	d := e.waitDM(t, 2, "没执行成功")
-	if !strings.Contains(d.Text, "没有工作目录") || !strings.Contains(d.Text, "所属项目「XAUE」也没设") || !strings.Contains(d.Text, "tasks/board?t="+task.ID) {
+	if !strings.Contains(d.Text, "没有工作目录") || !strings.Contains(d.Text, "所属项目「Globex」也没设") || !strings.Contains(d.Text, "tasks/board?t="+task.ID) {
 		t.Fatalf("回报 = %q", d.Text)
 	}
 	select {
@@ -249,7 +251,7 @@ func TestConfirmAssign(t *testing.T) {
 // TestConfirmCancel：回「不做」任务标为已取消，不执行。
 func TestConfirmCancel(t *testing.T) {
 	e := setupConfirm(t)
-	task := e.mkTask(t, "不做的", "obj_octok")
+	task := e.mkTask(t, "不做的", "obj_acme")
 	rid := e.startConfirm(t, fmt.Sprintf(`{"message_id":%q,"task_id":%q}`, e.msg(t, "x"), task.ID))
 	e.asking(t, rid)
 	e.waitDM(t, 1, task.Ref)
@@ -269,7 +271,7 @@ func TestConfirmCancel(t *testing.T) {
 // TestConfirmUnknownTwice：认不出再问一次（串在提问下面），还认不出就不执行，私信说明，任务留在未开工。
 func TestConfirmUnknownTwice(t *testing.T) {
 	e := setupConfirm(t)
-	task := e.mkTask(t, "认不出", "obj_octok")
+	task := e.mkTask(t, "认不出", "obj_acme")
 	rid := e.startConfirm(t, fmt.Sprintf(`{"message_id":%q,"task_id":%q}`, e.msg(t, "x"), task.ID))
 	e.asking(t, rid)
 	e.waitDM(t, 1, task.Ref)
@@ -391,7 +393,7 @@ func TestAskMeFromSelfReply(t *testing.T) {
 
 // Slack 我本人身份：从连接器账号「名字（Member ID）」里取 Member ID。
 func TestMemberIDFromAccount(t *testing.T) {
-	for in, want := range map[string]string{"zhao.li（U08MYH0MVL6）": "U08MYH0MVL6", "bot (U012AB34)": "U012AB34", "zhao.li": ""} {
+	for in, want := range map[string]string{"zhangsan（U0EXAMPLE01）": "U0EXAMPLE01", "bot (U012AB34)": "U012AB34", "zhangsan": ""} {
 		got := ""
 		if m := memberIDRe.FindStringSubmatch(in); m != nil {
 			got = m[1]

@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // oxlint 的 JS 插件（CORE-03b）：守住插件和模块之间的边界，no-restricted-imports 只看字面路径，表达不了「同目录可以、别的插件不行」。
 // - plugins/<a> 只能 import core/* 和自己目录（测试另外可以读 plugins/enabled.ts）
 // - modules/<x> 不 import 插件；别的模块只能 import 它的 index.ts

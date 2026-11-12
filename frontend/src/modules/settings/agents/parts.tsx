@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // Agent 列表和配置页共用的小部件
 import type { KeyboardEvent } from 'react'
 import { IconButton, IconClose, IconSearch } from '../../../core/ui'

@@ -1,7 +1,9 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // Agent 会话的读写（AG-01a）：服务商、全局会话、消息、对话的流。
 // 接口见 docs/api-contract.md「Agent 供应商」「Agent 对话」；core/api 里还没有这几个资源，请求函数先放在这里。
 // 写操作报 agent-session，一轮对话收尾报 agent-chat（工具可能建了对象、写了文件）。
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   chat, debugChat, decideToolCall, request, requestList, type ChatDone, type ChatEvent, type ChatRequest, type DebugChatRequest, type StreamOptions,
 } from '../api'
@@ -45,6 +47,9 @@ export type AgentSession = {
   agent_id?: string | null
   /** 挂了 Agent 但 Agent 已删除：只能回看 */
   agent_deleted?: boolean
+  /** 挂 Agent 的会话在会话里单独换过模型（TSK-0720，0053）。false 时跟随 Agent 当前的默认，provider_id / model 就是 Agent 当前的；
+   * 不挂 Agent 的会话恒为 false */
+  model_override?: boolean
   /** 会话的来源（0047）：从哪条记录发起的，建的时候给、之后不改；不是从别的记录发起的没有这个键。
    * kind 说是哪种记录（im_message 是 IM 消息），label 是给人看的一句，其余由发起方定；
    * 会话里 Agent 新建的对象缺省把它记进 props.source_ref，有 project_id 时缺省挂到这个项目 */
@@ -52,9 +57,14 @@ export type AgentSession = {
   created_at: string
   updated_at: string
   message_count: number
+  /** 列表里带的最后一条消息正文（P0-S1，≤200 字符）；没有消息时缺省或空串 */
+  last_message?: string
+  /** 最后一条消息的时间（P0-S1，RFC3339）；没有消息时缺省或空串 */
+  last_message_at?: string
 }
 
-export type AgentMessageRole = 'user' | 'assistant' | 'tool'
+/** notice 是会话里给人看的系统提示（如「已切换到 X」，TSK-0720），不进模型的上下文 */
+export type AgentMessageRole = 'user' | 'assistant' | 'tool' | 'notice'
 
 export type AgentMessage = {
   id: string
@@ -64,6 +74,9 @@ export type AgentMessage = {
   content: string
   tool_name?: string
   tool_args?: string
+  /** 这条回复（或换模型的提示）当时用的服务商和模型（TSK-0720）；别的角色、0053 之前的没有 */
+  provider_id?: string
+  model?: string
   created_at: string
 }
 
@@ -72,7 +85,15 @@ export type AgentSessionInput = { title?: string; provider_id?: string; model?: 
 /** 会话来源（0047），JSON 对象，最多 16KB */
 export type SessionSourceRef = { kind?: string; label?: string; project_id?: string } & Record<string, unknown>
 // 改不了 object_id
-export type AgentSessionPatch = { title?: string; provider_id?: string; model?: string; workdir?: string }
+// provider_id / model / model_override 是换模型（TSK-0720）：挂 Agent 的会话给了前两个就固定成本会话自己的，
+// model_override: false 改回跟随 Agent 默认（这时不能带前两个）
+export type AgentSessionPatch = { title?: string; provider_id?: string; model?: string; workdir?: string; model_override?: boolean }
+
+/**
+ * 会话列表的筛选（P0-S1）：q 由后端搜标题和消息正文，projectId 只看这个项目的会话（给了 project_id 就不传 unscoped）。
+ * 不传就是原来的「全局会话」列表。
+ */
+export type AgentSessionFilter = { q?: string; projectId?: string | null }
 
 // ---- 请求 ----
 
@@ -81,8 +102,17 @@ const sessionPath = (id: string) => `/api/agent/sessions/${encodeURIComponent(id
 export const agentApi = {
   providers: (signal?: AbortSignal) => requestList<AgentProvider>('/api/agent-providers', { signal }),
   testProvider: (id: string) => request<ProviderTestResult>('POST', `/api/agent-providers/${encodeURIComponent(id)}/test`),
-  unscopedSessions: (signal?: AbortSignal) =>
-    requestList<AgentSession>('/api/agent/sessions', { query: new URLSearchParams({ unscoped: 'true' }), signal }),
+  /** 会话列表：默认全局会话；q 搜标题+消息正文，projectId 只看该项目（两者都走服务端） */
+  sessions: (filter: AgentSessionFilter = {}, signal?: AbortSignal) => {
+    const query = new URLSearchParams()
+    const projectId = filter.projectId?.trim()
+    // 按契约二选一：给 project_id 时只传它（后端按项目筛，不再看 unscoped）
+    if (projectId) query.set('project_id', projectId)
+    else query.set('unscoped', 'true')
+    const q = filter.q?.trim()
+    if (q) query.set('q', q)
+    return requestList<AgentSession>('/api/agent/sessions', { query, signal })
+  },
   createSession: (input: AgentSessionInput) => request<AgentSession>('POST', '/api/agent/sessions', { body: input }),
   patchSession: (id: string, patch: AgentSessionPatch) => request<AgentSession>('PATCH', sessionPath(id), { body: patch }),
   deleteSession: (id: string) => request<null>('DELETE', sessionPath(id)),
@@ -136,11 +166,22 @@ export function loadProviderModels(providerId: string) {
 /** 默认服务商，同后端：标了默认且启用的，没有取第一个启用的 */
 export const defaultProvider = (list: readonly AgentProvider[]) => list.find((p) => p.is_default && p.enabled) ?? list.find((p) => p.enabled)
 
-/** 全局会话，最近更新的在前（后端排序） */
-export function useAgentSessions() {
+/**
+ * 会话列表（P0-S1）：默认是全局会话，最近更新的在前（后端排序）；q 搜标题+消息正文、projectId 按项目筛，
+ * 都在服务端做。带筛选时缓存键挂在原「全局会话」键下面（按前缀一起失效），换筛选先留着上一份结果，列表不闪。
+ * enabled 给「要一直保留当前会话」的地方（筛选后的结果里可能没有它）。
+ */
+export function useAgentSessions(filter: AgentSessionFilter = {}, opts: { enabled?: boolean } = {}) {
+  const q = filter.q?.trim() ?? ''
+  const projectId = filter.projectId?.trim() ?? ''
+  const queryKey = q || projectId
+    ? [...agentKeys.sessions.unscoped, { q, projectId }] as const
+    : agentKeys.sessions.unscoped
   return useQuery({
-    queryKey: agentKeys.sessions.unscoped,
-    queryFn: ({ signal }) => agentApi.unscopedSessions(signal),
+    queryKey,
+    queryFn: ({ signal }) => agentApi.sessions({ q, projectId }, signal),
+    enabled: opts.enabled ?? true,
+    placeholderData: keepPreviousData,
     select: (r) => r.data,
   })
 }
@@ -170,6 +211,15 @@ export function usePatchAgentSession() {
   return useMutation({
     mutationFn: ({ id, patch }: { id: string; patch: AgentSessionPatch }) => agentApi.patchSession(id, patch),
     onSuccess: () => notify({ kind: 'agent-session' }),
+  })
+}
+
+/** 换会话用的模型（TSK-0720）：会话里多一条切换提示，所以按一轮对话收尾的口径刷新（消息和列表） */
+export function useSwitchSessionModel() {
+  const notify = useNotifyChange()
+  return useMutation({
+    mutationFn: ({ id, patch }: { id: string; patch: Pick<AgentSessionPatch, 'provider_id' | 'model' | 'model_override'> }) => agentApi.patchSession(id, patch),
+    onSettled: (_d, _e, { id }) => notify({ kind: 'agent-chat', sessionId: id }),
   })
 }
 

@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 import { describe, expect, it } from 'vitest'
 import type { ProjectPrototype } from '../../core/data'
 import { PORT_FROM, PORT_TO, absDir, defaultPort, portConflict, relDir, runningFor, sortProtos, startLabel } from './protoModel'

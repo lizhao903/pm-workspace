@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 标志的内置图标和底色（照原型 web-next/src/markicons.tsx、imagepick.tsx）：24 宽高、2 像素描边、圆头，画成白色压在底色上。
 // 从项目插件 plugins/projects/markIcons.ts 挪来一份，给工作台标志用；插件之间不 import，以后项目插件和外壳都改从这里引用
 

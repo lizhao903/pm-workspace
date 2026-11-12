@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 package im
 
 import (
@@ -24,7 +26,7 @@ import (
 )
 
 // fakeSlack 是本机假 Slack Web API：认一个 Bot Token，Bot 在 #product（C01）、#random（C02）和一个私信（D01）里；
-// 也认本人的 User Token（xoxp-me，IM-06），auth.test 回本人 U07ME，会话同上。
+// 也认本人的 User Token（xoxp-me，IM-06），auth.test 回本人 U0EXAMPLE，会话同上。
 type fakeSlack struct {
 	mu      sync.Mutex
 	token   string
@@ -124,7 +126,7 @@ func (f *fakeSlack) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			team = "T1"
 		}
 		if tok == f.user {
-			reply(map[string]any{"user_id": "U07ME", "user": "broleez", "team": "Acme", "team_id": team, "url": "https://acme.slack.com/"})
+			reply(map[string]any{"user_id": "U0EXAMPLE", "user": "broleez", "team": "Acme", "team_id": team, "url": "https://acme.slack.com/"})
 			return
 		}
 		reply(map[string]any{"user_id": "UBOT", "bot_id": "BBOT", "user": "pmw", "team": "Acme", "team_id": team, "url": "https://acme.slack.com/"})
@@ -139,7 +141,7 @@ func (f *fakeSlack) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		reply(map[string]any{"channel": map[string]any{"id": r.Form.Get("channel"), "name": name}})
 	case "users.info":
-		names := map[string]string{"U04LIN": "Lin Yuan", "U09ZHOU": "Zhou Yu", "UBOT": "pmw", "U07ME": "Broleez"}
+		names := map[string]string{"U04LIN": "Lin Yuan", "U09ZHOU": "Zhou Yu", "UBOT": "pmw", "U0EXAMPLE": "Broleez"}
 		reply(map[string]any{"user": map[string]any{"name": strings.ToLower(r.Form.Get("user")), "profile": map[string]any{"display_name": names[r.Form.Get("user")]}}})
 	case "conversations.history":
 		if f.limitAt > 0 && f.calls[method] > f.limitAt {
@@ -157,10 +159,15 @@ func (f *fakeSlack) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		limit, _ := strconv.Atoi(r.Form.Get("limit"))
 		var out []map[string]any
 		h := f.history[r.Form.Get("channel")]
-		for i := len(h) - 1; i >= 0 && len(out) < limit; i-- {
+		more := false // 这一页满了、后面还有（补全消息 TSK-0724 按 has_more 往前翻）
+		for i := len(h) - 1; i >= 0; i-- {
 			ts, _ := strconv.ParseFloat(h[i]["ts"].(string), 64)
 			after := ts > oldest || (inclusive && ts == oldest)
 			before := latest == 0 || ts < latest || (inclusive && ts == latest)
+			if after && before && len(out) >= limit {
+				more = true
+				break
+			}
 			if after && before {
 				m := h[i]
 				if rs := f.threads[r.Form.Get("channel")+":"+m["ts"].(string)]; len(rs) > 0 {
@@ -170,7 +177,7 @@ func (f *fakeSlack) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				out = append(out, m)
 			}
 		}
-		reply(map[string]any{"messages": out, "has_more": false})
+		reply(map[string]any{"messages": out, "has_more": more})
 	case "conversations.replies":
 		if f.repliesLimitAt > 0 && f.calls[method] > f.repliesLimitAt {
 			w.Header().Set("Retry-After", "10")
@@ -294,7 +301,7 @@ func setupSlackOn(t *testing.T, fake *fakeSlack, h http.Handler) slackEnv {
 func (e slackEnv) connect(t *testing.T, interval int) *connector.Connector {
 	t.Helper()
 	c, err := e.conns.Create(context.Background(), connector.Input{Tool: connector.SlackTool, Direction: "both", Interval: &interval,
-		Config:  map[string]string{"channels": "#product", "self_user_id": "U07ME"},
+		Config:  map[string]string{"channels": "#product", "self_user_id": "U0EXAMPLE"},
 		Secrets: map[string]string{"bot_token": "xoxb-good", "signing_secret": "sig-secret"}})
 	if err != nil {
 		t.Fatal(err)
@@ -347,7 +354,7 @@ func TestSlackCallbackSignature(t *testing.T) {
 		t.Fatalf("握手：%d %v", code, out)
 	}
 	ev := `{"type":"event_callback","event":{"type":"message","channel":"C01","channel_type":"channel","user":"U04LIN",
-		"text":"<!here> 发版了 <@U07ME>","ts":"1761700100.000200"}}`
+		"text":"<!here> 发版了 <@U0EXAMPLE>","ts":"1761700100.000200"}}`
 	// 签名不对 401，不落库
 	if code, out := e.signed(t, ev, "v0=deadbeef"); code != 401 || out["error"].(map[string]any)["code"] != "unauthorized" {
 		t.Fatalf("签名不对：%d %v", code, out)
@@ -641,13 +648,13 @@ func TestSlackUserIdentity(t *testing.T) {
 	ctx := context.Background()
 	e.fake.history = map[string][]map[string]any{
 		"C01": {
-			{"type": "message", "user": "U04LIN", "text": "<@U07ME> 权限点看下", "ts": "1761700000.000100"},
-			{"type": "message", "user": "U07ME", "text": "好的我看", "ts": "1761700001.000100"},
+			{"type": "message", "user": "U04LIN", "text": "<@U0EXAMPLE> 权限点看下", "ts": "1761700000.000100"},
+			{"type": "message", "user": "U0EXAMPLE", "text": "好的我看", "ts": "1761700001.000100"},
 		},
 		"C02": {{"type": "message", "user": "U04LIN", "text": "不监听的频道", "ts": "1761700003.000100"}},
 		"D01": {
 			{"type": "message", "user": "U09ZHOU", "text": "预发好了", "ts": "1761700004.000100"},
-			{"type": "message", "user": "U07ME", "text": "收到", "ts": "1761700005.000100"},
+			{"type": "message", "user": "U0EXAMPLE", "text": "收到", "ts": "1761700005.000100"},
 		},
 	}
 	every := 0 // 不让后台定时拉抢在立即同步前面
@@ -658,7 +665,7 @@ func TestSlackUserIdentity(t *testing.T) {
 		t.Fatal(err)
 	}
 	res, err := e.conns.Test(ctx, c.ID)
-	if err != nil || !res.OK || res.Account != "broleez（U07ME）" {
+	if err != nil || !res.OK || res.Account != "broleez（U0EXAMPLE）" {
 		t.Fatalf("本人身份连通测试：%+v %v", res, err)
 	}
 
@@ -687,7 +694,7 @@ func TestSlackUserIdentity(t *testing.T) {
 	if by := e.fake.postedBy; len(by) != 1 || by[0] != "xoxp-me" {
 		t.Fatalf("应以本人 Token 发：%v", by)
 	}
-	e.fake.add("D01", map[string]any{"type": "message", "user": "U07ME", "text": "好", "ts": "1761709999.000100"})
+	e.fake.add("D01", map[string]any{"type": "message", "user": "U0EXAMPLE", "text": "好", "ts": "1761709999.000100"})
 	call(t, e.h, "POST", "/api/im/connectors/"+c.ID+"/sync", "")
 	_, got = list(t, e.h, "")
 	if rps := got["D01:1761700004.000100"]["replies"].([]any); len(got) != 2 || len(rps) != 2 {
@@ -695,7 +702,7 @@ func TestSlackUserIdentity(t *testing.T) {
 	}
 
 	// 回调：本人发的记成回复，别人的照收
-	e.signed(t, `{"type":"event_callback","event":{"type":"message","channel":"C01","channel_type":"channel","user":"U07ME","text":"看完了","ts":"1761700100.0"}}`, "")
+	e.signed(t, `{"type":"event_callback","event":{"type":"message","channel":"C01","channel_type":"channel","user":"U0EXAMPLE","text":"看完了","ts":"1761700100.0"}}`, "")
 	code, out = e.signed(t, `{"type":"event_callback","event":{"type":"message","channel":"C01","channel_type":"channel","user":"U04LIN","text":"多谢","ts":"1761700101.0"}}`, "")
 	if code != 200 || len(out["data"].(map[string]any)["ids"].([]any)) != 1 {
 		t.Fatalf("本人身份回调：%d %v", code, out)
@@ -708,7 +715,7 @@ func TestSlackUserIdentity(t *testing.T) {
 	// 工作台回复发出后、落库前，本人这条已经经回调推回来：只记一条，记在被回复的那条上
 	e.fake.postTS = "1761710500.000100"
 	e.fake.onPost = func() {
-		e.signed(t, `{"type":"event_callback","event":{"type":"message","channel":"D01","channel_type":"im","user":"U07ME","text":"再确认下","ts":"1761710500.000100"}}`, "")
+		e.signed(t, `{"type":"event_callback","event":{"type":"message","channel":"D01","channel_type":"im","user":"U0EXAMPLE","text":"再确认下","ts":"1761710500.000100"}}`, "")
 	}
 	code, out = call(t, e.h, "POST", "/api/im/messages/"+dm["id"].(string)+"/reply", `{"text":"再确认下"}`)
 	e.fake.onPost, e.fake.postTS = nil, ""

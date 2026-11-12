@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 项目列表（SPEC-projects-1）：卡片网格，可搜索、按「有原型在跑 / 有待回复 / 其他」筛选（ALIGN-05），按最近打开或名称排序；
 // 没筛选、没搜索时按这三段分组。原型数、绑定的会话来自项目汇总（/api/projects/summary），待回复数按会话对上待处理消息。
 // 项目类型自己的状态（筹备中、已暂停……）不再分组，常态「进行中」以外的在卡片上标一个小标签

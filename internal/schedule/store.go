@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 package schedule
 
 import (
@@ -10,6 +12,7 @@ import (
 	"os"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 	"unicode/utf8"
 
@@ -26,11 +29,13 @@ const maxName = 100
 
 // Schedule 是一个定时任务。NextRunAt 是读的时候按规则现算的，停用、一次性已过时为 nil。
 type Schedule struct {
-	ID        string     `json:"id"`
-	Name      string     `json:"name"`
-	Enabled   bool       `json:"enabled"`
-	Rule      Rule       `json:"rule"`
-	Action    Action     `json:"action"`
+	ID      string `json:"id"`
+	Name    string `json:"name"`
+	Enabled bool   `json:"enabled"`
+	Rule    Rule   `json:"rule"`
+	Action  Action `json:"action"`
+	// ProjectID 是所属项目（0055），nil 为不属于任何项目
+	ProjectID *string    `json:"project_id"`
 	NextRunAt *time.Time `json:"next_run_at"`
 	CreatedAt time.Time  `json:"created_at"`
 	UpdatedAt time.Time  `json:"updated_at"`
@@ -42,6 +47,8 @@ type Input struct {
 	Enabled *bool  `json:"enabled"`
 	Rule    Rule   `json:"rule"`
 	Action  Action `json:"action"`
+	// ProjectID 是所属项目，nil 或空串为不属于任何项目
+	ProjectID *string `json:"project_id"`
 }
 
 // Patch 是修改的字段，nil 为不改；rule、action 整体替换。
@@ -50,6 +57,8 @@ type Patch struct {
 	Enabled *bool   `json:"enabled"`
 	Rule    *Rule   `json:"rule"`
 	Action  *Action `json:"action"`
+	// ProjectID 双指针：nil 不改，指向 nil 或空串为清空。JSON 区分不了「没给」和 null，由 API 层按原始 body 填
+	ProjectID **string `json:"-"`
 }
 
 // Store 读写 schedules 表（0020）。
@@ -61,6 +70,10 @@ type Store struct {
 	plugins PluginActions
 	// objects 查提醒关联的对象在不在，SetObjects 接上（remind.go）
 	objects ObjectLookup
+	// git 执行动作 git_pull，SetGit 换掉；nil 时用本机 git 命令（git_pull.go）
+	git GitPuller
+	// flowMu 串起随流程管理的定时任务的查找和新建，同一个流程不会建出两条（flowsched.go）
+	flowMu sync.Mutex
 }
 
 // New 建一个定时任务表的读写。loc 是规则里墙上时间所在的时区，nil 为 time.Local。
@@ -127,11 +140,19 @@ func (s *Store) checkAction(ctx context.Context, a Action) (Action, error) {
 	if err := a.Validate(); err != nil {
 		return a, err
 	}
-	return a, s.checkRemindObject(ctx, a)
+	if err := s.checkRemindObject(ctx, a); err != nil {
+		return a, err
+	}
+	return a, s.checkGitRepo(ctx, a)
 }
 
-// Create 新建一个定时任务。
+// Create 新建一个定时任务。随流程管理的标记（action.managed）在这里不认，只有 SaveFlowSchedule 能建（TSK-0463）。
 func (s *Store) Create(ctx context.Context, in Input) (*Schedule, error) {
+	in.Action.Managed = false
+	return s.create(ctx, in)
+}
+
+func (s *Store) create(ctx context.Context, in Input) (*Schedule, error) {
 	name, err := checkName(in.Name)
 	if err != nil {
 		return nil, err
@@ -144,17 +165,21 @@ func (s *Store) Create(ctx context.Context, in Input) (*Schedule, error) {
 	if err != nil {
 		return nil, err
 	}
+	project, err := s.checkProject(ctx, in.ProjectID)
+	if err != nil {
+		return nil, err
+	}
 	enabled := in.Enabled == nil || *in.Enabled
 	now := s.now().UTC().Truncate(time.Millisecond)
-	sc := &Schedule{ID: idgen.Prefixed("sch"), Name: name, Enabled: enabled, Rule: rule, Action: action,
+	sc := &Schedule{ID: idgen.Prefixed("sch"), Name: name, Enabled: enabled, Rule: rule, Action: action, ProjectID: project,
 		CreatedAt: now, UpdatedAt: now}
 	ruleJSON, actionJSON, err := encode(rule, action)
 	if err != nil {
 		return nil, err
 	}
 	if _, err := s.db.W.ExecContext(ctx,
-		`INSERT INTO schedules (id, name, enabled, rule, action, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-		sc.ID, sc.Name, boolInt(enabled), ruleJSON, actionJSON, now.Format(timeLayout), now.Format(timeLayout)); err != nil {
+		`INSERT INTO schedules (id, name, enabled, rule, action, project_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		sc.ID, sc.Name, boolInt(enabled), ruleJSON, actionJSON, project, now.Format(timeLayout), now.Format(timeLayout)); err != nil {
 		return nil, fmt.Errorf("insert schedule: %w", err)
 	}
 	s.fillNext(sc)
@@ -168,7 +193,7 @@ func (s *Store) Get(ctx context.Context, id string) (*Schedule, error) {
 
 func (s *Store) get(ctx context.Context, q *sql.DB, id string) (*Schedule, error) {
 	row := q.QueryRowContext(ctx,
-		`SELECT id, name, enabled, rule, action, created_at, updated_at FROM schedules WHERE id = ?`, id)
+		`SELECT `+cols+` FROM schedules WHERE id = ?`, id)
 	sc, err := scan(row)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, fmt.Errorf("%w: schedule %s", domain.ErrNotFound, id)
@@ -183,7 +208,7 @@ func (s *Store) get(ctx context.Context, q *sql.DB, id string) (*Schedule, error
 // List 全部定时任务：下次执行早的在前，不再执行的（停用、已过）排后面，同组按新建时间倒序。
 func (s *Store) List(ctx context.Context) ([]Schedule, error) {
 	rows, err := s.db.R.QueryContext(ctx,
-		`SELECT id, name, enabled, rule, action, created_at, updated_at FROM schedules ORDER BY created_at DESC, rowid DESC`)
+		`SELECT `+cols+` FROM schedules ORDER BY created_at DESC, rowid DESC`)
 	if err != nil {
 		return nil, fmt.Errorf("list schedules: %w", err)
 	}
@@ -228,15 +253,31 @@ func (s *Store) Update(ctx context.Context, id string, p Patch) (*Schedule, erro
 	if p.Enabled != nil {
 		cur.Enabled = *p.Enabled
 	}
+	if p.ProjectID != nil {
+		if cur.ProjectID, err = s.checkProject(ctx, *p.ProjectID); err != nil {
+			return nil, err
+		}
+	}
 	if p.Rule != nil {
 		if cur.Rule, err = s.CheckRule(*p.Rule); err != nil {
 			return nil, err
 		}
 	}
 	if p.Action != nil {
-		if cur.Action, err = s.checkAction(ctx, *p.Action); err != nil {
+		next, err := s.checkAction(ctx, *p.Action)
+		if err != nil {
 			return nil, err
 		}
+		// 随流程管理的那一条只能改规则、名字、启停，动作跟着流程走（TSK-0463）；别的条目不能改成随流程管理
+		if cur.Action.Kind == ActionSOP && cur.Action.Managed {
+			if next.Kind != ActionSOP || next.SOPID != cur.Action.SOPID {
+				return nil, invalid("action: this schedule is managed by SOP flow %s; change the flow's trigger instead", cur.Action.SOPID)
+			}
+			next.Managed = true
+		} else {
+			next.Managed = false
+		}
+		cur.Action = next
 	}
 	ruleJSON, actionJSON, err := encode(cur.Rule, cur.Action)
 	if err != nil {
@@ -244,8 +285,8 @@ func (s *Store) Update(ctx context.Context, id string, p Patch) (*Schedule, erro
 	}
 	cur.UpdatedAt = s.now().UTC().Truncate(time.Millisecond)
 	res, err := s.db.W.ExecContext(ctx,
-		`UPDATE schedules SET name = ?, enabled = ?, rule = ?, action = ?, updated_at = ? WHERE id = ?`,
-		cur.Name, boolInt(cur.Enabled), ruleJSON, actionJSON, cur.UpdatedAt.Format(timeLayout), id)
+		`UPDATE schedules SET name = ?, enabled = ?, rule = ?, action = ?, project_id = ?, updated_at = ? WHERE id = ?`,
+		cur.Name, boolInt(cur.Enabled), ruleJSON, actionJSON, cur.ProjectID, cur.UpdatedAt.Format(timeLayout), id)
 	if err != nil {
 		return nil, fmt.Errorf("update schedule: %w", err)
 	}
@@ -294,18 +335,62 @@ func boolInt(b bool) int {
 	return 0
 }
 
+// cols 是 scan 读的列，顺序和 scan 一致。
+const cols = `id, name, enabled, rule, action, project_id, created_at, updated_at`
+
 type scanner interface{ Scan(dest ...any) error }
+
+// checkProject 核对所属项目：空为不属于任何项目；要存在、是项目（type_id = project）、不在回收站。没接对象查询时不查。
+func (s *Store) checkProject(ctx context.Context, id *string) (*string, error) {
+	if id == nil || strings.TrimSpace(*id) == "" {
+		return nil, nil
+	}
+	pid := strings.TrimSpace(*id)
+	if s.objects == nil {
+		return &pid, nil
+	}
+	o, err := s.objects.GetObject(ctx, pid)
+	if errors.Is(err, domain.ErrNotFound) || (err == nil && o.DeletedAt != nil) {
+		return nil, invalid("project_id: project %s not found", pid)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("check schedule project: %w", err)
+	}
+	if o.TypeID != "project" {
+		return nil, invalid("project_id: %s is not a project", pid)
+	}
+	return &pid, nil
+}
+
+// ListByProject 是属于这个项目的定时任务，排序同 List。
+func (s *Store) ListByProject(ctx context.Context, projectID string) ([]Schedule, error) {
+	all, err := s.List(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := []Schedule{}
+	for _, sc := range all {
+		if sc.ProjectID != nil && *sc.ProjectID == projectID {
+			out = append(out, sc)
+		}
+	}
+	return out, nil
+}
 
 func scan(r scanner) (*Schedule, error) {
 	var (
 		sc                   Schedule
 		enabled              int
 		rule, action, ca, ua string
+		project              sql.NullString
 	)
-	if err := r.Scan(&sc.ID, &sc.Name, &enabled, &rule, &action, &ca, &ua); err != nil {
+	if err := r.Scan(&sc.ID, &sc.Name, &enabled, &rule, &action, &project, &ca, &ua); err != nil {
 		return nil, err
 	}
 	sc.Enabled = enabled != 0
+	if project.Valid && project.String != "" {
+		sc.ProjectID = &project.String
+	}
 	if err := json.Unmarshal([]byte(rule), &sc.Rule); err != nil {
 		return nil, fmt.Errorf("schedule %s rule: %w", sc.ID, err)
 	}

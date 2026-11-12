@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 package im
 
 // 列会话给「监听频道」选：连接器配置里这一项原来是逗号分隔的文本框，群组一多就记不住编号和名字。

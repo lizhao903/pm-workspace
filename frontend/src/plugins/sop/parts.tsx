@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // SOP 插件的小部件：节点类型标签、执行表格的行、进度条。照原型 sop.tsx 的 RunRow、Progress 和 nodetypes.tsx 的 KindTag
 import type { CSSProperties } from 'react'
 import { sopRunShow, type SopRunBrief } from '../../core/data'

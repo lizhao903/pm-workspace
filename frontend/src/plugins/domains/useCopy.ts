@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 复制按钮：成功后对应按钮显示「已复制」1.2 秒
 import { useEffect, useRef, useState } from 'react'
 

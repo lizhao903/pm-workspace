@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 设置里的「Agent」分节（AG-01b5）：/settings/agents 是列表，/settings/agents/new 新建，/settings/agents/<id> 配置页，
 // /settings/agents?agent=<id> 转到配置页。
 // 模型可选项由服务商列表和本次会话里测过的结果算出来，列表卡片和配置页用同一份，不为这个去测连接。

@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 选本机目录（FS-01）：任务工作目录、项目目录、文档挂载共用。走后端 /api/fs/browse，拿到的是绝对路径。
 // 侧边是起跳点（主目录、外挂分区、额外可浏览目录等），右边是路径输入、面包屑和子目录；越界时显示后端的中文原因。
 // 不从 ui/index 导出：它要取数，ui 的其余部分不依赖 core/data。

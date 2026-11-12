@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 package connector
 
 // Google 日历连接器（CONN-01e2）：范围 calendar.readonly 加 calendar.events。

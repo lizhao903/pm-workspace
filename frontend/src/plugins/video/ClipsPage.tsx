@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 素材收件箱（VID-08c，照原型 web-next/src/topics.tsx 的 ClipsPage）：粘贴链接或想法收进来，待整理 / 收藏 / 全部三栏，按收进来的日子分段；
 // 每条可收藏、转为选题、归到进行中的选题、标为看过、删除。拉热榜、收评论还没接内容平台（VID-04 起），
 // 「收集评论」「拉取热榜」先打开手动收集：一行一条贴进来，行尾的数字记成点赞数或热度

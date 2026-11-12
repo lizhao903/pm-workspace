@@ -1,29 +1,44 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 群组管理（IM 插件 0.15.0，SPEC-messages-7）：IM 消息页标题行「群组管理」打开的右侧抽屉，地址记 ?groups=1。
 // 列出全部有消息的群和私聊（GET /api/im/conversations/summary），每行渠道、名字（私聊是对方）、消息数、待处理数、最近一条时间、默认归属项目；
 // 默认归属在行上直接改（可搜索下拉，「不归项目」清除），选了马上生效；勾选后底部一条能批量设、清除（一次最多 200 个）。
 // 没设归属的群按群名关键字给建议（groupAdminModel 的 SUGGEST_RULES），行上「采纳」单个，上方「全部采纳」只采纳只有一个候选的。
 // 改默认归属和选中群标签时那一行（GroupProject）是同一份数据：群里没单独归项目的消息都算到这个项目，消息上单独设的优先。
 // 每行「发消息」带上这个会话打开发消息弹窗（SendDialog，Page 里渲染）；发过的行上写「已发 N 条」。
+// 只显示渠道编号的行（成员是 Slack 的 U…、群名为空或就是编号）右侧「查询回填」，工具条「回填全部缺失」批量补（IM 0.26.0，TSK-0494）。
+// 每行「成员」菜单列会话里发过言的人，能把某人（含机器人）设为自动忽略、或取消（IM 0.27.0，TSK-0495，GroupMembers）。
+// 「补全消息」（IM 0.30.0，TSK-0724，HistoryBackfill）：行上选范围回渠道拉这个会话的历史、补空正文，没补完的「继续补全」；
+// 勾选后批量条上同一个按钮，逐个会话补、撞上限流就停。成员菜单能「加为联系人」「关联已有」「全部加为联系人」。
 import { useMemo, useState, type CSSProperties } from 'react'
 import {
-  errorText, useConnectorDefs, useImConversationSummary, useProjects, useSetImConversationProjects,
-  type ImConvProjectBatchInput, type ImConvProjectBatchResult, type ImConversationSummary,
+  errorText, useConnectorDefs, useImBackfillConversation, useImConversationSummary, useProjects, useRefillImNames, useSetImConversationProjects,
+  type ImConvProjectBatchInput, type ImConvProjectBatchResult, type ImConversationSummary, type ImHistoryRange,
 } from '../../core/data'
 import { Drawer, ErrorState, LoadingState, SearchSelect, cls, type SearchOption } from '../../core/ui'
 import {
-  GROUP_BATCH_MAX, GROUP_PAGE, adoptable, chunks, displayName, filterGroups, groupChannels, mergeResults, pickAllGroups, pickedGroups, resultText,
-  suggestAll, suggestReason, togglePick, type GroupKindFilter, type ProjectLite, type Suggestion,
+  GROUP_BATCH_MAX, GROUP_PAGE, adoptable, chunks, displayName, filterGroups, groupChannels, mergeResults, needsRefill, pickAllGroups, pickedGroups,
+  refillBatchText, refillOneText, refillTitle, refillable, resultText, suggestAll, suggestReason, togglePick, type GroupKindFilter, type ProjectLite, type Suggestion,
 } from './groupAdminModel'
 import { channelOf, channelTable, timeAgo } from './model'
 import { ChannelMark } from './parts'
+import { GroupMembersMenu } from './GroupMembers'
+import { BackfillMenu } from './HistoryBackfill'
+import { addToBatch, backfillBlock, backfillText, batchText, emptyBatch, type BackfillResume } from './historyModel'
 import './groupAdmin.css'
 
 type Note = { text: string; bad: boolean }
+/** 行上查询回填的进度和结果 */
+type RowRefill = { busy: boolean; note?: Note }
+/** 行上补全消息的进度、结果和没补完时的续补位置 */
+type RowBackfill = { busy: boolean; note?: Note; resume?: BackfillResume }
 
 const KIND_SEG: [GroupKindFilter, string][] = [['', '全部'], ['group', '群聊'], ['direct', '私聊']]
 
-export function GroupAdminDrawer({ onClose, onOpenConversation, onSend }: {
+export function GroupAdminDrawer({ onClose, onOpenConversation, onSend, onOpenContact }: {
   onClose: () => void
+  /** 成员菜单里点联系人名：去联系人页（TSK-0724） */
+  onOpenContact?: (id: string) => void
   /** 「发消息」：带上这个会话打开发消息弹窗 */
   onSend: (conversationId: string) => void
   /** 「看消息」：回到消息列表只看这个会话 */
@@ -42,6 +57,12 @@ export function GroupAdminDrawer({ onClose, onOpenConversation, onSend }: {
   const [busy, setBusy] = useState<ReadonlySet<string>>(() => new Set())
   const [note, setNote] = useState<Note | null>(null)
   const [batchProject, setBatchProject] = useState('')
+  const refill = useRefillImNames()
+  const [rowRefill, setRowRefill] = useState<ReadonlyMap<string, RowRefill>>(() => new Map())
+  const backfill = useImBackfillConversation()
+  const [rowBackfill, setRowBackfill] = useState<ReadonlyMap<string, RowBackfill>>(() => new Map())
+  /** 批量补全进行中：第几个 / 共几个 */
+  const [batchFill, setBatchFill] = useState<{ done: number; total: number; name: string } | null>(null)
 
   const all = useMemo(() => summary.data ?? [], [summary.data])
   const channels = useMemo(() => channelTable(defs.data), [defs.data])
@@ -87,6 +108,60 @@ export function GroupAdminDrawer({ onClose, onOpenConversation, onSend }: {
     const r = await send(picked.map((s) => ({ conversation_id: s.conversation_id, project_id: pid })), pid ? `设为「${titleOf(pid)}」` : '清除归属')
     if (r && !r.failed.length) { setSel(new Set()); setBatchProject('') }
   }
+
+  const markRow = (id: string, x: RowRefill) => setRowRefill((m) => new Map(m).set(id, x))
+  /** 行上「查询回填」：之前查不到的也重查；结果写在这一行下面，列表跟着刷新 */
+  const refillOne = async (s: ImConversationSummary) => {
+    markRow(s.conversation_id, { busy: true })
+    try {
+      markRow(s.conversation_id, { busy: false, note: refillOneText(await refill.mutateAsync({ conversationId: s.conversation_id })) })
+    } catch (e) {
+      markRow(s.conversation_id, { busy: false, note: { text: `没查成：${errorText(e)}`, bad: true } })
+    }
+  }
+  /** 「回填全部缺失」：之前查不到的跳过；一次最多回渠道查 100 个，没补完再点 */
+  const refillAll = async () => {
+    setNote(null)
+    try {
+      setNote(refillBatchText(await refill.mutateAsync({ all: true })))
+    } catch (e) {
+      setNote({ text: `没回填成：${errorText(e)}`, bad: true })
+    }
+  }
+  const markFill = (id: string, x: RowBackfill) => setRowBackfill((m) => new Map(m).set(id, x))
+  /** 补一个会话；回结果，出错回 null 并写在行上。limited 时调用方停下批量 */
+  const fillOne = async (s: ImConversationSummary, range: ImHistoryRange, cursor?: string) => {
+    markFill(s.conversation_id, { busy: true })
+    try {
+      const r = await backfill.mutateAsync({ conversationId: s.conversation_id, range, cursor })
+      markFill(s.conversation_id, { busy: false, note: backfillText(r), resume: r.complete ? undefined : { range, cursor: r.cursor } })
+      return r
+    } catch (e) {
+      // 续补位置留着，修好连接器后还能接着补
+      markFill(s.conversation_id, { busy: false, note: { text: `没补成：${errorText(e)}`, bad: true }, resume: cursor ? { range, cursor } : undefined })
+      throw e
+    }
+  }
+  /** 批量补全：勾选的里能补的逐个补；撞上限流就停，剩下的算「还没补」 */
+  const fillPicked = async (range: ImHistoryRange) => {
+    setNote(null)
+    const can = picked.filter((s) => !backfillBlock(s))
+    let b = emptyBatch(can.length, picked.length - can.length)
+    for (const [i, s] of can.entries()) {
+      setBatchFill({ done: i, total: can.length, name: displayName(s) })
+      try {
+        const r = await fillOne(s, range)
+        b = addToBatch(b, r)
+        if (r.limited) { b = { ...b, left: can.length - i - 1 }; break }
+      } catch (e) {
+        b = { ...b, done: b.done + 1, failed: [...b.failed, { name: displayName(s), error: errorText(e) }] }
+      }
+    }
+    setBatchFill(null)
+    setNote(batchText(b, range))
+  }
+  const missingN = refillable(all).length
+  const allRefilling = refill.isPending && refill.variables && 'all' in refill.variables
 
   const sameChannel = new Set(all.map((s) => s.channel)).size <= 1
   let body
@@ -138,9 +213,13 @@ export function GroupAdminDrawer({ onClose, onOpenConversation, onSend }: {
                 picked={sel.has(s.conversation_id)} busy={busy.has(s.conversation_id)} options={options}
                 projectsLoading={projects.isPending} projectsError={projects.isError}
                 sugg={sugg.get(s.conversation_id)} titleOf={titleOf}
+                refill={rowRefill.get(s.conversation_id)} refillLocked={!!allRefilling} onRefill={() => void refillOne(s)}
+                backfill={rowBackfill.get(s.conversation_id)} backfillLocked={!!batchFill}
+                onBackfill={(range, cursor) => void fillOne(s, range, cursor).catch(() => {})} onOpenContact={onOpenContact}
                 onPick={() => setSel((x) => togglePick(x, s.conversation_id))}
                 onSet={(pid) => setOne(s, pid)}
-                onOpen={() => onOpenConversation(s.channel, s.conversation_id)} onSend={() => onSend(s.conversation_id)} />
+                onOpen={() => onOpenConversation(s.channel, s.conversation_id)} onSend={() => onSend(s.conversation_id)}
+                memberLabel={channelOf(channels, s.channel).label} onMuted={(text) => setNote({ text, bad: false })} />
             ))}
             {rows.length > limit && (
               <button type="button" className="im-more" onClick={() => setLimit(limit + GROUP_PAGE)}>
@@ -170,6 +249,9 @@ export function GroupAdminDrawer({ onClose, onOpenConversation, onSend }: {
             onClick={() => void setPicked(batchProject)}>设为默认归属</button>
           <button type="button" className="btn btn-sm btn-outline" disabled={set.isPending || !picked.some((s) => s.project_id)}
             title="勾选的会话都改回不归项目" onClick={() => void setPicked(null)}>清除归属</button>
+          <BackfillMenu label={batchFill ? `补全中 ${batchFill.done + 1}/${batchFill.total}…` : '补全消息'} ariaLabel="补全勾选会话的消息"
+            busy={!!batchFill} blocked={picked.some((s) => !backfillBlock(s)) ? '' : '勾选的会话都不能补全（渠道不支持拉历史，或还没收到过消息）'}
+            onPick={(r) => void fillPicked(r)} />
           <button type="button" className="btn btn-sm btn-ghost" onClick={() => setSel(new Set())}>取消选择</button>
         </div>
       ) : undefined}>
@@ -187,6 +269,11 @@ export function GroupAdminDrawer({ onClose, onOpenConversation, onSend }: {
         </div>
         <button type="button" className={cls('chip', unset && 'chip-on')} aria-pressed={unset} onClick={() => setUnset(!unset)}
           title="只看还没设默认归属的会话">没设归属的{unsetN > 0 && <span className="seg-n">{unsetN}</span>}</button>
+        {missingN > 0 && (
+          <button type="button" className="btn btn-sm btn-outline" disabled={refill.isPending}
+            title="名字只显示渠道编号的会话，回渠道查了补上；一次最多查 100 个、撞上限流就停，之前查不到的跳过（行上「查询回填」会重查）"
+            onClick={() => void refillAll()}>{allRefilling ? '回填中…' : '回填全部缺失'}<span className="seg-n">{missingN}</span></button>
+        )}
         {usedChannels.length > 1 && (
           <div className="im-channels" role="group" aria-label="渠道">
             <button type="button" className={cls('im-ch', !channel && 'on')} aria-pressed={!channel} onClick={() => setChannel('')}>全部渠道</button>
@@ -202,6 +289,7 @@ export function GroupAdminDrawer({ onClose, onOpenConversation, onSend }: {
           </div>
         )}
       </div>
+      {batchFill && <div className="im-ga-note" role="status">补全消息中 {batchFill.done + 1}/{batchFill.total}：{batchFill.name}</div>}
       {note && <div className={cls('im-ga-note', note.bad && 'bad')} role={note.bad ? 'alert' : 'status'}>{note.text}</div>}
       {summary.isError && summary.data && <div className="im-err" role="alert">刷新没成功：{errorText(summary.error)}</div>}
       {body}
@@ -209,7 +297,10 @@ export function GroupAdminDrawer({ onClose, onOpenConversation, onSend }: {
   )
 }
 
-function GroupRow({ s, chLabel, picked, busy, options, projectsLoading, projectsError, sugg, titleOf, onPick, onSet, onOpen, onSend }: {
+function GroupRow({
+  s, chLabel, picked, busy, options, projectsLoading, projectsError, sugg, titleOf, refill, refillLocked, onRefill, backfill, backfillLocked, onBackfill,
+  onPick, onSet, onOpen, onSend, memberLabel, onMuted, onOpenContact,
+}: {
   s: ImConversationSummary
   /** 只有一个渠道时不标渠道 */
   chLabel: ReturnType<typeof channelOf> | null
@@ -220,10 +311,23 @@ function GroupRow({ s, chLabel, picked, busy, options, projectsLoading, projects
   projectsError: boolean
   sugg?: Suggestion
   titleOf: (id: string) => string
+  /** 这一行查询回填的进度和结果 */
+  refill?: RowRefill
+  /** 「回填全部缺失」进行中，行上的按钮先不让点 */
+  refillLocked: boolean
+  onRefill: () => void
+  /** 这一行补全消息的进度、结果；批量补全进行中时行上的按钮先不让点 */
+  backfill?: RowBackfill
+  backfillLocked: boolean
+  onBackfill: (range: ImHistoryRange, cursor?: string) => void
+  onOpenContact?: (id: string) => void
   onPick: () => void
   onSet: (pid: string | null) => void
   onOpen: () => void
   onSend: () => void
+  /** 「成员」菜单里写的渠道名；onMuted 是标了、取消自动忽略的结果 */
+  memberLabel: string
+  onMuted: (text: string) => void
 }) {
   const name = displayName(s)
   const direct = s.kind === 'direct'
@@ -232,10 +336,17 @@ function GroupRow({ s, chLabel, picked, busy, options, projectsLoading, projects
     <div role="listitem" className={cls('im-ga-row', picked && 'picked')} aria-label={name}>
       <input type="checkbox" checked={picked} aria-label={`选中 ${name}`} onChange={onPick} />
       <div className="im-ga-main">
-        <div className="im-ga-top">
+        <div className={cls('im-ga-top', needsRefill(s) && 'im-ga-top-refill')}>
           {chLabel && <ChannelMark ch={chLabel} />}
           <button type="button" className="im-ga-name" title={`看「${name}」的消息`} onClick={onOpen}>{name}</button>
           <span className="spacer" />
+          {needsRefill(s) && (
+            <button type="button" className="im-act im-ga-send" disabled={!s.can_refill || refill?.busy || refillLocked}
+              aria-label={`查询回填 ${name}`} title={refillTitle(s)} onClick={onRefill}>{refill?.busy ? '查询中…' : '查询回填'}</button>
+          )}
+          <BackfillMenu label={backfill?.resume ? '继续补全' : '补全消息'} ariaLabel={`补全 ${name} 的消息`} blocked={backfillBlock(s)}
+            busy={!!backfill?.busy || backfillLocked} resume={backfill?.resume}
+            onPick={(r) => onBackfill(r)} onContinue={() => backfill?.resume && onBackfill(backfill.resume.range, backfill.resume.cursor)} />
           <button type="button" className="im-act im-ga-send" disabled={!s.total} aria-label={`发消息到 ${name}`}
             title={s.total ? '直接发到这个会话，不挂在哪条消息的消息列里' : '这个会话还没收到过消息，不知道用哪个账号发'} onClick={onSend}>发消息</button>
         </div>
@@ -243,7 +354,17 @@ function GroupRow({ s, chLabel, picked, busy, options, projectsLoading, projects
           {sub && <span className="im-ga-who" title={sub}>{sub}</span>}
           {s.last_at && <span title={new Date(s.last_at).toLocaleString('zh-CN')}>{timeAgo(s.last_at)}</span>}
           {s.sent > 0 && <span title={s.last_sent_at ? `最近一次 ${new Date(s.last_sent_at).toLocaleString('zh-CN')}` : undefined}>已发 {s.sent} 条</span>}
+          {/* 「成员」放在第二行，不占名字那一行的宽度（名字至少留 9 个字宽，SPEC-messages-7.11） */}
+          {s.total > 0 && <GroupMembersMenu s={s} chLabel={memberLabel} onDone={onMuted} onOpenContact={onOpenContact} />}
         </div>
+        {refill?.note ? (
+          <div className={cls('im-ga-refill', refill.note.bad && 'bad')} role={refill.note.bad ? 'alert' : 'status'}>{refill.note.text}</div>
+        ) : s.refill_error && needsRefill(s) ? (
+          <div className="im-ga-refill muted" title="行上「查询回填」会重查">上次没查到：{s.refill_error}</div>
+        ) : null}
+        {backfill?.note && (
+          <div className={cls('im-ga-refill', backfill.note.bad && 'bad')} role={backfill.note.bad ? 'alert' : 'status'}>{backfill.note.text}</div>
+        )}
       </div>
       <span className="im-ga-col" title="消息总数">{s.total}</span>
       <span className={cls('im-ga-col', s.pending > 0 && 'im-ga-pending')} title="待处理（不含稍后、已过期）">{s.pending || '—'}</span>

@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 import { describe, expect, it } from 'vitest'
 import type { PluginTodayCard } from '../../core/plugin'
 import type { WorkObject } from '../../core/data'

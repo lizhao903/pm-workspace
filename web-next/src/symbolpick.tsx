@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import './symbolpick.css'
 import { cls } from './ui'

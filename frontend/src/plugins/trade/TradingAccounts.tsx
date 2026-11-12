@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 交易账户（TRD-07b，SPEC-trading-8、9、12）：账户卡片、新增账户抽屉、对账抽屉、实盘账户的交易所数据。
 // 交互照原型 web-next/src/trading.tsx 的 AccountsView、AccountDrawer、ReconDrawer；和原型有出入的地方见 web-next/docs/spec/trading.md「正式前端」。
 // - 模拟盘本地撮合；实盘账户（Binance、OKX）同步余额持仓：凭证走内核连接器（建连接器 → 测试连接 → 建账户，放弃时删掉连接器）。

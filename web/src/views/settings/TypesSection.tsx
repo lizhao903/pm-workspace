@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 工作对象类型 + 每个类型的状态集。左列选类型，右侧改它。
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useWorkspace } from '../../hooks/workspace'

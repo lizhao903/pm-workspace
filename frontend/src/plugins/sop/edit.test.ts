@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 import { describe, expect, it, vi } from 'vitest'
 import type { AgentProvider, SopNodeType, SopStepDef } from '../../core/data'
 import { sopNodeStore } from '../../core/plugin'
@@ -6,6 +8,7 @@ import {
   removeEdge, removeStep, serverIssuesOf, topo, type Draft,
 } from './edit'
 import { EMPTY_CTX, nodeInfo } from './nodes'
+import { legacyCond } from './cond'
 
 const TYPES: SopNodeType[] = [
   { kind: 'auto', group: '基础', branching: false, required: [] },
@@ -52,13 +55,18 @@ describe('节点目录', () => {
     expect(makeStep(d, cat, 'http', 'HTTP 请求', []).config).toEqual({ method: 'POST' })
     const dec = makeStep(d, cat, 'decide', '条件分支', [])
     expect(dec.cases).toEqual([{ key: 'yes', label: '是' }, { key: 'no', label: '否' }])
-    expect(dec.rule).toBe('')
+    // 条件分支的条件由加节点的地方给（人工判断不给），不再带一行 rule（TSK-0490）
+    expect(dec.rule).toBeUndefined()
+    expect(dec.cond).toBeUndefined()
   })
 
   it('换类型：保留名称，配置换成新类型的默认值；变成非分支时去掉分支和规则', () => {
     const s = step('a', 'decide', [], { cases: [{ key: 'x', label: '甲' }, { key: 'y', label: '乙' }], rule: 'r' })
-    expect(changeKind(cat, s, 'http')).toEqual({ kind: 'http', config: { method: 'POST' }, cases: undefined, rule: undefined })
-    expect(changeKind(cat, step('b', 'auto'), 'decide')).toMatchObject({ kind: 'decide', cases: [{ key: 'yes', label: '是' }, { key: 'no', label: '否' }], rule: '' })
+    expect(changeKind(cat, s, 'http')).toEqual({ kind: 'http', config: { method: 'POST' }, cases: undefined, rule: undefined, cond: undefined })
+    expect(changeKind(cat, step('b', 'auto'), 'decide')).toMatchObject({ kind: 'decide', cases: [{ key: 'yes', label: '是' }, { key: 'no', label: '否' }] })
+    // 判断之间换类型保留条件
+    const c = { logic: 'and' as const, items: [{ field: 'x', op: 'eq' as const, value: '1' }] }
+    expect(changeKind(cat, step('c', 'loopback', [], { cond: c }), 'decide')).toMatchObject({ cond: c })
   })
 })
 
@@ -136,8 +144,8 @@ describe('保存前检查', () => {
   it('分支：少于两个、没写名称是错误；分支下没有步骤、没有人工检查点、多个起点是建议', () => {
     const d = draft([
       // 有规则的判断不算人工检查点（规则留空才是人工判断）
-      step('d', 'decide', [], { name: '判断', rule: 'x 等于 1', cases: [{ key: 'yes', label: '是' }, { key: 'no', label: '' }] }),
-      step('e', 'decide', [], { name: '单支', rule: 'x 等于 2', cases: [{ key: 'only', label: '唯一' }] }),
+      step('d', 'decide', [], { name: '判断', cond: { logic: 'and', items: [{ field: 'x', op: 'eq', value: '1' }] }, cases: [{ key: 'yes', label: '是' }, { key: 'no', label: '' }] }),
+      step('e', 'decide', [], { name: '单支', cond: { logic: 'and', items: [{ field: 'x', op: 'eq', value: '2' }] }, cases: [{ key: 'only', label: '唯一' }] }),
       step('f', 'auto', ['d'], { branch: { of: 'd', case: 'yes' } }),
     ])
     const out = checkDraft(d, cat)
@@ -152,7 +160,7 @@ describe('保存前检查', () => {
   it('后端的问题按步骤 key 记下：步骤重排后还标在原来的节点上，删掉的不再列，前端已有的不重复', () => {
     const d = draft([step('a', 'auto', ['b']), step('b', 'review', ['a'])])
     const server = serverIssuesOf([{ text: '依赖成环：「a」 → 「b」 → 「a」', step: 0 }, { text: '还没有名称' }, { text: '整条流程的问题' }], d)
-    expect(server[0]).toEqual({ text: '依赖成环：「a」 → 「b」 → 「a」', key: 'a' })
+    expect(server[0]).toEqual({ text: '依赖成环：「a」 → 「b」 → 「a」', key: 'a', level: 'error' })
     const moved = { ...d, name: '', steps: [d.steps[1], d.steps[0]] }
     const all = mergeIssues(checkDraft(moved, cat), server, moved)
     expect(all.filter((x) => x.text === '还没有名称')).toHaveLength(1)
@@ -160,6 +168,27 @@ describe('保存前检查', () => {
     expect(all).toContainEqual({ level: 'error', text: '整条流程的问题' })
     const gone = removeStep(moved, 'a')
     expect(mergeIssues([], server, gone).map((x) => x.text)).toEqual(['还没有名称', '整条流程的问题'])
+  })
+
+  it('条件（TSK-0490）：旧写法提示转换，一句话拦下，结构化条件查写法；后端的警告带过来，改掉后不再列', () => {
+    const two = [{ key: 'yes', label: '是' }, { key: 'no', label: '否' }]
+    const d = draft([
+      step('a', 'decide', [], { name: '旧', rule: 'x 等于 1', cases: two }),
+      step('b', 'decide', ['a'], { name: '话', rule: '金额大于五千', cases: two }),
+      step('c', 'decide', ['b'], { name: '空', cond: { logic: 'and', items: [{ field: '', op: 'contains', value: '' }] }, cases: two }),
+      step('r', 'review', ['c']),
+    ])
+    const out = checkDraft(d, cat)
+    expect(out.filter((x) => x.code).map((x) => `${x.level}/${x.code}/${x.step}`)).toEqual(['warn/legacy_rule/0', 'error/rule_text/1', 'error/cond/2', 'error/cond/2'])
+    // 后端打开时带回来的旧写法警告：前端也查出来了，不重复；转成条件之后两边都不再列
+    const server = serverIssuesOf([{ text: '「旧」的条件还是旧写法「x 等于 1」…', step: 0, level: 'warning', code: 'legacy_rule' }, { text: '字段拿不到', step: 2, level: 'error', code: 'cond_field' }], d)
+    expect(mergeIssues(out, server, d).filter((x) => x.code === 'legacy_rule')).toHaveLength(1)
+    const fixed = { ...d, steps: d.steps.map((s) => (s.key === 'a' ? { ...s, rule: undefined, cond: legacyCond('x 等于 1')! } : s)) }
+    const all = mergeIssues(checkDraft(fixed, cat), server, fixed)
+    expect(all.some((x) => x.code === 'legacy_rule')).toBe(false)
+    expect(all).toContainEqual({ level: 'error', text: '字段拿不到', step: 2, code: 'cond_field' })
+    expect(legacyCond('a 不包含 「x」')).toEqual({ logic: 'and', items: [{ field: 'a', op: 'not_contains', value: 'x' }] })
+    expect(legacyCond('来源是某群')).toBeNull()
   })
 })
 
@@ -196,18 +225,18 @@ describe('AI 节点的服务商和模型', () => {
 })
 
 describe('建任务、写进项目目录的项目下拉（消息分流）', () => {
-  const ctx = { ...EMPTY_CTX, projects: [{ id: 'obj_octok', name: 'Octok' }, { id: 'obj_xaue', name: 'XAUE' }] }
+  const ctx = { ...EMPTY_CTX, projects: [{ id: 'obj_acme', name: 'Acme' }, { id: 'obj_globex', name: 'Globex' }] }
   const field = (kind: string, key: string) => nodeInfo(kind).fields.find((f) => f.key === key)!
 
   it('选项是项目列表，能取输入里的 project_id；建任务多一项「不挂项目」；存着的值不在列表里时照样列出', () => {
-    expect(field('local_append', 'project').options?.(ctx, {}).map((o) => o.value)).toEqual(['{{project_id}}', 'obj_octok', 'obj_xaue'])
-    expect(field('task', 'project').options?.(ctx, {}).map((o) => o.label)).toEqual(['不挂项目', '取输入里的 project_id', 'Octok', 'XAUE'])
+    expect(field('local_append', 'project').options?.(ctx, {}).map((o) => o.value)).toEqual(['{{project_id}}', 'obj_acme', 'obj_globex'])
+    expect(field('task', 'project').options?.(ctx, {}).map((o) => o.label)).toEqual(['不挂项目', '取输入里的 project_id', 'Acme', 'Globex'])
     expect(field('local_append', 'project').options?.(ctx, { project: 'PRJ-0009' }).at(-1)).toEqual({ value: 'PRJ-0009', label: 'PRJ-0009' })
   })
 
   it('画布摘要写项目名和路径', () => {
-    expect(nodeInfo('local_append').summary?.({ project: 'obj_octok', path: 'IM收件/{{date}}.md' }, ctx)).toBe('Octok / IM收件/{{date}}.md')
-    expect(nodeInfo('local_append').summary?.({ project: 'obj_octok' }, ctx)).toBe('')
-    expect(nodeInfo('task').summary?.({ title: '跟进', project: 'obj_xaue' }, ctx)).toBe('P2 跟进 · XAUE')
+    expect(nodeInfo('local_append').summary?.({ project: 'obj_acme', path: 'IM收件/{{date}}.md' }, ctx)).toBe('Acme / IM收件/{{date}}.md')
+    expect(nodeInfo('local_append').summary?.({ project: 'obj_acme' }, ctx)).toBe('')
+    expect(nodeInfo('task').summary?.({ title: '跟进', project: 'obj_globex' }, ctx)).toBe('P2 跟进 · Globex')
   })
 })

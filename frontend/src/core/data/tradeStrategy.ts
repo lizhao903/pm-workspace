@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 策略与回测（TRD-04b 后端、TRD-04c 前端）：策略、回测记录、参数扫描、对比。契约见 docs/api-contract.md「交易套件插件 trade / 策略和回测」。
 // 回测只在后端跑（排队、取真实历史 K 线、算结果、落库），前端只发起和展示；进度靠轮询：
 // 列表或详情里有排队中、运行中的回测时每秒重取一次，都跑完就停。

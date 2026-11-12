@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 批量分诊和处理队列的纯函数：消息的分诊状态、队列分段、当前步骤的说法、要分诊的消息。
 // 分诊的执行按输入里的 message_id 关联消息（GET /api/sop/runs?input_key=message_id）。
 import type { ImMessage, SopBatchResult, SopInputRun } from '../../core/data'

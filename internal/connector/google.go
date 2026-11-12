@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 package connector
 
 // Google 连接器共用的部分（CONN-01e1）：OAuth 配置、连通测试（取账号邮箱）、带令牌请求 Google API。

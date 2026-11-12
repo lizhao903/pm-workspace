@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 import { QueryClient, type QueryKey } from '@tanstack/react-query'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { applyChange, type Change } from './invalidate'

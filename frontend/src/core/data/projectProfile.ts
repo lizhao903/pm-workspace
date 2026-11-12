@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 项目档案（AUTO-04）：项目插件的 /api/projects/{id}/profile 读写一个项目的档案，/api/projects/profiles 列档案摘要（分类用）。
 // 契约见 docs/api-contract.md「项目插件 / 项目档案」。档案只在档案标签里改，存完把返回的档案直接写回缓存，不另发事件。
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'

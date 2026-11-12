@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 package sqlite
 
 import (
@@ -13,7 +15,7 @@ import (
 
 // --- Agent 执行记录（AG-01b4，0036） ---
 
-const agentRunCols = `r.id, r.agent_id, r.trigger_kind, r.trigger, r.source_id, r.event_key, r.session_id, r.status, r.summary,
+const agentRunCols = `r.id, r.agent_id, r.trigger_kind, r.trigger, r.source_id, r.event_key, r.session_id, r.status, r.summary, r.prompt,
 	r.started_at, r.finished_at,
 	(SELECT COUNT(*) FROM agent_tool_calls c WHERE c.run_id = r.id AND c.state = 'pending')`
 
@@ -21,7 +23,7 @@ func scanAgentRun(sc rowScanner) (*store.AgentRun, error) {
 	var r store.AgentRun
 	var sess, finished sql.NullString
 	var started string
-	if err := sc.Scan(&r.ID, &r.AgentID, &r.TriggerKind, &r.Trigger, &r.SourceID, &r.EventKey, &sess, &r.Status, &r.Summary,
+	if err := sc.Scan(&r.ID, &r.AgentID, &r.TriggerKind, &r.Trigger, &r.SourceID, &r.EventKey, &sess, &r.Status, &r.Summary, &r.Prompt,
 		&started, &finished, &r.Pending); err != nil {
 		return nil, err
 	}
@@ -39,9 +41,9 @@ func scanAgentRun(sc rowScanner) (*store.AgentRun, error) {
 func (s *Store) CreateAgentRun(ctx context.Context, in *store.AgentRun) (*store.AgentRun, error) {
 	id := idgen.Prefixed("ar")
 	res, err := s.db.W.ExecContext(ctx, `INSERT OR IGNORE INTO agent_runs
-		(id, agent_id, trigger_kind, trigger, source_id, event_key, session_id, status, summary, started_at)
-		VALUES (?,?,?,?,?,?,?,?,?,?)`,
-		id, in.AgentID, in.TriggerKind, in.Trigger, in.SourceID, in.EventKey, in.SessionID, store.AgentRunRunning, in.Summary, agentTime())
+		(id, agent_id, trigger_kind, trigger, source_id, event_key, session_id, status, summary, prompt, started_at)
+		VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
+		id, in.AgentID, in.TriggerKind, in.Trigger, in.SourceID, in.EventKey, in.SessionID, store.AgentRunRunning, in.Summary, in.Prompt, agentTime())
 	if err != nil {
 		return nil, fmt.Errorf("insert agent run: %w", err)
 	}
@@ -122,9 +124,9 @@ func (s *Store) SetAgentRunSession(ctx context.Context, id, sessionID string) er
 
 func (s *Store) FinishAgentRun(ctx context.Context, id, status, summary string) (*store.AgentRun, error) {
 	switch status {
-	case store.AgentRunRunning, store.AgentRunDone, store.AgentRunWaiting, store.AgentRunRejected, store.AgentRunFailed:
+	case store.AgentRunRunning, store.AgentRunDone, store.AgentRunWaiting, store.AgentRunRejected, store.AgentRunFailed, store.AgentRunCanceled:
 	default:
-		return nil, validation("status", "must be running / done / waiting / rejected / failed")
+		return nil, validation("status", "must be running / done / waiting / rejected / failed / canceled")
 	}
 	var finished any
 	if status != store.AgentRunRunning {

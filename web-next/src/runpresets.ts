@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 import { useSyncExternalStore } from 'react'
 
 // 交给 Claude Code 的角色（SPEC-tasks-6.18、SPEC-settings-24，AUTO-03 由预置提示词升级）：执行要求、权限、输出要求、默认目录。

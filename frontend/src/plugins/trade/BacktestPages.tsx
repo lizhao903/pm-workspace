@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 回测记录和对比（SPEC-strategy-6）、回测报告（SPEC-strategy-7）。结果全部来自后端，前端不跑回测；
 // 参数扫描也在后端按同一段数据跑，结果留在这条回测上，刷新不丢。
 import { useMemo, useState, type ReactNode } from 'react'

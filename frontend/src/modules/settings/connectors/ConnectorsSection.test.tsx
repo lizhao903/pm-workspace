@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -56,6 +58,10 @@ function stub(defs: ConnectorDef[], rows: Connector[]) {
     }
     const m = /^\/api\/connectors\/([^/]+)(?:\/(\w+))?(?:\/(\w+))?$/.exec(path)!
     const [id, action] = [m[1], m[2]]
+    if (action === 'icon' && m[3] === 'fetch') {
+      rows = rows.map((r) => (r.id === id ? { ...r, icon: 'data:image/png;base64,SITE' } : r))
+      return ok({ source: 'https://notion.com/apple-touch-icon.png', connector: rows.find((r) => r.id === id) })
+    }
     if (action === 'oauth' && m[3] === 'start') {
       return ok({ authorize_url: `http://127.0.0.1:9/authorize?state=s_${id}`, redirect_uri: 'http://127.0.0.1:9/api/connectors/oauth/callback', expires_at: new Date(Date.now() + 600_000).toISOString() })
     }
@@ -148,11 +154,94 @@ describe('连接器页', () => {
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
   })
 
-  it('后端还没登记任何定义时是空状态，统计全为 0', async () => {
+  it('后端还没登记任何定义时是空状态，状态筛选全为 0', async () => {
     stub([], [])
     renderPage()
     expect(await screen.findByText('还没有可以接入的工具')).toBeInTheDocument()
-    expect(screen.getByLabelText('统计')).toHaveTextContent('已连接0异常0已断开 / 暂停0可接未接0')
+    expect(screen.getByRole('group', { name: '状态' })).toHaveTextContent('全部0已连接0异常0已断开·暂停0未接入0')
+    expect(screen.queryByLabelText('统计')).not.toBeInTheDocument()
+  })
+
+  it('状态筛选（TSK-0725）：和分类一起生效，卡片只列该状态的实例，未接入只列没接过的，选择写进 ?status=', async () => {
+    stub([github, slack, mcp], [
+      conn({ id: 'cn_a', tool: 'github', name: '个人' }),
+      conn({ id: 'cn_b', tool: 'github', name: '公司', status: 'error', error: '凭证失效' }),
+      conn({ id: 'cn_c', tool: 'slack', name: '团队', status: 'paused' }),
+    ])
+    renderPage()
+    const seg = await screen.findByRole('group', { name: '状态' })
+    expect(seg).toHaveTextContent('全部3已连接1异常1已断开·暂停1未接入1')
+    expect(within(seg).getByRole('button', { name: /异常/ })).toHaveClass('cn-seg-danger')
+
+    await userEvent.click(within(seg).getByRole('button', { name: /异常/ }))
+    await waitFor(() => expect(screen.getByTestId('search')).toHaveTextContent('?status=error'))
+    const gh = document.querySelector('[data-tool="github"]')!
+    expect(within(gh as HTMLElement).getByText('公司')).toBeInTheDocument()
+    expect(within(gh as HTMLElement).queryByText('个人')).not.toBeInTheDocument()
+    expect(document.querySelector('[data-tool="slack"]')).toBeNull()
+    expect(document.querySelector('[data-tool="custom_mcp"]')).toBeNull()
+
+    await userEvent.click(within(seg).getByRole('button', { name: /未接入/ }))
+    await waitFor(() => expect(screen.getByTestId('search')).toHaveTextContent('?status=unlinked'))
+    expect(document.querySelector('[data-tool="custom_mcp"]')).not.toBeNull()
+    expect(document.querySelector('[data-tool="github"]')).toBeNull()
+
+    // 和分类组合：未接入 + 研发协作 -> 没有符合条件的
+    await userEvent.click(screen.getByRole('button', { name: /研发协作/ }))
+    expect(screen.getByText('没有符合条件的连接器')).toBeInTheDocument()
+
+    await userEvent.click(within(seg).getByRole('button', { name: /全部/ }))
+    await waitFor(() => expect(screen.getByTestId('search')).toBeEmptyDOMElement())
+    expect(document.querySelector('[data-tool="github"]')).not.toBeNull()
+  })
+
+  it('地址带 ?status=off 进来直接筛到已断开·暂停', async () => {
+    stub([github, slack], [conn({ id: 'cn_a', tool: 'github', name: '个人' }), conn({ id: 'cn_c', tool: 'slack', name: '团队', status: 'disconnected' })])
+    renderPage('/settings/connectors?status=off')
+    const seg = await screen.findByRole('group', { name: '状态' })
+    expect(within(seg).getByRole('button', { name: /已断开·暂停/ })).toHaveAttribute('aria-pressed', 'true')
+    expect(document.querySelector('[data-tool="slack"]')).not.toBeNull()
+    expect(document.querySelector('[data-tool="github"]')).toBeNull()
+  })
+
+  it('自定义连接器抽屉（TSK-0725）：改地址就按域名认平台；从网站取图标按已保存的地址，有没保存的地址时先不让取', async () => {
+    const calls = stub([{ ...mcp, logo: 'modelcontextprotocol' }], [
+      conn({ id: 'cn_m', tool: 'custom_mcp', name: '自建', auth_mode: 'none', config: { url: 'https://mcp.example.com/mcp', transport: 'Streamable HTTP' } }),
+    ])
+    renderPage('/settings/connectors?connector=cn_m')
+    const drawer = await screen.findByRole('dialog')
+    const fetchBtn = within(drawer).getByRole('button', { name: '从网站取图标' })
+    expect(fetchBtn).toBeEnabled()
+    expect(drawer.querySelector('.cn-profile [data-logo="modelcontextprotocol"]')).not.toBeNull()
+
+    const url = within(drawer).getByDisplayValue('https://mcp.example.com/mcp')
+    await userEvent.clear(url)
+    await userEvent.type(url, 'https://mcp.linear.app/mcp')
+    expect(drawer.querySelector('.cn-profile [data-logo="linear"]')).not.toBeNull()
+    expect(within(drawer).getByText(/已按地址认出 Linear/)).toBeInTheDocument()
+    expect(fetchBtn).toBeDisabled()
+
+    await userEvent.clear(url)
+    await userEvent.type(url, 'https://mcp.example.com/mcp')
+    await userEvent.click(fetchBtn)
+    await waitFor(() => expect(drawer.querySelector('.cn-profile img.cn-logo-img')).toHaveAttribute('src', 'data:image/png;base64,SITE'))
+    expect(writes(calls)).toEqual([['POST', '/api/connectors/cn_m/icon/fetch', {}]])
+  })
+
+  it('平台图标（TSK-0725）：定义有 logo 用平台图标，没有退回文字；自定义行按地址认平台，自己换的图标优先', async () => {
+    stub([{ ...slack, logo: 'slack' }, { ...mcp, logo: 'modelcontextprotocol' }, github], [
+      conn({ id: 'cn_n', tool: 'custom_mcp', name: '笔记', config: { url: 'https://mcp.notion.com/mcp' } }),
+      conn({ id: 'cn_m', tool: 'custom_mcp', name: '自建', config: { url: 'https://mcp.example.com/mcp' }, icon: 'data:image/png;base64,AAAA' }),
+    ])
+    renderPage()
+    await screen.findByRole('group', { name: '状态' })
+    const card = (tool: string) => document.querySelector(`[data-tool="${tool}"]`) as HTMLElement
+    expect(card('slack').querySelector('.cn-card-top [data-logo="slack"]')).not.toBeNull()
+    expect(card('github').querySelector('.cn-card-top .cn-logo')).toHaveTextContent('Gi')
+    expect(card('custom_mcp').querySelector('.cn-card-top [data-logo="modelcontextprotocol"]')).not.toBeNull()
+    expect(document.querySelector('[data-connector="cn_n"] [data-logo="notion"]')).not.toBeNull()
+    const own = document.querySelector('[data-connector="cn_m"] img.cn-logo-img')
+    expect(own).toHaveAttribute('src', 'data:image/png;base64,AAAA')
   })
 
   it('按定义渲染认证方式和凭证字段；定义没有 OAuth 配置时去授权置灰；接入后自动测一次', async () => {

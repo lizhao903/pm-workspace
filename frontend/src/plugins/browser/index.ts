@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 内置浏览器插件（BR-01b）：清单在后端 internal/plugins/browser/plugin.json，这里只有入口。
 // 页面是多标签浏览器，标签存后端（BR-01a）；没有二级菜单，也没有顶栏。
 // 另外给会话头部登记「浏览器」入口（SPEC-sessions-1.36），在对话右边展开同一套标签，带上会话里出现过的链接

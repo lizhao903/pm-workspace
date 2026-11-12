@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 package im
 
 import (
@@ -56,6 +58,8 @@ func (in *inbox) expireJob(ctx context.Context, _ plugin.Core) error {
 type imSettings struct {
 	ExpireDays   int          `json:"expire_days"`
 	QuickReplies []quickReply `json:"quick_replies"`
+	// FDEForward 是手动转任务后发起「FDE 反馈转发」（TSK-0468，fdeforward.go），默认关
+	FDEForward bool `json:"fde_forward"`
 }
 
 func (in *inbox) getSettings(w http.ResponseWriter, r *http.Request) {
@@ -70,7 +74,12 @@ func (in *inbox) getSettings(w http.ResponseWriter, r *http.Request) {
 		fail(w, r, in.c, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"data": imSettings{ExpireDays: days, QuickReplies: qr}})
+	fde, err := in.fdeEnabled(ctx)
+	if err != nil {
+		fail(w, r, in.c, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"data": imSettings{ExpireDays: days, QuickReplies: qr, FDEForward: fde}})
 }
 
 func (in *inbox) patchSettings(w http.ResponseWriter, r *http.Request) {
@@ -78,6 +87,7 @@ func (in *inbox) patchSettings(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		ExpireDays   *int          `json:"expire_days"`
 		QuickReplies *[]quickReply `json:"quick_replies"`
+		FDEForward   *bool         `json:"fde_forward"`
 	}
 	if err := decode(r, &body, 64<<10); err != nil {
 		fail(w, r, in.c, err)
@@ -122,6 +132,25 @@ func (in *inbox) patchSettings(w http.ResponseWriter, r *http.Request) {
 		if err := in.saveQuickReplies(ctx, replies); err != nil {
 			fail(w, r, in.c, err)
 			return
+		}
+	}
+	if body.FDEForward != nil {
+		old, err := in.fdeEnabled(ctx)
+		if err != nil {
+			fail(w, r, in.c, err)
+			return
+		}
+		if err := in.setFDEEnabled(ctx, *body.FDEForward); err != nil {
+			fail(w, r, in.c, err)
+			return
+		}
+		if old != *body.FDEForward {
+			sum := "关闭 FDE 反馈转发"
+			if *body.FDEForward {
+				sum = "打开 FDE 反馈转发"
+			}
+			in.c.Audit().Note(ctx, plugin.AuditNote{Action: "update", TargetType: "im_settings", TargetID: settingFDEForward,
+				Summary: sum, Detail: map[string]any{"from": old, "to": *body.FDEForward}}, plugin.WriteMeta{})
 		}
 	}
 	in.getSettings(w, r)

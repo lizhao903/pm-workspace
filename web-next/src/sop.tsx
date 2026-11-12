@@ -1,16 +1,69 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
+import { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import { PageTitle } from './topbar'
 import {
-  GOVERNANCE_MAX, MODEL_CONCURRENCY_MAX, RERUN_MAX, RUN_STATUS, SOPS, depsOf, isHeld, flowChanged, sourceText, focusIndex, isFinished, isClaudeKind, isManualDecide, isModelKind, isProviderWait, isQueued, needsMe, ranks,
+  GOVERNANCE_MAX, MODEL_CONCURRENCY_MAX, RERUN_MAX, RUN_STATUS, SOPS, depsOf, emptyIM, imFilterText, isHeld, flowChanged, sourceText, focusIndex, isFinished, isClaudeKind, isManualDecide, isModelKind, isProviderWait, isQueued, needsMe, ranks,
   RERUN_REASON_RELAUNCHED, runShow, runStatus, stepLook,
+  isStoppable,
+  SOP_FOLDERS, UNCATEGORIZED, addFolder, folderNameError, folderOf, moveSops, newSopFolder, removeFolder, renameFolder,
   type Governance, type Json, type RerunAction, type RerunResult, type RunAction, type RunStep, type Sop, type SopRun,
 } from './sopflow'
-import { KindTag, isBranching } from './nodetypes'
+import { KindTag, isBranching, ruleIsSentence, ruleSentenceError } from './nodetypes'
 import { Subnav } from './subnav'
 import { cls, timeAgo } from './ui'
 import { SearchSelect } from './searchselect'
 import { useEnum } from './enumdata'
 import { ListSegHead, ListSegMore } from './tasks'
+import { describeRule, flowSchedule, nextRun, whenText, type Schedule } from './scheduledata'
+import type { TodayItem } from './today'
+
+/**
+ * 定时触发（TSK-0463）：触发方式「定时」的规则在随流程管理的定时任务里。App 把定时任务列表和启停放进这个上下文，
+ * 流程库卡片、流程详情显示规则、下次执行和启停开关；和定时任务页改的是同一条
+ */
+export const SopSchedules = createContext<{ list: Schedule[]; toggle: (id: string, on: boolean) => void }>({ list: [], toggle: () => {} })
+
+/** 流程的定时一行：规则、下次执行、启停；定时但没有那条定时任务（在定时任务页删了）是「定时，未配置」 */
+function SchedLine({ sop, className }: { sop: Sop; className: string }) {
+  const { list, toggle } = useContext(SopSchedules)
+  if (sop.trigger !== 'schedule') return null
+  const sc = flowSchedule(list, sop.id)
+  if (!sc) return <div className={cls('sop-sched unset', className)}>定时，未配置：到点不会执行，到编辑里设好时间</div>
+  const next = sc.enabled ? nextRun(sc.rule) : null
+  return (
+    <div className={cls('sop-sched', !sc.enabled && 'off', className)}>
+      <span className="sop-sched-text">
+        <span>定时 · {describeRule(sc.rule)}</span>
+        <span className={cls(sc.enabled && 'sop-sched-next')}>{sc.enabled ? (next ? `下次 ${whenText(next)}` : '不会再执行') : '已停用'}</span>
+      </span>
+      <span className="switch-line" title={sc.enabled ? '停用定时' : '启用定时'}>
+        <input type="checkbox" aria-label={`定时执行「${sop.name}」`} checked={sc.enabled} onChange={(e) => toggle(sc.id, e.target.checked)} /><span className="switch" />
+      </span>
+    </div>
+  )
+}
+
+/** 流程的 IM 触发一行（TSK-0481，SPEC-sop-2.14、5.18）：第几个判断、过滤条件、拦截标记；不是 IM 触发不显示 */
+function IMLine({ sop, className }: { sop: Sop; className: string }) {
+  if (sop.trigger !== 'im') return null
+  const im = sop.im ?? emptyIM()
+  return (
+    <div className={cls('sop-sched sop-im-line', className)}>
+      <span className="sop-sched-text">
+        <span className="sop-sched-next">第 {im.order || '?'} 个</span>
+        <span>{imFilterText(im)}</span>
+      </span>
+      {im.stop && <span className="sop-im-stop" title="这条流程接住的消息，排在后面的 IM 流程不再处理">拦截后续</span>}
+    </div>
+  )
+}
+
+/**
+ * 条件是一句话的步骤（TSK-0498）：判断 / 回退步骤的条件不是「字段 运算符 值」，TSK-0490 之前存进来的。
+ * 执行到这一步必然失败，所以流程库卡片标「需修复」、详情页顶上写明哪几步要改，不等它失败了才发现
+ */
+const sentenceSteps = (s: Sop) => s.steps.filter((d) => (d.kind === 'decide' || d.kind === 'loopback') && !d.decide && ruleIsSentence(d.rule))
 
 /** SOP 页的二级菜单 key；library：流程库（全部 SOP 的卡片列表） */
 export type SopView = 'runs' | 'waiting' | 'library' | `sop:${string}` | `edit:${string}`
@@ -34,8 +87,14 @@ const lastRunAt = (runs: SopRun[]) => {
 // 已重跑过的失败执行不算（SPEC-sop-4.21）
 const isPending = (r: SopRun) => ['waiting', 'failed'].includes(runShow(r))
 
-export function SopNav({ sops, runs, view, onSelect, onNew }: { sops: Sop[]; runs: SopRun[]; view: SopView; onSelect: (v: SopView) => void; onNew: () => void }) {
-  const waiting = runs.filter(isPending).length
+/**
+ * waitingN：「待我处理」的数字，App 传今日「待我处理」组的条数（等人的步骤 + 没被步骤覆盖的阶段任务），两边一致（TSK-0486）；
+ * 不传时按执行算
+ */
+export function SopNav({ sops, runs, view, onSelect, onNew, waitingN }: {
+  sops: Sop[]; runs: SopRun[]; view: SopView; onSelect: (v: SopView) => void; onNew: () => void; waitingN?: number
+}) {
+  const waiting = waitingN ?? runs.filter(isPending).length
   // 菜单只放最近执行过的 5 个流程，完整列表在「流程库」里
   const last = useMemo(() => lastRunAt(runs), [runs])
   const recent = sops.filter((s) => last.has(s.id)).sort((a, b) => last.get(b.id)! - last.get(a.id)!).slice(0, 5)
@@ -127,10 +186,14 @@ function daySegOf() {
   return (t: number): DaySeg => (t >= today ? 'today' : t >= yesterday ? 'yesterday' : t >= week ? 'week' : 'older')
 }
 
-export function SopRunsPage({ runs, view, onOpen, sops, sop, onOpenSop, onNew, onRerun }: {
+export function SopRunsPage({ runs, view, onOpen, sops, sop, onOpenSop, onNew, onRerun, onStop, stageItems, onSopsChange }: {
   runs: SopRun[]; view: 'runs' | 'waiting' | 'library'; onOpen: (id: string) => void
+  /** 待我处理里「停在等人阶段的任务」一组：今日「待我处理」组的阶段那几条（TSK-0486），点了去任务的流水线 */
+  stageItems?: TodayItem[]
   /** 失败页批量重跑（SPEC-sop-4.13~4.19），回各几条 */
   onRerun?: (ids: string[], action: RerunAction) => RerunResult
+  /** 批量停止（TSK-0717，SPEC-sop-4.23~4.27）：勾选的、单条的、「停止全部运行中」都走它，回停了、跳过各几条 */
+  onStop?: (ids: string[]) => RerunResult
   /** 流程库（view = library）用的全部 SOP；不传用 sopflow 里的 SOPS（App 增删时会同步它） */
   sops?: Sop[]
   /** 打开时预先按这个 SOP 筛（从流程详情「在执行记录里看全部」跳过来） */
@@ -138,9 +201,11 @@ export function SopRunsPage({ runs, view, onOpen, sops, sop, onOpenSop, onNew, o
   /** 流程库点卡片打开流程详情 */
   onOpenSop?: (id: string) => void
   onNew?: () => void
+  /** 流程库里改了文件夹（建、改名、删、移流程，TSK-0482）：App 按 SOPS 重新取一份 */
+  onSopsChange?: () => void
 }) {
-  if (view === 'library') return <SopLibraryPage sops={sops ?? SOPS} runs={runs} onOpen={onOpenSop} onNew={onNew} />
-  return <RunList runs={runs} view={view} onOpen={onOpen} sops={sops ?? SOPS} initialSop={sop} onRerun={onRerun} />
+  if (view === 'library') return <SopLibraryPage sops={sops ?? SOPS} runs={runs} onOpen={onOpenSop} onNew={onNew} onChange={onSopsChange} />
+  return <RunList runs={runs} view={view} onOpen={onOpen} sops={sops ?? SOPS} initialSop={sop} onRerun={onRerun} onStop={onStop} stageItems={view === 'waiting' ? stageItems : undefined} />
 }
 
 /** 两种重跑的说明，确认框里二选一 */
@@ -192,18 +257,52 @@ function RerunDialog({ runs, onCancel, onConfirm }: { runs: SopRun[]; onCancel: 
   )
 }
 
-function RunList({ runs, view, onOpen, sops, initialSop, onRerun }: {
+/** 停止的结果一句话（SPEC-sop-4.26）：停了几条、跳过几条；已建出的任务不撤回 */
+function stopNote(r: RerunResult) {
+  if (!r.done.length && !r.skipped.length && !r.failed.length) return { text: '没有运行中的执行要停', bad: false }
+  const parts = [`已停止 ${r.done.length} 条`]
+  if (r.skipped.length) parts.push(`跳过 ${r.skipped.length} 条（已结束或已停止）`)
+  return { text: parts.join('，') + '。已建出的任务不会撤回', bad: false }
+}
+
+/**
+ * 停止确认框（TSK-0717，SPEC-sop-4.24）：单条、勾选的、「停止全部运行中」（选了流程只停这条流程的）共用，
+ * 写明停几条、停了会怎样、什么不撤回。正式产品「停止全部运行中」的条数由后端 dry_run 数（含列表没加载的）
+ */
+function StopDialog({ title, what, n, onCancel, onConfirm }: { title: string; what?: string; n: number; onCancel: () => void; onConfirm: () => void }) {
+  return (
+    <div className="qs-mask" onMouseDown={(e) => { if (e.target === e.currentTarget) onCancel() }}>
+      <div className="qs" role="dialog" aria-label={title}>
+        <div className="qs-head"><b>{title}</b></div>
+        {what && <div className="stop-what">{what}</div>}
+        <div className="list-sub">停止后执行标为「已终止」：排队等模型的步骤立即出队，正在调模型的请求会取消，等你处理的步骤不再等。</div>
+        <div className="list-sub">已经建出的任务、写出的文档、发出的消息不会撤回；停止后不能接着跑，要重来得重新发起。</div>
+        <div className="act-row">
+          <span className="spacer" />
+          <button className="act act-quiet" onClick={onCancel}>取消</button>
+          <button className="act act-danger" autoFocus disabled={!n} onClick={onConfirm}>{n ? `停止 ${n} 条` : '没有要停的'}</button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function RunList({ runs, view, onOpen, sops, initialSop, onRerun, onStop, stageItems }: {
   runs: SopRun[]; view: 'runs' | 'waiting'; onOpen: (id: string) => void; sops?: Sop[]; initialSop?: string
   onRerun?: (ids: string[], action: RerunAction) => RerunResult
+  onStop?: (ids: string[]) => RerunResult
+  stageItems?: TodayItem[]
 }) {
   const [st, setSt] = useState<'' | 'running' | 'waiting' | 'done' | 'failed'>('')
   const [sopF, setSopF] = useState(initialSop ?? '')
   const [q, setQ] = useState('')
-  const [closed, setClosed] = useState<Set<DaySeg>>(new Set())
+  const [closed, setClosed] = useState<Set<DaySeg | 'stage'>>(new Set())
   const [more, setMore] = useState<Partial<Record<DaySeg, number>>>({})
   // 失败页多选批量重跑
   const [sel, setSel] = useState<Set<string>>(new Set())
   const [confirming, setConfirming] = useState(false)
+  // 停止确认框：ids 是要停的；all 为真是「停止全部运行中」
+  const [stopping, setStopping] = useState<{ ids: string[]; title: string; what?: string } | null>(null)
   const [note, setNote] = useState<{ text: string; bad: boolean } | null>(null)
   const kw = q.trim().toLowerCase()
   useEffect(() => { setMore({}) }, [st, sopF, kw])
@@ -223,10 +322,16 @@ function RunList({ runs, view, onOpen, sops, initialSop, onRerun }: {
     .sort((a, b) => ORDER[runShow(a)] - ORDER[runShow(b)] || b.started_at - a.started_at)
   const segOf = daySegOf()
   const segs = DAY_SEGS.map((s) => ({ ...s, xs: rows.filter((r) => segOf(r.started_at) === s.key) })).filter((s) => s.xs.length)
-  const toggle = (k: DaySeg) => setClosed((s) => { const n = new Set(s); if (n.has(k)) n.delete(k); else n.add(k); return n })
+  const toggle = (k: DaySeg | 'stage') => setClosed((s) => { const n = new Set(s); if (n.has(k)) n.delete(k); else n.add(k); return n })
   const filtered = !!(st || sopF || kw)
-  const picking = view === 'runs' && st === 'failed' && !!onRerun
-  const ordered = segs.flatMap((s) => s.xs)
+  // 待我处理：执行下面一组「停在等人阶段的任务」（TSK-0486，同今日阶段那几条）；按流程筛选时不出现，搜索按编号和标题
+  const stage = view === 'waiting' && !sopF ? (stageItems ?? []).filter((x) => !kw || x.title.toLowerCase().includes(kw)) : []
+  // 「失败」分段多选重跑；「执行中」「待我处理」分段和待我处理页多选停止，只有能停的行能勾（SPEC-sop-4.23）
+  const pickMode: 'rerun' | 'stop' | null = view === 'runs' && st === 'failed' && onRerun ? 'rerun'
+    : onStop && (st === 'running' || st === 'waiting' || view === 'waiting') ? 'stop' : null
+  const pickable = (r: SopRun) => pickMode === 'rerun' || (pickMode === 'stop' && isStoppable(r))
+  const ordered = segs.flatMap((s) => s.xs).filter(pickable)
+  const picking = ordered.length > 0
   const picked = picking ? ordered.filter((r) => sel.has(r.id)) : []
   const allN = Math.min(ordered.length, RERUN_MAX)
   const allPicked = picked.length > 0 && picked.length >= allN
@@ -234,7 +339,16 @@ function RunList({ runs, view, onOpen, sops, initialSop, onRerun }: {
   const togglePick = (id: string) => setSel((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n })
   // 失败行右边的「重试」（SPEC-sop-4.20）：流程发起后改过就按最新流程重跑，否则在原执行里重试；有失败行时每行留一格对齐
   // 已重跑的行同一格放「新执行」
-  const hasFailed = !!onRerun && rows.some((r) => runShow(r) === 'failed' || runShow(r) === 'relaunched')
+  const hasFailed = (!!onRerun && rows.some((r) => runShow(r) === 'failed' || runShow(r) === 'relaunched')) || (!!onStop && rows.some(isStoppable))
+  // 「停止全部运行中」：选了流程只停这条流程的（不看状态分段和搜索），正式产品按条件 POST /api/sop/runs/stop
+  const allLive = runs.filter((r) => isStoppable(r) && (!sopF || r.sop_id === sopF))
+  const sopName = sopF ? sopOptions.find((o) => o.value === sopF)?.label ?? '这条流程' : ''
+  const doStop = (ids: string[]) => {
+    const r = onStop!(ids)
+    setStopping(null)
+    setSel(new Set())
+    setNote(stopNote(r))
+  }
   const retryOne = (r: SopRun) => {
     const a: RerunAction = flowChanged(r) ? 'relaunch' : 'retry'
     setNote(rerunNote(a, onRerun!([r.id], a)))
@@ -244,10 +358,16 @@ function RunList({ runs, view, onOpen, sops, initialSop, onRerun }: {
     const a = flowChanged(r) ? '重跑' : '重试'
     return (
       <div key={r.id} className={cls('run-pick', !picking && 'run-nopick', sel.has(r.id) && 'picked')}>
-        {picking && <input type="checkbox" className="run-pick-box" checked={sel.has(r.id)} aria-label={`选中 ${r.title}`} onChange={() => togglePick(r.id)} />}
+        {picking && (pickable(r)
+          ? <input type="checkbox" className="run-pick-box" checked={sel.has(r.id)} aria-label={`选中 ${r.title}`} onChange={() => togglePick(r.id)} />
+          : <span className="run-pick-box run-pick-none" aria-hidden="true" />)}
         <RunRow r={r} onOpen={onOpen} showSop />
         {hasFailed && (
           <span className="run-act">
+            {onStop && isStoppable(r) && (
+              <button className="act act-danger-quiet" aria-label={`停止 ${r.title}`} title="停止这条执行：排队的步骤出队，正在调模型的请求取消，已建出的任务不撤回"
+                onClick={() => setStopping({ ids: [r.id], title: '停止这条执行', what: r.title })}>停止</button>
+            )}
             {runShow(r) === 'failed' && (
               <button className="act" aria-label={`${a} ${r.title}`} onClick={() => retryOne(r)}
                 title={a === '重试' ? '在原执行里从失败的那一步接着跑，已完成的步骤不重做' : '流程发起后改过：用原来的输入按流程现在的定义新起一条执行，原执行标成「已重跑」移出失败'}>{a}</button>
@@ -263,7 +383,7 @@ function RunList({ runs, view, onOpen, sops, initialSop, onRerun }: {
   }
   return (
     <div className="page page-fill">
-      <PageTitle parent="SOP" count={rows.length} desc={view === 'waiting' ? '这些执行停下来等你：检查输出、确认输入，或处理失败的步骤' : '每一步都留着输入和输出，点进去可以逐步查看'}>{view === 'waiting' ? '待我处理' : '执行记录'}</PageTitle>
+      <PageTitle parent="SOP" count={rows.length + stage.length} desc={view === 'waiting' ? '这些执行停下来等你：检查输出、确认输入，或处理失败的步骤' : '每一步都留着输入和输出，点进去可以逐步查看'}>{view === 'waiting' ? '待我处理' : '执行记录'}</PageTitle>
       <div className="toolbar">
         {view === 'runs' && (
           <div className="seg">
@@ -276,6 +396,11 @@ function RunList({ runs, view, onOpen, sops, initialSop, onRerun }: {
         )}
         <SearchSelect value={sopF} onChange={setSopF} noneLabel="全部流程" searchPlaceholder="搜流程" options={sopOptions} missingLabel={() => '已删除的流程'} />
         <span className="spacer" />
+        {onStop && allLive.length > 0 && (
+          <button className="act act-danger-quiet" title={sopF ? '停止这条流程全部执行中、等你处理的执行' : '停止全部执行中、等你处理的执行'}
+            onClick={() => setStopping({ ids: allLive.map((r) => r.id), title: `停止${sopF ? `流程「${sopName}」` : '全部流程'}运行中的执行`,
+              what: `${sopF ? `流程「${sopName}」` : '全部流程'}现在有 ${allLive.length} 条执行中或等你处理的执行，会全部停止` })}>停止全部运行中</button>
+        )}
         <div className="search">
           <svg viewBox="0 0 16 16" width="14" height="14"><circle cx="7" cy="7" r="4.5" fill="none" stroke="currentColor" strokeWidth="1.5" /><path d="M10.5 10.5 14 14" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" /></svg>
           <input placeholder="搜索执行标题、流程名" value={q} onChange={(e) => setQ(e.target.value)} />
@@ -287,7 +412,7 @@ function RunList({ runs, view, onOpen, sops, initialSop, onRerun }: {
           <button className="act act-quiet" onClick={() => setNote(null)}>知道了</button>
         </div>
       )}
-      {!rows.length ? (
+      {!rows.length && !stage.length ? (
         <div className="empty">
           <div className="empty-title">{filtered ? '没有匹配的执行记录' : view === 'waiting' ? '没有等你处理的执行' : '没有执行记录'}</div>
           <div className="list-sub">{filtered ? '换个筛选条件试试' : view === 'waiting' ? '检查点都处理完了' : '从流程库里选一个标准流程开始执行'}</div>
@@ -297,7 +422,7 @@ function RunList({ runs, view, onOpen, sops, initialSop, onRerun }: {
           {picking || hasFailed ? (
             <div className={cls('run-pick run-pick-th', !picking && 'run-nopick')}>
               {picking && (
-                <input type="checkbox" className="run-pick-box" checked={allPicked} aria-label={`全选当前筛选结果（最多 ${RERUN_MAX} 条）`}
+                <input type="checkbox" className="run-pick-box" checked={allPicked} aria-label={`全选当前筛选结果${pickMode === 'stop' ? '里能停的' : ''}（最多 ${RERUN_MAX} 条）`}
                   ref={(el) => { if (el) el.indeterminate = picked.length > 0 && !allPicked }}
                   onChange={() => (allPicked ? setSel(new Set()) : pickAll())} />
               )}
@@ -316,19 +441,46 @@ function RunList({ runs, view, onOpen, sops, initialSop, onRerun }: {
               </div>
             )
           })}
+          {stage.length > 0 && (
+            <div role="group" aria-label="停在等人阶段的任务">
+              <ListSegHead label="停在等人阶段的任务" n={stage.length} open={!closed.has('stage')} onToggle={() => toggle('stage')} />
+              {!closed.has('stage') && stage.map((x) => {
+                // 列同执行行：任务、阶段、动作、更新时间；sub 是「阶段 · 等什么」
+                const [stg, why] = x.sub.split(' · ')
+                const row = (
+                  <button key={x.id} className="run-row" title={`${x.action}：打开任务的流水线`} onClick={x.onClick}>
+                    <span className="run-name">
+                      <span className="ellipsis" title={x.title}>{x.title}</span>
+                      <span className="run-sop ellipsis">任务 · {why ?? ''}</span>
+                    </span>
+                    <span><Pill label={stg} color={x.tone === 'danger' ? '#c0352b' : '#b0570b'} /></span>
+                    <span className="run-muted">{x.action}</span>
+                    <span className="run-muted">{x.at ? timeAgo(x.at) : ''}</span>
+                    <span className="run-muted" />
+                  </button>
+                )
+                return hasFailed ? <div key={x.id} className="run-pick run-nopick">{row}<span className="run-act" /></div> : row
+              })}
+            </div>
+          )}
         </div>
       )}
       {picked.length > 0 && (
-        <div className="run-bulk" role="toolbar" aria-label="批量重跑">
+        <div className="run-bulk" role="toolbar" aria-label={pickMode === 'stop' ? '批量停止' : '批量重跑'}>
           <b>已选 {picked.length} 条</b>
           {picked.length < allN && <button className="act act-quiet" onClick={pickAll}>全选当前筛选结果 {allN} 条</button>}
           {ordered.length > RERUN_MAX && picked.length >= RERUN_MAX && (
-            <span className="list-sub" role="note">当前筛选结果有 {ordered.length} 条，一次最多重跑 {RERUN_MAX} 条，已选列表里的前 {RERUN_MAX} 条</span>
+            <span className="list-sub" role="note">当前筛选结果有 {ordered.length} 条，一次最多{pickMode === 'stop' ? '停止' : '重跑'} {RERUN_MAX} 条，已选列表里的前 {RERUN_MAX} 条</span>
           )}
           <span className="spacer" />
-          <button className="act act-primary" onClick={() => setConfirming(true)}>批量重跑</button>
+          {pickMode === 'stop'
+            ? <button className="act act-danger" onClick={() => setStopping({ ids: picked.slice(0, RERUN_MAX).map((x) => x.id), title: `停止勾选的 ${Math.min(picked.length, RERUN_MAX)} 条执行` })}>批量停止</button>
+            : <button className="act act-primary" onClick={() => setConfirming(true)}>批量重跑</button>}
           <button className="act act-quiet" onClick={() => setSel(new Set())}>取消选择</button>
         </div>
+      )}
+      {stopping && onStop && (
+        <StopDialog title={stopping.title} what={stopping.what} n={stopping.ids.length} onCancel={() => setStopping(null)} onConfirm={() => doStop(stopping.ids)} />
       )}
       {confirming && onRerun && (
         <RerunDialog runs={picked.slice(0, RERUN_MAX)} onCancel={() => setConfirming(false)}
@@ -347,9 +499,18 @@ function RunList({ runs, view, onOpen, sops, initialSop, onRerun }: {
 
 type LibFilter = '' | 'pending' | 'never'
 
-function SopLibraryPage({ sops, runs, onOpen, onNew }: { sops: Sop[]; runs: SopRun[]; onOpen?: (id: string) => void; onNew?: () => void }) {
+/**
+ * 流程库（SPEC-sop-2）。文件夹（TSK-0482，SPEC-sop-2.15 到 2.22）：只有一级；顶部一行文件夹筛选，写法同文档顶栏的分类筛选
+ * （fchip「名字 + 数量」，点选、再点回到全部）；「+」新建、选中一个文件夹后铅笔进行内改名 / 删除（同交易自选组的组管理）；
+ * 删非空文件夹先确认，里面的流程回「未分类」；搜索不分文件夹；卡片右下角的文件夹名点开移到别的文件夹
+ */
+function SopLibraryPage({ sops, runs, onOpen, onNew, onChange }: { sops: Sop[]; runs: SopRun[]; onOpen?: (id: string) => void; onNew?: () => void; onChange?: () => void }) {
   const [q, setQ] = useState('')
   const [f, setF] = useState<LibFilter>('')
+  // 文件夹筛选：'' 全部，'none' 未分类，其余是文件夹 id
+  const [folder, setFolder] = useState('')
+  const [, setTick] = useState(0)
+  const changed = () => { setTick((n) => n + 1); onChange?.() }
   const last = useMemo(() => lastRunAt(runs), [runs])
   const stat = useMemo(() => {
     const m = new Map<string, { n: number; pending: number }>()
@@ -361,16 +522,22 @@ function SopLibraryPage({ sops, runs, onOpen, onNew }: { sops: Sop[]; runs: SopR
     }
     return m
   }, [runs])
+  const folders = SOP_FOLDERS
+  const cur = folders.find((x) => x.id === folder)
+  const key = folder && folder !== 'none' && !cur ? '' : folder
+  const inFolder = (s: Sop, k: string) => !k || (k === 'none' ? !folderOf(s) : folderOf(s) === k)
+  const nameOf = (s: Sop) => folders.find((x) => x.id === folderOf(s))?.name ?? ''
   const pass = (s: Sop, k: LibFilter) => !k || (k === 'pending' ? (stat.get(s.id)?.pending ?? 0) > 0 : !last.has(s.id))
   const kw = q.trim().toLowerCase()
   const triggers = useEnum('sop_trigger')
-  // 有待处理的在前，其余按最近执行时间，没执行过的按名字排在最后
-  const rows = sops.filter((s) => pass(s, f) && (!kw || `${s.name} ${s.desc} ${triggerLabel(triggers, s.trigger)}`.toLowerCase().includes(kw)))
+  // 有待处理的在前，其余按最近执行时间，没执行过的按名字排在最后；搜索时不看文件夹，文件夹名也能搜到
+  const rows = sops.filter((s) => pass(s, f) && (kw ? `${s.name} ${s.desc} ${triggerLabel(triggers, s.trigger)} ${nameOf(s)}`.toLowerCase().includes(kw) : inFolder(s, key)))
     .sort((a, b) => Number((stat.get(b.id)?.pending ?? 0) > 0) - Number((stat.get(a.id)?.pending ?? 0) > 0) || (last.get(b.id) ?? 0) - (last.get(a.id) ?? 0) || a.name.localeCompare(b.name))
+  const newHere = () => { newSopFolder.id = cur?.id ?? null; onNew?.() }
   return (
     <div className="page page-fill">
       <PageTitle parent="SOP" count={sops.length} desc="全部标准流程；有执行停下来等你的排在前面" actions={onNew && (
-        <button className="btn btn-primary" onClick={onNew}>
+        <button className="btn btn-primary" onClick={newHere}>
           <svg viewBox="0 0 16 16" width="12" height="12"><path d="M8 3v10M3 8h10" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" /></svg>
           新建 SOP
         </button>
@@ -378,29 +545,35 @@ function SopLibraryPage({ sops, runs, onOpen, onNew }: { sops: Sop[]; runs: SopR
       <div className="toolbar">
         <div className="seg">
           {([['', '全部'], ['pending', '有待处理'], ['never', '没执行过']] as [LibFilter, string][]).map(([k, l]) => (
-            <button key={k} className={cls(f === k && 'on')} onClick={() => setF(k)}>{l}<span className="seg-n">{sops.filter((s) => pass(s, k)).length}</span></button>
+            <button key={k} className={cls(f === k && 'on')} onClick={() => setF(k)}>{l}<span className="seg-n">{sops.filter((s) => pass(s, k) && (!!kw || inFolder(s, key))).length}</span></button>
           ))}
         </div>
         <span className="spacer" />
         <div className="search">
           <svg viewBox="0 0 16 16" width="14" height="14"><circle cx="7" cy="7" r="4.5" fill="none" stroke="currentColor" strokeWidth="1.5" /><path d="M10.5 10.5 14 14" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" /></svg>
-          <input placeholder="搜索流程名、说明、触发方式" value={q} onChange={(e) => setQ(e.target.value)} />
+          <input placeholder="搜索流程名、说明、触发方式、文件夹" value={q} onChange={(e) => setQ(e.target.value)} />
         </div>
       </div>
+      <FolderBar sops={sops} current={key} searching={!!kw} onPick={setFolder} onChange={changed} />
       {!rows.length ? (
         <div className="empty">
-          <div className="empty-title">{kw || f ? '没有匹配的流程' : '还没有标准流程'}</div>
-          <div className="list-sub">{kw || f ? '换个筛选条件试试' : '把反复做的事情编排成 SOP，每次按同样的步骤执行'}</div>
+          <div className="empty-title">{kw || f ? '没有匹配的流程' : key ? '这个文件夹里还没有流程' : '还没有标准流程'}</div>
+          <div className="list-sub">{kw || f ? '换个筛选条件试试' : key ? '在别的文件夹的卡片上点文件夹名移过来，或在这里新建' : '把反复做的事情编排成 SOP，每次按同样的步骤执行'}</div>
         </div>
       ) : (
         <div className="sop-lib-grid">
           {rows.map((s) => {
             const x = stat.get(s.id)
             const at = last.get(s.id)
+            const fid = folderOf(s)
+            // 定时触发的卡片下面接一行规则、下次执行和启停（TSK-0463）；开关不能放进按钮里，挂在卡片外面。移到文件夹（TSK-0482）同理
             return (
-              <button key={s.id} className="sop-lib-card" disabled={!onOpen} onClick={() => onOpen?.(s.id)}>
+              <div key={s.id} className="sop-lib-cell">
+              <div className="sop-lib-main">
+              <button className={cls('sop-lib-card', folders.length > 0 && 'with-folder')} disabled={!onOpen} onClick={() => onOpen?.(s.id)}>
                 <span className="sop-lib-head">
                   <span className="sop-lib-name ellipsis" title={s.name}>{s.name}</span>
+                  {sentenceSteps(s).length > 0 && <span className="sop-lib-pending sop-lib-broken" title={`${sentenceSteps(s).map((d) => `「${d.name}」`).join('、')}的条件是一句话，执行到这里会失败，点进去看怎么改`}>需修复</span>}
                   {!!x?.pending && <span className="sop-lib-pending">{x.pending} 个待处理</span>}
                 </span>
                 <span className="sop-lib-desc" title={s.desc}>{s.desc || '没有说明'}</span>
@@ -410,11 +583,87 @@ function SopLibraryPage({ sops, runs, onOpen, onNew }: { sops: Sop[]; runs: SopR
                   {at && <span>{timeAgo(iso(at))}执行</span>}
                 </span>
               </button>
+              {folders.length > 0 && (
+                <SearchSelect variant="plain" className={cls('sop-lib-move', !fid && 'none')} value={fid ?? ''} noneLabel={UNCATEGORIZED} placeholder={UNCATEGORIZED}
+                  searchPlaceholder="搜文件夹" align="end" aria-label={`「${s.name}」移到文件夹`} title="移到文件夹"
+                  options={folders.map((d) => ({ value: d.id, label: d.name }))}
+                  onChange={(v) => { if ((v || null) !== fid) { moveSops([s.id], v || null); changed() } }} />
+              )}
+              </div>
+              <SchedLine sop={s} className="sop-lib-sched" />
+              <IMLine sop={s} className="sop-lib-sched" />
+              </div>
             )
           })}
         </div>
       )}
     </div>
+  )
+}
+
+/** 文件夹一行（SPEC-sop-2.15 到 2.19）：全部、各文件夹、未分类（各带数量，按全部流程算），后面是新建和改名 / 删除当前文件夹 */
+function FolderBar({ sops, current, searching, onPick, onChange }: { sops: Sop[]; current: string; searching: boolean; onPick: (k: string) => void; onChange: () => void }) {
+  const [edit, setEdit] = useState<{ id: string; name: string } | null>(null)
+  const [ask, setAsk] = useState(false)
+  const folders = SOP_FOLDERS
+  const cur = folders.find((x) => x.id === current)
+  const count = (k: string) => sops.filter((s) => (k === 'none' ? !folderOf(s) : folderOf(s) === k)).length
+  const issue = edit ? folderNameError(edit.name, edit.id === 'new' ? undefined : edit.id) : ''
+  const commit = () => {
+    if (!edit || issue) return
+    if (edit.id === 'new') onPick(addFolder(edit.name).id)
+    else renameFolder(edit.id, edit.name)
+    setEdit(null)
+    onChange()
+  }
+  const remove = () => {
+    if (!cur) return
+    removeFolder(cur.id)
+    setAsk(false); setEdit(null); onPick(''); onChange()
+  }
+  const plus = <svg viewBox="0 0 16 16" width="12" height="12"><path d="M8 3v10M3 8h10" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" /></svg>
+  return (
+    <>
+      <div className={cls('sop-folders', searching && 'searching')} role="group" aria-label="按文件夹筛选">
+        {folders.length > 0 && (
+          <>
+            <button className={cls('fchip', !current && 'on')} onClick={() => onPick('')}>全部<span className="seg-n">{sops.length}</span></button>
+            {[...folders.map((x) => ({ key: x.id, label: x.name })), { key: 'none', label: UNCATEGORIZED }].map((c) => (
+              <button key={c.key} className={cls('fchip', current === c.key && 'on')} title={c.key === 'none' ? '没放进文件夹的流程' : c.label}
+                onClick={() => onPick(current === c.key ? '' : c.key)}>
+                <span className="sop-folder-name">{c.label}</span><span className="seg-n">{count(c.key)}</span>
+              </button>
+            ))}
+          </>
+        )}
+        <button className="icon-btn icon-btn-sm" title="新建文件夹" aria-label="新建文件夹" onClick={() => { setAsk(false); setEdit({ id: 'new', name: '' }) }}>{plus}</button>
+        {!folders.length && <button className="sop-folder-hint" onClick={() => setEdit({ id: 'new', name: '' })}>新建文件夹，给流程分类</button>}
+        {cur && (
+          <button className="icon-btn icon-btn-sm" title={`改名或删除「${cur.name}」`} aria-label={`改名或删除「${cur.name}」`} onClick={() => { setAsk(false); setEdit({ id: cur.id, name: cur.name }) }}>
+            <svg viewBox="0 0 16 16" width="12" height="12"><path d="M3 13h2.5L13 5.5 10.5 3 3 10.5V13Z" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" /></svg>
+          </button>
+        )}
+        {searching && folders.length > 0 && <span className="sop-folder-note">搜索时在全部文件夹里找</span>}
+      </div>
+      {edit && !ask && (
+        <div className="sop-folder-edit">
+          <input autoFocus value={edit.name} placeholder="文件夹名称" aria-label="文件夹名称" onChange={(e) => setEdit({ ...edit, name: e.target.value })}
+            onKeyDown={(e) => { if (e.key === 'Enter') commit(); if (e.key === 'Escape') setEdit(null) }} />
+          <button className="btn btn-primary btn-sm" disabled={!!issue} onClick={commit}>{edit.id === 'new' ? '新建' : '保存'}</button>
+          {edit.id !== 'new' && cur && <button className="btn btn-ghost btn-sm danger-text" onClick={() => (count(cur.id) ? setAsk(true) : remove())}>删除文件夹</button>}
+          <button className="btn btn-ghost btn-sm" onClick={() => setEdit(null)}>取消</button>
+          {edit.name.trim() && issue && <span className="sop-folder-err">{issue}</span>}
+        </div>
+      )}
+      {/* 删非空文件夹先确认（SPEC-sop-2.18）；正式产品是确认弹窗 */}
+      {ask && cur && (
+        <div className="sop-folder-edit sop-folder-ask" role="alertdialog" aria-label={`删除文件夹「${cur.name}」？`}>
+          <span><b>删除文件夹「{cur.name}」？</b>里面的 {count(cur.id)} 个流程移到「{UNCATEGORIZED}」，流程本身不删、不改。</span>
+          <button className="btn btn-ghost btn-sm" onClick={() => setAsk(false)}>取消</button>
+          <button className="btn btn-danger btn-sm" onClick={remove}>删除文件夹</button>
+        </div>
+      )}
+    </>
   )
 }
 
@@ -457,12 +706,24 @@ export function SopDetailPage({ sop, runs, onStart, onOpen, onEdit, onDelete, de
       </>}>{sop.name}</PageTitle>
       {/* 窄屏时确认条从标题行挪到这里，文字换行，按钮不会被挤出去 */}
       {confirmDel && <div className="sop-del-bar" role="alert"><span className="danger-text">{delText}</span><span className="act-row">{delActs}</span></div>}
+      {/* 条件是一句话的步骤（TSK-0498）：执行到就失败，进详情就写明是哪几步、怎么改 */}
+      {sentenceSteps(sop).length > 0 && (
+        <div className="insp-banner danger sop-broken" role="alert">
+          <div><b>需修复</b>{sentenceSteps(sop).length > 1 ? `有 ${sentenceSteps(sop).length} 个步骤的条件是一句话，执行到这些步骤会失败` : '有一个步骤的条件是一句话，执行到这一步会失败'}</div>
+          {sentenceSteps(sop).map((d) => <div key={d.key}>「{d.name}」：{ruleSentenceError(d.rule!, sop.trigger)}</div>)}
+          <div className="act-row"><button className="act act-primary" onClick={onEdit}>去改流程</button></div>
+        </div>
+      )}
       <div className="sop-facts sop-facts-top">
+        {/* 所在文件夹（TSK-0482，SPEC-sop-5.19）：有文件夹时才写 */}
+        {SOP_FOLDERS.length > 0 && <span>文件夹：{SOP_FOLDERS.find((x) => x.id === folderOf(sop))?.name ?? UNCATEGORIZED}</span>}
         <span>触发：{triggerLabel(triggers, sop.trigger)}</span>
         <span>{sop.steps.length} 个步骤</span>
         <span>{decides} 个分支节点</span>
         <span>{reviews} 个需要人处理的节点</span>
       </div>
+      <SchedLine sop={sop} className="sop-detail-sched" />
+      <IMLine sop={sop} className="sop-detail-sched" />
 
       <div className="section-label">流程</div>
       <div className="flow-card"><FlowGraph sop={sop} /></div>
@@ -679,10 +940,12 @@ export function DataView({ data }: { data: Json }) {
 
 type Tab = 'input' | 'output' | 'log'
 
-function Inspector({ run, index, onAct, onOpenSettings }: { run: SopRun; index: number; onAct: (a: RunAction) => void; onOpenSettings?: () => void }) {
+function Inspector({ run, index, onAct, onOpenSettings, onEditFlow, onRerun }: { run: SopRun; index: number; onAct: (a: RunAction) => void; onOpenSettings?: () => void; onEditFlow?: () => void; onRerun?: () => void }) {
   const sop = run.sop
   const def = sop.steps[index]
   const step: RunStep = run.steps[index]
+  // 条件是一句话导致的失败（TSK-0498）：在原执行里重试会原样再失败，换成「去改流程」，改完按最新流程重新发起
+  const sentence = (def.kind === 'decide' || def.kind === 'loopback') && !def.decide && ruleIsSentence(def.rule)
   const manualDecide = isManualDecide(def)
   const defaultTab: Tab = step.status === 'paused' || step.status === 'failed' || step.status === 'running' || (manualDecide && step.status === 'review') ? 'input' : step.output ? 'output' : 'input'
   const [tab, setTab] = useState<Tab>(defaultTab)
@@ -820,7 +1083,16 @@ function Inspector({ run, index, onAct, onOpenSettings }: { run: SopRun; index: 
         <div className="insp-banner danger">
           <b>执行失败</b>{step.error}
           {/* 已按最新流程重跑过的不能再重试、跳过（SPEC-sop-7.43） */}
-          {run.relaunched_to ? <div>这次执行已按最新流程重跑，不能再重试或跳过，到新执行里处理</div> : (
+          {run.relaunched_to ? <div>这次执行已按最新流程重跑，不能再重试或跳过，到新执行里处理</div> : sentence ? (
+            <>
+              <div>原样重试还会失败。先改流程里这一步的条件，再按最新流程重新发起这条执行；不想等可以先跳过这一步。</div>
+              <div className="act-row">
+                {onEditFlow && <button className="act act-primary" onClick={onEditFlow}>去改流程</button>}
+                {onRerun && <button className="act" onClick={onRerun}>按最新流程重新发起</button>}
+                <button className="act act-quiet" onClick={() => onAct({ kind: 'skip', step: index })}>跳过这一步</button>
+              </div>
+            </>
+          ) : (
             <div className="act-row">
               <button className="act act-primary" onClick={() => onAct({ kind: 'retry', step: index })}>重试</button>
               <button className="act act-quiet" onClick={() => onAct({ kind: 'skip', step: index })}>跳过这一步</button>
@@ -903,7 +1175,7 @@ function Inspector({ run, index, onAct, onOpenSettings }: { run: SopRun; index: 
   )
 }
 
-export function SopRunView({ run, onBack, onAct, onRerun, onOpenSettings, onOpenRun }: {
+export function SopRunView({ run, onBack, onAct, onRerun, onOpenSettings, onOpenRun, onEditFlow }: {
   run: SopRun
   onBack: () => void
   onAct: (a: RunAction) => void
@@ -912,6 +1184,8 @@ export function SopRunView({ run, onBack, onAct, onRerun, onOpenSettings, onOpen
   onOpenSettings?: () => void
   /** 批量重跑新发起的执行点「重跑自原执行」打开原执行（SPEC-sop-7.40） */
   onOpenRun?: (id: string) => void
+  /** 条件是一句话导致的失败（TSK-0498）点「去改流程」打开这条流程的编辑 */
+  onEditFlow?: () => void
 }) {
   const sop = run.sop
   const st = runShow(run)
@@ -957,7 +1231,7 @@ export function SopRunView({ run, onBack, onAct, onRerun, onOpenSettings, onOpen
       <div className="run-flow">
         <FlowGraph sop={sop} run={run} selected={index} onSelect={(i) => setPicked(i === focus ? null : i)} />
       </div>
-      <Inspector key={index} run={run} index={index} onAct={act} onOpenSettings={onOpenSettings} />
+      <Inspector key={index} run={run} index={index} onAct={act} onOpenSettings={onOpenSettings} onEditFlow={onEditFlow} onRerun={onRerun} />
     </div>
   )
 }

@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 视频的选题一步和稿件正文（VID-09b，接口是 VID-09a）。契约见 docs/api-contract.md「选题一步和稿件正文（VID-09a）」。
 // 挂、换、摘选题回 {video, topic}；正文按版本取，写成功回 {artifact, content}。写操作先把回来的数据换进缓存，再刷整个 video 前缀
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'

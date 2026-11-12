@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 「挂载」下拉，照原型 web-next/src/agents.tsx MountPicker（SPEC-settings-9.13、9.21）：
 // 列出还没挂的项，点一个挂上、下拉关闭；超过 8 个时顶部能搜（回车挑第一个，Esc 关闭）；传了 group 就按它分组。
 import { Fragment, useEffect, useRef, useState, type ReactNode } from 'react'

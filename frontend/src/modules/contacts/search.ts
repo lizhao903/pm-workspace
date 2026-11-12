@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 命令面板「联系人」组（A-01、SPEC-contacts-0）：按姓名、电话、邮箱、IM 编号搜，公司和职位跟原型一样也算；
 // 回车去联系人页打开抽屉（?c=<id>）
 import { fetchContacts, fetchIdentities, type Contact, type Identity } from '../../core/data'

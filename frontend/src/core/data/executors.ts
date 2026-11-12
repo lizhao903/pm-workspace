@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { request, requestList } from '../api'
 

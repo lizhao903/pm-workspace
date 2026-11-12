@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 策略与回测（TRD-04c，SPEC-strategy-1 到 7）：二级菜单 + 策略库（默认）、编辑页、回测记录（含对比）、回测报告。
 // 路由挂在 strategy/* 下：/strategy 策略库，/strategy/s/<id> 编辑页，/strategy/backtests 回测记录，/strategy/backtests/<id> 回测报告，/strategy/runs 运行记录。
 // 回测只在后端跑（排队、取真实历史 K 线、落库），这里只发起和展示；进度靠轮询（core/data/tradeStrategy.ts）。

@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 技能抽屉，照原型 web-next/src/kbskills.tsx SkillDrawer（SPEC-settings-16）。新建、复制、查看、编辑共用。
 // 内置和插件的技能只读，只能「复制一份来改」；复制出来的是还没保存的新技能，点「创建」才带 copy_from 落库。
 // 和原型不同的地方：删除确认用确认弹窗，弹窗里列出挂着它的 Agent。

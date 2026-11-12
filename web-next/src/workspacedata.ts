@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 工作台：一套菜单配置——开哪些功能模块、怎么分组、什么顺序、默认打开哪个。数据所有工作台共用，切工作台只换菜单
 // 设置不算模块，总在左下角
 // groups 是唯一的来源；modules 是按分组顺序摊平的启用列表，跟着 groups 算出来，方便各处直接用

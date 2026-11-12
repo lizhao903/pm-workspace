@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // Package incident 是运行异常（INC-01a，0043，规格 SPEC-settings-18、19）：系统运行中出的问题集中记一份，
 // 同一个问题按指纹合并只累加次数；能转成研发任务，定时任务的「运行异常巡检」把要修的建成给 Claude Code 修的任务。
 //

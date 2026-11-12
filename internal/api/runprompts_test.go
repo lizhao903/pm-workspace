@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 package api
 
 import (
@@ -189,14 +191,14 @@ func TestMarkDoingRules(t *testing.T) {
 			t.Fatal(err)
 		}
 		o, _ := f.GetObject(t.Context(), task.ID)
-		s.markDoing(t.Context(), httptest.NewRequest("POST", "/", nil), o)
+		s.markDoing(t.Context(), httptest.NewRequest("POST", "/", nil), o, runExecutor{})
 		if o, _ = f.GetObject(t.Context(), task.ID); o.Status != want {
 			t.Errorf("%s 交出后应是 %s，得到 %s", from, want, o.Status)
 		}
 	}
 	// 不是任务的不动
 	prj, _ := f.GetObject(t.Context(), *task.ProjectID)
-	s.markDoing(t.Context(), httptest.NewRequest("POST", "/", nil), prj)
+	s.markDoing(t.Context(), httptest.NewRequest("POST", "/", nil), prj, runExecutor{})
 	if p, _ := f.GetObject(t.Context(), prj.ID); p.Status == "doing" {
 		t.Error("项目不该被改成进行中")
 	}
@@ -206,7 +208,7 @@ func TestPromptHasIMSource(t *testing.T) {
 	s, f, task, _ := terminalFixture(t)
 	f.mu.Lock()
 	f.objs[task.ID].Props = map[string]any{domain.PropSourceRef: map[string]any{
-		"message_id": "imm_1", "channel": "slack", "conversation": "octok-产品", "sender": "Lucy", "text": "对话框图片能点开放大吗", "reply_on_done": true}}
+		"message_id": "imm_1", "channel": "slack", "conversation": "acme-产品", "sender": "Lucy", "text": "对话框图片能点开放大吗", "reply_on_done": true}}
 	f.mu.Unlock()
 	p := decodeEnvelope(t, do(s, "GET", "/api/objects/"+task.ID+"/run/prompt", ""))["data"].(map[string]any)["prompt"].(string)
 	for _, want := range []string{"## 来源消息", "Lucy", "对话框图片能点开放大吗", "工作台会把这次执行的结论回复到这条消息里"} {

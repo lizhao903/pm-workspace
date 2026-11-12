@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // IM 会话（CT-02，PJ-02b 起前端用）：内核的 /api/conversations，群聊和私聊各有稳定 id。契约见 docs/api-contract.md「会话 conversations」。
 // 项目绑定会话时从这里挑。会话由 IM 插件收消息时登记（PR-02）；绑私聊时联系人还没有私聊会话的，按 IM 身份建一个（directFor）。
 import { useQuery } from '@tanstack/react-query'

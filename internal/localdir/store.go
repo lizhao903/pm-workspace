@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // Package localdir 读写文档的本机目录挂载（DOC-01a，0025）。
 // 只存挂载（路径、名称、顺序），文件内容不进库，读的时候走 fsbrowse，边界和 /api/fs 同一套。
 package localdir

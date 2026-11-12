@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 import { defineConfig } from 'vitest/config'
 
 // Vitest 配置：FE-02a 接入最小版本，QA-01 补组件测试。

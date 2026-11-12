@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -35,7 +37,7 @@ function fakeBackend(opts: { platforms?: VideoPlatformInfo[]; submitFails?: bool
   const snaps: Record<string, unknown[]> = {}
   const tests: VideoCoverTest[] = []
   const covers = [cover('vaf_1', 1), cover('vaf_2', 2), cover('vaf_3', 3)]
-  const accounts = [acc('pa_m', '常乐主号', 'main'), acc('pa_a', '常乐 A 号', 'ab')]
+  const accounts = [acc('pa_m', '周七主号', 'main'), acc('pa_a', '周七 A 号', 'ab')]
   let seq = 0
   const json = (data: unknown, status = 200, meta?: unknown) => new Response(JSON.stringify(status < 300 ? { data, meta } : data), { status })
   const err = (status: number, code: string, message: string) => json({ error: { code, message } }, status)
@@ -133,9 +135,9 @@ describe('发布记录', () => {
     await user.click(screen.getByRole('button', { name: /新建发布/ }))
     const d = screen.getByRole('dialog', { name: '新建发布' })
     await user.click(within(d).getByRole('radio', { name: /^视频号/ }))
-    expect(within(d).getByRole('radio', { name: /常乐主号/ })).toHaveAttribute('aria-checked', 'true')
+    expect(within(d).getByRole('radio', { name: /周七主号/ })).toHaveAttribute('aria-checked', 'true')
     expect(within(d).getByText(/视频号不开放发布接口，只能登记/)).toBeInTheDocument()
-    await user.click(within(d).getByRole('radio', { name: /常乐 A 号/ }))
+    await user.click(within(d).getByRole('radio', { name: /周七 A 号/ }))
     await user.click(within(d).getByRole('button', { name: '封面 2 · 9:16' }))
     const title = within(d).getByRole('textbox', { name: /标题/ })
     await user.clear(title)

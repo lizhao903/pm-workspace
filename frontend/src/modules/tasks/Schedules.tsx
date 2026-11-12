@@ -1,12 +1,15 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 定时任务列表（SPEC-tasks-7）：动作类型筛选、搜索、启用的按下次执行排、停用的沉到底部默认收起，行尾开关立刻启停。
-// SchedulesView 管列表、定时任务抽屉和从执行记录打开的任务抽屉；/tasks/schedules?open=<id> 直接打开某一条。
+// SchedulesView 管列表、定时任务抽屉和从执行记录打开的任务抽屉；/tasks/schedules?open=<id> 直接打开某一条，
+// ?project=<项目 id> 按项目筛，再带 new=1 是从项目详情「新建定时任务」进来：打开新建抽屉、预填所属项目。
 import { useState } from 'react'
 import { useSearchParams } from 'react-router'
 import {
-  errorText, isApiError, useLastScheduleRuns, useObject, usePatchSchedule, useSchedules, useVideoPlatforms, useVideoPublishes,
+  errorText, isApiError, useLastScheduleRuns, useObject, usePatchSchedule, useSchedules, useSopFlows, useVideoPlatforms, useVideoPublishes,
   type DictItem, type ObjectStatus, type Schedule, type ScheduleRun, type WorkObject,
 } from '../../core/data'
-import { Button, EmptyState, ErrorState, IconClose, IconSearch, ListSegHead, LoadingState, PageTitle, cls } from '../../core/ui'
+import { Button, EmptyState, ErrorState, IconClose, IconSearch, ListSegHead, LoadingState, PageTitle, SearchSelect, cls } from '../../core/ui'
 import { timeAgo } from './model'
 import { ScheduleDrawer } from './ScheduleDrawer'
 import { ACTION_KINDS, actionLabel, actionText, describeRule, fullRule, isPluginAction, matchSchedule, nextCellText, publishIdOf, type ActionNames } from './scheduleModel'
@@ -26,9 +29,10 @@ export function SchedulesView({ statuses, priorities, projects }: {
 }) {
   const [params] = useSearchParams()
   const list = useSchedules()
+  const linkProject = params.get('project') ?? ''
   const [opened, setOpened] = useState<Opened | null>(() => {
     const id = params.get('open')
-    return id ? { kind: 'schedule', id } : null
+    return id ? { kind: 'schedule', id } : params.get('new') ? { kind: 'new' } : null
   })
   // 从执行记录打开的任务；关掉后回到原来的定时任务抽屉
   const [taskId, setTaskId] = useState<string | null>(null)
@@ -40,15 +44,15 @@ export function SchedulesView({ statuses, priorities, projects }: {
   return (
     <>
       <SchedulesPage schedules={rows} loading={list.isPending} error={list.isError ? list.error : undefined}
-        onRetry={() => void list.refetch()} selected={sel}
+        onRetry={() => void list.refetch()} selected={sel} projects={projects} initProject={linkProject}
         onOpen={(id) => setOpened({ kind: 'schedule', id })} onNew={() => setOpened({ kind: 'new' })} />
       {!taskId && opened?.kind === 'new' && (
-        <ScheduleDrawer key="new" schedule={null} onClose={() => setOpened(null)}
+        <ScheduleDrawer key="new" schedule={null} projects={projects} initProjectId={linkProject} onClose={() => setOpened(null)}
           onCreated={(s) => setOpened({ kind: 'schedule', id: s.id, fallback: s })} />
       )}
       {!taskId && openSchedule && (
         // 换一条就重新挂载，表单从这条的值重新开始
-        <ScheduleDrawer key={openSchedule.id} schedule={openSchedule} onClose={() => setOpened(null)}
+        <ScheduleDrawer key={openSchedule.id} schedule={openSchedule} projects={projects} onClose={() => setOpened(null)}
           onCreated={() => undefined} onOpenTask={setTaskId} />
       )}
       {/* ?open= 指向的定时任务不在列表里 */}
@@ -96,8 +100,15 @@ export function TaskById({ id, statuses, priorities, projects, onClose, back = '
   return null
 }
 
-export function SchedulesPage({ schedules, loading, error, onRetry, selected, onOpen, onNew, now: nowProp }: {
+// 项目筛选里「不属于项目」的值，和任务列表一致
+const NO_PROJECT = '-'
+
+export function SchedulesPage({ schedules, loading, error, onRetry, selected, onOpen, onNew, projects = [], initProject = '', now: nowProp }: {
   schedules: Schedule[]
+  /** type=project 的对象：项目筛选和名称旁的项目标签 */
+  projects?: readonly { id: string; title: string }[]
+  /** 进来时的项目筛选（?project=） */
+  initProject?: string
   loading?: boolean
   error?: unknown
   onRetry?: () => void
@@ -112,6 +123,8 @@ export function SchedulesPage({ schedules, loading, error, onRetry, selected, on
   const [q, setQ] = useState('')
   // 内核三种加上列表里出现的插件动作
   const [kind, setKind] = useState('')
+  const [proj, setProj] = useState(initProject)
+  const projName = (id: string) => projects.find((p) => p.id === id)?.title
   // 停用的沉到底部，默认收起
   const [offOpen, setOffOpen] = useState(false)
   const [toggleErr, setToggleErr] = useState('')
@@ -122,12 +135,19 @@ export function SchedulesPage({ schedules, loading, error, onRetry, selected, on
   const pubs = useVideoPublishes({ enabled: hasPub })
   const plats = useVideoPlatforms({ enabled: hasPub })
   const platLabel = (k: string) => plats.data?.find((x) => x.key === k)?.label ?? k
-  const names: ActionNames = pubs.data ? { publishes: Object.fromEntries(pubs.data.map((p) => [p.id, `${platLabel(p.platform)} · ${p.title || '未填标题'}`])) } : {}
+  // 有 SOP 动作时取流程名（TSK-0463）；SOP 插件没启用时取不到，显示编号
+  const hasSop = schedules.some((s) => s.action.kind === 'sop')
+  const flows = useSopFlows({ enabled: hasSop })
+  const names: ActionNames = {
+    ...(pubs.data ? { publishes: Object.fromEntries(pubs.data.map((p) => [p.id, `${platLabel(p.platform)} · ${p.title || '未填标题'}`])) } : {}),
+    ...(flows.data ? { flows: Object.fromEntries(flows.data.map((f) => [f.id, f.name])) } : {}),
+  }
   const kinds = [...ACTION_KINDS as string[], ...new Set(schedules.map((s) => s.action.kind as string).filter(isPluginAction))]
 
   const kw = q.trim()
   // 后端已按下次执行排好（早的在前，不再执行的在后），这里只筛不排
-  const hit = schedules.filter((s) => (!kind || s.action.kind === kind) && matchSchedule(s, kw, names))
+  const inProj = (s: Schedule) => !proj || (proj === NO_PROJECT ? !s.project_id : s.project_id === proj)
+  const hit = schedules.filter((s) => (!kind || s.action.kind === kind) && inProj(s) && matchSchedule(s, kw, names))
   const on = hit.filter((s) => s.enabled)
   const off = hit.filter((s) => !s.enabled)
   const offShown = offOpen || !!kw
@@ -149,7 +169,9 @@ export function SchedulesPage({ schedules, loading, error, onRetry, selected, on
         className={cls('sched-row', selected === s.id && 'sel', !s.enabled && 'is-off')}
         onClick={() => onOpen(s.id)}
         onKeyDown={(e) => { if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); onOpen(s.id) } }}>
-        <span className="task-main"><span className="task-title"><span className="ellipsis" title={s.name}>{s.name}</span></span></span>
+        <span className="task-main"><span className="task-title"><span className="ellipsis" title={s.name}>{s.name}</span>
+          {s.project_id && <span className="src-tag src-proj" title={projName(s.project_id)}>{projName(s.project_id) ?? '已删除的项目'}</span>}
+        </span></span>
         <span className="run-muted ellipsis">{describeRule(fullRule(s.rule, now))}</span>
         <span className="sched-action">
           <span className={`sched-kind sk-${s.action.kind}`}>{actionLabel(s.action.kind)}</span>
@@ -209,6 +231,9 @@ export function SchedulesPage({ schedules, loading, error, onRetry, selected, on
               </button>
             ))}
           </div>
+          <SearchSelect value={proj} onChange={setProj} noneLabel="全部项目" placeholder="全部项目" searchPlaceholder="搜项目" aria-label="项目"
+            options={[...projects.map((p) => ({ value: p.id, label: p.title })), { value: NO_PROJECT, label: '不属于项目' }]}
+            missingLabel={() => '已删除的项目'} />
           <span className="spacer" />
           <div className="search">
             <IconSearch />

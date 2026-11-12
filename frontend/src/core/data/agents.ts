@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // Agent 配置（AG-01b5）：列表、单个、新建、修改、删除和删除前的影响检查，列表卡片要的工具授权。
 // 契约见 docs/api-contract.md「Agent 配置 agents」「Agent 工具授权 agent-grants」。写完报 { kind: 'agent' }。
 import { useMutation, useQueries, useQuery } from '@tanstack/react-query'
@@ -62,7 +64,7 @@ export type AgentGrantMode = 'off' | 'confirm' | 'auto'
 /** grants 是 Agent 自己的授权，effective 是和连接器上限取小之后的实际档位 */
 export type AgentGrants = { agent_id: string; grants: Record<string, AgentGrantMode>; effective: Record<string, AgentGrantMode> }
 
-export type AgentRunStatus = 'running' | 'done' | 'waiting' | 'rejected' | 'failed'
+export type AgentRunStatus = 'running' | 'done' | 'waiting' | 'rejected' | 'failed' | 'canceled'
 /** 执行记录（AG-01b4）里列表卡片要的几项：等确认数、最近一次运行 */
 export type AgentRunBrief = { id: string; agent_id: string; status: AgentRunStatus | (string & {}); started_at: string; pending?: number }
 

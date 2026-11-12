@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 附件标签的纯函数（SPEC-projects-5）：把项目消息里的附件摊成行、判断去向、分段计数、筛选。
 // 去向三种：已加入资料（按资料 value 认，同 core/data attachmentAdded）、不加入（项目 props.skipped_attachments）、待决定。
 // 一个附件既加过资料又记着不加入时算已加入（加入时会清掉不加入记录，这里兜底）。

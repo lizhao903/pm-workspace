@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // Agent 配置的缓存键（AG-01b5）。单独一个文件，失效规则和 agents.ts 都从这里引，免得互相 import。
 // 前缀用 'agents'：会话和服务商在 agentKeys（'agent-sessions'、'agent-providers'）下，互不牵连。
 export const agentConfigKeys = {

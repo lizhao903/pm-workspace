@@ -51,3 +51,19 @@
 .run-mode { flex: none; padding: 0 6px; border-radius: 4px; border: 1px solid var(--line); color: var(--muted); font-size: var(--fs-2xs, 11px); line-height: 18px; }
 .run-mode.term { border-color: var(--accent); color: var(--accent); }
 .run-finish { display: flex; flex-direction: column; gap: var(--sp-4); }
+
+/* 执行器标签（0049、TSK-0460）：Claude Code 不标，别的执行器标出来 */
+.run-mode.agent { border-color: var(--ok); color: var(--ok); }
+.run-tool-sum { padding: 0 var(--sp-5) var(--sp-4); color: var(--muted); font-size: var(--fs-xs); overflow-wrap: anywhere; }
+.run-link { flex: none; padding: 0; border: 0; background: none; color: var(--accent); font-size: var(--fs-xs); cursor: pointer; }
+.run-link:hover { text-decoration: underline; }
+
+/* 工作台 Agent 要人确认的写操作（TSK-0460） */
+.run-ask { flex: none; display: flex; flex-direction: column; gap: var(--sp-3); padding: var(--sp-4) var(--sp-5); border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--panel); }
+.run-ask-pending { border-color: var(--warn); background: var(--warn-soft); }
+.run-ask-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--sp-3) var(--sp-4); font-size: var(--fs-sm); min-width: 0; }
+.run-ask-title { flex: 1 1 200px; min-width: 0; font-weight: 500; overflow-wrap: anywhere; }
+.run-ask-state { flex: none; font-size: var(--fs-xs); color: var(--muted); }
+.run-ask-pending .run-ask-state { color: var(--warn); font-weight: 500; }
+.run-ask-approved .run-ask-state { color: var(--ok); }
+.run-ask-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-3); }

@@ -1,11 +1,21 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { PageTitle } from './topbar'
 import { DataView, triggerLabel } from './sop'
-import { NODE_GROUPS, NODE_TYPES, KindIcon, KindTag, claudeTimeout, defaultConfig, evalRule, isBranching, loopRounds, missingFields, typeOf, type ConfigField, type FieldCtx } from './nodetypes'
-import { STEP_KIND, depsOf, stepLook, isManualDecide, ranks, upstreamOf, type Sop, type SopField, type SopRun, type SopStepDef, type StepKind } from './sopflow'
+import { NODE_GROUPS, NODE_TYPES, KindIcon, KindTag, claudeTimeout, defaultConfig, isBranching, loopRounds, missingFields, typeOf, type ConfigField, type FieldCtx } from './nodetypes'
+import { IM_RELEVANCES, IM_REL_LABEL, SOPS, SOP_FOLDERS, STEP_KIND, UNCATEGORIZED, folderOf, depsOf, emptyIM, imFilterText, imSops, stepLook, isManualDecide, ranks, upstreamOf, type Sop, type SopField, type SopIM, type SopRun, type SopStepDef, type StepKind } from './sopflow'
+import { SearchSelect } from './searchselect'
+import { IM_CONVERSATIONS } from './data'
 import { cls, timeAgo } from './ui'
 import { useEnum } from './enumdata'
 import { newId } from './ids'
+import { RuleFields } from './schedule'
+import { describeRule, emptyRule } from './scheduledata'
+import { CondEditor, FieldsList, blankCond, condProblems, condText, legacyCond, stepFields } from './sopcond'
+
+/** 新选「定时」时的默认规则：每天 09:00（TSK-0463） */
+const defaultSched = () => ({ rule: { ...emptyRule(), freq: 'daily' as const, time: '09:00' }, enabled: true })
 
 // 新建 / 编辑 SOP：编排画布。左边 AI 协助，中间画布（拖动节点、从节点右侧连线或点 + 加下一个节点），右边是选中节点的属性
 // AI 的每次改动都先作为「提案」出现在对话里，看过再点应用；应用过的可以撤销
@@ -37,11 +47,17 @@ export function checkSop(sop: Sop): Issue[] {
       // 条件回退（AUTO-02），同后端 checkLoopback：回退目标不是依赖，不算环，但必须是上游
       const t = s.config?.target?.trim()
       const j = sop.steps.findIndex((x) => x.key === t)
-      if (!s.rule?.trim()) out.push({ level: 'error', text: `「${s.name}」还没填回退条件`, step: i })
-      else if (evalRule(s.rule, {}) === null) out.push({ level: 'error', text: `「${s.name}」回退条件写法不对，要写成「字段 等于 值」或「字段 包含 值」`, step: i })
+      if (!s.cond && !s.rule?.trim()) out.push({ level: 'error', text: `「${s.name}」还没填回退条件`, step: i })
       if (t && j === i) out.push({ level: 'error', text: `「${s.name}」不能退回到自己`, step: i })
       else if (t && (j < 0 || !upstreamOf(sop, i).includes(j))) out.push({ level: 'error', text: `「${s.name}」只能退回到上游的步骤`, step: i })
       if (loopRounds(s.config?.max_rounds) === null) out.push({ level: 'error', text: `「${s.name}」最多退回几轮要是 1 到 10 的整数`, step: i })
+    }
+    // 条件（TSK-0490，同后端 declIssues）：结构化条件查写法；旧规则是一句话的拦，旧写法的提示转换
+    if (s.kind === 'decide' || s.kind === 'loopback') {
+      const rule = s.rule?.trim() ?? ''
+      if (s.cond) condProblems(s.cond).forEach((t) => out.push({ level: 'error', text: `「${s.name}」${t}`, step: i }))
+      else if (rule && !legacyCond(rule)) out.push({ level: 'error', text: `「${s.name}」的条件「${rule}」是一句话，程序没法照着判断：改成结构化条件（字段 + 运算符 + 值），这句话可以写进说明`, step: i })
+      else if (rule) out.push({ level: 'warn', text: `「${s.name}」的条件还是旧写法「${rule}」，执行仍按它判断；建议转成结构化条件`, step: i })
     }
     if (s.kind === 'claude_code' && claudeTimeout(s.config?.timeout) === null) out.push({ level: 'error', text: `「${s.name}」超时写法不对，要写成「30 分钟」「2 小时」这样，最多 24 小时`, step: i })
     if (s.branch && !sop.steps.some((x) => x.key === s.branch!.of && isBranching(x.kind))) out.push({ level: 'error', text: `「${s.name}」挂在一个不存在的判断上`, step: i })
@@ -519,7 +535,9 @@ function NodePanel({ draft, nodeKey, runs, sopList, tried, onChange, onPatchSop,
   onClose: () => void
 }) {
   const [tab, setTab] = useState<'set' | 'last'>('set')
-  useEffect(() => { setTab('set') }, [nodeKey])
+  // 最近编辑的文字配置项：「这一步能拿到的字段」点了往它末尾追加 {{路径}}（TSK-0490）
+  const [lastCfg, setLastCfg] = useState<string | null>(null)
+  useEffect(() => { setTab('set'); setLastCfg(null) }, [nodeKey])
   const s = draft.steps.find((x) => x.key === nodeKey)
   const kids = draft.steps.filter((x) => (nodeKey === START ? !(x.after ?? []).length : x.after?.includes(nodeKey)))
   const addBtn = (caseKey?: string) => (e: React.MouseEvent) => { const r = (e.currentTarget as HTMLElement).getBoundingClientRect(); onAddNext({ x: r.left - 300, y: r.top }, nodeKey, caseKey) }
@@ -552,13 +570,41 @@ function NodePanel({ draft, nodeKey, runs, sopList, tried, onChange, onPatchSop,
         {head('start', <span className="np-name-static">开始</span>)}
         <div className="np-body form">
           <div className="list-sub">执行时要填的内容，第一批节点拿它当输入。</div>
+          {/* 文件夹（TSK-0482，SPEC-sop-9.32）：流程库里按它分类，保存时一起存；文件夹在流程库里建 */}
+          <div className="field">
+            <span className="field-label">文件夹</span>
+            <SearchSelect variant="field" value={folderOf(draft) ?? ''} noneLabel={UNCATEGORIZED} placeholder={UNCATEGORIZED} searchPlaceholder="搜文件夹"
+              aria-label="文件夹" emptyText="还没有文件夹，在流程库里新建" options={SOP_FOLDERS.map((f) => ({ value: f.id, label: f.name }))}
+              onChange={(v) => onPatchSop({ folder_id: v || null })} />
+          </div>
           <label className="field">
             <span className="field-label">触发方式</span>
-            <select value={draft.trigger} onChange={(e) => onPatchSop({ trigger: e.target.value })}>
+            <select value={draft.trigger} onChange={(e) => onPatchSop(e.target.value === 'schedule' && !draft.sched ? { trigger: e.target.value, sched: defaultSched() } : e.target.value === 'im' && !draft.im ? { trigger: e.target.value, im: emptyIM() } : { trigger: e.target.value })}>
               {!triggerOpts.some((t) => t.key === draft.trigger) && <option value={draft.trigger}>{draft.trigger}</option>}
               {triggerOpts.map((t) => <option key={t.key} value={t.key}>{t.label}</option>)}
             </select>
           </label>
+          {/* 定时（TSK-0463）：规则在这里配，接下来 5 次；保存时写进随流程管理的定时任务，定时任务页看到、改到的是同一条 */}
+          {draft.trigger === 'schedule' && (draft.sched ? (
+            <div className="sop-start-sched">
+              <RuleFields compact count={5} rule={draft.sched.rule} onChange={(rule) => onPatchSop({ sched: { ...draft.sched!, rule } })} />
+              <label className="switch-row">
+                <span><span className="field-label">到点自动执行</span><span className="switch-hint">{draft.sched.enabled ? '保存后按规则自动执行' : '已停用：保存后不会自动执行'}</span></span>
+                <span className="switch-line"><input type="checkbox" checked={draft.sched.enabled} onChange={(e) => onPatchSop({ sched: { ...draft.sched!, enabled: e.target.checked } })} /><span className="switch" /></span>
+              </label>
+              {draft.fields.some((f) => f.required && !(f.default ?? '').trim()) && (
+                <div className="sop-start-sched-warn">定时执行时不填输入：{draft.fields.filter((f) => f.required && !(f.default ?? '').trim()).map((f) => `「${f.label || f.key}」`).join('、')}是必填又没有默认值，到点会执行失败。给它们填默认值，或改成不必填</div>
+              )}
+              <span className="field-hint-line">保存后在「任务 / 定时任务」里也能看到这一条，两边改的是同一条</span>
+            </div>
+          ) : (
+            <div className="sop-start-sched unset">
+              <span>定时，未配置：随流程管理的定时任务不在了（可能在定时任务页删掉了），到点不会执行。</span>
+              <button className="act" onClick={() => onPatchSop({ sched: defaultSched() })}>设定时间</button>
+            </div>
+          ))}
+          {/* IM 消息（TSK-0481）：只接哪些会话、与我的关系、第几个判断、命中后拦截后面的 IM 流程 */}
+          {draft.trigger === 'im' && <StartIM sop={draft} onChange={(im) => onPatchSop({ im })} />}
           <div className="field">
             <span className="field-label">输入字段</span>
             <div className="field-list">
@@ -637,8 +683,10 @@ function NodePanel({ draft, nodeKey, runs, sopList, tried, onChange, onPatchSop,
             </select>
           </label>
           {(typeOf(s.kind).fields ?? []).filter((f) => !f.hidden?.(s.config ?? {})).map((f) => (
-            <ConfigInput key={f.key} field={f} value={s.config?.[f.key] ?? ''} cfg={s.config ?? {}} ctx={{ sops: sopList, ups: ancestors }} bad={tried && f.required && !s.config?.[f.key]?.trim()}
-              onChange={(v) => onChange({ config: { ...(s.config ?? {}), ...Object.fromEntries((f.clears ?? []).map((k) => [k, ''])), [f.key]: v } })} />
+            <div key={f.key} onFocus={() => setLastCfg(f.key)}>
+              <ConfigInput field={f} value={s.config?.[f.key] ?? ''} cfg={s.config ?? {}} ctx={{ sops: sopList, ups: ancestors }} bad={tried && f.required && !s.config?.[f.key]?.trim()}
+                onChange={(v) => onChange({ config: { ...(s.config ?? {}), ...Object.fromEntries((f.clears ?? []).map((k) => [k, ''])), [f.key]: v } })} />
+            </div>
           ))}
           <label className="field">
             <span className="field-label">{typeOf(s.kind).descLabel ?? '说明'}</span>
@@ -648,17 +696,9 @@ function NodePanel({ draft, nodeKey, runs, sopList, tried, onChange, onPatchSop,
           </label>
           {isBranching(s.kind) && (
             <>
-              {s.kind === 'decide' && (
-                <label className="field">
-                  <span className="field-label">判断规则<span className="field-hint">留空就是人工判断</span></span>
-                  <input value={s.rule ?? ''} placeholder="比如：金额大于 5000" onChange={(e) => onChange({ rule: e.target.value })} />
-                </label>
-              )}
-              {s.kind === 'loopback' && (
-                <label className="field">
-                  <span className="field-label">回退条件<span className="field-hint">成立就退回上面选的步骤重做，写法同条件分支</span></span>
-                  <input className={cls(tried && !s.rule?.trim() && 'bad')} value={s.rule ?? ''} placeholder="result.verdict 等于 reject" onChange={(e) => onChange({ rule: e.target.value })} />
-                </label>
+              {(s.kind === 'decide' || s.kind === 'loopback') && (
+                <CondEditor step={s} loop={s.kind === 'loopback'} tried={tried} onChange={onChange}
+                  groups={stepFields(draft, draft.steps.indexOf(s), (i) => upstreamOf(draft, i))} />
               )}
               <div className="field">
                 <span className="field-label">{s.kind === 'classifier' ? '类别' : s.kind === 'loopback' ? '出口' : '分支'}<span className="field-hint">{s.kind === 'classifier' ? '每一类一个出口；类别名写清楚，分类更准' : s.kind === 'loopback' ? '条件不成立走「通过」；退回轮次用完还成立走「超限」，没接步骤时这一步失败' : ''}</span></span>
@@ -676,6 +716,12 @@ function NodePanel({ draft, nodeKey, runs, sopList, tried, onChange, onPatchSop,
               </div>
             </>
           )}
+          <FieldsList groups={stepFields(draft, draft.steps.indexOf(s), (i) => upstreamOf(draft, i))}
+            onPick={(p) => {
+              const k = lastCfg && (typeOf(s.kind).fields ?? []).some((f) => f.key === lastCfg) ? lastCfg : null
+              if (k) onChange({ config: { ...(s.config ?? {}), [k]: `${s.config?.[k] ?? ''}{{${p}}}` } })
+              else void navigator.clipboard?.writeText(`{{${p}}}`)
+            }} />
           <div className="field">
             <span className="field-label">上游<span className="field-hint">{ups.length > 1 ? '汇合：等这几个都完成才开始' : '从画布上拖线可以再连一个上游'}</span></span>
             <div className="np-links">
@@ -727,11 +773,66 @@ function NextList({ kids, onSelect, onAdd }: { kids: SopStepDef[]; onSelect: (k:
   )
 }
 
+/**
+ * 开始节点的「IM 消息」（TSK-0481，SPEC-sop-9.27 到 9.31）。会话多选，名字和渠道里的编号都能搜（Slack 的 C0…）；
+ * 与我的关系「只要 / 除了」加四种勾选，都不勾是不限；顺序下拉写明在谁之前、之后；拦截开关。不符合条件的消息不发起、不留记录
+ */
+const CONV_OPTIONS = [
+  ...(IM_CONVERSATIONS.cn_slack ?? []).filter((c) => c.kind !== 'mpim').map((c) => ({ value: `#${c.name}`, label: `#${c.name}`, hint: `slack · ${c.id}` })),
+  { value: '远川试点项目群', label: '远川试点项目群', hint: 'lark · oc_7f3a9c21' },
+]
+function StartIM({ sop, onChange }: { sop: Sop; onChange: (im: SopIM) => void }) {
+  const im = sop.im ?? emptyIM()
+  const others = imSops(SOPS).filter((s) => s.id !== sop.id)
+  const saved = SOPS.find((s) => s.id === sop.id)
+  const cur = im.order || (saved?.trigger === 'im' ? saved.im?.order : 0) || others.length + 1
+  const patch = (p: Partial<SopIM>) => onChange({ ...im, ...p })
+  const blockers = others.slice(0, cur - 1).filter((s) => s.im?.stop)
+  return (
+    <div className="sop-start-sched">
+      <div className="field">
+        <span className="field-label">只接这些会话</span>
+        <SearchSelect multiple value={im.conversations} placeholder="全部会话" searchPlaceholder="搜群名或会话编号（如 C0…）" options={CONV_OPTIONS}
+          onChange={(v) => patch({ conversations: v })} />
+      </div>
+      <div className="field">
+        <span className="field-label">与我的关系</span>
+        <div className="sop-start-im-rel">
+          <select value={im.relevance_mode} onChange={(e) => patch({ relevance_mode: e.target.value === 'exclude' ? 'exclude' : 'include' })}>
+            <option value="include">只要</option>
+            <option value="exclude">除了</option>
+          </select>
+          {IM_RELEVANCES.map((r) => (
+            <label key={r} className="check"><input type="checkbox" checked={im.relevance.includes(r)}
+              onChange={(e) => patch({ relevance: IM_RELEVANCES.filter((x) => (x === r ? e.target.checked : im.relevance.includes(x))) })} />{IM_REL_LABEL[r]}</label>
+          ))}
+        </div>
+        <span className="field-hint-line">{im.relevance.length ? '' : '都不勾是不限。'}不符合会话和关系的消息不会发起这个流程，也不留执行记录</span>
+      </div>
+      <label className="field">
+        <span className="field-label">执行顺序</span>
+        <select value={cur} onChange={(e) => patch({ order: Number(e.target.value) })}>
+          {Array.from({ length: others.length + 1 }, (_, k) => k + 1).map((n) => (
+            <option key={n} value={n}>{n === 1 ? (others.length ? `第 1 个（在「${others[0].name}」之前）` : '第 1 个（目前只有它）') : `第 ${n} 个（在「${others[n - 2].name}」之后）`}</option>
+          ))}
+        </select>
+        <span className="field-hint-line">来一条消息时，IM 流程按这个顺序逐个判断、发起</span>
+      </label>
+      <label className="switch-row">
+        <span><span className="field-label">命中后不再触发后面的 IM 流程</span><span className="switch-hint">{im.stop ? '这条流程接住（条件符合并发起了）的消息，排在后面的 IM 流程不再处理；不影响 IM 插件自己的处理和 Agent 的 IM 触发' : '不拦截：后面的 IM 流程照常判断'}</span></span>
+        <span className="switch-line"><input type="checkbox" checked={im.stop} onChange={(e) => patch({ stop: e.target.checked })} /><span className="switch" /></span>
+      </label>
+      {blockers.length > 0 && <div className="sop-start-sched-warn">排在前面的{blockers.map((s) => `「${s.name}」`).join('、')}会拦截：它们接住的消息不会再到这个流程</div>}
+    </div>
+  )
+}
+
 /* ---------- 编辑器 ---------- */
 
-export function newSopDraft(): Sop {
+/** folderId：在流程库的某个文件夹里点的新建，新流程默认放进去（TSK-0482） */
+export function newSopDraft(folderId: string | null = null): Sop {
   return {
-    id: newId('sop'), name: '', desc: '', trigger: 'manual',
+    id: newId('sop'), name: '', desc: '', trigger: 'manual', folder_id: folderId,
     fields: [{ key: 'input', label: '输入内容', type: 'textarea', required: true, default: '' }],
     steps: [],
   }
@@ -742,15 +843,21 @@ type Drag =
   | { kind: 'node'; key: string; sx: number; sy: number; ox: number; oy: number; moved: boolean; before: Sop }
   | { kind: 'link'; from: string; caseKey?: string; sx: number; sy: number; at: { x: number; y: number } }
 
-export function SopEditor({ initial, creating, runs, sopList, onCancel, onSave }: {
+export function SopEditor({ initial, creating, runs, sopList, hasSchedule = false, onCancel, onSave }: {
   initial: Sop
   creating: boolean
   runs: SopRun[]
   /** 子流程节点可选的 SOP */
   sopList: { id: string; name: string }[]
+  /** 这个流程现在有随它管理的定时任务（TSK-0463）：改成别的触发方式保存前先问停用还是删掉 */
+  hasSchedule?: boolean
   onCancel: () => void
-  onSave: (sop: Sop, thenRun: boolean) => void
+  /** off：从定时改成别的触发方式时，那条定时任务停用还是删掉 */
+  onSave: (sop: Sop, thenRun: boolean, off?: 'disable' | 'delete') => void
 }) {
+  const [offAsk, setOffAsk] = useState<{ thenRun: boolean } | null>(null)
+  const [offChoice, setOffChoice] = useState<'disable' | 'delete'>('disable')
+  const [schedSaved, setSchedSaved] = useState(hasSchedule)
   const [draft, setDraft] = useState<Sop>(() => explicit(initial))
   const [past, setPast] = useState<Sop[]>([])
   const [future, setFuture] = useState<Sop[]>([])
@@ -792,7 +899,7 @@ export function SopEditor({ initial, creating, runs, sopList, onCancel, onSave }
 
   const addNode = (item: PaletteItem, from: string, caseKey?: string) => {
     const step = makeStep(draft, item.kind, item.manual ? '人工判断' : item.id === 'rule' ? '条件分支' : item.label, from === START ? [] : [from],
-      { ...(caseKey ? { branch: { of: from, case: caseKey } } : {}), ...(item.kind === 'decide' ? { rule: item.manual ? '' : '填写判断条件' } : {}) })
+      { ...(caseKey ? { branch: { of: from, case: caseKey } } : {}), ...(item.kind === 'decide' && !item.manual ? { cond: blankCond() } : {}) })
     // 同一个节点后面已经有几个子节点就往下错开几格，不管它们在哪个分支，免得叠在一起
     const siblings = draft.steps.filter((x) => (from === START ? !(x.after ?? []).length : x.after?.includes(from))).length
     const base = lay[from] ?? { x: 60, y: 80 }
@@ -957,15 +1064,17 @@ export function SopEditor({ initial, creating, runs, sopList, onCancel, onSave }
     // AI 整体替换后位置都变了，重新适配一次视口
     fitted.current = false
   }
-  const save = (thenRun: boolean) => {
+  const save = (thenRun: boolean, off?: 'disable' | 'delete') => {
     setTried(true)
     if (errors.length) { setShowIssues(true); return }
+    if (!creating && schedSaved && draft.trigger !== 'schedule' && !off) { setOffAsk({ thenRun }); return }
+    setSchedSaved(draft.trigger === 'schedule' ? !!draft.sched : off === 'disable')
     const out = { ...draft, layout: lay }
     setSavedJson(JSON.stringify(out))
     if (aiMark === draft) setAiMark(out)
     if (nameEdit.current === draft) nameEdit.current = out
     setDraft(out)
-    onSave(out, thenRun)
+    onSave(out, thenRun, off)
   }
 
   // 屏幕不够宽时，选中节点打开属性面板就先收起 AI 面板，给画布留地方
@@ -1007,7 +1116,8 @@ export function SopEditor({ initial, creating, runs, sopList, onCancel, onSave }
 
           {/* 开始节点 */}
           <div className={cls('cv-node', sel === START && 'sel')} data-node={START} style={{ left: lay[START].x, top: lay[START].y, width: NW }}>
-            <div className="cv-node-head"><KindIcon kind="start" /><span className="cv-node-name">开始</span><span className="cv-node-kind">{triggerLabel(triggers, draft.trigger)}</span></div>
+            <div className="cv-node-head"><KindIcon kind="start" /><span className="cv-node-name">开始</span><span className="cv-node-kind">{draft.trigger === 'schedule' ? (draft.sched ? `${triggerLabel(triggers, draft.trigger)} · ${describeRule(draft.sched.rule)}` : `${triggerLabel(triggers, draft.trigger)}，未配置`)
+              : draft.trigger === 'im' && draft.im ? `${triggerLabel(triggers, draft.trigger)} · ${imFilterText(draft.im)}${draft.im.stop ? ' · 拦截后续' : ''}` : triggerLabel(triggers, draft.trigger)}</span></div>
             <div className="cv-fields">{draft.fields.map((f) => <span key={f.key} className="cv-field"><span className="mono">{'{x}'}</span>{f.label || '未命名字段'}{f.required && <em>*</em>}</span>)}</div>
             <span className="cv-handle" data-out={START} title="拖动连线，或点击添加下一个节点">+</span>
           </div>
@@ -1031,7 +1141,7 @@ export function SopEditor({ initial, creating, runs, sopList, onCancel, onSave }
                         <span className="cv-handle cv-handle-case" data-out={s.key} data-case={c.key} title={`拖动连线，或点击在「${c.label}」分支加节点`}>+</span>
                       </div>
                     ))}
-                    <div className="cv-rule ellipsis">{s.kind === 'classifier' ? 'AI 分类' : isManualDecide(s) ? '人工判断' : s.kind === 'loopback' ? `${s.rule?.trim() ? `条件：${s.rule}` : '还没填回退条件'} · 退回 ${draft.steps.find((x) => x.key === s.config?.target)?.name ?? '未选'}` : s.rule?.trim() ? `规则：${s.rule}` : '按内置规则判断'}</div>
+                    <div className="cv-rule ellipsis">{s.kind === 'classifier' ? 'AI 分类' : isManualDecide(s) ? '人工判断' : s.kind === 'loopback' ? `${s.cond ? `条件：${condText(s.cond)}` : s.rule?.trim() ? `条件：${s.rule}` : '还没填回退条件'} · 退回 ${draft.steps.find((x) => x.key === s.config?.target)?.name ?? '未选'}` : s.cond ? `条件：${condText(s.cond)}` : s.rule?.trim() ? `规则：${s.rule}` : '按内置规则判断'}</div>
                   </div>
                 ) : (
                   <>
@@ -1073,6 +1183,19 @@ export function SopEditor({ initial, creating, runs, sopList, onCancel, onSave }
             测试运行
           </button>
           <button className="btn btn-primary" onClick={() => save(false)}>{creating && !savedJson ? '发布' : '保存'}</button>
+          {/* 从定时改成别的触发方式（TSK-0463）：保存前问那条定时任务停用还是删掉 */}
+          {offAsk && (
+            <div className="menu cv-issues sop-off-ask" role="dialog" aria-label="不再定时执行？">
+              <b>不再定时执行？</b>
+              <span className="list-sub">触发方式改成「{triggerLabel(triggers, draft.trigger)}」后，随这个流程的定时任务怎么处理：</span>
+              <label><input type="radio" name="sop-off" checked={offChoice === 'disable'} onChange={() => setOffChoice('disable')} /><span><b>停用</b>　规则留着，以后改回定时时恢复</span></label>
+              <label><input type="radio" name="sop-off" checked={offChoice === 'delete'} onChange={() => setOffChoice('delete')} /><span><b>删掉</b>　定时任务页里这一条一起删除</span></label>
+              <div className="act-row">
+                <button className="btn btn-ghost" onClick={() => setOffAsk(null)}>取消</button>
+                <button className="btn btn-primary" onClick={() => { const t = offAsk.thenRun; setOffAsk(null); save(t, offChoice) }}>保存</button>
+              </div>
+            </div>
+          )}
         </div>
         <div className="cv-ui cv-tools">
           <button className="icon-btn" title="添加节点" onClick={(e) => { const r = (e.currentTarget as HTMLElement).getBoundingClientRect(); setPalette({ at: { x: r.right + 8, y: r.top }, from: sel ?? (draft.steps.length ? draft.steps[draft.steps.length - 1].key : START) }) }}>

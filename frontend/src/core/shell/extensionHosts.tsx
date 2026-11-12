@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 插件扩展点在内核页面里的宿主位置（CORE-02b）：今日页的插件卡片、设置页的插件分节，对象详情的插件区块（SOP-06）。
 // 每块包一层出错边界，一个插件渲染出错只影响它自己那一块
 import { Component, Suspense, type ReactNode } from 'react'

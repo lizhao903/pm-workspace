@@ -8,7 +8,7 @@
 
 | target_kind | 含义 | 例子 |
 |---|---|---|
-| `url` | 外部链接 | `https://antalpha.atlassian.net/jira/software/projects/AAA/boards/1` |
+| `url` | 外部链接 | `https://example.atlassian.net/jira/software/projects/AAA/boards/1` |
 | `internal` | 工作台内部导航 | 跳到「需求池 / 云端平台 / 仅 P0」这个组合视图 |
 | `command` | 触发一个动作 | 打开快速捕获并预选「需求」类型 |
 
@@ -24,7 +24,7 @@
 | `{{owner}}` / `{{status}}` / `{{category}}` | 对应字段 |
 | `{{today}}` | 当天日期 YYYY-MM-DD |
 
-例：`https://antalpha.atlassian.net/issues/?jql=text~"{{title}}"` —— 选中一条需求后点它，直接在 Jira 里搜同名内容。没有选中对象时，含变量的快捷入口置灰并提示「需先选中一个工作对象」。
+例：`https://example.atlassian.net/issues/?jql=text~"{{title}}"` —— 选中一条需求后点它，直接在 Jira 里搜同名内容。没有选中对象时，含变量的快捷入口置灰并提示「需先选中一个工作对象」。
 
 ## 数据结构
 
@@ -141,3 +141,9 @@ graph TD
 ## 与「资源」类型的关系
 
 `resource` 工作对象类型仍然存在，管的是需要归档、打标签、被关联引用的资源（合同、素材、账号说明）。快捷入口是**纯导航**，轻量、无需建对象。两者互通：资源详情页可「提升为快捷入口」，一键生成一条 shortcut 指向它的 url。
+
+---
+
+由 DeepSeek Harness（dsh）协助完成。
+
+[![](https://img.shields.io/badge/powered_by-dsh-4D6BFE?style=flat-square&logo=deepseek&logoColor=white)](https://github.com/deepseek-ai/deepseek-harness)

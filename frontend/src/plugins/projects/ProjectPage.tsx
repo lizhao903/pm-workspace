@@ -1,4 +1,8 @@
-// 项目详情的框架（SPEC-projects-2）：顶栏「项目 /」回列表、标志、名称、说明；标签条；各标签的右上按钮。
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
+// 项目详情的框架（SPEC-projects-2）：顶栏一行是「项目 /」回列表、标志、名称（切换菜单）、标签条、各标签的右上按钮。
+// 标签条放在项目名称同一行的右侧（TSK-0718，PageTitle 的 tabs），挤不下时标签条自己横向滚动、切过去的标签滚进视野；
+// 项目说明不再占顶栏（在设置里看、改）。
 // 概览、设置（PJ-01c），干系人、任务、文档（PJ-01d），支持材料（PJ-03b），沟通（PJ-02b），附件（SPEC-projects-5），原型（PJ-04b），SOP（PR-10），Agent（PR-21）；其余标签按规格占位，由后续任务补
 // 「附件」标签只在 IM 消息插件在跑时出现（消息和附件都来自它），标签上的数字是待决定的附件个数
 // 插件登记的标签（core/plugin 的 projectTabs，视频插件的「商单」）按 after 插进标签条，内容由插件渲染
@@ -19,6 +23,7 @@ import { Settings } from './Settings'
 import { SopTab } from './SopTab'
 import { StakeholdersTab } from './StakeholdersTab'
 import { TasksTab } from './TasksTab'
+import { SchedulesTab } from './SchedulesTab'
 import { TABS, hiddenTabsOf, orderTabs, tabsOrderOf, withPluginTabs, type ProjectTab } from './model'
 import { ProjectSwitcher } from './ProjectSwitcher'
 import { useProjectMessages } from './projectMessages'
@@ -38,6 +43,7 @@ export function ProjectPage({ id, tab, onTab, onAll, onSwitch }: {
   const pluginTabs = useProjectTabs()
   const { noIm, imRunning } = useProjectMessages(id)
   const ref = useRef<HTMLDivElement>(null)
+  const tabsRef = useRef<HTMLDivElement>(null)
   // 文档标签「加文档」的内联表单
   const [docAdding, setDocAdding] = useState(false)
   // 支持材料标签「加材料」的内联表单
@@ -48,7 +54,15 @@ export function ProjectPage({ id, tab, onTab, onAll, onSwitch }: {
   useEffect(() => {
     const box = ref.current?.closest('.shell-content')
     if (box) box.scrollTop = 0
-  }, [tab])
+    // 标签条挤在标题行里横向滚动时，把当前标签滚进视野（只动标签条自己）
+    const bar = tabsRef.current
+    const on = bar?.querySelector<HTMLElement>('[aria-selected="true"]')
+    if (bar && on) {
+      const b = bar.getBoundingClientRect()
+      const r = on.getBoundingClientRect()
+      if (r.left < b.left || r.right > b.right) bar.scrollLeft += r.left - b.left - (b.width - r.width) / 2
+    }
+  }, [tab, q.data])
   // 停在这个项目藏掉的标签上（改了设置、从别的项目切过来）时回概览
   const hidden = hiddenTabsOf(q.data)
   const onHidden = hidden.includes(tab)
@@ -88,20 +102,21 @@ export function ProjectPage({ id, tab, onTab, onAll, onSwitch }: {
 
   return (
     <div className="pj-page" ref={ref}>
-      <PageTitle parent={back} desc={p.desc || undefined} actions={actions}>
+      <PageTitle parent={back} actions={actions} tabs={(
+        <div className="pj-tabs" role="tablist" aria-label="项目标签" ref={tabsRef}>
+          {tabs.map((t) => (
+            <button key={t.key} type="button" role="tab" aria-selected={tab === t.key} className={cls(tab === t.key && 'on')} onClick={() => { setDocAdding(false); setMatAdding(false); setProtoAdding(false); onTab(t.key) }}>
+              {t.label}
+              {t.key === 'comms' && <CommsTabDot projectId={o.id} />}
+              {t.key === 'attachments' && <AttachmentsTabCount projectId={o.id} />}
+              {t.key === 'prototypes' && <ProtoTabLight projectId={o.id} />}
+              {t.badge && <t.badge projectId={o.id} />}
+            </button>
+          ))}
+        </div>
+      )}>
         {onSwitch ? <ProjectSwitcher current={o.id} name={p.name} onSwitch={onSwitch} /> : p.name}
       </PageTitle>
-      <div className="pj-tabs" role="tablist" aria-label="项目标签">
-        {tabs.map((t) => (
-          <button key={t.key} type="button" role="tab" aria-selected={tab === t.key} className={cls(tab === t.key && 'on')} onClick={() => { setDocAdding(false); setMatAdding(false); setProtoAdding(false); onTab(t.key) }}>
-            {t.label}
-            {t.key === 'comms' && <CommsTabDot projectId={o.id} />}
-            {t.key === 'attachments' && <AttachmentsTabCount projectId={o.id} />}
-            {t.key === 'prototypes' && <ProtoTabLight projectId={o.id} />}
-            {t.badge && <t.badge projectId={o.id} />}
-          </button>
-        ))}
-      </div>
       <div role="tabpanel" aria-label={cur.label}>
         {tab === 'overview' && <Overview project={o} onTab={onTab} />}
         {tab === 'comms' && <CommsTab key={o.id} projectId={o.id} onAttachments={() => onTab('attachments')} />}
@@ -110,10 +125,11 @@ export function ProjectPage({ id, tab, onTab, onAll, onSwitch }: {
         {tab === 'profile' && <ProfileTab key={o.id} projectId={o.id} />}
         {tab === 'stakeholders' && <StakeholdersTab key={o.id} projectId={o.id} />}
         {tab === 'tasks' && <TasksTab key={o.id} projectId={o.id} />}
+        {tab === 'schedules' && <SchedulesTab key={o.id} projectId={o.id} />}
         {tab === 'sop' && <SopTab key={o.id} project={o} />}
         {tab === 'agents' && <AgentsTab key={o.id} project={o} />}
-        {tab === 'docs' && <DocsTab key={o.id} projectId={o.id} adding={docAdding} onAdding={setDocAdding} />}
-        {tab === 'materials' && <MaterialsTab key={o.id} projectId={o.id} root={p.root} adding={matAdding} onAdding={setMatAdding} />}
+        {tab === 'docs' && <DocsTab key={o.id} projectId={o.id} docsDir={p.docsDir} root={p.root} onSettings={() => onTab('settings')} adding={docAdding} onAdding={setDocAdding} />}
+        {tab === 'materials' && <MaterialsTab key={o.id} projectId={o.id} root={p.root} adding={matAdding} onAdding={setMatAdding} onSettings={() => onTab('settings')} />}
         {tab === 'prototypes' && <PrototypesTab key={o.id} projectId={o.id} projectName={p.name} root={p.root} adding={protoAdding} onAdding={setProtoAdding} />}
         {plug && <Suspense fallback={<LoadingState />}><plug.page key={o.id} projectId={o.id} /></Suspense>}
         {cur.todo && <EmptyState title={`「${cur.label}」还在开发中`} desc={cur.todo} />}

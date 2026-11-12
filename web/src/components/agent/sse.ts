@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 手写 SSE 解析。EventSource 只能发 GET，而 /api/agent/chat 要 POST 一个 body，
 // 所以走 fetch + ReadableStream，自己按空行切事件块。
 import type { AgentStreamEvent } from '../../lib/types'

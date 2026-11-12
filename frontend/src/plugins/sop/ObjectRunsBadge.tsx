@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 任务详情「SOP」标签名后面的计数和状态点（同项目详情标签的写法）：顶层执行条数；
 // 有等你处理的（待确认、失败）时红点，同项目「沟通」标签的待回复；只是还在跑时绿点，同「原型」标签的服务在跑
 import { useSopObjectRuns } from '../../core/data'

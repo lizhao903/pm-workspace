@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 工作台（CORE-10a 后端、CORE-10b 前端）：一套菜单配置，开哪些模块、怎么分组、默认打开哪个、需要哪些插件。
 // 契约见 docs/api-contract.md「工作台 workspaces」。工作台之间数据不隔离，写完只报 { kind: 'workspace' }，不刷别的缓存。
 // 当前用哪个工作台由前端记（core/shell/workspace.ts），不存后端。

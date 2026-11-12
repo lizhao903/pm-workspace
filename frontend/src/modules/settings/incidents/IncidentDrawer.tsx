@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 运行异常抽屉（SPEC-settings-19），照原型 web-next/src/incidents.tsx IncidentDrawer：
 // 现象、上下文、时间线，转研发任务（POST /api/incidents/{id}/task）、忽略、标为已解决、重新打开（PATCH {status}）。
 import { useState } from 'react'

@@ -112,3 +112,9 @@ graph LR
 | POST | `/api/dictionaries/{id}/items/reorder` | `{type_id, ids}` 全量重排，与 shortcuts 的 reorder 同语义 |
 
 引用计数的实现按 dict_id 分派：`priority` 查 `objects.priority`，`link_relation` 查 `links.relation`。新增字典时在这里加一个 case。
+
+---
+
+由 DeepSeek Harness（dsh）协助完成。
+
+[![](https://img.shields.io/badge/powered_by-dsh-4D6BFE?style=flat-square&logo=deepseek&logoColor=white)](https://github.com/deepseek-ai/deepseek-harness)

@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 package plugin
 
 import (
@@ -103,4 +105,142 @@ func (s sopService) Schedules(ctx context.Context, flowID string) ([]SOPSchedule
 		}
 	}
 	return []SOPScheduleRef{}, nil
+}
+
+// --- 流程目录（TSK-0480）：Agent 的 list_sops / get_sop / create_sop / update_sop 经注册表交给 SOP 插件 ---
+
+type (
+	// SOPCatalog 是发起入口可选实现的流程目录，见 schedule.SOPCatalog。
+	SOPCatalog = schedule.SOPCatalog
+	// SOPFlowBrief 是目录里的一项。
+	SOPFlowBrief = schedule.SOPFlowBrief
+	// SOPFlowDoc 是一条流程的完整定义。
+	SOPFlowDoc = schedule.SOPFlowDoc
+	// SOPNodeKind 是建流程能用的一种节点。
+	SOPNodeKind = schedule.SOPNodeKind
+	// SOPSave 是新建或修改一条流程。
+	SOPSave = schedule.SOPSave
+	// SOPFolders 是流程库的文件夹和未分类的流程数（TSK-0482）。
+	SOPFolders = schedule.SOPFolders
+	// SOPFolderBrief 是一个文件夹。
+	SOPFolderBrief = schedule.SOPFolderBrief
+)
+
+// ErrSOPNotFound：流程目录里找不到这条流程（errors.Is 判断）。
+var ErrSOPNotFound = schedule.ErrSOPNotFound
+
+// sopCatalog 是在跑的、登记了发起入口且实现了 SOPCatalog 的那个；没有回 ErrNoSOPStarter。
+func (r *Registry) sopCatalog() (SOPCatalog, *entry, error) {
+	if r == nil {
+		return nil, nil, ErrNoSOPStarter
+	}
+	for _, id := range r.order {
+		e := r.entries[id]
+		a := e.active.Load()
+		if a == nil || a.sopStarter == nil {
+			continue
+		}
+		if c, ok := a.sopStarter.(SOPCatalog); ok {
+			return c, e, nil
+		}
+		return nil, nil, ErrNoSOPStarter
+	}
+	return nil, nil, ErrNoSOPStarter
+}
+
+// catalogCall 调一次流程目录，插件 panic 转成错误。
+func catalogCall[T any](r *Registry, fn func(c SOPCatalog) (T, error)) (out T, err error) {
+	c, e, err := r.sopCatalog()
+	if err != nil {
+		return out, err
+	}
+	defer func() {
+		if v := recover(); v != nil {
+			e.core.log.Error("plugin sop catalog panic", "panic", v, "stack", string(debug.Stack()))
+			err = fmt.Errorf("读写 SOP 流程出错")
+		}
+	}()
+	return fn(c)
+}
+
+// ListSOPs 列全部流程，按新建时间。满足 schedule.SOPCatalog。
+func (r *Registry) ListSOPs(ctx context.Context) ([]SOPFlowBrief, error) {
+	return catalogCall(r, func(c SOPCatalog) ([]SOPFlowBrief, error) { return c.ListSOPs(ctx) })
+}
+
+// GetSOP 按 id 或名称取一条流程。
+func (r *Registry) GetSOP(ctx context.Context, ref string) (*SOPFlowDoc, error) {
+	return catalogCall(r, func(c SOPCatalog) (*SOPFlowDoc, error) { return c.GetSOP(ctx, ref) })
+}
+
+// SaveSOP 新建或修改一条流程。
+func (r *Registry) SaveSOP(ctx context.Context, q SOPSave) (*SOPFlowDoc, error) {
+	return catalogCall(r, func(c SOPCatalog) (*SOPFlowDoc, error) { return c.SaveSOP(ctx, q) })
+}
+
+// SOPNodeKinds 是建流程能用的节点。
+func (r *Registry) SOPNodeKinds(ctx context.Context) ([]SOPNodeKind, error) {
+	return catalogCall(r, func(c SOPCatalog) ([]SOPNodeKind, error) { return c.SOPNodeKinds(ctx) })
+}
+
+// SOPGuide 是给模型看的编排说明（TSK-0490）。
+func (r *Registry) SOPGuide(ctx context.Context) (string, error) {
+	return catalogCall(r, func(c SOPCatalog) (string, error) { return c.SOPGuide(ctx) })
+}
+
+// ListSOPFolders 列流程库的文件夹和未分类的流程数（TSK-0482）。
+func (r *Registry) ListSOPFolders(ctx context.Context) (SOPFolders, error) {
+	return catalogCall(r, func(c SOPCatalog) (SOPFolders, error) { return c.ListSOPFolders(ctx) })
+}
+
+// --- 调试（TSK-0491）：Agent 的 test_sop、explain_im_trigger 经注册表交给 SOP 插件 ---
+
+type (
+	// SOPTest 是一次调试的参数，见 schedule.SOPTest。
+	SOPTest = schedule.SOPTest
+	// SOPCatalogDebugger 是发起入口可选实现的调试接口，见 schedule.SOPDebugger。
+	SOPCatalogDebugger = schedule.SOPDebugger
+)
+
+// sopDebugger 是在跑的、登记了发起入口且实现了 SOPDebugger 的那个；没有回 ErrNoSOPStarter。
+func (r *Registry) sopDebugger() (schedule.SOPDebugger, *entry, error) {
+	if r == nil {
+		return nil, nil, ErrNoSOPStarter
+	}
+	for _, id := range r.order {
+		e := r.entries[id]
+		a := e.active.Load()
+		if a == nil || a.sopStarter == nil {
+			continue
+		}
+		if d, ok := a.sopStarter.(schedule.SOPDebugger); ok {
+			return d, e, nil
+		}
+		return nil, nil, ErrNoSOPStarter
+	}
+	return nil, nil, ErrNoSOPStarter
+}
+
+func debugCall(r *Registry, fn func(d schedule.SOPDebugger) (string, error)) (out string, err error) {
+	d, e, err := r.sopDebugger()
+	if err != nil {
+		return "", err
+	}
+	defer func() {
+		if v := recover(); v != nil {
+			e.core.log.Error("plugin sop debugger panic", "panic", v, "stack", string(debug.Stack()))
+			err = fmt.Errorf("调试 SOP 出错")
+		}
+	}()
+	return fn(d)
+}
+
+// TestSOP 调试一条流程（不真写）。满足 schedule.SOPDebugger。
+func (r *Registry) TestSOP(ctx context.Context, q SOPTest) (string, error) {
+	return debugCall(r, func(d schedule.SOPDebugger) (string, error) { return d.TestSOP(ctx, q) })
+}
+
+// ExplainIMTrigger 模拟一条消息触发 IM 流程（不真发起）。
+func (r *Registry) ExplainIMTrigger(ctx context.Context, messageID string) (string, error) {
+	return debugCall(r, func(d schedule.SOPDebugger) (string, error) { return d.ExplainIMTrigger(ctx, messageID) })
 }

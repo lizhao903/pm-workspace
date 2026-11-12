@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 示例插件：注册一个功能模块、一条命令、一个设置分节和一张今日卡片。页面单独懒加载，打开才请求
 import { lazy } from 'react'
 import { definePlugin } from '../../core/plugin'

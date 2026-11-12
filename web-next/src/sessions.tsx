@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 import { Fragment, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { OUTPUT_KIND, type Agent, type AgentOutput, type AgentRun, type ChatMsg, type OutputKind, type Session, type ToolCall } from './agentdata'
 import { AgentAvatar, CHAT_EXAMPLES, CallCard, ChatPane, Pill, RUN_STATUS, type Ctx } from './agents'
@@ -122,11 +124,13 @@ export function sessionLinks(msgs: ChatMsg[], limit = 8): string[] {
 
 interface DockState { open: SessionTool | null; mounted: SessionTool[] }
 
-export function ChatsView({ agents, sessions, current, ctx, pickRequest, onOpen, onNew, onMsgs, onRename, onDelete, onExecute, onOpenAgent, firstMessage, projects, initialProject, tools, onOpenSource, onOpenRuns, onOpenOutputs, runsWaiting = 0 }: {
+export function ChatsView({ agents, sessions, current, ctx, pickRequest, onOpen, onNew, onMsgs, onRename, onDelete, onExecute, onOpenAgent, firstMessage, projects, initialProject, tools, onOpenSource, onOpenTaskRun, onOpenRuns, onOpenOutputs, runsWaiting = 0 }: {
   /** 会话清单底部两个并排按钮（SPEC-sessions-0.1）：去执行记录、产出结果；runsWaiting 是等你确认的执行记录数，「执行记录」上的红点 */
   onOpenRuns?: () => void; onOpenOutputs?: () => void; runsWaiting?: number
   /** 会话来源（SPEC-sessions-1.42）：点「来源」回到那条 IM 消息 */
   onOpenSource?: (messageId: string) => void
+  /** 来源是任务执行（SPEC-sessions-1.44）：点「来源」打开任务、定位到那次执行 */
+  onOpenTaskRun?: (taskId: string, runId?: string) => void
   /** 会话旁边的终端、浏览器；不传就没有入口 */
   tools?: SessionTools
   /** 传了就多一个「项目」筛选；root 是会话旁边终端的目录 */
@@ -250,7 +254,7 @@ export function ChatsView({ agents, sessions, current, ctx, pickRequest, onOpen,
                 {a && <AgentAvatar agent={a} size={30} />}
                 <span className="chat-item-text">
                   <span className="chat-item-top"><span className="ellipsis chat-item-title">{s.title}</span>{pending(s) && <span className="side-dot" title="有操作等你确认" />}</span>
-                  <span className="ellipsis list-sub">{a?.name ?? '已删除的 Agent'} · {last ? last.text : '还没有消息'}</span>
+                  <span className="ellipsis list-sub">{a?.name ?? '已删除的 Agent'} · {s.source?.kind === 'task_run' ? s.source.label : last ? last.text : '还没有消息'}</span>
                 </span>
                 <span className="chat-item-time">{timeAgo(s.updated_at)}</span>
               </button>
@@ -309,7 +313,9 @@ export function ChatsView({ agents, sessions, current, ctx, pickRequest, onOpen,
               {cur.source && (
                 <div className="chat-source">
                   <span className="list-sub">来源</span>
-                  <button className="link-btn ellipsis" title="回到 IM 消息页打开这条消息" onClick={() => onOpenSource?.(cur.source!.message_ids[cur.source!.message_ids.length - 1])}>{cur.source.label}</button>
+                  {cur.source.kind === 'task_run'
+                    ? <button className="link-btn ellipsis" title="打开任务，定位到这次执行" onClick={() => cur.source?.task_id && onOpenTaskRun?.(cur.source.task_id, cur.source.run_id)}>{cur.source.label}</button>
+                    : <button className="link-btn ellipsis" title="回到 IM 消息页打开这条消息" onClick={() => onOpenSource?.(cur.source!.message_ids[cur.source!.message_ids.length - 1])}>{cur.source.label}</button>}
                 </div>
               )}
               </>

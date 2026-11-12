@@ -150,3 +150,10 @@
 .ct-tag-input:focus-within { border-color: var(--accent-line); background: var(--panel); box-shadow: 0 0 0 3px var(--accent-soft); }
 .ct-tag-input input { flex: 1; min-width: 100px; border: 0; outline: 0; background: none; color: var(--text); font: inherit; padding: 2px 0; }
 .ct-tag-input input::placeholder { color: var(--faint); }
+
+/* IM 渠道下的「自动忽略」一行（TSK-0495，MuteRow） */
+.ct-mute { margin: 8px 0 16px; display: flex; flex-direction: column; gap: 4px; font-size: var(--fs-sm); }
+.ct-mute-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-width: 0; }
+.ct-mute-sub { font-size: var(--fs-xs); }
+.ct-mute-form { display: flex; flex-direction: column; gap: 10px; }
+.ct-mute-form p { margin: 0; line-height: 1.6; }

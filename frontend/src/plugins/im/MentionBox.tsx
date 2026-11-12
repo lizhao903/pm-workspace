@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 带 @ 的输入框（IM 插件 0.18.0）：回复框（消息抽屉、合并组抽屉）和发消息弹窗共用。
 // 输入 @ 弹出候选，能搜、上下键选、回车或 Tab 选中、Esc 收起，
 // 选中后正文写「@名字 」并记下这个人（发送时由 composeMentions 筛出正文里还在的交给后端）。逻辑在 mentionModel。

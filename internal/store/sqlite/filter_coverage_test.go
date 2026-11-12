@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 package sqlite
 
 import (
@@ -126,7 +128,7 @@ func filterCases() []filterCase {
 			field: "OwnerID",
 			want:  []string{"命中"},
 			build: func(t *testing.T, s *Store, ctx context.Context) domain.ObjectFilter {
-				me := mustStakeholder(t, s, ctx, "李钊")
+				me := mustStakeholder(t, s, ctx, "张三")
 				other := mustStakeholder(t, s, ctx, "王闯")
 				mustCreate(t, s, ctx, &domain.Object{TypeID: "task", Title: "命中", OwnerID: &me.ID})
 				mustCreate(t, s, ctx, &domain.Object{TypeID: "task", Title: "排除", OwnerID: &other.ID})

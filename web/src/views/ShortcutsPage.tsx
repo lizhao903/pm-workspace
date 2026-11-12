@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 快捷访问（launchpad）独立页面。
 // 数据全部走 lib/api.ts，本文件不碰 fetch、不落 localStorage（密度偏好除外，那是纯 UI 偏好）。
 // 后端未上线时 GET 会失败，按「空态」处理而不是报错横幅——不挡住用户建第一条。

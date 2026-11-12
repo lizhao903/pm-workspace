@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 package sop
 
 import (
@@ -31,7 +33,9 @@ func kindsOf(c plugin.Core) kindLookup {
 			}
 		}
 		if id, ok := s.Provider(kind); ok {
-			return NodeType{Kind: kind, Group: "插件", Required: []ConfigField{}, Source: id}, true
+			// 插件停用了：不知道它认哪些配置、输出什么，不查多余的配置，输出当未知
+			return NodeType{Kind: kind, Group: "插件", Required: []ConfigField{}, Source: id, Label: kind,
+				Effect: plugin.SOPEffectWrite, DryRun: "提供它的插件已停用，执行时会失败"}, true
 		}
 		return NodeType{}, false
 	}
@@ -42,7 +46,35 @@ func pluginNodeType(n plugin.SOPNode) NodeType {
 	for i, f := range n.Required {
 		req[i] = ConfigField{Key: f.Key, Label: f.Label}
 	}
-	return NodeType{Kind: n.Kind, Group: n.Group, Required: req, Source: n.Source}
+	label := n.Spec.Label
+	if label == "" {
+		label = n.Kind
+	}
+	effect, dry := pluginEffect(n.Spec)
+	return NodeType{Kind: n.Kind, Group: n.Group, Required: req, Source: n.Source,
+		Label: label, Desc: n.Spec.Desc, Params: n.Spec.Params, Outputs: n.Spec.Outputs, Effect: effect, DryRun: dry}
+}
+
+// pluginEffect 是插件节点调试时的口径（TSK-0491）：只认 read、wait，别的（含没声明）一律按写操作模拟。
+func pluginEffect(sp plugin.SOPNodeSpec) (string, string) {
+	effect := sp.Effect
+	if effect != plugin.SOPEffectRead && effect != plugin.SOPEffectWait {
+		effect = plugin.SOPEffectWrite
+	}
+	dry := sp.DryRun
+	if dry == "" {
+		switch {
+		case effect == plugin.SOPEffectRead:
+			dry = "只读，调试时真实执行"
+		case effect == plugin.SOPEffectWait:
+			dry = "调试时不等，声明的输出字段用占位值往下走"
+		case sp.Effect == "":
+			dry = "插件没声明有没有副作用，按写操作对待：调试时不执行，只列出将用的配置，声明的输出字段用占位值"
+		default:
+			dry = "调试时不执行，只列出将用的配置，声明的输出字段用占位值"
+		}
+	}
+	return effect, dry
 }
 
 // isPluginKind：不是内置节点的都按插件节点执行。

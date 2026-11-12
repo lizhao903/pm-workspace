@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { act, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -43,6 +45,8 @@ type Backend = {
   connectors?: unknown[]
   /** GET /api/incidents */
   incidents?: unknown[]
+  /** GET /api/agent/attention（P0-O3），默认没有 */
+  attention?: unknown
 }
 
 // 内存里的后端：聚合、列表都按当前数据现算，改了状态之后再取就是新的
@@ -91,6 +95,7 @@ function fakeBackend(b: Backend) {
     if (m?.[2]) return json(b.progress?.[m[1]] ?? [], { total: 0 })
     if (u.pathname === '/api/connectors') return json(b.connectors ?? [], { total: (b.connectors ?? []).length })
     if (u.pathname === '/api/incidents') return json(b.incidents ?? [], { total: (b.incidents ?? []).length })
+    if (u.pathname === '/api/agent/attention') return json(b.attention ?? { total: 0, pending_calls: [], waiting_runs: [] })
     if (m) return json(b.rows.find((r) => r.id === m[1]))
     if (u.pathname === '/api/artifacts/stats') return json({ total: 0 })
     if (u.pathname.startsWith('/api/agent/workdir')) return json({ path: '', exists: false, is_dir: false, writable: false, message: '' })
@@ -105,6 +110,7 @@ function renderPage() {
     { path: '/today', element: <Page /> },
     { path: '/tasks/*', element: <div>任务页</div> },
     { path: '/messages', element: <div>消息页</div> },
+    { path: '/conversations', element: <div>会话页</div> },
     { path: '/settings/*', element: <div>设置页</div> },
   ], { initialEntries: ['/today'] })
   render(<QueryClientProvider client={qc}><RouterProvider router={router} /></QueryClientProvider>)
@@ -344,5 +350,31 @@ describe('今日页', () => {
     expect(await screen.findByText('都处理完了')).toBeInTheDocument()
     expect(screen.getByText('今天没有要赶的任务')).toBeInTheDocument()
     expect(screen.getByText('今天没有定时任务')).toBeInTheDocument()
+  })
+
+  it('Agent 待确认：等确认的调用汇总成一组，点了跳到那个会话（P0-O3）', async () => {
+    const b: Backend = {
+      rows: [], pluginCards: [], plugins: [],
+      attention: {
+        total: 1,
+        pending_calls: [{
+          call_id: 'atc_1', session_id: 'ags_1', session_title: '周报怎么写', agent_id: 'ag_1', agent_name: '周报助手',
+          tool: 'create_object', args: '{}', summary: '新建「周报」', at: ago,
+        }],
+        waiting_runs: [],
+      },
+    }
+    fakeBackend(b)
+    const { router } = renderPage()
+    const sec = await screen.findByRole('region', { name: '需要你处理' })
+    const group = (await within(sec).findByText('Agent 待确认')).closest('.today-group') as HTMLElement
+    const row = await within(group).findByRole('button', { name: /周报助手 等你确认「create_object」/ })
+    expect(within(group).getByText('周报怎么写')).toBeInTheDocument()
+    // 汇总数字算上这一条
+    expect(screen.getByText('件事等你处理').previousSibling).toHaveTextContent('1')
+    await userEvent.click(row)
+    await waitFor(() => expect(router.state.location.pathname).toBe('/conversations'))
+    expect(router.state.location.search).toBe('?s=ags_1')
+    expect(await screen.findByText('会话页')).toBeInTheDocument()
   })
 })

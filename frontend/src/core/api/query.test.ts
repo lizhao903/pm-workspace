@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 import { describe, expect, it } from 'vitest'
 import { artifactListQuery, changedFields, focusParams, localDay, objectListQuery } from './query'
 import type { WorkObject } from './types'

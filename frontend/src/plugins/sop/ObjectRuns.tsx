@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 任务详情里的「SOP 执行」（SOP-06，SPEC-sop-13）：经 core/plugin 的对象区块登记，任务模块只负责摆。
 // 列出关联到这条任务的执行（在这里发起的、Agent 处理这条任务时发起的），每行写来源（手动、Agent：名字…），子流程收在父执行里不单列；
 // 「执行 SOP」选流程后打开发起执行抽屉，按开始节点的输入字段从任务预填，发起后关联到这条任务、留在任务详情。

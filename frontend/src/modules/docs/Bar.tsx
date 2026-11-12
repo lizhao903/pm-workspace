@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 顶栏（SPEC-library-1.12 到 1.14）：目录名、刷新（本地目录）、分类或文件类型筛选，工作台文档再加标签筛选。
 // 写法照原型 library.tsx 的 LibraryBar；外壳给了顶栏位置就送进顶栏。工作台文档最右是「新建文档」（SPEC-library-1.40）。
 // 工作台文档还有「全部项目」下拉（SPEC-library-1.51，C-04）。

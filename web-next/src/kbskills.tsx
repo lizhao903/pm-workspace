@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { ABILITIES, type Agent, type KnowledgeBase, type Skill } from './agentdata'
 import { seedContent, type ContentItem } from './data'
@@ -591,7 +593,7 @@ function KbSettingsTab({ kb, docs, settings: s, agents, providers, editing, onEd
           </div>
         ) : <div className="mount-empty">还没挂本地目录</div>}
         <div className="secret-line">
-          <input className={cls('mono', dirErr && 'bad')} value={dir} placeholder="/Volumes/docs/客户/远川科技" onChange={(e) => { setDir(e.target.value); setDirErr('') }} onKeyDown={(e) => e.key === 'Enter' && addDir()} />
+          <input className={cls('mono', dirErr && 'bad')} value={dir} placeholder="/Volumes/docs/example-client" onChange={(e) => { setDir(e.target.value); setDirErr('') }} onKeyDown={(e) => e.key === 'Enter' && addDir()} />
           <button className="act" disabled={!dir.trim()} onClick={addDir}>挂上目录</button>
         </div>
         {dirErr && <span className="field-err">{dirErr}</span>}

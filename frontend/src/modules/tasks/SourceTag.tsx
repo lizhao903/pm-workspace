@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 列表上的来源标签（SPEC-tasks-0 TaskSource）：人工、IM、Webhook · 名称、定时 · 名称、异常 · 标题
 import type { WorkObject } from '../../core/data'
 import { sourceTag } from './sourceModel'

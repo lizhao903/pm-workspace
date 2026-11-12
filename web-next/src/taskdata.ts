@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 任务：三种来源
 //   人工创建
 //   IM 消息转任务：记下原消息，任务里能回看；消息那边显示「已转任务」
@@ -43,6 +45,8 @@ export interface Task {
   status: TaskStatus
   priority: Priority
   assignee: string
+  /** 负责人是 AI 成员（TSK-0500）：工作台 Agent 或 CLI；人时不设 */
+  assignee_ai?: 'agent' | 'cli'
   /** yyyy-mm-dd */
   due: string | null
   source: TaskSource
@@ -218,19 +222,19 @@ export const seedDeliveries: Delivery[] = [
 
 export const seedTasks: Task[] = [
   // 交给 Claude Code 做的开发任务：进展、产出物、执行记录在文件末尾的 seedProgress / seedArtifacts / seedRuns
-  { id: 'tk_dev3', stage: 'accepting', requester: { contact_id: 'ct_005', name: '许知行', channel: 'lark', sender_id: 'ou_7f3a9c21' }, project_id: 'pj_perm', ref: 'T-017', title: '权限变更缓存改成按部门失效', desc: '对应 T-009：权限变更要 1 分钟内生效。现在整租户缓存 10 分钟，改成按部门打版本号，改了哪个部门只失效哪个部门。', status: 'review', priority: 'P1', assignee: 'Claude Code', due: dayOffset(2), source: { kind: 'manual' },
+  { id: 'tk_dev3', stage: 'accepting', requester: { contact_id: 'ct_005', name: '许知行', channel: 'lark', sender_id: 'ou_7f3a9c21' }, project_id: 'pj_perm', ref: 'T-017', title: '权限变更缓存改成按部门失效', desc: '对应 T-009：权限变更要 1 分钟内生效。现在整租户缓存 10 分钟，改成按部门打版本号，改了哪个部门只失效哪个部门。', status: 'review', priority: 'P1', assignee: 'Claude Code', assignee_ai: 'cli', due: dayOffset(2), source: { kind: 'manual' },
     acceptance: '- [ ] 改了某个部门的角色，1 分钟内该部门成员的权限生效\n- [ ] 其他部门的缓存不受影响\n- [ ] 500 并发下权限查询 p99 不超过 20ms',
     workdir: '/Volumes/project/clients/yuanchuan-permission/server', repo: '/Volumes/project/clients/yuanchuan-permission', created_at: minsAgo(60 * 4), updated_at: minsAgo(50) },
   { id: 'tk_dev2', stage: 'developing', stage_log: [
     { at: minsAgo(60 * 2), from: '', to: 'received' }, { at: minsAgo(115), from: 'received', to: 'designing' },
     { at: minsAgo(100), from: 'designing', to: 'reviewing' }, { at: minsAgo(97), from: 'reviewing', to: 'designing' },
     { at: minsAgo(95), from: 'designing', to: 'reviewing' }, { at: minsAgo(92), from: 'reviewing', to: 'developing' },
-  ], project_id: 'pj_pmw', ref: 'T-016', title: '旧版设置页的错误横幅改成行内提示', desc: '旧版问题清单里的「列表页错误横幅太占地方」。保存失败时在出错的字段下面提示，不在页顶铺一条横幅。', status: 'doing', priority: 'P2', assignee: 'Claude Code', due: dayOffset(4), source: { kind: 'manual' },
+  ], project_id: 'pj_pmw', ref: 'T-016', title: '旧版设置页的错误横幅改成行内提示', desc: '旧版问题清单里的「列表页错误横幅太占地方」。保存失败时在出错的字段下面提示，不在页顶铺一条横幅。', status: 'doing', priority: 'P2', assignee: 'Claude Code', assignee_ai: 'cli', due: dayOffset(4), source: { kind: 'manual' },
     acceptance: '- [ ] 连接器、模型服务商、Agent 三个设置页保存失败时在字段下提示\n- [ ] 页顶不再出现错误横幅\n- [ ] npm run build 通过',
-    workdir: '/Volumes/project/0xBroleez/pm-workspace/web', repo: '/Volumes/project/0xBroleez/pm-workspace', created_at: minsAgo(60 * 2), updated_at: minsAgo(25) },
-  { id: 'tk_dev1', stage: 'testing', requester: { contact_id: 'ct_002', name: '周屿', channel: 'slack', sender_id: 'U04ZHOUYU0' }, project_id: 'pj_pmw', ref: 'T-015', title: '导出改成分批写文件，修掉 300 秒超时', desc: '对应 T-012。Sentry 报 runExport 300 秒超时：大租户的审计日志一次读进内存再写文件。改成分批读、边读边写。', status: 'review', priority: 'P1', assignee: 'Claude Code', due: dayOffset(1), source: { kind: 'manual' },
+    workdir: '/Volumes/project/example/pm-workspace/web', repo: '/Volumes/project/example/pm-workspace', created_at: minsAgo(60 * 2), updated_at: minsAgo(25) },
+  { id: 'tk_dev1', stage: 'testing', requester: { contact_id: 'ct_002', name: '周屿', channel: 'slack', sender_id: 'U04ZHOUYU0' }, project_id: 'pj_pmw', ref: 'T-015', title: '导出改成分批写文件，修掉 300 秒超时', desc: '对应 T-012。Sentry 报 runExport 300 秒超时：大租户的审计日志一次读进内存再写文件。改成分批读、边读边写。', status: 'review', priority: 'P1', assignee: 'Claude Code', assignee_ai: 'cli', due: dayOffset(1), source: { kind: 'manual' },
     acceptance: '- [ ] 12 万行的导出 60 秒内完成\n- [ ] 导出过程中内存峰值不超过 200MB\n- [ ] 界面上不再显示「导出超时」\n- [ ] go test ./internal/export/... 通过',
-    repo: '/Volumes/project/0xBroleez/pm-workspace', created_at: minsAgo(60 * 6), updated_at: minsAgo(100) },
+    repo: '/Volumes/project/example/pm-workspace', created_at: minsAgo(60 * 6), updated_at: minsAgo(100) },
   { id: 'tk_a1', project_id: 'pj_perm', ref: 'T-014', title: '确认演示环境能不能打开自定义角色', desc: '消息分诊助手在会话里建的，跟 T-010 配套：先确认演示环境的开关', status: 'todo', priority: 'P2', assignee: '我', due: dayOffset(2), source: { kind: 'manual' }, created_at: minsAgo(24), updated_at: minsAgo(24) },
   { id: 'tk_inc_seed', ref: 'T-013', title: '[异常] Webhook：官网需求表单标题字段取不到', desc: '对方表单可能改了字段名，映射要兼容，或者取不到时给出明确提示', status: 'todo', priority: 'P2', assignee: '周屿', due: dayOffset(4), source: { kind: 'incident', incident_id: 'inc3', title: '官网需求表单：标题字段取不到' }, created_at: minsAgo(110), updated_at: minsAgo(110) },
   { id: 'tk_s1', stage: 'need_human', stage_log: [
@@ -307,19 +311,35 @@ export function parseArtifact(note: string): { kind: ArtifactKind; sha?: string;
   return { kind: m[1] as ArtifactKind, sha: kv.sha, branch: kv.branch, repo: kv.repo, text: rest.trim() }
 }
 
-/** 执行时的流式事件，形状同 SSE 的 delta / tool / tool_result */
+/** 执行时的流式事件，形状同 SSE 的 delta / tool / tool_result；confirm、decision 只有工作台 Agent 执行有（SPEC-tasks-5.33、5.34） */
 export type RunEvent =
   | { type: 'delta'; text: string }
   | { type: 'tool'; id: string; name: string; detail: string }
-  | { type: 'tool_result'; id: string; ok: boolean; error?: string }
+  | { type: 'tool_result'; id: string; ok: boolean; error?: string; summary?: string }
+  /** 要人确认的写操作：执行停下等，deadline 到了按拒绝处理 */
+  | { type: 'confirm'; id: string; name: string; summary: string; deadline: string }
+  | { type: 'decision'; id: string; approved: boolean; reason: 'user' | 'timeout' }
+
+/** 执行器（SPEC-tasks-6.20）：本机 Claude Code，或工作台自己的 Agent（正式产品 task_runs.harness，claude / deepseek / agent） */
+export type RunHarness = 'claude' | 'agent'
 
 export interface TaskRun {
   id: string
   task_id: string
-  /** 后端按「有没有工具调用成功过」判定，不看 exit_code */
-  status: 'running' | 'done' | 'failed' | 'cancelled'
+  /** 后端按「有没有工具调用成功过」判定，不看 exit_code；waiting 是工作台 Agent 停在要确认的写操作上（SPEC-tasks-5.34） */
+  status: 'running' | 'waiting' | 'done' | 'failed' | 'cancelled'
   /** 执行方式：stream 工作台里流式执行（缺省），terminal 在终端里交互执行（0048 的 task_runs.mode） */
   mode?: 'stream' | 'terminal'
+  /** 执行器，缺省 claude（SPEC-tasks-6.20） */
+  harness?: RunHarness
+  /** 工作台 Agent 执行：用的 Agent、服务商下的模型、绑定的会话（会话页能打开接着聊，正式产品 harness_session） */
+  agent_id?: string
+  model?: string
+  agent_session?: string
+  /** 工作台 Agent 执行：等确认多少分钟按拒绝处理（confirm_wait_minutes，默认 10） */
+  confirm_wait?: number
+  agent_name?: string
+  task_ref?: string
   /** 终端执行的结论摘要：终端里的 claude 经 MCP pmw_finish_run 回写，或手动「标记结束」时填 */
   summary?: string
   workdir: string
@@ -340,7 +360,7 @@ const SS_A = '7c41e2a9-3b0d-4f6e-9a12-5d8e0c6b1f37'
 const SS_B = 'b18f5d03-92c4-4a7e-8d61-0f3a9e27c5b4'
 const SS_C = 'e5a90c17-6d2b-48f3-b0e4-71c8d39a2f60'
 const SS_D = '42d7b8e6-1f05-4c9a-a3d2-9b6e0f71c834'
-const PMW = '/Volumes/project/0xBroleez/pm-workspace'
+const PMW = '/Volumes/project/example/pm-workspace'
 const YC = '/Volumes/project/clients/yuanchuan-permission'
 const cc = (task_id: string, session_id: string, m: number, kind: ProgressKind, text: string, x: Partial<TaskProgress> = {}): TaskProgress => ({
   id: `pg_${task_id}_${m}`, task_id, kind, text, commits: [], files: [], actor_name: 'claude-code', session_id, source: 'agent', at: minsAgo(m), ...x,
@@ -385,9 +405,10 @@ const ev = {
 export const seedRuns: TaskRun[] = [
   {
     id: 'run_d1', task_id: 'tk_dev1', status: 'done', workdir: PMW, allow_writes: false, extra_prompt: '先别改，看看超时卡在哪', exit_code: 0,
-    error: '有 1 次工具调用被权限挡下（只读运行），没有改文件', session_id: SS_A, started_at: minsAgo(310), ended_at: minsAgo(306), pending: [],
+    error: '这次执行有 2 个工具调用被权限策略拒绝（Edit、Bash），其余步骤已执行，但被挡下的部分可能没有生效。被拒的命令：go test ./internal/export/...。本次为只读执行；要让它真正改文件，请在发起时勾选「允许修改文件」（选一个写入档位）。本次档位「只读」没放行这些调用；建议放行：`Bash(go test:*)`。到「设置 / 执行权限」把它们加进自定义白名单，发起时选「自定义白名单」档位。', session_id: SS_A, started_at: minsAgo(310), ended_at: minsAgo(306), pending: [],
     events: [ev.d('先读任务和验收标准。\n'), ev.t('t1', 'pmw_get_object', 'T-015'), ev.r('t1'), ev.t('t2', 'Grep', 'runExport'), ev.r('t2'), ev.t('t3', 'Read', 'internal/export/runner.go'), ev.r('t3'),
       ev.t('t4', 'Edit', 'internal/export/runner.go'), ev.r('t4', false, '只读运行，没有写入权限'),
+      ev.t('t5', 'Bash', 'go test ./internal/export/...'), ev.r('t5', false, 'This command requires approval'),
       ev.d('卡在 runExport 一次读完所有行。打算：\n1. 改成每 5000 行一批读\n2. 边读边写 CSV\n勾选「允许写入」再执行一次就会真的改。')],
   },
   {
@@ -415,6 +436,37 @@ export const seedRuns: TaskRun[] = [
   },
 ]
 
+/**
+ * 「交给工作台 Agent」模拟执行的过程（SPEC-tasks-6.20）：读任务、记进展、提出改状态（要确认，停下等），
+ * 确认或拒绝之后的事件由 agentAfterDecision 接上。只读角色不提写操作，直接给结论
+ */
+export function agentRunScript(task: Task, readOnly: boolean, extra: string, resume: boolean): RunEvent[] {
+  return [
+    ...(resume ? [ev.d('接着上次的执行继续。\n')] : []),
+    ...(extra.trim() ? [ev.d(`按补充说明：${extra.trim()}\n`)] : []),
+    ev.d('先读任务和关联对象。\n'), ev.t('a1', 'get_object', task.ref), { type: 'tool_result', id: 'a1', ok: true, summary: `读了 ${task.ref} ${task.title}` },
+    ...(readOnly
+      ? [ev.d(`只读角色：这次只给结论，不改任何东西。\n结论：${task.title} 的验收标准逐条看过，建议先拆成两条子任务再动手。`)]
+      : [
+        ev.t('a2', 'append_progress', task.ref), { type: 'tool_result' as const, id: 'a2', ok: true, summary: `已给 ${task.ref} 记了一条进展` },
+        ev.t('a3', 'create_object', `子任务：${task.title.slice(0, 10)}（拆出来的第一步）`), { type: 'tool_result' as const, id: 'a3', ok: true, summary: `已创建 ${task.ref} 的子任务` },
+        ev.d('拆好了子任务，打算把这条任务改成待验收。\n'),
+        { type: 'confirm' as const, id: 'atc_demo', name: 'update_object', summary: `修改 ${task.ref}（状态改为待验收）`, deadline: '' },
+      ]),
+  ]
+}
+
+/** 确认或拒绝之后 Agent 接着跑的事件 */
+export function agentAfterDecision(task: Pick<Task, 'ref'>, approved: boolean, reason: 'user' | 'timeout'): RunEvent[] {
+  return [
+    { type: 'decision', id: 'atc_demo', approved, reason },
+    ...(approved
+      ? [ev.t('a4', 'update_object', task.ref), { type: 'tool_result' as const, id: 'a4', ok: true, summary: `已修改 ${task.ref} 的状态` },
+        ev.d('结论：读完任务，拆了一条子任务，状态已改为待验收。')]
+      : [ev.d(`结论：${reason === 'timeout' ? '等确认超时，按拒绝处理，' : '你拒绝了改状态，'}没有改状态；子任务已经拆好，剩下的等你决定。`)]),
+  ]
+}
+
 /** 「交给 Claude Code」模拟执行的过程：只读时写文件那一步被权限挡下 */
 export function runScript(task: Task, allow: boolean, extra: string, files: string[]): RunEvent[] {
   const f = files[0] ?? 'README.md'
@@ -436,6 +488,8 @@ export function stepRun(r: TaskRun, at = new Date().toISOString()): TaskRun {
   if (r.status !== 'running' || r.mode === 'terminal') return r
   const [e, ...rest] = r.pending
   const events = e ? [...r.events, e] : r.events
+  // 工作台 Agent 提出要确认的写操作：停下等人确认（SPEC-tasks-5.34），剩下的事件等决定后再接
+  if (e?.type === 'confirm') return { ...r, events, pending: rest, status: 'waiting' }
   if (rest.length) return { ...r, events, pending: rest }
   const results = events.filter((x): x is Extract<RunEvent, { type: 'tool_result' }> => x.type === 'tool_result')
   const ok = results.filter((x) => x.ok).length

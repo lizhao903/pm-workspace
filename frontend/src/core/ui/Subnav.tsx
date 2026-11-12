@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 import { Fragment, useState, type ReactNode } from 'react'
 import { cls } from './cls'
 import { IconClose, IconSearch } from './icons'

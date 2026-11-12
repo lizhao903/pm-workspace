@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 策略与回测页的纯函数：显示名、规则文字、区间时长、扫参默认值、分段收益、回撤、拦截原因。
 // 交互照原型 web-next/src/strategy.tsx；回测本身只在后端跑，这里不算任何收益。
 import type {

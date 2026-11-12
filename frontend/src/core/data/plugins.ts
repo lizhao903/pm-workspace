@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 插件管理（CORE-09）：读插件列表，安装、启用、停用、卸载、升级（SEC-01）。契约见 docs/api-contract.md「插件管理」。
 // 写完报 { kind: 'plugin' }，插件列表和对象类型一起刷新。前端的插件加载和撤销由设置页调 core/plugin 做，这里只管接口。
 import { useMutation, useQuery } from '@tanstack/react-query'

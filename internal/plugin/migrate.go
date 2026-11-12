@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 package plugin
 
 import (
@@ -271,7 +273,10 @@ func loadMigrations(m *Manifest, fsys fs.FS) ([]migrationFile, error) {
 		if e.IsDir() || !migrationNameRe.MatchString(name) {
 			return nil, fmt.Errorf("插件 %s 的迁移目录里只能放 NNNN_说明.sql：%s", m.ID, name)
 		}
-		if prev, dup := seen[name[:4]]; dup {
+		// Both branches shipped a distinct 0008 before their histories merged.
+		// Preserve their filenames/checksums so existing databases skip the
+		// migration they already applied. No other duplicate number is allowed.
+		if prev, dup := seen[name[:4]]; dup && !(m.ID == "sop" && prev == "0008_flow_ownership.sql" && name == "0008_im_trigger.sql") {
 			return nil, fmt.Errorf("插件 %s 的迁移编号重复：%s 和 %s", m.ID, prev, name)
 		}
 		seen[name[:4]] = name

@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 package api
 
 import (
@@ -11,6 +13,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/lizhao903/pm-workspace/internal/audit"
 	"github.com/lizhao903/pm-workspace/internal/connector"
@@ -24,6 +27,8 @@ type grantUpstream struct {
 	mu     sync.Mutex
 	script []string
 	tools  [][]string
+	// delay 是每次回话前等多久（模拟慢服务商，测时长上限）
+	delay time.Duration
 }
 
 func (u *grantUpstream) push(lines ...string) {
@@ -76,6 +81,16 @@ func newGrantServer(t *testing.T) (*connRec, *sqlite.Store, *grantUpstream) {
 		names := []string{}
 		for _, x := range req.Tools {
 			names = append(names, x.Function.Name)
+		}
+		up.mu.Lock()
+		delay := up.delay
+		up.mu.Unlock()
+		if delay > 0 {
+			select {
+			case <-time.After(delay):
+			case <-r.Context().Done():
+				return
+			}
 		}
 		up.mu.Lock()
 		up.tools = append(up.tools, names)
@@ -144,7 +159,7 @@ func TestAgentGrantsAPI(t *testing.T) {
 
 	g := r.call("GET", "/api/agents/"+id+"/grants", "", http.StatusOK)
 	grants := g["grants"].(map[string]any)
-	if g["agent_id"] != id || grants["read_tasks"] != "auto" || grants["read_contacts"] != "auto" || grants["write_tasks"] != "off" || len(grants) != 9 {
+	if g["agent_id"] != id || grants["read_tasks"] != "auto" || grants["read_contacts"] != "auto" || grants["write_tasks"] != "off" || grants["write_sop"] != "off" || len(grants) != 11 {
 		t.Fatalf("默认授权 = %v", g)
 	}
 

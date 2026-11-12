@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // Command pmw-mcp 把产品工作台暴露成一个 MCP server，让 Claude Code 之类的
 // Agent 能直接查需求、建任务、搜文档、看最近变更。
 //

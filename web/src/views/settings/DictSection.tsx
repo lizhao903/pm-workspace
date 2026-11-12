@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 通用字典编辑器。优先级、关联关系共用这一个组件，靠 dictId 区分。
 // 核心约束：key 一经创建不可改（它落在业务表里），有引用的条目只能停用不能删。
 import { useCallback, useEffect, useState } from 'react'

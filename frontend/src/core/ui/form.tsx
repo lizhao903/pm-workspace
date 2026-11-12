@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 import { useCallback, useEffect, useLayoutEffect, useState, type ComponentProps, type ReactNode, type Ref } from 'react'
 import { cls } from './cls'
 

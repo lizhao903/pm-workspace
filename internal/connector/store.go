@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 package connector
 
 import (
@@ -7,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"slices"
 	"sort"
 	"strings"
@@ -144,6 +147,8 @@ type Store struct {
 	oauth oauthRuntime
 	// incidents 记连接失败、同步失败的运行异常（INC-01a，incidents.go），SetIncidents 接上
 	incidents IncidentRecorder
+	// iconTransport 是「从网站取图标」用的底层传输（TSK-0725，siteicon.go），nil 用默认；测试换成假的
+	iconTransport http.RoundTripper
 }
 
 // New 建实例表的读写；sec 为 nil 时写凭证报错，defs 为 nil 时没有任何定义。

@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 // 今日卡片（VID-07b，video-creator-analysis.md P0-1）：视频待验收、视频待发布、视频发布失败，数据来自后端 VID-07a（internal/plugins/video/today.go）。
 // 每条带 link（/videos/v/<id> 起），点了直接跳到视频详情、产出物抽屉或发布记录；文案里的阶段、平台名也是后端给的。
 // 插件入口直接引它，所以不引 core/ui：入口测试跑在 node 环境，core/ui 加载时要用 window

@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 import { describe, expect, it } from 'vitest'
 import { chronological, isInProgress, progressKindLabel, revisionSummary, shortSession } from './progress'
 import type { Progress } from '../api'

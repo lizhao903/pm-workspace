@@ -1,3 +1,5 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
 package main
 
 import (
@@ -10,6 +12,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/lizhao903/pm-workspace/internal/db"
 	"github.com/lizhao903/pm-workspace/internal/plugin"
@@ -342,5 +345,60 @@ func TestSOPAutomaticUpgradeMigrationFailureStopsBeforeImport(t *testing.T) {
 	var n int
 	if err := s.DB().R.QueryRow(`SELECT count(*) FROM plugins_migrations WHERE plugin_id='sop' AND file='0008_flow_ownership.sql'`).Scan(&n); err != nil || n != 0 {
 		t.Fatalf("failed migration was recorded: %d %v", n, err)
+	}
+}
+
+// Either pre-merge branch may already have its own 0008 recorded. Keep that
+// record unchanged and apply only the other branch's missing migrations.
+func TestSOPUpgradeFromEitherHistorical0008(t *testing.T) {
+	for _, file := range []string{"0008_flow_ownership.sql", "0008_im_trigger.sql"} {
+		t.Run(file, func(t *testing.T) {
+			ctx := context.Background()
+			s, err := sqlite.Open(ctx, oldInstalledSOP(t, false))
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer s.Close()
+			r := prepareTestRegistry(t, s, slog.Default())
+			steps, err := r.MigrationSteps(ctx, "sop")
+			if err != nil {
+				t.Fatal(err)
+			}
+			var checksum string
+			for _, step := range steps {
+				if step.File == file {
+					checksum = step.Checksum
+				}
+			}
+			body, err := fs.ReadFile(sop.New().Migrations(), file)
+			if err != nil {
+				t.Fatal(err)
+			}
+			appliedAt := time.Date(2026, 11, 1, 0, 0, 0, 0, time.UTC)
+			if err := plugin.NewSQLMigrationStore(s.DB()).Apply(ctx, plugin.AppliedMigration{Plugin: "sop", File: file, Checksum: checksum, PluginVersion: "old", AppliedAt: appliedAt}, string(body)); err != nil {
+				t.Fatal(err)
+			}
+			if err := r.PrepareStartup(ctx, "sop", func(ctx context.Context) (string, error) {
+				info, err := s.Snapshot(ctx, "")
+				if err != nil {
+					return "", err
+				}
+				return info.Path, nil
+			}); err != nil {
+				t.Fatal(err)
+			}
+			steps, err = r.MigrationSteps(ctx, "sop")
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, step := range steps {
+				if step.Applied == nil {
+					t.Fatalf("pending migration %s", step.File)
+				}
+				if step.File == file && (step.Applied.Checksum != checksum || !step.Applied.AppliedAt.Equal(appliedAt) || step.Applied.PluginVersion != "old") {
+					t.Fatalf("rewrote applied migration: %+v", step.Applied)
+				}
+			}
+		})
 	}
 }
