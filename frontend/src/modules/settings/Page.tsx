@@ -4,7 +4,7 @@ import { Navigate, useNavigate, useParams } from 'react-router'
 import { Placeholder } from '../../core/shell/Placeholder'
 import { PluginSettingsPage } from '../../core/shell/extensionHosts'
 import { useSettingsSections } from '../../core/plugin'
-import { openErrors, useConnectors, useIncidents } from '../../core/data'
+import { openErrors, useConnectors, useIncidents, useUpdateStatus } from '../../core/data'
 import { InSubnavHost, Subnav, type SubnavItem } from '../../core/ui'
 import { ConnectorsSection } from './connectors/ConnectorsSection'
 import { PluginsSection } from './plugins/PluginsSection'
@@ -63,7 +63,9 @@ export default function Page() {
   const connErrors = (useConnectors().data ?? []).filter((c) => c.status === 'error').length
   // 运行异常的红点只算未处理的错误，警告不算（SPEC-settings-18.12），和运行异常页顶栏的「M 个是错误」对得上
   const incErrors = openErrors(useIncidents().data ?? []).length
-  const alertOf = (k: string) => (k === 'connectors' ? connErrors : k === 'incidents' ? incErrors : 0)
+  // 有版本差异时「版本更新」菜单项亮红点（SYS-UPD），进页面有绿色提示；没差异就不打扰
+  const updateAvailable = useUpdateStatus(false).data?.available ? 1 : 0
+  const alertOf = (k: string) => (k === 'connectors' ? connErrors : k === 'incidents' ? incErrors : k === 'update' ? updateAvailable : 0)
   const items: SubnavItem<string>[] = [
     ...KERNEL.map((k) => (alertOf(k.key) ? { ...k, alert: alertOf(k.key) } : k)),
     ...sections.map((s) => ({ key: pluginKey(s.plugin, s.key), label: s.label, desc: s.desc, group: s.group ?? '插件' })),
